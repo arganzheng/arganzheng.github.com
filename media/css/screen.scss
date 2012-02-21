@@ -1,0 +1,140 @@
+$primary_font: helvetica;
+$sencond_font: arial;
+
+$a_color: #e50053;
+$v_color: #a0a;
+
+/* html and body */
+body {
+  text-rendering: optimizeLegibility;
+  position: relative;
+}
+
+/* wrap */
+body .wrap {
+  width: 612px;
+  margin: 0 auto;
+  margin-bottom: 5em;
+}
+
+body .wrap #header {
+  font-family: 'OFL Sorts Mill Goudy', 'OFL Sorts Mill Goudy TT', serif;
+  font-size: 23px;
+  line-height: 50px;
+  padding-left: 2px;
+  width: 210px;
+  margin-bottom: 2em;
+}
+
+body .wrap #header a {
+    color: black;
+}
+
+body .wrap #footer {
+  font-family: Consolas, Menlo, "Courier New", monospace;
+  font-size: 12px;
+  text-align: center;
+}
+
+ul.posts li {
+  list-style: none;
+}
+
+ul.posts span {
+  color: #AAA;
+  font-size: 80%;
+  font-family: Monaco, "Courier New", monospace;
+}
+
+/* Header */
+
+body h1 {
+  font-size: 45px;
+  line-height: 50px;
+  margin: 25px 0;
+}
+body h2 {
+  font-size: 32px;
+  line-height: 50px;
+  margin: 25px 0;
+}
+body h3 {
+  font-size: 23px;
+  line-height: 25px;
+  margin: 25px 0;
+}
+body h4 {
+  font-size: 18px;
+  line-height: 25px;
+  margin: 25px 0;
+}
+
+body h1,
+body h2,
+body h3,
+body h4,
+body h5,
+body h6 {
+  font-family: 'OFL Sorts Mill Goudy', 'OFL Sorts Mill Goudy TT', serif;
+  font-weight: normal;
+}
+body h1 a,
+body h2 a,
+body h3 a,
+body h4 a,
+body h5 a,
+body h6 a {
+  color: #222222;
+}
+body h1 a:hover,
+body h2 a:hover,
+body h3 a:hover,
+body h4 a:hover,
+body h5 a:hover,
+body h6 a:hover {
+  color: #e50053;
+  text-decoration: none;
+}
+
+/* Link */
+a {
+  text-decoration: none;
+  color: $a_color;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+a:visited {
+  color: $v_color;
+}
+
+/* code and pre */
+body code, body pre {
+  font-family: Consolas, Menlo, "Courier New", monospace;
+  font-size: 14px;
+  overflow: auto;
+}
+
+body p code, body li code {
+  border: 1px solid #ccc;
+  background-color: #fafafa;
+  font-size: 13px;
+  padding: 1px 3px;
+  line-height: 20px;
+  margin: 0;
+  white-space: nowrap;
+}
+
+blockquote {
+  border: 1px solid #ccc;
+  background-color: #fafafa;
+  padding: 11px 15px 12px;
+  margin-left: 2em;
+  overflow: auto;
+}
+
+blockquote p:last-child {
+  margin-bottom: 0;
+}

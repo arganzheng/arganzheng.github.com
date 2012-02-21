@@ -1,9 +1,18 @@
-<!DOCTYPE html>
-<html>
-	<head>
-		<title>Hello World</title>
-	</head>
-	<body>
-		<h1>Hello World!</h1>
-	</body>
-</html>
+---
+layout: default
+title: arganzheng's Weblog
+---
+
+<div class="container">
+
+  <ul class="posts">
+    {% for post in site.posts %}
+      <li><span>{{ post.date | date_to_string }}</span> &raquo; <a href="{{ post.url }}">{{ post.title }}</a></li>
+    {% endfor %}
+  </ul>
+
+</div>
+
+<div id="footer">
+  Last updated at {{ site.time }}.
+</div>
