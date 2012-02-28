@@ -1,0 +1,466 @@
+---
+layout: post
+title: 工欲善其事，必先利其器——从零打造你的vim
+---
+
+h3. 内功心法
+
+h5. 预练此功，必先自宫。
+Put the pass behind you before you can move on. so, 让我们抛弃过去，从0开始。首先备份一下你.vim目录和.vimrc文件：
+<pre><code>
+cd
+mv .vim vim_old
+mv .vimrc vim_old/vimrc_old
+mkdir .vim
+vim .vimrc
+</code></pre>
+加入如下最几本的配置：
+<pre><code>
+set nocompatible " 不要支持vi模式
+syntax on " 支持语法高亮
+filetype plugin indent on " 加载插件和支持缩进           
+</code></pre>
+
+这样，一个最基本的vim已经配置完毕。
+
+h5. 重新映射关键的vim常用键
+
+这个其实非常重要，但是很少有人会告诉你你应该这么做，而且应该怎么做最好。大部分都停留在各种快捷键的说明上，但是事实上这些快捷键未必好按。越是常做的事情，越值得优化。现在就开始吧：
+
+h6. Ctrl键
+
+Ctrl键一般在键盘的左下角，一般于Fn键相邻。这个键相对键盘的home row来说还是相对远了点，所以有vim的使用者嘲笑emacs是“用到小手指抽筋的编辑器”，可见这个键其实并不是很好按。而且最让我崩溃的是，不同的笔记本对Fn键和Ctrl键的位置经常不一样，导致经常按错。但是其实vim很多的快捷键也需要用到Ctrl键，所以为了避免五十步笑一百步，我们最好将它映射在一个好按的地方——Caps Lock就是这样的一个最佳选择。这个键就像人体的阑尾一样，基本不需要，而它又处于home row位置。我的建议是在系统级别将他作掉。方法如下：
+
+法一： Using a directive in /etc/X11/xorg.conf:
+ In your Section "InputDevice" section for the keyboard, add the line:
+ <pre><code>
+    Option "XkbOptions" "ctrl:nocaps"
+</code></pre>
+             
+法二： Using an xmodmap. 
+bq. Create a file in your homedir called .Xmodmap with the contents:
+<pre><code>
+    remove Lock = Caps_Lock
+    remove Control = Control_L
+    keysym Caps_Lock = Control_L
+    add Control = Control_L
+</code></pre>
+
+h6. Esc键
+
+这个键就更扯淡了，经常要用，但是却远在天边。它跟Ctrl在键盘上的布局一般是天南地北，但是相对于home row比Ctrl还要远的多，属于想抽筋都没办法的键。因此更有必要映射这个键了。但是映射到哪里好呢？
+首先需要了解一下Esc键的用处，他的作用是从其他模式（如insert mode、visual mode）返回到命令模式（nomal mode），因此在非命令模式下的不常用键就是候选者。
+
+一般有两种选择：
+法一： 映射成"jj"，因为在英语中基本没有单词是以jj开头的（好吧，我承认我邪恶了一下:)）。
+法二： 其实vim本身就意识到这个问题了，所以它默认将Esc键映射为Ctrl-[（这个组合在nomal模式下被tag给用了，但是在其他的模式下并没有什么作用。），由于我们前面已经将Ctrl键映射了，所以，Ctrl-[就非常好按了（当然比起jj还是要复杂一点，但是不需要做任何事情哦）
+我的建议是两者都做（其实法二是内建的，不需要我们做任何事情）
+
+h6. @<Leader>@键：
+
+其实<code><Leader></code>键并不是固定的键盘上的一个键，它是vim的一个标识键，默认是转移符'\'，这个键也比较远，所以最好重新定义它。这个几乎没有争议——','是大家公认的替代者。
+在你的.vimrc中增加这么一行配置项：
+<pre><code>
+" Set the value used for <leader> in mappings
+let g:mapleader = ","
+</code></pre>
+
+但是个人觉得';'是个不错的选择，因为他不','更近，而且几乎也没有其他命令抢占它。最重要的是，vimperator就是用';'，这样两者可以统一起来。不过这个大家自己看着办吧，都成。
+
+','键也不是很好按，但是相对来说比'\'要好得多。让<code><Leader></code>键好按之后就可以好好利用它了（就像我们前面映射Ctrl键一样），可以用它来开启/关闭（toggle）不同的插件。这样的效果类似于vim的模式切换一样，相同的键就可以复用了。
+Keybindings are great, but there's so many already in use that it's hard not to overwrite existing ones. Using the <Leader> key to define keybindings has been great. As examples, I mapped <Leader>m to toggle tasks, and <Leader><Tab> to invoke snipMate.
+
+
+h6. 映射ex模式切换键(可选)：
+
+在正常模式下跳转到ex模式需要按':'，可以映射为';'，这样就一只手搞定了。不过这个提升不多，大家也看着办吧:)
+<pre><code>
+" Similarly, : takes two keystrokes, ; takes one; map the latter to the former
+ " in normal mode to get to the commandline faster
+ nnoremap ; :
+</code></pre>
+
+h3. 配置好vimrc
+
+在用最基本的vimrc配置之后，在确定自己已经熟悉vim原生的快捷键之后，我们考虑优化一下它的配置文件。经过多方参考和实践，我最终的vimrc配置如下（没有插件的配置，插件配置见下面）：
+<pre><code>
+" Author: "arganzheng":http://blog.arganzheng.me
+" Weibo: arganzheng
+" Date: 2012-02-26
+" Many thanks to:
+" 1. "zmievski":http://zmievski.org/2007/02/vim-for-php-programmers-slides-and-resources
+" 2. "Coming Home to Vim":http://stevelosh.com/blog/2010/09/coming-home-to-vim
+" 3. "Kevin McCarthy":http://www.8t8.us/
+" 4. "mwop":http://ggmwop.net/blog/249-Vim-Toolbox,-2010-Edition
+" 5. "Mir Nazim":http://mirnazim.org/writings/vim-plugins-i-use/
+"
+"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+" Basic Setup - behaviour, filetypes, syntax
+"
+"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+" Automatically reload .vimrc when changing
+autocmd! bufwritepost .vimrc source! %
+
+set encoding=utf-8
+
+filetype plugin indent on " Turns on filetype detection, plugin, indent
+
+" Color scheme
+" ensures we can have full spectrum of colors
+set t_Co=256
+
+syntax on
+" set background=dark
+
+" Set the value used for <leader> in mappings
+let g:mapleader = ","
+
+" The escape key is a long ways away. This maps it to the sequence 'jj'
+:map! jj <esc>
+
+" Similarly, : takes two keystrokes, ; takes one; map the latter to the former
+" in normal mode to get to the commandline faster
+nnoremap ; :
+
+
+" This will disable the arrow keys while you’re in normal mode to help you learn to 
+" use hjkl. Trust me, you want to learn to use hjkl. Playing a lot of Nethack also helps.
+
+" It also disables the arrow keys in insert mode to force you to get back into normal
+" mode the instant you’re done inserting text, which is the “right way” to do things.
+
+" It also makes j and k work the way you expect instead of working in some archaic 
+" "movement by file line instead of screen line" fashion.
+nnoremap <up> <nop>
+nnoremap <down> <nop>
+nnoremap <left> <nop>
+nnoremap <right> <nop>
+inoremap <up> <nop>
+inoremap <down> <nop>
+inoremap <left> <nop>
+inoremap <right> <nop>
+nnoremap j gj
+nnoremap k gk
+
+"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+" General settings
+"
+"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+set nocompatible        " Use Vim defaults (much better!)
+
+"" Tab Settings. I like tabstops of 4, and prefer spaces to tabs.
+set expandtab           
+set tabstop=4
+set softtabstop=4
+
+"" Added 2005-03-23 Based on http://www.perlmonks.org/index.pl?node_id=441738
+set smarttab  " Tab in front of line uses shiftwidth - good for coding
+
+" Round indent to multiple of 'shiftwidth' for > and < commands
+set shiftround
+" Use 4 spaces for (auto)indent
+set shiftwidth=4
+ 
+" Go with smartindent if there is no plugin indent file.
+set autoindent  smartindent
+
+" Fix backspace indentation, allow backspacing over all in insert mode
+set backspace=indent,eol,start 
+
+
+" }}}
+" Backups {{{
+set directory=~/.vim/tmp/swap//   " swap files
+" set backupdir=~/.vim/tmp/backup// " backups
+set backup                        " enable backups
+set noswapfile                    " It's 2012, Vim.
+
+" Make the command line two lines high and change the statusline display to
+" " something that looks useful.
+set cmdheight=2         
+set laststatus=2 " Always show status bar
+
+" Go back to the position the cursor was on the last time this file was edited
+au BufReadPost * if line("'\"") > 0 && line("'\"") <= line("$")|execute("normal `\"")|endif
+
+set showmode            " Show mode I'm in
+
+" Show (partial) commands (or size of selection in Visual mode) in the status line
+set showcmd        
+
+set ruler               " Show cursor location
+set number
+
+" I want the text width to be 79, and for it to wrap. 
+" These lines manage my line wrapping settings and also show a colored column at
+" 85 characters (so I can see when I write a too-long line of code).
+set wrap
+set textwidth=79
+set linebreak
+set showbreak=↪
+set formatoptions=qrn1
+
+if exists('+colorcolumn')
+    set colorcolumn=85
+else
+    au BufWinEnter * let w:m2=matchadd('ErrorMsg', '\%>85v.\+', -1)
+endif
+
+" This makes Vim show invisible characters with the same characters that
+" TextMate uses. You might need to adjust your color scheme so they’re not too
+" distracting. This Vimcast has more information.
+set list
+set listchars=tab:▸\ ,eol:¬,extends:❯,precedes:❮
+
+
+" Scrolling options
+set scrolloff=3 " Keep some 3 more lines for scope
+
+" Better Search
+" Don't highlight results of a search
+set nohlsearch
+set incsearch
+
+" When a bracket is inserted, briefly jump to a matching one
+set showmatch " Show matching brace
+
+" Make case-insensitive search the norm
+set ignorecase
+set smartcase
+
+" Turn on "very magic" regex status by default for searches.
+" :he /magic for more information
+" fix Vim’s horribly broken default regex “handling” by
+" automatically inserting a \v before any string you search for. This turns off
+" Vim’s crazy default regex characters and makes searches use normal regexes. I
+" already know Perl/Python compatible regex formatting, why would I want to
+" learn another scheme?
+nnoremap / /\v
+vnoremap / /\v
+
+" Turn on modelines
+set modeline            " Scan for modeline commands
+set modelines=4         " Scan 4 lines for modelines
+
+set tags=tags;/         " Search for the tags file upward.  Cool!
+                        " see :help file-searching
+
+set ttyfast             " assume a fast terminal connection
+
+" Ignore certain types of files on completion
+set wildignore+=*.o,*.obj,*.pyc,.git
+
+" Remember things between sessions
+"
+" '20  - remember marks for 20 previous files
+" \"50 - save 50 lines for each register
+" :20  - remember 20 items in command-line history 
+" %    - remember the buffer list (if vim started without a file arg)
+" n    - set name of viminfo file
+set viminfo='20,\"50,:20,%,n~/.viminfo
+
+" Use menu to show command-line completion (in 'full' case)
+set wildmenu          
+
+" Set command-line completion mode:
+"   - on first <Tab>, when more than one match, list all matches and complete
+"     the longest common  string
+"   - on second <Tab>, complete the next full match and show menu
+set wildmode=list:longest,full
+
+set winminheight=0      " Allow windows to get fully squashed
+set winminwidth=0       " Allow windows to get fully squashed
+
+" "Hidden" buffers -- i.e., don't require saving before editing another file.
+" Calling quit will prompt you to save unsaved buffers anyways.
+set hidden
+
+" Code Folding, everything folded by default
+set foldmethod=indent
+set foldlevel=99
+set foldenable
+
+" Allow better terminal/mouse integration
+set mousemodel=extend
+
+"""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+" My various  maps, settings, and autocmds, and tips:)
+"
+"""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+
+" save changes
+map <Leader>s :w<CR>
+" exit vim without saving any changes
+map <Leader>q :q!<CR>
+" exit vim saving changes
+map <Leader>w :x<CR>
+
+" "sudo" save:
+:cmap w!! w !sudo tee % >/dev/null
+
+" Split window management
+" open a new vertical split and switch over to it.
+nnoremap <leader>w <C-w>v<C-w>l 
+" open a new horizontal split but not switch over to it. 
+nnoremap <leader>W <C-w>s
+
+" use <ctrl> plus direction key to move around within windows
+nnoremap <C-h> <C-w>h
+nnoremap <C-j> <C-w>j
+nnoremap <C-k> <C-w>k
+nnoremap <C-l> <C-w>l
+
+" use <F6> to toggle line numbers
+nmap <silent> <F6> :set number!<CR>
+
+" page down with <Space>
+nmap <space> <pagedown>
+
+" Easier to type, and I never use the default behavior.
+noremap H ^
+noremap L g_
+
+" I found it useful to have movement in the insert mode, like Emacs.
+" Keybindings for movement in insert mode, I use the emace line mode.
+imap <C-a> <Esc>I
+imap <C-e> <Esc>A
+
+" visual shifting (does not exit Visual mode)
+vnoremap < <gv
+vnoremap > >gv 
+
+" Generic highlight changes
+highlight Comment cterm=none ctermfg=Gray
+highlight IncSearch cterm=none ctermfg=Black ctermbg=DarkYellow
+highlight Search cterm=none ctermfg=Black ctermbg=DarkYellow
+highlight String cterm=none ctermfg=DarkGreen
+highlight treeDir cterm=none ctermfg=Cyan
+highlight treeUp cterm=none ctermfg=DarkYellow
+highlight treeCWD cterm=none ctermfg=DarkYellow
+highlight netrwDir cterm=none ctermfg=Cyan
+
+"
+" Per http://vim.sourceforge.net/tips/tip.php?tip_id=330
+" this will stop the annoying html indentation.
+" xmledit does some things for us, and combined with autoindent that's
+" probably enough.
+"
+autocmd BufEnter *.erb,*.haml,*.htm,*.html,*.kid,*.php,*.rhtml,*.xml,*.xsd setlocal indentexpr= autoindent shiftwidth=2
+
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+" Plugins
+"
+"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+
+""" 
+"  Pathogen
+"
+"""
+call pathogen#infect()
+
+"""
+" Yankring
+"
+"""
+nnoremap <silent> <F3> :YRShow<cr>
+inoremap <silent> <F3> <ESC>:YRShow<cr>
+
+"""
+" matchit
+"
+"""
+map <tab> %
+</code></pre>
+
+经过我的实践，这些配置非常好用，可以大大提高你的vim体验。
+
+
+h3. 插件篇
+
+插件就像武功招式，如果太早学习，而忽略了最基本的vim命令，其实是本末倒置的。只有将基本的操作都熟悉之后，才考虑利用一些插件来提供你的工作效率。
+
+下面是一些笔者认为比较好用的插件及简单的安装说明。使用说明网上有很多，这里就不赘述了，但是一些比较好的配置或者小技巧会稍微点一下。
+
+
+h5. 安装pathogen
+第一个要安装的插件是pathogen，利用这个插件，后面的插件安装会变得非常简单。
+<pre><code>
+mkdir -p ~/.vim/autoload ~/.vim/bundle; 
+curl -so ~/.vim/autoload/pathogen.vim https://raw.github.com/tpope/vim-pathogen/HEAD/autoload/pathogen.vim
+</code></pre>
+或者直接用git下载文件：
+<pre><code>
+$ git clone git://github.com/tpope/vim-pathogen.git pathogen    # Clone the pathogen repo
+$ mv pathogen/autoload ~/.vim                          # Move pathogen to .vim directory
+</code></pre>
+
+然后vim ~/.vimrc，加入下面几行super-minimal example:
+<pre><code>
+call pathogen#infect()
+</code></pre>
+
+这样，pathogen就安装和配置完毕了。现在你只要将想要安装的插件解压到~/.vim/bundle（可配置）目录下面就可以了，pathogen会把他们加入到runtimepath环境变量中。
+
+h5. 安装fugitive.vim
+
+现在以fugitive.vim为例，只需要如下操作就可以安装：
+<pre><code>
+cd ~/.vim/bundle
+git clone git://github.com/tpope/vim-fugitive.git
+</code></pre>
+
+That's all. Now fugtive.vim is install.
+
+你也可以将你的.vim作为一个git repository，而将其中的每个插件作为一个submodule：那么可以这么安装：
+<pre><code>
+$ cd ~/.vim
+$ git init
+$ git add .
+$ git commit -m "Initial commit"
+$ git submodule add git://github.com/tpope/vim-fugitive.git bundle/fugitive
+$ git submodule init && git submodule update
+</code></pre>
+不过我觉得后面再考虑吧，先怎么简单怎么来，不过fugitive是一个非常不错的插件（git wrapper），值得一装哦。
+
+在你的vimrc中增加这么几行配置：
+<pre><code>
+" for vim-fugitive plugin
+set statusline=%<%f\ %h%m%r%{fugitive#statusline()}%=%-14.(%l,%c%V%)\ %P
+
+" Added 16-Jun-2011: auto-cleans fugitive buffers From
+" http://vimcasts.org/episodes/fugitive-vim-browsing-the-git-object-database/
+autocmd BufReadPost fugitive://* set bufhidden=delete
+</code></pre>
+
+h5. 安装surround.vim:
+
+h5. 安装matchIt.vim
+
+h5. 安装FuzzyFinder（依赖于L9 library，另一个vim插件）
+很多人推荐（Command-t，但是后者以来ruby，恶心的是要求vim依赖ruby。。而且要用该vim编译所有的ruby版本来编译Command-t插件。。）
+
+h5. 安装NERDTree
+
+h5. NERD_commenter
+
+h5. 安装Snipmate
+
+h5. omni-completion with tags(cscope) and TagList(tagbar)
+
+h5. conque_term
+
+h5. vimwiki
+
+h5. VOoM
+
+h5. a.vim
+
+h3. 几个非常不错的网站
+
+# "zmievski":http://zmievski.org/2007/02/vim-for-php-programmers-slides-and-resources
+# "Coming Home to Vim":http://stevelosh.com/blog/2010/09/coming-home-to-vim
+# "Kevin McCarthy":http://www.8t8.us/
+# "mwop":http://ggmwop.net/blog/249-Vim-Toolbox,-2010-Edition
+# "Mir Nazim":http://mirnazim.org/writings/vim-plugins-i-use/
+
+
