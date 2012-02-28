@@ -457,10 +457,5 @@ h5. a.vim
 
 h3. 几个非常不错的网站
 
-# "zmievski":http://zmievski.org/2007/02/vim-for-php-programmers-slides-and-resources
-# "Coming Home to Vim":http://stevelosh.com/blog/2010/09/coming-home-to-vim
-# "Kevin McCarthy":http://www.8t8.us/
-# "mwop":http://ggmwop.net/blog/249-Vim-Toolbox,-2010-Edition
-# "Mir Nazim":http://mirnazim.org/writings/vim-plugins-i-use/
-
+在我的vimrc中有说明
 
