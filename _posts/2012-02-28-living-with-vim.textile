@@ -7,16 +7,14 @@ h3. 内功心法
 
 h5. 预练此功，必先自宫。
 Put the pass behind you before you can move on. so, 让我们抛弃过去，从0开始。首先备份一下你.vim目录和.vimrc文件：
-<pre><code>
-cd
+<pre><code>cd
 mv .vim vim_old
 mv .vimrc vim_old/vimrc_old
 mkdir .vim
 vim .vimrc
 </code></pre>
 加入如下最几本的配置：
-<pre><code>
-set nocompatible " 不要支持vi模式
+<pre><code>set nocompatible " 不要支持vi模式
 syntax on " 支持语法高亮
 filetype plugin indent on " 加载插件和支持缩进           
 </code></pre>
@@ -33,14 +31,12 @@ Ctrl键一般在键盘的左下角，一般于Fn键相邻。这个键相对键�
 
 法一： Using a directive in /etc/X11/xorg.conf:
  In your Section "InputDevice" section for the keyboard, add the line:
- <pre><code>
-    Option "XkbOptions" "ctrl:nocaps"
+ <pre><code>Option "XkbOptions" "ctrl:nocaps"
 </code></pre>
              
 法二： Using an xmodmap. 
 bq. Create a file in your homedir called .Xmodmap with the contents:
-<pre><code>
-    remove Lock = Caps_Lock
+<pre><code>remove Lock = Caps_Lock
     remove Control = Control_L
     keysym Caps_Lock = Control_L
     add Control = Control_L
@@ -60,8 +56,7 @@ h6. @<Leader>@键：
 
 其实<code><Leader></code>键并不是固定的键盘上的一个键，它是vim的一个标识键，默认是转移符'\'，这个键也比较远，所以最好重新定义它。这个几乎没有争议——','是大家公认的替代者。
 在你的.vimrc中增加这么一行配置项：
-<pre><code>
-" Set the value used for <leader> in mappings
+<pre><code>" Set the value used for <leader> in mappings
 let g:mapleader = ","
 </code></pre>
 
@@ -74,8 +69,7 @@ Keybindings are great, but there's so many already in use that it's hard not to 
 h6. 映射ex模式切换键(可选)：
 
 在正常模式下跳转到ex模式需要按':'，可以映射为';'，这样就一只手搞定了。不过这个提升不多，大家也看着办吧:)
-<pre><code>
-" Similarly, : takes two keystrokes, ; takes one; map the latter to the former
+<pre><code>" Similarly, : takes two keystrokes, ; takes one; map the latter to the former
  " in normal mode to get to the commandline faster
  nnoremap ; :
 </code></pre>
@@ -83,8 +77,7 @@ h6. 映射ex模式切换键(可选)：
 h3. 配置好vimrc
 
 在用最基本的vimrc配置之后，在确定自己已经熟悉vim原生的快捷键之后，我们考虑优化一下它的配置文件。经过多方参考和实践，我最终的vimrc配置如下（没有插件的配置，插件配置见下面）：
-<pre><code>
-" Author: "arganzheng":http://blog.arganzheng.me
+<pre><code>" Author: "arganzheng":http://blog.arganzheng.me
 " Weibo: arganzheng
 " Date: 2012-02-26
 " Many thanks to:
@@ -168,8 +161,7 @@ set autoindent  smartindent
 set backspace=indent,eol,start 
 
 
-" }}}
-" Backups {{{
+"" Backups 
 set directory=~/.vim/tmp/swap//   " swap files
 " set backupdir=~/.vim/tmp/backup// " backups
 set backup                        " enable backups
@@ -384,19 +376,16 @@ h3. 插件篇
 
 h5. 安装pathogen
 第一个要安装的插件是pathogen，利用这个插件，后面的插件安装会变得非常简单。
-<pre><code>
-mkdir -p ~/.vim/autoload ~/.vim/bundle; 
+<pre><code>mkdir -p ~/.vim/autoload ~/.vim/bundle; 
 curl -so ~/.vim/autoload/pathogen.vim https://raw.github.com/tpope/vim-pathogen/HEAD/autoload/pathogen.vim
 </code></pre>
 或者直接用git下载文件：
-<pre><code>
-$ git clone git://github.com/tpope/vim-pathogen.git pathogen    # Clone the pathogen repo
+<pre><code>$ git clone git://github.com/tpope/vim-pathogen.git pathogen    # Clone the pathogen repo
 $ mv pathogen/autoload ~/.vim                          # Move pathogen to .vim directory
 </code></pre>
 
 然后vim ~/.vimrc，加入下面几行super-minimal example:
-<pre><code>
-call pathogen#infect()
+<pre><code>call pathogen#infect()
 </code></pre>
 
 这样，pathogen就安装和配置完毕了。现在你只要将想要安装的插件解压到~/.vim/bundle（可配置）目录下面就可以了，pathogen会把他们加入到runtimepath环境变量中。
@@ -404,16 +393,14 @@ call pathogen#infect()
 h5. 安装fugitive.vim
 
 现在以fugitive.vim为例，只需要如下操作就可以安装：
-<pre><code>
-cd ~/.vim/bundle
+<pre><code>cd ~/.vim/bundle
 git clone git://github.com/tpope/vim-fugitive.git
 </code></pre>
 
 That's all. Now fugtive.vim is install.
 
 你也可以将你的.vim作为一个git repository，而将其中的每个插件作为一个submodule：那么可以这么安装：
-<pre><code>
-$ cd ~/.vim
+<pre><code>$ cd ~/.vim
 $ git init
 $ git add .
 $ git commit -m "Initial commit"
@@ -423,8 +410,7 @@ $ git submodule init && git submodule update
 不过我觉得后面再考虑吧，先怎么简单怎么来，不过fugitive是一个非常不错的插件（git wrapper），值得一装哦。
 
 在你的vimrc中增加这么几行配置：
-<pre><code>
-" for vim-fugitive plugin
+<pre><code>" for vim-fugitive plugin
 set statusline=%<%f\ %h%m%r%{fugitive#statusline()}%=%-14.(%l,%c%V%)\ %P
 
 " Added 16-Jun-2011: auto-cleans fugitive buffers From
