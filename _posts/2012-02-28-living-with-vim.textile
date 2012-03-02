@@ -7,17 +7,22 @@ h3. 内功心法
 
 h5. 预练此功，必先自宫。
 Put the pass behind you before you can move on. so, 让我们抛弃过去，从0开始。首先备份一下你.vim目录和.vimrc文件：
-<pre><code>cd
-mv .vim vim_old
-mv .vimrc vim_old/vimrc_old
-mkdir .vim
-vim .vimrc
-</code></pre>
+
+{% highlight bash %}
+  $ cd
+  $ mv .vim vim_old
+  $ mv .vimrc vim_old/vimrc_old
+  $ mkdir .vim
+  $ vim .vimrc
+{% endhighlight %}
+
 加入如下最几本的配置：
-<pre><code>set nocompatible " 不要支持vi模式
-syntax on " 支持语法高亮
-filetype plugin indent on " 加载插件和支持缩进           
-</code></pre>
+
+{% highlight bash %}
+$ set nocompatible " 不要支持vi模式
+$ syntax on " 支持语法高亮
+$ filetype plugin indent on " 加载插件和支持缩进
+{% endhighlight %}
 
 这样，一个最基本的vim已经配置完毕。
 
@@ -31,16 +36,20 @@ Ctrl键一般在键盘的左下角，一般于Fn键相邻。这个键相对键�
 
 法一： Using a directive in /etc/X11/xorg.conf:
  In your Section "InputDevice" section for the keyboard, add the line:
- <pre><code>Option "XkbOptions" "ctrl:nocaps"
-</code></pre>
-             
+
+{% highlight bash %}
+ $ Option "XkbOptions" "ctrl:nocaps"
+{% endhighlight %}
+
 法二： Using an xmodmap. 
-bq. Create a file in your homedir called .Xmodmap with the contents:
-<pre><code>remove Lock = Caps_Lock
-    remove Control = Control_L
-    keysym Caps_Lock = Control_L
-    add Control = Control_L
-</code></pre>
+ Create a file in your homedir called .Xmodmap with the contents:
+
+{% highlight bash %}
+$ remove Lock = Caps_Lock
+$ remove Control = Control_L
+$ keysym Caps_Lock = Control_L
+$ add Control = Control_L
+{% endhighlight %}
 
 h6. Esc键
 
@@ -77,7 +86,9 @@ h6. 映射ex模式切换键(可选)：
 h3. 配置好vimrc
 
 在用最基本的vimrc配置之后，在确定自己已经熟悉vim原生的快捷键之后，我们考虑优化一下它的配置文件。经过多方参考和实践，我最终的vimrc配置如下（没有插件的配置，插件配置见下面）：
-<pre><code>" Author: "arganzheng":http://blog.arganzheng.me
+
+{% highlight bash %}
+" Author: "arganzheng":http://blog.arganzheng.me
 " Weibo: arganzheng
 " Date: 2012-02-26
 " Many thanks to:
@@ -362,7 +373,8 @@ inoremap <silent> <F3> <ESC>:YRShow<cr>
 "
 """
 map <tab> %
-</code></pre>
+
+{% endhighlight %}
 
 经过我的实践，这些配置非常好用，可以大大提高你的vim体验。
 
