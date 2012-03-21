@@ -1004,6 +1004,42 @@ __db_rattach()函数调用了__db_appname()函数来命名和定位一个共享�
     }
 
 
-3. 最后是函数调用过程
+#### 3. 最后是函数调用过程
 
+
+#### 4. 相关文档
+
+##### Building transaction protected applications
+
+Creating transaction protected applications using the Berkeley DB access methods is quite easy. In almost all cases, applications use db_appinit to perform initialization of all of the Berkeley DB subsystems. As transaction support requires all five Berkeley DB subsystems, the DB_INIT_MPOOL, DB_INIT_LOCK, DB_INIT_LOG and DB_INIT_TXN flags should be specified.
+
+Once the application has called db_appinit, it should open the databases it will use. Once the databases are opened, the application can make changes to the databases, grouped inside of transaction calls. Each set of changes should be surrounded by the appropriate txn_begin, txn_commit and txn_abort calls.
+
+The Berkeley DB access methods will make the appropriate calls into the lock, log and memory pool subsystems in order to guarantee transaction semantics. When the application is ready to exit, all outstanding transactions should have been committed or aborted.
+
+Databases accessed by a transaction must not be closed during the transaction. Once all outstanding transactions are finished, all open Berkeley DB files should be closed. When the Berkeley DB database files have been closed, the environment should be closed by calling db_appexit.
+
+也就是说如果要建立事务保护的应用程序，必须在打开数据库文件之前显示的调用db_appinit()初始化所有BDB子系统（包括MPOOL）。在退出的时候，必须在关闭数据库文件之后，显示调用db_appexit()函数清除BDB所有子系统（引用计数减1）。
+
+####### Creating an Environment
+
+The db_appinit function is the standard function for creating or joining a database environment. Every transaction-protected or multi-process application should call db_appinit before making any other calls to the Berkeley DB library.
+
+Almost all applications either specify only the DB_INIT_MPOOL flag or they specify all four flags, DB_INIT_MPOOL, DB_INIT_LOCK, DB_INIT_LOG and DB_INIT_TXN. The former configuration is for applications that simply want to use the basic Access Method interfaces with a shared underlying buffer pool, but don't care about recoverability after failure. The latter is for applications that need recoverability. There are situations where other combinations of the initialization flags make sense, but they are quite rare.
+
+
+一旦使用db_appinit()建立environment对象之后，就可以用这个env打开数据库了。
+Opening databases within the environment
+
+Once the environment has been created, the returned handle should be passed as an argument to the db_open call. This causes the database being opened to be opened within the environment. File naming and database operations will all be done as specified for the environment, e.g., if the DB_INIT_LOCK flag was specified when the environment was created or joined, database operations will automatically perform all necessary locking operations for the application.
+
+###### Shared Memory Regions
+
+Each of the Berkeley DB subsystems is described by one or more shared memory regions. These regions live in the environment home directory, and contain all of the shared information, including mutexes, that describes the Berkeley DB environment.
+
+The Berkeley DB library uses the POSIX mmap (or other similar) interface to map the shared memory regions. Most remote file systems (e.g., the Network File System (NFS) and the Andrew File System (AFS)), do not support mapping files into process memory. For this reason, we strongly recommend that the database home directory reside in a local filesystem.
+
+For remote file systems that do allow system files to be mapped into process memory, it is important to note that home directories accessed via remote file systems cannot be used simultaneously from multiple clients. None of the commercial remote file systems available today implement a coherent, distributed shared memory paradigm for remote-mounted files. As a result, different machines will see different versions of these shared regions and the system behavior is undefined.
+
+Databases, log files and temporary files may be placed on remote filesystems, although the application may incur a performance penalty for doing so. 
 
