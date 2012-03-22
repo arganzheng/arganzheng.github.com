@@ -5,11 +5,11 @@ title:
 
 本来在ubuntu下安装个软件是一件简单的事情，不值得写成文章。不过由于有“墙”的存在，所以还是记录一下吧，造福后人。
 
-1. 安装dropbox
+###### 1. 安装dropbox
 
 这个到官网下载相应的deb包安装就可以了。
 
-2. 安装dropbox-deamon
+###### 2. 安装dropbox-deamon
 
 本来安装完dropbox后，执行：
 
