@@ -16,6 +16,27 @@ CDN只适合于缓存popular static content(images, html, css, js, etc.)。对�
 2. 根据inode number读取inode块
 3. 根据inode块中的信息读取相应的data（对于小文件，data只需要一次索引就可以全部读取完毕）
 
+说明：对于第一个步骤：finding an inode by reference to a given filename实际上是个很复杂的过程，大概过程如下：
+
+使用nameidata{}作为lookup函数的参数和返回值：
+    <fs.h>
+    struct nameidata {
+        struct dentry
+        struct vfsmount
+        struct qstr
+        unsigned int
+        ...
+    }
+
+The kernel uses the path_lookup function to find any path or filename.
+   fs/namei.c
+   int fastcall path_lookup(const char *name, unsigned int flags, struct nameidata *nd)
+
+检查name返回是否以/开始，如果是说明是绝对路径，通过current->fs->root (the process root directory)得到。 否则，是相对路径，使用当前路径，通过current->fs->pwd (the process-current directory)获取。 
+拿到起始目录的dentry结果(root or pwd)，从而得到该dentry对应的inode，那么根据这个inode我们可以得到它对应的子目录，通过比较得到相应的目录项，从而又得到子目录的inode，一层一层往下走就得到最后的文件了。
+
+为了提高性能，内核使用了dentry缓存（一个hash map和LRU list）来减少不必要的IO。
+
 操作系统其实是有缓存filesystem metadata的，但是如果文件特别多的话，缓存不断的换入换出，反而容易产生颠簸。而且这些filesystem meta信息加起来大概是150B，非常不利于cache在内存中。而这些信息其实对于应用来说并不关心，比如user, group, atime等。
 
 Haystack的思路其实非常的简单和直观——因为海量小文件的主要性能瓶颈在于大量的metadata读取，那么关键是减少metadata的量。
