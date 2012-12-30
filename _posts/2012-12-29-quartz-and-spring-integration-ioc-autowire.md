@@ -3,9 +3,10 @@ layout: post
 title: Quartz与Spring的整合-Quartz中的job如何自动注入spring容器托管的对象
 ---
 
+
 ## 问题
 
-Quartz如果使用数据库配置方式，则业务job并不在xml配置文件中配置，而是在数据库中指定classname，Quartz会根据classname实例化该job，但是没有办法定义与注入该job依赖的其他bean。
+Quartz中的job是由Quartz框架动态创建的（配置该job的classname，通过反射创建），而job一般会依赖到配置在spring中的bean，怎样获取或者更好的自动注入这些依赖bean呢？
 
 ## 预期效果
 
@@ -16,14 +17,10 @@ Quartz如果使用数据库配置方式，则业务job并不在xml配置文件�
      * 取消超时未支付订单的任务。 
      *
      * @author arganzheng
-     *
      */
     public class CancelUnpaidOrderTask implements Job {
-	    private final static Logger log = Logger.getLogger(CancelUnpaidOrderTask.class);
-
 	    @Autowired
 	    private AppOrderService orderService;
-
 
 	    @Override
 	    public void execute(JobExecutionContext ctx) throws JobExecutionException {
@@ -35,7 +32,7 @@ Quartz如果使用数据库配置方式，则业务job并不在xml配置文件�
     @Autowired
 	private AppOrderService orderService;
 
-orderService是配置在spring容器中的，而CancelUnpaidOrderTask则是配置在Quarzt数据库中，由`org.springframework.scheduling.quartz.SpringBeanJobFactory` 运行时调用`
+orderService是配置在spring容器中的，而CancelUnpaidOrderTask则是配置在Quartz数据库中，由`org.springframework.scheduling.quartz.SpringBeanJobFactory` 运行时调用`
 	protected Object createJobInstance(TriggerFiredBundle bundle) throws Exception;` 方法创建的。
 
 ## 解决方案
@@ -57,8 +54,7 @@ Spring提供了一种机制让你可以获取ApplicationContext。就是`Applica
         }
     }
     
-    
-然后在需要引用FooService的地方，这样子获取FooService：`FooServicesLocator.getFoobarServic();` 得到Spring托管的FooService。
+当然，你需要在你的xml配置文件中定义FooServicesLocator和FooService。然后在需要引用FooService的地方，就可以这样子获取FooService了：`FooServicesLocator.getFoobarServic();` 得到Spring托管的FooService。
 
 不过这样是依赖查询，不是注入，要实现DI，可以使用`AutowireCapableBeanFactory`进行autowire。     
 
@@ -66,7 +62,7 @@ Spring提供了一种机制让你可以获取ApplicationContext。就是`Applica
 
 于是对于上面的那个问题，就有了如下的解决方案：
 
-    package me.arganzheng.study.quarzt.task.SpringBeanJobFactory;
+    package me.arganzheng.study.quartz.task.SpringBeanJobFactory;
     
     import org.quartz.spi.TriggerFiredBundle;
     import org.springframework.beans.BeansException;
@@ -97,7 +93,7 @@ Spring提供了一种机制让你可以获取ApplicationContext。就是`Applica
 	    }
     }
 
-然后在Spring中配置Quarzt的入口：
+然后在Spring中配置Quartz的入口：
 
 	<?xml version="1.0" encoding="GBK"?>
 	<beans xmlns="http://www.springframework.org/schema/beans"
@@ -107,10 +103,10 @@ Spring提供了一种机制让你可以获取ApplicationContext。就是`Applica
 	 
 		<bean class="org.springframework.scheduling.quartz.SchedulerFactoryBean">
 			<property name="jobFactory">
-			    <bean class="me.arganzheng.study.quarzt.task.SpringBeanJobFactory" />
+			    <bean class="me.arganzheng.study.quartz.task.SpringBeanJobFactory" />
 			</property>
 			<property name="quartzProperties">
-				<bean class="com.paipai.api.appstore.task.QuartzSchedulerInstanceIdGenerator" factory-method="generateInstanceIfForCurrentMachine">
+				<bean class="me.arganzheng.study.quartz.task.QuartzSchedulerInstanceIdGenerator" factory-method="generateInstanceIfForCurrentMachine">
 					<constructor-arg>
 						<props>
 							<prop key="org.quartz.jobStore.dataSource">FuwuQuartzDataSource</prop>
@@ -131,17 +127,17 @@ Spring提供了一种机制让你可以获取ApplicationContext。就是`Applica
 			</property>
 			<property name="globalJobListeners">
 				<list>
-					<bean class="me.arganzheng.study.quarzt.task.QuartzEventListener" />
+					<bean class="me.arganzheng.study.quartz.task.QuartzEventListener" />
 				</list>
 			</property>
 		</bean>
 	</beans>
 
-Quarzt的配置非常简单，就一个入口类`org.springframework.scheduling.quartz.SchedulerFactoryBean`。我们这里通过配置它的jobFactory为我们自定义的JobFactory来实现自动注入功能：
+对于数据库配置方式的Quartz，配置非常简单，就一个入口类`org.springframework.scheduling.quartz.SchedulerFactoryBean`。我们这里通过配置它的jobFactory为我们自定义的JobFactory来实现自动注入功能：
 
     <bean class="org.springframework.scheduling.quartz.SchedulerFactoryBean">
 			<property name="jobFactory">
-			    <bean class=”me.arganzheng.study.quarzt.task.SpringBeanJobFactory" />
+			    <bean class=”me.arganzheng.study.quartz.task.SpringBeanJobFactory" />
 			</property>
 			…
 	</bean>
@@ -164,11 +160,52 @@ spring的AutowireCapableBeanFactory其实非常强大，而且貌似任何通过
 	    }
     }
 
-说明：对于Quarzt与Spring的整合问题，有其他的解决方案，比如这个：[Quartz and Spring Integration](http://techo-ecco.com/blog/quartz-and-spring-integration/)。
+## 其他解决方案
+
+对于Quartz与Spring的整合问题，spring其实提供了很多内建方案：
+
+1. 使用`org.springframework.scheduling.quartz.JobDetailBean`+`jobDataAsMap`：比如这个：[Spring 3 + Quartz 1.8.6 Scheduler Example](http://www.mkyong.com/spring/spring-quartz-scheduler-example/)。不过貌似不推荐.
+2. 使用`org.springframework.scheduling.quartz.SchedulerFactoryBean`+`schedulerContextAsMap`：比如这个：[Quartz and Spring Integration](http://techo-ecco.com/blog/quartz-and-spring-integration/)。
+3. 使用`org.springframework.scheduling.quartz.MethodInvokingJobDetailFactoryBean`：这个可以让任何定义在spring中的类成为Quartz要求的job。比如这个：[25.6 Using the OpenSymphony Quartz Scheduler](http://static.springsource.org/spring/docs/3.0.x/spring-framework-reference/html/scheduling.html#scheduling-quartz)
+4. 使用`org.springframework.scheduling.quartz.SchedulerFactoryBean`+`applicationContextSchedulerContextKey`：比如这个：[Accessing Spring beans from Quartz jobs](http://blog.mark-mclaren.info/2007/06/accessing-spring-beans-from-quartz-jobs_1652.html)
+
+每种方法笔者都认真的看过，而且找的例子都是非常不错的例子。个人感觉3和4不错，尤其是4。3使用起来有点像spring的事务配置，4使用起来有点像在web层通过`WebApplicationContextUtils`得到spring的`ApplicationContext`。不过这几种方式都不是依赖注入，而且配置信息比较多。所以还是推荐上面的`org.springframework.scheduling.quartz.SchedulerFactoryBean`+AutowireCapableBeanFactory的`SpringBeanJobFactory`解决方案:)
 
 ------------------------------------------------------------------
 
-对于Spring配置的类，如果想要使用注解简化依赖bean配置，还可以使用AspectJ的 `Configurable`注解来实现依赖注入：[Aspect Oriented Programming with Spring](http://static.springsource.org/spring/docs/3.0.x/spring-framework-reference/html/aop.html#aop-atconfigurable)
+`@Autowired`注解大大节省了Spring的xml配置，将bean依赖关系声明转移到类文件和运行期。即：
+原来需要这样的配置：
+    <bean id="thisClass" class="me.arganzheng.study.MyClass" />
+      <property name="anotherClass" ref="anotherClass" />
+    </bean>
+    <bean id="anotherClass" class="me.arganzheng.study.AnotherClass">
+    </bean>
+    
+    package me.arganzheng.study;
+    
+    public class MyClass { 
+      private Another anotherClass;
+     
+      public void setAnotherClass(AnotherClass anotherClass) {
+        this.anotherClass = anotherClass; 
+      }
+    }
+
+使用`@Autowired`注解可以简化为：
+
+    <bean id="thisClass" class="me.arganzheng.study.MyClass" />
+    </bean>
+    <bean id="anotherClass" class="me.arganzheng.study.AnotherClass">
+    </bean>
+    
+    package me.arganzheng.study;
+    
+    public class MyClass { 
+      @Autowired
+      private Another anotherClass;
+    }
+
+不过这样MyClass本身在Spring配置文件中定义，而它的依赖又是在自身类文件通过`@Autowired`注解声明，需要有种方式告诉Spring说当你根据配置文件创建我的时候，麻烦也扫描一下我的注解，把通过注解声明的依赖也注入进来。这可以通过Spring的`<context:spring-configured/>`配置+AspectJ的 `Configurable`注解来实现运行期依赖注入：[Aspect Oriented Programming with Spring](http://static.springsource.org/spring/docs/3.0.x/spring-framework-reference/html/aop.html#aop-atconfigurable)
 >
     @Configurable
     public class MyClass {
@@ -181,11 +218,11 @@ spring的AutowireCapableBeanFactory其实非常强大，而且貌似任何通过
 
 不用AspectJ的注解，其实Spring3也有类似的注解，主要用于Spring MVC：
 
-** *注意* **：这里面有一个非常重要的原则，就是入口类（如上面的`MyClass`类）必须已经在spring中配置，而该入口类依赖的bean（如上面的`antherClass`），可以通过注解(如`autowired`)实现自动注入。而且要让spring在根据配置文件创建该入口类的时候，还额外的去解析该入口类的注解并且注入注解声明的类，需要在配置文件中额外的配置来告诉spring。比如上面的`<context:spring-configured/>`就是做这样的事情。  
+** *注意* **：这里面有一个非常重要的前提，就是所有的类（如上面的`MyClass`和`AnotherClass`）都必须已经在spring中配置，只是这些bean直接的依赖关系（如上面的`MyClass`依赖于`AntherClass`），可以通过注解(如`@autowired`)实现运行期自动注入。而且要让spring在根据配置文件创建该这些bean的时候，还额外的去解析该bean的注解并且注入通过注解声明的依赖bean，需要在配置文件中额外的配置来告诉spring。比如上面的`<context:spring-configured/>`就是做这样的事情。  
 
 一个完整的Configurable例子见这篇文档：[Spring, Aspects, @Configurable and Compile Time Weaving using maven](http://www.chrissearle.org/blog/technical/spring_aspects_configurable_and_compile_time_weaving_using_maven)
 
-如果入口类也不想使用Spring配置文件，那么就需要额外的配置告诉Spring哪些入口类是需要你托管的，一般是包扫描：`<context:component-scan>`和特殊的类注解如@Controller，@Component, etc. [15. Web MVC framework-15.3.1 Defining a controller with @Controller](http://static.springsource.org/spring/docs/3.0.x/spring-framework-reference/html/mvc.html)：
+如果bean本身（不即使依赖关系）也不想使用Spring配置文件注册，那么就需要额外的配置告诉Spring哪些类是需要你托管的，一般是包扫描：`<context:component-scan>`+特殊的类注解如@Controller，@Component, etc. [15. Web MVC framework-15.3.1 Defining a controller with @Controller](http://static.springsource.org/spring/docs/3.0.x/spring-framework-reference/html/mvc.html)：
 > ### 15.3.1 Defining a controller with @Controller
 
 > The @Controller annotation indicates that a particular class serves the role of a controller. Spring does not require you to extend any controller base class or reference the Servlet API. However, you can still reference Servlet-specific features if you need to.
@@ -216,11 +253,12 @@ spring的AutowireCapableBeanFactory其实非常强大，而且貌似任何通过
 stackoverflow上有一个非常详细讲解`<context:annotation-config>`和`<context:component-scan>`的帖子：
 [Difference between <context:annotation-config> vs <context:component-scan>](http://stackoverflow.com/questions/7414794/difference-between-contextannotation-config-vs-contextcomponent-scan)。很长，这里就不quote了。简单来说就是两个步骤：
 
-1. 扫描入口类：`<context:component-scan>` + `@Controller`, `@Component`, etc.
-2. 通过注解方式注入入口类的依赖：`<context:annotation-config/>` 
+1. 扫描类：`<context:component-scan>` + `@Controller`, `@Component`, etc.
+2. 通过注解方式注入该类的依赖：`<context:annotation-config/>` 
 
 *如果配置了1，那么自动包含2.*
 
-当然，回到我们的主题，如果连入口类都不是Spring托管（不是xml配置，也不是anotation注解+包路径扫描），而是由框架或者应用创建的，那么就需要使用我们一开始介绍的方法来处理了。
+当然，回到我们的主题，如果有些bean不应该由Spring托管（不是xml配置，也不是anotation注解+包路径扫描），而是由框架或者应用创建的，那么就需要使用我们一开始介绍的方法来处理了。
 
 *--EOF--*
+
