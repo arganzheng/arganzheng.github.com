@@ -105,31 +105,9 @@ Spring提供了一种机制让你可以获取ApplicationContext。就是`Applica
 			<property name="jobFactory">
 			    <bean class="me.arganzheng.study.quartz.task.SpringBeanJobFactory" />
 			</property>
-			<property name="quartzProperties">
-				<bean class="me.arganzheng.study.quartz.task.QuartzSchedulerInstanceIdGenerator" factory-method="generateInstanceIfForCurrentMachine">
-					<constructor-arg>
-						<props>
-							<prop key="org.quartz.jobStore.dataSource">FuwuQuartzDataSource</prop>
-							<prop key="org.quartz.dataSource.FuwuQuartzDataSource.driver">${jdbc.driverClassName}</prop>
-							<prop key="org.quartz.dataSource.FuwuQuartzDataSource.URL">${jdbc.url}</prop>
-							<prop key="org.quartz.dataSource.FuwuQuartzDataSource.user">${jdbc.username}</prop>
-							<prop key="org.quartz.dataSource.FuwuQuartzDataSource.password">${jdbc.password}</prop>
-							<prop key="org.quartz.jobStore.tablePrefix">T_APP_QRTZ_</prop>
-							<prop key="org.quartz.jobStore.isClustered">true</prop>
-							<prop key="org.quartz.jobStore.driverDelegateClass">org.quartz.impl.jdbcjobstore.MSSQLDelegate</prop>
-							<prop key="org.quartz.jobStore.class">org.quartz.impl.jdbcjobstore.JobStoreTX</prop>
-						</props>
-					</constructor-arg>
-					<constructor-arg>
-						<value>org.quartz.scheduler.instanceId</value>
-					</constructor-arg>
-				</bean>
-			</property>
-			<property name="globalJobListeners">
-				<list>
-					<bean class="me.arganzheng.study.quartz.task.QuartzEventListener" />
-				</list>
-			</property>
+			
+		    …
+			
 		</bean>
 	</beans>
 
@@ -141,6 +119,13 @@ Spring提供了一种机制让你可以获取ApplicationContext。就是`Applica
 			</property>
 			…
 	</bean>
+
+** *说明* **：上面的XML配置采用了直接配置jobFactory属性的方式强制将jobFactory注入为我们自定义的jobFactory类，其实Quartz运行我们通过`org.quartz.scheduler.jobFactory.class`配置项配置自定义的jobFactory：
+
+> #### org.quartz.scheduler.jobFactory.class 
+> 
+这是所用的 JobFactory 的类名称。默认为 org.quartz.simpl.SimpleJobFactory 。你也可以试试 org.quartz.simpl.PropertySettingJobFactory 。一个 Job 工厂负责产生 Job 类的实例。SimpleFactory 类是调用 Job 类的 newInstance() 方法。PropertySettingJobFactory 也会调用 newInstance() ，但还会使用 JobDataMap 中的内容以反射方式设置 Job Bean 的属性。
+
 
 spring的AutowireCapableBeanFactory其实非常强大，而且貌似任何通过Spring配置的bean都可以自动注入，这样就不用实现ApplicationContextAware接口了：
 [How to inject dependencies into a self-instantiated object in Spring?](http://stackoverflow.com/questions/3813588/how-to-inject-dependencies-into-a-self-instantiated-object-in-spring)
@@ -159,6 +144,8 @@ spring的AutowireCapableBeanFactory其实非常强大，而且貌似任何通过
 	    	return jobInstance;
 	    }
     }
+
+关于使用`ApplicationContextAware`和`AutowireCapableBeanFactory`实现@Autowired功能，在stackoverflow上这个帖子有很详细的说明，可以参考一下：[How to get beans created by FactoryBean spring managed?](http://stackoverflow.com/questions/4970297/how-to-get-beans-created-by-factorybean-spring-managed)
 
 ## 其他解决方案
 
