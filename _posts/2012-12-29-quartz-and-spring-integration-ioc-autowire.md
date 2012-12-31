@@ -106,7 +106,7 @@ Spring提供了一种机制让你可以获取ApplicationContext。就是`Applica
 			    <bean class="me.arganzheng.study.quartz.task.SpringBeanJobFactory" />
 			</property>
 			
-		    …
+		    ...
 			
 		</bean>
 	</beans>
@@ -117,17 +117,28 @@ Spring提供了一种机制让你可以获取ApplicationContext。就是`Applica
 			<property name="jobFactory">
 			    <bean class=”me.arganzheng.study.quartz.task.SpringBeanJobFactory" />
 			</property>
-			…
+			...
 	</bean>
 
-** *说明* **：上面的XML配置采用了直接配置jobFactory属性的方式强制将jobFactory注入为我们自定义的jobFactory类，其实Quartz运行我们通过`org.quartz.scheduler.jobFactory.class`配置项配置自定义的jobFactory：
+** *说明* **：上面的XML配置采用了直接配置jobFactory属性的方式强制将jobFactory注入为我们自定义的jobFactory类，其实Quartz允许我们通过`org.quartz.scheduler.jobFactory.class`配置项配置自定义的jobFactory：
 
 > #### org.quartz.scheduler.jobFactory.class 
 > 
 这是所用的 JobFactory 的类名称。默认为 org.quartz.simpl.SimpleJobFactory 。你也可以试试 org.quartz.simpl.PropertySettingJobFactory 。一个 Job 工厂负责产生 Job 类的实例。SimpleFactory 类是调用 Job 类的 newInstance() 方法。PropertySettingJobFactory 也会调用 newInstance() ，但还会使用 JobDataMap 中的内容以反射方式设置 Job Bean 的属性。
 
+相应的配置如下：
+       
+    <bean class="org.springframework.scheduling.quartz.SchedulerFactoryBean">
+		<property name="quartzProperties">		
+		    <props>
+		        <prop key="org.quartz.scheduler.jobFactory.class">me.arganzheng.study.quartz.task.SpringBeanJobFactory></prop>
+			</props>
+		    ...
+		</property>
+		...
+	</bean>
 
-spring的AutowireCapableBeanFactory其实非常强大，而且貌似任何通过Spring配置的bean都可以自动注入，这样就不用实现ApplicationContextAware接口了：
+spring的AutowireCapableBeanFactory其实非常强大，Spring3.0允许任何通过Spring配置的bean都可以自动注入它所属的上下文，也就是说默认所有的bean都自动实现了ApplicationContextAware接口，这样就不用显示实现ApplicationContextAware接口了（ 是不是更POJO:) ）：
 [How to inject dependencies into a self-instantiated object in Spring?](http://stackoverflow.com/questions/3813588/how-to-inject-dependencies-into-a-self-instantiated-object-in-spring)
 
     public class SpringBeanJobFactory extends org.springframework.scheduling.quartz.SpringBeanJobFactory{
