@@ -56,8 +56,9 @@ title: Quartz与Spring的整合-使用Spring的FactoryBean实现动态Properties
 
 ## 解决方案
 
-1. 使用`org.quartz.scheduler.instanceId`+`org.quartz.scheduler.instanceIdGenerator.class`
-自定义一个instanceIdGenerator，然后配置`org.quartz.scheduler.instanceIdGenerator.class`为该自定义idGenerator（这个generator必须实现InstanceIdGenerator接口），即可。**前提是`org.quartz.scheduler.instanceId`必须配置为AUTO**。
+#### 1. 使用`org.quartz.scheduler.instanceId`+`org.quartz.scheduler.instanceIdGenerator.class`
+
+自定义一个instanceIdGenerator，然后配置`org.quartz.scheduler.instanceIdGenerator.class`为该自定义generator（这个generator必须实现InstanceIdGenerator接口）。**前提是`org.quartz.scheduler.instanceId`必须配置为AUTO**。
 
 采用这种方式，相应的配置和实现如下：
     
@@ -80,13 +81,13 @@ title: Quartz与Spring的整合-使用Spring的FactoryBean实现动态Properties
 					<prop key="org.quartz.jobStore.driverDelegateClass">org.quartz.impl.jdbcjobstore.MSSQLDelegate</prop>
 					<prop key="org.quartz.jobStore.class">org.quartz.impl.jdbcjobstore.JobStoreTX</prop>
 					<prop key="org.quartz.scheduler.instanceId">AUTO</prop>
-				    <prop key="org.quartz.scheduler.instanceIdGenerator.class">com.paipai.api.appstore.task.QuartzSchedulerInstanceIdGenerator</prop>
+				    <prop key="org.quartz.scheduler.instanceIdGenerator.class">me.arganzheng.study.quartz.task.QuartzSchedulerInstanceIdGenerator</prop>
 				</props>
 			</property>
 		</bean>
 	</beans>
 
-类`com.paipai.api.appstore.task.QuartzSchedulerInstanceIdGenerator`必须实现`InstanceIdGenerator`接口：
+类`me.arganzheng.study.quartz.task.QuartzSchedulerInstanceIdGenerator`必须实现`InstanceIdGenerator`接口：
 
 	package me.arganzheng.study.quartz.task;
 	
@@ -183,7 +184,7 @@ title: Quartz与Spring的整合-使用Spring的FactoryBean实现动态Properties
 	}
 
 
-2. 使用`FactoryBean`机制
+#### 2. 使用`FactoryBean`机制
 
 `FactoryBean`可以让你`狸猫换太子`。虽然指定的class为factoryBean的类路径，但是Spring实例化该factoryBean之后，还会调用factoryBean的工厂方法，返回真正的bean。
 
@@ -327,6 +328,8 @@ title: Quartz与Spring的整合-使用Spring的FactoryBean实现动态Properties
 	cancelUnpaidJd.setRequestsRecovery(true);
 	Trigger cancelUnpaidTg = new CronTrigger(CancelUnpaidOrderTask.class.getSimpleName() + "Trigger", Scheduler.DEFAULT_GROUP, "0 0 0/1 * * ?");
 	scheduler.scheduleJob(cancelUnpaidJd, cancelUnpaidTg);
+
+可以将job初始化代码放在jsp中方便触发。
 
 ## 其他用途
 
