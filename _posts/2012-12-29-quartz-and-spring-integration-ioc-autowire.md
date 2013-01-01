@@ -120,7 +120,7 @@ Spring提供了一种机制让你可以获取ApplicationContext。就是`Applica
 			...
 	</bean>
 
-** *注意* **：上面的XML配置采用了直接配置jobFactory属性的方式将jobFactory配置为我们自定义的jobFactory类，默认是 .虽然Quartz允许我们通过`org.quartz.scheduler.jobFactory.class`配置项配置自定义的jobFactory:
+** *注意* **：上面的XML配置采用了直接配置jobFactory属性的方式将jobFactory配置为我们自定义的jobFactory类，默认是`org.springframework.scheduling.quartz.SpringBeanJobFactory`。虽然Quartz允许我们通过`org.quartz.scheduler.jobFactory.class`配置项配置自定义的jobFactory:
 
 > #### org.quartz.scheduler.jobFactory.class 
 > 
