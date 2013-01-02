@@ -1,6 +1,6 @@
 ---
-layout:post
-title: Maven快速入门 
+layout: post
+title: Maven快速入门
 ---
 
 
