@@ -1,6 +1,6 @@
 ---
 layout: post
-title: JUnit与Spring的整合——JUnit中的TestCase如何自动注入spring容器托管的对象
+title: JUnit与Spring的整合——JUnit的TestCase如何自动注入Spring容器托管的对象
 ---
 
 
