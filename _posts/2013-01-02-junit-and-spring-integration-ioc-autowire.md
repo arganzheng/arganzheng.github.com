@@ -6,7 +6,7 @@ title: JUnit与Spring的整合——JUnit的TestCase如何自动注入Spring容�
 
 ## 问题
 
-在Java中，一般使用JUnit作为单元测试框架，测试的对象一般是Service和DAO，也可能是RemoteService和Controller。所有这些测试对象基本都是Spring托管的，不会直接new出来。如何在每个UT中注入这些依赖呢？
+在Java中，一般使用JUnit作为单元测试框架，测试的对象一般是Service和DAO，也可能是RemoteService和Controller。所有这些测试对象基本都是Spring托管的，不会直接new出来。而每个TestCase类却是由JUnit创建的。如何在每个TestCase实例中注入这些依赖呢？
 
 ## 预期效果
 
@@ -19,7 +19,6 @@ title: JUnit与Spring的整合——JUnit的TestCase如何自动注入Spring容�
 	import org.springframework.beans.factory.annotation.Autowired;
 	
 	/**
-	 *  
 	 * @author arganzheng
 	 */
 	public class FooServiceTest{
@@ -79,7 +78,7 @@ title: JUnit与Spring的整合——JUnit的TestCase如何自动注入Spring容�
 		    return bundle.getJobDetail().getJobClass().newInstance();
 	    }
 
-不过正如它注释所说的，**`Can be overridden to post-process the job instance.`**，我们采也正是继承了`org.springframework.scheduling.quartz.SpringBeanJobFactory`，然后覆盖它的这个方法：
+不过正如它注释所说的，**`Can be overridden to post-process the job instance`**，我们的做法也正是继承了`org.springframework.scheduling.quartz.SpringBeanJobFactory`，然后覆盖它的这个方法：
         
     public class OurSpringBeanJobFactory extends org.springframework.scheduling.quartz.SpringBeanJobFactory{
         @Autowire
@@ -96,15 +95,14 @@ title: JUnit与Spring的整合——JUnit的TestCase如何自动注入Spring容�
         }
     ｝
 
-由于`OurSpringBeanJobFactory`是配置在Spring容器中，默认就具备拿到ApplicationContext的能力。当然就可以做ApplicationContext提供的任何事情的。
+由于`OurSpringBeanJobFactory`是配置在Spring容器中，默认就具备拿到ApplicationContext的能力。当然就可以做ApplicationContext能够做的任何事情。
 
 #### 题外话
-    这里体现了框架设计一个很重要的原则：针对修改关闭，针对拓展开放。
+    这里体现了框架设计一个很重要的原则：开闭原则——针对修改关闭，针对扩展开放。
     除非是bug，否者框架的源码不会直接拿来修改，但是对于功能性的个性化需求，框架应该允许用户进行扩展。
     这也是为什么所有的框架基本都是面向接口和多态实现的，并且支持应用通过配置项注册自定义实现类，
     比如Quartz的`org.quartz.scheduler.jobFactory.class`和`org.quartz.scheduler.instanceIdGenerator.class`配置项。
 
-----
 
 ## 解决方案
 
@@ -121,7 +119,7 @@ Junit4.5+是通过`org.junit.runners.BlockJUnit4ClassRunner`中的`createTest`�
        return getTestClass().getOnlyConstructor().newInstance();
     }
     
-那么根据前面的讨论，我们只要extends`org.junit.runners.BlockJUnit4ClassRunner`类，覆盖它的`createTest`方法就可以了。如果我们的这个类能够方便的拿到ApplicationContext（这个只要简单的将这个类配置在Spring容器中就可以了），那么就可以很方便的实现依赖注入功能了。JUnit没有专门定义创建UT实例的接口，但是它提供了`@RunWith`的注解，让我们可以指定我们自定义的ClassRunner。于是，解决方案就出来了。
+那么根据前面的讨论，我们只要extends`org.junit.runners.BlockJUnit4ClassRunner`类，覆盖它的`createTest`方法就可以了。如果我们的这个类能够方便的拿到ApplicationContext（这个其实很简单，比如使用`ClassPathXmlApplicationContext`），那么就可以很方便的实现依赖注入功能了。JUnit没有专门定义创建UT实例的接口，但是它提供了`@RunWith`的注解，可以让我们指定我们自定义的ClassRunner。于是，解决方案就出来了。
 
 ## Spring内建的解决方案
 
@@ -133,17 +131,112 @@ Spring3提供了`SpringJUnit4ClassRunner`基类让我们可以很方便的接入
     
 思路跟我们上面讨论的一样，不过它采用了更灵活的设计：
 
-1. 相对于ApplicationContextAware接口，它允许指定要加载的配置文件位置，实现更细粒度的控制。这个是通过`@ContextConfiguration`注解暴露给用户的。
-2. 基于事件监听机制（the listener-based test context framework），并且允许用户自定义事件监听器。默认是`org.springframework.test.context.support.DependencyInjectionTestExecutionListener`、`org.springframework.test.context.support.DirtiesContextTestExecutionListener`和`org.springframework.test.context.transaction.TransactionalTestExecutionListener`这三个事件监听器。
+1. 引入[Spring TestContext Framework](http://static.springsource.org/spring/docs/3.0.0.M3/reference/html/ch10s03.html#testcontext-framework)，允许接入不同的UT框架（如JUnit3.8-，JUnit4.5+，TestNG，etc.）.
+2. 相对于ApplicationContextAware接口，它允许指定要加载的配置文件位置，实现更细粒度的控制，同时缓存application context per Test Feature。这个是通过`@ContextConfiguration`注解暴露给用户的。（其实由于`SpringJUnit4ClassRunner`是由JUnit创建而不是Spring创建的，所以这里ApplicationContextAware should not work。但是笔者发现`AbstractJUnit38SpringContextTests`是实现`ApplicationContextAware`接口的，但是其ApplicationContext又是通过`org.springframework.test.context.support.DependencyInjectionTestExecutionListener`加载的。感觉实在没有必要实现`ApplicationContextAware`接口。）
+3. 基于事件监听机制（the listener-based test context framework），并且允许用户自定义事件监听器，通过`@TestExecutionListeners`注解注册。默认是`org.springframework.test.context.support.DependencyInjectionTestExecutionListener`、`org.springframework.test.context.support.DirtiesContextTestExecutionListener`和`org.springframework.test.context.transaction.TransactionalTestExecutionListener`这三个事件监听器。
 
-> TIPS:
->   对于JUnit3，Spring提供了另外几种方式接入。不过不建议使用。
->   
-    * AbstractDependencyInjectionSpringContextTests
-    * AbstractTransactionalSpringContextTests
-    * AbstractTransactionalDataSourceSpringContextTests
+其中依赖注入就是在`org.springframework.test.context.support.DependencyInjectionTestExecutionListener`完成的：
+     
+    /**
+	 * Performs dependency injection and bean initialization for the supplied
+	 * {@link TestContext} as described in
+	 * {@link #prepareTestInstance(TestContext) prepareTestInstance()}.
+	 * <p>The {@link #REINJECT_DEPENDENCIES_ATTRIBUTE} will be subsequently removed
+	 * from the test context, regardless of its value.
+	 * @param testContext the test context for which dependency injection should
+	 * be performed (never <code>null</code>)
+	 * @throws Exception allows any exception to propagate
+	 * @see #prepareTestInstance(TestContext)
+	 * @see #beforeTestMethod(TestContext)
+	 */
+	protected void injectDependencies(final TestContext testContext) throws Exception {
+		Object bean = testContext.getTestInstance();
+		AutowireCapableBeanFactory beanFactory = testContext.getApplicationContext().getAutowireCapableBeanFactory();
+		beanFactory.autowireBeanProperties(bean, AutowireCapableBeanFactory.AUTOWIRE_NO, false);
+		beanFactory.initializeBean(bean, testContext.getTestClass().getName());
+		testContext.removeAttribute(REINJECT_DEPENDENCIES_ATTRIBUTE);
+	}
 
-采用这种方式，我们可以这样写我们的UT：
+这里面ApplicationContext在Test类创建的时候就已经根据@ContextLocation标注的位置加载存放到TestContext中了：
+   
+    /**
+     * TestContext encapsulates the context in which a test is executed, agnostic of
+     * the actual testing framework in use.
+     * 
+     * @author Sam Brannen
+     * @author Juergen Hoeller
+     * @since 2.5
+     */
+    public class TestContext extends AttributeAccessorSupport {
+
+    	TestContext(Class<?> testClass, ContextCache contextCache, String defaultContextLoaderClassName) {
+	        ...
+	    	
+		    if (!StringUtils.hasText(defaultContextLoaderClassName)) {
+			    defaultContextLoaderClassName = STANDARD_DEFAULT_CONTEXT_LOADER_CLASS_NAME;
+		    }
+
+		    ContextConfiguration contextConfiguration = testClass.getAnnotation(ContextConfiguration.class);
+		    String[] locations = null;
+		    ContextLoader contextLoader = null;
+
+	    	...
+
+			Class<? extends ContextLoader> contextLoaderClass = retrieveContextLoaderClass(testClass,
+				defaultContextLoaderClassName);
+			contextLoader = (ContextLoader) BeanUtils.instantiateClass(contextLoaderClass);
+			locations = retrieveContextLocations(contextLoader, testClass);
+		
+
+		    this.testClass = testClass;
+		    this.contextCache = contextCache;
+		    this.contextLoader = contextLoader;
+		    this.locations = locations;
+	    }
+	}
+
+
+#### ** *说明* **:
+
+Spring3使用了[Spring TestContext Framework](http://static.springsource.org/spring/docs/3.0.0.M3/reference/html/ch10s03.html#testcontext-framework)框架，支持多种接入方式：[10.3.5.5 TestContext support classes](http://static.springsource.org/spring/docs/3.0.0.M3/reference/html/ch10s03.html#testcontext-support-classes)。非常不错的官方文档，强烈推荐阅读。简单概括如下：
+
++ JUnit3.8：package `org.springframework.test.context.junit38`
+    + `AbstractJUnit38SpringContextTests`
+        + applicationContext
+    + `AbstractTransactionalJUnit38SpringContextTests`
+        + applicationContext
+        + simpleJdbcTemplate
++ JUnit4.5：package `org.springframework.test.context.junit4`
+    + `AbstractJUnit4SpringContextTests`
+        + applicationContext
+    + `AbstractTransactionalJUnit4SpringContextTests`
+        + applicationContext
+        + simpleJdbcTemplate
+    + Custom JUnit 4.5 Runner：`SpringJUnit4ClassRunner`
+        + @Runwith
+        + @ContextConfiguration
+        + @TestExecutionListeners
++ TestNG: package ` org.springframework.test.context.testng`
+    + `AbstractTestNGSpringContextTests`
+        + applicationContext
+    + `AbstractTransactionalTestNGSpringContextTests`
+        + applicationContext
+        + simpleJdbcTemplate
+       
+补充：对于JUnit3，Spring2.x原来提供了三种接入方式：
+
++ AbstractDependencyInjectionSpringContextTests
++ AbstractTransactionalSpringContextTests
++ AbstractTransactionalDataSourceSpringContextTests
+
+不过从Spring3.0开始，这些了类都被`org.springframework.test.context.junit38.AbstractJUnit38SpringContextTests`和`AbstractTransactionalJUnit38SpringContextTests`取代了:
+> @deprecated as of Spring 3.0, in favor of using the listener-based test context framework（不过由于JUnit3.x不支持`beforeTestClass`和`afterTestClass`，所以这两个事件是无法监听的。）
+
+> ({@link org.springframework.test.context.junit38.AbstractJUnit38SpringContextTests})
+
+---
+
+采用Spring3.x提供的SpringJUnit4ClassRunner接入方式，我们可以这样写我们的UT：
 
 
     package me.arganzheng.study;
@@ -151,9 +244,10 @@ Spring3提供了`SpringJUnit4ClassRunner`基类让我们可以很方便的接入
 	import static org.junit.Assert.*;
 	import org.junit.Test;
 	import org.springframework.beans.factory.annotation.Autowired;
+	import org.springframework.test.context.ContextConfiguration;
+    import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
 	
-	/**
-	 *  
+	/** 
 	 * @author arganzheng
 	 */
 	@RunWith(SpringJUnit4ClassRunner.class)
@@ -182,12 +276,21 @@ Spring3提供了`SpringJUnit4ClassRunner`基类让我们可以很方便的接入
     ackage me.arganzheng.study;
 	
 	import static org.junit.Assert.*;
-	import org.junit.Test;
-	import org.springframework.beans.factory.annotation.Autowired;
-	import org.springframework.test.annotation.Rollback;
+	import org.junit.After;
+    import org.junit.Before;
+    import org.junit.runner.RunWith;
+    import org.springframework.beans.factory.annotation.Autowired;
+    import org.springframework.beans.factory.config.ConfigurableBeanFactory;
+    import org.springframework.mock.web.MockHttpServletRequest;
+    import org.springframework.test.context.ContextConfiguration;
+    import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
+    import org.springframework.transaction.annotation.Transactional;
+    import org.springframework.web.context.request.AbstractRequestAttributes;
+    import org.springframework.web.context.request.RequestContextHolder;
+    import org.springframework.web.context.request.RequestScope;
+    import org.springframework.web.context.request.ServletRequestAttributes;
 	
-	/**
-	 *  
+	/**  
 	 * @author arganzheng
 	 */
 	@RunWith(SpringJUnit4ClassRunner.class)
@@ -226,8 +329,7 @@ Spring3提供了`SpringJUnit4ClassRunner`基类让我们可以很方便的接入
 	import org.springframework.beans.factory.annotation.Autowired;
 	import org.springframework.test.annotation.Rollback;
 	
-	/**
-	 *  
+	/** 
 	 * @author arganzheng
 	 */
 	public class FooServiceTest extends BaseSpringTestCase{
@@ -248,7 +350,7 @@ Spring3提供了`SpringJUnit4ClassRunner`基类让我们可以很方便的接入
 
 ## 单元测试的其他问题
 
-上面只是简单解决了依赖注入和事务管理问题，其实单元测试还有很多。如
+上面只是简单解决了依赖注入问题，其实单元测试还有很多。如
 
 1. 事务管理
 2. Mock掉外界依赖
