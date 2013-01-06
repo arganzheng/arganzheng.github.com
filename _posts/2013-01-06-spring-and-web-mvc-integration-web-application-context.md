@@ -237,6 +237,7 @@ Find the root WebApplicationContext for this web application, which is typically
 
 Spring官方文档给出了这么一个图：
 ![Context hierarchy in Spring Web MVC](/media/images/mvc-contexts.gif "mvc-contexts")
+
 然而这个图是不正确的！在这个图里，DispatcherServlet加载的WebApplicationContext跟biz层的WebApplicationContext(s)（即root ApplicationContext，这个称谓本身就有点怪，有误导嫌疑！），是一对多的关系！其实应该反过来。从上面的代码看来，通过`WebApplicationContextUtils.getWebApplicationContext(servletContext)`拿到的rootApplicationContext，是所有DispatcherServlet共享的biz层的应用上下文（这点从传递servletContext参数也可以看出来，因为ServletContext本身就是application级别的），它是作为每个DispatcherServlet加载的web ApplicationContext容器的parent上下文，进行共享。
 
 这点可以很简单的通过如下方式进行验证：在web层用`WebApplicationContextUtils.getWebApplicationContext`看能不能拿到DispatcherServlet所载入的web ApplicationContext。笔者试验了一下，确实拿不到，因为root ApplicationContext（parent）感知不到也不care，每个DispatcherServlet载入的webApplication（children）。
