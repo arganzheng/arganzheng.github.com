@@ -274,22 +274,11 @@ Spring3使用了[Spring TestContext Framework](http://static.springsource.org/sp
 当然，每个UT类都要配置这么多anotation配置是很不方便的，搞成一个基类会好很多：
 
     ackage me.arganzheng.study;
-	
-	import static org.junit.Assert.*;
-	import org.junit.After;
-    import org.junit.Before;
+
     import org.junit.runner.RunWith;
-    import org.springframework.beans.factory.annotation.Autowired;
-    import org.springframework.beans.factory.config.ConfigurableBeanFactory;
-    import org.springframework.mock.web.MockHttpServletRequest;
     import org.springframework.test.context.ContextConfiguration;
     import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
-    import org.springframework.transaction.annotation.Transactional;
-    import org.springframework.web.context.request.AbstractRequestAttributes;
-    import org.springframework.web.context.request.RequestContextHolder;
-    import org.springframework.web.context.request.RequestScope;
-    import org.springframework.web.context.request.ServletRequestAttributes;
-	
+    import org.springframework.transaction.annotation.Transactional;	
 	/**  
 	 * @author arganzheng
 	 */
@@ -302,24 +291,8 @@ Spring3使用了[Spring TestContext Framework](http://static.springsource.org/sp
     @Transactional
 	public class BaseSpringTestCase{
 	
-		@Autowired
-	    private ConfigurableBeanFactory beanFactory;
-
-	    @Before
-	    public void setUp(){
-		    beanFactory.registerScope("request", new RequestScope());
-		    RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
-	    }
-
-	    @After
-	    public void tearDown(){
-		    ((AbstractRequestAttributes)RequestContextHolder.currentRequestAttributes()).requestCompleted();
-		    RequestContextHolder.resetRequestAttributes();
-	    }
     }
-
-注：关于RequestContextHolder的原因，是为了解决web层测试的一个问题。@Transactional是解决事务管理问题。后面有时间会讨论到。
-
+    
 然后我们的FooServiceTest就可以简化为：
 
     package me.arganzheng.study;
@@ -354,7 +327,10 @@ Spring3使用了[Spring TestContext Framework](http://static.springsource.org/sp
 
 1. 事务管理
 2. Mock掉外界依赖
-3. 测试数据准备和结果验证
+3. web层测试
+4. 接口测试
+3. 静态和私有方法测试
+4. 测试数据准备和结果验证
 
 等等。
 
