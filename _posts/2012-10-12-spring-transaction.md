@@ -1,5 +1,8 @@
-Spring事务配置
-============
+---
+layout: post
+title: Spring事务配置
+---
+
 
 ## 原理
 
@@ -13,7 +16,7 @@ Spring是基于proxy方式的事务实现机制。如果你的target实现了某
     }
     tx.commit();
 
-![](image/tx.png)
+![](media/images/tx.png)
 
 而动态代理的生成方式，Spring支持两种：
 

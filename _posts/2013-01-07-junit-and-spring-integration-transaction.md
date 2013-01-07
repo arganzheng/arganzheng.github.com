@@ -132,5 +132,5 @@ When executing transactional tests, it is sometimes useful to be able execute ce
 		}
 	}
 
-当然前提是你在Spring的配置文件中正确的配置了transactionManager。关于如何在Spring中配置事务，请参考笔者另一篇文章 [Spring事务配置]() .
+当然前提是你在Spring的配置文件中正确的配置了transactionManager。关于如何在Spring中配置事务，请参考笔者另一篇文章 [Spring事务配置](http://blog.arganzheng.me/posts/spring-transaction.html) .
 
