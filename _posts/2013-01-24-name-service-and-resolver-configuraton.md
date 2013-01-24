@@ -70,3 +70,9 @@ If this sounds confusing to you, consider this sample resolv.conf file for the V
 When resolving the name vale, the resolver would look up vale, and failing this, vale.vbrew.com, and vale.com.
 
 这个一个例子，不过用了domain没有用search，但是domain和search是互斥的，因为只有一个生效。
+
+## 相关命令
+
+1. ping blog.arganzheng.me
+2. nslookup blog.arganzheng.me 8.8.8.8 
+3. dig blog.arganzheng.me
