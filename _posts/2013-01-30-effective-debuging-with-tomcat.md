@@ -57,4 +57,3 @@ title: 如何使用tomcat高效调试
 如果是自己启动tomcat，那么可以直接使用jpda调试：
 
     $./catalina.sh jpda run
-
