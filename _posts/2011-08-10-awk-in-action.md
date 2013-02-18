@@ -3,6 +3,7 @@ title: AWK学习与实战
 layout: post
 ---
 
+
 ### 前言
 
 AWK的`pattern { action }`语法结构已经影响到很多后来的东东，当然更早的是`grep`和`sed`。
