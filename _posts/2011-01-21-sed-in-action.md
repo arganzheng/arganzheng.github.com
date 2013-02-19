@@ -1,7 +1,8 @@
 ---
 layout: post
-title: sed实战
+title: sed实战 
 ---
+
 
 ### 实战1. 删除空行（包括由空格组成的空行）
 
