@@ -1,6 +1,6 @@
 ---
 layout: post
-title: sed实战
+title: sed in action
 ---
 
 ### 实战1. 删除空行（包括由空格组成的空行）
