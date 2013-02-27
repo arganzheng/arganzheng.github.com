@@ -15,7 +15,7 @@
     
 2. 软件负载均衡：如[HAProxy](http://haproxy.1wt.eu/)，[LVS](http://www.linux-vs.org/)，等。
     
-软件负载均衡服务器也有不同的实现机制：有用户空间的负载均衡程序（如HAProxy, nginx，等。这种一般是简历在TCP/IP协议之上的负载均衡，所以也称为application-level load balancing，或者称为Layer-7 switching），还有编译进入内核的负载均衡程序（如LVS，这种一般涉及到修改IP层package，所以也称为IP-based load balancers，或者Layer-4 switching）。用户空间的负载均衡程序一般有两种实现：1. event-driven, single-process model；或者Multi-process or multi-threaded models。
+软件负载均衡服务器也有不同的实现机制：有用户空间的负载均衡程序（如HAProxy, nginx，等。这种一般是建立在TCP/IP协议之上的负载均衡，所以也称为application-level load balancing，或者称为Layer-7 switching），还有编译进入内核的负载均衡程序（如LVS，这种一般涉及到修改IP层package，所以也称为IP-based load balancers，或者Layer-4 switching）。用户空间的负载均衡程序一般有两种实现：1. event-driven, single-process model；或者Multi-process or multi-threaded models。
     
 ### 负载均衡的三角策略
 
@@ -35,7 +35,7 @@
 解决这个问题的方案就是IP tunneling，也称为[IP encapsulation](http://www.networksorcery.com/enp/protocol/ip-ip.htm)，其实是一个非常简单协议，就是为了解决发送端IP地址与返回地址不是同一个的问题，要保留两种，那么简单再增加一个IP头部就是了。不过要求balancer和backend-servers都支持IP分装协议(IP encapsulation protocol)。
 具体的实现机制和原理参加LVS的这篇文档：[Virtual Server via IP Tunneling](http://www.linux-vs.org/VS-IPTunneling.htmls)。
 
-另一种做法就是直接路由方式(Direct Routing)：就是load balancer和backend-server处于同样的地位：双IP，其中一个IP都是配置同样的VIP，处于同一个局域网内。当请求过来的时候，balancer直接将package转发给挑选到的backend-server，因为两者都有同样的VIP，所以就不需要修改IP头或者做IP tunnele了。具体做饭参见：[Virtual Server via Direct Routing](http://www.linux-vs.org/VS-DRouting.html)。
+另一种做法就是直接路由方式(Direct Routing)：就是load balancer和backend-server处于同样的地位：双IP，其中一个IP都是配置同样的VIP，处于同一个局域网内。当请求过来的时候，balancer直接将package转发给挑选到的backend-server，因为两者都有同样的VIP，所以就不需要修改IP头或者做IP tunnele了。具体做法参见：[Virtual Server via Direct Routing](http://www.linux-vs.org/VS-DRouting.html)。
 
 返回消息不经过load balancer能够带来极大的性能提高，因为请求消息一般小而快，而返回消息一般比较大而慢。让backend-server直接返回给client，极大的解放了load balancer。
 
@@ -70,4 +70,14 @@ LVS(Linux Virtual Servers)是目前最好的IP-based load balancers。它的优�
 Alibaba
 Tencent
 Quara
+
+
+## 负载均衡策略
+
+
+#### 服务端负载均衡：如nginx等方向代理负载均衡。
+
+#### 客户端负载均衡：
+如Cobar，DNS，等
+
 
