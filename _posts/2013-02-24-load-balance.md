@@ -51,14 +51,22 @@
 
 **疑问：load balancer本身不会成为瓶颈和单点吗？**
 
-由于load balancer基本就是一个forward逻辑，所以很快，吞吐量非常高。如果采用backend-server直接返回client的模式，那么不需要改写response信息，吞吐量会进一步提高。再配合NDS负载均衡，一般不会有问题。对于单点问题，一般的作法是配对一个backup，与active server做heart beat。如果有状态的话，一般是共享存储，或者在backup server之间做数据同步。如果当期的活动server宕掉了，那么迅速切换到backup server，可能需要一定的人工接入。
+由于load balancer基本就是一个forward逻辑，所以很快，吞吐量非常高。如果采用backend-server直接返回client的模式，那么不需要改写response信息，吞吐量会进一步提高。再配合NDS负载均衡，一般不会有问题。
 
+对于单点问题，一般的作法是配对一个backup，与active server做heart beat。如果有状态的话，一般是共享存储，或者在backup server之间做数据同步。如果当前的活动server宕掉了，那么backup Server通过程序自动接管IP地址，从而将服务迅速切换到backup server。除非有复杂的状态问题，一般不需要人工接入。
+关于HA具体做法可以参考如下文章：
+1. [The heartbeat+mon+coda solution](http://www.linuxvirtualserver.org/docs/ha/heartbeat_mon.html)
+2. [The heartbeat+ldirectord solution](http://www.linuxvirtualserver.org/docs/ha/heartbeat_ldirectord.html)
 
 在这些负载均衡服务器会配置需要负载均衡的实际web服务器，一般是nginx或者apache。负载均衡的策略一般是最简单也是最有效的随机或者轮休策略。而事实上，由于现在大部分网站都是动态内容，这些web服务器往往也是一个有cache功能的load balancer，为后台的应用服务器（tomcat、JBoss等）做负载均衡。
 
 ## 后端应用服务器负责均衡
 
-后端应用服务器之间的通讯一般都是服务调用的方式，一般还会跨语言。所以现在业界普遍的做法就是采用 配置中心+客户端负载均衡的方式实现服务路由和负载均衡。试用Trift或者protocalbuf实现跨语言交互。
+后端应用服务器之间的通讯一般都是服务调用的方式，一般还会跨语言。所以也称为 组件负载平衡(CLB,Component LoActive Directory Balancing)。
+
+现在业界普遍的做法就是采用 配置中心+客户端负载均衡的方式实现服务路由和负载均衡。试用Trift或者protocalbuf实现跨语言交互。
+
+为了避免每次都是去配置中心查询服务注册信息，一般还会使用本地agent作为cache。
 
 ## 后端数据库负载均衡
 
@@ -94,7 +102,18 @@ Quara
 
 1. 全局负载均衡
  
-    GSLB 是英文Gobal Server Load Balance的缩写，意思是全局负载均衡。 作用：实现在广域网（包括互联网）上不同地域的服务器间的流量调配，保证使用最佳的服务器服务离自己最近的客户，从而确保访问质量。
+   GSLB：Global Server Load Balance的首字母缩写，意为全局负载均衡；实现在广域网（包括互联网）上不同地域的服务器间的流量调配，保证使用最佳的离自己最近的客户服务器服务，从而确保访问质量；它对服务器和链路进行综合判断来决定由哪个地点的服务器来提供服务，实现异地服务器群服务质量的保证；目前主要有基于DNS实现、基于重定向实现、基于路由协议实现三种方式。腾讯GSLB平台使用基于DNS系统的实现。
 
-2. 局部负载均衡（一般是同个IDC，同个业务服务）
+2. 本地负载均衡（Local Load Balance，一般是同个IDC，同个业务服务）
 
+----
+
+## DNS知识补充
+
+域名解析：是指完成域名向IP的映射；域名解析的初衷是为了用易于记忆的字符串替代IP地址；目前，它不仅能够完成其本职任务，同时也是互联网服务运营中的有力工具，GSLB即是基于域名解析的全局负载均衡解决方案。
+RR：Resource Rocord的首字母缩写，意为资源记录；在域名解析过程中，一跳完整的记录就称作一条资源记录，如www 300 IN A 119.147.15.17；RR通常有几个字段构成，具体可以参考《DNS与BIND》一书。
+A记录：用于指定域名对应的IP地址，如www 300 IN A 119.147.15.17即为一条A记录。
+CNAME记录：别名记录，可以给同一个IP或域名指定多个不同的名字，如www.paipai.com. 600 IN CNAME www.paipai.tc.qq.com.即为一条CNAME记录。
+MX记录：邮箱路由记录，可以将某个域名下的域名服务器指向到指定的邮箱服务器，如qq.com 43200 IN MX 10 mx1.qq.com.。
+TXT记录：文本记录，用户进行域名的辅助信息说明；但现在TXT类型记录有了越来越多的扩展应用，如用于记录SPF信息，domain-key信息等。
+TTL：Time To Live的首字母缩写，意为生存时间，代表DNS记录在DNS服务器上缓存的时间，通常以秒为单位，允许的值为0-2^32；如www 300 IN A 119.147.15.17中的第二个字段就是TTL，说明该RR记录在DNS服务器中会缓存300，之后就会被丢弃。
