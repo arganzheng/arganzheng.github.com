@@ -15,7 +15,15 @@
     
 2. 软件负载均衡：如[HAProxy](http://haproxy.1wt.eu/)，[LVS](http://www.linux-vs.org/)，等。
     
-软件负载均衡服务器也有不同的实现机制：有用户空间的负载均衡程序（如HAProxy, nginx，等。这种一般是建立在TCP/IP协议之上的负载均衡，所以也称为application-level load balancing，或者称为Layer-7 switching），还有编译进入内核的负载均衡程序（如LVS，这种一般涉及到修改IP层package，所以也称为IP-based load balancers，或者Layer-4 switching）。用户空间的负载均衡程序一般有两种实现：1. event-driven, single-process model；或者Multi-process or multi-threaded models。
+    软件负载均衡服务器也有不同的实现机制：
+    1. 有用户空间的负载均衡程序
+        
+        如HAProxy, nginx，等。这种一般是建立在TCP/IP协议之上的负载均衡，所以也称为application-level load balancing，或者称为Layer-7 switching。
+        缺点就就是性能比较差，但是功能会比较多，除了负载均衡，还能作Web服务器，可以Cache，可以压缩等等。
+    
+    2. 还有编译进入内核的负载均衡程序
+     
+        如LVS，这种一般涉及到修改IP层package，所以也称为IP-based load balancers，或者Layer-4 switching）。用户空间的负载均衡程序一般有两种实现：1. event-driven, single-process model；或者Multi-process or multi-threaded models。
     
 ### 负载均衡的三角策略
 
@@ -50,6 +58,8 @@
 
 ## 后端应用服务器负责均衡
 
+后端应用服务器之间的通讯一般都是服务调用的方式，一般还会跨语言。所以现在业界普遍的做法就是采用 配置中心+客户端负载均衡的方式实现服务路由和负载均衡。试用Trift或者protocalbuf实现跨语言交互。
+
 ## 后端数据库负载均衡
 
 1. [USING HAPROXY FOR MYSQL FAILOVER AND REDUNDANCY](http://www.alexwilliams.ca/blog/2009/08/10/using-haproxy-for-mysql-failover-and-redundancy/)
@@ -80,4 +90,11 @@ Quara
 #### 客户端负载均衡：
 如Cobar，DNS，等
 
+## 负载均衡的范围
+
+1. 全局负载均衡
+ 
+    GSLB 是英文Gobal Server Load Balance的缩写，意思是全局负载均衡。 作用：实现在广域网（包括互联网）上不同地域的服务器间的流量调配，保证使用最佳的服务器服务离自己最近的客户，从而确保访问质量。
+
+2. 局部负载均衡（一般是同个IDC，同个业务服务）
 
