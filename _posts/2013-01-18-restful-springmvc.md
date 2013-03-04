@@ -548,5 +548,36 @@ RestTemplate默认使用`java.net`包下的基础类来创建HTTP请求。你可
 关于RestTemplate使用的具体例子可以参考这篇文章[
 REST IN SPRING 3: RESTTEMPLATE](http://blog.springsource.org/2009/03/27/rest-in-spring-3-resttemplate/)。写的非常好，强烈推荐！
     
+### 7. 设计的URL
+
+在开发功能模块之前，应该先把URL设计好。比查对 **消息** 这个资源的操作URL可以这么设计：
     
+    http://arganzheng.me/messages/show/123456
+    http://arganzheng.me/messages/preview/123456
+    http://arganzheng.me/messages/delete/123456
+    http://arganzheng.me/messages/new
+    http://arganzheng.me/message/update
+    
+说明：可以看到我们的URL中有动作在里面，事实上纯粹的RESTful URL是把动作隐含在HTTP头中：GET、PUT、DELETE、POST。。不过这样对用户编码有要求，这个相对简单点。
+
+要支持这种URL，web.xml需要这么配置：
+
+    <!-- REST servlet-mapping -->	<servlet-mapping>		<servlet-name>DispatcherServlet<srvlet-name>		<url-pattern>/</url-pattern>	<srvlet-mapping>
+	
+但是这样的话有个问题，就是静态文件也被mapping了，会导致找不到资源。Spring提供了一个resources配置项支持静态文件的处理[16.14.5 Configuring Serving of Resources](http://static.springsource.org/spring/docs/3.1.x/spring-framework-reference/html/mvc.html#mvc-config-static-resources)：
+
+    <!-- Forwards requests to the "/" resource to the "welcome" view -->	<mvc:view-controller path="/" view-name="index"/>		<!-- Handles HTTP GET requests for /resources/** by efficiently serving up static resources in the ${webappRoot}/resources/ directory -->	<mvc:resources mapping="/resources/**" location="/resources/" />	<!-- 注：配置了mvc:resources就必须配置这个选项，否则handler mapping都失效了 		@see  http://stackoverflow.com/questions/7910845/the-handler-mapping-from-the-mvcresource-override-other-mappings-which-defined 	-->	<mvc:annotation-driven />
+
+这样所有请求：http://arganzheng.me/resources/**的会映射到webapp下的resources目录，而不是找我们的controller处理。
+
+但是有个奇怪的问题，就是配置这个之后，原来动态东西就不能访问到了，提示找不到对应的handler，解决方案是增加一个`<mvc:annotation-driven />`配置。具体参见[The handler mapping from the mvc:resource override other mappings which defined with annotation](http://stackoverflow.com/questions/7910845/the-handler-mapping-from-the-mvcresource-override-other-mappings-which-defined)。
+
+另外，静态的html页面一般不放在resources路面下，而是直接在根目录下，比如：http://arganzheng.me/index.html或者http://arganzheng.me/404.html。所以应该在web.xml中在配置一个url-mapping规则：
+
+    <!-- 避免被Spring DispatcherServlet接管 -->	<servlet-mapping>		<servlet-name>default<srvlet-name>		<url-pattern>*.html</url-pattern>	<srvlet-mapping>
+
+--EOF--
+
+
+   
 
