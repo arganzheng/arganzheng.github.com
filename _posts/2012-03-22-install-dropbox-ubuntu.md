@@ -1,6 +1,6 @@
 ---
 layout: post
-title:
+title: ubuntu下安装Dropbox
 ---
 
 本来在ubuntu下安装个软件是一件简单的事情，不值得写成文章。不过由于有“墙”的存在，所以还是记录一下吧，造福后人。
