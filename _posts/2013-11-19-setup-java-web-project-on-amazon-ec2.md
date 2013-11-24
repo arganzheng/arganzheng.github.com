@@ -164,5 +164,42 @@ yum上有tomcat6和tomcat7，不过建议还是自己安装一下，反正是jav
 
 It works! :)
 
+
+----
+
+
+补记：安装nginx和配置CNAME
+=========================
+
+
+注意到EC2的DNS域名非常的长，基本记不住。而且sample工程霸占了80端口，以后其他的工程就没法用了。最好是用nginx来转发。
+
+一、安装nginx
+-------------
+
+
+源代码安装很简单，具体参见 http://wiki.nginx.org/Install。需要注意的默认会安装到/usr/local/nginx目录下，建议通过--prefix选项更改。
+安装完成之后需要配置一下nginx：
+
+	server {
+        listen       80;
+        server_name  ec2.arganzheng.me ec2-54-201-85-167.us-west-2.compute.amazonaws.com; 
+
+        location / {
+            proxy_pass http://localhost:8080;
+        }
+    }
+
+    
+二、配置CNAME，指向你的EC2 DNS域名
+----------------------------------
+
+
+进入Goddy账户，增加一个CNAME(Alias):
+
+    ec2 ec2-54-201-85-167.us-west-2.compute.amazonaws.com
+    
+保存即可。
+
 --EOF--
 
