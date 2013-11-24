@@ -37,24 +37,25 @@ title: 如何确保C库可以正确被C++客户端程序调用
 
 2. 告示C++编译器，我现在要调用的这个函数是一个C函数，你不要自作聪明给我乱命名。那么怎样告诉他呢？回想C++编译器根本不知道该C函数的存在，他之所以编译通过是因为你通过包含C库头文件或对要调用的C函数进行extern声明告诉他，这个函数存在，它的定义在外部编译单元。所以他才会乐滋滋的让你编译通过。那么能不能更明确的告诉他：这是一个外部函数，他存在外部编译单元，他是一个C函数声明与定义。幸运的是，C++编译器确实存在这样的入口让我们告诉他。做法是：如果你是通过包含C库头文件来调用C函数，那么你需要修改该C库头文件，如在sqlite3.h中有如下声明：
 
-    /*
-     * Make sure we can call this stuff from C++.
-     */
+       /*
+        * Make sure we can call this stuff from C++.
+        */
+       #ifdef __cplusplus
+          extern "C" {
+       #endif
 
-    #ifdef __cplusplus
-        extern "C" {
-    #endif
+  以下是C函数正常声明
 
-以下是C函数正常声明
+       #ifdef __cplusplus
+          } /* End of the 'extern "C" block */
+       #endif
 
-    #ifdef __cplusplus
-        } /* End of the 'extern "C" block */
-    #endif
 
 这样当遇到C++编译器时（#ifdef __cplusplus为真），则会自动告诉他以下这些函数都是C函数，不要用C++编译器编译和链接。
 
 如果你不打算包含头文件（这种情形下是一般是自己混合C和C++两种语言编写同一个项目，如MySQL的做法），那么你可以在C++文件中对特定的C函数进行如下声明：
-extern "C" int foo(int a);
+
+    extern "C" int foo(int a);
 
 这样就可以了。Enjoy！
 
