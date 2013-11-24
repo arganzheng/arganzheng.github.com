@@ -1,5 +1,8 @@
-负载均衡
-=======
+---
+layout: post
+title: 负载均衡
+---
+
 
 高性能高可用性的系统一般会有多层次的负载均衡。(High-performance systems may use multiple layers of load balancing.)。负责均衡的实现机制有硬件和软件两种。下面我们以top down的方式一层层介绍下去。
 
@@ -45,9 +48,9 @@
 2. backend-server必须有client的IP信息，否则它没法发送给client，也就是说balancer发给它的package中除了包含它自己的IP信息（IP协议要求）还必须包含client的IP信息。
 
 解决这个问题的方案就是IP tunneling，也称为[IP encapsulation](http://www.networksorcery.com/enp/protocol/ip-ip.htm)，其实是一个非常简单协议，就是为了解决发送端IP地址与返回地址不是同一个的问题，要保留两种，那么简单再增加一个IP头部就是了。不过要求balancer和backend-servers都支持IP分装协议(IP encapsulation protocol)。
-具体的实现机制和原理参加LVS的这篇文档：[Virtual Server via IP Tunneling](http://www.linux-vs.org/VS-IPTunneling.htmls)。
+具体的实现机制和原理参见LVS的这篇文档：[Virtual Server via IP Tunneling](http://www.linuxvirtualserver.org/VS-IPTunneling.html)。
 
-另一种做法就是直接路由方式(Direct Routing)：就是load balancer和backend-server处于同样的地位：双IP，其中一个IP都是配置同样的VIP，处于同一个局域网内。当请求过来的时候，balancer直接将package转发给挑选到的backend-server，因为两者都有同样的VIP，所以就不需要修改IP头或者做IP tunnele了。具体做法参见：[Virtual Server via Direct Routing](http://www.linux-vs.org/VS-DRouting.html)。
+另一种做法就是直接路由方式(Direct Routing)：就是load balancer和backend-server处于同样的地位：双IP，其中一个IP都是配置同样的VIP，处于同一个局域网内。当请求过来的时候，balancer直接将package转发给挑选到的backend-server，因为两者都有同样的VIP，所以就不需要修改IP头或者做IP tunnele了。具体做法参见：[Virtual Server via Direct Routing](http://www.linuxvirtualserver.org/VS-DRouting.html)。
 
 返回消息不经过load balancer能够带来极大的性能提高，因为请求消息一般小而快，而返回消息一般比较大而慢。让backend-server直接返回给client，极大的解放了load balancer。
 
