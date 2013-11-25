@@ -43,11 +43,10 @@ title: 如何不刷新页面上传文件
 
 方案2. 另外一种不刷新的方法当然就是ajax了。简单的一个post请求就可以了，现在有很多的ajax框架，也可以直接使用。
 
-方案3. 前面两种做法其实都是将表单分为两步：1. 先上传图片(不刷新主页面); 2. 提交纯文本请求。这样编码就可以是简单的Content-Type:application/x-www-form-urlencoded。有没有可能文本和二进制内容一起上传呢？HTTP协议中的mime协议就是为这个制订的。
-使用 Content-Type: multipart/form-data; boundary=${anything you like} 就可以上传多种格式的参数了。
+方案3. 前面两种做法其实都是将表单分为两步：1. 先上传图片(不刷新主页面); 2. 提交纯文本请求。这样编码就可以是简单的`Content-Type:application/x-www-form-urlencoded`。有没有可能文本和二进制内容一起上传呢？HTTP协议中的mime协议就是为这个制订的。
+使用 `Content-Type: multipart/form-data; boundary=${anything you like}` 就可以上传多种格式的参数了。
 
-关于Content-Type:application/x-www-form-urlencoded和Content-Type: multipart/form-data; boundary=${anything you like}的区别，
-在StackOverFlow中有比较简洁的解释：http://stackoverflow.com/questions/4526273/what-does-enctype-multipart-form-data-mean
+关于`Content-Type:application/x-www-form-urlencoded`和`Content-Type: multipart/form-data; boundary=${anything you like}`的区别，在StackOverFlow中有比较简洁的解释：[What does enctype='multipart/form-data' mean?](http://stackoverflow.com/questions/4526273/what-does-enctype-multipart-form-data-mean)
 
->>When you make a POST request, you have to encode the data that forms the body of the >>request in some way.
->>HTML forms provide two methods of encoding. The default is application/x-www-form->>urlencoded, which is more or less the same as a query string on the end of the URL. >>multipart/form-data is a more complicated encoding but one which allows entire files >>to be included in the data.
+>When you make a POST request, you have to encode the data that forms the body of the request in some way.
+>HTML forms provide two methods of encoding. The default is application/x-www-form-urlencoded, which is more or less the same as a query string on the end of the URL. The other, multipart/form-data, is a more complicated encoding but one which allows entire files to be included in the data.
