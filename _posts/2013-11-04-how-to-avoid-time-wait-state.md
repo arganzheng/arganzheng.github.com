@@ -3,12 +3,13 @@ layout: post
 title: 如何解决time_wait状态占用端口问题
 ---
 
-
-## 问题 
+问题 
+----
 
 在restart服务端的时候，总是发现启动失败，端口被占用。需要先stop，然后等待一段时间，再start。分析了一下，确定是time_wait导致端口缓慢释放问题。
 
-## 相关背景知识
+相关背景知识
+------------
 
 一、Linux服务器上11种网络连接状态:
 
@@ -20,11 +21,13 @@ title: 如何解决time_wait状态占用端口问题
  3. TCP四次挥手 
 
 同时会有三种特殊的数据包
+
  1. SYN:(同步序列编号,Synchronize Sequence Numbers)该标志仅在三次握手建立TCP连接时有效。表示一个新的TCP连接请求。
  2. ACK:(确认编号,Acknowledgement Number)是对TCP请求的确认标志,同时提示对端系统已经成功接收所有数据。 
  3. FIN:(结束标志,FINish)用来结束一个TCP回话.但对应端口仍处于开放状态,准备接收后续数据。
 
 产生11种状态
+
  1. LISTEN:首先服务端需要打开一个socket进行监听，状态为LISTEN. /* The socket is listening for incoming connections. 侦听来自远方TCP端口的连接请求 */
  2. SYN_SENT:客户端通过应用程序调用connect进行active open.于是客户端tcp发送一个SYN以请求建立一个连接.之后状态置为SYN_SENT. /*The socket is actively attempting to establish a connection. 在发送连接请求后等待匹配的连接请求 */
  3. SYN_RECV:服务端应发出ACK确认客户端的SYN,同时自己向客户端发送一个SYN. 之后状态置为SYN_RECV  /* A connection request has been received from the network. 在收到和发送一个连接请求后等待对连接请求的确认 */
@@ -102,7 +105,8 @@ title: 如何解决time_wait状态占用端口问题
 :   default: 5
     Indicates the maximum number of connections per destination to be kept alive at any given time
 
-## 解决方案
+解决方案
+--------
 
 设置`SO_LINGER`选项，可以让TCP链接直接走捷径关闭，避免了四次挥手过程，从而避免了time_wait缓慢状态。不过会导致缓冲区的数据丢失，所以不是很推荐。
 
@@ -124,7 +128,8 @@ java中一般这样设置：
 
 说明: 关于`SO_LINGER`和`SO_REUSEADDR`选项参考《UNIX网络编程卷一：套接字联网API》。就明白了。
 
-## 参考文章
+参考文章
+--------
 
 1. [Java network server and TIME_WAIT](http://stackoverflow.com/questions/922951/java-network-server-and-time-wait)
 2. [What is the reason for time_wait connection increasing in java?](http://stackoverflow.com/questions/10726049/what-is-the-reason-for-time-wait-connection-increasing-in-java)
