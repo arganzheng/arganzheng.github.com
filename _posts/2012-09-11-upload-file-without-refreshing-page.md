@@ -13,33 +13,89 @@ title: 如何不刷新页面上传文件
 方案1. 为了不刷新页面，一般来说要不就是对文件标签使用iframe和单独的form来提交。提交到iframe指定的action处理完成后，将文件上传路径回写到父页面的某个字段。需要在iframe中区分是否已经上传了文件。
 如：http://apitest.buy.qq.com/apitools/imgUpload.xhtml?imgName=pic
 
-    <html> 
-     <head></head> 
-     <body> 
-     	<form name="form1" id="form1" method="post" enctype="multipart/form-data" action="uploadImg.xhtml" onsubmit="return upload();"> 
-     		<input type="file" name="image" id="image"> 
-     		<input type="submit" name="submit" value="上传"> 
-     	</form>   
-     	<script type="text/javascript"> 
-     		var fileName = "1345429941610"; 
-     		function upload() {
-     			var strFileName = document.getElementById("image").value; 
-     			if (strFileName == "") { 
-     				alert("请选择要上传的文件"); 
-     				return false; 
-     			} 
-     			var strtype = strFileName.substring(strFileName.length - 3, strFileName.length); 
-     			strtype = strtype.toLowerCase(); 
-     			if (strtype == "jpg" || strtype == "gif" || strtype == "bmp" || strtype == "png") { 
-     				window.parent.document.getElementById("apiParam_pic").value = ""; return true; 
-     			} else { alert("这种文件类型不允许上传！\r\n只允许上传这几种文件：jpg、gif、bmp、png\r\n请选择别的文件并重新上传。"); 
-     			document.getElementById("image").focus();
-     			return false; 
-     			}   
-     		} 
-     	</script>
-     </body> 
+    <html>
+        <head>
+            <meta name="description" content="腾讯电商" />
+            <link rel="stylesheet" href="http://static.gtimg.com/css/open/open_api.css" />
+            
+            <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+            
+            #if($title)
+            <title>$title - API测试工具</title>
+            #else
+            <title>API测试工具</title>
+            #end
+        </head>
+        <body>
+            <form name="form1" id="form1" method="post"
+              enctype="multipart/form-data" action="upload.xhtml" onsubmit="return upload();">
+              <input type="file" name="file"     id="image"> 
+              <input type="submit" name="submit" value="上传">
+            </form>
+            
+            <script type="text/javascript">
+              var fileName = "1345429941610";
+              function upload() {
+                   var strFileName = document.getElementById("image").value;
+                   if (strFileName == "") {
+                        alert("请选择要上传的文件");
+                        return false;
+                   }
+                   var strtype = strFileName.substring(strFileName.length - 3,
+                             strFileName.length);
+                   strtype = strtype.toLowerCase();
+                   if (strtype == "jpg" || strtype == "gif" || strtype == "bmp"
+                             || strtype == "png") {
+                        window.parent.document.getElementById("apiParam_pic").value = "";
+                        return true;
+                   } else {
+                        alert("这种文件类型不允许上传！\r\n只允许上传这几种文件：jpg、gif、bmp、png\r\n请选择别的文件并重新上传。");
+                        document.getElementById("image").focus();
+                        return false;
+                   }
+            
+              }
+            
+              #if($imgPath)
+                   window.parent.document.getElementById("apiParam_pic").value =$imgPath />
+              #end
+            
+            </script>
+        </body>
     </html>
+
+
+然后controller里面接收，上传到临时目录，返回保存路径：
+
+    @RequestMapping(value = "upload", method = RequestMethod.POST)
+    public String uploadImage(FileItem file, Model model) {
+        FileOutputStream fos = null;
+        try {
+            // 建立文件输出流
+            String sp = imageSavePath;
+            File uploadFilePath = new File(sp);
+            // 如果该目录不存在,则创建之
+            if (!uploadFilePath.exists()) {
+                uploadFilePath.mkdirs();
+            }
+
+            String imageFileName = getImageFileName(file.getOriginalFilename());
+            String imgPath = FilenameUtils.concat(sp, imageFileName);
+            fos = new FileOutputStream(imgPath);
+            IOUtils.write(file.getBytes(), fos);
+
+            // 把上传图片路径放入model中，让页面可以获取下次作为参数上传。
+            model.addAttribute("imgPath", imgPath);
+        } catch (Exception e) {
+            logger.error("upload image fail!", e);
+        } finally {
+            close(fos, file.getInputStream());
+        }
+
+        // set reture result to inputStream: url,
+        return "apitools/imgUpload";
+    }   
+
 
 方案2. 另外一种不刷新的方法当然就是ajax了。简单的一个post请求就可以了，现在有很多的ajax框架，也可以直接使用。
 
