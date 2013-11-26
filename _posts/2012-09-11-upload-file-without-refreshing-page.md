@@ -59,7 +59,7 @@ title: 如何不刷新页面上传文件
               }
             
               #if($imgPath)
-                   window.parent.document.getElementById("apiParam_pic").value ='$imgPath' />
+                  window.parent.document.getElementById("apiParam_pic").value ='$imgPath';
               #end
             
             </script>
