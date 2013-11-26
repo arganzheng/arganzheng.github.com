@@ -10,7 +10,9 @@ title: 如何不刷新页面上传文件
 
 ### 解决方案
 
-方案1. 为了不刷新页面，一般来说要不就是对文件标签使用iframe和单独的form来提交。提交到iframe指定的action处理完成后，将文件上传路径回写到父页面的某个字段。需要在iframe中区分是否已经上传了文件。
+#### 方案1. iframe + hidden field
+
+为了不刷新页面，一般来说要不就是对文件标签使用iframe和单独的form来提交。提交到iframe指定的action处理完成后，将文件上传路径回写到父页面的某个字段。需要在iframe中区分是否已经上传了文件。
 如：http://apitest.buy.qq.com/apitools/imgUpload.xhtml?imgName=pic
 
     <html>
@@ -57,7 +59,7 @@ title: 如何不刷新页面上传文件
               }
             
               #if($imgPath)
-                   window.parent.document.getElementById("apiParam_pic").value =$imgPath />
+                   window.parent.document.getElementById("apiParam_pic").value ='$imgPath' />
               #end
             
             </script>
@@ -97,9 +99,21 @@ title: 如何不刷新页面上传文件
     }   
 
 
-方案2. 另外一种不刷新的方法当然就是ajax了。简单的一个post请求就可以了，现在有很多的ajax框架，也可以直接使用。
+然后在要不刷新上传的页面用iframe引用upload页面：
 
-方案3. 前面两种做法其实都是将表单分为两步：1. 先上传图片(不刷新主页面); 2. 提交纯文本请求。这样编码就可以是简单的`Content-Type:application/x-www-form-urlencoded`。有没有可能文本和二进制内容一起上传呢？HTTP协议中的mime协议就是为这个制订的。
+    <iframe id="apirightframe" name="apirightframe" width="325px" height="28px" frameborder="0" scrolling="no" src="upload.xhtml?imgName=pic"></iframe>
+    <input type="hidden" name="pic" id="apiParam_pic" value="test">
+
+这样通过iframe上传后，该iframe会将parent window的apiParam_pic hidden field的value设置为上传路径。
+
+
+#### 方案2.  ajax
+
+另外一种不刷新的方法当然就是ajax了。简单的一个post请求就可以了，现在有很多的ajax框架，也可以直接使用。
+
+#### 方案3. multipart与其他字段一起提交
+
+前面两种做法其实都是将表单分为两步：1. 先上传图片(不刷新主页面); 2. 提交纯文本请求。这样编码就可以是简单的`Content-Type:application/x-www-form-urlencoded`。有没有可能文本和二进制内容一起上传呢？HTTP协议中的mime协议就是为这个制订的。
 使用 `Content-Type: multipart/form-data; boundary=${anything you like}` 就可以上传多种格式的参数了。
 
 关于`Content-Type:application/x-www-form-urlencoded`和`Content-Type: multipart/form-data; boundary=${anything you like}`的区别，在StackOverFlow中有比较简洁的解释：[What does enctype='multipart/form-data' mean?](http://stackoverflow.com/questions/4526273/what-does-enctype-multipart-form-data-mean)
