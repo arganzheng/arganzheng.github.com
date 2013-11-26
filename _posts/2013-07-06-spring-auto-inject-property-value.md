@@ -1,7 +1,8 @@
 ---
 layout: post
-title:Spring使用@value annotation注入property变量和环境变量
+title: Spring使用@value annotation注入property变量和环境变量
 ---
+
 
     @Value("#{welife.rpc.sendCoupon.api}")
     private String              sendCouponApi;
