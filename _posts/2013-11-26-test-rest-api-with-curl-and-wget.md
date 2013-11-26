@@ -1,5 +1,8 @@
-使用curl和wget模拟REST请求
-==========================
+---
+layout: post
+title: 使用curl和wget模拟REST请求
+---
+
 
 模拟HTTP请求一般使用curl，例如有这么一个REST接口 [会员卡推送接口文档](http://open.weigou.qq.com/doc/wecard-push-api)
 
