@@ -174,6 +174,7 @@ Spring use the DefaultAopProxyFactory to create the AOP proxy object. DefaultAop
  * the "proxyTargetClass" flag is set 
  * no proxy interfaces have been specified 
 
+**DefaultAopProxyFactory**
 
     public class DefaultAopProxyFactory implements AopProxyFactory, Serializable {
         public AopProxy createAopProxy(AdvisedSupport config) throws AopConfigException {
