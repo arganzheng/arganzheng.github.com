@@ -169,6 +169,7 @@ Also note that both the JdkDynamicAopProxy and CglibAopProxy construct the proxy
 
 
 Spring use the DefaultAopProxyFactory to create the AOP proxy object. DefaultAopProxyFactory will automatically create CGLIB-based proxies if one the following is true for a given AdvisedSupport instance: 
+
  * the "optimize" flag is set 
  * the "proxyTargetClass" flag is set 
  * no proxy interfaces have been specified 
@@ -205,8 +206,8 @@ Spring use the DefaultAopProxyFactory to create the AOP proxy object. DefaultAop
     }
 
 
-参考文章
---------
+Resources
+---------
 
 1. [9. Aspect Oriented Programming with Spring](http://docs.spring.io/spring/docs/3.2.4.RELEASE/spring-framework-reference/html/aop.html#aop-understanding-aop-proxies)
 2. [8.6 Proxying mechanisms](http://docs.spring.io/spring/docs/3.0.0.M3/reference/html/ch08s06.html)
