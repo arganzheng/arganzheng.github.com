@@ -176,7 +176,7 @@ There are three main properties that need to be specified:
     [12-10 14:04:40.548][DEBUG][Thread-14] LotteryActivityService:142 : LotteryAO getLotteryRecord cost[342]ms
 
 
-### 使用`@Transactional`注解配置方式propagation 
+### 使用`@Transactional`注解配置方式
 
 其实从Spring2.x就开始支持Anotation方式进行事务配置了。不过相对于XML配置，粒度比较细。
 
