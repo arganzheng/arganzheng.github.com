@@ -52,6 +52,7 @@ title: 如何实现用户认证授权统
 
 google了一下，发现这篇文章跟我的观点不谋而合[Sessionless_Authentication_with_Encrypted_Tokens](http://eversystems.eu/Document/15/Sessionless_Authentication_with_Encrypted_Tokens)。另外看了一下[Spring Security的Remember Me](http://static.springsource.org/spring-security/site/docs/3.0.x/reference/remember-me.html)实现，原来这种方式是[10.2 Simple Hash-Based Token Approach]方式。他的hash因子中也有password，这样当用户修改了password之后，这个token就失效了。不过这种方式没有办法解决token被盗取的问题。要解决token盗取问题，需要使用动态token，这需要持久化token，比较麻烦[10.3 Persistent Token Approach](http://static.springsource.org/spring-security/site/docs/3.0.x/reference/remember-me.html)。
 
+不过这种方式在没有过期的情况下，需要去数据库拉取用户信息（password）。所以最好结合缓存进行处理。
 
 ### Authorization
 
@@ -78,4 +79,5 @@ google了一下，发现这篇文章跟我的观点不谋而合[Sessionless_Auth
 2. [你会做Web上的用户登录功能吗？](http://coolshell.cn/articles/5353.html)
 3. [The definitive guide to forms based website authentication](http://stackoverflow.com/questions/549/the-definitive-guide-to-forms-based-website-authentication#477579) 这篇帖子真是有意思，回答基本都是长篇博文了[/偷笑]
 4. [Building and implementing a Single Sign-On solution](http://merbist.com/2012/04/04/building-and-implementing-a-single-sign-on-solution/) 关于单点登陆笔者目前看到最好的文章了。
+5. [Remember me in Spring Security 3](http://jmuras.com/blog/2011/remember-me-in-spring-security-3/) Spring Security的Remember Me实现介绍，图文并茂，推荐阅读。
 

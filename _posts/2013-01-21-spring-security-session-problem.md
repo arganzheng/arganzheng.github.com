@@ -67,10 +67,11 @@ layout: post
 
 
 可以看到是JSESSIONID这个cookies在起作用。
-关闭浏览器再次登录没有问题，可见JSESSIONID不是用session cookies保存。但是由于使用了session，会有如下两个问题：
+关闭浏览器再次登录没有问题，可见JSESSIONID不是用session cookies保存。但是由于使用了session，会有如下几个问题：
 
 1. 服务器重需要重新登录，这个验证很简单，重启服务就可以了。
-2. 当有多台服务器就不行了。这点可以通过nginx本地实验一下。
+2. 如果用户修改了密码，已经成功登录的session还是能够继续访问。也就是只有有那个session cookies，就不会进行DB校验了。
+3. 当有多台服务器就不行了。这点可以通过nginx本地实验一下。
 
 	#user  nobody;
 	worker_processes  1;
