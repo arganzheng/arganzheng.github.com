@@ -14,7 +14,7 @@ layout: post
     val map = Map("version" -> 1, "query" -> "arganzheng",
       "pageNumber" -> "1", "resultPerPage" -> "10", "data" -> subMap)
       
-非函数式的做法
+非函数式的写法
 --------------
 
 查看了一下scala的集合操作，是有一个filter的操作，但是这个函数只对当前map的元数据进行过滤，并没有递归处理子map。
@@ -48,9 +48,11 @@ layout: post
             
             println(map)
             
-            val result = visit(map, (key, value) => {
+            val resultMap = visit(map, (key, value) => {
               !key.equalsIgnoreCase("version")
             })
+
+            println(resultMap)
         }
       
         def visit(tree: Map[String, Any], accept: (String, Any) => Boolean): Map[String, Any] = {
@@ -76,6 +78,9 @@ layout: post
 
 是正确的，但是看起来很别扭，因为用到了可变对象。
 
+标准函数式的写法
+----------------
+
 于是询问了一个scala大神walt哥，大神给了一个标准的FP写法：
 
     object MapFilterTest {
@@ -86,9 +91,11 @@ layout: post
             
             println(map)
             
-            val result = visit(map, (key, value) => {
+            val resultMap = visit(map, (key, value) => {
               !key.equalsIgnoreCase("version")
             })
+
+            println(resultMap)
         }
       
         def visit(tree: Map[String, Any], accept: (String, Any) => Boolean): Map[String, Any] = {
