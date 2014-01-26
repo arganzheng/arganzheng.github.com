@@ -18,6 +18,7 @@ layout: post
 --------------
 
 查看了一下scala的集合操作，是有一个filter的操作，但是这个函数只对当前map的元数据进行过滤，并没有递归处理子map。
+
     object MapFilterTest {
     
       def main(args: Array[String]) {
