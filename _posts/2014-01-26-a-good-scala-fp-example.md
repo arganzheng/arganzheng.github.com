@@ -112,4 +112,23 @@ layout: post
 
 仔细看一下他的实现，其实真的有点类似于写shell管道。scala内建的filter只能对当前的map进行过滤，我们需要对map下的子map也调用filter操作，这不就是map提供的功能吗？不过这里确实避免不了要需要递归。
 
+补记
+----
+
+上面的实现有个bug，就是对于map的value为Map数组/列表的没有过滤，修正了一下：
+
+
+    def visit(tree: Map[String, Any], accept: (String, Any) => Boolean): Map[String, Any] = {
+        tree
+          .filter { case (k, v) => accept(k, v) }
+          .map {
+            case (k, map: Map[String, Any]) => (k, visit(map, accept))
+            case (k, v: List[Map[String, Any]]) => (k, v.map(travel(_, accept)))
+            case (k, v: Vector[Map[String, Any]]) => (k, v.map(travel(_, accept)))
+            case (k, v) => (k, v)
+          }
+    }
+
+
+
     

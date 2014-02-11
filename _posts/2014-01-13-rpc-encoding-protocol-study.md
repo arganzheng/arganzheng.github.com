@@ -99,7 +99,7 @@ TLV是Tag-Length-Value的简称，其实它原来的名称为Type-Length-Value�
 
 #### 2. tag不包含id的序列化方式打包解包的例子
 
-如果tag中没有字段id，那么一般采用字段所在的位置或者字段的名称来替代（注意：前者意味着字段的定义顺序不能随便调整；后者意味着字段的命名不能随意调整）。而在带tag的编码方式中，名称并不重要，只是一个标识，用于生成相应的getter和setter方法而已。字段在IDL文件中的所在位置也跟他们的序列化顺序无关，而是由tag决定，所以同一个意义的字段的tag必须相等。
+如果tag中没有字段id，那么一般采用字段所在的位置或者字段的名称来替代（注意：前者意味着字段的定义顺序不能随便调整；后者意味着字段的命名不能随意调整，使用id有个好处就是协议包体积更小）。而在带tag的编码方式中，名称并不重要，只是一个标识，用于生成相应的getter和setter方法而已。字段在IDL文件中的所在位置也跟他们的序列化顺序无关，而是由tag决定，所以同一个意义的字段的tag必须相等。
 简单起见，这里采用字段的位置作为替代（这也是我们现在App Platform的实现方式）。
 
 协议包括2个字段， 第1个字段name，类型为1（string）；第2个字段age类型为2（unsigned int ）
@@ -180,4 +180,13 @@ xml/json都属于这种。
 >* Dynamic typing: Avro does not require that code be generated. Data is always accompanied by a schema that permits full processing of that data without code generation, static datatypes, etc. This facilitates construction of generic data-processing systems and languages.
 >* Untagged data: Since the schema is present when data is read, considerably less type information need be encoded with data, resulting in smaller serialization size.
 >* No manually-assigned field IDs: When a schema changes, both the old and new schema are always present when processing data, so differences may be resolved symbolically, using field names
+
+
+参考文章
+-------
+
+1. [通信协议之序列化](http://yangbajing.blog.chinaunix.net/uid-27105712-id-3266286.html) 从最开始实现方案逐步完善到一个可以扩展方便维护和调试的协议，非常具有启发性。强烈推荐。
+
+
+
 
