@@ -18,7 +18,9 @@ layout: post
 
 #### 1. 性能与带宽
 
-varint、zigzag
+二进制协议最大的特点就是节省空间和带宽（特别是移动端对流量和网速要求更高）。Protobuf在这点真的到了吹毛求疵的地步。主要有如下几个技术：
+1. VarInt
+2. ZigZag
 
 #### 2. 如何知道一个字段是不是被显示赋值还是默认值？ 
 
@@ -69,7 +71,28 @@ thrif的实现也是类似。不过他没有像PB那么吹毛求疵，使用一�
 
 PB和Thrift都支持`required`和`optional`声明，并且都对`required`字段进行反序列化校验。
 
-#### 4. 支持更多的数据类型？比如Constants、Enum、Map、Set、BitSet等等？支持范型？
+#### 4. 支持更多的数据类型？比如Constants、Enum、Map、Set等等？支持范型？
+
+Protobuf支持的类型不多，但是可以说完全够用:
+
+1. bool
+2. 32/64-bit integers
+3. float
+4. double
+5. string
+6. byte sequence
+7. class(message)
+8. list(repeated)
+9. enum
+
+Thrift相对于PB支持的类型更丰富一些:
+
+1. Set<T>
+2. Map<K, V>
+3. Constants
+4. Exception
+
+并且貌似支持范型。
 
 #### 5. 支持更多的编程语言？
 
@@ -88,6 +111,45 @@ PB和Thrift都是采用key-value形式编码，而不是简单的固定value值�
 #### 7. 字符串编码
 
 作为一个内部RPC框架，其实应该统一字符串编码的，这不是不民主，混用编码很容易导致各种奇怪的乱码问题。然而编码问题很多时候是因为遗留系统的问题，所以为了兼容不同的编码问题，提供这种机制。
+
+欧美国家一般没有这个问题，因为他们都是使用英文(ASCII编码)，一般都使用UTF-8，因为UTF-8无缝兼容ASCII。但是亚洲国家的编码就比较复杂，有GBK，有EUC-KR，有EUC-JP等等。在中国一般是GBK和UTF-8混用。所以有时候还是得需要支持多种编码。
+
+Protobuf是对String类型统一编码为UTF-8的:
+
+> ### [Strings](https://developers.google.com/protocol-buffers/docs/encoding)
+> A wire type of 2 (length-delimited) means that the value is a varint encoded length followed by the specified number of bytes of data.
+>
+	message Test2 {
+	  required string b = 2;
+	}
+>
+> Setting the value of b to "testing" gives you:
+>
+	12 07 74 65 73 74 69 6e 67
+
+> The red bytes are the UTF8 of "testing". The key here is 0x12 → tag = 2, type = 2. The length varint in the value is 7 and lo and behold, we find seven bytes following it – our string.
+
+从autogen生成的代码也可以看出来：
+
+	/**
+     * <code>required string name = 1;</code>
+     */
+    public com.google.protobuf.ByteString
+        getNameBytes() {
+      java.lang.Object ref = name_;
+      if (ref instanceof java.lang.String) {
+        com.google.protobuf.ByteString b = 
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        name_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+
+其中`com.google.protobuf.ByteString.copyFromUtf8`方法java doc为：Encodestextinto a sequence of UTF-8 bytes and returns the result as a ByteString.
+
 
 
 #### 8. idl with autogen(stub)或者idl with metadata(schema)
@@ -151,3 +213,4 @@ Additionally, an async modifier keyword may be added to a void function, which w
 3. [Thrift: Scalable Cross-Language Services Implementation](http://thrift.apache.org/static/files/thrift-20070401.pdf)
 4. [thrift 的required、optional探究](http://www.cnblogs.com/lovemdx/p/3274792.html)
 5. [通信协议之序列化](http://yangbajing.blog.chinaunix.net/uid-27105712-id-3266286.html)
+6. [Protocol Buffers-Encoding](https://developers.google.com/protocol-buffers/docs/encoding)
