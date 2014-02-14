@@ -151,6 +151,7 @@ Protobuf是对String类型统一编码为UTF-8的:
 其中`com.google.protobuf.ByteString.copyFromUtf8`方法java doc为：Encodestextinto a sequence of UTF-8 bytes and returns the result as a ByteString.
 
 
+查看了一下Thrift的文档，Thrift对于String也是采用UTF-8编码。
 
 #### 8. idl with autogen(stub)或者idl with metadata(schema)
 
