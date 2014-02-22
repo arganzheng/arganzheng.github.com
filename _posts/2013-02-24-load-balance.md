@@ -10,7 +10,7 @@ title: 负载均衡
 
 **说明** 关于有状态的服务资源扩容和负载均衡没有那么简单，需要单独写一篇文章来介绍。简单来说就是：
 
-1. 能不sharding就不要sharding。sharding主要是为了解决写入瓶颈，而不是读取瓶颈。读性能完全可以通过 Cache + Read Only Slave + Search来解决。
+1. 能不sharding就不要sharding。sharding主要是为了解决写入瓶颈，而不是读取瓶颈。读性能完全可以通过 Cache + Read Only Slave + Search 来解决。
 2. 虽然采用sharding来进行负载均衡，但是相对于无状态的对等服务的线性拓展的方便程度，为了避免分片的单点问题，一般来说每个分片还是会有一个或者多个slave作为backup的。
 
 
@@ -21,7 +21,7 @@ title: 负载均衡
 
 一般的做法是：
 
-首先是使用DNS做第一层的负载均衡(DNS based load balancing cluster)，同一个域名可能映射到不同的服务器（IP地址）。一般采用简单[Round-robin](http://en.wikipedia.org/wiki/Round-robin_DNS)DNS策略
+首先是使用DNS做第一层的负载均衡(DNS based load balancing cluster)，同一个域名可能映射到不同的服务器（IP地址）。一般采用简单[Round-robin](http://en.wikipedia.org/wiki/Round-robin_DNS)DNS策略。也有采用GSLB做全局负载均衡的（参见下面补充说明部分）。
  
 其次域名一般不会直接映射到具体的某个web服务器，而是先到一个负载均衡服务器。负载均衡服务器根据实现方式不同一般有两种：
 
@@ -39,43 +39,7 @@ title: 负载均衡
     2. 还有编译进入内核的负载均衡程序
      
         如LVS，这种一般涉及到修改IP层package，所以也称为IP-based load balancers，或者Layer-4 switching）。
-    
-#### 负载均衡的三角策略
-
-负载均衡涉及到三个角色：client，balancer和backend-server。
-请求路径非常明确：client==>balancer==>backend-server
-但是根据负载均衡实现机制的不同，返回路径有两种：
-1. backend-server==>balancer==>client
-2. backend-server==>client
-
-对于第一种方式，一般是使用一种称之为NAT(http://www.linux-vs.org/VS-NAT.html)的路由策略。所有应用层的load balancer(如HAProxy，Nginx，等)也只能是这种方式。由于返回需要再次经过LB，所以笔者也称之为`store-and-forward` Routing方式。
-
-对于第二种，由于返回的时候backend-server直接绕过load balancer，说明以下几点：
-
-1. backend-server有真实的外部IP地址，也就是说backend-server也是在一个LAN/WAN网络里。而不是一个私有网络。
-2. backend-server必须有client的IP信息，否则它没法发送给client，也就是说balancer发给它的package中除了包含它自己的IP信息（IP协议要求）还必须包含client的IP信息。
-
-解决这个问题的方案就是IP tunneling，也称为[IP encapsulation](http://www.networksorcery.com/enp/protocol/ip-ip.htm)，其实是一个非常简单协议，就是为了解决发送端IP地址与返回地址不是同一个的问题，要保留两种，那么简单再增加一个IP头部就是了。不过要求balancer和backend-servers都支持IP分装协议(IP encapsulation protocol)。
-具体的实现机制和原理参见LVS的这篇文档：[Virtual Server via IP Tunneling](http://www.linuxvirtualserver.org/VS-IPTunneling.html)。
-
-另一种做法就是直接路由方式(Direct Routing)：就是load balancer和backend-server处于同样的地位：双IP，其中一个IP都是配置同样的VIP，处于同一个局域网内。当请求过来的时候，balancer直接将package转发给挑选到的backend-server，因为两者都有同样的VIP，所以就不需要修改IP头或者做IP tunnele了。具体做法参见：[Virtual Server via Direct Routing](http://www.linuxvirtualserver.org/VS-DRouting.html)。
-
-返回消息不经过load balancer能够带来极大的性能提高，因为请求消息一般小而快，而返回消息一般比较大而慢。让backend-server直接返回给client，极大的解放了load balancer。
-
-关于 LVS提供的三种routing方式，这篇文章介绍的非常详细：[Load Balancing The UK National JANET Web Cache Service——Using Linux Virtual Servers](http://www.linux-vs.org/docs/PilotService.html)
-
-**疑问：load balancer本身不会成为瓶颈和单点吗？**
-
-由于load balancer基本就是一个forward逻辑，所以很快，吞吐量非常高。如果采用backend-server直接返回client的模式，那么不需要改写response信息，吞吐量会进一步提高。再配合NDS负载均衡，一般不会有问题。
-
-对于单点问题，一般的作法是配对一个backup，与active server做heart beat。如果有状态的话，一般是共享存储，或者在backup server之间做数据同步。如果当前的活动server宕掉了，那么backup Server通过程序自动接管IP地址，从而将服务迅速切换到backup server。除非有复杂的状态问题，一般不需要人工接入。也可以使用ZoopKeeper进行master选举，实现自动切换。
-
-关于HA具体做法可以参考如下文章：
-
-1. [The heartbeat+mon+coda solution](http://www.linuxvirtualserver.org/docs/ha/heartbeat_mon.html)
-2. [The heartbeat+ldirectord solution](http://www.linuxvirtualserver.org/docs/ha/heartbeat_ldirectord.html)
-
-在这些负载均衡服务器会配置需要负载均衡的实际web服务器，一般是nginx或者apache。负载均衡的策略一般是最简单也是最有效的随机或者轮循策略。而事实上，由于现在大部分网站都是动态内容，这些web服务器往往也是一个有cache和压缩等功能的load balancer，为后台的应用服务器（tomcat、JBoss等）做负载均衡。
+ 
 
 ### 2. 后端应用服务器负责均衡
 
@@ -142,12 +106,82 @@ cache扩容分为两种不同的方式。
 
 ### Tencent ECC
 
-前端DNS做全局负载均衡。DNS后面是LVS做内核级别的软负载均衡。nginx+tomcat做web和app server（分开部署）。使用内部服务化框架IDL作为服务负载均衡（配置中心+本地agent缓存+客户端负载均衡，支持多语言）。使用memcached作为分布式cache。使用MySQL sharding进行DB scale out。使用内部分布式文件系统TFS存储海量文件。
+前端GSLB+DNS做全局负载均衡。GSLB+DNS后面是LVS做内核级别的软负载均衡。nginx+tomcat做web和app server（分开部署）。使用内部服务化框架IDL作为服务负载均衡（配置中心+本地agent缓存+客户端负载均衡，支持多语言）。使用memcached作为分布式cache。使用MySQL sharding进行DB scale out。使用内部分布式文件系统TFS存储海量文件。
 
 -------------------------------------
  
+
 一些补充和说明
 ------------
+
+### LVS
+
+LVS(Linux Virtual Servers)是目前最好的IP-based load balancers。它的优点是编译进内核，速度非常快。缺点就是平台和内核版本相关，目前只支持linux。配合[Keepalived](http://www.keepalived.org/)来监控后台servers的情况，效果非常好。
+
+[Linux Virtual Server (LVS) Project](http://www.austintek.com/LVS/)
+
+[Load Balancing The UK National JANET Web Cache Service——Using Linux Virtual Servers](http://www.linux-vs.org/docs/PilotService.html)
+
+### DNS
+
+1. 域名解析：是指完成域名向IP的映射。域名解析的初衷是为了用易于记忆的字符串替代IP地址。目前，它不仅能够完成其本职任务，同时也是互联网服务运营中的有力工具，GSLB即是基于域名解析的全局负载均衡解决方案。
+2. RR：Resource Rocord的首字母缩写，意为资源记录。在域名解析过程中，一跳完整的记录就称作一条资源记录，如`www 300 IN A 119.147.15.17`。RR通常有几个字段构成，具体可以参考《DNS与BIND》一书。
+3. A记录：用于指定域名对应的IP地址，如`www 300 IN A 119.147.15.17`即为一条A记录。
+4. CNAME记录：别名记录，可以给同一个IP或域名指定多个不同的名字，如`www.xxx.com. 600 IN CNAME www.xxx.forward.yy.com.`即为一条CNAME记录。
+5. MX记录：邮箱路由记录，可以将某个域名下的域名服务器指向到指定的邮箱服务器，如`xx.com 43200 IN MX 10 mail.xx.com.`。
+6. TXT记录：文本记录，用户进行域名的辅助信息说明。但现在TXT类型记录有了越来越多的扩展应用，如用于记录SPF信息，domain-key信息等。
+7. TTL：Time To Live的首字母缩写，意为生存时间，代表DNS记录在DNS服务器上缓存的时间，通常以秒为单位，允许的值为0-2^32；如`www 300 IN A 119.147.15.17`中的第二个字段就是TTL，说明该RR记录在DNS服务器中会缓存300，之后就会被丢弃。
+8. 
+
+### GSLB
+ 
+GSLB：Global Server Load Balance的首字母缩写，意为全局负载均衡。实现在广域网（包括互联网）上不同地域的服务器间的流量调配，保证使用最佳的离自己最近的客户服务器服务，从而确保访问质量。它对服务器和链路进行综合判断来决定由哪个地点的服务器来提供服务，实现异地服务器群服务质量的保证。目前主要有基于DNS实现、基于重定向实现、基于路由协议实现三种方式。
+
+TX的GSLB平台使用基于DNS系统的实现。他的粒度一直能细到各个运营商，各个省份，也就是我们可以配置不同的运营商返回不同的ip，不同的省返回不同的ip的目录。
+
+1. 无线下的分运营商访问：由于手机上网的局限性，在速度本来就慢的情况，不跨网访问的重要性就突显出来了，而这个可以通过gslb来搞定，让不同的运营商用户到相应运营商ip去。
+2. 用户的就近接入：这里是主要是分省给不同的ip，比如华东用户去上海访问相应资源，华南去深圳或者汕头，东北到天津等，这里的的重要性主要体现在cdn的应用上，如果一些大的资源，应用软件，用户头像等。这里不是基于RTT之类的，而是通过维持一个IP库。
+3. 运维对业务的控制加强：业务运维可以方便的通过gslb来控制自己域名，如果设置短ttl使更改更快生效，比如可以把一个省的用户定向到测试服务器来达到测试的目的，还可以在网络或者机房有故障的时候快速把受影响的用户通过dns转移到没有问题的机房，把影响降到最低。
+
+当然gslb问题也是存在的，具体可以参见参考资料。
+
+
+### 负载均衡的三角策略
+
+负载均衡涉及到三个角色：client，balancer和backend-server。
+请求路径非常明确：client==>balancer==>backend-server
+但是根据负载均衡实现机制的不同，返回路径有两种：
+1. backend-server==>balancer==>client
+2. backend-server==>client
+
+对于第一种方式，一般是使用一种称之为NAT(http://www.linux-vs.org/VS-NAT.html)的路由策略。所有应用层的load balancer(如HAProxy，Nginx，等)也只能是这种方式。由于返回需要再次经过LB，所以笔者也称之为`store-and-forward` Routing方式。
+
+对于第二种，由于返回的时候backend-server直接绕过load balancer，说明以下几点：
+
+1. backend-server有真实的外部IP地址，也就是说backend-server也是在一个LAN/WAN网络里。而不是一个私有网络。
+2. backend-server必须有client的IP信息，否则它没法发送给client，也就是说balancer发给它的package中除了包含它自己的IP信息（IP协议要求）还必须包含client的IP信息。
+
+解决这个问题的方案就是IP tunneling，也称为[IP encapsulation](http://www.networksorcery.com/enp/protocol/ip-ip.htm)，其实是一个非常简单协议，就是为了解决发送端IP地址与返回地址不是同一个的问题，要保留两种，那么简单再增加一个IP头部就是了。不过要求balancer和backend-servers都支持IP分装协议(IP encapsulation protocol)。
+具体的实现机制和原理参见LVS的这篇文档：[Virtual Server via IP Tunneling](http://www.linuxvirtualserver.org/VS-IPTunneling.html)。
+
+另一种做法就是直接路由方式(Direct Routing)：就是load balancer和backend-server处于同样的地位：双IP，其中一个IP都是配置同样的VIP，处于同一个局域网内。当请求过来的时候，balancer直接将package转发给挑选到的backend-server，因为两者都有同样的VIP，所以就不需要修改IP头或者做IP tunnele了。具体做法参见：[Virtual Server via Direct Routing](http://www.linuxvirtualserver.org/VS-DRouting.html)。
+
+返回消息不经过load balancer能够带来极大的性能提高，因为请求消息一般小而快，而返回消息一般比较大而慢。让backend-server直接返回给client，极大的解放了load balancer。
+
+关于 LVS提供的三种routing方式，这篇文章介绍的非常详细：[Load Balancing The UK National JANET Web Cache Service——Using Linux Virtual Servers](http://www.linux-vs.org/docs/PilotService.html)
+
+**疑问：load balancer本身不会成为瓶颈和单点吗？**
+
+由于load balancer基本就是一个forward逻辑，所以很快，吞吐量非常高。如果采用backend-server直接返回client的模式，那么不需要改写response信息，吞吐量会进一步提高。再配合NDS负载均衡，一般不会有问题。
+
+对于单点问题，一般的作法是配对一个backup，与active server做heart beat。如果有状态的话，一般是共享存储，或者在backup server之间做数据同步。如果当前的活动server宕掉了，那么backup Server通过程序自动接管IP地址，从而将服务迅速切换到backup server。除非有复杂的状态问题，一般不需要人工接入。也可以使用ZoopKeeper进行master选举，实现自动切换。
+
+关于HA具体做法可以参考如下文章：
+
+1. [The heartbeat+mon+coda solution](http://www.linuxvirtualserver.org/docs/ha/heartbeat_mon.html)
+2. [The heartbeat+ldirectord solution](http://www.linuxvirtualserver.org/docs/ha/heartbeat_ldirectord.html)
+
+在这些负载均衡服务器会配置需要负载均衡的实际web服务器，一般是nginx或者apache。负载均衡的策略一般是最简单也是最有效的随机或者轮循策略。而事实上，由于现在大部分网站都是动态内容，这些web服务器往往也是一个有cache和压缩等功能的load balancer，为后台的应用服务器（tomcat、JBoss等）做负载均衡。
 
 ### ECC L5负载均衡组件的功能职责
 
@@ -166,29 +200,11 @@ L5的功能特征如下：
 2. 门限收缩算法: 考虑到系统运行是一个动态过程，任何静态的最大阀值最小阀值限制都是不科学的，所以需要根据延时和成功率情况对阀值进行动态伸缩，这样才能更好的契合业务的需要。
 3. 宕机探测算法: 由于机器临时性故障难免，通过成功率的逐渐下降可以预知宕机风险，并及时排除；另外需要以极低的代价，及时探测被点节点，并自动恢复负载。
 
-### 1. LVS
 
-LVS(Linux Virtual Servers)是目前最好的IP-based load balancers。它的优点是编译进内核，速度非常快。缺点就是平台和内核版本相关，目前只支持linux。配合[Keepalived](http://www.keepalived.org/)来监控后台servers的情况，效果非常好。
+参考文章
+-------
 
-[Linux Virtual Server (LVS) Project](http://www.austintek.com/LVS/)
+1. [Why DNS Based Global Server Load Balancing (GSLB) Doesn’t Work
+](http://www.tenereillo.com/GSLBPageOfShame.htm) 关于GSLB和DNS非常详尽的资料，虽然有点老，但是并没有过时。
+2. [Why DNS Based GSLB Doesn't Work, Part II](http://www.tenereillo.com/GSLBPageOfShameII.htm)
 
-[Load Balancing The UK National JANET Web Cache Service——Using Linux Virtual Servers](http://www.linux-vs.org/docs/PilotService.html)
-
-### 2. DNS
-
-1. 域名解析：是指完成域名向IP的映射。域名解析的初衷是为了用易于记忆的字符串替代IP地址。目前，它不仅能够完成其本职任务，同时也是互联网服务运营中的有力工具，GSLB即是基于域名解析的全局负载均衡解决方案。
-2. RR：Resource Rocord的首字母缩写，意为资源记录。在域名解析过程中，一跳完整的记录就称作一条资源记录，如`www 300 IN A 119.147.15.17`。RR通常有几个字段构成，具体可以参考《DNS与BIND》一书。
-3. A记录：用于指定域名对应的IP地址，如`www 300 IN A 119.147.15.17`即为一条A记录。
-4. CNAME记录：别名记录，可以给同一个IP或域名指定多个不同的名字，如`www.xxx.com. 600 IN CNAME www.xxx.forward.yy.com.`即为一条CNAME记录。
-5. MX记录：邮箱路由记录，可以将某个域名下的域名服务器指向到指定的邮箱服务器，如`xx.com 43200 IN MX 10 mail.xx.com.`。
-6. TXT记录：文本记录，用户进行域名的辅助信息说明。但现在TXT类型记录有了越来越多的扩展应用，如用于记录SPF信息，domain-key信息等。
-7. TTL：Time To Live的首字母缩写，意为生存时间，代表DNS记录在DNS服务器上缓存的时间，通常以秒为单位，允许的值为0-2^32；如`www 300 IN A 119.147.15.17`中的第二个字段就是TTL，说明该RR记录在DNS服务器中会缓存300，之后就会被丢弃。
-8. 
-
-### 3. 负载均衡的范围
-
-1. 全局负载均衡
- 
-GSLB：Global Server Load Balance的首字母缩写，意为全局负载均衡。实现在广域网（包括互联网）上不同地域的服务器间的流量调配，保证使用最佳的离自己最近的客户服务器服务，从而确保访问质量。它对服务器和链路进行综合判断来决定由哪个地点的服务器来提供服务，实现异地服务器群服务质量的保证。目前主要有基于DNS实现、基于重定向实现、基于路由协议实现三种方式。腾讯GSLB平台使用基于DNS系统的实现。
-
-2. 本地负载均衡（Local Load Balance，一般是同个IDC，同个业务服务）
