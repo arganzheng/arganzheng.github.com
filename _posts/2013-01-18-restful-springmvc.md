@@ -18,6 +18,7 @@ The @PathVariable method parameter annotation is used to indicate that a method 
     public String findOwner(@PathVariable String ownerId, Model model) {
             // ...
     }
+
 如果变量名与pathVariable名不一致，那么需要指定：
 
     @RequestMapping("/owners/{ownerId}", method=RequestMethod.GET)
@@ -102,6 +103,7 @@ Spring MVC对`HttpMessageConverter`有多种默认实现，基本上不需要自
             new SourceHttpMessageConverter(), new XmlAwareFormHttpMessageConverter()};
         }
     }   
+
 如上：默认的`HttpMessageConverter`是`ByteArrayHttpMessageConverter`、`stringHttpMessageConverter`、`SourceHttpMessageConverter`和`XmlAwareFormHttpMessageConverter`转换器。所以需要配置一下：
         
     <bean class="org.springframework.web.servlet.mvc.annotation.AnnotationMethodHandlerAdapter">
@@ -189,10 +191,14 @@ http://open.buy.qq.com/meta/api/1.xhtml?jsonpCallback=clientFunction。
 ### 5. 返回多种表现形式(Returning multiple representations)
 
 对于Restful服务，一个资源往往有多种表现形式，比如最常见的就是返回xml和json格式数据，还有就是RSS和ATOM。怎样让客户端告诉Restful服务，我希望得到什么样表现形式的资源呢？
-一般来说client有两者方式通知Server它希望拿到的资源格式：
+
+一般来说client可以通过以下三者方式来通知Server它希望拿到的资源格式：
 
 1. 使用不同URI来表示同个资源的不同表现形式。一般使用不同的文件拓展名。如http://blog.arganzheng.me/users/argan.xml表示返回xml格式数据，而http://blog.arganzheng.me/users/aganzheng.json表示返回json格式.
-2. 使用同个URI，但是通过Accept HTTP request header来告诉server它理解的media types。例如同样请求http://blog.arganzheng.me/users/argan，如果带上`text/xml` accept header表示请求一个XML资源，带上`application/pdf`则表示期望收到pdf格式资源。
+2. 使用一个请求参数告诉服务器希望得到的资源格式。如format=json。
+3. 使用同个URI，但是通过Accept HTTP request header来告诉server它理解的media types。例如同样请求http://blog.arganzheng.me/users/argan，如果带上`text/xml` accept header表示请求一个XML资源，带上`application/pdf`则表示期望收到pdf格式资源。
+ 
+这其实就是Spring MVC默认的三个`ContentNegotiationStrategy`，即所谓的PPA Strategy（path extension, then parameter, then Accept header) ，顺序也是先path extension，然后parameter(默认是format参数)，然后才是accept头。
 
 Spring提供了[`ContentNegotiatingViewResolver`](http://static.springsource.org/spring/docs/3.0.x/javadoc-api/org/springframework/web/servlet/view/ContentNegotiatingViewResolver.html)来解决这个问题：
 
@@ -449,7 +455,7 @@ Spring提供了[`ContentNegotiatingViewResolver`](http://static.springsource.org
 
 所以关键在两点：
 
-#### 1. content negotiation规则
+#### 1. content negotiation策略 (`ContentNegotiationStrategy`)
 
 >This view resolver uses the requested media type to select a suitable View for a request. This media type is determined by using the following criteria:
 >
@@ -459,6 +465,10 @@ Spring提供了[`ContentNegotiatingViewResolver`](http://static.springsource.org
 4. If the previous steps did not result in a media type, and ignoreAcceptHeader is false, the request Accept header is used.
 >   
 Once the requested media type has been determined, this resolver queries each delegate view resolver for a View and determines if the requested media type is compatible with the view's content type). The most compatible view is returned.
+
+这个就是上面提到的Spring MVC默认的三个`ContentNegotiationStrategy`，即所谓的PPA Strategy（path extension, then parameter, then Accept header) ，顺序也是先path extension，然后parameter(默认是format参数)，然后才是accept头。
+
+关于`ContentNegotiationStrategy`，可以参考笔者的另一篇文章：[content negotiation using spring mvc](http://blog.arganzheng.me/posts/content-negotiation-using-spring-mvc.html)。有具体的实际案例。
 
 ##### 2. 供选择的SingleViewResolver
 >    
@@ -479,7 +489,7 @@ Once the requested media type has been determined, this resolver queries each de
 
 注意：`@ResponseBody`是为了单个View准备的，即它只能转换成一种格式，对于`ContentNegotiatingViewResolver`，需要多个**Single**ViewResolver来接收。
 
-### 6. 客户端调用[Accessing RESTful services on the Client](http://static.springsource.org/spring/docs/3.0.0.M3/reference/html/ch18s03.html#rest-resttemplate)
+### 6. 客户端调用 [Accessing RESTful services on the Client](http://static.springsource.org/spring/docs/3.0.0.M3/reference/html/ch18s03.html#rest-resttemplate)
 
 Spring MVC不仅大大的简化了服务端RESTful服务的开发和开放，还提供了一些辅助类来方便客户端调用REST服务。
 
@@ -506,7 +516,7 @@ Spring MVC不仅大大的简化了服务端RESTful服务的开发和开放，还
 
 RestTemplate是client-site HTTP access的核心类。正如它的名称所示，`RestTemplate`非常类似于`JdbcTemplate`, `JmsTemplate`等XXXTemplate。这意味着`RestTemplate`是线程安全的并且可以通过callback来定制它的行为。
 
-TIPS：Spring提供的Template类非常灵活和好用，种类也很丰富。当你需要做一些事情的时候可以先考虑一下有没有相应的template可以用。
+**TIPS** Spring提供的Template类非常灵活和好用，种类也很丰富。当你需要做一些事情的时候可以先考虑一下有没有相应的template可以用。
 
 RestTemplate默认使用`java.net`包下的基础类来创建HTTP请求。你可以实现`ClientHttpRequestFactory`接口，提供你自己的Http请求工厂类。Spring提供了`CommonsClientHttpRequestFactory`，这个工厂类使用Jakarta Commons HttpClient来创建HTTP请求。这样就可以使用HttpClient提供的认证和链接池功能了。
 
@@ -548,7 +558,7 @@ RestTemplate默认使用`java.net`包下的基础类来创建HTTP请求。你可
 关于RestTemplate使用的具体例子可以参考这篇文章[
 REST IN SPRING 3: RESTTEMPLATE](http://blog.springsource.org/2009/03/27/rest-in-spring-3-resttemplate/)。写的非常好，强烈推荐！
     
-### 7. 设计的URL
+### 7. 支持RESTful的URL
 
 在开发功能模块之前，应该先把URL设计好。比查对 **消息** 这个资源的操作URL可以这么设计：
     
@@ -562,19 +572,35 @@ REST IN SPRING 3: RESTTEMPLATE](http://blog.springsource.org/2009/03/27/rest-in-
 
 要支持这种URL，web.xml需要这么配置：
 
-    <!-- REST servlet-mapping -->	<servlet-mapping>		<servlet-name>DispatcherServlet<srvlet-name>		<url-pattern>/</url-pattern>	<srvlet-mapping>
-	
+    <!-- REST servlet-mapping -->
+    <servlet-mapping>
+    	<servlet-name>DispatcherServlet<srvlet-name>
+    	<url-pattern>/</url-pattern>
+    <srvlet-mapping>
+	
 但是这样的话有个问题，就是静态文件也被mapping了，会导致找不到资源。Spring提供了一个resources配置项支持静态文件的处理[16.14.5 Configuring Serving of Resources](http://static.springsource.org/spring/docs/3.1.x/spring-framework-reference/html/mvc.html#mvc-config-static-resources)：
 
-    <!-- Forwards requests to the "/" resource to the "welcome" view -->	<mvc:view-controller path="/" view-name="index"/>		<!-- Handles HTTP GET requests for /resources/** by efficiently serving up static resources in the ${webappRoot}/resources/ directory -->	<mvc:resources mapping="/resources/**" location="/resources/" />	<!-- 注：配置了mvc:resources就必须配置这个选项，否则handler mapping都失效了 		@see  http://stackoverflow.com/questions/7910845/the-handler-mapping-from-the-mvcresource-override-other-mappings-which-defined 	-->	<mvc:annotation-driven />
+    <!-- Forwards requests to the "/" resource to the "welcome" view -->
+  	<mvc:view-controller path="/" view-name="index"/>
+  	
+  	<!-- Handles HTTP GET requests for /resources/** by efficiently serving up static resources in the ${webappRoot}/resources/ directory -->
+  	<mvc:resources mapping="/resources/**" location="/resources/" />
+  	<!-- 注意：配置了mvc:resources就必须配置这个选项，否则handler mapping都失效了 
+  		@see  http://stackoverflow.com/questions/7910845/the-handler-mapping-from-the-mvcresource-override-other-mappings-which-defined 
+  	-->
+  	<mvc:annotation-driven />
 
-这样所有请求：http://arganzheng.me/resources/**的会映射到webapp下的resources目录，而不是找我们的controller处理。
+这样所有请求：`http://arganzheng.me/resources/**`会映射到webapp下的resources目录，而不是找我们的controller处理。
 
 但是有个奇怪的问题，就是配置这个之后，原来动态东西就不能访问到了，提示找不到对应的handler，解决方案是增加一个`<mvc:annotation-driven />`配置。具体参见[The handler mapping from the mvc:resource override other mappings which defined with annotation](http://stackoverflow.com/questions/7910845/the-handler-mapping-from-the-mvcresource-override-other-mappings-which-defined)。
 
 另外，静态的html页面一般不放在resources路面下，而是直接在根目录下，比如：http://arganzheng.me/index.html或者http://arganzheng.me/404.html。所以应该在web.xml中在配置一个url-mapping规则：
 
-    <!-- 避免被Spring DispatcherServlet接管 -->	<servlet-mapping>		<servlet-name>default<srvlet-name>		<url-pattern>*.html</url-pattern>	<srvlet-mapping>
+    <!-- 避免被Spring DispatcherServlet接管 -->
+  	<servlet-mapping>
+  		<servlet-name>default<srvlet-name>
+  		<url-pattern>*.html</url-pattern>
+  	<srvlet-mapping>
 
 --EOF--
 
