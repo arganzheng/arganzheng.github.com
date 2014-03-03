@@ -146,25 +146,67 @@ GC需要完成的三件事情：
 
 ### JVM的GC
 
-JVM的分代内存布局
+#### JVM的分代内存布局
 
 ![JVM的分代内存布局](/media/images/jvm-gc.png)
 
-新生代的GC
+#### 新生代的GC
 
 ![新生代的GC](/media/images/gc-young.png)
 
-老年代的GC
+#### 老年代的GC
 
 ![老年代的GC](/media/images/gc-old.png)
 
-各种GC行为比较
-![各种GC行为比较](/media/images/gc-comparion.png)
+#### 各种GC行为比较
+
+![各种GC行为比较](/media/images/gc-comparison.png)
 
 
-GC算法的选择
+#### GC算法的选择
 
 ![GC算法的选择](/media/images/gc-selection.png)
+
+
+### JVM性能和故障诊断工具
+
+#### jps
+
+jps用来查看host上运行的所有java进程的pid（jvmid），一般情况下使用这个工具的目的只是为了找出运行的jvm进程ID，即lvmid，然后可以进一步使用其它的工具来监控和分析JVM。
+
+常用的几个参数：
+
+* -l  输出java应用程序的main class的完整包
+* -q  仅显示pid，不显示其它任何相关信息
+* -m  输出传递给main方法的参数
+* -v  输出传递给JVM的参数。在诊断JVM相关问题的时候，这个参数可以查看JVM相关参数的设置
+
+ 
+#### jstat
+
+Jstat（ “Java Virtual Machine statistics monitoring tool” ）是JDK自带的一个轻量级小工具。主要对Java应用程序的资源和性能进行实时的命令行的监控，包括了对Heap size和垃圾回收状况的监控。
+
+语法结构如下：jstat [Options] vmid [interval] [count]
+
+* Options -- 选项，我们一般使用 -gcutil 查看gc情况
+* vmid    -- VM的进程号，即当前运行的java进程号
+* interval-- 间隔时间，单位为毫秒
+* count   -- 打印次数，如果缺省则打印无数次
+
+#### jmap
+
+jmap 是一个可以输出所有内存中对象的工具，甚至可以将VM 中的heap，以二进制输出成文本。
+
+使用方法
+
+* jmap -histo pid>a.log  可以将其保存到文本中去，在一段时间后，使用文本对比工具，可以对比出GC回收了哪些对象。
+* jmap -dump:format=b,file=f1 PID  可以将该PID进程的内存heap输出出来到f1文件里。 
+
+#### JConsole 和 VisualVM
+
+#### BTrace
+
+[BTrace实战](http://blog.arganzheng.me/posts/btrace-in-action.html)
 
 
 类加载器(ClassLoader)
@@ -244,7 +286,6 @@ GC算法的选择
 2. 获取当前线程上下文的ClassLoader: Thread.currentThread().getContextClassLoader();
 3. 获取系统的ClassLoader: ClassLoader.getSytemClassLoader();
 4. 获得调用者的ClassLoader: DriverManager.getCallerClassLoader();
-
 
 
 参考资料以及推荐阅读
