@@ -168,6 +168,35 @@ GC需要完成的三件事情：
 ![GC算法的选择](/media/images/gc-selection.png)
 
 
+**More about CMS**
+
+设计目的：获取最短回收停顿时间为目标的垃圾收集器
+
+四个阶段
+
+1. 初始标记(CMS initial mark, stop the world)
+2. 并发标记(CMS concurrent mark)
+3. 重新标记(CMS reamark, stop the world)
+4. 并发清除(CMS concurrent sweep)
+
+优点（Concurrent Low Pause Collector）
+
+* 并发收集
+* 低停顿
+
+缺点
+
+* 对CPU资源敏感。与用户线程并发执行，占用了一部分CPU资源，总吞吐量降低。
+    * 默认启动的回收线程数是(CPU数量+3)/4
+* 无法处理浮动垃圾，可能出现`Concurrent Mode Failure`失败而导致另一次Full GC的发生。
+    * Floating Garbage 在并发清理阶段产生的垃圾
+    * -XX:CMSInitiatingOccupancyFraction 控制CMS预留空间的大小，默认是68%。
+    * Concurrent Mode Failure 是CMS预留的内存空间被浮动垃圾占据而不满足程序需求导致的错误
+    * 这时候会临时采用Serial Old收集器来重新进行老年代的GC
+* 标记-清除算法实现的GC都会产生大量的空间碎片。
+    * -XX:+UseCMSCompactAtFullCollection 控制CMS GC之后再进行一次碎片整理过程。
+    * -XX:+CMSFullGCsBeforeCompaction 设置执行了多少次不压缩的Full GC之后，跟着来一次带压缩的。
+
 ### JVM性能和故障诊断工具
 
 #### jps
