@@ -235,7 +235,7 @@ jmap 是一个可以输出所有内存中对象的工具，甚至可以将VM 中
 
 #### BTrace
 
-[BTrace实战](http://blog.arganzheng.me/posts/btrace-in-action.html)
+具体参见笔者的另一篇文章：[BTrace实战](http://blog.arganzheng.me/posts/btrace-in-action.html)
 
 
 类加载器(ClassLoader)
