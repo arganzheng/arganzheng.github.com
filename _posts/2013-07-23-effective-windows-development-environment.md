@@ -66,6 +66,39 @@ windows下mount网络硬盘
     net use z: \\tencent.com\tfs\部门目录\ECC腾讯电商控股公司\电商研发部\ /user:arganzheng@tencent.com
 
 
+windows下如何查看域账户情况
+------------------------
+
+    C:\Users\arganzheng>net user /domain arganzheng
+    这项请求将在域 tencent.com 的域控制器处理。
+    
+    用户名                 arganzheng
+    全名                   arganzheng(郑志彬)
+    注释                   XXX
+    用户的注释
+    国家/地区代码          000 (系统默认值)
+    帐户启用               Yes
+    帐户到期               从不
+    
+    上次设置密码           2013/6/24 9:44:22
+    密码到期               2013/9/22 9:44:22
+    密码可更改             2013/6/24 9:44:22
+    需要密码               Yes
+    用户可以更改密码       Yes
+    
+    允许的工作站           All
+    登录脚本
+    用户配置文件
+    主目录
+    上次登录               2013/7/15 15:07:36
+    
+    可允许的登录小时数     All
+    
+    本地组成员
+    全局组成员             XXX
+    命令成功完成。
+
+
 github on windows
 -----------------
 
