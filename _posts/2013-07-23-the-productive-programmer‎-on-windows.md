@@ -136,9 +136,9 @@ github on windows
 -----------------
 
 
-### 1. 使用[github for windows](http://windows.github.com/)
+#### 1. 使用[github for windows](http://windows.github.com/)
 
-### 2. 设置代理
+#### 2. 设置代理
 
 To configure GitHub for Windows to use your  corporate proxy, edit the .gitconfig file typically found at C:\Users\<yourusername>\.gitconfig or C:\Documents & Settings\<yourusername>\.gitconfig
 
@@ -180,7 +180,7 @@ Sublime Text 2默认不支持GB2312和GBK，可以安装一个插件让它支持
 
 
 数据同步
-----——-
+-------
 
 强烈推荐Dropbox。
 
