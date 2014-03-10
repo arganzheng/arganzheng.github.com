@@ -1,5 +1,5 @@
 ---
-title: 高效windows环境开发
+title: 卓有成效的程序员——windows篇
 layout: post
 ---
 
@@ -99,8 +99,42 @@ windows下如何查看域账户情况
     命令成功完成。
 
 
+代理客户端
+---------
+
+
+推荐 Proxifier。简单，易用。
+
+
+Host绑定管理
+-----------
+
+
+hostsMaker
+
+
+SSH终端
+------
+
+
+SecureCRT
+
+
+浏览器插件 
+---------
+
+
+比较恶心的是mac下的快捷键与windows/linux下的略有不同。。。
+
+* firefox+vimperator
+    * x: 关闭当期tab
+* chrome+vimuim
+    * yy: copy the current URL to clipboard（常规做法：Alt-d, C-c）
+
+
 github on windows
 -----------------
+
 
 ### 1. 使用[github for windows](http://windows.github.com/)
 
@@ -119,8 +153,14 @@ To configure GitHub for Windows to use your  corporate proxy, edit the .gitconfi
 不错的文章： [git简易指南](http://rogerdudler.github.io/git-guide/index.zh.html)
 
 
+**TIPS** SVN的话推荐使用 TortoiseSVN，非常好用。
+
+
 cygwin的配置和使用
 ------------------
+
+
+windows下虚拟机性能不行，不推荐。建议安装Ggywin。
 
 具体参考：[惊艳的cygwin——Windows下的Linux命令行环境的配置和使用](http://oldratlee.com/post/2012-12-22/stunning-cygwin)。写的非常详细，这里就不赘述了。
 
@@ -128,4 +168,28 @@ cygwin的配置和使用
 sublime text
 ------------
 
+Sublime Text 2默认不支持GB2312和GBK，可以安装一个插件让它支持 [解决乱码，让Sublime Text 2支持GB2312和GBK](http://www.fuzhaopeng.com/2012/sublime-text-2-with-gb2312-gbk-support/)。在这之前，先安装一个插件管理器方便插件的安装和卸载 [Sublime Package Control](http://wbond.net/sublime_packages/package_control/installation)。内网安装插件要设置代理：[Sublime Text 2 Package Control安装与设置代理方法](http://www.tanktan.com/blog/sublime2-proxy/)。
+
 具体参考笔者的另一篇文章：[tips for sublime text](http://blog.arganzheng.me/posts/tips-for-sublime-text.html)
+
+
+文章收集和多终端同步
+-----------------
+
+推荐Evernote，特别是浏览器剪辑插件，收集文章特别方便。
+
+
+数据同步
+----——-
+
+强烈推荐Dropbox。
+
+
+文本编辑
+-------
+
+sublime text或者stackedit直接编辑markdown文件。
+
+
+
+
