@@ -46,6 +46,18 @@ method parameters that are decorated with the @PathVariable annotation can be of
         return "redirect:imageList";
     }
 
+    
+还可以设置defaultValue：
+
+    @RequestMapping("/imageUpload")
+    public String processImageUpload(@RequestParam(value="name", defaultValue="arganzheng") String name,
+                    @RequestParam("description") String description,
+                    @RequestParam("image") MultipartFile image) throws IOException {
+        this.imageDatabase.storeImage(name, image.getInputStream(), 
+                                        (int) image.getSize(), description);
+        return "redirect:imageList";
+    }
+
 ### 4. `@RequestBody`和`@ResponseBody`
 
 这两个注解其实用到了Spring的一个非常灵活的设计——`HttpMessageConverter` [18.3.2 HTTP Message Conversion](http://static.springsource.org/spring/docs/3.0.0.M3/reference/html/ch18s03.html#rest-message-conversion)
