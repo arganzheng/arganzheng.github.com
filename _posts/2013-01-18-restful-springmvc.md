@@ -217,7 +217,7 @@ http://open.buy.qq.com/meta/api/1.xhtml?jsonpCallback=clientFunction。
     
 传入参数类型也可以是javax.servlet.http.Cookie类型。
 
-TIPS: 如果是使用cookies值来保持回话状态的话，推荐使用Spring的[Bean Scopes](http://docs.spring.io/spring/docs/3.0.0.M3/reference/html/ch04s04.html)机制，具体参见笔者的另一篇文章：[Spring的Bean Scopes](http://blog.arganzheng.me/posts/spring-bean-scopes.html)。非常方便。
+**TIPS** 如果是使用cookies值来保持回话状态的话，推荐使用Spring的[Bean Scopes](http://docs.spring.io/spring/docs/3.0.0.M3/reference/html/ch04s04.html)机制，具体参见笔者的另一篇文章：[Spring的Bean Scopes](http://blog.arganzheng.me/posts/spring-bean-scopes.html)。非常方便。
 
 ### 6. `@RequestHeader`
 
@@ -228,7 +228,7 @@ TIPS: 如果是使用cookies值来保持回话状态的话，推荐使用Spring�
        @RequestHeader("User-Agent") String userAgent,  
        @RequestHeader(value="Accept") String[] accepts)  
           
-如上配置将自动将请求头“User-Agent”值入参到userAgent参数上，并将“Accept”请求头值入参到accepts参数上。测试代码在HeaderValueTypeController中。
+如上配置将自动将请求头“User-Agent”值入参到userAgent参数上，并将“Accept”请求头值入参到accepts参数上。
 
 
 ### 7. 返回多种表现形式(Returning multiple representations)
