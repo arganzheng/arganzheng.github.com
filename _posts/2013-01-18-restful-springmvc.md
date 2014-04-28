@@ -200,7 +200,38 @@ Spring MVC对`HttpMessageConverter`有多种默认实现，基本上不需要自
 http://open.buy.qq.com/meta/api/1.xhtml?jsonpCallback=clientFunction。
 会返回`clientFunction(…);`
 
-### 5. 返回多种表现形式(Returning multiple representations)
+
+### 5. `@CookieValue`
+
+`@CookieValue`用于将请求的Cookie数据映射到功能处理方法的参数上。
+
+    public String test(@CookieValue(value="JSESSIONID", defaultValue="") String sessionId){
+        ...
+    }
+    
+如上配置将自动将JSESSIONID值入参到sessionId参数上，defaultValue表示Cookie中没有JSESSIONID时默认为空。
+    
+    public String test2(@CookieValue(value="JSESSIONID", defaultValue="") Cookie sessionId){
+        ...
+    }
+    
+传入参数类型也可以是javax.servlet.http.Cookie类型。
+
+TIPS: 如果是使用cookies值来保持回话状态的话，推荐使用Spring的[Bean Scopes](http://docs.spring.io/spring/docs/3.0.0.M3/reference/html/ch04s04.html)机制，具体参见笔者的另一篇文章：[Spring的Bean Scopes](http://blog.arganzheng.me/posts/spring-bean-scopes.html)。非常方便。
+
+### 6. `@RequestHeader`
+
+`@RequestHeader`用于将请求的头信息区数据映射到功能处理方法的参数上。
+
+    @RequestMapping(value="/header")  
+    public String test(  
+       @RequestHeader("User-Agent") String userAgent,  
+       @RequestHeader(value="Accept") String[] accepts)  
+          
+如上配置将自动将请求头“User-Agent”值入参到userAgent参数上，并将“Accept”请求头值入参到accepts参数上。测试代码在HeaderValueTypeController中。
+
+
+### 7. 返回多种表现形式(Returning multiple representations)
 
 对于Restful服务，一个资源往往有多种表现形式，比如最常见的就是返回xml和json格式数据，还有就是RSS和ATOM。怎样让客户端告诉Restful服务，我希望得到什么样表现形式的资源呢？
 
@@ -501,7 +532,7 @@ Once the requested media type has been determined, this resolver queries each de
 
 注意：`@ResponseBody`是为了单个View准备的，即它只能转换成一种格式，对于`ContentNegotiatingViewResolver`，需要多个**Single**ViewResolver来接收。
 
-### 6. 客户端调用 [Accessing RESTful services on the Client](http://static.springsource.org/spring/docs/3.0.0.M3/reference/html/ch18s03.html#rest-resttemplate)
+### 8. 客户端调用 [Accessing RESTful services on the Client](http://static.springsource.org/spring/docs/3.0.0.M3/reference/html/ch18s03.html#rest-resttemplate)
 
 Spring MVC不仅大大的简化了服务端RESTful服务的开发和开放，还提供了一些辅助类来方便客户端调用REST服务。
 
@@ -570,7 +601,7 @@ RestTemplate默认使用`java.net`包下的基础类来创建HTTP请求。你可
 关于RestTemplate使用的具体例子可以参考这篇文章[
 REST IN SPRING 3: RESTTEMPLATE](http://blog.springsource.org/2009/03/27/rest-in-spring-3-resttemplate/)。写的非常好，强烈推荐！
     
-### 7. 支持RESTful的URL
+### 9. 支持RESTful的URL
 
 在开发功能模块之前，应该先把URL设计好。比查对 **消息** 这个资源的操作URL可以这么设计：
     
