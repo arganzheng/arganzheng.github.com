@@ -10,7 +10,7 @@ title: 如何使用tomcat高效调试
 
 如果要调试：可以先在命令行设置如下环境变量：
 
-    set MAVEN_OPTS=-Xrunjdwp:transport=dt_socket,server=y,suspend=n,address=9000
+    set MAVEN_OPTS=-Xrunjdwp:transport=dt_socket,server=y,suspend=n,address=8000
 
 然后在eclipse中就可以链接9000端口（可随意设定）进行调试了。
 
