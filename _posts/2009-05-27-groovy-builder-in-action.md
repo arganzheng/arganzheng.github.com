@@ -4,7 +4,7 @@ layout: post
 ---
 
 
-Since 1.0, Groovy supports the ability to intercept all method and property access via the invokeMethod and get/setProperty hooks. If you only want to intercept failed method/property access take a look at Using methodMissing and propertyMissing.
+Since 1.0, Groovy supports the ability to intercept all method and property access via the invokeMethod and get/setProperty hooks. If you only want to intercept failed method/property access take a look at [Using methodMissing and propertyMissing](http://groovy.codehaus.org/Using+methodMissing+and+propertyMissing).
 
 
 invokeMethod介绍
