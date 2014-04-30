@@ -15,7 +15,7 @@ Builder模式是GoF中的创建型设计模式中的一种。原来的意图是�
 
   @CacheControl(isPublic = true, maxAge = 300, sMaxAge = 300)
 
- 会自动生成：Cache-Control: public, max-age=300, s-maxage=300的HTTP头。
+  会自动生成：Cache-Control: public, max-age=300, s-maxage=300的HTTP头。
 
 2. 对于动态的配置，可以使用CacheControlHeader工具类方便的控制：
 
