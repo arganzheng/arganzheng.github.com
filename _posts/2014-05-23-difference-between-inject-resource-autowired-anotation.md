@@ -39,31 +39,37 @@ Spring对于Bean的依赖注入，支持多种注解方式：
 * 如果 autowired by qualifier name失败，会退化为 autowired by field name。但是这时候如果 autowired by field name失败，就不会再退化为autowired by type了。
 
 
-**说明** 这三者都可以注入通过component-scan或者XML配置的bean。如果是component-scan的，可以在注解上指定：
+##### **TIPS** Qualified name VS Bean name
 
-	@Component("toyota")
-	public class Toyota implements Car {
+在Spring设计中，Qualified name并不等同于Bean name，后者必须是唯一的，但是前者类似于tag或者group的作用，对特定的bean进行分类。可以达到getByTag(group)的效果。对于XML配置的bean，可以通过id属性指定bean name（如果没有指定，默认使用类名首字母小写），通过`<qualifier>`标签指定qualifier name：
+
+
+	<bean id="lamborghini" class="me.arganzheng.study.spring.autowired.Lamborghini">
+		<qualifier value="luxury"/>
+	    <!-- inject any dependencies required by this bean -->
+	</bean>
+
+如果是通过注解方式，那么可以通过`@Qualifier`注解指定qualifier name，通过`@Named`或者@Component（@Service，@Repository等）的value值指定bean name：
+
+
+	@Component("lamborghini")
+	@Qualifier("luxury")
+	public class Lamborghini implements Car {
 
 	}
 
 或者
 
-	@Service
-	@Qualifier("toyota")
-	public class Toyota implements Car {
-
-	}
-
-或者
-
-	@Service
-	@Named("toyota")
-	public class Toyota implements Car {
+	@Component
+	@Named("lamborghini")
+	@Qualifier("luxury")
+	public class Lamborghini implements Car {
 
 	}	
-	
 
-如果没有指定bean name，那么Spring会默认是用起类名首字母小写(Toyota=>toyota)作为bean name。
+
+同样，如果没有指定bean name，那么Spring会默认是用类名首字母小写(Lamborghini=>lamborghini)。
+
 
 #### 3. 通过Anotation注入依赖的方式在XML注入方式之前进行。如果对同一个bean的依赖同时使用了两种注入方式，那么XML的优先。但是不同担心通过Anotation注入的依赖没法注入XML中配置的bean，依赖注入是在bean的注册之后进行的。
 
@@ -428,8 +434,8 @@ debug了一下，发现跟没有指定qualifie name是一样的执行路径。�
 
 @Autowired和@Inject
 
-* 默认 autowired by type
-* 可以 通过@Qualifier 显式指定 autowired by qualifier name（非集合类）
+* autowired by type
+* 可以 通过@Qualifier 显式指定 autowired by qualifier name（非集合类。注意：不是autowired by bean name！）
 * 如果 autowired by type 失败（找不到或者找到多个实现），则退化为autowired by field name（非集合类）
 
 @Resource
@@ -439,6 +445,8 @@ debug了一下，发现跟没有指定qualifie name是一样的执行路径。�
 * 可以 通过@Qualifier 显式指定 autowired by qualifier name
 * 如果 autowired by qualifier name失败，会退化为 autowired by field name。但是这时候如果 autowired by field name失败，就不会再退化为autowired by type了。
 
+
+测试工程保存在[GitHub](https://github.com/arganzheng/quick-test)上，是标准的maven工程，感兴趣的同学可以clone到本地运行测试一下。
 
 
 补充
