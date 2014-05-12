@@ -23,12 +23,12 @@ Spring对于Bean的依赖注入，支持多种注解方式：
 
 #### 1. @Autowired有个required属性，可以配置为false，这种情况下如果没有找到对应的bean是不会抛异常的。@Inject和@Resource没有提供对应的配置，所以必须找到否则会抛异常。
 
-#### 2. @Autowired和@Inject基本是一样的，因为两者都是使用`AutowiredAnnotationBeanPostProcessor`来处理依赖注入。但是@Resource是个例外，它使用的是`CommonAnnotationBeanPostProcessor`来处理依赖注入。
+#### 2. @Autowired和@Inject基本是一样的，因为两者都是使用`AutowiredAnnotationBeanPostProcessor`来处理依赖注入。但是@Resource是个例外，它使用的是`CommonAnnotationBeanPostProcessor`来处理依赖注入。当然，两者都是`BeanPostProcessor`。
 
 @Autowired和@Inject
 
 * 默认 autowired by type
-* 可以 通过@Qualifier 显式指定 autowired by qualifier name
+* 可以 通过@Qualifier 显式指定 autowired by qualifier name。
 * 如果 autowired by type 失败（找不到或者找到多个实现），则退化为autowired by field name
 
 @Resource
@@ -53,6 +53,15 @@ Spring对于Bean的依赖注入，支持多种注解方式：
 	public class Toyota implements Car {
 
 	}
+
+或者
+
+	@Service
+	@Named("toyota")
+	public class Toyota implements Car {
+
+	}	
+	
 
 如果没有指定bean name，那么Spring会默认是用起类名首字母小写(Toyota=>toyota)作为bean name。
 
@@ -431,8 +440,93 @@ debug了一下，发现跟没有指定qualifie name是一样的执行路径。�
 * 如果 autowired by qualifier name失败，会退化为 autowired by field name。但是这时候如果 autowired by field name失败，就不会再退化为autowired by type了。
 
 
+
+补充
+----
+
+有同事指出Spring官方文档上有这么一句话跟我的结有点冲突：
+
+> However, although you can use this convention to refer to specific beans by name, @Autowired is fundamentally about type-driven injection with optional semantic qualifiers. This means that qualifier values, even with the bean name fallback, always have narrowing semantics within the set of type matches; they do not semantically express a reference to a unique bean id.
+
+也就是说@Autowired即使加了@Qualifier注解，其实也是autowired by type。@Qualifier只是一个限定词，过滤条件而已。重新跟进了一下代码，发现确实是这样子的。Spring设计的这个 @Qualifier name 并不等同于 bean name。他有点类似于一个tag。不过如果这个tag是唯一的化，那么其实效果上等同于bean name。实现上，Spring是先getByType，得到list candicates，然后再根据qualifier name进行过滤。
+
+
+再定义一个兰博基尼，这里使用@Qualifier指定：
+
+
+	package me.arganzheng.study.spring.autowired;
+
+	import org.springframework.beans.factory.annotation.Qualifier;
+	import org.springframework.stereotype.Component;
+
+	@Component
+	@Qualifier("luxury")
+	public class Lamborghini implements Car {
+
+	}
+
+
+再定义一个劳斯莱斯，这里故意用@Named指定：
+
+
+	package me.arganzheng.study.spring.autowired;
+
+	import javax.inject.Named;
+
+	import org.springframework.stereotype.Component;
+
+	@Component
+	@Named("luxury")
+	public class RollsRoyce implements Car {
+
+	}
+
+
+测试一下注入定义的豪华车：
+
+	package me.arganzheng.study.spring.autowired;
+
+	import static junit.framework.Assert.assertNotNull;
+
+	import java.util.List;
+
+	import me.arganzheng.study.BaseSpringTestCase;
+
+	import org.junit.Test;
+	import org.springframework.beans.factory.annotation.Autowired;
+	import org.springframework.beans.factory.annotation.Qualifier;
+
+	/**
+	 * 
+	 * @author zhengzhibin
+	 * 
+	 */
+	public class AutowiredTest extends BaseSpringTestCase {
+
+		@Autowired
+		@Qualifier("luxury")
+		private List<Car> luxuryCars;
+
+		@Test
+		public void testAutowired() {
+
+			assertNotNull(luxuryCars);
+			System.out.println(luxuryCars.getClass().getSimpleName());
+			System.out.println(luxuryCars);
+		}
+
+	}
+
+
+运行结果如下：
+
+	ArrayList
+	[me.arganzheng.study.spring.autowired.Lamborghini@66b875e1, me.arganzheng.study.spring.autowired.RollsRoyce@58433b76]
+
+
 参考文章
 --------
 
 1. [Spring Injection with @Resource, @Autowired and @Inject](http://blogs.sourceallies.com/2011/08/spring-injection-with-resource-and-autowired/#more-2350)
 2. [@Resource vs @Autowired](http://stackoverflow.com/questions/4093504/resource-vs-autowired)
+3. [5.9 beans-autowired-annotation](http://docs.spring.io/spring/docs/3.2.9.BUILD-SNAPSHOT/spring-framework-reference/htmlsingle/#beans-autowired-annotation)
