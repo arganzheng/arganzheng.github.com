@@ -34,6 +34,6 @@ layout: post
 
 参考文章： 
 
-1. [ jnlp（Java网络加载协议）原来很简单 | http://blog.csdn.net/zmxj/article/details/297649 ]
-2. [ How to deploy SWT Applications using Java Web Start | http://www.eclipse.org/swt/jws/ ]
+1. [jnlp（Java网络加载协议）原来很简单](http://blog.csdn.net/zmxj/article/details/297649)
+2. [How to deploy SWT Applications using Java Web Start](http://www.eclipse.org/swt/jws/)
 
