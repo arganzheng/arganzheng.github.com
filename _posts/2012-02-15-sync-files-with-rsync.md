@@ -30,3 +30,42 @@ layout: post
 Tips:如果仅仅想发上去运行，那么将deploy目录发布上去就可以了，然后上去autoconfig（或者直接vim target中的tar包）。
 
 另外，ssh可以远程执行：ssh user@remote "rm /home/user/foo.txt"
+
+
+补充：more about rsync
+----------------------
+
+### 1. Trailing Slashes Do Matter...Sometimes
+
+ rsync对SourceDir最后是否带斜杠有不同的处理。例如：
+
+    rsync -auv /home/work/STATIC/mbrowser/guanxing  /home/work/mnt/mfs/mbrowser 
+
+将产生 备份到 /home/work/mnt/mfs/mbrowser/guanxing 目录
+
+而
+
+    rsync -auv /home/work/STATIC/mbrowser/guanxing/  /home/work/mnt/mfs/mbrowser 
+
+将产生 备份到 /home/work/mnt/mfs/mbrowser 目录
+
+
+DestDir 最后有没有斜杠没有影响。
+
+
+### 2. Using the --delete flag
+
+If a file was originally in both source/ and destination/ (from an earlier rsync, for example), and you delete it from source/, you probably want it to be deleted from destination/ on the next rsync. However, the default behavior is to leave the copy at destination/ in place. Assuming you want rsync to delete any file from destination/ that is not in source/, you'll need to use the --delete flag:
+
+    rsync -a --delete source/ destination/
+
+
+--delete-after表示先同步再删除。
+
+
+参考文章
+--------
+
+1. [Easy Automated Snapshot-Style Backups with Linux and Rsync](http://www.mikerubel.org/computers/rsync_snapshots/)
+
+
