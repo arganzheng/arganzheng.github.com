@@ -8,12 +8,12 @@ title: log4j日志路径问题
 
 原来的log4j.properties配置文件中配置日志文件路径如下：
 
-## File output...
-log4j.appender.system=org.apache.log4j.RollingFileAppender
-log4j.appender.system.File=../logs/system.log
-log4j.appender.defaultLogger.DatePattern='.'yyyy-MM-dd
-log4j.appender.system.layout=org.apache.log4j.PatternLayout
-log4j.appender.system.layout.ConversionPattern=%d [%p] [%t] %c (%F\:%L): %m%n
+	## File output...
+	log4j.appender.system=org.apache.log4j.RollingFileAppender
+	log4j.appender.system.File=../logs/system.log
+	log4j.appender.defaultLogger.DatePattern='.'yyyy-MM-dd
+	log4j.appender.system.layout=org.apache.log4j.PatternLayout
+	log4j.appender.system.layout.ConversionPattern=%d [%p] [%t] %c (%F\:%L): %m%n
 
 
 可以看到这里使用了相对路径：`log4j.appender.system.File=../logs/system.log`。相对路径有个问题，就是最终路径取决于执行shell脚本时所在的目录路径。比如，你在`/home/arganzheng/tomcat/tomcat-reading`路径下执行bin/startup.sh，则日志路径为：`/home/arganzheng/tomcat/logs/system.log`，而在`/home/arganzheng/tomcat/tomcat-reading/bin`目录下执行startup.sh，则日志路径为：`/home/arganzheng/tomcat/tomcat-reading/logs/system.log`。后者才是我们想要的。但是我们无法强制大家一定要在某个目录下执行startup.sh。使用绝对路径更不行，因为我们的代码是一套的。
@@ -41,7 +41,7 @@ log4j.appender.system.layout.ConversionPattern=%d [%p] [%t] %c (%F\:%L): %m%n
 	JAVA_OPTS="$JAVA_OPTS -DLOG_DIR=${LOG_DIR} -Denv=idc"
 
 
-这里还看到，我们也对gc log文件进行了相同的处理。
+TIPS: 这里还看到，我们也对gc log文件进行了相同的处理。
 
 然后在我们的log4j.properties文件就可以使用这个环境变量了：
 
