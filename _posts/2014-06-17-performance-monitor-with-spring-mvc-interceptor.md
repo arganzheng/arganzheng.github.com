@@ -28,7 +28,6 @@ PerformanceMonitorInterceptor的实现非常简单直观：
 
     package me.arganzheng.study.springmvc.interceptor;
 
-    import java.util.Arrays;
     import java.util.HashMap;
     import java.util.Map;
     import java.util.Map.Entry;
@@ -108,28 +107,23 @@ PerformanceMonitorInterceptor的实现非常简单直观：
     
     		sb.append("LocalNetWorkIp: ").append(WebUtils.getLocalNetWorkIp() + "\n");
     
-    		String fullStackTrace = Arrays.toString(Thread.currentThread().getStackTrace());
-    		sb.append("StackTrace: ").append(fullStackTrace);
-    
-    		// Total number of processors or cores available to the JVM
-    		sb.append("Available processors (cores): ").append(
-    				Runtime.getRuntime().availableProcessors());
-    
-    		long totalMemory = Runtime.getRuntime().totalMemory();
-    		long freeMemory = Runtime.getRuntime().freeMemory();
-    
-    		// Total memory currently available to the JVM
-    		sb.append("Total memory available to JVM (MB): ").append(totalMemory / MB);
-    
-    		// used memory
-    		sb.append("Used Memory (MBs): ").append((totalMemory - freeMemory) / MB);
-    
-    		// Total amount of free memory available to the JVM
-    		sb.append("Free memory (MBs): ").append(freeMemory / MB);
-    
-    		// Maximum amount of memory the JVM will attempt to use
-    		sb.append("Maximum memory (MBs): ").append(Runtime.getRuntime().maxMemory() / MB);
-    
+            // Total number of processors or cores available to the JVM
+            sb.append("Available processors (cores): ")
+                    .append(Runtime.getRuntime().availableProcessors()).append("\n");
+
+            long totalMemory = Runtime.getRuntime().totalMemory();
+            long freeMemory = Runtime.getRuntime().freeMemory();
+
+            // Total memory currently available to the JVM
+            sb.append("Total memory available to JVM (MB): ").append(totalMemory / MB).append("\n");
+            // used memory
+            sb.append("Used Memory (MBs): ").append((totalMemory - freeMemory) / MB).append("\n");
+            // Total amount of free memory available to the JVM
+            sb.append("Free memory (MBs): ").append(freeMemory / MB).append("\n");
+            // Maximum amount of memory the JVM will attempt to use
+            sb.append("Maximum memory (MBs): ").append(Runtime.getRuntime().maxMemory() / MB)
+                    .append("\n");
+
     		return sb.toString();
     	}
     }
