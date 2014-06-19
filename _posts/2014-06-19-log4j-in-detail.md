@@ -133,11 +133,24 @@ x and y refer to exactly the same logger object.
 
 Log4j内建的Apperders：
 
-* org.apache.log4j.ConsoleAppender（控制台）
-* org.apache.log4j.FileAppender（文件）
-* org.apache.log4j.DailyRollingFileAppender（每天产生一个日志文件）
-* org.apache.log4j.RollingFileAppender（文件大小到达指定尺寸的时候产生一个新的文件）
-* org.apache.log4j.WriterAppender（将日志信息以流格式发送到任意指定的地方）
+* org.apache.log4j.ConsoleAppender -- 控制台
+* org.apache.log4j.FileAppender -- 文件
+* org.apache.log4j.RollingFileAppender -- 文件大小到达指定尺寸的时候产生一个新的文件
+* org.apache.log4j.DailyRollingFileAppender -- 每天产生一个日志文件
+* org.apache.log4j.ExternallyRolledFileAppender
+* org.apache.log4j.JDBCAppender
+* org.apache.log4j.JMSAppender
+* org.apache.log4j.WriterAppender -- 将日志信息以流格式发送到任意指定的地方
+* org.apache.log4j.SMTPAppender
+* org.apache.log4j.SocketAppender
+* org.apache.log4j.SocketHubAppender
+* org.apache.log4j.SyslogAppender
+* org.apache.log4j.AsyncAppender
+* org.apache.log4j.LF5Appender
+* org.apache.log4j.NTEventLogAppender
+* org.apache.log4j.NullAppender
+* org.apache.log4j.TelnetAppender
+* org.apache.log4j.AppenderSkeleton
 
 ### 三、Layouts——customize the output format
 
@@ -147,10 +160,12 @@ Log4j内建的Apperders：
 
 Log4j内建的Layout:
 
-* org.apache.log4j.SimpleLayout（包含日志信息的级别和信息字符串）
-* org.apache.log4j.PatternLayout（可以灵活地指定布局模式）
-* org.apache.log4j.HTMLLayout（以HTML表格形式布局）
-* org.apache.log4j.TTCCLayout（包含日志产生的时间、线程、类别等等信息）
+* org.apache.log4j.SimpleLayout -- 包含日志信息的级别和信息字符串
+* org.apache.log4j.HTMLLayout -- 以HTML表格形式布局
+* org.apache.log4j.XMLLayout -- 以XML形式布局
+* org.apache.log4j.PatternLayout -- 可以灵活地指定布局模式
+* org.apache.log4j.EnhancedPatternLayout -- PatternLayout的升级版
+* org.apache.log4j.TTCCLayout -- 包含日志产生的时间、线程、类别等等信息
 
 
 ### 配置
@@ -222,7 +237,7 @@ appenderName:就是指定日志信息输出到哪个地方。您可以同时指�
 * org.apache.log4j.TTCCLayout -- 包含日志产生的时间、线程、类别等等信息
 
 
-log4j最佳实现
+log4j最佳实践
 -------------
 
 1. 多套环境（dev, test, idc）log4j配置问题
@@ -414,7 +429,7 @@ log4j默认是同步打印日志的。本地appender（终端、文件）还好�
 建议日志规范
 ------------
 
-1. 直接使用log4j，而不是commons-logging+log4j。即使用Logger.getLogger(".."")获取logger，而不是LogFactory.getLog("..")。
+1、直接使用log4j，而不是commons-logging+log4j。即使用Logger.getLogger(".."")获取logger，而不是LogFactory.getLog("..")。
 
 commons-logging的思想是提供了一组通用的日志接口，用户可以自由地选择实现日志接口的第三方软件。目前支持以下日志实现：
 
@@ -425,10 +440,9 @@ commons-logging的思想是提供了一组通用的日志接口，用户可以�
 
 但是commons-logging已经非常老了，据说有bug。另外支持的第三方日志库也不多，就上面四种实现，其实必然是log4j。而且已经被slf4j取代。建议是直接使用一种日志框架，或者使用slf4j。
 
-2. 上面的最佳实践根据需要采用实施。
-3. 注意log的级别，不要打太多没用的东西。
-4. 日志内容应该方便查询(grep)，并且带上足够的上下文方便定位问题。
-
+2、注意log的级别，不要打太多没用的东西。
+3、日志内容应该方便查询(grep)，并且带上足够的上下文方便定位问题。
+4、上面的最佳实践根据需要采用实施。
 
 参考文档以及推荐阅读
 --------------------
