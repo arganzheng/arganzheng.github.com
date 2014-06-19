@@ -57,15 +57,19 @@ TIPS: 这里还看到，我们也对gc log文件进行了相同的处理。
 	log4j.appender.console.layout.ConversionPattern=[%p]\t%d\t[%t] %c (%F\:%L) - %m%n
 
 	## File output...
-	log4j.appender.system=org.apache.log4j.RollingFileAppender
+	log4j.appender.system=org.apache.log4j.DailyRollingFileAppender
 	log4j.appender.system.File=${LOG_DIR}/system.log
+	log4j.appender.system.Append=true 
+	#log4j.appender.system.Threshold=INFO
 	log4j.appender.defaultLogger.DatePattern='.'yyyy-MM-dd
 	log4j.appender.system.layout=org.apache.log4j.PatternLayout
 	log4j.appender.system.layout.ConversionPattern=%d [%p] [%t] %c (%F\:%L): %m%n
 
 	## File output...
-	log4j.appender.mbrowser=org.apache.log4j.RollingFileAppender
+	log4j.appender.mbrowser=org.apache.log4j.DailyRollingFileAppender
 	log4j.appender.mbrowser.File=${LOG_DIR}/mbrowser.log
+	log4j.appender.mbrowser.Append=true
+	#log4j.appender.mbrowser.Threshold=INFO
 	log4j.appender.defaultLogger.DatePattern='.'yyyy-MM-dd
 	log4j.appender.mbrowser.layout=org.apache.log4j.PatternLayout
 	log4j.appender.mbrowser.layout.ConversionPattern=%d [%p] [%t] %c (%F\:%L): %m%n
