@@ -1,6 +1,6 @@
 ---
 layout: post
-title: 如何实现用户认证授权统
+title: 如何实现用户认证授权系统
 ---
 
 
@@ -34,7 +34,7 @@ title: 如何实现用户认证授权统
 
 1. sessionId其实是需要来回传递的，一般来说是通过[Session cookie](http://en.wikipedia.org/wiki/HTTP_cookie#Session_cookie)来实现（REWRITE URL或者Hidden Field安全性和可操作性都不强，比较少见）。
 2. sesionId一般是服务器随机生成的一个ID，基本来说是不可能被猜测出来的，所以这方面的安全还是有一定保障的。但是，要防止攻击者获取一个合法的sessionId是相当困难的，这基本上不是开发者所能控制的。相对来说，Session Cookie是比较安全的传递机制，但是也不能完全保证。
-3. 在分布式环境下必须保证用户登录一台机器，下次请求路由到另一台web服务器也能够认识这个用户。这一般通过两种方式实现: 1. session复制。2. Session Sticky。这种方式将同一用户的请求转发到特定的web服务器上，避免了集群中Session的复制，缺点是用户只跟一种的一台服务器通信，有单点问题[Cookies, Sessions, and Persistence](http://www.f5.com/pdf/white-papers/cookies-sessions-persistence-wp.pdf)。3. 使用redis这样的集中式的分布式缓存系统实现session集群，这是推荐的方式。
+3. 在分布式环境下必须保证用户登录一台机器，下次请求路由到另一台web服务器也能够认识这个用户。这一般通过两种方式实现: 1. session复制。2. Session Sticky。这种方式将同一用户的请求转发到特定的web服务器上，避免了集群中Session的复制，缺点是用户只能跟集群中的一台服务器通信，有单点问题[Cookies, Sessions, and Persistence](http://www.f5.com/pdf/white-papers/cookies-sessions-persistence-wp.pdf)。3. 使用redis这样的集中式的分布式缓存系统实现session集群，这是推荐的方式。
 
 第二个需求，需要使用[Persisitent cookie](http://en.wikipedia.org/wiki/HTTP_cookie#Persistent_cookie)来实现。具体参考这篇文章 [Using Cookies to implement a RememberMe functionality](http://java.dzone.com/articles/using-cookies-implement) 
 
@@ -54,6 +54,20 @@ google了一下，发现这篇文章跟我的观点不谋而合[Sessionless_Auth
 
 不过这种方式在没有过期的情况下，需要去数据库拉取用户信息（password）。所以最好结合缓存进行处理。
 
+上面的想法是把password作为一个secretKey或者Salt进行签名。还有另一种思路，就是把password作为对称密钥来进行加密解密。具体步骤如下：
+
+1. 用户输入userId和password
+2. 客户端用userId和password 计算得到一个签名：S2'=md5(userId + md5(password))
+3. 客户端构造一个消息：message=userId;md5(password);tampstamp;randonKey
+4. 客户端用TEA对称加密算法对这个消息进行加密：A1=TEA(S2', message)，对称密钥就是上面的S2'，然后将uin和上面计算出来的A1发送给服务端。
+5. 服务端根据userId，从用户信息表中得到用户注册时保存的签名：S2=md5(userId + md5(password)) 值（这里不是保存md5(password)），这个签名就是TEA的对称密钥。而且正常情况应该跟S2'是一样的。
+6. 服务端尝试用S2解密A1，得到message。
+7. 对message中的用户信息进行验证：message.userId == DB.userId; mod5(message.userId + md5(message.password)) == S2。
+8. 如果验证通过，说明用户身份认证通过，服务器同样构造了一个消息：serverMessage=whaterver you want，newToken for example. 然后用客户端发送过来的randanKey进行对称加密：A2=TEA(randanKey, serverMessage)，然后把A2返回给客户端。
+9. 客户端拿到A2，用randanKey进行解密，如果可以解开，说明服务器是合法的。
+
+这个方案虽然没有使用HTTPS，但是思路跟HTTPS很类似。安全性也很高。
+
 ### Authorization
 
 认证之后的下一步就是授权了。因为资源(体现在URL上)往往是有分访问等级的。有些是public的，匿名用户就可以访问。有些是私人的，必须登陆才行，有些是需要管理员才能处理的。所以我们还需要判断这个用户是否有权限对这个资源进行某些操作。这个是通过角色来处理的。
@@ -64,7 +78,7 @@ google了一下，发现这篇文章跟我的观点不谋而合[Sessionless_Auth
     @RequestMapping("/my")
     public class MyController{
     
-        @RequireLogin("role=amdin")
+        @RequireLogin("roleamdin")
         public void doXXX(){
           xxx
         }
