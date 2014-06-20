@@ -133,46 +133,54 @@ x and y refer to exactly the same logger object.
 
 Log4j内建的Apperders：
 
-* org.apache.log4j.ConsoleAppender -- 控制台
-* org.apache.log4j.FileAppender -- 文件
-* org.apache.log4j.RollingFileAppender -- 文件大小到达指定尺寸的时候产生一个新的文件
-* org.apache.log4j.DailyRollingFileAppender -- 每天产生一个日志文件
-* org.apache.log4j.ExternallyRolledFileAppender
-* org.apache.log4j.JDBCAppender
-* org.apache.log4j.JMSAppender
-* org.apache.log4j.WriterAppender -- 将日志信息以流格式发送到任意指定的地方
-* org.apache.log4j.SMTPAppender
-* org.apache.log4j.SocketAppender
-* org.apache.log4j.SocketHubAppender
-* org.apache.log4j.SyslogAppender
-* org.apache.log4j.AsyncAppender
-* org.apache.log4j.LF5Appender
-* org.apache.log4j.NTEventLogAppender
-* org.apache.log4j.NullAppender
-* org.apache.log4j.TelnetAppender
-* org.apache.log4j.AppenderSkeleton
+
+- org.apache.log4j.AppenderSkeleton -- Abstract superclass of the other appenders in the package.
+	- org.apache.log4j.WriterAppender -- Appends log events to a java.io.Writer or an java.io.OutputStream depending on the user's choice.
+		- org.apache.log4j.FileAppender -- 文件
+			- org.apache.log4j.DailyRollingFileAppender -- 每天产生一个日志文件
+			- org.apache.log4j.RollingFileAppender -- 文件大小到达指定尺寸的时候产生一个新的文件
+				- org.apache.log4j.ExternallyRolledFileAppender
+		- org.apache.log4j.ConsoleAppender -- 控制台
+	- org.apache.log4j.JDBCAppender -- 数据库
+	- org.apache.log4j.JMSAppender -- 消息队列
+	- org.apache.log4j.SMTPAppender -- 邮件
+	- org.apache.log4j.SocketAppender -- Sends LoggingEvent objects to a remote a log server, usually a SocketNode. 
+	- org.apache.log4j.SocketHubAppender -- Sends LoggingEvent objects to a set of remote log servers, usually a SocketNodes. 
+	- org.apache.log4j.SyslogAppender -- send log messages to a remote syslog daemon
+	- org.apache.log4j.AsyncAppender -- log events asynchronously. Can only be script configured using the org.apache.log4j.xml.DOMConfigurator. 
+	- org.apache.log4j.LF5Appender -- logs events to a swing based logging console
+	- org.apache.log4j.NTEventLogAppender -- Append to the NT event log system. Can only be installed and used on a Windows system.
+	- org.apache.log4j.TelnetAppender
+	- org.apache.log4j.NullAppender
+
+5、Appender可以有一个或者多个Filter，对日志信息进行过滤。
+
+6、log4j提供了AysnAppender，支持日志异步写入。但是只支持XML配置文件。
+
 
 ### 三、Layouts——customize the output format
 
-如果说appender是控制日志输出到哪里，那么layout就是控制日志以何种格式打印。每一个appender都必须有一个layout相关联。
+如果说appender是控制日志输出到哪里，那么layout就是控制日志以何种格式打印。每一个appender一般有一个layout相关联。远程Appender只是发送日志信息，不需要Layout。
 
 一般都是是配置[PatternLayout](http://logging.apache.org/log4j/1.2/apidocs/org/apache/log4j/PatternLayout.html)，配置起来很类似于C的printf。
 
 Log4j内建的Layout:
 
-* org.apache.log4j.SimpleLayout -- 包含日志信息的级别和信息字符串
-* org.apache.log4j.HTMLLayout -- 以HTML表格形式布局
-* org.apache.log4j.XMLLayout -- 以XML形式布局
-* org.apache.log4j.PatternLayout -- 可以灵活地指定布局模式
-* org.apache.log4j.EnhancedPatternLayout -- PatternLayout的升级版
-* org.apache.log4j.TTCCLayout -- 包含日志产生的时间、线程、类别等等信息
+- org.apache.log4j.Layout
+	- org.apache.log4j.SimpleLayout -- level - log message
+	- org.apache.log4j.HTMLLayout -- 以HTML表格形式布局
+	- org.apache.log4j.XMLLayout -- 以XML形式布局
+	- org.apache.log4j.PatternLayout -- 可以灵活地指定布局模式
+	- org.apache.log4j.EnhancedPatternLayout -- PatternLayout的升级版
+	- org.apache.log4j.helpers.DateLayout -- This abstract layout takes care of all the date related options and formatting work.
+		- org.apache.log4j.TTCCLayout -- 包含日志产生的时间、线程、类别等等信息
 
 
 ### 配置
 
 Log4j支持两种配置文件格式，一种是XML格式的文件，一种是Java Properties文件(key=value)。log4j在启动时，检查用户是否通过环境变量`log4j.configuration`指定了配置文件的路径，如果指定了，则加载之。否则，优先加载log4j.xml，如果找不到，再查找log4j.properties。
 
-Java Properties相对于XML比较简洁，一般来说推荐使用后者。
+Java Properties相对于XML比较简洁，但是一些高级功能只支持XML配置，比如Filters、自定义ErrorHandlers和一些特定类型的Appender，比如Nested appenders such as the AsyncAppender。
 
 log4j的配置其实就是配置上面说的三个核心组件。
 
@@ -182,7 +190,7 @@ log4j的配置其实就是配置上面说的三个核心组件。
 
 	log4j.logger.${logerName}=[${logLevel}], [${appenderName1}], [${appenderName2}], ...
 
-方括号表示可选。logLevel默认是DEBUG级别。
+方括号表示可选。logLevel默认是ALL级别（最低级别）。
 
 其中根Logger没有名称，直接用rootLogger指定：
 
@@ -202,14 +210,14 @@ appenderName:就是指定日志信息输出到哪个地方。您可以同时指�
 
 其中fully.qualified.name.of.appender.class可以指定下面内建Appender中的一个，也可以是自定义的Appender。
 
-* org.apache.log4j.ConsoleAppender -- 控制台
-* org.apache.log4j.FileAppender -- 文件
-* org.apache.log4j.RollingFileAppender -- 文件大小到达指定尺寸的时候产生一个新的文件
-* org.apache.log4j.DailyRollingFileAppender -- 每天产生一个日志文件
+* org.apache.log4j.ConsoleAppender 
+* org.apache.log4j.FileAppender
+* org.apache.log4j.RollingFileAppender
+* org.apache.log4j.DailyRollingFileAppender
 * org.apache.log4j.ExternallyRolledFileAppender
 * org.apache.log4j.JDBCAppender
 * org.apache.log4j.JMSAppender
-* org.apache.log4j.WriterAppender -- 将日志信息以流格式发送到任意指定的地方
+* org.apache.log4j.WriterAppender
 * org.apache.log4j.SMTPAppender
 * org.apache.log4j.SocketAppender
 * org.apache.log4j.SocketHubAppender
@@ -219,7 +227,6 @@ appenderName:就是指定日志信息输出到哪个地方。您可以同时指�
 * org.apache.log4j.NTEventLogAppender
 * org.apache.log4j.NullAppender
 * org.apache.log4j.TelnetAppender
-* org.apache.log4j.AppenderSkeleton
 
 3、配置日志信息的格式(Layout)
 
@@ -229,12 +236,12 @@ appenderName:就是指定日志信息输出到哪个地方。您可以同时指�
 
 其中fully.qualified.name.of.layout.class可以指定下面内建Layout中的一个。也可以是自定义的Layout。
 
-* org.apache.log4j.SimpleLayout -- 包含日志信息的级别和信息字符串
-* org.apache.log4j.HTMLLayout -- 以HTML表格形式布局
-* org.apache.log4j.XMLLayout -- 以XML形式布局
-* org.apache.log4j.PatternLayout -- 可以灵活地指定布局模式
-* org.apache.log4j.EnhancedPatternLayout -- PatternLayout的升级版
-* org.apache.log4j.TTCCLayout -- 包含日志产生的时间、线程、类别等等信息
+* org.apache.log4j.SimpleLayout
+* org.apache.log4j.HTMLLayout
+* org.apache.log4j.XMLLayout
+* org.apache.log4j.PatternLayout
+* org.apache.log4j.EnhancedPatternLayout
+* org.apache.log4j.TTCCLayout
 
 
 log4j最佳实践
@@ -292,7 +299,7 @@ log4j最佳实践
 
 #### 方案二、使用auto-config在编译期间为每个环境生成相应的配置文件
 
-原来Alibaba B2b配置方式，现在已经开源了，具体参见：[第 13 章 AutoConfig工具使用指南](http://openwebx.org/docs/autoconfig.html)。
+原来Alibaba B2B配置方式，现在已经开源了，具体参见：[第 13 章 AutoConfig工具使用指南](http://openwebx.org/docs/autoconfig.html)。
 
 优点：build时刻确定/修改配置；相对于运行时运行时根据环境变量替换配置文件方式，启动脚本不需要任何修改。
 缺点：复杂。如果没有配置文件，需要将要求的配置项通过交互界面一一配置。而配置文件一般又不跟代码走。以前是放在home目录下，不知道现在是怎样。
@@ -404,9 +411,18 @@ log4j最佳实践
 
 ### 5. 日志统一上报
 
-线上应用为了高可用性，往往部署在多台服务器。如果遇到比较诡异的线上问题，需要登录多台机器，check相应的log文件。比较费时间。如果能够把日志收集在一个地方，并且提供查询界面。可以很方便的查看日志定位问题。
+线上应用为了高可用性，往往部署在多台服务器。如果遇到比较诡异的线上问题，需要登录特定设置多台机器查看相应的log文件。比较费时间。如果能够把日志收集在一个地方，并且提供查询界面。可以很方便的查看日志定位问题。
 
-解决思路：可以将日志统一存放在DB中。然后提供查询界面（可以使用搜索引擎提供全文搜索）。
+**解决思路** 可以将日志统一存放在DB或者HBase中。然后提供查询界面（可以使用搜索引擎提供全文搜索）。
+
+首先想到的是JDBCAppender，直接将日志记录到DB中。不过这样所有的应用对于DB就有依赖，而且未必所有的机器都有DB访问权限。而且底层如果后续不采用DB，所有的应用都需要修改。另外，JDBCAppender是同步写，对应用性能可能有影响。当然，可以采用AsyncAppender异步化。
+
+那么考虑SocketAppender，将日志发送到远端的服务器上。但SocketAppender有以下的缺点：
+
+* 存储和发送日志是一个同步过程，有可能会出现打日志的动作堵死应用程序的场景。
+* 需用户自己开发服务端程序，且客户端和服务端均使用同步socket通信，吞吐率较低。在处理大日志量时力不从心。
+
+同步影响性能问题，我们可以采用AsyncAppender异步化，唯一的成本就是需要将配置文件改成XML形式（当然如果你一开始就使用了XML配置格式，就不需要迁移了）。不过SocketAppender确实采用最原始的Socket通讯，IO性能比较低。对于日志量比较大的应用，可以考虑自己实现一个异步IO的Appender。这样，配置文件也不需要修改成XML了。实现很简单，只需要继承抽象类AppenderSkeleton，然后放在classpath中，就可以在log4j.properties中配置，log4j在写日志时就会往这个appender中发一份日志。为了提高日志搜集系统的吞吐率，在通信框架选型时，可以采用Netty通信框架。还可以使用ProtocolBuffer对数据进行压缩，进一步提高效率。整个实现估计一周左右可以完成。
 
 **NOTES && TIPS**
 
@@ -414,9 +430,21 @@ log4j最佳实践
 2. 远程上报日志比本地日志要耗性能，可以采用异步上报方式。
 3. 可以提供邮件报警，增加监控能力。
 
+
+**实战例子** Alibaba B2B国际站的Syslog系统，就是自己实现了一个SyslogRmiAppender。还提供了配置方式，可以脱离log4j在代码中显示使用。使用Syslog上报的日志包括：
+
+1. SQL
+2. 事务
+3. 应用日志（一般是错误日志）
+4. 性能监控
+5. Monitor
+
+
 ### 6. 日志异步上报
 
 log4j默认是同步打印日志的。本地appender（终端、文件）还好，如果是远程apperder（邮件、DB、socket等）那么可能会对应用性能产生影响。Log4j提供了[AsyncAppender](https://logging.apache.org/log4j/1.2/apidocs/org/apache/log4j/AsyncAppender.html)，可以异步的记录日志。他可以连接多个实际的appenders，然后将logger发给他的日志，异步的转发给这些关联的appenders。这对于远程appender来说还是很有必要的。
+
+**注意** AsyncAppender只支持XML配置格式。
 
 
 其他的log框架
@@ -428,6 +456,7 @@ log4j默认是同步打印日志的。本地appender（终端、文件）还好�
 
 建议日志规范
 ------------
+
 
 1、直接使用log4j，而不是commons-logging+log4j。即使用Logger.getLogger(".."")获取logger，而不是LogFactory.getLog("..")。
 
@@ -441,8 +470,11 @@ commons-logging的思想是提供了一组通用的日志接口，用户可以�
 但是commons-logging已经非常老了，据说有bug。另外支持的第三方日志库也不多，就上面四种实现，其实必然是log4j。而且已经被slf4j取代。建议是直接使用一种日志框架，或者使用slf4j。
 
 2、注意log的级别，不要打太多没用的东西。
+
 3、日志内容应该方便查询(grep)，并且带上足够的上下文方便定位问题。
+
 4、上面的最佳实践根据需要采用实施。
+
 
 参考文档以及推荐阅读
 --------------------
