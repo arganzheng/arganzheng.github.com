@@ -275,7 +275,7 @@ log4j最佳实践
 
 2、修改JVM启动参数，配置`log4j.configuration`
 
-	StartApp.sh
+	startApp_idc.sh
 
 	#!/bin/bash
 
@@ -293,8 +293,8 @@ log4j最佳实践
 	 
 	$JAVA_HOME/bin/java $JAVA_OPTS me.arganzheng.study.standalone.dataSync.HelloWorld
 
-优点：简单方便
-缺点: 需要修改每套环境的JVM启动变量
+优点：简单方便。
+缺点: 需要修改每套环境的JVM启动变量。
 
 
 #### 方案二、使用auto-config在编译期间为每个环境生成相应的配置文件
