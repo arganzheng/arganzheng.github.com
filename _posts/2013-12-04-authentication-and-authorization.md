@@ -48,7 +48,7 @@ title: 如何实现用户认证授权系统
 
 上面的Authentication方式其实是用到了session和cookies。我们知道session这东西是服务端状态，而服务端一旦有状态，就不是很好线性扩展。其实对于身份验证来说，服务端保留的也这是一个简单的value而已，一般是userId，即`session['sessionId']==>userId`。然后再根据userId去DB获取用户的详细信息。如果我们把userId作为一个cookies值放在客户端，然后把用几个cookies值（比如userId）做一个特殊的签名算法得到的token也放在cookie中，即`f(userId, expireTime)==>token`。这样服务端得到用户请求，用同样的签名算法进行计算，如果得到的token是相等，那么证明这个用户是合法的用户。注意这个签名算法的输入因子必须包含过期时间这样的动态因子，否者得到的token永远是固定的。这种实现方式其实是仿造CSRF防御机制[anti-csrf.md](https://gist.github.com/arganzheng/6113349)。是笔者自己想出来的，不清楚有没有人用过，个人感觉行得通。
 
-更进一步的，可以参考API中的签名验证方式，把password作为secretKey，把userId, expireTime, nonce, timestamp作为输入参数，然后用不公开的算法（这个与API签名不同）结合password这个secretKey进行计算，得到一个签名，即f`(userId, expireTime, nonce, tampstamp, password)==>sign`。每次客户端传递userId, expireTime, nonce, tampstamp和sign值，我们根据userId获取到password，然后进行`f(userId, expireTime, nonce, tampstamp, password)==>sign`计算，然后比较两个sign是否一致，如果是，表示通过。这种方式比起上面的方式其实区别在于增加了password作为输入参数。这样当用户修改了password之后，这个token就失效了，更合理安全一些。
+更进一步的，可以参考API中的签名验证方式，把password作为secretKey，把userId, expireTime, nonce, timestamp作为输入参数，然后用不公开的算法（这个与API签名不同）结合password这个secretKey进行计算，得到一个签名，即f`(userId, expireTime, nonce, timestamp, password)==>sign`。每次客户端传递userId, expireTime, nonce, tampstamp和sign值，我们根据userId获取到password，然后进行`f(userId, expireTime, nonce, timestamp, password)==>sign`计算，然后比较两个sign是否一致，如果是，表示通过。这种方式比起上面的方式其实区别在于增加了password作为输入参数。这样当用户修改了password之后，这个token就失效了，更合理安全一些。
 
 google了一下，发现这篇文章跟我的观点不谋而合[Sessionless_Authentication_with_Encrypted_Tokens](http://eversystems.eu/Document/15/Sessionless_Authentication_with_Encrypted_Tokens)。另外看了一下[Spring Security的Remember Me](http://static.springsource.org/spring-security/site/docs/3.0.x/reference/remember-me.html)实现，原来这种方式是[10.2 Simple Hash-Based Token Approach]方式。他的hash因子中也有password，这样当用户修改了password之后，这个token就失效了。不过这种方式没有办法解决token被盗取的问题。要解决token盗取问题，需要使用动态token，这需要持久化token，比较麻烦[10.3 Persistent Token Approach](http://static.springsource.org/spring-security/site/docs/3.0.x/reference/remember-me.html)。
 
@@ -57,16 +57,23 @@ google了一下，发现这篇文章跟我的观点不谋而合[Sessionless_Auth
 上面的想法是把password作为一个secretKey或者Salt进行签名。还有另一种思路，就是把password作为对称密钥来进行加密解密。具体步骤如下：
 
 1. 用户输入userId和password
-2. 客户端用userId和password 计算得到一个签名：S2'=md5(userId + md5(password))
-3. 客户端构造一个消息：message=userId;md5(password);tampstamp;randonKey
-4. 客户端用TEA对称加密算法对这个消息进行加密：A1=TEA(S2', message)，对称密钥就是上面的S2'，然后将uin和上面计算出来的A1发送给服务端。
-5. 服务端根据userId，从用户信息表中得到用户注册时保存的签名：S2=md5(userId + md5(password)) 值（这里不是保存md5(password)），这个签名就是TEA的对称密钥。而且正常情况应该跟S2'是一样的。
-6. 服务端尝试用S2解密A1，得到message。
-7. 对message中的用户信息进行验证：message.userId == DB.userId; mod5(message.userId + md5(message.password)) == S2。
-8. 如果验证通过，说明用户身份认证通过，服务器同样构造了一个消息：serverMessage=whaterver you want，newToken for example. 然后用客户端发送过来的randanKey进行对称加密：A2=TEA(randanKey, serverMessage)，然后把A2返回给客户端。
+2. 客户端用userId和password 计算得到一个签名：H1=md5(password), S1'=md5(H1 + userId)
+3. 客户端构造一个消息：message=randonKey;timestamp;H1;sigData，其中SigData为客户端的基本信息，比如userId, IP等。
+4. 客户端用对称加密算法(推荐使用TEA)对这个消息进行加密：A1=E(S1', message)，对称密钥就是上面的S1'，然后将userId和A1发送给服务端。
+5. 服务端根据userId，从用户信息表中得到用户注册时保存的签名S1=md5(H1 + userId)。注意服务器保存的不是H1。这个签名就是前面对称加密(TEA)的对称密钥。而且正常情况应该跟客户端根据用户输入的userId和password计算出来的S1'是一样的。
+6. 服务端尝试用S1解密A1，得到message。
+7. 服务器对message中的用户信息sigData进行验证：message.sigData.userId == DB.userId; md5(message.H1 + message.sigData.userId) == DB.S1。
+8. 如果验证通过，说明用户身份认证通过，服务器同样构造了一个消息：serverMessage=whaterver you want，newToken for example. 然后用客户端发送过来的randanKey进行对称加密：A2=E(randanKey, serverMessage)，然后把A2返回给客户端。
 9. 客户端拿到A2，用randanKey进行解密，如果可以解开，说明服务器是合法的。
 
 这个方案虽然没有使用HTTPS，但是思路跟HTTPS很类似。安全性也很高。
+
+**说明**
+
+1. 上面的认证过程其实就是著名的网络认证协议[Kerberos](http://web.mit.edu/kerberos/)的认证过程。QQ的登录协议就是参考Kerberos实现的。不过Kerberos也有一些安全性的问题。SRP协议[Secure Remote Password protocol](http://en.wikipedia.org/wiki/Secure_Remote_Password_protocol)要更安全一些。
+2. 为什么解开对称加密后的message之后还要做步骤7的验证。这是为了避免拖库后的伪造登录。假设被拖库了，黑客拿到用户的S1，可以伪造用户登录（因为我们的加密算法是公开的）。它能够通过服务器第一个验证，即服务端使用存储的S1能够解开消息；但是无法通过第二个验证，因为H1只能是伪造的。但是拖库后其实黑客还可以进行中间人攻击。这个上面的协议是防止不了的。
+3. 为什么DB保存S1而不是H1。这是为了提高批量暴力破解的成本。对经过两次MD5加密，再加上userId作为salt，得到的S1进行暴露反推pasword基本是不可能的。而反推H1的话，由于H1的是password的MD5值，相对于password来说强度要增强不少。这个读者可以自己试试md5('123456')看得到的H1就有直观的认识了。
+
 
 ### Authorization
 
