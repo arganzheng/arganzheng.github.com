@@ -85,14 +85,32 @@ google了一下，发现这篇文章跟我的观点不谋而合[Sessionless_Auth
     @RequestMapping("/my")
     public class MyController{
     
-        @RequireLogin("roleamdin")
+        @LoginRequired(role = { Role.ADMIN, Role.USER })
         public void doXXX(){
           xxx
         }
-    
     }
-  
-  
+
+然后在Interceptor中进行处理。这个其实参考[flask pricipal](http://kevinchen.synology.me/TechnicalDocuments/flask/flask_pricipal.html)的。可惜Java不支持函数式编程，不能把函数做为参数传递。而在Python中，创建一个decorator是多么的简单[Simple Authorization](http://flask.pocoo.org/snippets/98/)：
+
+	def requires_roles(*roles):
+    def wrapper(f):
+        @wraps(f)
+        def wrapped(*args, **kwargs):
+            if get_current_user_role() not in roles:
+                return error_response()
+            return f(*args, **kwargs)
+        return wrapped
+    return wrapper
+
+然后就可以这样子使用了：
+
+	@app.route('/user')
+	@required_roles('admin', 'user')
+	def user_page(self):
+	    return "You've got permission to access this page."    
+
+
 参考文章
 --------
 
