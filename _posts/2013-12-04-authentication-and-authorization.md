@@ -65,7 +65,7 @@ title: 如何实现用户认证授权系统
 2. 虽然cookies的值是没有加密的，但是由于有签名的校验。如果黑客修改了cookie的内容，但是由于他没有签名密钥secretKey，会导致签名不一致。
 
 
-google了一下，发现这篇文章跟我的观点不谋而合[Sessionless_Authentication_with_Encrypted_Tokens](http://eversystems.eu/Document/15/Sessionless_Authentication_with_Encrypted_Tokens)。另外看了一下[Spring Security的Remember Me](http://static.springsource.org/spring-security/site/docs/3.0.x/reference/remember-me.html)实现，原来这种方式是[10.2 Simple Hash-Based Token Approach]方式。他的hash因子中也有password，这样当用户修改了password之后，这个token就失效了。不过这种方式没有办法解决token被盗取的问题。要解决token盗取问题，需要使用动态token，这需要持久化token，比较麻烦[10.3 Persistent Token Approach](http://static.springsource.org/spring-security/site/docs/3.0.x/reference/remember-me.html)。
+google了一下，发现这篇文章跟我的观点不谋而合[Sessionless_Authentication_with_Encrypted_Tokens](http://eversystems.eu/Document/15/Sessionless_Authentication_with_Encrypted_Tokens)。另外看了一下[Spring Security的Remember Me](http://static.springsource.org/spring-security/site/docs/3.0.x/reference/remember-me.html)实现，原来这种方式是[5.2. Simple Hash-Based Token Approach](http://docs.spring.io/spring-security/site/docs/3.2.4.RELEASE/reference/htmlsingle/#remember-me-hash-token)方式。他的hash因子中也有password，这样当用户修改了password之后，这个token就失效了。不过这种方式没有办法解决token被盗取的问题。要解决token盗取问题，需要使用动态token，这需要持久化token，比较麻烦[5.3 Persistent Token Approach](http://docs.spring.io/spring-security/site/docs/3.2.4.RELEASE/reference/htmlsingle/#remember-me-persistent-token)。
 
 上面的想法是把password作为一个secretKey或者Salt进行签名。还有另一种思路，就是把password作为对称密钥来进行加密解密。具体步骤如下：
 
@@ -127,6 +127,104 @@ google了一下，发现这篇文章跟我的观点不谋而合[Sessionless_Auth
 	@required_roles('admin', 'user')
 	def user_page(self):
 	    return "You've got permission to access this page."    
+
+
+发现[Spring Security](http://docs.spring.io/spring-security/site/docs/3.2.4.RELEASE/reference/htmlsingle/)也是这么处理的。支持对URL进行匹配访问授权控制 [1.6. Advanced Namespace Configuration](http://docs.spring.io/spring-security/site/docs/3.2.4.RELEASE/reference/htmlsingle/#filter-chains-with-ns):
+
+	<!-- Stateless RESTful service using Basic authentication -->
+	<http pattern="/restful/**" create-session="stateless">
+	  <intercept-url pattern='/**' access='ROLE_REMOTE' />
+	  <http-basic />
+	</http>
+
+	<!-- Empty filter chain for the login page -->
+	<http pattern="/login.htm*" security="none"/>
+
+	<!-- Additional filter chain for normal users, matching all other requests -->
+	<http>
+	  <intercept-url pattern='/**' access='ROLE_USER' />
+	  <form-login login-page='/login.htm' default-target-url="/home.htm"/>
+	  <logout />
+	</http>
+
+URL还可以支持正则表达式匹配，只要声明一下`path-type="regex"`:
+
+	<bean id="filterInvocationInterceptor"
+	      class="org.springframework.security.web.access.intercept.FilterSecurityInterceptor">
+	  <property name="authenticationManager" ref="authenticationManager"/>
+	  <property name="accessDecisionManager" ref="accessDecisionManager"/>
+	  <property name="runAsManager" ref="runAsManager"/>
+	  <property name="securityMetadataSource">
+	    <security:filter-security-metadata-source path-type="regex">
+	      <security:intercept-url pattern="\A/secure/super/.*\Z" access="ROLE_WE_DONT_HAVE"/>
+	      <security:intercept-url pattern="\A/secure/.*\" access="ROLE_SUPERVISOR,ROLE_TELLER"/>
+	    </security:filter-security-metadata-source>
+	  </property>
+	</bean>
+
+还可以支持Spring EL表达式：
+
+	<http use-expressions="true">
+	    <intercept-url pattern="/admin*"
+	        access="hasRole('admin') and hasIpAddress('192.168.1.0/24')"/>
+	    ...
+	</http>	
+
+也可以是方面粒度的访问控制：[3.7. Method Security](http://docs.spring.io/spring-security/site/docs/3.2.4.RELEASE/reference/htmlsingle/#jc-method)
+
+	public interface BankService {
+
+	  @Secured("IS_AUTHENTICATED_ANONYMOUSLY")
+	  public Account readAccount(Long id);
+
+	  @Secured("IS_AUTHENTICATED_ANONYMOUSLY")
+	  public Account[] findAccounts();
+
+	  @Secured("ROLE_TELLER")
+	  public Account post(Account account, double amount);
+	}
+
+注解同样支持Spring EL表达式：
+
+	@PreAuthorize("#contact.name == authentication.name")
+	public void doSomething(Contact contact);	
+
+Spring-Security建议在Service接口上做注解保护。在Controller类上做注解保护其实基本也可以达到URL匹配目的，结合Spring MVC的interceptor机制，不失为一个快速简洁的实现。	
+
+
+**TIPS**
+
+1、将用户身份存放在ThreadLocal中可以方便后面的权限判断。Spring security提供了两种方式获取这个认证身份：
+
+法一: 通过`Authentication authentication = SecurityContextHolder.getContext().getAuthentication();`获取
+
+	import org.springframework.security.web.bind.annotation.AuthenticationPrincipal;
+
+	// ...
+
+	@RequestMapping("/messages/inbox")
+	public ModelAndView findMessagesForUser() {
+	    Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+	    CustomUser custom = (CustomUser) authentication == null ? null : authentication.getPrincipal();
+
+	    // .. find messags for this user and return them ...
+	}
+
+法二: 通过`@AuthenticationPrincipal`注解进行参数注入 (要求Spring Security 3.2+)
+
+	@RequestMapping("/messages/inbox")
+	public ModelAndView findMessagesForUser(@AuthenticationPrincipal CustomUser customUser) {
+
+	    // .. find messags for this user and return them ...
+	}
+
+内部是通过`AuthenticationPrincipalArgumentResolver`实现的，具体参见: [11.2. @AuthenticationPrincipal](http://docs.spring.io/spring-security/site/docs/3.2.4.RELEASE/reference/htmlsingle/#mvc-authentication-principal)。
+
+
+也可以通过Spring的queust scope bean达到同样的效果。具体参见笔者前面的文章[Spring的Bean Scopes](http://blog.arganzheng.me/posts/2013-01-11-spring-bean-scopes.md)。
+
+2、Spring Security提供了一些加密相关的工具类和方法，可以参考使用：[9. Spring Security Crypto Module](http://docs.spring.io/spring-security/site/docs/3.2.4.RELEASE/reference/htmlsingle/#crypto)。
+
 
 
 参考文章
