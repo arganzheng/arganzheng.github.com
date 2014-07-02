@@ -5,14 +5,28 @@ title: shell如何实现ssh免密码登陆
 
 
 在shell中经常有这样的情况，一个可以写成脚本的程序，本来你可以执行它然后去星巴克喝咖啡，但是由于里面有些交互行命令需要你回答，如login某个服务器，或者输入svn密码，等。但是这样都是我们可以预料的，如果能将我们的回答先存放在某个地方，让shell在那个时候自动去读取这个答案，那么他就可以继续执行了。google了一下，发现有个命令还是不错的，叫作expect，man了一下，有如下描述：
->
-In general, Expect is useful for running  any  program  which  requires interaction between the program and the user.  All that is necessary is that the interaction can be characterized programmatically.  Expect can also give the user back control (without halting the program being controlled) if desired.  Similarly, the user can  return  control  to  the script at any time.
+> In general, Expect is useful for running  any  program  which  requires interaction between the program and the user.  All that is necessary is that the interaction can be characterized programmatically.  Expect can also give the user back control (without halting the program being controlled) if desired.  Similarly, the user can  return  control  to  the script at any time.
 
 这里有一篇文章是介绍利用这个工具实现ssh自动登录：[Auto SSH login using ‘expect’ tool](http://www.techpulp.com/blog/2009/02/auto-ssh-login-using-expect-tool/)
 
-这一篇也是类似的: [Using expect to auto login and execute commands(relieve you from tedious login and typing)](http://www.doxer.org/learn-linux/using-expect-to-auto-login-and-execute-commandsrelieve-you-from-tedious-login-and-typing/)
+这一篇也是类似的: [Using expect to auto login and execute commands(relieve you from tedious login and typing)](http://www.doxer.org/learn-linux/using-expect-to-auto-login-and-execute-commandsrelieve-you-from-tedious-login-and-typing/)。
 
-但是另一种更常见的方式是使用ssh public key实现自动登录。
+    forrest@ubuntu:~/study/shell$ cat ssh_login.exp 
+    #!/usr/bin/expect
+    
+    spawn ssh forrest@10.20.157.187
+    expect "password:"
+    send "hello1234?\n"
+    interact
+
+一下子就登上去了。
+
+但是使用expect自动登陆有个问题，就是expect脚本跟shell脚本还是有差异的，需要另外学习expect脚本。
+
+---
+
+另一种更常见的方式是使用ssh public key实现自动登录。
+
 举个例子：我要ssh到后裔我的虚拟机器。正常情况下我应该这么操作：
 
     forrest@ubuntu:~$ ssh admin@10.249.197.118
@@ -56,40 +70,51 @@ In general, Expect is useful for running  any  program  which  requires interact
     -rw-r--r--   1 forrest forrest  396 2011-05-17 17:33 id_rsa.pub
     -rw-r--r--   1 forrest forrest 5132 2011-05-05 18:38 known_hosts
     
-可以看到生成了两个文件，一个是你的私钥，一个是公钥。将公钥scp到目标机器的~/.ssh目录，并且创建（或者追加文件到）一个authorized_keys文件：
+可以看到生成了两个文件，一个是你的私钥，一个是公钥。将公钥追加到目标机器的~/.ssh/authorized_keys文件：
     
-    forrest@ubuntu:~/.ssh$ scp id_rsa.pub admin@10.249.197.118:~/.ssh/
-    admin@10.249.197.118's password: 
-    id_rsa.pub                                                                                                   100%  396     0.4KB/s   00:00    
-    
-    [admin@localhost .ssh]$ ls
-    id_rsa.pub
-    [admin@localhost .ssh]$ cat id_rsa.pub >> authorized_keys
+ssh b@B mkdir -p .ssh
+
+    forrest@ubuntu:~/.ssh$ ssh admin@10.249.197.118 mkdir -p .ssh
+    admin@10.249.197.118's password:
+ 
+    forrest@ubuntu:~/.ssh$ cat id_rsa.pub | ssh admin@10.249.197.118 'cat >> .ssh/authorized_keys'
+    admin@10.249.197.118's password:  
+
+登陆到目标机器验证一下：
+
     [admin@localhost .ssh]$ ll
-    total 8
     -rw-rw-r-- 1 admin admin 396 May 17 19:44 authorized_keys
-    -rw-r--r-- 1 admin admin 396 May 17 19:44 id_rsa.pub
 
 OK了，试验一下，不行。换了台机器，又试验了一下，还是不行。但是倒过来，试验从那台机器免秘密登录我本机确实可以的，所以方法应该没有问题。估计线上机器还作了限制。
 
-网上说必须将下面这个三个目录的访问权限设置为writable for ower only：[Getting started with SSH](http://kimmo.suominen.com/docs/ssh/)
+谷歌了一下，网上说必须将下面这个三个目录的访问权限设置为writable for ower only：[Getting started with SSH - Directory and file permissions](https://kimmo.suominen.com/docs/ssh/#chmod)
 
-但是笔者试了多次还是不行:(
-悲剧，不过还好，except还算可以用的:
+> #### Directory and file permissions
+> 
+> If access to the remote system is still denied you should check the permissions of the following files on it:
+>
+>   * the home directory itself
+>   * the ~/.ssh directory
+>   * the ~/.ssh/authorized_keys file
+>
+> To make the remote system allow access you must change the permissions to disallow writing by others than the owner.
+> 
+>     hrothgar% cd
+>     hrothgar% chmod go-w . .ssh .ssh/authorized_keys
+>
+> Remember to do this on all the systems you want to have access to.
 
-    forrest@ubuntu:~/study/shell$ cat ssh_login.exp 
-    #!/usr/bin/expect
-    
-    spawn ssh forrest@10.20.157.187
-    expect "password:"
-    send "hello1234?\n"
-    interact
-
-一下子就登上去了。
+试了一下，果然可以了。
 
 ### 使用ssh-keygen和ssh-copy-id更快捷方便的实现免密码登录
 
-前面使用ssh public key的方式其实shell有更方便的命令可以简化这个过程——使用ssh-copy-id可以自动将你的公钥scp到目标机器，并且更改访问权限。这样，整个过程只需要3个步骤，非常方便。
+前面使用ssh public key的方式其实shell有更方便的命令可以简化这个过程——使用ssh-copy-id可以自动将你的公钥追加到目标机器的~/.ssh/authorized_keys文件，并且更改访问权限。这样，整个过程只需要3个步骤，非常方便。
 具体可以参考一下这篇文章：[3 Steps to Perform SSH Login Without Password Using ssh-keygen & ssh-copy-id](http://www.thegeekstuff.com/2008/11/3-steps-to-perform-ssh-login-without-password-using-ssh-keygen-ssh-copy-id/)
+
+**TIPS**
+
+有些系统没有自带ssh-copy-id命令，这时候就只能回退到原始的步骤了。可以用下面这个命令替代ssh-copy-id [Copy your ssh public key to a server from a machine that doesn't have ssh-copy-id](http://www.commandlinefu.com/commands/view/188/copy-your-ssh-public-key-to-a-server-from-a-machine-that-doesnt-have-ssh-copy-id):
+
+    cat ~/.ssh/id_rsa.pub | ssh work@jp01-hao123-mob00.jp01.baidu.com "(cat > tmp.pubkey ; mkdir -p .ssh ; touch .ssh/authorized_keys ; sed -i.bak -e '/$(awk '{print $NF}' ~/.ssh/id_rsa.pub)/d' .ssh/authorized_keys; cat tmp.pubkey >> .ssh/authorized_keys; rm tmp.pubkey; chmod go-w . .ssh .ssh/authorized_keys)"
 
 
