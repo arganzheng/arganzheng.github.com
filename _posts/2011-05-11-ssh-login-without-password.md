@@ -59,7 +59,7 @@ title: shell如何实现ssh免密码登陆
     |                 |
     +-----------------+
 
-然后将这个生成的public key copy到目标机器的~./ssh目录，这里是我的后裔机器：
+然后将这个生成的public key copy到目标机器的~/.ssh/authorized_keys文件。这里是我的后裔机器：
 
     forrest@ubuntu:$ cd .ssh
     forrest@ubuntu:~/.ssh$ ll
@@ -72,8 +72,6 @@ title: shell如何实现ssh免密码登陆
     
 可以看到生成了两个文件，一个是你的私钥，一个是公钥。将公钥追加到目标机器的~/.ssh/authorized_keys文件：
     
-ssh b@B mkdir -p .ssh
-
     forrest@ubuntu:~/.ssh$ ssh admin@10.249.197.118 mkdir -p .ssh
     admin@10.249.197.118's password:
  
