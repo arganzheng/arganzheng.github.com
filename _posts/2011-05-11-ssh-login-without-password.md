@@ -14,9 +14,9 @@ title: shell如何实现ssh免密码登陆
     forrest@ubuntu:~/study/shell$ cat ssh_login.exp 
     #!/usr/bin/expect
     
-    spawn ssh forrest@10.20.157.187
+    spawn ssh forrest@10.20.43.123
     expect "password:"
-    send "hello1234?\n"
+    send "123456\n"
     interact
 
 一下子就登上去了。
