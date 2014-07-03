@@ -107,12 +107,79 @@ OK了，试验一下，不行。换了台机器，又试验了一下，还是不
 ### 使用ssh-keygen和ssh-copy-id更快捷方便的实现免密码登录
 
 前面使用ssh public key的方式其实shell有更方便的命令可以简化这个过程——使用ssh-copy-id可以自动将你的公钥追加到目标机器的~/.ssh/authorized_keys文件，并且更改访问权限。这样，整个过程只需要3个步骤，非常方便。
+
+> **SYNOPSIS**
+>       ssh-copy-id [-i [identity_file]] [user@]machine
+>
+> **DESCRIPTION**
+>   ssh-copy-id  is a script that uses ssh to log into a remote machine (presumably using a login password, so password authentication should be
+>   enabled, unless you've done some clever use of multiple identities) It also changes the permissions of the remote user's home,  ~/.ssh,  and
+>   ~/.ssh/authorized_keys  to  remove  group writability (which would otherwise prevent you from logging in, if the remote sshd has StrictModes
+>   set in its configuration).  If the -i option is given then the identity file (defaults to ~/.ssh/id_rsa.pub) is used, regardless of  whether
+>   there  are any keys in your ssh-agent.  Otherwise, if this:       ssh-add -L provides any output, it uses that in preference to the identity
+>   file.  If the -i option is used, or the ssh-add produced no output, then it uses the contents of the identity file.  Once it has one or more
+>   fingerprints  (by  whatever means) it uses ssh to append them to ~/.ssh/authorized_keys on the remote machine (creating the file, and direc-
+>   tory, if necessary)
+
 具体可以参考一下这篇文章：[3 Steps to Perform SSH Login Without Password Using ssh-keygen & ssh-copy-id](http://www.thegeekstuff.com/2008/11/3-steps-to-perform-ssh-login-without-password-using-ssh-keygen-ssh-copy-id/)
 
 **TIPS**
 
 有些系统没有自带ssh-copy-id命令，这时候就只能回退到原始的步骤了。可以用下面这个命令替代ssh-copy-id [Copy your ssh public key to a server from a machine that doesn't have ssh-copy-id](http://www.commandlinefu.com/commands/view/188/copy-your-ssh-public-key-to-a-server-from-a-machine-that-doesnt-have-ssh-copy-id):
 
-    cat ~/.ssh/id_rsa.pub | ssh work@jp01-hao123-mob00.jp01.baidu.com "(cat > tmp.pubkey ; mkdir -p .ssh ; touch .ssh/authorized_keys ; sed -i.bak -e '/$(awk '{print $NF}' ~/.ssh/id_rsa.pub)/d' .ssh/authorized_keys; cat tmp.pubkey >> .ssh/authorized_keys; rm tmp.pubkey; chmod go-w . .ssh .ssh/authorized_keys)"
+    cat ~/.ssh/id_rsa.pub | ssh work@jp01-hao123-mob00.jp01.baidu.com "cat > tmp.pubkey ; mkdir -p .ssh ; touch .ssh/authorized_keys ; sed -i.bak -e '/$(awk '{print $NF}' ~/.ssh/id_rsa.pub)/d' .ssh/authorized_keys; cat tmp.pubkey >> .ssh/authorized_keys; rm tmp.pubkey; chmod go-w . .ssh .ssh/authorized_keys"
 
 
+可以用shell封装一下：
+
+    [admin@localhost .ssh]$ cat ssh_copy_id.sh
+    machines=( \
+              "work@jp01" \
+              "work@hk01" \
+              "work@hk01" \
+              )
+
+    # ssh-copy-id 
+    ssh_copy_id()
+    {
+        local identity_file=$1
+        local target=$2
+
+        eval "cat $identity_file" | ssh "$target" "cat > tmp.pubkey ; mkdir -p .ssh ; touch .ssh/authorized_keys ; sed -i.bak -e '/$(awk '{print $NF}' ~/.ssh/id_rsa.pub)/d' .ssh/authorized_keys; cat tmp.pubkey >> .ssh/authorized_keys; rm tmp.pubkey; chmod go-w . .ssh .ssh/authorized_keys;"
+
+        if [[ $? -eq 0 ]]; then
+            echo "copy $identity_file to $target success!"
+        else
+            echo "Oops! Something is wrong! Please try it manually:("
+        fi
+    }
+
+    PS3='Select the machine you want to copy-ssh-id to: '
+
+    select machine in "${machines[@]}" "Other" "Quit"
+    do
+        case $machine in 
+            "${machines[$REPLY-1]}")
+                echo "Begin copy-ssh-id to $machine!"
+                ssh_copy_id "~/.ssh/id_rsa.pub" "$machine"
+                ;;
+            "Other")
+                echo "Type the machine in format user@host that you want to execute ssh-copy-id,  followed by [ENTER]:"
+
+                read target
+
+                echo $target | grep -q "@"
+                if [ $? != 0 ];then
+                    target="work@$target"
+                fi
+
+                ssh_copy_id "~/.ssh/id_rsa.pub" "$target"
+                ;;
+            "Quit")
+                break
+                ;;
+            *) 
+                echo invalid option
+                ;;
+        esac
+    done
