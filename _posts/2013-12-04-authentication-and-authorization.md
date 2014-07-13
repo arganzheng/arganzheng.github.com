@@ -52,12 +52,23 @@ title: 如何实现用户认证授权系统
 
 具体步骤如下：
 
+**1. 客户端 >>>**
+
 1. 用户输入userId和password，form表单提交到后台进行登录验证（这里最好走HTTPS）。
-2. 服务端根据userId，从用户信息表中得到用户注册时保存的密码签名：S=md5(password)。
-3. 服务器验证用户信息：userId == DB.userId; md5(password) == DB.S。
-4. 如果验证通过，说明用户身份认证通过。这时候服务器会为客户端分配一个票据(签名)：token=md5(userId;tokenExpiryTime;S;secretKey)。其中secretKey是一个后台统一的密钥，而且跟DB是分开的，一般是写在配置文件中。目的很明显，就是避免将鸡蛋放在同一个篮子中。然后服务端将这个token值存放在cookies中。同样放入cookies中的还有userId和tokenExpiryTime。这些cookies的过期时间都是tokenExpiryTime。
-5. 客户端每次请求都要带上这个三个cookies(浏览器自动会带上)。
-6. 服务器首先检查tokenExpiryTime是否过期了，如果过期就要求用户重新登录。否则，根据userId cookie从用户信息表中获取用户信息。然后计expectedToken=md5(userId;tokenExpiryTime;S;secretKey)。然后比较expectedToken是否跟用户提交的token相同，如果相同，表示验证通过；否则表示验证失败。
+
+**2. <<< 服务端**
+
+1. 服务端根据userId，从用户信息表中得到用户注册时保存的密码签名：S=md5(password)。
+2. 服务器验证用户信息：userId == DB.userId; md5(password) == DB.S。
+3. 如果验证通过，说明用户身份认证通过。这时候服务器会为客户端分配一个票据(签名)：`token=md5(userId;tokenExpiryTime;S;secretKey)`。其中secretKey是一个后台统一的密钥，而且跟DB是分开的，一般是写在配置文件中。目的很明显，就是避免将鸡蛋放在同一个篮子中。然后服务端将这个token值存放在cookies中。同样放入cookies中的还有userId和tokenExpiryTime。这些cookies的过期时间都是tokenExpiryTime。
+
+**3. 客户端 >>>**
+
+1. 客户端每次请求都要带上这个三个cookies(浏览器自动会带上)。
+
+**4. <<< 服务端**
+
+1. 服务器首先检查tokenExpiryTime是否过期了，如果过期就要求用户重新登录。否则，根据userId cookie从用户信息表中获取用户信息。然后计算`expectedToken=md5(userId;tokenExpiryTime;S;secretKey)`。然后比较expectedToken是否跟用户提交的token相同，如果相同，表示验证通过；否则表示验证失败。
 
 **说明**
 
@@ -69,23 +80,66 @@ google了一下，发现这篇文章跟我的观点不谋而合[Sessionless_Auth
 
 上面的想法是把password作为一个secretKey或者Salt进行签名。还有另一种思路，就是把password作为对称密钥来进行加密解密。具体步骤如下：
 
+**1. 客户端 >>>**
+
 1. 用户输入userId和password
-2. 客户端用userId和password 计算得到一个签名：H1=md5(password), S1'=md5(H1 + userId)
-3. 客户端构造一个消息：message=randonKey;timestamp;H1;sigData，其中SigData为客户端的基本信息，比如userId, IP等。
-4. 客户端用对称加密算法(推荐使用TEA)对这个消息进行加密：A1=E(S1', message)，对称密钥就是上面的S1'，然后将userId和A1发送给服务端。
-5. 服务端根据userId，从用户信息表中得到用户注册时保存的签名S1=md5(H1 + userId)。注意服务器保存的不是H1。这个签名就是前面对称加密(TEA)的对称密钥。而且正常情况应该跟客户端根据用户输入的userId和password计算出来的S1'是一样的。
-6. 服务端尝试用S1解密A1，得到message。
-7. 服务器对message中的用户信息sigData进行验证：message.sigData.userId == DB.userId; md5(message.H1 + message.sigData.userId) == DB.S1。
-8. 如果验证通过，说明用户身份认证通过，服务器同样构造了一个消息：serverMessage=whaterver you want，newToken for example. 然后用客户端发送过来的randanKey进行对称加密：A2=E(randanKey, serverMessage)，然后把A2返回给客户端。
-9. 客户端拿到A2，用randanKey进行解密，如果可以解开，说明服务器是合法的。
+2. 客户端用userId和password 计算得到一个签名：`H1=md5(password)`, `S1'=md5(H1 + userId)`
+3. 客户端构造一个消息：`message=randomKey;timestamp;H1;sigData`。其中randomKey是一个16位的随机数字；SigData为客户端的基本信息，比如userId, IP等。
+4. 客户端用对称加密算法(推荐使用性能极高的TEA)对这个消息进行加密：`A1=E(S1', message)`，对称密钥就是上面的S1'，然后将userId和A1发送给服务端。
+
+**2. <<< 服务端**
+
+1. 接收客户端发送的userId和A1。
+2. 根据userId，从用户信息表中得到用户注册时保存的签名`S1=md5(H1 + userId)`。注意服务器保存的不是H1。这个签名就是前面对称加密(TEA)的对称密钥。而且正常情况应该跟客户端根据用户输入的userId和password计算出来的S1'是一样的。
+3. 服务端尝试用S1解密A1。如果解密异常，则提示登陆失败。如果解密成功，则按照约定格式，得到`message=randomKey;timestamp;H1;sigData`
+4. 服务器对message中的用户信息进行验证
+	1. 比较 `message.sigData.userId == DB.userId`; 如果不一样，那么很有可能数据曾被篡改，或者这是一个伪造的登录的请求，提示登录失败；
+	2. 比较 message.timestamp与服务器当前的时间，如果差距较大，则拒绝登录，可以从很大程度上防止重放攻击。大家可能都有过经验，当本地时间与真实时间有较大差距的时候，总是会登录失败，其实就是服务器对客户端时间进行校验的原因。
+	3. 比较 `md5(message.H1 + message.sigData.userId) == DB.S1`。如果不一致，则登陆失败。
+5. 如果验证通过，说明用户身份认证通过，服务器同样构造了一个消息：serverMessage=whaterver you want，一般是登陆凭证，如sessionkey或者token. 然后用客户端发送过来的randanKey进行对称加密：A2=E(randanKey, serverMessage)，然后把A2返回给客户端。
+
+**3. 客户端 >>>**
+
+1. 客户端拿到A2，用randanKey进行解密，如果可以解密成功，则认为是来自真实服务器的数据，而不是一台伪造的服务器，整个登陆流程完成。这个步骤主要是为了防止服务器伪造。这个步骤很容易被忽略，客户端应该和服务器一样，要对接受的数据保持不信任的态度。
+
 
 这个方案虽然没有使用HTTPS，但是思路跟HTTPS很类似。安全性也很高。
 
 **说明**
 
-1. 上面的认证过程其实就是著名的网络认证协议[Kerberos](http://web.mit.edu/kerberos/)的认证过程。QQ的登录协议就是参考Kerberos实现的。不过Kerberos也有一些安全性的问题。SRP协议[Secure Remote Password protocol](http://en.wikipedia.org/wiki/Secure_Remote_Password_protocol)要更安全一些。
-2. 为什么解开对称加密后的message之后还要做步骤7的验证。这是为了避免拖库后的伪造登录。假设被拖库了，黑客拿到用户的S1，可以伪造用户登录（因为我们的加密算法是公开的）。它能够通过服务器第一个验证，即服务端使用存储的S1能够解开消息；但是无法通过第二个验证，因为H1只能是伪造的。但是拖库后其实黑客还可以进行中间人攻击。这个上面的协议是防止不了的。
-3. 为什么DB保存S1而不是H1。这是为了提高批量暴力破解的成本。对经过两次MD5加密，再加上userId作为salt，得到的S1进行暴露反推pasword基本是不可能的。而反推H1的话，由于H1的是password的MD5值，相对于password来说强度要增强不少。这个读者可以自己试试md5('123456')看得到的H1就有直观的认识了。
+1. 上面的认证过程其实就是著名的网络认证协议[Kerberos](http://web.mit.edu/kerberos/)的认证过程。Kerberos是一种计算机网络认证协议，它允许某实体在非安全网络环境下通信，向另一个实体以一种安全的方式证明自己的身份。它的设计主要针对客户-服务器模型，并提供了一系列交互认证——用户和服务器都能验证对方的身份。Kerberos协议可以保护网络实体免受窃听和重复攻击。QQ的登录协议都是基于Kerberos的思想而设计的。不过Kerberos也有一些安全性的问题。SRP协议[Secure Remote Password protocol](http://en.wikipedia.org/wiki/Secure_Remote_Password_protocol)要更安全一些。据说是目前安全性最好的安全密码协议。
+2. 为什么DB保存S1而不是H1。这是为了提高批量暴力破解的成本。对经过两次MD5加密，再加上userId作为salt，得到的S1进行暴露反推pasword基本是不可能的。而反推H1的话，由于H1的是password的MD5值，相对于password来说强度要增强不少。这个读者可以自己试试md5('123456')看得到的H1就有直观的认识了。
+3. 为什么解开对称加密后的message之后还要做步骤7的验证。这是为了避免拖库后的伪造登录。假设被拖库了，黑客拿到用户的S1，可以伪造用户登录（因为我们的加密算法是公开的）。它能够通过服务器第一个验证，即服务端使用存储的S1能够解开消息；但是无法通过第二个验证，因为H1只能是伪造的，这是因为根据S1反推H1是很困难的（原因见上面Note.2）。
+4. 但是虽然上面的协议可以防止黑客拖库后伪造用户登陆，却无法防止黑客拖库后伪造服务器，以及进行中间人攻击。拖库之后，黑客拥有DB.S1，协议又是公开的，这相当于黑客拥有了伪造Server的能力。黑客通过DB.S1解开客户端发送的A1，得到userId, H1=MD5(pwd), 以及randomKey。这样，黑客就可以轻易的得到被监听用户的H1了，而不需要通过S1进行反推。黑客就可以直接用H1伪造合法的用户登录请求了。如果pwd不够复杂，那么还很容易被暴力破解。黑客拦截客户请求，利用破解得出的randomKey回复一个假的响应，达到伪造Server的目的。黑客还可以同时伪造用户和Server，进行中间人攻击，从而达到窃听用户会话内容的目的。美国“棱镜门”就是类似案例。甚者在必要的时候对会话内容进行篡改。当然，黑客拖库后只能破解他监听网络所截取到的受害用户的MD5(pwd)，比起服务器存MD5(pwd)的影响面窄多了，所以建议服务器还是不要直接存MD5(pwd)。
+
+可以在现有登陆流程基础上加上密钥交换算法（如ECDH）解决上面的问题。具体流程如下：
+
+**==前置条件==**
+
+1. 服务端生成一对私钥serverPrivateKey和公钥serverPublicKey，公钥直接hardcode在客户端，而不是通过网络传输。
+
+**1. 客户端 >>>**
+
+1. 用户输入userId和password
+2. 客户端用对称加密算法对消息进行加密：`A1=TEA(S1', randomKey;timestamp;H1;userId`)`，对称密钥`S1'=md5(md5(password) + userId)`
+3. 客户端生成自己的一对公钥clientPublicKey和密钥clientPrivateKey。
+4. 客户端用serverPublicKey对A1和clientPublicKey进行非对称加密: `ECDH(serverPublicKey, userId + A1 + clientPublicKey)`，然后将加密结果发送给服务端。
+
+**2. <<< 服务端**
+
+1. 使用serverPrivateKey对客户端发送信息进行解密，得到userId, A1 和 clientPublicKey。
+2. 根据userId，得到DB.S1。然后尝试用DB.S1解密A1。如果解密异常，则提示登陆失败。如果解密成功，则按照约定格式，得到`message=randomKey;timestamp;H1;userId`
+3. 服务器对message中的用户信息进行验证: 
+	1. 比较 `message.sigData.userId == DB.userId` 
+	2. 比较 message.timestamp与服务器当前的时间，如果差距较大，则拒绝登录，可以从很大程度上防止重放攻击
+	3. 比较 `md5(message.H1 + message.sigData.userId) == DB.S1`
+4. 如果验证通过，说明用户身份认证通过。服务器用客户端发送过来的randanKey进行对称加密：`A2=TEA(randanKey, sessionKey + 业务票据)`
+5. 服务端使用clientPublicKey对A2进行加密: `ECDH(clientPublicKey, A2)`， 然后把加密结果返回给客户端。
+
+**3. 客户端 >>>**
+
+1. 客户端使用clientPrivateKey对服务器回包进行解密，得到A2。
+2. 用randanKey对A2进行解密，如果可以解密成功，则认为是来自真实服务器的数据，而不是一台伪造的服务器，整个登陆流程完成。
 
 
 **TIPS** 
@@ -235,4 +289,5 @@ Spring-Security建议在Service接口上做注解保护。在Controller类上做
 3. [The definitive guide to forms based website authentication](http://stackoverflow.com/questions/549/the-definitive-guide-to-forms-based-website-authentication#477579) 这篇帖子真是有意思，回答基本都是长篇博文了[/偷笑]
 4. [Building and implementing a Single Sign-On solution](http://merbist.com/2012/04/04/building-and-implementing-a-single-sign-on-solution/) 关于单点登陆笔者目前看到最好的文章了。
 5. [Remember me in Spring Security 3](http://jmuras.com/blog/2011/remember-me-in-spring-security-3/) Spring Security的Remember Me实现介绍，图文并茂，推荐阅读。
-
+6. [Elliptic curve Diffie–Hellman](http://en.wikipedia.org/wiki/Elliptic_curve_Diffie%E2%80%93Hellman)
+7. [Elliptic curve cryptography](http://en.wikipedia.org/wiki/Elliptic_curve_cryptography)
