@@ -76,7 +76,16 @@ title: 如何实现用户认证授权系统
 2. 虽然cookies的值是没有加密的，但是由于有签名的校验。如果黑客修改了cookie的内容，但是由于他没有签名密钥secretKey，会导致签名不一致。
 
 
-google了一下，发现这篇文章跟我的观点不谋而合[Sessionless_Authentication_with_Encrypted_Tokens](http://eversystems.eu/Document/15/Sessionless_Authentication_with_Encrypted_Tokens)。另外看了一下[Spring Security的Remember Me](http://static.springsource.org/spring-security/site/docs/3.0.x/reference/remember-me.html)实现，原来这种方式是[5.2. Simple Hash-Based Token Approach](http://docs.spring.io/spring-security/site/docs/3.2.4.RELEASE/reference/htmlsingle/#remember-me-hash-token)方式。他的hash因子中也有password，这样当用户修改了password之后，这个token就失效了。不过这种方式没有办法解决token被盗取的问题。要解决token盗取问题，需要使用动态token，这需要持久化token，比较麻烦[5.3 Persistent Token Approach](http://docs.spring.io/spring-security/site/docs/3.2.4.RELEASE/reference/htmlsingle/#remember-me-persistent-token)。
+google了一下，发现这篇文章跟我的观点不谋而合[Sessionless_Authentication_with_Encrypted_Tokens](http://eversystems.eu/Document/15/Sessionless_Authentication_with_Encrypted_Tokens)。另外看了一下[Spring Security的Remember Me](http://static.springsource.org/spring-security/site/docs/3.0.x/reference/remember-me.html)实现，原来这种方式是[5.2. Simple Hash-Based Token Approach](http://docs.spring.io/spring-security/site/docs/3.2.4.RELEASE/reference/htmlsingle/#remember-me-hash-token)方式。他的hash因子中也有password，这样当用户修改了password之后，这个token就失效了。
+
+这种基于password和secretKey做token的鉴权方式实现非常简单，而且客户端没有任何计算和验证逻辑，非常适合于BS架构的。不过这种方式在安全性方面还有一些问题：
+
+1. 客户端没法验证服务器的真实性。域名劫持的情况很容易伪造服务器。
+2. token放在cookies中，还是容易被盗取（比如XSS漏洞，或者网络窃听）。使用动态token可以避免这个问题，但是需要持久化token，比较麻烦，而且对性能有消耗[5.3 Persistent Token Approach](http://docs.spring.io/spring-security/site/docs/3.2.4.RELEASE/reference/htmlsingle/#remember-me-persistent-token)。
+
+一个简单而有效的解决方案就是使用HTTPS。HTTPS使用CA证书验证服务器的合法性，全程会话（包括cookies）都是经过加密传输，刚好解决了上面的两个安全问题。很多网站都是使用这种鉴权认证方案。比如GitHub。不过安全性要求不是很高的网站还是采用的是登陆认证的时候HTTPS，其他情况HTTP的方式，比如新浪微博、亚马逊、淘宝、quora等。
+
+---
 
 上面的想法是把password作为一个secretKey或者Salt进行签名。还有另一种思路，就是把password作为对称密钥来进行加密解密。具体步骤如下：
 
@@ -155,7 +164,7 @@ google了一下，发现这篇文章跟我的观点不谋而合[Sessionless_Auth
 
 客户端自己也生成了公钥和私钥，目的是为了验证服务器是真正的服务器，这个得以成立的前提是公钥是真正的服务器公钥，如果是伪造服务器的公钥，那等于向黑客公开了自己加密的内容，黑客就知道了客户端的公钥，就能伪造服务器的返回数据。
 
-采用ECDH非对称加密算法包裹后的登陆认证协议，安全级别已经跟SRP差不多。相对于SRP协议的问题是ECDH安全性依赖于私钥的保密性，如果私钥泄漏安全性回到跟未加ECDH的时候一样。ECDH的私钥保密有以下一些办法(考虑到实现成本，推荐方案2)
+采用ECDH非对称加密算法包裹后的登陆认证协议，安全级别已经跟SRP差不多。相对于SRP协议的问题是ECDH安全性依赖于私钥的保密性，如果私钥泄漏安全性回到跟未加ECDH的时候一样。ECDH的私钥保密有以下一些办法（考虑到实现成本，推荐方案2）
 
 1. 私钥加强保密，做到绝密，不用换，也不准备换；例如用USBKEY等硬件方式。
 2. 私钥密码级别安全，定期更换，换的时候让客户端拉取。具体实现方法是第一步验密的成功的以后，发现要更新公钥，在返回的加密信道中返回新的公钥。
@@ -186,6 +195,7 @@ google了一下，发现这篇文章跟我的观点不谋而合[Sessionless_Auth
 5. 第三方爆库、钓鱼、扫号、撞库如果解决？这些问题等同于用户明文密码被盗，靠密码登录体系没有办法对抗，比较好的方式是对已知泄漏密码的用户进行封停，强制要求用户改密码等运营方式减少用户的财产损失。
 6. 上面所有的验证方式，每次请求都需要根据userId去数据库拉取用户信息（password）。所以最好结合缓存进行处理，毕竟用户信息变化频率还是比较小的。
 
+这种鉴权认证方式，相对于前面的token方式而言，客户端有比较多的计算和验证逻辑，比较适合于CS架构，特别是手机App。但是往往一个App也会提供网页后台，所以基本上BS和CS都要实现。
 
 #### More about 密码强度 && 暴力破解
 
@@ -232,7 +242,7 @@ MD5不再具有抗冲突性，已经不适合用来做消息摘要、消息认�
 ECC使用较短的操作数，就可以获得与RSA或离散对数系统同等的安全级别（大概为160~256位比1024~3072位），在性能和带宽上更有优势。
 
 
-#### 4. 蛮力攻击的大概门槛
+##### 4. 蛮力攻击的大概门槛
 
 使用蛮力攻击成功破解不同长度密钥的对称算法预计需要的时间：
 
