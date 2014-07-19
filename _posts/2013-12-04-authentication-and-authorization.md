@@ -19,34 +19,18 @@ title: 如何实现用户认证授权系统
 
 一旦用户注册之后，用户信息就保存在服务器端（DB/Cache）。关键在于用户需要提供身份凭证，一般是用户名和密码。即常见的登陆页面：用户输入username和password，勾选Remember Me（可选，一般是记住一周），点击登陆，提交请求到服务端（这里一般是走HTTPS）。服务端根据用户名和密码到数据库查询是否匹配，如果匹配的话，说明身份认证成功。这是一次普通的身份认证过程。非常好理解。
 
-关键在于HTTP是无状态的，用户登陆过一次，但是如果你没有做一些状态管理操作的话，用户登陆后请求同一个页面，服务器仍然要求其登陆。
+关键在于HTTP是无状态的，用户登陆过一次，但是如果你没有做一些状态管理操作的话，用户登陆后请求同一个页面，服务器仍然要求其登陆。这时候就需要做一些状态处理了。一般是通过服务器颁发一个登陆凭证(sessionkey/token/ticket)实现的。那么这个登陆凭证是怎么生成的？又是怎样安全的颁发给客户端呢？
 
-这时候就需要做一些状态处理了。
 
-一般来说，我们要达到这样子的目的：
+#### 方案一：session集群 + 随机sessionId
 
-1. 用户登陆之后，在其关闭浏览器之前，不需要登陆。
-2. 如果用户登陆时勾选了 Remember Me，那么在记住的这段时候内用户访问该网站都不需要登陆。
+用户登陆成功之后，服务器为其随机生成的一个sesionId，保存在session服务器中，将这个sessionId与用户关联起来：sessionId=>userId。然后通过cookies方式将sessionId颁发给客户端，浏览器下次请求会自动带上这个sessionId。服务器根据sessionId从session服务器中拿到关联的userId，比较是否与请求的userId相同，如果是则认为是合法请求。
 
-对于第一个需求，其实就是说在session期间不需要登陆，那么使用session作为状态管理是最合适的选择了。
+sessionId是随机生成的，基本来说是不可能被猜测出来的，所以这方面的安全还是有一定保障的。
 
-关于session有几个注意事项：
+#### 方案二：session-less + 加密算法
 
-1. sessionId其实是需要来回传递的，一般来说是通过[Session cookie](http://en.wikipedia.org/wiki/HTTP_cookie#Session_cookie)来实现（REWRITE URL或者Hidden Field安全性和可操作性都不强，比较少见）。
-2. sesionId一般是服务器随机生成的一个ID，基本来说是不可能被猜测出来的，所以这方面的安全还是有一定保障的。但是，要防止攻击者获取一个合法的sessionId是相当困难的，这基本上不是开发者所能控制的。相对来说，Session Cookie是比较安全的传递机制，但是也不能完全保证。
-3. 在分布式环境下必须保证用户登录一台机器，下次请求路由到另一台web服务器也能够认识这个用户。这一般通过两种方式实现: 1. session复制。2. Session Sticky。这种方式将同一用户的请求转发到特定的web服务器上，避免了集群中Session的复制，缺点是用户只能跟集群中的一台服务器通信，有单点问题[Cookies, Sessions, and Persistence](http://www.f5.com/pdf/white-papers/cookies-sessions-persistence-wp.pdf)。3. 使用redis这样的集中式的分布式缓存系统实现session集群，这是推荐的方式。
-
-第二个需求，需要使用[Persisitent cookie](http://en.wikipedia.org/wiki/HTTP_cookie#Persistent_cookie)来实现。具体参考这篇文章 [Using Cookies to implement a RememberMe functionality](http://java.dzone.com/articles/using-cookies-implement) 
-
-#### 单点登录（SSO）
-
-实现单点登录，有个最简单的方式。就是顶级域名的cookies + redis这样的session集群。前提就是所有的子系统必须在同样的顶级域名下。
-
-当然，不同域名的子系统也可以实现的。具体可以看一下这篇文章，写的非常好。[Building and implementing a Single Sign-On solution](http://merbist.com/2012/04/04/building-and-implementing-a-single-sign-on-solution/)。
-
-#### session-less
-
-上面的Authentication方式其实是用到了session和cookies。我们知道session这东西是服务端状态，而服务端一旦有状态，就不是很好线性扩展。其实对于身份验证来说，服务端保留的也这是一个简单的value而已，一般是userId，即`session['sessionId']==>userId`。然后再根据userId去DB获取用户的详细信息。如果我们把userId作为一个cookies值放在客户端，然后把用几个cookies值（比如userId）做一个特殊的签名算法得到的token也放在cookie中，即`f(userId, expireTime)==>token`。这样服务端得到用户请求，用同样的签名算法进行计算，如果得到的token是相等，那么证明这个用户是合法的用户。注意这个签名算法的输入因子必须包含过期时间这样的动态因子，否者得到的token永远是固定的。这种实现方式其实是仿造CSRF防御机制[anti-csrf.md](https://gist.github.com/arganzheng/6113349)。是笔者自己想出来的，不清楚有没有人用过，个人感觉行得通。
+上面的Authentication方式其实是用到了session和cookies。我们知道session这东西是服务端状态，而服务端一旦有状态，就不是很好线性扩展。其实对于身份验证来说，服务端保留的也这是一个简单的value而已，一般是userId，即session['sessionId']==>userId。然后再根据userId去DB获取用户的详细信息。如果我们把userId作为一个cookies值放在客户端，然后把用几个cookies值（比如userId）做一个特殊的签名算法得到的token也放在cookie中，即`f(userId, expireTime)==>token`。这样服务端得到用户请求，用同样的签名算法进行计算，如果得到的token是相等，那么证明这个用户是合法的用户。注意这个签名算法的输入因子必须包含过期时间这样的动态因子，否者得到的token永远是固定的。这种实现方式其实是仿造CSRF防御机制[anti-csrf.md](https://gist.github.com/arganzheng/6113349)。是笔者自己想出来的，不清楚有没有人用过，个人感觉行得通。
 
 然而上面的做法安全性取决于签名算法的隐蔽性，我们可以更进一步的，可以参考API中的签名验证方式，把password作为secretKey，把userId, expireTime, nonce, timestamp作为输入参数，同样用不公开的算法（这个与API签名不同）结合password这个secretKey进行计算，得到一个签名，即`f(userId, expireTime, nonce, timestamp, password)==>sign`。每次客户端传递userId, expireTime, nonce, timestamp和sign值，我们根据userId获取到password，然后进行`f(userId, expireTime, nonce, timestamp, password)==>sign`计算，然后比较两个sign是否一致，如果是，表示通过。这种方式比起上面的方式其实区别在于增加了password作为输入参数。这样首先增加签名的破解难度。还带来一个额外的好处，就是当用户修改了password之后，这个token就失效了，更合理安全一些。
 
@@ -84,6 +68,10 @@ google了一下，发现这篇文章跟我的观点不谋而合[Sessionless_Auth
 2. token放在cookies中，还是容易被盗取（比如XSS漏洞，或者网络窃听）。使用动态token可以避免这个问题，但是需要持久化token，比较麻烦，而且对性能有消耗[5.3 Persistent Token Approach](http://docs.spring.io/spring-security/site/docs/3.2.4.RELEASE/reference/htmlsingle/#remember-me-persistent-token)。
 
 一个简单而有效的解决方案就是使用HTTPS。HTTPS使用CA证书验证服务器的合法性，全程会话（包括cookies）都是经过加密传输，刚好解决了上面的两个安全问题。很多网站都是使用这种鉴权认证方案。比如GitHub。不过安全性要求不是很高的网站还是采用的是登陆认证的时候HTTPS，其他情况HTTP的方式，比如新浪微博、亚马逊、淘宝、quora等。
+
+**TIPS** SSO
+
+上面的鉴权方式依赖于Cookies来传递sessionId，而我们知道Cookies具有跨域限制。不过可以通过一些方式解决。具体可以看一下这篇文章，写的非常好。[Building and implementing a Single Sign-On solution](http://merbist.com/2012/04/04/building-and-implementing-a-single-sign-on-solution/)。
 
 ---
 
@@ -195,7 +183,7 @@ google了一下，发现这篇文章跟我的观点不谋而合[Sessionless_Auth
 5. 第三方爆库、钓鱼、扫号、撞库如果解决？这些问题等同于用户明文密码被盗，靠密码登录体系没有办法对抗，比较好的方式是对已知泄漏密码的用户进行封停，强制要求用户改密码等运营方式减少用户的财产损失。
 6. 上面所有的验证方式，每次请求都需要根据userId去数据库拉取用户信息（password）。所以最好结合缓存进行处理，毕竟用户信息变化频率还是比较小的。
 
-这种鉴权认证方式，相对于前面的token方式而言，客户端有比较多的计算和验证逻辑，比较适合于CS架构，特别是手机App。但是往往一个App也会提供网页后台，所以基本上BS和CS都要实现。
+这种鉴权认证方式，相对于前面的token方式而言，客户端有比较多的计算和验证逻辑，比较适合于CS架构，特别是手机App。而且，它不依赖于Cookies，所以天然具有SSO功能。
 
 #### More about 密码强度 && 暴力破解
 
