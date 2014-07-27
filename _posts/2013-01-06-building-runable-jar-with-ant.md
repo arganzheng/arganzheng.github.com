@@ -262,7 +262,60 @@ Ant的[zipfileset](http://ant.apache.org/manual/Types/zipfileset.html)就是做�
      </project>
 
 
+---
+
+
+使用maven创建可执行的jar包（补充于2014-07-27）
+---------------------------------------------
+
+
+可以看到前面的打包方式是使用ant，而不是maven。这是因为这是一个遗留的项目，原来采用的就是ant脚本，lib目录下的依赖jar也是手动维护的。但是在真实的J2EE环境下，我们经常是采用maven来管理依赖和打包的。那么怎样用maven来打一个可以运行的jar包呢？
+
+这里提供了几个方法供大家参考。
+
+### 法一、复用前面的ant脚本。使用maven的maven-antrun-plugin可以在maven中执行ant脚本。依赖的jar包可以使用maven-dependency-plugin插件得到。
+
+具体可以参考：[使用Spring跟踪应用异常（6）—构建一个可运行JAR包 ](http://www.importnew.com/11886.html)
+
+
+### 法二、使用[maven-shade-plugin](http://maven.apache.org/plugins/maven-shade-plugin/)打CLI包。
+
+在这篇文章：[Maven实战（九）——打包的技巧](http://www.infoq.com/cn/news/2011/06/xxb-maven-9-package) 的 可执行CLI包 一节提到了一个强大的maven插件——[maven-shade-plugin](http://maven.apache.org/plugins/maven-shade-plugin/)。这个插件可以让用户配置Main-Class的值，然后在打包的时候将值填入/META-INF/MANIFEST.MF文件。关于项目的依赖，它很聪明地将依赖JAR文件全部解压后，再将得到的.class文件连同当前项目的.class文件一起合并到最终的CLI包中，这样，在执行CLI JAR文件的时候，所有需要的类就都在Classpath中了。
+
+
+### 法三、将目录结构打成一个tar包，发布解压运行。在运行脚本中设置好classpath和Main Class：
+
+     $ cat StartApp.sh
+
+     #!/bin/bash
+
+     # preserve current working directory
+     cd `dirname $0`/..
+     BASE=`pwd`
+     SYSTEM_ROOT=/usr/local
+     export JAVA_HOME=$SYSTEM_ROOT/java
+     LIBCLASSPATH=`echo $BASE/lib/*.jar | tr ' ' ':'`
+     export CLASSPATH=$LIBCLASSPATH:$BASE/conf:$BASE/data
+     echo $CLASSPATH
+     echo $BASE
+
+     JAVA_OPTS=" -Xmx1024m -Dlog4j.configuration=$BASE/conf/log4j.properties"
+
+     echo $JAVA_OPTS
+      
+     $JAVA_HOME/bin/java $JAVA_OPTS -Dintl.standalone.alicall.dataSync.config.path=conf/dataSync.properties me.arganzheng.study.standalone.dataSync.HelloWorld
+
+进一步的，我们可以使用maven的 [maven-assembly-plugin](http://maven.apache.org/plugins/maven-assembly-plugin/)。它可以让我们很方便的自定义包的格式，并且支持各种打包文件格式，包括zip、tar.gz、tar.bz2等等。这对于windows下开发的情况，就特别的方便（Windows不方便打tar包或者gzip包）。
+
+ 
+**TIPS && NOTES**
+
+如果是采用了前面两种方式，发布上去之后不要简单的执行: `java -jar hello-world-1.0-cli.jar`。请务必给你的standalone程序设置一个`-Xmx`值！
+
+
 参考文章
 -------
 
 1. [创建可执行的jar包](http://www.cnblogs.com/az19870227/archive/2011/09/29/2195540.html)
+2. [使用Spring跟踪应用异常（6）—构建一个可运行JAR包 ](http://www.importnew.com/11886.html)
+3. [Maven实战（九）——打包的技巧](http://www.infoq.com/cn/news/2011/06/xxb-maven-9-package) 
