@@ -36,7 +36,7 @@ layout: post
 
 具体的监控信息包括：
 
-1. Spring监控
+**Spring监控**
 
 * 类 
 * 方法
@@ -47,7 +47,7 @@ layout: post
 * 最慢
 * 错误次数
 
-2. URI调用统计监控
+**URI调用统计监控**
 
 * URI
 * 调用总数
@@ -65,7 +65,7 @@ layout: post
 	* 耗时
 	* 错误数
 
-3. 数据源监控
+**数据源监控**
 
 * 链接池中链接数
 * 链接池链接数峰值
@@ -73,7 +73,7 @@ layout: post
 * 活跃连接数
 * 活跃连接数峰值
 
-4. JDBC访问统计监控
+**JDBC访问统计监控**
 
 * SQL语句
 * 执行数
@@ -82,7 +82,7 @@ layout: post
 * 读取行数
 * 更行行数
 
-5. Exception监控 !!!
+**Exception监控**
 
 * 异常类型：java.io.IOException, etc.
 * 异常方法：
@@ -91,7 +91,7 @@ layout: post
 * 异常数量
 * 堆栈信息
 
-6. JVM监控
+**JVM监控**
 
 * Overview
 * Threading
@@ -99,7 +99,7 @@ layout: post
 * CPU
 * Heap
 
-7. 其他信息
+**其他信息**
 
 * 业务自定义信息
 
