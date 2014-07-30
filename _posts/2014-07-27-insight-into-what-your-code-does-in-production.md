@@ -33,6 +33,28 @@ layout: post
 4. Meters: A meter measures the rate of events over time (e.g., “requests per second”). 
 5. Histograms: A histogram measures the statistical distribution of values in a stream of data.
 
+谷歌的云监控预定义了一些metrics [Supported metrics](https://developers.google.com/cloud-monitoring/metrics):
+
+* Google Compute Engine - 13 metrics
+* Google Cloud SQL - 12 metrics
+* Google Cloud Pub/Sub - 14 metrics
+
+并且提供了Read API让开发者查询当前到30天内的metric data。并且可以根据labels进行查询过滤。
+
+支持的metricType有 [metricDescriptors](https://developers.google.com/cloud-monitoring/v2beta1/metricDescriptors)：
+
+* cumulative
+* delta
+* gauge
+
+metric的valueType有：
+
+* bool
+* distribution
+* double
+* int64
+* string
+
 
 而Exportor或者Reportor则主要有如下几个方式：
 
@@ -69,8 +91,11 @@ layout: post
 3. [metrics-spring](https://github.com/ryantenney/metrics-spring) 支持Spring XML里定义Reporter，以及用注解埋点，用AOP生成相应的Metric。
 4. [metrics-reporter-config](https://github.com/addthis/metrics-reporter-config) Cassandra的一个辅助项目，支持用Yaml定义Reporter。
 5. [StatsD](https://github.com/etsy/statsd/) Node.js的Metrics库。
-6. [Servo - Netflix Application Monitoring Library](https://github.com/Netflix/servo)
-7. [Jmx](https://github.com/springside/springside4/wiki/JMX)
-8. [measure-anything-measure-everything](http://codeascraft.etsy.com/2011/02/15/measure-anything-measure-everything/)
-9. [The State of Open Source Monitoring: The Good, The Bad, The Fucking Terrible and a Glimpse Into Our Future](https://speakerd.s3.amazonaws.com/presentations/506ed72c4f4e12000207cc4c/devopsdays-italy.pdf) 关于监控非常全面的介绍，强烈推荐！
-
+6. [Servo - Netflix Application Monitoring Library](https://github.com/Netflix/servo) Netflix自己的一个metrics库。
+7. [Jmx](https://github.com/springside/springside4/wiki/JMX) 对JMX的一个简单介绍
+8. [Measure Anything, Measure Everything](http://codeascraft.etsy.com/2011/02/15/measure-anything-measure-everything/)
+9. [Counting & Timing](http://code.flickr.net/2008/10/27/counting-timing/)
+10. [The State of Open Source Monitoring: The Good, The Bad, The Fucking Terrible and a Glimpse Into Our Future](https://speakerd.s3.amazonaws.com/presentations/506ed72c4f4e12000207cc4c/devopsdays-italy.pdf) 关于监控非常全面的介绍，强烈推荐！
+11. [Google Cloud Monitoring API](https://developers.google.com/cloud-monitoring/what-is-cloud-monitoring) 谷歌的云监控API介绍。核心概念也是基于Metrics的Time series采样记录。
+12. [The Twitter stack](http://blog.oskarsson.nu/post/40196324612/the-twitter-stack) Twitter的技术栈介绍，其中有比较详细的监控系统介绍。
+13. [ostrich](https://github.com/twitter/ostrich) Twitter的监控库

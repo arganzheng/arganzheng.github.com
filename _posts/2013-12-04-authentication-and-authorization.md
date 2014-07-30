@@ -392,3 +392,4 @@ Spring-Security建议在Service接口上做注解保护。在Controller类上做
 10. [Key stretching](http://en.wikipedia.org/wiki/Key_stretching)
 11. [NSA@home](http://nsa.unaligned.org/)
 12. [新浪微博的XSS攻击](http://coolshell.cn/articles/4914.html)
+13. [Shiro Security](https://github.com/springside/springside4/wiki/Shiro-Security)
