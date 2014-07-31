@@ -193,21 +193,61 @@ They have no real statistical value, but can be used to raise flags in logging a
 1、如何避免key冲突？如何区分各个应用实例？
 
 为了监控简单，我们希望监控项是不需要预定义的，监控项是一个 `key => value` 的形式。其中key是监控项的唯一ID，而value可以为数值类型（比如counter, timeInterval），文本类型（如exceptionMessage）。
-如果不预定义监控项，那么就是由客户端按需创建key，然后上报 监控项， 服务器检测如果改监控项不存在就创建，否则根据监控项类型进行相应的操作（叠加 for counter，计算平均值 for timer等）。
+如果不预定义监控项，那么就是由客户端按需创建key，然后上报监控项，服务器检测如果该监控项不存在就创建，否则根据监控项类型进行相应的操作（叠加 for counter，计算平均值 for timer等）。
 这个特性很方便客户端监控自动化，但是这样也带来两个可能的问题：
 
 1. 不同的应用，有可能上报一样的key，这样会导致监控项冲突。解决方案可以强制每个应用的key使用packagename或者应用名称作为前缀。
 2. 想要查看相同的应用的不同实例的上报情况。这种情形主要发生在查找集群短板的时候。Dragoon的监控上也有实例筛选项。解决方案是在上报接口增加上报来源作为namespace。可以让应用传递参数，也可以自动根据ip来。不过这样的话，每个应用实例就单独统计了。
 
+但是最理想的情况是我们既希望能够合并统计，又希望能够在需要的时候区分查看。比如我们希望统计NanTianMen这个应用的所有实例的监控数据，同时又希望能够单独查看每个实例的监控数据。Google和[OpenTSDB](http://opentsdb.net/docs/build/html/user_guide/writing.html)提供了一种解决方案——对metrics打tags。这样相同key的metrics会合并统计，又可以根据tags进行区分。对于上面的例子，假如上报的metric含有一个host=xxx的tag和一个port=xxx的tag就可以区分出来了。但是这种情况会导致key对应的数据特别多。根据tag过来会影响查询速度。所以需要trade off。
 
-2、如果服务器挂掉了，统计数据怎么处理？缓存本地，等服务器起来再发送？还是丢弃？
 
-前期可以先丢弃，后续要缓存起来。受影响比较大的是counter接口。
+2、Metrics的数据格式
 
-3、数据存储
+[Google Cloud Monitor](https://developers.google.com/cloud-monitoring/metrics)和[OpenTSDB](http://opentsdb.net/docs/build/html/user_guide/writing.html)对metrics的定义比较相似——支持tags/labels标签的key-value格式：
 
-Redis、MySQL、HBase、RRD? 
-Graphite的做法是 Cache + whisper。可以参考。
+* key 
+* timestamp
+* value - 这个OpenTSDB支持数值型的：integer和floating point。而Google Cloud Monitor支持的类型要丰富一些，见下面描述。
+* tag(s) - A key/value pair consisting of a tagk (the key) and a tagv (the value). OpenTSDB要求至少要有一个tag。
+
+
+Google Cloud Mnoitor对Metric进行分类，支持的metricType有 [metricDescriptors](https://developers.google.com/cloud-monitoring/v2beta1/metricDescriptors)：
+
+* cumulative 不知道啥玩意
+* delta
+* gauge
+
+metric的valueType有：
+
+* bool
+* distribution 不知道啥玩意
+* double
+* int64
+* string
+
+
+3、如果服务器挂掉了，统计数据怎么处理？缓存本地，等服务器起来再发送？还是丢弃？
+
+前期可以先丢弃，后续可以先本地缓存起来，等中心起来再补充上报。受影响比较大的是counter接口。
+
+4、数据存储
+
+因为Events或者Metrics的特殊性。一般都会采用一种专门的存储结构——Distributed time series database。比较有名的开源产品有如下这些：
+
+1. [RRD(round-robin-database)](http://oss.oetiker.ch/rrdtool/)。[RRDtool](http://oss.oetiker.ch/rrdtool/)使用的底层存储。C语言编写的。性能比较高。
+2. [whisper](http://graphite.wikidot.com/whisper)。[Graphite](http://graphite.wikidot.com)底层的存储，Python写的。
+3. [InfluxDB](http://influxdb.com/)。Go语言编写，不依赖于其他三方库。
+4. [OpenTSDB](http://opentsdb.net/)。基于[HBase](http://hbase.org/)编写的Time Series Database。
+
+
+5、网络通信
+
+如何高性能的接收大量客户端的上报请求。
+
+6、可视化
+
+各种维度的查询和图表展示。
 
 
 ### 补充说明
