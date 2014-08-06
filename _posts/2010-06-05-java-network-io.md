@@ -13,15 +13,13 @@ Prequirement
 2. TCP/IP协议栈。知道IP、端口、DNS、Socket、URL、TCP、UDP、HTTP等网络相关知识。
 
 
-一些重要的类
-------------
-
-### InetAddress类
+IP地址: InetAddress
+-------------------
 
 java.net.InetAddress类是Java对IP地址(包括IPv4和IPv6)的封装。一般来说，它同时包含主机名(hostname)和IP地址。
 
 
-#### 1. 创建方式（工厂方法）
+### 1. 创建方式（工厂方法）
 
 1. public static InetAddress getByName(String hostName) throws UnknownHostException;
 2. public static InetAddress[] getAllByName(String hostName) throws UnknownHostException;
@@ -37,7 +35,7 @@ java.net.InetAddress类是Java对IP地址(包括IPv4和IPv6)的封装。一般�
 5. getAllByname(hostName)返回所有对应hostName的地址。虽然一个域名绑定多个IP并不少见，但是对于客户端来说往往只需要连接其中的一个即可，所以这个方法并不常用。
 6. getLocalHost()方法返回运行机器的InetAddress。如果本机没有固定IP地址或者域名，可能会得到localhost作为域名，127.0.0.1作为IP地址的InetAddress对象。
 
-#### 2. 常用的方法
+### 2. 常用的方法
 
 前面说过InetAddress类是Java对IP地址(包括IPv4和IPv6)的封装。一般来说，它同时包含主机名(hostname)和IP地址。所以通过InetAddress我们可以得到hostName或者ip地址：
 
@@ -53,7 +51,7 @@ java.net.InetAddress类是Java对IP地址(包括IPv4和IPv6)的封装。一般�
 4. getHostAddress()返回包括点分四段格式IP地址的字符串。
 5. getAddress()返回网络字节顺序的IP地址。返回的字节是无符号的，因为Java都是有符号的。值大于127的字节会被当作负数。因此，如果要对getAddress()返回的字节数值进行操作，需要把字节提升为int，进行适当的调整。比如：`int unsignedByte = signedByte < 0 ? signedByte + 256 : signedByte;`
 
-#### 3. Inet4Address 和 Inet6Address
+### 3. Inet4Address 和 Inet6Address
 
 Java 1.4引入了两个新类，Inet4Address和Inet6Address，以此区分IPv4和IPv6地址：
 
@@ -63,7 +61,8 @@ Java 1.4引入了两个新类，Inet4Address和Inet6Address，以此区分IPv4�
 不过基本上你不需要考虑一个地址是IPv4还是IPv6地址。这两个类属于JDK本身实现细节，你只需要关注基类InetAddress即可，面向对象编程的好处在这里体现出来。	
 
 
-### NetworkInterface类
+网络接口: NetworkInterface
+--------------------------
 
 Java 1.4 添加了一个[java.net.NetworkInterface](http://docs.oracle.com/javase/tutorial/networking/nifs/definition.html)类，表示计算机与网络的互联点。一个NetworkInterface一般是指网卡地址（Network Interface Card(NIC)），但是不一定是硬件的形式。软件模拟的网络接口也是用NetworkInterface表示。例如loopback interface(127.0.0.1 for IPv4或者::1 for IPv6)。总而言之，NetworkInterface用来表示物理和虚拟的网卡地址。下面这段代码：
 
@@ -80,7 +79,7 @@ Java 1.4 添加了一个[java.net.NetworkInterface](http://docs.oracle.com/javas
 	soc.connect(new InetSocketAddress(address, port));
 
 
-#### 工厂方法
+### 工厂方法
 
 1. public static NetworkInterface getByName(String name) throws SocketException
 2. public static NetworkInterface getByInetAddress(InetAddress address) throws SocketException
@@ -92,7 +91,9 @@ Java 1.4 添加了一个[java.net.NetworkInterface](http://docs.oracle.com/javas
 2. 记住下面的映射关系：一台机器可能有多个网络接口(NetworkInterface)，一个网络接口(NetworkInterface)可能绑定了多个IP地址(InetAddress)。
 
 
-### TCP
+TCP: Socket和ServerSocket
+-------------------------
+
 
 TCP是为可靠传输而设计的。它主要有如下特点：
 
@@ -101,7 +102,7 @@ TCP是为可靠传输而设计的。它主要有如下特点：
 3. 丢包重传和和乱序重排
 4. 流量控制
 
-#### Socket类
+### Socket类
 
 Socket是两台主机之间的一个连接。它可以进行七项基本操作：
 
@@ -113,7 +114,7 @@ Socket是两台主机之间的一个连接。它可以进行七项基本操作�
 6. 监听入站数据
 7. 在所绑定的端口上接收来自远程机器的连接
 
-说明
+**说明**
 
 1. Java的Socket类可同时用于客户端和服务器，它有对应于前四项操作的方法。后三项只有服务器才需要，这些操作通过ServerSocket类实现。
 2. TCP是面向字节流的协议，所以数据的发送和接收通过socket关联的输入输出流进行，操作起来跟文件是类似的。
@@ -175,7 +176,7 @@ Socket在数据结构上，是 <IP, port> 的组合。其中IP可以通过InetAd
 4. 如果启用SO_KEEPALIVE，客户端会偶尔通过一个空闲连接发送一个数据包（一般两小时一次），以确保服务器为崩溃。如果服务器没有响应此包，客户端会尝试11分钟多的时间，知道接收到响应为止。如果在12分钟内未收到响应，客户端就关闭socket。没有SO_KEEPALIVE，不活动的客户端可能会永久存在下去，而不会注意到服务器已经崩溃。SO_KEEPALIVE默认值是false。
 
 
-**SocketAddress**
+#### SocketAddress
 
 SocketAddress类的主要用途是为暂时的socket连接信息(IP地址和端口)提供方便的存储，这些信息可以重用以创建新的socket，即使最初的socket已断开并被垃圾回收。为此，Socket类提供了两个返回SocketAddress的方法:
 
@@ -188,11 +189,11 @@ SocketAddress类的主要用途是为暂时的socket连接信息(IP地址和端�
 	public void connect(SocketAddress endpoint, int timeout) throws IOException
 
 
-#### ServerSocket
+### ServerSocket
 
 对于接收连接的服务器，Java提供了服务器Socket的ServerSocket类。
 
-构造函数
+**构造函数**
 
 1. public ServerSocket(int port) throws BindException, IOException
 2. public ServerSocket(int port, int queueLength) throws BindException, IOException
@@ -211,12 +212,15 @@ SocketAddress类的主要用途是为暂时的socket连接信息(IP地址和端�
 	SocketAddress http = new InetSocketAddress(80);
 	ss.bind(http);
 
-接受和关闭连接
+**接受和关闭连接**
 
 1. public Socket accept() throws IOException
 2. public void close() throws IOException
 
-### UDP
+
+UDP: DatagramPacket和DatagramSocket
+-----------------------------------
+
 
 UDP速度很快，但是不可靠。它没有连接的概念。其次，不想TCP是面向字节流的，UDP是面向数据包的，是有报文边界的。
 
@@ -226,7 +230,7 @@ TCP和UDP的区别一般可以通过电话系统和邮局来做对照解释。TC
 
 Java中UDP的实现分为两个类：DatagramPacket和DatagramSocket。DatagramPacket类将数据字节填充到称为数据报(datagram)的UDP包中。而DatagramSocket可以收发DatagramPacket数据报。
 
-#### DatagramPacket
+### DatagramPacket
 
 由于端口号是以2字节无符号整数给出，因此每台主机有65536个不同的UDP端口可以使用。因为TCP端口和UDP端口没有关联，所以TCP和UDP是可以使用相同的端口号的。
 
@@ -280,7 +284,7 @@ Java中UDP的实现分为两个类：DatagramPacket和DatagramSocket。DatagramP
 
 注意：当构造ByteArrayInputStream时，必须指明offset和length。因为packet.getData()返回的数组可能包括没有拿到网络数据填充的额外空间。这些空间包含的数据即为构造DatagramPacket时该数组相应部分中包含的任意随机值。
 
-#### DatagramSocket
+### DatagramSocket
 
 **构造函数**
 
@@ -302,7 +306,8 @@ Java中UDP的实现分为两个类：DatagramPacket和DatagramSocket。DatagramP
 2. 数据报的缓冲区应当足够大，以保存接收的数据。否则，receive()会在缓冲区中放置能保存的尽可能多的数据；其他数据就会丢失。因为UDP数据报的数据部分最长为65507字节，所以最多需要分配65507字节空间就可以了。具体的值可以协商确定。
 
 
-### 非阻塞IO
+非阻塞IO
+--------
 
 这块是个大头，而且基本是全新的内容。所以不在这里讨论，放在后面的博文中介绍。
 
