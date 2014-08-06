@@ -108,8 +108,74 @@ DestDir最后有没有斜杠也会对rsync产生影响。例如：
 
 ### 3. lsyncd
 
-有很多工具封装了inotify监听和rsync的同步机制，提供了更便利的使用方式。比如[Lsyncd](https://github.com/axkibe/lsyncd)。lsyncd的配置文件是用lua语言写的，可读性很不错。Lua作为配置语言从这里可以看出来。[inosync](https://github.com/hollow/inosync)，是python版本的lsyncd。
+有很多工具封装了inotify监听和rsync的同步机制，提供了更便利的使用方式。比如[Lsyncd](https://github.com/axkibe/lsyncd)。lsyncd的配置文件是用lua语言写的，可读性很不错。Lua作为配置语言从这里可以看出来。[inosync](https://github.com/hollow/inosync)，是python版本的lsyncd。最后决定使用isyncd，主要是因为它能够控制进程数。
 
+#### 安装lsyncd
+
+lsyncd依赖于lua和lua-dev lib包，这个在configure的时候就会检测报告。具体参见[Lsyncd 2.1.x ‖ Compiling ](https://github.com/axkibe/lsyncd/wiki/Lsyncd%202.1.x%20%E2%80%96%20Compiling)。
+
+#### 编写lua配置文件
+
+一开始自己写了这么一个配置文件，用于同步STATIC目录到MFS分布式文件系统。
+
+	settings {
+		statusFile = "/tmp/lsyncd.stat",
+		statusIntervall = 1,
+		logfacility = daemon,
+	}
+	 
+	backup = {
+	    delay = 5,
+	    maxProcesses = 3,
+	    onCreate = "cp -r ^sourcePathname ^targetPathname",
+	    onModify = "cp -r ^sourcePathname ^targetPathname",
+	    onDelete = "rm -rf ^targetPathname",
+	    onMove   = "mv ^o.targetPathname ^d.targetPathname",
+	    onStartup = "rsync --progress -auv --delete-after ^sourcePathname ^target",
+	}
+	 
+	sync { 
+		backup,
+	    source="/home/work/STATIC",
+	    target="/home/work/mnt/mfs"
+	}
+
+注意到我们这里除了startup的时候使用了rsync做了全量同步之后，后面都是根据inotify提供的事件进行增量同步，而且直接使用了cp、mv、rm，因为我们已经将MFS mount到本地目录了。另外我们还控制了进程数和合并时间时间，以避免系统过载。
+
+后来无意中翻看了一下lsyncd的文档，发现它本身有个内建的行为可以进行本地目录的同步。就是[default.direct](https://github.com/axkibe/lsyncd/wiki/Lsyncd%202.1.x%20%E2%80%96%20Layer%204%20Config%20%E2%80%96%20Default%20Behavior#defaultdirect)：
+
+> Default.direct can be used to keep two local directories in sync with better performance than simply using default.rsync. Default.direct uses on startup rsync just like default.rsync to initially synchronize the target directory with the source directory. However, during normal operation default.direct uses /bin/cp, /bin/rm and /bin/mv to keep the synchronization. All parameters are just like default.rsync.
+
+其实它的行为就是我们上面的那个脚本。但是既然已经有了，所以我们可以简化我们的配置文件：
+
+	settings {
+		statusFile = "/tmp/lsyncd.stat",
+		statusIntervall = 1,
+		logfacility = daemon,
+	}
+
+	sync {
+	    default.direct,
+ 		source="/home/work/STATIC",
+       	target="/home/work/mnt/mfs"
+	}
+
+主要注意的是，default.direct的rsync默认是开启--delete选项的，而且默认不打印rsync日志。
+
+#### 运行
+
+[运行lsyncd](https://github.com/axkibe/lsyncd/wiki/Lsyncd%202.1.x%20%E2%80%96%20Invoking)很简单：
+
+	lsyncd CONFIGFILE
+
+不过这里有一个tip，就是在测试期间，先不要使用daemon模式启动：
+
+	lsyncd -nodaemon CONFIGFILE	
+
+还有可以指定日志分类：
+
+	lsyncd -log all CONFIGFILE
+	lsyncd -log Exec CONFIGFILE
 
 ### 4. 使用watchdog
 
@@ -125,4 +191,5 @@ DestDir最后有没有斜杠也会对rsync产生影响。例如：
 6. [How To Mirror Local and Remote Directories on a VPS with lsyncd](https://www.digitalocean.com/community/tutorials/how-to-mirror-local-and-remote-directories-on-a-vps-with-lsyncd)
 7. [Compile lsyncd with Lua at special location](http://blog.a2o.si/2013/10/11/compile-lsyncd-with-lua-at-special-location/)
 8. [Replication using lsyncd](http://www.lucasrolff.com/ha/replication-using-lsyncd/)
-8. [watchdog](https://github.com/gorakhargosh/watchdog)
+9. [Using lsyncd to automatically sync folders](http://blog.krill.se/2011/06/20/using-lsyncd-to-sync-automatically-sync-folders/)
+10. [watchdog](https://github.com/gorakhargosh/watchdog)
