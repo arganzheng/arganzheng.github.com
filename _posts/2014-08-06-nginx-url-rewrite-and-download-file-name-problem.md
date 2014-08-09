@@ -54,7 +54,7 @@ layout: post
             rewrite ^(.*)$ /download/app-release_official.apk last;
     }
 
-运行结果发现可以下载，但是下载的文件的文件名总是为download！
+`-s reload`运行发现可以正常下载，但是下载的文件的文件名总是为download！
 
 看起来nginx的URL rewrite对用户是透明的，让用户以为下载的就是请求`http://app.arganzheng.me/official/download?language=xxx`就是请求official下的download文件。于是想着改成redirect让用户感知一下:
 
@@ -70,13 +70,13 @@ layout: post
 
 **TIPS**
 
-在做URL rewrite的时候，可以先用redirect测试一下，应该你可以看到改写后的URL符不符合期望。比如通过这个redirect，笔者就发现原来URL write会自动带上原来的请求参数的。不需要rewrite的时候加上$query_string在后面。
+在做URL rewrite的时候，可以先用redirect测试一下，这样你可以看到改写后的URL符不符合期望。比如通过这个redirect，笔者就发现原来URL write会自动带上原来的请求参数的。不需要rewrite的时候加上$query_string在后面。
 
 
 解决方案
 --------
 
-于是浏览器除了根据URL决定下载文件名称之外，还有没有其他方式呢？答案就是前面的`Content-Disposition`头部。于是马上配置了一下：
+于是想浏览器除了根据URL决定下载文件名称之外，还有没有其他方式呢？答案就是前面的`Content-Disposition`头部。于是马上配置了一下：
 
 	location /download {
         proxy_pass http://static-server;
@@ -87,7 +87,7 @@ layout: post
         rewrite ^(.*)$ /download/app-release_official.apk last;
     }
 
-测试了一下，发现不行！这个header经过rewrite之后完全丢弃了，相当于重新发起一次新的请求！那么在rewrite之后匹配的location中做处理了，而且rewrite之间只能通过URL来传递是否需要增加头部这个信息。于是改成：
+测试了一下，发现不行！这个header经过rewrite之后完全丢弃了，相当于重新发起一次新的请求！那么只能在rewrite之后匹配的location中做处理了，而且rewrite之间只能通过URL来传递是否需要增加头部这个信息。于是改成：
 
 	location /download {
         if ($arg_from_official){
@@ -101,4 +101,4 @@ layout: post
     }
 
 
-再次测试，还是不行！！！不可能，这不科学啊！！！难道Chrome不支持`Content-Disposition`这个头部？换成IE浏览器测试了一下，可以了，说明nginx配置没有问题！那么谷歌不可能不准许HTTP标准的，难道是浏览器缓存？使用隐身模式开始新的窗口，再次测试了一下，终于OK了。前后经历2个多小时，肉流满面啊。。
+再次测试，还是不行！！！不可能，这不科学啊！！！难道Chrome不支持`Content-Disposition`这个头部？换成IE浏览器测试了一下，可以了，说明nginx配置没有问题！那么谷歌不可能不遵循HTTP标准的，难道是浏览器缓存？使用隐身模式打开新的窗口，再次测试了一下，终于OK了。前后经历2个多小时，肉流满面啊。。
