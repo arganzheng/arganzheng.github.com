@@ -150,8 +150,12 @@ lsyncd依赖于lua和lua-dev lib包，这个在configure的时候就会检测报
 
 	settings {
 		statusFile = "/tmp/lsyncd.stat",
-		statusIntervall = 1,
+		logfile    = "/tmp/lsyncd.log",
 		logfacility = daemon,
+		statusIntervall = 1,
+		delay = 3,
+		maxDelays    = 10,
+	   	maxProcesses = 4
 	}
 
 	sync {
