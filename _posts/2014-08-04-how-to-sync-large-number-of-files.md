@@ -108,7 +108,7 @@ DestDir最后有没有斜杠也会对rsync产生影响。例如：
 
 ### 3. lsyncd
 
-有很多工具封装了inotify监听和rsync的同步机制，提供了更便利的使用方式。比如[Lsyncd](https://github.com/axkibe/lsyncd)。lsyncd的配置文件是用lua语言写的，可读性很不错。Lua作为配置语言从这里可以看出来。[inosync](https://github.com/hollow/inosync)，是python版本的lsyncd。最后决定使用isyncd，主要是因为它能够控制进程数。
+有很多工具封装了inotify监听和rsync的同步机制，提供了更便利的使用方式。比如[Lsyncd](https://github.com/axkibe/lsyncd)。lsyncd的配置文件是用lua语言写的，可读性很不错。Lua作为配置语言从这里可以看出来。[inosync](https://github.com/hollow/inosync)，是python版本的lsyncd。最后决定使用isyncd，主要是因为它能够控制进程数，而且它是递归对子目录添加事件监听。
 
 #### 安装lsyncd
 
@@ -120,13 +120,15 @@ lsyncd依赖于lua和lua-dev lib包，这个在configure的时候就会检测报
 
 	settings {
 		statusFile = "/tmp/lsyncd.stat",
-		statusIntervall = 1,
+		logfile    = "/tmp/lsyncd.log",
 		logfacility = daemon,
+		statusIntervall = 20,
+		maxDelays    = 10
 	}
 	 
 	backup = {
 	    delay = 5,
-	    maxProcesses = 3,
+	    maxProcesses = 4,
 	    onCreate = "cp -r ^sourcePathname ^targetPathname",
 	    onModify = "cp -r ^sourcePathname ^targetPathname",
 	    onDelete = "rm -rf ^targetPathname",
@@ -152,8 +154,7 @@ lsyncd依赖于lua和lua-dev lib包，这个在configure的时候就会检测报
 		statusFile = "/tmp/lsyncd.stat",
 		logfile    = "/tmp/lsyncd.log",
 		logfacility = daemon,
-		statusIntervall = 1,
-		delay = 3,
+		statusIntervall = 20,
 		maxDelays    = 10,
 	   	maxProcesses = 4
 	}
@@ -164,7 +165,25 @@ lsyncd依赖于lua和lua-dev lib包，这个在configure的时候就会检测报
        	target="/home/work/mnt/mfs"
 	}
 
-主要注意的是，default.direct的rsync默认是开启--delete选项的，而且默认不打印rsync日志。
+
+**NOTES**
+
+1、startup rsync take too much time!
+
+令人吃惊的是，lsyncd的starup rsync运行的时间就像目标目录不存在一样！对于差异很小的两个目录，笔者单独运行rsync的话，只需要20多分钟就可以同步完成。但是lsyncd的startup rsync居然跑了一天一夜还没有跑完。。不知道它内部是怎么处理的。但是不管怎样，对于需要及时切换目录，并且建立同步的需求，lsyncd的这个特点显然是不能接受的。解决方案有下面几个：
+
+1. 关闭lsyncd的startup rsync：sync{..., init = false}。前提是source和target目录已经是一致的。
+2. 自己写脚本，比如我们上面一开始写的那个。
+
+
+2、lsyncd默认是开启--delete选项的，而且默认不打印rsync日志。可以通过delete配置项配置。
+
+3、有时候会报"rsync: failed to set times"错误，可以使用rsyncOps="-O"[解决](http://stackoverflow.com/questions/667992/rsync-error-failed-to-set-times-on-foo-txt-operation-not-permitted)。
+
+**TIPS** 双向同步
+
+为了更快的切换，最好的方式就是双向同步，而且双向同步还可以解决startup rsync耗时问题，因为我们可以同时跑同步脚本。不过双向同步要解决一个关键问题就是避免死循环同步。这个lsyncd的default.direct因为简单使用cp、mv、delete，是会死循环同步的。需要自己写同步脚本，比如`onCreate = "cp -r -u ^sourcePathname ^targetPathname"`或者`onCreate = "rsync -auv  ^sourcePathname ^targetPathname"`。另外一个需要注意的是rsync的`--delete`选项，双向同步容易出问题。
+
 
 #### 运行
 
@@ -183,6 +202,10 @@ lsyncd依赖于lua和lua-dev lib包，这个在configure的时候就会检测报
 
 ### 4. 使用watchdog
 
+### 5. 使用[lipsync](http://philcryer.github.io/lipsync/)
+
+具体参见: https://github.com/philcryer/lipsync
+
 
 参考文档
 --------
@@ -197,3 +220,4 @@ lsyncd依赖于lua和lua-dev lib包，这个在configure的时候就会检测报
 8. [Replication using lsyncd](http://www.lucasrolff.com/ha/replication-using-lsyncd/)
 9. [Using lsyncd to automatically sync folders](http://blog.krill.se/2011/06/20/using-lsyncd-to-sync-automatically-sync-folders/)
 10. [watchdog](https://github.com/gorakhargosh/watchdog)
+11. [](http://crosstek.net/2013/06/28/two-way-sync-with-lsyncd-in-a-clustered-wordpress-installation/)
