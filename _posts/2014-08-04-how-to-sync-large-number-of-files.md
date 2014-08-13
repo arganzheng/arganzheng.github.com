@@ -220,4 +220,4 @@ lsyncd依赖于lua和lua-dev lib包，这个在configure的时候就会检测报
 8. [Replication using lsyncd](http://www.lucasrolff.com/ha/replication-using-lsyncd/)
 9. [Using lsyncd to automatically sync folders](http://blog.krill.se/2011/06/20/using-lsyncd-to-sync-automatically-sync-folders/)
 10. [watchdog](https://github.com/gorakhargosh/watchdog)
-11. [](http://crosstek.net/2013/06/28/two-way-sync-with-lsyncd-in-a-clustered-wordpress-installation/)
+11. [Two-way Sync with lsyncd in a Clustered WordPress Installation](http://crosstek.net/2013/06/28/two-way-sync-with-lsyncd-in-a-clustered-wordpress-installation/)
