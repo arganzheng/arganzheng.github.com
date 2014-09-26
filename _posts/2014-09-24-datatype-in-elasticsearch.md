@@ -20,6 +20,8 @@ ES对于没有定义mapping的未知字段会采用[dynamic mapping](http://www.
 * false: Ignore new fields
 * strict: Throw an exception if an unknown field is encountered
 
+相应的mappings配置如下：
+
 	PUT /my_index
 	{
 	    "mappings": {
