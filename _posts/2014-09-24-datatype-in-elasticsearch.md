@@ -78,6 +78,8 @@ JSON并没有日期类型，日期是以特定字符串格式形式表示。比�
 
 	{ "tag": [ "search", "nosql" ]}
 
+但是事实上ES并没有array类型，因为默认就是支持的。具体参见[array type](http://www.elasticsearch.org/guide/en/elasticsearch/reference/current/mapping-array-type.html#mapping-array-type)。
+
 ####  empty fields
 
 * empty string: ""
@@ -166,3 +168,4 @@ This document will be flattened as we described above, but the result will look 
 	}
 
 这其实是有问题的，ES提供了一个称之为[nested objects](http://www.elasticsearch.org/guide/en/elasticsearch/guide/current/nested-objects.html)的解决方案。比较恶心，这里不讨论。
+

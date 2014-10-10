@@ -143,7 +143,89 @@ GET /books/book/_search
 需要展示的字段有
 
 * pubdate
-* page_count
+* pageCount
 * tags
+* imageUrl
 
 **TIPS** 使用[multi field type](http://www.elasticsearch.org/guide/en/elasticsearch/reference/0.90/mapping-multi-field-type.html)对一个字段进行多次mapping。具体参见：[Mapping WordPress Posts to Elasticsearch](http://gibrown.wordpress.com/2013/04/17/mapping-wordpress-posts-to-elasticsearch/)。一般用于有统计需求的字段，比如tags, author等。
+
+mapping可以这么定义：
+
+	PUT /reading
+	{
+	  "mappings": {
+	    "book": {
+	      "date_detection": false,
+	      "properties": {
+	      	"isbn10": {
+	      		"type": "string",
+	      		"index": "not_analyzed"		
+	      	},
+	      	"isbn13": {
+	      		"type": "string",
+	      		"index": "not_analyzed"			      		
+	      	},
+	        "title": {
+	          "type": "string", 
+	          "analyzer": "smartcn"  
+		  	  },
+		  	"subtitle":{
+		  	    "type": "string", 
+	          	"analyzer": "smartcn" 
+		  	},
+			"image": {
+	      		"type": "string",
+	      		"index": "not_analyzed"			      		
+	      	},
+		  	"authors":{
+		  	    "type": "string", 
+				"analyzer": "smartcn",
+		  	    "index_name": "author"
+		  	  },
+		  	"pubdate": {
+	          "type": "date",
+	          "format" : "yyyy-MM-dd HH:mm:ss||yyyy-MM-dd"
+	        },
+	        "tags":{ 
+	          "type": "string",
+			  "analyzer": "smartcn", 
+	          "index_name": "tag"	          
+	        },
+	        "pageCount":{ 
+	          "type": "string",
+	          "index": "not_analyzed"
+	        },
+			"postDate": {
+	          "type": "date",
+	          "format" : "yyyy-MM-dd HH:mm:ss||yyyy-MM-dd"
+	        }
+		  }
+	    }
+	  }
+	}
+
+**TIPS**
+
+这里引文分词器用了smartcn插件，安装完成之后需要重启ES。
+
+
+
+
+可以这样测试：
+
+GET http://localhost:9200/books/_analyze?pretty=true
+中华人民共和国万岁
+
+GET http://localhost:9200/books/_analyze?pretty=true&analyzer=standard "中华人民共和国万岁"
+
+支持我们的搜索：
+
+	GET /books/book/_search
+	{
+	  "query": {
+	    "multi_match": {
+	      "query": "全文",
+	      "fields": ["isbn10", "isbn13", "title", "subtitle", "authors", "tags"]
+	    }
+	  }
+	}
