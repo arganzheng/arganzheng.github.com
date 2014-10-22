@@ -31,7 +31,7 @@ TODO：要不要提供 拥有者的搜索？还是拥有者走DB？
 
 #### 二、搜索
 
-GET /books/book/_search
+GET /reading/book/_search
 {
   "query": {
     "multi_match": {
@@ -167,11 +167,11 @@ mapping可以这么定义：
 	      	},
 	        "title": {
 	          "type": "string", 
-	          "analyzer": "smartcn"  
+	          "analyzer": "ik"  
 		  	  },
 		  	"subtitle":{
 		  	    "type": "string", 
-	          	"analyzer": "smartcn" 
+	          	"analyzer": "ik" 
 		  	},
 			"image": {
 	      		"type": "string",
@@ -179,7 +179,7 @@ mapping可以这么定义：
 	      	},
 		  	"authors":{
 		  	    "type": "string", 
-				"analyzer": "smartcn",
+				"analyzer": "ik",
 		  	    "index_name": "author"
 		  	  },
 		  	"pubdate": {
@@ -188,7 +188,7 @@ mapping可以这么定义：
 	        },
 	        "tags":{ 
 	          "type": "string",
-			  "analyzer": "smartcn", 
+			  "analyzer": "ik", 
 	          "index_name": "tag"	          
 	        },
 	        "pageCount":{ 
@@ -206,21 +206,21 @@ mapping可以这么定义：
 
 **TIPS**
 
-这里引文分词器用了smartcn插件，安装完成之后需要重启ES。
+这里引文分词器用了ik插件，安装完成之后需要重启ES。
 
 
 
 
 可以这样测试：
 
-GET http://localhost:9200/books/_analyze?pretty=true
+GET http://localhost:9200/reading/_analyze?pretty=true
 中华人民共和国万岁
 
-GET http://localhost:9200/books/_analyze?pretty=true&analyzer=standard "中华人民共和国万岁"
+GET http://localhost:9200/reading/_analyze?pretty=true&analyzer=standard "中华人民共和国万岁"
 
 支持我们的搜索：
 
-	GET /books/book/_search
+	GET /reading/book/_search
 	{
 	  "query": {
 	    "multi_match": {
