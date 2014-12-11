@@ -39,7 +39,7 @@ Future.get如果读取超时，会抛出一个java.util.concurrent.TimeoutExcept
 
 也可以另起一个子线程去做堵塞读取，然后让父线程调用thread.join(timeout)等待一段时间，如果timeout就interrupt子线程。
 
-### 法二、依赖于inputStream.available()只读取拥有的数据
+#### 法二、依赖于inputStream.available()只读取拥有的数据
 
 	byte[] inputData = new byte[1024];
     int result = is.read(inputData, 0, is.available());  
