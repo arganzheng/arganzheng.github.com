@@ -16,11 +16,15 @@ log4j可以的DailyRollingFileAppender可以实现日志按天归档，避免日
 	time=`date +%Y%m%d`
 	nginx_dir="/home/work/nginx"
 
-	for logfile in `ll |  grep -v "^d" | awk '{print $9}' | grep ".log$" | grep -v "[_-]\{1\}[0-9]\{8\}.log"` ;do
+	for logfile in `ls -l $log_dir |  grep -v "^d" | awk '{print $9}' | grep ".log$" | grep -v "[_-]\{1\}[0-9]\{8\}.log"` ;do
 		mv $log_dir/$logfile $log_dir/${logfile%.*}_$time.log
 	done;
 
 	$nginx_dir/sbin/nginx -s reload
+
+**NOTE**
+
+注意，这里使用的是ls -l而不是ll，虽然ll一般都是ls -l的alias，但是alias是跟登陆的shell绑定的，new出来的shell是不会继承的。所以不能用别名。否则会报错。
 
 
 这个文件会找出 /home/work/nginx/logs 下的所有日志文件，重新命名为 xxx_{YYYYMMDD}.log文件。然后让nginx重新加载配置文件以写到新的文件。
