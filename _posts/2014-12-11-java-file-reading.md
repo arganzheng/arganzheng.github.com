@@ -9,7 +9,7 @@ layout: post
 
 但是对于NIO的IO复用只支持网络IO，对于文件系统的读写，还是传统的Blocking IO方式。这种情况，直到Java 1.7的出现才解决。Java 7引入的AsynchronousFileChannel可以支持文件系统的异步IO。在使用新的异步IO时，主要有两种方式——Future轮询和Callback回调。
 
-但是其实注意到Java对于Blocking IO的支持其实是无完整的——文件读取不支持Timeout！这个问题很严重，因为没有timeout，有可能线程完全堵塞在read调用了。
+但是其实注意到Java对于Blocking IO的支持其实是不完整的——文件读取不支持Timeout！这个问题很严重，因为没有timeout，有可能线程完全堵塞在read调用了。
 
 如果你已经升级到1.7+，那么可以直接使用AIO，不需要timeout，反正也不会hold住线程。如果不是，那么有如下几种解决方案：
 
@@ -39,10 +39,39 @@ Future.get如果读取超时，会抛出一个java.util.concurrent.TimeoutExcept
 
 也可以另起一个子线程去做堵塞读取，然后让父线程调用thread.join(timeout)等待一段时间，如果timeout就interrupt子线程。
 
-#### 法二、依赖于inputStream.available()只读取拥有的数据
+#### 法二、依赖于inputStream.available()只读取拥有的数据，相当于fast failed机制。
 
 	byte[] inputData = new byte[1024];
     int result = is.read(inputData, 0, is.available());  
     // result will indicate number of bytes read; -1 for EOF with no data read.
 
-具体参见：[Is it possible to read from a InputStream with a timeout?](http://stackoverflow.com/questions/804951/is-it-possible-to-read-from-a-inputstream-with-a-timeout)。
+
+#### 法三、两者的结合
+
+有时候我们不希望新起一个线程异步执行，同时也希望能够有超时机制，那么可以这么处理：
+
+	// InputStream => InputStreamReader(with charset) => String
+	private static String getStreamAsStringWithTimeout(InputStream is, String charset,
+			int timeoutMillis) throws IOException {
+		BufferedReader reader = new BufferedReader(new InputStreamReader(is, charset));
+		StringWriter writer = new StringWriter();
+
+		char[] chars = new char[256];
+
+		int count = 0;
+		long maxTimeMillis = System.currentTimeMillis() + timeoutMillis;
+		while (System.currentTimeMillis() < maxTimeMillis) {
+			int readLength = java.lang.Math.min(is.available(), 256);
+			count = reader.read(chars, 0, readLength);
+			if (count == -1) {
+				break;
+			}
+			writer.write(chars, 0, count);
+		}
+		return writer.toString();
+	}
+
+
+### 参考文档
+
+1. [Is it possible to read from a InputStream with a timeout?](http://stackoverflow.com/questions/804951/is-it-possible-to-read-from-a-inputstream-with-a-timeout)。

@@ -39,3 +39,103 @@ layout: post
 
 而文件IO那个，就比较不好处理。这是一个Java调用外部python脚本，然后读取python脚本返回的信息。如果python卡住，那么java线程会一直卡住。问了一下测试同学，说python脚本没有耗时操作，应该很快就返回才是。所以可以等待如果python脚本20分钟没有执行完，就kill掉它。另外，对于读取python返回的数据block问题，由于Java1.7之前的文件IO都是block IO，而且不支持timeout，所以需要特别处理。具体参见笔者前面写的一篇文章 [Java文件读取支持timeout](http://blog.arganzheng.me/posts/java-file-reading.html)。
 
+最后的解决方案是：
+
+	package me.arganzheng.study.quartz.monitor.service;
+
+	import java.io.BufferedReader;
+	import java.io.IOException;
+	import java.io.InputStream;
+	import java.io.InputStreamReader;
+	import java.io.StringWriter;
+	import java.util.ArrayList;
+	import java.util.List;
+
+	import org.apache.commons.lang.StringUtils;
+	import org.apache.log4j.Logger;
+
+	import me.arganzheng.study.quartz.constants.Constants;
+
+	public class ScriptExecutor {
+		private static final Logger logger = Logger.getLogger(ScriptExecutor.class);
+
+		private static final int TIMEOUT = 20000;
+
+		/**
+		 * @param exec python, e.g.
+		 * @param path script path
+		 * @return STDOUT STDERR的內容以異常形式拋出。
+		 * @throws IOException
+		 * @throws ApiValidatorException
+		 */
+		public static String executeScript(String exec, String path, String... args)
+				throws ApiValidatorException, IOException {
+			List<String> cmd = new ArrayList<String>();
+
+			cmd.add(exec);
+			cmd.add(path);
+
+			for (String arg : args) {
+				// java会自动加上单引号，避免shell转义
+				cmd.add(arg);
+			}
+
+			Runtime rt = Runtime.getRuntime();
+			Process p = rt.exec(cmd.toArray(new String[cmd.size()]));
+			// retrieve output from python script
+			InputStream es = p.getErrorStream();
+			if (es != null) {
+				String error = null;
+				try {
+					error = getStreamAsStringWithTimeout(p.getErrorStream(), Constants.CHARSET_UTF8,
+							TIMEOUT);
+				} catch (IOException e) { // read TIMEOUT, kill the process
+					logger.error("IOException for getStreamAsString with timeout=" + TIMEOUT, e);
+					// kill the script process
+					p.destroy();
+					return null;
+				}
+				if (StringUtils.isNotEmpty(error)) {
+					throw new ApiValidatorException(error);
+				}
+			}
+
+			// 带timeout的read，如果timeout，则kill掉process进程。
+			String result = null;
+			try {
+				result = getStreamAsStringWithTimeout(p.getInputStream(), Constants.CHARSET_UTF8,
+						TIMEOUT);
+			} catch (IOException e) { // read TIMEOUT, kill the process
+				logger.error("IOException for getStreamAsString with timeout=" + TIMEOUT, e);
+			}
+			// kill the script process
+			p.destroy();
+
+			return result;
+		}
+
+		// InputStream => InputStreamReader(with charset) => String
+		private static String getStreamAsStringWithTimeout(InputStream is, String charset,
+				int timeoutMillis) throws IOException {
+			BufferedReader reader = new BufferedReader(new InputStreamReader(is, charset));
+			StringWriter writer = new StringWriter();
+
+			char[] chars = new char[256];
+
+			int count = 0;
+			long maxTimeMillis = System.currentTimeMillis() + timeoutMillis;
+			while (System.currentTimeMillis() < maxTimeMillis) {
+				int readLength = java.lang.Math.min(is.available(), 256);
+				count = reader.read(chars, 0, readLength);
+				if (count == -1) {
+					break;
+				}
+				writer.write(chars, 0, count);
+			}
+			return writer.toString();
+		}
+	}
+
+
+修复后，观察了一段时间，发现在也没有quartz线程block住的问题了，同时也没有python进程一直存活的情况。
+
