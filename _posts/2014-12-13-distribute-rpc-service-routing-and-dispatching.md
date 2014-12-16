@@ -39,16 +39,16 @@ layout: post
 
 也就是说，其实我们可以把key定义为方法级别的，比如：
 
-`me.arganzheng.study.rpc.FooService.v1` => 220.181.57.215:8090
-`me.arganzheng.study.rpc.FooService.v2` => 220.181.57.216:8090
+	me.arganzheng.study.rpc.FooService.v1 => 220.181.57.215:8090
+	me.arganzheng.study.rpc.FooService.v2 => 220.181.57.216:8090
 
 
 变成
 
-`me.arganzheng.study.rpc.FooService.foo.v1` => 220.181.57.215:8090
-`me.arganzheng.study.rpc.FooService.bar.v1` => 220.181.57.215:8090
-`me.arganzheng.study.rpc.FooService.foo.v2` => 220.181.57.216:8090
+	me.arganzheng.study.rpc.FooService.foo.v1 => 220.181.57.215:8090
+	me.arganzheng.study.rpc.FooService.bar.v1 => 220.181.57.215:8090
+	me.arganzheng.study.rpc.FooService.foo.v2 => 220.181.57.216:8090
 
 
 可以看到，改成方法级别之后，key变多了，但是确实控制粒度更细腻了。升级一个方法，不需要整个service的版本都变化。
-不过对于Java这种方法依附于类的语言，升级一个方法，其实整个Service都需要发布。所以没有什么关系。
+不过对于Java这种方法依附于类的语言，升级一个方法，其实整个Service都需要发布。所以实际上没有什么关系。
