@@ -359,9 +359,9 @@ mv = processHandlerException(request, response, handler, exception); 这个方�
 
 
 
-参考文档
+推荐阅读
 --------
 
 1. [Error Handling for REST with Spring](http://www.baeldung.com/2013/01/31/exception-handling-for-rest-with-spring-3-2/)
-
+2. [Exception Handling in Spring MVC](http://spring.io/blog/2013/11/01/exception-handling-in-spring-mvc)
 
