@@ -54,6 +54,15 @@ layout: post
 	binlog_cache_size = 1M
 	read-only  = 1 
 
+然后设置主从关系：
+
+	mysql> CHANGE MASTER TO MASTER_HOST='xxxx',MASTER_USER='xxx', MASTER_PASSWORD='xxx', MASTER_LOG_FILE='mysql-bin.000005', MASTER_LOG_POS=3119;
+
+其中 MASTER_LOG_FILE='mysql-bin.000005', MASTER_LOG_POS=3119 根据 master中执行：show master status得到。
+然后启动slave同步：
+
+	mysql> start slave;
+
 
 参考文章
 --------
