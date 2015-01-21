@@ -540,6 +540,8 @@ ResolverConfiguration的实现逻辑是加载`/etc/resolv.conf`配置文件中�
 
 得到NameServer，DNS的解析就很简单了，对NameServer分别执行DNS查询就可以了。具体代码大家可以参见 [DNSNameService](http://code.metager.de/source/xref/openjdk/jdk8/jdk/src/share/classes/sun/net/spi/nameservice/dns/DNSNameService.java)。
 
+**NOTE** 从代码可以看出，系统配置的nameserver和通过SystemProperty配置的nameserver是或的关系，所以如果配置了sun.net.spi.nameservice.nameservers，那么相当于绕过了系统配置的nameserver了。
+
 前面说过，非默认的NameService是需要通过相应的NameServiceDescriptor传教的，所以DNSNameService也需要有一个对应的NameServiceDescriptor，就是DNSNameServiceDescriptor：
 
 	package sun.net.spi.nameservice.dns;
@@ -625,6 +627,13 @@ ResolverConfiguration的实现逻辑是加载`/etc/resolv.conf`配置文件中�
 		
 	System.setProperty("sun.net.spi.nameservice.provider.1", "dns,sun");
 	System.setProperty("sun.net.spi.nameservice.nameservers", "8.8.8.8");
+	System.setProperty("sun.net.spi.nameservice.provider.2", "default");
+
+
+再比如，如果你只想针对某些域名做特殊的解析，那么你可以自定义一个NameServiceProvider，实现对应的NameServiceDescriptor，还有相应的META-INF说明。然后在应用启动的时候配置一下：
+
+	System.setProperty("sun.net.spi.nameservice.provider.1", "dns,yourProviderName");
+	System.setProperty("sun.net.spi.nameservice.provider.2", "default");
 
 
 参考文章
@@ -633,3 +642,4 @@ ResolverConfiguration的实现逻辑是加载`/etc/resolv.conf`配置文件中�
 1. [DNS: Java Glossary](http://mindprod.com/jgloss/dns.html) 深入浅出的一篇介绍性文章，强烈推荐。
 2. [Understanding host name resolution and DNS behavior in Java](http://www.myhowto.org/java/42-understanding-host-name-resolution-and-dns-behavior-in-java/)
 3. [Networking Properties](http://docs.oracle.com/javase/1.5.0/docs/guide/net/properties.html)
+4. [Local Managed DNS (Java)](http://rkuzmik.blogspot.com/2006/08/local-managed-dns-java_11.html) 被墙了，但是可以从Google Cache中获取到历史页面。
