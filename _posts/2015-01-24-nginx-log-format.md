@@ -109,7 +109,7 @@ layout: post
 
 还有其他一些变量 [Alphabetical index of variables](http://nginx.org/en/docs/varindex.html)。再结合日志格式说明：[Module ngx_http_log_module - log format](http://nginx.org/en/docs/http/ngx_http_log_module.html#log_format)。于是我们可以这么配置：
 
-    log_format  main  '$remote_addr [$time_local] $upstream_response_time - $request_time "$request" $request_length'
+    log_format  main  '$remote_addr [$time_local] $upstream_response_time - $request_time "$request" $request_length '
                       '$status - $upstream_status $bytes_sent "$http_referer" '
                       '"$http_user_agent" "$http_x_forwarded_for" ' ;
 
@@ -138,7 +138,7 @@ layout: post
 	    include       mime.types;
 	    default_type  application/octet-stream;
 
-	    log_format  main  '$remote_addr [$time_local] $upstream_response_time - $request_time "$request" $request_length'
+	    log_format  main  '$remote_addr [$time_local] $upstream_response_time - $request_time "$request" $request_length '
 	                      '$status - $upstream_status $bytes_sent "$http_referer" '
 	                      '"$http_user_agent" "$http_x_forwarded_for" ' ;
 	                      
