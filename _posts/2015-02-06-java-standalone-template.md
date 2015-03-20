@@ -186,6 +186,14 @@ conf目录可以用resources插件从`src/main/resources`目录里面copy到conf
 	java $JAVA_OPTS me.arganzheng.study.standalone.message.queue.processor.Main
 
 
+**TIPS** 用maven执行main函数
+
+对于standalone工程一般有个Main入口类，打包后通过startup脚本执行当然是没有问题的，但是每次都要打包，很麻烦，用maven也是可以指定的：
+
+比如这个：java $JAVA_OPTS me.arganzheng.study.standalone.message.queue.processor.Main
+用maven就可以这样子：mvn compile exec:java -Dexec.mainClass="me.arganzheng.study.standalone.message.queue.processor.Main" 执行执行了。
+
+
 **NOTE** 关于log4j.configuration的一个坑
 
 如果lo4j.properties在classpath中，那么其实不需要配置这个环境变量，但是有一种情况，比如有多个log4j.properties，然后你想指定具体的一个。但是千万记得，如果是绝对路径，一定要加上`file:`前缀，否则会读取不到的。如果只是文件名，比如 -Dlog4j.configuration=foobar.xml 那么就不需要。
