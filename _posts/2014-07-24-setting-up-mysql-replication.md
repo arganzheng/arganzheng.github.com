@@ -45,6 +45,26 @@ layout: post
 
 现在要把Master的数据迁移到Slave中。google一下有很多介绍的文章，基本都是一个思路：先用mysqldump把master某个时刻的数据给全量dump下来，然后导入到slave中。再配置主从关系，让slave从dump的那个时刻开始追赶。推荐这篇文章：[Setting up MySQL replication without the downtime](http://plusbryan.com/mysql-replication-without-downtime) 。可以不用读锁，基本对线上没有任何影响。mysqldump的时候可能会报mysql.event表dump失败，无关紧要。
 
+具体过程如下：
+
+下面语句创建一个带有binlog位置的备份文件，dump的过程中会影响DB性能，但是不会锁表：
+
+	mysqldump --skip-lock-tables --single-transaction --flush-logs --hex-blob --master-data=2 -A  > ~/dump.sql
+
+由于带了`--master-data`选项，所以dump.sql文件前面含有binlog位置信息，可以用如下命令找到：
+
+	head dump.sql -n80 | grep "MASTER_LOG_POS"
+
+然后我们需要將dump.sql文件scp到备库所在机器，由于这个文件一般很大，而且是文本文件，最好先压缩一下：
+
+	gzip ~/dump.sql
+
+再scp过去:
+
+	scp ~/dump.sql.gz mysql-user@<<slave-server-ip>>:~/
+
+然后配置一下slave:
+
 	#*******************************  Replication related settings **********************
 	server-id 	= 30
 	relay-log-index = copyer1-relay-bin.index
@@ -53,6 +73,11 @@ layout: post
 	binlog_format=mixed
 	binlog_cache_size = 1M
 	read-only  = 1 
+
+重启，导入备份文件：
+
+	gunzip ~/dump.sql.gz
+	mysql -u root -p < ~/dump.sql
 
 然后设置主从关系：
 
