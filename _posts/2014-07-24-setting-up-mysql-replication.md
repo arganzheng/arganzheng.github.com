@@ -111,7 +111,11 @@ Relay Server
 
 **TIPS**
 
-relay server对于机房搬迁，需要切换master，非常有用。
+relay server对于机房搬迁，需要切换master，非常有用。可以直接将应用切换到relay server，再讲relay server和老master同步关系断掉。这样relay server就是唯一的master了。
+
+	mysql> stop slave;
+	mysql> change master to MASTER_HOST='';
+	mysql> reset slave;
 
 
 参考文章
