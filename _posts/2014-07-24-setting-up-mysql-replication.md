@@ -89,6 +89,31 @@ layout: post
 	mysql> start slave;
 
 
+Relay Server
+------------
+
+在前面我们讨论过怎样搭建一个只读从库，现在我们来讨论一种特殊的从库——relay server。它原来的作用只是用来做日志中继，减轻master推送日志给太大slave的压力。
+
+经典的配置是将relay server的storage_engine设置为BLACKHOLE。这个存储引擎只会记录binlog，但是不会真正执行。所以replicate的速度会比普通的slave快一些。具体参考《MySQL High Availability》P159的《Hierarchal Replication》。
+
+有一点要注意的是就是正常的slave是不会记录master的binlog到自己的binlog的，这样在master上的操作就无法传播（中继）给下面的slave。如果要中继，那么就需要配置一下`log_slave_updates`：
+
+	#*******************************  Replication related settings **********************
+	server-id 	= 2
+	relay-log	= copyer1-relay-bin
+	relay-log-index = copyer1-relay-bin.index
+	log-bin=master-bin
+	log-bin-index=master-bin.index
+	binlog_format=mixed
+	log_slave_updates
+	binlog_cache_size = 1M
+	read-only  = 0
+
+**TIPS**
+
+relay server对于机房搬迁，需要切换master，非常有用。
+
+
 参考文章
 --------
 
@@ -96,3 +121,4 @@ layout: post
 2. [How can I export the privileges from MySQL and then import to a new server?](http://serverfault.com/questions/8860/how-can-i-export-the-privileges-from-mysql-and-then-import-to-a-new-server)
 3. [How To Set Up Master Slave Replication in MySQL](https://www.digitalocean.com/community/tutorials/how-to-set-up-master-slave-replication-in-mysql)
 4. [Setting up MySQL replication without the downtime](http://plusbryan.com/mysql-replication-without-downtime) 
+5. [Promoting a mysql slave to master](https://onemoretech.wordpress.com/2013/09/19/promoting-a-mysql-slave-to-master/)
