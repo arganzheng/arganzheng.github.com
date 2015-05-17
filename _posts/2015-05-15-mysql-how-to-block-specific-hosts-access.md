@@ -87,14 +87,14 @@ layout: post
 
 > For this example, I’m going to allow access from 3 servers, and deny every other address.  Execute the following commands in order, and replace IP address 1, 2, and 3 with the addresses of your servers.
 > 
-> 	iptables -A INPUT -p tcp -s IPaddress1/32 --dport 3306 -j ACCEPT
->	iptables -A INPUT -p tcp -s IPaddress2/32 --dport 3306 -j ACCEPT
->	iptables -A INPUT -p tcp -s IPaddress3/32 --dport 3306 -j ACCEPT
->	iptables -A INPUT -p tcp --dport 3306 -j DROP
+> 	  iptables -A INPUT -p tcp -s IPaddress1/32 --dport 3306 -j ACCEPT
+>	  iptables -A INPUT -p tcp -s IPaddress2/32 --dport 3306 -j ACCEPT
+>	  iptables -A INPUT -p tcp -s IPaddress3/32 --dport 3306 -j ACCEPT
+>	  iptables -A INPUT -p tcp --dport 3306 -j DROP
 >
 > When configuring iptables, order is important.  The effects of each command are immediate, but you must save your iptables settings or you’ll lose them on your next restart.  Do this by issuing the following command:
 >
->   service iptables save
+>     service iptables save
 >
 > You iptable settings are now saved, and will be used next time iptables is restarted.  By default in Red Hat, and centOS, the settings are stored here: /etc/sysconfig/iptables
 
@@ -113,10 +113,4 @@ layout: post
 2. [How do I manually block and then unblock a specific IP/Hostname in MYSQL](http://stackoverflow.com/questions/17621710/how-do-i-manually-block-and-then-unblock-a-specific-ip-hostname-in-mysql)
 3. [Restricting mySQL access to specific IP addresses](http://www.creativeintensity.com/index.php/allowing-mysql-access-from-specific-ip-addresses-only-in-linux/)
 4. [Block MySQL port for everyone except localhost and a single IP](https://snipt.net/johan_adriaans/block-mysql-port-for-everyone-except-localhost-and-a-single-ip/)
-
-
-
-
-
-
 
