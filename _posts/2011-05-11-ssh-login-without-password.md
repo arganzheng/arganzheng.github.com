@@ -177,3 +177,32 @@ OK了，试验一下，不行。换了台机器，又试验了一下，还是不
                 ;;
         esac
     done
+
+
+补记：如何在shell代码中正确的实现免登陆操作
+-------------------------------------------
+
+其实ssh免登陆操作最大的必要性是用在定时/自动执行的shell脚本中，这时候往往没有用户干预，所以免登陆是非常必要的，否则下面一切免谈。那么如何在shell中正确的实现免登陆呢？
+
+使用except脚本当然是可以的，但是前面说过，他的语法跟shell不一样，写起来非常蛋疼。所以一般是不采用，只是用来做简单的免登陆而已。
+
+ssh-public-key方式是可以的，但是在shell脚本中要注意一下几种情况，避免出现错误。
+1. 主机key变化。这会导致提示`The authenticity of host *** can’t be established`，需要输出一个“yes”的交互。
+2. public-key变化。这会导致免登失败，需要一个手动输入密码的交互。
+
+这两个情况都会导致public-key方式免登陆失败，而且恶心的是程序就卡在那里了，在等待一个 yes 或者 密码 的输入，而因为在脚本中，不会弹出提示，你根本就不知道发生什么问题了。
+
+所以对于shell最好采用防御式编程，增加如下一些参数：
+
+    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o PasswordAuthentication=no -o ConnectionAttempts=5 work@${ERROR_SLAVES[$CNT]} bash < /home/work/userbin/restart_slave_replication.sh
+    
+对于rsync，同样有这个问题：
+
+    rsync -auv -e "ssh -o StrictHostKeyChecking=no -o PasswordAuthentication=no" /home/work/mnt/nfs/mbrowser/t5pac/ work@xxx-xxx-xxx.xxx:/home/work/STATIC/mbrowser/t5pac 
+
+这样至少可以保证你的程序不会卡住不动。
+
+
+
+
+
