@@ -233,6 +233,8 @@ jmap 是一个可以输出所有内存中对象的工具，甚至可以将VM 中
 
 #### JConsole 和 VisualVM
 
+通过RMI通信方式，将目标jvm通过jmx或者jstatd暴露出来的数据进行图形化展示。配置与使用本来很简单，但是由于线上防火墙以及RMI动态通信端口原因，处理起来非常麻烦。具体可以参考笔者的另一篇文章：[tomcat监控](http://blog.arganzheng.me/posts/tomcat-monitor.html)。
+
 #### BTrace
 
 具体参见笔者的另一篇文章：[BTrace实战](http://blog.arganzheng.me/posts/btrace-in-action.html)
