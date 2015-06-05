@@ -214,3 +214,4 @@ Tomcat有个Tomcat Manager工程就是通过JMXProxyServlet暴露JMX监控项的
 4. [Monitoring Tomcat 7 with JMX](http://www.i-net-design.com/2011/07/15/monitoring-tomcat-7-with-jmc/)
 5. [The Pros and Cons of Using Tomcat JMX](https://www.mulesoft.com/tcat/tomcat-jmx)
 6. [Monitoring and Management for the Java Platform](http://docs.oracle.com/javase/7/docs/technotes/guides/management/)
+7. [Remote Debugging using JConsole, JMX and SSH Tunnels](http://blog.cantremember.com/debugging-with-jconsole-jmx-ssh-tunnels/)
