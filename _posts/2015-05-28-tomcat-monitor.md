@@ -203,7 +203,8 @@ VisualVM目前支持两种remote connection方式，分别是jstatd和JMX方式�
 > A perfect example of JMX overkill can be seen in the case of popular server-monitoring software such as Nagios or Ichinga: if you want to monitor 10 items via JMX, you will have to launch 10 JVMs, make 10 JMX connections, and then shut them all down every few minutes. With the JMXProxyServlet, you can make 10 HTTP connections and be done with it.
 
 
-Tomcat有个Tomcat Manager工程就是通过JMXProxyServlet暴露JMX监控项的。
+Tomcat有个Tomcat Manager工程就是通过JMXProxyServlet暴露JMX监控项的。其实就是将MXBean以HTTP的方式暴露出去，可以避免RMI带来的各种不便。
+
 
 参考文章
 -------
