@@ -14,6 +14,12 @@ layout: post
 6. 自动化运维：比如自动扩容；或者根据监控的数据和配置的SLA进行服务降级。等等。
 
 
+性能监控平台
+
+1. 提供一站式的性能数据收集、计算、存储和展示服务
+2. 支持自定义的数据指标名称和数据纬度
+3. 提供任意指标任意纬度的实时数据查询
+
 监控对象
 -------
 
@@ -84,8 +90,9 @@ layout: post
 
 7、其他信息
 
-* 业务自定义信息，比如订单数量
+* 业务自定义信息，比如订单数量，支持成功数，点击次数，下载次数，等。
 * Cache命中率
+* 队列大小
 * ...
 
 
@@ -133,12 +140,7 @@ layout: post
 如果客户端与监控中心网络顺畅的情况下，绕开agent会简单很多。如果跨机房上报，那么异步化可能是很有必要的。采用agent是一个不错的方案。
 
 
-#### 4、如果服务器挂掉了，统计数据怎么处理？缓存本地，等服务器起来再发送？还是丢弃？
-
-前期可以先丢弃，后续要缓存起来。受影响比较大的是counter接口。
-
-
-#### 5、存储最终状态还是事件序列
+#### 4、存储最终状态还是事件序列
 
 比如监控一个URL的请求数，每次+1，最终我们能够得到请求总数。这样的好处是节省存储空间和计算时间。但是由于只有一个最终状态，我们没有办法得到在什么时间段请求数最多。于是有另一种记录方式：对于每次请求都记录一次，而不是简单的+1。然后我们根据所有的签到记录，就可以统计出总请求数，和分布状况。但是缺点也很显然，就是浪费存储，并且每次都需要执行统计计算。
 
@@ -171,21 +173,39 @@ Google Cloud Mnoitor对Metric进行分类,支持的metricType有(@see [metric-ty
 * int64: An integer value in the range [-263..263-1].
 * string: A Unicode string with backslash escaping.
 
+
 #### 6、 数据存储
 
 因为Events或者Metrics的特殊性，一般都会采用一种专门的存储结构——Distributed time series database。比较有名的开源产品有如下这些:
 
 1. RRD(round-robin-database): RRDtool使用的底层存储。C语言编写的。性能比较高
 2. whisper: Graphite底层的存储,Python写的
-3. InfluxDB: Go语言编写,不依赖于其他三方库
-4. [OpenTSDB](http://opentsdb.net/docs/build/html/index.html): 基于HBase编写的Time Series Database
+3. [InfluxDB](http://influxdb.com/): 开源distributed time series, metrics, and events database。Go语言编写, 不依赖于其他外部服务。底层支持多种存储引擎，目前是LevelDB, RocksDB, HyberLevelDB和LMDB(0.9之后将只支持Bolt)。
+4. [OpenTSDB](http://opentsdb.net/index.html): 基于HBase编写的Time Series Database
+
+具体可以参考这篇论文: [tsdb: A Compressed Database for Time Series](http://luca.ntop.org/tsdb.pdf)。
 
 **结论**
 
-如果要存储事件序列，那么OpenTSDB是个非常不错的选择。可扩展，分布式存储，文档很详细，还是开源的。使用风格跟谷歌的Cloud Monitor差不多，除了一点比较郁闷就是value不支持String类型，这意味着日志不能上报到OpenTSDB，需要另外处理。
+如果要存储事件序列，那么InfluexDB和OpenTSDB是个非常不错的选择。都是可扩展，分布式存储，文档很详细，还是开源的。
+[influexDB 0.9.0](http://influxdb.com/blog/2014/12/08/clustering_tags_and_enhancements_in_0_9_0.html)之后支持tag，使用风格跟Google Cloud Monitor很相似，而且支持String类型。并且最重要的是不需要额外搭建HBase(Thus Hadoop & Zookeeper)，看起来非常值得期待，不过截至今天0.9.0还是RC阶段(非Stable)。OpenTSDBvalue不支持String类型，这意味着日志不能上报到OpenTSDB，需要另外处理。
+
+由于这个比较复杂而且非常重要，我们在后面再单独详细讨论。
 
 
-#### 7、网络通信和协议
+#### 7、如果服务器挂掉了，统计数据怎么处理？缓存本地，等服务器起来再发送？还是丢弃？
+
+前期可以先丢弃，后续要缓存起来。受影响比较大的是counter接口。
+
+存储的话，可以考虑使用本地存储在RRD文件或者BDB中，或者消息队列中(RabbitMQ, ie.)，最后再异步批量上报给中心的TSDB。
+
+	timestamp	metrics 	value 	tags..
+	1366399993 mysql.Binlog_cache_disk_use 0 host=mydb.example.com
+	1366399993 mysql.Bytes_received 19453687 host=mydb.example.com
+	1366399993 mysql.Bytes_sent 1238166682 host=mydb.example.com
+
+
+#### 8、网络通信和协议
 
 如何高性能的接收大量客户端的上报请求。以及使用什么通讯协议。
 
@@ -283,9 +303,46 @@ They have no real statistical value, but can be used to raise flags in logging a
 By default, the metric name will include the class name followed by the method name
 
 
+时序数据库讨论
+------------
+
+这里我们以两大开源的时序数据库：influxDB和OpenTSDB做对比讨论。
+
+
+就文档看起来，influexDB使用起来更像传统的RDB。需要创建DB，但是不需要schema，columns是动态创建的。感觉columns就是OpenTSDB的tags键值对。
+
+
+写入格式：
+
+OpenTSDB: <metric> <timestamp> <value> <tagk1=tagv1[ tagk2=tagv2 ...tagkN=tagvN]>
+influxDB: name [columns] [points]。其中timestamp由服务端生成。columns和points类似于SQL的insert columns values(..)语法。
+
+
+例如：统计mysql.Bytes_received，
+
+OpenTSDB是这样子：
+
+	1366399993 mysql.Bytes_received 19453687 host=mydb.example.com app=mysql
+
+influxDB则是：
+
+	[
+	  {
+	    "name" : "mysql.Bytes_received",
+	    "columns" : ["app", "value", "host"],
+	    "points" : [
+	      ["mysql",19453687, "mydb.example.com"]
+	    ]
+	  }
+	]
+
+而且值得注意的是influxDB的value值可以是String类型，这个OpenTSDB目前是不支持的。这意味着我们可以将错误日志也放在influxDB中。
+
 参考文章
 -------
 
 1. [Application Monitoring](http://newrelic.com/application-monitoring/features) 收费产品，功能很强大。
 2. [moskito](http://www.moskito.org/) 开源监控产品，思路跟我的挺match的。
+3. [OpenTSDB2.0](http://www.slideshare.net/HBaseCon/ecosystem-session-6?related=1) 非常好的PPT
+4. [influxDB](http://influxdb.com/)
 
