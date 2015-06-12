@@ -38,10 +38,10 @@ hbase-site.xml主要是hbase.rootdir：
 
 **说明**
 
-1. hbase一般底层是依赖于hafs文件系统(hdfs://)，但是在测试环境可以简单使用本地文件系统(file:///)。
+1. hbase在完全分布式模式下底层是依赖于hdfs文件系统(hdfs://)，但是在测试环境(standalone和伪分布模式)可以简单使用本地文件系统(file:///)。
 2. Hbase要求Zookeper. 默认Hbase自带了一个embedded instance of Zookeeper, 可以避免安装zookeeper。
-3. OpenTSDB建议单机安装的时候配置interface为loopback interface，可以简化一些测试问题。
-
+3. OpenTSDB建议单机安装的时候配置interface为loopback interface，可以简化一些测试问题[Setup HBase](http://opentsdb.net/setup-hbase.html)。
+4. OpenTSDB建议Stay on a single node unless you can deploy HBase on at least 5 machines, preferably at least 10.
 
 OK，配置完成之后可以启动HBase了：
 
@@ -257,12 +257,13 @@ OK，现在我们可以准备启动TSD了。不过在这之前，我们需要配
 * /etc/opentsdb/opentsdb.conf
 * /opt/opentsdb/opentsdb.conf
 
-然后配置如下三个必须配置项：
+然后配置如下四个必须配置项：
 
-* tsd.network.port = 8242
-* tsd.http.cachedir - Path to write temporary files to
-* tsd.http.staticroot - Path to the static GUI files found in ./build/staticroot
-* tsd.storage.hbase.zk_quorum - If HBase and Zookeeper are not running on the same machine, specify the host and port here.
+* tsd.network.port=8242
+* tsd.http.cachedir=/tmp/tsd - Path to write temporary files to
+* tsd.http.staticroot=build/staticroot - Path to the static GUI files found in ./build/staticroot
+* tsd.storage.hbase.zk_quorum=localhost - A comma separated list of Zookeeper hosts to connect to, default is "localhost". If HBase and Zookeeper are not running on the same machine, specify the host and port here.
+* tsd.core.auto_create_metrics=True - Whether or not to automatically create UIDs for new metric types, default is False. 建议打开。
 
 然后就可以简单启动TSD了：
 
@@ -289,7 +290,7 @@ OK，现在我们可以准备启动TSD了。不过在这之前，我们需要配
 
 	tsdtmp=${TMPDIR-'/tmp'}/tsd    # For best performance, make sure
 	mkdir -p "$tsdtmp"             # your temporary directory uses tmpfs
-	./build/tsdb tsd --port=8042 --staticroot=build/staticroot --cachedir="$tsdtmp" --zkquorum=myhost:2181
+	./build/tsdb tsd --port=8242 --staticroot=build/staticroot --cachedir="$tsdtmp" --zkquorum=myhost:2181
 
 然后就可以通过 http://127.0.0.1:8242 访问TSD的web界面了。不过话说，比起influxDB来说，这个界面还真是挺粗糙的。
 
@@ -312,7 +313,12 @@ OpenTSDB没有像influxDB一样，可以通过WebUI插入数据，不过它支�
 	./tsdb tsd --auto-metric
 
 
-重启就可以了。
+重启就可以了。也支持[HTTP接口](http://opentsdb.net/docs/build/html/api_http/put.html)：
+
+	bogon:~ argan$ curl -i  -H "Content-Type: application/json" -X POST -d '{"metric": "sys.cpu.nice", "timestamp": 1433989867597,"value": 18, "tags": { "host": "web01"}}' http://localhost:8242/api/put/?details
+	HTTP/1.1 200 OK
+	Content-Type: application/json; charset=UTF-8
+	Content-Length: 36
 
 **TIPS** 
 
@@ -329,6 +335,11 @@ OpenTSDB没有像influxDB一样，可以通过WebUI插入数据，不过它支�
 	> env COMPRESSION=SNAPPY HBASE_HOME=/opt/cloudera/parcels/CDH/lib/hbase ./src/create_table.sh
 	> hbase shell
 	> list
+
+
+**NOTES**
+
+1. Make sure you have LZO installed and make sure it's enabled for the tables used by OpenTSDB.
 
 参考文档
 -------

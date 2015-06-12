@@ -150,7 +150,9 @@ layout: post
 
 > The Google Cloud Monitoring API lets you access monitoring data for Google Cloud services. The data is organized as metrics and stored as data points that represent information at a specific time or over a specific time period. Examples include the current CPU utilization of your virtual machine, the number of requests received by you web server, or custom metrics you define yourself. A list of data points measured at successive times is called a time series.
 
-#### 5、Metrics的数据格式
+#### 5、数据模型
+
+数据模型非常重要，它决定了监控系统的能力。比如我们为什么不使用NOAH，其中一个原因就是NOAH的监控项只是简单的key-value形式。当然，它会自动记录请求源IP。但是其他的参数，比如应用等，就没有办法上报存储了。
 
 根据上面的描述，其实我们的metrics基本就是抽象为带tags/labels标签的key-value格式。这个也是[Google Cloud Monitor](https://cloud.google.com/monitoring/api/metrics)和[OpenTSDB](http://opentsdb.net/docs/build/html/user_guide/writing.html)对metrics的定义:
 
@@ -180,8 +182,9 @@ Google Cloud Mnoitor对Metric进行分类,支持的metricType有(@see [metric-ty
 
 1. RRD(round-robin-database): RRDtool使用的底层存储。C语言编写的。性能比较高
 2. whisper: Graphite底层的存储,Python写的
-3. [InfluxDB](http://influxdb.com/): 开源distributed time series, metrics, and events database。Go语言编写, 不依赖于其他外部服务。底层支持多种存储引擎，目前是LevelDB, RocksDB, HyberLevelDB和LMDB(0.9之后将只支持Bolt)。
-4. [OpenTSDB](http://opentsdb.net/index.html): 基于HBase编写的Time Series Database
+3. [prometheus](http://prometheus.io/): An open-source service monitoring system and time series database. 目前只有单机版本。
+4. [InfluxDB](http://influxdb.com/): 开源distributed time series, metrics, and events database。Go语言编写, 不依赖于其他外部服务。底层支持多种存储引擎，目前是LevelDB, RocksDB, HyberLevelDB和LMDB(0.9之后将只支持Bolt)。
+5. [OpenTSDB](http://opentsdb.net/index.html): 基于HBase编写的Time Series Database
 
 具体可以参考这篇论文: [tsdb: A Compressed Database for Time Series](http://luca.ntop.org/tsdb.pdf)。
 
@@ -311,18 +314,31 @@ By default, the metric name will include the class name followed by the method n
 
 就文档看起来，influexDB使用起来更像传统的RDB。需要创建DB，但是不需要schema，columns是动态创建的。感觉columns就是OpenTSDB的tags键值对。
 
+InfluxDB的抽象更类似于传统的关系型数据库，只是schemeless：Database, shard space, series(table), column。
 
 写入格式：
 
-OpenTSDB: <metric> <timestamp> <value> <tagk1=tagv1[ tagk2=tagv2 ...tagkN=tagvN]>
-influxDB: name [columns] [points]。其中timestamp由服务端生成。columns和points类似于SQL的insert columns values(..)语法。
+* OpenTSDB: <metric> <timestamp> <value> <tagk1=tagv1[ tagk2=tagv2 ...tagkN=tagvN]>
+* influxDB: name [columns] [points]。其中timestamp由服务端生成。columns和points类似于SQL的insert columns values(..)语法。
 
 
 例如：统计mysql.Bytes_received，
 
 OpenTSDB是这样子：
 
-	1366399993 mysql.Bytes_received 19453687 host=mydb.example.com app=mysql
+	1385327470774 mysql.Bytes_received 19453687 host=mydb.example.com app=mysql
+
+HTTP格式是：
+
+	{
+        "metric": "mysql.Bytes_received",
+        "timestamp": 1385327470774,
+        "value": 19453687,
+        "tags": {
+           "hostName": "mydb.example.com",
+           "app": "mysql"
+        }
+    },
 
 influxDB则是：
 
@@ -336,7 +352,47 @@ influxDB则是：
 	  }
 	]
 
-而且值得注意的是influxDB的value值可以是String类型，这个OpenTSDB目前是不支持的。这意味着我们可以将错误日志也放在influxDB中。
+0.9之后支持tags:
+
+	{
+	    "database": "mydb",
+	    "retentionPolicy": "default",
+	    "points": [
+	        {
+	            "name": "Bytes_received",
+	            "tags": {
+	                "host": "mydb.example.com",
+	                "app": "mysql",
+	                "region": "us-west"
+	            },
+	            "time": "2009-11-10T23:00:00Z",
+	            "fields": {
+	                "value": 19453687
+	            }
+	        }
+	    ]
+	}
+
+需要注意的是influxDB的tags是默认索引的，但是fields(columns)则是没有索引的。也就是说我们无法高效的执行：响应时间(value) > 1000ms的记录。
+
+另外值得注意的是influxDB的value值可以是String类型，这个OpenTSDB目前是不支持的。这意味着我们可以将错误日志也放在influxDB中。
+
+
+可视化组件
+--------
+
+如果我们采用了一站式的监控平台，像 [Relic](http://newrelic.com/)，[moskito](http://www.moskito.org/)，[prometheus](http://prometheus.io/)，或者[graphite](http://graphite.wikidot.com/)（严格来说，Graphite其实只是包含存储和可视化展示，并没有包含收集），那么你就不太需要关心可视化的事情（那可是相当烦人的，特别是对于一个后端开发工程师来说）。但是如果采用了OpenTSDB或者influxDB，那么其实它们只是解决了数据存储而已。数据收集和数据展示这块还是需要另外的组件来解决。有需求就有产品。在监控可视化这块，[Grafana](http://grafana.org/)貌似是唯一的选择。而且默认支持Graphite, InfluxDB & OpenTSDB。节目风格看起来非常像kibana，试试上就是在kibana的基础上二次开发的，原来是为了Graphite创建的。
+
+
+这里有一篇文章介绍influxDB和grafana整合的，非常详细，可以参考一下：[OBIEE Monitoring and Diagnostics with InfluxDB and Grafana](http://www.rittmanmead.com/2015/02/obiee-monitoring-and-diagnostics-with-influxdb-and-grafana/)。
+
+
+日志事件收集组件
+--------------
+
+* [fluentd](http://www.fluentd.org/)
+* [logstash](https://www.elastic.co/products/logstash)
+* [collectd](https://collectd.org/) C写的一个系统参数收集
 
 参考文章
 -------
@@ -345,4 +401,6 @@ influxDB则是：
 2. [moskito](http://www.moskito.org/) 开源监控产品，思路跟我的挺match的。
 3. [OpenTSDB2.0](http://www.slideshare.net/HBaseCon/ecosystem-session-6?related=1) 非常好的PPT
 4. [influxDB](http://influxdb.com/)
+5. [Grafana](http://grafana.org/)
+6. [Relic](http://newrelic.com/)
 
