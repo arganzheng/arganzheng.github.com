@@ -296,13 +296,44 @@ log4j最佳实践
 优点：简单方便。
 缺点: 需要修改每套环境的JVM启动变量。
 
+#### 方案二、使用Spring的Log4jConfigListener动态加载
 
-#### 方案二、使用auto-config在编译期间为每个环境生成相应的配置文件
+Spring的Log4jConfigListener支持如下功能：
+
+1. 定时刷新配置文件，即修改log4j.properties,不需要重启Web应用。这需要在web.xml中设置一下log4jRefreshInterval参数。
+2. 可以把log4j.properties和其他properties一起放在/WEB-INF/，而不是Class-Path。也支持环境变量。
+3. 把log文件定在 /WEB-INF/logs/ 而不需要写绝对路径。
+
+在web.xml配置：
+
+	<context-param>
+		<param-name>webAppRootKey</param-name>
+		<param-value>helloworld</param-value>
+	</context-param>
+	<context-param>
+		<param-name>log4jConfigLocation</param-name>
+		<param-value>classpath:conf-log4j/${env}_log4j.properties</param-value>
+	</context-param>
+	<listener>
+		<listener-class>org.springframework.web.util.Log4jConfigListener</listener-class>
+	</listener>
+
+就可以了。
+
+具体参见：
+
+1. [environment specific log4j configuration by spring](http://stackoverflow.com/questions/15348550/environment-specific-log4j-configuration-by-spring/15747568#15747568)
+2. [Log4jConfigListener动态日志配置切换](http://www.cnblogs.com/Irving/archive/2013/02/28/2936810.html)
+
+#### 方案三、使用auto-config在编译期间为每个环境生成相应的配置文件
 
 原来Alibaba B2B配置方式，现在已经开源了，具体参见：[第 13 章 AutoConfig工具使用指南](http://openwebx.org/docs/autoconfig.html)。
 
 优点：build时刻确定/修改配置；相对于运行时运行时根据环境变量替换配置文件方式，启动脚本不需要任何修改。
+
 缺点：复杂。如果没有配置文件，需要将要求的配置项通过交互界面一一配置。而配置文件一般又不跟代码走。以前是放在home目录下，不知道现在是怎样。
+
+maven的profile机制支持根据不同的环境进行build，不过有比较大的缺陷，不建议使用 [Maven Profile Best Practices](http://java.dzone.com/articles/maven-profile-best-practices)。
 
 **TIPS** 
 
