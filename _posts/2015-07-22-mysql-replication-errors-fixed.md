@@ -193,6 +193,7 @@ layout: post
 	Binlog_Ignore_DB:
 
 [work@id01-xxx-mob21.id01 mysql-5.1.73-linux-x86_64-glibc23]$ ll data/
+
 	....
 	-rw-rw----  1 work work 1073742068 Jul 21 12:41 mysql-bin.001200
 	-rw-rw----  1 work work 1073742153 Jul 21 13:02 mysql-bin.001201
@@ -218,12 +219,12 @@ layout: post
 	mysql> stop slave;
 	 
 	# 指到下一个 binlog 档, pos 指 0 或 4, 都是一样意思.
-	mysql> CHANGE MASTER TO MASTER_HOST='10.244.17.77',MASTER_USER='copyer', MASTER_PASSWORD='!@#QWEasd', MASTER_LOG_FILE='mysql-bin.001206', MASTER_LOG_POS=0; 
+	mysql> CHANGE MASTER TO MASTER_HOST='10.244.17.77',MASTER_USER='copyer', MASTER_PASSWORD='xxxx', MASTER_LOG_FILE='mysql-bin.001206', MASTER_LOG_POS=0; 
 
 	# start slave
 	mysql> start slave;
 	 
-再用`SHOW SLAVE STATUS \G`查看果然没有问题了。
+再用`SHOW SLAVE STATUS`查看果然没有问题了。
 
 参考文章：[MySQL Replication 遇到 Got fatal error 1236 from master 修复](http://www.hksilicon.com/kb/cn/articles/248076/MySQL-ReplicationGot-fatal-error-1236-from-master)
 
