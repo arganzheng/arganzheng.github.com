@@ -266,10 +266,12 @@ layout: post
 ----------------------------
 
 最近在做一个新项目，出于对用户隐私的考虑，需要对所有提交的参数进行加密，不让用户知道我们到底提交了什么，特别是统计参数（语言、国际、版本、uid等）。原来浏览器那边也有类似的需求，于是打算直接用他们那一套加密机制。参数就约定为_p=加密后的JSON串。比如
-_p=3lg62PMuu5QhfQAn8HxmjUQndEdunnPa2JjrnPHT2IEjqNVsDvin2z0UhUypPXGvif4hXibzuCbjJu6RUX9%252Bs7rq8VslqGZAr4XdsKs6XnWjnG8DXKtad3TyQlDTux9MQgESqZXlWGjvxzK0NHb5I995HzBvMmmqtZzbl0O4%252FwouMT4xZuNxelACNceoQkno6IEF%252BUIFclwDyRiNE6QqVNupOR5cYdqE75u1kEpMRePZivOlrX%252FeFBXf%252FhWC0xVHQdbFAuJGSgUr%252BzxcdC05%252BX74nufbkL8GJzNJktS47tWVJHiMArwk2ziXIcvDNDfdfJF%252F02Cq8Lt4in1oBFPR0mTZIKYariNNlv1I%252BuueZMUzjg1YFvDTvalFmkyeChWWNfAoLrQNf9vfHKRro8de7AknPTdh0UgE5kfauFq%252FAzi6b1zOIRCih9gZcCHXw477YdDw8gtrYQX0X2ACBDut%252BHliMF7CCO4STi9cdS85HCKl9L5yzZXTqBNrwlWiGr8Y6QSITvxFj5jne1sokTOkR%252FAZbOjqUnoQAhGV5G%252Bt32R3SkM4tZkO6rLMJ4j40dw7XY%252FCWfKX9JGG2Pd6ZJHwyfxCPFPXOOcdfSrgstTnFu4mbrIEXFhl9YwI%252Fd04IA%252F3%252FdFWx7sAc2vnDOfCpzQbQvPWdjQLv%252BlwVS6kn%252BAUzYME%253D
+
+	_p=3lg62PMuu5QhfQAn8HxmjUQndEdunnPa2JjrnPHT2IEjqNVsDvin2z0UhUypPXGvif4hXibzuCbjJu6RUX9%252Bs7rq8VslqGZAr4XdsKs6XnWjnG8DXKtad3TyQlDTux9MQgESqZXlWGjvxzK0NHb5I995HzBvMmmqtZzbl0O4%252FwouMT4xZuNxelACNceoQkno6IEF%252BUIFclwDyRiNE6QqVNupOR5cYdqE75u1kEpMRePZivOlrX%252FeFBXf%252FhWC0xVHQdbFAuJGSgUr%252BzxcdC05%252BX74nufbkL8GJzNJktS47tWVJHiMArwk2ziXIcvDNDfdfJF%252F02Cq8Lt4in1oBFPR0mTZIKYariNNlv1I%252BuueZMUzjg1YFvDTvalFmkyeChWWNfAoLrQNf9vfHKRro8de7AknPTdh0UgE5kfauFq%252FAzi6b1zOIRCih9gZcCHXw477YdDw8gtrYQX0X2ACBDut%252BHliMF7CCO4STi9cdS85HCKl9L5yzZXTqBNrwlWiGr8Y6QSITvxFj5jne1sokTOkR%252FAZbOjqUnoQAhGV5G%252Bt32R3SkM4tZkO6rLMJ4j40dw7XY%252FCWfKX9JGG2Pd6ZJHwyfxCPFPXOOcdfSrgstTnFu4mbrIEXFhl9YwI%252Fd04IA%252F3%252FdFWx7sAc2vnDOfCpzQbQvPWdjQLv%252BlwVS6kn%252BAUzYME%253D
 
 解密之后就变成了：
-_p={"pt":"dl","uid":"1234556","cf":"gp","co":"us","la":"en","of":"gp","pr":"","sv":"a_22","av":"1.1.0.1002","packageNames":["com.example.android.apis","com.dianxinos.powermanager","com.android.gesture.builder","com.hexin.plat.android","com.google.android.apps.plus","com.google.android.inputmethod.pinyin"]}
+
+	_p={"pt":"dl","uid":"1234556","cf":"gp","co":"us","la":"en","of":"gp","pr":"","sv":"a_22","av":"1.1.0.1002","packageNames":["com.example.android.apis","com.dianxinos.powermanager","com.android.gesture.builder","com.hexin.plat.android","com.google.android.apps.plus","com.google.android.inputmethod.pinyin"]}
 
 然后将JSON串反序列化成Java POJO对象，进行相应的操作，实现起来大概是这个样子：
 
@@ -492,5 +494,64 @@ Done！现在我们可以这样子接受请求参数了：
         ...
     }
 
+GetAppCategoryRequest定义如下：
+
+    package me.arganzheng.study.server.launcher.request;
+
+	import java.util.List;
+
+	public class GetAppCategoryRequest extends BaseRequest {
+
+	    private List<String> packageNames;
+
+	    public List<String> getPackageNames() {
+	        return packageNames;
+	    }
+
+	    public void setPackageNames(List<String> packageNames) {
+	        this.packageNames = packageNames;
+	    }
+	}
+
+其中BaseRequest定义如下：
+
+	public class BaseRequest {
+
+	    // API版本
+	    private String api;
+
+	    // 产品，固定值 dl
+	    @JsonProperty("pt")
+	    private String product = "*";
+
+	    // App语言标识
+	    @JsonProperty("la")
+	    private String language = "*";
+
+	    // 当前渠道号
+	    @JsonProperty("cf")
+	    private String currentFrom = "*";
+
+	    // 原始渠道
+	    @JsonProperty("of")
+	    private String oldFrom = "*";
+
+	    // App版本
+	    @JsonProperty("av")
+	    private String appVersion = "*";
+
+	    @JsonProperty("sv")
+	    private String sdkVersion = "*";
+
+	    // 系统国家标识 (两位，大写字母) http://en.wikipedia.org/wiki/ISO_3166-1_alpha-2
+	    @JsonProperty("co")
+	    private String country = "*";
+
+	    // 运营商
+	    @JsonProperty("pr")
+	    private String provider = "*";
+
+	    // ...
+	} 
 
 并且可以使用_p=加密的JSON串提交，也可以用打散的key-value方式提交请求了，方便测试。
