@@ -260,3 +260,237 @@ layout: post
 具体例子：参见 http://vangjee.wordpress.com/2009/02/25/how-to-modify-request-headers-in-a-j2ee-web-application/
 
 不过貌似只能通过Cache访问了。
+
+
+补记：另一个实战例子 2015-07-24
+----------------------------
+
+最近在做一个新项目，出于对用户隐私的考虑，需要对所有提交的参数进行加密，不让用户知道我们到底提交了什么，特别是统计参数（语言、国际、版本、uid等）。原来浏览器那边也有类似的需求，于是打算直接用他们那一套加密机制。参数就约定为_p=加密后的JSON串。比如
+_p=3lg62PMuu5QhfQAn8HxmjUQndEdunnPa2JjrnPHT2IEjqNVsDvin2z0UhUypPXGvif4hXibzuCbjJu6RUX9%252Bs7rq8VslqGZAr4XdsKs6XnWjnG8DXKtad3TyQlDTux9MQgESqZXlWGjvxzK0NHb5I995HzBvMmmqtZzbl0O4%252FwouMT4xZuNxelACNceoQkno6IEF%252BUIFclwDyRiNE6QqVNupOR5cYdqE75u1kEpMRePZivOlrX%252FeFBXf%252FhWC0xVHQdbFAuJGSgUr%252BzxcdC05%252BX74nufbkL8GJzNJktS47tWVJHiMArwk2ziXIcvDNDfdfJF%252F02Cq8Lt4in1oBFPR0mTZIKYariNNlv1I%252BuueZMUzjg1YFvDTvalFmkyeChWWNfAoLrQNf9vfHKRro8de7AknPTdh0UgE5kfauFq%252FAzi6b1zOIRCih9gZcCHXw477YdDw8gtrYQX0X2ACBDut%252BHliMF7CCO4STi9cdS85HCKl9L5yzZXTqBNrwlWiGr8Y6QSITvxFj5jne1sokTOkR%252FAZbOjqUnoQAhGV5G%252Bt32R3SkM4tZkO6rLMJ4j40dw7XY%252FCWfKX9JGG2Pd6ZJHwyfxCPFPXOOcdfSrgstTnFu4mbrIEXFhl9YwI%252Fd04IA%252F3%252FdFWx7sAc2vnDOfCpzQbQvPWdjQLv%252BlwVS6kn%252BAUzYME%253D
+
+解密之后就变成了：
+_p={"pt":"dl","uid":"1234556","cf":"gp","co":"us","la":"en","of":"gp","pr":"","sv":"a_22","av":"1.1.0.1002","packageNames":["com.example.android.apis","com.dianxinos.powermanager","com.android.gesture.builder","com.hexin.plat.android","com.google.android.apps.plus","com.google.android.inputmethod.pinyin"]}
+
+然后将JSON串反序列化成Java POJO对象，进行相应的操作，实现起来大概是这个样子：
+
+ 	@RequestMapping(value = "/getAppCategory")
+    @ResponseBody
+    public RestResponse<Map<String, String>> getAppCategory(HttpServletRequest request){
+    	String params = request.getParameter("_p");
+        Assert.notEmpty(params);
+
+        String reqString = params;
+        if (ConfigurationTool.decodeParameter()) { // if need decode
+            reqString = ParameterUtil.decodeParameter(params);
+        }
+
+        GetAppCategoryRequest getAppCategoryRequest = objectMapper.readValue(reqString, GetAppCategoryRequest.class);
+
+        // do string
+        ...
+    }
+
+虽然，我们把加密过程封装了，但是有如下三个问题：
+
+1. 每个方法都要做解密，反序列化过程，麻烦
+2. 接收参数只能是通用的HttpServletRequest，无法自动使用Spring MVC的参数注入
+3. 不方便测试，即使这里用配置参数决定要不要加密，提交一个JSON串仍然没有传统的k-v方式简单友好
+
+于是想一下能不能将这一切透明化，让服务端以为客户端提交的还是传统的k-v方式呢？一个简单的想法就是通过在filter或者interceptor中将_p参数提取出来，然后反序列化，再将参数一个个重新塞入HttpServletRequest中。
+
+如上讨论，传统的HttpServletRequest是不可修改的，于是写了这么一个类：
+
+	package me.arganzheng.study.sever.launcher.common;
+
+	import java.io.IOException;
+	import java.lang.reflect.Field;
+	import java.util.ArrayList;
+	import java.util.Collection;
+	import java.util.Collections;
+	import java.util.Enumeration;
+	import java.util.HashMap;
+	import java.util.List;
+	import java.util.Map;
+	import java.util.TreeMap;
+
+	import javax.servlet.http.HttpServletRequest;
+	import javax.servlet.http.HttpServletRequestWrapper;
+
+	import org.apache.commons.lang.StringUtils;
+	import org.codehaus.jackson.annotate.JsonProperty;
+	import org.codehaus.jackson.map.ObjectMapper;
+	import org.codehaus.jackson.map.annotate.JsonSerialize.Inclusion;
+	import org.codehaus.jackson.type.TypeReference;
+
+	import me.arganzheng.study.server.launcher.request.BaseRequest;
+	import me.arganzheng.study.server.launcher.util.ConfigurationTool;
+	import me.arganzheng.study.server.launcher.util.ParameterUtil;
+
+	public class ApiHttpServletRequest extends HttpServletRequestWrapper {
+
+	    private static ObjectMapper objectMapper = new ObjectMapper();
+
+	    private static Map<String, String> baseReqKeyMap = new HashMap<String, String>();
+
+	    static {
+	        objectMapper.setSerializationConfig(objectMapper.getSerializationConfig().withSerializationInclusion(
+	                Inclusion.NON_NULL));
+
+	        Field[] fileds = BaseRequest.class.getDeclaredFields();
+	        for (Field f : fileds) {
+	            String fname = f.getName();
+	            JsonProperty jsonPropertyAnnotation = f.getAnnotation(JsonProperty.class);
+	            if (jsonPropertyAnnotation != null) {
+	                String shortName = jsonPropertyAnnotation.value();
+	                baseReqKeyMap.put(shortName, fname);
+	            }
+	        }
+	    }
+
+	    // modified parameters map
+	    private final Map<String, String[]> parameters = new TreeMap<String, String[]>();
+
+	    public ApiHttpServletRequest(HttpServletRequest request) {
+	        super(request);
+
+	        // 请求参数是特殊的_p=加密的JSON字符串
+	        String params = request.getParameter("_p");
+	        if (StringUtils.isBlank(params)) {
+	            parameters.putAll(super.getParameterMap());
+	            return;
+	        }
+
+	        // for API requests
+	        String reqString = params;
+	        if (ConfigurationTool.decodeParameter()) {
+	            reqString = ParameterUtil.decodeParameter(params);
+	        }
+
+	        // parse json and put it to request parameters map.
+	        try {
+	            Map<String, Object> req = objectMapper.readValue(reqString, new TypeReference<Map<String, Object>>() {
+	            });
+	            if (req != null) {
+	                addMapEntries(req);
+	            }
+	        } catch (IOException e) {
+	            e.printStackTrace();
+	        }
+	        // put the original param value back
+	        parameters.put("_p", new String[] { reqString });
+	    }
+
+	    private void addMapEntries(Map<String, Object> req) {
+	        if (req != null && !req.isEmpty()) {
+	            for (Map.Entry<String, Object> prop : req.entrySet()) {
+	                Object value = prop.getValue();
+	                if (value != null) {
+	                    if (value instanceof Collection<?>) {
+	                        Collection<?> a = (Collection<?>) value;
+	                        List<String> v = new ArrayList<String>();
+	                        for (Object e : a) {
+	                            v.add(e.toString());
+	                        }
+	                        parameters.put(getKey(prop.getKey()), v.toArray(new String[0]));
+	                    } else {
+	                        String svalue = value.toString();
+	                        parameters.put(getKey(prop.getKey()), new String[] { svalue });
+	                    }
+	                }
+	            }
+	        }
+	    }
+
+	    private String getKey(String key) {
+	        String v = baseReqKeyMap.get(key);
+	        if (v == null) {
+	            return key;
+	        }
+	        return v;
+	    }
+
+	    @Override
+	    public String getParameter(String name) {
+	        String[] strings = getParameterMap().get(name);
+	        if (strings != null) {
+	            return strings[0];
+	        }
+	        return super.getParameter(name);
+	    }
+
+	    @Override
+	    public Map<String, String[]> getParameterMap() {
+	        // Return an unmodifiable collection because we need to uphold the interface contract.
+	        return Collections.unmodifiableMap(parameters);
+	    }
+
+	    @Override
+	    public Enumeration<String> getParameterNames() {
+	        return Collections.enumeration(getParameterMap().keySet());
+	    }
+
+	    @Override
+	    public String[] getParameterValues(final String name) {
+	        return getParameterMap().get(name);
+	    }
+
+	}
+
+然后写个filter偷梁换柱一下：
+
+
+	package me.arganzheng.study.server.launcher.filter;
+
+	import java.io.IOException;
+
+	import javax.servlet.Filter;
+	import javax.servlet.FilterChain;
+	import javax.servlet.FilterConfig;
+	import javax.servlet.ServletException;
+	import javax.servlet.ServletRequest;
+	import javax.servlet.ServletResponse;
+	import javax.servlet.http.HttpServletRequest;
+
+	import me.arganzheng.study.server.launcher.common.ApiHttpServletRequest;
+
+	public class ApiResetServletRequestFilter implements Filter {
+
+	    @Override
+	    public void destroy() {
+	    }
+
+	    @Override
+	    public void doFilter(ServletRequest request, ServletResponse response, FilterChain filterChain) throws IOException,
+	            ServletException {
+	        filterChain.doFilter(new ApiHttpServletRequest((HttpServletRequest) request), response);
+	    }
+
+	    @Override
+	    public void init(FilterConfig arg0) throws ServletException {
+	    }
+
+	}
+
+然后在web.xml中注册一下：
+
+	<filter>
+		<filter-name>ApiResetServletRequestFilter</filter-name>
+		<filter-class>me.arganzheng.study.server.launcher.filter.ApiResetServletRequestFilter</filter-class>
+	</filter>
+	<filter-mapping>
+		<filter-name>ApiResetServletRequestFilter</filter-name>
+		<url-pattern>/*</url-pattern>
+	</filter-mapping>
+
+
+Done！现在我们可以这样子接受请求参数了：
+
+	@RequestMapping(value = "/getAppCategory")
+    @ResponseBody
+    public RestResponse<Map<String, String>> getAppCategory(GetAppCategoryRequest getAppCategoryRequest) {
+    	// do string
+        ...
+    }
+
+
+并且可以使用_p=加密的JSON串提交，也可以用打散的key-value方式提交请求了，方便测试。
