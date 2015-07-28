@@ -532,6 +532,18 @@ debug了一下，发现跟没有指定qualifie name是一样的执行路径。�
 	[me.arganzheng.study.spring.autowired.Lamborghini@66b875e1, me.arganzheng.study.spring.autowired.RollsRoyce@58433b76]
 
 
+补充：[Autowiring modes](http://docs.spring.io/spring-framework/docs/4.2.x/spring-framework-reference/htmlsingle/#beans-factory-autowire)
+---------
+
+Spring支持四种autowire模式，当使用XML配置方式时，你可以通过autowire属性指定。
+
+1. no. (Default) No autowiring. Bean references must be defined via a ref element. Changing the default setting is not recommended for larger deployments, because specifying collaborators explicitly gives greater control and clarity. To some extent, it documents the structure of a system.
+2. byName. Autowiring by property name. Spring looks for a bean with the same name as the property that needs to be autowired. For example, if a bean definition is set to autowire by name, and it contains a master property (that is, it has a setMaster(..) method), Spring looks for a bean definition named master, and uses it to set the property.
+3. byType. Allows a property to be autowired if exactly one bean of the property type exists in the container. If more than one exists, a fatal exception is thrown, which indicates that you may not use byType autowiring for that bean. If there are no matching beans, nothing happens; the property is not set.
+4. constructor. Analogous to byType, but applies to constructor arguments. If there is not exactly one bean of the constructor argument type in the container, a fatal error is raised.
+
+如果使用@Autowired、@Inject或者@Resource注解的时候，则稍微复杂一些，会有一个失败退化过程，并且引入了Qualifier。不过基本原理是一样。
+
 参考文章
 --------
 
