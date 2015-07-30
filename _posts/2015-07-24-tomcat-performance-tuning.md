@@ -149,7 +149,8 @@ Tomcat有线程池的概念，比如下面这个配置：
 > 
 > Sets the protocol to handle incoming traffic. The default value is HTTP/1.1 which uses an auto-switching mechanism to select either a non blocking Java NIO based connector or an APR/native based connector. If the PATH (Windows) or LD_LIBRARY_PATH (on most unix systems) environment variables contain the Tomcat native library, the APR/native connector will be used. If the native library cannot be found, the non blocking Java based connector will be used. Note that the APR/native connector has different settings for HTTPS than the Java connectors.
 To use an explicit protocol rather than rely on the auto-switching mechanism described above, the following values may be used: 
-org.apache.coyote.http11.Http11Protocol - blocking Java connector
+>
+> org.apache.coyote.http11.Http11Protocol - blocking Java connector
 org.apache.coyote.http11.Http11NioProtocol - non blocking Java NIO connector
 org.apache.coyote.http11.Http11Nio2Protocol - non blocking Java NIO2 connector
 org.apache.coyote.http11.Http11AprProtocol - the APR/native connector.
@@ -172,7 +173,13 @@ For more information on the APR connector and APR specific SSL settings please v
 
 可以配置然后用AB压测一下看看。
 
+另外，最近看到几篇文章，感觉真的要遇到问题然后深入代码级别才能学到深层次的东东。比如这篇：[Tomcat7.0.26的连接数控制bug的问题排查](http://ifeve.com/tomcat7-0-26-connect-bug/)。还有就是要善于测试和通过实验验证自己的想法，比如这篇：[Tomcat-connector的微调(1): acceptCount参数](http://ifeve.com/tomcat-connector-tuning-1/)。要多看看博客，多向牛人学习了。
+
 推荐阅读
 -------
 
 1. [Cool, Tomcat is able to handle more than 13,000 concurrent connections.](http://blog.krecan.net/2010/05/02/cool-tomcat-is-able-to-handle-more-than-13000-concurrent-connections/)
+2. [Tomcat-connector的微调(1): acceptCount参数](http://ifeve.com/tomcat-connector-tuning-1/)
+3. [Tomcat-connector的微调(2): maxConnections, maxThreads](http://ifeve.com/tomcat-connector-tuning-2/)
+4. [Tomcat-connector的微调(3): processorCache与socket.processorCache](http://ifeve.com/tomcat-connector-tuning-3/)
+5. [Tomcat7.0.26的连接数控制bug的问题排查](http://ifeve.com/tomcat7-0-26-connect-bug/)
