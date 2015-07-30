@@ -375,3 +375,7 @@ layout: post
 
 整个实现只花了不到一个小时。成本非常低，满足业务的需要，等后面再考虑选择一个合适的消息中间件。
 
+推荐阅读
+-------
+
+1. [The Architecture and Design of a Publish & Subscribe Messaging System Tailored for Big Data Collecting and Analytics - Abstraction Builder](http://bulldog2011.github.io/blog/2013/03/27/the-architecture-and-design-of-a-pub-sub-messaging-system/)
