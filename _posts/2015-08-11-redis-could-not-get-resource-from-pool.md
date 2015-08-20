@@ -4,7 +4,7 @@ layout: post
 ---
 
 
-日志集中式监控平台上线已经有一段时间，但是大部分情况下只是作为发布或者出问题时查看日志的遍历工具使用。平时大家都不怎么主动上去看看。于是前几天把应用的错误日志也加上邮件、Hi和短信报警，马上就收到很多错误报警，引起了大家的重视。其中有一个Redis报错：
+日志集中式监控平台上线已经有一段时间，但是大部分情况下只是作为发布或者出问题时查看日志的便利工具使用。平时大家都不怎么主动上去看看。于是前几天把应用的错误日志也加上邮件、Hi和短信报警，马上就收到很多错误报警，引起了大家的重视。其中有一个Redis报错：
 
 	Push notify error: => redis.clients.jedis.exceptions.JedisConnectionException: Could not get a resource from the pool at redis.clients.util.Pool.getResource(Pool.java:53) at 
 	redis.clients.jedis.JedisPool.getResource(JedisPool.java:99) at 
@@ -40,6 +40,7 @@ layout: post
 读命令都没有问题，但是所有的写操作都不行。
 
 看一下redis的log日志，发现一直在报错：
+
 	[26378] 03 May 17:58:51.215 * 50000 changes in 60 seconds. Saving...
 	[26378] 03 May 17:58:51.254 * Background saving started by pid 2854
 	[2854] 03 May 17:58:58.949 * DB saved on disk
@@ -84,6 +85,7 @@ Redis的RDB持久化实现是folk一个子进程，然后让子进程将内存�
 官方文档上有说明：[Background saving is failing with a fork() error under Linux even if I've a lot of free RAM!](http://redis.io/topics/faq#background-saving-is-failing-with-a-fork-error-under-linux-even-if-i39ve-a-lot-of-free-ram)
 
 > Redis background saving schema relies on the copy-on-write semantic of fork in modern operating systems: Redis forks (creates a child process) that is an exact copy of the parent. The child process dumps the DB on disk and finally exits. In theory the child should use as much memory as the parent being a copy, but actually thanks to the copy-on-write semantic implemented by most modern operating systems the parent and child process will share the common memory pages. A page will be duplicated only when it changes in the child or in the parent. Since in theory all the pages may change while the child process is saving, Linux can't tell in advance how much memory the child will take, so if the overcommit_memory setting is set to zero fork will fail unless there is as much free RAM as required to really duplicate all the parent memory pages, with the result that if you have a Redis dataset of 3 GB and just 2 GB of free memory it will fail.
+>
 > Setting overcommit_memory to 1 says Linux to relax and perform the fork in a more optimistic allocation fashion, and this is indeed what you want for Redis.
 
 可以简单的通过修改overcommit_memory系统参数为1来改变这种简单粗暴的检查行为:
