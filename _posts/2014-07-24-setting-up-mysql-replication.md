@@ -47,7 +47,7 @@ layout: post
 
 具体过程如下：
 
-下面语句创建一个带有binlog位置的备份文件，dump的过程中会影响DB性能，但是不会锁表：
+下面语句创建一个带有binlog位置的备份文件，dump的过程中会影响DB性能，但是不会锁表(--single-transaction只对InnoDB有效)：
 
 	mysqldump --skip-lock-tables --single-transaction --flush-logs --hex-blob --master-data=2 -A  > ~/dump.sql
 
@@ -83,7 +83,7 @@ layout: post
 
 	mysql> CHANGE MASTER TO MASTER_HOST='xxxx',MASTER_USER='xxx', MASTER_PASSWORD='xxx', MASTER_LOG_FILE='mysql-bin.000005', MASTER_LOG_POS=3119;
 
-其中 MASTER_LOG_FILE='mysql-bin.000005', MASTER_LOG_POS=3119 根据 master中执行：show master status得到。
+其中 MASTER_LOG_FILE='mysql-bin.000005', MASTER_LOG_POS=3119 在前面dump.sql文件中可以得到。
 然后启动slave同步：
 
 	mysql> start slave;
@@ -183,6 +183,9 @@ relay server对于机房搬迁，需要切换master，非常有用。可以直�
 	slave> SHOW SLAVE　STATUS;
 
 
+**NOTES** 关于MySQL的BlackHold存储引擎
+
+MySQL的BlackHold存储引擎，看起来就是做relay server的最好选择，因为它不存储数据，只是记录日志。这样子相当于SQL线程压力大大减轻。但是可惜的是[黑洞存储引擎有一定的限制](https://dev.mysql.com/doc/refman/5.6/en/replication-features-blackhole.html)，它只适用于statement-based-replication的主从同步方式，不适合Row或者Mixed方式的主从同步。因为这种情况下updates和deletes会被简单的忽略。
 
 参考文章
 --------
