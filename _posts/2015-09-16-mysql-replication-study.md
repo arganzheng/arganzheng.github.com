@@ -15,11 +15,13 @@ layout: post
 2. Slave的IO线程将Master发送过来的binlog写入到本地的Relay log日志文件
 3. Slave的SQL线程读取relay log日志，apply里面的变更
 
+具体可以参见：[How does MySQL Replication really work?](https://www.percona.com/blog/2013/01/09/how-does-mysql-replication-really-work/)，非常深入浅出的一篇文章。
+
 **说明**
 
 1、MySQL5.5版本开始支持半同步复制
 
-2、ORACLE MySQL 5.6版本又引入GTID(Global Transactions Identifier)、多线程复制。
+2、ORACLE MySQL 5.6版本又引入GTID(Global Transactions Identifier)、多线程复制：
 
 * GTID: 在MySQL5.6以前对于主从复制出现问题有时候需要你分析BINLOG找到POS点，然后在CHANG MASTER TO。对于新手来说很容易犯错，造成主从复制错误。在5.6中，不必在需要寻找BINLOG和POS点了，你只需要知道MASTER的IP、密码、端口就可以，因为MySQL会从内部GTID机制自动找到同步点。 
 * 多线程复制: 在MySQL5.6之前，复制是单线程队列式的，只能一个一个运行。在新版中支持基于库的多线程复制，配置选项`slave_parallel_workers`即可实现在slave上多线程并发复制。不过，它的并发粒度是库级别(database)而不是table级别，并不能真正做到多表并发复制。因此在较大并发负载时，slave还是没有办法及时追上master，需要想办法进行优化。 比如使用MariaDB发行版，它实现了相对真正意义上的并行复制，其效果远比ORACLE MySQL好的很多。如果不想用这个版本的话，那就老实等待官方5.7大版本发布吧。
@@ -58,7 +60,7 @@ layout: post
 1. 跳过或者忽略引起错误的语句
 2. 重新搭建主从同步
 
-具体参见：[REPLICATION TROUBLESHOOTING - CLASSIC VS GTID](http://www.fromdual.com/replication-troubleshooting-classic-vs-gtid)。也可以参考笔者以前写过的几篇MySQL同步相关文章。
+具体操作比较case by case，可以参见：[REPLICATION TROUBLESHOOTING - CLASSIC VS GTID](http://www.fromdual.com/replication-troubleshooting-classic-vs-gtid)。也可以参考笔者以前写过的几篇MySQL同步相关文章。
 
 
 一些有用的命令和工具
@@ -74,6 +76,7 @@ layout: post
 * [SHOW SLAVE STATUS](https://dev.mysql.com/doc/refman/5.1/en/show-slave-status.html)
 * mysqldump
 * [mysqlbinlog](https://dev.mysql.com/doc/refman/5.1/en/mysqlbinlog.html)
+* [percona-toolkit](https://www.percona.com/doc/percona-toolkit/2.2/index.html)
 
 这里要特别强调一下`show slave status`命令，因为它是查看主从同步状态的入口，一定要真真切切的明白它的每一个输出的含义（[SHOW SLAVE STATUS](https://dev.mysql.com/doc/refman/5.1/en/show-slave-status.html)）：
 
@@ -260,6 +263,30 @@ layout: post
 
 这也说明了如果要从slave出发来监控主从同步，不能简单的判断`Slave_IO_Running`是否为Yes，而是要检查日志文件是否在前进。但是这样子就需要有个状态的对比，实现起来比较麻烦。不过这样子也有一个好处，就是可以顺带监控同步时延，这个是单纯从master出发无法监控到的。
 
+再看看同步延迟的监控。通过了解MySQL的同步原理，我们知道从库和主库之间的延迟主要在两方面：
+
+1、binlog和relaylog的差异
+
+这个延迟主要出现在网络传输上。通过比较`SHOW MASTER STATUS`得到master当前binlog的最新位置`<File, Position>`和`SHOW SLAVE STATUS`得到slave的`<Master_Log_File, Read_Master_Log_Pos>`我们可以知道这个差异有多少字节（其实应该使用`SHOW BINARY LOGS`，因为可能跨文件）。
+
+这个时延一般不大好优化，因为是网络层面的。唯一可以做的可能是减少需要同步的数据，比如Binlog_Ignore_DB，启用压缩[slave_compressed_protocol](http://dev.mysql.com/doc/refman/5.5/en/replication-options-slave.html#sysvar_slave_compressed_protocol)。
+
+2、IO线程写入relaylog与SQL线程读取和执行relaylog的差异
+
+这个也就是Second_Behind_Master衡量的。可以通过比较<Relay_Master_Log_File, Exec_Master_Log_Pos>和 <Master_Log_File, Read_Master_Log_Pos> 可以得到这个字节数差异。
+
+不过根据上面的信息，很难将这两个差异转换为具体的时延。所以我们要另外想办法。其实有一种很简单的做法可以实现，就是在主库插入一条记录，记录插入的时间。然后这条记录会同步到从库，我们在同步拿到这条记录，比较一下当前时间就可以知道延迟是多少了。当然从库没办法直接知道记录已经同步过来，所以要轮训，所以还有一个轮训的时间差，不过还是可以接受的。虽然这个自己实现非常简单，不过已经有现成的工具了，我们可以直接使用：[pt-heartbeat
+](https://www.percona.com/doc/percona-toolkit/2.2/pt-heartbeat.html)。使用还是蛮简单的，这里不赘述。
+
+SQL线程的时延比较常见，但是也不是很好处理。一般来说在于SQL的执行效率问题。建议是开启[log_slow_slave_statements](http://dev.mysql.com/doc/refman/5.6/en/replication-options-slave.html#sysvar_log_slow_slave_statements)，这样，在Slave上apply的SQL也有慢速SQL日志查看和定位。另外，提高Slave的内存，增加SQL线程数都是不错的优化方案。
+
+具体可以参考这几篇相关文章：[Reasons for MySQL Replication Lag](https://www.percona.com/blog/2011/07/29/reasons-for-mysql-replication-lag/)、[Managing Slave Lag with MySQL Replication](https://www.percona.com/blog/2007/10/12/managing-slave-lag-with-mysql-replication/)和[Fighting MySQL Replication Lag](https://www.percona.com/blog/2007/10/12/managing-slave-lag-with-mysql-replication/)。
+
+**NOTES** 
+
+1. 关于MySQL同步假死问题具体可以参见：[请不要用SECONDS_BEHIND_MASTER来衡量MYSQL主备的延迟时间](http://www.woqutech.com/?p=1116)
+2. 关于主从同步时延的衡量可以参考这篇：[How to identify and cure MySQL replication slave lag](https://www.percona.com/blog/2014/05/02/how-to-identify-and-cure-mysql-replication-slave-lag/) 和 这篇：[MySQL复制中slave延迟监控](http://imysql.cn/2014/08/30/mysql-faq-howto-monitor-slave-lag.shtml)
+
 
 参考文档
 -------
@@ -271,3 +298,6 @@ layout: post
 5. [Known Issues in MySQL Cluster Replication](http://dev.mysql.com/doc/refman/5.1/en/mysql-cluster-replication-issues.html)
 6. [MySQL复制中slave延迟监控](http://imysql.cn/2014/08/30/mysql-faq-howto-monitor-slave-lag.shtml)
 7. [Checking Replication Status](https://dev.mysql.com/doc/refman/5.1/en/replication-administration-status.html)
+8. [请不要用SECONDS_BEHIND_MASTER来衡量MYSQL主备的延迟时间](http://www.woqutech.com/?p=1116)
+9. [How to identify and cure MySQL replication slave lag](https://www.percona.com/blog/2014/05/02/how-to-identify-and-cure-mysql-replication-slave-lag/)10. [How does MySQL Replication really work?](https://www.percona.com/blog/2013/01/09/how-does-mysql-replication-really-work/)
+
