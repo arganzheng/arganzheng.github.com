@@ -263,7 +263,7 @@ layout: post
 
 这也说明了如果要从slave出发来监控主从同步，不能简单的判断`Slave_IO_Running`是否为Yes，而是要检查日志文件是否在前进。但是这样子就需要有个状态的对比，实现起来比较麻烦。不过这样子也有一个好处，就是可以顺带监控同步时延，这个是单纯从master出发无法监控到的。
 
-再看看同步延迟的监控。通过了解MySQL的同步原理，我们知道从库和主库之间的延迟主要在两方面：
+再来看看同步延迟的监控。通过了解MySQL的同步原理，我们知道从库和主库之间的延迟主要在两方面：
 
 1、binlog和relaylog的差异
 
@@ -275,7 +275,7 @@ layout: post
 
 这个也就是Second_Behind_Master衡量的。可以通过比较<Relay_Master_Log_File, Exec_Master_Log_Pos>和 <Master_Log_File, Read_Master_Log_Pos> 可以得到这个字节数差异。
 
-不过根据上面的信息，很难将这两个差异转换为具体的时延。所以我们要另外想办法。其实有一种很简单的做法可以实现，就是在主库插入一条记录，记录插入的时间。然后这条记录会同步到从库，我们在同步拿到这条记录，比较一下当前时间就可以知道延迟是多少了。当然从库没办法直接知道记录已经同步过来，所以要轮训，所以还有一个轮训的时间差，不过还是可以接受的。虽然这个自己实现非常简单，不过已经有现成的工具了，我们可以直接使用：[pt-heartbeat
+不过根据上面的信息，很难将这两个差异转换为具体的时延。所以我们要另外想办法。其实有一种很简单的做法可以实现，就是在主库插入一条记录，记录插入的时间。然后这条记录会同步到从库，我们在同步拿到这条记录，比较一下当前时间就可以知道延迟是多少了。当然从库没办法直接知道记录已经同步过来，所以要轮循，所以还有一个轮循的时间差，不过设置短一些还是可以忽略的。虽然这个自己实现非常简单，不过已经有现成的工具了，我们可以直接使用：[pt-heartbeat
 ](https://www.percona.com/doc/percona-toolkit/2.2/pt-heartbeat.html)。使用还是蛮简单的，这里不赘述。
 
 SQL线程的时延比较常见，但是也不是很好处理。一般来说在于SQL的执行效率问题。建议是开启[log_slow_slave_statements](http://dev.mysql.com/doc/refman/5.6/en/replication-options-slave.html#sysvar_log_slow_slave_statements)，这样，在Slave上apply的SQL也有慢速SQL日志查看和定位。另外，提高Slave的内存，增加SQL线程数都是不错的优化方案。
@@ -299,5 +299,6 @@ SQL线程的时延比较常见，但是也不是很好处理。一般来说在�
 6. [MySQL复制中slave延迟监控](http://imysql.cn/2014/08/30/mysql-faq-howto-monitor-slave-lag.shtml)
 7. [Checking Replication Status](https://dev.mysql.com/doc/refman/5.1/en/replication-administration-status.html)
 8. [请不要用SECONDS_BEHIND_MASTER来衡量MYSQL主备的延迟时间](http://www.woqutech.com/?p=1116)
-9. [How to identify and cure MySQL replication slave lag](https://www.percona.com/blog/2014/05/02/how-to-identify-and-cure-mysql-replication-slave-lag/)10. [How does MySQL Replication really work?](https://www.percona.com/blog/2013/01/09/how-does-mysql-replication-really-work/)
+9. [How to identify and cure MySQL replication slave lag](https://www.percona.com/blog/2014/05/02/how-to-identify-and-cure-mysql-replication-slave-lag/)
+10. [How does MySQL Replication really work?](https://www.percona.com/blog/2013/01/09/how-does-mysql-replication-really-work/)
 
