@@ -275,8 +275,12 @@ layout: post
 
 这个也就是Second_Behind_Master衡量的。可以通过比较<Relay_Master_Log_File, Exec_Master_Log_Pos>和 <Master_Log_File, Read_Master_Log_Pos> 可以得到这个字节数差异。
 
-不过根据上面的信息，很难将这两个差异转换为具体的时延。所以我们要另外想办法。其实有一种很简单的做法可以实现，就是在主库插入一条记录，记录插入的时间。然后这条记录会同步到从库，我们在同步拿到这条记录，比较一下当前时间就可以知道延迟是多少了。当然从库没办法直接知道记录已经同步过来，所以要轮循，所以还有一个轮循的时间差，不过设置短一些还是可以忽略的。虽然这个自己实现非常简单，不过已经有现成的工具了，我们可以直接使用：[pt-heartbeat
-](https://www.percona.com/doc/percona-toolkit/2.2/pt-heartbeat.html)。使用还是蛮简单的，这里不赘述。
+不过根据上面的信息，很难将这两个差异转换为具体的时延。所以我们要另外想办法。
+
+其实有一种很简单的做法可以实现，就是在主库插入一条记录，记录插入的时间。然后这条记录会同步到从库，我们在同步拿到这条记录，比较一下当前时间就可以知道延迟是多少了。当然从库没办法直接知道记录已经同步过来，所以要轮循，所以还有一个轮循的时间差，不过设置短一些还是可以忽略的。虽然这个自己实现非常简单，不过已经有现成的工具了，我们可以直接使用——[pt-heartbeat
+](https://www.percona.com/doc/percona-toolkit/2.2/pt-heartbeat.html): 用于监控mysql复制架构的延迟。主要是通过在主库上的--update线程持续更新指定表上的一个时间戳，从库上--monitor线程或者--check线程检查主库更新的时间戳并与当前系统时间对比，得到延迟值。
+
+使用还是蛮简单的，这里不赘述。但是由于整个percona-toolkit都是用perl写的，而且依赖了几个perl模块，然后perl的模块依赖安装还是非常麻烦的。。所以可能需要折腾一会。关于perl的模块安装可以参考笔者以前写的一篇文章: [如何安装perl模块](http://blog.arganzheng.me/posts/2010-06-28-how-to-install-perl-module.md)。
 
 SQL线程的时延比较常见，但是也不是很好处理。一般来说在于SQL的执行效率问题。建议是开启[log_slow_slave_statements](http://dev.mysql.com/doc/refman/5.6/en/replication-options-slave.html#sysvar_log_slow_slave_statements)，这样，在Slave上apply的SQL也有慢速SQL日志查看和定位。另外，提高Slave的内存，增加SQL线程数都是不错的优化方案。
 
@@ -286,6 +290,45 @@ SQL线程的时延比较常见，但是也不是很好处理。一般来说在�
 
 1. 关于MySQL同步假死问题具体可以参见：[请不要用SECONDS_BEHIND_MASTER来衡量MYSQL主备的延迟时间](http://www.woqutech.com/?p=1116)
 2. 关于主从同步时延的衡量可以参考这篇：[How to identify and cure MySQL replication slave lag](https://www.percona.com/blog/2014/05/02/how-to-identify-and-cure-mysql-replication-slave-lag/) 和 这篇：[MySQL复制中slave延迟监控](http://imysql.cn/2014/08/30/mysql-faq-howto-monitor-slave-lag.shtml)
+
+
+补充
+----
+
+由于海外的服务器是CentOS 4，折腾了半天还是没能成功安装pt-toolkit，最后干脆自己写了一个shell，其实就是拿到ts，然后跟当前时间做比较而已：
+
+	#!/bin/bash
+	## arganzheng##
+	## 2015-09-23 ##
+	## MySQL主从同步时延监控：定时检查heartbeat记录，上报时延。
+
+	## Import shell module
+	# determine base directory; preserve where you're running from
+	realpath=$(readlink -f "$0")
+	export basedir=$(dirname "$realpath") #export basedir, so that module shell can use it. log.sh. e.g.
+	export filename=$(basename "$realpath") #export filename, so that module shell can use it. log.sh. e.g.
+
+	export PATH=$PATH:$basedir/modules
+
+	. utils.sh
+	. log.sh
+	## END module import
+
+	MYSQL_DIR=/home/work/Mysql/mysql-5.x.73-linux-x86_64-glibc23
+	cd $MYSQL_DIR
+	MYSQL_CONN='-uxxx -pxxxxx'
+	# shell的date命令无法解析yyyy-MM-dd'T'HH:mm:ss.SSSSSS，需要将T替换成空格(CentOS4还需要替换后边的.SSSSS)。即：yyyy-MM-dd HH:mm:ss
+	HEART_BEAT_TS=`bin/mysql ${MYSQL_CONN} --skip-column-names -A -e "SELECT ts FROM test.heartbeat " | sed 's/$//g' | sed 's/T/ /g' | cut -d. -f1` 
+
+	# parse ts to second
+	TS_IN_SECOND=`date -d "$HEART_BEAT_TS" "+%s"`
+	NOW_IN_SECOND=`date "+%s"`
+
+	REPLICATION_DELAY=$((NOW_IN_SECOND - TS_IN_SECOND))
+
+	echo "mysql.replication.delay:${REPLICATION_DELAY}"
+
+这里把delay值以key-value的形式打印出来，NOAR平台会定时采集自定义监控项。然后就可以在NOAR上配置监控报警条件了。
 
 
 参考文档
