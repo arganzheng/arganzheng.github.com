@@ -148,3 +148,9 @@ The kernel uses the path_lookup function to find any path or filename.
     3. 定时压缩 (Compaction, Important because 25% of photos get deleted in a given year) 
 
 3、大部分分布式文件系统都是单独的API，有少部分文件系统提供POSIX文件接口，比如MooseFS，这样可以对客户端完全透明。
+
+
+参考文章
+-------
+
+1. [Needle in a haystack: efficient storage of billions of photos](https://code.facebook.com/posts/685565858139515/needle-in-a-haystack-efficient-storage-of-billions-of-photos/)
