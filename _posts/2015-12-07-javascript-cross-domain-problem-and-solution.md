@@ -82,11 +82,11 @@ In May 2006 the first W3C Working Draft was submitted. In March 2009 the draft w
 
 ### 2. [JSONP](https://en.wikipedia.org/wiki/JSONP)
 
-JSONP通过<script>标签来实现从不同域的服务端请求带callback的JSON数据，从而实现跨域请求的目的。
+JSONP通过script标签来实现从不同域的服务端请求带callback的JSON数据，从而实现跨域请求的目的。
 
 #### 原理
 
-假设原网页是在 {http, foo.com, 80} 源下，需要请求`http://server.example.com/Users/1234`。根据SOP原则，是访问不了的。但是script标签是没有跨域限制的，所以可以动态的插入<script>标签，来实现跨域请求：
+假设原网页是在 {http, foo.com, 80} 源下，需要请求`http://server.example.com/Users/1234`。根据SOP原则，是访问不了的。但是script标签是没有跨域限制的，所以可以动态的插入script标签，来实现跨域请求：
 
 	<script type="application/javascript"
         src="http://server.example.com/Users/1234?callback=parseResponse">
