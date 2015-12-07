@@ -7,7 +7,7 @@ layout: post
 问题
 ---
 
-### 1. [Same-origin policy](https://en.wikipedia.org/wiki/Same-origin_policy)
+### [Same-origin policy](https://en.wikipedia.org/wiki/Same-origin_policy)
 
 
 Same-origin policy(SOP): 只有当两个资源同源的时候，浏览器才允许他们之间的脚本互相访问，包括请求各自的服务端，修改DOM结构和读取cookies，localStorage等。
@@ -23,10 +23,6 @@ SOP可以防止恶意脚本读取你的信息（比如cookies信息）然后发�
 
 解决方案
 -------
-
-
-The common ways to get around this are JSON-P, Proxying and message passing via <iframe>s. These all have their quirks, but the thing they generally have in common is legacy browser support.
-
 
 ### 1. [Cross Origin Resource Sharing](https://en.wikipedia.org/wiki/Cross-origin_resource_sharing)
 
