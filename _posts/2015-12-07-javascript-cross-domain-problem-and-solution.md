@@ -11,6 +11,7 @@ layout: post
 
 
 Same-origin policy(SOP): 只有当两个资源同源的时候，浏览器才允许他们之间的脚本互相访问，包括请求各自的服务端，修改DOM结构和读取cookies，localStorage等。
+
 源(origin): 一个页面的源(origin)是由三部分(triple)组成的 {protocol, host, port}。 当且只当这个三元组的值完全相同的时候，两个资源才被认为是同源的。
 
 
@@ -18,7 +19,7 @@ SOP可以防止恶意脚本读取你的信息（比如cookies信息）然后发�
 
 **NOTES**
 
-二级域名也是跨域。
+二级域名不同也是跨域。
 
 
 解决方案
@@ -26,11 +27,11 @@ SOP可以防止恶意脚本读取你的信息（比如cookies信息）然后发�
 
 ### 1. [Cross Origin Resource Sharing](https://en.wikipedia.org/wiki/Cross-origin_resource_sharing)
 
-CORS defines a way in which a browser and server can interact to safely determine whether or not to allow the cross-origin request.It allows for more freedom and functionality than purely same-origin requests, but is more secure than simply allowing all cross-origin requests. It is a recommended standard of the W3C.
+CORS允许服务端决定允许哪些域对资源发起的访问请求。提供比较细粒度的安全控制，对客户端来说基本透明，服务端的开发工作也非常小，是W3C推荐的标准跨域访问方式。
 
 **TIPS** 现代浏览器在跨域访问的时候会提示如下信息：
 
-> XMLHttpRequest cannot load http://external.service/. No 'Access-Control-Allow-Origin' header is present on the requested resource. Origin 'http://my.app' is therefore not allowed access.
+	XMLHttpRequest cannot load http://external.service/. No 'Access-Control-Allow-Origin' header is present on the requested resource. Origin 'http://my.app' is therefore not allowed access.
 
 #### 原理
 
@@ -132,7 +133,7 @@ WebSocket是一个基于TCP的协议，它提供了一种建立在TCP链接之�
 
 所以WebSocket的本意并不是为了解决跨域问题，而是提供一种客户端和服务端保持双向通信链接的机制。这样，可以实现服务端的实时推送，避免低效率的轮询。
 
-我们知道：HTTP协议被设计为一个简单的请求-响应协议，虽然HTTP 1.1提供了保持链接的机制。但是即使保持了链接，服务端是没有办法主动推送消息给客户端的。所以在WebSocket之前，服务端如果要推送消息给客户端，只能通过一些特殊的技巧(hacks)，我们称之为[Comet (programming)](https://en.wikipedia.org/wiki/Comet_(programming))。Comet其实是一个编程模型，有多种具体实现，这些实现一般都落到下面两大分类——streaming和long polling：
+我们知道，HTTP协议被设计为一个简单的请求-响应协议。虽然HTTP 1.1提供了保持链接的机制，但是即使保持了链接，服务端是没有办法主动推送消息给客户端的。所以在WebSocket之前，服务端如果要推送消息给客户端，只能通过一些特殊的技巧(hacks)，我们称之为[Comet (programming)](https://en.wikipedia.org/wiki/Comet_(programming))。Comet其实是一个编程模型，有多种具体实现，这些实现一般都落到下面两大分类——streaming和long polling：
 
 * Streaming
 	* Hidden iframe
@@ -143,7 +144,7 @@ WebSocket是一个基于TCP的协议，它提供了一种建立在TCP链接之�
 
 #### 实现
 
-![/media/images/websocket.png]
+![WebSockets](/media/images/websocket.png)
 
 可以看到，在双向通信之前，WebSocket需要先握手建立持久链接。这个握手协议是建立在HTTP协议之上的：
 
@@ -268,7 +269,7 @@ Socket.IO is a WebSocket API created by Guillermo Rauch, CTO of LearnBoost and l
 **注意** 
 
 1. 新的document.domain值必须设置为共同的父级域名
-2. 所有需要通讯的窗体/iframe都需要设置document.domain。即使主窗体的domain值已经是site.com，你仍然需要重新设置一下。相同的话可以用`document.domain=document.domain`设置。
+2. 所有需要通讯的窗体/iframe都需要设置document.domain。即使主窗体的domain值已经是site.com，你仍然需要重新设置一下，可以用`document.domain=document.domain`设置。
 
 
 参考文章
