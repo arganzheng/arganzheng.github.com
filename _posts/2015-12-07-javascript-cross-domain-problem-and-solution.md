@@ -127,6 +127,8 @@ Web Messaging或者cross-document messaging 是HTML5引入的一个新的API。�
 	window.addEventListener('message', receiver, false);
 
 
+YouTube就是使用这种方式做跨域访问的。
+
 ### 4. [WebSockets](https://en.wikipedia.org/wiki/WebSocket)
 
 WebSocket是一个基于TCP的协议，它提供了一种建立在TCP链接之上的全双工(full-duplex)通信机制。
@@ -270,6 +272,79 @@ Socket.IO is a WebSocket API created by Guillermo Rauch, CTO of LearnBoost and l
 
 1. 新的document.domain值必须设置为共同的父级域名
 2. 所有需要通讯的窗体/iframe都需要设置document.domain。即使主窗体的domain值已经是site.com，你仍然需要重新设置一下，可以用`document.domain=document.domain`设置。
+
+
+补充：关于Cookies的跨域问题
+------------------------
+
+因为HTTP是无状态的，所以我们经常需要用到Cookie。但是处于安全考虑，Cookie一样具有跨域问题。
+
+每个Cookie都是绑定到一个单独的域名，或者它的子域名。也就是说Cookie可以支持子域，但是不能完全跨域。
+
+如果在服务端执行如下JSP代码：
+
+	<body>
+	        <%
+	        Cookie cookie = new Cookie("username", "arganzheng");
+	        cookie.setDomain("www.google.com");
+	        response.addCookie(cookie);
+	        %>
+	</body>
+
+发现服务器实际上返回了一个 `Set-Cookie:username=arganzheng; Domain=www.google.com` 的HTTP头。
+
+但是浏览器接收到这个Set-Cookie头部，并不会盲目的在本地设置cookie。而是会检查该cookie与当前的域名是不是同一个（或者父子关系）。如果不是，那么它会忽略这个请求。所以这时候你去请求www.google.com/ncr。发现并没有带上这个cookie，就是这个原因。
+
+请求页面的时候也是会做类似的判断，只有同域或者子域的cookie才会被浏览器发送过去。
+
+### 解决方案
+
+cookies的跨域问题可以而且基本都需要建立在JS跨域的基础上。只要你能够发出一个跨域的JS请求到跨域的服务端，让其设置你想要发送的cookies，就可以达到跨域设置cookies的目的。比如假设B站有一个设置cookies的接口：
+
+	<?php
+	    setcookie("visited", "arganzheng's site", time()+3600);
+	?>
+
+然后在A站的HTML页面就可以使用img标签的做跨域设置cookies的请求：
+
+	<!DOCTYPE html>
+	<html>
+	 <head>
+	  <script>
+	   //place set cookie for own domain here
+	   //
+	   //
+	  </script>
+	 </head>
+	 <body>
+
+	  <!-- setting cookies to other domains -->
+	  <img src="http://anotherdomain.com/cookies.php" style="display:none;" />
+	  <!-- setting cookies to others domains ends -->
+
+	  <!-- place other htmls here -->
+	 </body>
+	</html>
+
+这样，当用户访问A站的这个页面的时候，就会自动发送一个设置cookies的请求到B站服务端。从而到达用户同时"签到"的效果。这就是Google等公司如何同时设置多个域名的cookies。这样当你登陆gmail.com，它会同时往youtube.com、google.com等其他域名设置相同的cookies。
+
+另一种现代的解决方案就是使用前面提到的CROS。
+
+服务端需要支持：
+
+	header("Access-Control-Allow-Origin: *");
+	header("Access-Control-Allow-Credentials: true");
+	header("Access-Control-Allow-Methods: GET, POST");
+	header("Access-Control-Allow-Headers: Content-Type, *");
+
+然后客户端需要多提交如下两个参数:
+
+	crossDomain: true
+	xhrFields: { withCredentials: true }
+
+这样，不同域名的cookies也会被浏览器发送到允许的服务端去。
+
+具体可以参考: [Cookies With My CORS](https://quickleft.com/blog/cookies-with-my-cors/)。
 
 
 参考文章
