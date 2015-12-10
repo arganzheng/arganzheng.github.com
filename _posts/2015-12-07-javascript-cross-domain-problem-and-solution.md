@@ -81,6 +81,19 @@ In May 2006 the first W3C Working Draft was submitted. In March 2009 the draft w
 当然，另一方面，JSONP works on legacy browsers which predate CORS support. CORS is supported by most modern web browsers. 
 
 
+**TIPS** 
+
+注意，Access-Control-Allow-Origin响应头只能有一个，并且只支持grob表达式。如果要支持多个域名，那么需要在服务端动态的根据请求的域名进行判断，在Access-Control-Allow-Origin头部写上相应的允许域名。例如，假如我们要允许某个接口被`blog.arganzheng.me`和`magiforrest.com`这两个域名极其子域名访问，那么可以在nginx中做如下配置：
+
+    ## cross domain with cros
+    location /api/v1/activity {
+        if ( $http_origin ~* (http://(.+\.)?(blog.arganzheng.me|magiforrest.com)$) ) {
+            add_header "Access-Control-Allow-Origin" "$http_origin";
+        }
+        proxy_pass http://backenserver;
+    }
+
+
 ### 2. [JSONP](https://en.wikipedia.org/wiki/JSONP)
 
 JSONP通过script标签来实现从不同域的服务端请求带callback的JSON数据，从而实现跨域请求的目的。
