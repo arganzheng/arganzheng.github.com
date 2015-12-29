@@ -470,6 +470,12 @@ maven的profile机制支持根据不同的环境进行build，不过有比较大
 4. 性能监控
 5. Monitor
 
+**NOTES**
+
+笔者已经实现了一个简单的集中式日志监控平台，具体可以参见:
+
+1. [日志监控系统](http://blog.arganzheng.me/posts/log-monitoring.html)
+2. [应用如何记录集中日志](http://blog.arganzheng.me/posts/logging-client.html)
 
 ### 6. 日志异步上报
 
@@ -540,3 +546,4 @@ commons-logging的思想是提供了一组通用的日志接口，用户可以�
 2. [Log4J徹底解説](http://www.nurs.or.jp/~sug/soft/log4j/index.htm) 日本文档，非常详尽！
 3. [log4j](http://www.blogjava.net/rendong/archive/2006/09/04/67586.html) 中文文档，应该是目前国内最好的log4j文档了。
 4. [Java日志管理：Logger.getLogger()和LogFactory.getLog()的区别（详解Log4j）](http://javacrazyer.iteye.com/blog/1135493) 总结的不错。
+5. [你的Java日志，有没有用这些改进办法？](http://mp.weixin.qq.com/s?__biz=MjM5MDE0Mjc4MA==&mid=207451012&idx=1&sn=de9fba4eda0f221363b6d5ae54243416#rd) 国内少有的干货比较多的技术文章。
