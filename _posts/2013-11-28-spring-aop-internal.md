@@ -26,6 +26,15 @@ and Spring use one of the following two ways to create the proxy for a given tar
         <aop:aspectj-autoproxy proxy-target-class="true"/>
 
 
+**NOTES**
+
+1. Spring AOP其实只是兼容了AspectJ的注解，但是底层其实跟AspjectJ一点关系都没有。
+2. 因为Spring AOP是proxy-based和method-based proxy，所以他有如下的局限性：
+    1. 不能增强final或者静态方法
+    2. 内部方法调用(selfs-call)不会被AOP: [Spring AOP top problem #1 - aspects are not applied](http://denis-zhdanov.blogspot.com/2009/07/spring-aop-top-problem-1-aspects-are.html)
+
+使用AspectJ可以无限制的使用AOP，但是使用起来相对复杂很多，需要仔细权衡。
+
 Spring AOP Implement
 --------------------
 
