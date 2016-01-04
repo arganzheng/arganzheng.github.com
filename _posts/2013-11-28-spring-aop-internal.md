@@ -222,3 +222,5 @@ Resources
 1. [9. Aspect Oriented Programming with Spring](http://docs.spring.io/spring/docs/3.2.4.RELEASE/spring-framework-reference/html/aop.html#aop-understanding-aop-proxies)
 2. [8.6 Proxying mechanisms](http://docs.spring.io/spring/docs/3.0.0.M3/reference/html/ch08s06.html)
 3. [Java Reflection: Dynamic Proxies](http://tutorials.jenkov.com/java-reflection/dynamic-proxies.html)
+4. [Weaving with AspectJ](http://denis-zhdanov.blogspot.hk/2009/08/weaving-with-aspectj.html) AspectJ非常好的介绍文章
+5. [Spring AOP APIs](http://docs.spring.io/spring/docs/current/spring-framework-reference/html/aop-api.html) Spring AOP API介绍。介绍了Spring AOP底层使用到的核心类和接口。比如ProxyFactoryBean。强烈推荐阅读。
