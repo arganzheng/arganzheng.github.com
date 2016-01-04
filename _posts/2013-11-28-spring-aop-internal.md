@@ -30,10 +30,31 @@ and Spring use one of the following two ways to create the proxy for a given tar
 
 1. Spring AOP其实只是兼容了AspectJ的注解，但是底层其实跟AspjectJ一点关系都没有。
 2. 因为Spring AOP是proxy-based和method-based proxy，所以他有如下的局限性：
-    1. 不能增强final或者静态方法
-    2. 内部方法调用(selfs-call)不会被AOP: [Spring AOP top problem #1 - aspects are not applied](http://denis-zhdanov.blogspot.com/2009/07/spring-aop-top-problem-1-aspects-are.html)
+    1. 不能增强final或者静态方法。
+    2. 内部方法调用(selfs-call)不会被AOP。因为target-object没有被增强，this引用的是target-object。[Spring AOP top problem #1 - aspects are not applied](http://denis-zhdanov.blogspot.com/2009/07/spring-aop-top-problem-1-aspects-are.html)
 
-使用AspectJ可以无限制的使用AOP，但是使用起来相对复杂很多，需要仔细权衡。
+使用AspectJ可以无限制的使用AOP，但是使用起来相对复杂很多，需要仔细权衡:
+
+1. [10.4 Choosing which AOP declaration style to use](http://docs.spring.io/spring/docs/current/spring-framework-reference/html/aop.html#aop-choosing)
+2. [10.8 Using AspectJ with Spring applications](http://docs.spring.io/spring/docs/current/spring-framework-reference/html/aop.html#aop-using-aspectj)
+
+**NOTES** Spring AOP VS AspectJ AOP
+
+Spring-AOP : Runtime weaving through proxy using concept of dynamic proxy if interface exists or cglib library if direct implementation provided.
+
+AspectJ: Compile time weaving through AspectJ Java Tools(ajc compiler) if source available or post compilation weaving (using compiled files).Also, load time weaving with Spring can be enabled – it needs the aspectj definition file and offers flexibility. Compile time weaving can offer benefits of performance (in some cases) and also the joinpoint definition in Spring -aop is restricted to method definition only which is not the case for AspectJ.
+
+**TIPS** warving process time
+
+> The AspectJ weaver takes class files as input and produces class files as output. The weaving process itself can take place at one of three different times: compile-time, post-compile time, and load-time. The class files produced by the weaving process (and hence the run-time behaviour of an application) are the same regardless of the approach chosen.
+>
+> Compile-time weaving is the simplest approach. When you have the source code for an application, ajc will compile from source and produce woven class files as output. The invocation of the weaver is integral to the ajc compilation process. The aspects themselves may be in source or binary form. If the aspects are required for the affected classes to compile, then you must weave at compile-time. Aspects are required, e.g., when they add members to a class and other classes being compiled reference the added members.
+> 
+> Post-compile weaving (also sometimes called binary weaving) is used to weave existing class files and JAR files. As with compile-time weaving, the aspects used for weaving may be in source or binary form, and may themselves be woven by aspects.
+> 
+> Load-time weaving (LTW) is simply binary weaving defered until the point that a class loader loads a class file and defines the class to the JVM. To support this, one or more "weaving class loaders", either provided explicitly by the run-time environment or enabled through a "weaving agent" are required.
+> 
+> You may also hear the term "run-time weaving". We define this as the weaving of classes that have already been defined to the JVM (without reloading those classes). AspectJ 5 does not provide explicit support for run-time weaving although simple coding patterns can support dynamically enabling and disabling advice in aspects.
 
 Spring AOP Implement
 --------------------
@@ -224,3 +245,4 @@ Resources
 3. [Java Reflection: Dynamic Proxies](http://tutorials.jenkov.com/java-reflection/dynamic-proxies.html)
 4. [Weaving with AspectJ](http://denis-zhdanov.blogspot.hk/2009/08/weaving-with-aspectj.html) AspectJ非常好的介绍文章
 5. [Spring AOP APIs](http://docs.spring.io/spring/docs/current/spring-framework-reference/html/aop-api.html) Spring AOP API介绍。介绍了Spring AOP底层使用到的核心类和接口。比如ProxyFactoryBean。强烈推荐阅读。
+6. [Spring Auto proxy creator example](http://www.mkyong.com/spring/spring-auto-proxy-creator-example/) 介绍怎样使用ProxyFactoryBean创建AOP代理。
