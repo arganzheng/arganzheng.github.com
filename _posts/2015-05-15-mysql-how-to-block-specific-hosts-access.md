@@ -106,6 +106,56 @@ layout: post
 	iptables -A INPUT -p tcp --dport 3306 -j ACCEPT
 
 
+补充
+----
+
+### 如何查看MySQL状态
+
+
+#### 1. [SHOW VARIABLES](http://dev.mysql.com/doc/refman/5.1/en/show-variables.html)
+
+	SHOW [GLOBAL | SESSION] VARIABLES [LIKE 'pattern' | WHERE expr]
+
+
+SHOW VARIABLES显示MySQL的系统变量，一般是配置信息。具体参见: [Server System Variables](http://dev.mysql.com/doc/refman/5.1/en/server-system-variables.html)。
+
+### 2. [SHOW STATUS](http://dev.mysql.com/doc/refman/5.1/en/show-status.html)
+
+	SHOW [GLOBAL | SESSION] STATUS [LIKE 'pattern' | WHERE expr]
+
+SHOW STATUS显示MySQL的状态信息，一般是配置项对应的当前值。比如针对线程池的配置项thread_cache_size（通过show variables可以得到），我们可以通过Threads_cached，Threads_created变量知道当前线程池的状态。具体参见: [Server Status Variables](http://dev.mysql.com/doc/refman/5.1/en/server-status-variables.html)。
+
+**NOTES**
+
+如果没有指定GLOBAL或者SESSION限制符，那么默认是使用SESSION。GLOBAL变量和SESSION状态是有差别的，GLOBAL是所有SESSION(Connections)的汇集统计，而SESSION只显示当前connection的状态。具体可以参考: [Difference between show status and show global status in mysql](http://dba.stackexchange.com/questions/54337/difference-between-show-status-and-show-global-status-in-mysql)。
+
+
+#### 3. [SHOW ENGINE Syntax](http://dev.mysql.com/doc/refman/5.1/en/show-engine.html)
+
+	SHOW ENGINE engine_name {STATUS | MUTEX}
+
+可以知道具体的存储引擎的状态参数。比如我们最常用的INNODB:
+
+	mysql> show engine innodb status\G
+
+
+#### 4. [SHOW PROCESSLIST](http://dev.mysql.com/doc/refman/5.1/en/show-processlist.html)
+
+	SHOW [FULL] PROCESSLIST
+
+这个命令非常有用。它可以让我们知道当前有多少个线程，在处理什么连接（MySQL是典型的[One thread per connection](https://dev.mysql.com/doc/refman/5.1/en/connection-threads.html)的线程处理模型）。
+
+**TIPS**
+
+1. 如果没有指定FULL限定词，那么INFO列只会展示100个字符。
+2. 可以通过kill <tid> kill其中的线程。
+
+
+### MySQL的线程模型
+
+具体参见：[MySQL Threads](http://dev.mysql.com/doc/refman/5.1/en/mysql-threads.html)
+
+
 参考文章
 -------
 
