@@ -126,7 +126,7 @@ layout: post
 
 **结论** 
 
-对于key冲突，可以强制每个应用的客户端必须分配一个独立的appName/projectName	`作为前缀。这个是合理的要求，这个appName也有利于区分应用各自的监控。如果处于安全考虑，不同应用还应该有appKey。
+对于key冲突，可以强制每个应用的客户端必须分配一个独立的appName/projectName	`作为前缀。这个是合理的要求，这个appName也有利于区分应用各自的监控。如果出于安全考虑，不同应用还应该有appKey。
 对于同一个应用不同实例的区分，可以在上报接口增加上报来源作为tag。可以让应用传递参数，也可以自动根据ip来。比如Google和OpenTSDB就是通过对metrics打tags来解决这个问题。这样相同key的 metrics会合并统计,又可以根据tags进行区分。对于上面的例子,假如上报的metric含有一个host=xxx的tag。但是这种情况会导致key对应的数据特别多。根据tag过来会影响查询速度。所以需要tradeoff。比如OpenTSDB就是支持并且要求必须有一个tag，比如host=webserver01。
 
 #### 3、监控中心与客户端应用之间要不要通过本地Agent上报？
@@ -149,6 +149,8 @@ layout: post
 最终状态还是弱了一些，事件序列会好一些，存储可以采用HBase这样的分布式存储系统，性能问题可以采用预聚合等方式解决。[Google Cloud Monitor](Introduction to the Cloud Monitoring API)就是采用这个这种方式的：
 
 > The Google Cloud Monitoring API lets you access monitoring data for Google Cloud services. The data is organized as metrics and stored as data points that represent information at a specific time or over a specific time period. Examples include the current CPU utilization of your virtual machine, the number of requests received by you web server, or custom metrics you define yourself. A list of data points measured at successive times is called a time series.
+
+不过对于Counter类型的统计，确实可以考虑只是存储最终状态的。因为这种类型的metric，一般要的就是快速得到最终的状态，并且可能会有相应的报警策略。如果每次都要汇总，性能上往往不可接受。
 
 #### 5、数据模型
 
@@ -183,15 +185,17 @@ Google Cloud Mnoitor对Metric进行分类,支持的metricType有(@see [metric-ty
 1. RRD(round-robin-database): RRDtool使用的底层存储。C语言编写的。性能比较高
 2. whisper: Graphite底层的存储,Python写的
 3. [prometheus](http://prometheus.io/): An open-source service monitoring system and time series database. 目前只有单机版本。
-4. [InfluxDB](http://influxdb.com/): 开源distributed time series, metrics, and events database。Go语言编写, 不依赖于其他外部服务。底层支持多种存储引擎，目前是LevelDB, RocksDB, HyberLevelDB和LMDB(0.9之后将只支持Bolt)。
+4. [InfluxDB](http://influxdb.com/): 开源distributed time series, metrics, and events database。Go语言编写, 不依赖于其他外部服务。底层支持多种存储引擎，目前是LevelDB, RocksDB, HyberLevelDB和LMDB(0.9之后只支持Bolt，最新版本采用了自己写的存储引擎)。
 5. [OpenTSDB](http://opentsdb.net/index.html): 基于HBase编写的Time Series Database
+6. [kairosdb](http://kairosdb.github.io/): OpenTSDB的改善版，底层存储引擎是Cassandra。
+7. [Heroic](http://spotify.github.io/heroic/#!/index): Kairosdb的改善版，Spotify公司开源的时序数据库（[Spotify的监控框架](http://www.infoq.com/cn/articles/spotify-monitoring-framework-part-02)），引入了ElasticSearch作为元数据索引。目前还处于不稳定状态。
 
 具体可以参考这篇论文: [tsdb: A Compressed Database for Time Series](http://luca.ntop.org/tsdb.pdf)。
 
 **结论**
 
 如果要存储事件序列，那么InfluexDB和OpenTSDB是个非常不错的选择。都是可扩展，分布式存储，文档很详细，还是开源的。
-[influexDB 0.9.0](http://influxdb.com/blog/2014/12/08/clustering_tags_and_enhancements_in_0_9_0.html)之后支持tag，使用风格跟Google Cloud Monitor很相似，而且支持String类型。并且最重要的是不需要额外搭建HBase(Thus Hadoop & Zookeeper)，看起来非常值得期待，不过截至今天0.9.0还是RC阶段(非Stable)。OpenTSDBvalue不支持String类型，这意味着日志不能上报到OpenTSDB，需要另外处理。
+[influexDB 0.9.0](http://influxdb.com/blog/2014/12/08/clustering_tags_and_enhancements_in_0_9_0.html)之后支持tag，使用风格跟Google Cloud Monitor很相似，而且支持String类型。并且最重要的是不需要额外搭建HBase(Thus Hadoop & Zookeeper)，看起来非常值得期待，不过笔者曾经试过0.9.6版本的InfluxDB用来存储我们的接口响应时间，结果根本撑不住（[InfluxDB becomes unavailable after heavy insert load](https://github.com/influxdata/influxdb/issues/5149)）个人觉得这个产品还是太年轻，还没有到产品级别。OpenTSDBvalue不支持String类型，这意味着日志不能上报到OpenTSDB，需要另外处理。
 
 由于这个比较复杂而且非常重要，我们在后面再单独详细讨论。
 
@@ -403,4 +407,7 @@ influxDB则是：
 4. [influxDB](http://influxdb.com/)
 5. [Grafana](http://grafana.org/)
 6. [Relic](http://newrelic.com/)
-
+7. [kairosdb](http://kairosdb.github.io/): OpenTSDB的改善版，底层存储引擎是Cassandra。
+8. [Heroic](http://spotify.github.io/heroic/#!/index): Kairosdb的改善版，Spotify公司开源的时序数据库
+9. [Spotify的监控框架](http://www.infoq.com/cn/articles/spotify-monitoring-framework-part-02)
+10. [Advanced Time Series with Cassandra](http://www.datastax.com/dev/blog/advanced-time-series-with-cassandra)
