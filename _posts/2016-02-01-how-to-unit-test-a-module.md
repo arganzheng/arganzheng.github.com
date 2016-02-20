@@ -174,7 +174,6 @@ layout: post
 
 个人觉得第一种方案简单，但是无法自治，每个工程都需要配置不说了，关键是二方库无法单元测试，因为缺失配置文件和配置项。第三种方案会导致二方库反向依赖上层应用，并不合理。综合考虑，第二种方案相对比较折中，二方库可以包含dev和test环境的配置文件，其他环境的由应用提供。
 
-
 二方库自治化还带来一个额外的好处，就是为服务化奠定了坚实的基础。因为服务化的前提就是自治化，能够运行起来对外提供服务。而自治化意味着可以独立运行，只要使用一个RPC框架（比如dubbo、thrift、g-rpc或者Restful）对外暴露服务就可以了。从这个概念上讲跟现在流行的[微服务架构(MSA)](http://dockone.io/article/947)是非常类似的。
 
 更多微服务架构的介绍，可以参考如下文章：
@@ -184,3 +183,7 @@ layout: post
 3. [实施微服务，我们需要哪些基础框架？](http://www.infoq.com/cn/articles/basis-frameworkto-implement-micro-service)
 
 
+补记: Spring Boot come into rescue
+----------------------------------
+
+最近仔细将Spring Boot的官方文档看了一遍，发现Spring Boot就是为了解决这个问题的。通过Spring Boot构建的服务(executable jar or war)就是一个自包含的服务(`self-contained`)，就是可以跑起来提供服务的。不过他提倡的是微服务架构，也就是说这个服务不是通过jar包直接依赖，而是通过REST或者其他RPC方式对外提供服务。
