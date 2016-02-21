@@ -187,3 +187,6 @@ layout: post
 ----------------------------------
 
 最近仔细将Spring Boot的官方文档看了一遍，发现Spring Boot就是为了解决这个问题的。通过Spring Boot构建的服务(executable jar or war)就是一个自包含的服务(`self-contained`)，就是可以跑起来提供服务的。不过他提倡的是微服务架构，也就是说这个服务不是通过jar包直接依赖，而是通过REST或者其他RPC方式对外提供服务。
+
+1. Spring配置：推荐java-based configuration + package scanning
+2. properties：支持properties文件和yaml
