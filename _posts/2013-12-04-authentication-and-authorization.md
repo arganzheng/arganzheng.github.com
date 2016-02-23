@@ -248,6 +248,190 @@ google了一下，发现这篇文章跟我的观点不谋而合[Sessionless_Auth
 	
 	}
 
+LoginUtils.java:
+
+	package me.arganzheng.study.auth.util;
+	
+	import java.security.MessageDigest;
+	import java.security.NoSuchAlgorithmException;
+	import java.util.Date;
+	
+	import javax.servlet.http.Cookie;
+	import javax.servlet.http.HttpServletRequest;
+	import javax.servlet.http.HttpServletResponse;
+	
+	import org.apache.commons.codec.binary.Base64;
+	import org.apache.commons.codec.binary.Hex;
+	import org.apache.log4j.Logger;
+	import org.springframework.util.StringUtils;
+	
+	import me.arganzheng.study.auth.constants.Constants;
+	import me.arganzheng.study.auth.exception.InvalidCookieException;
+	import me.arganzheng.study.auth.model.user.User;
+	
+	public class LoginUtils {
+	
+		private static final Logger logger = Logger.getLogger(LoginUtils.class);
+	
+		private static final String DELIMITER = ":";
+	
+		public static void loginSuccess(HttpServletRequest request, HttpServletResponse response,
+				User user, String secretKey) {
+	
+			String username = user.getUsername();
+			String password = user.getPassword();
+	
+			// If unable to find a username and password, just abort as
+			// TokenBasedRememberMeServices is
+			// unable to construct a valid token in this case.
+			if (!StringUtils.hasLength(username) || !StringUtils.hasLength(password)) {
+				return;
+			}
+	
+			int tokenLifetime = Constants.TWO_WEEKS_S;
+			long expiryTime = System.currentTimeMillis();
+			// SEC-949
+			expiryTime += 1000L * (tokenLifetime < 0 ? Constants.TWO_WEEKS_S : tokenLifetime);
+	
+			String signatureValue = makeTokenSignature(expiryTime, username, password, secretKey);
+	
+			setCookie(new String[] { username, Long.toString(expiryTime), signatureValue },
+					tokenLifetime, request, response);
+	
+			if (logger.isDebugEnabled()) {
+				logger.debug("Added ticke cookie for user '" + username + "', expiry: '"
+						+ new Date(expiryTime) + "'");
+			}
+		}
+	
+		public static void loginFail(HttpServletRequest request, HttpServletResponse response) {
+			logger.debug("Interactive login attempt was unsuccessful.");
+			cancelCookie(request, response);
+		}
+	
+		public static String makeTokenSignature(long tokenExpiryTime, String username, String password,
+				String secretKey) {
+			String data = username + ":" + tokenExpiryTime + ":" + password + ":" + secretKey;
+	
+			MessageDigest digest;
+			try {
+				digest = MessageDigest.getInstance("MD5");
+			} catch (NoSuchAlgorithmException e) {
+				throw new IllegalStateException("No MD5 algorithm available!");
+			}
+	
+			return new String(Hex.encodeHex(digest.digest(data.getBytes())));
+		}
+	
+		/**
+		 * Sets a "cancel cookie" (with maxAge = 0) on the response to disable
+		 * persistent logins.
+		 */
+		public static void cancelCookie(HttpServletRequest request, HttpServletResponse response) {
+			logger.debug("Cancelling cookie");
+			Cookie cookie = new Cookie(Constants.TOKEN_COOKIES, null);
+			cookie.setMaxAge(0);
+			cookie.setPath(getCookiePath(request));
+	
+			response.addCookie(cookie);
+		}
+	
+		/**
+		 * Sets the cookie on the response. By default a secure cookie will be used
+		 * if the connection is secure. You can set the {@code useSecureCookie}
+		 * property to {@code false} to override this. If you set it to {@code true}
+		 * , the cookie will always be flagged as secure. If Servlet 3.0 is used,
+		 * the cookie will be marked as HttpOnly.
+		 * 
+		 * @param tokens the tokens which will be encoded to make the cookie value.
+		 * @param maxAge the value passed to {@link Cookie#setMaxAge(int)}
+		 * @param request the request
+		 * @param response the response to add the cookie to.
+		 */
+		public static void setCookie(String[] tokens, int maxAge, HttpServletRequest request,
+				HttpServletResponse response) {
+			String cookieValue = encodeCookie(tokens);
+			Cookie cookie = new Cookie(Constants.TOKEN_COOKIES, cookieValue);
+			cookie.setMaxAge(maxAge);
+			cookie.setPath(getCookiePath(request));
+			cookie.setSecure(request.isSecure());
+	
+			response.addCookie(cookie);
+		}
+	
+		/**
+		 * Decodes the cookie and splits it into a set of token strings using the
+		 * ":" delimiter.
+		 * 
+		 * @param cookieValue the value obtained from the submitted cookie
+		 * @return the array of tokens.
+		 * @throws InvalidCookieException if the cookie was not base64 encoded.
+		 */
+		public static String[] decodeCookie(String cookieValue) {
+			for (int j = 0; j < cookieValue.length() % 4; j++) {
+				cookieValue = cookieValue + "=";
+			}
+	
+			if (!Base64.isBase64(cookieValue.getBytes())) {
+				throw new RuntimeException("Cookie token was not Base64 encoded; value was '"
+						+ cookieValue + "'");
+			}
+	
+			String cookieAsPlainText = new String(Base64.decodeBase64(cookieValue));
+	
+			String[] tokens = StringUtils.delimitedListToStringArray(cookieAsPlainText, DELIMITER);
+	
+			if ((tokens[0].equalsIgnoreCase("http") || tokens[0].equalsIgnoreCase("https"))
+					&& tokens[1].startsWith("//")) {
+				// Assume we've accidentally split a URL (OpenID identifier)
+				String[] newTokens = new String[tokens.length - 1];
+				newTokens[0] = tokens[0] + ":" + tokens[1];
+				System.arraycopy(tokens, 2, newTokens, 1, newTokens.length - 1);
+				tokens = newTokens;
+			}
+	
+			return tokens;
+		}
+	
+		/**
+		 * Inverse operation of decodeCookie.
+		 * 
+		 * @param cookieTokens the tokens to be encoded.
+		 * @return base64 encoding of the tokens concatenated with the ":"
+		 *         delimiter.
+		 */
+		public static String encodeCookie(String[] cookieTokens) {
+			StringBuilder sb = new StringBuilder();
+			for (int i = 0; i < cookieTokens.length; i++) {
+				sb.append(cookieTokens[i]);
+	
+				if (i < cookieTokens.length - 1) {
+					sb.append(DELIMITER);
+				}
+			}
+	
+			String value = sb.toString();
+	
+			sb = new StringBuilder(Base64.encodeBase64String(value.getBytes()));
+	
+			while (sb.charAt(sb.length() - 1) == '=') {
+				sb.deleteCharAt(sb.length() - 1);
+			}
+	
+			return sb.toString();
+		}
+	
+		public static String getCookiePath(HttpServletRequest request) {
+			String contextPath = request.getContextPath();
+			return contextPath.length() > 0 ? contextPath : "/";
+		}
+	
+		public static void logout(HttpServletRequest request, HttpServletResponse response) {
+			LoginUtils.cancelCookie(request, response);
+		}
+	}
+
+
 权限验证拦截器：
 
 	package me.arganzheng.study.auth.interceptor;
