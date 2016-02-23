@@ -69,6 +69,300 @@ google了一下，发现这篇文章跟我的观点不谋而合[Sessionless_Auth
 
 一个简单而有效的解决方案就是使用HTTPS。HTTPS使用CA证书验证服务器的合法性，全程会话（包括cookies）都是经过加密传输，刚好解决了上面的两个安全问题。很多网站都是使用这种鉴权认证方案。比如GitHub。不过安全性要求不是很高的网站还是采用的是登陆认证的时候HTTPS，其他情况HTTP的方式，比如新浪微博、亚马逊、淘宝、quora等。
 
+笔者根据这个思路在项目中实现了一个简单的用户认证和授权功能，核心代码就两个类(拦截器)。
+
+用户认证拦截器：
+
+	package me.arganzheng.study.auth.interceptor;
+	
+	import java.util.Arrays;
+	import java.util.Date;
+	
+	import javax.servlet.http.Cookie;
+	import javax.servlet.http.HttpServletRequest;
+	import javax.servlet.http.HttpServletResponse;
+	
+	import org.apache.log4j.Logger;
+	import org.springframework.beans.factory.annotation.Autowired;
+	import org.springframework.beans.factory.annotation.Value;
+	import org.springframework.web.servlet.handler.HandlerInterceptorAdapter;
+	
+	import me.arganzheng.study.auth.common.WebUser;
+	import me.arganzheng.study.auth.constants.Constants;
+	import me.arganzheng.study.auth.exception.InvalidCookieException;
+	import me.arganzheng.study.auth.model.user.User;
+	import me.arganzheng.study.auth.service.user.UserService;
+	import me.arganzheng.study.auth.util.HttpServletRequestTool;
+	import me.arganzheng.study.auth.util.LoginUtils;
+	
+	/**
+	 * <pre>
+	 * 身份认证拦截器。包括身份认证和设置WebUser。
+	 * 
+	 * 注意：授权不在这里处理。@see {@link AuthorizationInterceptor}
+	 * </pre>
+	 * 
+	 * @author zhengzhibin
+	 * 
+	 */
+	public class TokenBasedAuthInterceptor extends HandlerInterceptorAdapter {
+	
+		private static final Logger logger = Logger.getLogger(TokenBasedAuthInterceptor.class);
+	
+		@Autowired
+		private WebUser webUser;
+	
+		@Autowired
+		private UserService userService;
+	
+		@Value(value = "secretKey")
+		private String secretKey;
+	
+		public boolean preHandle(HttpServletRequest request, HttpServletResponse response,
+				Object handler) throws Exception {
+			// Authenticaltion
+			User user = authentication(request, response);
+			if (user == null) {
+				webUser.setLoggedIn(false);
+			} else if (!user.isValid()) {
+				webUser.setLoggedIn(false);
+				webUser.setValid(false);
+			} else {
+				webUser.setLoggedIn(true);
+				webUser.setValid(true);
+				webUser.setUsername(user.getUsername());
+				webUser.setRole(user.getRole());
+				webUser.setClientIp(HttpServletRequestTool.getClientIp(request));
+				webUser.setLanguage(user.getLanguage());
+				// put the webUser to request so that view can access it!
+				request.setAttribute("webUser", webUser);
+			}
+			return true;
+		}
+	
+		protected String extractTicketCookie(HttpServletRequest request) {
+			Cookie[] cookies = request.getCookies();
+	
+			if ((cookies == null) || (cookies.length == 0)) {
+				return null;
+			}
+	
+			for (Cookie cookie : cookies) {
+				if (Constants.TOKEN_COOKIES.equals(cookie.getName())) {
+					return cookie.getValue();
+				}
+			}
+	
+			return null;
+		}
+	
+		/**
+		 * Template implementation which locates the Spring Security cookie, decodes
+		 * it into a delimited array of tokens and submits it to subclasses for
+		 * processing via the <tt>processAutoLoginCookie</tt> method.
+		 * <p>
+		 * The returned username is then used to load the UserDetails object for the
+		 * user, which in turn is used to create a valid authentication token.
+		 */
+		public final User authentication(HttpServletRequest request, HttpServletResponse response) {
+			String ticketCookie = extractTicketCookie(request);
+	
+			if (ticketCookie == null) {
+				return null;
+			}
+	
+			logger.debug("ticket cookie detected");
+	
+			if (ticketCookie.length() == 0) {
+				logger.debug("Cookie was empty");
+				LoginUtils.cancelCookie(request, response);
+				return null;
+			}
+	
+			User user = null;
+	
+			try {
+				String[] cookieTokens = LoginUtils.decodeCookie(ticketCookie);
+				user = processAutoLoginCookie(cookieTokens, request, response);
+	
+				logger.debug("ticket cookie accepted");
+				return user.isEnabled() ? user : null;
+			} catch (RuntimeException e) {
+				logger.error(e.getMessage(), e);
+			}
+	
+			LoginUtils.cancelCookie(request, response);
+			return null;
+		}
+	
+		protected User processAutoLoginCookie(String[] cookieTokens, HttpServletRequest request,
+				HttpServletResponse response) {
+	
+			if (cookieTokens.length != 3) {
+				throw new InvalidCookieException("Cookie token did not contain 3"
+						+ " tokens, but contained '" + Arrays.asList(cookieTokens) + "'");
+			}
+	
+			long tokenExpiryTime;
+	
+			try {
+				tokenExpiryTime = new Long(cookieTokens[1]).longValue();
+			} catch (NumberFormatException nfe) {
+				throw new InvalidCookieException(
+						"Cookie token[1] did not contain a valid number (contained '" + cookieTokens[1]
+								+ "')");
+			}
+	
+			if (isTokenExpired(tokenExpiryTime)) {
+				throw new InvalidCookieException("Cookie token[1] has expired (expired on '"
+						+ new Date(tokenExpiryTime) + "'; current time is '" + new Date() + "')");
+			}
+	
+			// Check the user exists.
+			// Defer lookup until after expiry time checked, to possibly avoid
+			// expensive database call.
+			User user = userService.getByUsername(cookieTokens[0]);
+	
+			// Check signature of token matches remaining details.
+			// Must do this after user lookup, as we need the DAO-derived password.
+			// If efficiency was a major issue, just add in a UserCache
+			// implementation,
+			// but recall that this method is usually only called once per
+			// HttpSession - if the token is valid,
+			// it will cause SecurityContextHolder population, whilst if invalid,
+			// will cause the cookie to be cancelled.
+			String expectedTokenSignature = LoginUtils.makeTokenSignature(tokenExpiryTime,
+					user.getUsername(), user.getPassword(), secretKey);
+	
+			if (!expectedTokenSignature.equals(cookieTokens[2])) {
+				throw new InvalidCookieException("Cookie token[2] contained signature '"
+						+ cookieTokens[2] + "' but expected '" + expectedTokenSignature + "'");
+			}
+	
+			return user;
+		}
+	
+		protected boolean isTokenExpired(long tokenExpiryTime) {
+			return tokenExpiryTime < System.currentTimeMillis();
+		}
+	
+	}
+
+权限验证拦截器：
+
+	package me.arganzheng.study.auth.interceptor;
+	
+	import javax.servlet.http.HttpServletRequest;
+	import javax.servlet.http.HttpServletResponse;
+	
+	import org.apache.commons.lang.ArrayUtils;
+	import org.apache.commons.lang.StringUtils;
+	import org.springframework.beans.factory.annotation.Autowired;
+	import org.springframework.core.annotation.AnnotationUtils;
+	import org.springframework.web.method.HandlerMethod;
+	import org.springframework.web.servlet.handler.HandlerInterceptorAdapter;
+	
+	import me.arganzheng.study.auth.annotation.RequiredLogin;
+	import me.arganzheng.study.auth.common.WebUser;
+	import me.arganzheng.study.auth.constants.Role;
+	import me.arganzheng.study.auth.exception.NotAllowException;
+	import me.arganzheng.study.auth.exception.UserInvalidException;
+	import me.arganzheng.study.auth.exception.UserNotLoggedInException;
+	import me.arganzheng.study.auth.util.HttpServletRequestTool;
+	
+	/**
+	 * 授权拦截器。注意身份认证不在这里，@see {@link TokenBasedAuthInterceptor}
+	 * 
+	 * @author zhengzhibin
+	 * 
+	 */
+	public class AuthorizationInterceptor extends HandlerInterceptorAdapter {
+	
+		@Autowired
+		private WebUser webUser;
+	
+		@Override
+		public boolean preHandle(HttpServletRequest request, HttpServletResponse response,
+				Object handler) throws Exception {
+			boolean requiredLoginAndAuth = false;
+			if (handler instanceof HandlerMethod) {
+				HandlerMethod method = (HandlerMethod) handler;
+	
+				RequiredLogin requiredLoginAnnotation = AnnotationUtils.findAnnotation(
+						method.getMethod(), RequiredLogin.class);
+				if (requiredLoginAnnotation == null) { // get type-level annatation
+					requiredLoginAnnotation = AnnotationUtils.findAnnotation(method.getBeanType(),
+							RequiredLogin.class);
+				}
+	
+				if (requiredLoginAnnotation != null) {
+					requiredLoginAndAuth = true;
+				}
+	
+				// no annotation auth requirement, check the url pattern
+				String uri = HttpServletRequestTool.getRequestURIExcludeContextPath(request);
+				// 这里简单使用url区分，粒度比较大。
+				if (uri.startsWith("/admin/") || uri.startsWith("/my/") || uri.startsWith("/security/")
+						|| uri.startsWith("/private/")) {
+					requiredLoginAndAuth = true;
+				}
+	
+				if (requiredLoginAndAuth) {// 需要登录和授权控制
+					if (!webUser.isLoggedIn()) {// 无权限，转到权限申请页面
+						throw new UserNotLoggedInException("Login required!");
+					} else if (!webUser.isValid()) {
+						throw new UserInvalidException("Sorry, you are locked or inactive right now!");
+					} else {
+						// STEP_2: Authorization
+						Role[] roles = requiredLoginAnnotation.role();
+						if (hasAuth(roles, webUser.getRole())) {
+							if (webUser.getRole() == Role.Local
+									&& StringUtils.isNotBlank(webUser.getLanguage())) {
+								String language = request.getParameter("language");
+								if (language == null) {
+									return true;
+								} else if (webUser.getLanguage().equalsIgnoreCase(language) == false) {
+									throw new NotAllowException(
+											"Request resource can only be access by "
+													+ ArrayUtils.toString(roles) + " with language "
+													+ language);
+								}
+							}
+							return true;
+						} else {
+							throw new NotAllowException("Request resource can only be access by "
+									+ ArrayUtils.toString(roles));
+						}
+					}
+				}
+			}
+	
+			return true;
+		}
+	
+		private boolean hasAuth(Role[] requiredRoles, Role role) {
+			if (requiredRoles == null || role == Role.Admin) {
+				return true;
+			}
+	
+			boolean adminRequired = false;
+			for (Role r : requiredRoles) {
+				if (role == r) {
+					return true;
+				}
+				if (r == Role.Admin) {
+					adminRequired = true;
+				}
+			}
+			if (adminRequired == false && role == Role.User) {
+				return true;
+			}
+			return false;
+		}
+	}
+
+
+
 **TIPS** SSO
 
 上面的鉴权方式依赖于Cookies来传递sessionId，而我们知道Cookies具有跨域限制。不过可以通过一些方式解决。具体可以看一下这篇文章，写的非常好。[Building and implementing a Single Sign-On solution](http://merbist.com/2012/04/04/building-and-implementing-a-single-sign-on-solution/)。
