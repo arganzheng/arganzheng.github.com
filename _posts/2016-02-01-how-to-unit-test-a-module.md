@@ -190,3 +190,9 @@ layout: post
 
 1. Spring配置：推荐java-based configuration + package scanning
 2. properties：支持properties文件和yaml
+
+其实解决方案就是Spring Boot最核心的功能——自动配置，而自动配置的基础其实就是java-based配置。他很好的解决了以前bean配置和代码分离的状况。这样，一个应用依赖一个jar包的时候，就不需要再配置spring bean了。Spring会在启动的时候扫描标有`@configuration`注解的类，这些类其实就相当于一个个独立的XML beans配置。为了防止bean的重复注册或者错误配置，Spring4引入了`conditional configuration`，可以对bean进行条件配置。当然，property配置还是留给了应用。但是在java-based配置中，推荐使用`@EnableConfigurationProperties(XXXXProperties.class)`来讲properties属性配置注入到相应的类中。
+
+
+
+
