@@ -79,4 +79,5 @@ logback多log4j最大的贡献是解决了性能问题。不过在功能性方�
 2. appender filter
 3. 支持基本的条件配置
 4. 支持文件导入(file inclusion)
+5. 支持格式化日志，logger.error("one two three: {} {} {}", "a", "b", "c", new Exception("something went wrong"));
 
