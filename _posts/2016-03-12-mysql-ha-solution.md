@@ -141,7 +141,7 @@ MySQL的HA方案可以在几个层面上做到:
 		* [PRM](https://github.com/percona/percona-pacemaker-agents/blob/master/doc/PRM-setup-guide.rst) 貌似只支持到 MySQL 5.6，不支持最新的MySQL 5.7。
 		* [MySQL Fabric](http://dev.mysql.com/doc/mysql-utilities/1.5/en/fabric.html)
 		* [Orchestrator](https://www.percona.com/blog/2016/03/08/orchestrator-mysql-replication-topology-manager/)
-		* [MariaDB Replication Manager (MRM)](https://github.com/mariadb-corporation/replication-manager)
+		* [MariaDB Replication Manager (MRM)](https://github.com/mariadb-corporation/replication-manager) 只支持MariaDB with GTID based replication topologies。
 		* 需要配合使用VIP或者数据库中间件（如PaceMaker, Cobar/MyCat, etc.）对应用保持透明
 		* 需要注意这些工具对MySQL版本和配置的要求
 			* MySQL or MariaDB，比如MRM只支持MariaDB；MHA、PRM等不支持 MariaDB GTID based replication topologies, MySQL Fabric要求MySQL 5.6.x+, etc.
@@ -259,6 +259,7 @@ MySQL支持多重拓扑结构，不同的拓扑结构有不同的应用场景。
 
 ### 2. 基于集群的部署方式 (true Multimaster Cluster based on (virtually) synchronous replication)
 
+高性能、高可用性、冗余和可扩展性都是数据库规划时需要考虑的重要因素，通常采用商用高可用性硬件和负载均衡的方案来寻求改善复制拓扑的方法。尽管这样基本可以满足大部分需求，但是如果需要无单点故障的方案，而且要求极高的吞吐量，上线时间达到99.999%，那么可以考虑使用MySQL集群技术。
 
 #### 1. [Mysql Cluster](http://dev.mysql.com/doc/refman/5.6/en/mysql-cluster.html)
 
@@ -269,7 +270,7 @@ MySQL Cluster包含以下三种类型的节点:
 ![MySQL Cluster Components](http://dev.mysql.com/doc/refman/5.7/en/images/cluster-components-1.png)
 
 * SQL Node: SQL节点就是传统的MySQL server，包括NDB/Cluster存储引擎。SQL节点处理所有的SQL请求，解析，优化和查询缓存。应用一般是与SQL节点通讯。	
-* Data Node: 数据节点组成data node group，它的作用主要是存储数据，同时还负责：
+* Data Node: 即NDB集群组件。数据节点组成data node group，它的作用主要是存储数据，同时还负责：
 	* 事务协调
 	* 记录锁 (record level locking)
 	* Failover
@@ -308,8 +309,6 @@ MySQL Cluster包含以下三种类型的节点:
 * 网络通讯严重，分区容忍性差，容易脑裂。
 * 短板效应，集群的吞吐率取决于最差的节点。
 
-#### 业界使用情况 TODO
- 
 #### 2. [Percona XtraDB Cluster(PXC, uses Galera cluster)](https://www.percona.com/doc/percona-xtradb-cluster/5.6/index.html)
 
 ![Percona-xtradb-cluster](https://www.percona.com/doc/percona-xtradb-cluster/5.6/_images/cluster-diagram1.png)
@@ -378,6 +377,81 @@ MySQL集群管理平台
 
 业界HA方案
 ---------
+
+
+数据库代理/中间件介绍
+---------------------
+
+一般来说，我们引入数据库代理/中间件，来解决下面几个问题：
+
+1. 透明：屏蔽底层复杂的部署情况(分库分表, 复制拓扑结构, 集群, etc.)，提供单一服务访问和抽象；增加减少机器不需要修改上层应用
+2. 连接池
+3. 负载均衡 (load balancing and fault tolerance) & 读写分离
+4. failover：后端服务监控，摘除或者切换
+
+这些中间件一般有两种部署(实现)模式：
+
+1. Client模式
+2. Server模式
+
+
+下面是常见的中间件：
+
+1、通用负载均衡器:
+
+1. VIP + [keepalived](http://www.keepalived.org/)
+	* Keepalived is open-source routing software that provides load-balancing via LVS (Linux Virtual Server) and high-availability via VRRP (Virtual Router Redundancy Protocol).
+	* [Multi-Master MySQL With Percona And Keepalived](https://www.atlantic.net/community/howto/multi-master-mysql-percona-keepalived/)
+	* 用keepalived实现虚拟IP，通过keepalived自带的服务监控功能来实现MySQL故障时自动切换(VIP漂移)。
+2. [nginx 1.9+ (--with-stream)](https://www.nginx.com/blog/tcp-load-balancing-with-nginx-1-9-0-and-nginx-plus-r6/)
+	* 本质上是一个反向代理服务器(静态资源服务器)，可用于后端负载均衡(HTTP/TCP)
+	* [MySQL High Availability with NGINX Plus and Galera Cluster](https://www.nginx.com/blog/mysql-high-availability-with-nginx-plus-and-galera-cluster/)
+	* 开源版最大的问题是不支持高级backend health checks，Github上有一些第三方实现，需要源码编译和充分自测。
+3. [HAProxy](http://severalnines.com/tutorials/mysql-load-balancing-haproxy-tutorial)
+	* 非常类似于Nginx，但是专注于负载均衡。可以监听多个端口，有backup upstream的概念。
+	* [Setup MariaDB Enterprise Cluster, part 3: Setup HA Proxy Load Balancer with Read and Write Pools](https://mariadb.com/blog/setup-mariadb-enterprise-cluster-part-3-setup-ha-proxy-load-balancer-read-and-write-pools)
+
+2、SQL-aware负载均衡器
+
+1. [MySQL proxy](https://dev.mysql.com/doc/mysql-proxy/en/)
+	* MySQL-Proxy是个进展非常缓慢的开源项目，目前还只有[0.8.5 alpha版本](http://dev.mysql.com/downloads/mysql-proxy/)，并且已经停止维护和开发了。
+	* 依赖于lua脚本实现一些逻辑（比如分库分表路由）
+	* MySQL Proxy is not GA, and is not recommended for Production use. We recommend [MySQL Router](http://dev.mysql.com/doc/mysql-router/en/) for production use.
+2. [MySQL Router](http://dev.mysql.com/doc/mysql-router/en/)
+	* Server模式
+	* 只支持简单的连接重定向路由 (simple redirect connection routing)，因为需要应用出错重试。
+	* 支持读写分离
+3. [MaxScale](https://mariadb.com/products/mariadb-maxscale)
+	* 可插拔的插件设计架构，可以灵活定制。
+	* 有五种类型的插件：
+		* Authentication Plugin
+		* Protocol Plugin
+		* Monitoring Plugin: 支持复制监控和集群监控
+		* Router Plugin:  支持多种路由策略（Connection based， Statement based，Schema based..）
+		* Filter Plugin
+	* 自动检测master failure，调用外部Shell脚本来修复拓扑结构(一般委托给 [MariaDB Replication Manager(MRM)](https://github.com/mariadb-corporation/replication-manager)，也可以是MHA，etc.），保证这一切对应用透明。
+	*  MaxScale 1.3.0 开始支持 option substitution for failover，外部Shell脚本不是必须的了。
+4. [Amoeba](http://docs.hexnova.com/amoeba/)
+	* 2008年开源的数据库服务端代理软件，基于Java开发
+	* 具有负载均衡、高可用性、sql过滤、读写分离、数据切片、可路由相关的query到目标数据库、可并发请求多台数据库合并结果。
+	* 具有如下[限制](http://docs.hexnova.com/amoeba/limitations.html)。
+	* 不支持failover(没有backup概念，没有自动拓扑结构调整)
+5. [Cobar](https://github.com/alibaba/cobar/wiki)
+6. [MyCat](http://mycat.io/)
+7. [TDDL](https://github.com/alibaba/tb_tddl/wiki/TDDL-dynamic-datasource-%E5%85%A5%E9%97%A8%E4%B8%8E%E4%BD%BF%E7%94%A8)
+
+单纯的replication failover工具：
+
+1. [MySQL Fabric](http://dev.mysql.com/doc/mysql-utilities/1.5/en/fabric.html)
+2. [Orchestrator](https://www.percona.com/blog/2016/03/08/orchestrator-mysql-replication-topology-manager/)
+3. [MariaDB Replication Manager (MRM)](https://github.com/mariadb-corporation/replication-manager) 只支持MariaDB with GTID based replication topologies。
+
+
+**NOTES && TIPS**
+
+不同于前面说的专门针对复制拓扑结构的failover工具，像[MMM](http://mysql-mmm.org/doku.php), [MHA](https://code.google.com/p/mysql-master-ha/wiki/Overview), [PRM](https://github.com/percona/percona-pacemaker-agents/blob/master/doc/PRM-setup-guide.rst), [MySQL Fabric](http://dev.mysql.com/doc/mysql-utilities/1.5/en/fabric.html), [Orchestrator](https://www.percona.com/blog/2016/03/08/orchestrator-mysql-replication-topology-manager/), [MariaDB Replication Manager (MRM)](https://github.com/mariadb-corporation/replication-manager)，后者只是做master故障failover（主要是拓扑结构调整），并不提供负载均衡和对应用透明。负载均衡器更关注的是负载均衡和代理。所以在故障failover这块，负载均衡器要显得弱智一些。比如说故障检测，基本上所有的负载均衡器的判断方式都是是——不能查询某个backend server，然后可能有个max_fails和fail_times的参数控制一下，但是本质上就是转发请求失败。但是“连接不上master"退出master挂掉了，这个逻辑还是过于简单。
+
+关于这个可以参考一下Orchestrator作者写的这篇文章 [Thoughts on MaxScale automated failover (and Orchestrator)](http://code.openark.org/blog/mysql/thoughts-on-maxscale-automated-failover-and-orchestrator)，对MaxScale和Orchestrator做了比较详尽的对比，很深入。
 
 
 
