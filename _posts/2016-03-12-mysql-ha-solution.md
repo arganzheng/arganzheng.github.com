@@ -112,6 +112,17 @@ Crash safe means even if a slave mysqld/OS crash, you can recover the slave and 
 Durability (sync_binlog = 1 and innodb_flush_log_at_trx_commit = 1) is NOT required.
 
 
+**总结**
+
+总之，MySQL5.6以后对复制功能做了很大的完善，极大的提高了Master和Slave之间的同步延迟问题。
+
+* MTS(Mutl-threaded Slave)解决了单一SQL Thread apply同步事件慢的问题
+* Semi-Synchronous Replication解决了Master和Slave之间的同步延迟问题
+* GTID使得故障转移和slave提升变得容易很多
+* Crash-safe Slave 让slave恢复变得快速容易很多
+* Multi-Source Replication可以在MySQL基本实现数据汇聚，是分库分表的一个反向支持
+
+
 MySQL高可用性的解决方案
 ---------------------
 
@@ -120,8 +131,8 @@ MySQL高可用性的解决方案
 MySQL的HA方案可以在几个层面上做到:
 
 1. 基于MySQL replication的拓扑方式
-	* MASTER-SLAVE replication
-	* MASTER-MASTER replication
+	* MASTER-SLAVE replication：需要Slave Promotion
+	* MASTER-MASTER replication：使用热备(hot standby)让master切换变得容易一些
 	* MASTER-RELAY replication
 	* ... 
 	* 使用一些工具实现failover
@@ -153,34 +164,18 @@ MySQL的HA方案可以在几个层面上做到:
 
 首先看一下基于MySQL同步的HA方案。这是最老也是最经得起时间考验的方案。
 
-master宕机之后切换方步骤下：
-
-1. The master server is taken down or we encounter a fault	by our monitoring
-2. The slave server	is updated to the last position	in	the	relay log
-3. The clients point at	the	designated slave server
-4. The designated slave	server becomes the master server, and re-attach the remaining slaves in the topology under the new master
-
-具体分析一下：
-
-* 步骤一：
-	* 我们需要有一种方式能够监控到Master挂掉了，这需要一个很好的监控系统，至少针对master。
-	* MONyog Ultimate Monitor会是一个不错的选择。
-* 步骤二:
-	* 我们需要选举一个最新的slave出来，同时在promote它为新的master之前，要保证relaylog中的所有事务已经被SQL Thread apply。// 如果拓扑结构一开始就已经有backup master，那么直接把backup master推举上去就可以了。
-	* 严格意义来说，你还需要检查一下老的master的binlog日志看是不是slave已经拉取了所有的事务。当然，前提是你还可以访问老master的binlog日志。// 使用半同步可以避免这个问题
-* 步骤三:
-	* 我们希望对客户端透明，同时也能够最大的减少不可用时间。
-	* 这里一般是使用VIP的方式，或者引入数据库中间件来达到自动切换的目的。
-* 步骤四: 这里一般有两个步骤需要操作：
-	* 把promoted的slave设置为可写。// 如果是dual-master，那么可以省略这个步骤
-	* 其它的slaves切换到新的master进行同步。这里需要重新找到在新master的同步位置 // 如果slaves是挂在backup master或者relay server下，则不需要这个步骤；另外，使用GTID可以大大简化这个步骤
-
-前面也提到过，有很多开源的工具可以将这个过程自动化，即由switchover进化为failover。另外，不同的MySQL版本，不同的拓扑结构，不同的工具（主要是master失败检测方式）有不同的成本和效果。需要深入了解和实际测试再做决定(TODO)。一般来说，failover的时间大概在5s～20s。
-
 
 #### MySQL复制拓扑结构
 
-MySQL支持多重拓扑结构，不同的拓扑结构有不同的应用场景。主要有如下几种常见的拓扑结构：
+MySQL支持多重拓扑结构，不同的拓扑结构有不同的应用场景。
+
+首先MySQL Replication中有三种服务器角色：
+
+* Master
+* Slave: 扩展读操作的Slave
+* Relay: 同时扮演master角色的slave称之为中继服务器(Relay)
+
+这些角色常常构成下面几种常见的拓扑结构：
 
 1. Master-Slaves
 	* 一个master下面挂多个只读slaves，最常见的拓扑结构
@@ -205,6 +200,44 @@ MySQL支持多重拓扑结构，不同的拓扑结构有不同的应用场景。
 	* 异步复制的slave可以作为报表/OLAP等类型的查询数据库，或者mysqldump，同时也是一个容灾备份。
 
 
+#### 基于MySQL复制方式的故障failover方案
+
+分为三种情况：
+
+1. Master故障
+2. Slave故障
+3. Relay故障
+
+##### 1. Master故障failover
+
+如果master发生故障，必须迅速替换它以保证整个系统的正常运行。这时候要做的第一件事情就是找一个新的可用的master，将所有的客户端连接到新的master上。同时，slaves虽然还可以提供读服务，但是在没有切换到新的master之前，它们只能提供过时的数据，所以还需要把slave指向新的master。
+
+具体切换步骤如下：
+
+1. (中间件或者监控程序)监控到master挂掉了
+2. 找出一个可用的master替代
+3. 将客户端连接到新的master
+4. 将其他的slave挂到新的master下
+
+具体分析一下：
+
+* 步骤一：(中间件或者监控程序)监控到master挂掉了
+	* 我们需要有一种方式能够监控到Master挂掉了，这需要一个很好的监控系统，至少针对master。
+	* MONyog Ultimate Monitor会是一个不错的选择。
+* 步骤二: 找出一个可用的master替代
+	* 我们需要选举一个最新的slave出来，同时在promote它为新的master之前，要保证relaylog中的所有事务已经被SQL Thread apply。
+	* 如果拓扑结构一开始就已经有backup master，那么会比slave选举简单很多，直接把backup master推举上去就可以了。
+	* 严格意义来说，在切换master之前需要检查一下新master是up to date的，如果不是，要补齐未apply的事务先。使用半同步可以避免这个问题。
+* 步骤三: 将客户端连接到新的master
+	* 我们希望对客户端透明，同时也能够最大的减少不可用时间。
+	* 这里一般是使用VIP的方式，或者引入数据库中间件来达到自动切换的目的。
+* 步骤四: 将其他的slave挂到新的master下。这里一般有两个步骤需要操作：
+	* 把promoted的slave设置为可写。// 如果是dual-master，那么可以省略这个步骤
+	* 其它的slaves切换到新的master进行同步。这里需要重新找到在新master的同步位置 // 如果slaves是挂在backup master或者relay server下，则不需要这个步骤；另外，使用GTID可以大大简化这个步骤
+
+前面也提到过，有很多开源的工具可以将这个过程自动化，即由switchover进化为failover。另外，不同的MySQL版本，不同的拓扑结构，不同的工具（主要是master失败检测方式）有不同的成本和效果。需要深入了解和实际测试再做决定(TODO)。一般来说，failover的时间大概在5s～20s。
+
+
 **TIPS & Recommendations**
 
 * 尽量使用GTID-based Replication，简化部署和failover。
@@ -214,6 +247,14 @@ MySQL支持多重拓扑结构，不同的拓扑结构有不同的应用场景。
 * backup master和slaves都配置成read-only模式，这样可以减少数据冲突的风险。
 * 同步数据包一般都会比较大， 所以记得讲`max_allowed_packet`设置成一个比较大的数值，避免同步错误。
 * 复制链接参数不应该配置在my.cnf中，而是通过命令动态指定。
+
+##### 2. Slave故障failover
+
+由于Slave只是提供读扩展和备份，所以当slave故障之后，要做的事情很简单：检测到slave故障，把它从负载均衡器的池子里删除，恢复后再加回去就可以了。
+
+##### 3. Relay故障failover
+
+对于中继服务器的故障，需要特殊处理。如果它们发生了故障，剩下的slave必须重定向到其他的中继服务器或者master。这里需要考虑一下master的负载问题。
 
 
 ### 2. 基于集群的部署方式 (true Multimaster Cluster based on (virtually) synchronous replication)
