@@ -309,6 +309,12 @@ MySQL Cluster包含以下三种类型的节点:
 * 网络通讯严重，分区容忍性差，容易脑裂。
 * 短板效应，集群的吞吐率取决于最差的节点。
 
+**总结**
+
+MySQL Cluster要实现完全冗余和容错，至少需要4台物理主机，其中两个为管理节点。MySQL Cluster使用并不是那么广泛，除了自身架构因素、使用诸多限制之外，另一个重要的原因是其安
+装配置管理相对复杂繁琐，总共有几十个操作步骤，需要 DBA 花费几个小时才能搭建戒完成。重启 MySQL Cluster 数捤库的管理操作之前需要执行46个手动命令，需要耗费 DBA 2.5 小时的时闱，而依靠 MySQL Cluster Manager 只需要一个命令就可以完成，但 MySQL Cluster Manager 仅作为商用 MySQL Cluster 运营商级版本(CGE)数据库的一部分提供，需要购买。
+所以不推荐使用。
+
 #### 2. [Percona XtraDB Cluster(PXC, uses Galera cluster)](https://www.percona.com/doc/percona-xtradb-cluster/5.6/index.html)
 
 ![Percona-xtradb-cluster](https://www.percona.com/doc/percona-xtradb-cluster/5.6/_images/cluster-diagram1.png)
@@ -437,8 +443,19 @@ MySQL集群管理平台
 	* 具有如下[限制](http://docs.hexnova.com/amoeba/limitations.html)。
 	* 不支持failover(没有backup概念，没有自动拓扑结构调整)
 5. [Cobar](https://github.com/alibaba/cobar/wiki)
+	* 阿里巴巴开源的分布式数据库中间件
+	* 支持分库（不支持分表）
+	* 不支持读写分离
+	* 有主备概念，采用配置的心跳探测语句对后端连接的MySQL进行心跳检测，判断MySQL运行状况，一旦运行出现异常，Cobar可以自动切换到备机工作。如果主机恢复了，需要用户手动切回主机工作，Cobar不会在主机恢复时自动切换回主机，除非备机的心跳也返回异常。
+	* Cobar只检查MySQL主备异常，不关心主备之间的数据同步，因此用户需要在使用Cobar之前在MySQL主备上配置双向同步。
 6. [MyCat](http://mycat.io/)
-7. [TDDL](https://github.com/alibaba/tb_tddl/wiki/TDDL-dynamic-datasource-%E5%85%A5%E9%97%A8%E4%B8%8E%E4%BD%BF%E7%94%A8)
+	* 基于Cobar的二次开发，号称国内最活跃的、性能最好的开源数据库中间件
+	* Cobar支持的都支持；同时做了一些增强（全局自增主键，支持多种数据库，支持分表，支持Galera集群，本身基于ZK做集群实现HA，等）	
+7. [TDDL(Taobao Distributed Data Layer)](https://github.com/alibaba/tb_tddl/wiki/TDDL-dynamic-datasource-%E5%85%A5%E9%97%A8%E4%B8%8E%E4%BD%BF%E7%94%A8)
+	* 淘宝开源的分布式数据库中间件。一个基于集中式配置的jdbc datasource实现，貌似是唯一的Client模式数据库中间件。
+	* 支持数据库主备和动态切换，带权重的读写分离，集中式数据源信息管理和动态变更，等功能。
+	* 依赖diamond配置中心
+	* 复杂度相对较高，当前公布的文档较少，只开源动态数据源，分表分库部分还未开源，还需要依赖diamond，不推荐使用。
 
 单纯的replication failover工具：
 
@@ -449,10 +466,11 @@ MySQL集群管理平台
 
 **NOTES && TIPS**
 
-不同于前面说的专门针对复制拓扑结构的failover工具，像[MMM](http://mysql-mmm.org/doku.php), [MHA](https://code.google.com/p/mysql-master-ha/wiki/Overview), [PRM](https://github.com/percona/percona-pacemaker-agents/blob/master/doc/PRM-setup-guide.rst), [MySQL Fabric](http://dev.mysql.com/doc/mysql-utilities/1.5/en/fabric.html), [Orchestrator](https://www.percona.com/blog/2016/03/08/orchestrator-mysql-replication-topology-manager/), [MariaDB Replication Manager (MRM)](https://github.com/mariadb-corporation/replication-manager)，后者只是做master故障failover（主要是拓扑结构调整），并不提供负载均衡和对应用透明。负载均衡器更关注的是负载均衡和代理。所以在故障failover这块，负载均衡器要显得弱智一些。比如说故障检测，基本上所有的负载均衡器的判断方式都是是——不能查询某个backend server，然后可能有个max_fails和fail_times的参数控制一下，但是本质上就是转发请求失败。但是“连接不上master"退出master挂掉了，这个逻辑还是过于简单。
+1、不同于前面说的专门针对复制拓扑结构的failover工具，像[MMM](http://mysql-mmm.org/doku.php), [MHA](https://code.google.com/p/mysql-master-ha/wiki/Overview), [PRM](https://github.com/percona/percona-pacemaker-agents/blob/master/doc/PRM-setup-guide.rst), [MySQL Fabric](http://dev.mysql.com/doc/mysql-utilities/1.5/en/fabric.html), [Orchestrator](https://www.percona.com/blog/2016/03/08/orchestrator-mysql-replication-topology-manager/), [MariaDB Replication Manager (MRM)](https://github.com/mariadb-corporation/replication-manager)，后者只是做master故障failover（主要是拓扑结构调整），并不提供负载均衡和对应用透明。负载均衡器更关注的是负载均衡和代理。所以在故障failover这块，负载均衡器要显得弱智一些。比如说故障检测，基本上所有的负载均衡器的判断方式都是是——不能查询某个backend server，然后可能有个max_fails和fail_times的参数控制一下，但是本质上就是转发请求失败。但是“连接不上master"退出master挂掉了，这个逻辑还是过于简单。
 
 关于这个可以参考一下Orchestrator作者写的这篇文章 [Thoughts on MaxScale automated failover (and Orchestrator)](http://code.openark.org/blog/mysql/thoughts-on-maxscale-automated-failover-and-orchestrator)，对MaxScale和Orchestrator做了比较详尽的对比，很深入。
 
+2、为了避免代理/中间件单点，一般采用集群部署，前面使用LVS做负载均衡，或者keepalived+VIP浮动功能。
 
 
 参考文章和推荐阅读
@@ -468,4 +486,4 @@ MySQL集群管理平台
 8. [MySQL Replication for High Availability - Tutorial](http://severalnines.com/tutorials/mysql-replication-high-availability-tutorial) 关于MySQL同步最新最详细的介绍，强烈推荐。
 9. [High Availability Database Tools](https://dev.acquia.com/blog/high-availability-database-tools)
 10. [MySQL Server Using InnoDB Compared with MySQL Cluster](http://dev.mysql.com/doc/refman/5.7/en/mysql-cluster-compared.html)
-
+11. [MyCat权威指南](http://mycat.io/document/Mycat_V1.6.0.pdf) 里面有很多HA的介绍。
