@@ -142,7 +142,7 @@ MySQL的HA方案可以在几个层面上做到:
 		* [MySQL Fabric](http://dev.mysql.com/doc/mysql-utilities/1.5/en/fabric.html)
 		* [Orchestrator](https://www.percona.com/blog/2016/03/08/orchestrator-mysql-replication-topology-manager/)
 		* [MariaDB Replication Manager (MRM)](https://github.com/mariadb-corporation/replication-manager) 只支持MariaDB with GTID based replication topologies。
-		* 需要配合使用VIP或者数据库中间件（如PaceMaker, Cobar/MyCat, etc.）对应用保持透明
+		* 需要使用其他工具来进行`IP address takeover`（一般是VIP+KeepAlived或者PaceMaker，或者使用数据库中间件（如Cobar/MyCat, etc.）对应用保持透明
 		* 需要注意这些工具对MySQL版本和配置的要求
 			* MySQL or MariaDB，比如MRM只支持MariaDB；MHA、PRM等不支持 MariaDB GTID based replication topologies, MySQL Fabric要求MySQL 5.6.x+, etc.
 			* Replication methods (statement and row based replication)
@@ -410,7 +410,8 @@ MySQL集群管理平台
 	* [MySQL High Availability with NGINX Plus and Galera Cluster](https://www.nginx.com/blog/mysql-high-availability-with-nginx-plus-and-galera-cluster/)
 	* 开源版最大的问题是不支持高级backend health checks，Github上有一些第三方实现，需要源码编译和充分自测。
 3. [HAProxy](http://severalnines.com/tutorials/mysql-load-balancing-haproxy-tutorial)
-	* 非常类似于Nginx，但是专注于负载均衡。可以监听多个端口，有backup upstream的概念。
+	* 非常类似于Nginx，但是专注于负载均衡。可以监听多个端口，有backup upstream的概念。(不同于Nginx，HAProxy的监控状态是由心跳检测：`check backup`，所以相对靠谱一些）
+	* 可以心跳监控后端server可用性，但是只是简单的端口监控。
 	* [Setup MariaDB Enterprise Cluster, part 3: Setup HA Proxy Load Balancer with Read and Write Pools](https://mariadb.com/blog/setup-mariadb-enterprise-cluster-part-3-setup-ha-proxy-load-balancer-read-and-write-pools)
 
 2、SQL-aware负载均衡器
@@ -453,11 +454,32 @@ MySQL集群管理平台
 	* 依赖diamond配置中心
 	* 复杂度相对较高，当前公布的文档较少，只开源动态数据源，分表分库部分还未开源，还需要依赖diamond，不推荐使用。
 
+
 单纯的replication failover工具：
 
-1. [MySQL Fabric](http://dev.mysql.com/doc/mysql-utilities/1.5/en/fabric.html)
-2. [Orchestrator](https://www.percona.com/blog/2016/03/08/orchestrator-mysql-replication-topology-manager/)
-3. [MariaDB Replication Manager (MRM)](https://github.com/mariadb-corporation/replication-manager) 只支持MariaDB with GTID based replication topologies。
+1. [MMM](http://mysql-mmm.org/doku.php)。HA: 99%
+2. [MHA](https://code.google.com/p/mysql-master-ha/wiki/Overview)。HA: 99.9%
+3. [PRM](https://github.com/percona/percona-pacemaker-agents/blob/master/doc/PRM-setup-guide.rst) 貌似只支持到 MySQL 5.6，不支持最新的MySQL 5.7。
+4. [MySQL Fabric](http://dev.mysql.com/doc/mysql-utilities/1.5/en/fabric.html)
+5. [Orchestrator](https://www.percona.com/blog/2016/03/08/orchestrator-mysql-replication-topology-manager/)
+6. [MariaDB Replication Manager (MRM)](https://github.com/mariadb-corporation/replication-manager) 只支持MariaDB with GTID based replication topologies。
+
+但是前面也提到过，这些工具只是改变MySQL的复制拓扑结构，还需要使用其他工具来进行`IP address takeover`。[High Availability without Pacemaker Workaround](http://www.admin-magazine.com/Archive/2014/21/High-Availability-without-Pacemaker)。常用的IP Address Takeover工具有：
+
+* [Heartbeat](http://linux-ha.org/wiki/Heartbeat): 配合 cluster resource manager (CRM) 可以达到资源切换的目的
+* [Pacemaker](http://clusterlabs.org/): Heartbeat的继承者，使用方式差不多。
+* [Keepalived](http://www.keepalived.org/): 比前两者使用要简单很多，一般用于hot-standby场景。[Configuring Simple Virtual IP Address Failover Using Keepalived](https://docs.oracle.com/cd/E37670_01/E41138/html/section_uxg_lzh_nr.html) 。[支持自定义检查脚本](https://tobrunet.ch/2013/07/keepalived-check-and-notify-scripts/)
+
+另一种做法是使用上面提到的数据库中间件或者Proxy对应用保持透明，如HAProxy，Cobar。
+
+这些replication failover工具一般会允许你调用某个外部脚本做一些实情，比如MHA有个选项可以让你调用一个外部脚本来`inactivate/activate writer IP address`,通过在配置文件中配置`master_ip_failover_script`配置项。
+
+另外还需要特别注意这些工具对MySQL版本和配置的要求：
+
+* MySQL or MariaDB，比如MRM只支持MariaDB；MHA、PRM等不支持 MariaDB GTID based replication topologies, MySQL Fabric要求MySQL 5.6.x+, etc.
+* Replication methods (statement and row based replication)
+* supporting GTID? 
+* etc.
 
 
 **NOTES && TIPS**
