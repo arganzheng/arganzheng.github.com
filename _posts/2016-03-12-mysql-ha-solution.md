@@ -381,10 +381,6 @@ MySQL集群管理平台
 	* supports Percona Server, MySQL and MariaDB and works best with Percona Server and other Percona products.
 
 
-业界HA方案
----------
-
-
 数据库代理/中间件介绍
 ---------------------
 
@@ -473,6 +469,26 @@ MySQL集群管理平台
 2、为了避免代理/中间件单点，一般采用集群部署，前面使用LVS做负载均衡，或者keepalived+VIP浮动功能。
 
 
+业界HA方案
+---------
+
+基本上都是Relication+Sharding方式：
+
+1. Facebook
+	* [MySQL Backup in Facebook](http://cenalulu.github.io/mysql/how-we-do-mysql-backup-in-facebook/)
+2. Twitter
+	* [Another look at MySQL at Twitter and incubating Mysos](https://blog.twitter.com/2015/another-look-at-mysql-at-twitter-and-incubating-mysos)
+3. Pinterest
+	* [Scaling Pinterest - From 0 To 10s Of Billions Of Page Views A Month In Two Years](http://highscalability.com/blog/2013/4/15/scaling-pinterest-from-0-to-10s-of-billions-of-page-views-a.html)
+4. Flickr: 跟Pinterest一样，sharding
+5. 淘宝：从TDDL可以看出他们现在还是使用Replication + Sharding方式
+6. 美图：Replication+ Sharding方式
+
+未来的MySQL：
+
+* [WebScaleSQL](http://webscalesql.org/)
+
+
 参考文章和推荐阅读
 ----------------
 
@@ -487,3 +503,4 @@ MySQL集群管理平台
 9. [High Availability Database Tools](https://dev.acquia.com/blog/high-availability-database-tools)
 10. [MySQL Server Using InnoDB Compared with MySQL Cluster](http://dev.mysql.com/doc/refman/5.7/en/mysql-cluster-compared.html)
 11. [MyCat权威指南](http://mycat.io/document/Mycat_V1.6.0.pdf) 里面有很多HA的介绍。
+12. [MySQL Reference Architectures for Massively Scalable Web Infrastructure](http://www.oracle.com/us/products/mysql/wp-high-availability-webrefarchs-362556.pdf)
