@@ -387,9 +387,9 @@ MySQL集群管理平台
 一般来说，我们引入数据库代理/中间件，来解决下面几个问题：
 
 1. 透明：屏蔽底层复杂的部署情况(分库分表, 复制拓扑结构, 集群, etc.)，提供单一服务访问和抽象；增加减少机器不需要修改上层应用
-2. 连接池
-3. 负载均衡 (load balancing and fault tolerance) & 读写分离
-4. failover：后端服务监控，摘除或者切换
+2. 负载均衡 (load balancing and fault tolerance) & 读写分离
+3. failover：后端服务监控，摘除或者切换
+4. 连接池
 
 这些中间件一般有两种部署(实现)模式：
 
@@ -401,10 +401,9 @@ MySQL集群管理平台
 
 1、通用负载均衡器:
 
-1. VIP + [keepalived](http://www.keepalived.org/)
+1. [LVS](http://www.linuxvirtualserver.org/) + [keepalived](http://www.keepalived.org/)
 	* Keepalived is open-source routing software that provides load-balancing via LVS (Linux Virtual Server) and high-availability via VRRP (Virtual Router Redundancy Protocol).
 	* [Multi-Master MySQL With Percona And Keepalived](https://www.atlantic.net/community/howto/multi-master-mysql-percona-keepalived/)
-	* 用keepalived实现虚拟IP，通过keepalived自带的服务监控功能来实现MySQL故障时自动切换(VIP漂移)。
 2. [nginx 1.9+ (--with-stream)](https://www.nginx.com/blog/tcp-load-balancing-with-nginx-1-9-0-and-nginx-plus-r6/)
 	* 本质上是一个反向代理服务器(静态资源服务器)，可用于后端负载均衡(HTTP/TCP)
 	* [MySQL High Availability with NGINX Plus and Galera Cluster](https://www.nginx.com/blog/mysql-high-availability-with-nginx-plus-and-galera-cluster/)
@@ -466,9 +465,15 @@ MySQL集群管理平台
 
 但是前面也提到过，这些工具只是改变MySQL的复制拓扑结构，还需要使用其他工具来进行`IP address takeover`。[High Availability without Pacemaker Workaround](http://www.admin-magazine.com/Archive/2014/21/High-Availability-without-Pacemaker)。常用的IP Address Takeover工具有：
 
-* [Heartbeat](http://linux-ha.org/wiki/Heartbeat): 配合 cluster resource manager (CRM) 可以达到资源切换的目的
-* [Pacemaker](http://clusterlabs.org/): Heartbeat的继承者，使用方式差不多。
-* [Keepalived](http://www.keepalived.org/): 比前两者使用要简单很多，一般用于hot-standby场景。[Configuring Simple Virtual IP Address Failover Using Keepalived](https://docs.oracle.com/cd/E37670_01/E41138/html/section_uxg_lzh_nr.html) 。[支持自定义检查脚本](https://tobrunet.ch/2013/07/keepalived-check-and-notify-scripts/)
+* [Heartbeat](http://linux-ha.org/wiki/Heartbeat) + Cluster Resource Manager(CRM)
+* [Corosync](http://corosync.github.io/corosync/) + [Pacemaker](http://clusterlabs.org/)
+	* Heartbeat的继承者，使用方式都差不多。
+	* [How To Create a High Availability Setup with Corosync, Pacemaker, and Floating IPs on Ubuntu 14.04](https://www.digitalocean.com/community/tutorials/how-to-create-a-high-availability-setup-with-corosync-pacemaker-and-floating-ips-on-ubuntu-14-04)
+* [Keepalived](http://www.keepalived.org/) + VIP/[VRRP](https://tools.ietf.org/html/rfc2338)
+	* VRRP协议的开源实现。比前两者使用要简单很多，一般用于hot-standby场景。但是因为没有引入CRM工具，所以不大适合做一些比较负责的资源处理。
+	* [Configuring Simple Virtual IP Address Failover Using Keepalived](https://docs.oracle.com/cd/E37670_01/E41138/html/section_uxg_lzh_nr.html)
+	* [支持自定义检查脚本](https://tobrunet.ch/2013/07/keepalived-check-and-notify-scripts/)
+	* [High Availability Support Based on keepalived](https://www.nginx.com/resources/admin-guide/nginx-ha-keepalived/) 挺详细的一篇文章
 
 另一种做法是使用上面提到的数据库中间件或者Proxy对应用保持透明，如HAProxy，Cobar。
 
@@ -488,7 +493,7 @@ MySQL集群管理平台
 
 关于这个可以参考一下Orchestrator作者写的这篇文章 [Thoughts on MaxScale automated failover (and Orchestrator)](http://code.openark.org/blog/mysql/thoughts-on-maxscale-automated-failover-and-orchestrator)，对MaxScale和Orchestrator做了比较详尽的对比，很深入。
 
-2、为了避免代理/中间件单点，一般采用集群部署，前面使用LVS做负载均衡，或者keepalived+VIP浮动功能。
+2、为了避免代理/中间件单点，一般采用集群部署，前面使用 VIP+ LVS 做负载均衡，或者 keepalived + VIP浮动功能。其实相当于解决了一个比较复杂的HA问题（有状态的HA），同时引入了一个相对简单的HA问题（无状态的HA问题），哈哈。。。
 
 
 业界HA方案
@@ -526,3 +531,4 @@ MySQL集群管理平台
 10. [MySQL Server Using InnoDB Compared with MySQL Cluster](http://dev.mysql.com/doc/refman/5.7/en/mysql-cluster-compared.html)
 11. [MyCat权威指南](http://mycat.io/document/Mycat_V1.6.0.pdf) 里面有很多HA的介绍。
 12. [MySQL Reference Architectures for Massively Scalable Web Infrastructure](http://www.oracle.com/us/products/mysql/wp-high-availability-webrefarchs-362556.pdf)
+13. [MYSQL + MHA +keepalive + VIP安装配置(三)--keepalived安装配置](http://www.cnblogs.com/yuanermen/p/3735263.html)
