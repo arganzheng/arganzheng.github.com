@@ -6,7 +6,7 @@ layout: post
 
 私有仓库，也称之为私服，它是一种特殊的远程仓库。它是架设在局域网内的仓库服务，私服代理广域网上的远程仓库，供局域网内的maven用户使用。当Maven需要下载构建的时候，它从私服请求，如果私服不存在该构件，则会从外部的远程仓库下载，缓存在私服上之后，再为maven的下载请求提供服务。此外，一些无法从远程仓库下载到的构件也能从本地上传到私服上供大家使用。
 
-![私服的用途](media/images/maven-private-repository.jpg)
+![私服的用途](/media/images/maven-private-repository.jpg)
 
 
 通过建立自己的私服，就可以带来如下几个好处：
@@ -203,9 +203,15 @@ Maven还支持其他高级的镜像配置：
 
 * <mirrorOf>*</mirrorOf>
 * <mirrorOf>external:*</mirrorOf>匹配所有不在本机上的远程仓库
-* <mirrorOf> repo1,repo2</mirrorOf>匹配仓库repo1,repo2
-* <mirrorOf> *,!repo2</mirrorOf>匹配所有仓库，repo2除外
+* <mirrorOf>repo1,repo2</mirrorOf>匹配仓库repo1,repo2
+* <mirrorOf>*,!repo2</mirrorOf>匹配所有仓库，repo2除外
 
 需要注意的是，由于镜像仓库完全屏蔽掉被镜像仓库，当镜像仓库不稳定或者停止服务的时候， Maven仍将无法访问被镜像仓库，因而无法下载构件。
+
+参考文章
+-------
+
+1. Maven实战，作者：徐晓斌
+
 
 

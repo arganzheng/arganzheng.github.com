@@ -532,3 +532,4 @@ MySQL集群管理平台
 11. [MyCat权威指南](http://mycat.io/document/Mycat_V1.6.0.pdf) 里面有很多HA的介绍。
 12. [MySQL Reference Architectures for Massively Scalable Web Infrastructure](http://www.oracle.com/us/products/mysql/wp-high-availability-webrefarchs-362556.pdf)
 13. [MYSQL + MHA +keepalive + VIP安装配置(三)--keepalived安装配置](http://www.cnblogs.com/yuanermen/p/3735263.html)
+14. [Using GTID-based Replication for MySQL High Availability](http://technocation.org/files/doc/GTID_based_replication_for_MySQL_High_Availability_0570.pdf) 图文并茂，通俗易懂，深入浅出，强烈推荐！
