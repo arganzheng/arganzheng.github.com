@@ -282,6 +282,12 @@ layout: post
 
 使用还是蛮简单的，这里不赘述。但是由于整个percona-toolkit都是用perl写的，而且依赖了几个perl模块，然后perl的模块依赖安装还是非常麻烦的。。所以可能需要折腾一会。关于perl的模块安装可以参考笔者以前写的一篇文章: [如何安装perl模块](http://blog.arganzheng.me/posts/2010-06-28-how-to-install-perl-module.md)。
 
+如果你用centos系统，那么可以直接用yum安装perl模块：
+
+    yum -y install perl-Time-HiRes
+    yum -y install perl-DBI
+    yum -y install perl-DBD-MySQL
+
 SQL线程的时延比较常见，但是也不是很好处理。一般来说在于SQL的执行效率问题。建议是开启[log_slow_slave_statements](http://dev.mysql.com/doc/refman/5.6/en/replication-options-slave.html#sysvar_log_slow_slave_statements)，这样，在Slave上apply的SQL也有慢速SQL日志查看和定位。另外，提高Slave的内存，增加SQL线程数都是不错的优化方案。
 
 具体可以参考这几篇相关文章：[Reasons for MySQL Replication Lag](https://www.percona.com/blog/2011/07/29/reasons-for-mysql-replication-lag/)、[Managing Slave Lag with MySQL Replication](https://www.percona.com/blog/2007/10/12/managing-slave-lag-with-mysql-replication/)和[Fighting MySQL Replication Lag](https://www.percona.com/blog/2007/10/12/managing-slave-lag-with-mysql-replication/)。
