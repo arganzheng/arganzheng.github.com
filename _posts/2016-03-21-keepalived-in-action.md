@@ -707,7 +707,97 @@ Keepalived的loadbalancing是通过配置一个virtual_server来实现的，跟H
 总结
 ----
 
-不像HAProxy等LB，本身引入了单点问题，keepalived天然就是分布式的，通过组播或者单播进行集群通讯，通过VRRP+VIP实现HA，通过LVS+VIP实现LB，整个配置非常简单，切换非常快速。可能唯一的缺点就是对运行环境有要求，需要root权限，必须在同一个网段。
+不像HAProxy等LB，本身引入了单点问题，keepalived天然就是分布式的，通过组播或者单播进行集群通讯，通过VRRP+VIP实现HA，通过LVS+VIP实现LB，整个配置非常简单，切换非常快速。可能唯一的缺点就是对运行环境有要求，需要root权限，而且必须在同一个网段。
+
+
+### 补充：跨网段使用Keealived 
+
+使用Keepalived做VIP failover要求VIP和后端RIPs必须在同一个网段，比如我们上面的例子：
+
+	VIP: 10.244.81.8/25
+	MASTER: 10.244.81.25/25
+	BACKUP: 10.244.81.24/25
+
+VIP和RIPs都是在同一个子网中。
+
+但是有时候MASTER和BACKUP可能就不在一个网段，比如出于容灾的需要，MASTER和BACKUP位于不同的机架，这时候他们就不会处于同一个子网中。那么这种情况下，怎样使用Keepalived做VIP failover呢？
+
+首先，使用VRRP默认的组播方式肯定是不行的，这样是通知不到对方，会导致MASTER和BACKUP都认为自己是master，导致两边都抢占了VIP，有点类似于闹裂现象。
+
+改成单播可以解决这个问题：
+
+MASTER:
+
+	vrrp_instance VI_MYSQL {  
+
+		interface xgbe0			# Specify the network interface to which the virtual address is assigned
+
+		state BACKUP            # both backup to make nopreempt works
+
+		priority 101           	# 101 on master, 100 on backup
+
+		nopreempt               # Don't fail back
+
+		mcast_src_ip 10.244.81.25
+		unicast_peer {
+			10.242.110.46
+		}
+
+		virtual_router_id 51 	# Needs to be the same on both instances, 
+								# and needs to be unique if using multicast, does not matter with unicast
+
+		authentication {
+	       	auth_type PASS
+	        auth_pass 10086
+	    }
+
+		virtual_ipaddress {  	# The VIP that keepalived will monitor
+			10.244.81.8/25  dev xgbe0
+		}
+
+		track_script {
+			check_mysql
+		}
+	}
+
+BACKUP:
+
+	vrrp_instance VI_MYSQL {  
+
+		interface xgbe0			# Specify the network interface to which the virtual address is assigned
+
+		state BACKUP            # both backup to make nopreempt works
+
+		priority 100           	# 101 on master, 100 on backup
+
+		nopreempt               # Don't fail back
+
+		mcast_src_ip 10.242.110.46
+		unicast_peer {
+			10.244.81.25
+		}
+
+		virtual_router_id 51 	# Needs to be the same on both instances, 
+								# and needs to be unique if using multicast, does not matter with unicast
+
+		authentication {
+	       	auth_type PASS
+	        auth_pass 10086
+	    }
+
+		virtual_ipaddress {  	# The VIP that keepalived will monitor
+			10.244.81.8/25  dev xgbe0
+		}
+
+		track_script {
+			check_mysql
+		}
+	}
+
+
+实验证明单播确实可以实现VIP的漂移。但是关键在于VIP只能跟其中一个RS在同个网段，上面的例子中VIP就跟MASTER在同一个网段，但是跟BACKUP就不是同一个网段。结果就是导致如果BACKUP抢占到了VIP，但是这个VIP对外是无法访问的！也就是ping不通。网上说是要修改路由表之类的，反正会很麻烦：[节省公网ip keepalived 另类用法](http://dngood.blog.51cto.com/446195/870821)。
+
+但是呢？公司的BGW是支持跨网段负载均衡的，所以理论上结合LVS肯定是可以做到的，具体有待后面研究了。
 
 
 参考文章
@@ -717,5 +807,5 @@ Keepalived的loadbalancing是通过配置一个virtual_server来实现的，跟H
 2. [Keepalived using unicast, track and notify scripts](http://kaivanov.blogspot.com/2015/02/keepalived-using-unicast-track-and.html) 
 3. [17.6 Configuring Simple Virtual IP Address Failover Using Keepalived](https://docs.oracle.com/cd/E37670_01/E41138/html/section_uxg_lzh_nr.html)
 4. [Kamailio High Availability Done Right with Keepalived](http://blog.unicsolution.com/2015/01/kamailio-high-availability-with.html)
-5. [](http://prefetch.net/articles/linuxkeepalivedvrrp.html) 非常通俗易懂的一篇介绍文章。
-
+5. [Deploying Highly Available Virtual Interfaces With Keepalived](http://prefetch.net/articles/linuxkeepalivedvrrp.html) 非常通俗易懂的一篇介绍文章。
+6. [Linux Virtual Server Tutorial](http://www.ultramonkey.org/papers/lvs_tutorial/html/)

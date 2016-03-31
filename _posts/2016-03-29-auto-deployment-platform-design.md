@@ -97,7 +97,7 @@ layout: post
 	nohup bin/start_production.sh &
 	echo "start up!"
 
-**NOTES**
+**NOTES && TIPS**
 
 需要注意的是shell的执行错误并不会影响job的执行结果。所以脚本中要多echo一些有用的信息，同时要进入Cosole Output中查看。
 
@@ -131,7 +131,7 @@ layout: post
 	/home/work/apps/mobopay/user
 	Finished: SUCCESS `Building remotely on web03 (production) in workspace /home/work/jenkins/workspace/user-impl
 
-成功了，但是同时也发现一个问题：Jenkins并不是在所有`label=production`的节点上执行构建任务，而是随机挑选了一台！仔细一想当然是合理的，毕竟人家的初衷就是slave作为构建集群，并不是发布集群。
+看起来是成功了。但是从日志很容易看出问题：Jenkins并不是在所有`label=production`的节点上执行构建任务，而是随机挑选了一台！仔细一想当然是合理的，毕竟人家的初衷就是slave作为构建集群，并不是发布集群。
 
 看来在Jenkins上搞自动化部署，比较靠谱的做法是"一次构建，多次发布"。这其实并不难，只需要把我们jar包scp过去，然后远程执行脚本就可以了。当然，最好有插件可以支持像label一样的选择机器发布，而不是写死在脚本中。
 
@@ -215,13 +215,15 @@ layout: post
 	nohup: failed to run command `bin/start_production.sh': No such file or directory
 	Finished: SUCCESS
 
-效果还不错！但是有两个问题：
+效果还不错！但是有三个问题：
 
 1、Slave的workspace构建jar包路径跟master不一样：
 
 	[INFO] Installing /home/work/jenkins/workspace/user-impl-production/label/web03/target/user-impl.jar to /home/work/.m2/repository/com/baidu/mobojoy/mobopay/remote/user/user-impl/1.0.0-SNAPSHOT/user-impl-1.0.0-SNAPSHOT.jar
 
 看到路径中居然还有label信息。。这意味着脚本要不修改，要不就就不要使用workspace路径，直接使用maven本地仓库路径（但是需要注意的是仓库中的构建是带SNAPSHOT的，而且我们的bin目录并不会跟着install过去。。）。
+
+不过我想Jenkins作为这么通用的开放框架，应该有环境变量，谷歌了一下，果然在每次构建的时候Jenkins会设置$WORKSPACE环境变量：[Environtment variables for jenkins when script running](http://blog.tmtk.net/post/2012-11-19-environtment_variables_for_jenkins_when_script_running/)。整个世界一下子清静很多～
 
 2、脚本构建出错，在Master最终状态或者日志都是显示成功：
 
@@ -248,16 +250,31 @@ layout: post
 	Build step 'Execute shell' marked build as failure
 	Finished: FAILURE
 
+OK，不管是从slave的日志或者从管理界面都可以看到失败的slave构建。
 
-最终的deploy脚本如下：
+3、第三个问题，也是他妈最蛋疼的问题：就是Jenkins会在构建结束之后把它创建的所有进程都干掉！！！所以对于通过Jenkins Execute Shell调起的需要长时间运行的外部任务，即使使用nohup或者&放在后台运行，也一样会被kill掉！！结果就是我们的应用一直没有起来！谷歌了很久（关键词很重要：jenkins shell script background），终于发现解决方案：[Spawning processes from build](https://wiki.jenkins-ci.org/display/JENKINS/Spawning+processes+from+build):
+
+> Note that this will set the BUILD_ID environment variable for the process being spawned to something other than the current BUILD_ID. Or you can start jenkins with `-Dhudson.util.ProcessTree.disable=true` - see [ProcessTreeKiller](https://wiki.jenkins-ci.org/display/JENKINS/ProcessTreeKiller) for details.
+
+也就是说我们要不在启动Jenkins的时候指定不要kill创建的子进程：
+	
+	java -Dhudson.util.ProcessTree.disable=true -jar jenkins.war
+
+要不在脚本中通过把BUILD_ID环境变量设置成一个与父进程不一样的数值来让Jenkins无法kill掉它：
+
+	BUILD_ID=dontKillMe /usr/apache/bin/httpd
+
+综上，最终的deploy脚本如下：
 
 	#!/bin/sh
 
-	APP_DIR="/home/work/apps/mobopay/user"
-	JENKINS_WORKSPACE="/home/work/jenkins/workspace"
+	BUILD_ID=dontKillMe
 
-	APP_JAR="${JENKINS_WORKSPACE}/user-impl-production/label/web*/target/user-impl.jar"
-	APP_BIN="${JENKINS_WORKSPACE}/user-impl-production/label/web*/bin/start_production.sh"
+	APP_DIR="/home/work/apps/mobopay/user"
+	JENKINS_WORKSPACE=$WORKSPACE
+
+	APP_JAR="${JENKINS_WORKSPACE}/target/user-impl.jar"
+	APP_BIN="${JENKINS_WORKSPACE}/bin/start_production.sh"
 
 	## 1. backup and copy
 	[ -d $APP_DIR ] || mkdir -p $APP_DIR
@@ -291,7 +308,7 @@ layout: post
 	fi
 
 	## 2. shutdown old running service
-	APP_PARAMS="/home/work/apps/mobopay/user/target/user-impl.jar"
+	APP_PARAMS="${APP_DIR}/target/user-impl.jar"
 	APP_PID=`ps aux | grep java| grep "$APP_PARAMS" | grep -v grep | awk '{ print $2}'`
 
 	for i in $APP_PID; do
@@ -300,9 +317,71 @@ layout: post
 	done
 
 	## 3. startup the newly deploy service
-	echo "Start uping..."
+	echo "Starting up with nohup bin/start_production.sh & ..."
 	nohup bin/start_production.sh &
 	echo "Start up success!"
+
+其中start_production.sh脚本如下：
+
+	#!/bin/bash
+
+	# determine base directory; preserve where you're running from
+	#echo "Path to $(basename $0) is $(readlink -f $0)"
+	realpath=$(readlink -f "$0")
+	filepath=$(dirname "$realpath")
+	basedir=${filepath%/*}
+
+	LOG_DIR=${basedir}/logs
+	mkdir -p ${LOG_DIR}
+	GC_LOG_DIR=${basedir}/logs/gc
+	mkdir -p ${GC_LOG_DIR}
+	GC_FILE_PATH="${GC_LOG_DIR}/gc-$(date +%s).log"
+
+	echo $basedir
+
+	JAVA_OPTS="-Dspring.profiles.active=production -Dlogback.configurationFile=logback-production.xml -DLOG_DIR=${LOG_DIR}"
+	JAVA_OPTS="$JAVA_OPTS -server -Xmn256M -Xms1024M -Xmx1024M -Djava.net.preferIPv4Stack=true -Djava.awt.headless=true -Dorg.apache.catalina.connector.RECYCLE_FACADES=false -Djava.util.Arrays.useLegacyMergeSort=true -XX:MetaspaceSize=64M -XX:MaxMetaspaceSize=256M -XX:+UseConcMarkSweepGC -XX:+UseParNewGC -XX:+CMSParallelRemarkEnabled -XX:+UseCMSCompactAtFullCollection -XX:CMSFullGCsBeforeCompaction=1 -XX:+CMSClassUnloadingEnabled -XX:+UseFastAccessorMethods -XX:+UseCMSInitiatingOccupancyOnly  -XX:SurvivorRatio=65536 -XX:MaxTenuringThreshold=0 -XX:CMSInitiatingOccupancyFraction=80 -XX:SoftRefLRUPolicyMSPerMB=0 -XX:+PrintGCDetails -XX:+PrintGCTimeStamps -verbose:gc -Xloggc:${GC_FILE_PATH} -XX:+UseGCLogFileRotation -XX:NumberOfGCLogFiles=10 -XX:GCLogFileSize=100M -XX:+HeapDumpOnOutOfMemoryError"
+	#JAVA_OPTS="${JAVA_OPTS} -Xdebug -Xrunjdwp:server=y,transport=dt_socket,address=8000,suspend=n" 
+	echo $JAVA_OPTS
+
+	java $JAVA_OPTS -jar ${basedir}/target/user-impl.jar
+
+兴高采烈的运行，发现还是不行。。妹，但是发现如果把start_production.sh的脚本内容跟deploy脚本合并成一个就成功了。。也就是说`BUILD_ID=dontKillMe java $JAVA_OPTS -jar ${basedir}/target/user-impl.jar &`就生效，但是`BUILD_ID=dontKillMe nohup bin/start_production.sh`就没有用。。把`BUILD_ID=dontKillMe`放在start_production.sh中也不行。。哭死。。
+
+经过一个下午的试验和谷歌，终于发现了一个解决方案：[Nohup doesn't work when executing script from Jenkins](http://superuser.com/questions/922841/nohup-doesnt-work-when-executing-script-from-jenkins)。
+
+实验证明，一定要把start_production.sh的stdout输出重定向到/dev/null，否则就会启动不了。也就是说我们的脚本要改成：
+
+	nohup bin/start_production.sh >/dev/null &
+
+这样就可以了：
+
+	Started by upstream project "user-impl-production" build number 23
+	originally caused by:
+	 Started by user anonymous
+	Building remotely on web02 (production) in workspace /home/work/jenkins/workspace/user-impl-production/label/web02
+	Updating https://svn.baidu.com/app/gensoft/mobopay/trunk/backend/mobopay/remote/user/user-impl at revision '2016-03-31T20:55:45.084 +0800'
+	At revision 2044
+	no change for https://svn.baidu.com/app/gensoft/mobopay/trunk/backend/mobopay/remote/user/user-impl since the previous build
+	
+	...
+
+	[web02] $ /bin/sh /tmp/hudson7126890291497807782.sh
+	start backup...
+	cp jar and bin to target...
+	cp /home/work/jenkins/workspace/user-impl-production/label/web02/target/user-impl.jar to /home/work/apps/mobopay/user/target success
+	cp /home/work/jenkins/workspace/user-impl-production/label/web02/bin/start_production.sh /home/work/apps/mobopay/user/bin success
+	Starting up with nohup bin/start_production.sh & ...
+	Start up success!
+	Java HotSpot(TM) 64-Bit Server VM warning: UseCMSCompactAtFullCollection is deprecated and will likely be removed in a future release.
+	Java HotSpot(TM) 64-Bit Server VM warning: CMSFullGCsBeforeCompaction is deprecated and will likely be removed in a future release.
+	Finished: SUCCESS
+
+可以看到stderr输出是没有关系的，不过我们也可以把它屏蔽掉：
+
+	nohup bin/start_production.sh >/dev/null 2>&1 &
+
+至此，终于完全搞定，肉留满面啊，感觉还是自己写一个自动发布平台简单一些。。
 
 
 **TIPS** 
@@ -392,6 +471,88 @@ layout: post
 但是jenkins毕竟是一个持续构建工具，不是部署工具，要实现自动部署还需要编写shell脚本。另外，每个job都是要走 svn/git checkout => maven构建 的步骤，一个是没必要的构建，另一个是如果不小心提交了新的代码也会被构建部署上线（当然，我们可以通过RELEASE分支避免，但是这样子的话，每次发布都需要修改jenkins任务）。
 
 个人感觉还是将构建和部署分开比较合理。
+
+
+---
+
+
+其他方式讨论
+----------
+
+### 1. 使用[Node and Label parameter plugin](https://wiki.jenkins-ci.org/display/JENKINS/NodeLabel+Parameter+Plugin)插件
+
+[Node and Label parameter plugin](https://wiki.jenkins-ci.org/display/JENKINS/NodeLabel+Parameter+Plugin): This plugin adds two new parameter types to job configuration - node and label, this allows to dynamically select the node where a job/project should be executed.
+
+跟前面一样，需要先配置好多个Node节点。但是跟前面不一样的是，不需要创建Multi-Configuration project，安装好Node and Label parameter插件后，勾选`This build is parameterized`选项之后，Add Paramter下拉框中会增加Label和Node两个parameter选项。
+
+勾选：Allow multi node selection for concurrent builds
+
+注意同时勾选`Execute concurrent builds if necessary`，否则会提示错误："Execute concurrent builds" and "Allow multi node selection for concurrent builds" only make sense together!
+
+然后会发现Build Now变成了Build with Parameters，点击之后会先进入到parameters选择页面，也就是节点选择。因为我们允许多个节点同时构建，所以下拉框支持多选。选择你需要的构建的节点，点击Build就可以了。
+
+	Started by user anonymous
+	Building remotely on web01 (production) in workspace /home/work/jenkins/workspace/user-impl
+	Updating https://svn.baidu.com/app/gensoft/mobopay/trunk/backend/mobopay/remote/user/user-impl at revision '2016-03-30T18:02:38.977 +0800'
+	At revision 1996
+	no change for https://svn.baidu.com/app/gensoft/mobopay/trunk/backend/mobopay/remote/user/user-impl since the previous build
+	Next nodes: [web02, web03]
+	Schedule build on node web02
+	Schedule build on node web03
+	[user-impl] $ /home/work/jenkins/tools/hudson.tasks.Maven_MavenInstallation/system/bin/mvn -D=web01 clean install -Dmaven.test.skip
+	[INFO] Scanning for projects...
+	[INFO]                                                                         
+	[INFO] ------------------------------------------------------------------------
+	[INFO] Building user-impl 1.0.0-SNAPSHOT
+	[INFO] ------------------------------------------------------------------------
+	[INFO] 
+	[INFO] --- maven-clean-plugin:2.5:clean (default-clean) @ user-impl ---
+	[INFO] Deleting /home/work/jenkins/workspace/user-impl/target
+	[INFO] 
+	[INFO] --- maven-resources-plugin:2.6:resources (default-resources) @ user-impl ---
+	[INFO] Using 'UTF-8' encoding to copy filtered resources.
+	[INFO] Copying 1 resource
+	[INFO] Copying 7 resources
+	[INFO] 
+	[INFO] --- maven-compiler-plugin:3.1:compile (default-compile) @ user-impl ---
+	[INFO] Changes detected - recompiling the module!
+	[INFO] Compiling 2 source files to /home/work/jenkins/workspace/user-impl/target/classes
+	[INFO] 
+	[INFO] --- maven-resources-plugin:2.6:testResources (default-testResources) @ user-impl ---
+	[INFO] Not copying test resources
+	[INFO] 
+	[INFO] --- maven-compiler-plugin:3.1:testCompile (default-testCompile) @ user-impl ---
+	[INFO] Not compiling test sources
+	[INFO] 
+	[INFO] --- maven-surefire-plugin:2.18.1:test (default-test) @ user-impl ---
+	[INFO] Tests are skipped.
+	[INFO] 
+	[INFO] --- maven-jar-plugin:2.5:jar (default-jar) @ user-impl ---
+	[INFO] Building jar: /home/work/jenkins/workspace/user-impl/target/user-impl.jar
+	[INFO] 
+	[INFO] --- spring-boot-maven-plugin:1.3.2.RELEASE:repackage (default) @ user-impl ---
+	[INFO] 
+	[INFO] --- maven-install-plugin:2.5.2:install (default-install) @ user-impl ---
+	[INFO] Installing /home/work/jenkins/workspace/user-impl/target/user-impl.jar to /home/work/.m2/repository/com/baidu/mobojoy/mobopay/remote/user/user-impl/1.0.0-SNAPSHOT/user-impl-1.0.0-SNAPSHOT.jar
+	[INFO] Installing /home/work/jenkins/workspace/user-impl/pom.xml to /home/work/.m2/repository/com/baidu/mobojoy/mobopay/remote/user/user-impl/1.0.0-SNAPSHOT/user-impl-1.0.0-SNAPSHOT.pom
+	[INFO] ------------------------------------------------------------------------
+	[INFO] BUILD SUCCESS
+	[INFO] ------------------------------------------------------------------------
+	[INFO] Total time: 2.859 s
+	[INFO] Finished at: 2016-03-30T18:02:45+08:00
+	[INFO] Final Memory: 39M/1477M
+	[INFO] ------------------------------------------------------------------------
+	[user-impl] $ /bin/sh /tmp/hudson7869689904044983757.sh
+	start backup...
+	cp jar and bin to target...
+	cp /home/work/jenkins/workspace/user-impl/target/user-impl.jar to /home/work/apps/mobopay/user/target success
+	cp /home/work/jenkins/workspace/user-impl/bin/start_test.sh /home/work/apps/mobopay/user/bin success
+	Start uping...
+	Start up success!
+	/home/work/apps/mobopay/user
+	Finished: SUCCESS
+
+但是看不到其他节点的日志输出，不知道是否构建成功。效果上不如第一种方法。
 
 
 参考文章
