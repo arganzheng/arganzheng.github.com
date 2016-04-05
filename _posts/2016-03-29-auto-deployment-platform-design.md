@@ -273,7 +273,8 @@ OK，不管是从slave的日志或者从管理界面都可以看到失败的slav
 	APP_DIR="/home/work/apps/mobopay/user"
 	JENKINS_WORKSPACE=$WORKSPACE
 
-	APP_JAR="${JENKINS_WORKSPACE}/target/user-impl.jar"
+	APP_JAR_NAME="user-impl.jar"
+	APP_JAR="${JENKINS_WORKSPACE}/target/${APP_JAR_NAME}"
 	APP_BIN="${JENKINS_WORKSPACE}/bin/start_production.sh"
 
 	## 1. backup and copy
@@ -284,9 +285,10 @@ OK，不管是从slave的日志或者从管理界面都可以看到失败的slav
 	[ -d target ] || mkdir target
 	[ -d bin ] || mkdir bin
 
-	if [ -f target/user-impl.jar ]; then
+	if [ -f target/${APP_JAR_NAME} ]; then
 		echo "start backup..." 
-		mv target/user-impl.jar target/user-impl.jar.bak
+		timestamp=`date +%Y%m%d%H%M%S`
+		mv target/${APP_JAR_NAME} target/${timestamp}-${APP_JAR_NAME}
 	fi
 
 	echo "cp jar and bin to target..."
@@ -308,7 +310,7 @@ OK，不管是从slave的日志或者从管理界面都可以看到失败的slav
 	fi
 
 	## 2. shutdown old running service
-	APP_PARAMS="${APP_DIR}/target/user-impl.jar"
+	APP_PARAMS="target/${APP_JAR_NAME}"
 	APP_PID=`ps aux | grep java| grep "$APP_PARAMS" | grep -v grep | awk '{ print $2}'`
 
 	for i in $APP_PID; do
@@ -320,6 +322,7 @@ OK，不管是从slave的日志或者从管理界面都可以看到失败的slav
 	echo "Starting up with nohup bin/start_production.sh & ..."
 	nohup bin/start_production.sh &
 	echo "Start up success!"
+
 
 其中start_production.sh脚本如下：
 
