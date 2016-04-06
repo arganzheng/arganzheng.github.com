@@ -10,16 +10,16 @@ log4j可以的DailyRollingFileAppender可以实现日志按天归档，避免日
 写一个脚本: nginx_log_split.sh
 
 	#!/bin/bash
-
-	cd /home/work/nginx
-	log_dir="/home/work/nginx/logs"
+	
+	nginx_dir="/home/soft/resty/nginx"
+	cd $nginx_dir
+	log_dir="${nginx_dir}/logs"
 	time=`date +%Y%m%d`
-	nginx_dir="/home/work/nginx"
-
-	for logfile in `ls -l $log_dir |  grep -v "^d" | awk '{print $9}' | grep ".log$" | grep -v "[_-]\{1\}[0-9]\{8\}.log"` ;do
-		mv $log_dir/$logfile $log_dir/${logfile%.*}_$time.log
+	
+	for logfile in `ls -l $log_dir | grep -v "^d" | awk '{print $9}' | grep ".log$" | grep -v "[_-]\{1\}[0-9]\{8\}.log" | grep -v "[_-]\{1\}[0-9]\{10\}.log"` ;do
+	  mv $log_dir/$logfile $log_dir/${logfile%.*}_$time.log
 	done;
-
+	
 	$nginx_dir/sbin/nginx -s reload
 
 **NOTE**
