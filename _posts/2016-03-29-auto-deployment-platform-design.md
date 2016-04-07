@@ -320,8 +320,27 @@ OK，不管是从slave的日志或者从管理界面都可以看到失败的slav
 
 	## 3. startup the newly deploy service
 	echo "Starting up with nohup bin/start_production.sh & ..."
-	nohup bin/start_production.sh &
-	echo "Start up success!"
+	nohup bin/start_production.sh >/dev/null 2>&1 &
+	
+	# wait for app start up
+	for i in 2 4 6 10; do
+		sleep $i
+		echo "wait and check $APP_JAR_NAME starting up..."
+		APP_PID=`ps aux | grep java| grep "$APP_PARAMS" | grep -v grep | awk '{ print $2}'`
+		if [ $APP_PID > 0 ]; then
+			break;
+		else
+			echo "$APP_JAR_NAME is still starting up..."	
+		fi
+	done
+	
+	if [ $APP_PID > 0 ]; then
+		echo "$APP_JAR_NAME start up success!"
+		exit 0
+	else
+		echo "$APP_JAR_NAME start up fail!"	
+		exit 1
+	fi
 
 
 其中start_production.sh脚本如下：
