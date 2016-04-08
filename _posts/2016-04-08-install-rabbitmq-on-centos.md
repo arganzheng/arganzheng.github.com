@@ -8,15 +8,15 @@ layout: post
 
 erlang的安装比想象中要麻烦的多，试验了好几种，总是出现依赖错误。。最后还是通过kerl脚本安装搞定了。。具体参见：[Installing Erlang](https://docs.basho.com/riak/1.1.0/tutorials/installation/Installing-Erlang/)。
 
-	[work@hkg02-mj-data07.hkg02.baidu.com downloads]$ ./kerl list releases
+	[work@study.arganzheng.me downloads]$ ./kerl list releases
 	Getting the available releases from erlang.org...
 	R10B-0 R10B-10 R10B-1a R10B-2 R10B-3 R10B-4 R10B-5 R10B-6 R10B-7 R10B-8 R10B-9 R11B-0 R11B-1 R11B-2 R11B-3 R11B-4 R11B-5 R12B-0 R12B-1 R12B-2 R12B-3 R12B-4 R12B-5 R13A R13B01 R13B02-1 R13B02 R13B03 R13B04 R13B R14A R14B01 R14B02 R14B03 R14B04 R14B_erts-5.8.1.1 R14B R15B01 R15B02 R15B02_with_MSVCR100_installer_fix R15B03-1 R15B03 R15B R16A_RELEASE_CANDIDATE R16B01 R16B02 R16B03-1 R16B03 R16B 17.0-rc1 17.0-rc2 17.0 17.1 17.3 17.4 17.5 18.0 18.1 18.2.1 18.2 18.3
 	Run 'kerl update releases' to update this list from erlang.org
-	[work@hkg02-mj-data07.hkg02.baidu.com downloads]$ ./kerl update releases
+	[work@study.arganzheng.me downloads]$ ./kerl update releases
 	Getting the available releases from erlang.org...
 	The available releases are:
 	R10B-0 R10B-10 R10B-1a R10B-2 R10B-3 R10B-4 R10B-5 R10B-6 R10B-7 R10B-8 R10B-9 R11B-0 R11B-1 R11B-2 R11B-3 R11B-4 R11B-5 R12B-0 R12B-1 R12B-2 R12B-3 R12B-4 R12B-5 R13A R13B01 R13B02-1 R13B02 R13B03 R13B04 R13B R14A R14B01 R14B02 R14B03 R14B04 R14B_erts-5.8.1.1 R14B R15B01 R15B02 R15B02_with_MSVCR100_installer_fix R15B03-1 R15B03 R15B R16A_RELEASE_CANDIDATE R16B01 R16B02 R16B03-1 R16B03 R16B 17.0-rc1 17.0-rc2 17.0 17.1 17.3 17.4 17.5 18.0 18.1 18.2.1 18.2 18.3
-	[work@hkg02-mj-data07.hkg02.baidu.com downloads]$ ./kerl build 18.3 erlang-18.3
+	[work@study.arganzheng.me downloads]$ ./kerl build 18.3 erlang-18.3
 	Downloading otp_src_18.3.tar.gz to /home/work/.kerl/archives
 	  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
 	                                 Dload  Upload   Total   Spent    Left  Speed
@@ -30,18 +30,18 @@ erlang的安装比想象中要麻烦的多，试验了好几种，总是出现�
 	Extracting source code
 	Building Erlang/OTP 18.3 (erlang-18.3), please wait...
 	Erlang/OTP 18.3 (erlang-18.3) has been successfully built
-	[work@hkg02-mj-data07.hkg02.baidu.com downloads]$ ./kerl list builds
+	[work@study.arganzheng.me downloads]$ ./kerl list builds
 	18.3,erlang-18.3
-	[work@hkg02-mj-data07.hkg02.baidu.com downloads]$ ./kerl install erlang-18.3 /home/work/erlang/18.3
+	[work@study.arganzheng.me downloads]$ ./kerl install erlang-18.3 /home/work/erlang/18.3
 	Installing Erlang/OTP 18.3 (erlang-18.3) in /home/work/erlang/18.3...
 	You can activate this installation running the following command:
 	. /home/work/erlang/18.3/activate
 	Later on, you can leave the installation typing:
 	kerl_deactivate
-	[work@hkg02-mj-data07.hkg02.baidu.com downloads]$ ./kerl list installations
+	[work@study.arganzheng.me downloads]$ ./kerl list installations
 	erlang-18.3 /home/work/erlang/18.3
-	[work@hkg02-mj-data07.hkg02.baidu.com downloads]$ . /home/work/erlang/18.3/activate
-	[work@hkg02-mj-data07.hkg02.baidu.com downloads]$ ./kerl active
+	[work@study.arganzheng.me downloads]$ . /home/work/erlang/18.3/activate
+	[work@study.arganzheng.me downloads]$ ./kerl active
 	The current active installation is:
 	/home/work/erlang/18.3
 
@@ -50,28 +50,28 @@ erlang的安装比想象中要麻烦的多，试验了好几种，总是出现�
 
 一开始图省事，想直接使用yum或者rpm包安装，结果发现问题一大堆。。。：
 
-	[root@hkg02-mj-data07.hkg02.baidu.com downloads]# rpm -Uvh rabbitmq-server-3.6.1-1.noarch.rpm
+	[root@study.arganzheng.me downloads]# rpm -Uvh rabbitmq-server-3.6.1-1.noarch.rpm
 	error: Failed dependencies:
 		erlang >= R16B-03 is needed by rabbitmq-server-3.6.1-1.noarch
 
 会报没有找到erlang依赖，但是其实我们已经通过kerl脚本安装过了，所以可以直接忽略（[Install RabbitMQ on CentOS 6](http://www.stephenrhoades.com/?p=484)）:
 
-	[root@hkg02-mj-data07.hkg02.baidu.com downloads]# rpm --nodeps -Uvh rabbitmq-server-3.6.1-1.noarch.rpm
+	[root@study.arganzheng.me downloads]# rpm --nodeps -Uvh rabbitmq-server-3.6.1-1.noarch.rpm
 	Preparing...                ########################################### [100%]
 	   1:rabbitmq-server        ########################################### [100%]
 
 果然很简单，但是发现用root安装会导致各种奇怪的问题：
 
-	[root@hkg02-mj-data07.hkg02.baidu.com ~]# /etc/init.d/rabbitmq-server start
+	[root@study.arganzheng.me ~]# /etc/init.d/rabbitmq-server start
 	Starting rabbitmq-server: FAILED - check /var/log/rabbitmq/startup_{log, _err}
 	rabbitmq-server.
-	[root@hkg02-mj-data07.hkg02.baidu.com rabbitmq]# tailf startup_err
+	[root@study.arganzheng.me rabbitmq]# tailf startup_err
 	mkdir: cannot create directory `/var/run/rabbitmq': Permission denied
 
 
 最后还是决定使用源码安装。。首先卸载掉原来的安装：
 
-	[root@hkg02-mj-data07.hkg02.baidu.com ~]# yum remove rabbitmq-server
+	[root@study.arganzheng.me ~]# yum remove rabbitmq-server
 	Loaded plugins: aliases, downloadonly, fastestmirror, priorities, security
 	Setting up Remove Process
 	Resolving Dependencies
@@ -127,12 +127,12 @@ erlang的安装比想象中要麻烦的多，试验了好几种，总是出现�
 
 所以我们可以这样子编译：
 
-	[work@hkg02-mj-data07.hkg02.baidu.com downloads]$ cd rabbitmq-server-3.6.1
-	[work@hkg02-mj-data07.hkg02.baidu.com rabbitmq-server-3.6.1]$ make
-	[work@hkg02-mj-data07.hkg02.baidu.com rabbitmq-server-3.6.1]$ make install PREFIX=/home/work/rabbitmq RMQ_ROOTDIR=/home/work/rabbitmq RMQ_ERLAPP_DIR=
+	[work@study.arganzheng.me downloads]$ cd rabbitmq-server-3.6.1
+	[work@study.arganzheng.me rabbitmq-server-3.6.1]$ make
+	[work@study.arganzheng.me rabbitmq-server-3.6.1]$ make install PREFIX=/home/work/rabbitmq RMQ_ROOTDIR=/home/work/rabbitmq RMQ_ERLAPP_DIR=
 	/usr/bin/make64 MAC=64 install PREFIX=/home/work/rabbitmq RMQ_ROOTDIR=/home/work/rabbitmq
 
-	[work@hkg02-mj-data07.hkg02.baidu.com ~]$ vim .bashrc
+	[work@study.arganzheng.me ~]$ vim .bashrc
 
 	# .bashrc
 
@@ -149,21 +149,21 @@ erlang的安装比想象中要麻烦的多，试验了好几种，总是出现�
 	RABBITMQ_HOME=/home/work/rabbitmq/lib/rabbitmq_server-3.6.1
 	export PATH=$PATH:$RABBITMQ_HOME/sbin
 
-	[work@hkg02-mj-data07.hkg02.baidu.com ~]$ source .bashrc
+	[work@study.arganzheng.me ~]$ source .bashrc
 
-### 3. 启动
+### 3. 配置和启动
 
-	[work@hkg02-mj-data07.hkg02.baidu.com ~]$ rabbitmq-server start
+	[work@study.arganzheng.me ~]$ rabbitmq-server start
 	/home/work/rabbitmq/lib/rabbitmq_server-3.6.1/sbin/rabbitmq-server: line 49: /var/lib/rabbitmq/mnesia/rabbit@hkg02-mj-data07.pid: Permission denied
 	Failed to write pid file: /var/lib/rabbitmq/mnesia/rabbit@hkg02-mj-data07.pid
 	
 修改一下用户组：
 
-	[root@hkg02-mj-data07.hkg02.baidu.com work]# chown -R work:work /var/lib/rabbitmq/
+	[root@study.arganzheng.me work]# chown -R work:work /var/lib/rabbitmq/
 
 再次启动：
 
-	[work@hkg02-mj-data07.hkg02.baidu.com ~]$ rabbitmq-server start
+	[work@study.arganzheng.me ~]$ rabbitmq-server start
 
 	              RabbitMQ 3.6.1. Copyright (C) 2007-2016 Pivotal Software, Inc.
 	  ##  ##      Licensed under the MPL.  See http://www.rabbitmq.com/
@@ -173,7 +173,7 @@ erlang的安装比想象中要麻烦的多，试验了好几种，总是出现�
 	  ##########
 	              Starting broker... completed with 6 plugins.
 
-	[work@hkg02-mj-data07.hkg02.baidu.com ~]$ tailf /var/log/rabbitmq/rabbit@hkg02-mj-data07.log
+	[work@study.arganzheng.me ~]$ tailf /var/log/rabbitmq/rabbit@hkg02-mj-data07.log
 	Statistics database started.
 
 	=INFO REPORT==== 8-Apr-2016::16:54:51 ===
@@ -187,11 +187,11 @@ erlang的安装比想象中要麻烦的多，试验了好几种，总是出现�
 
 成功了，肉留满面啊。。
 
-
 **TIPS**
 
 1. 注意到源码安装的RabbitMQ默认安装了6个插件，其实就是下面要介绍的监控和管理插件。
 2. 如果要后台运行: rabbitmq-server -detached
+3. 正在生产环境使用需要配置一下，比如内存，文件句柄限制，等。
 
 ### 4. 管理和监控
 
@@ -199,7 +199,7 @@ erlang的安装比想象中要麻烦的多，试验了好几种，总是出现�
 
 如果是源码安装，这一步可以忽略：
 
-	[work@hkg02-mj-data07.hkg02.baidu.com ~]$ rabbitmq-plugins enable rabbitmq_management
+	[work@study.arganzheng.me ~]$ rabbitmq-plugins enable rabbitmq_management
 	The following plugins have been enabled:
 	  mochiweb
 	  webmachine
@@ -215,7 +215,7 @@ erlang的安装比想象中要麻烦的多，试验了好几种，总是出现�
 
 管理插件默认是监听15672端口，我们可以修改这个配置项：
 
-	[work@hkg02-mj-data07.hkg02.baidu.com ~]$ vim /etc/rabbitmq/rabbitmq.config
+	[work@study.arganzheng.me ~]$ vim /etc/rabbitmq/rabbitmq.config
    	{rabbitmq_management,
       [ {http_log_dir,  "/tmp/rabbit-mgmt"},
         {rates_mode,    basic},
@@ -243,15 +243,15 @@ erlang的安装比想象中要麻烦的多，试验了好几种，总是出现�
 guest只能通过本机访问。查看文档需要使用`rabbitmqctl add_user`来创建一个non-administrator user 和 `rabbitmqctl set_user_tags`来提升一个普通用户为管理员:
 
 
-	[work@hkg02-mj-data07.hkg02.baidu.com ~]$ rabbitmqctl add_user argan xxxx
+	[work@study.arganzheng.me ~]$ rabbitmqctl add_user argan xxxx
 	Creating user "argan" ...
-	[work@hkg02-mj-data07.hkg02.baidu.com ~]$ rabbitmqctl list_users
+	[work@study.arganzheng.me ~]$ rabbitmqctl list_users
 	Listing users ...
 	argan	[]
 	guest	[administrator]
-	[work@hkg02-mj-data07.hkg02.baidu.com ~]$ rabbitmqctl set_user_tags argan administrator
+	[work@study.arganzheng.me ~]$ rabbitmqctl set_user_tags argan administrator
 	Setting tags for user "argan" to [administrator] ...
-	[work@hkg02-mj-data07.hkg02.baidu.com ~]$ rabbitmqctl list_users
+	[work@study.arganzheng.me ~]$ rabbitmqctl list_users
 	Listing users ...
 	argan	[administrator]
 	guest	[administrator]
@@ -275,11 +275,11 @@ guest只能通过本机访问。查看文档需要使用`rabbitmqctl add_user`�
 
 是没有权限，原来 administrator 还不是万能的。。好吧。。
 
-	[work@hkg02-mj-data07.hkg02.baidu.com ~]$ rabbitmqctl add_vhost /mobopay
+	[work@study.arganzheng.me ~]$ rabbitmqctl add_vhost /mobopay
 	Creating vhost "/mobopay" ...
-	[work@hkg02-mj-data07.hkg02.baidu.com ~]$ rabbitmqctl set_user_tags argan  administrator management
+	[work@study.arganzheng.me ~]$ rabbitmqctl set_user_tags argan  administrator management
 	Setting tags for user "argan" to [administrator,management] ...
-	[work@hkg02-mj-data07.hkg02.baidu.com ~]$ rabbitmqctl set_permissions -p /mobopay argan '.*' '.*' '.*'
+	[work@study.arganzheng.me ~]$ rabbitmqctl set_permissions -p /mobopay argan '.*' '.*' '.*'
 	Setting permissions for user "argan" in vhost "/mobopay" ... 
 
 果然可以了。	 
