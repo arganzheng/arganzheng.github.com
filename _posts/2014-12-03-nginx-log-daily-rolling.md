@@ -14,13 +14,16 @@ log4j可以的DailyRollingFileAppender可以实现日志按天归档，避免日
 	nginx_dir="/home/soft/resty/nginx"
 	cd $nginx_dir
 	log_dir="${nginx_dir}/logs"
+	pid_dir="${nginx_dir}/logs"
 	time=`date +%Y%m%d`
 	
 	for logfile in `ls -l $log_dir | grep -v "^d" | awk '{print $9}' | grep ".log$" | grep -v "[_-]\{1\}[0-9]\{8\}.log" | grep -v "[_-]\{1\}[0-9]\{10\}.log"` ;do
 	  mv $log_dir/$logfile $log_dir/${logfile%.*}_$time.log
 	done;
 	
-	$nginx_dir/sbin/nginx -s reload
+	## 很奇怪，1.9.3的nginx用crontab调用-s reload并不会写到新的日志。。但是直接调用这个脚本是可以的。。用kill -USR1就没有问题。。
+	# $nginx_dir/sbin/nginx -s reload
+	[ ! -f ${pid_dir}/nginx.pid ] || kill -USR1 `cat ${pid_dir}/nginx.pid`
 
 **NOTE**
 
@@ -36,3 +39,8 @@ log4j可以的DailyRollingFileAppender可以实现日志按天归档，避免日
 	59 23 * * * sleep 56;sh /home/work/userbin/nginx_log_split.sh >/dev/null 2>&1
 
 由于crontab的最小调度粒度是分，所以这里先sleep了56s，再执行这个nginx_log_split脚本。
+
+
+
+
+

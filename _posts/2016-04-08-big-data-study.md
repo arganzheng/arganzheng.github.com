@@ -6,7 +6,7 @@ layout: post
 
 * 数据接入
 	* 主要负责数据的收集，分发，预处理以及管理工作
-	* Flume, Kafka
+	* Scribe/Flume, Kafka
 * 离线计算平台
 	* Hadoop
 	* 批处理
@@ -15,7 +15,7 @@ layout: post
 		* Hive Job
 		* Pig Job
 * 实时计算平台
-	* Storm(JStorm), Spark, Flink
+	* Storm(JStorm), Samza, Spark, Flink
 	* 在线流式计算
 * 资源管理和调度
 	* YARN, Mesos

@@ -81,3 +81,85 @@ logback多log4j最大的贡献是解决了性能问题。不过在功能性方�
 4. 支持文件导入(file inclusion)
 5. 支持格式化日志，logger.error("one two three: {} {} {}", "a", "b", "c", new Exception("something went wrong"));
 
+
+**TIPS** logback配置模板参考
+
+	<?xml version="1.0" encoding="UTF-8"?>
+	<configuration>
+
+		<appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+			<layout class="ch.qos.logback.classic.PatternLayout">
+	            <pattern>%date [%thread] %highlight(%-5level) %logger{26} - %msg%n</pattern>
+			</layout>
+		</appender>
+
+		<appender name="SYSTEM"
+			class="ch.qos.logback.core.rolling.RollingFileAppender">
+			<file>${LOG_DIR}/system.log</file>
+			<encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+	            <pattern>%date [%thread] %highlight(%-5level) %logger{26} - %msg%n</pattern>
+			</encoder>
+
+			<rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+				<!-- rollover daily -->
+				<fileNamePattern>${LOG_DIR}/archived/system.%d{yyyy-MM-dd}.log
+				</fileNamePattern>
+				<!-- keep 30 days' worth of history -->
+				<maxHistory>30</maxHistory>
+				<timeBasedFileNamingAndTriggeringPolicy
+						class="ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP">
+					<maxFileSize>100MB</maxFileSize>
+				</timeBasedFileNamingAndTriggeringPolicy>
+			</rollingPolicy>
+		</appender>
+
+		<appender name="APP"
+			class="ch.qos.logback.core.rolling.RollingFileAppender">
+			<file>${LOG_DIR}/app.log</file>
+			<encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+	            <pattern>%date [%thread] %highlight(%-5level) %logger{26} - %msg%n</pattern>
+			</encoder>
+
+			<rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+				<!-- rollover daily -->
+				<fileNamePattern>${LOG_DIR}/archived/app.%d{yyyy-MM-dd}.log
+				</fileNamePattern>
+				<!-- keep 30 days' worth of history -->
+				<maxHistory>30</maxHistory>
+				<timeBasedFileNamingAndTriggeringPolicy
+						class="ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP">
+					<maxFileSize>100MB</maxFileSize>
+				</timeBasedFileNamingAndTriggeringPolicy>
+			</rollingPolicy>
+		</appender>
+
+		<appender name="REMOTE"
+	        class="me.arganzheng.study.toolkit.logging.client.appender.logback.AsyncSocketAppender">
+	        <remoteHost>10.242.77.38</remoteHost>
+	        <port>4560</port>
+	        <application>api-gateway-web</application>
+	        <!-- <threadPoolSize>2</threadPoolSize> <loadBalancerName>WRR</loadBalancerName> -->
+	        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+	            <level>ERROR</level>
+	        </filter>
+	    </appender>
+	    
+		<logger name="me.arganzheng.study.mobopay.applications.api.gateway" level="debug"
+			additivity="false">
+			<appender-ref ref="APP" />
+	        <appender-ref ref="REMOTE" />
+		</logger>
+
+		<root level="info">
+			<appender-ref ref="CONSOLE" />
+			<appender-ref ref="SYSTEM" />
+	        <appender-ref ref="REMOTE" />
+		</root>
+
+	</configuration>
+
+
+
+
+
+

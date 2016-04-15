@@ -215,9 +215,15 @@ layout: post
 	nohup: failed to run command `bin/start_production.sh': No such file or directory
 	Finished: SUCCESS
 
-效果还不错！但是有三个问题：
+效果还不错！但是有四个问题：
 
-1、Slave的workspace构建jar包路径跟master不一样：
+1、第一个问题，就是jenkins的Slave节点是用来构建的，所以它是并行执行的，但是对于发布来说，并行执行意味着同时发布，如果没有做控制的话，会出现所有的服务都同时在发布重启，瞬间所有的服务都不可用了。好在jenkins已经考虑到这问题了，它的Matrix插件有一个选项： 
+
+	**Run each configuration sequentially**: With this option checked, Jenkins builds each configuration in a sequence. This can be useful if your configuration needs to access the shared resource like database, as well as to avoid crowding out other jobs. (from Matrix Project Plugin)
+
+勾选之后果然就变成串行执行了。
+
+2、Slave的workspace构建jar包路径跟master不一样：
 
 	[INFO] Installing /home/work/jenkins/workspace/user-impl-production/label/web03/target/user-impl.jar to /home/work/.m2/repository/com/baidu/mobojoy/mobopay/remote/user/user-impl/1.0.0-SNAPSHOT/user-impl-1.0.0-SNAPSHOT.jar
 
@@ -225,7 +231,7 @@ layout: post
 
 不过我想Jenkins作为这么通用的开放框架，应该有环境变量，谷歌了一下，果然在每次构建的时候Jenkins会设置$WORKSPACE环境变量：[Environtment variables for jenkins when script running](http://blog.tmtk.net/post/2012-11-19-environtment_variables_for_jenkins_when_script_running/)。整个世界一下子清静很多～
 
-2、脚本构建出错，在Master最终状态或者日志都是显示成功：
+3、脚本构建出错，在Master最终状态或者日志都是显示成功：
 
 	cp: cannot stat `/home/work/jenkins/workspace/user-impl/target/user-impl.jar': No such file or directory
 	cp: cannot stat `/home/work/jenkins/workspace/user-impl/bin/start_production.sh': No such file or directory
@@ -252,7 +258,7 @@ layout: post
 
 OK，不管是从slave的日志或者从管理界面都可以看到失败的slave构建。
 
-3、第三个问题，也是他妈最蛋疼的问题：就是Jenkins会在构建结束之后把它创建的所有进程都干掉！！！所以对于通过Jenkins Execute Shell调起的需要长时间运行的外部任务，即使使用nohup或者&放在后台运行，也一样会被kill掉！！结果就是我们的应用一直没有起来！谷歌了很久（关键词很重要：jenkins shell script background），终于发现解决方案：[Spawning processes from build](https://wiki.jenkins-ci.org/display/JENKINS/Spawning+processes+from+build):
+4、第四个问题，也是他妈最蛋疼的问题：就是Jenkins会在构建结束之后把它创建的所有进程都干掉！！！所以对于通过Jenkins Execute Shell调起的需要长时间运行的外部任务，即使使用nohup或者&放在后台运行，也一样会被kill掉！！结果就是我们的应用一直没有起来！谷歌了很久（关键词很重要：jenkins shell script background），终于发现解决方案：[Spawning processes from build](https://wiki.jenkins-ci.org/display/JENKINS/Spawning+processes+from+build):
 
 > Note that this will set the BUILD_ID environment variable for the process being spawned to something other than the current BUILD_ID. Or you can start jenkins with `-Dhudson.util.ProcessTree.disable=true` - see [ProcessTreeKiller](https://wiki.jenkins-ci.org/display/JENKINS/ProcessTreeKiller) for details.
 
