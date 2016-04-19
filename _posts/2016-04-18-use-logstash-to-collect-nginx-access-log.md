@@ -36,17 +36,57 @@ layout: post
 
 **TIPS** 
 
-1. logstash默认定义了一些 [grok pattern](https://github.com/elastic/logstash/blob/v1.4.2/patterns/grok-patterns)，一般来说对于字符串，有双引号包含的用QS，没有的用DATA类型，如%{DATA:request_body}。
-2. grok匹配很容易出错，可以使用[Grok Debugger](https://grokdebug.herokuapp.com/)进行在线调试。	
+1、logstash默认定义了一些 [grok pattern](https://github.com/elastic/logstash/blob/v1.4.2/patterns/grok-patterns)，一般来说对于字符串，有双引号包含的用QS，没有的用DATA类型，如%{DATA:request_body}。
+
+2、grok匹配很容易出错，可以使用[Grok Debugger](https://grokdebug.herokuapp.com/)进行在线调试。	
+
+3、如果想要让URL参数也解析并且成为索引字段，比如一些通用参数，如uid, country, language, etc. 那么可以使用[KV插件](https://www.elastic.co/guide/en/logstash/current/plugins-filters-kv.html)：
+
+	filter {
+
+		grok {
+			...
+		}
+		
+		...
+
+		# 再单独将取得的URL、request字段取出来进行key-value值匹配
+		# 需要kv插件。提供字段分隔符"&?"，值键分隔符"="，则会自动将字段和值采集出来。
+	  	kv {
+          	source => "request" # 默认是message，我们这里只需要解析上面grok抽取出来的request字段
+          	field_split => "&?"
+          	value_split => "="
+          	include_keys => [ "network", "country", "language", "deviceId" ]
+      	}
+	　
+	  	# 把所有字段进行urldecode（显示中文）
+	  	urldecode {
+	     	all_fields => true
+	  	}
+
+	}
 
 
-综上，整个logstash.conf配置文件如下：
+4、过滤掉安全扫描。logstash的[drop filter](https://www.elastic.co/guide/en/logstash/current/plugins-filters-drop.html)可以简单对消息进行过滤，例如：
+
+	if [message] !~ ".*ERROR.*|.*error.*|.*FATAL.*|.*fatal.*|.*WARN.*|.*warn.*" {
+    	drop { }
+    }
+
+对于安全扫描，只需要过滤`http_user_agent`中含有`inf-ssl-duty-scan`的请求就可以了：
+
+    if [http_user_agent] =~ "inf-ssl-duty-scan" { # 过滤安全扫描
+    	drop { }
+    }
+
+
+综上，整个logstash-nginx.conf配置文件如下：
 
 	## input { stdin { } }
 	input {
 		file {
-			path => ["/home/work/nginx/logs/*.log"]
-	    	exclude => ["*.gz"]
+			path => ["/home/work/nginx/logs/access*.log"]
+	    	# exclude => ["*.gz"]
 	    	# start_position => "beginning"
 		}
 	}
@@ -63,57 +103,38 @@ layout: post
 	  		# patterns_dir => [ "/home/work/logstash/patterns" ]
 	       	match => { "message" => "%{NGINXACCESS}" }
 	    }
+
+	    if [http_user_agent] =~ "inf-ssl-duty-scan" { 
+	    	drop { }
+	    }
+
 	  	date {
 	    	match => [ "time_local" , "dd/MMM/yyyy:HH:mm:ss Z" ]
 	  	}
+
 	  	geoip {
 	        source => "remote_addr"
 	    }
+
+	  	kv {
+	      	source => "request"
+	      	field_split => "&?"
+	      	value_split => "="
+	      	include_keys => [ "network", "country", "language", "deviceId" ]
+	  	}
+
+	  	urldecode {
+	     	all_fields => true
+	  	}
 	}
 
 	output {
-	  elasticsearch {
+	  	elasticsearch {
 	        hosts => ["10.242.122.23:8200","10.242.99.47:8200","10.242.103.33:8200"]
 	        index => "logstash-nginx-%{+YYYY.MM.dd}"
 	  }
 	  # stdout { codec => rubydebug }
 	}
-
-
-**TIPS**
-
-1、如果想要让URL参数也解析并且成为索引字段，比如一些通用参数，如uid, country, language, etc. 那么可以使用[KV插件](https://www.elastic.co/guide/en/logstash/current/plugins-filters-kv.html)：
-
-	filter {
-
-		grok {
-			...
-		}
-		
-		...
-
-		#再单独将取得的URL、request字段取出来进行key-value值匹配，需要kv插件。提供字段分隔符"&?"，值键分隔符"="，则会自动将字段和值采集出来。
-	  	kv {
-          	source => "request" # 默认是message，我们这里只需要解析上面grok抽取出来的request字段
-          	field_split => "&?"
-          	value_split => "="
-          	include_keys => [ "uid", "country", "language" ]
-      	}
-	　
-	  	#把所有字段进行urldecode（显示中文）
-	  	urldecode {
-	     	all_fields => true
-	  	}
-
-	}
-
-
-
-2、过滤掉安全扫描。logstash可以简单的过滤消息，例如：
-
-	if [message] !~ ".*ERROR.*|.*error.*|.*FATAL.*|.*fatal.*|.*WARN.*|.*warn.*" {
-    	drop { }
-    }
 
 
 然后我们就可以启动logstash查看一下效果了:
@@ -122,6 +143,10 @@ layout: post
 
 会看到logstash已经在扫描nginx日志发送到ES集群了。可以配置一下Kibana，对日志进行分析和可视化。具体参见参考文章。
 
+
+**TIPS** 
+
+注意，这里收集了所有的nginx访问日志，索引文件会很大(3G左右的日志量可以产生10G左右的索引文件），虽然logstash默认是按天分割了，但是还是不能存储太久的日志，需要定时清理，可以使用 [elasticsearch-curator](https://www.elastic.co/blog/curator-tending-your-time-series-indices) 定时清理。
 
 
 参考文章
