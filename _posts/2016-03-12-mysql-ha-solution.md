@@ -206,6 +206,7 @@ MySQL支持多重拓扑结构，不同的拓扑结构有不同的应用场景。
 
 ![mysql-circular-replication](/media/images/mysql-circular-replication.png)
 
+
 #### 基于MySQL复制方式的故障failover方案
 
 分为三种情况：
