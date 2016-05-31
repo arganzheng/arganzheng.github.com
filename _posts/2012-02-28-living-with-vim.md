@@ -106,11 +106,7 @@ Create a file in your homedir called .Xmodmap with the contents:
 配置好vimrc
 ----------
 
-在用最基本的vimrc配置之后，在确定自己已经熟悉vim原生的快捷键之后，我们考虑优化一下它的配置文件。经过多方参考和实践，我最终的vimrc配置如下（没有插件的配置，插件配置见下面）：
-
-see "arganzheng/myvim-settings":https://github.com/arganzheng/myvim-settings/blob/master/vimrc
-
-经过我的实践，这些配置非常好用，可以大大提高你的vim体验。
+在用最基本的vimrc配置之后，在确定自己已经熟悉vim原生的快捷键之后，我们考虑优化一下它的配置文件。经过多方参考和实践，我最终的vimrc配置如下: [arganzheng/myvim-settings](https://github.com/arganzheng/myvim-settings)。经过我的实践，这些配置非常好用，可以大大提高你的vim体验。
 
 
 插件篇
@@ -252,8 +248,10 @@ vim的 * ，会自动精确搜索当前词。
 5. [Mir Nazim](http://mirnazim.org/writings/vim-plugins-i-use/)
 6. [所需即所获：像 IDE 一样使用 vim](https://github.com/yangyangwithgnu/use_vim_as_ide): 非常长，不过很详尽，也很新。
 7. [一些VIM的个性化配置](http://www.wklken.me/posts/2016/02/03/some-vim-configs.html): 推荐，比较符合我的爱好。
-8. 耗子的系列文章：
+8. [分享一份 VIM 简介PPT](http://www.wklken.me/posts/2015/05/10/vim-intro.html)
+9. 耗子的系列文章：
 	1. [简明 Vim 练级攻略](http://coolshell.cn/articles/5426.html)
 	2. [无插件Vim编程技巧](http://coolshell.cn/articles/11312.html)
 	3. [Vim的分屏功能](http://coolshell.cn/articles/1679.html)
 	4. [将vim变得简单:如何在vim中得到你最喜爱的IDE特性](http://coolshell.cn/articles/894.html)
+9. [VIM 文件编码识别与乱码处理](http://edyfox.codecarver.org/html/vim_fileencodings_detection.html)
