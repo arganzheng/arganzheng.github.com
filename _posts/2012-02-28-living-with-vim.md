@@ -175,7 +175,7 @@ vundle 会接管 .vim/ 下的所有原生目录，所以先清空该目录，再
 
 ### 界面美化
 
-系统默认的VIM有时候会比较简陋，可以安装主题风格美化一下。个人尝试了几个配色方案之后，个人比较喜欢下面这三个主题：
+系统默认的VIM有时候会比较简陋，可以安装主题风格美化一下。尝试了几个配色方案之后，个人比较喜欢下面这三个主题：
 
 	"" 主题风格
 	Plugin 'tomasr/molokai' " 多彩 molokai
@@ -192,23 +192,37 @@ vundle 会接管 .vim/ 下的所有原生目录，所以先清空该目录，再
 
 这里的有用因人而异。对于笔者来说，主要是作为一个C/C++的IDE来使用。
 
-* [NERDtree](https://github.com/scrooloose/nerdtree): 工程目录浏览
-* [vim-cpp-enhanced-highlight](https://github.com/octol/vim-cpp-enhanced-highlight): C++代码高亮
-* [vim-fswitch](https://github.com/derekwyatt/vim-fswitch): *.cpp 和 *.h 间切换
-	* nmap <silent> <Leader>sw :FSHere<cr>
-* [NERD Commenter](https://github.com/scrooloose/nerdcommenter): 快速开关注释
-	* <leader>cc: 注释当前选中文本，如果选中的是整行则在每行首添加 //，如果选中一行的部分内容则在选中部分前后添加分别 /、/；
-	* <leader>cu: 取消选中文本块的注释。
-* ctrlp: 快速文件模糊查找 Fuzzy file, buffer, mru, tag, etc finder.
-* tagbar: 代码outline(taglist的升级版)
-* [matchIt](http://www.wklken.me/posts/2015/06/07/vim-plugin-matchit.html)
-* FuzzyFinder（依赖于L9 library，另一个vim插件）。很多人推荐（Command-t，但是后者依赖ruby，恶心的是要求vim依赖ruby。。而且要用该vim编译所有的ruby版本来编译Command-t插件。。）
-* Snipmate
-* YCM: 史上最强大的智能补全
-* omni-completion with tags(cscope) and TagList(tagbar)
-* conque_term
-* VOoM
-* a.vim
+* 文件导航/搜索
+	* [NERDtree](https://github.com/scrooloose/nerdtree): 工程目录浏览
+	* [bufexplorer](https://github.com/jlanzarotta/bufexplorer): Buffer Explorer/Browser，据说可以被airline, ctrlp替代。
+	* ctrlp: 快速文件模糊查找 Fuzzy file, buffer, mru, tag, etc finder.
+	* ctrlsf: 全文搜索，ack.vim的替代者。
+* 快速移动
+	* [vim-easymotion](https://github.com/easymotion/vim-easymotion): 行/位置/搜索，类似于vimium的'f'命令效果。
+	* [vim-signature](https://github.com/kshenoy/vim-signature): 可视化标签
+	* [matchIt](http://www.wklken.me/posts/2015/06/07/vim-plugin-matchit.html): 匹配标签跳转
+* 快速选择区域
+	* [vim-expand-region](https://github.com/terryma/vim-expand-region): visually select increasingly larger regions of text using the same key combination
+	* [vim-multiple-cursors](https://github.com/terryma/vim-multiple-cursors): True Sublime Text style multiple selections for Vim
+* 语法高亮
+	* [vim-cpp-enhanced-highlight](https://github.com/octol/vim-cpp-enhanced-highlight): C++代码高亮
+* 高效编辑
+	* [surround](https://github.com/tpope/vim-surround): easily delete, change and add such surroundings in pairs.
+	* [vim-multiple-cursors](https://github.com/terryma/vim-multiple-cursors): 代码重构，Multipl Selection
+	* [vim-easy-align](http://www.wklken.me/posts/2015/06/07/vim-plugin-easyalign.html): 代码对齐
+	* [neocomplete](https://github.com/Shougo/neocomplete.vim)
+* 高效编码
+	* [NERD Commenter](https://github.com/scrooloose/nerdcommenter): 快速开关注释
+	* [ultisnips](https://github.com/SirVer/ultisnips): 自动补全与代码片段
+	* [YCM](https://github.com/Valloric/YouCompleteMe): 史上最强大的智能补全
+	* [tagbar](https://github.com/majutsushi/tagbar): 代码outline(taglist的升级版)
+	* [vim-fswitch](https://github.com/derekwyatt/vim-fswitch): *.cpp 和 *.h 
+	间切换，a.vim的替代者。
+	* [vim-fswitch](https://github.com/derekwyatt/vim-fswitch): *.cpp 和 *.h 间切换
+* 其他
+	* [airline](https://github.com/bling/vim-airline): 状态栏增强插件，可以让你的Vim状态栏非常的美观，同时包括了buffer显示条扩展smart tab line以及集成了一些插件。可以顺便安装 vim-airline-themes。
+
+具体参见配置可以参考：[k-vim](https://github.com/wklken/k-vim)。
 
 
 一些非常有用的TIPS
@@ -232,11 +246,94 @@ vim 自身支持多种折叠：手动建立折叠（manual）、基于缩进进�
 
 ### 2、匹配符号间跳转
 
-vim的 % , 会自动跳转到匹配的()[]{}<>等。再按照matchit插件，可以增强这个功能，支持标签之间的跳转，如<html>和</html>。
+vim的 % , 会自动跳转到匹配的括号（[]{}<>等）。再按照matchit插件，可以增强这个功能，支持标签之间的跳转，如<html>和</html>。可以映射为tab键，更方便。
 
-### 3、全匹配搜索当前词
+### 3、函数语意跳转
+
+下面的几个跳转有点函数语意：
+
+	[[		" 跳转到代码块的开头去(但要求代码块中'{'必须单独占一行)
+	gD		" 跳转到局部变量的定义处
+	
+### 4、向前向后跳转
+
+在IDE中经常会有这样的操作：跳转到上/下一次光标停留的地方：
+
+	Ctrl-o 		" jump back to the previous (older) location.
+ 	Ctrl-i 		" (same as Tab) to jump forward to the next (newer) location. 注意，如果tab键被占用了，需要重新映射一下。
+
+ 	g; g, 		" move through edit positions.
+	gi 			" jump to the last edit position.
+
+
+	mx			" 设置书签,x只能是a-z的26个字母
+	`x			" 跳转到书签处("`"是1左边的键)
+
+
+### 5、全匹配搜索当前词
 
 vim的 * ，会自动精确搜索当前词。
+
+### 6、分屏
+
+经常要对比查看文件，多 windows/tabs 查看是必须的。下面是常见的操作：
+
+启动的时候同时打开多个文件：
+
+	-o[N]                " Open N windows (default: one for each file)
+	-O[N]                " Like -o but split vertically
+
+在vim中打开文件到新窗口：
+
+	:sp file1		" 水平分割窗口
+	:vsp file2		" 垂直分割窗口
+
+分割当前窗口:
+
+	Ctrl-w, s 		" horizontal splitting
+
+	Ctrl-w, v 		" vertical splitting
+
+窗口间跳转：
+
+	ctrl-w-h/j/k/l " 改成 ctrl-h/j/k/l)
+
+调整窗口大小：
+
+	nnoremap <silent> + :exe "resize " . (winheight(0) * 3/2)<CR>
+	nnoremap <silent> - :exe "resize " . (winheight(0) * 2/3)<CR>
+
+ 	Ctrl-w =		" resize all windows to equal dimensions based on their splits
+ 	Ctrl-w _ 		" increase a window to its maximum height
+ 	Ctrl-w |		" increase a window to its maximum width
+
+调整窗口位置（不怎么常用）：
+
+	ctrl-w-H/J/K/L 
+
+将窗口独立成tab：
+
+	Ctrl-w T 		" move any open window to it's own tab
+
+Tabs间跳转:
+
+	gt/gT 			" 向前/后一个tab，可以映射成 K/J，跟Vimium保持一致。
+
+**TIPS** Make the current window big, but leave others context
+
+	set winwidth=84
+	" We have to have a winheight bigger than we want to set winminheight. But if
+	" we set winheight to be huge before winminheight, the winminheight set will
+	" fail.
+	set winheight=5
+	set winminheight=5
+	set winheight=999
+
+### 7、缩进
+
+	>		" 增加缩进,"x>"表示增加以下x行的缩进
+	<		" 减少缩进,"x<"表示减少以下x行的缩进
+
 
 参考文章与推荐阅读
 ---------------
