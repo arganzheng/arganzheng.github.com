@@ -223,7 +223,7 @@ List<Property> 查找不是很方便，可以改成map:
 
 	List<Entity> entities_search(List<String> ids);
 
-这时候需要对这些对象进行序列化了，然后问题来了。凡是类型无关的序列化方案都没有没有泛型、继承的概念。以protobuf为例子，泛型只能用types表示；没有继承，只有组合，类似于C的struct。有几种方式可以选择，每种都有各自的优缺点。
+这时候需要对这些对象进行序列化了，然后问题来了。凡是语言无关的序列化方案都没有没有泛型、继承的概念。以protobuf为例子，泛型只能用types表示；没有继承，只有组合，类似于C的struct。有几种方式可以选择，每种都有各自的优缺点。
 
 总体来说有两种方式:
 
@@ -495,19 +495,26 @@ List<Property> 查找不是很方便，可以改成map:
 
 读：
 
-	Entity entity;
-	Person person;
-	Product product;
+	switch(entityoneof_name_case()) {
+	
+	  case Entity::kPerson: {
+	  	Person person = entity.get_person();
+		int age = person.get_age();
+	  	...
+	  	break;
+	  }
+	  case Entity::kProduct: {
+	  	Product product = entity.get_product();
+	  	float price = product.get_price();
+	  	...
+	  	break;
+	  }
 
-	entity.set_id(..);
-	person.set_age(..);
-	product.set_price(..);
+	  ...
 
-	if (entity.oneof_name_case() == kPerson) {
-		Person person = entity.get_person();
-		...
+	  default: 
+	  	break;
 	}
-
 
 可惜子类的名字并不是统一的，看起来也是跟上面的optional差不多，只是会保证只有一个子类会被设置成功。另外，读取的时候，需要同时用到子类和父类（子类和父类看起来像是毫无关系的两个类一样）。
 
@@ -699,8 +706,7 @@ product.proto:
 
 相对来说看起来清晰一些。
 
-
-有一种称之为 [Nested Extensions](http://www.indelible.org/ink/protobuf-polymorphism/)的方式，结合了[nested messages]() 和 [extensions]()，通过在子类中扩展父类，让其指向自己，而不是一个个打散的属性。
+还可以稍微变换一下，通过在子类中扩展父类，让其指向自己，而不是一个个打散的属性：
 
 	message Entity { 	// 基类
 		// 实体id，需要稳定且唯一
@@ -798,6 +804,25 @@ product.proto:
 	}
 
 不过使用起来也是怪怪的。。
+
+
+总结
+---
+
+protobuf中没有继承的概念，只能使用类似于组合的方式来达到类似的目的，每种方式都有各自优缺点，使用起来都没有继承优雅，需要自己根据实际情况做权衡：
+
+1. 分散式
+	1.1. 子类包含父类
+	1.2. 直接将父类在子类展开
+2. 集中式
+	2.1. 所有子类作为父类的一个optional字段，类似于C的union
+	2.2. 所有子类作为父类的一个optional字段，通过protobuf的oneof语法，类似于C的union
+	2.3. Embedded Serialized Messages：将子类序列化成父类的一个bytes字段，然后用一个type字段表明子类类型
+	2.4. 使用protobuf的extensions语法，扩展"父"类，所有扩展字段存放在“父”类的一个extensions字段。
+	2.5. 使用protobuf的Nested Extensions语法，扩展"父"类，所有扩展字段存放在“父”类的一个extensions字段，但是扩展属性有各自的命名空间。
+	2.6. Nested Extensions的一个特殊例子：扩展属性就是子类本身。
+
+从对用户的使用友好度来说，1.2和2.5/2.6是相对比较友好的。其他的情况使用起来多多少少有点别扭。。
 
 
 参考文章
