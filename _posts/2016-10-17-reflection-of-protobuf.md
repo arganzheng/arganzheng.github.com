@@ -33,17 +33,19 @@ layout: post
 4. 然后，用 MessageFactory::GetPrototype() 找到具体 Message Type 的 default instance
 5. 最后，用 prototype->New() 创建对象
 
-Message* createMessage(const std::string& typeName) {
-	Message* message = NULL;
-	const Descriptor* descriptor = DescriptorPool::generated_pool()->FindMessageTypeByName(typeName);
-	if (descriptor) {
-		const Message* prototype = MessageFactory::generated_factory()->GetPrototype(descriptor);
-		if (prototype) {
-			message = prototype->New();
+具体实现如下：
+
+	Message* createMessage(const std::string& typeName) {
+		Message* message = NULL;
+		const Descriptor* descriptor = DescriptorPool::generated_pool()->FindMessageTypeByName(typeName);
+		if (descriptor) {
+			const Message* prototype = MessageFactory::generated_factory()->GetPrototype(descriptor);
+			if (prototype) {
+				message = prototype->New();
+			}
 		}
+		return message;
 	}
-	return message;
-}
 
 使用的时候根据需要，可以强制类型转换得到具体的message：
 
@@ -60,7 +62,7 @@ Message* createMessage(const std::string& typeName) {
     person->ParseFromString(data);
 
 
-### 动态获取和设置字段值
+### 2、动态获取和设置字段值
 
 pb的Message基类提供了一个Reflection，这个类非常强大，可以利用他达到动态设置字段值的效果。
 
