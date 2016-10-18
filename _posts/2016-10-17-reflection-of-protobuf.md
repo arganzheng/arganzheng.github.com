@@ -33,20 +33,17 @@ layout: post
 4. 然后，用 MessageFactory::GetPrototype() 找到具体 Message Type 的 default instance
 5. 最后，用 prototype->New() 创建对象
 
-	Message* createMessage(const std::string& typeName)
-	{
-	  Message* message = NULL;
-	  const Descriptor* descriptor = DescriptorPool::generated_pool()->FindMessageTypeByName(typeName);
-	  if (descriptor)
-	  {
-	    const Message* prototype = MessageFactory::generated_factory()->GetPrototype(descriptor);
-	    if (prototype)
-	    {
-	      message = prototype->New();
-	    }
-	  }
-	  return message;
+Message* createMessage(const std::string& typeName) {
+	Message* message = NULL;
+	const Descriptor* descriptor = DescriptorPool::generated_pool()->FindMessageTypeByName(typeName);
+	if (descriptor) {
+		const Message* prototype = MessageFactory::generated_factory()->GetPrototype(descriptor);
+		if (prototype) {
+			message = prototype->New();
+		}
 	}
+	return message;
+}
 
 使用的时候根据需要，可以强制类型转换得到具体的message：
 
