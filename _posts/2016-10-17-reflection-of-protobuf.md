@@ -55,8 +55,13 @@ layout: post
 	graphsearch::Person* person = dynamic_cast<T*>(message);
 
 上面的createMessage只是得到一个default instance，但是这个instance的各个字段值还是默认值，但是拥有具体的类型我们就可以进行序列化和反序列化了：
+	
+	message->ParseFromString(data);
+
+或者:
 
     person->ParseFromString(data);
+
 
 ### 动态获取和设置字段值
 
