@@ -8,9 +8,62 @@ layout: post
 背景知识
 -------
 
+protobuf对于每个元素都有一个相应的descriptor，这个descriptor包含该元素的所有元信息，非常类似于Spring中的Bean Definition。下面是各个Descriptor（元数据描述类）的类图：
+
+![protobuf_descriptors_classdiagram.png](/media/images/protobuf_descriptors_classdiagram.png)
+
+1. FileDescriptor: 对一个proto文件的描述，它包含文件名、包名、选项（如package, java_package, java_outer_classname等）、文件中定义的所有message、文件中定义的所有enum、文件中定义的所有service、文件中所有定义的extension、文件中定义的所有依赖文件（import）等。在FileDescriptor中还存在一个DescriptorPool实例，它保存了所有的dependencies(依赖文件的FileDescriptor)、name到GenericDescriptor的映射、字段到FieldDescriptor的映射、枚举项到EnumValueDescriptor的映射，从而可以从该DescriptorPool中查找相关的信息，因而可以通过名字从FileDescriptor中查找Message、Enum、Service、Extensions等。可以通过`--descriptor_set_out`指定生成某个proto文件相对应的FileDescriptorSet文件。
+2. Descriptor: 对一个message定义的描述，它包含该message定义的名字、所有字段、内嵌message、内嵌enum、关联的FileDescriptor等。可以使用字段名或字段号查找FieldDescriptor。
+3. FieldDescriptor：对一个字段或扩展字段定义的描述，它包含字段名、字段号、字段类型、字段定义(required/optional/repeated/packed)、默认值、是否是扩展字段以及和它关联的Descriptor/FileDescriptor等。
+4. EnumDescriptor：对一个enum定义的描述，它包含enum名、全名、和它关联的FileDescriptor。可以使用枚举项或枚举值查找EnumValueDescriptor。
+5. EnumValueDescriptor：对一个枚举项定义的描述，它包含枚举名、枚举值、关联的EnumDescriptor/FileDescriptor等。
+6. ServiceDescriptor：对一个service定义的描述，它包含service名、全名、关联的FileDescriptor等。
+7. MethodDescriptor：对一个在service中的method的描述，它包含method名、全名、参数类型、返回类型、关联的FileDescriptor/ServiceDescriptor等。
+
+具体描述可以参考官方文档: [
+descriptor.h](https://developers.google.com/protocol-buffers/docs/reference/cpp/google.protobuf.descriptor)
+
+有意思的是，这些Descriptor类其实本身也是通过protobuf定义的：[
+descriptor.pb.h](https://developers.google.com/protocol-buffers/docs/reference/cpp/google.protobuf.descriptor.pb)，然后你可以通过`--descriptor_set_out`指定生成某个proto文件相对应的FileDescriptorSet文件，这个文件就是`message FileDescriptorSet`序列化的结果。需要的时候你可以使用`FileDescriptorSet.ParseFrom`得到proto的元信息。
+
+通过这些Descriptor我们就可以在运行期间获取到各种元数据（如某个Message有哪些字段，每个字段的类型等），从而动态的做一些事情（如动态的设置某个属性的值）。
+
+那么怎样获取到这些Descroptor呢？
+
+总的来说有两种方式：
+
+1、动态编译：使用protobuf的动态编译机制，在运行时对某个proto文件进行动态编译，从而得到其所有元数据(descriptor):
+
+    DiskSourceTree sourceTree;
+    //look up .proto file in current directory
+    sourceTree.MapPath("", "./");
+    Importer importer(&sourceTree, NULL);
+    //runtime compile foo.proto
+    importer.Import("foo.proto");
+ 
+    const Descriptor *descriptor = importer.pool()->FindMessageTypeByName("test.Foo");
+
+**NOTES**
+
+其实importer.Import("foo.proto")会返回一个FileDescriptor，也可以通过这个file descriptor对该proto文件进行操作。
+
+2、静态编译
+
+其实Protobuf默认生成的xxx.pb.cc文件会有一个静态类，在这个静态类的构造函数会把自己注册进去，放在`DescriptorPool::generated_pool`中，这样就可以在运行期间通过`DescriptorPool::generated_pool`拿到注册的元信息了。
+
+* [static void MessageFactory::InternalRegisterGeneratedFile(const char* filename, void(*)(const string&)register_messages)](https://developers.google.com/protocol-buffers/docs/reference/cpp/google.protobuf.message#MessageFactory.InternalRegisterGeneratedFile.details)
+	* For internal use only: Registers a .proto file at static initialization time, to be placed in generated_factory.
+	* The first time GetPrototype() is called with a descriptor from this file, |register_messages| will be called, with the file name as the parameter. It must call InternalRegisterGeneratedMessage() (below) to register each message type in the file. This strange mechanism is necessary because descriptors are built lazily, so we can't register types by their descriptor until we know that the descriptor exists. |filename| must be a permanent string.
+* [static void MessageFactory::InternalRegisterGeneratedMessage(const Descriptor* descriptor, const Message* prototype)](https://developers.google.com/protocol-buffers/docs/reference/cpp/google.protobuf.message#MessageFactory.InternalRegisterGeneratedMessage.details)
+	* For internal use only: Registers a message type.
+	* Called only by the functions which are registered with InternalRegisterGeneratedFile(), above.
+
 ![protobuf_classdiagram.png](/media/images/protobuf_classdiagram.png)
 
-简单来说，protobuf对于每个message都有一个相应的descriptor，这个descriptor包含该message的所有元信息。我们可以根据这个descriptor创建这个相应的message实例。
+**NOTES**
+
+由于使用的是类静态初始化，假如这个proto文件没有被使用，就不会触发初始化，解决方案是手动的触发这个类：比如调用`foo.set_bar("xxx");`或者直接`import foo.pb.cc`。都有点恶心。。
+
 
 关键类：
 
@@ -132,10 +185,102 @@ pb的Message基类提供了一个Reflection，这个类非常强大，可以利�
 我们会根据schema_index得到需要构建索引的字段，然后拿到这个字段的值进行索引构建。
 
 
-参考文档
+### 3、动态编译
+
+我们还可以使用PB 提供的 google::protobuf::compiler 包在运行时动态编译指定的.proto 文件来使用其中的 Message。这样就可以通过修改.proto文件实现动态消息，有点类似配置文件的用法。完成这个工作主要的类叫做 importer，定义在 importer.h 中。
+
+	#include <iostream>
+	#include <google/protobuf/descriptor.h>
+	#include <google/protobuf/descriptor.pb.h>
+	#include <google/protobuf/dynamic_message.h>
+	#include <google/protobuf/compiler/importer.h>
+	 
+	using namespace std;
+	using namespace google::protobuf;
+	using namespace google::protobuf::compiler;
+	 
+	int main(int argc, const char *argv[])
+	{
+	    DiskSourceTree sourceTree;
+	    //look up .proto file in current directory
+	    sourceTree.MapPath("", "./");
+	    Importer importer(&sourceTree, NULL);
+	    //runtime compile foo.proto
+	    importer.Import("foo.proto");
+	 
+	    const Descriptor *descriptor = importer.pool()->FindMessageTypeByName("Pair");
+	    cout << descriptor->DebugString();
+	 
+	    // build a dynamic message by "Pair" proto
+	    DynamicMessageFactory factory;
+	    const Message *message = factory.GetPrototype(descriptor);
+	    // create a real instance of "Pair"
+	    Message *pair = message->New();
+	 
+	    // write the "Pair" instance by reflection
+	    const Reflection *reflection = pair->GetReflection();
+	 
+	    const FieldDescriptor *field = NULL;
+	    field = descriptor->FindFieldByName("key");
+	    reflection->SetString(pair, field, "my key");
+	    field = descriptor->FindFieldByName("value");
+	    reflection->SetUInt32(pair, field, 1111);
+	 
+	    cout << pair->DebugString();
+	 
+	    delete pair;
+	 
+	    return 0;
+	}
+
+
+### 4、动态定义proto
+
+能不能通过程序生成protobuf文件呢？毕竟对用户来说protobuf还是有点偏向于程序化，小白用户可能更喜欢用表格来定义消息格式，然后我们内部转换成相应的proto格式的消息？答案是可以的。FileDescriptorProto允许你动态的定义你的proto文件：
+
+	FileDescriptorProto file_proto;
+	file_proto.set_name("my.proto");  
+	file_proto.set_syntax("proto3");  
+	  
+	DescriptorProto *message_proto = file_proto.add_message_type();  
+	message_proto->set_name("mymsg");  
+	  
+	FieldDescriptorProto *field_proto = NULL;  
+	  
+	field_proto = message_proto->add_field();  
+	field_proto->set_name("len");  
+	field_proto->set_type(FieldDescriptorProto::TYPE_UINT32);  
+	field_proto->set_number(1);  
+	field_proto->set_label(FieldDescriptorProto::LABEL_OPTIONAL);  
+	  
+	field_proto = message_proto->add_field();  
+	field_proto->set_name("type");  
+	field_proto->set_type(FieldDescriptorProto::TYPE_UINT32);  
+	field_proto->set_number(2);  
+	  
+	DescriptorPool pool;  
+	const FileDescriptor *file_descriptor = pool.BuildFile(file_proto);  
+	cout << file_descriptor->DebugString();
+
+上面代码所生成的结构和下面的my.proto文件是一样的：
+
+	syntax = "proto3";  
+	message mymsg  
+	{  
+	    uint32 len = 1;  
+	    uint32 type = 2;  
+	}
+
+
+推荐阅读
 -------
 
 1. [Protobuf message object creation by name](http://stackoverflow.com/questions/29960871/protobuf-message-object-creation-by-name)
 2. [C++ Reference >> C++API >> Protobuf >> descriptor.h >> DescriptorPool.generated_pool.details](https://developers.google.com/protocol-buffers/docs/reference/cpp/google.protobuf.descriptor#DescriptorPool.generated_pool.details)
 3. [protobuf通过反射来赋值](https://www.cppfans.org/1758.html)
 4. [一种自动反射消息类型的 Google Protobuf 网络传输方案](http://www.cnblogs.com/Solstice/archive/2011/04/03/2004458.html)
+5. [玩转Protocol Buffers](http://www.searchtb.com/2012/09/protocol-buffers.html) 淘宝搜索技术博客写的一篇文章
+6. [Self-describing Messages](https://developers.google.com/protocol-buffers/docs/techniques?hl=zh-CN#self-description) 介绍了一种自描述的消息描述机制，类似于Avro。
+7. [Google Protocol Buffer 的使用和原理](https://www.ibm.com/developerworks/cn/linux/l-cn-gpb/) 非常深入浅出的文章，强烈推荐。
+
+
