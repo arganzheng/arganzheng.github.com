@@ -231,6 +231,8 @@ ES的别名不会递归替换，也就是只会解释第一层的alias，所以�
 5. 上线环境设置
 -------------
 
+在官方网站上有详细的介绍：[Important System Configuration](https://www.elastic.co/guide/en/elasticsearch/reference/5.1/system-config.html)
+
 1、JDK版本
 
 最少1.7，推荐1.8。
@@ -239,7 +241,7 @@ ES的别名不会递归替换，也就是只会解释第一层的alias，所以�
 
 ES推荐的最大的JVM heap size大概是30~32GB。
 
-	export ES_HEAP_SIZE=28g
+	export ES_JAVA_OPTS="$ES_JAVA_OPTS -Xms30g -Xmx30g"
 
 3、禁止swap
 
@@ -264,6 +266,8 @@ elasticsearch.yml:
 	*         soft    nofile      500000
 	root      hard    nofile      500000
 	root      soft    nofile      500000
+	*         soft    memlock     unlimited
+	*         hard    memlock     unlimited
 
 5、设置单播集群通讯模式
 
@@ -281,7 +285,17 @@ ES有两种方式构建集群：
 
 其中，设置 discovery.zen.minimum_master_nodes =2 是一种防止脑裂的方式，为了保证这个配置生效，我们需要准备奇数个节点(odd number of nodes)，然后把这个值设置为ceil(num_of_nodes / 2)。对于上面的配置，最多可以失去一个节点。这个方式很像 quorum in Zookeeper。
 
-6、减少不必要的索引
+6、设置其他机器可以访问：
+
+# Set the bind address to a specific IP (IPv4 or IPv6):
+#
+network.host: nj03-bdg-kg-es-01.nj03
+#
+# Set a custom port for HTTP:
+#
+http.port: 8083
+
+7、减少不必要的索引
 
 包括这些：
 
