@@ -108,19 +108,73 @@ Consumer:
 kafka读取消息其实是基于offset来进行的，如果offset出错，就可能出现重复读取消息或者跳过未读消息。在0.8.2之前，kafka是将offset保存在ZooKeeper中，但是我们知道zk的写操作是很昂贵的，而且不能线性拓展，频繁的写入zk会导致性能瓶颈。所以在0.8.2引入了[Offset Management](http://www.infoq.com/cn/articles/kafkaesque-days-at-linkedin-part01)，将这个offset保存在一个 compacted kafka topic(_consumer_offsets)，Consumer通过发送OffsetCommitRequest请求到指定broker（偏移量管理者）提交偏移量。这个请求中包含一系列分区以及在这些分区中的消费位置（偏移量）。偏移量管理者会追加键值（key－value）形式的消息到一个指定的topic（__consumer_offsets）。key是由consumerGroup-topic-partition组成的，而value是偏移量。同时为了提供性能，内存中也会维护一份最近的记录，这样在指定key的情况下能快速的给出OffsetFetchRequests而不用扫描全部偏移量topic日志。如果偏移量管理者因某种原因失败，新的broker将会成为偏移量管理者并且通过扫描偏移量topic来重新生成偏移量缓存。
 
 
+**TIPS** 如何修改offset?
+
+有些时候我们需要人为的指定offset，比如跳过某些消息，或者redo某些消息。在0.8.2之前，offset是存放在ZK中，只要用ZKCli操作ZK就可以了。但是在0.8.2之后，offset默认是存放在kafka的__consumer_offsets队列中，只能通过API修改了:
+
+> [Class KafkaConsumer<K,V>](https://kafka.apache.org/090/javadoc/index.html?org/apache/kafka/clients/consumer/KafkaConsumer.html)
+> Kafka allows specifying the position using seek(TopicPartition, long) to specify the new position. Special methods for seeking to the earliest and latest offset the server maintains are also available ( seekToBeginning(TopicPartition...) and seekToEnd(TopicPartition...) respectively).
+
+参考文档: [Kafka Consumer Offset Management](http://www.xmsxmx.com/kafka-consumer-offset-management/)
+
 
 部署和配置
 --------
 
 Kafka是用Scala写的，所以只要安装了JRE环境，运行非常简单。直接下载官方编译好的包，解压配置一下就可以直接运行了。
 
-作为Boker必须配置如下几个配置项：
+### kafka配置
 
-* broker.id
-* log.dirs: 默认在tmp目录，很容易撑爆，建议修改。
-* zookeeper.connect： Zookeeper所在地址，不需要配置多个。
+配置文件在config目录下的server.properties，关键配置如下（有些属性配置文件中默认没有，需自己添加）：
 
-然后启动：`$ bin/kafka-server-start.sh config/server.properties &`，非常简单。
+* broker.id：Kafka集群中每台机器（称为broker）需要独立不重的id
+* port：监听端口
+* delete.topic.enable：设为true则允许删除topic，否则不允许
+* message.max.bytes：允许的最大消息大小，默认是1000012(1M)，建议调到到10000012(10M)。
+* replica.fetch.max.bytes: 同上，默认是1048576，建议调到到10048576。
+* log.dirs：Kafka数据文件的存放目录，注意不是日志文件。可以配置为：/home/work/kafka/data/kafka-logs
+* log.cleanup.policy：过期数据清除策略，默认为delete，还可设为compact
+* log.retention.hours：数据过期时间（小时数），默认是1073741824，即一周。过期数据用log.cleanup.policy的规则清除。可以用log.retention.minutes配置到分钟级别。
+* log.segment.bytes：数据文件切分大小，默认是1073741824(1G)。
+* retention.check.interval.ms：清理线程检查数据是否过期的间隔，单位为ms，默认是300000，即5分钟。
+* zookeeper.connect：负责管理Kafka的zookeeper集群的机器名:端口号，多个用逗号分隔
+
+更多参数的详细说明见官方文档：http://kafka.apache.org/documentation.html#brokerconfigs
+
+### ZK配置和启动
+
+然后先确保ZK已经正确配置和启动了。Kafka自带ZK服务，配置文件在config/zookeeper.properties文件，关键配置如下：
+
+	dataDir=/home/work/kafka/data/zookeeper
+	clientPort=2181
+	maxClientCnxns=0
+	tickTime=2000
+	initLimit=10
+	syncLimit=5
+	server.1=nj03-bdg-kg-offline-01.nj03:2888:3888
+	server.2=nj03-bdg-kg-offline-02.nj03:2888:3888
+	server.3=nj03-bdg-kg-offline-03.nj03:2888:3888
+
+**NOTES** [Zookeeper集群部署](https://zookeeper.apache.org/doc/r3.3.2/zookeeperAdmin.html)
+
+ZK的集群部署要做两件事情：
+
+1. 分配serverId: 在dataDir目录下创建一个myid文件，文件中只包含一个1到255的数字，这就是ZK的serverId。
+2. 配置集群：格式为`server.{id}={host}:{port}:{port}`，其中{id}就是上面提到的ZK的serverId。
+
+然后启动：`bin/zookeeper-server-start.sh -daemon config/zookeeper.properties`。
+
+### 启动kafka
+
+然后可以启动Kafka：`JMX_PORT=8999 bin/kafka-server-start.sh -daemon config/server.properties`，非常简单。
+
+**TIPS** 
+
+我们在启动命令中增加了`JMX_PORT=8999`环境变量，这样可以暴露JMX监控项，方便监控。
+
+
+Kafka监控和管理
+-------------
 
 不过不像RabbitMQ，或者ActiveMQ，Kafka默认并没有web管理界面，只有命令行语句，不是很方便，不过可以安装一个，比如，Yahoo的
 [Kafka Manager](https://github.com/yahoo/kafka-manager): A tool for managing Apache Kafka。它支持很多功能：
@@ -150,16 +204,6 @@ Kafka Manager主要是提供管理界面，监控的话还要依赖于其他的�
 2. [Kafka Offset Monitor](https://quantifind.com/KafkaOffsetMonitor/): A little app to monitor the progress of kafka consumers and their lag wrt the queue.
 
 这两个应用的目的都是监控Kafka的offset。
-
-**TIPS**
-
-生产环境最好配置一下下面两个选项：
-
-* delete.topic.enable=true，默认是false，0.8.2之后支持
-* auto.create.topics.enable=false，默认是true
-
-
-[2016-04-13 20:51:39,700] INFO Registered broker 1 at path /brokers/ids/1 with addresses: PLAINTEXT -> EndPoint(0.0.0.0,8092,PLAINTEXT) (kafka.utils.ZkUtils)
 
 
 ### 过期数据自动清除
@@ -194,8 +238,6 @@ Kafka Manager主要是提供管理界面，监控的话还要依赖于其他的�
 	log.cleaner.enable=false
 
 这里要注意，因为Kafka读取特定消息的时间复杂度为O(1)，即与文件大小无关，所以这里删除文件与Kafka性能无关，选择怎样的删除策略只与磁盘以及具体的需求有关。
-
-
 
 
 推荐阅读
