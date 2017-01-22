@@ -161,6 +161,7 @@ Index & Shards: 每个垂类单独一个index，分片数根据不同的垂类�
 	PUT _template/kg_template
 	{
 	   "template": "kg_*",
+	   "order": 5,
 	   "mappings": {
 	      "_default_": {
 	         "properties": {
@@ -171,7 +172,11 @@ Index & Shards: 每个垂类单独一个index，分片数根据不同的垂类�
 	               "type": "keyword"
 	            },
 	            "tag": {
-	               "type": "keyword"
+	               "properties": {
+	                    "name": {
+	                        "type": "keyword"
+	                    }   
+	               }
 	            }
 	         },
 	         "dynamic_templates": [
@@ -189,6 +194,74 @@ Index & Shards: 每个垂类单独一个index，分片数根据不同的垂类�
 	   }
 	}
 
+	PUT _template/kg_product_template
+	{
+	  "template": "kg_*_product",
+	  "order": 1,
+	  "settings": {
+	    "number_of_shards": 15
+	  },
+	  "mappings": {
+	      "_default_": {
+	         "properties": {
+	            "name": {
+	               "type": "keyword",
+	               "index": "no"
+	            },
+	            "aliases": {
+	               "type": "keyword",
+	               "index": "no"
+	            },
+	             "tag": {
+	                   "properties": {
+	                        "name": {
+	                            "type": "keyword"
+	                        }   
+	                   }
+	               }
+	         },
+	         "dynamic_templates": [
+	            {
+	               "unindexed_string": {
+	                  "match": "*",
+	                  "match_mapping_type": "string",
+	                  "mapping": {
+	                     "index": "no"
+	                  }
+	               }
+	            }
+	         ]
+	      }
+	   }
+	}
+
+说明：注意到上面的template商品的name和aliases都不建立索引，因为我们抓取的网站的商品名称基本都是类似于 “飞利浦（PHILIPS）电动剃须刀 S5082/61 三刀头刮胡刀 礼盒装” 这样的经过SEO的title，如果不分词的话建立索引一点意义都没有，然后我们有个tag属性，就是离线挖掘的检索词和权重，所以这里就直接忽略name了。
+
+然后我们可以测试一下：
+
+	PUT /kg_test_pe_product/product/test_by_argan?pretty
+	{
+	  "name": "John Doe",
+	  "aliases": ["John", "test aliases"],
+	  "tag": [{"name":"hello forrest","score": 0.9}, {"name":"magi","score":0.6}],
+	  "test": "Hello world"
+	}
+
+
+然后看看根据template生成的mapping:
+
+	GET /kg_test_pe_product/_mapping
+
+也可以简单搜索一下试试：
+
+	GET /kg_test_pe_product/product/_search
+	{
+	    "query": {
+	        "match": {
+	           "name": "John Doe"
+	        }
+	    }
+	}
 
 4. Multiple Indices and Index Aliases
 -------------------------------------
