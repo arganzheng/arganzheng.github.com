@@ -139,6 +139,13 @@ Kafka是用Scala写的，所以只要安装了JRE环境，运行非常简单。�
 * retention.check.interval.ms：清理线程检查数据是否过期的间隔，单位为ms，默认是300000，即5分钟。
 * zookeeper.connect：负责管理Kafka的zookeeper集群的机器名:端口号，多个用逗号分隔
 
+**TIPS** 发送和接收大消息
+
+需要修改如下参数：
+
+* broker：message.max.bytes & replica.fetch.max.bytes
+* consumer：fetch.message.max.bytes
+
 更多参数的详细说明见官方文档：http://kafka.apache.org/documentation.html#brokerconfigs
 
 ### ZK配置和启动
