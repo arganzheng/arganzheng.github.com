@@ -7,6 +7,32 @@ layout: post
 作为一个资深程序猿，在linux、windows和mac下都进行过相当长的一段开发时间，是时候总结一下mac下的一些高效工作Tips了。
 
 
+离线文档
+-------
+
+有时候有些文档需要翻墙或者访问很慢，你可以将整个文档离线下载下来，在本地阅读。
+
+登录能翻墙的服务器，使用wget的mirror功能下载整个网站：
+
+	wget -m --no-check-certificate --convert-links https://www.graphengine.io/
+
+**NOTES**
+
+* 因为我们要下载的网站是https的，所以要增加`--no-check-certificate`参数，否则会报错。
+* convert-links可以把网页的链接转成相对路径，如`/img/overview.png`会被转成`img/overview.png'，这样就不会出现资源加载不到了。
+
+然后压缩和下载：
+
+	tar -czf graphengine.tar.gz www.graphengine.io/
+	sz -be graphengine.tar.gz
+
+本地解压：
+	
+	tar -xzvf graphengine.tar.gz
+
+就可以本地离线翻阅了。
+
+
 Mac下的apt-get —— Homebrew & Homebrew-Cask
 ------------------------------------------
 
@@ -181,7 +207,7 @@ zsh有很多不错的功能，比如: kill <tab> 会自动列出进程，或者 
 1. Alfred: 绝对神器，类似于启动器，方便启动各种App。
 2. Spectacle: 窗口管理工具，在Windows上可以非常方便的将窗口居左居右居上居下，而这个工具就是通过快捷键在Mac上实现类似的功能，简单使用。
 3. Qbserve: 时间跟踪记录软件
-4. [sourcetree](https://www.sourcetreeapp.com/): 一个免费的Git图像化管理工具
+4. Github或者[sourcetree](https://www.sourcetreeapp.com/): 免费的Git图像化管理工具
 
 
 
