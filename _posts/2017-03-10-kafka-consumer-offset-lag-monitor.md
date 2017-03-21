@@ -67,7 +67,7 @@ layout: post
 
 ### 补充：Kafka的监控命令
 
-	[work@nj03-bdg-kg-offline-01.nj03 kafka]$ bin/kafka-run-class.sh kafka.tools.ConsumerOffsetChecker --zookeeper localhost:2181 --group db_updator_group3  --topic kg_url_expand
+	[work@kg-offline-01 kafka]$ bin/kafka-run-class.sh kafka.tools.ConsumerOffsetChecker --zookeeper localhost:2181 --group db_updator_group3  --topic kg_url_expand
 	[2017-02-28 15:38:45,221] WARN WARNING: ConsumerOffsetChecker is deprecated and will be dropped in releases following 0.9.0. Use ConsumerGroupCommand instead. (kafka.tools.ConsumerOffsetChecker$)
 	Group           Topic                          Pid Offset          logSize         Lag             Owner
 	db_updator_group3 kg_url_expand                  0   36951029        36951029        0               none
@@ -86,7 +86,7 @@ layout: post
 	db_updator_group3 kg_url_expand                  13  36930054        36930054        0               none
 	db_updator_group3 kg_url_expand                  14  36930610        36930610        0               none
 
-	[work@nj03-bdg-kg-offline-01.nj03 kafka]$ bin/kafka-consumer-groups.sh --bootstrap-server localhost:8092 --list
+	[work@kg-offline-01 kafka]$ bin/kafka-consumer-groups.sh --bootstrap-server localhost:8092 --list
 	rb_test_group
 	page_entity_consumer_group
 	pyspider_consumer_group
@@ -103,7 +103,7 @@ layout: post
 	original_page_entity_HDFS_pusher_group1
 	hdfs_publish_event_es_consumer_group2
 
-	[work@nj03-bdg-kg-offline-01.nj03 kafka]$vim  bin/kafka-consumer-groups.sh --bootstrap-server localhost:8092  --group db_updator_group3 --describe
+	[work@kg-offline-01 kafka]$vim  bin/kafka-consumer-groups.sh --bootstrap-server localhost:8092  --group db_updator_group3 --describe
 	GROUP                          TOPIC                          PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG             OWNER
 	db_updator_group3              kg_url_expand                  12         36950434        36950434        0               kafka-python-1.3.1_/10.194.163.51
 	db_updator_group3              kg_url_expand                  7          36943758        36943758        0               kafka-python-1.3.1_/10.194.163.51
