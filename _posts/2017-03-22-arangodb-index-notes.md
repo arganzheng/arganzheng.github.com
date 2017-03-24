@@ -251,7 +251,7 @@ Skiplist是一种比B tree简单的数据结构，具体细节可以参考整个
 
 这个类型的索引主要是用来实现全文检索的，也是搜索引擎的核心，数据结构一般是用倒排索引。开源的搜索引擎内核是lucene，不过是Java版本的，C版本的lucene非常老旧。
 
-不过ArangoDB这里并没有使用任何外部的倒排索引库，而是自己简单的实现了一个。
+不过ArangoDB这里并没有使用任何外部的倒排索引库，而是自己“简单”的实现了一个。
 
 相对于前面介绍的索引，fulltext index涉及到的文件比较多，有13个：
 
@@ -676,7 +676,7 @@ VPackSlice是ArangoDB自己定义的一种序列化方式，可以快速的转�
 	  }
 	}
 
-然后调用 TRI_InsertWordsMMFilesFulltextIndex(_fulltextIndex, revisionId, words)); 将单词插入到_fulltextIndex中：
+然后调用 TRI_InsertWordsMMFilesFulltextIndex(_fulltextIndex, revisionId, words)); 将单词插入到`_fulltextIndex`中：
 
 	/// @brief insert a list of words into the index
 	/// calling this function requires a wordlist that has word with the correct lengths. 
@@ -949,6 +949,8 @@ VPackSlice是ArangoDB自己定义的一种序列化方式，可以快速的转�
 	  return nullptr;
 	}
 
+个人感觉ArangoDB的fulltext索引搞得有点复杂了，而且代码有点混乱，不容易看懂。
+
 ### 4、Geo Index
 
 Geo Index的实现主要有四个文件:
@@ -1027,6 +1029,7 @@ mmfiles-geo-index.cpp有非常详细的注释，这里就不展开了。可以�
 
 
 ### 5、Persistent Index
+
 
 TODO
 
