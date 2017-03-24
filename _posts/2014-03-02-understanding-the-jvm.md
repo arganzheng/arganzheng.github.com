@@ -215,12 +215,36 @@ jps用来查看host上运行的所有java进程的pid（jvmid），一般情况�
 
 Jstat（ “Java Virtual Machine statistics monitoring tool” ）是JDK自带的一个轻量级小工具。主要对Java应用程序的资源和性能进行实时的命令行的监控，包括了对Heap size和垃圾回收状况的监控。
 
-语法结构如下：jstat [Options] vmid [interval] [count]
+命令格式如下：jstat [Options] vmid [interval] [count]
 
 * Options -- 选项，我们一般使用 -gcutil 查看gc情况
 * vmid    -- VM的进程号，即当前运行的java进程号
 * interval-- 间隔时间，单位为毫秒
 * count   -- 打印次数，如果缺省则打印无数次
+
+#### jstack
+
+jstack用于打印出给定的java进程ID或core file或远程调试服务的Java堆栈信息，
+
+命令格式如下：
+
+    Usage:
+        jstack [-l] <pid>
+            (to connect to running process)
+        jstack -F [-m] [-l] <pid>
+            (to connect to a hung process)
+        jstack [-m] [-l] <executable> <core>
+            (to connect to a core file)
+        jstack [-m] [-l] [server_id@]<remote server IP or hostname>
+            (to connect to a remote debug server)
+
+    Options:
+        -F  to force a thread dump. Use when jstack <pid> does not respond (process is hung)
+        -m  to print both java and native frames (mixed mode)
+        -l  long listing. Prints additional information about locks
+        -h or -help to print this help message
+
+jstack可以定位到线程堆栈，根据堆栈信息我们可以定位到具体代码，所以它在JVM性能调优中使用得非常多。
 
 #### jmap
 
