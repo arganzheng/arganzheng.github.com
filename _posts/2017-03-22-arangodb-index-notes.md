@@ -1224,10 +1224,7 @@ PersistentIndex类含有RocksDB的OptimisticTransactionDB的引用：
 	  return res;
 	}
 
-
-说明：rocksTransaction是 rocksdb::Transaction（3rdParty/rocksdb/v5.1.4/include/rocksdb/utilities/transaction.h），实现类是 TransactionBaseImpl (3rdParty/rocksdb/v5.1.4/utilities/transactions/transaction_base.h) :
-
-3rdParty/rocksdb/v5.1.4/utilities/transactions/transaction_base.h
+rocksTransaction是 rocksdb::Transaction，定义在 3rdParty/rocksdb/v5.1.4/include/rocksdb/utilities/transaction.h，实现类是 TransactionBaseImpl，定义在3rdParty/rocksdb/v5.1.4/utilities/transactions/transaction_base.h :
 
 	Status Put(ColumnFamilyHandle* column_family, const Slice& key,
 	           const Slice& value) override;
@@ -1241,7 +1238,7 @@ PersistentIndex类含有RocksDB的OptimisticTransactionDB的引用：
 	  return Put(nullptr, key, value);
 	}	
 
-arangodb/3rdParty/rocksdb/v5.1.4/utilities/transactions/transaction_base.cc
+实现类在 arangodb/3rdParty/rocksdb/v5.1.4/utilities/transactions/transaction_base.cc 中：
 
 	Status TransactionBaseImpl::Put(ColumnFamilyHandle* column_family,
                                 const Slice& key, const Slice& value) {
@@ -1270,14 +1267,12 @@ arangodb/3rdParty/rocksdb/v5.1.4/utilities/transactions/transaction_base.cc
 	  return s;
 	}
 
-rocksdb/utilities/transactions/transaction_base.h
-
-	WriteBatchBase* GetBatchForWrite();
-
-有两个具体的实现：
+其中：GetBatchForWrite() 返回的是 WriteBatchBase 对象，有两个具体的实现：
 
 * WriteBatch: 不添加索引
 * WrithBatchWithIndex：会同时对key创建索引
+
+根据indexing_enabled_判断返回哪个：
 
 	// Gets the write batch that should be used for Put/Merge/Deletes.
 	//
@@ -1293,7 +1288,7 @@ rocksdb/utilities/transactions/transaction_base.h
 	  }
 	}
 
-indexing_enabled_默认是true，所以这里是构建索引的 WriteBatchWithIndex 类 (3rdParty/rocksdb/v5.1.4/utilities/write_batch_with_index/write_batch_with_index.cc)：
+indexing_enabled_默认是true，所以这里是构建索引的 WriteBatchWithIndex 类，定义在3rdParty/rocksdb/v5.1.4/utilities/write_batch_with_index/write_batch_with_index.cc：
 
 	void WriteBatchWithIndex::Put(ColumnFamilyHandle* column_family,
 	                              const Slice& key, const Slice& value) {
@@ -1466,6 +1461,113 @@ SkipList类定义在 arangodb/3rdParty/rocksdb/v5.1.4/db/skiplist.h 中：
 还有这一行看起来貌似value为空字符串？
 
 	auto status = rocksTransaction->Put(values[i], std::string());
+
+
+最后我们来看一下查找过程。
+
+	/// @brief attempts to locate an entry in the index
+	/// Warning: who ever calls this function is responsible for destroying
+	/// the PersistentIndexIterator* results
+	PersistentIndexIterator* PersistentIndex::lookup(arangodb::Transaction* trx,
+	                                      ManagedDocumentResult* mmdr,
+	                                      VPackSlice const searchValues,
+	                                      bool reverse) const {
+	  TRI_ASSERT(searchValues.isArray());
+	  TRI_ASSERT(searchValues.length() <= _fields.size());
+
+	  VPackBuilder leftSearch;
+	  VPackBuilder rightSearch;
+
+	  VPackSlice lastNonEq;
+	  leftSearch.openArray();
+	  for (auto const& it : VPackArrayIterator(searchValues)) {
+	    TRI_ASSERT(it.isObject());
+	    VPackSlice eq = it.get(StaticStrings::IndexEq);
+	    if (eq.isNone()) {
+	      lastNonEq = it;
+	      break;
+	    }
+	    leftSearch.add(eq);
+	  }
+
+	  VPackSlice leftBorder;
+	  VPackSlice rightBorder;
+
+	  if (lastNonEq.isNone()) {
+	    // We only have equality!
+	    rightSearch = leftSearch;
+
+	    leftSearch.add(VPackSlice::minKeySlice());
+	    leftSearch.close();
+	    
+	    rightSearch.add(VPackSlice::maxKeySlice());
+	    rightSearch.close();
+
+	    leftBorder = leftSearch.slice();
+	    rightBorder = rightSearch.slice();
+	  } else {
+	    // Copy rightSearch = leftSearch for right border
+	    rightSearch = leftSearch;
+
+	    // Define Lower-Bound 
+	    VPackSlice lastLeft = lastNonEq.get(StaticStrings::IndexGe);
+	    if (!lastLeft.isNone()) {
+	      TRI_ASSERT(!lastNonEq.hasKey(StaticStrings::IndexGt));
+	      leftSearch.add(lastLeft);
+	      leftSearch.add(VPackSlice::minKeySlice());
+	      leftSearch.close();
+	      VPackSlice search = leftSearch.slice();
+	      leftBorder = search;
+	    } else {
+	      lastLeft = lastNonEq.get(StaticStrings::IndexGt);
+	      if (!lastLeft.isNone()) {
+	        leftSearch.add(lastLeft);
+	        leftSearch.add(VPackSlice::maxKeySlice());
+	        leftSearch.close();
+	        VPackSlice search = leftSearch.slice();
+	        leftBorder = search;
+	      } else {
+	        // No lower bound set default to (null <= x)
+	        leftSearch.add(VPackSlice::minKeySlice());
+	        leftSearch.close();
+	        VPackSlice search = leftSearch.slice();
+	        leftBorder = search;
+	      }
+	    }
+
+	    // Define upper-bound
+	    VPackSlice lastRight = lastNonEq.get(StaticStrings::IndexLe);
+	    if (!lastRight.isNone()) {
+	      TRI_ASSERT(!lastNonEq.hasKey(StaticStrings::IndexLt));
+	      rightSearch.add(lastRight);
+	      rightSearch.add(VPackSlice::maxKeySlice());
+	      rightSearch.close();
+	      VPackSlice search = rightSearch.slice();
+	      rightBorder = search;
+	    } else {
+	      lastRight = lastNonEq.get(StaticStrings::IndexLt);
+	      if (!lastRight.isNone()) {
+	        rightSearch.add(lastRight);
+	        rightSearch.add(VPackSlice::minKeySlice());
+	        rightSearch.close();
+	        VPackSlice search = rightSearch.slice();
+	        rightBorder = search;
+	      } else {
+	        // No upper bound set default to (x <= INFINITY)
+	        rightSearch.add(VPackSlice::maxKeySlice());
+	        rightSearch.close();
+	        VPackSlice search = rightSearch.slice();
+	        rightBorder = search;
+	      }
+	    }
+	  }
+
+	  // Secured by trx. The shared_ptr index stays valid in
+	  // _collection at least as long as trx is running.
+	  // Same for the iterator
+	  auto idx = _collection->primaryIndex();
+	  return new PersistentIndexIterator(_collection, trx, mmdr, this, idx, _db, reverse, leftBorder, rightBorder);
+	}
 
 
 参考文章
