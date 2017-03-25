@@ -48,7 +48,7 @@ ArangoDB内建了很多索引结构，用于解决不同的应用场景（个人
 
 **TIPS & NOTES**
 
-1、ArangoDB的索引除了Persistent Index，其他的都是纯内存索引，因此内存占用率会比较高；另外，重启的时候所有内存索引需要重新构建（或者打开某个Collection，该Collection相关的索引也会构建），导致启动非常耗时而且耗CPU。这也是后来引入Persitent Index的原因。[Suggestion: Have indexes also on disk besides "only memory indexes" #209](https://github.com/arangodb/arangodb/issues/209#issuecomment-193838232)。
+1、ArangoDB的数据文件使用的是内存映射文件(memory mapped files)，索引除了Persistent Index，其他的都是纯内存(normal memory)索引，因此内存占用率会比较高；另外，重启的时候所有内存索引需要重新构建（或者打开某个Collection，该Collection相关的索引也会构建），导致启动非常耗时而且耗CPU。这也是后来引入Persitent Index的原因。[Suggestion: Have indexes also on disk besides "only memory indexes" #209](https://github.com/arangodb/arangodb/issues/209#issuecomment-193838232)。
 
 另外，即使是内存索引，如果 size of indexes > size of ram，那么也会被操作系统换出。[The kernel will swap only to avoid an out of memory condition](https://en.wikipedia.org/wiki/Swappiness)。另一方面，ArangoDB的数据是以内存映射文件(Memory-Mapped Files)的方式加载的，数据量稍微一大，必然会发生换页。
 
@@ -1030,8 +1030,443 @@ mmfiles-geo-index.cpp有非常详细的注释，这里就不展开了。可以�
 
 ### 5、Persistent Index
 
+Persistent Index是[ArangoDB 3.0](https://docs.arangodb.com/3.0/Manual/ReleaseNotes/NewFeatures30.html#persistent-indexes)才作为实验性feature提供的功能。
 
-TODO
+主要是为了解决原来纯内存索引带来的一些问题：
+
+1. 机器成本：内存成本显而易见，但是速度确实要比磁盘要快很多，这是一个trade off。
+2. 加载速度：每次加载Collection都需要重新构建索引
+
+这一次ArangoDB终于没有从零自己实现了，而在[RocksDB](http://rocksdb.org/)存储引擎的基础上实现了Persistent Index。RocksDB是Facebook开源的一个嵌入式持久化的K-V存储引擎，是LevelDB的一个改进版。相对于传统的K-V而言，RocksDB的key是sorted，所以它还可以支持sorted index，实现范围查询和排序操作。
+
+Persistent Index相关的文件有6个：
+
+	arangod/MMFiles/MMFilesPersistentIndex.cpp
+	arangod/MMFiles/MMFilesPersistentIndex.h
+	arangod/MMFiles/MMFilesPersistentIndexFeature.cpp
+	arangod/MMFiles/MMFilesPersistentIndexFeature.h
+	arangod/MMFiles/MMFilesPersistentIndexKeyComparator.cpp
+	arangod/MMFiles/MMFilesPersistentIndexKeyComparator.h
+
+其中 MMFilesPersistentIndexKeyComparator 实现了 rocksdb::Comparator 接口，因为RocksDB是sorted KV；MMFilesPersistentIndexFeature 则是定义了一些配置信息。关键实现还是在 MMFilesPersistentIndex 类。
+
+PersistentIndex类含有RocksDB的OptimisticTransactionDB的引用：
+
+	/// @brief create the index
+	PersistentIndex::PersistentIndex(TRI_idx_iid_t iid,
+	                           arangodb::LogicalCollection* collection,
+                           	   arangodb::velocypack::Slice const& info)
+	    : MMFilesPathBasedIndex(iid, collection, info, 0, true),
+	      _db(RocksDBFeature::instance()->db()) {}
+
+我们还是主要分析一下索引的插入和查找过程。先看一下索引插入过程：
+
+	/// @brief inserts a document into the index
+	int PersistentIndex::insert(arangodb::Transaction* trx, TRI_voc_rid_t revisionId,
+	                         VPackSlice const& doc, bool isRollback) {
+	  auto comparator = RocksDBFeature::instance()->comparator();
+	  std::vector<MMFilesSkiplistIndexElement*> elements;
+
+	  int res;
+	  try {
+	  	/// 1. fillElement的职责是将doc转换成MMFilesIndexElement对象，这里是转成了MMFilesSkiplistIndexElement
+	    res = fillElement(elements, revisionId, doc);
+	  } catch (...) {
+	    res = TRI_ERROR_OUT_OF_MEMORY;
+	  }
+
+	  // make sure we clean up before we leave this method
+	  auto cleanup = [this, &elements] {
+	    for (auto& it : elements) {
+	      _allocator->deallocate(it);
+	    }
+	  };
+
+	  TRI_DEFER(cleanup());
+	  
+	  if (res != TRI_ERROR_NO_ERROR) {
+	    return res;
+	  }
+	  
+	  ManagedDocumentResult result; 
+	  IndexLookupContext context(trx, _collection, &result, numPaths()); 
+
+	  VPackSlice const key = Transaction::extractKeyFromDocument(doc);
+	  std::string const prefix =
+	      buildPrefix(trx->vocbase()->id(), _collection->cid(), _iid);
+
+	  VPackBuilder builder;
+	  std::vector<std::string> values;
+	  values.reserve(elements.size());
+
+	  // lower and upper bounds, only required if the index is unique
+	  std::vector<std::pair<std::string, std::string>> bounds;
+	  if (_unique) {
+	    bounds.reserve(elements.size());
+	  }
+
+ 	  /// 2. 对elements的每一个元素进行序列化
+	  for (auto const& it : elements) {
+	    builder.clear();
+	    builder.openArray();
+	    /// 对每一个field进行序列化
+	    for (size_t i = 0; i < _fields.size(); ++i) {
+	      builder.add(it->slice(&context, i));
+	    }
+	    builder.add(key); // always append _key value to the end of the array
+	    builder.close();
+
+	    VPackSlice const s = builder.slice();
+	    std::string value;
+	    value.reserve(keyPrefixSize() + s.byteSize());
+	    value += prefix;
+	    /// value的存储格式是 prefix + data + _key
+	    value.append(s.startAs<char const>(), s.byteSize());
+	    values.emplace_back(std::move(value));
+
+	    if (_unique) {
+	      builder.clear();
+	      builder.openArray();
+	      for (size_t i = 0; i < _fields.size(); ++i) {
+	        builder.add(it->slice(&context, i));
+	      }
+	      builder.add(VPackSlice::minKeySlice());
+	      builder.close();
+	    
+	      VPackSlice s = builder.slice();
+	      std::string value;
+	      value.reserve(keyPrefixSize() + s.byteSize());
+	      value += prefix;
+	      value.append(s.startAs<char const>(), s.byteSize());
+	      
+	      std::pair<std::string, std::string> p;
+	      p.first = value;
+	      
+	      builder.clear();
+	      builder.openArray();
+	      for (size_t i = 0; i < _fields.size(); ++i) {
+	        builder.add(it->slice(&context, i));
+	      }
+	      builder.add(VPackSlice::maxKeySlice());
+	      builder.close();
+	    
+	      s = builder.slice();
+	      value.clear();
+	      value += prefix;
+	      value.append(s.startAs<char const>(), s.byteSize());
+	      
+	      p.second = value;
+	      bounds.emplace_back(std::move(p));
+	    }
+	  }
+
+	  auto rocksTransaction = trx->rocksTransaction();
+	  TRI_ASSERT(rocksTransaction != nullptr);
+
+	  rocksdb::ReadOptions readOptions;
+
+	  size_t const count = elements.size();
+	  for (size_t i = 0; i < count; ++i) {
+	    if (_unique) {
+	      bool uniqueConstraintViolated = false;
+	      auto iterator = rocksTransaction->GetIterator(readOptions);
+
+	      if (iterator != nullptr) {
+	        auto& bound = bounds[i];
+	        iterator->Seek(rocksdb::Slice(bound.first.c_str(), bound.first.size()));
+
+	        while (iterator->Valid()) {
+	          int res = comparator->Compare(iterator->key(), rocksdb::Slice(bound.second.c_str(), bound.second.size()));
+
+	          if (res > 0) {
+	            break;
+	          }
+
+	          uniqueConstraintViolated = true;
+	          break;
+	        }
+
+	        delete iterator;
+	      }
+
+	      if (uniqueConstraintViolated) {
+	        // duplicate key
+	        res = TRI_ERROR_ARANGO_UNIQUE_CONSTRAINT_VIOLATED;
+	        if (!_collection->useSecondaryIndexes()) {
+	          // suppress the error during recovery
+	          res = TRI_ERROR_NO_ERROR;
+	        }
+	      }
+	    }
+
+	    /// 3. 将前面序列化得到的vector<string> values逐个put到RocksDB中
+	    if (res == TRI_ERROR_NO_ERROR) {
+	      auto status = rocksTransaction->Put(values[i], std::string());
+	      
+	      if (! status.ok()) {
+	        res = TRI_ERROR_INTERNAL;
+	      }
+	    }
+
+	    if (res != TRI_ERROR_NO_ERROR) {
+	      for (size_t j = 0; j < i; ++j) {
+	        rocksTransaction->Delete(values[i]);
+	      }
+	    
+	      if (res == TRI_ERROR_ARANGO_UNIQUE_CONSTRAINT_VIOLATED && !_unique) {
+	        // We ignore unique_constraint violated if we are not unique
+	        res = TRI_ERROR_NO_ERROR;
+	      }
+	      break;
+	    }
+	  }
+
+	  return res;
+	}
+
+
+说明：rocksTransaction是 rocksdb::Transaction（3rdParty/rocksdb/v5.1.4/include/rocksdb/utilities/transaction.h），实现类是 TransactionBaseImpl (3rdParty/rocksdb/v5.1.4/utilities/transactions/transaction_base.h) :
+
+3rdParty/rocksdb/v5.1.4/utilities/transactions/transaction_base.h
+
+	Status Put(ColumnFamilyHandle* column_family, const Slice& key,
+	           const Slice& value) override;
+	Status Put(const Slice& key, const Slice& value) override {
+	  return Put(nullptr, key, value);
+	}
+
+	Status Put(ColumnFamilyHandle* column_family, const SliceParts& key,
+	           const SliceParts& value) override;
+	Status Put(const SliceParts& key, const SliceParts& value) override {
+	  return Put(nullptr, key, value);
+	}	
+
+arangodb/3rdParty/rocksdb/v5.1.4/utilities/transactions/transaction_base.cc
+
+	Status TransactionBaseImpl::Put(ColumnFamilyHandle* column_family,
+                                const Slice& key, const Slice& value) {
+	  Status s =
+	      TryLock(column_family, key, false /* read_only */, true /* exclusive */);
+
+	  if (s.ok()) {
+	    GetBatchForWrite()->Put(column_family, key, value);
+	    num_puts_++;
+	  }
+
+	  return s;
+	}  
+
+	Status TransactionBaseImpl::Put(ColumnFamilyHandle* column_family,
+	                                const SliceParts& key,
+	                                const SliceParts& value) {
+	  Status s =
+	      TryLock(column_family, key, false /* read_only */, true /* exclusive */);
+
+	  if (s.ok()) {
+	    GetBatchForWrite()->Put(column_family, key, value);
+	    num_puts_++;
+	  }
+
+	  return s;
+	}
+
+rocksdb/utilities/transactions/transaction_base.h
+
+	WriteBatchBase* GetBatchForWrite();
+
+有两个具体的实现：
+
+* WriteBatch: 不添加索引
+* WrithBatchWithIndex：会同时对key创建索引
+
+	// Gets the write batch that should be used for Put/Merge/Deletes.
+	//
+	// Returns either a WriteBatch or WriteBatchWithIndex depending on whether
+	// DisableIndexing() has been called.
+	WriteBatchBase* TransactionBaseImpl::GetBatchForWrite() {
+	  if (indexing_enabled_) {
+	    // Use WriteBatchWithIndex
+	    return &write_batch_;
+	  } else {
+	    // Don't use WriteBatchWithIndex. Return base WriteBatch.
+	    return write_batch_.GetWriteBatch();
+	  }
+	}
+
+indexing_enabled_默认是true，所以这里是构建索引的 WriteBatchWithIndex 类 (3rdParty/rocksdb/v5.1.4/utilities/write_batch_with_index/write_batch_with_index.cc)：
+
+	void WriteBatchWithIndex::Put(ColumnFamilyHandle* column_family,
+	                              const Slice& key, const Slice& value) {
+	  rep->SetLastEntryOffset(); /// 记录当前的位置
+	  rep->write_batch.Put(column_family, key, value); /// 调用无索引的WriteBatch类插入数据
+	  rep->AddOrUpdateIndex(column_family, key); /// 对key进行索引构建
+	}
+
+	void WriteBatchWithIndex::Put(const Slice& key, const Slice& value) {
+	  rep->SetLastEntryOffset();
+	  rep->write_batch.Put(key, value);
+	  rep->AddOrUpdateIndex(key);
+	}
+
+所有的操作都委派给类成员变量 `struct Rep *rep` 去了，这个类的定义就在同一个文件中：
+
+	struct WriteBatchWithIndex::Rep {
+	  Rep(const Comparator* index_comparator, size_t reserved_bytes = 0,
+	      bool _overwrite_key = false)
+	      : write_batch(reserved_bytes),
+	        comparator(index_comparator, &write_batch),
+	        skip_list(comparator, &arena),
+	        overwrite_key(_overwrite_key),
+	        last_entry_offset(0) {}
+	  ReadableWriteBatch write_batch;
+	  WriteBatchEntryComparator comparator;
+	  Arena arena;
+	  WriteBatchEntrySkipList skip_list;
+	  bool overwrite_key;
+	  size_t last_entry_offset;
+
+	  // Remember current offset of internal write batch, which is used as
+	  // the starting offset of the next record.
+	  void SetLastEntryOffset() { last_entry_offset = write_batch.GetDataSize(); }
+
+	  // In overwrite mode, find the existing entry for the same key and update it
+	  // to point to the current entry.
+	  // Return true if the key is found and updated.
+	  bool UpdateExistingEntry(ColumnFamilyHandle* column_family, const Slice& key);
+	  bool UpdateExistingEntryWithCfId(uint32_t column_family_id, const Slice& key);
+
+	  // Add the recent entry to the update.
+	  // In overwrite mode, if key already exists in the index, update it.
+	  void AddOrUpdateIndex(ColumnFamilyHandle* column_family, const Slice& key);
+	  void AddOrUpdateIndex(const Slice& key);
+
+	  // Allocate an index entry pointing to the last entry in the write batch and
+	  // put it to skip list.
+	  void AddNewEntry(uint32_t column_family_id);
+
+	  // Clear all updates buffered in this batch.
+	  void Clear();
+	  void ClearIndex();
+
+	  // Rebuild index by reading all records from the batch.
+	  // Returns non-ok status on corruption.
+	  Status ReBuildIndex();
+	};
+
+过程非常简单明了：
+
+	/// 记录当前的位置
+	rep->SetLastEntryOffset();
+	/// 调用无索引的WriteBatch类插入数据
+    rep->write_batch.Put(column_family, key, value); 
+    /// 对key进行索引构建
+    rep->AddOrUpdateIndex(column_family, key); 
+
+我们看一下索引是怎么构建的：
+
+	void WriteBatchWithIndex::Rep::AddOrUpdateIndex(
+	    ColumnFamilyHandle* column_family, const Slice& key) {
+	  if (!UpdateExistingEntry(column_family, key)) {
+	    uint32_t cf_id = GetColumnFamilyID(column_family);
+	    const auto* cf_cmp = GetColumnFamilyUserComparator(column_family);
+	    if (cf_cmp != nullptr) {
+	      comparator.SetComparatorForCF(cf_id, cf_cmp);
+	    }
+	    AddNewEntry(cf_id);
+	  }
+	}
+
+	void WriteBatchWithIndex::Rep::AddOrUpdateIndex(const Slice& key) {
+	  if (!UpdateExistingEntryWithCfId(0, key)) {
+	    AddNewEntry(0);
+	  }
+	}
+
+	// Allocate an index entry pointing to the last entry in the write batch and
+    // put it to skip list.
+	void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
+	  const std::string& wb_data = write_batch.Data();
+	  Slice entry_ptr = Slice(wb_data.data() + last_entry_offset,
+	                          wb_data.size() - last_entry_offset);
+	  // Extract key
+	  Slice key;
+	  bool success __attribute__((__unused__)) =
+	      ReadKeyFromWriteBatchEntry(&entry_ptr, &key, column_family_id != 0);
+	  assert(success);
+
+	    auto* mem = arena.Allocate(sizeof(WriteBatchIndexEntry));
+	    auto* index_entry =
+	        new (mem) WriteBatchIndexEntry(last_entry_offset, column_family_id,
+	                                       key.data() - wb_data.data(), key.size());
+	    skip_list.Insert(index_entry);
+	  }
+
+看起来也蛮简单的，就是生产index_entry，插入到skip_list中。WriteBatchIndexEntry 是 skip_list的key，定义在 3rdParty/rocksdb/v5.1.4/utilities/write_batch_with_index/write_batch_with_index_internal.h：
+
+	// Key used by skip list, as the binary searchable index of WriteBatchWithIndex.
+	struct WriteBatchIndexEntry {
+	  WriteBatchIndexEntry(size_t o, uint32_t c, size_t ko, size_t ksz)
+	      : offset(o),
+	        column_family(c),
+	        key_offset(ko),
+	        key_size(ksz),
+	        search_key(nullptr) {}
+	  WriteBatchIndexEntry(const Slice* sk, uint32_t c)
+	      : offset(0),
+	        column_family(c),
+	        key_offset(0),
+	        key_size(0),
+	        search_key(sk) {}
+
+	  // If this flag appears in the offset, it indicates a key that is smaller
+	  // than any other entry for the same column family
+	  static const size_t kFlagMin = port::kMaxSizet;
+
+	  size_t offset;           // offset of an entry in write batch's string buffer.
+	  uint32_t column_family;  // column family of the entry.
+	  size_t key_offset;       // offset of the key in write batch's string buffer.
+	  size_t key_size;         // size of the key.
+
+	  const Slice* search_key;  // if not null, instead of reading keys from
+	                            // write batch, use it to compare. This is used
+	                            // for lookup key.
+	};
+
+而skip_list是Rep的一个成员变量，类型是WriteBatchEntrySkipList：
+
+	typedef SkipList<WriteBatchIndexEntry*, const WriteBatchEntryComparator&>
+		    WriteBatchEntrySkipList;
+
+SkipList类定义在 arangodb/3rdParty/rocksdb/v5.1.4/db/skiplist.h 中：
+
+	namespace rocksdb {
+
+	template<typename Key, class Comparator>
+	class SkipList {
+	 private:
+	  struct Node;
+	}
+	
+	...
+
+	}  // namespace rocksdb
+
+这是一个标准的数据结构，这里就不赘述了，感兴趣的同学自己可以研究。
+
+细心的读者可能会发现这段代码逻辑跟前面介绍的 MMFilesSkiplistIndex 的insert操作非常的类似：
+
+	/// @brief inserts a document into a skiplist index
+	int MMFilesSkiplistIndex::insert(transaction::Methods* trx, TRI_voc_rid_t revisionId, 
+	                          VPackSlice const& doc, bool isRollback);
+
+两者都把document转换成 vector<MMFilesSkiplistIndexElement>，然后插入到Skiplist中。
+不同的地方在于 Persistent Index 先把 MMFilesSkiplistIndexElement 序列化成 [arangodb/velocypack](https://github.com/arangodb/velocypack/blob/master/include/velocypack/Slice.h) 数据格式，再调用rocksdb::Transaction的Put方法，将数据插入到RocksDB中去，而索引的构建交给了RocksDB（底层索引结构恰好也是skiplist）。
+
+不过这里没有搞明白Persistent Index要先转成MMFilesSkiplistIndexElement，Skiplist是rocksDB的底层实现，只要把要索引的key插入就可以了啊？
+还有这一行看起来貌似value为空字符串？
+
+	auto status = rocksTransaction->Put(values[i], std::string());
+
 
 参考文章
 -------
