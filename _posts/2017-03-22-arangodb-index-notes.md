@@ -65,6 +65,12 @@ ArangoDB内建了很多索引结构，用于解决不同的应用场景（个人
 
 3、ArangoDB还引入[Vertex-Centric Indexes](https://docs.arangodb.com/3.1/Manual/Indexing/VertexCentric.html)解决图遍历过程中的supernode问题
 
+A vertex-centric can be either of the following types:
+
+* Hash Index
+* Skiplist Index
+* Persistent Index
+
 4、其实从功能上出发，可以更好的理解为什么需要这些索引类型：
 
 * 精确匹配 => Hash(Unsorted)
@@ -1075,18 +1081,7 @@ PersistentIndex类含有RocksDB的OptimisticTransactionDB的引用：
 	    res = TRI_ERROR_OUT_OF_MEMORY;
 	  }
 
-	  // make sure we clean up before we leave this method
-	  auto cleanup = [this, &elements] {
-	    for (auto& it : elements) {
-	      _allocator->deallocate(it);
-	    }
-	  };
-
-	  TRI_DEFER(cleanup());
-	  
-	  if (res != TRI_ERROR_NO_ERROR) {
-	    return res;
-	  }
+	  ...
 	  
 	  ManagedDocumentResult result; 
 	  IndexLookupContext context(trx, _collection, &result, numPaths()); 
@@ -1224,7 +1219,259 @@ PersistentIndex类含有RocksDB的OptimisticTransactionDB的引用：
 	  return res;
 	}
 
-rocksTransaction是 rocksdb::Transaction，定义在 3rdParty/rocksdb/v5.1.4/include/rocksdb/utilities/transaction.h，实现类是 TransactionBaseImpl，定义在3rdParty/rocksdb/v5.1.4/utilities/transactions/transaction_base.h :
+可以看到基本就是三个操作：
+
+1. 通过fillElement将doc转换成MMFilesIndexElement对象，这里是转成了MMFilesSkiplistIndexElement
+2. 对elements的每一个元素进行序列化
+3. 将前面序列化得到的vector<string> values逐个put到RocksDB中
+
+首先看一下fillElement方法，定义在 arangodb/arangod/MMFiles/MMFilesPathBasedIndex.cpp。这个文件很重要，很多重要的流程定义在这里
+。
+
+在深入到fillElement逻辑之前，需要先介绍一下ArangoDB中的一个基本概念——path based index，这是ArangoDB支持嵌套属性索引的关键。
+path based index其实全称应该是attribute path based index。对于一级属性(top level attribute)，attribute path就是attrbute name；但是对于嵌套属性(nested attrubutes/sub-attrbutes)，则attrbute path是"."号连接的路径，如 "name.last"。
+
+另外，为了支持数组属性索引，ArangoDB还引入了 [Array expansion](https://docs.arangodb.com/3.1/AQL/Advanced/ArrayOperators.html#array-expansion) 的概念，使用的符号是 "[*]"。 
+
+这两个结合起来，可以达到很灵活的查询需求，如下面语句指定返回用户的名字和他所有朋友的名字：
+
+	FOR u IN users
+	  RETURN { name: u.name, friends: u.friends[*].name }
+
+这个概念的实现类是MMFilesPathBasedIndex，定义在 arangodb/arangod/MMFiles/MMFilesPathBasedIndex.h。它继承自Index基类(arangodb/arangod/Indexes/Index.h)：
+
+	class Index {
+	 public:
+	  
+	  ...
+
+	  Index(TRI_idx_iid_t, LogicalCollection*,
+	        std::vector<std::vector<arangodb::basics::AttributeName>> const&,
+	        bool unique, bool sparse);
+
+	  Index(TRI_idx_iid_t, LogicalCollection*, arangodb::velocypack::Slice const&);
+
+	  explicit Index(arangodb::velocypack::Slice const&);
+
+	 public:
+	  /// @brief index types
+	  enum IndexType {
+	    TRI_IDX_TYPE_UNKNOWN = 0,
+	    TRI_IDX_TYPE_PRIMARY_INDEX,
+	    TRI_IDX_TYPE_GEO1_INDEX,
+	    TRI_IDX_TYPE_GEO2_INDEX,
+	    TRI_IDX_TYPE_HASH_INDEX,
+	    TRI_IDX_TYPE_EDGE_INDEX,
+	    TRI_IDX_TYPE_FULLTEXT_INDEX,
+	    TRI_IDX_TYPE_SKIPLIST_INDEX,
+	    TRI_IDX_TYPE_ROCKSDB_INDEX
+	  };
+
+	  ...
+
+	  virtual IndexType type() const = 0;
+
+	  private:
+	  /// @brief set fields from slice
+	  void setFields(VPackSlice const& slice, bool allowExpansion);
+
+	 protected:
+	  /// the index id
+	  TRI_idx_iid_t const _iid;
+
+	  /// the underlying collection
+	  LogicalCollection* _collection;
+
+	  /// the index fields
+	  std::vector<std::vector<arangodb::basics::AttributeName>> _fields;
+
+	  mutable bool _unique;
+
+	  mutable bool _sparse;
+	};
+
+Index类很清晰明了，其实就是表示某个Collection的哪些_fields需要构建索引，索引类型是什么，索引id是什么，是不是_unique，是不是_sparse，例如：
+
+	db.posts.ensureIndex({ type: "hash", fields: [ "name", "name.last", "age", "tag[*]" ], sparse: true })
+
+然后每个具体的索引类型(hash, skiplist, fulltext, persistent等)由具体的子类实现。
+
+这里有一个地方需要注意一下，就是_fields的类型是vector of vector，而不是vector。
+
+**ArangDB索引的类层级结构**
+
+* Index
+	* MMFilesPrimaryIndex
+	* MMFilesEdgeIndex
+	* MMFilesFulltextIndex
+	* MMFilesGeoIndex
+	* MMFilesPathBasedIndex
+		* MMFilesHashIndex
+		* MMFilesSkiplistIndex
+		* MMFilesPersistentIndex
+
+注意：MMFilesFulltextIndex和MMFilesGeoIndex并继承自MMFilesPathBasedIndex，所以它们并不支持嵌套属性（MMFilesFulltextIndex会默认对属性的子属性也构建索引，但是不是一个概念）。
+
+然后我们看一下MMFilesPathBasedIndex类，这个类开始引入paths的概念，fillElement也是在这个类定义的：
+
+	class MMFilesPathBasedIndex : public Index {
+		...
+	 public:
+
+	  /// @brief return the attribute paths
+	  std::vector<std::vector<std::string>> const& paths()
+	      const {
+	    return _paths;
+	  }
+
+	  /// @brief return the attribute paths, a -1 entry means none is expanding,
+	  /// otherwise the non-negative number is the index of the expanding one.
+	  std::vector<int> const& expanding() const {
+	    return _expanding;
+	  }
+
+	 protected:
+	  /// @brief helper function to insert a document into any index type
+	  template<typename T>
+	  int fillElement(std::vector<T*>& elements, 
+	          TRI_voc_rid_t revisionId, arangodb::velocypack::Slice const&);
+
+	 private:
+
+	  /// @brief helper function to transform AttributeNames into string lists
+	  void fillPaths(std::vector<std::vector<std::string>>& paths,
+	                 std::vector<int>& expanding);
+
+	  /// @brief helper function to create a set of index combinations to insert
+	  std::vector<std::pair<VPackSlice, uint32_t>> buildIndexValue(VPackSlice const documentSlice);
+
+	  /// @brief helper function to create a set of index combinations to insert
+	  void buildIndexValues(VPackSlice const document, size_t level,
+	                        std::vector<std::vector<std::pair<VPackSlice, uint32_t>>>& toInsert,
+	                        std::vector<std::pair<VPackSlice, uint32_t>>& sliceStack);
+
+	 protected:
+
+	  /// @brief the attribute paths
+	  std::vector<std::vector<std::string>> _paths;
+
+	  /// @brief ... and which of them expands
+	  std::vector<int> _expanding;
+
+	  /// @brief whether or not at least one attribute is expanded
+	  bool _useExpansion;
+
+	  /// @brief whether or not partial indexing is allowed
+	  bool _allowPartialIndex;
+	};
+	
+我们看看对应的实现 MMFilesPathBasedIndex.cpp。文件一开始定义了一个static的KeyAttribute数组，存放该Collection需要构建索引的属性字段（AttrbuteName结构体），默认是主键_key：
+
+	/// @brief the _key attribute, which, when used in an index, will implictly make it unique
+	static std::vector<arangodb::basics::AttributeName> const KeyAttribute
+	     {arangodb::basics::AttributeName("_key", false)};
+
+	struct AttributeName {
+	  std::string name;
+	  bool shouldExpand; // if the attribute was followed by [*] which means it should be expanded. Only works on arrays.
+	  ...
+	}
+
+然后我们来看一下fillElement的定义，它的职责很清晰，就是把文档转换成任何索引结构T（貌似T一定会extends MMFilesIndexElement）：
+
+	/// @brief helper function to insert a document into any index type
+	template<typename T>
+	int MMFilesPathBasedIndex::fillElement(std::vector<T*>& elements,
+	                                TRI_voc_rid_t revisionId,
+	                                VPackSlice const& doc) {
+
+	  size_t const n = _paths.size();
+
+	  if (!_useExpansion) { /// 如果文档中有数组字段，则_useExpansion为true
+	    // fast path for inserts... no array elements used
+	    auto slices = buildIndexValue(doc);
+
+	    if (slices.size() == n) {
+	      // if slices.size() != n, then the value is not inserted into the index
+	      // because of index sparsity!
+	      T* element = static_cast<T*>(_allocator->allocate());
+	      TRI_ASSERT(element != nullptr);
+	      element = T::initialize(element, revisionId, slices);
+	      ...
+	      try {
+	        elements.emplace_back(element);
+	      } catch (...) {
+	        _allocator->deallocate(element);
+	        return TRI_ERROR_OUT_OF_MEMORY;
+	      }
+	    }
+	  } else { /// 有数组字段需要构建索引
+	    // other path for handling array elements, too
+	    std::vector<std::vector<std::pair<VPackSlice, uint32_t>>> toInsert;
+	    std::vector<std::pair<VPackSlice, uint32_t>> sliceStack;
+
+	    buildIndexValues(doc, 0, toInsert, sliceStack);
+
+	    if (!toInsert.empty()) {
+	      elements.reserve(toInsert.size());
+
+	      for (auto& info : toInsert) {
+	        TRI_ASSERT(info.size() == n);
+	        T* element = static_cast<T*>(_allocator->allocate());
+	        TRI_ASSERT(element != nullptr);
+	        element = T::initialize(element, revisionId, info);
+	        ...
+	        try {
+	          elements.emplace_back(element);
+	        } catch (...) {
+	          _allocator->deallocate(element);
+	          return TRI_ERROR_OUT_OF_MEMORY;
+	        }
+	      }
+	    }
+	  }
+
+	  return TRI_ERROR_NO_ERROR;
+	}
+
+如果没有数组字段需要索引，那么就调用 `auto slices = buildIndexValue(doc);` 构建索引；否则调用 `buildIndexValues(doc, 0, toInsert, sliceStack);`。
+
+	/// @brief helper function to create the sole index value insert
+	std::vector<std::pair<VPackSlice, uint32_t>> MMFilesPathBasedIndex::buildIndexValue(
+	    VPackSlice const documentSlice) {
+	  size_t const n = _paths.size();
+
+	  std::vector<std::pair<VPackSlice, uint32_t>> result;
+	  for (size_t i = 0; i < n; ++i) {
+	    VPackSlice slice = documentSlice.get(_paths[i]);
+	    if (slice.isNone() || slice.isNull()) { // attribute not found
+	      if (_sparse) {
+	        // if sparse we do not have to index, this is indicated by result being shorter than n
+	        result.clear();
+	        break;
+	      }
+	      // null, note that this will be copied later!
+	      result.emplace_back(arangodb::basics::VelocyPackHelper::NullValue(), 0); // fake offset 0
+	    } else {
+	      result.emplace_back(slice, static_cast<uint32_t>(slice.start() - documentSlice.start()));
+	    }
+	  }
+	  return result;
+	}
+
+IndexValue是pair<VPackSlice, uint32_t>对象，其中 VPackSlice 是该属性对应的文档内容： 
+
+	VPackSlice slice = documentSlice.get(_paths[i]);
+
+而uint32_t 则是它相对于文档的偏移量：
+
+	static_cast<uint32_t>(slice.start() - documentSlice.start());
+
+不知道为什么是这个结构。。
+
+buildIndexValues则要复杂的多，是一个递归函数来的，有点长，这里不展开了。
+
+然后对elements进行序列化，得到vector<string> values，再调用rocksTransaction.Put方法插入到RocksDB。rocksTransaction是 rocksdb::Transaction，定义在 3rdParty/rocksdb/v5.1.4/include/rocksdb/utilities/transaction.h，实现类是 TransactionBaseImpl，定义在3rdParty/rocksdb/v5.1.4/utilities/transactions/transaction_base.h :
 
 	Status Put(ColumnFamilyHandle* column_family, const Slice& key,
 	           const Slice& value) override;
@@ -1462,7 +1709,6 @@ SkipList类定义在 arangodb/3rdParty/rocksdb/v5.1.4/db/skiplist.h 中：
 
 	auto status = rocksTransaction->Put(values[i], std::string());
 
-
 最后我们来看一下查找过程。
 
 	/// @brief attempts to locate an entry in the index
@@ -1568,6 +1814,8 @@ SkipList类定义在 arangodb/3rdParty/rocksdb/v5.1.4/db/skiplist.h 中：
 	  auto idx = _collection->primaryIndex();
 	  return new PersistentIndexIterator(_collection, trx, mmdr, this, idx, _db, reverse, leftBorder, rightBorder);
 	}
+
+什么鬼。。完全看不懂。。
 
 
 参考文章
