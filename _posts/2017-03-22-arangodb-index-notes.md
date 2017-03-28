@@ -10,11 +10,11 @@ ArangoDB索引概览
 ArangoDB内建了很多索引结构，用于解决不同的应用场景（个人感觉有点过多了。。）
 
 * Primary Index:
-	* 主键索引: _id, _key
+	* 主键索引: `_id`, `_key`
 	* unsorted hash index
 	* 内存索引
 * Edge Index
-	* 边索引：_from, _to
+	* 边索引：`_from`, `_to`
 	* hash index
 	* 内存索引
 * Hash Index: 精确查询
@@ -81,8 +81,492 @@ A vertex-centric can be either of the following types:
 这些索引理论上来说应该是可以内存，也可以是持久化的。是否持久化应该是一个选项(flag)，而不是一种索引类型。不过正如，ArangoDB官方所说的，直接新增一种持久化索引比将原来内存的索引变成持久化更简单一些，他们原来是有想在shutdown接口将内存索引持久化到磁盘的。
 
 
-ArangoDB索引小议
----------------
+ArangoDB索引类层次和基本概念
+-------------------------
+
+ArangoDB的索引是有层级关系的，如下所示：
+
+**ArangDB索引的类层级结构**
+
+* Index
+  	* MMFilesPrimaryIndex: uint8_t => MMFilesSimpleIndexElement
+  	* MMFilesEdgeIndex: arangodb::velocypack::Slice => MMFilesSimpleIndexElement
+	* MMFilesFulltextIndex
+	* MMFilesGeoIndex
+	* MMFilesPathBasedIndex
+    	* MMFilesHashIndex: arangodb::velocypack::Slice => MMFilesHashIndexElement*>
+	    * MMFilesSkiplistIndex: MMFilesSkiplistIndexElement
+	    * MMFilesPersistentIndex: MMFilesSkiplistIndexElement
+
+Index基类，定义在 arangodb/arangod/Indexes/Index.h 文件：
+
+  class Index {
+   public:
+    
+    ...
+
+    Index(TRI_idx_iid_t, LogicalCollection*,
+          std::vector<std::vector<arangodb::basics::AttributeName>> const&,
+          bool unique, bool sparse);
+
+    Index(TRI_idx_iid_t, LogicalCollection*, arangodb::velocypack::Slice const&);
+
+    explicit Index(arangodb::velocypack::Slice const&);
+
+   public:
+    /// @brief index types
+    enum IndexType {
+      TRI_IDX_TYPE_UNKNOWN = 0,
+      TRI_IDX_TYPE_PRIMARY_INDEX,
+      TRI_IDX_TYPE_GEO1_INDEX,
+      TRI_IDX_TYPE_GEO2_INDEX,
+      TRI_IDX_TYPE_HASH_INDEX,
+      TRI_IDX_TYPE_EDGE_INDEX,
+      TRI_IDX_TYPE_FULLTEXT_INDEX,
+      TRI_IDX_TYPE_SKIPLIST_INDEX,
+      TRI_IDX_TYPE_ROCKSDB_INDEX
+    };
+
+    ...
+
+    virtual IndexType type() const = 0;
+
+    private:
+    /// @brief set fields from slice
+    void setFields(VPackSlice const& slice, bool allowExpansion);
+
+   protected:
+    /// the index id
+    TRI_idx_iid_t const _iid;
+
+    /// the underlying collection
+    LogicalCollection* _collection;
+
+    /// the index fields
+    std::vector<std::vector<arangodb::basics::AttributeName>> _fields;
+
+    mutable bool _unique;
+
+    mutable bool _sparse;
+  };
+
+Index类很清晰明了，其实就是表示某个Collection的哪些_fields需要构建索引，索引类型是什么，索引id是什么，是不是_unique，是不是_sparse，例如：
+
+  db.posts.ensureIndex({ type: "hash", fields: [ "name", "name.last", "age", "tag[*]" ], sparse: true })
+
+然后每个具体的索引类型(hash, skiplist, fulltext, persistent等)由具体的子类实现。
+
+这里有一个地方需要注意一下，就是_fields的数据类型：
+
+	std::vector<std::vector<arangodb::basics::AttributeName>> _fields;
+
+AttributeName是要索引字段(属性)的名称：
+
+	struct AttributeName {
+	    std::string name;  // 属性名称，如name，name.last
+	    bool shouldExpand; // if the attribute was followed by [*] which means it should be expanded. Only works on arrays.
+	    ...
+	}  
+
+_fields结构体是在通过解析用户的ensureIndex语句得到的，如上面的这条对posts Collection构建索引的语句：
+
+  db.posts.ensureIndex({ type: "hash", fields: [ "name", "name.last", "age", "tag[*]" ], sparse: true })
+
+会通过Index.cpp中的validateFields进行解析：
+
+	/// @brief validate fields from slice
+	void Index::validateFields(VPackSlice const& slice) {
+	  bool const allowExpansion =
+	      Index::allowExpansion(Index::type(slice.get("type").copyString()));
+
+	  VPackSlice fields = slice.get("fields");
+
+	  if (!fields.isArray()) {
+	    THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_ARANGO_ATTRIBUTE_PARSER_FAILED,
+	                                   "invalid index description");
+	  }
+
+	  for (auto const& name : VPackArrayIterator(fields)) {
+	    if (!name.isString()) {
+	      THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_ARANGO_ATTRIBUTE_PARSER_FAILED,
+	                                     "invalid index description");
+	    }
+
+	    std::vector<arangodb::basics::AttributeName> parsedAttributes;
+	    TRI_ParseAttributeString(name.copyString(), parsedAttributes,
+	                             allowExpansion);
+	  }
+	}
+
+fields属性中的每个元素会通过TRI_ParseAttributeString方法进行解析。注意，解析得到的是一个vector<AttributeName>，而不是简单的一个AttributeName结构，这是因为ArangoDB支持嵌套属性如 "name.last" ，得到的是一个 size=2 的vector，第一个元素是"name"，第二个是"last"。具体可以参考 arangodb/tests/Basics/AttributeNameParserTest.cpp 测试文件，里面有相应的测试用例。
+
+另外，为了支持数组属性索引，ArangoDB引入了 [Array expansion](https://docs.arangodb.com/3.1/AQL/Advanced/ArrayOperators.html#array-expansion) 的概念，使用的符号是 "[*]"。所以，对于 "foo.bar[*]" 的输入，会得到这样的解析结果：
+  
+	std::vector<AttributeName> result;
+
+	TRI_ParseAttributeString(input, result, true);
+	  
+	CHECK(result.size() == static_cast<size_t>(2));
+	CHECK(result[0].name == "foo");
+	CHECK(result[0].shouldExpand == false);
+	CHECK(result[1].name == "bar");
+	CHECK(result[1].shouldExpand == true);
+
+相信大家现在应该知道为什么 _fields 是一个二维数组(vector of vector)，而不是简单的一维数组(vector)了。
+
+这里也引出来ArangoDB一个非常重要的概念：path based index，这是ArangoDB支持嵌套属性索引的关键。
+
+path based index其实全称应该是attribute path based index。对于一级属性(top level attribute)，attribute path就是attrbute name；但是对于嵌套属性(nested attrubutes/sub-attrbutes)，则attrbute path是"."号连接的路径，如 "name.last"。
+
+path based index 和上面介绍的Array expansion 结合起来，可以达到很灵活的查询需求，如下面语句指定返回用户的名字和他所有朋友的名字：
+
+  FOR u IN users
+    RETURN { name: u.name, friends: u.friends[*].name }
+
+这个概念的实现类是MMFilesPathBasedIndex，定义在 arangodb/arangod/MMFiles/MMFilesPathBasedIndex.h，继承自上面的Index基类，从这个类开始引入paths的概念：
+
+  class MMFilesPathBasedIndex : public Index {
+    ...
+   public:
+
+    /// @brief return the attribute paths
+    std::vector<std::vector<std::string>> const& paths() const {
+      return _paths;
+    }
+
+    /// @brief return the attribute paths, a -1 entry means none is expanding,
+    /// otherwise the non-negative number is the index of the expanding one.
+    std::vector<int> const& expanding() const {
+      return _expanding;
+    }
+
+   protected:
+    /// @brief helper function to insert a document into any index type
+    template<typename T>
+    int fillElement(std::vector<T*>& elements, 
+            TRI_voc_rid_t revisionId, arangodb::velocypack::Slice const&);
+
+   private:
+
+    /// @brief helper function to transform AttributeNames into string lists
+    void fillPaths(std::vector<std::vector<std::string>>& paths,
+                   std::vector<int>& expanding);
+
+    /// @brief helper function to create a set of index combinations to insert
+    std::vector<std::pair<VPackSlice, uint32_t>> buildIndexValue(VPackSlice const documentSlice);
+
+    /// @brief helper function to create a set of index combinations to insert
+    void buildIndexValues(VPackSlice const document, size_t level,
+                          std::vector<std::vector<std::pair<VPackSlice, uint32_t>>>& toInsert,
+                          std::vector<std::pair<VPackSlice, uint32_t>>& sliceStack);
+
+   protected:
+
+    /// @brief the attribute paths
+    std::vector<std::vector<std::string>> _paths;
+
+    /// @brief ... and which of them expands
+    std::vector<int> _expanding;
+
+    /// @brief whether or not at least one attribute is expanded
+    bool _useExpansion;
+
+    /// @brief whether or not partial indexing is allowed
+    bool _allowPartialIndex;
+  };
+  
+
+我们看看对应的实现 MMFilesPathBasedIndex.cpp。其中最重要的方法是fillElement方法，它把文档转换成任何索引结构T（貌似T一定会extends MMFilesIndexElement）：
+
+	/// @brief helper function to insert a document into any index type
+	template<typename T>
+	int MMFilesPathBasedIndex::fillElement(std::vector<T*>& elements, /// 返回的结果
+	                                TRI_voc_rid_t revisionId, 
+	                                VPackSlice const& doc) {
+
+	  size_t const n = _paths.size();
+
+	  if (!_useExpansion) { /// 如果文档中有数组字段，则_useExpansion为true
+	    // fast path for inserts... no array elements used
+	    auto slices = buildIndexValue(doc);
+
+	    if (slices.size() == n) {
+	      // if slices.size() != n, then the value is not inserted into the index
+	      // because of index sparsity!
+	      T* element = static_cast<T*>(_allocator->allocate());
+	      TRI_ASSERT(element != nullptr);
+	      element = T::initialize(element, revisionId, slices);
+	      ...
+	      try {
+	        elements.emplace_back(element);
+	      } catch (...) {
+	        _allocator->deallocate(element);
+	        return TRI_ERROR_OUT_OF_MEMORY;
+	      }
+	    }
+	  } else { /// 有数组字段需要构建索引
+	    // other path for handling array elements, too
+	    std::vector<std::vector<std::pair<VPackSlice, uint32_t>>> toInsert;
+	    std::vector<std::pair<VPackSlice, uint32_t>> sliceStack;
+
+	    buildIndexValues(doc, 0, toInsert, sliceStack);
+
+	    if (!toInsert.empty()) {
+	      elements.reserve(toInsert.size());
+
+	      for (auto& info : toInsert) {
+	        TRI_ASSERT(info.size() == n);
+	        T* element = static_cast<T*>(_allocator->allocate());
+	        TRI_ASSERT(element != nullptr);
+	        element = T::initialize(element, revisionId, info);
+	        ...
+	        try {
+	          elements.emplace_back(element);
+	        } catch (...) {
+	          _allocator->deallocate(element);
+	          return TRI_ERROR_OUT_OF_MEMORY;
+	        }
+	      }
+	    }
+	  }
+
+	  return TRI_ERROR_NO_ERROR;
+	}
+
+其中_paths属性是通过fillPaths方法将_fields属性转成得到的一个 `std::vector<std::vector<std::string>>` 结构。
+
+逻辑蛮简单的：如果没有数组字段需要索引，那么就调用 `auto slices = buildIndexValue(doc);` 构建索引；否则调用 `buildIndexValues(doc, 0, toInsert, sliceStack);`。
+
+	/// @brief helper function to create the sole index value insert
+	std::vector<std::pair<VPackSlice, uint32_t>> MMFilesPathBasedIndex::buildIndexValue(
+	    VPackSlice const documentSlice) {
+	  size_t const n = _paths.size();
+
+	  std::vector<std::pair<VPackSlice, uint32_t>> result;
+	  for (size_t i = 0; i < n; ++i) {
+	    VPackSlice slice = documentSlice.get(_paths[i]);
+	    if (slice.isNone() || slice.isNull()) { // attribute not found
+	      if (_sparse) {
+	        // if sparse we do not have to index, this is indicated by result being shorter than n
+	        result.clear();
+	        break;
+	      }
+	      // null, note that this will be copied later!
+	      result.emplace_back(arangodb::basics::VelocyPackHelper::NullValue(), 0); // fake offset 0
+	    } else {
+	      result.emplace_back(slice, static_cast<uint32_t>(slice.start() - documentSlice.start()));
+	    }
+	  }
+	  return result;
+	}
+
+IndexValue是pair<VPackSlice, uint32_t>对象。其中 VPackSlice 是该属性对应的文档内容： 
+
+	VPackSlice slice = documentSlice.get(_paths[i]);
+
+而uint32_t 则是它相对于文档的偏移量：
+
+	static_cast<uint32_t>(slice.start() - documentSlice.start());
+
+buildIndexValues则要复杂的多，是一个递归函数来的，有点长，这里不展开了。
+
+**TIPS & NOTES** 
+
+1、`VPackSlice::get(std::vector<std::string>({ "name", "last" })))` 拿到的是subattribute "name.last"对应的值。具体参见：[velocypack](https://github.com/arangodb/velocypack/blob/master/examples/API.md)。所以IndexValue其实key就是属性值，value是属性值在整个document中的偏移量。
+
+2、MMFilesFulltextIndex和MMFilesGeoIndex并继承自MMFilesPathBasedIndex，所以它们并不支持嵌套属性（MMFilesFulltextIndex会默认对属性的子属性也构建索引，但是不是一个概念）。
+
+再回到fillElement函数。buildIndexValue将document构建出vector<IndexValue>，这些indexValues会转换成std::vector<T*>& elements。从代码看来，T应该是 MMFilesIndexElement.h中定义的 XXXIndexElement 结构体:
+
+    auto slices = buildIndexValue(doc);
+    ...
+	T* element = static_cast<T*>(_allocator->allocate());
+	TRI_ASSERT(element != nullptr);
+	element = T::initialize(element, revisionId, slices);
+	...
+    elements.emplace_back(element);
+	  
+可以看到T必须有initialize函数定义，这些xxxIndexElement都定义在arangod/MMFiles/MMFilesIndexElement.h中。
+
+MMFilesHashIndexElement：
+
+	/// @brief hash index element. Do not directly construct it.
+	struct MMFilesHashIndexElement {
+	  // Do not use new for this struct, use create()!
+	 private:
+	  MMFilesHashIndexElement(TRI_voc_rid_t revisionId, std::vector<std::pair<VPackSlice, uint32_t>> const& values);
+
+	 public:
+	  ...
+	  /// @brief base memory usage of an index element
+	  static constexpr size_t baseMemoryUsage(size_t numSubs) {
+	    return sizeof(TRI_voc_rid_t) + sizeof(uint32_t) + (sizeof(MMFilesIndexElementValue) * numSubs);
+	  }
+	  
+	  inline MMFilesIndexElementValue const* subObject(size_t position) const {
+	    char const* p = reinterpret_cast<char const*>(this) + baseMemoryUsage(position);
+	    return reinterpret_cast<MMFilesIndexElementValue const*>(p);
+	  }
+	  /// @brief allocate a new index element from a vector of slices
+	  static MMFilesHashIndexElement* initialize(MMFilesHashIndexElement* memory, 
+	                                      TRI_voc_rid_t revisionId, 
+	                                      std::vector<std::pair<arangodb::velocypack::Slice, uint32_t>> const& values);
+	  ...
+	 private:
+	  TRI_voc_rid_t _revisionId;
+	  uint32_t _hash;
+	};
+
+MMFilesSkiplistIndexElement：
+
+	/// @brief skiplist index element. Do not directly construct it.
+	struct MMFilesSkiplistIndexElement {
+	  // Do not use new for this struct, use create()!
+	 private:
+	  MMFilesSkiplistIndexElement(TRI_voc_rid_t revisionId, std::vector<std::pair<VPackSlice, uint32_t>> const& values);
+	 public:
+	  /// @brief base memory usage of an index element
+	  static constexpr size_t baseMemoryUsage(size_t numSubs) {
+	    return sizeof(TRI_voc_rid_t) + (sizeof(MMFilesIndexElementValue) * numSubs);
+	  }
+	  
+	  inline MMFilesIndexElementValue const* subObject(size_t position) const {
+	    char const* p = reinterpret_cast<char const*>(this) + baseMemoryUsage(position);
+	    return reinterpret_cast<MMFilesIndexElementValue const*>(p);
+	  }
+
+	  ...
+	  /// @brief allocate a new index element from a vector of slices
+	  static MMFilesSkiplistIndexElement* initialize(MMFilesSkiplistIndexElement* element,
+	                                          TRI_voc_rid_t revisionId, 
+	                                          std::vector<std::pair<arangodb::velocypack::Slice, uint32_t>> const& values);
+	 private:
+	  TRI_voc_rid_t _revisionId;
+	};
+
+MMFilesSimpleIndexElement比较特殊，它没有initialize，所以比较simple:
+
+	struct MMFilesSimpleIndexElement {
+	 public:
+	  MMFilesSimpleIndexElement(TRI_voc_rid_t revisionId, arangodb::velocypack::Slice const& value, uint32_t offset); 
+	  MMFilesSimpleIndexElement(MMFilesSimpleIndexElement const& other) : _revisionId(other._revisionId), _hashAndOffset(other._hashAndOffset) {}
+	  MMFilesSimpleIndexElement& operator=(MMFilesSimpleIndexElement const& other) noexcept {
+	    _revisionId = other._revisionId;
+	    _hashAndOffset = other._hashAndOffset;
+	    return *this;
+	  }
+
+	  /// @brief get the revision id of the document
+	  inline TRI_voc_rid_t revisionId() const { return _revisionId; }
+	  inline uint64_t hash() const { return _hashAndOffset & 0xFFFFFFFFULL; }
+	  inline uint32_t offset() const { return static_cast<uint32_t>((_hashAndOffset & 0xFFFFFFFF00000000ULL) >> 32); }
+	  arangodb::velocypack::Slice slice(IndexLookupContext*) const;
+	  
+	  inline operator bool() const { return _revisionId != 0; }
+	  inline bool operator==(MMFilesSimpleIndexElement const& other) const {
+	    return _revisionId == other._revisionId && _hashAndOffset == other._hashAndOffset;
+	  }
+	  inline bool operator<(MMFilesSimpleIndexElement const& other) const {
+	    return _revisionId < other._revisionId;
+	  }
+	  
+	  static uint64_t hash(arangodb::velocypack::Slice const& value);
+	  inline void updateRevisionId(TRI_voc_rid_t revisionId, uint32_t offset) { 
+	    _revisionId = revisionId; 
+	    _hashAndOffset &= 0xFFFFFFFFULL; 
+	    _hashAndOffset |= (static_cast<uint64_t>(offset) << 32);
+	  }
+	  
+	 private:
+	  TRI_voc_rid_t _revisionId;
+	  uint64_t _hashAndOffset;
+	};
+
+这里看一下MMFilesHashIndexElement的initialize实现：
+
+	MMFilesHashIndexElement* MMFilesHashIndexElement::initialize(MMFilesHashIndexElement* element, 
+	                                               TRI_voc_rid_t revisionId, 
+	                                               std::vector<std::pair<arangodb::velocypack::Slice, uint32_t>> const& values) {
+	  TRI_ASSERT(!values.empty());
+	  return new (element) MMFilesHashIndexElement(revisionId, values);
+	}
+
+	MMFilesHashIndexElement::MMFilesHashIndexElement(TRI_voc_rid_t revisionId, std::vector<std::pair<VPackSlice, uint32_t>> const& values) 
+	    : _revisionId(revisionId), _hash(static_cast<uint32_t>(hash(values))) {
+	   
+	  for (size_t i = 0; i < values.size(); ++i) {
+	    subObject(i)->fill(values[i].first, values[i].second);
+	  }
+	}
+
+最后是调用了subObject（MMFilesIndexElementValue）的fill方法，参数就是我们前面通过buildIndexValue得到的`pair<arangodb::velocypack::Slice, uint32_t>`。
+
+subObject的类型是MMFilesIndexElementValue，定义蛮简单的：
+
+	/// @brief velocypack sub-object (for indexes, as part of IndexElement, 
+	/// if the last byte in data[] is 0, then the VelocyPack data is managed 
+	/// by the datafile the element is in. If the last byte in data[] is 1, then 
+	/// value.data contains the actual VelocyPack data in place.
+	struct MMFilesIndexElementValue {
+	  friend struct MMFilesHashIndexElement;
+	  friend struct MMFilesSkiplistIndexElement;
+
+	 public:
+	  ...
+
+	  /// @brief fill an MMFilesIndexElementValue structure with a subvalue
+	  void fill(VPackSlice const value, uint32_t offset) {
+	    VPackValueLength len = value.byteSize();
+	    if (len <= maxValueLength()) {
+	      setInline(value.start(), static_cast<size_t>(len));
+	    } else {
+	      setOffset(offset);
+	    }
+	  }
+
+	  /// @brief velocypack sub-object (for indexes, as part of IndexElement, 
+	  /// if offset is non-zero, then it is an offset into the VelocyPack data in
+	  /// the data or WAL file. If offset is 0, then data contains the actual data
+	  /// in place.
+	  arangodb::velocypack::Slice slice(IndexLookupContext* context) const;
+	  
+	  inline bool isOffset() const noexcept {
+	    return !isInline();
+	  }
+
+	  inline bool isInline() const noexcept {
+	    return value.data[maxValueLength()] == 1;
+	  }
+
+	 private:
+	  void setOffset(uint32_t offset) {
+	    value.offset = offset;
+	    value.data[maxValueLength()] = 0; // type = offset
+	  }
+	    
+	  void setInline(uint8_t const* data, size_t length) noexcept {
+	    TRI_ASSERT(length > 0);
+	    TRI_ASSERT(length <= maxValueLength());
+	    memcpy(&value.data[0], data, length);
+	    value.data[maxValueLength()] = 1; // type = inline
+	  }
+
+	  static constexpr size_t maxValueLength() noexcept {
+	    return sizeof(value.data) - 1;
+	  }
+	 
+	 private:
+	  union {
+	    uint8_t data[12];
+	    uint32_t offset;
+	  } value;
+	};
+
+fill方法逻辑很简单，如果属性值value的长度小于 maxValueLength（即 sizeof(value.data) - 1），那么就直接存储属性值(setInline)，否则，只存储value在document中的offset。
+
+
+ArangoDB索引实现源码剖析
+----------------------
 
 ### 1、Primary Index、Edge Index和Hash Index
 
