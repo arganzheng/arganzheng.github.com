@@ -2,5 +2,5 @@ markdown: rdiscount
 pygments: true
 # permalink: /posts/:title.html
 extensions: [smart]
-paginate: 20
-paginate_path: "/posts/page:num/"
+paginate: 30
+paginate_path: "/posts/page/:num/"
