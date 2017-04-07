@@ -1,4 +1,6 @@
 markdown: rdiscount
 pygments: true
-permalink: /posts/:title.html
+# permalink: /posts/:title.html
 extensions: [smart]
+paginate: 20
+paginate_path: "/posts/page:num/"
