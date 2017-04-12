@@ -230,7 +230,7 @@ Prons & Cons
 * Fast
 * 分布式
 * 事务
-* 有比较丰富的数据类型
+* 有比较丰富的数据类型（Intege, String, Double, List, Map, GeoJSON..）和相应的操作（Increment, Append..，操作没有redis丰富）
 * 有一定的索引支持（一级索引，二级索引，Equality and Range filters)
 * 有命名空间
 * 支持UDF
@@ -238,7 +238,9 @@ Prons & Cons
 * 支持对某个namespace或者set的Truncation
 * 有一定的权限管理
 * 有比较丰富的客户端SDK和比较完善的文档
+* 有命令行 [aql](http://www.aerospike.com/docs/tools/aql) 和管理工具 [asinfo](http://www.aerospike.com/docs/tools/asinfo)
 * 比较活跃，有专门的团队支持
+
 
 **Cons**
 
@@ -247,7 +249,11 @@ Prons & Cons
 * list索引只支持第一层级属性 => :(
 * 采用的是随机sharding，不利于图切割 
 * 采用B+ Tree，基于Index-based adjacency 方式遍历需要 klog(n)
-* 一个namespace最多支持 256 secondary indexes，32K unique bin names, 4 billion of objects per namespace per server (3.12是32 billion, only企业版) => :(
+* namespace limitations:
+	* 1024 sets
+	* 256 secondary indexes => :(
+	* 32K unique bin names
+	* 4 billion of objects per namespace per server（3.12 扩大为 32 billion, 但是仅限于企业版） 
 * 不支持动态创建namespace，只能通过修改配置文件、重启服务器（Aerospike计划在下一个release中支持） => :(
 * 记录大小有限制: <= 1M => 有点小，不过对于我们的场景基本没问题 
 * bin name长度: <= 14 Chars => 一般来说单字段不会超过，嵌套属性如果拼接就很容易超长 :(

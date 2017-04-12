@@ -24,6 +24,7 @@ layout: post
 * Tabular databases(RDB)
     * MySQL
     * Aerospike
+    * DynamoDB
 * Graph Databases
 	* Neo4j
 	* Graph Engine (Microsoft)
@@ -36,6 +37,7 @@ layout: post
 	* [KairosDB](http://kairosdb.github.io/)
 	* [InfluxDB](https://github.com/influxdata/influxdb)
 * Object-Oriented Databases
+	* ObjectivityDB
 * Multi-Model Databases
 	* ArangoDB
 	* OrientDB

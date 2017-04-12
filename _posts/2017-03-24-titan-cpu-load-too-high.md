@@ -9,7 +9,7 @@ layout: post
 
 首先找到titan server的进程号，整个用top或者ps或者jps就可以简单快速的找到。
 
-然后查看其子线程的CPU信息，具体方法见下面:
+然后查看其子线程的CPU信息：
 
     $ top -H -p  32763
     top - 15:44:32 up 91 days, 20:14,  7 users,  load average: 10.81, 10.77, 7.66
@@ -121,9 +121,9 @@ layout: post
 
     JAVA_OPTIONS="-Xms32m -Xmx512m -javaagent:$LIB/jamm-0.3.0.jar"
 
-将其改大，重启观察，发现CPU一直稳定在90%左右了，吞吐率也上了，单机QPS在50左右（但是还是很低，难道Titan的性能这么差的？）。
+将其改大，重启观察，发现CPU一直稳定在90%左右了，吞吐率也上了，单机QPS基本稳定在50左右（但是还是很低，难道Titan的性能这么差的？）。
 
-再看一下GC情况，基本没有是偶尔的Young GC了：
+再看一下GC情况，基本只有偶尔的Young GC了：
 
     $ jstat -gcutil  25719 1000
     S0     S1     E      O      M     CCS    YGC     YGCT    FGC    FGCT     GCT
@@ -154,7 +154,7 @@ layout: post
 补充信息
 -------
 
-### 一、进制转换
+### 1、进制转换
 
 linux命令行可以很方便的进行十六进制和十进制之间的转换：
 
