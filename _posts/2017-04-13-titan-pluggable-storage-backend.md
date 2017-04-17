@@ -98,7 +98,6 @@ Titan根据后端不同的存储类型，定义了相应的接口：
 		* ElasticSearchIndex
 
 
-
 具体实例分析
 ----------
 
@@ -106,7 +105,7 @@ Titan根据后端不同的存储类型，定义了相应的接口：
 
 真的就三个类。
 
-1、BerkeleyJEKeyValueStore
+#### 1、BerkeleyJEKeyValueStore
 
 首先看看BerkeleyJEKeyValueStore，它实现了OrderedKeyValueStore接口:
 
@@ -216,10 +215,11 @@ Titan根据后端不同的存储类型，定义了相应的接口：
 	            DatabaseEntry foundData = new DatabaseEntry();
 
 	            cursor = db.openCursor(tx, null);
+	            /// getSearchKeyRange将游标定位到跟foundKey最接近的地方，再用Cursor.getNext就能得到游标下一个
 	            OperationStatus status = cursor.getSearchKeyRange(foundKey, foundData, getLockMode(txh));
 	            //Iterate until given condition is satisfied or end of records
 	            while (status == OperationStatus.SUCCESS) {
-	                StaticBuffer key = getBuffer(foundKey);
+	                StaticBuffer key = getBuffer(foundKey); /// getSearchKeyRange返回的key值
 
 	                if (key.compareTo(keyEnd) >= 0)
 	                    break;
@@ -231,10 +231,10 @@ Titan根据后端不同的存储类型，定义了相应的接口：
 	                if (selector.reachedLimit())
 	                    break;
 
+	                /// 调用cursor.getNext得到下一个key，因为是key有序的，所以得到的就是一个key range。
 	                status = cursor.getNext(foundKey, foundData, getLockMode(txh));
 	            }
 	            log.trace("db={}, op=getSlice, tx={}, resultcount={}", name, txh, result.size());
-	//            log.trace("db={}, op=getSlice, tx={}, resultcount={}", name, txh, result.size(), new Throwable("getSlice trace"));
 
 	            return new RecordIterator<KeyValueEntry>() {
 	                private final Iterator<KeyValueEntry> entries = result.iterator();
@@ -331,7 +331,7 @@ Titan根据后端不同的存储类型，定义了相应的接口：
 实现其实蛮简单的，因为OrderedKeyValueStore的接口本身就很简单。基本都是简单的K-V增删改查，除了 getSlice ，用到了Cursor。
 
 
-2、BerkeleyJEStoreManager
+#### 2、BerkeleyJEStoreManager
 
 然后我们来看看 BerkeleyJEStoreManager，它实现了 OrderedKeyValueStoreManager；并且因为是本地存储，所以它还拓展了LocalStoreManager：
 
@@ -382,6 +382,7 @@ Titan根据后端不同的存储类型，定义了相应的接口：
 	                            .set(ISOLATION_LEVEL, IsolationLevel.READ_UNCOMMITTED.toString()))
 	                    .supportsInterruption(false)
 	                    .build();
+
 	    }
 
 	    private void initialize(int cachePercent) throws BackendException {
@@ -595,10 +596,18 @@ Titan根据后端不同的存储类型，定义了相应的接口：
 	protected final StoreFeatures features;
 
 一个是它管理的BerkeleyJEKeyValueStore，还有BerkeleyDB的environment，用于创建BerkeleyDB实例(openDatabase)和处理事务(beginTransaction)。
-然后就是实现接口的方法。
+然后就是实现接口的方法。关键的接口就三个：
+
+1、开始一个事务: public BerkeleyJETx beginTransaction(final BaseTransactionConfig txCfg) throws BackendException;
+
+2、打开一个Database(这里是BerkeleyJEKeyValueStore): public BerkeleyJEKeyValueStore openDatabase(String name) throws BackendException;
+
+3、处理批量更新: public void mutateMany(Map<String, KVMutation> mutations, StoreTransaction txh) throws BackendException;
+
+这个接口定义在这里有点让人惊讶，因为对数据的真实操作应该是 BerkeleyJEKeyValueStore 要做的事情(Titan的接口和类层级定义过于复杂不够清晰。。)，而事实上，最终的操作确实也是委托给 BerkeleyJEKeyValueStore 进行更新。
 
 
-3、BerkeleyJETx
+#### 3、BerkeleyJETx
 
 最后我们来看一下BerkeleyJETx，继承至AbstractStoreTransaction，主要是实现了commit和rollback接口：
 
@@ -696,6 +705,8 @@ Titan根据后端不同的存储类型，定义了相应的接口：
 	        }
 	    }
 	}
+
+这个类主要是对`com.sleepycat.je.Transaction`的一个封装。所以Titan的事务实现其实是依赖于底层存储的具体实现的，并没有做什么事情。
 
 
 Titan底层处理逻辑分析
