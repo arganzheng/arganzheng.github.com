@@ -3,7 +3,7 @@ title: mina学习笔记
 layout: post
 ---
 
-![mina](/media/images/mina.jpg)
+![mina](/img/in-post/mina.jpg)
 
 
 Mina框架

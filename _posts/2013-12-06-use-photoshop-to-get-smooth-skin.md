@@ -16,7 +16,7 @@ title: 用Photoshop磨皮
 实战
 ----
 
-![Before-PS](/media/images/Before-PS.jpg)
+![Before-PS](/img/in-post/Before-PS.jpg)
 
 步骤一：在通道中选择色斑比较明显的通道，如这里的green通道，复制该通道，得到green copy通道。
 
@@ -35,5 +35,5 @@ title: 用Photoshop磨皮
 
 效果图：
 
-![After-PS](/media/images/After-PS.jpg)
+![After-PS](/img/in-post/After-PS.jpg)
 

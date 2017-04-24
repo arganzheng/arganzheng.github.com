@@ -133,7 +133,7 @@ The vector space model provides a way of comparing a multiterm query against a d
 
 现在 文档和query都以向量的形式表示在同一个向量空间，同一向量空间中两个向量的相识度其实就是他们之间的角度(angle between them)，角度越小越相似。用[余弦相似性](http://en.wikipedia.org/wiki/Cosine_similarity)就可以简单的解决这个问题，视觉效果如下图所示：
 
-![elas_17in02.png]((/media/images/elas_17in02.png)
+![elas_17in02.png]((/img/in-post/elas_17in02.png)
 
 
 **TIPS** 

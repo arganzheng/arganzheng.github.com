@@ -66,7 +66,7 @@ For example a trivial XmlBuilder could be written as follows (note Groovy ships 
 
 需求：根据msg的消息类型MessageType和status确定其操作，也就是实现如下表的映射：
 
-![消息路由](/media/images/builder-for-message-routing.jpg)
+![消息路由](/img/in-post/builder-for-message-routing.jpg)
 
 常规做法——使用Java做if-else条件判断：
     

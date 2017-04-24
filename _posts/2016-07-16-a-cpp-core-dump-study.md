@@ -5,7 +5,7 @@ layout: post
 
 昨天联通一直遇到一个诡异的问题：服务某个接口一接受到请求就core dump了。用gdb查看core文件，也没有看出个所以然:
 
-![cy core dump.png](/media/images/cy-core.png)
+![cy core dump.png](/img/in-post/cy-core.png)
 
 最后实在没有办法，只能采用排除法，把可疑的代码逐行注释掉，检查是不是还有core。因为是一跑就core，所以其实还是很快就定位到问题代码：
 
@@ -54,7 +54,7 @@ set_search_id是一个set函数，应该返回void，但是却不小心定义成
 
 果然屡试不爽。看core堆栈信息也非常莫名其妙：
 
-![test core dump.png](/media/images/test-core.png)
+![test core dump.png](/img/in-post/test-core.png)
 
 奇怪的是把返回值改成int就没有问题。只有string有问题。
 

@@ -16,7 +16,7 @@ Spring是基于proxy方式的事务实现机制。如果你的target实现了某
     }
     tx.commit();
 
-![](/media/images/tx.png)
+![](/img/in-post/tx.png)
 
 而动态代理的生成方式，Spring支持两种：
 

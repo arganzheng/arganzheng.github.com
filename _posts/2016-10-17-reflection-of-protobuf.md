@@ -10,7 +10,7 @@ layout: post
 
 protobuf对于每个元素都有一个相应的descriptor，这个descriptor包含该元素的所有元信息，非常类似于Spring中的Bean Definition。下面是各个Descriptor（元数据描述类）的类图：
 
-![protobuf_descriptors_classdiagram.png](/media/images/protobuf_descriptors_classdiagram.png)
+![protobuf_descriptors_classdiagram.png](/img/in-post/protobuf_descriptors_classdiagram.png)
 
 1. FileDescriptor: 对一个proto文件的描述，它包含文件名、包名、选项（如package, java_package, java_outer_classname等）、文件中定义的所有message、文件中定义的所有enum、文件中定义的所有service、文件中所有定义的extension、文件中定义的所有依赖文件（import）等。在FileDescriptor中还存在一个DescriptorPool实例，它保存了所有的dependencies(依赖文件的FileDescriptor)、name到GenericDescriptor的映射、字段到FieldDescriptor的映射、枚举项到EnumValueDescriptor的映射，从而可以从该DescriptorPool中查找相关的信息，因而可以通过名字从FileDescriptor中查找Message、Enum、Service、Extensions等。可以通过`--descriptor_set_out`指定生成某个proto文件相对应的FileDescriptorSet文件。
 2. Descriptor: 对一个message定义的描述，它包含该message定义的名字、所有字段、内嵌message、内嵌enum、关联的FileDescriptor等。可以使用字段名或字段号查找FieldDescriptor。
@@ -45,7 +45,9 @@ descriptor.pb.h](https://developers.google.com/protocol-buffers/docs/reference/c
 
 **NOTES**
 
-其实importer.Import("foo.proto")会返回一个FileDescriptor，也可以通过这个file descriptor对该proto文件进行操作。
+1. 其实importer.Import("foo.proto")会返回一个FileDescriptor，也可以通过这个file descriptor对该proto文件进行操作。
+2. `Importer(SourceTree* source_tree, MultiFileErrorCollector* error_collector)`，貌似PB没有提供默认的MultiFileErrorCollector实现，需要自己实现一个，实现其实蛮简单的。
+3. 如果要编译的proto文件有import其他的proto文件，那么有可能编译报错，需要把原来的proto文件也放在指定目录。
 
 2、静态编译
 
@@ -58,12 +60,11 @@ descriptor.pb.h](https://developers.google.com/protocol-buffers/docs/reference/c
 	* For internal use only: Registers a message type.
 	* Called only by the functions which are registered with InternalRegisterGeneratedFile(), above.
 
-![protobuf_classdiagram.png](/media/images/protobuf_classdiagram.png)
-
 **NOTES**
 
 由于使用的是类静态初始化，假如这个proto文件没有被使用，就不会触发初始化，解决方案是手动的触发这个类：比如调用`foo.set_bar("xxx");`或者直接`import foo.pb.cc`。都有点恶心。。
 
+![protobuf_classdiagram.png](/img/in-post/protobuf_classdiagram.png)
 
 关键类：
 

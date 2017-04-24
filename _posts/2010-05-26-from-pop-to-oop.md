@@ -13,7 +13,7 @@ title: 从面向过程到面向对象——在C中如何实现面向对象编程
 
 OOP中所谓的封装，其实就是将数据与操作数据的函数绑定在一起成为一个类。其中类中的数据称为数据成员，类中的函数称为方法。这个很简单，只需要在C结构中存放函数指针即可。一般两种存放方式。见下图所示：
 
-![encapsulation](/media/images/encapsulation.jpg "encapsulation in C")
+![encapsulation](/img/in-post/encapsulation.jpg "encapsulation in C")
 
 #### 2. 实现OOP中的继承（不包括类权限继承）
 
@@ -243,7 +243,7 @@ When the device file is opened for the first time, the kernel allocates the bloc
         ...
     };
 
-![blockSubsystem](/media/images/blockSubsystem.jpg "blockSubsystem")
+![blockSubsystem](/img/in-post/blockSubsystem.jpg "blockSubsystem")
 
 《UTLK, 3th》Figure 14-3. Linking the block device descriptors with the other structures of the block subsystem
 

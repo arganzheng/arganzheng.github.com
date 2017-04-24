@@ -204,7 +204,7 @@ MySQL支持多重拓扑结构，不同的拓扑结构有不同的应用场景。
 
 有时候我们还是需要多个Master同时提供读写服务的，最常见的方案就是多地部署的情况，一般是为了就近部署以便提速或者异地容灾。每个地区都有一个主Master，该主Master有Backup Master跟其做HA（一般是半同步保证实时性），可能还有一些只读的Slaves。但是每个地区的主Master之间需要数据进行互相同步，比如阿里巴巴的中美数据同步。这时候由于是异地部署，显然办同步是不合适的，所以会用普通的异步同步方式。这就需要保证用户的请求是区域固定的，而不是在各个地区之间负载，否则会出现不一致问题。同时，由于每个master都是提供对等的读写，所以需要解决主键冲突问题。一种简单的方案就是主键取模错开，比如奇偶递增。很多公司会使用这种，比如[Flikr](http://code.flickr.net/2010/02/08/ticket-servers-distributed-unique-primary-keys-on-the-cheap/)，美丽说，等。但是这种方案有个问题，就是扩容的时候需要ID需要调整。比如有两个Master变成三个Master，那么原来的奇偶自增ID就不适用了。所以如果不引入全局ID分配器的情况下，使用数据库自增功能的话，最合适的做法还是对ID进行预分配，比如A地区的ID范围是[1, 1000_000_000], B地区的是[1000_000_000, 2000_000_000], etc.
 
-![mysql-circular-replication](/media/images/mysql-circular-replication.png)
+![mysql-circular-replication](/img/in-post/mysql-circular-replication.png)
 
 
 #### 基于MySQL复制方式的故障failover方案

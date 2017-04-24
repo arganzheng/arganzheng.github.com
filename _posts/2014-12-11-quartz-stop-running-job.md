@@ -27,11 +27,11 @@ layout: post
 
 7个是网络IO：
 
-![quartz-jstack-blocking-in-file-io](/media/images/quartz-jstack-blocking-in-net-io.jpg)
+![quartz-jstack-blocking-in-file-io](/img/in-post/quartz-jstack-blocking-in-net-io.jpg)
 
 还有一个是文件IO：
 
-![quartz-jstack-blocking-in-file-io](/media/images/quartz-jstack-blocking-in-file-io.jpg)
+![quartz-jstack-blocking-in-file-io](/img/in-post/quartz-jstack-blocking-in-file-io.jpg)
 
 根据堆栈信息，很容易找到有问题的代码。
 

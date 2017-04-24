@@ -11,7 +11,7 @@ log4j核心概念
 
 这里有三个关键的概念——Loggers，Layouts，Appenders，正是Log4J的三个核心概念。下面我们一一介绍一下。
 
-![Log4j Core Components](/media/images/log4j-core-components.png)
+![Log4j Core Components](/img/in-post/log4j-core-components.png)
 
 ### 一、Loggers——The ability to selectively enable or disable logging requests based on their logger.
 
@@ -124,7 +124,7 @@ x and y refer to exactly the same logger object.
 
 看一下下面的例子就知道了：
 
-![Log4j Appender Additivity Example](/media/images/log4j-appender-additivity-example.jpg)
+![Log4j Appender Additivity Example](/img/in-post/log4j-appender-additivity-example.jpg)
 
 **TIPS** 一般来说一条日志，在同一种类型的appender（比如文件）只需要记录一次就可以了。所以，建议对同一种类型的appender设置`additivity=false`。
 

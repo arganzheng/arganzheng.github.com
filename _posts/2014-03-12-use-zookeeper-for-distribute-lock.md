@@ -15,7 +15,7 @@ ZooKeeper抽象出来的节点结构是一个和unix文件系统类似的小型�
 
 基于以上机制，利用节点名称唯一性机制的共享锁算法流程如图所示： 
 
-![利用节点名称的唯一性来实现共享锁](/media/images/zk-for-distribute-lock-1.bmp)
+![利用节点名称的唯一性来实现共享锁](/img/in-post/zk-for-distribute-lock-1.bmp)
 
 
 该共享锁实现很符合我们通常多个线程去竞争锁的概念，利用节点名称唯一性的做法简明、可靠。
@@ -24,7 +24,7 @@ ZooKeeper抽象出来的节点结构是一个和unix文件系统类似的小型�
 
 使用该方法进行测试锁的性能列表如下：
  
-![Lock机制的互斥测试](/media/images/zk-dlock-performance-test.gif) 
+![Lock机制的互斥测试](/img/in-post/zk-dlock-performance-test.gif) 
 
 
 **总结** 这种方案的正确性和可靠性是ZooKeeper机制保证的，实现简单。缺点是会产生“惊群”效应，假如许多客户端在等待一把锁，当锁释放时候所有客户端都被唤醒，仅仅有一个客户端得到锁。
@@ -64,12 +64,12 @@ ZooKeeper中还有一种名为临时节点的节点，临时节点由某个客�
 
 具体算法流程如下图所示:
 
-![利用临时顺序节点实现共享锁](/media/images/zk-for-distribute-lock-2.png)
+![利用临时顺序节点实现共享锁](/img/in-post/zk-for-distribute-lock-2.png)
 
 
 使用上述算法进行测试的的结果如下表所示：
 
-![Lock机制的互斥测试](/media/images/zk-dlock-performance-test-2.gif)
+![Lock机制的互斥测试](/img/in-post/zk-dlock-performance-test-2.gif)
  
 
 该算法只监控比自身创建节点序列号小(比自己小的最大的节点)的节点，在当前获得锁的节点释放锁的时候没有“惊群”。

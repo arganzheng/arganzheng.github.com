@@ -29,7 +29,7 @@ ZooKeeper允许分布式进程之间通过一个共享的层级命名空间来�
 
 ZooKeeper本身也是有集群化的。如下图：
 
-![ZooKeeper Cluster](/media/images/zookeeper-cluster.jpg)
+![ZooKeeper Cluster](/img/in-post/zookeeper-cluster.jpg)
 
 客户端与单个服务端相连，它维持一个TCP连接，在其上发送请求，获得响应，获得监控事件和发送心跳检测。如果到服务端的TCP连接断了，客户端会连接另一个服务端。组成ZooKeeper服务的每个服务端都知道其它服务端的存在，它们维护一个服务端状态的内存镜像，连同事务日志和快照保存在持久化存储中，只要大部分服务端可用，ZooKeeper服务就可用。
 
@@ -55,7 +55,7 @@ ZooKeeper为每个更新操作都标记一个号码以反映事务的顺序。�
 
 ZooKeeper的数据模型极像一个标准的文件系统，一个名字是一个以/分隔的路径元素的序列，ZooKeeper命名空间的每个节点通过路径来标识。。
 
-[ZooKeeper Data Model](/media/images/zk-data-model.jpg)
+[ZooKeeper Data Model](/img/in-post/zk-data-model.jpg)
 
 
 Zookeeper的视图结构类似标准的Unix文件系统，但是没有引入文件系统相关概念：目录和文件，而是使用了自己特有的节点(node)概念，称为znode。Znode是ZooKeeper中数据的最小单元，每个znode上都可以保存数据，同时还可以挂载子节点，也构成了一个层次化的命名空间，我们称之为树。
@@ -144,13 +144,13 @@ Watches是客户端安装在server的事件侦听方法；当侦听的变化发�
 
 下图从较高层次说明了ZooKeeper的构成
 
-![zk-service](/media/images/zk-service.jpg)
+![zk-service](/img/in-post/zk-service.jpg)
 
 集群数据库是存在于内存中的数据库，保存命名空间的所有数据。更新操作会被记录到硬盘中以便恢复，写操作先被序列化到硬盘中，再应用到内存数据库中。通常Zookeeper由2n+1台servers组成，只要有n+1台（大多数）server可用，整个系统保持可用。
 
 对于follower收到的client的请求，对于读操作，由follower的本地内存数据库直接给client返回结果；对于会改变系统状态的写操作，则交由Leader进行提议投票，超过半数通过后返回结果给client：
 
-![zk-proposal](/media/images/zk-proposal.jpg)
+![zk-proposal](/img/in-post/zk-proposal.jpg)
 
 Zookeeper的核心是原子广播，这个机制保证了各个server之间的同步。实现这个机制的协议叫做Zab协议。Zab协议有两种模式，它们分别是恢复模式和广播模式。当服务启动或者在领导者崩溃后，Zab就进入了恢复模式，当leader被选举出来，且大多数server的完成了和leader的状态同步以后，恢复模式就结束了。状态同步保证了leader和server具有相同的系统状态。
 
@@ -183,22 +183,22 @@ zk的实现中用了基于paxos算法（主要是fastpaxos）的实现。具体�
 
 创建节点性能测试
 
-![创建节点性能测试](/media/images/zk-znode-create-performance.jpg)
+![创建节点性能测试](/img/in-post/zk-znode-create-performance.jpg)
 
 
 删除节点性能测试
 
-![删除节点性能测试](/media/images/zk-znode-delete-performance.jpg)
+![删除节点性能测试](/img/in-post/zk-znode-delete-performance.jpg)
 
 
 读取节点内容性能测试
 
-![读取节点内容性能测试](/media/images/zk-znode-get-performance.jpg)
+![读取节点内容性能测试](/img/in-post/zk-znode-get-performance.jpg)
   
 
 #### 2. 综合读写性能曲线
 
-![综合读写性能曲线](/media/images/zk-performance-test.jpg)
+![综合读写性能曲线](/img/in-post/zk-performance-test.jpg)
 
 
 ### ZooKeeper的常见应用场景

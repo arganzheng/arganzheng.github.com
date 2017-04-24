@@ -19,7 +19,7 @@ layout: post
 
 目前比较常见的做法是搭建一个运行时配置中心支持动态配置，简化架构如下图所示:
 
-![服务配置中心](/media/images/config-center.png)
+![服务配置中心](/img/in-post/config-center.png)
 
 动态配置存放在集中的配置服务器上，用户通过管理界面配置和调整服务配置，具体服务通过定期拉(Scheduled Pull)的方式或者服务器推(Server-side Push)的方式更新动态配置。
 
