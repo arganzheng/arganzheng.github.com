@@ -24,9 +24,9 @@ twitter_username:   arganzheng
 # Build settings
 # from 2016, 'pygments' is unsupported on GitHub Pages. Use 'rouge' for highlighting instead.
 highlighter: rouge
-permalink: date
+# permalink: date
 paginate: 10
-paginate_path: /page:num/
+paginate_path: /page/num/
 exclude: ["less","node_modules","Gruntfile.js","package.json","README.md"]
 anchorjs: true                          # if you want to customize anchor. check out line:181 of `post.html`
 
