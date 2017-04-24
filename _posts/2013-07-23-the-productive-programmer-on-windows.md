@@ -189,7 +189,7 @@ sublime text
 
 Sublime Text 2默认不支持GB2312和GBK，可以安装一个插件让它支持 [解决乱码，让Sublime Text 2支持GB2312和GBK](http://www.fuzhaopeng.com/2012/sublime-text-2-with-gb2312-gbk-support/)。在这之前，先安装一个插件管理器方便插件的安装和卸载 [Sublime Package Control](http://wbond.net/sublime_packages/package_control/installation)。内网安装插件要设置代理：[Sublime Text 2 Package Control安装与设置代理方法](http://www.tanktan.com/blog/sublime2-proxy/)。
 
-具体参考笔者的另一篇文章：[tips for sublime text](http://blog.arganzheng.me/posts/tips-for-sublime-text.html)
+具体参考笔者的另一篇文章：[tips for sublime text](http://arganzheng.life/tips-for-sublime-text.html)
 
 
 文章收集和多终端同步

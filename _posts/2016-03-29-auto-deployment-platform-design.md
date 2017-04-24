@@ -32,7 +32,7 @@ layout: post
 
 关键在认证登陆这块，Linux机器一般采用SSH，Windows机器则采用Java Web Start。
 
-这里建议直接打通SSH免登陆。具体参见笔者以前的文章：[shell如何实现ssh免密码登陆](http://blog.arganzheng.me/posts/ssh-login-without-password.html)。
+这里建议直接打通SSH免登陆。具体参见笔者以前的文章：[shell如何实现ssh免密码登陆](http://arganzheng.life/ssh-login-without-password.html)。
 
 	Jenkins =>  Manage Jenkins => Manage Nodes => New Node:
 

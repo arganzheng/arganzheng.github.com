@@ -115,7 +115,7 @@ BeanFactoryPostProcessor对bean的配置元数据进行操作，可以通过Bean
 
 The FactoryBean interface is a point of pluggability into the Spring IoC container’s instantiation logic. If you have complex initialization code that is better expressed in Java as opposed to a (potentially) verbose amount of XML, you can create your own FactoryBean, write the complex initialization inside that class, and then plug your custom FactoryBean into the container.
 
-Spring框架本身大量使用了FactoryBean来隐藏对象的复杂构建逻辑，大概有50+个实现。比如我们前面在介绍Quartz与Spring的整合的时候提到的[SchedulerFactoryBean](http://blog.arganzheng.me/posts/quartz-and-spring-integration-dynamic-instanceid-with-factorybean.html)。把初始化逻辑放在FactoryBean中实现，然后在XML中配置FactoryBean，但是最后却是得到FactoryBean生产的Bean，有点狸猫换太子的味道。
+Spring框架本身大量使用了FactoryBean来隐藏对象的复杂构建逻辑，大概有50+个实现。比如我们前面在介绍Quartz与Spring的整合的时候提到的[SchedulerFactoryBean](http://arganzheng.life/quartz-and-spring-integration-dynamic-instanceid-with-factorybean.html)。把初始化逻辑放在FactoryBean中实现，然后在XML中配置FactoryBean，但是最后却是得到FactoryBean生产的Bean，有点狸猫换太子的味道。
 
 	package org.springframework.beans.factory;
 

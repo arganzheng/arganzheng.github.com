@@ -217,7 +217,7 @@ http://open.buy.qq.com/meta/api/1.xhtml?jsonpCallback=clientFunction。
     
 传入参数类型也可以是javax.servlet.http.Cookie类型。
 
-**TIPS** 如果是使用cookies值来保持回话状态的话，推荐使用Spring的[Bean Scopes](http://docs.spring.io/spring/docs/3.0.0.M3/reference/html/ch04s04.html)机制，具体参见笔者的另一篇文章：[Spring的Bean Scopes](http://blog.arganzheng.me/posts/spring-bean-scopes.html)。非常方便。
+**TIPS** 如果是使用cookies值来保持回话状态的话，推荐使用Spring的[Bean Scopes](http://docs.spring.io/spring/docs/3.0.0.M3/reference/html/ch04s04.html)机制，具体参见笔者的另一篇文章：[Spring的Bean Scopes](http://arganzheng.life/spring-bean-scopes.html)。非常方便。
 
 ### 6. `@RequestHeader`
 
@@ -511,7 +511,7 @@ Once the requested media type has been determined, this resolver queries each de
 
 这个就是上面提到的Spring MVC默认的三个`ContentNegotiationStrategy`，即所谓的PPA Strategy（path extension, then parameter, then Accept header) ，顺序也是先path extension，然后parameter(默认是format参数)，然后才是accept头。
 
-关于`ContentNegotiationStrategy`，可以参考笔者的另一篇文章：[content negotiation using spring mvc](http://blog.arganzheng.me/posts/content-negotiation-using-spring-mvc.html)。有具体的实际案例。
+关于`ContentNegotiationStrategy`，可以参考笔者的另一篇文章：[content negotiation using spring mvc](http://arganzheng.life/content-negotiation-using-spring-mvc.html)。有具体的实际案例。
 
 ##### 2. 供选择的SingleViewResolver
 >    

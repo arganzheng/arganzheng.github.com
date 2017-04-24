@@ -25,7 +25,7 @@ Spring是基于proxy方式的事务实现机制。如果你的target实现了某
 
 >Creates a JDK proxy when proxy interfaces are given, and a CGLIB proxy for the actual target class if not. Note that the latter will only work if the target class does not have final methods, as a dynamic subclass will be created at runtime.
 
-当然，你可以通过配置强制Spring使用CGLIB Proxy方式。具体参考笔者的另一篇文章：[Spring AOP internal](http://blog.arganzheng.me/posts/spring-aop-internal.html)
+当然，你可以通过配置强制Spring使用CGLIB Proxy方式。具体参考笔者的另一篇文章：[Spring AOP internal](http://arganzheng.life/spring-aop-internal.html)
 
 
 ## 配置

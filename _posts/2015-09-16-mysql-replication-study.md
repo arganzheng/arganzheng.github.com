@@ -280,7 +280,7 @@ layout: post
 其实有一种很简单的做法可以实现，就是在主库插入一条记录，记录插入的时间。然后这条记录会同步到从库，我们在同步拿到这条记录，比较一下当前时间就可以知道延迟是多少了。当然从库没办法直接知道记录已经同步过来，所以要轮循，所以还有一个轮循的时间差，不过设置短一些还是可以忽略的。虽然这个自己实现非常简单，不过已经有现成的工具了，我们可以直接使用——[pt-heartbeat
 ](https://www.percona.com/doc/percona-toolkit/2.2/pt-heartbeat.html): 用于监控mysql复制架构的延迟。主要是通过在主库上的--update线程持续更新指定表上的一个时间戳，从库上--monitor线程或者--check线程检查主库更新的时间戳并与当前系统时间对比，得到延迟值。
 
-使用还是蛮简单的，这里不赘述。但是由于整个percona-toolkit都是用perl写的，而且依赖了几个perl模块，然后perl的模块依赖安装还是非常麻烦的。。所以可能需要折腾一会。关于perl的模块安装可以参考笔者以前写的一篇文章: [如何安装perl模块](http://blog.arganzheng.me/posts/2010-06-28-how-to-install-perl-module.md)。
+使用还是蛮简单的，这里不赘述。但是由于整个percona-toolkit都是用perl写的，而且依赖了几个perl模块，然后perl的模块依赖安装还是非常麻烦的。。所以可能需要折腾一会。关于perl的模块安装可以参考笔者以前写的一篇文章: [如何安装perl模块](http://arganzheng.life/2010-06-28-how-to-install-perl-module.md)。
 
 如果你用centos系统，那么可以直接用yum安装perl模块：
 

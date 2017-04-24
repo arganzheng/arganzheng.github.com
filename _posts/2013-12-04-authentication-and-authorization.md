@@ -849,7 +849,7 @@ Spring-Security建议在Service接口上做注解保护。在Controller类上做
 内部是通过`AuthenticationPrincipalArgumentResolver`实现的，具体参见: [11.2. @AuthenticationPrincipal](http://docs.spring.io/spring-security/site/docs/3.2.4.RELEASE/reference/htmlsingle/#mvc-authentication-principal)。
 
 
-也可以通过Spring的queust scope bean达到同样的效果。具体参见笔者前面的文章[Spring的Bean Scopes](http://blog.arganzheng.me/posts/2013-01-11-spring-bean-scopes.md)。
+也可以通过Spring的queust scope bean达到同样的效果。具体参见笔者前面的文章[Spring的Bean Scopes](http://arganzheng.life/2013-01-11-spring-bean-scopes.md)。
 
 2、Spring Security提供了一些加密相关的工具类和方法，可以参考使用：[9. Spring Security Crypto Module](http://docs.spring.io/spring-security/site/docs/3.2.4.RELEASE/reference/htmlsingle/#crypto)。
 

@@ -6,7 +6,7 @@ layout: post
 
 在ES中，每个文档都会归属到一个类型(type)下。这个类型相当于关系型数据库中的表结构。所以每个类型有类似于DB一样的schema定义，称之为mapping。mapping定义了type中的fields信息：
 
-* datatype for each field，具体参见前面的文章[ElasticSearch的数据类型](http://blog.arganzheng.me/posts/datatype-in-elasticsearch.html)。
+* datatype for each field，具体参见前面的文章[ElasticSearch的数据类型](http://arganzheng.life/datatype-in-elasticsearch.html)。
 * how the field should be handled by ES
 
 大部分情况下，我们是不需要对type进行自定义mapping的，但是在某些情况下我们需要自定义mapping：

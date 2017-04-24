@@ -6,7 +6,7 @@ layout: post
 
 一直使用log4j，虽然知道log4j有性能上的问题，logback和log4j2都已经流行很多年了，但是总是懒得升级。最近新项目使用了spring boot，默认是配置logback，刚好学习一下。
 
-logback的配置很像log4j，而且起核心概念也是跟log4j一样。不外乎就是logger，appender和layout的关系，只不过appender多了一个filter组件。具体可以参考我前面写过的文章: [log4j详细介绍](http://blog.arganzheng.me/posts/log4j-in-detail.html)。
+logback的配置很像log4j，而且起核心概念也是跟log4j一样。不外乎就是logger，appender和layout的关系，只不过appender多了一个filter组件。具体可以参考我前面写过的文章: [log4j详细介绍](http://arganzheng.life/log4j-in-detail.html)。
 
 下面看具体实际问题的解决方案。
 

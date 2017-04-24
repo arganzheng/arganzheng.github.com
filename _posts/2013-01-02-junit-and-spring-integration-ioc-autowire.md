@@ -39,7 +39,7 @@ title: JUnit与Spring的整合——JUnit的TestCase如何自动注入Spring容�
 ## 解决思路
 
 其实在我前面的文章：[Quartz与Spring的整合-Quartz中的job如何自动注入spring容器托管的对象
-](http://blog.arganzheng.me/posts/quartz-and-spring-integration-ioc-autowire.html)，已经详细的讨论过这个问题了。Quartz是一个框架，Junit同样是个框架，Spring对于接入外部框架，采用了非常一致的做法。对于依赖注入，不外乎就是这个步骤：
+](http://arganzheng.life/quartz-and-spring-integration-ioc-autowire.html)，已经详细的讨论过这个问题了。Quartz是一个框架，Junit同样是个框架，Spring对于接入外部框架，采用了非常一致的做法。对于依赖注入，不外乎就是这个步骤：
 
 1. 首先，找到外部框架创建实例的地方（类或者接口），比如Quartz的jobFactory，默认为`org.quartz.simpl.SimpleJobFactory`,也可以配置为`org.quartz.simpl.PropertySettingJobFactory`。这两个类都是实现了`org.quartz.spi.JobFactory`接口。对于JUnit4.5+，则是`org.junit.runners.BlockJUnit4ClassRunner`类中的`createTest`方法。
 

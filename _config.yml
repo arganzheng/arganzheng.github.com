@@ -26,7 +26,7 @@ twitter_username:   arganzheng
 highlighter: rouge
 # permalink: date
 # paginate_path: /page/:num/
-permalink: /:year/:month/:day/:title.html
+permalink: /:title.html
 paginate: 10
 exclude: ["less","node_modules","Gruntfile.js","package.json","README.md"]
 anchorjs: true                          # if you want to customize anchor. check out line:181 of `post.html`

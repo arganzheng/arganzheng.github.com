@@ -37,7 +37,7 @@ layout: post
 
 网络IO那个是因为HttpURLConnection没有设置ReadTimeout，那么默认是block forever。还有貌似在getResponseCode之前要先获取一下链接的InputStream。
 
-而文件IO那个，就比较不好处理。这是一个Java调用外部python脚本，然后读取python脚本返回的信息。如果python卡住，那么java线程会一直卡住。问了一下测试同学，说python脚本没有耗时操作，应该很快就返回才是。所以可以等待如果python脚本20分钟没有执行完，就kill掉它。另外，对于读取python返回的数据block问题，由于Java1.7之前的文件IO都是block IO，而且不支持timeout，所以需要特别处理。具体参见笔者前面写的一篇文章 [Java文件读取支持timeout](http://blog.arganzheng.me/posts/java-file-reading.html)。
+而文件IO那个，就比较不好处理。这是一个Java调用外部python脚本，然后读取python脚本返回的信息。如果python卡住，那么java线程会一直卡住。问了一下测试同学，说python脚本没有耗时操作，应该很快就返回才是。所以可以等待如果python脚本20分钟没有执行完，就kill掉它。另外，对于读取python返回的数据block问题，由于Java1.7之前的文件IO都是block IO，而且不支持timeout，所以需要特别处理。具体参见笔者前面写的一篇文章 [Java文件读取支持timeout](http://arganzheng.life/java-file-reading.html)。
 
 最后的解决方案是：
 

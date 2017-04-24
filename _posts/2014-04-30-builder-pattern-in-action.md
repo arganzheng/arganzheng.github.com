@@ -9,7 +9,7 @@ Builder模式是GoF中的创建型设计模式中的一种。原来的意图是�
 
 ### 流水接口
 
-这个例子来源于笔者在做动态页面缓存需求时的一个实现。具体可以参见笔者的另一篇博文：[动态页面缓存方案](http://blog.arganzheng.me/posts/http-caching.html)。其中应用控制静态页面的缓存机制可以通过如下两种方式控制：
+这个例子来源于笔者在做动态页面缓存需求时的一个实现。具体可以参见笔者的另一篇博文：[动态页面缓存方案](http://arganzheng.life/http-caching.html)。其中应用控制静态页面的缓存机制可以通过如下两种方式控制：
 
 1. 对于静态的配置，可以使用@CacheControl注解进行配置。
 
@@ -448,7 +448,7 @@ Builder模式是GoF中的创建型设计模式中的一种。原来的意图是�
 
 ### DSL
 
-具体参见笔者以前的一篇文章：[Groovy元编程——使用invokeMethod和闭包构建DSL和Builder](http://blog.arganzheng.me/posts/groovy-builder-in-action.html)。这里就不赘述了。
+具体参见笔者以前的一篇文章：[Groovy元编程——使用invokeMethod和闭包构建DSL和Builder](http://arganzheng.life/groovy-builder-in-action.html)。这里就不赘述了。
 
 
 参考文章

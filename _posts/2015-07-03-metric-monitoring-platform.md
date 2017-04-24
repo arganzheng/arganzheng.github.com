@@ -12,7 +12,7 @@ layout: post
 实现
 ----
 
-具体参见笔者写的另一篇文章:[java服务端监控平台设计](http://blog.arganzheng.me/posts/java-monitor-platform.html)
+具体参见笔者写的另一篇文章:[java服务端监控平台设计](http://arganzheng.life/java-monitor-platform.html)
 
 
 使用

@@ -3,13 +3,13 @@ title: Java网络IO编程
 layout: post
 ---
 
-在前面的文章 [Java IO概述](http://blog.arganzheng.me/posts/java-io.html) 主要介绍了Java的文件IO。在这一篇，我将继续介绍Java的网络IO编程。
+在前面的文章 [Java IO概述](http://arganzheng.life/java-io.html) 主要介绍了Java的文件IO。在这一篇，我将继续介绍Java的网络IO编程。
 
 
 Prequirement
 ------------
 
-1. 在继续阅读这篇文章之前，请务必先阅读前面这篇[Java IO概述](http://blog.arganzheng.me/posts/java-io.html)，因为Java把所有的IO都统一成流(Stream)了。
+1. 在继续阅读这篇文章之前，请务必先阅读前面这篇[Java IO概述](http://arganzheng.life/java-io.html)，因为Java把所有的IO都统一成流(Stream)了。
 2. TCP/IP协议栈。知道IP、端口、DNS、Socket、URL、TCP、UDP、HTTP等网络相关知识。
 
 
@@ -171,7 +171,7 @@ Socket在数据结构上，是 <IP, port> 的组合。其中IP可以通过InetAd
 **说明**
 
 1. 正常情况下,小的包在发送前会组合为大点的包。在发送另一个包之前，本地主机要等待远程系统对前一个包的回应，这称之为Nagle算法。Nagle算法主要是为了解决“糊涂窗口综合症”的。但是Nagle算法也会带来一些问题。如果远程系统没有尽可能快地将回应发送会本地系统，那么依赖于小数据量信息稳定传播的应用程序会变得很慢。设置TCP_NODELAY为true可以打破这种缓冲模式，这样所有的包一就绪就能发送。
-2. SO_LINGER选项规定，当socket关闭时如何处理尚未发送的数据包。默认情况下，close()方法将立即返回，但系统仍会尝试发送剩余的数据。如果延迟时间设置为0，那么当socket关闭时，所有为发送的数据将都被丢弃。如果延迟hi见设置为任意正数，那么close()方法将会阻塞指定秒数，等待数据发送和接收回应，然后socket就会被关闭，所有剩余的数据都不会发送，也不会收到回应。这个参数和SO_REUSEADDR选项可以在一定程度上解决time_wait状态占用端口问题，但是同样会带来一些问题。具体可以参考笔者前面写的一篇文章[如何解决time_wait状态占用端口问题](http://blog.arganzheng.me/posts/how-to-avoid-time-wait-state.html)。
+2. SO_LINGER选项规定，当socket关闭时如何处理尚未发送的数据包。默认情况下，close()方法将立即返回，但系统仍会尝试发送剩余的数据。如果延迟时间设置为0，那么当socket关闭时，所有为发送的数据将都被丢弃。如果延迟hi见设置为任意正数，那么close()方法将会阻塞指定秒数，等待数据发送和接收回应，然后socket就会被关闭，所有剩余的数据都不会发送，也不会收到回应。这个参数和SO_REUSEADDR选项可以在一定程度上解决time_wait状态占用端口问题，但是同样会带来一些问题。具体可以参考笔者前面写的一篇文章[如何解决time_wait状态占用端口问题](http://arganzheng.life/how-to-avoid-time-wait-state.html)。
 3. 当socket关闭时，为了确保收到所有寻址到此端口的延迟数据，会等待一段时间，也就是进入所谓的time_wait状态。系统不会对后接收的任何包进行操作，只是希望确保这些数据不会偶然地传入绑定于相同端口的新进程。如果开启SO_REUSEADDR（默认情况是关闭），就允许另一个socket绑定到一个尚未释放的端口，尽管此时仍有可能存在前一个socket未接收的数据。
 4. 如果启用SO_KEEPALIVE，客户端会偶尔通过一个空闲连接发送一个数据包（一般两小时一次），以确保服务器为崩溃。如果服务器没有响应此包，客户端会尝试11分钟多的时间，知道接收到响应为止。如果在12分钟内未收到响应，客户端就关闭socket。没有SO_KEEPALIVE，不活动的客户端可能会永久存在下去，而不会注意到服务器已经崩溃。SO_KEEPALIVE默认值是false。
 

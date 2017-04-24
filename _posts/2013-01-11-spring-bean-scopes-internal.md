@@ -4,7 +4,7 @@ title: Spring的Bean Scopes实现机制源码剖析
 ---
 
 
-关于Spring的bean scopes，在我的上一篇文章 [Spring的Bean Scopes](http://blog.arganzheng.me/posts/spring-bean-scopes.html) 已经做了详细的介绍，这里我们探讨一下Spring的bean scopes底层是怎么实现的。
+关于Spring的bean scopes，在我的上一篇文章 [Spring的Bean Scopes](http://arganzheng.life/spring-bean-scopes.html) 已经做了详细的介绍，这里我们探讨一下Spring的bean scopes底层是怎么实现的。
 
 通过下面这行简单的配置：
 

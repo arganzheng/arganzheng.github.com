@@ -4,7 +4,7 @@ title: Rest Response and Exception
 ---
 
 
-在笔者的上一篇博文 [Restful Spring MVC](http://blog.arganzheng.me/posts/restful-springmvc.html) 中，详细的介绍了使用Spring MVC构建RESTful的web应用的各个方面，不过对于RESTful应用还有很重要的一块笔者没有介绍到，就是异常和错误信息rest化。
+在笔者的上一篇博文 [Restful Spring MVC](http://arganzheng.life/restful-springmvc.html) 中，详细的介绍了使用Spring MVC构建RESTful的web应用的各个方面，不过对于RESTful应用还有很重要的一块笔者没有介绍到，就是异常和错误信息rest化。
 
 对于一个RESTful web应用，正常情况下，应该返回一个200的HTTP response，返回内容格式由[ContentNegotiatingViewResolver](https://gist.github.com/arganzheng/6656136)协商决定，一般是json或者xml格式。如果出错了，业务一般是抛出业务异常，如果没有特殊处理，那么将返回一个出错HTML页面，状态码是500。我们希望这些异常能够映射到HTTP status，并且能够按照json/xml的格式返回，这时候就需要引入Spring MVC的[Handling exceptions](http://docs.spring.io/spring/docs/3.2.x/spring-framework-reference/html/mvc.html#mvc-exceptionhandlers)机制了。
 

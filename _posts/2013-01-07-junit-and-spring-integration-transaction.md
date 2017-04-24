@@ -44,7 +44,7 @@ title: JUnit与Spring的整合——JUnit中的TestCase如何拥有spring的事�
 	
 ## 解决方案
 
-在前面一篇文章[JUnit与Spring的整合——JUnit的TestCase如何自动注入Spring容器托管的对象](http://blog.arganzheng.me/posts/junit-and-spring-integration-ioc-autowire.html)中我们详细的介绍了Spring与Junit的整合，提到了Spring3提供了`SpringJUnit4ClassRunner`基类让我们可以很方便的接入JUnit4。    
+在前面一篇文章[JUnit与Spring的整合——JUnit的TestCase如何自动注入Spring容器托管的对象](http://arganzheng.life/junit-and-spring-integration-ioc-autowire.html)中我们详细的介绍了Spring与Junit的整合，提到了Spring3提供了`SpringJUnit4ClassRunner`基类让我们可以很方便的接入JUnit4。    
 
     public class org.springframework.test.context.junit4.SpringJUnit4ClassRunner extends org.junit.runners.BlockJUnit4ClassRunner {
         ...
@@ -132,5 +132,5 @@ When executing transactional tests, it is sometimes useful to be able execute ce
 		}
 	}
 
-当然前提是你在Spring的配置文件中正确的配置了transactionManager。关于如何在Spring中配置事务，请参考笔者另一篇文章 [Spring事务配置](http://blog.arganzheng.me/posts/spring-transaction.html) .
+当然前提是你在Spring的配置文件中正确的配置了transactionManager。关于如何在Spring中配置事务，请参考笔者另一篇文章 [Spring事务配置](http://arganzheng.life/spring-transaction.html) .
 

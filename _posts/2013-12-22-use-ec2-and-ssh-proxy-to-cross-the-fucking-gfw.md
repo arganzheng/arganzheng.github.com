@@ -7,7 +7,7 @@ layout: post
 前提
 ---
 
-拥有一台墙外的机器——这里是EC2。具体申请和配置过程请参考笔者的上一篇文章 [使用亚马逊EC2搭建web工程](http://blog.arganzheng.me/posts/setup-java-web-project-on-amazon-ec2.html)
+拥有一台墙外的机器——这里是EC2。具体申请和配置过程请参考笔者的上一篇文章 [使用亚马逊EC2搭建web工程](http://arganzheng.life/setup-java-web-project-on-amazon-ec2.html)
 
 
 步骤

@@ -319,7 +319,7 @@ Ant的[zipfileset](http://ant.apache.org/manual/Types/zipfileset.html)就是做�
 补记
 ----
 
-后来在做一个standalone的时候，发现打成一个jar包还是很不方便的。不利于动态修改配置。使用目录结构分明的类似于war包这种还是比较好。具体参考笔者的另一篇文章 [java standalone模板](http://blog.arganzheng.me/posts/java-standalone-template.html)。
+后来在做一个standalone的时候，发现打成一个jar包还是很不方便的。不利于动态修改配置。使用目录结构分明的类似于war包这种还是比较好。具体参考笔者的另一篇文章 [java standalone模板](http://arganzheng.life/java-standalone-template.html)。
 
 
 参考文章

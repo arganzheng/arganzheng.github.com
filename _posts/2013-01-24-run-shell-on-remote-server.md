@@ -16,7 +16,7 @@ title: 如何在远程Linux机器上执行Shell命令
 
     echo "date" | ssh user@server bash
     
-当然，远程执行的前提其实是要先ssh到服务器的，需要身份验证。可以使用`except`或者`ssh public key`来实现免密码登陆。这样就更完美了。具体可以参见笔者的另一篇文章：[shell如何实现ssh免密码登陆](http://blog.arganzheng.me/posts/ssh-login-without-password.html)
+当然，远程执行的前提其实是要先ssh到服务器的，需要身份验证。可以使用`except`或者`ssh public key`来实现免密码登陆。这样就更完美了。具体可以参见笔者的另一篇文章：[shell如何实现ssh免密码登陆](http://arganzheng.life/ssh-login-without-password.html)
 
 
 这篇文章 [在多台Linux机器上执行命令](http://blog.csdn.net/gjyalpha/article/details/7264107) 使用了`socat`来实现这个功能。其实不用，不过socat还是挺强大的。

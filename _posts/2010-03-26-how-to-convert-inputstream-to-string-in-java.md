@@ -242,4 +242,4 @@ Here we have used delimiter as "\A" which is boundary match for beginning of  th
 参考文章
 --------
 
-1. [Java IO概述](http://blog.arganzheng.me/posts/java-io.html)
+1. [Java IO概述](http://arganzheng.life/java-io.html)

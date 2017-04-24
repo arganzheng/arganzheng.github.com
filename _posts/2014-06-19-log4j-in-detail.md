@@ -343,7 +343,7 @@ maven的profile机制支持根据不同的环境进行build，不过有比较大
 
 ### 2. FileAppender文件路径问题
 
-具体参见笔者前面写的一篇文章: [log4j日志路径问题](http://blog.arganzheng.me/posts/log4j-log-path-problem.html)
+具体参见笔者前面写的一篇文章: [log4j日志路径问题](http://arganzheng.life/log4j-log-path-problem.html)
 
 缺点是需要修改tomcat启动脚本。
 
@@ -474,8 +474,8 @@ maven的profile机制支持根据不同的环境进行build，不过有比较大
 
 笔者已经实现了一个简单的集中式日志监控平台，具体可以参见:
 
-1. [日志监控系统](http://blog.arganzheng.me/posts/log-monitoring.html)
-2. [应用如何记录集中日志](http://blog.arganzheng.me/posts/logging-client.html)
+1. [日志监控系统](http://arganzheng.life/log-monitoring.html)
+2. [应用如何记录集中日志](http://arganzheng.life/logging-client.html)
 
 ### 6. 日志异步上报
 

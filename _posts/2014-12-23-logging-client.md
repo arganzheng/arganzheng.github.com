@@ -4,7 +4,7 @@ layout: post
 ---
 
 
-对于分布式系统，提供一个集中式的日志监控平台是非常有必要的，具体参见笔者前面的一片文章：[日志监控系统](http://blog.arganzheng.me/posts/log-monitoring.html)。这里介绍一下客户端要怎么使用。
+对于分布式系统，提供一个集中式的日志监控平台是非常有必要的，具体参见笔者前面的一片文章：[日志监控系统](http://arganzheng.life/log-monitoring.html)。这里介绍一下客户端要怎么使用。
 
 首先需要配置pom.xml，引入logging-client包：
 

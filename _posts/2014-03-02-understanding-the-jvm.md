@@ -257,11 +257,11 @@ jmap 是一个可以输出所有内存中对象的工具，甚至可以将VM 中
 
 #### JConsole 和 VisualVM
 
-通过RMI通信方式，将目标jvm通过jmx或者jstatd暴露出来的数据进行图形化展示。配置与使用本来很简单，但是由于线上防火墙以及RMI动态通信端口原因，处理起来非常麻烦。具体可以参考笔者的另一篇文章：[tomcat监控](http://blog.arganzheng.me/posts/tomcat-monitor.html)。
+通过RMI通信方式，将目标jvm通过jmx或者jstatd暴露出来的数据进行图形化展示。配置与使用本来很简单，但是由于线上防火墙以及RMI动态通信端口原因，处理起来非常麻烦。具体可以参考笔者的另一篇文章：[tomcat监控](http://arganzheng.life/tomcat-monitor.html)。
 
 #### BTrace
 
-具体参见笔者的另一篇文章：[BTrace实战](http://blog.arganzheng.me/posts/btrace-in-action.html)
+具体参见笔者的另一篇文章：[BTrace实战](http://arganzheng.life/btrace-in-action.html)
 
 
 类加载器(ClassLoader)
@@ -351,7 +351,7 @@ jmap 是一个可以输出所有内存中对象的工具，甚至可以将VM 中
 3. [The Architecture of the Java Virtual Machine](http://www.artima.com/insidejvm/ed2/jvm2.html)
 4. [HotSpot中OutOfMemoryError解析](https://code.google.com/p/hatter-source-code/wiki/Study_Java_HotSpot_OOME)
 5. [HotSpot问题诊断](https://code.google.com/p/hatter-source-code/wiki/Blog_HotSpotDiagnosis)
-6. [Java Heap OOM问题](http://blog.arganzheng.me/posts/java-head-space-oom.html)
+6. [Java Heap OOM问题](http://arganzheng.life/java-head-space-oom.html)
 7. [Font.create()引发OOME问题](https://code.google.com/p/hatter-source-code/wiki/Blog_FontCreateCauseOOME)
 8. [聊聊我对Java内存模型的理解](https://code.google.com/p/hatter-source-code/wiki/Blog_JavaMemoryModel)
 

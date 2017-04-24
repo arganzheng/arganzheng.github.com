@@ -194,8 +194,8 @@ epoll主要有2大改进：
 2. epoll采用基于事件的就绪通知方式。其事先通过epoll_ctrl()注册每一个文件描述符，一旦某个文件描述符就绪时，内核会采用类似callback的回调机制，当进程调用epoll_wait()时得到通知
  
 
-关于IO模型，可以参考笔者前面写的相关文章[Java NIO.2](http://blog.arganzheng.me/posts/java-aio.html)；
-关于epoll，可以参考笔者前面写的文章[select、poll和epoll简介](http://blog.arganzheng.me/posts/select-poll-and-epoll.html)。
+关于IO模型，可以参考笔者前面写的相关文章[Java NIO.2](http://arganzheng.life/java-aio.html)；
+关于epoll，可以参考笔者前面写的文章[select、poll和epoll简介](http://arganzheng.life/select-poll-and-epoll.html)。
  
 #### 4. Sendfile
  

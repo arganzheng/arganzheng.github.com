@@ -94,7 +94,7 @@ Quartz的job是通过线程池来执行的。
 
 ### 4. JobFactory
 
-这里为了达到自动注入Spring托管的service，自定义了一个JobFactory，具体可以参考笔者前面的文章：[Quartz与Spring的整合-Quartz中的job如何自动注入spring容器托管的对象](http://blog.arganzheng.me/posts/quartz-and-spring-integration-ioc-autowire.html)
+这里为了达到自动注入Spring托管的service，自定义了一个JobFactory，具体可以参考笔者前面的文章：[Quartz与Spring的整合-Quartz中的job如何自动注入spring容器托管的对象](http://arganzheng.life/quartz-and-spring-integration-ioc-autowire.html)
 
 
 这些配置其实对应了`org.springframework.scheduling.quart.SchedulerFactoryBean`中的属性：
