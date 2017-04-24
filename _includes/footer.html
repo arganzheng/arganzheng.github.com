@@ -82,12 +82,7 @@
                 <p class="copyright text-muted">
                     Copyright &copy; {{ site.title }} {{ site.time | date: '%Y' }}
                     <br>
-                    Theme by <a href="http://huangxuan.me">Hux</a> |
-                    <iframe
-                        style="margin-left: 2px; margin-bottom:-5px;"
-                        frameborder="0" scrolling="0" width="100px" height="20px"
-                        src="https://ghbtns.com/github-btn.html?user=huxpro&repo=huxpro.github.io&type=star&count=true" >
-                    </iframe>
+                    Theme by <a href="http://huangxuan.me">Hux</a> | Powered by <a href="http://jekyllcn.com/">Jekyll</a>
                 </p>
             </div>
         </div>
@@ -177,7 +172,6 @@
 <script>
     // dynamic User by Hux
     var _gaId = '{{ site.ga_track_id }}';
-    var _gaDomain = '{{ site.ga_domain }}';
 
     // Originial
     (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
@@ -185,7 +179,7 @@
     m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
     })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
 
-    ga('create', _gaId, _gaDomain);
+    ga('create', _gaId, 'auto');
     ga('send', 'pageview');
 </script>
 {% endif %}
