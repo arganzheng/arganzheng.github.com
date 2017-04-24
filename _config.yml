@@ -5,7 +5,7 @@ header-img: img/home-bg.jpg
 email: arganzheng@gmail.com
 description: "郑志彬，Server-Side Engineer & Architect. | 这里是 @arganzheng 的个人博客，与你一起发现更大的世界。"
 keyword: "阿甘, arganzheng, 郑志彬, 博客，个人网站, 互联网, 服务端, 架构, 大数据，高并发，人工智能，Java, C++, Python, Shell, Linux"
-url: "http://blog.arganzheng.life"      # your host, for absolute URL
+url: "http://arganzheng.life"      # your host, for absolute URL
 baseurl: ""                             # for example, '/blog' if your blog hosted on 'host/blog'
 
 
@@ -26,7 +26,7 @@ twitter_username:   arganzheng
 highlighter: rouge
 # permalink: date
 paginate: 10
-paginate_path: /page/num/
+paginate_path: /page/:num/
 exclude: ["less","node_modules","Gruntfile.js","package.json","README.md"]
 anchorjs: true                          # if you want to customize anchor. check out line:181 of `post.html`
 
