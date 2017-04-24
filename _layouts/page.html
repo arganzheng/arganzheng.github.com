@@ -190,18 +190,6 @@ layout: default
                     </div>
                 </section>
 
-                <!-- Last post -->
-                <hr>
-
-				<h5>LATEST POSTS</h5>
-				<ul class="list-inline">
-                {% for post in paginator.posts limit:4 %}
-                  <li>
-                    <a href="{{ post.url | prepend: site.baseurl }}">{{ post.title }}</a>
-                  </li>
-                {% endfor %}
-                </ul>
-                
                 <!-- Friends Blog -->
                 {% if site.friends %}
                 <hr>
