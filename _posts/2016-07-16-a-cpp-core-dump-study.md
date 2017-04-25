@@ -30,21 +30,23 @@ set_search_id是一个set函数，应该返回void，但是却不小心定义成
 
 为了验证是不是这个问题，写一个测试文件：
 
-	#include <iostream>
+```cpp
+#include <iostream>
 
-	inline std::string foo(int i){
-	    std::cout << i <<  "~~~foo~~~~~" << std::endl;
-	}
+inline std::string foo(int i){
+    std::cout << i <<  "~~~foo~~~~~" << std::endl;
+}
 
-	int main(){
-	    std::cout << "hello world" << std::endl;
+int main(){
+    std::cout << "hello world" << std::endl;
 
-	    for(int i=0;i<100000000;i++){
-	        foo(i);
-	    }
+    for(int i=0;i<100000000;i++){
+	foo(i);
+    }
 
-	    return 0;
-	}
+    return 0;
+}
+```
 
 编译运行一下：
 
@@ -64,15 +66,18 @@ Segmentation fault (core dumped)
 
 但是如果增加`-Wall`编译选项就会提示：
 
-	[arganzheng@st01-bda-asp04.st01.baidu.com ~]$ g++ -Wall test.cpp
-	test.cpp: In function `std::string foo(int)':
-	test.cpp:5: warning: no return statement in function returning non-void
-	test.cpp:5: warning: control reaches end of non-void function
+```bash
+[arganzheng@st01-bda-asp04.st01.baidu.com ~]$ g++ -Wall test.cpp
+test.cpp: In function `std::string foo(int)':
+test.cpp:5: warning: no return statement in function returning non-void
+test.cpp:5: warning: control reaches end of non-void function
+```
 
 所以还是要打开所有warning编译选项：
 
-	-Wall -Werror -Wno-unused-parameter -Wformat -Wconversion -Wdeprecated
-
+```bash
+-Wall -Werror -Wno-unused-parameter -Wformat -Wconversion -Wdeprecated
+```
 
 然后认真认真对待每个warning啊。。
 
