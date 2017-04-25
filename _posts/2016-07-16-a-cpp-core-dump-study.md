@@ -9,20 +9,22 @@ layout: post
 
 最后实在没有办法，只能采用排除法，把可疑的代码逐行注释掉，检查是不是还有core。因为是一跑就core，所以其实还是很快就定位到问题代码：
 
-	class StrategyData {
-	    public:
-	        StrategyData();
-	        inline std::string get_search_id() {return _search_id;}
-	        inline std::string set_search_id(const std::string& search_id){
-	            _search_id = search_id;
-	        }
+```cpp
+class StrategyData {
+    public:
+	StrategyData();
+	inline std::string get_search_id() {return _search_id;}
+	inline std::string set_search_id(const std::string& search_id){
+	    _search_id = search_id;
+	}
 
-	    public:
-	        ....
+    public:
+	....
 
-	    private:
-	        std::string _search_id;
-	};
+    private:
+	std::string _search_id;
+};
+```
 
 set_search_id是一个set函数，应该返回void，但是却不小心定义成return string。在java中这个是会报错的，直接Eclipse就会提示红点。但是在强类型的C++中反而没有问题。。顺利编译通过了。。然后一调用这个函数就core了。。
 
@@ -46,11 +48,13 @@ set_search_id是一个set函数，应该返回void，但是却不小心定义成
 
 编译运行一下：
 
-	[arganzheng@st01-bda-asp04.st01.baidu.com ~]$ g++ test.cpp
-	[arganzheng@st01-bda-asp04.st01.baidu.com ~]$ ./a.out
-	hello world
-	0~~~foo~~~~~
-	Segmentation fault (core dumped)
+```bash
+[arganzheng@st01-bda-asp04.st01.baidu.com ~]$ g++ test.cpp
+[arganzheng@st01-bda-asp04.st01.baidu.com ~]$ ./a.out
+hello world
+0~~~foo~~~~~
+Segmentation fault (core dumped)
+```
 
 果然屡试不爽。看core堆栈信息也非常莫名其妙：
 
