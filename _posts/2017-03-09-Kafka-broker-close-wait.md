@@ -2,6 +2,7 @@
 title: kafka broker间歇出现CLOSE_WAIT问题
 layout: post
 catalog: true
+tags: [kafka, 消息队列]
 ---
 
 使用kafka有一段时间了，偶尔会出现一些问题，比如Kafka集群的某个broker会突然卡住，排除发现改broker有大量的CLOSE_WAIT状态，而且Recv-Q有数据没有处理，猜测可能是client发送了请求数据，broker还没处理完，client退出了，broker再也不能处理完那些请求数据，所以不能发送FIN。

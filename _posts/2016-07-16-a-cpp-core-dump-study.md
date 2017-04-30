@@ -2,6 +2,7 @@
 title: 记一个诡异的C++问题
 layout: post
 catalog: true
+tags: [c, c++]
 ---
 
 昨天联通一直遇到一个诡异的问题：服务某个接口一接受到请求就core dump了。用gdb查看core文件，也没有看出个所以然:
