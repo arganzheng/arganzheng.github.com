@@ -14,10 +14,10 @@ title : Archive
 {% assign currentdate = post.date | date: "%B %Y" %}
 {% if currentdate != date %}
 <h3 id="{{ currentdate }}">{{ currentdate | date: "%B" }}</h3>
+<ul class="list-unstyled">
 {% endif %}
 {% assign date = currentdate %}
-<ul class="posts">
-    <li><span style="color: #aaa">{{ post.date | date: "%Y/%m/%d" }}</span>&nbsp;&raquo;&nbsp;<a href="{{ post.url | prepend: site.url }}">{{ post.title }}</a></li>
-</ul>
+    <li><small style="color: #aaa">{{ post.date | date: "%Y/%m/%d" }}</small>&nbsp;&raquo;&nbsp;<a href="{{ post.url | prepend: site.url }}">{{ post.title }}</a></li>
 {% endfor %}
+</ul>
 </div>
