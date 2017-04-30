@@ -1,0 +1,15 @@
+---
+layout: page
+title : Archive
+---
+
+{% for post in site.posts %}
+{% assign currentdate = post.date | date: "%B %Y" %}
+{% if currentdate != date %}
+<h2 id="{{ currentdate }}">{{ currentdate }}</h2>
+{% endif %}
+{% assign date = currentdate %}
+<ul class="posts">
+    <li><span>{{ post.date | date: "%Y/%m/%d" }}</span>&nbsp;&raquo;&nbsp;<a href="{{ post.url | prepend: site.url }}">{{ post.title }}</a></li>
+</ul>
+{% endfor %}
