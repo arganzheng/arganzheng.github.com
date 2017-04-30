@@ -2,7 +2,7 @@
   <h3>YOU MIGHT ALSO LIKE</h3>
   <ul class="related-posts">
     {% assign post_count = 0 %}
-    {% assign THRESHOLD = site.data.vars.RELATED_POSTS_THRESHOLD %}
+    {% assign THRESHOLD = site.related_posts_threshold %}
     {% for post in site.posts %}
       {% if post_count == THRESHOLD %}
         {% break %}
