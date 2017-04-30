@@ -1,6 +1,7 @@
 ---
 title: ElasticSearch学习
 layout: post
+catalog: true
 ---
 
 ### 业界流行的开源搜索框架

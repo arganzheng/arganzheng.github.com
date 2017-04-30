@@ -1,6 +1,7 @@
 ---
 layout: post
 title: ADSL无线路由安装与配置
+catalog: true
 ---
 
 

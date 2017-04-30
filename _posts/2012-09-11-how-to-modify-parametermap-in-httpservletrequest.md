@@ -1,6 +1,7 @@
 ---
 title: 如何往HttpServletRequest中塞请求参数
 layout: post
+catalog: true
 ---
 
 

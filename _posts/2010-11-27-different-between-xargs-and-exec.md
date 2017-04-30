@@ -1,6 +1,7 @@
 ---
 title: -exec和xargs的区别
 layout: post
+catalog: true
 ---
 
 

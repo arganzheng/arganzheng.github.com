@@ -1,6 +1,7 @@
 ---
 layout: post
 title: shell模块的另一种组织方式
+catalog: true
 ---
 
 在前面一篇文章里[shell如何模块化和复用——shell深入学习][shell module]，我介绍了一种shell的模块化做法，但是在实际的代码中我估计很少人会这么处理，相反，有另一种组织方式（或者称为模块化方式吧）在一些开源代码中可以见到，感觉更符合shell的语言特性。

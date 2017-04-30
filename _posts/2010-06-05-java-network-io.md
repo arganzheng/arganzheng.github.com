@@ -1,6 +1,7 @@
 ---
 title: Java网络IO编程
 layout: post
+catalog: true
 ---
 
 在前面的文章 [Java IO概述](http://arganzheng.life/java-io.html) 主要介绍了Java的文件IO。在这一篇，我将继续介绍Java的网络IO编程。

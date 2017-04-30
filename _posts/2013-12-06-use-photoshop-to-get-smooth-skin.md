@@ -1,6 +1,7 @@
 ---
 layout: post
 title: 用Photoshop磨皮
+catalog: true
 ---
 
 

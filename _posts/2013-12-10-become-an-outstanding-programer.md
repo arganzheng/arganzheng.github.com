@@ -1,6 +1,7 @@
 ---
 layout: post
 title: 一个简单的性能优化和防止DOS攻击的示例
+catalog: true
 ---
 
 

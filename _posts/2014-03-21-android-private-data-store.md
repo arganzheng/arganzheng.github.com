@@ -1,6 +1,7 @@
 ---
 title: 小议Android手机隐私数据的存储安全
 layout: post
+catalog: true
 ---
 
 

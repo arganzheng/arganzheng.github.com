@@ -1,6 +1,7 @@
 ---
 title: Spring Java-based配置
 layout: post
+catalog: true
 ---
 
 Spring目前为止支持如下三种配置方式：

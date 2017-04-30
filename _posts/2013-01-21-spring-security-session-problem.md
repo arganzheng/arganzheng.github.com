@@ -1,6 +1,7 @@
 ---
 title: 使用Spring-Security进行登录控制的session问题
 layout: post
+catalog: true
 ---
 
 这边文章[Spring Security Form Login Using Database](http://www.mkyong.com/spring-security/spring-security-form-login-using-database/)对Spring Security做了非常简单明了的介绍。而且有一个可以down下来运行的示例工程。笔者试验了一下，发现一些有意思的问题。

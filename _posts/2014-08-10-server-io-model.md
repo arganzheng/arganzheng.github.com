@@ -1,6 +1,7 @@
 ---
 title: 服务器编程模型
 layout: post
+catalog: true
 ---
 
 1. 多进程模型

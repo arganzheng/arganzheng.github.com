@@ -1,6 +1,7 @@
 ---
 title: URL encoding学习笔记
 layout: post
+catalog: true
 ---
 
 

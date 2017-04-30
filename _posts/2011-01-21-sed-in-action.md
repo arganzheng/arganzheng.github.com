@@ -1,6 +1,7 @@
 ---
 layout: post
 title: sed实战 
+catalog: true
 ---
 
 

@@ -1,6 +1,7 @@
 ---
 title: Kafka offset lag监控
 layout: post
+catalog: true
 ---
 
 利用NOAH的自定义脚本监控功能，写了一个脚本监控kafka的consumer offset lag，如果大于10000就报警。

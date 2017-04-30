@@ -1,6 +1,7 @@
 ---
 title: mina学习笔记
 layout: post
+catalog: true
 ---
 
 ![mina](/img/in-post/mina.jpg)

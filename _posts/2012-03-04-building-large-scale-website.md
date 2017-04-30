@@ -1,6 +1,7 @@
 ---
 layout: post
 title: 构建可伸缩的大型网站
+catalog: true
 ---
 
 [TOC]

@@ -1,6 +1,7 @@
 ---
 title: 使用Java程序打jar/war包
 layout: post
+catalog: true
 ---
 
 JDK自带的jar util库。于是可以这么简单封装一下：

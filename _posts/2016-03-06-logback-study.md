@@ -1,6 +1,7 @@
 ---
 title: logback学习笔记
 layout: post
+catalog: true
 ---
 
 

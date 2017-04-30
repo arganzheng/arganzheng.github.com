@@ -1,6 +1,7 @@
 ---
 title: nginx日志自动按天分隔
 layout: post
+catalog: true
 ---
 
 log4j可以的DailyRollingFileAppender可以实现日志按天归档，避免日志过大。同时也方便按天查询统计日志。但是nginx没有实现这个功能，所有的日志都是一个文件死磕到底。像error_log还好，但是access_log一般都比较大，按天归档是很有必要的，怎样实现呢？

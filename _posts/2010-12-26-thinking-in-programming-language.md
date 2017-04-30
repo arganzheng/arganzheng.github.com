@@ -1,6 +1,7 @@
 ---
 layout: post
 title: 语言进化论
+catalog: true
 ---
 
 到现在，学过的语言真是多不胜举：C、C++、Java、C#、JavaScript、Shell、Perl、Python、Ruby...。这么多的语言，学都学不完。但是这些语言之间的差异其实也不是特别大。个人感觉对程序员最大的变化就是编程思想。

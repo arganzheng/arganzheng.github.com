@@ -1,6 +1,7 @@
 ---
 title: 如何让java程序优先使用自定义的DNS nameserver
 layout: post
+catalog: true
 ---
 
 

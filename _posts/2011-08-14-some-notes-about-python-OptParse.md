@@ -1,6 +1,7 @@
 ---
 title: python2.x的一个需要注意的地方
 layout: post
+catalog: true
 ---
 
 

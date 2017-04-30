@@ -1,6 +1,7 @@
 ---
 layout: post
 title: Spring的Bean Scopes
+catalog: true
 ---
 
 

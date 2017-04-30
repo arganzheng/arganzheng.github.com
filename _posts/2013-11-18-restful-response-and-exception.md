@@ -1,6 +1,7 @@
 ---
 layout: post
 title: Rest Response and Exception
+catalog: true
 ---
 
 

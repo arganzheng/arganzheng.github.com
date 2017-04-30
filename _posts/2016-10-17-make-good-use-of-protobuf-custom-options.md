@@ -1,6 +1,7 @@
 ---
 title: 巧用protobuf的自定义options
 layout: post
+catalog: true
 ---
 
 知识图谱在线系统的schema除了定义每个实体的属性之外，还有一个信息需要策略同学告诉我们——就是哪些字段需要索引，以及索引的方式，这点非常类似于ElasticSearch的Mapping：

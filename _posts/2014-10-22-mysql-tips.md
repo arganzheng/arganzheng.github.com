@@ -1,6 +1,7 @@
 ---
 title: MySQL常用命令
 layout: post
+catalog: true
 ---
 
 

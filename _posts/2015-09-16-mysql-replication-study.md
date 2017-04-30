@@ -1,6 +1,7 @@
 ---
 title: MySQL主从同步学习
 layout: post
+catalog: true
 ---
 
 

@@ -1,6 +1,7 @@
 ---
 title: java动态代理和动态类加载
 layout: post
+catalog: true
 ---
 
 

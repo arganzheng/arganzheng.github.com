@@ -1,6 +1,7 @@
 ---
 layout: post
 title: 使用亚马逊EC2搭建web工程
+catalog: true
 ---
 
 

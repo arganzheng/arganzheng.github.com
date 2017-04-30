@@ -1,6 +1,7 @@
 ---
 title: 配置MySQL Slave
 layout: post
+catalog: true
 ---
 
 

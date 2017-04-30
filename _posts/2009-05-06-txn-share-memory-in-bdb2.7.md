@@ -1,6 +1,7 @@
 ---
 layout: post
 title: BDB事务共享区域
+catalog: true
 ---
 
 最后我们来看一下事务共享区域。

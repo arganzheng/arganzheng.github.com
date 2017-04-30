@@ -1,6 +1,7 @@
 ---
 title: AWK学习与实战
 layout: post
+catalog: true
 ---
 
 

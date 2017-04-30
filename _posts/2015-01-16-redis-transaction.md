@@ -1,6 +1,7 @@
 ---
 title: Redis的事务
 layout: post
+catalog: true
 ---
 
 

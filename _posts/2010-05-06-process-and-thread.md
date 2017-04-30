@@ -1,6 +1,7 @@
 ---
 layout: post
 title: 进程VS线程
+catalog: true
 ---
 
 2010－05－06 星期四 晴朗

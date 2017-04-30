@@ -1,6 +1,7 @@
 ---
 title: Spring的Bean生命周期
 layout: post
+catalog: true
 ---
 
 

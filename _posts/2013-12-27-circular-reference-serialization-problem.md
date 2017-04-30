@@ -1,6 +1,7 @@
 ---
 title: 循环引用序列化问题
 layout: post
+catalog: true
 ---
 	
 

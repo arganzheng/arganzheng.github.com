@@ -1,6 +1,7 @@
 ---
 layout: post
 title: Quartz与Spring的整合-使用Spring的FactoryBean实现动态Properties
+catalog: true
 ---
 
 

@@ -1,6 +1,7 @@
 ---
 title: Java虚拟机学习笔记
 layout: post
+catalog: true
 ---
 
 Java内存区域

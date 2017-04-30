@@ -1,6 +1,7 @@
 ---
 layout: post
 title: scala的字符串格式化输出
+catalog: true
 ---
 
 

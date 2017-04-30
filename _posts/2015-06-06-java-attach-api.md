@@ -1,6 +1,7 @@
 ---
 title: Java Attach API
 layout: post
+catalog: true
 ---
 
 

@@ -1,6 +1,7 @@
 ---
 title: 使用Redis做简单的消息队列
 layout: post
+catalog: true
 ---
 
 

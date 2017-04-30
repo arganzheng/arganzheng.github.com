@@ -1,6 +1,7 @@
 ---
 title: 使用rsync进行文件同步
 layout: post
+catalog: true
 ---
 
 

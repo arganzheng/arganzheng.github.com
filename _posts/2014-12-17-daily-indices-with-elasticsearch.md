@@ -1,6 +1,7 @@
 ---
 title: ElasticSearch如何实现按天翻滚索引
 layout: post
+catalog: true
 ---
 
 最近在做集中式日志，将应用的日志保存到Elasticsearch中，结合kibana实现集中化日志监控和报警。在设计ES存储的时候。考虑到日志的特殊性，打算采用Daily Indices方式。名称为：log-${application}-YYYY.MM.DD。每天会自动创建一个新的索引，类似于log4j的DailyRollingFileAppender，一来减少活跃索引的大小，二来方便存档和删除。

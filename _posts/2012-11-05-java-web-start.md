@@ -1,6 +1,7 @@
 ---
 title: 使用java web start网络启动应用程序
 layout: post
+catalog: true
 ---
 
 

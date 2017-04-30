@@ -1,6 +1,7 @@
 ---
 title: 图存储引擎学习笔记
 layout: post
+catalog: true
 ---
 
 

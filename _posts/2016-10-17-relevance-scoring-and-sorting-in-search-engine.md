@@ -1,6 +1,7 @@
 ---
 title: 搜索引擎中的相关性和排序截断
 layout: post
+catalog: true
 ---
 
 一般来说，检索需要解决两个问题：

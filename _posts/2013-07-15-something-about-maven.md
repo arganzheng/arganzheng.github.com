@@ -1,6 +1,7 @@
 ---
 layout: post
 title: maven学习笔记
+catalog: true
 ---
 
 ## maven的核心概念

@@ -1,6 +1,7 @@
 ---
 layout: post
 title: 海量图片存储思考
+catalog: true
 ---
 
 最近在学习分布式存储和数据分析相关的东西，特别是看了Facebook的这篇论文：[Finding a needle in Haystack: Facebook’s photo storage][haystack]，感觉特别与阿里巴巴现在的现状类似。阿里现在的图片存储正处于Facebook的原始阶段——CDN(中美有各自的CDN) ==> imageServer(apache+squid) ==> NFS共享存储。

@@ -1,6 +1,7 @@
 ---
 layout: post
 title: RESTful CRUD with spring-mvc-and-bootstrap
+catalog: true
 ---
 
 

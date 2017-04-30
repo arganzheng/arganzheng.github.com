@@ -1,6 +1,7 @@
 ---
 layout: post
 title: Maven快速入门
+catalog: true
 ---
 
 

@@ -1,6 +1,7 @@
 ---
 title: 动态页面缓存方案
 layout: post
+catalog: true
 ---
 
 

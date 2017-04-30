@@ -1,6 +1,7 @@
 ---
 title: RAID学习
 layout: post
+catalog: true
 ---
 
 

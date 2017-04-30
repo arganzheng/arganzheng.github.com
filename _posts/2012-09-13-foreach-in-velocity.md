@@ -1,6 +1,7 @@
 ---
 title: velocity的foreach
 layout: post
+catalog: true
 ---
 
 

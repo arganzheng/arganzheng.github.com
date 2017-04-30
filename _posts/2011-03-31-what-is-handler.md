@@ -1,6 +1,7 @@
 ---
 layout: post
 title: 关于文件描述符和句柄
+catalog: true
 ---
 
 2011-03-31 星期四 晴朗

@@ -1,6 +1,7 @@
 ---
 layout: post
 title: dhcp client config in ubuntu
+catalog: true
 ---
 
 #### use PPPoEConf to connect to Internet

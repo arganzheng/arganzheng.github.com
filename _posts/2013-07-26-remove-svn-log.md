@@ -1,6 +1,7 @@
 ---
 title: 移除SVN锁
 layout: post
+catalog: true
 ---
 
 现在还有用SVN悲观锁的。。赶紧移除吧 

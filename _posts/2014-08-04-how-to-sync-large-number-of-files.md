@@ -1,6 +1,7 @@
 ---
 title: 如何实时同步大量小文件
 layout: post
+catalog: true
 ---
 
 需求

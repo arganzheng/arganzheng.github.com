@@ -1,6 +1,7 @@
 ---
 title: Content-Type头部
 layout: post
+catalog: true
 ---
 
 

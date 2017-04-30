@@ -1,6 +1,7 @@
 ---
 title: Titan使用过程CPU超高问题排查
 layout: post
+catalog: true
 ---
 
 今天灵聪这边在把数据灌入到Titan发现，Titan-Server速度非常慢，而且灌到1w多条的时候系统基本不响应了。整个过程Titan server的进程使用CPU非常高，一直徘徊在2000%左右。

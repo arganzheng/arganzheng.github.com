@@ -1,6 +1,7 @@
 ---
 title: 抓取学习笔记
 layout: post
+catalog: true
 ---
 
 知识图谱的很重要的原始数据来源还是来自于网站抓取的数据，网站抓取器就是我们常说的Spider。

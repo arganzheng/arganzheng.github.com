@@ -1,6 +1,7 @@
 ---
 title: Linux命令学习之——paste命令
 layout: post
+catalog: true
 ---
 
 

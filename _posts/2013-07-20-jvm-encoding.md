@@ -1,6 +1,7 @@
 ---
 title: JVM编码
 layout: post
+catalog: true
 ---
 
 

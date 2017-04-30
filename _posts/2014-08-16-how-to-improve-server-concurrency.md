@@ -1,6 +1,7 @@
 ---
 title: 	如何提高服务器并发处理能力
 layout: post
+catalog: true
 ---
 
 

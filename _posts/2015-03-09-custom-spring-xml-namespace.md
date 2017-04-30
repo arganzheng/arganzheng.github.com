@@ -1,6 +1,7 @@
 ---
 title: 如何自定义Spring XML Bean配置
 layout: post
+catalog: true
 ---
 
 

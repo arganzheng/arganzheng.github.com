@@ -1,6 +1,7 @@
 ---
 layout: post
 title: Using Fabric to Type Less
+catalog: true
 ---
 > Fabric is a tool written in Python that lets you defind tasks and execute them by running fab taskname. Fabfiles are pure Python, so you can build larger tasks out of smaller ones very easily and do just about anything you want. It’s similar to ant, but without the excessive over-engineering.
 

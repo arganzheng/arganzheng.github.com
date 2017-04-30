@@ -1,6 +1,7 @@
 ---
 title: 一个有意思的Scala函数式编程例子
 layout: post
+catalog: true
 ---
 
 问题

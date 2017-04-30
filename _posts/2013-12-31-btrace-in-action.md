@@ -1,6 +1,7 @@
 ---
 title: BTrace实战
 layout: post
+catalog: true
 ---
 
 ### 什么是BTrace

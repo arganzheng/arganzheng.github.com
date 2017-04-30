@@ -1,6 +1,7 @@
 ---
 title: 使用supervisor进行进程监管
 layout: post
+catalog: true
 ---
 
 [supervisor](http://supervisord.org/)是一个python写的进程管理工具，可以监管进程的运行。它提供了进程挂掉自动重启功能，并且还有一个管理页面，可以看到监管的程序的运行状态，也可以直接在整个页面上对进程进行重启、关闭、查看日志等操作。

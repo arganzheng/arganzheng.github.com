@@ -1,6 +1,7 @@
 ---
 layout: post
 title: shell语言之我见
+catalog: true
 ---
 
 2011-05-08 星期天 热

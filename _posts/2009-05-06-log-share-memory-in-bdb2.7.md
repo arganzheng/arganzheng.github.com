@@ -1,6 +1,7 @@
 ---
 layout: post
 title: BDB日志共享区域
+catalog: true
 ---
 
 这一次我们对日志共享区域进行分析。

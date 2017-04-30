@@ -1,6 +1,7 @@
 ---
 title: SLA和QoS在RPC/OpenAPI容器中的作用
 layout: post
+catalog: true
 ---
 
 

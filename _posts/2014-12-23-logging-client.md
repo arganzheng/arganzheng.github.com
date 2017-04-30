@@ -1,6 +1,7 @@
 ---
 title: 应用如何记录集中日志
 layout: post
+catalog: true
 ---
 
 

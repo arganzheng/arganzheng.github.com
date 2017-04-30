@@ -1,6 +1,7 @@
 ---
 layout: post
 title: shell如何模块化和复用——shell深入学习
+catalog: true
 ---
 
 基本上所有的编程语言都支持模块化，以达到功能复用的效果。比如java和python的import xxx。C/C++的include。那么shell支持模块化吗？

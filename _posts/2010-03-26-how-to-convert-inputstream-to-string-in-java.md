@@ -1,6 +1,7 @@
 ---
 title: Java中如何把InputStream转化为String
 layout: post
+catalog: true
 ---
 
 

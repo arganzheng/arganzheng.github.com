@@ -1,6 +1,7 @@
 ---
 layout: post
 title: BDB锁共享区域
+catalog: true
 ---
 
 这一次我们以锁共享区域分析。

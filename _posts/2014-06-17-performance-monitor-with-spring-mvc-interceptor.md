@@ -1,6 +1,7 @@
 ---
 layout: post
 title: 使用拦截器做简单的性能监控
+catalog: true
 ---
 
 需求

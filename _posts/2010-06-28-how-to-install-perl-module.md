@@ -1,6 +1,7 @@
 ---
 title: 如何安装perl模块
 layout: post
+catalog: true
 ---
 
 2010－06－28 星期一 暴雨

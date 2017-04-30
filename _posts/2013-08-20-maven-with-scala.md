@@ -1,6 +1,7 @@
 ---
 title: scala with maven
 layout: post
+catalog: true
 ---
 
 

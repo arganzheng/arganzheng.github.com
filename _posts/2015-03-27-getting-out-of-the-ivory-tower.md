@@ -1,6 +1,7 @@
 ---
 title: 走出象牙塔
 layout: post
+catalog: true
 ---
 
 ### 自我介绍

@@ -1,6 +1,7 @@
 ---
 layout: post
 title: 如何在系统启动时完成资源加载
+catalog: true
 ---
 
 

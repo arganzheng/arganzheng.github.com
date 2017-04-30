@@ -1,6 +1,7 @@
 ---
 layout: post
 title: Quartz与Spring的整合-Quartz中的job如何自动注入spring容器托管的对象
+catalog: true
 ---
 
 

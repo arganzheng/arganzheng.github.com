@@ -1,6 +1,7 @@
 ---
 title: 如何把一个jar包install到maven本地仓库
 layout: post
+catalog: true
 ---
 
 

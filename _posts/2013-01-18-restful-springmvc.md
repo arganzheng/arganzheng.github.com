@@ -1,6 +1,7 @@
 ---
 layout: post
 title: Restful Spring MVC
+catalog: true
 ---
 
 

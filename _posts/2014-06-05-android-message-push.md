@@ -1,6 +1,7 @@
 ---
 title: Andriod平台推送系统设计
 layout: post
+catalog: true
 ---
 
 

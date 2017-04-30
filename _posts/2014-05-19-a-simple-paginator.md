@@ -1,6 +1,7 @@
 ---
 title: 一个简单分页查询组件实现
 layout: post
+catalog: true
 ---
 
 

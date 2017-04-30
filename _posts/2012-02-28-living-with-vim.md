@@ -1,6 +1,7 @@
 ---
 layout: post
 title: 工欲善其事，必先利其器——从零打造你的vim
+catalog: true
 ---
 
 

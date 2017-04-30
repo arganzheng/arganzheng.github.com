@@ -1,6 +1,7 @@
 ---
 layout: post
 title: 从面向过程到面向对象——在C中如何实现面向对象编程
+catalog: true
 ---
 
 #### 引言

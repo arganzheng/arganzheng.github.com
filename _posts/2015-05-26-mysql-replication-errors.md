@@ -1,6 +1,7 @@
 ---
 title: MySQL主从同步失败
 layout: post
+catalog: true
 ---
 
 最近MySQL经常报主从错误，如果是网络问题，应该是间断性的，但是今天早上一直在报错。上去看了一下log，发现一直在报这个错误：

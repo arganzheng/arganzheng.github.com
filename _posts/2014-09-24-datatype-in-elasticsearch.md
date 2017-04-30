@@ -1,6 +1,7 @@
 ---
 title: ElasticSearch的数据类型
 layout: post
+catalog: true
 ---
 
 ES使用JSON作为数据交互格式，所以简单来说，JSON支持的数据类型，ES都支持。

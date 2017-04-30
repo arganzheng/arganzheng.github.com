@@ -1,6 +1,7 @@
 ---
 title: 如何构建maven私有仓库
 layout: post
+catalog: true
 ---
 
 

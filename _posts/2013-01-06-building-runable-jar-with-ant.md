@@ -1,6 +1,7 @@
 ---
 title: 用ant创建可执行的jar包
 layout: post
+catalog: true
 ---
 
 

@@ -1,6 +1,7 @@
 ---
 title: sort和uniq tips
 layout: post
+catalog: true
 ---
 
 sort和uniq一般搭配使用，因为uniq必须依赖于sort后的结果。

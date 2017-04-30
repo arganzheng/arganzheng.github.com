@@ -1,6 +1,7 @@
 ---
 layout: post
 title: MySQL字符串比较大小写问题
+catalog: true
 ---
 
 

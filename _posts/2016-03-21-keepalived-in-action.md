@@ -1,6 +1,7 @@
 ---
 title: keepalived实战
 layout: post
+catalog: true
 ---
 
 

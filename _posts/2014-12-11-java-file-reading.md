@@ -1,6 +1,7 @@
 ---
 title: Java文件读取支持timeout
 layout: post
+catalog: true
 ---
 
 我们知道系统的IO操作一般分为阻塞IO和异步IO两种。对于Java来说，1.4之前的IO是Blocking IO，1.4引入的NIO其实也是，但是它有两个好处：

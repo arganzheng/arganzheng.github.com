@@ -1,6 +1,7 @@
 ---
 title: Protobuf Buffer的缺陷
 layout: post
+catalog: true
 ---
 
 

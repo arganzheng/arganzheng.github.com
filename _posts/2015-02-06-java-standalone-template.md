@@ -1,6 +1,7 @@
 ---
 title: java standalone模板
 layout: post
+catalog: true
 ---
 
 

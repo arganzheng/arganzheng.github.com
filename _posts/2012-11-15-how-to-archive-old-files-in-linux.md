@@ -1,6 +1,7 @@
 ---
 title: Linux下如何备份旧文件
 layout: post
+catalog: true
 ---
 
 将30天前的文件打包压缩备份，然后删除原文件

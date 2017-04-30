@@ -1,6 +1,7 @@
 ---
 layout: post
 title: 如何使用tomcat高效调试
+catalog: true
 ---
 
 

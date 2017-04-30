@@ -1,6 +1,7 @@
 ---
 title: Spring MVC的异常处理机制
 layout: post
+catalog: true
 ---
 
 

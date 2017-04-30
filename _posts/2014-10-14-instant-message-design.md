@@ -1,6 +1,7 @@
 ---
 title: 实时消息系统设计与实现
 layout: post
+catalog: true
 ---
 
 

@@ -1,6 +1,7 @@
 ---
 title: 如何实现一个配置中心
 layout: post
+catalog: true
 ---
 
 

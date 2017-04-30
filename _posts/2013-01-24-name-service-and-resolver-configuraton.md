@@ -1,6 +1,7 @@
 ---
 layout: post
 title: 域名解析过程及其相关配置
+catalog: true
 ---
 
 

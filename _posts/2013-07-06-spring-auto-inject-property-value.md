@@ -1,6 +1,7 @@
 ---
 layout: post
 title: Spring使用@value annotation注入property变量和环境变量
+catalog: true
 ---
 
 

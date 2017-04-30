@@ -1,6 +1,7 @@
 ---
 layout: post
 title: Spring与web MVC的整合——Spring的应用上下文管理
+catalog: true
 ---
 
 ### 问题1 如何让web容器加载你的web MVC框架

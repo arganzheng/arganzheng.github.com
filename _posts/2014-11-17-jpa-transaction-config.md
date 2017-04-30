@@ -1,6 +1,7 @@
 ---
 title: JPA的事务管理器配置
 layout: post
+catalog: true
 ---
 
 Guanxing工程在后来为了避免写DAO，引入了JPA。为了避免影响老的工程，JPA使用了自己的事务管理器。

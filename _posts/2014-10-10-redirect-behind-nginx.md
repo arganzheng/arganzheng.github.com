@@ -1,6 +1,7 @@
 ---
 title: nginx重定向问题
 layout: post
+catalog: true
 ---
 
 

@@ -1,6 +1,7 @@
 ---
 layout: post
 title: log4j详细介绍
+catalog: true
 ---
 
 

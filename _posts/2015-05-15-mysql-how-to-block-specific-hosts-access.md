@@ -1,6 +1,7 @@
 ---
 title: 如何限制某个IP对MySQL的访问
 layout: post
+catalog: true
 ---
 
 背景

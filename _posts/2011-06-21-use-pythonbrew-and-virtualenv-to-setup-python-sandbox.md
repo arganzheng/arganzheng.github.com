@@ -1,6 +1,7 @@
 ---
 title: 使用pythonbrew和virtualenv构建Python沙箱环境
 layout: post
+catalog: true
 ---
 
 

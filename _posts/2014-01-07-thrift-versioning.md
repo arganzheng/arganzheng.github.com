@@ -1,6 +1,7 @@
 ---
 title: Thrift的序列化版本控制
 layout: post
+catalog: true
 ---
 
 

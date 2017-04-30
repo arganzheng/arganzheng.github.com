@@ -1,6 +1,7 @@
 ---
 title: nginx日志格式
 layout: post
+catalog: true
 ---
 
 

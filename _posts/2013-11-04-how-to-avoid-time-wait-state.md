@@ -1,6 +1,7 @@
 ---
 layout: post
 title: 如何解决time_wait状态占用端口问题
+catalog: true
 ---
 
 问题 

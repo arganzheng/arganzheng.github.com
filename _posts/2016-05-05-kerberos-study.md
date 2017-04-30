@@ -1,6 +1,7 @@
 ---
 title: Kerberos学习笔记
 layout: post
+catalog: true
 ---
 
 

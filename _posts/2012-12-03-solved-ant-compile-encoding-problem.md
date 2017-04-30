@@ -1,6 +1,7 @@
 ---
 title: 解决Ant编译乱码问题
 layout: post
+catalog: true
 ---
 
 

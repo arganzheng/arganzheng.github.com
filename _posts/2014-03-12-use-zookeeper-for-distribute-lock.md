@@ -1,6 +1,7 @@
 ---
 title: 使用zookeeper实现分布式锁
 layout: post
+catalog: true
 ---
 
 

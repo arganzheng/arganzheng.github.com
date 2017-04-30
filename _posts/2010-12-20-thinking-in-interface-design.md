@@ -1,6 +1,7 @@
 ---
 layout: post
 title: 关于接口设计的一些思考
+catalog: true
 ---
 
 ### 引子

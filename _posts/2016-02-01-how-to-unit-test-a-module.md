@@ -1,6 +1,7 @@
 ---
 title: 如何单元测试二方库
 layout: post
+catalog: true
 ---
 
 问题

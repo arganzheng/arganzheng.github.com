@@ -1,6 +1,7 @@
 ---
 title: 如何下载文件
 layout: post
+catalog: true
 ---
 
     // File file = xxx

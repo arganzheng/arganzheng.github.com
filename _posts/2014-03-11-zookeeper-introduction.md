@@ -1,6 +1,7 @@
 ---
 title: ZooKeeper简介
 layout: post
+catalog: true
 ---
 
 ### Zookeeper的简介

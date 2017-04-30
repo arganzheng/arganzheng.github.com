@@ -1,6 +1,7 @@
 ---
 title: DynamoDB学习笔记
 layout: post
+catalog: true
 ---
 
 

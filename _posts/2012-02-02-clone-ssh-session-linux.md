@@ -1,6 +1,7 @@
 ---
 layout: post
 title: Linux里复制终端Session(像SecureCRT一样)
+catalog: true
 ---
 
 This Tip is from YangQi

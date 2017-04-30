@@ -1,6 +1,7 @@
 ---
 title: Spring MVC国际化和本地化
 layout: post
+catalog: true
 ---
 
 在你的mvc-dispatcher-servlet.xml中配置如下：

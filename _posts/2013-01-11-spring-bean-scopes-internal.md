@@ -1,6 +1,7 @@
 ---
 layout: post
 title: Spring的Bean Scopes实现机制源码剖析
+catalog: true
 ---
 
 

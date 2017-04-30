@@ -1,6 +1,7 @@
 ---
 title: Config Server和SLA在RPC中的作用
 layout: post
+catalog: true
 ---
 
 

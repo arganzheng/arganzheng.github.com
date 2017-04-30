@@ -1,6 +1,7 @@
 ---
 layout: post
 category: [programming-language]
+catalog: true
 tags: [c, c++]
 title: 如何确保C库可以正确被C++客户端程序调用
 ---

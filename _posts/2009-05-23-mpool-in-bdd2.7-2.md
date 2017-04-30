@@ -1,6 +1,7 @@
 ---
 layout: post
 title: BDB中的共享区域──MPOOL
+catalog: true
 ---
 
 2009-5-23 星期六 大雨

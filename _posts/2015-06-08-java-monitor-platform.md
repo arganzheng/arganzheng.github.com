@@ -1,6 +1,7 @@
 ---
 title: java服务端监控平台设计
 layout: post
+catalog: true
 ---
 
 需求

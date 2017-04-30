@@ -1,6 +1,7 @@
 ---
 title: Linux命令学习之——cut命令
 layout: post
+catalog: true
 ---
 
 

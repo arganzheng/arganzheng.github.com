@@ -1,6 +1,7 @@
 ---
 title: 怎样获取form-data方式POST的数据
 layout: post
+catalog: true
 ---
 
 昨天君仔问我说遇到一个诡异的问题，他有一个controller方法，用x-www-form-urlencoded方式提交表单就可以正常绑定数据，但是用form-data方式提交就绑定不了：

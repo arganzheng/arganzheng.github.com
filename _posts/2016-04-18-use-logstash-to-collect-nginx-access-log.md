@@ -1,6 +1,7 @@
 ---
 title: 使用logstash收集nginx访问日志
 layout: post
+catalog: true
 ---
 
 

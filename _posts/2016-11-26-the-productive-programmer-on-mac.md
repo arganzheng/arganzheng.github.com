@@ -1,6 +1,7 @@
 ---
 title: 卓有成效的程序员——Mac篇
 layout: post
+catalog: true
 ---
 
 

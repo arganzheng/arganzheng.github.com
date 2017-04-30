@@ -1,6 +1,7 @@
 ---
 layout: post
 title: MPOOL共享内存
+catalog: true
 ---
 
 2009-5-6 星期三 晴朗

@@ -1,6 +1,7 @@
 ---
 title: 记一次Redis错误排查经历
 layout: post
+catalog: true
 ---
 
 

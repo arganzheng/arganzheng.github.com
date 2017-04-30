@@ -1,6 +1,7 @@
 ---
 layout: post
 title: 如何不刷新页面上传文件
+catalog: true
 ---
 
 

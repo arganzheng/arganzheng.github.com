@@ -1,6 +1,7 @@
 ---
 title: 安装OpenTSDB
 layout: post
+catalog: true
 ---
 
 安装HBase

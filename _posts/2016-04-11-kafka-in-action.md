@@ -1,6 +1,7 @@
 ---
 title: Kafka实战
 layout: post
+catalog: true
 ---
 
 

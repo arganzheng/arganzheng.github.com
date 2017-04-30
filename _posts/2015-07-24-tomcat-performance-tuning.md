@@ -1,6 +1,7 @@
 ---
 title: Tomcat调优
 layout: post
+catalog: true
 ---
 
 Tomcat有线程池的概念，比如下面这个配置：

@@ -1,6 +1,7 @@
 ---
 layout: post
 title: Java并发学习笔记
+catalog: true
 ---
 
 

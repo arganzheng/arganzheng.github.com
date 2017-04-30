@@ -1,6 +1,7 @@
 ---
 title: protobuf中的反射
 layout: post
+catalog: true
 ---
 
 像Python，javascript这样的动态脚本语言具有很强的反射能力，即使是java这类的静态类型语言，也提供了一定程度的反射能力，而C/C++这样的纯静态语言没有运行时的类型信息，但是Protobuf本身具有很强的反射(reflection)功能，可以根据 type name 创建具体类型的 Message 对象，也能够动态获取和设置某个属性。

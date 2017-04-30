@@ -1,6 +1,7 @@
 ---
 layout: post
 title: Scala的Option、Some和None
+catalog: true
 ---
 
 

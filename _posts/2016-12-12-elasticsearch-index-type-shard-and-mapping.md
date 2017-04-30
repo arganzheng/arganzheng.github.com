@@ -1,6 +1,7 @@
 ---
 title: ElasticSearch存储相关
 layout: post
+catalog: true
 ---
 
 

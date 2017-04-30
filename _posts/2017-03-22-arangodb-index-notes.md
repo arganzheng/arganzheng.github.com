@@ -1,6 +1,7 @@
 ---
 title: ArangoDB的索引学习
 layout: post
+catalog: true
 ---
 
 

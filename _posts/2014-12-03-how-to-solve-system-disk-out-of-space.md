@@ -1,6 +1,7 @@
 ---
 title: 如何解决系统盘爆满问题
 layout: post
+catalog: true
 ---
 
 

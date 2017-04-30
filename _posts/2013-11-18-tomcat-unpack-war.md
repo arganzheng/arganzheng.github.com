@@ -1,6 +1,7 @@
 ---
 title: 如何让tomcat不解压你的war包
 layout: post
+catalog: true
 ---
 
 

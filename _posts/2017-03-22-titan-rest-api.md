@@ -1,6 +1,7 @@
 ---
 title: Titan如何提供REST服务
 layout: post
+catalog: true
 ---
 
 默认Titan是作为一个jar包依赖，本地调用。但是通过[Titan Server](http://s3.thinkaurelius.com/docs/titan/1.0.0/server.html)可以提供远程服务。

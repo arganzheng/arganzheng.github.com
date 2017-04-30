@@ -1,6 +1,7 @@
 ---
 title: 配置tomcat的access_log
 layout: post
+catalog: true
 ---
 
 一般应用都是跑在nginx后面，nginx本身就有access_log了，不需要重复配置tomcat的access_log。不过在测试环境，可能是直接访问tomcat。特别是一些别有用心的程序，比如安全扫描程序。

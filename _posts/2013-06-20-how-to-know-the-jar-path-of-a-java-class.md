@@ -1,6 +1,7 @@
 ---
 title: 已知一个java类，如何知道其在哪个jar包
 layout: post
+catalog: true
 ---
 
 
