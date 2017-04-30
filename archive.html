@@ -3,13 +3,21 @@ layout: page
 title : Archive
 ---
 
+<div id="archive">
 {% for post in site.posts %}
+{% capture this_year %}{{ post.date | date: "%Y" }}{% endcapture %}
+{% unless year == this_year %}
+  {% assign year = this_year %}
+  <h2>{{ year }}</h2> 
+  <hr />
+{% endunless %}
 {% assign currentdate = post.date | date: "%B %Y" %}
 {% if currentdate != date %}
-<h2 id="{{ currentdate }}">{{ currentdate }}</h2>
+<h3 id="{{ currentdate }}">{{ currentdate | date: "%B" }}</h3>
 {% endif %}
 {% assign date = currentdate %}
 <ul class="posts">
-    <li><span>{{ post.date | date: "%Y/%m/%d" }}</span>&nbsp;&raquo;&nbsp;<a href="{{ post.url | prepend: site.url }}">{{ post.title }}</a></li>
+    <li><span style="color: #aaa">{{ post.date | date: "%Y/%m/%d" }}</span>&nbsp;&raquo;&nbsp;<a href="{{ post.url | prepend: site.url }}">{{ post.title }}</a></li>
 </ul>
 {% endfor %}
+</div>
