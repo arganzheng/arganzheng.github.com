@@ -1,0 +1,54 @@
+<div class="related">
+  <h3>YOU MIGHT ALSO LIKE</h3>
+  <ul class="related-posts">
+    {% assign post_count = 0 %}
+    {% assign THRESHOLD = site.data.vars.RELATED_POSTS_THRESHOLD %}
+    {% for post in site.posts %}
+      {% if post_count == THRESHOLD %}
+        {% break %}
+      {% endif %}
+      {% for tag in post.tags %}
+        {% if page.tags contains tag %}
+          <li>
+            <h3>
+              <a href="{{ site.baseurl }}{{ post.url }}">
+                {{ post.title }}
+                <small>{{ post.date | date_to_string }}</small>
+              </a>
+            </h3>
+          </li>
+          {% assign post_count = post_count | plus: 1 %}
+          {% break %}
+        {% endif %}
+      {% endfor %}
+    {% endfor %}
+
+    {% assign posts_left = THRESHOLD | minus: post_count %}
+    {% unless posts_left == 0 %}
+      {% for post in site.posts %}
+        {% if posts_left == 0 %}
+          {% break %}
+        {% endif %}
+
+        {% assign already_related = false %}
+        {% for tag in post.tags %}
+          {% if page.tags contains tag %}
+            {% assign already_related = true %}
+            {% break %}
+          {% endif %}
+        {% endfor %}
+        {% unless already_related %}
+          {% assign posts_left = posts_left | minus: 1 %}
+          <li>
+            <h3>
+              <a href="{{ site.baseurl }}{{ post.url }}">
+                {{ post.title }}
+                <small>{{ post.date | date_to_string }}</small>
+              </a>
+            </h3>
+          </li>
+        {% endunless %}
+      {% endfor %}
+    {% endunless %}
+  </ul>
+</div>
