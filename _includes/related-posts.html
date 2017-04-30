@@ -1,6 +1,6 @@
 <div class="related">
   <h3>YOU MIGHT ALSO LIKE</h3>
-  <ul class="related-posts">
+  <ul class="related-posts" style="list-style-type: none;">
     {% assign post_count = 0 %}
     {% assign THRESHOLD = site.related_posts_threshold %}
     {% for post in site.posts %}
@@ -10,12 +10,8 @@
       {% for tag in post.tags %}
         {% if page.tags contains tag %}
           <li>
-            <h3>
-              <a href="{{ site.baseurl }}{{ post.url }}">
-                {{ post.title }}
-                <small>{{ post.date | date_to_string }}</small>
-              </a>
-            </h3>
+            <small style="color: #aaa">{{ post.date | date_to_string }}</small>&nbsp;&raquo;&nbsp;
+            <a href="{{ post.url | prepend: site.url }}">{{ post.title }}</a>
           </li>
           {% assign post_count = post_count | plus: 1 %}
           {% break %}
@@ -40,12 +36,8 @@
         {% unless already_related %}
           {% assign posts_left = posts_left | minus: 1 %}
           <li>
-            <h3>
-              <a href="{{ site.baseurl }}{{ post.url }}">
-                {{ post.title }}
-                <small>{{ post.date | date_to_string }}</small>
-              </a>
-            </h3>
+            <small style="color: #aaa">{{ post.date | date_to_string }}</small>&nbsp;&raquo;&nbsp;
+            <a href="{{ post.url | prepend: site.url }}">{{ post.title }}</a>
           </li>
         {% endunless %}
       {% endfor %}
