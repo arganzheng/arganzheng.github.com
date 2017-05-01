@@ -17,7 +17,16 @@ header-img: "img/about-bg.jpg"
     <!--copied from markdown -->
     <blockquote><p>Life is like a box of chocolates, you never know what you’re gonna get. </p></blockquote>
 
-    <p>Hey，我是<strong>郑志彬</strong>，程序员 &amp; 架构师。// TODO
+    <p> Hi，我是郑志彬，网名阿甘(arganzheng)，非典型性程序员一枚。 </p>
+    <p> 潮汕人，轻度完美主义者 & 轻度纠结症。兴趣爱好广泛，爱动也爱静，喜中亦不排西。</p>
+    <p> 毕业于华南理工大学计算机科学与技术（双语班），先后就职于BAT。现在在百度AI体系下的大数据部，从事人工智能相关项目。</p>
+    <p> 主要编程语言为Java，C++ 和 Python 也略有涉及；主要从事服务端开发和架构，前端亦略知一二。</p>
+    您可以通过以下途径和我联系：<br />
+    <ul>
+      <li> 新浪微博: <a href="http://weibo.com/argan1985" target="_blank">arganzheng</a> </li>
+      <li> 微信: arganzheng </li>
+      <li> Email: arganzheng@gmail.com (不定期check) </li>
+    </ul>
 
 </div>
 
@@ -25,7 +34,14 @@ header-img: "img/about-bg.jpg"
 <div class="en post-container">
     <blockquote><p>Life is like a box of chocolates, you never know what you’re gonna get. </p></blockquote>
 
-    <p>Hi, I am <strong>ZhengZhibin(郑志彬)</strong>，you can call me <strong>Argan</strong>. // TODO
+    <p> Hi, my name is ZhengZhibin, you can call me Argan. </p>
+    <p> I am a Programer@Baidu, currently. </p>
+    You can Concact me by: <br />
+    <ul>
+      <li> Weibo: <a href="http://weibo.com/argan1985" target="_blank">arganzheng</a> </li>
+      <li> Weichat: arganzheng </li>
+      <li> Email: arganzheng@gmail.com </li>
+    </ul>
     
 </div>
 
@@ -68,44 +84,6 @@ header-img: "img/about-bg.jpg"
     // init
     _render();
 </script>
-
-
-
-{% if site.duoshuo_username %}
-<!-- 多说评论框 start -->
-<div class="comment">
-    <!-- This id is used for indexing my loss comments forcedly -->
-    <div class="ds-thread"
-    {% if site.duoshuo_username == "huxblog" %}
-        data-thread-id="1187623191091085319"
-    {% else %}
-    <!-- U can just use this key generated to index comments at page about -->
-        data-thread-key="{{site.duoshuo_username}}/about"
-    {% endif %}
-
-    data-title="{{page.title}}"
-    data-url="{{site.url}}/about/"></div>
-</div>
-<!-- 多说评论框 end -->
-
-<!-- 多说公共JS代码 start (一个网页只需插入一次) -->
-<script type="text/javascript">
-    // dynamic User hacking by Hux
-    var _user = '{{site.duoshuo_username}}';
-
-    // duoshuo comment query.
-    var duoshuoQuery = {short_name: _user };
-    (function() {
-        var ds = document.createElement('script');
-        ds.type = 'text/javascript';ds.async = true;
-        ds.src = (document.location.protocol == 'https:' ? 'https:' : 'http:') + '//static.duoshuo.com/embed.js';
-        ds.charset = 'UTF-8';
-        (document.getElementsByTagName('head')[0]
-         || document.getElementsByTagName('body')[0]).appendChild(ds);
-    })();
-</script>
-<!-- 多说公共JS代码 end -->
-{% endif %}
 
 
 {% if site.disqus_username %}
