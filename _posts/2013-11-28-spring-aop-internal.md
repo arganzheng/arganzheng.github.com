@@ -3,7 +3,11 @@ layout: post
 title: spring AOP internal
 catalog: true
 date: 2013-11-28
-tags: [spring, aop, proxy, cglib]
+tags: 
+  - spring
+  - aop
+  - proxy
+  - cglib
 ---
 
 
