@@ -2,6 +2,8 @@
 title: 如何构建maven私有仓库
 layout: post
 catalog: true
+tags: [maven]
+category: [技术]
 ---
 
 
@@ -74,13 +76,13 @@ checkSumPolicy用来配置Maven检查检验和文件的策略，当构件被部�
 		          profile below over to a different nexus group -->
 		      <id>nexus-public-snapshots</id>
 		      <mirrorOf>public-snapshots</mirrorOf>
-		      <url>http://maven.scm.baidu.com:8081/nexus/content/groups/public-snapshots</url>
+		      <url>http://maven.scm.arganzheng.life:8081/nexus/content/groups/public-snapshots</url>
 		    </mirror>
 		    <mirror>
 		      <!--This sends everything else to /public -->
 		      <id>nexus</id>
 		      <mirrorOf>*</mirrorOf>
-		      <url>http://maven.scm.baidu.com:8081/nexus/content/groups/public</url>
+		      <url>http://maven.scm.arganzheng.life:8081/nexus/content/groups/public</url>
 		    </mirror>
 		  </mirrors>
 
@@ -123,12 +125,12 @@ checkSumPolicy用来配置Maven检查检验和文件的策略，当构件被部�
         
         <servers>
 		    <server>
-		      <id>Baidu_Local</id>
+		      <id>Argan_Local</id>
 		      <username>xx</username>
 		      <password>xxxx</password>
 		    </server>
 		    <server>
-		      <id>Baidu_Local_Snapshots</id>
+		      <id>Argan_Local_Snapshots</id>
 		      <username>xx</username>
 		      <password>xxxx</password>
 		    </server>
@@ -149,12 +151,12 @@ setting文件中的server的id必须与pom文件的需要认证的repository元�
 
         <distributionManagement>
 	        <repository>
-	            <id>Baidu_Local</id>
-	            <url>http://maven.scm.baidu.com:8081/nexus/content/repositories/Baidu_Local</url>
+	            <id>Argan_Local</id>
+	            <url>http://maven.scm.arganzheng.life:8081/nexus/content/repositories/Argan_Local</url>
 	        </repository>
 	        <snapshotRepository>
-	            <id>Baidu_Local_Snapshots</id>
-	            <url>http://maven.scm.baidu.com:8081/nexus/content/repositories/Baidu_Local_Snapshots</url>
+	            <id>Argan_Local_Snapshots</id>
+	            <url>http://maven.scm.arganzheng.life:8081/nexus/content/repositories/Argan_Local_Snapshots</url>
 	        </snapshotRepository>
 	    </distributionManagement>
 

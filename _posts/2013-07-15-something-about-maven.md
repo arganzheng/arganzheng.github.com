@@ -142,6 +142,8 @@ Maven中的仓库用来存放生成的构建和各种依赖。
 </servers>
 ```
 
+关于maven仓库的更多介绍可以参考笔者之前的文章 [如何构建maven私有仓库](http://arganzheng.life/setup-maven-repository.html)
+
 ## 生命周期
 
 maven对项目的某个构建过程进行了抽象和定义，这个过程被称为生命周期(lifecycle)。每套生命周期(lifecycle)由多个阶段(phase)组成，这些阶段组成有顺序的流水线(Pipeline)，每个阶段(phase)会挂接一到多个目标(goal)。goal是maven里定义任务的最小单元，相当于ant里的target。
