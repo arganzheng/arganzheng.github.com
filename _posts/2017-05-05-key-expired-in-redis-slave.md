@@ -12,9 +12,7 @@ Redis的Scale out一直是大家关注的，因为它的单进程单线程模型
 Redis的作者很早就意识到这个问题了[^2]，而且在3.2之后也对这个问题进行了彻底的修复[^1]。不过随着Redis 3.0集群的出现，redis的scale out有了更多的选择。
 
 
-Footnotes
----------
+#### Footnotes
 
 [^1]: [Improve expire consistency on slaves #1768](https://github.com/antirez/redis/issues/1768)
 [^2]: [Redis slaves, while not allowed to expire keys without master input, should reply to clients consistently with the key expire information. #187](https://github.com/antirez/redis/issues/187)
-[^3]: [Replication-Read-only slave](https://redis.io/topics/replication#read-only-slave)
