@@ -2,6 +2,8 @@
 title: Redis的事务
 layout: post
 catalog: true
+tags: [redis, 事务]
+category: [技术]
 ---
 
 
