@@ -3,7 +3,7 @@ title: 基于Aerospike实现图数据库
 layout: simple-post
 catalog: true
 category: 技术
-tags: [aerospike, graphdb, 存储]
+tags: [aerospike, Graph Database , 存储]
 ---
 
 
