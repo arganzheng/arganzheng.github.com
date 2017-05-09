@@ -10,7 +10,7 @@ tags: [aerospike, graphdb, 存储]
 Aerospike介绍
 ------------
 
-具体参见: [Aerospike学习笔记](http://arganzheng.life/2017/04/09/aerospike-notes.html)
+具体参见: [Aerospike学习笔记](http://arganzheng.life/aerospike-notes.html)
 
 
 Prons & Cons
@@ -112,9 +112,8 @@ TODO
 
 
 * 出于平台化的考虑，每个Graph的顶点和边互不影响，这可以通过Aerospike的namespace实现。
-* ~~如果所有垂类和关系都放在一个namespace下，跟Aerospike的namespace对应关系是最直接，管理和跨垂类查询方便，但是Aerospike的namespace对二级索引的限制256个，对于比较大的Graph就不合适了。
-* 综合考虑可以做个简单映射关系，顶点和边各自一个namespace，名字为 {GraphName}_vertex/edge：GraphName => VertextNamespace & EdgeNamespace。~~
-* 经过讨论，决定后面修改Aerospike源码，让一个namepsace可以支持更多的二级索引。所以现在是一个namesapce对应一个graph。
+* ~~如果所有垂类和关系都放在一个namespace下，跟Aerospike的namespace对应关系是最直接，管理和跨垂类查询方便，但是Aerospike的namespace对二级索引的限制256个，对于比较大的Graph就不合适了。~~
+* ~~综合考虑可以做个简单映射关系，顶点和边各自一个namespace，名字为 {GraphName}_vertex/edge：GraphName => VertextNamespace & EdgeNamespace。~~ 经过讨论，决定后面修改Aerospike源码，让一个namepsace可以支持更多的二级索引。所以现在是一个namesapce对应一个graph。
 * Aerospike没有提供listNamespaces的接口，需要一个地方存储所有已经创建的Graph和创建他们的用户和Graph的访问权限（存储在Aerospike就可以）。
 * 顶点和边的label作为他们的setName
 
