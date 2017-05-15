@@ -19,7 +19,7 @@ description: "stay hungry, stay foolish"
         </div>
     </a>
     <p class="post-meta">
-        Posted by {% if post.author %}{{ post.author }}{% else %}{{ site.title }}{% endif %} on {{ post.date | date: "%B %-d, %Y" }}
+        Posted by <a href="{{'/about/' | prepend: site.baseurl }}">arganzheng</a> | {{ post.date | date: "%B %-d, %Y" }}
     </p>
 </div>
 <hr>
