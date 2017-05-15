@@ -1,5 +1,5 @@
 <!-- Navigation -->
-<nav class="navbar navbar-default navbar-custom navbar-fixed-top" {% if page.layout == "simple-post" %} style="background-color: #3a3a3a;" {% endif %}>
+<nav class="navbar navbar-default navbar-fixed-top {% unless page.layout == "post" %} navbar-custom {% endunless %}" >
     <div class="container-fluid">
         <!-- Brand and toggle get grouped for better mobile display -->
         <div class="navbar-header page-scroll">

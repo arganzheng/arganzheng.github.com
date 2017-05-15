@@ -1,5 +1,5 @@
 ---
-layout: simple-post
+layout: post
 title: Titan的pluggable storage backend
 catalog: true
 tags:

@@ -1089,3 +1089,17 @@ img::-moz-selection {
 .page-fullscreen footer .copyright a:hover {
   color: #ddd;
 }
+
+.page-header .title {
+  font-size: 47px;
+  font-weight: 500;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+  word-wrap: break-word;
+}
+
+.page-header .subtitle {
+  font-size: 24px;
+  color: #778596;
+  font-weight: 300;
+}

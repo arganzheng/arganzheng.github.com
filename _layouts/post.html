@@ -2,50 +2,20 @@
 layout: default
 ---
 
-<!-- Image to hack wechat -->
-<!-- <img src="/img/icon_wechat.png" width="0" height="0"> -->
-<!-- <img src="{{ site.baseurl }}/{% if page.header-img %}{{ page.header-img }}{% else %}{{ site.header-img }}{% endif %}" width="0" height="0"> -->
-
-<!-- Post Header -->
-<style type="text/css">
-    header.intro-header{
-        position: relative;
-        background-image: url('{{ site.baseurl }}/{% if page.header-img %}{{ page.header-img }}{% else %}{{ site.header-img }}{% endif %}')
-    }
-
-    {% if page.header-mask %}
-    header.intro-header .header-mask{
-        width: 100%;
-        height: 100%;
-        position: absolute;
-        background: rgba(0,0,0, {{ page.header-mask }});
-    }
-    {% endif %}
-</style>
-<header class="intro-header" >
-    <div class="header-mask"></div>
-    <div class="container">
-        <div class="row">
-            <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
-                <div class="post-heading">
-                    <div class="tags">
-                        {% for tag in page.tags %}
-                        <a class="tag" href="{{ site.baseurl }}/tags#{{ tag }}" title="{{ tag }}">{{ tag }}</a>
-                        {% endfor %}
-                    </div>
-                    <h1>{{ page.title }}</h1>
-                    {% comment %}
-                        always create a h2 for keeping the margin , Hux
-                    {% endcomment %}
-                    {% comment %} if page.subtitle {% endcomment %}
-                    <h2 class="subheading">{{ page.subtitle }}</h2>
-                    {% comment %} endif {% endcomment %}
-                    <span class="meta">Posted by {% if page.author %}{{ page.author }}{% else %}{{ site.title }}{% endif %} on {{ page.date | date: "%B %-d, %Y" }}</span>
-                </div>
+<div class="container" style="margin-top:6rem;">
+    <div class="row">
+        <div class="page-header">
+            <p class="h1 title">{{ page.title }}</p>
+            {% if page.subtitle %}<p class="h3 subtitle">{{ page.subtitle }}</p> {% endif %}
+            <small class="text-muted">By arganzheng | {{ page.date | date: "%B %-d, %Y" }}</small>
+            <div>
+                {% for tag in page.tags %}
+                <a href="{{ site.baseurl }}/tags#{{ tag }}" title="{{ tag }}"><span class="label label-primary">{{ tag }}<span></a>
+                {% endfor %}
             </div>
         </div>
     </div>
-</header>
+</div>
 
 <!-- Post Content -->
 <article>
@@ -87,13 +57,6 @@ layout: default
                 <!-- share -->
 				{% include share.html %}
                 <!-- /.share -->
-
-                <!-- google adsense -->
-                <div class="ads">
-                  {% include google-adsense.html %}
-                </div>
-                <!-- /.ads -->
-
 
                 {% if site.disqus_username %}
                 <!-- disqus 评论框 start -->
