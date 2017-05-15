@@ -7,7 +7,7 @@ layout: default
         <div class="page-header">
             <p class="h1 title">{{ page.title }}</p>
             {% if page.subtitle %}<p class="h3 subtitle">{{ page.subtitle }}</p> {% endif %}
-            <small class="text-muted">Posted by <a href="{{'/about/' | prepend: site.baseurl }}">arganzheng</a> | {{ page.date | date: "%B %-d, %Y" }}</small>
+            <small class="text-muted">Posted by <a href="{{'/about' | prepend: site.baseurl }}">arganzheng</a> | {{ page.date | date: "%B %-d, %Y" }}</small>
             <div>
                 {% for tag in page.tags %}
                 <a href="{{ site.baseurl }}/tags#{{ tag }}" title="{{ tag }}"><span class="label label-primary">{{ tag }}<span></a>
