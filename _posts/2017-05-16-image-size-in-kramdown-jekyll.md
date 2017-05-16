@@ -19,12 +19,12 @@ Markdown让你专注于内容而不是格式，但是有时候你确实想要控
 可以看到默认是最大化，如果我们想要控制图片的显示大小，怎么做呢？最简单直观的做法就是使用原始的HTML标签：
 
 ```html
-<img src="/img/post-bg-2015.jpg" height="700px" width="400px" >
+<img src="/img/post-bg-2015.jpg" height="100px" width="400px" >
 ```
 
 显示效果如下：
 
-<img src="/img/post-bg-2015.jpg" height="700px" width="400px" >
+<img src="/img/post-bg-2015.jpg" height="100px" width="400px" >
 
 但是这样子就不是纯粹的markdown文本了，是markdown跟html的混合体，当然图片这个html标签还算是简洁。
 
@@ -64,7 +64,7 @@ img[alt=img_alt_you_want_to_control] {
 ```markdown
 ![test image size](/img/post-bg-2015.jpg){:class="img-responsive"}
 ![test image size](/img/post-bg-2015.jpg){:height="50%" width="50%"}
-![test image size](/img/post-bg-2015.jpg){:height="700px" width="400px"}
+![test image size](/img/post-bg-2015.jpg){:height="100px" width="400px"}
 ```
 
 渲染结果如下：
@@ -72,14 +72,14 @@ img[alt=img_alt_you_want_to_control] {
 ```html
 <img src="/img/post-bg-2015.jpg" alt="test image size" class="img-responsive">
 <img src="/img/post-bg-2015.jpg" alt="test image size" height="50%" width="50%">
-<img src="/img/post-bg-2015.jpg" alt="test image size" height="700px" width="400px">
+<img src="/img/post-bg-2015.jpg" alt="test image size" height="100px" width="400px">
 ```
 
 显示效果如下：
 
 ![test image size](/img/post-bg-2015.jpg){:class="img-responsive"}
 ![test image size](/img/post-bg-2015.jpg){:height="50%" width="50%"}
-![test image size](/img/post-bg-2015.jpg){:height="700px" width="400px"}
+![test image size](/img/post-bg-2015.jpg){:height="100px" width="400px"}
 
 
 因为我们没有在CSS上定义 `img-responsive` class，所以这里第一个没有效果。
@@ -96,11 +96,11 @@ kramdown:
   input: GFM                            # use Github Flavored Markdown !important
 ```
 
-有个好消息是Github默认就是使用kramdown，所以在github上写markdown文件也可以用这个语法。
-
 ---
 
-**TIPS** 上面第二种方式，也可以使用隐藏的html标签做控制：
+**TIPS** 
+
+1、上面第二种方式，也可以使用隐藏的html标签做控制：
 
 ```
 ![test image size](/img/post-bg-2015.jpg)<!-- .element height="50%" width="50%" -->
@@ -108,6 +108,20 @@ kramdown:
 ```
 
 不过个人感觉还是kramdown的语法简单明了。
+
+2、细心的读者可能会发现图片的显示效果不是400x100，这是因为我在CSS中对post中的所有img做了统一的处理：
+
+```css
+.post-container img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 1.5em auto 1.6em;
+}
+```
+
+所以上面height的指定其实是没有效果的，我只需要控制好width就可以了，这样可以避免变形。
+
 
 Enjoy writing!
 
