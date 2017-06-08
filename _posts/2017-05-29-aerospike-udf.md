@@ -399,7 +399,7 @@ function order_by(stream, arguments)
 end
 ```
 
-调用代码非常简单：
+调用代码非常简单，需要注意的是Reduce()函数返回的ResultSet里面只有一个元素(这里是返回一个sorted list)：
 
 ```java
 private KeyRecordIterator queryAggregateByLua(Statement stmt, Qualifier[] qualifiers, //
@@ -433,8 +433,8 @@ private KeyRecordIterator queryAggregateByLua(Statement stmt, Qualifier[] qualif
 
 **说明**
 
-1、上面代码只支持单个key排序，多个key比较麻烦，但是并不难实现，读者可以自己扩展。
-2、上面代码只实现了简单的截断，并不支持分页(limit with offset)。这是因为Aerospike Stream UDFs的执行机制导致的。分库环境下是没有办法实现分页的。
+1. 上面代码只支持单个key排序，多个key比较麻烦，但是并不难实现，读者可以自己扩展。
+2. 上面代码只实现了简单的截断，并不支持分页(limit with offset)。这是因为Aerospike Stream UDFs的执行机制导致的。分库环境下是没有办法实现分页的。
 
 
 ### 参考文章
