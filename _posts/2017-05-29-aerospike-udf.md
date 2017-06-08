@@ -327,18 +327,27 @@ function order_by(stream, arguments)
 
   local function list_truncate(l, limit)
     if list.size(l) > limit then
-      info("list.size[%d] > limit[%d]. Trucate it.", list.size(l), limit)
+      info("list.size=%d > limit=%d. Trucate it.", (list.size(l)+1), limit)
       list.trim(l, limit + 1)
     end
   end
 
   -- insert a rec into a sorted list, return the insertion index for merge sort
   local function insert_sort(sorted_list, rec_map, sort_key, order, start_index)
-    local v = rec_map[sort_key]
-    debug("sort_key: %s, order: %s, value: %s", sort_key, order, v)
-    if v == nil then
+
+    if sort_key == nil then -- just append it
+      list.append(sorted_list, rec_map)
       return 0
     end
+
+    local v = rec_map[sort_key]
+    if v == nil then -- sort value not found in rec_map, just append it
+      warn("Can not find value for sort key: %s", sort_key)
+      list.append(sorted_list, rec_map)
+      return 0
+    end
+
+    debug("sort_key: %s, order: %s, value: %s", sort_key, order, v)
 
     len = list.size(sorted_list)
     for i = start_index or 1, len do
@@ -388,11 +397,18 @@ function order_by(stream, arguments)
   local sort_key;
   local order;
   local limit = 100
-  if arguments ~= nil then -- only support one sort key right now
-    sort_key = arguments["sorters"][1]["sort_key"] or "id"
-    order = arguments["sorters"][1]["order"] or "ASC"
+
+  if arguments ~= nil then
+    if arguments["sorters"] ~= nil and list.size(arguments["sorters"]) > 0 then
+      local sorter = arguments["sorters"][1] -- only support one sort key right now
+      if sorter ~= nil then
+        sort_key = sorter["sort_key"] or "id"
+        order = sorter["order"] or "ASC"
+      end
+    end
     limit = arguments["limit"] or 100
   end
+
   local aggregator = sort_aggregator(sort_key, order, limit)
   local reducer = sort_reducer(sort_key, order, limit)
   return stream : aggregate(list(), aggregator) : reduce(reducer)
@@ -404,31 +420,31 @@ end
 ```java
 private KeyRecordIterator queryAggregateByLua(Statement stmt, Qualifier[] qualifiers, //
             OrderList orderList, int limit) {
-        Map<String, Object> argument = new HashMap<>();
-        List<Value.MapValue> argumentSorters = new ArrayList<>();
-        for (OrderEntry order : orderList) {
-            Map<String, Object> s = new HashMap<>();
-            s.put("sort_key", order.getProperty());
-            s.put("order", order.getOrder().name());
-            argumentSorters.add(new Value.MapValue(s));
-        }
-        argument.put("sorters", new Value.ListValue(argumentSorters));
-
-        if (limit > 0) {
-            argument.put("limit", limit);
-        }
-
-        stmt.setAggregateFunction(this.getClass().getClassLoader(), AS_UTILITY_PATH, QUERY_MODULE, "order_by",
-                Value.get(argument));
-        ResultSet resultSet = client.queryAggregate(DEFAULT_QUERY_POLICY, stmt);
-
-        if (resultSet == null) {
-            return new KeyRecordIterator(stmt.getNamespace(), Collections.emptyList());
-        } else { // aggregate 这里返回的是一个list
-            List list = (List) resultSet.iterator().next();
-            return new KeyRecordIterator(stmt.getNamespace(), list);
-        }
+    Map<String, Object> argument = new HashMap<>();
+    List<Value.MapValue> argumentSorters = new ArrayList<>();
+    for (OrderEntry order : orderList) {
+        Map<String, Object> s = new HashMap<>();
+        s.put("sort_key", order.getProperty());
+        s.put("order", order.getOrder().name());
+        argumentSorters.add(new Value.MapValue(s));
     }
+    argument.put("sorters", new Value.ListValue(argumentSorters));
+
+    if (limit > 0) {
+        argument.put("limit", limit);
+    }
+
+    stmt.setAggregateFunction(this.getClass().getClassLoader(), AS_UTILITY_PATH, QUERY_MODULE, "order_by",
+            Value.get(argument));
+    ResultSet resultSet = client.queryAggregate(DEFAULT_QUERY_POLICY, stmt);
+
+    if (resultSet == null) {
+        return new KeyRecordIterator(stmt.getNamespace(), Collections.emptyList());
+    } else { // aggregate 这里返回的是一个list
+        List list = (List) resultSet.iterator().next();
+        return new KeyRecordIterator(stmt.getNamespace(), list);
+    }
+}	
 ```
 
 **说明**
