@@ -199,7 +199,7 @@ public class MyLogCallback implements Log.Callback {
 这里简单的将日志打印到终端。
 然后在某个地方注册一下这个callback:
 
-```
+```java
 public class MyAerospikeClient implements Closeable {
  	
  	...
@@ -232,7 +232,7 @@ aerospike.set_log_level(aerospike.LOG_LEVEL_DEBUG)
 aerospike.set_log_handler(as_logger)
 ```
 
-#### anything else
+#### 5、anything else
 
 还有一些最佳实现，跟客户端实现有关。具体可以参考: [Java Client Best Practices](http://www.aerospike.com/docs/client/java/usage/best_practices.html)。
 
@@ -268,7 +268,7 @@ The following are modules which provide added functionality.
 	* `function warn(msg: String, …): nil`
 
 
-### 实战例子——排序和分页
+### 实战例子——排序和截断
 
 Aerospike并不支持排序和分页（包括简单的截断。。），所以功能上其实是有缺陷的（当然，Aerospike团队并不这么认为。。[No cursor no pagination](https://github.com/aerospike/aerospike-server/issues/178)）。如果我们要这些功能，那么目前看起来比较靠谱的做法就是使用Aerospike的Stream UDFs了。
 
@@ -430,6 +430,11 @@ private KeyRecordIterator queryAggregateByLua(Statement stmt, Qualifier[] qualif
         }
     }
 ```
+
+**说明**
+
+1、上面代码只支持单个key排序，多个key比较麻烦，但是并不难实现，读者可以自己扩展。
+2、上面代码只实现了简单的截断，并不支持分页(limit with offset)。这是因为Aerospike Stream UDFs的执行机制导致的。分库环境下是没有办法实现分页的。
 
 
 ### 参考文章
