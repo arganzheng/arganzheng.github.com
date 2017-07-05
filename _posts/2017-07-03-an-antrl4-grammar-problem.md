@@ -22,15 +22,13 @@ catelog: true
 
 **TIPS** 关于Gremlin
 
-图数据库中比较主流的一种
-
 gremlin是一个开源的比较通用的图操作DSL (Domain Specific Language) ，它是类似函数式的，`Path-based`的结构化查询语言，它可以用来检索、维护、和分析图谱。具体语法可以参见：[Apache TinkerPop](http://tinkerpop.apache.org/gremlin.html) 和 [GremlinDocs](http://gremlindocs.spmallette.documentup.com)。
 
 
 问题
 ----
 
-之前基于SimpleDB(部门内部的一个分布式KV系统)实现的图数据库是用C++实现的，经过调研之后决定采用 [Spirit](http://www.boost.org/doc/libs/1_62_0/libs/spirit/doc/html/index.html) 来实现语法解析这一层的功能，Spirit是boost提供的一个PEG(Parsing Expression Grammar EBNF的一个衍伸)解析器，相对于其他的parser，不需要引用额外的库，而且有很多内建的parser和lexer。
+之前基于SimpleDB(部门内部的一个分布式KV系统)实现的图数据库是用C++实现的，当时也有考虑提供结构化查询语言的支持，经过调研之后决定采用 [Spirit](http://www.boost.org/doc/libs/1_62_0/libs/spirit/doc/html/index.html) 来实现语法解析这一层的功能，Spirit是boost提供的一个PEG(Parsing Expression Grammar EBNF的一个衍伸)解析器，相对于其他的parser，不需要引用额外的库，而且有很多内建的parser和lexer。
 
 但是这一次GDB是用Java编写的，经过重新调研，决定使用antlr4，它支持语法和解析逻辑分离的方式更利于维护，而且支持多种目标语言。
 
@@ -220,14 +218,14 @@ fragment DIGIT
 原因很简单，在我们的语法定义中，数字20可以同时被`STRING`和`INT`匹配。如果STRING定义在INT前面，那么number就没有LEXER feed它了。
 
 
-所有antlr的语法定义顺序还是蛮重要的。一般来说，特例的语法要定义在前面，否则被前面通用的定义匹配了就没有机会匹配了。
+所以antlr的语法定义顺序还是蛮重要的。一般来说，特例的语法要定义在前面，否则被前面通用的定义匹配了就没有机会匹配了。
 
 
 **TIPS**
 
-1、antlr的语法调试并不是很容易，出错信息并不太直观。建议定义语法的时候可以以 top-down 的方式编写，但是调试的时候以 buttom-up 的方式调试。
+1、antlr的语法调试并不是很容易，出错信息并不太直观。建议定义语法的时候可以以`top-down`的方式编写，但是调试的时候以`buttom-up`的方式调试。
 
-2、buttom-up的方式调试并不意味着你必须一点点的添加语法，事实上你可以在你的测试代码中指定解析的入口rule:
+2、`buttom-up`的方式调试并不意味着你必须一点点的添加语法，事实上你可以在你的测试代码中指定解析的入口rule:
 
 ```java
 public void testGqlIsValid() throws IOException {
@@ -249,8 +247,8 @@ public void testGqlIsValid() throws IOException {
 
     parser.getInterpreter().setPredictionMode(PredictionMode.LL_EXACT_AMBIG_DETECTION);
 
-	// ParseTree tree = parser.gremlinQuery();
-  	ParseTree tree = parser.number();
+    // ParseTree tree = parser.gremlinQuery();
+    ParseTree tree = parser.number();
     System.out.println(tree.toStringTree(parser)); // print LISP-style tree
     System.out.println(tree.toString());
 }
