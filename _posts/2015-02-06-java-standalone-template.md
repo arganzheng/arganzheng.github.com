@@ -13,7 +13,7 @@ standalone工程目录如下：
     * src
         * bin
         * main
-        * resources
+          * resources
             * cache
             * conf-mybatis
             * conf-spring
