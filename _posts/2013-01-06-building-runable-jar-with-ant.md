@@ -109,9 +109,8 @@ catalog: true
 Ant的[zipfileset](http://ant.apache.org/manual/Types/zipfileset.html)就是做这样的事情的：
 
 > A <zipfileset> is a special form of a <fileset> which can behave in 2 different ways :
-1. When the src attribute is used - or a nested resource collection has been specified (since Apache Ant 1.7), the zipfileset is populated with zip entries found in the file src.
-2. When the dir attribute is used, the zipfileset is populated with filesystem files found under dir.
-<zipfileset> supports all attributes of <fileset> in addition to those listed below.
+> 1. When the src attribute is used - or a nested resource collection has been specified (since Apache Ant 1.7), the zipfileset is populated with zip entries found in the file src.
+> 2. When the dir attribute is used, the zipfileset is populated with filesystem files found under dir. <zipfileset> supports all attributes of <fileset> in addition to those listed below.
 
 当使用src的时候，是会解压并且重新打包，并且可以使用includes/excludes过滤zip/jar包中的文件。因此我们可以这么写：
 
