@@ -247,7 +247,10 @@ Prons & Cons
 
 **Cons**
 
-* Index纯内存，成本比较大，重启需要根据数据重新构建索引，启动时间比较长（企业版支持Fast Restart）=> :(
+* Index(包括primary index和secondary index)是纯内存的，成本比较大，重启需要根据数据重新构建索引，启动时间比较长（企业版支持Fast Restart）=> :(
+* 纯内存模式服务重启数据就全部丢失，不像redis有缓存持久化功能。
+* 持久化模式(storage-engine device)社区版本也有问题，不支持删除持久化(Durable Delete)，重启服务会发现删除的数据又恢复了。。
+* 只有清空set数据接口，但是并没有真正drop掉sets（会留下empty set，然后一个namespace下只有有1024个sets..）
 * map索引只支持第一层级属性，而且索引粒度是key或者vallue（而不是一般的某个key对应的value）=> :(
 * list索引只支持第一层级属性 => :(
 * 采用的是随机sharding，不利于图切割 
@@ -262,7 +265,8 @@ Prons & Cons
 * bin name长度: <= 14 Chars => 一般来说单字段不会超过，嵌套属性如果拼接就很容易超长 :(
 * 基于Secondary Index的Query不支持逻辑操作（AND，OR，NOT），只支持单属性查询 => :(
 * 3.12引入了[Predicate Filter](http://www.aerospike.com/docs/guide/predicate.html)，可以对 Scan得到的记录或者索引查询结果(scan and secondary index query)进行多条件过滤。不能用于聚合运算(Aggregations)
-* 范围查询只支持BETWEEN语句，没有小于，大于查询，并且RANGE结果只支持inclusive 
+* 范围查询只支持BETWEEN语句，没有小于，大于查询，并且RANGE结果只支持inclusive
+* 范围查询只支持整数类型，不支持浮点数。。
 * Query不支持分页(no cursor or pagination..) => :(
 * Query不支持排序(no order by..) => :(
 * 没有内建的聚合函数(Aggregations: count, max, min, sum, group by, etc.)，通过UDFs可以支持（queryAggregate），但是使用方式不友好，效率也不高。
