@@ -1,6 +1,8 @@
 ---
 title: java standalone模板
 layout: post
+tags: [java, standalone, maven, ant]
+category: 技术
 catalog: true
 ---
 
@@ -13,7 +15,7 @@ standalone工程目录如下：
     * src
         * bin
         * main
-        * resources
+          * resources
             * cache
             * conf-mybatis
             * conf-spring
@@ -194,6 +196,7 @@ conf目录可以用resources插件从`src/main/resources`目录里面copy到conf
 比如这个：java $JAVA_OPTS me.arganzheng.study.standalone.message.queue.processor.Main
 用maven就可以这样子：mvn compile exec:java -Dexec.mainClass="me.arganzheng.study.standalone.message.queue.processor.Main" 执行执行了。
 
+项目代码可以参考Github: [java-standalone-template](https://github.com/arganzheng/java-standalone-template)。
 
 **NOTE** 关于log4j.configuration的一个坑
 
