@@ -130,3 +130,4 @@ The new limit is only applied during the current session.
 
 1. [Increase “Open Files Limit”](https://easyengine.io/tutorials/linux/increase-open-files-limit/)
 2. [Configuring system settings](https://www.elastic.co/guide/en/elasticsearch/reference/master/setting-system-settings.html)
+3. [UNIX ulimit Settings](https://docs.mongodb.com/manual/reference/ulimit/)
