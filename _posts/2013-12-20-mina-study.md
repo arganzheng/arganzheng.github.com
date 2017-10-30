@@ -2,6 +2,8 @@
 title: mina学习笔记
 layout: post
 catalog: true
+category: 技术
+tags: [mina, nio, java, 网络编程]
 ---
 
 ![mina](/img/in-post/mina.jpg)
@@ -12,7 +14,7 @@ Mina框架
 
 mina的设计非常简单，由于几个模块组成：
 
-1. IoService (Acceptor | Connector)
+1. IoService: Acceptor or Connector
 2. IoProcessor，如果没有指定，默认是NioProcessor。
 3. IoFilterChain
 4. IoHandler
