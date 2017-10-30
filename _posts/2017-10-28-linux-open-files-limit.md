@@ -27,8 +27,8 @@ Set this higher than user-limit set above.
 
 	# cat /proc/sys/fs/file-nr
 	3391    969     52427
-	|	 	 |       |
-	|	 	 |       |
+	|        |       |
+	|        |       |
 	|        |       maximum open file descriptors
 	|        total free allocated file descriptors
 	total allocated file descriptors
