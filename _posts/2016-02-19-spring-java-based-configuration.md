@@ -180,6 +180,167 @@ public static void main(String[] args) {
 }
 ```
 
+### 配置文件
+
+配置文件通过`@PropertySource`注解导入。然后可以通过`Environment`类或者`@Value`注解得到具体的配置项。
+
+```java
+@Configuration
+@PropertySource("classpath:app.properties")
+public class MyConfiguration {
+
+    @Autowired
+    private Environment environment;
+
+    @Value("${jdbc.url}")
+    private String url;
+
+    @Bean
+    public Bean bean() {
+        ...
+        // this.environment.getRequiredProperty("foo");
+        ...
+    }
+}
+```
+
+`@PropertySource`还支持 placeholders（`Resolving ${...} placeholders within @PropertySource resource locations`)。例如：
+
+```java
+@Configuration
+@PropertySource("classpath:${app.home:/home/work}/app.properties")
+public class MyConfiguration {
+  ...
+}
+```
+
+Spring会从已经注册的配置文件或者环境变量中获取属性值进行替换，如上面例子可以在启动参数中设置app.home环境变量：
+
+  java -jar -Dapp.home="/home/argan/test" example.jar
+
+如果是使用的配置文件中的配置项，那么需要确保配置文件的加载顺序，比如：
+
+```java
+@Configuration
+@PropertySources({
+    @PropertySource("classpath:profile.properties"),
+    @PropertySource("classpath:app-${profile}.properties"),
+})
+public class MyConfiguration {
+  ...
+}
+```
+
+注意这个语法，':' 左边是placeholder的key，后边是defaultValue。当然，默认值是可选的。
+
+Assuming that "app.home" is present in one of the property sources already registered, e.g. system properties or environment variables, the placeholder will be resolved to the corresponding value. If not, then "/home/work" will be used as a default. 
+
+如果无法解析该占位符，也没有设置默认值，那么会抛IllegalArgumentException：
+
+  java.lang.IllegalArgumentException: Could not resolve placeholder 'app.home' in string value "classpath:${app.home}/app.properties"
+
+如果app.properties找不到，Spring默认也会报FileNotFoundException异常：
+
+  java.io.FileNotFoundException: class path resource [app.properties] cannot be opened because it does not exist.
+
+可以使用Spring4引入的`ignoreResourceNotFound`配置项可以忽略两个异常错误：
+
+```java
+@Configuration
+@PropertySource(value = "classpath:app.properties", ignoreResourceNotFound = true)
+public class MyConfiguration {
+  ...
+}
+```
+
+**TIPS** 
+
+#### 1、@PropertySources 注解
+
+Spring 4支持java8 的`repeatable annotations`,，引入了 `@PropertySources`表示多个`PropertySource`，但是实际上`@PropertySource`的value是`String[]`，所以并没有必要使用`@PropertySources`。
+
+#### 2、如何实现不同的环境加载不同的配置文件？
+
+我们经常需要在不同的环境（开发环境，测试环境，生产环境）使用不同的配置项（配置文件）。在之前的项目中，我是通过配置文件名使用placeholder来实现动态加载的：
+如`app-${profile}.properties`，然后在启动脚本中设置`${profile}`变量：`-Dprofile=production`。
+
+在Java-based Configuration也是一样的：
+
+```java
+@Configuration
+@PropertySources({
+    @PropertySource("classpath:profile.properties"),
+    @PropertySource("classpath:app-${profile}.properties"),
+})
+public class MyConfiguration {
+  ...
+}
+```
+
+这样，可以在profile.properties文件配置`profile=production`，也可以设置成JVM参数：`-Dprofile=production`。
+
+#### 3、@Profile 注解
+
+Spring 3.1 引入了 `@Profile` 注解，可以用于配置文件中做条件判断。
+
+为了使用 Profile 机制，Spring 内建了两个配置项（属性）：
+
+1. spring.profiles.default: represents active profile.
+2. spring.profiles.active: represents default profile.
+
+如果没有指定active profile，那么Spring会使用default profile。我们需要通过JVM指定：`-Dspring.profiles.active=dev`。
+
+然后可以这样子使用：
+
+```
+@Configuration
+@Profile("dev")
+public abstract class DevAppConfig{   
+  ...
+}
+```
+
+```
+@Configuration
+@Profile("prod")
+public abstract class ProdAppConfig{   
+  ...
+}
+```
+
+在JUnit中，你可以通过`@ActiveProfiles`注解直接激活某个Profile。
+
+```java
+@RunWith(SpringJUnit4ClassRunner.class)
+@ContextConfiguration(classes= {AppConfig.class,DevAppConfig.class,ProdAppConfig.class},loader=AnnotationConfigContextLoader.class)
+@ActiveProfiles("dev")
+public class Spring3DevProfilesTest {
+  ...
+}
+```
+
+Spring 3.1 `@Profile`注解只能用在类级别上，但是从Spring 4.0开始 @Profile 就可以用在方法级别了。这样，我们就不需要两个 配置类 了:
+
+```java
+@Configuration
+publicclass AppConfig {
+  
+  @Bean(name="dataSource")
+  @Profile("dev")
+  public DataSource getDevDataSource() {
+    return new DevDatabaseUtil();
+    } 
+  
+  @Bean(name="dataSource")
+  @Profile("prod")
+  public DataSource getProdDataSource() {
+    return new ProductionDatabaseUtil();
+    } 
+}
+```
+
+需要注意的是，这种方式必须指定@Bean的name属性，否则其实是两个不同的bean来的。
+
 ### Combining Java and XML configuration
 
 如果想在一个XML配置为主的项目中使用java-based Configuration，只需要将这个配置类在XML文件中配置就可以了：
@@ -258,7 +419,6 @@ public static void main(String[] args) {
 * @Scope
 
 
-
 参考文章
 -------
 
@@ -267,3 +427,5 @@ public static void main(String[] args) {
 3. [Spring 4 MVC HelloWorld Tutorial – Annotation/JavaConfig Example](http://websystique.com/springmvc/spring-4-mvc-helloworld-tutorial-annotation-javaconfig-full-example/) Spring MVC配置示例
 4. [Spring bean management using Java configuration](http://www.ibm.com/developerworks/library/ws-springjava/)
 5. [Spring Dependency Injection Styles – Why I love Java based configuration](https://blog.codecentric.de/en/2012/07/spring-dependency-injection-styles-why-i-love-java-based-configuration/)
+6. [Spring @PropertySources Annotation Example](http://www.javarticles.com/2016/01/spring-propertysources-annotation-example.html)
+7. [@Profile Annotation Improvements in Spring 4](http://javapapers.com/spring/profile-annotation-improvements-in-spring-4/)
