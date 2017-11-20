@@ -2,6 +2,7 @@
 title: Spring Java-based配置
 layout: post
 catalog: true
+tags: [Spring]
 ---
 
 Spring目前为止支持如下三种配置方式：
@@ -429,3 +430,5 @@ public static void main(String[] args) {
 5. [Spring Dependency Injection Styles – Why I love Java based configuration](https://blog.codecentric.de/en/2012/07/spring-dependency-injection-styles-why-i-love-java-based-configuration/)
 6. [Spring @PropertySources Annotation Example](http://www.javarticles.com/2016/01/spring-propertysources-annotation-example.html)
 7. [@Profile Annotation Improvements in Spring 4](http://javapapers.com/spring/profile-annotation-improvements-in-spring-4/)
+8. [arey/spring-javaconfig-sample](https://github.com/arey/spring-javaconfig-sample/tree/dec9022570ad3d7085f9f5ed12e8f24cdb8c77e5) 挺不错的code sample
+9. [Spring MVC 4 + Hibernate 5 + RESTful CRUD operations example](https://www.boraji.com/spring-mvc-4-hibernate-5-restful-crud-operations-example)
