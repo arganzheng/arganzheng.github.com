@@ -101,6 +101,9 @@ java代码：
 
 但是Stack Overflow上有人提出这种做法插入QPS非常低(40左右) (https://stackoverflow.com/questions/33474497/how-to-add-edgesrelationship-neo4j-in-a-very-big-graph)[How to add edges(relationship) Neo4j in a very big graph]，同时也有人指出这会导致 noe4j对所有的节点进行笛卡尔积运算。具体还是要自己测试一下，用[`EXPLAIN`或者`Profile`进行相应的调优](http://neo4j.com/docs/stable/how-do-i-profile-a-query.html)。
 
+
+#### 2、如何高效更新更新图数据？
+
 这篇文章 [5 Tips & Tricks for Fast Batched Updates of Graph Structures with Neo4j and Cypher](http://jexp.de/blog/2017/03/5-tips-tricks-for-fast-batched-updates-of-graph-structures-with-neo4j-and-cypher/#_inefficient_solutions) 给出了非常好的建议和tips。
 
 **低效的方式**
@@ -318,9 +321,131 @@ RETURN apoc.map.clean({name: "Alice", ssn:2324434, age:"n/a", location:""},["ssn
 // {name:"Alice"}
 ```
 
+#### 3、neo4j如何实现存在就更新，否则插入？
+
+这个需求其实很普遍，比如我有一个节点: `(n:Person {id: 'argan', name: 'argan', age: 32})`。
+
+然后用户又传递了一个person数据过来： `{id: 'argan', age: 30, sex: 'male', email: 'arganzheng@gmail.com'}`
+
+可以看到更新了一个属性：age，新增了两个属性：sex和email。
+
+我们希望最后的结果是 `(n:Person {id: 'argan', name: 'argan', age: 30, sex: 'male', email: 'arganzheng@gmail.com'})`。
+
+需要注意的是name没有传递，所以还是保留着的。如果要删除一个属性，需要把它的value显式的设置为null。
+
+在neo4j要怎么做到呢？
+
+neo4j提供了[merge语句](http://neo4j.com/docs/developer-manual/current/cypher/clauses/merge/)来实现这个功能。
+
+[Merge with ON CREATE and ON MATCH](http://neo4j.com/docs/developer-manual/current/cypher/clauses/merge/#merge-merge-with-on-create-and-on-match)
+
+> Merge a node and set properties if the node needs to be created.
+
+```cypher
+MERGE (n:Person { id: 'argan' })
+ON CREATE SET n.created = timestamp()
+ON MATCH SET n.lastAccessed = timestamp()
+RETURN n.name, n.created, n.lastAccessed
+```
+
+上面的例子可以这么写：
+
+```
+merge (n:Node {id: 'argan'})
+set n += {id: 'argan', age: 30, sex: 'male', email: 'arganzheng@gmail.com'}
+return n 
+```
+
+同样关系也可以用merge保证只创建一次：
+
+```
+MATCH (n), (m)
+WHERE n.id = "argan" AND m.id = "magi"
+CREATE (n)-[:KNOWS]->(m)
+```
+
+写成这样子就可以保证唯一了：
+
+```
+MATCH (n:User {name: "argan"}), (m:User {name: "magi"})
+MERGE (n)-[:KNOWS]->(m)
+```
+
+一个好消息是 apoc 3.1之后终于开始支持这个特性了：[Summer 2017 Release of the APOC Procedures Librar](https://dzone.com/articles/summer-2017-release-of-the-apoc-procedures-library)。
+
+> There are now procedures to merge nodes and relationships with dynamic labels, relationship-types, and properties (apoc.merge.node/relationship).
+>
+>```
+> CALL apoc.merge.node(['Label'], {id:uniqueValue}, {prop:value,...}) YIELD node;
+> CALL apoc.merge.relationship(startNode, 'RELTYPE', {[id:uniqueValue]}, {prop:value}, endNode) YIELD rel;
+>```
+
+从github源码的单元测试也可以看出来：[neo4j-apoc-procedures/src/test/java/apoc/merge/MergeTest.java](https://github.com/neo4j-contrib/neo4j-apoc-procedures/blob/3.2/src/test/java/apoc/merge/MergeTest.java):
+
+```java
+@Test
+public void testMergeNode() throws Exception {
+    testCall(db, "CALL apoc.merge.node(['Person','Bastard'],{ssid:'123'}, {name:'John'}) YIELD node RETURN node",
+            (row) -> {
+                Node node = (Node) row.get("node");
+                assertEquals(true, node.hasLabel(Label.label("Person")));
+                assertEquals(true, node.hasLabel(Label.label("Bastard")));
+                assertEquals("John", node.getProperty("name"));
+                assertEquals("123", node.getProperty("ssid"));
+            });
+}
+
+@Test
+public void testMergeNodeWithPreExisting() throws Exception {
+    db.execute("CREATE (p:Person{ssid:'123', name:'Jim'})");
+    testCall(db, "CALL apoc.merge.node(['Person'],{ssid:'123'}, {name:'John'}) YIELD node RETURN node",
+            (row) -> {
+                Node node = (Node) row.get("node");
+                assertEquals(true, node.hasLabel(Label.label("Person")));
+                assertEquals("Jim", node.getProperty("name"));
+                assertEquals("123", node.getProperty("ssid"));
+            });
+
+    testResult(db, "match (p:Person) return count(*) as c", result ->
+            assertEquals(1, (long)(Iterators.single(result.columnAs("c"))))
+    );
+}
+
+@Test
+public void testMergeRelationships() throws Exception {
+    db.execute("create (:Person{name:'Foo'}), (:Person{name:'Bar'})");
+
+    testCall(db, "MERGE (s:Person{name:'Foo'}) MERGE (e:Person{name:'Bar'}) WITH s,e CALL apoc.merge.relationship(s, 'KNOWS', {rid:123}, {since:'Thu'}, e) YIELD rel RETURN rel",
+            (row) -> {
+                Relationship rel = (Relationship) row.get("rel");
+                assertEquals("KNOWS", rel.getType().name());
+                assertEquals(123l, rel.getProperty("rid"));
+                assertEquals("Thu", rel.getProperty("since"));
+            });
+
+    testCall(db, "MERGE (s:Person{name:'Foo'}) MERGE (e:Person{name:'Bar'}) WITH s,e CALL apoc.merge.relationship(s, 'KNOWS', {rid:123}, {since:'Fri'}, e) YIELD rel RETURN rel",
+            (row) -> {
+                Relationship rel = (Relationship) row.get("rel");
+                assertEquals("KNOWS", rel.getType().name());
+                assertEquals(123l, rel.getProperty("rid"));
+                assertEquals("Thu", rel.getProperty("since"));
+            });
+    testCall(db, "MERGE (s:Person{name:'Foo'}) MERGE (e:Person{name:'Bar'}) WITH s,e CALL apoc.merge.relationship(s, 'OTHER', null, null, e) YIELD rel RETURN rel",
+            (row) -> {
+                Relationship rel = (Relationship) row.get("rel");
+                assertEquals("OTHER", rel.getType().name());
+                assertTrue(rel.getAllProperties().isEmpty());
+            });
+}
+```
+
+但是奇怪的是 [apoc官方文档](https://neo4j-contrib.github.io/neo4j-apoc-procedures/) 并没有相关的说明 :-( 。
 
 参考文章
 -------
 
 1. [5 Tips & Tricks for Fast Batched Updates of Graph Structures with Neo4j and Cypher](http://jexp.de/blog/2017/03/5-tips-tricks-for-fast-batched-updates-of-graph-structures-with-neo4j-and-cypher/#_inefficient_solutions) 
-
+2. [Create Dynamic Relationships With APOC](https://dzone.com/articles/neo4j-create-dynamic-relationship-type)
+3. [Neo4j: Dynamically Add Property/Set Dynamic Property](https://dzone.com/articles/neo4j-dynamically-add-propertyset-dynamic-property)
+4. [APOC: Database Integration, Import and Export with Awesome Procedures on Cypher](https://dzone.com/articles/apoc-database-integration-import-and-export-with-a)
+5. [DaniSancas/neo4j_cypher_cheatsheet.md](https://gist.github.com/DaniSancas/1d5265fc159a95ff457b940fc5046887)
