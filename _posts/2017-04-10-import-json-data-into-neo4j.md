@@ -351,10 +351,12 @@ RETURN n.name, n.created, n.lastAccessed
 上面的例子可以这么写：
 
 ```
-merge (n:Node {id: 'argan'})
-set n += {id: 'argan', age: 30, sex: 'male', email: 'arganzheng@gmail.com'}
-return n 
+MERGE (n:Node {id: 'argan'})
+SET n += {id: 'argan', age: 30, sex: 'male', email: 'arganzheng@gmail.com'}
+RETURN n 
 ```
+
+这里因为采用了 `+=` 本身就是合并属性，所以不需要区分是`ON CREATE`还是`ON MATCH`。 
 
 同样关系也可以用merge保证只创建一次：
 
@@ -440,6 +442,115 @@ public void testMergeRelationships() throws Exception {
 ```
 
 但是奇怪的是 [apoc官方文档](https://neo4j-contrib.github.io/neo4j-apoc-procedures/) 并没有相关的说明 :-( 。
+
+**TIPS**
+
+虽然apoc和cypher比较方便，但是很容易语法错误，特别是变量动态拼接的时候。可以参考一下 apoc 的例子：(neo4j-apoc-procedures/src/main/java/apoc/merge/Merge.java)[https://github.com/neo4j-contrib/neo4j-apoc-procedures/blob/23065dd721c1742dd02b417948b827dbb7cf12a6/src/main/java/apoc/merge/Merge.java]。
+
+
+#### 4、neo4j如何支持动态node label？
+
+我们希望构建的节点数据完全是运行时根据用户提供的数据构造的，包括labels。比如用户提供如下数据：
+
+```
+{"batch":[{"id":"1","properties":{"name":"argan","label":"Person","id":"1","age":31,"tags":["smart","handson","rich"]}}, {"id":"1","properties":{"name":"magi","label":"Person","id":"2","age":28,"tags":["tall","handson","rich"]}}]}
+```
+
+我们希望能够直接这样子批量插入数据：
+
+```cypher
+UNWIND {batch} as row 
+MERGE (n:row.properties.label {id: row.id})
+SET n += row.properties
+```
+
+但是遗憾的是这个语句会报错，因为neo4j不支持动态的node labels。把`row.properties.label`去掉或者改成一个固定的字符串就没有问题。
+
+改成这样子也不行：
+
+```
+UNWIND {batch} as row  
+MERGE (n {id: row.id} )  
+SET n:row.properties.label, 
+n += row.properties
+```
+
+绑定变量也不行：
+
+```
+UNWIND {batch} as row  
+MERGE (n {id: row.id} )  
+SET n:{label}, 
+n += row.properties
+```
+
+直接指定label就可以了：
+
+```
+UNWIND {batch} as row  
+MERGE (n {id: row.id} )  
+SET n:Test, 
+n += row.properties
+```
+
+也就是说 [3.3.13.9. Set a label on a node](http://neo4j.com/docs/developer-manual/current/cypher/clauses/set/#set-set-a-label-on-a-node) 也并不支持动态label。。
+
+**NOTES**
+
+neo4j的Set label还有一个问题，就是它其实是新增label，不是修改label。要到更新的效果，你需要先remove掉，再新增。。
+
+```
+MATCH (n)
+WHERE ID(n) = 14 
+REMOVE n:oldLabel
+SET n:newLabel
+```
+
+---
+
+如果是单条数据更新，那其实很简单，我们只需要做字符串拼接就可以了：
+
+```
+String label = vertex.getLabel();
+"MERGE (n:" + label + " {id: {id}} " + "SET n += {properties}"
+```
+
+
+但是关键是我们这里是在neo4j内部用unwind展开的服务端变量，如果它不允许动态变量，根本搞不定。难道真的要一条条的插入，那会非常慢的！neo4j的插入性能是众所周知的差。一种做法就是先批量插入数据，设置一个临时的label，然后再批量的更新label。不过需要两次操作，性能肯定至少慢两倍。
+
+有没有什么方式呢？谷歌了很久，发现了也有人遇到这样的问题：[Feature request : apoc support for MERGE for nodes and rels #271](https://github.com/neo4j-contrib/neo4j-apoc-procedures/issues/271) 和 [Is it possible to merge using data-driven node or relationship labels?](https://stackoverflow.com/questions/43740000/is-it-possible-to-merge-using-data-driven-node-or-relationship-labels)。
+
+原理跟单条数据插入一样，只是由于unwind是在服务端(neo4j)进行的，所以拼接也只能在服务端进行，怎么拼接的？使用的就是cypher的[with语句](http://neo4j.com/docs/developer-manual/current/cypher/clauses/with/)：
+
+> The WITH clause allows query parts to be chained together, piping the results from one to be used as starting points or criteria in the next.
+
+但是官方文档说的很简略，其实with的功能很强大。在这里，我们用它来做服务端的字符串拼接：
+
+```
+UNWIND {batch} as row 
+WITH 'MERGE (n:' + row.properties.label + ' { id: row.id }) SET n += row.properties return n' AS cypher" 
+CALL apoc.cypher.doIt(cypher, {}) YIELD value return value.n
+```
+
+但是可惜，会报这样的异常：
+
+```
+org.neo4j.driver.v1.exceptions.ClientException: Failed to invoke procedure `apoc.cypher.doIt`: Caused by: org.neo4j.graphdb.QueryExecutionException: Variable `row` not defined (line 1, column 23 (offset: 22))
+"MERGE (n:Person { id: row.id }) SET n += row.properties return n"
+```
+
+所以还是要分两步进行，不过可以合并在一起 [SET label : pass label name as parameter](https://stackoverflow.com/questions/27189237/set-label-pass-label-name-as-parameter)：
+
+```
+UNWIND {batch} as row 
+MERGE (n { id: row.id }) SET n += row.properties 
+WITH n 
+CALL apoc.create.addLabels(id(n), [n.label]) YIELD node
+RETURN node
+```
+
+这样就可以了，测试了一下，性能并没有造成什么影响。但是说句实在话，neo4j的插入性能真心弱。一次普通插入在12ms左右，这还是执行计划缓存的情况下，要不要100多毫秒。。
+
 
 参考文章
 -------
