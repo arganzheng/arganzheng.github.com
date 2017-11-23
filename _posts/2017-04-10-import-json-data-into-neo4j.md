@@ -628,12 +628,30 @@ RETURN count(*)
 
 ```
 UWNIND {batch} as row
-MATCH (from) WHERE id(n) = row.from
+MATCH (from) WHERE id(from) = row.from
 MATCH (to:Label) where to.key = row.to
 CALL apoc.merge.relationship(from, row.type, {id: row.id}, row.properties, to) yield rel
 RETURN count(*)
+```
 
 一种做法就是fork一个分支出来，修改源码，deploy自己的jar包。
+
+
+更新关系也是类似的做法：
+
+```
+UNWIND {batch} as row 
+MATCH (from { id: row.from })
+MATCH (to { id: row.to }) 
+WITH from, to, row
+MERGE (from)-[r:type {id: row.id}]->(to)
+SET r += row.properties 
+WITH r, row.properties.label AS type
+CALL apoc.refactor.setType(r, type) YIELD input, output
+RETURN 1
+```
+
+但是还有一个问题，就是边的方向，这个就没有办法变量直接替换了，只能做条件判断，好在边就三个方向，直接枚举判断就可以了。neo4j中没有条件判断语句，但是可以用 FOREACH trick实现。这个在前面 [有条件的创建数据（Conditional Data Creation）]() 有介绍过。不过非常麻烦，我还是建议直接创建两条单向关系简单直接。
 
 
 参考文章
