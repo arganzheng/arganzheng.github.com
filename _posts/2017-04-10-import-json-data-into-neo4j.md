@@ -255,7 +255,124 @@ CALL apoc.create.relationship(from, row.type, row.properties, to) yield rel
 RETURN count(*)
 ```
 
-说明：在`apoc.create.*`方法中，也提供了设置／更新／删除属性和标签的功能。
+**说明** 在`apoc.create.*`方法中，也提供了设置／更新／删除属性和标签的功能。
+
+apoc 3.1之后，还可以动态的更新节点和关系，通过`apoc.merge.node`和`apoc.create.relationship`你可以动态的更新节点标签，关系类型和任意的属性，使用方式跟`apoc.create.node`和`apoc.create.relationship`基本一样：
+
+```
+CALL apoc.merge.node(['Label'], {id:uniqueValue}, {prop:value,...}) YIELD node;
+CALL apoc.merge.relationship(startNode, 'RELTYPE', {[id:uniqueValue]}, {prop:value}, endNode) YIELD rel;
+```
+
+更新节点：
+
+```
+UWNIND {batch} as row
+CALL apoc.merge.node(row.labels, {id: row.id} , row.properties) yield node
+RETURN count(*)
+```
+
+更新关系：
+
+```
+UWNIND {batch} as row
+MATCH (from) WHERE id(n) = row.from
+MATCH (to:Label) where to.key = row.to
+CALL apoc.merge.relationship(from, row.type, {id: row.id}, row.properties, to) yield rel
+RETURN count(*)
+```
+
+但是这里有一个比较严重的"bug"，就是apoc的merge操作，本质上就是一个防止重复的CREATE，并不是更新。这点是非常不符合逻辑的。从源码可以看出这是因为它的MERGE只处理ON CREATE场景，这样子其实跟只是避免了重复创建，但是并没有更新功能。[neo4j-apoc-procedures/src/main/java/apoc/merge/Merge.java](https://github.com/neo4j-contrib/neo4j-apoc-procedures/blob/23065dd721c1742dd02b417948b827dbb7cf12a6/src/main/java/apoc/merge/Merge.java)：
+
+```
+public class Merge {
+
+    @Context
+    public GraphDatabaseService db;
+
+    @Procedure(mode = Mode.WRITE)
+    @Description("apoc.merge.node(['Label'], {key:value, ...}, {key:value,...}) - merge node with dynamic labels")
+    public Stream<NodeResult> node(@Name("label") List<String> labelNames, @Name("identProps") Map<String, Object> identProps, @Name("props") Map<String, Object> props) {
+        
+        ...
+
+        final String cypher = "MERGE (n:" + labels + "{" + identPropsString + "}) ON CREATE SET n += $props RETURN n";
+
+        ...
+    }
+
+   
+    @Procedure(mode = Mode.WRITE)
+    @Description("apoc.merge.relationship(startNode, relType,  {key:value, ...}, {key:value, ...}, endNode) - merge relationship with dynamic type")
+    public Stream<RelationshipResult> relationship(@Name("startNode") Node startNode, @Name("relationshipType") String relType,
+                                                   @Name("identProps") Map<String, Object> identProps, @Name("props") Map<String, Object> props, @Name("endNode") Node endNode) {
+        ...
+
+        final String cypher = "WITH $startNode as startNode, $endNode as endNode MERGE (startNode)-[r:"+ wrapInBacktics(relType) +"{"+identPropsString+"}]->(endNode) ON CREATE SET r+= $props RETURN r";
+
+        ...
+    }
+}
+```
+
+从它的单元测试也可以看出来：[neo4j-apoc-procedures/src/test/java/apoc/merge/MergeTest.java](https://github.com/neo4j-contrib/neo4j-apoc-procedures/blob/3.2/src/test/java/apoc/merge/MergeTest.java):
+
+```java
+@Test
+public void testMergeNode() throws Exception {
+    testCall(db, "CALL apoc.merge.node(['Person','Bastard'],{ssid:'123'}, {name:'John'}) YIELD node RETURN node",
+            (row) -> {
+                Node node = (Node) row.get("node");
+                assertEquals(true, node.hasLabel(Label.label("Person")));
+                assertEquals(true, node.hasLabel(Label.label("Bastard")));
+                assertEquals("John", node.getProperty("name"));
+                assertEquals("123", node.getProperty("ssid"));
+            });
+}
+
+@Test
+public void testMergeNodeWithPreExisting() throws Exception {
+    db.execute("CREATE (p:Person{ssid:'123', name:'Jim'})");
+    testCall(db, "CALL apoc.merge.node(['Person'],{ssid:'123'}, {name:'John'}) YIELD node RETURN node",
+            (row) -> {
+                Node node = (Node) row.get("node");
+                assertEquals(true, node.hasLabel(Label.label("Person")));
+                assertEquals("Jim", node.getProperty("name"));
+                assertEquals("123", node.getProperty("ssid"));
+            });
+
+    testResult(db, "match (p:Person) return count(*) as c", result ->
+            assertEquals(1, (long)(Iterators.single(result.columnAs("c"))))
+    );
+}
+
+@Test
+public void testMergeRelationships() throws Exception {
+    db.execute("create (:Person{name:'Foo'}), (:Person{name:'Bar'})");
+
+    testCall(db, "MERGE (s:Person{name:'Foo'}) MERGE (e:Person{name:'Bar'}) WITH s,e CALL apoc.merge.relationship(s, 'KNOWS', {rid:123}, {since:'Thu'}, e) YIELD rel RETURN rel",
+            (row) -> {
+                Relationship rel = (Relationship) row.get("rel");
+                assertEquals("KNOWS", rel.getType().name());
+                assertEquals(123l, rel.getProperty("rid"));
+                assertEquals("Thu", rel.getProperty("since"));
+            });
+
+    testCall(db, "MERGE (s:Person{name:'Foo'}) MERGE (e:Person{name:'Bar'}) WITH s,e CALL apoc.merge.relationship(s, 'KNOWS', {rid:123}, {since:'Fri'}, e) YIELD rel RETURN rel",
+            (row) -> {
+                Relationship rel = (Relationship) row.get("rel");
+                assertEquals("KNOWS", rel.getType().name());
+                assertEquals(123l, rel.getProperty("rid"));
+                assertEquals("Thu", rel.getProperty("since"));
+            });
+    testCall(db, "MERGE (s:Person{name:'Foo'}) MERGE (e:Person{name:'Bar'}) WITH s,e CALL apoc.merge.relationship(s, 'OTHER', null, null, e) YIELD rel RETURN rel",
+            (row) -> {
+                Relationship rel = (Relationship) row.get("rel");
+                assertEquals("OTHER", rel.getType().name());
+                assertTrue(rel.getAllProperties().isEmpty());
+            });
+}
+```
 
 2、批量提交
 
@@ -281,7 +398,7 @@ WITH {thing} as t SET t.score = {score}
 
 3、动态创建／更新Map
 
-Cypher为列表提供了相当便利的操作，如range, collect, unwind, reduce, extract, filter, size等，反而对Map的创建和更新操作支持比较弱。还好，apoc.map.*提供了一系列的方法来简化这个过程。
+Cypher为列表提供了相当便利的操作，如range, collect, unwind, reduce, extract, filter, size等，反而对Map的创建和更新操作支持比较弱。还好，`apoc.map.*`提供了一系列的方法来简化这个过程。
 
 
 通过其他数据创建Map：
@@ -382,70 +499,13 @@ MERGE (n)-[:KNOWS]->(m)
 > CALL apoc.merge.relationship(startNode, 'RELTYPE', {[id:uniqueValue]}, {prop:value}, endNode) YIELD rel;
 >```
 
-从github源码的单元测试也可以看出来：[neo4j-apoc-procedures/src/test/java/apoc/merge/MergeTest.java](https://github.com/neo4j-contrib/neo4j-apoc-procedures/blob/3.2/src/test/java/apoc/merge/MergeTest.java):
-
-```java
-@Test
-public void testMergeNode() throws Exception {
-    testCall(db, "CALL apoc.merge.node(['Person','Bastard'],{ssid:'123'}, {name:'John'}) YIELD node RETURN node",
-            (row) -> {
-                Node node = (Node) row.get("node");
-                assertEquals(true, node.hasLabel(Label.label("Person")));
-                assertEquals(true, node.hasLabel(Label.label("Bastard")));
-                assertEquals("John", node.getProperty("name"));
-                assertEquals("123", node.getProperty("ssid"));
-            });
-}
-
-@Test
-public void testMergeNodeWithPreExisting() throws Exception {
-    db.execute("CREATE (p:Person{ssid:'123', name:'Jim'})");
-    testCall(db, "CALL apoc.merge.node(['Person'],{ssid:'123'}, {name:'John'}) YIELD node RETURN node",
-            (row) -> {
-                Node node = (Node) row.get("node");
-                assertEquals(true, node.hasLabel(Label.label("Person")));
-                assertEquals("Jim", node.getProperty("name"));
-                assertEquals("123", node.getProperty("ssid"));
-            });
-
-    testResult(db, "match (p:Person) return count(*) as c", result ->
-            assertEquals(1, (long)(Iterators.single(result.columnAs("c"))))
-    );
-}
-
-@Test
-public void testMergeRelationships() throws Exception {
-    db.execute("create (:Person{name:'Foo'}), (:Person{name:'Bar'})");
-
-    testCall(db, "MERGE (s:Person{name:'Foo'}) MERGE (e:Person{name:'Bar'}) WITH s,e CALL apoc.merge.relationship(s, 'KNOWS', {rid:123}, {since:'Thu'}, e) YIELD rel RETURN rel",
-            (row) -> {
-                Relationship rel = (Relationship) row.get("rel");
-                assertEquals("KNOWS", rel.getType().name());
-                assertEquals(123l, rel.getProperty("rid"));
-                assertEquals("Thu", rel.getProperty("since"));
-            });
-
-    testCall(db, "MERGE (s:Person{name:'Foo'}) MERGE (e:Person{name:'Bar'}) WITH s,e CALL apoc.merge.relationship(s, 'KNOWS', {rid:123}, {since:'Fri'}, e) YIELD rel RETURN rel",
-            (row) -> {
-                Relationship rel = (Relationship) row.get("rel");
-                assertEquals("KNOWS", rel.getType().name());
-                assertEquals(123l, rel.getProperty("rid"));
-                assertEquals("Thu", rel.getProperty("since"));
-            });
-    testCall(db, "MERGE (s:Person{name:'Foo'}) MERGE (e:Person{name:'Bar'}) WITH s,e CALL apoc.merge.relationship(s, 'OTHER', null, null, e) YIELD rel RETURN rel",
-            (row) -> {
-                Relationship rel = (Relationship) row.get("rel");
-                assertEquals("OTHER", rel.getType().name());
-                assertTrue(rel.getAllProperties().isEmpty());
-            });
-}
-```
+具体实现和用法我们上面已经分析过了。这里就不赘述了。源码地址：[neo4j-apoc-procedures/src/main/java/apoc/merge/Merge.java](https://github.com/neo4j-contrib/neo4j-apoc-procedures/blob/23065dd721c1742dd02b417948b827dbb7cf12a6/src/main/java/apoc/merge/Merge.java) ，单侧地址：[neo4j-apoc-procedures/src/test/java/apoc/merge/MergeTest.java](https://github.com/neo4j-contrib/neo4j-apoc-procedures/blob/3.2/src/test/java/apoc/merge/MergeTest.java) 。
 
 但是奇怪的是 [apoc官方文档](https://neo4j-contrib.github.io/neo4j-apoc-procedures/) 并没有相关的说明 :-( 。
 
 **TIPS**
 
-虽然apoc和cypher比较方便，但是很容易语法错误，特别是变量动态拼接的时候。可以参考一下 apoc 的例子：(neo4j-apoc-procedures/src/main/java/apoc/merge/Merge.java)[https://github.com/neo4j-contrib/neo4j-apoc-procedures/blob/23065dd721c1742dd02b417948b827dbb7cf12a6/src/main/java/apoc/merge/Merge.java]。
+虽然apoc和cypher比较方便，但是很容易语法错误，特别是变量动态拼接的时候。有时候还不如参考一下 apoc 的例子：[neo4j-apoc-procedures/src/main/java/apoc/merge/Merge.java](https://github.com/neo4j-contrib/neo4j-apoc-procedures/blob/23065dd721c1742dd02b417948b827dbb7cf12a6/src/main/java/apoc/merge/Merge.java) 自己实现。
 
 
 #### 4、neo4j如何支持动态node label？
@@ -550,6 +610,30 @@ RETURN node
 ```
 
 这样就可以了，测试了一下，性能并没有造成什么影响。但是说句实在话，neo4j的插入性能真心弱。一次普通插入在12ms左右，这还是执行计划缓存的情况下，要不要100多毫秒。。
+
+**NOTES**
+
+本来我们是可以直接使用APOC库的`apoc.merge.node`和`apoc.create.relationship`动态的更新节点标签，关系和节点的。但是正如前面分析的，`apoc.merge.node`和`apoc.create.relationship`现在的实现其实是一个防重复CREATE而已，不能达到更新的目的。否则我们的实现将非常简单明了：
+
+
+更新节点：
+
+```
+UWNIND {batch} as row
+CALL apoc.merge.node(row.labels, {id: row.id} , row.properties) yield node
+RETURN count(*)
+```
+
+更新关系：
+
+```
+UWNIND {batch} as row
+MATCH (from) WHERE id(n) = row.from
+MATCH (to:Label) where to.key = row.to
+CALL apoc.merge.relationship(from, row.type, {id: row.id}, row.properties, to) yield rel
+RETURN count(*)
+
+一种做法就是fork一个分支出来，修改源码，deploy自己的jar包。
 
 
 参考文章
