@@ -662,3 +662,6 @@ RETURN 1
 3. [Neo4j: Dynamically Add Property/Set Dynamic Property](https://dzone.com/articles/neo4j-dynamically-add-propertyset-dynamic-property)
 4. [APOC: Database Integration, Import and Export with Awesome Procedures on Cypher](https://dzone.com/articles/apoc-database-integration-import-and-export-with-a)
 5. [DaniSancas/neo4j_cypher_cheatsheet.md](https://gist.github.com/DaniSancas/1d5265fc159a95ff457b940fc5046887)
+6. [Neo4j的查询速度为何这么慢？这能商用吗？](https://www.zhihu.com/question/45401120) 知乎上有人回答了这个问题，有案例有数据，强烈推荐。
+7. [如何将大规模数据导入Neo4j](http://paradoxlife.me/how-to-insert-bulk-data-into-neo4j) 几种方式不错的对比
+8. [Neo4j的存储结构](http://m.blog.csdn.net/huaishu/article/details/11713753) 为什么neo4j有时候快，有时候慢
