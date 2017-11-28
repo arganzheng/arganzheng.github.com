@@ -7,13 +7,18 @@ catalog: true
 
 ### 1. 使用maven tomcat插件快速部署和启动web工程：
 
-    maven tomcat:run
+    mvn tomcat:run
 
-如果要调试：可以先在命令行设置如下环境变量：
+如果要调试，可以先在命令行设置如下环境变量：
 
-    set MAVEN_OPTS=-Xrunjdwp:transport=dt_socket,server=y,suspend=n,address=8000
+Windows: `set MAVEN_OPTS=-Xrunjdwp:transport=dt_socket,server=y,suspend=n,address=8000`
+Linux: `export MAVEN_OPTS=-Xrunjdwp:transport=dt_socket,server=y,suspend=n,address=8000`
 
-然后在eclipse中就可以链接9000端口（可随意设定）进行调试了。
+然后在eclipse中就可以链接8000端口（可随意设定）进行调试了。
+
+**TIPS**
+
+如果是tomcat7的话，需要制定版本号：`mvn tomcat7:run`。
 
 
 ### 2. 使用Eclipse Server插件调试

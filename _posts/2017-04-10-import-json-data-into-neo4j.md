@@ -12,6 +12,220 @@ neo4j提供了如下批量导入工具：
 
 CSV数据格式参见: [10.2.2. CSV file header format](https://neo4j.com/docs/operations-manual/current/tools/import/file-header-format/)。
 
+```
+➜  Data head company.csv
+companyId:ID,name,:LABEL
+00253534f3631a5cbdd804f60fefd60a,西藏溥天建设有限责任公司,Company
+003e2c44e505953c886520543c89dc6d,上海丽昌超声波工程有限公司,Company
+005b2bb9a38f959614120e8f130bddd4,深圳特力得流体系统有限公司销售部,Company
+005c01f875938ef2f57a6f7300cc9e30,宁波市江北兴业电力物资经营部,Company
+007ab66ccc3010c725d4e4abca46954b,浙江省手工业合作社联合社,Company
+00918713ad25f883618e5689f81ad4ed,共青城哈特莱东安投资管理合伙企业（有限合伙）,Company
+00c4e2a94545e7e35f80085845496e71,MinghuaCheng,Company
+00cf35aa177feaeaee68db5d00129171,深圳飞尔卡思电子有限公司,Company
+00fec954458c476a92fc7a9fffa5bc5d,上海蓝科石油化工有限公司,Company
+➜  Data head person.csv
+personId:ID,name,:LABEL
+0001ec01ced8b28fa7a6a4973a26d433,陈美琴,Person
+001b3230198e1e73bf1e407503f84b1d,宋又波,Person
+001bfb23b2de3865fc61d654a1cf86ce,陈果,Person
+002ca864a65643a9c881ec7faca9cdaa,高翔,Person
+003d3feb627090b7c6904f2112d29b76,陈松熙,Person
+0053cb2d19b27f1e913feb20fc311907,乐胜利,Person
+008703badcaf87088717b43fdb10bc97,李晔,Person
+00a57f18f4b74fd140b0b48feb5004b2,王晓东,Person
+00cc67b543b35bfa60e94010f2f6f82e,覃祖燕,Person
+➜  Data head relation.csv
+:START_ID,:TYPE,:END_ID,from,to
+ea55b396202514e1a93348469eada78d,2,8b6f879c8aa40aed56aac6a01ee339fd,ea55b396202514e1a93348469eada78d,8b6f879c8aa40aed56aac6a01ee339fd
+d4395b36984926a1934a0f9b916b32d2,7,8b6f879c8aa40aed56aac6a01ee339fd,d4395b36984926a1934a0f9b916b32d2,8b6f879c8aa40aed56aac6a01ee339fd
+d4395b36984926a1934a0f9b916b32d2,9,8b6f879c8aa40aed56aac6a01ee339fd,d4395b36984926a1934a0f9b916b32d2,8b6f879c8aa40aed56aac6a01ee339fd
+fbe8227309655b6bee67d28c380c5776,9,8b6f879c8aa40aed56aac6a01ee339fd,fbe8227309655b6bee67d28c380c5776,8b6f879c8aa40aed56aac6a01ee339fd
+d4395b36984926a1934a0f9b916b32d2,2,8b6f879c8aa40aed56aac6a01ee339fd,d4395b36984926a1934a0f9b916b32d2,8b6f879c8aa40aed56aac6a01ee339fd
+d4395b36984926a1934a0f9b916b32d2,5,8b6f879c8aa40aed56aac6a01ee339fd,d4395b36984926a1934a0f9b916b32d2,8b6f879c8aa40aed56aac6a01ee339fd
+ea55b396202514e1a93348469eada78d,0,8b6f879c8aa40aed56aac6a01ee339fd,ea55b396202514e1a93348469eada78d,8b6f879c8aa40aed56aac6a01ee339fd
+fbe8227309655b6bee67d28c380c5776,5,8b6f879c8aa40aed56aac6a01ee339fd,fbe8227309655b6bee67d28c380c5776,8b6f879c8aa40aed56aac6a01ee339fd
+ea55b396202514e1a93348469eada78d,2,8b6f879c8aa40aed56aac6a01ee339fd,ea55b396202514e1a93348469eada78d,8b6f879c8aa40aed56aac6a01ee339fd
+```
+
+**TIPS** mac下执行neo4j的`neo4j-admin import`命令会报如下错误：
+
+```
+➜  bin ./neo4j-import --nodes /Users/argan/Data/company.csv --nodes /Users/argan/Data/person.csv --relationships /Users/argan/Data/relation.csv
+Error: Could not find or load main class org.neo4j.tooling.ImportTool
+➜  bin ./neo4j-admin import --nodes /Users/argan/Data/company.csv --nodes /Users/argan/Data/person.csv --relationships /Users/argan/Data/relation.csv
+Error: Could not find or load main class org.neo4j.commandline.admin.AdminTool
+➜  app pwd
+/Applications/Neo4j Community Edition 3.2.6.app/Contents/Resources/app/bin
+```
+
+看起来就是类找不到，谷歌了一下，这是一个常见问题，不知道最新版本fixed了没有。。[MacOS - Neo4j 3.1.0-M13-beta3 neo4j-import - Could not find or load main class #8347](https://github.com/neo4j/neo4j/issues/8347)。只要把bin下面的`neo4j-desktop-3.2.6.jar`copy到一个同级的新建的lib目录就可以了：
+
+```
+➜  app mkdir lib
+➜  app cp bin/neo4j-desktop-3.2.6.jar lib
+total 384
+-rw-r--r--@  1 argan  admin    35K Sep 29 21:37 LICENSE.txt
+-rw-r--r--@  1 argan  admin   147K Sep 29 21:37 LICENSES.txt
+-rw-r--r--@  1 argan  admin   5.6K Sep 29 21:37 NOTICE.txt
+drwxr-xr-x@ 13 argan  admin   442B Oct 23 11:23 bin
+drwxr-xr-x   3 argan  admin   102B Nov 27 14:51 lib
+drwxr-xr-x@  4 argan  admin   136B Nov 20 15:54 plugins
+➜  app ll lib
+total 171648
+-rw-r--r--@ 1 argan  admin    84M Nov 27 14:51 neo4j-desktop-3.2.6.jar
+```
+
+再次执行就没有问题了。
+
+```
+➜  app bin/neo4j-admin import --nodes /Users/argan/Data/company.csv --nodes /Users/argan/Data/person.csv --relationships /Users/argan/Data/relation.csv
+Neo4j version: 3.2.6
+Importing the contents of these files into /Applications/Neo4j Community Edition 3.2.6.app/Contents/Resources/app/data/databases/graph.db:
+Nodes:
+  /Users/argan/Data/company.csv
+
+  /Users/argan/Data/person.csv
+Relationships:
+  /Users/argan/Data/relation.csv
+
+Available resources:
+  Total machine memory: 8.00 GB
+  Free machine memory: 27.98 MB
+  Max heap memory : 1.78 GB
+  Processors: 4
+  Configured max memory: -1691220787.00 B
+
+Nodes, started 2017-11-27 06:52:34.636+0000
+[*>:??----------------------------------------------------------------------------------------]    0 ∆    0
+Done in 194ms
+Error in input data
+Caused by:Extra column not present in header on line 1130 in /Users/argan/Data/company.csv with value Company
+
+WARNING Import failed. The store files in /Applications/Neo4j Community Edition 3.2.6.app/Contents/Resources/app/data/databases/graph.db are left as they are, although they are likely in an unusable state. Starting a database on these store files will likely fail or observe inconsistent records so start at your own risk or delete the store manually
+unexpected error: Extra column not present in header on line 1130 in /Users/argan/Data/company.csv with value Company
+```
+
+这是因为我们有一些数据有问题：
+
+```
+1130 a9b240d1137fcea2714a685ac0483ed9,北京趣活科技有限公司,Company
+1131 b49b7f60fd11ce7e1728cf87c41aacb9,ClearVueYummyExpressHoldings,Ltd,Company
+1132 a9b240d1137fcea2714a685ac0483ed9,北京趣活科技有限公司,Company
+```
+把1131的公司名加上双引号就好了，记得把之前生成的database删除，否则会报错。另外，需要注意的是id不能重复，否则也会报错（也可以通过`--ignore-duplicate-nodes=true`忽略）。
+
+但是执行的时候还有一个蛋疼的问题会引起导入失败，就是关系引用的节点不存在，neo4j默认会报错退出，而不是忽略继续执行：
+
+```
+➜  app bin/neo4j-admin import --nodes /Users/argan/Data/company.csv --nodes /Users/argan/Data/person.csv --relationships /Users/argan/Data/relation.csv
+
+...
+
+Nodes, started 2017-11-27 07:32:43.242+0000
+[>:??--------------------------||*PROPERTIES---------------------------------||v:??-----------]10.9K ∆10.9K
+Done in 327ms
+Prepare node index, started 2017-11-27 07:32:43.630+0000
+[*DETECT:0.00 B-------------------------------------------------------------------------------]    0 ∆    0
+Done in 104ms
+Relationships, started 2017-11-27 07:32:43.755+0000
+[>:??-----------------------|T|*PREPARE-------------------------------------------------------]    0 ∆    0
+Done in 281ms
+Error in input data
+Caused by:InputRelationship:
+   source: /Users/argan/Data/relation.csv:2
+   properties: [from, ea55b396202514e1a93348469eada78d, to, 8b6f879c8aa40aed56aac6a01ee339fd]
+   startNode: ea55b396202514e1a93348469eada78d (global id space)
+   endNode: 8b6f879c8aa40aed56aac6a01ee339fd (global id space)
+   type: 2
+ referring to missing node ea55b396202514e1a93348469eada78d
+```
+
+这可以通过`--ignore-missing-nodes=true`选项忽略：
+
+```
+➜  app bin/neo4j-admin import --ignore-missing-nodes=true  --nodes /Users/argan/Data/company.csv --nodes /Users/argan/Data/person.csv --relationships /Users/argan/Data/relation.csv
+Neo4j version: 3.2.6
+Importing the contents of these files into /Applications/Neo4j Community Edition 3.2.6.app/Contents/Resources/app/data/databases/graph.db:
+Nodes:
+  /Users/argan/Data/company.csv
+
+  /Users/argan/Data/person.csv
+Relationships:
+  /Users/argan/Data/relation.csv
+
+Available resources:
+  Total machine memory: 8.00 GB
+  Free machine memory: 18.06 MB
+  Max heap memory : 1.78 GB
+  Processors: 4
+  Configured max memory: -1700993434.00 B
+
+Nodes, started 2017-11-27 07:41:55.878+0000
+[>:??---------------------------|N|*PROPERTIES-------------------------------------|v:??------]10.9K ∆10.9K
+Done in 463ms
+Prepare node index, started 2017-11-27 07:41:56.400+0000
+[*DETECT:0.00 B-------------------------------------------------------------------------------]    0 ∆    0
+Done in 34ms
+Relationships, started 2017-11-27 07:41:56.450+0000
+[>:??--||PREP|*RECORDS(4)============================================================|PROPE|v:]32.7K ∆16.3K
+Done in 2s 468ms
+Node Degrees, started 2017-11-27 07:41:58.996+0000
+[>:??---|*>-----------------------------------------------------------------------------------]32.7K ∆32.7K
+Done in 43ms
+Relationship --> Relationship  1-9/9, started 2017-11-27 07:41:59.068+0000
+[>|*>----------------------------------------------------------------------------------------|]31.2K ∆31.2K
+Done in 54ms
+RelationshipGroup 1-9/9, started 2017-11-27 07:41:59.150+0000
+[*>:??----------------------------------------------------------------------------------------]    0 ∆    0
+Done in 12ms
+Node --> Relationship, started 2017-11-27 07:41:59.189+0000
+[*>:??----------------------------------------------------------------------------------------]    0 ∆    0
+Done in 12ms
+Relationship <-- Relationship 1-9/9, started 2017-11-27 07:41:59.257+0000
+[>|*>-----------------------------------------------------------------------------------------]31.2K ∆31.2K
+Done in 56ms
+Count groups, started 2017-11-27 07:41:59.351+0000
+[*>:??----------------------------------------------------------------------------------------]    0 ∆    0
+Done in
+Gather, started 2017-11-27 07:41:59.390+0000
+[*>:??----------------------------------------------------------------------------------------]    0 ∆    0
+Done in
+Write, started 2017-11-27 07:41:59.417+0000
+[*>:??----------------------------------------------------------------------------------------]    0 ∆    0
+Done in
+Node --> Group, started 2017-11-27 07:41:59.449+0000
+[*>:??----------------------------------------------------------------------------------------]    0 ∆    0
+Done in
+Node counts, started 2017-11-27 07:41:59.506+0000
+[*>--------------------------------------------------|COUNT:0.00 B----------------------------]10.0K ∆10.0K
+Done in 13ms
+Relationship counts, started 2017-11-27 07:41:59.542+0000
+[*>---------------------------------------------------------|COUNT----------------------------]30.0K ∆30.0K
+Done in 25ms
+
+IMPORT DONE in 4s 696ms.
+Imported:
+  6444 nodes
+  29700 relationships
+  78732 properties
+Peak memory usage: 480.06 MB
+There were bad entries which were skipped and logged into /Applications/Neo4j Community Edition 3.2.6.app/Contents/Resources/app/import.report
+
+➜  app grep 'referring to missing node' import.report | wc -l
+   59400
+➜  app grep 'referring to missing node' import.report| sort | uniq | wc -l
+    6444
+```
+
+**TIPS**
+
+1、导入关系的时候最好先把节点的id索引构建了。这样在做关系节点关联查询的时候会比较快。
+2、默认导出的数据会在当前路径的data目录下，导出后把这个文件夹copy到相应目录或者让neo4j加载它就可以了。
+
+
+--END TIPS--
+
 neo4j会根据把机器的CPU和磁盘用到极限，在这篇文章中 [Import 10M Stack Overflow Questions into Neo4j In Just 3 Minutes](https://neo4j.com/blog/import-10m-stack-overflow-questions/)，有一些数据可以参考，总体来所还是可以的：
 
 >The actual import only takes 3 minutes, creating a graph store of 18 GB.
@@ -41,7 +255,6 @@ To get the first 1000 JSON objects from the array in the file, try this:
 	WITH "file:///path_to_file.json" as url  
 	CALL apoc.load.json(url, '[0:1000]') YIELD value AS article
 	RETURN article;
-
 
 事实上，Cypher 本身就是支持 json 对象作为map的。[jexp/load_conference.groovy](https://gist.github.com/jexp/7c6997242c001abfb2cd) 或者 [Cypher: LOAD JSON from URL AS Data](https://neo4j.com/blog/cypher-load-json-from-url/) ：
 
