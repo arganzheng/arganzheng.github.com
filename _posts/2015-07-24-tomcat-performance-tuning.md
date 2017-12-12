@@ -1,6 +1,8 @@
 ---
 title: Tomcat调优
 layout: post
+category: [技术]
+tags: [tomcat, java, performance tuning]
 catalog: true
 ---
 
@@ -128,16 +130,16 @@ Tomcat有线程池的概念，比如下面这个配置：
 
 	    @Override
 	    public boolean offer(Runnable o) {
-	      //we can't do any checks
-	        if (parent==null) return super.offer(o);
-	        //we are maxed out on threads, simply queue the object
-	        if (parent.getPoolSize() == parent.getMaximumPoolSize()) return super.offer(o);
-	        //we have idle threads, just add it to the queue
-	        if (parent.getSubmittedCount()<(parent.getPoolSize())) return super.offer(o);
-	        //if we have less threads than maximum force creation of a new thread
-	        if (parent.getPoolSize()<parent.getMaximumPoolSize()) return false;
-	        //if we reached here, we need to add it to the queue
-	        return super.offer(o);
+			// we can't do any checks
+			if (parent==null) return super.offer(o);
+			// we are maxed out on threads, simply queue the object
+			if (parent.getPoolSize() == parent.getMaximumPoolSize()) return super.offer(o);
+			// we have idle threads, just add it to the queue
+			if (parent.getSubmittedCount()<(parent.getPoolSize())) return super.offer(o);
+			// if we have less threads than maximum force creation of a new thread
+			if (parent.getPoolSize()<parent.getMaximumPoolSize()) return false;
+			// if we reached here, we need to add it to the queue
+			return super.offer(o);
 	    }
 
 	    ...
@@ -152,14 +154,14 @@ Tomcat有线程池的概念，比如下面这个配置：
 To use an explicit protocol rather than rely on the auto-switching mechanism described above, the following values may be used: 
 >
 > org.apache.coyote.http11.Http11Protocol - blocking Java connector
-org.apache.coyote.http11.Http11NioProtocol - non blocking Java NIO connector
-org.apache.coyote.http11.Http11Nio2Protocol - non blocking Java NIO2 connector
-org.apache.coyote.http11.Http11AprProtocol - the APR/native connector.
-Custom implementations may also be used.
-Take a look at our [Connector Comparison chart](https://tomcat.apache.org/tomcat-8.0-doc/config/http.html#Connector_Comparison). The configuration for both Java connectors is identical, for http and https.
-For more information on the APR connector and APR specific SSL settings please visit the APR documentation
+> org.apache.coyote.http11.Http11NioProtocol - non blocking Java NIO connector
+> org.apache.coyote.http11.Http11Nio2Protocol - non blocking Java NIO2 connector
+> org.apache.coyote.http11.Http11AprProtocol - the APR/native connector.
+> Custom implementations may also be used.
+> Take a look at our [Connector Comparison chart](https://tomcat.apache.org/tomcat-8.0-doc/config/http.html#Connector_Comparison). The configuration for both Java connectors is identical, for http and https.
+> For more information on the APR connector and APR specific SSL settings please visit the APR documentation
 
-也就是说从tomcat6开始就支持NIO方式了，tomcat8开始则支持NIO2，也就是AIO。默认是HTTP/1.1，这是自动切换的方式，一般来说线上都是会默认使用Http11NioProtocol。这个可以通过在tomcat的启动日志中看到这么一行信息：10-Jun-2015 14:29:55.255 INFO [main] org.apache.coyote.AbstractProtocol.init Initializing ProtocolHandler ["http-nio-8094"]。或者通过JMX也可以看到。
+也就是说从tomcat6开始就支持NIO方式了，tomcat8开始则支持NIO2，也就是AIO。默认是HTTP/1.1，这是自动切换的方式，一般来说线上都是会默认使用Http11NioProtocol。这个可以通过在tomcat的启动日志中看到这么一行信息：`10-Jun-2015 14:29:55.255 INFO [main] org.apache.coyote.AbstractProtocol.init Initializing ProtocolHandler ["http-nio-8094"]`。或者通过JMX也可以看到。
 
 另外，这篇文章介绍了tomcat的参数调优支持13K并发连接数，其中还配置了TCP层面的东西，比如buffer大小：
 
@@ -175,6 +177,7 @@ For more information on the APR connector and APR specific SSL settings please v
 可以配置然后用AB压测一下看看。
 
 另外，最近看到几篇文章，感觉真的要遇到问题然后深入代码级别才能学到深层次的东东。比如这篇：[Tomcat7.0.26的连接数控制bug的问题排查](http://ifeve.com/tomcat7-0-26-connect-bug/)。还有就是要善于测试和通过实验验证自己的想法，比如这篇：[Tomcat-connector的微调(1): acceptCount参数](http://ifeve.com/tomcat-connector-tuning-1/)。要多看看博客，多向牛人学习了。
+
 
 推荐阅读
 -------

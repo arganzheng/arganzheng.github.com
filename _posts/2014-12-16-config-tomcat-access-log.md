@@ -1,6 +1,8 @@
 ---
 title: 配置tomcat的access_log
 layout: post
+category: [技术]
+tags: [tomcat, java]
 catalog: true
 ---
 

@@ -437,6 +437,91 @@ neo4j> PROFILE
 1 row available after 19 ms, consumed after another 5 ms
 ```
 
+当然，你也可以在应用层分两步处理。先获取所有的labels，然后再使用前面那种指定多个label的方法。这样就不需要服务端动态拼接了。
+
+---
+
+**TIPS** 在cypher-shell中如何绑定变量
+
+调试cypher最好的方式就是先在cypher-shell中测试通过，再在代码中拼装。那么如何在cypher中指定绑定参数呢？答案是跟web界面一样，使用`:param`语句。
+
+```
+neo4j> :param id: "0afa4218343abd81efe4881917412222"
+neo4j> CALL db.labels() YIELD label
+       WITH label
+       CALL apoc.cypher.run('match (n:' + label + ') where n.id = {id} return n', {id: {id}}) YIELD value
+       RETURN value.n AS node
+       ;
++-------------------------------------------------------------------------+
+| node                                                                    |
++-------------------------------------------------------------------------+
+| (:Company {name: "??????????", id: "0afa4218343abd81efe4881917412222"}) |
++-------------------------------------------------------------------------+
+
+1 row available after 1 ms, consumed after another 2 ms
+
+neo4j> :param batch: {id: "0afa4218343abd81efe4881917412222"}
+neo4j> UNWIND {batch} as row
+       CALL db.labels() YIELD label
+       WITH label ,row
+       CALL apoc.cypher.run('match (n:' + label + ') where n.id = {id} return n', {id: row.id}) YIELD value
+       RETURN value.n AS node
+       ;
++-------------------------------------------------------------------------+
+| node                                                                    |
++-------------------------------------------------------------------------+
+| (:Company {name: "??????????", id: "0afa4218343abd81efe4881917412222"}) |
++-------------------------------------------------------------------------+
+
+1 row available after 21 ms, consumed after another 2 ms
+```
+
+java代码的拼接就可以这么写：
+
+```java
+/**
+ * 因为Neo4j的索引是跟label绑定的，而且label又不支持动态绑定。所以这里采用了比较恶心的方式处理，服务端枚举所有的label，动态拼接。。
+ */
+@Override
+public List<Vertex> getVertices(String...ids) {
+    StatementBuilder sb = new StatementBuilder();
+    sb.append("UNWIND {batch} as row ") //
+            .append(" CALL db.labels() YIELD label ") //
+            .append(" WITH label, row ") //
+            .append(" CALL apoc.cypher.run(" //
+                    + "'match (n:`' + label + '`) where n.id = {id} return n', {id: row.id}" //
+                    + ") YIELD value") //
+            .append(" RETURN value.n AS node");
+    String statement = sb.toString();
+
+    Map<String, Object> params = new HashMap<>();
+    List<Map<String, Object>> batch = new ArrayList<>();
+    for (String id : ids) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("id", id);
+        batch.add(map);
+    }
+    params.put("batch", batch);
+
+    return cypher.query(statement, params, new StatementResultMapper<List<Vertex>>() {
+        @Override
+        public List<Vertex> mapResult(StatementResult result) {
+            List<Vertex> vs = new ArrayList<>();
+            while (result.hasNext()) {
+                Record record = result.next();
+                for (Value val : record.values()) {
+                    if (!StringUtils.equalsIgnoreCase(val.type().name(), "NODE")) {
+                        throw new RuntimeException("value should be a NODE");
+                    }
+                    Vertex v = ModelUtil.toVertex(val.asNode());
+                    vs.add(v);
+                }
+            }
+            return vs;
+        }
+    });
+}
+```
 
 参考文章
 -------

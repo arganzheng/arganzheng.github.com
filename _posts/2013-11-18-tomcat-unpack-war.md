@@ -1,6 +1,8 @@
 ---
 title: 如何让tomcat不解压你的war包
 layout: post
+category: [技术]
+tags: [tomcat, java]
 catalog: true
 ---
 
