@@ -14,7 +14,7 @@ CSV数据格式参见: [10.2.2. CSV file header format](https://neo4j.com/docs/o
 
 ```
 ➜  Data head company.csv
-companyId:ID,name,:LABEL
+id:ID,name,:LABEL
 00253534f3631a5cbdd804f60fefd60a,西藏溥天建设有限责任公司,Company
 003e2c44e505953c886520543c89dc6d,上海丽昌超声波工程有限公司,Company
 005b2bb9a38f959614120e8f130bddd4,深圳特力得流体系统有限公司销售部,Company
@@ -25,7 +25,7 @@ companyId:ID,name,:LABEL
 00cf35aa177feaeaee68db5d00129171,深圳飞尔卡思电子有限公司,Company
 00fec954458c476a92fc7a9fffa5bc5d,上海蓝科石油化工有限公司,Company
 ➜  Data head person.csv
-personId:ID,name,:LABEL
+id:ID,name,:LABEL
 0001ec01ced8b28fa7a6a4973a26d433,陈美琴,Person
 001b3230198e1e73bf1e407503f84b1d,宋又波,Person
 001bfb23b2de3865fc61d654a1cf86ce,陈果,Person
@@ -48,7 +48,26 @@ fbe8227309655b6bee67d28c380c5776,5,8b6f879c8aa40aed56aac6a01ee339fd,fbe822730965
 ea55b396202514e1a93348469eada78d,2,8b6f879c8aa40aed56aac6a01ee339fd,ea55b396202514e1a93348469eada78d,8b6f879c8aa40aed56aac6a01ee339fd
 ```
 
-**TIPS** mac下执行neo4j的`neo4j-admin import`命令会报如下错误：
+**TIPS** 
+
+
+1、格式方面，也可以把header单独放另外的文件，这样可以保证数据文件的一致性（比如csv是从hadoop跑出来的），这会方便很多。具体参见: [https://neo4j.com/docs/operations-manual/current/tutorial/import-tool/#import-tool-separate-headers-example](https://neo4j.com/docs/operations-manual/current/tutorial/import-tool/)。
+
+> #### B.4.3. Using separate header files
+> 
+> When dealing with very large CSV files it is more convenient to have the header in a separate file. This makes it easier to edit the header as you avoid having to open a huge data file just to change it.
+> 
+> 	neo4j_home$ bin/neo4j-admin import --nodes "import/movies3-header.csv,import/movies3.csv" --nodes "import/actors3-header.csv,import/actors3.csv" --relationships "import/roles3-header.csv,import/roles3.csv"
+> 
+
+2、可以把同一个label的csv文件分成多个，比如：person-part1.csv, person-part2.csv，只要把它们写在一个`--nodes`参数就可以了：
+
+```
+neo4j_home$ bin/neo4j-admin import --nodes "import/movies4-header.csv,import/movies4-part1.csv,import/movies4-part2.csv" --nodes "import/actors4-header.csv,import/actors4-part1.csv,import/actors4-part2.csv" --relationships "import/roles4-header.csv,import/roles4-part1.csv,import/roles4-part2.csv"
+```
+
+
+3、mac下执行neo4j的`neo4j-admin import`命令会报如下错误：
 
 ```
 ➜  bin ./neo4j-import --nodes /Users/argan/Data/company.csv --nodes /Users/argan/Data/person.csv --relationships /Users/argan/Data/relation.csv
@@ -221,7 +240,7 @@ There were bad entries which were skipped and logged into /Applications/Neo4j Co
 **TIPS**
 
 1、导入关系的时候最好先把节点的id索引构建了。这样在做关系节点关联查询的时候会比较快。
-2、默认导出的数据会在当前路径的data目录下，导出后把这个文件夹copy到相应目录或者让neo4j加载它就可以了。
+2、mac下默认导出的数据会在当前路径的data目录下，导出后把这个文件夹copy到相应目录或者让neo4j加载它就可以了。
 
 
 --END TIPS--
@@ -238,6 +257,9 @@ neo4j会根据把机器的CPU和磁盘用到极限，在这篇文章中 [Import 
 大概 3千万个节点，7千八百万条边和 2亿6千万个属性，导入花费了3分48秒。
 
 整个详细过程在这篇文章有描述，感兴趣的同学可以看看：[Effective Bulk Data Import into Neo4j](https://neo4j.com/blog/bulk-data-import-neo4j-3-0/)。
+
+
+**TIPS** 测试环境导入1.2亿的节点和2亿的关系，耗时大概在16分钟左右。
 
 整个工具是现成的，而且性能还可以的，但是有个问题，就是他们的数据格式都是针对CSV格式的。但是实际上大部分情况下，原始数据跟多的是以JSON的形式存在。上面的例子也是如此，所以他们利用 [jq](https://stedolan.github.io/jq/) 把JSON转成了CSV格式了。转换时间比导入还慢。
 
@@ -878,3 +900,4 @@ RETURN 1
 6. [Neo4j的查询速度为何这么慢？这能商用吗？](https://www.zhihu.com/question/45401120) 知乎上有人回答了这个问题，有案例有数据，强烈推荐。
 7. [如何将大规模数据导入Neo4j](http://paradoxlife.me/how-to-insert-bulk-data-into-neo4j) 几种方式不错的对比
 8. [Neo4j的存储结构](http://m.blog.csdn.net/huaishu/article/details/11713753) 为什么neo4j有时候快，有时候慢
+9. [https://neo4j.com/docs/operations-manual/current/tutorial/import-tool/#import-tool-separate-headers-example](https://neo4j.com/docs/operations-manual/current/tutorial/import-tool/) 非常详细的官方说明，使用admin-import工具必看
