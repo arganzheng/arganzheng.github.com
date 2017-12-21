@@ -1,6 +1,7 @@
 ---
 layout: post
 title: Spring与web MVC的整合——Spring的应用上下文管理
+tags: [spring, SpringMVC]
 catalog: true
 ---
 

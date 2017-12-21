@@ -1,6 +1,7 @@
 ---
 layout: post
 title: Spring事务配置
+tags: [spring, transaction]
 catalog: true
 ---
 

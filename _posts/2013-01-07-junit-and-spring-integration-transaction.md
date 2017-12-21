@@ -1,6 +1,7 @@
 ---
 layout: post
 title: JUnit与Spring的整合——JUnit中的TestCase如何拥有spring的事务管理机制
+tags: [spring, junit, transaction]
 catalog: true
 ---
 
