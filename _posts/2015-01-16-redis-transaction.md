@@ -2,7 +2,7 @@
 title: Redis的事务
 layout: post
 catalog: true
-tags: [redis, 事务]
+tags: [redis, transaction]
 category: [技术]
 ---
 

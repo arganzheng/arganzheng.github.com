@@ -314,7 +314,7 @@ neo4j> PROFILE
 1 row available after 4 ms, consumed after another 1 ms
 ```
 
-注意：这种方式必须是OPTIONAL MATCH，否则只要有一个查询没有结果，就全部为空了。另外，也需要注意到这里放回的是一个数组了，而不是一个个的元素。如果想保持一致，只需要再`UNWIND`一下就可以了:
+注意：这种方式必须是OPTIONAL MATCH，否则只要有一个查询没有结果，就全部为空了。另外，也需要注意到这里返回的是一个数组了，而不是一个个的元素。如果想保持一致，只需要再`UNWIND`一下就可以了:
 
 ```
 PROFILE
@@ -329,7 +329,7 @@ return n
 ;
 ```
 
-虽然本质上还是每个label查询了一次，N个label就需要查询N次，但是在label不多的情况下，性能还是想当不错的。
+虽然本质上还是每个label查询了一次，N个label就需要查询N次，但是在label不多的情况下，性能还是相当不错的。
 
 ---
 
@@ -474,6 +474,26 @@ neo4j> UNWIND {batch} as row
 +-------------------------------------------------------------------------+
 
 1 row available after 21 ms, consumed after another 2 ms
+```
+
+也可以绑定数组变量：
+
+```
+:param batch: [{properties: {name: "argan", label: "Person", id: "1", age: 31}}, {properties: {name: "magi", label: "Person", id: "2", age: 28}}]
+```
+
+**注意**
+
+cypher的变量绑定有点恶心，param的key注意不要加双引号，否则会报错：
+
+```
+neo4j> :param batch: {id: "0afa4218343abd81efe4881917412222"}
+neo4j> :params
+batch: {id=0afa4218343abd81efe4881917412222}
+neo4j> :param batch: {"id": "0afa4218343abd81efe4881917412222"}
+Invalid input '"': expected whitespace, an identifier, UnsignedDecimalInteger, a property key name or '}' (line 1, column 9 (offset: 8))
+"RETURN {"id": "0afa4218343abd81efe4881917412222"} as batch"
+         ^
 ```
 
 java代码的拼接就可以这么写：
