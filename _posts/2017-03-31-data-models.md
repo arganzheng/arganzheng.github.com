@@ -1,6 +1,7 @@
 ---
 title: 数据模型和存储系统
 layout: post
+tags: [存储]
 catalog: true
 ---
 

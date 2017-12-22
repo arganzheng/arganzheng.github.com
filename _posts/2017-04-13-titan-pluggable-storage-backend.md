@@ -2,9 +2,7 @@
 layout: post
 title: Titan的pluggable storage backend
 catalog: true
-tags:
-- Titan 
-- Graph Database 
+tags: [Titan, 图数据库]
 ---
 
 

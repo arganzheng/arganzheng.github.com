@@ -2,7 +2,7 @@
 layout: post
 title: neo4j如何支持多个label索引查询
 catalog: true
-tags: [neo4j, graph database]
+tags: [neo4j, 图数据库]
 ---
 
 
