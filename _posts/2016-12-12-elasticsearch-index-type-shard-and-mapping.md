@@ -1,6 +1,7 @@
 ---
 title: ElasticSearch存储相关
 layout: post
+tags: [elasticsearch]
 catalog: true
 ---
 
@@ -8,7 +9,7 @@ catalog: true
 1. 版本
 ------
 
-线上使用的是1.7.1版本（http://nj02-bdg-recsys-online02.nj02.baidu.com:8083/），最新的ES版本是5.0，这个版本在功能和性能上做了很大的改进（[Elasticsearch 5.0 新版本的特性与改进](http://www.tuicool.com/articles/qYvUfuz)），所以我们也直接使用这个版本。
+线上使用的是1.7.1版本，最新的ES版本是5.0，这个版本在功能和性能上做了很大的改进（[Elasticsearch 5.0 新版本的特性与改进](http://www.tuicool.com/articles/qYvUfuz)），所以我们也直接使用这个版本。
 
 风险是这个版本相对比较新，是十一月中旬才release的版本，可能会有一些不稳定，资料也会比较少。另外，因为太新，很多第三方插件，如head，bigdesk，等，都还没有追上。
 
@@ -38,7 +39,7 @@ catalog: true
 
 综上所述，分片数是需要仔细权衡的。
 
-http://stackexchange.com/performance，StackOverflow使用了3台192GB RAM的SSD机器支撑528GB的索引大小。不过不知道人家的分片数。
+根据[stackexchange/performance](http://stackexchange.com/performance)，StackOverflow使用了3台192GB RAM的SSD机器支撑528GB的索引大小。不过不知道人家的分片数。
 
 
 **TIPS** 

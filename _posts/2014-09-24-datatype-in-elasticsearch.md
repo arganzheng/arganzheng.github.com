@@ -1,6 +1,7 @@
 ---
 title: ElasticSearch的数据类型
 layout: post
+tags: [elasticsearch]
 catalog: true
 ---
 

@@ -1,6 +1,7 @@
 ---
 title: Reading搜索
 layout: post
+tags: [elasticsearch]
 catalog: true
 ---
 

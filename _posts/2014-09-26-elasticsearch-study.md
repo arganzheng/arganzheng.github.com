@@ -1,6 +1,7 @@
 ---
 title: ElasticSearch学习
 layout: post
+tags: [elasticsearch]
 catalog: true
 ---
 

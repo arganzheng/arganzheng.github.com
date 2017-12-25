@@ -1,6 +1,7 @@
 ---
 title: ElasticSearch的Analyzer
 layout: post
+tags: [elasticsearch]
 catalog: true
 ---
 

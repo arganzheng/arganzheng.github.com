@@ -1,6 +1,7 @@
 ---
 title: ElasticSearch字段排序
 layout: post
+tags: [elasticsearch]
 catalog: true
 ---
 

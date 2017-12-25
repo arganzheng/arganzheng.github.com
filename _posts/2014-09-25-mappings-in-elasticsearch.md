@@ -1,6 +1,7 @@
 ---
 title: ElasticSearch的mappings
 layout: post
+tags: [elasticsearch]
 catalog: true
 ---
 

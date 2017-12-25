@@ -1,6 +1,7 @@
 ---
 title: ElasticSearch如何实现按天翻滚索引
 layout: post
+tags: [elasticsearch]
 catalog: true
 ---
 
