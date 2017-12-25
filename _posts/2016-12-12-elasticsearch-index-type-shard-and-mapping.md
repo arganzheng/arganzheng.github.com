@@ -56,7 +56,6 @@ ES5.0提供了一个Shrink API，可以将分片数进行收缩成原来的因�
 
 具体参见: [Reindex API](https://www.elastic.co/guide/en/elasticsearch/reference/master/docs-reindex.html)
 
-
 一期上线数据规模是：
 
 Docs count: 185,251,838，其中商品数据占了90%。
@@ -70,6 +69,33 @@ Size: 472.3 gb
 内存大小：可用内存 > 64GB。
 Index & Shards: 每个垂类单独一个index，分片数根据不同的垂类大小设置。比如数据量小的垂类，像景点，可以设置 2 primary shard + 1 replicas， 数据量大的垂类，像商品，可以设置20 primary shards + 1 replicas。
 然后一开始可以设置大一些(翻倍)，全量灌库完成之后，再使用Shrink API进行缩减。
+
+---
+
+**补记**
+
+3、[Split Index](https://www.elastic.co/guide/en/elasticsearch/reference/6.1/indices-split-index.html)
+
+ES6.0推出了Split Index API，类似于Shrink API的反操作，可以把分片数扩充为原来的N倍（具体倍数目前取决于index.number_of_routing_shards，7.0将不受这个限制）。这个功能将非常有利于我们扩充ES性能，不用再纠结与分片数的大小了。具体实现过程也非常简单：
+
+> Splitting works as follows:
+> 
+> 1. First, it creates a new target index with the same definition as the source index, but with a larger number of primary shards.
+> 2. Then it hard-links segments from the source index into the target index. (If the file system doesn’t support hard-linking, then all segments are copied into the new index, which is a much more time consuming process.)
+> 3. Once the low level files are created all documents will be hashed again to delete documents that belong to a different shard.
+> 4. Finally, it recovers the target index as though it were a closed index which had just been re-opened.
+
+注意，Split之前要先将分片标记为只读:
+
+```
+PUT /my_source_index/_settings
+{
+  "settings": {
+    "index.blocks.write": true 
+  }
+}
+```
+
 
 ### 3. Replica number
 
