@@ -21,6 +21,42 @@ catalog: true
 
 根据ES的特性 [Index VS Type]( https://www.elastic.co/blog/index-vs-type) 和 [General recommendations](https://www.elastic.co/guide/en/elasticsearch/reference/current/general-recommendations.html)，不同垂类还是建立在不同的索引下比较合适。
 
+**NOTES**
+
+注意，ES7.0之后将完全移除type([Elasticsearch Reference [6.1] » Mapping » Removal of mapping types](https://www.elastic.co/guide/en/elasticsearch/reference/current/removal-of-types.html))。这是因为type本身只是doc下的一个meta-field(`_type`字段)，同一个index下不同的type下的相同字段(field)其实是同一个定义的（如`twitter/user`和`twitter/tweet`的`user_name`其实在底层都是同一个Lucene字段，类型和mapping必须（就是）完全一样）。
+
+> In an Elasticsearch index, fields that have the same name in different mapping types are backed by the same Lucene field internally. In other words, using the example above, the user_name field in the user type is stored in exactly the same field as the user_name field in the tweet type, and both user_name fields must have the same mapping (definition) in both types.
+
+另一方面，从存储效率上，不同的type存储在同一个index下，会导致数据稀疏，这样会影响到Lucene的压缩效率。
+
+> On top of that, storing different entities that have few or no fields in common in the same index leads to sparse data and interferes with Lucene’s ability to compress documents efficiently.
+
+综合考虑下，ES7.0绝对彻底移除type这个概念了。
+
+[Elasticsearch Reference [6.1] » Mapping » Removal of mapping types](https://www.elastic.co/guide/en/elasticsearch/reference/current/removal-of-types.html) 也提供了相应的替代方案，如果你真的想要一个index下多个type，其实可以显示的自定义一个type字段，搜索的时候根据这个字段来就行了：
+
+```
+GET twitter/_search
+{
+  "query": {
+    "bool": {
+      "must": {
+        "match": {
+          "user_name": "kimchy"
+        }
+      },
+      "filter": {
+        "match": {
+          "type": "tweet" 
+        }
+      }
+    }
+  }
+}
+```
+
+数据迁移的话可以使用[Rerindex API](https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-reindex.html)实现。
+
 ### 2、nodes & shard number
 
 关键在于每个shard能够服务多少数据？根据这个数据我们就可以确定需要的分片数。 
