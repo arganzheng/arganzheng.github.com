@@ -205,7 +205,8 @@ PUT my_index
 参考文档
 -------
 
-1. [Elasticsearch Reference [6.1] » Mapping » Field datatypes » Object datatype](https://www.elastic.co/guide/en/elasticsearch/reference/current/object.html)
-2. [Elasticsearch Reference [6.1] » Mapping » Field datatypes » Nested datatype](https://www.elastic.co/guide/en/elasticsearch/reference/current/nested.html)
-3. [Elasticsearch: The Definitive Guide [2.x] » Modeling Your Data » Nested Objects » Querying a Nested Object](https://www.elastic.co/guide/en/elasticsearch/guide/current/nested-query.html)
+1. [Elasticsearch Reference [6.1] » Mapping » Field datatypes » Array datatype](https://www.elastic.co/guide/en/elasticsearch/reference/current/array.html)
+2. [Elasticsearch Reference [6.1] » Mapping » Field datatypes » Object datatype](https://www.elastic.co/guide/en/elasticsearch/reference/current/object.html)
+3. [Elasticsearch Reference [6.1] » Mapping » Field datatypes » Nested datatype](https://www.elastic.co/guide/en/elasticsearch/reference/current/nested.html)
+4. [Elasticsearch: The Definitive Guide [2.x] » Modeling Your Data » Nested Objects » Querying a Nested Object](https://www.elastic.co/guide/en/elasticsearch/guide/current/nested-query.html)
 
