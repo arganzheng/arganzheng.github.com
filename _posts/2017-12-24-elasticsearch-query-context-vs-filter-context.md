@@ -206,8 +206,11 @@ score(q,d)  =
 **NOTES && ITPS**
 
 1、When we refer to documents in the preceding formulae, we are actually talking about a field within a document. Each field has its own inverted index and thus, for TF/IDF purposes, the value of the field is the value of the document.
+
 2、While TF/IDF is the default way of calculating term weights for the vector space model, it is not the only way. Other models like Okapi-BM25 exist and are available in Elasticsearch. TF/IDF is the default because it is a simple, efficient algorithm that produces high-quality search results and has stood the test of time.
+
 3、Note that term frequency, inverse document frequency, and field-length normalization are stored for each document at index time. These are used to determine the weight of a term in a document.
+
 4、You can read more about how to compare two vectors by using [cosine similarity.](https://en.wikipedia.org/wiki/Cosine_similarity)
 
 
