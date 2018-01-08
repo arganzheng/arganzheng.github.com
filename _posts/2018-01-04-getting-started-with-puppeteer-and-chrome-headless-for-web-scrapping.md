@@ -251,6 +251,61 @@ GeetestImageUrl=http://geenew.geetest.com/gee_static/a6fc29e171faea135c55c0cb9be
 2、`challenge`参数有时效性，目测是10分钟左右，过期访问就会返回403了。
 
 
+关于PhantomJS和CasperJS
+----------------------
+
+大概看了一下，CasperJS的接口其实也蛮简单的，基本上是由一个一个的 Step 串联起来的，start 表示第一步，然后后面的 step 用 then 来表示，再依次执行，比如：
+
+```
+var casper = require('casper').create({
+  verbose:true,
+    logLevel:"debug",
+    pageSettings: {
+    proxy: 'http://127.0.0.1:8888',
+        javascriptEnabled: true,
+        XSSAuditingEnabled: true,
+        loadImages: true,
+        // The WebPage instance used by Casper will
+        loadPlugins: false,
+        // use these settings
+        userAgent: "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/47.0.2526.111 Safari/537.36"
+    },
+    waitTimeout: 10000,
+    exitOnError: true,
+});
+
+
+// var url = "http://www.baidu.com/";
+var url = "http://gd.gsxt.gov.cn/index.html";
+
+casper.start(url, function() {
+  this.echo(this.getTitle());
+});
+
+casper.then(function() {
+  this.capture('baidu-homepage.png'); //  生成一个png图片
+});
+
+casper.run();
+```
+
+但是发现casper会直接卡死。。原因前面（[加速乐的一个爬虫防护机制](ttp://www.test404.com/post-776.html) ）已经讨论过了，首页返回的JS脚本里面有防止 [PhantomJS](http://phantomjs.org/) 的机制：
+
+```
+while (window._phantom || window.__phantomas) {}; 
+```
+
+当发现是_phantom或者__phantomas后就直接进入死循环了。。
+
+```
+➜  casperjs casperjs test.js
+[info] [phantom] Starting...
+[info] [phantom] Running suite: 3 steps
+[debug] [phantom] opening url: http://gd.gsxt.gov.cn/index.html, HTTP GET
+[debug] [phantom] Navigation requested: url=http://gd.gsxt.gov.cn/index.html, type=Other, willNavigate=true, isMainFrame=true
+[debug] [phantom] url changed to "http://gd.gsxt.gov.cn/index.html"
+```
+
 参考文章
 -------
 
