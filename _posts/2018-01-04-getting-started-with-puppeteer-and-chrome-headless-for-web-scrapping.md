@@ -306,6 +306,131 @@ while (window._phantom || window.__phantomas) {};
 [debug] [phantom] url changed to "http://gd.gsxt.gov.cn/index.html"
 ```
 
+---
+
+补记
+----
+
+后面欣哥在我的脚本的基础上稍微修改了一下，对搜索词和停顿时间做了处理，使得行为更像“人”为操作；使用wget直接将图片下载到本地；最后用shell包了一层，实现for循环调度。本来想在node中直接搞定的，无奈node的函数都是异步的，不好调度。时间关键就简单处理了。其实如果用shell的话，wget也可以在shell做掉，不需要在node下载。这里把程序附上，以备大家参考吧。
+
+```
+const puppeteer = require('puppeteer');
+var wget = require('node-wget');
+var fs=require("fs");
+const { URL, URLSearchParams } = require('url');
+
+// read search words to memory
+var data = fs.readFileSync("./search_words.txt","utf-8"); 
+
+var seeds = data.split('\n');
+var idx = Math.floor(Math.random() * seeds.length);
+//console.log('seeds raw data:'+data +'\n len:'+seeds.length + '\n idx:'+idx);
+seed = seeds[idx].trim();
+
+// create image directory if not exist
+var destination_folder = './images/';
+if (!fs.existsSync(destination_folder)){
+    fs.mkdirSync(destination_folder);
+}
+
+async function run() {
+  // const browser = await puppeteer.launch();
+  const browser = await puppeteer.launch({
+    headless: true
+  });
+
+  const page = await browser.newPage();
+
+  page.setUserAgent("Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/47.0.2526.111 Safari/537.36");
+
+  page.on('request', request => {
+    // console.log("Intercept " + request.resourceType + " " + request.url);
+    let currentUrl = new URL(request.url);
+    if (request.resourceType === 'image' 
+      && currentUrl.hostname === 'geenew.geetest.com' && currentUrl.pathname.includes('gee_static/')) {
+    var timestamp1 = Date.parse( new Date());
+    destination_folder_or_filename = './images/'+timestamp1+'.jpeg';
+      console.log("GeetestImageUrl=" + request.url);
+      wget({url: request.url, dest: destination_folder_or_filename});
+    } 
+  });
+
+  var url = "http://gd.gsxt.gov.cn/index.html";
+  fail = false;
+  try{ 
+    let response = await page.goto(url, {
+      waitUntil: 'domcontentloaded'
+    });
+
+    // console.log(await response.text());
+
+    // second visit with rquired cookies set
+    response = await page.goto(url, {
+      waitUntil: 'domcontentloaded'
+    });
+
+    content = await response.text();
+  } catch (err) {
+    console.log('Get page failed.', err);
+    fail = true;
+  }
+  
+  if (fail) return;
+
+  const KEYWORD_SELECTOR  = '#keyword';
+  const BUTTON_SELECTOR = '#btn_query';
+  const REFRESH_SELECTOR = '.geetest_refresh';
+   
+  if (content.indexOf("hot_label") == -1)
+  {
+    console.log('no content');
+    browser.close();
+    console.log('- after browser.close');
+    return;
+  } 
+
+  
+  await page.type(KEYWORD_SELECTOR, seed.substr(0,4+Math.floor(Math.random() * 3)), 
+    {delay: (Math.floor(Math.random() * 400))}); // => 3: Types slower, like a user 
+
+  console.log('+ BUTTON_SELECTOR');
+  await page.click(BUTTON_SELECTOR, 
+    {delay: (100+Math.floor(Math.random() * 1000))}); // => 3: Click slower, like a user 
+  //console.log('- BUTTON_SELECTOR');
+  //await page.click(REFRESH_SELECTOR, {delay: 2000});
+
+  // wait for geetest to appear before close the browser
+  console.log('+ before waitFor');
+  await page.waitFor(1000+Math.floor(Math.random() * 1000));
+  console.log('- after waitFor');
+  browser.close();
+  console.log('- after browser.close');
+}
+
+run();
+```
+
+外层shell脚本就非常简单了：
+
+```
+#!/bin/bash
+
+for ((i=1; i <= 1000; i++))
+{
+  if (( $i % 5 == 0 )); then
+  # generate a random integer variable between 2 and 6 (including both)
+  sleep $(( RANDOM % (6 - 2 + 1 ) + 2 )) 
+  fi
+  echo "Starting get geetest image for the [$i] time..."
+  node gsxt.js
+  echo "End get geetest image for the [$i] time..."
+}
+exit 0
+```
+
+--EOF--
+
+
 参考文章
 -------
 
