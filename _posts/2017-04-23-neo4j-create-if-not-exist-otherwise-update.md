@@ -188,7 +188,7 @@ public void testMergeRelationships() throws Exception {
 虽然apoc和cypher比较方便，但是很容易语法错误，特别是变量动态拼接的时候。有时候还不如参考一下 apoc 的例子：[neo4j-apoc-procedures/src/main/java/apoc/merge/Merge.java](https://github.com/neo4j-contrib/neo4j-apoc-procedures/blob/23065dd721c1742dd02b417948b827dbb7cf12a6/src/main/java/apoc/merge/Merge.java) 自己实现。
 
 
-### neo4j如何支持动态node label？
+### neo4j如何支持动态node label和relationship type？
 
 上面的merge语句能够实现“存在更新，否则创建”的逻辑，但是还有一个问题没有解决，就是没有设置节点的label。我们希望构建的节点数据完全是运行时根据用户提供的数据构造的，包括label。比如用户提供如下数据：
 
@@ -266,15 +266,11 @@ String label = vertex.getLabel();
 
 有没有什么方式呢？谷歌了很久，发现了也有人遇到这样的问题：[Feature request : apoc support for MERGE for nodes and rels #271](https://github.com/neo4j-contrib/neo4j-apoc-procedures/issues/271) 和 [Is it possible to merge using data-driven node or relationship labels?](https://stackoverflow.com/questions/43740000/is-it-possible-to-merge-using-data-driven-node-or-relationship-labels)。
 
-原理跟单条数据插入一样，只是由于unwind是在服务端(neo4j)进行的，所以拼接也只能在服务端进行，怎么拼接的？使用的就是cypher的[with语句](http://neo4j.com/docs/developer-manual/current/cypher/clauses/with/)：
-
-> The WITH clause allows query parts to be chained together, piping the results from one to be used as starting points or criteria in the next.
-
-但是官方文档说的很简略，其实with的功能很强大。在这里，我们用它来做服务端的字符串拼接：
+原理跟单条数据插入一样，只是由于unwind是在服务端(neo4j)进行的，所以拼接也只能在服务端进行，怎么拼接的？就是用`apoc.cypher.doIt`拼接后让它在服务端执行：
 
 ```
 UNWIND {batch} as row 
-WITH 'MERGE (n:' + row.properties.label + ' { id: row.id }) SET n += row.properties return n' AS cypher" 
+WITH 'MERGE (n:' + row.properties.label + ' { id: row.id }) SET n += row.properties return n' AS cypher
 CALL apoc.cypher.doIt(cypher, {}) YIELD value return value.n
 ```
 
@@ -323,23 +319,6 @@ RETURN count(*)
 一种做法就是fork一个分支出来，修改源码，deploy自己的jar包。
 
 
-更新关系也是类似的做法：
-
-```
-UNWIND {batch} as row 
-MATCH (from { id: row.from })
-MATCH (to { id: row.to }) 
-WITH from, to, row
-MERGE (from)-[r:type {id: row.id}]->(to)
-SET r += row.properties 
-WITH r, row.properties.label AS type
-CALL apoc.refactor.setType(r, type) YIELD input, output
-RETURN 1
-```
-
-但是还有一个问题，就是边的方向，这个就没有办法变量直接替换了，只能做条件判断，好在边就三个方向，直接枚举判断就可以了。neo4j中没有条件判断语句，但是可以用 FOREACH trick实现。这个在前面 [有条件的创建数据（Conditional Data Creation）]() 有介绍过。不过非常麻烦，我还是建议直接创建两条单向关系简单直接。
-
-
 ### merge语气如何支持索引？
 
 上面的cypher语句在功能上已经能够正常的work了。但是有一个非常严重的问题。就是merge本质上是先查询的过程，而neo4j的索引是跟label挂钩的。也就是说如果你在MERGE的匹配条件中如果没有指定label，那么即使id字段有索引，也不会走到的：
@@ -379,7 +358,6 @@ neo4j> match (n) return n;
 
 2 rows available after 1 ms, consumed after another 1 ms
 ```
-
 
 其实就是下面的语句：
 
@@ -433,5 +411,94 @@ public void saveVertice(List<Vertex> vertice) {
 ```
 
 简单总结一下，就是必须使用apoc.cypher.doIt进行服务端拼接。然后拼接的Cypher语句中使用到的变量必须通过变量绑定的方式传递进去，不能直接使用WITH的变量，因为是使用不到的。
+
+
+### 关系的save实现
+
+前面我们主要讨论了节点的save操作实现，那么关系呢？
+
+与节点一样，关系在绝大多数情况下可以用merge保证只创建一次（[Understanding how MERGE works](https://neo4j.com/developer/kb/understanding-how-merge-works/)）：
+
+```
+MATCH (n), (m)
+WHERE n.id = "argan" AND m.id = "magi"
+CREATE (n)-[:KNOWS]->(m)
+```
+
+然后我们一样会遇到节点一样的问题——如何支持动态 label 以走索引？而且关系还多了一个relationship type。
+
+假设我们现在有如下两个节点：
+
+```
+╒══════════════════════════════════════════════════════════════════════╕
+│"n"                                                                   │
+╞══════════════════════════════════════════════════════════════════════╡
+│{"name":"argan","id":"Person/1","label":"Person","key":"1","age":30,"t│
+│ags":["smart","handson","rich"]}                                      │
+├──────────────────────────────────────────────────────────────────────┤
+│{"name":"magi","id":"Person/2","label":"Person","key":"2","age":32,"ta│
+│gs":["tall","rich","handson"]}                                        │
+└──────────────────────────────────────────────────────────────────────┘
+```
+然后我们要给这两个节点之间增加一个Friend关系：
+
+```
+:param batch: [{properties: {from: "Person/1", to: "Person/2", label: "Friend", id: "1", since: "2009"}}]
+```
+
+那么根据上面的讨论，我们只能这么做：
+
+```
+UNWIND {batch} as row
+WITH split(row.properties.from, '/')  AS fromInfo, split(row.properties.to, '/')  AS toInfo, row
+CALL apoc.cypher.doIt('MATCH (from:`' + fromInfo[0] + '` {id: {fromId}}) MATCH (to:`' + toInfo[0] + '` {id: {toId}}) MERGE (from)-[r:`' +  row.properties.label + '` {id: {id}}]->(to) SET r += {properties}', {fromId: row.properties.from, toId: row.properties.to, properties: row.properties, id: row.properties.id}) YIELD value
+return value
+```
+
+**TIPS**
+
+1、在调试这种字符串拼接，变量替换的语句，最好的做法是先完成动态拼接，然后再一个个的变量替换。
+
+java代码如下：
+
+```
+public void saveEdges(List<Edge> edges) {
+    StringBuilder sb = new StringBuilder();
+
+    sb.append("UNWIND {batch} as row ") //
+            .append(" WITH split(row.properties.from, '/')  AS fromInfo, " //
+                    + "split(row.properties.to, '/')  AS toInfo, row ") //
+            .append(" CALL apoc.cypher.doIt(" //
+                    + "'MATCH (from:`' + fromInfo[0] + '` {id: {fromId}})" //
+                    + " MATCH (to:`' + toInfo[0] + '` {id: {toId}}) " //
+                    + " MERGE (from)-[r:`' +  row.properties.label + '` {id: {id}}]->(to) " //
+                    + " SET n += {properties}', " //
+                    + "{ fromId: row.properties.from, toId: row.properties.to, " //
+                    + " properties: row.properties, id: row.properties.id }" //
+                    + ") YIELD value") //
+            .append(" RETURN 1 ");
+
+    String statement = sb.toString();
+
+    Map<String, Object> params = new HashMap<>();
+    List<Map<String, Object>> batches = new ArrayList<>();
+    for (Edge e : edges) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("id", e.getId());
+        map.put("from", e.getFrom());
+        map.put("to", e.getTo());
+        map.put("properties", e.getProperties());
+        batches.add(map);
+    }
+    params.put("batch", batches);
+
+    cypher.query(statement, params, null);
+}
+```
+
+还有一个问题，就是边的方向，这个也没办法进行变量替换了，只能做条件判断，好在边就三个方向，直接枚举判断就可以了。neo4j中没有条件判断语句，但是可以用 FOREACH trick实现。这个在前面 [有条件的创建数据（Conditional Data Creation）]() 有介绍过。不过非常麻烦，我还是建议直接创建两条单向关系简单直接。
+
+
+
 
 

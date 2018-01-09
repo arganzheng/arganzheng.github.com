@@ -20,7 +20,11 @@ tags: [neo4j, 图数据库]
 	MATCH (u:User {username:'admin'}), (r:Role {name:'ROLE_WEB_USER'})
 	CREATE (u)-[:HAS_ROLE]->(r)
 
-但是Stack Overflow上有人提出这种做法插入QPS非常低(40左右) (https://stackoverflow.com/questions/33474497/how-to-add-edgesrelationship-neo4j-in-a-very-big-graph)[How to add edges(relationship) Neo4j in a very big graph]，同时也有人指出这会导致 noe4j对所有的节点进行笛卡尔积运算。具体还是要自己测试一下，用[`EXPLAIN`或者`Profile`进行相应的调优](http://neo4j.com/docs/stable/how-do-i-profile-a-query.html)。
+**注意**
+
+1、节点MATCH部分一定要走索引，否则数据量大的情况下会导致noe4j对所有的节点进行扫描过滤，直接卡死。更重要的是这个操作是有加锁的，会影响到其他读写操作。
+
+2、关于关系如何实现存在就更新，否则插入的逻辑，可以参考笔者写的另一篇文章 [neo4j如何实现存在就更新，否则插入？](http://arganzheng.life/neo4j-create-if-not-exist-otherwise-update.html)，这里就不赘述了。
 
 
 ### 2、如何高效更新图数据？
