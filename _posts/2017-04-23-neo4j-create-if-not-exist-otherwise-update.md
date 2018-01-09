@@ -319,7 +319,7 @@ RETURN count(*)
 一种做法就是fork一个分支出来，修改源码，deploy自己的jar包。
 
 
-### merge语气如何支持索引？
+### merge语句如何支持索引？
 
 上面的cypher语句在功能上已经能够正常的work了。但是有一个非常严重的问题。就是merge本质上是先查询的过程，而neo4j的索引是跟label挂钩的。也就是说如果你在MERGE的匹配条件中如果没有指定label，那么即使id字段有索引，也不会走到的：
 
@@ -461,7 +461,7 @@ return value
 
 java代码如下：
 
-```
+```java
 public void saveEdges(List<Edge> edges) {
     StringBuilder sb = new StringBuilder();
 
@@ -497,8 +497,3 @@ public void saveEdges(List<Edge> edges) {
 ```
 
 还有一个问题，就是边的方向，这个也没办法进行变量替换了，只能做条件判断，好在边就三个方向，直接枚举判断就可以了。neo4j中没有条件判断语句，但是可以用 FOREACH trick实现。这个在前面 [有条件的创建数据（Conditional Data Creation）]() 有介绍过。不过非常麻烦，我还是建议直接创建两条单向关系简单直接。
-
-
-
-
-
