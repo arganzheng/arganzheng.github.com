@@ -83,21 +83,21 @@ Kafka Replication的数据流如下图所示：
 
 下面简单的说明一下：
 
-0、ISR
+##### 0、ISR
 
 In-Sync Replicas list，顾名思义，就是跟leader “保存同步” 的Replicas。“保持同步”的含义有些复杂，在0.9版本，broker的参数replica.lag.time.max.ms用来指定ISR的定义，如果leader在这么长时间没收到follower的拉取请求，或者在这么长时间内，follower没有fetch到leader的log end offset，就会被leader从ISR中移除。ISR是个很重要的指标，controller选取partition的leader replica时会使用它，leader需要维护ISR列表，因此leader选取ISR后会把结果记到Zookeeper上。
 
 在需要选举leader的场景下，leader和ISR是由controller决定的。在选出leader以后，ISR是leader决定。如果谁是leader和ISR只存在于ZK上，那么每个broker都需要在Zookeeper上监听它host的每个partition的leader和ISR的变化，这样效率比较低。如果不放在Zookeeper上，那么当controller fail以后，需要从所有broker上重新获得这些信息，考虑到这个过程中可能出现的问题，也不靠谱。所以leader和ISR的信息存在于Zookeeper上，但是在变更leader时，controller会先在Zookeeper上做出变更，然后再发送LeaderAndIsrRequest给相关的broker。这样可以在一个LeaderAndIsrRequest里包括这个broker上有变动的所有partition，即batch一批变更新信息给broker，更有效率。另外，在leader变更ISR时，会先在Zookeeper上做出变更，然后再修改本地内存中的ISR。
 
-1、Last Commited Offset
+##### 1、Last Commited Offset
 
 Consumer最后提交的位置，这个位置会保存在一个特殊的topic：`_consumer_offsets` 中。
 
-2、Current Position
+##### 2、Current Position
 
 Consumer当前读取的位置，但是还没有提交给broker。提交之后就变成Last Commit Offset。
 
-3、High Watermark(HW)
+##### 3、High Watermark(HW)
 
 这个offset是所有ISR的LEO的最小位置（minimum LEO across all the ISR of this partition），consumer不能读取超过HW的消息，因为这意味着读取到未完全同步（因此没有完全备份）的消息。换句话说就是：HW是所有ISR中的节点都已经复制完的消息.也是消费者所能获取到的消息的最大offset（注意，并不是所有replica都一定有这些消息，而只是ISR里的那些才肯定会有）。
 
@@ -107,7 +107,7 @@ Consumer当前读取的位置，但是还没有提交给broker。提交之后就
 
 由于HW是随时变化的，如果即时更新到Zookeeper，会带来效率的问题。而HW是如此重要，因此需要持久化，ReplicaManager就启动了单独的线程定期把所有的partition的HW的值记到文件中，即做highwatermark-checkpoint。
 
-4、Log End Offset(LEO)
+##### 4、Log End Offset(LEO)
 
 这个很好理解，就是当前的最新日志写入（或者同步）位置。
 
