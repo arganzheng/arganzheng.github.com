@@ -62,7 +62,7 @@ Kafka从0.8开始提供partition级别的replication，replication的数量可�
 
 **Propagate消息**
 
-Producer在发布消息到某个Partition时，先通过ZooKeeper找到该Partition的Leader，然后无论该Topic的Replication Factor为多少（也即该Partition有多少个Replica），Producer只将该消息发送到该Partition的Leader。Leader会将该消息写入其本地Log。每个Follower都从Leader pull数据。这种方式上，Follower存储的数据顺序与Leader保持一致。Follower在收到该消息并写入其Log后，向Leader发送ACK。一旦Leader收到了ISR中的所有Replica的ACK，该消息就被认为已经commit了，Leader将增加HW并且向Producer发送ACK。
+Producer在发布消息到某个Partition时，先通过ZooKeeper找到该Partition的Leader，然后无论该Topic的Replication Factor为多少（也即该Partition有多少个Replica），Producer只将该消息发送到该Partition的Leader。Leader会将该消息写入其本地Log。每个Follower都从Leader pull数据。这种方式上，Follower存储的数据顺序与Leader保持一致。Follower在收到该消息并写入其Log后，向Leader发送ACK。一旦Leader收到了 ISR (in-sync replicas) 中的所有Replica的ACK，该消息就被认为已经commit了，Leader将增加 HW( High-Watermark) 并且向Producer发送ACK。
 
 为了提高性能，每个Follower在接收到数据后就立马向Leader发送ACK，而非等到数据写入Log中。因此，对于已经commit的消息，Kafka只能保证它被存于多个Replica的内存中，而不能保证它们被持久化到磁盘中，也就不能完全保证异常发生后该条消息一定能被Consumer消费。但考虑到这种场景非常少见，可以认为这种方式在性能和数据持久化上做了一个比较好的平衡。在将来的版本中，Kafka会考虑提供更高的持久性。
 
@@ -73,6 +73,43 @@ Kafka Replication的数据流如下图所示：
 ![kafka-replication-dataflow](/img/in-post/kafka-replication-dataflow.png)
 
 关于这方面的内容比较多而且复杂，这里就不展开了，这篇文章写的很好，有兴趣的同学可以学习 [Kafka设计解析（二）：Kafka High Availability （上）](http://www.infoq.com/cn/articles/kafka-analysis-part-2)。
+
+
+#### Kafka的几个游标(offset)
+
+下面这张图非常简单明了的显示kafka的所有游标（https://rongxinblog.wordpress.com/2016/07/29/kafka-high-watermark/）:
+
+![Kafka的各种游标](/img/in-post/kafka-offsets.png)
+
+下面简单的说明一下：
+
+0、ISR
+
+In-Sync Replicas list，顾名思义，就是跟leader “保存同步” 的Replicas。“保持同步”的含义有些复杂，在0.9版本，broker的参数replica.lag.time.max.ms用来指定ISR的定义，如果leader在这么长时间没收到follower的拉取请求，或者在这么长时间内，follower没有fetch到leader的log end offset，就会被leader从ISR中移除。ISR是个很重要的指标，controller选取partition的leader replica时会使用它，leader需要维护ISR列表，因此leader选取ISR后会把结果记到Zookeeper上。
+
+在需要选举leader的场景下，leader和ISR是由controller决定的。在选出leader以后，ISR是leader决定。如果谁是leader和ISR只存在于ZK上，那么每个broker都需要在Zookeeper上监听它host的每个partition的leader和ISR的变化，这样效率比较低。如果不放在Zookeeper上，那么当controller fail以后，需要从所有broker上重新获得这些信息，考虑到这个过程中可能出现的问题，也不靠谱。所以leader和ISR的信息存在于Zookeeper上，但是在变更leader时，controller会先在Zookeeper上做出变更，然后再发送LeaderAndIsrRequest给相关的broker。这样可以在一个LeaderAndIsrRequest里包括这个broker上有变动的所有partition，即batch一批变更新信息给broker，更有效率。另外，在leader变更ISR时，会先在Zookeeper上做出变更，然后再修改本地内存中的ISR。
+
+1、Last Commited Offset
+
+Consumer最后提交的位置，这个位置会保存在一个特殊的topic：`_consumer_offsets` 中。
+
+2、Current Position
+
+Consumer当前读取的位置，但是还没有提交给broker。提交之后就变成Last Commit Offset。
+
+3、High Watermark(HW)
+
+这个offset是所有ISR的LEO的最小位置（minimum LEO across all the ISR of this partition），consumer不能读取超过HW的消息，因为这意味着读取到未完全同步（因此没有完全备份）的消息。换句话说就是：HW是所有ISR中的节点都已经复制完的消息.也是消费者所能获取到的消息的最大offset（注意，并不是所有replica都一定有这些消息，而只是ISR里的那些才肯定会有）。
+
+随着follower的拉取进度的即时变化，HW是随时在变化的。follower总是向leader请求自己已有messages的下一个offset开始的数据，因此当follower发出了一个fetch request，要求offset为A以上的数据，leader就知道了这个follower的log end offset至少为Ａ。此时就可以统计下ISR里的所有replica的LEO是否已经大于了HW，如果是的话，就提高HW。同时，leader在fetch本地消息给follower时，也会在返回给follower的reponse里附带自己的HW。这样follower也就知道了leader处的HW(但是在实现中，follower获取的只是读leader本地log时的HW，并不能保证是最新的HW)。但是leader和follower的HW是不同步的，follower处记的HW可能会落后于leader。
+
+**Hight Watermark Checkpoint**
+
+由于HW是随时变化的，如果即时更新到Zookeeper，会带来效率的问题。而HW是如此重要，因此需要持久化，ReplicaManager就启动了单独的线程定期把所有的partition的HW的值记到文件中，即做highwatermark-checkpoint。
+
+4、Log End Offset(LEO)
+
+这个很好理解，就是当前的最新日志写入（或者同步）位置。
 
 
 ### Kafka客户端
