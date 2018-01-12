@@ -1,6 +1,7 @@
 ---
 layout: post
 title: MPOOL共享内存
+tags: [BDB, 数据库]
 catalog: true
 ---
 

@@ -1,6 +1,7 @@
 ---
 title: Groovy元编程——使用invokeMethod和闭包构建DSL和Builder
 layout: post
+tags: [groovy, DSL]
 catalog: true
 ---
 

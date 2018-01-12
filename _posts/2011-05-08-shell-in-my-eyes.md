@@ -1,6 +1,7 @@
 ---
 layout: post
 title: shell语言之我见
+tags: [shell]
 catalog: true
 ---
 

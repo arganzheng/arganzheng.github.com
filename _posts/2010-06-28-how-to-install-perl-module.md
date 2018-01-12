@@ -1,6 +1,7 @@
 ---
 title: 如何安装perl模块
 layout: post
+tags: [perl]
 catalog: true
 ---
 

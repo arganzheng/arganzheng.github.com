@@ -1,6 +1,7 @@
 ---
 title: 从暴风影音事件反思DNS频率攻击漏洞
 layout: post
+tags: [安全]
 catalog: true
 ---
 

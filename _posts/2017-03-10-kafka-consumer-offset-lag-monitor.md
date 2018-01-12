@@ -1,6 +1,7 @@
 ---
 title: Kafka offset lag监控
 layout: post
+tags: [kafka, 消息队列]
 catalog: true
 ---
 

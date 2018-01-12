@@ -1,6 +1,7 @@
 ---
 layout: post
 title: shell如何实现ssh免密码登陆
+tags: [shell]
 catalog: true
 ---
 

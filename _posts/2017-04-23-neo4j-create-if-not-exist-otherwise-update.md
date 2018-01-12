@@ -497,3 +497,44 @@ public void saveEdges(List<Edge> edges) {
 ```
 
 还有一个问题，就是边的方向，这个也没办法进行变量替换了，只能做条件判断，好在边就三个方向，直接枚举判断就可以了。neo4j中没有条件判断语句，但是可以用 FOREACH trick实现。这个在前面 [有条件的创建数据（Conditional Data Creation）]() 有介绍过。不过非常麻烦，我还是建议直接创建两条单向关系简单直接。
+
+**NOTES**
+
+1、实际测试结果，500条边一个批次，平均耗时大概是6s；200条边一个batch，平均耗时大约是2s；如果是单条边插入的话，平均耗时是500ms（真心非常慢。。），所以，批量更新确实是非常有必要的。
+
+2、另外，并发批量更新有个问题要注意，就是这些批次的顶点都会被锁住，如果这些顶点有其他关系在并发更新，则后面的更新会堵塞等待，甚至超时失败。从日志可以很明显的看出来：
+
+```
+[ERROR] 2017-05-11 17:56:57.046 [pool-4-thread-5] EdgeReadWriteLoader$EdgeLoaderReadRunner - read file error for line 8291400, file: /home/work/testData/edge/
+edgeak
+org.neo4j.driver.v1.exceptions.TransientException: LockClient[34331589] can't wait on resource RWLock[NODE(49673282), hash=471699781] since => LockClient[3433
+1589] <-[:HELD_BY]- RWLock[NODE(51796783), hash=2087859191] <-[:WAITING_FOR]- LockClient[34331507] <-[:HELD_BY]- RWLock[NODE(49673282), hash=471699781]
+        at org.neo4j.driver.internal.net.SocketResponseHandler.handleFailureMessage(SocketResponseHandler.java:80) ~[neo4j-java-driver-1.4.4.jar:1.4.4-e82457a
+30ab1559d9dedfd9bbda9390bbe0b2920]
+        at org.neo4j.driver.internal.messaging.PackStreamMessageFormatV1$Reader.unpackFailureMessage(PackStreamMessageFormatV1.java:470) ~[neo4j-java-driver-1
+.4.4.jar:1.4.4-e82457a30ab1559d9dedfd9bbda9390bbe0b2920]
+        at org.neo4j.driver.internal.messaging.PackStreamMessageFormatV1$Reader.read(PackStreamMessageFormatV1.java:431) ~[neo4j-java-driver-1.4.4.jar:1.4.4-e
+82457a30ab1559d9dedfd9bbda9390bbe0b2920]
+        at org.neo4j.driver.internal.net.SocketClient.receiveOne(SocketClient.java:191) ~[neo4j-java-driver-1.4.4.jar:1.4.4-e82457a30ab1559d9dedfd9bbda9390bbe
+0b2920]
+        at org.neo4j.driver.internal.net.SocketClient.receiveAll(SocketClient.java:185) ~[neo4j-java-driver-1.4.4.jar:1.4.4-e82457a30ab1559d9dedfd9bbda9390bbe
+0b2920]
+        at org.neo4j.driver.internal.net.SocketConnection.receiveAll(SocketConnection.java:203) ~[neo4j-java-driver-1.4.4.jar:1.4.4-e82457a30ab1559d9dedfd9bbd
+a9390bbe0b2920]
+        at org.neo4j.driver.internal.net.SocketConnection.sync(SocketConnection.java:157) ~[neo4j-java-driver-1.4.4.jar:1.4.4-e82457a30ab1559d9dedfd9bbda9390b
+be0b2920]
+        at org.neo4j.driver.internal.net.ConcurrencyGuardingConnection.sync(ConcurrencyGuardingConnection.java:137) ~[neo4j-java-driver-1.4.4.jar:1.4.4-e82457
+a30ab1559d9dedfd9bbda9390bbe0b2920]
+        at org.neo4j.driver.internal.net.pooling.PooledSocketConnection.sync(PooledSocketConnection.java:157) ~[neo4j-java-driver-1.4.4.jar:1.4.4-e82457a30ab1
+559d9dedfd9bbda9390bbe0b2920]
+        at org.neo4j.driver.internal.NetworkSession.closeCurrentConnection(NetworkSession.java:370) ~[neo4j-java-driver-1.4.4.jar:1.4.4-e82457a30ab1559d9dedfd
+9bbda9390bbe0b2920]
+        at org.neo4j.driver.internal.NetworkSession.syncAndCloseCurrentConnection(NetworkSession.java:349) ~[neo4j-java-driver-1.4.4.jar:1.4.4-e82457a30ab1559
+d9dedfd9bbda9390bbe0b2920]
+        at org.neo4j.driver.internal.NetworkSession.close(NetworkSession.java:169) ~[neo4j-java-driver-1.4.4.jar:1.4.4-e82457a30ab1559d9dedfd9bbda9390bbe0b292
+0]
+        at me.arganzheng.study.graphsearch.neo4j.BoltCypherExecutor.query(BoltCypherExecutor.java:41) ~[graph-service-1.0-SNAPSHOT.jar:?]
+        at me.arganzheng.study.graphsearch.neo4j.Neo4jGraphService.saveEdges(Neo4jGraphService.java:289) ~[graph-service-1.0-SNAPSHOT.jar:?]
+        ...
+```
+

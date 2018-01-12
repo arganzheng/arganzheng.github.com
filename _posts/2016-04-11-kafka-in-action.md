@@ -1,6 +1,7 @@
 ---
 title: Kafka实战
 layout: post
+tags: [kafka, 消息队列]
 catalog: true
 ---
 
@@ -18,13 +19,18 @@ Kafka介绍
 
 ### Kafka基本概念
 
-Broker：Kafka集群包含一个或多个服务器，这种服务器被称为broker。
-Topic：每条发布到Kafka集群的消息都有一个类别，这个类别被称为Topic。
-Partition：Partition是物理上的概念，每个Topic包含一个或多个Partition。
-Producer：负责发布消息到Kafka broker。
-Consumer：消息消费者，向Kafka broker读取消息的客户端。
-Consumer Group：每个Consumer属于一个特定的Consumer Group（可为每个Consumer指定group name，若不指定group name则属于默认的group）。
-Zookeeper: 无论是kafka集群，还是Producer和Consumer，都依赖于Zookeeper来保证系统可用性以及保存一些meta信息。
+* Broker：Kafka集群包含一个或多个服务器，这种服务器被称为broker。
+* Topic：每条发布到Kafka集群的消息都有一个类别，这个类别被称为Topic。
+* Partition：Partition是物理上的概念，每个Topic包含一个或多个Partition。
+* Producer：负责发布消息到Kafka broker。
+* Consumer：消息消费者，向Kafka broker读取消息的客户端。
+* Consumer Group：每个Consumer属于一个特定的Consumer Group（可为每个Consumer指定group name，若不指定group name则属于默认的group）。
+* Zookeeper: 无论是kafka集群，还是Producer和Consumer，都依赖于Zookeeper来保证系统可用性以及保存一些meta信息。
+
+
+**TIPS**
+
+如果跟ES对应，Broker相当于Node，Topic相当于Index。Partition相当于shard。
 
 ### Kafka的特点
 

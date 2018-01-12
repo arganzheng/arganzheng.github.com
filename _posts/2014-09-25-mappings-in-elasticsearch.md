@@ -6,7 +6,7 @@ catalog: true
 ---
 
 
-在ES中，每个文档都会归属到一个类型(type)下。这个类型相当于关系型数据库中的表结构。所以每个类型有类似于DB一样的schema定义，称之为mapping。mapping定义了type中的fields信息：
+在ES中，每个文档都会归属到一个类型下(type，事实上是index下。ES6.0之后废除type的概念)。这个类型相当于关系型数据库中的表结构。所以每个类型有类似于DB一样的schema定义，称之为mapping。mapping定义了type中的fields信息：
 
 * datatype for each field，具体参见前面的文章[ElasticSearch的数据类型](http://arganzheng.life/datatype-in-elasticsearch.html)。
 * how the field should be handled by ES
@@ -119,4 +119,9 @@ catalog: true
 但是这个会增加索引的大小和构建速度，因为一个词被拆分成多个了。
 
 [controlling analysis-default analyzers](http://www.elasticsearch.org/guide/en/elasticsearch/guide/current/_controlling_analysis.html#_default_analyzers)
+
+参考文章
+-------
+
+1. [Elasticsearch Reference [6.1] » Mapping](https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping.html)
 

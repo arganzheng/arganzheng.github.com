@@ -1,6 +1,7 @@
 ---
 title: Java网络IO编程
 layout: post
+tags: [java]
 catalog: true
 ---
 
