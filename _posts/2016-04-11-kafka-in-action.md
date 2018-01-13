@@ -44,9 +44,9 @@ Kafka介绍
 		* `queue.buffering.max.ms`: 在异步模式下，消息被缓存的最长时间，当到达该时间后消息被开始批量发送；若在异步模式下同时配置了缓存数据的最大值`batch.num.messages`，则达到这两个阈值的任何一个就会触发消息批量发送。默认是1000ms。
 		* `queue.buffering.max.messages`: 在异步模式下，可以被缓存到队列中的未发送的最大消息条数。默认是10000。
 		* `queue.enqueue.timeout.ms`：
-			* 0: 表示当队列没满时直接入队，满了则立即丢弃
-			* <0: 表示无条件阻塞且不丢弃
-			* >0: 表示阻塞达到该值时长抛出`QueueFullException`异常
+			* `=0`: 表示当队列没满时直接入队，满了则立即丢弃
+			* `<0`: 表示无条件阻塞且不丢弃
+			* `>0``: 表示阻塞达到该值时长抛出`QueueFullException`异常
 		* `batch.num.messages`: Kafka支持批量消息(Batch)向broker的特定分区发送消息，批量大小由属性`batch.num.messages`设置，表示每次批量发送消息的最大消息数，当生产者采用同步模式发送时改配置项将失效。默认是200。
 		* `request.timeout.ms`: 在需要acks时，生产者等待broker应答的超时时间。默认是1500ms。
 		* `send.buffer.bytes`: Socket发送缓冲区大小。默认是100kb。
@@ -58,10 +58,10 @@ Kafka介绍
 	* 每个消费者也有一个全局唯一的id，可通过配置项`client.id`指定，如果不指定，Kafka会自动为该消费者生成一个格式为`${groupId}-${hostName}-${timestamp}-${UUID前8个字符}`的全局唯一id。
 	* Kafka提供了两种提交consumer_offset的方式：Kafka自动提交 或者 客户端调用KafkaConsumer相应API手动提交。
 		* 自动提交: 并不是定时周期性提交，而是在一些特定事件发生时才检测与上一次提交的时间间隔是否超过`auto.commit.interval.ms`。
-			* `enable.auto.commit`
+			* `enable.auto.commit=true`
 			* `auto.commit.interval.ms` 
 		* 手动提交
-			* `enable.auto.commit`
+			* `enable.auto.commit=false`
 			* `commitSync()`: 同步提交
 			* `commitAsync()`: 异步提交
 * ISR: Kafka在ZK中动态维护了一个ISR(In-Sync Replica)，即保持同步的副本列表，该列表中保存的是与leader副本保持消息同步的所有副本对应的brokerId。如果一个副本宕机或者落后太多，则该follower副本将从ISR列表中移除。
