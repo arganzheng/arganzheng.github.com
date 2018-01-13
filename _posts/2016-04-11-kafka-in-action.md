@@ -21,16 +21,85 @@ Kafka介绍
 
 * Broker：Kafka集群包含一个或多个服务器，这种服务器被称为broker。
 * Topic：每条发布到Kafka集群的消息都有一个类别，这个类别被称为Topic。
-* Partition：Partition是物理上的概念，每个Topic包含一个或多个Partition。
-* Producer：负责发布消息到Kafka broker。
-* Consumer：消息消费者，向Kafka broker读取消息的客户端。
-* Consumer Group：每个Consumer属于一个特定的Consumer Group（可为每个Consumer指定group name，若不指定group name则属于默认的group）。
-* Zookeeper: 无论是kafka集群，还是Producer和Consumer，都依赖于Zookeeper来保证系统可用性以及保存一些meta信息。
+* Message: 消息是Kafka通讯的基本单位，有一个固定长度的消息头和一个可变长度的消息体构成。在Java客户端中又称之为记录(Record)。
+* Partition：
+	* Partition（分区）是物理上的概念，每个Topic包含一个或多个Partition。
+	* 每个分区由一系列有序的不可变的消息组成，是一个有序队列。
+	* 每个分区在物理上对应为一个文件夹，分区的命名规则为`${topicName}-{partitionId}`，如`__consumer_offsets-0`。
+	* 分区目录下存储的是该分区的日志段，包括日志数据文件和两个索引文件。
+	* 每条消息被追加到相应的分区中，是顺序写磁盘，因此效率非常高，这也是Kafka高吞吐率的一个重要保证。
+	* kafka只能保证一个分区内的消息的有序性，并不能保证跨分区消息的有序性。
+* LogSegment: 
+	* 日志段是Kafka日志对象分片的最小单位。一个日志段对应磁盘上一个具体的日志文件和两个索引文件。
+	* 日志文件是以 `.log` 为文件后缀名的数据文件，用于保存消息实际数据；两个索引文件分别以`.index`和`.timeindex`作为文件名后缀，分别用于表示消息偏移量索引文件和消息时间戳索引文件。
+* Producer：
+	* 负责发布消息到Kafka broker。
+	* 生产者的一些重要的配置项：
+		* `request.required.acks`: Kafka为生产者提供了三种消息确认机制(ACK)，用于配置broker接到消息后向生产者发送确认信息，以便生产者根据ACK进行相应的处理，该机制通过属性`request.required.acks`设置，取值可以为0, -1, 1，默认是1。
+			* acks=0: 生产者不需要等待broker返回确认消息，而连续发送消息。
+			* acks=1: 生产者需要等待Leader副本已经成功将消息写入日志文件中。这种方式在一定程度上降低了数据丢失的可能性，但仍无法保证数据一定不会丢失。因为没有等待follower副本同步完成。
+			* acks=-1: Leader副本和所有的ISR列表中的副本都完成数据存储时才会向生产者发送确认消息。为了保证数据不丢失，需要保证同步的副本至少大于1，通过参数`min.insync.replicas`设置，当同步副本数不足次配置项时，生产者会抛出异常。但是这种方式同时也影响了生产者发送消息的速度以及吞吐率。
+		* `message.send.max.retries`: 生产者在放弃该消息前进行重试的次数，默认是3次。
+		* `retry.backoff.ms`: 每次重试之前等待的时间，单位是ms，默认是100。 
+		* `queue.buffering.max.ms`: 在异步模式下，消息被缓存的最长时间，当到达该时间后消息被开始批量发送；若在异步模式下同时配置了缓存数据的最大值`batch.num.messages`，则达到这两个阈值的任何一个就会触发消息批量发送。默认是1000ms。
+		* `queue.buffering.max.messages`: 在异步模式下，可以被缓存到队列中的未发送的最大消息条数。默认是10000。
+		* `queue.enqueue.timeout.ms`：
+			* 0: 表示当队列没满时直接入队，满了则立即丢弃
+			* <0: 表示无条件阻塞且不丢弃
+			* >0: 表示阻塞达到该值时长抛出`QueueFullException`异常
+		* `batch.num.messages`: Kafka支持批量消息(Batch)向broker的特定分区发送消息，批量大小由属性`batch.num.messages`设置，表示每次批量发送消息的最大消息数，当生产者采用同步模式发送时改配置项将失效。默认是200。
+		* `request.timeout.ms`: 在需要acks时，生产者等待broker应答的超时时间。默认是1500ms。
+		* `send.buffer.bytes`: Socket发送缓冲区大小。默认是100kb。
+		* `topic.metadata.refresh.interval.ms`: 生产者定时请求更新主题元数据的时间间隔。若设置为0，则在每个消息发送后都会去请求更新数据。默认是5min。
+		* `client.id`: 生产者id，主要方便业务用来追踪调用定位问题。默认是`console-producer`。
+* Consumer & Consumer Group:
+	* 消息消费者，向Kafka broker读取消息的客户端。
+	* 每个消费者都属于一个特定的Consumer Group，可通过`group.id`配置项指定，若不指定group name则默认为`test-consumer-group`。
+	* 每个消费者也有一个全局唯一的id，可通过配置项`client.id`指定，如果不指定，Kafka会自动为该消费者生成一个格式为`${groupId}-${hostName}-${timestamp}-${UUID前8个字符}`的全局唯一id。
+	* Kafka提供了两种提交consumer_offset的方式：Kafka自动提交 或者 客户端调用KafkaConsumer相应API手动提交。
+		* 自动提交: 并不是定时周期性提交，而是在一些特定事件发生时才检测与上一次提交的时间间隔是否超过`auto.commit.interval.ms`。
+			* `enable.auto.commit`
+			* `auto.commit.interval.ms` 
+		* 手动提交
+			* `enable.auto.commit`
+			* `commitSync()`: 同步提交
+			* `commitAsync()`: 异步提交
+* ISR: Kafka在ZK中动态维护了一个ISR(In-Sync Replica)，即保持同步的副本列表，该列表中保存的是与leader副本保持消息同步的所有副本对应的brokerId。如果一个副本宕机或者落后太多，则该follower副本将从ISR列表中移除。
+* Zookeeper: 
+	* Kafka利用ZK保存相应的元数据信息，包括：broker信息，Kafka集群信息，旧版消费者信息以及消费偏移量信息，主题信息，分区状态信息，分区副本分片方案信息，动态配置信息，等等。
+	* Kafka在zk中注册节点说明：
+		* /consumers: 旧版消费者启动后会在ZK的该节点下创建一个消费者的节点
+		* /brokers/seqid: 辅助生成的brokerId，当用户没有配置`broker.id`时，ZK会自动生成一个全局唯一的id。
+		* /brokers/topics: 每创建一个主题就会在该目录下创建一个与该主题同名的节点。
+		* /borkers/ids: 当Kafka每启动一个KafkaServer时就会在该目录下创建一个名为`{broker.id}`的子节点
+		* /config/topics: 存储动态修改主题级别的配置信息
+		* /config/clients: 存储动态修改客户端级别的配置信息
+		* /config/changes: 动态修改配置时存储相应的信息
+		* /admin/delete_topics: 在对主题进行删除操作时保存待删除主题的信息
+		* /cluster/id: 保存集群id信息
+		* /controller: 保存控制器对应的brokerId信息等
+		* /isr_change_notification: 保存Kafka副本ISR列表发生变化时通知的相应路径
+	* Kafka在启动或者运行过程中会在ZK上创建相应的节点来保存元数据信息，通过监听机制在这些节点注册相应的监听器来监听节点元数据的变化。
 
 
 **TIPS**
 
-如果跟ES对应，Broker相当于Node，Topic相当于Index。Partition相当于shard。
+如果跟ES对应，Broker相当于Node，Topic相当于Index，Message相对于Document，而Partition相当于shard。LogSegment相对于ES的Segment。
+
+
+**消费者平衡过程**
+
+消费者平衡(Consumer Rebalancing)是指的是消费者重新加入消费组，并重新分配分区给消费者的过程。在以下情况下会引起消费者平衡操作:
+
+* 新的消费者加入消费组
+* 当前消费者从消费组退出（不管是异常退出还是正常关闭）
+* 消费者取消对某个主题的订阅
+* 订阅主题的分区增加
+* broker宕机新的协调器当选
+* 当消费者在`${session.timeout.ms}`时间内还没有发送心跳请求，组协调器认为消费者已退出。
+
+消费者自动平衡操作提供了消费者的高可用和高可扩展性，这样当我们增加或者减少消费者或者分区数的时候，不需要关心底层消费者和分区的分配关系。但是需要注意的是，在rebalancing过程中，由于需要给消费者重新分配分区，所以会出现在一个短暂时间内消费者不能拉取消息的状况。
+
 
 ### Kafka的特点
 
@@ -58,7 +127,21 @@ Kafka从0.8开始提供partition级别的replication，replication的数量可�
 
 #### Leader Election
 
-引入Replication之后，同一个Partition可能会有多个Replica，而这时需要在这些Replication之间选出一个Leader，Producer和Consumer只与这个Leader交互，其它Replica作为Follower从Leader中复制数据。注意，只有Leader负责数据读写，Follower只向Leader顺序Fetch数据（N条通路），并不提供任何读写服务，系统更加简单且高效。
+引入Replication之后，同一个Partition可能会有多个副本（Replica），而这时需要在这些副本之间选出一个Leader，Producer和Consumer只与这个Leader副本交互，其它Replica作为Follower从Leader中复制数据。注意，只有Leader负责数据读写，Follower只向Leader顺序Fetch数据（N条通路），并不提供任何读写服务，系统更加简单且高效。
+
+**思考** 为什么follower副本不提供读写，只做冷备？
+
+follwer副本不提供写服务这个比较好理解，因为如果follower也提供写服务的话，那么就需要在所有的副本之间相互同步。n个副本就需要 nxn 条通路来同步数据，如果采用异步同步的话，数据的一致性和有序性是很难保证的；而采用同步方式进行数据同步的话，那么写入延迟其实是放大n倍的，反而适得其反。
+
+那么为什么不让follower副本提供读服务，减少leader副本的读压力呢？这个除了因为同步延迟带来的数据不一致之外，不同于其他的存储服务（如ES，MySQL），Kafka的读取本质上是一个有序的消息消费，消费进度是依赖于一个叫做offset的偏移量，这个偏移量是要保存起来的。如果多个副本进行读负载均衡，那么这个偏移量就不好确定了。
+
+
+**TIPS** 
+
+Kafka的leader副本类似于ES的primary shard，follower副本相对于ES的replica。ES也是一个index有多个shard（相对于Kafka一个topic有多个partition），shard又分为primary shard和replicition shard，其中primary shard用于提供读写服务（sharding方式跟MySQL非常类似：`shard = hash(routing) % number_of_primary_shards`。但是ES引入了协调节点(coordinating node) 的角色，实现对客户端透明。），而replication shard只提供读服务（这里跟Kafka一样，ES会等待relication shard返回成功才最终返回给client）。
+
+有传统MySQL分库分表经验的同学一定会觉得这个过程是非常相似的，就是一个 `sharding + replication` 的数据架构，只是通过client(SDK)或者coordinator对你透明了而已。
+
 
 **Propagate消息**
 
@@ -75,7 +158,7 @@ Kafka Replication的数据流如下图所示：
 关于这方面的内容比较多而且复杂，这里就不展开了，这篇文章写的很好，有兴趣的同学可以学习 [Kafka设计解析（二）：Kafka High Availability （上）](http://www.infoq.com/cn/articles/kafka-analysis-part-2)。
 
 
-#### Kafka的几个游标(offset)
+#### Kafka的几个游标(偏移量/offset)
 
 下面这张图非常简单明了的显示kafka的所有游标（https://rongxinblog.wordpress.com/2016/07/29/kafka-high-watermark/）:
 
@@ -160,6 +243,7 @@ kafka读取消息其实是基于offset来进行的，如果offset出错，就可
 > Kafka allows specifying the position using seek(TopicPartition, long) to specify the new position. Special methods for seeking to the earliest and latest offset the server maintains are also available ( seekToBeginning(TopicPartition...) and seekToEnd(TopicPartition...) respectively).
 
 参考文档: [Kafka Consumer Offset Management](http://www.xmsxmx.com/kafka-consumer-offset-management/)
+
 
 
 部署和配置
@@ -255,6 +339,26 @@ Kafka Manager主要是提供管理界面，监控的话还要依赖于其他的�
 2. [Kafka Offset Monitor](https://quantifind.com/KafkaOffsetMonitor/): A little app to monitor the progress of kafka consumers and their lag wrt the queue.
 
 这两个应用的目的都是监控Kafka的offset。
+
+
+### 删除主题
+
+删除Kakfa主题，一般有如下两种方式：
+
+1、手动删除各个节点`${log.dir}`目录下该主题分区文件夹，同时登陆ZK客户端删除待删除主题对应的节点，主题元数据保存在`/brokers/topics`和`/config/topics`节点下。
+
+2、执行`kafka-topics.sh`脚本执行删除，若希望通过该脚本彻底删除主题，则需要保证在启动Kafka时加载的 `server.properties` 文件中配置 `delete.topic.enable=true`，该配置项默认为false。否则执行该脚本并未真正删除topic，而是在ZK的`/admin/delete_topics`目录下创建一个与该待删除主题同名的topic，将该主题标记为删除状态而已。
+
+`kafka-topic` --delete --zookeeper server-1:2181,server-2:2181 --topic test`
+
+执行结果：
+
+```
+Topic test is marked for deletion.
+Note: This will have no impact if delete.topic.enable is not set to true.
+```
+
+此时若希望能够彻底删除topic，则需要通过手动删除相应文件及节点。当该配置项为true时，则会将该主题对应的所有文件目录以及元数据信息删除。
 
 
 ### 过期数据自动清除
