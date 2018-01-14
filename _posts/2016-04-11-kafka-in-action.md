@@ -107,12 +107,59 @@ Kafka介绍
 	* Kafka在启动或者运行过程中会在ZK上创建相应的节点来保存元数据信息，通过监听机制在这些节点注册相应的监听器来监听节点元数据的变化。
 
 
-**TIPS**
+**TIPS** 
 
 如果跟ES对应，Broker相当于Node，Topic相当于Index，Message相对于Document，而Partition相当于shard。LogSegment相对于ES的Segment。
 
+#### 如何查看消息内容（Dump Log Segments）
 
-**消费者平衡过程**
+我们在使用kafka的过程中有时候可以需要查看我们生产的消息的各种信息，这些消息是存储在kafka的日志文件中的。由于日志文件的特殊格式，我们是无法直接查看日志文件中的信息内容。Kafka提供了一个命令，可以将二进制分段日志文件转储为字符类型的文件：
+
+```
+$ bin/kafka-run-class.sh kafka.tools.DumpLogSegments 
+Parse a log file and dump its contents to the console, useful for debugging a seemingly corrupt log segment.
+Option                                  Description                            
+------                                  -----------                            
+--deep-iteration                        使用深迭代而不是浅迭代                           
+--files <file1, file2, ...>             必填。输入的日志段文件，逗号分隔
+--key-decoder-class                     自定义key值反序列化器。必须实现`kafka.serializer.Decoder` trait。所在jar包需要放在`kafka/libs`目录下。（默认是`kafka.serializer.StringDecoder`）。          
+--max-message-size <Integer: size>      消息最大的字节数(默认为5242880)                            
+--print-data-log                        同时打印出日志消息              
+--value-decoder-class                   自定义value值反序列化器。必须实现`kafka.serializer.Decoder` trait。所在jar包需要放在`kafka/libs`目录下。（默认是`kafka.serializer.StringDecoder`）。                                            
+--verify-index-only                     只是验证索引不打印索引内容
+```                                          
+
+```
+$ bin/kafka-run-class.sh kafka.tools.DumpLogSegments --files /tmp/kafka-logs/test-0/00000000000000000000.log --print-data-log  
+Dumping /tmp/kafka-logs/test-0/00000000000000000000.log
+Starting offset: 0
+offset: 0 position: 0 CreateTime: 1498104812192 isvalid: true payloadsize: 11 magic: 1 compresscodec: NONE crc: 3271928089 payload: hello world
+offset: 1 position: 45 CreateTime: 1498104813269 isvalid: true payloadsize: 14 magic: 1 compresscodec: NONE crc: 242183772 payload: hello everyone
+```
+
+注意：这里 `--print-data-log` 是表示查看消息内容的，不加此项只能看到Header，看不到payload。
+
+也可以用来查看index文件：
+
+```
+$ bin/kafka-run-class.sh kafka.tools.DumpLogSegments --files /tmp/kafka-logs/test-0/00000000000000000000.index  --print-data-log  
+Dumping /tmp/kafka-logs/test-0/00000000000000000000.index
+offset: 0 position: 0
+```
+
+timeindex文件也是OK的：
+
+```
+$ bin/kafka-run-class.sh kafka.tools.DumpLogSegments --files /tmp/kafka-logs/test-0/00000000000000000000.timeindex  --print-data-log  
+Dumping /tmp/kafka-logs/test-0/00000000000000000000.timeindex
+timestamp: 1498104813269 offset: 1
+Found timestamp mismatch in :/tmp/kafka-logs/test-0/00000000000000000000.timeindex
+  Index timestamp: 0, log timestamp: 1498104812192
+Found out of order timestamp in :/tmp/kafka-logs/test-0/00000000000000000000.timeindex
+  Index timestamp: 0, Previously indexed timestamp: 1498104813269
+```
+
+#### 消费者平衡过程
 
 消费者平衡(Consumer Rebalancing)是指的是消费者重新加入消费组，并重新分配分区给消费者的过程。在以下情况下会引起消费者平衡操作:
 
@@ -257,18 +304,59 @@ Consumer:
 
 ### Kafka的offset管理
 
-kafka读取消息其实是基于offset来进行的，如果offset出错，就可能出现重复读取消息或者跳过未读消息。在0.8.2之前，kafka是将offset保存在ZooKeeper中，但是我们知道zk的写操作是很昂贵的，而且不能线性拓展，频繁的写入zk会导致性能瓶颈。所以在0.8.2引入了[Offset Management](http://www.infoq.com/cn/articles/kafkaesque-days-at-linkedin-part01)，将这个offset保存在一个 compacted kafka topic(_consumer_offsets)，Consumer通过发送OffsetCommitRequest请求到指定broker（偏移量管理者）提交偏移量。这个请求中包含一系列分区以及在这些分区中的消费位置（偏移量）。偏移量管理者会追加键值（key－value）形式的消息到一个指定的topic（__consumer_offsets）。key是由consumerGroup-topic-partition组成的，而value是偏移量。同时为了提供性能，内存中也会维护一份最近的记录，这样在指定key的情况下能快速的给出OffsetFetchRequests而不用扫描全部偏移量topic日志。如果偏移量管理者因某种原因失败，新的broker将会成为偏移量管理者并且通过扫描偏移量topic来重新生成偏移量缓存。
+kafka读取消息其实是基于offset来进行的，如果offset出错，就可能出现重复读取消息或者跳过未读消息。在0.8.2之前，kafka是将offset保存在ZooKeeper中，但是我们知道zk的写操作是很昂贵的，而且不能线性拓展，频繁的写入zk会导致性能瓶颈。所以在0.8.2引入了[Offset Management](http://www.infoq.com/cn/articles/kafkaesque-days-at-linkedin-part01)，将这个offset保存在一个 compacted kafka topic(`_consumer_offsets`)，Consumer通过发送OffsetCommitRequest请求到指定broker（偏移量管理者）提交偏移量。这个请求中包含一系列分区以及在这些分区中的消费位置（偏移量）。偏移量管理者会追加键值（key－value）形式的消息到一个指定的topic（`__consumer_offsets`）。key是由consumerGroup-topic-partition组成的，而value是偏移量。同时为了提供性能，内存中也会维护一份最近的记录，这样在指定key的情况下能快速的给出OffsetFetchRequests而不用扫描全部偏移量topic日志。如果偏移量管理者因某种原因失败，新的broker将会成为偏移量管理者并且通过扫描偏移量topic来重新生成偏移量缓存。
+
+#### 如何查看消费偏移量
+
+0.9版本之前的Kafka提供了`kafka-consumer-offset-checker.sh`脚本，可以用来查看某个消费组对一个或者多个topic的消费者消费偏移量情况，该脚本调用的是`kafka.tools.Consumer.OffsetChecker`。0.9版本之后已不再建议使用该脚本了，而是建议使用`kafka-consumer-groups.sh`脚本，该脚本调用的是`kafka.admin.ConsumerGroupCommand`。这个脚本其实是对消费组进行管理，不只是查看消费组的偏移量。这里只介绍最新的`kafka-consumer-groups.sh`脚本使用。
+
+用ConsumerGroupCommand工具，我们可以使用list，describe，或delete消费者组。
+
+例如，要列出所有主题中的所有消费组信息，使用`list`参数：
+
+```
+$ bin/kafka-consumer-groups.sh --bootstrap-server broker1:9092 --list
+
+test-consumer-group
+```
+
+要查看某个消费组当前的消费偏移量则使用`describe`参数:
+
+```
+$ bin/kafka-consumer-groups.sh --bootstrap-server broker1:9092 --describe --group test-consumer-group
+
+GROUP                          TOPIC                          PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG             OWNER
+test-consumer-group            test-foo                       0          1               3               2               consumer-1_/127.0.0.1
+```
+
+**NOTES** 
+
+该脚本只支持删除不包括任何消费组的消费组，而且只能删除消费组为老版本消费者对应的消费组（即分组元数据存储在zookeeper的才有效），因为这个脚本删除操作的本质就是删除ZK中对应消费组的节点及其子节点而已。
 
 
-**TIPS** 如何修改offset?
+#### 如何管理消费偏移量
 
-有些时候我们需要人为的指定offset，比如跳过某些消息，或者redo某些消息。在0.8.2之前，offset是存放在ZK中，只要用ZKCli操作ZK就可以了。但是在0.8.2之后，offset默认是存放在kafka的__consumer_offsets队列中，只能通过API修改了:
+上面介绍了通过脚本工具方式查询Kafka消费偏移量。事实上，我们也可以通过API的方式查询消费偏移量。
+
+Kafka消费者API提供了两个方法用于查询消费者消费偏移量的操作：
+
+1. committed(TopicPartition partition): 该方法返回一个`OffsetAndMetadata`对象，通过它可以获取指定分区已提交的偏移量。
+2. position(TopicPartition partition): 该方法返回下一次拉取位置的position。
+
+除了查看消费偏移量，有些时候我们需要人为的指定offset，比如跳过某些消息，或者redo某些消息。在0.8.2之前，offset是存放在ZK中，只要用ZKCli操作ZK就可以了。但是在0.8.2之后，offset默认是存放在kafka的__consumer_offsets队列中，只能通过API修改了:
 
 > [Class KafkaConsumer<K,V>](https://kafka.apache.org/090/javadoc/index.html?org/apache/kafka/clients/consumer/KafkaConsumer.html)
 > Kafka allows specifying the position using seek(TopicPartition, long) to specify the new position. Special methods for seeking to the earliest and latest offset the server maintains are also available ( seekToBeginning(TopicPartition...) and seekToEnd(TopicPartition...) respectively).
 
 参考文档: [Kafka Consumer Offset Management](http://www.xmsxmx.com/kafka-consumer-offset-management/)
 
+Kafka消费者API提供了重置消费偏移量的方法：
+
+1. seek(TopicPartition partition, long offset): 该方法用于将消费起始位置重置到指定的偏移量位置。
+2. seekToBeginning(): 从消息起始位置开始消费，对应偏移量重置策略 `auto.offset.reset=earliest`。
+3. seekToEnd(): 从最新消息对应的位置开始消费，也就是说等待新的消息写入后才开始拉取，对应偏移量重置策略是 `auto.offset.reset=latest`。
+
+当然前提你得知道要重置的offset的位置。一种方式就是根据时间戳获取对应的offset。再seek过去。
 
 
 部署和配置
