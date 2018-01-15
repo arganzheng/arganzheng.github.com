@@ -2,7 +2,7 @@
 title: 图存储引擎学习笔记
 layout: post
 catalog: true
-tags: [图数据库, Aerospike]
+tags: [图数据库]
 category: [技术]
 ---
 

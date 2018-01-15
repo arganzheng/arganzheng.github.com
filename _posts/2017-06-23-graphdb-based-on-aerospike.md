@@ -3,7 +3,7 @@ layout: post
 title: 基于Aerospike实现一个分布式图数据库
 category: [技术]
 catalog: true
-tags: [图数据库, Aerospike]
+tags: [图数据库, aerospike]
 ---
 
 
