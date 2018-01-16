@@ -148,8 +148,8 @@ GET /twitter/tweet/_search?scroll=1m
 scroll特别适合做全表扫描，ES的reindex接口内部就是使用scroll机制实现的。
 
 
-解决方案2：服务端缓存——Scan and scroll API
----------------------------------------
+解决方案2：Search After
+----------------------
 
 Scroll API相对于from+size方式当然是性能好很多，但是也有如下问题：
 
