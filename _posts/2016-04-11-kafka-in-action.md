@@ -77,9 +77,10 @@ Kafka介绍
 		* `send.buffer.bytes`: Socket发送缓冲区大小。默认是100kb。
 		* `topic.metadata.refresh.interval.ms`: 生产者定时请求更新主题元数据的时间间隔。若设置为0，则在每个消息发送后都会去请求更新数据。默认是5min。
 		* `client.id`: 生产者id，主要方便业务用来追踪调用定位问题。默认是`console-producer`。
-* Consumer & Consumer Group:
-	* 消息消费者，向Kafka broker读取消息的客户端。
-	* 每个消费者都属于一个特定的Consumer Group，可通过`group.id`配置项指定，若不指定group name则默认为`test-consumer-group`。
+* Consumer & Consumer Group & Group Coordinator:
+	* Consumer: 消息消费者，向Kafka broker读取消息的客户端。Kafka0.9版本发布了基于Java重新写的新的消费者，它不再依赖scala运行时环境和zookeeper。
+	* Consumer Group: 每个消费者都属于一个特定的Consumer Group，可通过`group.id`配置项指定，若不指定group name则默认为`test-consumer-group`。
+	* Group Coordinator: 对于每个Consumer group，会选择一个brokers作为消费组的协调者。
 	* 每个消费者也有一个全局唯一的id，可通过配置项`client.id`指定，如果不指定，Kafka会自动为该消费者生成一个格式为`${groupId}-${hostName}-${timestamp}-${UUID前8个字符}`的全局唯一id。
 	* Kafka提供了两种提交consumer_offset的方式：Kafka自动提交 或者 客户端调用KafkaConsumer相应API手动提交。
 		* 自动提交: 并不是定时周期性提交，而是在一些特定事件发生时才检测与上一次提交的时间间隔是否超过`auto.commit.interval.ms`。
@@ -89,6 +90,19 @@ Kafka介绍
 			* `enable.auto.commit=false`
 			* `commitSync()`: 同步提交
 			* `commitAsync()`: 异步提交
+	* 消费者的一些重要的配置项：
+		* group.id: A unique string that identifies the consumer group this consumer belongs to.
+		* client.id: The client id is a user-specified string sent in each request to help trace calls. It should logically identify the application making the request.
+		* bootstrap.servers: A list of host/port pairs to use for establishing the initial connection to the Kafka cluster. 
+		* key.deserializer: Deserializer class for key that implements the org.apache.kafka.common.serialization.Deserializer interface.
+		* value.deserializer: Deserializer class for value that implements the org.apache.kafka.common.serialization.Deserializer interface.
+		* fetch.min.bytes: The minimum amount of data the server should return for a fetch request. If insufficient data is available the request will wait for that much data to accumulate before answering the request. 
+		* fetch.max.bytes: The maximum amount of data the server should return for a fetch request.
+		* max.partition.fetch.bytes: The maximum amount of data per-partition the server will return. 
+		* max.poll.records: The maximum number of records returned in a single call to poll().
+		* heartbeat.interval.ms: The expected time between heartbeats to the consumer coordinator when using Kafka's group management facilities. 
+		* session.timeout.ms: The timeout used to detect consumer failures when using Kafka's group management facility. 
+		* enable.auto.commit: If true the consumer's offset will be periodically committed in the background.
 * ISR: Kafka在ZK中动态维护了一个ISR(In-Sync Replica)，即保持同步的副本列表，该列表中保存的是与leader副本保持消息同步的所有副本对应的brokerId。如果一个副本宕机或者落后太多，则该follower副本将从ISR列表中移除。
 * Zookeeper: 
 	* Kafka利用ZK保存相应的元数据信息，包括：broker信息，Kafka集群信息，旧版消费者信息以及消费偏移量信息，主题信息，分区状态信息，分区副本分片方案信息，动态配置信息，等等。
@@ -161,7 +175,7 @@ Found out of order timestamp in :/tmp/kafka-logs/test-0/00000000000000000000.tim
 
 #### 消费者平衡过程
 
-消费者平衡(Consumer Rebalancing)是指的是消费者重新加入消费组，并重新分配分区给消费者的过程。在以下情况下会引起消费者平衡操作:
+消费者平衡(Consumer Rebalance)是指的是消费者重新加入消费组，并重新分配分区给消费者的过程。在以下情况下会引起消费者平衡操作:
 
 * 新的消费者加入消费组
 * 当前消费者从消费组退出（不管是异常退出还是正常关闭）
@@ -171,6 +185,15 @@ Found out of order timestamp in :/tmp/kafka-logs/test-0/00000000000000000000.tim
 * 当消费者在`${session.timeout.ms}`时间内还没有发送心跳请求，组协调器认为消费者已退出。
 
 消费者自动平衡操作提供了消费者的高可用和高可扩展性，这样当我们增加或者减少消费者或者分区数的时候，不需要关心底层消费者和分区的分配关系。但是需要注意的是，在rebalancing过程中，由于需要给消费者重新分配分区，所以会出现在一个短暂时间内消费者不能拉取消息的状况。
+
+**NOTES** 
+
+这里要特别注意最后一种情况，就是所谓的慢消费者(Slow Consumers)。如果没有在`session.timeout.ms`时间内收到心跳请求，协调者可以将慢消费者从组中移除。通常，如果消息处理比`session.timeout.ms`慢，就会成为慢消费者。导致两次poll()方法的调用间隔比`session.timeout.ms`时间长。由于心跳只在 poll()调用时才会发送（在0.10.1.0版本中, 客户端心跳在后台异步发送了），这就会导致协调者标记慢消费者死亡。
+
+如果没有在`session.timeout.ms`时间内收到心跳请求，协调者标记消费者死亡并且断开和它的连接。
+同时，通过向组内其他消费者的HeartbeatResponse中发送`IllegalGeneration`错误代码 触发rebalance操作。
+
+在手动commit offset的模式下，要特别注意这个问题，否则会出现commit不上的情况。导致一直在重复消费。
 
 
 ### Kafka的特点

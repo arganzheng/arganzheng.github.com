@@ -2,7 +2,9 @@
 title: Java虚拟机学习笔记
 layout: post
 catalog: true
+tags: [java, jvm]
 ---
+
 
 Java内存区域
 -----------
@@ -168,6 +170,12 @@ GC需要完成的三件事情：
 
 ![GC算法的选择](/img/in-post/gc-selection.png)
 
+**说明** 各个版本的默认GC策略
+
+* java 6: Parallel GC
+* java 7: Parallel GC
+* java 8: Parallel GC
+* java 9: G1 GC
 
 **More about CMS**
 
