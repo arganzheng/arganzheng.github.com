@@ -24,19 +24,19 @@ Redis3.0版本加入了cluster功能，解决了Redis单点无法横向扩展的
 
 1. 集群架构：有明确而固定的master-slave架构，还是去中心化的对称架构
 2. lease 集群发现
-3. Gossip 集群各节点之间的信息同步
+3. Gossip 节点发现和集群各节点之间的信息同步
 
 而引入replication固然解决了每个sharding的HA问题，并且如果是强一致性主从同步的话还可以提供读服务，减轻主副本的读压力。但是同样会引入一些问题：
 
 1. 主从副本如何同步: Quorum W+R>N [with vector clock], Merkle tree [with anti-entropy]：
 2. 事务和一致性问题: vector clock, Quorum W+R>N [with vector clock], MVCC
-3. 主从选举和切换问题: Paxos, zk
+3. 主从选举和切换问题: Paxos, Raft, etc.
 
 当然，由于CAP原理，所以在实现方案上会有所取舍。下面我们就Redis 3.0集群方案分别讨论。
 
 
-sharding
---------
+1. sharding
+-----------
 
 ### Redis 集群的数据分片
 
@@ -151,8 +151,8 @@ Redis 集群支持在集群运行过程中添加或移除节点。实际上，�
 当slot的所有key从A上迁移到B上后，客户端通过`CLUSTER SETSLOT`命令设置B的分片信息，使之包含迁移的slot。设置过程中会自增一个新的epoch，它大于当前集群的所有epoch值，这个配置信息会通过gossip协议传播到集群中的其他每一个节点，完成分片节点映射关系的更新。
 
 
-Replication
------------
+2. Replication
+--------------
 
 上面讨论如何将数据划分到没有交集的各个数据节点上，即，不同节点间没有相同的数据。但是，在很多情况下，我们还需要对同一份数据存放在不同的节点上。这样，当某个节点宕机的时候，就可以让备份节点继续提供服务。同时，备份节点还可以提供读服务，缓解主节点压力，提高读性能。
 
@@ -254,13 +254,18 @@ FAIL 消息会强制每个接收到这消息的节点把节点 B 标记为 FAIL 
 
 一个从节点想要被推选出来，那么第一步应该是提高它的 currentEpoch 计数，并且向主节点们请求投票。
 
-从节点通过广播一个 FAILOVER_AUTH_REQUEST 数据包给集群里的每个主节点来请求选票。然后等待回复（最多等 2 * NODE_TIMEOUT 这么长时间，一般来说至少等2秒钟）。一旦一个主节点给这个从节点投票，会回复一个 FAILOVER_AUTH_ACK，并且在 NODE_TIMEOUT * 2 这段时间内不能再给同个主节点的其他从节点投票。这样做的目的主要是为了避免多个slaves被同时选举上。
+1. 从节点通过广播一个`FAILOVER_AUTH_REQUEST`数据包给集群里的每个主节点来请求选票。要求所有收到这条消息并且具有投票权的主节点向这个节点投票。从节点最多等待 `NODE_TIMEOUT * 2` 这么长时间，一般来说至少等2秒钟。
+2. 如果一个主节点具有投票权（它正在复制处理槽，并且在最近的时间段内尚未投票给其他的从节点)。那么主节点将会回复一个`FAILOVER_AUTH_ACK`消息，并且在 `NODE_TIMEOUT * 2` 这段时间内不能再给同个主节点的其他从节点投票。这样做的目的主要是为了避免多个slaves被同时选举上。
+3. 从节点会忽视所有 epoch 比 发起投票请求时候的 currentEpoch 小的 AUTH_ACK 回应，这样能避免把之前的投票的算为当前的合理投票。
+4. 每个参与选举的从节点都会接收到主节点的`FAILOVER_AUTH_ACK`消息，并根据自己收到多少条这种消息来统计自己获得了多少主节点的支持。
+5. 如果集群里有N个具有投票权的主节点，那么当一个从节点收到了大多数(N/2+1)主节点的投票支持(ACKs)，那么它就赢得了选举。
+6. 如果在一个配置纪元(epoch)里无法在 2 * NODE_TIMEOUT 时间内得到大多数投票，那么当前选举会被中断并在 NODE_TIMEOUT * 4 这段时间后由尝试发起选举，直到选出新的主节点为止。
 
-从节点会忽视所有 epoch 比 发起投票请求时候的 currentEpoch 小的 AUTH_ACK 回应，这样能避免把之前的投票的算为当前的合理投票。
-
-一旦某个从节点收到了大多数主节点的回应(ACKs)，那么它就赢得了选举。否则，如果无法在 2 * NODE_TIMEOUT 时间内得到大多数投票，那么当前选举会被中断并在 NODE_TIMEOUT * 4 这段时间后由尝试发起选举。
+这种选举主节点的方法与选举领头Sentinel的方法非常类似，因为两者都是基于Raft算法的领头选举(leader election)方法来实现的。
 
 #### 4. 集群结构变更
+
+集群结构变更信息也是通过gossip协议进行扩散。
 
 一旦有从节点赢得选举，它就会以最新的epoch 通过 ping/pong 数据包向其他节点宣布自己已经是主节点，并提供它负责的哈希槽。让集群中的其他节点尽快的更新拓扑信息。
 
@@ -269,8 +274,255 @@ FAIL 消息会强制每个接收到这消息的节点把节点 B 标记为 FAIL 
 其他节点会检测到有一个新的主节点（带着更新的configEpoch）在负责处理之前一个旧的主节点负责的哈希槽，然后就升级自己的配置信息。旧主节点的从节点，或者是经过故障转移后重新加入集群的该旧主节点，不仅会升级配置信息，还会配置成为新主节点的slaves。
 
 
+3. Cluster
+----------
+
+在 Redis 集群中，节点负责存储数据、记录集群的状态（包括键值到正确节点的映射）。集群节点同样能自动发现其他节点，检测出没正常工作的节点， 并且在需要的时候在从节点中推选出主节点。
+
+为了执行这些任务，所有的集群节点都通过一个TCP总线(TCP bus)和一个称之为 Redis Cluster Bus 的二进制协议建立连接。 每一个节点都通过Cluster bus与集群上的其余每个节点连接起来。节点间使用 gossip 协议来传播集群的信息，包括：发现新的节点、 发送ping心跳包（用来确保其他的节点都在正常工作中）、在特定情况发生时发送集群消息。集群连接也用于在集群中发布或订阅消息。
+
+在很多分布式系统，会使用ZK做集群统一配置信息服务、节点发现以及leader选举。但是Redis Cluster为了避免引入ZK依赖，自己实现了这一切。
+
+用到的算法和协议在前面其实已经有提到过，主要是Raft协议和Gossip协议：
+
+* Raft协议：用于leader选举
+* Gossip协议：用于节点发现和同步各个节点的信息
+
+由于去中心化的架构下不存在统一的配置中心，各个节点对整个集群状态的认知来自于各个节点间的信息交互。在Redis Cluster中，这个信息交互通过Redis Cluster Bus来完成，后者端口独立。
+
+* 所有的节点两两相互连接
+* 集群消息通信通过集群总线(TCP bus)通信，集群总线端口大小为客户端服务端口+10000，这个10000是固定值
+* 节点与节点之间通过二进制协议(Redis Cluster Bus)进行通信
+
+### 集群状态
+
+Redis Cluster中的每一个节点内部都保存了集群的状态信息，这些信息存储在clusterState中，它的数据结构如下所示：
+
+```
+typedef struct clusterNode {
+    mstime_t ctime; /* Node object creation time. */
+    char name[CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
+    int flags;      /* CLUSTER_NODE_... */
+    uint64_t configEpoch; /* Last configEpoch observed for this node */
+    unsigned char slots[CLUSTER_SLOTS/8]; /* slots handled by this node */
+    int numslots;   /* Number of slots handled by this node */
+    int numslaves;  /* Number of slave nodes, if this is a master */
+    struct clusterNode **slaves; /* pointers to slave nodes */
+    struct clusterNode *slaveof; /* pointer to the master node. Note that it
+                                    may be NULL even if the node is a slave
+                                    if we don't have the master node in our
+                                    tables. */
+    mstime_t ping_sent;      /* Unix time we sent latest ping */
+    mstime_t pong_received;  /* Unix time we received the pong */
+    mstime_t fail_time;      /* Unix time when FAIL flag was set */
+    mstime_t voted_time;     /* Last time we voted for a slave of this master */
+    mstime_t repl_offset_time;  /* Unix time we received offset for this node */
+    mstime_t orphaned_time;     /* Starting time of orphaned master condition */
+    long long repl_offset;      /* Last known repl offset for this node. */
+    char ip[NET_IP_STR_LEN];  /* Latest known IP address of this node */
+    int port;                   /* Latest known clients port of this node */
+    int cport;                  /* Latest known cluster port of this node. */
+    clusterLink *link;          /* TCP/IP link with this node */
+    list *fail_reports;         /* List of nodes signaling this as failing */
+} clusterNode;
+
+typedef struct clusterState {
+    clusterNode *myself;  /* This node */
+    uint64_t currentEpoch;
+    int state;            /* CLUSTER_OK, CLUSTER_FAIL, ... */
+    int size;             /* Num of master nodes with at least one slot */
+    dict *nodes;          /* Hash table of name -> clusterNode structures */
+    dict *nodes_black_list; /* Nodes we don't re-add for a few seconds. */
+    clusterNode *migrating_slots_to[CLUSTER_SLOTS];
+    clusterNode *importing_slots_from[CLUSTER_SLOTS];
+    clusterNode *slots[CLUSTER_SLOTS];
+    uint64_t slots_keys_count[CLUSTER_SLOTS];
+    rax *slots_to_keys;
+    /* The following fields are used to take the slave state on elections. */
+    mstime_t failover_auth_time; /* Time of previous or next election. */
+    int failover_auth_count;    /* Number of votes received so far. */
+    int failover_auth_sent;     /* True if we already asked for votes. */
+    int failover_auth_rank;     /* This slave rank for current auth request. */
+    uint64_t failover_auth_epoch; /* Epoch of the current election. */
+    int cant_failover_reason;   /* Why a slave is currently not able to
+                                   failover. See the CANT_FAILOVER_* macros. */
+    /* Manual failover state in common. */
+    mstime_t mf_end;            /* Manual failover time limit (ms unixtime).
+                                   It is zero if there is no MF in progress. */
+    /* Manual failover state of master. */
+    clusterNode *mf_slave;      /* Slave performing the manual failover. */
+    /* Manual failover state of slave. */
+    long long mf_master_offset; /* Master offset the slave needs to start MF
+                                   or zero if stil not received. */
+    int mf_can_start;           /* If non-zero signal that the manual failover
+                                   can start requesting masters vote. */
+    /* The followign fields are used by masters to take state on elections. */
+    uint64_t lastVoteEpoch;     /* Epoch of the last vote granted. */
+    int todo_before_sleep; /* Things to do in clusterBeforeSleep(). */
+    /* Messages received and sent by type. */
+    long long stats_bus_messages_sent[CLUSTERMSG_TYPE_COUNT];
+    long long stats_bus_messages_received[CLUSTERMSG_TYPE_COUNT];
+    long long stats_pfail_nodes;    /* Number of nodes in PFAIL status,
+                                       excluding nodes without address. */
+} clusterState;
+```
+
+**说明**
+
+1、clusterState 记录了从集群中的某个节点的视角的集群状态信息，包括数据的分片方式、节点的主从关系，并通过epoch作为版本号实现集群结构（状态）信息的一致性，同时也控制着数据迁移和故障转移的过程。每个节点维护一份:
+
+* myself：指针指向自己的clusterNode
+* currentEpoch：表示整个集群中的最大版本号，集群信息每变更一次，该版本号就会自增以保证每个信息的版本号唯一
+* nodes：包含了本节点所知道的集群中的所有节点的信息(clusterNode)，其中也包括它自己，为clusterNode指针数组
+* slots：slot与clusterNode指针映射关系
+* migrating_slots_to, importing_slots_from：记录slots的迁移信息
+* failover_auth_time, failover_auth_count, failover_auth_sent, failover_auth_rank, failover_auth_epoch：Failover相关
+
+2、clusterNode，代表集群中的一个节点，其中比较关键的信息包括：
+
+* configEpoch: 当前节点见过的最大epoch
+* slots：槽位图，由当前clusterNode负责的slot为1
+* salve, slaveof：主从关系信息
+* ping_sent, pong_received：心跳包收发时间
+* `clusterLink *link`：Node间的联接
+* `list *fail_reports`：收到的节点不可达投票
+*  ip, port
+
+
+### 集群消息和通讯
+
+集群间互相发送消息，使用另外的端口，所有的消息在该端口上完成，可以称为集群消息总线(Redis Cluster Bus)，这样可以做到不影响客户端访问redis，可见redis对于性能的追求。
+
+所有消息都由消息头包裹，消息头可以认为是消息的一部分。消息头由 [cluster.h/clusterMsg](http://download.redis.io/redis-stable/src/cluster.h) 结构记录，如下：
+
+```
+structclusterMsg{
+
+	uint32_t totlen; //消息总长度，包括消息头长度和正文长度
+
+	uint16_t type; //消息类型
+
+	uint16_t count; //消息正文包含节点信息数量，只有在meet、ping、pong这三种涉及到gossip协议的类型使用
+
+	uint64_t currentEpoch; //发送者的配置纪元
+
+	uint64_t configEpoch; //该节点是主节点时，是发送者的配置纪元；是从节点时，是对应正在复制的主节点的配置纪元
+
+	char sender[REDIS_CLUSTER_NAMELEN]; //发送者名字(ID)
+
+	unsigned char myslots[REDIS_CLUSTER_SLOTS/8]; //发送者目前的槽指派信息
+
+	char slaveof[REDIS_CLUSTER_NAMELEN]; //主节点时记录的是40位长的都是0的字符串，从节点时记录的是复制的主节点的名字
+
+	uint16_t port; //发送者端口号
+
+	uint16_t flag; //发送者标识值
+
+	unsigned char state; //发送者所处的集群状态
+
+	union clusterMsgData data; //消息的正文
+
+} clusterMsg;
+```
+
+clusterMsg.data属性也就是消息的正文是一个联合体(union)，共有三种类型结构体，包括ping、fail、publish，其中pong、meet类型都和ping一样。
+
+```
+union clusterMsgData {
+	// MEET、PING、PONG消息的正文
+	struct {
+		// 每条MEET、PING、PONG消息都包含两个clusterMsgDataGossip结构
+		clusterMsgDataGossip gossip[1];
+	} ping;
+
+	// FAIL 消息的正文
+	struct {
+		clusterMsgDataFail about;
+	} fail;
+
+	// PUBLISH 消息的正文
+	struct {
+		clusterMsgDataPublish msg;
+	} publish;
+
+	// UPDATE 消息的正文
+    struct {
+        clusterMsgDataUpdate nodecfg;
+    } update;
+};
+```
+
+从这里看起来貌似集群只有MEET、PING、PONG、FAIL、PUBLISH和UPDATE六种消息。但是我们上面在讨论failover的时候知道还有其他的消息的，所以其实Redis Cluster一共是有9如下9种消息的：
+
+```
+/* Message types.
+ *
+ * Note that the PING, PONG and MEET messages are actually the same exact
+ * kind of packet. PONG is the reply to ping, in the exact format as a PING,
+ * while MEET is a special PING that forces the receiver to add the sender
+ * as a node (if it is not already in the list). */
+#define CLUSTERMSG_TYPE_PING 0          /* Ping */
+#define CLUSTERMSG_TYPE_PONG 1          /* Pong (reply to Ping) */
+#define CLUSTERMSG_TYPE_MEET 2          /* Meet "let's join" message */
+#define CLUSTERMSG_TYPE_FAIL 3          /* Mark node xxx as failing */
+#define CLUSTERMSG_TYPE_PUBLISH 4       /* Pub/Sub Publish propagation */
+#define CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST 5 /* May I failover? */
+#define CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK 6     /* Yes, you have my vote */
+#define CLUSTERMSG_TYPE_UPDATE 7        /* Another node slots configuration */
+#define CLUSTERMSG_TYPE_MFSTART 8       /* Pause clients for manual failover */
+#define CLUSTERMSG_TYPE_COUNT 9         /* Total number of message types. */
+```
+
+只不过只有6种需要消息正文而已。
+
+**说明**
+
+1、集群节点间相互通信使用了gossip协议的push/pull方式，ping和pong消息，节点会把自己的详细信息和已经跟自己完成握手的3个节点地址发送给对方，详细信息包括消息类型，集群当前的epoch，节点自己的epoch，节点复制偏移量，节点名称，节点数据分布表，节点master的名称，节点地址，节点flag位，节点所处的集群状态。节点根据自己的epoch和对方的epoch来决定哪些数据需要更新，哪些数据需要告诉对方更新。然后根据对方发送的其他地址信息，来发现新节点的加入，从而和新节点完成握手。
+
+2、节点默认每秒在集群中的其他节点选择一个节点，发送ping消息。选择节点步骤是：
+
+* 随机 5 个节点。
+* 跳过断开连接和已经在ping还没收到pong响应的节点。
+* 从筛选的节点中选择最近一次接收pong回复距离现在最旧的节点。
+
+除了常规的选择节点外，对于那些一直未随机到节点，redis也有所支持。当有节点距离上一次接收到pong消息超过节点超时配置的一半，节点就会给这些节点发送ping消息。
+
+ping消息会带上其他节点的信息，选择其他节点步骤是：
+
+* 最多选择3个节点。
+* 最多随机遍历6个节点，如果因为一些条件不能被选出，可能会不满3个。
+* 忽略自己。
+* 忽略正在握手的节点。
+* 忽略带有 NOADDR 标识的节点。
+* 忽略连接断开而且没有负责任何slot的节点。
+
+ping消息会把发送节点的ping_sent改成当前时间，直到接收到pong消息，才更新ping_sent为0。当ping消息发送后，超过节点超时配置的一半，就会把发送节点的连接断开。超过节点超时配置，就会认为该节点已经下线。
+
+接收到某个节点发来的ping或者pong消息，节点会更新对接收节点的认识。比如该节点主从角色是否变化，该节点负责的slot是否变化，然后获取消息带上的节点信息，处理新节点的加入。
+
+3、没有PFAIL消息，因为PFAIL包含在PING消息中。
+
+
+### 一致性的达成
+
+当集群结构不发生变化的时候，集群中的各个节点通过Gossip协议可以在几轮交互之后得知全集群的结构信息，并且达到一致的状态。然而，故障转移、分片迁移等情况的发生会导致集群结构变更，由于无统一的配置服务器，变更的信息只能靠各个节点自行协商，优先得知变更信息的节点利用epoch变量将自己的最新消息扩散到整个集群，达到最终一致。
+
+* clusterNode的configEpoch属性描述的粒度是单个节点，即某个节点的数据分片，主备信息版本。
+* clusterState的currentEpoch属性的粒度是整个集群，它的存在是用来辅助epoch自增生成。由于currentEpoch也是各个节点各自保存的，Redis Cluster在结构发生变更时，通过一定的时间窗口控制和更新规则保证每个节点看到的currentEpoch都是最新的。
+
+集群信息的更新遵循一下规则：
+
+* 当某个节点率先知道了信息变更时，这个节点将currentEpoch自增使之成为集群中的最大值，再用自增后的currentEpoch作为新的epoch版本。
+* 当某个节点收到了比自己大的currentEpoch时，更新自己的currentEpoch值使之保持最新
+* 当收到的Redis Cluster Bus消息中某个节点信息的epoch值大于接收者自己内部存储的epoch值时，意味着自己的信息太旧了，此时将自己的映射信息更新为消息的内容。
+* 当收到的Redis Cluster Bus消息中某个节点信息未包括在接收节点的内部配置信息时，意味着接收者尚未意识到消息所指节点的存在，此时接收者直接将消息的信息添加到自己的内部配置信息中。
+
+上述规则保证了消息的更新始终是单向的，始终朝着epoch值更大的信息收敛，同时epoch也随着每次配置变更时currentEpoch的自增而单向增加，确定了各节点更新的方向稳定。
+
+
 参考文档
 -------
 
 1. [Redis cluster tutorial](https://redis.io/topics/cluster-tutorial)
 2. [Redis 集群规范](http://www.redis.cn/topics/cluster-spec.html)
+3. [redis3.0 cluster功能介绍](http://weizijun.cn/2015/12/30/redis3.0%20cluster%E5%8A%9F%E8%83%BD%E4%BB%8B%E7%BB%8D/) 挺详细的
