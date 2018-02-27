@@ -76,7 +76,40 @@ ZooKeeper中还有一种名为临时节点的节点，临时节点由某个客�
 该算法只监控比自身创建节点序列号小(比自己小的最大的节点)的节点，在当前获得锁的节点释放锁的时候没有“惊群”。
 
 
-**总结** 利用临时顺序节点来实现分布式锁机制其实就是一种按照创建顺序排队的实现。这种方案效率高，避免了“惊群”效应，多个客户端共同等待锁，当锁释放时只有一个客户端会被唤醒。
+**总结** 
+
+利用临时顺序节点来实现分布式锁机制其实就是一种按照创建顺序排队的实现。这种方案效率高，避免了“惊群”效应，多个客户端共同等待锁，当锁释放时只有一个客户端会被唤醒。
+
+---
+
+#### 补充
+
+ZK的临时顺序节点本质上就是一种按照创建顺序排队的机制。利用这种机制可以实现分布式锁，也可以实现“选主”(leader election)。官方文档提供了一种实现方式，跟我们上面讨论的分布式锁一模一样 [Leader Election](http://zookeeper.apache.org/doc/current/recipes.html#sc_leaderElection)：
+
+> Here's the pseudo code:
+> 
+> Let ELECTION be a path of choice of the application. To volunteer to be a leader:
+>
+> 1. Create znode z with path "ELECTION/n_" with both SEQUENCE and EPHEMERAL flags;
+> 2. Let C be the children of "ELECTION", and i be the sequence number of z;
+> 3. Watch for changes on "ELECTION/n_j", where j is the largest sequence number such that j < i and n_j is a znode in C;
+> 
+> Upon receiving a notification of znode deletion:
+> 
+> 1. Let C be the new set of children of ELECTION;
+> 2. If z is the smallest node in C, then execute leader procedure;
+> 3. Otherwise, watch for changes on "ELECTION/n_j", where j is the largest sequence number such that j < i and n_j is a znode in C;
+
+下面这个图很形象的描述了这个过程：
+
+![ZK实现选主](/img/in-post/Zookeeper-Leader-Election.jpg)
+
+每一个参与的client都主要做如下事情：
+
+1. Create an ephemeral-sequential node to participate under the election path
+2. Find its leader and follow (watch) it
+3. Upon leader removal go to election and find a new leader, or become the leader if no leader is to be found
+4. Upon session expiration check the election state and go to election if needed
 
 
 ### 4. 使用menagerie
