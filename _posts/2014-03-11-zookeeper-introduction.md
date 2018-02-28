@@ -1,6 +1,7 @@
 ---
 title: ZooKeeper简介
 layout: post
+tags: [zookeeper]
 catalog: true
 ---
 
