@@ -14,9 +14,10 @@ catalog: true
 
 一、Linux服务器上11种网络连接状态:
 
-![TCP状态机](http://farm8.staticflickr.com/7302/10221890304_4b25a4fdb2.jpg)
+![TCP状态机](/img/in-post/tcp-state.jpg)
 
 通常情况下: 一个正常的TCP连接，都会有三个阶段:
+
  1. TCP三次握手
  2. 数据传送
  3. TCP四次挥手 
