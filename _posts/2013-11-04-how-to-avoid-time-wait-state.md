@@ -14,7 +14,7 @@ catalog: true
 
 一、Linux服务器上11种网络连接状态:
 
-![TCP状态机](/img/in-post/tcp-state.jpg)
+![TCP状态机](/img/in-post/tcp_state.jpg)
 
 通常情况下: 一个正常的TCP连接，都会有三个阶段:
 
