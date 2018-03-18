@@ -46,12 +46,7 @@ ZooKeeper为每个更新操作都标记一个号码以反映事务的顺序。�
 
 ### Zookeeper的架构
 
-
 所有的server组成一个从Zookeeper的服务，server和server之间的交互是通过协议进行通信，选取出一个leader，负责向follower广播所有变化消息。其实所有的follower都和leader通信，follower接受来自leader的所有变化信息，保存在自己的内存。follower转发来自客户端的写请求给leader。客户端的读请求会在follower端直接服务，无须转发给leader。
-
-### Zookeeper Atomic Broadcast(ZAB)协议
-
-首先2011年Yahoo公开了Zab协议论文。第二选举了leader，只有leader才能提出决议。这就意味着其实跟消息发送的次序是非常有关系的，所以内部的通信基本上都是通过TPS来做的。第三没有abort的两段式提交。第四是基于状态增量的消息传输。第五是高可用、高性能。
 
 ### ZooKeeper数据模型
 
@@ -60,7 +55,7 @@ ZooKeeper的数据模型极像一个标准的文件系统，一个名字是一�
 [ZooKeeper Data Model](/img/in-post/zk-data-model.jpg)
 
 
-Zookeeper的视图结构类似标准的Unix文件系统，但是没有引入文件系统相关概念：目录和文件，而是使用了自己特有的节点(node)概念，称为znode。Znode是ZooKeeper中数据的最小单元，每个znode上都可以保存数据，同时还可以挂载子节点，也构成了一个层次化的命名空间，我们称之为树。
+Zookeeper的视图结构类似标准的Unix文件系统，但是没有引入文件系统相关概念：目录和文件，而是使用了自己特有的节点(node)概念，称为znode。Znode是ZooKeeper中数据的最小单元，每个znode上都可以保存数据，可以设置相应的访问权限(ACL)，同时还可以挂载子节点(临时节点不可以)，也构成了一个层次化的命名空间，我们称之为树。
 
 ### Znode节点类型
 
@@ -136,7 +131,25 @@ Watches是客户端安装在server的事件侦听方法；当侦听的变化发�
 
 ### zookeeper实现
 
-角色
+从概念上来说，Zookeeper的设计目标非常简单：它所做的就是确保对znode树的每一个修改都会被复制到集群(ensumble)中超过半数的机器上。如果/只要是 少于半数的机器出现故障，那么至少还有一台机器会保存最新的状态，其余的副本最终也会更新到这个状态。
+
+然而，这个简单想法的实现却并不简单。Zookeeper使用了Zab协议来实现这个目标。
+
+#### Zookeeper Atomic Broadcast(ZAB)协议
+
+2011年Yahoo公开了Zab协议论文，该协议包括了两个可以无限重复的阶段：
+
+1. leader选举
+2. 原子广播
+
+##### leader选举
+
+ZK中有两种leader选举算法：LeaderElection和FastLeaderElection（AuthFastLeaderElection是FastLeaderElection的变种，使用了UDP和简单的认证机制）。不管是哪一种leader选举方法，必须能确保以下两点：
+
+* leader已经获知所有followers的最大的zxid
+* 一个服务器间的法定人数已经确认会跟随leader
+
+leader选举确定了集群中的所有机器的节点角色:
 
 * 领导者(Leader): 领导者不接受client的请求，负责进行投票的发起和决议，最终更新状态。
 * 跟随者(Follower): Follower用于接收客户请求并返回客户结果。参与Leader发起的投票。
@@ -149,6 +162,10 @@ Watches是客户端安装在server的事件侦听方法；当侦听的变化发�
 ![zk-service](/img/in-post/zk-service.jpg)
 
 集群数据库是存在于内存中的数据库，保存命名空间的所有数据。更新操作会被记录到硬盘中以便恢复，写操作先被序列化到硬盘中，再应用到内存数据库中。通常Zookeeper由2n+1台servers组成，只要有n+1台（大多数）server可用，整个系统保持可用。
+
+##### 原子广播
+
+所有的写请求都会被转发给leader，再由leader将更新广播(同步)给follower。当超过半数的follower已经将修改持久化之后，leader才会提交这个更新，然后客户端才会收到一个更新成功的响应。这个用来达成共识的协议被设计成具有原子性，因此每个修改要么成功要么失败，这类似于数据库中的两阶段提交协议。
 
 对于follower收到的client的请求，对于读操作，由follower的本地内存数据库直接给client返回结果；对于会改变系统状态的写操作，则交由Leader进行提议投票，超过半数通过后返回结果给client：
 
