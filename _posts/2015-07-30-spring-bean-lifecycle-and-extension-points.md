@@ -1,6 +1,7 @@
 ---
-title: Spring的Bean生命周期
+title: Spring的Bean生命周期和扩展点
 layout: post
+tags: [spring]
 catalog: true
 ---
 
@@ -134,6 +135,10 @@ Spring框架本身大量使用了FactoryBean来隐藏对象的复杂构建逻辑
 
 	}
 
+
+### 4、如何自定义Spring XML Bean配置
+
+具体参考笔者另一篇文章: [如何自定义Spring XML Bean配置](http://arganzheng.life/custom-spring-xml-namespace.html)。这里不赘述。
 
 
 参考文档
