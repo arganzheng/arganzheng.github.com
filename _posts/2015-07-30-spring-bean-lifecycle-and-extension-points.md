@@ -136,7 +136,14 @@ Spring框架本身大量使用了FactoryBean来隐藏对象的复杂构建逻辑
 	}
 
 
-### 4、如何自定义Spring XML Bean配置
+### 4、Customizing XML configuration schema with NamespaceHandler and BeanDefinitionParser
+
+步骤如下：
+
+1. Authoring an XML schema to describe your custom element(s).
+2. Coding a custom NamespaceHandler implementation (this is an easy step, don’t worry).
+3. Coding one or more BeanDefinitionParser implementations (this is where the real work is done).
+4. Registering the above artifacts with Spring (this too is an easy step).
 
 具体参考笔者另一篇文章: [如何自定义Spring XML Bean配置](http://arganzheng.life/custom-spring-xml-namespace.html)。这里不赘述。
 
