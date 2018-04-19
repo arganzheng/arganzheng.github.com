@@ -36,7 +36,7 @@ gremlin是一个开源的比较通用的图操作DSL (Domain Specific Language) 
 
 
 ```java
-package com.baidu.bdg.kg.gdb.gql;
+package life.arganzheng.study.kg.gdb.gql;
 
 import java.io.IOException;
 import java.io.StringReader;
