@@ -1,6 +1,7 @@
 ---
 title: 如何自定义Spring XML Bean配置
 layout: post
+tags: [spring]
 catalog: true
 ---
 
@@ -43,13 +44,11 @@ catalog: true
 > Export remote service:
 >
 >    <bean id="barService" class="com.foo.BarServiceImpl" />
->	
 >    <dubbo:service interface="com.foo.BarService" ref="barService" />
 
 > Refer remote service:
 >
 >    <dubbo:reference id="barService" interface="com.foo.BarService" />
->	
 >    <bean id="barAction" class="com.foo.BarAction">
 >        <property name="barService" ref="barService" />
 >    </bean>
@@ -260,7 +259,7 @@ BeanDefinitionParser的职责是将一个唯一的定级XML元素解析为对应
 使用xbean-spring实现自定义标签
 ------------------------------
 
-什么的方式还是需要使用最原始的org.w3c.dom.Element解析XML元素，能不能直接将配置文件注入到一个POJO对象中呢？[xbean-spring](http://svn.apache.org/repos/asf/geronimo/xbean/trunk/xbean-spring/)项目就是为了解决这个问题的。
+上面的方式还是需要使用最原始的`org.w3c.dom.Element`解析XML元素，能不能直接将配置文件注入到一个POJO对象中呢？[xbean-spring](http://svn.apache.org/repos/asf/geronimo/xbean/trunk/xbean-spring/)项目就是为了解决这个问题的。
 
 它会把XML元素映射成你定义的POJO类（使用@XBean注解），这点非常类似于JAXB或者XStream。然后使用maven插件将其转化为上面Spring的handler和schema机制。
 
