@@ -44,17 +44,57 @@ tags: [AI, 架构]
 
 这个是 Docker 自己画的 VM vs. Container 的图。我跟 DeeCamp 学员讲这一页的时候，是先从 Linux 的 chroot 命令开始讲起的，然后才讲到轻量级的 container 和重量级的 VM，讲到应用隔离、接口隔离、系统隔离、资源隔离等概念。
 
+**说明**
+
+1、chroot: chroot，即 change root directory (更改 root 目录)。在 linux 系统中，系统默认的目录结构都是以 `/`，即是以根 (root) 开始的。而在使用 chroot 之后，系统的目录结构将以指定的位置作为 `/` 位置。如果新根下的目录结构和文件准备的够充分，那么一个新的简单的 Linux 系统就可以使用了。这就是百度V2环境（一种在centos4.6上切换到centos6.3的简单粗暴的机制）的基本原理。
+
+2、docker的隔离机制是通过Linux的Namespace和CGroup(Control Groups)实现，具体参见 [Docker 核心技术与实现原理](https://draveness.me/docker)。
+
 ![ai-infrastructures-06.jpg](/img/in-post/ai-infrastructures-06.jpg)
 
 给 DeeCamp 学员展示了一下 docker（严格说是 nvidia-docker）在管理 GPU 资源上的灵活度，在搭建、运行和维护 TensorFlow 环境时为什么比裸的系统方便。
+
+**说明**
+
+对于nvdia显卡，我们可以使用nvidia-smi命令直接查看显卡的相关信息：
+
+	[work@xxxx ~]$ nvidia-smi
+	Wed Sep 27 15:30:29 2017
+	+-----------------------------------------------------------------------------+
+	| NVIDIA-SMI 367.48                 Driver Version: 367.48                    |
+	|-------------------------------+----------------------+----------------------+
+	| GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+	| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+	|===============================+======================+======================|
+	|   0  Quadro K1200        On   | 0000:05:00.0     Off |                  N/A |
+	| 39%   35C    P8     1W /  35W |      0MiB /  4041MiB |      0%      Default |
+	+-------------------------------+----------------------+----------------------+
+
+	+-----------------------------------------------------------------------------+
+	| Processes:                                                       GPU Memory |
+	|  GPU       PID  Type  Process name                               Usage      |
+	|=============================================================================|
+	|  No running processes found                                                 |
+	+-----------------------------------------------------------------------------+
+
 
 ![ai-infrastructures-07.jpg](/img/in-post/ai-infrastructures-07.jpg)
 
 严格说，Kubernetes 现在的应用远没有 Docker 那么普及，但很多做机器学习、深度学习的公司，包括创业公司，都比较需要类似的 container-management system，需要自动化的集群管理、任务管理和资源调度。Kubernetes 的设计理念其实代表了 Google 在容器管理、集群管理、任务管理方面的整体思路，特别推荐这个讲背景的文章：[Borg, Omega, and Kubernetes](https://queue.acm.org/detail.cfm?id=2898444)
 
+**说明** container-management system
+
+docker引入了容器的概念，极大的方便了服务的打包，和提供一个独立隔离的运行环境，但是一个真实的线上应用往往是由很多服务一起协作完成，意味着需要对这些容器进行管理和编排。目前业界主流的开源工具是 Kuberntes。Kubernetes是Google开源的容器集群管理系统。它构建Ddocker技术之上，为容器化的应用提供资源调度、部署运行、服务发现、扩容缩容等整一套功能，本质上可看作是基于容器技术的mini-PaaS平台。
+
 ![ai-infrastructures-08.jpg](/img/in-post/ai-infrastructures-08.jpg)
 
 讲大数据架构，我基本上会从 Google 的三架马车（MapReduce、GFS、Bigtable）讲起，尽管这三架马车现在看来都是“老”技术了，但理解这三架马车背后的设计理念，是更好理解所有“现代”架构的一个基础。
+
+**说明** 谷歌的三套车
+
+1. [The Google File System](https://static.googleusercontent.com/media/research.google.com/en//archive/gfs-sosp2003.pdf): 这是分布式文件系统领域划时代意义的论文，文中的多副本机制、控制流与数据流隔离和追加写模式等概念几乎成为了分布式文件系统领域的标准，其影响之深远通过其5000+的引用就可见一斑了，Apache Hadoop鼎鼎大名的HDFS就是GFS的模仿之作。
+2. [MapReduce: Simplified Data Processing on Large Clusters](https://static.googleusercontent.com/media/research.google.com/en//archive/mapreduce-osdi04.pdf): 这篇也是Google的大作，通过Map和Reduce两个操作，大大简化了分布式计算的复杂度，使得任何需要的程序员都可以编写分布式计算程序，其中使用到的技术值得我们好好学习：简约而不简单！Hadoop也根据这篇论文做了一个开源的MapReduce。
+3. [Bigtable: A Distributed Storage System for Structured Data](https://static.googleusercontent.com/media/research.google.com/en//archive/bigtable-osdi06.pdf): Google在NoSQL领域的分布式表格系统，LSM树的最好使用范例，广泛应用于网页索引存储、YouTube数据管理等业务，Hadoop对应的开源系统叫HBase。
 
 ![ai-infrastructures-09.jpg](/img/in-post/ai-infrastructures-09.jpg)
 
@@ -90,23 +130,23 @@ MapReduce 在完美解决分布式计算的同时，其实也带来了一个不�
 
 ![ai-infrastructures-17.jpg](/img/in-post/ai-infrastructures-17.jpg)
 
-Flume 是简化 MapReduce 复杂流程开发、管理和维护的一个好东东。
+Flume（[FlumeJava: Easy, Efficient Data-Parallel Pipelines](https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/35650.pdf)）是简化 MapReduce 复杂流程开发、管理和维护的一个好东东。
 
 ![ai-infrastructures-18.jpg](/img/in-post/ai-infrastructures-18.jpg)
 
-Apache 有开源版本的 Flume 实现。Flume 把复杂的 Mapper、Reducer 等底层操作，抽象成上层的、比较纯粹的数据模型的操作。PCollection、PTable 这种抽象层，还有基于这些抽象层的相关操作，是大数据处理流程进化道路上的重要一步（在这个角度上，Flume 的思想与 TensorFlow 对于 tensor 以及 tensor 数据流的封装，有异曲同工的地方）。
+Apache 有开源版本的 FlumeJava 实现 （[Apache Crunch](https://crunch.apache.org/)。FlumeJava 把复杂的 Mapper、Reducer 等底层操作，抽象成上层的、比较纯粹的数据模型的操作。PCollection、PTable 这种抽象层，还有基于这些抽象层的相关操作，是大数据处理流程进化道路上的重要一步（在这个角度上，FlumeJava 的思想与 TensorFlow 对于 tensor 以及 tensor 数据流的封装，有异曲同工的地方）。
 
 ![ai-infrastructures-19.jpg](/img/in-post/ai-infrastructures-19.jpg)
 
-Flume 更重要的功能是可以对 MapReduce 工作流程进行运行时的优化。
+FlumeJava 更重要的功能是可以对 MapReduce 工作流程进行运行时的优化。
 
 ![ai-infrastructures-20.jpg](/img/in-post/ai-infrastructures-20.jpg)
 
-更多关于 Flume 运行时优化的解释图。
+更多关于 FlumeJava 运行时优化的解释图。
 
 ![ai-infrastructures-21.jpg](/img/in-post/ai-infrastructures-21.jpg)
 
-Flume 并没有改变 MapReduce 最适合于批处理任务的本质。那么，有没有适合大规模数据增量（甚至实时）处理的基础架构呢？
+FlumeJava 并没有改变 MapReduce 最适合于批处理任务的本质。那么，有没有适合大规模数据增量（甚至实时）处理的基础架构呢？
 
 ![ai-infrastructures-22.jpg](/img/in-post/ai-infrastructures-22.jpg)
 
@@ -118,7 +158,7 @@ Google percolator 的论文给出了 notification/monitor 模式的一种实现�
 
 ![ai-infrastructures-24.jpg](/img/in-post/ai-infrastructures-24.jpg)
 
-percolator 支持类似关系型数据库的 transaction，可以保证同时发生的分布式任务在数据访问和结果产出时的一致性。
+percolator（ Google的海量数据增量处理系统）支持类似关系型数据库的 transaction，可以保证同时发生的分布式任务在数据访问和结果产出时的一致性。
 
 ![ai-infrastructures-25.jpg](/img/in-post/ai-infrastructures-25.jpg)
 
@@ -131,6 +171,12 @@ Google 的网页索引流程、Google Knowledge Graph 的创建与更新流程�
 ![ai-infrastructures-27.jpg](/img/in-post/ai-infrastructures-27.jpg)
 
 大数据流程建立了之后，很自然地就会出现机器学习的需求，需要适应机器学习的系统架构。
+
+**说明**
+
+王院长在介绍大数据基础架构的时候内容还是过于简略有所缺失的。其实大数据架构是一个非常庞杂的系统和生态（可以参见笔者前面写的一篇文章 [大数据平台学习笔记](http://arganzheng.life/big-data-study.html)略知一二）
+
+单纯看批量处理引擎就有 Hadoop, Spark, Hive, Impala, Kylin, 而且不得不介绍一下YARN。而(近)实时处理（Real-time Processing）引擎，也没有介绍业界普遍使用的Spark Streaming和Flink。
 
 ![ai-infrastructures-28.jpg](/img/in-post/ai-infrastructures-28.jpg)
 
@@ -184,12 +230,22 @@ TensorFlow 自己提供的可视化工具，也非常有意思（当然，上图
 
 有关架构的几篇极其经典的 paper 在这里了。
 
+这里把它文字化和加上链接，方便大家下载阅读：
+
+* [MapReduce: Simplified Data Processing on Large Clusters](https://static.googleusercontent.com/media/research.google.com/en//archive/mapreduce-osdi04.pdf)
+* [FlumeJava: Easy, Efficient Data-Parallel Pipelines](https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/35650.pdf)
+* [Large-scale Incremental Processing Using Distributed Transactions and Notifications](https://dejanseo.com.au/wp-content/uploads/2012/11/peng.pdf) 
+* [Spark: Cluster Computing with Working Sets](https://www.usenix.org/legacy/event/hotcloud10/tech/full_papers/Zaharia.pdf)
+* [Pregel: A System for Large-Scale Graph Processing](http://www.cs.albany.edu/~jhh/courses/readings/malewicz.sigmod10.pregel.pdf)
+* [TensorFlow: Large-Scale Machine Learning on Heterogeneous Distributed Systems](http://download.tensorflow.org/paper/whitepaper2015.pdf)
+
 
 参考文章
 -------
 
 1. [为什么 AI 工程师要懂一点架构？](https://zhuanlan.zhihu.com/p/27860840)
-
+2. [理解 chroot](https://www.ibm.com/developerworks/cn/linux/l-cn-chroot/)
+3. [Docker 核心技术与实现原理](https://draveness.me/docker) 深入浅出，图文并茂的一篇文章！
 
 
 
