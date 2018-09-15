@@ -513,13 +513,13 @@ commons-logging的思想是提供了一组通用的日志接口，用户可以�
 
 4、注意不要吞了异常堆栈
 
-	try{
+	try {
 		doSomething();
-	}catch(Exception e){
-		logger.error(e.getMessage()); // make sure you want to DO THIS!
+	} catch(Exception e){
+		LOGGER.error(e.getMessage()); // make sure you want to DO THIS!
 	}
 
-	logger.error(e) => logger.error("", e);
+	LOGGER.error(e) => LOGGER.error("", e);
 
 5、没有必要打印异常堆栈就不要打：
 
@@ -529,12 +529,22 @@ commons-logging的思想是提供了一组通用的日志接口，用户可以�
 
 =>
 
-	try{
+	try {
 		Assert.notNull(language, "language should not be null!");
 		Assert.notNull(product, "product should not be null!");
 		Assert.notNull(uuid, "uuid should not be null!");
-	}catch(IllegalArgumentException e){
-		logger.error(e.getMessage());
+	} catch(IllegalArgumentException e){
+		LOGGER.error(e.getMessage());
+	}
+
+5、for 循环里面打日志要特别小心，最好 for 循环拼接最后汇总一次打印。
+
+	for (String foo : foos) {
+		if (foo != null) {
+			doSomething();
+		} else {
+			LOGGER.warn("same things may be wrong."); // make sure you want to DO THIS!
+		}
 	}
 
 6、上面的最佳实践根据需要采用实施
