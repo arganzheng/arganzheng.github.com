@@ -496,7 +496,7 @@ log4j默认是同步打印日志的。本地appender（终端、文件）还好�
 ------------
 
 
-1、直接使用log4j，而不是commons-logging+log4j。即使用Logger.getLogger(".."")获取logger，而不是LogFactory.getLog("..")。
+1、直接使用slf4j，而不是 commons-logging + log4j。即使用`LoggerFactory.getLogger(..)`获取logger，而不是`LogFactory.getLog(..)`。
 
 commons-logging的思想是提供了一组通用的日志接口，用户可以自由地选择实现日志接口的第三方软件。目前支持以下日志实现：
 
@@ -505,7 +505,7 @@ commons-logging的思想是提供了一组通用的日志接口，用户可以�
 * SimpleLog日志器(把日志消息输出到标准系统错误流System.err)
 * NoOpLog(不输出任何日志信息)
 
-但是commons-logging已经非常老了，据说有bug。另外支持的第三方日志库也不多，就上面四种实现，其实必然是log4j。而且已经被slf4j取代。建议是直接使用一种日志框架，或者使用slf4j。
+但是commons-logging已经非常老了，据说有bug。另外支持的第三方日志库也不多，就上面四种实现。而且已经被slf4j取代。建议使用slf4j或者直接使用一种日志框架。
 
 2、注意log和appender的级别，不要打太多没用的东西。
 
