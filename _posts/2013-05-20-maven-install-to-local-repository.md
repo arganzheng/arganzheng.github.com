@@ -42,6 +42,20 @@ catalog: true
       -DrepositoryId=ai-releases \
       -Durl=http://10.21.7.1:8081/repository/ai-releases/
 
+如果要把原来的 pom 也 deploy 上去，那么可以用`-DpomFile`选项： 
+
+    mvn deploy:deploy-file -DgroupId=com.argan.internet \
+      -DartifactId=privilege-client \
+      -Dversion=1.0.0.20180705-RELEASE \
+      -Dpackaging=jar \
+      -Dfile=privilege-client-1.0.0.20180705-RELEASE.jar \
+      -DpomFile=privilege-client-1.0.0.20180705-RELEASE.pom \
+      -DgeneratePom=false \
+      -DrepositoryId=ai-releases \
+      -Durl=http://10.21.7.1:8081/repository/ai-releases/
+
+但是要注意，相关的依赖也要依次 deloy 上去。。这是一个非常费时费力的操作。。
+
 如果要 deploy source jar，那么需要将 packaging 设置为 `java-source`，并且 `generatePom`要设置为false:
 
     mvn deploy:deploy-file -DgroupId=com.argan.internet \
