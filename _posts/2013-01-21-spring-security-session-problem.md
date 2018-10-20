@@ -1,6 +1,7 @@
 ---
 title: 使用Spring-Security进行登录控制的session问题
 layout: post
+tags: [spring, spring-security]
 catalog: true
 ---
 
