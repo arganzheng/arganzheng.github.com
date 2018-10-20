@@ -1,6 +1,7 @@
 ---
 title: nginx URL rewrite自动增加请求参数问题
 layout: post
+tags: [nginx]
 catalog: true
 ---
 

@@ -1,6 +1,7 @@
 ---
 title: nginx日志自动按天分隔
 layout: post
+tags: [nginx]
 catalog: true
 ---
 

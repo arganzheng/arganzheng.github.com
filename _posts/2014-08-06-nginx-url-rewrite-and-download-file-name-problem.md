@@ -1,6 +1,7 @@
 ---
 title: nginx URL rewrite与下载文件名称问题
 layout: post
+tags: [nginx]
 catalog: true
 ---
 
