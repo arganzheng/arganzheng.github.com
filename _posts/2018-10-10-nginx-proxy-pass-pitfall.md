@@ -1,6 +1,7 @@
 ---
 title: nginx proxy_pass 的一个『坑』
 layout: post
+tags: [nginx]
 catalog: true
 ---
 

@@ -1,6 +1,7 @@
 ---
 title: 配置Nginx支持CORS的一个『坑』
 layout: post
+tags: [nginx]
 catalog: true
 ---
 
