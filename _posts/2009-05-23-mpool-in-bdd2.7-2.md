@@ -1,7 +1,7 @@
 ---
 layout: post
 title: BDB中的共享区域──MPOOL
-tags: [BDB, 数据库]
+tags: [BDB, database]
 catalog: true
 ---
 

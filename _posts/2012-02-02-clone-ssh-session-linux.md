@@ -1,7 +1,7 @@
 ---
 layout: post
 title: Linux里复制终端Session(像SecureCRT一样)
-tags: [linux]
+tags: [linux, productivity]
 catalog: true
 ---
 

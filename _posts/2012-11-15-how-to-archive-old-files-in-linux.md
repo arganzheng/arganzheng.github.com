@@ -1,7 +1,7 @@
 ---
 title: Linux下如何备份旧文件
 layout: post
-tags: [linux]
+tags: [linux, shell]
 catalog: true
 ---
 

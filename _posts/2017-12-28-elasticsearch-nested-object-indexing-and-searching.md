@@ -2,7 +2,7 @@
 layout: post
 title: ElasticSearch如何支持嵌套属性检索
 catalog: true
-tags: [elasticsearch, 索引]
+tags: [elasticsearch]
 ---
 
 

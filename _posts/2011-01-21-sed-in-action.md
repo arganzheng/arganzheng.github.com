@@ -1,7 +1,7 @@
 ---
 layout: post
 title: sed实战 
-tags: [shell, sed]
+tags: [linux, shell, sed]
 catalog: true
 ---
 
