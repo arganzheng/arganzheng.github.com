@@ -2,7 +2,7 @@
 layout: post
 title: 关于编码规范的一些建议
 catalog: true
-tags: [编码规范, java]
+tags: [java]
 ---
 
 ### 1、为什么要编码规范

@@ -1,7 +1,7 @@
 ---
 layout: post
 title: BDB1.6中的初始化过程──MPOOL初始化
-tags: [BDB, 数据库]
+tags: [BDB, database]
 catalog: true
 ---
 

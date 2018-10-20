@@ -1,6 +1,7 @@
 ---
 layout: post
 title: log4j日志路径问题
+tags: [java, log4j]
 catalog: true
 ---
 

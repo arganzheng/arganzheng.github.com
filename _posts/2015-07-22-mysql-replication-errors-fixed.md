@@ -1,6 +1,7 @@
 ---
 title: 记一次MySQL主从同步错误处理
 layout: post
+tags: [mysql, database]
 catalog: true
 ---
 

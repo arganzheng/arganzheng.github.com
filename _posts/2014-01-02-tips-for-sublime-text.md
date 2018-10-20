@@ -1,6 +1,7 @@
 ---
 title: tips for sublime text
 layout: post
+tags: [productivity]
 catalog: true
 ---
 

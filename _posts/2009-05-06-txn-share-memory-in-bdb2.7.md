@@ -1,7 +1,7 @@
 ---
 layout: post
 title: BDB事务共享区域
-tags: [BDB, 数据库, transaction]
+tags: [BDB, database, transaction]
 catalog: true
 ---
 

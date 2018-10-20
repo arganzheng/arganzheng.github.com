@@ -1,6 +1,7 @@
 ---
 title: 优雅的Builder模式
 layout: post
+tags: [java]
 catalog: true
 ---
 

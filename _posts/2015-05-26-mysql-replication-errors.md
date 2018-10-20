@@ -1,6 +1,7 @@
 ---
 title: MySQL主从同步失败
 layout: post
+tags: [mysql, database]
 catalog: true
 ---
 

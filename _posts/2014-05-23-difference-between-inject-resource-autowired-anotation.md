@@ -1,6 +1,7 @@
 ---
 title: Spring各种依赖注入注解的区别
 layout: post
+tags: [spring]
 catalog: true
 ---
 

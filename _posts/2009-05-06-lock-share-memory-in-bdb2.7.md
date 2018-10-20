@@ -1,6 +1,7 @@
 ---
 layout: post
 title: BDB锁共享区域
+tags: [BDB, database]
 catalog: true
 ---
 

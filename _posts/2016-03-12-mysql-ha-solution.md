@@ -1,6 +1,7 @@
 ---
 title: MySQL高可用性方案
 layout: post
+tags: [mysql, database]
 catalog: true
 ---
 

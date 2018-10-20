@@ -1,6 +1,7 @@
 ---
 title: 网络RPC编码协议学习
 layout: post
+tags: [rpc]
 catalog: true
 ---
 

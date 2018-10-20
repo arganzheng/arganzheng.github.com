@@ -1,6 +1,7 @@
 ---
 title: 配置MySQL Slave
 layout: post
+tags: [mysql, database]
 catalog: true
 ---
 
