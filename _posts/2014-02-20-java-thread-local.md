@@ -1,6 +1,7 @@
 ---
 title: 巧用TheadLocal
 layout: post
+tags: [java]
 catalog: true
 ---
 

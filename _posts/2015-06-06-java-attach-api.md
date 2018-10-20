@@ -1,6 +1,7 @@
 ---
 title: Java Attach API
 layout: post
+tags: [java]
 catalog: true
 ---
 
