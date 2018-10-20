@@ -360,10 +360,245 @@ mv = processHandlerException(request, response, handler, exception); 这个方�
 	}
 
 
+---
+
+
+更新: 使用 @ControllerAdvice (Spring 3.2+) 进行统一异常处理
+--------------------------------------------------------
+
+最近使用 Springboot 2.0.3 RELEASE，对之前的一些 SpringMVC 的使用也一并更新，发现 Spring 3.2 之后引入新的异常处理类——`@ControllerAdvice`注解，使用起来更加方便优雅，另外，由于新项目采用前后端分离，页面渲染全部在前端处理了，后端只提供 Restful 接口，处理起来更加统一。具体如下：
+
+```
+package life.arganzheng.internet.ai.ads.predictor.portal.common;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.bind.annotation.ControllerAdvice;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.ResponseBody;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import life.arganzheng.internet.ai.ads.predictor.common.rest.RestResponse;
+import life.arganzheng.internet.ai.ads.predictor.portal.exception.RestException;
+import life.arganzheng.internet.ai.ads.predictor.portal.exception.UserNotLoggedInException;
+
+/**
+ * 统一异常处理类，将异常以JSON形式返回给用户。在这里主要是给前端JS用。
+ *
+ * @author zhengzhibin
+ * @date 2018/09/28
+ */
+@ControllerAdvice
+public class RestResponseExceptionHandler {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(RestResponseExceptionHandler.class);
+
+    @ResponseBody
+    @ExceptionHandler(value = {RuntimeException.class})
+    public RestResponse<?> handleException(RuntimeException ex) {
+        // 异常日志统一在这里记录
+        if (!(ex instanceof UserNotLoggedInException)) {
+            LOGGER.error(ex.getMessage(), ex);
+        }
+
+        return new RestResponse<>(ErrorCode.UNKNOWN_ERROR.getErrorCode(), ErrorCode.UNKNOWN_ERROR.getErrorMessage());
+    }
+
+    @ResponseBody
+    @ExceptionHandler(value = {IllegalArgumentException.class, MissingServletRequestParameterException.class,
+        JsonProcessingException.class})
+    public RestResponse<?> handleInvalidArgumentException(RuntimeException ex) {
+        LOGGER.error(ex.getMessage(), ex);
+
+        return new RestResponse<>(ErrorCode.INVALID_ARGUMENT.getErrorCode(),
+            "Invalid Request Parameter: " + ex.getMessage());
+    }
+
+    @ResponseBody
+    @ExceptionHandler(value = {RestException.class})
+    public RestResponse<?> handleRestException(RestException ex) {
+        LOGGER.error(ex.getMessage(), ex);
+
+        return new RestResponse<>(ex.getErrorCode(), ex.getMessage());
+    }
+}
+```
+
+其中 `RestResponse` 定义如下：
+
+```
+package life.arganzheng.internet.ai.ads.predictor.portal.common;
+
+/**
+ * <pre>
+ * REST 返回格式，这样可以利用@ResponseBody注解。
+ * 这里使用errorCode和errorMessage，而不是Http BookStatus Code。不是纯粹的RESTful规范，不过个人觉得简单一下。
+ * 
+ * </pre>
+ * 
+ * @author zhengzhibin
+ * @date 2018/09/05
+ */
+public class RestResponse<T> {
+
+    public static final RestResponse SUCCESS = new RestResponse();
+
+    public static final RestResponse ERROR_UNKNOWN =
+        new RestResponse(ErrorCode.UNKONW_ERROR.getErrorCode(), "Unknow Error!");
+
+    private static final String EMPTY_STRING = "";
+
+    private int errorCode = 0;
+    private String errorMessage = EMPTY_STRING;
+    private T data;
+
+    public RestResponse(int errorCode, String errorMessage) {
+        this.errorCode = errorCode;
+        this.errorMessage = errorMessage;
+    }
+
+    public RestResponse() {}
+
+    public RestResponse(T data) {
+        this.data = data;
+    }
+
+    public int getErrorCode() {
+        return errorCode;
+    }
+
+    public void setErrorCode(int errorCode) {
+        this.errorCode = errorCode;
+    }
+
+    public String getErrorMessage() {
+        return errorMessage;
+    }
+
+    public void setErrorMessage(String errorMessage) {
+        this.errorMessage = errorMessage;
+    }
+
+    public T getData() {
+        return data;
+    }
+
+    public void setData(T data) {
+        this.data = data;
+    }
+
+}
+```
+
+`RestException` 定义如下：
+
+```
+package life.arganzheng.internet.ai.ads.predictor.portal.exception;
+
+/**
+ * @author zhengzhibin
+ * @date 2018/09/28
+ */
+public class RestException extends PredictorPortalException {
+
+    private static final long serialVersionUID = -900803978044950928L;
+
+    private int errorCode;
+
+    public RestException(int errorCode, String message) {
+        super(message);
+        this.errorCode = errorCode;
+    }
+
+    public RestException(int errorCode, String message, Throwable ex) {
+        super(message, ex);
+        this.errorCode = errorCode;
+    }
+
+    public int getErrorCode() {
+        return errorCode;
+    }
+
+    public void setErrorCode(int errorCode) {
+        this.errorCode = errorCode;
+    }
+}
+```
+
+`ErrorCode` 是一个枚举类型：
+
+```
+package life.arganzheng.internet.ai.ads.predictor.portal.common;
+
+/**
+ * 错误代码常量定义
+ *
+ * @author zhengzhibin
+ * @date 2018/09/03
+ */
+public enum ErrorCode {
+
+	/**
+	 * 成功
+	 */
+	SUCCESS(0),
+
+	/**
+	 * 未知错误
+	 */
+	UNKNOWN_ERROR(520, "Unknown error."),
+
+	/**
+	 * 非法输入
+	 */
+	INVALID_ARGUMENT(401, "Invalid argument."),
+
+	/**
+	 * 用户没有登录
+	 */
+	USER_NOT_LOGIN(403, "User not login."),
+
+	/**
+	 * 资源未找到
+	 */
+	RESOURCE_NOT_FOUND(404, "Resource not found."),
+
+	/**
+	 * 资源已经存在
+	 */
+	RESOURCE_ALREADY_EXIST(405, "Resource already exist."),
+
+	private int errorCode;
+
+	private String errorMessage;
+
+	ErrorCode(int errorCode) {
+		this.errorCode = errorCode;
+	}
+
+	ErrorCode(int errorCode, String errorMessage) {
+		this.errorCode = errorCode;
+		this.errorMessage = errorMessage;
+	}
+
+	public int getErrorCode() {
+		return errorCode;
+	}
+
+	public String getErrorMessage() {
+		return errorMessage;
+	}
+
+}
+```
+
+参考文章: [Error Handling for REST with Spring](https://www.baeldung.com/exception-handling-for-rest-with-spring)
+
 
 推荐阅读
 --------
 
 1. [Error Handling for REST with Spring](http://www.baeldung.com/2013/01/31/exception-handling-for-rest-with-spring-3-2/)
 2. [Exception Handling in Spring MVC](http://spring.io/blog/2013/11/01/exception-handling-in-spring-mvc)
-
+3. [Error Handling for REST with Spring](https://www.baeldung.com/exception-handling-for-rest-with-spring)
