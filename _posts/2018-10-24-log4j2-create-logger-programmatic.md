@@ -103,6 +103,7 @@ public class Log4j2OutputRedirector {
         // cast org.apache.logging.log4j.Logger to org.apache.logging.log4j.core.Logger
         org.apache.logging.log4j.core.Logger loggerImpl = (org.apache.logging.log4j.core.Logger)logger;
         loggerImpl.addAppender(appender);
+        loggerImpl.setAdditive(true);
 
         return logger;
     }
@@ -135,7 +136,7 @@ public class Log4j2OutputRedirector {
 **说明**
 
 1. log4j2的 `org.apache.logging.log4j.Logger` 并没有 addAppender 方法，log4j1.x 是有的，强制转换成实现类`org.apache.logging.log4j.core.Logger` 就可以了。[How to add appender to Logger in Log4j2](https://stackoverflow.com/questions/38241654/how-to-add-appender-to-logger-in-log4j2)
-2. 这里会导致日志没有打印到原来的日志文件，如果需要，可以通过设置 rootLogger 和 additive 实现。
+2. 如果没有设置 `loggerImpl.setAdditive(true)` 那么日志就不会没有打印到原来的日志文件。[Additivity](https://logging.apache.org/log4j/2.x/manual/configuration.html#Additivity)
 
 
 补充
