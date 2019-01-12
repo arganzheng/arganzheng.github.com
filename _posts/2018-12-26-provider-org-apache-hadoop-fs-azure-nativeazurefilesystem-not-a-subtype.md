@@ -1,5 +1,5 @@
 ---
-title: 创建Hadoop FileSystem报`Provider org.apache.hadoop.fs.azure.NativeAzureFileSystem not a subtype`异常
+title: 创建Hadoop FileSystem报Provider org.apache.hadoop.fs.azure.NativeAzureFileSystem not a subtype异常
 layout: post
 tags: [Spark, hadoop]
 catalog: true
@@ -26,10 +26,10 @@ java.util.ServiceConfigurationError: org.apache.hadoop.fs.FileSystem: Provider o
         at org.apache.hadoop.fs.FileSystem$Cache.get(FileSystem.java:2449)
         at org.apache.hadoop.fs.FileSystem.get(FileSystem.java:367)
         at org.apache.hadoop.fs.FileSystem.get(FileSystem.java:166)
-        at com.vivo.internet.ai.platform.study.FeatureOnlineService.syncByModelMeta(FeatureOnlineService.java:105)
-        at com.vivo.internet.ai.platform.study.FeatureOnlineService.syncByModelName(FeatureOnlineService.java:80)
-        at com.vivo.internet.ai.platform.study.Application.run(Application.java:34)
-        at com.vivo.internet.ai.platform.study.Application.main(Application.java:18)
+        at life.arganzheng.internet.ai.platform.study.FeatureOnlineService.syncByModelMeta(FeatureOnlineService.java:105)
+        at life.arganzheng.internet.ai.platform.study.FeatureOnlineService.syncByModelName(FeatureOnlineService.java:80)
+        at life.arganzheng.internet.ai.platform.study.Application.run(Application.java:34)
+        at life.arganzheng.internet.ai.platform.study.Application.main(Application.java:18)
         at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
         at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
         at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
@@ -193,3 +193,35 @@ service是`org.apache.hadoop.fs.FileSystem`, cn是`org.apache.hadoop.fs.azure.Na
 
 时间关系，我没有找一下[arthas](https://alibaba.github.io/arthas)查看一下类加载信息。留给感兴趣的同学。
 
+```shell
+[zchen@bjthq-dm-submit012.vivo.lan:/home/zchen/tools]
+$ java -jar arthas-boot.jar --telnet-port 10000 --http-port 10001
+[INFO] arthas-boot version: 3.0.5.2
+[INFO] Found existing java process, please choose one and hit RETURN.
+* [1]: 23363 org.apache.spark.deploy.SparkSubmit
+  [2]: 5491 org.apache.spark.deploy.SparkSubmit
+  [3]: 1781 org.apache.spark.deploy.SparkSubmit
+  [4]: 33109 org.apache.spark.deploy.SparkSubmit
+  [5]: 33382 /home/zchen/lib/java/itheme/recommend-mongo-1.0.0.jar
+  [6]: 24150 org.apache.spark.deploy.SparkSubmit
+  [7]: 21095 org.apache.spark.deploy.SparkSubmit
+  [8]: 9259 /home/zchen/apps/jars/task-submit/predictor-java-spark-0.0.1-SNAPSHOT.jar
+  [9]: 29275 org.apache.spark.deploy.SparkSubmit
+7
+[INFO] arthas home: /home/zchen/.arthas/lib/3.0.5/arthas
+[INFO] Try to attach process 21095
+[INFO] Attach process 21095 success.
+[INFO] arthas-client connect 127.0.0.1 10000
+  ,---.  ,------. ,--------.,--.  ,--.  ,---.   ,---.                           
+ /  O  \ |  .--. ''--.  .--'|  '--'  | /  O  \ '   .-'                          
+|  .-.  ||  '--'.'   |  |   |  .--.  ||  .-.  |`.  `-.                          
+|  | |  ||  |\  \    |  |   |  |  |  ||  | |  |.-'    |                         
+`--' `--'`--' '--'   `--'   `--'  `--'`--' `--'`-----'                          
+                                                                                
+
+wiki: https://alibaba.github.io/arthas
+version: 3.0.5
+pid: 21095
+time: 2018-12-27 11:39:49
+
+```
