@@ -21,19 +21,23 @@ do
     host=`echo $addr | awk -F: '{print $1}'`
     hport=`echo $addr | awk -F: '{print $2}'`
     role=`redis-cli -p $hport -h $host info | grep "role:" | awk -F: '{print $2}' | tr -d '\r\n'`
+
     if [ $role = "slave" ];then
         continue
     fi
+
     dbsize=`redis-cli -p $hport -h $host dbsize`
     mem=`redis-cli -p $hport -h $host info | grep "used_memory:" | awk -F: '{print $2}' | tr -d '\r\n' | tr -d 'G'`
     conn=`redis-cli -p $hport -h $host info | grep "connected_clients:" | awk -F: '{print $2}' | tr -d '\r\n' | tr -d 'G'`
-    sum_size=`expr $dbsize + $sum_size`
     mem=$(awk "BEGIN{print $mem/1024.0/1024.0/1024.0}")
+    
     echo "$host $hport mem $mem G , dbsize $dbsize, connected_clients $conn"
+
+    sum_size=`expr $dbsize + $sum_size`
     sum_mem=$(awk "BEGIN{print $sum_mem + $mem}")
     sum_conn=$(awk "BEGIN{print $sum_conn + $conn}")
-
 done
+
 echo "集群dbsize 总数:$sum_size"
 echo "集群内存（G） 总数:$sum_mem"
 echo "连接数 总数:$sum_conn"
