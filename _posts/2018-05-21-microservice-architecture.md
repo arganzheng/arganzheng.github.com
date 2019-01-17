@@ -29,9 +29,9 @@ category: [技术]
     * Ribbon/Feign
 * 容错限流 (Circuit Breakers)
     * Hystrix
-    * Nginx/Kong
+    * Nginx/Kong + RateLimit
     * Sentinel
-* 认证授权
+* 认证授权 (Security)
     * Spring Security/Spring Cloud Security
     * OAuth 
     * OpenID connect
@@ -42,13 +42,13 @@ category: [技术]
     * Spring Cloud Config
     * Apollo@携程
 * 监控告警
-    * 日志监控
+    * 日志监控 (Logging)
         * ELK 
-    * 调用链监控
+    * 调用链监控 (Tracing)
         * CAT@点评
         * Zipkin@Twitter
         * Pinpoint@Naver
-    * Metrics 监控 
+    * Metrics 监控 (stats, metrics)
         * 存储 (TSDB)
             * OpenTSDB(HBase) + Argus，KariosDB(Cassandra) + ZMon
             * InfluxDB 
@@ -68,6 +68,10 @@ category: [技术]
     * Global locks
     * Leadership election and cluster state
 * 部署微服务 (CICD & CNCF)
+    * CICD
+    * A/B rollout
+    * dark launches
+    * auto scale
     * [docker](https://www.docker.com/)
     * [Cloud Foundry](https://www.cloudfoundry.org/)
     * [Kubernetes](https://kubernetes.io/)
@@ -274,14 +278,32 @@ Linkerd 1.x和 Envoy 像是分布式的 Sidebar，多个类似 Linkerd 1.x 和 E
 而且Istio和Conduit引入了Kubernetes，这也弥合了应用调度框架与Service Mesh之间的空隙。
 
 
-### 完整的微服务解决方案 = Dev + Ops = Service Mesh  + Kubernetes
+### 5、Serverless
+
+Serverless被翻译为『无服务器架构』，这个概念在2012年时便已经存在，比微服务和Service Mesh的概念出现都要早，但是直到微服务概念大红大紫之后，Serverless才重新又被人们所关注。
+
+Serverless 的意思并不是无服务器，而是去除有关对服务器运行状态的关心和担心，代码在哪里运行，需要多少容量，它们是否在工作，应用是否跑起来正常运行。
+
+“Write your code, tell the system when to run it and you’re done."
+
+所有服务器的管理和扩缩容对开发者是透明的，开发者只需要关心业务逻辑的开发，其他的一切交给云服务提供者，比如Amazon Web Services (AWS Lambda), Google Cloud (Google Cloud Functions) 或者 Microsoft Azure (Azure Functions) 。
+
+> In this model, organizations only pay for the resources they use — actual consumption — rather than pre-purchased services based on guesswork. The server management and capacity planning decisions are completely hidden from the developer, thus the term “serverless.” The servers are fully abstracted away. Instead, a cloud provider, like Amazon Web Services (AWS Lambda), Google Cloud (Google Cloud Functions) or Microsoft Azure (Azure Functions) dynamically manages the assignment and distribution of resources.
+
+但是其实这块强调的是云平台带来的机器资源自由调度带来的便利。跟 service mesh 2.0 其实没有本质上的区别，从这个意义上来说，serverless 是目标，service mesh 是解决方案。所以基本上，目前开源的 serverless 框架，基本都是基于 k8s/mesos/docker compose这样的容器编排和资源调度框架和 Service Mesh 框架实现。主要有如下这些：
+
+1. [Knative](https://github.com/knative) 谷歌开源的一个基于Kubernetes和Istio实现的构建、部署和管理的现代serverless workloads。
+2. [kubeless](https://kubeless.io/) The Kubernetes Native Serverless Framework - Build advanced applications with FaaS on top of Kubernetes
+3. [Fission](https://fission.io/) Fission is a framework for serverless functions on Kubernetes.
+4. [OpenWhisk](https://openwhisk.apache.org/) Open Source Serverless Cloud Platform
+
+### 最终的微服务解决方案 = Dev + Ops = Service Mesh  + Kubernetes ？
 
 这就是为什么有了 Linkerd 和 Envoy 之后，还会进一步进化出 Istio 和 Conduit。它们相对于老的 serive mesh 框架最大的特点就是基于 Kubernetes 设计，补足了Kubernetes在微服务间服务通讯上的短板。虽然Dubbo、Spring Cloud等都是成熟的微服务框架，但是它们或多或少都会和具体语言或应用场景绑定，并只解决了微服务Dev层面的问题。若想解决Ops问题，它们还需和诸如[Cloud Foundry](https://www.cloudfoundry.org/)、[Mesos](http://mesos.apache.org/)、或[Kubernetes](https://kubernetes.io/)这类资源调度框架做结合：
 
 ![sevicemesh-with-k8s](/img/in-post/sevicemesh-with-k8s.png)
 
 Kubernetes本身就是一个和开发语言无关的、通用的容器管理平台，它可以支持运行云原生和传统的容器化应用。并且它覆盖了微服务的Dev和Ops阶段，结合Service Mesh，它可以为用户提供完整端到端的微服务体验。
-
 
 因此我们有理由推测，未来的微服务架构和技术栈可能是如下形式:
 
@@ -295,6 +317,9 @@ Kubernetes本身就是一个和开发语言无关的、通用的容器管理平�
 
 1. [一篇文章带你快速理解微服务架构，由浅入深带你走进微服务架构的核心](https://blog.csdn.net/javaxuexi123/article/details/79500619)
 2. [Understanding Microservices: From Idea To Starting Line](https://medium.freecodecamp.org/microservices-from-idea-to-starting-line-ae5317a6ff02)
+3. [轻舟微服务](https://www.163yun.com/product-nsf) 网易云的轻舟微服务
+4. [Serverless Service Mesh With Kubeless And Istio](https://engineering.bitnami.com/articles/serverless-service-mesh-with-kubeless-and-istio.html)
+5. [《microservice & serverless》by蔡超的一点感想](https://segmentfault.com/a/1190000012944359)
 
 
 
