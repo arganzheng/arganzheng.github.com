@@ -27,6 +27,9 @@ category: [技术]
         * Nacos
 * 负载均衡 (Load balancing)
     * Ribbon/Feign
+    * Nginx
+    * HAProxy
+    * RPC client
 * 容错限流 (Circuit Breakers)
     * Hystrix
     * Nginx/Kong + RateLimit
@@ -41,6 +44,7 @@ category: [技术]
 * 配置中心 (Distributed/versioned configuration)
     * Spring Cloud Config
     * Apollo@携程
+    * Nacos
 * 监控告警
     * 日志监控 (Logging)
         * ELK 
@@ -61,7 +65,10 @@ category: [技术]
     * 健康检查
     * 告警通知
         * Elastalert 是 Yelp 开源的针对 ELK 的告警通知模块
-* 后台任务
+* 任务调度
+    * Quartz、[elastic-job](http://elasticjob.io/index_zh.html)、[xxl-job](http://www.xuxueli.com/xxl-job/)
+    * [Azkaban@Linkedin](https://azkaban.github.io/)
+    * [Airflow@Airbnb](https://github.com/apache/incubator-airflow)、[Maat@阿里巴巴](https://102.alibaba.com/detail?id=172) 可惜没有开源。
 * 事件驱动
     * Spring Cloud Stream
 * 其它
@@ -155,6 +162,7 @@ Service Mesh有如下几个特点：
 
 Service Mesh的架构如下图所示：
 
+![service-mesh-arch](/img/in-post/service-mesh-arch.png)
 
 Service Mesh作为Sidebar运行，对应用程序来说是透明，所有应用程序间的流量都会通过它，所以对应用程序流量的控制都可以在Service Mesh中实现。
 
@@ -320,7 +328,7 @@ Kubernetes本身就是一个和开发语言无关的、通用的容器管理平�
 3. [轻舟微服务](https://www.163yun.com/product-nsf) 网易云的轻舟微服务
 4. [Serverless Service Mesh With Kubeless And Istio](https://engineering.bitnami.com/articles/serverless-service-mesh-with-kubeless-and-istio.html)
 5. [《microservice & serverless》by蔡超的一点感想](https://segmentfault.com/a/1190000012944359)
-
-
+6. [深度解析 | 基于DAG的分布式任务调度平台：Maat](https://102.alibaba.com/detail?id=172)
+7. [](https://zhuanlan.zhihu.com/p/26493355)
 
 
