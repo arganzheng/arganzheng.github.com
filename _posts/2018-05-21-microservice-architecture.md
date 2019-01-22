@@ -67,8 +67,11 @@ category: [技术]
         * Elastalert 是 Yelp 开源的针对 ELK 的告警通知模块
 * 任务调度
     * Quartz、[elastic-job](http://elasticjob.io/index_zh.html)、[xxl-job](http://www.xuxueli.com/xxl-job/)
-    * [Azkaban@Linkedin](https://azkaban.github.io/)
-    * [Airflow@Airbnb](https://github.com/apache/incubator-airflow)、[Maat@阿里巴巴](https://102.alibaba.com/detail?id=172) 可惜没有开源。
+    * [oozie](https://oozie.apache.org/) : Hadoop Job Scheduling
+    * [Azkaban@Linkedin](https://azkaban.github.io/) : Hadoop Job Scheduling
+    * [luigi@Spotify](https://github.com/spotify/luigi) : One major difference is that Luigi is not just built specifically for Hadoop, and it's easy to extend it with other kinds of tasks.
+    * [Airflow@Airbnb](https://github.com/apache/incubator-airflow)、[Maat@阿里巴巴](https://102.alibaba.com/detail?id=172) 可惜没有开源 : General Purpose Batch Processing
+    * [Conductor@Netflix](https://netflix.github.io/conductor/) : Microservice orchestration
 * 事件驱动
     * Spring Cloud Stream
 * 其它
@@ -329,6 +332,7 @@ Kubernetes本身就是一个和开发语言无关的、通用的容器管理平�
 4. [Serverless Service Mesh With Kubeless And Istio](https://engineering.bitnami.com/articles/serverless-service-mesh-with-kubeless-and-istio.html)
 5. [《microservice & serverless》by蔡超的一点感想](https://segmentfault.com/a/1190000012944359)
 6. [深度解析 | 基于DAG的分布式任务调度平台：Maat](https://102.alibaba.com/detail?id=172)
-7. [](https://zhuanlan.zhihu.com/p/26493355)
+7. [Workflow Processing Engine Overview 2018: Airflow vs Azkaban vs Conductor vs Oozie vs Amazon Step Functions](https://xunnanxu.github.io/2018/04/13/Workflow-Processing-Engine-Overview-2018-Airflow-vs-Azkaban-vs-Conductor-vs-Oozie-vs-Amazon-Step-Functions/)
+
 
 
