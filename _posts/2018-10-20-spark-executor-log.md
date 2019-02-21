@@ -8,12 +8,23 @@ catalog: true
 
 ### 方法一：直接在界面上查看
 
-如果你运行在YARN模式，你可以在ResourceManager节点的WEB UI页面根据 任务状态、用户名 或者 applicationId Search 到你的应用。然后 
+如果你运行在 YARN 模式，你可以在 ResourceManager 节点的 WEB UI 页面根据 任务状态、用户名 或者 applicationId Search 到你的应用。然后 
 
 * 点击表格中 `Tracking UI` 列的History 链接；或者
-* 点击相关的ApplicationId 链接，进入到详情页面点击上面的 `Tracking URL: History` 链接
+* 点击相关的 ApplicationId 链接，进入到详情页面点击上面的 `Tracking URL: History` 链接
 
-就进入到Spark作业监控的 WEB UI 界面，这个页面就是你 Spark 应用程序历史执行界面：例如`http://bj01-prd-hadoop001.arganzheng.lan:18088/history/application_1537448956025_2516133/jobs/`。到这个界面之后，可以点击 Executors 菜单，这时候你可以进入到Spark程序的 Executors 界面，里面列出所有Executor信息，以表格的形式展示，在表格中有Logs这列，里面就是你Spark应用程序运行的日志。
+就进入到Spark作业监控的 WEB UI 界面，这个页面就是你 Spark 应用程序历史执行界面：例如`http://bj01-prd-hadoop001.arganzheng.lan:18088/history/application_1537448956025_2516133/jobs/`。到这个界面之后，可以点击 Executors 菜单，这时候你可以进入到 Spark 程序的 Executors 界面，里面列出所有Executor信息，以表格的形式展示，在表格中有 Logs 这列，里面就是你Spark应用程序运行的日志。
+
+
+![spark-web-ui-1.png](/img/in-post/spark-web-ui-1.png)
+
+![spark-web-ui-2.png](/img/in-post/spark-web-ui-2.png)
+
+![spark-web-ui-3.png](/img/in-post/spark-web-ui-3.png)
+
+也可以从 driver 日志中直接拿到程序的 web UI 地址（Tracking URL），直接在driver日志中搜索“tracking URL“并将该URL在浏览器中打开:
+
+![spark-driver-log.png](/img/in-post/spark-driver-log.png)
 
 
 ### 方法二: 直接查看 HDFS 上的日志文件
@@ -78,6 +89,8 @@ $ hadoop fs -get /tmp/logs/xfhuang/logs/application_1537448956025_2409589/bjthq-
 
 里面的日志就是这台机器上这个 applicationId 下 executor 的运行日志。
 
+不过需要grep所有的文件才知道哪个日志文件是 ApplicationMaster 的。比如：grep -Fnrs "ApplicationMaster"。
+
 
 ### 方法三：通过 `yarn logs -applicationId` 命令查看
 
@@ -99,5 +112,17 @@ Log Contents:
 2018-10-19 09:46:41,580 WARN [main] org.apache.hadoop.yarn.server.nodemanager.containermanager.localizer.ContainerLocalizer: Localization running as nobody not xfhuang
 ```
 
+**说明**
 
+1、Spark 程序的日志分为 driver 日志和 executor 日志，在 yarn-client 模式下，driver 日志即是 spark-submit（或 spark2-submit）运行时的打印日志，这个日志是我们排查问题首先要拿到的。在 yarn-cluster 模式下 driver 日志在某个 container 上。
+
+2、Spark 程序的日志根据 spark 程序所在的阶段需要去不同的地方查看，比如程序正在运行时可以通过程序本身的 web UI 查看运行时的日志，程序结束后，web UI 就退出了，Spark 会将日志移动到 Spark History。Spark程序结束后，就无法从 web UI 查看日志了，因为此时 driver 已经退出，而日志被移动到 spark history server，而 history server 保留日志是有时间和数量限制的；如果中 history server 中找不到，则需要从 HDFS的 /tmp/logs 目录下载 或者通过  `yarn logs -applicationId` 命令查看。
+
+3、Spark Client 和 Spark Cluster的区别:
+
+理解YARN-Client和YARN-Cluster深层次的区别之前先清楚一个概念：Application Master。在YARN中，每个Application实例都有一个ApplicationMaster进程，它是Application启动的第一个容器。它负责和ResourceManager打交道并请求资源，获取资源之后告诉NodeManager为其启动Container。从深层次的含义讲YARN-Cluster和YARN-Client模式的区别其实就是ApplicationMaster进程的区别。
+
+YARN-Cluster模式下，Driver运行在AM(Application Master)中，它负责向YARN申请资源，并监督作业的运行状况。当用户提交了作业之后，就可以关掉Client，作业会继续在YARN上运行，因而YARN-Cluster模式不适合运行交互类型的作业。
+
+YARN-Client模式下，Application Master仅仅向YARN请求Executor，Client会和请求的Container通信来调度他们工作，也就是说Client不能离开。
 
