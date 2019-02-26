@@ -345,7 +345,7 @@ Max peak unified memory : 1.2 GB
 Suggested spark.memory.fraction : 0.2
 ```
 
-![spark-executor-jvm-unified-memory-heuristic](/img/in-post/spark-executor-jvm-unified-memory-heuristic.jpg)
+![spark-executor-jvm-unified-memory-heuristic](/img/in-post/spark-executor-jvm-unified-memory-heuristic.png)
 
 
 #### 3. Executor OOM类错误 （错误代码 137、143等）
@@ -413,7 +413,9 @@ Data Skew 是指任务间处理的数据量存大较大的差异。
 #### 4. Executor GC Heuristic
 
 现象: Executor 花费很多时间在 GC。
+
 原因: 可以通过 `-verbose:gc -XX:+PrintGCDetails -XX:+PrintGCTimeStamps` 查看 GC 情况
+
 解决方案: [Garbage Collection Tuning](https://spark.apache.org/docs/2.1.0/tuning.html#garbage-collection-tuning)
 
 
