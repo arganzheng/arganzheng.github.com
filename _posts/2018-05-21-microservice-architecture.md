@@ -72,6 +72,7 @@ category: [技术]
     * [luigi@Spotify](https://github.com/spotify/luigi) : One major difference is that Luigi is not just built specifically for Hadoop, and it's easy to extend it with other kinds of tasks.
     * [Airflow@Airbnb](https://github.com/apache/incubator-airflow)、[Maat@阿里巴巴](https://102.alibaba.com/detail?id=172) 可惜没有开源 : General Purpose Batch Processing
     * [Conductor@Netflix](https://netflix.github.io/conductor/) : Microservice orchestration
+    * [argo](https://argoproj.github.io/) : Open source Kubernetes native workflows, events, CI and CD.
 * 事件驱动
     * Spring Cloud Stream
 * 其它
