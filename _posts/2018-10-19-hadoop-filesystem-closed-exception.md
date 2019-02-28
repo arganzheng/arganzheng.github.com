@@ -1,7 +1,7 @@
 ---
 title: Spark任务读取HDFS文件报Filesystem closed异常
 layout: post
-tags: [Spark, hadoop]
+tags: [spark, hadoop]
 catalog: true
 ---
 

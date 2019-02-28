@@ -1,7 +1,7 @@
 ---
 title: 创建Hadoop FileSystem报Provider org.apache.hadoop.fs.azure.NativeAzureFileSystem not a subtype异常
 layout: post
-tags: [Spark, hadoop]
+tags: [spark, hadoop]
 catalog: true
 ---
 
