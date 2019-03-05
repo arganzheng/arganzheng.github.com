@@ -60,11 +60,11 @@ catalog: true
 
 由于数据量巨大，可以采用抽样的方式，对数据进行抽样，统计出现的次数，根据出现次数大小排序取出前几个: 
 
-```scala
-df.select("key").sample(false, 0.1) // 数据采样 
-    .(k => (k, 1)).reduceBykey(_ + _) // 统计 key 出现的次数
-    .map(k => (k._2, k._1)).sortByKey(false) // 根据 key 出现次数进行排序
-    .take(10) // 取前 10 个。
+```java
+df.select("key").sample(false, 0.1)           // 数据采样 
+    .(k => (k, 1)).reduceBykey(_ + _)         // 统计 key 出现的次数
+    .map(k => (k._2, k._1)).sortByKey(false)  // 根据 key 出现次数进行排序
+    .take(10)                                 // 取前 10 个。
 ```
 
 如果发现多数数据分布都较为平均，而个别数据比其他数据大上若干个数量级，则说明发生了数据倾斜。
