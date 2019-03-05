@@ -28,20 +28,23 @@ catalog: true
 
 当发现如下现象时，十有八九是发生数据倾斜了:
 
-* 绝大多数task执行得都非常快，但个别task执行极慢。比如，总共有1000个task，997个task都在1分钟之内执行完了，但是剩余两三个task却要一两个小时。
-* 原本能够正常执行的Spark作业，某天突然报出OOM（内存溢出）异常，观察异常栈，是我们写的业务代码造成的。这种情况比较少见。
+* 绝大多数 task 执行得都非常快，但个别 task 执行极慢，整体任务卡在某个阶段不能结束。
+* 原本能够正常执行的 Spark 作业，某天突然报出 OOM（内存溢出）异常，观察异常栈，是我们写的业务代码造成的。这种情况比较少见。
 
+**TIPS** 
+
+在 Spark streaming 程序中，数据倾斜更容易出现，特别是在程序中包含一些类似 sql 的 join、group 这种操作的时候。因为 Spark Streaming 程序在运行的时候，我们一般不会分配特别多的内存，因此一旦在这个过程中出现一些数据倾斜，就十分容易造成 OOM。
 
 ### 数据倾斜的原因
 
-在进行 shuffle 的时候，必须将各个节点上相同的 key 拉取到某个节点上的一个 task 来进行处理，比如按照 key 进行聚合或 join 等操作。此时如果某个 key 对应的数据量特别大的话，就会发生数据倾斜。比如大部分 key 对应10条数据，但是个别 key 却对应了100万条数据，那么大部分 task 可能就只会分配到10条数据，然后1秒钟就运行完了；但是个别 task 可能分配到了100万数据，要运行一两个小时。因此，整个 Spark 作业的运行进度是由运行时间最长的那个 task 决定的。
+在进行 shuffle 的时候，必须将各个节点上相同的 key 拉取到某个节点上的一个 task 来进行处理，比如按照 key 进行聚合或 join 等操作。此时如果某个 key 对应的数据量特别大的话，就会发生数据倾斜。比如大部分 key 对应10条数据，但是个别 key 却对应了100万条数据，那么大部分 task 可能就只会分配到10条数据，然后1秒钟就运行完了；但是个别 task 可能分配到了100万数据，要运行一两个小时。
 
 因此出现数据倾斜的时候，Spark 作业看起来会运行得非常缓慢，甚至可能因为某个 task 处理的数据量过大导致内存溢出。
 
 
 ### 问题发现与定位
 
-#### 通过 Spark Web UI 
+#### 1、通过 Spark Web UI 
 
 通过 Spark Web UI 来查看当前运行的 stage 各个 task 分配的数据量（`Shuffle Read Size/Records`），从而进一步确定是不是 task 分配的数据不均匀导致了数据倾斜。
 
@@ -51,13 +54,13 @@ catalog: true
 
 数据倾斜只会发生在 shuffle 过程中。这里给大家罗列一些常用的并且可能会触发 shuffle 操作的算子: distinct、groupByKey、reduceByKey、aggregateByKey、join、cogroup、repartition 等。出现数据倾斜时，可能就是你的代码中使用了这些算子中的某一个所导致的。
 
-#### 通过 key 统计
+#### 2、通过 key 统计
 
 也可以通过抽样统计 key 的出现次数验证。
 
 由于数据量巨大，可以采用抽样的方式，对数据进行抽样，统计出现的次数，根据出现次数大小排序取出前几个: 
 
-```
+```scala
 df.select("key").sample(false, 0.1) // 数据采样 
     .(k => (k, 1)).reduceBykey(_ + _) // 统计 key 出现的次数
     .map(k => (k._2, k._1)).sortByKey(false) // 根据 key 出现次数进行排序
@@ -75,6 +78,7 @@ df.select("key").sample(false, 0.1) // 数据采样
 * 程序实现: 比如说在 Hive 中，经常遇到 count（distinct）操作，这样会导致最终只有一个 reduce，我们可以先 group 再在外面包一层 count，就可以了；在 Spark 中使用 reduceByKey 替代 groupByKey 等。
 * 参数调优: Hadoop 和 Spark 都自带了很多的参数和机制来调节数据倾斜，合理利用它们就能解决大部分问题。
 
+下面我们给大家介绍几种常见的思路。
 
 #### 思路1. 过滤异常数据
 
@@ -179,7 +183,7 @@ dataFrame 和 sparkSql 可以设置 `spark.sql.shuffle.partitions=[num_tasks]` �
 ![spark-data-skew-mapjoin](/img/in-post/spark-data-skew-mapjoin.png)
 
 
-```
+```python
 from pyspark.sql.functions import broadcast
 result = broadcast(A).join(B, ["join_col"], "left")
 ```
@@ -208,7 +212,7 @@ result = broadcast(A).join(B, ["join_col"], "left")
 使用Spark SQL时需要通过 `SET spark.sql.autoBroadcastJoinThreshold=104857600` 将 Broadcast 的阈值设置得足够大，才会生效。
 
 
-#### 思路5. 采样倾斜 key 并分拆 join 操作（join 的两表都很大，但仅一个 RDD 的几个 key 的数据量过大）　
+#### 思路5. 拆分 join 再 union
 
 思路很简单，就是将一个 join 拆分成 倾斜数据集 Join 和 非倾斜数据集 Join，最后进行 union:
 
@@ -243,15 +247,15 @@ result = broadcast(A).join(B, ["join_col"], "left")
 如果倾斜 Key 非常多，则另一侧数据膨胀非常大，此方案不适用。而且此时对倾斜 Key 与非倾斜 Key 分开处理，需要扫描数据集两遍，增加了开销。
 
 
-#### 思路6. 大表随机添加 N 种随机前缀，小表扩大 N 倍
+#### 思路6. 大表 key 加盐，小表扩大 N 倍 jion
 
 如果出现数据倾斜的 Key 比较多，上一种方法将这些大量的倾斜 Key 分拆出来，意义不大。此时更适合直接对存在数据倾斜的数据集全部加上随机前缀，然后对另外一个不存在严重数据倾斜的数据集整体与随机前缀集作笛卡尔乘积（即将数据量扩大N倍）。
 
-其实就是上一个方法的特例或者简化。
+其实就是上一个方法的特例或者简化。少了拆分，也就没有 union。
 
 **适用场景**
 
-一个数据集存在的倾斜Key比较多，另外一个数据集数据分布比较均匀。
+一个数据集存在的倾斜 Key 比较多，另外一个数据集数据分布比较均匀。
 
 **优势**
 
@@ -272,7 +276,7 @@ result = broadcast(A).join(B, ["join_col"], "left")
 
 这个方案的核心实现思路就是进行两阶段聚合。第一次是局部聚合，先给每个 key 都打上一个 1~n 的随机数，比如 3 以内的随机数，此时原先一样的 key 就变成不一样的了，比如 `(hello, 1) (hello, 1) (hello, 1) (hello, 1) (hello, 1)`，就会变成 `(1_hello, 1) (3_hello, 1) (2_hello, 1) (1_hello, 1) (2_hello, 1)`。接着对打上随机数后的数据，执行 reduceByKey 等聚合操作，进行局部聚合，那么局部聚合结果，就会变成了 `(1_hello, 2) (2_hello, 2) (3_hello, 1)`。然后将各个 key 的前缀给去掉，就会变成 `(hello, 2) (hello, 2) (hello, 1)`，再次进行全局聚合操作，就可以得到最终结果了，比如 `(hello, 5)`。
 
-```
+```scala
 def antiSkew(): RDD[(String, Int)] = {
     val SPLIT = "-"
     val prefix = new Random().nextInt(10)
@@ -283,9 +287,9 @@ def antiSkew(): RDD[(String, Int)] = {
 }
 ```
 
-不过进行两次mapreduce，性能稍微比一次的差些。
+不过进行两次 mapreduce，性能稍微比一次的差些。
 
-### Hadoop中的数据倾斜
+### Hadoop 中的数据倾斜
 
 Hadoop 中直接贴近用户使用使用的时 Mapreduce 程序和 Hive 程序，虽说 Hive 最后也是用 MR 来执行（至少目前 Hive 内存计算并不普及），但是毕竟写的内容逻辑区别很大，一个是程序，一个是Sql，因此这里稍作区分。
 
@@ -316,6 +320,7 @@ Hadoop 中的数据倾斜主要表现在 ruduce 阶段卡在99.99%，一直99.99
 **说明**
 
 > hive.map.aggr=true: 在map中会做部分聚集操作，效率更高但需要更多的内存。
+> 
 > hive.groupby.skewindata=true: 数据倾斜时负载均衡，当选项设定为true，生成的查询计划会有两个MRJob。第一个MRJob 中，Map的输出结果集合会随机分布到Reduce中，每个Reduce做部分聚合操作，并输出结果，这样处理的结果是相同的GroupBy Key有可能被分发到不同的Reduce中，从而达到负载均衡的目的；第二个MRJob再根据预处理的数据结果按照GroupBy Key分布到Reduce中（这个过程可以保证相同的GroupBy Key被分布到同一个Reduce中），最后完成最终的聚合操作。
 
 
