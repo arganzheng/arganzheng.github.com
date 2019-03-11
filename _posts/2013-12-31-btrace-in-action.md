@@ -361,11 +361,17 @@ public static void onSystemGC() {
 
 #### 4、打印函数的调用/慢调用的统计信息
 
-可以参考 Samples 的 [Histogram.java](https://github.com/btraceio/btrace/blob/master/samples/Histogram.java), [HistoOnEvent.java](https://github.com/btraceio/btrace/blob/master/samples/HistoOnEvent.java) 和 [Profiling.java](https://github.com/btraceio/btrace/blob/master/samples/Profiling.java) 甚至可以支持 [采样](https://github.com/btraceio/btrace/blob/master/samples/AllMethodsSampled.java)。
+BTrace 提供了如下几种机制，可以让你比较方便的统计接口的调用信息:
 
-可以用 AtomicInteger 构造计数器，然后定时 (@OnTimer)，或根据事件 (@OnEvent) 输出结果 (ctrl+c后选择发送事件)。
+* [Aggregation](https://github.com/btraceio/btrace/blob/master/src/share/classes/com/sun/btrace/aggregation/Aggregation.java)
+* [Sample](https://github.com/btraceio/btrace/blob/master/samples/AllMethodsSampled.java) 
+* [Histogram.java](https://github.com/btraceio/btrace/blob/master/samples/Histogram.java)
+* [HistoOnEvent.java](https://github.com/btraceio/btrace/blob/master/samples/HistoOnEvent.java) 
+* [Profiling.java](https://github.com/btraceio/btrace/blob/master/samples/Profiling.java) 
 
-这里给大家介绍一下 BTrace 提供的一个专门分析性能工具: `BTraceUtils.Profiling`。
+当然你也可以用 AtomicInteger 构造计数器，然后定时 (@OnTimer)，或根据事件 (@OnEvent) 输出结果 (ctrl+c后选择发送事件)。
+
+这里给大家介绍一下 BTrace 提供的一个专门分析性能工具: [BTraceUtils.Profiling](https://github.com/btraceio/btrace/blob/master/src/share/classes/com/sun/btrace/profiling/MethodInvocationProfiler.java)。
 
 ```java
 package life.arganzheng.study;
@@ -398,7 +404,7 @@ class BtraceProfiling {
         BTraceUtils.Profiling.recordExit(profiler, probeMethod, duration);
     }
 
-    @OnTimer(5000)
+    @OnTimer(30000)
     void timer() {
         BTraceUtils.Profiling.printSnapshot("Serializer performance profile", profiler);
     }
