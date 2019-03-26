@@ -431,7 +431,7 @@ script/BtraceProfiling.java:31: error: script/BtraceProfiling.java:30:instance m
 
 然后扔到服务器上执行:
 
-```
+```sh
 [root@10.21.12.92:/usr/btrace]
 #bin/btrace 30857 script/BtraceProfiling.java
 Serializer performance profile
@@ -448,29 +448,159 @@ Serializer performance profile
   public life.arganzheng.study.btrace.fealib.container.DoubleList life.arganzheng.study.btrace.serializer.impl.DoubleListSerializer#deserialize(java.lang.String)                 584699     14109898193         24131          1201      19619910     14109898193         24131          1201      19619910
   public volatile java.lang.Object life.arganzheng.study.btrace.serializer.impl.StringListSerializer#deserialize(java.lang.String)                                                 184585      3865020770         20938           481      12183812      5496685753         29778          1356      12268570
   public life.arganzheng.study.btrace.fealib.container.StringList life.arganzheng.study.btrace.serializer.impl.StringListSerializer#deserialize(java.lang.String)                 184585      1631664983          8839           449       3009604      1631664983          8839           449       3009604
-Serializer performance profile
-  Block                                                                                                                                                                        Invocations  SelfTime.Total  SelfTime.Avg  SelfTime.Min  SelfTime.Max  WallTime.Total  WallTime.Avg  WallTime.Min  WallTime.Max
-  public volatile java.lang.Object life.arganzheng.study.btrace.serializer.impl.StringDoubleMapSerializer#deserialize(java.lang.String)                                           1210671     14160978865         11696           212     647406149     37519151087         30990           725     647413698
-  public life.arganzheng.study.btrace.fealib.container.StringDoubleMap life.arganzheng.study.btrace.serializer.impl.StringDoubleMapSerializer#deserialize(java.lang.String)      1210671     23358172222         19293           492      14648648     23358172222         19293           492      14648648
-  public volatile java.lang.Object life.arganzheng.study.btrace.serializer.impl.StringSerializer#deserialize(java.lang.String)                                                    3736721     39849684165         10664           204      33876420     54595623045         14610           314      33877564
-  public java.lang.String life.arganzheng.study.btrace.serializer.impl.StringSerializer#deserialize(java.lang.String)                                                             3736722     14745939038          3946           103      20641152     14745939038          3946           103      20641152
-  public volatile java.lang.Object life.arganzheng.study.btrace.serializer.impl.DoubleSerializer#deserialize(java.lang.String)                                                     548466      6114503063         11148           206       8195627      9281190393         16922           401       8203679
-  public java.lang.Double life.arganzheng.study.btrace.serializer.impl.DoubleSerializer#deserialize(java.lang.String)                                                              548466      3166687330          5773           176       6850242      3166687330          5773           176       6850242
-  public volatile java.lang.Object life.arganzheng.study.btrace.serializer.impl.IntegerSerializer#deserialize(java.lang.String)                                                    539565      6433749881         11923           204      15031070      9066201120         16802           333      15050428
-  public java.lang.Integer life.arganzheng.study.btrace.serializer.impl.IntegerSerializer#deserialize(java.lang.String)                                                            539565      2632451239          4878           120      15013941      2632451239          4878           120      15013941
-  public volatile java.lang.Object life.arganzheng.study.btrace.serializer.impl.DoubleListSerializer#deserialize(java.lang.String)                                                1597093     16627814323         10411           206      22538002     43831303918         27444           958      22545218
-  public life.arganzheng.study.btrace.fealib.container.DoubleList life.arganzheng.study.btrace.serializer.impl.DoubleListSerializer#deserialize(java.lang.String)                1597094     27203491075         17033           736      21012213     27203491075         17033           736      21012213
-  public volatile java.lang.Object life.arganzheng.study.btrace.serializer.impl.StringListSerializer#deserialize(java.lang.String)                                                 510610      6463180160         12657           206      18019617      9975684863         19536           364      18024993
-  public life.arganzheng.study.btrace.fealib.container.StringList life.arganzheng.study.btrace.serializer.impl.StringListSerializer#deserialize(java.lang.String)                 510610      3512504703          6879           143       3009604      3512504703          6879           143       3009604
 ...
 
 ^Z
 [2]+  Stopped                 bin/btrace 30857 script/BtraceProfiling.java
 ```
 
+所有的时间单位都是纳秒。
+
 是不是很强大？
 
-不过这种运行时动态增强和打印日志（主要是这个）的方式会严重影响性能，线上需要慎用，拦截的范围要越小越好，打印的日志要越少越好。
+不过这种运行时动态增强和打印日志（这个影响更大）的方式会严重影响性能，线上需要慎用，拦截的范围要越小越好，打印的日志要越少越好。
+
+
+**TIPS** 同名函数怎样精确拦截？
+
+我们写了一个拦截：
+
+```java
+@OnMethod(clazz = "/com\\.argan\\.internet\\.ai\\.platform\\.fealib\\.feafunc\\.common..*/", //
+        method = "apply", //
+        location = @Location(value = Kind.ENTRY))
+```
+但是发现打印的 profile 日志有内部类拥有一样的函数名 apply。关键是会导致被监控到进程挂了，报如下错误：
+
+```java
+java.util.concurrent.ExecutionException: java.lang.NoClassDefFoundError: com/argan/internet/ai/platform/fealib/feafunc/common/TsToHour$Lambda$555
+```
+
+```sh
+FeatureFunction performance profile
+  Block                                                                                                                                  Invocations  SelfTime.Total  SelfTime.Avg  SelfTime.Min  SelfTime.Max  WallTime.Total  WallTime.Avg  WallTime.Min  WallTime.Max
+  public java.lang.Object[] com.argan.internet.ai.platform.fealib.feafunc.common.ElemSfDivRd#apply(java.lang.Object[])                              8       235321628      29415203     111947283     111947283       239585795      29948224     112008812     112008812
+  public java.lang.Object com.argan.internet.ai.platform.fealib.feafunc.common.ElemSfDivRd$$Lambda$613#apply(java.lang.Object)                     48         4264167         88836          6212         22418         4264167         88836          6212         22418
+  public java.lang.Object[] com.argan.internet.ai.platform.fealib.feafunc.common.ZipWithIdx#apply(java.lang.Object[])                              12          122573         10214         13530         13530          122573         10214         13530         13530
+  public java.lang.Object[] com.argan.internet.ai.platform.fealib.feafunc.common.Round#apply(java.lang.Object[])                                    3           61615         20538          5343         49783           61615         20538          5343         49783
+  public java.lang.Object[] com.argan.internet.ai.platform.fealib.feafunc.common.ZipSfDivRd#apply(java.lang.Object[])                               4        86264210      21566052         17405      86209646        86264210      21566052         17405      86209646
+  public java.lang.Object[] com.argan.internet.ai.platform.fealib.feafunc.common.Sum#apply(java.lang.Object[])                                      6        23663651       3943941         23749      23527073        23913555       3985592         49094      23633671
+  public java.lang.Object com.argan.internet.ai.platform.fealib.feafunc.common.Sum$$Lambda$615#apply(java.lang.Object, java.lang.Object)           36          249904          6941          3868         73407          249904          6941          3868         73407
+  public java.lang.Object[] com.argan.internet.ai.platform.fealib.feafunc.common.GetNumBySplit#apply(java.lang.Object[])                            1        85495023      85495023      85495023      85495023        85495023      85495023      85495023      85495023
+```
+
+查看一下文档，发现 `@onMethod` 注解 有个 `type` 参数 可以指定完整的方法签名：
+
+```
+@OnMethod(clazz=<cname_spec>[, method=<mname_spec>]? [, type=<signature>]? [, location=<location_spec>]?)
+```
+
+其中 
+
+```
+signature = <return_type> ((arg_type(,arg_type)*)?
+```
+
+所以我们可以这样子拦截：
+
+```java
+package life.arganzheng.study;
+
+import com.sun.btrace.BTraceUtils;
+import com.sun.btrace.Profiler;
+import com.sun.btrace.annotations.*;
+
+/**
+ * @author zhengzhibin
+ * @date 2019/03/11
+ */
+@BTrace
+class Profiling4FeatureFunction {
+
+    @Property
+    Profiler profiler = BTraceUtils.Profiling.newProfiler();
+
+    @OnMethod(clazz = "/com\\.argan\\.internet\\.ai\\.platform\\.fealib\\.feafunc\\.common..*/", //
+        method = "apply", type = "Object[] (java.lang.Object[])", //
+        location = @Location(value = Kind.ENTRY))
+    void onEntry(@ProbeMethodName(fqn = true) String probeMethod) {
+        BTraceUtils.Profiling.recordEntry(profiler, probeMethod);
+    }
+
+    @OnMethod(clazz = "/com\\.argan\\.internet\\.ai\\.platform\\.fealib\\.feafunc\\.common..*/", //
+        method = "apply", type = "Object[] (java.lang.Object[])", //
+        location = @Location(value = Kind.RETURN))
+    void onReturn(@ProbeMethodName(fqn = true) String probeMethod, @Duration long duration) {
+        BTraceUtils.Profiling.recordExit(profiler, probeMethod, duration);
+    }
+
+    @OnTimer(60000)
+    void timer() {
+        BTraceUtils.Profiling.printSnapshot("FeatureFunction performance profile", profiler);
+    }
+}
+```
+
+果然现在不会挂了，而且只打印出精确的类:
+
+```sh
+#bin/btrace 4049 script/Profiling4FeatureFunction.java
+FeatureFunction performance profile
+  Block                                                                                                                   Invocations  SelfTime.Total  SelfTime.Avg  SelfTime.Min  SelfTime.Max  WallTime.Total  WallTime.Avg  WallTime.Min  WallTime.Max
+  public java.lang.Object[] com.argan.internet.ai.platform.fealib.feafunc.common.TsToHour#apply(java.lang.Object[])             414252      2940911581          7099           518      45170177      2940911581          7099           518      45170177
+  public java.lang.Object[] com.argan.internet.ai.platform.fealib.feafunc.common.TsToHourIdx#apply(java.lang.Object[])          414252      1015077694          2450           315      96732257      1015077694          2450           315      96732257
+  public java.lang.Object[] com.argan.internet.ai.platform.fealib.feafunc.common.TsToWeekDay#apply(java.lang.Object[])          414252      1102223448          2660           351       9156696      1102223448          2660           351       9156696
+  public java.lang.Object[] com.argan.internet.ai.platform.fealib.feafunc.common.IpSplit#apply(java.lang.Object[])              414252      1345673740          3248           518       3636720      1345673740          3248           518       3636720
+  public java.lang.Object[] com.argan.internet.ai.platform.fealib.feafunc.common.ZipWithIdx#apply(java.lang.Object[])         16965102     19257986784          1135            99      28691391     19257986784          1135            99      28691391
+  public java.lang.Object[] com.argan.internet.ai.platform.fealib.feafunc.common.GetNumBySplit#apply(java.lang.Object[])       1653808      3951298130          2389           358      20588737      3951298130          2389           358      20588737
+  public java.lang.Object[] com.argan.internet.ai.platform.fealib.feafunc.common.LogRd#apply(java.lang.Object[])               2480712      4210742105          1697           170       4443824      4210742105          1697           170       4443824
+  public java.lang.Object[] com.argan.internet.ai.platform.fealib.feafunc.common.Split#apply(java.lang.Object[])                826905      1775562052          2147           161      21907911      1775562052          2147           161      21907911
+  public java.lang.Object[] com.argan.internet.ai.platform.fealib.feafunc.common.ParseKeyNumMap#apply(java.lang.Object[])      1240356      4819320801          3885           456      86441607      4819320801          3885           456      86441607
+  public java.lang.Object[] com.argan.internet.ai.platform.fealib.feafunc.common.ElemSfLogRd#apply(java.lang.Object[])         9802645     21945289929          2238           208     312793710     21945289929          2238           208     312793710
+  public java.lang.Object[] com.argan.internet.ai.platform.fealib.feafunc.common.StrToNum#apply(java.lang.Object[])            1653808      2949540567          1783           163       8850330      2949540567          1783           163       8850330
+  public java.lang.Object[] com.argan.internet.ai.platform.fealib.feafunc.common.DivideRd#apply(java.lang.Object[])             413452       537422835          1299           119        215791       537422835          1299           119        215791
+  public java.lang.Object[] com.argan.internet.ai.platform.fealib.feafunc.common.Round#apply(java.lang.Object[])               1658184      2182575646          1316           103        269140      2182575646          1316           103        269140
+  public java.lang.Object[] com.argan.internet.ai.platform.fealib.feafunc.common.ZipSfDivRd#apply(java.lang.Object[])          4104898     10683597665          2602           171      27629351     10683597665          2602           171      27629351
+  public java.lang.Object[] com.argan.internet.ai.platform.fealib.feafunc.common.Sum#apply(java.lang.Object[])                 4801603      5889664879          1226           110      21645135      5889664879          1226           110      21645135
+  public java.lang.Object[] com.argan.internet.ai.platform.fealib.feafunc.common.ElemSfDivRd#apply(java.lang.Object[])         4801500      7326235886          1525           173       4942396      7326235886          1525           173       4942396
+...
+```
+
+但是我们发现 `TsToHour` 这个算子耗时有点诡异，想看看他的调用链耗时，可以使用 `Kind.CALL` location 值:
+
+```java
+@OnMethod(clazz = "+com.argan.internet.ai.platform.fealib.feafunc.common.TsToHour", //
+        method = "apply", type = "Object[] (java.lang.Object[])", //
+        location = @Location(value = Kind.CALL, clazz = "/.*/", method = "/.*/", where = Where.AFTER))
+  // @Sampled(kind = Sampled.Sampler.Adaptive)
+  public static void onCall( // all calls to methods
+      @Self Object self, // @Self 表示当前监控的函数所在类，如果是静态类则为空
+      @TargetInstance Object instance, // @TargetInstance 表示函数中调用的方法或属性所在的类，如果是静态方法则为空
+      @TargetMethodOrField(fqn = true) String method, // @TargetMethodOrField 表示调用的方法或属性
+      @Duration long duration // 如果要获取执行时间，那么 where 必须设置为 Where.AFTER
+  ) {
+      println(strcat("self: ", str(self)));
+      println(strcat("instance: ", str(instance)));
+      println(strcat("method: ", str(method)));
+      println(strcat("duration(ms): ", str(duration / 1000000)));
+
+      if (duration > 1 * 100000) { // > 1ms
+          println("=======invoke method:" + method + ", duration:" + (duration / 100000) + " ms");
+      }
+  }
+
+  @OnError
+  public static void onTraceProblem(Throwable t) {
+      BTraceUtils.println("UNABLE TO TRACE: " + t);
+  }
+```
+
+然而发现这个方法会卡住很久，一直没有反应。。
+
+**TIPS**
+
+阿里巴巴开源的Java诊断工具 [arthas](https://alibaba.github.io/arthas/) 可以替代 Btrace 的大部分功能，比如 [monitor](https://alibaba.github.io/arthas/monitor.html) 命令，跟 Btrace 的 Profiler 效果基本一样，使用起来更简单方便。不过两者都有一个问题，就是功能最强大也是最需要的 trace 功能，都有问题。btrace 是没有生效的感觉，一直卡住。arthas 是会严重影响性能，并且相当不准确。
+
 
 ### 参考文章
 
@@ -478,4 +608,5 @@ Serializer performance profile
 2. [BTrace – a Simple Way to Instrument Running Java Applications](http://piotrnowicki.com/2012/05/btrace-a-simple-way-to-instrument-running-java-applications/)
 3. [Study_Java_BTrace ](http://source.hatter.me/p/hatter-source-code/wiki/Study_Java_BTrace)
 4. [Btrace入门到熟练小工完全指南](http://calvin1978.blogcn.com/articles/btrace1.html)
-
+5. [BTrace : Java 线上问题排查神器](https://cloud.tencent.com/developer/article/1015128)
+6. [问题排查利器之-JVM动态追踪工具BTrace](https://coldwalker.com/2018/03//troubleshooter_btrace01/)
