@@ -540,6 +540,139 @@ Caused by: java.lang.RuntimeException: Oops!
 可以看到 `System.out.println("<-- future3 --");` 并没有继续执行。
 
 
+### 一个有意思的例子
+
+下面我们看一下怎样使用 CompletableFuture 构建和并发执行一个 DAG 任务：
+
+![github-flow.png](/img/in-post/call-tree-multistages.png)
+
+如上图所示：
+
+1. we asynchronously compute integers from 1 to 5 – each integer generation takes 2 seconds
+2. we sum these together
+3. we asynchronously multiply the sum by 1, 2 and 3 – each multiplication takes 2 seconds
+4. we take the maximum.
+
+现在让我们看看用 CompletableFuture 怎么实现：
+
+```java
+package life.arganzheng.study;
+
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
+
+import static java.util.concurrent.CompletableFuture.completedFuture;
+import static java.util.concurrent.TimeUnit.SECONDS;
+
+public class AsynchronousSumAndMax {
+    public static void main(final String[] args) {
+        stopwatch(() -> {
+            Stream<CompletableFuture<Integer>> xs = Stream.of(1, 2, 3, 4, 5).map(
+                    x -> CompletableFuture.supplyAsync(() -> compute(x))
+            );
+
+            CompletableFuture<Integer> sum = xs.reduce(completedFuture(0), (x, y) -> x.thenCombine(y, (i, j) -> i + j));
+
+            CompletableFuture<Integer>[] ys = Stream.of(1, 2, 3).map(
+                    x -> sum.thenApplyAsync(s -> multiply(s, x))
+            ).toArray(CompletableFuture[]::new);
+
+            CompletableFuture<Integer> max = CompletableFuture.allOf(ys).thenApply(
+                    (Void) -> Arrays.stream(ys)
+                            .map(y -> y.getNow(Integer.MAX_VALUE)) // Guaranteed to return y's value, given we synchronise with allOf, and only thenApply this function.
+                            .max(Comparator.naturalOrder())
+                            .get()
+            );
+
+            // Block and wait for results (avoid this in production code!):
+            try { println("Result: " + max.get()); } catch (ExecutionException | InterruptedException e) { e.printStackTrace(); }
+
+            // Output:
+            // [ForkJoinPool.commonPool-worker-1]: Computing 1...
+            // [ForkJoinPool.commonPool-worker-2]: Computing 2...
+            // [ForkJoinPool.commonPool-worker-4]: Computing 4...
+            // [ForkJoinPool.commonPool-worker-3]: Computing 3...
+            // [ForkJoinPool.commonPool-worker-5]: Computing 5...
+            // [ForkJoinPool.commonPool-worker-1]: Computed 1.
+            // [ForkJoinPool.commonPool-worker-5]: Computed 5.
+            // [ForkJoinPool.commonPool-worker-4]: Computed 4.
+            // [ForkJoinPool.commonPool-worker-2]: Computed 2.
+            // [ForkJoinPool.commonPool-worker-3]: Computed 3.
+            // [ForkJoinPool.commonPool-worker-2]: Computing 15 * 1...
+            // [ForkJoinPool.commonPool-worker-4]: Computing 15 * 2...
+            // [ForkJoinPool.commonPool-worker-5]: Computing 15 * 3...
+            // [ForkJoinPool.commonPool-worker-4]: Computed 15 * 2 = 30.
+            // [ForkJoinPool.commonPool-worker-5]: Computed 15 * 3 = 45.
+            // [ForkJoinPool.commonPool-worker-2]: Computed 15 * 1 = 15.
+            // [main]: Result: 45
+            // Elapsed time: 4 seconds.
+        });
+    }
+
+    private static int compute(final int x) {
+        println("Computing " + x + "...");
+        sleep(2, SECONDS);
+        println("Computed " + x + ".");
+        return x;
+    }
+
+    private static int multiply(final int x, final int y) {
+        println("Computing " + x + " * " + y + "...");
+        sleep(2, SECONDS);
+        final int r = x * y;
+        println("Computed " + x + " * " + y + " = " + r + ".");
+        return r;
+    }
+
+    private static void sleep(final int duration, final TimeUnit unit) {
+        try { unit.sleep(duration); } catch (InterruptedException e) { e.printStackTrace(); }
+    }
+
+    private static void println(final String message) {
+        System.out.println("[" + Thread.currentThread().getName() + "]: " + message);
+    }
+
+    private static void stopwatch(final Runnable action) {
+        final long begin = System.currentTimeMillis();
+        action.run();
+        System.out.println("Elapsed time: " + (System.currentTimeMillis() - begin) / 1000 + " seconds.");
+    }
+}
+```
+
+执行结果如下：
+
+```java
+[ForkJoinPool.commonPool-worker-1]: Computing 1...
+[ForkJoinPool.commonPool-worker-2]: Computing 2...
+[ForkJoinPool.commonPool-worker-3]: Computing 3...
+[ForkJoinPool.commonPool-worker-2]: Computed 2.
+[ForkJoinPool.commonPool-worker-3]: Computed 3.
+[ForkJoinPool.commonPool-worker-2]: Computing 4...
+[ForkJoinPool.commonPool-worker-3]: Computing 5...
+[ForkJoinPool.commonPool-worker-1]: Computed 1.
+[ForkJoinPool.commonPool-worker-3]: Computed 5.
+[ForkJoinPool.commonPool-worker-2]: Computed 4.
+[ForkJoinPool.commonPool-worker-1]: Computing 15 * 3...
+[ForkJoinPool.commonPool-worker-3]: Computing 15 * 1...
+[ForkJoinPool.commonPool-worker-2]: Computing 15 * 2...
+[ForkJoinPool.commonPool-worker-1]: Computed 15 * 3 = 45.
+[ForkJoinPool.commonPool-worker-3]: Computed 15 * 1 = 15.
+[ForkJoinPool.commonPool-worker-2]: Computed 15 * 2 = 30.
+[main]: Result: 45
+Elapsed time: 6 seconds.
+```
+
+可以看到由于 Step_1: computing integers from 1 to 5 和 Step_3: multiplying the sum by 1, 2 and 3 都是异步执行的，整个执行时间只需要 4秒，对比单线程则需要16秒。而且关键是整个代码可读性非常简洁、内聚和优雅（ 从Java 8开始 Java再也不是那么冗长了:) :
+
+* we summed integers from 1 to 5 using a reducer, combining the neutral element CompletableFuture.completedFuture(0) with other futures as they completed using thenCombine
+* we waited for all multiplications to complete using allOf and thenApply-ed Integer’s natural order comparator to find the maximum value.
+
+
 推荐文档
 -------
 
