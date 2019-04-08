@@ -7,9 +7,9 @@ catalog: true
 
 ### Future vs. CompletableFuture
 
-JDK 5引入了Future模式。Future接口是Java多线程Future模式的实现，在`java.util.concurrent`包中，可以来进行异步计算。
+JDK 5引入了 Future 模式。Future 接口是Java多线程 Future 模式的实现，在`java.util.concurrent`包中，可以来进行异步计算。
 
-Future模式是多线程设计常用的一种设计模式。所谓Future，顾名思义，就是结果在未来完成，先给你一个凭据。Future的接口很简单，只有五个方法：
+Future 模式是多线程设计常用的一种设计模式。所谓Future，顾名思义，就是结果在未来完成，先给你一个凭据。Future的接口很简单，只有五个方法：
 
 ```java
 public interface Future<V> {
@@ -27,7 +27,7 @@ public interface Future<V> {
 }
 ```
 
-**Future模式的局限性**
+**Future 模式的局限性**
 
 * 没有提供通知或者回调的机制，我们无法得知 Future 什么时候完成以进行后续的操作，不只是简单的阻塞等待。（要么使用阻塞，在 `future.get()` 的地方等待 future 返回的结果，这时又变成同步操作。要么使用 `isDone()` 轮询地判断 Future 是否完成，这样会白白耗费CPU的资源。）
 * 无法将两个异步计算的结果合并为一个，这两个异步计算之间相互独立，同时第二个又依赖于第一个的结果。
@@ -35,24 +35,25 @@ public interface Future<V> {
 * 无法只等待 Future 集合中最快结束的任务完成，并返回它的结果。
 * 无法通过编程的方式完成一个 Future 任务的执行（即以手工设定异步操作结果的方式）。
 
-Java虽然提供了多线程并发编程，但是直到 java 8 CompletableFuture 的出现，才从 JDK 层面真正意义上的支持 基于事件的异步编程范式。当然，之前有很多开源库做了这方面的努力，比如 Guava 的 [ListenableFuture](http://ifeve.com/google-guava-listenablefuture/)，[RxJava](https://github.com/ReactiveX/RxJava)，[Reactor](https://projectreactor.io/)，[Scala promises](https://docs.scala-lang.org/overviews/core/futures.html#promises)。
+Java 虽然提供了多线程并发编程，但是直到 java 8 CompletableFuture 的出现，才从 JDK 层面真正意义上的支持 基于事件的异步编程范式。当然，之前有很多开源库做了这方面的努力，比如 Guava 的 [ListenableFuture](http://ifeve.com/google-guava-listenablefuture/)，[RxJava](https://github.com/ReactiveX/RxJava)，[Reactor](https://projectreactor.io/)，[Scala promises](https://docs.scala-lang.org/overviews/core/futures.html#promises)。
 
-事实上，Java 8的 CompletableFuture 与 Guava 的 ListenableFuture 是如此的相似，前者正是吸收了所有 Google Guava 中 ListenableFuture 和 SettableFuture 的特征，还提供了其它强大的功能，让 Java 拥有了完整的非阻塞编程模型: Future、Promise 和 Callback(在Java8之前，只有无Callback 的Future)。当然两者有一些细微的差别，我们后面会提到。这里我们只介绍基于CompletableFuture实现的异步编程，其他的库提供的异步编程方式（主要是响应式编程范式）我们在后面的文章介绍。
+事实上，Java 8的 CompletableFuture 与 Guava 的 ListenableFuture 是如此的相似，前者正是吸收了所有 Google Guava 中 ListenableFuture 和 SettableFuture 的特征，还提供了其它强大的功能，让 Java 拥有了完整的非阻塞编程模型: Future、Promise 和 Callback（在Java8之前，只有无Callback 的Future）。当然两者有一些细微的差别，我们后面会提到。这里我们只介绍基于 CompletableFuture 实现的异步编程，其他的库提供的异步编程方式（主要是响应式编程范式）我们在后面的文章介绍。
 
 
 ### CompletableFuture 接口概览
 
-CompletableFuture有59个接口，但是别被它吓到了，同步和异步一区分就少了一半，异步接口中使用指定线程池（而非默认的 `ForkJoinPool.commonPool()`）又少了将近一半。这里我们只介绍异步相关的接口。
+CompletableFuture 有59个接口，但是别被它吓到了，同步和异步一区分就少了一半，异步接口中使用指定线程池（而非默认的 `ForkJoinPool.commonPool()`）又少了将近一半。这里我们只介绍异步相关的接口。
 
 #### 1、Async vs. non-Async methods
 
 首先按照同步和异步可以划分为两大类：Async vs. non-Async methods。
 
 > Actions supplied for dependent completions of non-async methods may be performed by the thread that completes the current CompletableFuture, or by any other caller of a completion method.
+>
 > All async methods without an explicit Executor argument are performed using the ForkJoinPool.commonPool() (unless it does not support a parallelism level of at least two, in which case, a new Thread is created to run each task). 
 > And you can therefore also provide a specific Executor to all the Async methods.
 
-在命名上就直接区分开来：所有的异步方法都是以 Async 结尾。下面是所有返回CompletableFuture的同步和异步方式列表：
+在命名上就直接区分开来：所有的异步方法都是以 Async 结尾。下面是所有返回 CompletableFuture 的同步和异步方式列表：
 
 
 | Non-Async method | Async method |
@@ -86,36 +87,22 @@ CompletableFuture有59个接口，但是别被它吓到了，同步和异步一�
 
 | 方法名 | 描述 |
 | --- | --- |
-| runAsync(Runnable runnable) | 使用ForkJoinPool.commonPool()作为它的线程池执行异步代码。|
-| runAsync(Runnable runnable, Executor executor) | 使用指定的thread pool执行异步代码。|
-| supplyAsync(Supplier<U> supplier) | 使用ForkJoinPool.commonPool()作为它的线程池执行异步代码，异步操作有返回值 | 
-| supplyAsync(Supplier<U> supplier, Executor executor) | 使用指定的thread pool执行异步代码，异步操作有返回值 |
+| `runAsync(Runnable runnable)` | 使用 ForkJoinPool.commonPool() 作为它的线程池执行异步代码。|
+| `runAsync(Runnable runnable, Executor executor)` | 使用指定的thread pool执行异步代码。|
+| `supplyAsync(Supplier<U> supplier)` | 使用 ForkJoinPool.commonPool() 作为它的线程池执行异步代码，异步操作有返回值 | 
+| `supplyAsync(Supplier<U> supplier, Executor executor)` | 使用指定的 thread pool 执行异步代码，异步操作有返回值 |
 
 **TIPS** runAsync 和 supplyAsync 方法的区别是 runAsync 返回的 CompletableFuture 是没有返回值的，这点跟 Future 的 Runable 和 Callable 蛮类似的。
 
 
-Example: Running a Simple Asynchronous Stage
-
-```java
-static void runAsyncExample() {
-    CompletableFuture<Void> cf = CompletableFuture.runAsync(() -> {
-        assertTrue(Thread.currentThread().isDaemon());
-        randomSleep();
-    });
-    assertFalse(cf.isDone());
-    sleepEnough();
-    assertTrue(cf.isDone());
-}
-```
-
 #### 3、串联 (Chain asynchronous operations)
 
-CompletableFuture 更强大的地方在于我们可以基于事件（依赖）将各个任务串联起来构成 DAG 并发执行。 
+CompletableFuture 更强大的地方在于我们可以基于事件（依赖）将各个任务串联起来构成 DAG/Pipeline 并发执行。 
 
 * 回调 (Callbacks)
-    * thenRun/thenRunAsync : 
-    * thenAccept/thenAcceptAsync : 
-    * thenApply/thenApplyAsync : 
+    * thenRun/thenRunAsync : Returns a new CompletionStage that, when this stage completes normally, executes the given action.
+    * thenAccept/thenAcceptAsync : Returns a new CompletionStage that, when this stage completes normally, is executed with this stage's result as the argument to the supplied action. 
+    * thenApply/thenApplyAsync : Returns a new CompletionStage that, when this stage completes normally, is executed with this stage's result as the argument to the supplied function.
     * whenComplete/whenCompleteAsync : 当 CompletableFuture 完成计算结果时对结果进行处理，或者当CompletableFuture产生异常的时候对异常进行处理。
     * handle/handleAsync : 当 CompletableFuture 完成计算结果或者抛出异常的时候，执行提供的fn。
 * 组合 (Combining Multiple CompletableFutures)
@@ -133,39 +120,39 @@ CompletableFuture 更强大的地方在于我们可以基于事件（依赖）�
 
 | 方法名 | 描述 |
 | --- | --- |
-| thenAccept(Consumer<? super T> action) | 当CompletableFuture完成计算结果，只对结果执行Action，而不返回新的计算值 |
-| thenAcceptAsync(Consumer<? super T> action) | 当CompletableFuture完成计算结果，只对结果执行Action，而不返回新的计算值，使用ForkJoinPool。| 
-| thenAcceptAsync(Consumer<? super T> action, Executor executor) | 当CompletableFuture完成计算结果，只对结果执行Action，而不返回新的计算值 |
-| thenApply(Function<? super T,? extends U> fn) | 接受一个Function<? super T,? extends U>参数用来转换CompletableFuture |
-| thenApplyAsync(Function<? super T,? extends U> fn) | 接受一个Function<? super T,? extends U> 参数用来转换CompletableFuture，使用ForkJoinPool |
-| thenApplyAsync(Function<? super T,? extends U> fn, Executor executor) | 接受一个Function<? super T,? extends U>参数用来转换CompletableFuture，使用指定的线程池 |
-| whenComplete(BiConsumer<? super T,? super Throwable> action) | CompletableFuture完成计算结果时对结果进行处理，或者当CompletableFuture产生异常的时候对异常进行处理。|
-| whenCompleteAsync(BiConsumer<? super T,? super Throwable> action) |当CompletableFuture完成计算结果时对结果进行处理，或者当CompletableFuture产生异常的时候对异常进行处理。使用ForkJoinPool。 |
-| whenCompleteAsync(BiConsumer<? super T,? super Throwable> action, Executor executor) | 当CompletableFuture完成计算结果时对结果进行处理，或者当CompletableFuture产生异常的时候对异常进行处理。使用指定的线程池。 |
-| handle(BiFunction<? super T, Throwable, ? extends U> fn) | 当CompletableFuture完成计算结果或者抛出异常的时候，执行提供的fn |
-| handleAsync(BiFunction<? super T, Throwable, ? extends U> fn) | 当CompletableFuture完成计算结果或者抛出异常的时候，执行提供的fn，使用ForkJoinPool。|
-| handleAsync(BiFunction<? super T, Throwable, ? extends U> fn, Executor executor) | 当CompletableFuture完成计算结果或者抛出异常的时候，执行提供的fn，使用指定的线程池。 |
-| thenCompose(Function<? super T, ? extends CompletionStage<U>> fn) | 在异步操作完成的时候对异步操作的结果进行一些操作，并且仍然返回CompletableFuture类型。 | 
-| thenComposeAsync(Function<? super T, ? extends CompletionStage<U>> fn) | 在异步操作完成的时候对异步操作的结果进行一些操作，并且仍然返回CompletableFuture类型。使用ForkJoinPool。 | 
-| thenComposeAsync(Function<? super T, ? extends CompletionStage<U>> fn,Executor executor)  | 在异步操作完成的时候对异步操作的结果进行一些操作，并且仍然返回CompletableFuture类型。使用指定的线程池。 |
-| thenCombine(CompletionStage<? extends U> other, BiFunction<? super T,? super U,? extends V> fn) | 当两个CompletableFuture都正常完成后，执行提供的fn，用它来组合另外一个CompletableFuture的结果。 | 
-| thenCombineAsync(CompletionStage<? extends U> other, BiFunction<? super T,? super U,? extends V> fn)  | 当两个CompletableFuture都正常完成后，执行提供的fn，用它来组合另外一个CompletableFuture的结果。使用ForkJoinPool。 |
-| thenCombineAsync(CompletionStage<? extends U> other, BiFunction<? super T,? super U,? extends V> fn, Executor executor) |当两个CompletableFuture都正常完成后，执行提供的fn，用它来组合另外一个CompletableFuture的结果。使用指定的线程池。|
-| thenAcceptBoth(CompletionStage<? extends U> other, BiConsumer<? super T,? super U> action) | 当两个CompletableFuture都正常完成后，执行提供的action，用它来组合另外一个CompletableFuture的结果。 
-| thenAcceptBothAsync(CompletionStage<? extends U> other, BiConsumer<? super T,? super U> action) | 当两个CompletableFuture都正常完成后，执行提供的action，用它来组合另外一个CompletableFuture的结果。使用ForkJoinPool。|
-| thenAcceptBothAsync(CompletionStage<? extends U> other, BiConsumer<? super T,? super U> action, Executor executor) |当两个CompletableFuture都正常完成后，执行提供的action，用它来组合另外一个CompletableFuture的结果。使用指定的线程池。|
-| applyToEither(CompletionStage<? extends T> other, Function<? super T,U> fn) | 当任意一个CompletableFuture完成的时候，fn会被执行，它的返回值会当作新的CompletableFuture<U>的计算结果。|
-| applyToEitherAsync(CompletionStage<? extends T> other, Function<? super T,U> fn) | 当任意一个CompletableFuture完成的时候，fn会被执行，它的返回值会当作新的CompletableFuture<U>的计算结果。使用ForkJoinPool |
-| applyToEitherAsync(CompletionStage<? extends T> other, Function<? super T,U> fn, Executor executor) | 当任意一个CompletableFuture完成的时候，fn会被执行，它的返回值会当作新的CompletableFuture<U>的计算结果。使用指定的线程池 |
-| acceptEither(CompletionStage<? extends T> other, Consumer<? super T> action) |当任意一个CompletableFuture完成的时候，action这个消费者就会被执行。 | 
-| acceptEitherAsync(CompletionStage<? extends T> other, Consumer<? super T> action) | 当任意一个CompletableFuture完成的时候，action这个消费者就会被执行。使用ForkJoinPool |
-| acceptEitherAsync(CompletionStage<? extends T> other, Consumer<? super T> action, Executor executor) | 当任意一个CompletableFuture完成的时候，action这个消费者就会被执行。使用指定的线程池。|
-| allOf(CompletableFuture<?>... cfs) | 在所有Future对象完成后结束，并返回一个future。 |
-| anyOf(CompletableFuture<?>... cfs) | 在任何一个Future对象结束后结束，并返回一个future。|
+| `thenAccept(Consumer<? super T> action)` | 当CompletableFuture完成计算结果，只对结果执行Action，而不返回新的计算值 |
+| `thenAcceptAsync(Consumer<? super T> action)` | 当CompletableFuture完成计算结果，只对结果执行Action，而不返回新的计算值，使用ForkJoinPool。| 
+| `thenAcceptAsync(Consumer<? super T> action, Executor executor)` | 当CompletableFuture完成计算结果，只对结果执行Action，而不返回新的计算值 |
+| `thenApply(Function<? super T,? extends U> fn)` | 接受一个Function<? super T,? extends U>参数用来转换CompletableFuture |
+| `thenApplyAsync(Function<? super T,? extends U> fn)` | 接受一个Function<? super T,? extends U> 参数用来转换CompletableFuture，使用ForkJoinPool |
+| `thenApplyAsync(Function<? super T,? extends U> fn, Executor executor)` | 接受一个Function<? super T,? extends U>参数用来转换CompletableFuture，使用指定的线程池 |
+| `whenComplete(BiConsumer<? super T,? super Throwable> action)` | CompletableFuture完成计算结果时对结果进行处理，或者当CompletableFuture产生异常的时候对异常进行处理。|
+| `whenCompleteAsync(BiConsumer<? super T,? super Throwable> action)` |当CompletableFuture完成计算结果时对结果进行处理，或者当CompletableFuture产生异常的时候对异常进行处理。使用ForkJoinPool。 |
+| `whenCompleteAsync(BiConsumer<? super T,? super Throwable> action, Executor executor)` | 当CompletableFuture完成计算结果时对结果进行处理，或者当CompletableFuture产生异常的时候对异常进行处理。使用指定的线程池。 |
+| `handle(BiFunction<? super T, Throwable, ? extends U> fn)` | 当 CompletableFuture 完成计算结果或者抛出异常的时候，执行提供的fn |
+| `handleAsync(BiFunction<? super T, Throwable, ? extends U> fn)` | 当CompletableFuture完成计算结果或者抛出异常的时候，执行提供的fn，使用ForkJoinPool。|
+| `handleAsync(BiFunction<? super T, Throwable, ? extends U> fn, Executor executor)` | 当 CompletableFuture 完成计算结果或者抛出异常的时候，执行提供的fn，使用指定的线程池。 |
+| `thenCompose(Function<? super T, ? extends CompletionStage<U>> fn)` | 在异步操作完成的时候对异步操作的结果进行一些操作，并且仍然返回 CompletableFuture 类型。 | 
+| `thenComposeAsync(Function<? super T, ? extends CompletionStage<U>> fn)` | 在异步操作完成的时候对异步操作的结果进行一些操作，并且仍然返回 CompletableFuture 类型。使用 ForkJoinPool。 | 
+| `thenComposeAsync(Function<? super T, ? extends CompletionStage<U>> fn,Executor executor)`  | 在异步操作完成的时候对异步操作的结果进行一些操作，并且仍然返回 CompletableFuture 类型。使用指定的线程池。 |
+| `thenCombine(CompletionStage<? extends U> other, BiFunction<? super T,? super U,? extends V> fn)` | 当两个CompletableFuture都正常完成后，执行提供的fn，用它来组合另外一个CompletableFuture的结果。 | 
+| `thenCombineAsync(CompletionStage<? extends U> other, BiFunction<? super T,? super U,? extends V> fn)`  | 当两个CompletableFuture都正常完成后，执行提供的fn，用它来组合另外一个CompletableFuture的结果。使用 ForkJoinPool。 |
+| `thenCombineAsync(CompletionStage<? extends U> other, BiFunction<? super T,? super U,? extends V> fn, Executor executor)` |当两个CompletableFuture都正常完成后，执行提供的fn，用它来组合另外一个CompletableFuture的结果。使用指定的线程池。|
+| `thenAcceptBoth(CompletionStage<? extends U> other, BiConsumer<? super T,? super U> action)` | 当两个CompletableFuture都正常完成后，执行提供的action，用它来组合另外一个CompletableFuture的结果。 
+| `thenAcceptBothAsync(CompletionStage<? extends U> other, BiConsumer<? super T,? super U> action)` | 当两个CompletableFuture都正常完成后，执行提供的action，用它来组合另外一个 CompletableFuture 的结果。使用 ForkJoinPool。|
+| `thenAcceptBothAsync(CompletionStage<? extends U> other, BiConsumer<? super T,? super U> action, Executor executor)` |当两个 CompletableFuture 都正常完成后，执行提供的action，用它来组合另外一个 CompletableFuture 的结果。使用指定的线程池。|
+| `applyToEither(CompletionStage<? extends T> other, Function<? super T,U> fn)` | 当任意一个CompletableFuture完成的时候，fn会被执行，它的返回值会当作新的CompletableFuture<U>的计算结果。|
+| `applyToEitherAsync(CompletionStage<? extends T> other, Function<? super T,U> fn)` | 当任意一个CompletableFuture完成的时候，fn会被执行，它的返回值会当作新的 `CompletableFuture<U>` 的计算结果。使用ForkJoinPool |
+| `applyToEitherAsync(CompletionStage<? extends T> other, Function<? super T,U> fn, Executor executor)` | 当任意一个CompletableFuture完成的时候，fn会被执行，它的返回值会当作新的 `CompletableFuture<U>` 的计算结果。使用指定的线程池 |
+| `acceptEither(CompletionStage<? extends T> other, Consumer<? super T> action)` | 当任意一个 CompletableFuture 完成的时候，action这个消费者就会被执行。 | 
+| `acceptEitherAsync(CompletionStage<? extends T> other, Consumer<? super T> action)` | 当任意一个 CompletableFuture 完成的时候，action 这个消费者就会被执行。使用 ForkJoinPool |
+| `acceptEitherAsync(CompletionStage<? extends T> other, Consumer<? super T> action, Executor executor)` | 当任意一个CompletableFuture完成的时候，action这个消费者就会被执行。使用指定的线程池。|
+| `allOf(CompletableFuture<?>... cfs)` | 在所有 Future 对象完成后结束，并返回一个 future。 |
+| `anyOf(CompletableFuture<?>... cfs)` | 在任何一个 Future 对象结束后结束，并返回一个 future。|
 
 **说明** 
 
-1、thenApply() 和 thenCompose() 的区别: thenApply() 是返回的是非CompletableFuture类型，它的功能相当于将 CompletableFuture<T> 转换成 CompletableFuture<U> ; thenCompose() 可以用于组合多个CompletableFuture，将前一个结果作为下一个计算的参数，它们之间存在着先后顺序，返回值是新的 CompletableFuture。
+1、thenApply() 和 thenCompose() 的区别: thenApply() 是返回的是非CompletableFuture类型，它的功能相当于将 `CompletableFuture<T>` 转换成 `CompletableFuture<U>` ; thenCompose() 可以用于组合多个 CompletableFuture，将前一个结果作为下一个计算的参数，它们之间存在着先后顺序，返回值是新的 CompletableFuture。
 
 2、使用 thenCombine() 的future 之间互相独立并且是并行执行的，最后再将结果汇总。这一点跟 thenCompose() 不同。
 
@@ -173,16 +160,8 @@ CompletableFuture 更强大的地方在于我们可以基于事件（依赖）�
 
 4、thenAccept()是只会对计算结果进行消费而不会返回任何结果的方法。
 
-4、anyOf 和 acceptEither、applyToEither 的区别在于，后两者只能使用在两个 future 中，而 anyOf 可以使用在多个future中。
+5、anyOf 和 acceptEither、applyToEither 的区别在于，后两者只能使用在两个 future 中，而 anyOf 可以使用在多个future中。
 
-Examples
-
-```java
-CompletableFuture<Integer> thenApply = CompletableFuture
-            .supplyAsync(this::findAccountNumber)
-            .thenApply(this::calculateBalance)                       
-            .thenApply(this::notifyBalance)
-```
 
 ### 异常处理(Error handling)
 
@@ -482,14 +461,6 @@ static final class Delayer {
 那么如何实现 allAsList 的功能呢？
 
 一种做法就是对 allOf 数组中的每个 CompletableFuture 的 exceptionally 方法进行捕获处理：如果有异常，那么整个 allOf 就直接抛出那个异常: 
-
-```java
-CompletableFuture<Void> allWithFailFast = CompletableFuture.allOf(future1, future2, future3);
-Stream.of(future1, future2, future3).forEach(f -> f.exceptionally(e -> {
-    allWithFailFast.completeExceptionally(e);
-    return null;
-}));   
-```
 
 ```java
 public static void main(String[] args) throws InterruptedException, ExecutionException {
