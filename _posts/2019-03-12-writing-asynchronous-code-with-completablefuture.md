@@ -544,9 +544,9 @@ Caused by: java.lang.RuntimeException: Oops!
 
 下面我们看一下怎样使用 CompletableFuture 构建和并发执行一个 DAG 任务：
 
-![github-flow.png](/img/in-post/call-tree-multistages.png)
+![call-tree-multistages.png](/img/in-post/call-tree-multistages.png)
 
-如上图所示：
+如上图所示，我们将执行如下一系列操作:
 
 1. we asynchronously compute integers from 1 to 5 – each integer generation takes 2 seconds
 2. we sum these together
@@ -673,6 +673,24 @@ Elapsed time: 6 seconds.
 * we waited for all multiplications to complete using allOf and thenApply-ed Integer’s natural order comparator to find the maximum value.
 
 
+### CompletableFuture vs. Java8 Stream vs. RxJava1 & RxJava2
+
+CompletableFuture 有很多特性跟RxJava很像，所以将CompletableFuture、Java 8 Stream和RxJava做一个相互的比较。
+
+| 各种对象 | composable | lazy | resuable | async | cached | push | back pressure |
+| --- | --- | --- | --- | --- | --- | --- | --- | 
+| CompletableFuture | 支持 | 不支持 | 支持 | 支持 | 支持 | 支持 |  不支持 | 
+| Stream | 支持 | 支持 | 不支持 | 不支持 | 不支持 | 不支持 | 不支持 | 
+| Observable(RxJava1) | 支持 | 支持 | 支持 | 支持 | 支持 | 支持 | 支持 | 
+| Observable(RxJava2) | 支持 | 支持 | 支持 | 支持 | 支持 | 支持 | 不支持 |
+| Flowable(RxJava2) | 支持 | 支持 | 支持 | 支持 | 支持 | 支持 | 
+
+
+### 总结
+
+Java 8提供了一种函数风格的异步和事件驱动编程模型 CompletableFuture，它不仅支持回调还支持各种组合，使用 CompletableFuture，CountDownLatch 等多线程同步机制都可以扔掉了。相比之前的Future 编程，代码更加到简洁、内聚和优雅。
+
+
 推荐文档
 -------
 
@@ -685,3 +703,4 @@ Elapsed time: 6 seconds.
 5. [Asynchronous Timeouts with CompletableFuture](https://dzone.com/articles/asynchronous-timeouts)
 6. [mcalavera81/CompletableFutureTest.java](https://gist.github.com/mcalavera81/59121bc6d9c08ea1d7ce)
 7. [src/java.base/share/classes/java/util/concurrent/CompletableFuture.java](http://hg.openjdk.java.net/jdk9/jdk9/jdk/file/tip/src/java.base/share/classes/java/util/concurrent/CompletableFuture.java)
+8. [](http://www.imooc.com/article/21656)
