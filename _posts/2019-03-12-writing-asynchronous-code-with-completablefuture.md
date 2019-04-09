@@ -395,7 +395,7 @@ public class AsynchronousExceptionsHandlingWithHandle {
 
 注意，不管是 exceptionally 或者是 whenComplete 和 handle ，都不会直接改变原来的 CompletableFuture 的行为，只是这些方法返回的 CompletableFuture 对异常进行了回调处理，类似于 proxy 或者 decorator，后面所有的操作都需要针对返回的 CompletableFuture 进行，否则不会生效。
 
-```          
+```java        
 CompletableFuture<Integer> tryX = x.exceptionally(ex -> -1); // Note that tryX and x are of same type.
 
 // Blocks (avoid this in production code!), and either returns the promise's value
