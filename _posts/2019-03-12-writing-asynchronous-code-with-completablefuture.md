@@ -1,7 +1,7 @@
 ---
 title: 使用CompletableFuture异步编程
 layout: post
-tags: [java, jvm, high performance, tunning]
+tags: [java, concurrency, high performance]
 catalog: true
 ---
 
@@ -391,6 +391,21 @@ public class AsynchronousExceptionsHandlingWithHandle {
 }
 ```
 
+**NOTES**
+
+注意，不管是 exceptionally 或者是 whenComplete 和 handle ，都不会直接改变原来的 CompletableFuture 的行为，只是这些方法返回的 CompletableFuture 对异常进行了回调处理，类似于 proxy 或者 decorator，后面所有的操作都需要针对返回的 CompletableFuture 进行，否则不会生效。
+
+```          
+CompletableFuture<Integer> tryX = x.exceptionally(ex -> -1); // Note that tryX and x are of same type.
+
+// Blocks (avoid this in production code!), and either returns the promise's value
+System.out.println(tryX.get()); // 不会抛异常，返回-1
+System.out.println("isCompletedExceptionally = " + tryX.isCompletedExceptionally()); 
+
+System.out.println(x.get()); // 还是抛异常！
+System.out.println("isCompletedExceptionally = " + x.isCompletedExceptionally());           
+```
+
 ### Asynchronous timeouts 
 
 Java 8 的 CompletableFuture 并没有 timeout 机制，虽然可以在 get 的时候指定 timeout，但是我们知道get 是一个同步堵塞的操作。怎样让 timeout 也是异步的呢？Java 8 内有内建的机制支持，一般的实现方案是启动一个 `ScheduledThreadpoolExecutor` 线程在 timeout 时间后直接调用 `futurn.completeExceptionally(new TimeoutException())`，然后用 `acceptEither()` 或者 `applyToEither` 看是先计算完成还是先超时： 
@@ -683,7 +698,7 @@ CompletableFuture 有很多特性跟RxJava很像，所以将CompletableFuture、
 | Stream | 支持 | 支持 | 不支持 | 不支持 | 不支持 | 不支持 | 不支持 | 
 | Observable(RxJava1) | 支持 | 支持 | 支持 | 支持 | 支持 | 支持 | 支持 | 
 | Observable(RxJava2) | 支持 | 支持 | 支持 | 支持 | 支持 | 支持 | 不支持 |
-| Flowable(RxJava2) | 支持 | 支持 | 支持 | 支持 | 支持 | 支持 | 
+| Flowable(RxJava2) | 支持 | 支持 | 支持 | 支持 | 支持 | 支持 | 支持 |
 
 
 ### 总结
@@ -703,4 +718,4 @@ Java 8提供了一种函数风格的异步和事件驱动编程模型 Completabl
 5. [Asynchronous Timeouts with CompletableFuture](https://dzone.com/articles/asynchronous-timeouts)
 6. [mcalavera81/CompletableFutureTest.java](https://gist.github.com/mcalavera81/59121bc6d9c08ea1d7ce)
 7. [src/java.base/share/classes/java/util/concurrent/CompletableFuture.java](http://hg.openjdk.java.net/jdk9/jdk9/jdk/file/tip/src/java.base/share/classes/java/util/concurrent/CompletableFuture.java)
-8. [](http://www.imooc.com/article/21656)
+8. [Java8新的异步编程方式 CompletableFuture(三)](http://www.imooc.com/article/21656)
