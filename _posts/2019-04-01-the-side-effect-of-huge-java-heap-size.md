@@ -169,6 +169,14 @@ jcmd 17011 VM.flags
 可以看到 30G 堆大小的 JVM 参数多了这两个：`-XX:+UseCompressedClassPointers -XX:+UseCompressedOops`，这正式启动压缩指针的参数。
 
 
+### 为什么超级大堆反而慢呢？
+
+这是因为 JVM 存储对象的格式其实是取决于你通过 `-Xmx` 指定的堆的大小。当最大堆内存大小小于 32G 的时候（所谓的窄指针模式`narrow pointer mode`），普通对象实例有一个12字节的头部，数组有一个16字节 的头部，并且每个对象指针只占用4个字节。而当`-Xmx`大于 32G（所谓的宽指针模式`wide pointer mode`），普通对象实例将会有一个16个字节的头部，数组有一个20字节的头部，而且每个对象指针将占用8个字节。这些是因为JVM 需要更大的对象地址空间来支持超级大堆。但是带来的后果就是对象存储空间相对变大，特别在你的应用程序大量使用了指针密集型的数据结构（如 trees, hash maps, 等），或者有很多小对象，你的内存空间有可能会比小堆增加了1.5倍。具体可以参见 [Why 35GB Heap is Less Than 32GB](https://blog.codecentric.de/en/2014/02/35gb-heap-less-32gb-java-jvm-memory-oddities/)；另一个副作用就是寻址的变慢（TODO）。
+
+
+
+
+
 ### 一些有用的工具
 
 #### 1、使用 `-XX:+PrintFlagsFinal` 打印 JVM 默认参数值
@@ -212,10 +220,12 @@ jcmd 是 jdk7 之后新增的工具, 它是 `java flight recorder` 的唯一启�
 
 1. [Java HotSpot™ Virtual Machine Performance Enhancements](https://docs.oracle.com/javase/8/docs/technotes/guides/vm/performance-enhancements-7.html)
 2. [JAVA堆大小不要超过32GB!!!](http://view.inews.qq.com/a/20180906B0QBHH00)
-3. [Trick behind JVM's compressed Oops(https://stackoverflow.com/questions/25120546/trick-behind-jvms-compressed-oops)
-4. [Why 35GB Heap is Less Than 32GB – Java JVM Memory Oddities](https://blog.codecentric.de/en/2014/02/35gb-heap-less-32gb-java-jvm-memory-oddities/)
-5. [jstack 命令使用经验总结](https://zshell.cc/2017/09/24/jvm-tools--jstack%E5%91%BD%E4%BB%A4%E4%BD%BF%E7%94%A8%E7%BB%8F%E9%AA%8C%E6%80%BB%E7%BB%93/)
-6. [HotSpot: What Are Those GC Worker Threads in G1 GC?](http://xmlandmore.blogspot.com/2014/06/oracle-has-published-some-tuning-guides.html)
-7. [JVM实用参数（三）打印所有XX参数及值](https://yq.aliyun.com/articles/20380)
-8. [Inspecting HotSpot JVM Options](https://q-redux.blogspot.com/search/label/PrintFlagsFinal)
-9. [jcmd: jvm 管理的另类工具](https://zshell.cc/2017/06/25/jvm-tools--jcmd_jvm%E7%AE%A1%E7%90%86%E7%9A%84%E5%8F%A6%E7%B1%BB%E5%B7%A5%E5%85%B7/)
+3. [Trick behind JVM's compressed Oops](https://stackoverflow.com/questions/25120546/trick-behind-jvms-compressed-oops)
+4. [JVM Anatomy Quark #23: Compressed References](https://shipilev.net/jvm/anatomy-quarks/23-compressed-references/)
+5. [Why 35GB Heap is Less Than 32GB – Java JVM Memory Oddities](https://blog.codecentric.de/en/2014/02/35gb-heap-less-32gb-java-jvm-memory-oddities/)
+6. [jstack 命令使用经验总结](https://zshell.cc/2017/09/24/jvm-tools--jstack%E5%91%BD%E4%BB%A4%E4%BD%BF%E7%94%A8%E7%BB%8F%E9%AA%8C%E6%80%BB%E7%BB%93/)
+7. [HotSpot: What Are Those GC Worker Threads in G1 GC?](http://xmlandmore.blogspot.com/2014/06/oracle-has-published-some-tuning-guides.html)
+8. [JVM实用参数（三）打印所有XX参数及值](https://yq.aliyun.com/articles/20380)
+9. [Inspecting HotSpot JVM Options](https://q-redux.blogspot.com/search/label/PrintFlagsFinal)
+10. [jcmd: jvm 管理的另类工具](https://zshell.cc/2017/06/25/jvm-tools--jcmd_jvm%E7%AE%A1%E7%90%86%E7%9A%84%E5%8F%A6%E7%B1%BB%E5%B7%A5%E5%85%B7/)
+
