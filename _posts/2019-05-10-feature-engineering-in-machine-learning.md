@@ -2,7 +2,7 @@
 layout: post
 title: 机器学习中的特征工程
 tags: [机器学习, 特征工程]
-catalog: true
+catalog: false
 ---
 
 * 特征管理
@@ -38,7 +38,7 @@ catalog: true
         * 元信息
     * 在线特征存储
         * KV: Redis (Anna) / Aerospike / Tair
-        * CKV: HBase / Cassandra ([Scylladb](https://www.scylladb.com/))
+        * KCV: HBase / Cassandra ([Scylladb](https://www.scylladb.com/))
         * 分层存储
         * 压缩
         * 存储格式
@@ -51,6 +51,7 @@ catalog: true
                 * ttl
                 * confidence（置信度）
 * 特征上线/更新
+    * 分布式特征上线 (Spark)
     * 单模型特征按需上线
     * 特征增量上线方案（差异如何对比？，失效特征如何删除？） 
     * 静态特征 vs. 动态特征 
@@ -79,9 +80,9 @@ catalog: true
     * 归一化 (Normalization)
         * 将训练集中某一列数值特征（假设是第i列）的值缩放到0和1之间。
         * 归一化方案：
-            * 1. 函数归一化，通过映射函数将特征取值映射到［0，1］区间，例如最大最小值归一化方法，是一种线性的映射。还有通过非线性函数的映射，例如log函数等。
-            * 2. 分维度归一化，可以使用最大最小归一化方法，但是最大最小值选取的是所属类别的最大最小值，即使用的是局部最大最小值，不是全局的最大最小值。
-            * 3. 排序归一化，不管原来的特征取值是什么样的，将特征按大小排序，根据特征所对应的序给予一个新的值。
+            1. 函数归一化，通过映射函数将特征取值映射到［0，1］区间，例如最大最小值归一化方法，是一种线性的映射。还有通过非线性函数的映射，例如log函数等。
+            2. 分维度归一化，可以使用最大最小归一化方法，但是最大最小值选取的是所属类别的最大最小值，即使用的是局部最大最小值，不是全局的最大最小值。
+            3. 排序归一化，不管原来的特征取值是什么样的，将特征按大小排序，根据特征所对应的序给予一个新的值。
     * 离散化
         * 等值划分
         * 等量划分
@@ -93,11 +94,11 @@ catalog: true
         * 众数
         * 平均值
     * Embedding
-        * word2vector
+        * word2vec
         * fastext
     * 特征组合
     * FeatureLibray & FeatureScript
-    * 分级抽取：如一起打分请求，用户特征只需抽取一次，item特征则每次都需要抽取
+    * 分级抽取：如一次打分请求，用户特征只需抽取一次，item特征则每次都需要抽取
 * 特征选择
     * 特征选择能剔除不相关(irrelevant)或冗余(redundant)的特征，从而达到减少特征个数，提高模型精确度，减少运行时间的目的。
     * 三种思路:
@@ -110,20 +111,21 @@ catalog: true
     * 单特征 AUC 分析
     * 信息增益率
     * 对特征的有效性进行分析，得到各个特征的特征权重
-    * 1. 与模型相关特征权重。使用所有的特征数据训练出来模型，看在模型中各个特征的权重，由于需要训练出模型，模型相关的权重与此次学习所用的模型比较相关。不同的模型有不同的模型权重衡量方法。例如线性模型中，特征的权重系数等。
-    * 2. 与模型无关特征权重。主要分析特征与label的相关性，这样的分析是与这次学习所使用的模型无关的。与模型无关特征权重分析方法包括
-        1. 交叉熵
-        2. Information Gain
-        3. Odds ratio
-        4. 互信息
-        5. KL散度等
+        1. 与模型相关特征权重。使用所有的特征数据训练出来模型，看在模型中各个特征的权重，由于需要训练出模型，模型相关的权重与此次学习所用的模型比较相关。不同的模型有不同的模型权重衡量方法。例如线性模型中，特征的权重系数等。
+        2. 与模型无关特征权重。主要分析特征与label的相关性，这样的分析是与这次学习所使用的模型无关的。与模型无关特征权重分析方法包括
+            1. 交叉熵
+            2. Information Gain
+            3. Odds ratio
+            4. 互信息
+            5. KL散度等
 * 特征降维
     * 特征降维的目标是将高维空间中的数据集映射到低维空间数据，同时尽可能少地丢失信息，或者降维后的数据点尽可能地容易被区分
-    * PCA : Principal Component Analysis，主成分分析，通过协方差矩阵的特征值分解能够得到数据的主成分
-    * SVD: Singular Value Decomposition，奇异值分解
-    * LDA : Linear Discriminant Analysis，线性判别分析，与PCA保持数据信息不同，LDA是为了使得降维后的数据点尽可能地容易被区分
-    * LLE : Locally Linear Embedding
-    * LE : Laplacian Eigenmaps
+    * 特征降维方案:
+        * PCA : Principal Component Analysis，主成分分析，通过协方差矩阵的特征值分解能够得到数据的主成分
+        * SVD: Singular Value Decomposition，奇异值分解
+        * LDA : Linear Discriminant Analysis，线性判别分析，与PCA保持数据信息不同，LDA是为了使得降维后的数据点尽可能地容易被区分
+        * LLE : Locally Linear Embedding
+        * LE : Laplacian Eigenmaps
 
 
 参考文章
