@@ -15,7 +15,19 @@ catalog: false
     * 元数据与存储系统打通（如 hive表，Redis 等）
     * 离线特征可视化（类似于 [hue](http://gethue.com/)）
     * 在线特征可视化
+    * 特征的共享
+        * 共享特征库
+        * 引用计数
+        * 特征监控和通知
 * 特征生产(挖掘)
+    * 数据源
+        * 内部数据源
+            * BI Hive 表
+            * 埋点日志上报
+            * DB binlog 实时解析和推送
+        * 外部数据源
+            * Spider
+            * 第三方合作
     * 离线特征生产
         * 离线数据源: BI Hive 表
         * 离线计算引擎: Hadoop / Spark
@@ -97,14 +109,30 @@ catalog: false
         * word2vec
         * fastext
     * 特征组合
+        * 人工特征交叉
+        * 模型自动组合
+            * GBDT: 最初是由Facebook在2014年提出，并被广泛运用于点击率预估项目上，被证明有效。
+            * FM: 可以自动学习两个特征间的关系，可以减少一部分的交叉特征选择工作；但是它无法学习三个及以上的特征间的关系，所以交叉特征选择的工作仍然无法避免。
+            * DNN: 可以直接输入原始的特征，减少了交叉特征的选择工作，并且可以支持大量的特征输入。
     * FeatureLibray & FeatureScript
     * 分级抽取：如一次打分请求，用户特征只需抽取一次，item特征则每次都需要抽取
 * 特征选择
     * 特征选择能剔除不相关(irrelevant)或冗余(redundant)的特征，从而达到减少特征个数，提高模型精确度，减少运行时间的目的。
     * 三种思路:
-        1. Filter: 假设特征子集对模型预估的影响互相独立，选择一个特征子集，分析该子集和数据Label的关系，如果存在某种正相关，则认为该特征子集有效。衡量特征子集和数据Label关系的算法有很多，如Chi-square，Information Gain。
-        2. Wrapper:  选择一个特征子集加入原有特征集合，用模型进行训练，比较子集加入前后的效果，如果效果变好，则认为该特征子集有效，否则认为无效。  
-        3. Embedded: 将特征选择和模型训练结合起来，如在损失函数中加入L1 Norm ，L2 Norm。
+        1. Filter: 假设特征子集对模型预估的影响互相独立，选择一个特征子集，分析该子集和数据Label的关系，如果存在某种正相关，则认为该特征子集有效。衡量特征子集和数据Label关系的算法有很多，如Chi-square，Information Gain
+            * 卡方
+            * 信息增益
+            * 交叉熵
+            * Fisher
+            * FastRegression
+        2. Embedded: 将特征选择和模型训练结合起来，如在损失函数中加入L1 Norm ，L2 Norm
+            * LOSS + L1
+            * 树模型
+            * MaxEnt
+        3. Wrapper:  选择一个特征子集加入原有特征集合，用模型进行训练，比较子集加入前后的效果，如果效果变好，则认为该特征子集有效，否则认为无效。
+            * 遗传法
+            * 前向法
+            * 后向法
     * 特征有效性分析
     * 特征降维
 * 特征分析
@@ -122,17 +150,19 @@ catalog: false
     * 特征降维的目标是将高维空间中的数据集映射到低维空间数据，同时尽可能少地丢失信息，或者降维后的数据点尽可能地容易被区分
     * 特征降维方案:
         * PCA : Principal Component Analysis，主成分分析，通过协方差矩阵的特征值分解能够得到数据的主成分
-        * SVD: Singular Value Decomposition，奇异值分解
         * LDA : Linear Discriminant Analysis，线性判别分析，与PCA保持数据信息不同，LDA是为了使得降维后的数据点尽可能地容易被区分
+        * SVD: Singular Value Decomposition，奇异值分解
         * LLE : Locally Linear Embedding
         * LE : Laplacian Eigenmaps
 
 
-参考文章
+推荐阅读
 ------
 
 1. [机器学习中的数据清洗与特征处理综述](https://tech.meituan.com/2015/02/10/machinelearning-data-feature-process.html)
 2. [人工智能在线特征系统中的数据存取技术](https://tech.meituan.com/2017/07/06/online-feature-system.html)
 3. [人工智能在线特征系统中的生产调度](https://tech.meituan.com/2017/09/22/online-feature-system02.html)
 4. [腾讯广告精准投放背后的秘密](https://mp.weixin.qq.com/s?__biz=MjM5MDE0Mjc4MA==&mid=2651016056&idx=2&sn=c88a64c0f943dd0c519b9aec2d387c3a)
+5. [Uber 机器学习平台 — 米开朗基罗](https://github.com/xitu/gold-miner/blob/master/TODO/meet-michelangelo-ubers-mechine-learning-plantform.md)
+6. [Xinran He et al. Practical Lessons from Predicting Clicks on Ads at Facebook, 2014](https://quinonero.net/Publications/predicting-clicks-facebook.pdf)
 

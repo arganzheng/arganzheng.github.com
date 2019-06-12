@@ -84,8 +84,8 @@ service-worker: true
 
 
 
-# Friends
-friends: [
+# Recommends
+recommends: [
     {
         title: "hatter",
         href: "https://hatterjiang.org/"
@@ -93,7 +93,22 @@ friends: [
         title: "oldratlee",
         href: "http://oldratlee.com/"
     },{
-        title: "joo",
-        href: "http://joosblog.com/"
+        title: "leijun00",
+        href: "http://leijun00.github.io/"
+    },{
+        title: "美团技术团队",
+        href: "https://tech.meituan.com/"
+    },{
+        title: "并发编程网",
+        href: "http://ifeve.com/"
+    },{
+        title: "开涛的博客",
+        href: "https://mp.sohu.com/profile?xpt=a2FpdGFvLTEyMzQ1NjdAc29odS5jb20"
+    },{
+        title: "InfoQ",
+        href: "https://www.infoq.cn/"
+    },{
+        title: "阿里巴巴中间件团队",
+        href: "http://jm.taobao.org/"
     }
 ]
