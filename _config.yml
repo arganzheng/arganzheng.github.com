@@ -110,5 +110,12 @@ recommends: [
     },{
         title: "阿里巴巴中间件团队",
         href: "http://jm.taobao.org/"
+    },{
+        title: "云栖社区",
+        href: "https://yq.aliyun.com/articles/"
+    },{
+        title: "王喆的机器学习笔记",
+        href: "https://zhuanlan.zhihu.com/wangzhenotes"
     }
+    
 ]

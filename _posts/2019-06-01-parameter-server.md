@@ -104,6 +104,63 @@ Task之间完全不用相互等待，先完成的Task，继续下一轮的训练
 
 同步限制放宽之后可能导致收敛质量下降甚至任务不收敛的情况，这需要在实际算法中，需要指标的变化情况，调整同步协议以及相关的参数，以达到收敛性和计算速度的平衡。
 
+### PS@Tencent
+
+腾讯和北京大学联合开发并开源了一个基于参数服务器（Parameter Server）理念开发的高性能分布式机器学习平台，叫做 Angle。在这篇 [Angle的架构设计](https://github.com/Angel-ML/angel/blob/master/docs/overview/architecture.md) 文章中，比较详细的介绍了Angle 基于 PS 的架构：
+
+![ps-angel-architecture.png](/img/in-post/ps-angel-architecture.png)
+
+它的架构设计，从整体可以分为3大模块：
+
+1、Parameter Server层：提供通用的参数服务器服务，负责模型的分布存储，通讯同步和协调计算，并通过 PSAgent 提供 PS Service
+
+2、Worker层： 基于 Angel 自身模型设计的分布式运行节点，自动读取并划分数据，局部训练出模型增量，通过 PS Client 和 PS Server 通信，完成模型训练和预测。一个 Worker 包含一个或者多个 Task，Task 是 Angel 计算单元，这样设计的原因是可以让 Task 共享 Worker 的许多公共资源。
+
+3、Model层： 这是一层虚拟抽象层，并非真实存在的物理层。关于 Model 的 Push 和 Pull，各种异步控制，模型分区路由，自定义函数等，是连通 Worker 和 PSServer 的桥梁。
+
+除了这3大模块，还有2个很重要的类，在图上没有显示，但是值得关注，它们是：
+
+1、Client：Angel任务运行的发起者
+
+* 启动和停止PSServer
+* 启动和停止Angel的Worker
+* 加载和存储模型
+* 启动具体计算过程
+* 获取任务运行状态
+
+2、Master：Angel任务运行的守护者
+
+* 原始计算数据以及参数矩阵的分片和分发
+* 向Gaia申请Worker和ParameterServer所需的计算资源
+* 协调，管理和监控Worker以及PSServer
+
+
+### PS@Alibaba
+
+在这篇文章 [零距离观察蚂蚁+阿里中的大规模机器学习框架](https://yq.aliyun.com/articles/59941) 中，蚂蚁金服资深技术专家周俊比较详细的介绍了阿里巴巴的 Parameter Server 的架构。如下图所示：
+
+![alibaba-ps-arch-roles.jpg](/img/in-post/alibaba-ps-arch-roles.jpg)
+
+框架的大致结构如上图所示，包括三大模块：Server Node、Worker Node 和 Coordinator，分别用于 模型分片存储、数据分片存储 和 总体流程控制。
+
+* Coordinator
+    - 迭代控制
+    - Failover管理、checkpoint
+* Server
+    - Distributed key value store
+    - 一致性 hash，进行模型分片
+* Worker
+    - 数据分片（加载表的不同行）
+    - 实现 Compute (Gradient等) 接口 
+
+具体来讲，Coordinator 主要进行迭代控制，同时完成 Failover 管理，当 Worker 或 Server 挂掉时，由 Coordinator 进行处理；当 Worker、Server 和整个 Job 都失败的情况下，通过 Checkpoint 机制，在下一次启动时从上一次保存的中间结果继续前进。
+
+Sever 本质上是分布式 Key-value 存储系统，它将一个非常大的模型，通过一致性 Hash 切成多片，在多个 Server 上分担压力，进行模型分片。
+
+Worker 是将数据源的不同行加载到不同的 Worker 上，实现数据分片，同时通过计算接口完成梯度计算。
+
+不过这里相对于 Angle 模型分片有点简单，能满足所有的算法模型吗？
+
 
 推荐阅读
 -------
@@ -115,3 +172,6 @@ Task之间完全不用相互等待，先完成的Task，继续下一轮的训练
 5. [分布式机器学习的参数服务器](https://www.toutiao.com/a6617371899838071304/)
 6. [ParameterServer入门和理解](https://www.zybuluo.com/Dounm/note/517675)
 7. [MXNet之ps-lite及parameter server原理](https://www.cnblogs.com/heguanyou/p/7868596.html)
+8. [零距离观察蚂蚁+阿里中的大规模机器学习框架](https://yq.aliyun.com/articles/59941)
+9. [Angle](https://github.com/Angel-ML/angel)
+

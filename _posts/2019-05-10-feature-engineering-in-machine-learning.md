@@ -41,6 +41,9 @@ catalog: false
             * 滑动时间窗口，时间窗口的长度是固定的，但起止时间点一直在向前滚动，比如近2小时销售额。
             * 无限时间窗口，时间窗口的起点是固定的，但终止时间点一直在向前滚动，比如商家历史上销售总额。
 * 特征存储
+    * Use hashed id instead of string name for efficient
+serialization, storage, compute
+    * Collocate schema (id to name mapping) with the data
     * 离线特征存储
         * Hive表
         * 命名规范
@@ -50,7 +53,7 @@ catalog: false
         * 元信息
     * 在线特征存储
         * KV: Redis (Anna) / Aerospike / Tair
-        * KCV: HBase / Cassandra ([Scylladb](https://www.scylladb.com/))
+        * KCV: HBase / Cassandra ([Rocksandra](https://instagram-engineering.com/open-sourcing-a-10x-reduction-in-apache-cassandra-tail-latency-d64f86b43589), [Scylladb](https://www.scylladb.com/)) 
         * 分层存储
         * 压缩
         * 存储格式
@@ -164,5 +167,6 @@ catalog: false
 3. [人工智能在线特征系统中的生产调度](https://tech.meituan.com/2017/09/22/online-feature-system02.html)
 4. [腾讯广告精准投放背后的秘密](https://mp.weixin.qq.com/s?__biz=MjM5MDE0Mjc4MA==&mid=2651016056&idx=2&sn=c88a64c0f943dd0c519b9aec2d387c3a)
 5. [Uber 机器学习平台 — 米开朗基罗](https://github.com/xitu/gold-miner/blob/master/TODO/meet-michelangelo-ubers-mechine-learning-plantform.md)
-6. [Xinran He et al. Practical Lessons from Predicting Clicks on Ads at Facebook, 2014](https://quinonero.net/Publications/predicting-clicks-facebook.pdf)
-
+6. [回顾Facebook经典CTR预估模型](https://zhuanlan.zhihu.com/p/57987311)
+7. [Xinran He et al. Practical Lessons from Predicting Clicks on Ads at Facebook, 2014](https://quinonero.net/Publications/predicting-clicks-facebook.pdf)
+8. [Rocksandra](https://instagram-engineering.com/open-sourcing-a-10x-reduction-in-apache-cassandra-tail-latency-d64f86b43589)
