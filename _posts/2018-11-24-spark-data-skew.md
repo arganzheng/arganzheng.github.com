@@ -1,7 +1,7 @@
 ---
 layout: post
 title: Spark数据倾斜及其解决方案
-tags: [spark, shuflle, data skew]
+tags: [spark, shuffle, data skew]
 catalog: true
 ---
 
