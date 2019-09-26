@@ -323,7 +323,7 @@ Max executor peak JVM used memory : 6.6 GB
 Suggested spark.executor.memory : 7 GB 
 ```
 
-![spark-executor-jvm-userd-memory-heuristic](/img/in-post/spark-executor-jvm-userd-memory-heuristic.jpg)
+![spark-executor-jvm-userd-memory-heuristic](/img/in-post/spark-executor-jvm-used-memory-heuristic.jpg)
 
 #### 2. Executor Unified Memory Heuristic 
 
@@ -345,7 +345,7 @@ Max peak unified memory : 1.2 GB
 Suggested spark.memory.fraction : 0.2
 ```
 
-![spark-executor-jvm-unified-memory-heuristic](/img/in-post/spark-executor-jvm-unified-memory-heuristic.png)
+![spark-executor-jvm-unified-memory-heuristic](/img/in-post/spark-executor-jvm-unified-memory-heuristic.jpg)
 
 
 #### 3. Executor OOM类错误 （错误代码 137、143等）
