@@ -11,7 +11,7 @@ Redis3.0版本加入了cluster功能，解决了Redis单点无法横向扩展的
 分布式系统要解决的不外乎以下两个问题：
 
 1. sharding/partition 以提高系统的吞吐率
-2. replication 以提供系统的高可用
+2. replication 以提高系统的高可用性
 
 然后因为sharding了，所以就有一个 哈希或者路由 的事情要处理。引入的问题包括：
 
@@ -26,7 +26,7 @@ Redis3.0版本加入了cluster功能，解决了Redis单点无法横向扩展的
 2. lease 集群发现
 3. Gossip 节点发现和集群各节点之间的信息同步
 
-而引入replication固然解决了每个sharding的HA问题，并且如果是强一致性主从同步的话还可以提供读服务，减轻主副本的读压力。但是同样会引入一些问题：
+而引入replication固然解决了每个shard的HA问题，并且如果是强一致性主从同步的话还可以提供读服务，减轻主副本的读压力。但是同样会引入一些问题：
 
 1. 主从副本如何同步: Quorum W+R>N [with vector clock], Merkle tree [with anti-entropy]：
 2. 事务和一致性问题: vector clock, Quorum W+R>N [with vector clock], MVCC

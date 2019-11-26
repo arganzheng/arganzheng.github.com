@@ -35,19 +35,21 @@ descriptor.pb.h](https://developers.google.com/protocol-buffers/docs/reference/c
 
 1、动态编译：使用protobuf的动态编译机制，在运行时对某个proto文件进行动态编译，从而得到其所有元数据(descriptor):
 
-    DiskSourceTree sourceTree;
-    //look up .proto file in current directory
-    sourceTree.MapPath("", "./");
-    Importer importer(&sourceTree, NULL);
-    //runtime compile foo.proto
-    importer.Import("foo.proto");
+```cpp
+DiskSourceTree sourceTree;
+//look up .proto file in current directory
+sourceTree.MapPath("", "./");
+Importer importer(&sourceTree, NULL);
+//runtime compile foo.proto
+importer.Import("foo.proto");
  
-    const Descriptor *descriptor = importer.pool()->FindMessageTypeByName("test.Foo");
+const Descriptor *descriptor = importer.pool()->FindMessageTypeByName("test.Foo");
+```
 
 **NOTES**
 
-1. 其实importer.Import("foo.proto")会返回一个FileDescriptor，也可以通过这个file descriptor对该proto文件进行操作。
-2. `Importer(SourceTree* source_tree, MultiFileErrorCollector* error_collector)`，貌似PB没有提供默认的MultiFileErrorCollector实现，需要自己实现一个，实现其实蛮简单的。
+1. 其实`importer.Import("foo.proto")`会返回一个`FileDescriptor`，也可以通过这个file descriptor对该proto文件进行操作。
+2. `Importer(SourceTree* source_tree, MultiFileErrorCollector* error_collector)`，貌似PB没有提供默认的M`ultiFileErrorCollector`实现，需要自己实现一个，实现其实蛮简单的。
 3. 如果要编译的proto文件有import其他的proto文件，那么有可能编译报错，需要把原来的proto文件也放在指定目录。
 
 2、静态编译
