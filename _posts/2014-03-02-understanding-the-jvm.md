@@ -119,6 +119,9 @@ GC需要完成的三件事情：
 
 ### Java启动参数设置
 
+#### CMS
+
+```
 -server -Xmx2g -Xms2g -Xmn256m 
 -XX:PermSize=128m -Xss256k
 -XX:+DisableExplicitGC
@@ -128,6 +131,32 @@ GC需要完成的三件事情：
 -XX:+UseFastAccessorMethods
 -XX:+UseCMSInitiatingOccupancyOnly
 -XX:CMSInitiatingOccupancyFraction=70
+```
+
+#### C1
+
+```
+JAVA_OPTS="
+        -Dapp.name=predictor-serving
+        -Dapp.env=prod
+        -Xms16g
+        -Xmx16g
+        -Xss512k
+        -verbose:gc
+        -XX:+UseG1GC
+        -XX:+HeapDumpOnOutOfMemoryError
+        -XX:HeapDumpPath=/data/logs/jvm/predict-serving`date +%Y%m%d.%H%M%S`.dump
+        -XX:MaxGCPauseMillis=200
+        -XX:+ParallelRefProcEnabled
+        -XX:+PrintGCDetails
+        -XX:+PrintGCApplicationStoppedTime
+        -XX:+PrintGCTimeStamps
+        -XX:+PrintGCDateStamps
+        -Xloggc:/dev/shm/predict-serving-gc.log
+        "
+
+        JAVA_OPTS="$JAVA_OPTS -Dserver-name="$2" -Dspring.profiles.active=prod -DLOG_PATH=/data/logs
+```
 
 ### 回收方法区
 
@@ -272,6 +301,14 @@ jmap 是一个可以输出所有内存中对象的工具，甚至可以将VM 中
 
 具体参见笔者的另一篇文章：[BTrace实战](http://arganzheng.life/btrace-in-action.html)
 
+#### show-busy-java-threads
+
+用于快速排查Java的CPU性能问题(top us值过高)，自动查出运行的Java进程中消耗CPU多的线程，并打印出其线程栈，从而确定导致性能问题的方法调用。
+
+#### [Arthas](https://alibaba.github.io/arthas/)
+
+Arthas 是Alibaba开源的Java诊断工具，功能强大，简单易用。
+
 
 类加载器(ClassLoader)
 --------------------
@@ -363,6 +400,7 @@ jmap 是一个可以输出所有内存中对象的工具，甚至可以将VM 中
 6. [Java Heap OOM问题](http://arganzheng.life/java-head-space-oom.html)
 7. [Font.create()引发OOME问题](https://code.google.com/p/hatter-source-code/wiki/Blog_FontCreateCauseOOME)
 8. [聊聊我对Java内存模型的理解](https://code.google.com/p/hatter-source-code/wiki/Blog_JavaMemoryModel)
+9. [在你的代码之外，响应时间超时的三个追查方向(下)](http://calvin1978.blogcn.com/articles/latency2.html)
 
 
 
