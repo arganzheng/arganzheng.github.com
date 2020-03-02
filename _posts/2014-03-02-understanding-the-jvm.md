@@ -131,9 +131,16 @@ GC需要完成的三件事情：
 -XX:+UseFastAccessorMethods
 -XX:+UseCMSInitiatingOccupancyOnly
 -XX:CMSInitiatingOccupancyFraction=70
+-XX:+HeapDumpOnOutOfMemoryError
+        -XX:HeapDumpPath=/data/logs/jvm/predict-serving`date +%Y%m%d.%H%M%S`.dump
+-XX:+PrintGCDetails
+-XX:+PrintGCApplicationStoppedTime
+-XX:+PrintGCTimeStamps
+-XX:+PrintGCDateStamps
+-Xloggc:/dev/shm/predict-serving-gc.log
 ```
 
-#### C1
+#### G1
 
 ```
 JAVA_OPTS="
