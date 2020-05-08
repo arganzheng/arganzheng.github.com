@@ -192,7 +192,7 @@ List<Property> 查找不是很方便，可以改成map:
 
 	    Date birthdate;
 	    	   
-	   	float height;
+	    float height;
 
 	    float weight;
 
@@ -813,17 +813,17 @@ product.proto:
 protobuf中没有继承的概念，只能使用类似于组合的方式来达到类似的目的，每种方式都有各自优缺点，使用起来都没有继承优雅，需要自己根据实际情况做权衡：
 
 1. 分散式
-	1.1. 子类包含父类
-	1.2. 直接将父类在子类展开
+    1. 子类包含父类
+    2. 直接将父类在子类展开
 2. 集中式
-	2.1. 所有子类作为父类的一个optional字段，类似于C的union
-	2.2. 所有子类作为父类的一个optional字段，通过protobuf的oneof语法，类似于C的union
-	2.3. Embedded Serialized Messages：将子类序列化成父类的一个bytes字段，然后用一个type字段表明子类类型
-	2.4. 使用protobuf的extensions语法，扩展"父"类，所有扩展字段存放在“父”类的一个extensions字段。
-	2.5. 使用protobuf的Nested Extensions语法，扩展"父"类，所有扩展字段存放在“父”类的一个extensions字段，但是扩展属性有各自的命名空间。
-	2.6. Nested Extensions的一个特殊例子：扩展属性就是子类本身。
+    1. 所有子类作为父类的一个 optional 字段，类似于C的 union 
+    2. 所有子类作为父类的一个 optional字 段，通过 protobuf 的 oneof 语法，类似于C的 union
+    3. Embedded Serialized Messages：将子类序列化成父类的一个 bytes 字段，然后用一个 type 字段表明子类类型
+    4. 使用protobuf的 extensions 语法，扩展"父"类，所有扩展字段存放在“父”类的一个 extensions 字段。
+    5. 使用protobuf的 Nested Extensions 语法，扩展"父"类，所有扩展字段存放在“父”类的一个 extensions 字段，但是扩展属性有各自的命名空间。
+    6. Nested Extensions 的一个特殊例子：扩展属性就是子类本身。
 
-从对用户的使用友好度来说，1.2和2.5/2.6是相对比较友好的。其他的情况使用起来多多少少有点别扭。。
+从对用户的使用友好度来说，1.2 和 2.5/2.6 是相对比较友好的。其他的情况使用起来多多少少有点别扭。。
 
 
 参考文章
