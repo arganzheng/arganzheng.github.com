@@ -104,6 +104,149 @@ BeanPostProcessor提供了一个机制让你可以修改创建的Bean实例，�
 > BeanPostProcessors are scoped per-container. This is only relevant if you are using container hierarchies. If you define a BeanPostProcessor in one container, it will only post-process the beans in that container. In other words, beans that are defined in one container are not post-processed by a BeanPostProcessor defined in another container, even if both containers are part of the same hierarchy.
 > To change the actual bean definition (i.e., the blueprint that defines the bean), you instead need to use a BeanFactoryPostProcessor as described in Section 6.8.2, “Customizing configuration metadata with a BeanFactoryPostProcessor”.
 
+#### 具体实例：RocketMQTransactionAnnotationProcessor
+
+RocketMQ消费者正常的使用方式如下：https://rocketmq.apache.org/docs/simple-example/
+
+```java
+public class Consumer {
+
+    public static void main(String[] args) throws InterruptedException, MQClientException {
+
+        // Instantiate with specified consumer group name.
+        DefaultMQPushConsumer consumer = new DefaultMQPushConsumer("please_rename_unique_group_name");
+         
+        // Specify name server addresses.
+        consumer.setNamesrvAddr("localhost:9876");
+        
+        // Subscribe one more more topics to consume.
+        consumer.subscribe("TopicTest", "*");
+        // Register callback to execute on arrival of messages fetched from brokers.
+        consumer.registerMessageListener(new MessageListenerConcurrently() {
+
+            @Override
+            public ConsumeConcurrentlyStatus consumeMessage(List<MessageExt> msgs,
+                ConsumeConcurrentlyContext context) {
+                System.out.printf("%s Receive New Messages: %s %n", Thread.currentThread().getName(), msgs);
+                return ConsumeConcurrentlyStatus.CONSUME_SUCCESS;
+            }
+        });
+
+        //Launch the consumer instance.
+        consumer.start();
+
+        System.out.printf("Consumer Started.%n");
+    }
+}
+```java
+
+rocketmq-spring-boot-starter 对其进行了封装，让其更加的人性化和自动化。只需要配置`@RocketMQMessageListener`注解，就会自动完成上面的配置、订阅、注册MessageListener，以及启动consumer的操作。
+
+```java
+@Log4j2
+@Service
+@RocketMQMessageListener(
+	topic = "greetings-topic",
+	consumerGroup = "simple-group"
+)
+class SimpleConsumer implements RocketMQListener<Greeting> {
+
+	@Override
+	public void onMessage(Greeting greeting) {
+		log.info(greeting.toString());
+	}
+}
+```java
+
+其中的魔法就是通过`RocketMQTransactionAnnotationProcessor`实现的：
+
+```java
+public class RocketMQTransactionAnnotationProcessor
+    implements BeanPostProcessor, Ordered, ApplicationContextAware {
+    private final static Logger log = LoggerFactory.getLogger(RocketMQTransactionAnnotationProcessor.class);
+
+    private ApplicationContext applicationContext;
+    private final Set<Class<?>> nonProcessedClasses =
+        Collections.newSetFromMap(new ConcurrentHashMap<Class<?>, Boolean>(64));
+
+    private TransactionHandlerRegistry transactionHandlerRegistry;
+
+    public RocketMQTransactionAnnotationProcessor(TransactionHandlerRegistry transactionHandlerRegistry) {
+        this.transactionHandlerRegistry = transactionHandlerRegistry;
+    }
+
+    @Override
+    public void setApplicationContext(ApplicationContext applicationContext) throws BeansException {
+        this.applicationContext = applicationContext;
+    }
+
+    @Override
+    public Object postProcessBeforeInitialization(Object bean, String beanName) throws BeansException {
+        return bean;
+    }
+
+    @Override
+    public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
+        if (!this.nonProcessedClasses.contains(bean.getClass())) {
+            Class<?> targetClass = AopUtils.getTargetClass(bean);
+            RocketMQTransactionListener listener = AnnotationUtils.findAnnotation(targetClass, RocketMQTransactionListener.class);
+            this.nonProcessedClasses.add(bean.getClass());
+            if (listener == null) { // for quick search
+                log.trace("No @RocketMQTransactionListener annotations found on bean type: {}", bean.getClass());
+            } else {
+                try {
+                    processTransactionListenerAnnotation(listener, bean);
+                } catch (MQClientException e) {
+                    log.error("Failed to process annotation " + listener, e);
+                    throw new BeanCreationException("Failed to process annotation " + listener, e);
+                }
+            }
+        }
+
+        return bean;
+    }
+
+    private void processTransactionListenerAnnotation(RocketMQTransactionListener listener, Object bean)
+        throws MQClientException {
+        if (transactionHandlerRegistry == null) {
+            throw new MQClientException("Bad usage of @RocketMQTransactionListener, " +
+                "the class must work with RocketMQTemplate", null);
+        }
+        if (!RocketMQLocalTransactionListener.class.isAssignableFrom(bean.getClass())) {
+            throw new MQClientException("Bad usage of @RocketMQTransactionListener, " +
+                "the class must implement interface RocketMQLocalTransactionListener",
+                null);
+        }
+        TransactionHandler transactionHandler = new TransactionHandler();
+        transactionHandler.setBeanFactory(this.applicationContext.getAutowireCapableBeanFactory());
+        transactionHandler.setName(listener.txProducerGroup());
+        transactionHandler.setBeanName(bean.getClass().getName());
+        transactionHandler.setListener((RocketMQLocalTransactionListener) bean);
+        transactionHandler.setCheckExecutor(listener.corePoolSize(), listener.maximumPoolSize(),
+                listener.keepAliveTime(), listener.blockingQueueSize());
+
+        RPCHook rpcHook = RocketMQUtil.getRPCHookByAkSk(applicationContext.getEnvironment(),
+            listener.accessKey(), listener.secretKey());
+
+        if (Objects.nonNull(rpcHook)) {
+            transactionHandler.setRpcHook(rpcHook);
+        } else {
+            log.debug("Access-key or secret-key not configure in " + listener + ".");
+        }
+
+        transactionHandlerRegistry.registerTransactionHandler(transactionHandler);
+    }
+
+    @Override
+    public int getOrder() {
+        return LOWEST_PRECEDENCE;
+    }
+
+}
+```java
+
+代码其实很简单，就是Spring每次实例化一个bean的后会回调`public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException` 方法。在这个方法中，检查一个bean是否有`RocketMQTransactionListener`注解。如果有的话就在这里完成原来用户要手动编写代码做的事情，从而实现自动化。
+
 
 ### 2、Customizing configuration metadata with a BeanFactoryPostProcessor
 
