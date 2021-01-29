@@ -32,71 +32,72 @@ Bean扩展点
 
 BeanPostProcessor提供了一个机制让你可以修改创建的Bean实例，比如AOP，比如依赖注入。
 
-	package org.springframework.beans.factory.config;
+```java
+package org.springframework.beans.factory.config;
 
-	import org.springframework.beans.BeansException;
+import org.springframework.beans.BeansException;
+
+/**
+ * Factory hook that allows for custom modification of new bean instances,
+ * e.g. checking for marker interfaces or wrapping them with proxies.
+ *
+ * <p>ApplicationContexts can autodetect BeanPostProcessor beans in their
+ * bean definitions and apply them to any beans subsequently created.
+ * Plain bean factories allow for programmatic registration of post-processors,
+ * applying to all beans created through this factory.
+ *
+ * <p>Typically, post-processors that populate beans via marker interfaces
+ * or the like will implement {@link #postProcessBeforeInitialization},
+ * while post-processors that wrap beans with proxies will normally
+ * implement {@link #postProcessAfterInitialization}.
+ *
+ * @author Juergen Hoeller
+ * @since 10.10.2003
+ * @see InstantiationAwareBeanPostProcessor
+ * @see DestructionAwareBeanPostProcessor
+ * @see ConfigurableBeanFactory#addBeanPostProcessor
+ * @see BeanFactoryPostProcessor
+ */
+public interface BeanPostProcessor {
 
 	/**
-	 * Factory hook that allows for custom modification of new bean instances,
-	 * e.g. checking for marker interfaces or wrapping them with proxies.
-	 *
-	 * <p>ApplicationContexts can autodetect BeanPostProcessor beans in their
-	 * bean definitions and apply them to any beans subsequently created.
-	 * Plain bean factories allow for programmatic registration of post-processors,
-	 * applying to all beans created through this factory.
-	 *
-	 * <p>Typically, post-processors that populate beans via marker interfaces
-	 * or the like will implement {@link #postProcessBeforeInitialization},
-	 * while post-processors that wrap beans with proxies will normally
-	 * implement {@link #postProcessAfterInitialization}.
-	 *
-	 * @author Juergen Hoeller
-	 * @since 10.10.2003
-	 * @see InstantiationAwareBeanPostProcessor
-	 * @see DestructionAwareBeanPostProcessor
-	 * @see ConfigurableBeanFactory#addBeanPostProcessor
-	 * @see BeanFactoryPostProcessor
+	 * Apply this BeanPostProcessor to the given new bean instance <i>before</i> any bean
+	 * initialization callbacks (like InitializingBean's {@code afterPropertiesSet}
+	 * or a custom init-method). The bean will already be populated with property values.
+	 * The returned bean instance may be a wrapper around the original.
+	 * @param bean the new bean instance
+	 * @param beanName the name of the bean
+	 * @return the bean instance to use, either the original or a wrapped one; if
+	 * {@code null}, no subsequent BeanPostProcessors will be invoked
+	 * @throws org.springframework.beans.BeansException in case of errors
+	 * @see org.springframework.beans.factory.InitializingBean#afterPropertiesSet
 	 */
-	public interface BeanPostProcessor {
+	Object postProcessBeforeInitialization(Object bean, String beanName) throws BeansException;
 
-		/**
-		 * Apply this BeanPostProcessor to the given new bean instance <i>before</i> any bean
-		 * initialization callbacks (like InitializingBean's {@code afterPropertiesSet}
-		 * or a custom init-method). The bean will already be populated with property values.
-		 * The returned bean instance may be a wrapper around the original.
-		 * @param bean the new bean instance
-		 * @param beanName the name of the bean
-		 * @return the bean instance to use, either the original or a wrapped one; if
-		 * {@code null}, no subsequent BeanPostProcessors will be invoked
-		 * @throws org.springframework.beans.BeansException in case of errors
-		 * @see org.springframework.beans.factory.InitializingBean#afterPropertiesSet
-		 */
-		Object postProcessBeforeInitialization(Object bean, String beanName) throws BeansException;
+	/**
+	 * Apply this BeanPostProcessor to the given new bean instance <i>after</i> any bean
+	 * initialization callbacks (like InitializingBean's {@code afterPropertiesSet}
+	 * or a custom init-method). The bean will already be populated with property values.
+	 * The returned bean instance may be a wrapper around the original.
+	 * <p>In case of a FactoryBean, this callback will be invoked for both the FactoryBean
+	 * instance and the objects created by the FactoryBean (as of Spring 2.0). The
+	 * post-processor can decide whether to apply to either the FactoryBean or created
+	 * objects or both through corresponding {@code bean instanceof FactoryBean} checks.
+	 * <p>This callback will also be invoked after a short-circuiting triggered by a
+	 * {@link InstantiationAwareBeanPostProcessor#postProcessBeforeInstantiation} method,
+	 * in contrast to all other BeanPostProcessor callbacks.
+	 * @param bean the new bean instance
+	 * @param beanName the name of the bean
+	 * @return the bean instance to use, either the original or a wrapped one; if
+	 * {@code null}, no subsequent BeanPostProcessors will be invoked
+	 * @throws org.springframework.beans.BeansException in case of errors
+	 * @see org.springframework.beans.factory.InitializingBean#afterPropertiesSet
+	 * @see org.springframework.beans.factory.FactoryBean
+	 */
+	Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException;
 
-		/**
-		 * Apply this BeanPostProcessor to the given new bean instance <i>after</i> any bean
-		 * initialization callbacks (like InitializingBean's {@code afterPropertiesSet}
-		 * or a custom init-method). The bean will already be populated with property values.
-		 * The returned bean instance may be a wrapper around the original.
-		 * <p>In case of a FactoryBean, this callback will be invoked for both the FactoryBean
-		 * instance and the objects created by the FactoryBean (as of Spring 2.0). The
-		 * post-processor can decide whether to apply to either the FactoryBean or created
-		 * objects or both through corresponding {@code bean instanceof FactoryBean} checks.
-		 * <p>This callback will also be invoked after a short-circuiting triggered by a
-		 * {@link InstantiationAwareBeanPostProcessor#postProcessBeforeInstantiation} method,
-		 * in contrast to all other BeanPostProcessor callbacks.
-		 * @param bean the new bean instance
-		 * @param beanName the name of the bean
-		 * @return the bean instance to use, either the original or a wrapped one; if
-		 * {@code null}, no subsequent BeanPostProcessors will be invoked
-		 * @throws org.springframework.beans.BeansException in case of errors
-		 * @see org.springframework.beans.factory.InitializingBean#afterPropertiesSet
-		 * @see org.springframework.beans.factory.FactoryBean
-		 */
-		Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException;
-
-	}
-
+}
+```
 
 **注意**
 
@@ -138,7 +139,7 @@ public class Consumer {
         System.out.printf("Consumer Started.%n");
     }
 }
-```java
+```
 
 rocketmq-spring-boot-starter 对其进行了封装，让其更加的人性化和自动化。只需要配置`@RocketMQMessageListener`注解，就会自动完成上面的配置、订阅、注册MessageListener，以及启动consumer的操作。
 
@@ -156,7 +157,7 @@ class SimpleConsumer implements RocketMQListener<Greeting> {
 		log.info(greeting.toString());
 	}
 }
-```java
+```
 
 其中的魔法就是通过`RocketMQTransactionAnnotationProcessor`实现的：
 
@@ -243,7 +244,7 @@ public class RocketMQTransactionAnnotationProcessor
     }
 
 }
-```java
+```
 
 代码其实很简单，就是Spring每次实例化一个bean的后会回调`public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException` 方法。在这个方法中，检查一个bean是否有`RocketMQTransactionListener`注解。如果有的话就在这里完成原来用户要手动编写代码做的事情，从而实现自动化。
 
@@ -262,22 +263,23 @@ The FactoryBean interface is a point of pluggability into the Spring IoC contain
 
 Spring框架本身大量使用了FactoryBean来隐藏对象的复杂构建逻辑，大概有50+个实现。比如我们前面在介绍Quartz与Spring的整合的时候提到的[SchedulerFactoryBean](http://arganzheng.life/quartz-and-spring-integration-dynamic-instanceid-with-factorybean.html)。把初始化逻辑放在FactoryBean中实现，然后在XML中配置FactoryBean，但是最后却是得到FactoryBean生产的Bean，有点狸猫换太子的味道。
 
-	package org.springframework.beans.factory;
+```java
+package org.springframework.beans.factory;
+
+
+public interface FactoryBean<T> {
 
 	
-	public interface FactoryBean<T> {
+	T getObject() throws Exception;
 
-		
-		T getObject() throws Exception;
+	
+	Class<?> getObjectType();
 
-		
-		Class<?> getObjectType();
+	
+	boolean isSingleton();
 
-		
-		boolean isSingleton();
-
-	}
-
+}
+```
 
 ### 4、Customizing XML configuration schema with NamespaceHandler and BeanDefinitionParser
 
@@ -295,5 +297,3 @@ Spring框架本身大量使用了FactoryBean来隐藏对象的复杂构建逻辑
 -------
 
 1. [6.8.2 Customizing configuration metadata with a BeanFactoryPostProcessor](http://docs.spring.io/spring-framework/docs/4.2.x/spring-framework-reference/htmlsingle/#beans-factory-extension-factory-postprocessors)
-
-
