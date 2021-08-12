@@ -8,44 +8,48 @@ catalog: true
 
 我们一直使用Spring XML配置Bean，已经习惯了Spring的Bean定义语法。
 
-	<bean id="..." class="...">
-	    <property name="xxx", value="" />
-	</bean>
+```xml
+<bean id="..." class="...">
+    <property name="xxx", value="" />
+</bean>
+```
 
 **TIPS** Spring 2.0之前使用的是DTD做XML校验，2.0之后开始使用XSD文件。
 
 使用DTD需要在XML开头指定DTD文件的位置：
 
-	<?xml version="1.0" encoding="UTF-8"?>
-	<!DOCTYPE beans PUBLIC "-//SPRING//DTD BEAN 2.0//EN"
-	        "http://www.springframework.org/dtd/spring-beans-2.0.dtd">
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE beans PUBLIC "-//SPRING//DTD BEAN 2.0//EN"
+	"http://www.springframework.org/dtd/spring-beans-2.0.dtd">
 
-	<beans>
+<beans>
 
-	<!-- bean definitions here -->
+<!-- bean definitions here -->
 
-	</beans>
+</beans>
+```
 
 使用XML Schema-style则是：
 
-	<?xml version="1.0" encoding="UTF-8"?>
-	<beans xmlns="http://www.springframework.org/schema/beans"
-	    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-	    xsi:schemaLocation="
-	        http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd">
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="
+	http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd">
 
-	    <!-- bean definitions here -->
+    <!-- bean definitions here -->
 
-	</beans>
-
+</beans>
+```
 
 但是我们如果我们需要自定义自己的标签呢？比如Dubbo框架，就是自定义一套标签，方面用户定义和引用RPC服务：
 
 > Export remote service:
->
 >    <bean id="barService" class="com.foo.BarServiceImpl" />
 >    <dubbo:service interface="com.foo.BarService" ref="barService" />
-
+>
 > Refer remote service:
 >
 >    <dubbo:reference id="barService" interface="com.foo.BarService" />
@@ -68,45 +72,50 @@ Spring官方文档举了一个简单的例子：
 
 假如要定义一个 SimpleDateFormat 对象，通常的定义方式是：
 
-	<bean id="dateFormat" class="java.text.SimpleDateFormat">
-	    <constructor-arg value="yyyy-HH-dd HH:mm"/>
-	    <property name="lenient" value="true"/>
-	</bean>
+```xml
+<bean id="dateFormat" class="java.text.SimpleDateFormat">
+    <constructor-arg value="yyyy-HH-dd HH:mm"/>
+    <property name="lenient" value="true"/>
+</bean>
+```
 
 但是如果要我们要通过一种更友好简单的方式定义，比如下面：
 
-	<myns:dateformat id="dateFormat"
-	    pattern="yyyy-MM-dd HH:mm"
-	    lenient="true"/>
+```xml
+<myns:dateformat id="dateFormat"
+    pattern="yyyy-MM-dd HH:mm"
+    lenient="true"/>
+```
 
 那么依次需要做如下事情：
 
 #### 1. Authoring the schema。指定验证XML语法的XSD文件：
 
-	<!-- myns.xsd (inside package org/springframework/samples/xml) -->
+```xml
+<!-- myns.xsd (inside package org/springframework/samples/xml) -->
 
-	<?xml version="1.0" encoding="UTF-8"?>
-	<xsd:schema xmlns="http://www.mycompany.com/schema/myns"
-	        xmlns:xsd="http://www.w3.org/2001/XMLSchema"
-	        xmlns:beans="http://www.springframework.org/schema/beans"
-	        targetNamespace="http://www.mycompany.com/schema/myns"
-	        elementFormDefault="qualified"
-	        attributeFormDefault="unqualified">
+<?xml version="1.0" encoding="UTF-8"?>
+<xsd:schema xmlns="http://www.mycompany.com/schema/myns"
+	xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+	xmlns:beans="http://www.springframework.org/schema/beans"
+	targetNamespace="http://www.mycompany.com/schema/myns"
+	elementFormDefault="qualified"
+	attributeFormDefault="unqualified">
 
-	    <xsd:import namespace="http://www.springframework.org/schema/beans"/>
+    <xsd:import namespace="http://www.springframework.org/schema/beans"/>
 
-	    <xsd:element name="dateformat">
-	        <xsd:complexType>
-	            <xsd:complexContent>
-	                <xsd:extension base="beans:identifiedType">
-	                    <xsd:attribute name="lenient" type="xsd:boolean"/>
-	                    <xsd:attribute name="pattern" type="xsd:string" use="required"/>
-	                </xsd:extension>
-	            </xsd:complexContent>
-	        </xsd:complexType>
-	    </xsd:element>
-	</xsd:schema>
-
+    <xsd:element name="dateformat">
+	<xsd:complexType>
+	    <xsd:complexContent>
+		<xsd:extension base="beans:identifiedType">
+		    <xsd:attribute name="lenient" type="xsd:boolean"/>
+		    <xsd:attribute name="pattern" type="xsd:string" use="required"/>
+		</xsd:extension>
+	    </xsd:complexContent>
+	</xsd:complexType>
+    </xsd:element>
+</xsd:schema>
+```
 
 #### 2. Coding a NamespaceHandler 
 
@@ -114,129 +123,134 @@ Spring官方文档举了一个简单的例子：
 
 NamespaceHandler是一个非常简单的接口，只有四个接口：
 
-	package org.springframework.beans.factory.xml;
+```java
+package org.springframework.beans.factory.xml;
 
-	import org.w3c.dom.Element;
-	import org.w3c.dom.Node;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
 
-	import org.springframework.beans.factory.config.BeanDefinition;
-	import org.springframework.beans.factory.config.BeanDefinitionHolder;
+import org.springframework.beans.factory.config.BeanDefinition;
+import org.springframework.beans.factory.config.BeanDefinitionHolder;
+
+/**
+ * Base interface used by the {@link DefaultBeanDefinitionDocumentReader}
+ * for handling custom namespaces in a Spring XML configuration file.
+ *
+ * <p>Implementations are expected to return implementations of the
+ * {@link BeanDefinitionParser} interface for custom top-level tags and
+ * implementations of the {@link BeanDefinitionDecorator} interface for
+ * custom nested tags.
+ *
+ * <p>The parser will call {@link #parse} when it encounters a custom tag
+ * directly under the {@code &lt;beans&gt;} tags and {@link #decorate} when
+ * it encounters a custom tag directly under a {@code &lt;bean&gt;} tag.
+ *
+ * <p>Developers writing their own custom element extensions typically will
+ * not implement this interface drectly, but rather make use of the provided
+ * {@link NamespaceHandlerSupport} class.
+ *
+ * @since 2.0
+ * @see DefaultBeanDefinitionDocumentReader
+ * @see NamespaceHandlerResolver
+ */
+public interface NamespaceHandler {
 
 	/**
-	 * Base interface used by the {@link DefaultBeanDefinitionDocumentReader}
-	 * for handling custom namespaces in a Spring XML configuration file.
-	 *
-	 * <p>Implementations are expected to return implementations of the
-	 * {@link BeanDefinitionParser} interface for custom top-level tags and
-	 * implementations of the {@link BeanDefinitionDecorator} interface for
-	 * custom nested tags.
-	 *
-	 * <p>The parser will call {@link #parse} when it encounters a custom tag
-	 * directly under the {@code &lt;beans&gt;} tags and {@link #decorate} when
-	 * it encounters a custom tag directly under a {@code &lt;bean&gt;} tag.
-	 *
-	 * <p>Developers writing their own custom element extensions typically will
-	 * not implement this interface drectly, but rather make use of the provided
-	 * {@link NamespaceHandlerSupport} class.
-	 *
-	 * @since 2.0
-	 * @see DefaultBeanDefinitionDocumentReader
-	 * @see NamespaceHandlerResolver
+	 * Invoked by the {@link DefaultBeanDefinitionDocumentReader} after
+	 * construction but before any custom elements are parsed.
+	 * @see NamespaceHandlerSupport#registerBeanDefinitionParser(String, BeanDefinitionParser)
 	 */
-	public interface NamespaceHandler {
+	void init();
 
-		/**
-		 * Invoked by the {@link DefaultBeanDefinitionDocumentReader} after
-		 * construction but before any custom elements are parsed.
-		 * @see NamespaceHandlerSupport#registerBeanDefinitionParser(String, BeanDefinitionParser)
-		 */
-		void init();
+	/**
+	 * Parse the specified {@link Element} and register any resulting
+	 * {@link BeanDefinition BeanDefinitions} with the
+	 * {@link org.springframework.beans.factory.support.BeanDefinitionRegistry}
+	 * that is embedded in the supplied {@link ParserContext}.
+	 * <p>Implementations should return the primary {@code BeanDefinition}
+	 * that results from the parse phase if they wish to be used nested
+	 * inside (for example) a {@code &lt;property&gt;} tag.
+	 * <p>Implementations may return {@code null} if they will
+	 * <strong>not</strong> be used in a nested scenario.
+	 * @param element the element that is to be parsed into one or more {@code BeanDefinitions}
+	 * @param parserContext the object encapsulating the current state of the parsing process
+	 * @return the primary {@code BeanDefinition} (can be {@code null} as explained above)
+	 */
+	BeanDefinition parse(Element element, ParserContext parserContext);
 
-		/**
-		 * Parse the specified {@link Element} and register any resulting
-		 * {@link BeanDefinition BeanDefinitions} with the
-		 * {@link org.springframework.beans.factory.support.BeanDefinitionRegistry}
-		 * that is embedded in the supplied {@link ParserContext}.
-		 * <p>Implementations should return the primary {@code BeanDefinition}
-		 * that results from the parse phase if they wish to be used nested
-		 * inside (for example) a {@code &lt;property&gt;} tag.
-		 * <p>Implementations may return {@code null} if they will
-		 * <strong>not</strong> be used in a nested scenario.
-		 * @param element the element that is to be parsed into one or more {@code BeanDefinitions}
-		 * @param parserContext the object encapsulating the current state of the parsing process
-		 * @return the primary {@code BeanDefinition} (can be {@code null} as explained above)
-		 */
-		BeanDefinition parse(Element element, ParserContext parserContext);
+	/**
+	 * Parse the specified {@link Node} and decorate the supplied
+	 * {@link BeanDefinitionHolder}, returning the decorated definition.
+	 * <p>The {@link Node} may be either an {@link org.w3c.dom.Attr} or an
+	 * {@link Element}, depending on whether a custom attribute or element
+	 * is being parsed.
+	 * <p>Implementations may choose to return a completely new definition,
+	 * which will replace the original definition in the resulting
+	 * {@link org.springframework.beans.factory.BeanFactory}.
+	 * <p>The supplied {@link ParserContext} can be used to register any
+	 * additional beans needed to support the main definition.
+	 * @param source the source element or attribute that is to be parsed
+	 * @param definition the current bean definition
+	 * @param parserContext the object encapsulating the current state of the parsing process
+	 * @return the decorated definition (to be registered in the BeanFactory),
+	 * or simply the original bean definition if no decoration is required.
+	 * A {@code null} value is strictly speaking invalid, but will be leniently
+	 * treated like the case where the original bean definition gets returned.
+	 */
+	BeanDefinitionHolder decorate(Node source, BeanDefinitionHolder definition, ParserContext parserContext);
 
-		/**
-		 * Parse the specified {@link Node} and decorate the supplied
-		 * {@link BeanDefinitionHolder}, returning the decorated definition.
-		 * <p>The {@link Node} may be either an {@link org.w3c.dom.Attr} or an
-		 * {@link Element}, depending on whether a custom attribute or element
-		 * is being parsed.
-		 * <p>Implementations may choose to return a completely new definition,
-		 * which will replace the original definition in the resulting
-		 * {@link org.springframework.beans.factory.BeanFactory}.
-		 * <p>The supplied {@link ParserContext} can be used to register any
-		 * additional beans needed to support the main definition.
-		 * @param source the source element or attribute that is to be parsed
-		 * @param definition the current bean definition
-		 * @param parserContext the object encapsulating the current state of the parsing process
-		 * @return the decorated definition (to be registered in the BeanFactory),
-		 * or simply the original bean definition if no decoration is required.
-		 * A {@code null} value is strictly speaking invalid, but will be leniently
-		 * treated like the case where the original bean definition gets returned.
-		 */
-		BeanDefinitionHolder decorate(Node source, BeanDefinitionHolder definition, ParserContext parserContext);
-
-	}
-
+}
+```
 
 但是一般不直接使用，而是使用NamespaceHandlerSupport。这个类允许我们注册Parser和Decorator来解析特定的XML元素。
 
-	package org.springframework.samples.xml;
+```java
+package org.springframework.samples.xml;
 
-	import org.springframework.beans.factory.xml.NamespaceHandlerSupport;
+import org.springframework.beans.factory.xml.NamespaceHandlerSupport;
 
-	public class MyNamespaceHandler extends NamespaceHandlerSupport {
+public class MyNamespaceHandler extends NamespaceHandlerSupport {
 
-	    public void init() {
-	        registerBeanDefinitionParser("dateformat", new SimpleDateFormatBeanDefinitionParser());
-	    }
+    public void init() {
+	registerBeanDefinitionParser("dateformat", new SimpleDateFormatBeanDefinitionParser());
+    }
 
-	}
+}
+```
 
 #### 3. 定义相应的BeanDefinitionParser
 
 BeanDefinitionParser的职责是将一个唯一的定级XML元素解析为对应的BeanDefinition。
 
-	package org.springframework.samples.xml;
+```java
+package org.springframework.samples.xml;
 
-	import org.springframework.beans.factory.support.BeanDefinitionBuilder;
-	import org.springframework.beans.factory.xml.AbstractSingleBeanDefinitionParser;
-	import org.springframework.util.StringUtils;
-	import org.w3c.dom.Element;
+import org.springframework.beans.factory.support.BeanDefinitionBuilder;
+import org.springframework.beans.factory.xml.AbstractSingleBeanDefinitionParser;
+import org.springframework.util.StringUtils;
+import org.w3c.dom.Element;
 
-	import java.text.SimpleDateFormat;
+import java.text.SimpleDateFormat;
 
-	public class SimpleDateFormatBeanDefinitionParser extends AbstractSingleBeanDefinitionParser { 
+public class SimpleDateFormatBeanDefinitionParser extends AbstractSingleBeanDefinitionParser { 
 
-	    protected Class getBeanClass(Element element) {
-	        return SimpleDateFormat.class; 
-	    }
+    protected Class getBeanClass(Element element) {
+	return SimpleDateFormat.class; 
+    }
 
-	    protected void doParse(Element element, BeanDefinitionBuilder bean) {
-	        // this will never be null since the schema explicitly requires that a value be supplied
-	        String pattern = element.getAttribute("pattern");
-	        bean.addConstructorArg(pattern);
+    protected void doParse(Element element, BeanDefinitionBuilder bean) {
+	// this will never be null since the schema explicitly requires that a value be supplied
+	String pattern = element.getAttribute("pattern");
+	bean.addConstructorArg(pattern);
 
-	        // this however is an optional property
-	        String lenient = element.getAttribute("lenient");
-	        if (StringUtils.hasText(lenient)) {
-	            bean.addPropertyValue("lenient", Boolean.valueOf(lenient));
-	        }
-	    }
+	// this however is an optional property
+	String lenient = element.getAttribute("lenient");
+	if (StringUtils.hasText(lenient)) {
+	    bean.addPropertyValue("lenient", Boolean.valueOf(lenient));
 	}
+    }
+}
+```
 
 同样，有很多基础的工作都在基类中做掉了，只需要重载几个重要的方法，就可以了。
 
