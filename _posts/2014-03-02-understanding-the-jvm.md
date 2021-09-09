@@ -267,6 +267,19 @@ Jstat（ “Java Virtual Machine statistics monitoring tool” ）是JDK自带�
 * interval-- 间隔时间，单位为毫秒
 * count   -- 打印次数，如果缺省则打印无数次
 
+**TIPS** 查看jvm所有参数默认配置
+
+可以使用 `java -XX:+PrintFlagsFinal -version` 查看当前 JDK 版本所有默认的 JVM 参数。会输出几百行，所以一般来说要针对性的去搜索某个参数：
+```
+$ java -XX:+PrintFlagsFinal -version | grep NewRatio
+    uintx NewRatio                                  = 2                                   {product}
+java version "1.8.0_241"
+Java(TM) SE Runtime Environment (build 1.8.0_241-b07)
+Java HotSpot(TM) 64-Bit Server VM (build 25.241-b07, mixed mode)
+```
+
+可以看出默认yound区大小是old区的一半。
+
 #### jstack
 
 jstack用于打印出给定的java进程ID或core file或远程调试服务的Java堆栈信息，
