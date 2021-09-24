@@ -8,8 +8,7 @@ catalog: true
 
 * SCUT 计算机双语班
 * 爱立信(实习) => 阿里巴巴 => 腾讯 => 百度
-* 博客：http://blog.arganzheng.me
-* weixin/QQ：598785244
+* 博客：http://arganzheng.life
 
 ### 珍惜校园学习时光
 
