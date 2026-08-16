@@ -5,22 +5,6 @@ tags: [AI, AI-infra, 大模型推理]
 catalog: true
 ---
 
----
-
-
-### 1.1 范式转移：传统 DL 推理 vs LLM Serving
-
-如果你带着 ResNet / BERT 时代的推理经验来看 LLM Serving，几乎每一条经验都会失效。
-
-**静态与动态的鸿沟。** 传统 CV/NLP 推理是一个"纯函数"：输入 shape 固定（`[B, 3, 224, 224]`），输出 shape 固定，一次 forward 结束。服务框架（Triton、TF-Serving）只需要做一件事——**攒批**：等 10ms，凑齐 32 个请求，一起打进 GPU。
-
-LLM 推理是"双未知"的：
-- **输入长度未知**：用户可能发 20 token 的闲聊，也可能发 128K token 的整本合同；
-- **输出长度未知**：模型什么时候吐 EOS，事先无法预测，甚至无法估计。
-
-这意味着：**你无法预分配显存，也无法预测一个请求要占用 GPU 多久**。这一条，摧毁了传统 Serving 的全部前提。
-
-
 # 大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术
 
 > **NOTS** 本文基于 vLLM 最新稳定版 v0.27.1 源码深度剖析
@@ -35,8 +19,8 @@ LLM 推理是"双未知"的：
 - [四、调度：Continuous Batching、Chunked Prefill 与抢占策略](#四调度continuous-batchingchunked-prefill-与抢占策略)
 - [五、极致：单 GPU 执行优化到低精度推理](#五极致单-gpu-执行优化到低精度推理)
 - [六、破壁：Multi-GPU 推理架构与通信拓扑](#六破壁multi-gpu-推理架构与通信拓扑)
-- [七、适配：vLLM 如何适配不同的模型](#七适配vLLM如何适配不同的模型)
-- [八、解耦：vLLM 如何解耦不同的硬件平台](#八解耦vllm如何解耦不同的硬件平台)
+- [七、适配：vLLM 如何适配不同的模型](#七适配vllm-如何适配不同的模型)
+- [八、解耦：vLLM 如何解耦不同的硬件平台](#八解耦vllm-如何解耦不同的硬件平台)
 - [九、演进：PD 分离与未来 Serving 演进趋势](#九演进pd-分离与未来-serving-演进趋势)
 
 ---
@@ -3138,6 +3122,7 @@ vLLM 的故事，是一个从学术论文（PagedAttention, SOSP'23）走向工�
 > 本文分析基于当前 vLLM 最新稳定版 v0.27.1（2026-08-11, commit `6e448d0`）。
 >
 > **核心源码文件索引**:
+> 
 > | 组件 | 文件路径 |
 > |------|---------|
 > | Engine Core | `vllm/v1/engine/core.py` |

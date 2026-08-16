@@ -1,0 +1,218 @@
+/* ==========================================================================
+   GitHub-Flavored Markdown Styling for post-container
+   Aligns rendered Markdown appearance with github.com
+   ========================================================================== */
+
+.post-container {
+  -ms-text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
+  word-wrap: break-word;
+}
+
+/* ---- Headings ---- */
+.post-container h1,
+.post-container h2,
+.post-container h3,
+.post-container h4,
+.post-container h5,
+.post-container h6 {
+  margin-top: 24px;
+  margin-bottom: 16px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: #1f2328;
+}
+.post-container h1 { font-size: 2em; padding-bottom: .3em; border-bottom: 1px solid #d1d9e0; }
+.post-container h2 { font-size: 1.5em; padding-bottom: .3em; border-bottom: 1px solid #d1d9e0; }
+.post-container h3 { font-size: 1.25em; }
+.post-container h4 { font-size: 1em; }
+.post-container h5 { font-size: .875em; }
+.post-container h6 { font-size: .85em; color: #656d76; }
+
+/* ---- Paragraphs ---- */
+.post-container p {
+  margin-top: 0;
+  margin-bottom: 16px;
+}
+
+/* ---- Links ---- */
+.post-container a {
+  color: #0969da;
+  text-decoration: none;
+}
+.post-container a:hover {
+  text-decoration: underline;
+}
+
+/* ---- Lists ---- */
+.post-container ul,
+.post-container ol {
+  margin-top: 0;
+  margin-bottom: 16px;
+  padding-left: 2em;
+}
+.post-container li + li {
+  margin-top: .25em;
+}
+.post-container ul ul,
+.post-container ul ol,
+.post-container ol ol,
+.post-container ol ul {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.post-container li > p {
+  margin-top: 16px;
+}
+
+/* ---- Inline Code ---- */
+.post-container code {
+  padding: .2em .4em;
+  margin: 0;
+  font-size: 85%;
+  white-space: break-spaces;
+  background-color: rgba(175,184,193,.2);
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+.post-container pre code {
+  padding: 0;
+  background-color: transparent;
+  border-radius: 0;
+  font-size: 100%;
+}
+
+/* ---- Code Blocks (pre) ---- */
+.post-container pre {
+  padding: 16px;
+  overflow: auto;
+  font-size: 85%;
+  line-height: 1.45;
+  color: #1f2328;
+  background-color: #f6f8fa;
+  border-radius: 6px;
+  margin-top: 0;
+  margin-bottom: 16px;
+  border: 1px solid #d1d9e0;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+.post-container pre code {
+  display: inline;
+  overflow: visible;
+  word-wrap: normal;
+  white-space: pre;
+  border: 0;
+}
+/* override rouge highlighter pre styling while keeping its colors */
+.post-container .highlight pre {
+  padding: 16px;
+  font-size: 85%;
+  line-height: 1.45;
+  border-radius: 6px;
+  border: 1px solid #d1d9e0;
+}
+
+/* ---- Tables ---- */
+.post-container table {
+  border-collapse: collapse;
+  margin-top: 0;
+  margin-bottom: 16px;
+  width: auto;
+  max-width: 100%;
+  overflow: auto;
+  display: block;
+}
+.post-container table th,
+.post-container table td {
+  padding: 6px 13px;
+  border: 1px solid #d1d9e0 !important;
+}
+.post-container table th {
+  font-weight: 600;
+  background-color: #f6f8fa;
+}
+.post-container table tr:nth-child(2n) {
+  background-color: #f6f8fa;
+}
+.post-container table tr {
+  background-color: #ffffff;
+  border-top: 1px solid #d1d9e0;
+}
+
+/* ---- Blockquotes ---- */
+.post-container blockquote {
+  margin: 0 0 16px 0;
+  padding: 0 1em;
+  color: #656d76;
+  border-left: .25em solid #d1d9e0;
+  font-style: normal;
+  font-size: 1em;
+}
+.post-container blockquote > :first-child { margin-top: 0; }
+.post-container blockquote > :last-child { margin-bottom: 0; }
+
+/* ---- Horizontal Rules ---- */
+.post-container hr {
+  height: .25em;
+  padding: 0;
+  margin: 24px 0;
+  background-color: #d1d9e0;
+  border: 0;
+}
+
+/* ---- Images ---- */
+.post-container img {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* ---- Strong / Emphasis ---- */
+.post-container strong {
+  font-weight: 600;
+}
+
+/* ---- Task Lists ---- */
+.post-container .task-list-item {
+  list-style-type: none;
+}
+.post-container .task-list-item input {
+  margin: 0 .2em .25em -1.4em;
+  vertical-align: middle;
+}
+
+/* ---- Responsive table wrapper added by hux-blog.js ---- */
+.post-container .table-responsive {
+  border: 0;
+}
+
+/* ---- Mermaid Diagrams ---- */
+.post-container .mermaid {
+  text-align: center;
+  margin: 16px 0;
+}
+.post-container .mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* ---- Kramdown Table of Contents ---- */
+.post-container ul#markdown-toc {
+  list-style: none;
+  padding-left: 0;
+  margin-bottom: 24px;
+}
+.post-container ul#markdown-toc li {
+  margin: 0;
+}
+.post-container ul#markdown-toc a {
+  display: block;
+  padding: 4px 0;
+}
+
+/* ---- Footnotes ---- */
+.post-container .footnotes {
+  font-size: 85%;
+  color: #656d76;
+  border-top: 1px solid #d1d9e0;
+  padding-top: 8px;
+}

@@ -23,6 +23,7 @@
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="{{ "/css/argan-blog.min.css" | prepend: site.baseurl }}"> 
+    <link rel="stylesheet" href="{{ "/css/github-markdown.css" | prepend: site.baseurl }}">
 
     <!-- Pygments Github CSS -->
     <link rel="stylesheet" href="{{ "/css/syntax.css" | prepend: site.baseurl }}">
@@ -41,4 +42,53 @@
 
     <!-- ga & ba script hoook -->
     <script></script>
+
+    <!-- Mermaid.js: renders ```mermaid fenced code blocks -->
+    <script type="text/javascript">
+      (function () {
+        function initMermaid() {
+          var blocks = document.querySelectorAll(
+            '.post-container div.language-mermaid pre code, ' +
+            '.post-container pre code.language-mermaid, ' +
+            '.post-container code.language-mermaid'
+          );
+          if (!blocks.length) return;
+          var s = document.createElement('script');
+          s.type = 'text/javascript';
+          s.async = true;
+          s.src = '//cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js';
+          s.onload = function () {
+            if (typeof mermaid === 'undefined') return;
+            mermaid.initialize({
+              startOnLoad: false,
+              theme: 'default',
+              securityLevel: 'loose',
+              flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+              sequence: { useMaxWidth: true, showSequenceNumbers: false },
+              gantt: { useMaxWidth: true },
+              mindmap: { useMaxWidth: true }
+            });
+            Array.prototype.forEach.call(blocks, function (code) {
+              var pre = code.parentElement;
+              if (!pre || pre.tagName.toLowerCase() !== 'pre') return;
+              var container = document.createElement('div');
+              container.className = 'mermaid';
+              container.textContent = code.textContent;
+              pre.parentNode.replaceChild(container, pre);
+              try {
+                mermaid.run({ nodes: [container] });
+              } catch (e) {
+                console.error('Mermaid render error:', e);
+              }
+            });
+          };
+          document.head.appendChild(s);
+        }
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', initMermaid);
+        } else {
+          initMermaid();
+        }
+      })();
+    </script>
 </head>
