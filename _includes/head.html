@@ -53,6 +53,7 @@
             '.post-container code.language-mermaid'
           );
           if (!blocks.length) return;
+
           var s = document.createElement('script');
           s.type = 'text/javascript';
           s.async = true;
@@ -68,6 +69,8 @@
               gantt: { useMaxWidth: true },
               mindmap: { useMaxWidth: true }
             });
+
+            var containers = [];
             Array.prototype.forEach.call(blocks, function (code) {
               var pre = code.parentElement;
               if (!pre || pre.tagName.toLowerCase() !== 'pre') return;
@@ -75,15 +78,28 @@
               container.className = 'mermaid';
               container.textContent = code.textContent;
               pre.parentNode.replaceChild(container, pre);
-              try {
-                mermaid.run({ nodes: [container] });
-              } catch (e) {
-                console.error('Mermaid render error:', e);
-              }
+              containers.push(container);
+            });
+
+            var renderQueue = Promise.resolve();
+            containers.forEach(function (container, index) {
+              renderQueue = renderQueue.then(function () {
+                var source = container.textContent.trim();
+                var id = 'mermaid-' + index + '-' + Date.now();
+                return mermaid.render(id, source).then(function (result) {
+                  container.innerHTML = result.svg;
+                  if (result.bindFunctions) result.bindFunctions(container);
+                }).catch(function (error) {
+                  console.error('Mermaid render error (' + index + '):', error);
+                  container.classList.add('mermaid-error');
+                  container.textContent = source;
+                });
+              });
             });
           };
           document.head.appendChild(s);
         }
+
         if (document.readyState === 'loading') {
           document.addEventListener('DOMContentLoaded', initMermaid);
         } else {
