@@ -1263,6 +1263,19 @@ if free_blocks < required_blocks:
 
 > **本章回答第三问：这一轮已经确定要算的 token，怎么算得更快。**
 
+上一章决定了"这一轮算哪些 token"，这一章的问题是：**这些已经确定要算的 token，怎么算得更快。**
+
+Decode 偏 memory-bound、Prefill 偏 compute-bound（第 1.2 节），但落到 GPU 上，浪费其实只有四种形态。这一章就按这四种浪费组织：
+
+| 浪费形态 | 症状 | 对策 | 本章小节 |
+|---|---|---|---|
+| GPU 在**等 CPU 发指令** | kernel 之间有气泡 | CUDA Graph | 5.2 |
+| GPU 在**等 HBM 送数据** | 算力闲置、访存打满 | FlashAttention、算子融合 | 5.3 |
+| 搬的**每个数太胖** | 带宽被低信息密度的数据占满 | FP8 / INT8 / INT4 量化 | 5.4 |
+| **轮次本身太多** | 每轮只产出 1 个 token | 投机解码 | 5.5 |
+
+最后 5.6 回到现实：真实的一轮 batch 里，prefill、decode、投机候选是混在一起的。
+
 ### 5.1 从调度输出到 GPU 执行：优化发生在哪里
 
 ```
@@ -1363,70 +1376,11 @@ vLLM 的 C++/CUDA 扩展通过 PyTorch 的 Custom Op 机制注册（位于 `csrc
 
 ---
 
-### 5.2 Prefill 优化：高算力利用率与 TTFT
+### 5.2 GPU 为什么在空转？—— Kernel Launch 与 CUDA Graph
 
-Prefill 偏 compute-bound（第 1.2 节），所以这一侧的优化目标不是"少读数据"，而是**别让本该跑满的 Tensor Core 被中间结果的搬运拖住**。
+第一种浪费最反直觉：**GPU 并不慢，它只是在排队等 CPU 告诉它下一步做什么。** 这个问题在 Prefill 阶段几乎看不见（单个 kernel 算得久，提交开销被淹没），却会在 Decode 阶段被放大——因为 Decode 每步的计算量太小了。
 
-#### 5.2.1 FlashAttention：Tiling 与 Online-Softmax
-
-FlashAttention 是现代 LLM 推理的基石算子。其核心思想是通过**分块计算（Tiling）**和 **Online-Softmax** 算法，把 Attention 的 HBM 访问量从 O(N²) 降到 O(N)——注意降低的是**访存量**，不是计算复杂度：
-
-```
-┌──────────────── Standard Attention vs FlashAttention ─────────────────┐
-│                                                                       │
-│  Standard Attention:                                                  │
-│                                                                       │
-│  Q[N,d] × K[N,d]ᵀ → S[N,N]     ← O(N²) 存储, 写入 HBM               │
-│        → softmax(S) → P[N,N]    ← O(N²) 存储, 读写 HBM               │
-│        → P × V[N,d] → O[N,d]    ← O(N²) 读取 HBM                    │
-│                                                                       │
-│  总 HBM 访问: O(N² + N·d)                                             │
-│  瓶颈: N > 几千时, S 和 P 矩阵占满显存                                 │
-│                                                                       │
-│  ────────────────────────────────────────────────────────────────     │
-│                                                                       │
-│  FlashAttention (Tiling + Online Softmax):                            │
-│                                                                       │
-│  将 Q, K, V 分成 Bq × Bk 的小块:                                      │
-│                                                                       │
-│  ┌──────┐                                                             │
-│  │ SRAM │ ← 只在片上缓存 (192 KB, A100)                               │
-│  │      │                                                             │
-│  │ Q_tile [Bq, d]  ← 从 HBM 加载一次                                  │
-│  │ K_tile [Bk, d]  ← 分块加载                                         │
-│  │ V_tile [Bk, d]  ← 分块加载                                         │
-│  │ S_tile [Bq, Bk] ← 在 SRAM 中计算, 不写回 HBM!                      │
-│  │ O_acc  [Bq, d]  ← 在线累加                                         │
-│  │ m, l   [Bq]     ← softmax 统计量 (max, sum)                        │
-│  └──────┘                                                             │
-│                                                                       │
-│  for each K_tile, V_tile:                                             │
-│    S_tile = Q_tile @ K_tileᵀ                (SRAM 内计算)              │
-│    m_new = max(m_old, rowmax(S_tile))       (Online max)              │
-│    P_tile = exp(S_tile - m_new)             (SRAM 内计算)              │
-│    l_new = exp(m_old - m_new) * l_old + rowsum(P_tile)               │
-│    O_acc = rescale(O_acc) + P_tile @ V_tile (Online 累加)              │
-│                                                                       │
-│  总 HBM 访问: O(N·d)  ← 相比 O(N²) 大幅降低!                          │
-│  无需存储 N×N 矩阵, 序列长度不再受显存限制                               │
-└───────────────────────────────────────────────────────────────────────┘
-```
-
-| 特性 | Standard Attention | FlashAttention |
-|------|-------------------|----------------|
-| HBM 访问 | O(N² + Nd) | O(Nd) |
-| 额外显存 | O(N²) | O(N) |
-| 最大序列长度 | 受显存限制 | 几乎无限制 |
-| IO 效率 | 低（大量 HBM 读写） | 高（数据在 SRAM 中复用） |
-| 实现复杂度 | 简单 | 高（需要手写 CUDA kernel） |
-
-FlashAttention 消除的不是计算量，而是 HBM 读写量。Standard 路径每次迭代都把中间矩阵写回 HBM 再读回来；Flash 路径把它们留在 SRAM 里，通过 Online Softmax 逐步累加。减少 HBM 往返是后续算子融合的核心思路。不过 FlashAttention 的 Tiling 在 query_len=1 的 Decode 场景下收益有限，这就是为什么后面还要引入 FlashInfer 和 CUDA Graph。
-
-### 5.3 Decode 优化：从逐 token 串行到候选 token 并行
-
-Decode 偏 memory-bound（第 1.2 节），而且每步的实际计算量小得可怜。这带来两类完全不同的浪费：**GPU 在等 CPU 发指令**（Kernel Launch 开销），以及**GPU 在等 HBM 送数据**（权重与 KV 的搬运）。前者靠 CUDA Graph 解决，后者靠量化和"一次多产出几个 token"的投机解码缓解。
-
-#### 5.3.1 痛点：Kernel Launch Overhead
+#### 5.2.1 痛点：Kernel Launch Overhead
 
 在 Decode 阶段，每步模型 Forward 需要启动约 50-100+ 个 CUDA Kernel（GEMM、Attention、RMSNorm、RoPE 等），但每个 Kernel 的实际 GPU 计算时间可能只有几十微秒。此时 **Kernel Launch 的 Host-to-Device 延迟**（每次约 5-10 μs）累积起来可能占总耗时的 10-30%：
 
@@ -1448,7 +1402,7 @@ Decode 偏 memory-bound（第 1.2 节），而且每步的实际计算量小得�
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
-#### 5.3.2 CUDA Graph：静态执行图捕获与重放
+#### 5.2.2 CUDA Graph：静态执行图捕获与重放
 
 CUDA Graph 将一系列 Kernel Launch 录制成一个"计算图"，之后用一次 Launch 重放整个图：
 
@@ -1509,7 +1463,242 @@ def _execute_model(self, scheduler_output, ...):
 
 ---
 
-#### 5.3.3 Speculative Decoding、EAGLE、Medusa 与 MTP
+### 5.3 数据为什么搬不动？—— 压缩 HBM 流量
+
+第二种浪费才是大头。GPU 的算力增长速度远快于显存带宽，于是绝大多数推理 kernel 的真实瓶颈都不是"算不完"，而是"数据喂不上"。
+
+这一节的三种手段看起来毫不相干——换 Attention 实现、融合算子、挑后端——但它们优化的是**同一个量**：
+
+> **HBM 流量 = 搬运次数 × 每次搬运的数据量。**
+
+FlashAttention 和 Kernel Fusion 减少的是"搬运次数"（别让中间结果落地再读回来），下一节的量化减少的是"每次搬多少字节"。
+
+#### 5.3.1 Attention 后端：同一个计算，多种 kernel
+
+Attention 后端是算子优化的第一个决策点：同一个 Attention 计算，在不同请求阶段、不同硬件和 dtype 下，最优 kernel 可能完全不同。v0.27.1 在 `vllm/v1/attention/backends/` 下提供了数十种后端，通过 `registry.py` 的 selector 按 head_size、dtype、硬件能力和 workload 形态（Prefill / Decode / Mixed / MLA）动态选择。
+
+Prefill 场景通常偏向 FlashAttention 等对长 query 高效的后端；Decode 场景中 FlashInfer 对 ragged batch 和 PagedAttention 的原生支持更匹配；MLA 等特殊 attention 变体还有 CUTLASS MLA、FlashInfer MLA、FlashMLA、Triton MLA 等针对性实现。以下列举 v0.27.1 中部分主要后端：
+
+- FlashAttention (`flash_attn.py`)：NVIDIA GPU 上广泛使用的 Attention 实现，对 Prefill 长序列有良好吞吐。也有 `flash_attn_diffkv` 变体。
+- FlashInfer (`flashinfer.py`)：针对 Decode 的 ragged batch、PagedAttention、Prefill+Decode 混合批次做了深度优化。
+- Triton Attention (`triton_attn.py`, `triton_attn_diffkv.py`)：Triton 语言的灵活后端，易于定制和移植。
+- ROCm 后端 (`rocm_attn.py`, `rocm_aiter_fa.py`, `rocm_aiter_unified_attn.py`)：AMD GPU 特化实现。
+- MLA 后端 (`mla/`)：FlashInfer MLA、FlashMLA、CUTLASS MLA、Triton MLA、AITER Triton MLA、TokenSpeed MLA、ROCm AITER MLA 等，为 DeepSeek 等模型的低秩 KV 提供专门优化。
+- 其他后端：FlexAttention (`flex_attention.py`)、GDN Attention、Linear Attention、Mamba 后端、CPU Attention 等。
+
+选择不是全局固定的：“通常 FlashInfer 是默认 Decode 后端”这种说法需要加上版本、硬件和模型前提。实际使用中 selector 会根据环境自动选择，生产部署前建议用当前版本和目标 workload 做 benchmark 确认。
+
+#### 5.3.2 FlashAttention：Tiling 与 Online-Softmax
+
+FlashAttention 是现代 LLM 推理的基石算子。其核心思想是通过**分块计算（Tiling）**和 **Online-Softmax** 算法，把 Attention 的 HBM 访问量从 O(N²) 降到 O(N)——注意降低的是**访存量**，不是计算复杂度：
+
+```
+┌──────────────── Standard Attention vs FlashAttention ─────────────────┐
+│                                                                       │
+│  Standard Attention:                                                  │
+│                                                                       │
+│  Q[N,d] × K[N,d]ᵀ → S[N,N]     ← O(N²) 存储, 写入 HBM               │
+│        → softmax(S) → P[N,N]    ← O(N²) 存储, 读写 HBM               │
+│        → P × V[N,d] → O[N,d]    ← O(N²) 读取 HBM                    │
+│                                                                       │
+│  总 HBM 访问: O(N² + N·d)                                             │
+│  瓶颈: N > 几千时, S 和 P 矩阵占满显存                                 │
+│                                                                       │
+│  ────────────────────────────────────────────────────────────────     │
+│                                                                       │
+│  FlashAttention (Tiling + Online Softmax):                            │
+│                                                                       │
+│  将 Q, K, V 分成 Bq × Bk 的小块:                                      │
+│                                                                       │
+│  ┌──────┐                                                             │
+│  │ SRAM │ ← 只在片上缓存 (192 KB, A100)                               │
+│  │      │                                                             │
+│  │ Q_tile [Bq, d]  ← 从 HBM 加载一次                                  │
+│  │ K_tile [Bk, d]  ← 分块加载                                         │
+│  │ V_tile [Bk, d]  ← 分块加载                                         │
+│  │ S_tile [Bq, Bk] ← 在 SRAM 中计算, 不写回 HBM!                      │
+│  │ O_acc  [Bq, d]  ← 在线累加                                         │
+│  │ m, l   [Bq]     ← softmax 统计量 (max, sum)                        │
+│  └──────┘                                                             │
+│                                                                       │
+│  for each K_tile, V_tile:                                             │
+│    S_tile = Q_tile @ K_tileᵀ                (SRAM 内计算)              │
+│    m_new = max(m_old, rowmax(S_tile))       (Online max)              │
+│    P_tile = exp(S_tile - m_new)             (SRAM 内计算)              │
+│    l_new = exp(m_old - m_new) * l_old + rowsum(P_tile)               │
+│    O_acc = rescale(O_acc) + P_tile @ V_tile (Online 累加)              │
+│                                                                       │
+│  总 HBM 访问: O(N·d)  ← 相比 O(N²) 大幅降低!                          │
+│  无需存储 N×N 矩阵, 序列长度不再受显存限制                               │
+└───────────────────────────────────────────────────────────────────────┘
+```
+
+| 特性 | Standard Attention | FlashAttention |
+|------|-------------------|----------------|
+| HBM 访问 | O(N² + Nd) | O(Nd) |
+| 额外显存 | O(N²) | O(N) |
+| 最大序列长度 | 受显存限制 | 几乎无限制 |
+| IO 效率 | 低（大量 HBM 读写） | 高（数据在 SRAM 中复用） |
+| 实现复杂度 | 简单 | 高（需要手写 CUDA kernel） |
+
+FlashAttention 消除的不是计算量，而是 HBM 读写量。Standard 路径每次迭代都把中间矩阵写回 HBM 再读回来；Flash 路径把它们留在 SRAM 里，通过 Online Softmax 逐步累加。减少 HBM 往返正是下一节算子融合的同一套思路，只不过作用在算子与算子之间。
+
+还要注意它的适用边界：FlashAttention 的 Tiling 收益来自"长 query 可以切块复用"，而 Decode 的 query_len=1 根本切不动。这就是上一节 selector 要按 workload 形态分派的原因——Decode 侧真正吃香的是 FlashInfer 那类对 ragged batch 和 paged KV 原生友好的实现，而 kernel launch 的空转则要靠 5.2 的 CUDA Graph 来消。**三者针对的是三种不同的浪费，不能互相替代。**
+
+#### 5.3.3 Kernel Fusion 的动机与收益
+
+```
+┌────────── 未融合 vs 融合的 Kernel 执行 ─────────────────────────────┐
+│                                                                      │
+│  未融合 (3 个独立 kernel):                                            │
+│  ┌──────────┐  write→HBM  ┌──────────┐  write→HBM  ┌──────────┐   │
+│  │ RMSNorm  │────────────▶│   RoPE   │────────────▶│  Residual│   │
+│  │ (read x) │  temp tensor │ (read y) │  temp tensor │ (read z) │   │
+│  └──────────┘              └──────────┘              └──────────┘   │
+│                                                                      │
+│  HBM 访问: 6 次 (3 read + 3 write), 2 个中间 tensor                  │
+│                                                                      │
+│  ────────────────────────────────────────────────────────────────    │
+│                                                                      │
+│  融合后 (1 个 kernel):                                                │
+│  ┌──────────────────────────────────────────────────────────┐       │
+│  │  Fused: RMSNorm + RoPE + Residual                       │       │
+│  │  read x once → compute norm → apply RoPE → add residual │       │
+│  │  → write final result once                               │       │
+│  └──────────────────────────────────────────────────────────┘       │
+│                                                                      │
+│  HBM 访问: 2 次 (1 read + 1 write), 0 个中间 tensor                  │
+│  节省: ~67% 内存带宽, 减少 2 次 kernel launch                         │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+#### 5.3.4 vLLM 中的融合算子
+
+vLLM 在 `csrc/` 目录中实现了大量融合算子（CUDA 实现集中在 `csrc/libtorch_stable/` 下，CPU 后端另有 `csrc/cpu/`）：
+
+| 融合算子 | 涉及操作 | 实现位置 | 收益 |
+|----------|---------|---------|------|
+| Fused RMSNorm | RMSNorm + Residual Add | `csrc/libtorch_stable/layernorm_kernels.cu` | 减少 1 次 HBM 读写 |
+| Fused RMSNorm + Quant | RMSNorm + 动态 per-token 量化 | `csrc/libtorch_stable/layernorm_quant_kernels.cu` | 归一化后直接出低精度 |
+| Fused RoPE | RoPE + Permute | `csrc/libtorch_stable/pos_encoding_kernels.cu` | 减少中间 tensor |
+| Fused QKV | Q/K/V 三个矩阵乘合并 | PyTorch/cuBLAS | 1 次 GEMM 替代 3 次 |
+| Fused Attention | softmax(QK/√d)V + KV Cache R/W | FlashAttention kernel | 核心融合 |
+| Fused Gate-Up | gate_proj + up_proj + SiLU | cuBLAS + activation | 减少中间存储 |
+| Fused Sampling | top-k + top-p + temperature | `csrc/libtorch_stable/sampler.cu` | GPU 端采样 |
+| Fused KV Cache | Cache write + 量化 | `csrc/libtorch_stable/cache_kernels_fused.cu` | 写入时即量化 |
+
+---
+
+### 5.4 能不能少搬几个字节？—— 低精度推理
+
+上一节在减少搬运**次数**，这一节换个方向：让每次搬运的**数据本身变小**。两者正交，可以叠加。
+
+#### 5.4.1 推理量化的对象、收益与代价
+
+```
+┌──────────────── 量化对象全景 ──────────────────────────────────────┐
+│                                                                    │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐            │
+│  │   权重 (W)  │    │  激活 (A)   │    │  KV Cache   │            │
+│  │  ─────────  │    │  ─────────  │    │  ─────────  │            │
+│  │  常驻 GPU   │    │  动态生成   │    │  动态增长   │            │
+│  │  占比最大   │    │  逐层计算   │    │  随序列膨胀  │            │
+│  │             │    │             │    │             │            │
+│  │  量化收益:   │    │  量化收益:   │    │  量化收益:   │            │
+│  │  · 减少显存  │    │  · 加速GEMM │    │  · 更多并发  │            │
+│  │  · 加速推理  │    │  · 减少带宽  │    │  · 更长上下文│            │
+│  │             │    │             │    │             │            │
+│  │  典型方法:   │    │  典型方法:   │    │  典型方法:   │            │
+│  │  GPTQ/AWQ   │    │  W8A8/FP8  │    │  FP8/INT8   │            │
+│  │  W4A16      │    │  Per-token  │    │  Per-head   │            │
+│  └─────────────┘    └─────────────┘    └─────────────┘            │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+三种量化对象不是均匀受益的。权重量化同时降低显存和 Decode 带宽压力，因为 Decode 每步都要读权重；KV Cache 量化主要受益于 Decode 的历史 KV 读取和并发数；激活量化则更直接加速 Prefill 的 GEMM。选择方案前需要先判断瓶颈在 Prefill 还是 Decode。
+
+#### 5.4.2 权重量化方法
+
+| 方法 | 格式 | 原理 | 量化时机 | 精度 |
+|------|------|------|---------|------|
+| **GPTQ** | W4A16 | 基于 Hessian 的逐层最优量化 | 离线（需校准数据） | 好 |
+| **AWQ** | W4A16 | 保护显著权重通道 | 离线（需校准数据） | 更好 |
+| **SmoothQuant** | W8A8 | 将激活难度转移到权重 | 离线 | 好 |
+| **FP8** | W8A8 | 硬件原生 FP8 格式 | 在线/离线 | 接近 FP16 |
+| **Weight-only** | W4A16/W8A16 | 只量化权重，激活保持 FP16 | 离线 | 较好 |
+
+```
+┌──────── 权重量化: 内存与计算收益 (Llama-70B 为例) ──────────────────┐
+│                                                                     │
+│  格式          权重大小    显存占用    Decode 加速    精度损失         │
+│  ──────────   ─────────  ─────────  ──────────    ─────────         │
+│  FP16          140 GB     ~140 GB    1.0×          基准              │
+│  FP8 (W8A8)    70 GB      ~70 GB     1.5-2.0×     极小              │
+│  INT8 (W8A8)   70 GB      ~70 GB     1.5-2.0×     小                │
+│  INT4 (W4A16)  35 GB      ~35 GB     1.8-2.5×     中等              │
+│                                                                     │
+│  Decode 加速原因:                                                    │
+│  · 权重从 HBM 加载的带宽减半 → Memory-Bound 瓶颈缓解                 │
+│  · INT4/FP8 GEMM 使用 Tensor Core 特殊指令 → 更高算力               │
+│  · 更小的模型 → 可以运行在更少的 GPU 上 → 减少通信开销               │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+#### 5.4.3 FP8 推理
+
+FP8 是 H100/H200 引入的硬件原生低精度格式，vLLM 通过 `vllm/model_executor/layers/quantization/fp8.py` 支持：
+
+```
+┌──────────── FP8 格式详解 ────────────────────────────────────────┐
+│                                                                   │
+│  E4M3 (用于权重和激活):                                           │
+│  ┌──┬────┬───┐                                                   │
+│  │S │EEEE│MMM│  1 sign + 4 exponent + 3 mantissa                │
+│  └──┴────┴───┘                                                   │
+│  范围: [-448, 448],  精度: ~3-4 位有效数字                        │
+│                                                                   │
+│  E5M2 (用于梯度，推理少用):                                       │
+│  ┌──┬─────┬──┐                                                   │
+│  │S │EEEEE│MM│  1 sign + 5 exponent + 2 mantissa                │
+│  └──┴─────┴──┘                                                   │
+│  范围: 更大,  精度: ~2-3 位有效数字                                │
+│                                                                   │
+│  FP8 推理优势:                                                    │
+│  · Tensor Core 原生支持 FP8 GEMM                                  │
+│  · H100 SXM 稠密算力: FP8 1979 TFLOPS vs BF16 989 TFLOPS         │
+│    → 理论 2× 算力提升                                             │
+│    (常见的 3958 TFLOPS 是"带稀疏"口径, 不能拿来和稠密 BF16 比)     │
+│  · 权重 + 激活 + KV Cache 全链路 FP8 → 显存减半                  │
+│  · Per-tensor / Per-token scaling 适配不同精度需求                │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+#### 5.4.4 混合精度组合与性能评测
+
+```
+┌──────── 典型混合精度组合与预期收益 ──────────────────────────────────┐
+│                                                                      │
+│  组合                权重  激活  KV Cache  显存  TTFT  TPOT  质量     │
+│  ──────────────────  ────  ────  ────────  ────  ────  ────  ────    │
+│  FP16 全精度          FP16  FP16  FP16     100%  基准  基准   基准    │
+│  FP8 全链路           FP8   FP8   FP8      50%   0.7×  0.6×  ≈基准  │
+│  W4A16 + FP16 KV     INT4  FP16  FP16      35%   0.8×  0.5×  轻降  │
+│  W4A16 + FP8 KV      INT4  FP16  FP8       27%   0.7×  0.5×  轻降  │
+│  FP8 W/A + FP8 KV    FP8   FP8   FP8      50%   0.5×  0.5×  ≈基准  │
+│                                                                      │
+│  注: 数值为相对基准的比例/倍数, 实际因模型和场景而异                    │
+│  · 显存越低 → 可跑更大 Batch → 实际吞吐可能更高                      │
+│  · TTFT 主要受权重量化影响 (Prefill 是 Compute-Bound)                │
+│  · TPOT 同时受权重量化和 KV Cache 量化影响 (Memory-Bound)            │
+│  · 质量损失需通过 eval benchmark 验证 (HumanEval, MMLU 等)           │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 5.5 能不能少跑几轮模型？—— 投机解码
+
+前面三节都在优化"一轮怎么跑得更快"。这一节换个思路：**能不能让一轮多产出几个 token，从而少跑几轮？**
 
 ##### Decode 的根本瓶颈
 
@@ -1660,7 +1849,7 @@ MTP 这一行值得单独说明：vLLM 并没有一个独立的 "MTP proposer"�
 
 ---
 
-### 5.4 Mixed Batch 优化：Prefill、Decode、Chunked Prefill 如何共存
+### 5.6 一轮里什么都有：Mixed Batch 如何共存
 
 vLLM V1 的执行循环不能简单理解成"先完整 Prefill，再完整 Decode"。在 Continuous Batching 和 Chunked Prefill 下，同一轮迭代中可能同时存在长 prompt 的一段 prefill、已有请求的 decode token，以及投机解码的候选 token。执行层需要通过 `InputBatch`、`slot_mapping`、block table 和 attention metadata，把这些不同形态的 token 组织成一次 GPU forward。
 
@@ -1707,256 +1896,6 @@ vLLM V1 的执行循环不能简单理解成"先完整 Prefill，再完整 Decod
 │  该 backend 根据 metadata 中的 prefill/decode token 计数,              │
 │  在自己的 forward 内调用不同的底层 kernel (如 FlashInfer 的             │
 │  trtllm_batch_context_with_kv_cache 和 trtllm_batch_decode_...)。     │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
-### 5.5 算子层优化：贯穿 Prefill 与 Decode 的 kernel 加速
-
-Attention 后端是算子优化的第一个决策点：同一个 Attention 计算，在不同请求阶段、不同硬件和 dtype 下，最优 kernel 可能完全不同。v0.27.1 在 `vllm/v1/attention/backends/` 下提供了数十种后端，通过 `registry.py` 的 selector 按 head_size、dtype、硬件能力和 workload 形态（Prefill / Decode / Mixed / MLA）动态选择。
-
-Prefill 场景通常偏向 FlashAttention 等对长 query 高效的后端；Decode 场景中 FlashInfer 对 ragged batch 和 PagedAttention 的原生支持更匹配；MLA 等特殊 attention 变体还有 CUTLASS MLA、FlashInfer MLA、FlashMLA、Triton MLA 等针对性实现。以下列举 v0.27.1 中部分主要后端：
-
-- FlashAttention (`flash_attn.py`)：NVIDIA GPU 上广泛使用的 Attention 实现，对 Prefill 长序列有良好吞吐。也有 `flash_attn_diffkv` 变体。
-- FlashInfer (`flashinfer.py`)：针对 Decode 的 ragged batch、PagedAttention、Prefill+Decode 混合批次做了深度优化。
-- Triton Attention (`triton_attn.py`, `triton_attn_diffkv.py`)：Triton 语言的灵活后端，易于定制和移植。
-- ROCm 后端 (`rocm_attn.py`, `rocm_aiter_fa.py`, `rocm_aiter_unified_attn.py`)：AMD GPU 特化实现。
-- MLA 后端 (`mla/`)：FlashInfer MLA、FlashMLA、CUTLASS MLA、Triton MLA、AITER Triton MLA、TokenSpeed MLA、ROCm AITER MLA 等，为 DeepSeek 等模型的低秩 KV 提供专门优化。
-- 其他后端：FlexAttention (`flex_attention.py`)、GDN Attention、Linear Attention、Mamba 后端、CPU Attention 等。
-
-选择不是全局固定的：“通常 FlashInfer 是默认 Decode 后端”这种说法需要加上版本、硬件和模型前提。实际使用中 selector 会根据环境自动选择，生产部署前建议用当前版本和目标 workload 做 benchmark 确认。
-
-#### 5.5.1 Kernel Fusion 的动机与收益
-
-```
-┌────────── 未融合 vs 融合的 Kernel 执行 ─────────────────────────────┐
-│                                                                      │
-│  未融合 (3 个独立 kernel):                                            │
-│  ┌──────────┐  write→HBM  ┌──────────┐  write→HBM  ┌──────────┐   │
-│  │ RMSNorm  │────────────▶│   RoPE   │────────────▶│  Residual│   │
-│  │ (read x) │  temp tensor │ (read y) │  temp tensor │ (read z) │   │
-│  └──────────┘              └──────────┘              └──────────┘   │
-│                                                                      │
-│  HBM 访问: 6 次 (3 read + 3 write), 2 个中间 tensor                  │
-│                                                                      │
-│  ────────────────────────────────────────────────────────────────    │
-│                                                                      │
-│  融合后 (1 个 kernel):                                                │
-│  ┌──────────────────────────────────────────────────────────┐       │
-│  │  Fused: RMSNorm + RoPE + Residual                       │       │
-│  │  read x once → compute norm → apply RoPE → add residual │       │
-│  │  → write final result once                               │       │
-│  └──────────────────────────────────────────────────────────┘       │
-│                                                                      │
-│  HBM 访问: 2 次 (1 read + 1 write), 0 个中间 tensor                  │
-│  节省: ~67% 内存带宽, 减少 2 次 kernel launch                         │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
-#### 5.5.2 Transformer 基础与跨算子融合
-
-vLLM 在 `csrc/` 目录中实现了大量融合算子（CUDA 实现集中在 `csrc/libtorch_stable/` 下，CPU 后端另有 `csrc/cpu/`）：
-
-| 融合算子 | 涉及操作 | 实现位置 | 收益 |
-|----------|---------|---------|------|
-| Fused RMSNorm | RMSNorm + Residual Add | `csrc/libtorch_stable/layernorm_kernels.cu` | 减少 1 次 HBM 读写 |
-| Fused RMSNorm + Quant | RMSNorm + 动态 per-token 量化 | `csrc/libtorch_stable/layernorm_quant_kernels.cu` | 归一化后直接出低精度 |
-| Fused RoPE | RoPE + Permute | `csrc/libtorch_stable/pos_encoding_kernels.cu` | 减少中间 tensor |
-| Fused QKV | Q/K/V 三个矩阵乘合并 | PyTorch/cuBLAS | 1 次 GEMM 替代 3 次 |
-| Fused Attention | softmax(QK/√d)V + KV Cache R/W | FlashAttention kernel | 核心融合 |
-| Fused Gate-Up | gate_proj + up_proj + SiLU | cuBLAS + activation | 减少中间存储 |
-| Fused Sampling | top-k + top-p + temperature | `csrc/libtorch_stable/sampler.cu` | GPU 端采样 |
-| Fused KV Cache | Cache write + 量化 | `csrc/libtorch_stable/cache_kernels_fused.cu` | 写入时即量化 |
-
-#### 5.5.3 MoE 推理瓶颈与融合
-
-MoE (Mixture of Experts) 模型的推理瓶颈独特——不是简单的 GEMM，而是 **Token Routing + 动态 Dispatch + 多专家并行 GEMM + Combine**：
-
-```
-┌─────────────── MoE 推理数据流 ──────────────────────────────────────┐
-│                                                                      │
-│  hidden_states [B, S, D]                                             │
-│       │                                                              │
-│       ▼                                                              │
-│  ┌──────────┐                                                        │
-│  │  Router  │  gate(x) → logits [B×S, E]  (E=num_experts)           │
-│  │  (Linear)│  → top-k → expert_ids [B×S, K], weights [B×S, K]     │
-│  └──────┬───┘                                                        │
-│         │                                                            │
-│         ▼                                                            │
-│  ┌──────────┐                                                        │
-│  │ Dispatch │  将 tokens 按 expert_id 重排                            │
-│  │ (Permute)│  → experts_input[e] = tokens routed to expert e       │
-│  └──────┬───┘                                                        │
-│         │                                                            │
-│         ▼                                                            │
-│  ┌──────────────────────────────────────────┐                        │
-│  │ Expert 并行 GEMM (Grouped GEMM)          │                        │
-│  │  Expert 0: W_gate_0 @ x₀ * SiLU          │                        │
-│  │  Expert 1: W_gate_1 @ x₁ * SiLU          │                        │
-│  │  ...                                      │                        │
-│  │  Expert E: W_gate_E @ xₑ * SiLU          │                        │
-│  │  (每个 expert 可能处理不同数量的 tokens)    │                        │
-│  └──────┬────────────────────────────────────┘                        │
-│         │                                                            │
-│         ▼                                                            │
-│  ┌──────────┐                                                        │
-│  │ Combine  │  将各 expert 输出按原始位置聚合                          │
-│  │(Unpermute│  output = Σ weight_k × expert_k_output                │
-│  │ + Scale) │                                                        │
-│  └──────────┘                                                        │
-│                                                                      │
-│  优化手段:                                                            │
-│  · Padding Removal: 去除 expert 间的不均匀 padding                   │
-│  · Grouped GEMM: 多个小 GEMM 合并为一个调用                          │
-│  · Fused MoE Kernel: Route + Dispatch + GEMM + Combine 全融合       │
-│  · EP All-to-All + 计算重叠                                          │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
-vLLM 的 Fused MoE 实现（`vllm/model_executor/layers/fused_moe/`）提供了多种后端：
-
-| 后端 | 文件 | 适用场景 |
-|------|------|---------|
-| **Triton Experts** | `experts/triton_moe.py` | 通用 NVIDIA GPU |
-| **DeepGemm Experts** | `experts/deep_gemm_moe.py` | H100+ 高效 GEMM |
-| **CUTLASS FP8** | `experts/cutlass_moe.py` | FP8 量化 MoE |
-| **Marlin MoE** | `experts/marlin_moe.py` | INT4/INT8 量化 MoE |
-| **ROCm AIter** | `experts/rocm_aiter_moe.py` | AMD GPU |
-| **XPU Experts** | `experts/xpu_moe.py` | Intel GPU |
-
-#### 5.5.4 EP All-to-All 与计算重叠
-
-在 Expert Parallel (EP) 场景下，每个 GPU 只持有部分 Expert，需要 All-to-All 通信将 Token 分发到正确的 GPU：
-
-```
-┌────────── EP All-to-All 通信与计算重叠 ─────────────────────────────┐
-│                                                                      │
-│  GPU 0 (Expert 0-3)                GPU 1 (Expert 4-7)               │
-│  ┌──────────────┐                  ┌──────────────┐                 │
-│  │ tokens       │                  │ tokens       │                 │
-│  │ for E0-3     │   All-to-All    │ for E4-7     │                 │
-│  │ + tokens     │◀═══════════════▶│ + tokens     │                 │
-│  │   for E4-7   │                  │   for E0-3   │                 │
-│  └──────┬───────┘                  └──────┬───────┘                 │
-│         │                                  │                         │
-│  ┌──────▼───────┐                  ┌──────▼───────┐                 │
-│  │ Expert 0-3   │                  │ Expert 4-7   │                 │
-│  │ GEMM         │                  │ GEMM         │                 │
-│  └──────┬───────┘                  └──────┬───────┘                 │
-│         │                                  │                         │
-│         └────── All-to-All (结果聚合) ──────┘                        │
-│                                                                      │
-│  重叠优化:                                                            │
-│  ┌──────────────────────────────────────────────────────┐           │
-│  │ 通信:  [All2All dispatch]                [All2All combine]│      │
-│  │ 计算:         [local expert GEMM]                         │      │
-│  │ 重叠:                    ↑ 通信与计算可部分重叠           │       │
-│  └──────────────────────────────────────────────────────┘           │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-### 5.6 数值层优化：贯穿权重、激活与 KV Cache 的低精度压缩
-
-#### 5.6.1 推理量化的对象、收益与代价
-
-```
-┌──────────────── 量化对象全景 ──────────────────────────────────────┐
-│                                                                    │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐            │
-│  │   权重 (W)  │    │  激活 (A)   │    │  KV Cache   │            │
-│  │  ─────────  │    │  ─────────  │    │  ─────────  │            │
-│  │  常驻 GPU   │    │  动态生成   │    │  动态增长   │            │
-│  │  占比最大   │    │  逐层计算   │    │  随序列膨胀  │            │
-│  │             │    │             │    │             │            │
-│  │  量化收益:   │    │  量化收益:   │    │  量化收益:   │            │
-│  │  · 减少显存  │    │  · 加速GEMM │    │  · 更多并发  │            │
-│  │  · 加速推理  │    │  · 减少带宽  │    │  · 更长上下文│            │
-│  │             │    │             │    │             │            │
-│  │  典型方法:   │    │  典型方法:   │    │  典型方法:   │            │
-│  │  GPTQ/AWQ   │    │  W8A8/FP8  │    │  FP8/INT8   │            │
-│  │  W4A16      │    │  Per-token  │    │  Per-head   │            │
-│  └─────────────┘    └─────────────┘    └─────────────┘            │
-└────────────────────────────────────────────────────────────────────┘
-```
-
-三种量化对象不是均匀受益的。权重量化同时降低显存和 Decode 带宽压力，因为 Decode 每步都要读权重；KV Cache 量化主要受益于 Decode 的历史 KV 读取和并发数；激活量化则更直接加速 Prefill 的 GEMM。选择方案前需要先判断瓶颈在 Prefill 还是 Decode。
-
-#### 5.6.2 权重量化方法
-
-| 方法 | 格式 | 原理 | 量化时机 | 精度 |
-|------|------|------|---------|------|
-| **GPTQ** | W4A16 | 基于 Hessian 的逐层最优量化 | 离线（需校准数据） | 好 |
-| **AWQ** | W4A16 | 保护显著权重通道 | 离线（需校准数据） | 更好 |
-| **SmoothQuant** | W8A8 | 将激活难度转移到权重 | 离线 | 好 |
-| **FP8** | W8A8 | 硬件原生 FP8 格式 | 在线/离线 | 接近 FP16 |
-| **Weight-only** | W4A16/W8A16 | 只量化权重，激活保持 FP16 | 离线 | 较好 |
-
-```
-┌──────── 权重量化: 内存与计算收益 (Llama-70B 为例) ──────────────────┐
-│                                                                     │
-│  格式          权重大小    显存占用    Decode 加速    精度损失         │
-│  ──────────   ─────────  ─────────  ──────────    ─────────         │
-│  FP16          140 GB     ~140 GB    1.0×          基准              │
-│  FP8 (W8A8)    70 GB      ~70 GB     1.5-2.0×     极小              │
-│  INT8 (W8A8)   70 GB      ~70 GB     1.5-2.0×     小                │
-│  INT4 (W4A16)  35 GB      ~35 GB     1.8-2.5×     中等              │
-│                                                                     │
-│  Decode 加速原因:                                                    │
-│  · 权重从 HBM 加载的带宽减半 → Memory-Bound 瓶颈缓解                 │
-│  · INT4/FP8 GEMM 使用 Tensor Core 特殊指令 → 更高算力               │
-│  · 更小的模型 → 可以运行在更少的 GPU 上 → 减少通信开销               │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-#### 5.6.3 FP8 推理
-
-FP8 是 H100/H200 引入的硬件原生低精度格式，vLLM 通过 `vllm/model_executor/layers/quantization/fp8.py` 支持：
-
-```
-┌──────────── FP8 格式详解 ────────────────────────────────────────┐
-│                                                                   │
-│  E4M3 (用于权重和激活):                                           │
-│  ┌──┬────┬───┐                                                   │
-│  │S │EEEE│MMM│  1 sign + 4 exponent + 3 mantissa                │
-│  └──┴────┴───┘                                                   │
-│  范围: [-448, 448],  精度: ~3-4 位有效数字                        │
-│                                                                   │
-│  E5M2 (用于梯度，推理少用):                                       │
-│  ┌──┬─────┬──┐                                                   │
-│  │S │EEEEE│MM│  1 sign + 5 exponent + 2 mantissa                │
-│  └──┴─────┴──┘                                                   │
-│  范围: 更大,  精度: ~2-3 位有效数字                                │
-│                                                                   │
-│  FP8 推理优势:                                                    │
-│  · Tensor Core 原生支持 FP8 GEMM                                  │
-│  · H100 SXM 稠密算力: FP8 1979 TFLOPS vs BF16 989 TFLOPS         │
-│    → 理论 2× 算力提升                                             │
-│    (常见的 3958 TFLOPS 是"带稀疏"口径, 不能拿来和稠密 BF16 比)     │
-│  · 权重 + 激活 + KV Cache 全链路 FP8 → 显存减半                  │
-│  · Per-tensor / Per-token scaling 适配不同精度需求                │
-└───────────────────────────────────────────────────────────────────┘
-```
-
-#### 5.6.4 混合精度组合与性能评测
-
-```
-┌──────── 典型混合精度组合与预期收益 ──────────────────────────────────┐
-│                                                                      │
-│  组合                权重  激活  KV Cache  显存  TTFT  TPOT  质量     │
-│  ──────────────────  ────  ────  ────────  ────  ────  ────  ────    │
-│  FP16 全精度          FP16  FP16  FP16     100%  基准  基准   基准    │
-│  FP8 全链路           FP8   FP8   FP8      50%   0.7×  0.6×  ≈基准  │
-│  W4A16 + FP16 KV     INT4  FP16  FP16      35%   0.8×  0.5×  轻降  │
-│  W4A16 + FP8 KV      INT4  FP16  FP8       27%   0.7×  0.5×  轻降  │
-│  FP8 W/A + FP8 KV    FP8   FP8   FP8      50%   0.5×  0.5×  ≈基准  │
-│                                                                      │
-│  注: 数值为相对基准的比例/倍数, 实际因模型和场景而异                    │
-│  · 显存越低 → 可跑更大 Batch → 实际吞吐可能更高                      │
-│  · TTFT 主要受权重量化影响 (Prefill 是 Compute-Bound)                │
-│  · TPOT 同时受权重量化和 KV Cache 量化影响 (Memory-Bound)            │
-│  · 质量损失需通过 eval benchmark 验证 (HumanEval, MMLU 等)           │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -2170,7 +2109,101 @@ FP8 是 H100/H200 引入的硬件原生低精度格式，vLLM 通过 `vllm/model
 
 ---
 
-### 6.2 数据到底在往哪里搬：单卡、多卡与跨节点
+### 6.2 MoE：当 Expert 成为新的瓶颈
+
+第 6.1.4 节介绍 EP 时只说了"Expert 分布在不同 GPU 上"，但没说清楚代价。MoE 的推理瓶颈很特别——**它不是一个大 GEMM 算不动，而是 Router、Dispatch、变长 Grouped GEMM 和 Combine 这一串环节各自都不省心**，其中跨卡的 All-to-All 还会把通信开销直接压在关键路径上。
+
+#### 6.2.1 MoE 推理的数据流与融合
+
+MoE (Mixture of Experts) 模型的推理瓶颈独特——不是简单的 GEMM，而是 **Token Routing + 动态 Dispatch + 多专家并行 GEMM + Combine**：
+
+```
+┌─────────────── MoE 推理数据流 ──────────────────────────────────────┐
+│                                                                      │
+│  hidden_states [B, S, D]                                             │
+│       │                                                              │
+│       ▼                                                              │
+│  ┌──────────┐                                                        │
+│  │  Router  │  gate(x) → logits [B×S, E]  (E=num_experts)           │
+│  │  (Linear)│  → top-k → expert_ids [B×S, K], weights [B×S, K]     │
+│  └──────┬───┘                                                        │
+│         │                                                            │
+│         ▼                                                            │
+│  ┌──────────┐                                                        │
+│  │ Dispatch │  将 tokens 按 expert_id 重排                            │
+│  │ (Permute)│  → experts_input[e] = tokens routed to expert e       │
+│  └──────┬───┘                                                        │
+│         │                                                            │
+│         ▼                                                            │
+│  ┌──────────────────────────────────────────┐                        │
+│  │ Expert 并行 GEMM (Grouped GEMM)          │                        │
+│  │  Expert 0: W_gate_0 @ x₀ * SiLU          │                        │
+│  │  Expert 1: W_gate_1 @ x₁ * SiLU          │                        │
+│  │  ...                                      │                        │
+│  │  Expert E: W_gate_E @ xₑ * SiLU          │                        │
+│  │  (每个 expert 可能处理不同数量的 tokens)    │                        │
+│  └──────┬────────────────────────────────────┘                        │
+│         │                                                            │
+│         ▼                                                            │
+│  ┌──────────┐                                                        │
+│  │ Combine  │  将各 expert 输出按原始位置聚合                          │
+│  │(Unpermute│  output = Σ weight_k × expert_k_output                │
+│  │ + Scale) │                                                        │
+│  └──────────┘                                                        │
+│                                                                      │
+│  优化手段:                                                            │
+│  · Padding Removal: 去除 expert 间的不均匀 padding                   │
+│  · Grouped GEMM: 多个小 GEMM 合并为一个调用                          │
+│  · Fused MoE Kernel: Route + Dispatch + GEMM + Combine 全融合       │
+│  · EP All-to-All + 计算重叠                                          │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+vLLM 的 Fused MoE 实现（`vllm/model_executor/layers/fused_moe/`）提供了多种后端：
+
+| 后端 | 文件 | 适用场景 |
+|------|------|---------|
+| **Triton Experts** | `experts/triton_moe.py` | 通用 NVIDIA GPU |
+| **DeepGemm Experts** | `experts/deep_gemm_moe.py` | H100+ 高效 GEMM |
+| **CUTLASS FP8** | `experts/cutlass_moe.py` | FP8 量化 MoE |
+| **Marlin MoE** | `experts/marlin_moe.py` | INT4/INT8 量化 MoE |
+| **ROCm AIter** | `experts/rocm_aiter_moe.py` | AMD GPU |
+| **XPU Experts** | `experts/xpu_moe.py` | Intel GPU |
+
+#### 6.2.2 EP All-to-All 与计算重叠
+
+在 Expert Parallel (EP) 场景下，每个 GPU 只持有部分 Expert，需要 All-to-All 通信将 Token 分发到正确的 GPU：
+
+```
+┌────────── EP All-to-All 通信与计算重叠 ─────────────────────────────┐
+│                                                                      │
+│  GPU 0 (Expert 0-3)                GPU 1 (Expert 4-7)               │
+│  ┌──────────────┐                  ┌──────────────┐                 │
+│  │ tokens       │                  │ tokens       │                 │
+│  │ for E0-3     │   All-to-All    │ for E4-7     │                 │
+│  │ + tokens     │◀═══════════════▶│ + tokens     │                 │
+│  │   for E4-7   │                  │   for E0-3   │                 │
+│  └──────┬───────┘                  └──────┬───────┘                 │
+│         │                                  │                         │
+│  ┌──────▼───────┐                  ┌──────▼───────┐                 │
+│  │ Expert 0-3   │                  │ Expert 4-7   │                 │
+│  │ GEMM         │                  │ GEMM         │                 │
+│  └──────┬───────┘                  └──────┬───────┘                 │
+│         │                                  │                         │
+│         └────── All-to-All (结果聚合) ──────┘                        │
+│                                                                      │
+│  重叠优化:                                                            │
+│  ┌──────────────────────────────────────────────────────┐           │
+│  │ 通信:  [All2All dispatch]                [All2All combine]│      │
+│  │ 计算:         [local expert GEMM]                         │      │
+│  │ 重叠:                    ↑ 通信与计算可部分重叠           │       │
+│  └──────────────────────────────────────────────────────┘           │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 6.3 数据到底在往哪里搬：单卡、多卡与跨节点
 
 并行策略的代价全部体现在数据搬运上。在讨论通信优化之前，先把一次推理里所有的搬运路径摊开看一遍：
 
@@ -2226,9 +2259,9 @@ FP8 是 H100/H200 引入的硬件原生低精度格式，vLLM 通过 `vllm/model
 
 ---
 
-### 6.3 通信优化：真正的瓶颈
+### 6.4 通信优化：真正的瓶颈
 
-#### 6.3.1 NCCL 调优与拓扑感知
+#### 6.4.1 NCCL 调优与拓扑感知
 
 vLLM 的通信层（`vllm/distributed/device_communicators/`）支持多种后端：
 
@@ -2265,7 +2298,7 @@ vLLM 的通信层（`vllm/distributed/device_communicators/`）支持多种后�
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
-#### 6.3.2 计算与通信的深度重叠
+#### 6.4.2 计算与通信的深度重叠
 
 ```
 ┌──────────── 计算-通信重叠调度 ──────────────────────────────────────┐
