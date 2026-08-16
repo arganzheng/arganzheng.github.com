@@ -217,6 +217,31 @@ mindmap
 
 ---
 
+### 1.6 一个贯穿全文的例子
+
+抽象的讨论容易滑走，所以从这里开始，本文会**反复回到同一个具体请求**。后面每一章都会带着它算一笔账。
+
+> **场景设定**
+>
+> - **模型**：Llama-3-70B，FP16，80 层，`hidden=8192`，64 个 Q head / 8 个 KV head（GQA-8），`head_dim=128`
+> - **硬件**：8 × H100 80GB，TP=8，机内 NVLink
+> - **请求**：2000 token 的 system prompt + 50 token 的用户提问，生成 300 token
+>   - prompt 合计 **2050** token，结束时序列长度 **2350** token
+
+先把两个最基础的量算出来，后面各章都要用：
+
+| 量 | 计算 | 结果 |
+|---|---|---|
+| 每 token 每层的 KV | `2(K,V) × 8 kv_head × 128 dim × 2 B` | **4 KB** |
+| 每 token 的 KV（80 层） | `4 KB × 80` | **320 KB** |
+| ↳ TP=8 时每张卡承担 | `320 KB ÷ 8` | 40 KB |
+| 这个请求最终的 KV 总量 | `2350 × 320 KB` | **约 734 MB** |
+| 权重每卡 | `141 GB ÷ 8` | 17.6 GB |
+
+记住 **320 KB/token** 这个数——它是后面所有账的基础。
+
+---
+
 ## 二、鸟瞰 vLLM：一个请求如何穿过整个推理系统？
 
 > **本章不回答四问中的任何一问，只负责把地图画出来：这四个问题分别由哪些模块承担。**
@@ -600,6 +625,10 @@ graph TD
 
 顺着箭头从上到下跟踪：Request 只是逻辑层，不直接触及 GPU 显存；KVCacheBlock 才是物理块的元数据，它同时挂在 Request 的 blocks 列表和 BlockPool 的 free/cached 列表里；block_id 最终索引到 GPU HBM 中的一片连续显存，里面放的是一整块 block_size 个 token 的 K 和 V。这三层映射是理解后面 Prefix Cache 复用和 Preemption 释放的基础。
 
+> **回到我们的例子**：2050 个 prompt token，`block_size=16`，于是需要 `⌈2050/16⌉ = 129` 个块（前 128 块装满 2048 个 token，第 129 块只装 2 个）。生成完 300 个 token 后，序列长 2350，共占 **147 个块**。
+>
+> 注意一个巧合般的细节：**2000 个 token 的 system prompt 恰好是 125 个整块**。这不是偶然设计，但它揭示了 Prefix Cache 的一个硬约束——只有**装满**的块才会被缓存，所以可复用的边界永远对齐到 `block_size`。下一节就用这一点算账。
+
 `BlockPool`（`vllm/v1/core/block_pool.py`）管理所有物理块的分配和回收，使用双向链表实现高效的 LRU 驱逐：
 
 ```python
@@ -711,6 +740,15 @@ sequenceDiagram
 ```
 
 vLLM 使用链式哈希确保前缀匹配的正确性——每个块的哈希值依赖其前驱块的哈希，因此只有完全相同的前缀序列才会产生相同的哈希链。
+
+> **回到我们的例子**：那 2000 token 的 system prompt 是 **125 个整块**。第一个请求跑完后它们全部进入缓存；**第二个请求带着同样的 system prompt 到来时，这 125 块全部命中**，只需要 prefill 用户那 50 个 token。
+>
+> 省下多少？按第 1.6 节的量算：
+>
+> - **计算**：2000 token 的 prefill 不用做了，TTFT 从约 92 ms 掉到 5 ms 量级
+> - **显存**：这 125 块（约 625 MB 的 KV）在两个请求间**共享同一份物理块**，靠 `ref_cnt` 计数，不是复制
+>
+> 在真实的多租户服务里，system prompt 往往被成百上千个请求共享——这就是为什么 Prefix Cache 是性价比最高的优化之一。
 
 ```python
 # vllm/v1/core/kv_cache_utils.py (签名照抄, 函数体简化)
@@ -981,6 +1019,10 @@ def schedule(self, throttle_prefills=False) -> SchedulerOutput:
 
 注意伪代码中两个循环不是"decode 循环"和"prefill 循环"——只是先处理 running 队列、再处理 waiting 队列。每个循环里实际分配的 token 数量都由 `num_tokens_with_spec - num_computed_tokens` 算出，这个差值既可以是一个 decode token，也可以是一段 prefill token，或者 spec decode 的多个候选 token。
 
+> **回到我们的例子**：这个请求进来时 `num_computed_tokens = 0`，`num_tokens_with_spec = 2050`，差值 2050 就是它"想要"的额度。但它拿不到这么多——假设 `max_num_batched_tokens = 2048`，而同一轮里还有别的请求在 decode，那么它本轮实际只能推进几百个 token，剩下的下一轮继续。
+>
+> 于是这个请求的一生在调度器眼里是这样的：**先用若干轮把 `num_computed_tokens` 从 0 追到 2050（这些轮属于 prefill 形态），然后是 300 轮每轮 +1（decode 形态）。** 调度器全程没有"切换阶段"这个动作，它只是一直在做同一件事——**发 token 额度**。
+
 ---
 
 ### 4.2 Batch 是如何动态变化的
@@ -1043,6 +1085,10 @@ Chunked Prefill 将长 Prefill 拆分为多个小块，与 Decode 请求混合�
 ```
 
 对比两列可以看到，Chunked Prefill 改变的不仅是长请求自身的调度方式，更是整条 batch 的预算分配。没有 chunking 时，长请求会在若干轮内独占整条 batch；有 chunking 时，每轮只切一小段 prefill，剩余的 token 预算留给其他请求 decode。代价是长请求要经过更多轮才能完成 prefill，TTFT 会上升，但其他请求的 TPOT 更稳定。
+
+> **回到我们的例子**：2050 token 的 prompt，若设 `long_prefill_token_threshold = 512`，它会被切成 **5 段**（512×4 + 2）。代价是这个请求要多等 4 轮才出首 token，TTFT 上升；收益是这 5 轮里其他请求的 decode 一直在正常推进，**没有一轮被它独占**。
+>
+> 这就是 TTFT 与 TPOT 之间那笔典型交易——而第 1.3 节说过，系统要做的从来不是消灭这种取舍，而是把它调到 SLO 允许的位置上。
 
 ```python
 # Chunked Prefill 的核心逻辑
@@ -1142,6 +1188,18 @@ Decode 偏 memory-bound、Prefill 偏 compute-bound（第 1.2 节），但落到
 | **轮次本身太多** | 每轮只产出 1 个 token | 投机解码 | 5.5 |
 
 最后 5.6 回到现实：真实的一轮 batch 里，prefill、decode、投机候选是混在一起的。
+
+> **回到我们的例子**（Llama-3-70B、8×H100、TP=8）：每张卡持有 17.6 GB 权重，H100 HBM 带宽 3.35 TB/s，于是**一次 decode 的权重读取下界约 5.3 ms**；加上 KV 读取、80 层 × 2 次 All-Reduce 和 kernel 开销，实测一步大约在 10 ms 量级。
+>
+> 那么这个请求的账就清楚了：
+>
+> | 环节 | 估算 | 占比 |
+> |---|---|---|
+> | Prefill 2050 token | ≈ 92 ms（8×H100 稠密算力 7.9 PFLOPS，按 40% MFU 估） | 3% |
+> | Decode 300 步 | 300 × 10 ms ≈ **3000 ms** | **97%** |
+> | E2E | ≈ 3.1 s | |
+>
+> **看清楚这个 3% vs 97%**：TTFT 只有 92 ms，而 97% 的时间花在那 300 次逐 token 的 decode 上。这解释了本章为什么把绝大部分篇幅给了 Decode 侧的优化——Prefill 再快一倍，端到端也只省 3%。
 
 ### 5.1 从调度输出到 GPU 执行：优化发生在哪里
 
@@ -1741,6 +1799,10 @@ graph LR
 | 最佳场景 | NVLink 互联的同机多卡（H100 NVSwitch 约 900 GB/s） |
 
 **TP 的通信量与激活大小成正比、且在关键路径上**，这就是为什么它几乎只适合机内 NVLink——跨机做 TP 会被网络拖死。
+
+> **回到我们的例子**（TP=8，`hidden=8192`，FP16）：decode 阶段每个 token 每次 All-Reduce 传 `8192 × 2 B = 16 KB`，每层 2 次、共 80 层，于是**每个 token 每步要传约 2.5 MB**。
+>
+> batch=32 时就是 80 MB/步。走 NVLink（900 GB/s）约 0.09 ms，相对 10 ms 的 decode 步几乎可以忽略；但同样这 80 MB 若走 InfiniBand NDR（50 GB/s）就要 1.6 ms——**乘以 80 层里每一次同步的等待，跨机 TP 就是这样被拖垮的。**
 
 #### 6.1.3 PP (Pipeline Parallelism)
 
@@ -2468,8 +2530,23 @@ graph TD
 
 把 GPU 分成两个池子是一句话就能说清的架构决策，真正难的是那条连接线。传统单集群里 Prefill 和 Decode 在同一张卡上共享 KV，**分离之后，每个请求的 KV Cache 都必须跨节点实打实地搬运一次**。一旦传得不够快，Prefill 侧省下的那点算力全部会被传输开销吃回去，甚至倒亏。
 
-这也是为什么本文要先花第三章讲清单机的 KV 块模型——只有知道了一个请求的 KV 到底是多少个块、每块多大（还记得第 3.3.4 节那个 1.34 GB 吗），你才能估出"跨节点搬一次"意味着什么量级的网络压力，进而理解为什么这个领域会冒出 NIXL、Mooncake、LMCache 这一整批基础设施。
+这也是为什么本文要先花第三章讲清单机的 KV 块模型——只有知道了一个请求的 KV 到底是多少个块、每块多大，才估得出"跨节点搬一次"意味着什么量级的网络压力。用第 1.6 节那个请求算一笔就明白了：
+
+> **回到我们的例子**：2050 个 prompt token × 320 KB/token = **约 641 MB 的 KV，必须从 Prefill 节点搬到 Decode 节点**。
+>
+> | 链路 | 带宽 | 传输 641 MB 需要 |
+> |---|---|---|
+> | InfiniBand NDR | 50 GB/s | **≈ 13 ms** |
+> | PCIe Gen5 x16 | 64 GB/s | ≈ 10 ms |
+>
+> 拿它和第五章算过的 92 ms prefill 一比：传输开销约占 **14%**，还能接受。**但注意这个量随 prompt 长度线性增长**——换成 32K token 的长文档，KV 就是 10 GB，传输要 200 ms，而这段时间是纯等待，什么也算不出来。
+>
+> 所以 PD 分离不是无条件划算的架构：**它用一次网络传输，换 Prefill 与 Decode 各自的资源最优。** prompt 越短、复用率越高（Prefix Cache 命中），这笔交易越亏；prompt 越长、两阶段配置差异越大，这笔交易越赚。这也正是 NIXL、Mooncake 这些项目要把传输做到极致的原因——**它们优化的是这笔交易的汇率。**
+
+---
+
 ### 9.2 Serving Infra 的下一站
+
 
 #### 9.2.1 AI 编译器时代
 
@@ -2683,6 +2760,7 @@ class RequestStatus(enum.IntEnum):
 | TPOT | 8–12 ms | 10–18 ms | ≈ 一次 decode 步 |
 | 系统吞吐 | ~100 tok/s | **~2000 tok/s** | batch 放大的是这一行 |
 
+
 这张表里最值得盯住的是**加粗的那两行**。batch 从 1 涨到 32，单步耗时只从 ~10 ms 涨到 ~15 ms，**远不是 32 倍**——因为那 13.5 GB 权重无论 batch 多大都只需要从 HBM 读一遍，32 个请求把这笔固定成本摊薄了。
 
 这正是第 1.3 节那条吞吐-延迟权衡曲线的微观解释，也是 Continuous Batching 全部收益的来源：**在 memory-bound 区间，增大 batch 几乎是免费的吞吐。** 直到 batch 大到让 KV Cache 读取或计算本身成为新瓶颈为止——那时曲线才会掉头。
@@ -2692,6 +2770,18 @@ class RequestStatus(enum.IntEnum):
 ---
 
 ## 结语
+
+我们从第 1.6 节起跟踪的那个请求，现在可以完整地复盘一遍了：
+
+| 章 | 这个请求在这一章遭遇了什么 | 数字 |
+|---|---|---|
+| 三 | 它的 KV 被切成块存放；system prompt 那 125 个整块可被后续请求复用 | 147 块 / 734 MB |
+| 四 | 它没有"prefill 阶段"，只是被持续发放 token 额度，直到追平 2050 | 若 chunk=512 则分 5 段 |
+| 五 | 97% 的时间花在 300 次逐 token 的 decode 上 | 92 ms + 3000 ms |
+| 六 | 每个 token 每步在 8 张卡间同步约 2.5 MB | NVLink 上 ~0.09 ms |
+| 九 | 若拆成 PD 两池，它的 641 MB KV 要跨节点搬一次 | ≈ 13 ms |
+
+**同一个请求，五个视角，五笔完全不同的账。** 这正是 Serving Infra 的日常——没有哪一个数字能单独说明问题，但它们合在一起就是系统的全貌。
 
 回到第 1.5 节那四个问题，现在每一个都有了答案：
 
