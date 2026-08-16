@@ -40,21 +40,15 @@ LLM 推理是"双未知"的：
 
 这意味着：**你无法预分配显存，也无法预测一个请求要占用 GPU 多久**。这一条，摧毁了传统 Serving 的全部前提。
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                传统 DL 推理 vs LLM Serving 对比                       │
-├──────────────────┬─────────────────────┬─────────────────────────────┤
-│     维度          │   传统 DL 推理       │      LLM Serving            │
-├──────────────────┼─────────────────────┼─────────────────────────────┤
-│ 输入长度          │ 固定（如 224×224）   │ 可变（1 ~ 128K+ tokens）     │
-│ 输出长度          │ 固定（类别数）       │ 不可预知（1 ~ 数千 tokens）   │
-│ 执行模式          │ 单次 Forward Pass    │ 自回归循环（逐 Token 生成）   │
-│ Batch 语义       │ 静态组批             │ 动态组批（Continuous Batch）  │
-│ 内存占用          │ 前向一次性           │ 累积增长（KV Cache 持续膨胀） │
-│ 延迟特征          │ 确定性               │ 与输出长度线性相关            │
-│ GPU 利用模式      │ 持续高算力利用        │ Prefill 高算力/Decode 低利用  │
-└──────────────────┴─────────────────────┴─────────────────────────────┘
-```
+| 维度 | 传统 DL 推理 | LLM Serving |
+|---|---|---|
+| 输入长度 | 固定（如 224×224） | 可变（1 ~ 128K+ tokens） |
+| 输出长度 | 固定（类别数） | **不可预知**（1 ~ 数千 tokens） |
+| 执行模式 | 单次 Forward Pass | 自回归循环（逐 Token 生成） |
+| Batch 语义 | 静态组批 | 动态组批（Continuous Batching） |
+| 内存占用 | 前向一次性 | **累积增长**（KV Cache 持续膨胀） |
+| 延迟特征 | 确定性 | 与输出长度线性相关 |
+| GPU 利用模式 | 持续高算力利用 | Prefill 高算力 / Decode 低利用 |
 
 这里的差异不只是在规模上，而是在执行方式上。传统推理一次 forward 就能得到最终结果；LLM 则要把刚生成的 token 重新送回模型，形成一条自回归循环。输出长度、KV 显存和端到端延迟都会随着循环动态变化，这也是后面调度、缓存和执行优化要解决的核心问题。
 
@@ -66,26 +60,21 @@ LLM Serving 的绝大部分优化技术，都可以追溯到这一节的一个�
 
 LLM 推理天然分为两个阶段，它们在计算特征上截然对立：
 
+| | Prefill 阶段（Prompt Processing） | Decode 阶段（Token Generation） |
+|---|---|---|
+| 输入 | 全部 prompt tokens | 上一步生成的 1 个 token |
+| 并行度 | 高（所有 token 并行） | 极低（逐 token 串行） |
+| Attention 计算量 | O(n² · d) | O(n · d) per step |
+| 瓶颈 | **Compute-Bound** | **Memory-Bound** |
+| GPU 算力利用 | 高 | 低 |
+| 耗时 | 一次性 | 持续（= 输出长度 × TPOT） |
+
+时间线上，一个请求长这样——一段 Prefill，然后是一长串 Decode：
+
 ```
-                           LLM 推理的两阶段模型
-
-     ┌─────────────────────────────────┬──────────────────────────────────┐
-     │         Prefill 阶段            │          Decode 阶段              │
-     │      (Prompt Processing)        │     (Token Generation)           │
-     ├─────────────────────────────────┼──────────────────────────────────┤
-     │                                 │                                  │
-     │  输入: 全部 prompt tokens        │  输入: 上一步生成的 1 个 token     │
-     │  并行度: 高（所有 token 并行）    │  并行度: 极低（逐 token 串行）     │
-     │  计算量: O(n² · d)              │  计算量: O(n · d) per step       │
-     │  瓶颈: Compute-Bound            │  瓶颈: Memory-Bound              │
-     │  GPU利用: ████████████ 高       │  GPU利用: ██░░░░░░░░░ 低         │
-     │  耗时: 一次性                    │  耗时: 持续（= 输出长度 × TPOT）  │
-     │                                 │                                  │
-     └─────────────────────────────────┴──────────────────────────────────┘
-
-     时间线:  ──[  Prefill  ]──[ D ][ D ][ D ][ D ][ D ][ D ][ D ]──▶
-                                 ↑    ↑    ↑    ↑    ↑    ↑    ↑
-每步生成1个token，读取全部历史KV Cache
+──[    Prefill    ]──[D][D][D][D][D][D][D]──▶
+                      ↑  ↑  ↑  ↑  ↑  ↑  ↑
+        每步只生成 1 个 token，但要读取全部历史 KV Cache
 ```
 
 **Prefill 阶段**是计算密集型（Compute-Bound）。所有 prompt tokens 一次性输入模型，矩阵乘法的并行度高，GPU 的 Tensor Core 被充分利用。
@@ -98,41 +87,28 @@ LLM 推理天然分为两个阶段，它们在计算特征上截然对立：
 
 #### Prefill 与 Decode 的数据流差异
 
+```mermaid
+graph TD
+    subgraph P["Prefill：N 个 token 一次过"]
+        P1["input_ids: t₁…tₙ&nbsp;&nbsp;(N 个)"] --> P2["QKV Proj<br/>Q:[N,H,d] K,V:[N,Hkv,d]"]
+        P2 -->|"批量写入 N 个位置"| P3[("KV Cache")]
+        P2 --> P4["Attention<br/>Q×Kᵀ → [N,N] → ×V"]
+        P4 --> P5["只取最后 1 个 position 的 logits"] --> P6["Sampling → 第 1 个 output token"]
+    end
 ```
-┌──────────────────────────── Prefill 数据流 ─────────────────────────────┐
-│                                                                         │
-│  input_ids: [t₁, t₂, t₃, ..., tₙ]    (N 个 prompt tokens 并行输入)     │
-│       │                                                                 │
-│       ▼                                                                 │
-│  ┌─────────┐  Q: [N, H, d]                                             │
-│  │  QKV    │  K: [N, Hkv, d]   ──写入──▶  KV Cache (N 个新位置)         │
-│  │  Proj   │  V: [N, Hkv, d]   ──写入──▶  (批量写入整个 prompt)          │
-│  └─────────┘                                                            │
-│       │                                                                 │
-│  Attention: Q × Kᵀ → [N, N] → × V     (全量计算，O(N²·d))              │
-│       │                                                                 │
-│  只取最后 1 个 position 的 logits → Sampling → 第 1 个 output token       │
-│                                                                         │
-│  特征: Compute-Bound, 高 GPU 利用率, GEMM 大矩阵, 高 arithmetic intensity│
-└─────────────────────────────────────────────────────────────────────────┘
 
-┌──────────────────────────── Decode 数据流 ──────────────────────────────┐
-│                                                                         │
-│  input_ids: [tₙ₊ₖ]               (1 个新 token 输入)                    │
-│       │                                                                 │
-│       ▼                                                                 │
-│  ┌─────────┐  q: [1, H, d]                                             │
-│  │  QKV    │  k: [1, Hkv, d]   ──追加──▶  KV Cache (1 个新位置)         │
-│  │  Proj   │  v: [1, Hkv, d]   ──追加──▶  (增量写入)                    │
-│  └─────────┘                                                            │
-│       │                                                                 │
-│  Attention: q × K_historyᵀ → [1, N+k] → × V_history  (读取全部历史KV)   │
-│       │                                                                 │
-│  logits → Sampling → 下一个 output token                                 │
-│                                                                         │
-│  特征: Memory-Bound, 低 GPU 利用率, 大量 HBM 读取, 低 arithmetic intensity│
-└─────────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    subgraph D["Decode：每步只 1 个 token"]
+        D1["input_ids: tₙ₊ₖ&nbsp;&nbsp;(1 个)"] --> D2["QKV Proj<br/>q:[1,H,d] k,v:[1,Hkv,d]"]
+        D2 -->|"追加 1 个位置"| D3[("KV Cache")]
+        D3 -->|"读取全部历史 K/V"| D4
+        D2 --> D4["Attention<br/>q×K_histᵀ → [1,N+k] → ×V_hist"]
+        D4 --> D5["logits → Sampling → 下一个 token"]
+    end
 ```
+
+两张图的差别只在**入口的宽度**和**箭头的方向**：Prefill 是一次灌进 N 个 token、批量写 KV；Decode 是每次挤进 1 个 token，却要把之前累积的全部 KV 读一遍。
 
 | 维度 | Prefill | Decode |
 |------|---------|--------|
@@ -154,19 +130,12 @@ LLM 推理天然分为两个阶段，它们在计算特征上截然对立：
 - **追求高吞吐**：需要大 Batch Size，让更多请求共享 GPU 算力 → 但每个请求的延迟增加
 - **追求低时延**：需要小 Batch Size，减少排队和计算竞争 → 但 GPU 利用率下降，吞吐骤减
 
-```
-     吞吐 (Tokens/s)                         延迟 (ms/token)
-        ▲                                       ▲
-        │         ╱───────── 饱和              │             ╱
-        │        ╱                              │           ╱
-        │      ╱                                │         ╱
-        │    ╱                                  │       ╱
-        │  ╱                                    │     ╱
-        │╱                                      │  ╱─
-        └──────────────▶ Batch Size             └──────────────▶ Batch Size
+把 Batch Size 当作横轴，两条曲线的形状完全不同：
 
-        吞吐随 Batch 增大先线性增后饱和       延迟随 Batch 增大持续恶化
-```
+- **吞吐**：先近似线性上升，然后进入饱和平台——因为 memory-bound 区间里权重只需读一遍，加请求几乎是免费的，直到算力或 KV 容量成为新瓶颈。
+- **单请求延迟**：从一开始就单调上升，且没有平台期——每个请求都要和更多同伴争抢同一批资源。
+
+**注意这不是"二选一"的关系。** 两条曲线共享同一个横轴，扩大 batch 会让吞吐和单请求延迟**同时上升**。所以系统要做的不是在吞吐和延迟里挑一个，而是在给定 SLO 下找到可接受的 batch 区间——这正是 Admission Control 和调度预算存在的理由。
 
 所有现代 LLM Serving 系统的优化，本质上都是在这条恶魔天平上寻找更优的帕累托前沿。
 
@@ -216,15 +185,15 @@ mindmap
 #### 端到端延迟分解
 
 ```
- ┌─────────┬──────────────────┬──────────────────────────────────┬────────┐
- │ Queueing│    Prefill       │          Decode (N steps)        │ Egress │
- │  Time   │    Time          │   TPOT × N output tokens         │  Time  │
- ├─────────┼──────────────────┼──────────────────────────────────┼────────┤
- │← wait →│← compute-bound →│←───── memory-bound ──────────→│← net →│
- └─────────┴──────────────────┴──────────────────────────────────┴────────┘
- ├────────────────── E2E Latency ──────────────────────────────────────────┤
-              ↑                                                       ↑
-           TTFT                                                  Last Token
+├──────────────────────── E2E Latency ────────────────────────┤
+┌──────────┬───────────┬───────────────────────────┬─────────┐
+│ Queueing │  Prefill  │      Decode (N steps)     │ Egress  │
+│  排队    │  一次性   │   TPOT × N 个 output token │  回传   │
+└──────────┴───────────┴───────────────────────────┴─────────┘
+ ←  wait  → ← compute- → ←────── memory-bound ─────→ ← net →
+             bound
+           ↑                                              ↑
+         TTFT 到这里为止                              Last Token
 ```
 
 这条横线也说明，TTFT 不等于"第一段耗时"，而是从请求到达到第一个 output token 的总和，其中包含 Queueing 和 Prefill。E2E 的大头通常是 Decode，因为它要乘上整个输出长度。只盯着 TPOT 会漏掉排队和长 prompt 的影响，只盯着 TTFT 又会低估长输出场景的成本。
@@ -352,27 +321,21 @@ class EngineCore:
 
 #### Worker 与 Model Executor：模型执行的设备抽象
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                          Executor                                   │
-│              (执行抽象：单设备或多设备模型调用)                         │
-│                                                                     │
-│  ┌──────────────┐  ┌──────────────┐       ┌──────────────┐         │
-│  │   Worker 0   │  │   Worker 1   │  ...  │   Worker N   │         │
-│  │  (GPU 0)     │  │  (GPU 1)     │       │  (GPU N)     │         │
-│  │              │  │              │       │              │         │
-│  │ ModelRunner  │  │ ModelRunner  │       │ ModelRunner  │         │
-│  │  ┌────────┐  │  │  ┌────────┐  │       │  ┌────────┐  │         │
-│  │  │ Model  │  │  │  │ Model  │  │       │  │ Model  │  │         │
-│  │  │Weights │  │  │  │Weights │  │       │  │Weights │  │         │
-│  │  ├────────┤  │  │  ├────────┤  │       │  ├────────┤  │         │
-│  │  │KV Cache│  │  │  │KV Cache│  │       │  │KV Cache│  │         │
-│  │  └────────┘  │  │  └────────┘  │       │  └────────┘  │         │
-│  └──────────────┘  └──────────────┘       └──────────────┘         │
-│        ↕ NCCL           ↕ NCCL                  ↕ NCCL             │
-│  ══════════════════════════════════════════════════════════         │
-│                    GPU 间通信拓扑                                    │
-└─────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    EX["Executor<br/><i>执行抽象：单设备或多设备模型调用</i>"]
+    EX --> W0 & W1 & WN
+    subgraph W0["Worker 0 (GPU 0)"]
+        M0["ModelRunner"] --- S0["Model Weights（分片）<br/>KV Cache"]
+    end
+    subgraph W1["Worker 1 (GPU 1)"]
+        M1["ModelRunner"] --- S1["Model Weights（分片）<br/>KV Cache"]
+    end
+    subgraph WN["Worker N (GPU N)"]
+        MN["ModelRunner"] --- SN["Model Weights（分片）<br/>KV Cache"]
+    end
+    S0 <-.->|NCCL| S1
+    S1 <-.->|NCCL| SN
 ```
 
 常见 GPU 部署中，Executor 会把一次 `execute_model()` 调用分发给一个或多个 Worker；Worker 再调用本地的 `ModelRunner` 执行模型前向、采样和 KV Cache 读写。单卡、同机多进程、Ray 分布式和 external launcher 的进程/设备映射并不完全相同，因此不应把“一个 GPU 固定绑定一个 Worker 进程”写成绝对规则。
@@ -474,38 +437,25 @@ sequenceDiagram
 
 ### 2.3 控制面与数据面的分离
 
+```mermaid
+graph LR
+    subgraph CP["控制面（Python）"]
+        direction LR
+        A[API Server] --> B[AsyncLLM] --> C[EngineCore] --> D[Scheduler] --> E[KVCacheManager]
+    end
+    subgraph DP["数据面（C++ / CUDA）"]
+        direction LR
+        F[Worker] --> G[ModelRunner] --> H[GPU Kernels] --> I[NCCL]
+    end
+    CP -->|"SchedulerOutput<br/>(req_ids, block_table, …)"| DP
 ```
-┌────────────────────────────── 控制面 (Python) ──────────────────────────┐
-│                                                                         │
-│  API Server ─── AsyncLLM ─── EngineCore ─── Scheduler ─── KVCacheManager│
-│                                                                         │
-│  职责:                                                                   │
-│  · 请求接收与参数解析          · 调度决策（哪些请求本轮执行）              │
-│  · Tokenization/Detokenization · KV块分配与释放                          │
-│  · 请求状态机管理              · Prefix Cache查找                         │
-│  · 流式响应                    · 抢占决策                                 │
-│  · 数据并行协调                · 停止条件检测                             │
-│                                                                         │
-│  通信: ZMQ IPC, msgspec 序列化, Python asyncio                           │
-└───────────────────────────────────┬─────────────────────────────────────┘
-                                    │ SchedulerOutput
-                                    │ (调度决策: req_ids, block_table, ...)
-                                    ▼
-┌────────────────────────────── 数据面 (C++/CUDA) ────────────────────────┐
-│                                                                         │
-│  Worker ─── ModelRunner ─── GPU Kernels ─── NCCL                       │
-│                                                                         │
-│  职责:                                                                   │
-│  · 输入张量准备 (input_ids → CUDA tensor)                                │
-│  · 模型 Forward Pass (GEMM, Attention, MLP)                             │
-│  · KV Cache 物理读写                                                     │
-│  · 采样 (top-p, top-k, temperature)                                     │
-│  · GPU间集合通信 (All-Reduce, All-Gather)                                │
-│  · CUDA Graph 捕获与重放                                                 │
-│                                                                         │
-│  特征: 极低延迟, CUDA Stream 驱动, 零拷贝传输                             │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+
+| | 控制面（Python） | 数据面（C++ / CUDA） |
+|---|---|---|
+| 组件 | API Server → AsyncLLM → EngineCore → Scheduler → KVCacheManager | Worker → ModelRunner → GPU Kernels → NCCL |
+| 职责 | 请求接收与参数解析、Tokenization / Detokenization、请求状态机、流式响应、数据并行协调 | 输入张量准备、模型 Forward（GEMM / Attention / MLP）、KV Cache 物理读写 |
+| | 调度决策、KV 块分配与释放、Prefix Cache 查找、抢占决策、停止条件检测 | 采样（top-p / top-k / temperature）、集合通信、CUDA Graph 捕获与重放 |
+| 技术栈 | ZMQ IPC、msgspec 序列化、asyncio | CUDA Stream 驱动、零拷贝传输 |
 
 **为什么控制流和数据流需要解耦？**
 
@@ -532,6 +482,21 @@ sequenceDiagram
 | 四、怎么扩出去 | `Executor` / `Worker` / 集合通信 |
 
 接下来四章，就是把这张表的每一行拆开来讲。
+
+<details>
+<summary><b>📂 本章源码导航</b></summary>
+
+**入口与引擎循环**
+
+| 想看什么 | 从哪开始 |
+|---|---|
+| HTTP 入口、OpenAI 兼容接口 | `vllm/entrypoints/openai/api_server.py` |
+| 异步请求生命周期、流式响应 | `vllm/v1/engine/async_llm.py` |
+| **推理主循环（建议从这里入手）** | `vllm/v1/engine/core.py` → `EngineCore.step()` |
+| 执行抽象与各种部署形态 | `vllm/v1/executor/abstract.py` |
+| 一轮 batch 在 GPU 上怎么跑 | `vllm/v1/worker/gpu/model_runner.py` |
+
+</details>
 
 ---
 
@@ -560,63 +525,54 @@ PagedAttention 的核心思想，用一句话就能说完：
 在 PagedAttention 出现之前，每个请求的 KV Cache 必须在 GPU 显存中预分配一段**连续内存**，其长度等于模型支持的最大序列长度。这造成了两类碎片：
 
 ```
-┌───────────── 传统 KV Cache 分配方式 ─────────────────────────────────┐
-│                                                                       │
-│  GPU HBM (80 GB)                                                      │
-│  ┌───────────────────────────────────────────────────────────────┐    │
-│  │ Req A: 预分配 max_len=2048     实际只用了 500                  │    │
-│  │ ████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░│    │
-│  │ ↑ 已用  ↑                                             ↑      │    │
-│  │ 500    内部碎片 (1548 tokens 的空间浪费)               2048   │    │
-│  ├───────────────────────────────────────────────────────────────┤    │
-│  │ Req B: 预分配 max_len=2048                                    │    │
-│  │ ████████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░│    │
-│  ├───────────────────────────────────────────────────────────────┤    │
-│  │ ░░░░░░ 外部碎片: 剩余空间不足以分配完整的 2048 连续块 ░░░░░░  │    │
-│  │ ░░░ Req C 无法入场，即使总剩余空间其实够用 ░░░░░░░░░░░░░░░░  │    │
-│  └───────────────────────────────────────────────────────────────┘    │
-│                                                                       │
-│  内部碎片: 预分配但未使用的空间 → 主要浪费来源                          │
-│  外部碎片: 已释放但不连续的空间 → 无法被新请求利用                     │
-│  总浪费率: PagedAttention 论文 (SOSP'23) 测得当时的 SOTA 系统中,        │
-│           真正存放有效 KV 的显存只占 20.4% ~ 38.2%,                    │
-│           即约 60% ~ 80% 被碎片和预留吃掉                              │
-└───────────────────────────────────────────────────────────────────────┘
+GPU HBM (80 GB)，每个请求按 max_len=2048 预留连续空间
+┌──────────────────────────────────────────────────────────┐
+│ Req A  ████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
+│        ↑实际用 500      ↑ 内部碎片：1548 tokens 的空间白占 │
+│ Req B  ████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
+│ ░░░░░░ 剩余空间凑不出一整段连续的 2048 → Req C 进不来 ░░░  │
+│        （外部碎片：总量其实够，但不连续）                  │
+└──────────────────────────────────────────────────────────┘
 ```
+
+| 碎片类型 | 成因 | 后果 |
+|---|---|---|
+| **内部碎片** | 按最大长度预留，实际用不了那么多 | 主要浪费来源 |
+| **外部碎片** | 已释放的空间不连续 | 总量够却无法分配给新请求 |
+
+总浪费率有多大？PagedAttention 论文（SOSP'23）测得当时的 SOTA 系统中，**真正存放有效 KV 的显存只占 20.4% ~ 38.2%**——也就是约 60% ~ 80% 被碎片和预留吃掉了。
 
 #### 页表思想的映射：操作系统虚拟内存在推理系统中的重现
 
 PagedAttention 的灵感直接来自操作系统的虚拟内存管理。核心思想是将连续的逻辑地址空间映射到不连续的物理页框：
 
-```
-┌─────────── 操作系统虚拟内存 ────────────┬──── PagedAttention ────────────┐
-│                                          │                                │
-│  虚拟地址空间 (连续)                      │  逻辑 Token 序列 (连续)         │
-│  ┌──────┬──────┬──────┬──────┐          │  ┌──────┬──────┬──────┐       │
-│  │Page 0│Page 1│Page 2│Page 3│          │  │Blk 0 │Blk 1 │Blk 2 │       │
-│  └──┬───┴──┬───┴──┬───┴──┬───┘          │  │t₁-t₁₆│t₁₇-t₃₂│t₃₃-t₄₈│   │
-│     │      │      │      │              │  └──┬───┴──┬───┴──┬───┘       │
-│     ▼      ▼      ▼      ▼              │     │      │      │           │
-│  Page Table                              │  Block Table                   │
-│  ┌──────────────────────┐               │  ┌──────────────────────┐      │
-│  │VP 0 → PF 5           │               │  │VB 0 → PB 7           │      │
-│  │VP 1 → PF 2           │               │  │VB 1 → PB 13          │      │
-│  │VP 2 → PF 8           │               │  │VB 2 → PB 21          │      │
-│  │VP 3 → PF 1           │               │  └──────────────────────┘      │
-│  └──────────────────────┘               │                                │
-│     │      │      │      │              │     │      │      │           │
-│     ▼      ▼      ▼      ▼              │     ▼      ▼      ▼           │
-│  物理页框 (不连续)                        │  物理 GPU 块 (不连续)          │
-│  ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐        │  ┌──┐    ┌──┐       ┌──┐     │
-│  │1 │ │2 │ │  │ │  │ │5 │ │  │        │  │7 │    │13│       │21│     │
-│  │PF│ │PF│ │..│ │..│ │PF│ │..│        │  │PB│    │PB│       │PB│     │
-│  └──┘ └──┘ └──┘ └──┘ └──┘ └──┘        │  └──┘    └──┘       └──┘     │
-│  ┌──┐ ┌──┐                              │                                │
-│  │8 │ │  │                              │                                │
-│  │PF│ │..│                              │                                │
-│  └──┘ └──┘                              │                                │
-└──────────────────────────────────────────┴────────────────────────────────┘
-  VP = Virtual Page    PF = Physical Frame    VB = Virtual Block   PB = Physical Block
+| | 操作系统虚拟内存 | PagedAttention |
+|---|---|---|
+| 连续的逻辑视图 | 虚拟地址空间（Page 0,1,2,3…） | 逻辑 token 序列（Blk 0,1,2…，每块 16 个 token） |
+| 映射表 | Page Table（VP → PF） | **Block Table**（虚拟块 → 物理块） |
+| 不连续的物理载体 | 物理页框 Physical Frame | **物理 KV 块** Physical Block（GPU HBM 上） |
+| 分配单位 | 一页（如 4 KB） | 一块（`block_size` 个 token 的 K/V） |
+| 好处 | 进程看到连续内存，实际零散存放 | 请求看到连续序列，KV 实际零散存放 |
+
+映射关系是这样的——注意物理块号完全不需要连续：
+
+```mermaid
+graph LR
+    subgraph LOG["逻辑视图（连续）"]
+        B0["Blk 0<br/>t₁–t₁₆"] --- B1["Blk 1<br/>t₁₇–t₃₂"] --- B2["Blk 2<br/>t₃₃–t₄₈"]
+    end
+    subgraph BT["Block Table"]
+        T["VB0 → PB7<br/>VB1 → PB13<br/>VB2 → PB21"]
+    end
+    subgraph PHY["物理 KV 块（不连续）"]
+        P7["PB 7"]
+        P13["PB 13"]
+        P21["PB 21"]
+    end
+    B0 --> T
+    B1 --> T
+    B2 --> T
+    T --> P7 & P13 & P21
 ```
 
 在 vLLM 中，每个物理块（Physical Block）存储固定数量 token 的 K 和 V 张量：
@@ -631,38 +587,15 @@ kv_cache = torch.zeros(num_blocks, block_size, num_kv_heads, head_dim,
 
 #### 源码解密：核心数据结构关系
 
-```
-┌────────────────── Request ──────────────────┐
-│  request_id: str                            │
-│  prompt_token_ids: [t₁, t₂, ..., tₙ]       │
-│  output_token_ids: [tₙ₊₁, tₙ₊₂, ...]      │
-│  num_computed_tokens: int                   │
-│  block_hashes: list[BlockHash]              │
-│  status: RequestStatus                      │
-└──────────────────┬──────────────────────────┘
-                   │ 1:N (通过 KVCacheManager)
-                   ▼
-┌──────── KVCacheBlocks ──────────────────────┐
-│  blocks: tuple[Sequence[KVCacheBlock], ...] │
-│  (外层 = KV Cache Group)                    │
-│  (内层 = 该 Group 的物理块序列)              │
-└──────────────────┬──────────────────────────┘
-                   │
-                   ▼
-┌────────── KVCacheBlock ─────────────────────┐
-│  block_id: int          # 物理块 ID (0~N-1) │
-│  ref_cnt: int           # 引用计数           │
-│  block_hash: BlockHash  # 用于 Prefix Cache  │
-│  prev_free_block ─┐     # 双向链表指针       │
-│  next_free_block ─┘     # (FreeBlockQueue)   │
-└──────────────────┬──────────────────────────┘
-                   │  (block_id 索引 GPU 物理显存)
-                   ▼
-┌────────── GPU HBM ──────────────────────────┐
-│  kv_cache[block_id] →                       │
-│  [block_size, num_kv_heads, head_dim]       │
-│  存储该块内所有 token 的 K/V 张量             │
-└─────────────────────────────────────────────┘
+```mermaid
+graph TD
+    R["<b>Request</b>（逻辑层，不碰显存）<br/>request_id / prompt_token_ids / output_token_ids<br/>num_computed_tokens / block_hashes / status"]
+    R -->|"1:N，经 KVCacheManager"| KB
+    KB["<b>KVCacheBlocks</b><br/>blocks: tuple[Sequence[KVCacheBlock], …]<br/>外层 = KV Cache Group，内层 = 该 Group 的物理块序列"]
+    KB --> B
+    B["<b>KVCacheBlock</b>（物理块元数据）<br/>block_id / ref_cnt / block_hash<br/>prev_free_block ⇄ next_free_block（FreeBlockQueue 双向链表）"]
+    B -->|"block_id 索引"| H
+    H[("<b>GPU HBM</b><br/>kv_cache[block_id]<br/>[block_size, num_kv_heads, head_dim]")]
 ```
 
 顺着箭头从上到下跟踪：Request 只是逻辑层，不直接触及 GPU 显存；KVCacheBlock 才是物理块的元数据，它同时挂在 Request 的 blocks 列表和 BlockPool 的 free/cached 列表里；block_id 最终索引到 GPU HBM 中的一片连续显存，里面放的是一整块 block_size 个 token 的 K 和 V。这三层映射是理解后面 Prefix Cache 复用和 Preemption 释放的基础。
@@ -714,54 +647,36 @@ class BlockPool:
 
 上一节讲的是「块从哪来」，这一节讲「块怎么被用完再还回去」——一次请求从 Prefill 批量写入，到 Decode 逐 slot 追加，最后在完成或被抢占时归还，构成 KV Cache 的完整生命周期。
 
+**① 写入**——两个阶段的写法完全不同：
+
+| 阶段 | 写入方式 | 例子 |
+|---|---|---|
+| Prefill | 批量写入若干整块 | `Block 0: t₁~t₁₆`、`Block 1: t₁₇~t₃₂`、`Block 2: t₃₃~tₙ` |
+| Decode | 每步增量追加 1 个 slot | `Block 2` 尾部追加 `tₙ₊₁`，写满了才要新块 |
+
+**② 读取**——Attention Kernel 不认识"请求"，只认 Block Table：
+
 ```
-                     KV Cache 生命周期全景
+Block Table:  req_42 → [PB_7, PB_13, PB_21]
 
-  ┌─────── Prefill 阶段 ──────┐   ┌────── Decode 阶段 ──────┐
-  │                            │   │                          │
-  │  prompt tokens:            │   │  每步 1 个新 token:       │
-  │  [t₁, t₂, ..., tₙ]       │   │  [tₙ₊₁], [tₙ₊₂], ...   │
-  │       │                    │   │       │                  │
-  │       ▼                    │   │       ▼                  │
-  │  ┌─────────────────┐      │   │  ┌──────────┐           │
-  │  │ 批量写入 KV     │      │   │  │ 增量追加  │           │
-  │  │ Cache 块        │      │   │  │ 1 个 slot │           │
-  │  │                 │      │   │  │           │           │
-  │  │ Block 0: [t₁~t₁₆]│   │   │  │ Block 2:  │           │
-  │  │ Block 1: [t₁₇~t₃₂]│  │   │  │ 追加 tₙ₊₁ │           │
-  │  │ Block 2: [t₃₃~tₙ] │   │   │  └──────────┘           │
-  │  └─────────────────┘      │   │                          │
-  └────────────────────────────┘   └──────────────────────────┘
-
-  ┌─────── Attention 读取 ──────────────────────────────────┐
-  │                                                         │
-  │  Block Table (虚拟→物理映射):                            │
-  │  req_42 → [PhyBlock_7, PhyBlock_13, PhyBlock_21]       │
-  │                                                         │
-  │  Attention Kernel 通过 Block Table 索引读取:             │
-  │  for each query position:                               │
-  │    for each block in block_table[req]:                  │
-  │      K_block = kv_cache[block_id, :, :key_heads, :]    │
-  │      V_block = kv_cache[block_id, :, :val_heads, :]    │
-  │      score += Q @ K_blockᵀ                              │
-  │    attn_out = softmax(scores) @ V_blocks               │
-  └─────────────────────────────────────────────────────────┘
-
-  ┌─────── 生命周期终结 ────────────────────────────────────┐
-  │                                                         │
-  │  请求完成:                                               │
-  │    Scheduler → KVCacheManager.free(request)             │
-  │    → ref_cnt-- 对所有块                                  │
-  │    → ref_cnt == 0 的块归还 free_block_queue              │
-  │    → 有 block_hash 的块进入 LRU 缓存（Prefix Cache）     │
-  │    → 无 hash 的块立即回收                                 │
-  │                                                         │
-  │  抢占:                                                   │
-  │    → 释放所有块                                          │
-  │    → num_computed_tokens = 0 （需从头重算）               │
-  │    → 但 Prefix Cache 命中可跳过部分重算                   │
-  └─────────────────────────────────────────────────────────┘
+for each query position:
+    for block_id in block_table[req]:
+        K_block = kv_cache[block_id, :, :key_heads, :]
+        V_block = kv_cache[block_id, :, :val_heads, :]
+        scores += Q @ K_blockᵀ
+    attn_out = softmax(scores) @ V_blocks
 ```
+
+**③ 归还**——这一步决定了块能不能被别人复用：
+
+| 触发 | 动作 | 关键后果 |
+|---|---|---|
+| 请求完成 | `KVCacheManager.free(request)`：所有块 `ref_cnt--` | `ref_cnt == 0` 才真正归还 `free_block_queue` |
+| ↳ 块有 `block_hash` | 进入 LRU 缓存 | **留给 Prefix Cache 复用** |
+| ↳ 块无 hash（未写满） | 立即回收 | 无法复用 |
+| 被抢占 | 释放所有块 + `num_computed_tokens = 0` | 需重算，但 Prefix Cache 命中可跳过大部分 |
+
+注意倒数第二行：**块只有"写满"才会被缓存**。这解释了为什么 Prefix Cache 的命中粒度是 `block_size`，而不是单个 token。
 
 ---
 
@@ -781,27 +696,18 @@ class BlockPool:
 
 在生产环境中，大量请求共享相同的 System Prompt（如 ChatGPT 的系统指令可能占 2000+ tokens）。Prefix Cache 的核心思想是：如果两个请求的前缀 token 完全相同，它们可以共享同一份 KV Cache 块。
 
-```
-  ┌─────────────── Prefix Cache 工作原理 ──────────────────────────┐
-  │                                                                │
-  │  Request A: [System Prompt: 2000 tokens] + [User: "Hi"]       │
-  │  Request B: [System Prompt: 2000 tokens] + [User: "Bye"]      │
-  │                                                                │
-  │  Block Hashing:                                                │
-  │  Block 0: hash([t₁...t₁₆])         = 0xABC1                  │
-  │  Block 1: hash(0xABC1, [t₁₇...t₃₂]) = 0xDEF2                │
-  │  ...                                                           │
-  │  Block 124: hash(prev, [t₁₉₈₅...t₂₀₀₀]) = 0x7890            │
-  │                                                                │
-  │  Request A 首先执行 → 所有 125 个块被缓存                       │
-  │                                                                │
-  │  Request B 到达 → get_computed_blocks()                        │
-  │  → 查找 hash 链: 0xABC1 → 命中! 0xDEF2 → 命中! ...            │
-  │  → 125 个块全部命中 (ref_cnt++)                                │
-  │  → 只需 Prefill 用户消息 "Bye" 的 1 个块                       │
-  │                                                                │
-  │  节省: 2000 tokens 的 Prefill 计算 + KV Cache 显存              │
-  └────────────────────────────────────────────────────────────────┘
+```mermaid
+sequenceDiagram
+    participant A as Request A<br/>[SysPrompt 2000] + "Hi"
+    participant P as BlockPool<br/>(hash → block)
+    participant B as Request B<br/>[SysPrompt 2000] + "Bye"
+
+    Note over A,P: 链式哈希：每块的 hash 依赖前驱块
+    A->>P: Prefill 2000 tokens<br/>Blk0=hash(t₁…t₁₆)=0xABC1<br/>Blk1=hash(0xABC1, t₁₇…t₃₂)=0xDEF2 …
+    P-->>P: 125 个满块全部注册进缓存
+    B->>P: get_computed_blocks()
+    P-->>B: 0xABC1 命中 → 0xDEF2 命中 → … 125 块全中（ref_cnt++）
+    Note over B: 只需 Prefill "Bye" 那 1 个块<br/>省下 2000 tokens 的计算 + 一整份 KV 显存
 ```
 
 vLLM 使用链式哈希确保前缀匹配的正确性——每个块的哈希值依赖其前驱块的哈希，因此只有完全相同的前缀序列才会产生相同的哈希链。
@@ -832,30 +738,26 @@ def hash_block_tokens(
 
 KV Cache 的大小与 KV head 数量成正比。Grouped-Query Attention (GQA) 和 Multi-Query Attention (MQA) 通过减少 KV head 数来缩减 KV Cache：
 
+以 8 个 Query head 为例，三种变体的差别只在于**几个 Q head 共享一份 K/V**：
+
+| 变体 | Q heads | K/V heads | 每 token 每层 KV 大小 | 相对 MHA |
+|---|---|---|---|---|
+| **MHA** | 8 | 8（一对一） | `2 × L × S × H × d` | 100% |
+| **GQA** | 8 | 2~4（分组共享） | `2 × L × S × G × d` | 1/2 ~ 1/8 |
+| **MQA** | 8 | 1（全部共享） | `2 × L × S × 1 × d` | 1/8 ~ 1/64 |
+
 ```
-┌──────────────── Attention 变体的 KV Cache 对比 ─────────────────────┐
-│                                                                     │
-│  MHA (Multi-Head Attention):                                        │
-│  Q Heads: [H₁] [H₂] [H₃] [H₄] [H₅] [H₆] [H₇] [H₈]             │
-│  K Heads: [H₁] [H₂] [H₃] [H₄] [H₅] [H₆] [H₇] [H₈]             │
-│  V Heads: [H₁] [H₂] [H₃] [H₄] [H₅] [H₆] [H₇] [H₈]             │
-│  KV Cache = 2 × L × S × H × d     (H=num_heads)                   │
-│                                                                     │
-│  GQA (Grouped-Query Attention):                                     │
-│  Q Heads: [H₁] [H₂] [H₃] [H₄] [H₅] [H₆] [H₇] [H₈]             │
-│  K Heads: [G₁       ] [G₂       ] [G₃       ] [G₄       ]          │
-│  V Heads: [G₁       ] [G₂       ] [G₃       ] [G₄       ]          │
-│  KV Cache = 2 × L × S × G × d     (G=num_groups, 通常 G=H/4~H/8)  │
-│  缩减比: G/H = 1/2 ~ 1/8                                           │
-│                                                                     │
-│  MQA (Multi-Query Attention):                                       │
-│  Q Heads: [H₁] [H₂] [H₃] [H₄] [H₅] [H₆] [H₇] [H₈]             │
-│  K Heads: [K₁                                        ]              │
-│  V Heads: [V₁                                        ]              │
-│  KV Cache = 2 × L × S × 1 × d                                      │
-│  缩减比: 1/H = 1/8 ~ 1/64                                          │
-└─────────────────────────────────────────────────────────────────────┘
+MHA   Q: [1][2][3][4][5][6][7][8]
+      K: [1][2][3][4][5][6][7][8]      ← 一个 Q 配一个 K/V
+
+GQA   Q: [1][2][3][4][5][6][7][8]
+      K: [ G1  ][ G2  ][ G3  ][ G4 ]   ← 每 2 个 Q 共享一份
+
+MQA   Q: [1][2][3][4][5][6][7][8]
+      K: [        K1            ]      ← 全部 Q 共享一份
 ```
+
+代价是表达能力：K/V head 越少，KV Cache 越小，但模型区分不同注意力模式的自由度也越低。GQA 是目前公认的甜点区——这也是为什么 Llama 3 全系都用 GQA。
 
 | 模型 | 注意力类型 | num_heads | num_kv_heads | KV Cache 比例 |
 |------|-----------|-----------|-------------|--------------|
@@ -869,39 +771,27 @@ KV Cache 的大小与 KV head 数量成正比。Grouped-Query Attention (GQA) �
 
 DeepSeek V2/V3 提出的 Multi-head Latent Attention (MLA) 是一种更激进的 KV Cache 压缩方案。它不存储完整的 K、V 张量，而是存储一个低维的 latent 向量：
 
+| | 传统 MHA / GQA | MLA（DeepSeek） |
+|---|---|---|
+| 存的是什么 | `K [Hkv, d]` + `V [Hkv, d]` | `c_kv [kv_lora_rank]` + `k_pe [qk_rope_head_dim]` |
+| 每 token 每层 | `2 × Hkv × d` bytes | `(kv_lora_rank + qk_rope_head_dim) × sizeof(dtype)` |
+| 实例 | Llama-70B（GQA-8）：`2×8×128×2B` = **4 KB** | DeepSeek V3：`(512+64)×2B` ≈ **1.1 KB** |
+
+MLA 的运作分两步——**存的时候压缩，用的时候还原**：
+
+```mermaid
+graph LR
+    subgraph E["编码（Prefill）"]
+        H[hidden] -->|kv_a_proj| C["c_kv（低维 latent）"] --> KV[("KV Cache<br/>只存 latent")]
+    end
+    subgraph D["解码（Decode，朴素做法）"]
+        KV2[("KV Cache")] --> C2[c_kv] -->|kv_b_proj| KVF["K, V（恢复全维）"] --> AT[Attention]
+    end
 ```
-┌───────────── MLA vs 传统 KV Cache ──────────────────────────────────┐
-│                                                                      │
-│  传统 MHA/GQA:                                                       │
-│  存储: K [num_kv_heads, head_dim] + V [num_kv_heads, head_dim]      │
-│  每 token: 2 × Hkv × d bytes                                        │
-│  Llama-70B (GQA-8): 2 × 8 × 128 × 2B = 4 KB/token/layer           │
-│                                                                      │
-│  MLA (DeepSeek):                                                     │
-│  存储: c_kv [kv_lora_rank] + k_pe [qk_rope_head_dim]                 │
-│  每 token: (kv_lora_rank + qk_rope_head_dim) × sizeof(dtype)         │
-│  DeepSeek V3: (512 + 64) × 2B ≈ 1.1 KB/token/layer                  │
-│                                                                      │
-│  ┌─────────────── MLA 原理 ───────────────────┐                     │
-│  │                                             │                     │
-│  │  编码 (Prefill时):                          │                     │
-│  │  hidden → kv_a_proj → c_kv (latent)        │                     │
-│  │  c_kv → 存入 KV Cache (低维)               │                     │
-│  │                                             │                     │
-│  │  解码 (Decode时):                           │                     │
-│  │  c_kv ← 读出 KV Cache                      │                     │
-│  │  c_kv → kv_b_proj → K, V (恢复全维)        │                     │
-│  │  然后正常做 Attention                       │                     │
-│  │                                             │                     │
-│  │  关键优化 — "吸收" (Absorbing):              │                     │
-│  │  W_uk × W_q 可以预融合，避免显式解压 K       │                     │
-│  │  直接在 latent 空间做 Attention              │                     │
-│  └─────────────────────────────────────────────┘                     │
-│                                                                      │
-│  压缩比: 相比同规模的 MHA 可缩减一个数量级以上;                       │
-│         相比 Llama 式 GQA-8 (4 KB/token/layer) 约缩减 3~4x           │
-└──────────────────────────────────────────────────────────────────────┘
-```
+
+但朴素做法有个致命问题：**每一步 Decode 都要把全部历史 token 的 latent 解压回全维 K/V**，那省下的显存又变成了带宽开销。真正的关键优化叫 **"吸收"（Absorbing）**——把解压矩阵 `W_uk` 预先融合进 `W_q`，于是可以**直接在 latent 空间做 Attention，完全不解压**。这一手的工程细节留到第 7.4.1 节展开。
+
+压缩效果：相比同规模 MHA 可缩减一个数量级以上；相比 Llama 式 GQA-8（4 KB/token/layer）约缩减 3~4x。
 
 vLLM 中 MLA 的实现位于 `vllm/model_executor/layers/mla.py`，通过 `MLAAttentionSpec` 定义其特殊的 KV Cache 规格（存储 latent 而非完整 KV）。
 
@@ -909,38 +799,35 @@ vLLM 中 MLA 的实现位于 `vllm/model_executor/layers/mla.py`，通过 `MLAAt
 
 除了结构级的压缩（GQA/MQA/MLA），还可以通过数值量化进一步压缩 KV Cache：
 
-```
-┌──────────── KV Cache 量化规模对比 (per token, per layer) ──────────┐
-│                                                                     │
-│  格式        存储大小    相对 FP16    精度影响                        │
-│  ─────────  ─────────  ──────────  ─────────────────                │
-│  FP32        4 bytes     2.0x      基准（训练精度）                  │
-│  FP16/BF16   2 bytes     1.0x      标准推理精度                     │
-│  FP8 (E4M3)  1 byte      0.5x     轻微损失，短文本安全              │
-│  INT8         1 byte      0.5x     需要校准，按 head/channel 量化   │
-│  INT4         0.5 bytes   0.25x    显著损失，不常用于 KV Cache       │
-│                                                                     │
-│  示例: Llama-70B, GQA-8, 80 layers, seq_len=4096                   │
-│  单请求 FP16: 4 KB/token/layer × 4096 × 80    = 1.34 GB           │
-│  单请求 FP8:  2 KB/token/layer × 4096 × 80    = 0.67 GB (省 50%)  │
-│  并发 8 路 FP16: 1.34 GB × 8                  = 10.7 GB           │
-│  → 单请求看着不大, 但 KV Cache 是"并发数 × 上下文长度"的乘积,       │
-│    这才是它压垮显存的方式                                           │
-│                                                                     │
-│  量化粒度:                                                           │
-│  ┌────────────────────────────────────────────────────────┐         │
-│  │ Per-tensor: 整个 KV Cache 共享 1 个 scale → 精度最差    │         │
-│  │ Per-token:  每个 token 独立 scale → 较好                │         │
-│  │ Per-head:   每个 head 独立 scale → 精细                 │         │
-│  │ Per-channel: 每个 channel 独立 scale → 最优精度          │         │
-│  │ Per-group:  每 G 个元素共享 scale → 灵活                │         │
-│  └────────────────────────────────────────────────────────┘         │
-│                                                                     │
-│  Quantize-on-write: 写入 KV Cache 时以低精度存储                    │
-│  Dequantize-on-read: 读取时反量化或在 attention kernel 内处理         │
-│  是否启用取决于模型、dtype、backend 与配置                           │
-└─────────────────────────────────────────────────────────────────────┘
-```
+| 格式 | 每元素 | 相对 FP16 | 精度影响 |
+|---|---|---|---|
+| FP32 | 4 bytes | 2.0× | 基准（训练精度） |
+| FP16 / BF16 | 2 bytes | 1.0× | 标准推理精度 |
+| **FP8 (E4M3)** | 1 byte | 0.5× | **轻微损失，实践中最安全的选择** |
+| INT8 | 1 byte | 0.5× | 需要校准，按 head / channel 量化 |
+| INT4 | 0.5 bytes | 0.25× | 显著损失，很少用于 KV Cache |
+
+算一遍实际规模（Llama-70B、GQA-8、80 layers、seq_len=4096）：
+
+| 场景 | 计算 | 结果 |
+|---|---|---|
+| 单请求 FP16 | 4 KB/token/layer × 4096 × 80 | 1.34 GB |
+| 单请求 FP8 | 2 KB/token/layer × 4096 × 80 | 0.67 GB（省 50%） |
+| **并发 8 路 FP16** | 1.34 GB × 8 | **10.7 GB** |
+
+单请求看着不大，但注意最后一行：**KV Cache 是"并发数 × 上下文长度"的乘积**，这才是它压垮显存的方式。
+
+量化粒度决定了精度与开销的平衡，scale 分得越细越准、但元数据越多：
+
+| 粒度 | 含义 | 精度 |
+|---|---|---|
+| Per-tensor | 整个 KV Cache 共享 1 个 scale | 最差 |
+| Per-token | 每个 token 一个 scale | 较好 |
+| Per-head | 每个 head 一个 scale | 精细 |
+| Per-channel | 每个 channel 一个 scale | 最优 |
+| Per-group | 每 G 个元素共享 scale | 灵活折中 |
+
+实现上分两个动作：**Quantize-on-write**（写入时即以低精度存储）和 **Dequantize-on-read**（读取时反量化，或直接在 attention kernel 内处理）。是否启用取决于模型、dtype、backend 与配置。
 
 KV Cache 量化与 PagedAttention 在设计上可以组合：量化后的 KV 仍按 block 粒度管理，同时需要记录相应 scale 或格式元数据。具体是否支持、如何存储 scale、是否在 attention kernel 内完成反量化，取决于 v0.27.1 中对应模型、dtype 和 attention backend 的实现。
 
@@ -950,45 +837,37 @@ KV Cache 量化与 PagedAttention 在设计上可以组合：量化后的 KV 仍
 
 当 GPU 显存不足时，vLLM 支持将 KV Cache 卸载到更低层的存储：
 
-```
-┌───────── KV Cache 分层存储架构 ──────────────────────────────────────┐
-│                                                                       │
-│  ┌──────────────────┐  ←── 热层: 活跃请求的 KV                       │
-│  │  GPU HBM         │      容量: 10-80 GB                             │
-│  │  带宽: 3.35 TB/s │      延迟: ~ns                                  │
-│  │  (H100)          │                                                 │
-│  └────────┬─────────┘                                                 │
-│           │  PCIe Gen5: 64 GB/s                                       │
-│           │  ┌── Swap: 被抢占请求的 KV ──┐                            │
-│  ┌────────▼─────────┐                    │                            │
-│  │  CPU DRAM        │  ←── 温层           │                            │
-│  │  带宽: ~200 GB/s │      容量: 256-2TB  │                            │
-│  │                  │      延迟: ~100 ns  │                            │
-│  └────────┬─────────┘                    │                            │
-│           │  NVMe: 7 GB/s               │                            │
-│  ┌────────▼─────────┐                    │                            │
-│  │  NVMe SSD        │  ←── 冷层（未来）   │                            │
-│  │  容量: 1-16 TB   │      延迟: ~10 μs  │                            │
-│  └──────────────────┘                    │                            │
-│                                          │                            │
-│  三种应对策略:                             │                            │
-│  ┌────────────────────────────────────┐  │                            │
-│  │ 1. Recomputation (重算)            │  │                            │
-│  │    释放 KV → 恢复时从头重算         │  │                            │
-│  │    + 无传输开销  - 浪费算力         │  │                            │
-│  │                                    │  │                            │
-│  │ 2. Swapping (换出)                 │◀─┘                            │
-│  │    KV 块 GPU→CPU → 恢复时 CPU→GPU  │                               │
-│  │    + 保留计算结果  - PCIe 带宽开销  │                               │
-│  │                                    │                               │
-│  │ 3. Quantization + Offload         │                               │
-│  │    量化后换出 → 恢复时反量化        │                               │
-│  │    + 减少传输量  - 精度损失         │                               │
-│  └────────────────────────────────────┘                               │
-└───────────────────────────────────────────────────────────────────────┘
-```
+| 层级 | 容量 | 带宽 | 延迟 | 存什么 |
+|---|---|---|---|---|
+| **GPU HBM**（热） | 10–80 GB | 3.35 TB/s (H100) | ~ns | 活跃请求的 KV |
+| **CPU DRAM**（温） | 256 GB–2 TB | ~200 GB/s | ~100 ns | 被抢占请求的 KV（经 PCIe Gen5，64 GB/s） |
+| **NVMe SSD**（冷） | 1–16 TB | ~7 GB/s | ~10 μs | 长期前缀缓存（较新的方向） |
+
+当 GPU 显存不够时，有三种应对策略，代价各不相同：
+
+| 策略 | 做法 | 优点 | 缺点 |
+|---|---|---|---|
+| **Recomputation**（重算） | 直接释放 KV，恢复时从头算 | 无传输开销，不占 CPU 内存 | 浪费 GPU 算力 |
+| **Swapping**（换出） | KV 块 GPU→CPU，恢复时回传 | 保留了已算结果 | 吃 PCIe 带宽 |
+| **Quantization + Offload** | 量化后再换出 | 传输量减半 | 额外精度损失 |
 
 vLLM V1 当前主要使用 **Recomputation** 策略（`_preempt_request()` 中将 `num_computed_tokens` 置零），因为在 Prefix Cache 存在的情况下，重算的实际成本远低于理论最坏情况——大部分前缀块仍在缓存中可复用。
+
+<details>
+<summary><b>📂 本章源码导航</b></summary>
+
+**KV Cache 与 PagedAttention**
+
+| 想看什么 | 从哪开始 |
+|---|---|
+| **块的分配与释放（核心）** | `vllm/v1/core/kv_cache_manager.py` → `allocate_slots()` |
+| 物理块池、LRU 驱逐、Prefix Cache 注册 | `vllm/v1/core/block_pool.py` |
+| 块哈希、`extra_keys`、`NONE_HASH` | `vllm/v1/core/kv_cache_utils.py` → `hash_block_tokens()` |
+| 各类 KV Cache 规格（含 MLA） | `vllm/v1/kv_cache_interface.py` |
+| MLA 层实现 | `vllm/model_executor/layers/mla.py` |
+| KV 量化 | `vllm/model_executor/layers/quantization/` |
+
+</details>
 
 ---
 
@@ -1109,30 +988,22 @@ def schedule(self, throttle_prefills=False) -> SchedulerOutput:
 上一节的 token 预算模型，落到宏观时间线上就是 Continuous Batching 与传统 Static Batching 的差别：
 
 ```
-  ┌─────────────── Static Batching (传统) ──────────────────┐
-  │                                                         │
-  │  Step 1:  [Req A ████████████]                         │
-  │           [Req B ██████ pad  ]  ← Padding 浪费         │
-  │           [Req C ████ pad    ]  ← Padding 浪费         │
-  │                                                         │
-  │  Step 2:  [Req A ████████████]  ← A 已完成但仍占位      │
-  │           [Req B ██████████  ]                          │
-  │           [Req C ████████    ]                          │
-  │                                                         │
-  │  问题: A 完成后其 GPU 资源闲置，D 排队等待               │
-  └─────────────────────────────────────────────────────────┘
+Static Batching（传统）
+  Step 1:  [A ████████████]
+           [B ██████ pad  ]  ← padding 浪费
+           [C ████ pad    ]  ← padding 浪费
+  Step 2:  [A ████████████]  ← A 已完成，但仍占着位置
+           [B ██████████  ]
+           [C ████████    ]
+  ✗ A 完成后资源闲置，排队的 D 进不来
 
-  ┌──────────── Continuous Batching (vLLM) ─────────────────┐
-  │                                                         │
-  │  Iter 1:  [A:prefill] [B:prefill] [C:prefill]          │
-  │  Iter 2:  [A:decode ] [B:decode ] [C:decode ]          │
-  │  Iter 3:  [A:done ✓ ] [B:decode ] [C:decode ] [D:prefill]  ← D 立即加入!
-  │  Iter 4:              [B:decode ] [C:done ✓ ] [D:decode] [E:prefill]
-  │  Iter 5:              [B:done ✓ ] [D:decode ] [E:decode] [F:prefill]
-  │                                                         │
-  │  优势: 请求完成即释放资源，新请求立即填补空位              │
-  │        GPU 利用率持续保持高位                             │
-  └─────────────────────────────────────────────────────────┘
+Continuous Batching（vLLM）
+  Iter 1:  [A:prefill] [B:prefill] [C:prefill]
+  Iter 2:  [A:decode ] [B:decode ] [C:decode ]
+  Iter 3:  [A:done ✓ ] [B:decode ] [C:decode ] [D:prefill]  ← D 立刻补位
+  Iter 4:              [B:decode ] [C:done ✓ ] [D:decode ] [E:prefill]
+  Iter 5:              [B:done ✓ ] [D:decode ] [E:decode ] [F:prefill]
+  ✓ 谁完成谁腾位，空位当轮就被填上
 ```
 
 | 特性 | Static Batching | Continuous Batching |
@@ -1156,29 +1027,19 @@ def schedule(self, throttle_prefills=False) -> SchedulerOutput:
 Chunked Prefill 将长 Prefill 拆分为多个小块，与 Decode 请求混合执行：
 
 ```
-┌───────── 无 Chunked Prefill ──────────────────────────────────┐
-│                                                                │
-│  Iter 1: [Long Prefill ████████████████████████████]          │
-│          ← 32K tokens, 所有 Decode 请求停滞 →                  │
-│                                                                │
-│  Iter 2: [Long Prefill ████████████████████████████]          │
-│          ← 仍在 Prefill... →                                   │
-│                                                                │
-│  Iter 3: [A:decode] [B:decode] [C:decode]  ← 终于恢复          │
-│                                                                │
-│  问题: TPOT 出现长达数十 ms 的尖峰                              │
-└────────────────────────────────────────────────────────────────┘
+无 Chunked Prefill —— 长请求独占整条 batch
+  Iter 1: [Long Prefill ██████████████████]   ← 32K tokens，其他请求全停
+  Iter 2: [Long Prefill ██████████████████]   ← 还在 Prefill…
+  Iter 3: [A:decode][B:decode][C:decode]      ← 终于轮到
+  ✗ TPOT 出现长达数十 ms 的尖峰
 
-┌───────── 有 Chunked Prefill ──────────────────────────────────┐
-│                                                                │
-│  Iter 1: [Chunk₁ ████] [A:decode] [B:decode] [C:decode]      │
-│  Iter 2: [Chunk₂ ████] [A:decode] [B:decode] [C:decode]      │
-│  Iter 3: [Chunk₃ ████] [A:decode] [B:decode] [C:decode]      │
-│  ...                                                           │
-│  Iter N: [ChunkN ██  ] [A:decode] [B:decode] [C:decode]      │
-│                                                                │
-│  效果: TPOT 平稳，TTFT 略有增加但可控                           │
-└────────────────────────────────────────────────────────────────┘
+有 Chunked Prefill —— 每轮只切一小段，预算留给别人
+  Iter 1: [Chunk₁ ███][A:decode][B:decode][C:decode]
+  Iter 2: [Chunk₂ ███][A:decode][B:decode][C:decode]
+  Iter 3: [Chunk₃ ███][A:decode][B:decode][C:decode]
+  …
+  Iter N: [ChunkN █  ][A:decode][B:decode][C:decode]
+  ✓ TPOT 平稳，代价是这个长请求的 TTFT 上升
 ```
 
 对比两列可以看到，Chunked Prefill 改变的不仅是长请求自身的调度方式，更是整条 batch 的预算分配。没有 chunking 时，长请求会在若干轮内独占整条 batch；有 chunking 时，每轮只切一小段 prefill，剩余的 token 预算留给其他请求 decode。代价是长请求要经过更多轮才能完成 prefill，TTFT 会上升，但其他请求的 TPOT 更稳定。
@@ -1197,34 +1058,25 @@ if num_new_tokens > request_token_budget:
 
 当 GPU 显存耗尽时，Scheduler 面临极端抉择：
 
+```mermaid
+graph TD
+    Q{"KV Cache 耗尽？"} -->|否| N["正常调度"]
+    Q -->|是| P["需要抢占，回收显存"]
+    P --> R["策略 1：Recomputation（重算）"]
+    P --> S["策略 2：Swapping（换出）"]
 ```
-┌──────────────── 抢占决策树 ────────────────────────────────────┐
-│                                                                │
-│  KV Cache 耗尽?                                                │
-│       │                                                        │
-│       ├── 否 → 正常调度                                        │
-│       │                                                        │
-│       └── 是 → 需要抢占（回收显存）                             │
-│               │                                                │
-│               ├── 策略 1: Recomputation（重算）                 │
-│               │   · 释放被抢占请求的所有 KV 块                  │
-│               │   · num_computed_tokens = 0                    │
-│               │   · 重新入队到 WAITING 队列头部                 │
-│               │   · 恢复时利用 Prefix Cache 减少重算            │
-│               │   · 优点: 不占用 CPU 内存                      │
-│               │   · 缺点: 浪费 GPU 算力                        │
-│               │                                                │
-│               └── 策略 2: Swapping（换出）                      │
-│                   · KV 块 GPU→CPU 异步传输                     │
-│                   · 请求状态保存                                │
-│                   · 恢复时 CPU→GPU 回传                        │
-│                   · 优点: 保留计算结果                          │
-│                   · 缺点: PCIe 带宽开销                        │
-│                                                                │
-│  抢占优先级: 最后进入的请求优先被抢占 (LIFO)                    │
-│  Watermark: 保留一定比例的空闲块，防止频繁抢占                   │
-└────────────────────────────────────────────────────────────────┘
-```
+
+| | Recomputation（重算） | Swapping（换出） |
+|---|---|---|
+| 做法 | 释放该请求所有 KV 块，`num_computed_tokens = 0`，重新入队到 WAITING **队头** | KV 块 GPU→CPU 异步传出，保存请求状态，恢复时再回传 |
+| 优点 | 不占用 CPU 内存 | 保留了已算的结果 |
+| 缺点 | 浪费 GPU 算力 | 吃 PCIe 带宽 |
+| 缓解 | 恢复时 Prefix Cache 命中可跳过大部分重算 | — |
+
+两条附加规则：
+
+- **抢占顺序是 LIFO** ——最后进来的请求最先被抢占。这样已经跑了很久的请求不至于前功尽弃。
+- **重新入队时放在队头**，而不是队尾，让被抢占的请求优先恢复。
 
 ```python
 # vllm/v1/core/sched/scheduler.py (简化)
@@ -1257,6 +1109,21 @@ if free_blocks < required_blocks:
 
 所以更准确的说法是：vLLM 的准入控制主要靠"KV 块不够就不调度、不够就抢占"这条硬约束，`watermark` 只是叠加在其上的可选缓冲。
 
+<details>
+<summary><b>📂 本章源码导航</b></summary>
+
+**调度**
+
+| 想看什么 | 从哪开始 |
+|---|---|
+| **统一 token 预算的调度主体（本章最该读的）** | `vllm/v1/core/sched/scheduler.py` → `Scheduler.schedule()`，尤其开头那段 `NOTE(woosuk)` 注释 |
+| 抢占逻辑 | 同上 → `_preempt_request()` |
+| 请求状态机与 `num_computed_tokens` | `vllm/v1/request.py` |
+| 调度决策的数据结构 | `vllm/v1/core/sched/output.py` |
+| `max_num_batched_tokens`、`long_prefill_token_threshold` 等旋钮 | `vllm/config/scheduler.py` |
+
+</details>
+
 ---
 
 ## 五、GPU 执行：如何让每个 Token 算得更快？
@@ -1278,43 +1145,25 @@ Decode 偏 memory-bound、Prefill 偏 compute-bound（第 1.2 节），但落到
 
 ### 5.1 从调度输出到 GPU 执行：优化发生在哪里
 
-```
-┌─────── SchedulerOutput → ModelRunner 映射 ───────────────────────────┐
-│                                                                      │
-│  Scheduler 输出:                                                     │
-│  ┌──────────────────────────────────────────────────────────────────┐ │
-│  │ scheduled_new_reqs:      {req_id: num_tokens}       ← 首次调度    │ │
-│  │ scheduled_running_reqs:  {req_id: num_tokens}       ← 继续执行    │ │
-│  │ req_to_new_blocks:       {req_id: [(block_id, n)]}  ← 块分配      │ │
-│  │ finished_req_ids, preempted_req_ids, ...            ← 状态通知    │ │
-│  └──────────────────────────────────────────────────────────────────┘ │
-│                              │                                        │
-│                              ▼                                        │
-│  ModelRunner.prepare_inputs():                                        │
-│  ┌──────────────────────────────────────────────────────────────────┐ │
-│  │ 1. InputBatch 构造: 根据 scheduled tokens 扁平化为 token_id 序列  │ │
-│  │    · Req A (已缓存 256, 新推 256) → 追加 256 个 token_ids         │ │
-│  │    · Req B (decode) → 追加 1 个 token_id                          │ │
-│  │    · Req C (spec decode) → 追加 1 + N 个 token_ids                │ │
-│  │                                                                  │ │
-│  │ 2. slot_mapping 构造: token → (block_id, offset)                 │ │
-│  │    · 新分配的块 → 从头写入                                         │ │
-│  │    · 已存在块 → 追加到尾部                                         │ │
-│  │    · Prefix Cache 命中的 token → 不写入, 直接复用                   │ │
-│  │                                                                  │ │
-│  │ 3. attention metadata 构造:                                       │ │
-│  │    · block_table (per req): 虚拟块 → 物理块的映射                  │ │
-│  │    · query_lens / kv_lens / is_prompt / spec_decode flags         │ │
-│  │                                                                  │ │
-│  │ 4. CUDA Graph / Eager 模式选择:                                   │ │
-│  │    · Pure decode + size matched → CUDA Graph replay               │ │
-│  │    · 含 prefill / mixed / size mismatch → Eager 模式              │ │
-│  └──────────────────────────────────────────────────────────────────┘ │
-│                                                                      │
-│  给 GPU: input_ids, positions, attn_metadata                          │
-│  从 GPU: hidden_states → logits → sampled_token_ids                   │
-└──────────────────────────────────────────────────────────────────────┘
-```
+**Scheduler 交出来的东西**（`SchedulerOutput`）：
+
+| 字段 | 内容 | 含义 |
+|---|---|---|
+| `scheduled_new_reqs` | `{req_id: num_tokens}` | 首次调度的请求 |
+| `scheduled_running_reqs` | `{req_id: num_tokens}` | 继续执行的请求 |
+| `req_to_new_blocks` | `{req_id: [(block_id, n)]}` | 本轮的块分配 |
+| `finished_req_ids` / `preempted_req_ids` | — | 状态通知 |
+
+**`ModelRunner.prepare_inputs()` 把它翻译成 GPU 数据结构**，四步：
+
+| 步骤 | 做什么 | 细节 |
+|---|---|---|
+| ① `InputBatch` 构造 | 按 scheduled tokens 扁平化成一条 token_id 序列 | Req A（已缓存 256、新推 256）→ 追加 256 个<br/>Req B（decode）→ 追加 1 个<br/>Req C（spec decode）→ 追加 1+N 个 |
+| ② `slot_mapping` 构造 | 每个 token → `(block_id, offset)` | 新块从头写；已有块追加到尾部；**Prefix Cache 命中的 token 不写，直接复用** |
+| ③ attention metadata | 告诉 kernel 每个请求能读哪些块 | `block_table`（per req）、`query_lens` / `kv_lens` / `is_prompt` / spec flags |
+| ④ 执行模式选择 | 决定走 Graph 还是 Eager | 纯 decode 且 size 匹配 → CUDA Graph replay；含 prefill / mixed / size 不匹配 → Eager |
+
+最终**给 GPU 的**是 `input_ids, positions, attn_metadata`，**从 GPU 拿回的**是 `hidden_states → logits → sampled_token_ids`。
 
 注意到图中 SchedulerOutput 到 GPU 计算中间隔着一层 `prepare_inputs()`。这一层不是调模型，而是把调度决策翻译成 GPU 数据结构：`slot_mapping` 告诉每个 token 的 KV 写去哪，`block_table` 告诉每个请求能读到哪些块。CUDA Graph / Eager 的选择也在这里决定。这层翻译是看懂后面 Prefill、Decode 和 Mixed Batch 执行差异的前提。
 
@@ -1325,23 +1174,16 @@ Decode 偏 memory-bound、Prefill 偏 compute-bound（第 1.2 节），但落到
 下图以**一个较大模型的 decode 步（forward 约 15 ms 量级，例如 70B 级别多卡部署）**为例——第 10.4 节那张 7B 单卡的表里 decode 是 8–12 ms，量级不同但结论一致：只要 GPU 侧是十毫秒量级，Python 侧的零点几毫秒就淹没在里面。
 
 ```
-┌──────────────────── 时间线 (单次 Decode 迭代) ──────────────────────┐
-│                                                                     │
-│  Python 控制面:                                                      │
-│  ──[schedule: ~0.05ms]──[prepare: ~0.1ms]──────────────────────────  │
-│                                                                     │
-│  GPU 数据面:                                                         │
-│  ──────────────────────[model forward: ~15ms]──[sample: ~0.05ms]──  │
-│                                                                     │
-│  Python 开销占比: 0.15ms / 15ms ≈ 1%                                │
-│                                                                     │
-│  流水线化 (Batch Queue):                                             │
-│  ──[sched N]──[prep N]──[sched N+1]──[prep N+1]──                  │
-│  ──────────────────────[forward N]────────────[forward N+1]───      │
-│                         ↑                                           │
-│                   GPU 执行 N 的同时, CPU 在准备 N+1                   │
-│                   → Python 延迟被尽量摊薄或隐藏                         │
-└─────────────────────────────────────────────────────────────────────┘
+单次 Decode 迭代
+  Python 控制面  ──[schedule ~0.05ms][prepare ~0.1ms]
+  GPU 数据面     ────────────────────────────[model forward ~15ms][sample ~0.05ms]
+                 → Python 开销占比 0.15ms / 15ms ≈ 1%
+
+流水线化后（Batch Queue）
+  CPU  ──[sched N][prep N]──[sched N+1][prep N+1]──
+  GPU  ──────────────────[forward N]──────────[forward N+1]──
+                          ↑ GPU 在算 N 的同时，CPU 已在准备 N+1
+                          → Python 延迟被摊薄甚至完全隐藏
 ```
 
 核心分工原则：
@@ -1358,23 +1200,12 @@ Decode 偏 memory-bound、Prefill 偏 compute-bound（第 1.2 节），但落到
 
 vLLM 的 C++/CUDA 扩展通过 PyTorch 的 Custom Op 机制注册（位于 `csrc/` 目录），使用 PyBind11 绑定 Python 接口。同时，许多算子（尤其是 Attention 和 MoE 相关）使用 OpenAI Triton 编写，兼顾性能和开发效率：
 
-```
-  Python 层                  C++/CUDA 层              GPU 硬件
-  ─────────                 ──────────               ─────────
-  model.forward()
-       │
-  torch.ops.vllm.rms_norm() ──▶ csrc/libtorch_stable/layernorm_kernels.cu
-       │                          │
-  attention_backend()        ──▶ FlashAttention (C++ lib)
-       │                         或 Triton kernel (.py)
-  fused_moe()               ──▶ csrc/libtorch_stable/moe/ (CUDA)
-       │                         或 Triton experts (.py)
-       ▼                          │
-  torch.matmul()             ──▶ cuBLAS GEMM
-                                  │
-                                  ▼
-                             CUDA Cores / Tensor Cores
-```
+| Python 层 | → | C++ / CUDA 层 | → | GPU 硬件 |
+|---|---|---|---|---|
+| `torch.ops.vllm.rms_norm()` | | `csrc/libtorch_stable/layernorm_kernels.cu` | | CUDA Cores |
+| `attention_backend()` | | FlashAttention（C++ lib）或 Triton kernel（`.py`） | | Tensor Cores |
+| `fused_moe()` | | `csrc/libtorch_stable/moe/`（CUDA）或 Triton experts（`.py`） | | Tensor Cores |
+| `torch.matmul()` | | cuBLAS GEMM | | Tensor Cores |
 
 ---
 
@@ -1506,46 +1337,38 @@ Prefill 场景通常偏向 FlashAttention 等对长 query 高效的后端；Deco
 
 FlashAttention 是现代 LLM 推理的基石算子。其核心思想是通过**分块计算（Tiling）**和 **Online-Softmax** 算法，把 Attention 的 HBM 访问量从 O(N²) 降到 O(N)——注意降低的是**访存量**，不是计算复杂度：
 
+**Standard Attention** 的问题在于它把两个 N×N 的大矩阵实实在在地写进了 HBM：
+
+| 步骤 | 产物 | HBM 行为 |
+|---|---|---|
+| `Q[N,d] × K[N,d]ᵀ` | `S[N,N]` | O(N²) **写入** HBM |
+| `softmax(S)` | `P[N,N]` | O(N²) **读 + 写** HBM |
+| `P × V[N,d]` | `O[N,d]` | O(N²) **读取** HBM |
+
+总 HBM 访问 **O(N² + N·d)**，而且 N 到几千时 S、P 两个矩阵就能把显存占满。
+
+**FlashAttention** 的做法是把 Q/K/V 切成 `Bq × Bk` 的小块，让中间结果**只在片上 SRAM 里出现，从不落回 HBM**（A100 每个 SM 约 192 KB SRAM）：
+
+| 驻留在 SRAM 的东西 | 形状 | 说明 |
+|---|---|---|
+| `Q_tile` | `[Bq, d]` | 从 HBM 加载一次 |
+| `K_tile` / `V_tile` | `[Bk, d]` | 分块循环加载 |
+| `S_tile` | `[Bq, Bk]` | **在 SRAM 中算完就用掉，不写回** |
+| `O_acc` | `[Bq, d]` | 在线累加的输出 |
+| `m, l` | `[Bq]` | softmax 的运行时统计量（max、sum） |
+
+关键在于 **Online Softmax**——它让 softmax 不需要先看到整行就能开始累加：
+
 ```
-┌──────────────── Standard Attention vs FlashAttention ─────────────────┐
-│                                                                       │
-│  Standard Attention:                                                  │
-│                                                                       │
-│  Q[N,d] × K[N,d]ᵀ → S[N,N]     ← O(N²) 存储, 写入 HBM               │
-│        → softmax(S) → P[N,N]    ← O(N²) 存储, 读写 HBM               │
-│        → P × V[N,d] → O[N,d]    ← O(N²) 读取 HBM                    │
-│                                                                       │
-│  总 HBM 访问: O(N² + N·d)                                             │
-│  瓶颈: N > 几千时, S 和 P 矩阵占满显存                                 │
-│                                                                       │
-│  ────────────────────────────────────────────────────────────────     │
-│                                                                       │
-│  FlashAttention (Tiling + Online Softmax):                            │
-│                                                                       │
-│  将 Q, K, V 分成 Bq × Bk 的小块:                                      │
-│                                                                       │
-│  ┌──────┐                                                             │
-│  │ SRAM │ ← 只在片上缓存 (192 KB, A100)                               │
-│  │      │                                                             │
-│  │ Q_tile [Bq, d]  ← 从 HBM 加载一次                                  │
-│  │ K_tile [Bk, d]  ← 分块加载                                         │
-│  │ V_tile [Bk, d]  ← 分块加载                                         │
-│  │ S_tile [Bq, Bk] ← 在 SRAM 中计算, 不写回 HBM!                      │
-│  │ O_acc  [Bq, d]  ← 在线累加                                         │
-│  │ m, l   [Bq]     ← softmax 统计量 (max, sum)                        │
-│  └──────┘                                                             │
-│                                                                       │
-│  for each K_tile, V_tile:                                             │
-│    S_tile = Q_tile @ K_tileᵀ                (SRAM 内计算)              │
-│    m_new = max(m_old, rowmax(S_tile))       (Online max)              │
-│    P_tile = exp(S_tile - m_new)             (SRAM 内计算)              │
-│    l_new = exp(m_old - m_new) * l_old + rowsum(P_tile)               │
-│    O_acc = rescale(O_acc) + P_tile @ V_tile (Online 累加)              │
-│                                                                       │
-│  总 HBM 访问: O(N·d)  ← 相比 O(N²) 大幅降低!                          │
-│  无需存储 N×N 矩阵, 序列长度不再受显存限制                               │
-└───────────────────────────────────────────────────────────────────────┘
+for each K_tile, V_tile:
+    S_tile = Q_tile @ K_tileᵀ                      # SRAM 内
+    m_new  = max(m_old, rowmax(S_tile))            # 滚动更新最大值
+    P_tile = exp(S_tile - m_new)                   # SRAM 内
+    l_new  = exp(m_old - m_new) * l_old + rowsum(P_tile)   # 修正旧的累加和
+    O_acc  = rescale(O_acc) + P_tile @ V_tile      # 在线累加
 ```
+
+每来一个新块，就用 `exp(m_old - m_new)` 把此前累加的结果**追溯性地缩放一次**，从而保证数学上等价于一次性 softmax。总 HBM 访问降到 **O(N·d)**，N×N 矩阵根本不存在，序列长度也就不再受显存限制。
 
 | 特性 | Standard Attention | FlashAttention |
 |------|-------------------|----------------|
@@ -1561,30 +1384,16 @@ FlashAttention 消除的不是计算量，而是 HBM 读写量。Standard 路径
 
 #### 5.3.3 Kernel Fusion 的动机与收益
 
-```
-┌────────── 未融合 vs 融合的 Kernel 执行 ─────────────────────────────┐
-│                                                                      │
-│  未融合 (3 个独立 kernel):                                            │
-│  ┌──────────┐  write→HBM  ┌──────────┐  write→HBM  ┌──────────┐   │
-│  │ RMSNorm  │────────────▶│   RoPE   │────────────▶│  Residual│   │
-│  │ (read x) │  temp tensor │ (read y) │  temp tensor │ (read z) │   │
-│  └──────────┘              └──────────┘              └──────────┘   │
-│                                                                      │
-│  HBM 访问: 6 次 (3 read + 3 write), 2 个中间 tensor                  │
-│                                                                      │
-│  ────────────────────────────────────────────────────────────────    │
-│                                                                      │
-│  融合后 (1 个 kernel):                                                │
-│  ┌──────────────────────────────────────────────────────────┐       │
-│  │  Fused: RMSNorm + RoPE + Residual                       │       │
-│  │  read x once → compute norm → apply RoPE → add residual │       │
-│  │  → write final result once                               │       │
-│  └──────────────────────────────────────────────────────────┘       │
-│                                                                      │
-│  HBM 访问: 2 次 (1 read + 1 write), 0 个中间 tensor                  │
-│  节省: ~67% 内存带宽, 减少 2 次 kernel launch                         │
-└──────────────────────────────────────────────────────────────────────┘
-```
+以 `RMSNorm → RoPE → Residual` 这一串为例：
+
+| | 未融合（3 个独立 kernel） | 融合后（1 个 kernel） |
+|---|---|---|
+| 执行 | RMSNorm 读 x 写 temp₁ → RoPE 读 temp₁ 写 temp₂ → Residual 读 temp₂ 写 out | 读 x 一次 → norm → RoPE → 加 residual → 写 out 一次 |
+| HBM 访问 | **6 次**（3 读 + 3 写） | **2 次**（1 读 + 1 写） |
+| 中间 tensor | 2 个 | **0 个** |
+| kernel launch | 3 次 | 1 次 |
+
+省下约 **67% 的内存带宽**，顺带少了 2 次 launch。注意这个收益的来源和 FlashAttention 完全一致——**都是不让中间结果去 HBM 兜一圈**，只不过 FlashAttention 作用在一个算子内部，Kernel Fusion 作用在算子之间。
 
 #### 5.3.4 vLLM 中的融合算子
 
@@ -1609,25 +1418,11 @@ vLLM 在 `csrc/` 目录中实现了大量融合算子（CUDA 实现集中在 `cs
 
 #### 5.4.1 推理量化的对象、收益与代价
 
-```
-┌──────────────── 量化对象全景 ──────────────────────────────────────┐
-│                                                                    │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐            │
-│  │   权重 (W)  │    │  激活 (A)   │    │  KV Cache   │            │
-│  │  ─────────  │    │  ─────────  │    │  ─────────  │            │
-│  │  常驻 GPU   │    │  动态生成   │    │  动态增长   │            │
-│  │  占比最大   │    │  逐层计算   │    │  随序列膨胀  │            │
-│  │             │    │             │    │             │            │
-│  │  量化收益:   │    │  量化收益:   │    │  量化收益:   │            │
-│  │  · 减少显存  │    │  · 加速GEMM │    │  · 更多并发  │            │
-│  │  · 加速推理  │    │  · 减少带宽  │    │  · 更长上下文│            │
-│  │             │    │             │    │             │            │
-│  │  典型方法:   │    │  典型方法:   │    │  典型方法:   │            │
-│  │  GPTQ/AWQ   │    │  W8A8/FP8  │    │  FP8/INT8   │            │
-│  │  W4A16      │    │  Per-token  │    │  Per-head   │            │
-│  └─────────────┘    └─────────────┘    └─────────────┘            │
-└────────────────────────────────────────────────────────────────────┘
-```
+| | 权重 (W) | 激活 (A) | KV Cache |
+|---|---|---|---|
+| 生命周期 | 常驻 GPU，占比最大 | 动态生成，逐层计算 | 动态增长，随序列膨胀 |
+| 量化收益 | 减少显存、加速推理 | 加速 GEMM、减少带宽 | 更多并发、更长上下文 |
+| 典型方法 | GPTQ / AWQ / W4A16 | W8A8 / FP8、per-token | FP8 / INT8、per-head |
 
 三种量化对象不是均匀受益的。权重量化同时降低显存和 Decode 带宽压力，因为 Decode 每步都要读权重；KV Cache 量化主要受益于 Decode 的历史 KV 读取和并发数；激活量化则更直接加速 Prefill 的 GEMM。选择方案前需要先判断瓶颈在 Prefill 还是 Decode。
 
@@ -1641,72 +1436,57 @@ vLLM 在 `csrc/` 目录中实现了大量融合算子（CUDA 实现集中在 `cs
 | **FP8** | W8A8 | 硬件原生 FP8 格式 | 在线/离线 | 接近 FP16 |
 | **Weight-only** | W4A16/W8A16 | 只量化权重，激活保持 FP16 | 离线 | 较好 |
 
-```
-┌──────── 权重量化: 内存与计算收益 (Llama-70B 为例) ──────────────────┐
-│                                                                     │
-│  格式          权重大小    显存占用    Decode 加速    精度损失         │
-│  ──────────   ─────────  ─────────  ──────────    ─────────         │
-│  FP16          140 GB     ~140 GB    1.0×          基准              │
-│  FP8 (W8A8)    70 GB      ~70 GB     1.5-2.0×     极小              │
-│  INT8 (W8A8)   70 GB      ~70 GB     1.5-2.0×     小                │
-│  INT4 (W4A16)  35 GB      ~35 GB     1.8-2.5×     中等              │
-│                                                                     │
-│  Decode 加速原因:                                                    │
-│  · 权重从 HBM 加载的带宽减半 → Memory-Bound 瓶颈缓解                 │
-│  · INT4/FP8 GEMM 使用 Tensor Core 特殊指令 → 更高算力               │
-│  · 更小的模型 → 可以运行在更少的 GPU 上 → 减少通信开销               │
-└─────────────────────────────────────────────────────────────────────┘
-```
+以 Llama-70B 为例：
+
+| 格式 | 权重大小 | Decode 加速 | 精度损失 |
+|---|---|---|---|
+| FP16 | 140 GB | 1.0×（基准） | 基准 |
+| FP8 (W8A8) | 70 GB | 1.5–2.0× | 极小 |
+| INT8 (W8A8) | 70 GB | 1.5–2.0× | 小 |
+| INT4 (W4A16) | 35 GB | 1.8–2.5× | 中等 |
+
+Decode 之所以能加速，有三个叠加的原因：
+
+1. **权重从 HBM 加载的带宽直接减半**——回到 10.4 节那笔账，batch=1 时权重读取就是 decode 耗时的大头，砍掉一半立竿见影；
+2. INT4 / FP8 GEMM 能用上 Tensor Core 的特殊指令，算力更高；
+3. 模型变小后可能用更少的卡装下，**连通信开销一起省了**。
 
 #### 5.4.3 FP8 推理
 
 FP8 是 H100/H200 引入的硬件原生低精度格式，vLLM 通过 `vllm/model_executor/layers/quantization/fp8.py` 支持：
 
-```
-┌──────────── FP8 格式详解 ────────────────────────────────────────┐
-│                                                                   │
-│  E4M3 (用于权重和激活):                                           │
-│  ┌──┬────┬───┐                                                   │
-│  │S │EEEE│MMM│  1 sign + 4 exponent + 3 mantissa                │
-│  └──┴────┴───┘                                                   │
-│  范围: [-448, 448],  精度: ~3-4 位有效数字                        │
-│                                                                   │
-│  E5M2 (用于梯度，推理少用):                                       │
-│  ┌──┬─────┬──┐                                                   │
-│  │S │EEEEE│MM│  1 sign + 5 exponent + 2 mantissa                │
-│  └──┴─────┴──┘                                                   │
-│  范围: 更大,  精度: ~2-3 位有效数字                                │
-│                                                                   │
-│  FP8 推理优势:                                                    │
-│  · Tensor Core 原生支持 FP8 GEMM                                  │
-│  · H100 SXM 稠密算力: FP8 1979 TFLOPS vs BF16 989 TFLOPS         │
-│    → 理论 2× 算力提升                                             │
-│    (常见的 3958 TFLOPS 是"带稀疏"口径, 不能拿来和稠密 BF16 比)     │
-│  · 权重 + 激活 + KV Cache 全链路 FP8 → 显存减半                  │
-│  · Per-tensor / Per-token scaling 适配不同精度需求                │
-└───────────────────────────────────────────────────────────────────┘
-```
+FP8 有两种排布，推理基本只用前者：
+
+| 格式 | 位分配 | 范围 | 精度 | 用途 |
+|---|---|---|---|---|
+| **E4M3** | 1 符号 + 4 指数 + 3 尾数 | [-448, 448] | ~3–4 位有效数字 | **权重与激活** |
+| E5M2 | 1 符号 + 5 指数 + 2 尾数 | 更大 | ~2–3 位有效数字 | 梯度，推理少用 |
+
+这个取舍很直白：E4M3 拿指数位换尾数位，**牺牲动态范围来保精度**——推理时数值范围可以靠 scaling 控住，精度却不能省。
+
+FP8 推理的优势：
+
+- Tensor Core 原生支持 FP8 GEMM。H100 SXM 稠密算力 **FP8 1979 TFLOPS vs BF16 989 TFLOPS，理论 2×**（常见的 3958 TFLOPS 是"带稀疏"口径，不能拿来和稠密 BF16 比）
+- 权重 + 激活 + KV Cache 全链路 FP8 → 显存减半
+- Per-tensor / Per-token scaling 可按需选择精度档位
 
 #### 5.4.4 混合精度组合与性能评测
 
-```
-┌──────── 典型混合精度组合与预期收益 ──────────────────────────────────┐
-│                                                                      │
-│  组合                权重  激活  KV Cache  显存  TTFT  TPOT  质量     │
-│  ──────────────────  ────  ────  ────────  ────  ────  ────  ────    │
-│  FP16 全精度          FP16  FP16  FP16     100%  基准  基准   基准    │
-│  FP8 全链路           FP8   FP8   FP8      50%   0.7×  0.6×  ≈基准  │
-│  W4A16 + FP16 KV     INT4  FP16  FP16      35%   0.8×  0.5×  轻降  │
-│  W4A16 + FP8 KV      INT4  FP16  FP8       27%   0.7×  0.5×  轻降  │
-│  FP8 W/A + FP8 KV    FP8   FP8   FP8      50%   0.5×  0.5×  ≈基准  │
-│                                                                      │
-│  注: 数值为相对基准的比例/倍数, 实际因模型和场景而异                    │
-│  · 显存越低 → 可跑更大 Batch → 实际吞吐可能更高                      │
-│  · TTFT 主要受权重量化影响 (Prefill 是 Compute-Bound)                │
-│  · TPOT 同时受权重量化和 KV Cache 量化影响 (Memory-Bound)            │
-│  · 质量损失需通过 eval benchmark 验证 (HumanEval, MMLU 等)           │
-└──────────────────────────────────────────────────────────────────────┘
-```
+| 组合 | 权重 | 激活 | KV Cache | 显存 | TTFT | TPOT | 质量 |
+|---|---|---|---|---|---|---|---|
+| FP16 全精度 | FP16 | FP16 | FP16 | 100% | 基准 | 基准 | 基准 |
+| FP8 全链路 | FP8 | FP8 | FP8 | 50% | 0.7× | 0.6× | ≈ 基准 |
+| W4A16 + FP16 KV | INT4 | FP16 | FP16 | 35% | 0.8× | 0.5× | 轻降 |
+| W4A16 + FP8 KV | INT4 | FP16 | FP8 | 27% | 0.7× | 0.5× | 轻降 |
+| FP8 W/A + FP8 KV | FP8 | FP8 | FP8 | 50% | 0.5× | 0.5× | ≈ 基准 |
+
+**表中数值是相对基准的比例，仅作量级示意，实际因模型和场景而异。** 读这张表时注意三条规律：
+
+- **TTFT 主要受权重量化影响**（Prefill 是 compute-bound，吃的是算力）
+- **TPOT 同时受权重量化和 KV 量化影响**（Decode 是 memory-bound，吃的是带宽）
+- **显存降低还有二阶收益**：省下的显存能换更大 batch，实际吞吐提升往往超过表里的单请求数字
+
+最后一句必须说在前面：**质量损失一定要用 eval benchmark 实测**（HumanEval、MMLU 等），不能靠"≈ 基准"这三个字就上生产。
 
 ---
 
@@ -1719,13 +1499,12 @@ FP8 是 H100/H200 引入的硬件原生低精度格式，vLLM 通过 `vllm/model
 Decode 阶段的核心瓶颈是**逐 Token 串行**：每一步只生成 1 个 token，但需要完整读取模型权重和 KV Cache。GPU 算力的绝大部分处于闲置状态（低 arithmetic intensity）。
 
 ```
-  传统 Decode:
-  Step 1 → token₁ → Step 2 → token₂ → Step 3 → token₃ → ...
-  每步: 读完整模型权重 + KV Cache, 只算 1 个 token
-  算力利用率: 小 batch 下可低至个位数百分比 (大部分时间在等 HBM 读取)
-  注: batch 增大后同一份权重被多个请求摊薄, 利用率会显著回升,
-      这也是 Continuous Batching 之所以有效的根本原因
+传统 Decode：
+  Step 1 → token₁ → Step 2 → token₂ → Step 3 → token₃ → …
+  每一步都要：读完整模型权重 + 读全部历史 KV，却只算出 1 个 token
 ```
+
+算力利用率在小 batch 下可以低到个位数百分比——绝大部分时间在等 HBM。（batch 增大后同一份权重被多个请求摊薄，利用率会显著回升，这正是 Continuous Batching 有效的根本原因；但**单个请求的延迟**并不会因此变好，这才是投机解码要解决的问题。）
 
 ##### Speculative Decoding 基本原理
 
@@ -1742,77 +1521,49 @@ Decode 阶段的核心瓶颈是**逐 Token 串行**：每一步只生成 1 个 t
 
 所以它的本质是一次**赌注**：用便宜模型猜一条路径，再用贵模型一次性核对这条路径对不对。猜对了就白赚几个 token，猜错了就退回重来。**它省下的是 Target 模型的"轮次"，而不是语言模型的"依赖"。** 这也解释了为什么接受率一低，收益就迅速蒸发——赌输的次数太多了。
 
-```
-┌──────────── Speculative Decoding 工作流程 ─────────────────────────────┐
-│                                                                         │
-│  Step 1: Draft Model 推测 (快, 不精确)                                  │
-│  ─────────────────────────────────────                                  │
-│  Draft(context) → [d₁, d₂, d₃, d₄, d₅]   (一次生成 K=5 个候选)        │
-│  耗时: 很短 (小模型, K 步串行但很快)                                     │
-│                                                                         │
-│  Step 2: Target Model 并行验证 (慢, 精确)                               │
-│  ──────────────────────────────────────                                  │
-│  Target(context + [d₁, d₂, d₃, d₄, d₅]) → [p₁, p₂, p₃, p₄, p₅, p₆]  │
-│  一次 Forward Pass 同时计算所有位置的真实概率分布                         │
-│  耗时: ≈ 1 次正常 Decode 步 (并行度高, GPU 利用率高)                     │
-│                                                                         │
-│  Step 3: 逐位验证接受/拒绝                                              │
-│  ───────────────────────────                                            │
-│  位置 1: P_target(d₁|context) / P_draft(d₁|context) > rand() → 接受 ✓  │
-│  位置 2: P_target(d₂|...) / P_draft(d₂|...) > rand() → 接受 ✓          │
-│  位置 3: P_target(d₃|...) / P_draft(d₃|...) > rand() → 拒绝 ✗          │
-│  → 从 P_target 重新采样位置 3 的 token → t₃'                            │
-│  → 丢弃位置 4, 5 的候选                                                 │
-│                                                                         │
-│  结果: 一次 Target Forward 生成了 3 个 token (d₁, d₂, t₃')              │
-│  加速比: 3× (理想情况下可达 K+1 ×)                                       │
-│                                                                         │
-│  数学保证: 修正采样确保输出分布与原始 Target Model 完全一致               │
-└─────────────────────────────────────────────────────────────────────────┘
+```mermaid
+sequenceDiagram
+    participant D as Draft Model<br/>(小而快)
+    participant T as Target Model<br/>(大而准)
+    participant V as Rejection Sampling
+
+    D->>D: 串行走 K=5 步（便宜）
+    D->>T: 候选序列 [d₁ d₂ d₃ d₄ d₅]
+    Note over T: 一次 Forward 同时算出<br/>所有位置的真实分布 [p₁…p₆]<br/>耗时 ≈ 1 次正常 Decode 步
+    T->>V: p₁…p₆
+    V->>V: 位置1: P_t(d₁)/P_d(d₁) > rand() → 接受 ✓
+    V->>V: 位置2: 接受 ✓
+    V->>V: 位置3: 拒绝 ✗ → 从 P_target 重采样得 t₃′
+    Note over V: 位置 4、5 的候选一并丢弃
+    V-->>T: 本轮产出 3 个 token: d₁, d₂, t₃′
 ```
 
-```
-  普通 Decode:    [Step][Step][Step][Step][Step] → 5 tokens, 5 次 Forward
-                   15ms  15ms  15ms  15ms  15ms = 75ms
+三个要点：
 
-  Speculative:    [Draft: 5 tokens][Verify: 1 Forward] → accept 3 tokens
-                   5ms              18ms               = 23ms → 3 tokens
+- **一次 Target Forward 产出了 3 个 token**，理想情况最多能到 K+1 个；
+- **拒绝是"截断式"的**——位置 3 一旦被拒，后面的 4、5 全部作废，因为它们的前提已经不成立了。这也是接受率对收益影响巨大的原因；
+- **输出分布严格无损**：这套修正采样（rejection sampling）在数学上保证最终分布与直接用 Target Model 采样**完全一致**。投机解码不是近似加速，这一点和量化有本质区别。
 
-  等效 TPOT: 23ms/3 ≈ 7.7ms  vs  75ms/5 = 15ms  → 约 2× 加速
-```
+| | 做法 | 耗时 | 产出 | 等效 TPOT |
+|---|---|---|---|---|
+| 普通 Decode | 5 次 Forward，每次 15 ms | 75 ms | 5 tokens | 15 ms |
+| Speculative | Draft 5 步（5 ms）+ Verify 1 次（18 ms） | 23 ms | 3 tokens（接受 2 + 重采样 1） | **≈ 7.7 ms** |
+
+约 **2× 加速**。注意 Verify 那 18 ms 比普通 Decode 的 15 ms 略高——因为要一次算 6 个位置而不是 1 个，计算量确实增加了，只是在 memory-bound 区间这点额外计算几乎免费。**这正是投机解码的本质：拿闲置算力去换延迟。**
 
 ##### 工程实现：Scheduler、KV Cache 与 Token 验证
 
 Speculative Decoding 在 vLLM 中的实现涉及多个组件的协同：
 
-```
-┌──────────────── Spec Decode 在 vLLM 中的数据流 ──────────────────────┐
-│                                                                       │
-│  Scheduler                                                            │
-│  ├── 分配 num_lookahead_tokens 个额外 KV 块                          │
-│  │   (为候选 token 预留显存空间)                                      │
-│  └── SchedulerOutput 包含 draft_slots 信息                           │
-│                                                                       │
-│  ModelRunner                                                          │
-│  ├── Step 1: Draft Model Forward                                     │
-│  │   ├── 小模型生成 K 个候选 token_ids                               │
-│  │   └── 候选 token 的 KV 写入临时 Cache 槽位                        │
-│  │                                                                    │
-│  ├── Step 2: Target Model Verification Forward                       │
-│  │   ├── 一次 Forward 计算 context + K 个候选的 logits                │
-│  │   └── 复用 Draft 的 KV Cache (正确的话)                            │
-│  │                                                                    │
-│  └── Step 3: Rejection Sampling                                      │
-│      ├── 逐位比较 Draft 和 Target 的概率分布                          │
-│      ├── 接受: 保留该位置的 KV Cache                                  │
-│      └── 拒绝: 回滚该位置及之后的 KV Cache 块                        │
-│                                                                       │
-│  Scheduler.update_from_output()                                       │
-│  ├── 处理接受/拒绝结果                                                │
-│  ├── 更新 num_computed_tokens                                        │
-│  └── 释放被拒绝候选的 KV Cache 块                                     │
-└───────────────────────────────────────────────────────────────────────┘
-```
+| 组件 | 职责 |
+|---|---|
+| **Scheduler** | 分配 `num_lookahead_tokens` 个额外 KV 块（为候选 token 预留显存）；`SchedulerOutput` 携带 `draft_slots` 信息 |
+| **ModelRunner** ① Draft Forward | 小模型生成 K 个候选 token_ids；候选的 KV 写入临时槽位 |
+| **ModelRunner** ② Verify Forward | 一次 Forward 算出 context + K 个候选的 logits；复用 Draft 已写入的 KV |
+| **ModelRunner** ③ Rejection Sampling | 逐位比较 Draft 与 Target 的分布；接受则保留该位置 KV，拒绝则**回滚该位置及其之后**的 KV 块 |
+| **Scheduler.update_from_output()** | 处理接受/拒绝结果、更新 `num_computed_tokens`、释放被拒候选占用的 KV 块 |
+
+注意第三行和最后一行的配合——**投机解码给显存管理引入了"可能要回滚"这件事**。这是它在工程上真正麻烦的地方：KV 块的分配不再是只增不减的，而是要支持按位置撤销。
 
 ##### Speculative Decoding 的变体
 
@@ -1851,34 +1602,15 @@ Speculative Decoding（一种推理时的加速框架）
 
 MTP 这一行值得单独说明：vLLM 并没有一个独立的 "MTP proposer"，而是把模型自带的 MTP 头当作 EAGLE 的一种特例，复用 `EagleProposer` 的推测/验证流程；`SpeculativeConfig` 里维护了一份 `*_mtp` 方法白名单（`deepseek_mtp`、`glm4_moe_mtp`、`qwen3_next_mtp` 等几十项），个别模型再派生特化子类（如 `step3p5.py` 的 `Step3p5MTPProposer(EagleProposer)`）。也就是说，MTP 在工程上是"复用已有框架"而不是"新增一套框架"——这正是 EAGLE 那套 hidden-state 级 draft 抽象的价值所在。
 
-```
-┌─────── Speculative Decoding 变体对比 ─────────────────────────────────┐
-│                                                                        │
-│  独立 Draft Model:                                                     │
-│  Target (70B) ◀─── verify ───  Draft (7B) → [d₁,d₂,d₃,d₄,d₅]       │
-│                                  ↑                                     │
-│                            独立小模型                                   │
-│                                                                        │
-│  EAGLE (Feature-level Draft):                                          │
-│  Target hidden_states → EAGLE Head → [d₁,d₂,d₃,d₄,d₅]               │
-│                          ↑                                             │
-│                    复用 Target 的特征                                    │
-│                                                                        │
-│  Medusa (Multi-Head Parallel):                                         │
-│  Target hidden_states → Medusa Head₁ → d₁                             │
-│                       → Medusa Head₂ → d₂                             │
-│                       → Medusa Head₃ → d₃                             │
-│                         (并行，一次 Forward)                             │
-│                                                                        │
-│  MTP (Model-native):                                                   │
-│  Target hidden_states → MTP Layer₁ → d₁                               │
-│                       → MTP Layer₂ → d₂                               │
-│                         (模型预训练时已包含)                              │
-│                                                                        │
-│  N-gram / Suffix:                                                      │
-│  prompt 文本中查找匹配 → [d₁,d₂,d₃]  (无模型开销)                      │
-└────────────────────────────────────────────────────────────────────────┘
-```
+| 变体 | 候选从哪来 | 一句话 |
+|---|---|---|
+| **独立 Draft Model** | `Draft(7B)` 串行跑 K 步 → `[d₁…d₅]`，再交给 `Target(70B)` 验证 | 另找一个小模型 |
+| **EAGLE** | `Target hidden_states` → EAGLE Head → `[d₁…d₅]` | 复用 Target 的**特征**，不重新读一遍文本 |
+| **Medusa** | `Target hidden_states` → Head₁/Head₂/Head₃ **并行** → `d₁,d₂,d₃` | 多个 LM 头一次 Forward 出多个位置 |
+| **MTP** | `Target hidden_states` → MTP Layer₁/Layer₂ → `d₁,d₂` | 模型**预训练时就带着**这些层 |
+| **N-gram / Suffix** | 直接在 prompt 文本里查匹配 → `[d₁,d₂,d₃]` | 零模型开销，纯字符串匹配 |
+
+从上往下，**对模型的侵入性递增、额外开销递减**：独立 Draft 最通用但要多养一个模型；EAGLE / Medusa 要训练额外的头；MTP 要模型原生支持；而 N-gram 什么都不要，代价是只在有重复模式时才猜得中。
 
 ##### 适用边界与性能收益
 
@@ -1900,51 +1632,53 @@ MTP 这一行值得单独说明：vLLM 并没有一个独立的 "MTP proposer"�
 
 vLLM V1 的执行循环不能简单理解成"先完整 Prefill，再完整 Decode"。在 Continuous Batching 和 Chunked Prefill 下，同一轮迭代中可能同时存在长 prompt 的一段 prefill、已有请求的 decode token，以及投机解码的候选 token。执行层需要通过 `InputBatch`、`slot_mapping`、block table 和 attention metadata，把这些不同形态的 token 组织成一次 GPU forward。
 
+**`SchedulerOutput` 给出的本轮预算分配**，三个请求三种形态：
+
+| 请求 | 本轮 token | 形态 | 块情况 |
+|---|---|---|---|
+| Req A | 256 | 长 prefill 的一段（已推进 256，本轮再推 256） | `block_table = [7, 13]`（新分配） |
+| Req B | 1 | 普通 decode | 追加 slot 到已有块（KV 已累积 seq_len=512） |
+| Req C | 5 | 1 个真实 token + 4 个候选 token | 额外预留 lookahead slots |
+
+**GPU 侧把它们拍平成一次 forward**：
+
 ```
-┌──────────────── 一轮 Mixed Batch 的 token 构成 ──────────────────────┐
-│                                                                      │
-│  SchedulerOutput (本轮 token 预算分配结果):                            │
-│                                                                      │
-│  ┌─ Req A (长 prefill, 已推进 256, 本轮再推 256) ──────────────────┐ │
-│  │  |████████████████████████|  ← 256 个 prefill tokens              │ │
-│  │  block_table = [7, 13]  (新分配的块)                              │ │
-│  └──────────────────────────────────────────────────────────────────┘ │
-│                                                                      │
-│  ┌─ Req B (普通 decode) ───────────────────────────────────────────┐ │
-│  │  |█|  ← 1 个 decode token                                        │ │
-│  │  block_table 追加 slot 到已有块                                   │ │
-│  │  KV Cache 已累积 seq_len=512                                     │ │
-│  └──────────────────────────────────────────────────────────────────┘ │
-│                                                                      │
-│  ┌─ Req C (decode, spec decode) ───────────────────────────────────┐ │
-│  │  |█ █ █ █ █|  ← 1 个真实 token + 4 个候选 token                  │ │
-│  │  block_table 额外预留 lookahead slots                             │ │
-│  └──────────────────────────────────────────────────────────────────┘ │
-│                                                                      │
-│  GPU 侧组装:                                                          │
-│  ┌──────────────────────────────────────────────────────────────────┐ │
-│  │  InputBatch (扁平的 token 序列):                                  │ │
-│  │  [A₀ A₁ … A₂₅₅ | B₀ | C₀ C₁ C₂ C₃ C₄]                         │ │
-│  │  total_tokens = 256 + 1 + 5 = 262                                │ │
-│  │                                                                  │ │
-│  │  slot_mapping (每个 token 的 KV 写入位置):                        │ │
-│  │  A: [block7:0..15, block13:0..15, ...]  (新块, 全部写入)         │ │
-│  │  B: [block3:slot15]                    (追加到已存在块尾部)        │ │
-│  │  C: [block5:slot12..16]               (含 lookahead 预留)        │ │
-│  │                                                                  │ │
-│  │  attention metadata 统计（用于 backend 内部分支）:                 │ │
-│  │  num_prefill_tokens = 256  → backend 先处理这 256 个 prefill token│ │
-│  │  num_decode_tokens  = 6    → 再处理这 6 个 decode/candidate token │ │
-│  │  block_table (per-req) 告诉 kernel 每个请求的 KV 块映射            │ │
-│  │  query_start_loc 区分不同请求的 token 起始位置                     │ │
-│  └──────────────────────────────────────────────────────────────────┘ │
-│                                                                      │
-│  关键: 模型级只有一个 attention backend, 不是 per-request 切换。       │
-│  该 backend 根据 metadata 中的 prefill/decode token 计数,              │
-│  在自己的 forward 内调用不同的底层 kernel (如 FlashInfer 的             │
-│  trtllm_batch_context_with_kv_cache 和 trtllm_batch_decode_...)。     │
-└──────────────────────────────────────────────────────────────────────┘
+InputBatch（扁平 token 序列）
+  [A₀ A₁ … A₂₅₅ │ B₀ │ C₀ C₁ C₂ C₃ C₄]      total = 256 + 1 + 5 = 262
+
+slot_mapping（每个 token 的 KV 写到哪）
+  A: block7:0..15, block13:0..15, …      新块，全部写入
+  B: block3:slot15                       追加到已有块尾部
+  C: block5:slot12..16                   含 lookahead 预留
 ```
+
+attention metadata 里的关键统计：
+
+| 字段 | 值 | 作用 |
+|---|---|---|
+| `num_prefill_tokens` | 256 | backend 先处理这 256 个 prefill token |
+| `num_decode_tokens` | 6 | 再处理这 6 个 decode / candidate token |
+| `block_table`（per-req） | — | 告诉 kernel 每个请求的 KV 块映射 |
+| `query_start_loc` | — | 区分不同请求的 token 起始位置 |
+
+**这里有个容易搞错的点**：模型级只有**一个** attention backend，不存在 per-request 切换。是该 backend 在自己的 `forward` 内部，根据 metadata 里的 prefill / decode token 计数去调不同的底层 kernel（例如 FlashInfer 的 `trtllm_batch_context_with_kv_cache` 与 `trtllm_batch_decode_...`）。**分派发生在 kernel 层，不在请求层。**
+
+<details>
+<summary><b>📂 本章源码导航</b></summary>
+
+**GPU 执行**
+
+| 想看什么 | 从哪开始 |
+|---|---|
+| **调度结果 → GPU 张量的翻译层** | `vllm/v1/worker/gpu/model_runner.py`、`input_batch.py` |
+| CUDA Graph 捕获与重放 | `vllm/v1/worker/gpu/cudagraph_utils.py`；模式枚举在 `vllm/config/compilation.py` |
+| Attention 后端选择 | `vllm/v1/attention/selector.py` → `get_attn_backend()` |
+| 各 Attention 后端实现 | `vllm/v1/attention/backends/`（MLA 变体在 `mla/`） |
+| 投机解码各 Proposer | `vllm/v1/spec_decode/`（EAGLE / MTP 都在 `eagle.py`） |
+| 融合算子（CUDA） | `csrc/libtorch_stable/` |
+| 量化 | `vllm/model_executor/layers/quantization/`（FP8 见 `fp8.py`） |
+
+</details>
 
 ---
 
@@ -1970,189 +1704,153 @@ vLLM V1 的执行循环不能简单理解成"先完整 Prefill，再完整 Decod
 
 #### 6.1.1 DP (Data Parallelism)
 
+**DP：每个 GPU 持有完整模型副本，各自处理不同请求。**
+
+```mermaid
+graph LR
+    R["请求流"] --> G0["GPU 0<br/>完整模型副本<br/>请求 1–10"]
+    R --> G1["GPU 1<br/>完整模型副本<br/>请求 11–20"]
+    R --> G2["GPU 2<br/>完整模型副本<br/>请求 21–30"]
 ```
-┌────────────── Data Parallelism ──────────────────────────────────────┐
-│                                                                       │
-│  DP: 每个 GPU 持有完整模型副本，处理不同请求                            │
-│                                                                       │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐              │
-│  │   GPU 0     │    │   GPU 1     │    │   GPU 2     │              │
-│  │ 完整模型副本 │    │ 完整模型副本 │    │ 完整模型副本 │              │
-│  │             │    │             │    │             │              │
-│  │ Batch A     │    │ Batch B     │    │ Batch C     │              │
-│  │ (请求 1-10) │    │ (请求 11-20)│    │ (请求 21-30)│              │
-│  └─────────────┘    └─────────────┘    └─────────────┘              │
-│                                                                       │
-│  优势: 线性扩展吞吐量，无 GPU 间通信                                  │
-│  限制: 每个 GPU 必须能装下完整模型 → 大模型不适用                     │
-│  适用: 小模型的高并发场景                                             │
-│                                                                       │
-│  vLLM 中的 DP 由 DPCoordinator (vllm/v1/engine/coordinator.py) 管理  │
-│  · 多个 EngineCore 实例并行运行                                       │
-│  · ZMQ 进行请求分发和负载均衡                                         │
-└───────────────────────────────────────────────────────────────────────┘
-```
+
+| | 说明 |
+|---|---|
+| 优势 | 吞吐近似线性扩展，**GPU 间零通信** |
+| 限制 | 每个 GPU 必须装得下完整模型 |
+| 适用 | 模型放得下、但并发不够的场景 |
+| vLLM 实现 | `DPCoordinator`（`vllm/v1/engine/coordinator.py`）管理多个 `EngineCore` 实例，用 ZMQ 做请求分发与负载均衡 |
 
 #### 6.1.2 TP (Tensor Parallelism)
 
-```
-┌────────────── Tensor Parallelism ────────────────────────────────────┐
-│                                                                       │
-│  TP: 单层内的矩阵按行/列切分到多个 GPU                                │
-│                                                                       │
-│  Column-parallel (QKV Projection, Gate/Up):                           │
-│  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐         │
-│  │  GPU 0   │   │  GPU 1   │   │  GPU 2   │   │  GPU 3   │         │
-│  │ W[:, 0:d]│   │W[:, d:2d]│   │W[:,2d:3d]│   │W[:,3d:4d]│         │
-│  │    ↓     │   │    ↓     │   │    ↓     │   │    ↓     │         │
-│  │ Y₀=X@W₀ │   │ Y₁=X@W₁ │   │ Y₂=X@W₂ │   │ Y₃=X@W₃ │         │
-│  └──────────┘   └──────────┘   └──────────┘   └──────────┘         │
-│       ↓              ↓              ↓              ↓                 │
-│   各 GPU 得到输出的一部分, 无需通信 (column-parallel 前半)             │
-│                                                                       │
-│  Row-parallel (O Projection, Down):                                   │
-│  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐         │
-│  │  GPU 0   │   │  GPU 1   │   │  GPU 2   │   │  GPU 3   │         │
-│  │W[0:d, :] │   │W[d:2d, :]│   │W[2d:3d,:]│   │W[3d:4d,:]│         │
-│  │    ↓     │   │    ↓     │   │    ↓     │   │    ↓     │         │
-│  │ Z₀=Y₀@W₀│   │ Z₁=Y₁@W₁│   │ Z₂=Y₂@W₂│   │ Z₃=Y₃@W₃│         │
-│  └────┬─────┘   └────┬─────┘   └────┬─────┘   └────┬─────┘         │
-│       └───────┬───────┴──────┬───────┘              │                │
-│               ▼              ▼                       ▼                │
-│         ═══════════ All-Reduce ═══════════                           │
-│         Z = Z₀ + Z₁ + Z₂ + Z₃                                       │
-│                                                                       │
-│  每层 All-Reduce 次数: 2 (Attention 后 + MLP 后)                      │
-│  通信量: 2 × B × S × D × sizeof(dtype) per All-Reduce               │
-│  最佳场景: NVLink 互联的同机多卡 (900 GB/s)                          │
-└───────────────────────────────────────────────────────────────────────┘
-```
+**TP：把单层内的矩阵按行或列切开，分到多张卡上。** 切法有两种，配合使用：
+
+| | Column-parallel | Row-parallel |
+|---|---|---|
+| 用在哪 | QKV Projection、Gate/Up | O Projection、Down |
+| 权重怎么切 | 按**列**切：`W[:, 0:d]`、`W[:, d:2d]` … | 按**行**切：`W[0:d, :]`、`W[d:2d, :]` … |
+| 每卡算什么 | `Yᵢ = X @ Wᵢ` | `Zᵢ = Yᵢ @ Wᵢ` |
+| 结果 | 各卡拿到输出的**一部分**，暂时不用通信 | 各卡拿到**部分和**，必须相加 |
+| 通信 | 无 | **All-Reduce**：`Z = Z₀+Z₁+Z₂+Z₃` |
+
+两者成对出现不是巧合：**column-parallel 的输出正好是 row-parallel 需要的输入切分方式**，所以一个 Attention 块或 MLP 块内部可以只在末尾做一次 All-Reduce，而不是每个矩阵乘都通信一次。
+
+| 指标 | 值 |
+|---|---|
+| 每层 All-Reduce 次数 | 2（Attention 后 + MLP 后） |
+| 单次通信量 | `2 × B × S × D × sizeof(dtype)` |
+| 最佳场景 | NVLink 互联的同机多卡（H100 NVSwitch 约 900 GB/s） |
+
+**TP 的通信量与激活大小成正比、且在关键路径上**，这就是为什么它几乎只适合机内 NVLink——跨机做 TP 会被网络拖死。
 
 #### 6.1.3 PP (Pipeline Parallelism)
 
+**PP：模型按层切开，层间串行传递 `hidden_states`。**
+
+```mermaid
+graph LR
+    A["GPU 0<br/>Layers 0–19"] -->|"P2P send<br/>hidden_states"| B["GPU 1<br/>Layers 20–39"]
+    B -->|"P2P send<br/>hidden_states"| C["GPU 2<br/>Layers 40–59<br/>→ logits"]
 ```
-┌────────────── Pipeline Parallelism ──────────────────────────────────┐
-│                                                                       │
-│  PP: 模型按层切分到不同 GPU，层间串行传递 hidden_states                │
-│                                                                       │
-│  GPU 0 (Layer 0-19)  GPU 1 (Layer 20-39)  GPU 2 (Layer 40-59)       │
-│  ┌─────────────┐     ┌─────────────┐      ┌─────────────┐           │
-│  │ Layers 0-19 │────▶│ Layers 20-39│─────▶│ Layers 40-59│           │
-│  │             │ P2P │             │  P2P │             │           │
-│  │ hidden      │send │ hidden      │ send │ hidden      │           │
-│  │ states      │     │ states      │      │ states→logit│           │
-│  └─────────────┘     └─────────────┘      └─────────────┘           │
-│                                                                       │
-│  Pipeline 气泡问题 (训练中严重, 推理中较轻):                           │
-│                                                                       │
-│  时间 →                                                               │
-│  GPU 0: [Batch1]  [Batch2]  [Batch3]  [idle] [Batch4] ...           │
-│  GPU 1:   [idle] [Batch1]  [Batch2]  [Batch3]  [idle] ...           │
-│  GPU 2:   [idle]  [idle]  [Batch1]  [Batch2]  [Batch3] ...          │
-│            ↑               ↑                                          │
-│          气泡           气泡                                           │
-│                                                                       │
-│  推理中缓解手段:                                                       │
-│  · Batch Queue: 流水线化多个 batch, 减少气泡                          │
-│  · 异步调度: GPU 执行当前 batch 时, CPU 准备下一个                    │
-│  · 与 TP 混合: TP 消除层内通信需求, PP 减少模型分片显存               │
-│                                                                       │
-│  通信量: 每个 PP stage 间传递 hidden_states [B, S, D]                 │
-│  通常通过 P2P Send/Recv (NCCL)                                       │
-└───────────────────────────────────────────────────────────────────────┘
+
+PP 的固有代价是**流水线气泡**——后面的 stage 得等前面的算完才有活干：
+
 ```
+时间 →
+GPU 0: [B1][B2][B3][idle][B4] …
+GPU 1: [--][B1][B2][B3 ][idle] …
+GPU 2: [--][--][B1][B2 ][B3  ] …
+        ↑气泡  ↑气泡
+```
+
+好消息是**推理中的气泡比训练轻得多**（没有反向传播那条长依赖链），而且有几种缓解手段：
+
+- **Batch Queue**：多个 batch 流水线化推进，填满各 stage
+- **异步调度**：GPU 算当前 batch 时，CPU 已在准备下一个
+- **与 TP 混合**：机内用 TP（低延迟），跨机用 PP（容忍高延迟）
+
+| 指标 | 值 |
+|---|---|
+| 通信内容 | 每个 stage 间传一份 `hidden_states [B, S, D]` |
+| 通信方式 | P2P Send/Recv（NCCL） |
+
+对比一下就明白 TP 和 PP 的分工：**TP 传的是激活、每层两次、量大；PP 传的是 stage 边界的 hidden_states、次数少得多。** 所以跨机优先 PP。
 
 #### 6.1.4 EP (Expert Parallelism)
 
+**EP：MoE 的 Expert 分布在不同 GPU 上。** 例如 64 个 Expert、4 张卡、EP=4，则每卡持有 16 个：
+
+```mermaid
+graph LR
+    RT["Router：每个 token → top-K expert IDs"] --> D
+    D["All-to-All Dispatch<br/>token 发往持有对应 expert 的 GPU"] --> E
+    E["各 GPU 计算本地 expert 的 GEMM"] --> C
+    C["All-to-All Combine<br/>结果发回原 GPU 聚合"]
 ```
-┌────────────── Expert Parallelism ────────────────────────────────────┐
-│                                                                       │
-│  EP: MoE 模型的 Expert 分布在不同 GPU 上                              │
-│                                                                       │
-│  假设: 64 Experts, 4 GPUs, EP=4, 每 GPU 持有 16 Experts              │
-│                                                                       │
-│  GPU 0: Expert 0-15    GPU 1: Expert 16-31                           │
-│  GPU 2: Expert 32-47   GPU 3: Expert 48-63                           │
-│                                                                       │
-│  流程:                                                                │
-│  1. Router 计算: 每个 token → top-K expert IDs                       │
-│  2. All-to-All Dispatch: token 发送到持有对应 expert 的 GPU           │
-│  3. Expert 计算: 每个 GPU 计算本地 expert 的 GEMM                    │
-│  4. All-to-All Combine: 结果发回原 GPU 聚合                           │
-│                                                                       │
-│  ┌─────┐    Dispatch     ┌─────┐                                     │
-│  │GPU 0│═══All-to-All═══│GPU 1│                                     │
-│  │ t₁→E3 ────────────▶ │     │                                     │
-│  │ t₂→E17──────────────▶│ E17 │                                     │
-│  │     │◀───────────────│t₃→E5│                                     │
-│  └─────┘    Combine      └─────┘                                     │
-│                                                                       │
-│  通信特征:                                                             │
-│  · All-to-All: 全对全通信, 通信量与 token 分布相关                    │
-│  · 瓶颈: 通信量大 + 动态路由导致负载不均衡                            │
-│  · 优化: 与 TP 结合 (先 TP 切分 Attention, EP 切分 MoE)              │
-│                                                                       │
-│  vLLM 中的 EP 由 DeviceCommunicatorBase 的 dispatch/combine 方法实现  │
-│  支持 DeepEP, FlashInfer NVLink, Mori 等优化通信后端                  │
-└───────────────────────────────────────────────────────────────────────┘
-```
+
+| 阶段 | 动作 |
+|---|---|
+| ① Router | 每个 token 算出 top-K 个 expert ID |
+| ② Dispatch | **All-to-All**：token 发送到持有对应 expert 的 GPU |
+| ③ Expert 计算 | 每卡只算自己那部分 expert 的 GEMM |
+| ④ Combine | **All-to-All**：结果发回原 GPU 加权聚合 |
+
+EP 的麻烦之处和 TP 完全不同：
+
+- **通信模式是全对全**，通信量取决于 token 的路由分布，**不是固定的**
+- **负载天然不均衡**——热门 expert 所在的卡会成为木桶短板，而路由是动态的，没法静态规划
+- 常与 TP 组合：TP 切 Attention，EP 切 MoE
+
+vLLM 中 EP 的 dispatch / combine 由 `DeviceCommunicatorBase` 的对应方法实现，可选 DeepEP、FlashInfer NVLink、Mori 等优化通信后端。
 
 #### 6.1.5 CP (Context Parallelism)
 
+**CP：把长序列的 token 切开，每卡只持有一段上下文。** 例如 64K tokens 分到 4 张卡，每卡 16K。
+
+问题来了：Attention 需要**全局**的 K/V，而每卡只有本地的一段。解法是 **Ring Attention**——K/V 沿环形依次传递，每站累加一次局部注意力：
+
+```mermaid
+graph LR
+    G0["GPU 0<br/>t₁–t₁₆₀₀₀"] -->|"K₀V₀"| G1["GPU 1<br/>t₁₆₀₀₁–t₃₂₀₀₀"]
+    G1 -->|"K₁V₁"| G2["GPU 2<br/>t₃₂₀₀₁–t₄₈₀₀₀"]
+    G2 -->|"K₂V₂"| G3["GPU 3<br/>t₄₈₀₀₁–t₆₄₀₀₀"]
+    G3 -->|"K₃V₃"| G0
 ```
-┌────────────── Context Parallelism ───────────────────────────────────┐
-│                                                                       │
-│  CP: 将长序列的 token 分散到不同 GPU，每 GPU 处理部分上下文            │
-│                                                                       │
-│  长文本: [t₁, t₂, ..., t₆₄₀₀₀]  (64K tokens)                       │
-│                                                                       │
-│  GPU 0: [t₁ ~ t₁₆₀₀₀]          (chunk 0)                           │
-│  GPU 1: [t₁₆₀₀₁ ~ t₃₂₀₀₀]     (chunk 1)                           │
-│  GPU 2: [t₃₂₀₀₁ ~ t₄₈₀₀₀]     (chunk 2)                           │
-│  GPU 3: [t₄₈₀₀₁ ~ t₆₄₀₀₀]     (chunk 3)                           │
-│                                                                       │
-│  Ring Attention:                                                      │
-│  每个 GPU 持有本地 Q, 通过环形传递获取远端 K, V                        │
-│                                                                       │
-│  Step 1: GPU₀ 用 K₀V₀ 算局部注意力                                   │
-│  Step 2: K₁V₁ 环形传递 → GPU₀ 用 K₁V₁ 累加注意力                    │
-│  Step 3: K₂V₂ → GPU₀ 累加 ...                                       │
-│  Step 4: K₃V₃ → GPU₀ 完成全局注意力                                  │
-│                                                                       │
-│  ┌────┐  K₁V₁  ┌────┐  K₂V₂  ┌────┐  K₃V₃  ┌────┐               │
-│  │GPU0│───────▶│GPU1│───────▶│GPU2│───────▶│GPU3│               │
-│  │    │◀───────│    │◀───────│    │◀───────│    │               │
-│  └────┘  K₀V₀  └────┘  K₁V₁  └────┘  K₂V₂  └────┘               │
-│          环形传递 (Ring)                                               │
-│                                                                       │
-│  优势: 每个 GPU 的 KV Cache 显存降低为 1/CP                           │
-│  适用: 超长文本 (64K ~ 1M tokens) 推理                                │
-│  vLLM: PCP (Prefill CP) 和 DCP (Decode CP) 分别处理两阶段             │
-└───────────────────────────────────────────────────────────────────────┘
-```
+
+以 GPU 0 为例，它持有本地 Q，分四步凑出全局注意力：
+
+| Step | 拿到的 K/V | 动作 |
+|---|---|---|
+| 1 | 本地 `K₀V₀` | 算局部注意力 |
+| 2 | 环形收到 `K₁V₁` | 累加 |
+| 3 | 收到 `K₂V₂` | 累加 |
+| 4 | 收到 `K₃V₃` | 累加完成 → 得到全局注意力 |
+
+这个"分块算 + 在线累加"的套路，和第 5.3.2 节的 FlashAttention 是**同一个数学技巧**（Online Softmax），只不过一个跨的是 SRAM 与 HBM，另一个跨的是 GPU 与 GPU。
+
+| | 说明 |
+|---|---|
+| 收益 | 每卡的 KV Cache 显存降为 1/CP |
+| 适用 | 超长文本（64K ~ 1M tokens） |
+| vLLM | PCP（Prefill CP）与 DCP（Decode CP）分别处理两个阶段 |
 
 #### 混合并行策略汇总
 
-```
-┌──────────────── 并行策略选择指南 ──────────────────────────────────┐
-│                                                                     │
-│  模型大小       推荐策略         说明                                │
-│  ──────────    ────────────    ──────────────────────               │
-│  < 单卡显存    DP (多实例)      最简单，线性扩展吞吐                 │
-│  1-2 卡显存    TP=2/4           同机 NVLink 通信                    │
-│  4-8 卡显存    TP=4/8           满打同机所有卡                      │
-│  > 8 卡显存    TP=8 + PP=N      跨机 PP + 机内 TP                   │
-│  MoE 模型      TP + EP          TP 切 Attention, EP 切 Expert      │
-│  超长上下文    + CP              在上述基础上叠加 Context Parallel   │
-│  高并发小模型  DP + TP           DP 放大吞吐, TP 降低单请求延迟     │
-│                                                                     │
-│  经验法则:                                                           │
-│  · TP 优先在 NVLink 互联卡之间 (延迟最低)                           │
-│  · PP 用于跨机或 NVLink 不足时 (容忍更高延迟)                       │
-│  · EP 与 TP 可组合: TP×EP = 总 GPU 数                               │
-│  · DP 是最后的吞吐倍增器                                            │
-└─────────────────────────────────────────────────────────────────────┘
-```
+| 模型规模 / 场景 | 推荐策略 | 说明 |
+|---|---|---|
+| 小于单卡显存 | DP（多实例） | 最简单，吞吐线性扩展 |
+| 1–2 卡显存 | TP=2/4 | 机内 NVLink 通信 |
+| 4–8 卡显存 | TP=4/8 | 用满机内所有卡 |
+| 大于 8 卡显存 | TP=8 + PP=N | 机内 TP + 跨机 PP |
+| MoE 模型 | TP + EP | TP 切 Attention，EP 切 Expert |
+| 超长上下文 | 上述 + CP | 在已有方案上叠加 |
+| 高并发小模型 | DP + TP | DP 放大吞吐，TP 降低单请求延迟 |
+
+四条经验法则：
+
+- **TP 优先放在 NVLink 互联的卡之间**——它通信最频繁且在关键路径上
+- **PP 用于跨机或 NVLink 不足时**——它能容忍更高延迟
+- **EP 与 TP 可组合**，通常 `TP × EP = 总 GPU 数`
+- **DP 永远是最外层的吞吐倍增器**——它不解决"装不下"，只解决"不够快"
 
 ---
 
@@ -2164,47 +1862,23 @@ vLLM V1 的执行循环不能简单理解成"先完整 Prefill，再完整 Decod
 
 MoE (Mixture of Experts) 模型的推理瓶颈独特——不是简单的 GEMM，而是 **Token Routing + 动态 Dispatch + 多专家并行 GEMM + Combine**：
 
+```mermaid
+graph TD
+    H["hidden_states [B, S, D]"] --> R
+    R["<b>Router</b>（Linear）<br/>gate(x) → logits [B×S, E]<br/>→ top-k → expert_ids, weights"] --> D
+    D["<b>Dispatch</b>（Permute）<br/>把 token 按 expert_id 重排<br/>experts_input[e] = 路由到 expert e 的 token"] --> G
+    G["<b>Expert 并行 GEMM</b>（Grouped GEMM）<br/>Expert 0: W_gate_0 @ x₀ · SiLU<br/>Expert 1: W_gate_1 @ x₁ · SiLU<br/>⋯<br/><i>每个 expert 拿到的 token 数不同</i>"] --> C
+    C["<b>Combine</b>（Unpermute + Scale）<br/>output = Σ weightₖ × expertₖ_output"]
 ```
-┌─────────────── MoE 推理数据流 ──────────────────────────────────────┐
-│                                                                      │
-│  hidden_states [B, S, D]                                             │
-│       │                                                              │
-│       ▼                                                              │
-│  ┌──────────┐                                                        │
-│  │  Router  │  gate(x) → logits [B×S, E]  (E=num_experts)           │
-│  │  (Linear)│  → top-k → expert_ids [B×S, K], weights [B×S, K]     │
-│  └──────┬───┘                                                        │
-│         │                                                            │
-│         ▼                                                            │
-│  ┌──────────┐                                                        │
-│  │ Dispatch │  将 tokens 按 expert_id 重排                            │
-│  │ (Permute)│  → experts_input[e] = tokens routed to expert e       │
-│  └──────┬───┘                                                        │
-│         │                                                            │
-│         ▼                                                            │
-│  ┌──────────────────────────────────────────┐                        │
-│  │ Expert 并行 GEMM (Grouped GEMM)          │                        │
-│  │  Expert 0: W_gate_0 @ x₀ * SiLU          │                        │
-│  │  Expert 1: W_gate_1 @ x₁ * SiLU          │                        │
-│  │  ...                                      │                        │
-│  │  Expert E: W_gate_E @ xₑ * SiLU          │                        │
-│  │  (每个 expert 可能处理不同数量的 tokens)    │                        │
-│  └──────┬────────────────────────────────────┘                        │
-│         │                                                            │
-│         ▼                                                            │
-│  ┌──────────┐                                                        │
-│  │ Combine  │  将各 expert 输出按原始位置聚合                          │
-│  │(Unpermute│  output = Σ weight_k × expert_k_output                │
-│  │ + Scale) │                                                        │
-│  └──────────┘                                                        │
-│                                                                      │
-│  优化手段:                                                            │
-│  · Padding Removal: 去除 expert 间的不均匀 padding                   │
-│  · Grouped GEMM: 多个小 GEMM 合并为一个调用                          │
-│  · Fused MoE Kernel: Route + Dispatch + GEMM + Combine 全融合       │
-│  · EP All-to-All + 计算重叠                                          │
-└──────────────────────────────────────────────────────────────────────┘
-```
+
+注意 Grouped GEMM 那一步的括注：**每个 expert 拿到的 token 数是不一样的，而且每一轮都在变。** 这是 MoE 全部工程麻烦的根源——GPU 喜欢规整的形状，而动态路由给的恰恰是不规整的。四种主要优化手段都是在对付这件事：
+
+| 手段 | 解决什么 |
+|---|---|
+| **Padding Removal** | 不为了对齐而 padding 到最大值，避免算白工 |
+| **Grouped GEMM** | 把多个形状不同的小 GEMM 合成一次 kernel 调用 |
+| **Fused MoE Kernel** | Route + Dispatch + GEMM + Combine 全融进一个 kernel，省掉中间张量的 HBM 往返 |
+| **All-to-All 与计算重叠** | 把通信藏到计算背后（下一节） |
 
 vLLM 的 Fused MoE 实现（`vllm/model_executor/layers/fused_moe/`）提供了多种后端：
 
@@ -2221,32 +1895,34 @@ vLLM 的 Fused MoE 实现（`vllm/model_executor/layers/fused_moe/`）提供了�
 
 在 Expert Parallel (EP) 场景下，每个 GPU 只持有部分 Expert，需要 All-to-All 通信将 Token 分发到正确的 GPU：
 
+以 2 卡、8 个 Expert 为例，每张卡都要把"不属于自己"的 token 送出去，同时接收"属于自己"的：
+
+```mermaid
+graph LR
+    subgraph G0["GPU 0（持有 Expert 0–3）"]
+        A0["本地 token：<br/>去 E0–3 的 + 去 E4–7 的"] --> X0["Expert 0–3<br/>GEMM"]
+    end
+    subgraph G1["GPU 1（持有 Expert 4–7）"]
+        A1["本地 token：<br/>去 E4–7 的 + 去 E0–3 的"] --> X1["Expert 4–7<br/>GEMM"]
+    end
+    A0 <-.->|"All-to-All Dispatch"| A1
+    X0 <-.->|"All-to-All Combine"| X1
 ```
-┌────────── EP All-to-All 通信与计算重叠 ─────────────────────────────┐
-│                                                                      │
-│  GPU 0 (Expert 0-3)                GPU 1 (Expert 4-7)               │
-│  ┌──────────────┐                  ┌──────────────┐                 │
-│  │ tokens       │                  │ tokens       │                 │
-│  │ for E0-3     │   All-to-All    │ for E4-7     │                 │
-│  │ + tokens     │◀═══════════════▶│ + tokens     │                 │
-│  │   for E4-7   │                  │   for E0-3   │                 │
-│  └──────┬───────┘                  └──────┬───────┘                 │
-│         │                                  │                         │
-│  ┌──────▼───────┐                  ┌──────▼───────┐                 │
-│  │ Expert 0-3   │                  │ Expert 4-7   │                 │
-│  │ GEMM         │                  │ GEMM         │                 │
-│  └──────┬───────┘                  └──────┬───────┘                 │
-│         │                                  │                         │
-│         └────── All-to-All (结果聚合) ──────┘                        │
-│                                                                      │
-│  重叠优化:                                                            │
-│  ┌──────────────────────────────────────────────────────┐           │
-│  │ 通信:  [All2All dispatch]                [All2All combine]│      │
-│  │ 计算:         [local expert GEMM]                         │      │
-│  │ 重叠:                    ↑ 通信与计算可部分重叠           │       │
-│  └──────────────────────────────────────────────────────┘           │
-└──────────────────────────────────────────────────────────────────────┘
+
+关键优化是让通信和计算在时间上叠起来，而不是干等：
+
 ```
+不重叠：  通信 [dispatch]──────────────[combine]
+          计算 ─────────[expert GEMM]──────────
+          总时间 = 通信 + 计算
+
+重叠后：  通信 [dispatch][      combine      ]
+          计算      [   expert GEMM   ]
+                        ↑ 已到达的 token 先开算，剩下的边算边收
+          总时间 ≈ max(通信, 计算)
+```
+
+实现上的思路是**分块流水**：不等全部 token 到齐，先到的那批就开始做 GEMM，同时后台继续收。DeepEP 这类通信后端做的正是这件事。
 
 ---
 
@@ -2254,45 +1930,37 @@ vLLM 的 Fused MoE 实现（`vllm/model_executor/layers/fused_moe/`）提供了�
 
 并行策略的代价全部体现在数据搬运上。在讨论通信优化之前，先把一次推理里所有的搬运路径摊开看一遍：
 
+```mermaid
+graph TB
+    CPU["<b>CPU / Host Memory</b><br/>Tokenizer · Scheduler · Block Table · Sampling Results"]
+    CPU -->|"PCIe：input_ids, positions"| G0
+    G0 -->|"PCIe：sampled token ids"| CPU
+    G0["<b>GPU 0 (HBM)</b><br/>Model Weights（分片） · Activations · KV Cache Blocks · Logits"]
+    G1["<b>GPU 1 (HBM)</b><br/>Model Weights（分片） · Activations · KV Cache Blocks · Logits"]
+    G0 <-->|"NVLink：All-Reduce / All-Gather（TP 通信）"| G1
 ```
-┌───────────────────────── 单机多卡数据搬运全景 ─────────────────────────┐
-│                                                                       │
-│   CPU (Host Memory)                                                   │
-│   ┌─────────────────────────────────────────────────────────────┐     │
-│   │  Tokenizer    Scheduler    Block Table    Sampling Results  │     │
-│   └────────────────────┬──────────────────────┬─────────────────┘     │
-│                   PCIe │                 PCIe  │                       │
-│              (input_ids│, positions)    (token │ ids)                  │
-│                        │                      │                       │
-│   ┌────────────────────▼──────────────────────▼─────────────────┐     │
-│   │                        GPU 0 (HBM)                          │     │
-│   │  ┌──────────┐  ┌───────────┐  ┌───────────┐  ┌──────────┐ │     │
-│   │  │  Model   │  │Activations│  │ KV Cache  │  │  Logits  │ │     │
-│   │  │ Weights  │  │(中间张量) │  │  Blocks   │  │          │ │     │
-│   │  │ (分片)   │  │           │  │           │  │          │ │     │
-│   │  └──────────┘  └───────────┘  └───────────┘  └──────────┘ │     │
-│   └────────────┬──────────────────────────────────┬─────────────┘     │
-│                │         NVLink / PCIe             │                   │
-│                │    ┌─────────────────────┐        │                   │
-│                │    │   All-Reduce /      │        │                   │
-│                ├───▶│   All-Gather        │◀───────┤                   │
-│                │    │   (TP 通信)          │        │                   │
-│                │    └─────────────────────┘        │                   │
-│   ┌────────────▼──────────────────────────────────▼─────────────┐     │
-│   │                        GPU 1 (HBM)                          │     │
-│   │  ┌──────────┐  ┌───────────┐  ┌───────────┐  ┌──────────┐ │     │
-│   │  │  Model   │  │Activations│  │ KV Cache  │  │  Logits  │ │     │
-│   │  │ Weights  │  │           │  │  Blocks   │  │          │ │     │
-│   │  │ (分片)   │  │           │  │           │  │          │ │     │
-│   │  └──────────┘  └───────────┘  └───────────┘  └──────────┘ │     │
-│   └─────────────────────────────────────────────────────────────┘     │
-│                                                                       │
-│   通信带宽:                                                           │
-│     NVLink (intra-node): 900 GB/s (H100 NVSwitch)                    │
-│     PCIe Gen5 x16:       64 GB/s                                     │
-│     InfiniBand NDR:      50 GB/s (inter-node)                        │
-└───────────────────────────────────────────────────────────────────────┘
-```
+
+各条链路的带宽差了两个数量级，这决定了什么该走哪条路：
+
+| 链路 | 带宽 |
+|---|---|
+| NVLink（机内，H100 NVSwitch） | ~900 GB/s |
+| PCIe Gen5 x16 | ~64 GB/s |
+| InfiniBand NDR（跨机） | ~50 GB/s |
+
+把每一类搬运摊开看，就能明白优化的优先级：
+
+| 搬运类型 | 方向 | 频率 | 数据量 | 技术 |
+|---|---|---|---|---|
+| 模型权重加载 | CPU→GPU | 一次性 | 高（模型大小） | PCIe DMA |
+| input_ids / positions | CPU→GPU | 每步 | 低（KB 级） | PCIe / pinned memory |
+| **TP All-Reduce** | GPU↔GPU | **每层 2 次** | **高（激活大小）** | NVLink + NCCL |
+| PP 微批传递 | GPU→GPU | 每 stage 间 | 中（hidden_states） | NCCL P2P |
+| **EP Token Dispatch** | GPU↔GPU | **每个 MoE 层** | **高（token 重排）** | All-to-All |
+| KV Cache Swap | GPU↔CPU | 抢占时 | 高（KV 块大小） | PCIe async |
+| Sampled tokens | GPU→CPU | 每步 | 极低（int32） | Device→Host |
+
+加粗的两行是**唯一值得下大力气优化的**——它们既频繁、量又大，还都卡在关键路径上。其余几行要么一次性、要么只有 KB 级。
 
 | 数据搬运类型 | 方向 | 频率 | 带宽需求 | 技术 |
 |-------------|------|------|---------|------|
@@ -2312,67 +1980,61 @@ vLLM 的 Fused MoE 实现（`vllm/model_executor/layers/fused_moe/`）提供了�
 
 vLLM 的通信层（`vllm/distributed/device_communicators/`）支持多种后端：
 
-```
-┌──────────── 通信后端层级 ────────────────────────────────────────────┐
-│                                                                       │
-│  最高层: vLLM 集合通信 API                                            │
-│  ┌─────────────────────────────────────────────────────┐             │
-│  │  tensor_model_parallel_all_reduce(tensor)           │             │
-│  │  tensor_model_parallel_all_gather(tensor)           │             │
-│  │  tensor_model_parallel_reduce_scatter(tensor)       │             │
-│  └────────────────────┬────────────────────────────────┘             │
-│                       │                                               │
-│  中间层: GroupCoordinator (管理进程组)                                 │
-│  ┌────────────────────▼────────────────────────────────┐             │
-│  │  all_reduce() / all_gather() / send() / recv()      │             │
-│  └────────────────────┬────────────────────────────────┘             │
-│                       │                                               │
-│  底层: 设备通信器 (硬件特化)                                           │
-│  ┌────────────────────▼────────────────────────────────┐             │
-│  │  CudaCommunicator (NCCL)                            │             │
-│  │  CustomAllreduce (P2P, intra-node 优化)              │             │
-│  │  FlashInferAllReduce (FlashInfer 优化)              │             │
-│  │  CpuCommunicator (Gloo)                             │             │
-│  │  XpuCommunicator (Intel CCL)                        │             │
-│  └─────────────────────────────────────────────────────┘             │
-│                                                                       │
-│  CustomAllreduce (vllm/distributed/device_communicators/              │
-│                   custom_all_reduce.py):                              │
-│  · 支持 world_size: [2, 4, 6, 8, 16]                                │
-│  · 基于 GPU P2P 直接内存访问, 绕过 NCCL                              │
-│  · 对小张量 (< 2MB) 比 NCCL 更快                                    │
-│  · 利用 NVLink 对称内存 (Hopper+)                                    │
-└───────────────────────────────────────────────────────────────────────┘
-```
+vLLM 的通信抽象分三层，上层完全不感知底层用的是 NCCL 还是别的：
+
+| 层 | 接口 | 实现 |
+|---|---|---|
+| 最高层：集合通信 API | `tensor_model_parallel_all_reduce()`<br/>`tensor_model_parallel_all_gather()`<br/>`tensor_model_parallel_reduce_scatter()` | 模型代码只调这一层 |
+| 中间层：`GroupCoordinator` | `all_reduce()` / `all_gather()` / `send()` / `recv()` | 管理进程组 |
+| 底层：设备通信器 | — | `CudaCommunicator`（NCCL）<br/>`CustomAllreduce`（P2P，机内优化）<br/>`FlashInferAllReduce`<br/>`CpuCommunicator`（Gloo）<br/>`XpuCommunicator`（Intel CCL） |
+
+这里值得单独看一眼 `CustomAllreduce`（`vllm/distributed/device_communicators/custom_all_reduce.py`）：
+
+- 支持的 `world_size`：2、4、6、8、16
+- **基于 GPU P2P 直接内存访问，绕过 NCCL**
+- **对小张量（< 2 MB）比 NCCL 更快**——因为 NCCL 的固定开销在小消息上占比过高
+- 可利用 NVLink 对称内存（Hopper+）
+
+最后一条正是它存在的理由：**Decode 阶段的激活很小**，每层两次 All-Reduce 传的都是小张量，恰好落在 NCCL 不划算的区间里。
 
 #### 6.4.2 计算与通信的深度重叠
 
 ```
-┌──────────── 计算-通信重叠调度 ──────────────────────────────────────┐
-│                                                                      │
-│  未重叠:                                                              │
-│  GPU Compute: [GEMM₁][──────idle──────][GEMM₂][──────idle──────]    │
-│  GPU Comm:    [idle  ][AllReduce₁     ][idle  ][AllReduce₂     ]    │
-│                                                                      │
-│  总时间 = Compute + Comm (串行)                                       │
-│                                                                      │
-│  ────────────────────────────────────────────────────────────────    │
-│                                                                      │
-│  重叠后:                                                              │
-│  GPU Compute: [GEMM₁    ][GEMM₂    ][GEMM₃    ]                    │
-│  GPU Comm:    [     AllReduce₁][     AllReduce₂]                    │
-│               ↑ 使用不同 CUDA Stream 并行执行                        │
-│                                                                      │
-│  总时间 ≈ max(Compute, Comm)                                         │
-│                                                                      │
-│  实现方式:                                                            │
-│  · NCCL 使用独立 CUDA Stream                                        │
-│  · Reduce-Scatter + All-Gather 替代 All-Reduce                      │
-│    → Reduce-Scatter 完成后立即开始计算,                               │
-│      同时 All-Gather 在后台收集                                      │
-│  · MoE: EP All-to-All 与 Expert GEMM 重叠                           │
-└──────────────────────────────────────────────────────────────────────┘
+不重叠（通信和计算互相等）：
+  Compute  [GEMM₁][── idle ──][GEMM₂][── idle ──]
+  Comm     [ idle ][AllReduce₁][ idle ][AllReduce₂]
+  总时间 = Compute + Comm
+
+重叠后（跑在不同 CUDA Stream 上）：
+  Compute  [GEMM₁  ][GEMM₂  ][GEMM₃  ]
+  Comm         [AllReduce₁][AllReduce₂]
+  总时间 ≈ max(Compute, Comm)
 ```
+
+三种主要实现手段：
+
+| 手段 | 做法 |
+|---|---|
+| 独立 CUDA Stream | NCCL 跑在专属 stream 上，与计算 stream 并行 |
+| **Reduce-Scatter + All-Gather 替代 All-Reduce** | Reduce-Scatter 一完成就能开始算本地那份，同时 All-Gather 在后台收集其余部分 |
+| MoE：All-to-All 与 Expert GEMM 重叠 | 见第 6.2.2 节 |
+
+中间那一条是个很漂亮的技巧：一次 All-Reduce 在数学上等价于 Reduce-Scatter + All-Gather，但**拆开之后就出现了一个可以插入计算的缝隙**——总通信量不变，却把一段等待变成了并行。
+
+<details>
+<summary><b>📂 本章源码导航</b></summary>
+
+**分布式**
+
+| 想看什么 | 从哪开始 |
+|---|---|
+| 并行组的建立与管理 | `vllm/distributed/parallel_state.py` |
+| 集合通信后端 | `vllm/distributed/device_communicators/`（小张量优化见 `custom_all_reduce.py`） |
+| 数据并行协调 | `vllm/v1/engine/coordinator.py` |
+| Fused MoE 各后端 | `vllm/model_executor/layers/fused_moe/experts/` |
+| MoE 路由（含两级 grouped top-k） | `vllm/model_executor/layers/fused_moe/router/grouped_topk_router.py` |
+
+</details>
 
 ---
 
@@ -2384,27 +2046,23 @@ vLLM 的通信层（`vllm/distributed/device_communicators/`）支持多种后�
 
 LLM 模型在算法上高度同质（都是 Transformer），但在实现上高度异构：
 
-```
-┌─────────────── 模型差异全景 ──────────────────────────────────────┐
-│                                                                    │
-│  维度              差异示例                                         │
-│  ──────           ────────────────────────────────────────         │
-│  Attention        MHA / GQA / MQA / MLA / Sliding Window          │
-│  位置编码         RoPE / ALiBi / Learned / NTK-RoPE                │
-│  归一化           LayerNorm / RMSNorm / Pre-Norm / Post-Norm      │
-│  MLP             Dense / MoE / Switch / Top-K routing             │
-│  激活函数         GELU / SiLU / SwiGLU / GeGLU                    │
-│  KV Cache 格式   Full KV / Latent (MLA) / State (Mamba)           │
-│  特殊头           MTP Head / EAGLE Head / Medusa Head             │
-│  Normalization   每层位置、数量不同                                 │
-│                                                                    │
-│  挑战:                                                             │
-│  · 每种差异都影响 Attention Kernel、KV Cache 布局、调度策略          │
-│  · 推理引擎需要在保持 Continuous Batching 通用框架的前提下          │
-│    适配每种模型的特殊计算路径                                       │
-│  · 新模型发布频率极高 (每周都有新架构)                              │
-└────────────────────────────────────────────────────────────────────┘
-```
+| 维度 | 差异示例 |
+|---|---|
+| Attention | MHA / GQA / MQA / MLA / Sliding Window |
+| 位置编码 | RoPE / ALiBi / Learned / NTK-RoPE |
+| 归一化 | LayerNorm / RMSNorm、Pre-Norm / Post-Norm，位置与数量都可能不同 |
+| MLP | Dense / MoE / Switch / Top-K routing |
+| 激活函数 | GELU / SiLU / SwiGLU / GeGLU |
+| KV Cache 格式 | Full KV / Latent（MLA）/ State（Mamba） |
+| 特殊头 | MTP Head / EAGLE Head / Medusa Head |
+
+难点不在"差异多"，而在**每一种差异都会往下捅穿好几层**：
+
+- 换 Attention 变体 → 影响 Attention Kernel **和** KV Cache 布局
+- 换 KV Cache 格式 → 影响显存管理 **和** 调度策略（Mamba 的 state 根本不是块状的）
+- 加特殊头 → 影响采样、调度预算 **和** KV 回滚逻辑（见第 7.4.3 节）
+
+而新架构的发布频率是**周级**的。所以真正的问题是：**如何在不动 Continuous Batching + PagedAttention 这套通用框架的前提下，容纳每个模型的特殊计算路径。**
 
 ### 7.2 vLLM 模型适配的核心抽象机制
 
@@ -2426,39 +2084,18 @@ output = model(
 
 推理框架通过 `attn_metadata` 将 Block Table、序列长度、Prefill/Decode 标志等运行时信息注入模型的 Attention 层——模型本身不需要知道 PagedAttention 的存在：
 
+```mermaid
+graph TD
+    S["<b>Scheduler 生成 SchedulerOutput</b><br/>block_table_tensor（虚拟→物理块映射）<br/>slot_mapping（当前 token → KV 槽位）<br/>seq_lens · num_prefill_tokens · num_decode_tokens"]
+    S --> M
+    M["<b>ModelRunner 构建 AttentionMetadata</b><br/><i>转换成 FlashInfer / FlashAttn 特化的元数据格式</i>"]
+    M --> A
+    A["<b>注入到每一层 Attention</b><br/>attention.forward(<br/>&nbsp;&nbsp;query, key, value,&nbsp;&nbsp;<i>← 模型自己算出的 QKV</i><br/>&nbsp;&nbsp;kv_cache,&nbsp;&nbsp;<i>← 物理 KV Cache 张量</i><br/>&nbsp;&nbsp;attn_metadata&nbsp;&nbsp;<i>← 调度器提供的元数据</i><br/>)"]
 ```
-┌──────────── Attention Metadata 注入机制 ──────────────────────────┐
-│                                                                    │
-│  Scheduler 生成:                                                   │
-│  ┌─────────────────────────────┐                                  │
-│  │ SchedulerOutput             │                                  │
-│  │  · block_table_tensor       │  虚拟→物理块映射                  │
-│  │  · slot_mapping             │  当前 token → KV Cache 槽位       │
-│  │  · seq_lens                 │  每个请求的序列长度               │
-│  │  · num_prefill_tokens       │  Prefill token 数                │
-│  │  · num_decode_tokens        │  Decode token 数                 │
-│  └──────────────┬──────────────┘                                  │
-│                 │                                                  │
-│  ModelRunner 构建:                                                 │
-│  ┌──────────────▼──────────────┐                                  │
-│  │ AttentionMetadata           │                                  │
-│  │  (FlashInfer / FlashAttn    │                                  │
-│  │   特化的元数据格式)          │                                  │
-│  └──────────────┬──────────────┘                                  │
-│                 │                                                  │
-│  注入到每层 Attention:                                              │
-│  ┌──────────────▼──────────────┐                                  │
-│  │ attention.forward(          │                                  │
-│  │   query, key, value,        │  模型自身的 QKV 输出              │
-│  │   kv_cache,                 │  物理 KV Cache 张量              │
-│  │   attn_metadata             │  ← 调度器提供的元数据!            │
-│  │ )                           │                                  │
-│  └─────────────────────────────┘                                  │
-│                                                                    │
-│  这种设计让模型代码无需修改即可运行在 vLLM 的                       │
-│  Continuous Batching + PagedAttention 框架下                       │
-└────────────────────────────────────────────────────────────────────┘
-```
+
+这个设计的精妙之处在于**信息流的方向**：模型代码只负责算出 Q、K、V，然后把它们交给 `attention.forward()`；至于这些 K/V 该写到哪个物理块、这个请求能读到哪些历史块、本轮有多少 prefill token——**全部由外部注入，模型一无所知**。
+
+结果就是：**模型代码完全不需要知道 PagedAttention 和 Continuous Batching 的存在，却能跑在它们之上。** 这也是为什么从 HuggingFace 移植一个新模型到 vLLM，主要工作量在权重加载和层结构映射，而不在改造推理逻辑。
 
 #### 7.2.3 Model Registry：插件化注册
 
@@ -2479,19 +2116,12 @@ _TEXT_GENERATION_MODELS = {
 
 模型注册的核心流程：
 
-```
-  HuggingFace 模型 config.json
-  {"architectures": ["LlamaForCausalLM"], ...}
-       │
-       ▼
-  ModelRegistry._TEXT_GENERATION_MODELS["LlamaForCausalLM"]
-  → ("llama", "LlamaForCausalLM")
-       │
-       ▼
-  动态导入: from vllm.model_executor.models.llama import LlamaForCausalLM
-       │
-       ▼
-  实例化模型, 加载权重
+```mermaid
+graph TD
+    A["HuggingFace config.json<br/>{\"architectures\": [\"LlamaForCausalLM\"], …}"] --> B
+    B["ModelRegistry._TEXT_GENERATION_MODELS[\"LlamaForCausalLM\"]<br/>→ (\"llama\", \"LlamaForCausalLM\")"] --> C
+    C["动态导入<br/>from vllm.model_executor.models.llama import LlamaForCausalLM"] --> D
+    D["实例化模型，加载权重"]
 ```
 
 ### 7.3 从临时补丁到标准化扩展
@@ -2517,31 +2147,37 @@ torch.ops.vllm.paged_attention_v1(output, query, key_cache, value_cache, ...)
 
 DeepSeek V2/V3 的 MLA 将 KV 压缩到低维 latent 空间。vLLM 通过 **"吸收"（Absorbing）** 技巧避免在 Decode 时显式解压 KV，从而规避显存带宽灾难：
 
+**朴素实现的问题**（每步 Decode 都要做）：
+
 ```
-┌──────────── MLA Absorbing 技巧 ─────────────────────────────────────┐
-│                                                                      │
-│  朴素实现 (每步 Decode):                                              │
-│  c_kv → [kv_b_proj 解压] → K [H, d], V [H, d]  → Attention          │
-│                  ↑                                                    │
-│          显存带宽瓶颈!                                                │
-│          每步都要解压全部历史 token 的 latent                          │
-│                                                                      │
-│  吸收优化:                                                            │
-│  W_q_absorbed = W_q @ W_uk    (将 K 的解压矩阵"吸收"到 Q 投影中)     │
-│  W_o_absorbed = W_dv @ W_o    (将 V 的解压矩阵"吸收"到 O 投影中)     │
-│                                                                      │
-│  优化后的计算:                                                        │
-│  q' = x @ W_q_absorbed       (在 latent 空间直接做 Attention)         │
-│  attn = q' @ c_kv^T          (无需解压 K!)                           │
-│  out = attn @ c_kv @ W_o_absorbed  (无需解压 V!)                     │
-│                                                                      │
-│  收益:                                                                │
-│  · KV Cache 存 576 维 latent (512 + 64 rope),                       │
-│    而非 128 heads × 128 dim 的完整 K/V                               │
-│  · 每 token 每层: 1.1 KB vs 64 KB → Decode 读取量降低 ~57x           │
-│  · 代价: Q/O 投影矩阵变大（但这是一次性计算）                        │
-└──────────────────────────────────────────────────────────────────────┘
+c_kv ──[kv_b_proj 解压]──▶ K [H,d], V [H,d] ──▶ Attention
+                ↑
+        每步都要把全部历史 token 的 latent 解压回全维
+        → 省下的显存又变成了带宽开销，白折腾
 ```
+
+**"吸收"（Absorbing）的做法**是把解压矩阵预先融进 Q/O 投影，让解压这一步压根不必发生：
+
+| | 融合 |
+|---|---|
+| Q 侧 | `W_q_absorbed = W_q @ W_uk`（把 K 的解压矩阵吸收进 Q 投影） |
+| O 侧 | `W_o_absorbed = W_dv @ W_o`（把 V 的解压矩阵吸收进 O 投影） |
+
+于是 Attention 直接在 latent 空间里做：
+
+```
+q'   = x @ W_q_absorbed              # 已经"带着"K 的解压
+attn = q' @ c_kvᵀ                    # 无需解压 K
+out  = attn @ c_kv @ W_o_absorbed    # 无需解压 V
+```
+
+| 收益 / 代价 | 说明 |
+|---|---|
+| KV Cache 存什么 | 576 维 latent（512 + 64 rope），而非 128 heads × 128 dim 的完整 K/V |
+| 每 token 每层 | **1.1 KB vs 64 KB → Decode 读取量降低 ~57×** |
+| 代价 | Q/O 投影矩阵变大——但这是**权重**（一次性加载），换掉的是**每步都要付的带宽** |
+
+最后那行才是这个技巧的精髓：**它把一笔"每步重复支付"的带宽开销，换成了一笔"一次性"的显存开销。** 在 memory-bound 的 Decode 阶段，这笔交易极其划算。
 
 vLLM 的 MLA 实现（`vllm/model_executor/layers/mla.py`）通过 `MultiHeadLatentAttentionWrapper` 类封装了这一逻辑，并且支持多种 MLA Attention 后端（FlashInfer MLA、FlashAttn MLA、Triton MLA、CUTLASS MLA 等）。
 
@@ -2549,69 +2185,28 @@ vLLM 的 MLA 实现（`vllm/model_executor/layers/mla.py`）通过 `MultiHeadLat
 
 DeepSeek V3 使用 256 个 Expert + Top-8 路由，MoE 层的工程挑战极大：
 
-```
-┌──────────── DeepSeek MoE 优化点 ──────────────────────────────────┐
-│                                                                    │
-│  1. Token Dispatch 全异步化                                        │
-│     · DeepEP V2 后端: 使用 NVLink 的低延迟通信                     │
-│     · FlashInfer NVLink One-sided: 单边 RDMA 风格                 │
-│     · 计算与 Dispatch 通信重叠                                     │
-│                                                                    │
-│  2. Token 动态 Padding 移除                                        │
-│     · 不同 Expert 分配到的 token 数不同                            │
-│     · 传统做法: padding 到最大值 → 浪费算力                        │
-│     · vLLM: moe_align_block_size + Grouped GEMM → 零 padding     │
-│                                                                    │
-│  3. Fused MoE Kernel                                               │
-│     · Router + Permute + GEMM + SiLU + GEMM + Unpermute          │
-│     · 全部融合在一个 CUDA kernel 内                                │
-│     · 减少 HBM 中间张量读写                                       │
-│                                                                    │
-│  4. DeepSeek V3 的两级 Router                                      │
-│     · Group-level Top-K + Per-token Top-K 两级路由                 │
-│     · Python 侧: fused_moe/router/grouped_topk_router.py           │
-│       (由 RoutedExperts 的 use_grouped_topk / topk_group 开关驱动) │
-│     · CUDA 侧: csrc/libtorch_stable/moe/grouped_topk_kernels.cu    │
-│       与 dsv3_router_gemm_entry.cu                                 │
-└────────────────────────────────────────────────────────────────────┘
-```
+| # | 优化点 | 做法 |
+|---|---|---|
+| 1 | **Token Dispatch 全异步化** | DeepEP V2 后端走 NVLink 低延迟通信；FlashInfer NVLink One-sided 采用单边 RDMA 风格；计算与 dispatch 通信重叠 |
+| 2 | **动态 Padding 移除** | 不同 Expert 拿到的 token 数不同，传统做法 padding 到最大值会白算；vLLM 用 `moe_align_block_size` + Grouped GEMM 做到零 padding |
+| 3 | **Fused MoE Kernel** | Router + Permute + GEMM + SiLU + GEMM + Unpermute 全融进一个 CUDA kernel，省掉中间张量的 HBM 往返 |
+| 4 | **两级 Router** | Group-level Top-K + Per-token Top-K；Python 侧 `fused_moe/router/grouped_topk_router.py`（由 `RoutedExperts` 的 `use_grouped_topk` / `topk_group` 驱动），CUDA 侧 `csrc/libtorch_stable/moe/grouped_topk_kernels.cu` 与 `dsv3_router_gemm_entry.cu` |
+
+DeepSeek V3 的规模是 **256 个 Expert + Top-8 路由**——在这个量级下，第 2 项的 padding 浪费和第 1 项的通信延迟都会被放大到无法忽视，这也是为什么它催生了这一整套专门优化。
 
 #### 7.4.3 MTP 引发的连锁反应
 
 DeepSeek V3 原生支持 Multi-Token Prediction (MTP)，这在 vLLM 中引发了从模型 Forward 到调度和 KV Cache 的全链路改动：
 
-```
-┌──────────── MTP 全链路影响 ─────────────────────────────────────────┐
-│                                                                      │
-│  1. 模型 Forward (vllm/model_executor/models/deepseek_mtp.py):      │
-│     · DeepSeekMultiTokenPredictor 在主模型之后执行                    │
-│     · 每个 MTP Layer:                                                │
-│       - 拼接前一步的 hidden_states 和 embedding                     │
-│       - 通过 MoE Decoder Layer 生成候选 token                       │
-│     · 支持多步 MTP: num_nextn_predict_layers 个 MTP 头              │
-│                                                                      │
-│  2. Scheduler 适配:                                                  │
-│     · allocate_slots() 需预留 num_lookahead_tokens 个额外 KV 块     │
-│     · Chunked Prefill 需确保 num_prefill_lookahead tokens 在边界    │
-│     · PP cadence 约束: 确保 PP 流水线一致性                          │
-│                                                                      │
-│  3. KV Cache 管理:                                                   │
-│     · 候选 token 的 KV 写入临时槽位                                  │
-│     · 接受: 保留对应 KV 块                                           │
-│     · 拒绝: 回滚 KV Cache (释放多余的 block)                        │
-│     · Block 预分配与释放的时序需要精确控制                            │
-│                                                                      │
-│  4. Sampling 与 Streaming:                                           │
-│     · 一次 Forward 可能接受多个 token                                │
-│     · Streaming 需要按顺序逐个发送接受的 token                      │
-│     · Detokenizer 需要处理突发的多 token 输出                       │
-│                                                                      │
-│  5. 资源回收:                                                        │
-│     · 抢占: 释放所有 KV 块（含 MTP 预留的）                         │
-│     · 异常终止: 确保 MTP 临时状态被清理                              │
-│     · TP/PP: MTP Head 的参数也需要按并行策略切分                    │
-└──────────────────────────────────────────────────────────────────────┘
-```
+| 层面 | 需要改什么 |
+|---|---|
+| **① 模型 Forward**<br/>`deepseek_mtp.py` | `DeepSeekMultiTokenPredictor` 在主模型之后执行；每个 MTP Layer 拼接前一步的 `hidden_states` 与 embedding，再过一个 MoE Decoder Layer 产出候选；支持 `num_nextn_predict_layers` 个 MTP 头 |
+| **② Scheduler** | `allocate_slots()` 要预留 `num_lookahead_tokens` 个额外 KV 块；Chunked Prefill 要保证 lookahead token 落在合法边界；PP 场景还有 cadence 约束以维持流水线一致性 |
+| **③ KV Cache** | 候选 token 的 KV 写入临时槽位；**接受则保留，拒绝则回滚**（释放多余 block）；预分配与释放的时序必须精确 |
+| **④ Sampling / Streaming** | 一次 Forward 可能接受多个 token；流式输出要按顺序逐个发送；Detokenizer 要能处理突发的多 token 输出 |
+| **⑤ 资源回收** | 抢占时要释放**含 MTP 预留在内**的所有块；异常终止要清理 MTP 临时状态；TP/PP 下 MTP 头的参数也要按并行策略切分 |
+
+这张表是本章想说明的那件事的最好例证：**一个看似局部的模型改动（多加几个预测头），会一路捅穿模型层、调度层、显存层、采样层和容错层。** 推理引擎真正难的地方不是把 GPU 跑快，而是让这五层在面对源源不断的新架构时还能协同工作。
 
 ```python
 # vllm/model_executor/models/deepseek_mtp.py (简化)
@@ -2638,6 +2233,21 @@ class DeepSeekMultiTokenPredictor(nn.Module):
         # 4. Return logits for next-token prediction
 ```
 
+<details>
+<summary><b>📂 本章源码导航</b></summary>
+
+**模型适配**
+
+| 想看什么 | 从哪开始 |
+|---|---|
+| **新模型如何被识别与加载** | `vllm/model_executor/models/registry.py` |
+| 模型实现范例 | `vllm/model_executor/models/llama.py`、`deepseek_v2.py` |
+| MTP 头 | `vllm/model_executor/models/deepseek_mtp.py` |
+| MTP 方法白名单 | `vllm/config/speculative.py` |
+| MLA 封装 | `vllm/model_executor/layers/mla.py` |
+
+</details>
+
 ---
 
 ## 八、硬件解耦：如何不让芯片差异污染 Serving 核心？
@@ -2656,19 +2266,13 @@ GPU 不再是唯一选择——AMD ROCm、华为昇腾 (Ascend)、Intel XPU、Go
 
 所以理想的分层是这样的：
 
-```
-                    vLLM Serving Core
-         (Scheduler / KVCacheManager / EngineCore)
-                          │
-                 只依赖抽象的"能力查询"
-                          │
-        ┌─────────────────┼─────────────────┐
-        ▼                 ▼                 ▼
-     CUDA              ROCm             Ascend
-   CudaPlatform     RocmPlatform     AscendPlatform (OOT)
-        │                 │                 │
-      CUDA C++          HIP              CANN
-   FlashAttn/FlashInfer  AITER        CANN FlashAttn
+```mermaid
+graph TD
+    CORE["<b>vLLM Serving Core</b><br/>Scheduler · KVCacheManager · EngineCore<br/><i>只依赖抽象的「能力查询」，不含任何 if is_cuda()</i>"]
+    CORE --> C1 & C2 & C3
+    C1["CudaPlatform<br/>↓<br/>CUDA C++<br/>FlashAttn / FlashInfer"]
+    C2["RocmPlatform<br/>↓<br/>HIP<br/>AITER"]
+    C3["AscendPlatform（OOT）<br/>↓<br/>CANN<br/>CANN FlashAttn"]
 ```
 
 上层只问"这个设备支持 FP8 吗"、"该用哪个 Attention 实现"，不关心答案从哪来。**`Platform` 就是回答这类问题的那个角色。**
@@ -2679,41 +2283,21 @@ GPU 不再是唯一选择——AMD ROCm、华为昇腾 (Ascend)、Intel XPU、Go
 
 如果只看类名，很容易把 vLLM 的硬件适配理解成一条固定链路：`Platform Backend` 先选 `Attention Backend`，`Attention Backend` 再选 `Kernel Backend`。但 `v0.27.1` 源码里并不是这种单向三层调用。更准确地说，`Platform` 是设备能力与运行时事实的来源，而 Attention backend 和大量非 Attention kernel 都从 `Platform` 读取能力，二者之间没有强制父子调用关系。
 
-```
-┌─────────── Platform 是能力源，不是 Attention 的父层 ───────────────────┐
-│                                                                          │
-│   runtime 启动                                                            │
-│      │                                                                    │
-│      ▼                                                                    │
-│  current_platform                                                        │
-│  · CudaPlatform / RocmPlatform / XPUPlatform / CpuPlatform / OOT         │
-│  · 提供 device_name、device_type、dispatch_key、device_capability、      │
-│    dist_backend、supported_dtypes、supported_quantization 等能力事实      │
-│      │                                                                    │
-│      ├───────────────────────────────┐                                    │
-│      │                                │                                    │
-│      ▼                                ▼                                    │
-│  Attention selector              直接使用底层实现                          │
-│  get_attn_backend()               由 current_platform 提供                 │
-│      │                                │                                    │
-│      ▼                                ├─ import_kernels()                 │
-│  Platform.get_attn_backend_cls()      │  CudaPlatform 直接 import:         │
-│  · 校验 device capability             │  _C_stable_libtorch               │
-│  · 校验 head_size / dtype / KV dtype  │  _moe_C_stable_libtorch           │
-│  · 校验 MLA / sliding window 等       │  _qutlass_C（可选）                │
-│  · 返回具体 AttentionBackend class    │                                    │
-│      │                                ├─ get_device_communicator_cls()    │
-│      ▼                                │  CudaPlatform → CudaCommunicator  │
-│  FlashAttentionBackend                │                                    │
-│  FlashInferBackend                    ├─ get_punica_wrapper()             │
-│  TritonAttentionBackend               │  CudaPlatform → PunicaWrapperGPU  │
-│  AiterMLABackend ...                  │                                    │
-│      │                                └─ 平台级配置检查                    │
-│      ▼                                    check_and_update_config()       │
-│  AttentionBackend.forward()                                                   │
-│  · FlashInfer 内部再分 prefill/decode 路径                                    │
-│  · FlashAttention 内部按 num_decode_tokens 分路径                            │
-└──────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    RT["runtime 启动"] --> CP
+    CP["<b>current_platform</b><br/>CudaPlatform / RocmPlatform / XPUPlatform / CpuPlatform / OOT<br/><i>提供能力事实：device_name、device_type、dispatch_key、<br/>device_capability、dist_backend、supported_dtypes、supported_quantization</i>"]
+    CP --> SEL
+    CP --> DIRECT
+    SEL["<b>路径一：Attention 选择</b><br/>get_attn_backend()"] --> GAB
+    GAB["Platform.get_attn_backend_cls()<br/>校验 device capability / head_size / dtype /<br/>KV dtype / MLA / sliding window …<br/>→ 返回具体 AttentionBackend class"] --> BK
+    BK["FlashAttentionBackend · FlashInferBackend<br/>TritonAttentionBackend · AiterMLABackend …"] --> FW
+    FW["AttentionBackend.forward()<br/><i>内部再按 num_decode_tokens 等分 prefill/decode 路径</i>"]
+    DIRECT["<b>路径二：直接使用底层实现</b><br/>（不经过 Attention backend）"] --> D1 & D2 & D3 & D4
+    D1["import_kernels()<br/>_C_stable_libtorch<br/>_moe_C_stable_libtorch<br/>_qutlass_C（可选）"]
+    D2["get_device_communicator_cls()<br/>→ CudaCommunicator"]
+    D3["get_punica_wrapper()<br/>→ PunicaWrapperGPU"]
+    D4["check_and_update_config()<br/>平台级配置检查"]
 ```
 
 图中的两条关键路径分别是：
@@ -2768,42 +2352,34 @@ def _cached_get_attn_backend(...):
 
 vLLM 的 `PlatformEnum.OOT` 允许第三方通过独立插件包（如 `vllm-ascend`）扩展硬件支持，无需修改 vLLM 主仓库：
 
-```
-┌──────────── Out-of-Tree 插件架构 ──────────────────────────────────┐
-│                                                                     │
-│  vllm (主仓库):                                                     │
-│  ┌─────────────────────────────────────────────────────┐           │
-│  │  platforms/interface.py  → PlatformEnum.OOT         │           │
-│  │  model_executor/         → 标准模型接口              │           │
-│  │  v1/attention/           → AttentionBackend 抽象     │           │
-│  │  distributed/            → 通信接口                  │           │
-│  └──────────────────────────┬──────────────────────────┘           │
-│                              │  插件注册点                          │
-│                              ▼                                      │
-│  vllm-ascend (独立插件包):                                          │
-│  ┌───────────────────────────────────────────────────┐             │
-│  │  AscendPlatform(Platform):                        │             │
-│  │    · device_name = "npu"                          │             │
-│  │    · import_ir_kernels() → CANN 算子库            │             │
-│  │    · get_attn_backend_cls() → CANN Flash Attn     │             │
-│  │                                                    │             │
-│  │  AscendWorker(WorkerBase):                        │             │
-│  │    · NPU 设备管理                                  │             │
-│  │    · 昇腾特有的内存池管理                          │             │
-│  │                                                    │             │
-│  │  AscendAttentionBackend(AttentionBackend):        │             │
-│  │    · CANN Flash Attention 实现                     │             │
-│  │                                                    │             │
-│  │  Custom CANN Kernels:                             │             │
-│  │    · RMSNorm, RoPE, Quantization                  │             │
-│  └───────────────────────────────────────────────────┘             │
-│                                                                     │
-│  安装: pip install vllm-ascend                                      │
-│  使用: vllm 启动时自动检测 NPU → 加载 OOT 插件                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
+| | vllm 主仓库提供的**注册点** | `vllm-ascend` 独立插件包**填充的实现** |
+|---|---|---|
+| 平台 | `platforms/interface.py` → `PlatformEnum.OOT` | `AscendPlatform(Platform)`：`device_name = "npu"`、`import_ir_kernels()` → CANN 算子库、`get_attn_backend_cls()` → CANN Flash Attn |
+| 模型 | `model_executor/` → 标准模型接口 | 复用，无需改动 |
+| Attention | `v1/attention/` → `AttentionBackend` 抽象 | `AscendAttentionBackend(AttentionBackend)`：CANN Flash Attention 实现 |
+| 通信 | `distributed/` → 通信接口 | 昇腾通信后端 |
+| Worker | `WorkerBase` | `AscendWorker(WorkerBase)`：NPU 设备管理、昇腾特有的内存池管理 |
+| 自定义算子 | — | Custom CANN Kernels：RMSNorm、RoPE、Quantization |
+
+用起来是这样：`pip install vllm-ascend`，然后 vLLM 启动时自动检测到 NPU 并加载 OOT 插件——**主仓库一行代码都不用改**。
+
+这正是 8.1 那条原则的兑现：因为 Scheduler 和 KVCacheManager 从来只问"能力"、不问"是什么芯片"，所以接一种全新硬件才可能做成一个外挂包。
 
 类似的模式也被 XPU (Intel) 使用——`vllm_xpu_kernels` 提供 XPU 特化算子，通过 `import_ir_kernels()` 注册。
+
+<details>
+<summary><b>📂 本章源码导航</b></summary>
+
+**硬件平台**
+
+| 想看什么 | 从哪开始 |
+|---|---|
+| **平台抽象接口（本章核心）** | `vllm/platforms/interface.py` |
+| CUDA 平台实现 | `vllm/platforms/cuda.py`（注意 `import_kernels()` 与 `get_attn_backend_cls()` 是**两条并行路径**） |
+| 其他平台 | `vllm/platforms/`（`rocm.py`、`xpu.py`、`cpu.py`） |
+| Attention 分派点 | `vllm/v1/attention/selector.py` |
+
+</details>
 
 ---
 
@@ -2819,78 +2395,42 @@ vLLM 的 `PlatformEnum.OOT` 允许第三方通过独立插件包（如 `vllm-asc
 
 先看不分离时的代价：
 
+**混合部署时，同一张卡上两种 workload 交替，资源画像剧烈摆动：**
+
 ```
-┌──────────── PD 分离的动因 ────────────────────────────────────────┐
-│                                                                    │
-│  传统混合部署 (Prefill + Decode 在同一 GPU):                       │
-│                                                                    │
-│  GPU 利用率:                                                       │
-│  ┌──────────────────────────────────────────────────────┐         │
-│  │ [Prefill ████] [D][D][D][D][D] [Prefill ████] [D][D]│         │
-│  │  Compute 100%   Compute 5%    Compute 100%   5%    │         │
-│  │  Memory  20%    Memory  80%   Memory  20%    80%   │         │
-│  └──────────────────────────────────────────────────────┘         │
-│                                                                    │
-│  问题:                                                             │
-│  · Prefill 需要高算力 → 希望用高 Tensor Core 利用率的配置          │
-│  · Decode 需要高带宽 → 希望用高 HBM 带宽、大 Batch 的配置         │
-│  · 混合在一起 → 两边都无法达到最优                                 │
-│  · Prefill 抖动影响 Decode 的 TPOT 稳定性                         │
-│                                                                    │
-│  PD 分离:                                                          │
-│  ┌──────────────────┐    ┌──────────────────────────┐             │
-│  │  Prefill 节点    │    │  Decode 节点              │             │
-│  │  · 高算力配置    │    │  · 高带宽配置             │             │
-│  │  · 少量卡/低TP   │───▶│  · 大 Batch              │             │
-│  │  · 处理 Prompt   │ KV │  · 稳定 TPOT             │             │
-│  │  · 输出 KV Cache │传输│  · 逐 Token 生成         │             │
-│  └──────────────────┘    └──────────────────────────┘             │
-└────────────────────────────────────────────────────────────────────┘
+[Prefill ████][D][D][D][D][D][Prefill ████][D][D]
+ Compute 100%  Compute 5%      Compute 100%  5%
+ Memory   20%  Memory  80%     Memory   20%  80%
+```
+
+| 问题 | 后果 |
+|---|---|
+| Prefill 要高算力 | 希望配高 Tensor Core 利用率 |
+| Decode 要高带宽 | 希望配高 HBM 带宽 + 大 Batch |
+| 两者混在同一批卡 | **两边都到不了最优** |
+| Prefill 会插队 | 直接抖动 Decode 的 TPOT 稳定性 |
+
+**PD 分离就是把这两种 workload 放到配置不同的两个池子里：**
+
+```mermaid
+graph LR
+    P["<b>Prefill 节点</b><br/>高算力配置<br/>卡少 / 低 TP<br/>处理 Prompt<br/>产出 KV Cache"]
+    P -->|"KV 传输"| D["<b>Decode 节点</b><br/>高带宽配置<br/>大 Batch<br/>稳定 TPOT<br/>逐 Token 生成"]
 ```
 
 #### 9.1.2 KV Transfer 跨节点传输
 
 vLLM 的 KV Transfer 三层抽象（`vllm/distributed/kv_transfer/`）：
 
-```
-┌──────────── KV Transfer 三层抽象 ──────────────────────────────────┐
-│                                                                     │
-│  Layer 3: KV Connector (最高层)                                     │
-│  ┌─────────────────────────────────────────────────────────┐       │
-│  │  KVConnectorBase_V1 (vllm/distributed/kv_transfer/      │       │
-│  │                       kv_connector/v1/base.py)          │       │
-│  │                                                          │       │
-│  │  Scheduler 侧:                                           │       │
-│  │  · get_num_new_matched_tokens() — 查询可复用的远端 KV    │       │
-│  │  · update_state_after_alloc() — 分配后更新状态           │       │
-│  │  · request_finished() — 通知 KV 不再需要                │       │
-│  │                                                          │       │
-│  │  Worker 侧:                                              │       │
-│  │  · start_load_kv() — 发起 KV 加载                       │       │
-│  │  · wait_for_layer_load() — 等待某层 KV 加载完成         │       │
-│  │  · save_kv_layer() — 保存某层 KV 到远端                 │       │
-│  └─────────────────────────────────────────────────────────┘       │
-│                                                                     │
-│  Layer 2: KV Lookup Buffer (中间层)                                 │
-│  ┌─────────────────────────────────────────────────────────┐       │
-│  │  关联缓存: key = token_ids → value = KV tensors         │       │
-│  │  支持查找、插入、驱逐                                    │       │
-│  └─────────────────────────────────────────────────────────┘       │
-│                                                                     │
-│  Layer 1: KV Pipe (最底层)                                          │
-│  ┌─────────────────────────────────────────────────────────┐       │
-│  │  FIFO 张量传输:                                          │       │
-│  │  · send_tensor(tensor) — 发送                           │       │
-│  │  · recv_tensor() — 接收                                 │       │
-│  │                                                          │       │
-│  │  具体实现:                                               │       │
-│  │  · Mooncake — RDMA 高性能传输                           │       │
-│  │  · LMCache — 分布式 KV 存储                             │       │
-│  │  · Moriio — 优化的 KV 流式传输                          │       │
-│  │  · HF3FS — 基于元数据服务器的分发                       │       │
-│  └─────────────────────────────────────────────────────────┘       │
-└─────────────────────────────────────────────────────────────────────┘
-```
+| 层 | 角色 | 关键接口 / 实现 |
+|---|---|---|
+| **Layer 3**<br/>KV Connector | 面向 vLLM 内部的语义层<br/>`KVConnectorBase_V1`（`kv_connector/v1/base.py`） | **Scheduler 侧**：`get_num_new_matched_tokens()`（查询可复用的远端 KV）、`update_state_after_alloc()`、`request_finished()`<br/>**Worker 侧**：`start_load_kv()`、`wait_for_layer_load()`、`save_kv_layer()` |
+| **Layer 2**<br/>KV Lookup Buffer | 关联缓存 | `key = token_ids` → `value = KV tensors`，支持查找 / 插入 / 驱逐 |
+| **Layer 1**<br/>KV Pipe | 纯粹的张量搬运 | `send_tensor()` / `recv_tensor()`（FIFO）<br/>实现：**Mooncake**（RDMA 高性能传输）、**LMCache**（分布式 KV 存储）、**Moriio**（KV 流式传输）、**HF3FS**（基于元数据服务器分发） |
+
+注意 Layer 3 的接口分成了 Scheduler 侧和 Worker 侧两组——这不是随意划分的，它精确对应第二章的**控制面 / 数据面分离**：Scheduler 侧只做"要不要用远端 KV、有多少可用"的**决策**，Worker 侧才真正搬**数据**。
+
+还有一个容易忽略的设计考虑：`wait_for_layer_load()` 是**按层**等待的，而不是等整个请求的 KV 都到齐。这样 KV 传输可以和模型前向逐层流水起来——第 0 层的 KV 到了就能开始算第 0 层，不必干等。
 
 #### 9.1.3 NIXL 与 LMCache
 
@@ -2899,40 +2439,28 @@ vLLM 的 KV Transfer 三层抽象（`vllm/distributed/kv_transfer/`）：
 
 #### 9.1.4 PD 分离下的请求路由与弹性伸缩
 
+```mermaid
+graph TD
+    R["<b>Router</b><br/>把请求调度到 Prefill 或 Decode 节点"] --> P0 & P1
+    P0["Prefill Node 0<br/>高 TP（如 TP=8）<br/>处理 Prompt → 产出 KV"]
+    P1["Prefill Node 1"]
+    P0 -.->|"KV Transfer<br/>RDMA / NIXL / LMCache"| D0
+    P0 -.-> D1
+    P1 -.-> D1
+    P1 -.-> D2
+    D0["Decode Node 0<br/>大 Batch · 稳定 TPOT"]
+    D1["Decode Node 1"]
+    D2["Decode Node 2"]
 ```
-┌──────────── PD 分离集群架构 ──────────────────────────────────────────┐
-│                                                                        │
-│  ┌─────────┐                                                          │
-│  │ Router  │ ← 请求路由器（调度到 Prefill 或 Decode 节点）            │
-│  └────┬────┘                                                          │
-│       │                                                                │
-│       ├──────────────────┐                                             │
-│       ▼                  ▼                                             │
-│  ┌──────────┐      ┌──────────┐                                      │
-│  │ Prefill  │      │ Prefill  │  ← Prefill 节点池                    │
-│  │ Node 0   │      │ Node 1   │    · 高 TP (如 TP=8)                 │
-│  │          │      │          │    · 处理 Prompt                     │
-│  └────┬─────┘      └────┬─────┘    · 输出 KV Cache                  │
-│       │                  │                                             │
-│       │    KV Transfer (RDMA / NIXL / LMCache)                       │
-│       │                  │                                             │
-│       ▼                  ▼                                             │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐                           │
-│  │ Decode   │  │ Decode   │  │ Decode   │  ← Decode 节点池           │
-│  │ Node 0   │  │ Node 1   │  │ Node 2   │    · 大 Batch              │
-│  │ (持续D)  │  │ (持续D)  │  │ (持续D)  │    · 稳定 TPOT             │
-│  └──────────┘  └──────────┘  └──────────┘    · KV Affinity 路由      │
-│                                                                        │
-│  路由策略:                                                              │
-│  · KV Affinity: 尽量将相同前缀的请求路由到同一 Decode 节点            │
-│  · 负载均衡: 监控每个节点的并发数和 KV 使用率                          │
-│  · 弹性扩缩容: 根据流量动态增减 Prefill/Decode 节点                  │
-│                                                                        │
-│  故障恢复:                                                              │
-│  · Decode 节点宕机 → KV Cache 丢失                                    │
-│  · 恢复策略: 重新 Prefill (利用 Prefix Cache) 或从 LMCache 恢复      │
-└────────────────────────────────────────────────────────────────────────┘
-```
+
+| 关注点 | 策略 |
+|---|---|
+| **KV Affinity 路由** | 尽量把相同前缀的请求送到**同一个** Decode 节点，让 Prefix Cache 能命中 |
+| 负载均衡 | 监控每个节点的并发数与 KV 使用率 |
+| 弹性扩缩容 | 按流量动态增减 Prefill / Decode 节点——**两个池子可以独立伸缩**，这是分离最直接的红利 |
+| 故障恢复 | Decode 节点宕机 → 该节点上的 KV Cache 全部丢失；恢复靠重新 Prefill（可借 Prefix Cache 减少开销）或从 LMCache 拉回 |
+
+最后一行揭示了分离的代价：**KV Cache 从"进程内状态"变成了"跨节点的分布式状态"**，于是它也就有了自己的一致性和容错问题。这是典型的架构权衡——你解决了资源互锁，换来了分布式状态管理。
 
 看到这里，这一章最重要的结论应该已经浮出来了：
 
@@ -2945,38 +2473,24 @@ vLLM 的 KV Transfer 三层抽象（`vllm/distributed/kv_transfer/`）：
 
 #### 9.2.1 AI 编译器时代
 
+**现状：手写 CUDA Kernel。** 问题是组合爆炸——每种硬件 × 每种算子 × 每种精度都要一份实现，`csrc/` 下近百个 `.cu` 及更多 `.cuh` 需要逐一维护，新硬件的适配周期也就被拉得很长。
+
+**方向：把这层交给编译器。**
+
+```mermaid
+graph TD
+    A["<b>Python 算子定义</b><br/>高层描述（如 Triton）"] --> B
+    B["<b>Triton / torch.compile</b><br/>中间表示 + 自动优化<br/>自动 tiling · 自动 fusion · 自动 vectorize"] --> C
+    C["<b>硬件特化代码自动生成</b><br/>CUDA / ROCm / Ascend IR"]
 ```
-┌──────────── 从手写 Kernel 到编译器生成 ──────────────────────────────┐
-│                                                                      │
-│  现状 (手写 CUDA Kernel):                                            │
-│  · 每种硬件 × 每种算子 × 每种精度 → 组合爆炸                        │
-│  · csrc/ 下近百个 .cu 及更多 .cuh 头文件需要逐一维护                 │
-│  · 新硬件适配周期长                                                  │
-│                                                                      │
-│  未来 (AI 编译器):                                                    │
-│  ┌──────────────┐                                                    │
-│  │ Python 算子  │  高层描述 (如 Triton)                               │
-│  │ 定义         │                                                    │
-│  └──────┬───────┘                                                    │
-│         │                                                            │
-│  ┌──────▼───────┐                                                    │
-│  │ Triton /     │  中间表示 + 自动优化                                │
-│  │ torch.compile│  · 自动 tiling                                     │
-│  │              │  · 自动 fusion                                     │
-│  │              │  · 自动 vectorize                                  │
-│  └──────┬───────┘                                                    │
-│         │                                                            │
-│  ┌──────▼───────┐                                                    │
-│  │ CUDA/ROCm/   │  硬件特化代码自动生成                               │
-│  │ Ascend IR    │                                                    │
-│  └──────────────┘                                                    │
-│                                                                      │
-│  vLLM 已在广泛使用 Triton:                                           │
-│  · Attention backends (triton_attn.py, triton_mla.py)                │
-│  · MoE experts (triton_moe.py)                                      │
-│  · torch.compile 集成正在推进                                        │
-└──────────────────────────────────────────────────────────────────────┘
-```
+
+vLLM 已经在大量使用 Triton，这条路走了一半了：
+
+- Attention backends：`triton_attn.py`、`triton_mla.py`
+- MoE experts：`triton_moe.py`
+- `torch.compile` 集成正在推进
+
+值得留意的是，这件事和第八章的硬件解耦是**同一个问题的两个层面**：`Platform` 抽象解决的是"接口怎么统一"，AI 编译器要解决的是"实现怎么少写"。前者已经比较成熟，后者仍是这个领域最大的未解题之一。
 
 #### 9.2.2 场景泛化
 
@@ -2992,6 +2506,19 @@ vLLM 的 KV Transfer 三层抽象（`vllm/distributed/kv_transfer/`）：
 
 （另外两个正在推进的方向——多模态的编码器缓存 `EncoderCacheManager`、故障容忍的 `EngineCoreSentinel`——同样值得关注，但展开需要另一篇文章的篇幅。）
 
+<details>
+<summary><b>📂 本章源码导航</b></summary>
+
+**PD 分离与 KV 传输**
+
+| 想看什么 | 从哪开始 |
+|---|---|
+| **KV Connector 抽象（本章核心）** | `vllm/distributed/kv_transfer/kv_connector/v1/base.py` |
+| 各类 connector 实现 | `vllm/distributed/kv_transfer/` |
+| 等待远端 KV 的请求状态 | `vllm/v1/request.py` → `WAITING_FOR_REMOTE_KVS` |
+
+</details>
+
 ---
 
 ## 十、回到源码：一次请求在 vLLM 内部的真实旅程
@@ -3006,55 +2533,22 @@ vLLM 的 KV Transfer 三层抽象（`vllm/distributed/kv_transfer/`）：
 
 读 vLLM 源码最容易迷失的地方，是分不清一个变量属于哪一层。先给一个定位框架——**任何一个核心对象，都能落进下面四个域之一**：
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                      核心数据对象全景图                               │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  ┌──────────────────── 请求域 ────────────────────────┐             │
-│  │                                                     │            │
-│  │  EngineCoreRequest  ──→  Request                    │            │
-│  │  (IPC 传输对象)         (调度器内部对象)              │            │
-│  │    · request_id          · status (状态机)           │            │
-│  │    · prompt (text)       · prompt_token_ids          │            │
-│  │    · sampling_params     · output_token_ids          │            │
-│  │    · lora_request        · num_computed_tokens       │            │
-│  │                          · block_hashes              │            │
-│  │                          · spec_token_ids            │            │
-│  └─────────────────────────────────────────────────────┘            │
-│                                                                     │
-│  ┌──────────────────── 调度域 ────────────────────────┐             │
-│  │                                                     │            │
-│  │  SchedulerOutput           ModelRunnerOutput         │            │
-│  │  (调度决策)                (模型执行结果)             │            │
-│  │    · scheduled_requests     · req_ids                │            │
-│  │    · num_scheduled_tokens   · sampled_token_ids      │            │
-│  │    · finished_req_ids       · logprobs_tensors       │            │
-│  │    · preempted_req_ids      · draft_tokens           │            │
-│  └─────────────────────────────────────────────────────┘            │
-│                                                                     │
-│  ┌──────────────────── 显存域 ────────────────────────┐             │
-│  │                                                     │            │
-│  │  KVCacheBlock              Block Table               │            │
-│  │  (物理块元数据)            (虚拟→物理映射)            │            │
-│  │    · block_id               · req → [block_ids]      │            │
-│  │    · ref_cnt                                         │            │
-│  │    · block_hash                                      │            │
-│  │                                                      │            │
-│  │  KV Cache Tensor (GPU HBM)                           │            │
-│  │    · shape: [num_blocks, block_size, num_heads, d]   │            │
-│  └─────────────────────────────────────────────────────┘            │
-│                                                                     │
-│  ┌──────────────────── 模型域 ────────────────────────┐             │
-│  │                                                     │            │
-│  │  Model Weights (参数)   Activations (激活)           │            │
-│  │    · Linear.weight        · hidden_states            │            │
-│  │    · LayerNorm.weight     · Q, K, V tensors          │            │
-│  │                           · attention_output         │            │
-│  │                           · logits                   │            │
-│  └─────────────────────────────────────────────────────┘            │
-└─────────────────────────────────────────────────────────────────────┘
-```
+| 域 | 对象 | 关键字段 |
+|---|---|---|
+| **请求域** | `EngineCoreRequest`（IPC 传输对象） | `request_id`、`prompt`(text)、`sampling_params`、`lora_request` |
+| | `Request`（调度器内部对象） | `status`（状态机）、`prompt_token_ids`、`output_token_ids`、`num_computed_tokens`、`block_hashes`、`spec_token_ids` |
+| **调度域** | `SchedulerOutput`（调度决策） | `scheduled_requests`、`num_scheduled_tokens`、`finished_req_ids`、`preempted_req_ids` |
+| | `ModelRunnerOutput`（执行结果） | `req_ids`、`sampled_token_ids`、`logprobs_tensors`、`draft_tokens` |
+| **显存域** | `KVCacheBlock`（物理块元数据） | `block_id`、`ref_cnt`、`block_hash` |
+| | Block Table（虚拟→物理映射） | `req → [block_ids]` |
+| | KV Cache Tensor（GPU HBM） | `shape: [num_blocks, block_size, num_heads, d]` |
+| **模型域** | Model Weights（参数） | `Linear.weight`、`LayerNorm.weight` |
+| | Activations（激活） | `hidden_states`、`Q/K/V tensors`、`attention_output`、`logits` |
+
+两条边界值得留意：
+
+- **`EngineCoreRequest` → `Request` 是一次跨进程翻译**。前者是能被 msgspec 序列化、走 ZMQ 的扁平数据；后者是带状态机、会被反复修改的活对象。这条边界就是第 2.3 节控制面的进程边界。
+- **显存域是唯一"跨请求共享"的域**。请求域、调度域、模型域的对象都属于某一次请求或某一轮迭代，而 `KVCacheBlock` 会被多个请求通过 `ref_cnt` 共享——Prefix Cache 的全部魔法都发生在这一行。
 
 vLLM V1 的核心数据对象（定义在 `vllm/v1/request.py`、`vllm/v1/core/sched/output.py`、`vllm/v1/outputs.py`）可以分为四个域：
 
@@ -3123,30 +2617,12 @@ class RequestStatus(enum.IntEnum):
 
 在 vLLM V1 中，`Scheduler.schedule()` 的核心不是把系统硬切成 Prefill 阶段和 Decode 阶段，而是在每一轮迭代里分配统一的 token 预算。源码注释明确指出：调度器内部没有严格的 "decoding phase" 或 "prefill phase"；每个请求维护 `num_computed_tokens`，调度器尝试让它追赶 `num_tokens_with_spec`。
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                  Scheduler.schedule() 核心问题                    │
-├─────────────────────────────────────────────────────────────────┤
-│  输入: 当前 running / waiting 请求、KV Cache 状态、token budget     │
-│                                                                 │
-│  对每个可推进请求，计算本轮可以新增多少 token:                      │
-│  · 新请求可能推进一段 prompt tokens                                │
-│  · 已运行请求通常推进下一个 decode token                            │
-│  · spec decode / MTP 可能需要额外 lookahead tokens                 │
-│  · 长 prompt 可能被 long_prefill_token_threshold 截断              │
-│                                                                 │
-│  同时满足:                                                        │
-│  · max_num_batched_tokens / max_num_scheduled_tokens              │
-│  · max_num_seqs                                                   │
-│  · KV Cache 可用块数                                               │
-│  · encoder / multimodal / structured output 等附加约束             │
-│                                                                 │
-│  输出: SchedulerOutput                                            │
-│  · 本轮调度的请求与 token 数                                        │
-│  · block table / slot mapping 相关更新                             │
-│  · preemption、KV transfer、spec decode 等执行提示                  │
-└─────────────────────────────────────────────────────────────────┘
-```
+| | 内容 |
+|---|---|
+| **输入** | 当前 running / waiting 请求、KV Cache 状态、token budget |
+| **对每个可推进的请求，算出本轮能新增多少 token** | · 新请求：推进一段 prompt tokens<br/>· 已运行请求：通常推进下一个 decode token<br/>· spec decode / MTP：额外需要 lookahead tokens<br/>· 长 prompt：可能被 `long_prefill_token_threshold` 截断 |
+| **同时要满足的约束** | · `max_num_batched_tokens` / `max_num_scheduled_tokens`<br/>· `max_num_seqs`<br/>· KV Cache 可用块数<br/>· encoder / multimodal / structured output 等附加约束 |
+| **输出：`SchedulerOutput`** | · 本轮调度的请求与各自的 token 数<br/>· block table / slot mapping 更新<br/>· preemption、KV transfer、spec decode 等执行提示 |
 
 这里可以和第一章的结论对上了：Prefill / Decode 的区分在**性能分析**层面依然成立（第 1.2 节），但在 **Scheduler 的实现**层面它们被统一到"本轮给这个请求推进多少 token"这一个模型里——这正是第四章反复强调的那句话在源码里的样子。
 
@@ -3156,58 +2632,27 @@ class RequestStatus(enum.IntEnum):
 
 把前面所有环节串成一条链，可以清楚看到语言边界（Python → C++ → CUDA）落在哪几个位置：
 
-```
-  HTTP Request ("Hello")
-       │
-       │ ①  Python (FastAPI)
-       ▼
-  api_server.py: create_chat_completion()
-       │
-       │ ②  Python (async)
-       ▼
-  AsyncLLM.add_request() → Tokenizer → [15496, 11, ...]
-       │
-       │ ③  Python (IPC: ZMQ + msgspec)
-       ▼
-  EngineCore.add_request() → Scheduler.add_request()
-       │
-       │ ④  Python (调度算法)
-       ▼
-  Scheduler.schedule() → SchedulerOutput
-       │
-       │ ⑤  Python → C++ 边界
-       ▼
-  Executor.execute_model() → Worker.execute_model()
-       │
-       │ ⑥  Python (张量准备)
-       ▼
-  ModelRunner._execute_model()
-    → prepare_inputs(): 构建 input_ids, positions, block_table 张量
-       │
-       │ ⑦  Python → CUDA 边界 (PyTorch dispatch)
-       ▼
-  model.forward(input_ids, positions, kv_caches, attn_metadata)
-    → 每层: RMSNorm → QKV → RoPE → Attention → O_proj → MLP
-       │
-       │ ⑧  CUDA Kernel Launch (C++ runtime)
-       ▼
-  Attention Backend (FlashAttention / FlashInfer)
-    → flash_attn_varlen_func() 或 flashinfer.decode()
-       │
-       │ ⑨  CUDA Graph (可选: Decode 阶段)
-       ▼
-  cudagraph_manager.run_fullgraph(batch_desc)
-    → 预捕获的完整执行图一次性重放
-       │
-       │ ⑩  GPU → CPU
-       ▼
-  Sampling: logits → sampled_token_ids (GPU tensor → CPU list)
-       │
-       │ ⑪  Python (输出处理)
-       ▼
-  ModelRunnerOutput → Scheduler.update_from_output()
-    → Detokenizer → "Sure" → SSE Stream → Client
-```
+| # | 层 | 调用 | 语言 / 边界 |
+|---|---|---|---|
+| ① | HTTP 入口 | `api_server.py: create_chat_completion()` | Python（FastAPI） |
+| ② | 异步引擎 | `AsyncLLM.add_request()` → Tokenizer → `[15496, 11, …]` | Python（async） |
+| ③ | 进程边界 | `EngineCore.add_request()` → `Scheduler.add_request()` | **Python IPC：ZMQ + msgspec** |
+| ④ | 调度 | `Scheduler.schedule()` → `SchedulerOutput` | Python（调度算法） |
+| ⑤ | 执行分发 | `Executor.execute_model()` → `Worker.execute_model()` | **Python → C++ 边界** |
+| ⑥ | 张量准备 | `ModelRunner._execute_model()` → `prepare_inputs()`：构建 `input_ids`、`positions`、`block_table` | Python |
+| ⑦ | 模型前向 | `model.forward(...)`；每层 RMSNorm → QKV → RoPE → Attention → O_proj → MLP | **Python → CUDA 边界（PyTorch dispatch）** |
+| ⑧ | Attention kernel | Attention Backend → `flash_attn_varlen_func()` 或 `flashinfer.decode()` | **CUDA Kernel Launch（C++ runtime）** |
+| ⑨ | 图重放（可选） | `cudagraph_manager.run_fullgraph(batch_desc)`：预捕获的完整图一次性重放 | CUDA Graph，仅 Decode |
+| ⑩ | 取回结果 | Sampling：`logits` → `sampled_token_ids`（GPU tensor → CPU list） | **GPU → CPU** |
+| ⑪ | 输出处理 | `ModelRunnerOutput` → `Scheduler.update_from_output()` → Detokenizer → SSE Stream → Client | Python |
+
+三条语言边界（③⑤⑦）恰好把这条链切成了四段，而它们的位置不是随意的：
+
+- **③ 是进程边界** —— API 层与引擎核心分离，为的是不让 HTTP 处理阻塞调度循环；
+- **⑤ 是控制面与数据面的边界** —— 上游全是决策，下游全是计算（第 2.3 节）；
+- **⑦ 是 Python 与 GPU 的边界** —— 过了这里就再没有 Python 开销可言。
+
+第 5.1.1 节说"Python 控制面只占 ~1%"，指的正是 ①–⑥ 这一段相对 ⑦–⑩ 的耗时占比。
 
 ---
 
@@ -3275,28 +2720,10 @@ class RequestStatus(enum.IntEnum):
 
 > 本文分析基于当前 vLLM 最新稳定版 v0.27.1（2026-08-11, commit `6e448d0`）。
 >
-> **核心源码文件索引**:
-> 
-> | 组件 | 文件路径 |
-> |------|---------|
-> | Engine Core | `vllm/v1/engine/core.py` |
-> | Async Engine | `vllm/v1/engine/async_llm.py` |
-> | Scheduler | `vllm/v1/core/sched/scheduler.py` |
-> | Request | `vllm/v1/request.py` |
-> | KV Cache Manager | `vllm/v1/core/kv_cache_manager.py` |
-> | Block Pool | `vllm/v1/core/block_pool.py` |
-> | GPU Model Runner | `vllm/v1/worker/gpu/model_runner.py` |
-> | CUDA Graph | `vllm/v1/worker/gpu/cudagraph_utils.py` |
-> | Attention Backends | `vllm/v1/attention/backends/` |
-> | Spec Decode | `vllm/v1/spec_decode/` |
-> | Fused MoE | `vllm/model_executor/layers/fused_moe/` |
-> | MLA | `vllm/model_executor/layers/mla.py` |
-> | DeepSeek Model | `vllm/model_executor/models/deepseek_v2.py` |
-> | MTP | `vllm/model_executor/models/deepseek_mtp.py` |
-> | Distributed | `vllm/distributed/parallel_state.py` |
-> | KV Transfer | `vllm/distributed/kv_transfer/` |
-> | Platform | `vllm/platforms/interface.py` |
-> | Quantization | `vllm/model_executor/layers/quantization/` |
-> | CUDA Kernels | `csrc/` |
-> | API Server | `vllm/entrypoints/openai/api_server.py` |
-> | Model Registry | `vllm/model_executor/models/registry.py` |
+> **源码导航**：本文各章末尾都有一个可展开的「本章源码导航」，按主题给出建议的阅读起点，比按文件名平铺更有用。
+>
+> 如果只想挑三个地方读，我的建议是：
+>
+> 1. `vllm/v1/core/sched/scheduler.py` → `schedule()`（**开头那段 `NOTE(woosuk)` 注释值得逐字读**，它就是第四章那句"调度的不是 Request 而是 Token Budget"的原始出处）
+> 2. `vllm/v1/core/kv_cache_manager.py` → `allocate_slots()`（连同它的块布局注释）
+> 3. `vllm/v1/engine/core.py` → `EngineCore.step()`（把两者串起来的主循环）
