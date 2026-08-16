@@ -1320,7 +1320,9 @@ Decode 偏 memory-bound、Prefill 偏 compute-bound（第 1.2 节），但落到
 
 #### 5.1.1 Python 控制面与 C++/CUDA 数据面的冰与火之歌
 
-为什么 Python 负责"运筹帷幄"仍然可以支撑高吞吐？关键在于控制面开销能否相对 GPU 执行时间足够小，并通过 batch queue、异步执行和流水线化被摊薄。下面数字仅作量级示意，实际取决于模型、GPU、batch、上下文长度和后端。
+为什么 Python 负责"运筹帷幄"仍然可以支撑高吞吐？关键在于控制面开销能否相对 GPU 执行时间足够小，并通过 batch queue、异步执行和流水线化被摊薄。
+
+下图以**一个较大模型的 decode 步（forward 约 15 ms 量级，例如 70B 级别多卡部署）**为例——第 10.4 节那张 7B 单卡的表里 decode 是 8–12 ms，量级不同但结论一致：只要 GPU 侧是十毫秒量级，Python 侧的零点几毫秒就淹没在里面。
 
 ```
 ┌──────────────────── 时间线 (单次 Decode 迭代) ──────────────────────┐
@@ -1382,7 +1384,15 @@ vLLM 的 C++/CUDA 扩展通过 PyTorch 的 Custom Op 机制注册（位于 `csrc
 
 #### 5.2.1 痛点：Kernel Launch Overhead
 
-在 Decode 阶段，每步模型 Forward 需要启动约 50-100+ 个 CUDA Kernel（GEMM、Attention、RMSNorm、RoPE 等），但每个 Kernel 的实际 GPU 计算时间可能只有几十微秒。此时 **Kernel Launch 的 Host-to-Device 延迟**（每次约 5-10 μs）累积起来可能占总耗时的 10-30%：
+在 Decode 阶段，每步模型 Forward 需要启动约 50-100+ 个 CUDA Kernel（GEMM、Attention、RMSNorm、RoPE 等），而每个 Kernel 的实际 GPU 计算时间可能只有几十微秒。
+
+这里要先破除一个常见的误解：**kernel launch 本身是异步的，CPU 提交完就返回，并不会傻等 GPU 算完。** 正常情况下 CPU 会一路往前提交，把 GPU 的任务队列填满，提交开销完全隐藏在 GPU 执行时间背后。所以真正的成立条件只有一个：
+
+> **当单个 kernel 的 GPU 执行时间 < CPU 提交它所需的时间时，GPU 就会追上 CPU，队列被抽干，开始出现气泡。**
+
+这就解释了为什么 CUDA Graph 基本只对 Decode 有意义：Prefill 的 kernel 动辄跑几百微秒，CPU 那点提交开销（现代 CUDA 通常 2–5 μs 量级）根本追不上；而 Decode 每个 kernel 可能只有几十微秒，几十个 kernel 排下来，CPU 就成了拖后腿的那一方。
+
+下图画的正是这种**已经追平之后**的最坏情形——注意它不是常态，而是 Decode 小 kernel 场景下才会退化成的样子：
 
 ```
 ┌───────── 无 CUDA Graph: Decode 一步的 Kernel Launch 开销 ────────────┐
@@ -1396,9 +1406,13 @@ vLLM 的 C++/CUDA 扩展通过 PyTorch 的 Custom Op 机制注册（位于 `csrc
 │              30μs            20μs            40μs                      │
 │                                                                       │
 │  问题: GPU 在等 CPU 发射下一个 kernel 时空闲（气泡）                   │
-│  50 个 kernel × 5μs launch = 250μs 纯开销                             │
+│  50 个 kernel × 5μs launch = 250μs                                    │
 │  总执行 = 250μs(launch) + ~2000μs(compute) = 2250μs                  │
 │  launch 开销占比 ≈ 11%                                                │
+│                                                                       │
+│  注意: 这 250μs 只有在"CPU 提交跟不上 GPU 消费"时才真正暴露出来。      │
+│       若 GPU 侧足够慢（如 Prefill），同样的提交开销会被完全隐藏，       │
+│       此时上 CUDA Graph 收益接近于零。                                 │
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -1715,7 +1729,18 @@ Decode 阶段的核心瓶颈是**逐 Token 串行**：每一步只生成 1 个 t
 
 ##### Speculative Decoding 基本原理
 
-核心思想：用一个**小而快**的 Draft Model 一次性推测多个候选 token，然后用**大而准**的 Target Model 并行验证这些候选：
+核心思想：用一个**小而快**的 Draft Model 一次性推测多个候选 token，然后用**大而准**的 Target Model 并行验证这些候选。
+
+在看流程之前，必须先破除一个几乎人人都会产生的误解：
+
+> **投机解码并没有消除自回归依赖。**
+
+看到"一次 Forward 产出 5 个 token"，很容易以为 token 之间的依赖被打破、可以并行生成了。**不是的。** token 之间的因果依赖是语言模型的定义本身，谁也绕不过去。投机解码做的是另一件事：
+
+- **依赖仍然存在**：`d₂` 的生成依然依赖 `d₁`，`d₃` 依赖 `d₂`……这个串行链条在 **Draft 模型内部**照样一步步走完，只不过 Draft 模型足够便宜，串行 5 步的代价也很小；
+- **被并行化的是"验证"，不是"生成"**：Target 模型拿到 `[d₁...d₅]` 这个**已经确定的序列**之后，可以用一次 Forward 同时算出所有位置的真实概率分布——因为此时每个位置的输入前缀都已知了，不需要等上一步的输出。
+
+所以它的本质是一次**赌注**：用便宜模型猜一条路径，再用贵模型一次性核对这条路径对不对。猜对了就白赚几个 token，猜错了就退回重来。**它省下的是 Target 模型的"轮次"，而不是语言模型的"依赖"。** 这也解释了为什么接受率一低，收益就迅速蒸发——赌输的次数太多了。
 
 ```
 ┌──────────── Speculative Decoding 工作流程 ─────────────────────────────┐
@@ -1791,7 +1816,29 @@ Speculative Decoding 在 vLLM 中的实现涉及多个组件的协同：
 
 ##### Speculative Decoding 的变体
 
-vLLM V1 在 `vllm/v1/spec_decode/` 中实现了丰富的 Proposer（候选生成器）：
+这些变体的差别只在**"候选从哪来"**这一件事上——验证和接受/拒绝的逻辑是共用的。所以它们在 vLLM 里被统一抽象成 Proposer（候选生成器），实现在 `vllm/v1/spec_decode/` 下。
+
+但在看表之前要先做一个分类上的澄清，因为下表把六种方法平铺在一起，容易掩盖一件事：**它们并不都是"推理技巧"。**
+
+```
+Speculative Decoding（一种推理时的加速框架）
+│
+├── 纯推理侧，不碰模型：
+│   ├── 独立 Draft Model      —— 另找一个小模型
+│   ├── N-gram               —— 从 prompt 里抄
+│   └── Suffix Decoding      —— 从后缀树里抄
+│
+├── 需要额外训练一个"头"：
+│   ├── EAGLE                —— 训一个特征级 draft 头
+│   └── Medusa               —— 训若干并行 LM 头
+│
+└── 模型自带（Model-native）：
+    └── MTP                  —— 预训练阶段就已经有了
+```
+
+**MTP 和其他五种不是同一层的东西。** N-gram、EAGLE 是为了加速推理才发明的；而 Multi-Token Prediction **首先是一种模型架构与训练目标**——DeepSeek V3 引入 MTP 的初衷是让模型在预训练时被迫为多个未来位置负责，从而学到更好的表示，**提升模型质量本身**。至于"训练时顺手得到的 MTP 头正好可以在推理时当 draft 用"，是一个**副产品**。
+
+这个区分不只是学术上的讲究，它有工程后果：前五种你可以在部署时自由开关、自由挑选；而 MTP 能不能用，在模型预训练结束的那一刻就已经定了。这一点在源码里看得很直白——MTP 的层数直接读模型 HF config 的 `num_nextn_predict_layers`（`vllm/config/speculative.py`），MTP 头的权重则由 `DeepSeekMultiTokenPredictor.load_weights()` 从 checkpoint 里加载出来（`vllm/model_executor/models/deepseek_mtp.py`）。**它不是 vLLM 附加上去的东西，而是模型自己带来的。**
 
 | 方法 | 文件 | 原理 | 优势 | 劣势 |
 |------|------|------|------|------|
@@ -3166,29 +3213,36 @@ class RequestStatus(enum.IntEnum):
 
 ### 10.4 附录：各环节耗时量级
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│              各环节典型耗时 (单请求, A100 80GB, 7B 模型)              │
-├────────────────────────┬───────────────┬────────────────────────────┤
-│ 环节                    │ 典型耗时       │ 说明                       │
-├────────────────────────┼───────────────┼────────────────────────────┤
-│ Tokenization           │ 0.1-0.5 ms   │ CPU, 可忽略                 │
-│ Scheduler.schedule()   │ 0.01-0.1 ms  │ Python, 取决于请求数        │
-│ CPU→GPU 输入拷贝       │ 0.01-0.05 ms │ PCIe DMA, 小数据量          │
-│ Kernel Launch          │ ~0.005 ms/个 │ Decode 步约 50+ kernels     │
-│ Prefill (512 tokens)   │ 5-15 ms      │ Compute-bound, GEMM 主导   │
-│ Decode (1 step)        │ 8-30 ms      │ Memory-bound, KV Cache 读取 │
-│ KV Cache 读取          │ ~60% decode时间│ HBM 带宽瓶颈               │
-│ TP All-Reduce (8卡)    │ 0.02-0.1 ms  │ NVLink, 每层 2 次           │
-│ Sampling               │ 0.01-0.1 ms  │ GPU kernel                  │
-│ GPU→CPU token 拷贝     │ 0.005 ms     │ 极小数据量                  │
-│ Detokenization         │ 0.01-0.05 ms │ CPU, 可忽略                 │
-├────────────────────────┼───────────────┼────────────────────────────┤
-│ TTFT (512 tokens)      │ 10-20 ms     │ ≈ queueing + prefill       │
-│ TPOT                   │ 8-30 ms      │ ≈ decode 1 step             │
-│ ITL (batch=32)         │ 15-50 ms     │ TPOT × batch 竞争           │
-└────────────────────────┴───────────────┴────────────────────────────┘
-```
+**测试口径**（不写清口径的耗时表没有意义）：Llama-2-7B、FP16、A100 80GB 单卡（HBM 带宽约 2.0 TB/s）、TP=1、prompt 512 tokens、无 prefix cache 命中、CUDA Graph 开启。**换任何一个条件，下面的数字都会变。**
+
+| 环节 | 典型耗时 | 说明 |
+|---|---|---|
+| Tokenization | 0.1–0.5 ms | CPU，可忽略 |
+| `Scheduler.schedule()` | 0.01–0.1 ms | Python，随请求数增长 |
+| CPU→GPU 输入拷贝 | 0.01–0.05 ms | PCIe DMA，数据量极小 |
+| Kernel Launch | ~2–5 μs/个 | Decode 一步约 50+ 个；开 CUDA Graph 后合并为 1 次 |
+| Prefill（512 tokens） | 5–15 ms | Compute-bound，GEMM 主导 |
+| **Decode 一步（batch=1）** | **8–12 ms** | Memory-bound，下界由权重读取决定 |
+| **Decode 一步（batch=32）** | **10–18 ms** | **注意：不是 ×32** |
+| 权重读取 | ≈ 6.6 ms | 13.5 GB ÷ 2.0 TB/s，**batch=1 时 decode 耗时的大头** |
+| KV Cache 读取 | 随上下文线性增长 | 512 ctx 时很小；32K ctx 时会反超权重成为主导 |
+| Sampling | 0.01–0.1 ms | GPU kernel |
+| GPU→CPU token 拷贝 | ~5 μs | 数据量极小 |
+| Detokenization | 0.01–0.05 ms | CPU，可忽略 |
+
+派生指标：
+
+| 指标 | batch=1 | batch=32 | 说明 |
+|---|---|---|---|
+| TTFT | 10–20 ms | 随排队增加 | ≈ queueing + prefill |
+| TPOT | 8–12 ms | 10–18 ms | ≈ 一次 decode 步 |
+| 系统吞吐 | ~100 tok/s | **~2000 tok/s** | batch 放大的是这一行 |
+
+这张表里最值得盯住的是**加粗的那两行**。batch 从 1 涨到 32，单步耗时只从 ~10 ms 涨到 ~15 ms，**远不是 32 倍**——因为那 13.5 GB 权重无论 batch 多大都只需要从 HBM 读一遍，32 个请求把这笔固定成本摊薄了。
+
+这正是第 1.3 节那条吞吐-延迟权衡曲线的微观解释，也是 Continuous Batching 全部收益的来源：**在 memory-bound 区间，增大 batch 几乎是免费的吞吐。** 直到 batch 大到让 KV Cache 读取或计算本身成为新瓶颈为止——那时曲线才会掉头。
+
+顺带澄清一个常见误解：**ITL 不等于 `TPOT × batch`。** 稳态下 ITL 约等于 TPOT；它真正的意义在于反映**波动**——当一个长 prompt 的 chunked prefill 插进来、或者发生抢占时，个别 token 的间隔会出现尖峰。所以优化 ITL 靠的是稳定调度，不是缩小 batch。
 
 ---
 
