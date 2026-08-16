@@ -7,7 +7,7 @@ catalog: true
 
 # 大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术
 
-> **NOTS** 本文基于 vLLM 最新稳定版 v0.27.1 源码深度剖析
+> **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码深度剖析。文中所有文件路径、类名和行号均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 
 ---
 
@@ -84,6 +84,8 @@ LLM 推理天然分为两个阶段，它们在计算特征上截然对立：
 ```
 
 **Prefill 阶段**是计算密集型（Compute-Bound）。所有 prompt tokens 一次性输入模型，矩阵乘法的并行度高，GPU 的 Tensor Core 被充分利用。
+
+需要澄清一点：上图标注的 `O(n²·d)` 只是 **Attention 那一项**。Prefill 的总 FLOPs 还有来自各个投影和 MLP 的 `O(n·d²)` 项，而在常见配置下（`n` 几千、`d` 几千）后者往往才是主体。这也解释了一个容易搞混的现象：**Prefill 之所以 compute-bound，首要原因是"每个 token 都要过一遍全部权重做大 GEMM"，而不仅仅是"序列长度的平方"**。序列真正拉长到几十 K 之后，`n²` 项才逐渐反超，长上下文优化（FlashAttention、Chunked Prefill、Context Parallel）也正是在那个区间才变得关键。
 
 **Decode 阶段**是访存密集型（Memory-Bound）。每步只生成 1 个新 token，但需要读取之前所有 token 累积的 KV Cache。大量时间花在 HBM（高带宽内存）的数据搬运上，Tensor Core 大部分时间在等数据。
 
@@ -306,8 +308,11 @@ class EngineCore:
 `Executor`（`vllm/v1/executor/abstract.py`）是模型执行抽象层，负责在一个设备或多个设备上执行模型，而不是 Scheduler 本身。v0.27.1 中可见的主要实现包括：
 - `UniProcExecutor`：单进程单卡
 - `MultiprocExecutor`：多进程多卡（同机）
-- `RayDistributedExecutor` / `RayExecutorV2`：Ray 分布式
-- `ExecutorWithExternalLauncher`：外部 launcher 场景
+- `RayDistributedExecutor`：Ray 分布式（直接继承 `Executor`）
+- `RayExecutorV2`：Ray 分布式的新实现，注意它继承的是 `MultiprocExecutor` 而非 `Executor`——即复用同一套 worker 进程管理逻辑，只把进程的**拉起方式**换成 Ray（`RayWorkerProc(WorkerProc)`）
+- `ExecutorWithExternalLauncher`：外部 launcher 场景（继承 `UniProcExecutor`）
+
+这条继承链本身就说明了一件事：**"用不用 Ray"是部署方式的差异，不是执行模型的差异。** Executor 这层抽象的价值就在于把"进程怎么起、卡怎么分"和"一轮 batch 怎么执行"彻底分开，所以 V2 才能靠换掉进程拉起方式来复用同机多进程的全部逻辑。
 
 ---
 
@@ -453,7 +458,7 @@ vLLM V1 的核心数据对象（定义在 `vllm/v1/request.py`、`vllm/v1/core/s
 
 ##### 请求状态机
 
-vLLM V1 的请求状态机（`RequestStatus`，定义在 `vllm/v1/request.py:351`）是理解控制流的关键：
+vLLM V1 的请求状态机（`RequestStatus`，定义在 `vllm/v1/request.py:348`）是理解控制流的关键：
 
 ```mermaid
 stateDiagram-v2
@@ -482,7 +487,7 @@ stateDiagram-v2
 ```
 
 ```python
-# vllm/v1/request.py:351
+# vllm/v1/request.py:348
 class RequestStatus(enum.IntEnum):
     WAITING = enum.auto()
     WAITING_FOR_STRUCTURED_OUTPUT_GRAMMAR = enum.auto()
@@ -633,6 +638,7 @@ Prefill / Decode 仍然是理解性能瓶颈的关键概念：Prefill 通常更�
 | 输入 tokens 数 | N (全部 prompt) | 1 (每步) |
 | KV Cache 操作 | 批量写入 N 条 | 追加 1 条，读取全部历史 |
 | Attention 计算 | O(N² · d) | O(N · d) per step |
+| 总 FLOPs（含投影/MLP） | O(N·d² + N²·d) | O(d² + N·d) per step |
 | 计算瓶颈 | Compute-Bound (GEMM) | Memory-Bound (HBM 带宽) |
 | Batch 特征 | 少量长序列 | 大量短步长 |
 | 最佳 Kernel | FlashAttention (tiling) | FlashInfer / PagedAttention |
@@ -1001,9 +1007,11 @@ Prefill / Decode 仍然是理解性能瓶颈的关键概念：Prefill 通常更�
 │  │ ░░░ Req C 无法入场，即使总剩余空间其实够用 ░░░░░░░░░░░░░░░░  │    │
 │  └───────────────────────────────────────────────────────────────┘    │
 │                                                                       │
-│  内部碎片: 预分配但未使用的空间 → 浪费 60-80% 显存                     │
+│  内部碎片: 预分配但未使用的空间 → 主要浪费来源                          │
 │  外部碎片: 已释放但不连续的空间 → 无法被新请求利用                     │
-│  总浪费率: 实际测量中可达 60-80%                                       │
+│  总浪费率: PagedAttention 论文 (SOSP'23) 测得当时的 SOTA 系统中,        │
+│           真正存放有效 KV 的显存只占 20.4% ~ 38.2%,                    │
+│           即约 60% ~ 80% 被碎片和预留吃掉                              │
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -1165,19 +1173,26 @@ class BlockPool:
 vLLM 使用链式哈希确保前缀匹配的正确性——每个块的哈希值依赖其前驱块的哈希，因此只有完全相同的前缀序列才会产生相同的哈希链。
 
 ```python
-# vllm/v1/core/kv_cache_utils.py (简化)
+# vllm/v1/core/kv_cache_utils.py (签名照抄, 函数体简化)
 def hash_block_tokens(
-    parent_block_hash: int,
-    curr_block_token_ids: tuple[int, ...],
-    extra_keys: tuple | None = None
+    hash_function: Callable[[Any], bytes],
+    parent_block_hash: BlockHash | None,
+    curr_block_token_ids: Sequence[int],
+    extra_keys: tuple[Any, ...] | None = None,
 ) -> BlockHash:
-    """链式哈希：当前块哈希 = f(前驱块哈希, 本块 token ids)"""
+    """链式哈希：当前块哈希 = f(前驱块哈希, 本块 token ids, 额外键)"""
+    if not parent_block_hash:
+        parent_block_hash = NONE_HASH  # 首块的哈希起点
     return BlockHash(
-        hash_value=hash((parent_block_hash, curr_block_token_ids, extra_keys)),
-        token_ids=curr_block_token_ids,
-        extra_keys=extra_keys,
+        hash_function((parent_block_hash, tuple(curr_block_token_ids), extra_keys))
     )
 ```
+
+这个签名里有两个细节值得留意，它们不是实现噪音：
+
+- **哈希函数是注入进来的，不是 Python 内建的 `hash()`**，返回值也是 bytes 而非 int（可选 `sha256_cbor`、`xxhash_cbor` 等）。因为块哈希要在多个 worker、甚至跨节点（PD 分离、LMCache）之间对得上，必须可控且可复现。
+- **链条起点 `NONE_HASH` 默认是随机的。** `init_none_hash()` 在未设置 `PYTHONHASHSEED` 时取 `os.urandom(32)`，即每个进程一个随机起点；只有显式设置 `PYTHONHASHSEED` 才会变成确定值。这是一个刻意的安全默认：随机起点让块哈希无法被外部预测，避免跨租户的缓存探测；而想让多进程/多节点共享同一份 prefix cache，就必须放弃这个默认。**可复现性和不可预测性在这里是一对取舍**，vLLM 默认选了后者。
+- **`extra_keys` 是隔离用的。** 同一串 token 在不同 LoRA adapter、不同多模态输入、不同 `cache_salt`、不同 prompt embeds 下不能复用同一份 KV，这些维度都由 `generate_block_hash_extra_keys()` 收集进 `extra_keys`。也就是说，"前缀相同"的判定比"token 序列相同"严格——这是 prefix cache 的正确性边界。
 
 #### 3.2.2 GQA / MQA：模型结构级 KV Cache 瘦身
 
@@ -1214,7 +1229,7 @@ KV Cache 的大小与 KV head 数量成正比。Grouped-Query Attention (GQA) �
 | Llama 3 70B | GQA | 64 | 8 | 12.5% |
 | Llama 3 8B | GQA | 32 | 8 | 25% |
 | Falcon 40B | MQA | 64 | 1 | 1.6% |
-| DeepSeek V3 | MLA | 128 | - | ~5% (latent) |
+| DeepSeek V3 | MLA | 128 | - | ~2% (存 576 维 latent，非 128×128 的完整 KV) |
 
 #### 3.2.3 MLA：从 KV Cache 到 Latent Cache
 
@@ -1229,9 +1244,9 @@ DeepSeek V2/V3 提出的 Multi-head Latent Attention (MLA) 是一种更激进的
 │  Llama-70B (GQA-8): 2 × 8 × 128 × 2B = 4 KB/token/layer           │
 │                                                                      │
 │  MLA (DeepSeek):                                                     │
-│  存储: c_kv [latent_dim]    (低秩压缩后的 latent)                     │
-│  每 token: latent_dim bytes                                          │
-│  DeepSeek V3: 512 × 2B = 1 KB/token/layer                           │
+│  存储: c_kv [kv_lora_rank] + k_pe [qk_rope_head_dim]                 │
+│  每 token: (kv_lora_rank + qk_rope_head_dim) × sizeof(dtype)         │
+│  DeepSeek V3: (512 + 64) × 2B ≈ 1.1 KB/token/layer                  │
 │                                                                      │
 │  ┌─────────────── MLA 原理 ───────────────────┐                     │
 │  │                                             │                     │
@@ -1249,7 +1264,8 @@ DeepSeek V2/V3 提出的 Multi-head Latent Attention (MLA) 是一种更激进的
 │  │  直接在 latent 空间做 Attention              │                     │
 │  └─────────────────────────────────────────────┘                     │
 │                                                                      │
-│  压缩比: 相比 GQA-8, MLA 的 KV Cache 可缩减 4~8x                    │
+│  压缩比: 相比同规模的 MHA 可缩减一个数量级以上;                       │
+│         相比 Llama 式 GQA-8 (4 KB/token/layer) 约缩减 3~4x           │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -1270,9 +1286,12 @@ vLLM 中 MLA 的实现位于 `vllm/model_executor/layers/mla.py`，通过 `MLAAt
 │  INT8         1 byte      0.5x     需要校准，按 head/channel 量化   │
 │  INT4         0.5 bytes   0.25x    显著损失，不常用于 KV Cache       │
 │                                                                     │
-│  示例: Llama-70B, GQA-8, seq_len=4096, 80 layers                   │
-│  FP16 KV Cache: 2×8×128×2B × 4096 × 80 = 10.7 GB                 │
-│  FP8  KV Cache: 2×8×128×1B × 4096 × 80 =  5.4 GB  (省 50%)       │
+│  示例: Llama-70B, GQA-8, 80 layers, seq_len=4096                   │
+│  单请求 FP16: 4 KB/token/layer × 4096 × 80    = 1.34 GB           │
+│  单请求 FP8:  2 KB/token/layer × 4096 × 80    = 0.67 GB (省 50%)  │
+│  并发 8 路 FP16: 1.34 GB × 8                  = 10.7 GB           │
+│  → 单请求看着不大, 但 KV Cache 是"并发数 × 上下文长度"的乘积,       │
+│    这才是它压垮显存的方式                                           │
 │                                                                     │
 │  量化粒度:                                                           │
 │  ┌────────────────────────────────────────────────────────┐         │
@@ -1521,15 +1540,24 @@ def _preempt_request(self, request, timestamp, ...):
     self.waiting.prepend_request(request)  # 放到队头，优先恢复
 ```
 
-Admission Control 通过 `watermark` 机制实现——总是保留一定比例的空闲块作为缓冲，避免频繁抢占导致的性能震荡：
+`KVCacheManager` 还提供了一个 `watermark` 旋钮，用于在准入时预留一层显存余量，减少"刚放进来就被抢占"的震荡：
 
 ```python
-watermark_blocks = int(watermark * num_blocks)
-# 新请求入场时检查:
+# vllm/v1/core/kv_cache_manager.py
+self.watermark_blocks = int(watermark * kv_cache_config.num_blocks)
+...
+# 只在接纳 waiting / preempted 请求时施加这层余量:
 required_blocks = num_blocks_to_allocate + watermark_blocks
 if free_blocks < required_blocks:
-    # 拒绝准入，请求留在 WAITING 队列
+    # 本轮不接纳，请求留在 WAITING 队列
 ```
+
+但这里有两个容易被误读的前提，值得说清楚：
+
+1. **`watermark` 默认是 `0.0`**，也就是说默认并不预留余量。它是一个可调项，而不是 vLLM 默认开启的保护机制。
+2. **它只作用于新入场和被抢占后恢复的请求**（源码注释明确写了 "applied to waiting/preempted requests only"）。已经 RUNNING 的请求继续申请块时不受这层余量约束——否则正在生成的请求会因为水位线而被无谓地抢占，反而放大抖动。
+
+所以更准确的说法是：vLLM 的准入控制主要靠"KV 块不够就不调度、不够就抢占"这条硬约束，`watermark` 只是叠加在其上的可选缓冲。
 
 ---
 
@@ -1620,11 +1648,11 @@ vLLM 的 C++/CUDA 扩展通过 PyTorch 的 Custom Op 机制注册（位于 `csrc
   ─────────                 ──────────               ─────────
   model.forward()
        │
-  torch.ops.vllm.rms_norm() ──▶ csrc/layernorm_kernels.cu
+  torch.ops.vllm.rms_norm() ──▶ csrc/libtorch_stable/layernorm_kernels.cu
        │                          │
   attention_backend()        ──▶ FlashAttention (C++ lib)
        │                         或 Triton kernel (.py)
-  fused_moe()               ──▶ csrc/moe/ (CUDA)
+  fused_moe()               ──▶ csrc/libtorch_stable/moe/ (CUDA)
        │                         或 Triton experts (.py)
        ▼                          │
   torch.matmul()             ──▶ cuBLAS GEMM
@@ -1742,16 +1770,22 @@ CUDA Graph 将一系列 Kernel Launch 录制成一个"计算图"，之后用一�
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
-vLLM 的 CUDA Graph 管理器（`vllm/v1/worker/gpu/cudagraph_utils.py`）支持两种模式：
+捕获与重放由 `CudaGraphManager`（`vllm/v1/worker/gpu/cudagraph_utils.py`）负责，而"用哪种模式"由配置枚举 `CUDAGraphMode`（`vllm/config/compilation.py`）描述：
 
 ```python
+# vllm/config/compilation.py
 class CUDAGraphMode(enum.Enum):
-    FULL = ...       # 完整模型 Forward 录制为一个大图
-    PIECEWISE = ...  # 分段录制（处理动态部分）
+    NONE = 0                        # 全程 Eager
+    PIECEWISE = 1                   # 分段录制（处理动态部分）
+    FULL = 2                        # 完整模型 Forward 录制为一个大图
+    FULL_DECODE_ONLY = (FULL, NONE)       # decode 走 FULL, mixed batch 走 Eager
+    FULL_AND_PIECEWISE = (FULL, PIECEWISE)  # decode 走 FULL, mixed batch 走 PIECEWISE
 ```
 
-- **FULL 模式**：将整个模型 Forward（从 input_ids 到 logits）录制为单个 CUDA Graph，Decode 时一次 Launch 完成。通常更高效，但要求模型结构在运行时保持固定。
-- **PIECEWISE 模式**：将模型拆分为多个子图，动态部分（如 MoE routing）在子图之间执行。灵活性更好，但性能稍低。
+- **FULL**：将整个模型 Forward（从 input_ids 到 logits）录制为单个 CUDA Graph，Decode 时一次 Launch 完成。通常最高效，但要求执行路径和张量地址在运行时保持固定。
+- **PIECEWISE**：将模型拆分为多个子图，动态部分（如 MoE routing）在子图之间执行。灵活性更好，但性能稍低。
+
+注意后两个成员的值是**元组**：这正是前面"Decode 用 Graph、Prefill 用 Eager"这句话在代码里的落地方式。`FULL_DECODE_ONLY` 和 `FULL_AND_PIECEWISE` 各自携带两个运行时模式，`decode_mode()` 取第一个、`mixed_mode()` 取第二个，调度出来的 batch 是纯 decode 还是含 prefill 的混合批次，决定了这一轮走哪条路径。换句话说，CUDA Graph 的适用边界不是一个全局开关，而是**每一轮 batch 形态的函数**。
 
 ```python
 # vllm/v1/worker/gpu/model_runner.py (简化)
@@ -1781,7 +1815,9 @@ Decode 阶段的核心瓶颈是**逐 Token 串行**：每一步只生成 1 个 t
   传统 Decode:
   Step 1 → token₁ → Step 2 → token₂ → Step 3 → token₃ → ...
   每步: 读完整模型权重 + KV Cache, 只算 1 个 token
-  GPU 利用率: < 5% (大部分时间在等 HBM 读取)
+  算力利用率: 小 batch 下可低至个位数百分比 (大部分时间在等 HBM 读取)
+  注: batch 增大后同一份权重被多个请求摊薄, 利用率会显著回升,
+      这也是 Continuous Batching 之所以有效的根本原因
 ```
 
 ##### Speculative Decoding 基本原理
@@ -1870,8 +1906,10 @@ vLLM V1 在 `vllm/v1/spec_decode/` 中实现了丰富的 Proposer（候选生成
 | **N-gram** | `ngram_proposer.py` | 从 prompt 中查找匹配 n-gram | 零额外开销 | 依赖 prompt 内容 |
 | **EAGLE** | `eagle.py` | 特征级别 Draft (复用 Target 的 hidden states) | 高接受率 | 需要训练 EAGLE 头 |
 | **Medusa** | `medusa.py` | 多个额外 LM Head 并行预测 | 无需独立模型 | 需要训练 Medusa 头 |
-| **MTP** | `step3p5.py` | 模型自带 Multi-Token Prediction Head | 原生集成 | 需要模型支持 |
+| **MTP** | `eagle.py`（复用 EagleProposer） | 模型自带 Multi-Token Prediction Head | 原生集成 | 需要模型支持 |
 | **Suffix Decoding** | `suffix_decoding.py` | 基于后缀树匹配 | 无训练开销 | 受限于上下文 |
+
+MTP 这一行值得单独说明：vLLM 并没有一个独立的 "MTP proposer"，而是把模型自带的 MTP 头当作 EAGLE 的一种特例，复用 `EagleProposer` 的推测/验证流程；`SpeculativeConfig` 里维护了一份 `*_mtp` 方法白名单（`deepseek_mtp`、`glm4_moe_mtp`、`qwen3_next_mtp` 等几十项），个别模型再派生特化子类（如 `step3p5.py` 的 `Step3p5MTPProposer(EagleProposer)`）。也就是说，MTP 在工程上是"复用已有框架"而不是"新增一套框架"——这正是 EAGLE 那套 hidden-state 级 draft 抽象的价值所在。
 
 ```
 ┌─────── Speculative Decoding 变体对比 ─────────────────────────────────┐
@@ -1911,6 +1949,10 @@ vLLM V1 在 `vllm/v1/spec_decode/` 中实现了丰富的 Proposer（候选生成
 | 自由对话 | 30-60% | 1.2-1.8× | 创意性强、Draft 猜对率低 |
 | 高温度采样 | 20-40% | 1.0-1.3× | 随机性高，接受率低 |
 | 多租户混合 | - | 需权衡 | Draft 模型占用 GPU 资源影响其他请求 |
+
+上表是**定性趋势的量级示意，不是可引用的实测数据**：接受率强烈依赖 draft 与 target 的搭配、推测步数 K、采样温度和具体数据分布，加速比还要再叠加 batch size 的影响。这里唯一稳健的结论是排序关系——输出越"可预测"，投机解码越划算；温度越高、创造性越强，收益越快衰减。
+
+还有一个常被忽略的反直觉点：**投机解码在高并发下可能是负收益**。它的原理是拿闲置算力换延迟，可一旦 batch 已经足够大、GPU 本来就不闲，多算的候选 token 就变成纯粹的浪费，还会挤占其他请求的 token 预算。所以它更适合低并发、低延迟诉求的场景，而不是吞吐优先的场景。真实收益必须在你自己的 workload 上量。
 
 ---
 
@@ -2008,17 +2050,18 @@ Prefill 场景通常偏向 FlashAttention 等对长 query 高效的后端；Deco
 
 #### 5.5.2 Transformer 基础与跨算子融合
 
-vLLM 在 `csrc/` 目录中实现了大量融合算子：
+vLLM 在 `csrc/` 目录中实现了大量融合算子（CUDA 实现集中在 `csrc/libtorch_stable/` 下，CPU 后端另有 `csrc/cpu/`）：
 
 | 融合算子 | 涉及操作 | 实现位置 | 收益 |
 |----------|---------|---------|------|
-| Fused RMSNorm | RMSNorm + Residual Add | `csrc/layernorm_kernels.cu` | 减少 1 次 HBM 读写 |
-| Fused RoPE | RoPE + Permute | `csrc/pos_encoding_kernels.cu` | 减少中间 tensor |
+| Fused RMSNorm | RMSNorm + Residual Add | `csrc/libtorch_stable/layernorm_kernels.cu` | 减少 1 次 HBM 读写 |
+| Fused RMSNorm + Quant | RMSNorm + 动态 per-token 量化 | `csrc/libtorch_stable/layernorm_quant_kernels.cu` | 归一化后直接出低精度 |
+| Fused RoPE | RoPE + Permute | `csrc/libtorch_stable/pos_encoding_kernels.cu` | 减少中间 tensor |
 | Fused QKV | Q/K/V 三个矩阵乘合并 | PyTorch/cuBLAS | 1 次 GEMM 替代 3 次 |
 | Fused Attention | softmax(QK/√d)V + KV Cache R/W | FlashAttention kernel | 核心融合 |
 | Fused Gate-Up | gate_proj + up_proj + SiLU | cuBLAS + activation | 减少中间存储 |
-| Fused Sampling | top-k + top-p + temperature | `csrc/sampler.cu` | GPU 端采样 |
-| Fused KV Cache | Cache write + 量化 | `csrc/cache_kernels_fused.cu` | 写入时即量化 |
+| Fused Sampling | top-k + top-p + temperature | `csrc/libtorch_stable/sampler.cu` | GPU 端采样 |
+| Fused KV Cache | Cache write + 量化 | `csrc/libtorch_stable/cache_kernels_fused.cu` | 写入时即量化 |
 
 #### 5.5.3 MoE 推理瓶颈与融合
 
@@ -2183,8 +2226,10 @@ FP8 是 H100/H200 引入的硬件原生低精度格式，vLLM 通过 `vllm/model
 │  范围: 更大,  精度: ~2-3 位有效数字                                │
 │                                                                   │
 │  FP8 推理优势:                                                    │
-│  · Tensor Core 原生支持 FP8 GEMM (H100: 3958 TFLOPS FP8)       │
-│  · vs FP16 (H100: 989 TFLOPS) → 理论 4× 算力提升                │
+│  · Tensor Core 原生支持 FP8 GEMM                                  │
+│  · H100 SXM 稠密算力: FP8 1979 TFLOPS vs BF16 989 TFLOPS         │
+│    → 理论 2× 算力提升                                             │
+│    (常见的 3958 TFLOPS 是"带稀疏"口径, 不能拿来和稠密 BF16 比)     │
 │  · 权重 + 激活 + KV Cache 全链路 FP8 → 显存减半                  │
 │  · Per-tensor / Per-token scaling 适配不同精度需求                │
 └───────────────────────────────────────────────────────────────────┘
@@ -2631,8 +2676,9 @@ DeepSeek V2/V3 的 MLA 将 KV 压缩到低维 latent 空间。vLLM 通过 **"吸
 │  out = attn @ c_kv @ W_o_absorbed  (无需解压 V!)                     │
 │                                                                      │
 │  收益:                                                                │
-│  · KV Cache 存 latent (512 dim) 而非 full KV (128 heads × 128 dim)  │
-│  · Decode 时读取量降低 ~32x                                          │
+│  · KV Cache 存 576 维 latent (512 + 64 rope),                       │
+│    而非 128 heads × 128 dim 的完整 K/V                               │
+│  · 每 token 每层: 1.1 KB vs 64 KB → Decode 读取量降低 ~57x           │
 │  · 代价: Q/O 投影矩阵变大（但这是一次性计算）                        │
 └──────────────────────────────────────────────────────────────────────┘
 ```
@@ -2661,9 +2707,12 @@ DeepSeek V3 使用 256 个 Expert + Top-8 路由，MoE 层的工程挑战极大�
 │     · 全部融合在一个 CUDA kernel 内                                │
 │     · 减少 HBM 中间张量读写                                       │
 │                                                                    │
-│  4. DeepSeek V3 特殊 Router (dsv3_topk.py)                        │
+│  4. DeepSeek V3 的两级 Router                                      │
 │     · Group-level Top-K + Per-token Top-K 两级路由                 │
-│     · 自定义 CUDA kernel 实现高效 routing                         │
+│     · Python 侧: fused_moe/router/grouped_topk_router.py           │
+│       (由 RoutedExperts 的 use_grouped_topk / topk_group 开关驱动) │
+│     · CUDA 侧: csrc/libtorch_stable/moe/grouped_topk_kernels.cu    │
+│       与 dsv3_router_gemm_entry.cu                                 │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -3042,7 +3091,7 @@ PD 分离的真正难点不在"分两池"，而在中间的 KV Transfer。传统
 │                                                                      │
 │  现状 (手写 CUDA Kernel):                                            │
 │  · 每种硬件 × 每种算子 × 每种精度 → 组合爆炸                        │
-│  · csrc/ 下 200+ 个 CUDA 文件需要逐一维护                           │
+│  · csrc/ 下近百个 .cu 及更多 .cuh 头文件需要逐一维护                 │
 │  · 新硬件适配周期长                                                  │
 │                                                                      │
 │  未来 (AI 编译器):                                                    │
