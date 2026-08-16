@@ -539,6 +539,20 @@ sequenceDiagram
 
 > **本章回答第二问：历史状态放在哪里、怎么复用。**
 
+先不谈任何术语，设想一个场景。
+
+你有一张 80 GB 的卡，同时来了 100 个请求。第一个请求最后只生成了 300 个 token，第二个生成了 3000 个，第三个一路写到 20K。**问题在于：这三个数字，你在请求到达的那一刻一个都不知道。**
+
+如果按传统做法，给每个请求划一块连续显存来放它的 KV Cache，那你只能按"最坏情况"预留——按模型支持的最大长度划。于是那个只生成 300 token 的请求，占着一块够装 32K token 的地。100 个请求这么一摊，卡就满了，尽管真正装了有效数据的可能不到三成。
+
+> **显存不是被模型吃掉的，是被"不确定性"浪费掉的。**
+
+PagedAttention 的核心思想，用一句话就能说完：
+
+> **别给请求整块连续空间。把 KV Cache 切成固定大小的小块，用多少申请多少，块与块之间不要求相邻。**
+
+这样"预留"就消失了——因为不再需要预判总长度，只需要在写满当前块时再要一块。这个思路你大概率见过：**它就是操作系统的虚拟内存分页**。下面我们从传统做法的具体代价讲起，再看这套页表思想是怎么被搬到 GPU 上的。
+
 ### 3.1 PagedAttention 的数学本质与源码实现
 
 #### 痛点：传统显存分配的碎片灾难
@@ -982,7 +996,25 @@ vLLM V1 当前主要使用 **Recomputation** 策略（`_preempt_request()` 中�
 
 > **本章回答第一问：请求来了，这一轮谁执行、执行多少。**
 
-KV Cache 解决的是“状态如何存”；Scheduler 解决的是“每一轮谁能获得多少 token 预算”。两者高度耦合，但不是同一层抽象。把调度单独成章，可以避免把显存块管理和请求选择策略混为一谈。
+KV Cache 解决的是"状态如何存"；Scheduler 解决的是"每一轮谁能获得多少 token 预算"。两者高度耦合，但不是同一层抽象。把调度单独成章，可以避免把显存块管理和请求选择策略混为一谈。
+
+如果说 PagedAttention 是 vLLM 最出名的技术，那 Scheduler 就是最被低估的那个。**PagedAttention 决定"状态放得下多少"，Scheduler 决定"这一轮 GPU 到底给谁用"——只有两者合在一起，才构成一个 Serving 系统。** 这一章值得读得慢一点。
+
+而理解 vLLM 调度器最关键的一句话是：
+
+> ### vLLM 的 Scheduler 调度的不是 Request，而是 Token Budget。
+
+它不问"这个请求是 prefill 还是 decode"，只问"这一轮我还剩多少 token 额度，这个请求能吃掉多少"。同一轮里的三个请求可能长这样：
+
+```
+Request A（长 prompt 还没喂完） → 本轮推进 256 个 prefill token
+Request B（正常生成中）         → 本轮推进 1 个 decode token
+Request C（开了投机解码）       → 本轮推进 1 个真实 token + 4 个候选 token
+                                  ────────────────────────────
+                                  本轮 token 预算共消耗 262
+```
+
+这三种形态在调度器眼里没有类型差别，只有数量差别——都是"让 `num_computed_tokens` 向 `num_tokens_with_spec` 追赶若干步"。**Continuous Batching 之所以能"continuous"，正是因为调度的粒度细到了 token，而不是停留在 request。** 下面几节都是这句话的展开。
 
 ### 4.1 Scheduler 与 Continuous Batching
 
@@ -1934,6 +1966,20 @@ FP8 是 H100/H200 引入的硬件原生低精度格式，vLLM 通过 `vllm/model
 
 > **本章回答第四问：一张卡装不下或跑不动时，怎么扩出去。**
 
+多卡并行很容易被讲成一份"策略大全"——DP、TP、PP、EP、CP 五个名词一字排开，读完记住了缩写，却不知道该用哪个。所以这一章先立一个判断准则：**每种并行策略都是为了解决一个具体的"装不下"或"跑不动"，先认清你遇到的是哪一种。**
+
+| 你遇到的问题 | 该用的策略 | 切的是什么 |
+|---|---|---|
+| 单张卡放不下**一个 Linear 层** | **TP** | 层**内**的矩阵，按行/列切 |
+| 单层放得下，但**整个模型**太大 | **PP** | 按**层**切，分段流水 |
+| MoE 的 **Expert 太多** | **EP** | 按 **Expert** 切 |
+| **上下文太长**，KV Cache 装不下 | **CP** | 按 **token 序列**切 |
+| 模型明明装得下，但**要更多吞吐** | **DP** | 什么都不切，**整个模型复制一份** |
+
+这张表里最值得单独说的是 **DP**：它和其余四个不是一类东西。TP/PP/EP/CP 解决的都是"装不下"，是被迫拆分；**DP 解决的是"想要更多"，前提恰恰是单卡装得下**。所以生产部署里通常是"先用 TP/PP/EP/CP 把模型塞进一组卡，再用 DP 把这组卡整体复制 N 份来放大吞吐"——DP 永远是最外层。
+
+下面按 DP → TP → PP → EP → CP 的顺序展开，每一节请对照上表看它在解决哪一行。
+
 ### 6.1 分布式推理的混合并行战略
 
 #### 6.1.1 DP (Data Parallelism)
@@ -2518,9 +2564,36 @@ class DeepSeekMultiTokenPredictor(nn.Module):
 
 > **本章是第二个横切问题：四问的答案，还必须在「硬件不断变化」的前提下依然成立。**
 
-### 8.1 异构算力时代的"软件工程之美"
+### 8.1 一条设计原则：硬件适配不能污染 Serving 核心
 
-GPU 不再是唯一选择——AMD ROCm、华为昇腾 (Ascend)、Intel XPU、Google TPU 等异构芯片都在参与 LLM 推理的竞技。vLLM 的硬件解耦设计使其能够在不修改核心引擎的情况下适配新硬件。
+GPU 不再是唯一选择——AMD ROCm、华为昇腾 (Ascend)、Intel XPU、Google TPU 等异构芯片都在参与 LLM 推理的竞技。
+
+但在看任何源码之前，先记住这一章真正要讲的那条原则：
+
+> **硬件适配不能污染上层 Serving 逻辑。**
+
+这句话的分量，要放到前面几章的语境里才看得出来。第四章的 Scheduler 在按 token 预算调度，第三章的 KVCacheManager 在按块管理显存——**这些逻辑里不应该出现任何一个 `if is_cuda()`**。否则每接一种新芯片，调度器和显存管理都要改一遍，接三种硬件就会变成三份互相打架的分支。
+
+所以理想的分层是这样的：
+
+```
+                    vLLM Serving Core
+         (Scheduler / KVCacheManager / EngineCore)
+                          │
+                 只依赖抽象的"能力查询"
+                          │
+        ┌─────────────────┼─────────────────┐
+        ▼                 ▼                 ▼
+     CUDA              ROCm             Ascend
+   CudaPlatform     RocmPlatform     AscendPlatform (OOT)
+        │                 │                 │
+      CUDA C++          HIP              CANN
+   FlashAttn/FlashInfer  AITER        CANN FlashAttn
+```
+
+上层只问"这个设备支持 FP8 吗"、"该用哪个 Attention 实现"，不关心答案从哪来。**`Platform` 就是回答这类问题的那个角色。**
+
+理解了这一点，再看下一节的源码，你会发现一个常见误解需要纠正——很多人以为 `Platform` 是一条自上而下的三层调用栈，其实不是。
 
 ### 8.2 Platform、Attention Backend 与 Kernel Backend 的真实关系
 
@@ -2781,50 +2854,16 @@ vLLM 的 KV Transfer 三层抽象（`vllm/distributed/kv_transfer/`）：
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
-PD 分离的真正难点不在"分两池"，而在中间的 KV Transfer。传统单集群里 Prefill 和 Decode 在同一 GPU 上共享 KV，分离后 KV 必须跨节点搬一次；传慢了，预计算优化带来的收益会被传输开销吃掉。这也是为什么前面先用单机部分的 KV 块模型打底，这里才能理解"跨节点搬块"意味着什么。
+看到这里，这一章最重要的结论应该已经浮出来了：
 
----
+> ### PD 分离的真正难点不在"分两池"，而在中间的 KV Transfer。
 
-### 9.2 工业界 Serving 推理引擎条件化选型
+把 GPU 分成两个池子是一句话就能说清的架构决策，真正难的是那条连接线。传统单集群里 Prefill 和 Decode 在同一张卡上共享 KV，**分离之后，每个请求的 KV Cache 都必须跨节点实打实地搬运一次**。一旦传得不够快，Prefill 侧省下的那点算力全部会被传输开销吃回去，甚至倒亏。
 
-```
-┌──────────────── 推理引擎三强对比 ──────────────────────────────────────┐
-│                                                                         │
-│  维度              vLLM              SGLang           TensorRT-LLM      │
-│  ──────           ──────────────    ──────────────   ──────────────     │
-│  语言             Python+C++/CUDA   Python+C++/CUDA  C++/CUDA          │
-│  开源协议         Apache 2.0        Apache 2.0       Apache 2.0        │
-│  核心优势         生态较广, 模型多    RadixAttention,  通常适合追求        │
-│                   PagedAttention     高效 Prefix Cache NVIDIA 深度优化   │
-│  模型支持         常见架构覆盖较广    主流模型          主流模型          │
-│  硬件支持         CUDA/ROCm/XPU/    CUDA 为主         仅 NVIDIA GPU     │
-│                   CPU/TPU/Ascend                                        │
-│  Spec Decode      EAGLE/Medusa/MTP  EAGLE/Medusa      Medusa            │
-│  MoE 优化         Fused MoE + EP    类似              深度优化           │
-│  PD 分离          有独立实现         有社区实现        有独立实现          │
-│  量化             FP8/INT8/INT4/    FP8/INT8/INT4    FP8/INT4/         │
-│                   AWQ/GPTQ/...      /AWQ/GPTQ       Smooth/AWQ         │
-│  Structured       支持              支持              有限支持           │
-│  Output                                                                 │
-│  LoRA             支持               支持              有限支持           │
-│  Multi-Modal      支持               支持              支持              │
-│  开发者体验       好 (Python优先)    好                需要编译           │
-│  社区活跃度       高                高                中                 │
-│                                                                         │
-│  选型建议（条件化，非固定排名）:                                         │
-│  · 通用场景、多模型、多硬件，优先 vLLM                                   │
-│  · 目标明确为 NVIDIA GPU 且可接受 C++ 构建，可评估 TensorRT-LLM           │
-│  · 高效 Prefix Cache、Agent 场景，优先评估 SGLang                         │
-│  · 具体结论必须以目标模型、硬件、量化、backend、batch 和 SLO 的          │
-│    benchmark 为准，不能只看功能列表                                   │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+这也是为什么本文要先花第三章讲清单机的 KV 块模型——只有知道了一个请求的 KV 到底是多少个块、每块多大（还记得第 3.3.4 节那个 1.34 GB 吗），你才能估出"跨节点搬一次"意味着什么量级的网络压力，进而理解为什么这个领域会冒出 NIXL、Mooncake、LMCache 这一整批基础设施。
+### 9.2 Serving Infra 的下一站
 
----
-
-### 9.3 Serving Infra 的下一站
-
-#### 9.3.1 AI 编译器时代
+#### 9.2.1 AI 编译器时代
 
 ```
 ┌──────────── 从手写 Kernel 到编译器生成 ──────────────────────────────┐
@@ -2859,37 +2898,19 @@ PD 分离的真正难点不在"分两池"，而在中间的 KV Transfer。传统
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-#### 9.3.2 场景泛化
+#### 9.2.2 场景泛化
 
-```
-┌──────────── 未来场景挑战 ────────────────────────────────────────────┐
-│                                                                      │
-│  1. 超长上下文 (1M+ tokens):                                         │
-│     · 挑战: KV Cache 显存 > 100 GB, 单卡无法容纳                    │
-│     · 方案: Context Parallelism + KV Cache Offloading + 量化         │
-│     · vLLM: PCP (Prefill CP) + DCP (Decode CP) 已初步支持            │
-│                                                                      │
-│  2. Agent Serving (工具调用 + 多轮交互):                              │
-│     · 挑战: 请求生命周期极长, 状态频繁暂停/恢复                       │
-│     · 方案: Session-based KV Cache 持久化                            │
-│     · vLLM: Streaming Session + Resumable Request                    │
-│                                                                      │
-│  3. 多模态推理 (Vision + Audio + Text):                               │
-│     · 挑战: 编码器输出尺寸巨大, 跨模态注意力                         │
-│     · 方案: 编码器缓存 + 异步编码                                    │
-│     · vLLM: EncoderCacheManager + EC Transfer                        │
-│                                                                      │
-│  4. 弹性伸缩与故障容忍:                                               │
-│     · 挑战: GPU 故障时请求不丢失                                     │
-│     · 方案: KV Cache 检查点 + 快速恢复                               │
-│     · vLLM: EngineCoreSentinel + Fault Tolerance                     │
-│                                                                      │
-│  5. 成本优化:                                                         │
-│     · 挑战: GPU 算力昂贵, 需要极致利用率                              │
-│     · 方案: 混合部署 + 动态精度 + Goodput 优化                       │
-│     · 方向: 从"能跑通"到"跑得最省"的范式转移                        │
-└──────────────────────────────────────────────────────────────────────┘
-```
+有意思的是，最值得关注的三个方向，压力都最终落回本文的**第二问（状态放在哪）**——这大概不是巧合：
+
+| 方向 | 核心挑战 | 应对思路 | vLLM 现状 |
+|------|---------|---------|----------|
+| **超长上下文**（1M+ tokens） | KV Cache 超过 100 GB，单卡装不下 | Context Parallel + Offloading + 量化 | PCP / DCP 已初步支持 |
+| **Agent Serving**（工具调用 + 多轮） | 请求生命周期极长，状态频繁暂停/恢复 | Session 级 KV Cache 持久化 | Streaming Session + 可恢复请求 |
+| **成本优化** | 算力昂贵，要的是每块钱的 token 数 | 混合部署 + 动态精度 + Goodput 优化 | 从"能跑通"转向"跑得最省" |
+
+三个方向，三次撞上同一堵墙：**KV Cache 是 LLM Serving 里唯一随时间无限增长的状态**。上下文变长它涨，会话变长它涨，并发变高它还是涨。这也是为什么本文用了最长的篇幅讲第三章。
+
+（另外两个正在推进的方向——多模态的编码器缓存 `EncoderCacheManager`、故障容忍的 `EngineCoreSentinel`——同样值得关注，但展开需要另一篇文章的篇幅。）
 
 ---
 
@@ -3140,16 +3161,28 @@ class RequestStatus(enum.IntEnum):
 
 ## 结语
 
-vLLM 的故事，是一个从学术论文（PagedAttention, SOSP'23）走向工业级 Serving 基础设施的典范。它的成功不仅在于一项技术创新，更在于**系统性地解决了 LLM 推理从请求到达到 Token 返回之间每一个环节的效率瓶颈**：
+回到第 1.5 节那四个问题，现在每一个都有了答案：
 
-- **内存管理**：PagedAttention 大幅降低了 KV Cache 碎片
-- **调度策略**：Continuous Batching + Chunked Prefill 有效缓解队头阻塞
-- **计算优化**：FlashAttention + CUDA Graph + Kernel Fusion 提升了 GPU 计算与访存效率
-- **精度压缩**：FP8 + KV Quantization + MLA 压缩了显存容量需求
-- **扩展能力**：TP/PP/EP/CP 混合并行突破了单卡容量与吞吐边界
-- **架构前瞻**：PD 分离 + KV Transfer 解耦了 Prefill/Decode 的资源竞争
+| 问题 | vLLM 的回答 |
+|------|-----------|
+| 这一轮谁执行、执行多少 | Continuous Batching + 统一 token 预算 + Chunked Prefill |
+| 状态放哪、怎么复用 | PagedAttention + Prefix Cache + GQA/MLA + KV 量化 |
+| 怎么算得更快 | FlashAttention + CUDA Graph + 算子融合 + 低精度 + 投机解码 |
+| 怎么扩出去 | TP / PP / EP / CP / DP + 通信重叠 |
 
-理解 vLLM，就是理解现代 LLM Serving 基础设施的缩影。而这个领域仍在高速演进——每一次新模型架构的发布、每一代 GPU 硬件的迭代、每一种新应用场景的出现，都在推动 Serving Infra 向更极致的方向进化。
+但如果只把这些当成一份优化清单，就错过了最重要的东西。**这些技术之所以能共存于一个系统，是因为它们背后有一套统一的世界观。** 如果这篇文章只留下三句话，我希望是这三句：
+
+**其一，KV Cache 是一切约束的源头。** 它是 LLM 推理里唯一随时间无限增长的状态，所以它同时决定了并发上限、上下文上限和抢占时机。看不懂显存，就看不懂调度——第九章那三个未来方向，最后都撞回了这堵墙。
+
+**其二，调度的单位是 token，不是 request。** Scheduler 内部没有"prefill 阶段"和"decode 阶段"，只有"这一轮给这个请求推进多少 token"。理解了这一点，Continuous Batching、Chunked Prefill、投机解码、混合批次就不再是四种技巧，而是同一个模型的四种取值。
+
+**其三，文中每个性能数字都只是量级示意。** 接受率、加速比、耗时表——它们随模型、硬件、batch、上下文长度剧烈漂移。真正可迁移的是判断方法（先定位瓶颈在 Prefill 还是 Decode，再选手段），而不是具体数值。请在你自己的 workload 上重测。
+
+所以最后，我更愿意这样概括它：
+
+> **vLLM 不是一堆推理优化技术的集合，而是一套围绕「动态请求 + KV 状态 + GPU 资源」构建起来的推理操作系统。**
+
+它调度任务、管理内存、抽象硬件、隔离故障——操作系统做的事，它都在做，只不过管的不是进程和物理内存页，而是请求和 KV 块。理解了这个类比，你就不只是理解了 vLLM，而是拿到了看懂下一个 Serving 系统的钥匙。
 
 ---
 
