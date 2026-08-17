@@ -1103,3 +1103,55 @@ img::-moz-selection {
   color: #778596;
   font-weight: 300;
 }
+
+/* Markdown [TOC], rendered by js/toc.js */
+div.markdown-toc {
+  margin: 20px 0 30px;
+  padding: 15px 25px 10px;
+  border: 1px solid #eee;
+  border-left: 4px solid #0085a1;
+  background-color: #fbfbfb;
+  border-radius: 3px;
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+div.markdown-toc .markdown-toc-title {
+  font-weight: 700;
+  color: #404040;
+  margin-bottom: 8px;
+}
+
+div.markdown-toc a.markdown-toc-toggle {
+  float: right;
+  font-size: 13px;
+  font-weight: 400;
+  color: #808080;
+}
+
+div.markdown-toc.fold ul {
+  display: none;
+}
+
+div.markdown-toc ul {
+  list-style: none;
+  padding-left: 20px;
+  margin-bottom: 5px;
+}
+
+div.markdown-toc > ul {
+  padding-left: 0;
+}
+
+div.markdown-toc li {
+  margin: 2px 0;
+}
+
+div.markdown-toc a {
+  color: #404040;
+}
+
+div.markdown-toc a:hover,
+div.markdown-toc a:focus {
+  color: #0085a1;
+}
