@@ -1246,3 +1246,41 @@ div.side-catalog .catalog-body li.active > a {
 div.side-catalog .catalog-body li.active-parent > a {
   color: #404040;
 }
+
+/* Below `lg` the side catalog is hidden, so stop reserving room for it: the
+   theme's `padding-right: 5%` would otherwise push the text off-center. */
+@media (max-width: 1199px) {
+  div.post-container {
+    padding-right: 15px;
+  }
+}
+
+/* Wide screens: Bootstrap freezes `.container` at 1170px, which wastes most of a
+   large display. Let it grow (capped, so the text measure stays readable) and give
+   the extra room to the catalog rather than to ever longer lines. */
+@media (min-width: 768px) {
+  .container {
+    width: auto;
+    max-width: 1500px;
+    padding-left: 40px;
+    padding-right: 40px;
+  }
+}
+
+@media (min-width: 1200px) {
+  div.post-container.col-lg-9 {
+    width: calc(100% - 340px);
+    max-width: 1120px;
+    padding-right: 40px;
+  }
+  div.post-container.col-lg-12 {
+    max-width: 1120px;
+    margin: 0 auto;
+    float: none;
+  }
+  div.catalog-container {
+    float: right;
+    width: 340px;
+    padding-right: 15px;
+  }
+}

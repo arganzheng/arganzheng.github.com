@@ -33,10 +33,11 @@ anchorjs: true                          # if you want to customize anchor. check
 
 
 
-# Gems
+# Plugins
 # from PR#40, to support local preview for Jekyll 3.0
-gems: [jekyll-paginate, jekyll-sitemap]
-# gems: [jekyll-paginate]
+# `gems` was renamed to `plugins` in Jekyll 3.5; the old key is ignored by Jekyll 4,
+# which silently disabled pagination locally.
+plugins: [jekyll-paginate, jekyll-sitemap]
 
 
 
