@@ -495,7 +495,7 @@ graph LR
 
 接下来四章，就是把这张表的每一行拆开来讲。
 
-<details>
+<details markdown="1">
 <summary><b>📂 本章源码导航</b></summary>
 
 **入口与引擎循环**
@@ -878,7 +878,7 @@ KV Cache 量化与 PagedAttention 在设计上可以组合：量化后的 KV 仍
 
 vLLM V1 当前主要使用 **Recomputation** 策略（`_preempt_request()` 中将 `num_computed_tokens` 置零），因为在 Prefix Cache 存在的情况下，重算的实际成本远低于理论最坏情况——大部分前缀块仍在缓存中可复用。
 
-<details>
+<details markdown="1">
 <summary><b>📂 本章源码导航</b></summary>
 
 **KV Cache 与 PagedAttention**
@@ -1142,7 +1142,7 @@ if free_blocks < required_blocks:
 
 所以更准确的说法是：vLLM 的准入控制主要靠"KV 块不够就不调度、不够就抢占"这条硬约束，`watermark` 只是叠加在其上的可选缓冲。
 
-<details>
+<details markdown="1">
 <summary><b>📂 本章源码导航</b></summary>
 
 **调度**
@@ -1708,7 +1708,7 @@ attention metadata 里的关键统计：
 
 **这里有个容易搞错的点**：模型级只有**一个** attention backend，不存在 per-request 切换。是该 backend 在自己的 `forward` 内部，根据 metadata 里的 prefill / decode token 计数去调不同的底层 kernel（例如 FlashInfer 的 `trtllm_batch_context_with_kv_cache` 与 `trtllm_batch_decode_...`）。**分派发生在 kernel 层，不在请求层。**
 
-<details>
+<details markdown="1">
 <summary><b>📂 本章源码导航</b></summary>
 
 **GPU 执行**
@@ -2070,7 +2070,7 @@ vLLM 的通信抽象分三层，上层完全不感知底层用的是 NCCL 还是
 
 中间那一条是个很漂亮的技巧：一次 All-Reduce 在数学上等价于 Reduce-Scatter + All-Gather，但**拆开之后就出现了一个可以插入计算的缝隙**——总通信量不变，却把一段等待变成了并行。
 
-<details>
+<details markdown="1">
 <summary><b>📂 本章源码导航</b></summary>
 
 **分布式**
@@ -2282,7 +2282,7 @@ class DeepSeekMultiTokenPredictor(nn.Module):
         # 4. Return logits for next-token prediction
 ```
 
-<details>
+<details markdown="1">
 <summary><b>📂 本章源码导航</b></summary>
 
 **模型适配**
@@ -2416,7 +2416,7 @@ vLLM 的 `PlatformEnum.OOT` 允许第三方通过独立插件包（如 `vllm-asc
 
 类似的模式也被 XPU (Intel) 使用——`vllm_xpu_kernels` 提供 XPU 特化算子，通过 `import_ir_kernels()` 注册。
 
-<details>
+<details markdown="1">
 <summary><b>📂 本章源码导航</b></summary>
 
 **硬件平台**
@@ -2570,7 +2570,7 @@ vLLM 已经在大量使用 Triton，这条路走了一半了：
 
 （另外两个正在推进的方向——多模态的编码器缓存 `EncoderCacheManager`、故障容忍的 `EngineCoreSentinel`——同样值得关注，但展开需要另一篇文章的篇幅。）
 
-<details>
+<details markdown="1">
 <summary><b>📂 本章源码导航</b></summary>
 
 **PD 分离与 KV 传输**

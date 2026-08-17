@@ -7,6 +7,17 @@
   -ms-text-size-adjust: 100%;
   -webkit-text-size-adjust: 100%;
   word-wrap: break-word;
+  /* Github's body color; the theme's #404040 reads noticeably lighter/thinner. */
+  color: #1f2328;
+}
+
+/* The theme greys out list items and table cells through `a, body { color: #404040 }`
+   and its blockquote rules; keep everything on Github's ink instead. */
+.post-container li,
+.post-container td,
+.post-container th,
+.post-container p {
+  color: inherit;
 }
 
 /* ---- Headings ---- */
@@ -169,6 +180,20 @@
 /* ---- Strong / Emphasis ---- */
 .post-container strong {
   font-weight: 600;
+}
+
+/* ---- Details / Summary ---- */
+.post-container details {
+  margin-bottom: 16px;
+}
+/* Something upstream sets `summary { display: block }`, which drops the
+   disclosure triangle; `list-item` brings it back, like Github. */
+.post-container summary {
+  display: list-item;
+  cursor: pointer;
+}
+.post-container details[open] > summary {
+  margin-bottom: 12px;
 }
 
 /* ---- Task Lists ---- */

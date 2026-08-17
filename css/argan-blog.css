@@ -1284,3 +1284,123 @@ div.side-catalog .catalog-body li.active-parent > a {
     padding-right: 15px;
   }
 }
+
+/* `_includes/nav.html` skips `.navbar-custom` on the post layout (there is no hero
+   image behind the navbar there), which left post pages with the plain Bootstrap
+   navbar: thin 16px #777 links instead of the site's bold uppercase menu. */
+nav.navbar-default:not(.navbar-custom) {
+  background-color: rgba(255, 255, 255, 0.95);
+  border-bottom: 1px solid #f2f2f2;
+}
+
+nav.navbar-default:not(.navbar-custom) .navbar-brand {
+  color: #404040;
+  font-weight: 800;
+  height: 56px;
+  line-height: 25px;
+}
+
+nav.navbar-default:not(.navbar-custom) .nav li a {
+  color: #404040;
+  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  line-height: 20px;
+}
+
+nav.navbar-default:not(.navbar-custom) .navbar-brand:hover,
+nav.navbar-default:not(.navbar-custom) .navbar-brand:focus,
+nav.navbar-default:not(.navbar-custom) .nav li a:hover,
+nav.navbar-default:not(.navbar-custom) .nav li a:focus {
+  color: #0085a1;
+  background-color: transparent;
+}
+
+@media only screen and (min-width: 768px) {
+  nav.navbar-default:not(.navbar-custom) .navbar-brand,
+  nav.navbar-default:not(.navbar-custom) .nav li a {
+    padding: 20px;
+    line-height: 20px;
+  }
+}
+
+/* Mermaid diagram lightbox, driven by js/diagram-zoom.js */
+.post-container .mermaid svg {
+  cursor: zoom-in;
+}
+
+.diagram-zoom {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1040;
+  background-color: #fff;
+}
+
+.diagram-zoom.open {
+  display: block;
+}
+
+.diagram-zoom-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+
+.diagram-zoom.dragging .diagram-zoom-stage {
+  cursor: grabbing;
+}
+
+.diagram-zoom-content {
+  position: absolute;
+  top: 0;
+  left: 0;
+  -webkit-transform-origin: 0 0;
+  transform-origin: 0 0;
+}
+
+.diagram-zoom-toolbar {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  display: flex;
+  gap: 8px;
+}
+
+.diagram-zoom-toolbar button {
+  min-width: 36px;
+  height: 36px;
+  padding: 0 10px;
+  font-size: 15px;
+  line-height: 34px;
+  color: #404040;
+  background-color: #fff;
+  border: 1px solid #d1d9e0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.diagram-zoom-toolbar button:hover {
+  color: #0085a1;
+  border-color: #0085a1;
+}
+
+.diagram-zoom-hint {
+  position: absolute;
+  bottom: 18px;
+  left: 0;
+  width: 100%;
+  text-align: center;
+  font-size: 13px;
+  color: #808080;
+  pointer-events: none;
+}
