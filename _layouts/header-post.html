@@ -112,10 +112,15 @@ layout: default
                 sidebar-container
                 catalog-container">
                 <div class="side-catalog">
-                    <h5>
-                        <a class="catalog-toggle" href="#">CATALOG</a>
-                    </h5>
+                    <div class="catalog-header">
+                        <h5>OUTLINE</h5>
+                        <button type="button" class="catalog-close" title="收起目录" aria-label="收起目录">&times;</button>
+                    </div>
+                    <div class="catalog-filter">
+                        <input type="text" class="catalog-filter-input" placeholder="Filter headings" aria-label="Filter headings" autocomplete="off">
+                    </div>
                     <ul class="catalog-body"></ul>
+                    <p class="catalog-empty">没有匹配的标题</p>
                 </div>
             </div>
         {% endif %}
@@ -124,6 +129,10 @@ layout: default
         </div>
     </div>
 </article>
+
+{% if catalog %}
+<button type="button" class="outline-reopen" title="展开目录 (OUTLINE)">OUTLINE</button>
+{% endif %}
 
 {% if site.disqus_username %}
 <!-- disqus 公共JS代码 start (一个网页只需插入一次) -->

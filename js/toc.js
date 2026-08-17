@@ -19,6 +19,7 @@
     var EXCLUDED = '.pager, .related-posts, .share, .comment, .markdown-toc';
     // Height of the fixed navbar, used both as scroll offset and spy threshold.
     var NAV_OFFSET = 80;
+    var COLLAPSED_CLASS = 'outline-collapsed';
 
     // Github-flavored anchor: lowercased, punctuation dropped, spaces dashed.
     function slugify(text) {
@@ -201,6 +202,83 @@
         update();
     }
 
+    /*
+     * Show/hide the whole outline. The flag lives on <body> because hiding the
+     * outline has to give its grid column back to the article, not just empty
+     * the column out.
+     */
+    function initCollapse(panel) {
+        // The outline always starts open: collapsing is a per-page-view choice,
+        // not a preference that should follow the reader around.
+        function set(value) {
+            document.body.classList.toggle(COLLAPSED_CLASS, value);
+        }
+
+        set(false);
+
+        var close = panel.querySelector('.catalog-close');
+        var open = document.querySelector('.outline-reopen');
+        if (close) close.addEventListener('click', function () { set(true); });
+        if (open) open.addEventListener('click', function () { set(false); });
+
+        // Keep the legacy fold toggle working if a layout still ships it.
+        var toggle = panel.querySelector('.catalog-toggle');
+        if (toggle) {
+            toggle.addEventListener('click', function (e) {
+                e.preventDefault();
+                panel.classList.toggle('fold');
+            });
+        }
+    }
+
+    /*
+     * Live "Filter headings" box: an item stays visible when it matches itself
+     * or when one of its children does, so the hierarchy is kept.
+     */
+    function initFilter(panel, body) {
+        var input = panel.querySelector('.catalog-filter-input');
+        var empty = panel.querySelector('.catalog-empty');
+        if (!input) return;
+
+        function matches(item, query) {
+            var link = item.querySelector(':scope > a');
+            var own = link && link.textContent.toLowerCase().indexOf(query) !== -1;
+            var children = item.querySelectorAll(':scope > ul > li');
+            var hit = false;
+            Array.prototype.forEach.call(children, function (child) {
+                if (matches(child, query)) hit = true;
+            });
+            var visible = own || hit;
+            item.classList.toggle('filtered-out', !visible);
+            return visible;
+        }
+
+        input.addEventListener('input', function () {
+            var query = input.value.trim().toLowerCase();
+            var items = body.querySelectorAll(':scope > li');
+            var any = false;
+            Array.prototype.forEach.call(items, function (item) {
+                if (!query) {
+                    item.classList.remove('filtered-out');
+                    Array.prototype.forEach.call(item.querySelectorAll('li'), function (child) {
+                        child.classList.remove('filtered-out');
+                    });
+                    any = true;
+                    return;
+                }
+                if (matches(item, query)) any = true;
+            });
+            panel.classList.toggle('filtering', !!query);
+            if (empty) empty.style.display = any ? 'none' : 'block';
+        });
+
+        input.addEventListener('keydown', function (e) {
+            if (e.key !== 'Escape') return;
+            input.value = '';
+            input.dispatchEvent(new Event('input'));
+        });
+    }
+
     function renderFloatingToc(headings) {
         var panel = document.querySelector('.side-catalog');
         var body = panel && panel.querySelector('.catalog-body');
@@ -209,14 +287,8 @@
         var entries = [];
         buildList(body, headings, entries);
 
-        var toggle = panel.querySelector('.catalog-toggle');
-        if (toggle) {
-            toggle.addEventListener('click', function (e) {
-                e.preventDefault();
-                panel.classList.toggle('fold');
-            });
-        }
-
+        initCollapse(panel);
+        initFilter(panel, body);
         initScrollSpy(entries, body);
     }
 

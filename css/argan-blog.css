@@ -1222,7 +1222,7 @@ div.side-catalog .catalog-body .h6_nav {
 
 div.side-catalog .catalog-body .h1_nav > a,
 div.side-catalog .catalog-body .h2_nav > a {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
 }
 
@@ -1230,7 +1230,7 @@ div.side-catalog .catalog-body .h3_nav > a,
 div.side-catalog .catalog-body .h4_nav > a,
 div.side-catalog .catalog-body .h5_nav > a,
 div.side-catalog .catalog-body .h6_nav > a {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 400;
 }
 
@@ -1274,6 +1274,12 @@ div.side-catalog .catalog-body li.active-parent > a {
     width: calc(100% - 340px);
     max-width: 1400px;
     padding-right: 40px;
+  }
+  body.outline-collapsed div.post-container.col-lg-9 {
+    width: 100%;
+    margin: 0 auto;
+    float: none;
+    padding-right: 15px;
   }
   div.post-container.col-lg-12,
   div.postlist-container.col-lg-12 {
@@ -1408,4 +1414,148 @@ nav.navbar-default:not(.navbar-custom) .nav li a:focus {
   font-size: 13px;
   color: #808080;
   pointer-events: none;
+}
+
+/* Github-style copy button on code blocks and diagrams (js/code-copy.js) */
+.code-copy-anchor {
+  position: relative;
+}
+
+.code-copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: #656d76;
+  background-color: #f6f8fa;
+  border: 1px solid #d1d9e0;
+  border-radius: 6px;
+  cursor: pointer;
+  -webkit-transition: color 0.15s, border-color 0.15s;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.code-copy:hover {
+  color: #1f2328;
+  border-color: #8c959f;
+}
+
+.code-copy.copied {
+  color: #1a7f37;
+  border-color: #1a7f37;
+}
+
+/* Github-style outline panel: header + "Filter headings" box + collapse */
+div.side-catalog .catalog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+div.side-catalog .catalog-header h5 {
+  margin: 0;
+  padding: 0;
+  color: #1f2328;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+div.side-catalog .catalog-close {
+  padding: 0 6px;
+  color: #656d76;
+  font-size: 16px;
+  line-height: 22px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+div.side-catalog .catalog-close:hover {
+  color: #0085a1;
+}
+
+/* Collapsed outline: drop the whole column so the article can use the width,
+   and keep a pinned button to bring it back (Github hides its outline the same way). */
+body.outline-collapsed div.catalog-container {
+  /* beats Bootstrap's `.visible-lg-block { display: block !important }` */
+  display: none !important;
+}
+
+.outline-reopen {
+  display: none;
+  position: fixed;
+  top: 90px;
+  right: 0;
+  z-index: 1000;
+  padding: 6px 10px;
+  color: #656d76;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  background-color: #f6f8fa;
+  border: 1px solid #d1d9e0;
+  border-right: 0;
+  border-radius: 6px 0 0 6px;
+  cursor: pointer;
+}
+
+.outline-reopen:hover {
+  color: #0085a1;
+  border-color: #0085a1;
+}
+
+body.outline-collapsed .outline-reopen {
+  display: block;
+}
+
+@media (max-width: 1199px) {
+  .outline-reopen {
+    display: none !important;
+  }
+}
+
+div.side-catalog .catalog-filter {
+  margin-bottom: 8px;
+  padding-right: 5px;
+}
+
+div.side-catalog .catalog-filter-input {
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  color: #1f2328;
+  font-size: 13px;
+  background-color: #f6f8fa;
+  border: 1px solid #d1d9e0;
+  border-radius: 6px;
+}
+
+div.side-catalog .catalog-filter-input:focus {
+  outline: none;
+  border-color: #0085a1;
+  background-color: #fff;
+}
+
+div.side-catalog .catalog-body li.filtered-out {
+  display: none;
+}
+
+div.side-catalog .catalog-empty {
+  display: none;
+  margin: 4px 0 0;
+  color: #8c959f;
+  font-size: 13px;
+}
+
+/* While filtering, the reading-position highlight would be misleading. */
+div.side-catalog.filtering .catalog-body li.active > a {
+  border-left-color: transparent;
 }

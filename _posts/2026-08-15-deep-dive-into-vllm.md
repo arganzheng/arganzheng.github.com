@@ -2167,8 +2167,8 @@ _TEXT_GENERATION_MODELS = {
 
 ```mermaid
 graph TD
-    A["HuggingFace config.json<br/>{\"architectures\": [\"LlamaForCausalLM\"], …}"] --> B
-    B["ModelRegistry._TEXT_GENERATION_MODELS[\"LlamaForCausalLM\"]<br/>→ (\"llama\", \"LlamaForCausalLM\")"] --> C
+    A["HuggingFace config.json<br/>{#quot;architectures#quot;: [#quot;LlamaForCausalLM#quot;], …}"] --> B
+    B["ModelRegistry._TEXT_GENERATION_MODELS[#quot;LlamaForCausalLM#quot;]<br/>→ (#quot;llama#quot;, #quot;LlamaForCausalLM#quot;)"] --> C
     C["动态导入<br/>from vllm.model_executor.models.llama import LlamaForCausalLM"] --> D
     D["实例化模型，加载权重"]
 ```

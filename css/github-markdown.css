@@ -9,6 +9,8 @@
   word-wrap: break-word;
   /* Github's body color; the theme's #404040 reads noticeably lighter/thinner. */
   color: #1f2328;
+  font-size: 16px;
+  line-height: 1.5;
 }
 
 /* The theme greys out list items and table cells through `a, body { color: #404040 }`
@@ -80,6 +82,7 @@
 .post-container code {
   padding: .2em .4em;
   margin: 0;
+  color: inherit;
   font-size: 85%;
   white-space: break-spaces;
   background-color: rgba(175,184,193,.2);
@@ -104,7 +107,7 @@
   border-radius: 6px;
   margin-top: 0;
   margin-bottom: 16px;
-  border: 1px solid #d1d9e0;
+  border: 0;
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
 .post-container pre code {
@@ -119,8 +122,17 @@
   padding: 16px;
   font-size: 85%;
   line-height: 1.45;
+  background-color: #f6f8fa;
   border-radius: 6px;
-  border: 1px solid #d1d9e0;
+  border: 0;
+}
+/* rouge's own wrapper: only reset the frame, never the font size (it would
+   compound with the 85% on the <pre> inside). */
+.post-container .highlight {
+  padding: 0;
+  background-color: #f6f8fa;
+  border: 0;
+  border-radius: 6px;
 }
 
 /* ---- Tables ---- */
