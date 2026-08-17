@@ -1281,6 +1281,14 @@ div.side-catalog .catalog-body li.active-parent > a {
     float: none;
     padding-right: 15px;
   }
+  /* keep the title block lined up with the centred article */
+  body.outline-collapsed .page-header {
+    max-width: 1400px;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 15px;
+    padding-right: 15px;
+  }
   div.post-container.col-lg-12,
   div.postlist-container.col-lg-12 {
     max-width: 1400px;
@@ -1314,7 +1322,7 @@ nav.navbar-default:not(.navbar-custom) .navbar-brand {
 nav.navbar-default:not(.navbar-custom) .nav li a {
   color: #404040;
   text-transform: uppercase;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   letter-spacing: 1px;
   line-height: 20px;
@@ -1333,6 +1341,13 @@ nav.navbar-default:not(.navbar-custom) .nav li a:focus {
   nav.navbar-default:not(.navbar-custom) .nav li a {
     padding: 20px;
     line-height: 20px;
+  }
+  /* the theme's 12px menu reads too small next to the 16px body text */
+  nav.navbar .navbar-brand {
+    font-size: 20px;
+  }
+  nav.navbar .nav li a {
+    font-size: 14px;
   }
 }
 

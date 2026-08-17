@@ -114,7 +114,7 @@ layout: default
                 <div class="side-catalog">
                     <div class="catalog-header">
                         <h5>OUTLINE</h5>
-                        <button type="button" class="catalog-close" title="收起目录" aria-label="收起目录">&times;</button>
+                        <button type="button" class="catalog-close" title="收起目录" aria-label="收起目录"><i class="fa fa-angle-double-right"></i></button>
                     </div>
                     <div class="catalog-filter">
                         <input type="text" class="catalog-filter-input" placeholder="Filter headings" aria-label="Filter headings" autocomplete="off">
@@ -131,7 +131,7 @@ layout: default
 </article>
 
 {% if catalog %}
-<button type="button" class="outline-reopen" title="展开目录 (OUTLINE)">OUTLINE</button>
+<button type="button" class="outline-reopen" title="展开目录 (OUTLINE)"><i class="fa fa-angle-double-left"></i> OUTLINE</button>
 {% endif %}
 
 {% if site.disqus_username %}
