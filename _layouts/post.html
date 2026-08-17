@@ -18,12 +18,14 @@ layout: default
 </div>
 
 <!-- Post Content -->
+{% assign catalog = page.catalog %}
+{% if content contains '[TOC]' %}{% assign catalog = true %}{% endif %}
 <article>
     <div class="container">
         <div class="row">
 
     <!-- Post Container -->
-           {% if page.catalog %}
+           {% if catalog %}
             <div class=" col-lg-10 col-md-10 post-container">
            {% else %}
             <div class=" col-lg-12 col-md-12 post-container">
@@ -74,7 +76,7 @@ layout: default
             </div>  
 
     <!-- Side Catalog Container -->
-        {% if page.catalog %}
+        {% if catalog %}
             <div class="
                 col-lg-2 col-lg-offset-0
                 visible-lg-block

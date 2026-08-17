@@ -1155,3 +1155,94 @@ div.markdown-toc a:hover,
 div.markdown-toc a:focus {
   color: #0085a1;
 }
+
+/* Floating side catalog, built and scroll-synced by js/toc.js */
+/* `overflow-x: hidden` on article would turn it into a scroll container and
+   break `position: sticky` for the catalog; `clip` clips without scrolling. */
+article {
+  overflow-x: clip;
+}
+
+div.catalog-container {
+  position: -webkit-sticky;
+  position: sticky;
+  top: 80px;
+}
+
+div.side-catalog,
+div.side-catalog.fixed {
+  position: static;
+  top: auto;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  padding-bottom: 10px;
+}
+
+div.side-catalog .catalog-body {
+  max-height: calc(100vh - 160px);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+div.side-catalog .catalog-body ul {
+  list-style: none;
+  padding-left: 12px;
+  margin: 0;
+}
+
+div.side-catalog .catalog-body li {
+  margin: 0;
+}
+
+div.side-catalog .catalog-body li a {
+  padding-left: 8px;
+  max-width: 100%;
+  color: #808080;
+  border-left: 2px solid transparent;
+  -webkit-transition: color 0.2s, border-color 0.2s;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+div.side-catalog .catalog-body li a:hover,
+div.side-catalog .catalog-body li a:focus {
+  color: #0085a1;
+  text-decoration: none;
+}
+
+div.side-catalog .catalog-body .h1_nav,
+div.side-catalog .catalog-body .h2_nav,
+div.side-catalog .catalog-body .h3_nav,
+div.side-catalog .catalog-body .h4_nav,
+div.side-catalog .catalog-body .h5_nav,
+div.side-catalog .catalog-body .h6_nav {
+  margin-left: 0;
+}
+
+div.side-catalog .catalog-body .h1_nav > a,
+div.side-catalog .catalog-body .h2_nav > a {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+div.side-catalog .catalog-body .h3_nav > a,
+div.side-catalog .catalog-body .h4_nav > a,
+div.side-catalog .catalog-body .h5_nav > a,
+div.side-catalog .catalog-body .h6_nav > a {
+  font-size: 12px;
+  font-weight: 400;
+}
+
+div.side-catalog .catalog-body li.active {
+  background-color: transparent;
+}
+
+div.side-catalog .catalog-body li.active > a {
+  color: #0085a1 !important;
+  border-left-color: #0085a1;
+  font-weight: 700;
+}
+
+div.side-catalog .catalog-body li.active-parent > a {
+  color: #404040;
+}
