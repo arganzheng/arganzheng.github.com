@@ -1198,7 +1198,8 @@ div.side-catalog .catalog-body li {
 div.side-catalog .catalog-body li a {
   padding-left: 8px;
   max-width: 100%;
-  color: #808080;
+  /* the theme sets `.sidebar-container a { color: #bfbfbf !important }` */
+  color: #404040 !important;
   border-left: 2px solid transparent;
   -webkit-transition: color 0.2s, border-color 0.2s;
   transition: color 0.2s, border-color 0.2s;
@@ -1206,7 +1207,7 @@ div.side-catalog .catalog-body li a {
 
 div.side-catalog .catalog-body li a:hover,
 div.side-catalog .catalog-body li a:focus {
-  color: #0085a1;
+  color: #0085a1 !important;
   text-decoration: none;
 }
 
@@ -1244,7 +1245,7 @@ div.side-catalog .catalog-body li.active > a {
 }
 
 div.side-catalog .catalog-body li.active-parent > a {
-  color: #404040;
+  color: #1f2328 !important;
 }
 
 /* Below `lg` the side catalog is hidden, so stop reserving room for it: the
@@ -1261,26 +1262,30 @@ div.side-catalog .catalog-body li.active-parent > a {
 @media (min-width: 768px) {
   .container {
     width: auto;
-    max-width: 1500px;
+    max-width: 1800px;
     padding-left: 40px;
     padding-right: 40px;
   }
 }
 
 @media (min-width: 1200px) {
-  div.post-container.col-lg-9 {
+  div.post-container.col-lg-9,
+  div.postlist-container.col-lg-9 {
     width: calc(100% - 340px);
-    max-width: 1120px;
+    max-width: 1400px;
     padding-right: 40px;
   }
-  div.post-container.col-lg-12 {
-    max-width: 1120px;
+  div.post-container.col-lg-12,
+  div.postlist-container.col-lg-12 {
+    max-width: 1400px;
     margin: 0 auto;
     float: none;
   }
-  div.catalog-container {
+  /* Both the article catalog and the site sidebar (about / tags cloud). */
+  div.sidebar-container {
     float: right;
     width: 340px;
+    max-width: 340px;
     padding-right: 15px;
   }
 }
@@ -1289,8 +1294,8 @@ div.side-catalog .catalog-body li.active-parent > a {
    image behind the navbar there), which left post pages with the plain Bootstrap
    navbar: thin 16px #777 links instead of the site's bold uppercase menu. */
 nav.navbar-default:not(.navbar-custom) {
-  background-color: rgba(255, 255, 255, 0.95);
-  border-bottom: 1px solid #f2f2f2;
+  background-color: #f6f8fa;
+  border-bottom: 1px solid #d1d9e0;
 }
 
 nav.navbar-default:not(.navbar-custom) .navbar-brand {
