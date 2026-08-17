@@ -56,8 +56,6 @@ LLM 推理是"双未知"的：
 
 ### 1.2 Prefill 与 Decode：两种完全不同的 GPU Workload
 
-LLM Serving 的绝大部分优化技术，都可以追溯到这一节的一个事实：**同一个模型，在推理的两个阶段里表现得像两台不同的机器。** 这一节把它讲透，后续章节只做回指，不再重复定义。
-
 LLM 推理天然分为两个阶段，它们在计算特征上截然对立：
 
 | | Prefill 阶段（Prompt Processing） | Decode 阶段（Token Generation） |
