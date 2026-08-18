@@ -202,7 +202,7 @@ mindmap
 
 ### 1.5 总纲：vLLM 其实只在回答四个问题
 
-前面的挑战和指标可以收敛成四个问题。**本文剩下的所有内容——以及 vLLM 绝大部分核心代码——都可以归进这四问之一。** 后面每章开头，我都会标明它在回答哪一问。
+前面的挑战和指标可以收敛成四个问题。**本文剩下的所有内容——以及 vLLM 绝大部分核心代码——都可以归进这四问之一。**
 
 | # | 问题 | 核心机制 | 主要落点 | 本文章节 |
 |---|------|---------|---------|---------|
@@ -212,8 +212,6 @@ mindmap
 | 四 | 一张卡不够，**怎么扩出去？** | TP / PP / EP / CP / DP、集合通信 | `Executor` / `distributed` | 第六章 |
 
 四问之外还有两个**横切约束**：模型在变（第七章）、硬件在变（第八章）——它们不新增问题，但要求上面四个答案在剧烈变化的外部环境里保持稳定。最后，第九章把四问从单机尺度推到集群尺度（PD 分离）。
-
-读到后面任何一个陌生的类名或机制时，建议先问一句：**它在回答哪一问？** 这比记住它在哪个文件里重要得多。
 
 
 ### 1.6 一个贯穿全文的例子
@@ -236,8 +234,6 @@ mindmap
 | ↳ TP=8 时每张卡承担 | `320 KB ÷ 8` | 40 KB |
 | 这个请求最终的 KV 总量 | `2350 × 320 KB` | **约 734 MB** |
 | 权重每卡 | `141 GB ÷ 8` | 17.6 GB |
-
-记住 **320 KB/token** 这个数——它是后面所有账的基础。
 
 
 ## 二、鸟瞰 vLLM：一个请求如何穿过整个推理系统？
@@ -544,8 +540,6 @@ sequenceDiagram
 
 ## 三、KV Cache：LLM Serving 的第一号内存问题
 
-> **本章回答第二问：历史状态放在哪里、怎么复用。**
-
 设想一个场景：
 
 你有一张 80 GB 的卡，同时来了 100 个请求。第一个请求最后只生成了 300 个 token，第二个生成了 3000 个，第三个一路写到 20K。**问题在于：这三个数字，你在请求到达的那一刻一个都不知道。**
@@ -687,7 +681,6 @@ class BlockPool:
 
 这个布局也揭示了 Scheduler 为什么不能按请求类型硬分类。一轮迭代中一个请求可能同时覆盖 computed（prefix cache 命中）、new（需要新计算）和 lookahead（spec decode 预留），不同请求在这个轴上的位置各不相同。token 预算模型统一处理这些区间，而不是按"prefill 请求"和"decode 请求"分开。
 
----
 
 ### 3.2 KV Cache 的写入、读取与生命周期
 
@@ -773,7 +766,6 @@ for each query position:
 
 注意倒数第二行：**块只有"写满"才会被缓存**。这解释了为什么 Prefix Cache 的命中粒度是 `block_size`，而不是单个 token。
 
----
 
 ### 3.3 KV Cache 还能更小吗：复用、压缩与分层存储
 
@@ -891,6 +883,9 @@ graph LR
     subgraph D["解码（Decode，朴素做法）"]
         KV2[("KV Cache")] --> C2[c_kv] -->|kv_b_proj| KVF["K, V（恢复全维）"] --> AT[Attention]
     end
+    
+    %% 关键：表达 KV Cache 的传递，完美解决排版问题
+    KV -.->|读取/复用| KV2
 ```
 
 但朴素做法有个致命问题：**每一步 Decode 都要把全部历史 token 的 latent 解压回全维 K/V**，那省下的显存又变成了带宽开销。真正的关键优化叫 **"吸收"（Absorbing）**——把解压矩阵 `W_uk` 预先融合进 `W_q`，于是可以**直接在 latent 空间做 Attention，完全不解压**。这一手的工程细节留到第 7.4.1 节展开。
@@ -973,17 +968,10 @@ vLLM V1 当前主要使用 **Recomputation** 策略（`_preempt_request()` 中�
 
 </details>
 
----
 
 ## 四、Scheduler：GPU 这一轮到底给谁用？
 
-> **本章回答第一问：请求来了，这一轮谁执行、执行多少。**
-
-KV Cache 解决的是"状态如何存"；Scheduler 解决的是"每一轮谁能获得多少 token 预算"。两者高度耦合，但不是同一层抽象。把调度单独成章，可以避免把显存块管理和请求选择策略混为一谈。
-
-如果说 PagedAttention 是 vLLM 最出名的技术，那 Scheduler 就是最被低估的那个。**PagedAttention 决定"状态放得下多少"，Scheduler 决定"这一轮 GPU 到底给谁用"——只有两者合在一起，才构成一个 Serving 系统。** 这一章值得读得慢一点。
-
-而理解 vLLM 调度器最关键的一句话是：
+KV Cache 解决的是"状态如何存"；Scheduler 解决的是"每一轮谁能获得多少 token 预算"。而理解 vLLM 调度器最关键的一句话是：
 
 > ### vLLM 的 Scheduler 调度的不是 Request，而是 Token Budget。
 
@@ -997,11 +985,9 @@ Request C（开了投机解码）       → 本轮推进 1 个真实 token + 4 �
                                   本轮 token 预算共消耗 262
 ```
 
-这三种形态在调度器眼里没有类型差别，只有数量差别——都是"让 `num_computed_tokens` 向 `num_tokens_with_spec` 追赶若干步"。**Continuous Batching 之所以能"continuous"，正是因为调度的粒度细到了 token，而不是停留在 request。** 下面几节都是这句话的展开。
+这三种形态在调度器眼里没有类型差别，只有数量差别——都是"让 `num_computed_tokens` 向 `num_tokens_with_spec` 追赶若干步"。**Continuous Batching 之所以能"continuous"，正是因为调度的粒度细到了 token，而不是停留在 request。** 
 
-### 4.1 Scheduler 与 Continuous Batching
-
-#### 4.1.1 迭代级组批（Iteration-level Batching）
+### 4.1 Continuous Batching：迭代级组批（Iteration-level Batching）
 
 Continuous Batching 是 vLLM 最具革命性的调度创新。传统 DL 推理中，一个 Batch 的所有请求必须同时开始、同时结束。Continuous Batching 打破这一限制，在**每一步迭代**级别动态调整 Batch 组成：
 
@@ -1089,11 +1075,8 @@ def schedule(self, throttle_prefills=False) -> SchedulerOutput:
 >
 > 于是这个请求的一生在调度器眼里是这样的：**先用若干轮把 `num_computed_tokens` 从 0 追到 2050（这些轮属于 prefill 形态），然后是 300 轮每轮 +1（decode 形态）。** 调度器全程没有"切换阶段"这个动作，它只是一直在做同一件事——**发 token 额度**。
 
----
 
-### 4.2 Batch 是如何动态变化的
-
-上一节的 token 预算模型，落到宏观时间线上就是 Continuous Batching 与传统 Static Batching 的差别：
+**总结：Continuous Batching 与传统 Static Batching 的差别：**
 
 ```
   ┌─────────────── Static Batching (传统) ──────────────────┐
@@ -1131,11 +1114,11 @@ def schedule(self, throttle_prefills=False) -> SchedulerOutput:
 | GPU 利用率 | 随请求完成逐渐降低 | 持续高位 |
 | 实现复杂度 | 简单 | 需要动态内存管理 |
 
----
 
-### 4.3 Chunked Prefill：长文本 Prefill 拆分
+### 4.2 Chunked Prefill：长文本 Prefill 拆分
 
 长 prompt（如 32K tokens 的文档）如果一次性 Prefill，会导致：
+
 1. **TTFT 飙升**：该请求独占 GPU 直到 Prefill 完成
 2. **Decode 阻塞**：其他正在 Decode 的请求被迫等待
 3. **TPOT 波动**：Decode 请求的逐 token 延迟出现尖峰
@@ -1162,7 +1145,7 @@ Chunked Prefill 将长 Prefill 拆分为多个小块，与 Decode 请求混合�
 
 > **回到我们的例子**：2050 token 的 prompt，若设 `long_prefill_token_threshold = 512`，它会被切成 **5 段**（512×4 + 2）。代价是这个请求要多等 4 轮才出首 token，TTFT 上升；收益是这 5 轮里其他请求的 decode 一直在正常推进，**没有一轮被它独占**。
 >
-> 这就是 TTFT 与 TPOT 之间那笔典型交易——而第 1.3 节说过，系统要做的从来不是消灭这种取舍，而是把它调到 SLO 允许的位置上。
+> 这就是 TTFT 与 TPOT 之间那笔典型交易——在第 1.3 节我们说过，系统要做的从来不是消灭这种取舍，而是把它调到 SLO 允许的位置上。
 
 ```python
 # Chunked Prefill 的核心逻辑
@@ -1174,7 +1157,7 @@ if num_new_tokens > request_token_budget:
     req.is_prefill_chunk = True  # 标记为非最终 prefill 块
 ```
 
-### 4.4 抢占与 Admission Control
+### 4.3 抢占与 Admission Control
 
 当 GPU 显存耗尽时，Scheduler 面临极端抉择：
 
@@ -1210,7 +1193,7 @@ def _preempt_request(self, request, timestamp, ...):
     self.waiting.prepend_request(request)  # 放到队头，优先恢复
 ```
 
-`KVCacheManager` 还提供了一个 `watermark` 旋钮，用于在准入时预留一层显存余量，减少"刚放进来就被抢占"的震荡：
+`KVCacheManager` 还提供了 `watermark` 机制，用于在准入时预留一层显存余量，通过保留一定比例的空闲块作为缓冲，减少"刚放进来就被抢占"的震荡：
 
 ```python
 # vllm/v1/core/kv_cache_manager.py
@@ -1244,24 +1227,21 @@ if free_blocks < required_blocks:
 
 </details>
 
----
 
 ## 五、GPU 执行：如何让每个 Token 算得更快？
 
-> **本章回答第三问：这一轮已经确定要算的 token，怎么算得更快。**
-
 上一章决定了"这一轮算哪些 token"，这一章的问题是：**这些已经确定要算的 token，怎么算得更快。**
 
-Decode 偏 memory-bound、Prefill 偏 compute-bound（第 1.2 节），但落到 GPU 上，浪费其实只有四种形态。这一章就按这四种浪费组织：
 
-| 浪费形态 | 症状 | 对策 | 本章小节 |
-|---|---|---|---|
-| GPU 在**等 CPU 发指令** | kernel 之间有气泡 | CUDA Graph | 5.1 |
-| GPU 在**等 HBM 送数据** | 算力闲置、访存打满 | FlashAttention、算子融合 | 5.2 |
-| 搬的**每个数太胖** | 带宽被低信息密度的数据占满 | FP8 / INT8 / INT4 量化 | 5.3 |
-| **轮次本身太多** | 每轮只产出 1 个 token | 投机解码 | 5.4 |
+Decode 偏 memory-bound、Prefill 偏 compute-bound，但落到 GPU 上，浪费其实只有四种形态：
 
-最后 5.5 回到现实：真实的一轮 batch 里，prefill、decode、投机候选是混在一起的。
+| 浪费形态 | 症状 | 对策 | 
+|---|---|---|
+| GPU 在**等 CPU 发指令** | kernel 之间有气泡 | CUDA Graph | 
+| GPU 在**等 HBM 送数据** | 算力闲置、访存打满 | FlashAttention、算子融合 | 
+| 搬的**每个数太胖** | 带宽被低信息密度的数据占满 | FP8 / INT8 / INT4 量化 | 
+| **轮次本身太多** | 每轮只产出 1 个 token | 投机解码 | 
+
 
 > **回到我们的例子**（Llama-3-70B、8×H100、TP=8）：每张卡持有 17.6 GB 权重，H100 HBM 带宽 3.35 TB/s，于是**一次 decode 的权重读取下界约 5.3 ms**；加上 KV 读取、80 层 × 2 次 All-Reduce 和 kernel 开销，实测一步大约在 10 ms 量级。
 >
@@ -1287,35 +1267,39 @@ Decode 偏 memory-bound、Prefill 偏 compute-bound（第 1.2 节），但落到
 
 > **当单个 kernel 的 GPU 执行时间 < CPU 提交它所需的时间时，GPU 就会追上 CPU，队列被抽干，开始出现气泡。**
 
-这就解释了为什么 CUDA Graph 基本只对 Decode 有意义：Prefill 的 kernel 动辄跑几百微秒，CPU 那点提交开销（现代 CUDA 通常 2–5 μs 量级）根本追不上；而 Decode 每个 kernel 可能只有几十微秒，几十个 kernel 排下来，CPU 就成了拖后腿的那一方。
+这就解释了为什么 CUDA Graph 基本只对 Decode 有意义：Prefill 的 kernel 动辄跑几百微秒，CPU 那点提交开销（现代 CUDA 通常 2–5 μs 量级）根本追不上；而 Decode 阶段充斥着大量只需要 1.5μs 的细碎 Kernel，几十个这样的小 Kernel 排下来，CPU 异步发射的速度就成了拖后腿的那一方。
 
-下图画的正是这种**已经追平之后**的最坏情形——注意它不是常态，而是 Decode 小 kernel 场景下才会退化成的样子：
+下图画的正是这种队列被抽干、算力不饱和的最坏情形（Launch-Bound 状态）——注意它不是常态，而是 Decode 小 kernel 场景下才会退化成的样子：
 
 ```
-┌───────── 无 CUDA Graph: Decode 一步的 Kernel Launch 开销 ────────────┐
-│                                                                       │
-│  CPU (Host):                                                          │
-│  ──[launch]─[wait]─[launch]─[wait]─[launch]─[wait]─ ...              │
-│     5μs      │      5μs      │      5μs      │                       │
-│              │               │               │                        │
-│  GPU (Device):               │               │                        │
-│  ──────────[kernel₁]────[kernel₂]────[kernel₃]──── ...               │
-│              30μs            20μs            40μs                      │
-│                                                                       │
-│  问题: GPU 在等 CPU 发射下一个 kernel 时空闲（气泡）                   │
-│  400 个 kernel × 5μs launch = 2000μs                                  │
-│  总执行 = 2000μs(launch) + ~8000μs(compute) = 10000μs                │
-│  launch 开销占比 ≈ 20%（这是完全暴露时的上界）                          │
-│                                                                       │
-│  注意: 这 2000μs 只有在"CPU 提交跟不上 GPU 消费"时才真正暴露出来。     │
-│       若 GPU 侧足够慢（如 Prefill），同样的提交开销会被完全隐藏，       │
-│       此时上 CUDA Graph 收益接近于零。                                 │
-└───────────────────────────────────────────────────────────────────────┘
+┌───────────────── 无 CUDA Graph: Decode 阶段的 Launch-Bound 气泡 ──────────────────┐
+│                                                                                   │
+│  CPU (Host Thread):                                                               │
+│  ───[Launch K1]───[Launch K2]───[Launch K3]───[Launch K4]─── ... (全力发射)        │
+│        4μs           4μs           4μs           4μs                              │
+│         │             │             │             │                               │
+│         ▼ (命令入队)  ▼             ▼             ▼                               │
+│  GPU (Hardware):                                                                  │
+│  ───[ Kernel 1 ]─[气泡]─[ Kernel 2 ]─[气泡]─[ Kernel 3 ]─[气泡]─ ...              │
+│        1.5μs      2.5μs    1.5μs      2.5μs    1.5μs      2.5μs                   │
+│                                                                                   │
+│  【现象剖析】：                                                                   │
+│  1. 时刻 0，CPU 开始提交 K1。                                                      │
+│  2. 时刻 4，CPU 提交完 K1 并「立刻」开始提交 K2。同一时间，GPU 拿到 K1 开始执行。          │
+│  3. 时刻 5.5，GPU 仅用 1.5μs 就把 K1 算完了！此时 GPU 检查队列，发现 K2 还没提交完。      │
+│  4. 结果：GPU 只能被迫原地熄火，陷入 2.5μs 的「空闲气泡」，直到时刻 8 CPU 提交完 K2。      │
+│                                                                                   │
+│  【开销占比】：                                                                   │
+│  若一步包含 400 个小 Kernel，CPU 耗时 = 400 × 4μs = 1600μs (总发射耗时)               │
+│  因为 GPU 速度快于 CPU，整个流水线被 CPU 强行拉长。最终总耗时将由 CPU 侧决定：             │
+│  总执行时间 ≈ 1600μs。其中 GPU 真正干活 600μs (37.5%)，卡死在气泡中 1000μs     (62.5%)。│
+└───────────────────────────────────────────────────────────────────────────────────┘
+
 ```
 
 #### 5.1.2 CUDA Graph：静态执行图捕获与重放
 
-CUDA Graph 将一系列 Kernel Launch 录制成一个"计算图"，之后用一次 Launch 重放整个图：
+为了消灭上述图中高达 62.5% 的恐怖气泡，CUDA Graph 改变了游戏规则。它在模型初始化或第一轮时将一系列 Kernel Launch 录制成一个"计算图"，之后用一次 Launch 重放整个图：
 
 ```
 ┌───────── CUDA Graph: 一次 Launch 重放整个 Decode 步 ─────────────────┐
@@ -1352,28 +1336,18 @@ class CUDAGraphMode(enum.Enum):
     FULL_AND_PIECEWISE = (FULL, PIECEWISE)  # decode 走 FULL, mixed batch 走 PIECEWISE
 ```
 
-- **FULL**：将整个模型 Forward（从 input_ids 到 logits）录制为单个 CUDA Graph，Decode 时一次 Launch 完成。通常最高效，但要求执行路径和张量地址在运行时保持固定。
-- **PIECEWISE**：将模型拆分为多个子图，动态部分（如 MoE routing）在子图之间执行。灵活性更好，但性能稍低。
+| 模式名称 | 技术机制与核心策略 | 性能表现（Decode / Mixed Batch） | 显存开销 | 工业界应用现状 |
+|---|---|---|---|---|
+| NONE | 全程 Eager 模式 CPU 实时解析并逐个发射 CUDA Kernel。 | 差（CPU发射瓶颈，气泡多） 一般（Prefill 可掩盖部分延迟） | 无 | 已淘汰 / 仅调试 仅用于底层算子开发调试或多模态超大输入排错。 |
+| PIECEWISE | 分段录制模式 固定形状层录为小图，动态算子（如Attention）走 Eager。 | 良好（消灭大部分非 Attention 层气泡） 良好（动态算子外置，天然兼容混批） | 中等 | 自研/定制框架 多用于模型包含非标准、无法完整录图的自定义算子场景。 |
+| FULL | 完整模型单图录制 Forward 整体录制为单个无法拆分的超级宏 Kernel。 | 极致（消除 100% 气泡，达硬件极限） 无法运行（形状一变立即崩溃） | 低至中等 | 离线批处理与跑分 用于离线大批量固定格式处理（如Embedding提取）与静态 BenchMark。 |
+| FULL_DECODE_ONLY | 双轨动态切换 纯 Decode 走 FULL 图；混入 Prefill 自动降级至 NONE（Eager）。 | 极致（纯生成阶段拿满无气泡性能） 一般（Prefill 虽走 Eager 但受图影响小） | 中等（需针对常用 BS 做多桶捕获） | 商业推理引擎首选（如 vLLM / TRT-LLM） 工业界最主流的线上部署策略，兼顾极高吞吐与 Continuous Batching 稳定性。 |
+| FULL_AND_PIECEWISE | 混合双轨优化 纯 Decode 走 FULL 大图；混入 Prefill 切换至 PIECEWISE 分段图。 | 极致（纯生成阶段性能达到硬件极限） 优秀（混批下固定层依然享受图加速） | 高（需常驻多套不同形态的多桶图） | 大厂尖端自研内核 属于头部大厂魔改推理框架的进阶方案，针对极高并发、追求极致长尾延迟（P99）的终极生产环境。 |
 
-注意后两个成员的值是**元组**：这正是前面"Decode 用 Graph、Prefill 用 Eager"这句话在代码里的落地方式。`FULL_DECODE_ONLY` 和 `FULL_AND_PIECEWISE` 各自携带两个运行时模式，`decode_mode()` 取第一个、`mixed_mode()` 取第二个，调度出来的 batch 是纯 decode 还是含 prefill 的混合批次，决定了这一轮走哪条路径。换句话说，CUDA Graph 的适用边界不是一个全局开关，而是**每一轮 batch 形态的函数**。
+从当前工业界的最新演进来看，随着 PD 分离架构（Prefill-Decode Separation） 逐渐成为大厂的主流选择，上述模式的落地有了更清晰的物理边界：
 
-```python
-# vllm/v1/worker/gpu/model_runner.py (简化)
-def _execute_model(self, scheduler_output, ...):
-    batch_desc = self._get_batch_desc(scheduler_output)
-
-    if batch_desc.cg_mode == CUDAGraphMode.FULL:
-        # 一次性重放完整 CUDA Graph
-        output = self.cudagraph_manager.run_fullgraph(batch_desc)
-    elif batch_desc.cg_mode == CUDAGraphMode.PIECEWISE:
-        # 分段重放 + 动态执行
-        output = self.cudagraph_manager.run_pw_graph(self.model, model_inputs)
-    else:
-        # Eager 模式（无 CUDA Graph，用于 Prefill）
-        output = self.model(input_ids, positions, kv_caches, attn_metadata)
-```
-
----
+* Decode 节点：由于完全剥离了 Prefill，输入形态被高度固化，大面积直接采用 FULL 模式或高密度的 FULL_DECODE_ONLY 榨干算力。
+* Prefill 节点：由于需要应对 Chunked Prefill 等高度动态的形状变化，更多采用 PIECEWISE 或直接处于 NONE 状态以确保绝对稳定。 
 
 ### 5.2 数据为什么搬不动？—— 压缩 HBM 流量
 
@@ -1385,24 +1359,25 @@ def _execute_model(self, scheduler_output, ...):
 
 FlashAttention 和 Kernel Fusion 减少的是"搬运次数"（别让中间结果落地再读回来），下一节的量化减少的是"每次搬多少字节"。
 
-#### 5.2.1 Attention 后端：同一个计算，多种 kernel
+#### 5.2.1 Attention 后端与动态算子路由
 
-Attention 后端是算子优化的第一个决策点：同一个 Attention 计算，在不同请求阶段、不同硬件和 dtype 下，最优 kernel 可能完全不同。v0.27.1 在 `vllm/v1/attention/backends/` 下提供了数十种后端，通过 `registry.py` 的 selector 按 head_size、dtype、硬件能力和 workload 形态（Prefill / Decode / Mixed / MLA）动态选择。
+Attention 算子的硬件执行效率高度依赖于工作负载（Workload）形态、硬件架构及数据类型（dtype）。vLLM 在 vllm/v1/attention/backends/ 下集成了数十种 Attention 后端，并在 registry.py 中通过 Selector 机制，根据 Head Size、dtype、硬件算力以及运行时特征（Prefill / Decode / Mixed / MLA）进行动态算子路由（Kernel Selection）。
 
-Prefill 场景通常偏向 FlashAttention 等对长 query 高效的后端；Decode 场景中 FlashInfer 对 ragged batch 和 PagedAttention 的原生支持更匹配；MLA 等特殊 attention 变体还有 CUTLASS MLA、FlashInfer MLA、FlashMLA、Triton MLA 等针对性实现。以下列举 v0.27.1 中部分主要后端：
+其核心后端生态及工业界典型的推荐基准（Benchmark Prefs）划分如下：
 
-- FlashAttention (`flash_attn.py`)：NVIDIA GPU 上广泛使用的 Attention 实现，对 Prefill 长序列有良好吞吐。也有 `flash_attn_diffkv` 变体。
-- FlashInfer (`flashinfer.py`)：针对 Decode 的 ragged batch、PagedAttention、Prefill+Decode 混合批次做了深度优化。
-- Triton Attention (`triton_attn.py`, `triton_attn_diffkv.py`)：Triton 语言的灵活后端，易于定制和移植。
-- ROCm 后端 (`rocm_attn.py`, `rocm_aiter_fa.py`, `rocm_aiter_unified_attn.py`)：AMD GPU 特化实现。
-- MLA 后端 (`mla/`)：FlashInfer MLA、FlashMLA、CUTLASS MLA、Triton MLA、AITER Triton MLA、TokenSpeed MLA、ROCm AITER MLA 等，为 DeepSeek 等模型的低秩 KV 提供专门优化。
-- 其他后端：FlexAttention (`flex_attention.py`)、GDN Attention、Linear Attention、Mamba 后端、CPU Attention 等。
+* FlashInfer (flashinfer.py)：默认的通用全能型后端。得益于对 Ragged Batch、PagedAttention 以及 Prefill+Decode 混合批次的深度汇编级优化，在 Decode 及 Mixed 场景下吞吐领先。
+* FlashAttention (flash_attn.py)：NVIDIA 生态的经典基准。在纯 Prefill 场景下对长 Query 具备极佳的矩阵乘法吞吐表现，并包含 flash_attn_diffkv 等衍生变体。
+* MLA 特化后端 (mla/)：针对 DeepSeek 等模型的低秩 KV 压缩（MLA）进行算子融合与内存重排优化。包含 FlashInfer MLA、FlashMLA、CUTLASS MLA、Triton MLA 及 ROCm 架构下的 AITER Triton MLA。
+* Triton / FlexAttention (triton_attn.py, flex_attention.py)：高可定制化后端。利用高级语言抽象，便于跨硬件平台快速移植、验证或进行非标的自定义 Mask/Attention 研发。
+* 硬件特化与非标后端：包含 AMD 生态的 ROCm 系列（rocm_attn.py 等）、CPU 降级后端，以及适配 Mamba、Linear Attention 等非 Transformer 架构的专用算子。
 
-选择不是全局固定的：“通常 FlashInfer 是默认 Decode 后端”这种说法需要加上版本、硬件和模型前提。实际使用中 selector 会根据环境自动选择，生产部署前建议用当前版本和目标 workload 做 benchmark 确认。
+**TIPS：** 业界没有绝对通用的默认后端，算子路由强绑定于具体的 vLLM 版本与底层硬件。在生产环境上线或变更 workload 形态（如从单轮 QA 转向超长多轮对话）前，必须基于目标硬件进行针对性的端到端压力测试（Profile & Benchmark）。
+
 
 #### 5.2.2 FlashAttention：Tiling 与 Online-Softmax
 
 FlashAttention 是现代 LLM 推理的基石算子。它的核心思想是通过**分块计算（Tiling）**和 **Online Softmax**，让 N×N 的中间矩阵**根本不必在 HBM 里出现**。注意它优化的是**访存**，计算量（FLOPs）一分没少。
+
 
 ```
 ┌──────────────── Standard Attention vs FlashAttention ─────────────────┐
@@ -1445,17 +1420,56 @@ FlashAttention 是现代 LLM 推理的基石算子。它的核心思想是通过
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
-**Standard Attention** 的问题在于它把两个 N×N 的大矩阵实实在在地写进了 HBM：
+**说明：**
 
-| 步骤 | 产物 | HBM 行为 |
-|---|---|---|
-| `Q[N,d] × K[N,d]ᵀ` | `S[N,N]` | O(N²) **写入** HBM |
-| `softmax(S)` | `P[N,N]` | O(N²) **读 + 写** HBM |
-| `P × V[N,d]` | `O[N,d]` | O(N²) **读取** HBM |
+- 标准注意力会显式生成两个 N×N 大矩阵，显存和带宽压力都很大。
+- FlashAttention 不保存完整中间矩阵，而是把计算拆成小块，在片上完成并立即复用。
+- 它的目标不是减少 FLOPs，而是减少 HBM 读写。
+
+##### 1、为什么 Standard Attention 会卡显存？
+
+Standard Attention的问题在于它把两个 N×N 的大矩阵实实在在地写进了 HBM：
+
+```
+Q[N,d] × K[N,d]^T  ->  S[N,N]                # O(N²) **写入** HBM
+S[N,N]             ->  softmax  ->  P[N,N]   # O(N²) **读 + 写** HBM 
+P[N,N] × V[N,d]    ->  O[N,d]                # O(N²) **读取** HBM
+
+HBM 中的代价：
+- S：要写回一次
+- S：softmax 前要再读一次
+- P：要写回一次
+- P：乘 V 前要再读一次
+```
 
 总 HBM 访问 **O(N·d + N²)**，其中 N² 项的系数是 4（S 写、S 读、P 写、P 读）。更要命的是显存：N 到几千时，S、P 两个矩阵就能把显存占满。
 
-**FlashAttention** 把 Q/K/V 切成 `Bq × Bk` 的小块，让中间结果**只在片上 SRAM 里出现，从不落回 HBM**（A100 每个 SM 的 L1/shared 合计 192 KB，可作 shared memory 的约 164 KB）：
+**说明：**
+
+- 问题不只是矩阵大，而是它们必须在 HBM 里“来回搬运”
+- 当序列长度变大时，N² 级别的中间结果会迅速成为瓶颈
+- 所以标准注意力的主要痛点是访存和显存，不是算力
+
+##### 2、FlashAttention 的 Tiling 思路
+
+FlashAttention 把 Q/K/V 切成 `Bq × Bk` 的小块，让中间结果**只在片上 SRAM 里出现，从不落回 HBM**（A100 每个 SM 的 L1/shared 合计 192 KB，可作 shared memory 的约 164 KB）：
+
+```
+Q 被切成 Q_tile
+K、V 被切成 K_tile / V_tile
+
+             ┌──────── SRAM / Shared Memory ──────────┐
+HBM -> Q_tile ┤                                        ├-> 输出 (O_acc)
+HBM -> K_tile ┤  S_tile = Q_tile @ K_tile^T           ├
+HBM -> V_tile ┤  Online Softmax(S_tile):              ├
+              ┤     维护m, l运行时统计量，O_acc在线累加   ├
+              └───────────────────────────────────────┘
+              
+说明：
+- 每次只处理一小块 Q/K/V
+- S_tile 只在片上临时存在，不写回 HBM
+- 这样可以把大矩阵的“中间停留”从显存中拿掉
+```
 
 | 驻留在 SRAM 的东西 | 形状 | 说明 |
 |---|---|---|
@@ -1465,7 +1479,18 @@ FlashAttention 是现代 LLM 推理的基石算子。它的核心思想是通过
 | `O_acc` | `[Bq, d]` | 在线累加的输出 |
 | `m, l` | `[Bq]` | softmax 的运行时统计量（行最大值、指数和） |
 
-关键在于 **Online Softmax**——它让 softmax 不需要先看到整行就能开始累加：
+##### 3、Online Softmax 是怎么“边算边归一化”的
+
+FlashAttention能够运转的关键在于**Online Softmax**，它让 softmax 不需要先看到整行就能开始累加。
+
+softmax 看起来需要先知道一整行的最大值和总和，才能归一化。这似乎意味着必须先把完整的 S[N,N] 算出来。但 FlashAttention 用了 Online Softmax，允许它在分块过程中动态维护：
+
+- m：当前最大值
+- l：指数和
+- O_acc：输出累加结果
+
+当新块到来时，如果发现最大值变了，就把历史结果按比例重新缩放，再把新块的贡献加进去。
+这样就能保证：**分块计算的结果，和一次性算完整 softmax 的结果严格等价。**
 
 ```
 m, l, O_acc = -inf, 0, 0
@@ -1481,7 +1506,25 @@ O = O_acc / l                                          # 整个循环结束才�
 
 每来一个新块，就用 `exp(m_old - m_new)` 把此前累加的结果**追溯性地缩放一次**，因此它与"先看完整行再 softmax"在数学上**严格等价**，不是近似。注意归一化的除法被推迟到了循环之外——这是它能一边扫一边累加的前提。
 
-**这里要澄清一个流传很广的说法。** FlashAttention 并没有把 HBM 访问从 O(N²) 降到 O(N·d)。论文给出的 IO 复杂度是 **O(N²d²/M)**（`M` 为可用 SRAM 大小）——**N² 这一项消不掉**，因为循环要沿一个方向走 `N/B` 次，每一次都得把另一侧的 tile 重新从 HBM 过一遍。它真正做的是把 N² 项的**系数**从 4 压到 `d²/M` 量级：
+##### 4、FlashAttention 到底省了什么？
+
+FlashAttention 的收益主要体现在两方面：
+
+**显存：O(N²) → O(N)**
+标准 Attention 需要显式保存 S[N,N] 和 P[N,N]，所以额外显存是 O(N²)。
+FlashAttention 只保存当前 tile 和少量统计量，因此额外显存降到 O(N) 级别。
+
+**访存（带宽）：O(N²) → O(N²d²/M)**
+标准 Attention 里，中间矩阵要在 HBM 里反复读写。
+FlashAttention 把大部分中间计算压到片上内存完成，显著降低 HBM 访问压力。
+
+但是需要注意的是，FlashAttention 并没有把 HBM 访问从 O(N²) 降到 O(N·d)。论文给出的 IO 复杂度是 **O(N²d²/M)**（`M` 为可用 SRAM 大小）——**N² 这一项消不掉**，因为循环要沿一个方向走 `N/B` 次，每一次都得把另一侧的 tile 重新从 HBM 过一遍。它真正做的是把 N² 项的**系数**从 4 压到 `d²/M` 量级。
+
+**但要注意，计算复杂度并没有任何改变**
+FlashAttention 并没有把注意力从 O(N²) 变成 O(N)。
+它优化的是 IO 和显存占用，不是注意力本身的二次结构。
+
+**对比 & 总结**
 
 | 特性 | Standard Attention | FlashAttention |
 |------|-------------------|----------------|
@@ -1491,27 +1534,57 @@ O = O_acc / l                                          # 整个循环结束才�
 | IO 效率 | 低（中间矩阵 HBM 往返） | 高（tile 在 SRAM 内复用） |
 | 实现复杂度 | 简单 | 高（需要手写 CUDA kernel） |
 
-所以准确的说法是：**FlashAttention 在显存上是渐进式的胜利（O(N²) → O(N)，这条无条件成立），在带宽上拿到的是一个常数倍的胜利**——倍数约为 `M/d²`，`d` 越小、SRAM 越大越划算。实测 2~4× 的加速也不只来自访存量本身，还来自少了一趟独立的 softmax kernel、以及不再被 N² 显存卡住 batch。
+**FlashAttention 在显存上是渐进式的胜利（O(N²) → O(N)，这条无条件成立），在带宽上拿到的是一个常数倍的胜利**——倍数约为 `M/d²`，`d` 越小、SRAM 越大越划算。实测 2~4× 的加速也不只来自访存量本身，还来自少了一趟独立的 softmax kernel、以及不再被 N² 显存卡住 batch。
 
-顺带说一个训练与推理的不对称：训练时 FlashAttention 不保存 S、P，反向传播要重算一遍（recompute），本质是"用算力换显存"；**而推理没有反向，这笔代价根本不存在——推理侧用 FlashAttention 是纯赚**。后续版本走的还是同一条路：FlashAttention-2 把并行维度从 `batch × head` 扩展到序列方向、并砍掉大量非 matmul 指令；FlashAttention-3 用上 Hopper 的 warp specialization 与 FP8。数学内核始终是上面那段 online softmax。
+##### 5、训练和推理中的差异
 
-最后是它的**适用边界**，这一点在 Serving 里比复杂度更重要：Tiling 的收益来自"query 方向有足够多的行可以切块复用"，而 **Decode 的 `query_len = 1`，`Bq` 只能取 1，query 方向根本切不动**——kernel 退化成一次又长又瘦的 KV 扫描，SM 大量闲置。
+FlashAttention 在训练和推理中的作用并不完全相同。
 
-Decode 侧的解法是把切分方向换掉：**沿 KV 长度做 split-K（Flash-Decoding）**，让多个 SM 各算一段历史 KV 的局部结果，最后用**上面那套一模一样的 `m`、`l` rescale 规则**把局部结果合并起来。vLLM 里 FlashInfer / paged decode kernel 走的就是这条路，这也正是上一节 selector 要按 workload 形态分派的原因。
+- **训练时**，反向传播需要依赖注意力计算中的一些中间信息。  
+  但 FlashAttention 为了节省显存，不会把完整的 `S` 和 `P` 中间矩阵保存下来。  
+  因此在反向阶段，通常需要通过**重算（recompute）**来恢复这些信息，再继续求梯度。  
+  也就是说，训练阶段的核心特点是 **“用计算换显存”**。
 
-值得留意的是，"分块算 + 在线累加"这一个数学技巧在本文会出现三次，区别只在切在哪条边界上：
+- **推理时**，模型只需要做前向计算，不需要反向传播。  
+  这意味着中间结果不必长期保留，也不会带来额外的重算代价。  
+  所以 FlashAttention 在推理阶段通常表现为**纯收益**：既降低显存占用，又减少访存压力。
 
-| 切在哪 | 沿什么方向切 | 名字 | 出现在 |
-|---|---|---|---|
-| SRAM ↔ HBM | query | FlashAttention | 本节 |
-| SM ↔ SM | KV | Flash-Decoding / split-KV | 本节（Decode 侧） |
-| GPU ↔ GPU | 序列 | Ring Attention | 第 6.1.5 节 |
+##### 6、Serving 场景下的 Decode 优化：从 FlashAttention 到 Flash-Decoding
 
-而 kernel launch 的空转要靠 5.1 的 CUDA Graph 来消。**这些手段针对的是不同的浪费，不能互相替代。**
+在 Serving 场景里，FlashAttention 的收益不只取决于计算复杂度，更取决于**GPU 是否能被有效填满**。它的核心优势来自 query 方向上有足够多的行可以切块复用；但在 **Decode** 阶段，`query_len = 1`，因此 `Bq` 只能取 1，query 方向根本切不动。此时 kernel 会退化成对一长串历史 KV 的单行扫描，SM 大量空转，原本依赖 tiling 的效率优势也会明显减弱。
 
-#### 5.2.3 Kernel Fusion 的动机与收益
+Decode 侧的办法不是继续沿 query 切，而是**把切分方向换到 KV 维度**：通过 **split-K / Flash-Decoding**，让多个 SM 各自处理一段历史 KV，先得到局部的注意力结果，再使用和 FlashAttention 完全一致的 `m`、`l` 在线 rescale 规则把这些局部结果合并起来。vLLM 中的 FlashInfer / paged decode kernel 走的就是这条路线，这也是上一节的 selector 需要根据 workload 形态做分派的原因。
 
-以 `RMSNorm → RoPE → Residual` 这一串为例：
+更进一步看，**“分块计算 + 在线累加”** 其实是同一个数学技巧在不同硬件层级上的重复出现，只是切分边界不同：
+
+| 切分位置 | 沿什么方向切 | 方案 | 
+|---|---|---|
+| SRAM ↔ HBM | query | FlashAttention | 
+| SM ↔ SM | KV | Flash-Decoding / split-KV |
+| GPU ↔ GPU | 序列 | Ring Attention | 
+
+因此，在 Serving 场景中，FlashAttention 的关键不再只是“能不能把 attention 算得更省”，而是“在当前 workload 形态下，应该沿哪一维切块、在哪一层级做合并”。这也是为什么 Prefill、Decode、跨 GPU 长序列分别对应 FlashAttention、Flash-Decoding 和 Ring Attention。
+
+##### 7、版本演进与优化方向
+
+FlashAttention 后续版本主要是在同一套数学核心上继续做工程优化，而不是改变算法本质。
+
+- **FlashAttention-2**
+重点提升了 GPU 并行效率，把并行维度进一步扩展到序列方向，同时减少了非矩阵乘法指令的开销。
+
+- **FlashAttention-3**
+针对 Hopper 架构做了更进一步的优化，引入了 warp specialization，并支持 FP8 等更高效的低精度计算。
+
+不过，无论是最初版本还是后续版本，FlashAttention 的核心思想都没有变：
+**通过分块计算（Tiling）和在线归一化（Online Softmax），在保持结果等价的前提下，大幅降低注意力计算的显存和访存开销。**
+
+#### 5.2.3 Kernel Fusion 
+
+Kernel Fusion 的核心目标，是**把原本多个相邻的算子合并到一个 kernel 里执行**，从而减少中间结果的读写开销，降低 kernel launch 次数，并提升整体吞吐效率。对于大模型推理而言，很多算子本身的计算量并不大，但它们之间频繁地在 HBM 中读写中间 tensor，会让性能很快受限于显存带宽而不是算力。因此，Kernel Fusion 本质上是在做一件和 FlashAttention 非常相似的事情：**尽量让中间结果不落到 HBM，而是在片上完成连续计算。**
+
+##### 1、Kernel Fusion 的动机与收益
+
+在传统的未融合实现中，一个算子链通常会被拆成多个独立 kernel。例如以 `RMSNorm → RoPE → Residual` 为例：
 
 | | 未融合（3 个独立 kernel） | 融合后（1 个 kernel） |
 |---|---|---|
@@ -1520,11 +1593,22 @@ Decode 侧的解法是把切分方向换掉：**沿 KV 长度做 split-K（Flash
 | 中间 tensor | 2 个 | **0 个** |
 | kernel launch | 3 次 | 1 次 |
 
-省下约 **67% 的内存带宽**，顺带少了 2 次 launch。注意这个收益的来源和 FlashAttention 完全一致——**都是不让中间结果去 HBM 兜一圈**，只不过 FlashAttention 作用在一个算子内部，Kernel Fusion 作用在算子之间。
+可以看到，未融合版本的问题并不只是“多了几个算子”，而是每个算子之间都要把中间结果写回 HBM，再从 HBM 读出来继续处理。这种反复搬运数据的方式，会显著放大显存带宽压力。相比之下，融合后的 kernel 直接在一次执行过程中完成多个连续操作，只在最开始读取输入、最后写出结果，中间过程尽量留在寄存器或共享内存中，从而大幅减少内存访问。
 
-#### 5.2.4 vLLM 中的融合算子
+Kernel Fusion优化带来的收益主要有三类：
 
-vLLM 在 `csrc/` 目录中实现了大量融合算子（CUDA 实现集中在 `csrc/libtorch_stable/` 下，CPU 后端另有 `csrc/cpu/`）：
+1. **减少 HBM 访问**
+中间 tensor 不再频繁写回显存，显著降低带宽开销。
+2. **减少 kernel launch 开销**
+多个小 kernel 合并成一个后，可以减少 launch 次数和调度开销。
+3. **提升整体吞吐效率**
+对推理场景来说，尤其是 decode 阶段，很多算子都偏轻量，launch 和访存的开销占比很高，融合后的收益往往非常明显。
+
+注意这个收益的来源和 FlashAttention 完全一致——**都是不让中间结果去 HBM 兜一圈**，只不过 FlashAttention 作用在一个算子内部，Kernel Fusion 作用在多个算子之间。
+
+##### 2、vLLM 中的 Kernel Fusion 实践
+
+在 vLLM 中，Kernel Fusion 已经被广泛用于推理链路的多个环节，尤其集中在 `csrc/libtorch_stable/` 下的 CUDA 实现中，目标就是尽可能把高频、低算力密度但高访存代价的操作合并执行。下面这些算子就是比较典型的例子：
 
 | 融合算子 | 涉及操作 | 实现位置 | 收益 |
 |----------|---------|---------|------|
@@ -1537,7 +1621,28 @@ vLLM 在 `csrc/` 目录中实现了大量融合算子（CUDA 实现集中在 `cs
 | Fused Sampling | top-k + top-p + temperature | `csrc/libtorch_stable/sampler.cu` | GPU 端采样 |
 | Fused KV Cache | Cache write + 量化 | `csrc/libtorch_stable/cache_kernels_fused.cu` | 写入时即量化 |
 
----
+这些融合算子覆盖了推理过程中的几个关键环节：
+
+* 归一化阶段：如 RMSNorm 与 Residual 的融合，减少前后张量搬运；
+* 位置编码阶段：如 RoPE 与维度重排的融合，避免生成临时 tensor；
+* 线性投影阶段：如 QKV 合并计算，减少重复访存和 launch；
+* 注意力阶段：如 FlashAttention，将 softmax 和矩阵乘法尽量做成一个高效流程；
+* 采样阶段：如 top-k/top-p/temperature 一体化，减少生成端的额外开销；
+* 缓存阶段：如 KV Cache 写入与量化融合，降低显存占用并提高写入效率。
+
+可以看到，vLLM 的融合并不局限于某一个单点优化，而是围绕整个推理链路进行系统性的改造。其思路是：凡是存在“中间结果写回 HBM 再继续处理”的地方，都尽量尝试融合。
+
+##### 3、小结
+
+Kernel Fusion 和 FlashAttention 的共同点在于，它们都在解决同一个根本问题：
+**把本可以在片上连续完成的计算，尽量压缩成一次执行，避免中间结果落到 HBM。**
+
+如果说 FlashAttention 是注意力内部的“算子内融合”，那么 Kernel Fusion 则更像是推理系统层面的“算子间融合”。二者结合起来，最终目标都是：
+
+* 少读少写
+* 少 launch
+* 少中间 tensor
+* 更高吞吐、更低延迟
 
 ### 5.3 能不能少搬几个字节？—— 低精度推理
 
