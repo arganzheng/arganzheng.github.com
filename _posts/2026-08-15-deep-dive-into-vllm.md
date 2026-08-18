@@ -1720,13 +1720,12 @@ FP8 推理的优势：
 
 最后一句必须说在前面：**质量损失一定要用 eval benchmark 实测**（HumanEval、MMLU 等），不能靠"≈ 基准"这三个字就上生产。
 
----
 
 ### 5.4 能不能少跑几轮模型？—— 投机解码
 
 前面三节都在优化"一轮怎么跑得更快"。这一节换个思路：**能不能让一轮多产出几个 token，从而少跑几轮？**
 
-##### Decode 的根本瓶颈
+##### 5.4.1 Decode 的根本瓶颈
 
 Decode 阶段的核心瓶颈是**逐 Token 串行**：每一步只生成 1 个 token，但需要完整读取模型权重和 KV Cache。GPU 算力的绝大部分处于闲置状态（低 arithmetic intensity）。
 
@@ -1738,7 +1737,7 @@ Decode 阶段的核心瓶颈是**逐 Token 串行**：每一步只生成 1 个 t
 
 算力利用率在小 batch 下可以低到个位数百分比——绝大部分时间在等 HBM。（batch 增大后同一份权重被多个请求摊薄，利用率会显著回升，这正是 Continuous Batching 有效的根本原因；但**单个请求的延迟**并不会因此变好，这才是投机解码要解决的问题。）
 
-##### Speculative Decoding 基本原理
+##### 5.4.2 Speculative Decoding 基本原理
 
 核心思想：用一个**小而快**的 Draft Model 一次性推测多个候选 token，然后用**大而准**的 Target Model 并行验证这些候选。
 
@@ -1783,7 +1782,7 @@ sequenceDiagram
 
 约 **2× 加速**。注意 Verify 那 18 ms 比普通 Decode 的 15 ms 略高——因为要一次算 6 个位置而不是 1 个，计算量确实增加了，只是在 memory-bound 区间这点额外计算几乎免费。**这正是投机解码的本质：拿闲置算力去换延迟。**
 
-##### 工程实现：Scheduler、KV Cache 与 Token 验证
+##### 5.4.3 工程实现：Scheduler、KV Cache 与 Token 验证
 
 Speculative Decoding 在 vLLM 中的实现涉及多个组件的协同：
 
@@ -1797,7 +1796,7 @@ Speculative Decoding 在 vLLM 中的实现涉及多个组件的协同：
 
 注意第三行和最后一行的配合——**投机解码给显存管理引入了"可能要回滚"这件事**。这是它在工程上真正麻烦的地方：KV 块的分配不再是只增不减的，而是要支持按位置撤销。
 
-##### Speculative Decoding 的变体
+##### 5.5.4 Speculative Decoding 的变体
 
 这些变体的差别只在**"候选从哪来"**这一件事上——验证和接受/拒绝的逻辑是共用的。所以它们在 vLLM 里被统一抽象成 Proposer（候选生成器），实现在 `vllm/v1/spec_decode/` 下。
 
@@ -1844,7 +1843,7 @@ MTP 这一行值得单独说明：vLLM 并没有一个独立的 "MTP proposer"�
 
 从上往下，**对模型的侵入性递增、额外开销递减**：独立 Draft 最通用但要多养一个模型；EAGLE / Medusa 要训练额外的头；MTP 要模型原生支持；而 N-gram 什么都不要，代价是只在有重复模式时才猜得中。
 
-##### 适用边界与性能收益
+##### 5.4.5 适用边界与性能收益
 
 | 场景 | 接受率 | 加速比 | 说明 |
 |------|--------|--------|------|
@@ -1858,7 +1857,6 @@ MTP 这一行值得单独说明：vLLM 并没有一个独立的 "MTP proposer"�
 
 还有一个常被忽略的反直觉点：**投机解码在高并发下可能是负收益**。它的原理是拿闲置算力换延迟，可一旦 batch 已经足够大、GPU 本来就不闲，多算的候选 token 就变成纯粹的浪费，还会挤占其他请求的 token 预算。所以它更适合低并发、低延迟诉求的场景，而不是吞吐优先的场景。真实收益必须在你自己的 workload 上量。
 
----
 
 ### 5.5 一轮里什么都有：Mixed Batch 如何共存
 
@@ -1911,8 +1909,6 @@ attention metadata 里的关键统计：
 | 量化 | `vllm/model_executor/layers/quantization/`（FP8 见 `fp8.py`） |
 
 </details>
-
----
 
 ## 六、Multi-GPU：一张卡不够时如何扩展？
 
@@ -2088,7 +2084,6 @@ graph LR
 - **EP 与 TP 可组合**，通常 `TP × EP = 总 GPU 数`
 - **DP 永远是最外层的吞吐倍增器**——它不解决"装不下"，只解决"不够快"
 
----
 
 ### 6.2 MoE：当 Expert 成为新的瓶颈
 
@@ -2160,7 +2155,6 @@ graph LR
 
 实现上的思路是**分块流水**：不等全部 token 到齐，先到的那批就开始做 GEMM，同时后台继续收。DeepEP 这类通信后端做的正是这件事。
 
----
 
 ### 6.3 数据到底在往哪里搬：单卡、多卡与跨节点
 
@@ -2198,7 +2192,6 @@ graph TB
 
 加粗的两行是**唯一值得下大力气优化的**——它们既频繁、量又大，还都卡在关键路径上。其余几行要么一次性、要么只有 KB 级。
 
----
 
 ### 6.4 通信优化：真正的瓶颈
 
@@ -2262,7 +2255,6 @@ vLLM 的通信抽象分三层，上层完全不感知底层用的是 NCCL 还是
 
 </details>
 
----
 
 ## 七、模型适配：如何跟上变化极快的模型世界？
 
@@ -2474,7 +2466,6 @@ class DeepSeekMultiTokenPredictor(nn.Module):
 
 </details>
 
----
 
 ## 八、硬件解耦：如何不让芯片差异污染 Serving 核心？
 
@@ -2607,7 +2598,6 @@ vLLM 的 `PlatformEnum.OOT` 允许第三方通过独立插件包（如 `vllm-asc
 
 </details>
 
----
 
 ## 九、PD 分离：从单机 Serving 走向集群 Serving
 
@@ -2707,10 +2697,8 @@ graph TD
 >
 > 所以 PD 分离不是无条件划算的架构：**它用一次网络传输，换 Prefill 与 Decode 各自的资源最优。** prompt 越短、复用率越高（Prefix Cache 命中），这笔交易越亏；prompt 越长、两阶段配置差异越大，这笔交易越赚。这也正是 NIXL、Mooncake 这些项目要把传输做到极致的原因——**它们优化的是这笔交易的汇率。**
 
----
 
 ### 9.2 Serving Infra 的下一站
-
 
 #### 9.2.1 AI 编译器时代
 
@@ -2760,7 +2748,6 @@ vLLM 已经在大量使用 Triton，这条路走了一半了：
 
 </details>
 
----
 
 ## 十、回到源码：一次请求在 vLLM 内部的真实旅程
 
@@ -2769,7 +2756,6 @@ vLLM 已经在大量使用 Triton，这条路走了一半了：
 现在你已经知道 Scheduler 为什么要按 token 预算调度、KV Cache 为什么要分块、Attention Backend 为什么要按 batch 形态分派。带着这些「为什么」回头看数据结构，它们就不再是需要背的字段列表，而是每一个都能对应到一个设计约束。
 
 这一章刻意放在最后：如果它出现在第二章，你只会看到一堆 class；出现在这里，你会看到**设计决策留下的痕迹**。
-
 
 ### 10.1 控制面与数据面的分离
 
@@ -3056,7 +3042,6 @@ class RequestStatus(enum.IntEnum):
 
 现在可以回头看这一层为什么必须存在：`slot_mapping` 是第三章分块存储的直接产物（KV 不连续，所以必须逐 token 给出落点），`block_table` 是 Prefix Cache 共享的直接产物（多个请求可能指向同一个物理块），而"走 Graph 还是 Eager"则是第 5.1 节那个约束的落地位置（图里的形状必须固定）。**三个字段，三章的设计约束。**
 
----
 
 ### 10.5 从请求到 GPU Kernel 的完整调用链
 
@@ -3172,7 +3157,6 @@ class RequestStatus(enum.IntEnum):
 
 顺带澄清一个常见误解：**ITL 不等于 `TPOT × batch`。** 稳态下 ITL 约等于 TPOT；它真正的意义在于反映**波动**——当一个长 prompt 的 chunked prefill 插进来、或者发生抢占时，个别 token 的间隔会出现尖峰。所以优化 ITL 靠的是稳定调度，不是缩小 batch。
 
----
 
 ## 结语
 
@@ -3210,15 +3194,3 @@ class RequestStatus(enum.IntEnum):
 > **vLLM 不是一堆推理优化技术的集合，而是一套围绕「动态请求 + KV 状态 + GPU 资源」构建起来的推理操作系统。**
 
 它调度任务、管理内存、抽象硬件、隔离故障——操作系统做的事，它都在做，只不过管的不是进程和物理内存页，而是请求和 KV 块。理解了这个类比，你就不只是理解了 vLLM，而是拿到了看懂下一个 Serving 系统的钥匙。
-
----
-
-> 本文分析基于当前 vLLM 最新稳定版 v0.27.1（2026-08-11, commit `6e448d0`）。
->
-> **源码导航**：本文各章末尾都有一个可展开的「本章源码导航」，按主题给出建议的阅读起点，比按文件名平铺更有用。
->
-> 如果只想挑三个地方读，我的建议是：
->
-> 1. `vllm/v1/core/sched/scheduler.py` → `schedule()`（**开头那段 `NOTE(woosuk)` 注释值得逐字读**，它就是第四章那句"调度的不是 Request 而是 Token Budget"的原始出处）
-> 2. `vllm/v1/core/kv_cache_manager.py` → `allocate_slots()`（连同它的块布局注释）
-> 3. `vllm/v1/engine/core.py` → `EngineCore.step()`（把两者串起来的主循环）
