@@ -1790,7 +1790,7 @@ sequenceDiagram
 
 在 vLLM 的实际工程实现中，Draft 模型（草稿模型）与 Target 模型（目标大模型）各自维护一套完全隔离的 KV Cache 空间。Target 模型在验证时，必须使用自己独立计算的 KV 矩阵。以下是 vLLM 投机解码的数据流向与组件交互图：
 
-```
+```mermaid
 graph TD
     %% 样式定义
     classDef scheduler fill:#e1f5fe,stroke:#01579b,stroke-width:2px;

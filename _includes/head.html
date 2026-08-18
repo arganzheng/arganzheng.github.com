@@ -46,6 +46,31 @@
     <!-- Mermaid.js: renders ```mermaid fenced code blocks -->
     <script type="text/javascript">
       (function () {
+        /*
+         * An edge entering a subgraph from the top is drawn straight through the
+         * subgraph title, because mermaid paints cluster labels before the edges.
+         * The labels carry absolute transforms, so re-appending them at the end of
+         * the root group puts them on top; the cluster's own fill behind the text
+         * then hides the line underneath.
+         */
+        function liftClusterLabels(container) {
+          var svg = container.querySelector('svg');
+          var root = svg && (svg.querySelector('g.root') || svg.querySelector('g'));
+          if (!root) return;
+          Array.prototype.forEach.call(svg.querySelectorAll('g.cluster'), function (cluster) {
+            var rect = cluster.querySelector('rect');
+            var label = cluster.querySelector('.cluster-label');
+            if (!rect || !label) return;
+            var box = label.querySelector('foreignObject div');
+            if (box) {
+              // no padding: the <foreignObject> has a fixed width and clips, which
+              // would cut off the last character of the title
+              box.style.backgroundColor = rect.getAttribute('fill') || window.getComputedStyle(rect).fill;
+            }
+            root.appendChild(label);
+          });
+        }
+
         function initMermaid() {
           var blocks = document.querySelectorAll(
             '.post-container div.language-mermaid pre code, ' +
@@ -64,7 +89,14 @@
               startOnLoad: false,
               theme: 'default',
               securityLevel: 'loose',
-              flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+              // subGraphTitleMargin keeps cross-subgraph edges from being drawn
+              // straight through the subgraph title text
+              flowchart: {
+                useMaxWidth: true,
+                htmlLabels: true,
+                curve: 'basis',
+                subGraphTitleMargin: { top: 8, bottom: 16 }
+              },
               sequence: { useMaxWidth: true, showSequenceNumbers: false },
               gantt: { useMaxWidth: true },
               mindmap: { useMaxWidth: true }
@@ -92,6 +124,7 @@
                 return mermaid.render(id, source).then(function (result) {
                   container.innerHTML = result.svg;
                   if (result.bindFunctions) result.bindFunctions(container);
+                  liftClusterLabels(container);
                 }).catch(function (error) {
                   console.error('Mermaid render error (' + index + '):', error);
                   container.classList.add('mermaid-error');
