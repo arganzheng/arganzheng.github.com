@@ -1725,7 +1725,7 @@ FP8 推理的优势：
 
 前面三节都在优化"一轮怎么跑得更快"。这一节换个思路：**能不能让一轮多产出几个 token，从而少跑几轮？**
 
-##### 5.4.1 Decode 的根本瓶颈
+#### 5.4.1 Decode 的根本瓶颈
 
 Decode 阶段的核心瓶颈是**逐 Token 串行**：每一步只生成 1 个 token，但需要完整读取模型权重和 KV Cache。GPU 算力的绝大部分处于闲置状态（低 arithmetic intensity）。
 
@@ -1737,7 +1737,7 @@ Decode 阶段的核心瓶颈是**逐 Token 串行**：每一步只生成 1 个 t
 
 算力利用率在小 batch 下可以低到个位数百分比——绝大部分时间在等 HBM。（batch 增大后同一份权重被多个请求摊薄，利用率会显著回升，这正是 Continuous Batching 有效的根本原因；但**单个请求的延迟**并不会因此变好，这才是投机解码要解决的问题。）
 
-##### 5.4.2 Speculative Decoding 基本原理
+#### 5.4.2 Speculative Decoding 基本原理
 
 核心思想：用一个**小而快**的 Draft Model 一次性推测多个候选 token，然后用**大而准**的 Target Model 并行验证这些候选。
 
@@ -1782,19 +1782,77 @@ sequenceDiagram
 
 约 **2× 加速**。注意 Verify 那 18 ms 比普通 Decode 的 15 ms 略高——因为要一次算 6 个位置而不是 1 个，计算量确实增加了，只是在 memory-bound 区间这点额外计算几乎免费。**这正是投机解码的本质：拿闲置算力去换延迟。**
 
-##### 5.4.3 工程实现：Scheduler、KV Cache 与 Token 验证
+#### 5.4.3 工程实现与核心算法：Scheduler、KV Cache 与 拒绝采样
 
-Speculative Decoding 在 vLLM 中的实现涉及多个组件的协同：
+投机解码（Speculative Decoding）在 vLLM 中的落地绝非简单的算法套用，其核心难点在于非确定性（Speculative）的显存管理与多模型流水线的数学对冲。
 
-| 组件 | 职责 |
-|---|---|
-| **Scheduler** | 分配 `num_lookahead_tokens` 个额外 KV 块（为候选 token 预留显存）；`SchedulerOutput` 携带 `draft_slots` 信息 |
-| **ModelRunner** ① Draft Forward | 小模型生成 K 个候选 token_ids；候选的 KV 写入临时槽位 |
-| **ModelRunner** ② Verify Forward | 一次 Forward 算出 context + K 个候选的 logits；复用 Draft 已写入的 KV |
-| **ModelRunner** ③ Rejection Sampling | 逐位比较 Draft 与 Target 的分布；接受则保留该位置 KV，拒绝则**回滚该位置及其之后**的 KV 块 |
-| **Scheduler.update_from_output()** | 处理接受/拒绝结果、更新 `num_computed_tokens`、释放被拒候选占用的 KV 块 |
+##### 1. 核心数据流拓扑图
 
-注意第三行和最后一行的配合——**投机解码给显存管理引入了"可能要回滚"这件事**。这是它在工程上真正麻烦的地方：KV 块的分配不再是只增不减的，而是要支持按位置撤销。
+在 vLLM 的实际工程实现中，Draft 模型（草稿模型）与 Target 模型（目标大模型）各自维护一套完全隔离的 KV Cache 空间。Target 模型在验证时，必须使用自己独立计算的 KV 矩阵。以下是 vLLM 投机解码的数据流向与组件交互图：
+
+```
+graph TD
+    %% 样式定义
+    classDef scheduler fill:#e1f5fe,stroke:#01579b,stroke-width:2px;
+    classDef runner fill:#efebe9,stroke:#4e342e,stroke-width:2px;
+    classDef model fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px;
+    
+    subgraph Scheduler [vLLM Scheduler 调度层]
+        A[为当前请求分配额外插槽<br>预留 num_lookahead_tokens 显存] --> B[生成包含 speculative_meta 的<br>SchedulerOutput]
+    end
+    class Scheduler scheduler;
+
+    subgraph DraftRunner [Draft ModelRunner 阶段]
+        B --> C[Draft Model Forward]
+        C --> D[自回归生成 K 个候选 Token<br>并写入 Draft 独立的 KV Cache]
+    end
+    class DraftRunner runner;
+
+    subgraph TargetRunner [Target ModelRunner 阶段]
+        D --> E[Target Model Verification Forward]
+        E --> F["独立计算: 仅输入 K 个候选 Token<br>计算对应的真实 KV 矩阵 (不复用Draft KV)"]
+        F --> G[写入 Target 独立的临时 KV Cache 槽位]
+    end
+    class TargetRunner runner;
+
+    subgraph Verification [验证与回滚阶段]
+        G --> H[Rejection Sampling 拒绝采样]
+        H -->|逐位比对概率分布| I{确定接受长度 M}
+        I -->|接受前 M 个| J[保留 Target KV Cache 前 M 个位置]
+        I -->|拒绝第 M+1 个起| K[触发回滚: 裁剪抹去 Target<br>与 Draft 对应位置的无效 Cache]
+    end
+    class Verification model;
+
+    J --> L[Scheduler.update_from_output]
+    K --> L
+    L --> M[释放被拒绝位置的物理 KV Block<br>更新推理步长与 Token 计数]
+```
+
+##### 2. 关键工程痛点：显存管理的“时间回溯”
+
+传统的自回归生成在工程上是单向递增的，显存管理器只需机械地分配新块。然而，投机解码给显存管理引入了“可能要回滚”的全新机制：
+
+* 维度与空间完全隔离：Draft 模型（如 1B）每 Token 的 KV 尺寸远小于 Target 模型（如 70B）。Target 模型在验证前向传播（Verification Forward）时，会将候选的 K 个 Token 作为输入，在自己的 Transformer Layer 中计算出大模型视角下的 KV 值并写入大模型的缓存中，两者的显存完全不共享、不复用。
+* 物理块的“裁剪（Truncate）”与释放：拒绝采样确定接受长度 `M（0 <= M <= K)` 后，未被接受的 `K-M` 个 Token 对应的 KV 空间便成了“脏数据”。vLLM 会调用显存管理器的回滚 API，强行将逻辑 Token ID 与物理块槽位的映射关系撤回到第 M 个 Token 处。这种“按位置撤销”的逻辑极大地增加了物理显存调度的复杂性。
+
+##### 3. 核心算法：拒绝采样的数学对冲
+
+投机采样之所以能做到数学上完全无损（Lossless），完全依赖于其精妙的拒绝采样（Rejection Sampling）与概率对冲机制。
+
+**接受概率公式**
+
+设在某位置，Draft 与 Target 模型的预测概率分布分别为 $p(x)$ 和 $q(x)$。对于 Draft 采样出的候选 Token $x^*$，Target 模型的接受概率为：
+$$P(\text{接受 } x^*) = \min\left(1, \frac{q(x^*)}{p(x^*)}\right)$$ 
+
+* $q(x^*) \ge p(x^*)$：大模型更认可该候选，100% 接受。
+* $q(x^*) < p(x^*)$：大模型认为小模型冒进了，以 $\frac{q(x^*)}{p(x^*)}$ 概率接受。
+
+**拒绝后的残差对冲**
+
+在多步投机中，验证是串行、逐字进行的。一旦某个候选 Token 在第 $M+1$ 个位置被拒绝，投机链条彻底断裂。大模型不仅要触发回滚、抹去该位置及之后的所有 KV Cache，还必须基于残差分布（Residual Distribution） $q'(x)$ 在当前位置重新采样出一个 Token 来拉回正轨：
+$$q'(x) = \frac{\max\left(0, q(x) - p(x)\right)}{\sum_{z} \max\left(0, q(z) - p(z)\right)}$$ 
+
+直观理解：当小模型在 $x^*$ 处过于自信（被拒绝）时，大模型在重新采样时会扣除小模型多估的概率空间。残差分布 $q'(x)$ 的本质，就是去专门采样那些大模型认为可能出现、但被小模型低估（残差部分）的 Token，从而在统计学上实现与大模型原生自回归的绝对一致。在每个 Step 结束时，调度器调用 update_from_output() 根据最终实际接受的 Token 数量校准步长，并将无用的物理显存块吐回给内存池。
 
 ##### 5.5.4 Speculative Decoding 的变体
 
