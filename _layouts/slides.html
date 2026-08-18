@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+{%- comment -%}
+reveal.js deck.
+
+Slides are authored as plain Markdown in `_slides/`: kramdown renders the whole
+document as usual (rouge highlighting, tables, footnotes, `{: .fragment}` IALs),
+and this layout then cuts the resulting HTML into <section>s on every `<hr>`,
+i.e. every `---` line. Nothing is parsed in the browser, so the deck also works
+with JS-disabled scrapers and prints straight to PDF.
+
+Front matter knobs (all optional):
+  theme         reveal.js theme name, default `white`
+  transition    slide/fade/convex/concave/zoom/none, default `slide`
+  title-slide   set to false to suppress the generated cover slide
+{%- endcomment -%}
+
+{%- assign theme = page.theme | default: 'white' -%}
+{%- assign transition = page.transition | default: 'slide' -%}
+{%- assign REVEAL = '//cdn.jsdelivr.net/npm/reveal.js@5.2.1' -%}
+
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <meta name="description" content="{{ page.description | default: page.subtitle | default: site.description }}">
+    <meta name="theme-color" content="{{ site.chrome-tab-theme-color }}">
+
+    <title>{{ page.title }} - {{ site.SEOTitle }}</title>
+
+    <link rel="shortcut icon" href="{{ "/img/favicon.ico" | prepend: site.baseurl }}">
+    <link rel="canonical" href="{{ page.url | prepend: site.baseurl | prepend: site.url }}">
+
+    <link rel="stylesheet" href="{{ REVEAL }}/dist/reset.css">
+    <link rel="stylesheet" href="{{ REVEAL }}/dist/reveal.css">
+    <link rel="stylesheet" href="{{ REVEAL }}/dist/theme/{{ theme }}.css" id="theme">
+
+    <!-- rouge highlighting, same palette as the blog posts -->
+    <link rel="stylesheet" href="{{ "/css/syntax.css" | prepend: site.baseurl }}">
+
+    <style type="text/css">
+        /* The reveal themes are built for sparse, centered marketing slides.
+           These overrides make them usable for dense technical content. */
+        .reveal {
+            font-family: "Source Sans Pro", "Helvetica Neue", Helvetica, Arial,
+                         "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+        }
+        .reveal h1, .reveal h2, .reveal h3,
+        .reveal h4, .reveal h5, .reveal h6 {
+            /* the themes uppercase headings, which mangles acronyms and does
+               nothing for Chinese */
+            text-transform: none;
+            letter-spacing: normal;
+        }
+        .reveal h1 { font-size: 2.0em; }
+        .reveal h2 { font-size: 1.5em; }
+        .reveal h3 { font-size: 1.15em; }
+        .reveal h4 { font-size: 1em; color: #0085a1; }
+
+        /* left-align prose; only the cover slide is centered */
+        .reveal .slides { text-align: left; }
+        .reveal .slides section.title-slide { text-align: center; }
+        .reveal ul, .reveal ol { display: block; margin-left: 1.2em; }
+        .reveal li { margin-bottom: 0.35em; }
+        .reveal p { line-height: 1.35; }
+
+        /* code: let it fill the slide, and drop the theme's drop shadow */
+        .reveal pre {
+            width: 100%;
+            font-size: 0.45em;
+            box-shadow: none;
+            border: 1px solid #d1d9e0;
+            border-radius: 6px;
+        }
+        .reveal pre code {
+            max-height: 520px;
+            padding: 12px 14px;
+            border-radius: 6px;
+        }
+        .reveal :not(pre) > code {
+            background: #f6f8fa;
+            border-radius: 4px;
+            padding: 1px 5px;
+            font-size: 0.9em;
+        }
+
+        /* images and mermaid diagrams shrink to fit instead of overflowing */
+        .reveal section img {
+            border: none;
+            box-shadow: none;
+            background: none;
+            max-height: 480px;
+        }
+        .reveal .mermaid { text-align: center; }
+        .reveal .mermaid svg {
+            /* mermaid pins an inline `max-width` to the diagram's natural size,
+               which leaves it tiny on a 1280px slide; let it scale up instead.
+               The viewBox keeps the aspect ratio while max-height applies. */
+            width: 100%;
+            max-width: 100% !important;
+            height: auto;
+            max-height: 480px;
+        }
+
+        .reveal table { font-size: 0.62em; }
+        .reveal blockquote {
+            width: 100%;
+            box-shadow: none;
+            border-left: 4px solid #0085a1;
+            background: #f6f8fa;
+            padding: 0.5em 0.8em;
+            font-style: normal;
+        }
+        .reveal a { color: #0085a1; }
+
+        /* reveal.js measures the brightness of `data-background` and tags the
+           section, so a dark slide gets readable text without per-slide styling */
+        .reveal section.has-dark-background,
+        .reveal section.has-dark-background h1,
+        .reveal section.has-dark-background h2,
+        .reveal section.has-dark-background h3,
+        .reveal section.has-dark-background h4 { color: #f0f3f6; }
+
+        /* back link, kept outside .reveal so it never scales away */
+        .deck-home {
+            position: fixed;
+            left: 14px;
+            bottom: 10px;
+            z-index: 40;
+            font-size: 13px;
+            font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+            color: #99a;
+            text-decoration: none;
+        }
+        .deck-home:hover { color: #0085a1; }
+        @media print { .deck-home { display: none; } }
+    </style>
+
+    {% include rich-content.html %}
+</head>
+
+<body>
+
+<div class="reveal">
+    <div class="slides">
+
+        {%- if page.title-slide != false %}
+        <section class="title-slide">
+            <h1>{{ page.title }}</h1>
+            {%- if page.subtitle %}<h3>{{ page.subtitle }}</h3>{% endif %}
+            <p>
+                <small>
+                    {{ page.author | default: site.title }}
+                    {%- if page.date %} · {{ page.date | date: "%Y-%m-%d" }}{% endif %}
+                </small>
+            </p>
+        </section>
+        {%- endif %}
+
+        {%- comment -%}
+          kramdown emits `<hr />`, but be forgiving in case that ever changes.
+          `<!-- v -->` inside a chunk starts a vertical (nested) slide.
+        {%- endcomment -%}
+        {%- assign chunks = content | replace: '<hr>', '<hr />' | split: '<hr />' -%}
+        {%- for chunk in chunks -%}
+          {%- assign body = chunk | strip -%}
+          {%- if body != '' -%}
+            {%- assign verticals = chunk | split: '<!-- v -->' -%}
+            {%- if verticals.size > 1 -%}
+        <section>
+              {%- for vertical in verticals -%}
+                {%- assign vbody = vertical | strip -%}
+                {%- if vbody != '' -%}
+            {% include slide.html chunk=vertical %}
+                {%- endif -%}
+              {%- endfor -%}
+        </section>
+            {%- else -%}
+        {% include slide.html chunk=chunk %}
+            {%- endif -%}
+          {%- endif -%}
+        {%- endfor -%}
+
+    </div>
+</div>
+
+<a class="deck-home" href="{{ "/slides/" | prepend: site.baseurl }}">&#8592; {{ site.title }}</a>
+
+<script src="{{ REVEAL }}/dist/reveal.js"></script>
+<script src="{{ REVEAL }}/plugin/notes/notes.js"></script>
+<script src="{{ REVEAL }}/plugin/zoom/zoom.js"></script>
+<script src="{{ REVEAL }}/plugin/search/search.js"></script>
+<script>
+    // `{: .fragments}` on a list reveals it one item at a time. Marking every
+    // item by hand would need an IAL between each pair of items, and kramdown
+    // answers that by breaking the list into one <ul> per item.
+    document.querySelectorAll('.reveal .fragments > li').forEach(function (li) {
+        li.classList.add('fragment');
+    });
+
+    Reveal.initialize({
+        width: 1280,
+        height: 720,
+        margin: 0.06,
+        minScale: 0.2,
+        maxScale: 1.5,
+        hash: true,              // deep-linkable slides, e.g. #/3
+        slideNumber: 'c/t',
+        transition: '{{ transition }}',
+        pdfSeparateFragments: false,
+        plugins: [RevealNotes, RevealZoom, RevealSearch]
+    });
+
+    // Mermaid swaps a <pre> for an <svg> after reveal has already measured the
+    // slides, so re-run the layout once the diagrams are in.
+    document.addEventListener('richcontent:rendered', function () {
+        Reveal.layout();
+    });
+</script>
+
+{% include analytics.html %}
+
+</body>
+
+</html>

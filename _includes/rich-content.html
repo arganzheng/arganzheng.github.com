@@ -1,0 +1,191 @@
+<!-- Rich content renderers (Mermaid diagrams + KaTeX math).
+     Shared by `_includes/head.html` (posts/pages) and `_layouts/slides.html`
+     (reveal.js decks), so a deck renders diagrams and formulas exactly like a post. -->
+
+<script type="text/javascript">
+  // The containers holding kramdown output. Everything else on the page (nav,
+  // sidebar, footer) is skipped so we never touch markup we didn't render.
+  function richContentRoots() {
+    return document.querySelectorAll('.post-container, .reveal .slides');
+  }
+
+  function richContentQuery(selectors) {
+    var found = [];
+    Array.prototype.forEach.call(richContentRoots(), function (root) {
+      Array.prototype.push.apply(found, root.querySelectorAll(selectors));
+    });
+    return found;
+  }
+</script>
+
+<!-- Mermaid.js: renders ```mermaid fenced code blocks -->
+<script type="text/javascript">
+  (function () {
+    /*
+     * An edge entering a subgraph from the top is drawn straight through the
+     * subgraph title, because mermaid paints cluster labels before the edges.
+     * The labels carry absolute transforms, so re-appending them at the end of
+     * the root group puts them on top; the cluster's own fill behind the text
+     * then hides the line underneath.
+     */
+    function liftClusterLabels(container) {
+      var svg = container.querySelector('svg');
+      var root = svg && (svg.querySelector('g.root') || svg.querySelector('g'));
+      if (!root) return;
+      Array.prototype.forEach.call(svg.querySelectorAll('g.cluster'), function (cluster) {
+        var rect = cluster.querySelector('rect');
+        var label = cluster.querySelector('.cluster-label');
+        if (!rect || !label) return;
+        var box = label.querySelector('foreignObject div');
+        if (box) {
+          // no padding: the <foreignObject> has a fixed width and clips, which
+          // would cut off the last character of the title
+          box.style.backgroundColor = rect.getAttribute('fill') || window.getComputedStyle(rect).fill;
+        }
+        root.appendChild(label);
+      });
+    }
+
+    function initMermaid() {
+      var blocks = richContentQuery(
+        'div.language-mermaid pre code, ' +
+        'pre code.language-mermaid, ' +
+        'code.language-mermaid'
+      );
+      if (!blocks.length) return;
+
+      var s = document.createElement('script');
+      s.type = 'text/javascript';
+      s.async = true;
+      s.src = '//cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js';
+      s.onload = function () {
+        if (typeof mermaid === 'undefined') return;
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: 'default',
+          securityLevel: 'loose',
+          // subGraphTitleMargin keeps cross-subgraph edges from being drawn
+          // straight through the subgraph title text
+          flowchart: {
+            useMaxWidth: true,
+            htmlLabels: true,
+            curve: 'basis',
+            subGraphTitleMargin: { top: 8, bottom: 16 }
+          },
+          sequence: { useMaxWidth: true, showSequenceNumbers: false },
+          gantt: { useMaxWidth: true },
+          mindmap: { useMaxWidth: true }
+        });
+
+        var containers = [];
+        blocks.forEach(function (code) {
+          var pre = code.parentElement;
+          if (!pre || pre.tagName.toLowerCase() !== 'pre') return;
+          var container = document.createElement('div');
+          container.className = 'mermaid';
+          container.textContent = code.textContent;
+          // Keep the source around: js/code-copy.js offers it as "copy" once
+          // the diagram itself has been replaced by an <svg>.
+          container.setAttribute('data-mermaid-source', code.textContent);
+          pre.parentNode.replaceChild(container, pre);
+          containers.push(container);
+        });
+
+        var renderQueue = Promise.resolve();
+        containers.forEach(function (container, index) {
+          renderQueue = renderQueue.then(function () {
+            var source = container.textContent.trim();
+            var id = 'mermaid-' + index + '-' + Date.now();
+            return mermaid.render(id, source).then(function (result) {
+              container.innerHTML = result.svg;
+              if (result.bindFunctions) result.bindFunctions(container);
+              liftClusterLabels(container);
+            }).catch(function (error) {
+              console.error('Mermaid render error (' + index + '):', error);
+              container.classList.add('mermaid-error');
+              container.textContent = source;
+            });
+          });
+        });
+
+        // Swapping <pre> for an <svg> changes the height of a slide, so reveal.js
+        // has to re-measure. `_layouts/slides.html` listens for this.
+        renderQueue.then(function () {
+          document.dispatchEvent(new CustomEvent('richcontent:rendered'));
+        });
+      };
+      document.head.appendChild(s);
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initMermaid);
+    } else {
+      initMermaid();
+    }
+  })();
+</script>
+
+<!-- KaTeX: renders LaTeX math. kramdown (math_engine: mathjax) turns
+     $$...$$ into \(...\) inline / \[...\] display and keeps the source
+     safe from the Markdown parser, so those are the delimiters we scan. -->
+<script type="text/javascript">
+  (function () {
+    var KATEX = '//cdn.jsdelivr.net/npm/katex@0.16.11/dist/';
+
+    // Only prose counts: shell posts are full of `sed 's/\[//'` and
+    // `Foo$$Lambda$613`, and those must not pull in the KaTeX bundle.
+    function hasMath(root) {
+      var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+        acceptNode: function (node) {
+          return node.parentNode.closest('pre, code')
+            ? NodeFilter.FILTER_REJECT
+            : NodeFilter.FILTER_ACCEPT;
+        }
+      });
+      while (walker.nextNode()) {
+        var text = walker.currentNode.nodeValue;
+        if (text.indexOf('\\(') !== -1 || text.indexOf('\\[') !== -1) return true;
+      }
+      return false;
+    }
+
+    function load(tag, attrs, onload) {
+      var el = document.createElement(tag);
+      for (var key in attrs) el.setAttribute(key, attrs[key]);
+      if (onload) el.onload = onload;
+      document.head.appendChild(el);
+    }
+
+    function initMath() {
+      var roots = Array.prototype.filter.call(richContentRoots(), hasMath);
+      if (!roots.length) return;
+
+      load('link', { rel: 'stylesheet', href: KATEX + 'katex.min.css' });
+      load('script', { src: KATEX + 'katex.min.js' }, function () {
+        load('script', { src: KATEX + 'contrib/auto-render.min.js' }, function () {
+          if (typeof renderMathInElement === 'undefined') return;
+          roots.forEach(function (root) {
+            renderMathInElement(root, {
+              delimiters: [
+                { left: '\\[', right: '\\]', display: true },
+                { left: '\\(', right: '\\)', display: false }
+              ],
+              // never touch code: `$PATH`, `Foo$$Lambda$613` and friends
+              ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'],
+              ignoredClasses: ['mermaid', 'highlight', 'highlighter-rouge'],
+              throwOnError: false,
+              errorColor: '#cf222e'
+            });
+          });
+          document.dispatchEvent(new CustomEvent('richcontent:rendered'));
+        });
+      });
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initMath);
+    } else {
+      initMath();
+    }
+  })();
+</script>

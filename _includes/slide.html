@@ -1,0 +1,15 @@
+{%- comment -%}
+Renders one reveal.js slide out of a chunk of kramdown output.
+
+A slide can carry reveal.js attributes by putting an HTML comment anywhere in it:
+
+    <!-- .slide: data-background="#1c1f26" data-transition="zoom" -->
+
+The comment stays in the body (it is invisible) and its contents are lifted onto
+the <section> element.
+{%- endcomment -%}
+{%- assign attrs = '' -%}
+{%- if include.chunk contains '<!-- .slide:' -%}
+  {%- assign attrs = include.chunk | split: '<!-- .slide:' | last | split: '-->' | first | strip -%}
+{%- endif -%}
+<section {{ attrs }}>{{ include.chunk }}</section>

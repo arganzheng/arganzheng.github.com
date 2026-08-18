@@ -54,6 +54,24 @@ kramdown:
 
 
 
+# Slides (reveal.js)
+# Markdown in `_slides/` is rendered by kramdown like any post, then
+# `_layouts/slides.html` splits the HTML on every `<hr>` (a `---` line) into
+# reveal.js sections. Name files without a date prefix: `_slides/foo.md` -> `/slides/foo.html`
+collections:
+  slides:
+    output: true
+    permalink: /slides/:name.html
+
+defaults:
+  - scope:
+      path: ""
+      type: slides
+    values:
+      layout: slides
+
+
+
 # Disqus settings
 disqus_username: argan
 

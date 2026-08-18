@@ -1,0 +1,24 @@
+---
+layout: page
+title : Slides
+description: "用 Markdown 写的在线幻灯片"
+permalink: /slides/
+---
+
+<div id="slides-index">
+{% assign decks = site.slides | sort: 'date' | reverse %}
+{% if decks.size == 0 %}
+<p>还没有幻灯片。</p>
+{% else %}
+<ul class="list-unstyled">
+  {% for deck in decks %}
+  <li style="margin-bottom: 1.5em;">
+    <small style="color: #aaa">{{ deck.date | date: "%Y/%m/%d" }}</small>
+    &nbsp;&raquo;&nbsp;
+    <a href="{{ deck.url | prepend: site.baseurl }}">{{ deck.title }}</a>
+    {% if deck.subtitle %}<br><small style="color: #999">{{ deck.subtitle }}</small>{% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+</div>
