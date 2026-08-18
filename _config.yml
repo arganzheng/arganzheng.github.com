@@ -48,6 +48,9 @@ plugins: [jekyll-paginate, jekyll-sitemap]
 markdown: kramdown
 kramdown:
   input: GFM                            # use Github Flavored Markdown !important
+  math_engine: mathjax                  # keep $$...$$ as \(...\) / \[...\], rendered by KaTeX in the browser
+  math_engine_opts:
+    preview: false
 
 
 

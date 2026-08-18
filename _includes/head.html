@@ -110,4 +110,66 @@
         }
       })();
     </script>
+
+    <!-- KaTeX: renders LaTeX math. kramdown (math_engine: mathjax) turns
+         $$...$$ into \(...\) inline / \[...\] display and keeps the source
+         safe from the Markdown parser, so those are the delimiters we scan. -->
+    <script type="text/javascript">
+      (function () {
+        var KATEX = '//cdn.jsdelivr.net/npm/katex@0.16.11/dist/';
+
+        // Only prose counts: shell posts are full of `sed 's/\[//'` and
+        // `Foo$$Lambda$613`, and those must not pull in the KaTeX bundle.
+        function hasMath(root) {
+          var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+            acceptNode: function (node) {
+              return node.parentNode.closest('pre, code')
+                ? NodeFilter.FILTER_REJECT
+                : NodeFilter.FILTER_ACCEPT;
+            }
+          });
+          while (walker.nextNode()) {
+            var text = walker.currentNode.nodeValue;
+            if (text.indexOf('\\(') !== -1 || text.indexOf('\\[') !== -1) return true;
+          }
+          return false;
+        }
+
+        function load(tag, attrs, onload) {
+          var el = document.createElement(tag);
+          for (var key in attrs) el.setAttribute(key, attrs[key]);
+          if (onload) el.onload = onload;
+          document.head.appendChild(el);
+        }
+
+        function initMath() {
+          var root = document.querySelector('.post-container');
+          if (!root || !hasMath(root)) return;
+
+          load('link', { rel: 'stylesheet', href: KATEX + 'katex.min.css' });
+          load('script', { src: KATEX + 'katex.min.js' }, function () {
+            load('script', { src: KATEX + 'contrib/auto-render.min.js' }, function () {
+              if (typeof renderMathInElement === 'undefined') return;
+              renderMathInElement(root, {
+                delimiters: [
+                  { left: '\\[', right: '\\]', display: true },
+                  { left: '\\(', right: '\\)', display: false }
+                ],
+                // never touch code: `$PATH`, `Foo$$Lambda$613` and friends
+                ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'],
+                ignoredClasses: ['mermaid', 'highlight', 'highlighter-rouge'],
+                throwOnError: false,
+                errorColor: '#cf222e'
+              });
+            });
+          });
+        }
+
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', initMath);
+        } else {
+          initMath();
+        }
+      })();
+    </script>
 </head>
