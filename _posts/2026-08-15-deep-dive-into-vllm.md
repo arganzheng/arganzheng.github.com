@@ -34,7 +34,6 @@ LLM 推理是"双未知"的：
 
 这里的差异不只是在规模上，而是在执行方式上。传统推理一次 forward 就能得到最终结果；LLM 则要把刚生成的 token 重新送回模型，形成一条自回归循环。输出长度、KV 显存和端到端延迟都会随着循环动态变化，这也是后面调度、缓存和执行优化要解决的核心问题。
 
----
 
 ### 1.2 Prefill 与 Decode：两种完全不同的 GPU Workload
 
@@ -67,28 +66,43 @@ LLM 推理天然分为两个阶段，它们在计算特征上截然对立：
 
 #### Prefill 与 Decode 的数据流差异
 
-```mermaid
-graph TD
-    subgraph P["Prefill：N 个 token 一次过"]
-        P1["input_ids: t₁…tₙ&nbsp;&nbsp;(N 个)"] --> P2["QKV Proj<br/>Q:[N,H,d] K,V:[N,Hkv,d]"]
-        P2 -->|"批量写入 N 个位置"| P3[("KV Cache")]
-        P2 --> P4["Attention<br/>Q×Kᵀ → [N,N] → ×V"]
-        P4 --> P5["只取最后 1 个 position 的 logits"] --> P6["Sampling → 第 1 个 output token"]
-    end
+```
+┌──────────────────────────── Prefill 数据流 ─────────────────────────────┐
+│                                                                         │
+│  input_ids: [t₁, t₂, t₃, ..., tₙ]    (N 个 prompt tokens 并行输入)     │
+│       │                                                                 │
+│       ▼                                                                 │
+│  ┌─────────┐  Q: [N, H, d]                                             │
+│  │  QKV    │  K: [N, Hkv, d]   ──写入──▶  KV Cache (N 个新位置)         │
+│  │  Proj   │  V: [N, Hkv, d]   ──写入──▶  (批量写入整个 prompt)          │
+│  └─────────┘                                                            │
+│       │                                                                 │
+│  Attention: Q × Kᵀ → [N, N] → × V     (全量计算，O(N²·d))              │
+│       │                                                                 │
+│  只取最后 1 个 position 的 logits → Sampling → 第 1 个 output token       │
+│                                                                         │
+│  特征: Compute-Bound, 高 GPU 利用率, GEMM 大矩阵, 高 arithmetic intensity│
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────── Decode 数据流 ──────────────────────────────┐
+│                                                                         │
+│  input_ids: [tₙ₊ₖ]               (1 个新 token 输入)                    │
+│       │                                                                 │
+│       ▼                                                                 │
+│  ┌─────────┐  q: [1, H, d]                                             │
+│  │  QKV    │  k: [1, Hkv, d]   ──追加──▶  KV Cache (1 个新位置)         │
+│  │  Proj   │  v: [1, Hkv, d]   ──追加──▶  (增量写入)                    │
+│  └─────────┘                                                            │
+│       │                                                                 │
+│  Attention: q × K_historyᵀ → [1, N+k] → × V_history  (读取全部历史KV)   │
+│       │                                                                 │
+│  logits → Sampling → 下一个 output token                                 │
+│                                                                         │
+│  特征: Memory-Bound, 低 GPU 利用率, 大量 HBM 读取, 低 arithmetic intensity│
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-```mermaid
-graph TD
-    subgraph D["Decode：每步只 1 个 token"]
-        D1["input_ids: tₙ₊ₖ&nbsp;&nbsp;(1 个)"] --> D2["QKV Proj<br/>q:[1,H,d] k,v:[1,Hkv,d]"]
-        D2 -->|"追加 1 个位置"| D3[("KV Cache")]
-        D3 -->|"读取全部历史 K/V"| D4
-        D2 --> D4["Attention<br/>q×K_histᵀ → [1,N+k] → ×V_hist"]
-        D4 --> D5["logits → Sampling → 下一个 token"]
-    end
-```
-
-两张图的差别只在**入口的宽度**和**箭头的方向**：Prefill 是一次灌进 N 个 token、批量写 KV；Decode 是每次挤进 1 个 token，却要把之前累积的全部 KV 读一遍。
+可以看到两者的差别只在**入口的宽度**和**KV Cahe的存取方向**：Prefill 是一次灌进 N 个 token、批量写 KV；Decode 是每次挤进 1 个 token，却要把之前累积的全部 KV 读一遍。
 
 | 维度 | Prefill | Decode |
 |------|---------|--------|
@@ -101,7 +115,6 @@ graph TD
 | 最佳 Kernel | FlashAttention (tiling) | FlashInfer / PagedAttention |
 | CUDA Graph | 通常不用（长度可变） | 强烈推荐（固定模式重放） |
 
----
 
 ### 1.3 吞吐与时延：无法同时最优的权衡
 
@@ -110,6 +123,20 @@ graph TD
 - **追求高吞吐**：需要大 Batch Size，让更多请求共享 GPU 算力 → 但每个请求的延迟增加
 - **追求低时延**：需要小 Batch Size，减少排队和计算竞争 → 但 GPU 利用率下降，吞吐骤减
 
+```
+     吞吐 (Tokens/s)                         延迟 (ms/token)
+        ▲                                       ▲
+        │         ╱───────── 饱和              │             ╱
+        │        ╱                              │           ╱
+        │      ╱                                │         ╱
+        │    ╱                                  │       ╱
+        │  ╱                                    │     ╱
+        │╱                                      │  ╱─
+        └──────────────▶ Batch Size             └──────────────▶ Batch Size
+
+        吞吐随 Batch 增大先线性增后饱和       延迟随 Batch 增大持续恶化
+```
+
 把 Batch Size 当作横轴，两条曲线的形状完全不同：
 
 - **吞吐**：先近似线性上升，然后进入饱和平台——因为 memory-bound 区间里权重只需读一遍，加请求几乎是免费的，直到算力或 KV 容量成为新瓶颈。
@@ -117,11 +144,6 @@ graph TD
 
 **注意这不是"二选一"的关系。** 两条曲线共享同一个横轴，扩大 batch 会让吞吐和单请求延迟**同时上升**。所以系统要做的不是在吞吐和延迟里挑一个，而是在给定 SLO 下找到可接受的 batch 区间——这正是 Admission Control 和调度预算存在的理由。
 
-所有现代 LLM Serving 系统的优化，本质上都是在这条恶魔天平上寻找更优的帕累托前沿。
-
-需要留意的是，两条曲线共享同一个 Batch Size 横轴，扩大 batch 通常会让吞吐和单请求延迟同时上升。系统要做的不是在吞吐或延迟里二选一，而是在给定 SLO 下找到可接受的 batch 区间，这也是 Admission Control 和调度预算反复出现的原因。
-
----
 
 ### 1.4 现代 LLM Serving 的核心性能指标体系
 
@@ -147,7 +169,7 @@ mindmap
       P50 / P95 / P99
 ```
 
-#### 指标详解
+#### 1.4.1 指标详解
 
 | 指标 | 定义 | 影响因素 | 优化方向 |
 |------|------|----------|----------|
@@ -162,7 +184,7 @@ mindmap
 | **P50/P95/P99** | 延迟百分位数 | 尾部请求的资源竞争 | 公平调度、优先级机制 |
 | **Cost per Token** | 每生成 1 token 的综合成本 | 硬件利用率、吞吐量 | 量化、MoE 稀疏化 |
 
-#### 端到端延迟分解
+#### 1.4.2 端到端延迟分解
 
 ```
 ├──────────────────────── E2E Latency ────────────────────────┤
@@ -177,8 +199,6 @@ mindmap
 ```
 
 这条横线也说明，TTFT 不等于"第一段耗时"，而是从请求到达到第一个 output token 的总和，其中包含 Queueing 和 Prefill。E2E 的大头通常是 Decode，因为它要乘上整个输出长度。只盯着 TPOT 会漏掉排队和长 prompt 的影响，只盯着 TTFT 又会低估长输出场景的成本。
-
----
 
 ### 1.5 总纲：vLLM 其实只在回答四个问题
 
@@ -195,7 +215,6 @@ mindmap
 
 读到后面任何一个陌生的类名或机制时，建议先问一句：**它在回答哪一问？** 这比记住它在哪个文件里重要得多。
 
----
 
 ### 1.6 一个贯穿全文的例子
 
@@ -220,13 +239,8 @@ mindmap
 
 记住 **320 KB/token** 这个数——它是后面所有账的基础。
 
----
 
 ## 二、鸟瞰 vLLM：一个请求如何穿过整个推理系统？
-
-> **本章不回答四问中的任何一问，只负责把地图画出来：这四个问题分别由哪些模块承担。**
-
-这一章的目标很克制——读完之后你应该能做到两件事：**画出 vLLM 的模块图**，以及**讲清一次请求怎么跑完**。具体的数据结构（`Request` 的字段、`SchedulerOutput` 长什么样、`slot_mapping` 怎么算）一律不在这里展开，它们会在第十章、也就是你已经理解了「为什么需要它们」之后再出现。
 
 ### 2.1 静态系统拓扑（自顶向下）
 
@@ -359,7 +373,6 @@ graph TB
 
 这条继承链本身就说明了一件事：**"用不用 Ray"是部署方式的差异，不是执行模型的差异。** Executor 这层抽象的价值就在于把"进程怎么起、卡怎么分"和"一轮 batch 怎么执行"彻底分开，所以 V2 才能靠换掉进程拉起方式来复用同机多进程的全部逻辑。
 
----
 
 ### 2.2 一次请求的完整生命周期
 
@@ -438,78 +451,68 @@ sequenceDiagram
     API-->>C: SSE: data: [DONE]
 ```
 
----
-
-### 2.3 控制面与数据面的分离
-
-```mermaid
-graph LR
-    subgraph CP["控制面（Python）"]
-        direction LR
-        A[API Server] --> B[AsyncLLM] --> C[EngineCore] --> D[Scheduler] --> E[KVCacheManager]
-    end
-    subgraph DP["数据面（C++ / CUDA）"]
-        direction LR
-        F[Worker] --> G[ModelRunner] --> H[GPU Kernels] --> I[NCCL]
-    end
-    CP -->|"SchedulerOutput<br/>(req_ids, block_table, …)"| DP
-```
-
-| | 控制面（Python） | 数据面（C++ / CUDA） |
-|---|---|---|
-| 组件 | API Server → AsyncLLM → EngineCore → Scheduler → KVCacheManager | Worker → ModelRunner → GPU Kernels → NCCL |
-| 职责 | 请求接收与参数解析、Tokenization / Detokenization、请求状态机、流式响应、数据并行协调 | 输入张量准备、模型 Forward（GEMM / Attention / MLP）、KV Cache 物理读写 |
-| | 调度决策、KV 块分配与释放、Prefix Cache 查找、抢占决策、停止条件检测 | 采样（top-p / top-k / temperature）、集合通信、CUDA Graph 捕获与重放 |
-| 技术栈 | ZMQ IPC、msgspec 序列化、asyncio | CUDA Stream 驱动、零拷贝传输 |
-
-**为什么控制流和数据流需要解耦？**
-
-1. **语言特性匹配**：调度逻辑复杂多变（频繁的条件判断、动态数据结构操作），适合 Python；数值计算追求极致性能，适合 C++/CUDA
-2. **迭代速度**：调度算法是 vLLM 最频繁迭代的模块，Python 的开发效率远胜 C++
-3. **控制面开销可被摊薄**：只要调度、序列化和输入准备开销显著小于 GPU 执行时间，Python 控制面的影响就可以被流水线化和批处理摊薄；具体是否成为瓶颈取决于 batch、模型和硬件
-4. **Batch Queue 机制**：vLLM 通过 `batch_queue` 等机制让调度与执行尽量流水线化，当 GPU 执行当前 batch 时，CPU 侧可以准备后续 batch
-
-第 3 条值得用数字兑现一下，否则"可被摊薄"听起来只是一句安慰。下图以**一个较大模型的 decode 步（forward 约 15 ms 量级，例如 70B 级别多卡部署）**为例——第 10.5 节那张 7B 单卡的表里 decode 是 8–12 ms，量级不同但结论一致：只要 GPU 侧是十毫秒量级，Python 侧的零点几毫秒就淹没在里面。
+### 2.3 数据流：Token 如何穿过整个 Serving 栈
 
 ```
-单次 Decode 迭代
-  Python 控制面  ──[schedule ~0.05ms][prepare ~0.1ms]
-  GPU 数据面     ────────────────────────────[model forward ~15ms][sample ~0.05ms]
-                 → Python 开销占比 0.15ms / 15ms ≈ 1%
-
-流水线化后（Batch Queue）
-  CPU  ──[sched N][prep N]──[sched N+1][prep N+1]──
-  GPU  ──────────────────[forward N]──────────[forward N+1]──
-                          ↑ GPU 在算 N 的同时，CPU 已在准备 N+1
-                          → Python 延迟被摊薄甚至完全隐藏
+  ┌──────┐     ┌─────────┐     ┌────────┐     ┌───────────┐
+  │Client│────▶│API Server│────▶│AsyncLLM│────▶│EngineCore │
+  └──────┘     └─────────┘     └────────┘     └─────┬─────┘
+  "Hello,       HTTP JSON       add_request     EngineCoreReq
+   tell me                      (text)          (token_ids)
+   a joke"                         │
+                              Tokenizer
+                          [15496, 11, 2425,
+                           757, 257, 9707]
+                                                     │
+                                              ┌──────▼──────┐
+                                              │  Scheduler   │
+                                              │  schedule()  │
+                                              └──────┬──────┘
+                                              SchedulerOutput
+                                              (req_ids, block_table,
+                                               num_tokens_per_req)
+                                                     │
+                                              ┌──────▼──────┐
+                                              │  Executor    │
+                                              │  → Worker    │
+                                              └──────┬──────┘
+                                                     │
+                                              ┌──────▼──────┐
+                                              │ ModelRunner  │
+                                              │prepare_inputs│
+                                              └──────┬──────┘
+                                              input_ids, positions,
+                                              block_table, slot_mapping
+                                                     │
+                                              ┌──────▼──────┐
+                                              │   GPU       │
+                                              │  Forward    │
+                                              │  Pass       │
+                                              └──────┬──────┘
+                                              logits [vocab_size]
+                                                     │
+                                              ┌──────▼──────┐
+                                              │  Sampling   │
+                                              │ (top-p/top-k│
+                                              │  /temp)     │
+                                              └──────┬──────┘
+                                              sampled_token_id
+                                                     │
+                                              ┌──────▼──────┐
+                                              │Detokenizer  │
+                                              │ → "Sure"    │
+                                              └──────┬──────┘
+                                                     │
+  ┌──────┐     ┌─────────┐                    ┌──────▼──────┐
+  │Client│◀────│SSE Stream│◀───────────────────│  Response   │
+  └──────┘     └─────────┘                    └─────────────┘
+  "Sure, here's a joke..."
 ```
 
-核心分工原则：
 
-| 层面 | 语言 | 职责 | 为什么选这个语言 |
-|------|------|------|----------------|
-| API + 调度 | Python | 请求管理、调度策略、KV块分配 | 逻辑复杂多变，需要快速迭代 |
-| 输入准备 | Python + PyTorch | 张量构建、block table 更新 | 利用 PyTorch 的张量接口 |
-| 模型 Forward | C++/CUDA (via PyTorch) | GEMM、Attention、MLP | 极致性能 |
-| 自定义算子 | CUDA / Triton | RMSNorm、RoPE、Fused Attention | 硬件特化 |
-| 集合通信 | C++ (NCCL) | All-Reduce、All-Gather | 零拷贝、内核级调度 |
+### 2.4 总结
 
-#### 桥梁：PyBind11 与 Triton
-
-vLLM 的 C++/CUDA 扩展通过 PyTorch 的 Custom Op 机制注册（位于 `csrc/` 目录），使用 PyBind11 绑定 Python 接口。同时，许多算子（尤其是 Attention 和 MoE 相关）使用 OpenAI Triton 编写，兼顾性能和开发效率：
-
-| Python 层 | → | C++ / CUDA 层 | → | GPU 硬件 |
-|---|---|---|---|---|
-| `torch.ops.vllm.rms_norm()` | | `csrc/libtorch_stable/layernorm_kernels.cu` | | CUDA Cores |
-| `attention_backend()` | | FlashAttention（C++ lib）或 Triton kernel（`.py`） | | Tensor Cores |
-| `fused_moe()` | | `csrc/libtorch_stable/moe/`（CUDA）或 Triton experts（`.py`） | | Tensor Cores |
-| `torch.matmul()` | | cuBLAS GEMM | | Tensor Cores |
-
----
-
-### 2.4 一句话总结这一章
-
-如果这一章只能记住一句话，那就是模块之间的分工：
+这一章主要要关注的是模块之间的分工：
 
 > **EngineCore 驱动循环，Scheduler 决定这一轮谁跑、跑多少 token，Executor 负责把任务分发下去，ModelRunner 负责真正调用 GPU 算。**
 
@@ -522,7 +525,6 @@ vLLM 的 C++/CUDA 扩展通过 PyTorch 的 Custom Op 机制注册（位于 `csrc
 | 三、怎么算得更快 | `ModelRunner` / Attention Backend / Kernel |
 | 四、怎么扩出去 | `Executor` / `Worker` / 集合通信 |
 
-接下来四章，就是把这张表的每一行拆开来讲。
 
 <details markdown="1">
 <summary><b>📂 本章源码导航</b></summary>
@@ -539,13 +541,12 @@ vLLM 的 C++/CUDA 扩展通过 PyTorch 的 Custom Op 机制注册（位于 `csrc
 
 </details>
 
----
 
 ## 三、KV Cache：LLM Serving 的第一号内存问题
 
 > **本章回答第二问：历史状态放在哪里、怎么复用。**
 
-先不谈任何术语，设想一个场景。
+设想一个场景：
 
 你有一张 80 GB 的卡，同时来了 100 个请求。第一个请求最后只生成了 300 个 token，第二个生成了 3000 个，第三个一路写到 20K。**问题在于：这三个数字，你在请求到达的那一刻一个都不知道。**
 
@@ -691,6 +692,55 @@ class BlockPool:
 ### 3.2 KV Cache 的写入、读取与生命周期
 
 上一节讲的是「块从哪来」，这一节讲「块怎么被用完再还回去」——一次请求从 Prefill 批量写入，到 Decode 逐 slot 追加，最后在完成或被抢占时归还，构成 KV Cache 的完整生命周期。
+
+```
+                     KV Cache 生命周期全景
+
+  ┌─────── Prefill 阶段 ──────┐   ┌────── Decode 阶段 ──────┐
+  │                            │   │                          │
+  │  prompt tokens:            │   │  每步 1 个新 token:       │
+  │  [t₁, t₂, ..., tₙ]       │   │  [tₙ₊₁], [tₙ₊₂], ...   │
+  │       │                    │   │       │                  │
+  │       ▼                    │   │       ▼                  │
+  │  ┌─────────────────┐      │   │  ┌──────────┐           │
+  │  │ 批量写入 KV     │      │   │  │ 增量追加  │           │
+  │  │ Cache 块        │      │   │  │ 1 个 slot │           │
+  │  │                 │      │   │  │           │           │
+  │  │ Block 0: [t₁~t₁₆]│   │   │  │ Block 2:  │           │
+  │  │ Block 1: [t₁₇~t₃₂]│  │   │  │ 追加 tₙ₊₁ │           │
+  │  │ Block 2: [t₃₃~tₙ] │   │   │  └──────────┘           │
+  │  └─────────────────┘      │   │                          │
+  └────────────────────────────┘   └──────────────────────────┘
+
+  ┌─────── Attention 读取 ──────────────────────────────────┐
+  │                                                         │
+  │  Block Table (虚拟→物理映射):                            │
+  │  req_42 → [PhyBlock_7, PhyBlock_13, PhyBlock_21]       │
+  │                                                         │
+  │  Attention Kernel 通过 Block Table 索引读取:             │
+  │  for each query position:                               │
+  │    for each block in block_table[req]:                  │
+  │      K_block = kv_cache[block_id, :, :key_heads, :]    │
+  │      V_block = kv_cache[block_id, :, :val_heads, :]    │
+  │      score += Q @ K_blockᵀ                              │
+  │    attn_out = softmax(scores) @ V_blocks               │
+  └─────────────────────────────────────────────────────────┘
+
+  ┌─────── 生命周期终结 ────────────────────────────────────┐
+  │                                                         │
+  │  请求完成:                                               │
+  │    Scheduler → KVCacheManager.free(request)             │
+  │    → ref_cnt-- 对所有块                                  │
+  │    → ref_cnt == 0 的块归还 free_block_queue              │
+  │    → 有 block_hash 的块进入 LRU 缓存（Prefix Cache）     │
+  │    → 无 hash 的块立即回收                                 │
+  │                                                         │
+  │  抢占:                                                   │
+  │    → 释放所有块                                          │
+  │    → num_computed_tokens = 0 （需从头重算）               │
+  │    → 但 Prefix Cache 命中可跳过部分重算                   │
+  └─────────────────────────────────────────────────────────┘
+```
 
 **① 写入**——两个阶段的写法完全不同：
 
@@ -1046,22 +1096,30 @@ def schedule(self, throttle_prefills=False) -> SchedulerOutput:
 上一节的 token 预算模型，落到宏观时间线上就是 Continuous Batching 与传统 Static Batching 的差别：
 
 ```
-Static Batching（传统）
-  Step 1:  [A ████████████]
-           [B ██████ pad  ]  ← padding 浪费
-           [C ████ pad    ]  ← padding 浪费
-  Step 2:  [A ████████████]  ← A 已完成，但仍占着位置
-           [B ██████████  ]
-           [C ████████    ]
-  ✗ A 完成后资源闲置，排队的 D 进不来
+  ┌─────────────── Static Batching (传统) ──────────────────┐
+  │                                                         │
+  │  Step 1:  [Req A ████████████]                         │
+  │           [Req B ██████ pad  ]  ← Padding 浪费         │
+  │           [Req C ████ pad    ]  ← Padding 浪费         │
+  │                                                         │
+  │  Step 2:  [Req A ████████████]  ← A 已完成但仍占位      │
+  │           [Req B ██████████  ]                          │
+  │           [Req C ████████    ]                          │
+  │                                                         │
+  │  问题: A 完成后其 GPU 资源闲置，D 排队等待               │
+  └─────────────────────────────────────────────────────────┘
 
-Continuous Batching（vLLM）
-  Iter 1:  [A:prefill] [B:prefill] [C:prefill]
-  Iter 2:  [A:decode ] [B:decode ] [C:decode ]
-  Iter 3:  [A:done ✓ ] [B:decode ] [C:decode ] [D:prefill]  ← D 立刻补位
-  Iter 4:              [B:decode ] [C:done ✓ ] [D:decode ] [E:prefill]
-  Iter 5:              [B:done ✓ ] [D:decode ] [E:decode ] [F:prefill]
-  ✓ 谁完成谁腾位，空位当轮就被填上
+  ┌──────────── Continuous Batching (vLLM) ─────────────────┐
+  │                                                         │
+  │  Iter 1:  [A:prefill] [B:prefill] [C:prefill]          │
+  │  Iter 2:  [A:decode ] [B:decode ] [C:decode ]          │
+  │  Iter 3:  [A:done ✓ ] [B:decode ] [C:decode ] [D:prefill]  ← D 立即加入!
+  │  Iter 4:              [B:decode ] [C:done ✓ ] [D:decode] [E:prefill]
+  │  Iter 5:              [B:done ✓ ] [D:decode ] [E:decode] [F:prefill]
+  │                                                         │
+  │  优势: 请求完成即释放资源，新请求立即填补空位              │
+  │        GPU 利用率持续保持高位                             │
+  └─────────────────────────────────────────────────────────┘
 ```
 
 | 特性 | Static Batching | Continuous Batching |
@@ -2566,26 +2624,75 @@ vLLM 已经在大量使用 Triton，这条路走了一半了：
 
 这一章刻意放在最后：如果它出现在第二章，你只会看到一堆 class；出现在这里，你会看到**设计决策留下的痕迹**。
 
-### 10.1 四个域：给源码里的每个对象定位
 
-读 vLLM 源码最容易迷失的地方，是分不清一个变量属于哪一层。先给一个定位框架——**任何一个核心对象，都能落进下面四个域之一**：
+### 10.1 控制面与数据面的分离
 
-| 域 | 对象 | 关键字段 |
+```mermaid
+graph LR
+    subgraph CP["控制面（Python）"]
+        direction LR
+        A[API Server] --> B[AsyncLLM] --> C[EngineCore] --> D[Scheduler] --> E[KVCacheManager]
+    end
+    subgraph DP["数据面（C++ / CUDA）"]
+        direction LR
+        F[Worker] --> G[ModelRunner] --> H[GPU Kernels] --> I[NCCL]
+    end
+    CP -->|"SchedulerOutput<br/>(req_ids, block_table, …)"| DP
+```
+
+| | 控制面（Python） | 数据面（C++ / CUDA） |
 |---|---|---|
-| **请求域** | `EngineCoreRequest`（IPC 传输对象） | `request_id`、`prompt`(text)、`sampling_params`、`lora_request` |
-| | `Request`（调度器内部对象） | `status`（状态机）、`prompt_token_ids`、`output_token_ids`、`num_computed_tokens`、`block_hashes`、`spec_token_ids` |
-| **调度域** | `SchedulerOutput`（调度决策） | `scheduled_requests`、`num_scheduled_tokens`、`finished_req_ids`、`preempted_req_ids` |
-| | `ModelRunnerOutput`（执行结果） | `req_ids`、`sampled_token_ids`、`logprobs_tensors`、`draft_tokens` |
-| **显存域** | `KVCacheBlock`（物理块元数据） | `block_id`、`ref_cnt`、`block_hash` |
-| | Block Table（虚拟→物理映射） | `req → [block_ids]` |
-| | KV Cache Tensor（GPU HBM） | `shape: [num_blocks, block_size, num_heads, d]` |
-| **模型域** | Model Weights（参数） | `Linear.weight`、`LayerNorm.weight` |
-| | Activations（激活） | `hidden_states`、`Q/K/V tensors`、`attention_output`、`logits` |
+| 组件 | API Server → AsyncLLM → EngineCore → Scheduler → KVCacheManager | Worker → ModelRunner → GPU Kernels → NCCL |
+| 职责 | 请求接收与参数解析、Tokenization / Detokenization、请求状态机、流式响应、数据并行协调 | 输入张量准备、模型 Forward（GEMM / Attention / MLP）、KV Cache 物理读写 |
+| | 调度决策、KV 块分配与释放、Prefix Cache 查找、抢占决策、停止条件检测 | 采样（top-p / top-k / temperature）、集合通信、CUDA Graph 捕获与重放 |
+| 技术栈 | ZMQ IPC、msgspec 序列化、asyncio | CUDA Stream 驱动、零拷贝传输 |
 
-两条边界值得留意：
+**为什么控制流和数据流需要解耦？**
 
-- **`EngineCoreRequest` → `Request` 是一次跨进程翻译**。前者是能被 msgspec 序列化、走 ZMQ 的扁平数据；后者是带状态机、会被反复修改的活对象。这条边界就是第 2.3 节控制面的进程边界。
-- **显存域是唯一"跨请求共享"的域**。请求域、调度域、模型域的对象都属于某一次请求或某一轮迭代，而 `KVCacheBlock` 会被多个请求通过 `ref_cnt` 共享——Prefix Cache 的全部魔法都发生在这一行。
+1. **语言特性匹配**：调度逻辑复杂多变（频繁的条件判断、动态数据结构操作），适合 Python；数值计算追求极致性能，适合 C++/CUDA
+2. **迭代速度**：调度算法是 vLLM 最频繁迭代的模块，Python 的开发效率远胜 C++
+3. **控制面开销可被摊薄**：只要调度、序列化和输入准备开销显著小于 GPU 执行时间，Python 控制面的影响就可以被流水线化和批处理摊薄；具体是否成为瓶颈取决于 batch、模型和硬件
+4. **Batch Queue 机制**：vLLM 通过 `batch_queue` 等机制让调度与执行尽量流水线化，当 GPU 执行当前 batch 时，CPU 侧可以准备后续 batch
+
+**说明** 为什么控制面开销可被摊薄？
+这里用数字解释说明一下。下图以一个较大模型的 decode 步（forward 约 15 ms 量级，例如 70B 级别多卡部署）为例——第 10.5 节那张 7B 单卡的表里 decode 是 8–12 ms，量级不同但结论一致：只要 GPU 侧是十毫秒量级，Python 侧的零点几毫秒就淹没在里面。
+
+```
+单次 Decode 迭代
+  Python 控制面  ──[schedule ~0.05ms][prepare ~0.1ms]
+  GPU 数据面     ────────────────────────────[model forward ~15ms][sample ~0.05ms]
+                 → Python 开销占比 0.15ms / 15ms ≈ 1%
+
+流水线化后（Batch Queue）
+  CPU  ──[sched N][prep N]──[sched N+1][prep N+1]──
+  GPU  ──────────────────[forward N]──────────[forward N+1]──
+                          ↑ GPU 在算 N 的同时，CPU 已在准备 N+1
+                          → Python 延迟被摊薄甚至完全隐藏
+```
+
+Python/C++语言核心分工原则：
+
+| 层面 | 语言 | 职责 | 为什么选这个语言 |
+|------|------|------|----------------|
+| API + 调度 | Python | 请求管理、调度策略、KV块分配 | 逻辑复杂多变，需要快速迭代 |
+| 输入准备 | Python + PyTorch | 张量构建、block table 更新 | 利用 PyTorch 的张量接口 |
+| 模型 Forward | C++/CUDA (via PyTorch) | GEMM、Attention、MLP | 极致性能 |
+| 自定义算子 | CUDA / Triton | RMSNorm、RoPE、Fused Attention | 硬件特化 |
+| 集合通信 | C++ (NCCL) | All-Reduce、All-Gather | 零拷贝、内核级调度 |
+
+#### Python如何调用C++：PyBind11 与 Triton
+
+vLLM 的 C++/CUDA 扩展通过 PyTorch 的 Custom Op 机制注册（位于 `csrc/` 目录），使用 PyBind11 绑定 Python 接口。同时，许多算子（尤其是 Attention 和 MoE 相关）使用 OpenAI Triton 编写，兼顾性能和开发效率：
+
+| Python 层 | → | C++ / CUDA 层 | → | GPU 硬件 |
+|---|---|---|---|---|
+| `torch.ops.vllm.rms_norm()` | | `csrc/libtorch_stable/layernorm_kernels.cu` | | CUDA Cores |
+| `attention_backend()` | | FlashAttention（C++ lib）或 Triton kernel（`.py`） | | Tensor Cores |
+| `fused_moe()` | | `csrc/libtorch_stable/moe/`（CUDA）或 Triton experts（`.py`） | | Tensor Cores |
+| `torch.matmul()` | | cuBLAS GEMM | | Tensor Cores |
+
+
+### 10.2 四个域：给源码里的每个对象定位
 
 vLLM V1 的核心数据对象（定义在 `vllm/v1/request.py`、`vllm/v1/core/sched/output.py`、`vllm/v1/outputs.py`）可以分为四个域：
 
@@ -2596,9 +2703,62 @@ vLLM V1 的核心数据对象（定义在 `vllm/v1/request.py`、`vllm/v1/core/s
 
 这四个域和第一章的四问是对应的：请求域是四问的输入，调度域是第一问的产物，显存域是第二问的产物，模型域是第三问的战场。
 
----
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                      核心数据对象全景图                               │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌──────────────────── 请求域 ────────────────────────┐             │
+│  │                                                     │            │
+│  │  EngineCoreRequest  ──→  Request                    │            │
+│  │  (IPC 传输对象)         (调度器内部对象)              │            │
+│  │    · request_id          · status (状态机)           │            │
+│  │    · prompt (text)       · prompt_token_ids          │            │
+│  │    · sampling_params     · output_token_ids          │            │
+│  │    · lora_request        · num_computed_tokens       │            │
+│  │                          · block_hashes              │            │
+│  │                          · spec_token_ids            │            │
+│  └─────────────────────────────────────────────────────┘            │
+│                                                                     │
+│  ┌──────────────────── 调度域 ────────────────────────┐             │
+│  │                                                     │            │
+│  │  SchedulerOutput           ModelRunnerOutput         │            │
+│  │  (调度决策)                (模型执行结果)             │            │
+│  │    · scheduled_requests     · req_ids                │            │
+│  │    · num_scheduled_tokens   · sampled_token_ids      │            │
+│  │    · finished_req_ids       · logprobs_tensors       │            │
+│  │    · preempted_req_ids      · draft_tokens           │            │
+│  └─────────────────────────────────────────────────────┘            │
+│                                                                     │
+│  ┌──────────────────── 显存域 ────────────────────────┐             │
+│  │                                                     │            │
+│  │  KVCacheBlock              Block Table               │            │
+│  │  (物理块元数据)            (虚拟→物理映射)            │            │
+│  │    · block_id               · req → [block_ids]      │            │
+│  │    · ref_cnt                                         │            │
+│  │    · block_hash                                      │            │
+│  │                                                      │            │
+│  │  KV Cache Tensor (GPU HBM)                           │            │
+│  │    · shape: [num_blocks, block_size, num_heads, d]   │            │
+│  └─────────────────────────────────────────────────────┘            │
+│                                                                     │
+│  ┌──────────────────── 模型域 ────────────────────────┐             │
+│  │                                                     │            │
+│  │  Model Weights (参数)   Activations (激活)           │            │
+│  │    · Linear.weight        · hidden_states            │            │
+│  │    · LayerNorm.weight     · Q, K, V tensors          │            │
+│  │                           · attention_output         │            │
+│  │                           · logits                   │            │
+│  └─────────────────────────────────────────────────────┘            │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
-### 10.2 请求状态机：系统如何决定"下一步做什么"
+两条边界值得留意：
+
+- **`EngineCoreRequest` → `Request` 是一次跨进程翻译**。前者是能被 msgspec 序列化、走 ZMQ 的扁平数据；后者是带状态机、会被反复修改的活对象。这条边界就是第 2.3 节控制面的进程边界。
+- **显存域是唯一"跨请求共享"的域**。请求域、调度域、模型域的对象都属于某一次请求或某一轮迭代，而 `KVCacheBlock` 会被多个请求通过 `ref_cnt` 共享——Prefix Cache 的全部魔法都发生在这一行。
+
+### 10.3 请求状态机：系统如何决定"下一步做什么"
 
 ##### 请求状态机
 
@@ -2654,18 +2814,35 @@ class RequestStatus(enum.IntEnum):
 
 在 vLLM V1 中，`Scheduler.schedule()` 的核心不是把系统硬切成 Prefill 阶段和 Decode 阶段，而是在每一轮迭代里分配统一的 token 预算。源码注释明确指出：调度器内部没有严格的 "decoding phase" 或 "prefill phase"；每个请求维护 `num_computed_tokens`，调度器尝试让它追赶 `num_tokens_with_spec`。
 
-| | 内容 |
-|---|---|
-| **输入** | 当前 running / waiting 请求、KV Cache 状态、token budget |
-| **对每个可推进的请求，算出本轮能新增多少 token** | · 新请求：推进一段 prompt tokens<br/>· 已运行请求：通常推进下一个 decode token<br/>· spec decode / MTP：额外需要 lookahead tokens<br/>· 长 prompt：可能被 `long_prefill_token_threshold` 截断 |
-| **同时要满足的约束** | · `max_num_batched_tokens` / `max_num_scheduled_tokens`<br/>· `max_num_seqs`<br/>· KV Cache 可用块数<br/>· encoder / multimodal / structured output 等附加约束 |
-| **输出：`SchedulerOutput`** | · 本轮调度的请求与各自的 token 数<br/>· block table / slot mapping 更新<br/>· preemption、KV transfer、spec decode 等执行提示 |
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                  Scheduler.schedule() 核心问题                    │
+├─────────────────────────────────────────────────────────────────┤
+│  输入: 当前 running / waiting 请求、KV Cache 状态、token budget     │
+│                                                                 │
+│  对每个可推进请求，计算本轮可以新增多少 token:                      │
+│  · 新请求可能推进一段 prompt tokens                                │
+│  · 已运行请求通常推进下一个 decode token                            │
+│  · spec decode / MTP 可能需要额外 lookahead tokens                 │
+│  · 长 prompt 可能被 long_prefill_token_threshold 截断              │
+│                                                                 │
+│  同时满足:                                                        │
+│  · max_num_batched_tokens / max_num_scheduled_tokens              │
+│  · max_num_seqs                                                   │
+│  · KV Cache 可用块数                                               │
+│  · encoder / multimodal / structured output 等附加约束             │
+│                                                                 │
+│  输出: SchedulerOutput                                            │
+│  · 本轮调度的请求与 token 数                                        │
+│  · block table / slot mapping 相关更新                             │
+│  · preemption、KV transfer、spec decode 等执行提示                  │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 这里可以和第一章的结论对上了：Prefill / Decode 的区分在**性能分析**层面依然成立（第 1.2 节），但在 **Scheduler 的实现**层面它们被统一到"本轮给这个请求推进多少 token"这一个模型里——这正是第四章反复强调的那句话在源码里的样子。
 
----
 
-### 10.3 翻译层：SchedulerOutput 如何变成 GPU 张量
+### 10.4 翻译层：SchedulerOutput 如何变成 GPU 张量
 
 第四章的调度决策和第五章的 GPU 执行之间，隔着一层谁都没细讲的翻译：调度器交出来的是"哪个请求本轮推进多少 token"，而 kernel 要的是"这个 token 的 KV 写到哪个 slot、这个请求能读哪些块"。做这件翻译的是 `ModelRunner.prepare_inputs()`。
 
@@ -2689,13 +2866,108 @@ class RequestStatus(enum.IntEnum):
 
 最终**给 GPU 的**是 `input_ids, positions, attn_metadata`，**从 GPU 拿回的**是 `hidden_states → logits → sampled_token_ids`。
 
+大致流程如下所示：
+
+```
+┌─────── SchedulerOutput → ModelRunner 映射 ───────────────────────────┐
+│                                                                      │
+│  Scheduler 输出:                                                     │
+│  ┌──────────────────────────────────────────────────────────────────┐ │
+│  │ scheduled_new_reqs:      {req_id: num_tokens}       ← 首次调度    │ │
+│  │ scheduled_running_reqs:  {req_id: num_tokens}       ← 继续执行    │ │
+│  │ req_to_new_blocks:       {req_id: [(block_id, n)]}  ← 块分配      │ │
+│  │ finished_req_ids, preempted_req_ids, ...            ← 状态通知    │ │
+│  └──────────────────────────────────────────────────────────────────┘ │
+│                              │                                        │
+│                              ▼                                        │
+│  ModelRunner.prepare_inputs():                                        │
+│  ┌──────────────────────────────────────────────────────────────────┐ │
+│  │ 1. InputBatch 构造: 根据 scheduled tokens 扁平化为 token_id 序列  │ │
+│  │    · Req A (已缓存 256, 新推 256) → 追加 256 个 token_ids         │ │
+│  │    · Req B (decode) → 追加 1 个 token_id                          │ │
+│  │    · Req C (spec decode) → 追加 1 + N 个 token_ids                │ │
+│  │                                                                  │ │
+│  │ 2. slot_mapping 构造: token → (block_id, offset)                 │ │
+│  │    · 新分配的块 → 从头写入                                         │ │
+│  │    · 已存在块 → 追加到尾部                                         │ │
+│  │    · Prefix Cache 命中的 token → 不写入, 直接复用                   │ │
+│  │                                                                  │ │
+│  │ 3. attention metadata 构造:                                       │ │
+│  │    · block_table (per req): 虚拟块 → 物理块的映射                  │ │
+│  │    · query_lens / kv_lens / is_prompt / spec_decode flags         │ │
+│  │                                                                  │ │
+│  │ 4. CUDA Graph / Eager 模式选择:                                   │ │
+│  │    · Pure decode + size matched → CUDA Graph replay               │ │
+│  │    · 含 prefill / mixed / size mismatch → Eager 模式              │ │
+│  └──────────────────────────────────────────────────────────────────┘ │
+│                                                                      │
+│  给 GPU: input_ids, positions, attn_metadata                          │
+│  从 GPU: hidden_states → logits → sampled_token_ids                   │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+图中 SchedulerOutput 到 GPU 计算中间隔着一层的 `ModelRunner.prepare_inputs`。这一层不是调模型，而是把调度决策翻译成 GPU 数据结构：`slot_mapping` 告诉每个 token 的 KV 写去哪，`block_table` 告诉每个请求能读到哪些块。CUDA Graph / Eager 的选择也在这里决定。这层翻译是看懂后面 Prefill、Decode 和 Mixed Batch 执行差异的前提。
+
 现在可以回头看这一层为什么必须存在：`slot_mapping` 是第三章分块存储的直接产物（KV 不连续，所以必须逐 token 给出落点），`block_table` 是 Prefix Cache 共享的直接产物（多个请求可能指向同一个物理块），而"走 Graph 还是 Eager"则是第 5.1 节那个约束的落地位置（图里的形状必须固定）。**三个字段，三章的设计约束。**
 
 ---
 
-### 10.4 从请求到 GPU Kernel 的完整调用链
+### 10.5 从请求到 GPU Kernel 的完整调用链
 
 把前面所有环节串成一条链，可以清楚看到语言边界（Python → C++ → CUDA）落在哪几个位置：
+
+```
+  HTTP Request ("Hello")
+       │
+       │ ①  Python (FastAPI)
+       ▼
+  api_server.py: create_chat_completion()
+       │
+       │ ②  Python (async)
+       ▼
+  AsyncLLM.add_request() → Tokenizer → [15496, 11, ...]
+       │
+       │ ③  Python (IPC: ZMQ + msgspec)
+       ▼
+  EngineCore.add_request() → Scheduler.add_request()
+       │
+       │ ④  Python (调度算法)
+       ▼
+  Scheduler.schedule() → SchedulerOutput
+       │
+       │ ⑤  Python → C++ 边界
+       ▼
+  Executor.execute_model() → Worker.execute_model()
+       │
+       │ ⑥  Python (张量准备)
+       ▼
+  ModelRunner._execute_model()
+    → prepare_inputs(): 构建 input_ids, positions, block_table 张量
+       │
+       │ ⑦  Python → CUDA 边界 (PyTorch dispatch)
+       ▼
+  model.forward(input_ids, positions, kv_caches, attn_metadata)
+    → 每层: RMSNorm → QKV → RoPE → Attention → O_proj → MLP
+       │
+       │ ⑧  CUDA Kernel Launch (C++ runtime)
+       ▼
+  Attention Backend (FlashAttention / FlashInfer)
+    → flash_attn_varlen_func() 或 flashinfer.decode()
+       │
+       │ ⑨  CUDA Graph (可选: Decode 阶段)
+       ▼
+  cudagraph_manager.run_fullgraph(batch_desc)
+    → 预捕获的完整执行图一次性重放
+       │
+       │ ⑩  GPU → CPU
+       ▼
+  Sampling: logits → sampled_token_ids (GPU tensor → CPU list)
+       │
+       │ ⑪  Python (输出处理)
+       ▼
+  ModelRunnerOutput → Scheduler.update_from_output()
+    → Detokenizer → "Sure" → SSE Stream → Client
+```
 
 | # | 层 | 调用 | 语言 / 边界 |
 |---|---|---|---|
@@ -2717,9 +2989,8 @@ class RequestStatus(enum.IntEnum):
 - **⑤ 是控制面与数据面的边界** —— 上游全是决策，下游全是计算（第 2.3 节）；
 - **⑦ 是 Python 与 GPU 的边界** —— 过了这里就再没有 Python 开销可言。
 
-第 2.3 节说"Python 控制面只占 ~1%"，指的正是 ①–⑥ 这一段相对 ⑦–⑩ 的耗时占比。
+前面说"Python 控制面只占 ~1%"，指的正是 ①–⑥ 这一段相对 ⑦–⑩ 的耗时占比。
 
----
 
 ### 10.5 附录：各环节耗时量级
 
