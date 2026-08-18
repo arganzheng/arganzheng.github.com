@@ -5,15 +5,8 @@ tags: [AI, AI-infra, 大模型推理]
 catalog: true
 ---
 
-# 大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术
-
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码深度剖析。文中所有文件路径、类名和行号均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 
----
-
-[TOC]
-
----
 
 ## 一、为什么 LLM Serving 比传统 DL 推理难？
 
@@ -476,6 +469,42 @@ graph LR
 3. **控制面开销可被摊薄**：只要调度、序列化和输入准备开销显著小于 GPU 执行时间，Python 控制面的影响就可以被流水线化和批处理摊薄；具体是否成为瓶颈取决于 batch、模型和硬件
 4. **Batch Queue 机制**：vLLM 通过 `batch_queue` 等机制让调度与执行尽量流水线化，当 GPU 执行当前 batch 时，CPU 侧可以准备后续 batch
 
+第 3 条值得用数字兑现一下，否则"可被摊薄"听起来只是一句安慰。下图以**一个较大模型的 decode 步（forward 约 15 ms 量级，例如 70B 级别多卡部署）**为例——第 10.5 节那张 7B 单卡的表里 decode 是 8–12 ms，量级不同但结论一致：只要 GPU 侧是十毫秒量级，Python 侧的零点几毫秒就淹没在里面。
+
+```
+单次 Decode 迭代
+  Python 控制面  ──[schedule ~0.05ms][prepare ~0.1ms]
+  GPU 数据面     ────────────────────────────[model forward ~15ms][sample ~0.05ms]
+                 → Python 开销占比 0.15ms / 15ms ≈ 1%
+
+流水线化后（Batch Queue）
+  CPU  ──[sched N][prep N]──[sched N+1][prep N+1]──
+  GPU  ──────────────────[forward N]──────────[forward N+1]──
+                          ↑ GPU 在算 N 的同时，CPU 已在准备 N+1
+                          → Python 延迟被摊薄甚至完全隐藏
+```
+
+核心分工原则：
+
+| 层面 | 语言 | 职责 | 为什么选这个语言 |
+|------|------|------|----------------|
+| API + 调度 | Python | 请求管理、调度策略、KV块分配 | 逻辑复杂多变，需要快速迭代 |
+| 输入准备 | Python + PyTorch | 张量构建、block table 更新 | 利用 PyTorch 的张量接口 |
+| 模型 Forward | C++/CUDA (via PyTorch) | GEMM、Attention、MLP | 极致性能 |
+| 自定义算子 | CUDA / Triton | RMSNorm、RoPE、Fused Attention | 硬件特化 |
+| 集合通信 | C++ (NCCL) | All-Reduce、All-Gather | 零拷贝、内核级调度 |
+
+#### 桥梁：PyBind11 与 Triton
+
+vLLM 的 C++/CUDA 扩展通过 PyTorch 的 Custom Op 机制注册（位于 `csrc/` 目录），使用 PyBind11 绑定 Python 接口。同时，许多算子（尤其是 Attention 和 MoE 相关）使用 OpenAI Triton 编写，兼顾性能和开发效率：
+
+| Python 层 | → | C++ / CUDA 层 | → | GPU 硬件 |
+|---|---|---|---|---|
+| `torch.ops.vllm.rms_norm()` | | `csrc/libtorch_stable/layernorm_kernels.cu` | | CUDA Cores |
+| `attention_backend()` | | FlashAttention（C++ lib）或 Triton kernel（`.py`） | | Tensor Cores |
+| `fused_moe()` | | `csrc/libtorch_stable/moe/`（CUDA）或 Triton experts（`.py`） | | Tensor Cores |
+| `torch.matmul()` | | cuBLAS GEMM | | Tensor Cores |
+
 ---
 
 ### 2.4 一句话总结这一章
@@ -789,7 +818,7 @@ MQA   Q: [1][2][3][4][5][6][7][8]
 | GPT-3 175B | MHA | 96 | 96 | 100% |
 | Llama 3 70B | GQA | 64 | 8 | 12.5% |
 | Llama 3 8B | GQA | 32 | 8 | 25% |
-| Falcon 40B | MQA | 64 | 1 | 1.6% |
+| Falcon 7B | MQA | 71 | 1 | 1.4% |
 | DeepSeek V3 | MLA | 128 | - | ~2% (存 576 维 latent，非 128×128 的完整 KV) |
 
 #### 3.3.3 MLA：从 KV Cache 到 Latent Cache
@@ -1169,12 +1198,12 @@ Decode 偏 memory-bound、Prefill 偏 compute-bound（第 1.2 节），但落到
 
 | 浪费形态 | 症状 | 对策 | 本章小节 |
 |---|---|---|---|
-| GPU 在**等 CPU 发指令** | kernel 之间有气泡 | CUDA Graph | 5.2 |
-| GPU 在**等 HBM 送数据** | 算力闲置、访存打满 | FlashAttention、算子融合 | 5.3 |
-| 搬的**每个数太胖** | 带宽被低信息密度的数据占满 | FP8 / INT8 / INT4 量化 | 5.4 |
-| **轮次本身太多** | 每轮只产出 1 个 token | 投机解码 | 5.5 |
+| GPU 在**等 CPU 发指令** | kernel 之间有气泡 | CUDA Graph | 5.1 |
+| GPU 在**等 HBM 送数据** | 算力闲置、访存打满 | FlashAttention、算子融合 | 5.2 |
+| 搬的**每个数太胖** | 带宽被低信息密度的数据占满 | FP8 / INT8 / INT4 量化 | 5.3 |
+| **轮次本身太多** | 每轮只产出 1 个 token | 投机解码 | 5.4 |
 
-最后 5.6 回到现实：真实的一轮 batch 里，prefill、decode、投机候选是混在一起的。
+最后 5.5 回到现实：真实的一轮 batch 里，prefill、decode、投机候选是混在一起的。
 
 > **回到我们的例子**（Llama-3-70B、8×H100、TP=8）：每张卡持有 17.6 GB 权重，H100 HBM 带宽 3.35 TB/s，于是**一次 decode 的权重读取下界约 5.3 ms**；加上 KV 读取、80 层 × 2 次 All-Reduce 和 kernel 开销，实测一步大约在 10 ms 量级。
 >
@@ -1188,79 +1217,13 @@ Decode 偏 memory-bound、Prefill 偏 compute-bound（第 1.2 节），但落到
 >
 > **看清楚这个 3% vs 97%**：TTFT 只有 92 ms，而 97% 的时间花在那 300 次逐 token 的 decode 上。这解释了本章为什么把绝大部分篇幅给了 Decode 侧的优化——Prefill 再快一倍，端到端也只省 3%。
 
-### 5.1 从调度输出到 GPU 执行：优化发生在哪里
-
-**Scheduler 交出来的东西**（`SchedulerOutput`）：
-
-| 字段 | 内容 | 含义 |
-|---|---|---|
-| `scheduled_new_reqs` | `{req_id: num_tokens}` | 首次调度的请求 |
-| `scheduled_running_reqs` | `{req_id: num_tokens}` | 继续执行的请求 |
-| `req_to_new_blocks` | `{req_id: [(block_id, n)]}` | 本轮的块分配 |
-| `finished_req_ids` / `preempted_req_ids` | — | 状态通知 |
-
-**`ModelRunner.prepare_inputs()` 把它翻译成 GPU 数据结构**，四步：
-
-| 步骤 | 做什么 | 细节 |
-|---|---|---|
-| ① `InputBatch` 构造 | 按 scheduled tokens 扁平化成一条 token_id 序列 | Req A（已缓存 256、新推 256）→ 追加 256 个<br/>Req B（decode）→ 追加 1 个<br/>Req C（spec decode）→ 追加 1+N 个 |
-| ② `slot_mapping` 构造 | 每个 token → `(block_id, offset)` | 新块从头写；已有块追加到尾部；**Prefix Cache 命中的 token 不写，直接复用** |
-| ③ attention metadata | 告诉 kernel 每个请求能读哪些块 | `block_table`（per req）、`query_lens` / `kv_lens` / `is_prompt` / spec flags |
-| ④ 执行模式选择 | 决定走 Graph 还是 Eager | 纯 decode 且 size 匹配 → CUDA Graph replay；含 prefill / mixed / size 不匹配 → Eager |
-
-最终**给 GPU 的**是 `input_ids, positions, attn_metadata`，**从 GPU 拿回的**是 `hidden_states → logits → sampled_token_ids`。
-
-注意到图中 SchedulerOutput 到 GPU 计算中间隔着一层 `prepare_inputs()`。这一层不是调模型，而是把调度决策翻译成 GPU 数据结构：`slot_mapping` 告诉每个 token 的 KV 写去哪，`block_table` 告诉每个请求能读到哪些块。CUDA Graph / Eager 的选择也在这里决定。这层翻译是看懂后面 Prefill、Decode 和 Mixed Batch 执行差异的前提。
-
-#### 5.1.1 Python 控制面与 C++/CUDA 数据面的冰与火之歌
-
-为什么 Python 负责"运筹帷幄"仍然可以支撑高吞吐？关键在于控制面开销能否相对 GPU 执行时间足够小，并通过 batch queue、异步执行和流水线化被摊薄。
-
-下图以**一个较大模型的 decode 步（forward 约 15 ms 量级，例如 70B 级别多卡部署）**为例——第 10.4 节那张 7B 单卡的表里 decode 是 8–12 ms，量级不同但结论一致：只要 GPU 侧是十毫秒量级，Python 侧的零点几毫秒就淹没在里面。
-
-```
-单次 Decode 迭代
-  Python 控制面  ──[schedule ~0.05ms][prepare ~0.1ms]
-  GPU 数据面     ────────────────────────────[model forward ~15ms][sample ~0.05ms]
-                 → Python 开销占比 0.15ms / 15ms ≈ 1%
-
-流水线化后（Batch Queue）
-  CPU  ──[sched N][prep N]──[sched N+1][prep N+1]──
-  GPU  ──────────────────[forward N]──────────[forward N+1]──
-                          ↑ GPU 在算 N 的同时，CPU 已在准备 N+1
-                          → Python 延迟被摊薄甚至完全隐藏
-```
-
-核心分工原则：
-
-| 层面 | 语言 | 职责 | 为什么选这个语言 |
-|------|------|------|----------------|
-| API + 调度 | Python | 请求管理、调度策略、KV块分配 | 逻辑复杂多变，需要快速迭代 |
-| 输入准备 | Python + PyTorch | 张量构建、block table 更新 | 利用 PyTorch 的张量接口 |
-| 模型 Forward | C++/CUDA (via PyTorch) | GEMM、Attention、MLP | 极致性能 |
-| 自定义算子 | CUDA / Triton | RMSNorm、RoPE、Fused Attention | 硬件特化 |
-| 集合通信 | C++ (NCCL) | All-Reduce、All-Gather | 零拷贝、内核级调度 |
-
-#### 5.1.2 桥梁构建：PyBind11 与 Triton
-
-vLLM 的 C++/CUDA 扩展通过 PyTorch 的 Custom Op 机制注册（位于 `csrc/` 目录），使用 PyBind11 绑定 Python 接口。同时，许多算子（尤其是 Attention 和 MoE 相关）使用 OpenAI Triton 编写，兼顾性能和开发效率：
-
-| Python 层 | → | C++ / CUDA 层 | → | GPU 硬件 |
-|---|---|---|---|---|
-| `torch.ops.vllm.rms_norm()` | | `csrc/libtorch_stable/layernorm_kernels.cu` | | CUDA Cores |
-| `attention_backend()` | | FlashAttention（C++ lib）或 Triton kernel（`.py`） | | Tensor Cores |
-| `fused_moe()` | | `csrc/libtorch_stable/moe/`（CUDA）或 Triton experts（`.py`） | | Tensor Cores |
-| `torch.matmul()` | | cuBLAS GEMM | | Tensor Cores |
-
----
-
-### 5.2 GPU 为什么在空转？—— Kernel Launch 与 CUDA Graph
+### 5.1 GPU 为什么在空转？—— Kernel Launch 与 CUDA Graph
 
 第一种浪费最反直觉：**GPU 并不慢，它只是在排队等 CPU 告诉它下一步做什么。** 这个问题在 Prefill 阶段几乎看不见（单个 kernel 算得久，提交开销被淹没），却会在 Decode 阶段被放大——因为 Decode 每步的计算量太小了。
 
-#### 5.2.1 痛点：Kernel Launch Overhead
+#### 5.1.1 痛点：Kernel Launch Overhead
 
-在 Decode 阶段，每步模型 Forward 需要启动约 50-100+ 个 CUDA Kernel（GEMM、Attention、RMSNorm、RoPE 等），而每个 Kernel 的实际 GPU 计算时间可能只有几十微秒。
+在 Decode 阶段，每步模型 Forward 要启动**数百到上千个** CUDA Kernel，而每个 Kernel 的实际 GPU 计算时间可能只有几十微秒。数量之所以这么多，是因为它是**逐层累乘**的：以 80 层的 Llama-3-70B 为例，单层就有 RMSNorm ×2、QKV Proj、RoPE、Attention、O Proj、MLP 的三个 GEMM 与激活，TP=8 下还要再加 2 次 All-Reduce——十几个 kernel × 80 层，一步下来轻松上千。32 层的 7B 也在数百这个量级。
 
 这里要先破除一个常见的误解：**kernel launch 本身是异步的，CPU 提交完就返回，并不会傻等 GPU 算完。** 正常情况下 CPU 会一路往前提交，把 GPU 的任务队列填满，提交开销完全隐藏在 GPU 执行时间背后。所以真正的成立条件只有一个：
 
@@ -1282,17 +1245,17 @@ vLLM 的 C++/CUDA 扩展通过 PyTorch 的 Custom Op 机制注册（位于 `csrc
 │              30μs            20μs            40μs                      │
 │                                                                       │
 │  问题: GPU 在等 CPU 发射下一个 kernel 时空闲（气泡）                   │
-│  50 个 kernel × 5μs launch = 250μs                                    │
-│  总执行 = 250μs(launch) + ~2000μs(compute) = 2250μs                  │
-│  launch 开销占比 ≈ 11%                                                │
+│  400 个 kernel × 5μs launch = 2000μs                                  │
+│  总执行 = 2000μs(launch) + ~8000μs(compute) = 10000μs                │
+│  launch 开销占比 ≈ 20%（这是完全暴露时的上界）                          │
 │                                                                       │
-│  注意: 这 250μs 只有在"CPU 提交跟不上 GPU 消费"时才真正暴露出来。      │
+│  注意: 这 2000μs 只有在"CPU 提交跟不上 GPU 消费"时才真正暴露出来。     │
 │       若 GPU 侧足够慢（如 Prefill），同样的提交开销会被完全隐藏，       │
 │       此时上 CUDA Graph 收益接近于零。                                 │
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
-#### 5.2.2 CUDA Graph：静态执行图捕获与重放
+#### 5.1.2 CUDA Graph：静态执行图捕获与重放
 
 CUDA Graph 将一系列 Kernel Launch 录制成一个"计算图"，之后用一次 Launch 重放整个图：
 
@@ -1308,8 +1271,9 @@ CUDA Graph 将一系列 Kernel Launch 录制成一个"计算图"，之后用一�
 │  GPU: ──[kernel₁][kernel₂][kernel₃]...[kernelₙ]──  (无 gap!)         │
 │         连续执行，kernel 之间无 launch 等待                             │
 │                                                                       │
-│  总执行 = 10μs(1次launch) + ~2000μs(compute) = 2010μs               │
-│  vs 无 CUDA Graph 的 2250μs → 节省 10%+                               │
+│  总执行 = 10μs(1次launch) + ~8000μs(compute) = 8010μs               │
+│  vs 上面完全暴露时的 10000μs → 上界省 20%                              │
+│  实测通常在 5%~15%（部分提交开销本来就被隐藏了）                        │
 │                                                                       │
 │  约束:                                                                 │
 │  · 图中 kernel 的形状必须固定 → 需要对不同 Batch Size 预捕获           │
@@ -1353,7 +1317,7 @@ def _execute_model(self, scheduler_output, ...):
 
 ---
 
-### 5.3 数据为什么搬不动？—— 压缩 HBM 流量
+### 5.2 数据为什么搬不动？—— 压缩 HBM 流量
 
 第二种浪费才是大头。GPU 的算力增长速度远快于显存带宽，于是绝大多数推理 kernel 的真实瓶颈都不是"算不完"，而是"数据喂不上"。
 
@@ -1363,7 +1327,7 @@ def _execute_model(self, scheduler_output, ...):
 
 FlashAttention 和 Kernel Fusion 减少的是"搬运次数"（别让中间结果落地再读回来），下一节的量化减少的是"每次搬多少字节"。
 
-#### 5.3.1 Attention 后端：同一个计算，多种 kernel
+#### 5.2.1 Attention 后端：同一个计算，多种 kernel
 
 Attention 后端是算子优化的第一个决策点：同一个 Attention 计算，在不同请求阶段、不同硬件和 dtype 下，最优 kernel 可能完全不同。v0.27.1 在 `vllm/v1/attention/backends/` 下提供了数十种后端，通过 `registry.py` 的 selector 按 head_size、dtype、硬件能力和 workload 形态（Prefill / Decode / Mixed / MLA）动态选择。
 
@@ -1378,9 +1342,9 @@ Prefill 场景通常偏向 FlashAttention 等对长 query 高效的后端；Deco
 
 选择不是全局固定的：“通常 FlashInfer 是默认 Decode 后端”这种说法需要加上版本、硬件和模型前提。实际使用中 selector 会根据环境自动选择，生产部署前建议用当前版本和目标 workload 做 benchmark 确认。
 
-#### 5.3.2 FlashAttention：Tiling 与 Online-Softmax
+#### 5.2.2 FlashAttention：Tiling 与 Online-Softmax
 
-FlashAttention 是现代 LLM 推理的基石算子。其核心思想是通过**分块计算（Tiling）**和 **Online-Softmax** 算法，把 Attention 的 HBM 访问量从 O(N²) 降到 O(N)——注意降低的是**访存量**，不是计算复杂度：
+FlashAttention 是现代 LLM 推理的基石算子。它的核心思想是通过**分块计算（Tiling）**和 **Online Softmax**，让 N×N 的中间矩阵**根本不必在 HBM 里出现**。注意它优化的是**访存**，计算量（FLOPs）一分没少。
 
 **Standard Attention** 的问题在于它把两个 N×N 的大矩阵实实在在地写进了 HBM：
 
@@ -1390,44 +1354,63 @@ FlashAttention 是现代 LLM 推理的基石算子。其核心思想是通过**�
 | `softmax(S)` | `P[N,N]` | O(N²) **读 + 写** HBM |
 | `P × V[N,d]` | `O[N,d]` | O(N²) **读取** HBM |
 
-总 HBM 访问 **O(N² + N·d)**，而且 N 到几千时 S、P 两个矩阵就能把显存占满。
+总 HBM 访问 **O(N·d + N²)**，其中 N² 项的系数是 4（S 写、S 读、P 写、P 读）。更要命的是显存：N 到几千时，S、P 两个矩阵就能把显存占满。
 
-**FlashAttention** 的做法是把 Q/K/V 切成 `Bq × Bk` 的小块，让中间结果**只在片上 SRAM 里出现，从不落回 HBM**（A100 每个 SM 约 192 KB SRAM）：
+**FlashAttention** 把 Q/K/V 切成 `Bq × Bk` 的小块，让中间结果**只在片上 SRAM 里出现，从不落回 HBM**（A100 每个 SM 的 L1/shared 合计 192 KB，可作 shared memory 的约 164 KB）：
 
 | 驻留在 SRAM 的东西 | 形状 | 说明 |
 |---|---|---|
-| `Q_tile` | `[Bq, d]` | 从 HBM 加载一次 |
+| `Q_tile` | `[Bq, d]` | 从 HBM 加载 |
 | `K_tile` / `V_tile` | `[Bk, d]` | 分块循环加载 |
 | `S_tile` | `[Bq, Bk]` | **在 SRAM 中算完就用掉，不写回** |
 | `O_acc` | `[Bq, d]` | 在线累加的输出 |
-| `m, l` | `[Bq]` | softmax 的运行时统计量（max、sum） |
+| `m, l` | `[Bq]` | softmax 的运行时统计量（行最大值、指数和） |
 
 关键在于 **Online Softmax**——它让 softmax 不需要先看到整行就能开始累加：
 
 ```
-for each K_tile, V_tile:
-    S_tile = Q_tile @ K_tileᵀ                      # SRAM 内
-    m_new  = max(m_old, rowmax(S_tile))            # 滚动更新最大值
-    P_tile = exp(S_tile - m_new)                   # SRAM 内
-    l_new  = exp(m_old - m_new) * l_old + rowsum(P_tile)   # 修正旧的累加和
-    O_acc  = rescale(O_acc) + P_tile @ V_tile      # 在线累加
+m, l, O_acc = -inf, 0, 0
+for each K_tile, V_tile:                               # 沿 KV 方向循环
+    S_tile = Q_tile @ K_tileᵀ                          # SRAM 内，不写回
+    m_new  = max(m, rowmax(S_tile))                    # 滚动更新行最大值
+    P_tile = exp(S_tile - m_new)                       # SRAM 内
+    l      = exp(m - m_new) * l + rowsum(P_tile)       # 修正旧的指数和
+    O_acc  = exp(m - m_new) * O_acc + P_tile @ V_tile  # 同一个系数修正旧的累加结果
+    m      = m_new
+O = O_acc / l                                          # 整个循环结束才做这一次除法
 ```
 
-每来一个新块，就用 `exp(m_old - m_new)` 把此前累加的结果**追溯性地缩放一次**，从而保证数学上等价于一次性 softmax。总 HBM 访问降到 **O(N·d)**，N×N 矩阵根本不存在，序列长度也就不再受显存限制。
+每来一个新块，就用 `exp(m_old - m_new)` 把此前累加的结果**追溯性地缩放一次**，因此它与"先看完整行再 softmax"在数学上**严格等价**，不是近似。注意归一化的除法被推迟到了循环之外——这是它能一边扫一边累加的前提。
+
+**这里要澄清一个流传很广的说法。** FlashAttention 并没有把 HBM 访问从 O(N²) 降到 O(N·d)。论文给出的 IO 复杂度是 **O(N²d²/M)**（`M` 为可用 SRAM 大小）——**N² 这一项消不掉**，因为循环要沿一个方向走 `N/B` 次，每一次都得把另一侧的 tile 重新从 HBM 过一遍。它真正做的是把 N² 项的**系数**从 4 压到 `d²/M` 量级：
 
 | 特性 | Standard Attention | FlashAttention |
 |------|-------------------|----------------|
-| HBM 访问 | O(N² + Nd) | O(Nd) |
-| 额外显存 | O(N²) | O(N) |
-| 最大序列长度 | 受显存限制 | 几乎无限制 |
-| IO 效率 | 低（大量 HBM 读写） | 高（数据在 SRAM 中复用） |
+| HBM 访问 | O(N·d + N²) | **O(N²d²/M)** |
+| 额外显存 | **O(N²)**（必须物化 S、P） | **O(N)**（只留 `m`、`l`） |
+| 最大序列长度 | 受 N² 显存约束 | 不再受 N² 显存约束 |
+| IO 效率 | 低（中间矩阵 HBM 往返） | 高（tile 在 SRAM 内复用） |
 | 实现复杂度 | 简单 | 高（需要手写 CUDA kernel） |
 
-FlashAttention 消除的不是计算量，而是 HBM 读写量。Standard 路径每次迭代都把中间矩阵写回 HBM 再读回来；Flash 路径把它们留在 SRAM 里，通过 Online Softmax 逐步累加。减少 HBM 往返正是下一节算子融合的同一套思路，只不过作用在算子与算子之间。
+所以准确的说法是：**FlashAttention 在显存上是渐进式的胜利（O(N²) → O(N)，这条无条件成立），在带宽上拿到的是一个常数倍的胜利**——倍数约为 `M/d²`，`d` 越小、SRAM 越大越划算。实测 2~4× 的加速也不只来自访存量本身，还来自少了一趟独立的 softmax kernel、以及不再被 N² 显存卡住 batch。
 
-还要注意它的适用边界：FlashAttention 的 Tiling 收益来自"长 query 可以切块复用"，而 Decode 的 query_len=1 根本切不动。这就是上一节 selector 要按 workload 形态分派的原因——Decode 侧真正吃香的是 FlashInfer 那类对 ragged batch 和 paged KV 原生友好的实现，而 kernel launch 的空转则要靠 5.2 的 CUDA Graph 来消。**三者针对的是三种不同的浪费，不能互相替代。**
+顺带说一个训练与推理的不对称：训练时 FlashAttention 不保存 S、P，反向传播要重算一遍（recompute），本质是"用算力换显存"；**而推理没有反向，这笔代价根本不存在——推理侧用 FlashAttention 是纯赚**。后续版本走的还是同一条路：FlashAttention-2 把并行维度从 `batch × head` 扩展到序列方向、并砍掉大量非 matmul 指令；FlashAttention-3 用上 Hopper 的 warp specialization 与 FP8。数学内核始终是上面那段 online softmax。
 
-#### 5.3.3 Kernel Fusion 的动机与收益
+最后是它的**适用边界**，这一点在 Serving 里比复杂度更重要：Tiling 的收益来自"query 方向有足够多的行可以切块复用"，而 **Decode 的 `query_len = 1`，`Bq` 只能取 1，query 方向根本切不动**——kernel 退化成一次又长又瘦的 KV 扫描，SM 大量闲置。
+
+Decode 侧的解法是把切分方向换掉：**沿 KV 长度做 split-K（Flash-Decoding）**，让多个 SM 各算一段历史 KV 的局部结果，最后用**上面那套一模一样的 `m`、`l` rescale 规则**把局部结果合并起来。vLLM 里 FlashInfer / paged decode kernel 走的就是这条路，这也正是上一节 selector 要按 workload 形态分派的原因。
+
+值得留意的是，"分块算 + 在线累加"这一个数学技巧在本文会出现三次，区别只在切在哪条边界上：
+
+| 切在哪 | 沿什么方向切 | 名字 | 出现在 |
+|---|---|---|---|
+| SRAM ↔ HBM | query | FlashAttention | 本节 |
+| SM ↔ SM | KV | Flash-Decoding / split-KV | 本节（Decode 侧） |
+| GPU ↔ GPU | 序列 | Ring Attention | 第 6.1.5 节 |
+
+而 kernel launch 的空转要靠 5.1 的 CUDA Graph 来消。**这些手段针对的是不同的浪费，不能互相替代。**
+
+#### 5.2.3 Kernel Fusion 的动机与收益
 
 以 `RMSNorm → RoPE → Residual` 这一串为例：
 
@@ -1440,7 +1423,7 @@ FlashAttention 消除的不是计算量，而是 HBM 读写量。Standard 路径
 
 省下约 **67% 的内存带宽**，顺带少了 2 次 launch。注意这个收益的来源和 FlashAttention 完全一致——**都是不让中间结果去 HBM 兜一圈**，只不过 FlashAttention 作用在一个算子内部，Kernel Fusion 作用在算子之间。
 
-#### 5.3.4 vLLM 中的融合算子
+#### 5.2.4 vLLM 中的融合算子
 
 vLLM 在 `csrc/` 目录中实现了大量融合算子（CUDA 实现集中在 `csrc/libtorch_stable/` 下，CPU 后端另有 `csrc/cpu/`）：
 
@@ -1457,11 +1440,11 @@ vLLM 在 `csrc/` 目录中实现了大量融合算子（CUDA 实现集中在 `cs
 
 ---
 
-### 5.4 能不能少搬几个字节？—— 低精度推理
+### 5.3 能不能少搬几个字节？—— 低精度推理
 
 上一节在减少搬运**次数**，这一节换个方向：让每次搬运的**数据本身变小**。两者正交，可以叠加。
 
-#### 5.4.1 推理量化的对象、收益与代价
+#### 5.3.1 推理量化的对象、收益与代价
 
 | | 权重 (W) | 激活 (A) | KV Cache |
 |---|---|---|---|
@@ -1471,7 +1454,7 @@ vLLM 在 `csrc/` 目录中实现了大量融合算子（CUDA 实现集中在 `cs
 
 三种量化对象不是均匀受益的。权重量化同时降低显存和 Decode 带宽压力，因为 Decode 每步都要读权重；KV Cache 量化主要受益于 Decode 的历史 KV 读取和并发数；激活量化则更直接加速 Prefill 的 GEMM。选择方案前需要先判断瓶颈在 Prefill 还是 Decode。
 
-#### 5.4.2 权重量化方法
+#### 5.3.2 权重量化方法
 
 | 方法 | 格式 | 原理 | 量化时机 | 精度 |
 |------|------|------|---------|------|
@@ -1492,11 +1475,11 @@ vLLM 在 `csrc/` 目录中实现了大量融合算子（CUDA 实现集中在 `cs
 
 Decode 之所以能加速，有三个叠加的原因：
 
-1. **权重从 HBM 加载的带宽直接减半**——回到 10.4 节那笔账，batch=1 时权重读取就是 decode 耗时的大头，砍掉一半立竿见影；
+1. **权重从 HBM 加载的带宽直接减半**——回到 10.5 节那笔账，batch=1 时权重读取就是 decode 耗时的大头，砍掉一半立竿见影；
 2. INT4 / FP8 GEMM 能用上 Tensor Core 的特殊指令，算力更高；
 3. 模型变小后可能用更少的卡装下，**连通信开销一起省了**。
 
-#### 5.4.3 FP8 推理
+#### 5.3.3 FP8 推理
 
 FP8 是 H100/H200 引入的硬件原生低精度格式，vLLM 通过 `vllm/model_executor/layers/quantization/fp8.py` 支持：
 
@@ -1515,7 +1498,7 @@ FP8 推理的优势：
 - 权重 + 激活 + KV Cache 全链路 FP8 → 显存减半
 - Per-tensor / Per-token scaling 可按需选择精度档位
 
-#### 5.4.4 混合精度组合与性能评测
+#### 5.3.4 混合精度组合与性能评测
 
 | 组合 | 权重 | 激活 | KV Cache | 显存 | TTFT | TPOT | 质量 |
 |---|---|---|---|---|---|---|---|
@@ -1535,7 +1518,7 @@ FP8 推理的优势：
 
 ---
 
-### 5.5 能不能少跑几轮模型？—— 投机解码
+### 5.4 能不能少跑几轮模型？—— 投机解码
 
 前面三节都在优化"一轮怎么跑得更快"。这一节换个思路：**能不能让一轮多产出几个 token，从而少跑几轮？**
 
@@ -1673,7 +1656,7 @@ MTP 这一行值得单独说明：vLLM 并没有一个独立的 "MTP proposer"�
 
 ---
 
-### 5.6 一轮里什么都有：Mixed Batch 如何共存
+### 5.5 一轮里什么都有：Mixed Batch 如何共存
 
 vLLM V1 的执行循环不能简单理解成"先完整 Prefill，再完整 Decode"。在 Continuous Batching 和 Chunked Prefill 下，同一轮迭代中可能同时存在长 prompt 的一段 prefill、已有请求的 decode token，以及投机解码的候选 token。执行层需要通过 `InputBatch`、`slot_mapping`、block table 和 attention metadata，把这些不同形态的 token 组织成一次 GPU forward。
 
@@ -1715,7 +1698,7 @@ attention metadata 里的关键统计：
 
 | 想看什么 | 从哪开始 |
 |---|---|
-| **调度结果 → GPU 张量的翻译层** | `vllm/v1/worker/gpu/model_runner.py`、`input_batch.py` |
+| **一轮 batch 在 GPU 上怎么跑** | `vllm/v1/worker/gpu/model_runner.py`、`input_batch.py`（翻译层细节见第 10.3 节） |
 | CUDA Graph 捕获与重放 | `vllm/v1/worker/gpu/cudagraph_utils.py`；模式枚举在 `vllm/config/compilation.py` |
 | Attention 后端选择 | `vllm/v1/attention/selector.py` → `get_attn_backend()` |
 | 各 Attention 后端实现 | `vllm/v1/attention/backends/`（MLA 变体在 `mla/`） |
@@ -1787,7 +1770,7 @@ graph LR
 
 **TP 的通信量与激活大小成正比、且在关键路径上**，这就是为什么它几乎只适合机内 NVLink——跨机做 TP 会被网络拖死。
 
-> **回到我们的例子**（TP=8，`hidden=8192`，FP16）：decode 阶段每个 token 每次 All-Reduce 传 `8192 × 2 B = 16 KB`，每层 2 次、共 80 层，于是**每个 token 每步要传约 2.5 MB**。
+> **回到我们的例子**（TP=8，`hidden=8192`，FP16）：decode 阶段每个 token 每次 All-Reduce 的**张量本身**是 `8192 × 2 B = 16 KB`，每层 2 次、共 80 层，于是**每个 token 每步涉及约 2.5 MB 的激活**。（真实过线字节还要乘 all-reduce 的算法系数——ring 实现约 `2×(N−1)/N ≈ 1.75` 倍；NVLink 的 900 GB/s 也是单卡双向聚合口径。这些系数不改变下面的量级结论。）
 >
 > batch=32 时就是 80 MB/步。走 NVLink（900 GB/s）约 0.09 ms，相对 10 ms 的 decode 步几乎可以忽略；但同样这 80 MB 若走 InfiniBand NDR（50 GB/s）就要 1.6 ms——**乘以 80 层里每一次同步的等待，跨机 TP 就是这样被拖垮的。**
 
@@ -1874,7 +1857,7 @@ graph LR
 | 3 | 收到 `K₂V₂` | 累加 |
 | 4 | 收到 `K₃V₃` | 累加完成 → 得到全局注意力 |
 
-这个"分块算 + 在线累加"的套路，和第 5.3.2 节的 FlashAttention 是**同一个数学技巧**（Online Softmax），只不过一个跨的是 SRAM 与 HBM，另一个跨的是 GPU 与 GPU。
+这个"分块算 + 在线累加"的套路，和第 5.2.2 节的 FlashAttention 是**同一个数学技巧**（Online Softmax），只不过一个跨的是 SRAM 与 HBM，另一个跨的是 GPU 与 GPU。
 
 | | 说明 |
 |---|---|
@@ -1999,7 +1982,7 @@ graph TB
 
 把每一类搬运摊开看，就能明白优化的优先级：
 
-| 搬运类型 | 方向 | 频率 | 数据量 | 技术 |
+| 数据搬运类型 | 方向 | 频率 | 数据量/带宽要求 | 技术 |
 |---|---|---|---|---|
 | 模型权重加载 | CPU→GPU | 一次性 | 高（模型大小） | PCIe DMA |
 | input_ids / positions | CPU→GPU | 每步 | 低（KB 级） | PCIe / pinned memory |
@@ -2010,16 +1993,6 @@ graph TB
 | Sampled tokens | GPU→CPU | 每步 | 极低（int32） | Device→Host |
 
 加粗的两行是**唯一值得下大力气优化的**——它们既频繁、量又大，还都卡在关键路径上。其余几行要么一次性、要么只有 KB 级。
-
-| 数据搬运类型 | 方向 | 频率 | 带宽需求 | 技术 |
-|-------------|------|------|---------|------|
-| 模型权重加载 | CPU→GPU | 一次性 | 高（模型大小） | PCIe DMA |
-| input_ids/positions | CPU→GPU | 每步 | 低（KB级） | PCIe / pinned memory |
-| TP All-Reduce | GPU↔GPU | 每层2次 | 高（激活大小） | NVLink NCCL |
-| PP 微批传递 | GPU→GPU | 每层间 | 中（hidden_states） | NCCL P2P |
-| EP Token Dispatch | GPU↔GPU | 每MoE层 | 高（token 重排） | All-to-All |
-| KV Cache Swap | GPU↔CPU | 抢占时 | 高（KV块大小） | PCIe async |
-| Sampled tokens | GPU→CPU | 每步 | 极低（int32） | Device→Host |
 
 ---
 
@@ -2629,7 +2602,7 @@ vLLM V1 的核心数据对象（定义在 `vllm/v1/request.py`、`vllm/v1/core/s
 
 ##### 请求状态机
 
-vLLM V1 的请求状态机（`RequestStatus`，定义在 `vllm/v1/request.py:348`）是理解控制流的关键：
+vLLM V1 的请求状态机（`RequestStatus`，定义在 `vllm/v1/request.py`）是理解控制流的关键：
 
 ```mermaid
 stateDiagram-v2
@@ -2658,7 +2631,7 @@ stateDiagram-v2
 ```
 
 ```python
-# vllm/v1/request.py:348
+# vllm/v1/request.py
 class RequestStatus(enum.IntEnum):
     WAITING = enum.auto()
     WAITING_FOR_STRUCTURED_OUTPUT_GRAMMAR = enum.auto()
@@ -2692,7 +2665,35 @@ class RequestStatus(enum.IntEnum):
 
 ---
 
-### 10.3 从请求到 GPU Kernel 的完整调用链
+### 10.3 翻译层：SchedulerOutput 如何变成 GPU 张量
+
+第四章的调度决策和第五章的 GPU 执行之间，隔着一层谁都没细讲的翻译：调度器交出来的是"哪个请求本轮推进多少 token"，而 kernel 要的是"这个 token 的 KV 写到哪个 slot、这个请求能读哪些块"。做这件翻译的是 `ModelRunner.prepare_inputs()`。
+
+**Scheduler 交出来的东西**（`SchedulerOutput`）：
+
+| 字段 | 内容 | 含义 |
+|---|---|---|
+| `scheduled_new_reqs` | `{req_id: num_tokens}` | 首次调度的请求 |
+| `scheduled_running_reqs` | `{req_id: num_tokens}` | 继续执行的请求 |
+| `req_to_new_blocks` | `{req_id: [(block_id, n)]}` | 本轮的块分配 |
+| `finished_req_ids` / `preempted_req_ids` | — | 状态通知 |
+
+**`ModelRunner.prepare_inputs()` 把它翻译成 GPU 数据结构**，四步：
+
+| 步骤 | 做什么 | 细节 |
+|---|---|---|
+| ① `InputBatch` 构造 | 按 scheduled tokens 扁平化成一条 token_id 序列 | Req A（已缓存 256、新推 256）→ 追加 256 个<br/>Req B（decode）→ 追加 1 个<br/>Req C（spec decode）→ 追加 1+N 个 |
+| ② `slot_mapping` 构造 | 每个 token → `(block_id, offset)` | 新块从头写；已有块追加到尾部；**Prefix Cache 命中的 token 不写，直接复用** |
+| ③ attention metadata | 告诉 kernel 每个请求能读哪些块 | `block_table`（per req）、`query_lens` / `kv_lens` / `is_prompt` / spec flags |
+| ④ 执行模式选择 | 决定走 Graph 还是 Eager | 纯 decode 且 size 匹配 → CUDA Graph replay；含 prefill / mixed / size 不匹配 → Eager |
+
+最终**给 GPU 的**是 `input_ids, positions, attn_metadata`，**从 GPU 拿回的**是 `hidden_states → logits → sampled_token_ids`。
+
+现在可以回头看这一层为什么必须存在：`slot_mapping` 是第三章分块存储的直接产物（KV 不连续，所以必须逐 token 给出落点），`block_table` 是 Prefix Cache 共享的直接产物（多个请求可能指向同一个物理块），而"走 Graph 还是 Eager"则是第 5.1 节那个约束的落地位置（图里的形状必须固定）。**三个字段，三章的设计约束。**
+
+---
+
+### 10.4 从请求到 GPU Kernel 的完整调用链
 
 把前面所有环节串成一条链，可以清楚看到语言边界（Python → C++ → CUDA）落在哪几个位置：
 
@@ -2716,11 +2717,11 @@ class RequestStatus(enum.IntEnum):
 - **⑤ 是控制面与数据面的边界** —— 上游全是决策，下游全是计算（第 2.3 节）；
 - **⑦ 是 Python 与 GPU 的边界** —— 过了这里就再没有 Python 开销可言。
 
-第 5.1.1 节说"Python 控制面只占 ~1%"，指的正是 ①–⑥ 这一段相对 ⑦–⑩ 的耗时占比。
+第 2.3 节说"Python 控制面只占 ~1%"，指的正是 ①–⑥ 这一段相对 ⑦–⑩ 的耗时占比。
 
 ---
 
-### 10.4 附录：各环节耗时量级
+### 10.5 附录：各环节耗时量级
 
 **测试口径**（不写清口径的耗时表没有意义）：Llama-2-7B、FP16、A100 80GB 单卡（HBM 带宽约 2.0 TB/s）、TP=1、prompt 512 tokens、无 prefix cache 命中、CUDA Graph 开启。**换任何一个条件，下面的数字都会变。**
 
@@ -2729,7 +2730,7 @@ class RequestStatus(enum.IntEnum):
 | Tokenization | 0.1–0.5 ms | CPU，可忽略 |
 | `Scheduler.schedule()` | 0.01–0.1 ms | Python，随请求数增长 |
 | CPU→GPU 输入拷贝 | 0.01–0.05 ms | PCIe DMA，数据量极小 |
-| Kernel Launch | ~2–5 μs/个 | Decode 一步约 50+ 个；开 CUDA Graph 后合并为 1 次 |
+| Kernel Launch | ~2–5 μs/个 | Decode 一步数百个（7B / 32 层）；开 CUDA Graph 后合并为 1 次 |
 | Prefill（512 tokens） | 5–15 ms | Compute-bound，GEMM 主导 |
 | **Decode 一步（batch=1）** | **8–12 ms** | Memory-bound，下界由权重读取决定 |
 | **Decode 一步（batch=32）** | **10–18 ms** | **注意：不是 ×32** |
