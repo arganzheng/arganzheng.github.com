@@ -1404,6 +1404,47 @@ Prefill 场景通常偏向 FlashAttention 等对长 query 高效的后端；Deco
 
 FlashAttention 是现代 LLM 推理的基石算子。它的核心思想是通过**分块计算（Tiling）**和 **Online Softmax**，让 N×N 的中间矩阵**根本不必在 HBM 里出现**。注意它优化的是**访存**，计算量（FLOPs）一分没少。
 
+```
+┌──────────────── Standard Attention vs FlashAttention ─────────────────┐
+│                                                                       │
+│  Standard Attention:                                                  │
+│                                                                       │
+│  Q[N,d] × K[N,d]ᵀ → S[N,N]     ← O(N²) 存储, 写入 HBM                  │
+│        → softmax(S) → P[N,N]    ← O(N²) 存储, 读写 HBM                 │
+│        → P × V[N,d] → O[N,d]    ← O(N²) 读取 HBM                       │
+│                                                                       │
+│  总 HBM 访问: O(N² + N·d)                                             │
+│  瓶颈: N > 几千时, S 和 P 矩阵占满显存                                   │
+│                                                                       │
+│  ────────────────────────────────────────────────────────────────     │
+│                                                                       │
+│  FlashAttention (Tiling + Online Softmax):                            │
+│                                                                       │
+│  将 Q, K, V 分成 Bq × Bk 的小块:                                        │
+│                                                                       │
+│  ┌──────┐                                                             │
+│  │ SRAM │ ← 只在片上缓存 (192 KB, A100)                                 │
+│  │      │                                                             │
+│  │ Q_tile [Bq, d]  ← 从 HBM 加载一次                                   │
+│  │ K_tile [Bk, d]  ← 分块加载                                          │
+│  │ V_tile [Bk, d]  ← 分块加载                                          │
+│  │ S_tile [Bq, Bk] ← 在 SRAM 中计算, 不写回 HBM!                        │
+│  │ O_acc  [Bq, d]  ← 在线累加                                          │
+│  │ m, l   [Bq]     ← softmax 统计量 (max, sum)                         │
+│  └──────┘                                                             │
+│                                                                       │
+│  for each K_tile, V_tile:                                             │
+│    S_tile = Q_tile @ K_tileᵀ                (SRAM 内计算)              │
+│    m_new = max(m_old, rowmax(S_tile))       (Online max)              │
+│    P_tile = exp(S_tile - m_new)             (SRAM 内计算)              │
+│    l_new = exp(m_old - m_new) * l_old + rowsum(P_tile)                │
+│    O_acc = rescale(O_acc) + P_tile @ V_tile (Online 累加)              │
+│                                                                       │
+│  总 HBM 访问: O(N²d²/M)（`M`为可用SRAM大小） ← 相比 O(N²) 大幅降低!        ｜                  │
+│  无需存储 N×N 矩阵, 序列长度不再受显存限制                                 │
+└───────────────────────────────────────────────────────────────────────┘
+```
+
 **Standard Attention** 的问题在于它把两个 N×N 的大矩阵实实在在地写进了 HBM：
 
 | 步骤 | 产物 | HBM 行为 |
