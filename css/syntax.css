@@ -1,6 +1,50 @@
-/* to make lines scroll instead of wrap */
-/* from http://stackoverflow.com/a/23393920 */
+/* ==========================================================================
+   Github light syntax highlighting for rouge.
 
+   Colours are Github's own "prettylights" tokens, copied verbatim from
+   @primer/primitives 11.10.0, dist/css/functional/themes/light.css
+   (https://cdn.jsdelivr.net/npm/@primer/primitives@11.10.0/dist/css/functional/themes/light.css).
+
+   The rouge token classes below are grouped the way Github groups its own
+   `.pl-*` classes; the scope families in the comments are Github's, taken from
+   github-syntax-light (primer/github-syntax-theme-generator).
+
+   Replaces the old Pygments-era palette, which painted every string - including
+   Python's """docstrings""" - in #d14 red.
+   ========================================================================== */
+
+:root {
+  --prettylights-syntax-comment: #59636e;
+  --prettylights-syntax-constant: #0550ae;
+  --prettylights-syntax-entity: #6639ba;
+  --prettylights-syntax-entity-tag: #0550ae;
+  --prettylights-syntax-keyword: #cf222e;
+  --prettylights-syntax-string: #0a3069;
+  --prettylights-syntax-string-regexp: #116329;
+  --prettylights-syntax-variable: #953800;
+  --prettylights-syntax-storage-modifier-import: #1f2328;
+  --prettylights-syntax-brackethighlighter-unmatched: #82071e;
+  --prettylights-syntax-invalid-illegal-text: #f6f8fa;
+  --prettylights-syntax-invalid-illegal-bg: #82071e;
+  --prettylights-syntax-carriage-return-text: #f6f8fa;
+  --prettylights-syntax-carriage-return-bg: #cf222e;
+  --prettylights-syntax-markup-list: #3b2300;
+  --prettylights-syntax-markup-heading: #0550ae;
+  --prettylights-syntax-markup-bold: #1f2328;
+  --prettylights-syntax-markup-italic: #1f2328;
+  --prettylights-syntax-markup-deleted-text: #82071e;
+  --prettylights-syntax-markup-deleted-bg: #ffebe9;
+  --prettylights-syntax-markup-inserted-text: #116329;
+  --prettylights-syntax-markup-inserted-bg: #dafbe1;
+  --prettylights-syntax-markup-changed-text: #953800;
+  --prettylights-syntax-markup-changed-bg: #ffd8b5;
+  --prettylights-syntax-markup-ignored-text: #d1d9e0;
+  --prettylights-syntax-markup-ignored-bg: #0550ae;
+  --prettylights-syntax-meta-diff-range: #8250df;
+  --prettylights-syntax-sublimelinter-gutter-mark: #818b98;
+}
+
+/* ---- Layout: long lines scroll instead of wrapping ---- */
 .highlight pre code * {
   /* `nowrap` here used to swallow the newlines *inside* a token span: rouge groups
      consecutive comment/string lines into one span, so those lines got joined.
@@ -9,79 +53,190 @@
 }
 
 .highlight pre {
-  overflow-x: auto;       /* this sets the scrolling in x */
+  overflow-x: auto;
 }
 
 .highlight pre code {
   white-space: pre;       /* forces <code> to respect <pre> formatting */
 }
 
+/* ---- Base: Github's --fgColor-default on --bgColor-muted ---- */
+.highlight,
+.highlight .w {
+  color: #1f2328;
+  background-color: #f6f8fa;
+}
 
-/*
- * GitHub style for Pygments syntax highlighter, for use with Jekyll
- * Courtesy of GitHub.com
- */
+/* .pl-c — comment, punctuation.definition.comment, string.comment */
+.highlight .c,
+.highlight .ch,
+.highlight .cd,
+.highlight .cm,
+.highlight .cp,
+.highlight .cpf,
+.highlight .c1,
+.highlight .cs,
+.highlight .gl,
+.highlight .gt {
+  color: var(--prettylights-syntax-comment);
+}
 
-.highlight pre, pre, .highlight .hll { background-color: #f8f8f8; border: 1px solid #ccc; padding: 6px 10px; border-radius: 3px; }
-.highlight .c { color: #999988; font-style: italic; }
-.highlight .err { color: #a61717; background-color: #e3d2d2; }
-.highlight .k { font-weight: bold; }
-.highlight .o { font-weight: bold; }
-.highlight .cm { color: #999988; font-style: italic; }
-.highlight .cp { color: #999999; font-weight: bold; }
-.highlight .c1 { color: #999988; font-style: italic; }
-.highlight .cs { color: #999999; font-weight: bold; font-style: italic; }
-.highlight .gd { color: #000000; background-color: #ffdddd; }
-.highlight .gd .x { color: #000000; background-color: #ffaaaa; }
-.highlight .ge { font-style: italic; }
-.highlight .gr { color: #aa0000; }
-.highlight .gh { color: #999999; }
-.highlight .gi { color: #000000; background-color: #ddffdd; }
-.highlight .gi .x { color: #000000; background-color: #aaffaa; }
-.highlight .go { color: #888888; }
-.highlight .gp { color: #555555; }
-.highlight .gs { font-weight: bold; }
-.highlight .gu { color: #800080; font-weight: bold; }
-.highlight .gt { color: #aa0000; }
-.highlight .kc { font-weight: bold; }
-.highlight .kd { font-weight: bold; }
-.highlight .kn { font-weight: bold; }
-.highlight .kp { font-weight: bold; }
-.highlight .kr { font-weight: bold; }
-.highlight .kt { color: #445588; font-weight: bold; }
-.highlight .m { color: #009999; }
-.highlight .s { color: #dd1144; }
-.highlight .n { color: #333333; }
-.highlight .na { color: teal; }
-.highlight .nb { color: #0086b3; }
-.highlight .nc { color: #445588; font-weight: bold; }
-.highlight .no { color: teal; }
-.highlight .ni { color: purple; }
-.highlight .ne { color: #990000; font-weight: bold; }
-.highlight .nf { color: #990000; font-weight: bold; }
-.highlight .nn { color: #555555; }
-.highlight .nt { color: navy; }
-.highlight .nv { color: teal; }
-.highlight .ow { font-weight: bold; }
-.highlight .w { color: #bbbbbb; }
-.highlight .mf { color: #009999; }
-.highlight .mh { color: #009999; }
-.highlight .mi { color: #009999; }
-.highlight .mo { color: #009999; }
-.highlight .sb { color: #dd1144; }
-.highlight .sc { color: #dd1144; }
-.highlight .sd { color: #dd1144; }
-.highlight .s2 { color: #dd1144; }
-.highlight .se { color: #dd1144; }
-.highlight .sh { color: #dd1144; }
-.highlight .si { color: #dd1144; }
-.highlight .sx { color: #dd1144; }
-.highlight .sr { color: #009926; }
-.highlight .s1 { color: #dd1144; }
-.highlight .ss { color: #990073; }
-.highlight .bp { color: #999999; }
-.highlight .vc { color: teal; }
-.highlight .vg { color: teal; }
-.highlight .vi { color: teal; }
-.highlight .il { color: #009999; }
-.highlight .gc { color: #999; background-color: #EAF2F5; }
+/* .pl-k — keyword, storage, storage.type */
+.highlight .k,
+.highlight .kd,
+.highlight .kn,
+.highlight .kp,
+.highlight .kr,
+.highlight .kt,
+.highlight .kv {
+  color: var(--prettylights-syntax-keyword);
+}
+
+/* .pl-c1 — constant, constant.language, support, support.function,
+   meta.property-name, markup.raw, meta.module-reference */
+.highlight .kc,
+.highlight .l,
+.highlight .ld,
+.highlight .m,
+.highlight .mb,
+.highlight .mf,
+.highlight .mh,
+.highlight .mi,
+.highlight .il,
+.highlight .mo,
+.highlight .mx,
+.highlight .bp,
+.highlight .ne,
+.highlight .nl,
+.highlight .py,
+.highlight .o,
+.highlight .ow,
+.highlight .nv,
+.highlight .vc,
+.highlight .vg,
+.highlight .vi,
+.highlight .vm,
+.highlight .sb {
+  color: var(--prettylights-syntax-constant);
+}
+
+/* .pl-v — variable: class / module / builtin names */
+.highlight .nb,
+.highlight .nc,
+.highlight .no,
+.highlight .nn {
+  color: var(--prettylights-syntax-variable);
+}
+
+/* .pl-e, .pl-en — entity, entity.name: function names and decorators */
+.highlight .nf,
+.highlight .fm,
+.highlight .nd {
+  color: var(--prettylights-syntax-entity);
+}
+
+/* .pl-ent — entity.name.tag: markup tags and attributes */
+.highlight .nt,
+.highlight .na {
+  color: var(--prettylights-syntax-entity-tag);
+}
+
+/* .pl-s, .pl-pds — string and its punctuation (incl. Python docstrings, .sd) */
+.highlight .s,
+.highlight .sa,
+.highlight .sc,
+.highlight .dl,
+.highlight .sd,
+.highlight .s2,
+.highlight .se,
+.highlight .sh,
+.highlight .sx,
+.highlight .s1,
+.highlight .ss {
+  color: var(--prettylights-syntax-string);
+}
+
+/* .pl-sr — string.regexp */
+.highlight .sr {
+  color: var(--prettylights-syntax-string-regexp);
+}
+
+/* .pl-smi — storage.modifier.import, variable.parameter, variable.other */
+.highlight .nx,
+.highlight .ni,
+.highlight .si,
+.highlight .nb.bp {
+  color: var(--prettylights-syntax-storage-modifier-import);
+}
+
+/* .pl-ii — invalid.illegal */
+.highlight .err {
+  color: var(--prettylights-syntax-invalid-illegal-text);
+  background-color: var(--prettylights-syntax-invalid-illegal-bg);
+}
+
+/* .pl-bu — invalid.broken, brackethighlighter.unmatched */
+.highlight .gr {
+  color: var(--prettylights-syntax-brackethighlighter-unmatched);
+}
+
+/* ---- Generic / markup & diff tokens ---- */
+.highlight .gh,
+.highlight .gu {
+  color: var(--prettylights-syntax-markup-heading);
+  font-weight: bold;
+}
+
+.highlight .gs {
+  color: var(--prettylights-syntax-markup-bold);
+  font-weight: bold;
+}
+
+.highlight .ge {
+  color: var(--prettylights-syntax-markup-italic);
+  font-style: italic;
+}
+
+.highlight .ges {
+  font-weight: bold;
+  font-style: italic;
+}
+
+.highlight .gd {
+  color: var(--prettylights-syntax-markup-deleted-text);
+  background-color: var(--prettylights-syntax-markup-deleted-bg);
+}
+
+.highlight .gi {
+  color: var(--prettylights-syntax-markup-inserted-text);
+  background-color: var(--prettylights-syntax-markup-inserted-bg);
+}
+
+.highlight .gc {
+  color: var(--prettylights-syntax-meta-diff-range);
+}
+
+.highlight .go {
+  color: #1f2328;
+}
+
+.highlight .gp {
+  color: var(--prettylights-syntax-comment);
+}
+
+/* ---- Member access, added by js/code-tokens.js ----
+   rouge cannot tell `obj.attr` from a bare identifier; these two classes give
+   those tokens the colour github.com (tree-sitter) uses for them. */
+.highlight .tok-member {
+  color: var(--prettylights-syntax-constant);
+}
+
+/* type names: Github leaves them on the default foreground */
+.highlight .tok-plain {
+  color: #1f2328;
+}
+
+/* declared or called members; listed last so it wins over .tok-plain */
+.highlight .tok-call {
+  color: var(--prettylights-syntax-entity);
+}
