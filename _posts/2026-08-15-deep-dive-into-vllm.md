@@ -971,21 +971,12 @@ vLLM V1 当前主要使用 **Recomputation** 策略（`_preempt_request()` 中�
 
 ## 四、Scheduler：GPU 这一轮到底给谁用？
 
-KV Cache 解决的是"状态如何存"；Scheduler 解决的是"每一轮谁能获得多少 token 预算"。而理解 vLLM 调度器最关键的一句话是：
+KV Cache 解决的是“状态如何存”；Scheduler 解决的是“GPU 这一轮给谁用、每个请求推进多少”。
 
-> ### vLLM 的 Scheduler 调度的不是 Request，而是 Token Budget。
+传统批处理通常以 Request 或 Batch 为调度单位：一个请求进入 batch，等整个 batch 完成后再退出。但 LLM 请求的 prompt 长度、生成长度和 KV Cache 占用都不同，因此 vLLM 不能只围绕固定的 Request Batch 做调度。
 
-它不问"这个请求是 prefill 还是 decode"，只问"这一轮我还剩多少 token 额度，这个请求能吃掉多少"。同一轮里的三个请求可能长这样：
+本章先从 Continuous Batching 看请求如何在迭代之间动态加入和退出，再看 Chunked Prefill 如何让长 prompt 分段执行，最后解释这些机制为什么会自然形成 Mixed Batch，以及 vLLM 为什么最终把调度单位统一为 token budget。
 
-```
-Request A（长 prompt 还没喂完） → 本轮推进 256 个 prefill token
-Request B（正常生成中）         → 本轮推进 1 个 decode token
-Request C（开了投机解码）       → 本轮推进 1 个真实 token + 4 个候选 token
-                                  ────────────────────────────
-                                  本轮 token 预算共消耗 262
-```
-
-这三种形态在调度器眼里没有类型差别，只有数量差别——都是"让 `num_computed_tokens` 向 `num_tokens_with_spec` 追赶若干步"。**Continuous Batching 之所以能"continuous"，正是因为调度的粒度细到了 token，而不是停留在 request。** 
 
 ### 4.1 Continuous Batching：迭代级组批（Iteration-level Batching）
 
@@ -1019,6 +1010,18 @@ gantt
     Decode      :d2, 9, 14
     Done ✓      :milestone, 14, 0
 ```
+
+但在 vLLM V1 中，Scheduler 进一步把调度粒度从 Request 推进到了 Token。
+
+> ### vLLM 的 Scheduler 调度的不是 Request，而是 Token Budget。
+
+它不需要给请求贴上“prefill”或“decode”的固定标签，而是计算每个请求距离目标还差多少 token：`num_tokens_with_spec - num_computed_tokens`。这个差值可能是：
+
+- 一段长 prompt 的 prefill token；
+- 一个普通 decode token；
+- speculative decoding 需要推进的多个 token。
+
+这正是 Continuous Batching 能够灵活工作的原因：请求虽然以 Request 为生命周期单位，但调度器以 token budget 为每轮迭代分配资源的单位。
 
 关键代码路径在 `Scheduler.schedule()` 中。下面的伪代码强调 v0.27.1 的统一 token 预算模型，而不是严格的 Prefill / Decode 两阶段：
 
@@ -1157,7 +1160,23 @@ if num_new_tokens > request_token_budget:
     req.is_prefill_chunk = True  # 标记为非最终 prefill 块
 ```
 
-### 4.3 抢占与 Admission Control
+### 4.3 Mixed Batch：Prefill、Decode 与 Speculation 如何共存
+
+前面两个机制合在一起，就会产生 Mixed Batch：Continuous Batching 允许请求在每轮迭代中动态加入和退出，Chunked Prefill 又把长 prompt 拆成多个小段。因此，同一轮中可能同时存在长 prompt 的一段 prefill、已有请求的 decode token，以及投机解码的候选 token。
+
+从调度器的角度看，Mixed Batch 不是一种额外的请求类型，而是统一 token budget 模型的自然结果。`SchedulerOutput` 给出的本轮预算分配可能是：
+
+| 请求 | 本轮 token | 形态 | 调度含义 |
+|---|---:|---|---|
+| Req A | 256 | 长 prefill 的一段 | 本轮继续推进 256 个 token |
+| Req B | 1 | 普通 decode | 本轮推进 1 个 token |
+| Req C | 5 | 1 个真实 token + 4 个候选 token | 为 speculative decoding 推进 5 个 token |
+
+因此，这一轮总共消耗 `256 + 1 + 5 = 262` 个 token 预算。调度器真正关心的是每个请求还差多少 token，即 `num_tokens_with_spec - num_computed_tokens`，而不是请求属于 prefill、decode 还是 speculative decoding。
+
+调度器完成预算分配后，会通过 `SchedulerOutput` 把本轮的请求、token 数量和 KV Cache 分配结果交给执行层。执行层如何将它们翻译成 `InputBatch`、`slot_mapping`、`block_table` 和 attention metadata，见第 10.4 节。这里先抓住调度层的关键结论：**Mixed Batch 是多个请求共享同一轮 token budget 的结果，而不是调度器分别运行几种 batch。**
+
+### 4.4 抢占与 Admission Control
 
 当 GPU 显存耗尽时，Scheduler 面临极端抉择：
 
@@ -1858,7 +1877,23 @@ $$q'(x) = \frac{\max\left(0, q(x) - p(x)\right)}{\sum_{z} \max\left(0, q(z) - p(
 
 ##### 5.5.4 Speculative Decoding 的变体
 
-这些变体的差别只在**"候选从哪来"**这一件事上——验证和接受/拒绝的逻辑是共用的。所以它们在 vLLM 里被统一抽象成 Proposer（候选生成器），实现在 `vllm/v1/spec_decode/` 下。
+不同 Speculative Decoding 方法的核心区别，主要在于**“候选 token 如何生成”**。它们整体都遵循类似的流程：
+
+```text
+Candidate Generation
+        │
+        ▼
+[d₁, d₂, d₃, ...]
+        │
+        ▼
+Target Model Verification
+        │
+   ┌────┴────┐
+   ▼         ▼
+ Accept     Reject
+```
+
+因此在 vLLM 中，这些不同的候选生成机制被统一抽象为 **Proposer（候选生成器）**，实现在 `vllm/v1/spec_decode/` 下。不同 Proposer 负责产生 speculative decoding 所需的候选 token，而后续的 Target 验证、接受/拒绝以及 KV Cache 更新等流程则可以复用统一的 speculative decoding 基础设施。
 
 但在看表之前要先做一个分类上的澄清，因为下表把六种方法平铺在一起，容易掩盖一件事：**它们并不都是"推理技巧"。**
 
@@ -1878,80 +1913,205 @@ Speculative Decoding（一种推理时的加速框架）
     └── MTP                  —— 预训练阶段就已经有了
 ```
 
-**MTP 和其他五种不是同一层的东西。** N-gram、EAGLE 是为了加速推理才发明的；而 Multi-Token Prediction **首先是一种模型架构与训练目标**——DeepSeek V3 引入 MTP 的初衷是让模型在预训练时被迫为多个未来位置负责，从而学到更好的表示，**提升模型质量本身**。至于"训练时顺手得到的 MTP 头正好可以在推理时当 draft 用"，是一个**副产品**。
 
-这个区分不只是学术上的讲究，它有工程后果：前五种你可以在部署时自由开关、自由挑选；而 MTP 能不能用，在模型预训练结束的那一刻就已经定了。这一点在源码里看得很直白——MTP 的层数直接读模型 HF config 的 `num_nextn_predict_layers`（`vllm/config/speculative.py`），MTP 头的权重则由 `DeepSeekMultiTokenPredictor.load_weights()` 从 checkpoint 里加载出来（`vllm/model_executor/models/deepseek_mtp.py`）。**它不是 vLLM 附加上去的东西，而是模型自己带来的。**
+其中，**MTP 和其他方法尤其值得区分**。
 
-| 方法 | 文件 | 原理 | 优势 | 劣势 |
-|------|------|------|------|------|
-| **Draft Model** | `draft_model.py` | 独立小模型 | 通用、与 Target 解耦 | 需要额外模型、额外显存 |
-| **N-gram** | `ngram_proposer.py` | 从 prompt 中查找匹配 n-gram | 零额外开销 | 依赖 prompt 内容 |
-| **EAGLE** | `eagle.py` | 特征级别 Draft (复用 Target 的 hidden states) | 高接受率 | 需要训练 EAGLE 头 |
-| **Medusa** | `medusa.py` | 多个额外 LM Head 并行预测 | 无需独立模型 | 需要训练 Medusa 头 |
-| **MTP** | `eagle.py`（复用 EagleProposer） | 模型自带 Multi-Token Prediction Head | 原生集成 | 需要模型支持 |
-| **Suffix Decoding** | `suffix_decoding.py` | 基于后缀树匹配 | 无训练开销 | 受限于上下文 |
+N-gram、Suffix、Draft Model、EAGLE、Medusa，本质上都是为了在推理阶段获得更便宜的候选 token：有的方法依赖另一个小模型，有的方法依赖历史 token，有的方法在 Target Model 上增加额外的预测组件。
 
-MTP 这一行值得单独说明：vLLM 并没有一个独立的 "MTP proposer"，而是把模型自带的 MTP 头当作 EAGLE 的一种特例，复用 `EagleProposer` 的推测/验证流程；`SpeculativeConfig` 里维护了一份 `*_mtp` 方法白名单（`deepseek_mtp`、`glm4_moe_mtp`、`qwen3_next_mtp` 等几十项），个别模型再派生特化子类（如 `step3p5.py` 的 `Step3p5MTPProposer(EagleProposer)`）。也就是说，MTP 在工程上是"复用已有框架"而不是"新增一套框架"——这正是 EAGLE 那套 hidden-state 级 draft 抽象的价值所在。
+而 **Multi-Token Prediction（MTP）首先是一种模型架构与训练目标**：模型在训练阶段不仅学习预测下一个 token，还学习预测多个未来位置的 token。这样得到的 MTP 层在推理阶段又可以天然用于生成 speculative decoding 所需要的候选 token。
 
-| 变体 | 候选从哪来 | 一句话 |
-|---|---|---|
-| **独立 Draft Model** | `Draft(7B)` 串行跑 K 步 → `[d₁…d₅]`，再交给 `Target(70B)` 验证 | 另找一个小模型 |
-| **EAGLE** | `Target hidden_states` → EAGLE Head → `[d₁…d₅]` | 复用 Target 的**特征**，不重新读一遍文本 |
-| **Medusa** | `Target hidden_states` → Head₁/Head₂/Head₃ **并行** → `d₁,d₂,d₃` | 多个 LM 头一次 Forward 出多个位置 |
-| **MTP** | `Target hidden_states` → MTP Layer₁/Layer₂ → `d₁,d₂` | 模型**预训练时就带着**这些层 |
-| **N-gram / Suffix** | 直接在 prompt 文本里查匹配 → `[d₁,d₂,d₃]` | 零模型开销，纯字符串匹配 |
+因此，MTP 与其他方法最大的区别在于：
 
-从上往下，**对模型的侵入性递增、额外开销递减**：独立 Draft 最通用但要多养一个模型；EAGLE / Medusa 要训练额外的头；MTP 要模型原生支持；而 N-gram 什么都不要，代价是只在有重复模式时才猜得中。
+> **EAGLE、Medusa 等是在已有 Target Model 外部增加 speculative 组件；MTP 则要求 Target Model 本身原生具备 Multi-Token Prediction 能力。**
 
-##### 5.4.5 适用边界与性能收益
+这也带来了明显的工程差异：
 
-| 场景 | 接受率 | 加速比 | 说明 |
-|------|--------|--------|------|
-| 代码生成 | 70-90% | 2-3× | 模式规律、Draft 容易猜对 |
-| 翻译 | 50-80% | 1.5-2.5× | 较高可预测性 |
-| 自由对话 | 30-60% | 1.2-1.8× | 创意性强、Draft 猜对率低 |
-| 高温度采样 | 20-40% | 1.0-1.3× | 随机性高，接受率低 |
-| 多租户混合 | - | 需权衡 | Draft 模型占用 GPU 资源影响其他请求 |
+* Draft Model、N-gram、Suffix 等更多属于**部署阶段可以选择的推理策略**；
+* EAGLE、Medusa 虽然也可以在部署阶段启用，但需要提前针对特定 Target Model 训练相应的额外组件；
+* MTP 则要求模型 checkpoint 原生包含对应的 MTP 结构和权重。
 
-上表是**定性趋势的量级示意，不是可引用的实测数据**：接受率强烈依赖 draft 与 target 的搭配、推测步数 K、采样温度和具体数据分布，加速比还要再叠加 batch size 的影响。这里唯一稳健的结论是排序关系——输出越"可预测"，投机解码越划算；温度越高、创造性越强，收益越快衰减。
+在 vLLM 中，这一点也体现在实现上：MTP 的相关配置会从模型配置中读取，例如 `num_nextn_predict_layers`；对应的 MTP 权重也作为模型 checkpoint 的一部分进行加载。换句话说，**MTP 不是 vLLM 在部署时临时给普通模型外挂的能力，而是模型本身携带的能力。**
 
-还有一个常被忽略的反直觉点：**投机解码在高并发下可能是负收益**。它的原理是拿闲置算力换延迟，可一旦 batch 已经足够大、GPU 本来就不闲，多算的候选 token 就变成纯粹的浪费，还会挤占其他请求的 token 预算。所以它更适合低并发、低延迟诉求的场景，而不是吞吐优先的场景。真实收益必须在你自己的 workload 上量。
+下表是对它们几个的对比：
+
+| 方法                  | 候选生成机制         | 核心原理                                                | 优势                               | 局限                                              |
+| ------------------- | -------------- | --------------------------------------------------- | -------------------------------- | ----------------------------------------------- |
+| **Draft Model**     | 独立小模型          | 用一个更小、更快的模型自回归生成候选                                  | 通用、与 Target 解耦                   | 需要额外模型、显存和计算                                    |
+| **N-gram**          | 历史 token 匹配    | 从已有上下文中查找重复 n-gram 并预测后续 token                      | 几乎零模型开销                          | 依赖文本中的重复模式                                      |
+| **Suffix Decoding** | 后缀匹配           | 利用后缀结构/匹配结果生成候选                                     | 无需额外训练模型                         | 对上下文中的可匹配模式依赖较强                                 |
+| **EAGLE**           | Target Feature | 利用 Target Model 的内部 feature，通过轻量 Draft Head 自回归生成候选 | 不需要完整 Draft Model，额外开销较低         | 需要针对 Target Model 训练 EAGLE 组件                   |
+| **Medusa**          | 多预测 Head       | 在 Target Model 上增加多个未来 token 预测 Head，并构造候选树         | 不需要独立 Draft Model，可并行产生多个候选      | 需要训练额外 Head，并涉及 Candidate Tree / Tree Attention |
+| **MTP**             | MTP Layers     | 利用模型原生的 Multi-Token Prediction 层生成未来 token          | 模型原生支持，天然适合 speculative decoding | 需要模型 checkpoint 原生支持 MTP                        |
 
 
-### 5.5 一轮里什么都有：Mixed Batch 如何共存
+##### EAGLE：不再外挂完整 Draft Model，而是外挂轻量 Draft Head
 
-vLLM V1 的执行循环不能简单理解成"先完整 Prefill，再完整 Decode"。在 Continuous Batching 和 Chunked Prefill 下，同一轮迭代中可能同时存在长 prompt 的一段 prefill、已有请求的 decode token，以及投机解码的候选 token。执行层需要通过 `InputBatch`、`slot_mapping`、block table 和 attention metadata，把这些不同形态的 token 组织成一次 GPU forward。
+EAGLE 的核心思想是：
 
-**`SchedulerOutput` 给出的本轮预算分配**，三个请求三种形态：
+> **利用 Target Model 已经计算出来的内部 feature，再通过一个专门训练的轻量 Draft Network 生成候选，而不是再运行一个完整的 Draft Model。**
 
-| 请求 | 本轮 token | 形态 | 块情况 |
-|---|---|---|---|
-| Req A | 256 | 长 prefill 的一段（已推进 256，本轮再推 256） | `block_table = [7, 13]`（新分配） |
-| Req B | 1 | 普通 decode | 追加 slot 到已有块（KV 已累积 seq_len=512） |
-| Req C | 5 | 1 个真实 token + 4 个候选 token | 额外预留 lookahead slots |
+可以粗略理解为：
 
-**GPU 侧把它们拍平成一次 forward**：
-
-```
-InputBatch（扁平 token 序列）
-  [A₀ A₁ … A₂₅₅ │ B₀ │ C₀ C₁ C₂ C₃ C₄]      total = 256 + 1 + 5 = 262
-
-slot_mapping（每个 token 的 KV 写到哪）
-  A: block7:0..15, block13:0..15, …      新块，全部写入
-  B: block3:slot15                       追加到已有块尾部
-  C: block5:slot12..16                   含 lookahead 预留
+```text
+                 Target Model
+                      │
+                      ▼
+               Hidden Feature
+                      │
+                      ▼
+                ┌───────────┐
+                │ EAGLE     │
+                │ Draft Head│
+                └─────┬─────┘
+                      │
+                  d₁ → d₂ → d₃ → ...
+                      │
+                      ▼
+              Target Verification
 ```
 
-attention metadata 里的关键统计：
+因此 EAGLE 与 Draft Model 的最大区别是：
 
-| 字段 | 值 | 作用 |
-|---|---|---|
-| `num_prefill_tokens` | 256 | backend 先处理这 256 个 prefill token |
-| `num_decode_tokens` | 6 | 再处理这 6 个 decode / candidate token |
-| `block_table`（per-req） | — | 告诉 kernel 每个请求的 KV 块映射 |
-| `query_start_loc` | — | 区分不同请求的 token 起始位置 |
+```text
+Draft Model：
 
-**这里有个容易搞错的点**：模型级只有**一个** attention backend，不存在 per-request 切换。是该 backend 在自己的 `forward` 内部，根据 metadata 里的 prefill / decode token 计数去调不同的底层 kernel（例如 FlashInfer 的 `trtllm_batch_context_with_kv_cache` 与 `trtllm_batch_decode_...`）。**分派发生在 kernel 层，不在请求层。**
+Target Model + 完整 Draft Model
+
+
+EAGLE：
+
+Target Model + 轻量 EAGLE Draft Component
+```
+
+EAGLE 并不是一个可以对任意模型直接通用的插件。EAGLE Head 需要针对特定 Target Model 进行训练和适配，但相比维护一个完整的 Draft Model，它的额外参数量和计算开销通常要小得多。
+
+##### Medusa：多个 Head 同时预测未来位置
+
+Medusa 的思路与 EAGLE 类似，也是在 Target Model 上增加额外的预测组件，但它采用的是**多 Head**设计。
+
+```text
+                     Target Model
+                          │
+                          ▼
+                     Hidden State
+                          │
+          ┌───────────────┼───────────────┐
+          ▼               ▼               ▼
+      Medusa Head 1   Medusa Head 2   Medusa Head 3
+          │               │               │
+          ▼               ▼               ▼
+      candidates       candidates       candidates
+          └───────────────┼───────────────┘
+                          ▼
+                   Candidate Tree
+                          │
+                          ▼
+                  Target Verification
+```
+
+每个 Head 负责预测不同未来位置的 token，并可以产生多个候选。多个 Head 的结果进一步组织成 **Candidate Tree**，然后 Target Model 利用 Tree Attention 等机制一次验证多条候选路径。
+
+因此，Medusa 的关键并不只是“增加几个 LM Head”，而是：
+
+> **利用多个预测 Head 构造未来 token 的候选树，再通过一次 Target Model 执行验证多个候选路径。**
+
+这也是 Medusa 与简单的“多个并行 LM Head”之间的重要区别。
+
+##### MTP：模型原生就拥有 Multi-Token Prediction 能力
+
+MTP 与前面的 EAGLE / Medusa 最大的区别在于：
+
+> **MTP 不是部署时外挂到普通模型上的组件，而是模型架构和训练阶段就已经具备的能力。**
+
+可以理解为：
+
+```text
+                  Target Model
+                       │
+                       ▼
+                Hidden Features
+                       │
+                       ▼
+                ┌─────────────┐
+                │ MTP Layer 1 │
+                └──────┬──────┘
+                       │
+                       ▼
+                ┌─────────────┐
+                │ MTP Layer 2 │
+                └──────┬──────┘
+                       │
+                       ▼
+                 Future Tokens
+                       │
+                       ▼
+               Target Verification
+```
+
+因此，从部署形态上看：
+
+```text
+Draft Model：
+
+Target + 独立 Draft Model
+
+
+EAGLE：
+
+Target + EAGLE Draft Component
+
+
+Medusa：
+
+Target + 多个 Medusa Heads
+
+
+MTP：
+
+Target 本身就包含 MTP Layers
+```
+
+这也是为什么 MTP 能否用于 speculative decoding，在很大程度上取决于**模型 checkpoint 是否原生支持 MTP**。
+
+在 vLLM 的工程实现中，MTP 并没有完全独立出一套 speculative decoding 框架，而是复用了已有的 proposer 基础设施。部分 MTP 模型会基于 `EagleProposer` 进行扩展，并由模型侧的 MTP predictor 负责具体的候选生成。
+
+这里需要特别注意：
+
+> **“代码上复用 `EagleProposer`”并不意味着“MTP 算法本质上是 EAGLE 的一种特例”。**
+
+二者在算法思想上仍然不同，只是在 vLLM 中，它们的候选生成和 speculative decoding 执行流程具有较强的共性，因此可以复用同一套工程抽象。
+
+
+##### 从“外挂程度”理解这些方法
+
+如果从一个非常直观的工程视角来看（注意：这只是**工程上的理解框架，而不是严格的算法演进顺序**），可以把这些方法理解成 Target Model 的 speculative 能力逐渐与模型本身融合：
+
+```text
+Draft Model
+    │
+    │ 另找一个小模型来猜
+    ▼
+EAGLE
+    │
+    │ 利用 Target Feature + 轻量 Draft Component
+    ▼
+Medusa
+    │
+    │ 多个 Head 产生未来 token 候选
+    ▼
+MTP
+    │
+    │ 模型原生学习预测多个未来 token
+    ▼
+Model-native Speculation
+```
+
+它们虽然实现方式不同，但最终都在解决同一个问题：
+
+> **Target Model 每生成一个 token 都需要执行昂贵的计算，而 speculative decoding 希望用更低成本的方法一次猜出多个 token，再让 Target Model 一次性验证，从而减少 Target Model 的逐 token 解码次数。**
+
+最后还需要注意一个反直觉现象：Speculative Decoding 在高并发、高 GPU 利用率场景下可能出现负收益。它通过增加 Draft 计算，换取 Target Model 更少的 autoregressive decoding iteration。当 GPU 已经处于较高利用率时，额外的 Draft 计算会与其他请求竞争计算、显存带宽以及执行资源，此时减少 Target iteration 带来的收益可能不足以抵消新增开销，甚至导致整体性能下降。因此，Speculative Decoding 更容易在 GPU 资源相对充裕、且对 Decode latency / ITL 敏感的场景中体现价值；对于高并发、吞吐优先的 Serving 场景，则需要结合 Acceptance Rate、Draft 成本、Batch Size 和 GPU 利用率进行实际评估。
+
 
 <details markdown="1">
 <summary><b>📂 本章源码导航</b></summary>
@@ -1960,7 +2120,7 @@ attention metadata 里的关键统计：
 
 | 想看什么 | 从哪开始 |
 |---|---|
-| **一轮 batch 在 GPU 上怎么跑** | `vllm/v1/worker/gpu/model_runner.py`、`input_batch.py`（翻译层细节见第 10.3 节） |
+| **一轮 batch 在 GPU 上怎么跑** | `vllm/v1/worker/gpu/model_runner.py`、`input_batch.py`（翻译层细节见第 10.4 节） |
 | CUDA Graph 捕获与重放 | `vllm/v1/worker/gpu/cudagraph_utils.py`；模式枚举在 `vllm/config/compilation.py` |
 | Attention 后端选择 | `vllm/v1/attention/selector.py` → `get_attn_backend()` |
 | 各 Attention 后端实现 | `vllm/v1/attention/backends/`（MLA 变体在 `mla/`） |
