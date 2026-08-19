@@ -2257,8 +2257,53 @@ SchedulerOutput
 
 > **Scheduler 负责“决定这一轮算什么”，执行层负责“把这个决定真正变成 GPU 上的计算”。**
 
-具体的 `InputBatch`、`slot_mapping`、`block_table` 和 Attention Metadata 如何构造，可以在后面的执行层章节继续展开。
+执行层需要通过 `InputBatch`、`slot_mapping`、block table 和 attention metadata，把这些不同形态的 token 组织成一次 GPU forward。
 
+```
+┌──────────────── 一轮 Mixed Batch 的 token 构成 ──────────────────────┐
+│                                                                      │
+│  SchedulerOutput (本轮 token 预算分配结果):                            │
+│                                                                      │
+│  ┌─ Req A (长 prefill, 已推进 256, 本轮再推 256) ──────────────────┐ │
+│  │  |████████████████████████|  ← 256 个 prefill tokens              │ │
+│  │  block_table = [7, 13]  (新分配的块)                              │ │
+│  └──────────────────────────────────────────────────────────────────┘ │
+│                                                                      │
+│  ┌─ Req B (普通 decode) ───────────────────────────────────────────┐ │
+│  │  |█|  ← 1 个 decode token                                        │ │
+│  │  block_table 追加 slot 到已有块                                   │ │
+│  │  KV Cache 已累积 seq_len=512                                     │ │
+│  └──────────────────────────────────────────────────────────────────┘ │
+│                                                                      │
+│  ┌─ Req C (decode, spec decode) ───────────────────────────────────┐ │
+│  │  |█ █ █ █ █|  ← 1 个真实 token + 4 个候选 token                  │ │
+│  │  block_table 额外预留 lookahead slots                             │ │
+│  └──────────────────────────────────────────────────────────────────┘ │
+│                                                                      │
+│  GPU 侧组装:                                                          │
+│  ┌──────────────────────────────────────────────────────────────────┐ │
+│  │  InputBatch (扁平的 token 序列):                                  │ │
+│  │  [A₀ A₁ … A₂₅₅ | B₀ | C₀ C₁ C₂ C₃ C₄]                         │ │
+│  │  total_tokens = 256 + 1 + 5 = 262                                │ │
+│  │                                                                  │ │
+│  │  slot_mapping (每个 token 的 KV 写入位置):                        │ │
+│  │  A: [block7:0..15, block13:0..15, ...]  (新块, 全部写入)         │ │
+│  │  B: [block3:slot15]                    (追加到已存在块尾部)        │ │
+│  │  C: [block5:slot12..16]               (含 lookahead 预留)        │ │
+│  │                                                                  │ │
+│  │  attention metadata 统计（用于 backend 内部分支）:                 │ │
+│  │  num_prefill_tokens = 256  → backend 先处理这 256 个 prefill token│ │
+│  │  num_decode_tokens  = 6    → 再处理这 6 个 decode/candidate token │ │
+│  │  block_table (per-req) 告诉 kernel 每个请求的 KV 块映射            │ │
+│  │  query_start_loc 区分不同请求的 token 起始位置                     │ │
+│  └──────────────────────────────────────────────────────────────────┘ │
+│                                                                      │
+│  关键: 模型级只有一个 attention backend, 不是 per-request 切换。       │
+│  该 backend 根据 metadata 中的 prefill/decode token 计数,              │
+│  在自己的 forward 内调用不同的底层 kernel (如 FlashInfer 的             │
+│  trtllm_batch_context_with_kv_cache 和 trtllm_batch_decode_...)。     │
+└──────────────────────────────────────────────────────────────────────┘
+```
 
 ## 4.5 Admission Control 与 Preemption：KV Cache 不够怎么办？
 
@@ -3615,11 +3660,9 @@ Model-native Speculation
 
 ## 六、Multi-GPU：一张卡不够时如何扩展？
 
-> **本章回答第四问：一张卡装不下或跑不动时，怎么扩出去。**
+多卡并行策略：
 
-多卡并行很容易被讲成一份"策略大全"——DP、TP、PP、EP、CP 五个名词一字排开，读完记住了缩写，却不知道该用哪个。所以这一章先立一个判断准则：**每种并行策略都是为了解决一个具体的"装不下"或"跑不动"，先认清你遇到的是哪一种。**
-
-| 你遇到的问题 | 该用的策略 | 切的是什么 |
+| 遇到的问题 | 该用的策略 | 切的是什么 |
 |---|---|---|
 | 单张卡放不下**一个 Linear 层** | **TP** | 层**内**的矩阵，按行/列切 |
 | 单层放得下，但**整个模型**太大 | **PP** | 按**层**切，分段流水 |
@@ -3629,7 +3672,7 @@ Model-native Speculation
 
 这张表里最值得单独说的是 **DP**：它和其余四个不是一类东西。TP/PP/EP/CP 解决的都是"装不下"，是被迫拆分；**DP 解决的是"想要更多"，前提恰恰是单卡装得下**。所以生产部署里通常是"先用 TP/PP/EP/CP 把模型塞进一组卡，再用 DP 把这组卡整体复制 N 份来放大吞吐"——DP 永远是最外层。
 
-下面按 DP → TP → PP → EP → CP 的顺序展开，每一节请对照上表看它在解决哪一行。
+下面按 DP → TP → PP → EP → CP 的顺序展开。
 
 ### 6.1 分布式推理的混合并行战略
 
