@@ -1455,11 +1455,22 @@ Scheduler 首先需要确定：
 
 > **本轮最多允许处理多少 token？**
 
-可以把它抽象成：
+在 vLLM V1 中，Scheduler 有一个配置项：
 
 ```text
-B = max_num_scheduled_tokens
+max_num_scheduled_tokens
 ```
+
+它定义的是：
+
+> **一次 `schedule()` iteration 中，最多允许调度多少个 token。**
+
+所以可以把它记成：
+
+[
+B = \text{max_num_scheduled_tokens}
+]
+
 
 例如：
 
@@ -1471,6 +1482,12 @@ max_num_scheduled_tokens = 512
 
 ```text
 本轮 Token Budget = 512
+```
+
+意味着：
+
+```text
+这一轮最多安排 512 token 的计算工作
 ```
 
 所有 Request 在这一轮消耗的 token 额度之和不能超过这个预算：
@@ -2092,6 +2109,38 @@ KV Cache Block 不够
 
 这就是下一节 Admission Control 与 Preemption 要解决的问题。
 
+整体调度流程如下：
+
+```text
+                    Scheduler
+                        │
+                        ▼
+          max_num_scheduled_tokens
+                        │
+                        ▼
+                ┌──────────────┐
+                │ Token Budget │
+                └──────┬───────┘
+                       │
+                       ▼
+             Request token demand
+                       │
+                       ▼
+                num_new_tokens
+                       │
+                       ▼
+                allocate_slots()
+                       │
+                       ▼
+                 KV Cache
+                       │
+             ┌─────────┴─────────┐
+             ▼                   ▼
+           足够                  不足
+             │                   │
+             ▼                   ▼
+          执行                  等待/抢占
+```
 
 ## 4.4 Mixed Batch：为什么 Prefill、Decode 与 Speculative 可以共存？
 
@@ -2759,7 +2808,7 @@ Speculative Decode
 
 1. **Continuous Batching**：Request 可以在每个 iteration 动态加入和退出。
 2. **Chunked Prefill**：一个超长 Request 也不能无限制地独占一轮计算。
-3. **Token Budget**：Scheduler 通过统一的 token 额度决定每个 Request 本轮推进多少。
+3. **Token Budget**：Scheduler 为每个 iteration 设置一个 token 数量上限，以控制本轮 GPU 的最大调度工作量；在此基础上，再结合 Request 的 token 推进需求和 KV Cache 可用空间，决定每个 Request 实际推进多少 token。
 4. **Mixed Batch**：Prefill、Decode 和 Speculative Decode 可以在同一轮自然共存，因为它们最终都被统一表示成 token 推进需求。
 5. **Admission Control + Preemption**：Token Budget 解决“算多少”，KV Cache 管理解决“能不能装下”。
 
