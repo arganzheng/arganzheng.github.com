@@ -6,19 +6,22 @@ permalink: /slides/
 ---
 
 <div id="slides-index">
-{% assign decks = site.slides | sort: 'date' | reverse %}
-{% if decks.size == 0 %}
-<p>还没有幻灯片。</p>
-{% else %}
+{% assign all_pages = site.pages | sort: 'date' | reverse %}
+{% assign deck_count = 0 %}
 <ul class="list-unstyled">
-  {% for deck in decks %}
+  {% for p in all_pages %}
+    {% if p.layout == "slides" %}
+      {% assign deck_count = deck_count | plus: 1 %}
   <li style="margin-bottom: 1.5em;">
-    <small style="color: #aaa">{{ deck.date | date: "%Y/%m/%d" }}</small>
+    <small style="color: #aaa">{{ p.date | date: "%Y/%m/%d" }}</small>
     &nbsp;&raquo;&nbsp;
-    <a href="{{ deck.url | prepend: site.baseurl }}">{{ deck.title }}</a>
-    {% if deck.subtitle %}<br><small style="color: #999">{{ deck.subtitle }}</small>{% endif %}
+    <a href="{{ p.url | prepend: site.baseurl }}">{{ p.title }}</a>
+    {% if p.subtitle %}<br><small style="color: #999">{{ p.subtitle }}</small>{% endif %}
   </li>
+    {% endif %}
   {% endfor %}
 </ul>
+{% if deck_count == 0 %}
+<p>还没有幻灯片。</p>
 {% endif %}
 </div>

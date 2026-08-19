@@ -55,18 +55,12 @@ kramdown:
 
 
 # Slides (reveal.js)
-# Markdown in `_slides/` is rendered by kramdown like any post, then
-# `_layouts/slides.html` splits the HTML on every `<hr>` (a `---` line) into
-# reveal.js sections. Name files without a date prefix: `_slides/foo.md` -> `/slides/foo.html`
-collections:
-  slides:
-    output: true
-    permalink: /slides/:name.html
-
+# Markdown files live directly in `slides/foo.md`, with `layout: slides`.
+# This is 100% compatible with GitHub Pages / safe mode.
+# Output URL: `/slides/foo.html`
 defaults:
   - scope:
-      path: ""
-      type: slides
+      path: "slides"
     values:
       layout: slides
 

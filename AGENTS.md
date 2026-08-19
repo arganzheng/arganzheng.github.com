@@ -23,8 +23,8 @@ npm install && npx grunt        # or `npx grunt watch`
 ## Layout
 
 - `_posts/` — blog posts, `layout: post`, permalink `/:title.html`
-- `_slides/` — reveal.js decks, `layout: slides` (applied by `defaults`),
-  permalink `/slides/:name.html`, indexed by `slides.html`
+- `slides/` — reveal.js decks, `layout: slides` (or set in front matter),
+  URL `/slides/:name.html`, indexed by `slides.html` (`/slides/`)
 - `_includes/rich-content.html` — Mermaid + KaTeX loaders, shared by
   `_includes/head.html` and `_layouts/slides.html`. Both renderers are lazy:
   they only fetch their bundle if the page actually contains a diagram/formula,
@@ -37,6 +37,7 @@ npm install && npx grunt        # or `npx grunt watch`
 Decks are ordinary Markdown; kramdown renders the file and `_layouts/slides.html`
 splits the HTML on every `<hr>` into reveal.js `<section>`s.
 
+- Create `slides/my-talk.md` with `layout: slides` and `permalink: /slides/my-talk.html` in the front matter.
 - Separate slides with `---` and **always leave a blank line before it**,
   otherwise Markdown reads it as a setext `<h2>` underline and the slide is
   not split.
@@ -48,4 +49,4 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
 - Speaker notes: `<aside class="notes" markdown="1">...</aside>`, shown with `S`.
 - Export: append `?print-pdf` and print from the browser.
 
-`_slides/reveal-demo.md` is a live demo of all of the above.
+`slides/reveal-demo.md` is a live demo of all of the above.

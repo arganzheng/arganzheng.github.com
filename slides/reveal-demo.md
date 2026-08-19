@@ -1,6 +1,8 @@
 ---
+layout: slides
 title: "用 Markdown 写在线 PPT"
 subtitle: "reveal.js + Jekyll 演示 / 使用说明"
+permalink: /slides/reveal-demo.html
 date: 2026-08-19
 author: 郑志彬
 description: "这个博客的在线幻灯片能力演示：Markdown 分页、代码高亮、Mermaid、KaTeX、演讲者备注、PDF 导出。"
@@ -12,7 +14,7 @@ transition: slide
 
 一份**纯 Markdown** 写成的在线幻灯片。
 
-- 源文件放在 `_slides/`，和写博客一模一样
+- 源文件放在 `slides/`，和写博客一模一样
 - kramdown 正常渲染，`_layouts/slides.html` 再按 `---` 切成一页页
 - 复用博客已有的能力：rouge 代码高亮、Mermaid、KaTeX
 - 没有构建步骤，`git push` 就上线
@@ -25,12 +27,14 @@ transition: slide
 
 ## 怎么写一页
 
-新建 `_slides/my-talk.md`：
+新建 `slides/my-talk.md`：
 
 ```markdown
 ---
+layout: slides
 title: "我的分享"
 subtitle: "副标题"
+permalink: /slides/my-talk.html
 date: 2026-08-19
 theme: white          # white / simple / league / night / solarized ...
 transition: slide     # slide / fade / convex / concave / zoom / none
@@ -207,7 +211,7 @@ $$
 ## 就这些
 
 - 写文章 → `_posts/`
-- 写 PPT → `_slides/`
+- 写 PPT → `slides/`
 
 **Markdown 一把梭。**
 
