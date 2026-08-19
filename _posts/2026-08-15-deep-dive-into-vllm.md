@@ -1741,111 +1741,7 @@ C → 1
 D → 110
 ```
 
-### 4.3.6 长 Prompt 为什么自然会变成 Chunked Prefill？
-
-再看一个例子。
-
-假设：
-
-```text
-Token Budget = 512
-
-Request A:
-remaining = 2050
-```
-
-那么一轮不可能一次处理 2050 tokens。
-
-第一轮：
-
-```text
-A → 512
-```
-
-剩余：
-
-```text
-2050 - 512 = 1538
-```
-
-第二轮：
-
-```text
-A → 512
-```
-
-剩余：
-
-```text
-1538 - 512 = 1026
-```
-
-第三轮：
-
-```text
-A → 512
-```
-
-剩余：
-
-```text
-1026 - 512 = 514
-```
-
-第四轮：
-
-```text
-A → 512
-```
-
-剩余：
-
-```text
-514 - 512 = 2
-```
-
-第五轮：
-
-```text
-A → 2
-```
-
-于是：
-
-```text
-2050 tokens
-
-        ↓
-
-512 + 512 + 512 + 512 + 2
-```
-
-这说明：
-
-> **Chunked Prefill 并不是与 Token Budget 完全独立的一套机制。**
-
-从更高层看，它是：
-
-```text
-一个 Request 有大量 remaining tokens
-                │
-                ▼
-       本轮 Token Budget 有限
-                │
-                ▼
-       无法一次全部推进
-                │
-                ▼
-      被迫跨多个 iteration 推进
-                │
-                ▼
-          Chunked Prefill
-```
-
-当然，实际 vLLM 调度还会受到 `long_prefill_token_threshold` 等约束，因此并不只是简单的 `min(remaining, token_budget)`。
-
-
-### 4.3.7 Decode 为什么也是同一个调度模型？
+### 4.3.6 Decode 为什么也是同一个调度模型？
 
 现在看普通 Decode。
 
@@ -1923,7 +1819,7 @@ remaining_tokens 可能大于 1
 Prefill 和 Decode 依然是非常重要的性能分析概念，但它们并不意味着 Scheduler 内部必须存在两个完全独立的“Prefill Scheduler”和“Decode Scheduler”。
 
 
-#### 4.3.8 Scheduler 的核心源码逻辑
+#### 4.3.7 Scheduler 的核心源码逻辑
 
 在 vLLM V1 中，关键逻辑位于：
 
@@ -2057,7 +1953,7 @@ Waiting Requests
 > **计算 Request 当前需要推进多少 token，并在本轮剩余 Token Budget 和其他资源约束下决定实际推进多少。**
 
 
-### 4.3.9 Token Budget 与 KV Cache 是两个不同维度的约束
+### 4.3.8 Token Budget 与 KV Cache 是两个不同维度的约束
 
 到这里还需要区分一个非常重要的概念。
 
