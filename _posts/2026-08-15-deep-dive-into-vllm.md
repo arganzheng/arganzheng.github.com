@@ -982,105 +982,6 @@ KV Cache 解决的是“状态如何存”；Scheduler 解决的是“GPU 这一
 
 Continuous Batching 是 vLLM 最具革命性的调度创新。传统 DL 推理中，一个 Batch 的所有请求必须同时开始、同时结束。Continuous Batching 打破这一限制，在**每一步迭代**级别动态调整 Batch 组成：
 
-```mermaid
-gantt
-    title Continuous Batching 时间线
-    dateFormat X
-    axisFormat %s
-
-    section Request A
-    Prefill     :a1, 0, 2
-    Decode      :a2, 2, 8
-    Done ✓      :milestone, 8, 0
-
-    section Request B
-    Prefill     :b1, 0, 3
-    Decode      :b2, 3, 12
-    Done ✓      :milestone, 12, 0
-
-    section Request C
-    Wait        :c0, 0, 2
-    Prefill     :c1, 2, 4
-    Decode      :c2, 4, 9
-    Done ✓      :milestone, 9, 0
-
-    section Request D
-    Wait        :d0, 0, 8
-    Prefill     :d1, 8, 9
-    Decode      :d2, 9, 14
-    Done ✓      :milestone, 14, 0
-```
-
-但在 vLLM V1 中，Scheduler 进一步把调度粒度从 Request 推进到了 Token。
-
-> ### vLLM 的 Scheduler 调度的不是 Request，而是 Token Budget。
-
-它不需要给请求贴上“prefill”或“decode”的固定标签，而是计算每个请求距离目标还差多少 token：`num_tokens_with_spec - num_computed_tokens`。这个差值可能是：
-
-- 一段长 prompt 的 prefill token；
-- 一个普通 decode token；
-- speculative decoding 需要推进的多个 token。
-
-这正是 Continuous Batching 能够灵活工作的原因：请求虽然以 Request 为生命周期单位，但调度器以 token budget 为每轮迭代分配资源的单位。
-
-关键代码路径在 `Scheduler.schedule()` 中。下面的伪代码强调 v0.27.1 的统一 token 预算模型，而不是严格的 Prefill / Decode 两阶段：
-
-```python
-# vllm/v1/core/sched/scheduler.py (概念化简)
-def schedule(self, throttle_prefills=False) -> SchedulerOutput:
-    token_budget = self.max_num_scheduled_tokens
-
-    # 先尝试推进已经 running 的请求。
-    # 注意：源码注释明确说明 scheduler 内部没有严格的
-    # "decoding phase" 或 "prefill phase"。
-    for req in self.running:
-        target = req.num_tokens_with_spec
-        num_new_tokens = target - req.num_computed_tokens
-        num_new_tokens = min(num_new_tokens, token_budget)
-
-        if self.scheduler_config.long_prefill_token_threshold > 0:
-            num_new_tokens = min(
-                num_new_tokens,
-                self.scheduler_config.long_prefill_token_threshold,
-            )
-
-        blocks = self.kv_cache_manager.allocate_slots(req, num_new_tokens)
-        if blocks is None:
-            self._preempt_request(req)
-            continue
-
-        token_budget -= num_new_tokens
-
-    # 再从 waiting 队列中接纳新请求或恢复请求。
-    for req in self.waiting:
-        computed_blocks, num_computed = self.kv_cache_manager.get_computed_blocks(req)
-        num_new_tokens = req.num_tokens_with_spec - num_computed
-
-        # Prefix cache、chunked prefill、spec decode、encoder budget
-        # 都会影响本轮最终能推进多少 token。
-        num_new_tokens = min(num_new_tokens, token_budget)
-
-        blocks = self.kv_cache_manager.allocate_slots(req, num_new_tokens)
-        if blocks is None:
-            break
-
-        req.status = RequestStatus.RUNNING
-        token_budget -= num_new_tokens
-
-    return SchedulerOutput(...)
-```
-
-这个模型能同时覆盖普通 prefill、decode、chunked prefill、prefix cache、speculative decoding / MTP 以及部分多模态或 encoder-decoder 约束。Prefill 和 Decode 仍然会在性能分析中出现，但它们是 workload 形态，不是 `Scheduler.schedule()` 内部的硬编码阶段。
-
-注意伪代码中两个循环不是"decode 循环"和"prefill 循环"——只是先处理 running 队列、再处理 waiting 队列。每个循环里实际分配的 token 数量都由 `num_tokens_with_spec - num_computed_tokens` 算出，这个差值既可以是一个 decode token，也可以是一段 prefill token，或者 spec decode 的多个候选 token。
-
-> **回到我们的例子**：这个请求进来时 `num_computed_tokens = 0`，`num_tokens_with_spec = 2050`，差值 2050 就是它"想要"的额度。但它拿不到这么多——假设 `max_num_batched_tokens = 2048`，而同一轮里还有别的请求在 decode，那么它本轮实际只能推进几百个 token，剩下的下一轮继续。
->
-> 于是这个请求的一生在调度器眼里是这样的：**先用若干轮把 `num_computed_tokens` 从 0 追到 2050（这些轮属于 prefill 形态），然后是 300 轮每轮 +1（decode 形态）。** 调度器全程没有"切换阶段"这个动作，它只是一直在做同一件事——**发 token 额度**。
-
-
-**总结：Continuous Batching 与传统 Static Batching 的差别：**
-
 ```
   ┌─────────────── Static Batching (传统) ──────────────────┐
   │                                                         │
@@ -1144,7 +1045,7 @@ Chunked Prefill 将长 Prefill 拆分为多个小块，与 Decode 请求混合�
   ✓ TPOT 平稳，代价是这个长请求的 TTFT 上升
 ```
 
-对比两列可以看到，Chunked Prefill 改变的不仅是长请求自身的调度方式，更是整条 batch 的预算分配。没有 chunking 时，长请求会在若干轮内独占整条 batch；有 chunking 时，每轮只切一小段 prefill，剩余的 token 预算留给其他请求 decode。代价是长请求要经过更多轮才能完成 prefill，TTFT 会上升，但其他请求的 TPOT 更稳定。
+对比两列可以看到，Chunked Prefill 改变的不仅是长请求自身的调度方式，更是整条 batch 的预算分配。没有 chunking 时，长请求会在若干轮内独占整条 batch；有 chunking 时，每轮只切一小段 prefill，剩余的 token 预算留给其他请求 decode。这里先把每轮可处理的 token 数量称为“预算”；Scheduler 如何统一计算和分配这份 token budget，放到 4.3 节展开。代价是长请求要经过更多轮才能完成 prefill，TTFT 会上升，但其他请求的 TPOT 更稳定。
 
 > **回到我们的例子**：2050 token 的 prompt，若设 `long_prefill_token_threshold = 512`，它会被切成 **5 段**（512×4 + 2）。代价是这个请求要多等 4 轮才出首 token，TTFT 上升；收益是这 5 轮里其他请求的 decode 一直在正常推进，**没有一轮被它独占**。
 >
@@ -1161,6 +1062,77 @@ if num_new_tokens > request_token_budget:
 ```
 
 ### 4.3 Mixed Batch：Prefill、Decode 与 Speculation 如何共存
+
+#### Token Budget：Scheduler 真正调度的是什么？
+
+前面的 Continuous Batching 和 Chunked Prefill 说明了请求如何在不同迭代中动态加入、退出和分段推进。接下来还需要回答一个更具体的问题：Scheduler 每一轮究竟以什么为单位分配这些工作？
+
+在 vLLM V1 中，Scheduler 调度的不是 Request，而是 Token Budget。
+
+它不需要给请求贴上“prefill”或“decode”的固定标签，而是计算每个请求距离目标还差多少 token：`num_tokens_with_spec - num_computed_tokens`。这个差值可能是：
+
+- 一段长 prompt 的 prefill token；
+- 一个普通 decode token；
+- speculative decoding 需要推进的多个 token。
+
+请求虽然以 Request 为生命周期单位，但调度器以 token budget 为每轮迭代分配资源的单位。这也是 Continuous Batching 能够灵活工作的原因。
+
+关键代码路径在 `Scheduler.schedule()` 中。下面的伪代码强调 v0.27.1 的统一 token 预算模型，而不是严格的 Prefill / Decode 两阶段：
+
+```python
+# vllm/v1/core/sched/scheduler.py (概念化简)
+def schedule(self, throttle_prefills=False) -> SchedulerOutput:
+    token_budget = self.max_num_scheduled_tokens
+
+    # 先尝试推进已经 running 的请求。
+    # 注意：源码注释明确说明 scheduler 内部没有严格的
+    # "decoding phase" 或 "prefill phase"。
+    for req in self.running:
+        target = req.num_tokens_with_spec
+        num_new_tokens = target - req.num_computed_tokens
+        num_new_tokens = min(num_new_tokens, token_budget)
+
+        if self.scheduler_config.long_prefill_token_threshold > 0:
+            num_new_tokens = min(
+                num_new_tokens,
+                self.scheduler_config.long_prefill_token_threshold,
+            )
+
+        blocks = self.kv_cache_manager.allocate_slots(req, num_new_tokens)
+        if blocks is None:
+            self._preempt_request(req)
+            continue
+
+        token_budget -= num_new_tokens
+
+    # 再从 waiting 队列中接纳新请求或恢复请求。
+    for req in self.waiting:
+        computed_blocks, num_computed = self.kv_cache_manager.get_computed_blocks(req)
+        num_new_tokens = req.num_tokens_with_spec - num_computed
+
+        # Prefix cache、chunked prefill、spec decode、encoder budget
+        # 都会影响本轮最终能推进多少 token。
+        num_new_tokens = min(num_new_tokens, token_budget)
+
+        blocks = self.kv_cache_manager.allocate_slots(req, num_new_tokens)
+        if blocks is None:
+            break
+
+        req.status = RequestStatus.RUNNING
+        token_budget -= num_new_tokens
+
+    return SchedulerOutput(...)
+```
+
+这个模型能同时覆盖普通 prefill、decode、chunked prefill、prefix cache、speculative decoding / MTP 以及部分多模态或 encoder-decoder 约束。Prefill 和 Decode 仍然会在性能分析中出现，但它们是 workload 形态，不是 `Scheduler.schedule()` 内部的硬编码阶段。
+
+注意伪代码中两个循环不是"decode 循环"和"prefill 循环"——只是先处理 running 队列、再处理 waiting 队列。每个循环里实际分配的 token 数量都由 `num_tokens_with_spec - num_computed_tokens` 算出，这个差值既可以是一个 decode token，也可以是一段 prefill token，或者 spec decode 的多个候选 token。
+
+> **回到我们的例子**：这个请求进来时 `num_computed_tokens = 0`，`num_tokens_with_spec = 2050`，差值 2050 就是它"想要"的额度。但它拿不到这么多——假设 `max_num_batched_tokens = 2048`，而同一轮里还有别的请求在 decode，那么它本轮实际只能推进几百个 token，剩下的下一轮继续。
+>
+> 于是这个请求的一生在调度器眼里是这样的：**先用若干轮把 `num_computed_tokens` 从 0 追到 2050（这些轮属于 prefill 形态），然后是 300 轮每轮 +1（decode 形态）。** 调度器全程没有"切换阶段"这个动作，它只是一直在做同一件事——**发 token 额度**。
+
+#### 一轮里什么都有：Mixed Batch 如何形成？
 
 前面两个机制合在一起，就会产生 Mixed Batch：Continuous Batching 允许请求在每轮迭代中动态加入和退出，Chunked Prefill 又把长 prompt 拆成多个小段。因此，同一轮中可能同时存在长 prompt 的一段 prefill、已有请求的 decode token，以及投机解码的候选 token。
 
