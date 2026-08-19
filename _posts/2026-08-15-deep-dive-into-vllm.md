@@ -3660,7 +3660,9 @@ Model-native Speculation
 
 ## 六、Multi-GPU：一张卡不够时如何扩展？
 
-多卡并行策略：
+### 6.1 分布式推理的混合并行策略
+
+分布式推理的混合并行策略：
 
 | 遇到的问题 | 该用的策略 | 切的是什么 |
 |---|---|---|
@@ -3673,8 +3675,6 @@ Model-native Speculation
 这张表里最值得单独说的是 **DP**：它和其余四个不是一类东西。TP/PP/EP/CP 解决的都是"装不下"，是被迫拆分；**DP 解决的是"想要更多"，前提恰恰是单卡装得下**。所以生产部署里通常是"先用 TP/PP/EP/CP 把模型塞进一组卡，再用 DP 把这组卡整体复制 N 份来放大吞吐"——DP 永远是最外层。
 
 下面按 DP → TP → PP → EP → CP 的顺序展开。
-
-### 6.1 分布式推理的混合并行战略
 
 #### 6.1.1 DP (Data Parallelism)
 
@@ -3696,29 +3696,507 @@ graph LR
 
 #### 6.1.2 TP (Tensor Parallelism)
 
-**TP：把单层内的矩阵按行或列切开，分到多张卡上。** 切法有两种，配合使用：
+##### 1、TP 是什么？
 
-| | Column-parallel | Row-parallel |
-|---|---|---|
-| 用在哪 | QKV Projection、Gate/Up | O Projection、Down |
-| 权重怎么切 | 按**列**切：`W[:, 0:d]`、`W[:, d:2d]` … | 按**行**切：`W[0:d, :]`、`W[d:2d, :]` … |
-| 每卡算什么 | `Yᵢ = X @ Wᵢ` | `Zᵢ = Yᵢ @ Wᵢ` |
-| 结果 | 各卡拿到输出的**一部分**，暂时不用通信 | 各卡拿到**部分和**，必须相加 |
-| 通信 | 无 | **All-Reduce**：`Z = Z₀+Z₁+Z₂+Z₃` |
+**TP（Tensor Parallelism）**：将一个 Transformer Layer 内的大矩阵/计算张量切分到多张 GPU 上，让多张 GPU **共同完成同一个请求**的计算。
 
-两者成对出现不是巧合：**column-parallel 的输出正好是 row-parallel 需要的输入切分方式**，所以一个 Attention 块或 MLP 块内部可以只在末尾做一次 All-Reduce，而不是每个矩阵乘都通信一次。
+与 DP“**一张 GPU 处理一批请求**”不同，TP 是：
 
-| 指标 | 值 |
-|---|---|
-| 每层 All-Reduce 次数 | 2（Attention 后 + MLP 后） |
-| 单次通信量 | `2 × B × S × D × sizeof(dtype)` |
-| 最佳场景 | NVLink 互联的同机多卡（H100 NVSwitch 约 900 GB/s） |
+```text
+DP：
+Request A ──→ GPU 0（完整模型）
+Request B ──→ GPU 1（完整模型）
+Request C ──→ GPU 2（完整模型）
 
-**TP 的通信量与激活大小成正比、且在关键路径上**，这就是为什么它几乎只适合机内 NVLink——跨机做 TP 会被网络拖死。
+TP：
+                 一个 Request
+                      │
+          ┌───────────┼───────────┐
+          ▼           ▼           ▼
+        GPU 0       GPU 1       GPU 2
+        1/N 模型     1/N 模型     1/N 模型
+          └───────────┼───────────┘
+                      ▼
+                 共同完成计算
+```
 
-> **回到我们的例子**（TP=8，`hidden=8192`，FP16）：decode 阶段每个 token 每次 All-Reduce 的**张量本身**是 `8192 × 2 B = 16 KB`，每层 2 次、共 80 层，于是**每个 token 每步涉及约 2.5 MB 的激活**。（真实过线字节还要乘 all-reduce 的算法系数——ring 实现约 `2×(N−1)/N ≈ 1.75` 倍；NVLink 的 900 GB/s 也是单卡双向聚合口径。这些系数不改变下面的量级结论。）
->
-> batch=32 时就是 80 MB/步。走 NVLink（900 GB/s）约 0.09 ms，相对 10 ms 的 decode 步几乎可以忽略；但同样这 80 MB 若走 InfiniBand NDR（50 GB/s）就要 1.6 ms——**乘以 80 层里每一次同步的等待，跨机 TP 就是这样被拖垮的。**
+因此 TP 的主要价值是：
+
+* **降低单 GPU 的模型参数和计算量**
+* 让原本单卡放不下的模型可以跨多卡运行
+
+代价则是：**GPU 之间需要频繁通信。**
+
+##### 2、TP 怎么切？
+
+以矩阵乘法：
+$$Y=XW$$
+
+为例，TP 最常见的两种切法是 **Column Parallel** 和 **Row Parallel**。
+
+```text
+┌────────────── Tensor Parallelism ────────────────────────────────────┐
+│                                                                       │
+│  TP: 单层内的矩阵按行/列切分到多个 GPU                                │
+│                                                                       │
+│  Column-parallel (QKV Projection, Gate/Up):                           │
+│  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐         │
+│  │  GPU 0   │   │  GPU 1   │   │  GPU 2   │   │  GPU 3   │         │
+│  │ W[:, 0:d]│   │W[:, d:2d]│   │W[:,2d:3d]│   │W[:,3d:4d]│         │
+│  │    ↓     │   │    ↓     │   │    ↓     │   │    ↓     │         │
+│  │ Y₀=X@W₀ │   │ Y₁=X@W₁ │   │ Y₂=X@W₂ │   │ Y₃=X@W₃ │         │
+│  └──────────┘   └──────────┘   └──────────┘   └──────────┘         │
+│       ↓              ↓              ↓              ↓                 │
+│   各 GPU 得到输出的一部分, 无需通信 (column-parallel 前半)             │
+│                                                                       │
+│  Row-parallel (O Projection, Down):                                   │
+│  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐         │
+│  │  GPU 0   │   │  GPU 1   │   │  GPU 2   │   │  GPU 3   │         │
+│  │W[0:d, :] │   │W[d:2d, :]│   │W[2d:3d,:]│   │W[3d:4d,:]│         │
+│  │    ↓     │   │    ↓     │   │    ↓     │   │    ↓     │         │
+│  │ Z₀=Y₀@W₀│   │ Z₁=Y₁@W₁│   │ Z₂=Y₂@W₂│   │ Z₃=Y₃@W₃│         │
+│  └────┬─────┘   └────┬─────┘   └────┬─────┘   └────┬─────┘         │
+│       └───────┬───────┴──────┬───────┘              │                │
+│               ▼              ▼                       ▼                │
+│         ═══════════ All-Reduce ═══════════                           │
+│         Z = Z₀ + Z₁ + Z₂ + Z₃                                       │
+│                                                                       │
+│  每层 All-Reduce 次数: 2（Attention 后 + MLP 后）                     │
+│  通信量: 2 × B × S × H × sizeof(dtype)                               │
+│  最佳场景: NVLink / NVSwitch 互联的同机多卡                          │
+└───────────────────────────────────────────────────────────────────────┘
+```
+
+两者的核心区别：
+
+|      | Column Parallel | Row Parallel |
+| ---- | --------------- | ------------ |
+| 权重   | 按列切             | 按行切          |
+| 每卡计算 | (Y_i=XW_i)      | (Z_i=Y_iW_i) |
+| 结果   | 输出的不同分片         | 输出的部分和       |
+| 通信   | 无               | All-Reduce   |
+| 典型应用 | QKV、Gate/Up     | O、Down       |
+
+
+##### 3、为什么 Column 和 Row 可以配合而且经常成对出现？
+
+两种切法之所以能够配合，是因为：
+
+> Column Parallel 的输出分片，恰好对应 Row Parallel 的输入分片。
+
+可以用两个连续的 Linear Layer 来理解：
+
+$$
+X \rightarrow Linear_1 \rightarrow Y \rightarrow Linear_2 \rightarrow Z
+$$
+
+假设 TP=4：
+
+```text
+        Linear 1                         Linear 2
+     Column Parallel                   Row Parallel
+
+          W₁                                W₂
+     ┌───────────────┐              ┌───────┐
+     │ W₁₀│W₁₁│W₁₂│W₁₃│              │ W₂₀  │
+     └───────────────┘              ├───────┤
+          │                         │ W₂₁  │
+          ▼                         ├───────┤
+     Y = [Y₀│Y₁│Y₂│Y₃]              │ W₂₂  │
+          │                         ├───────┤
+          │                         │ W₂₃  │
+          │                         └───────┘
+          │                             │
+          └────── Y₀ → W₂₀ ────────────┤
+                 Y₁ → W₂₁ ─────────────┤
+                 Y₂ → W₂₂ ─────────────┤
+                 Y₃ → W₂₃ ─────────────┤
+                                       ▼
+                                  All-Reduce
+                                       │
+                                       ▼
+                                       Z
+```
+
+假设：
+
+$$
+X\in R^{B\times8}
+$$
+
+第一层：
+
+$$
+Y=XW_1,\qquad W_1\in R^{8\times8}
+$$
+
+采用 **Column Parallel**，把 (W_1) 按列切成 4 份：
+
+```text
+                 W₁ (8 × 8)
+        ┌────────┬────────┬────────┬────────┐
+        │   W₁₀  │   W₁₁  │   W₁₂  │   W₁₃  │
+        │  8 × 2 │  8 × 2 │  8 × 2 │  8 × 2 │
+        └────────┴────────┴────────┴────────┘
+             GPU0     GPU1     GPU2     GPU3
+```
+
+每张 GPU 分别计算：
+
+$$
+Y_0=XW_{10},\quad
+Y_1=XW_{11},\quad
+Y_2=XW_{12},\quad
+Y_3=XW_{13}
+$$
+
+所以每张 GPU 得到 (Y) 的一部分：
+
+$$
+Y_0,Y_1,Y_2,Y_3\in R^{B\times2}
+$$
+
+整体上：
+
+$$
+\boxed{Y=[Y_0|Y_1|Y_2|Y_3]}
+$$
+
+现在进入第二层：
+
+$$
+Z=YW_2
+$$
+
+因为 (Y) 的维度是 8，所以：
+
+$$
+W_2\in R^{8\times4}
+$$
+
+注意：**这里的 Row Parallel 并不是随便把 (W_2) 切几块，而是沿着上一层输出 (Y) 的这个维度切。**
+
+```text
+                 W₂ (8 × 4)
+              按行切成 4 份
+
+        ┌──────────────────┐
+        │      W₂₀         │  ← 2 × 4，对应 Y₀
+        ├──────────────────┤
+        │      W₂₁         │  ← 2 × 4，对应 Y₁
+        ├──────────────────┤
+        │      W₂₂         │  ← 2 × 4，对应 Y₂
+        ├──────────────────┤
+        │      W₂₃         │  ← 2 × 4，对应 Y₃
+        └──────────────────┘
+          GPU0    GPU1    GPU2    GPU3
+```
+
+于是每张 GPU 可以**直接使用自己上一层得到的 (Y_i)**：
+
+$$
+Z_0=Y_0W_{20}
+$$
+
+$$
+Z_1=Y_1W_{21}
+$$
+
+$$
+Z_2=Y_2W_{22}
+$$
+
+$$
+Z_3=Y_3W_{23}
+$$
+
+为什么最后要相加？
+
+因为完整的矩阵乘法实际上是：
+
+$$
+\begin{aligned}
+Z
+&=YW_2\
+&=[Y_0|Y_1|Y_2|Y_3]
+\begin{bmatrix}
+W_{20}\
+W_{21}\
+W_{22}\
+W_{23}
+\end{bmatrix}\
+&=Y_0W_{20}+Y_1W_{21}+Y_2W_{22}+Y_3W_{23}
+\end{aligned}
+$$
+
+因此：
+
+$$
+\boxed{Z=Z_0+Z_1+Z_2+Z_3}
+$$
+
+最后通过 **All-Reduce** 把各 GPU 的部分结果相加。
+
+```text
+ GPU0             GPU1             GPU2             GPU3
+  │                │                │                │
+Y₀ × W₂₀         Y₁ × W₂₁         Y₂ × W₂₂         Y₃ × W₂₃
+  │                │                │                │
+ Z₀                Z₁               Z₂               Z₃
+  └────────────────┴────────────────┴────────────────┘
+                           │
+                     All-Reduce
+                           │
+                           ▼
+                    Z = Z₀+Z₁+Z₂+Z₃
+```
+
+所以，**Column → Row 能够配合的关键**就是：
+
+> **Column Parallel 把上一层的输出 (Y) 按列切开；Row Parallel 再把下一层权重 (W_2) 按对应的行切开。这样每张 GPU 上的 (Y_i) 正好对应自己的 (W_{2i})，无需重新分发激活，只需要在最后 All-Reduce 合并部分结果。**
+
+可以把它记成：
+
+$$
+\boxed{
+\text{Column：输出切分}
+\rightarrow
+\text{Row：输入维度对应切分}
+\rightarrow
+\text{All-Reduce：合并部分结果}
+}
+$$
+
+
+##### 4、TP 在 Transformer 中怎么应用？
+
+这种“列-行”的组合完美对应了标准 Transformer 解码器（Decoder）内部的组件设计： 
+
+* **Self-Attention 模块**：
+    * **QKV Projection（列并行）**：将输入映射到 Q、K、V 空间，每个 GPU 独立负责一部分 Attention Head（注意力头）。
+    * **Attention 计算**：在各 GPU 内部独立完成计算。
+    * **Output Projection / O_Proj（行并行）**：将多头输出映射回原维度，直到这一步结束时，才进行一次 All-Reduce 通信完成整体求和。 
+* **MLP / FFN 模块**：
+    * **Gate / Up Projection / FC1（列并行）**：将特征维度放大到中间维度（如 $4H$），各 GPU 分片计算。
+    * **Down Projection / FC2（行并行）**：将中间维度重新缩小回原维度，同样在第二层结束后才进行一次 All-Reduce 通信。 
+
+以 TP=4 为例：
+
+```text
+┌────────────────────────────── Transformer Layer ──────────────────────────────┐
+│                                                                              │
+│   Attention                                                                  │
+│                                                                              │
+│   Input X                                                                    │
+│      │                                                                       │
+│      ├───────────────┬───────────────┬───────────────┐                       │
+│      ▼               ▼               ▼               │                       │
+│   Q Projection    K Projection    V Projection       │                       │
+│   Column TP       Column TP       Column TP          │                       │
+│      │               │               │               │                       │
+│      ▼               ▼               ▼               │                       │
+│   Q₀ Q₁ Q₂ Q₃     K₀ K₁ K₂ K₃     V₀ V₁ V₂ V₃       │                       │
+│      │               │               │               │                       │
+│      └───────────────┼───────────────┘               │                       │
+│                      ▼                               │                       │
+│               Attention Compute                      │                       │
+│               GPU 本地计算                            │                       │
+│                      │                               │                       │
+│                      ▼                               │                       │
+│              O Projection                            │                       │
+│              Row TP                                   │                       │
+│                      │                               │                       │
+│              ┌───────┴───────┐                       │                       │
+│              ▼       ▼       ▼       ▼               │                       │
+│             GPU0    GPU1    GPU2    GPU3              │                       │
+│              └───────┬───────┘                       │                       │
+│                      ▼                               │                       │
+│                 All-Reduce                           │                       │
+│                      │                               │                       │
+│                      ▼                               │                       │
+│                 Attention Out                         │                       │
+│                                                      │                       │
+│──────────────────────────────────────────────────────┼───────────────────────│
+│                                                      │                       │
+│   MLP                                                │                       │
+│                                                      │                       │
+│   Input                                               │                       │
+│      │                                               │                       │
+│      ├──────────────────────┬────────────────────────┤                       │
+│      ▼                      ▼                                                │
+│   Gate Projection        Up Projection                                         │
+│   Column TP              Column TP                                            │
+│      │                      │                                                  │
+│      ▼                      ▼                                                  │
+│   Gate₀...Gate₃          Up₀...Up₃                                            │
+│      │                      │                                                  │
+│      └───────────┬──────────┘                                                  │
+│                  ▼                                                             │
+│             Activation                                                         │
+│             GPU 本地计算                                                       │
+│                  │                                                             │
+│                  ▼                                                             │
+│             Down Projection                                                    │
+│             Row TP                                                             │
+│                  │                                                             │
+│          ┌───────┴───────┐                                                     │
+│          ▼       ▼       ▼       ▼                                             │
+│         GPU0    GPU1    GPU2    GPU3                                           │
+│          └───────┬───────┘                                                     │
+│                  ▼                                                             │
+│             All-Reduce                                                         │
+│                  │                                                             │
+│                  ▼                                                             │
+│              MLP Out                                                            │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+这里可以抓住一个非常简单的规律：
+
+| Transformer 部分       | TP 方式               | 为什么                       |
+| -------------------- | ------------------- | ------------------------- |
+| Q / K / V Projection | **Column Parallel** | 将不同 Head/输出维度分到不同 GPU     |
+| Attention            | **GPU 本地计算**        | 每个 GPU 处理自己的 Head         |
+| O Projection         | **Row Parallel**    | 将各 GPU 的 Attention 输出重新组合 |
+| Gate / Up Projection | **Column Parallel** | 将 MLP 中间维度切到不同 GPU        |
+| Activation           | **GPU 本地计算**        | 每个 GPU 处理自己的中间维度          |
+| Down Projection      | **Row Parallel**    | 将各 GPU 的部分结果合并            |
+
+因此可以把一个 Transformer Layer 简化成：
+
+```text
+        Attention                         MLP
+
+    QKV Projection                   Gate / Up Projection
+    Column Parallel                  Column Parallel
+           │                                │
+           ▼                                ▼
+    ┌─────────────┐                  ┌─────────────┐
+    │ Attention   │                  │ Activation  │
+    │ GPU Local   │                  │ GPU Local   │
+    └──────┬──────┘                  └──────┬──────┘
+           │                                │
+      O Projection                    Down Projection
+      Row Parallel                    Row Parallel
+           │                                │
+           ▼                                ▼
+     All-Reduce                         All-Reduce
+           │                                │
+           ▼                                ▼
+      Attention Out                       MLP Out
+```
+
+这样就能看到 TP 在 Transformer 中最核心的结构：
+
+$$
+\boxed{
+\text{Column Parallel}
+\rightarrow
+\text{GPU 本地计算}
+\rightarrow
+\text{Row Parallel}
+\rightarrow
+\text{All-Reduce}
+}
+$$
+
+这个模式在 **Attention 和 MLP 中各出现一次**，因此：**每个 Transformer Layer 通常需要 2 次 All-Reduce**：
+
+**Attention：** 
+$$
+QKV\rightarrow Attention\rightarrow O\rightarrow All\text{-}Reduce
+$$
+
+**MLP：**
+$$
+Gate/Up\rightarrow Activation\rightarrow Down\rightarrow All\text{-}Reduce
+$$
+
+##### 5、TP 的代价：通信
+
+TP 的核心交换是：**用 GPU 间通信换取单卡计算和显存压力的降低。**
+
+一次 All-Reduce 的逻辑通信量约为：
+
+$$
+\boxed{
+V=B\times S\times H\times sizeof(dtype)
+}
+$$
+
+其中：
+
+* (B)：Batch Size，本轮同时处理的序列数
+* (S)：本轮每个序列处理的 token 数
+* (H)：Hidden Size
+
+**Decode 阶段通常 (S=1)**。
+
+以我们前面的例子为例：
+
+* Batch=32
+* (S=1)
+* (H=8192)
+* BF16（2 Byte）
+* 80 层
+* 每层 2 次 All-Reduce
+
+则：
+
+$$
+V_{\text{一次}}
+=32\times1\times8192\times2
+=512\text{ KiB}
+$$
+
+整个 Decode Step：
+
+$$
+512\text{ KiB}\times2\times80
+\approx\boxed{80\text{ MiB}}
+$$
+
+这是**逻辑通信量**；实际链路传输量还取决于 All-Reduce 算法。例如 Ring All-Reduce 单卡的传输量约为：
+
+$$
+2\frac{N-1}{N}V
+$$
+
+TP=8 时约为 (1.75V)。
+
+##### 6、为什么 TP 更适合机内高速互联场景？
+
+TP 的问题不只是“通信量大”，更重要的是：**All-Reduce 位于每层计算的关键路径，需要同步等待。**
+
+```text
+GPU Compute
+     │
+     ▼
+All-Reduce
+     │
+     │ 等待
+     ▼
+GPU Compute
+     │
+     ▼
+All-Reduce
+     │
+     ▼
+下一层
+```
+
+因此 TP 对 **带宽和延迟** 都非常敏感。
+
+| 互联                | TP 适合度 | 原因            |
+| ----------------- | ------ | ------------- |
+| NVLink / NVSwitch | ⭐⭐⭐⭐⭐  | 高带宽、低延迟       |
+| PCIe              | ⭐⭐⭐    | 带宽和延迟较弱       |
+| 跨机 IB / RoCE     | ⭐⭐      | 网络路径更长、同步成本更高 |
+
+所以工程上通常遵循：**TP 优先放在高速互联的机内多卡**。跨机扩展时，则通常结合 **DP、PP、EP** 等并行方式，减少高频的跨机同步。
+
+> **一句话总结：TP 把一个 Transformer Layer 的矩阵计算拆给多张 GPU；Column Parallel 产生输出分片，Row Parallel 产生部分和，再通过 All-Reduce 合并。它用 GPU 间通信换取单卡计算和显存压力的降低，因此尤其依赖高速的机内互联。**
 
 #### 6.1.3 PP (Pipeline Parallelism)
 
