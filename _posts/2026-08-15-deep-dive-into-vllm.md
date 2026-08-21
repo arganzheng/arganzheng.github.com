@@ -4200,7 +4200,21 @@ All-Reduce
 
 #### 6.1.3 PP (Pipeline Parallelism)
 
-**PP：模型按层切开，层间串行传递 `hidden_states`。**
+##### 1、PP是什么？
+
+与 TP 主要切分同一层不同，PP 切分的是**不同层（可以而且往往是多个层一个stage）**。
+
+PP的基本思路是：模型沿层的方向切开多个连续的stage，并将这些 stage 部署到不同的 GPU 或 GPU 组上，推理请求需要依次经过所有 stage，stage间串行传递 `hidden_states`。每个 stage 只保存自己负责层的权重和 KV cache。
+
+例如，一个包含 60 层 Transformer 的模型可以划分为三个 stage：
+
+```text
+Stage 0：Layers 0–19
+Stage 1：Layers 20–39
+Stage 2：Layers 40–59
+```
+
+其PP和数据流向如下所示：
 
 ```mermaid
 graph LR
@@ -4208,28 +4222,355 @@ graph LR
     B -->|"P2P send<br/>hidden_states"| C["GPU 2<br/>Layers 40–59<br/>→ logits"]
 ```
 
-PP 的固有代价是**流水线气泡**——后面的 stage 得等前面的算完才有活干：
+对于一个 batch，输入首先经过 GPU 0 的层；GPU 0 产生边界激活后，将其发送给 GPU 1，依此类推。每个 stage 只保存自己负责的模型层，以及这些层对应的中间状态和 KV cache。
+
+##### 2、为什么推理系统需要 PP
+
+在 LLM Serving 中，模型规模可能远超单张 GPU 的显存容量。除了模型权重之外，推理时还需要保存：
+
+- 模型权重；
+- KV cache；
+- 中间激活；
+- CUDA graph 和通信缓冲区；
+- 批处理、调度和运行时所需的临时空间。
+
+尤其是长上下文和高并发场景下，KV cache 可能占据大量显存。即使模型权重能够放入单卡，加入多个请求的 KV cache 后，也可能无法继续扩展 batch size。
+
+PP 可以将模型不同层的权重和 KV cache 分布到多个 GPU 上，使单张 GPU 只负责模型的一部分。
+
+因此，在推理场景中，PP 主要解决两个问题：
+
+1. **模型权重无法放入单卡或单个 GPU 组；**
+2. **模型权重和 KV cache 的总显存需求过大。**
+
+需要注意，PP 并不会减少整个模型的总计算量。它主要改变的是：
+
+- 模型和缓存如何分布；
+- 请求如何经过不同 GPU；
+- 多张 GPU 如何协同完成一次前向计算。
+
+##### 3、PP 怎么切分模型
+
+PP 通常将模型按连续层切分：
+
+```text
+GPU 0：Embedding + Layers 0–19
+GPU 1：Layers 20–39
+GPU 2：Layers 40–59 + LM Head
+```
+
+每个连续的层区间称为一个 **pipeline stage**。
+
+同一个 stage 内的层通常在本地 GPU 上连续执行，只有 stage 边界处需要跨 GPU 传递中间激活。
+
+这意味着 PP 的通信主要发生在：
+
+```text
+Stage 0 → Stage 1
+Stage 1 → Stage 2
+```
+
+而不是每一层都进行跨卡通信。
+
+另外，PP最简单的方式是按照层数平均切分，但实际部署中还需要考虑：
+
+- 每个 stage 的计算量；
+- 每个 stage 的权重显存；
+- 每个 stage 的 KV cache 显存；
+- Embedding 和输出层的额外开销；
+- GPU 的计算能力和显存容量；
+- stage 之间的网络带宽和延迟。
+
+如果某个 stage 的计算时间明显更长，整个请求就会被这个 stage 拖慢。因为后续 stage 必须等待它产生输出，前面的 stage 也可能因为下游处理不及时而无法继续推进。
+
+所以，PP 的切分目标不是简单地让每个 stage 拥有相同数量的层，而是尽量让各 stage 的：
+
+- 计算时间；
+- 显存占用；
+- 通信开销；
+
+保持相对均衡。
+
+**TIPS** PP 的每个 Stage 不一定只对应一张 GPU
+
+在实际推理系统中，一个 stage 也可能由多张 GPU 组成，并在 stage 内部使用 TP：
+
+```text
+Stage 0：GPU 0–3，通过 TP 计算 Layers 0–19
+Stage 1：GPU 4–7，通过 TP 计算 Layers 20–39
+Stage 2：GPU 8–11，通过 TP 计算 Layers 40–59
+```
+
+此时：
+
+- PP 负责层与层之间的切分；
+- TP 负责一个 stage 内部的层计算；
+- 每个 PP stage 可以看作一个 TP 计算组。
+
+
+##### 3、推理请求在 PP 中如何流动
+
+###### ① Prefill 阶段  
+
+Prefill 阶段负责处理用户输入的完整 prompt。
+
+例如，用户输入长度为 1024 个 token，数据会依次经过所有 stage：
+
+```text
+Prompt tokens
+  ↓
+Stage 0：计算前 20 层
+  ↓ hidden states
+Stage 1：计算中间 20 层
+  ↓ hidden states
+Stage 2：计算后 20 层
+  ↓
+生成 logits
+```
+
+在每个 stage 内部，模型会为自己负责的层计算对应的 Key 和 Value，并写入本地 KV cache：
+
+```text
+Stage 0：保存 Layers 0–19 的 KV cache
+Stage 1：保存 Layers 20–39 的 KV cache
+Stage 2：保存 Layers 40–59 的 KV cache
+```
+
+Prefill 通常具有较强的计算特征，输入 token 数量较多，因此比较容易通过批处理或请求并发来提高 GPU 利用率。
+
+###### ② Decode 阶段  
+
+Decode 阶段每次只生成一个或少量新 token。
+
+生成下一个 token 时，新的 hidden states 仍然需要依次经过所有 stage：
+
+```text
+新 token
+  ↓
+Stage 0：读取本地 KV cache，计算 Layers 0–19
+  ↓
+Stage 1：读取本地 KV cache，计算 Layers 20–39
+  ↓
+Stage 2：读取本地 KV cache，计算 Layers 40–59
+  ↓
+输出下一个 token
+```
+
+每个 stage 只访问自己负责层的 KV cache，但整个生成过程仍然需要经过完整的模型层。
+
+因此，PP 在 decode 阶段的主要特点是：
+
+- KV cache 按 stage 分布；
+- 每个 token 都需要经过所有 stage；
+- stage 间需要传递中间激活；
+- 单请求的端到端延迟会受到多个 stage 串行执行的影响。
+
+在高并发场景中，系统可以同时调度多个请求或多个 token，使不同 stage 尽量处理不同请求的工作，从而提升整体吞吐。
+
+##### 5、PP的代价：流水线气泡
+
+所谓流水线气泡，是指某些 GPU 暂时没有可执行的工作，只能等待其他 stage。
+
+① 启动时的气泡
+
+假设有三个 stage，开始处理第一个 microbatch 时：但在启动阶段，后面的 stage 还没有输入；在结束阶段，前面的 stage 已经完成，而后面的 stage 仍在处理剩余数据。GPU 暂时没有工作可执行的时间段，就是流水线气泡。
 
 ```
 时间 →
-GPU 0: [B1][B2][B3][idle][B4] …
-GPU 1: [--][B1][B2][B3 ][idle] …
-GPU 2: [--][--][B1][B2 ][B3  ] …
-        ↑气泡  ↑气泡
+Stage 0：F(M1)
+Stage 1：空闲 → 等待 M1
+Stage 2：空闲 → 等待 M1
 ```
 
-好消息是**推理中的气泡比训练轻得多**（没有反向传播那条长依赖链），而且有几种缓解手段：
+当 Stage 0 计算完 M1 并发送给 Stage 1 后：
 
-- **Batch Queue**：多个 batch 流水线化推进，填满各 stage
-- **异步调度**：GPU 算当前 batch 时，CPU 已在准备下一个
-- **与 TP 混合**：机内用 TP（低延迟），跨机用 PP（容忍高延迟）
+```
+时间 →
+Stage 0：F(M2)
+Stage 1：F(M1)
+Stage 2：空闲 → 等待 M1
+```
 
-| 指标 | 值 |
-|---|---|
-| 通信内容 | 每个 stage 间传一份 `hidden_states [B, S, D]` |
-| 通信方式 | P2P Send/Recv（NCCL） |
+此时 Stage 2 仍然没有数据可处理。
 
-对比一下就明白 TP 和 PP 的分工：**TP 传的是激活、每层两次、量大；PP 传的是 stage 边界的 hidden_states、次数少得多。** 所以跨机优先 PP。
+随着数据不断向后传递，流水线才逐渐被填满。这一阶段称为 Fill。
+
+② 结束时的气泡
+当 Stage 0 已经处理完最后一个 microbatch 后，后面的 stage 可能仍然有数据没有处理完：
+
+```
+Stage 0：已完成
+Stage 1：仍在处理最后几个 microbatch
+Stage 2：仍在处理最后几个 microbatch
+```
+
+流水线需要继续运行，直到所有 stage 都完成任务。这一阶段称为 Drain。
+
+因此，PP 通常包含：
+
+1. **Fill**：流水线逐渐填满
+2. **Steady State**：所有 stage 尽量并行工作
+3. **Drain**：流水线逐渐排空
+
+Fill 和 Drain 阶段产生的空闲时间，就是流水线气泡的一部分。
+
+气泡大小主要取决于：
+
+- stage 数量；
+- 并发请求或 microbatch 数量；
+- 各 stage 的负载是否均衡；
+- stage 之间的通信延迟；
+- 调度器能否持续提供足够的工作。
+
+对于推理系统而言，一个重要区别是：
+
+> 训练通常可以通过大量 microbatch 长时间维持稳定流水线；在线推理的请求数量、输入长度和输出长度不断变化，因此流水线负载更动态，气泡和负载不均衡更难完全消除。
+
+因此，PP 往往更适合有一定并发度、注重整体吞吐的 Serving 场景。对于单请求低延迟场景，则需要谨慎评估 stage 串行执行和通信带来的开销。
+
+##### 6、推理和训练中的 PP 有什么不同
+
+PP 既可以用于训练，也可以用于推理，但两者关注的问题不同。
+
+###### ① 训练阶段的 PP
+
+训练时，每个 microbatch 都需要进行：
+
+```text
+Forward：Stage 0 → Stage 1 → Stage 2
+Backward：Stage 2 → Stage 1 → Stage 0
+```
+
+因此训练 PP 需要处理：
+
+- forward 激活保存；
+- backward 梯度传递；
+- 多个 microbatch 的梯度累积；
+- 参数更新；
+- 1F1B 等调度策略；
+- 激活显存优化。
+
+训练 PP 的主要目标通常是：
+
+- 支撑超大模型训练；
+- 提高整体训练吞吐；
+- 降低单卡模型状态和激活压力。
+
+###### ② 推理阶段的 PP
+
+推理阶段通常只有 forward，不需要：
+
+- backward；
+- 梯度；
+- 优化器状态；
+- 参数更新；
+- 用于 backward 的训练激活。
+
+推理 PP 的主要关注点是：
+
+- 模型权重能否分布到多张 GPU；
+- KV cache 如何分布；
+- Prefill 和 Decode 如何调度；
+- stage 间通信是否成为瓶颈；
+- 如何提升并发吞吐；
+- 如何控制单请求延迟。
+
+###### ③ 对比总结
+
+两者的核心区别概括来说如下：
+
+> 训练 PP 的核心是调度 forward、backward 和激活显存；推理 PP 的核心是分布式执行 forward、管理 KV cache，以及在吞吐和延迟之间做权衡。
+
+| 对比项 | 训练 PP | 推理 PP |
+|---|---|---|
+| 主要计算 | Forward + Backward | Forward |
+| 是否需要梯度 | 需要 | 不需要 |
+| 是否需要参数更新 | 需要 | 不需要 |
+| 主要显存对象 | 参数、梯度、优化器状态、激活 | 参数、KV cache、运行时缓冲区 |
+| 典型调度 | Microbatch、1F1B | 请求/Token 批处理、Prefill/Decode 调度 |
+| 主要优化目标 | 训练吞吐和显存 | Serving 吞吐、延迟和缓存容量 |
+| 边界通信 | 激活 + 反向梯度 | 主要是前向激活 |
+
+##### 7、PP 对 KV cache 有什么影响
+
+在大模型推理（Inference）场景下，PP 对 KV Cache 的管理、显存占用以及调度带来了极其深远的影响。
+
+###### ① 空间分布式切分：KV Cache 被天然“分层切片”
+
+在单卡或张量并行（TP）中，全网所有层的 KV Cache 通常集中在同一张显卡或同一个机组里。但在 PP 并行下每个 Stage（显卡/节点）只负责模型的一部分层（Layers）。因此，只有当前 Stage 所包含层的 KV Cache 会被缓存在该卡的显存中。
+
+例如：一个 4 阶段的 PP 流水线（Stage 0-3），总共 80 层模型。Stage 0 只持有第 1~20 层的模型参数，因此它也只负责创建和维护第 1~20 层的 KV Cache。后序层的 KV Cache 散落在后面的显卡上。
+
+###### ② 显存节约：降低单卡 KV Cache 的上限压力
+
+大模型推理的显存瓶颈通常在于 模型参数 + KV Cache。
+
+* 单卡纵向扩容：因为 PP 将模型层数均分到了不同卡上，单卡上需要缓存的 KV Cache 层数也变成了总层数的 1/PP_Size。
+* 释放长文本潜力：在处理超长文本（Context Length）或大 Batch 推理时，单卡因为只需要存 1/N 的层，从而能腾出更多显存来容纳更多的 Token，在一定程度上缓解了单卡显存因长文本而崩溃（OOM）的问题。
+
+###### ③ 动态管理难题：跨 Stage 的 Token 调度与绑定
+
+在现代推理框架（如 vLLM, LMDeploy）中，通常使用 PagedAttention 来动态申请和管理 KV Cache 虚拟内存块。引入 PP 后，这种管理变得极其复杂：
+
+* 全局调度一致性：当一个 Batch 的请求在不同的 Stage 之间流动时，中央调度器必须确保所有 Stage 在同一时间为同一个请求分配或释放 KV Cache 块。
+* 不均匀负载（Load Imbalance）：由于不同请求的 Prompt 长度和生成长度不同（特别是多轮对话或 Early Stopping），某些请求可能在中间就结束了。调度器需要跨越不同的 PP Stage 去同步“释放”这些不再需要的 KV Cache 块，如果同步不及时，会导致某些 Stage 显存提前占满。
+
+###### ④ 跨机通信：解耦架构下的新瓶颈
+
+在一些超大规模推理集群中（如 Speculative Decoding 投机采样或分布式推理），PP 经常跨机部署：
+
+* PP 阶段之间传递的是 Activation（激活值 Tensor），而不是整个 KV Cache。
+* 虽然不需要在网络上传输 KV Cache（因为它们已经常驻在各自层的显卡上），但是由于 PP 的每一步都需要等待前级通信，网络延迟（Latency）会直接增加每个 Token 的生成时间（TP-Time-to-First-Token 和 Time-per-Output-Token）。
+
+##### 8、什么时候适合使用 PP
+
+PP 通常适合以下推理场景：
+
+1、模型权重无法放入单卡或单个 TP 组
+
+这是最直接的场景：
+
+- 模型参数规模很大；
+- 单卡显存不足；
+- 单机内的 TP 组仍然无法容纳完整模型；
+- 需要跨节点部署。
+
+2、KV cache 显存压力较大
+
+当模型可以勉强加载，但长上下文或高并发导致 KV cache 不足时，PP 可以将不同层的 KV cache 分布到不同 GPU 上
+
+不过，还需要结合 PagedAttention、KV cache 量化或其他缓存优化技术共同评估。
+
+3、更关注整体吞吐
+
+PP 更适合：
+
+- 多请求并发；
+- 批量推理；
+- 长 prompt 的 Prefill；
+- 希望提升集群整体吞吐；
+- 能够持续向流水线提供任务。
+
+4、需要跨节点部署模型
+
+当模型太大，需要跨多台机器部署时，PP 可以减少跨机 TP 所需的高频集合通信，因此常被用于：
+
+```text
+机内 TP + 机间 PP
+```
+
+需要谨慎使用的场景：
+
+以下场景不一定适合 PP：
+
+- 单请求、低并发的实时对话；
+- 极度追求首 token 延迟或单 token 延迟；
+- 跨机网络带宽不足；
+- stage 之间计算量严重不均衡；
+- 模型本身可以由单机 TP 高效容纳；
+- 请求长度和到达模式变化非常剧烈。
+
+在这些场景中，PP 虽然能够解决显存问题，但 stage 间的串行执行和通信可能抵消并行带来的收益。
 
 #### 6.1.4 EP (Expert Parallelism)
 
