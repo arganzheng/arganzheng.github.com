@@ -4574,34 +4574,1115 @@ PP 更适合：
 
 #### 6.1.4 EP (Expert Parallelism)
 
-**EP：MoE 的 Expert 分布在不同 GPU 上。** 例如 64 个 Expert、4 张卡、EP=4，则每卡持有 16 个：
+混合专家模型（Mixture-of-Experts，MoE）通过在模型中引入多个相对独立的 Expert，并利用 Router 为每个 Token 动态选择少量 Expert，从而在不线性增加计算量的情况下扩大模型参数规模。
 
-```mermaid
-graph LR
-    RT["Router：每个 token → top-K expert IDs"] --> D
-    D["All-to-All Dispatch<br/>token 发往持有对应 expert 的 GPU"] --> E
-    E["各 GPU 计算本地 expert 的 GEMM"] --> C
-    C["All-to-All Combine<br/>结果发回原 GPU 聚合"]
+与传统稠密模型不同，MoE 模型通常只激活部分参数。例如，一个 MoE 层可能包含 64 个 Expert，但每个 Token 只选择其中的 Top-2 个 Expert。这样，模型可以拥有较大的总参数量，同时将单个 Token 的实际计算量控制在较低水平。
+
+然而，随着 Expert 数量增加，单张 GPU 往往无法容纳全部 Expert 参数。因此，需要将不同 Expert 分布到多张 GPU 上，这就是专家并行（Expert Parallelism，EP）。
+
+##### 1、EP 的核心思想
+
+EP 的基本思想是：
+
+> 将 MoE 层中的不同 Expert 切分并放置在不同 GPU 上，每张 GPU 只负责计算本地持有的 Expert。
+
+假设一个 MoE 层包含 64 个 Expert，使用 4 张 GPU，并设置 `EP=4`，则可以按照如下方式进行分配：
+
+```text
+总计 64 个 Experts，4 张 GPU，EP = 4
+
+┌──────────────────────────────────────────────────────────────┐
+│                        Expert Parallelism                    │
+├──────────────────────────────────────────────────────────────┤
+│ GPU 0：Expert  0 ~ 15                                        │
+│ GPU 1：Expert 16 ~ 31                                        │
+│ GPU 2：Expert 32 ~ 47                                        │
+│ GPU 3：Expert 48 ~ 63                                        │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-| 阶段 | 动作 |
-|---|---|
-| ① Router | 每个 token 算出 top-K 个 expert ID |
-| ② Dispatch | **All-to-All**：token 发送到持有对应 expert 的 GPU |
-| ③ Expert 计算 | 每卡只算自己那部分 expert 的 GEMM |
-| ④ Combine | **All-to-All**：结果发回原 GPU 加权聚合 |
+从参数存储角度看，每张 GPU 只需要加载总 Expert 参数的约四分之一。假设所有 Expert 参数大小相同，则：
 
-EP 的麻烦之处和 TP 完全不同：
+```text
+单卡 Expert 参数量 ≈ 总 Expert 参数量 / EP Size
+```
 
-- **通信模式是全对全**，通信量取决于 token 的路由分布，**不是固定的**
-- **负载天然不均衡**——热门 expert 所在的卡会成为木桶短板，而路由是动态的，没法静态规划
-- 常与 TP 组合：TP 切 Attention，EP 切 MoE
+需要注意的是，EP 只切分 MoE 层中的 Expert。Router、Attention 层以及其他共享模块是否复制或切分，通常还要结合 Tensor Parallelism（TP）、Data Parallelism（DP）或 Pipeline Parallelism（PP）共同决定。
 
-vLLM 中 EP 的 dispatch / combine 由 `DeviceCommunicatorBase` 的对应方法实现，可选 DeepEP、FlashInfer NVLink、Mori 等优化通信后端。
+##### 2、为什么 MoE 需要 EP
+
+在稠密模型中，每个 Token 通常都会经过同一组参数；而在 MoE 模型中，多个 Expert 只对部分 Token 激活。
+
+例如：
+
+```text
+输入 Token 数量：      4096
+Expert 总数：           64
+每个 Token 激活 Expert：Top-2
+```
+
+理论上，每个 Token 只需要经过 2 个 Expert，而不是全部 64 个 Expert。因此，MoE 可以实现：
+
+```text
+参数容量较大，但单 Token 激活参数量较小
+```
+
+但是，如果所有 64 个 Expert 都放在一张 GPU 上，会带来较大的显存压力。EP 将 Expert 分散到多个 GPU，使得：
+
+- 单卡显存占用降低；
+- 更多 Expert 可以加入模型；
+- 不同 GPU 可以并行执行不同 Expert；
+- 模型容量可以随着 GPU 数量扩展。
+
+EP 的代价是：Token 不一定会被发送到当前 GPU 上的 Expert，因此必须进行跨 GPU 通信。
+
+##### 3、EP 的完整执行流程
+
+一个典型的 EP MoE 层可以抽象为以下五个阶段：
+
+```text
+                    MoE 层执行流程
+
+┌──────────────┐
+│ 输入 Hidden   │
+│ States        │
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│ Router/Gate  │  计算每个 Token 的 Expert 概率
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│ Top-K 选择   │  确定 Expert ID 和路由权重
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│ Dispatch     │  将 Token 发送至目标 Expert 所在 GPU
+│ All-to-All   │
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│ 本地 Expert  │  执行 Expert FFN/GEMM
+│ Computation  │
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│ Combine      │  将结果发回原 GPU 并按路由权重聚合
+│ All-to-All   │
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│ 残差连接/后续 │
+│ Transformer 层│
+└──────────────┘
+```
+
+###### ① Router 计算
+
+对于输入 Token 的隐藏状态 \(x_t\)，Router 通常先计算每个 Expert 的打分：
+
+$$
+s_t = W_r x_t
+$$
+
+其中：
+
+- \(x_t\) 表示第 \(t\) 个 Token 的隐藏状态；
+- \(W_r\) 表示 Router 权重；
+- \(s_t\) 表示该 Token 对所有 Expert 的路由分数。
+
+经过 Softmax 后，得到路由概率：
+
+$$
+p_{t,e} = \operatorname{Softmax}(s_t)_e
+$$
+
+然后选择概率最高的 Top-K 个 Expert：
+
+$$
+\mathcal{E}_t = \operatorname{TopK}(p_t, K)
+$$
+
+例如：
+
+```text
+Token t₁：
+  Expert 3  → 权重 0.62
+  Expert 17 → 权重 0.28
+  其他      → 权重 0.10
+
+Top-2 路由结果：
+  t₁ → Expert 3、Expert 17
+```
+
+Router 不仅需要记录 Expert ID，还需要记录每个 Expert 对应的路由权重。后续 Combine 阶段会使用这些权重对不同 Expert 的输出进行加权求和。
+
+###### ② All-to-All Dispatch
+
+Router 完成路由后，系统需要根据 Expert ID 判断 Token 的目标 GPU。
+
+在前面的例子中：
+
+```text
+Expert  3  位于 GPU 0
+Expert 17  位于 GPU 1
+Expert 35  位于 GPU 2
+Expert 52  位于 GPU 3
+```
+
+如果当前 Token 位于 GPU 0，但它选择了 Expert 17，那么该 Token 必须从 GPU 0 发送到 GPU 1。
+
+```text
+┌──────────────┐                         ┌──────────────┐
+│    GPU 0     │                         │    GPU 1     │
+│              │                         │              │
+│ Token t₁     │────── Dispatch ───────▶│ Expert 17    │
+│ 选择 E17     │                         │              │
+└──────────────┘                         └──────────────┘
+```
+
+当多个 GPU 上都有 Token 需要访问不同 GPU 的 Expert 时，就形成全对全通信，即 All-to-All。
+
+```text
+                         All-to-All Dispatch
+
+             ┌─────────────┐
+             │    GPU 0    │
+             └─────┬───────┘
+          ╱─────────┼─────────╲
+         ▼          ▼          ▼
+┌─────────────┐ ┌─────────────┐ ┌─────────────┐
+│    GPU 1    │ │    GPU 2    │ │    GPU 3    │
+│ E16~E31     │ │ E32~E47     │ │ E48~E63     │
+└─────────────┘ └─────────────┘ └─────────────┘
+         ▲          ▲          ▲
+          ╲─────────┼─────────╱
+             ┌──────┴──────┐
+             │    GPU 0    │
+             └─────────────┘
+```
+
+实际实现通常不会逐个 Token 单独发送，而是先按照目标 Expert 或目标 GPU 对 Token 进行重排和打包，再进行批量通信：
+
+```text
+原始 Token 顺序：
+
+[t₀, t₁, t₂, t₃, t₄, t₅]
+
+路由结果：
+
+t₀ → E3
+t₁ → E17
+t₂ → E35
+t₃ → E3
+t₄ → E52
+t₅ → E17
+
+按照目标 GPU 重排：
+
+GPU 0：t₀、t₃
+GPU 1：t₁、t₅
+GPU 2：t₂
+GPU 3：t₄
+```
+
+这种重排过程通常需要维护以下元数据：
+
+- Token 的原始位置；
+- 目标 Expert ID；
+- 路由权重；
+- Token 属于哪个源 GPU；
+- Token 在目标 Expert 批次中的位置。
+
+###### ③ 本地 Expert 计算
+
+完成 Dispatch 后，每张 GPU 会收到一批需要由本地 Expert 处理的 Token。由于每张 GPU 只保存部分 Expert，因此它只负责执行这些本地 Expert 的前馈网络计算。
+
+例如，在 `EP=4` 的场景中：
+
+```text
+GPU 0：Expert 0  ~ Expert 15
+GPU 1：Expert 16 ~ Expert 31
+GPU 2：Expert 32 ~ Expert 47
+GPU 3：Expert 48 ~ Expert 63
+```
+
+GPU 0 收到 Token 后，会按照目标 Expert 进行分组：
+
+```text
+GPU 0 本地 Expert：
+
+Expert 3  ← t₀、t₃
+Expert 8  ← t₆
+Expert 12 ← t₇、t₈
+```
+
+对应的数据流如下：
+
+```text
+┌────────────────────┐
+│ GPU 0 收到的 Tokens │
+│ t₀、t₃、t₆、t₇、t₈  │
+└─────────┬──────────┘
+          │ 按 Expert ID 分组
+          ▼
+┌─────────┬─────────┬──────────┐
+│Expert 3 │Expert 8 │Expert 12 │
+│t₀、t₃  │t₆       │t₇、t₈    │
+└────┬────┴────┬────┴─────┬────┘
+     └─────────┴──────────┘
+               ▼
+       本地 Expert 计算
+```
+
+一个典型的 Expert 通常是一个独立的前馈网络。对于输入隐藏状态 $$x$$，普通 FFN 可以表示为：
+
+$$
+\operatorname{Expert}_e(x)
+=
+W_{2,e}\,\sigma(W_{1,e}x)
+$$
+
+其中：
+
+- $$W_{1,e}$$ 是第 $$e$$ 个 Expert 的上投影矩阵；
+- $$W_{2,e}$$ 是下投影矩阵；
+- $$\sigma$$ 是激活函数，例如 SiLU 或 GELU。
+
+对于常见的 SwiGLU 结构，可以表示为：
+
+$$
+\operatorname{Expert}_e(x)
+=
+W_{2,e}
+\left[
+\operatorname{SiLU}(W_{1,e}x)
+\odot
+(W_{3,e}x)
+\right]
+$$
+
+其中，$$\odot$$ 表示逐元素相乘，$$W_{3,e}$$ 是 SwiGLU 中的第二个上投影矩阵。
+
+在实际实现中，一个 Expert 通常会批量处理多个 Token，而不是逐个 Token 计算。假设 Expert $$e$$ 接收到 $$n_e$$ 个 Token，将它们组成输入矩阵 $$X_e$$，则普通 FFN 的计算可以写成：
+
+$$
+Y_e
+=
+\sigma(X_e W_{1,e})W_{2,e}
+$$
+
+其中：
+
+- $$X_e$$ 包含分配给 Expert $$e$$ 的多个 Token；
+- $$Y_e$$ 是该 Expert 对这些 Token 的输出；
+- 矩阵乘法通常由 GPU 上的 GEMM Kernel 完成。
+
+
+对于同一张 GPU 上的多个 Expert，系统通常会采用 Grouped GEMM，将多个 Expert 的矩阵乘法组织为一个批量计算任务：
+
+```text
+GPU 0：
+
+Expert 3  → 处理 128 个 Tokens
+Expert 8  → 处理  64 个 Tokens
+Expert 12 → 处理  96 个 Tokens
+
+Grouped GEMM：
+┌────────────┬────────────┬─────────────┐
+│ Expert 3   │ Expert 8   │ Expert 12   │
+│ n₃ = 128   │ n₈ = 64    │ n₁₂ = 96    │
+└────────────┴────────────┴─────────────┘
+```
+
+与为每个 Expert 单独启动一次 GEMM 相比，Grouped GEMM 可以减少 Kernel Launch 开销，并提升 GPU 计算资源的利用率。其效果取决于：
+
+- 每个 Expert 接收到的 Token 数量；
+- Token 是否已经按照 Expert 分组；
+- 各 Expert 之间的负载是否均衡；
+- 是否存在 Padding 或 Token Overflow；
+- Expert 计算能否与后续通信重叠执行。
+
+计算完成后，各 Expert 的输出会进入 All-to-All Combine 阶段，返回原始 Token 所在的 GPU，并根据 Router 产生的权重进行聚合。
+
+###### ④ All-to-All Combine
+
+Expert 计算完成后，结果需要发回原始 Token 所在的 GPU。这个过程称为 Combine，通常也需要一次 All-to-All 通信。
+
+```text
+                    All-to-All Combine
+
+GPU 0 原始 Token t₁
+        ▲
+        │ Expert 17 计算结果
+        │
+GPU 1 ──┘
+
+GPU 0 原始 Token t₂
+        ▲
+        │ Expert 35 计算结果
+        │
+GPU 2 ──┘
+```
+
+如果一个 Token 选择了 Top-2 Expert，则它会收到两个 Expert 的输出：
+
+$$
+y_t =
+p_{t,e_1}\operatorname{Expert}_{e_1}(x_t)
++
+p_{t,e_2}\operatorname{Expert}_{e_2}(x_t)
+$$
+
+例如：
+
+```text
+Token t₁：
+
+来自 Expert 3 的输出：  y₁
+来自 Expert 17 的输出： y₂
+
+Router 权重：
+  p₁ = 0.62
+  p₂ = 0.28
+
+聚合结果：
+  y = 0.62 × y₁ + 0.28 × y₂
+```
+
+聚合完成后，MoE 层通常还会执行残差连接：
+
+$$
+z_t = x_t + y_t
+$$
+
+##### 4、EP 通信示意图
+
+将整个流程放在一起，可以表示为：
+
+```text
+┌───────────────────────────────────────────────────────────────────┐
+│                         MoE + EP 执行过程                         │
+└───────────────────────────────────────────────────────────────────┘
+
+        GPU 0                         GPU 1
+┌──────────────────┐          ┌──────────────────┐
+│ 输入 Token       │          │ 输入 Token       │
+│ t₀, t₁, t₂       │          │ t₃, t₄, t₅       │
+├──────────────────┤          ├──────────────────┤
+│ Router           │          │ Router           │
+│ t₀→E3, E17       │          │ t₃→E5, E20       │
+└────────┬─────────┘          └────────┬─────────┘
+         │                             │
+         └──────────┬───────┬──────────┘
+                    │       │
+                    ▼       ▼
+             All-to-All Dispatch
+                    │       │
+         ┌──────────┘       └──────────┐
+         ▼                             ▼
+┌──────────────────┐          ┌──────────────────┐
+│ GPU 0 本地计算   │          │ GPU 1 本地计算   │
+│ E0 ~ E15         │          │ E16 ~ E31        │
+│ t₀→E3            │          │ t₀→E17           │
+└────────┬─────────┘          └────────┬─────────┘
+         │                             │
+         └──────────┬───────┬──────────┘
+                    │       │
+                    ▼       ▼
+             All-to-All Combine
+                    │       │
+         ┌──────────┘       └──────────┐
+         ▼                             ▼
+┌──────────────────┐          ┌──────────────────┐
+│ GPU 0 聚合结果   │          │ GPU 1 聚合结果   │
+│ Top-K 加权求和   │          │ Top-K 加权求和   │
+└──────────────────┘          └──────────────────┘
+```
+
+对于 4 张 GPU，逻辑结构相同，只是通信参与者从 2 个扩展到 4 个。
+
+##### 5、Capacity Factor（CF）：专家容量因子
+
+###### ① 为什么需要容量限制
+
+Router 的路由结果是动态的。即使平均情况下 Token 能够均匀分布到各个 Expert，也可能出现某些 Expert 被大量 Token 选中的情况。
+
+例如，某一批次共有 1024 个 Token，Top-2 路由意味着总路由数量为：
+
+$$
+1024 \times 2 = 2048
+$$
+
+如果有 64 个 Expert，平均每个 Expert 接收：
+
+$$
+2048 / 64 = 32
+$$
+
+个 Token。
+
+但实际分布可能如下：
+
+```text
+Expert 0：  18 Tokens
+Expert 1：  25 Tokens
+Expert 2：  31 Tokens
+Expert 3：  96 Tokens  ← 热门 Expert
+Expert 4：  22 Tokens
+...
+```
+
+如果 Expert 3 的缓冲区只能容纳 32 个 Token，就会产生溢出。
+
+因此，系统通常会为每个 Expert 预留一个最大容量：
+
+$$
+C =
+\left\lceil
+\text{Capacity Factor}
+\times
+\frac{T \times K}{E}
+\right\rceil
+$$
+
+其中：
+
+- \(T\)：Token 数量；
+- \(K\)：每个 Token 选择的 Expert 数量；
+- \(E\)：Expert 总数；
+- \(C\)：单个 Expert 的最大 Token 容量；
+- Capacity Factor：容量因子。
+
+例如：
+
+```text
+Token 数量 T = 1024
+Top-K       K = 2
+Expert 数量 E = 64
+Capacity Factor = 1.25
+```
+
+则：
+
+$$
+C =
+\left\lceil
+1.25 \times \frac{1024 \times 2}{64}
+\right\rceil
+=
+\lceil 40 \rceil
+=
+40
+$$
+
+也就是说，每个 Expert 最多接收约 40 个 Token。
+
+###### ② Capacity Factor 的权衡
+
+Capacity Factor 越大，Expert 越不容易溢出，但需要预留更多缓冲空间；Capacity Factor 越小，显存和通信开销较低，但 Token 丢弃概率可能上升。
+
+```text
+Capacity Factor 增大
+
+┌──────────────────────────────────────────────┐
+│ 优点：                                       │
+│  · Token Overflow 减少                       │
+│  · 更多 Token 能够完成 Expert 计算           │
+│  · 模型质量通常更稳定                       │
+├──────────────────────────────────────────────┤
+│ 缺点：                                       │
+│  · Expert Buffer 更大                        │
+│  · 通信量可能增加                            │
+│  · GEMM 可能包含更多 Padding                 │
+│  · 显存占用上升                              │
+└──────────────────────────────────────────────┘
+```
+
+反之：
+
+```text
+Capacity Factor 减小
+
+┌──────────────────────────────────────────────┐
+│ 优点：                                       │
+│  · 缓冲区更小                                │
+│  · 显存占用更低                              │
+│  · 通信和计算规模更可控                      │
+├──────────────────────────────────────────────┤
+│ 缺点：                                       │
+│  · 热门 Expert 更容易溢出                    │
+│  · 部分 Token 可能被丢弃或旁路处理            │
+│  · 模型效果可能下降                          │
+└──────────────────────────────────────────────┘
+```
+
+训练场景中，Token Overflow 可能通过丢弃、跳过 Expert 或采用残差路径处理。推理场景则通常更加关注延迟稳定性，可能使用固定容量、动态容量或特定的负载均衡机制。
+
+###### ③ 负载均衡损失
+
+仅依赖 Capacity Factor 并不能从根本上解决热门 Expert 问题。训练时通常还会加入负载均衡损失，使 Router 尽量均匀地使用不同 Expert。
+
+理想情况下：
+
+```text
+Expert 0：约 1/64 的路由
+Expert 1：约 1/64 的路由
+...
+Expert 63：约 1/64 的路由
+```
+
+如果某些 Expert 长期获得过多 Token，则可能导致：
+
+- 这些 Expert 所在 GPU 成为性能瓶颈；
+- 其他 GPU 处于空闲状态；
+- Token 排队时间增加；
+- 系统出现明显的长尾延迟；
+- Expert 的训练质量和利用率失衡。
+
+因此，EP 的性能不仅取决于 GPU 数量，还取决于 Router 是否能够产生较均衡的 Token 分布。
+
+##### 6、EP 中的通信与计算重叠
+
+传统实现通常按照以下顺序执行：
+
+```text
+Dispatch → 等待通信完成 → Expert 计算
+        → 等待计算完成 → Combine
+```
+
+这种方式容易产生 GPU 空转：
+
+```text
+时间轴：
+
+通信：  ███████
+计算：         ███████████
+通信：                    ███████
+GPU：    通信等待  计算       通信等待
+```
+
+现代 MoE 推理和训练系统会尽量进行通信与计算重叠（Communication-Computation Overlap）。
+
+###### ① 分块执行
+
+一种常见方法是将 Token 分成多个 Chunk：
+
+```text
+Chunk 0、Chunk 1、Chunk 2、Chunk 3
+```
+
+然后让不同 Chunk 处于不同阶段：
+
+```text
+时间 ─────────────────────────────────────────────▶
+
+Chunk 0： Dispatch ── Expert Compute ── Combine
+Chunk 1：              Dispatch ── Expert Compute ── Combine
+Chunk 2：                            Dispatch ── Expert Compute ── Combine
+Chunk 3：                                          Dispatch ── ...
+```
+
+更细致地表示：
+
+```text
+时间       t0        t1        t2        t3        t4
+
+Dispatch   [C0]      [C1]      [C2]      [C3]
+Compute              [C0]      [C1]      [C2]
+Combine                         [C0]      [C1]      [C2]
+```
+
+这样可以在计算 Chunk 0 的同时，为 Chunk 1 执行 Dispatch，从而减少通信等待。
+
+###### ② 通信与计算重叠的收益
+
+理想情况下，系统总耗时可以从：
+
+$$
+T_{\text{total}}
+=
+T_{\text{dispatch}}
++
+T_{\text{compute}}
++
+T_{\text{combine}}
+$$
+
+降低到接近：
+
+$$
+T_{\text{total}}
+\approx
+\max(
+T_{\text{communication}},
+T_{\text{compute}}
+)
+$$
+
+当然，实际效果取决于：
+
+- Token 数量；
+- Expert 负载是否均衡；
+- GPU 间互联带宽；
+- 通信库实现；
+- GEMM 的矩阵规模；
+- Kernel 调度方式；
+- 是否需要额外的 Token 重排和内存拷贝。
+
+当 Expert 计算量较小而通信量较大时，计算很难完全隐藏通信；当 Batch 较大、Expert GEMM 较充分时，通信与计算重叠的收益通常更加明显。
+
+##### 7、EP 的主要通信特征与性能瓶颈
+
+###### ① All-to-All 通信量
+
+如果每个 Token 选择 Top-K 个 Expert，则 MoE 层的路由数据规模大致与以下因素相关：
+
+$$
+V_{\text{comm}}
+\propto
+T \times K \times H \times \text{ElementSize}
+$$
+
+其中：
+
+- \(T\)：Token 数量；
+- \(K\)：Top-K；
+- \(H\)：隐藏层维度；
+- `ElementSize`：每个元素的字节数。
+
+因此，以下情况会显著增加通信量：
+
+- Batch 或序列长度增大；
+- Top-K 增大；
+- 隐藏层维度增大；
+- 使用更高精度的数据类型；
+- EP 组内 GPU 数量增加。
+
+以 BF16 为例，每个隐藏状态元素通常占 2 字节。如果隐藏维度为 8192，则单个 Token 的隐藏状态大小约为：
+
+$$
+8192 \times 2 = 16384 \text{ Bytes}
+$$
+
+当一个 Token 被发送到两个 Expert 时，Dispatch 阶段至少需要传输两份相关激活数据，Combine 阶段还需要传回对应结果。
+
+###### ② 负载不均衡
+
+EP 的计算负载由实际路由到每个 Expert 的 Token 数量决定，而不是简单由 GPU 数量决定。
+
+```text
+均衡情况：
+
+GPU 0：██████████  25%
+GPU 1：██████████  25%
+GPU 2：██████████  25%
+GPU 3：██████████  25%
+
+不均衡情况：
+
+GPU 0：██████████████████  45%
+GPU 1：██████              15%
+GPU 2：████                10%
+GPU 3：██████████          30%
+```
+
+在同步执行模式下，整个 MoE 层通常需要等待最慢的 GPU：
+
+$$
+T_{\text{layer}}
+\approx
+\max_i(T_{\text{GPU}_i})
+$$
+
+因此，即使平均计算量不高，只要一张 GPU 因热门 Expert 而变慢，整个批次的延迟就会受到影响。
+
+###### ③ 小批次 GEMM 效率
+
+MoE 的每个 Expert 只处理一部分 Token。当 Token 数量较少或分布不均时，每个 Expert 的 GEMM 规模可能很小，导致 GPU Tensor Core 利用率下降。
+
+```text
+大批次：
+
+Expert 0：████████████████  高效 GEMM
+Expert 1：██████████████    高效 GEMM
+Expert 2：████████████      较高效 GEMM
+
+小批次：
+
+Expert 0：██               GEMM 利用率低
+Expert 1：█                GEMM 利用率低
+Expert 2：███              GEMM 利用率较低
+```
+
+因此，MoE 系统需要在 Token 重排、Expert 分组、批量 GEMM 和通信之间进行联合优化。
+
+##### 8、EP 与其他并行策略的区别
+
+| 并行方式 | 切分对象 | 主要目标 | 典型通信 | 主要挑战 |
+|---|---|---|---|---|
+| 数据并行 DP | Batch 或样本 | 提升吞吐 | 梯度 All-Reduce | 参数复制、梯度同步 |
+| 张量并行 TP | 单层权重或激活 | 拆分单层计算 | All-Reduce、All-Gather | 层内通信频繁 |
+| Pipeline 并行 PP | 网络层或阶段 | 突破显存限制 | 点对点通信 | Pipeline Bubble |
+| 专家并行 EP | MoE Expert | 分摊 Expert 参数 | All-to-All | 动态路由、负载不均 |
+| 序列并行 SP | 序列维度 | 降低激活显存 | All-Gather、Reduce-Scatter | 序列切分和同步 |
+
+EP 与 TP 的核心区别如下：
+
+```text
+TP：切分同一个 Expert 或同一个线性层的权重
+
+┌─────────────┐
+│ 一个线性层  │
+├──────┬──────┤
+│GPU 0 │GPU 1 │
+│权重  │权重  │
+│切片 A│切片 B│
+└──────┴──────┘
+
+EP：不同 GPU 保存不同 Expert
+
+┌─────────────┐
+│ MoE 层      │
+├──────┬──────┤
+│GPU 0 │GPU 1 │
+│E0~E15│E16~31│
+└──────┴──────┘
+```
+
+TP 关注的是“一个计算模块如何被多张 GPU 共同完成”；EP 关注的是“不同 Expert 如何被不同 GPU 分别完成”。
+
+##### 9、EP 与 TP 的组合
+
+在实际的大模型系统中，EP 很少单独使用，通常会与 TP 结合。
+
+一种常见架构是：
+
+```text
+Transformer Block
+
+┌─────────────────────────────┐
+│ Attention                   │
+│ 使用 TP 切分                 │
+│ GPU 0 ~ GPU 3 协同计算       │
+└──────────────┬──────────────┘
+               │
+               ▼
+┌─────────────────────────────┐
+│ MoE FFN                     │
+│ 使用 EP 分布不同 Experts     │
+│ GPU 0：E0~E15               │
+│ GPU 1：E16~E31              │
+│ GPU 2：E32~E47              │
+│ GPU 3：E48~E63              │
+└─────────────────────────────┘
+```
+
+更复杂的部署可以表示为二维并行网格：
+
+```text
+                 EP 维度
+          EP 0       EP 1
+        ┌────────┬────────┐
+TP 0    │ GPU 0  │ GPU 2  │
+        ├────────┼────────┤
+TP 1    │ GPU 1  │ GPU 3  │
+        └────────┴────────┘
+```
+
+在这种配置中：
+
+- TP 负责切分 Attention 或线性层；
+- EP 负责切分不同 Expert；
+- 一个 TP Group 内的 GPU 共同完成某个 Expert 的计算；
+- 不同 EP Group 保存不同的 Expert 集合。
+
+这种组合能够同时解决：
+
+1. 单个线性层过大，无法放入单卡；
+2. Expert 总参数量过大，无法全部复制；
+3. Attention 和 MoE 部分具有不同的并行需求。
+
+不过，TP 与 EP 的组合也会增加拓扑设计和通信调度复杂度。系统需要明确：
+
+- 哪些 GPU 属于同一个 TP Group；
+- 哪些 GPU 属于同一个 EP Group；
+- Dispatch 是否跨越 TP Group；
+- Expert 计算前后是否需要重新聚合；
+- 通信是否能够通过 NVLink 或节点内高速互联完成。
+
+##### 10、vLLM 中的 EP 实现
+
+在 vLLM 等推理引擎中，EP 通常通过通信抽象层实现。上层 MoE 计算逻辑不必直接处理不同通信库的底层细节，而是调用统一的 Dispatch 和 Combine 接口。
+
+可以抽象为：
+
+```python
+# 伪代码，仅用于说明执行流程
+
+router_logits = router(hidden_states)
+topk_ids, topk_weights = topk(router_logits, k=top_k)
+
+recv_tokens, metadata = communicator.dispatch(
+    hidden_states,
+    topk_ids,
+    topk_weights,
+)
+
+local_outputs = run_local_experts(
+    recv_tokens,
+    metadata,
+)
+
+outputs = communicator.combine(
+    local_outputs,
+    metadata,
+    topk_weights,
+)
+```
+
+其中：
+
+- `dispatch` 负责根据 Expert ID 将 Token 分发到目标 GPU；
+- `run_local_experts` 负责执行当前 GPU 上的本地 Expert；
+- `combine` 负责将结果发送回源 GPU，并恢复 Token 顺序；
+- `metadata` 保存 Token 重排、Expert 映射和聚合所需的信息。
+
+不同版本和不同硬件环境下，vLLM 可使用不同的通信后端或优化路径，例如：
+
+- DeepEP；
+- 基于 NVLink 的高性能通信路径；
+- FlashInfer 相关的 MoE/通信优化；
+- Mori 等通信调度与融合方案。
+
+具体后端是否可用，取决于 vLLM 版本、GPU 架构、CUDA 环境、节点拓扑和启动配置。因此，在技术文档中更稳妥的表述是：
+
+> vLLM 通过通信抽象层提供 EP 的 Dispatch/Combine 能力，并可根据硬件和配置选择 DeepEP、NVLink 优化路径、FlashInfer 相关实现或其他通信后端。
+> 
+
+##### 11、EP 的常见优化方向
+
+###### ① Token 重排与内存布局优化
+
+Dispatch 前需要将 Token 按目标 GPU 和目标 Expert 重新排列。高效实现会尽量减少：
+
+- 非连续内存访问；
+- 重复内存拷贝；
+- 临时 Buffer；
+- CPU 参与调度；
+- 不必要的格式转换。
+
+理想的数据流如下：
+
+```text
+原始激活
+   │
+   ├── Router 产生 Expert ID
+   │
+   ├── GPU 内部快速分桶
+   │
+   ├── 按目标 GPU 打包
+   │
+   ├── All-to-All
+   │
+   └── 按 Expert 连续布局，直接进入 GEMM
+```
+
+###### ② Grouped GEMM
+
+如果每个 Expert 都单独启动一次 GEMM Kernel，会产生大量 Kernel Launch 开销。Grouped GEMM 可以将多个 Expert 的矩阵乘法组织在一起执行。
+
+```text
+传统方式：
+
+Launch GEMM(E0)
+Launch GEMM(E1)
+Launch GEMM(E2)
+Launch GEMM(E3)
+
+Grouped GEMM：
+
+一次调度多个 Expert 的 GEMM
+┌─────┬─────┬─────┬─────┐
+│ E0  │ E1  │ E2  │ E3  │
+└─────┴─────┴─────┴─────┘
+```
+
+这有助于提升 GPU 利用率，尤其适用于：
+
+- Expert 数量较多；
+- 每个 Expert 的 Token 数量较少；
+- 多个 Expert 使用相同结构；
+- 需要降低 Kernel Launch 开销的场景。
+
+###### ③ 通信与计算重叠
+
+通过 Chunking、异步通信和多 Stream 调度，可以实现：
+
+```text
+当前 Chunk：Expert 计算
+下一 Chunk：Dispatch
+上一 Chunk：Combine
+```
+
+从而减少 GPU 等待时间。
+
+###### ④ 通信拓扑感知
+
+EP 性能高度依赖 GPU 之间的连接方式：
+
+```text
+同机 NVLink：
+
+GPU 0 ═══ GPU 1
+  ║  ╲   ╱  ║
+  ║   ╲ ╱   ║
+GPU 2 ═══ GPU 3
+
+跨节点网络：
+
+Node 0 ───── InfiniBand/RoCE ───── Node 1
+```
+
+同机 NVLink 通常具有更高带宽和更低延迟，而跨节点 EP 需要经过 InfiniBand、RoCE 或其他网络互联，通信成本可能明显增加。
+
+因此，部署时通常需要考虑：
+
+- EP Group 是否尽量放在同一节点；
+- GPU 与 NVLink 拓扑是否匹配；
+- 跨节点 All-to-All 是否会成为瓶颈；
+- 是否需要分层通信；
+- 是否需要将高频通信限制在节点内。
+
+###### ⑤ Expert 复制与热门 Expert 优化
+
+当某些 Expert 长期成为热门 Expert 时，可以考虑对其进行复制：
+
+```text
+普通 Expert：
+
+E3 只位于 GPU 0
+
+热门 Expert：
+
+E3 副本 1 → GPU 0
+E3 副本 2 → GPU 1
+E3 副本 3 → GPU 2
+```
+
+Router 可以在多个副本之间进一步选择，从而减轻单个 GPU 的压力。
+
+这种方法可以降低负载不均衡，但会增加：
+
+- Expert 参数显存占用；
+- 模型加载时间；
+- 路由策略复杂度；
+- 参数同步成本，尤其是在训练场景中。
+
+##### 12、EP 的优点与局限
+
+###### ① 优点
+
+1. **降低单卡显存压力**
+
+   不需要在每张 GPU 上复制全部 Expert 参数。
+
+2. **支持更大规模的 MoE 模型**
+
+   Expert 总数量可以随着 GPU 数量扩展。
+
+3. **提高 Expert 计算的并行度**
+
+   不同 GPU 可以同时执行不同 Expert。
+
+4. **适合稀疏激活模型**
+
+   只有被选中的 Expert 才执行实际计算。
+
+5. **可以与 TP、PP、DP 灵活组合**
+
+   能够适配大规模训练和推理集群。
+
+###### ② 局限
+
+1. **All-to-All 通信成本高**
+
+   Token 需要在 GPU 之间动态流动。
+
+2. **路由结果具有动态性**
+
+   通信量和计算量难以像稠密模型一样静态规划。
+
+3. **容易出现负载不均衡**
+
+   热门 Expert 可能导致个别 GPU 成为瓶颈。
+
+4. **小批次下 GEMM 效率较低**
+
+   单个 Expert 收到的 Token 数量不足时，计算单元利用率下降。
+
+5. **跨节点部署复杂**
+
+   如果 EP 通信跨越节点网络，延迟和带宽可能显著影响性能。
+
+
+##### 13、总结
+
+专家并行是 MoE 模型扩展的关键并行策略。它通过将不同 Expert 分布到不同 GPU 上，实现 Expert 参数和计算任务的横向扩展。
+
+其基本执行流程可以概括为：
+
+```text
+Router
+  │
+  ▼
+Top-K Expert Selection
+  │
+  ▼
+All-to-All Dispatch
+  │
+  ▼
+本地 Expert GEMM
+  │
+  ▼
+All-to-All Combine
+  │
+  ▼
+按路由权重聚合
+```
+
+EP 的性能主要由以下因素共同决定：
+
+```text
+EP 性能
+≈ 通信效率
+  × Expert 负载均衡程度
+  × 本地 GEMM 效率
+  × 通信计算重叠能力
+  × GPU 互联拓扑
+```
+
+因此，一个高性能 EP 系统不仅要将 Expert 分布到不同 GPU，还需要同时解决：
+
+- Token 如何高效分发；
+- Expert 容量如何设置；
+- 热门 Expert 如何处理；
+- 通信和计算如何重叠；
+- 多个 Expert 如何进行 Grouped GEMM；
+- EP 与 TP 如何协同；
+- 跨节点通信如何优化。
+
+在 vLLM 等推理框架中，EP 通常通过 `dispatch` 和 `combine` 等通信抽象接口实现，并结合 DeepEP、NVLink、FlashInfer 或其他高性能通信后端，尽量降低 MoE 动态路由带来的通信开销。最终目标不是单纯减少通信次数，而是让通信、Token 重排、Expert 计算和结果聚合形成连续的数据流水线。
 
 #### 6.1.5 CP (Context Parallelism)
 
-##### CP 是什么？
+##### 1、CP 是什么？
 Context Parallelism（CP）是一种面向长序列的并行技术，其核心思想是将输入序列沿上下文维度切分，并分配到多个 GPU 上。每个 GPU 只负责处理整个序列的一部分 token，从而降低单个 GPU 的显存占用，并支持更长上下文的训练与推理。
 
 例如，对于长度为 64K 的输入序列，在 4 个 GPU 上进行上下文并行时，可以将序列划分为 4 个连续的 chunk：
@@ -4617,7 +5698,7 @@ GPU 3：[t₄₈₀₀₁ ~ t₆₄₀₀₀]       chunk 3
 
 设上下文并行度为 CP，则每个 GPU 通常只需要保存约 1/CP 的序列激活值和 KV Cache。因此，在其他条件相同的情况下，CP 可以显著降低单卡显存压力。例如，4 路 CP 理论上可以将与序列长度相关的显存占用分摊到 4 个 GPU 上。
 
-##### Ring Attention
+##### 2、Ring Attention
 
 但是这样问题也来了：在标准自注意力中，每个 Query 都需要与完整序列上的 Key 和 Value 进行计算。而现在每个 GPU 只保存本地序列片段，就无法直接完成全局注意力计算。
 
@@ -4646,7 +5727,7 @@ Step 4：K₃、V₃ 传递至 GPU 0，完成全局注意力计算
 
 在实际实现中，每个 GPU 会对不同 KV 块产生的注意力结果进行在线归约。为了避免保存所有中间结果，通常采用 Online Softmax 等方法，对不同 KV 分块的注意力结果进行数值稳定的增量合并。
 
-##### CP 的主要优势
+##### 3、CP 的主要优势
 
 1. **降低单卡显存占用**  
    序列相关的激活值和 KV Cache 被分摊到多个 GPU，单卡占用通常随 CP 度数近似降低为原来的 `1/CP`。
@@ -4660,7 +5741,7 @@ Step 4：K₃、V₃ 传递至 GPU 0，完成全局注意力计算
 4. **与其他并行方式结合**  
    CP 可以与数据并行（DP）、张量并行（TP）和流水线并行（PP）组合，形成适用于大模型训练和推理的混合并行架构。
 
-##### CP 的代价与限制
+##### 4、CP 的代价与限制
 
 CP 并不会消除全局注意力的计算和通信需求。由于每个 GPU 都需要访问其他 GPU 的 K、V，因此系统会引入额外的 GPU 间通信开销。CP 的性能通常依赖于：
 
@@ -4672,7 +5753,7 @@ CP 并不会消除全局注意力的计算和通信需求。由于每个 GPU 都
 
 当序列较短或 GPU 间通信带宽不足时，CP 带来的收益可能被通信开销抵消。因此，CP 更适合超长上下文场景，而不是所有序列长度下的默认并行方案。
 
-##### vLLM 中的 CP
+##### 5、vLLM 中的 CP
 
 在 vLLM 等推理框架中，CP 可以根据 Prefill 和 Decode 两个阶段的特点进行进一步划分：
 
