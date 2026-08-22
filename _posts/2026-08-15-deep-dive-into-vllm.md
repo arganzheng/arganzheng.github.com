@@ -5830,89 +5830,483 @@ Prefill 阶段通常具有较大的序列长度和计算量，更适合通过序
 - **DP 永远是最外层的吞吐倍增器**——它不解决"装不下"，只解决"不够快"
 
 
-### 6.2 数据到底在往哪里搬：单卡、多卡与跨节点
+### 6.2 通信优化：推理系统的性能深水区
 
-并行策略的代价全部体现在数据搬运上。在讨论通信优化之前，先把一次推理里所有的搬运路径摊开看一遍：
+在多 GPU 推理系统中，计算单元的利用率往往受限于通信延迟和数据移动开销。尤其是在 Decode 阶段，单步生成的 Token 数量很少，矩阵乘法的计算量下降，而跨 GPU 同步仍然存在，通信启动延迟、同步等待和小消息处理效率就会变得格外重要。
+
+如果把计算看作引擎，通信就是制约其转速的传动系统：链路带宽决定数据能够搬得多快，通信延迟决定每次搬运需要等多久，而计算与通信能否重叠，则决定了这段等待能否被隐藏。
+
+因此，通信优化不能只看“链路峰值带宽”，还需要同时关注：
+
+- 数据经过哪条物理链路；
+- 通信发生在初始化阶段还是推理关键路径；
+- 消息是小而频繁，还是大而集中；
+- 通信是否引入全局同步；
+- 通信能否与计算重叠；
+- 实际拓扑是否与并行策略匹配。
+
+#### 6.2.1 数据流向图谱：谁在拖慢速度？
+
+在讨论通信优化之前，先把一次推理中的主要数据移动路径展开来看。
+
+需要注意的是，模型推理可以粗略分为两个阶段：
+
+- **初始化阶段**：加载模型权重、建立通信域、分配 KV Cache；
+- **推理阶段**：循环执行 Prefill 或 Decode，包括输入传递、层间计算、跨 GPU 通信、采样和 KV Cache 管理。
+
+模型权重加载通常只发生一次，虽然数据量很大，但一般不属于每个请求或每个 Token 的关键路径。真正决定在线推理性能的，主要是推理循环中的高频通信。
 
 ```mermaid
 graph TB
     CPU["<b>CPU / Host Memory</b><br/>Tokenizer · Scheduler · Block Table · Sampling Results"]
+
     CPU -->|"PCIe：input_ids, positions"| G0
     G0 -->|"PCIe：sampled token ids"| CPU
+
     G0["<b>GPU 0 (HBM)</b><br/>Model Weights（分片） · Activations · KV Cache Blocks · Logits"]
     G1["<b>GPU 1 (HBM)</b><br/>Model Weights（分片） · Activations · KV Cache Blocks · Logits"]
-    G0 <-->|"NVLink：All-Reduce / All-Gather（TP 通信）"| G1
+
+    G0 <-->|"NVLink / NVSwitch：<br/>All-Reduce · All-Gather · Reduce-Scatter"| G1
+
+    G0 -. "跨节点：NIC / InfiniBand / RoCE" .-> N0["NIC"]
+    N0 -. "跨节点网络" .-> N1["NIC"]
+    N1 -. "GPUDirect RDMA / PCIe" .-> G2["Remote GPU"]
 ```
 
-各条链路的带宽差了两个数量级，这决定了什么该走哪条路：
+从系统角度看，通信链路大致可以分成三类。
 
-| 链路 | 带宽 |
-|---|---|
-| NVLink（机内，H100 NVSwitch） | ~900 GB/s |
-| PCIe Gen5 x16 | ~64 GB/s |
-| InfiniBand NDR（跨机） | ~50 GB/s |
+**1、CPU 与 GPU 之间**
 
-把每一类搬运摊开看，就能明白优化的优先级：
+CPU-GPU 通信通常经过 PCIe。典型数据包括：
 
-| 数据搬运类型 | 方向 | 频率 | 数据量/带宽要求 | 技术 |
-|---|---|---|---|---|
-| 模型权重加载 | CPU→GPU | 一次性 | 高（模型大小） | PCIe DMA |
-| input_ids / positions | CPU→GPU | 每步 | 低（KB 级） | PCIe / pinned memory |
-| **TP All-Reduce** | GPU↔GPU | **每层 2 次** | **高（激活大小）** | NVLink + NCCL |
-| PP 微批传递 | GPU→GPU | 每 stage 间 | 中（hidden_states） | NCCL P2P |
-| **EP Token Dispatch** | GPU↔GPU | **每个 MoE 层** | **高（token 重排）** | All-to-All |
-| KV Cache Swap | GPU↔CPU | 抢占时 | 高（KV 块大小） | PCIe async |
-| Sampled tokens | GPU→CPU | 每步 | 极低（int32） | Device→Host |
+- `input_ids`；
+- `positions`；
+- 调度器生成的元数据；
+- 采样结果；
+- 被抢占或换出的 KV Cache Block。
 
-加粗的两行是**唯一值得下大力气优化的**——它们既频繁、量又大，还都卡在关键路径上。其余几行要么一次性、要么只有 KB 级。
+这些数据的规模和频率差异很大。输入 Token 和采样结果通常只有 KB 级别，数据量并不大；KV Cache Swap 则可能一次搬运大量数据，但通常只在显存压力较高或发生抢占时触发。
 
+**2、同一节点内的 GPU 之间**
 
-### 6.3 通信优化：真正的瓶颈
+同机 GPU 之间可能通过以下路径通信：
 
-#### 6.3.1 NCCL 调优与拓扑感知
+- NVLink；
+- NVSwitch；
+- PCIe P2P；
+- 经过 CPU Root Complex 的 PCIe 路径。
 
-vLLM 的通信层（`vllm/distributed/device_communicators/`）支持多种后端：
+对于 Tensor Parallel，激活需要在 GPU 之间频繁进行 `All-Reduce`、`All-Gather` 或 `Reduce-Scatter`。对于 Expert Parallel，Token Dispatch 通常需要 `All-to-All`，这类通信更容易受到拓扑、消息布局和负载均衡的影响。
 
-vLLM 的通信抽象分三层，上层完全不感知底层用的是 NCCL 还是别的：
+**3、跨节点 GPU 之间**
 
-| 层 | 接口 | 实现 |
+跨节点通信通常经过：
+
+```text
+GPU HBM
+  ↓
+PCIe
+  ↓
+NIC
+  ↓
+InfiniBand / RoCE
+  ↓
+远端 NIC
+  ↓
+PCIe
+  ↓
+远端 GPU HBM
+```
+
+如果使用 GPUDirect RDMA，网络设备可以更直接地访问 GPU 显存，减少不必要的 CPU 内存中转。否则，数据可能需要经过 Host Memory，额外增加拷贝次数和延迟。
+
+##### 典型链路的带宽量级
+
+| 链路 | 理论带宽量级 | 说明 |
+|---|---:|---|
+| NVLink / NVSwitch | 数百 GB/s，具体取决于 GPU、代际和拓扑 | 通常是机内 GPU 通信的首选路径 |
+| PCIe Gen5 x16 | 约 64 GB/s，单向理论值 | 实际有效带宽低于理论值 |
+| InfiniBand NDR 400 Gb/s | 约 50 GB/s，原始线速折算 | 实际有效带宽受协议和实现影响 |
+| RoCE | 取决于网卡和网络配置 | 对拥塞控制、交换机配置更敏感 |
+
+这里需要避免将不同口径的带宽直接等价比较。例如，NVLink 或 NVSwitch 的宣传带宽可能是单 GPU 聚合带宽、双向带宽或系统总带宽，而 PCIe 和 InfiniBand 常按单向链路带宽描述。实际性能还取决于拓扑、并发度、消息大小和通信算法。
+
+#### 主要数据移动类型
+
+| 数据移动类型 | 方向 | 触发频率 | 数据量 / 带宽要求 | 常见技术 | 性能影响 |
+|---|---|---:|---:|---|---|
+| 模型权重加载 | CPU → GPU | 初始化一次 | 高 | PCIe DMA、分片加载 | 影响启动时间 |
+| `input_ids` / `positions` | CPU ↔ GPU | 每步 | 低，通常为 KB 级 | PCIe、Pinned Memory | 通常不是主要瓶颈 |
+| TP 集合通信 | GPU ↔ GPU | 典型情况下每层多次 | 高 | NCCL、CustomAllreduce | 关键路径 |
+| PP 微批传递 | GPU → GPU | Stage 之间 | 中 | NCCL P2P、Send / Recv | 影响流水线气泡 |
+| EP Token Dispatch | GPU ↔ GPU | 每个 MoE 层 | 高 | NCCL All-to-All | 关键路径 |
+| KV Cache Swap | GPU ↔ CPU | 抢占或显存不足时 | 高 | 异步 PCIe 拷贝 | 影响异常请求和尾延迟 |
+| Sampled Token | GPU → CPU | 每步 | 极低，通常为整数 | Device-to-Host Copy | 通常不是带宽瓶颈 |
+
+因此，不能简单地说“所有通信都值得优化”。更准确的结论是：
+
+> TP 集合通信和 EP Token Dispatch 通常是最值得优先优化的通信路径，因为它们既可能数据量较大，又处于模型层级或 Token 路由的同步依赖链上。CPU-GPU 小消息则更需要关注调用次数、同步方式和启动延迟，而不是链路带宽。
+
+#### 6.2.2 NCCL：多 GPU 通信的默认底座
+
+NCCL（NVIDIA Collective Communications Library）是 NVIDIA 提供的 GPU 集合通信库，主要为多 GPU 和多节点场景提供高性能通信原语。
+
+它并不负责模型如何切分，也不负责调度 Transformer 层；它负责的是：当模型代码要求多个 GPU 进行数据交换或规约时，以尽可能高效的方式完成这些操作。
+
+常见的 NCCL 通信原语包括：
+
+| 通信原语 | 含义 | 推理中的典型用途 |
 |---|---|---|
-| 最高层：集合通信 API | `tensor_model_parallel_all_reduce()`<br/>`tensor_model_parallel_all_gather()`<br/>`tensor_model_parallel_reduce_scatter()` | 模型代码只调这一层 |
-| 中间层：`GroupCoordinator` | `all_reduce()` / `all_gather()` / `send()` / `recv()` | 管理进程组 |
-| 底层：设备通信器 | — | `CudaCommunicator`（NCCL）<br/>`CustomAllreduce`（P2P，机内优化）<br/>`FlashInferAllReduce`<br/>`CpuCommunicator`（Gloo）<br/>`XpuCommunicator`（Intel CCL） |
+| `All-Reduce` | 所有 GPU 对数据进行规约，并获得完整结果 | TP 中合并部分结果 |
+| `All-Gather` | 每张 GPU 提供一部分数据，最终所有 GPU 获得完整数据 | 收集分片激活或参数 |
+| `Reduce-Scatter` | 先规约，再将结果分片发送给不同 GPU | 以分片结果直接进入后续计算 |
+| `All-to-All` | 每张 GPU 向所有其他 GPU 发送不同数据 | EP Token Dispatch |
+| `Broadcast` | 一张 GPU 将数据发送给所有 GPU | 广播控制数据或共享状态 |
+| `Send / Recv` | 点对点发送与接收 | PP Stage 之间传递激活 |
 
-这里值得单独看一眼 `CustomAllreduce`（`vllm/distributed/device_communicators/custom_all_reduce.py`）：
+在 vLLM 或类似推理框架中，模型并行代码通常不会直接管理底层的 NVLink、PCIe 或 InfiniBand。上层只需要调用相应的集合通信接口，底层通信库再根据当前硬件和进程组执行实际的数据移动。
 
-- 支持的 `world_size`：2、4、6、8、16
-- **基于 GPU P2P 直接内存访问，绕过 NCCL**
-- **对小张量（< 2 MB）比 NCCL 更快**——因为 NCCL 的固定开销在小消息上占比过高
-- 可利用 NVLink 对称内存（Hopper+）
+###### ① NCCL 如何选择通信路径？
 
-最后一条正是它存在的理由：**Decode 阶段的激活很小**，每层两次 All-Reduce 传的都是小张量，恰好落在 NCCL 不划算的区间里。
+NCCL 会根据 GPU 拓扑、节点结构、消息规模和可用网络设备选择通信方式。典型路径如下：
 
-#### 6.3.2 计算与通信的深度重叠
-
-```
-不重叠（通信和计算互相等）：
-  Compute  [GEMM₁][── idle ──][GEMM₂][── idle ──]
-  Comm     [ idle ][AllReduce₁][ idle ][AllReduce₂]
-  总时间 = Compute + Comm
-
-重叠后（跑在不同 CUDA Stream 上）：
-  Compute  [GEMM₁  ][GEMM₂  ][GEMM₃  ]
-  Comm         [AllReduce₁][AllReduce₂]
-  总时间 ≈ max(Compute, Comm)
+```mermaid
+graph LR
+    G0["GPU 0"] <-->|"NVLink / NVSwitch"| G1["GPU 1"]
+    G1 <-->|"PCIe"| N0["NIC 0"]
+    N0 <-->|"InfiniBand / RoCE<br/>GPUDirect RDMA"| N1["NIC 1"]
+    N1 <-->|"PCIe"| G2["GPU 2"]
 ```
 
-三种主要实现手段：
+同一节点内，NCCL 优先使用 NVLink 或 NVSwitch；如果 GPU 之间没有直接 NVLink，则可能使用 PCIe P2P。跨节点时，则需要通过 NIC 和 InfiniBand 或 RoCE 网络进行通信。
 
-| 手段 | 做法 |
-|---|---|
-| 独立 CUDA Stream | NCCL 跑在专属 stream 上，与计算 stream 并行 |
-| **Reduce-Scatter + All-Gather 替代 All-Reduce** | Reduce-Scatter 一完成就能开始算本地那份，同时 All-Gather 在后台收集其余部分 |
-| MoE：All-to-All 与 Expert GEMM 重叠 | 见第 6.1.4 节「6、EP 中的通信与计算重叠」 |
+通信性能因此高度依赖物理拓扑。相同数量的 GPU，如果一种机器采用 NVSwitch，而另一种机器主要依赖 PCIe，TP 通信性能可能存在明显差异。跨节点场景中，如果 GPUDirect RDMA 没有正常启用，数据经过 CPU 内存中转，也可能造成显著性能下降。
 
-中间那一条是个很漂亮的技巧：一次 All-Reduce 在数学上等价于 Reduce-Scatter + All-Gather，但**拆开之后就出现了一个可以插入计算的缝隙**——总通信量不变，却把一段等待变成了并行。
+###### ② Ring、Tree 与通信协议
+
+NCCL 内部会根据场景选择不同的通信算法。常见算法包括：
+
+- **Ring**：将 GPU 组织成环，通常能够较好地利用链路带宽，适合较大的消息；
+- **Tree**：将 GPU 组织成树状结构，通信步数可能更少，适合延迟敏感或特定拓扑；
+- **分层算法**：先完成机内通信，再完成跨节点通信，或者反过来组合执行。
+
+实际选择并不是“Ring 永远适合大消息、Tree 永远适合小消息”这么简单，还会受到 GPU 拓扑、节点数、网络结构、集合通信类型和消息大小的影响。
+
+NCCL 还会根据消息规模选择不同的通信协议。小消息更关注启动延迟和同步开销，大消息更关注链路带宽和数据吞吐。因此，Decode 与 Prefill 可能呈现完全不同的通信特征：
+
+- Decode：消息较小、调用频繁，更容易受启动延迟影响；
+- Prefill：激活规模更大，更容易受有效带宽影响；
+- MoE：除了带宽，还需要关注 Token 重排、负载不均衡和 All-to-All 的同步特性。
+
+###### ③ vLLM 中的通信抽象
+
+vLLM 对通信后端进行了抽象，使模型代码不需要直接感知底层使用 NCCL、P2P 还是其他实现。整体可以理解为三层：
+
+| 层级 | 接口或组件 | 主要职责 |
+|---|---|---|
+| 最高层：集合通信 API | `tensor_model_parallel_all_reduce()`<br/>`tensor_model_parallel_all_gather()`<br/>`tensor_model_parallel_reduce_scatter()` | 模型代码调用集合通信 |
+| 中间层：`GroupCoordinator` | `all_reduce()`、`all_gather()`、`send()`、`recv()` | 管理进程组和通信协调 |
+| 底层：设备通信器 | `CudaCommunicator`、`CustomAllreduce`、`FlashInferAllReduce`、`CpuCommunicator`、`XpuCommunicator` | 执行具体的设备或网络通信 |
+
+其中，`CudaCommunicator` 通常对应 NCCL 路径；`CpuCommunicator` 可用于 CPU 通信；在特定硬件和场景下，还可能使用 FlashInfer 或其他专门优化的实现。
+
+这种分层的意义在于：上层模型代码只表达“我要做一次 All-Reduce”，而不必关心底层是通过 NVLink、PCIe、InfiniBand，还是某种专用 Kernel 完成的。
+
+###### ④ `CustomAllreduce`：针对特定场景的优化
+
+除了 NCCL，vLLM 还提供了 `CustomAllreduce`。它的目标不是全面替代 NCCL，而是在满足特定条件时，针对机内小消息通信进一步降低固定开销。
+
+其典型特点包括：
+
+- 面向特定的 GPU 数量和进程组配置；
+- 基于 GPU P2P 和直接内存访问；
+- 针对固定机内拓扑进行优化；
+- 在小张量场景下，可能比通用 NCCL 路径具有更低的启动和同步开销；
+- 某些实现可利用 Hopper 等新架构提供的对称内存能力。
+
+需要特别强调，`CustomAllreduce` 并不是“任何场景都比 NCCL 快”。它通常更适合：
+
+- 单机多卡；
+- GPU 之间具备良好的 P2P 或 NVLink 连接；
+- 通信消息较小；
+- 通信模式固定；
+- 对 Decode 阶段的低延迟较敏感。
+
+而 NCCL 更适合：
+
+- 复杂的机内拓扑；
+- 跨节点通信；
+- 较大的消息；
+- 多种集合通信原语；
+- 需要成熟的拓扑发现、调度和容错能力的场景。
+
+因此，两者的关系更准确地说是：
+
+> NCCL 提供通用、高度成熟的多 GPU 通信底座；`CustomAllreduce` 则针对固定拓扑和特定消息规模，压缩通用通信库在调度、缓冲区管理和同步上的额外开销。
+
+具体支持的 GPU 数量、架构和启用条件可能随 vLLM 版本变化，实际使用时应以对应版本的源码和运行时检查结果为准。
+
+###### ⑤ NCCL 的调试与调优入口
+
+NCCL 的调优应遵循“先确认拓扑，再定位瓶颈，最后修改参数”的顺序，而不是一开始就设置大量环境变量。
+
+常见的调试变量包括：
+
+| 环境变量 | 作用 | 使用建议 |
+|---|---|---|
+| `NCCL_DEBUG=INFO` | 输出 NCCL 初始化和通信信息 | 排查问题时临时开启 |
+| `NCCL_DEBUG_SUBSYS=INIT,GRAPH,NET` | 限定调试信息类别 | 查看拓扑和网络选择 |
+| `NCCL_SOCKET_IFNAME` | 指定 Socket 网卡接口 | 多网卡环境中明确通信网卡 |
+| `NCCL_IB_HCA` | 指定 InfiniBand HCA | 多 HCA 环境中避免选错设备 |
+| `NCCL_IB_GID_INDEX` | 指定 RoCE GID | 按实际网络配置设置 |
+| `NCCL_P2P_LEVEL` | 控制 GPU P2P 的使用范围 | 不建议无依据修改 |
+| `NCCL_NET_GDR_LEVEL` | 控制 GPUDirect RDMA 使用条件 | 跨节点排查时关注 |
+| `NCCL_ALGO` | 指定通信算法 | 适合基准测试和针对性实验 |
+| `NCCL_PROTO` | 指定通信协议 | 不建议生产环境盲目固定 |
+
+首先可以检查 GPU 拓扑：
+
+```bash
+nvidia-smi topo -m
+```
+
+然后使用 NCCL Tests 对集合通信进行基准测试，例如：
+
+```bash
+./build/all_reduce_perf -b 8 -e 2G -f 2 -g 2
+```
+
+如果机内 NCCL 测试结果已经明显低于硬件预期，应优先检查：
+
+- GPU 是否通过 NVLink 或 NVSwitch 连接；
+- GPU P2P 是否正常；
+- PCIe Root Complex 和 NUMA 绑定是否合理；
+- 是否发生了不必要的 Host Memory 中转。
+
+如果是跨节点性能异常，则需要检查：
+
+- InfiniBand 或 RoCE 链路；
+- NCCL 是否选中了正确网卡；
+- GPUDirect RDMA 是否生效；
+- 网卡和 GPU 的 NUMA 亲和性；
+- 网络拥塞和交换机配置。
+
+只有在这些基础条件确认无误后，才值得进一步实验 `NCCL_ALGO`、`NCCL_PROTO` 等参数。否则，修改参数很容易掩盖真正的拓扑或硬件配置问题。
+
+#### 6.2.3 计算与通信的深度重叠：隐藏等待时间
+
+即使通信链路已经达到较高带宽，如果计算和通信仍然严格串行，通信时间依然会完整地暴露在端到端延迟中。
+
+**没有重叠时**
+
+```text
+时间 →
+
+Compute  [GEMM₁][── idle ──][GEMM₂][── idle ──][GEMM₃]
+Comm     [ idle ][AllReduce₁][ idle ][AllReduce₂][ idle ]
+
+总时间 ≈ T_compute + T_comm
+```
+
+此时，计算完成后必须等待通信，通信完成后才能继续下一段计算。GPU 的计算单元可能在等待通信，而通信单元也可能在等待计算产生输入。
+
+**发生重叠时**
+
+```text
+时间 →
+
+Compute  [GEMM₁      ][GEMM₂      ][GEMM₃      ]
+Comm          [AllReduce₁][AllReduce₂]
+
+总时间 ≈ max(T_compute, T_comm)
+```
+
+所以这里的目标不是减少通信本身的字节数，而是让通信时间尽可能被计算时间覆盖。
+
+##### 1、使用独立 CUDA Stream
+
+最基础的手段是将通信任务调度到独立的 CUDA Stream 上：
+
+- 计算任务运行在计算 Stream；
+- NCCL 集合通信运行在通信 Stream；
+- 通过 CUDA Event 或显式依赖保证数据就绪后再启动通信；
+- 后续计算在通信完成后等待相应 Event。
+
+概念上可以表示为：
+
+```text
+Compute Stream:  [产生激活]────────────[继续计算]
+                         \             ↑
+Communication Stream:     [All-Reduce]─┘
+```
+
+但“放到不同 Stream”并不自动意味着真正重叠。以下条件不满足时，两个 Stream 仍然可能串行：
+
+- 通信和计算争用同一硬件资源；
+- 存在隐式同步；
+- 通信输入尚未准备好；
+- 后续计算必须等待完整通信结果；
+- 算子或运行时插入了全设备同步。
+
+因此，重叠优化的关键不只是创建多个 Stream，而是重新设计依赖关系。
+
+##### 2、用 Reduce-Scatter 与 All-Gather 拆解 All-Reduce
+
+在数学上：
+
+```text
+All-Reduce = Reduce-Scatter + All-Gather
+```
+
+`All-Reduce` 会让每张 GPU 最终获得完整的规约结果。将其拆成两个阶段后，第一阶段 `Reduce-Scatter` 会先完成规约，并将结果分片分发到不同 GPU。
+
+如果后续计算能够按分片执行，那么某张 GPU 获得自己的局部结果后，就可以先开始处理这一部分数据，同时让 `All-Gather` 在后台继续收集其他分片。
+
+```text
+Reduce-Scatter  →  本地分片就绪 → 局部计算
+                         │
+                         └──────→ All-Gather 在后台继续
+```
+
+这样做的本质，是把原本要求“完整结果就绪”的依赖，改造成“局部结果就绪即可开始局部计算”的依赖。
+
+但是，这种优化并非对所有模型结构都自动有效。它至少需要满足：
+
+- 后续计算能够处理分片数据；
+- 模型依赖允许局部结果先行；
+- All-Gather 不会在计算开始后立即重新形成阻塞；
+- 通信 Stream 与计算 Stream 之间的依赖安排合理。
+
+此外，拆分后的总通信量通常仍与直接 All-Reduce 处于同一量级，真正的收益来自通信与计算的重叠，而不是简单减少了通信字节数。
+
+##### 3、MoE 中重叠 All-to-All 与 Expert GEMM
+
+MoE 模型的通信流程通常包括：
+
+```text
+Token Routing
+      ↓
+Token Dispatch / All-to-All
+      ↓
+Expert GEMM
+      ↓
+Token Combine / All-to-All
+```
+
+如果所有 Token 必须完成分发后，Expert 才开始计算，通信延迟就会完整暴露出来。更进一步的实现会尝试：
+
+- 尽早计算路由结果；
+- 分块进行 Token Dispatch；
+- 某一批 Token 到达后立即启动对应 Expert GEMM；
+- Expert 计算的同时继续传输下一批 Token；
+- 计算完成后分块执行 Token Combine。
+
+概念上可以形成如下流水线：
+
+```text
+时间 →
+
+Dispatch   [Batch₁][Batch₂][Batch₃]
+Expert          [GEMM₁ ][GEMM₂ ][GEMM₃ ]
+Combine                  [Combine₁][Combine₂]
+```
+
+不过，MoE 的重叠难度通常高于普通 TP 通信，因为它还受到以下因素影响：
+
+- Token 路由是否均衡；
+- 每个 Expert 收到的 Token 数量是否稳定；
+- All-to-All 的消息是否足够大；
+- Token 重排和内存布局是否高效；
+- Expert GEMM 是否具备足够计算量；
+- 是否存在容量限制和丢弃 Token 的机制。
+
+因此，MoE 通信优化不仅是“把 All-to-All 放到另一个 Stream”，还涉及路由、分桶、内存布局和 Expert 计算粒度的协同设计。
+
+##### 6.2.4 通信问题的定位方法
+
+通信性能问题通常不能只通过端到端吞吐量判断。需要将问题拆分为拓扑、链路、通信原语和应用依赖几个层次。
+
+###### ① 第一步：确认物理拓扑
+
+```bash
+nvidia-smi topo -m
+```
+
+重点关注：
+
+- GPU 之间是否存在 NVLink；
+- 是否经过同一个 PCIe Root Complex；
+- GPU 与 NIC 是否处于同一 NUMA 节点；
+- 是否存在跨 CPU Socket 的额外路径；
+- 多节点 GPU 是否能够使用 GPUDirect RDMA。
+
+###### ② 第二步：确认 NCCL 识别结果
+
+临时开启 NCCL 日志：
+
+```bash
+NCCL_DEBUG=INFO
+NCCL_DEBUG_SUBSYS=INIT,GRAPH,NET
+```
+
+重点查看：
+
+- NCCL 识别到了哪些 GPU；
+- 使用了哪些网卡；
+- 是否启用了 P2P；
+- 是否使用 NVLink、InfiniBand 或 RoCE；
+- 是否出现回退到 Socket 或 Host Memory 的迹象。
+
+###### ③ 第三步：使用 NCCL Tests 区分通信库问题和应用问题
+
+如果 `all_reduce_perf` 的性能已经较差，问题大概率位于硬件拓扑、驱动、网络或 NCCL 配置层面。
+
+如果 NCCL Tests 性能正常，但 vLLM 端到端性能仍然较差，则需要进一步检查：
+
+- 通信消息大小是否过小；
+- 每步通信调用次数是否过多；
+- 是否存在隐式同步；
+- 通信和计算是否真正重叠；
+- 是否发生了不必要的张量转换或内存拷贝；
+- 是否存在负载不均衡；
+- CUDA Graph 或算子融合是否受到通信依赖影响。
+
+###### ④ 第四步：根据消息规模区分优化方向
+
+| 现象 | 可能原因 | 优先检查方向 |
+|---|---|---|
+| 小消息延迟高 | 启动和同步开销占比高 | Stream、调用次数、CustomAllreduce |
+| 大消息带宽低 | 链路未充分利用 | 拓扑、算法、协议、消息切分 |
+| 机内通信慢 | NVLink/P2P 未生效 | `nvidia-smi topo -m`、NCCL 日志 |
+| 跨节点通信慢 | 网络或 GDR 配置问题 | NIC、HCA、GPUDirect RDMA |
+| NCCL 测试正常但端到端慢 | 应用依赖未重叠 | CUDA Event、Stream 和算子依赖 |
+| MoE 通信抖动明显 | Token 分布不均 | 路由、Expert 负载和 Token 分桶 |
+| Decode 吞吐低 | 小消息和同步占主导 | 通信融合、低延迟实现和批处理 |
+
+#### 6.2.5 小结：通信优化的优先级
+
+通信优化可以按照以下顺序推进：
+
+1. **先确认并行策略是否匹配硬件拓扑**；
+2. **确认 GPU P2P、NVLink、InfiniBand 和 GPUDirect RDMA 是否正常**；
+3. **使用 NCCL Tests 测量通信原语的实际性能**；
+4. **区分小消息延迟问题和大消息带宽问题**；
+5. **减少不必要的同步、拷贝和通信调用**；
+6. **让通信与计算尽可能重叠**；
+7. **在满足条件时使用 `CustomAllreduce` 等专用实现**；
+8. **最后再针对具体工作负载调整 NCCL 算法和协议参数**。
+
+最终目标并不是让某一次 All-Reduce 的基准测试数字最大，而是降低通信在完整推理路径中的可见时间：
+
+```text
+端到端时间
+= 计算时间
++ 无法隐藏的通信时间
++ 同步等待
++ 数据重排与拷贝开销
+```
+
+理想情况下，通信应该尽可能被计算覆盖；对于无法覆盖的部分，则需要通过更合适的拓扑、更低延迟的通信实现、更少的同步点以及更合理的并行策略，将其压缩到最小。
 
 <details markdown="1">
 <summary><b>📂 本章源码导航</b></summary>
@@ -6868,3 +7262,4 @@ class RequestStatus(enum.IntEnum):
 > **vLLM 不是一堆推理优化技术的集合，而是一套围绕「动态请求 + KV 状态 + GPU 资源」构建起来的推理操作系统。**
 
 它调度任务、管理内存、抽象硬件、隔离故障——操作系统做的事，它都在做，只不过管的不是进程和物理内存页，而是请求和 KV 块。理解了这个类比，你就不只是理解了 vLLM，而是拿到了看懂下一个 Serving 系统的钥匙。
+ 
