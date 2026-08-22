@@ -4640,6 +4640,17 @@ EP 的代价是：Token 不一定会被发送到当前 GPU 上的 Expert，因�
 
 一个典型的 EP MoE 层可以抽象为以下五个阶段：
 
+从工程实现角度看，MoE 的瓶颈并不是“一个大 GEMM 算不动”，而是 **Router + 动态 Dispatch + 变长 Grouped GEMM + Combine** 这一整条动态流水线：
+
+```mermaid
+graph TD
+    H["hidden_states [B, S, D]"] --> R
+    R["<b>Router</b>（Linear）<br/>gate(x) → logits [B×S, E]<br/>→ top-k → expert_ids, weights"] --> D
+    D["<b>Dispatch</b>（Permute）<br/>把 token 按 expert_id 重排<br/>experts_input[e] = 路由到 expert e 的 token"] --> G
+    G["<b>Expert 并行 GEMM</b>（Grouped GEMM）<br/>Expert 0: W_gate_0 @ x₀ · SiLU<br/>Expert 1: W_gate_1 @ x₁ · SiLU<br/>⋯<br/><i>每个 expert 拿到的 token 数不同</i>"] --> C
+    C["<b>Combine</b>（Unpermute + Scale）<br/>output = Σ weightₖ × expertₖ_output"]
+```
+
 ```text
                     MoE 层执行流程
 
@@ -5170,6 +5181,20 @@ GPU：    通信等待  计算       通信等待
 
 现代 MoE 推理和训练系统会尽量进行通信与计算重叠（Communication-Computation Overlap）。
 
+以 2 卡、8 个 Expert 为例，每张卡都要把“不属于自己”的 token 送出去，同时接收“属于自己”的 token：
+
+```mermaid
+graph LR
+    subgraph G0["GPU 0（持有 Expert 0–3）"]
+        A0["本地 token：<br/>去 E0–3 的 + 去 E4–7 的"] --> X0["Expert 0–3<br/>GEMM"]
+    end
+    subgraph G1["GPU 1（持有 Expert 4–7）"]
+        A1["本地 token：<br/>去 E4–7 的 + 去 E0–3 的"] --> X1["Expert 4–7<br/>GEMM"]
+    end
+    A0 <-.->|"All-to-All Dispatch"| A1
+    X0 <-.->|"All-to-All Combine"| X1
+```
+
 ###### ① 分块执行
 
 一种常见方法是将 Token 分成多个 Chunk：
@@ -5466,7 +5491,27 @@ outputs = communicator.combine(
 > vLLM 通过通信抽象层提供 EP 的 Dispatch/Combine 能力，并可根据硬件和配置选择 DeepEP、NVLink 优化路径、FlashInfer 相关实现或其他通信后端。
 > 
 
+在 MoE 专家计算侧，vLLM 的 Fused MoE（`vllm/model_executor/layers/fused_moe/`）还提供了多种专家后端实现：
+
+| 后端 | 文件 | 适用场景 |
+|------|------|---------|
+| **Triton Experts** | `experts/triton_moe.py` | 通用 NVIDIA GPU |
+| **DeepGemm Experts** | `experts/deep_gemm_moe.py` | H100+ 高效 GEMM |
+| **CUTLASS FP8** | `experts/cutlass_moe.py` | FP8 量化 MoE |
+| **Marlin MoE** | `experts/marlin_moe.py` | INT4/INT8 量化 MoE |
+| **ROCm AIter** | `experts/rocm_aiter_moe.py` | AMD GPU |
+| **XPU Experts** | `experts/xpu_moe.py` | Intel GPU |
+
 ##### 11、EP 的常见优化方向
+
+MoE 工程优化通常围绕以下四类手段展开：
+
+| 手段 | 解决什么 |
+|---|---|
+| **Padding Removal** | 不为了对齐而 padding 到最大值，避免算白工 |
+| **Grouped GEMM** | 把多个形状不同的小 GEMM 合成一次 kernel 调用 |
+| **Fused MoE Kernel** | Route + Dispatch + GEMM + Combine 全融进一个 kernel，省掉中间张量的 HBM 往返 |
+| **All-to-All 与计算重叠** | 把通信藏到计算背后 |
 
 ###### ① Token 重排与内存布局优化
 
@@ -5785,78 +5830,7 @@ Prefill 阶段通常具有较大的序列长度和计算量，更适合通过序
 - **DP 永远是最外层的吞吐倍增器**——它不解决"装不下"，只解决"不够快"
 
 
-### 6.2 MoE：当 Expert 成为新的瓶颈
-
-第 6.1.4 节介绍 EP 时只说了"Expert 分布在不同 GPU 上"，但没说清楚代价。MoE 的推理瓶颈很特别——**它不是一个大 GEMM 算不动，而是 Router、Dispatch、变长 Grouped GEMM 和 Combine 这一串环节各自都不省心**，其中跨卡的 All-to-All 还会把通信开销直接压在关键路径上。
-
-#### 6.2.1 MoE 推理的数据流与融合
-
-MoE (Mixture of Experts) 模型的推理瓶颈独特——不是简单的 GEMM，而是 **Token Routing + 动态 Dispatch + 多专家并行 GEMM + Combine**：
-
-```mermaid
-graph TD
-    H["hidden_states [B, S, D]"] --> R
-    R["<b>Router</b>（Linear）<br/>gate(x) → logits [B×S, E]<br/>→ top-k → expert_ids, weights"] --> D
-    D["<b>Dispatch</b>（Permute）<br/>把 token 按 expert_id 重排<br/>experts_input[e] = 路由到 expert e 的 token"] --> G
-    G["<b>Expert 并行 GEMM</b>（Grouped GEMM）<br/>Expert 0: W_gate_0 @ x₀ · SiLU<br/>Expert 1: W_gate_1 @ x₁ · SiLU<br/>⋯<br/><i>每个 expert 拿到的 token 数不同</i>"] --> C
-    C["<b>Combine</b>（Unpermute + Scale）<br/>output = Σ weightₖ × expertₖ_output"]
-```
-
-注意 Grouped GEMM 那一步的括注：**每个 expert 拿到的 token 数是不一样的，而且每一轮都在变。** 这是 MoE 全部工程麻烦的根源——GPU 喜欢规整的形状，而动态路由给的恰恰是不规整的。四种主要优化手段都是在对付这件事：
-
-| 手段 | 解决什么 |
-|---|---|
-| **Padding Removal** | 不为了对齐而 padding 到最大值，避免算白工 |
-| **Grouped GEMM** | 把多个形状不同的小 GEMM 合成一次 kernel 调用 |
-| **Fused MoE Kernel** | Route + Dispatch + GEMM + Combine 全融进一个 kernel，省掉中间张量的 HBM 往返 |
-| **All-to-All 与计算重叠** | 把通信藏到计算背后（下一节） |
-
-vLLM 的 Fused MoE 实现（`vllm/model_executor/layers/fused_moe/`）提供了多种后端：
-
-| 后端 | 文件 | 适用场景 |
-|------|------|---------|
-| **Triton Experts** | `experts/triton_moe.py` | 通用 NVIDIA GPU |
-| **DeepGemm Experts** | `experts/deep_gemm_moe.py` | H100+ 高效 GEMM |
-| **CUTLASS FP8** | `experts/cutlass_moe.py` | FP8 量化 MoE |
-| **Marlin MoE** | `experts/marlin_moe.py` | INT4/INT8 量化 MoE |
-| **ROCm AIter** | `experts/rocm_aiter_moe.py` | AMD GPU |
-| **XPU Experts** | `experts/xpu_moe.py` | Intel GPU |
-
-#### 6.2.2 EP All-to-All 与计算重叠
-
-在 Expert Parallel (EP) 场景下，每个 GPU 只持有部分 Expert，需要 All-to-All 通信将 Token 分发到正确的 GPU：
-
-以 2 卡、8 个 Expert 为例，每张卡都要把"不属于自己"的 token 送出去，同时接收"属于自己"的：
-
-```mermaid
-graph LR
-    subgraph G0["GPU 0（持有 Expert 0–3）"]
-        A0["本地 token：<br/>去 E0–3 的 + 去 E4–7 的"] --> X0["Expert 0–3<br/>GEMM"]
-    end
-    subgraph G1["GPU 1（持有 Expert 4–7）"]
-        A1["本地 token：<br/>去 E4–7 的 + 去 E0–3 的"] --> X1["Expert 4–7<br/>GEMM"]
-    end
-    A0 <-.->|"All-to-All Dispatch"| A1
-    X0 <-.->|"All-to-All Combine"| X1
-```
-
-关键优化是让通信和计算在时间上叠起来，而不是干等：
-
-```
-不重叠：  通信 [dispatch]──────────────[combine]
-          计算 ─────────[expert GEMM]──────────
-          总时间 = 通信 + 计算
-
-重叠后：  通信 [dispatch][      combine      ]
-          计算      [   expert GEMM   ]
-                        ↑ 已到达的 token 先开算，剩下的边算边收
-          总时间 ≈ max(通信, 计算)
-```
-
-实现上的思路是**分块流水**：不等全部 token 到齐，先到的那批就开始做 GEMM，同时后台继续收。DeepEP 这类通信后端做的正是这件事。
-
-
-### 6.3 数据到底在往哪里搬：单卡、多卡与跨节点
+### 6.2 数据到底在往哪里搬：单卡、多卡与跨节点
 
 并行策略的代价全部体现在数据搬运上。在讨论通信优化之前，先把一次推理里所有的搬运路径摊开看一遍：
 
@@ -5893,9 +5867,9 @@ graph TB
 加粗的两行是**唯一值得下大力气优化的**——它们既频繁、量又大，还都卡在关键路径上。其余几行要么一次性、要么只有 KB 级。
 
 
-### 6.4 通信优化：真正的瓶颈
+### 6.3 通信优化：真正的瓶颈
 
-#### 6.4.1 NCCL 调优与拓扑感知
+#### 6.3.1 NCCL 调优与拓扑感知
 
 vLLM 的通信层（`vllm/distributed/device_communicators/`）支持多种后端：
 
@@ -5916,7 +5890,7 @@ vLLM 的通信抽象分三层，上层完全不感知底层用的是 NCCL 还是
 
 最后一条正是它存在的理由：**Decode 阶段的激活很小**，每层两次 All-Reduce 传的都是小张量，恰好落在 NCCL 不划算的区间里。
 
-#### 6.4.2 计算与通信的深度重叠
+#### 6.3.2 计算与通信的深度重叠
 
 ```
 不重叠（通信和计算互相等）：
@@ -5936,7 +5910,7 @@ vLLM 的通信抽象分三层，上层完全不感知底层用的是 NCCL 还是
 |---|---|
 | 独立 CUDA Stream | NCCL 跑在专属 stream 上，与计算 stream 并行 |
 | **Reduce-Scatter + All-Gather 替代 All-Reduce** | Reduce-Scatter 一完成就能开始算本地那份，同时 All-Gather 在后台收集其余部分 |
-| MoE：All-to-All 与 Expert GEMM 重叠 | 见第 6.2.2 节 |
+| MoE：All-to-All 与 Expert GEMM 重叠 | 见第 6.1.4 节「6、EP 中的通信与计算重叠」 |
 
 中间那一条是个很漂亮的技巧：一次 All-Reduce 在数学上等价于 Reduce-Scatter + All-Gather，但**拆开之后就出现了一个可以插入计算的缝隙**——总通信量不变，却把一段等待变成了并行。
 
