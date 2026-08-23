@@ -7,6 +7,32 @@ nav: false
 ---
 
 <style>
+  .slides-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 2px 0 20px;
+  }
+  .slides-filter {
+    border: 1px solid #cfd8e3;
+    border-radius: 999px;
+    background: #fff;
+    color: #516273;
+    padding: 5px 14px;
+    font-size: 12px;
+    line-height: 1.5;
+    cursor: pointer;
+    transition: all .2s ease;
+  }
+  .slides-filter:hover {
+    border-color: #0085a1;
+    color: #0085a1;
+  }
+  .slides-filter.active {
+    border-color: #0085a1;
+    background: #0085a1;
+    color: #fff;
+  }
   .deck-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -22,23 +48,110 @@ nav: false
   }
   .deck-stage {
     position: relative;
-    background: linear-gradient(145deg, #f6f8fb, #edf2f7);
-    padding: 14px;
+    background: linear-gradient(145deg, #f8fafd, #eaf0f7);
+    padding: 14px 14px 12px;
   }
-  .deck-frame-shell {
+  .deck-cover-shell {
     aspect-ratio: 16 / 9;
-    border: 1px solid #d8e0e9;
+    border: 1px solid #d9e1ea;
     border-radius: 10px;
     overflow: hidden;
-    background: #fff;
+    background: linear-gradient(140deg, #0d3b66, #176087 60%, #2b7a95);
+    position: relative;
+    box-shadow: 0 8px 16px rgba(17, 28, 39, 0.12);
+    cursor: pointer;
   }
-  .deck-frame-shell iframe {
-    width: 100%;
-    height: 100%;
-    border: 0;
+  .deck-cover-shell.cover-b {
+    background: linear-gradient(140deg, #3d2c8d, #5562c7 60%, #5f89e9);
+  }
+  .deck-cover-shell.cover-c {
+    background: linear-gradient(140deg, #6a2c70, #b83b5e 60%, #ef476f);
+  }
+  .deck-cover-shell.cover-d {
+    background: linear-gradient(140deg, #004b50, #00798c 58%, #4ba3c3);
+  }
+  .deck-cover-shell.cover-e {
+    background: linear-gradient(140deg, #28313b, #485461 55%, #718093);
+  }
+  .deck-cover-content {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 16px;
+    color: #fff;
+  }
+  .deck-cover-title {
+    margin: 0;
+    font-size: 22px;
+    line-height: 1.2;
+    text-shadow: 0 3px 8px rgba(0, 0, 0, 0.2);
+  }
+  .deck-cover-subtitle {
+    margin: 8px 0 0;
+    font-size: 13px;
+    line-height: 1.35;
+    opacity: .92;
+  }
+  .deck-cover {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    padding: 12px;
+    z-index: 3;
+    pointer-events: none;
+  }
+  .deck-cover-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    background: rgba(16, 26, 36, 0.64);
+    color: #fff;
+    font-size: 11px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+  .deck-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(180deg, rgba(0, 20, 30, 0.12), rgba(0, 20, 30, 0.72));
+    opacity: 0;
+    transition: opacity .2s ease;
+    z-index: 4;
+  }
+  .deck-cover-shell:hover .deck-overlay,
+  .deck-cover-shell:focus .deck-overlay {
+    opacity: 1;
+  }
+  .deck-overlay-content {
+    text-align: center;
+    color: #fff;
+  }
+  .deck-pages {
+    margin-bottom: 8px;
+    font-size: 12px;
+    opacity: .9;
+  }
+  .deck-play-inline {
+    display: inline-block;
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: #fff;
+    color: #0d1f2a;
+    font-size: 12px;
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .deck-play-inline:hover {
+    color: #0d1f2a;
   }
   .deck-actions {
-    margin-top: 10px;
+    margin-top: 8px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -76,26 +189,158 @@ nav: false
     color: #9aa2ab;
     font-size: 12px;
   }
+  .deck-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: none;
+  }
+  .deck-modal.is-open {
+    display: block;
+  }
+  .deck-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(6, 15, 22, 0.68);
+  }
+  .deck-modal-dialog {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: min(1100px, calc(100vw - 40px));
+    background: #fff;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 20px 50px rgba(6, 18, 29, 0.28);
+  }
+  .deck-modal-head {
+    padding: 14px 18px;
+    border-bottom: 1px solid #e5ebf2;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .deck-modal-title {
+    margin: 0;
+    font-size: 16px;
+    color: #1a2733;
+  }
+  .deck-modal-meta {
+    margin: 2px 0 0;
+    font-size: 12px;
+    color: #778596;
+  }
+  .deck-modal-close {
+    border: 1px solid #d5dde7;
+    background: #fff;
+    border-radius: 999px;
+    width: 30px;
+    height: 30px;
+    line-height: 28px;
+    font-size: 20px;
+    color: #4a5968;
+    cursor: pointer;
+    padding: 0;
+  }
+  .deck-modal-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .deck-modal-fullscreen {
+    border: 1px solid #d5dde7;
+    background: #fff;
+    border-radius: 999px;
+    min-width: 74px;
+    height: 30px;
+    line-height: 28px;
+    font-size: 12px;
+    color: #4a5968;
+    cursor: pointer;
+    padding: 0 10px;
+  }
+  .deck-modal-body {
+    aspect-ratio: 16 / 9;
+    background: #0f1722;
+  }
+  .deck-modal-body iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+  }
+  @media (max-width: 768px) {
+    .deck-modal-dialog {
+      width: calc(100vw - 18px);
+    }
+    .deck-modal-head {
+      padding: 10px 12px;
+    }
+    .deck-modal-title {
+      font-size: 14px;
+    }
+  }
 </style>
 
 <div id="slides-index">
 {% assign all_pages = site.pages | sort: "date" | reverse %}
 {% assign slides = all_pages | where: "layout", "slides" %}
 {% if slides.size > 0 %}
+{% assign grouped_years = slides | group_by_exp: "item", "item.date | date: '%Y'" %}
+<div class="slides-toolbar" id="slides-toolbar">
+  <button class="slides-filter active" data-year="all" type="button">全部</button>
+  {% for year_group in grouped_years %}
+  <button class="slides-filter" data-year="{{ year_group.name }}" type="button">{{ year_group.name }}</button>
+  {% endfor %}
+</div>
 <div class="deck-grid">
   {% for p in slides %}
+  {% assign rendered_content = p.content | markdownify | replace: '<hr>', '<hr />' %}
+  {% assign page_count = rendered_content | split: '<hr />' | size %}
+  {% assign title_slide_count = 1 %}
+  {% if p["title-slide"] == false %}
+    {% assign title_slide_count = 0 %}
+  {% endif %}
+  {% assign total_pages = page_count | plus: title_slide_count %}
   <article class="deck-card">
-    <div class="deck-stage">
-      <div class="deck-frame-shell">
-        <iframe
-          src="{{ p.url | prepend: site.baseurl }}?embedded=true&controls=true&progress=true"
-          title="{{ p.title }}"
-          loading="lazy"
-          allowfullscreen>
-        </iframe>
+    <div class="deck-stage" data-year="{{ p.date | date: '%Y' }}">
+      <div
+        class="deck-cover-shell deck-launch {% cycle 'cover-a', 'cover-b', 'cover-c', 'cover-d', 'cover-e' %}"
+        role="button"
+        tabindex="0"
+        data-deck-url="{{ p.url | prepend: site.baseurl }}"
+        data-deck-title="{{ p.title | escape }}"
+        data-deck-subtitle="{{ p.subtitle | default: '' | escape }}"
+        data-deck-pages="{{ total_pages }}">
+        <div class="deck-cover-content">
+          <h4 class="deck-cover-title">{{ p.title }}</h4>
+          {% if p.subtitle %}<p class="deck-cover-subtitle">{{ p.subtitle }}</p>{% endif %}
+        </div>
+        <div class="deck-cover">
+          <span class="deck-cover-badge">{{ p.date | date: "%Y" }}</span>
+        </div>
+        <div class="deck-overlay">
+          <div class="deck-overlay-content">
+            <div class="deck-pages">{{ total_pages }} 页</div>
+            <a
+              class="deck-play-inline deck-launch"
+              href="{{ p.url | prepend: site.baseurl }}"
+              data-deck-url="{{ p.url | prepend: site.baseurl }}"
+              data-deck-title="{{ p.title | escape }}"
+              data-deck-subtitle="{{ p.subtitle | default: '' | escape }}"
+              data-deck-pages="{{ total_pages }}">立即播放</a>
+          </div>
+        </div>
       </div>
       <div class="deck-actions">
-        <a class="deck-play" href="{{ p.url | prepend: site.baseurl }}">Play</a>
+        <a
+          class="deck-play deck-launch"
+          href="{{ p.url | prepend: site.baseurl }}"
+          data-deck-url="{{ p.url | prepend: site.baseurl }}"
+          data-deck-title="{{ p.title | escape }}"
+          data-deck-subtitle="{{ p.subtitle | default: '' | escape }}"
+          data-deck-pages="{{ total_pages }}">Play</a>
         <a class="deck-open" href="{{ p.url | prepend: site.baseurl }}?print-pdf">PDF 导出模式</a>
       </div>
     </div>
@@ -111,3 +356,162 @@ nav: false
 <p>还没有幻灯片。</p>
 {% endif %}
 </div>
+
+<div class="deck-modal" id="deck-modal" aria-hidden="true">
+  <div class="deck-modal-backdrop" data-deck-close="1"></div>
+  <div class="deck-modal-dialog" role="dialog" aria-modal="true" aria-label="Slide player">
+    <div class="deck-modal-head">
+      <div>
+        <h4 class="deck-modal-title" id="deck-modal-title"></h4>
+        <p class="deck-modal-meta" id="deck-modal-meta"></p>
+      </div>
+      <div class="deck-modal-actions">
+        <button class="deck-modal-fullscreen" type="button" id="deck-modal-fullscreen">全屏</button>
+        <button class="deck-modal-close" type="button" data-deck-close="1" aria-label="Close">×</button>
+      </div>
+    </div>
+    <div class="deck-modal-body">
+      <iframe id="deck-modal-frame" src="" loading="lazy" allowfullscreen></iframe>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var toolbar = document.getElementById('slides-toolbar');
+    var cards = document.querySelectorAll('.deck-stage');
+    var buttons = toolbar ? toolbar.querySelectorAll('.slides-filter') : [];
+    var launchers = document.querySelectorAll('.deck-launch');
+    var modal = document.getElementById('deck-modal');
+    var modalDialog = modal ? modal.querySelector('.deck-modal-dialog') : null;
+    var modalFrame = document.getElementById('deck-modal-frame');
+    var fullscreenBtn = document.getElementById('deck-modal-fullscreen');
+    var modalTitle = document.getElementById('deck-modal-title');
+    var modalMeta = document.getElementById('deck-modal-meta');
+
+    function each(nodeList, fn) {
+      Array.prototype.forEach.call(nodeList || [], fn);
+    }
+
+    function setActive(targetYear) {
+      each(buttons, function (btn) {
+        btn.classList.toggle('active', btn.getAttribute('data-year') === targetYear);
+      });
+      each(cards, function (card) {
+        var show = targetYear === 'all' || card.getAttribute('data-year') === targetYear;
+        card.parentElement.style.display = show ? '' : 'none';
+      });
+    }
+
+    function openModal(url, title, subtitle, pages) {
+      if (!modal || !modalFrame || !modalTitle || !modalMeta) return;
+      if (!url) return;
+      modal.classList.add('is-open');
+      modal.setAttribute('aria-hidden', 'false');
+      modalFrame.src = new URL(url, window.location.href).toString();
+      modalTitle.textContent = title || 'Slides';
+      var metaText = [];
+      if (subtitle) metaText.push(subtitle);
+      if (pages) metaText.push(pages + ' 页');
+      modalMeta.textContent = metaText.join(' · ');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function enterFullscreen() {
+      if (!modalDialog) return;
+      if (modalDialog.requestFullscreen) {
+        modalDialog.requestFullscreen();
+      } else if (modalDialog.webkitRequestFullscreen) {
+        modalDialog.webkitRequestFullscreen();
+      }
+    }
+
+    function exitFullscreen() {
+      if (document.fullscreenElement && document.exitFullscreen) {
+        document.exitFullscreen();
+      } else if (document.webkitFullscreenElement && document.webkitExitFullscreen) {
+        document.webkitExitFullscreen();
+      }
+    }
+
+    function isFullscreen() {
+      return document.fullscreenElement === modalDialog || document.webkitFullscreenElement === modalDialog;
+    }
+
+    function syncFullscreenButton() {
+      if (!fullscreenBtn) return;
+      fullscreenBtn.textContent = isFullscreen() ? '退出全屏' : '全屏';
+    }
+
+    function closeModal() {
+      if (!modal || !modalFrame) return;
+      if (isFullscreen()) {
+        exitFullscreen();
+      }
+      modal.classList.remove('is-open');
+      modal.setAttribute('aria-hidden', 'true');
+      modalFrame.src = '';
+      document.body.style.overflow = '';
+      syncFullscreenButton();
+    }
+
+    if (toolbar) {
+      each(buttons, function (btn) {
+        btn.addEventListener('click', function () {
+          setActive(btn.getAttribute('data-year'));
+        });
+      });
+    }
+
+    each(launchers, function (link) {
+      link.addEventListener('click', function (event) {
+        event.preventDefault();
+        var url = link.getAttribute('data-deck-url') || link.getAttribute('href');
+        if (!url) return;
+        openModal(
+          url,
+          link.getAttribute('data-deck-title'),
+          link.getAttribute('data-deck-subtitle'),
+          link.getAttribute('data-deck-pages')
+        );
+      });
+      link.addEventListener('keydown', function (event) {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        var url = link.getAttribute('data-deck-url') || link.getAttribute('href');
+        if (!url) return;
+        openModal(
+          url,
+          link.getAttribute('data-deck-title'),
+          link.getAttribute('data-deck-subtitle'),
+          link.getAttribute('data-deck-pages')
+        );
+      });
+    });
+
+    if (modal) {
+      modal.addEventListener('click', function (event) {
+        if (event.target && event.target.getAttribute('data-deck-close') === '1') {
+          closeModal();
+        }
+      });
+    }
+
+    if (fullscreenBtn) {
+      fullscreenBtn.addEventListener('click', function () {
+        if (isFullscreen()) {
+          exitFullscreen();
+        } else {
+          enterFullscreen();
+        }
+      });
+    }
+
+    document.addEventListener('fullscreenchange', syncFullscreenButton);
+    document.addEventListener('webkitfullscreenchange', syncFullscreenButton);
+
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') closeModal();
+    });
+  })();
+</script>
