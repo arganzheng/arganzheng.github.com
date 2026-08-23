@@ -6,42 +6,60 @@ permalink: /archive/
 
 <div id="archive">
 {% assign slide_pages = site.pages | where: "layout", "slides" %}
-{% assign archive_entries = site.posts | concat: slide_pages | sort: "date" | reverse %}
+{% assign timeline_rows = "" %}
+{% for item in site.posts %}
+  {% capture row %}{{ item.date | date: "%Y%m%d%H%M%S" }}::{{ item.date | date: "%Y" }}::{{ item.date | date: "%Y-%m" }}::{{ item.date | date: "%B" }}::{{ item.date | date: "%Y/%m/%d" }}::post::{{ item.url | prepend: site.baseurl }}::{{ item.title | replace: "::", "：" }}::{{ item.subtitle | default: "" | replace: "::", "：" }}###{% endcapture %}
+  {% assign timeline_rows = timeline_rows | append: row %}
+{% endfor %}
+{% for item in slide_pages %}
+  {% capture row %}{{ item.date | date: "%Y%m%d%H%M%S" }}::{{ item.date | date: "%Y" }}::{{ item.date | date: "%Y-%m" }}::{{ item.date | date: "%B" }}::{{ item.date | date: "%Y/%m/%d" }}::slides::{{ item.url | prepend: site.baseurl }}::{{ item.title | replace: "::", "：" }}::{{ item.subtitle | default: "" | replace: "::", "：" }}###{% endcapture %}
+  {% assign timeline_rows = timeline_rows | append: row %}
+{% endfor %}
+{% assign timeline = timeline_rows | split: "###" | sort | reverse %}
+
 {% assign year = nil %}
 {% assign month_key = nil %}
-
-{% for item in archive_entries %}
-{% capture this_year %}{{ item.date | date: "%Y" }}{% endcapture %}
-{% unless year == this_year %}
+{% for row in timeline %}
+{% if row != "" %}
+{% assign cols = row | split: "::" %}
+{% assign item_year = cols[1] %}
+{% assign item_month_key = cols[2] %}
+{% assign item_month = cols[3] %}
+{% assign item_date = cols[4] %}
+{% assign item_type = cols[5] %}
+{% assign item_url = cols[6] %}
+{% assign item_title = cols[7] %}
+{% assign item_subtitle = cols[8] %}
+{% unless year == item_year %}
   {% if month_key != nil %}</ul>{% endif %}
-  {% assign year = this_year %}
-  <h2>{{ year }}</h2> 
+  {% assign year = item_year %}
+  <h2>{{ year }}</h2>
   <hr />
   {% assign month_key = nil %}
 {% endunless %}
-{% assign current_month = item.date | date: "%B %Y" %}
-{% if current_month != month_key %}
+{% if item_month_key != month_key %}
 {% if month_key != nil %}</ul>{% endif %}
-<h3 id="{{ current_month | replace: ' ', '-' | downcase }}">{{ current_month | split: " " | first }}</h3>
+<h3 id="{{ item_month_key }}">{{ item_month }}</h3>
 <ul class="list-unstyled">
+{% assign month_key = item_month_key %}
 {% endif %}
-{% assign month_key = current_month %}
     <li>
-      <small style="color: #aaa">{{ item.date | date: "%Y/%m/%d" }}</small>
+      <small style="color: #aaa">{{ item_date }}</small>
       &nbsp;&raquo;&nbsp;
-      {% if item.layout == "slides" %}
+      {% if item_type == "slides" %}
       <span style="color: #0085a1; font-size: 12px;">[Slides]</span>
       {% else %}
       <span style="color: #999; font-size: 12px;">[Post]</span>
       {% endif %}
-      <a href="{{ item.url | prepend: site.baseurl }}">{{ item.title }}</a>
-      {% if item.subtitle %}
-      <br><small style="color: #999">{{ item.subtitle }}</small>
+      <a href="{{ item_url }}">{{ item_title }}</a>
+      {% if item_subtitle != "" %}
+      <br><small style="color: #999">{{ item_subtitle }}</small>
       {% endif %}
     </li>
+{% endif %}
 {% endfor %}
 {% if month_key != nil %}</ul>{% endif %}
-{% if archive_entries.size == 0 %}
+{% if timeline_rows == "" %}
 <p>还没有内容可归档。</p>
 {% endif %}
 </div>
