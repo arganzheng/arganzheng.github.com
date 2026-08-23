@@ -17,13 +17,23 @@
             <div class="navbar-collapse">
                 <ul class="nav navbar-nav navbar-right">
                     <li>
-                        <a href="{{ site.baseurl }}/">Home</a>
+                        <a href="{{ site.baseurl }}/">Posts</a>
                     </li>
-                    {% for page in site.pages %}{% if page.title and page.layout != "slides" and page.nav != false %}
                     <li>
-                        <a href="{{ page.url | prepend: site.baseurl }}">{{ page.title }}</a>
+                        <a href="{{ '/slides/' | prepend: site.baseurl }}">Slides</a>
                     </li>
-                    {% endif %}{% endfor %}
+                    <li>
+                        <a href="{{ '/archive/' | prepend: site.baseurl }}">Archive</a>
+                    </li>
+                    <li>
+                        <a href="{{ '/search/' | prepend: site.baseurl }}">Search</a>
+                    </li>
+                    <li>
+                        <a href="{{ '/tags/' | prepend: site.baseurl }}">Tags</a>
+                    </li>
+                    <li>
+                        <a href="{{ '/about/' | prepend: site.baseurl }}">About</a>
+                    </li>
                 </ul>
             </div>
         </div>

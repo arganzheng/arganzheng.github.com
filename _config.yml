@@ -1,12 +1,12 @@
 # Site settings
 title: Arganzheng's Blog
-SEOTitle: 郑志彬的博客 | Arganzheng's Blog
+SEOTitle: 阿甘的博客 | Arganzheng's Blog
 header-img: img/home-bg.jpg
-email: arganzheng@gmail.com
-description: "郑志彬，Server-Side Engineer & Architect. | 这里是 @arganzheng 的个人博客，与你一起发现更大的世界。"
-keyword: "阿甘, arganzheng, 郑志彬, 博客，个人网站, 互联网, 服务端, 架构, 大数据，高并发，人工智能，Java, C++, Python, Shell, Linux"
+email: arganzheng@qq.com
+description: "阿甘，Server-Side Engineer & Architect. | 这里是 @arganzheng 的个人博客，与你一起发现更大的世界。"
+keyword: "阿甘, arganzheng, 博客，个人网站, 互联网, 服务端, 架构, 大数据, 高并发, 人工智能, AI, Java, C++, Python, Shell, Linux"
 url: "http://arganzheng.life"      # your host, for absolute URL
-baseurl: ""                             # for example, '/blog' if your blog hosted on 'host/blog'
+baseurl: ""                        # for example, '/blog' if your blog hosted on 'host/blog'
 
 
 

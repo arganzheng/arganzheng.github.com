@@ -5,20 +5,43 @@ permalink: /archive/
 ---
 
 <div id="archive">
-{% for post in site.posts %}
-{% capture this_year %}{{ post.date | date: "%Y" }}{% endcapture %}
+{% assign slide_pages = site.pages | where: "layout", "slides" %}
+{% assign archive_entries = site.posts | concat: slide_pages | sort: "date" | reverse %}
+{% assign year = nil %}
+{% assign month_key = nil %}
+
+{% for item in archive_entries %}
+{% capture this_year %}{{ item.date | date: "%Y" }}{% endcapture %}
 {% unless year == this_year %}
+  {% if month_key != nil %}</ul>{% endif %}
   {% assign year = this_year %}
   <h2>{{ year }}</h2> 
   <hr />
+  {% assign month_key = nil %}
 {% endunless %}
-{% assign currentdate = post.date | date: "%B %Y" %}
-{% if currentdate != date %}
-<h3 id="{{ currentdate }}">{{ currentdate | date: "%B" }}</h3>
+{% assign current_month = item.date | date: "%B %Y" %}
+{% if current_month != month_key %}
+{% if month_key != nil %}</ul>{% endif %}
+<h3 id="{{ current_month | replace: ' ', '-' | downcase }}">{{ current_month | split: " " | first }}</h3>
 <ul class="list-unstyled">
 {% endif %}
-{% assign date = currentdate %}
-    <li><small style="color: #aaa">{{ post.date | date: "%Y/%m/%d" }}</small>&nbsp;&raquo;&nbsp;<a href="{{ post.url | prepend: site.url }}">{{ post.title }}</a></li>
+{% assign month_key = current_month %}
+    <li>
+      <small style="color: #aaa">{{ item.date | date: "%Y/%m/%d" }}</small>
+      &nbsp;&raquo;&nbsp;
+      {% if item.layout == "slides" %}
+      <span style="color: #0085a1; font-size: 12px;">[Slides]</span>
+      {% else %}
+      <span style="color: #999; font-size: 12px;">[Post]</span>
+      {% endif %}
+      <a href="{{ item.url | prepend: site.baseurl }}">{{ item.title }}</a>
+      {% if item.subtitle %}
+      <br><small style="color: #999">{{ item.subtitle }}</small>
+      {% endif %}
+    </li>
 {% endfor %}
-</ul>
+{% if month_key != nil %}</ul>{% endif %}
+{% if archive_entries.size == 0 %}
+<p>还没有内容可归档。</p>
+{% endif %}
 </div>
