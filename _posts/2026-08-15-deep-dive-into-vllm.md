@@ -6326,11 +6326,20 @@ NCCL_DEBUG_SUBSYS=INIT,GRAPH,NET
 
 ## 七、模型适配：如何跟上变化极快的模型世界？
 
-> **本章是第一个横切问题：四问的答案，必须在「模型不断变化」的前提下依然成立。**
+### 7.1 痛点：为什么推理引擎必须持续适配新模型？
 
-### 7.1 痛点：为什么推理引擎需要"疯狂"适配新模型？
+#### 7.1.1 模型算法同质化与工程实现异构化
 
-LLM 模型在算法上高度同质（都是 Transformer），但在实现上高度异构：
+LLM 模型在算法上高度同质，都是基于 Transformer模型，围绕以下组件构建：
+
+- Embedding；
+- Transformer Block；
+- Attention；
+- Feed-Forward Network；
+- Normalization；
+- LM Head。
+
+但模型的工程实现上却是高度异构化：
 
 | 维度 | 差异示例 |
 |---|---|
@@ -6347,12 +6356,175 @@ LLM 模型在算法上高度同质（都是 Transformer），但在实现上高�
 - 换 Attention 变体 → 影响 Attention Kernel **和** KV Cache 布局
 - 换 KV Cache 格式 → 影响显存管理 **和** 调度策略（Mamba 的 state 根本不是块状的）
 - 加特殊头 → 影响采样、调度预算 **和** KV 回滚逻辑（见第 7.4.3 节）
+- 引入 MoE → 影响路由、Token Dispatch、通信和负载均衡
+- 改变权重布局 → 影响加载、量化和张量并行
 
 而新架构的发布频率是**周级**的。所以真正的问题是：**如何在不动 Continuous Batching + PagedAttention 这套通用框架的前提下，容纳每个模型的特殊计算路径。**
 
-### 7.2 vLLM 模型适配的核心抽象机制
+#### 7.1.2 新模型差异如何向下游扩散？
 
-#### 7.2.1 Model Runner 与 Unified Interface
+一个新模型接入推理引擎时，影响通常可以分为三个层次。
+
+| 层次 | 主要内容 | 典型问题 |
+|---|---|---|
+| 模型层 | 网络结构、权重、配置 | 如何加载权重？如何表示模型结构？ |
+| 运行时层 | 调度、KV Cache、并行 | 如何执行动态 Batch？如何管理显存？ |
+| 算子层 | Attention、MoE、量化 Kernel | 如何获得足够的吞吐和延迟？ |
+
+理想情况下，模型层只需要调用运行时提供的通用能力，运行时层则通过标准算子完成执行。但现实中的新模型经常会突破既有假设，导致修改从模型层一路传递到 Kernel 层。
+
+以标准 Attention 为例，其基本路径可以抽象为：
+
+```text
+Q、K、V
+  ↓
+QKᵀ
+  ↓
+Scale 与 Mask
+  ↓
+Softmax
+  ↓
+与 V 相乘
+  ↓
+输出
+```
+
+而在实际推理系统中，还需要同时考虑：
+
+- 当前请求处于 Prefill 还是 Decode；
+- Batch 中每条序列的长度是否相同；
+- KV Cache 是否分页存储；
+- 是否启用张量并行或流水线并行；
+- 是否使用量化；
+- 是否存在特殊的位置编码；
+- 当前硬件适合哪一种 Kernel。
+
+因此，推理引擎适配的难点并不是“把论文公式翻译成代码”，而是：
+
+> 将模型的计算语义，准确映射到一个动态、异步、分布式且高度优化的执行系统中。
+
+
+#### 7.1.3 推理引擎适配的核心目标
+
+一个成熟的模型适配方案通常需要同时满足四个目标：
+
+1. **正确性**：模型输出应与参考实现一致；
+2. **性能**：不能因为复用抽象而损失关键路径性能；
+3. **可维护性**：模型特化逻辑不能污染整个运行时；
+4. **可扩展性**：新模型能够复用已有的执行原语。
+
+这四个目标之间并不总是一致。
+
+| 方案 | 灵活性 | 性能 | 可维护性 | 适用场景 |
+|---|---:|---:|---:|---|
+| 完全复用通用实现 | 高 | 中 | 高 | 结构接近已有模型 |
+| 模型专用 Python 逻辑 | 高 | 中低 | 中低 | 快速验证和早期接入 |
+| Custom Op | 中 | 高 | 中高 | 性能关键算子 |
+| 专用 Kernel 与运行时改造 | 低 | 很高 | 中 | 范式级模型创新 |
+
+适配工作的本质，就是在这几个目标之间找到合理的工程折中。
+
+
+### 7.2 vLLM 的核心抽象：模型逻辑与运行时如何解耦？
+
+在前一节我们讨论了模型变化会跨层扩散：从结构到状态，再到执行和性能。  
+vLLM 应对这个问题的方式不是“把所有模型逻辑塞进一个超大基类”，而是建立一组清晰边界，让每类变化落在最合适的位置。下面这几个抽象是最核心的骨架。
+
+#### 7.2.1 从配置语义开始：`ModelConfig` 把输入参数收敛成执行意图
+
+新模型接入的第一步不是写代码，而是先把“我要怎么跑”说清楚。vLLM 把这件事集中在 `ModelConfig`：它会读取 HF 配置里的 `architectures`，解析 `runner_type`（generate/pooling/draft）与 `convert_type`（embed/classify/none），并提前判断模型能力（例如是否多模态、是否适合某种 runner）。  
+这意味着后续模块拿到的不是零散参数，而是一个已经统一语义的配置对象。没有这个收敛层，registry、loader、runner 都会各自重复判断，最终产生冲突分支。
+
+```mermaid
+flowchart TD
+    A[raw args / model name] --> B[ModelConfig]
+    B --> C[read hf architectures]
+    C --> D[resolve runner_type]
+    D --> E[resolve convert_type]
+    E --> F[inspect capabilities]
+    F --> G[stable execution intent]
+```
+
+#### 7.2.2 模型发现边界：`ModelRegistry` 负责“找到谁”，而不是“怎么跑”
+
+接下来是模型发现。`ModelRegistry` 通过架构名定位模型类，支持内置映射、运行时注册、懒加载（`module:class`）和 auto 模式下的 fallback 策略。  
+这层最关键的价值是把“模型识别”变成集中治理的路由能力，而不是让每个调用点写 `if model_type == ...`。它还提供 `inspect_model_cls` 与 `resolve_model_cls` 两阶段机制：前者看能力，后者拿实现，避免在模型真正实例化前就做大量重活。
+
+```mermaid
+flowchart LR
+    HF[architectures] --> REG[ModelRegistry]
+    REG --> I[inspect_model_cls]
+    REG --> R[resolve_model_cls]
+    R --> CLS[model class]
+```
+
+这里要强调一个常见误区：Registry 不负责模型对象的完整实例化。它解决的是“该选哪一类实现”；真正的实例化和权重落地在 loader 层。
+
+#### 7.2.3 契约边界：`nn.Module` + Protocol，而非强制单继承树
+
+vLLM 的模型抽象并不是传统“统一父类 + 深继承树”，而是更务实的 `nn.Module` + Protocol。  
+底层要求模型是 PyTorch `nn.Module`（以便参数管理、device 迁移、state_dict 等基础能力一致），上层再通过协议定义最小契约（初始化、`embed_input_ids`、`forward`）和可选能力契约（文本生成、池化、多模态等）。
+
+这让模型接入具备两个好处：
+
+1. 能兼容大量已有实现，不必为接入而重构继承结构；  
+2. 能力是“可组合标签”而不是“继承层级锁定”，对 OOT 插件尤其友好。
+
+```mermaid
+classDiagram
+    class nn.Module
+    class VllmModel~Protocol~
+    class VllmModelForTextGeneration~Protocol~
+    class SupportsMultiModal~Protocol~
+
+    nn.Module <|-- ConcreteModel
+    VllmModel <.. ConcreteModel
+    VllmModelForTextGeneration <.. ConcreteModel
+    SupportsMultiModal <.. ConcreteModel
+```
+
+#### 7.2.4 落地边界：`ModelLoader` 统一实例化与权重装配，`WeightsMapper` 处理命名差异
+
+模型类找到了，并不代表可用。真正容易出错的是 checkpoint 权重装配。  
+vLLM 把这块集中到 loader 抽象：先 `initialize_model`，再 `load_weights`，最后做加载后处理（量化相关处理、设备侧整理等）。  
+不同模型权重命名或结构差异通过 `WeightsMapper` 统一映射，避免把权重重命名逻辑散落到各模型的运行路径里。
+
+```mermaid
+flowchart TD
+    A[resolved model class] --> B[initialize_model]
+    B --> C[raw checkpoint weights]
+    C --> D[WeightsMapper remap]
+    D --> E[load_weights]
+    E --> F[post process]
+    F --> G[model.eval()]
+```
+
+这层解耦直接带来一个现实收益：  
+很多“看似推理 bug”的问题其实是权重映射偏差，独立 loader 边界能显著降低排障复杂度。
+
+#### 7.2.5 执行计划抽象：`SchedulerOutput` 作为“每步 IR”
+
+在进入执行层前，vLLM 先把调度结果固化为一个稳定的数据契约：`SchedulerOutput`。  
+它不是一个“临时对象”，而是 step 级执行计划：包含新请求与缓存请求增量、每请求 token 预算、spec decode token、encoder 输入、完成请求与释放信息等。  
+有了这层，调度器可以专注“这一轮该跑谁、跑多少”，执行器可以专注“按计划跑”，两者通过协议解耦，而不是通过隐式共享状态耦合。
+
+```mermaid
+flowchart LR
+    Sch[Scheduler] --> SO[SchedulerOutput]
+    SO --> MR[ModelRunner]
+    SO --> KV[KV lifecycle updates]
+    SO --> MM[Encoder/MM scheduling]
+```
+
+把 `SchedulerOutput` 看成“step 级 IR”后，prefill/decode/spec decode 的共存逻辑会非常清楚：  
+它们不是三条互斥链路，而是同一执行协议上的不同字段组合。
+
+#### 7.2.6 运行时边界：`Worker + ModelRunner` 承接动态执行复杂度
+
+模型类本身不应该感知请求编排和生命周期管理。vLLM 把这部分复杂度收敛在 `ModelRunner`：它消费 `SchedulerOutput`，准备输入与状态，调用模型计算，再把采样/池化结果封装成统一 `ModelRunnerOutput`。  
+换句话说，模型定义层解决“如何计算一个前向”，运行时层解决“在这一轮动态系统状态下如何组织这次计算”。
+
+这两层通过统一的执行接口连接起来：
 
 `ModelRunner`（`vllm/v1/worker/gpu/model_runner.py`）为所有模型提供统一的执行接口：
 
@@ -6360,164 +6532,821 @@ LLM 模型在算法上高度同质（都是 Transformer），但在实现上高�
 # 统一的 Forward 调用接口
 output = model(
     input_ids=input_ids,          # [num_tokens]
-    positions=positions,           # [num_tokens]
+    positions=positions,          # [num_tokens]
     kv_caches=kv_caches,          # List[Tensor] per layer
     attn_metadata=attn_metadata,  # 动态注入的 Attention 元数据
 )
 ```
 
-#### 7.2.2 Attention Metadata 动态注入
+```mermaid
+sequenceDiagram
+    participant S as Scheduler
+    participant W as Worker
+    participant R as ModelRunner
+    participant M as Model(nn.Module)
+    participant O as ModelRunnerOutput
+    S->>W: SchedulerOutput
+    W->>R: execute_model(...)
+    R->>M: forward / compute_logits
+    R->>R: sample or pool
+    R-->>W: ModelRunnerOutput
+    W-->>S: step outputs
+```
 
-推理框架通过 `attn_metadata` 将 Block Table、序列长度、Prefill/Decode 标志等运行时信息注入模型的 Attention 层——模型本身不需要知道 PagedAttention 的存在：
+这也是为什么新生成范式（如多步候选验证）首先会影响 runner/scheduler 协作，而不是只改 `forward`。
+
+#### 7.2.7 Attention Metadata 抽象：把调度态注入 attention 语义
+
+如果只有 `ModelRunner`，仍然不够。真正把“动态调度世界”接到 attention kernel 的，是 `CommonAttentionMetadata + AttentionMetadataBuilder`。  
+这组抽象承载并构建 query 起点、`seq_lens`、`block_table`、`slot_mapping`、prefill/decode 标记等信息。模型实现因此不需要知道分页 KV 的物理布局，后端 kernel 也不需要耦合调度器内部结构。
 
 ```mermaid
-graph TD
-    S["<b>Scheduler 生成 SchedulerOutput</b><br/>block_table_tensor（虚拟→物理块映射）<br/>slot_mapping（当前 token → KV 槽位）<br/>seq_lens · num_prefill_tokens · num_decode_tokens"]
-    S --> M
-    M["<b>ModelRunner 构建 AttentionMetadata</b><br/><i>转换成 FlashInfer / FlashAttn 特化的元数据格式</i>"]
-    M --> A
-    A["<b>注入到每一层 Attention</b><br/>attention.forward(<br/>&nbsp;&nbsp;query, key, value,&nbsp;&nbsp;<i>← 模型自己算出的 QKV</i><br/>&nbsp;&nbsp;kv_cache,&nbsp;&nbsp;<i>← 物理 KV Cache 张量</i><br/>&nbsp;&nbsp;attn_metadata&nbsp;&nbsp;<i>← 调度器提供的元数据</i><br/>)"]
+flowchart TD
+    A[Scheduler + KV state] --> B[CommonAttentionMetadata]
+    B --> C[AttentionMetadataBuilder]
+    C --> D[backend/layer specific metadata]
+    D --> E[Attention backend forward]
 ```
 
-这个设计的精妙之处在于**信息流的方向**：模型代码只负责算出 Q、K、V，然后把它们交给 `attention.forward()`；至于这些 K/V 该写到哪个物理块、这个请求能读到哪些历史块、本轮有多少 prefill token——**全部由外部注入，模型一无所知**。
+可以把它压成一句话：  
+**ModelRunner 决定这一轮怎么算，Attention Metadata 决定 attention 在这一轮到底“看见什么”。**
 
-结果就是：**模型代码完全不需要知道 PagedAttention 和 Continuous Batching 的存在，却能跑在它们之上。** 这也是为什么从 HuggingFace 移植一个新模型到 vLLM，主要工作量在权重加载和层结构映射，而不在改造推理逻辑。
+#### 7.2.8 横切边界：KV、Attention Backend、Tokenizer、多模态处理
 
-#### 7.2.3 Model Registry：插件化注册
+前面几层定义了主链路，但真正决定“新模型能不能稳定上线”的，往往是横切抽象是否完备。这里有四个最关键的横切层。
 
-```python
-# vllm/model_executor/models/registry.py (简化)
-_TEXT_GENERATION_MODELS = {
-    "LlamaForCausalLM":     ("llama", "LlamaForCausalLM"),
-    "MistralForCausalLM":   ("llama", "LlamaForCausalLM"),  # 复用 Llama 实现
-    "DeepseekV2ForCausalLM":("deepseek_v2", "DeepseekV2ForCausalLM"),
-    "DeepseekV3ForCausalLM":("deepseek_v2", "DeepseekV3ForCausalLM"),
-    "Qwen2ForCausalLM":     ("qwen2", "Qwen2ForCausalLM"),
-    # ... 众多模型架构（持续增加）
-}
+**(1) KV 状态抽象：把缓存语义标准化，而不是绑定到某个模型实现**  
+`KVCacheConfig/KVCacheGroupSpec` 统一了缓存分组、布局、精度与初始化语义。这样不论是普通 attention、hybrid、还是含 state 型层（如 mamba 类）都能在同一缓存治理框架下运行，避免每个模型自己发明一套缓存协议。
 
-# 注册方式: 模型类名 → (模块路径, 类名) 元组
-# ModelRegistry 通过 HuggingFace config 中的 architectures 字段自动匹配
-```
+**(2) Attention Backend 抽象：把“算子选择”从模型代码里拔出来**  
+模型层声明需求（head 维度、dtype、是否 MLA 等），后端层再选择具体实现（Flash/Triton/ROCm/...）。这样模型接入主要是语义接入，不必把硬件细节写进模型定义。
 
-模型注册的核心流程：
+**(3) Tokenizer Registry：把 tokenizer 特例从模型路径解耦**  
+不同模型常带来 tokenizer 模式差异（包括 truncation 侧、专有 tokenizer 实现）。通过 `tokenizer_mode -> tokenizer class` 映射，vLLM 不需要在每个模型实现里复制 tokenizer 分支逻辑。
+
+**(4) MultiModal Registry：把“模型类”和“多模态处理器”松耦合**  
+多模态模型最大的复杂性之一是输入预处理链。`MultiModalRegistry` 用工厂绑定把模型与 processor 解耦，让模型结构演进和数据处理演进可以并行进行，而不是相互阻塞。
 
 ```mermaid
-graph TD
-    A["HuggingFace config.json<br/>{#quot;architectures#quot;: [#quot;LlamaForCausalLM#quot;], …}"] --> B
-    B["ModelRegistry._TEXT_GENERATION_MODELS[#quot;LlamaForCausalLM#quot;]<br/>→ (#quot;llama#quot;, #quot;LlamaForCausalLM#quot;)"] --> C
-    C["动态导入<br/>from vllm.model_executor.models.llama import LlamaForCausalLM"] --> D
-    D["实例化模型，加载权重"]
+flowchart LR
+    MC[ModelConfig] --> MR[ModelRegistry]
+    MR --> ML[ModelLoader]
+    ML --> RUN[ModelRunner]
+
+    RUN --> KVC[KVCacheConfig]
+    RUN --> AB[Attention Backend]
+    MC --> TR[TokenizerRegistry]
+    MC --> MMR[MultiModalRegistry]
+    TR --> RUN
+    MMR --> RUN
 ```
 
-### 7.3 从临时补丁到标准化扩展
+横切层的意义在于：  
+即使模型主干不变，这些层也能单独演进（例如新增 tokenizer mode、替换 attention backend、扩展多模态处理），而不会反向污染主执行链。
 
-#### 7.3.1 热插拔的艺术：Monkey Patch
+#### 7.2.9 小结：为什么这组抽象能支持“快接入 + 可维护”
 
-对于突发的私有架构模型，vLLM 支持通过运行时动态方法替换（Monkey Patch）来适配，无需修改源码。
+如果把这一节压成一句话，vLLM 的做法是：
 
-#### 7.3.2 Custom Op 的演进
+> 配置层收敛意图，注册层定位实现，契约层约束能力，加载层隔离权重差异；再用调度输出稳定执行契约、用 metadata 桥接动态状态、用横切层承接缓存/后端/tokenizer/多模态差异。
 
-更规范的做法是通过 PyTorch 的 Custom Op 机制注册自定义算子，vLLM 的 `csrc/` 目录中大量使用此模式：
+这套分层让“支持新模型”从高风险全栈改造，变成可控的增量工程：  
+先判断变化落在哪层，再在该层扩展，而不是把复杂性一次性推给整个系统。
 
-```python
-# 注册自定义 CUDA 算子
-torch.ops.vllm.rms_norm(output, input, weight, epsilon)
-torch.ops.vllm.rotary_embedding(positions, query, key, ...)
-torch.ops.vllm.paged_attention_v1(output, query, key_cache, value_cache, ...)
+
+#### 7.2.10 抽象机制的代价：动态性与编译优化的矛盾
+
+运行时抽象提高了灵活性，但也可能增加编译优化的难度。
+
+动态推理环境具有以下特征：
+
+- Batch Size 动态变化；
+- Sequence Length 动态变化；
+- 请求持续加入和退出；
+- KV Cache 地址不固定；
+- 不同请求可能采用不同执行路径。
+
+而编译器通常更擅长处理：
+
+- 静态计算图；
+- 稳定的 Tensor Shape；
+- 可预测的控制流；
+- 明确的内存布局。
+
+两者之间存在天然矛盾：
+
+```text
+动态调度、灵活执行
+          ↕
+静态图优化、编译融合
 ```
 
-### 7.4 终极实战：DeepSeek 架构的工程适配
+因此，推理引擎需要在运行时动态性和编译期优化之间寻找平衡。IR 的探索，正是为了解决这一矛盾。
 
-#### 7.4.1 MLA 适配：低秩压缩特征的吸收
 
-DeepSeek V2/V3 的 MLA 将 KV 压缩到低维 latent 空间。vLLM 通过 **"吸收"（Absorbing）** 技巧避免在 Decode 时显式解压 KV，从而规避显存带宽灾难：
+### 7.3 适配机制的演进：从临时补丁到编译化扩展
 
-**朴素实现的问题**（每步 Decode 都要做）：
+#### 7.3.1 早期方式：硬编码与模型专用实现
 
+最直接的适配方式，是为新模型增加一个专用实现。
+
+优点是：
+
+- 开发路径短；
+- 便于快速验证；
+- 可以直接表达模型特有逻辑。
+
+缺点也很明显：
+
+- 模型代码容易与运行时耦合；
+- 重复实现大量已有逻辑；
+- 难以复用现有 Kernel；
+- 后续维护成本高；
+- 不同模型之间容易形成分叉。
+
+这种方式适合模型早期接入，但不适合作为长期架构。
+
+
+#### 7.3.2 热插拔适配：Monkey Patch
+
+当模型已有实现，但某些模块暂时无法直接复用时，可以采用热插拔方式替换局部逻辑。
+
+例如：
+
+```text
+原始模型实现
+    ↓
+替换 Attention 模块
+    ↓
+替换 RoPE 或 MLP
+    ↓
+复用其余模型结构
 ```
-c_kv ──[kv_b_proj 解压]──▶ K [H,d], V [H,d] ──▶ Attention
-                ↑
-        每步都要把全部历史 token 的 latent 解压回全维
-        → 省下的显存又变成了带宽开销，白折腾
+
+这种方法可以降低重复代码，但通常存在以下问题：
+
+- 调用关系不够显式；
+- 依赖模块内部实现细节；
+- 不同版本之间容易失效；
+- 调试和性能分析较困难；
+- 不利于长期维护。
+
+因此，Monkey Patch 更适合过渡阶段，而不是稳定扩展接口。
+
+
+#### 7.3.3 Custom Op：将性能关键路径下沉为标准算子
+
+当模型结构已经能够通过通用 Python 模块表达，但性能关键路径不足时，Custom Op 是更合理的方案。
+
+Custom Op 通常承担三类职责：
+
+1. 为 Python 层提供稳定接口；
+2. 将计算转发给 CUDA、Triton 或其他后端；
+3. 隐藏不同硬件后端之间的实现差异。
+
+典型调用路径如下：
+
+```text
+Python Module
+    ↓
+统一 Op 接口
+    ↓
+后端 Dispatch
+    ↓
+CUDA / Triton / CPU Kernel
 ```
 
-**"吸收"（Absorbing）的做法**是把解压矩阵预先融进 Q/O 投影，让解压这一步压根不必发生：
+**图 7-5  Custom Op 的分层结构**
 
-| | 融合 |
-|---|---|
-| Q 侧 | `W_q_absorbed = W_q @ W_uk`（把 K 的解压矩阵吸收进 Q 投影） |
-| O 侧 | `W_o_absorbed = W_dv @ W_o`（把 V 的解压矩阵吸收进 O 投影） |
+适合下沉为 Custom Op 的部分包括：
 
-于是 Attention 直接在 latent 空间里做：
+- Attention；
+- RMSNorm；
+- RoPE；
+- Fused MLP；
+- MoE Routing；
+- Quantization；
+- Sampling。
 
+需要强调的是，Custom Op 主要解决“算子如何高效执行”，并不自动解决：
+
+- 调度器如何组织请求；
+- KV Cache 如何分配；
+- 多卡之间如何通信；
+- MTP 如何回滚；
+- 不同执行阶段如何切换。
+
+当模型创新涉及这些运行时语义时，仅增加 Custom Op 通常是不够的。
+
+
+#### 7.3.4 IR：从算子注册走向计算图与后端解耦
+
+IR 可以看作位于模型表达和硬件执行之间的中间层。
+
+它不直接描述某块 GPU 上的具体线程布局，而是描述：
+
+- 计算操作；
+- 张量依赖；
+- 数据流关系；
+- Shape 与布局约束；
+- 可融合或可重排的计算；
+- 后端执行需求。
+
+IR 驱动的模型执行路径：
+
+```text
+模型代码
+   ↓
+IR 表示
+   ↓
+图变换与优化
+   ↓
+后端 Kernel
+   ↓
+硬件执行
 ```
-q'   = x @ W_q_absorbed              # 已经"带着"K 的解压
-attn = q' @ c_kvᵀ                    # 无需解压 K
-out  = attn @ c_kv @ W_o_absorbed    # 无需解压 V
+
+相较于单纯的算子注册，IR 可以进一步支持：
+
+- 算子融合；
+- 内存访问重排；
+- 自动选择后端；
+- 静态与动态 Shape 的统一表达；
+- 不同硬件之间的代码生成；
+- 模型结构与 Kernel 实现解耦。
+
+不过，在推理系统中，IR 不能脱离动态运行时单独存在。它仍然需要与以下信息协同：
+
+- 动态 Batch；
+- KV Cache Metadata；
+- Prefill/Decode 阶段；
+- 并行拓扑；
+- 显存约束；
+- 请求优先级。
+
+因此，更现实的方向不是用静态编译完全替代动态调度，而是：
+
+> 由运行时决定执行计划，由 IR 和编译器优化计划中的计算部分。
+
+
+#### 7.3.5 从“支持模型”到“组合计算原语”
+
+当推理引擎将 Attention、MoE、MTP 等能力抽象为可组合的计算原语后，接入新模型就不再是从头实现整个网络，而是组合已有能力。
+
+```text
+标准 Attention 原语
+        +
+标准 MoE 原语
+        +
+标准 RoPE 原语
+        +
+标准 KV Cache 原语
+        ↓
+新的模型结构
 ```
 
-| 收益 / 代价 | 说明 |
-|---|---|
-| KV Cache 存什么 | 576 维 latent（512 + 64 rope），而非 128 heads × 128 dim 的完整 K/V |
-| 每 token 每层 | **1.1 KB vs 64 KB → Decode 读取量降低 ~57×** |
-| 代价 | Q/O 投影矩阵变大——但这是**权重**（一次性加载），换掉的是**每步都要付的带宽** |
+这意味着模型适配的基本单位正在发生变化：
 
-最后那行才是这个技巧的精髓：**它把一笔"每步重复支付"的带宽开销，换成了一笔"一次性"的显存开销。** 在 memory-bound 的 Decode 阶段，这笔交易极其划算。
+```text
+过去：适配一个完整模型
+现在：组合一组标准计算原语
+```
 
-vLLM 的 MLA 实现（`vllm/model_executor/layers/mla.py`）通过 `MultiHeadLatentAttentionWrapper` 类封装了这一逻辑，并且支持多种 MLA Attention 后端（FlashInfer MLA、FlashAttn MLA、Triton MLA、CUTLASS MLA 等）。
+但这种方法的前提是，模型创新仍然能够被现有原语表达。如果模型改变了原语本身的语义，或者改变了多个原语之间的协作方式，就需要扩大抽象边界。
 
-#### 7.4.2 DeepSeek MoE 优化
 
-DeepSeek V3 使用 256 个 Expert + Top-8 路由，MoE 层的工程挑战极大：
+### 7.4 适配的边界：为什么仍然需要特化 Kernel？
 
-| # | 优化点 | 做法 |
+#### 7.4.1 抽象机制解决了什么问题？
+
+通用抽象主要解决以下问题：
+
+- 统一模型加载流程；
+- 隔离模型结构与调度器；
+- 复用 KV Cache 管理；
+- 复用并行和通信机制；
+- 减少重复实现；
+- 提高新模型接入速度。
+
+对于结构接近已有模型的架构，抽象能够显著降低适配成本。
+
+
+#### 7.4.2 抽象机制解决不了什么问题？
+
+当模型改变以下内容时，通用抽象可能会失效：
+
+- 数据表示方式；
+- 内存访问模式；
+- 算子融合边界；
+- 通信与计算的重叠方式；
+- Decode 阶段的执行粒度；
+- 调度器与模型计算之间的关系。
+
+例如，某个模型使用特殊的低秩 KV 表示。此时，继续将它强行转换为标准 K/V，虽然可以复用已有 Attention 接口，但可能带来：
+
+- 额外的显存读写；
+- 额外的矩阵变换；
+- 更高的带宽压力；
+- 无法发挥模型设计本身的优势。
+
+这时，特化 Kernel 并不是“为了追求极限性能而过度优化”，而是模型语义变化后的必然结果。
+
+
+#### 7.4.3 通用算子与特化算子的永恒博弈
+
+| 维度 | 通用实现 | 特化实现 |
 |---|---|---|
-| 1 | **Token Dispatch 全异步化** | DeepEP V2 后端走 NVLink 低延迟通信；FlashInfer NVLink One-sided 采用单边 RDMA 风格；计算与 dispatch 通信重叠 |
-| 2 | **动态 Padding 移除** | 不同 Expert 拿到的 token 数不同，传统做法 padding 到最大值会白算；vLLM 用 `moe_align_block_size` + Grouped GEMM 做到零 padding |
-| 3 | **Fused MoE Kernel** | Router + Permute + GEMM + SiLU + GEMM + Unpermute 全融进一个 CUDA kernel，省掉中间张量的 HBM 往返 |
-| 4 | **两级 Router** | Group-level Top-K + Per-token Top-K；Python 侧 `fused_moe/router/grouped_topk_router.py`（由 `RoutedExperts` 的 `use_grouped_topk` / `topk_group` 驱动），CUDA 侧 `csrc/libtorch_stable/moe/grouped_topk_kernels.cu` 与 `dsv3_router_gemm_entry.cu` |
+| 接入速度 | 快 | 慢 |
+| 模型复用 | 强 | 弱 |
+| 峰值性能 | 中等 | 高 |
+| 维护成本 | 低 | 高 |
+| 适配范围 | 广 | 窄 |
+| 对模型创新的支持 | 有限 | 强 |
 
-DeepSeek V3 的规模是 **256 个 Expert + Top-8 路由**——在这个量级下，第 2 项的 padding 浪费和第 1 项的通信延迟都会被放大到无法忽视，这也是为什么它催生了这一整套专门优化。
+可以将适配边界概括为：
 
-#### 7.4.3 MTP 引发的连锁反应
+> 当模型只改变“计算结构”时，通用抽象通常足够；当模型改变“数据流、内存流或执行流”时，就需要引入特化实现。
 
-DeepSeek V3 原生支持 Multi-Token Prediction (MTP)，这在 vLLM 中引发了从模型 Forward 到调度和 KV Cache 的全链路改动：
 
-| 层面 | 需要改什么 |
-|---|---|
-| **① 模型 Forward**<br/>`deepseek_mtp.py` | `DeepSeekMultiTokenPredictor` 在主模型之后执行；每个 MTP Layer 拼接前一步的 `hidden_states` 与 embedding，再过一个 MoE Decoder Layer 产出候选；支持 `num_nextn_predict_layers` 个 MTP 头 |
-| **② Scheduler** | `allocate_slots()` 要预留 `num_lookahead_tokens` 个额外 KV 块；Chunked Prefill 要保证 lookahead token 落在合法边界；PP 场景还有 cadence 约束以维持流水线一致性 |
-| **③ KV Cache** | 候选 token 的 KV 写入临时槽位；**接受则保留，拒绝则回滚**（释放多余 block）；预分配与释放的时序必须精确 |
-| **④ Sampling / Streaming** | 一次 Forward 可能接受多个 token；流式输出要按顺序逐个发送；Detokenizer 要能处理突发的多 token 输出 |
-| **⑤ 资源回收** | 抢占时要释放**含 MTP 预留在内**的所有块；异常终止要清理 MTP 临时状态；TP/PP 下 MTP 头的参数也要按并行策略切分 |
+### 7.5 一个新模型接入 vLLM 的完整路径
 
-这张表是本章想说明的那件事的最好例证：**一个看似局部的模型改动（多加几个预测头），会一路捅穿模型层、调度层、显存层、采样层和容错层。** 推理引擎真正难的地方不是把 GPU 跑快，而是让这五层在面对源源不断的新架构时还能协同工作。
+#### 7.5.1 判断模型能否复用现有实现
 
-```python
-# vllm/model_executor/models/deepseek_mtp.py (简化)
-class DeepSeekMultiTokenPredictor(nn.Module):
-    """DeepSeek 的 MTP 头, 用于 Speculative Decoding"""
+第一步不是立即编写代码，而是分析新模型与现有模型的差异：
 
-    def __init__(self, vllm_config):
-        self.layers = ModuleDict({
-            str(idx): DeepSeekMultiTokenPredictorLayer(...)
-            for idx in range(mtp_start_layer_idx,
-                           mtp_start_layer_idx + num_mtp_layers)
-        })
+- Decoder-only 还是 Encoder-Decoder；
+- Attention 是否标准；
+- 是否使用 GQA、MQA 或 MLA；
+- MLP 是否为标准 FFN 或 MoE；
+- 是否引入 MTP；
+- 位置编码是否特殊；
+- 权重命名和布局是否兼容。
 
-    def forward(self, input_ids, positions, previous_hidden_states,
-                inputs_embeds, spec_step_idx):
-        """
-        input_ids:              当前步的 token ids
-        previous_hidden_states: 主模型最后一层的 hidden states
-        spec_step_idx:         当前是第几步 MTP 推测
-        """
-        # 1. Normalize embeddings and hidden states
-        # 2. Concatenate and project
-        # 3. Pass through MoE decoder layer
-        # 4. Return logits for next-token prediction
+可以先建立一张差异表：
+
+| 检查项 | 现有实现 | 新模型 | 是否需要改造 |
+|---|---|---|---|
+| Attention | 标准 MHA/GQA | 特殊 Attention | 是/否 |
+| KV Cache | K/V 缓存 | 低秩或压缩缓存 | 是/否 |
+| MLP | Dense FFN | MoE | 是/否 |
+| 位置编码 | RoPE | 特殊 RoPE | 是/否 |
+| 输出结构 | 单一 LM Head | 多预测头 | 是/否 |
+
+
+#### 7.5.2 实现模型结构与权重映射
+
+模型实现需要完成两项核心工作：
+
+1. 正确描述网络结构；
+2. 将 checkpoint 中的权重映射到运行时模块。
+
+权重映射通常涉及：
+
+- 参数名称转换；
+- QKV 权重合并或拆分；
+- 张量并行切分；
+- MoE Expert 权重组织；
+- 量化权重格式转换；
+- 权重转置或重排。
+
+权重加载阶段的错误并不一定会立即导致程序崩溃，部分错误可能表现为输出质量下降。因此，必须结合：
+
+- 参数数量检查；
+- 权重 Shape 检查；
+- 小规模参考输出；
+- 逐层误差对比；
+- 端到端生成结果。
+
+
+#### 7.5.3 接入 Attention、KV Cache 与并行策略
+
+模型结构正确并不代表已经完成接入。还需要将模型计算连接到运行时的动态机制：
+
+```text
+模型 Attention
+      ↓
+Attention Metadata
+      ↓
+Paged KV Cache
+      ↓
+Attention Backend
 ```
+
+同时需要确认：
+
+- Prefill 和 Decode 是否使用不同路径；
+- KV Cache 的 Shape 是否正确；
+- Block Table 是否正确传递；
+- 张量并行下 Q、K、V 如何切分；
+- Pipeline Parallel 下层间输入如何传递；
+- MoE 是否需要 Expert Parallel；
+- 通信是否能够与计算重叠。
+
+
+#### 7.5.4 注册模型并打通执行链路
+
+完成模型实现后，需要将其注册到模型发现机制中，使系统能够根据配置自动选择实现。
+
+完整链路应当能够从以下入口贯通：
+
+```text
+模型配置
+   ↓
+Model Registry
+   ↓
+模型实例化
+   ↓
+权重加载
+   ↓
+Model Runner
+   ↓
+调度与 KV Cache
+   ↓
+Attention / MLP / Sampling
+```
+
+此阶段应重点验证：
+
+- 模型是否能够被正确识别；
+- 单卡加载是否成功；
+- 多卡初始化是否成功；
+- Prefill 是否成功；
+- Decode 是否成功；
+- 流式输出是否正常；
+- 请求取消和显存回收是否正常。
+
+
+#### 7.5.5 识别性能瓶颈并引入特化算子
+
+正确性通过后，才进入性能优化阶段。
+
+常见分析指标包括：
+
+- Prefill 延迟；
+- Decode 延迟；
+- 首 Token 延迟；
+- 每秒生成 Token 数；
+- GPU 利用率；
+- 显存带宽利用率；
+- Kernel Launch 数量；
+- 通信占比；
+- KV Cache 命中率。
+
+性能优化不应一开始就全面重写，而应遵循：
+
+```text
+端到端 Profiling
+      ↓
+定位关键瓶颈
+      ↓
+选择性特化
+      ↓
+重新验证收益
+```
+
+通常优先优化：
+
+1. Attention；
+2. MoE 路由和 Expert 计算；
+3. 通信；
+4. 量化反量化；
+5. Sampling；
+6. MTP 相关路径。
+
+
+#### 7.5.6 完成正确性、性能与分布式验证
+
+模型接入至少需要覆盖三类测试。
+
+1、正确性测试
+
+- 与参考框架比较 logits；
+- 比较不同输入长度下的结果；
+- 检查 Prefill 与 Decode 一致性；
+- 检查采样结果；
+- 检查停止条件和 EOS 行为。
+
+2、性能测试
+
+- 单请求短上下文；
+- 单请求长上下文；
+- 多请求动态 Batch；
+- 高并发 Decode；
+- Prefix Cache；
+- 不同量化配置。
+
+3、分布式测试
+
+- 张量并行；
+- Pipeline Parallel；
+- Expert Parallel；
+- 节点间通信；
+- 请求取消；
+- OOM 和异常恢复。
+
+
+### 7.6 终极案例：DeepSeek 架构的工程适配
+
+DeepSeek 之所以具有代表性，是因为它不是只改变一个模块，而是同时在 Attention、MoE 和生成范式上进行创新。它可以作为检验推理引擎抽象边界的综合案例。
+
+
+#### 7.6.1 MLA：低秩 KV 表示与 Attention“吸收”
+
+标准 Attention 通常需要缓存完整的 Key 和 Value。随着上下文长度增加，KV Cache 会成为显存占用的重要来源。
+
+MLA 的核心思路是对 KV 表示进行压缩，将部分信息映射到低维潜在空间，再在计算过程中恢复或吸收必要的表示。
+
+概念上可以表示为：
+
+```text
+完整 K、V
+   ↓
+低秩压缩
+   ↓
+潜在表示 Cache
+   ↓
+Attention 计算时恢复或吸收
+```
+
+**图 7-7  MLA 的低秩 KV 表示**
+
+这一变化影响的不只是 Attention 公式，还会改变：
+
+- KV Cache 的存储格式；
+- Cache Block 的大小和布局；
+- Cache 写入路径；
+- Decode 阶段的数据读取；
+- Tensor Parallel 下的分片方式；
+- Attention Kernel 的融合方式。
+
+如果只是把 MLA 转换成标准 K/V，再调用通用 Attention，虽然能够快速完成正确性验证，但可能失去 MLA 的核心收益。
+
+因此，MLA 适配通常需要同时改造：
+
+```text
+模型层
+  + KV Cache
+  + Attention Metadata
+  + Attention Kernel
+  + 并行策略
+```
+
+这正是“模型局部创新向运行时扩散”的典型例子。
+
+
+#### 7.6.2 DeepSeek MoE：从路由到跨卡通信
+
+MoE 模型并不是简单地将 Dense MLP 替换成多个 Expert。每个 Token 需要经过以下流程：
+
+```text
+Token
+  ↓
+Router 计算专家分数
+  ↓
+Top-K Expert 选择
+  ↓
+Token Dispatch
+  ↓
+Expert 计算
+  ↓
+Token Combine
+  ↓
+恢复原始 Token 顺序
+```
+
+在单卡环境中，主要问题是 Expert 计算和显存布局；在多卡环境中，还需要处理：
+
+- Expert 如何分布；
+- Token 如何跨卡发送；
+- 通信如何与计算重叠；
+- 不同 Expert 的负载是否均衡；
+- 如何减少 Padding 和无效计算；
+- 如何组织 All-to-All 或等价通信。
+
+**图 7-8  MoE Token Dispatch 与 Combine 流程**
+
+| 阶段 | 主要开销 |
+|---|---|
+| Router | 小矩阵计算与 Top-K |
+| Dispatch | Token 重排与跨卡通信 |
+| Expert | 多个小规模 GEMM |
+| Combine | 结果聚合与顺序恢复 |
+
+因此，DeepSeek MoE 的适配边界已经从模型层延伸到分布式运行时。
+
+一个高性能实现通常需要协同优化：
+
+- Router Kernel；
+- Token 重排；
+- Expert GEMM；
+- All-to-All 通信；
+- 负载均衡；
+- 通信计算重叠；
+- Expert Parallel 调度。
+
+如果只在 Python 层实现路由和循环调用 Expert，通常会产生大量 Kernel Launch 和数据搬运开销，难以达到理想性能。
+
+
+#### 7.6.3 MTP：一个预测头如何穿透整条推理链路？
+
+传统自回归生成每次只预测下一个 Token：
+
+```text
+xₜ → xₜ₊₁
+```
+
+MTP 则尝试在一次主模型执行之后，同时生成多个未来位置的候选 Token：
+
+```text
+xₜ → xₜ₊₁、xₜ₊₂、xₜ₊₃ ...
+```
+
+这会改变推理系统中的多个环节：
+
+- 模型输出不再只有一个预测结果；
+- 调度器需要管理多个候选位置；
+- 采样器需要处理候选 Token；
+- 验证阶段需要接受或拒绝候选；
+- KV Cache 需要支持临时写入和回滚；
+- 流式输出需要只暴露最终确认的 Token。
+
+可以将其抽象为：
+
+```text
+主模型生成候选
+       ↓
+多个预测头继续预测
+       ↓
+候选序列验证
+       ↓
+接受部分 Token
+       ↓
+拒绝部分回滚
+       ↓
+更新 KV Cache
+```
+
+**图 7-9  MTP 对推理链路的影响**
+
+因此，MTP 的接入并不是“在模型末尾增加几个 Head”，而是对以下模块的联动改造：
+
+| 模块 | 需要处理的问题 |
+|---|---|
+| Model Runner | 如何执行多个预测阶段 |
+| Scheduler | 如何安排候选和验证 |
+| Sampling | 如何采样和筛选候选 |
+| KV Cache | 如何暂存与回滚 |
+| Streaming | 何时向用户返回结果 |
+| Metrics | 如何统计真实生成速度 |
+
+MTP 说明了一个重要事实：
+
+> 当模型改变生成范式时，模型适配就不再局限于网络结构，而会进入调度和状态管理层。
+
+
+#### 7.6.4 DeepSeek 适配对通用接入流程的超越
+
+将 DeepSeek 与前面的通用接入流程对照，可以看到明显差异。
+
+| 通用模型接入 | DeepSeek 类模型接入 |
+|---|---|
+| 新增模型类 | 新增或改造多个运行时组件 |
+| 复用标准 Attention | 需要特殊 Attention 与 KV Cache |
+| 复用 Dense MLP | 需要 MoE 路由和 Expert Parallel |
+| 单一 LM Head | 多预测头与候选验证 |
+| 标准 Decode | 动态候选、接受与回滚 |
+| 局部算子优化 | 模型、调度、显存、通信协同优化 |
+
+因此，DeepSeek 不是对通用流程的否定，而是对它的压力测试：
+
+```text
+通用抽象
+   ↓
+MLA 突破 Attention 假设
+   ↓
+MoE 突破 Dense 计算假设
+   ↓
+MTP 突破单 Token 生成假设
+   ↓
+推理引擎扩大适配边界
+```
+
+
+#### 7.6.5 极致性能、特化代码与可维护性之间的权衡
+
+DeepSeek 类模型的适配通常需要引入大量特化逻辑，但特化并不意味着无限制地复制模型代码。
+
+较合理的工程策略是分层处理：
+
+```text
+通用层：
+调度、请求管理、基础并行、模型注册
+
+扩展层：
+MLA、MoE、MTP 等标准化计算原语
+
+特化层：
+特定硬件上的融合 Kernel、通信优化和布局优化
+```
+
+这样可以避免两种极端：
+
+- 过度通用：性能不足，无法发挥模型优势；
+- 过度特化：代码难以复用，后续维护成本过高。
+
+最终需要在以下三者之间进行平衡：
+
+```text
+灵活性  ↔  极致性能  ↔  可维护性
+```
+
+这也是推理引擎长期演进中无法回避的工程问题。
+
+
+### 7.7 总结：推理引擎适配能力的本质
+
+#### 7.7.1 模型层、运行时层与算子层的三层适配模型
+
+可以将模型适配归纳为三层：
+
+```text
+┌────────────────────────────┐
+│ 模型层：结构、权重、配置     │
+├────────────────────────────┤
+│ 运行时层：调度、Cache、并行  │
+├────────────────────────────┤
+│ 算子层：Kernel、量化、通信   │
+└────────────────────────────┘
+```
+
+不同类型的模型创新，会触及不同层次：
+
+| 模型变化 | 主要影响层 |
+|---|---|
+| 新增普通层或修改激活函数 | 模型层、算子层 |
+| 改变 KV Cache 表示 | 模型层、运行时层、算子层 |
+| 引入 MoE | 三层均受影响 |
+| 引入 MTP | 模型层、运行时层、采样层 |
+| 改变并行方式 | 运行时层、通信层 |
+
+真正成熟的推理引擎，不是让所有模型都使用同一个实现，而是建立清晰的适配边界，让变化能够被隔离在合适的层次中。
+
+
+#### 7.7.2 推理引擎的核心竞争力
+
+推理引擎的核心竞争力可以概括为四点：
+
+1. **抽象能力**：能否识别不同模型之间可复用的共同结构；
+2. **运行时能力**：能否高效处理动态 Batch、KV Cache 和请求调度；
+3. **特化能力**：能否针对关键模型和硬件提供高性能实现；
+4. **演进能力**：能否在新模型出现时快速扩大抽象边界。
+
+如果只有抽象，没有特化，系统可能易于扩展但性能不足；如果只有特化，没有抽象，系统可能性能很高但难以维护。优秀的推理引擎需要在二者之间建立动态平衡。
+
+
+#### 7.7.3 从模型适配到模型与引擎共演进
+
+随着模型结构不断创新，模型和推理引擎之间的关系正在发生变化。
+
+过去通常是：
+
+```text
+模型先设计
+    ↓
+推理引擎被动适配
+```
+
+未来更可能是：
+
+```text
+模型结构设计
+      ↔
+推理引擎能力
+      ↔
+硬件执行特性
+```
+
+模型设计会考虑：
+
+- KV Cache 成本；
+- 通信开销；
+- Kernel 可实现性；
+- 量化友好性；
+- 推理阶段的吞吐和延迟。
+
+推理引擎也会通过运行时反馈影响模型设计，例如：
+
+- 哪些结构更适合动态 Batch；
+- 哪些 MoE 路由方式更适合多卡；
+- 哪些 Attention 形式更节省 Cache；
+- 哪些预测机制更适合 Speculative Decoding。
+
+因此，模型适配的最终目标并不是让推理引擎无限承受模型复杂度，而是推动模型、引擎和硬件形成协同演进。
+
+> **通用抽象负责扩大适配范围，特化 Kernel 负责突破性能边界，运行时与 IR 则负责在动态执行和编译优化之间建立新的连接。**
+
+这构成了现代推理引擎适配新模型的基本方法论。
+
 
 <details markdown="1">
 <summary><b>📂 本章源码导航</b></summary>
