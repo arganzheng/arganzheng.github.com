@@ -4,7 +4,7 @@ title: "用 Markdown 写在线 PPT"
 subtitle: "reveal.js + Jekyll 演示 / 使用说明"
 permalink: /slides/reveal-demo.html
 date: 2026-08-19
-author: 郑志彬
+author: arganzheng
 description: "这个博客的在线幻灯片能力演示：Markdown 分页、代码高亮、Mermaid、KaTeX、演讲者备注、PDF 导出。"
 theme: white
 transition: slide
