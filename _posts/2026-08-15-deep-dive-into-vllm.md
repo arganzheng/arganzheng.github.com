@@ -7449,397 +7449,1269 @@ IR 表示
 
 ### 7.5 一个新模型接入 vLLM 的完整路径
 
-#### 7.5.1 判断模型能否复用现有实现
+前文介绍了 vLLM 的核心抽象及其职责边界。这一节我们从工程实施角度说明**当一个新模型需要接入 vLLM 时，应该按照什么顺序分析、实现、验证和优化。**
 
-第一步不是立即编写代码，而是分析新模型与现有模型的差异：
+从前面vLLM的核心抽象我们知道，新模型接入不是“新增一个模型类”这么简单。一个完整的接入过程，通常需要同时处理以下问题：
 
-- Decoder-only 还是 Encoder-Decoder；
-- Attention 是否标准；
-- 是否使用 GQA、MQA 或 MLA；
-- MLP 是否为标准 FFN 或 MoE；
-- 是否引入 MTP；
-- 位置编码是否特殊；
-- 权重命名和布局是否兼容。
+```text
+模型是否可以复用现有实现
+  → 模型结构是否正确
+  → checkpoint 权重是否正确装配
+  → 单卡最小路径是否可运行
+  → KV Cache 和 Attention 是否正确
+  → 调度与执行链路是否贯通
+  → 并行、量化和高级能力是否可用
+  → 性能是否达到预期
+  → 正确性和分布式测试是否通过
+```
 
-可以先建立一张差异表：
+一个重要原则是：**先建立正确、可观察、可复现的最小实现，再逐步引入并行、量化、图捕获和特化算子等优化。**
 
-| 检查项 | 现有实现 | 新模型 | 是否需要改造 |
-|---|---|---|---|
-| Attention | 标准 MHA/GQA | 特殊 Attention | 是/否 |
-| KV Cache | K/V 缓存 | 低秩或压缩缓存 | 是/否 |
-| MLP | Dense FFN | MoE | 是/否 |
-| 位置编码 | RoPE | 特殊 RoPE | 是/否 |
-| 输出结构 | 单一 LM Head | 多预测头 | 是/否 |
+如果一开始就同时修改模型结构、权重加载、KV Cache、并行策略和 kernel，任何错误都会被多个变量掩盖，排障成本会显著上升。
+
+#### 7.5.1 模型差异分析与复用决策
+
+接入新模型的第一步不是立即编写代码，而是确定新模型与现有实现之间的差异，以及这些差异会影响哪些层级。
+
+首先需要确认模型的基本形态：
+
+- 是 decoder-only、encoder-only 还是 encoder-decoder；
+- 是否支持标准文本生成、pooling、embedding 或分类；
+- 是否包含 encoder 输出缓存；
+- 是否使用标准 Transformer block；
+- Attention 是 MHA、MQA、GQA、MLA，还是其他特殊形式；
+- MLP 是标准 FFN、SwiGLU、MoE，还是其他结构；
+- 是否使用特殊位置编码、attention mask 或 position 计算；
+- 是否包含 speculative decoding、MTP 或其他多预测路径；
+- 是否支持多模态输入；
+- 是否包含 KV Cache 之外的 recurrent state 或其他持久化状态；
+- checkpoint 的参数命名、布局和格式是否与现有实现兼容。
+
+可以先建立一张模型差异表：
+
+| 检查项 | 现有实现 | 新模型 | 影响层级 | 是否需要改造 |
+|---|---|---|---|---|
+| 模型架构 | decoder-only | decoder-only | Config / Model | 是/否 |
+| Attention | 标准 MHA/GQA | 特殊 Attention | Model / Backend | 是/否 |
+| 状态管理 | 标准 K/V Cache | 压缩 KV 或 recurrent state | Cache / Metadata | 是/否 |
+| MLP | Dense FFN | MoE | Model / Parallel | 是/否 |
+| 位置编码 | RoPE | 特殊 RoPE | Model / Runner | 是/否 |
+| 输入形式 | 纯文本 | 文本加图像 | Tokenizer / Multimodal | 是/否 |
+| 输出结构 | 单一 LM Head | 多预测头 | Runner / Sampling | 是/否 |
+| 权重命名 | 与实现一致 | 命名不同 | Loader / Mapper | 是/否 |
+| 权重布局 | 标准布局 | 融合或打包布局 | Loader / Quantization | 是/否 |
+| 并行方式 | Tensor Parallel | 需要 Expert Parallel | Distributed | 是/否 |
+
+差异分析的最终目标不是列出所有不同，而是做出接入决策。通常有三种结果：
+
+```text
+A. 直接复用现有模型实现
+B. 复用公共模块，仅局部改造模型结构或权重加载
+C. 新增模型实现，并扩展运行时状态、执行协议或 backend
+```
+
+可以按照以下顺序判断：
+
+1. 新模型的计算图是否与现有模型基本一致；
+2. 差异是否仅限于配置字段、模型名称或参数命名；
+3. 差异是否可以由已有的 attention、MLP、MoE 或 position 模块表达；
+4. checkpoint 是否只需要增加映射规则；
+5. 现有 `ModelRunner` 是否能够提供模型所需的输入；
+6. 现有 KV Cache 或状态管理机制是否能够表示模型的推理状态；
+7. 现有 Attention Backend 是否能够执行模型的 attention 语义；
+8. 新模型是否需要新的并行、通信或输出协议。
+
+其中，应该尽量遵循：
+
+> 优先复用公共组件，局部适配模型差异；只有当现有抽象无法表达新模型语义时，才扩展运行时协议或底层 backend。
+
+这一阶段的产物应当是一份明确的接入设计，而不是一组尚未验证的代码改动。至少需要确定：
+
+- 复用哪些已有模块；
+- 新增哪些模型组件；
+- 是否需要新的权重映射；
+- 是否需要扩展能力协议；
+- 是否需要新的 cache/state 表示；
+- 是否需要新的 attention backend；
+- 首次接入版本只支持哪些能力；
+- 哪些能力留待后续扩展。
 
 
-#### 7.5.2 实现模型结构与权重映射
+#### 7.5.2 实现模型结构与权重装配
 
-模型实现需要完成两项核心工作：
+模型实现阶段需要解决两个相互关联但应当分开验证的问题：
 
-1. 正确描述网络结构；
-2. 将 checkpoint 中的权重映射到运行时模块。
+```text
+模型结构实现：
+    forward 计算是否正确
 
-权重映射通常涉及：
+权重装配实现：
+    checkpoint 参数是否正确加载到模型结构
+```
+
+##### 模型结构实现
+
+模型类应首先正确描述模型本身的计算语义，包括：
+
+- embedding；
+- position 或 RoPE；
+- attention；
+- MLP 或 MoE；
+- residual connection；
+- normalization；
+- logits；
+- pooling 或其他输出头。
+
+实现时应尽量复用 vLLM 已有的公共组件，例如：
+
+- 线性层和并行线性层；
+- attention 层；
+- RMSNorm 或其他 normalization；
+- RoPE；
+- MoE 路由和 expert 模块；
+- 量化线性层；
+- 输出头；
+- 已有的输入和输出协议。
+
+如果新模型只是在层配置、激活函数或参数组织方式上存在差异，通常不应复制一整套已有实现，而应通过组合已有模块完成适配。
+
+模型实现还需要明确自身支持的能力。例如：
+
+- 是否支持文本生成；
+- 是否支持 pooling；
+- 是否支持多模态输入；
+- 是否支持 speculative decoding；
+- 是否需要特殊的 cache/state；
+- 是否需要特殊 attention metadata。
+
+这些能力应通过已有的能力契约或 Protocol 表达，而不是通过运行时对具体模型类进行大量类型判断。
+
+##### 权重装配
+
+权重加载通常需要处理以下转换：
 
 - 参数名称转换；
+- 前缀和模块路径转换；
 - QKV 权重合并或拆分；
-- 张量并行切分；
-- MoE Expert 权重组织；
-- 量化权重格式转换；
-- 权重转置或重排。
+- gate/up projection 的合并或拆分；
+- MoE expert 权重组织；
+- Tensor Parallel 切分；
+- Pipeline Parallel 所需的层分配；
+- 权重转置和重排；
+- packed weight 或量化格式转换；
+- scale、zero-point 等量化参数加载；
+- 加载后的设备布局转换。
 
-权重加载阶段的错误并不一定会立即导致程序崩溃，部分错误可能表现为输出质量下降。因此，必须结合：
-
-- 参数数量检查；
-- 权重 Shape 检查；
-- 小规模参考输出；
-- 逐层误差对比；
-- 端到端生成结果。
-
-
-#### 7.5.3 接入 Attention、KV Cache 与并行策略
-
-模型结构正确并不代表已经完成接入。还需要将模型计算连接到运行时的动态机制：
+因此，`WeightsMapper` 的职责不只是简单的字符串替换。更准确地说，它负责将外部 checkpoint 表示转换为运行时参数表示，可能同时包含：
 
 ```text
-模型 Attention
-      ↓
-Attention Metadata
-      ↓
-Paged KV Cache
-      ↓
-Attention Backend
+参数重命名
+  → 参数拆分或合并
+  → 并行切分
+  → 格式转换
+  → 量化适配
+  → 设备布局转换
 ```
 
-同时需要确认：
+权重加载阶段应建立明确的检查机制，至少包括：
 
-- Prefill 和 Decode 是否使用不同路径；
-- KV Cache 的 Shape 是否正确；
-- Block Table 是否正确传递；
-- 张量并行下 Q、K、V 如何切分；
-- Pipeline Parallel 下层间输入如何传递；
-- MoE 是否需要 Expert Parallel；
-- 通信是否能够与计算重叠。
+- checkpoint 中的参数是否全部被消费；
+- 是否存在未匹配参数；
+- 是否存在重复匹配；
+- 参数 Shape 是否一致；
+- 参数 dtype 是否符合预期；
+- QKV、gate/up 和 MoE expert 等融合参数是否按预期处理；
+- 不同并行 rank 加载的参数是否互补；
+- 量化权重与对应 scale 是否成对加载。
 
-
-#### 7.5.4 注册模型并打通执行链路
-
-完成模型实现后，需要将其注册到模型发现机制中，使系统能够根据配置自动选择实现。
-
-完整链路应当能够从以下入口贯通：
+建议将权重装配的验收标准明确为：
 
 ```text
-模型配置
-   ↓
-Model Registry
-   ↓
+无未匹配参数
+无重复加载参数
+关键参数 Shape 全部一致
+参数数量和统计量符合预期
+单层输出与参考实现一致
+端到端 logits 误差在允许范围内
+```
+
+需要注意的是，权重加载错误不一定会导致程序立即崩溃。参数名称碰巧匹配、Shape 恰好兼容，仍然可能产生数值错误，最终表现为：
+
+- logits 偏差；
+- 生成结果异常；
+- 某些输入长度下结果错误；
+- 多卡结果与单卡不一致；
+- 模型质量明显下降但程序运行正常。
+
+因此，不能只通过“模型成功加载”判断权重装配正确。
+
+推荐采用以下验证顺序：
+
+```text
+参数匹配检查
+  → 关键参数 Shape 检查
+  → 参数统计量检查
+  → 单层输出对比
+  → hidden states 对比
+  → logits 对比
+  → 端到端生成结果对比
+```
+
+直接比较最终生成文本只能作为最后一层验证，因为采样和离散 token 可能掩盖中间层的数值误差。
+
+
+#### 7.5.3 打通单卡最小可运行路径
+
+模型结构和权重装配完成后，不应立即接入所有高级能力。首先应建立一个简单、稳定且容易观察的最小运行路径。
+
+建议按照以下顺序逐步推进：
+
+```text
 模型实例化
-   ↓
-权重加载
-   ↓
-Model Runner
-   ↓
-调度与 KV Cache
-   ↓
-Attention / MLP / Sampling
+  → 单卡加载
+  → 单请求 Prefill
+  → 单请求 Decode
+  → 多轮 Decode
+  → 基本采样
+  → 简单动态 Batch
 ```
 
-此阶段应重点验证：
+此阶段暂时不引入或尽量避免：
 
-- 模型是否能够被正确识别；
-- 单卡加载是否成功；
-- 多卡初始化是否成功；
-- Prefill 是否成功；
-- Decode 是否成功；
-- 流式输出是否正常；
-- 请求取消和显存回收是否正常。
+- Tensor Parallel；
+- Pipeline Parallel；
+- Expert Parallel；
+- 量化；
+- CUDA Graph；
+- Prefix Cache；
+- speculative decoding；
+- 自定义特化 kernel；
+- 复杂的多模态输入路径。
 
+最小路径的目标不是获得高性能，而是建立一个可以与参考实现进行稳定对比的正确性基线。至少需要确认：
 
-#### 7.5.5 识别性能瓶颈并引入特化算子
+- 模型可以正确实例化；
+- 权重可以完整加载；
+- 单步 forward 结果正确；
+- 单次 Prefill 结果正确；
+- Prefill 后可以继续 Decode；
+- position 和 attention mask 正确；
+- logits 能够正确传递到 sampling；
+- EOS 和停止条件正常；
+- 请求完成后显存和运行时状态可以释放。
 
-正确性通过后，才进入性能优化阶段。
-
-常见分析指标包括：
-
-- Prefill 延迟；
-- Decode 延迟；
-- 首 Token 延迟；
-- 每秒生成 Token 数；
-- GPU 利用率；
-- 显存带宽利用率；
-- Kernel Launch 数量；
-- 通信占比；
-- KV Cache 命中率。
-
-性能优化不应一开始就全面重写，而应遵循：
+这一阶段尤其需要关注 Prefill 和 Decode 之间的状态衔接。对于同一个序列，可以比较：
 
 ```text
-端到端 Profiling
+一次性 Prefill 得到的 logits
+```
+
+与：
+
+```text
+分段 Prefill / Decode 得到的对应 logits
+```
+
+如果二者存在非预期差异，通常应优先检查：
+
+- position 计算；
+- attention mask；
+- KV Cache 写入；
+- KV Cache 读取；
+- sequence length；
+- token 到 cache block 的映射；
+- prefill 和 decode 的路径切换。
+
+只有最小单卡路径稳定后，才适合继续引入动态 Batch 和多卡执行。
+
+#### 7.5.4 适配运行时状态与 Attention 执行
+
+模型结构正确并不代表已经完成运行时接入。新模型还必须能够与调度、KV Cache、Attention Metadata 和 backend 协同工作。
+
+运行时执行链路可以表示为：
+
+```text
+Scheduler
+   ↓
+SchedulerOutput
+   ↓
+Worker
+   ↓
+ModelRunner
+   ↓
+Attention Metadata
+   ↓
+Model / Attention Backend
+   ↓
+KV Cache 访问
+```
+
+其中：
+
+- `SchedulerOutput` 描述当前 step 需要处理哪些请求以及每个请求推进多少 token；
+- `ModelRunner` 将调度计划转换为模型输入、batch 布局和运行时状态；
+- `Attention Metadata` 描述当前 attention 需要使用的序列长度、KV block 和 token 映射；
+- Attention Backend 根据 metadata 和硬件能力选择具体执行实现；
+- KV Cache 或其他状态系统负责保存和访问跨 step 的推理状态。
+
+因此，Attention Metadata 并不是调度器直接产生的原始结果，而是由 ModelRunner 根据以下信息构造：
+
+```text
+SchedulerOutput
+  + 当前输入 token 布局
+  + KV Cache / state 状态
+  + Attention 类型
+  + Backend 能力
+  ↓
+Attention Metadata
+```
+
+新模型接入时，应重点确认以下问题。
+
+##### Attention 路径
+
+- Attention 是否属于现有 backend 支持的类型；
+- MHA、MQA、GQA 或 MLA 的 head 数是否正确；
+- Q、K、V 的 Shape 和布局是否符合预期；
+- prefill 和 decode 是否使用相同的状态语义；
+- 是否需要特殊的 mask、position 或 RoPE；
+- 是否存在局部 attention、滑动窗口或混合 attention；
+- 是否需要新增 attention metadata 字段。
+
+##### KV Cache 或其他推理状态
+
+- cache 的层数是否正确；
+- KV head 数和 head dimension 是否正确；
+- cache dtype 是否匹配；
+- cache block 的布局是否正确；
+- block table 和 slot mapping 是否正确传递；
+- cache block 的分配、复用和释放是否正确；
+- prefill 写入的状态是否能被 decode 正确读取；
+- 模型是否需要 K/V 之外的 recurrent state、压缩状态或其他持久化状态。
+
+对于非标准模型，不应强行将所有推理状态表示为传统 K/V tensor。如果模型使用 recurrent state、压缩 KV 或混合缓存，应首先明确其状态语义，再决定是否复用现有 cache 抽象，还是扩展新的状态管理协议。
+
+##### 并行路径
+
+并行能力建议采用逐级扩展的方式：
+
+```text
+单卡
+  → Tensor Parallel
+  → Pipeline Parallel
+  → Expert Parallel
+  → 多节点通信
+```
+
+需要分别确认：
+
+- Tensor Parallel 下 Q、K、V、MLP 权重如何切分；
+- Pipeline Parallel 下层之间的 hidden state 如何传递；
+- MoE 是否需要 Expert Parallel；
+- token dispatch 和 combine 是否保持顺序；
+- 通信是否会改变 token 对齐；
+- 通信是否能够与计算重叠；
+- 不同并行规模下输出是否与单卡结果一致。
+
+首次接入时不必一次性支持所有并行方式。应根据模型规模和实际部署需求，先实现最小必要的并行能力。
+
+#### 7.5.5 注册模型并验证端到端执行
+
+模型结构、权重装配和最小运行时路径稳定后，需要将模型接入模型发现机制，并打通完整执行链路。
+
+模型发现与加载链路为：
+
+```text
+ModelConfig
+   ↓
+ModelRegistry
+   ↓
+Model class
+   ↓
+ModelLoader
+   ↓
+WeightsMapper
+   ↓
+Loaded model
+```
+
+运行时执行链路为：
+
+```text
+Scheduler
+   ↓
+SchedulerOutput
+   ↓
+Worker
+   ↓
+ModelRunner
+   ↓
+Attention Metadata
+   ↓
+Model / Attention Backend
+   ↓
+ModelRunnerOutput
+```
+
+这一阶段应分别验证模型发现、模型加载和请求执行，避免将不同问题混在一起。
+
+##### 模型发现与加载验证
+
+重点检查：
+
+- 模型架构名称能否被正确识别；
+- `ModelConfig` 是否解析出正确的 runner 类型；
+- `ModelRegistry` 是否能够返回正确的模型类；
+- 模型类是否能够被正常导入和实例化；
+- checkpoint 是否能够完整加载；
+- dtype、量化和并行配置是否生效；
+- 单卡初始化是否成功；
+- 是否存在未匹配或重复加载的参数。
+
+##### 单卡端到端验证
+
+重点覆盖：
+
+- 单请求 Prefill；
+- 单请求 Decode；
+- 多轮 Decode；
+- 动态 Batch；
+- 流式输出；
+- EOS 和停止条件；
+- 请求取消；
+- 请求完成后的 KV Cache 回收；
+- 显存释放；
+- 异常请求后的状态恢复。
+
+##### 服务生命周期验证
+
+除了正常生成路径，还应验证：
+
+- 请求在 Prefill 阶段取消；
+- 请求在 Decode 阶段取消；
+- 多个请求同时完成；
+- 长请求被新请求打断或插入；
+- OOM 后服务是否能够正确报错；
+- 异常请求是否会残留 cache block；
+- 多次加载和卸载模型后是否出现显存泄漏。
+
+“模型能够被 Registry 找到”只说明模型发现链路正常，并不代表模型已经能够在动态请求环境中稳定执行。只有上述运行时行为全部贯通，才可以认为模型完成了基础接入。
+
+
+#### 7.5.6 扩展并行、量化和其他高级能力
+
+基础单卡路径稳定后，再逐步接入高级能力。建议按照实际需求分阶段推进，而不是将所有能力作为首次接入的前置条件。
+
+##### 并行能力
+
+可以按照以下顺序扩展：
+
+```text
+单卡
+  → Tensor Parallel
+  → Pipeline Parallel
+  → Expert Parallel
+  → 多节点部署
+```
+
+每增加一种并行方式，都需要重新验证：
+
+- 参数切分是否正确；
+- rank 间输出是否一致；
+- 通信数据是否正确；
+- token 顺序是否保持；
+- cache 和状态是否与并行布局匹配；
+- 计算和通信是否存在不必要的同步。
+
+##### 量化能力
+
+量化接入不仅是改变 dtype，还可能涉及：
+
+- checkpoint 格式；
+- packed weight；
+- scale 和 zero-point；
+- 权重布局；
+- 激活量化；
+- kernel 支持；
+- 并行切分顺序；
+- 量化误差。
+
+因此，量化应在浮点或高精度基线稳定后进行，并比较：
+
+```text
+高精度模型
+  → 量化模型数值误差
+  → 端到端生成质量
+  → 性能与显存收益
+```
+
+##### Prefix Cache、Speculative Decoding 和 MTP
+
+这些能力会改变运行时状态和执行路径，不应仅被视为模型开关。
+
+接入时需要确认：
+
+- Prefix Cache 是否适用于模型的状态语义；
+- speculative decoding 是否需要额外的 draft model 或多预测头；
+- MTP 的 hidden state 和 logits 如何组织；
+- 接受或拒绝 token 后，KV Cache 如何回滚或更新；
+- 多预测路径是否与 sampling 和停止条件兼容。
+
+首次接入时，如果这些能力不是模型上线的必要条件，可以先明确标记为暂不支持，而不是在基础实现中加入未经验证的分支。
+
+#### 7.5.7 性能分析与选择性特化
+
+正确性和稳定性通过后，才进入性能优化阶段。性能优化必须建立在可复现的测试配置和稳定的正确性基线上。
+
+建议先固定以下条件：
+
+- 模型权重和版本；
+- GPU 型号；
+- dtype 和量化配置；
+- 输入长度；
+- 输出长度；
+- batch size；
+- 并行规模；
+- sampling 参数；
+- cache 配置；
+- 软件和驱动版本。
+
+随后使用端到端 profiling 定位关键瓶颈，而不是一开始就重写某个算子。
+
+性能指标应按照场景区分。
+
+| 场景 | 主要指标 |
+|---|---|
+| 单请求 Prefill | TTFT、Prefill 延迟、Prefill 吞吐 |
+| 单请求 Decode | ITL、每秒生成 token 数 |
+| 动态 Batch | 总吞吐、P95/P99 延迟、batch 利用率 |
+| 长上下文 | KV Cache 占用、显存带宽、OOM 情况 |
+| Prefix Cache | 命中率、命中后的 TTFT、cache 管理开销 |
+| 多卡推理 | 通信占比、扩展效率、计算通信重叠 |
+| MoE 模型 | 路由开销、dispatch/combine 开销、expert 利用率 |
+| 量化模型 | 显存占用、量化误差、反量化开销 |
+
+推荐使用以下优化流程：
+
+```text
+建立端到端基线
+      ↓
+采集算子、访存、通信和调度指标
       ↓
 定位关键瓶颈
       ↓
-选择性特化
+判断瓶颈属于计算、访存、通信、调度还是采样
       ↓
-重新验证收益
+选择性引入优化
+      ↓
+重新验证正确性和性能收益
 ```
 
-通常优先优化：
+常见瓶颈包括：
 
-1. Attention；
-2. MoE 路由和 Expert 计算；
-3. 通信；
-4. 量化反量化；
-5. Sampling；
-6. MTP 相关路径。
+- Attention 计算；
+- KV Cache 访存；
+- MoE 路由、dispatch 和 combine；
+- Tensor Parallel 或 Expert Parallel 通信；
+- 量化和反量化；
+- kernel launch；
+- 动态 Shape 导致的图捕获失败；
+- Python 或 CPU 侧调度；
+- sampling；
+- 内存分配和 cache 管理。
 
+因此，Attention 并不总是第一瓶颈。特别是在小 batch Decode 场景中，系统可能受限于 kernel launch、访存、采样或通信，而不是纯粹的矩阵计算。
 
-#### 7.5.6 完成正确性、性能与分布式验证
+只有当 profiling 证明现有实现确实是关键路径时，才应考虑：
 
-模型接入至少需要覆盖三类测试。
+- 新增特化 kernel；
+- 扩展 Attention Backend；
+- 增加 shape bucket；
+- 引入 CUDA Graph；
+- 使用 `torch.compile`；
+- 融合量化和计算；
+- 优化通信与计算重叠；
+- 修改 ModelRunner 的输入布局。
 
-1、正确性测试
+每次优化都必须重新进行数值和端到端验证，避免为了局部吞吐牺牲模型正确性或请求稳定性。
 
+#### 7.5.8 正确性、性能与分布式验收
+
+模型接入的最终验收至少包括三类测试：
+
+1. 正确性测试；
+2. 性能测试；
+3. 分布式和故障恢复测试。
+
+##### 正确性测试
+
+正确性测试应覆盖模型结构、权重加载、运行时状态和服务行为。
+
+基础数值测试包括：
+
+- 与参考框架比较 hidden states；
 - 与参考框架比较 logits；
 - 比较不同输入长度下的结果；
-- 检查 Prefill 与 Decode 一致性；
-- 检查采样结果；
-- 检查停止条件和 EOS 行为。
+- 比较不同 batch size 下的结果；
+- 检查 Prefill 与 Decode 的一致性；
+- 检查不同 dtype 下的误差；
+- 检查量化模型的误差范围；
+- 检查单卡与多卡结果的一致性。
 
-2、性能测试
+生成行为测试包括：
+
+- greedy decoding；
+- temperature、top-k、top-p 等采样参数；
+- EOS 行为；
+- stop token 和 stop string；
+- 最大输出长度；
+- 空输入、短输入和超长输入；
+- 多轮对话和 chat template；
+- 流式输出；
+- 请求中途取消。
+
+运行时状态测试包括：
+
+- KV Cache 分配；
+- KV Cache 复用；
+- Prefix Cache 命中和未命中；
+- 请求完成后的 cache 回收；
+- 长时间运行后的显存稳定性；
+- 动态 Batch 中请求加入和退出；
+- OOM 或异常后的状态恢复。
+
+如果模型支持多模态，还应额外测试：
+
+- 图片、视频或音频预处理；
+- 多模态 token 与文本 token 的对齐；
+- 不同输入尺寸；
+- 多模态输入缺失或格式错误；
+- 多模态 encoder 状态的缓存和释放。
+
+##### 性能测试
+
+性能测试至少应覆盖以下场景：
 
 - 单请求短上下文；
 - 单请求长上下文；
+- 短 Prefill、长 Decode；
+- 长 Prefill、短 Decode；
 - 多请求动态 Batch；
 - 高并发 Decode；
 - Prefix Cache；
-- 不同量化配置。
+- 不同 batch size；
+- 不同输入和输出长度；
+- 不同 dtype 和量化配置；
+- 不同并行规模。
 
-3、分布式测试
+性能测试不能只观察平均值，还应关注：
 
-- 张量并行；
-- Pipeline Parallel；
+- 首 Token 延迟；
+- 单 Token 间隔；
+- 总吞吐；
+- P50、P95、P99 延迟；
+- GPU 利用率；
+- 显存占用；
+- 显存带宽利用率；
+- kernel launch 数量；
+- 通信占比；
+- cache 分配和回收开销。
+
+##### 分布式与故障恢复测试
+
+分布式测试应覆盖：
+
+- 不同 Tensor Parallel size；
+- 不同 Pipeline Parallel stage 数；
 - Expert Parallel；
-- 节点间通信；
+- 多节点通信；
+- 不同 rank 的参数和输出一致性；
+- 通信与计算重叠；
 - 请求取消；
-- OOM 和异常恢复。
+- OOM；
+- 通信超时；
+- 部分 rank 异常；
+- 服务重启；
+- 模型重复加载和卸载。
 
-
-### 7.6 终极案例：DeepSeek 架构的工程适配
-
-DeepSeek 之所以具有代表性，是因为它不是只改变一个模块，而是同时在 Attention、MoE 和生成范式上进行创新。它可以作为检验推理引擎抽象边界的综合案例。
-
-
-#### 7.6.1 MLA：低秩 KV 表示与 Attention“吸收”
-
-标准 Attention 通常需要缓存完整的 Key 和 Value。随着上下文长度增加，KV Cache 会成为显存占用的重要来源。
-
-MLA 的核心思路是对 KV 表示进行压缩，将部分信息映射到低维潜在空间，再在计算过程中恢复或吸收必要的表示。
-
-概念上可以表示为：
+建议重点比较：
 
 ```text
-完整 K、V
-   ↓
-低秩压缩
-   ↓
-潜在表示 Cache
-   ↓
-Attention 计算时恢复或吸收
+单卡结果
+    与
+多卡结果
+
+参考框架结果
+    与
+vLLM 结果
+
+未优化实现
+    与
+优化后实现
 ```
 
-**图 7-7  MLA 的低秩 KV 表示**
+每增加一种并行方式、量化方式或特化 kernel，都应重新执行相应的正确性测试和性能回归测试。
 
-这一变化影响的不只是 Attention 公式，还会改变：
+#### 7.5.9 推荐的接入顺序与发布门槛
 
-- KV Cache 的存储格式；
-- Cache Block 的大小和布局；
-- Cache 写入路径；
-- Decode 阶段的数据读取；
-- Tensor Parallel 下的分片方式；
-- Attention Kernel 的融合方式。
-
-如果只是把 MLA 转换成标准 K/V，再调用通用 Attention，虽然能够快速完成正确性验证，但可能失去 MLA 的核心收益。
-
-因此，MLA 适配通常需要同时改造：
+综合上述步骤，一个新模型的推荐接入顺序如下：
 
 ```text
-模型层
-  + KV Cache
-  + Attention Metadata
-  + Attention Kernel
-  + 并行策略
+1. 分析模型差异
+       ↓
+2. 确定复用、局部改造或全新实现
+       ↓
+3. 实现模型结构
+       ↓
+4. 实现权重映射与装配
+       ↓
+5. 通过参数和数值检查
+       ↓
+6. 打通单卡、单请求 Prefill
+       ↓
+7. 打通单卡 Decode 和多轮执行
+       ↓
+8. 接入 KV Cache 和 Attention Metadata
+       ↓
+9. 注册 ModelConfig / ModelRegistry
+       ↓
+10. 验证动态 Batch 和请求生命周期
+       ↓
+11. 扩展 Tensor Parallel 等并行能力
+       ↓
+12. 接入量化和其他高级能力
+       ↓
+13. Profiling 并进行选择性特化
+       ↓
+14. 完成正确性、性能和分布式验收
 ```
 
-这正是“模型局部创新向运行时扩散”的典型例子。
+可以将发布门槛概括为：
+
+```text
+模型能够被正确识别
+  且
+权重能够完整装配
+  且
+单卡 Prefill / Decode 数值正确
+  且
+KV Cache 和请求生命周期稳定
+  且
+目标并行配置下输出正确
+  且
+性能达到预期
+  且
+故障和资源回收行为可控
+```
+
+最终，一个新模型是否真正“接入完成”，不能只看模型类是否已经注册，也不能只看单次请求是否能够生成文本。完整接入应当同时满足：
+
+```text
+配置可识别
+实现可复用或可维护
+权重可正确装配
+运行时状态可管理
+Prefill / Decode 可稳定执行
+并行路径可验证
+性能瓶颈可解释
+异常场景可恢复
+```
+
+从架构角度看，这一过程正好对应前文所描述的抽象链路：
+
+```text
+配置语义
+  → 模型发现
+  → 模型能力
+  → 权重装配
+  → 调度计划
+  → 执行编排
+  → Attention Metadata
+  → KV Cache / Backend
+  → 硬件执行
+```
+
+因此，新模型接入的核心并不是把所有差异都塞进模型类，而是识别差异所在的层级，并将其放置到正确的抽象边界中：
+
+```text
+配置差异       → ModelConfig
+识别差异       → ModelRegistry
+结构差异       → Model class / 公共模块
+权重差异       → ModelLoader / WeightsMapper
+执行差异       → Worker / ModelRunner
+状态差异       → KV Cache / State Management
+Attention 差异 → Attention Metadata / Backend
+输入差异       → Tokenizer / Multimodal Registry
+性能差异       → Compiler / Graph / Kernel Backend
+```
+
+这也是新模型能够在不破坏既有运行时和性能优化的前提下接入 vLLM 的关键。
 
 
-#### 7.6.2 DeepSeek MoE：从路由到跨卡通信
+### 7.6 实际案例分析：DeepSeek架构的工程适配
 
-MoE 模型并不是简单地将 Dense MLP 替换成多个 Expert。每个 Token 需要经过以下流程：
+DeepSeek 系列模型的接入，并不是简单地增加一个模型类、补充若干权重映射，或者为某个算子编写特化 Kernel。它更像是一次对推理引擎既有协议的压力测试：模型在注意力机制、专家路由、推测式生成和缓存管理等方面引入了新的状态组织方式，迫使 vLLM 重新审视原有抽象是否足够表达这些变化。
+
+从工程角度看，DeepSeek 的接入可以被拆解为三类问题：
+
+1. **如何表示新的计算状态**；
+2. **如何调度动态变化的计算路径**；
+3. **如何保证这些动态状态在增量执行、并行执行和回滚执行中的一致性**。
+
+因此，DeepSeek 的适配并不是单点修改，而是涉及以下多个层次：
+
+```text
+模型配置与注册
+    ↓
+权重加载与结构映射
+    ↓
+注意力与 KV Cache 表达
+    ↓
+MoE 路由与分布式执行
+    ↓
+MTP / Speculative Decoding 状态管理
+    ↓
+调度、验证、回滚与性能优化
+```
+
+这也说明，复杂模型的接入过程，本质上是将模型自身的特殊机制翻译成推理框架能够理解的协议。
+
+#### 7.6.1 MLA：从注意力优化到 KV Cache 协议扩展
+
+Multi-head Latent Attention，简称 MLA，最直接的目标是降低 KV Cache 的存储与访存开销。传统多头注意力通常需要为每个 Token 保存规模较大的 Key 和 Value 状态，而 MLA 则通过低秩表示压缩历史上下文，使缓存中的信息维度显著降低。
+
+在概念上，传统 KV Cache 可以抽象为：
+
+```text
+K_cache: [batch, sequence_length, num_heads, head_dim]
+V_cache: [batch, sequence_length, num_heads, head_dim]
+```
+
+而 MLA 更接近于保存某种低秩潜变量：
+
+```text
+latent_cache: [batch, sequence_length, latent_dim]
+```
+
+在实际实现中，缓存内容、解码方式以及位置编码相关状态可能比上述形式更加复杂。因此，MLA 的关键变化并不只是“把缓存张量变小”，而是改变了缓存的语义：
+
+> KV Cache 不再必然表示已经展开的 Key/Value，而可以表示生成 Key/Value 所需的压缩状态。
+
+这会影响 vLLM 的多个组件。
+
+##### 1、Cache allocation
+
+缓存分配逻辑不能只根据固定的 `num_heads × head_dim` 计算容量，而需要能够根据不同注意力后端提供的缓存布局动态确定：
+
+- 每个 Token 需要多少缓存空间；
+- 缓存是按完整 KV 保存，还是按 latent 表示保存；
+- 不同层是否使用相同的缓存格式；
+- 缓存是否包含额外的位置编码或旋转位置状态。
+
+因此，缓存分配接口需要从“分配一块固定形状的 KV 空间”，逐渐演进为“根据注意力协议分配一类可被后端解释的缓存空间”。
+
+##### 2、Cache write 与 cache copy
+
+在普通注意力中，缓存写入通常可以理解为：
+
+```text
+新生成的 K、V
+    ↓
+写入对应的 block
+```
+
+而在 MLA 中，写入的数据可能是压缩后的 latent，或者是经过投影、分解和位置编码处理后的中间状态。于是，缓存写入与复制操作必须明确：
+
+- 写入的是展开后的表示还是压缩表示；
+- block table 如何解释缓存位置；
+- prefix cache 复用时复制的到底是什么；
+- 交换、重排、迁移缓存时是否需要额外转换。
+
+这意味着，`copy_blocks`、cache swap、prefix caching 等底层机制不能假设所有缓存都具有传统 K/V 的形状和语义。
+
+##### 3、Attention Metadata
+
+MLA 对 `Attention Metadata` 的要求也更高。Metadata 不仅要描述序列长度、slot 映射和 block table，还可能需要包含：
+
+- latent cache 的布局信息；
+- 不同阶段使用的投影参数；
+- prefill 与 decode 阶段不同的计算路径；
+- 是否启用特定的压缩或恢复逻辑；
+- 后端需要的额外 stride、偏移与索引信息。
+
+因此，MLA 可以被视为对注意力后端接口的一次扩展：
+
+```text
+传统注意力：
+SchedulerOutput
+    → seq_lens / block_table
+    → 标准 K/V Attention
+
+MLA：
+SchedulerOutput
+    → cache layout / latent metadata / position metadata
+    → MLA-specific Attention Backend
+```
+
+需要注意的是，MLA 并不意味着整个 vLLM 都必须理解 MLA 的数学细节。更合理的设计是：
+
+- 上层负责表达调度结果和缓存状态；
+- 模型层负责组织 MLA 所需的输入；
+- Attention Backend 负责具体的压缩状态恢复与高效计算；
+- Cache Manager 负责提供与该协议兼容的存储和搬运能力。
+
+这体现了“动态性上浮，静态性下沉”的原则：MLA 的特殊性应当被限制在明确的模型和后端边界内，而不是扩散到所有通用调度代码中。
+
+
+#### 7.6.2 MoE：从静态执行图到动态专家路由
+
+Mixture-of-Experts，简称 MoE，将单一的前馈网络替换为多个专家网络，并由 Router 为每个 Token 选择少量专家执行。它的核心优势是：
+
+> 在保持较大参数规模的同时，使每个 Token 实际只激活部分参数。
+
+然而，对推理引擎而言，MoE 带来的并不仅是多个 `Linear` 层，而是一套动态的 Token-to-Expert 执行机制。
+
+传统 Dense 模型中的执行路径相对稳定：
 
 ```text
 Token
-  ↓
-Router 计算专家分数
-  ↓
-Top-K Expert 选择
-  ↓
-Token Dispatch
-  ↓
-Expert 计算
-  ↓
-Token Combine
-  ↓
-恢复原始 Token 顺序
+  → Attention
+  → MLP
+  → 下一层
 ```
 
-在单卡环境中，主要问题是 Expert 计算和显存布局；在多卡环境中，还需要处理：
+MoE 模型则更接近：
 
-- Expert 如何分布；
-- Token 如何跨卡发送；
-- 通信如何与计算重叠；
-- 不同 Expert 的负载是否均衡；
-- 如何减少 Padding 和无效计算；
-- 如何组织 All-to-All 或等价通信。
+```text
+Token
+  → Router
+  → Expert Selection
+  → Token Dispatch
+  → Expert Compute
+  → Token Combine
+```
 
-**图 7-8  MoE Token Dispatch 与 Combine 流程**
+其中，Expert Selection 和 Token Dispatch 的结果会随着每一批 Token 的内容动态变化。
 
-| 阶段 | 主要开销 |
-|---|---|
-| Router | 小矩阵计算与 Top-K |
-| Dispatch | Token 重排与跨卡通信 |
-| Expert | 多个小规模 GEMM |
-| Combine | 结果聚合与顺序恢复 |
+##### 1、Token-to-Expert 映射
 
-因此，DeepSeek MoE 的适配边界已经从模型层延伸到分布式运行时。
+MoE 执行通常需要构造某种 Token-to-Expert 映射表，用于描述：
 
-一个高性能实现通常需要协同优化：
+- 每个 Token 被分配到哪些专家；
+- 每个专家接收多少 Token；
+- Token 在重排后位于哪个位置；
+- 专家计算完成后如何恢复原始 Token 顺序；
+- 跨设备专家如何进行通信。
 
-- Router Kernel；
-- Token 重排；
-- Expert GEMM；
+可以抽象为：
+
+```text
+原始 Token 顺序
+    ↓
+Router 得分
+    ↓
+Top-k Expert Selection
+    ↓
+Token-to-Expert Mapping
+    ↓
+按专家重排
+    ↓
+Expert Computation
+    ↓
+按原始顺序还原
+```
+
+这与普通 MLP 的主要差异在于：矩阵乘法的输入排列不再固定，计算负载也不再均匀。
+
+##### 2、与 Scheduler 的关系
+
+需要谨慎区分两个层次：
+
+- `Scheduler` 通常负责请求、序列和 Token 级别的批处理调度；
+- Router 负责根据当前 Token 的隐藏状态选择专家。
+
+因此，Scheduler 通常无法在真正计算 Router 之前准确知道每个 Token 的专家归属。更准确的说法是：
+
+> MoE 要求调度与执行编排层能够容纳动态的专家路由结果，而不是简单地要求 Scheduler 在执行前完全预测专家负载。
+
+在某些优化路径中，系统可以根据历史统计、容量限制或设备拓扑对可能的专家负载进行预估，但这属于调度优化，而不是 Router 语义本身。
+
+这会推动 `SchedulerOutput` 和 `ModelRunner` 之间的契约更加丰富。例如，执行计划可能需要支持：
+
+- 当前批次是否包含 MoE 层；
+- 是否启用专家并行；
+- 专家容量限制；
+- 通信与计算的重叠策略；
+- 当前执行需要的 dispatch buffer；
+- 不同设备上的专家布局。
+
+因此，MoE 的接入点不仅在模型定义中，也在分布式执行和运行时编排中。
+
+##### 3、专家并行与通信
+
+当专家分布在不同 GPU 上时，Token 需要通过通信操作发送到对应设备。典型过程包括：
+
+```text
+本地 Token
+    → 本地 Router
+    → All-to-All / Dispatch
+    → 远程 Expert
+    → All-to-All / Combine
+    → 本地 Token 顺序恢复
+```
+
+这里的性能瓶颈可能不再是单个 GEMM，而是：
+
+- Token dispatch 的重排；
 - All-to-All 通信；
-- 负载均衡；
-- 通信计算重叠；
-- Expert Parallel 调度。
+- 专家负载不均衡；
+- 小批量专家矩阵乘法；
+- 通信与计算之间的同步。
 
-如果只在 Python 层实现路由和循环调用 Expert，通常会产生大量 Kernel Launch 和数据搬运开销，难以达到理想性能。
+因此，MoE 的验证不能只检查输出数值，还必须检查：
 
+- 专家负载是否严重倾斜；
+- 通信量是否符合预期；
+- 极端输入下是否出现专家容量溢出；
+- 多卡和单卡路径是否具有一致语义；
+- Token 重排和还原是否保持顺序正确。
 
-#### 7.6.3 MTP：一个预测头如何穿透整条推理链路？
+#### 7.6.3 MTP：从单步生成到可验证的多步执行
 
-传统自回归生成每次只预测下一个 Token：
+Multi-Token Prediction，简称 MTP，改变了传统自回归模型“一次只生成一个 Token、确认后再继续”的执行方式。它允许模型在一次前向过程中提出多个候选 Token，随后通过验证逻辑决定哪些候选可以被接受。
 
-```text
-xₜ → xₜ₊₁
-```
-
-MTP 则尝试在一次主模型执行之后，同时生成多个未来位置的候选 Token：
-
-```text
-xₜ → xₜ₊₁、xₜ₊₂、xₜ₊₃ ...
-```
-
-这会改变推理系统中的多个环节：
-
-- 模型输出不再只有一个预测结果；
-- 调度器需要管理多个候选位置；
-- 采样器需要处理候选 Token；
-- 验证阶段需要接受或拒绝候选；
-- KV Cache 需要支持临时写入和回滚；
-- 流式输出需要只暴露最终确认的 Token。
-
-可以将其抽象为：
+因此，MTP 的基本执行过程可以表示为：
 
 ```text
-主模型生成候选
-       ↓
-多个预测头继续预测
-       ↓
-候选序列验证
-       ↓
-接受部分 Token
-       ↓
-拒绝部分回滚
-       ↓
-更新 KV Cache
+已确认上下文
+    ↓
+生成多个候选 Token
+    ↓
+验证候选序列
+    ↓
+接受部分候选
+    ↓
+拒绝或回滚其余候选
+    ↓
+提交新的推理状态
 ```
 
-**图 7-9  MTP 对推理链路的影响**
+这与普通 decode 最大的区别在于：一次计算可能产生多个“暂时状态”，但这些状态并不一定全部成为最终状态。
 
-因此，MTP 的接入并不是“在模型末尾增加几个 Head”，而是对以下模块的联动改造：
+##### 1、推理状态不再只有“提交”语义
 
-| 模块 | 需要处理的问题 |
-|---|---|
-| Model Runner | 如何执行多个预测阶段 |
-| Scheduler | 如何安排候选和验证 |
-| Sampling | 如何采样和筛选候选 |
-| KV Cache | 如何暂存与回滚 |
-| Streaming | 何时向用户返回结果 |
-| Metrics | 如何统计真实生成速度 |
-
-MTP 说明了一个重要事实：
-
-> 当模型改变生成范式时，模型适配就不再局限于网络结构，而会进入调度和状态管理层。
-
-
-#### 7.6.4 DeepSeek 适配对通用接入流程的超越
-
-将 DeepSeek 与前面的通用接入流程对照，可以看到明显差异。
-
-| 通用模型接入 | DeepSeek 类模型接入 |
-|---|---|
-| 新增模型类 | 新增或改造多个运行时组件 |
-| 复用标准 Attention | 需要特殊 Attention 与 KV Cache |
-| 复用 Dense MLP | 需要 MoE 路由和 Expert Parallel |
-| 单一 LM Head | 多预测头与候选验证 |
-| 标准 Decode | 动态候选、接受与回滚 |
-| 局部算子优化 | 模型、调度、显存、通信协同优化 |
-
-因此，DeepSeek 不是对通用流程的否定，而是对它的压力测试：
+传统增量推理通常假设：
 
 ```text
-通用抽象
-   ↓
-MLA 突破 Attention 假设
-   ↓
-MoE 突破 Dense 计算假设
-   ↓
-MTP 突破单 Token 生成假设
-   ↓
-推理引擎扩大适配边界
+执行一步
+    → 写入 KV Cache
+    → 更新 sequence length
+    → 进入下一步
 ```
 
+MTP 则引入了两种状态：
 
-#### 7.6.5 极致性能、特化代码与可维护性之间的权衡
+- **暂存状态**：候选 Token 对应的临时计算结果；
+- **提交状态**：经过验证后正式纳入序列的结果。
 
-DeepSeek 类模型的适配通常需要引入大量特化逻辑，但特化并不意味着无限制地复制模型代码。
-
-较合理的工程策略是分层处理：
+因此，KV Cache、序列长度、位置编码状态以及相关元数据都必须能够区分：
 
 ```text
-通用层：
-调度、请求管理、基础并行、模型注册
-
-扩展层：
-MLA、MoE、MTP 等标准化计算原语
-
-特化层：
-特定硬件上的融合 Kernel、通信优化和布局优化
+tentative state
+    与
+committed state
 ```
 
-这样可以避免两种极端：
+如果候选 Token 已经直接覆盖了正式缓存，那么验证失败后就必须具备可靠的撤销机制。否则，后续 Token 可能会读取到本不应存在的上下文，导致结果错误。
 
-- 过度通用：性能不足，无法发挥模型优势；
-- 过度特化：代码难以复用，后续维护成本过高。
+##### 2、回滚语义
 
-最终需要在以下三者之间进行平衡：
+MTP 的回滚并不是简单地把 Python 列表长度减一。它可能涉及：
+
+- 回退序列长度；
+- 释放或重新标记缓存 block；
+- 恢复 block table；
+- 清理临时 attention metadata；
+- 撤销候选 Token 的 logits 状态；
+- 恢复位置编码和采样相关状态；
+- 修正请求级别的生成进度。
+
+因此，回滚必须是一个具有一致性的事务操作：
 
 ```text
-灵活性  ↔  极致性能  ↔  可维护性
+开始候选执行
+    ↓
+记录旧状态
+    ↓
+写入暂存结果
+    ↓
+验证候选
+    ↓
+提交，或恢复旧状态
 ```
 
-这也是推理引擎长期演进中无法回避的工程问题。
+从这个意义上说，MTP 将一种过去较少出现在普通推理路径中的语义引入了运行时：
+
+> 推理状态不仅要支持前进，还要支持可验证、可撤销和部分提交。
+
+这为未来的 Speculative Decoding、树状候选生成以及更复杂的搜索式解码提供了基础。
+
+不过，“MTP 是 vLLM 历史上第一次引入可撤销状态管理”这一表述应当适当收敛。更严谨的说法是：MTP 将**显式的候选状态、部分接受和回滚语义**带入了更核心的推理状态管理路径，使这一能力从特殊优化机制上升为需要系统级支持的运行时能力。
+
+##### 3、Scheduler 与 KV Cache 的协同
+
+MTP 要求 Scheduler 不再只处理“下一步要生成哪个 Token”，还需要处理：
+
+- 当前请求允许生成多少候选 Token；
+- 哪些候选已经生成；
+- 哪些候选通过验证；
+- 哪些状态需要提交；
+- 哪些状态需要回滚；
+- 回滚后下一轮调度从哪个位置继续。
+
+因此，调度输出可能需要携带更丰富的候选和验证信息。ModelRunner 则负责将这些信息编排为实际的模型执行步骤，Attention Backend 最终接收与当前提交状态一致的 metadata。
+
+可以将三者关系概括为：
+
+```text
+Scheduler：
+决定候选执行与提交/回滚计划
+
+ModelRunner：
+将计划编排为若干次模型执行
+
+Attention / KV Backend：
+按照当前有效状态读取、写入或恢复缓存
+```
+
+MTP 的关键验证点也不只是“最终文本是否合理”，而是要检查：
+
+- 部分接受后的位置是否连续；
+- 回滚后的 KV Cache 是否与基线一致；
+- 多轮候选执行后是否发生状态污染；
+- 接受 0 个、1 个或全部候选时是否都正确；
+- prefill、decode 与 MTP 混合批次是否正确；
+- 失败路径是否会造成缓存泄漏或 block 错配。
+
+
+### 7.6.4 DeepSeek 架构接入的边界拆解
+
+下面的决策矩阵可以看出DeepSeek 的每项特性都不能简单归入“模型层”。它们分别触及了缓存、调度、分布式执行、算子后端和状态管理等不同边界。
+
+| 特性 | 主要变化 | 接入动作 | 对应抽象边界 | 关键验证点 |
+|---|---|---|---|---|
+| MLA | KV 表示从完整 K/V 转向低秩或压缩状态 | 实现低秩状态生成、恢复与缓存读写 | Attention Metadata、KV Cache、Attention Backend | 与标准注意力对比数值误差；检查缓存读写和 prefix 复用 |
+| MoE | 每个 Token 动态选择部分专家 | 实现 Router、Token dispatch、专家计算与结果 combine | ModelRunner、Distributed Executor、Expert Parallel | 专家负载均衡、通信吞吐、Token 顺序恢复、容量溢出 |
+| MTP | 一次执行产生多个候选并进行验证 | 实现候选状态、部分提交与回滚 | Scheduler、ModelRunner、KV Cache、Sampling | 接受、拒绝和部分接受路径的一致性 |
+| 低秩投影 | 权重和激活的形状、计算路径变化 | 增加相应层实现与权重映射 | Model Definition、Weights Mapper | 权重切分、合并、量化格式与精度 |
+| 分布式专家 | 专家跨设备分布 | 增加通信与设备映射逻辑 | Parallel State、Distributed Backend | 单卡/多卡一致性、通信死锁、负载倾斜 |
+| 动态缓存 | 缓存不再是简单线性追加 | 支持 block 分配、复用、交换与回滚 | KV Cache Manager | 缓存生命周期、碎片率、回滚后状态 |
+| 推测式执行 | 计算结果存在暂存与提交两个阶段 | 建立可撤销的执行状态 | Scheduler、ModelRunner、KV Cache | 长序列、多请求并发和异常路径 |
+| 特化 Kernel | 通用算子难以覆盖全部性能需求 | 增加硬件与后端特化实现 | Attention Backend、Custom Op | 数值稳定性、边界尺寸、不同硬件兼容性 |
+
+
+#### 7.6.5 三层架构：通用层、特化层与验证层
+
+为了控制复杂度，DeepSeek 的接入可以按照三层结构组织。
+
+##### 1、通用层
+
+通用层负责复用 vLLM 已有的基础能力，包括：
+
+- 请求管理；
+- Tokenizer；
+- 基础调度；
+- block-based KV Cache；
+- 权重加载框架；
+- 张量并行和流水线并行；
+- 采样接口；
+- 通用的 ModelRunner 生命周期。
+
+通用层的目标不是理解所有模型细节，而是提供稳定的运行时骨架。
+
+##### 2、特化层
+
+特化层负责承载 DeepSeek 的模型特性，包括：
+
+- MLA 的注意力与缓存布局；
+- MoE Router 和专家执行；
+- 专家并行与 Token dispatch；
+- MTP 候选生成与验证；
+- 特殊的位置编码与投影逻辑；
+- 面向特定硬件的优化 Kernel。
+
+特化层应当尽量通过清晰的接口接入通用层，而不应直接修改大量无关的调度和缓存代码。
+
+##### 3、验证层
+
+验证层负责确保特化逻辑不会破坏通用运行时。它至少应覆盖以下维度：
+
+###### ① 数值正确性
+
+- MLA 与参考实现的输出误差；
+- MoE 路由结果与专家计算结果；
+- MTP 接受路径与完整自回归路径；
+- 不同精度下的误差边界；
+- 量化模型与非量化模型的一致性。
+
+###### ② 状态一致性
+
+- KV Cache 写入和读取；
+- prefix cache 命中；
+- block swap；
+- MTP 回滚；
+- 部分提交；
+- 多轮 decode 后的序列状态。
+
+###### ③ 并发与分布式正确性
+
+- 多请求连续批处理；
+- 不同长度请求混合；
+- 专家跨设备通信；
+- 通信与计算重叠；
+- 高并发下的 block 回收。
+
+###### ④ 性能正确性
+
+性能并不是单纯追求吞吐量，还包括：
+
+- 首 Token 延迟；
+- 单 Token 延迟；
+- KV Cache 占用；
+- 专家负载均衡；
+- 通信比例；
+- 回滚开销；
+- 长上下文下的显存增长；
+- 不同 batch size 下的退化情况。
+
+对于 DeepSeek 这类复杂模型，验证层的重要性甚至不低于特化层。因为 MLA、MoE 和 MTP 的问题往往并不在正常路径上暴露，而是在以下边界条件中出现：
+
+- 候选全部拒绝；
+- 候选只接受一部分；
+- 专家负载极度倾斜；
+- 缓存 block 发生交换；
+- 长序列和短序列混合；
+- 多卡通信延迟抖动；
+- 特定输入触发数值不稳定。
+
+#### 7.6.6 小结：DeepSeek 接入的本质
+
+DeepSeek 对 vLLM 的影响，可以概括为三次协议扩展：
+
+1. **MLA 扩展了缓存协议**  
+   KV Cache 不再只是完整 Key/Value 的存储区域，也可以是压缩潜变量及其恢复所需的运行时状态。
+
+2. **MoE 扩展了执行协议**  
+   模型执行不再是固定的数据流，而是包含动态路由、Token 重排、专家分发和跨设备通信的运行时过程。
+
+3. **MTP 扩展了状态协议**  
+   推理状态不再只有“向前追加”，还必须支持候选、验证、部分提交与回滚。
+
+因此，DeepSeek 的接入可以被视为 vLLM 从“支持更多模型”走向“支持更多推理范式”的一个代表性案例。它所揭示的并不是某个单独模型的特殊性，而是现代推理引擎必须面对的共同趋势：
+
+> 模型结构越来越动态，缓存状态越来越复杂，执行路径越来越依赖运行时决策；而高性能推理框架必须通过稳定的抽象边界，把这些动态变化限制在可控的协议之内。
+
+这也是 vLLM 架构演进的核心方向：让上层能够表达复杂模型，让中层能够编排动态执行，让底层仍然保持高效、确定且可验证的算子执行。
 
 
 ### 7.7 总结：推理引擎适配能力的本质
