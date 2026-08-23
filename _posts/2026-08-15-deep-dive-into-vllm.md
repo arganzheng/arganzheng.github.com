@@ -6425,223 +6425,802 @@ Softmax
 适配工作的本质，就是在这几个目标之间找到合理的工程折中。
 
 
-### 7.2 vLLM 的核心抽象：模型逻辑与运行时如何解耦？
+### 7.2 vLLM 的核心抽象：从模型接入到运行时执行
 
-在前一节我们讨论了模型变化会跨层扩散：从结构到状态，再到执行和性能。  
-vLLM 应对这个问题的方式不是“把所有模型逻辑塞进一个超大基类”，而是建立一组清晰边界，让每类变化落在最合适的位置。下面这几个抽象是最核心的骨架。
+在前一节中我们讨论过，模型变化往往会跨层扩散：模型结构会影响状态表示，状态表示会影响执行方式，执行方式又会进一步影响缓存、调度和性能优化。
 
-#### 7.2.1 从配置语义开始：`ModelConfig` 把输入参数收敛成执行意图
+vLLM 应对这一问题的方式，并不是建立一个包含所有模型逻辑的超大基类，而是根据不同问题的变化边界，建立一组相互衔接但职责相对独立的抽象：
 
-新模型接入的第一步不是写代码，而是先把“我要怎么跑”说清楚。vLLM 把这件事集中在 `ModelConfig`：它会读取 HF 配置里的 `architectures`，解析 `runner_type`（generate/pooling/draft）与 `convert_type`（embed/classify/none），并提前判断模型能力（例如是否多模态、是否适合某种 runner）。  
-这意味着后续模块拿到的不是零散参数，而是一个已经统一语义的配置对象。没有这个收敛层，registry、loader、runner 都会各自重复判断，最终产生冲突分支。
+```text
+配置语义
+  → 模型发现
+  → 能力契约
+  → 模型实例化与权重装配
+  → 运行时调度
+  → 执行编排
+  → Attention / Kernel 执行
+```
+
+从整体上看，vLLM 的模型接入与运行时执行可以抽象为下面这条链路：
+
+```mermaid
+flowchart LR
+    A[Raw arguments / HF config]
+    A --> B[ModelConfig]
+    B --> C[ModelRegistry]
+    C --> D[Model class]
+
+    D --> E[ModelLoader]
+    E --> F[WeightsMapper]
+    F --> G[Loaded model]
+
+    S[Scheduler] -->|SchedulerOutput| W[Worker]
+    W --> R[ModelRunner]
+    G --> R
+
+    R --> K[KV cache state]
+    R --> M[Attention Metadata]
+    M --> AB[Attention Backend]
+    AB --> X[Hardware kernels]
+
+    B --> T[Tokenizer Registry]
+    B --> MM[MultiModal Registry]
+    T --> R
+    MM --> R
+```
+
+这张图可以分成两个相对独立的部分：
+
+- **模型接入链路**：`ModelConfig → ModelRegistry → ModelLoader → Loaded model`；
+- **运行时执行链路**：`Scheduler → Worker → ModelRunner → Attention Backend → Kernel`。
+
+二者通过加载完成的模型实例、运行时协议和输入状态连接起来。模型代码主要描述“模型如何计算”，运行时组件则负责“在动态请求环境中如何组织这次计算”。
+
+#### 7.2.1 配置语义：`ModelConfig` 将外部参数收敛为执行意图
+
+新模型接入的第一步并不是直接编写模型代码，而是先明确：
+
+> 这个模型是什么，以及系统准备以什么方式运行它？
+
+vLLM 通过 `ModelConfig` 对外部参数和 Hugging Face 配置进行统一解释。它通常需要处理：
+
+- 模型架构信息，例如 `architectures`、`model_type`；
+- runner 类型，例如 generate、pooling、draft；
+- 输出或转换类型，例如 embed、classify、none；
+- dtype、量化和并行配置；
+- 最大上下文长度；
+- tokenizer 和多模态相关配置；
+- 模型是否具备某些运行能力或限制。
+
+可以将这一过程表示为：
 
 ```mermaid
 flowchart TD
     A[raw args / model name] --> B[ModelConfig]
-    B --> C[read hf architectures]
-    C --> D[resolve runner_type]
-    D --> E[resolve convert_type]
+    B --> C[read HF configuration]
+    C --> D[resolve runner type]
+    D --> E[resolve conversion type]
     E --> F[inspect capabilities]
     F --> G[stable execution intent]
 ```
 
-#### 7.2.2 模型发现边界：`ModelRegistry` 负责“找到谁”，而不是“怎么跑”
+`ModelConfig` 的价值不在于简单保存参数，而在于完成一次**语义收敛**：
 
-接下来是模型发现。`ModelRegistry` 通过架构名定位模型类，支持内置映射、运行时注册、懒加载（`module:class`）和 auto 模式下的 fallback 策略。  
-这层最关键的价值是把“模型识别”变成集中治理的路由能力，而不是让每个调用点写 `if model_type == ...`。它还提供 `inspect_model_cls` 与 `resolve_model_cls` 两阶段机制：前者看能力，后者拿实现，避免在模型真正实例化前就做大量重活。
+```text
+外部配置、命令行参数、模型元数据
+              ↓
+        统一的执行意图
+```
+
+后续模块拿到的不是一组零散参数，而是已经具有统一含义的配置对象。这样可以避免 registry、loader、runner 分别重新解释同一组参数，减少重复判断和冲突分支。
+
+需要注意的是，`ModelConfig` 的职责是描述：
+
+> “应该以什么方式运行这个模型。”
+
+它不负责：
+
+- 选择并实例化具体模型对象；
+- 读取和装配 checkpoint；
+- 组织某一轮请求执行；
+- 选择具体 attention kernel。
+
+这些职责分别由后续抽象承担。
+
+#### 7.2.2 模型发现：`ModelRegistry` 负责定位实现
+
+当系统已经知道模型的架构语义和运行方式后，下一步是确定：
+
+> 应该使用哪个模型实现类？
+
+这就是 `ModelRegistry` 的职责。它将配置中识别出的架构名称映射到具体的模型实现，通常支持以下机制：
+
+- 内置模型映射；
+- 运行时注册；
+- 外部模块或插件注册；
+- `module:class` 形式的懒加载；
+- auto 模式下的回退策略。
+
+其基本数据流可以表示为：
 
 ```mermaid
 flowchart LR
-    HF[architectures] --> REG[ModelRegistry]
+    HF[HF architecture metadata] --> REG[ModelRegistry]
     REG --> I[inspect_model_cls]
     REG --> R[resolve_model_cls]
     R --> CLS[model class]
 ```
 
-这里要强调一个常见误区：Registry 不负责模型对象的完整实例化。它解决的是“该选哪一类实现”；真正的实例化和权重落地在 loader 层。
+在工程上，模型检查和模型解析通常可以分成两个阶段：
 
-#### 7.2.3 契约边界：`nn.Module` + Protocol，而非强制单继承树
+- `inspect_model_cls`：在模型真正实例化之前，检查模型能力、接口或元信息；
+- `resolve_model_cls`：真正获取并返回用于实例化的模型类。
 
-vLLM 的模型抽象并不是传统“统一父类 + 深继承树”，而是更务实的 `nn.Module` + Protocol。  
-底层要求模型是 PyTorch `nn.Module`（以便参数管理、device 迁移、state_dict 等基础能力一致），上层再通过协议定义最小契约（初始化、`embed_input_ids`、`forward`）和可选能力契约（文本生成、池化、多模态等）。
+这种“两阶段”设计能够避免在仅需要判断模型能力时，就提前导入、初始化或执行大量模型相关逻辑。
 
-这让模型接入具备两个好处：
+这里需要明确一个常见误区：
 
-1. 能兼容大量已有实现，不必为接入而重构继承结构；  
-2. 能力是“可组合标签”而不是“继承层级锁定”，对 OOT 插件尤其友好。
+> `ModelRegistry` 负责“找到谁”，而不是负责“怎么跑”。
+
+它通常不负责：
+
+- 创建完整模型对象；
+- 读取 checkpoint；
+- 将权重写入参数；
+- 管理设备侧模型生命周期；
+- 处理请求级 batch 和 KV cache。
+
+这些工作分别属于 `ModelLoader`、`Worker` 和 `ModelRunner`。
+
+因此，Registry 更接近一个**模型实现路由层**，而不是完整的模型生命周期管理器。
+
+#### 7.2.3 能力契约：`nn.Module` 加 Protocol，而不是统一继承树
+
+模型类被找到之后，还需要回答另一个问题：
+
+> 不同模型如何接入统一运行时，同时避免被一棵庞大的继承树束缚？
+
+vLLM 的模型抽象更接近：
+
+```text
+PyTorch nn.Module
+        +
+能力协议（Protocol / capability contract）
+```
+
+底层要求模型具备 `torch.nn.Module` 的基础能力，包括：
+
+- 参数注册；
+- `state_dict`；
+- device 迁移；
+- train/eval 状态；
+- 与 PyTorch 工具链的兼容性。
+
+在此基础上，上层再通过 Protocol 或类似能力契约描述运行时所需的能力，例如：
+
+- 文本生成；
+- pooling；
+- embedding；
+- classification；
+- speculative decoding；
+- 多模态输入；
+- 特殊 attention；
+- 混合架构或状态缓存；
+- 量化、LoRA 等扩展能力。
+
+概念上可以表示为：
 
 ```mermaid
 classDiagram
     class nn.Module
     class VllmModel~Protocol~
     class VllmModelForTextGeneration~Protocol~
+    class SupportsPooling~Protocol~
     class SupportsMultiModal~Protocol~
+    class SupportsSpeculativeDecoding~Protocol~
 
     nn.Module <|-- ConcreteModel
     VllmModel <.. ConcreteModel
     VllmModelForTextGeneration <.. ConcreteModel
+    SupportsPooling <.. ConcreteModel
     SupportsMultiModal <.. ConcreteModel
+    SupportsSpeculativeDecoding <.. ConcreteModel
 ```
 
-#### 7.2.4 落地边界：`ModelLoader` 统一实例化与权重装配，`WeightsMapper` 处理命名差异
+这种设计带来两个主要好处。
 
-模型类找到了，并不代表可用。真正容易出错的是 checkpoint 权重装配。  
-vLLM 把这块集中到 loader 抽象：先 `initialize_model`，再 `load_weights`，最后做加载后处理（量化相关处理、设备侧整理等）。  
-不同模型权重命名或结构差异通过 `WeightsMapper` 统一映射，避免把权重重命名逻辑散落到各模型的运行路径里。
+**第一，兼容已有实现。**
+
+模型不必为了接入 vLLM 而重构成某个复杂的继承体系，只要实现运行时真正需要的能力即可。
+
+**第二，能力可以组合。**
+
+一个模型可以同时支持生成、多模态和 speculative decoding，也可以只实现 pooling 或 embedding，而不必被迫继承一条包含无关方法的基类链。
+
+因此，这里的统一并不一定意味着所有模型具有完全相同的 Python `forward` 签名。更准确地说，统一的是：
+
+- 输入和输出的语义；
+- 运行时所依赖的能力；
+- 模型与执行器之间的契约。
+
+而不是强制所有模型在源码层面使用完全相同的参数列表。
+
+#### 7.2.4 模型落地：`ModelLoader` 与 `WeightsMapper`
+
+找到模型类并不意味着模型已经可以运行。实际接入中最容易出错的部分之一，是 checkpoint 权重如何正确装配到模型参数中。
+
+vLLM 将模型初始化和权重装配集中到 loader 相关抽象中。概念上的加载流程如下：
+
+```text
+解析模型类
+  → 初始化模型结构
+  → 读取 checkpoint
+  → 权重名称映射
+  → 参数拆分或合并
+  → 并行切分
+  → 参数加载
+  → 量化及加载后处理
+  → 设备侧整理
+```
+
+可以表示为：
 
 ```mermaid
 flowchart TD
-    A[resolved model class] --> B[initialize_model]
-    B --> C[raw checkpoint weights]
-    C --> D[WeightsMapper remap]
-    D --> E[load_weights]
-    E --> F[post process]
-    F --> G[model.eval()]
+    A[resolved model class] --> B[initialize model]
+    B --> C[read checkpoint]
+    C --> D[WeightsMapper / model-specific mapping]
+    D --> E[split / merge / shard weights]
+    E --> F[load parameters]
+    F --> G[quantization and post-processing]
+    G --> H[model.eval()]
 ```
 
-这层解耦直接带来一个现实收益：  
-很多“看似推理 bug”的问题其实是权重映射偏差，独立 loader 边界能显著降低排障复杂度。
+`WeightsMapper` 的作用不只是简单重命名。实际加载过程可能同时包含以下几类转换。
 
-#### 7.2.5 执行计划抽象：`SchedulerOutput` 作为“每步 IR”
+1、参数命名差异：checkpoint 中的 key 与模型实现中的参数名可能不同，需要进行重命名或前缀转换。
 
-在进入执行层前，vLLM 先把调度结果固化为一个稳定的数据契约：`SchedulerOutput`。  
-它不是一个“临时对象”，而是 step 级执行计划：包含新请求与缓存请求增量、每请求 token 预算、spec decode token、encoder 输入、完成请求与释放信息等。  
-有了这层，调度器可以专注“这一轮该跑谁、跑多少”，执行器可以专注“按计划跑”，两者通过协议解耦，而不是通过隐式共享状态耦合。
+2、参数结构差异：一个 checkpoint tensor 可能需要：
+
+- 拆分成多个模型参数；
+- 与其他 tensor 合并；
+- 对 QKV、gate/up projection 等结构进行特殊处理；
+- 根据模型实现调整参数排列方式。
+
+3、并行切分差异：在 tensor parallel 或 pipeline parallel 场景下，checkpoint 中的完整权重需要按照运行时并行策略切分到不同设备或不同 rank。
+
+4、量化和设备布局差异：权重加载还可能涉及：
+
+- packed weight；
+- 量化权重格式；
+- 特殊 dtype；
+- 延迟初始化；
+- 设备侧布局转换；
+- 加载后量化处理。
+
+因此，更准确的表述是：
+
+> `WeightsMapper` 及模型特定的权重加载逻辑，负责将外部 checkpoint 表示转换为运行时参数表示。这个过程可能同时包含重命名、拆分合并、并行切分、量化适配和设备布局转换。
+
+这也是为什么许多表面上看起来像“推理错误”的问题，实际上可能源于权重装配错误。将加载过程隔离出来，有助于把问题区分为：
+
+```text
+模型结构问题
+权重映射问题
+运行时执行问题
+kernel 或硬件问题
+```
+
+从而降低排障复杂度。
+
+#### 7.2.5 运行时执行边界：`Worker + ModelRunner`
+
+前面几节关注的是模型如何被识别、实现和加载。从这里开始，讨论模型如何在动态请求环境中运行。
+
+模型类本身不应该直接感知：
+
+- 请求何时进入或退出；
+- 当前 batch 如何变化；
+- 每个请求本轮推进多少 token；
+- KV cache 如何分配和释放；
+- prefill、decode 和 speculative decoding 如何协同；
+- 当前设备采用哪种执行策略。
+
+这些运行时复杂度主要由 `Worker + ModelRunner` 承接。
+
+可以将两者理解为一个整体的执行边界：
+
+```text
+Scheduler
+    ↓
+Worker
+    ↓
+ModelRunner
+    ↓
+Model / Attention / Kernel
+```
+
+其中：
+
+##### `Worker`
+
+`Worker` 处在执行器和设备运行环境之间，负责承接上层调度结果，并管理设备侧的执行上下文和生命周期。它通常参与：
+
+- 接收调度器输出；
+- 初始化和维护 `ModelRunner`；
+- 管理设备执行环境；
+- 协调 KV cache 和其他运行时状态；
+- 发起一次模型执行；
+- 将执行结果返回给上层。
+
+##### `ModelRunner`
+
+`ModelRunner` 更关注单步执行编排，包括：
+
+- 组织输入 token；
+- 准备 position；
+- 组织 batch 和 token layout；
+- 准备 KV cache 引用；
+- 构造 attention metadata；
+- 调用模型 forward；
+- 计算 logits；
+- 执行采样、pooling 或其他后处理；
+- 封装统一的 `ModelRunnerOutput`。
+
+因此可以用下面的方式区分模型逻辑和系统逻辑：
+
+```text
+模型类：
+    如何完成一次模型计算
+
+Worker / ModelRunner：
+    在当前动态系统状态下，如何组织这次计算
+```
+
+需要注意的是，二者的边界不是简单的文件边界。实际工程中，RoPE、mask、position、KV 访问和部分输入预处理，可能由模型层、attention 层、ModelRunner 或 backend 共同承担。更准确的划分方式，是依据数据语义和稳定契约，而不是依据某段代码位于哪个文件。
+
+
+#### 7.2.6 执行计划输入：`SchedulerOutput`
+
+`Worker + ModelRunner` 的第一个重要输入，是 Scheduler 生成的 `SchedulerOutput`。
+
+它可以被理解为：
+
+> Scheduler 针对当前 step 生成的结构化执行计划。
+
+`SchedulerOutput` 面向的是调度语义，主要描述：
+
+- 本轮需要处理哪些请求；
+- 每个请求需要推进多少 token；
+- 请求处于何种执行阶段；
+- 哪些请求需要进行 prefill 或 decode；
+- 是否包含 speculative decoding 相关 token；
+- 是否有 encoder 或多模态输入；
+- 哪些请求已经完成；
+- 哪些 KV 或 encoder 状态需要创建、更新或释放。
+
+数据流可以表示为：
 
 ```mermaid
 flowchart LR
-    Sch[Scheduler] --> SO[SchedulerOutput]
-    SO --> MR[ModelRunner]
-    SO --> KV[KV lifecycle updates]
-    SO --> MM[Encoder/MM scheduling]
+    S[Scheduler] -->|SchedulerOutput| W[Worker]
+    W --> R[ModelRunner]
+    R --> O[ModelRunnerOutput]
+    O --> W
+    W --> S
 ```
 
-把 `SchedulerOutput` 看成“step 级 IR”后，prefill/decode/spec decode 的共存逻辑会非常清楚：  
-它们不是三条互斥链路，而是同一执行协议上的不同字段组合。
+`SchedulerOutput` 的重要性在于，它将调度决策从具体执行方式中分离出来：
 
-#### 7.2.6 运行时边界：`Worker + ModelRunner` 承接动态执行复杂度
+```text
+Scheduler 决定：
+    这一轮处理谁、处理多少
 
-模型类本身不应该感知请求编排和生命周期管理。vLLM 把这部分复杂度收敛在 `ModelRunner`：它消费 `SchedulerOutput`，准备输入与状态，调用模型计算，再把采样/池化结果封装成统一 `ModelRunnerOutput`。  
-换句话说，模型定义层解决“如何计算一个前向”，运行时层解决“在这一轮动态系统状态下如何组织这次计算”。
-
-这两层通过统一的执行接口连接起来：
-
-`ModelRunner`（`vllm/v1/worker/gpu/model_runner.py`）为所有模型提供统一的执行接口：
-
-```python
-# 统一的 Forward 调用接口
-output = model(
-    input_ids=input_ids,          # [num_tokens]
-    positions=positions,          # [num_tokens]
-    kv_caches=kv_caches,          # List[Tensor] per layer
-    attn_metadata=attn_metadata,  # 动态注入的 Attention 元数据
-)
+ModelRunner 决定：
+    如何将这个计划组织成设备侧计算
 ```
 
-```mermaid
-sequenceDiagram
-    participant S as Scheduler
-    participant W as Worker
-    participant R as ModelRunner
-    participant M as Model(nn.Module)
-    participant O as ModelRunnerOutput
-    S->>W: SchedulerOutput
-    W->>R: execute_model(...)
-    R->>M: forward / compute_logits
-    R->>R: sample or pool
-    R-->>W: ModelRunnerOutput
-    W-->>S: step outputs
-```
+从运行时数据协议的角度看，`SchedulerOutput` 可以被称为一种 step-level IR，即每一步的执行计划。但这里的 IR 主要是“运行时结构化协议”的含义，并不等同于编译器意义上的完整中间表示。
 
-这也是为什么新生成范式（如多步候选验证）首先会影响 runner/scheduler 协作，而不是只改 `forward`。
+它不应该直接描述：
 
-#### 7.2.7 Attention Metadata 抽象：把调度态注入 attention 语义
+- 某个具体 kernel 的调用方式；
+- 某种硬件的线程布局；
+- 某个 attention backend 的内部数据结构；
+- 模型实现的具体 forward 细节。
 
-如果只有 `ModelRunner`，仍然不够。真正把“动态调度世界”接到 attention kernel 的，是 `CommonAttentionMetadata + AttentionMetadataBuilder`。  
-这组抽象承载并构建 query 起点、`seq_lens`、`block_table`、`slot_mapping`、prefill/decode 标记等信息。模型实现因此不需要知道分页 KV 的物理布局，后端 kernel 也不需要耦合调度器内部结构。
+这些信息应在执行侧进一步细化。
+
+#### 7.2.7 从执行计划到算子输入：`Attention Metadata`
+
+`Attention Metadata` 与 `SchedulerOutput` 有关，但二者并不是同一层次的对象。
+
+更准确地说：
+
+> `SchedulerOutput` 是 Scheduler 面向执行器产生的高层执行计划；`Attention Metadata` 则是 ModelRunner 根据该计划、当前 KV cache 状态和 backend 需求构造出的 attention 算子输入描述。
+
+其构造过程可以表示为：
 
 ```mermaid
 flowchart TD
-    A[Scheduler + KV state] --> B[CommonAttentionMetadata]
-    B --> C[AttentionMetadataBuilder]
-    C --> D[backend/layer specific metadata]
-    D --> E[Attention backend forward]
+    S[Scheduler] -->|SchedulerOutput| R[ModelRunner]
+    K[KV cache state] --> R
+    I[Input token layout] --> R
+    C[Backend capabilities] --> R
+    R --> B[AttentionMetadataBuilder]
+    B --> M[Attention Metadata]
+    M --> A[Attention layer / backend]
 ```
 
-可以把它压成一句话：  
-**ModelRunner 决定这一轮怎么算，Attention Metadata 决定 attention 在这一轮到底“看见什么”。**
+Attention metadata 可能包含：
 
-#### 7.2.8 横切边界：KV、Attention Backend、Tokenizer、多模态处理
+- query 起点；
+- 每个序列的长度；
+- `seq_lens`；
+- `block_table`；
+- `slot_mapping`；
+- prefill/decode 边界；
+- token 到 KV block 的映射；
+- 局部 attention、滑动窗口或其他 attention 模式所需的信息；
+- 特定 backend 所需的布局和执行参数。
 
-前面几层定义了主链路，但真正决定“新模型能不能稳定上线”的，往往是横切抽象是否完备。这里有四个最关键的横切层。
+它的作用是把高层运行时状态转换成 attention kernel 可以理解的形式：
 
-**(1) KV 状态抽象：把缓存语义标准化，而不是绑定到某个模型实现**  
-`KVCacheConfig/KVCacheGroupSpec` 统一了缓存分组、布局、精度与初始化语义。这样不论是普通 attention、hybrid、还是含 state 型层（如 mamba 类）都能在同一缓存治理框架下运行，避免每个模型自己发明一套缓存协议。
+```text
+请求级调度状态
+    ↓
+token 与 KV 的逻辑关系
+    ↓
+attention kernel 的输入布局
+```
 
-**(2) Attention Backend 抽象：把“算子选择”从模型代码里拔出来**  
-模型层声明需求（head 维度、dtype、是否 MLA 等），后端层再选择具体实现（Flash/Triton/ROCm/...）。这样模型接入主要是语义接入，不必把硬件细节写进模型定义。
+因此，`Attention Metadata` 并不是调度器的原始输出，也不是模型结构本身的一部分。它是执行侧的适配层，负责连接：
 
-**(3) Tokenizer Registry：把 tokenizer 特例从模型路径解耦**  
-不同模型常带来 tokenizer 模式差异（包括 truncation 侧、专有 tokenizer 实现）。通过 `tokenizer_mode -> tokenizer class` 映射，vLLM 不需要在每个模型实现里复制 tokenizer 分支逻辑。
+```text
+SchedulerOutput
+    → ModelRunner
+    → AttentionMetadataBuilder
+    → Attention Metadata
+    → Attention Backend
+```
 
-**(4) MultiModal Registry：把“模型类”和“多模态处理器”松耦合**  
-多模态模型最大的复杂性之一是输入预处理链。`MultiModalRegistry` 用工厂绑定把模型与 processor 解耦，让模型结构演进和数据处理演进可以并行进行，而不是相互阻塞。
+三者的职责可以压缩为：
+
+```text
+SchedulerOutput 决定这一轮执行什么；
+ModelRunner 决定如何组织这次执行；
+Attention Metadata 描述 attention 应该看见什么。
+```
+
+这也是 vLLM 能够演进调度策略而不必频繁修改模型定义的重要原因之一。只要调度器仍然通过稳定的执行协议表达计划，执行侧就可以将新的调度策略转换为对应的 metadata 和输入布局。
+
+
+#### 7.2.8 模型计算与 Attention Backend：从语义到 Kernel
+
+在 ModelRunner 准备好输入和 attention metadata 后，系统进入模型计算阶段。
+
+模型逻辑层主要负责表达模型本身的计算语义，例如：
+
+- token embedding；
+- position embedding 或 RoPE；
+- Transformer block；
+- attention；
+- MLP；
+- residual connection；
+- logits；
+- pooling 或分类表示。
+
+Attention Backend 则负责把 attention 语义映射到具体执行实现。它通常需要处理：
+
+- paged KV cache；
+- prefill 和 decode；
+- 不同 batch 和 sequence layout；
+- MLA 或其他特殊 attention；
+- 混合 attention；
+- 不同硬件平台；
+- 不同 dtype 和 kernel 实现。
+
+可以将这一层表示为：
 
 ```mermaid
 flowchart LR
-    MC[ModelConfig] --> MR[ModelRegistry]
-    MR --> ML[ModelLoader]
-    ML --> RUN[ModelRunner]
-
-    RUN --> KVC[KVCacheConfig]
-    RUN --> AB[Attention Backend]
-    MC --> TR[TokenizerRegistry]
-    MC --> MMR[MultiModalRegistry]
-    TR --> RUN
-    MMR --> RUN
+    R[ModelRunner] --> I[Model inputs]
+    R --> M[Attention Metadata]
+    I --> ML[Model logic]
+    M --> AL[Attention layer]
+    AL --> AB[Attention Backend]
+    AB --> K1[Flash / Paged / Triton kernels]
+    AB --> K2[Hardware-specific kernels]
 ```
 
-横切层的意义在于：  
-即使模型主干不变，这些层也能单独演进（例如新增 tokenizer mode、替换 attention backend、扩展多模态处理），而不会反向污染主执行链。
+需要对“算子选择”作一个更精确的描述。
 
-#### 7.2.9 小结：为什么这组抽象能支持“快接入 + 可维护”
+ModelRunner 通常负责准备执行上下文和 metadata；具体 attention 层或 backend 再根据：
 
-如果把这一节压成一句话，vLLM 的做法是：
+- attention 类型；
+- prefill/decode 模式；
+- metadata 中的布局；
+- dtype；
+- head dimension；
+- 硬件能力；
+- backend 支持情况；
 
-> 配置层收敛意图，注册层定位实现，契约层约束能力，加载层隔离权重差异；再用调度输出稳定执行契约、用 metadata 桥接动态状态、用横切层承接缓存/后端/tokenizer/多模态差异。
+选择合适的具体实现。
 
-这套分层让“支持新模型”从高风险全栈改造，变成可控的增量工程：  
-先判断变化落在哪层，再在该层扩展，而不是把复杂性一次性推给整个系统。
+因此，Attention Backend 不是一个简单的算子实现集合，而是一个包含以下职责的执行适配层：
+
+```text
+模型声明 attention 需求
+        ↓
+ModelRunner 提供本轮执行 metadata
+        ↓
+Backend 判断可用实现
+        ↓
+选择并调用具体 kernel
+```
+
+模型代码因此不需要直接绑定某个硬件平台或某个具体 attention kernel。模型接入主要关注“attention 的语义”，而硬件后端负责“如何高效执行这个语义”。
 
 
-#### 7.2.10 抽象机制的代价：动态性与编译优化的矛盾
+#### 7.2.9 横切抽象：KV、Tokenizer、多模态与插件
 
-运行时抽象提高了灵活性，但也可能增加编译优化的难度。
+前面的内容构成了主执行链路。但一个模型能否稳定上线，还取决于若干横切抽象。
 
-动态推理环境具有以下特征：
+##### （1）KV Cache 抽象
 
-- Batch Size 动态变化；
-- Sequence Length 动态变化；
-- 请求持续加入和退出；
-- KV Cache 地址不固定；
-- 不同请求可能采用不同执行路径。
+KV cache 不应绑定到某个模型实现，而应作为独立的运行时状态管理机制。
 
-而编译器通常更擅长处理：
+相关抽象通常需要统一：
 
-- 静态计算图；
-- 稳定的 Tensor Shape；
-- 可预测的控制流；
-- 明确的内存布局。
+- cache 分组；
+- layer 级缓存；
+- block 布局；
+- dtype；
+- 初始化；
+- 分配、更新与释放；
+- paged cache 访问；
+- hybrid attention 的缓存管理。
 
-两者之间存在天然矛盾：
+可以将其理解为：
+
+```text
+模型只声明需要什么状态；
+KV 系统负责状态如何分配、保存和访问。
+```
+
+不过，这里需要保留一个边界意识：
+
+> KV cache 抽象统一的是缓存管理和访问语义，并不意味着所有模型内部状态都能无差别地表示为传统 K/V tensor。
+
+对于 Mamba 类或混合架构，系统可能还需要支持 state cache、循环状态或其他形式的持久化执行状态。因此，KV/cache 抽象应当被理解为更广义的**推理状态管理协议**。
+
+##### （2）Tokenizer Registry
+
+Tokenizer Registry 将 tokenizer 的特殊处理从模型执行路径中解耦出来，可以承接：
+
+- tokenizer mode；
+- 专有 tokenizer 实现；
+- truncation 方向；
+- chat template；
+- 特殊 token；
+- tokenizer 与模型配置之间的差异。
+
+这样，新增 tokenizer 模式时，不必在每个模型实现中复制条件分支。
+
+##### （3）MultiModal Registry
+
+多模态模型的复杂性往往不只来自模型结构，还来自输入预处理链。MultiModal Registry 可以将模型类与具体 processor 松耦合，承接：
+
+- 图片、视频、音频等输入处理；
+- 多模态特征提取；
+- 模态特征与文本 token 的对齐；
+- encoder 输入组织；
+- 不同模型所需的 processor 工厂。
+
+其核心思想是：
+
+```text
+模型结构演进
+        与
+多模态数据处理演进
+        相互解耦
+```
+
+##### （4）Plugin / Extension 机制
+
+随着模型、硬件和采样策略不断增加，仅依靠核心代码内置实现会导致系统越来越庞大。因此，插件机制可以进一步支持外部注册和扩展，例如：
+
+- 模型实现；
+- 自定义 layer；
+- attention backend；
+- tokenizer；
+- 多模态 processor；
+- sampler；
+- 量化实现；
+- 输出处理逻辑。
+
+插件机制的价值在于：
+
+> 在不修改核心执行路径的前提下，为系统增加新的模型能力或硬件能力。
+
+不过，插件并不是对所有内部对象开放任意修改，而应建立在清晰的注册点和稳定契约之上。否则，插件只会把核心系统中的隐式耦合转移到外部。
+
+
+#### 7.2.10 动态运行时与静态执行图：抽象边界的性能代价
+
+运行时抽象提高了灵活性，但也会增加编译优化和图捕获的难度。
+
+动态推理环境通常具有以下特征：
+
+- batch size 持续变化；
+- sequence length 持续变化；
+- 请求不断加入和退出；
+- KV cache 地址不固定；
+- prefill、decode 和 speculative decoding 路径不同；
+- 不同请求可能具有不同的执行阶段和输入布局。
+
+而编译器和图捕获机制通常更擅长处理：
+
+- 相对稳定的计算图；
+- 稳定或可预测的 tensor shape；
+- 明确的控制流；
+- 固定的内存布局；
+- 可重复执行的 kernel 序列。
+
+因此，vLLM 一类的推理引擎需要在动态调度和静态优化之间建立边界：
 
 ```text
 动态调度、灵活执行
           ↕
-静态图优化、编译融合
+稳定计算片段、编译优化
 ```
 
-因此，推理引擎需要在运行时动态性和编译期优化之间寻找平衡。IR 的探索，正是为了解决这一矛盾。
+一个重要的工程思想是：
+
+> 不是消除动态性，而是将动态性集中在运行时边界内，再把稳定部分下沉给编译器和硬件后端。
+
+例如，系统可以将动态因素保留在：
+
+- Scheduler；
+- Worker；
+- ModelRunner；
+- KV cache 状态；
+- Attention Metadata；
+- 输入 buffer 和运行时参数。
+
+同时，将相对稳定的计算片段交给：
+
+- `torch.compile`；
+- CUDA Graph；
+- shape bucketing；
+- kernel fusion；
+- backend-specific graph capture。
+
+可以将这种分工表示为：
+
+```text
+动态部分：
+    请求调度
+    batch 组织
+    token 数量
+    KV block 地址
+    执行路径选择
+
+静态部分：
+    稳定的模型子图
+    固定范围的 shape bucket
+    可复用的 kernel 序列
+    硬件相关的融合算子
+```
+
+因此，前文介绍的抽象不仅服务于代码可维护性，也服务于性能优化。`SchedulerOutput` 和 `Attention Metadata` 将动态状态显式化，使编译器和 kernel 不必理解完整的请求调度逻辑，而只需要消费结构化的运行时输入。
+
+
+#### 7.2.11 新模型接入时的判断路径
+
+这套抽象的工程价值，最终体现在一个具体问题上：
+
+> 当新模型接入失败时，应该首先修改哪一层？
+
+可以按照变化来源进行判断。
+
+| 变化类型 | 优先检查的层 |
+|---|---|
+| 模型架构无法识别 | `ModelConfig`、`ModelRegistry` |
+| runner 或输出类型判断错误 | `ModelConfig`、能力协议 |
+| forward 或模型结构不兼容 | Model class、Protocol、Attention layer |
+| checkpoint 参数找不到 | `ModelLoader`、`WeightsMapper` |
+| QKV 或特殊权重加载错误 | 模型特定加载逻辑、并行切分逻辑 |
+| batch 或 token 数量异常 | Scheduler、`SchedulerOutput`、ModelRunner |
+| KV cache 行为异常 | KV cache 配置、状态管理、metadata builder |
+| attention 结果异常 | Attention Metadata、Attention layer、Backend |
+| tokenizer 输入异常 | Tokenizer Registry |
+| 图片、视频等输入异常 | MultiModal Registry |
+| 性能不稳定 | ModelRunner、Attention Backend、Graph Capture、编译配置 |
+
+也可以将接入过程概括为下面的判断顺序：
+
+```text
+先确认模型是否被正确识别
+    ↓
+再确认模型类和能力契约是否匹配
+    ↓
+再确认 checkpoint 是否正确装配
+    ↓
+再确认运行时输入和 KV 状态是否正确
+    ↓
+最后检查 attention backend、编译和硬件性能
+```
+
+这样可以避免在模型尚未正确加载时，就直接从 kernel 或调度器开始排查。
+
+
+#### 7.2.12 小结：动态性上浮，静态性下沉
+
+vLLM 的核心设计可以概括为：
+
+> 配置层收敛执行意图，注册层定位模型实现，契约层表达模型能力，加载层隔离权重差异；Scheduler 生成执行计划，Worker 和 ModelRunner 组织动态执行，Attention Metadata 将运行时状态转换为算子输入，Attention Backend 再将模型语义映射到具体硬件 kernel。
+
+这里需要特别区分几个对象之间的关系：
+
+```text
+ModelConfig
+    表达“准备如何运行”
+
+ModelRegistry
+    决定“使用哪一个实现”
+
+ModelLoader / WeightsMapper
+    负责“如何把模型落地”
+
+SchedulerOutput
+    描述“这一轮执行什么”
+
+Worker / ModelRunner
+    负责“如何组织这次执行”
+
+Attention Metadata
+    描述“attention 应该看见什么”
+
+Attention Backend
+    决定“用什么 kernel 执行”
+```
+
+因此，`SchedulerOutput`、`Attention Metadata` 和 `ModelRunner` 并不是三个平行组件，而是一条逐级细化的数据流：
+
+```text
+调度计划
+  → 执行编排
+  → Attention 输入描述
+  → Kernel 执行
+```
+
+这套架构背后的工程哲学可以进一步概括为：
+
+1. **动态性上浮**  
+   将请求队列、调度策略、batch 变化和执行路径选择集中在 Scheduler、Worker、ModelRunner 及其运行时协议中。
+
+2. **静态性下沉**  
+   将稳定的模型计算、attention 子图和硬件相关 kernel 下沉给编译器、CUDA Graph 和 Attention Backend。
+
+3. **以契约连接两者**  
+   通过 Registry、Protocol、WeightsMapper、SchedulerOutput 和 Attention Metadata，在动态系统与静态算子之间建立稳定的数据和能力契约。
+
+最终，支持一个新模型不再意味着对整个推理引擎进行全栈修改，而是先判断变化发生在哪个边界：
+
+```text
+配置变化       → ModelConfig
+识别变化       → ModelRegistry
+能力变化       → Protocol / model class
+权重变化       → ModelLoader / WeightsMapper
+执行变化       → Scheduler / Worker / ModelRunner
+缓存变化       → KV cache / state management
+Attention变化  → Metadata / Attention layer / Backend
+输入变化       → Tokenizer / MultiModal Registry
+性能变化       → Backend / Graph Capture / Compiler
+```
+
+这就是 vLLM 能够在保持高性能的同时快速支持新模型的关键：它并没有试图消除模型差异，而是将不同类型的差异放置到合适的抽象边界中，让模型逻辑、运行时调度、状态管理和硬件执行能够相对独立地演进。
 
 
 ### 7.3 适配机制的演进：从临时补丁到编译化扩展
