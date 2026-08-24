@@ -20,6 +20,8 @@
     // Height of the fixed navbar, used both as scroll offset and spy threshold.
     var NAV_OFFSET = 80;
     var COLLAPSED_CLASS = 'outline-collapsed';
+    // Keep the catalog readable on long posts: show at most 3 outline levels.
+    var MAX_OUTLINE_DEPTH = 3;
 
     // Github-flavored anchor: lowercased, punctuation dropped, spaces dashed.
     function slugify(text) {
@@ -59,6 +61,13 @@
             headings.push({ level: parseInt(node.tagName.charAt(1), 10), text: text, node: node });
         }
         return headings;
+    }
+
+    function clampOutlineDepth(headings) {
+        if (!headings.length) return headings;
+        var topLevel = Math.min.apply(null, headings.map(function (h) { return h.level; }));
+        var maxLevel = topLevel + MAX_OUTLINE_DEPTH - 1;
+        return headings.filter(function (h) { return h.level <= maxLevel; });
     }
 
     function scrollToHeading(node) {
@@ -300,7 +309,7 @@
         var panel = document.querySelector('.side-catalog');
         if (!markers.length && !panel) return;
 
-        var headings = collectHeadings(container);
+        var headings = clampOutlineDepth(collectHeadings(container));
         markers.forEach(function (marker) {
             if (!headings.length) {
                 marker.parentNode.removeChild(marker);
