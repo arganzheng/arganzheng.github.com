@@ -10,83 +10,116 @@ catalog: true
 
 ## 一、为什么 LLM Serving 比传统 DL 推理难？
 
-### 1.1 范式转移：传统 DL 推理 vs LLM Serving
+传统深度学习推理通常围绕一个相对稳定的计算过程展开：输入一批形状相近的数据，执行一次前向传播，然后返回结果。
 
-传统深度学习推理（如图像分类、目标检测）与大模型推理之间存在一条根本性的鸿沟。理解这条鸿沟，是理解一切 LLM Serving 优化技术的起点。
+LLM Serving 则完全不同。一个请求可能携带几十个，也可能携带数万个输入 token；模型还需要逐个生成长度未知的输出 token。在这个过程中，系统必须动态管理请求、显存、KV Cache、批次和 GPU 计算资源。
 
-**静态与动态的鸿沟** 传统 CV/NLP 推理是一个"纯函数"：输入 shape 固定（`[B, 3, 224, 224]`），输出 shape 固定，一次 forward 结束。服务框架（Triton、TF-Serving）只需要做一件事——**攒批**：等 10ms，凑齐 32 个请求，一起打进 GPU。
+因此，LLM Serving 的难点并不只是“模型更大”或“参数更多”，而是它改变了推理服务的基本执行模型：
 
-LLM 推理是"双未知"的：
-- **输入长度未知**：用户可能发 20 token 的闲聊，也可能发 128K token 的整本合同；
-- **输出长度未知**：模型什么时候吐 EOS，事先无法预测，甚至无法估计。
+> 从一次性、静态、可预测的前向计算，转变为持续进行、动态变化、状态不断增长的自回归计算。
 
-这意味着：**你无法预分配显存，也无法预测一个请求要占用 GPU 多久**。这一条，摧毁了传统 Serving 的全部前提。
+本章从三个方面说明这种变化：
 
-| 维度 | 传统 DL 推理 | LLM Serving |
+1. 传统深度学习推理与 LLM Serving 的范式差异；
+2. Prefill 与 Decode 两种完全不同的 GPU Workload；
+3. 吞吐与时延之间难以避免的系统权衡。
+
+
+### 1.1 范式转移：服务对象从“一次计算”变成“持续生成过程”
+
+理解 LLM Serving 的第一步，不是从某个具体优化技术开始，而是先看清它与典型传统 DL Serving 在**服务对象**上的差异：**从一次 Forward 到持续生成**。
+
+许多传统深度学习推理任务都可以抽象为“一次请求对应一次前向计算”：
+
+```text
+请求进入 → 组 Batch → 执行一次 Forward → 返回结果
+```
+
+即使输入 shape 存在一定变化，系统通常也可以通过 padding、bucketing 或预编译的执行形态，将请求规整为有限几种执行模式。请求结束后，中间激活一般即可释放。
+
+LLM Serving 则不同。一个请求通常要经历：
+
+```text
+请求进入
+  ↓
+Prompt Processing / Prefill
+  ↓
+生成第一个 Token
+  ↓
+Decode Step 1
+  ↓
+Decode Step 2
+  ↓
+Decode Step ...
+  ↓
+EOS 或达到长度上限
+```
+
+它的输入和输出都具有动态性：
+
+- **输入长度未知**：可能是几十个 token，也可能是数万甚至更长的上下文；
+- **输出长度未知**：模型何时生成 EOS，事先无法准确确定；
+- **服务时长不可直接预知**：请求可能只生成几个 token，也可能持续数千个 token；
+- **中间状态需要跨多个 step 保留**：Prefill 产生的 KV Cache 会被后续 Decode 持续访问。
+
+因此，LLM Serving 的核心变化并不只是模型更大，而是服务对象从“一次性计算任务”变成了**带有动态生命周期和持久中间状态的生成任务**。
+
+| 维度 | 典型传统 DL Serving | LLM Serving |
 |---|---|---|
-| 输入长度 | 固定（如 224×224） | 可变（1 ~ 128K+ tokens） |
-| 输出长度 | 固定（类别数） | **不可预知**（1 ~ 数千 tokens） |
-| 执行模式 | 单次 Forward Pass | 自回归循环（逐 Token 生成） |
-| Batch 语义 | 静态组批 | 动态组批（Continuous Batching） |
-| 内存占用 | 前向一次性 | **累积增长**（KV Cache 持续膨胀） |
-| 延迟特征 | 确定性 | 与输出长度线性相关 |
-| GPU 利用模式 | 持续高算力利用 | Prefill 高算力 / Decode 低利用 |
+| 服务单位 | 一次或少数几次 Forward | 多轮自回归生成 |
+| 输入长度 | 通常可规整为有限几种形态 | 可变，可能非常长 |
+| 输出长度 | 通常较容易确定 | 由生成过程动态决定 |
+| 中间状态 | 多为临时激活 | KV Cache 跨 Decode Step 持续存在 |
+| Batch 语义 | 请求级静态或动态 Batch | 面向持续执行的 Continuous Batching |
+| 内存模式 | 相对静态 | KV Cache 动态增长和回收 |
+| 服务时长 | 相对容易估计 | 与输出长度、调度和资源竞争有关 |
+| 主要挑战 | 高效执行一次计算 | 计算、调度和状态管理协同优化 |
 
-这里的差异不只是在规模上，而是在执行方式上。传统推理一次 forward 就能得到最终结果；LLM 则要把刚生成的 token 重新送回模型，形成一条自回归循环。输出长度、KV 显存和端到端延迟都会随着循环动态变化，这也是后面调度、缓存和执行优化要解决的核心问题。
+这并不意味着传统 Serving 的技术全部失效，而是意味着系统不能再只依赖以下假设：
+
+- 输入和执行 shape 基本固定；
+- 一次 Forward 即可完成请求；
+- 请求服务时长容易估计；
+- 中间状态可以在一次执行后释放；
+- 内存可以按请求一次性分配。
+
+LLM Serving 需要在显存预算、请求生命周期、生成进度和服务等级约束之间进行动态决策。这是后续调度、缓存和执行优化的共同背景。
 
 
 ### 1.2 Prefill 与 Decode：两种完全不同的 GPU Workload
 
-LLM 推理天然分为两个阶段，它们在计算特征上截然对立：
+LLM 推理通常分为 Prefill 与 Decode 两个阶段：
 
-| | Prefill 阶段（Prompt Processing） | Decode 阶段（Token Generation） |
-|---|---|---|
-| 输入 | 全部 prompt tokens | 上一步生成的 1 个 token |
-| 并行度 | 高（所有 token 并行） | 极低（逐 token 串行） |
-| Attention 计算量 | O(n² · d) | O(n · d) per step |
-| 瓶颈 | **Compute-Bound** | **Memory-Bound** |
-| GPU 算力利用 | 高 | 低 |
-| 耗时 | 一次性 | 持续（= 输出长度 × TPOT） |
-
-时间线上，一个请求长这样——一段 Prefill，然后是一长串 Decode：
-
-```
-──[    Prefill    ]──[D][D][D][D][D][D][D]──▶
-                      ↑  ↑  ↑  ↑  ↑  ↑  ↑
-        每步只生成 1 个 token，但要读取全部历史 KV Cache
+```text
+──[       Prefill       ]──[D][D][D][D][D][D][D]──▶
+                            ↑  ↑  ↑  ↑  ↑  ↑  ↑
+                  每步生成 1 个 Token
 ```
 
-**Prefill 阶段**是计算密集型（Compute-Bound）。所有 prompt tokens 一次性输入模型，矩阵乘法的并行度高，GPU 的 Tensor Core 被充分利用。
+Prefill 主要决定**第一个 Token 何时到达**，Decode 则决定**后续 Token 的生成速度和稳定性**。二者不仅执行顺序不同，计算规模、并行方式和硬件瓶颈也明显不同。
 
-需要澄清一点：上图标注的 `O(n²·d)` 只是 **Attention 那一项**。Prefill 的总 FLOPs 还有来自各个投影和 MLP 的 `O(n·d²)` 项，而在常见配置下（`n` 几千、`d` 几千）后者往往才是主体。这也解释了一个容易搞混的现象：**Prefill 之所以 compute-bound，首要原因是"每个 token 都要过一遍全部权重做大 GEMM"，而不仅仅是"序列长度的平方"**。序列真正拉长到几十 K 之后，`n²` 项才逐渐反超，长上下文优化（FlashAttention、Chunked Prefill、Context Parallel）也正是在那个区间才变得关键。
-
-**Decode 阶段**是访存密集型（Memory-Bound）。每步只生成 1 个新 token，但需要读取之前所有 token 累积的 KV Cache。大量时间花在 HBM（高带宽内存）的数据搬运上，Tensor Core 大部分时间在等数据。
-
-换句话说，Prefill 的瓶颈是"算得不够快"，Decode 的瓶颈是"数据搬得不够快"。这个转折会反复出现在后续讨论里：Chunked Prefill 针对前者，PagedAttention 和 CUDA Graph 更多针对后者。
-
-#### Prefill 与 Decode 的数据流差异
-
-```
+```text
 ┌──────────────────────────── Prefill 数据流 ─────────────────────────────┐
 │                                                                         │
-│  input_ids: [t₁, t₂, t₃, ..., tₙ]    (N 个 prompt tokens 并行输入)     │
+│  input_ids: [t₁, t₂, t₃, ..., tₙ]    (N 个 Prompt Token 并行输入)      │
 │       │                                                                 │
 │       ▼                                                                 │
 │  ┌─────────┐  Q: [N, H, d]                                             │
 │  │  QKV    │  K: [N, Hkv, d]   ──写入──▶  KV Cache (N 个新位置)         │
-│  │  Proj   │  V: [N, Hkv, d]   ──写入──▶  (批量写入整个 prompt)          │
+│  │  Proj   │  V: [N, Hkv, d]   ──写入──▶  (批量写入 Prompt)             │
 │  └─────────┘                                                            │
 │       │                                                                 │
-│  Attention: Q × Kᵀ → [N, N] → × V     (全量计算，O(N²·d))              │
+│  Attention: 逻辑上计算 Q × Kᵀ 和 Attention × V                          │
+│             实际通常由 FlashAttention 等 Kernel 分块完成                │
 │       │                                                                 │
-│  只取最后 1 个 position 的 logits → Sampling → 第 1 个 output token       │
+│  只取最后 1 个 Position 的 Logits → Sampling → 第 1 个 Output Token     │
 │                                                                         │
-│  特征: Compute-Bound, 高 GPU 利用率, GEMM 大矩阵, 高 arithmetic intensity│
+│  特征: Compute-Bound 倾向，高 GPU 利用率，大矩阵 GEMM                   │
 └─────────────────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────── Decode 数据流 ──────────────────────────────┐
 │                                                                         │
-│  input_ids: [tₙ₊ₖ]               (1 个新 token 输入)                    │
+│  input_ids: [tₙ₊ₖ]                 (1 个新 Token 输入)                   │
 │       │                                                                 │
 │       ▼                                                                 │
 │  ┌─────────┐  q: [1, H, d]                                             │
@@ -94,125 +127,149 @@ LLM 推理天然分为两个阶段，它们在计算特征上截然对立：
 │  │  Proj   │  v: [1, Hkv, d]   ──追加──▶  (增量写入)                    │
 │  └─────────┘                                                            │
 │       │                                                                 │
-│  Attention: q × K_historyᵀ → [1, N+k] → × V_history  (读取全部历史KV)   │
+│  Attention: q × K_historyᵀ → × V       (读取全部历史 KV)                │
 │       │                                                                 │
-│  logits → Sampling → 下一个 output token                                 │
+│  Logits → Sampling → 下一个 Output Token                                │
 │                                                                         │
-│  特征: Memory-Bound, 低 GPU 利用率, 大量 HBM 读取, 低 arithmetic intensity│
+│  特征: Memory-Bound 倾向，单请求并行度低，大量 HBM 读取                  │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-可以看到两者的差别只在**入口的宽度**和**KV Cahe的存取方向**：Prefill 是一次灌进 N 个 token、批量写 KV；Decode 是每次挤进 1 个 token，却要把之前累积的全部 KV 读一遍。
+可以把两者的差异概括为：
+
+> Prefill 一次处理多个 Prompt Token，并批量写入 KV Cache；Decode 每个 Step 只处理一个新 Token，却要读取此前累积的历史 KV Cache。
 
 | 维度 | Prefill | Decode |
-|------|---------|--------|
-| 输入 tokens 数 | N (全部 prompt) | 1 (每步) |
-| KV Cache 操作 | 批量写入 N 条 | 追加 1 条，读取全部历史 |
-| Attention 计算 | O(N² · d) | O(N · d) per step |
-| 总 FLOPs（含投影/MLP） | O(N·d² + N²·d) | O(d² + N·d) per step |
-| 计算瓶颈 | Compute-Bound (GEMM) | Memory-Bound (HBM 带宽) |
-| Batch 特征 | 少量长序列 | 大量短步长 |
-| 最佳 Kernel | FlashAttention (tiling) | FlashInfer / PagedAttention |
-| CUDA Graph | 通常不用（长度可变） | 强烈推荐（固定模式重放） |
+|---|---|---|
+| 单步输入 Token 数 | N 个 Prompt Token | 每个请求 1 个新 Token |
+| 单请求序列并行度 | 高 | 低 |
+| 跨请求并行度 | 可通过 Batch 提升 | 依赖 Continuous Batching |
+| KV Cache 操作 | 批量写入 N 个位置 | 追加 1 个位置，读取历史 KV |
+| Attention 序列相关计算 | O(N² · d) | O(L · d)，L 为当前序列长度 |
+| 总计算量 | O(N·d² + N²·d) | O(d² + L·d) per Step |
+| 典型瓶颈 | Compute、长序列 Attention | HBM 带宽、KV Cache、通信 |
+| 常见优化 | FlashAttention、Chunked Prefill | PagedAttention、FlashInfer、CUDA Graph |
+| CUDA Graph | 需视执行形态而定 | 适合形状和路径相对稳定的场景 |
 
+在多请求服务中，Prefill 和 Decode 会竞争同一组 GPU 资源：
+
+- 长 Prefill 可能占据大量计算资源，导致 Decode 延迟抖动；
+- Decode 请求过多，可能挤压 Prefill 的计算机会；
+- 新请求不断进入，会同时消耗计算预算和 KV Cache 容量。
+
+这也是以下机制存在的原因：
+
+- Continuous Batching；
+- Token Budget；
+- Chunked Prefill；
+- 抢占与重计算；
+- Prefill/Decode 分离。
 
 ### 1.3 吞吐与时延：无法同时最优的权衡
 
-这引出了 LLM Serving 的核心矛盾：
+扩大 Batch 通常可以提高吞吐，因为更多请求能够共享一次权重读取和 GPU 计算。
 
-- **追求高吞吐**：需要大 Batch Size，让更多请求共享 GPU 算力 → 但每个请求的延迟增加
-- **追求低时延**：需要小 Batch Size，减少排队和计算竞争 → 但 GPU 利用率下降，吞吐骤减
+但 Batch 增大也会带来：
 
-```
-     吞吐 (Tokens/s)                         延迟 (ms/token)
-        ▲                                       ▲
-        │         ╱───────── 饱和              │             ╱
-        │        ╱                              │           ╱
-        │      ╱                                │         ╱
-        │    ╱                                  │       ╱
-        │  ╱                                    │     ╱
-        │╱                                      │  ╱─
-        └──────────────▶ Batch Size             └──────────────▶ Batch Size
-
-        吞吐随 Batch 增大先线性增后饱和       延迟随 Batch 增大持续恶化
-```
-
-把 Batch Size 当作横轴，两条曲线的形状完全不同：
-
-- **吞吐**：先近似线性上升，然后进入饱和平台——因为 memory-bound 区间里权重只需读一遍，加请求几乎是免费的，直到算力或 KV 容量成为新瓶颈。
-- **单请求延迟**：从一开始就单调上升，且没有平台期——每个请求都要和更多同伴争抢同一批资源。
-
-**注意这不是"二选一"的关系。** 两条曲线共享同一个横轴，扩大 batch 会让吞吐和单请求延迟**同时上升**。所以系统要做的不是在吞吐和延迟里挑一个，而是在给定 SLO 下找到可接受的 batch 区间——这正是 Admission Control 和调度预算存在的理由。
-
-
-### 1.4 现代 LLM Serving 的核心性能指标体系
-
-评价一个 LLM Serving 系统的好坏，需要一套完整的指标体系。以下是业界标准指标的全景图：
+- 更长的计算等待；
+- 更激烈的显存带宽竞争；
+- 更高的单请求延迟；
+- 更严重的尾延迟；
+- 更大的 KV Cache 压力。
 
 ```mermaid
-mindmap
-  root((LLM Serving 指标体系))
-    延迟指标
-      TTFT - 首 Token 延迟
-      TPOT - 每 Token 延迟
-      ITL - Token 间延迟
-      E2E Latency - 端到端延迟
-      Queueing Time - 排队延迟
-    吞吐指标
-      Tokens/s - Token 吞吐
-      Requests/s - 请求吞吐
-      Goodput - 有效吞吐
-    效率指标
-      MFU - 算力利用率
-      Cost per Token - 单位成本
-    SLO 指标
-      P50 / P95 / P99
+xychart-beta
+    title "Batch Size 对吞吐和延迟的影响"
+    x-axis "Batch Size" [1, 2, 4, 8, 16, 32]
+    y-axis "相对值" 0 --> 100
+    line "吞吐" [12, 25, 45, 68, 85, 92]
+    line "单请求延迟" [10, 16, 25, 39, 60, 88]
 ```
 
-#### 1.4.1 指标详解
+一般而言：
 
-| 指标 | 定义 | 影响因素 | 优化方向 |
-|------|------|----------|----------|
-| **TTFT** (Time To First Token) | 从请求到达到返回第1个 token 的延迟 | Prefill 计算量、排队时间、Prefix Cache 命中率 | Chunked Prefill、Prefix Cache、PD 分离 |
-| **TPOT** (Time Per Output Token) | 生成每个输出 token 的平均耗时 | Decode 带宽、Batch Size、KV Cache 大小 | Speculative Decoding、量化、CUDA Graph |
-| **ITL** (Inter-Token Latency) | 相邻两个输出 token 之间的实际间隔 | 与 TPOT 类似，但反映实际波动 | 稳定调度、减少抢占 |
-| **E2E Latency** | 端到端总延迟 | = Queueing + Prefill + Decode + Egress | 全链路优化 |
-| **Queueing Time** | 请求在队列中等待调度的时间 | 并发量、Batch 容量、Admission Control | 动态扩容、负载均衡 |
-| **Tokens/s** | 系统每秒处理的 token 总量 | GPU 利用率、Batch Size、并行度 | Continuous Batching、多卡并行 |
-| **MFU** | Model FLOPs Utilization | 实际算力/理论峰值算力 | 减少空闲、算子融合 |
-| **Goodput** | 满足 SLO 约束的有效吞吐 | 尾延迟控制能力 | 抢占策略、Admission Control |
-| **P50/P95/P99** | 延迟百分位数 | 尾部请求的资源竞争 | 公平调度、优先级机制 |
-| **Cost per Token** | 每生成 1 token 的综合成本 | 硬件利用率、吞吐量 | 量化、MoE 稀疏化 |
+- **吞吐**：先随 Batch 增大而增长，随后进入饱和；
+- **单请求延迟**：通常随 Batch 增大而上升；
+- **尾延迟**：在资源接近饱和时可能快速恶化。
 
-#### 1.4.2 端到端延迟分解
+因此，系统目标不是简单地追求最大 Batch，而是在 SLO 约束下选择合适的执行规模：
 
-```
-├──────────────────────── E2E Latency ────────────────────────┤
-┌──────────┬───────────┬───────────────────────────┬─────────┐
-│ Queueing │  Prefill  │      Decode (N steps)     │ Egress  │
-│  排队    │  一次性   │   TPOT × N 个 output token │  回传   │
-└──────────┴───────────┴───────────────────────────┴─────────┘
- ←  wait  → ← compute- → ←────── memory-bound ─────→ ← net →
-             bound
-           ↑                                              ↑
-         TTFT 到这里为止                              Last Token
+```text
+吞吐最大化
+      ▲
+      │      可接受区间
+      │    ┌──────────┐
+      │   /            \
+      │  /              \
+      └────────────────────▶
+          延迟 / 尾延迟约束
 ```
 
-这条横线也说明，TTFT 不等于"第一段耗时"，而是从请求到达到第一个 output token 的总和，其中包含 Queueing 和 Prefill。E2E 的大头通常是 Decode，因为它要乘上整个输出长度。只盯着 TPOT 会漏掉排队和长 prompt 的影响，只盯着 TTFT 又会低估长输出场景的成本。
+调度器需要同时考虑：
 
-### 1.5 总纲：vLLM 其实只在回答四个问题
+- 当前活跃请求数；
+- Prompt 长度；
+- 已生成 token 数；
+- KV Cache 占用；
+- 请求优先级；
+- TTFT、ITL 和 P99 等 SLO。
 
-前面的挑战和指标可以收敛成四个问题。**本文剩下的所有内容——以及 vLLM 绝大部分核心代码——都可以归进这四问之一。**
+这也是 Token Budget、Chunked Prefill、抢占和 Admission Control 等机制出现的原因。
 
-| # | 问题 | 核心机制 | 主要落点 | 本文章节 |
-|---|------|---------|---------|---------|
-| 一 | 请求来了，**这一轮谁执行、执行多少？** | Continuous Batching、Token Budget、Chunked Prefill、抢占 | `Scheduler` | 第四章 |
-| 二 | 历史状态**放在哪里、怎么复用？** | PagedAttention、Prefix Cache、GQA/MLA、KV 量化 | `KVCacheManager` / `BlockPool` | 第三章 |
-| 三 | 这一轮**怎么算得更快？** | FlashAttention、CUDA Graph、算子融合、量化、投机解码 | `ModelRunner` / Attention Backend | 第五章 |
-| 四 | 一张卡不够，**怎么扩出去？** | TP / PP / EP / CP / DP、集合通信 | `Executor` / `distributed` | 第六章 |
 
-四问之外还有两个**横切约束**：模型在变（第七章）、硬件在变（第八章）——它们不新增问题，但要求上面四个答案在剧烈变化的外部环境里保持稳定。最后，第九章把四问从单机尺度推到集群尺度（PD 分离）。
+### 1.4 小结：LLM Serving 的三个根本变化  
 
+到这里，可以将 LLM Serving 相对于传统深度学习推理的变化概括为三个方面。
+
+#### 变化一：从静态计算变成动态执行
+
+传统推理通常可以预先确定输入形状、Batch 大小和计算过程。
+
+LLM Serving 中：
+
+- Prompt 长度不确定；
+- 输出长度不确定；
+- 请求完成时间不确定；
+- 每轮活跃请求集合不确定。
+
+因此，系统需要持续调度，而不是只在请求到达时进行一次 Batch 组装。
+
+#### 变化二：从无状态推理变成带状态推理
+
+传统推理通常只需要处理输入、模型参数和临时激活。
+
+LLM Serving 还必须管理每个请求不断增长的 KV Cache。KV Cache 的位置、容量、复用和回收都会直接影响：
+
+- 最大并发数；
+- 可支持的上下文长度；
+- 显存利用率；
+- 请求是否需要抢占；
+- 系统整体吞吐。
+
+#### 变化三：从单一 Workload 变成 Prefill 与 Decode 的混合 Workload
+
+Prefill 更偏向计算密集型，Decode 更偏向访存密集型。
+
+这意味着：
+
+- 适合 Prefill 的优化，不一定适合 Decode；
+- 提高 GPU 算力利用率，不一定能降低 Decode 延迟；
+- 只优化 Kernel，不一定能解决排队问题；
+- 只优化 KV Cache，也不一定能改善长 Prompt 的 TTFT。
+
+
+### 1.5 阅读地图：后续内容如何展开
+
+后续章节将围绕 LLM Serving 的四个核心问题展开。
+
+| # | 核心问题 | 主要机制 | 主要代码落点 | 后续章节 |
+|---|---|---|---|---|
+| 一 | 请求来了，**这一轮谁执行、执行多少？** | Continuous Batching、Token Budget、Chunked Prefill、抢占 | `Scheduler` | 调度 |
+| 二 | 历史状态**放在哪里、如何复用？** | PagedAttention、Prefix Cache、GQA/MLA、KV 量化 | `KVCacheManager` / `BlockPool` | KV Cache |
+| 三 | 这一轮**如何计算得更快？** | FlashAttention、CUDA Graph、算子融合、量化、投机解码 | `ModelRunner` / Attention Backend | 执行优化 |
+| 四 | 一张卡不够，**如何扩展？** | TP、PP、EP、CP、DP、集合通信 | `Executor` / `distributed` | 多卡与集群 |                          |
+
+四问之外还有两个**横切约束**：模型在变、硬件在变——它们不新增问题，但要求上面四个答案在剧烈变化的外部环境里保持稳定。
 
 ### 1.6 一个贯穿全文的例子
 
@@ -234,6 +291,186 @@ mindmap
 | ↳ TP=8 时每张卡承担 | `320 KB ÷ 8` | 40 KB |
 | 这个请求最终的 KV 总量 | `2350 × 320 KB` | **约 734 MB** |
 | 权重每卡 | `141 GB ÷ 8` | 17.6 GB |
+
+
+## 二、如何衡量一个 LLM Serving 系统？
+
+### 2.1 LLM Serving 指标总览
+
+LLM Serving 的性能不能只看单一指标，而应同时关注四个维度：
+
+```text
+延迟：用户需要等待多久？
+吞吐：系统单位时间处理多少请求和 Token？
+效率：GPU、显存和资金利用得好不好？
+服务质量：有多少请求满足 SLO？
+```
+
+```mermaid
+mindmap
+  root((LLM Serving 指标体系))
+    延迟指标
+      TTFT
+      TPOT
+      ITL
+      E2E Latency
+      Queueing Time
+    吞吐指标
+      Output Tokens/s
+      Total Tokens/s
+      Requests/s
+      Goodput
+    资源效率
+      MFU
+      GPU 利用率
+      显存利用率
+      Cost per Token
+    服务质量
+      P50
+      P95
+      P99
+      SLO 达标率
+```
+
+**指标说明**
+
+| 维度 | 指标 | 定义 | 主要反映 | 常见影响因素 | 使用注意 |
+|---|---|---|---|---|---|
+| **延迟** | **TTFT**<br>Time To First Token | 请求到达至收到第一个输出 Token 的时间 | 首次响应速度 | 排队、Prompt 长度、Prefill、Prefix Cache、首 Token 生成 | 不等于 Prefill 时间，还包括排队和传输 |
+| **延迟** | **TPOT**<br>Time Per Output Token | Decode 阶段平均生成一个输出 Token 的时间 | 平均生成速度 | Decode Batch、KV Cache 长度、显存带宽、Attention Kernel、量化 | 需明确是否包含首 Token |
+| **延迟** | **ITL**<br>Inter-Token Latency | 相邻两个输出 Token 到达客户端的时间间隔 | 流式输出的连续性和稳定性 | 调度抖动、Batch 变化、抢占、网络传输 | 应重点观察 P95/P99，而不只是平均值 |
+| **延迟** | **E2E Latency** | 从请求发送至完整结果返回的总时间 | 完整请求体验 | 排队、Prefill、Decode、输出长度、网络 | 长输出场景下通常受 Decode 主导 |
+| **延迟** | **Queueing Time** | 请求到达至开始执行前的等待时间 | 系统拥塞程度 | 并发量、Batch 容量、Admission Control、KV Cache 空间 | 高并发时可能成为 TTFT 的主要部分 |
+| **吞吐** | **Output Tokens/s** | 单位时间生成的输出 Token 数 | Decode 吞吐 | Batch Size、显存带宽、Kernel、并行度 | 适合衡量在线生成能力 |
+| **吞吐** | **Total Tokens/s** | 单位时间处理的输入与输出 Token 总数 | 端到端 Token 处理能力 | Prompt 长度、输出长度、Prefill 和 Decode 效率 | 必须说明是否包含输入 Token |
+| **吞吐** | **Requests/s** | 单位时间完成的请求数 | 业务请求处理能力 | 请求长度、并发度、服务策略 | 不能脱离输入输出长度单独比较 |
+| **吞吐** | **Goodput** | 单位时间内满足 SLO 的有效请求或 Token 数 | 满足服务质量后的有效吞吐 | 吞吐、尾延迟、调度、Admission Control | 比理论吞吐更接近实际服务价值 |
+| **资源效率** | **MFU**<br>Model FLOPs Utilization | 实际模型 FLOPs/s 与理论峰值 FLOPs/s 的比值 | 计算单元利用效率 | GEMM 规模、算子融合、Kernel 调度 | Decode 可能受显存带宽限制，MFU 低不一定代表低效 |
+| **资源效率** | **GPU 利用率** | GPU 活跃时间占比 | GPU 是否持续工作 | 计算、访存、通信、调度和 Kernel Launch | 需要结合 HBM 带宽和 Tokens/s 判断 |
+| **资源效率** | **显存利用率** | 已使用显存与可用显存的比例 | 并发和上下文容量 | 权重、KV Cache、激活、通信 Buffer、运行时开销 | 显存不仅决定模型能否加载，也决定并发度 |
+| **资源效率** | **Cost per Token** | 处理一个 Token 的综合成本 | 经济效率 | GPU 成本、吞吐、利用率、量化、SLO | 应明确按输入、输出还是有效 Token 计算 |
+| **服务质量** | **P50** | 50% 请求不超过该延迟 | 典型请求体验 | 常规负载 | 不能代表尾部请求 |
+| **服务质量** | **P95** | 95% 请求不超过该延迟 | 大多数用户体验 | 负载波动、请求长度、调度 | 常用于在线服务 SLO |
+| **服务质量** | **P99** | 99% 请求不超过该延迟 | 尾部请求体验 | 长请求、资源竞争、抢占、网络抖动 | 对多租户和交互式服务尤其重要 |
+| **服务质量** | **SLO 达标率** | 满足预设延迟或吞吐目标的请求比例 | 服务稳定性 | TTFT、ITL、E2E、排队和错误率 | Goodput 的计算基础之一 |
+
+### 2.2 指标常见误区与优化方向
+
+LLM Serving 的各项指标并非相互独立。不同指标暴露的是不同阶段或不同资源的瓶颈，因此应根据指标异常选择优化方向，而不是笼统地追求 GPU 利用率或总吞吐。
+
+#### 2.2.1 常见误区
+
+##### 误区一：只看平均延迟
+
+平均值可能掩盖严重的尾延迟问题。在线服务通常应同时报告：
+
+```text
+平均值 + P50 + P95 + P99 + SLO 达标率
+```
+
+尤其是在动态批处理和多租户环境中，少量长请求可能显著拖高 P99。
+
+##### 误区二：将 TTFT 等同于 Prefill 时间
+
+TTFT 通常还包括：
+
+```text
+排队时间 + 调度等待 + Prefill + 首 Token 生成 + 网络传输
+```
+
+因此 TTFT 过高不一定意味着 Prefill Kernel 低效，也可能是请求在队列中等待过久。
+
+##### 误区三：只用 TPOT 衡量流式体验
+
+TPOT 是平均值，而用户实际感受到的是每个 Token 的到达间隔。调度抖动、Batch 动态变化和通信阻塞可能导致平均 TPOT 正常，但 ITL 的 P95/P99 很差。
+
+##### 误区四：用 GPU 利用率判断系统是否高效
+
+GPU 利用率较高，可能只是 GPU 在等待显存访问或通信；GPU 利用率较低，也可能是系统受限于显存带宽、请求不足或模型并行通信。因此需要结合以下指标共同判断：
+
+- HBM 带宽利用率；
+- Kernel 执行时间；
+- MFU；
+- Decode TPOT；
+- GPU 间通信时间；
+- 有效 Tokens/s。
+
+##### 误区五：只比较 Requests/s
+
+不同测试的 Prompt 长度、Output 长度和请求分布不同，Requests/s 很难直接比较。更合理的报告方式是同时给出：
+
+```text
+并发数、输入 Token 数、输出 Token 数、Output Tokens/s、
+Total Tokens/s、TTFT、TPOT/ITL 和 P99
+```
+
+##### 误区六：显存占用越高越好
+
+提高 KV Cache 使用率有助于增加并发，但过度填充显存可能造成：
+
+- 新请求无法接入；
+- 长请求触发抢占；
+- KV Cache 频繁换入换出；
+- P99 延迟显著升高；
+- 系统出现 OOM 风险。
+
+因此，显存利用率应与并发度、KV Cache 命中率、抢占率和尾延迟联合分析。
+
+#### 2.2.2 指标与优化方向的对应关系
+
+
+| 指标或现象 | 主要暴露的问题 | 重点优化方向 |
+|---|---|---|
+| **TTFT 过高** | 排队时间长、Prefill 计算量大或首 Token 调度不及时 | 减少排队、优化 Prefill Kernel、使用 Prefix Cache、采用 Chunked Prefill、改进请求优先级 |
+| **ITL / TPOT 过高** | Decode 阶段访存效率低、KV Cache 访问开销大或 Batch 调度不合理 | 优化 Decode Kernel、改进 KV Cache 布局和访问、减少通信开销、优化 Continuous Batching |
+| **吞吐不足** | 有效 Batch 太小、计算或显存带宽利用率低 | 增大有效 Batch、提高算力和带宽利用率、优化 Kernel、减少 CPU/GPU 调度开销 |
+| **P99 过高** | 长请求竞争、动态 Batch 抖动、资源争用或排队失控 | 控制长 Prefill、限制最大上下文、隔离不同长度请求、改进调度、增加限流和 Admission Control |
+| **KV Cache 不足** | 上下文过长、并发过高或 KV Cache 管理效率低 | 使用 PagedAttention、Prefix Cache、KV 量化、KV Cache 复用和抢占 |
+| **GPU 利用率低但 TTFT 高** | 请求排队、调度间隙或并发不足 | 优化请求准入、动态批处理、调度粒度和 CPU/GPU 协同 |
+| **GPU 利用率高但吞吐低** | 可能受显存带宽、Kernel 效率或通信瓶颈限制 | 优化内存访问、融合 Kernel、量化、减少同步和跨卡通信 |
+| **Prefill 很快但 Decode 很慢** | Decode 的小矩阵计算和 KV Cache 访存成为瓶颈 | 优化 Decode 专用 Kernel、改进 KV Cache 布局、调整 Decode Batch 和并行策略 |
+| **吞吐高但 Goodput 低** | 系统牺牲延迟换取吞吐，导致大量请求违反 SLO | 引入 SLO-aware 调度、限制 Batch 上限、控制长请求、优化资源隔离 |
+| **P99 随并发快速恶化** | 系统接近饱和，排队和资源竞争出现非线性增长 | 设置并发上限、实施 Admission Control、区分请求优先级、扩展实例或进行负载分片 |
+
+### 2.2.3 使用原则
+
+指标分析应遵循以下顺序：
+
+```text
+先确认指标口径
+    ↓
+区分 Prefill、Decode、排队和网络因素
+    ↓
+观察平均值与 P95/P99 的差异
+    ↓
+结合 GPU、显存、带宽和通信指标定位瓶颈
+    ↓
+选择与指标对应的优化方向
+    ↓
+用 Goodput 和 SLO 达标率验证优化是否有效
+```
+
+核心原则是：
+
+> 不同指标对应不同瓶颈，不同瓶颈对应不同优化手段。  
+> 不能用提高吞吐的方法解决 TTFT，也不能用单纯增加 GPU 利用率的方法解决 P99 或 KV Cache 容量问题。
+
+### 2.3 本章小结
+
+LLM Serving 的指标体系可以归纳为：
+
+```text
+延迟：TTFT、TPOT、ITL、E2E
+吞吐：Tokens/s、Requests/s、Goodput
+效率：MFU、GPU 利用率、显存利用率、Cost per Token
+质量：P50、P95、P99、SLO 达标率
+```
+
+其中最重要的区别是：
+
+> 吞吐衡量系统处理了多少工作；  
+> 延迟衡量用户等待了多久；  
+> Goodput 衡量系统在满足 SLO 的前提下完成了多少有效工作。
 
 
 ## 二、鸟瞰 vLLM：一个请求如何穿过整个推理系统？
