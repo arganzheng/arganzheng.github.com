@@ -473,9 +473,9 @@ LLM Serving 的指标体系可以归纳为：
 > Goodput 衡量系统在满足 SLO 的前提下完成了多少有效工作。
 
 
-## 二、鸟瞰 vLLM：一个请求如何穿过整个推理系统？
+## 三、鸟瞰 vLLM：一个请求如何穿过整个推理系统？
 
-### 2.1 静态系统拓扑（自顶向下）
+### 3.1 静态系统拓扑（自顶向下）
 
 vLLM V1 的整体架构遵循**控制面/数据面分离**的经典设计哲学。我们自顶向下，逐层解剖其系统拓扑。
 
@@ -607,7 +607,7 @@ graph TB
 这条继承链本身就说明了一件事：**"用不用 Ray"是部署方式的差异，不是执行模型的差异。** Executor 这层抽象的价值就在于把"进程怎么起、卡怎么分"和"一轮 batch 怎么执行"彻底分开，所以 V2 才能靠换掉进程拉起方式来复用同机多进程的全部逻辑。
 
 
-### 2.2 一次请求的完整生命周期
+### 3.2 一次请求的完整生命周期
 
 ```mermaid
 sequenceDiagram
@@ -684,7 +684,7 @@ sequenceDiagram
     API-->>C: SSE: data: [DONE]
 ```
 
-### 2.3 数据流：Token 如何穿过整个 Serving 栈
+### 3.3 数据流：Token 如何穿过整个 Serving 栈
 
 ```
   ┌──────┐     ┌─────────┐     ┌────────┐     ┌───────────┐
@@ -743,7 +743,7 @@ sequenceDiagram
 ```
 
 
-### 2.4 总结
+### 3.4 总结
 
 这一章主要要关注的是模块之间的分工：
 
@@ -771,437 +771,6 @@ sequenceDiagram
 | **推理主循环（建议从这里入手）** | `vllm/v1/engine/core.py` → `EngineCore.step()` |
 | 执行抽象与各种部署形态 | `vllm/v1/executor/abstract.py` |
 | 一轮 batch 在 GPU 上怎么跑 | `vllm/v1/worker/gpu/model_runner.py` |
-
-</details>
-
-
-## 三、KV Cache：LLM Serving 的第一号内存问题
-
-设想一个场景：
-
-你有一张 80 GB 的卡，同时来了 100 个请求。第一个请求最后只生成了 300 个 token，第二个生成了 3000 个，第三个一路写到 20K。**问题在于：这三个数字，你在请求到达的那一刻一个都不知道。**
-
-如果按传统做法，给每个请求划一块连续显存来放它的 KV Cache，那你只能按"最坏情况"预留——按模型支持的最大长度划。于是那个只生成 300 token 的请求，占着一块够装 32K token 的地。100 个请求这么一摊，卡就满了，尽管真正装了有效数据的可能不到三成。
-
-> **显存不是被模型吃掉的，是被"不确定性"浪费掉的。**
-
-PagedAttention 的核心思想，用一句话就能说完：
-
-> **别给请求整块连续空间。把 KV Cache 切成固定大小的小块，用多少申请多少，块与块之间不要求相邻。**
-
-这样"预留"就消失了——因为不再需要预判总长度，只需要在写满当前块时再要一块。这个思路你大概率见过：**它就是操作系统的虚拟内存分页**。下面我们从传统做法的具体代价讲起，再看这套页表思想是怎么被搬到 GPU 上的。
-
-### 3.1 PagedAttention 的数学本质与源码实现
-
-#### 痛点：传统显存分配的碎片灾难
-
-在 PagedAttention 出现之前，每个请求的 KV Cache 必须在 GPU 显存中预分配一段**连续内存**，其长度等于模型支持的最大序列长度。这造成了两类碎片：
-
-```
-GPU HBM (80 GB)，每个请求按 max_len=2048 预留连续空间
-┌──────────────────────────────────────────────────────────┐
-│ Req A  ████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
-│        ↑实际用 500      ↑ 内部碎片：1548 tokens 的空间白占 │
-│ Req B  ████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
-│ ░░░░░░ 剩余空间凑不出一整段连续的 2048 → Req C 进不来 ░░░  │
-│        （外部碎片：总量其实够，但不连续）                  │
-└──────────────────────────────────────────────────────────┘
-```
-
-| 碎片类型 | 成因 | 后果 |
-|---|---|---|
-| **内部碎片** | 按最大长度预留，实际用不了那么多 | 主要浪费来源 |
-| **外部碎片** | 已释放的空间不连续 | 总量够却无法分配给新请求 |
-
-总浪费率有多大？PagedAttention 论文（SOSP'23）测得当时的 SOTA 系统中，**真正存放有效 KV 的显存只占 20.4% ~ 38.2%**——也就是约 60% ~ 80% 被碎片和预留吃掉了。
-
-#### 页表思想的映射：操作系统虚拟内存在推理系统中的重现
-
-PagedAttention 的灵感直接来自操作系统的虚拟内存管理。核心思想是将连续的逻辑地址空间映射到不连续的物理页框：
-
-| | 操作系统虚拟内存 | PagedAttention |
-|---|---|---|
-| 连续的逻辑视图 | 虚拟地址空间（Page 0,1,2,3…） | 逻辑 token 序列（Blk 0,1,2…，每块 16 个 token） |
-| 映射表 | Page Table（VP → PF） | **Block Table**（虚拟块 → 物理块） |
-| 不连续的物理载体 | 物理页框 Physical Frame | **物理 KV 块** Physical Block（GPU HBM 上） |
-| 分配单位 | 一页（如 4 KB） | 一块（`block_size` 个 token 的 K/V） |
-| 好处 | 进程看到连续内存，实际零散存放 | 请求看到连续序列，KV 实际零散存放 |
-
-映射关系是这样的——注意物理块号完全不需要连续：
-
-```mermaid
-graph LR
-    subgraph LOG["逻辑视图（连续）"]
-        B0["Blk 0<br/>t₁–t₁₆"] --- B1["Blk 1<br/>t₁₇–t₃₂"] --- B2["Blk 2<br/>t₃₃–t₄₈"]
-    end
-    subgraph BT["Block Table"]
-        T["VB0 → PB7<br/>VB1 → PB13<br/>VB2 → PB21"]
-    end
-    subgraph PHY["物理 KV 块（不连续）"]
-        P7["PB 7"]
-        P13["PB 13"]
-        P21["PB 21"]
-    end
-    B0 --> T
-    B1 --> T
-    B2 --> T
-    T --> P7 & P13 & P21
-```
-
-在 vLLM 中，每个物理块（Physical Block）存储固定数量 token 的 K 和 V 张量：
-
-```python
-# KV Cache 物理布局 (单层)
-# shape: [num_physical_blocks, block_size, num_kv_heads, head_dim]
-# 例: [2048 blocks, 16 tokens/block, 8 heads, 128 dim]
-kv_cache = torch.zeros(num_blocks, block_size, num_kv_heads, head_dim,
-                        dtype=torch.float16, device="cuda")
-```
-
-#### 源码解密：核心数据结构关系
-
-```mermaid
-graph TD
-    R["<b>Request</b>（逻辑层，不碰显存）<br/>request_id / prompt_token_ids / output_token_ids<br/>num_computed_tokens / block_hashes / status"]
-    R -->|"1:N，经 KVCacheManager"| KB
-    KB["<b>KVCacheBlocks</b><br/>blocks: tuple[Sequence[KVCacheBlock], …]<br/>外层 = KV Cache Group，内层 = 该 Group 的物理块序列"]
-    KB --> B
-    B["<b>KVCacheBlock</b>（物理块元数据）<br/>block_id / ref_cnt / block_hash<br/>prev_free_block ⇄ next_free_block（FreeBlockQueue 双向链表）"]
-    B -->|"block_id 索引"| H
-    H[("<b>GPU HBM</b><br/>kv_cache[block_id]<br/>[block_size, num_kv_heads, head_dim]")]
-```
-
-顺着箭头从上到下跟踪：Request 只是逻辑层，不直接触及 GPU 显存；KVCacheBlock 才是物理块的元数据，它同时挂在 Request 的 blocks 列表和 BlockPool 的 free/cached 列表里；block_id 最终索引到 GPU HBM 中的一片连续显存，里面放的是一整块 block_size 个 token 的 K 和 V。这三层映射是理解后面 Prefix Cache 复用和 Preemption 释放的基础。
-
-> **回到我们的例子**：2050 个 prompt token，`block_size=16`，于是需要 `⌈2050/16⌉ = 129` 个块（前 128 块装满 2048 个 token，第 129 块只装 2 个）。生成完 300 个 token 后，序列长 2350，共占 **147 个块**。
->
-> 注意一个巧合般的细节：**2000 个 token 的 system prompt 恰好是 125 个整块**。这不是偶然设计，但它揭示了 Prefix Cache 的一个硬约束——只有**装满**的块才会被缓存，所以可复用的边界永远对齐到 `block_size`。下一节就用这一点算账。
-
-`BlockPool`（`vllm/v1/core/block_pool.py`）管理所有物理块的分配和回收，使用双向链表实现高效的 LRU 驱逐：
-
-```python
-# vllm/v1/core/block_pool.py (简化)
-class BlockPool:
-    def __init__(self, num_gpu_blocks: int, ...):
-        self.num_gpu_blocks = num_gpu_blocks
-        self.free_block_queue = FreeKVCacheBlockQueue(num_gpu_blocks)
-        # Prefix Cache: hash → 物理块映射
-        self.cached_block_hash_to_block = BlockHashToBlockMap()
-
-    def get_new_blocks(self, num_blocks: int) -> list[KVCacheBlock]:
-        """从空闲队列分配新块（如果不够，驱逐 LRU 缓存块）"""
-        ...
-
-    def free_blocks(self, blocks: Iterable[KVCacheBlock]):
-        """ref_cnt--，归零则回收到空闲队列"""
-        ...
-
-    def cache_full_blocks(self, request, blocks, ...):
-        """将满块的 hash 注册到 Prefix Cache"""
-        ...
-```
-
-块分配的布局（引自 `allocate_slots()` 注释）：
-
-```
-  |<──── computed ────>|<─ new_computed ─>|<─ external ─>|<── new ──>|<─ lookahead ─>|
-                                                          |<── to be computed ──────>|
-                                          |<────────── to be allocated ──────>|
-                                          |<────────── to be cached ──────────>|
-
-  computed:      之前已缓存在 KV Cache 中的 tokens（Prefix Cache 命中）
-  new_computed:  本轮新计算但已完成的 tokens
-  external:      从远端传输的 KV 块（PD 分离场景）
-  new:           需要本轮计算的新 tokens
-  lookahead:     为 Speculative Decoding 预留的额外 tokens
-```
-
-这个布局也揭示了 Scheduler 为什么不能按请求类型硬分类。一轮迭代中一个请求可能同时覆盖 computed（prefix cache 命中）、new（需要新计算）和 lookahead（spec decode 预留），不同请求在这个轴上的位置各不相同。token 预算模型统一处理这些区间，而不是按"prefill 请求"和"decode 请求"分开。
-
-
-### 3.2 KV Cache 的写入、读取与生命周期
-
-上一节讲的是「块从哪来」，这一节讲「块怎么被用完再还回去」——一次请求从 Prefill 批量写入，到 Decode 逐 slot 追加，最后在完成或被抢占时归还，构成 KV Cache 的完整生命周期。
-
-```
-                     KV Cache 生命周期全景
-
-  ┌─────── Prefill 阶段 ──────┐   ┌────── Decode 阶段 ──────┐
-  │                            │   │                          │
-  │  prompt tokens:            │   │  每步 1 个新 token:       │
-  │  [t₁, t₂, ..., tₙ]       │   │  [tₙ₊₁], [tₙ₊₂], ...   │
-  │       │                    │   │       │                  │
-  │       ▼                    │   │       ▼                  │
-  │  ┌─────────────────┐      │   │  ┌──────────┐           │
-  │  │ 批量写入 KV     │      │   │  │ 增量追加  │           │
-  │  │ Cache 块        │      │   │  │ 1 个 slot │           │
-  │  │                 │      │   │  │           │           │
-  │  │ Block 0: [t₁~t₁₆]│   │   │  │ Block 2:  │           │
-  │  │ Block 1: [t₁₇~t₃₂]│  │   │  │ 追加 tₙ₊₁ │           │
-  │  │ Block 2: [t₃₃~tₙ] │   │   │  └──────────┘           │
-  │  └─────────────────┘      │   │                          │
-  └────────────────────────────┘   └──────────────────────────┘
-
-  ┌─────── Attention 读取 ──────────────────────────────────┐
-  │                                                         │
-  │  Block Table (虚拟→物理映射):                            │
-  │  req_42 → [PhyBlock_7, PhyBlock_13, PhyBlock_21]       │
-  │                                                         │
-  │  Attention Kernel 通过 Block Table 索引读取:             │
-  │  for each query position:                               │
-  │    for each block in block_table[req]:                  │
-  │      K_block = kv_cache[block_id, :, :key_heads, :]    │
-  │      V_block = kv_cache[block_id, :, :val_heads, :]    │
-  │      score += Q @ K_blockᵀ                              │
-  │    attn_out = softmax(scores) @ V_blocks               │
-  └─────────────────────────────────────────────────────────┘
-
-  ┌─────── 生命周期终结 ────────────────────────────────────┐
-  │                                                         │
-  │  请求完成:                                               │
-  │    Scheduler → KVCacheManager.free(request)             │
-  │    → ref_cnt-- 对所有块                                  │
-  │    → ref_cnt == 0 的块归还 free_block_queue              │
-  │    → 有 block_hash 的块进入 LRU 缓存（Prefix Cache）     │
-  │    → 无 hash 的块立即回收                                 │
-  │                                                         │
-  │  抢占:                                                   │
-  │    → 释放所有块                                          │
-  │    → num_computed_tokens = 0 （需从头重算）               │
-  │    → 但 Prefix Cache 命中可跳过部分重算                   │
-  └─────────────────────────────────────────────────────────┘
-```
-
-**① 写入**——两个阶段的写法完全不同：
-
-| 阶段 | 写入方式 | 例子 |
-|---|---|---|
-| Prefill | 批量写入若干整块 | `Block 0: t₁~t₁₆`、`Block 1: t₁₇~t₃₂`、`Block 2: t₃₃~tₙ` |
-| Decode | 每步增量追加 1 个 slot | `Block 2` 尾部追加 `tₙ₊₁`，写满了才要新块 |
-
-**② 读取**——Attention Kernel 不认识"请求"，只认 Block Table：
-
-```
-Block Table:  req_42 → [PB_7, PB_13, PB_21]
-
-for each query position:
-    for block_id in block_table[req]:
-        K_block = kv_cache[block_id, :, :key_heads, :]
-        V_block = kv_cache[block_id, :, :val_heads, :]
-        scores += Q @ K_blockᵀ
-    attn_out = softmax(scores) @ V_blocks
-```
-
-**③ 归还**——这一步决定了块能不能被别人复用：
-
-| 触发 | 动作 | 关键后果 |
-|---|---|---|
-| 请求完成 | `KVCacheManager.free(request)`：所有块 `ref_cnt--` | `ref_cnt == 0` 才真正归还 `free_block_queue` |
-| ↳ 块有 `block_hash` | 进入 LRU 缓存 | **留给 Prefix Cache 复用** |
-| ↳ 块无 hash（未写满） | 立即回收 | 无法复用 |
-| 被抢占 | 释放所有块 + `num_computed_tokens = 0` | 需重算，但 Prefix Cache 命中可跳过大部分 |
-
-注意倒数第二行：**块只有"写满"才会被缓存**。这解释了为什么 Prefix Cache 的命中粒度是 `block_size`，而不是单个 token。
-
-
-### 3.3 KV Cache 还能更小吗：复用、压缩与分层存储
-
-在进入具体手段之前，先立一个分层框架——**这三层解决的是完全不同的问题，不应该混为一谈**：
-
-| 层级 | 手段 | 解决的问题 |
-|------|------|-----------|
-| 系统管理层 | PagedAttention、Prefix Cache | 已经要存这么多，**显存怎么管才不浪费** |
-| 模型架构层 | MQA / GQA / MLA | **本来到底需要存多少** |
-| 数值层 | FP8 / INT8 量化 | 每个 KV 元素**占几个字节** |
-
-三者是正交的，可以叠加：MLA 减少了要存的量，PagedAttention 管理这些量的摆放，FP8 再把每个元素压小。下面按这个顺序展开。
-
-#### 3.3.1 Prefix Cache：重复计算复用
-
-在生产环境中，大量请求共享相同的 System Prompt（如 ChatGPT 的系统指令可能占 2000+ tokens）。Prefix Cache 的核心思想是：如果两个请求的前缀 token 完全相同，它们可以共享同一份 KV Cache 块。
-
-```mermaid
-sequenceDiagram
-    participant A as Request A<br/>[SysPrompt 2000] + "Hi"
-    participant P as BlockPool<br/>(hash → block)
-    participant B as Request B<br/>[SysPrompt 2000] + "Bye"
-
-    Note over A,P: 链式哈希：每块的 hash 依赖前驱块
-    A->>P: Prefill 2000 tokens<br/>Blk0=hash(t₁…t₁₆)=0xABC1<br/>Blk1=hash(0xABC1, t₁₇…t₃₂)=0xDEF2 …
-    P-->>P: 125 个满块全部注册进缓存
-    B->>P: get_computed_blocks()
-    P-->>B: 0xABC1 命中 → 0xDEF2 命中 → … 125 块全中（ref_cnt++）
-    Note over B: 只需 Prefill "Bye" 那 1 个块<br/>省下 2000 tokens 的计算 + 一整份 KV 显存
-```
-
-vLLM 使用链式哈希确保前缀匹配的正确性——每个块的哈希值依赖其前驱块的哈希，因此只有完全相同的前缀序列才会产生相同的哈希链。
-
-> **回到我们的例子**：那 2000 token 的 system prompt 是 **125 个整块**。第一个请求跑完后它们全部进入缓存；**第二个请求带着同样的 system prompt 到来时，这 125 块全部命中**，只需要 prefill 用户那 50 个 token。
->
-> 省下多少？按第 1.6 节的量算：
->
-> - **计算**：2000 token 的 prefill 不用做了，TTFT 从约 92 ms 掉到 5 ms 量级
-> - **显存**：这 125 块（约 625 MB 的 KV）在两个请求间**共享同一份物理块**，靠 `ref_cnt` 计数，不是复制
->
-> 在真实的多租户服务里，system prompt 往往被成百上千个请求共享——这就是为什么 Prefix Cache 是性价比最高的优化之一。
-
-```python
-# vllm/v1/core/kv_cache_utils.py (签名照抄, 函数体简化)
-def hash_block_tokens(
-    hash_function: Callable[[Any], bytes],
-    parent_block_hash: BlockHash | None,
-    curr_block_token_ids: Sequence[int],
-    extra_keys: tuple[Any, ...] | None = None,
-) -> BlockHash:
-    """链式哈希：当前块哈希 = f(前驱块哈希, 本块 token ids, 额外键)"""
-    if not parent_block_hash:
-        parent_block_hash = NONE_HASH  # 首块的哈希起点
-    return BlockHash(
-        hash_function((parent_block_hash, tuple(curr_block_token_ids), extra_keys))
-    )
-```
-
-这个签名里有两个细节值得留意，它们不是实现噪音：
-
-- **哈希函数是注入进来的，不是 Python 内建的 `hash()`**，返回值也是 bytes 而非 int（可选 `sha256_cbor`、`xxhash_cbor` 等）。因为块哈希要在多个 worker、甚至跨节点（PD 分离、LMCache）之间对得上，必须可控且可复现。
-- **链条起点 `NONE_HASH` 默认是随机的。** `init_none_hash()` 在未设置 `PYTHONHASHSEED` 时取 `os.urandom(32)`，即每个进程一个随机起点；只有显式设置 `PYTHONHASHSEED` 才会变成确定值。这是一个刻意的安全默认：随机起点让块哈希无法被外部预测，避免跨租户的缓存探测；而想让多进程/多节点共享同一份 prefix cache，就必须放弃这个默认。**可复现性和不可预测性在这里是一对取舍**，vLLM 默认选了后者。
-- **`extra_keys` 是隔离用的。** 同一串 token 在不同 LoRA adapter、不同多模态输入、不同 `cache_salt`、不同 prompt embeds 下不能复用同一份 KV，这些维度都由 `generate_block_hash_extra_keys()` 收集进 `extra_keys`。也就是说，"前缀相同"的判定比"token 序列相同"严格——这是 prefix cache 的正确性边界。
-
-#### 3.3.2 GQA / MQA：模型结构级 KV Cache 瘦身
-
-KV Cache 的大小与 KV head 数量成正比。Grouped-Query Attention (GQA) 和 Multi-Query Attention (MQA) 通过减少 KV head 数来缩减 KV Cache：
-
-以 8 个 Query head 为例，三种变体的差别只在于**几个 Q head 共享一份 K/V**：
-
-| 变体 | Q heads | K/V heads | 每 token 每层 KV 大小 | 相对 MHA |
-|---|---|---|---|---|
-| **MHA** | 8 | 8（一对一） | `2 × L × S × H × d` | 100% |
-| **GQA** | 8 | 2~4（分组共享） | `2 × L × S × G × d` | 1/2 ~ 1/8 |
-| **MQA** | 8 | 1（全部共享） | `2 × L × S × 1 × d` | 1/8 ~ 1/64 |
-
-```
-MHA   Q: [1][2][3][4][5][6][7][8]
-      K: [1][2][3][4][5][6][7][8]      ← 一个 Q 配一个 K/V
-
-GQA   Q: [1][2][3][4][5][6][7][8]
-      K: [ G1  ][ G2  ][ G3  ][ G4 ]   ← 每 2 个 Q 共享一份
-
-MQA   Q: [1][2][3][4][5][6][7][8]
-      K: [        K1            ]      ← 全部 Q 共享一份
-```
-
-代价是表达能力：K/V head 越少，KV Cache 越小，但模型区分不同注意力模式的自由度也越低。GQA 是目前公认的甜点区——这也是为什么 Llama 3 全系都用 GQA。
-
-| 模型 | 注意力类型 | num_heads | num_kv_heads | KV Cache 比例 |
-|------|-----------|-----------|-------------|--------------|
-| GPT-3 175B | MHA | 96 | 96 | 100% |
-| Llama 3 70B | GQA | 64 | 8 | 12.5% |
-| Llama 3 8B | GQA | 32 | 8 | 25% |
-| Falcon 7B | MQA | 71 | 1 | 1.4% |
-| DeepSeek V3 | MLA | 128 | - | ~2% (存 576 维 latent，非 128×128 的完整 KV) |
-
-#### 3.3.3 MLA：从 KV Cache 到 Latent Cache
-
-DeepSeek V2/V3 提出的 Multi-head Latent Attention (MLA) 是一种更激进的 KV Cache 压缩方案。它不存储完整的 K、V 张量，而是存储一个低维的 latent 向量：
-
-| | 传统 MHA / GQA | MLA（DeepSeek） |
-|---|---|---|
-| 存的是什么 | `K [Hkv, d]` + `V [Hkv, d]` | `c_kv [kv_lora_rank]` + `k_pe [qk_rope_head_dim]` |
-| 每 token 每层 | `2 × Hkv × d` bytes | `(kv_lora_rank + qk_rope_head_dim) × sizeof(dtype)` |
-| 实例 | Llama-70B（GQA-8）：`2×8×128×2B` = **4 KB** | DeepSeek V3：`(512+64)×2B` ≈ **1.1 KB** |
-
-MLA 的运作分两步——**存的时候压缩，用的时候还原**：
-
-```mermaid
-graph LR
-    subgraph E["编码（Prefill）"]
-        H[hidden] -->|kv_a_proj| C["c_kv（低维 latent）"] --> KV[("KV Cache<br/>只存 latent")]
-    end
-    subgraph D["解码（Decode，朴素做法）"]
-        KV2[("KV Cache")] --> C2[c_kv] -->|kv_b_proj| KVF["K, V（恢复全维）"] --> AT[Attention]
-    end
-    
-    %% 关键：表达 KV Cache 的传递，完美解决排版问题
-    KV -.->|读取/复用| KV2
-```
-
-但朴素做法有个致命问题：**每一步 Decode 都要把全部历史 token 的 latent 解压回全维 K/V**，那省下的显存又变成了带宽开销。真正的关键优化叫 **"吸收"（Absorbing）**——把解压矩阵 `W_uk` 预先融合进 `W_q`，于是可以**直接在 latent 空间做 Attention，完全不解压**。这一手的工程细节留到第 7.4.1 节展开。
-
-压缩效果：相比同规模 MHA 可缩减一个数量级以上；相比 Llama 式 GQA-8（4 KB/token/layer）约缩减 3~4x。
-
-vLLM 中 MLA 的实现位于 `vllm/model_executor/layers/mla.py`，通过 `MLAAttentionSpec` 定义其特殊的 KV Cache 规格（存储 latent 而非完整 KV）。
-
-#### 3.3.4 KV Cache Quantization：数值压缩与带宽优化
-
-除了结构级的压缩（GQA/MQA/MLA），还可以通过数值量化进一步压缩 KV Cache：
-
-| 格式 | 每元素 | 相对 FP16 | 精度影响 |
-|---|---|---|---|
-| FP32 | 4 bytes | 2.0× | 基准（训练精度） |
-| FP16 / BF16 | 2 bytes | 1.0× | 标准推理精度 |
-| **FP8 (E4M3)** | 1 byte | 0.5× | **轻微损失，实践中最安全的选择** |
-| INT8 | 1 byte | 0.5× | 需要校准，按 head / channel 量化 |
-| INT4 | 0.5 bytes | 0.25× | 显著损失，很少用于 KV Cache |
-
-算一遍实际规模（Llama-70B、GQA-8、80 layers、seq_len=4096）：
-
-| 场景 | 计算 | 结果 |
-|---|---|---|
-| 单请求 FP16 | 4 KB/token/layer × 4096 × 80 | 1.34 GB |
-| 单请求 FP8 | 2 KB/token/layer × 4096 × 80 | 0.67 GB（省 50%） |
-| **并发 8 路 FP16** | 1.34 GB × 8 | **10.7 GB** |
-
-单请求看着不大，但注意最后一行：**KV Cache 是"并发数 × 上下文长度"的乘积**，这才是它压垮显存的方式。
-
-量化粒度决定了精度与开销的平衡，scale 分得越细越准、但元数据越多：
-
-| 粒度 | 含义 | 精度 |
-|---|---|---|
-| Per-tensor | 整个 KV Cache 共享 1 个 scale | 最差 |
-| Per-token | 每个 token 一个 scale | 较好 |
-| Per-head | 每个 head 一个 scale | 精细 |
-| Per-channel | 每个 channel 一个 scale | 最优 |
-| Per-group | 每 G 个元素共享 scale | 灵活折中 |
-
-实现上分两个动作：**Quantize-on-write**（写入时即以低精度存储）和 **Dequantize-on-read**（读取时反量化，或直接在 attention kernel 内处理）。是否启用取决于模型、dtype、backend 与配置。
-
-KV Cache 量化与 PagedAttention 在设计上可以组合：量化后的 KV 仍按 block 粒度管理，同时需要记录相应 scale 或格式元数据。具体是否支持、如何存储 scale、是否在 attention kernel 内完成反量化，取决于 v0.27.1 中对应模型、dtype 和 attention backend 的实现。
-
-**注意**：Softmax 对 Key 的误差特别敏感（因为指数函数会放大误差），长上下文下量化误差可能累积。FP8 是实践中最安全的 KV Cache 量化格式。
-
-#### 3.3.5 KV Cache Offloading 与 Swapping
-
-当 GPU 显存不足时，vLLM 支持将 KV Cache 卸载到更低层的存储：
-
-| 层级 | 容量 | 带宽 | 延迟 | 存什么 |
-|---|---|---|---|---|
-| **GPU HBM**（热） | 10–80 GB | 3.35 TB/s (H100) | ~ns | 活跃请求的 KV |
-| **CPU DRAM**（温） | 256 GB–2 TB | ~200 GB/s | ~100 ns | 被抢占请求的 KV（经 PCIe Gen5，64 GB/s） |
-| **NVMe SSD**（冷） | 1–16 TB | ~7 GB/s | ~10 μs | 长期前缀缓存（较新的方向） |
-
-当 GPU 显存不够时，有三种应对策略，代价各不相同：
-
-| 策略 | 做法 | 优点 | 缺点 |
-|---|---|---|---|
-| **Recomputation**（重算） | 直接释放 KV，恢复时从头算 | 无传输开销，不占 CPU 内存 | 浪费 GPU 算力 |
-| **Swapping**（换出） | KV 块 GPU→CPU，恢复时回传 | 保留了已算结果 | 吃 PCIe 带宽 |
-| **Quantization + Offload** | 量化后再换出 | 传输量减半 | 额外精度损失 |
-
-vLLM V1 当前主要使用 **Recomputation** 策略（`_preempt_request()` 中将 `num_computed_tokens` 置零），因为在 Prefix Cache 存在的情况下，重算的实际成本远低于理论最坏情况——大部分前缀块仍在缓存中可复用。
-
-<details markdown="1">
-<summary><b>📂 本章源码导航</b></summary>
-
-**KV Cache 与 PagedAttention**
-
-| 想看什么 | 从哪开始 |
-|---|---|
-| **块的分配与释放（核心）** | `vllm/v1/core/kv_cache_manager.py` → `allocate_slots()` |
-| 物理块池、LRU 驱逐、Prefix Cache 注册 | `vllm/v1/core/block_pool.py` |
-| 块哈希、`extra_keys`、`NONE_HASH` | `vllm/v1/core/kv_cache_utils.py` → `hash_block_tokens()` |
-| 各类 KV Cache 规格（含 MLA） | `vllm/v1/kv_cache_interface.py` |
-| MLA 层实现 | `vllm/model_executor/layers/mla.py` |
-| KV 量化 | `vllm/model_executor/layers/quantization/` |
 
 </details>
 
@@ -3012,7 +2581,438 @@ Speculative Decode
 </details>
 
 
-## 五、GPU 执行：如何让每个 Token 算得更快？
+## 五、KV Cache：LLM Serving 的第一号内存问题
+
+设想一个场景：
+
+你有一张 80 GB 的卡，同时来了 100 个请求。第一个请求最后只生成了 300 个 token，第二个生成了 3000 个，第三个一路写到 20K。**问题在于：这三个数字，你在请求到达的那一刻一个都不知道。**
+
+如果按传统做法，给每个请求划一块连续显存来放它的 KV Cache，那你只能按"最坏情况"预留——按模型支持的最大长度划。于是那个只生成 300 token 的请求，占着一块够装 32K token 的地。100 个请求这么一摊，卡就满了，尽管真正装了有效数据的可能不到三成。
+
+> **显存不是被模型吃掉的，是被"不确定性"浪费掉的。**
+
+PagedAttention 的核心思想，用一句话就能说完：
+
+> **别给请求整块连续空间。把 KV Cache 切成固定大小的小块，用多少申请多少，块与块之间不要求相邻。**
+
+这样"预留"就消失了——因为不再需要预判总长度，只需要在写满当前块时再要一块。这个思路你大概率见过：**它就是操作系统的虚拟内存分页**。下面我们从传统做法的具体代价讲起，再看这套页表思想是怎么被搬到 GPU 上的。
+
+### 5.1 PagedAttention 的数学本质与源码实现
+
+#### 痛点：传统显存分配的碎片灾难
+
+在 PagedAttention 出现之前，每个请求的 KV Cache 必须在 GPU 显存中预分配一段**连续内存**，其长度等于模型支持的最大序列长度。这造成了两类碎片：
+
+```
+GPU HBM (80 GB)，每个请求按 max_len=2048 预留连续空间
+┌──────────────────────────────────────────────────────────┐
+│ Req A  ████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
+│        ↑实际用 500      ↑ 内部碎片：1548 tokens 的空间白占 │
+│ Req B  ████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
+│ ░░░░░░ 剩余空间凑不出一整段连续的 2048 → Req C 进不来 ░░░  │
+│        （外部碎片：总量其实够，但不连续）                  │
+└──────────────────────────────────────────────────────────┘
+```
+
+| 碎片类型 | 成因 | 后果 |
+|---|---|---|
+| **内部碎片** | 按最大长度预留，实际用不了那么多 | 主要浪费来源 |
+| **外部碎片** | 已释放的空间不连续 | 总量够却无法分配给新请求 |
+
+总浪费率有多大？PagedAttention 论文（SOSP'23）测得当时的 SOTA 系统中，**真正存放有效 KV 的显存只占 20.4% ~ 38.2%**——也就是约 60% ~ 80% 被碎片和预留吃掉了。
+
+#### 页表思想的映射：操作系统虚拟内存在推理系统中的重现
+
+PagedAttention 的灵感直接来自操作系统的虚拟内存管理。核心思想是将连续的逻辑地址空间映射到不连续的物理页框：
+
+| | 操作系统虚拟内存 | PagedAttention |
+|---|---|---|
+| 连续的逻辑视图 | 虚拟地址空间（Page 0,1,2,3…） | 逻辑 token 序列（Blk 0,1,2…，每块 16 个 token） |
+| 映射表 | Page Table（VP → PF） | **Block Table**（虚拟块 → 物理块） |
+| 不连续的物理载体 | 物理页框 Physical Frame | **物理 KV 块** Physical Block（GPU HBM 上） |
+| 分配单位 | 一页（如 4 KB） | 一块（`block_size` 个 token 的 K/V） |
+| 好处 | 进程看到连续内存，实际零散存放 | 请求看到连续序列，KV 实际零散存放 |
+
+映射关系是这样的——注意物理块号完全不需要连续：
+
+```mermaid
+graph LR
+    subgraph LOG["逻辑视图（连续）"]
+        B0["Blk 0<br/>t₁–t₁₆"] --- B1["Blk 1<br/>t₁₇–t₃₂"] --- B2["Blk 2<br/>t₃₃–t₄₈"]
+    end
+    subgraph BT["Block Table"]
+        T["VB0 → PB7<br/>VB1 → PB13<br/>VB2 → PB21"]
+    end
+    subgraph PHY["物理 KV 块（不连续）"]
+        P7["PB 7"]
+        P13["PB 13"]
+        P21["PB 21"]
+    end
+    B0 --> T
+    B1 --> T
+    B2 --> T
+    T --> P7 & P13 & P21
+```
+
+在 vLLM 中，每个物理块（Physical Block）存储固定数量 token 的 K 和 V 张量：
+
+```python
+# KV Cache 物理布局 (单层)
+# shape: [num_physical_blocks, block_size, num_kv_heads, head_dim]
+# 例: [2048 blocks, 16 tokens/block, 8 heads, 128 dim]
+kv_cache = torch.zeros(num_blocks, block_size, num_kv_heads, head_dim,
+                        dtype=torch.float16, device="cuda")
+```
+
+#### 源码解密：核心数据结构关系
+
+```mermaid
+graph TD
+    R["<b>Request</b>（逻辑层，不碰显存）<br/>request_id / prompt_token_ids / output_token_ids<br/>num_computed_tokens / block_hashes / status"]
+    R -->|"1:N，经 KVCacheManager"| KB
+    KB["<b>KVCacheBlocks</b><br/>blocks: tuple[Sequence[KVCacheBlock], …]<br/>外层 = KV Cache Group，内层 = 该 Group 的物理块序列"]
+    KB --> B
+    B["<b>KVCacheBlock</b>（物理块元数据）<br/>block_id / ref_cnt / block_hash<br/>prev_free_block ⇄ next_free_block（FreeBlockQueue 双向链表）"]
+    B -->|"block_id 索引"| H
+    H[("<b>GPU HBM</b><br/>kv_cache[block_id]<br/>[block_size, num_kv_heads, head_dim]")]
+```
+
+顺着箭头从上到下跟踪：Request 只是逻辑层，不直接触及 GPU 显存；KVCacheBlock 才是物理块的元数据，它同时挂在 Request 的 blocks 列表和 BlockPool 的 free/cached 列表里；block_id 最终索引到 GPU HBM 中的一片连续显存，里面放的是一整块 block_size 个 token 的 K 和 V。这三层映射是理解后面 Prefix Cache 复用和 Preemption 释放的基础。
+
+> **回到我们的例子**：2050 个 prompt token，`block_size=16`，于是需要 `⌈2050/16⌉ = 129` 个块（前 128 块装满 2048 个 token，第 129 块只装 2 个）。生成完 300 个 token 后，序列长 2350，共占 **147 个块**。
+>
+> 注意一个巧合般的细节：**2000 个 token 的 system prompt 恰好是 125 个整块**。这不是偶然设计，但它揭示了 Prefix Cache 的一个硬约束——只有**装满**的块才会被缓存，所以可复用的边界永远对齐到 `block_size`。下一节就用这一点算账。
+
+`BlockPool`（`vllm/v1/core/block_pool.py`）管理所有物理块的分配和回收，使用双向链表实现高效的 LRU 驱逐：
+
+```python
+# vllm/v1/core/block_pool.py (简化)
+class BlockPool:
+    def __init__(self, num_gpu_blocks: int, ...):
+        self.num_gpu_blocks = num_gpu_blocks
+        self.free_block_queue = FreeKVCacheBlockQueue(num_gpu_blocks)
+        # Prefix Cache: hash → 物理块映射
+        self.cached_block_hash_to_block = BlockHashToBlockMap()
+
+    def get_new_blocks(self, num_blocks: int) -> list[KVCacheBlock]:
+        """从空闲队列分配新块（如果不够，驱逐 LRU 缓存块）"""
+        ...
+
+    def free_blocks(self, blocks: Iterable[KVCacheBlock]):
+        """ref_cnt--，归零则回收到空闲队列"""
+        ...
+
+    def cache_full_blocks(self, request, blocks, ...):
+        """将满块的 hash 注册到 Prefix Cache"""
+        ...
+```
+
+块分配的布局（引自 `allocate_slots()` 注释）：
+
+```
+  |<──── computed ────>|<─ new_computed ─>|<─ external ─>|<── new ──>|<─ lookahead ─>|
+                                                          |<── to be computed ──────>|
+                                          |<────────── to be allocated ──────>|
+                                          |<────────── to be cached ──────────>|
+
+  computed:      之前已缓存在 KV Cache 中的 tokens（Prefix Cache 命中）
+  new_computed:  本轮新计算但已完成的 tokens
+  external:      从远端传输的 KV 块（PD 分离场景）
+  new:           需要本轮计算的新 tokens
+  lookahead:     为 Speculative Decoding 预留的额外 tokens
+```
+
+这个布局也揭示了 Scheduler 为什么不能按请求类型硬分类。一轮迭代中一个请求可能同时覆盖 computed（prefix cache 命中）、new（需要新计算）和 lookahead（spec decode 预留），不同请求在这个轴上的位置各不相同。token 预算模型统一处理这些区间，而不是按"prefill 请求"和"decode 请求"分开。
+
+
+### 5.2 KV Cache 的写入、读取与生命周期
+
+上一节讲的是「块从哪来」，这一节讲「块怎么被用完再还回去」——一次请求从 Prefill 批量写入，到 Decode 逐 slot 追加，最后在完成或被抢占时归还，构成 KV Cache 的完整生命周期。
+
+```
+                     KV Cache 生命周期全景
+
+  ┌─────── Prefill 阶段 ──────┐   ┌────── Decode 阶段 ──────┐
+  │                            │   │                          │
+  │  prompt tokens:            │   │  每步 1 个新 token:       │
+  │  [t₁, t₂, ..., tₙ]       │   │  [tₙ₊₁], [tₙ₊₂], ...   │
+  │       │                    │   │       │                  │
+  │       ▼                    │   │       ▼                  │
+  │  ┌─────────────────┐      │   │  ┌──────────┐           │
+  │  │ 批量写入 KV     │      │   │  │ 增量追加  │           │
+  │  │ Cache 块        │      │   │  │ 1 个 slot │           │
+  │  │                 │      │   │  │           │           │
+  │  │ Block 0: [t₁~t₁₆]│   │   │  │ Block 2:  │           │
+  │  │ Block 1: [t₁₇~t₃₂]│  │   │  │ 追加 tₙ₊₁ │           │
+  │  │ Block 2: [t₃₃~tₙ] │   │   │  └──────────┘           │
+  │  └─────────────────┘      │   │                          │
+  └────────────────────────────┘   └──────────────────────────┘
+
+  ┌─────── Attention 读取 ──────────────────────────────────┐
+  │                                                         │
+  │  Block Table (虚拟→物理映射):                            │
+  │  req_42 → [PhyBlock_7, PhyBlock_13, PhyBlock_21]       │
+  │                                                         │
+  │  Attention Kernel 通过 Block Table 索引读取:             │
+  │  for each query position:                               │
+  │    for each block in block_table[req]:                  │
+  │      K_block = kv_cache[block_id, :, :key_heads, :]    │
+  │      V_block = kv_cache[block_id, :, :val_heads, :]    │
+  │      score += Q @ K_blockᵀ                              │
+  │    attn_out = softmax(scores) @ V_blocks               │
+  └─────────────────────────────────────────────────────────┘
+
+  ┌─────── 生命周期终结 ────────────────────────────────────┐
+  │                                                         │
+  │  请求完成:                                               │
+  │    Scheduler → KVCacheManager.free(request)             │
+  │    → ref_cnt-- 对所有块                                  │
+  │    → ref_cnt == 0 的块归还 free_block_queue              │
+  │    → 有 block_hash 的块进入 LRU 缓存（Prefix Cache）     │
+  │    → 无 hash 的块立即回收                                 │
+  │                                                         │
+  │  抢占:                                                   │
+  │    → 释放所有块                                          │
+  │    → num_computed_tokens = 0 （需从头重算）               │
+  │    → 但 Prefix Cache 命中可跳过部分重算                   │
+  └─────────────────────────────────────────────────────────┘
+```
+
+**① 写入**——两个阶段的写法完全不同：
+
+| 阶段 | 写入方式 | 例子 |
+|---|---|---|
+| Prefill | 批量写入若干整块 | `Block 0: t₁~t₁₆`、`Block 1: t₁₇~t₃₂`、`Block 2: t₃₃~tₙ` |
+| Decode | 每步增量追加 1 个 slot | `Block 2` 尾部追加 `tₙ₊₁`，写满了才要新块 |
+
+**② 读取**——Attention Kernel 不认识"请求"，只认 Block Table：
+
+```
+Block Table:  req_42 → [PB_7, PB_13, PB_21]
+
+for each query position:
+    for block_id in block_table[req]:
+        K_block = kv_cache[block_id, :, :key_heads, :]
+        V_block = kv_cache[block_id, :, :val_heads, :]
+        scores += Q @ K_blockᵀ
+    attn_out = softmax(scores) @ V_blocks
+```
+
+**③ 归还**——这一步决定了块能不能被别人复用：
+
+| 触发 | 动作 | 关键后果 |
+|---|---|---|
+| 请求完成 | `KVCacheManager.free(request)`：所有块 `ref_cnt--` | `ref_cnt == 0` 才真正归还 `free_block_queue` |
+| ↳ 块有 `block_hash` | 进入 LRU 缓存 | **留给 Prefix Cache 复用** |
+| ↳ 块无 hash（未写满） | 立即回收 | 无法复用 |
+| 被抢占 | 释放所有块 + `num_computed_tokens = 0` | 需重算，但 Prefix Cache 命中可跳过大部分 |
+
+注意倒数第二行：**块只有"写满"才会被缓存**。这解释了为什么 Prefix Cache 的命中粒度是 `block_size`，而不是单个 token。
+
+
+### 5.3 KV Cache 还能更小吗：复用、压缩与分层存储
+
+在进入具体手段之前，先立一个分层框架——**这三层解决的是完全不同的问题，不应该混为一谈**：
+
+| 层级 | 手段 | 解决的问题 |
+|------|------|-----------|
+| 系统管理层 | PagedAttention、Prefix Cache | 已经要存这么多，**显存怎么管才不浪费** |
+| 模型架构层 | MQA / GQA / MLA | **本来到底需要存多少** |
+| 数值层 | FP8 / INT8 量化 | 每个 KV 元素**占几个字节** |
+
+三者是正交的，可以叠加：MLA 减少了要存的量，PagedAttention 管理这些量的摆放，FP8 再把每个元素压小。下面按这个顺序展开。
+
+#### 5.3.1 Prefix Cache：重复计算复用
+
+在生产环境中，大量请求共享相同的 System Prompt（如 ChatGPT 的系统指令可能占 2000+ tokens）。Prefix Cache 的核心思想是：如果两个请求的前缀 token 完全相同，它们可以共享同一份 KV Cache 块。
+
+```mermaid
+sequenceDiagram
+    participant A as Request A<br/>[SysPrompt 2000] + "Hi"
+    participant P as BlockPool<br/>(hash → block)
+    participant B as Request B<br/>[SysPrompt 2000] + "Bye"
+
+    Note over A,P: 链式哈希：每块的 hash 依赖前驱块
+    A->>P: Prefill 2000 tokens<br/>Blk0=hash(t₁…t₁₆)=0xABC1<br/>Blk1=hash(0xABC1, t₁₇…t₃₂)=0xDEF2 …
+    P-->>P: 125 个满块全部注册进缓存
+    B->>P: get_computed_blocks()
+    P-->>B: 0xABC1 命中 → 0xDEF2 命中 → … 125 块全中（ref_cnt++）
+    Note over B: 只需 Prefill "Bye" 那 1 个块<br/>省下 2000 tokens 的计算 + 一整份 KV 显存
+```
+
+vLLM 使用链式哈希确保前缀匹配的正确性——每个块的哈希值依赖其前驱块的哈希，因此只有完全相同的前缀序列才会产生相同的哈希链。
+
+> **回到我们的例子**：那 2000 token 的 system prompt 是 **125 个整块**。第一个请求跑完后它们全部进入缓存；**第二个请求带着同样的 system prompt 到来时，这 125 块全部命中**，只需要 prefill 用户那 50 个 token。
+>
+> 省下多少？按第 1.6 节的量算：
+>
+> - **计算**：2000 token 的 prefill 不用做了，TTFT 从约 92 ms 掉到 5 ms 量级
+> - **显存**：这 125 块（约 625 MB 的 KV）在两个请求间**共享同一份物理块**，靠 `ref_cnt` 计数，不是复制
+>
+> 在真实的多租户服务里，system prompt 往往被成百上千个请求共享——这就是为什么 Prefix Cache 是性价比最高的优化之一。
+
+```python
+# vllm/v1/core/kv_cache_utils.py (签名照抄, 函数体简化)
+def hash_block_tokens(
+    hash_function: Callable[[Any], bytes],
+    parent_block_hash: BlockHash | None,
+    curr_block_token_ids: Sequence[int],
+    extra_keys: tuple[Any, ...] | None = None,
+) -> BlockHash:
+    """链式哈希：当前块哈希 = f(前驱块哈希, 本块 token ids, 额外键)"""
+    if not parent_block_hash:
+        parent_block_hash = NONE_HASH  # 首块的哈希起点
+    return BlockHash(
+        hash_function((parent_block_hash, tuple(curr_block_token_ids), extra_keys))
+    )
+```
+
+这个签名里有两个细节值得留意，它们不是实现噪音：
+
+- **哈希函数是注入进来的，不是 Python 内建的 `hash()`**，返回值也是 bytes 而非 int（可选 `sha256_cbor`、`xxhash_cbor` 等）。因为块哈希要在多个 worker、甚至跨节点（PD 分离、LMCache）之间对得上，必须可控且可复现。
+- **链条起点 `NONE_HASH` 默认是随机的。** `init_none_hash()` 在未设置 `PYTHONHASHSEED` 时取 `os.urandom(32)`，即每个进程一个随机起点；只有显式设置 `PYTHONHASHSEED` 才会变成确定值。这是一个刻意的安全默认：随机起点让块哈希无法被外部预测，避免跨租户的缓存探测；而想让多进程/多节点共享同一份 prefix cache，就必须放弃这个默认。**可复现性和不可预测性在这里是一对取舍**，vLLM 默认选了后者。
+- **`extra_keys` 是隔离用的。** 同一串 token 在不同 LoRA adapter、不同多模态输入、不同 `cache_salt`、不同 prompt embeds 下不能复用同一份 KV，这些维度都由 `generate_block_hash_extra_keys()` 收集进 `extra_keys`。也就是说，"前缀相同"的判定比"token 序列相同"严格——这是 prefix cache 的正确性边界。
+
+#### 5.3.2 GQA / MQA：模型结构级 KV Cache 瘦身
+
+KV Cache 的大小与 KV head 数量成正比。Grouped-Query Attention (GQA) 和 Multi-Query Attention (MQA) 通过减少 KV head 数来缩减 KV Cache：
+
+以 8 个 Query head 为例，三种变体的差别只在于**几个 Q head 共享一份 K/V**：
+
+| 变体 | Q heads | K/V heads | 每 token 每层 KV 大小 | 相对 MHA |
+|---|---|---|---|---|
+| **MHA** | 8 | 8（一对一） | `2 × L × S × H × d` | 100% |
+| **GQA** | 8 | 2~4（分组共享） | `2 × L × S × G × d` | 1/2 ~ 1/8 |
+| **MQA** | 8 | 1（全部共享） | `2 × L × S × 1 × d` | 1/8 ~ 1/64 |
+
+```
+MHA   Q: [1][2][3][4][5][6][7][8]
+      K: [1][2][3][4][5][6][7][8]      ← 一个 Q 配一个 K/V
+
+GQA   Q: [1][2][3][4][5][6][7][8]
+      K: [ G1  ][ G2  ][ G3  ][ G4 ]   ← 每 2 个 Q 共享一份
+
+MQA   Q: [1][2][3][4][5][6][7][8]
+      K: [        K1            ]      ← 全部 Q 共享一份
+```
+
+代价是表达能力：K/V head 越少，KV Cache 越小，但模型区分不同注意力模式的自由度也越低。GQA 是目前公认的甜点区——这也是为什么 Llama 3 全系都用 GQA。
+
+| 模型 | 注意力类型 | num_heads | num_kv_heads | KV Cache 比例 |
+|------|-----------|-----------|-------------|--------------|
+| GPT-3 175B | MHA | 96 | 96 | 100% |
+| Llama 3 70B | GQA | 64 | 8 | 12.5% |
+| Llama 3 8B | GQA | 32 | 8 | 25% |
+| Falcon 7B | MQA | 71 | 1 | 1.4% |
+| DeepSeek V3 | MLA | 128 | - | ~2% (存 576 维 latent，非 128×128 的完整 KV) |
+
+#### 5.3.3 MLA：从 KV Cache 到 Latent Cache
+
+DeepSeek V2/V3 提出的 Multi-head Latent Attention (MLA) 是一种更激进的 KV Cache 压缩方案。它不存储完整的 K、V 张量，而是存储一个低维的 latent 向量：
+
+| | 传统 MHA / GQA | MLA（DeepSeek） |
+|---|---|---|
+| 存的是什么 | `K [Hkv, d]` + `V [Hkv, d]` | `c_kv [kv_lora_rank]` + `k_pe [qk_rope_head_dim]` |
+| 每 token 每层 | `2 × Hkv × d` bytes | `(kv_lora_rank + qk_rope_head_dim) × sizeof(dtype)` |
+| 实例 | Llama-70B（GQA-8）：`2×8×128×2B` = **4 KB** | DeepSeek V3：`(512+64)×2B` ≈ **1.1 KB** |
+
+MLA 的运作分两步——**存的时候压缩，用的时候还原**：
+
+```mermaid
+graph LR
+    subgraph E["编码（Prefill）"]
+        H[hidden] -->|kv_a_proj| C["c_kv（低维 latent）"] --> KV[("KV Cache<br/>只存 latent")]
+    end
+    subgraph D["解码（Decode，朴素做法）"]
+        KV2[("KV Cache")] --> C2[c_kv] -->|kv_b_proj| KVF["K, V（恢复全维）"] --> AT[Attention]
+    end
+    
+    %% 关键：表达 KV Cache 的传递，完美解决排版问题
+    KV -.->|读取/复用| KV2
+```
+
+但朴素做法有个致命问题：**每一步 Decode 都要把全部历史 token 的 latent 解压回全维 K/V**，那省下的显存又变成了带宽开销。真正的关键优化叫 **"吸收"（Absorbing）**——把解压矩阵 `W_uk` 预先融合进 `W_q`，于是可以**直接在 latent 空间做 Attention，完全不解压**。这一手的工程细节留到第 7.4.1 节展开。
+
+压缩效果：相比同规模 MHA 可缩减一个数量级以上；相比 Llama 式 GQA-8（4 KB/token/layer）约缩减 3~4x。
+
+vLLM 中 MLA 的实现位于 `vllm/model_executor/layers/mla.py`，通过 `MLAAttentionSpec` 定义其特殊的 KV Cache 规格（存储 latent 而非完整 KV）。
+
+#### 5.3.4 KV Cache Quantization：数值压缩与带宽优化
+
+除了结构级的压缩（GQA/MQA/MLA），还可以通过数值量化进一步压缩 KV Cache：
+
+| 格式 | 每元素 | 相对 FP16 | 精度影响 |
+|---|---|---|---|
+| FP32 | 4 bytes | 2.0× | 基准（训练精度） |
+| FP16 / BF16 | 2 bytes | 1.0× | 标准推理精度 |
+| **FP8 (E4M3)** | 1 byte | 0.5× | **轻微损失，实践中最安全的选择** |
+| INT8 | 1 byte | 0.5× | 需要校准，按 head / channel 量化 |
+| INT4 | 0.5 bytes | 0.25× | 显著损失，很少用于 KV Cache |
+
+算一遍实际规模（Llama-70B、GQA-8、80 layers、seq_len=4096）：
+
+| 场景 | 计算 | 结果 |
+|---|---|---|
+| 单请求 FP16 | 4 KB/token/layer × 4096 × 80 | 1.34 GB |
+| 单请求 FP8 | 2 KB/token/layer × 4096 × 80 | 0.67 GB（省 50%） |
+| **并发 8 路 FP16** | 1.34 GB × 8 | **10.7 GB** |
+
+单请求看着不大，但注意最后一行：**KV Cache 是"并发数 × 上下文长度"的乘积**，这才是它压垮显存的方式。
+
+量化粒度决定了精度与开销的平衡，scale 分得越细越准、但元数据越多：
+
+| 粒度 | 含义 | 精度 |
+|---|---|---|
+| Per-tensor | 整个 KV Cache 共享 1 个 scale | 最差 |
+| Per-token | 每个 token 一个 scale | 较好 |
+| Per-head | 每个 head 一个 scale | 精细 |
+| Per-channel | 每个 channel 一个 scale | 最优 |
+| Per-group | 每 G 个元素共享 scale | 灵活折中 |
+
+实现上分两个动作：**Quantize-on-write**（写入时即以低精度存储）和 **Dequantize-on-read**（读取时反量化，或直接在 attention kernel 内处理）。是否启用取决于模型、dtype、backend 与配置。
+
+KV Cache 量化与 PagedAttention 在设计上可以组合：量化后的 KV 仍按 block 粒度管理，同时需要记录相应 scale 或格式元数据。具体是否支持、如何存储 scale、是否在 attention kernel 内完成反量化，取决于 v0.27.1 中对应模型、dtype 和 attention backend 的实现。
+
+**注意**：Softmax 对 Key 的误差特别敏感（因为指数函数会放大误差），长上下文下量化误差可能累积。FP8 是实践中最安全的 KV Cache 量化格式。
+
+#### 5.3.5 KV Cache Offloading 与 Swapping
+
+当 GPU 显存不足时，vLLM 支持将 KV Cache 卸载到更低层的存储：
+
+| 层级 | 容量 | 带宽 | 延迟 | 存什么 |
+|---|---|---|---|---|
+| **GPU HBM**（热） | 10–80 GB | 3.35 TB/s (H100) | ~ns | 活跃请求的 KV |
+| **CPU DRAM**（温） | 256 GB–2 TB | ~200 GB/s | ~100 ns | 被抢占请求的 KV（经 PCIe Gen5，64 GB/s） |
+| **NVMe SSD**（冷） | 1–16 TB | ~7 GB/s | ~10 μs | 长期前缀缓存（较新的方向） |
+
+当 GPU 显存不够时，有三种应对策略，代价各不相同：
+
+| 策略 | 做法 | 优点 | 缺点 |
+|---|---|---|---|
+| **Recomputation**（重算） | 直接释放 KV，恢复时从头算 | 无传输开销，不占 CPU 内存 | 浪费 GPU 算力 |
+| **Swapping**（换出） | KV 块 GPU→CPU，恢复时回传 | 保留了已算结果 | 吃 PCIe 带宽 |
+| **Quantization + Offload** | 量化后再换出 | 传输量减半 | 额外精度损失 |
+
+vLLM V1 当前主要使用 **Recomputation** 策略（`_preempt_request()` 中将 `num_computed_tokens` 置零），因为在 Prefix Cache 存在的情况下，重算的实际成本远低于理论最坏情况——大部分前缀块仍在缓存中可复用。
+
+<details markdown="1">
+<summary><b>📂 本章源码导航</b></summary>
+
+**KV Cache 与 PagedAttention**
+
+| 想看什么 | 从哪开始 |
+|---|---|
+| **块的分配与释放（核心）** | `vllm/v1/core/kv_cache_manager.py` → `allocate_slots()` |
+| 物理块池、LRU 驱逐、Prefix Cache 注册 | `vllm/v1/core/block_pool.py` |
+| 块哈希、`extra_keys`、`NONE_HASH` | `vllm/v1/core/kv_cache_utils.py` → `hash_block_tokens()` |
+| 各类 KV Cache 规格（含 MLA） | `vllm/v1/kv_cache_interface.py` |
+| MLA 层实现 | `vllm/model_executor/layers/mla.py` |
+| KV 量化 | `vllm/model_executor/layers/quantization/` |
+
+</details>
+
+
+## 六、GPU 执行：如何让每个 Token 算得更快？
 
 上一章决定了"这一轮算哪些 token"，这一章的问题是：**这些已经确定要算的 token，怎么算得更快。**
 
@@ -3039,11 +3039,11 @@ Decode 偏 memory-bound、Prefill 偏 compute-bound，但落到 GPU 上，浪费
 >
 > **看清楚这个 3% vs 97%**：TTFT 只有 92 ms，而 97% 的时间花在那 300 次逐 token 的 decode 上。这解释了本章为什么把绝大部分篇幅给了 Decode 侧的优化——Prefill 再快一倍，端到端也只省 3%。
 
-### 5.1 GPU 为什么在空转？—— Kernel Launch 与 CUDA Graph
+### 6.1 GPU 为什么在空转？—— Kernel Launch 与 CUDA Graph
 
 第一种浪费最反直觉：**GPU 并不慢，它只是在排队等 CPU 告诉它下一步做什么。** 这个问题在 Prefill 阶段几乎看不见（单个 kernel 算得久，提交开销被淹没），却会在 Decode 阶段被放大——因为 Decode 每步的计算量太小了。
 
-#### 5.1.1 痛点：Kernel Launch Overhead
+#### 6.1.1 痛点：Kernel Launch Overhead
 
 在 Decode 阶段，每步模型 Forward 要启动**数百到上千个** CUDA Kernel，而每个 Kernel 的实际 GPU 计算时间可能只有几十微秒。数量之所以这么多，是因为它是**逐层累乘**的：以 80 层的 Llama-3-70B 为例，单层就有 RMSNorm ×2、QKV Proj、RoPE、Attention、O Proj、MLP 的三个 GEMM 与激活，TP=8 下还要再加 2 次 All-Reduce——十几个 kernel × 80 层，一步下来轻松上千。32 层的 7B 也在数百这个量级。
 
@@ -3081,7 +3081,7 @@ Decode 偏 memory-bound、Prefill 偏 compute-bound，但落到 GPU 上，浪费
 
 ```
 
-#### 5.1.2 CUDA Graph：静态执行图捕获与重放
+#### 6.1.2 CUDA Graph：静态执行图捕获与重放
 
 为了消灭上述图中高达 62.5% 的恐怖气泡，CUDA Graph 改变了游戏规则。它在模型初始化或第一轮时将一系列 Kernel Launch 录制成一个"计算图"，之后用一次 Launch 重放整个图：
 
@@ -3133,7 +3133,7 @@ class CUDAGraphMode(enum.Enum):
 * Decode 节点：由于完全剥离了 Prefill，输入形态被高度固化，大面积直接采用 FULL 模式或高密度的 FULL_DECODE_ONLY 榨干算力。
 * Prefill 节点：由于需要应对 Chunked Prefill 等高度动态的形状变化，更多采用 PIECEWISE 或直接处于 NONE 状态以确保绝对稳定。 
 
-### 5.2 数据为什么搬不动？—— 压缩 HBM 流量
+### 6.2 数据为什么搬不动？—— 压缩 HBM 流量
 
 第二种浪费才是大头。GPU 的算力增长速度远快于显存带宽，于是绝大多数推理 kernel 的真实瓶颈都不是"算不完"，而是"数据喂不上"。
 
@@ -3143,7 +3143,7 @@ class CUDAGraphMode(enum.Enum):
 
 FlashAttention 和 Kernel Fusion 减少的是"搬运次数"（别让中间结果落地再读回来），下一节的量化减少的是"每次搬多少字节"。
 
-#### 5.2.1 Attention 后端与动态算子路由
+#### 6.2.1 Attention 后端与动态算子路由
 
 Attention 算子的硬件执行效率高度依赖于工作负载（Workload）形态、硬件架构及数据类型（dtype）。vLLM 在 vllm/v1/attention/backends/ 下集成了数十种 Attention 后端，并在 registry.py 中通过 Selector 机制，根据 Head Size、dtype、硬件算力以及运行时特征（Prefill / Decode / Mixed / MLA）进行动态算子路由（Kernel Selection）。
 
@@ -3158,7 +3158,7 @@ Attention 算子的硬件执行效率高度依赖于工作负载（Workload）�
 **TIPS：** 业界没有绝对通用的默认后端，算子路由强绑定于具体的 vLLM 版本与底层硬件。在生产环境上线或变更 workload 形态（如从单轮 QA 转向超长多轮对话）前，必须基于目标硬件进行针对性的端到端压力测试（Profile & Benchmark）。
 
 
-#### 5.2.2 FlashAttention：Tiling 与 Online-Softmax
+#### 6.2.2 FlashAttention：Tiling 与 Online-Softmax
 
 FlashAttention 是现代 LLM 推理的基石算子。它的核心思想是通过**分块计算（Tiling）**和 **Online Softmax**，让 N×N 的中间矩阵**根本不必在 HBM 里出现**。注意它优化的是**访存**，计算量（FLOPs）一分没少。
 
@@ -3362,7 +3362,7 @@ FlashAttention 后续版本主要是在同一套数学核心上继续做工程�
 不过，无论是最初版本还是后续版本，FlashAttention 的核心思想都没有变：
 **通过分块计算（Tiling）和在线归一化（Online Softmax），在保持结果等价的前提下，大幅降低注意力计算的显存和访存开销。**
 
-#### 5.2.3 Kernel Fusion 
+#### 6.2.3 Kernel Fusion 
 
 Kernel Fusion 的核心目标，是**把原本多个相邻的算子合并到一个 kernel 里执行**，从而减少中间结果的读写开销，降低 kernel launch 次数，并提升整体吞吐效率。对于大模型推理而言，很多算子本身的计算量并不大，但它们之间频繁地在 HBM 中读写中间 tensor，会让性能很快受限于显存带宽而不是算力。因此，Kernel Fusion 本质上是在做一件和 FlashAttention 非常相似的事情：**尽量让中间结果不落到 HBM，而是在片上完成连续计算。**
 
@@ -3428,11 +3428,11 @@ Kernel Fusion 和 FlashAttention 的共同点在于，它们都在解决同一�
 * 少中间 tensor
 * 更高吞吐、更低延迟
 
-### 5.3 能不能少搬几个字节？—— 低精度推理
+### 6.3 能不能少搬几个字节？—— 低精度推理
 
 上一节在减少搬运**次数**，这一节换个方向：让每次搬运的**数据本身变小**。两者正交，可以叠加。
 
-#### 5.3.1 推理量化的对象、收益与代价
+#### 6.3.1 推理量化的对象、收益与代价
 
 | | 权重 (W) | 激活 (A) | KV Cache |
 |---|---|---|---|
@@ -3442,7 +3442,7 @@ Kernel Fusion 和 FlashAttention 的共同点在于，它们都在解决同一�
 
 三种量化对象不是均匀受益的。权重量化同时降低显存和 Decode 带宽压力，因为 Decode 每步都要读权重；KV Cache 量化主要受益于 Decode 的历史 KV 读取和并发数；激活量化则更直接加速 Prefill 的 GEMM。选择方案前需要先判断瓶颈在 Prefill 还是 Decode。
 
-#### 5.3.2 权重量化方法
+#### 6.3.2 权重量化方法
 
 | 方法 | 格式 | 原理 | 量化时机 | 精度 |
 |------|------|------|---------|------|
@@ -3467,7 +3467,7 @@ Decode 之所以能加速，有三个叠加的原因：
 2. INT4 / FP8 GEMM 能用上 Tensor Core 的特殊指令，算力更高；
 3. 模型变小后可能用更少的卡装下，**连通信开销一起省了**。
 
-#### 5.3.3 FP8 推理
+#### 6.3.3 FP8 推理
 
 FP8 是 H100/H200 引入的硬件原生低精度格式，vLLM 通过 `vllm/model_executor/layers/quantization/fp8.py` 支持：
 
@@ -3486,7 +3486,7 @@ FP8 推理的优势：
 - 权重 + 激活 + KV Cache 全链路 FP8 → 显存减半
 - Per-tensor / Per-token scaling 可按需选择精度档位
 
-#### 5.3.4 混合精度组合与性能评测
+#### 6.3.4 混合精度组合与性能评测
 
 | 组合 | 权重 | 激活 | KV Cache | 显存 | TTFT | TPOT | 质量 |
 |---|---|---|---|---|---|---|---|
@@ -3505,11 +3505,11 @@ FP8 推理的优势：
 最后一句必须说在前面：**质量损失一定要用 eval benchmark 实测**（HumanEval、MMLU 等），不能靠"≈ 基准"这三个字就上生产。
 
 
-### 5.4 能不能少跑几轮模型？—— 投机解码
+### 6.4 能不能少跑几轮模型？—— 投机解码
 
 前面三节都在优化"一轮怎么跑得更快"。这一节换个思路：**能不能让一轮多产出几个 token，从而少跑几轮？**
 
-#### 5.4.1 Decode 的根本瓶颈
+#### 6.4.1 Decode 的根本瓶颈
 
 Decode 阶段的核心瓶颈是**逐 Token 串行**：每一步只生成 1 个 token，但需要完整读取模型权重和 KV Cache。GPU 算力的绝大部分处于闲置状态（低 arithmetic intensity）。
 
@@ -3521,7 +3521,7 @@ Decode 阶段的核心瓶颈是**逐 Token 串行**：每一步只生成 1 个 t
 
 算力利用率在小 batch 下可以低到个位数百分比——绝大部分时间在等 HBM。（batch 增大后同一份权重被多个请求摊薄，利用率会显著回升，这正是 Continuous Batching 有效的根本原因；但**单个请求的延迟**并不会因此变好，这才是投机解码要解决的问题。）
 
-#### 5.4.2 Speculative Decoding 基本原理
+#### 6.4.2 Speculative Decoding 基本原理
 
 核心思想：用一个**小而快**的 Draft Model 一次性推测多个候选 token，然后用**大而准**的 Target Model 并行验证这些候选。
 
@@ -3566,7 +3566,7 @@ sequenceDiagram
 
 约 **2× 加速**。注意 Verify 那 18 ms 比普通 Decode 的 15 ms 略高——因为要一次算 6 个位置而不是 1 个，计算量确实增加了，只是在 memory-bound 区间这点额外计算几乎免费。**这正是投机解码的本质：拿闲置算力去换延迟。**
 
-#### 5.4.3 工程实现与核心算法：Scheduler、KV Cache 与 拒绝采样
+#### 6.4.3 工程实现与核心算法：Scheduler、KV Cache 与 拒绝采样
 
 投机解码（Speculative Decoding）在 vLLM 中的落地绝非简单的算法套用，其核心难点在于非确定性（Speculative）的显存管理与多模型流水线的数学对冲。
 
@@ -3640,7 +3640,7 @@ $$q'(x) = \frac{\max\left(0, q(x) - p(x)\right)}{\sum_{z} \max\left(0, q(z) - p(
 
 直观理解：当小模型在 $$x^*$$ 处过于自信（被拒绝）时，大模型在重新采样时会扣除小模型多估的概率空间。残差分布 $$q'(x)$$ 的本质，就是去专门采样那些大模型认为可能出现、但被小模型低估（残差部分）的 Token，从而在统计学上实现与大模型原生自回归的绝对一致。在每个 Step 结束时，调度器调用 update_from_output() 根据最终实际接受的 Token 数量校准步长，并将无用的物理显存块吐回给内存池。
 
-##### 5.5.4 Speculative Decoding 的变体
+##### 6.5.4 Speculative Decoding 的变体
 
 不同 Speculative Decoding 方法的核心区别，主要在于**“候选 token 如何生成”**。它们整体都遵循类似的流程：
 
@@ -3895,9 +3895,9 @@ Model-native Speculation
 
 </details>
 
-## 六、Multi-GPU：一张卡不够时如何扩展？
+## 七、Multi-GPU：一张卡不够时如何扩展？
 
-### 6.1 分布式推理的混合并行策略
+### 7.1 分布式推理的混合并行策略
 
 分布式推理的混合并行策略：
 
@@ -3913,7 +3913,7 @@ Model-native Speculation
 
 下面按 DP → TP → PP → EP → CP 的顺序展开。
 
-#### 6.1.1 DP (Data Parallelism)
+#### 7.1.1 DP (Data Parallelism)
 
 **DP：每个 GPU 持有完整模型副本，各自处理不同请求。**
 
@@ -3931,7 +3931,7 @@ graph LR
 | 适用 | 模型放得下、但并发不够的场景 |
 | vLLM 实现 | `DPCoordinator`（`vllm/v1/engine/coordinator.py`）管理多个 `EngineCore` 实例，用 ZMQ 做请求分发与负载均衡 |
 
-#### 6.1.2 TP (Tensor Parallelism)
+#### 7.1.2 TP (Tensor Parallelism)
 
 ##### 1、TP 是什么？
 
@@ -4435,7 +4435,7 @@ All-Reduce
 
 > **一句话总结：TP 把一个 Transformer Layer 的矩阵计算拆给多张 GPU；Column Parallel 产生输出分片，Row Parallel 产生部分和，再通过 All-Reduce 合并。它用 GPU 间通信换取单卡计算和显存压力的降低，因此尤其依赖高速的机内互联。**
 
-#### 6.1.3 PP (Pipeline Parallelism)
+#### 7.1.3 PP (Pipeline Parallelism)
 
 ##### 1、PP是什么？
 
@@ -4809,7 +4809,7 @@ PP 更适合：
 
 在这些场景中，PP 虽然能够解决显存问题，但 stage 间的串行执行和通信可能抵消并行带来的收益。
 
-#### 6.1.4 EP (Expert Parallelism)
+#### 7.1.4 EP (Expert Parallelism)
 
 混合专家模型（Mixture-of-Experts，MoE）通过在模型中引入多个相对独立的 Expert，并利用 Router 为每个 Token 动态选择少量 Expert，从而在不线性增加计算量的情况下扩大模型参数规模。
 
@@ -5962,7 +5962,7 @@ EP 性能
 
 在 vLLM 等推理框架中，EP 通常通过 `dispatch` 和 `combine` 等通信抽象接口实现，并结合 DeepEP、NVLink、FlashInfer 或其他高性能通信后端，尽量降低 MoE 动态路由带来的通信开销。最终目标不是单纯减少通信次数，而是让通信、Token 重排、Expert 计算和结果聚合形成连续的数据流水线。
 
-#### 6.1.5 CP (Context Parallelism)
+#### 7.1.5 CP (Context Parallelism)
 
 ##### 1、CP 是什么？
 Context Parallelism（CP）是一种面向长序列的并行技术，其核心思想是将输入序列沿上下文维度切分，并分配到多个 GPU 上。每个 GPU 只负责处理整个序列的一部分 token，从而降低单个 GPU 的显存占用，并支持更长上下文的训练与推理。
@@ -6047,7 +6047,7 @@ Prefill 阶段通常具有较大的序列长度和计算量，更适合通过序
 总体而言，Context Parallelism 通过“切分上下文、局部计算、全局通信”的方式，将超长序列处理扩展到多个 GPU。它特别适用于 64K～1M tokens 等超长上下文场景，是突破单卡序列长度和 KV Cache 显存限制的重要技术。
 
 
-#### 6.1.6 混合并行策略汇总
+#### 7.1.6 混合并行策略汇总
 
 | 模型规模 / 场景 | 推荐策略 | 说明 |
 |---|---|---|
@@ -6067,7 +6067,7 @@ Prefill 阶段通常具有较大的序列长度和计算量，更适合通过序
 - **DP 永远是最外层的吞吐倍增器**——它不解决"装不下"，只解决"不够快"
 
 
-### 6.2 通信优化：推理系统的性能深水区
+### 7.2 通信优化：推理系统的性能深水区
 
 在多 GPU 推理系统中，计算单元的利用率往往受限于通信延迟和数据移动开销。尤其是在 Decode 阶段，单步生成的 Token 数量很少，矩阵乘法的计算量下降，而跨 GPU 同步仍然存在，通信启动延迟、同步等待和小消息处理效率就会变得格外重要。
 
@@ -6082,7 +6082,7 @@ Prefill 阶段通常具有较大的序列长度和计算量，更适合通过序
 - 通信能否与计算重叠；
 - 实际拓扑是否与并行策略匹配。
 
-#### 6.2.1 数据流向图谱：谁在拖慢速度？
+#### 7.2.1 数据流向图谱：谁在拖慢速度？
 
 在讨论通信优化之前，先把一次推理中的主要数据移动路径展开来看。
 
@@ -6184,7 +6184,7 @@ PCIe
 
 > TP 集合通信和 EP Token Dispatch 通常是最值得优先优化的通信路径，因为它们既可能数据量较大，又处于模型层级或 Token 路由的同步依赖链上。CPU-GPU 小消息则更需要关注调用次数、同步方式和启动延迟，而不是链路带宽。
 
-#### 6.2.2 NCCL：多 GPU 通信的默认底座
+#### 7.2.2 NCCL：多 GPU 通信的默认底座
 
 NCCL（NVIDIA Collective Communications Library）是 NVIDIA 提供的 GPU 集合通信库，主要为多 GPU 和多节点场景提供高性能通信原语。
 
@@ -6330,7 +6330,7 @@ nvidia-smi topo -m
 
 只有在这些基础条件确认无误后，才值得进一步实验 `NCCL_ALGO`、`NCCL_PROTO` 等参数。否则，修改参数很容易掩盖真正的拓扑或硬件配置问题。
 
-#### 6.2.3 计算与通信的深度重叠：隐藏等待时间
+#### 7.2.3 计算与通信的深度重叠：隐藏等待时间
 
 即使通信链路已经达到较高带宽，如果计算和通信仍然严格串行，通信时间依然会完整地暴露在端到端延迟中。
 
@@ -6459,7 +6459,7 @@ Combine                  [Combine₁][Combine₂]
 
 因此，MoE 通信优化不仅是“把 All-to-All 放到另一个 Stream”，还涉及路由、分桶、内存布局和 Expert 计算粒度的协同设计。
 
-#### 6.2.4 通信问题的定位方法
+#### 7.2.4 通信问题的定位方法
 
 通信性能问题通常不能只通过端到端吞吐量判断。需要将问题拆分为拓扑、链路、通信原语和应用依赖几个层次。
 
@@ -6520,7 +6520,7 @@ NCCL_DEBUG_SUBSYS=INIT,GRAPH,NET
 | MoE 通信抖动明显 | Token 分布不均 | 路由、Expert 负载和 Token 分桶 |
 | Decode 吞吐低 | 小消息和同步占主导 | 通信融合、低延迟实现和批处理 |
 
-#### 6.2.5 小结：通信优化的优先级
+#### 7.2.5 小结：通信优化的优先级
 
 通信优化可以按照以下顺序推进：
 
@@ -6561,11 +6561,11 @@ NCCL_DEBUG_SUBSYS=INIT,GRAPH,NET
 </details>
 
 
-## 七、模型适配：如何跟上变化极快的模型世界？
+## 八、模型适配：如何跟上变化极快的模型世界？
 
-### 7.1 痛点：为什么推理引擎必须持续适配新模型？
+### 8.1 痛点：为什么推理引擎必须持续适配新模型？
 
-#### 7.1.1 模型算法同质化与工程实现异构化
+#### 8.1.1 模型算法同质化与工程实现异构化
 
 LLM 模型在算法上高度同质，都是基于 Transformer模型，围绕以下组件构建：
 
@@ -6598,7 +6598,7 @@ LLM 模型在算法上高度同质，都是基于 Transformer模型，围绕以�
 
 而新架构的发布频率是**周级**的。所以真正的问题是：**如何在不动 Continuous Batching + PagedAttention 这套通用框架的前提下，容纳每个模型的特殊计算路径。**
 
-#### 7.1.2 新模型差异如何向下游扩散？
+#### 8.1.2 新模型差异如何向下游扩散？
 
 一个新模型接入推理引擎时，影响通常可以分为三个层次。
 
@@ -6641,7 +6641,7 @@ Softmax
 > 将模型的计算语义，准确映射到一个动态、异步、分布式且高度优化的执行系统中。
 
 
-#### 7.1.3 推理引擎适配的核心目标
+#### 8.1.3 推理引擎适配的核心目标
 
 一个成熟的模型适配方案通常需要同时满足四个目标：
 
@@ -6662,7 +6662,7 @@ Softmax
 适配工作的本质，就是在这几个目标之间找到合理的工程折中。
 
 
-### 7.2 vLLM 的核心抽象：从模型接入到运行时执行
+### 8.2 vLLM 的核心抽象：从模型接入到运行时执行
 
 在前一节中我们讨论过，模型变化往往会跨层扩散：模型结构会影响状态表示，状态表示会影响执行方式，执行方式又会进一步影响缓存、调度和性能优化。
 
@@ -6713,7 +6713,7 @@ flowchart LR
 
 二者通过加载完成的模型实例、运行时协议和输入状态连接起来。模型代码主要描述“模型如何计算”，运行时组件则负责“在动态请求环境中如何组织这次计算”。
 
-#### 7.2.1 配置语义：`ModelConfig` 将外部参数收敛为执行意图
+#### 8.2.1 配置语义：`ModelConfig` 将外部参数收敛为执行意图
 
 新模型接入的第一步并不是直接编写模型代码，而是先明确：
 
@@ -6764,7 +6764,7 @@ flowchart TD
 
 这些职责分别由后续抽象承担。
 
-#### 7.2.2 模型发现：`ModelRegistry` 负责定位实现
+#### 8.2.2 模型发现：`ModelRegistry` 负责定位实现
 
 当系统已经知道模型的架构语义和运行方式后，下一步是确定：
 
@@ -6811,7 +6811,7 @@ flowchart LR
 
 因此，Registry 更接近一个**模型实现路由层**，而不是完整的模型生命周期管理器。
 
-#### 7.2.3 能力契约：`nn.Module` 加 Protocol，而不是统一继承树
+#### 8.2.3 能力契约：`nn.Module` 加 Protocol，而不是统一继承树
 
 模型类被找到之后，还需要回答另一个问题：
 
@@ -6882,7 +6882,7 @@ classDiagram
 
 而不是强制所有模型在源码层面使用完全相同的参数列表。
 
-#### 7.2.4 模型落地：`ModelLoader` 与 `WeightsMapper`
+#### 8.2.4 模型落地：`ModelLoader` 与 `WeightsMapper`
 
 找到模型类并不意味着模型已经可以运行。实际接入中最容易出错的部分之一，是 checkpoint 权重如何正确装配到模型参数中。
 
@@ -6950,7 +6950,7 @@ kernel 或硬件问题
 
 从而降低排障复杂度。
 
-#### 7.2.5 运行时执行边界：`Worker + ModelRunner`
+#### 8.2.5 运行时执行边界：`Worker + ModelRunner`
 
 前面几节关注的是模型如何被识别、实现和加载。从这里开始，讨论模型如何在动态请求环境中运行。
 
@@ -7017,7 +7017,7 @@ Worker / ModelRunner：
 需要注意的是，二者的边界不是简单的文件边界。实际工程中，RoPE、mask、position、KV 访问和部分输入预处理，可能由模型层、attention 层、ModelRunner 或 backend 共同承担。更准确的划分方式，是依据数据语义和稳定契约，而不是依据某段代码位于哪个文件。
 
 
-#### 7.2.6 执行计划输入：`SchedulerOutput`
+#### 8.2.6 执行计划输入：`SchedulerOutput`
 
 `Worker + ModelRunner` 的第一个重要输入，是 Scheduler 生成的 `SchedulerOutput`。
 
@@ -7068,7 +7068,7 @@ ModelRunner 决定：
 
 这些信息应在执行侧进一步细化。
 
-#### 7.2.7 从执行计划到算子输入：`Attention Metadata`
+#### 8.2.7 从执行计划到算子输入：`Attention Metadata`
 
 `Attention Metadata` 与 `SchedulerOutput` 有关，但二者并不是同一层次的对象。
 
@@ -7132,7 +7132,7 @@ Attention Metadata 描述 attention 应该看见什么。
 这也是 vLLM 能够演进调度策略而不必频繁修改模型定义的重要原因之一。只要调度器仍然通过稳定的执行协议表达计划，执行侧就可以将新的调度策略转换为对应的 metadata 和输入布局。
 
 
-#### 7.2.8 模型计算与 Attention Backend：从语义到 Kernel
+#### 8.2.8 模型计算与 Attention Backend：从语义到 Kernel
 
 在 ModelRunner 准备好输入和 attention metadata 后，系统进入模型计算阶段。
 
@@ -7199,7 +7199,7 @@ Backend 判断可用实现
 模型代码因此不需要直接绑定某个硬件平台或某个具体 attention kernel。模型接入主要关注“attention 的语义”，而硬件后端负责“如何高效执行这个语义”。
 
 
-#### 7.2.9 横切抽象：KV、Tokenizer、多模态与插件
+#### 8.2.9 横切抽象：KV、Tokenizer、多模态与插件
 
 前面的内容构成了主执行链路。但一个模型能否稳定上线，还取决于若干横切抽象。
 
@@ -7283,7 +7283,7 @@ Tokenizer Registry 将 tokenizer 的特殊处理从模型执行路径中解耦�
 不过，插件并不是对所有内部对象开放任意修改，而应建立在清晰的注册点和稳定契约之上。否则，插件只会把核心系统中的隐式耦合转移到外部。
 
 
-#### 7.2.10 动态运行时与静态执行图：抽象边界的性能代价
+#### 8.2.10 动态运行时与静态执行图：抽象边界的性能代价
 
 运行时抽象提高了灵活性，但也会增加编译优化和图捕获的难度。
 
@@ -7353,7 +7353,7 @@ Tokenizer Registry 将 tokenizer 的特殊处理从模型执行路径中解耦�
 因此，前文介绍的抽象不仅服务于代码可维护性，也服务于性能优化。`SchedulerOutput` 和 `Attention Metadata` 将动态状态显式化，使编译器和 kernel 不必理解完整的请求调度逻辑，而只需要消费结构化的运行时输入。
 
 
-#### 7.2.11 新模型接入时的判断路径
+#### 8.2.11 新模型接入时的判断路径
 
 这套抽象的工程价值，最终体现在一个具体问题上：
 
@@ -7392,7 +7392,7 @@ Tokenizer Registry 将 tokenizer 的特殊处理从模型执行路径中解耦�
 这样可以避免在模型尚未正确加载时，就直接从 kernel 或调度器开始排查。
 
 
-#### 7.2.12 小结：动态性上浮，静态性下沉
+#### 8.2.12 小结：动态性上浮，静态性下沉
 
 vLLM 的核心设计可以概括为：
 
@@ -7460,9 +7460,9 @@ Attention变化  → Metadata / Attention layer / Backend
 这就是 vLLM 能够在保持高性能的同时快速支持新模型的关键：它并没有试图消除模型差异，而是将不同类型的差异放置到合适的抽象边界中，让模型逻辑、运行时调度、状态管理和硬件执行能够相对独立地演进。
 
 
-### 7.3 适配机制的演进：从临时补丁到编译化扩展
+### 8.3 适配机制的演进：从临时补丁到编译化扩展
 
-#### 7.3.1 早期方式：硬编码与模型专用实现
+#### 8.3.1 早期方式：硬编码与模型专用实现
 
 最直接的适配方式，是为新模型增加一个专用实现。
 
@@ -7483,7 +7483,7 @@ Attention变化  → Metadata / Attention layer / Backend
 这种方式适合模型早期接入，但不适合作为长期架构。
 
 
-#### 7.3.2 热插拔适配：Monkey Patch
+#### 8.3.2 热插拔适配：Monkey Patch
 
 当模型已有实现，但某些模块暂时无法直接复用时，可以采用热插拔方式替换局部逻辑。
 
@@ -7510,7 +7510,7 @@ Attention变化  → Metadata / Attention layer / Backend
 因此，Monkey Patch 更适合过渡阶段，而不是稳定扩展接口。
 
 
-#### 7.3.3 Custom Op：将性能关键路径下沉为标准算子
+#### 8.3.3 Custom Op：将性能关键路径下沉为标准算子
 
 当模型结构已经能够通过通用 Python 模块表达，但性能关键路径不足时，Custom Op 是更合理的方案。
 
@@ -7555,7 +7555,7 @@ CUDA / Triton / CPU Kernel
 当模型创新涉及这些运行时语义时，仅增加 Custom Op 通常是不够的。
 
 
-#### 7.3.4 IR：从算子注册走向计算图与后端解耦
+#### 8.3.4 IR：从算子注册走向计算图与后端解耦
 
 IR 可以看作位于模型表达和硬件执行之间的中间层。
 
@@ -7605,7 +7605,7 @@ IR 表示
 > 由运行时决定执行计划，由 IR 和编译器优化计划中的计算部分。
 
 
-#### 7.3.5 从“支持模型”到“组合计算原语”
+#### 8.3.5 从“支持模型”到“组合计算原语”
 
 当推理引擎将 Attention、MoE、MTP 等能力抽象为可组合的计算原语后，接入新模型就不再是从头实现整个网络，而是组合已有能力。
 
@@ -7631,9 +7631,9 @@ IR 表示
 但这种方法的前提是，模型创新仍然能够被现有原语表达。如果模型改变了原语本身的语义，或者改变了多个原语之间的协作方式，就需要扩大抽象边界。
 
 
-### 7.4 适配的边界：为什么仍然需要特化 Kernel？
+### 8.4 适配的边界：为什么仍然需要特化 Kernel？
 
-#### 7.4.1 抽象机制解决了什么问题？
+#### 8.4.1 抽象机制解决了什么问题？
 
 通用抽象主要解决以下问题：
 
@@ -7647,7 +7647,7 @@ IR 表示
 对于结构接近已有模型的架构，抽象能够显著降低适配成本。
 
 
-#### 7.4.2 抽象机制解决不了什么问题？
+#### 8.4.2 抽象机制解决不了什么问题？
 
 当模型改变以下内容时，通用抽象可能会失效：
 
@@ -7668,7 +7668,7 @@ IR 表示
 这时，特化 Kernel 并不是“为了追求极限性能而过度优化”，而是模型语义变化后的必然结果。
 
 
-#### 7.4.3 通用算子与特化算子的永恒博弈
+#### 8.4.3 通用算子与特化算子的永恒博弈
 
 | 维度 | 通用实现 | 特化实现 |
 |---|---|---|
@@ -7684,7 +7684,7 @@ IR 表示
 > 当模型只改变“计算结构”时，通用抽象通常足够；当模型改变“数据流、内存流或执行流”时，就需要引入特化实现。
 
 
-### 7.5 一个新模型接入 vLLM 的完整路径
+### 8.5 一个新模型接入 vLLM 的完整路径
 
 前文介绍了 vLLM 的核心抽象及其职责边界。这一节我们从工程实施角度说明**当一个新模型需要接入 vLLM 时，应该按照什么顺序分析、实现、验证和优化。**
 
@@ -7706,7 +7706,7 @@ IR 表示
 
 如果一开始就同时修改模型结构、权重加载、KV Cache、并行策略和 kernel，任何错误都会被多个变量掩盖，排障成本会显著上升。
 
-#### 7.5.1 模型差异分析与复用决策
+#### 8.5.1 模型差异分析与复用决策
 
 接入新模型的第一步不是立即编写代码，而是确定新模型与现有实现之间的差异，以及这些差异会影响哪些层级。
 
@@ -7774,7 +7774,7 @@ C. 新增模型实现，并扩展运行时状态、执行协议或 backend
 - 哪些能力留待后续扩展。
 
 
-#### 7.5.2 实现模型结构与权重装配
+#### 8.5.2 实现模型结构与权重装配
 
 模型实现阶段需要解决两个相互关联但应当分开验证的问题：
 
@@ -7897,7 +7897,7 @@ C. 新增模型实现，并扩展运行时状态、执行协议或 backend
 直接比较最终生成文本只能作为最后一层验证，因为采样和离散 token 可能掩盖中间层的数值误差。
 
 
-#### 7.5.3 打通单卡最小可运行路径
+#### 8.5.3 打通单卡最小可运行路径
 
 模型结构和权重装配完成后，不应立即接入所有高级能力。首先应建立一个简单、稳定且容易观察的最小运行路径。
 
@@ -7961,7 +7961,7 @@ C. 新增模型实现，并扩展运行时状态、执行协议或 backend
 
 只有最小单卡路径稳定后，才适合继续引入动态 Batch 和多卡执行。
 
-#### 7.5.4 适配运行时状态与 Attention 执行
+#### 8.5.4 适配运行时状态与 Attention 执行
 
 模型结构正确并不代表已经完成运行时接入。新模型还必须能够与调度、KV Cache、Attention Metadata 和 backend 协同工作。
 
@@ -8052,7 +8052,7 @@ Attention Metadata
 
 首次接入时不必一次性支持所有并行方式。应根据模型规模和实际部署需求，先实现最小必要的并行能力。
 
-#### 7.5.5 注册模型并验证端到端执行
+#### 8.5.5 注册模型并验证端到端执行
 
 模型结构、权重装配和最小运行时路径稳定后，需要将模型接入模型发现机制，并打通完整执行链路。
 
@@ -8135,7 +8135,7 @@ ModelRunnerOutput
 “模型能够被 Registry 找到”只说明模型发现链路正常，并不代表模型已经能够在动态请求环境中稳定执行。只有上述运行时行为全部贯通，才可以认为模型完成了基础接入。
 
 
-#### 7.5.6 扩展并行、量化和其他高级能力
+#### 8.5.6 扩展并行、量化和其他高级能力
 
 基础单卡路径稳定后，再逐步接入高级能力。建议按照实际需求分阶段推进，而不是将所有能力作为首次接入的前置条件。
 
@@ -8196,7 +8196,7 @@ ModelRunnerOutput
 
 首次接入时，如果这些能力不是模型上线的必要条件，可以先明确标记为暂不支持，而不是在基础实现中加入未经验证的分支。
 
-#### 7.5.7 性能分析与选择性特化
+#### 8.5.7 性能分析与选择性特化
 
 正确性和稳定性通过后，才进入性能优化阶段。性能优化必须建立在可复现的测试配置和稳定的正确性基线上。
 
@@ -8272,7 +8272,7 @@ ModelRunnerOutput
 
 每次优化都必须重新进行数值和端到端验证，避免为了局部吞吐牺牲模型正确性或请求稳定性。
 
-#### 7.5.8 正确性、性能与分布式验收
+#### 8.5.8 正确性、性能与分布式验收
 
 模型接入的最终验收至少包括三类测试：
 
@@ -8389,7 +8389,7 @@ vLLM 结果
 
 每增加一种并行方式、量化方式或特化 kernel，都应重新执行相应的正确性测试和性能回归测试。
 
-#### 7.5.9 推荐的接入顺序与发布门槛
+#### 8.5.9 推荐的接入顺序与发布门槛
 
 综合上述步骤，一个新模型的推荐接入顺序如下：
 
@@ -8485,7 +8485,7 @@ Attention 差异 → Attention Metadata / Backend
 这也是新模型能够在不破坏既有运行时和性能优化的前提下接入 vLLM 的关键。
 
 
-### 7.6 实际案例分析：DeepSeek架构的工程适配
+### 8.6 实际案例分析：DeepSeek架构的工程适配
 
 DeepSeek 系列模型的接入，并不是简单地增加一个模型类、补充若干权重映射，或者为某个算子编写特化 Kernel。它更像是一次对推理引擎既有协议的压力测试：模型在注意力机制、专家路由、推测式生成和缓存管理等方面引入了新的状态组织方式，迫使 vLLM 重新审视原有抽象是否足够表达这些变化。
 
@@ -8513,7 +8513,7 @@ MTP / Speculative Decoding 状态管理
 
 这也说明，复杂模型的接入过程，本质上是将模型自身的特殊机制翻译成推理框架能够理解的协议。
 
-#### 7.6.1 MLA：从注意力优化到 KV Cache 协议扩展
+#### 8.6.1 MLA：从注意力优化到 KV Cache 协议扩展
 
 Multi-head Latent Attention，简称 MLA，最直接的目标是降低 KV Cache 的存储与访存开销。传统多头注意力通常需要为每个 Token 保存规模较大的 Key 和 Value 状态，而 MLA 则通过低秩表示压缩历史上下文，使缓存中的信息维度显著降低。
 
@@ -8600,7 +8600,7 @@ SchedulerOutput
 这体现了“动态性上浮，静态性下沉”的原则：MLA 的特殊性应当被限制在明确的模型和后端边界内，而不是扩散到所有通用调度代码中。
 
 
-#### 7.6.2 MoE：从静态执行图到动态专家路由
+#### 8.6.2 MoE：从静态执行图到动态专家路由
 
 Mixture-of-Experts，简称 MoE，将单一的前馈网络替换为多个专家网络，并由 Router 为每个 Token 选择少量专家执行。它的核心优势是：
 
@@ -8713,7 +8713,7 @@ Expert Computation
 - 多卡和单卡路径是否具有一致语义；
 - Token 重排和还原是否保持顺序正确。
 
-#### 7.6.3 MTP：从单步生成到可验证的多步执行
+#### 8.6.3 MTP：从单步生成到可验证的多步执行
 
 Multi-Token Prediction，简称 MTP，改变了传统自回归模型“一次只生成一个 Token、确认后再继续”的执行方式。它允许模型在一次前向过程中提出多个候选 Token，随后通过验证逻辑决定哪些候选可以被接受。
 
@@ -8831,7 +8831,7 @@ MTP 的关键验证点也不只是“最终文本是否合理”，而是要检�
 - 失败路径是否会造成缓存泄漏或 block 错配。
 
 
-### 7.6.4 DeepSeek 架构接入的边界拆解
+### 8.6.4 DeepSeek 架构接入的边界拆解
 
 下面的决策矩阵可以看出DeepSeek 的每项特性都不能简单归入“模型层”。它们分别触及了缓存、调度、分布式执行、算子后端和状态管理等不同边界。
 
@@ -8847,7 +8847,7 @@ MTP 的关键验证点也不只是“最终文本是否合理”，而是要检�
 | 特化 Kernel | 通用算子难以覆盖全部性能需求 | 增加硬件与后端特化实现 | Attention Backend、Custom Op | 数值稳定性、边界尺寸、不同硬件兼容性 |
 
 
-#### 7.6.5 三层架构：通用层、特化层与验证层
+#### 8.6.5 三层架构：通用层、特化层与验证层
 
 为了控制复杂度，DeepSeek 的接入可以按照三层结构组织。
 
@@ -8931,7 +8931,7 @@ MTP 的关键验证点也不只是“最终文本是否合理”，而是要检�
 - 多卡通信延迟抖动；
 - 特定输入触发数值不稳定。
 
-#### 7.6.6 小结：DeepSeek 接入的本质
+#### 8.6.6 小结：DeepSeek 接入的本质
 
 DeepSeek 对 vLLM 的影响，可以概括为三次协议扩展：
 
@@ -8951,9 +8951,9 @@ DeepSeek 对 vLLM 的影响，可以概括为三次协议扩展：
 这也是 vLLM 架构演进的核心方向：让上层能够表达复杂模型，让中层能够编排动态执行，让底层仍然保持高效、确定且可验证的算子执行。
 
 
-### 7.7 总结：推理引擎适配能力的本质
+### 8.7 总结：推理引擎适配能力的本质
 
-#### 7.7.1 模型层、运行时层与算子层的三层适配模型
+#### 8.7.1 模型层、运行时层与算子层的三层适配模型
 
 可以将模型适配归纳为三层：
 
@@ -8980,7 +8980,7 @@ DeepSeek 对 vLLM 的影响，可以概括为三次协议扩展：
 真正成熟的推理引擎，不是让所有模型都使用同一个实现，而是建立清晰的适配边界，让变化能够被隔离在合适的层次中。
 
 
-#### 7.7.2 推理引擎的核心竞争力
+#### 8.7.2 推理引擎的核心竞争力
 
 推理引擎的核心竞争力可以概括为四点：
 
@@ -8992,7 +8992,7 @@ DeepSeek 对 vLLM 的影响，可以概括为三次协议扩展：
 如果只有抽象，没有特化，系统可能易于扩展但性能不足；如果只有特化，没有抽象，系统可能性能很高但难以维护。优秀的推理引擎需要在二者之间建立动态平衡。
 
 
-#### 7.7.3 从模型适配到模型与引擎共演进
+#### 8.7.3 从模型适配到模型与引擎共演进
 
 随着模型结构不断创新，模型和推理引擎之间的关系正在发生变化。
 
@@ -9052,7 +9052,7 @@ DeepSeek 对 vLLM 的影响，可以概括为三次协议扩展：
 </details>
 
 
-## 八、硬件解耦：如何不让芯片差异污染 Serving 核心？
+## 九、硬件解耦：如何不让芯片差异污染 Serving 核心？
 
 上一章讨论了模型适配：面对不断变化的模型结构，Serving 框架如何通过统一接口、模型注册和模块化执行路径，降低新模型接入成本。
 
@@ -9067,7 +9067,7 @@ DeepSeek 对 vLLM 的影响，可以概括为三次协议扩展：
 vLLM 的答案不是在核心代码里堆积更多硬件分支，而是建立一套平台抽象、后端选择和插件扩展机制，把硬件差异尽可能隔离在系统边界之外。
 
 
-### 8.1 一条设计原则：硬件适配不能污染 Serving 核心
+### 9.1 一条设计原则：硬件适配不能污染 Serving 核心
 
 先看一个反例。
 
@@ -9188,7 +9188,7 @@ graph TD
 这些问题应该由平台层回答。
 
 
-### 8.2 Platform：硬件能力的统一来源
+### 9.2 Platform：硬件能力的统一来源
 
 在 vLLM 中，`Platform` 可以理解为硬件适配的“能力中心”。
 
@@ -9272,7 +9272,7 @@ from vllm.platforms import current_platform
 > **`current_platform` 是运行时平台选择机制的统一出口。它背后可能来自内置平台，也可能来自通过插件机制注册的 Out-of-Tree 平台。**
 
 
-### 8.3 Platform、Attention Backend 与 Kernel Backend 的真实关系
+### 9.3 Platform、Attention Backend 与 Kernel Backend 的真实关系
 
 很多人第一次阅读 vLLM 硬件适配代码时，会自然地形成一种“三层调用栈”：
 
@@ -9499,7 +9499,7 @@ Attention 之所以被单独抽象出来，不只是因为它名字特殊，而�
 两者都属于硬件适配，但解决的问题不同。
 
 
-### 8.4 Out-of-Tree插件架构：把新硬件放到主仓库之外
+### 9.4 Out-of-Tree插件架构：把新硬件放到主仓库之外
 
 如果每接入一种硬件，都必须修改 vLLM 主仓库，那么硬件生态很容易受到两个问题限制：
 
@@ -9560,9 +9560,9 @@ if device == "npu":
 一个真正可用的昇腾后端，通常需要完成以下工作。
 
 
-### 8.5 昇腾适配需要解决哪些问题？
+### 9.5 昇腾适配需要解决哪些问题？
 
-#### 8.5.1 平台识别与注册
+#### 9.5.1 平台识别与注册
 
 首先，vLLM 必须能够识别当前设备，并将其映射到 Ascend 平台实现。
 
@@ -9608,7 +9608,7 @@ sequenceDiagram
 > **平台注册只解决“让系统看见这个硬件”，不代表底层算子、通信和模型执行都已经可用。**
 
 
-#### 8.5.2 Worker 与设备生命周期
+#### 9.5.2 Worker 与设备生命周期
 
 Serving 核心通常不会直接操作每一种硬件的底层运行时，而是通过 Worker 负责：
 
@@ -9654,7 +9654,7 @@ CANN Runtime 初始化
 - 多进程下的设备隔离；
 - 进程退出时的资源清理。
 
-#### 8.5.3 Attention Backend
+#### 9.5.3 Attention Backend
 
 Attention 通常是昇腾适配中最关键的部分之一。
 
@@ -9734,7 +9734,7 @@ Prefill 或 Decode
 如果平台只实现了一个能够计算 Attention 的算子，但不能正确理解 vLLM 的 KV Cache block 布局，那么它仍然不能作为完整的 vLLM Attention Backend 使用。
 
 
-#### 8.5.4 KV Cache 与内存管理
+#### 9.5.4 KV Cache 与内存管理
 
 vLLM 的 KV Cache 管理器通常应该保持平台无关。它负责的是逻辑 block：
 
@@ -9777,7 +9777,7 @@ graph TD
 如果这两个层次混在一起，未来接入另一种 NPU 时，就会再次出现核心逻辑复制。
 
 
-#### 8.5.5 基础算子与自定义 Kernel
+#### 9.5.5 基础算子与自定义 Kernel
 
 完整的模型执行不仅包含 Attention，还包括大量基础算子：
 
@@ -9827,7 +9827,7 @@ graph TD
 性能可接受
 ```
 
-#### 8.5.6 量化支持
+#### 9.5.6 量化支持
 
 量化是硬件适配中非常容易产生差异的部分。
 
@@ -9872,7 +9872,7 @@ def get_supported_quantization(cls):
 > **把硬件限制变成可查询、可验证的能力，而不是隐藏在深层 Kernel 错误中。**
 
 
-#### 8.5.7 分布式通信与并行策略
+#### 9.5.7 分布式通信与并行策略
 
 单卡推理只是硬件适配的一部分。大模型部署经常需要：
 
@@ -9919,7 +9919,7 @@ AscendPlatform → AscendCommunicator → HCCL
 
 所以，硬件适配的验证范围必须覆盖单卡和多卡。
 
-### 8.6 OOT 适配的边界：不是“主仓库完全不用改”
+### 9.6 OOT 适配的边界：不是“主仓库完全不用改”
 
 “Out-of-Tree”经常被简化成一句话：
 
@@ -9964,7 +9964,7 @@ OOT 能否做到真正独立，取决于主仓库是否已经提供足够稳定�
 一个成熟的 OOT 插件，实际上是一个独立的适配层和发行生态。
 
 
-### 8.7 一次请求在异构硬件上的执行路径
+### 9.7 一次请求在异构硬件上的执行路径
 
 把前面的模块组合起来，可以得到一个更完整的请求执行路径：
 
@@ -10007,7 +10007,7 @@ sequenceDiagram
 > **上层流程保持稳定，底层实现可以替换。**
 
 
-### 8.8 如何判断硬件适配是否真正做到了解耦？
+### 9.8 如何判断硬件适配是否真正做到了解耦？
 
 可以用下面几个问题进行检查。
 
@@ -10082,7 +10082,7 @@ KV Cache 正确
 能在 NPU 上返回结果，只能说明适配链路打通了；能在真实模型、真实 batch 和真实上下文长度下稳定达到目标吞吐，才算完成了工程适配。
 
 
-### 8.9 小结：Platform 是边界，不是万能胶
+### 9.9 小结：Platform 是边界，不是万能胶
 
 这一章最重要的结论可以概括为三句话。
 
@@ -10157,7 +10157,7 @@ Serving 核心保持稳定
 </details>
 
 
-## 九、PD 分离：从单机 Serving 走向集群 Serving
+## 十、PD 分离：从单机 Serving 走向集群 Serving
 
 > **本章把前面讨论的四个问题从单机推向集群：当 Prefill 和 Decode 不再共享同一批 GPU，调度、KV Cache、路由和故障恢复都需要重新设计。**
 
@@ -10201,9 +10201,9 @@ Decode Pool   → 负责逐 Token 生成
 
 当前，在讨论怎么PD分离之前，我们要先搞清楚为什么要PD分离。
 
-### 9.1 为什么要分离 Prefill 和 Decode？
+### 10.1 为什么要分离 Prefill 和 Decode？
 
-#### 9.1.1 两种计算阶段，两种资源画像
+#### 10.1.1 两种计算阶段，两种资源画像
 
 Prefill 和 Decode 使用的是同一套模型，但它们的计算行为并不相同。
 
@@ -10265,7 +10265,7 @@ Decode 则是在已有 KV Cache 的基础上，每轮生成一个或少量 token
 > **两种阶段的资源需求不同，却被迫共享相同的调度和硬件资源。**
 
 
-#### 9.1.2 混合部署的主要代价
+#### 10.1.2 混合部署的主要代价
 
 | 问题 | 直接后果 |
 |---|---|
@@ -10281,7 +10281,7 @@ Decode 则是在已有 KV Cache 的基础上，每轮生成一个或少量 token
 如果 Prefill 和 Decode 共用同一批 GPU，只能整体增加机器，无法针对真正的瓶颈进行扩展。
 
 
-#### 9.1.3 PD 分离的基本架构
+#### 10.1.3 PD 分离的基本架构
 
 PD 分离将两类 workload 放到不同的资源池中：
 
@@ -10342,7 +10342,7 @@ PD 分离带来的核心收益包括：
 > **PD 分离用跨节点协调和 KV Transfer 的成本，换取 Prefill 与 Decode 的资源独立性。**
 
 
-### 9.2 一次请求如何经过 Prefill 和 Decode？
+### 10.2 一次请求如何经过 Prefill 和 Decode？
 
 理解 PD 分离最直接的方式，是跟踪一个请求的完整生命周期。
 
@@ -10454,7 +10454,7 @@ Decode 服务接管这个中间状态
 这个中间状态就是 KV Cache。
 
 
-### 9.3 KV Transfer：PD 分离真正的难点
+### 10.3 KV Transfer：PD 分离真正的难点
 
 把 GPU 分成两个池子很容易，真正困难的是中间这条连接线：
 
@@ -10471,7 +10471,7 @@ Decode Node
 > **PD 分离的核心不是“有没有两个池子”，而是 KV 能否高效、正确、及时地从一个池子交给另一个池子。**
 
 
-#### 9.3.1 KV Cache 到底有多大？
+#### 10.3.1 KV Cache 到底有多大？
 
 KV Cache 的大小取决于模型结构和数据类型。一个简化的估算公式是：
 
@@ -10524,7 +10524,7 @@ Prompt 长度 = 2050 token
 这里的 320 KB/token 只是特定模型、层数、KV heads、head_dim 和数据类型下的示例，不是所有模型的固定值。
 
 
-#### 9.3.2 传输时间如何估算？
+#### 10.3.2 传输时间如何估算？
 
 理想情况下：
 
@@ -10572,7 +10572,7 @@ KV 生成
 ```
 
 
-#### 9.3.3 KV Transfer 能否与计算重叠？
+#### 10.3.3 KV Transfer 能否与计算重叠？
 
 最理想的情况不是：
 
@@ -10630,7 +10630,7 @@ Decode
 此时传输和计算完全串行，PD 分离的收益会显著下降。
 
 
-### 9.4 vLLM 中的 KV Transfer 抽象
+### 10.4 vLLM 中的 KV Transfer 抽象
 
 从功能职责上，可以把 KV Transfer 理解为三类组件：
 
@@ -10645,7 +10645,7 @@ KV 索引与缓存层
 不同实现的模块边界并不完全相同，但它们解决的问题大致可以归入这三类。
 
 
-#### 9.4.1 Serving 语义层：KV Connector
+#### 10.4.1 Serving 语义层：KV Connector
 
 KV Connector 面向 vLLM 的调度和执行流程，负责把“远端 KV Cache”纳入请求生命周期。
 
@@ -10737,7 +10737,7 @@ Worker 才真正执行：
 ```
 
 
-#### 9.4.2 KV 索引与缓存层
+#### 10.4.2 KV 索引与缓存层
 
 跨节点传输并不意味着每次都要重新搬运全部 KV。
 
@@ -10792,7 +10792,7 @@ Token 前缀 / KV Block
 - 多个请求同时写入同一个前缀时如何处理。
 
 
-#### 9.4.3 数据传输与存储层
+#### 10.4.3 数据传输与存储层
 
 最底层是数据传输与存储机制，负责真正搬运 KV Tensor。
 
@@ -10833,7 +10833,7 @@ GPU → 共享存储 → 远端 GPU
 > 这三类职责是功能上的划分，不一定对应所有实现中固定的三个独立模块。
 
 
-### 9.5 NIXL、LMCache、Mooncake 等生态组件
+### 10.5 NIXL、LMCache、Mooncake 等生态组件
 
 PD 分离涉及的组件很多，但它们并不处在完全相同的抽象层。
 
@@ -10920,7 +10920,7 @@ vLLM KV Transfer 抽象
 它们可能在某些部署中组合使用，也可能由一个系统同时覆盖多个层次。
 
 
-### 9.6 PD 分离下的请求路由
+### 10.6 PD 分离下的请求路由
 
 PD 分离之后，Router 不再只是一个普通的轮询负载均衡器。
 
@@ -10989,7 +10989,7 @@ graph TD
 ```
 
 
-### 9.7 KV Affinity：路由中的状态亲和性
+### 10.7 KV Affinity：路由中的状态亲和性
 
 如果同一前缀的请求尽量被路由到相同的 Decode 节点，就有机会复用该节点上已有的 Prefix Cache。
 
@@ -11049,7 +11049,7 @@ Prefill 排队时间
 这已经不是传统的无状态服务路由，而是带有执行状态和缓存状态感知的路由。
 
 
-### 9.8 两个池子可以独立扩缩容
+### 10.8 两个池子可以独立扩缩容
 
 PD 分离最直接的收益之一，是 Prefill 和 Decode 可以独立扩缩容。
 
@@ -11127,7 +11127,7 @@ Decode 资源空闲
 因此，扩缩容系统需要同时观察两个池子的端到端吞吐，而不能只看单侧 GPU 利用率。
 
 
-### 9.9 故障恢复：KV Cache 变成分布式状态
+### 10.9 故障恢复：KV Cache 变成分布式状态
 
 在单机部署中，一个进程失效通常意味着本地请求和 KV Cache 一起丢失。
 
@@ -11249,7 +11249,7 @@ KV Cache 与数据库数据还有一个重要区别：
 重新计算成本
 ```
 
-### 9.10 PD 分离不是无条件划算
+### 10.10 PD 分离不是无条件划算
 
 PD 分离的收益取决于业务流量、模型结构和网络条件。
 
@@ -11322,7 +11322,7 @@ Decode Pool  → 优化 TPOT
 ```
 
 
-### 9.11 从单机 KV Cache 到集群 KV Cache
+### 10.11 从单机 KV Cache 到集群 KV Cache
 
 前面几章里，KV Cache 主要是单机内部的执行状态：
 
@@ -11415,7 +11415,7 @@ CPU Memory：
 ```
 
 
-### 9.12 小结：PD 分离的本质是状态转移
+### 10.12 小结：PD 分离的本质是状态转移
 
 PD 分离不是简单地把 GPU 分成两组。
 
@@ -11483,7 +11483,7 @@ Prefill / Decode 分离
 </details>
 
 
-## 十、Serving Infra 的下一站：从模型执行器到分布式智能操作系统
+## 十一、Serving Infra 的下一站：从模型执行器到分布式智能操作系统
 
 在前面的章节中，我们围绕 vLLM 的核心机制展开了讨论：模型如何加载，算子如何执行，请求如何调度，以及 KV Cache 如何管理。
 
@@ -11521,9 +11521,9 @@ Serving Infra 的核心问题也随之改变：
 Serving 系统正在从“模型执行器”演进为“分布式智能操作系统”。
 
 
-### 10.1 Serving 系统正在管理什么
+### 11.1 Serving 系统正在管理什么
 
-#### 10.1.1 从请求响应到智能任务
+#### 11.1.1 从请求响应到智能任务
 
 早期的推理服务可以抽象为一个简单流程：
 
@@ -11566,7 +11566,7 @@ Prefill
 
 Serving 系统管理的对象因此从“请求”扩展为“带状态的任务”。
 
-#### 10.1.2 性能指标需要重新定义
+#### 11.1.2 性能指标需要重新定义
 
 吞吐和延迟仍然重要，但已经不足以描述生产系统的真实质量。
 
@@ -11596,9 +11596,9 @@ $$
 未来的 Serving 系统追求的不是“生成更多 token”，而是 **在满足 SLO 的前提下，以更低的成本完成更多有效任务。**
 
 
-### 10.2 计算：从手工并行到自动执行计划
+### 11.2 计算：从手工并行到自动执行计划
 
-#### 10.2.1 手写 Kernel 的边界
+#### 11.2.1 手写 Kernel 的边界
 
 在深度学习系统发展的早期，性能优化主要依赖专家手写 Kernel：
 
@@ -11622,7 +11622,7 @@ $$
 
 因此，未来的优化对象不会只是单个 Kernel，而是完整的执行计划。
 
-#### 10.2.2 Serving Plan Compiler
+#### 11.2.2 Serving Plan Compiler
 
 未来的 Serving 编译器可以被抽象为 **Serving Plan Compiler**。
 
@@ -11688,13 +11688,13 @@ Serving Plan Compiler
 Runtime 根据请求特征和集群状态选择合适的计划。
 
 
-### 10.3 自动化并行与容量编排
+### 11.3 自动化并行与容量编排
 
 自动化并行是 Serving Infra 下一阶段最重要的演进方向之一。
 
 它解决的问题不是“如何启动更多副本”，而是：**如何根据模型、硬件拓扑、请求负载和 SLO，自动生成合适的分布式执行方案。**
 
-#### 10.3.1 从手工配置到自动并行
+#### 11.3.1 从手工配置到自动并行
 
 当前部署大模型，通常需要人工配置：
 
@@ -11744,7 +11744,7 @@ $$
 
 其中，\(P\) 代表完整的并行与部署计划。
 
-#### 10.3.2 自动化并行与 PD 容量均衡
+#### 11.3.2 自动化并行与 PD 容量均衡
 
 自动化并行和 Prefill/Decode 容量均衡处于不同层次。
 
@@ -11789,7 +11789,7 @@ Decode：24 个 Worker
 
 前者决定 Worker 内部如何使用 GPU，后者决定集群中 Prefill 与 Decode 的资源比例。
 
-#### 10.3.3 拓扑感知的并行规划
+#### 11.3.3 拓扑感知的并行规划
 
 自动化并行不能只看 GPU 数量，还必须理解硬件拓扑：
 
@@ -11824,7 +11824,7 @@ GPU 拓扑
 
 这是一种 **Topology-aware Parallelism Planning**。
 
-#### 10.3.4 Prefill/Decode 容量均衡
+#### 11.3.4 Prefill/Decode 容量均衡
 
 Prefill 和 Decode 的资源特征不同。
 
@@ -11875,7 +11875,7 @@ KV Cache 位置
 
 这不再是普通的弹性伸缩，而是**面向推理阶段的容量编排。**
 
-#### 10.3.5 MoE 与专家资源
+#### 11.3.5 MoE 与专家资源
 
 MoE 模型进一步放大了自动并行的复杂度。
 
@@ -11899,9 +11899,9 @@ MoE 模型进一步放大了自动并行的复杂度。
 并行策略因此不再只是按照参数切分模型，也需要根据真实 token 流量编排计算资源。
 
 
-### 10.4 状态：从 KV Cache 到 Inference State Plane
+### 11.4 状态：从 KV Cache 到 Inference State Plane
 
-#### 10.4.1 KV Cache 已经成为运行时资源
+#### 11.4.1 KV Cache 已经成为运行时资源
 
 KV Cache 最初只是一次请求生命周期内的临时数据。
 
@@ -11917,7 +11917,7 @@ KV Cache 最初只是一次请求生命周期内的临时数据。
 
 因此，KV Cache 不应再只是模型实例内部的实现细节，而应成为 Serving 系统的一等资源。
 
-#### 10.4.2 分层 KV Cache
+#### 11.4.2 分层 KV Cache
 
 单一的 GPU HBM 很难同时满足超长上下文和长生命周期 Session 的需求。
 
@@ -11953,7 +11953,7 @@ CPU 内存
 
 “传输还是重算”将成为运行时决策。
 
-#### 10.4.3 Cache-aware Scheduling
+#### 11.4.3 Cache-aware Scheduling
 
 当 KV Cache 成为共享状态后，请求调度就不能只考虑哪个 Worker 当前最空闲。
 
@@ -11983,7 +11983,7 @@ CPU 内存
 
 这就是 **Cache-aware Scheduling**，更进一步，也可以称为 **Joint Compute–State Scheduling**。
 
-#### 10.4.4 Inference State Plane
+#### 11.4.4 Inference State Plane
 
 除了 KV Cache，未来的 Serving 系统还需要管理：
 
@@ -12032,9 +12032,9 @@ CPU 内存
 
 这将改变 Serving Runtime 的边界：Runtime 不再独占所有状态，而是成为状态平面的一个使用者。
 
-### 10.5 调度：从单体 Engine 到分布式执行
+### 11.5 调度：从单体 Engine 到分布式执行
 
-#### 10.5.1 Prefill/Decode 解耦
+#### 11.5.1 Prefill/Decode 解耦
 
 传统 Serving Engine 通常将请求接收、Prefill、Decode、KV Cache 管理和结果输出集中在一个进程或一个 Worker 集群中。
 
@@ -12079,7 +12079,7 @@ Decode 集群
 
 PD 解耦不是简单地拆分两个服务，而是一次执行模型的重构。
 
-#### 10.5.2 KV Cache Transfer
+#### 11.5.2 KV Cache Transfer
 
 KV Cache Transfer 的成本取决于：
 
@@ -12113,7 +12113,7 @@ Decode 在哪里执行？
 
 这使得 KV Cache Transfer 不再是一个底层通信细节，而成为全局调度的一部分。
 
-#### 10.5.3 请求迁移与状态迁移
+#### 11.5.3 请求迁移与状态迁移
 
 在单体架构中，请求通常与 Worker 强绑定。一旦 Worker 过载或发生故障，请求迁移往往意味着重新开始计算。
 
@@ -12139,7 +12139,7 @@ Decode 在哪里执行？
 
 只有当状态可以独立于计算实例存在时，请求迁移才真正可行。
 
-#### 10.5.4 Speculative Serving
+#### 11.5.4 Speculative Serving
 
 投机解码通常被视为模型优化，但在大规模部署中，它也会成为基础设施能力。
 
@@ -12168,9 +12168,9 @@ Serving 系统需要决定：
 因此，投机解码不应只是模型代码中的一个开关，而可以被抽象为：**由 Serving 系统管理的多模型协同执行计划。**
 
 
-### 10.6 弹性：从故障重试到状态恢复
+### 11.6 弹性：从故障重试到状态恢复
 
-#### 10.6.1 推理系统的故障模型
+#### 11.6.1 推理系统的故障模型
 
 传统无状态服务发生故障时，通常只需要重新发送请求。
 
@@ -12204,7 +12204,7 @@ Worker 级
 
 核心目标不是“永不失败”，而是：**故障发生后，以尽可能低的代价恢复有效执行。**
 
-#### 10.6.2 Goodput 驱动的调度
+#### 11.6.2 Goodput 驱动的调度
 
 GPU 利用率高，并不代表服务质量高。
 
@@ -12241,7 +12241,7 @@ $$
 
 这意味着 Serving 调度器会从队列管理器演进为多目标优化系统。
 
-#### 10.6.3 异构硬件与能耗感知
+#### 11.6.3 异构硬件与能耗感知
 
 未来的推理集群不会只包含一种 GPU，还可能同时使用：
 
@@ -12275,7 +12275,7 @@ $$
 资源调度的目标也将从“把请求放到空闲 GPU”演进为：**把合适的请求放到最适合的硬件上。**
 
 
-### 10.7 vLLM 的位置与边界
+### 11.7 vLLM 的位置与边界
 
 vLLM 代表了现代 LLM Serving Runtime 的重要发展方向。
 
@@ -12331,7 +12331,7 @@ Inference State Plane
 vLLM 可以成为其中重要的执行层，但完整的 AI Serving Operating System 需要更多组件共同完成。
 
 
-### 10.8 AI Serving Operating System
+### 11.8 AI Serving Operating System
 
 将前面的变化放在一起，可以得到一个未来架构：
 
@@ -12377,7 +12377,7 @@ vLLM 可以成为其中重要的执行层，但完整的 AI Serving Operating Sy
 + 一个可迁移、可恢复的分布式运行时
 ```
 
-### 10.9 Serving Engineer 的角色变化
+### 11.9 Serving Engineer 的角色变化
 
 过去，Serving Engineer 主要关注：
 
@@ -12412,7 +12412,7 @@ vLLM 可以成为其中重要的执行层，但完整的 AI Serving Operating Sy
 > 不仅要知道模型如何计算，还要知道计算如何被编排、状态如何被管理，以及故障发生后系统如何继续工作。
 
 
-### 10.10 结语：Serving 的下一站
+### 11.10 结语：Serving 的下一站
 
 LLM Serving 的演进，不只是让模型生成 token 更快。
 
@@ -12442,7 +12442,7 @@ vLLM 解决了高性能模型执行中的许多关键问题，但它代表的更
 这就是 Serving Infra 的下一站。
 
 
-## 十一、回到源码：一次请求在 vLLM 内部的真实旅程
+## 十二、回到源码：一次请求在 vLLM 内部的真实旅程
 
 > **前九章回答了「是什么」和「为什么」，这一章回答「怎么实现」。**
 
@@ -12450,7 +12450,7 @@ vLLM 解决了高性能模型执行中的许多关键问题，但它代表的更
 
 这一章刻意放在最后：如果它出现在第二章，你只会看到一堆 class；出现在这里，你会看到**设计决策留下的痕迹**。
 
-### 11.1 控制面与数据面的分离
+### 12.1 控制面与数据面的分离
 
 ```mermaid
 graph LR
@@ -12517,7 +12517,7 @@ vLLM 的 C++/CUDA 扩展通过 PyTorch 的 Custom Op 机制注册（位于 `csrc
 | `torch.matmul()` | | cuBLAS GEMM | | Tensor Cores |
 
 
-### 11.2 四个域：给源码里的每个对象定位
+### 12.2 四个域：给源码里的每个对象定位
 
 vLLM V1 的核心数据对象（定义在 `vllm/v1/request.py`、`vllm/v1/core/sched/output.py`、`vllm/v1/outputs.py`）可以分为四个域：
 
@@ -12583,7 +12583,7 @@ vLLM V1 的核心数据对象（定义在 `vllm/v1/request.py`、`vllm/v1/core/s
 - **`EngineCoreRequest` → `Request` 是一次跨进程翻译**。前者是能被 msgspec 序列化、走 ZMQ 的扁平数据；后者是带状态机、会被反复修改的活对象。这条边界就是第 2.3 节控制面的进程边界。
 - **显存域是唯一"跨请求共享"的域**。请求域、调度域、模型域的对象都属于某一次请求或某一轮迭代，而 `KVCacheBlock` 会被多个请求通过 `ref_cnt` 共享——Prefix Cache 的全部魔法都发生在这一行。
 
-### 11.3 请求状态机：系统如何决定"下一步做什么"
+### 12.3 请求状态机：系统如何决定"下一步做什么"
 
 ##### 请求状态机
 
@@ -12667,7 +12667,7 @@ class RequestStatus(enum.IntEnum):
 这里可以和第一章的结论对上了：Prefill / Decode 的区分在**性能分析**层面依然成立（第 1.2 节），但在 **Scheduler 的实现**层面它们被统一到"本轮给这个请求推进多少 token"这一个模型里——这正是第四章反复强调的那句话在源码里的样子。
 
 
-### 11.4 翻译层：SchedulerOutput 如何变成 GPU 张量
+### 12.4 翻译层：SchedulerOutput 如何变成 GPU 张量
 
 第四章的调度决策和第五章的 GPU 执行之间，隔着一层谁都没细讲的翻译：调度器交出来的是"哪个请求本轮推进多少 token"，而 kernel 要的是"这个 token 的 KV 写到哪个 slot、这个请求能读哪些块"。做这件翻译的是 `ModelRunner.prepare_inputs()`。
 
@@ -12736,7 +12736,7 @@ class RequestStatus(enum.IntEnum):
 现在可以回头看这一层为什么必须存在：`slot_mapping` 是第三章分块存储的直接产物（KV 不连续，所以必须逐 token 给出落点），`block_table` 是 Prefix Cache 共享的直接产物（多个请求可能指向同一个物理块），而"走 Graph 还是 Eager"则是第 5.1 节那个约束的落地位置（图里的形状必须固定）。**三个字段，三章的设计约束。**
 
 
-### 11.5 从请求到 GPU Kernel 的完整调用链
+### 12.5 从请求到 GPU Kernel 的完整调用链
 
 把前面所有环节串成一条链，可以清楚看到语言边界（Python → C++ → CUDA）落在哪几个位置：
 
@@ -12816,7 +12816,7 @@ class RequestStatus(enum.IntEnum):
 前面说"Python 控制面只占 ~1%"，指的正是 ①–⑥ 这一段相对 ⑦–⑩ 的耗时占比。
 
 
-### 10.5 附录：各环节耗时量级
+### 12.6 附录：各环节耗时量级
 
 **测试口径**（不写清口径的耗时表没有意义）：Llama-2-7B、FP16、A100 80GB 单卡（HBM 带宽约 2.0 TB/s）、TP=1、prompt 512 tokens、无 prefix cache 命中、CUDA Graph 开启。**换任何一个条件，下面的数字都会变。**
 
