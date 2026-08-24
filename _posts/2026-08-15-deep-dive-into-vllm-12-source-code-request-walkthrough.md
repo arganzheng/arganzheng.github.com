@@ -69,7 +69,7 @@ Python/C++语言核心分工原则：
 | 自定义算子 | CUDA / Triton | RMSNorm、RoPE、Fused Attention | 硬件特化 |
 | 集合通信 | C++ (NCCL) | All-Reduce、All-Gather | 零拷贝、内核级调度 |
 
-### Python如何调用C++：PyBind11 与 Triton
+### 1.1 Python如何调用C++：PyBind11 与 Triton
 
 vLLM 的 C++/CUDA 扩展通过 PyTorch 的 Custom Op 机制注册（位于 `csrc/` 目录），使用 PyBind11 绑定 Python 接口。同时，许多算子（尤其是 Attention 和 MoE 相关）使用 OpenAI Triton 编写，兼顾性能和开发效率：
 
@@ -149,7 +149,7 @@ vLLM V1 的核心数据对象（定义在 `vllm/v1/request.py`、`vllm/v1/core/s
 
 ## 3. 请求状态机：系统如何决定"下一步做什么"
 
-#### 请求状态机
+#### 3.1.1 请求状态机
 
 vLLM V1 的请求状态机（`RequestStatus`，定义在 `vllm/v1/request.py`）是理解控制流的关键：
 
@@ -199,7 +199,7 @@ class RequestStatus(enum.IntEnum):
 
 状态机里值得特别注意的是 PREEMPTED：它只有一条出路，即回到 WAITING。被抢占的请求会释放 KV 块，等调度器重新分配资源后再继续。因此系统不能假设"已经开始跑的请求一定能跑完"，Scheduler 每轮都要同时面对新请求和恢复请求。
 
-#### Scheduler 的调度决策
+#### 3.1.2 Scheduler 的调度决策
 
 在 vLLM V1 中，`Scheduler.schedule()` 的核心不是把系统硬切成 Prefill 阶段和 Decode 阶段，而是在每一轮迭代里分配统一的 token 预算。源码注释明确指出：调度器内部没有严格的 "decoding phase" 或 "prefill phase"；每个请求维护 `num_computed_tokens`，调度器尝试让它追赶 `num_tokens_with_spec`。
 
@@ -416,7 +416,7 @@ class RequestStatus(enum.IntEnum):
 
 
 
-## 结语
+## 7. 结语
 
 我们从第 1.6 节起跟踪的那个请求，现在可以完整地复盘一遍了：
 

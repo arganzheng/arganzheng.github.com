@@ -203,7 +203,7 @@ Platform 提供平台事实
 
 > **所有硬件都通过相对稳定的抽象边界向 Serving 核心提供能力。**
 
-### `current_platform` 是如何出现的？
+### 2.1 `current_platform` 是如何出现的？
 
 程序启动时，vLLM 需要先确定当前运行平台。这个过程通常涉及：
 
@@ -271,7 +271,7 @@ graph TD
     WORKER --> DEVICE["设备初始化、内存管理、执行上下文"]
 ```
 
-### 路径一：Attention Backend 选择
+### 3.1 路径一：Attention Backend 选择
 
 Attention 是 vLLM 中最重要的动态后端选择场景之一。
 
@@ -342,7 +342,7 @@ class CudaPlatform(Platform):
 
 这并不意味着所有平台都必须把选择逻辑写成同样的形式。平台可以根据自己的能力返回合适的实现。
 
-### 路径二：直接导入平台 Kernel
+### 3.2 路径二：直接导入平台 Kernel
 
 并不是所有底层算子都需要经过 Attention Backend。
 
@@ -371,7 +371,7 @@ class CudaPlatform(Platform):
 
 它们的加载不需要经过 Attention Backend。
 
-### 路径三：平台直接提供通信和其他组件
+### 3.3 路径三：平台直接提供通信和其他组件
 
 集合通信同样可能由平台直接决定：
 
@@ -417,7 +417,7 @@ current_platform ────────┼─ Kernel Import
                          └─ Platform Configuration
 ```
 
-### 为什么 Attention 要单独做 Selector？
+### 3.4 为什么 Attention 要单独做 Selector？
 
 Attention 之所以被单独抽象出来，不只是因为它名字特殊，而是因为它同时具备三个特点：
 
@@ -965,7 +965,7 @@ sequenceDiagram
 
 可以用下面几个问题进行检查。
 
-### 检查一：Serving 核心是否出现设备判断？
+### 8.1 检查一：Serving 核心是否出现设备判断？
 
 重点搜索：
 
@@ -978,7 +978,7 @@ device.type == ...
 
 如果这些判断大量出现在 Scheduler、请求状态机和 KV Cache 逻辑中，说明硬件边界可能已经被突破。
 
-### 检查二：平台能力是否可以被查询？
+### 8.2 检查二：平台能力是否可以被查询？
 
 例如：
 
@@ -991,7 +991,7 @@ current_platform.check_and_update_config(...)
 
 如果上层必须自己判断“这个芯片是否支持某算子”，说明能力抽象还不够完整。
 
-### 检查三：不支持的配置是否能提前失败？
+### 8.3 检查三：不支持的配置是否能提前失败？
 
 理想情况是：
 
@@ -1009,7 +1009,7 @@ current_platform.check_and_update_config(...)
 请求执行到某个深层 Kernel 时崩溃
 ```
 
-### 检查四：插件是否能独立演进？
+### 8.4 检查四：插件是否能独立演进？
 
 一个好的 OOT 适配应该能够：
 
@@ -1019,7 +1019,7 @@ current_platform.check_and_update_config(...)
 - 尽量减少对主仓库的侵入；
 - 在主仓库升级时有清晰的兼容边界。
 
-### 检查五：是否只完成了“能跑”，还是同时完成了“跑得好”？
+### 8.5 检查五：是否只完成了“能跑”，还是同时完成了“跑得好”？
 
 硬件适配至少要验证：
 

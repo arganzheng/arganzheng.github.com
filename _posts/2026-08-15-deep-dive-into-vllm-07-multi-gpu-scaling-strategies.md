@@ -316,7 +316,7 @@ $$
 $$
 
 
-#### 1.3.4 TP 在 Transformer 中怎么应用？
+#### 1.2.4 TP 在 Transformer 中怎么应用？
 
 这种“列-行”的组合完美对应了标准 Transformer 解码器（Decoder）内部的组件设计： 
 

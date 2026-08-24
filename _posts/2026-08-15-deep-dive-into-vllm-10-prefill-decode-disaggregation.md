@@ -222,7 +222,7 @@ sequenceDiagram
 
 一次请求大致经历以下阶段。
 
-### 第一步：Router 选择 Prefill 节点
+### 2.1 第一步：Router 选择 Prefill 节点
 
 Router 根据输入长度、Prefill 节点负载和可能的 Prefix Cache 命中情况，选择一个 Prefill 节点。
 
@@ -234,7 +234,7 @@ Router 根据输入长度、Prefill 节点负载和可能的 Prefix Cache 命中
 - 已有 Prefix Cache 是否可复用；
 - 目标节点的设备和并行配置。
 
-### 第二步：Prefill 节点处理 Prompt
+### 2.2 第二步：Prefill 节点处理 Prompt
 
 Prefill 节点执行模型前向，处理输入 Prompt，并生成各层的 K/V 张量。
 
@@ -250,7 +250,7 @@ K/V 张量
 KV Cache Block
 ```
 
-### 第三步：KV Transfer
+### 2.3 第三步：KV Transfer
 
 Prefill 节点将请求需要的 KV Cache 传输给目标 Decode 节点。
 
@@ -264,13 +264,13 @@ Prefill 节点将请求需要的 KV Cache 传输给目标 Decode 节点。
 - 请求标识；
 - 传输状态和元数据。
 
-### 第四步：Decode 节点接管请求
+### 2.4 第四步：Decode 节点接管请求
 
 Decode 节点收到 KV Cache 后，将它放入本地 Cache，并建立请求与 KV block 的映射。
 
 之后，Decode 节点不再重复处理原始 Prompt，而是直接基于已有 KV Cache 生成后续 token。
 
-### 第五步：持续 Decode
+### 2.5 第五步：持续 Decode
 
 后续生成通常持续在 Decode 池内完成：
 
@@ -510,7 +510,7 @@ KV Connector 面向 vLLM 的调度和执行流程，负责把“远端 KV Cache�
 
 从职责上可以分为两组。
 
-#### Scheduler 侧
+#### 4.1.1 Scheduler 侧
 
 Scheduler 不应该直接搬运 Tensor，而是负责做决策：
 
@@ -529,7 +529,7 @@ update_state_after_alloc()
 request_finished()
 ```
 
-#### Worker 侧
+#### 4.1.2 Worker 侧
 
 Worker 负责真正的数据面操作：
 
@@ -686,7 +686,7 @@ GPU → 共享存储 → 远端 GPU
 
 PD 分离涉及的组件很多，但它们并不处在完全相同的抽象层。
 
-### NIXL
+### 5.1 NIXL
 
 NIXL 可以理解为面向 AI 推理场景的数据传输抽象，重点解决：
 
@@ -705,7 +705,7 @@ NIXL 可以理解为面向 AI 推理场景的数据传输抽象，重点解决�
 
 而不是单独负责完整的请求路由或 KV 生命周期管理。
 
-### LMCache
+### 5.2 LMCache
 
 LMCache 更偏向 KV Cache 的缓存、复用和存储管理，关注的问题包括：
 
@@ -730,7 +730,7 @@ KV 放在哪里？
 什么时候淘汰？
 ```
 
-### Mooncake
+### 5.3 Mooncake
 
 Mooncake 面向大规模推理服务场景，通常同时关注：
 
@@ -742,7 +742,7 @@ Mooncake 面向大规模推理服务场景，通常同时关注：
 
 它更接近一套面向大规模 Serving 的系统化方案，而不仅仅是单一传输 API。
 
-### 其他传输和存储实现
+### 5.4 其他传输和存储实现
 
 不同生态中还可能出现面向特定场景的组件，例如：
 
@@ -805,7 +805,7 @@ graph TD
     style D3 fill:#e8f8ee,stroke:#4a9c68
 ```
 
-### Prefill 节点选择
+### 6.1 Prefill 节点选择
 
 可以考虑：
 
@@ -816,7 +816,7 @@ graph TD
 - Prefix Cache 是否命中；
 - 节点间网络位置。
 
-### Decode 节点选择
+### 6.2 Decode 节点选择
 
 可以考虑：
 
@@ -923,7 +923,7 @@ graph TD
 
 可以根据不同指标进行扩容。
 
-### Prefill 池的扩容指标
+### 8.1 Prefill 池的扩容指标
 
 - 输入 token 速率；
 - Prefill 队列长度；
@@ -932,7 +932,7 @@ graph TD
 - Prefill GPU 利用率；
 - Prefill 阶段的排队时间。
 
-### Decode 池的扩容指标
+### 8.2 Decode 池的扩容指标
 
 - 活跃生成请求数；
 - 输出 token 速率；
@@ -1014,7 +1014,7 @@ Decode 节点故障
 重新 Prefill 或恢复远端 KV
 ```
 
-### 策略一：重新 Prefill
+### 9.1 策略一：重新 Prefill
 
 最简单的方式是重新处理原始 Prompt。
 
@@ -1040,7 +1040,7 @@ Decode 节点故障
 - 恢复期间 TTFT 增加；
 - 大量请求同时恢复时可能形成流量尖峰。
 
-### 策略二：从远端 KV 存储恢复
+### 9.2 策略二：从远端 KV 存储恢复
 
 如果 KV 已经写入远端缓存或分布式存储，可以直接恢复：
 
@@ -1067,7 +1067,7 @@ Decode 节点故障
 - 需要处理版本、布局、数据类型和有效期；
 - 远端存储也可能成为新的故障点。
 
-### 策略三：复制 KV Cache
+### 9.3 策略三：复制 KV Cache
 
 可以在多个 Decode 节点或远端存储中保留副本。
 
@@ -1115,7 +1115,7 @@ PD 分离收益
 - 故障恢复成本
 ```
 
-### 更适合 PD 分离的场景
+### 10.1 更适合 PD 分离的场景
 
 - Prompt 较长；
 - Prefill 和 Decode 的负载比例变化明显；
@@ -1126,7 +1126,7 @@ PD 分离收益
 - KV Cache 复用率较高；
 - Prefill 和 Decode 可以分别扩缩容。
 
-### 可能不适合 PD 分离的场景
+### 10.2 可能不适合 PD 分离的场景
 
 - 请求很短；
 - 并发量很低；
