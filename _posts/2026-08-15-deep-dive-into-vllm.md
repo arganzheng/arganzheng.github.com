@@ -1201,7 +1201,7 @@ Chunk 5 → 2
 > **Scheduler 每一轮到底有多少工作额度可以分配？又应该如何在不同 Request 之间分配？**
 
 
-## 4.3 Token Budget：Scheduler 每一轮到底怎么分配？
+### 4.3 Token Budget：Scheduler 每一轮到底怎么分配？
 
 这一节是整个 Scheduler 的核心。
 
@@ -1218,7 +1218,7 @@ Chunked Prefill 又解决了：
 > **这一轮 GPU 最多处理多少 token？这些 token 应该分给哪些 Request？**
 
 
-### 4.3.1 Request 是调度对象，Token 是调度资源
+#### 4.3.1 Request 是调度对象，Token 是调度资源
 
 这里需要先纠正一个非常容易产生误解的说法。
 
@@ -1255,7 +1255,7 @@ Chunked Prefill 又解决了：
 > **以 Request 为对象，以 token 为资源，决定每个 Request 本轮推进多少 token。**
 
 
-### 4.3.2 每一轮首先确定 Token Budget
+#### 4.3.2 每一轮首先确定 Token Budget
 
 Scheduler 首先需要确定：
 
@@ -1270,13 +1270,6 @@ max_num_scheduled_tokens
 它定义的是：
 
 > **一次 `schedule()` iteration 中，最多允许调度多少个 token。**
-
-所以可以把它记成：
-
-[
-B = \text{max_num_scheduled_tokens}
-]
-
 
 例如：
 
@@ -1317,7 +1310,7 @@ max_num_scheduled_tokens = 512
 这就是 Scheduler 最核心的资源分配问题。
 
 
-### 4.3.3 Request 还需要推进多少？
+#### 4.3.3 Request 还需要推进多少？
 
 Scheduler 需要知道：
 
@@ -1333,7 +1326,7 @@ num_computed_tokens
 它们可以帮助我们理解 Scheduler 的工作方式。
 
 
-#### `num_computed_tokens`
+##### `num_computed_tokens`
 
 表示这个 Request 当前已经完成计算的 token 数量。
 
@@ -1357,7 +1350,7 @@ num_computed_tokens = 1024
 对应 KV Cache 已经建立
 ```
 
-#### `num_tokens_with_spec`
+##### `num_tokens_with_spec`
 
 它表示当前 Request 这一轮希望推进到的目标 token 位置。
 
@@ -1392,7 +1385,7 @@ num_computed_tokens
 > **这个 Request 当前还需要多少 token 的计算额度。**
 
 
-### 4.3.4 `num_new_tokens`：本轮真正分配多少？
+#### 4.3.4 `num_new_tokens`：本轮真正分配多少？
 
 Scheduler 最终真正关心的是：
 
@@ -1448,7 +1441,7 @@ token_budget -= num_new_tokens
 这就是 Scheduler 最核心的工作。
 
 
-### 4.3.5 用一个完整例子看懂 `schedule()`
+#### 4.3.5 用一个完整例子看懂 `schedule()`
 
 假设当前：
 
@@ -1547,7 +1540,7 @@ C → 1
 D → 110
 ```
 
-### 4.3.6 Decode 为什么也是同一个调度模型？
+##### 4.3.6 Decode 为什么也是同一个调度模型？
 
 现在看普通 Decode。
 
@@ -1759,7 +1752,7 @@ Waiting Requests
 > **计算 Request 当前需要推进多少 token，并在本轮剩余 Token Budget 和其他资源约束下决定实际推进多少。**
 
 
-### 4.3.8 Token Budget 与 KV Cache 是两个不同维度的约束
+#### 4.3.8 Token Budget 与 KV Cache 是两个不同维度的约束
 
 到这里还需要区分一个非常重要的概念。
 
@@ -1844,7 +1837,7 @@ KV Cache Block 不够
           执行                  等待/抢占
 ```
 
-## 4.4 Mixed Batch：为什么 Prefill、Decode 与 Speculative 可以共存？
+### 4.4 Mixed Batch：为什么 Prefill、Decode 与 Speculative 可以共存？
 
 前面的 Token Budget 机制实际上已经自然产生了 Mixed Batch。
 
@@ -1859,7 +1852,7 @@ MixedBatch
 > **多个不同类型的 Request 在同一个 Token Budget 下同时获得 token 推进额度。**
 
 
-### 4.4.1 一轮 GPU 中可以同时有什么？
+#### 4.4.1 一轮 GPU 中可以同时有什么？
 
 假设当前：
 
@@ -1911,7 +1904,7 @@ Scheduler 可以得到类似这样的分配：
 这就是 Mixed Batch。
 
 
-### 4.4.2 Mixed Batch 并不是三种 Batch 拼起来
+#### 4.4.2 Mixed Batch 并不是三种 Batch 拼起来
 
 这里非常容易产生误解。
 
@@ -1953,7 +1946,7 @@ Mixed Batch
 这也是为什么 Token Budget 是理解 Mixed Batch 的关键。
 
 
-### 4.4.3 Speculative Decoding 为什么可以自然融入？
+#### 4.4.3 Speculative Decoding 为什么可以自然融入？
 
 普通 Decode：
 
@@ -2017,7 +2010,7 @@ Speculative Scheduler
 
 因此，Speculative Decoding 与普通 Decode 可以在同一个 iteration 中共存。
 
-### 4.4.4 SchedulerOutput：调度完成后发生什么？
+#### 4.4.4 SchedulerOutput：调度完成后发生什么？
 
 Scheduler 完成本轮决策后，并不会直接执行模型计算。
 
@@ -2111,7 +2104,7 @@ SchedulerOutput
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-## 4.5 Admission Control 与 Preemption：KV Cache 不够怎么办？
+### 4.5 Admission Control 与 Preemption：KV Cache 不够怎么办？
 
 到这里，Scheduler 已经解决了：
 
@@ -2136,7 +2129,7 @@ KV Cache Blocks
 ```
 
 
-### 4.5.1 Admission Control：不是所有 Request 都能立即进入 Running
+#### 4.5.1 Admission Control：不是所有 Request 都能立即进入 Running
 
 假设：
 
@@ -2190,7 +2183,7 @@ Free Blocks 不足
 > **先判断“GPU 有没有能力接纳这个 Request”，再决定是否让它进入 Running。**
 
 
-### 4.5.2 KV Cache 不够：Preemption
+#### 4.5.2 KV Cache 不够：Preemption
 
 如果当前 Running Requests 已经占满 KV Cache，而又有更高优先级的调度需求，Scheduler 就可能需要抢占某些 Request。
 
@@ -2234,7 +2227,7 @@ num_computed_tokens = 0
 > **抢占并不是把 Request 本身删除，而是释放它占用的 KV Cache，之后再重新计算。**
 
 
-### 4.5.3 Recomputation vs Swapping
+#### 4.5.3 Recomputation vs Swapping
 
 从实现策略上，可以将抢占后的处理方式分为两类：
 
@@ -2273,7 +2266,7 @@ request.num_computed_tokens = 0
 > **从 Scheduler 的角度，这个 Request 后续需要重新计算。**
 
 
-### 4.5.4 为什么 Recomputation 不一定像想象中那么昂贵？
+#### 4.5.4 为什么 Recomputation 不一定像想象中那么昂贵？
 
 乍看之下：
 
@@ -2312,7 +2305,7 @@ Request
 这也是为什么 KV Cache、Prefix Cache 和 Scheduler 并不是三个互相独立的模块，而是共同参与请求生命周期管理。
 
 
-### 4.5.5 LIFO Preemption 与重新入队
+#### 4.5.5 LIFO Preemption 与重新入队
 
 在当前实现中，抢占选择和重新入队还涉及队列策略。
 
@@ -2354,7 +2347,7 @@ D → A → B → ...
 这样可以避免被抢占的 Request 长时间得不到恢复。
 
 
-### 4.5.6 Watermark：给 KV Cache 留一点安全余量
+#### 4.5.6 Watermark：给 KV Cache 留一点安全余量
 
 Scheduler 还需要避免一种非常糟糕的情况：
 
@@ -2415,7 +2408,7 @@ required_blocks = (
 这种资源震荡。
 
 
-## 4.6 本章小结：Scheduler：从“Batch 调度”到“资源调度”
+### 4.6 本章小结：Scheduler：从“Batch 调度”到“资源调度”
 
 到这里，可以把 vLLM Scheduler 的整个设计串起来。
 
@@ -9117,7 +9110,7 @@ Attention、通信、量化和模型执行路径中也不断加入类似分支�
 - 哪些请求应该继续 decode；
 - 哪些请求应该被抢占或延迟。
 
-第三章的 KV Cache Manager 关心的是：
+第五章的 KV Cache Manager 关心的是：
 
 - KV Cache 被划分成多少个 block；
 - 哪些 block 已经分配；
