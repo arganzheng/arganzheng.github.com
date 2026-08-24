@@ -103,38 +103,17 @@ service-worker: true
 # Recommends
 recommends: [
     {
-        title: "hatter",
-        href: "https://hatterjiang.org/"
-    },{
-        title: "oldratlee",
-        href: "http://oldratlee.com/"
-    },{
-        title: "leijun00",
-        href: "http://leijun00.github.io/"
-    },{
-        title: "J.P.Liu's Blog",
-        href: "http://mathmach.com/"
-    },{
         title: "美团技术团队",
         href: "https://tech.meituan.com/"
     },{
-        title: "并发编程网",
-        href: "http://ifeve.com/"
+        title: "Jay Alammar",
+        href: "https://jalammar.github.io/"
     },{
-        title: "开涛的博客",
-        href: "https://mp.sohu.com/profile?xpt=a2FpdGFvLTEyMzQ1NjdAc29odS5jb20"
+        title: "Eugene Yan",
+        href: "https://eugeneyan.com/"
     },{
-        title: "InfoQ",
-        href: "https://www.infoq.cn/"
-    },{
-        title: "阿里巴巴中间件团队",
-        href: "http://jm.taobao.org/"
-    },{
-        title: "云栖社区",
-        href: "https://yq.aliyun.com/articles/"
-    },{
-        title: "王喆的机器学习笔记",
-        href: "https://zhuanlan.zhihu.com/wangzhenotes"
+        title: "deeplearning.ai",
+        href: "https://www.deeplearning.ai/"
     }
     
 ]
