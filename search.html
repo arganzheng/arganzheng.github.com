@@ -4,23 +4,79 @@ title: Search
 permalink: /search/
 ---
 
-<div class="post-container">
-  <form action="/search/" target="_self" method="get">
-	  <input type="text" class="col-lg-12 col-md-12" placeholder="Search via google..." name="q">
+<div class="post-container search-page">
+  <form class="search-form" action="{{ '/search/' | prepend: site.baseurl }}" target="_self" method="get">
+    <input
+      id="search-input"
+      type="search"
+      class="search-input"
+      placeholder="搜索文章标题 / 标签 / 正文内容..."
+      name="q"
+      autocomplete="off"
+    >
   </form>
+  <div id="search-stats" class="search-stats"></div>
+  <div id="search-results" class="search-results"></div>
 </div>
 
-<div class="search-results">
+<style>
+  .search-form {
+    margin-bottom: 14px;
+  }
+  .search-input {
+    box-sizing: border-box;
+    display: block;
+    width: 100%;
+    border: 1px solid #d9e1ec;
+    border-radius: 12px;
+    padding: 12px 14px;
+    font-size: 16px;
+    line-height: 1.6;
+    background: #fbfdff;
+    transition: border-color .2s ease, box-shadow .2s ease;
+  }
+  .search-input:focus {
+    border-color: #63a9d8;
+    box-shadow: 0 0 0 4px rgba(99, 169, 216, 0.15);
+    outline: none;
+  }
+  .search-stats {
+    margin: 16px 0 8px;
+    color: #5f6f7f;
+  }
+  .search-result-item {
+    padding: 16px 0;
+    border-bottom: 1px solid #eaf0f5;
+  }
+  .search-result-item h3 {
+    margin: 0 0 8px;
+    font-size: 21px;
+    line-height: 1.4;
+  }
+  .search-result-meta {
+    margin-bottom: 8px;
+    font-size: 12px;
+    color: #999;
+  }
+  .search-result-item p {
+    margin: 0;
+    color: #555;
+    line-height: 1.8;
+  }
+  .search-result-item mark {
+    background: #ffef95;
+    color: inherit;
+    padding: 0 2px;
+    border-radius: 2px;
+  }
+</style>
+
+<script src="{{ '/js/search.js' | prepend: site.baseurl }}"></script>
 <script>
-  (function() {
-    var cx = 'partner-pub-5310522292098942:1271363314';
-    var gcse = document.createElement('script');
-    gcse.type = 'text/javascript';
-    gcse.async = true;
-    gcse.src = 'https://cse.google.com/cse.js?cx=' + cx;
-    var s = document.getElementsByTagName('script')[0];
-    s.parentNode.insertBefore(gcse, s);
-  })();
+  window.BLOG_SEARCH.init({
+    inputId: 'search-input',
+    statsId: 'search-stats',
+    resultsId: 'search-results',
+    dataUrl: '{{ '/search.json' | prepend: site.baseurl }}'
+  })
 </script>
-<gcse:searchresults-only></gcse:searchresults-only>
-</div>

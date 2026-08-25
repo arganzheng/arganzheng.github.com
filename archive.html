@@ -5,6 +5,123 @@ permalink: /archive/
 ---
 
 <div id="archive">
+<div class="archive-goto-file">
+  <label for="archive-goto-input">Go to article</label>
+  <div class="archive-goto-input-wrap">
+    <span class="archive-goto-icon" aria-hidden="true">🔍</span>
+    <input
+      id="archive-goto-input"
+      type="search"
+      placeholder="输入标题关键字，回车跳转..."
+      autocomplete="off"
+      spellcheck="false"
+    >
+    <button id="archive-goto-clear" class="archive-goto-clear" type="button" aria-label="Clear search" hidden>×</button>
+  </div>
+  <ul id="archive-goto-results" class="archive-goto-results" hidden></ul>
+</div>
+
+<style>
+  .archive-goto-file {
+    position: relative;
+    margin: 0 0 34px;
+  }
+  .archive-goto-file label {
+    display: block;
+    margin-bottom: 6px;
+    color: #666;
+    font-size: 12px;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+  }
+  .archive-goto-input-wrap {
+    position: relative;
+  }
+  .archive-goto-icon {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 16px;
+    opacity: .78;
+    pointer-events: none;
+  }
+  .archive-goto-file input {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid #d0d7de;
+    border-radius: 8px;
+    padding: 10px 36px 10px 30px;
+    background: #f6f8fa;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  .archive-goto-file input:focus {
+    border-color: #0969da;
+    background: #fff;
+    outline: none;
+  }
+  .archive-goto-clear {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 22px;
+    height: 22px;
+    border: none;
+    border-radius: 999px;
+    background: #d8dee4;
+    color: #57606a;
+    font-size: 16px;
+    line-height: 20px;
+    text-align: center;
+    cursor: pointer;
+    padding: 0;
+  }
+  .archive-goto-clear:hover {
+    background: #c9d1d9;
+    color: #24292f;
+  }
+  .archive-goto-results {
+    position: absolute;
+    z-index: 20;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin: 8px 0 0;
+    padding: 6px;
+    list-style: none;
+    background: #fff;
+    border: 1px solid #d0d7de;
+    border-radius: 10px;
+    box-shadow: 0 8px 28px rgba(31, 35, 40, 0.12);
+    max-height: 380px;
+    overflow: auto;
+  }
+  .archive-goto-option {
+    display: block;
+    width: 100%;
+    text-align: left;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    padding: 8px 10px;
+    color: #24292f;
+    cursor: pointer;
+  }
+  .archive-goto-option:hover,
+  .archive-goto-option.active {
+    background: #ddf4ff;
+  }
+  .archive-goto-option small {
+    color: #57606a;
+    margin-left: 8px;
+  }
+  .archive-goto-empty {
+    padding: 8px 10px;
+    color: #656d76;
+  }
+</style>
+
 {% assign slide_pages = site.pages | where: "layout", "slides" %}
 {% assign timeline_rows = "" %}
 {% for item in site.posts %}
@@ -43,7 +160,12 @@ permalink: /archive/
 <ul class="list-unstyled">
 {% assign month_key = item_month_key %}
 {% endif %}
-    <li>
+    <li class="archive-item"
+        data-url="{{ item_url }}"
+        data-title="{{ item_title | escape }}"
+        data-subtitle="{{ item_subtitle | escape }}"
+        data-type="{{ item_type }}"
+        data-date="{{ item_date }}">
       <small style="color: #aaa">{{ item_date }}</small>
       &nbsp;&raquo;&nbsp;
       {% if item_type == "slides" %}
@@ -63,3 +185,129 @@ permalink: /archive/
 <p>还没有内容可归档。</p>
 {% endif %}
 </div>
+
+<script>
+  (function () {
+    var input = document.getElementById('archive-goto-input');
+    var clear = document.getElementById('archive-goto-clear');
+    var results = document.getElementById('archive-goto-results');
+    if (!input || !results || !clear) return;
+
+    var items = Array.prototype.slice.call(document.querySelectorAll('#archive .archive-item')).map(function (el) {
+      return {
+        title: (el.dataset.title || '').trim(),
+        subtitle: (el.dataset.subtitle || '').trim(),
+        type: (el.dataset.type || '').trim(),
+        date: (el.dataset.date || '').trim(),
+        url: (el.dataset.url || '').trim()
+      };
+    }).filter(function (item) {
+      return item.title && item.url;
+    });
+
+    var shown = [];
+    var activeIndex = -1;
+
+    function escapeHtml(text) {
+      return String(text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function renderList(list) {
+      shown = list;
+      activeIndex = list.length ? 0 : -1;
+
+      if (!list.length) {
+        results.innerHTML = '<li class="archive-goto-empty">没有匹配结果</li>';
+        results.hidden = false;
+        return;
+      }
+
+      results.innerHTML = list.map(function (item, index) {
+        var typeLabel = item.type === 'slides' ? '[Slides]' : '[Post]';
+        var subtitle = item.subtitle ? ('<small>' + escapeHtml(item.subtitle) + '</small>') : '';
+        return '<li><button type="button" class="archive-goto-option' + (index === activeIndex ? ' active' : '') + '" data-index="' + index + '">' +
+          escapeHtml(typeLabel + ' ' + item.title) + subtitle +
+          '</button></li>';
+      }).join('');
+      results.hidden = false;
+    }
+
+    function filterAndRender() {
+      var q = input.value.trim().toLowerCase();
+      clear.hidden = !q;
+      if (!q) {
+        results.hidden = true;
+        results.innerHTML = '';
+        shown = [];
+        activeIndex = -1;
+        return;
+      }
+
+      var filtered = items.filter(function (item) {
+        return (item.title + ' ' + item.subtitle).toLowerCase().indexOf(q) !== -1;
+      }).slice(0, 12);
+      renderList(filtered);
+    }
+
+    function goToActive() {
+      if (activeIndex < 0 || !shown[activeIndex]) return;
+      window.location.href = shown[activeIndex].url;
+    }
+
+    input.addEventListener('input', filterAndRender);
+    clear.addEventListener('click', function () {
+      input.value = '';
+      clear.hidden = true;
+      results.hidden = true;
+      results.innerHTML = '';
+      shown = [];
+      activeIndex = -1;
+      input.focus();
+    });
+    input.addEventListener('keydown', function (event) {
+      if (results.hidden) return;
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        if (!shown.length) return;
+        activeIndex = (activeIndex + 1) % shown.length;
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        if (!shown.length) return;
+        activeIndex = (activeIndex - 1 + shown.length) % shown.length;
+      } else if (event.key === 'Enter') {
+        event.preventDefault();
+        goToActive();
+        return;
+      } else if (event.key === 'Escape') {
+        results.hidden = true;
+        return;
+      } else {
+        return;
+      }
+
+      Array.prototype.forEach.call(results.querySelectorAll('.archive-goto-option'), function (btn, idx) {
+        btn.classList.toggle('active', idx === activeIndex);
+      });
+    });
+
+    results.addEventListener('click', function (event) {
+      var option = event.target.closest('.archive-goto-option');
+      if (!option) return;
+      var index = Number(option.getAttribute('data-index'));
+      if (!Number.isNaN(index) && shown[index]) {
+        window.location.href = shown[index].url;
+      }
+    });
+
+    document.addEventListener('click', function (event) {
+      if (!event.target.closest('.archive-goto-file')) {
+        results.hidden = true;
+      }
+    });
+  })();
+</script>
