@@ -109,17 +109,27 @@
 <script src="{{ "/js/code-tokens.js" | prepend: site.baseurl }}"></script>
 
 <!-- Service Worker -->
-{% if site.service-worker %}
 <script type="text/javascript">
     if(navigator.serviceWorker){
+        {% if site.service-worker %}
         // For security reasons, a service worker can only control the pages that are in the same directory level or below it. That's why we put sw.js at ROOT level.
         navigator.serviceWorker
             .register('/sw.js')
             .then((registration) => {console.log('Service Worker Registered. ', registration)})
             .catch((error) => {console.log('ServiceWorker registration failed: ', error)})
+        {% else %}
+        // If SW is disabled in config, actively unregister previous registrations to avoid stale content.
+        navigator.serviceWorker.getRegistrations().then((registrations) => {
+            registrations.forEach((registration) => registration.unregister())
+        })
+        if(window.caches){
+            caches.keys().then((keys) => {
+                keys.forEach((key) => caches.delete(key))
+            })
+        }
+        {% endif %}
     }
 </script>
-{% endif %}
 
 
 <!-- async load function -->
@@ -182,5 +192,4 @@
 
 
 <!-- Side Catalog: built and kept in sync with the reading position by js/toc.js -->
-
 
