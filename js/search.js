@@ -1,4 +1,6 @@
 (function(window) {
+  var FULLTEXT_CACHE_LIMIT = 120;
+
   function getParam(name) {
     var params = new URLSearchParams(window.location.search);
     return (params.get(name) || "").trim();
@@ -35,6 +37,10 @@
     return "";
   }
 
+  function lower(text) {
+    return String(text || "").toLowerCase();
+  }
+
   function makeSnippet(text, keyword) {
     var cleanText = normalize(text);
     if (!cleanText) return "";
@@ -66,10 +72,10 @@
     return output;
   }
 
-  function scoreResult(item, query, terms) {
-    var title = (item.title || "").toLowerCase();
-    var tags = getTagsText(item).toLowerCase();
-    var content = (item.content || "").toLowerCase();
+  function scoreResult(item, contentText, query, terms) {
+    var title = lower(item.title);
+    var tags = lower(getTagsText(item));
+    var content = lower(contentText);
     var full = title + " " + tags + " " + content;
 
     var i;
@@ -89,14 +95,31 @@
     return score;
   }
 
-  function renderResults(results, statsNode, listNode, rawQuery, terms) {
+  function buildResultList(resultMap) {
+    return Object.keys(resultMap)
+      .map(function(url) { return resultMap[url]; })
+      .sort(function(a, b) {
+        if (b.score !== a.score) return b.score - a.score;
+        return (b.item.date || "").localeCompare(a.item.date || "");
+      })
+      .slice(0, 50)
+      .map(function(entry) { return entry.item; });
+  }
+
+  function renderResults(results, statsNode, listNode, rawQuery, terms, extra) {
     if (!rawQuery) {
       statsNode.innerHTML = "输入关键词后开始搜索（支持中文和英文）";
       listNode.innerHTML = "";
       return;
     }
 
-    statsNode.innerHTML = "关键词 “" + escapeHtml(rawQuery) + "” ，找到 " + results.length + " 篇文章";
+    var stats = "关键词 “" + escapeHtml(rawQuery) + "” ，找到 " + results.length + " 篇文章";
+    if (extra && extra.streaming) {
+      stats += "（正在增量扫描全文...";
+      if (extra.newMatches > 0) stats += " 已补充 " + extra.newMatches + " 篇";
+      stats += "）";
+    }
+    statsNode.innerHTML = stats;
 
     if (!results.length) {
       listNode.innerHTML = "<p>没有找到结果，试试更短的关键词或同义词。</p>";
@@ -120,9 +143,66 @@
     }).join("");
   }
 
-  function doSearch(data, inputNode, statsNode, listNode) {
+  function setCache(cache, key, value) {
+    if (!value) return;
+    if (cache.has(key)) cache.delete(key);
+    cache.set(key, value);
+    if (cache.size <= FULLTEXT_CACHE_LIMIT) return;
+    var oldestKey = cache.keys().next().value;
+    cache.delete(oldestKey);
+  }
+
+  function processNDJSONLine(line, onItem) {
+    var trimmed = line.trim();
+    if (!trimmed || trimmed[0] !== "{") return;
+    try {
+      onItem(JSON.parse(trimmed));
+    } catch (_) {
+      // Ignore malformed lines instead of breaking the whole stream.
+    }
+  }
+
+  function streamFulltext(url, signal, onItem, onDone) {
+    fetch(url + "?t=" + Date.now(), { signal: signal })
+      .then(function(resp) {
+        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        if (!resp.body || !resp.body.getReader) return resp.text().then(function(text) {
+          text.split("\n").forEach(function(line) { processNDJSONLine(line, onItem); });
+        });
+
+        var reader = resp.body.getReader();
+        var decoder = new TextDecoder();
+        var buffer = "";
+
+        function readChunk() {
+          return reader.read().then(function(result) {
+            if (result.done) {
+              if (buffer) processNDJSONLine(buffer, onItem);
+              return;
+            }
+            buffer += decoder.decode(result.value, { stream: true });
+            var lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+            lines.forEach(function(line) { processNDJSONLine(line, onItem); });
+            return readChunk();
+          });
+        }
+        return readChunk();
+      })
+      .then(function() { onDone(null); })
+      .catch(function(err) {
+        if (err && err.name === "AbortError") return;
+        onDone(err);
+      });
+  }
+
+  function doSearch(state, inputNode, statsNode, listNode) {
+    state.searchSeq += 1;
+    var thisSearch = state.searchSeq;
+    if (state.abortController) state.abortController.abort();
+
     var rawQuery = (inputNode.value || "").trim();
-    var query = rawQuery.toLowerCase();
+    var query = lower(rawQuery);
     var terms = tokenize(rawQuery);
 
     if (!query) {
@@ -130,22 +210,71 @@
       return;
     }
 
-    var results = data
-      .map(function(item) {
-        return {
-          item: item,
-          score: scoreResult(item, query, terms)
-        };
-      })
-      .filter(function(result) { return result.score >= 0; })
-      .sort(function(a, b) {
-        if (b.score !== a.score) return b.score - a.score;
-        return (b.item.date || "").localeCompare(a.item.date || "");
-      })
-      .slice(0, 50)
-      .map(function(result) { return result.item; });
+    var resultMap = {};
+    state.indexData.forEach(function(item) {
+      var score = scoreResult(item, item.excerpt || "", query, terms);
+      if (score < 0) return;
+      resultMap[item.url] = { item: item, score: score };
+    });
 
-    renderResults(results, statsNode, listNode, rawQuery, terms);
+    var newMatches = 0;
+    var renderNow = function(streaming) {
+      if (thisSearch !== state.searchSeq) return;
+      renderResults(buildResultList(resultMap), statsNode, listNode, rawQuery, terms, {
+        streaming: streaming,
+        newMatches: newMatches
+      });
+    };
+
+    renderNow(Boolean(state.contentUrl));
+    if (!state.contentUrl) return;
+
+    state.abortController = typeof AbortController !== "undefined" ? new AbortController() : null;
+    var signal = state.abortController ? state.abortController.signal : undefined;
+    var seen = 0;
+
+    streamFulltext(state.contentUrl, signal, function(row) {
+      if (thisSearch !== state.searchSeq) return;
+      var meta = state.indexByUrl[row.url];
+      if (!meta) return;
+      var content = normalize(row.content || "");
+      if (!content) return;
+
+      seen += 1;
+      var score = scoreResult(meta, content, query, terms);
+      if (score < 0) return;
+
+      setCache(state.fulltextCache, row.url, content);
+      var existing = resultMap[row.url];
+      if (!existing) {
+        newMatches += 1;
+        resultMap[row.url] = {
+          item: {
+            title: meta.title,
+            url: meta.url,
+            date: meta.date,
+            tags: meta.tags,
+            tags_text: meta.tags_text,
+            excerpt: meta.excerpt,
+            content: content
+          },
+          score: score + 1
+        };
+      } else {
+        // Upgrade snippet quality for index-hit items without keeping all full text.
+        if (!existing.item.content) existing.item.content = content;
+        if (score > existing.score) existing.score = score;
+      }
+
+      if (seen % 12 === 0) renderNow(true);
+    }, function(err) {
+      if (thisSearch !== state.searchSeq) return;
+      if (err) {
+        statsNode.innerHTML = "全文扫描失败，已展示快速索引结果。";
+        return;
+      }
+      renderNow(false);
+    });
   }
 
   function init(options) {
@@ -161,8 +290,22 @@
         var initialQuery = getParam("q");
         if (initialQuery) inputNode.value = initialQuery;
 
+        var indexByUrl = {};
+        data.forEach(function(item) {
+          indexByUrl[item.url] = item;
+        });
+
+        var state = {
+          indexData: data,
+          indexByUrl: indexByUrl,
+          contentUrl: options.contentUrl || "",
+          abortController: null,
+          searchSeq: 0,
+          fulltextCache: new Map()
+        };
+
         var runSearch = function() {
-          doSearch(data, inputNode, statsNode, listNode);
+          doSearch(state, inputNode, statsNode, listNode);
         };
 
         runSearch();

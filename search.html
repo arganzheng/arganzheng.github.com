@@ -77,6 +77,7 @@ permalink: /search/
     inputId: 'search-input',
     statsId: 'search-stats',
     resultsId: 'search-results',
-    dataUrl: '{{ '/search.json' | prepend: site.baseurl }}'
+    dataUrl: '{{ '/search.json' | prepend: site.baseurl }}',
+    contentUrl: '{{ '/search-content.ndjson' | prepend: site.baseurl }}'
   })
 </script>

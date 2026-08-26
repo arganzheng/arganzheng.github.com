@@ -1,0 +1,7 @@
+---
+layout: null
+---
+{% for post in site.posts %}
+{% capture row %}{"url":{{ post.url | prepend: site.baseurl | jsonify }},"content":{{ post.content | strip_html | strip_newlines | jsonify }}}{% endcapture %}
+{{ row }}
+{% endfor %}
