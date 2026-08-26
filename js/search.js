@@ -41,6 +41,12 @@
     return String(text || "").toLowerCase();
   }
 
+  function containsText(text, lowerNeedle, regexNeedle) {
+    if (!text) return false;
+    if (lowerNeedle && text.length < 3000) return lower(text).indexOf(lowerNeedle) >= 0;
+    return regexNeedle ? regexNeedle.test(text) : false;
+  }
+
   function makeSnippet(text, keyword) {
     var cleanText = normalize(text);
     if (!cleanText) return "";
@@ -72,25 +78,30 @@
     return output;
   }
 
-  function scoreResult(item, contentText, query, terms) {
+  function scoreResult(item, contentText, ctx) {
     var title = lower(item.title);
     var tags = lower(getTagsText(item));
-    var content = lower(contentText);
-    var full = title + " " + tags + " " + content;
+    var content = contentText || "";
 
     var i;
-    for (i = 0; i < terms.length; i += 1) {
-      if (full.indexOf(terms[i]) < 0) return -1;
+    for (i = 0; i < ctx.terms.length; i += 1) {
+      if (
+        title.indexOf(ctx.terms[i]) < 0 &&
+        tags.indexOf(ctx.terms[i]) < 0 &&
+        !containsText(content, ctx.terms[i], ctx.termRegexes[i])
+      ) {
+        return -1;
+      }
     }
 
     var score = 0;
-    if (query && title.indexOf(query) >= 0) score += 20;
-    if (query && tags.indexOf(query) >= 0) score += 10;
+    if (ctx.query && title.indexOf(ctx.query) >= 0) score += 20;
+    if (ctx.query && tags.indexOf(ctx.query) >= 0) score += 10;
 
-    for (i = 0; i < terms.length; i += 1) {
-      if (title.indexOf(terms[i]) >= 0) score += 6;
-      if (tags.indexOf(terms[i]) >= 0) score += 3;
-      if (content.indexOf(terms[i]) >= 0) score += 1;
+    for (i = 0; i < ctx.terms.length; i += 1) {
+      if (title.indexOf(ctx.terms[i]) >= 0) score += 6;
+      if (tags.indexOf(ctx.terms[i]) >= 0) score += 3;
+      if (containsText(content, ctx.terms[i], ctx.termRegexes[i])) score += 1;
     }
     return score;
   }
@@ -204,6 +215,16 @@
     var rawQuery = (inputNode.value || "").trim();
     var query = lower(rawQuery);
     var terms = tokenize(rawQuery);
+    var queryRegex = new RegExp(escapeRegExp(query), "i");
+    var termRegexes = terms.map(function(term) {
+      return new RegExp(escapeRegExp(term), "i");
+    });
+    var ctx = {
+      query: query,
+      terms: terms,
+      queryRegex: queryRegex,
+      termRegexes: termRegexes
+    };
 
     if (!query) {
       renderResults([], statsNode, listNode, "", []);
@@ -212,7 +233,7 @@
 
     var resultMap = {};
     state.indexData.forEach(function(item) {
-      var score = scoreResult(item, item.excerpt || "", query, terms);
+      var score = scoreResult(item, item.excerpt || "", ctx);
       if (score < 0) return;
       resultMap[item.url] = { item: item, score: score };
     });
@@ -237,11 +258,11 @@
       if (thisSearch !== state.searchSeq) return;
       var meta = state.indexByUrl[row.url];
       if (!meta) return;
-      var content = normalize(row.content || "");
+      var content = row.content || "";
       if (!content) return;
 
       seen += 1;
-      var score = scoreResult(meta, content, query, terms);
+      var score = scoreResult(meta, content, ctx);
       if (score < 0) return;
 
       setCache(state.fulltextCache, row.url, content);
