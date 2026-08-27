@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "search.json": "plaintext",
+        "search-content.ndjson": "plaintext"
+    }
+}

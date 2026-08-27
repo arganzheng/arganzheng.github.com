@@ -35,61 +35,105 @@
     return "";
   }
 
-  function makeSnippet(text, keyword) {
+  // English/number terms match whole words only, so "AI" does not hit
+  // "WAIT" or "RAID". CJK terms keep substring matching.
+  function isWordTerm(term) {
+    return /^[a-z0-9]+$/i.test(term);
+  }
+
+  // Build per-query matchers once (not per item) to keep searching fast.
+  function buildQueryContext(rawQuery) {
+    var query = rawQuery.toLowerCase();
+    var terms = tokenize(rawQuery);
+    return {
+      query: query,
+      terms: terms,
+      // Boundary-aware matchers against pre-lowered haystacks.
+      matchers: terms.map(function(term) {
+        return isWordTerm(term) ? new RegExp("\\b" + escapeRegExp(term) + "\\b") : null;
+      }),
+      // Case-insensitive matchers for locating snippets in original text.
+      snippetMatchers: terms.map(function(term) {
+        return isWordTerm(term)
+          ? new RegExp("\\b" + escapeRegExp(term) + "\\b", "i")
+          : new RegExp(escapeRegExp(term), "i");
+      }),
+      // Global matchers for highlighting rendered text.
+      highlightMatchers: terms
+        .slice()
+        .sort(function(a, b) { return b.length - a.length; })
+        .map(function(term) {
+          return isWordTerm(term)
+            ? new RegExp("\\b(" + escapeRegExp(term) + ")\\b", "ig")
+            : new RegExp("(" + escapeRegExp(term) + ")", "ig");
+        }),
+      queryMatcher: isWordTerm(query)
+        ? new RegExp("\\b" + escapeRegExp(query) + "\\b")
+        : null
+    };
+  }
+
+  function fieldHits(field, ctx, i) {
+    var matcher = ctx.matchers[i];
+    return matcher ? matcher.test(field) : field.indexOf(ctx.terms[i]) >= 0;
+  }
+
+  function makeSnippet(text, ctx) {
     var cleanText = normalize(text);
     if (!cleanText) return "";
-    if (!keyword) return cleanText.slice(0, 320);
 
-    var lowerText = cleanText.toLowerCase();
-    var lowerKeyword = keyword.toLowerCase();
-    var pos = lowerText.indexOf(lowerKeyword);
+    var pos = -1;
+    var matchLength = 0;
+    for (var i = 0; i < ctx.snippetMatchers.length && pos < 0; i += 1) {
+      var m = ctx.snippetMatchers[i].exec(cleanText);
+      if (m) {
+        pos = m.index;
+        matchLength = m[0].length;
+      }
+    }
     if (pos < 0) return cleanText.slice(0, 320);
 
     var start = Math.max(0, pos - 90);
-    var end = Math.min(cleanText.length, pos + lowerKeyword.length + 220);
+    var end = Math.min(cleanText.length, pos + matchLength + 220);
     var prefix = start > 0 ? "..." : "";
     var suffix = end < cleanText.length ? "..." : "";
     return prefix + cleanText.slice(start, end) + suffix;
   }
 
-  function highlightText(text, terms) {
+  function highlightText(text, ctx) {
     var output = escapeHtml(text || "");
-    var sortedTerms = terms.slice().sort(function(a, b) {
-      return b.length - a.length;
-    });
-
-    sortedTerms.forEach(function(term) {
-      if (!term) return;
-      var re = new RegExp("(" + escapeRegExp(term) + ")", "ig");
+    ctx.highlightMatchers.forEach(function(re) {
       output = output.replace(re, "<mark>$1</mark>");
     });
     return output;
   }
 
-  function scoreResult(item, query, terms) {
-    // item._search is the pre-lowered "title tags content" haystack built once.
+  function scoreResult(item, ctx) {
+    // item._search is the pre-lowered "title content" haystack built once.
     var title = item._title;
-    var tags = item._tags;
     var haystack = item._search;
 
     var i;
-    for (i = 0; i < terms.length; i += 1) {
-      if (haystack.indexOf(terms[i]) < 0) return -1;
+    for (i = 0; i < ctx.terms.length; i += 1) {
+      if (!fieldHits(haystack, ctx, i)) return -1;
     }
 
     var score = 0;
-    if (query && title.indexOf(query) >= 0) score += 20;
-    if (query && tags.indexOf(query) >= 0) score += 10;
+    if (ctx.query) {
+      var queryHit = ctx.queryMatcher
+        ? ctx.queryMatcher.test(title)
+        : title.indexOf(ctx.query) >= 0;
+      if (queryHit) score += 20;
+    }
 
-    for (i = 0; i < terms.length; i += 1) {
-      if (title.indexOf(terms[i]) >= 0) score += 6;
-      if (tags.indexOf(terms[i]) >= 0) score += 3;
-      if (haystack.indexOf(terms[i]) >= 0) score += 1;
+    for (i = 0; i < ctx.terms.length; i += 1) {
+      if (fieldHits(title, ctx, i)) score += 6;
+      if (fieldHits(haystack, ctx, i)) score += 1;
     }
     return score;
   }
 
-  function renderResults(results, statsNode, listNode, rawQuery, terms, loadingFulltext) {
+  function renderResults(results, statsNode, listNode, rawQuery, ctx, loadingFulltext) {
     if (!rawQuery) {
       statsNode.innerHTML = "输入关键词后开始搜索（支持中文和英文）";
       listNode.innerHTML = "";
@@ -106,10 +150,9 @@
     }
 
     listNode.innerHTML = results.map(function(item) {
-      var snippetKeyword = terms.length ? terms[0] : rawQuery;
-      var snippet = makeSnippet(item.content || item.excerpt, snippetKeyword);
-      var highlightedSnippet = highlightText(snippet, terms);
-      var highlightedTitle = highlightText(item.title || "", terms);
+      var snippet = makeSnippet(item.content || item.excerpt, ctx);
+      var highlightedSnippet = highlightText(snippet, ctx);
+      var highlightedTitle = highlightText(item.title || "", ctx);
       var tagsText = getTagsText(item);
 
       return (
@@ -124,10 +167,10 @@
 
   // Pre-compute the lowered haystack once per item so per-keystroke search
   // never re-lowercases megabytes of text (the root cause of earlier jank).
+  // Only title and content are searchable; tags are display-only.
   function buildSearchFields(item) {
     item._title = (item.title || "").toLowerCase();
-    item._tags = getTagsText(item).toLowerCase();
-    item._search = item._title + " " + item._tags + " " +
+    item._search = item._title + " " +
       (item.content ? item.content.toLowerCase() : (item.excerpt || "").toLowerCase());
   }
 
@@ -180,17 +223,16 @@
 
   function doSearch(state, inputNode, statsNode, listNode) {
     var rawQuery = (inputNode.value || "").trim();
-    var query = rawQuery.toLowerCase();
-    var terms = tokenize(rawQuery);
 
-    if (!query) {
-      renderResults([], statsNode, listNode, "", [], false);
+    if (!rawQuery) {
+      renderResults([], statsNode, listNode, "", null, false);
       return;
     }
 
+    var ctx = buildQueryContext(rawQuery);
     var results = state.indexData
       .map(function(item) {
-        return { item: item, score: scoreResult(item, query, terms) };
+        return { item: item, score: scoreResult(item, ctx) };
       })
       .filter(function(result) { return result.score >= 0; })
       .sort(function(a, b) {
@@ -199,7 +241,7 @@
       })
       .map(function(result) { return result.item; });
 
-    renderResults(results, statsNode, listNode, rawQuery, terms, !state.fulltextReady);
+    renderResults(results, statsNode, listNode, rawQuery, ctx, !state.fulltextReady);
   }
 
   function init(options) {
