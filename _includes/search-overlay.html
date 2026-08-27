@@ -1,0 +1,188 @@
+<!-- Fullscreen search overlay, interaction modeled after huangxuan.me.
+     Search logic lives in js/search.js (BLOG_SEARCH) and is untouched. -->
+<div class="search-overlay" id="search-overlay">
+    <div class="search-overlay-close-container">
+        <span class="search-overlay-close" title="关闭 (Esc)">&times;</span>
+    </div>
+    <div class="search-overlay-main container">
+        <div class="row">
+            <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
+                <input type="text" id="search-overlay-input" placeholder="$ grep..." autocomplete="off" spellcheck="false">
+                <div id="search-overlay-stats" class="search-overlay-stats"></div>
+                <div id="search-overlay-results" class="search-overlay-results"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .search-overlay {
+        position: fixed;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        z-index: 1050;
+        background: #fff;
+        transition: all 400ms cubic-bezier(0.32, 1, 0.23, 1);
+        transform: translate(0, 100%);
+        opacity: 0;
+        visibility: hidden;
+    }
+    .search-overlay.search-active {
+        opacity: 1;
+        transform: translate(0, 0);
+        visibility: visible;
+    }
+    .search-overlay-main {
+        padding-top: 80px;
+        height: 100%;
+        opacity: 0;
+        transition: all 400ms cubic-bezier(0.32, 1, 0.23, 1) 250ms;
+    }
+    .search-overlay.search-active .search-overlay-main {
+        opacity: 1;
+    }
+    .search-overlay-main .row,
+    .search-overlay-main .row > div {
+        height: 100%;
+    }
+    .search-overlay-close-container {
+        position: absolute;
+        z-index: 1;
+        padding: 12px 20px;
+        top: 0;
+        right: 2px;
+    }
+    .search-overlay-close {
+        cursor: pointer;
+        font-size: 34px;
+        line-height: 1;
+        color: #404040;
+        transition: opacity .25s;
+    }
+    .search-overlay-close:hover {
+        opacity: .6;
+    }
+    #search-overlay-input {
+        font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+        border: none;
+        outline: 0;
+        padding: 0;
+        margin: 0;
+        width: 100%;
+        font-size: 30px;
+        font-weight: 700;
+        color: #404040;
+        background: transparent;
+    }
+    #search-overlay-input::placeholder {
+        color: #c3ccd4;
+    }
+    .search-overlay-stats {
+        margin: 14px 0 6px;
+        font-size: 13px;
+        color: #8899a8;
+    }
+    .search-overlay-results {
+        overflow: auto;
+        height: calc(100% - 90px);
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 80px;
+    }
+    .search-overlay-results .search-result-item {
+        padding: 16px 0;
+        border-bottom: 1px solid #eaf0f5;
+    }
+    .search-overlay-results .search-result-item h3 {
+        margin: 0 0 8px;
+        font-size: 21px;
+        line-height: 1.4;
+    }
+    .search-overlay-results .search-result-item h3 a {
+        color: #404040;
+        text-decoration: none;
+    }
+    .search-overlay-results .search-result-item h3 a:hover {
+        color: #0085a1;
+    }
+    .search-overlay-results .search-result-meta {
+        margin-bottom: 8px;
+        font-size: 12px;
+        color: #999;
+    }
+    .search-overlay-results .search-result-item p {
+        margin: 0;
+        color: #555;
+        line-height: 1.8;
+        font-size: 14px;
+    }
+    .search-overlay-results mark {
+        background: #ffef95;
+        color: inherit;
+        padding: 0 2px;
+        border-radius: 2px;
+    }
+    @media (max-width: 767px) {
+        .search-overlay-main {
+            padding-top: 60px;
+        }
+        #search-overlay-input {
+            font-size: 24px;
+        }
+    }
+</style>
+
+<script src="{{ '/js/search.js' | prepend: site.baseurl }}"></script>
+<script>
+    (function () {
+        var overlay = document.getElementById('search-overlay');
+        var input = document.getElementById('search-overlay-input');
+        var closeBtn = overlay.querySelector('.search-overlay-close');
+        var initialized = false;
+
+        function openOverlay() {
+            overlay.classList.add('search-active');
+            document.body.style.overflow = 'hidden';
+            if (!initialized) {
+                initialized = true;
+                window.BLOG_SEARCH.init({
+                    inputId: 'search-overlay-input',
+                    statsId: 'search-overlay-stats',
+                    resultsId: 'search-overlay-results',
+                    dataUrl: '{{ '/search.json' | prepend: site.baseurl }}',
+                    contentUrl: '{{ '/search-content.ndjson' | prepend: site.baseurl }}'
+                });
+            }
+            // Wait until the slide-up transition has started, then focus.
+            setTimeout(function () { input.focus(); }, 300);
+        }
+
+        function closeOverlay() {
+            overlay.classList.remove('search-active');
+            document.body.style.overflow = '';
+        }
+
+        window.openSearchOverlay = openOverlay;
+
+        closeBtn.addEventListener('click', closeOverlay);
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape' && overlay.classList.contains('search-active')) {
+                closeOverlay();
+            }
+        });
+
+        // Nav "Search" links open the overlay instead of navigating.
+        document.querySelectorAll('a[href$="/search/"]').forEach(function (link) {
+            link.addEventListener('click', function (event) {
+                event.preventDefault();
+                openOverlay();
+            });
+        });
+
+        // Direct visits to /search/ (e.g. /search/?q=xxx) auto-open the overlay.
+        if (window.location.pathname.replace(/\/+$/, '/') === '{{ '/search/' | prepend: site.baseurl }}') {
+            openOverlay();
+        }
+    })();
+</script>

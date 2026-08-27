@@ -26,13 +26,13 @@
                         <a href="{{ '/archive/' | prepend: site.baseurl }}">Archive</a>
                     </li>
                     <li>
-                        <a href="{{ '/search/' | prepend: site.baseurl }}">Search</a>
-                    </li>
-                    <li>
                         <a href="{{ '/tags/' | prepend: site.baseurl }}">Tags</a>
                     </li>
                     <li>
                         <a href="{{ '/about/' | prepend: site.baseurl }}">About</a>
+                    </li>
+                    <li class="nav-search-icon">
+                        <a href="{{ '/search/' | prepend: site.baseurl }}" title="搜索" aria-label="搜索"><i class="fa fa-search"></i><span class="nav-search-label"> Search</span></a>
                     </li>
                 </ul>
             </div>
@@ -41,6 +41,20 @@
     </div>
     <!-- /.container -->
 </nav>
+<style>
+    .nav-search-icon a .fa-search {
+        font-size: 15px;
+    }
+    /* Icon-only on desktop; icon + label inside the collapsed mobile menu. */
+    .nav-search-icon .nav-search-label {
+        display: none;
+    }
+    @media only screen and (max-width: 767px) {
+        .nav-search-icon .nav-search-label {
+            display: inline;
+        }
+    }
+</style>
 <script>
     // Drop Bootstarp low-performance Navbar
     // Use customize navbar with high-quality material design animation
