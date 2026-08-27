@@ -70,14 +70,18 @@ layout: default
                             </li>
                             {% endif %}
 
-                            {% if site.weibo_username %}
-                            <li>
-                                <a target="_blank" href="http://weibo.com/{{ site.weibo_username }}">
+                            {% if site.wechat_qrcode %}
+                            <li class="wechat-popover-wrapper">
+                                <a href="javascript:void(0)" title="微信公众号">
                                     <span class="fa-stack fa-lg">
                                         <i class="fa fa-circle fa-stack-2x"></i>
-                                        <i class="fa fa-weibo fa-stack-1x fa-inverse"></i>
+                                        <i class="fa fa-weixin fa-stack-1x fa-inverse"></i>
                                     </span>
                                 </a>
+                                <div class="wechat-qrcode">
+                                    <img src="{{ site.wechat_qrcode | prepend: site.baseurl }}" alt="微信公众号二维码" />
+                                    <p>微信公众号</p>
+                                </div>
                             </li>
                             {% endif %}
 
@@ -146,7 +150,10 @@ layout: default
                     <h5><a href="{{'/tags/' | prepend: site.baseurl }}">TAGS CLOUD</a></h5>
                     <div id="tags">
                       {% for tag in site.tags %}
+                      {% assign tag_size = tag[1] | size %}
+                      {% if tag_size > 1 %}
                       <a href="/tags#{{ tag[0] | replace:' ','%20' }}"><span style="margin-top:2px;font-size: {{ tag[1] | size | minus:1 | times:2 | plus:12 }}px;line-height:{{ tag[1] | size | minus:1 | times:2 | times:14 | divided_by:12 | plus:14 }}px">{{ tag[0] }}</span><sup>{{ tag[1].size }}</sup></a>
+                      {% endif %}
                       {% endfor %}
                     </div> 
                 </section>

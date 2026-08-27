@@ -20,6 +20,16 @@ warning is harmless.
 npm install && npx grunt        # or `npx grunt watch`
 ```
 
+**WARNING — CSS drift:** `npx grunt` currently fails (grunt-cli is not
+installed and the Gruntfile expects a non-existent `less/argan-blog.less`;
+the real entry point is `less/blog.less`). More importantly,
+`css/argan-blog{,.min}.css` contain ~485 lines of hand-appended rules
+(from `.page-header .title` onwards) that are NOT in the `.less` sources,
+so a full recompile destroys them. To change styles, edit the `.less`
+source for reference, then append the corresponding compiled CSS to the
+END of both `css/argan-blog.css` and `css/argan-blog.min.css` by hand
+(compile a fragment with `node_modules/.bin/lessc` if helpful).
+
 ## Layout
 
 - `_posts/` — blog posts, `layout: post`, permalink `/:title.html`

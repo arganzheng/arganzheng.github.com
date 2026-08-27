@@ -36,14 +36,18 @@
                         </a>
                     </li>
                     {% endif %}
-                    {% if site.weibo_username %}
-                    <li>
-                        <a target="_blank" href="http://weibo.com/{{ site.weibo_username }}">
+                    {% if site.wechat_qrcode %}
+                    <li class="wechat-popover-wrapper">
+                        <a href="javascript:void(0)" title="微信公众号">
                             <span class="fa-stack fa-lg">
                                 <i class="fa fa-circle fa-stack-2x"></i>
-                                <i class="fa fa-weibo fa-stack-1x fa-inverse"></i>
+                                <i class="fa fa-weixin fa-stack-1x fa-inverse"></i>
                             </span>
                         </a>
+                        <div class="wechat-qrcode">
+                            <img src="{{ site.wechat_qrcode | prepend: site.baseurl }}" alt="微信公众号二维码" />
+                            <p>微信公众号</p>
+                        </div>
                     </li>
                     {% endif %}
 
@@ -95,6 +99,18 @@
 
 <!-- Custom Theme JavaScript -->
 <script src="{{ "/js/argan-blog.min.js " | prepend: site.baseurl }}"></script>
+
+<!-- WeChat QR popover: toggle on icon click, close on any outside click -->
+<script>
+    document.addEventListener('click', function (e) {
+        var wrapper = e.target.closest('.wechat-popover-wrapper');
+        var toggle = wrapper && e.target.closest('a');
+        document.querySelectorAll('.wechat-popover-wrapper.active').forEach(function (w) {
+            if (w !== wrapper) w.classList.remove('active');
+        });
+        if (toggle) wrapper.classList.toggle('active');
+    });
+</script>
 
 <!-- Markdown [TOC] support -->
 <script src="{{ "/js/toc.js" | prepend: site.baseurl }}"></script>

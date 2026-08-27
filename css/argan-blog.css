@@ -1574,3 +1574,38 @@ div.side-catalog .catalog-empty {
 div.side-catalog.filtering .catalog-body li.active > a {
   border-left-color: transparent;
 }
+
+/* WeChat Official Account QR popover (sidebar + footer) */
+.wechat-popover-wrapper {
+  position: relative;
+}
+.wechat-popover-wrapper .wechat-qrcode {
+  display: none;
+  position: absolute;
+  bottom: 120%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  background: #fff;
+  border: 1px solid #eee;
+  border-radius: 5px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+  padding: 8px;
+  text-align: center;
+}
+.wechat-popover-wrapper .wechat-qrcode img {
+  width: 150px;
+  max-width: none;
+  margin: 0;
+  border-radius: 0;
+  display: inline-block;
+}
+.wechat-popover-wrapper .wechat-qrcode p {
+  margin: 5px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #808080;
+}
+.wechat-popover-wrapper.active .wechat-qrcode {
+  display: block;
+}

@@ -12,12 +12,13 @@ baseurl: ""                        # for example, '/blog' if your blog hosted on
 
 # SNS settings
 RSS: true 
-weibo_username:     argan1985
+# weibo_username:     argan1985
 zhihu_username:     arganzheng
 github_username:    arganzheng 
+linkedin_username:  arganzheng
+wechat_qrcode:      /img/weixin-gongzhonghao.jpg   # WeChat Official Account QR code
 # twitter_username:   arganzheng 
 # facebook_username:  arganzheng 
-# linkedin_username:  firstname-lastname-idxxxx
 
 
 
