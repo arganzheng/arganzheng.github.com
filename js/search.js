@@ -1,6 +1,4 @@
 (function(window) {
-  var FULLTEXT_CACHE_LIMIT = 120;
-
   function getParam(name) {
     var params = new URLSearchParams(window.location.search);
     return (params.get(name) || "").trim();
@@ -37,24 +35,14 @@
     return "";
   }
 
-  function lower(text) {
-    return String(text || "").toLowerCase();
-  }
-
-  function containsText(text, lowerNeedle, regexNeedle) {
-    if (!text) return false;
-    if (lowerNeedle && text.length < 3000) return lower(text).indexOf(lowerNeedle) >= 0;
-    return regexNeedle ? regexNeedle.test(text) : false;
-  }
-
   function makeSnippet(text, keyword) {
     var cleanText = normalize(text);
     if (!cleanText) return "";
     if (!keyword) return cleanText.slice(0, 320);
 
-    var lower = cleanText.toLowerCase();
+    var lowerText = cleanText.toLowerCase();
     var lowerKeyword = keyword.toLowerCase();
-    var pos = lower.indexOf(lowerKeyword);
+    var pos = lowerText.indexOf(lowerKeyword);
     if (pos < 0) return cleanText.slice(0, 320);
 
     var start = Math.max(0, pos - 90);
@@ -78,46 +66,30 @@
     return output;
   }
 
-  function scoreResult(item, contentText, ctx) {
-    var title = lower(item.title);
-    var tags = lower(getTagsText(item));
-    var content = contentText || "";
+  function scoreResult(item, query, terms) {
+    // item._search is the pre-lowered "title tags content" haystack built once.
+    var title = item._title;
+    var tags = item._tags;
+    var haystack = item._search;
 
     var i;
-    for (i = 0; i < ctx.terms.length; i += 1) {
-      if (
-        title.indexOf(ctx.terms[i]) < 0 &&
-        tags.indexOf(ctx.terms[i]) < 0 &&
-        !containsText(content, ctx.terms[i], ctx.termRegexes[i])
-      ) {
-        return -1;
-      }
+    for (i = 0; i < terms.length; i += 1) {
+      if (haystack.indexOf(terms[i]) < 0) return -1;
     }
 
     var score = 0;
-    if (ctx.query && title.indexOf(ctx.query) >= 0) score += 20;
-    if (ctx.query && tags.indexOf(ctx.query) >= 0) score += 10;
+    if (query && title.indexOf(query) >= 0) score += 20;
+    if (query && tags.indexOf(query) >= 0) score += 10;
 
-    for (i = 0; i < ctx.terms.length; i += 1) {
-      if (title.indexOf(ctx.terms[i]) >= 0) score += 6;
-      if (tags.indexOf(ctx.terms[i]) >= 0) score += 3;
-      if (containsText(content, ctx.terms[i], ctx.termRegexes[i])) score += 1;
+    for (i = 0; i < terms.length; i += 1) {
+      if (title.indexOf(terms[i]) >= 0) score += 6;
+      if (tags.indexOf(terms[i]) >= 0) score += 3;
+      if (haystack.indexOf(terms[i]) >= 0) score += 1;
     }
     return score;
   }
 
-  function buildResultList(resultMap) {
-    return Object.keys(resultMap)
-      .map(function(url) { return resultMap[url]; })
-      .sort(function(a, b) {
-        if (b.score !== a.score) return b.score - a.score;
-        return (b.item.date || "").localeCompare(a.item.date || "");
-      })
-      .slice(0, 50)
-      .map(function(entry) { return entry.item; });
-  }
-
-  function renderResults(results, statsNode, listNode, rawQuery, terms, extra) {
+  function renderResults(results, statsNode, listNode, rawQuery, terms, loadingFulltext) {
     if (!rawQuery) {
       statsNode.innerHTML = "输入关键词后开始搜索（支持中文和英文）";
       listNode.innerHTML = "";
@@ -125,11 +97,7 @@
     }
 
     var stats = "关键词 “" + escapeHtml(rawQuery) + "” ，找到 " + results.length + " 篇文章";
-    if (extra && extra.streaming) {
-      stats += "（正在增量扫描全文...";
-      if (extra.newMatches > 0) stats += " 已补充 " + extra.newMatches + " 篇";
-      stats += "）";
-    }
+    if (loadingFulltext) stats += "（全文索引加载中，结果可能继续增加）";
     statsNode.innerHTML = stats;
 
     if (!results.length) {
@@ -154,13 +122,13 @@
     }).join("");
   }
 
-  function setCache(cache, key, value) {
-    if (!value) return;
-    if (cache.has(key)) cache.delete(key);
-    cache.set(key, value);
-    if (cache.size <= FULLTEXT_CACHE_LIMIT) return;
-    var oldestKey = cache.keys().next().value;
-    cache.delete(oldestKey);
+  // Pre-compute the lowered haystack once per item so per-keystroke search
+  // never re-lowercases megabytes of text (the root cause of earlier jank).
+  function buildSearchFields(item) {
+    item._title = (item.title || "").toLowerCase();
+    item._tags = getTagsText(item).toLowerCase();
+    item._search = item._title + " " + item._tags + " " +
+      (item.content ? item.content.toLowerCase() : (item.excerpt || "").toLowerCase());
   }
 
   function processNDJSONLine(line, onItem) {
@@ -173,129 +141,65 @@
     }
   }
 
-  function streamFulltext(url, signal, onItem, onDone) {
-    fetch(url + "?t=" + Date.now(), { signal: signal })
+  // Load the fulltext NDJSON exactly once at page load. Contents are merged
+  // into the in-memory index; afterwards every search is pure in-memory.
+  function loadFulltextOnce(url, indexByUrl, onProgress, onDone) {
+    fetch(url + "?t=" + Date.now())
       .then(function(resp) {
         if (!resp.ok) throw new Error("HTTP " + resp.status);
-        if (!resp.body || !resp.body.getReader) return resp.text().then(function(text) {
-          text.split("\n").forEach(function(line) { processNDJSONLine(line, onItem); });
-        });
-
-        var reader = resp.body.getReader();
-        var decoder = new TextDecoder();
-        var buffer = "";
-
-        function readChunk() {
-          return reader.read().then(function(result) {
-            if (result.done) {
-              if (buffer) processNDJSONLine(buffer, onItem);
-              return;
-            }
-            buffer += decoder.decode(result.value, { stream: true });
-            var lines = buffer.split("\n");
-            buffer = lines.pop() || "";
-            lines.forEach(function(line) { processNDJSONLine(line, onItem); });
-            return readChunk();
-          });
-        }
-        return readChunk();
+        return resp.text();
       })
-      .then(function() { onDone(null); })
-      .catch(function(err) {
-        if (err && err.name === "AbortError") return;
-        onDone(err);
-      });
+      .then(function(text) {
+        var lines = text.split("\n");
+        var i = 0;
+
+        // Merge in chunks on idle time so the main thread stays responsive.
+        function mergeChunk() {
+          var deadline = Date.now() + 12;
+          while (i < lines.length && Date.now() < deadline) {
+            processNDJSONLine(lines[i], function(row) {
+              var meta = indexByUrl[row.url];
+              if (meta && row.content) {
+                meta.content = row.content;
+                buildSearchFields(meta);
+              }
+            });
+            i += 1;
+          }
+          if (i < lines.length) {
+            setTimeout(mergeChunk, 0);
+          } else {
+            onDone(null);
+          }
+          onProgress();
+        }
+        mergeChunk();
+      })
+      .catch(function(err) { onDone(err); });
   }
 
   function doSearch(state, inputNode, statsNode, listNode) {
-    state.searchSeq += 1;
-    var thisSearch = state.searchSeq;
-    if (state.abortController) state.abortController.abort();
-
     var rawQuery = (inputNode.value || "").trim();
-    var query = lower(rawQuery);
+    var query = rawQuery.toLowerCase();
     var terms = tokenize(rawQuery);
-    var queryRegex = new RegExp(escapeRegExp(query), "i");
-    var termRegexes = terms.map(function(term) {
-      return new RegExp(escapeRegExp(term), "i");
-    });
-    var ctx = {
-      query: query,
-      terms: terms,
-      queryRegex: queryRegex,
-      termRegexes: termRegexes
-    };
 
     if (!query) {
-      renderResults([], statsNode, listNode, "", []);
+      renderResults([], statsNode, listNode, "", [], false);
       return;
     }
 
-    var resultMap = {};
-    state.indexData.forEach(function(item) {
-      var score = scoreResult(item, item.excerpt || "", ctx);
-      if (score < 0) return;
-      resultMap[item.url] = { item: item, score: score };
-    });
+    var results = state.indexData
+      .map(function(item) {
+        return { item: item, score: scoreResult(item, query, terms) };
+      })
+      .filter(function(result) { return result.score >= 0; })
+      .sort(function(a, b) {
+        if (b.score !== a.score) return b.score - a.score;
+        return (b.item.date || "").localeCompare(a.item.date || "");
+      })
+      .map(function(result) { return result.item; });
 
-    var newMatches = 0;
-    var renderNow = function(streaming) {
-      if (thisSearch !== state.searchSeq) return;
-      renderResults(buildResultList(resultMap), statsNode, listNode, rawQuery, terms, {
-        streaming: streaming,
-        newMatches: newMatches
-      });
-    };
-
-    renderNow(Boolean(state.contentUrl));
-    if (!state.contentUrl) return;
-
-    state.abortController = typeof AbortController !== "undefined" ? new AbortController() : null;
-    var signal = state.abortController ? state.abortController.signal : undefined;
-    var seen = 0;
-
-    streamFulltext(state.contentUrl, signal, function(row) {
-      if (thisSearch !== state.searchSeq) return;
-      var meta = state.indexByUrl[row.url];
-      if (!meta) return;
-      var content = row.content || "";
-      if (!content) return;
-
-      seen += 1;
-      var score = scoreResult(meta, content, ctx);
-      if (score < 0) return;
-
-      setCache(state.fulltextCache, row.url, content);
-      var existing = resultMap[row.url];
-      if (!existing) {
-        newMatches += 1;
-        resultMap[row.url] = {
-          item: {
-            title: meta.title,
-            url: meta.url,
-            date: meta.date,
-            tags: meta.tags,
-            tags_text: meta.tags_text,
-            excerpt: meta.excerpt,
-            content: content
-          },
-          score: score + 1
-        };
-      } else {
-        // Upgrade snippet quality for index-hit items without keeping all full text.
-        if (!existing.item.content) existing.item.content = content;
-        if (score > existing.score) existing.score = score;
-      }
-
-      if (seen % 12 === 0) renderNow(true);
-    }, function(err) {
-      if (thisSearch !== state.searchSeq) return;
-      if (err) {
-        statsNode.innerHTML = "全文扫描失败，已展示快速索引结果。";
-        return;
-      }
-      renderNow(false);
-    });
+    renderResults(results, statsNode, listNode, rawQuery, terms, !state.fulltextReady);
   }
 
   function init(options) {
@@ -313,24 +217,35 @@
 
         var indexByUrl = {};
         data.forEach(function(item) {
+          buildSearchFields(item);
           indexByUrl[item.url] = item;
         });
 
         var state = {
           indexData: data,
-          indexByUrl: indexByUrl,
-          contentUrl: options.contentUrl || "",
-          abortController: null,
-          searchSeq: 0,
-          fulltextCache: new Map()
+          fulltextReady: !options.contentUrl
         };
 
+        var debounceTimer = null;
         var runSearch = function() {
           doSearch(state, inputNode, statsNode, listNode);
         };
+        var runSearchDebounced = function() {
+          if (debounceTimer) clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(runSearch, 120);
+        };
 
         runSearch();
-        inputNode.addEventListener("input", runSearch);
+        inputNode.addEventListener("input", runSearchDebounced);
+
+        if (options.contentUrl) {
+          loadFulltextOnce(options.contentUrl, indexByUrl, function() {}, function(err) {
+            state.fulltextReady = true;
+            if (err) return;
+            // Refresh current query with fulltext-aware results.
+            if ((inputNode.value || "").trim()) runSearch();
+          });
+        }
       })
       .catch(function() {
         statsNode.innerHTML = "搜索索引加载失败，请稍后重试。";
