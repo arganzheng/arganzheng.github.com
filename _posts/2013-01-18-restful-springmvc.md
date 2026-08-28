@@ -1,7 +1,7 @@
 ---
 layout: post
 title: Restful Spring MVC
-tags: [SpringMVC ]
+tags: [Spring MVC]
 catalog: true
 ---
 

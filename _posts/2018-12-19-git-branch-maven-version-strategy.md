@@ -1,7 +1,7 @@
 ---
 title: git分支与maven版本之间的联动
 layout: post
-tags: [maven, agile]
+tags: [maven, 敏捷]
 catalog: true
 ---
 

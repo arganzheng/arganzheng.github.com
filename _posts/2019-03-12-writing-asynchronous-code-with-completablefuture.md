@@ -1,7 +1,7 @@
 ---
 title: 使用CompletableFuture异步编程
 layout: post
-tags: [java, concurrency, high performance]
+tags: [Java, 高并发, 性能优化]
 catalog: true
 ---
 

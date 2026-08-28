@@ -1,7 +1,7 @@
 ---
 layout: post
 title: 大模型推理系统揭秘（06）：GPU 执行：如何让每个 Token 算得更快？
-tags: [AI, AI-infra, 大模型推理]
+tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
 

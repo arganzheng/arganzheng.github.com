@@ -1,7 +1,7 @@
 ---
 layout: post
 title: 大模型推理系统揭秘（09）：硬件解耦：如何不让芯片差异污染 Serving 核心？
-tags: [AI, AI-infra, 大模型推理]
+tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
 

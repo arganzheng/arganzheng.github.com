@@ -1,7 +1,7 @@
 ---
 layout: post
 title: 大模型推理系统揭秘（01）：为什么 LLM Serving 比传统 DL 推理难？
-tags: [AI, AI-infra, 大模型推理]
+tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
 

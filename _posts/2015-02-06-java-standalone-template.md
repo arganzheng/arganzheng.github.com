@@ -1,7 +1,7 @@
 ---
 title: java standalone模板
 layout: post
-tags: [java, standalone, maven, ant]
+tags: [Java, maven, ant]
 category: 技术
 catalog: true
 ---

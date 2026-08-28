@@ -2,7 +2,7 @@
 title: 获取redis集群信息
 layout: post
 catalog: true
-tags: [redis, cluster, monitor]
+tags: [redis, cluster, 监控]
 category: [技术]
 ---
 

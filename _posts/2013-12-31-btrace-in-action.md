@@ -1,7 +1,7 @@
 ---
 title: BTrace实战
 layout: post
-tags: [java, btrace]
+tags: [Java, BTrace]
 catalog: true
 ---
 

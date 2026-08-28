@@ -1,7 +1,7 @@
 ---
 layout: post
 title: 大模型推理系统揭秘（04）：Scheduler：GPU 这一轮到底给谁用？
-tags: [AI, AI-infra, 大模型推理]
+tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
 

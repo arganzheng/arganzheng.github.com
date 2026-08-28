@@ -2,7 +2,7 @@
 title: Tomcat调优
 layout: post
 category: [技术]
-tags: [tomcat, java, performance tuning]
+tags: [Tomcat, Java, 性能优化]
 catalog: true
 ---
 

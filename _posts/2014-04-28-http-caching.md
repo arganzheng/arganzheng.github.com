@@ -1,7 +1,7 @@
 ---
 title: 动态页面缓存方案
 layout: post
-tags: [http, cache]
+tags: [HTTP, 缓存]
 catalog: true
 ---
 

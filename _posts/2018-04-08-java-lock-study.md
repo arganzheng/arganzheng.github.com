@@ -1,7 +1,7 @@
 ---
 title: Java各种锁介绍
 layout: post
-tags: [java, concurrency]
+tags: [Java, 高并发]
 catalog: true
 ---
 

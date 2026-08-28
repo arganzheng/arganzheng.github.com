@@ -1,7 +1,7 @@
 ---
 title: Java DNS查询内部实现
 layout: post
-tags: [java, dns]
+tags: [Java, DNS]
 catalog: true
 ---
 

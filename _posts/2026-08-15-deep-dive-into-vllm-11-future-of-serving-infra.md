@@ -1,7 +1,7 @@
 ---
 layout: post
 title: 大模型推理系统揭秘（11）：Serving Infra 的下一站：从模型执行器到分布式智能操作系统
-tags: [AI, AI-infra, 大模型推理]
+tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
 

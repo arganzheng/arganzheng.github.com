@@ -1,7 +1,7 @@
 ---
 layout: post
 title: 大模型推理系统揭秘（10）：PD 分离：从单机 Serving 走向集群 Serving
-tags: [AI, AI-infra, 大模型推理]
+tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
 

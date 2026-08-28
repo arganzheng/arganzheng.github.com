@@ -1,7 +1,7 @@
 ---
 title: Spring MVC国际化和本地化
 layout: post
-tags: [SpringMVC]
+tags: [Spring MVC]
 catalog: true
 ---
 

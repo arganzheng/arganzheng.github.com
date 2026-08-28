@@ -1,7 +1,7 @@
 ---
 layout: post
 title: 大模型推理系统揭秘（02）：如何衡量一个 LLM Serving 系统？
-tags: [AI, AI-infra, 大模型推理]
+tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
 

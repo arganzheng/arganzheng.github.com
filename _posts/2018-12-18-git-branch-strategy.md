@@ -1,7 +1,7 @@
 ---
 title: Git分支管理策略
 layout: post
-tags: [git,agile]
+tags: [git, 敏捷]
 catalog: true
 ---
 

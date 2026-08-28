@@ -1,7 +1,7 @@
 ---
 layout: post
 title: 大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术（总纲）
-tags: [AI, AI-infra, 大模型推理]
+tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
 

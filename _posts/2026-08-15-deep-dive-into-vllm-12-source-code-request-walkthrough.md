@@ -1,7 +1,7 @@
 ---
 layout: post
 title: 大模型推理系统揭秘（12）：回到源码：一次请求在 vLLM 内部的真实旅程
-tags: [AI, AI-infra, 大模型推理]
+tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
 

@@ -1,7 +1,7 @@
 ---
 layout: post
 title: 大模型推理系统揭秘（08）：模型适配：如何跟上变化极快的模型世界？
-tags: [AI, AI-infra, 大模型推理]
+tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
 

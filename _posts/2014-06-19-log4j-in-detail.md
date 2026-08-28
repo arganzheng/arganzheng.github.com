@@ -1,7 +1,7 @@
 ---
 layout: post
 title: log4j详细介绍
-tags: [java, log4j]
+tags: [Java, log4j]
 catalog: true
 ---
 

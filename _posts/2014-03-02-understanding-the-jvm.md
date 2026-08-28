@@ -2,7 +2,7 @@
 title: Java虚拟机学习笔记
 layout: post
 catalog: true
-tags: [java, jvm]
+tags: [Java, JVM]
 ---
 
 

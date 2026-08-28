@@ -3,7 +3,7 @@ title: mina学习笔记
 layout: post
 catalog: true
 category: 技术
-tags: [mina, nio, java, 网络编程]
+tags: [Mina, NIO, Java, 网络编程]
 ---
 
 ![mina](/img/in-post/mina.jpg)

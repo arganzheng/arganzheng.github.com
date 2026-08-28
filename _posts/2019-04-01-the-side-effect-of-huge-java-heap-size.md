@@ -1,7 +1,7 @@
 ---
 title: 一个java大堆引发的『血案』
 layout: post
-tags: [java, jvm, high performance, tunning]
+tags: [Java, JVM, 性能优化]
 catalog: true
 ---
 

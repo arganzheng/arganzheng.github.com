@@ -1,7 +1,7 @@
 ---
 layout: post
 title: log4j2如何动态的创建logger和appender
-tags: [log4j2]
+tags: [log4j]
 catalog: true
 ---
 

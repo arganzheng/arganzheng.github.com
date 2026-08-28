@@ -1,7 +1,7 @@
 ---
 title: Java中如何正确的加载配置文件
 layout: post
-tags: [java]
+tags: [Java]
 catalog: true
 ---
 

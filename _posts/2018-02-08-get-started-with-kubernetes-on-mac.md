@@ -2,7 +2,7 @@
 title: kubernetes初体验
 layout: post
 catalog: true
-tags: [k8s, docker]
+tags: [Kubernetes, Docker]
 category: [技术]
 ---
 

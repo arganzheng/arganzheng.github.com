@@ -1,7 +1,7 @@
 ---
 layout: post
 title: 使用Servlet和JSP模拟最小化的SpringMVC框架
-tags: [SpringMVC]
+tags: [Spring MVC]
 catalog: true
 ---
 

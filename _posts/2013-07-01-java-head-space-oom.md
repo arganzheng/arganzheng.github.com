@@ -1,7 +1,7 @@
 ---
 layout: post
 title: Java Heap OOM问题
-tags: [java, jvm]
+tags: [Java, JVM]
 catalog: true
 ---
 
