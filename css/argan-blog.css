@@ -1609,3 +1609,7 @@ div.side-catalog.filtering .catalog-body li.active > a {
 .wechat-popover-wrapper.active .wechat-qrcode {
   display: block;
 }
+
+body.outline-unavailable .outline-reopen {
+  display: none !important;
+}

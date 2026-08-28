@@ -20,6 +20,7 @@
     // Height of the fixed navbar, used both as scroll offset and spy threshold.
     var NAV_OFFSET = 80;
     var COLLAPSED_CLASS = 'outline-collapsed';
+    var UNAVAILABLE_CLASS = 'outline-unavailable';
     // Keep the catalog readable on long posts: show at most 3 outline levels.
     var MAX_OUTLINE_DEPTH = 3;
 
@@ -291,7 +292,12 @@
     function renderFloatingToc(headings) {
         var panel = document.querySelector('.side-catalog');
         var body = panel && panel.querySelector('.catalog-body');
-        if (!body || !headings.length) return;
+        if (!body) return;
+
+        if (!headings.length) {
+            document.body.classList.add(COLLAPSED_CLASS, UNAVAILABLE_CLASS);
+            return;
+        }
 
         var entries = [];
         buildList(body, headings, entries);
