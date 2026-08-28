@@ -1,7 +1,6 @@
 ---
 title: 一个诡异的Antlr4语法问题
 layout: post
-category: [技术]
 tags: [antlr, parser]
 catelog: true
 ---

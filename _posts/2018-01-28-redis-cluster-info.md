@@ -3,7 +3,6 @@ title: 获取redis集群信息
 layout: post
 catalog: true
 tags: [redis, cluster, 监控]
-category: [技术]
 ---
 
 redis info 命令只能获取单个实例的信息。写了一个 shell ，可以方便的获取 redis 集群的汇总信息:

@@ -3,7 +3,6 @@ layout: post
 title: redis slave的key过期机制
 tags: [redis]
 catalog: true
-category: [技术]
 ---
 
 

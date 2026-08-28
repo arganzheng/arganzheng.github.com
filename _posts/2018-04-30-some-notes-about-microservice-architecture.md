@@ -3,7 +3,6 @@ title: 关于微服务架构
 layout: post
 catalog: true
 tags: [微服务, 架构]
-category: [技术]
 ---
 
 

@@ -3,7 +3,6 @@ title: Aerospike UDF学习笔记
 layout: post
 catalog: true
 tags: [aerospike]
-category: 技术
 ---
 
 ### 背景

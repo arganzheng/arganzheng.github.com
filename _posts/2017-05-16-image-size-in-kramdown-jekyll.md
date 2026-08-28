@@ -2,7 +2,6 @@
 title: markdown中图片如何指定大小
 layout: post
 tags: [markdown, kramdown, jekyll]
-category: 技术
 ---
 
 

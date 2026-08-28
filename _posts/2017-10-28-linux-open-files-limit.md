@@ -1,7 +1,6 @@
 ---
 title: 如何查看和设置文件句柄数
 layout: post
-category: 技术
 tags: [linux]
 ---
 

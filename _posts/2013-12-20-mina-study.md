@@ -2,7 +2,6 @@
 title: mina学习笔记
 layout: post
 catalog: true
-category: 技术
 tags: [Mina, NIO, Java, 网络编程]
 ---
 

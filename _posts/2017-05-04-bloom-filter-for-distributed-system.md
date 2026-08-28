@@ -3,7 +3,6 @@ layout: post
 title: Bloom filter在分布式环境中的应用
 tags: [Bloom Filter, 分布式]
 catalog: true
-category: [技术]
 ---
 
 

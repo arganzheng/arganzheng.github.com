@@ -3,7 +3,6 @@ title: 微服务架构学习
 layout: post
 catalog: true
 tags: [微服务, 架构]
-category: [技术]
 ---
 
 微服务架构

@@ -2,7 +2,6 @@
 layout: post
 title: maven学习笔记
 catalog: true
-category: [技术]
 tags: [maven]
 ---
 

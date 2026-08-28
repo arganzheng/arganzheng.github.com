@@ -2,7 +2,6 @@
 title: 创建可执行的jar包
 layout: post
 tags: [Java, ant, maven]
-category: [技术]
 catalog: true
 ---
 

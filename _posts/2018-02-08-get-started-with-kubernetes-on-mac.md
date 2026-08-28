@@ -3,7 +3,6 @@ title: kubernetes初体验
 layout: post
 catalog: true
 tags: [Kubernetes, Docker]
-category: [技术]
 ---
 
 

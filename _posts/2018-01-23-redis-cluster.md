@@ -3,7 +3,6 @@ title: Redis集群学习
 layout: post
 catalog: true
 tags: [redis, cluster, 高可用, 分布式, 缓存]
-category: [技术]
 ---
 
 Redis3.0版本加入了cluster功能，解决了Redis单点无法横向扩展的问题。

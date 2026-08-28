@@ -1,7 +1,6 @@
 ---
 layout: post
 title: 移动终端设备唯一标识
-category: [技术]
 catalog: true
 tags: [移动互联网, uuid]
 ---

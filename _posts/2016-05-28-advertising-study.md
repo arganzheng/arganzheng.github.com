@@ -2,7 +2,6 @@
 title: 互联网广告系统学习笔记
 layout: post
 tags: [广告]
-category: 技术
 catalog: true
 ---
 

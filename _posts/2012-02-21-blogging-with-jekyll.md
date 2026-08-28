@@ -1,7 +1,6 @@
 ---
 layout: post
 title: 使用github搭建个人博客
-category: 技术
 tags: [jekyll, 博客]
 catalog: true
 ---

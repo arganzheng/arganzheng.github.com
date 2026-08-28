@@ -1,7 +1,6 @@
 ---
 title: JVM类加载器与ClassNotFoundException和NoClassDefFoundError
 layout: post
-category: [技术]
 tags: [jvm, classloader]
 catelog: true
 ---

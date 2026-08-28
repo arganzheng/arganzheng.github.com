@@ -3,7 +3,6 @@ title: 使用Redis做简单的消息队列
 layout: post
 catalog: true
 tags: [redis, 消息队列]
-category: [技术]
 ---
 
 

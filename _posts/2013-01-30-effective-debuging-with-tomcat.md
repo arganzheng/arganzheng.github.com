@@ -1,7 +1,6 @@
 ---
 layout: post
 title: 如何使用tomcat高效调试
-category: [技术]
 tags: [tomcat, Java, Debug, Productivity]
 catalog: true
 ---

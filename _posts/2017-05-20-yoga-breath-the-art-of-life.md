@@ -2,7 +2,6 @@
 title: 快乐课程
 subtitle: 你真的会呼吸吗？
 layout: header-post
-category: 生活
 tags: [瑜伽, 呼吸, 生活的艺术]
 header-img: img/yoga-breathing.jpg
 ---
