@@ -1,14 +1,12 @@
 ---
 layout: post
-title: 大模型推理系统揭秘（10）：PD 分离：从单机 Serving 走向集群 Serving
+title: 大模型推理系统揭秘（10）：PD 分离：从资源混部走向计算解耦
 tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码深度剖析。文中所有文件路径、类名和行号均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 
-
-> **本章把前面讨论的四个问题从单机推向集群：当 Prefill 和 Decode 不再共享同一批 GPU，调度、KV Cache、路由和故障恢复都需要重新设计。**
 
 前九章主要讨论的是：
 

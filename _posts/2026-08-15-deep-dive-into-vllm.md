@@ -242,7 +242,7 @@ KV Cache 并不是普通的临时张量。它是 Decode 阶段持续依赖的请
 
 这一章会把“可移植性”从口号还原成具体的代码组织和职责边界问题。
 
-### 10. 从单体服务走向集群：为什么需要 PD 分离？
+### 10. 从资源混部走向计算解耦：为什么需要 PD 分离？
 
 当模型规模、请求量和服务目标继续增长时，单个实例同时承担 Prefill 和 Decode，可能不再是最优选择。
 
@@ -295,7 +295,7 @@ PD 分离并不是简单地把两个阶段部署到不同机器上。它重新�
 2. 再用指标定位矛盾；
 3. 用请求生命周期建立全局视角；
 4. 从调度、内存和执行三个核心战场深入；
-5. 将问题扩展到多卡、模型、硬件和集群；
+5. 将问题扩展到多卡、模型、硬件和计算解耦；
 6. 最后回到源码，用实现细节验证系统抽象。
 
 沿着这条线阅读，vLLM 不再只是一个“推理框架”，而会呈现为一个持续协调**请求、Token、状态、计算、显存和通信**的动态系统。
@@ -311,7 +311,7 @@ PD 分离并不是简单地把两个阶段部署到不同机器上。它重新�
 7. [Multi-GPU：一张卡不够时如何扩展？](/deep-dive-into-vllm-07-multi-gpu-scaling-strategies.html)
 8. [模型适配：如何跟上变化极快的模型世界？](/deep-dive-into-vllm-08-model-adaptation-architecture.html)
 9. [硬件解耦：如何不让芯片差异污染 Serving 核心？](/deep-dive-into-vllm-09-hardware-abstraction-and-portability.html)
-10. [PD 分离：从单机 Serving 走向集群 Serving](/deep-dive-into-vllm-10-prefill-decode-disaggregation.html)
+10. [PD 分离：从资源混部走向计算解耦](/deep-dive-into-vllm-10-prefill-decode-disaggregation.html)
 11. [Serving Infra 的下一站：从模型执行器到分布式智能操作系统](/deep-dive-into-vllm-11-future-of-serving-infra.html)
 12. [回到源码：一次请求在 vLLM 内部的真实旅程](/deep-dive-into-vllm-12-source-code-request-walkthrough.html)
 
