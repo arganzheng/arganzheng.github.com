@@ -121,6 +121,59 @@ class User(BaseModel):
   age: int = Field(default=18, ge=0, le=120)
 ```
 
+**TIPS** Python 3.10+ 的联合类型（Union Types）语法
+
+```python
+def find_user(user_id: int) -> User | None:
+    ...
+```
+
+在 Python 3.10 及以上版本中，`User | None` 语法被称为联合类型（Union Types）扩展语法。
+
+这里的 `| None` 表示该函数返回的值可以是 User 类型的实例，也可以是 None。
+
+在 Python 3.10 之前，这种逻辑通常使用 typing 模块来表达，它们在类型检查时完全等价：
+
+* Optional[User]
+* Union[User, None]
+  
+但是对于对于3.10+的用户更推荐新语法，因为它：
+* 更简洁：不需要从 typing 模块导入 Optional 或 Union
+* 更易读：| 符号直观地表达了“或者（OR）”的概念
+
+关于Python的 `|` 值得多说几句。Python 官方设计团队（包括 Python 之父 Guido）非常喜欢复用 `|` 符号，因为它的直观语义就是 “加入/合并/或者”。这导致 `|` 在Python中成为一个“身兼数职”的万能运算符。它在不同的上下文和数据类型中，扮演着完全不同的角色。在很早起的版本中，`|` 就作为集合的并集（Set Union）使用。
+
+```python
+set_a = {1, 2, 3}
+set_b = {3, 4, 5}
+
+# 1. 合并生成新集合
+union_set = set_a | set_b
+print(union_set)  # 输出: {1, 2, 3, 4, 5}
+
+# 2. 使用 |= 进行就地更新（求并集并赋给自身）
+set_a  |= set_b
+print(set_a)  # set_a 本身已被改变，输出: {1, 2, 3, 4, 5}
+```
+
+在Python 3.9+之后，官方把它泛化到字典合并与更新。在 3.9 之前，合并字典需要用 ** 解包或者 .update() 方法，代码比较冗长。现在用 | 变得非常直观。
+
+* `|`（合并）：返回一个新字典。如果键（Key）冲突，右边的值会覆盖左边的值。
+* `|=`（就地更新）：类似于 `+=`，直接修改左边的字典。
+
+```python
+defaults = {"host": "localhost", "port": 8080, "debug": True}
+overrides = {"port": 9000, "debug": False}
+
+# 1. 合并生成新字典
+merged = defaults | overrides
+print(merged)  # 输出: {'host': 'localhost', 'port': 9000, 'debug': False} （port 和 debug 被覆盖了）
+
+# 2. 就地更新
+defaults |= overrides
+print(defaults)  # defaults 本身已被改变
+```
+
 ## 三、 Pydantic 与 Dataclass 的底层实现原理
 
 为什么写下 id: int 这样一行简单的声明，Python 就能自动帮我们搞定构造函数和数据校验？这背后依赖于 Python 的两个核心机制：类型注解存储（__annotations__） 与 元类（Metaclass）。

@@ -34,17 +34,55 @@ Decode Pool   → 负责逐 Token 生成
 
 > **把一次请求的执行过程拆成两个阶段，并把阶段之间的 KV Cache 作为跨节点状态进行传递。**
 
-因此，PD 分离真正改变的不是某个算子，而是 Serving 系统的状态边界：
+因此，PD 分离真正改变的不是某个算子，而是 Serving 系统的状态边界。
+
+
+**PD 混合 Serving**：Prefill 和 Decode 运行在同一个 Serving 实例或资源池中：
 
 ```text
-单机 Serving：
-    请求、调度、KV Cache 大多在本地完成
-
-集群 Serving：
-    请求需要跨节点路由
-    KV Cache 需要跨节点传输
-    状态需要被查询、缓存、恢复和淘汰
+Request
+   │
+   ▼
+┌──────────────────────────────┐
+│       Serving Instance       │
+│                              │
+│   Prefill ──→ Decode         │
+│      │           │           │
+│      └── KV Cache ──────────┘│
+│                              │
+│   共享 GPU / 调度 / KV Cache │
+└──────────────────────────────┘
 ```
+
+Prefill 与 Decode **共享计算资源和调度体系**，KV Cache 也主要作为实例内部状态进行管理。
+
+**PD 分离 Serving**：Prefill 和 Decode 被拆分到相对独立的资源池：
+
+```text
+                 Request
+                    │
+                    ▼
+              ┌───────────┐
+              │  Router   │
+              └─────┬─────┘
+                    │
+              ┌─────┴─────┐
+              ▼           ▼
+      ┌────────────┐ ┌────────────┐
+      │  Prefill   │ │   Decode   │
+      │    Pool    │ │    Pool    │
+      └─────┬──────┘ └──────▲─────┘
+            │                │
+            └─ KV Transfer ──┘
+```
+
+此时，系统发生了三个重要变化：
+
+* **资源边界变化**：Prefill 与 Decode 不再共享同一个资源池，可以独立配置和扩缩容。
+* **调度边界变化**：Prefill 和 Decode 可以采用不同的调度策略，分别针对各自的计算特征进行优化。
+* **状态边界变化**：KV Cache 不再只是某个 Serving 实例内部的本地状态，而成为需要在 Prefill 与 Decode 之间传递、定位、管理的中间状态。
+
+因此，**PD 分离的核心是把原本耦合在一起的 Prefill 和 Decode 解耦成两个可以独立管理的计算资源域，并通过 KV Cache Transfer 将两个阶段重新连接起来。**
 
 当前，在讨论怎么PD分离之前，我们要先搞清楚为什么要PD分离。
 
