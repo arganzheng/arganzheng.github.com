@@ -103,7 +103,7 @@ class User(BaseModel):
 
 ### 1. 默认值与范围限制
 
-在 Python 3.10+ 中，我们已经不再需要引入 Optional，而是直接使用更现代的 | None 语法。配合 Pydantic 的 Field 函数，可以轻松实现业务边界限制：
+在 Python 3.10+ 中，我们已经不再需要引入 Optional，而是直接使用更现代的 `| None` 语法。配合 Pydantic 的 Field 函数，可以轻松实现业务边界限制：
 
 ```python
 from pydantic import BaseModel, EmailStr, Field
@@ -141,7 +141,7 @@ def find_user(user_id: int) -> User | None:
   
 但是对于对于3.10+的用户更推荐新语法，因为它：
 * 更简洁：不需要从 typing 模块导入 Optional 或 Union
-* 更易读：| 符号直观地表达了“或者（OR）”的概念
+* 更易读：`|` 符号直观地表达了“或者（OR）”的概念
 
 关于Python的 `|` 值得多说几句。Python 官方设计团队（包括 Python 之父 Guido）非常喜欢复用 `|` 符号，因为它的直观语义就是 “加入/合并/或者”。这导致 `|` 在Python中成为一个“身兼数职”的万能运算符。它在不同的上下文和数据类型中，扮演着完全不同的角色。在很早起的版本中，`|` 就作为集合的并集（Set Union）使用。
 
@@ -158,7 +158,7 @@ set_a  |= set_b
 print(set_a)  # set_a 本身已被改变，输出: {1, 2, 3, 4, 5}
 ```
 
-在Python 3.9+之后，官方把它泛化到字典合并与更新。在 3.9 之前，合并字典需要用 ** 解包或者 .update() 方法，代码比较冗长。现在用 | 变得非常直观。
+在Python 3.9+ 之后，官方把它泛化到字典合并与更新。在 3.9 之前，合并字典需要用 `**` 解包或者 `.update()` 方法，代码比较冗长。现在用 `|` 变得非常直观。
 
 * `|`（合并）：返回一个新字典。如果键（Key）冲突，右边的值会覆盖左边的值。
 * `|=`（就地更新）：类似于 `+=`，直接修改左边的字典。
@@ -178,7 +178,7 @@ print(defaults)  # defaults 本身已被改变
 
 ### 2. 序列化与API文档
 
-在Java中，需要引入Jackson之类的库实现序列化。当然在Spring中非常简单对用户基本也是无感的。API文档则需要借助Swagger注解。而在Pythonn中，通过 Pydantic 实现 **解析** + **校验** + **序列化** + **文档生成** 一体化。
+在Java中，需要引入Jackson之类的库实现序列化。当然在Spring中非常简单对用户基本也是无感的。API文档则需要借助 Swagger 注解。而在 Python 中，通过 Pydantic 实现 **解析** + **校验** + **序列化** + **文档生成** 一体化。
 
 例如FastAPI 自动从 Pydantic 模型生成 API：
 
@@ -204,7 +204,7 @@ async def create_completion(request: CompletionRequest):
 相当于 Spring Boot 的 `@RequestBody` + `@Valid` + Swagger，但零配置。
 
 
-### 4. 配置类（Pydantic BaseSettings）
+### 3. 配置类（Pydantic BaseSettings）
 
 在 Python 异步开发、Web 框架（如 FastAPI）以及现代化工程中，Pydantic 的 BaseSettings 是一个极其强大且优雅的“配置管理（Configuration Management）”工具。简单来说，它的核心作用是：从环境变量（Environment Variables）、.env 文件、或配置文件中自动读取、校验（Validate）并解析（Parse）配置项，将其转换为强类型的 Python 对象。
 
@@ -255,8 +255,8 @@ DATABASE_URL=postgresql://user:pass@localhost:5432/dbname
    2. 操作系统环境变量（系统实际的 export PORT=...）
    3. .env 配置文件中的值
    4. 类中定义的默认值
-* 前缀支持（Prefix）：如果项目很复杂，为了防止环境变量冲突，可以加前缀（如 APP_PORT）。只需在 SettingsConfigDict 中设置 env_prefix="APP_" 即可。
-* Fail-Fast（快速失败）：当程序启动、执行 settings = Settings() 的那一瞬间，如果任何一个必填配置缺失或类型错误（比如 PORT 被配成了 "hello"），Pydantic 会立刻抛出异常并阻止程序启动。这保证了生产环境的绝对安全。
+* 前缀支持（Prefix）：如果项目很复杂，为了防止环境变量冲突，可以加前缀（如 APP_PORT）。只需在 SettingsConfigDict 中设置 `env_prefix="APP_"` 即可。
+* Fail-Fast（快速失败）：当程序启动、执行 `settings = Settings()` 的那一瞬间，如果任何一个必填配置缺失或类型错误（比如 PORT 被配成了 "hello"），Pydantic 会立刻抛出异常并阻止程序启动。这保证了生产环境的绝对安全。
 
 2、如何指定自定义配置文件？
 
@@ -311,7 +311,7 @@ settings = Settings()
 | 热加载 (Relaxed Binding) | 较为严格。主要靠大小写不敏感（Case-insensitive）匹配 | 极度宽松。server.port、server_port、SERVER_PORT 都能自动完美映射 |
 
 
-## 四、 Pydantic 与 Dataclass 的底层实现原理
+## 三、 Pydantic 与 Dataclass 的底层实现原理
 
 为什么写下 id: int 这样一行简单的声明，Python 就能自动帮我们搞定构造函数和数据校验？这背后依赖于 Python 的两个核心机制：类型注解存储（__annotations__） 与 元类（Metaclass）。
 
@@ -372,7 +372,7 @@ print(RawUser.__annotations__)
 vLLM 源码就是这个模式：API 层用 Pydantic，引擎内部用 dataclass。
 
 
-## 三、 横向对比：Java 生态是如何解决这些问题的？
+## 四、 横向对比：Java 生态是如何解决这些问题的？
 
 在 Java 生态中，解决“数据容器冗长”和“运行时数据校验”通常是由不同的技术栈组合完成的。我们来看看对应的实现：
 
@@ -432,7 +432,7 @@ public record User(
 
 
 
-## 四、总结
+## 五、总结
 
 无论是 Java 通过注解切面实现的 Bean Validation，还是 Python 利用元类与 Rust 引擎构建的 Pydantic，其本质都是为了让我们从繁琐的“防错代码”中解脱出来。
 理解了底层的 __annotations__ 与元类机制后，我们会发现 Pydantic 并不是什么不可知的“魔法”，而是充分利用了 Python 语言的动态灵活性，将复杂、繁琐的运行时校验下沉到了语言的最底层，从而为现代 Python 异步 Web 框架（如 FastAPI）构筑起了坚固且高效的数据防火墙。
