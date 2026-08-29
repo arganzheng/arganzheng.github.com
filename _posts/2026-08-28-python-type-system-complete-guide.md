@@ -1,16 +1,25 @@
 ---
 layout: post
-title: Python typing 模块完全指南：给 Java 程序员的类型系统地图
+title: Python 类型系统完全指南
 tags: [Python]
 catalog: true
 ---
 
 
-Python 是动态类型语言，但这不意味着"无类型"。自 Python 3.5 引入 `typing` 模块以来，类型注解已经从"可选装饰"演变为大型项目的工程标配。PyTorch、vLLM、FastAPI 等 AI Infra 项目大量使用 `typing` 中的高级特性。
+Python 是动态类型语言，但这不意味着"无类型"。自 Python 3.5 引入 `typing` 模块以来，类型注解已经从"可选装饰"演变为大型项目的工程标配。PyTorch、vLLM、FastAPI 等 AI Infra 项目大量使用类型系统的高级特性。
 
-对于 Java 程序员来说，Python 的类型系统既熟悉又陌生：熟悉的是泛型、接口这些概念都有对应；陌生的是它完全不影响运行时行为，而且有 `Protocol`、`TypeGuard`、`ParamSpec` 这些 Java 中没有直接对应的工具。
+Python 的类型系统由多个部分组成：
 
-本文将系统梳理 `typing` 模块的重要功能，每个特性都会说明：**它解决什么问题、怎么用、Java 中对应什么、在真实项目中长什么样**。
+- **`typing` 模块**：核心类型注解工具箱（`TypeVar`、`Protocol`、`Literal`、`ParamSpec` 等）
+- **`abc` 模块**：抽象基类，定义接口契约（`ABC`、`abstractmethod`）
+- **`collections.abc`**：标准容器的抽象接口（`Iterable`、`Sequence`、`Mapping` 等）
+- **类型检查器**：mypy、pyright——静态分析工具，真正执行类型检查
+- **`.pyi` 存根文件**：为无类型注解的库提供类型信息
+- **`typing_extensions`**：新特性的向后移植包
+
+对于 Java 程序员来说，这套体系既熟悉又陌生：熟悉的是泛型、接口这些概念都有对应；陌生的是它完全不影响运行时行为，而且有 `Protocol`、`TypeGuard`、`ParamSpec` 这些 Java 中没有直接对应的工具。
+
+本文将系统梳理 Python 类型系统的重要功能，每个特性都会说明：**它解决什么问题、怎么用、Java 中对应什么、在 AI Infra 真实项目中长什么样**。
 
 
 ## 一、类型注解基础：从"注释"到"契约"
@@ -299,7 +308,57 @@ def main(output: OutputFormat) -> None:
             assert_never(output)  # 新增 Literal 值时，mypy 立刻报错提醒你处理
 ```
 
-`assert_never` 是 Python 3.11 加入 `typing` 模块的内置函数，底层就是 `def assert_never(arg: Never) -> Never`。在 click、Typer 等 CLI 框架中配合 `Literal` 使用非常常见。
+`assert_never` 是 Python 3.11 加入 `typing` 模块的内置函数，底层就是 `def assert_never(arg: Never) -> Never`。
+
+### AI-Infra 中的穷尽检查
+
+穷尽检查在 AI Infra 代码中极为重要——后端选型、硬件架构、量化方法等枚举分支**必须全部处理**，遗漏一个就可能导致运行时静默失败：
+
+```python
+from enum import Enum
+from typing import assert_never
+
+# vLLM 风格：推理后端选型
+class Backend(Enum):
+    CUDA = "cuda"
+    ROCM = "rocm"
+    CPU = "cpu"
+    TPU = "tpu"
+
+def get_attention_impl(backend: Backend) -> type:
+    match backend:
+        case Backend.CUDA:
+            return FlashAttention
+        case Backend.ROCM:
+            return ROCmFlashAttention
+        case Backend.CPU:
+            return PagedAttention
+        case Backend.TPU:
+            return TPUAttention
+        case _ as unreachable:
+            assert_never(unreachable)
+    # 如果后续新增 Backend.XPU 但忘记处理，mypy 立刻报错：
+    # error: Argument 1 to "assert_never" has incompatible type "Literal[Backend.XPU]"
+
+# DeepSpeed 风格：硬件架构分支
+class DeviceArch(Enum):
+    AMPERE = "ampere"       # A100
+    HOPPER = "hopper"       # H100
+    ADA = "ada"             # L40S/RTX 4090
+
+def select_kernel(arch: DeviceArch, dtype: str) -> str:
+    match arch:
+        case DeviceArch.AMPERE:
+            return "flash_attn_v2"
+        case DeviceArch.HOPPER:
+            return "flash_attn_v3" if dtype == "fp8" else "flash_attn_v2"
+        case DeviceArch.ADA:
+            return "flash_attn_v2"
+        case _ as unreachable:
+            assert_never(unreachable)
+```
+
+这种模式的核心价值：**把运行时的"找不到匹配分支"错误，提前到开发期的 mypy 检查阶段暴露**。在 GPU 硬件快速迭代的 AI Infra 领域，新增硬件/后端是家常便饭，穷尽检查能确保每次新增枚举值时，所有相关的分支逻辑都被更新。
 
 
 ## 四、Literal：字面量类型
@@ -1126,6 +1185,61 @@ P = ParamSpec("P")
 
 `ParamSpec` 是装饰器密集型项目的"救星"——Python 生态有大量装饰器（retry、cache、trace、auth），没有 `ParamSpec` 之前类型信息全部丢失。
 
+### AI-Infra 中的 ParamSpec 与 Concatenate
+
+在 AI Infra 中，装饰器模式无处不在：训练循环的 hook、性能分析、分布式通信包装、自动混合精度等等。`ParamSpec` 和 `Concatenate` 让这些装饰器不再是类型信息的黑洞。
+
+```python
+from typing import ParamSpec, TypeVar, Callable, Concatenate
+from functools import wraps
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+# 场景一：PyTorch 风格的性能分析装饰器
+# 包装任意函数，记录 CUDA 事件耗时，但不改变函数签名
+def cuda_timer(fn: Callable[P, R]) -> Callable[P, R]:
+    @wraps(fn)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        start = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
+        start.record()
+        result = fn(*args, **kwargs)
+        end.record()
+        torch.cuda.synchronize()
+        print(f"{fn.__name__}: {start.elapsed_time(end):.2f}ms")
+        return result
+    return wrapper
+
+@cuda_timer
+def forward_pass(model: nn.Module, x: torch.Tensor) -> torch.Tensor:
+    return model(x)
+
+# 类型检查器知道 forward_pass 仍然是 (nn.Module, torch.Tensor) -> torch.Tensor
+
+# 场景二：Concatenate——自动注入分布式 rank 参数
+def with_rank(
+    fn: Callable[Concatenate[int, P], R]
+) -> Callable[P, R]:
+    """自动在第一个参数注入当前进程的 rank"""
+    @wraps(fn)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        rank = torch.distributed.get_rank()
+        return fn(rank, *args, **kwargs)
+    return wrapper
+
+@with_rank
+def log_metrics(rank: int, loss: float, step: int) -> None:
+    if rank == 0:  # 只在主进程打印
+        print(f"Step {step}: loss={loss:.4f}")
+
+# 装饰后签名变为：log_metrics(loss: float, step: int) -> None
+# rank 被自动注入，调用方不需要传
+log_metrics(loss=0.5, step=100)
+```
+
+这在分布式训练框架中特别有用——很多函数需要 `rank`/`world_size`/`device` 等上下文参数，通过 `Concatenate` 装饰器自动注入后，调用方的代码更干净，类型检查也不会丢失。
+
 
 ## 十一、TypeGuard 与 TypeIs：类型收窄
 
@@ -1191,6 +1305,51 @@ def is_numeric_dtype(arr_or_dtype: Any) -> TypeGuard[np.number]: ...
 ```
 
 `TypeGuard` 在大型项目中使用相对低频——因为大多数场景 `isinstance` 已经能自动收窄。它主要出现在需要自定义复杂检查逻辑的地方（如容器内元素类型检查），以及类型存根（`.pyi`）文件中。
+
+### AI-Infra 中的 TypeGuard / TypeIs
+
+在 AI Infra 代码中，TypeGuard/TypeIs 最典型的场景是**根据模型/张量的运行时属性做类型分支**——这些属性无法通过简单的 `isinstance` 判断：
+
+```python
+from typing import TypeGuard, TypeIs
+
+# 场景一：判断张量是否在 CUDA 上
+# isinstance 无法区分 CPU Tensor 和 CUDA Tensor（它们是同一个类）
+# 但我们可以用 TypeGuard 让类型检查器理解分支逻辑
+
+class CUDATensor(torch.Tensor):
+    """标记类型：表示已经在 GPU 上的张量"""
+    device: torch.device  # device.type == "cuda"
+
+def is_cuda_tensor(t: torch.Tensor) -> TypeGuard[CUDATensor]:
+    return t.is_cuda
+
+def process(t: torch.Tensor) -> torch.Tensor:
+    if is_cuda_tensor(t):
+        # 类型检查器知道这里 t 是 CUDATensor
+        return torch.ops.custom_cuda_kernel(t)
+    else:
+        return t.to("cuda")
+
+# 场景二：判断模型是否已量化
+class QuantizedModel:
+    """标记类型：已经过量化处理的模型"""
+    quantization_config: dict
+
+def is_quantized(model: nn.Module) -> TypeIs[QuantizedModel]:
+    return hasattr(model, "quantization_config") and model.quantization_config is not None
+
+def optimize(model: nn.Module) -> nn.Module:
+    if is_quantized(model):
+        # TypeIs: 这里 model 被收窄为 QuantizedModel
+        print(f"Already quantized: {model.quantization_config}")
+        return model
+    else:
+        # TypeIs: else 分支也能收窄（TypeGuard 做不到）
+        return quantize(model)
+```
+
+这种模式在 vLLM 的模型加载器、PyTorch 的 quantization 模块中都有类似逻辑——虽然不一定用了 `TypeGuard` 注解（很多是运行时 `if` 检查），但理解 TypeGuard 的思路有助于写出更清晰的分支代码。
 
 
 ## 十二、overload：多签名声明
@@ -1510,8 +1669,75 @@ pyright src/
 
 两者都广泛使用。如果用 VS Code 开发，pyright 通过 Pylance 自动工作；CI 中 mypy 更常见。
 
+### 4. `.pyi` 存根文件
 
-## 十五、横向对比：Java 泛型 vs Python 泛型
+当一个库本身没有类型注解时（比如用 C 写的扩展模块），可以通过 `.pyi` 存根文件为其提供类型信息。`.pyi` 文件只包含签名，不包含实现：
+
+```python
+# torch/_C/__init__.pyi — PyTorch 的 C++ 扩展模块的类型存根
+# 这个文件告诉 mypy/pyright：torch._C 里有哪些函数、什么签名
+
+def _get_tracing_state() -> bool: ...
+def _set_grad_enabled(enabled: bool) -> None: ...
+
+class TensorBase:
+    def dim(self) -> int: ...
+    def size(self, dim: int | None = None) -> Size: ...
+    def to(self, device: Device, dtype: dtype | None = None) -> Tensor: ...
+```
+
+存根文件的查找优先级：
+
+1. **包内存根**：库自带的 `.pyi` 文件（如 PyTorch 的 `torch/_C/__init__.pyi`）
+2. **typeshed**：Python 官方维护的标准库和知名第三方库的存根仓库，mypy/pyright 内置
+3. **独立存根包**：通过 pip 安装，命名规则为 `types-<package>`（如 `types-requests`、`types-PyYAML`）
+4. **自定义存根**：项目内自己写的 `.pyi` 文件
+
+```bash
+# 安装第三方库的存根
+pip install types-requests types-PyYAML types-redis
+
+# mypy 会自动发现并使用这些存根
+```
+
+对应 Java：Java 没有存根文件的概念——类型信息编译进 `.class` 文件。最接近的是 `.jar` 中不含实现的接口定义。
+
+### 5. `typing_extensions`：新特性的向后移植
+
+Python 类型系统发展很快，每个小版本都会加入新特性。但很多项目需要支持旧版本 Python（特别是 AI Infra 项目，线上环境经常是 3.8 或 3.10）。`typing_extensions` 包解决了这个问题——它把新版本的 typing 特性向后移植到旧版本：
+
+```python
+import sys
+
+if sys.version_info >= (3, 11):
+    from typing import Self, assert_never
+else:
+    from typing_extensions import Self, assert_never
+
+if sys.version_info >= (3, 12):
+    from typing import TypeIs
+else:
+    from typing_extensions import TypeIs
+```
+
+在实际项目中，更常见的做法是**直接从 `typing_extensions` 导入**，让包自动处理版本兼容：
+
+```python
+# Pydantic: pydantic/_internal/_generics.py
+# 不管 Python 版本是多少，统一从 typing_extensions 导入
+from typing_extensions import Self, TypeAlias, TypeGuard, get_args, get_origin
+
+# vLLM: 很多模块的导入区域
+from typing_extensions import ParamSpec, TypeIs
+
+# httpx: httpx/_types.py
+from typing_extensions import TypeAlias
+```
+
+`typing_extensions` 在 AI Infra 项目中几乎是必装依赖——PyTorch、Pydantic、vLLM、FastAPI 的 `requirements.txt` 里都有它。如果你写需要兼容多版本 Python 的库代码，优先从 `typing_extensions` 导入类型工具。
+
+
+## 十五、横向对比：Java 与 Python 类型系统
 
 | 维度 | Java 泛型 | Python 泛型 |
 |---|---|---|
