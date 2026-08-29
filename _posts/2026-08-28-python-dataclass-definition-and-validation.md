@@ -17,7 +17,7 @@ catalog: true
 
 在最传统的面向对象写法中，我们通过显式定义构造函数来接收并赋值属性。
 
-```Python
+```python
 class User:
 
   def __init__(self, id: int, name: str, email: str):
@@ -28,7 +28,7 @@ class User:
 
 实例化：
 
-```Python
+```python
 user = User(id=1, name="Alice", email="alice@example.com")
 ```
 
@@ -42,17 +42,18 @@ user = User(id=1, name="Alice", email="alice@example.com")
 
 为了消除 __init__ 的臃肿，Python 3.7 引入了数据类（Dataclass）。它利用类变量类型标注（PEP 526）语法，让代码变得极其简洁。
 
-```Python
+```python
 from dataclasses import dataclass
 
-@dataclassclass User:
+@dataclass
+class User:
   id: int
   name: str
   email: str
 ```
 
 实例化（无需手动写 __init__）：
-```Python
+```python
 user = User(id=1, name="Alice", email="alice@example.com")
 ```
 
@@ -62,7 +63,7 @@ user = User(id=1, name="Alice", email="alice@example.com")
 
 @dataclass 默认是不做运行时类型校验的。如果想增加校验，必须借助其提供的特殊钩子方法 __post_init__（该方法在实例化后自动触发）：
 
-```Python
+```python
 from dataclasses import dataclass
 import re
 
@@ -86,7 +87,7 @@ class User:
 
 虽然基于 dataclasses 和 __post_init__ 钩子函数基本上可以比较方便的实现数据类定义和校验，不过还是比较繁琐。Java生态就有Java Bean Validation 机制可以很方便的用注解实现数据校验，同样，Pyton也有类似的框架，它就是的 Pydantic。作为目前 Python 生态中最流行的通用数据验证库（同时也是 FastAPI 的核心基石），Pydantic 将数据建模、类型转换和深度校验融合在了一起。
 
-```Python
+```python
 from pydantic import BaseModel, EmailStr
 
 class User(BaseModel):
@@ -102,7 +103,7 @@ class User(BaseModel):
 
 在 Python 3.10+ 中，我们已经不再需要引入 Optional，而是直接使用更现代的 | None 语法。配合 Pydantic 的 Field 函数，可以轻松实现业务边界限制：
 
-```Python
+```python
 from pydantic import BaseModel, EmailStr, Field
 
 class User(BaseModel):
@@ -128,7 +129,7 @@ class User(BaseModel):
 
 在 Python 中，当你在类内部写下 id: int 但不赋值时，Python 解释器并不会将其视作普通的类变量，而是会把这个映射关系悄悄存入类的 __annotations__ 字典中：
 
-```Python
+```python
 class RawUser:
   id: int
   name: str
@@ -171,7 +172,7 @@ print(RawUser.__annotations__)
 
 在 Java 14 之前，为了写一个干净的 POJO，我们通常使用 Lombok 插件：
 
-```Java
+```java
 import lombok.Data;
 
 @Datapublic class User {
@@ -183,7 +184,7 @@ import lombok.Data;
 
 而在现代 Java (Java 14+) 中，官方引入了 Record 关键字，其定位与 Python 的 @dataclass 极其相似：
 
-```Java
+```java
 public record User(Long id, String name, String email) {}
 ```
 
@@ -193,7 +194,7 @@ public record User(Long id, String name, String email) {}
 
 要实现类似于 Pydantic 的强校验，Java 必须引入 Hibernate Validator 并配合注解：
 
-```Java
+```java
 import jakarta.validation.constraints.*;
 public record User(
     @NotNull Long id,
