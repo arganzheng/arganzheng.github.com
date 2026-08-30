@@ -120,6 +120,43 @@ permalink: /archive/
     padding: 8px 10px;
     color: #656d76;
   }
+  #archive .archive-item {
+    margin-bottom: 4px;
+  }
+  #archive .archive-entry {
+    display: inline-block;
+    vertical-align: top;
+    text-decoration: none;
+    color: inherit;
+  }
+  #archive .archive-title {
+    font-weight: 600;
+    color: #404040;
+    transition: color .15s ease;
+  }
+  #archive .archive-subtitle {
+    display: block;
+    color: #6a7481;
+    font-weight: 300;
+    line-height: 1.3;
+    transition: color .15s ease;
+  }
+  #archive .archive-entry:hover,
+  #archive .archive-entry:focus,
+  #archive .archive-entry:hover .archive-title,
+  #archive .archive-entry:focus .archive-title,
+  #archive .archive-entry:hover .archive-subtitle,
+  #archive .archive-entry:focus .archive-subtitle {
+    text-decoration: none;
+  }
+  #archive .archive-entry:hover .archive-title,
+  #archive .archive-entry:focus .archive-title {
+    color: #0085a1;
+  }
+  #archive .archive-entry:hover .archive-subtitle,
+  #archive .archive-entry:focus .archive-subtitle {
+    color: #0085a1;
+  }
 </style>
 
 {% assign slide_pages = site.pages | where: "layout", "slides" %}
@@ -173,10 +210,12 @@ permalink: /archive/
       {% else %}
       <span style="color: #999; font-size: 12px;">[Post]</span>
       {% endif %}
-      <a href="{{ item_url }}">{{ item_title }}</a>
-      {% if item_subtitle != "" %}
-      <br><small style="color: #999">{{ item_subtitle }}</small>
-      {% endif %}
+      <a class="archive-entry" href="{{ item_url }}">
+        <span class="archive-title">{{ item_title }}</span>
+        {% if item_subtitle != "" %}
+        <small class="archive-subtitle">{{ item_subtitle }}</small>
+        {% endif %}
+      </a>
     </li>
 {% endif %}
 {% endfor %}

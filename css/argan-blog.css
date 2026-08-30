@@ -1092,16 +1092,18 @@ img::-moz-selection {
 
 .page-header .title {
   font-size: 47px;
-  font-weight: 500;
+  font-weight: 700;
   letter-spacing: -0.04em;
   line-height: 1.1;
   word-wrap: break-word;
 }
 
 .page-header .subtitle {
-  font-size: 24px;
-  color: #778596;
-  font-weight: 300;
+  font-size: 19px;
+  color: #6a7481;
+  font-weight: 400;
+  line-height: 1.4;
+  margin-top: -6px;
 }
 
 /* Markdown [TOC], rendered by js/toc.js */
