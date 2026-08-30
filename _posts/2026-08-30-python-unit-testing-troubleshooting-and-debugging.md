@@ -26,7 +26,7 @@ catalog: true
 - **运行时诊断**：`tracemalloc`、`faulthandler`、`cProfile`。
 
 
-## 一、用 pytest 编写 AI-Infra 单元测试
+## 一、用 pytest 编写单元测试
 
 ### 1. 基本测试结构
 
@@ -197,7 +197,7 @@ def test_load_config(tmp_path, monkeypatch):
     assert config.batch_size == 8
 ```
 
-### fixture 的 scope 和 yield
+### 1. fixture 的 scope 和 yield
 
 默认情况下，fixture 在每个测试函数执行前重新创建。对于代价较高的资源（如加载模型、建立连接池），可以使用 `scope` 控制生命周期：
 
@@ -218,7 +218,7 @@ def db_connection():
 
 `yield` fixture 在 `yield` 之后的代码作为 teardown 执行，即使测试失败也会运行，适合确保资源释放。
 
-### 使用 conftest.py 共享 fixture
+### 2. 使用 conftest.py 共享 fixture
 
 pytest 会自动从 `conftest.py` 文件中收集 fixture，无需显式导入。通常将多个测试模块共用的 fixture 放在 `tests/conftest.py`：
 
@@ -250,7 +250,7 @@ def test_config(tmp_path):
 
 ## 三、用 Mock 隔离模型后端和外部服务
 
-Python 单元测试通常不应真的加载模型或访问 RPC 服务。可以用 `AsyncMock` 模拟异步后端。
+单元测试通常不应真的访问外部服务或执行代价高昂的初始化。可以用 `AsyncMock` 模拟异步依赖。
 
 ```python
 from unittest.mock import AsyncMock
@@ -294,7 +294,7 @@ inputs = backend.predict.await_args.args[0]
 assert inputs["text"] == "hello"
 ```
 
-### `Mock` 与 `AsyncMock` 的区别
+### 1. `Mock` 与 `AsyncMock` 的区别
 
 ```python
 from unittest.mock import Mock, AsyncMock
@@ -307,7 +307,7 @@ async_client = AsyncMock()
 - 异步函数使用 `AsyncMock`；
 - 不要用普通 `Mock` 模拟需要 `await` 的方法，否则测试可能无法发现协程调用错误。
 
-### 使用 `patch` 替换模块中的对象
+### 2. 使用 `patch` 替换模块中的对象
 
 前面的例子直接创建 `AsyncMock()` 并注入，适合构造函数接收依赖的场景。对于已经在模块中绑定的对象，可以使用 `unittest.mock.patch`：
 
@@ -367,7 +367,7 @@ async def test_async_predict(backend):
     assert result == {"output": {"value": 1}}
 ```
 
-### 测试超时
+### 1. 测试超时
 
 ```python
 @pytest.mark.asyncio
@@ -386,7 +386,7 @@ async def test_request_timeout():
         )
 ```
 
-### 测试取消
+### 2. 测试取消
 
 ```python
 @pytest.mark.asyncio
@@ -414,7 +414,7 @@ async def test_request_cancellation():
 
 这里不仅检查任务收到取消，还检查 `finally` 是否执行，以确认清理逻辑生效。
 
-### 检测未等待的协程
+### 3. 检测未等待的协程
 
 ```bash
 pytest -W error::RuntimeWarning
@@ -600,13 +600,13 @@ logging.basicConfig(
 
 - request ID；
 - task 名称；
-- 模型名；
-- batch size；
+- 组件或服务名；
+- 关键业务参数；
 - 状态变化；
 - 调用耗时；
 - 异常阶段。
 
-不要直接记录完整 prompt、密钥或大型张量。
+不要直接记录密钥、敏感数据或大型数据结构。
 
 ## 八、检查异常链和调用栈
 
