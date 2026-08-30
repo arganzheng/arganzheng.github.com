@@ -252,7 +252,7 @@ class RequestContext:
 
 需要注意的是，数据类主要解决的是结构表达和代码维护问题。是否能够明显降低内存占用，仍然取决于对象数量、字段类型和实际生命周期。
 
-> 关于 `dataclass` 的完整用法和与 Pydantic `BaseModel` 的对比，参见[《Python 核心机制与工程基础》](/python-core-mechanisms-and-engineering-fundamentals.html)。
+> 关于 `dataclass` 的完整用法和与 Pydantic `BaseModel` 的对比，参见[《Python 类型系统与数据契约设计》](/python-type-system-and-data-contract-design.html)的"选型指南"一节。
 
 ## 三、复制、视图与对象共享
 

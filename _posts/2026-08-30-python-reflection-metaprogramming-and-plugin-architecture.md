@@ -887,7 +887,7 @@ def inspect_model_spec(spec_cls: type) -> dict[str, object]:
 
 ## 十三、反射与类型系统如何协作
 
-> `Protocol`、类型标注和运行时校验的详细机制，参见[《Python 类型系统完全指南》](/python-type-system-complete-guide.html)。
+> `Protocol`、类型标注和运行时校验的详细机制，参见[《Python 类型系统与数据契约设计》](/python-type-system-and-data-contract-design.html)。
 
 反射提供运行时灵活性，类型系统提供开发阶段约束。二者并不是互相替代，而是互相补充。
 
