@@ -529,6 +529,145 @@ def load_backend(name):
 
 
 
+### 1.10 `sys.path`、src 布局与 editable 安装
+
+前面说过 `import` 的第一步是"查找模块"。这一节展开这一步：解释器到哪里去找，以及项目的目录结构如何影响查找结果。
+
+这不是纯粹的理论问题。"本地能跑，装到别的机器上 `ImportError`"是 Python 项目最常见的故障之一，根源就在这里。
+
+#### `sys.path` 的构成
+
+`import` 查找模块时，按顺序遍历 `sys.path` 这个列表：
+
+```python
+import sys
+
+for p in sys.path:
+    print(p)
+```
+
+它的内容大致按以下顺序组成：
+
+1. **脚本所在目录**（用 `python script.py` 启动时），或**当前工作目录**（用 `python -m module` 或交互式解释器时）；
+2. `PYTHONPATH` 环境变量指定的目录；
+3. 解释器的标准库目录；
+4. 当前环境的 `site-packages` 目录。
+
+**第 1 项是大多数问题的来源**。它意味着"你从哪个目录、用什么方式启动 Python"会改变模块的查找结果。
+
+注意 `python script.py` 和 `python -m package.module` 的差别：
+
+```bash
+# 把 script.py 所在目录加入 sys.path
+python src/myproject/cli.py
+
+# 把当前工作目录加入 sys.path
+python -m myproject.cli
+```
+
+这个差别会导致同一份代码在两种启动方式下，一个能 import 成功、另一个失败。
+
+#### 两种项目布局
+
+**flat 布局**（包直接放在仓库根目录）：
+
+```text
+myproject/
+├── pyproject.toml
+├── myproject/          ← 包和配置文件同级
+│   ├── __init__.py
+│   └── core.py
+└── tests/
+    └── test_core.py
+```
+
+**src 布局**（包放在 `src/` 子目录下）：
+
+```text
+myproject/
+├── pyproject.toml
+├── src/
+│   └── myproject/      ← 包被"藏"在 src/ 里
+│       ├── __init__.py
+│       └── core.py
+└── tests/
+    └── test_core.py
+```
+
+两者的关键差别在于：**在仓库根目录执行命令时，`import myproject` 能不能成功。**
+
+flat 布局下能成功——因为当前目录在 `sys.path` 里，而 `myproject/` 就在当前目录下。src 布局下不能，除非这个包已经被**安装**到当前环境。
+
+#### 为什么推荐 src 布局
+
+看起来 flat 布局更方便，但这个"方便"恰恰是问题所在。
+
+flat 布局下，在根目录跑测试时，`import myproject` 导入的是**仓库里的源码目录**，而不是安装后的包。这两者可能不一样：
+
+```text
+仓库里有：            安装后有：
+myproject/            site-packages/myproject/
+├── __init__.py       ├── __init__.py
+├── core.py           ├── core.py
+├── utils.py          └── （utils.py 漏了！）
+└── data/                 （data/ 也漏了！）
+```
+
+如果 `pyproject.toml` 里的打包配置漏了某个模块或数据文件，flat 布局下的测试**照样通过**——因为它读的是源码目录，那里什么都有。等到用户 `pip install` 之后才发现 `ImportError` 或 `FileNotFoundError`。
+
+src 布局强制测试跑在"安装后的包"上，任何打包配置的遗漏都会当场暴露。这就是它的核心价值：**让本地测试环境和用户的真实环境一致**。
+
+顺带还解决两个小问题：
+
+- 避免同名遮蔽。flat 布局下，如果仓库根目录有个 `tests/` 或 `logging.py`，可能意外遮蔽标准库或第三方包；
+- `pytest` 的 rootdir 推断更可靠，不容易把仓库根目录误当成包。
+
+#### editable 安装
+
+src 布局下，包必须先安装才能导入。但开发时不可能每改一行代码就重装一次，所以需要**可编辑安装**：
+
+```bash
+pip install -e .
+# 或
+uv pip install -e .
+```
+
+`-e` 是 `--editable`。它安装的不是代码的副本，而是一个**指向源码目录的引用**。改源码立即生效，不需要重装。
+
+实现方式随工具演进过几代，当前 setuptools 的做法大致是在 `site-packages` 里放一个 `.pth` 文件或一个导入钩子模块：
+
+```bash
+$ ls .venv/lib/python3.11/site-packages/ | grep -i myproject
+__editable__.myproject-0.1.0.finder.py
+__editable___myproject_0_1_0_finder.py
+myproject-0.1.0.dist-info/
+```
+
+`.pth` 文件是一个 Python 特有的机制：解释器启动时会自动执行 `site-packages` 里所有 `.pth` 文件中以 `import` 开头的行。editable 安装利用它注册一个自定义的 finder，把 `myproject` 这个名字解析到你的 `src/myproject/` 目录。
+
+所以 editable 安装的效果是：
+
+- `import myproject` 能成功（有了正确的路径映射）；
+- 导入到的是源码目录里的文件（改代码立即生效）；
+- 但**包的元数据是安装时确定的**——如果改了 `pyproject.toml` 里的依赖或 entry points，需要重新执行一次 `pip install -e .`。
+
+最后这一点是个常见困惑：改了 `[project.scripts]` 但命令没变化，或者加了新依赖但没被装上，原因就是元数据没有重新生成。
+
+#### 常见故障与对照
+
+| 现象 | 常见原因 |
+|---|---|
+| 本地跑通，`pip install` 后 `ImportError` | flat 布局掩盖了打包配置遗漏；改用 src 布局 |
+| `pytest` 报 `ModuleNotFoundError: myproject` | src 布局但没做 editable 安装 |
+| 改了 `pyproject.toml` 但不生效 | editable 安装的元数据未更新，重跑 `pip install -e .` |
+| `python script.py` 可以但 `python -m` 不行（或反之） | 两种启动方式加入 `sys.path` 的目录不同 |
+| 导入到了意料之外的同名模块 | 当前目录里有文件遮蔽了标准库或第三方包 |
+
+对应 Java：`sys.path` 相当于 classpath，但有两个重要差异。一是 classpath 完全由启动参数显式给定，`sys.path` 却会**隐式包含当前目录**，这是很多诡异问题的来源；二是 Java 的 jar 是自包含产物，不存在"editable 安装"这种概念——最接近的是 IDE 里把模块的 `target/classes` 直接加进 classpath。
+
+> 项目结构之外的工程化内容——`pyproject.toml` 的完整配置、依赖锁定、虚拟环境、打包发布与容器化交付——见[《Python 工程化：从依赖管理到生产交付》](/python-engineering-from-dependency-to-delivery.html)。
+
+
 
 ## 二、类、继承与对象模型
 

@@ -546,7 +546,11 @@ pytest -s tests/test_scheduler.py::test_timeout_request
 - 任务取消的回调中；
 - 生命周期状态变化的位置。
 
-## 七、用日志替代盲目打印
+## 七、日志：从调试打印到生产配置
+
+日志有两个不同的使用场景：**调试期**临时开 `DEBUG` 看清执行路径，和**生产期**作为常态的可观测性手段。前者关心"我现在想看什么"，后者关心"出问题时能不能查到"。本章先讲前者，再讲后者的配置。
+
+### 1. 用日志替代盲目打印
 
 调试异步和并发代码时，`print()` 往往无法说明日志来自哪个任务。应使用结构化日志或至少带上关键上下文。
 
@@ -607,6 +611,254 @@ logging.basicConfig(
 - 异常阶段。
 
 不要直接记录密钥、敏感数据或大型数据结构。
+
+### 2. logging 的四个组件
+
+上面用的都是 `logger.debug()` 这类调用。要把日志配成生产可用，需要理解 `logging` 模块的四个组件——它们的职责划分和 Logback 几乎一一对应：
+
+| 组件 | 职责 | Logback 对应 |
+|---|---|---|
+| `Logger` | 日志的入口，按名字组织成树 | `Logger` |
+| `Handler` | 决定日志输出到哪里（stdout、文件、网络） | `Appender` |
+| `Formatter` | 决定日志长什么样 | `Layout` / `Encoder` |
+| `Filter` | 决定哪些记录被放过，可以改写记录 | `Filter` |
+
+一条日志的流动路径是：`Logger` → `Filter` → 沿 logger 树向上传播 → 各级 `Handler` → `Formatter` → 输出。
+
+```python
+import logging
+import sys
+
+logger = logging.getLogger("inference")
+logger.setLevel(logging.INFO)
+
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(
+    logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s [%(process)d] %(message)s"
+    )
+)
+logger.addHandler(handler)
+```
+
+注意**级别有两道关卡**：`Logger` 的级别和 `Handler` 的级别。日志要先通过 logger 的级别，再通过 handler 的级别才会被输出。一个常见困惑是"我设了 `logger.setLevel(DEBUG)` 但看不到 DEBUG 日志"——通常是 handler 的级别还停在默认的 `WARNING`。
+
+### 3. logger 的树结构与 propagate
+
+`logging.getLogger(__name__)` 这个写法之所以是惯例，是因为 logger 的名字用 `.` 分隔构成一棵树：
+
+```text
+root
+└── inference
+    ├── inference.engine
+    └── inference.backends
+        └── inference.backends.torch
+```
+
+日志记录默认会**向上传播**（propagate）到所有祖先 logger 的 handler。这带来两个实用后果：
+
+**其一，只需在根部配一次 handler**，所有子 logger 的日志都会流到它。
+
+**其二，可以按模块粒度调级别**，这在排查问题时非常有用：
+
+```python
+# 全局 INFO，但把某个模块单独开到 DEBUG
+logging.getLogger("inference").setLevel(logging.INFO)
+logging.getLogger("inference.backends.torch").setLevel(logging.DEBUG)
+
+# 反过来，压掉过于啰嗦的第三方库
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+```
+
+最后这一条在 AI-Infra 项目里几乎必备——`httpx`、`urllib3`、`filelock`、`transformers` 在 DEBUG 级别下会淹没你真正想看的日志。
+
+如果同一条日志出现了两遍，通常是**同时给子 logger 和 root 加了 handler**，而 `propagate` 还是默认的 `True`。要么只在一处加 handler，要么显式关闭传播：
+
+```python
+logger.propagate = False
+```
+
+### 4. 库与应用的责任分工
+
+这一条是最容易出错的地方，规则很明确：
+
+**库（library）只创建 logger，不配置输出。**
+
+```python
+# 库代码里：正确
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def predict(x):
+    logger.debug("predicting shape=%s", x.shape)
+    ...
+```
+
+```python
+# 库代码里：错误
+logging.basicConfig(level=logging.DEBUG)      # 篡改了调用方的全局配置
+logger.addHandler(logging.StreamHandler())    # 强加输出，可能导致重复日志
+```
+
+原因是 `basicConfig()` 配置的是 **root logger**，属于应用的决策权。库擅自调用它，会覆盖或干扰使用者自己的日志配置——而使用者往往完全不知道是哪个依赖干的。
+
+**应用（application）在入口处配置一次输出。**
+
+```python
+# main.py / cli.py：应用入口
+import logging
+import sys
+
+
+def setup_logging(level: str = "INFO") -> None:
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        stream=sys.stdout,
+        force=True,        # 覆盖已有配置，避免被依赖抢先配置过
+    )
+    for noisy in ("httpx", "urllib3", "filelock"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+```
+
+如果库确实想在没有任何配置时避免"No handlers could be found"这类警告，标准做法是加一个 `NullHandler`——它什么也不做，只是占位：
+
+```python
+# 库的 __init__.py
+import logging
+
+logging.getLogger(__name__).addHandler(logging.NullHandler())
+```
+
+对应 Java：这正是 SLF4X 门面模式解决的同一个问题——库依赖 SLF4J API 而不绑定具体实现，由应用选择 Logback 还是 Log4j2。Python 没有门面层，靠"库不配置"这个约定来达到同样的效果。
+
+### 5. 结构化日志与采集
+
+生产环境的日志要被机器消费（检索、聚合、告警），纯文本不好解析。JSON 格式更合适：
+
+```python
+import json
+import logging
+
+
+class JsonFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "ts": self.formatTime(record, "%Y-%m-%dT%H:%M:%S%z"),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+            "pid": record.process,
+        }
+        if record.exc_info:
+            payload["exc"] = self.formatException(record.exc_info)
+        # 把 extra= 传入的自定义字段带上
+        for key, value in getattr(record, "extra_fields", {}).items():
+            payload[key] = value
+        return json.dumps(payload, ensure_ascii=False)
+```
+
+生产项目一般不自己写，用现成的库（`python-json-logger`、`structlog`）即可。
+
+**输出到 stdout，不要自己写文件**。容器化部署下，日志采集是平台的职责：容器运行时会捕获 stdout/stderr 交给采集侧。应用自己写文件和做轮转会带来额外问题——文件在容器里、需要挂卷、需要自己处理轮转和清理。
+
+```python
+logging.basicConfig(stream=sys.stdout, ...)     # 推荐
+# 而不是 logging.FileHandler("/var/log/app.log")
+```
+
+配合容器环境还要注意 `PYTHONUNBUFFERED=1`，否则 stdout 会被缓冲，日志出现延迟甚至在崩溃时丢失。
+
+> 容器化部署下的日志采集、`PYTHONUNBUFFERED` 等环境变量设置，见[《Python 工程化：从依赖管理到生产交付》](/python-engineering-from-dependency-to-delivery.html)的容器化一章。
+
+### 6. 注入请求上下文
+
+生产日志最有价值的字段往往是 request ID / trace ID——它让你能把一次请求在各个模块产生的所有日志串起来。但手工在每个 `logger.info()` 里传 request ID 既啰嗦又容易漏。
+
+`contextvars` 配合 `logging.Filter` 可以自动注入：
+
+```python
+import contextvars
+import logging
+
+request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "request_id", default="-"
+)
+
+
+class RequestContextFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        # Filter 除了过滤，也可以给记录附加字段
+        record.request_id = request_id_var.get()
+        return True
+
+
+handler = logging.StreamHandler()
+handler.addFilter(RequestContextFilter())
+handler.setFormatter(
+    logging.Formatter("%(asctime)s %(levelname)s [%(request_id)s] %(name)s %(message)s")
+)
+```
+
+在请求入口处设置一次，之后该请求内所有日志自动带上：
+
+```python
+@app.middleware("http")
+async def add_request_id(request, call_next):
+    token = request_id_var.set(request.headers.get("x-request-id", str(uuid.uuid4())))
+    try:
+        return await call_next(request)
+    finally:
+        request_id_var.reset(token)
+```
+
+`ContextVar` 的关键性质是它在 asyncio 任务间是隔离的——每个 Task 有自己的上下文副本，并发请求不会互相污染。这一点是它能替代 `threading.local` 用在异步代码里的原因。
+
+> `ContextVars` 的完整机制、与 `threading.local` 的差异、以及在 `TaskGroup` 和线程池中的传播规则，见[《Python 并发、异步与任务协作》](/python-concurrency-asynchrony-and-task-collaboration.html)的 ContextVars 一章。
+
+### 7. 与 SLF4J + Logback 对照
+
+| 关注点 | Java | Python |
+|---|---|---|
+| 门面 / API | SLF4J | 无门面，`logging` 本身即标准 |
+| 实现 | Logback / Log4j2 | `logging`（标准库） |
+| 输出目标 | Appender | Handler |
+| 格式 | Layout / Encoder | Formatter |
+| 过滤 | Filter | Filter（且可改写记录） |
+| 配置方式 | `logback.xml` | 代码配置 / `dictConfig` / `fileConfig` |
+| 层级与继承 | logger 名按包名分层 | logger 名按 `__name__` 分层 |
+| MDC（诊断上下文） | `MDC.put()`（ThreadLocal） | `ContextVar` + Filter |
+| 异步日志 | AsyncAppender | `QueueHandler` + `QueueListener` |
+| 惰性格式化 | `log.info("x={}", x)` | `logger.info("x=%s", x)` |
+
+最后一行值得强调：**Python 也要用惰性格式化**。
+
+```python
+# 好：只有该级别真的会输出时才做字符串格式化
+logger.debug("shape=%s dtype=%s", tensor.shape, tensor.dtype)
+
+# 坏：无论级别如何，f-string 总会被求值
+logger.debug(f"shape={tensor.shape} dtype={tensor.dtype}")
+```
+
+在被频繁调用的路径上，被关闭的 DEBUG 日志如果用了 f-string，格式化开销依然存在。这与 SLF4J 推荐 `{}` 占位符而非字符串拼接是同一个道理。
+
+如果日志量本身成为瓶颈，可以像 Logback 的 `AsyncAppender` 一样把 I/O 移出主线程：
+
+```python
+import logging.handlers
+import queue
+
+log_queue: queue.Queue = queue.Queue(-1)
+queue_handler = logging.handlers.QueueHandler(log_queue)
+listener = logging.handlers.QueueListener(log_queue, real_handler)
+listener.start()
+```
+
+这在异步服务里尤其有意义——写日志是同步 I/O，直接在协程里做会阻塞事件循环。
 
 ## 八、检查异常链和调用栈
 

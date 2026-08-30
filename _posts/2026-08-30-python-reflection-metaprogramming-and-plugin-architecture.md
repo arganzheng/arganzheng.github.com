@@ -702,6 +702,8 @@ def discover_backends() -> dict[str, object]:
 - 运行时根据已安装包自动发现扩展；
 - 构建可插拔的 CLI、存储后端和模型后端。
 
+> 同一套入口点机制还用于声明命令行入口（`[project.scripts]`）。`pyproject.toml` 的完整配置与包的构建发布流程，见[《Python 工程化：从依赖管理到生产交付》](/python-engineering-from-dependency-to-delivery.html)。
+
 但使用入口点时要注意：
 
 - 依赖包必须安装在当前环境；

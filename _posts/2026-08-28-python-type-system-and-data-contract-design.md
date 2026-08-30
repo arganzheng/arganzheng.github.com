@@ -1821,6 +1821,10 @@ mypackage/
 mypackage = ["py.typed", "*.pyi"]
 ```
 
+这一步很容易漏——`py.typed` 在源码目录里存在，但如果没配 `package-data`，构建 wheel 时不会被打进去，下游依然看不到类型信息。
+
+> `pyproject.toml` 的完整配置、wheel 与 sdist 的区别、带 C/CUDA 扩展的包如何构建与发布，见[《Python 工程化：从依赖管理到生产交付》](/python-engineering-from-dependency-to-delivery.html)的"打包与分发"一章。
+
 
 
 ## 二、类型信息消费层
