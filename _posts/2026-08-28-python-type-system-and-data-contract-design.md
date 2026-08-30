@@ -1,6 +1,6 @@
 ---
 layout: post
-title: Python 类型系统与数据契约设计
+title: Python 在 AI-Infra（02）：类型系统与数据契约设计
 tags: [Python]
 catalog: true
 ---

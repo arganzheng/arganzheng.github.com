@@ -1,6 +1,6 @@
 ---
 layout: post
-title: Python 核心机制与工程基础
+title: Python 在 AI-Infra（01）：核心机制与工程基础
 tags: [Python]
 catalog: true
 ---

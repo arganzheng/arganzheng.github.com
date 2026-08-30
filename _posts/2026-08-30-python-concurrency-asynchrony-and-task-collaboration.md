@@ -1,6 +1,6 @@
 ---
 layout: post
-title: Python 并发、异步与任务协作
+title: Python 在 AI-Infra（03）：并发、异步与任务协作
 subtitle: Python Concurrency, Asynchrony, and Task Collaboration in AI Systems
 tags: [Python]
 catalog: true

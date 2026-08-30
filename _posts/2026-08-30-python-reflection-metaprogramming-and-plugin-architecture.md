@@ -1,6 +1,6 @@
 ---
 layout: post
-title: 反射、元编程与插件化机制：Python 在 AI-Infra 中的动态扩展能力
+title: Python 在 AI-Infra（04）：反射、元编程与插件化机制
 subtitle: Python Reflection, Metaprogramming, and Plugin Architecture in AI Infrastructure
 tags: [Python]
 catalog: true

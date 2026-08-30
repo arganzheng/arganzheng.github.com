@@ -1,6 +1,6 @@
 ---
 layout: post
-title: Python 工程化：从依赖管理到生产交付
+title: Python 在 AI-Infra（07）：工程化——从依赖管理到生产交付
 subtitle: Python Engineering, from Dependency Management to Production Delivery
 tags: [Python]
 catalog: true
@@ -1657,7 +1657,7 @@ jobs:
 篇二  类型系统与数据契约设计    怎么把意图写清楚，并在边界上强制它
 篇三  并发、异步与任务协作      怎么组织任务，让资源不闲着也不打架
 篇四  反射、元编程与插件化      怎么让系统可扩展而不失控
-篇五  内存管理与优化           怎么知道内存去哪了
+篇五  内存管理与优化           内存如何分配回收，开销与泄漏如何定位
 篇六  单元测试、问题定位与调试   怎么确认它真的对，出问题怎么查
 篇七  从依赖管理到生产交付      怎么把它可复现地交付出去
 ```

@@ -1,6 +1,6 @@
 ---
 layout: post
-title: Python 内存管理与优化
+title: Python 在 AI-Infra（05）：内存管理与优化
 subtitle: Python Memory Management and Optimization
 tags: [Python]
 catalog: true

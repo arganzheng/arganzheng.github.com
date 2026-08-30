@@ -1,6 +1,6 @@
 ---
 layout: post
-title: Python 单元测试、问题定位与调试实践
+title: Python 在 AI-Infra（06）：单元测试、问题定位与调试实践
 subtitle: Python Unit Testing, Troubleshooting, and Debugging
 tags: [Python]
 catalog: true
