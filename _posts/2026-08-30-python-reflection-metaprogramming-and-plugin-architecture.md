@@ -263,7 +263,7 @@ print(model.describe())
 
 ## 四、描述符：属性访问背后的机制
 
-> 描述符的基本原理在[《Python 核心机制与工程基础》](/python-core-mechanisms-and-engineering-fundamentals.html)中已经介绍，这里侧重它在元编程和插件系统中的应用。
+> 描述符的基本原理在[《Python 语言机制与运行时原理》](/python-core-mechanisms-and-engineering-fundamentals.html)中已经介绍，这里侧重它在元编程和插件系统中的应用。
 
 描述符是 Python 属性系统的重要基础。实现了以下任意方法的对象，都可以参与属性访问控制：
 
@@ -328,7 +328,7 @@ config.batch_size = -1
 
 ## 五、装饰器：最实用的元编程入口
 
-> 装饰器的基础用法在[《Python 核心机制与工程基础》](/python-core-mechanisms-and-engineering-fundamentals.html)中已经覆盖，这里聚焦类型安全的装饰器写法和工程边界问题。
+> 装饰器的基础用法在[《Python 语言机制与运行时原理》](/python-core-mechanisms-and-engineering-fundamentals.html)中已经覆盖，这里聚焦类型安全的装饰器写法和工程边界问题。
 
 装饰器本质上是一个接收可调用对象并返回新可调用对象的函数。
 
@@ -702,7 +702,7 @@ def discover_backends() -> dict[str, object]:
 - 运行时根据已安装包自动发现扩展；
 - 构建可插拔的 CLI、存储后端和模型后端。
 
-> 同一套入口点机制还用于声明命令行入口（`[project.scripts]`）。`pyproject.toml` 的完整配置与包的构建发布流程，见[《Python 工程化：从依赖管理到生产交付》](/python-engineering-from-dependency-to-delivery.html)。
+> 同一套入口点机制还用于声明命令行入口（`[project.scripts]`）。`pyproject.toml` 的完整配置与包的构建发布流程，见[《Python 项目工程化与生产交付》](/python-engineering-from-dependency-to-delivery.html)。
 
 但使用入口点时要注意：
 

@@ -1,6 +1,6 @@
 ---
 layout: post
-title: Python 在 AI-Infra（07）：工程化——从依赖管理到生产交付
+title: Python 在 AI-Infra（07）：项目工程化与生产交付
 subtitle: Python Engineering, from Dependency Management to Production Delivery
 tags: [Python]
 catalog: true
@@ -41,7 +41,7 @@ Java 开发者常有的一个错觉是"Python 简单，随便装装就能跑"。
 - **测试**（pytest、fixture、mock、覆盖率）与**日志配置** → [《Python 单元测试、问题定位与调试实践》](/python-unit-testing-troubleshooting-and-debugging.html)
 - **异步与并发**（asyncio、GIL、事件循环）→ [《Python 并发、异步与任务协作》](/python-concurrency-asynchrony-and-task-collaboration.html)
 - **类型检查配置**（mypy / pyright）与**类型信息分发**（`py.typed`、PEP 561）→ [《Python 类型系统与数据契约设计》](/python-type-system-and-data-contract-design.html)
-- **`import` 机制、`sys.path` 与 src 布局** → [《Python 核心机制与工程基础》](/python-core-mechanisms-and-engineering-fundamentals.html)
+- **`import` 机制、`sys.path` 与 src 布局** → [《Python 语言机制与运行时原理》](/python-core-mechanisms-and-engineering-fundamentals.html)
 - **入口点做插件发现** → [《Python 反射、元编程与插件化机制》](/python-reflection-metaprogramming-and-plugin-architecture.html)
 
 > **版本基线**：Python 生态的工具链演进很快，本文以 **Python 3.11+、uv 0.5、PyTorch 2.4、setuptools 75** 为基线。涉及具体版本号的地方都集中在代码块里，读到时请以官方文档为准。
@@ -166,7 +166,7 @@ AI-Infra 项目如果要编译 CUDA kernel，基本都是 `scikit-build-core` �
 where = ["src"]
 ```
 
-> src 布局的原理和它与 `import` 机制的关系，见[《Python 核心机制与工程基础》](/python-core-mechanisms-and-engineering-fundamentals.html)的"`sys.path`、src 布局与 editable 安装"一节。
+> src 布局的原理和它与 `import` 机制的关系，见[《Python 语言机制与运行时原理》](/python-core-mechanisms-and-engineering-fundamentals.html)的"`sys.path`、src 布局与 editable 安装"一节。
 
 ### 5. 工具配置的聚合
 
@@ -1653,13 +1653,13 @@ jobs:
 七篇写完，回头看是这样一条链：
 
 ```text
-篇一  核心机制与工程基础       代码是怎么被加载和执行的
+篇一  语言机制与运行时原理     语法背后是哪些机制在起作用
 篇二  类型系统与数据契约设计    怎么把意图写清楚，并在边界上强制它
 篇三  并发、异步与任务协作      怎么组织任务，让资源不闲着也不打架
 篇四  反射、元编程与插件化      怎么让系统可扩展而不失控
 篇五  内存管理与优化           内存如何分配回收，开销与泄漏如何定位
 篇六  单元测试、问题定位与调试   怎么确认它真的对，出问题怎么查
-篇七  从依赖管理到生产交付      怎么把它可复现地交付出去
+篇七  项目工程化与生产交付      怎么把它可复现地交付出去
 ```
 
 前六篇解决"写对"，第七篇解决"交付"。AI-Infra 工程里这两件事的权重是相当的——一个跑得再好但只能在作者机器上复现的服务，工程价值接近于零。

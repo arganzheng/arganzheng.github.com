@@ -232,7 +232,7 @@ class RequestContext:
 
 对于大量创建、结构稳定、生命周期较短的请求元数据或任务节点，`__slots__` 比较适合。
 
-> 关于 `__slots__` 与类对象模型的详细讨论，参见[《Python 核心机制与工程基础》](/python-core-mechanisms-and-engineering-fundamentals.html)。
+> 关于 `__slots__` 与类对象模型的详细讨论，参见[《Python 语言机制与运行时原理》](/python-core-mechanisms-and-engineering-fundamentals.html)。
 
 ### 5. 使用数据类表达结构化对象
 
@@ -899,7 +899,7 @@ def create_handler(large_model):
 
 在高并发服务中，应避免让短生命周期回调捕获不必要的大对象。
 
-> 关于闭包的工作机制和常见陷阱（如延迟绑定），参见[《Python 核心机制与工程基础》](/python-core-mechanisms-and-engineering-fundamentals.html)。
+> 关于闭包的工作机制和常见陷阱（如延迟绑定），参见[《Python 语言机制与运行时原理》](/python-core-mechanisms-and-engineering-fundamentals.html)。
 
 ### 3. 任务对象和异常对象也可能持有引用
 

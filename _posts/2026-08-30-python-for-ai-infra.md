@@ -108,7 +108,7 @@ catalog: true
 
 ## 章节结构与分章导读
 
-### 1. 代码是怎么运转的：核心机制与工程基础
+### 1. 代码是怎么运转的：语言机制与运行时原理
 
 第一篇从语言的运行时机制出发，覆盖模块与导入、类与对象模型、数据模型与特殊方法、装饰器、生成器、上下文管理器、异常处理。
 
@@ -237,13 +237,13 @@ Java 工程师在这里会遇到最大的落差：
 
 ## 章节目录（建议按顺序阅读）
 
-1. [Python 核心机制与工程基础](/python-core-mechanisms-and-engineering-fundamentals.html)
-2. [Python 类型系统与数据契约设计](/python-type-system-and-data-contract-design.html)
-3. [Python 并发、异步与任务协作](/python-concurrency-asynchrony-and-task-collaboration.html)
-4. [反射、元编程与插件化机制：Python 在 AI-Infra 中的动态扩展能力](/python-reflection-metaprogramming-and-plugin-architecture.html)
-5. [Python 内存管理与优化](/python-memory-management-and-optimization.html)
-6. [Python 单元测试、问题定位与调试实践](/python-unit-testing-troubleshooting-and-debugging.html)
-7. [Python 工程化：从依赖管理到生产交付](/python-engineering-from-dependency-to-delivery.html)
+1. [语言机制与运行时原理](/python-core-mechanisms-and-engineering-fundamentals.html)
+2. [类型系统与数据契约设计](/python-type-system-and-data-contract-design.html)
+3. [并发、异步与任务协作](/python-concurrency-asynchrony-and-task-collaboration.html)
+4. [反射、元编程与插件化机制](/python-reflection-metaprogramming-and-plugin-architecture.html)
+5. [内存管理与优化](/python-memory-management-and-optimization.html)
+6. [单元测试、问题定位与调试实践](/python-unit-testing-troubleshooting-and-debugging.html)
+7. [项目工程化与生产交付](/python-engineering-from-dependency-to-delivery.html)
 
 
 ## 前置要求与说明
