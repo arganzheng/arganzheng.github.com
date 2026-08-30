@@ -25,11 +25,13 @@ Python 常被认为是一门“简单易学”的语言，但在 AI-Infra、深�
 
 1. 模块、包与导入机制；
 2. 类、继承与对象模型；
-3. 数据模型与特殊方法；
+3. 数据模型与对象协议；
 4. 装饰器与函数对象；
 5. 生成器与惰性计算；
 6. 上下文管理器与资源生命周期；
-7. 异常处理与工程安全。
+7. 异常处理与资源安全。
+
+最后通过综合示例、工程实践建议和总结，将这些机制串联起来。
 
 
 ## 一、模块、包与导入机制
@@ -121,6 +123,23 @@ print("mypackage initialized")
 - 隐式副作用；
 - CUDA 或系统环境检查提前执行；
 - 不必要的依赖加载。
+
+#### 声明公共 API：`__all__`
+
+`__all__` 不仅影响 `from module import *` 的行为，更重要的作用是显式声明模块的公共接口：
+
+```python
+# mypackage/__init__.py
+__all__ = ["Model", "load_config"]
+```
+
+它告诉使用者：
+
+- 哪些对象是稳定接口；
+- 哪些对象属于内部实现；
+- 哪些名称不建议外部依赖。
+
+实际工程中不建议使用通配符导入 `from module import *`，更推荐显式导入 `from module import Model, Runner`。
 
 
 
@@ -510,46 +529,6 @@ def load_backend(name):
 
 
 
-### 1.10 `__all__`
-
-`__all__` 用于声明模块的公共导出名称：
-
-```python
-__all__ = ["Model", "Runner"]
-```
-
-它主要影响：
-
-```python
-from module import *
-```
-
-不过实际工程中不建议大量使用通配符导入：
-
-```python
-from module import *
-```
-
-更推荐显式导入：
-
-```python
-from module import Model, Runner
-```
-
-`__all__` 的更重要作用是表达模块的公共 API：
-
-```python
-# package/api.py
-__all__ = ["Client", "Request"]
-```
-
-它告诉使用者：
-
-- 哪些对象是稳定接口；
-- 哪些对象属于内部实现；
-- 哪些名称不建议外部依赖。
-
-
 
 ## 二、类、继承与对象模型
 
@@ -779,6 +758,8 @@ class Config:
 - 对赋值进行校验；
 - 保持类似字段的调用形式。
 
+`property` 的底层实现依赖描述符协议，详见 3.8 节。
+
 
 
 ### 2.6 `__new__` 与 `__init__`
@@ -844,6 +825,12 @@ Device(name='cuda:0')
 ```
 
 良好的 `__repr__` 对调试、日志和错误排查非常有帮助。
+
+需要注意 `__repr__` 和 `__str__` 的区别：
+
+- `__repr__` 面向开发者，用于调试和日志，交互式解释器和 `repr()` 调用它；
+- `__str__` 面向用户，`print()` 和 `str()` 优先调用它；
+- 如果只实现一个，应该实现 `__repr__`，因为 `__str__` 的默认实现会回退到 `__repr__`。
 
 AI-Infra 中经常需要通过对象表示观察：
 
@@ -972,7 +959,7 @@ Python 中很多看起来像语法的行为，实际上是由特殊方法实现�
 ### 3.1 常见语法和特殊方法
 
 | Python 表达式 | 主要对应的方法 |
-| : | : |
+| --- | --- |
 | `len(x)` | `x.__len__()` |
 | `x[key]` | `x.__getitem__(key)` |
 | `x[key] = value` | `x.__setitem__(key, value)` |
@@ -1195,6 +1182,35 @@ class User:
 
 如果对象是可变的，通常不应该让它作为字典键或集合元素，因为其哈希值不能在生命周期中变化。
 
+需要特别注意：如果定义了 `__eq__` 但没有定义 `__hash__`，Python 会自动将 `__hash__` 设为 `None`，使对象变为不可哈希：
+
+```python
+class User:
+    def __init__(self, user_id):
+        self.user_id = user_id
+
+    def __eq__(self, other):
+        return isinstance(other, User) and self.user_id == other.user_id
+
+
+user = User(1)
+{user}  # TypeError: unhashable type: 'User'
+```
+
+如果对象确实需要放入集合或作为字典键，必须同时定义 `__eq__` 和 `__hash__`，并确保相等的对象具有相同的哈希值：
+
+```python
+class User:
+    def __init__(self, user_id):
+        self.user_id = user_id
+
+    def __eq__(self, other):
+        return isinstance(other, User) and self.user_id == other.user_id
+
+    def __hash__(self):
+        return hash(self.user_id)
+```
+
 
 
 ### 3.7 属性访问：`__getattribute__` 和 `__getattr__`
@@ -1240,6 +1256,51 @@ class Config:
 
 
 
+### 3.8 描述符协议
+
+描述符是实现了 `__get__`、`__set__` 或 `__delete__` 的对象。当描述符被作为类属性时，Python 会在属性访问时自动调用这些方法：
+
+```python
+class Typed:
+    def __init__(self, expected_type):
+        self.expected_type = expected_type
+        self.name = None
+
+    def __set_name__(self, owner, name):
+        self.name = name
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self
+        return obj.__dict__.get(self.name)
+
+    def __set__(self, obj, value):
+        if not isinstance(value, self.expected_type):
+            raise TypeError(
+                f"{self.name} expects {self.expected_type.__name__}, "
+                f"got {type(value).__name__}"
+            )
+        obj.__dict__[self.name] = value
+
+
+class Config:
+    batch_size = Typed(int)
+    device = Typed(str)
+
+    def __init__(self, batch_size, device):
+        self.batch_size = batch_size
+        self.device = device
+```
+
+```python
+config = Config(32, "cuda")
+config.batch_size = "big"  # TypeError: batch_size expects int, got str
+```
+
+描述符是 Python 数据模型中最底层的属性控制机制。前面介绍的 `property`、`classmethod`、`staticmethod` 以及方法绑定，底层都是通过描述符协议实现的。理解这一点有助于在阅读框架代码时理解各种"魔法"行为的来源。
+
+
+
 ## 四、装饰器与函数对象
 
 ### 4.1 函数也是对象
@@ -1264,7 +1325,48 @@ print(operation(1, 2))
 
 
 
-### 4.2 基本装饰器
+### 4.2 闭包
+
+当一个内部函数引用了外部函数的变量，并且外部函数已经返回时，这个内部函数就是一个闭包：
+
+```python
+def make_multiplier(factor):
+    def multiply(x):
+        return x * factor
+    return multiply
+
+
+double = make_multiplier(2)
+print(double(5))  # 10
+```
+
+`double` 持有对 `factor` 的引用，即使 `make_multiplier` 已经返回。
+
+闭包有一个常见陷阱——延迟绑定（late binding）：
+
+```python
+functions = []
+for i in range(3):
+    functions.append(lambda: i)
+
+print([f() for f in functions])  # [2, 2, 2]，不是 [0, 1, 2]
+```
+
+`lambda` 中的 `i` 不是在定义时求值，而是在调用时查找。此时循环已结束，`i` 的值是 `2`。修复方式是用默认参数捕获当前值：
+
+```python
+functions = []
+for i in range(3):
+    functions.append(lambda i=i: i)
+
+print([f() for f in functions])  # [0, 1, 2]
+```
+
+闭包是装饰器的基础——装饰器本质上就是"接受函数、返回闭包"的高阶函数。
+
+
+
+### 4.3 基本装饰器
 
 ```python
 from functools import wraps
@@ -1301,7 +1403,7 @@ predict = log_call(predict)
 
 
 
-### 4.3 为什么要使用 `functools.wraps`
+### 4.4 为什么要使用 `functools.wraps`
 
 如果不使用 `wraps`：
 
@@ -1329,7 +1431,7 @@ from functools import wraps
 
 
 
-### 4.4 带参数的装饰器
+### 4.5 带参数的装饰器
 
 带参数的装饰器实际上有两层函数：
 
@@ -1821,6 +1923,17 @@ except OSError:
 
 虽然也能抛出新异常，但原始异常上下文表达得不够明确。
 
+如果需要显式断开异常链（例如封装内部实现细节，不想暴露底层异常），可以使用 `from None`：
+
+```python
+try:
+    internal_operation()
+except InternalError:
+    raise PublicError("operation failed") from None
+```
+
+`from None` 会抑制原始异常的显示，只暴露新异常。
+
 
 
 ### 7.5 记录异常并重新抛出
@@ -1932,15 +2045,15 @@ from contextlib import nullcontext
 from functools import wraps
 
 
+REGISTRY = {}
+
+
 def registered(name):
     def decorator(cls):
         REGISTRY[name] = cls
         return cls
 
     return decorator
-
-
-REGISTRY = {}
 
 
 @registered("runner")
