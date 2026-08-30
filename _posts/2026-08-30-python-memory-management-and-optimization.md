@@ -26,9 +26,9 @@ Python 更多承担以下职责：
 - Python 对象与原生数据之间发生了隐式转换；
 - CPU 内存、原生内存和 GPU 显存的所有权边界不清晰。
 
-本章聚焦 Python 工程师在 AI-Infra 场景下必须掌握的内存知识，包括对象模型、内存分配、复制语义、垃圾回收、缓存生命周期，以及 Python 与原生运行时之间的内存边界。
+本文聚焦 Python 工程师在 AI-Infra 场景下必须掌握的内存知识，包括对象模型、内存分配、复制语义、垃圾回收、缓存生命周期，以及 Python 与原生运行时之间的内存边界。
 
-本章不重点讨论线程、进程、异步调度、动态批处理或 CPU 计算并行化。这些内容属于并发模型和任务协作的范畴。
+本文不重点讨论线程、进程、异步调度、动态批处理或 CPU 计算并行化。这些内容属于并发模型和任务协作的范畴。
 
 ## 一、为什么 AI-Infra 需要理解 Python 内存
 
@@ -108,6 +108,22 @@ print(id(a) == id(b))
 - 有多少个引用指向同一个对象；
 - 对象是否可变；
 - 引用是否被容器、闭包、任务或缓存长期持有。
+
+值得注意的是，CPython 对部分常用对象做了缓存优化：小整数（-5 到 256）在解释器启动时预先创建并全局共享，短字符串也可能被驻留（intern）。这意味着对同一个小整数的多次引用实际指向同一个对象：
+
+```python
+a = 256
+b = 256
+print(a is b)
+# True
+
+a = 257
+b = 257
+print(a is b)
+# False（不在缓存范围内，可能创建了不同的对象）
+```
+
+这不影响正确性（应使用 `==` 而非 `is` 比较值），但有助于理解 `id()` 结果和小对象的内存行为。
 
 ### 2. Python 标量不是裸数据
 
@@ -216,6 +232,8 @@ class RequestContext:
 
 对于大量创建、结构稳定、生命周期较短的请求元数据或任务节点，`__slots__` 比较适合。
 
+> 关于 `__slots__` 与类对象模型的详细讨论，参见[《Python 核心机制与工程基础》](/python-core-mechanisms-and-engineering-fundamentals.html)。
+
 ### 5. 使用数据类表达结构化对象
 
 对于结构化数据，可以使用 `dataclass` 提高可读性：
@@ -233,6 +251,8 @@ class RequestContext:
 `slots=True` 可以让数据类使用槽位存储属性。
 
 需要注意的是，数据类主要解决的是结构表达和代码维护问题。是否能够明显降低内存占用，仍然取决于对象数量、字段类型和实际生命周期。
+
+> 关于 `dataclass` 的完整用法和与 Pydantic `BaseModel` 的对比，参见[《Python 核心机制与工程基础》](/python-core-mechanisms-and-engineering-fundamentals.html)。
 
 ## 三、复制、视图与对象共享
 
@@ -428,6 +448,16 @@ header = parse_header(memoryview(data))
 - 二进制序列化；
 - 音视频或图像缓冲区处理；
 - 推理输入的预处理。
+
+在处理固定格式的二进制协议时，`struct` 模块可以与 `memoryview` 配合使用，在不复制数据的前提下解析字段：
+
+```python
+import struct
+
+data = bytearray(b"\x01\x00\x00\x00\x00\x00\x80\x3f")  # int32(1) + float32(1.0)
+view = memoryview(data)
+version, score = struct.unpack_from("<if", view)
+```
 
 ### 2. 零拷贝不是绝对概念
 
@@ -666,7 +696,145 @@ print(gpu_tensor.dtype)
 print(gpu_tensor.flatten()[:8].cpu().tolist())
 ```
 
-## 七、缓存、分配与对象生命周期
+## 七、引用计数、垃圾回收与内存分配器
+
+前面几章讨论了 Python 对象的内存开销、复制语义和原生内存边界。但一个关键问题还没有回答：**Python 是如何决定何时释放一个对象的？**
+
+### 1. 引用计数：CPython 的基本回收机制
+
+CPython 中，每个对象都有一个引用计数器（`ob_refcnt`）。当引用计数降为零时，对象立即释放：
+
+```python
+import sys
+
+a = [1, 2, 3]
+print(sys.getrefcount(a))
+# 2（a 本身 + getrefcount 的参数）
+
+b = a
+print(sys.getrefcount(a))
+# 3
+
+del b
+print(sys.getrefcount(a))
+# 2
+```
+
+引用计数的优点是确定性释放——对象不再被引用时立即回收，不需要等待 GC 轮次。
+
+但引用计数无法处理循环引用：
+
+```python
+class Node:
+    def __init__(self):
+        self.ref = None
+
+a = Node()
+b = Node()
+a.ref = b
+b.ref = a
+
+del a
+del b
+# 两个 Node 对象的引用计数都不为零，但已经不可达
+```
+
+### 2. 循环垃圾回收器
+
+为了处理循环引用，CPython 引入了分代循环垃圾回收器。它将对象分为三代：
+
+- **Generation 0**：新创建的对象，回收频率最高；
+- **Generation 1**：经历一次 Gen 0 回收后存活的对象；
+- **Generation 2**：经历一次 Gen 1 回收后存活的对象，回收频率最低。
+
+可以查看和调整各代的阈值：
+
+```python
+import gc
+
+print(gc.get_threshold())
+# (700, 10, 10)
+# 含义：Gen 0 中分配数 - 释放数达到 700 时触发 Gen 0 回收；
+# Gen 0 回收 10 次后触发 Gen 1 回收；
+# Gen 1 回收 10 次后触发 Gen 2 回收。
+```
+
+在 AI-Infra 服务中，需要注意以下几点：
+
+- 循环 GC 需要遍历容器对象（`list`、`dict`、自定义类实例等），这会带来暂停；
+- 如果系统中存活对象数量很大，Gen 2 回收可能导致明显的延迟尖刺；
+- 某些高性能框架会禁用循环 GC（`gc.disable()`），依赖引用计数和手动管理来避免暂停。
+
+### 3. `__del__` 终结器的陷阱
+
+`__del__` 是 Python 的终结器方法，在对象被回收前调用。它看起来适合做资源清理，但实际使用中有严重的陷阱：
+
+```python
+class Resource:
+    def __init__(self, name):
+        self.name = name
+
+    def __del__(self):
+        print(f"releasing {self.name}")
+```
+
+问题在于：
+
+- **阻碍循环回收**：在 Python 3.4 之前，带有 `__del__` 的循环引用对象无法被 GC 回收（放入 `gc.garbage`）。Python 3.4+ 通过 PEP 442 改善了这一点，但 `__del__` 的调用顺序仍然不确定；
+- **调用时机不可控**：`__del__` 可能在任意时刻被调用，甚至可能在解释器关闭时被调用，此时模块级变量可能已经被清理；
+- **对象复活**：如果 `__del__` 中重新创建了对该对象的引用，对象不会被释放。
+
+更安全的替代方案：
+
+```python
+import weakref
+
+class Resource:
+    def __init__(self, name):
+        self.name = name
+        self._finalizer = weakref.finalize(self, Resource._cleanup, name)
+
+    @staticmethod
+    def _cleanup(name):
+        print(f"releasing {name}")
+```
+
+`weakref.finalize()` 不阻碍垃圾回收，且可以显式调用 `_finalizer()` 提前清理。
+
+对于 AI-Infra 场景中的资源管理（GPU 句柄、网络连接、临时文件），优先使用上下文管理器（`with` 语句），而不是依赖 `__del__`。
+
+### 4. pymalloc：CPython 的内存分配器
+
+CPython 使用名为 pymalloc 的专用分配器来管理小对象（≤ 512 bytes）。它的结构是：
+
+```text
+Arena (256 KB, 向 OS 申请)
+  └── Pool (4 KB, 按 size class 划分)
+        └── Block (8, 16, 24, ..., 512 bytes)
+```
+
+关键行为：
+
+- **小对象**由 pymalloc 管理，大对象直接走系统 `malloc`；
+- Pool 释放后归还 Arena，但 **Arena 只有在所有 Pool 都释放后才归还 OS**；
+- 这意味着：即使大量 Python 小对象被释放，进程 RSS 可能仍然不下降。
+
+这是实际排查中最容易引起困惑的现象：
+
+```text
+del 大量 Python 对象
+  → 引用计数归零，对象释放
+  → pymalloc 回收 block/pool
+  → 但 arena 中仍有少量存活对象
+  → arena 不释放 → RSS 不降
+  → 看起来像"内存泄漏"，实际是分配器保留
+```
+
+因此，在判断是否发生内存泄漏时，需要区分"分配器保留"和"对象仍被引用"。`tracemalloc` 可以帮助定位后者，但对分配器保留行为无能为力。
+
+如果确实需要将内存归还 OS（例如在模型切换后释放大量临时数据），可以考虑 `gc.collect()` 后观察 RSS 变化，但不应期望 RSS 每次都下降到初始水平。
+
+## 八、缓存、引用与对象生命周期
 
 ### 1. 无界缓存是常见的内存问题
 
@@ -731,6 +899,8 @@ def create_handler(large_model):
 
 在高并发服务中，应避免让短生命周期回调捕获不必要的大对象。
 
+> 关于闭包的工作机制和常见陷阱（如延迟绑定），参见[《Python 核心机制与工程基础》](/python-core-mechanisms-and-engineering-fundamentals.html)。
+
 ### 3. 任务对象和异常对象也可能持有引用
 
 异步任务、Future、回调和异常对象可能间接持有：
@@ -742,6 +912,8 @@ def create_handler(large_model):
 - traceback。
 
 因此，任务完成后应及时清理不再需要的引用，避免将任务对象无限保存。
+
+> 关于异步任务、Future 和回调的生命周期管理，参见[《Python 并发、异步与任务协作》](/python-concurrency-asynchrony-and-task-collaboration.html)。
 
 这并不意味着要到处手动调用 `gc.collect()`。频繁强制垃圾回收可能增加延迟，甚至降低吞吐。更重要的是：
 
@@ -779,7 +951,7 @@ del model
 
 但如果业务逻辑要求对象必须保持存活，就不应使用弱引用。
 
-## 八、常见内存问题的排查方法
+## 九、常见内存问题的排查方法
 
 ### 1. 先区分三类增长
 
@@ -861,6 +1033,31 @@ unreachable = gc.collect()
 print("unreachable objects:", unreachable)
 ```
 
+如果需要追踪某个对象为什么没有被释放，可以使用 `gc.get_referrers()` 查看引用链：
+
+```python
+import gc
+
+obj = SomeLargeObject()
+# ... 经过一系列操作后，怀疑 obj 被意外持有
+
+referrers = gc.get_referrers(obj)
+for r in referrers:
+    print(type(r), id(r))
+```
+
+对于更复杂的引用图分析，`objgraph` 库可以生成可视化的引用关系图：
+
+```python
+import objgraph
+
+# 查看增长最快的对象类型
+objgraph.show_growth(limit=10)
+
+# 查看某个对象的引用链（需要安装 graphviz）
+objgraph.show_backrefs(obj, max_depth=5, filename="refs.png")
+```
+
 也可以通过代码设计减少不必要的引用：
 
 - 不保存完整请求；
@@ -886,7 +1083,35 @@ print("unreachable objects:", unreachable)
 
 只有将这些指标放在同一时间线上，才能判断问题属于 Python 对象、原生内存还是设备缓存。
 
-## 九、工程实践中的设计原则
+### 6. GPU 显存诊断
+
+对于使用 PyTorch 的 AI-Infra 服务，GPU 显存问题需要使用专门的工具：
+
+```python
+import torch
+
+# 当前已分配的 GPU 显存
+print(torch.cuda.memory_allocated())
+
+# 历史峰值分配量
+print(torch.cuda.max_memory_allocated())
+
+# PyTorch 缓存分配器保留的总显存（可能大于已分配量）
+print(torch.cuda.memory_reserved())
+
+# 完整的显存统计摘要
+print(torch.cuda.memory_summary())
+```
+
+需要注意的是，`torch.cuda.memory_reserved()` 通常大于 `memory_allocated()`，因为 PyTorch 的缓存分配器会保留已释放的显存块以供复用。这不是泄漏，而是分配器的正常行为。
+
+如果需要从命令行监控，可以使用：
+
+```bash
+nvidia-smi --query-gpu=memory.used,memory.free --format=csv -l 1
+```
+
+## 十、工程实践中的设计原则
 
 ### 1. 让数据表示匹配数据性质
 
@@ -955,7 +1180,7 @@ AI-Infra 服务经常受到峰值内存限制。即使平均内存占用正常�
 - 转换过程中的临时副本；
 - 失败和超时路径上的资源释放。
 
-## 十、一个简单的内存审查案例
+## 十一、一个简单的内存审查案例
 
 假设服务中存在如下代码：
 
@@ -1003,25 +1228,28 @@ def predict(array: np.ndarray):
     tensor = torch.from_numpy(array).to(device="cuda")
     output = model(tensor)
 
+    # 如果下游可以直接消费张量（如内部 pipeline 或 gRPC），直接返回
     return output
+    # 如果必须返回给 HTTP 客户端，在明确的边界做一次转换
+    # return output.cpu().numpy().tolist()
 ```
 
 这个版本并不适用于所有 API，但它展示了一个重要原则：
 
 > 尽量在明确的边界完成必要转换，并避免在链路中反复改变数据表示。
 
-## 十一、内存优化检查清单
+## 十二、内存优化检查清单
 
 在优化一条 Python AI-Infra 请求路径时，可以依次检查：
 
-### 对象层面
+### 1. 对象层面
 
 - 是否创建了大量不必要的 Python 小对象？
 - 是否可以使用数组或张量表示连续数值？
 - 是否需要使用 `__slots__`？
 - 是否存在大量临时字典、列表或元组？
 
-### 复制层面
+### 2. 复制层面
 
 - 赋值是否被误认为复制？
 - 是否发生了浅拷贝或深拷贝？
@@ -1029,7 +1257,7 @@ def predict(array: np.ndarray):
 - NumPy 或张量操作是否创建了新存储？
 - 是否存在重复的序列化和反序列化？
 
-### 数据层面
+### 3. 数据层面
 
 - dtype 是否发生转换？
 - 数组是否连续？
@@ -1037,7 +1265,7 @@ def predict(array: np.ndarray):
 - 视图是否意外延长了大对象生命周期？
 - 是否可以复用已有缓冲区？
 
-### 生命周期层面
+### 4. 生命周期层面
 
 - 请求结束后，大对象是否仍被引用？
 - 任务、Future 或回调是否保存了请求上下文？
@@ -1045,14 +1273,31 @@ def predict(array: np.ndarray):
 - 全局容器是否持续增长？
 - 异常和日志对象是否保留了大对象？
 
-### 运行时层面
+### 5. 运行时层面
 
 - Python 内存是否与原生内存混淆？
 - CPU 内存是否与 GPU 显存混淆？
 - 释放引用后，底层分配器是否仍保留内存？
 - 是否使用了正确层级的监控和诊断工具？
 
-## 十二、总结
+## 附：Java 与 Python 内存管理对照
+
+| 维度 | Java | Python (CPython) |
+|---|---|---|
+| 基本回收机制 | 可达性分析 + 分代 GC（G1/ZGC/Shenandoah） | 引用计数 + 分代循环 GC |
+| 回收时机 | GC 线程异步回收，不确定 | 引用计数归零时立即回收；循环引用依赖 GC 轮次 |
+| 值类型 | `int`/`long`/`double` 等原语不装箱，栈上分配 | 一切皆对象，`int`/`float` 也是堆对象 |
+| 数组 | `int[]` 连续原语内存 | `list` 存引用；需 `array` / NumPy 才连续 |
+| 堆外内存 | `ByteBuffer.allocateDirect()` / `Unsafe` | `memoryview` / buffer protocol |
+| 终结器 | `Cleaner` / `PhantomReference`（推荐）；`finalize()` 已废弃 | `weakref.finalize()`（推荐）；`__del__` 有陷阱 |
+| 内存分配器 | JVM 自管理堆（TLAB + 分代） | pymalloc（arena → pool → block） |
+| RSS 不下降 | GC 后可归还 OS（G1/ZGC 支持） | pymalloc arena 可能不归还 OS |
+| 内存分析工具 | JVisualVM / MAT / JFR / async-profiler | `tracemalloc` / `objgraph` / `pympler` / `memray` |
+| GPU 内存 | 不直接涉及（由 native 库管理） | 同样由 CUDA runtime / PyTorch 缓存分配器管理 |
+| 弱引用 | `WeakReference` / `WeakHashMap` | `weakref.ref()` / `WeakValueDictionary` |
+| 零拷贝 | NIO `MappedByteBuffer` / Netty `CompositeByteBuf` | `memoryview` / `torch.from_numpy()` 共享存储 |
+
+## 十三、总结
 
 Python 内存管理的核心，不只是调用 `del` 或手动触发垃圾回收，而是理解以下几个层次：
 
@@ -1075,7 +1320,7 @@ Python 名称与对象
 - 哪些内存由框架缓存；
 - 哪些问题属于 Python，哪些问题属于原生运行时或设备运行时。
 
-本章的核心结论是：
+本文的核心结论是：
 
 > **Python 内存优化的关键，不是简单地释放变量，而是减少不必要的对象创建和数据复制，明确对象生命周期，并正确理解 Python、原生库、进程和设备之间的内存所有权边界。**
 
