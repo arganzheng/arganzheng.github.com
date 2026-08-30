@@ -1,7 +1,7 @@
 ---
 layout: post
 title: Python 在 AI-Infra（07）：项目工程化与生产交付
-subtitle: Python Engineering, from Dependency Management to Production Delivery
+subtitle: Python Project Engineering and Production Delivery
 tags: [Python]
 catalog: true
 ---
@@ -41,7 +41,7 @@ Java 开发者常有的一个错觉是"Python 简单，随便装装就能跑"。
 - **测试**（pytest、fixture、mock、覆盖率）与**日志配置** → [《Python 单元测试、问题定位与调试实践》](/python-unit-testing-troubleshooting-and-debugging.html)
 - **异步与并发**（asyncio、GIL、事件循环）→ [《Python 并发、异步与任务协作》](/python-concurrency-asynchrony-and-task-collaboration.html)
 - **类型检查配置**（mypy / pyright）与**类型信息分发**（`py.typed`、PEP 561）→ [《Python 类型系统与数据契约设计》](/python-type-system-and-data-contract-design.html)
-- **`import` 机制、`sys.path` 与 src 布局** → [《Python 语言机制与运行时原理》](/python-core-mechanisms-and-engineering-fundamentals.html)
+- **`import` 机制、`sys.path` 与 src 布局** → [《Python 语言机制与运行时原理》](/python-language-mechanisms-and-runtime-internals.html)
 - **入口点做插件发现** → [《Python 反射、元编程与插件化机制》](/python-reflection-metaprogramming-and-plugin-architecture.html)
 
 > **版本基线**：Python 生态的工具链演进很快，本文以 **Python 3.11+、uv 0.5、PyTorch 2.4、setuptools 75** 为基线。涉及具体版本号的地方都集中在代码块里，读到时请以官方文档为准。
@@ -166,7 +166,7 @@ AI-Infra 项目如果要编译 CUDA kernel，基本都是 `scikit-build-core` �
 where = ["src"]
 ```
 
-> src 布局的原理和它与 `import` 机制的关系，见[《Python 语言机制与运行时原理》](/python-core-mechanisms-and-engineering-fundamentals.html)的"`sys.path`、src 布局与 editable 安装"一节。
+> src 布局的原理和它与 `import` 机制的关系，见[《Python 语言机制与运行时原理》](/python-language-mechanisms-and-runtime-internals.html)的"`sys.path`、src 布局与 editable 安装"一节。
 
 ### 5. 工具配置的聚合
 
@@ -799,7 +799,7 @@ ignore = [
 - `ASYNC` 能查出在协程里调用阻塞函数（`time.sleep`、同步 `requests`）这类问题——这正是[篇三](/python-concurrency-asynchrony-and-task-collaboration.html)讲的事件循环阻塞陷阱，Ruff 可以在 CI 里自动拦住一部分；
 - `B008`（函数默认值里调用函数）、`B023`（闭包里的循环变量延迟绑定）都是 Python 特有的陷阱，靠 review 很难每次都发现。
 
-`__init__.py` 那条 per-file-ignore 值得解释：`F401` 是"导入了但没使用"，但 `__init__.py` 里的导入往往是故意做**重导出**（对外暴露 API），并非无用。更规范的做法是配合 `__all__` 声明——见[篇一](/python-core-mechanisms-and-engineering-fundamentals.html)的"声明公共 API：`__all__`"。
+`__init__.py` 那条 per-file-ignore 值得解释：`F401` 是"导入了但没使用"，但 `__init__.py` 里的导入往往是故意做**重导出**（对外暴露 API），并非无用。更规范的做法是配合 `__all__` 声明——见[篇一](/python-language-mechanisms-and-runtime-internals.html)的"声明公共 API：`__all__`"。
 
 ### 2. 渐进式引入与 noqa 的边界
 

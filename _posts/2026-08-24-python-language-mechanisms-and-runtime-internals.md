@@ -1,6 +1,7 @@
 ---
 layout: post
 title: Python 在 AI-Infra（01）：语言机制与运行时原理
+subtitle: Python Language Mechanisms and Runtime Internals
 tags: [Python]
 catalog: true
 ---
@@ -665,7 +666,7 @@ myproject-0.1.0.dist-info/
 
 对应 Java：`sys.path` 相当于 classpath，但有两个重要差异。一是 classpath 完全由启动参数显式给定，`sys.path` 却会**隐式包含当前目录**，这是很多诡异问题的来源；二是 Java 的 jar 是自包含产物，不存在"editable 安装"这种概念——最接近的是 IDE 里把模块的 `target/classes` 直接加进 classpath。
 
-> 项目结构之外的工程化内容——`pyproject.toml` 的完整配置、依赖锁定、虚拟环境、打包发布与容器化交付——见[《Python 项目工程化与生产交付》](/python-engineering-from-dependency-to-delivery.html)。
+> 项目结构之外的工程化内容——`pyproject.toml` 的完整配置、依赖锁定、虚拟环境、打包发布与容器化交付——见[《Python 项目工程化与生产交付》](/python-engineering-and-production-delivery.html)。
 
 
 

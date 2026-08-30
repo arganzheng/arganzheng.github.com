@@ -1,6 +1,7 @@
 ---
 layout: post
 title: Python 在 AI-Infra：从语言机制到生产交付（总纲）
+subtitle: Python for AI-Infra, from Language Mechanisms to Production Delivery (Overview)
 tags: [Python, AI-Infra]
 catalog: true
 ---
@@ -237,13 +238,13 @@ Java 工程师在这里会遇到最大的落差：
 
 ## 章节目录（建议按顺序阅读）
 
-1. [语言机制与运行时原理](/python-core-mechanisms-and-engineering-fundamentals.html)
+1. [语言机制与运行时原理](/python-language-mechanisms-and-runtime-internals.html)
 2. [类型系统与数据契约设计](/python-type-system-and-data-contract-design.html)
 3. [并发、异步与任务协作](/python-concurrency-asynchrony-and-task-collaboration.html)
 4. [反射、元编程与插件化机制](/python-reflection-metaprogramming-and-plugin-architecture.html)
 5. [内存管理与优化](/python-memory-management-and-optimization.html)
 6. [单元测试、问题定位与调试实践](/python-unit-testing-troubleshooting-and-debugging.html)
-7. [项目工程化与生产交付](/python-engineering-from-dependency-to-delivery.html)
+7. [项目工程化与生产交付](/python-engineering-and-production-delivery.html)
 
 
 ## 前置要求与说明

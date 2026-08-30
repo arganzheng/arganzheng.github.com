@@ -485,7 +485,7 @@ monkeypatch.setattr("service.download_model", fake_download)
 monkeypatch.setattr("loader.download_model", fake_download)
 ```
 
-> 理解 `monkeypatch` 的替换目标，需要了解 Python 的模块导入和名称绑定机制，参见[《Python 语言机制与运行时原理》](/python-core-mechanisms-and-engineering-fundamentals.html)。
+> 理解 `monkeypatch` 的替换目标，需要了解 Python 的模块导入和名称绑定机制，参见[《Python 语言机制与运行时原理》](/python-language-mechanisms-and-runtime-internals.html)。
 
 ## 六、使用 pdb 定位 Python 逻辑问题
 
@@ -772,7 +772,7 @@ logging.basicConfig(stream=sys.stdout, ...)     # 推荐
 
 配合容器环境还要注意 `PYTHONUNBUFFERED=1`，否则 stdout 会被缓冲，日志出现延迟甚至在崩溃时丢失。
 
-> 容器化部署下的日志采集、`PYTHONUNBUFFERED` 等环境变量设置，见[《Python 项目工程化与生产交付》](/python-engineering-from-dependency-to-delivery.html)的容器化一章。
+> 容器化部署下的日志采集、`PYTHONUNBUFFERED` 等环境变量设置，见[《Python 项目工程化与生产交付》](/python-engineering-and-production-delivery.html)的容器化一章。
 
 ### 6. 注入请求上下文
 
