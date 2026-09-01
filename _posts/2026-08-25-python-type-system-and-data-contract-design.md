@@ -797,7 +797,217 @@ class Depends:
     ): ...
 ```
 
-#### 1.7 ABC 与 Protocol：接口的两种方式
+#### 1.7 `type[C]`：类对象本身
+
+上一节的 `Callable` 描述"可以被调用的东西"。而在 Python 里，**类本身就是一个可以被调用的对象**——调用它会返回实例。这引出一个容易被忽略但极其重要的注解：`type[C]`。
+
+##### 实例 vs 类对象
+
+这是 Python 类型注解里最需要分清的一组区别：
+
+```python
+class Model: ...
+
+def run(m: Model) -> None: ...        # 参数是"一个 Model 实例"
+def build(c: type[Model]) -> Model:   # 参数是"Model 这个类本身"
+    return c()                        # 检查器知道调用它得到 Model 实例
+
+run(Model())      # OK
+run(Model)        # 错误：期望实例，给了类
+build(Model)      # OK
+build(Model())    # 错误：期望类，给了实例
+```
+
+`type[C]` 也接受 `C` 的**任意子类**（协变），这正符合直觉：
+
+```python
+class LlamaModel(Model): ...
+
+build(LlamaModel)   # OK，type[LlamaModel] 是 type[Model] 的子类型
+```
+
+不带参数的裸 `type` 表示"任意类"，等价于 `type[Any]`——和裸 `list` 一样，属于放弃了类型信息的写法，尽量避免。
+
+对应 Java：
+
+```java
+// Java: Class<T> 就是 type[C] 的对应物
+Model build(Class<? extends Model> cls) throws Exception {
+    return cls.getDeclaredConstructor().newInstance();
+}
+```
+
+| Python | Java | 说明 |
+| :--- | :--- | :--- |
+| `Model` | `Model` | 实例类型 |
+| `type[Model]` | `Class<? extends Model>` | 类对象，含子类 |
+| `type` / `type[Any]` | `Class<?>` | 任意类 |
+| `c()` | `cls.getDeclaredConstructor().newInstance()` | Python 里类天生可调用 |
+| `type(x)` | `x.getClass()` | 取运行时类型 |
+| `issubclass(a, b)` | `b.isAssignableFrom(a)` | 子类判定 |
+| `isinstance(x, C)` | `C.isInstance(x)` / `instanceof` | 实例判定 |
+
+两个实质差异：
+
+1. **构造是一等操作。** Java 拿到 `Class<T>` 后要经过反射才能 `newInstance()`，还要处理一堆受检异常；Python 里 `c()` 就是普通调用，类型检查器甚至会**校验构造参数**——传错参数是静态错误，不是运行时才炸的 `NoSuchMethodException`。
+2. **没有类型擦除。** Java 的 `Class<T>` 之所以常被用作"运行时类型令牌"（比如 `Gson.fromJson(json, Foo.class)`），正是因为泛型被擦除了，运行时拿不到 `T`。Python 没有擦除问题——注解本身在运行时就可以读取（见第二章）——所以 `type[C]` 的用途更纯粹：它就是"我需要一个类，而不是一个实例"。
+
+##### 典型用途：工厂与注册表
+
+`type[C]` 最常见的场景是把类当作值来传递和存储：
+
+```python
+from typing import TypeVar
+
+T = TypeVar("T", bound=Model)
+
+# 泛型工厂：输入什么类，就返回什么类的实例
+def create(cls: type[T], **kwargs) -> T:
+    return cls(**kwargs)
+
+model = create(LlamaModel, hidden_size=4096)   # 推断为 LlamaModel，不是 Model
+```
+
+这里 `type[T]` 和 `TypeVar` 的配合是关键。如果写成 `def create(cls: type[Model]) -> Model`，返回值就退化成基类，调用方拿不到子类特有的方法。**这与 Java 里 `<T> T create(Class<T> cls)` 而不是 `Model create(Class<?> cls)` 是完全相同的动机。**
+
+注册表则是插件化架构的基础形态：
+
+```python
+_REGISTRY: dict[str, type[Model]] = {}
+
+def register(name: str) -> Callable[[type[T]], type[T]]:
+    def decorator(cls: type[T]) -> type[T]:
+        _REGISTRY[name] = cls
+        return cls                    # 装饰器必须原样返回类
+    return decorator
+
+@register("llama")
+class LlamaModel(Model): ...
+
+def load(name: str) -> Model:
+    return _REGISTRY[name]()
+```
+
+注意装饰器的签名 `Callable[[type[T]], type[T]]`——**接收类、返回类**。写成 `Callable[[type], type]` 会丢失具体类型，被装饰的类在下游就变成了 `type[Any]`。
+
+##### `type[C]` vs `Callable[..., C]`
+
+两者都能表达"能造出 C 的东西"，但语义不同：
+
+```python
+def a(factory: type[Model]) -> Model: ...      # 必须是类
+def b(factory: Callable[..., Model]) -> Model: # 类或函数都行
+```
+
+- 需要访问**类属性、classmethod 或做 `issubclass` 判断**时，必须用 `type[C]`；
+- 只关心"能调用出实例"，允许传入 `functools.partial`、lambda 或工厂函数时，用 `Callable[..., C]` 更宽松。
+
+一个常见坑：**抽象类不满足 `type[C]` 的可实例化预期**。mypy 会对下面这段报 `Only concrete class can be given where "type[AbstractModel]" is expected`：
+
+```python
+from abc import ABC, abstractmethod
+
+class AbstractModel(ABC):
+    @abstractmethod
+    def forward(self) -> None: ...
+
+def build(cls: type[AbstractModel]) -> AbstractModel:
+    return cls()
+
+build(AbstractModel)     # mypy 报错：抽象类不能实例化
+```
+
+这其实是件好事——静态检查器帮你拦住了 `TypeError: Can't instantiate abstract class`。如果确实只想传递类而不实例化（比如存进注册表），把返回类型改成 `type[AbstractModel]` 即可。
+
+##### classmethod 与 `Self`
+
+classmethod 的第一个参数 `cls` 隐式就是 `type[Self]`，所以通常不需要显式标注：
+
+```python
+from typing import Self
+
+class Config:
+    @classmethod
+    def from_dict(cls, data: dict) -> Self:    # cls 隐式是 type[Self]
+        return cls(**data)
+
+
+class TrainConfig(Config): ...
+
+cfg = TrainConfig.from_dict({})   # 推断为 TrainConfig，不是 Config
+```
+
+用 `Self` 而不是 `Config` 作返回类型，子类才能拿到正确的推断结果（`Self` 见 1.14 节）。这解决的正是 Java 里"自限定泛型" `class Config<T extends Config<T>>` 那套笨重写法要解决的问题。
+
+##### 与元类的关系
+
+`type` 除了作为注解，它本身还是 **Python 中所有类的类**——这就是元类的起点：
+
+```python
+class Model: ...
+
+type(Model())      # <class 'Model'>       实例的类型是类
+type(Model)        # <class 'type'>        类的类型是 type
+type(type)         # <class 'type'>        type 是自己的实例，递归终点
+```
+
+所以自定义元类都写成 `class Meta(type)`：元类就是"类的类"，继承 `type` 才能拦截类的创建过程。Pydantic 的 `ModelMetaclass` 正是这么来的（见第二章 2.2 节）。
+
+两个用法之间的桥梁是：**如果一个类的元类是 `Meta`，那么这个类对象的类型就是 `Meta`**，可以直接用来注解：
+
+```python
+class Meta(type): ...
+class Base(metaclass=Meta): ...
+
+def configure(cls: Meta) -> None:     # 只接受元类为 Meta 的类
+    ...
+```
+
+> **注意区分两个 `type`**：内置的 `type`（本节讨论的类对象），和 Python 3.12 引入的软关键字 `type`（用于声明类型别名，如 `type Vector = list[float]`，见 1.14 节）。两者拼写相同但毫无关系，靠语法位置区分。
+
+##### 版本说明
+
+`typing.Type[C]` 从 Python 3.9 起被内置的 `type[C]` 取代（PEP 585），新代码一律用小写。这和 `List` → `list`、`Dict` → `dict` 是同一次演进。
+
+##### 真实项目中的 `type[C]`
+
+```python
+# transformers: transformers/models/auto/configuration_auto.py
+# AutoConfig 的核心是一张 "模型类型字符串 -> 配置类" 的注册表，
+# from_pretrained 读到 config.json 里的 model_type 后据此查表并实例化
+CONFIG_MAPPING_NAMES: OrderedDict[str, str] = ...   # 惰性加载，值是类名
+# 实际查表后得到的就是 type[PretrainedConfig]
+
+# vLLM: vllm/model_executor/models/registry.py
+# 架构名（来自 HF config 的 architectures 字段）-> 模型实现类
+class _ModelRegistry:
+    models: dict[str, _BaseRegisteredModel]
+
+    def register_model(self, model_arch: str, model_cls: type[nn.Module]) -> None:
+        ...
+
+    def resolve_model_cls(self, architectures: str | list[str]) -> tuple[type[nn.Module], str]:
+        ...
+
+# Starlette: starlette/applications.py
+# 异常处理器注册：键可以是异常类本身，也可以是 HTTP 状态码
+def add_exception_handler(
+    self,
+    exc_class_or_status_code: type[Exception] | int,
+    handler: Callable[[Request, Exception], Response],
+) -> None: ...
+
+# Pydantic: pydantic/main.py
+# model_validate 是 classmethod，返回 Self 而非 BaseModel，
+# 这样 MyModel.model_validate(...) 才能推断成 MyModel
+class BaseModel:
+    @classmethod
+    def model_validate(cls, obj: Any, *, strict: bool | None = None) -> Self: ...
+```
+
+这几个例子体现了同一个模式：**框架把"用户提供的类"当作数据存起来，在运行时按需实例化**。这正是 Python 插件化架构的骨架——注册表的值类型永远是 `type[SomeBase]`，而不是 `SomeBase`。Java 里对应的是 Spring 的 `BeanDefinition` 持有 `Class<?>`、或 SPI 的 `ServiceLoader<S>`。
+
+#### 1.8 ABC 与 Protocol：接口的两种方式
 
 Python 定义"接口"有两种机制：**ABC（抽象基类）**和 **Protocol（协议）**。它们的定位不同，适用场景不同，理解两者的区别是读懂 AI Infra 源码的关键。
 
@@ -994,7 +1204,7 @@ class ExecutorBase(Protocol):
     def execute_model(self, seq_group_metadata: list) -> list: ...
 ```
 
-#### 1.8 TypedDict：字典的类型约束
+#### 1.9 TypedDict：字典的类型约束
 
 Python 中大量使用 `dict` 传递数据。`TypedDict` 让你能对字典的"形状"（哪些 key、每个 key 的值类型）进行静态约束。
 
@@ -1092,7 +1302,7 @@ class ExecuteOptions(TypedDict, total=False):
     yield_per: int
 ```
 
-#### 1.9 Annotated：给类型附加元数据
+#### 1.10 Annotated：给类型附加元数据
 
 `Annotated` 允许在类型上附加额外的元数据，类型检查器本身忽略这些元数据，但框架（如 FastAPI、Pydantic）可以读取并使用。
 
@@ -1139,7 +1349,7 @@ void createUser(@NotNull @Size(min=2, max=50) String name,
 ```
 
 
-#### 1.10 ParamSpec 与 Concatenate：保留装饰器的类型信息
+#### 1.11 ParamSpec 与 Concatenate：保留装饰器的类型信息
 
 ##### 问题：装饰器吃掉了类型信息
 
@@ -1299,7 +1509,7 @@ log_metrics(loss=0.5, step=100)
 
 这在分布式训练框架中特别有用——很多函数需要 `rank`/`world_size`/`device` 等上下文参数，通过 `Concatenate` 装饰器自动注入后，调用方的代码更干净，类型检查也不会丢失。
 
-#### 1.11 TypeGuard 与 TypeIs：类型收窄
+#### 1.12 TypeGuard 与 TypeIs：类型收窄
 
 ##### TypeGuard（3.10+）
 
@@ -1409,7 +1619,7 @@ def optimize(model: nn.Module) -> nn.Module:
 
 这种模式在 vLLM 的模型加载器、PyTorch 的 quantization 模块中都有类似逻辑——虽然不一定用了 `TypeGuard` 注解（很多是运行时 `if` 检查），但理解 TypeGuard 的思路有助于写出更清晰的分支代码。
 
-#### 1.12 overload：多签名声明
+#### 1.13 overload：多签名声明
 
 `@overload` 不是运行时重载（Python 没有函数重载），而是给类型检查器提供多个调用签名的描述。
 
@@ -1474,7 +1684,7 @@ class Client:
 
 `@overload` 在需要向后兼容旧 API 的项目中尤其常见（如 vLLM 的 generate 方法同时支持新旧调用方式）。
 
-#### 1.13 其他实用工具
+#### 1.14 其他实用工具
 
 ##### Final 和 ClassVar
 
@@ -2229,6 +2439,8 @@ class User(BaseModel):
 print(type(User))               # <class 'pydantic._internal._model_construction.ModelMetaclass'>
 print(User.__pydantic_core_schema__ is not None)   # True
 ```
+
+上面 `type(User)` 打印出 `ModelMetaclass` 而不是 `type`，正是 1.7 节"类的类型是 `type`，自定义元类则是 `type` 的子类"那条规则的直接体现。换句话说，`User` 这个**类对象**的类型是 `ModelMetaclass`，所以任何接受 `type[BaseModel]` 的函数都能拿到它。
 
 > 元类本身的机制（`type` 的三参数形式、`__new__` 的拦截时机、与 `__init_subclass__` 的取舍）在[《Python 反射、元编程与插件化机制》](/python-reflection-metaprogramming-and-plugin-architecture.html)的"元类：控制类的创建过程"一节有完整展开，这里只关注它作为注解消费者的角色。
 
