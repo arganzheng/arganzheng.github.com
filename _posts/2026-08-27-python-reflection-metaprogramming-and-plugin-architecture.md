@@ -207,8 +207,8 @@ class Worker:
 
 worker = Worker()
 
-print(worker.__dict__)
-print(Worker.__dict__)
+print(worker.__dict__) # {'device': 'cuda', 'running': True}
+print(Worker.__dict__) # {'__module__': '__main__', 'max_batch_size': 16, '__init__': <function Worker.__init__ at 0x...>, '__dict__': <attribute '__dict__' of 'Worker' objects>, '__weakref__': <attribute '__weakref__' of 'Worker' objects>, '__doc__': None}
 ```
 
 实例的 `__dict__` 通常保存实例属性，类的 `__dict__` 则包含方法、类属性和描述符。
