@@ -936,7 +936,7 @@ if not inspect.iscoroutinefunction(plugin.predict):
 - 运行环境使用了旧版本代码；
 - 子类继承关系不符合预期。
 
-> 关于反射、`__init_subclass__` 注册和插件发现机制的详细讨论，参见[《反射、元编程与插件化机制》](/python-reflection-metaprogramming-and-plugin-architecture.html)。
+> 关于反射、`__init_subclass__` 注册和插件发现机制的详细讨论，参见[《Python 动态机制及 AI-Infra 实践》](/python-reflection-metaprogramming-and-plugin-architecture.html)。
 
 ## 十、使用 tracemalloc 定位 Python 内存增长
 

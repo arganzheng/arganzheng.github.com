@@ -42,7 +42,7 @@ Java 开发者常有的一个错觉是"Python 简单，随便装装就能跑"。
 - **异步与并发**（asyncio、GIL、事件循环）→ [《Python 并发、异步与任务协作》](/python-concurrency-asynchrony-and-task-collaboration.html)
 - **类型检查配置**（mypy / pyright）与**类型信息分发**（`py.typed`、PEP 561）→ [《Python 类型系统与数据契约设计》](/python-type-system-and-data-contract-design.html)
 - **`import` 机制、`sys.path` 与 src 布局** → [《Python 语言机制与运行时原理》](/python-language-mechanisms-and-runtime-internals.html)
-- **入口点做插件发现** → [《Python 反射、元编程与插件化机制》](/python-reflection-metaprogramming-and-plugin-architecture.html)
+- **入口点做插件发现** → [《Python 动态机制及 AI-Infra 实践》](/python-reflection-metaprogramming-and-plugin-architecture.html)
 
 > **版本基线**：Python 生态的工具链演进很快，本文以 **Python 3.11+、uv 0.5、PyTorch 2.4、setuptools 75** 为基线。涉及具体版本号的地方都集中在代码块里，读到时请以官方文档为准。
 
@@ -135,7 +135,7 @@ def main() -> None:
 
 这个机制的底层是 Python 包的**入口点（entry points）**。除了生成 CLI，同一套机制还能用来做插件发现——让主程序自动找到已安装的第三方扩展。
 
-> 入口点用于插件发现的完整做法（`[project.entry-points."my_ai.backends"]` 与 `importlib.metadata.entry_points()`），见[《Python 反射、元编程与插件化机制》](/python-reflection-metaprogramming-and-plugin-architecture.html)的"入口点：面向发行包的插件发现"一节。本文只关注它作为 CLI 入口的用法。
+> 入口点用于插件发现的完整做法（`[project.entry-points."my_ai.backends"]` 与 `importlib.metadata.entry_points()`），见[《Python 动态机制及 AI-Infra 实践》](/python-reflection-metaprogramming-and-plugin-architecture.html)的"入口点：面向发行包的插件发现"一节。本文只关注它作为 CLI 入口的用法。
 
 对应 Java：类似在 `MANIFEST.MF` 里声明 `Main-Class`，或用 Maven 的 `appassembler` 插件生成启动脚本。
 

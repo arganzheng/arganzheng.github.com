@@ -30,7 +30,7 @@ catalog: true
 | 一 | 核心机制 | **代码是怎么运转的**——模块如何被加载、对象如何被调用、一行语法背后是哪些协议在起作用 |
 | 二 | 类型系统与数据契约 | **代码怎么写得健壮**——类型如何表达、被谁消费，以及如何在系统边界上强制数据契约 |
 | 三 | 并发与异步 | **如何高效协作**——如何组织任务，让资源既不闲着也不打架 |
-| 四 | 反射与元编程 | **如何扩展**——如何让系统容纳变化，又不失控 |
+| 四 | 动态机制与架构实践 | **如何扩展**——如何让系统容纳变化，又不失控 |
 | 五 | 内存管理 | **内存如何优化**——内存如何分配与回收，开销来自哪里，增长与泄漏如何定位 |
 | 六 | 测试与调试 | **如何确保没有问题、出了问题如何定位**——如何验证行为真的符合预期，以及故障发生时用哪些工具排查 |
 | 七 | 工程化与交付 | **怎么交付**——怎么把这些代码变成一个可以交付的东西 |
@@ -160,11 +160,16 @@ super().__init__()            并不简单等于"调用父类方法"，取决于
 
 贯穿这一篇的是三个工程问题：**瓶颈在 CPU、GPU、网络还是外部服务？任务之间如何协作？下游跟不上上游时，系统如何保持稳定？**
 
-### 4. 如何扩展：反射、元编程与插件化机制
+### 4. 如何扩展：Python 的动态机制与插件化实践
 
 第四篇讨论 Python 的动态能力。AI-Infra 系统必须应对持续变化——新模型结构、新硬件后端、新量化方式、新调度策略。硬编码的 `if backend == "cuda"` 很快会失控。
 
-这一篇覆盖反射、`inspect`、描述符、装饰器、注册表、元类、`__init_subclass__`、entry points 与插件架构。
+这一篇先纠正一个常见的概念混淆：反射、元编程和插件化**不在同一个层次上**。前两者是 Python 提供的语言机制，插件化则是利用这些机制、再叠加导入系统与注册发现能力所构建出的架构模式。所以文章分两部分：
+
+- **机制**：反射（观察）、元编程（改造）、动态加载（导入）——`getattr`、`inspect`、装饰器、描述符、`__init_subclass__`、元类、`importlib`；
+- **应用**：两个真实场景——**插件化**（注册表、三种发现机制、契约校验、生命周期、版本协商、热更新）和**路由分发**（签名绑定、启动期预编译）。
+
+两个场景骨架完全一样，区别只在 key 的空间和热度，这也是这一篇想讲清楚的核心。
 
 但重点不是"能做到什么"，而是**边界在哪里**。动态机制的代价是真实的：
 
@@ -241,7 +246,7 @@ Java 工程师在这里会遇到最大的落差：
 1. [语言机制与运行时原理](/python-language-mechanisms-and-runtime-internals.html)
 2. [类型系统与数据契约设计](/python-type-system-and-data-contract-design.html)
 3. [并发、异步与任务协作](/python-concurrency-asynchrony-and-task-collaboration.html)
-4. [反射、元编程与插件化机制](/python-reflection-metaprogramming-and-plugin-architecture.html)
+4. [Python 动态机制及 AI-Infra 实践](/python-reflection-metaprogramming-and-plugin-architecture.html)
 5. [内存管理与优化](/python-memory-management-and-optimization.html)
 6. [单元测试、问题定位与调试实践](/python-unit-testing-troubleshooting-and-debugging.html)
 7. [项目工程化与生产交付](/python-engineering-and-production-delivery.html)
