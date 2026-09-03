@@ -1,7 +1,7 @@
 ---
 layout: post
-title: PyTorch 深度实践（01）：定位、发展与整体架构
-subtitle: PyTorch Positioning, Evolution, and Overall Architecture
+title: "PyTorch 深度实践（01）：PyTorch整体介绍" 
+subtitle: "PyTorch Overall Introduction" 
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
 ---
@@ -111,45 +111,66 @@ PyTorch 至少包含以下几类能力：
 | Distributed | 如何让多个进程和设备协同工作 |
 | Extension | 如何接入 C++、CUDA 和自定义硬件 |
 
-### 2. PyTorch 提供什么？
+### 2. PyTorch 不是什么？
 
-从能力边界看，PyTorch 不只是一个 Python 库。Python API 是入口，真正的执行能力由下面这些相互协作的抽象组成。
+#### 2.1 PyTorch 不只是 Python API
 
-一个深度学习系统至少需要处理以下问题：
+```python
+import torch
 
-```text
-数据表示
-    ↓
-数学运算
-    ↓
-梯度计算
-    ↓
-模型组织
-    ↓
-参数更新
-    ↓
-设备执行
-    ↓
-性能优化
-    ↓
-多设备协作
-    ↓
-模型保存与部署
+x = torch.randn(2, 3, device="cuda")
+y = torch.randn(2, 3, device="cuda")
+z = x + y
 ```
 
-如果完全手工实现，开发者需要分别处理：
+上面的 Python 代码只是用户入口。真正完成计算的部分还包括 Python Binding、Operator Schema、Dispatcher、ATen、设备后端以及 CPU/CUDA Kernel。
 
-- 多维数组的内存布局；
-- CPU 和 GPU 的数据存储；
-- 算子的广播和 dtype 转换；
-- 计算图构建；
-- 反向传播；
-- 参数和梯度管理；
-- Kernel 调用；
-- 多卡通信；
-- 检查点和恢复训练。
+因此，阅读 PyTorch 源码时，不能只看 `torch` 和 `torch.nn` 目录；排查性能问题时，也不能只看 Python 函数是否高效。
 
-PyTorch 的价值不是把这些问题消灭，而是为这些问题提供一套可以组合的抽象和运行时机制。
+#### 2.2 PyTorch 不等于 CUDA
+
+CUDA 是 NVIDIA GPU 的编程平台和软件生态，PyTorch 是构建在 CUDA 等后端之上的深度学习计算平台。
+
+```text
+PyTorch
+    ├── CPU 后端
+    ├── CUDA 后端
+    ├── ROCm 后端
+    ├── Meta 后端
+    └── 其他设备后端
+```
+
+PyTorch 可以调用 CUDA Kernel、cuBLAS 和 cuDNN，但这些只是它所使用的一个后端和若干底层库。即使使用 CUDA，模型、Autograd、Module、Dispatcher 和训练系统仍然属于 PyTorch 的职责范围。
+
+#### 2.3 PyTorch 不只是神经网络层的集合
+
+`nn.Linear`、`nn.Conv2d` 和 Transformer 模块是 PyTorch 的重要组成部分，但 PyTorch 的核心抽象是 Tensor 计算和围绕 Tensor 建立的运行时。
+
+```text
+Tensor 计算
+    ↓
+Autograd
+    ↓
+算子分发
+    ↓
+设备执行
+```
+
+`nn.Module` 负责组织模型和状态，它本身不是 Kernel；一个 Module 可能展开成许多 Tensor 操作，也可能在编译后被融合成不同的 Kernel 组合。
+
+#### 2.4 几组需要分开的概念
+
+| 概念 | 它是什么 | 它不是什么 |
+|---|---|---|
+| Tensor | 数据、布局、类型和设备位置的运行时对象 | 不是模型，也不是 Kernel |
+| `nn.Module` | 组织层次、参数和状态的模型对象 | 不是一段固定的 GPU 指令 |
+| Autograd Graph | 描述梯度传播关系的运行时结构 | 不是最终的硬件执行图 |
+| FX Graph | 用于程序分析和重写的图表示 | 不等于最终 CUDA Kernel |
+| Operator | 具有统一 Schema 和语义的计算操作 | 不等于某个后端的具体实现 |
+| Kernel | 在 CPU、GPU 或其他设备上执行的实现 | 不等于完整的 PyTorch 模型 |
+| CUDA | NVIDIA 的设备编程平台和后端生态 | 不等于 PyTorch 本身 |
+
+这些边界会在后面的静态分层图和动态执行路径中逐一展开。
 
 
 ## 二、PyTorch 与其他深度学习框架
