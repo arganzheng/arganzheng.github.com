@@ -6,42 +6,284 @@ tags: [Python]
 catalog: true
 ---
 
+Python 常被认为是一门“简单易学”的语言。但在 AI-Infra、深度学习框架、推理服务和分布式系统中，真正需要掌握的并不只是语法，而是语法背后的运行时模型。
 
-Python 常被认为是一门“简单易学”的语言，但在 AI-Infra、深度学习框架、推理服务和分布式系统中，真正需要掌握的并不只是语法。
+很多看似简单的代码，实际都依赖 Python 的底层机制：
 
-很多看似简单的代码，背后都依赖 Python 的运行时机制：
-
-- `import` 可能触发注册、插件发现或 CUDA 扩展加载；
-- `model(x)` 实际上可能调用了对象的 `__call__`；
+- `import` 可能触发算子注册、插件发现或 CUDA 扩展加载；
+- `model(x)` 可能经过对象的 `__call__` 协议；
+- `for batch in loader` 依赖可迭代对象和迭代器协议；
 - `with torch.inference_mode()` 背后是上下文管理协议；
-- `for batch in loader` 依赖迭代器和生成器；
-- `super()` 并不简单等于“调用父类方法”；
-- 一个装饰器可能改变函数的执行逻辑、类型签名和异常栈；
-- 一个异常是否被捕获，可能决定整个 Worker 是否退出；
-- 一个模块是否已经存在于 `sys.modules`，可能影响注册逻辑是否执行。
+- 一个装饰器可能改变函数的实际调用路径；
+- 一个生成器可能暂停执行并长期持有文件、连接或 Batch；
+- 一个异常是否被重新抛出，可能决定 Worker 是否退出；
+- 一个模块是否已经存在于 `sys.modules`，可能决定注册逻辑是否再次执行。
 
-因此，理解 Python 的核心机制，是阅读和设计 AI-Infra 代码的基础。
+因此，理解 Python 的语言机制和运行时原理，是阅读、设计和排查 AI-Infra 系统的基础。
 
-本文主要介绍以下内容：
+本文不试图完整介绍 Python 的所有特性，而是围绕一个核心问题展开：
 
-1. 模块、包与导入机制；
-2. 类、继承与对象模型；
-3. 数据模型与对象协议；
-4. 装饰器与函数对象；
-5. 生成器与惰性计算；
-6. 上下文管理器与资源生命周期；
-7. 异常处理与资源安全。
+> 一段 AI-Infra 代码从加载、创建对象、执行任务到释放资源，Python 运行时究竟做了什么？
 
-最后通过综合示例、工程实践建议和总结，将这些机制串联起来。
+全文主要讨论：
+
+1. Python 的执行模型；
+2. 名称、对象、函数和执行帧；
+3. 模块、包与导入系统；
+4. 类、属性查找与对象协议；
+5. 闭包、装饰器与注册机制；
+6. 生成器、惰性执行与资源生命周期；
+7. 上下文管理器和异常传播；
+8. 这些机制如何组合成 AI-Infra 组件。
 
 
-## 一、模块、包与导入机制
+## 一、先建立 Python 的运行时模型
 
-### 1.1 模块和包是什么
+### 1.1 Python 代码并不是“逐行直接执行”
 
-在 Python 中，一个 `.py` 文件通常就是一个模块。
+很多初学者会把 Python 理解为：
+
+> 解释器读取一行代码，然后立即执行这一行。
+
+这是一种便于入门的近似说法，但不够准确。
+
+以函数为例：
+
+```python
+def add(x, y):
+    return x + y
+```
+
+Python 通常会经历以下过程：
+
+1. 读取源代码；
+2. 将源代码解析为语法树；
+3. 编译为代码对象（code object）；
+4. 创建函数对象；
+5. 调用函数时创建执行帧（frame）；
+6. 解释器执行代码对象中的字节码；
+7. 返回结果并销毁或暂时保留执行帧。
+
+可以使用 `dis` 模块查看函数对应的字节码：
+
+```python
+import dis
+
+
+def add(x, y):
+    return x + y
+
+
+dis.dis(add)
+```
+
+不同 Python 版本输出的具体指令可能不同，但通常可以看到加载参数、执行运算和返回结果等操作。
+
+这里需要区分几个概念：
+
+- **源代码**：开发者编写的 `.py` 文件；
+- **代码对象**：编译后的执行描述，包含字节码、常量、变量名等信息；
+- **函数对象**：对代码对象、默认参数、注解和全局命名空间等内容的封装；
+- **执行帧**：一次函数调用过程中的运行时状态；
+- **解释器**：负责执行字节码并管理调用栈、异常和对象操作。
+
+在 CPython 中，字节码最终由解释器执行。具体的字节码格式、执行循环和优化策略属于 CPython 实现细节，并不完全等同于 Python 语言规范。
+
+### 1.2 函数也是运行时对象
+
+函数不仅是一段“可执行代码”，它本身也是一个对象：
+
+```python
+def predict(x):
+    return x * 2
+
+
+print(type(predict))
+print(predict.__code__)
+print(predict.__defaults__)
+print(predict.__annotations__)
+print(predict.__dict__)
+```
+
+函数对象可以：
+
+- 赋值给变量；
+- 作为参数传递；
+- 作为返回值；
+- 存储在列表或字典中；
+- 被装饰器替换；
+- 动态添加属性。
 
 例如：
+
+```python
+operation = predict
+print(operation(3))
+```
+
+`operation` 和 `predict` 只是两个名称，它们都绑定到同一个函数对象。
+
+这也是回调、装饰器、注册表和高阶函数的基础。
+
+### 1.3 名称不是变量盒子
+
+Python 中的赋值通常表示“名称绑定”，而不是把值复制到一个变量盒子中。
+
+```python
+x = []
+y = x
+
+y.append(1)
+
+print(x)  # [1]
+print(y)  # [1]
+print(x is y)  # True
+```
+
+执行过程可以理解为：
+
+1. 创建一个列表对象；
+2. 名称 `x` 绑定到该对象；
+3. 名称 `y` 也绑定到同一个对象；
+4. 通过 `y` 修改对象；
+5. 通过 `x` 观察到同一修改。
+
+因此需要区分：
+
+- 名称；
+- 对象；
+- 对象身份；
+- 对象类型；
+- 对象可变性。
+
+```python
+a = 1
+b = 1
+
+print(a == b)  # True
+print(a is b)  # 具体身份不应作为数值相等的判断依据
+```
+
+`==` 通常表示值相等，`is` 判断是否为同一个对象。工程代码中应使用 `is None` 判断空值，而不要使用 `== None`。
+
+在 AI-Infra 中，名称绑定和对象别名会影响：
+
+- 配置对象是否被意外修改；
+- Batch 是否被多个组件共享；
+- 缓存是否引用了可变对象；
+- 数据预处理是否改变了调用方持有的数据；
+- 多个 Worker 是否误用同一个进程内状态。
+
+### 1.4 函数调用与执行帧
+
+考虑下面的代码：
+
+```python
+def worker(batch):
+    result = preprocess(batch)
+    return model(result)
+```
+
+调用 `worker(batch)` 时，运行时需要处理：
+
+- 参数绑定；
+- 局部变量创建；
+- 函数全局变量查找；
+- 可能的闭包变量查找；
+- 嵌套函数调用；
+- 返回值；
+- 异常和 traceback。
+
+一次函数调用对应一个执行帧。执行帧中包含当前调用的运行状态，例如：
+
+- 局部变量；
+- 当前指令位置；
+- 全局命名空间；
+- 内置命名空间；
+- 调用链信息。
+
+异常 traceback 能够显示函数调用链，本质上就是在展示相关执行帧的信息。
+
+可以使用 `inspect` 观察当前帧：
+
+```python
+import inspect
+
+
+def show_frame():
+    frame = inspect.currentframe()
+    print(frame.f_code.co_name)
+    print(frame.f_locals)
+
+
+show_frame()
+```
+
+生产代码不应频繁依赖 `inspect.currentframe()` 或手动修改帧对象，但理解执行帧有助于解释：
+
+- 为什么 traceback 能定位调用路径；
+- 为什么局部变量、全局变量和闭包变量的查找方式不同；
+- 为什么装饰器可能改变错误栈；
+- 为什么递归和深层调用会消耗调用栈资源。
+
+### 1.5 变量查找：局部、闭包、全局和内置
+
+Python 常用 LEGB 规则查找名称：
+
+1. Local：当前局部作用域；
+2. Enclosing：外层函数作用域；
+3. Global：模块全局作用域；
+4. Builtins：内置命名空间。
+
+```python
+value = "global"
+
+
+def outer():
+    value = "enclosing"
+
+    def inner():
+        value = "local"
+        return value
+
+    return inner()
+
+
+print(outer())  # local
+```
+
+如果内部函数没有定义同名变量，就会继续查找外层作用域：
+
+```python
+def outer():
+    value = "enclosing"
+
+    def inner():
+        return value
+
+    return inner()
+
+
+print(outer())  # enclosing
+```
+
+AI-Infra 中，闭包变量常用于保存：
+
+- 后端名称；
+- 重试次数；
+- 配置参数；
+- 指标标签；
+- 模型实例；
+- 缓存对象。
+
+但隐式捕获变量也可能让依赖关系变得不明显，因此需要谨慎使用。
+
+
+## 二、模块、包与导入系统
+
+### 2.1 模块和包是什么
+
+在 Python 中，一个 `.py` 文件通常就是一个模块：
 
 ```text
 project/
@@ -49,7 +291,7 @@ project/
 └── utils.py
 ```
 
-其中 `utils.py` 是一个模块，可以在 `main.py` 中导入：
+`utils.py` 可以在 `main.py` 中被导入：
 
 ```python
 import utils
@@ -57,7 +299,7 @@ import utils
 utils.some_function()
 ```
 
-包则是用于组织多个模块的目录：
+包用于组织多个模块：
 
 ```text
 project/
@@ -74,19 +316,11 @@ project/
 - `mypackage.utils` 是模块；
 - `mypackage.__init__` 是包初始化模块。
 
-现代 Python 支持没有 `__init__.py` 的命名空间包，但在大多数工程中，`__init__.py` 仍然具有重要作用。
+现代 Python 也支持没有 `__init__.py` 的命名空间包，但大多数工程仍然使用 `__init__.py` 来组织公共接口和包初始化行为。
 
-
-### 1.2 `__init__.py` 的作用
+### 2.2 `__init__.py` 的作用
 
 `__init__.py` 常见作用包括：
-
-#### 标识普通 Python 包
-
-```text
-mypackage/
-└── __init__.py
-```
 
 #### 暴露公共接口
 
@@ -98,17 +332,13 @@ from .utils import load_config
 __all__ = ["Model", "load_config"]
 ```
 
-这样用户可以直接写：
+于是用户可以写：
 
 ```python
 from mypackage import Model
 ```
 
-而不需要：
-
-```python
-from mypackage.model import Model
-```
+而不必了解 `Model` 实际位于哪个内部模块。
 
 #### 执行包初始化逻辑
 
@@ -117,34 +347,30 @@ from mypackage.model import Model
 print("mypackage initialized")
 ```
 
-但不建议在 `__init__.py` 中放置过重的逻辑，因为导入包时就会执行这些代码，可能带来：
+但不建议在 `__init__.py` 中放置过重逻辑。导入包时，这些顶层代码就会执行，可能导致：
 
 - 导入速度变慢；
 - 循环导入；
-- 隐式副作用；
 - CUDA 或系统环境检查提前执行；
-- 不必要的依赖加载。
+- 大量依赖被提前加载；
+- 全局资源被隐式创建。
 
-#### 声明公共 API：`__all__`
-
-`__all__` 不仅影响 `from module import *` 的行为，更重要的作用是显式声明模块的公共接口：
+#### 声明公共名称
 
 ```python
-# mypackage/__init__.py
 __all__ = ["Model", "load_config"]
 ```
 
-它告诉使用者：
+`__all__` 可以表达模块希望公开的名称集合，主要影响：
 
-- 哪些对象是稳定接口；
-- 哪些对象属于内部实现；
-- 哪些名称不建议外部依赖。
+- `from module import *`；
+- 文档工具；
+- IDE 和静态分析工具；
+- API 可见性约定。
 
-实际工程中不建议使用通配符导入 `from module import *`，更推荐显式导入 `from module import Model, Runner`。
+但 `__all__` 不是访问控制机制，也不能阻止调用者显式导入其他名称。
 
-
-
-### 1.3 `import` 到底做了什么
+### 2.3 `import` 到底做了什么
 
 执行：
 
@@ -152,15 +378,17 @@ __all__ = ["Model", "load_config"]
 import mypackage.model
 ```
 
-大致会经历以下过程：
+可以简化理解为以下过程：
 
-1. 查找模块；
-2. 创建模块对象；
-3. 将模块放入 `sys.modules`；
-4. 执行模块代码；
-5. 将模块对象绑定到当前命名空间。
+1. 检查 `sys.modules` 中是否已有对应模块；
+2. 如果没有，通过导入器协议查找模块；
+3. 创建 `ModuleSpec`；
+4. 根据 loader 创建模块对象；
+5. 将模块对象放入 `sys.modules`；
+6. 执行模块顶层代码；
+7. 将结果绑定到当前命名空间。
 
-可以通过 `sys.modules` 查看已经加载的模块：
+可以查看已经加载的模块：
 
 ```python
 import sys
@@ -168,7 +396,7 @@ import sys
 print("math" in sys.modules)
 ```
 
-需要注意，导入模块时，模块顶层代码会被执行：
+模块顶层代码会在导入时执行：
 
 ```python
 # config.py
@@ -187,9 +415,9 @@ import config
 loading config
 ```
 
-这意味着，模块导入并不是一个纯粹的“声明依赖”操作，它可能产生副作用。
+因此，导入并不是纯粹的“声明依赖”操作，它可能产生副作用。
 
-在 AI-Infra 中，导入模块可能触发：
+AI-Infra 中，导入可能触发：
 
 - 算子注册；
 - 后端注册；
@@ -200,13 +428,9 @@ loading config
 - 日志系统配置；
 - 全局缓存创建。
 
-因此，阅读代码时不能只看函数调用，也要关注导入语句。
+### 2.4 `sys.modules` 与导入缓存
 
-
-
-### 1.4 模块只执行一次
-
-同一个模块在一个 Python 进程中通常只会执行一次。
+同一个模块在同一个 Python 进程中，使用相同模块名并通过正常导入流程加载时，通常只会执行一次：
 
 ```python
 # example.py
@@ -230,18 +454,38 @@ module loaded
 sys.modules
 ```
 
-再次导入时，Python 会优先从缓存中获取模块，而不会重新执行整个文件。
-
-可以手动查看：
+可以验证：
 
 ```python
 import sys
 import example
 
-print(sys.modules["example"])
+first = sys.modules["example"]
+
+import example
+
+second = sys.modules["example"]
+
+print(first is second)  # True
 ```
 
-这条规则对注册机制非常重要。例如：
+但“只执行一次”不是绝对规则。以下情况可能导致模块代码再次执行：
+
+```python
+import importlib
+
+import example
+importlib.reload(example)
+```
+
+此外：
+
+- 不同进程拥有各自的 `sys.modules`；
+- 使用不同模块名加载同一文件，可能造成重复加载；
+- 手动删除 `sys.modules` 中的条目后再次导入，可能重新执行；
+- 测试环境和生产环境可能使用不同的导入路径。
+
+这对注册机制尤其重要：
 
 ```python
 # backend.py
@@ -250,18 +494,59 @@ BACKENDS = {}
 BACKENDS["cpu"] = CPUBackend()
 ```
 
-如果模块被重复执行，可能导致：
+如果模块被重复执行，可能出现：
 
-- 注册重复；
+- 重复注册；
 - 全局状态被覆盖；
 - 单例失效；
 - 资源被重复初始化。
 
+### 2.5 导入器：finder、loader 和 `ModuleSpec`
 
+Python 的导入系统并不只是“在目录里寻找 `.py` 文件”。
 
-### 1.5 `import module` 与 `from module import name`
+导入过程通常涉及：
 
-两者有不同的命名空间行为。
+- **finder**：寻找模块，并返回模块规格；
+- **loader**：根据模块规格创建并执行模块；
+- **ModuleSpec**：描述模块名称、来源、loader 和包信息；
+- **import hook**：允许框架或工具扩展导入过程。
+
+可以观察模块的规格：
+
+```python
+import json
+
+print(json.__spec__)
+print(json.__loader__)
+print(json.__package__)
+print(json.__file__)
+```
+
+这套机制使 Python 能够导入多种来源的模块，例如：
+
+- 普通 `.py` 文件；
+- 编译扩展；
+- zip 包中的模块；
+- 命名空间包；
+- 动态生成的模块；
+- 自定义导入器提供的模块。
+
+这也是插件系统、模型后端发现和某些框架自动注册机制的基础。
+
+### 2.6 `import module`、`import module as name` 与 `from module import name`
+
+Python 中常见的导入方式有三种：
+
+```python
+import math
+import numpy as np
+from math import sqrt
+```
+
+它们的区别主要在于：**导入后，什么名称会被绑定到当前模块的命名空间中**。
+
+#### 2.6.1 `import module`
 
 ```python
 import math
@@ -269,7 +554,45 @@ import math
 math.sqrt(4)
 ```
 
-这里导入的是模块对象，名称 `math` 被绑定到当前命名空间。
+当前命名空间绑定的是模块名 `math`。这种写法能够明确标识成员来源，通常适合模块级依赖：
+
+```python
+import torch
+
+torch.cuda.is_available()
+```
+
+#### 2.6.2 `import module as name`
+
+```python
+import numpy as np
+
+array = np.array([1, 2, 3])
+```
+
+`as` 只为模块在当前命名空间创建一个别名，不会创建新的模块对象，也不会改变模块的真实名称：
+
+```python
+import numpy as np
+import numpy
+
+print(np is numpy)  # True
+```
+
+常见用途包括：
+
+- 使用生态中约定俗成的缩写，如 `numpy as np`；
+- 避免模块名称冲突；
+- 为不同实现提供统一名称：
+
+```python
+try:
+    import ujson as json
+except ImportError:
+    import json
+```
+
+#### 2.6.3 `from module import name`
 
 ```python
 from math import sqrt
@@ -277,37 +600,69 @@ from math import sqrt
 sqrt(4)
 ```
 
-这里直接将 `sqrt` 绑定到当前命名空间。
+这里直接将 `sqrt` 绑定到当前命名空间。调用更简洁，但名称来源不够明显，也更容易发生冲突：
 
-通常更推荐：
+```python
+from package_a import create
+from package_b import create  # 覆盖前一个 create
+```
+
+如需重命名，可以写成：
+
+```python
+from package_a import create as create_a
+```
+
+#### 2.6.4 工程建议
+
+模块级依赖通常优先使用：
 
 ```python
 import package
-```
-
-或者：
-
-```python
 import package.submodule
 ```
 
-原因包括：
+对于生态约定的缩写，可以使用：
 
-- 来源更清晰；
-- 不容易发生名称冲突；
-- 更容易通过模块路径理解代码；
-- 避免大量名称污染当前命名空间。
+```python
+import numpy as np
+import pandas as pd
+```
 
-当然，对于一些常用对象，可以使用：
+对于少量、明确且稳定的公共对象，可以使用：
 
 ```python
 from pathlib import Path
-from typing import Iterable
+from contextlib import contextmanager
 ```
 
+一般不建议使用：
+
+```python
+from module import *
+```
+
+因为它会污染当前命名空间，并且降低代码可读性和静态分析能力。
+
+#### 2.6.5 与 Java `import` 的对比
 
 
-### 1.6 绝对导入与相对导入
+| 特性 | Python | Java |
+| :--- | :--- | :--- |
+| 导入对象 | 模块、类、函数、变量等 | 类、接口及其成员 |
+| 别名机制 | 支持 `as` | 没有通用的导入别名语法 |
+| 直接导入成员 | `from module import name` | `import static Class.member` |
+| 通配符导入 | `from module import *` | `import package.*` |
+| 导入时执行代码 | 通常会执行模块顶层代码 | 主要用于编译期名称解析，类初始化在实际使用时发生 |
+| 缓存机制 | 通过 `sys.modules` 缓存模块 | 由类加载器和 JVM 管理类的加载与初始化 |
+
+对于Java程序员，有一个核心关键区别要特别注意：
+- Python 的 `import` 更接近**运行时模块加载与名称绑定**；
+- Java 的 `import` 更接近**编译期类型名称简化**；
+
+在 AI-Infra 中，这一区别尤其重要：Python 导入模块可能触发注册、插件发现、CUDA 扩展加载或其他初始化副作用；而Java 的 `import` 本身通常不承担这类运行时初始化职责。
+
+### 2.7 绝对导入与相对导入
 
 绝对导入从顶层包开始：
 
@@ -327,20 +682,20 @@ from ..common import logger
 - `.` 表示当前包；
 - `..` 表示上一级包。
 
-相对导入适合包内部模块之间的引用：
+包内部可以使用相对导入：
 
 ```python
 # mypackage/runner.py
 from .model import Model
 ```
 
-绝对导入更适合公共代码或跨包依赖：
+公共代码和跨包依赖通常更适合使用绝对导入：
 
 ```python
 from project.models import Model
 ```
 
-工程中应尽量保持风格统一。混乱的导入方式容易导致：
+混乱的导入方式容易造成：
 
 - 循环导入；
 - 直接运行脚本时报错；
@@ -348,164 +703,88 @@ from project.models import Model
 - 测试环境和生产环境行为不同。
 
 
+### 2.8 循环导入
 
-### 1.7 `if __name__ == "__main__"`
+循环导入发生在模块依赖形成环时：
 
-每个 Python 模块都有一个特殊变量：
-
-```python
-__name__
+```text
+module_a -> module_b -> module_a
 ```
 
-当文件被直接执行时：
-
-```bash
-python train.py
-```
-
-该文件中的：
-
-```python
-__name__
-```
-
-通常等于：
-
-```python
-"__main__"
-```
-
-当文件被其他模块导入时：
-
-```python
-import train
-```
-
-此时：
-
-```python
-train.__name__ == "train"
-```
-
-因此可以写：
-
-```python
-def main():
-    print("start training")
-
-
-if __name__ == "__main__":
-    main()
-```
-
-这样：
-
-```bash
-python train.py
-```
-
-会执行 `main()`，但：
-
-```python
-import train
-```
-
-不会自动执行训练逻辑。
-
-这对于以下场景尤其重要：
-
-- 命令行脚本；
-- 多进程启动；
-- 单元测试；
-- 模块复用；
-- 防止导入时执行副作用。
-
-
-
-### 1.8 循环导入
-
-循环导入是指模块之间相互依赖：
+例如：
 
 ```python
 # a.py
-from b import func_b
+from b import B
 
-def func_a():
-    pass
-```
+class A:
+    def use(self):
+        return B()
 
-```python
+
 # b.py
-from a import func_a
+from a import A
 
-def func_b():
-    pass
+class B:
+    def use(self):
+        return A()
 ```
 
-当导入 `a` 时：
+Python 导入模块时会先创建模块对象并放入 `sys.modules`，然后执行模块顶层代码。如果此时另一个模块反向导入它，可能出现“部分初始化的模块”，最终触发 `ImportError` 或 `AttributeError`。
 
-1. Python 开始加载 `a`；
-2. `a` 导入 `b`；
-3. `b` 又尝试导入 `a`；
-4. 此时 `a` 还没有执行完；
-5. 可能出现部分初始化模块错误。
+循环导入的首选解决方案不是调整导入语句的位置，而是**调整依赖方向**：
 
-常见错误类似：
+1. 重新划分模块职责，避免两个模块互相依赖；
+2. 将共享的数据结构、接口或协议提取到独立模块；
+3. 必要时使用依赖倒置，让高层和底层共同依赖抽象接口。
+
+例如：
 
 ```text
-ImportError: cannot import name ...
+原结构：
+
+runner -> backend -> runner
+
+调整后：
+
+runner  -> protocols <- backend
 ```
 
-解决方式包括：
+其中，`protocols` 只定义接口和数据契约，不依赖具体实现。
 
-#### 调整模块依赖方向
-
-将公共内容提取到第三个模块：
-
-```text
-a.py ──┐
-       ├── common.py
-b.py ──┘
-```
-
-#### 延迟导入
-
-```python
-def create_model():
-    from .model import Model
-    return Model()
-```
-
-#### 使用类型检查专用导入
+局部导入、`TYPE_CHECKING` 和延迟导入只能作为特定场景下的辅助技术：
 
 ```python
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .model import Model
+    from .runner import Runner
 ```
 
-这样运行时不会真正导入 `Model`，但类型检查器可以识别它。
-
-
-
-### 1.9 动态导入与 `importlib`
-
-有时模块名称只有在运行时才能确定：
+或者：
 
 ```python
-module_name = "mypackage.backends.cuda"
+def create_runner():
+    from .runner import Runner
+    return Runner()
 ```
 
-可以使用：
+这些方式适用于类型标注、可选依赖、插件系统或确实需要延迟加载的场景，但它们通常只是改变导入时机，并没有消除模块之间的耦合。若代码需要频繁依赖局部导入来“修复”循环导入，通常说明模块边界或依赖方向仍需要重新设计。
+
+因此，工程上应遵循：**先调整依赖结构，再考虑延迟导入；不要用导入技巧掩盖模块设计问题。**
+
+### 2.9 动态导入与 `importlib`
+
+当模块名称在运行时才能确定时，可以使用：
 
 ```python
 import importlib
 
+module_name = "mypackage.backends.cuda"
 module = importlib.import_module(module_name)
 ```
 
-AI-Infra 中常见用途：
+AI-Infra 中常见用途包括：
 
 - 按配置加载后端；
 - 按设备类型加载实现；
@@ -517,7 +796,9 @@ AI-Infra 中常见用途：
 
 ```python
 def load_backend(name):
-    module = importlib.import_module(f"mypackage.backends.{name}")
+    module = importlib.import_module(
+        f"mypackage.backends.{name}"
+    )
     return module.create_backend()
 ```
 
@@ -526,155 +807,77 @@ def load_backend(name):
 - 依赖关系不容易被静态工具发现；
 - 导入错误可能延迟到运行时；
 - 调试和代码跳转更困难；
-- 动态字符串来源不可信时会有安全风险。
+- 动态字符串来源不可信时可能产生安全风险。
 
+### 2.10 `sys.path`、项目布局与启动方式
 
-
-### 1.10 `sys.path`、src 布局与 editable 安装
-
-前面说过 `import` 的第一步是"查找模块"。这一节展开这一步：解释器到哪里去找，以及项目的目录结构如何影响查找结果。
-
-这不是纯粹的理论问题。"本地能跑，装到别的机器上 `ImportError`"是 Python 项目最常见的故障之一，根源就在这里。
-
-#### `sys.path` 的构成
-
-`import` 查找模块时，按顺序遍历 `sys.path` 这个列表：
+导入查找依赖 `sys.path`：
 
 ```python
 import sys
 
-for p in sys.path:
-    print(p)
+for path in sys.path:
+    print(path)
 ```
 
-它的内容大致按以下顺序组成：
+其内容通常会受到以下因素影响：
 
-1. **脚本所在目录**（用 `python script.py` 启动时），或**当前工作目录**（用 `python -m module` 或交互式解释器时）；
-2. `PYTHONPATH` 环境变量指定的目录；
-3. 解释器的标准库目录；
-4. 当前环境的 `site-packages` 目录。
+- 启动脚本的位置；
+- 当前工作目录；
+- `PYTHONPATH`；
+- 标准库目录；
+- 当前环境的 `site-packages`；
+- 虚拟环境；
+- `.pth` 文件；
+- 解释器启动参数。
 
-**第 1 项是大多数问题的来源**。它意味着"你从哪个目录、用什么方式启动 Python"会改变模块的查找结果。
-
-注意 `python script.py` 和 `python -m package.module` 的差别：
+下面两种启动方式的导入行为可能不同：
 
 ```bash
-# 把 script.py 所在目录加入 sys.path
 python src/myproject/cli.py
+```
 
-# 把当前工作目录加入 sys.path
+```bash
 python -m myproject.cli
 ```
 
-这个差别会导致同一份代码在两种启动方式下，一个能 import 成功、另一个失败。
+使用 `python script.py` 时，脚本所在目录通常会影响 `sys.path`；使用 `python -m package.module` 时，当前项目环境和包路径通常会参与模块解析。
 
-#### 两种项目布局
+因此，同一份代码可能出现：
 
-**flat 布局**（包直接放在仓库根目录）：
+- `python script.py` 可以导入；
+- `python -m package.module` 不能导入；
+- 测试环境可以导入；
+- 安装后的环境不能导入。
 
-```text
-myproject/
-├── pyproject.toml
-├── myproject/          ← 包和配置文件同级
-│   ├── __init__.py
-│   └── core.py
-└── tests/
-    └── test_core.py
-```
-
-**src 布局**（包放在 `src/` 子目录下）：
+对于可安装项目，通常推荐使用 `src` 布局：
 
 ```text
 myproject/
 ├── pyproject.toml
 ├── src/
-│   └── myproject/      ← 包被"藏"在 src/ 里
+│   └── myproject/
 │       ├── __init__.py
 │       └── core.py
 └── tests/
-    └── test_core.py
 ```
 
-两者的关键差别在于：**在仓库根目录执行命令时，`import myproject` 能不能成功。**
+相比包直接位于仓库根目录的 flat 布局，src 布局可以减少测试时意外导入源码目录的问题，使本地测试更接近用户安装后的真实环境。
 
-flat 布局下能成功——因为当前目录在 `sys.path` 里，而 `myproject/` 就在当前目录下。src 布局下不能，除非这个包已经被**安装**到当前环境。
-
-#### 为什么推荐 src 布局
-
-看起来 flat 布局更方便，但这个"方便"恰恰是问题所在。
-
-flat 布局下，在根目录跑测试时，`import myproject` 导入的是**仓库里的源码目录**，而不是安装后的包。这两者可能不一样：
-
-```text
-仓库里有：            安装后有：
-myproject/            site-packages/myproject/
-├── __init__.py       ├── __init__.py
-├── core.py           ├── core.py
-├── utils.py          └── （utils.py 漏了！）
-└── data/                 （data/ 也漏了！）
-```
-
-如果 `pyproject.toml` 里的打包配置漏了某个模块或数据文件，flat 布局下的测试**照样通过**——因为它读的是源码目录，那里什么都有。等到用户 `pip install` 之后才发现 `ImportError` 或 `FileNotFoundError`。
-
-src 布局强制测试跑在"安装后的包"上，任何打包配置的遗漏都会当场暴露。这就是它的核心价值：**让本地测试环境和用户的真实环境一致**。
-
-顺带还解决两个小问题：
-
-- 避免同名遮蔽。flat 布局下，如果仓库根目录有个 `tests/` 或 `logging.py`，可能意外遮蔽标准库或第三方包；
-- `pytest` 的 rootdir 推断更可靠，不容易把仓库根目录误当成包。
-
-#### editable 安装
-
-src 布局下，包必须先安装才能导入。但开发时不可能每改一行代码就重装一次，所以需要**可编辑安装**：
+开发时可以使用 editable 安装：
 
 ```bash
 pip install -e .
-# 或
-uv pip install -e .
 ```
 
-`-e` 是 `--editable`。它安装的不是代码的副本，而是一个**指向源码目录的引用**。改源码立即生效，不需要重装。
-
-实现方式随工具演进过几代，当前 setuptools 的做法大致是在 `site-packages` 里放一个 `.pth` 文件或一个导入钩子模块：
-
-```bash
-$ ls .venv/lib/python3.11/site-packages/ | grep -i myproject
-__editable__.myproject-0.1.0.finder.py
-__editable___myproject_0_1_0_finder.py
-myproject-0.1.0.dist-info/
-```
-
-`.pth` 文件是一个 Python 特有的机制：解释器启动时会自动执行 `site-packages` 里所有 `.pth` 文件中以 `import` 开头的行。editable 安装利用它注册一个自定义的 finder，把 `myproject` 这个名字解析到你的 `src/myproject/` 目录。
-
-所以 editable 安装的效果是：
-
-- `import myproject` 能成功（有了正确的路径映射）；
-- 导入到的是源码目录里的文件（改代码立即生效）；
-- 但**包的元数据是安装时确定的**——如果改了 `pyproject.toml` 里的依赖或 entry points，需要重新执行一次 `pip install -e .`。
-
-最后这一点是个常见困惑：改了 `[project.scripts]` 但命令没变化，或者加了新依赖但没被装上，原因就是元数据没有重新生成。
-
-#### 常见故障与对照
-
-| 现象 | 常见原因 |
-|---|---|
-| 本地跑通，`pip install` 后 `ImportError` | flat 布局掩盖了打包配置遗漏；改用 src 布局 |
-| `pytest` 报 `ModuleNotFoundError: myproject` | src 布局但没做 editable 安装 |
-| 改了 `pyproject.toml` 但不生效 | editable 安装的元数据未更新，重跑 `pip install -e .` |
-| `python script.py` 可以但 `python -m` 不行（或反之） | 两种启动方式加入 `sys.path` 的目录不同 |
-| 导入到了意料之外的同名模块 | 当前目录里有文件遮蔽了标准库或第三方包 |
-
-对应 Java：`sys.path` 相当于 classpath，但有两个重要差异。一是 classpath 完全由启动参数显式给定，`sys.path` 却会**隐式包含当前目录**，这是很多诡异问题的来源；二是 Java 的 jar 是自包含产物，不存在"editable 安装"这种概念——最接近的是 IDE 里把模块的 `target/classes` 直接加进 classpath。
-
-> 项目结构之外的工程化内容——`pyproject.toml` 的完整配置、依赖锁定、虚拟环境、打包发布与容器化交付——见[《Python 项目工程化与生产交付》](/python-engineering-and-production-delivery.html)。
+这样导入的代码仍然来自源码目录，修改代码后通常不需要重新复制源码。但如果修改了依赖、命令行入口或其他项目元数据，仍然需要重新执行安装命令。
 
 
+## 三、类、对象与属性查找
 
-## 二、类、继承与对象模型
+### 3.1 类本身也是对象
 
-### 2.1 类和实例
-
-类可以理解为对象的模板，但 Python 中的类本身也是对象。
+在 Python 中，类不是编译期的静态模板，而是运行时对象。
 
 ```python
 class Runner:
@@ -682,28 +885,34 @@ class Runner:
         return batch
 ```
 
+执行类定义语句时，Python 会：
+
+1. 创建类命名空间；
+2. 执行类体；
+3. 收集方法和类属性；
+4. 调用元类创建类对象；
+5. 将名称 `Runner` 绑定到类对象。
+
 创建实例：
 
 ```python
 runner = Runner()
+
+print(type(runner))
+print(isinstance(runner, Runner))
+print(type(Runner))
 ```
 
-此时：
+其中：
 
 - `Runner` 是类对象；
 - `runner` 是 `Runner` 的实例；
-- `runner.run` 是绑定到实例的方法。
+- `type(Runner)` 通常是 `type`；
+- 类对象本身也可以拥有属性和方法。
 
-可以检查：
+因此：**类是用于创建实例并定义实例行为的对象；类本身通常由元类创建。**
 
-```python
-print(type(runner))
-print(isinstance(runner, Runner))
-```
-
-
-
-### 2.2 实例属性和类属性
+### 3.2 实例属性和类属性
 
 ```python
 class Counter:
@@ -727,24 +936,13 @@ print(b.name)
 print(a.total)
 ```
 
-实例属性通常存储对象自己的状态，类属性通常用于：
-
-- 常量；
-- 默认配置；
-- 类级别统计；
-- 共享属性；
-- 注册表。
-
 需要警惕可变类属性：
 
 ```python
 class Bad:
     items = []
-```
 
-所有实例都会共享同一个列表：
 
-```python
 a = Bad()
 b = Bad()
 
@@ -753,7 +951,7 @@ a.items.append(1)
 print(b.items)  # [1]
 ```
 
-如果每个实例都需要独立列表，应放到 `__init__` 中：
+如果每个实例都需要独立列表，应在 `__init__` 中创建：
 
 ```python
 class Good:
@@ -761,9 +959,7 @@ class Good:
         self.items = []
 ```
 
-
-
-### 2.3 方法绑定
+### 3.3 方法绑定
 
 ```python
 class Runner:
@@ -778,108 +974,164 @@ runner = Runner()
 runner.run(data)
 ```
 
-实际上近似于：
+可以近似理解为：
 
 ```python
 Runner.run(runner, data)
 ```
 
-`runner.run` 是一个绑定方法，Python 会自动将实例作为第一个参数传入。
-
-这就是为什么实例方法通常需要写：
+但更准确地说，类中的函数通常是非数据描述符。当通过实例访问时，它会被绑定为方法。
 
 ```python
-def run(self, batch):
-    ...
+bound = runner.run
+
+print(bound.__self__ is runner)
+print(bound.__func__ is Runner.run)
 ```
 
-而不是：
+输出通常为：
 
-```python
-def run(batch):
-    ...
+```text
+True
+True
 ```
 
+因此：
+
+- `Runner.run` 是类上的函数对象；
+- `runner.run` 是绑定方法；
+- 绑定方法保存了实例和原始函数；
+- 调用绑定方法时，实例会自动作为第一个参数传入。
 
 
-### 2.4 `classmethod` 与 `staticmethod`
+### 3.4 `classmethod`、`staticmethod` 与 `property`
 
-#### 实例方法
+这三个装饰器都用于改变方法的绑定方式，但用途不同：
+
+- `classmethod`：绑定到类对象；
+- `staticmethod`：不自动绑定类或实例；
+- `property`：将方法包装成属性访问形式。
+
+#### 3.4.1 `classmethod`：面向类对象的方法
 
 ```python
-class Model:
-    def predict(self, x):
-        ...
-```
+class Runner:
+    default_device = "cpu"
 
-第一个参数是实例。
-
-#### 类方法
-
-```python
-class Model:
     @classmethod
-    def from_config(cls, config):
-        return cls(config)
+    def create_default(cls):
+        return cls(device=cls.default_device)
+
+    def __init__(self, device):
+        self.device = device
 ```
 
-第一个参数是类对象，通常命名为 `cls`。
-
-类方法适合：
-
-- 工厂方法；
-- 从配置创建对象；
-- 从文件加载对象；
-- 提供类级别操作。
-
-#### 静态方法
+调用时：
 
 ```python
-class MathUtils:
-    @staticmethod
-    def add(x, y):
-        return x + y
+runner = Runner.create_default()
 ```
 
-静态方法不会自动接收实例或类。
-
-它适合放置逻辑上属于某个类、但不依赖实例状态的方法。
-
-
-
-### 2.5 `property`
-
-`property` 可以把方法伪装成属性：
+定义为 `classmethod` 后，Python 会自动将调用它的类传入第一个参数 `cls`：
 
 ```python
-class Model:
-    def __init__(self, parameters):
-        self.parameters = parameters
-
-    @property
-    def parameter_count(self):
-        return len(self.parameters)
+Runner.create_default()
+# 等价于大致意义上的：
+# Runner.create_default(Runner)
 ```
 
-使用时：
+`cls` 与实例方法中的 `self` 类似，但它代表的是**类对象**，而不是某个实例。
+
+因此，`classmethod` 的重点不只是“可以通过类调用”，而是：**方法需要访问或构造类本身，并且应当随着继承关系使用实际的子类。**
+
+例如：
 
 ```python
-model.parameter_count
+class GPU_Runner(Runner):
+    default_device = "cuda"
+
+runner = GPU_Runner.create_default()
+print(runner.device)  # cuda
 ```
 
-而不是：
+这里 `cls` 实际上是 `GPU_Runner`，因此 `classmethod` 创建的是子类实例，而不是固定的 `Runner` 实例。这使它非常适合实现：
 
-```python
-model.parameter_count()
-```
+- 替代构造方法；
+- 从配置、字典或文件创建对象；
+- 不同后端的统一创建入口；
+- 需要支持子类继承的工厂方法。
 
-也可以定义 setter：
+常见写法包括：
 
 ```python
 class Config:
-    def __init__(self):
-        self._device = "cpu"
+    def __init__(self, host, port):
+        self.host = host
+        self.port = port
 
+    @classmethod
+    def from_dict(cls, data):
+        return cls(
+            host=data["host"],
+            port=data.get("port", 80),
+        )
+```
+
+调用：
+
+```python
+config = Config.from_dict({"host": "localhost"})
+```
+
+这里 `from_dict` 不是普通的实例方法，因为对象尚未创建，无法通过 `self` 调用；它也不适合使用 `staticmethod`，因为工厂方法通常需要通过 `cls(...)` 创建当前类或子类对象。
+
+#### 3.4.2 `staticmethod`：不需要实例或类上下文的方法
+
+```python
+class Runner:
+    @staticmethod
+    def validate_config(config):
+        return "device" in config
+```
+
+调用时：
+
+```python
+Runner.validate_config(config)
+```
+
+`staticmethod` 不会自动接收 `self` 或 `cls`。它只是放在类命名空间中的普通函数，适合表达逻辑上属于某个类、但不依赖实例状态和类状态的操作。
+
+如果一个函数既不需要访问实例，也不需要访问类，通常也可以考虑将它放在模块级，而不是强行定义成静态方法。
+
+#### 3.4.3 `property`：将方法表现为属性
+
+```python
+class Runner:
+    def __init__(self, workers):
+        self.workers = workers
+
+    @property
+    def worker_count(self):
+        return len(self.workers)
+```
+
+调用时：
+
+```python
+runner.worker_count
+```
+
+而不是：
+
+```python
+runner.worker_count()
+```
+
+`property` 适合表示根据对象状态计算得到的属性，或者在保持属性访问语法的同时加入校验、延迟计算等逻辑。
+
+```python
+class Runner:
     @property
     def device(self):
         return self._device
@@ -887,22 +1139,147 @@ class Config:
     @device.setter
     def device(self, value):
         if value not in {"cpu", "cuda"}:
-            raise ValueError("invalid device")
+            raise ValueError("unsupported device")
         self._device = value
 ```
 
-`property` 的价值在于：
+#### 3.4.4 选择建议
 
-- 隐藏内部实现；
-- 在访问时进行计算；
-- 对赋值进行校验；
-- 保持类似字段的调用形式。
+可以按以下规则选择：
 
-`property` 的底层实现依赖描述符协议，详见 3.8 节。
+- 需要实例状态：使用普通实例方法；
+- 需要当前类或创建子类实例：使用 `classmethod`；
+- 只依赖参数，不依赖实例和类：使用 `staticmethod` 或模块级函数；
+- 需要通过属性语法访问计算结果或封装字段：使用 `property`。
+
+在 AI-Infra 中，`classmethod` 尤其适合实现统一的构造和配置入口，例如：
+
+```python
+class Runner:
+    @classmethod
+    def from_config(cls, config):
+        return cls(
+            model=config["model"],
+            device=config.get("device", "cpu"),
+        )
+```
+
+它可以将“如何从外部配置创建对象”的逻辑集中在类内部，同时保留子类扩展和多后端实现的能力。
 
 
+#### 3.4.5 与 Java 的对比
 
-### 2.6 `__new__` 与 `__init__`
+| Python | Java 中较接近的形式 | 是否自动获得当前类 |
+| :--- | :--- | :--- |
+| 实例方法 | 普通实例方法 | 通过 `self` 访问实例 |
+| `classmethod` | 没有完全对应物，接近可继承的静态工厂方法 | 是，通过 `cls` |
+| `staticmethod` | `static` 方法 | 否 |
+| `property` | getter/setter 方法或属性访问器 | 通过属性语法访问 |
+
+
+其中最大的区别还是`classmethod`，Java没有直接对应的概念，唯一类似的是静态工厂方法：
+
+```java
+class Runner {
+    public static Runner createDefault() {
+        return new Runner();
+    }
+}
+```
+
+这个方法类似 Python 的：
+
+```python
+@staticmethod
+def create_default():
+    return Runner()
+```
+
+但它固定创建 `Runner`，不具备 Python `classmethod` 自动适配子类的能力。下面Python代码接近一种“可继承的类级工厂方法”。如果子类继承该方法，`cls` 会自动变成子类：
+
+```python
+@classmethod
+def create_default(cls):
+    return cls()
+```
+
+### 3.5 属性查找的大致顺序
+
+当执行：
+
+```python
+obj.attr
+```
+
+Python 会进行较复杂的属性查找。简化后可以理解为：
+
+1. 查找对象类型及其基类中的数据描述符；
+2. 查找实例字典；
+3. 查找对象类型及其基类中的普通属性或非数据描述符；
+4. 如果仍未找到，再尝试 `__getattr__`。
+
+这里的优先级解释了一个重要现象：
+
+- 数据描述符通常可以覆盖实例字典中的同名属性；
+- 普通类属性可能被实例属性覆盖；
+- 方法绑定依赖非数据描述符；
+- `property` 可以控制属性访问和赋值。
+
+可以通过下面的例子观察普通类属性和实例属性：
+
+```python
+class Demo:
+    value = 10
+
+
+obj = Demo()
+obj.value = 20
+
+print(obj.__dict__)       # {'value': 20}
+print(Demo.__dict__["value"])  # 10
+print(obj.value)          # 20
+```
+
+### 3.6 `__getattribute__` 和 `__getattr__`
+
+`__getattribute__` 会拦截几乎所有属性访问：
+
+```python
+class DebugObject:
+    def __getattribute__(self, name):
+        print("access:", name)
+        return object.__getattribute__(self, name)
+```
+
+实现时必须避免递归调用：
+
+```python
+# 不推荐
+self.__dict__
+
+# 推荐
+object.__getattribute__(self, "__dict__")
+```
+
+`__getattr__` 只在正常属性查找失败后调用：
+
+```python
+class Config:
+    def __getattr__(self, name):
+        return None
+```
+
+它们可以用于：
+
+- 延迟加载；
+- 兼容旧字段；
+- 动态代理；
+- 配置访问；
+- 设备属性转发。
+
+但过度使用会降低代码可读性和静态分析能力。
+
+### 3.7 `__new__` 与 `__init__`
 
 创建对象时，通常会经历两个阶段：
 
@@ -934,190 +1311,320 @@ class Example:
 - 自定义实例创建；
 - 元类或框架底层逻辑。
 
-`__init__` 负责初始化已经创建好的实例。
-
 一般业务代码只需要实现 `__init__`，不要轻易重写 `__new__`。
 
+### 3.8 继承 与 MRO
 
+继承是 Python 中实现类型复用和协议扩展的主要机制。它不仅可以减少重复代码，更重要的是让子类获得并遵守父类定义的接口、生命周期和对象协议。
 
-### 2.7 `__repr__`
+#### 3.8.1 继承：复用类型协议
 
-`__repr__` 用于提供对象的开发者表示：
-
-```python
-class Device:
-    def __init__(self, name):
-        self.name = name
-
-    def __repr__(self):
-        return f"Device(name={self.name!r})"
-```
+继承通常表达“是一种”关系。例如，PyTorch 中的模型继承 `torch.nn.Module`：
 
 ```python
-device = Device("cuda:0")
-print(device)
+from torch import nn
+
+
+class MLP(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size):
+        super().__init__()
+
+        self.layers = nn.Sequential(
+            nn.Linear(input_size, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, output_size),
+        )
+
+    def forward(self, x):
+        return self.layers(x)
 ```
 
-输出：
+`MLP` 继承 `nn.Module` 后，获得的不只是若干方法，还包括一整套模型协议和生命周期能力：
 
-```text
-Device(name='cuda:0')
-```
+- 参数和子模块注册；
+- `state_dict()`；
+- `.to(device)`；
+- `.train()` 和 `.eval()`；
+- hooks；
+- 序列化与设备迁移。
 
-良好的 `__repr__` 对调试、日志和错误排查非常有帮助。
+因此，继承适合表达稳定的类型关系和抽象协议，例如：
 
-需要注意 `__repr__` 和 `__str__` 的区别：
+- `MLP` 是一种 `nn.Module`；
+- 自定义 DataLoader 遵守某种数据加载协议；
+- 推理器实现统一的 Runner 接口；
+- 插件实现框架规定的 Backend 协议。
 
-- `__repr__` 面向开发者，用于调试和日志，交互式解释器和 `repr()` 调用它；
-- `__str__` 面向用户，`print()` 和 `str()` 优先调用它；
-- 如果只实现一个，应该实现 `__repr__`，因为 `__str__` 的默认实现会回退到 `__repr__`。
+继承不适合被当作通用的组件拼装机制。对于 `model`、`scheduler`、`tokenizer` 等业务依赖，通常应优先考虑组合。
 
-AI-Infra 中经常需要通过对象表示观察：
+单继承时，`super()` 通常表现为调用父类实现，例如调用父类的初始化方法。但在多继承中，`super()` 的含义不再是“调用某个固定父类”，而是与 MRO 共同决定下一个实现。
 
-- 当前设备；
-- Batch 大小；
-- 模型配置；
-- Worker 状态；
-- 缓存状态；
-- 请求 ID。
+#### 3.8.2 多继承：MRO 与协作式 `super()`
 
-
-
-### 2.8 继承、组合与 Mixin
-
-继承表示“是一种”关系：
+Python 支持一个类继承多个基类：
 
 ```python
-class BaseRunner:
-    def run(self, batch):
-        raise NotImplementedError
+class A:
+    def run(self):
+        return ["A"]
 
 
-class CUDARunner(BaseRunner):
-    def run(self, batch):
-        return batch
-```
-
-组合表示“拥有”关系：
-
-```python
-class Runner:
-    def __init__(self, model, scheduler):
-        self.model = model
-        self.scheduler = scheduler
-```
-
-在工程代码中，组合通常比深层继承更容易维护。
-
-Mixin 是一种用于复用局部能力的类：
-
-```python
-class LoggingMixin:
-    def log(self, message):
-        print(message)
+class B:
+    def run(self):
+        return ["B"]
 
 
-class CacheMixin:
-    def clear_cache(self):
-        print("clear cache")
-
-
-class Runner(LoggingMixin, CacheMixin):
+class C(A, B):
     pass
 ```
 
-Mixin 通常不代表一个完整的业务对象，而是提供某种能力。
+```python
+C.__mro__
+# (C, A, B, object)
 
+C().run()
+# ["A"]
+```
 
+##### ① MRO 决定方法查找顺序
 
-### 2.9 MRO 与 `super()`
+MRO 是 Method Resolution Order 的缩写，即方法解析顺序。它决定 Python 在多继承结构中按照什么顺序查找属性和方法。
 
-考虑以下代码：
+上例中的查找路径是：
+
+```text
+C → A → B → object
+```
+
+Python 在 `A` 中找到 `run()` 后，普通方法查找就结束，因此不会自动调用 `B.run()`。
+
+可以通过以下方式查看实际的解析顺序：
+
+```python
+C.__mro__
+C.mro()
+```
+
+需要特别注意的是：**MRO 只决定方法的查找顺序，不会自动调用所有父类中的同名方法**。如果需要，那么需要显示的调用super()。
+
+####  ② `super()` 沿 MRO 查找下一个实现
+
+`super()` 不应简单理解为“调用父类”。更准确地说，它会从当前类在 MRO 中的位置之后，继续查找下一个实现。
 
 ```python
 class Base:
     def run(self):
-        print("Base")
+        return ["base"]
 
 
-class LoggingMixin:
+class Logging:
     def run(self):
-        print("Logging")
-        super().run()
+        result = super().run()
+        result.append("logging")
+        return result
 
 
-class Runner(LoggingMixin, Base):
+class Metrics:
     def run(self):
-        print("Runner")
-        super().run()
+        result = super().run()
+        result.append("metrics")
+        return result
+
+
+class Runner(Logging, Metrics, Base):
+    pass
 ```
 
-调用：
-
 ```python
+Runner.__mro__
+# (Runner, Logging, Metrics, Base, object)
+
 Runner().run()
+# ["base", "metrics", "logging"]
 ```
 
-输出：
+实际调用链为：
 
 ```text
-Runner
-Logging
-Base
+Logging.run()
+    → Metrics.run()
+        → Base.run()
+        ← Metrics.run() 返回
+    ← Logging.run() 返回
 ```
 
-查看 MRO：
+这里，`Logging.run()` 中的 `super()` 并不是固定调用 `Base.run()`，而是按照 `Runner` 的 MRO，继续查找 `Logging` 后面的下一个实现，即 `Metrics.run()`。
+
+一句话概括：
+
+> MRO 解决“下一个是谁”，`super()` 解决“是否继续调用下一个”。
+
+#### ③ 协作式多继承
+
+只有当每一层实现都遵守协作式约定时，多继承才能形成完整的调用链：
 
 ```python
-print(Runner.__mro__)
+class LoggingMixin:
+    def __init__(self, *args, **kwargs):
+        self.logger = create_logger()
+        super().__init__(*args, **kwargs)
 ```
 
-大致结果：
+主要约定包括：
 
-```text
-(Runner, LoggingMixin, Base, object)
-```
+1. 每一层都调用 `super()`；
+2. 同名方法的签名保持兼容；
+3. 返回值能够继续向调用链传递；
+4. `__init__()` 也要调用 `super().__init__()`；
+5. 不要假设 `super()` 固定指向某个父类；
+6. 异常处理不能意外截断必要的调用链。
 
-`super()` 的含义不是“调用父类”，而是：
-
-> 从当前类在 MRO 中的位置开始，寻找下一个符合条件的实现。
-
-因此，在多继承和 Mixin 结构中，所有类都遵循协作式调用：
+如果某一层不调用 `super()`，后续实现可能完全不会执行：
 
 ```python
-super().run()
+class Broken:
+    def run(self):
+        return ["broken"]
 ```
 
-如果某个类绕过 `super()`，可能导致后续类的逻辑被跳过。
+同样，如果某个基类的 `__init__()` 没有调用 `super().__init__()`，后续基类的初始化也可能被跳过。
+
+多继承的主要风险包括：
+
+- 多个基类定义同名方法；
+- 基类声明顺序改变 MRO；
+- 初始化顺序不符合预期；
+- 方法签名或返回值不兼容；
+- 某一层遗漏 `super()`，导致调用链中断。
+
+因此，使用多继承时，应通过 `__mro__`、`mro()` 或 `inspect` 检查实际查找顺序，并用测试验证调用链、返回值和异常行为。
+
+#### 3.8.3 Mixin：多继承的一种实践模式
+
+Mixin 是建立在多继承、MRO 和协作式 `super()` 之上的一种设计模式，用于向已有类型注入横向能力。
+
+Mixin 通常不代表完整的业务实体，而是提供一组职责相对独立的方法、属性或元数据。例如：
+
+```python
+class LoggingMixin:
+    def log(self, message):
+        print(f"[LOG] {message}")
 
 
+class MetricsMixin:
+    def record_metric(self, name, value):
+        print(f"{name}={value}")
 
-## 三、数据模型与对象协议
 
-Python 中很多看起来像语法的行为，实际上是由特殊方法实现的。
+class Runner(LoggingMixin, MetricsMixin):
+    def run(self):
+        self.log("start")
+        self.record_metric("requests", 1)
+```
 
-### 3.1 常见语法和特殊方法
+常见的 Mixin 能力包括：
 
-| Python 表达式 | 主要对应的方法 |
-| --- | --- |
-| `len(x)` | `x.__len__()` |
-| `x[key]` | `x.__getitem__(key)` |
-| `x[key] = value` | `x.__setitem__(key, value)` |
-| `x + y` | `x.__add__(y)` |
-| `x == y` | `x.__eq__(y)` |
-| `hash(x)` | `x.__hash__()` |
-| `x(...)` | `x.__call__(...)` |
+- 日志；
+- 权限检查；
+- 指标采集；
+- 序列化；
+- 缓存；
+- 参数校验。
+
+Django 的 `LoginRequiredMixin` 也是类似模式：
+
+```python
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.views.generic import TemplateView
+
+
+class DashboardView(LoginRequiredMixin, TemplateView):
+    template_name = "dashboard.html"
+```
+
+这里，`TemplateView` 是核心类型，`LoginRequiredMixin` 则为其增加登录检查能力。
+
+Mixin 并没有绕开多继承的复杂性，而是将其限制在较明确的能力复用场景中。因此，Mixin 应满足以下原则：
+
+- 职责单一，能力边界清晰；
+- 不代表完整的业务对象；
+- 不持有复杂的业务依赖；
+- 对宿主类的要求应尽量明确；
+- 多个 Mixin 的同名方法必须签名兼容；
+- `__init__()` 必须遵守协作式 `super()` 约定；
+- 通过测试固定实际的 MRO 和调用链。
+
+如果只是给单个函数增加日志、重试或 tracing，装饰器通常比 Mixin 更直接；如果需要组合 `model`、`scheduler`、`tokenizer` 等业务组件，则应优先使用组合。
+
+
+### 3.9 组合：继承之外的主要复用方式
+
+组合表达“拥有”关系，即一个对象持有并协调其他对象：
+
+```python
+class InferenceRunner:
+    def __init__(self, model, scheduler, tokenizer):
+        self.model = model
+        self.scheduler = scheduler
+        self.tokenizer = tokenizer
+
+    def run(self, request):
+        inputs = self.tokenizer(request)
+        batch = self.scheduler.schedule(inputs)
+        return self.model(batch)
+```
+
+`InferenceRunner` 拥有 `model`、`scheduler` 和 `tokenizer`，但它不是这些对象的子类。
+
+相比继承，组合具有以下优势：
+
+- 依赖关系显式；
+- 更容易注入 Mock、Fake 等测试替身；
+- 可以在运行时替换协作者；
+- 不依赖复杂的 MRO；
+- 不需要隐式的 `super()` 协议；
+- 更适合表达业务流程和组件编排。
+
+在 AI-Infra 和高性能服务中，可以按照以下原则选择复用方式：
+
+| 关系或需求 | 推荐方式 |
+| :--- | :--- |
+| 表达稳定的“是一种”关系 | 继承 |
+| 遵守已有框架协议，如 `nn.Module` | 继承 |
+| 复用独立的横向能力 | Mixin，谨慎使用 |
+| 为单个调用增加日志、重试或 tracing | 装饰器 |
+| 动态组织多个请求处理阶段 | 中间件或显式包装 |
+| 管理 `model`、`scheduler` 等业务依赖 | 组合 |
+
+在工程实践中，应遵循：
+
+> 组合优于继承，多继承必须协作，Mixin 需要约束，复杂继承结构必须通过测试验证。
+
+
+## 四、数据模型与对象协议
+
+Python 中很多看起来像语法的行为，实际上依赖对象协议和特殊方法。
+
+### 4.1 常见语法与协议
+
+| Python 表达式 | 相关协议或特殊方法 |
+| :--- | :--- |
+| `len(x)` | `__len__` |
+| `x[key]` | `__getitem__` |
+| `x[key] = value` | `__setitem__` |
+| `x + y` | `__add__` |
+| `x == y` | `__eq__` |
+| `hash(x)` | `__hash__` |
+| `x(...)` | 可调用协议，通常由 `__call__` 实现 |
 | `with x` | `__enter__`、`__exit__` |
 | `for item in x` | `__iter__`、`__next__` |
 | `if x` | `__bool__` 或 `__len__` |
 
-这些方法共同构成 Python 的数据模型。
+这是一种帮助理解的概念映射。特殊方法并不总是通过普通的 `obj.method(...)` 属性查找来调用，解释器可能会在类型层面寻找对应实现。
 
+### 4.2 可调用对象
 
-
-### 3.2 可调用对象
-
-任何实现了 `__call__` 的对象，都可以像函数一样调用：
+实现 `__call__` 后，对象就可以像函数一样调用：
 
 ```python
 class Runner:
@@ -1125,9 +1632,6 @@ class Runner:
         self.model = model
 
     def __call__(self, batch):
-        return self.run(batch)
-
-    def run(self, batch):
         return self.model(batch)
 ```
 
@@ -1137,15 +1641,11 @@ class Runner:
 runner(batch)
 ```
 
-等价于：
+会触发可调用协议。
 
-```python
-runner.__call__(batch)
-```
+在 AI-Infra 中，可调用对象常见于：
 
-在 AI-Infra 中，这种设计非常常见：
-
-- 模型对象；
+- 模型；
 - 推理器；
 - 数据预处理器；
 - 后处理器；
@@ -1154,17 +1654,15 @@ runner.__call__(batch)
 - Callback；
 - Loss 对象。
 
-使用可调用对象，可以同时保留：
+相比普通函数，可调用对象可以同时保存：
 
 - 调用接口；
 - 配置状态；
 - 缓存；
 - 依赖对象；
-- 生命周期管理。
+- 生命周期状态。
 
-
-
-### 3.3 迭代器与可迭代对象
+### 4.3 迭代器与可迭代对象
 
 可迭代对象可以被 `for` 遍历：
 
@@ -1173,14 +1671,7 @@ for item in data:
     ...
 ```
 
-迭代器通常需要实现：
-
-```python
-__iter__()
-__next__()
-```
-
-示例：
+一个简单的迭代器可以实现：
 
 ```python
 class CountDown:
@@ -1199,22 +1690,9 @@ class CountDown:
         return value
 ```
 
-```python
-for value in CountDown(3):
-    print(value)
-```
+`for` 循环会不断取得下一个值，直到收到 `StopIteration`。
 
-输出：
-
-```text
-3
-2
-1
-```
-
-`for` 循环会不断调用 `next()`，当收到 `StopIteration` 时结束。
-
-AI-Infra 中大量组件都依赖迭代协议：
+AI-Infra 中大量组件依赖迭代协议：
 
 - Dataset；
 - DataLoader；
@@ -1224,11 +1702,7 @@ AI-Infra 中大量组件都依赖迭代协议：
 - 请求队列；
 - 分片数据读取器。
 
-
-
-### 3.4 `__getitem__` 与容器协议
-
-实现 `__getitem__` 后，对象可以支持下标访问：
+### 4.4 `__getitem__` 与容器协议
 
 ```python
 class Batch:
@@ -1241,29 +1715,25 @@ class Batch:
 
 ```python
 batch = Batch([1, 2, 3])
+
 print(batch[0])
-```
-
-还可以支持切片：
-
-```python
 print(batch[1:])
 ```
 
-AI-Infra 中，Batch、Tensor 包装器、缓存对象和配置对象都可能实现类似协议。
+通过实现 `__getitem__`，对象可以支持下标和切片操作。
 
+Batch、Tensor 包装器、缓存对象和配置对象都可能实现类似协议。
 
+### 4.5 对象真值判断
 
-### 3.5 对象真值判断
-
-以下表达式会触发对象的真值判断：
+以下代码会触发对象的真值判断：
 
 ```python
 if obj:
     ...
 ```
 
-Python 会优先尝试调用：
+Python 会优先尝试：
 
 ```python
 obj.__bool__()
@@ -1275,8 +1745,6 @@ obj.__bool__()
 obj.__len__()
 ```
 
-例如：
-
 ```python
 class Queue:
     def __init__(self, items):
@@ -1286,30 +1754,28 @@ class Queue:
         return bool(self.items)
 ```
 
-需要注意，某些 Tensor 框架会禁止直接对多元素 Tensor 做布尔判断，因为这可能产生歧义：
+需要注意，某些 Tensor 框架会禁止直接对多元素 Tensor 做布尔判断，因为这种判断存在歧义：
 
 ```python
 if tensor:
     ...
 ```
 
-因此，在 AI-Infra 中，不要默认所有对象都可以安全地放入 `if`。
+因此在 AI-Infra 中，不要默认所有对象都可以安全放入 `if`。
 
+### 4.6 `__eq__` 与 `__hash__`
 
-
-### 3.6 `__eq__` 与 `__hash__`
-
-对象相等和对象身份是两个不同概念：
+对象身份和对象相等是不同概念：
 
 ```python
 a is b
 a == b
 ```
 
-- `is` 判断是否是同一个对象；
+- `is` 判断是否为同一个对象；
 - `==` 调用相等性逻辑。
 
-如果重写了 `__eq__`，通常需要谨慎处理 `__hash__`。
+如果定义了 `__eq__` 但没有定义 `__hash__`，Python 通常会将对象设为不可哈希：
 
 ```python
 class User:
@@ -1317,27 +1783,20 @@ class User:
         self.user_id = user_id
 
     def __eq__(self, other):
-        return isinstance(other, User) and self.user_id == other.user_id
-```
-
-如果对象是可变的，通常不应该让它作为字典键或集合元素，因为其哈希值不能在生命周期中变化。
-
-需要特别注意：如果定义了 `__eq__` 但没有定义 `__hash__`，Python 会自动将 `__hash__` 设为 `None`，使对象变为不可哈希：
-
-```python
-class User:
-    def __init__(self, user_id):
-        self.user_id = user_id
-
-    def __eq__(self, other):
-        return isinstance(other, User) and self.user_id == other.user_id
+        return (
+            isinstance(other, User)
+            and self.user_id == other.user_id
+        )
 
 
 user = User(1)
-{user}  # TypeError: unhashable type: 'User'
+# {user}  # TypeError: unhashable type: 'User'
 ```
 
-如果对象确实需要放入集合或作为字典键，必须同时定义 `__eq__` 和 `__hash__`，并确保相等的对象具有相同的哈希值：
+如果对象确实要作为字典键或集合元素，就必须保证：
+
+- 相等对象具有相同哈希值；
+- 参与哈希的字段在生命周期中保持不变。
 
 ```python
 class User:
@@ -1345,60 +1804,20 @@ class User:
         self.user_id = user_id
 
     def __eq__(self, other):
-        return isinstance(other, User) and self.user_id == other.user_id
+        return (
+            isinstance(other, User)
+            and self.user_id == other.user_id
+        )
 
     def __hash__(self):
         return hash(self.user_id)
 ```
 
+如果 `user_id` 可变，就不适合在对象作为字典键期间修改它。
 
+### 4.7 描述符协议
 
-### 3.7 属性访问：`__getattribute__` 和 `__getattr__`
-
-`__getattribute__` 会拦截几乎所有属性访问：
-
-```python
-class DebugObject:
-    def __getattribute__(self, name):
-        print("access:", name)
-        return object.__getattribute__(self, name)
-```
-
-实现时必须小心递归调用，通常使用：
-
-```python
-object.__getattribute__(self, name)
-```
-
-而不是：
-
-```python
-self.__dict__
-```
-
-`__getattr__` 只在正常属性查找失败后调用：
-
-```python
-class Config:
-    def __getattr__(self, name):
-        return None
-```
-
-这类机制常用于：
-
-- 延迟加载；
-- 兼容旧字段；
-- 动态代理；
-- 配置访问；
-- 设备属性转发。
-
-但过度使用会降低代码的可读性和静态分析能力。
-
-
-
-### 3.8 描述符协议
-
-描述符是实现了 `__get__`、`__set__` 或 `__delete__` 的对象。当描述符被作为类属性时，Python 会在属性访问时自动调用这些方法：
+描述符是实现了 `__get__`、`__set__` 或 `__delete__` 的对象。当描述符被放置为类属性时，Python 会在属性访问时自动调用这些方法。
 
 ```python
 class Typed:
@@ -1417,9 +1836,11 @@ class Typed:
     def __set__(self, obj, value):
         if not isinstance(value, self.expected_type):
             raise TypeError(
-                f"{self.name} expects {self.expected_type.__name__}, "
+                f"{self.name} expects "
+                f"{self.expected_type.__name__}, "
                 f"got {type(value).__name__}"
             )
+
         obj.__dict__[self.name] = value
 
 
@@ -1434,45 +1855,74 @@ class Config:
 
 ```python
 config = Config(32, "cuda")
-config.batch_size = "big"  # TypeError: batch_size expects int, got str
+config.batch_size = "big"
 ```
 
-描述符是 Python 数据模型中最底层的属性控制机制。前面介绍的 `property`、`classmethod`、`staticmethod` 以及方法绑定，底层都是通过描述符协议实现的。理解这一点有助于在阅读框架代码时理解各种"魔法"行为的来源。
+最后一行会抛出类型错误。
+
+`property`、`classmethod`、`staticmethod` 和方法绑定都与描述符协议有关。许多框架中的字段校验、依赖注入、模型参数声明和配置代理，也建立在类似机制上。
 
 
+## 五、函数、闭包与装饰器
 
-## 四、装饰器与函数对象
+本节讨论 Python 中函数对象、闭包和装饰器的关系。
 
-### 4.1 函数也是对象
+函数是一等对象，使函数能够被赋值、传递和返回；闭包提供了保存外部作用域状态的能力；装饰器则利用可调用对象包装机制，在不直接修改原函数主体的情况下增强其行为。
 
-函数可以：
+三者经常一起出现，但它们解决的问题并不相同：
+
+- **函数对象**：函数可以像普通对象一样被操作；
+- **闭包**：内部函数可以捕获并保存外部作用域中的变量；
+- **装饰器**：接收一个可调用对象，并返回一个包装后的可调用对象。
+
+需要特别注意的是：装饰器经常使用闭包实现，但装饰器不等于闭包；闭包也可以用于装饰器以外的场景。
+
+### 5.1 函数是一等对象
+
+在 Python 中，函数是“一等对象”（First-class Object）。这意味着函数可以：
 
 - 赋值给变量；
 - 作为参数传递；
-- 作为返回值；
-- 存储在列表或字典中；
-- 动态添加属性。
+- 作为其他函数的返回值；
+- 存储在列表、字典等容器中；
+- 在运行时动态创建；
+- 通过属性保存额外信息。
+
+例如：
 
 ```python
 def add(x, y):
     return x + y
 
+
 operation = add
-print(operation(1, 2))
+
+print(operation(1, 2))  # 3
 ```
 
-这为装饰器、回调、注册表和高阶函数提供了基础。
+这里的 `operation` 和 `add` 指向同一个函数对象。
+
+函数也可以作为参数传递：
+
+```python
+def apply(operation, value):
+    return operation(value)
 
 
+def double(value):
+    return value * 2
 
-### 4.2 闭包
 
-当一个内部函数引用了外部函数的变量，并且外部函数已经返回时，这个内部函数就是一个闭包：
+print(apply(double, 3))  # 6
+```
+
+还可以作为返回值：
 
 ```python
 def make_multiplier(factor):
-    def multiply(x):
-        return x * factor
+    def multiply(value):
+        return value * factor
+
     return multiply
 
 
@@ -1480,33 +1930,314 @@ double = make_multiplier(2)
 print(double(5))  # 10
 ```
 
-`double` 持有对 `factor` 的引用，即使 `make_multiplier` 已经返回。
+函数的一等对象特性是以下机制的基础：
 
-闭包有一个常见陷阱——延迟绑定（late binding）：
+- 高阶函数；
+- 回调函数；
+- 闭包；
+- 装饰器；
+- 策略函数；
+- Hook；
+- 任务处理器；
+- 异步任务封装。
+
+在 AI-Infra 中，可以将不同的处理逻辑作为函数传入组件，从而避免为每一种行为创建单独的子类：
+
+```python
+def process_batches(loader, process):
+    for batch in loader:
+        yield process(batch)
+```
+
+这里，`process` 可以是预处理、推理、后处理或日志记录函数。
+
+### 5.2 闭包与词法作用域
+
+当一个内部函数引用外部函数作用域中的变量，并且内部函数在外部函数返回后仍然可以访问这些变量时，就形成了闭包（Closure）。
+
+```python
+def make_multiplier(factor):
+    def multiply(value):
+        return value * factor
+
+    return multiply
+
+
+double = make_multiplier(2)
+triple = make_multiplier(3)
+
+print(double(5))  # 10
+print(triple(5))  # 15
+```
+
+`make_multiplier()` 执行结束后，局部变量 `factor` 通常已经不再位于原来的执行帧中。但返回的 `multiply` 仍然可以访问它，因为函数对象保存了对外部变量的引用。
+
+闭包的核心是**词法作用域**：
+
+> 函数中名称的解析，主要依据函数定义时所在的代码结构，而不是调用它的位置。
+
+闭包常用于：
+
+- 封装状态；
+- 生成带有预置配置的函数；
+- 延迟计算；
+- 回调函数；
+- 创建策略函数；
+- 实现参数化装饰器。
+
+#### 5.2.1 在闭包中修改外部变量
+
+如果只是读取外部变量，可以直接访问：
+
+```python
+def make_greeting(prefix):
+    def greet(name):
+        return f"{prefix}, {name}"
+
+    return greet
+```
+
+如果需要重新绑定外部作用域中的不可变变量，需要使用 `nonlocal`：
+
+```python
+def make_counter(start=0):
+    count = start
+
+    def increment():
+        nonlocal count
+        count += 1
+        return count
+
+    return increment
+
+
+counter = make_counter()
+print(counter())  # 1
+print(counter())  # 2
+```
+
+这里的 `count` 属于 `make_counter()` 的局部变量。`increment()` 通过 `nonlocal` 声明，表示修改外层函数中的 `count`，而不是创建一个新的局部变量。
+
+也可以通过可变对象保存状态：
+
+```python
+def make_counter(start=0):
+    state = [start]
+
+    def increment():
+        state[0] += 1
+        return state[0]
+
+    return increment
+```
+
+不过，如果状态较多或逻辑复杂，使用类通常比复杂闭包更清晰：
+
+```python
+class Counter:
+    def __init__(self, start=0):
+        self.count = start
+
+    def increment(self):
+        self.count += 1
+        return self.count
+```
+
+因此，闭包适合封装少量状态和简单行为；当状态、生命周期和接口逐渐复杂时，应考虑使用显式对象。
+
+#### 5.2.2 闭包中的延迟绑定
+
+闭包有一个常见陷阱：循环变量可能会发生延迟绑定。
 
 ```python
 functions = []
+
 for i in range(3):
     functions.append(lambda: i)
 
-print([f() for f in functions])  # [2, 2, 2]，不是 [0, 1, 2]
+print([function() for function in functions])
 ```
 
-`lambda` 中的 `i` 不是在定义时求值，而是在调用时查找。此时循环已结束，`i` 的值是 `2`。修复方式是用默认参数捕获当前值：
+输出为：
+
+```text
+[2, 2, 2]
+```
+
+原因是 `lambda` 中的 `i` 并不会在函数创建时立即求值，而是在函数调用时查找。此时循环已经结束，`i` 的值为 `2`。
+
+可以使用默认参数捕获当前值：
 
 ```python
 functions = []
+
 for i in range(3):
     functions.append(lambda i=i: i)
 
-print([f() for f in functions])  # [0, 1, 2]
+print([function() for function in functions])
 ```
 
-闭包是装饰器的基础——装饰器本质上就是"接受函数、返回闭包"的高阶函数。
+输出为：
+
+```text
+[0, 1, 2]
+```
+
+在构造批处理函数、异步回调或并发任务时，需要特别注意这一问题。
+
+### 5.3 装饰器
+
+### 5.3.1 装饰器的基本机制
+
+装饰器（Decorator）是一种可调用对象包装机制：
+
+> 装饰器接收一个函数或类，并返回一个替代它的可调用对象。
+
+例如：
+
+```python
+def log_call(func):
+    def wrapper(*args, **kwargs):
+        print("calling", func.__name__)
+        return func(*args, **kwargs)
+
+    return wrapper
+```
+
+使用装饰器：
+
+```python
+@log_call
+def predict(x):
+    return x * 2
+```
+
+其效果等价于：
+
+```python
+def predict(x):
+    return x * 2
 
 
+predict = log_call(predict)
+```
 
-### 4.3 基本装饰器
+因此，装饰器是在函数定义完成后应用的。每次调用 `predict()` 时，实际调用的是包装函数 `wrapper()`，而不是最初定义的函数对象。
+
+对于多个装饰器：
+
+```python
+@outer
+@inner
+def run():
+    ...
+```
+
+其绑定顺序等价于：
+
+```python
+run = outer(inner(run))
+```
+
+调用时，`outer` 返回的包装器会先接收到调用，然后再进入 `inner` 的包装器。
+
+一个装饰器通常包含以下逻辑：
+
+1. 接收原始函数；
+2. 定义包装函数；
+3. 在包装函数中增加额外逻辑；
+4. 调用原始函数；
+5. 返回结果；
+6. 返回包装函数作为替代对象。
+
+#### 5.3.2 装饰器与闭包的关系
+
+上面的 `log_call()` 使用了闭包：
+
+```python
+def log_call(func):
+    def wrapper(*args, **kwargs):
+        print("calling", func.__name__)
+        return func(*args, **kwargs)
+
+    return wrapper
+```
+
+其中：
+
+- `log_call` 是装饰器；
+- `wrapper` 是包装函数；
+- `wrapper` 捕获了外层作用域中的 `func`；
+- `func` 即使在 `log_call()` 返回后，仍然可以被 `wrapper` 使用。
+
+因此，可以说：
+
+> 闭包是实现函数式装饰器的常见技术，但不是装饰器的必要条件。
+
+装饰器也可以通过可调用对象实现：
+
+```python
+class LogCall:
+    def __init__(self, func):
+        self.func = func
+
+    def __call__(self, *args, **kwargs):
+        print("calling", self.func.__name__)
+        return self.func(*args, **kwargs)
+```
+
+使用方式：
+
+```python
+@LogCall
+def predict(x):
+    return x * 2
+```
+
+这里的 `LogCall` 类本身作为装饰器接收函数，并创建一个可调用实例。调用 `predict()` 时，实际执行的是实例的 `__call__()` 方法。
+
+两种实现方式各有适用场景：
+
+- 闭包实现简洁，适合逻辑较少的包装；
+- 可调用对象适合保存较多状态，或需要提供额外方法和生命周期控制的场景。
+
+#### 5.3.3 使用 `functools.wraps` 保留元信息
+
+直接返回 `wrapper` 会导致原函数的部分元信息丢失：
+
+```python
+def log_call(func):
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+
+    return wrapper
+```
+
+例如：
+
+```python
+@log_call
+def predict(x):
+    """Run prediction."""
+    return x * 2
+
+
+print(predict.__name__)  # wrapper
+print(predict.__doc__)   # None
+```
+
+这会影响：
+
+- 调试；
+- 日志；
+- 文档生成；
+- 反射；
+- 类型分析；
+- 测试框架；
+- 错误信息；
+- 性能分析工具。
+
+推荐使用 `functools.wraps`：
 
 ```python
 from functools import wraps
@@ -1521,70 +2252,47 @@ def log_call(func):
     return wrapper
 ```
 
-使用：
+此时，包装函数会尽可能保留原函数的名称、文档字符串和模块信息：
 
 ```python
 @log_call
 def predict(x):
-    return x * 2
-```
-
-等价于：
-
-```python
-def predict(x):
+    """Run prediction."""
     return x * 2
 
 
-predict = log_call(predict)
+print(predict.__name__)  # predict
+print(predict.__doc__)   # Run prediction.
 ```
 
-这说明装饰器是在函数定义阶段应用的，而不是每次调用时重新应用。
+`wraps` 并不会让包装函数真正恢复原函数的全部行为。包装器仍然可能改变：
 
+- 参数检查；
+- 返回值；
+- 异常类型；
+- 执行时机；
+- 上下文；
+- 类型签名。
 
+因此，`wraps` 是必要的元信息维护工具，但不是行为透明性的保证。
 
-### 4.4 为什么要使用 `functools.wraps`
+#### 5.3.4 带参数的装饰器
 
-如果不使用 `wraps`：
-
-```python
-def decorator(func):
-    def wrapper(*args, **kwargs):
-        return func(*args, **kwargs)
-
-    return wrapper
-```
-
-被装饰函数的元信息可能丢失：
-
-- 函数名变成 `wrapper`；
-- 文档字符串丢失；
-- 类型检查更困难；
-- 调试和错误追踪信息变差；
-- 反射工具获取的签名不准确。
-
-推荐始终写：
+如果装饰器本身需要配置参数，就需要额外增加一层函数：
 
 ```python
 from functools import wraps
-```
 
 
-
-### 4.5 带参数的装饰器
-
-带参数的装饰器实际上有两层函数：
-
-```python
-def retry(times):
+def retry(max_attempts):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            for attempt in range(times):
+            for attempt in range(max_attempts):
                 try:
                     return func(*args, **kwargs)
-                except Exception:
-                    if attempt == times - 1:
+                except TimeoutError:
+                    if attempt == max_attempts - 1:
                         raise
 
         return wrapper
@@ -1595,50 +2303,144 @@ def retry(times):
 使用：
 
 ```python
-@retry(times=3)
+@retry(max_attempts=3)
 def request():
     ...
 ```
 
-执行顺序可以理解为：
+它等价于：
 
 ```python
-request = retry(times=3)(request)
+request = retry(max_attempts=3)(request)
 ```
 
-AI-Infra 中常见装饰器用途包括：
+三层结构分别是：
 
-- 日志；
-- 计时；
-- 重试；
-- 权限控制；
-- 注册函数；
-- 缓存；
-- 自动同步/异步适配；
-- 切换推理模式；
-- 关闭梯度计算；
-- 添加监控指标。
+```text
+retry(max_attempts)
+    → decorator(func)
+        → wrapper(*args, **kwargs)
+```
 
-需要注意，装饰器会改变实际执行路径，因此阅读函数时必须同时查看它上方的装饰器。
+其中：
+
+- 最外层接收装饰器配置；
+- 中间层接收被装饰函数；
+- 最内层执行实际包装逻辑。
+
+在 AI-Infra 中，参数化装饰器可以用于：
+
+- 配置重试次数；
+- 指定超时时间；
+- 设置采样率；
+- 添加指标名称；
+- 控制日志级别；
+- 标记执行阶段；
+- 配置缓存策略。
+
+但重试装饰器不应简单捕获所有异常：
+
+```python
+except Exception:
+    ...
+```
+
+更合理的方式是只处理明确适合重试的异常，例如超时或临时网络错误，并在达到最大次数后保留原始异常：
+
+```python
+from functools import wraps
 
 
+def retry_on_timeout(max_attempts):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                except TimeoutError:
+                    if attempt == max_attempts - 1:
+                        raise
 
-## 五、生成器与惰性计算
+        return wrapper
 
-### 5.1 `return` 和 `yield` 的区别
+    return decorator
+```
+
+参数化装饰器会增加调用路径的层次，因此应保持实现简单，并通过测试确认重试次数、异常传播和返回值行为符合预期。
+
+#### 5.3.5 同步与异步装饰器
+
+同步函数和异步函数需要使用不同的包装方式。
+
+同步装饰器：
+
+```python
+from functools import wraps
+
+
+def log_call(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        print("start")
+        result = func(*args, **kwargs)
+        print("end")
+        return result
+
+    return wrapper
+```
+
+异步函数应使用 `async def` 包装器，并通过 `await` 调用原函数：
+
+```python
+from functools import wraps
+
+
+def async_log_call(func):
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        print("start")
+        result = await func(*args, **kwargs)
+        print("end")
+        return result
+
+    return wrapper
+```
+
+如果错误地使用同步包装器：
+
+```python
+def wrong_decorator(func):
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+
+    return wrapper
+```
+
+虽然可能仍然返回协程对象，但装饰器无法正确处理异步执行过程中的：
+
+- 开始和结束时机；
+- 异常传播；
+- `await`；
+- 超时；
+- 取消；
+- 上下文变量。
+
+在异步服务和推理系统中，应明确区分同步函数与异步函数。必要时可以使用 `inspect.iscoroutinefunction()` 判断目标对象是否为异步函数。
+
+
+## 六、生成器、惰性执行与资源生命周期
+
+### 6.1 `return` 与 `yield`
+
+普通函数执行时会直接返回结果：
 
 ```python
 def make_list():
     return [1, 2, 3]
 ```
 
-调用后，列表会立即创建：
-
-```python
-values = make_list()
-```
-
-生成器函数则使用 `yield`：
+生成器函数使用 `yield`：
 
 ```python
 def make_generator():
@@ -1647,26 +2449,60 @@ def make_generator():
     yield 3
 ```
 
-调用时不会立即执行函数体：
+调用生成器函数时，函数体不会立即执行：
 
 ```python
 generator = make_generator()
+print("created")
 ```
 
-只有在迭代时才开始执行：
+只有迭代时才会执行：
 
 ```python
 for value in generator:
     print(value)
 ```
 
-生成器的核心特征是：
+生成器每次产生一个值，并保留上一次暂停的位置。
 
-> 每次只产生一个结果，并保留上一次执行的位置。
+### 6.2 观察生成器的暂停与恢复
+
+```python
+def stream():
+    print("start")
+    yield 1
+    print("resume")
+    yield 2
+    print("end")
 
 
+g = stream()
 
-### 5.2 惰性计算
+print("created")
+print(next(g))
+print("between")
+print(next(g))
+```
+
+输出大致为：
+
+```text
+created
+start
+1
+between
+resume
+2
+```
+
+这说明：
+
+- 调用生成器函数只创建生成器对象；
+- 第一次 `next()` 才开始执行；
+- 执行到 `yield` 时暂停；
+- 下一次 `next()` 从上次暂停位置继续。
+
+### 6.3 惰性计算
 
 生成器适合处理不能一次性全部加载到内存中的数据：
 
@@ -1684,14 +2520,6 @@ for line in read_lines("large.txt"):
     process(line)
 ```
 
-这比：
-
-```python
-lines = open("large.txt").readlines()
-```
-
-更节省内存。
-
 AI-Infra 中常见场景包括：
 
 - 流式 Token 输出；
@@ -1702,11 +2530,20 @@ AI-Infra 中常见场景包括：
 - 请求流；
 - 内存受限环境。
 
+需要注意，惰性执行并不等于“没有成本”。生成器可能长期持有：
 
+- 文件；
+- 网络连接；
+- 数据库游标；
+- GPU 张量；
+- 大型缓存；
+- 进程间通信对象。
 
-### 5.3 `yield from`
+因此必须关注生成器何时结束、何时关闭以及异常路径是否执行清理。
 
-`yield from` 可以将一个可迭代对象的内容逐项转发：
+### 6.4 `yield from`
+
+`yield from` 可以转发另一个可迭代对象：
 
 ```python
 def combined():
@@ -1714,7 +2551,7 @@ def combined():
     yield from [4, 5]
 ```
 
-它也可以用于组合多个生成器：
+也可以组合多个数据分片：
 
 ```python
 def read_dataset(dataset):
@@ -1722,9 +2559,9 @@ def read_dataset(dataset):
         yield from read_shard(shard)
 ```
 
+它不仅能减少嵌套循环，还能转发子生成器的返回值和控制信号。
 
-
-### 5.4 生成器生命周期
+### 6.5 生成器关闭和资源清理
 
 生成器支持：
 
@@ -1734,16 +2571,14 @@ throw()
 close()
 ```
 
-这些机制可以实现协程式控制流，但业务代码中不应为了“高级”而使用它们。
-
-最常见的使用方式仍然是：
+常见业务代码仍然主要使用：
 
 ```python
 for item in generator:
     ...
 ```
 
-需要注意生成器的资源清理：
+如果生成器持有资源，应确保异常、提前退出和显式关闭时都能清理：
 
 ```python
 def read_file(path):
@@ -1764,11 +2599,12 @@ def read_file(path):
             yield line
 ```
 
+当生成器被关闭或因异常退出时，`finally` 和上下文管理器的退出逻辑可以帮助释放资源。
 
 
-## 六、上下文管理器与资源生命周期
+## 七、上下文管理器与资源生命周期
 
-### 6.1 `with` 的基本机制
+### 7.1 `with` 的基本机制
 
 以下代码：
 
@@ -1777,7 +2613,7 @@ with resource() as value:
     use(value)
 ```
 
-大致等价于：
+可以近似理解为：
 
 ```python
 manager = resource()
@@ -1791,19 +2627,21 @@ except BaseException as exc:
         exc,
         exc.__traceback__,
     )
+
     if not should_suppress:
         raise
 else:
     manager.__exit__(None, None, None)
 ```
 
-上下文管理器的核心价值是：
+需要注意：
 
-> 无论代码正常结束还是异常退出，都能执行清理逻辑。
+- 如果 `__enter__()` 抛出异常，`__exit__()` 不会被调用；
+- 只有进入阶段成功后，退出阶段才会负责清理；
+- `__exit__()` 返回真值时，异常会被抑制；
+- `__exit__()` 返回 `False` 或 `None` 时，异常继续传播。
 
-
-
-### 6.2 自定义上下文管理器
+### 7.2 自定义上下文管理器
 
 ```python
 class Resource:
@@ -1829,16 +2667,18 @@ working
 release
 ```
 
-`__exit__` 返回：
+上下文管理器适合管理：
 
-- `False` 或 `None`：异常继续传播；
-- `True`：异常被抑制。
+- 文件；
+- 锁；
+- 数据库连接；
+- 临时配置；
+- GPU 资源；
+- profiler；
+- 通信环境；
+- 推理模式。
 
-一般不建议随意返回 `True`，否则可能吞掉重要错误。
-
-
-
-### 6.3 `contextlib.contextmanager`
+### 7.3 `contextlib.contextmanager`
 
 使用生成器可以更简洁地实现上下文管理器：
 
@@ -1857,20 +2697,14 @@ def resource():
 
 `yield` 前是进入逻辑，`yield` 后是退出逻辑。
 
-适合管理：
+使用时：
 
-- 文件；
-- 锁；
-- 数据库连接；
-- 临时配置；
-- GPU 资源；
-- profiler；
-- 通信环境；
-- 推理模式。
+```python
+with resource() as handle:
+    process(handle)
+```
 
-
-
-### 6.4 AI-Infra 中的上下文管理器
+### 7.4 AI-Infra 中的上下文管理器
 
 例如：
 
@@ -1881,11 +2715,12 @@ with torch.inference_mode():
 
 这种写法通常意味着：
 
-- 进入某种临时运行模式；
-- 执行一段代码；
-- 离开代码块后恢复原状态。
+1. 进入某种临时运行模式；
+2. 执行一段代码；
+3. 退出代码块；
+4. 恢复之前的运行状态。
 
-类似场景还包括：
+类似场景包括：
 
 ```python
 with autocast():
@@ -1908,11 +2743,10 @@ with profiler.profile():
 2. 退出时是否恢复；
 3. 异常时是否仍然清理；
 4. 是否存在嵌套上下文；
-5. 是否支持异步版本。
+5. 是否支持异步版本；
+6. 上下文对象是否持有重量级资源。
 
-
-
-### 6.5 异步上下文管理器
+### 7.5 异步上下文管理器
 
 异步代码中使用：
 
@@ -1928,7 +2762,7 @@ __aenter__()
 __aexit__()
 ```
 
-它们通常是异步函数：
+通常它们是异步函数：
 
 ```python
 class AsyncResource:
@@ -1940,13 +2774,12 @@ class AsyncResource:
         await self.close()
 ```
 
+异步上下文管理器适合数据库连接、网络连接、异步锁和异步资源池。
 
 
-## 七、异常处理与资源安全
+## 八、异常处理与失败传播
 
-### 7.1 异常处理结构
-
-Python 的异常处理结构包括：
+### 8.1 异常处理结构
 
 ```python
 try:
@@ -1959,17 +2792,16 @@ finally:
     cleanup()
 ```
 
-执行规则：
+执行规则是：
 
 - `try` 中发生异常时，寻找匹配的 `except`；
 - 没有异常时执行 `else`；
-- 无论是否异常，通常都会执行 `finally`。
+- 无论是否异常，进入成功执行阶段后通常都会执行 `finally`；
+- 未被处理的异常继续沿调用栈传播。
 
+### 8.2 不要随意捕获 `BaseException`
 
-
-### 7.2 不要随意捕获 `BaseException`
-
-Python 的异常层级中：
+Python 的异常层级大致为：
 
 ```text
 BaseException
@@ -1999,9 +2831,7 @@ except BaseException:
 - 程序退出信号；
 - 生成器关闭信号。
 
-
-
-### 7.3 自定义异常
+### 8.3 自定义异常与错误边界
 
 可以根据业务边界定义异常：
 
@@ -2018,7 +2848,7 @@ class BackendExecutionError(BackendError):
     pass
 ```
 
-这样调用者可以根据异常类型采取不同策略：
+调用方可以根据异常类型采取不同策略：
 
 ```python
 try:
@@ -2029,17 +2859,15 @@ except BackendExecutionError:
     retry()
 ```
 
-好的异常设计应该表达：
+好的异常类型应该帮助调用方判断：
 
 - 发生了什么；
 - 哪个组件失败；
 - 是否可以重试；
-- 是否应该切换后端；
+- 是否可以切换后端；
 - 是否需要终止任务。
 
-
-
-### 7.4 异常链
+### 8.4 异常链
 
 如果在处理一个异常时抛出另一个异常，可以保留原始原因：
 
@@ -2047,23 +2875,14 @@ except BackendExecutionError:
 try:
     load_config()
 except OSError as exc:
-    raise RuntimeError("failed to load configuration") from exc
+    raise RuntimeError(
+        "failed to load configuration"
+    ) from exc
 ```
 
 这样错误信息会显示异常链，有助于定位根因。
 
-相比之下：
-
-```python
-try:
-    load_config()
-except OSError:
-    raise RuntimeError("failed to load configuration")
-```
-
-虽然也能抛出新异常，但原始异常上下文表达得不够明确。
-
-如果需要显式断开异常链（例如封装内部实现细节，不想暴露底层异常），可以使用 `from None`：
+如果需要显式隐藏底层异常，可以使用：
 
 ```python
 try:
@@ -2072,11 +2891,9 @@ except InternalError:
     raise PublicError("operation failed") from None
 ```
 
-`from None` 会抑制原始异常的显示，只暴露新异常。
+但应该谨慎使用 `from None`，因为它可能让排查根因变得困难。
 
-
-
-### 7.5 记录异常并重新抛出
+### 8.5 记录异常并重新抛出
 
 常见工程写法：
 
@@ -2090,14 +2907,16 @@ except Exception:
 
 这里的 `raise` 会重新抛出当前异常，并保留原始 traceback。
 
-不建议这样写：
+不建议只记录错误而不抛出：
 
 ```python
+try:
+    worker.run()
 except Exception as exc:
     logger.error(str(exc))
 ```
 
-然后什么都不做，因为这会导致：
+这可能导致：
 
 - 错误被吞掉；
 - 上层误以为任务成功；
@@ -2105,84 +2924,12 @@ except Exception as exc:
 - 分布式任务出现更难排查的问题。
 
 
+## 九、一个推理组件的完整运行时追踪
 
-### 7.6 异常和重试
-
-不是所有异常都适合重试。
-
-通常可以区分：
-
-#### 可能适合重试
-
-- 临时网络错误；
-- 服务暂时不可用；
-- 超时；
-- 短暂资源不足；
-- 临时连接断开。
-
-#### 通常不适合重试
-
-- 参数错误；
-- 模型结构不匹配；
-- 数据格式错误；
-- 权限错误；
-- CUDA 内核逻辑错误；
-- 确定性的业务错误。
-
-重试机制应当明确：
-
-- 重试哪些异常；
-- 最多重试多少次；
-- 是否使用退避；
-- 是否记录每次失败；
-- 是否保证操作幂等；
-- 最终失败后如何通知上层。
-
-
-
-### 7.7 进程、线程和分布式任务中的异常
-
-在普通函数中，异常通常沿调用栈向上传播。
-
-但在并发环境中，异常传播会变得复杂：
-
-- 子线程异常可能不会直接终止主线程；
-- `Future.result()` 时才重新抛出任务异常；
-- 子进程异常可能需要通过进程状态或队列传递；
-- 分布式环境中一个 Rank 失败，其他 Rank 可能继续等待；
-- 异步 Task 的异常如果没有被消费，可能只产生警告。
-
-例如：
-
-```python
-future = executor.submit(run_task)
-
-try:
-    result = future.result()
-except Exception:
-    logger.exception("task failed")
-```
-
-AI-Infra 阅读并发代码时，应重点追踪：
-
-1. 异常在哪里产生；
-2. 异常在哪里被捕获；
-3. 是否会重新抛出；
-4. 谁负责取消其他任务；
-5. 是否会触发资源清理；
-6. 是否会导致其他 Worker 一直等待。
-
-
-
-## 八、这些机制如何组合在一起
-
-真实的 AI-Infra 代码通常不会只使用一种机制，而是将多种 Python 特性组合起来。
-
-例如，一个简化的推理组件可能是：
+下面用一个简化的推理组件，将前面的机制串联起来。
 
 ```python
 from contextlib import nullcontext
-from functools import wraps
 
 
 REGISTRY = {}
@@ -2190,10 +2937,25 @@ REGISTRY = {}
 
 def registered(name):
     def decorator(cls):
+        if name in REGISTRY:
+            raise ValueError(
+                f"duplicate registration: {name}"
+            )
+
         REGISTRY[name] = cls
         return cls
 
     return decorator
+
+
+class InferenceContext:
+    def __enter__(self):
+        print("enter inference mode")
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        print("exit inference mode")
+        return False
 
 
 @registered("runner")
@@ -2203,87 +2965,129 @@ class Runner:
         self.inference = inference
 
     def __call__(self, batch):
-        context = inference_context() if self.inference else nullcontext()
+        context = (
+            InferenceContext()
+            if self.inference
+            else nullcontext()
+        )
 
         with context:
             return self.model(batch)
 
     def stream(self, batch):
-        for output in self.model.generate(batch):
-            yield output
+        yield from self.model.generate(batch)
 ```
 
-这里同时使用了：
+阅读这段代码时，可以按照运行时顺序追踪。
 
-- 装饰器；
-- 注册表；
-- 类；
-- `__call__`；
-- 上下文管理器；
-- `nullcontext`；
-- 生成器；
-- 延迟输出；
-- 运行时组件发现。
+### 9.1 模块导入阶段
 
-阅读类似代码时，可以从几个问题入手：
+导入该模块时：
 
-### 代码是如何被加载的？
+1. 创建模块对象；
+2. 将模块放入 `sys.modules`；
+3. 执行顶层代码；
+4. 创建 `REGISTRY`；
+5. 创建 `registered` 函数；
+6. 创建 `InferenceContext` 类；
+7. 执行 `Runner` 类定义；
+8. 调用 `registered("runner")` 返回装饰器；
+9. 使用装饰器处理 `Runner`；
+10. 将 `Runner` 注册到 `REGISTRY`；
+11. 将名称 `Runner` 绑定到类对象。
 
-查看：
+如果该模块没有被导入，注册逻辑就不会执行。
 
-- 模块导入；
-- 包初始化；
-- 动态导入；
-- 注册逻辑；
-- 导入副作用。
+### 9.2 创建对象阶段
 
-### 对象如何被调用？
+执行：
 
-查看：
+```python
+runner = Runner(model)
+```
 
-- `__call__`；
-- 方法绑定；
-- 代理对象；
-- 装饰器；
-- 继承关系。
+运行时会：
 
-### 数据如何流动？
+1. 调用类对象；
+2. 通过 `__new__` 创建实例；
+3. 通过 `__init__` 初始化实例；
+4. 设置 `model` 和 `inference` 属性；
+5. 返回 `Runner` 实例。
 
-查看：
+### 9.3 调用对象阶段
 
-- `__iter__`；
-- 生成器；
-- `yield`；
-- Batch 协议；
-- 流式输出。
+执行：
 
-### 资源如何管理？
+```python
+output = runner(batch)
+```
 
-查看：
+运行时触发可调用协议：
 
-- `with`；
-- `try/finally`；
-- 锁；
-- GPU 上下文；
-- 文件和连接；
-- 进程退出逻辑。
+1. 找到 `Runner` 类型上的 `__call__`；
+2. 将 `runner` 作为实例传入；
+3. 根据 `inference` 选择上下文管理器；
+4. 进入上下文；
+5. 调用 `self.model(batch)`；
+6. 离开上下文；
+7. 返回结果。
 
-### 失败后会发生什么？
+### 9.4 流式执行阶段
 
-查看：
+执行：
 
-- 异常类型；
-- 捕获边界；
-- 是否重试；
-- 是否重新抛出；
-- Worker 是否退出；
-- 其他任务是否取消。
+```python
+for output in runner.stream(batch):
+    consume(output)
+```
+
+过程是：
+
+1. 调用 `stream`，创建生成器对象；
+2. 第一次迭代时进入函数体；
+3. 调用 `self.model.generate(batch)`；
+4. `yield from` 转发模型生成的结果；
+5. 每次 `yield` 后暂停；
+6. 下一次迭代时继续执行；
+7. 生成结束后抛出 `StopIteration`；
+8. `for` 循环结束。
+
+### 9.5 异常发生时
+
+如果模型调用抛出异常：
+
+```python
+try:
+    output = runner(batch)
+except Exception:
+    logger.exception("inference failed")
+    raise
+```
+
+则：
+
+1. 模型异常向上冒泡；
+2. `with` 退出；
+3. `InferenceContext.__exit__()` 执行；
+4. `__exit__()` 返回 `False`；
+5. 原始异常继续传播；
+6. 上层记录 traceback；
+7. 根据异常类型决定重试、降级或终止 Worker。
+
+这就是 Python 语言机制在 AI-Infra 组件中的完整组合：
+
+- 导入系统负责加载和注册；
+- 类机制负责创建组件；
+- 描述符和属性查找负责组织对象行为；
+- `__call__` 负责统一调用接口；
+- 生成器负责惰性和流式输出；
+- 上下文管理器负责资源和状态恢复；
+- 异常机制负责失败传播和故障边界。
 
 
+## 十、工程实践建议
 
-## 九、工程实践建议
-
-### 9.1 减少导入副作用
+### 10.1 减少导入副作用
 
 避免在模块顶层执行过重逻辑：
 
@@ -2301,11 +3105,9 @@ def create_model():
     return load_large_model()
 ```
 
-这样可以让初始化时机更加明确。
+这样可以让初始化时机更加明确，也更容易测试。
 
-
-
-### 9.2 控制模块依赖方向
+### 10.2 控制模块依赖方向
 
 尽量保持依赖关系单向：
 
@@ -2324,13 +3126,12 @@ a → b → c → a
 - 抽取公共模块；
 - 延迟导入；
 - 使用 `TYPE_CHECKING`；
-- 调整对象职责。
+- 调整对象职责；
+- 使用依赖注入替代直接导入。
 
+### 10.3 谨慎使用隐式机制
 
-
-### 9.3 谨慎使用隐式魔法
-
-以下机制虽然强大，但不应滥用：
+以下机制很强大，但不应滥用：
 
 - `__getattr__`；
 - `__getattribute__`；
@@ -2347,9 +3148,7 @@ a → b → c → a
 - 明确的接口；
 - 可追踪的初始化流程。
 
-
-
-### 9.4 保证资源清理
+### 10.4 保证资源清理
 
 凡是涉及以下资源，都要考虑异常路径：
 
@@ -2366,7 +3165,8 @@ a → b → c → a
 优先使用：
 
 ```python
-with ...
+with resource:
+    ...
 ```
 
 或者：
@@ -2378,9 +3178,7 @@ finally:
     cleanup()
 ```
 
-
-
-### 9.5 让对象表示有助于调试
+### 10.5 让对象表示有助于调试
 
 为重要对象实现清晰的 `__repr__`：
 
@@ -2388,57 +3186,94 @@ finally:
 class Request:
     def __repr__(self):
         return (
-            f"Request(id={self.request_id!r}, "
+            f"Request("
+            f"id={self.request_id!r}, "
             f"batch_size={self.batch_size}, "
             f"device={self.device!r})"
         )
 ```
 
-日志中看到完整对象状态，往往比单独打印多个字段更容易排查问题。
+日志中看到完整对象状态，通常比单独打印多个字段更容易排查问题。
+
+### 10.6 用小实验验证运行时假设
+
+遇到不确定的 Python 行为时，不要只依赖记忆，可以使用最小实验验证：
+
+```python
+import dis
+import inspect
+import sys
+```
+
+适合验证的问题包括：
+
+- 某个函数是否被装饰器替换；
+- 某个模块是否已经进入 `sys.modules`；
+- 某个属性是否来自描述符；
+- 某个对象是否真正实现了迭代协议；
+- 生成器何时开始执行；
+- 异常在哪一层被捕获；
+- `super()` 按什么顺序查找实现。
+
+运行时实验不是替代文档和源码阅读，而是帮助建立可靠心智模型的工具。
 
 
+## 十一、总结
 
-## 十、总结
+理解 Python 在 AI-Infra 中的行为，可以从五个问题开始。
 
-Python 核心机制可以概括为五个问题：
+### 1. 代码如何被编译和执行？
 
-### 1. 代码如何组织和加载？
+需要理解：
+
+- 源代码；
+- code object；
+- 字节码；
+- 函数对象；
+- 执行帧；
+- 调用栈。
+
+### 2. 名称如何绑定到对象？
+
+需要理解：
+
+- 名称与对象；
+- 对象身份；
+- 可变性；
+- 局部作用域；
+- 闭包作用域；
+- 全局命名空间。
+
+### 3. 代码如何被组织和加载？
 
 需要理解：
 
 - 模块；
 - 包；
-- 导入；
 - `sys.modules`；
+- `ModuleSpec`；
+- finder 和 loader；
 - 循环导入；
 - 动态导入；
+- `sys.path`；
 - 导入副作用。
 
-### 2. 对象如何创建和协作？
+### 4. 对象如何创建、查找和协作？
 
 需要理解：
 
 - 类；
 - 实例；
-- 属性；
+- 属性查找；
+- 描述符；
 - 方法绑定；
 - 继承；
 - 组合；
 - MRO；
-- `super()`。
+- `super()`；
+- 特殊方法协议。
 
-### 3. 语法背后发生了什么？
-
-需要理解：
-
-- 特殊方法；
-- 迭代协议；
-- 容器协议；
-- 可调用协议；
-- 上下文管理协议；
-- 属性访问协议。
-
-### 4. 任务如何延迟执行和组合？
+### 5. 任务、资源和错误如何流动？
 
 需要理解：
 
@@ -2446,28 +3281,25 @@ Python 核心机制可以概括为五个问题：
 - 闭包；
 - 装饰器；
 - 生成器；
-- `yield`；
-- 惰性计算。
-
-### 5. 资源和错误如何管理？
-
-需要理解：
-
-- `with`；
-- `try/except/finally`；
+- 惰性执行；
+- 上下文管理器；
 - 异常链；
 - 重试；
 - 取消；
-- 超时；
 - 并发任务中的异常传播。
 
-掌握这些内容后，阅读 AI-Infra 代码时就不再只是“逐行翻译语法”，而是能够理解：
+掌握这些机制后，阅读 AI-Infra 代码时就不再只是逐行翻译语法，而是能够理解：
 
 - 一个组件为什么会被自动加载；
+- 一个后端为什么会在导入时注册；
 - 一个对象为什么可以像函数一样调用；
 - 一个 Batch 为什么可以被遍历和切片；
+- 一个属性访问为什么会触发校验或动态加载；
+- 一个生成器为什么没有在创建时立即执行；
 - 一个上下文管理器修改了什么状态；
 - 一个异常会不会导致 Worker 退出；
-- 一个注册表是如何在运行时建立起来的。
+- 一个注册表为什么在不同进程中并不共享。
 
 这正是从“会写 Python”走向“能够理解 Python 工程和 AI-Infra 框架”的关键一步。
+
+后续文章将在此基础上，继续讨论 Python 的类型系统、并发与异步、动态机制、内存管理、调试实践以及生产工程化。
