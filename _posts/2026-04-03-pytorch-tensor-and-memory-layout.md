@@ -240,10 +240,14 @@ y = x.reshape(2, 3)
 
 ```python
 x = torch.randn(2, 3, 4)
-y = x.flatten(1)
+y = x.flatten(1) 
 
 print(y.shape)  # torch.Size([2, 12])
 ```
+
+这里`flatten(start_dim=1)` 的作用是：保持 start_dim 之前的维度不变，将从 start_dim 开始往后的所有维度“拉平”成一个维度。在这里，第 0 维（大小为 2）被保留。第 1 维和第 2 维（大小分别为 3 和 4）被合并。合并后的新维度大小为它们乘积：$$3 \times 4 = 12$$。
+
+这种 flatten(1) 的操作在深度学习中非常常见，通常用于卷积层（Convolutional Layer）到全连接层（Linear Layer）的过渡，目的是保留样本数量（Batch Size，即第 0 维），同时将特征图的所有像素和通道展平为一维特征向量。
 
 `flatten()` 也可能返回 view，也可能创建新的 Tensor，取决于原始布局。
 

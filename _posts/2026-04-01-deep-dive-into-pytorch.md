@@ -239,9 +239,9 @@ Java 背景会帮助理解很多工程概念：
 
 ## 章节结构与分章导读
 
-### 1. PyTorch 的定位、发展与整体架构
+### 1. PyTorch 整体介绍
 
-第一篇从全局开始，回答 PyTorch 为什么形成了今天这种 Python、C++、CUDA、Dispatcher、Compiler 多层协作的架构。
+第一篇从全局开始，介绍一段模型代码如何穿过 Python、C++、CUDA、Dispatcher、Compiler 和硬件执行层，帮助读者建立后续文章所需的整体地图。
 
 这一篇会讨论：
 
@@ -933,7 +933,7 @@ PyTorch 的以下部分变化较快：
 
 ## 章节目录
 
-1. [PyTorch 的定位、发展与整体架构](/pytorch-architecture-and-runtime.html)
+1. [PyTorch 整体介绍](/pytorch-overall-introduction.html)
 2. [Tensor 与内存布局](/pytorch-tensor-and-memory-layout.html)
 3. [自动求导与动态计算图](/pytorch-autograd-and-dynamic-computation-graph.html)
 4. [`nn.Module` 与训练系统](/pytorch-module-and-training-system.html)
