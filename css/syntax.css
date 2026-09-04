@@ -171,8 +171,8 @@
 
 /* .pl-ii — invalid.illegal */
 .highlight .err {
-  color: var(--prettylights-syntax-invalid-illegal-text);
-  background-color: var(--prettylights-syntax-invalid-illegal-bg);
+  color: inherit;
+  background-color: transparent;
 }
 
 /* .pl-bu — invalid.broken, brackethighlighter.unmatched */

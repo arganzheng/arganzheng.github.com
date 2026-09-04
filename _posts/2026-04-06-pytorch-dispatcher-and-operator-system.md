@@ -129,8 +129,8 @@ aten/src/ATen/native/native_functions.yaml
 - func: add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor
   variants: function, method
   dispatch:
-    CPU, CUDA: add
-    Meta: add_meta
+    CPU, CUDA: add        # 在 CPU 和 CUDA Key 下，实现函数叫 add
+    Meta: add_meta        # 在 Meta Key 下，实现函数叫 add_meta
 ```
 
 真实文件包含更多字段，示例只用于说明结构。一条声明至少包含三类信息：
