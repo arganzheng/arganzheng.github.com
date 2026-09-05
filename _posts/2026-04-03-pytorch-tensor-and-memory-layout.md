@@ -138,6 +138,8 @@ flowchart LR
 - `dtype` 决定如何解释每个元素的二进制内容；
 - `device` 决定 Storage 位于 CPU、CUDA 还是其他设备。
 
+这些字段在源码里对应两个 C++ 对象，都位于第一篇代码地图最底层的 `c10/core/`：Python 的 `torch.Tensor` 持有一个 `c10::TensorImpl`，`sizes`、`strides`、`storage_offset`、`dtype`、`device` 以及 Autograd 元数据都是它的成员；`TensorImpl` 再持有一个 `c10::StorageImpl`，里面只有数据指针、字节数和分配器。多个 `TensorImpl` 可以指向同一个 `StorageImpl`——这就是后文 view 的实现基础。本篇讨论的是源码上最底层的抽象，之所以放在系列最前面，是因为 Autograd、算子分发、Kernel 和显存分析都建立在这几个字段之上。
+
 ### 4. Tensor 的元素数量与占用空间
 
 逻辑元素数量可以通过 `numel()` 获得：

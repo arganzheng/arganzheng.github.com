@@ -96,9 +96,11 @@ PyTorch 有两千多个算子、每个算子有十几种 dtype、两个以上后
 
 ### 1. 仓库地图
 
+第一篇第四章 §3 按库给过一张四层的代码地图（`torch/` → `torch/csrc/` → `aten/src/ATen/` → `c10/`）并把各层对应到系列各篇。这里把它展开成构建者需要的完整目录：
+
 ```text
 pytorch/
-├── c10/                     核心基础设施（第二篇）：TensorImpl、Storage、Device、ScalarType、DispatchKey、Allocator、intrusive_ptr
+├── c10/                     核心基础库：TensorImpl、Storage（第二篇）、Device、ScalarType、DispatchKey（第五篇）、Allocator（第八篇）、intrusive_ptr
 │   ├── core/  cuda/  util/
 ├── aten/src/ATen/           Tensor 库（第五篇）
 │   ├── native/              算子实现：native_functions.yaml 与 CPU 实现
