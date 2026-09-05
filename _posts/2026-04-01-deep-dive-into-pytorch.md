@@ -665,7 +665,7 @@ FSDP 则进一步讨论：
 - 参数复制和参数分片如何影响显存？
 - 为什么增加 GPU 数量不一定带来线性加速？
 
-### 10. PyTorch 的测试、构建与工程体系
+### 10. PyTorch 的工程体系：一次改动如何安全地到达用户
 
 第十篇作为全系列收束，讨论一个复杂深度学习框架如何保证正确性、性能、可构建性和长期演进。
 
@@ -942,7 +942,7 @@ PyTorch 的以下部分变化较快：
 7. [编译执行与图优化](/pytorch-compilation-and-graph-optimization.html)
 8. [性能优化与调试](/pytorch-performance-optimization-and-debugging.html)
 9. [分布式 PyTorch](/pytorch-distributed-training.html)
-10. [PyTorch 的测试、构建与工程体系](/pytorch-testing-build-and-engineering.html)
+10. [PyTorch 的工程体系：一次改动如何安全地到达用户](/pytorch-engineering-system.html)
 
 
 ## 最终目标

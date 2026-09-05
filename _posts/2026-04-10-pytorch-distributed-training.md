@@ -1467,4 +1467,4 @@ DDP 全复制只分数据；ZeRO 三级逐个把优化器状态、梯度、参�
 
 ## 下一篇
 
-[PyTorch 的测试、构建与工程体系](/pytorch-testing-build-and-engineering.html)
+[PyTorch 的工程体系：一次改动如何安全地到达用户](/pytorch-engineering-system.html)
