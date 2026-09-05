@@ -24,14 +24,15 @@
     /*
      * An edge entering a subgraph from the top is drawn straight through the
      * subgraph title, because mermaid paints cluster labels before the edges.
-     * The labels carry absolute transforms, so re-appending them at the end of
-     * the root group puts them on top; the cluster's own fill behind the text
-     * then hides the line underneath.
+     * The labels carry transforms relative to the nearest <g class="root">
+     * (subgraphs with their own `direction` get a nested root), so re-appending
+     * them at the end of that root puts them on top without moving them; the
+     * cluster's own fill behind the text then hides the line underneath.
      */
     function liftClusterLabels(container) {
       var svg = container.querySelector('svg');
-      var root = svg && (svg.querySelector('g.root') || svg.querySelector('g'));
-      if (!root) return;
+      var topRoot = svg && (svg.querySelector('g.root') || svg.querySelector('g'));
+      if (!topRoot) return;
       Array.prototype.forEach.call(svg.querySelectorAll('g.cluster'), function (cluster) {
         var rect = cluster.querySelector('rect');
         var label = cluster.querySelector('.cluster-label');
@@ -41,6 +42,10 @@
           // no padding: the <foreignObject> has a fixed width and clips, which
           // would cut off the last character of the title
           box.style.backgroundColor = rect.getAttribute('fill') || window.getComputedStyle(rect).fill;
+        }
+        var root = topRoot;
+        for (var p = cluster.parentNode; p && p !== svg; p = p.parentNode) {
+          if (p.classList && p.classList.contains('root')) { root = p; break; }
         }
         root.appendChild(label);
       });

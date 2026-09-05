@@ -231,6 +231,24 @@
   max-width: 100%;
   height: auto;
 }
+/* Mermaid wraps every label in <g class="label">, which collides with
+   Bootstrap's .label badge (bold, 75% size, white). Undo it inside SVGs.
+   Not scoped to .post-container: mermaid measures labels in a temporary
+   element on <body>, and the measured and displayed styles must agree. */
+svg .label {
+  padding: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  color: inherit;
+  text-align: inherit;
+  border-radius: 0;
+}
+/* Markdown-string labels render as <p>; the site's global p margin
+   would break mermaid's measured layout. */
+svg p {
+  margin: 0;
+}
 
 /* ---- Kramdown Table of Contents ---- */
 .post-container ul#markdown-toc {
