@@ -380,7 +380,7 @@ Java 对照：JNI 是同一位置的技术——`jobject` 对应 `PyObject*`，�
 - Sanitizers：ASan、UBSan、TSan；它们能抓什么、抓不到什么、在 PyTorch 的 CI 里怎么用；
 - gtest：`c10/test/`、`aten/src/ATen/test/` 的组织方式；C++ 测试与 Python 测试的分工；
 - clang-format、clang-tidy，以及 PyTorch 的 lint 规则；
-- 工具链版本矩阵：gcc/clang 版本、CUDA 版本、C++ 标准（PyTorch 2.x 前期用 C++17，近期版本已切到 C++20）之间的兼容约束。
+- 工具链版本矩阵：gcc/clang 版本、CUDA 版本、C++ 标准（PyTorch 2.x 用 C++17）之间的兼容约束。
 
 核心问题是：
 
@@ -488,9 +488,9 @@ CUDA kernel 大量依赖模板参数化和 RAII 管理设备资源；第六篇�
 
 ### 语言标准与版本基线
 
-正文以 **C++17** 为基线：这是 PyTorch 2.x 前期与大量第三方扩展使用的标准，也是读懂这些项目源码所需的最小集；mini-c10 全部用 `-std=c++17` 编译。PyTorch 近期版本（本系列源码引用的 v2.13.0 树 `CMAKE_CXX_STANDARD` 为 20）和 vLLM 已切到 **C++20**，但源码里实际用到的 C++20 特性很少；concepts、`std::span`、`consteval` 等会在相关位置提及，并标注"源码树中尚未普遍使用"。
+正文以 **C++17** 为基线：这是 PyTorch 2.x 与大量第三方扩展使用的标准，也是读懂这些项目源码所需的最小集；本系列引用的 PyTorch v2.10.0 树顶层 `CMakeLists.txt` 的 `CMAKE_CXX_STANDARD` 为 17，vLLM v0.15.0 同样是 17，mini-c10 全部用 `-std=c++17` 编译。concepts、`std::span`、`consteval` 等 C++20 特性会在相关位置作为语言知识提及，并标注"源码树中尚未使用"。
 
-源码引用以 **PyTorch 2.x（2.4 及之后，正文片段取自 v2.13.0 源码树）** 和 **vLLM 0.x 主线（v0.27 附近）**为准。C++ 层的接口比 Python 层稳定，但以下几处变化较快，正文会随文标注版本：
+源码引用以 **PyTorch 2.x（2.4 及之后，正文片段取自 v2.10.0 源码树）** 和 **vLLM 0.x 主线（v0.15.0）**为准。C++ 层的接口比 Python 层稳定，但以下几处变化较快，正文会随文标注版本：
 
 - `c10::optional` → `std::optional` 的迁移；
 - `AT_DISPATCH` 宏族向 `AT_DISPATCH_V2` 的演进；

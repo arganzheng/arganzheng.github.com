@@ -325,7 +325,7 @@ $$
     * **Attention 计算**：在各 GPU 内部独立完成计算。
     * **Output Projection / O_Proj（行并行）**：将多头输出映射回原维度，直到这一步结束时，才进行一次 All-Reduce 通信完成整体求和。 
 * **MLP / FFN 模块**：
-    * **Gate / Up Projection / FC1（列并行）**：将特征维度放大到中间维度（如 $4H$），各 GPU 分片计算。
+    * **Gate / Up Projection / FC1（列并行）**：将特征维度放大到中间维度（如 $$4H$$），各 GPU 分片计算。
     * **Down Projection / FC2（行并行）**：将中间维度重新缩小回原维度，同样在第二层结束后才进行一次 All-Reduce 通信。 
 
 以 TP=4 为例：

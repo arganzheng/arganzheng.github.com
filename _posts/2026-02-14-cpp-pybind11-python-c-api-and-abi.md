@@ -179,7 +179,7 @@ class TORCH_PYTHON_API THPPointer {
 };
 ```
 
-它和 `std::unique_ptr` 的形状一模一样：只能移动、析构时释放、`release()` 交出所有权。第四节 `THPVariable_WrapWithType` 里 `THPObjectPtr obj(...); return obj.release();` 就是"函数内用 RAII 保证异常安全，出口处把 new reference 交还给 C API 调用方"的标准写法——和第二篇 `intrusive_ptr::release()` 的纪律完全一致。
+它和 `std::unique_ptr` 的形状一模一样：只能移动、析构时释放、`release()` 交出所有权。`python_variable.cpp` 里 `THPVariable_get_names` 的 `THPObjectPtr tuple(PyTuple_New(size)); ... return tuple.release();` 就是"函数内用 RAII 保证异常安全（中途 `throw python_error()` 时自动 `Py_DECREF`），出口处把 new reference 交还给 C API 调用方"的标准写法——和第二篇 `intrusive_ptr::release()` 的纪律完全一致。
 
 Java 对照：JNI 的 local reference 由 JVM 在 native 方法返回时自动释放，相当于一个"函数作用域的 borrowed reference"；global reference 需要显式 `NewGlobalRef/DeleteGlobalRef`，相当于 owned。区别在于 JNI 的 local ref 表有容量上限（默认 16 个，超出要 `EnsureLocalCapacity`），而 Python 的引用计数没有这种表。
 
@@ -280,7 +280,7 @@ static PyTypeObject THPVariableType = {
 ```cpp
 static PyObject* THPVariable_is_cuda(THPVariable* self, void* unused) {
   HANDLE_TH_ERRORS
-  if (has_torch_function((PyObject*)self)) {
+  if (check_has_torch_function((PyObject*)self)) {
     return handle_torch_function_getter(self, "is_cuda");
   }
   auto& self_ = THPVariable_Unpack(self);
@@ -306,7 +306,7 @@ Java 对照：JNI 没有"在 C 里定义 Java 类"这回事——类只能在 Ja
 
 pybind11 是一个 header-only 的 C++ 库，它做的事情可以一句话概括：**用模板在编译期为每个被绑定的函数生成一段 C API 胶水代码**——解析 `args` 元组、把每个 `PyObject*` 转成对应的 C++ 类型、调用函数、把返回值转回 `PyObject*`、把 C++ 异常翻译成 Python 异常。第三篇讲过模板是"按类型生成代码"，pybind11 是这一能力最重的应用之一。
 
-PyTorch v2.13.0 源码树把 pybind11 作为 `third_party/pybind11` 子模块；`torch/csrc/utils/pybind.h` 里有 `#define IS_PYBIND_2_13_PLUS PYBIND11_VERSION_HEX >= 0x020D0000`，说明代码需要兼容 2.13 之前和之后的版本。本文引用的 pybind11 头文件片段来自本机安装的 pybind11 3.1.0，涉及的接口（`gil_scoped_release`、`type_caster`、`py::object`）在 2.x 与 3.x 之间语义一致。
+PyTorch v2.10.0 源码树把 pybind11 作为 `third_party/pybind11` 子模块（钉在 pybind11 3.0.1）；`torch/csrc/utils/pybind.h` 里有 `#define IS_PYBIND_2_13_PLUS PYBIND11_VERSION_HEX >= 0x020D0000`，说明代码需要兼容 pybind11 2.13 之前和之后的版本。本文引用的 pybind11 头文件片段来自本机安装的 pybind11 3.1.0，涉及的接口（`gil_scoped_release`、`type_caster`、`py::object`）在 2.x 与 3.x 之间语义一致。
 
 ### 2.1 `PYBIND11_MODULE`：`PyInit_xxx` 入口
 
@@ -813,32 +813,53 @@ static PyObject* THPVariable_WrapWithType(
   }
 
   c10::TensorImpl* tensor_impl = var.unsafeGetTensorImpl();
-  THPObjectPtr obj(PyObjectPreservation::get_or_init(*tensor_impl, [&]() {
-    PyTypeObject* type = reinterpret_cast<PyTypeObject*>(THPVariableClass);
+  c10::impl::PyObjectSlot* pyobj_slot = tensor_impl->pyobj_slot();
+
+  PyObject* obj = pyobj_slot->load_pyobj();
+  if (obj) {
     if (desired_type) {
-      type = *desired_type;
-    } else if (C10_UNLIKELY(var.device().type() == c10::kXLA)) {
-      if (auto clazz = getPythonTensorClass(var.device())) {
-        type = reinterpret_cast<PyTypeObject*>(clazz);
-      }
+      check_tensor_subclass(obj, *desired_type);
     }
-
-    PyObject* wrapper = type->tp_alloc(type, 0);
-    TORCH_CHECK_WITH(
-        OutOfMemoryError,
-        wrapper,
-        "Failed to allocate a ",
-        type->tp_name,
-        " object");
-    auto v = reinterpret_cast<THPVariable*>(wrapper);
-    new (&v->cdata) Tensor(std::forward<T>(var));
-    return wrapper;
-  }));
-
-  if (desired_type) {
-    check_tensor_subclass(obj.get(), *desired_type);
+    return Py_NewRef(obj);
   }
-  return obj.release();
+
+  PyTypeObject* type = reinterpret_cast<PyTypeObject*>(THPVariableClass);
+  if (desired_type) {
+    type = *desired_type;
+  } else if (C10_UNLIKELY(var.device().type() == c10::kXLA)) {
+    if (auto clazz = getPythonTensorClass(var.device())) {
+      type = reinterpret_cast<PyTypeObject*>(clazz);
+    }
+  }
+
+  obj = type->tp_alloc(type, 0);
+  TORCH_CHECK(obj, "Failed to allocate a ", type->tp_name, " object");
+
+  // Ensure that PyUnstable_TryIncref calls don't fail spuriously in
+  // free-threaded Python.
+  PyUnstable_EnableTryIncRef(obj);
+
+  auto v = reinterpret_cast<THPVariable*>(obj);
+  new (&v->cdata) Tensor(std::forward<T>(var));
+
+  if (THPVariable_Unpack(obj).is_uniquely_owned()) {
+    // We can use a faster non-atomic code path if we have the only reference to
+    // a fresh Tensor.
+    PyObjectPreservation::init_fresh_nonatomic(tensor_impl, pyobj_slot, obj);
+    return obj;
+  }
+
+  PyObject* wrapper =
+      PyObjectPreservation::init_once(tensor_impl, pyobj_slot, obj);
+  if (wrapper != obj) {
+    // Another thread beat us to it
+    Py_DECREF(obj);
+    if (desired_type) {
+      check_tensor_subclass(wrapper, *desired_type);
+    }
+    return Py_NewRef(wrapper);
+  }
+  return obj;
 }
 ```
 
@@ -846,38 +867,66 @@ static PyObject* THPVariable_WrapWithType(
 
 - `T&&` 加 `std::forward<T>`：第二篇的转发引用。传 `const Tensor&` 进来就拷贝句柄（C++ 计数 +1），传 `Tensor&&` 进来就移动（计数不变）。
 - undefined tensor 变成 `None`——`Py_RETURN_NONE` 是 `Py_INCREF(Py_None); return Py_None;`。
-- `PyObjectPreservation::get_or_init(*tensor_impl, factory)`：**如果这个 `TensorImpl` 已经有 Python 对象，直接返回它（new reference）；否则调用 factory 创建一个**。这就是"同一个 `TensorImpl` 永远对应同一个 Python 对象"的实现点。
-- factory 里：`type->tp_alloc(type, 0)` 让 CPython 分配 `sizeof(THPVariable)` 字节并初始化 `PyObject_HEAD`（计数 = 1），然后 **placement new** 在 `cdata` 那块未初始化的内存上构造一个 `Tensor`。CPython 分配的内存不会调用 C++ 构造函数，必须手工构造。
-- 用 `THPObjectPtr` 持有中间结果，`check_tensor_subclass` 可能 `TORCH_CHECK` 失败抛异常，RAII 保证那时 `Py_DECREF`；成功路径 `obj.release()` 把 new reference 交给调用方。
+- 先查 `pyobj_slot->load_pyobj()`：**如果这个 `TensorImpl` 已经有 Python 对象，直接 `Py_NewRef` 返回它**。`Py_NewRef(obj)` 等价于 `Py_INCREF(obj); return obj;`——把 slot 里的 borrowed 变成返给调用方的 new reference。这就是"同一个 `TensorImpl` 永远对应同一个 Python 对象"的实现点。
+- 没有就创建：`type->tp_alloc(type, 0)` 让 CPython 分配 `sizeof(THPVariable)` 字节并初始化 `PyObject_HEAD`（计数 = 1），然后 **placement new** 在 `cdata` 那块未初始化的内存上构造一个 `Tensor`。CPython 分配的内存不会调用 C++ 构造函数，必须手工构造。
+- 最后把新对象登记进 `TensorImpl`：如果 `cdata` 是唯一持有者（`is_uniquely_owned()`，刚从算子返回的临时 tensor 走右值重载时正是如此），别的线程不可能看到这个 `TensorImpl`，走非原子的 `init_fresh_nonatomic`；否则走 `init_once` 做 CAS，如果另一个线程抢先登记了自己的包装对象，就 `Py_DECREF` 掉刚分配的这一个、返回对方的。
 
-`get_or_init` 在 `torch/csrc/utils/pyobject_preservation.h`，它的快速路径：
+两个登记函数在 `torch/csrc/utils/pyobject_preservation.cpp`：
 
 ```cpp
-  static PyObject* get_or_init(T& target, Factory&& pyobj_factory) {
-    auto* slot = target.pyobj_slot();
-    PyObject* obj = slot->load_pyobj();
-    if (obj) {
-      return Py_NewRef(obj);
-    }
+void PyObjectPreservation::init_fresh_nonatomic(
+    intrusive_ptr_target* target,
+    PyObjectSlot* slot,
+    PyObject* pyobj) {
+  TORCH_INTERNAL_ASSERT(slot->load_pyobj() == nullptr);
+  TORCH_INTERNAL_ASSERT(
+      target->combined_refcount_.load(std::memory_order_relaxed) ==
+      c10::detail::kUniqueRef);
 
-    obj = pyobj_factory();
-    // ...
-    // Fast path: if we're the only owner, no other thread can see this
-    // object, so we can skip the atomic CAS.
-    auto combined = target.combined_refcount_.load(std::memory_order_relaxed);
-    if (combined == c10::detail::kUniqueRef) {
-      slot->pyobj_.store(obj, std::memory_order_relaxed);
-      target.combined_refcount_.store(
-          c10::detail::kHasPyObject | c10::detail::kUniqueRef,
-          std::memory_order_relaxed);
-      return obj;
-    }
-    // Slow path: atomically store our new wrapper into the slot.
-    // ...（CAS；如果另一个线程抢先，Py_DECREF 自己的、返回对方的）
+  slot->pyobj_.store(pyobj, std::memory_order_relaxed);
+  slot->pyobj_interpreter_.store(
+      c10::impl::getGlobalPyInterpreter(), std::memory_order_relaxed);
+  target->combined_refcount_.store(
+      c10::detail::kHasPyObject | c10::detail::kUniqueRef,
+      std::memory_order_relaxed);
+}
+
+PyObject* PyObjectPreservation::init_once(
+    intrusive_ptr_target* target,
+    PyObjectSlot* slot,
+    PyObject* pyobj) {
+  PyObject* expected = nullptr;
+  if (!slot->pyobj_.compare_exchange_strong(
+          expected, pyobj, std::memory_order_acq_rel)) {
+    TORCH_INTERNAL_ASSERT(expected != nullptr);
+    return expected;
   }
+
+  slot->pyobj_interpreter_.store(
+      c10::impl::getGlobalPyInterpreter(), std::memory_order_release);
+
+  bool increfed = false;
+  auto combined = target->combined_refcount_.load(std::memory_order_relaxed);
+  do {
+    TORCH_INTERNAL_ASSERT(!c10::detail::has_pyobject(combined));
+    if (c10::detail::refcount(combined) > 1 && !increfed) {
+      // We need to incref the object to preserve the invariant that
+      // if refcount > 1, the c10 object holds a reference to the PyObject.
+      // This must happen before we set the kHasPyObject bit.
+      Py_INCREF(pyobj);
+      increfed = true;
+    }
+  } while (!target->combined_refcount_.compare_exchange_weak(
+      combined,
+      combined | c10::detail::kHasPyObject,
+      std::memory_order_acq_rel,
+      std::memory_order_relaxed));
+  // ...
+  return pyobj;
+}
 ```
 
-`Py_NewRef(obj)` 等价于 `Py_INCREF(obj); return obj;`——把 slot 里的 borrowed 变成返给调用方的 new reference。第二个分支设置 `kHasPyObject` 位，第五节讲它的含义。
+两者都做三件事：把 `PyObject*` 存进 slot、把全局解释器指针存进 slot、在 `combined_refcount_` 上设置 `kHasPyObject` 位。第五节讲这个位的含义；`init_once` 里"计数 > 1 时先 `Py_INCREF`"那一步，是为了在这个位生效前把第五节的不变量先做平。
 
 ### 4.4 `THPVariable_Unpack` 与释放：Python → C++，以及 `tp_dealloc`
 
@@ -951,45 +1000,75 @@ struct C10_API PyInterpreterVTable {
 };
 ```
 
-第三步，`libtorch_python.so` 里 `torch/csrc/PyInterpreter.cpp` 的 `ConcretePyInterpreterVTable` 实现它（3.3 节看过 `incref/decref` 的实现），并在加载时注册到 `c10::impl::getGlobalPyInterpreter()`。`c10/core/impl/PyObjectSlot.h` 通过这个接口操作它存的指针：
+第三步，`libtorch_python.so` 里 `torch/csrc/PyInterpreter.cpp` 的 `ConcretePyInterpreterVTable` 实现它（3.3 节看过 `incref/decref` 的实现），并在加载时注册为全局解释器（`c10::impl::getGlobalPyInterpreter()`）。`TensorImpl` 里存指针的地方是 `c10/core/impl/PyObjectSlot.h`，它只是两个原子指针：
 
 ```cpp
 struct C10_API PyObjectSlot {
  public:
-  PyObjectSlot() : pyobj_(nullptr) {}
+  PyObjectSlot() : pyobj_interpreter_(nullptr), pyobj_(nullptr) {}
 
+  // Query the PyObject interpreter.  This may return null if there is no
+  // interpreter.
+  PyInterpreter* pyobj_interpreter() const {
+    return pyobj_interpreter_.load(std::memory_order_acquire);
+  }
+  // ...
   PyObject* load_pyobj() const {
     return pyobj_.load(std::memory_order_acquire);
   }
   // ...
-  void incref() const noexcept {
-    // Because intrusive_ptr incref uses relaxed memory order, we need to
-    // do an acquire fence to ensure that the kHasPyObject bit was
-    // observed before the load of the PyObject* below.
-    // NB: This is a no-op on x86/x86-64
-    std::atomic_thread_fence(std::memory_order_acquire);
-    PyObject* obj = load_pyobj();
-    (*c10::impl::getGlobalPyInterpreter())->incref(obj);
+  void clear() {
+    pyobj_.store(nullptr, std::memory_order_relaxed);
+    pyobj_interpreter_.store(nullptr, std::memory_order_relaxed);
   }
 
-  void decref() const noexcept {
-    PyObject* obj = load_pyobj();
-    (*c10::impl::getGlobalPyInterpreter())->decref(obj);
-  }
-  // ...
  private:
+  // This is now always the global interpreter if the PyObject is set.
+  // Maybe we can remove this field some day...
+  std::atomic<PyInterpreter*> pyobj_interpreter_;
+
   // The PyObject representing this Tensor or nullptr. Ownership is managed
   // by intrusive_ptr. By the time the PyObjectSlot is destroyed, this
   // reference is already dead.
   std::atomic<PyObject*> pyobj_;
+
+  friend class torch::utils::PyObjectPreservation;
 };
+```
+
+真正调 `incref/decref` 的是 `TensorImpl` 覆写的三个虚函数（`c10/core/TensorImpl.cpp`，`StorageImpl` 有一份一模一样的）：
+
+```cpp
+void TensorImpl::incref_pyobject() const noexcept {
+  // Because intrusive_ptr incref uses relaxed memory order, we need to
+  // do an acquire fence to ensure that the kHasPyObject bit was
+  // observed before the load of the PyObject* below.
+  // NB: This is a no-op on x86/x86-64
+  std::atomic_thread_fence(std::memory_order_acquire);
+
+  PyObject* obj = pyobj_slot_.load_pyobj();
+  (*pyobj_slot_.pyobj_interpreter())->incref(obj);
+}
+
+void TensorImpl::decref_pyobject() const noexcept {
+  PyObject* obj = pyobj_slot_.load_pyobj();
+  (*pyobj_slot_.pyobj_interpreter())->decref(obj);
+}
+
+bool TensorImpl::try_incref_pyobject() const noexcept {
+  c10::impl::PyInterpreter* interp = pyobj_slot_.pyobj_interpreter();
+  if (C10_UNLIKELY(!interp)) {
+    return false;
+  }
+  return (*interp)->try_incref(pyobj_slot_);
+}
 ```
 
 这是第四篇讲的"用虚接口做依赖倒置"：底层库定义接口，上层库提供实现，底层通过接口回调上层，编译期依赖方向不变（`libtorch_python → libc10`），运行期调用方向可以反过来。`PyInterpreter.h` 开头那段 Note [Python interpreter tag] 解释了为什么用一个 vtable 对象而不是直接函数指针：`.so` 可能被 `dlclose`，需要能把 vtable 换成一个"全部空操作"的版本（`disarm()`）来避免调用已卸载代码。
 
 `std::atomic_thread_fence(std::memory_order_acquire)` 是第六篇的内容：`intrusive_ptr` 加计数用 `relaxed`，要确保另一个线程设置的 `kHasPyObject` 位和 `pyobj_` 指针都被看到，需要一个 acquire 栅栏。
 
-PyTorch 2.x 中的变化：早期 2.x 版本里 `PyObjectSlot` 存的是 `PyObject*` 加一个 `PyInterpreter*` 标签（支持 torchdeploy 的多解释器），还有一个 `owns_pyobj` 位藏在指针的最低位里；v2.13.0 简化为单个 `std::atomic<PyObject*>` 加全局的 `getGlobalPyInterpreter()`，"谁拥有谁"的信息移到了 `intrusive_ptr_target` 的 `combined_refcount_` 里（第五节）。
+PyTorch 2.x 中的变化：早期 2.x 版本里 `PyObjectSlot` 的 `PyInterpreter*` 标签是为 torchdeploy 的多解释器准备的，还有一个 `owns_pyobj` 位藏在指针的最低位里；v2.10.0 的 `pyobj_interpreter_` 字段还在，但正如注释所说"now always the global interpreter"，只剩一个解释器；`owns_pyobj` 位已经没有了，"谁拥有谁"的信息移到了 `intrusive_ptr_target` 的 `combined_refcount_` 里（第五节）。
 
 
 ## 五、Python 对象与 C++ 对象的双向持有：`pyobj_slot`、`kHasPyObject` 与循环引用
@@ -1024,7 +1103,7 @@ u.my_tag                          # 期望还是 "hello"
 
 如果 `del t` 时 Python 对象被释放了，`my_tag` 就丢了，`u` 会是一个全新的 Python 对象，`id(u) != id(t)`。用户对 `torch.Tensor` 的直觉是"它就是一个对象"，这种行为不可接受。所以规则必须是：**只要 C++ 侧还有其他强引用，Python 包装对象就必须活着。**
 
-### 5.2 v2.13.0 的机制：计数在 1 和 2 之间变化时联动
+### 5.2 v2.10.0 的机制：计数在 1 和 2 之间变化时联动
 
 `c10/util/intrusive_ptr.h` 里 `intrusive_ptr_target` 的成员注释把规则写得很清楚：
 
@@ -1082,7 +1161,7 @@ constexpr uint64_t kHasPyObject = (uint64_t(1) << 63);
     }
 ```
 
-`incref_pyobject/decref_pyobject` 是 `intrusive_ptr_target` 上的虚函数，默认空实现，`TensorImpl` 和 `StorageImpl` 覆盖为调用 `pyobj_slot_.incref()/decref()`（4.5 节），最终经 `PyInterpreterVTable` 落到 `Py_INCREF/Py_DECREF`（3.3 节看到它们会自己拿 GIL）。`if constexpr` 加 `TargetTraits<TTarget>::can_have_pyobject`（第三篇）保证只有 `TensorImpl`/`StorageImpl` 及其基类的 `intrusive_ptr` 实例化里才编进这段代码，`intrusive_ptr<Node>` 之类零开销。
+`incref_pyobject/decref_pyobject` 是 `intrusive_ptr_target` 上的虚函数，默认空实现，`TensorImpl` 和 `StorageImpl` 覆盖为"从 `pyobj_slot_` 读出 `PyObject*`，经 `pyobj_interpreter()` 调 `incref/decref`"（4.5 节），最终经 `PyInterpreterVTable` 落到 `Py_INCREF/Py_DECREF`（3.3 节看到它们会自己拿 GIL）。`if constexpr` 加 `TargetTraits<TTarget>::can_have_pyobject`（第三篇）保证只有 `TensorImpl`/`StorageImpl` 及其基类的 `intrusive_ptr` 实例化里才编进这段代码，`intrusive_ptr<Node>` 之类零开销。
 
 把 5.1 节的例子走一遍：
 
@@ -1091,13 +1170,13 @@ constexpr uint64_t kHasPyObject = (uint64_t(1) << 63);
 | `t = torch.ones(3)` | 1（`cdata`） | 1（变量 `t`） | `THPVariable_Wrap` 创建 Python 对象，设 `kHasPyObject` |
 | `keep(t)` 拷贝进 `vector` | 2 | **2** | 1 → 2，`incref_pyobject`：C++ 侧替 Python 对象加了一个引用 |
 | `del t` | 2 | 1 | Python 对象**没有**被释放，`my_tag` 保住 |
-| `get()` 返回 | 2 | 2 | `THPVariable_Wrap` → `get_or_init` 发现 slot 非空，`Py_NewRef` 返回同一个对象 |
+| `get()` 返回 | 2 | 2 | `THPVariable_Wrap` 发现 `pyobj_slot` 非空，`Py_NewRef` 返回同一个对象 |
 | `vector` 清空 | 1 | 1 | 2 → 1，`decref_pyobject`；现在只有 `u` 持有 |
 | `del u` | 0 | 0 | Python 计数归零 → `tp_dealloc` → `cdata.~Variable()` → C++ 计数归零 → `TensorImpl` 析构 |
 
 关键的不变量正是 4.4 节 `THPVariable_clear` 里断言的：Python 对象走到 `tp_dealloc` 时 C++ 计数一定是 1——因为计数 ≥ 2 时 C++ 侧一直替 Python 对象持着一个引用，Python 计数不可能归零。
 
-PyTorch 2.x 中的变化：早期 2.x 版本（如 2.4）用的是另一套叫 "resurrection" 的机制——`PyObjectSlot` 里有一个 `owns_pyobj` 标志表示所有权方向，Python 计数归零进 `tp_dealloc` 时先检查 C++ 计数，如果 > 1 就把 Python 对象"复活"（`THPVariable_tryResurrect`：`Py_INCREF` 回来并翻转所有权到 C++ 侧），C++ 计数最终归零时再由 `TensorImpl` 析构去释放 Python 对象。v2.13.0 改成上面这种在 1↔2 转换点联动的方案，`THPVariable_tryResurrect` 和 `owns_pyobj` 都不存在了，`weak_intrusive_ptr::lock()` 相应地要在计数为 1 且有 PyObject 时先 `try_incref_pyobject()`（`intrusive_ptr.h` 的 `lock()` 里有对应分支）。两种方案的目标相同，读旧版源码时注意名字不同。
+PyTorch 2.x 中的变化：早期 2.x 版本（如 2.4）用的是另一套叫 "resurrection" 的机制——`PyObjectSlot` 里有一个 `owns_pyobj` 标志表示所有权方向，Python 计数归零进 `tp_dealloc` 时先检查 C++ 计数，如果 > 1 就把 Python 对象"复活"（`THPVariable_tryResurrect`：`Py_INCREF` 回来并翻转所有权到 C++ 侧），C++ 计数最终归零时再由 `TensorImpl` 析构去释放 Python 对象。v2.10.0 改成上面这种在 1↔2 转换点联动的方案，`THPVariable_tryResurrect` 和 `owns_pyobj` 都不存在了，`weak_intrusive_ptr::lock()` 相应地要在计数为 1 且有 PyObject 时先 `try_incref_pyobject()`（`intrusive_ptr.h` 的 `lock()` 里有对应分支）。两种方案的目标相同，读旧版源码时注意名字不同。
 
 ### 5.3 循环引用：`tp_traverse` 与 C++ 侧的所有权
 
@@ -1124,20 +1203,23 @@ static int THPVariable_traverse(PyObject* self, visitproc visit, void* arg) {
       if (autograd_meta) {
         // Do NOT call grad_fn() here as that might trigger a recompute
         const auto& grad_fn = autograd_meta->grad_fn_;
-        // Check that this python object is the sole owner of the grad_fn.
-        // The grad_fn's PyObject holds the other reference.
-        if (grad_fn && grad_fn.use_count() == 2) {
-          Py_VISIT(grad_fn->pyobj_slot()->load_pyobj());
+        if (grad_fn && grad_fn.use_count() == 1) {
+          // All Node can have a pyobj (stored in "pyobj_")
+          Py_VISIT(grad_fn->pyobj());
+          // PyNode are special as they also have an "obj" field
+          if (auto py_node_fn = dynamic_cast<PyNode*>(grad_fn.get())) {
+            Py_VISIT(py_node_fn->obj);
+          }
         }
       }
     }
-    // ...
+    // ...（autograd_meta 里的 Python hook 字典同样 Py_VISIT）
   }
   return 0;
 }
 ```
 
-`tp_traverse` 的契约是"报告我持有的所有 Python 强引用"。前两个 `Py_VISIT` 是直接字段，没有疑问。`grad_fn` 那段是难点：`grad_fn` 是 C++ 对象，它的 Python 包装是否算"被这个 `THPVariable` 持有"，取决于 C++ 侧的所有权——只有当这个 Python 对象是 `TensorImpl` 的唯一持有者（`use_count() == 1`），且 `TensorImpl` 是 `grad_fn` 的唯一 C++ 持有者（另一个引用来自 `grad_fn` 自己的 Python 包装，所以是 `== 2`），才能说"这条链上的 Python 对象是我独占的，可以报告给 GC"。报告一个并非独占的引用，GC 可能错误地清掉别人正在用的对象——注释里那个 gist 就是这样一个 bug。
+`tp_traverse` 的契约是"报告我持有的所有 Python 强引用"。前两个 `Py_VISIT` 是直接字段，没有疑问。`grad_fn` 那段是难点：`grad_fn` 是 C++ 对象（`Node`，它自己有一个 `pyobj_` 字段指向它的 Python 包装），它的 Python 包装是否算"被这个 `THPVariable` 持有"，取决于 C++ 侧的所有权——只有当这个 Python 对象是 `TensorImpl` 的唯一持有者（`tensor.use_count() == 1`），且 `TensorImpl` 是 `grad_fn` 的唯一持有者（`grad_fn.use_count() == 1`），才能说"这条链上的 Python 对象是我独占的，可以报告给 GC"。报告一个并非独占的引用，GC 可能错误地清掉别人正在用的对象——注释里那个 gist 就是这样一个 bug。
 
 函数上方的 `NOTE [ PyObject Traversal ]` 把这个规则一般化了：
 
@@ -1422,12 +1504,13 @@ def _get_packet(qualname, op_module):
 IValue toIValue(py::handle obj, const TypePtr& type, std::optional<int32_t> N) {
   switch (type->kind()) {
     case TypeKind::TensorType: {
-      if (Py_IsNone(obj.ptr())) {
+      if (obj.ptr() == Py_None) {
         // None gets converted to undefined Tensors
         return autograd::Variable();
       }
       if (THPVariable_Check(obj.ptr())) {
         auto var = py::cast<autograd::Variable>(obj);
+        guardAgainstNamedTensor<autograd::Variable>(var);
         return var;
       } else {
         // ...（allow_numbers_as_tensors 时把 Python 数字包成 0 维 tensor）
@@ -1489,12 +1572,12 @@ py::object toPyObject(IValue ivalue) {
 
 `std::move(ivalue).toTensor()` 用右值重载把 `Tensor` 从 `IValue` 里搬出来（计数不变，仍是 1）。`py::cast(std::move(tensor))` → `type_caster<at::Tensor>::cast`——注意它的签名是 `cast(const at::Tensor& src, ...)`，所以这里的 `std::move` 并不会真的移动——→ `THPVariable_Wrap(src)` → `THPVariable_WrapWithType`。接下来的计数变化值得逐步看：
 
-1. factory 里 `tp_alloc` 一个 `THPVariable`（Python 计数 1），placement new **拷贝**构造 `cdata`：C++ 计数 1 → 2。此时 `pyobj_slot_` 还是空、`kHasPyObject` 还没设，所以**不**触发 1 → 2 钩子。
-2. 回到 `get_or_init`：读到的 `combined` 强计数是 2，不等于 `kUniqueRef`，走 slow path。CAS 把新对象存进 slot；然后在设置 `kHasPyObject` 位的循环里发现 `refcount(combined) > 1`，先 `Py_INCREF(obj)`（Python 计数 1 → 2）——这一步是为了在"计数 ≥ 2 时 C++ 侧持有一个 Python 引用"这个不变量生效前把账做平。
-3. `get_or_init` 返回 new reference，`py::cast` 把它包成 `py::object`。
+1. `pyobj_slot->load_pyobj()` 为空（新 tensor 没有 Python 对象），`tp_alloc` 一个 `THPVariable`（Python 计数 1），placement new **拷贝**构造 `cdata`：C++ 计数 1 → 2。此时 `pyobj_slot_` 还是空、`kHasPyObject` 还没设，所以**不**触发 1 → 2 钩子。
+2. `is_uniquely_owned()` 为假（计数是 2），走 `init_once`：CAS 把新对象存进 slot；然后在设置 `kHasPyObject` 位的循环里发现 `refcount(combined) > 1`，先 `Py_INCREF(obj)`（Python 计数 1 → 2）——这一步是为了在"计数 ≥ 2 时 C++ 侧持有一个 Python 引用"这个不变量生效前把账做平。
+3. `THPVariable_WrapWithType` 返回 `obj`（new reference），`py::cast` 把它包成 `py::object`。
 4. `toPyObject` 返回时局部变量 `tensor` 析构：C++ 计数 2 → 1，此时 `kHasPyObject` 已设，触发 2 → 1 钩子，`Py_DECREF`（Python 计数 2 → 1）。
 
-最终：C++ 计数 1（只有 `cdata`），Python 计数 1（只有即将交给解释器的那个 new reference），`kHasPyObject` 已设。如果调用的是 `THPVariable_Wrap(at::TensorBase&&)` 那个右值重载（`wrap_outputs.h` 里对临时 tensor 就是这样），`cdata` 由移动构造，C++ 计数保持 1，`get_or_init` 走 fast path，上面第 2、4 步都不会发生——结果相同，少两次原子操作和一对 `Py_INCREF/DECREF`。）
+最终：C++ 计数 1（只有 `cdata`），Python 计数 1（只有即将交给解释器的那个 new reference），`kHasPyObject` 已设。如果调用的是 `THPVariable_Wrap(at::TensorBase&&)` 那个右值重载（`wrap_outputs.h` 里对临时 tensor 就是这样），`cdata` 由移动构造，C++ 计数保持 1，`is_uniquely_owned()` 为真，走非原子的 `init_fresh_nonatomic`，上面第 2、4 步都不会发生——结果相同，少两次原子操作和一对 `Py_INCREF/DECREF`。）
 
 最后 pybind11 从 lambda 拿到 `py::object`，`release()` 出 `PyObject*` 交给解释器，Python 端的 `y = torch.ops.myops.scale(t, 2.0)` 得到一个全新的 `torch.Tensor`。
 
@@ -1534,16 +1617,18 @@ Java 对照：一次 JNI 调用 `nativeScale(tensorObj, 2.0)`：`jobject` 进来
 - **pybind11**：`PYBIND11_MODULE(my_ext, m) { m.def("scale", &scale_cpu); }`，Python 侧 `import my_ext; my_ext.scale(t, 2.0)`。
 - **`TORCH_LIBRARY`**：`TORCH_LIBRARY(myops, m) { m.def("scale(Tensor x, float alpha) -> Tensor"); }` + `TORCH_LIBRARY_IMPL`，Python 侧 `torch.ops.myops.scale(t, 2.0)`。
 
-前者是"我写了一个 Python 函数，恰好用 C++ 实现"；后者是"我向 PyTorch 的算子表登记了一个算子"。第七节走的是后者的调用路径。vLLM 全部使用后者，`csrc/torch_bindings.cpp` 和 `csrc/libtorch_stable/torch_bindings.cpp` 是它的两个注册文件。
+前者是"我写了一个 Python 函数，恰好用 C++ 实现"；后者是"我向 PyTorch 的算子表登记了一个算子"。第七节走的是后者的调用路径。vLLM 全部使用后者，`csrc/torch_bindings.cpp` 是它的主注册文件（`csrc/moe/torch_bindings.cpp`、`csrc/cpu/torch_bindings.cpp` 等是同一写法的分册）。
 
 ### 8.1 vLLM `csrc/torch_bindings.cpp`：只注册，不定义 Python 函数
 
-v0.27.2rc0 附近的 `csrc/torch_bindings.cpp` 已经很短，只剩 ROCm 专用的一组算子（CUDA 算子全部迁到了 8.3 节的 stable 版本）：
+v0.15.0 的 `csrc/torch_bindings.cpp` 有八百多行，全部是 `def`/`impl` 对，没有一个 Python 类型（删节）：
 
 ```cpp
-#include <torch/all.h>
+#include "cache.h"
+#include "cuda_utils.h"
 #include "ops.h"
 #include "core/registration.h"
+
 #include <torch/library.h>
 #include <torch/version.h>
 
@@ -1553,27 +1638,53 @@ v0.27.2rc0 附近的 `csrc/torch_bindings.cpp` 已经很短，只剩 ROCm 专用
 // functions that return Tensors require a meta function.
 // ...
 
+TORCH_LIBRARY_EXPAND(TORCH_EXTENSION_NAME, ops) {
+  // vLLM custom ops
+  // ...
+  // Activation ops
+  // Activation function used in SwiGLU.
+  ops.def("silu_and_mul(Tensor! result, Tensor input) -> ()");
+  ops.impl("silu_and_mul", torch::kCUDA, &silu_and_mul);
+  // ...
+  // Layernorm
+  // Apply Root Mean Square (RMS) Normalization to the input tensor.
+  ops.def(
+      "rms_norm(Tensor! result, Tensor input, Tensor weight, float epsilon) -> "
+      "()");
+  ops.impl("rms_norm", torch::kCUDA, &rms_norm);
+  // ...
+}
+
+TORCH_LIBRARY_EXPAND(CONCAT(TORCH_EXTENSION_NAME, _cache_ops), cache_ops) {
+  // ...
+}
+
+TORCH_LIBRARY_EXPAND(CONCAT(TORCH_EXTENSION_NAME, _cuda_utils), cuda_utils) {
+  // ...
+}
+
+TORCH_LIBRARY_EXPAND(CONCAT(TORCH_EXTENSION_NAME, _custom_ar), custom_ar) {
+  // ...
 #ifdef USE_ROCM
-TORCH_LIBRARY_FRAGMENT(CONCAT(TORCH_EXTENSION_NAME, _custom_ar), custom_ar) {
-  // Quick Reduce all-reduce kernels (ROCm-only; stays on legacy _C).
+  // Quick Reduce all-reduce kernels
   custom_ar.def(
       "qr_all_reduce(int fa, Tensor inp, Tensor out, int quant_level, bool "
       "cast_bf2half) -> ()");
   custom_ar.impl("qr_all_reduce", torch::kCUDA, &qr_all_reduce);
-
-  custom_ar.def("init_custom_qr", &init_custom_qr);
   // ...
-}
 #endif
+}
 
 REGISTER_EXTENSION(TORCH_EXTENSION_NAME)
 ```
 
+`TORCH_LIBRARY_EXPAND` 是 `csrc/core/registration.h` 里对 `TORCH_LIBRARY` 的一层薄包装——`#define TORCH_LIBRARY_EXPAND(NAME, MODULE) TORCH_LIBRARY(NAME, MODULE)`——存在的唯一目的是让 `NAME` 可以是一个宏（`TORCH_EXTENSION_NAME`，由构建系统 `-D` 进来，10.1 节）而不必是字面 token：宏参数在传给下一层宏之前会先展开。`CONCAT(TORCH_EXTENSION_NAME, _cache_ops)` 同理，拼出 `_C_cache_ops` 这样的命名空间。
+
 `csrc/ops.h` 是这些函数的 C++ 声明，全是普通签名，没有任何 Python 类型：
 
 ```cpp
-void rms_norm(torch::Tensor& out, torch::Tensor& input,
-              std::optional<torch::Tensor> weight, double epsilon);
+void rms_norm(torch::Tensor& out, torch::Tensor& input, torch::Tensor& weight,
+              double epsilon);
 
 void silu_and_mul(torch::Tensor& out, torch::Tensor& input);
 // ...
@@ -1582,14 +1693,11 @@ void silu_and_mul(torch::Tensor& out, torch::Tensor& input);
 Python 侧 `vllm/_custom_ops.py` 通过 `torch.ops._C` 调用：
 
 ```python
-current_platform.import_kernels()   # import vllm._C_stable_libtorch 等，只为触发静态注册
+current_platform.import_kernels()   # import vllm._C、vllm._moe_C，只为触发静态注册
 
 # layer norm ops
 def rms_norm(
-    out: torch.Tensor,
-    input: torch.Tensor,
-    weight: torch.Tensor | None,
-    epsilon: float,
+    out: torch.Tensor, input: torch.Tensor, weight: torch.Tensor, epsilon: float
 ) -> None:
     torch.ops._C.rms_norm(out, input, weight, epsilon)
 ```
@@ -1609,23 +1717,25 @@ def rms_norm(
 | 无 Python 环境 | 不可用（依赖 `libtorch_python.so`） | 可用（TorchScript、AOTInductor、纯 C++ 部署都能调 `torch.ops` 里的算子） |
 | 绑定代码量 | 每个函数一行 `m.def` | 每个函数一行 `def` + 一行 `impl`，外加 schema 字符串 |
 
-对 vLLM 这种要被 `torch.compile` 整图编译、要做 CUDA graph 捕获、要给融合 pass（`vllm/compilation/passes/fusion/act_quant_fusion.py` 里 `SILU_MUL_OP = torch.ops._C.silu_and_mul.default` 就是直接按算子匹配图节点）的推理引擎，第二列的每一项都是必需的。pybind11 直接绑定更适合"不进计算图的工具函数"——查询设备属性、初始化通信、管理句柄之类。
+对 vLLM 这种要被 `torch.compile` 整图编译、要做 CUDA graph 捕获、要给融合 pass（`vllm/compilation/activation_quant_fusion.py` 里 `SILU_MUL_OP = torch.ops._C.silu_and_mul.default` 就是直接按算子匹配图节点）的推理引擎，第二列的每一项都是必需的。pybind11 直接绑定更适合"不进计算图的工具函数"——查询设备属性、初始化通信、管理句柄之类。
 
-反过来，`TORCH_LIBRARY` 的成本是**每个算子都必须能用 schema 类型表达**（第七节看到的 `Tensor`、`int`、`float`、`Tensor?`、`int[]`……），自定义 C++ 结构体传不过去。vLLM 用 `int64_t` 的 `fptr_t` 传裸指针句柄（`ops.h` 里 `using fptr_t = int64_t;`）、用 `ScalarType` 自定义类（`csrc/core/scalar_type.hpp`，通过 `torch.classes` 注册）来绕开这个限制。
+反过来，`TORCH_LIBRARY` 的成本是**每个算子都必须能用 schema 类型表达**（第七节看到的 `Tensor`、`int`、`float`、`Tensor?`、`int[]`……），自定义 C++ 结构体传不过去。vLLM 用 `int64_t` 的 `fptr_t` 传裸指针句柄（`ops.h` 里 `using fptr_t = int64_t;`）、把自定义的 `ScalarType`（`csrc/core/scalar_type.hpp`，能表示 4 bit 带 bias 的量化类型）编码成一个 `int64_t` 的 id 在 schema 里以 `int b_type` 传递，Python 侧 `vllm/scalar_type.py` 维护一份并行实现（注释写着 "should be kept in sync until the inductor fully supports custom C++ classes"）来绕开这个限制。
 
-### 8.3 libtorch stable ABI：vLLM `csrc/libtorch_stable/` 与 PyTorch `torch/csrc/stable/`
+### 8.3 libtorch stable ABI：PyTorch `torch/csrc/stable/` 的现状（vLLM 0.15 尚未使用）
 
-第九、十节会讲，用 `TORCH_LIBRARY` 或 pybind11 写的扩展都直接链接 `libtorch_cpu.so`/`libc10.so` 的 C++ 符号，因此**必须和运行时的 PyTorch 是同一版本、同一编译器、同一 C++ ABI**编出来的。对 vLLM 这种每个版本要为多个 PyTorch 版本、多个 CUDA 版本各发一个 wheel 的项目，这是一个真实的发布成本。
+第九、十节会讲，用 `TORCH_LIBRARY` 或 pybind11 写的扩展都直接链接 `libtorch_cpu.so`/`libc10.so` 的 C++ 符号，因此**必须和运行时的 PyTorch 是同一版本、同一编译器、同一 C++ ABI**编出来的。对 vLLM 这种每个版本要钉死一个 PyTorch 版本（v0.15.0 的 `CMakeLists.txt` 里 `set(TORCH_SUPPORTED_VERSION_CUDA "2.9.1")`，版本不等就 `message(WARNING ...)`）、还要为多个 CUDA 版本各发一个 wheel 的项目，这是一个真实的发布成本。
 
-PyTorch 2.9 之后开始提供一层 **libtorch stable ABI**，v2.13.0 源码树里在 `torch/csrc/stable/`：
+PyTorch 2.9 之后开始提供一层 **libtorch stable ABI**，v2.10.0 源码树里在 `torch/csrc/stable/`：
 
 ```text
 torch/csrc/stable/
 ├── library.h                 # STABLE_TORCH_LIBRARY / _IMPL / _FRAGMENT、TORCH_BOX
-├── tensor.h, tensor_struct.h # torch::stable::Tensor
-├── device.h, accelerator.h   # torch::stable::Device、DeviceGuard、getCurrentStream
+├── tensor.h, tensor_struct.h, tensor_inl.h   # torch::stable::Tensor
+├── device.h, device_struct.h, device_inl.h   # torch::stable::Device
+├── accelerator.h             # torch::stable::accelerator::DeviceGuard、getCurrentStream
 ├── ops.h                     # torch::stable::empty_like、from_blob 等少量算子
 ├── stableivalue_conversions.h# StableIValue（uint64_t）<-> C++ 类型
+├── macros.h
 ├── version.h                 # TORCH_TARGET_VERSION / TORCH_FEATURE_VERSION
 └── c/shim.h                  # 新增的 C 接口（老的在 torch/csrc/inductor/aoti_torch/c/shim.h）
 torch/headeronly/             # 完全不依赖 libtorch 的 header-only 部分：ScalarType、Half、BFloat16、STD_TORCH_CHECK……
@@ -1662,7 +1772,7 @@ class Tensor {
   // ...
   explicit Tensor(AtenTensorHandle ath)
       : ath_(ath, [](AtenTensorHandle ath) {
-          STABLE_TORCH_ERROR_CODE_CHECK(aoti_torch_delete_tensor_object(ath));
+          TORCH_ERROR_CODE_CHECK(aoti_torch_delete_tensor_object(ath));
         }) {}
   // ...
 };
@@ -1697,69 +1807,58 @@ class StableLibrary final {
 
 `impl` 接收的 kernel 签名是固定的 `void(StableIValue*, uint64_t, uint64_t)`——一个"boxed"函数：参数是一个 `uint64_t` 数组（`using StableIValue = uint64_t;`），每个 8 字节要么直接放 `int64_t`/`double`/`bool`，要么放一个句柄。用户写的是普通 C++ 签名的函数，`TORCH_BOX(&fn)` 宏用第三篇的模板元编程（`infer_function_traits_t` 推出参数类型包，`unbox_to_tuple` 逐个转换，`std::apply` 调用）自动生成这个 boxed 包装。第四篇讲的 boxed/unboxed 双路径，在 stable ABI 里只剩 boxed 一条。
 
-vLLM 的 `csrc/libtorch_stable/torch_bindings.cpp` 用的正是这套：
+PyTorch 源码树里自带一个用这套写的示例扩展 `test/cpp_extensions/libtorch_agnostic_2_9_extension/`，它的 `csrc/kernel.cpp` 是 8.1 节 vLLM 写法的 stable 版本：
 
 ```cpp
-#include "ops.h"
-#include "cuda_utils.h"
-#include "core/registration.h"
-
-#include <torch/csrc/stable/library.h>
-
-// Register ops with STABLE_TORCH_LIBRARY for libtorch stable ABI compatibility.
-// Note: We register under namespace "_C" so ops are accessible as
-// torch.ops._C.<op_name> for compatibility with existing code.
-STABLE_TORCH_LIBRARY_FRAGMENT(_C, ops) {
-  // ...
-  // Activation function used in SwiGLU.
-  ops.def("silu_and_mul(Tensor! result, Tensor input) -> ()");
-  // ...
+STABLE_TORCH_LIBRARY(libtorch_agnostic_2_9, m) {
+  m.def("sgd_out_of_place(Tensor param, Tensor grad, float weight_decay, float lr, bool maximize) -> Tensor");
 }
 
-STABLE_TORCH_LIBRARY_IMPL(_C, CUDA, ops) {
-  // ...
-  ops.impl("silu_and_mul", TORCH_BOX(&silu_and_mul));
-  // ...
+STABLE_TORCH_LIBRARY_IMPL(libtorch_agnostic_2_9, CPU, m) {
+  m.impl("sgd_out_of_place", &boxed_sgd_out_of_place);   // 手写的 boxed 函数
 }
 
-REGISTER_EXTENSION(_C_stable_libtorch)
+Tensor identity(Tensor t) {
+  return t;
+}
+
+STABLE_TORCH_LIBRARY_FRAGMENT(libtorch_agnostic_2_9, m) {
+  m.def("identity(Tensor t) -> Tensor");
+}
+
+STABLE_TORCH_LIBRARY_IMPL(libtorch_agnostic_2_9, CUDA, m) {
+  m.impl("identity", TORCH_BOX(&identity));              // 由 TORCH_BOX 生成 boxed 包装
+}
 ```
 
-对应的 `csrc/libtorch_stable/ops.h` 里签名从 `torch::Tensor&` 换成了 `torch::stable::Tensor&`：
+这里的 `Tensor` 是 `torch::stable::Tensor`，不是 `at::Tensor`；同一个文件里切设备、取 stream 用的是 `torch::stable::accelerator::DeviceGuard guard(device_index);` 和 `torch::stable::accelerator::getCurrentStream(device_index)`——第六篇的 `c10::cuda::CUDAGuard` 在这里变成了同样 RAII 形状、底下是 C 函数 `aoti_torch_create_device_guard` 的版本。
 
-```cpp
-void silu_and_mul(torch::stable::Tensor& out, torch::stable::Tensor& input);
+它的 `setup.py` 说明了想达到的效果：
+
+```python
+    extra_compile_args = {
+        "cxx": [
+            "-fdiagnostics-color=always",
+            "-DTORCH_STABLE_ONLY",
+            "-DTORCH_TARGET_VERSION=0x0209000000000000",
+        ],
+    }
+    # ...
+        extension(
+            "libtorch_agnostic_2_9._C",
+            sources=sorted(str(s) for s in sources),
+            py_limited_api=True,
+            extra_compile_args=extra_compile_args,
 ```
 
-kernel 实现（`csrc/libtorch_stable/activation_kernels.cu`）里取 stream、切设备也换成了 stable 版本：
+`TORCH_TARGET_VERSION`（`torch/csrc/stable/version.h`）让头文件在编译期只暴露"2.9 时已经存在的 C 函数"，这样编出来的 `.so` 理论上能在 PyTorch ≥ 2.9 的任何版本上加载。
 
-```cpp
-  const torch::stable::accelerator::DeviceGuard device_guard(                  \
-      input.get_device_index());                                               \
-  const cudaStream_t stream = get_current_cuda_stream();                       \
-```
+**v2.10.0 时点的现状，要如实说明：**
 
-（第六篇的 `c10::cuda::CUDAGuard` 在这里变成了 `torch::stable::accelerator::DeviceGuard`，同样的 RAII 形状，底下是 C 函数。）
-
-`CMakeLists.txt` 里对这个目标的设置说明了它想达到的效果：
-
-```cmake
-  # Set TORCH_TARGET_VERSION for stable ABI compatibility.
-  # This ensures we only use C-shim APIs available in PyTorch 2.11.
-  # _C_stable_libtorch is abi compatible with PyTorch >= TORCH_TARGET_VERSION
-  # which is currently set to 2.11.
-  target_compile_definitions(_C_stable_libtorch PRIVATE
-    TORCH_TARGET_VERSION=0x020B000000000000ULL)
-```
-
-`TORCH_TARGET_VERSION`（`torch/csrc/stable/version.h`）让头文件在编译期只暴露"2.11 时已经存在的 C 函数"，这样编出来的 `.so` 理论上能在 PyTorch ≥ 2.11 的任何版本上加载。
-
-**v2.13.0 时点的现状，要如实说明：**
-
-1. 这一层还很年轻。vLLM 的 `CMakeLists.txt` 里紧挨着有一段"hotfix"：检测 `torch/csrc/stable/stableivalue_conversions.h` 的内容，如果匹配某个已知 bug 的写法，就把头文件拷出来打补丁再用（`cmake/patches/pytorch_stable_string.patch`，注释写着 "delete after we bump to 2.14"）。头文件级别的补丁说明 stable ABI 的 header-only 部分本身还在修 bug。
-2. 覆盖面有限。`torch/csrc/stable/ops.h` 里只有二十几个算子（`empty`、`empty_like`、`from_blob`、`copy_`、`fill_`、`matmul`、`sum`、`transpose`、`view`、`parallel_for` 等）；`torch::stable::Tensor` 只有元数据访问（`sizes`、`strides`、`scalar_type`、`device`……）和 `data_ptr`/`mutable_data_ptr`，kernel 主要还是拿裸指针自己算。这对 vLLM 这种"全部是自己写的 CUDA kernel"的项目够用，对需要在 C++ 里大量调用 ATen 算子的扩展还不够。
-3. 有一个编译期开关 `TORCH_STABLE_ONLY`：定义了它之后，`include` 任何非 stable 头文件会直接报错（`aten/src/ATen/core/TensorBase.h` 开头 `#ifdef TORCH_STABLE_ONLY #error ...`；`cmake/PostBuildSteps.cmake` 在安装时用 `tools/wrap_headers.py` 给所有非 stable 头文件加上这个守卫）。这是给扩展作者的"编译期 lint"：保证你没有偷用不稳定的东西。vLLM 的 CMake 里定义了 `TORCH_TARGET_VERSION` 但（在读到的这份 `CMakeLists.txt` 里）没有看到 `TORCH_STABLE_ONLY`。
-4. 它和 Python 的 stable ABI（`abi3`，9.5 节）是两个独立的东西。vLLM 两者都用：`define_extension_target(... USE_SABI 3 ...)` 让 `.so` 只用 CPython 的 limited API，产物叫 `vllm/_C_stable_libtorch.abi3.so`。前者解决"换 PyTorch 版本不用重编"，后者解决"换 Python 小版本不用重编"。
+1. 这一层还很年轻，主要用户还是 PyTorch 自己的测试和 AOTInductor。vLLM v0.15.0 **没有**用它：`csrc/` 下全部是 `TORCH_LIBRARY_EXPAND` + `torch::Tensor&` 的经典写法，`CMakeLists.txt` 里没有 `TORCH_TARGET_VERSION`，wheel 仍然钉死一个 PyTorch 版本（`TORCH_SUPPORTED_VERSION_CUDA "2.9.1"`）。
+2. 覆盖面有限。`torch/csrc/stable/ops.h` 里只有二十几个算子（`empty`、`empty_like`、`from_blob`、`copy_`、`fill_`、`matmul`、`sum`、`transpose`、`view`、`parallel_for` 等）；`torch::stable::Tensor` 只有元数据访问（`sizes`、`strides`、`scalar_type`、`device`……）和 `data_ptr`/`mutable_data_ptr`，kernel 主要还是拿裸指针自己算。这对 vLLM 这种"全部是自己写的 CUDA kernel"的项目原则上够用，对需要在 C++ 里大量调用 ATen 算子的扩展还不够。
+3. 有一个编译期开关 `TORCH_STABLE_ONLY`：定义了它之后，`include` 任何非 stable 头文件会直接报错（`aten/src/ATen/core/TensorBase.h` 开头 `#ifdef TORCH_STABLE_ONLY #error ...`；`setup.py` 的 `build_ext._wrap_headers_with_macro` 在打包时给所有非 stable 头文件包上 `#if !defined(TORCH_STABLE_ONLY) && !defined(TORCH_TARGET_VERSION)` 守卫，`torch/headeronly/`、`torch/csrc/stable/` 和 shim 头除外）。这是给扩展作者的"编译期 lint"：保证你没有偷用不稳定的东西。上面的示例扩展两个宏都定义了。
+4. 它和 Python 的 stable ABI（`abi3`，9.5 节）是两个独立的东西。上面的示例扩展两者都用（`py_limited_api=True`）；vLLM 只用了后者：`define_extension_target(... USE_SABI 3 ...)` 让 `.so` 只用 CPython 的 limited API，产物叫 `vllm/_C.abi3.so`。前者解决"换 PyTorch 版本不用重编"，后者解决"换 Python 小版本不用重编"。
 
 PyTorch 2.x 中的变化：`torch/csrc/stable/` 和 `torch/headeronly/` 是 2.9 前后才出现的目录，`STABLE_TORCH_LIBRARY`、`TORCH_BOX`、`TORCH_TARGET_VERSION` 在更早的 2.x 版本里都不存在。读 2.9 之前的扩展代码只会看到 `TORCH_LIBRARY` 这一条路。
 
@@ -1814,14 +1913,14 @@ ImportError: .../my_ext.so: undefined symbol: _ZN3c105ErrorC2ENS_14SourceLocatio
 
 **这是 PyTorch 扩展开发历史上最常见的 ABI 事故**，因为 PyTorch 的 Linux wheel 多年来一直用 `_GLIBCXX_USE_CXX11_ABI=0` 编译（为了兼容老的 manylinux 平台），而用户本机的 g++ 默认是 `=1`。
 
-PyTorch 2.x 中的变化（版本敏感，按官方发布说明和 v2.13.0 源码）：
+PyTorch 2.x 中的变化（版本敏感，按官方发布说明和 v2.10.0 源码）：
 
 - **≤ 2.5**：Linux pip wheel 全部 `_GLIBCXX_USE_CXX11_ABI=0`，libtorch 另有 pre-cxx11 和 cxx11 两个下载包。
 - **2.6**：CUDA 12.6、aarch64、ROCm、XPU 的 wheel 切到 `=1`（同时切到 manylinux 2.28 构建平台），CPU 和 CUDA 11.8/12.4 wheel 仍是 `=0`；发布说明要求扩展作者"update these builds to use CXX_ABI=1 as well"。
 - **2.7 起**：所有 Linux wheel 和 libtorch 都是 `=1`。
-- **v2.13.0 源码树**：这个开关**已经不存在了**。`grep -rn GLIBCXX_USE_CXX11_ABI` 在排除 `third_party` 后只剩三处：`torch/csrc/Module.cpp` 里 `set_module_attr("_GLIBCXX_USE_CXX11_ABI", Py_True)`（硬编码为 `True`），`torch/__init__.py` 里 `compiled_with_cxx11_abi()` 直接 `return True`，以及 `.pyi` 类型声明。`torch/utils/cpp_extension.py` 里也已经**没有**任何传 `-D_GLIBCXX_USE_CXX11_ABI` 的代码——2.7 及之前的 `cpp_extension.py` 会读 `torch._C._GLIBCXX_USE_CXX11_ABI` 并把 `-D_GLIBCXX_USE_CXX11_ABI=0/1` 加进每个扩展的编译命令，保证扩展和 PyTorch 一致（2.8 起连同 `TorchConfig.cmake` 里的 `TORCH_CXX_FLAGS` 一并删除）；现在 PyTorch 只有一种 ABI，就是编译器的默认值，这行代码没有存在的必要了。
+- **v2.10.0 源码树**：这个开关**已经不存在了**。`grep -rn GLIBCXX_USE_CXX11_ABI` 在排除 `third_party` 后只剩三处：`torch/csrc/Module.cpp` 里 `set_module_attr("_GLIBCXX_USE_CXX11_ABI", Py_True)`（硬编码为 `True`），`torch/__init__.py` 里 `compiled_with_cxx11_abi()` 直接 `return True`，以及 `torch/_C/__init__.pyi.in` 里的类型声明。`torch/utils/cpp_extension.py` 里也已经**没有**任何传 `-D_GLIBCXX_USE_CXX11_ABI` 的代码——2.7 及之前的 `cpp_extension.py` 会读 `torch._C._GLIBCXX_USE_CXX11_ABI` 并把 `-D_GLIBCXX_USE_CXX11_ABI=0/1` 加进每个扩展的编译命令，保证扩展和 PyTorch 一致（2.8 起连同 `TorchConfig.cmake` 里的 `TORCH_CXX_FLAGS` 一并删除）；现在 PyTorch 只有一种 ABI，就是编译器的默认值，这行代码没有存在的必要了。
 
-所以在 v2.13.0 上，`__cxx11` 类的 `undefined symbol` 只会在一种情况下出现：你自己（或者你用的某个第三方库、某个 conda 编译器配置）显式加了 `-D_GLIBCXX_USE_CXX11_ABI=0`。在 2.6 之前的版本上则是反过来：忘了加 `=0` 就会撞上。
+所以在 v2.10.0 上，`__cxx11` 类的 `undefined symbol` 只会在一种情况下出现：你自己（或者你用的某个第三方库、某个 conda 编译器配置）显式加了 `-D_GLIBCXX_USE_CXX11_ABI=0`。在 2.6 之前的版本上则是反过来：忘了加 `=0` 就会撞上。
 
 本机是 macOS，用的是 libc++ 而不是 libstdc++，**没有** `_GLIBCXX_USE_CXX11_ABI` 这个宏，无法直接复现上述错误。但 libc++ 用了同样的 inline namespace 技巧——它的所有类型都在 `std::__1` 里，所以在 macOS 上编译一个接受 `std::string` 的函数：
 
@@ -1869,7 +1968,7 @@ wheel 里的 `.so` 只能依赖这个基线上有的系统库版本，`auditwhee
 
 还有第三层 ABI：扩展 `.so` 和 CPython 解释器之间的。1.1 节说过 CPython 把 `PyObject` 布局公开，扩展直接解引用——所以 `PyObject` 或 `PyTypeObject` 的布局一变，扩展就要重编。CPython 每个小版本（3.11 → 3.12）都可能变，因此普通扩展的文件名带解释器标签（`_C.cpython-312-x86_64-linux-gnu.so`），一个 Python 版本一个 wheel。
 
-CPython 提供了一个受限的 **limited API**（定义 `Py_LIMITED_API` 宏后只暴露不依赖布局的函数），用它编的扩展叫 `abi3`，一个 `.so` 可以在 3.x 的多个版本上加载。vLLM 的 `.so` 全是 `abi3`（`CMakeLists.txt` 里 `USE_SABI 3`，产物 `vllm/_C_stable_libtorch.abi3.so`）——因为 vLLM 完全不用 `libtorch_python.so`（8.2 节：`TORCH_LIBRARY` 不需要 Python），它对 CPython 的依赖只剩 `REGISTER_EXTENSION` 里那个 `PyModule_Create`。`torch.utils.cpp_extension` 也支持这个选项，`CppExtension(..., py_limited_api=True)` 时 `BuildExtension` 会加 `-DPy_LIMITED_API=<最低支持的 CPython 版本>`，同时 `CppExtension` **不再把 `torch_python` 加进链接库列表**（`cpp_extension.py` 里 `if not kwargs.get('py_limited_api', False): libraries.append('torch_python')`，旁边注释 "torch_python uses more than the python limited api"），文档字符串说得很直接：
+CPython 提供了一个受限的 **limited API**（定义 `Py_LIMITED_API` 宏后只暴露不依赖布局的函数），用它编的扩展叫 `abi3`，一个 `.so` 可以在 3.x 的多个版本上加载。vLLM 的 `.so` 全是 `abi3`（`CMakeLists.txt` 里 `USE_SABI 3`，产物 `vllm/_C.abi3.so`）——因为 vLLM 完全不用 `libtorch_python.so`（8.2 节：`TORCH_LIBRARY` 不需要 Python），它对 CPython 的依赖只剩 `REGISTER_EXTENSION` 里那个 `PyModule_Create`。`torch.utils.cpp_extension` 也支持这个选项，`CppExtension(..., py_limited_api=True)` 时 `BuildExtension` 会加 `-DPy_LIMITED_API=<最低支持的 CPython 版本>`，同时 `CppExtension` **不再把 `torch_python` 加进链接库列表**（`cpp_extension.py` 里 `if not kwargs.get('py_limited_api', False): libraries.append('torch_python')`，旁边注释 "torch_python uses more than the python limited api"），文档字符串说得很直接：
 
 ```python
         The PyTorch python API (as provided in libtorch_python) cannot be built
@@ -1932,12 +2031,12 @@ Windows 上 MSVC 用另一套 name mangling（`?Error@c10@@QEAA@...`），libstd
 # ...
         define = f'-DTORCH_EXTENSION_NAME={name}'
 # ...
-    common_cflags += ['-std=c++20', '-fPIC']
+    common_cflags += ['-std=c++17', '-fPIC']
 ```
 
-`TORCH_EXTENSION_NAME` 就是 vLLM `torch_bindings.cpp` 里 `REGISTER_EXTENSION(TORCH_EXTENSION_NAME)` 用到的那个——模块名由构建系统传进来，代码里不写死。`TORCH_API_INCLUDE_EXTENSION_H` 告诉 `torch/extension.h` 它是被扩展 include 的。
+`TORCH_EXTENSION_NAME` 就是 vLLM `torch_bindings.cpp` 里 `TORCH_LIBRARY_EXPAND(TORCH_EXTENSION_NAME, ops)` 和 `REGISTER_EXTENSION(TORCH_EXTENSION_NAME)` 用到的那个——模块名由构建系统传进来，代码里不写死。`TORCH_API_INCLUDE_EXTENSION_H` 告诉 `torch/extension.h` 它是被扩展 include 的。
 
-**C++ 标准（版本敏感）**：v2.13.0 的 `cpp_extension.py` 传的是 `-std=c++20`（多处：`BuildExtension` 的 `cpp_flag_prefix + 'c++20'`、nvcc 的 `-std=c++20`、`load_inline` 的 `common_cflags`），PyTorch 自身的 `CMakeLists.txt` 也是 `set(CMAKE_CXX_STANDARD 20 ...)` 并在检测到环境里有 `-std=c++` 时警告 "PyTorch requires -std=c++20"。vLLM 的 `CMakeLists.txt` 同样 `set(CMAKE_CXX_STANDARD 20)`。本系列以 C++17 为基线讲语言机制，但读 v2.13.0 源码时会看到 C++20 特性（4.3 节引用的 `pyobject_preservation.h` 里 `template <typename T> requires requires(T& t) { t.pyobj_slot(); }` 就是 C++20 的约束语法），这是 PyTorch 2.x 中的变化之一：2.x 早期版本要求 C++17，后来切到了 C++20。写扩展时不要自己传 `-std=c++17` 去覆盖它，头文件可能编不过。
+**C++ 标准**：v2.10.0 的 `cpp_extension.py` 传的是 `-std=c++17`（多处：`BuildExtension` 的 `cpp_flag_prefix + 'c++17'`、nvcc 的 `-std=c++17`、`load_inline` 的 `common_cflags`），PyTorch 自身的 `CMakeLists.txt` 也是 `set(CMAKE_CXX_STANDARD 17 ...)` 并在检测到环境里有 `-std=c++` 时警告 "PyTorch requires -std=c++17"。vLLM v0.15.0 的 `CMakeLists.txt` 同样 `set(CMAKE_CXX_STANDARD 17)`。也就是说 PyTorch 2.10 与 vLLM 0.15 都以 C++17 编译，与本系列的基线一致。写扩展时可以传更高的标准（`cpp_extension.py` 的文档字符串里 `SyclExtension` 的例子就传了 `-std=c++20`），但不要传更低的（`-std=c++14`），头文件编不过。
 
 ### 10.2 编译器检查：`check_compiler_ok_for_platform` 与 `get_compiler_abi_compatibility_and_version`
 
@@ -1956,7 +2055,7 @@ def get_compiler_abi_compatibility_and_version(compiler) -> tuple[bool, TorchVer
 
     # First check if the compiler is one of the expected ones for the particular platform.
     if not check_compiler_ok_for_platform(compiler):
-        logger.warning(WRONG_COMPILER_WARNING, compiler, _accepted_compilers_for_platform()[0], sys.platform, _accepted_compilers_for_platform()[0], compiler, compiler)
+        logger.warning(WRONG_COMPILER_WARNING, compiler, _accepted_compilers_for_platform()[0], sys.platform, _accepted_compilers_for_platform()[0])
         return (False, TorchVersion('0.0.0'))
 
     if IS_MACOS:
@@ -1971,8 +2070,9 @@ def get_compiler_abi_compatibility_and_version(compiler) -> tuple[bool, TorchVer
             compiler_info = subprocess.check_output(compiler, stderr=subprocess.STDOUT)
         match = re.search(r'(\d+)\.(\d+)\.(\d+)', compiler_info.decode(*SUBPROCESS_DECODE_ARGS).strip())
         version = ['0', '0', '0'] if match is None else list(match.groups())
-    except (subprocess.CalledProcessError, OSError):
-        logger.warning('Error checking compiler version for %s', compiler, exc_info=True)
+    except Exception:
+        _, error, _ = sys.exc_info()
+        logger.warning('Error checking compiler version for %s: %s', compiler, error)
         return (False, TorchVersion('0.0.0'))
     # ...
     if tuple(map(int, numeric_version)) >= minimum_required_version:
@@ -2044,13 +2144,13 @@ def _check_cuda_version(compiler_name: str, compiler_version: TorchVersion) -> N
 | 项 | 谁保证 | 不满足时的现象 |
 |---|---|---|
 | 链接到正确的 `libc10/libtorch_cpu/libtorch_python` | `cpp_extension` 自动加 `-L/-l` | `undefined symbol: _ZN2at5emptyE...`（符号根本没被链接） |
-| 同一个 PyTorch 版本 | 你自己；wheel 名字里写清楚（`vllm-x.y.z+cu128-torch2.13`） | `undefined symbol`（函数签名在版本间变了），或更糟——签名没变但类型布局变了，运行时静默错误/段错误 |
-| 同一个 C++ 标准库 ABI（`_GLIBCXX_USE_CXX11_ABI`） | v2.13.0 已无此开关；≤ 2.7 由 `cpp_extension` 传 `-D` | `undefined symbol: ..._cxx11...`（9.2 节） |
+| 同一个 PyTorch 版本 | 你自己；在构建脚本里钉死（vLLM 的 `TORCH_SUPPORTED_VERSION_CUDA "2.9.1"`），wheel 本地版本号里带上 CUDA 版本（`vllm-x.y.z+cu129`） | `undefined symbol`（函数签名在版本间变了），或更糟——签名没变但类型布局变了，运行时静默错误/段错误 |
+| 同一个 C++ 标准库 ABI（`_GLIBCXX_USE_CXX11_ABI`） | v2.10.0 已无此开关；≤ 2.7 由 `cpp_extension` 传 `-D` | `undefined symbol: ..._cxx11...`（9.2 节） |
 | libstdc++ 运行时够新 | 部署环境 | `version 'GLIBCXX_3.4.30' not found`（9.3 节） |
 | GCC ≥ 5 且不低于 wheel 所用版本 | `cpp_extension` 只检查 ≥ 5 并警告 | 同上 |
 | CUDA 大版本一致、host 编译器在区间内 | `_check_cuda_version` 报错 | `RuntimeError: The detected CUDA version (...) mismatches ...` |
 | CPython 版本一致或 `abi3` | wheel 标签 | `ImportError: ... undefined symbol: _PyXXX` 或 pip 直接拒绝安装 |
-| `-std=c++20` | `cpp_extension` 自动加 | 头文件编译错误 |
+| `-std=c++17`（或更高） | `cpp_extension` 自动加 | 头文件编译错误 |
 
 其中"同一个 PyTorch 版本"是最容易被忽视、后果也最隐蔽的一条。8.3 节的 stable ABI 正是为了把这一条从"必须"变成"≥ 某个最低版本即可"。
 
@@ -2413,7 +2513,7 @@ c10::Error::Error(char const*, mylib::string const&)
 
 - 把 `mylib::string` 换成 `std::string`、把 `MYLIB_NEW_ABI` 换成 `_GLIBCXX_USE_CXX11_ABI`，就是真实情形。`libc10.so` 里导出的是 `_ZN3c105ErrorC1ENS_14SourceLocationENSt7__cxx1112basic_string...`，用 `-D_GLIBCXX_USE_CXX11_ABI=0` 编的扩展要的是 `_ZN3c105ErrorC1ENS_14SourceLocationESs`。
 - 区别在于**失败发生在加载期而不是链接期**：Linux 上 `-shared` 默认允许 `.so` 有未定义符号（要留给运行时解析），所以扩展 `.so` 能链接成功，`import` 时 `dlopen` 才报 `ImportError: ... undefined symbol: _ZN3c105ErrorC1ENS_14SourceLocationESs`。如果链接时加 `-Wl,--no-undefined`，就能像上面 macOS 演示那样提前到链接期。
-- 定位方法相同：`c++filt` 反修饰报错里的符号，看参数类型里有没有 `__cxx11`；再用 `nm -D libc10.so | grep <函数名> | c++filt` 看库导出的是哪一种；`python -c "import torch; print(torch._C._GLIBCXX_USE_CXX11_ABI)"` 看 PyTorch 是哪一种（v2.13.0 上恒为 `True`）。
+- 定位方法相同：`c++filt` 反修饰报错里的符号，看参数类型里有没有 `__cxx11`；再用 `nm -D libc10.so | grep <函数名> | c++filt` 看库导出的是哪一种；`python -c "import torch; print(torch._C._GLIBCXX_USE_CXX11_ABI)"` 看 PyTorch 是哪一种（v2.10.0 上恒为 `True`）。
 - 更隐蔽的变种：如果不匹配的类型**不出现在任何函数签名里**（比如只是某个结构体的成员），符号完全一致，链接和加载都成功，但两边对同一块内存的布局理解不同——运行时读到垃圾或段错误。这种情况没有任何工具会报错，只能靠"三个 ABI 全部一致"这条纪律预防。上面 `mystring.h` 里两个版本的 `struct string` 大小不同，就是在模拟这一点。
 
 
@@ -2445,8 +2545,8 @@ c10::Error::Error(char const*, mylib::string const&)
 
 14. 报 `undefined symbol`，第一步 `c++filt`，看三件事：符号在不在目标库里（`nm -D lib.so | grep`）、参数类型里有没有 `__cxx11`（C++ ABI 不一致）、函数是不是在这个 PyTorch 版本里存在（版本不一致）。
 15. 报 `version 'GLIBCXX_3.4.x' not found`，是运行时 `libstdc++.so.6` 太旧或者 `LD_LIBRARY_PATH` 里排前面的那个太旧；`strings ... | grep GLIBCXX` 对比。
-16. 扩展的 wheel 名字里带上 PyTorch 版本和 CUDA 版本（vLLM 的做法），不要假设一个 wheel 能跨 PyTorch 小版本用——除非它是 8.3 节的 stable ABI 构建。
-17. 不要自己传 `-std=c++17` 覆盖 `cpp_extension` 的 `-std=c++20`（v2.13.0），不要自己传 `-D_GLIBCXX_USE_CXX11_ABI`（v2.13.0 已无此开关；在 ≤ 2.7 上要传就传和 `torch._C._GLIBCXX_USE_CXX11_ABI` 一致的值）。
+16. 扩展的构建脚本里钉死 PyTorch 版本、wheel 版本号里带上 CUDA 版本（vLLM 的做法：`TORCH_SUPPORTED_VERSION_CUDA` + `+cu129`），不要假设一个 wheel 能跨 PyTorch 小版本用——除非它是 8.3 节的 stable ABI 构建。
+17. 不要自己传比 `cpp_extension` 的 `-std=c++17`（v2.10.0）更低的标准去覆盖它，不要自己传 `-D_GLIBCXX_USE_CXX11_ABI`（v2.10.0 已无此开关；在 ≤ 2.7 上要传就传和 `torch._C._GLIBCXX_USE_CXX11_ABI` 一致的值）。
 18. 用 clang 编 Linux 扩展时不要 `-stdlib=libc++`；PyTorch 用 libstdc++。
 19. `TORCH_DONT_CHECK_COMPILER_ABI=1` 是关掉警告，不是修复问题。
 
@@ -2473,15 +2573,15 @@ c10::Error::Error(char const*, mylib::string const&)
 
 **GIL 守卫**：`gil_scoped_release` 是 `PyEval_SaveThread/RestoreThread` 的 RAII；进 kernel 前释放、参数转换必须在此之前；释放后不能碰任何 `PyObject`——包括析构 `py::object`；库内部需要碰的地方（`PyInterpreterVTable::decref`）自己临时获取。
 
-**`THPVariable`**：`Tensor` 用 C API 而不用 pybind11，因为需要透明子类化、自定义元类、双向持有与同一性、GC 集成、`PythonArgParser` 的性能。`THPVariable_Wrap` = `get_or_init` + `tp_alloc` + placement new；`THPVariable_Unpack` = 前缀 cast + 借用；`THPVariable_dealloc` = 显式析构 + `tp_free`。`libc10` 通过 `python_stub.h` 的前向声明和 `PyInterpreterVTable` 的虚接口，在不链接 Python 的情况下持有并操作 `PyObject*`。
+**`THPVariable`**：`Tensor` 用 C API 而不用 pybind11，因为需要透明子类化、自定义元类、双向持有与同一性、GC 集成、`PythonArgParser` 的性能。`THPVariable_Wrap` = 查 `pyobj_slot` + `tp_alloc` + placement new + `PyObjectPreservation::init_*`；`THPVariable_Unpack` = 前缀 cast + 借用；`THPVariable_dealloc` = 显式析构 + `tp_free`。`libc10` 通过 `python_stub.h` 的前向声明和 `PyInterpreterVTable` 的虚接口，在不链接 Python 的情况下持有并操作 `PyObject*`。
 
 **双向持有**：`kHasPyObject` 位 + "C++ 计数 1 → 2 时 `Py_INCREF`、2 → 1 时 `Py_DECREF`"保证只要 C++ 侧还有别的引用，Python 包装对象就活着且唯一；Python 对象走到 `tp_dealloc` 时 C++ 计数必为 1。环靠 `tp_traverse` 报告给 CPython GC，只能报告独占的引用。（PyTorch 2.x 中的变化：旧版 `owns_pyobj` + resurrection 方案已被替换。）
 
 **核心问题的答案**：`torch.ops.myops.op(t)` 一次往返，输入 3 次类型转换（`PyObject*` → `Tensor` → `IValue` → `const Tensor&`），输出 2 次（`Tensor` → `IValue` → `PyObject*`）；输入的 C++ 计数 1 → 2 → 1，Python 计数经钩子 +1/-1；GIL 在参数转换和结果转换时持有、kernel 执行时释放、钩子需要时临时获取。没有一步拷贝数据。
 
-**`TORCH_LIBRARY` vs pybind11**：进计算图的算子必须走 `TORCH_LIBRARY`——可 trace、可注册 Meta/Autograd、可按 DispatchKey 分发、不依赖 `libtorch_python`。vLLM 全部如此，`REGISTER_EXTENSION` 只造一个空模块触发静态注册。v2.13.0 的 `torch/csrc/stable/` 在此之上再加一层 C shim（`STABLE_TORCH_LIBRARY`、`TORCH_BOX`、`torch::stable::Tensor`），vLLM 的 `csrc/libtorch_stable/` 已经迁过去，目标是一个 `.so` 跨 PyTorch 版本；这层还年轻，覆盖面有限。
+**`TORCH_LIBRARY` vs pybind11**：进计算图的算子必须走 `TORCH_LIBRARY`——可 trace、可注册 Meta/Autograd、可按 DispatchKey 分发、不依赖 `libtorch_python`。vLLM 全部如此，`REGISTER_EXTENSION` 只造一个空模块触发静态注册。v2.10.0 的 `torch/csrc/stable/` 在此之上再加一层 C shim（`STABLE_TORCH_LIBRARY`、`TORCH_BOX`、`torch::stable::Tensor`），目标是一个 `.so` 跨 PyTorch 版本；这层还年轻，覆盖面有限，vLLM 0.15 尚未使用，仍走 `TORCH_LIBRARY` 并钉死 PyTorch 版本。
 
-**ABI**：三层——CPython（`cp312`/`abi3`）、C++ 标准库（`_GLIBCXX_USE_CXX11_ABI` 的 `__cxx11` inline namespace、`GLIBCXX_3.4.x` 符号版本、libstdc++ vs libc++）、PyTorch 自身（版本、编译器、CUDA）。`c++filt` 是第一诊断工具。PyTorch 2.6/2.7 随 manylinux_2_28 切到 CXX11 ABI，v2.13.0 已经删掉了这个开关（`torch._C._GLIBCXX_USE_CXX11_ABI` 恒 `True`，`cpp_extension.py` 不再传 `-D`）。`cpp_extension.py` 自动处理头文件、链接库、`-std=c++20`、`TORCH_EXTENSION_NAME`，检查编译器种类、GCC ≥ 5、CUDA 大版本和 host 编译器区间；不检查也检查不了"PyTorch 版本一致"。
+**ABI**：三层——CPython（`cp312`/`abi3`）、C++ 标准库（`_GLIBCXX_USE_CXX11_ABI` 的 `__cxx11` inline namespace、`GLIBCXX_3.4.x` 符号版本、libstdc++ vs libc++）、PyTorch 自身（版本、编译器、CUDA）。`c++filt` 是第一诊断工具。PyTorch 2.6/2.7 随 manylinux_2_28 切到 CXX11 ABI，v2.10.0 已经删掉了这个开关（`torch._C._GLIBCXX_USE_CXX11_ABI` 恒 `True`，`cpp_extension.py` 不再传 `-D`）。`cpp_extension.py` 自动处理头文件、链接库、`-std=c++17`、`TORCH_EXTENSION_NAME`，检查编译器种类、GCC ≥ 5、CUDA 大版本和 host 编译器区间；不检查也检查不了"PyTorch 版本一致"。
 
 Java 对照集中列一次：
 

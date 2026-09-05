@@ -527,9 +527,8 @@ inline size_t elementSize(ScalarType t) {
 }
 
 inline bool isFloatingType(ScalarType t) {
-  return (
-      isReducedFloatingType(t) || t == ScalarType::Double ||
-      t == ScalarType::Float);
+  return t == ScalarType::Double || t == ScalarType::Float ||
+      isReducedFloatingType(t);
 }
 ```
 
@@ -772,7 +771,7 @@ GCC/Clang 用 `-fvisibility=hidden` 把默认改成"全部不导出"，再用 `_
 
 `struct C10_API Device` 里的 `C10_API` 展开成 `__attribute__((__visibility__("default")))`，意思是"`Device` 的成员函数要从 `libc10.so` 导出"。`TORCH_API` 是 `libtorch_cpu.so` 的，`TORCH_CUDA_CPP_API`/`TORCH_CUDA_CU_API` 是 `libtorch_cuda.so` 的，`TORCH_PYTHON_API`（定义在 `torch/csrc/Export.h`）是 `libtorch_python.so` 的。`C10_BUILD_MAIN_LIB`、`CAFFE2_BUILD_MAIN_LIB`、`THP_BUILD_MAIN_LIB` 这些宏由 CMake 在编译对应库时定义（`c10/CMakeLists.txt` 第 55 行 `target_compile_options(c10 PRIVATE "-DC10_BUILD_MAIN_LIB")`，第八节会看到），在 Windows 上区分 `dllexport`/`dllimport`，在 Linux 上两者一样。
 
-回到 `stub.c`：`__attribute__((visibility("default"))) PyObject* PyInit__C(void);` 那行就是在说"这个符号必须导出"——Python 解释器要 `dlsym` 它。如果 `_C.so` 用 `-fvisibility=hidden` 编译而没有这行，`import torch` 会报 `dynamic module does not define module export function (PyInit__C)`。`torch/CMakeLists.txt` 里对 `_C` 目标额外设了 `C_VISIBILITY_PRESET "default"`，双保险。
+回到 `stub.c`：`__attribute__((visibility("default"))) PyObject* PyInit__C(void);` 那行就是在说"这个符号必须导出"——Python 解释器要 `dlsym` 它。如果 `_C.so` 用 `-fvisibility=hidden` 编译而没有这行，`import torch` 会报 `dynamic module does not define module export function (PyInit__C)`。`_C` 是由 `setup.py` 的 setuptools `Extension` 编译的（8.4 节），走的是默认可见性，但 PyTorch 仍显式写了这一行，保证换成 `-fvisibility=hidden` 也不会出问题。
 
 第五篇会详细讨论可见性如何影响静态注册。这里只需要建立一个直觉：**一个符号在 PyTorch 的 `.so` 里能不能被扩展链接到，取决于它的声明上有没有 `C10_API`/`TORCH_API`**。没有这个宏的函数，即使在头文件里声明了，链接扩展时也会 undefined reference。这是给 PyTorch 加新 API 时最常见的遗漏之一。
 
@@ -847,17 +846,31 @@ ldd hello
 
 **RPATH/RUNPATH**：把搜索路径**烧进二进制**。链接时加 `-Wl,-rpath,/path/to/lib`。现代链接器默认写的是 `DT_RUNPATH`（可以被 `LD_LIBRARY_PATH` 覆盖，且不传递给依赖的依赖），加 `-Wl,--disable-new-dtags` 才写老的 `DT_RPATH`。
 
-**`$ORIGIN`**：RPATH 里的特殊标记，表示"这个二进制自己所在的目录"。`-Wl,-rpath,'$ORIGIN/lib'` 让程序无论被拷到哪里都能找到它旁边 `lib/` 目录里的库。这正是 pip 包能工作的原因。`torch/CMakeLists.txt` 里 `_C` 目标：
+**`$ORIGIN`**：RPATH 里的特殊标记，表示"这个二进制自己所在的目录"。`-Wl,-rpath,'$ORIGIN/lib'` 让程序无论被拷到哪里都能找到它旁边 `lib/` 目录里的库。这正是 pip 包能工作的原因。`setup.py` 里 `_C` 扩展的链接参数：
 
-```cmake
-  Python_add_library(_C MODULE WITH_SOABI "${TORCH_SRC_DIR}/csrc/stub.c")
-  target_link_libraries(_C PRIVATE torch_python)
-  set_target_properties(_C PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/torch"
-    # libtorch_python.so is installed to lib/ relative to _C, so use
-    # $ORIGIN/lib as the install RPATH (the global default is just $ORIGIN).
-    INSTALL_RPATH "${_rpath_portable_origin}/lib"
-  )
+```python
+    def make_relative_rpath_args(path: str) -> list[str]:
+        if IS_DARWIN:
+            return ["-Wl,-rpath,@loader_path/" + path]
+        elif IS_WINDOWS:
+            return []
+        else:
+            return ["-Wl,-rpath,$ORIGIN/" + path]
+
+    # ...
+    C = Extension(
+        "torch._C",
+        libraries=main_libraries,          # ["torch_python"]
+        sources=main_sources,              # ["torch/csrc/stub.c"]
+        language="c",
+        # ...
+        library_dirs=library_dirs,         # [torch/lib]
+        extra_link_args=[
+            *extra_link_args,
+            *main_link_args,
+            *make_relative_rpath_args("lib"),
+        ],
+    )
 ```
 
 `_C.cpython-312-x86_64-linux-gnu.so` 在 `site-packages/torch/`，它的 RPATH 是 `$ORIGIN/lib`，即 `site-packages/torch/lib/`，`libtorch_python.so`、`libtorch_cpu.so`、`libc10.so` 全在那里。`torch/lib/` 里的各个 `.so` 之间的 RPATH 则是 `$ORIGIN`（同目录）。所以 `import torch` 不需要用户设任何环境变量。
@@ -1081,7 +1094,7 @@ using c10::DeviceType;
 | `torch::jit::` | TorchScript |
 | `torch::nn::`、`torch::optim::`、`torch::data::` | C++ 前端 |
 | `torch::headeronly::` | 2.x 新增，不依赖 libtorch 的纯头文件工具（`torch/headeronly/`） |
-| `torch::stable::` | 2.x 新增的稳定 ABI 层（`torch/csrc/stable/`），vLLM 的 `_C_stable_libtorch` 扩展用它 |
+| `torch::stable::` | 2.x 新增的稳定 ABI 层（`torch/csrc/stable/`），供扩展跨 PyTorch 版本使用；vLLM 0.15 尚未使用 |
 
 vLLM 的 `csrc/` 没有自己的顶层命名空间约定，大部分 kernel 直接写在 `namespace vllm { ... }` 里，调用 PyTorch 时用 `torch::Tensor`。
 
@@ -1169,7 +1182,7 @@ endif()
 
 **`torch/csrc/`（Python 部分）→ `libtorch_python.so`**。`torch/CMakeLists.txt`：`add_library(torch_python SHARED ${TORCH_PYTHON_SRCS})`，源文件来自 `build_variables.bzl` 的 `libtorch_python_core_sources`（`torch/csrc/Module.cpp`、`torch/csrc/autograd/python_variable.cpp` 等），加上 torchgen 生成的 Python 绑定代码 `${GENERATED_CXX_PYTHON}`。链接 `${TORCH_LIB}`（即 `torch`）和 `Python::Module`、`pybind::pybind11`、`shm` 等。
 
-**`torch/csrc/stub.c` → `torch/_C.cpython-*.so`**。15 行的 stub 单独编成 Python 扩展模块，链接 `torch_python`。（PyTorch 2.x 中的变化：`_C` 过去由 `setup.py` 的 `ext_modules` 用 setuptools 编译，现在移到了 `torch/CMakeLists.txt` 里的 `Python_add_library(_C MODULE WITH_SOABI ...)`；`setup.py` 里留有注释说明。）
+**`torch/csrc/stub.c` → `torch/_C.cpython-*.so`**。15 行的 stub 单独编成 Python 扩展模块，链接 `torch_python`。它是整个 PyTorch 里唯一不由 CMake 编译的二进制：`setup.py` 把它声明为 setuptools 的 `Extension("torch._C", sources=["torch/csrc/stub.c"], libraries=["torch_python"], ...)`，由 setuptools 的 `build_ext` 在 CMake 构建完成之后编译（8.4 节）。
 
 为什么要一个 stub 而不是把 `libtorch_python.so` 直接命名为 `_C.so`？因为 Python 扩展模块的文件名必须是 `_C.cpython-312-x86_64-linux-gnu.so` 这种带 ABI tag 的形式，且放在 `torch/` 包目录下；而 `libtorch_python.so` 需要一个稳定的 SONAME 放在 `torch/lib/` 供其他 C++ 扩展链接（`torch.utils.cpp_extension` 的默认库列表里有 `torch_python`）。一个 15 行的 stub 把两个需求解耦。
 
@@ -1321,16 +1334,16 @@ PyTorch 2.x 中的变化：2.8 之后源码树里多了 `torch/headeronly/`，�
 cmake_minimum_required(VERSION 3.27 FATAL_ERROR)
 project(c10 CXX)
 
-set(CMAKE_CXX_STANDARD 20 CACHE STRING "The C++ standard whose features are requested to build this target.")
+set(CMAKE_CXX_STANDARD 17 CACHE STRING "The C++ standard whose features are requested to build this target.")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 ```
 
-第一个值得注意的地方：**`CMAKE_CXX_STANDARD 20`**。PyTorch 2.x 中的变化：总纲和大多数资料说 PyTorch 用 C++17，这在 2.4–2.12 是对的；v2.13.0 源码树的顶层 `CMakeLists.txt` 已经把标准提到 C++20（并要求 GCC ≥ 11.3、Clang ≥ 16），`torch/utils/cpp_extension.py` 给扩展传的也是 `-std=c++20`。本系列正文仍以 C++17 为基线讲解语言特性，因为 PyTorch 源码里实际使用的 C++20 特性还很少（`torch/headeronly/util/bit_cast.h` 用了 `std::bit_cast` 的条件编译），但**编译扩展时的 `-std=` 参数要跟 PyTorch 保持一致**，第九节的 g++ 命令会用 `-std=c++20`。
+第一个值得注意的地方：**`CMAKE_CXX_STANDARD 17`**。v2.10.0 顶层 `CMakeLists.txt` 第 47 行同样是 `set(CMAKE_CXX_STANDARD 17 ...)`，前面几行还会检查环境变量里有没有人塞了 `-std=c++`，有就警告"PyTorch requires -std=c++17"；`torch/utils/cpp_extension.py` 给扩展传的也是 `-std=c++17`（`cpp_flag_prefix + 'c++17'`，nvcc 同样 `-std=c++17`）；vLLM v0.15.0 的 `CMakeLists.txt` 亦是 `set(CMAKE_CXX_STANDARD 17)`。本系列以 C++17 为基线讲解语言特性，与二者一致。PyTorch 源码里对 C++20 特性只有零星的条件编译（如 `torch/headeronly/util/bit_cast.h` 在 `__cpp_lib_bit_cast` 可用时才用 `std::bit_cast`，否则自己实现），并不要求编译器开启 C++20。**编译扩展时的 `-std=` 参数要跟 PyTorch 保持一致**，第九节的 g++ 命令会用 `-std=c++17`。
 
 `CMAKE_EXPORT_COMPILE_COMMANDS ON` 生成 `compile_commands.json`，clangd 靠它理解项目（第八篇）。
 
 ```cmake
-  file(GLOB C10_SRCS CONFIGURE_DEPENDS
+  file(GLOB C10_SRCS
           *.cpp
           core/*.cpp
           core/impl/*.cpp
@@ -1338,7 +1351,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
           macros/*.cpp
           util/*.cpp
         )
-  file(GLOB C10_HEADERS CONFIGURE_DEPENDS
+  file(GLOB C10_HEADERS
           *.h
           core/*.h
           # ...
@@ -1460,6 +1473,7 @@ if(USE_CUDA)
 
 ```cmake
 set(TORCH_PYTHON_SRCS
+    ${GENERATED_THNN_CXX}
     ${GENERATED_CXX_PYTHON}
     )
 append_filelist("libtorch_python_core_sources" TORCH_PYTHON_SRCS)
@@ -1471,6 +1485,7 @@ append_filelist("libtorch_python_core_sources" TORCH_PYTHON_SRCS)
 set(TORCH_PYTHON_LINK_LIBRARIES
     Python::Module
     pybind::pybind11
+    opentelemetry::api
     httplib
     nlohmann
     moodycamel
@@ -1496,38 +1511,40 @@ target_link_libraries(torch_python PRIVATE ${TORCH_LIB} ${TORCH_PYTHON_LINK_LIBR
 
 这里显式写了 `SHARED`——`libtorch_python.so` 永远是动态库。`THP_BUILD_MAIN_LIB` 对应 `torch/csrc/Export.h` 里的 `TORCH_PYTHON_API`（`THP` = TorcH Python，老前缀）。`${TORCH_LIB}` 是 `torch`，即 7.2 节的空壳，间接带来 `torch_cpu`、`torch_cuda`、`c10`。注意是 `PRIVATE`——链接 `torch_python` 的人（`_C`）不会自动传递依赖，但因为动态库的 `DT_NEEDED` 是递归加载的，运行时还是全部会被加载。
 
-然后是 `_C`：
+然后是 `_C`。它不在 `torch/CMakeLists.txt` 里——这是 PyTorch 里唯一由 setuptools 而不是 CMake 编译的二进制。`setup.py` 的 `configure_extension_build()`：
 
-```cmake
-# Build the torch._C Python extension module from the thin stub that
-# forwards to torch_python.  This was historically built by setuptools;
-# building it here lets both setuptools and scikit-build-core use the
-# same code path.
-if(BUILD_PYTHON AND NOT BUILD_LIBTORCH_WHL)
-  Python_add_library(_C MODULE WITH_SOABI "${TORCH_SRC_DIR}/csrc/stub.c")
-  target_link_libraries(_C PRIVATE torch_python)
-  set_target_properties(_C PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/torch"
-    # libtorch_python.so is installed to lib/ relative to _C, so use
-    # $ORIGIN/lib as the install RPATH (the global default is just $ORIGIN).
-    INSTALL_RPATH "${_rpath_portable_origin}/lib"
-  )
-  if(NOT WIN32)
-    set_target_properties(_C PROPERTIES
-      C_VISIBILITY_PRESET "default"
+```python
+    main_compile_args: list[str] = []
+    main_libraries: list[str] = ["torch_python"]
+
+    main_link_args: list[str] = []
+    main_sources: list[str] = ["torch/csrc/stub.c"]
+
+    if BUILD_LIBTORCH_WHL:
+        main_libraries = ["torch"]
+        main_sources = []
+    # ...
+    C = Extension(
+        "torch._C",
+        libraries=main_libraries,
+        sources=main_sources,
+        language="c",
+        extra_compile_args=[
+            *main_compile_args,
+            *extra_compile_args,
+        ],
+        include_dirs=[],
+        library_dirs=library_dirs,
+        extra_link_args=[
+            *extra_link_args,
+            *main_link_args,
+            *make_relative_rpath_args("lib"),
+        ],
     )
-  endif()
-  # Install at the install prefix root, which maps to torch/ in the wheel
-  # via wheel.install-dir = "torch". ...
-  install(TARGETS _C
-    RUNTIME DESTINATION "."
-    LIBRARY DESTINATION "."
-    ARCHIVE DESTINATION "lib"
-  )
-endif()
+    ext_modules.append(C)
 ```
 
-`Python_add_library(_C MODULE WITH_SOABI ...)`：`MODULE` 是 CMake 对"只用于 `dlopen`、不给别人链接"的动态库的叫法；`WITH_SOABI` 加上 `.cpython-312-x86_64-linux-gnu` 后缀。源文件只有 `stub.c`。`INSTALL_RPATH "$ORIGIN/lib"` 是 5.2 节讲的。`C_VISIBILITY_PRESET "default"` 保证 `PyInit__C` 导出。
+setuptools 的 `Extension` 就是 Python 扩展模块的标准描述：`language="c"` 用 C 编译器编 `stub.c`（所以 `__cplusplus` 不会被定义，1.2 节），产物自动带 `.cpython-312-x86_64-linux-gnu` 后缀；`libraries=["torch_python"]` 加 `library_dirs=[torch/lib]` 就是 `-L torch/lib -ltorch_python`；`make_relative_rpath_args("lib")` 是 5.2 节讲的 `-Wl,-rpath,$ORIGIN/lib`。`BUILD_LIBTORCH_WHL` 是 split build 的 libtorch 半边，那时不需要 `_C`，后面 `ext_modules = []` 直接清空。
 
 现在回到开头的 `stub.c`，每一行都能解释了：
 
@@ -1554,27 +1571,24 @@ PyMODINIT_FUNC PyInit__C(void)              // 定义：Python 解释器 dlsym �
 
 ### 8.4 `setup.py`：`.so` 如何进 wheel
 
-v2.13.0 的 `setup.py` 已经不编译任何 C++——它调 CMake 完成所有构建，然后决定把哪些文件打进 wheel。关键片段：
+v2.10.0 的 `setup.py` 分两步：`main()` 先调 `build_deps()`，由 `tools/setup_helpers/cmake.py` 运行 CMake 把 `libc10.so`、`libtorch_cpu.so`、`libtorch_python.so` 等全部编好、安装到 `torch/lib/`；然后交给 setuptools，它只编译 8.3 节那个 `Extension("torch._C", ...)`（setuptools 自带的 `build_ext` 被子类化，加了拷贝 Windows 导出库、生成 `compile_commands.json` 等杂事），并按 `package_data` 决定把哪些文件打进 wheel。关键片段：
 
 ```python
-class BinaryDistribution(Distribution):
-    # torch._C is built by CMake (torch/CMakeLists.txt), so setuptools has
-    # no ext_modules. Force the wheel to be tagged as a binary distribution
-    # so bdist_wheel uses the binary layout (only files listed via
-    # package_data / data_files are packaged) rather than the purelib
-    # layout, ...
-    def has_ext_modules(self) -> bool:
-        return True
+BUILD_LIBTORCH_WHL = str2bool(os.getenv("BUILD_LIBTORCH_WHL"))
+BUILD_PYTHON_ONLY = str2bool(os.getenv("BUILD_PYTHON_ONLY"))
+
+if BUILD_PYTHON_ONLY:
+    os.environ["BUILD_LIBTORCHLESS"] = "ON"
+    os.environ["LIBTORCH_LIB_PATH"] = (_get_package_path("torch") / "lib").as_posix()
 ```
 
 ```python
     torch_package_data = [
         "py.typed",
-        # torch._C is built by CMake (torch/CMakeLists.txt) and installed into
-        # torch/.  Match this interpreter's exact extension suffix, not a glob:
-        # ...
-        f"_C{sysconfig.get_config_var('EXT_SUFFIX')}",
         "bin/*",
+        "test/*",
+        "*.pyi",
+        "**/*.pyi",
         # ...
         "lib/*shm*",
         "lib/torch_shm_manager",
@@ -1605,7 +1619,27 @@ class BinaryDistribution(Distribution):
         ]
 ```
 
-三类东西进 wheel：`_C.cpython-*.so`（包根目录）、`lib/*.so*`（所有动态库）、`include/**/*.h` + `share/cmake/**/*.cmake`（让下游能编译和链接扩展）。`BUILD_LIBTORCH_WHL` 和 `BUILD_PYTHON_ONLY` 两个开关对应文件开头注释里的"split build"：把 `libtorch.so` 及依赖单独打一个 wheel，Python 部分打另一个。这也解释了 `c10/CMakeLists.txt` 里的 `BUILD_LIBTORCHLESS` 分支——在 split build 的 Python 半边，`c10` 不再构建而是 `find_library` 找现成的。
+```python
+    if not BUILD_LIBTORCH_WHL:
+        package_data["torchgen"] = torchgen_package_data
+        exclude_package_data["torchgen"] = ["*.py[co]"]
+    else:
+        # no extensions in BUILD_LIBTORCH_WHL mode
+        ext_modules = []
+
+    setup(
+        name=TORCH_PACKAGE_NAME,
+        version=TORCH_VERSION,
+        ext_modules=ext_modules,
+        cmdclass=cmdclass,
+        packages=packages,
+        entry_points=entry_points,
+        install_requires=install_requires,
+        package_data=package_data,
+        # ...
+```
+
+三类东西进 wheel：`_C.cpython-*.so`（setuptools 作为 `ext_modules` 编出来，自动放在包根目录）、`lib/*.so*`（CMake 装进 `torch/lib/` 的所有动态库，作为 `package_data` 原样打包）、`include/**/*.h` + `share/cmake/**/*.cmake`（让下游能编译和链接扩展）。`BUILD_LIBTORCH_WHL` 和 `BUILD_PYTHON_ONLY` 两个环境变量开关对应"split build"：把 `libtorch.so` 及依赖单独打一个叫 `torch_no_python` 的 wheel（不带 `_C`，`ext_modules = []`），Python 部分打另一个。这也解释了 `c10/CMakeLists.txt` 里的 `BUILD_LIBTORCHLESS` 分支——`BUILD_PYTHON_ONLY` 时 `setup.py` 设 `BUILD_LIBTORCHLESS=ON`，`c10` 不再构建而是 `find_library(C10_LIB c10 PATHS $ENV{LIBTORCH_LIB_PATH})` 找现成的。
 
 这段代码里体现的"库依赖"，就是本文的答案：`site-packages/torch/` 是一个自带 `include/`、`lib/`、`share/cmake/` 的完整 C++ SDK。任何扩展——不管用 `torch.utils.cpp_extension`、vLLM 那样的 CMake，还是第九节手写的 `g++`——找的都是这三个目录。
 
@@ -1616,7 +1650,7 @@ vLLM 的 `setup.py` 走的是同一条路的下游：它定义一个 `cmake_buil
 
 ## 九、实践一：手写 `g++` 命令链接一个 libtorch 程序
 
-这一节要在一台装了 PyTorch（Linux，pip 安装的 CPU 或 CUDA wheel）的机器上做。本机没有 libtorch，下面的命令是按 v2.13.0 源码树里的头文件路径和库名写的，输出标注为"预期"。
+这一节要在一台装了 PyTorch（Linux，pip 安装的 CPU 或 CUDA wheel）的机器上做。本机没有 libtorch，下面的命令是按 v2.10.0 源码树里的头文件路径和库名写的，输出标注为"预期"。
 
 ### 9.1 程序
 
@@ -1652,14 +1686,14 @@ ls $TORCH_DIR/lib
 ### 9.3 编译（只编译）
 
 ```bash
-g++ -std=c++20 -c hello_torch.cpp -o hello_torch.o \
+g++ -std=c++17 -c hello_torch.cpp -o hello_torch.o \
     -I$TORCH_DIR/include \
     -I$TORCH_DIR/include/torch/csrc/api/include
 ```
 
 两个 `-I`：第一个让 `#include <c10/...>`、`<ATen/...>`、`<torch/csrc/...>` 能找到；第二个让 `#include <torch/torch.h>` 能找到（C++ 前端头文件在 `torch/csrc/api/include/` 下，和 `torch/csrc/` 是两套路径前缀）。`torch/CMakeLists.txt` 的 `TORCH_PYTHON_INCLUDE_DIRECTORIES` 和 `cpp_extension.py` 的 `include_paths()` 加的就是这两个。
 
-`-std=c++20`：见 8.1 节。PyTorch 2.x 中的变化：2.12 及之前用 `-std=c++17`；如果编译报出 C++20 才有的语法错误，说明版本对不上。
+`-std=c++17`：见 8.1 节，与 PyTorch 自身和 `cpp_extension.py` 传给扩展的标准一致。PyTorch 的头文件用到了 C++17 特性（`std::optional`、`if constexpr`、嵌套命名空间简写等），用更低的标准编会直接报语法错误。
 
 这一步只需要头文件，不需要任何 `.so`。看一下它引用了什么：
 
@@ -1766,7 +1800,7 @@ nm -DC $TORCH_DIR/lib/libc10.so | grep 'c10::Device::str'
 | `-I$TORCH_DIR/include ...` | `find_package(Torch)` 后 `target_link_libraries(x PRIVATE torch)` 自动带上 `TORCH_INCLUDE_DIRS` |
 | `-L$TORCH_DIR/lib -ltorch -ltorch_cpu -lc10` | 同上，`torch` 目标的 `INTERFACE_LINK_LIBRARIES` |
 | `-Wl,-rpath,...` | `CMAKE_INSTALL_RPATH` / `BUILD_RPATH`，或 `set_target_properties(... INSTALL_RPATH ...)` |
-| `-std=c++20` | `CMAKE_CXX_STANDARD 20`，`find_package(Torch)` 也会通过 `TORCH_CXX_FLAGS` 传 |
+| `-std=c++17` | `CMAKE_CXX_STANDARD 17`；`TorchConfig.cmake` 也给导入目标 `torch` 设了 `CXX_STANDARD 17` |
 
 第八篇会系统讲 CMake。这里的目的是让读者知道：**CMake 生成的最终命令和手写的没有本质区别，出了链接问题可以把 `ninja -v` 打出的命令拿出来单独跑。**
 
@@ -1924,7 +1958,7 @@ hello:
 cmake_minimum_required(VERSION 3.18)
 project(minic10 CXX)
 
-# 与 PyTorch 2.x 的多数版本一致；PyTorch 2.13 已切到 20，mini-c10 用 17 足够
+# 与 PyTorch 2.10 / vLLM 0.15 一致（两者的 CMakeLists.txt 都是 CMAKE_CXX_STANDARD 17）
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -2062,7 +2096,7 @@ mini-c10 现在只有一个函数，但它已经是一个"库"：有头文件和
 | 符号与修饰 | C++ 把命名空间和参数类型编进符号名；`extern "C"` 关掉它 | `initModule` 的 `extern "C"`；`[abi:cxx11]` 标签 |
 | 可见性 | `-fvisibility=hidden` + `C10_API`/`TORCH_API` 决定 `.so` 导出什么 | `torch_compile_options`；`Export.h` |
 | 静态库 vs 动态库 | `.a` 链接期裁剪拷贝，`.so` 记依赖加载期解析 | `--whole-archive`；`BUILD_SHARED_LIBS` |
-| RPATH / `$ORIGIN` | 把库搜索路径烧进二进制 | `_C` 的 `INSTALL_RPATH "$ORIGIN/lib"` |
+| RPATH / `$ORIGIN` | 把库搜索路径烧进二进制 | `setup.py` 给 `_C` 传的 `-Wl,-rpath,$ORIGIN/lib` |
 | `dlopen` / `RTLD_GLOBAL` | 运行时显式加载，符号是否全局可见 | `libtorch_global_deps.so`；`_load_global_deps()` |
 | 命名空间 | 组织名字、决定修饰名，与目录和库无对应关系 | `c10::`/`at::`/`torch::`；`namespace torch { using namespace at; }` |
 

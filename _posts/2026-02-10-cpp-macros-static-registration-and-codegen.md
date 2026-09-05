@@ -15,9 +15,6 @@ vLLM 的 CPU 后端把所有自定义算子登记到 PyTorch 的代码在 `csrc/
 
 #include <torch/library.h>
 
-// Note: overwrite the external definition for sharing same name between
-// libraries use different ISAs.
-#define TORCH_EXTENSION_NAME _C
 // ...
 
 TORCH_LIBRARY_EXPAND(TORCH_EXTENSION_NAME, ops) {
@@ -36,10 +33,12 @@ TORCH_LIBRARY_EXPAND(TORCH_EXTENSION_NAME, ops) {
   // ...
 }
 
+// ...
+
 REGISTER_EXTENSION(TORCH_EXTENSION_NAME)
 ```
 
-这个文件编成 `vllm/_C.*.so`。Python 侧 `import vllm._C` 之后，`torch.ops._C.silu_and_mul(out, x)` 就能用了。但翻遍这个文件，找不到任何一处"调用"：没有 `main`，没有 `init()`，`TORCH_LIBRARY_EXPAND(...) { ... }` 长得像一个函数定义，可是谁调用它？`ops` 这个变量从哪里来？`TORCH_EXTENSION_NAME` 又是什么，既然这里 `#define` 成了 `_C`，为什么不直接写 `TORCH_LIBRARY(_C, ops)`？`REGISTER_EXTENSION(TORCH_EXTENSION_NAME)` 后面连分号都没有。
+这个文件编成 `vllm/_C.*.so`。Python 侧 `import vllm._C` 之后，`torch.ops._C.silu_and_mul(out, x)` 就能用了。但翻遍这个文件，找不到任何一处"调用"：没有 `main`，没有 `init()`，`TORCH_LIBRARY_EXPAND(...) { ... }` 长得像一个函数定义，可是谁调用它？`ops` 这个变量从哪里来？`TORCH_EXTENSION_NAME` 又是什么，整个文件里找不到它的定义，为什么不直接写 `TORCH_LIBRARY(_C, ops)`？`REGISTER_EXTENSION(TORCH_EXTENSION_NAME)` 后面连分号都没有。
 
 再往 PyTorch 自己的源码里看，几乎每个算子文件都是同一种风格：`TORCH_CHECK(...)` 检查参数、`AT_DISPATCH_FLOATING_TYPES(...)` 展开 kernel、文件末尾一排 `REGISTER_DISPATCH(...)`、类声明前面挂着 `C10_API`/`TORCH_API`、热路径上有 `C10_LIKELY(...)`。Java 里没有预处理器，这些全大写的东西读起来像另一种语言嵌在 C++ 里。
 
@@ -60,7 +59,7 @@ REGISTER_EXTENSION(TORCH_EXTENSION_NAME)
 7. 符号可见性：`-fvisibility=hidden`、`C10_API`/`TORCH_API`；为什么静态注册的算子会在某些链接方式下"消失"；
 8. 平台与编译器宏：`__CUDACC__`、`__CUDA_ARCH__`、`_WIN32`、`__GNUC__`；
 9. 代码生成：`torchgen` 从 `native_functions.yaml` 生成什么、为什么要生成而不是手写；
-10. 回到源码：`aten/src/ATen/core/library.cpp`、vLLM 的两代 `torch_bindings.cpp`、`torch/headeronly/macros/Macros.h` 的整体结构；
+10. 回到源码：`aten/src/ATen/core/library.cpp`、vLLM 的 CPU 与 CUDA 两个 `torch_bindings.cpp`、`torch/headeronly/macros/Macros.h` 的整体结构；
 11. mini-c10：`MINI_CHECK`、`MINI_API`、`MINI_LIBRARY`/`MINI_LIBRARY_IMPL`，让 `add.cpp`、`mul.cpp` 自注册，并复现"静态库里注册消失"；
 12. 工程实践建议与常见错误；
 13. 总结。
@@ -186,14 +185,14 @@ STR2(__LINE__)   // "42"         ← 实参先展开成 42，再传给 STR1
 | `__HIPCC__` | 正在用 hipcc 编译 | hipcc |
 | `NDEBUG` | Release 构建，标准库的 `assert` 靠它关闭 | 构建系统 |
 
-另一类是构建系统传进来的：CMake `target_compile_definitions(... PRIVATE -DC10_BUILD_MAIN_LIB)` 等价于在每个源文件最前面写 `#define C10_BUILD_MAIN_LIB`。开头那段 vLLM 代码里的 `TORCH_EXTENSION_NAME` 就是这样定义的，`cmake/utils.cmake` 的 `define_gpu_extension_target` 函数里：
+另一类是构建系统传进来的：CMake `target_compile_definitions(... PRIVATE -DC10_BUILD_MAIN_LIB)` 等价于在每个源文件最前面写 `#define C10_BUILD_MAIN_LIB`。开头那段 vLLM 代码里的 `TORCH_EXTENSION_NAME` 就是这样定义的，`cmake/utils.cmake` 的 `define_extension_target` 函数里：
 
 ```cmake
   target_compile_definitions(${MOD_NAME} PRIVATE
     "-DTORCH_EXTENSION_NAME=${MOD_NAME}")
 ```
 
-同一个 `torch_bindings.cpp` 可以编成 `_C`、`_moe_C`、`_rocm_C` 好几个模块，模块名由构建系统注入，源码里用宏引用。
+vLLM 有四个 `torch_bindings.cpp`（`csrc/`、`csrc/cpu/`、`csrc/moe/`、`csrc/rocm/`），分别编成 `_C`（CUDA 后端和 CPU 后端各有一个同名的 `_C`）、`_moe_C`、`_rocm_C` 几个模块，模块名由构建系统注入，源码里统一用宏引用。
 
 ### 1.5 Java 对照
 
@@ -717,7 +716,7 @@ Java 实现"实现类自己登记进系统"有两条路：
   static const torch::detail::TorchLibraryInit TORCH_LIBRARY_static_init_##ns( \
       torch::Library::DEF,                                                     \
       &TORCH_LIBRARY_init_##ns,                                                \
-      C10_STRINGIZE(ns),                                                                     \
+      #ns,                                                                     \
       std::nullopt,                                                            \
       __FILE__,                                                                \
       __LINE__);                                                               \
@@ -751,7 +750,7 @@ void TORCH_LIBRARY_init_myops(torch::Library& m) {
 三句话：
 
 1. **前向声明**一个 `static` 函数 `TORCH_LIBRARY_init_myops`。`static` 让它内部链接，不同扩展里同名不冲突。
-2. **定义一个 `static const` 对象** `TORCH_LIBRARY_static_init_myops`，类型是 `torch::detail::TorchLibraryInit`，构造参数里有第 1 步那个函数的地址、命名空间字符串（`C10_STRINGIZE(ns)` 把标识符 `myops` 变成 `"myops"`）、以及这一行的文件和行号。这就是 4.2 节的"注册器对象"。
+2. **定义一个 `static const` 对象** `TORCH_LIBRARY_static_init_myops`，类型是 `torch::detail::TorchLibraryInit`，构造参数里有第 1 步那个函数的地址、命名空间字符串（`#ns` 把标识符 `myops` 字符串化成 `"myops"`）、以及这一行的文件和行号。这就是 4.2 节的"注册器对象"。
 3. **给出第 1 步函数的定义头** `void TORCH_LIBRARY_init_myops(torch::Library& m)`——注意宏到这里就结束了，没有函数体，也没有分号。用户写在宏后面的 `{ ... }` 被编译器读成这个函数的函数体。`m` 就是宏的第二个参数，用户可以随意命名（vLLM 用 `ops`）。
 
 所以 `TORCH_LIBRARY(myops, m) { ... }` 的语法其实是：**宏展开成一个函数定义的头部，用户补上函数体**。pybind11 的 `PYBIND11_MODULE(name, m) { ... }` 是同一技巧，`torch/library.h` 开头的注释也说明这个 API 是照着 pybind11 设计的。
@@ -888,7 +887,7 @@ Library& Library::_impl(const char* name_str, CppFunction&& f, _RegisterOrVerify
       TORCH_LIBRARY_IMPL_static_init_##ns##_##k##_, uid)(                 \
       torch::Library::IMPL,                                               \
       &C10_CONCATENATE(TORCH_LIBRARY_IMPL_init_##ns##_##k##_, uid),       \
-      C10_STRINGIZE(ns),                                                                \
+      #ns,                                                                \
       std::make_optional(c10::DispatchKey::k),                            \
       __FILE__,                                                           \
       __LINE__);                                                          \
@@ -918,7 +917,7 @@ void TORCH_LIBRARY_IMPL_init_myops_CPU_0(torch::Library& m) {
 }
 ```
 
-`TORCH_LIBRARY_FRAGMENT(ns, m)` 是第三个宏：结构与 `TORCH_LIBRARY_IMPL` 相同（有 `uid`），`Kind` 是 `FRAGMENT`，不注册命名空间所有权但允许 `def`。它用于把同一命名空间的 `def` 分散到多个文件——vLLM 的 `csrc/libtorch_stable/torch_bindings.cpp` 就用 `STABLE_TORCH_LIBRARY_FRAGMENT(_C, ops)`，因为 `_C` 命名空间的算子分布在好几个文件里。
+`TORCH_LIBRARY_FRAGMENT(ns, m)` 是第三个宏：结构与 `TORCH_LIBRARY_IMPL` 相同（有 `uid`），`Kind` 是 `FRAGMENT`，不注册命名空间所有权但允许 `def`。它用于把同一命名空间的 `def` 分散到多个文件——`aten` 命名空间的 schema 主体由 torchgen 生成在 `RegisterSchema.cpp` 的 `TORCH_LIBRARY(aten, m)` 里，而 `aten/src/ATen/native/RNN.cpp` 末尾手写的几个 `quantized_lstm` schema 就放在一个 `TORCH_LIBRARY_FRAGMENT(aten, m)` 块里；`torch/csrc/inductor/` 下的 `inductor` 命名空间也是好几个文件各自一个 `TORCH_LIBRARY_FRAGMENT(inductor, m)`。
 
 头文件里还有一句针对静态分析工具的注释值得注意：
 
@@ -1193,7 +1192,7 @@ macro(append_wholearchive_lib_if_found)
         list(APPEND TORCH_LIBRARIES "-Wl,--whole-archive ${${_arg}_LIBRARY} -Wl,--no-whole-archive")
       endif()
     else()
-      message(WARNING "library ${_arg} not found.")
+      message(WARNING "static library ${${_arg}_LIBRARY} not found.")
     endif()
   endforeach()
 endmacro()
@@ -1253,24 +1252,41 @@ vLLM 的算子库是给 Python `import` 的扩展模块，走的是动态库路�
 
 `REGISTER_EXTENSION(_C)` 展开成一个 `PyInit__C` 函数（`PyMODINIT_FUNC` 展开出 `extern "C"` 和默认可见性，第一篇讨论过 `stub.c` 里同样的入口），创建一个**空的** Python 模块——没有任何方法。它的唯一目的是让 `import vllm._C` 不报错；真正的注册工作在 `import` 触发的 `dlopen` 阶段就已经由 `TORCH_LIBRARY` 的静态对象做完了。这是 `torch/library.h` 和 pybind11 的一个关键区别：pybind11 在 `PyInit_*` 里显式注册函数，`TORCH_LIBRARY` 在此之前的静态初始化阶段就注册进了 Dispatcher，`PyInit_*` 反而成了摆设。第七篇会比较两种方式。
 
-vLLM 0.27 附近还有一个版本敏感的变化：CUDA 后端的大部分算子从 `_C` 迁到了 `_C_stable_libtorch`，注册宏换成 `torch/csrc/stable/library.h` 里的 `STABLE_TORCH_LIBRARY`/`STABLE_TORCH_LIBRARY_IMPL`/`STABLE_TORCH_LIBRARY_FRAGMENT`：
+CUDA 后端的 `csrc/torch_bindings.cpp` 用的是同一套宏，只是把算子按用途分进了几个命名空间：
 
 ```cpp
-// csrc/libtorch_stable/torch_bindings.cpp
-STABLE_TORCH_LIBRARY_FRAGMENT(_C, ops) {
+// csrc/torch_bindings.cpp
+TORCH_LIBRARY_EXPAND(TORCH_EXTENSION_NAME, ops) {
   // ...
   ops.def("permute_cols(Tensor A, Tensor perm) -> Tensor");
+  ops.impl("permute_cols", torch::kCUDA, &permute_cols);
   // ...
 }
 
-STABLE_TORCH_LIBRARY_IMPL(_C, CUDA, ops) {
-  // ...
-  ops.impl("per_token_group_fp8_quant", TORCH_BOX(&per_token_group_quant_fp8));
+TORCH_LIBRARY_EXPAND(CONCAT(TORCH_EXTENSION_NAME, _cache_ops), cache_ops) {
+  // Cache ops
+  // Swap in (out) the cache blocks from src to dst.
+  cache_ops.def(
+      "swap_blocks(Tensor src, Tensor! dst,"
+      "            int block_size_in_bytes, Tensor block_mapping) -> ()");
+  cache_ops.impl("swap_blocks", torch::kCUDA, &swap_blocks);
   // ...
 }
+
+TORCH_LIBRARY_EXPAND(CONCAT(TORCH_EXTENSION_NAME, _cuda_utils), cuda_utils) {
+  // ...
+}
+
+TORCH_LIBRARY_EXPAND(CONCAT(TORCH_EXTENSION_NAME, _custom_ar), custom_ar) {
+  // ...
+}
+
+REGISTER_EXTENSION(TORCH_EXTENSION_NAME)
 ```
 
-`STABLE_TORCH_LIBRARY_IMPL` 的定义与 `_TORCH_LIBRARY_IMPL` 结构完全相同（`static void ... init_##ns##_##k##_ uid`、一个 `static const StableTorchLibraryInit` 对象、函数定义头），差别是它不依赖 libtorch 的 C++ ABI，只通过 C 接口与 Dispatcher 通信——这是第七篇 ABI 一节的主题。就本篇而言，它证明了静态注册这个**模式**与 Dispatcher 的具体实现无关：任何"加载时要把自己登记到别处"的需求，都是这三行宏。
+`CONCAT(TORCH_EXTENSION_NAME, _cache_ops)` 先把 `TORCH_EXTENSION_NAME` 展开成 `_C`，再拼成 `_C_cache_ops`，于是同一个 `.so` 里注册出 `torch.ops._C`、`torch.ops._C_cache_ops`、`torch.ops._C_cuda_utils`、`torch.ops._C_custom_ar` 四个命名空间——每个 `TORCH_LIBRARY_EXPAND` 块是一个独立的 `TorchLibraryInit` 静态对象，四个对象在同一次 `dlopen` 里依次构造。
+
+PyTorch 2.10 的 `torch/csrc/stable/library.h` 里还有另一套注册宏 `STABLE_TORCH_LIBRARY`/`STABLE_TORCH_LIBRARY_IMPL`/`STABLE_TORCH_LIBRARY_FRAGMENT`（vLLM 0.15 尚未使用）。`_STABLE_TORCH_LIBRARY_IMPL` 的定义与 `_TORCH_LIBRARY_IMPL` 结构完全相同（`static void STABLE_CONCATENATE(STABLE_TORCH_LIBRARY_IMPL_init_##ns##_##k##_, uid)(...)`、一个 `static const StableTorchLibraryInit` 对象、函数定义头），差别是它不依赖 libtorch 的 C++ ABI，只通过 C 接口与 Dispatcher 通信——这是第七篇 ABI 一节的主题。就本篇而言，它证明了静态注册这个**模式**与 Dispatcher 的具体实现无关：任何"加载时要把自己登记到别处"的需求，都是这三行宏。
 
 ### 7.5 用 `nm` 检查
 
@@ -1434,11 +1450,11 @@ Java 的口号是 "write once, run anywhere"：一份 `.class`，任何平台的
 
 ## 九、代码生成：`torchgen` 与 `native_functions.yaml`
 
-宏是 C++ 内置的代码生成器，但它只能做文本替换，不能读一个外部数据文件、不能做条件判断和循环。PyTorch 有 2500 多个算子，每个算子要生成十几处代码（C++ 函数、`Tensor` 方法、Dispatcher 注册、Autograd 包装、Python 绑定……），这已经超出了宏的能力范围。PyTorch 用一个 Python 程序 `torchgen` 在构建时生成这些 C++ 文件。
+宏是 C++ 内置的代码生成器，但它只能做文本替换，不能读一个外部数据文件、不能做条件判断和循环。PyTorch 有 2600 多个算子，每个算子要生成十几处代码（C++ 函数、`Tensor` 方法、Dispatcher 注册、Autograd 包装、Python 绑定……），这已经超出了宏的能力范围。PyTorch 用一个 Python 程序 `torchgen` 在构建时生成这些 C++ 文件。
 
 ### 9.1 单一事实来源：`native_functions.yaml`
 
-`aten/src/ATen/native/native_functions.yaml` 是一个 15000 多行的 YAML 文件，`grep -c "^- func:"` 得到 2584 个条目（PyTorch 2.13.0）。每个条目描述一个算子。挑一个简单的：
+`aten/src/ATen/native/native_functions.yaml` 是一个 16000 多行的 YAML 文件，`grep -c "^- func:"` 得到 2666 个条目（PyTorch 2.10.0）。每个条目描述一个算子。挑一个简单的：
 
 ```yaml
 - func: bincount(Tensor self, Tensor? weights=None, SymInt minlength=0) -> Tensor
@@ -1758,12 +1774,10 @@ TORCH_API at::Tensor _bincount_cpu(const at::Tensor & self, const ::std::optiona
       "${Python_EXECUTABLE}" -m torchgen.gen
       --source-path ${CMAKE_CURRENT_LIST_DIR}/../aten/src/ATen
       --install_dir ${CMAKE_BINARY_DIR}/aten/src/ATen
-      --headeronly-install-dir ${CMAKE_BINARY_DIR}/torch/headeronly/core
       ${GEN_PER_OPERATOR_FLAG}
       ${GEN_ROCM_FLAG}
       ${GEN_MPS_FLAG}
       ${GEN_XPU_FLAG}
-      ${GEN_MTIA_FLAG}
       ${CUSTOM_BUILD_FLAGS}
   )
 ```
@@ -1860,30 +1874,22 @@ Library& Library::_def(c10::FunctionSchema&& schema, c10::OperatorName* out_name
 
 它引用了一个**局部变量** `schema`——宏在展开处才有意义，脱离 `_def` 函数体它什么都不是。这类"函数内私有宏"在 PyTorch 源码里不少（`#define ... #undef ...` 成对出现），读的时候把它当成一段被命名的文本片段即可。
 
-### 10.2 vLLM 的两代绑定文件
+### 10.2 vLLM 的两个绑定文件
 
 开头那段 `csrc/cpu/torch_bindings.cpp` 现在可以完整读懂了：
-
-```cpp
-// Note: overwrite the external definition for sharing same name between
-// libraries use different ISAs.
-#define TORCH_EXTENSION_NAME _C
-```
-
-CMake 通过 `-DTORCH_EXTENSION_NAME=<目标名>` 注入模块名，但 CPU 后端要为不同指令集编多个库并共用 `_C` 这个 Python 模块名，所以这个文件在源码里覆盖了它。
 
 ```cpp
 TORCH_LIBRARY_EXPAND(TORCH_EXTENSION_NAME, ops) {
 ```
 
-`TORCH_LIBRARY_EXPAND` 让 `TORCH_EXTENSION_NAME` 先展开成 `_C`，再进 `TORCH_LIBRARY`；展开结果是一个 `static const TorchLibraryInit TORCH_LIBRARY_static_init__C(...)` 对象和一个 `TORCH_LIBRARY_init__C(torch::Library& ops)` 函数。
+`TORCH_EXTENSION_NAME` 在这个文件里没有定义，它来自 CMake：`cmake/cpu_extension.cmake` 里 `define_extension_target(_C ...)` 把目标命名为 `_C`，`define_extension_target` 再用 `-DTORCH_EXTENSION_NAME=${MOD_NAME}` 把这个名字传给编译器（1.4 节）。`TORCH_LIBRARY_EXPAND` 让 `TORCH_EXTENSION_NAME` 先展开成 `_C`，再进 `TORCH_LIBRARY`；展开结果是一个 `static const TorchLibraryInit TORCH_LIBRARY_static_init__C(...)` 对象和一个 `TORCH_LIBRARY_init__C(torch::Library& ops)` 函数。
 
 ```cpp
   ops.def("silu_and_mul(Tensor! out, Tensor input) -> ()");
   ops.impl("silu_and_mul", torch::kCPU, &silu_and_mul);
 ```
 
-在同一个 `DEF` 块里既 `def` 又 `impl`，`impl` 的第二个参数 `torch::kCPU` 走的是 `Library::impl(Name, Dispatch&&, Func&&)` 重载——把 key 挂在函数上（5.3 节的 `f.dispatch_key_`）。vLLM 没有用 `TORCH_LIBRARY_IMPL` 分块，因为每个算子只有一个后端实现。
+在同一个 `DEF` 块里既 `def` 又 `impl`，`impl` 的第二个参数 `torch::kCPU` 走的是 `Library::impl(Name, Dispatch&&, Func&&)` 重载——把 key 挂在函数上（5.3 节的 `f.dispatch_key_`）。CPU 后端没有用 `TORCH_LIBRARY_IMPL` 分块，因为每个算子只有一个后端实现。
 
 ```cpp
 REGISTER_EXTENSION(TORCH_EXTENSION_NAME)
@@ -1891,24 +1897,24 @@ REGISTER_EXTENSION(TORCH_EXTENSION_NAME)
 
 展开成 `PyMODINIT_FUNC PyInit__C() { ... }`。`PyMODINIT_FUNC` 本身展开成 `extern "C" __attribute__((visibility("default"))) PyObject*`，这就是为什么它不需要 vLLM 自己加可见性属性。宏后面没有分号，因为展开的最后一个字符是函数定义的 `}`。
 
-新一代的 `csrc/libtorch_stable/torch_bindings.cpp`（vLLM 0.27 附近的变化，CUDA 算子迁到这里）把 `def` 和 `impl` 拆成了 `STABLE_TORCH_LIBRARY_FRAGMENT(_C, ops)` 和 `STABLE_TORCH_LIBRARY_IMPL(_C, CUDA, ops)`/`STABLE_TORCH_LIBRARY_IMPL(_C, CPU, ops)`/`STABLE_TORCH_LIBRARY_IMPL(_C, CompositeExplicitAutograd, ops)` 几个块，并用 `TORCH_BOX(&fn)` 包函数——结构上更接近 torchgen 生成的 `RegisterCPU.cpp`。文件末尾同样是 `REGISTER_EXTENSION(_C_stable_libtorch)`。两代文件放在一起读，能看清什么是不变的（三行宏、静态对象、`PyInit_`），什么是可变的（Dispatcher 的访问方式）。
+CUDA 后端的 `csrc/torch_bindings.cpp`（7.4 节看过）是同一个骨架的放大版：800 多行，一个 `TORCH_LIBRARY_EXPAND(TORCH_EXTENSION_NAME, ops)` 主块加 `_cache_ops`、`_cuda_utils`、`_custom_ar` 三个用 `CONCAT` 拼名字的副块，块内同样是 `def` 紧跟 `impl`，`impl` 的 key 多数是 `torch::kCUDA`，个别是 `torch::kCPU`（如 `get_cuda_view_from_cpu_tensor`、`open_mem_handle`）；ROCm 专有的算子用 `#ifdef USE_ROCM` 包住，只在 HIP 构建里存在（8.3 节）；有些算子只写了 `ops.def(...)`，注释说 "conditionally compiled so impl registration is in source file"——`impl` 挪到了各自的 `.cu` 里，用 `TORCH_LIBRARY_IMPL_EXPAND(TORCH_EXTENSION_NAME, CUDA, m)` 单独注册（`csrc/quantization/marlin/marlin.cu` 等），因为那个 `.cu` 可能根本没被编进来。文件末尾同样是 `REGISTER_EXTENSION(TORCH_EXTENSION_NAME)`。两个文件放在一起读，能看清什么是不变的（三行宏、静态对象、`PyInit_`），什么是可变的（命名空间的拆分、`def` 与 `impl` 是否同处一块）。
 
 ### 10.3 `torch/headeronly/macros/Macros.h` 的整体结构
 
-这个 741 行的头文件是 c10 所有基础宏的集散地，按本篇的三种用途归一下类，读的时候就有地图了：
+这个 694 行的头文件是 c10 所有基础宏的集散地，按本篇的三种用途归一下类，读的时候就有地图了：
 
 | 行号范围（约） | 内容 | 用途 |
 |---|---|---|
-| 26–30 | `#include cmake_macros.h`、`Export.h` | 引入构建配置和可见性宏 |
+| 27–30 | `#include cmake_macros.h`、`Export.h` | 引入构建配置和可见性宏 |
 | 32–92 | `__ubsan_ignore_*`、`C10_ASAN_ENABLED`、`C10_UBSAN_ENABLED` | 条件编译：按 sanitizer 开关 |
 | 96–118 | `C10_DISABLE_COPY_AND_ASSIGN`、`C10_CONCATENATE`、`C10_STRINGIZE`、`C10_UID`、`C10_ANONYMOUS_VARIABLE` | 生成代码：预处理器工具 |
-| 126–145 | `C10_NODISCARD`、`C10_UNUSED`、`C10_USED`、`C10_RESTRICT` | 条件编译：属性适配 |
-| 147–186 | `namespace caffe2 { using namespace c10; }`、`namespace at { using namespace c10; }` | 不是宏；第一篇讲的命名空间桥接 |
+| 120–146 | `C10_HAS_CPP_ATTRIBUTE`、`C10_NODISCARD`、`C10_UNUSED`、`C10_USED`、`C10_RESTRICT` | 条件编译：属性适配 |
+| 148–186 | `namespace caffe2 { using namespace c10; }`、`namespace at { using namespace c10; }` | 不是宏；第一篇讲的命名空间桥接 |
 | 188–246 | `C10_LIKELY`/`C10_UNLIKELY`、`C10_NOINLINE`、`C10_ALWAYS_INLINE`、`C10_ATTR_VISIBILITY_HIDDEN`、`C10_ERASE` | 条件编译：编译器提示 |
-| 254–320 | `C10_HOST_DEVICE`、`CUDA_MAX_THREADS_PER_SM`、`C10_LAUNCH_BOUNDS_*` | 条件编译：CUDA/HIP |
-| 322–409 | `C10_WARP_SIZE` 及 ROCm 的复杂处理 | 条件编译：CUDA/HIP |
-| 415–620 | `CUDA_KERNEL_ASSERT`、`SYCL_KERNEL_ASSERT` | 调用点捕获（device 侧的 assert） |
-| 624–741 | `HAS_DEMANGLE`、`C10_CLANG_DIAGNOSTIC_PUSH/POP/IGNORE`、`HIDDEN_NAMESPACE_BEGIN/END` | 条件编译 |
+| 248–320 | `C10_HOST_DEVICE`、`CUDA_MAX_THREADS_PER_SM`、`C10_LAUNCH_BOUNDS_*` | 条件编译：CUDA/HIP |
+| 322–363 | `C10_WARP_SIZE` 及 ROCm 的复杂处理 | 条件编译：CUDA/HIP |
+| 365–546 | `CUDA_KERNEL_ASSERT`、`SYCL_KERNEL_ASSERT` | 调用点捕获（device 侧的 assert） |
+| 548–694 | `C10_MOBILE`、`HAS_DEMANGLE`、`C10_CLANG_DIAGNOSTIC_PUSH/POP/IGNORE`、`HIDDEN_NAMESPACE_BEGIN/END` | 条件编译 |
 
 `C10_ERASE`（`C10_ALWAYS_INLINE C10_ATTR_VISIBILITY_HIDDEN`）是个有意思的组合：标在一个函数上表示"总是内联，且不导出"——保证它不会作为独立符号出现在 `.so` 里，第一篇 ODR 讨论的"inline 函数在多个 DSO 之间的版本不一致"问题对它就不存在了。
 

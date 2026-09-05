@@ -49,7 +49,7 @@ AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "log_sigmoid_cpu", [&] {
 11. 工程实践建议与常见错误；
 12. 总结。
 
-正文以 C++17 为基线（PyTorch 2.x 中的变化：本机 v2.13.0 源码树的顶层 `CMakeLists.txt` 将 `CMAKE_CXX_STANDARD` 设为 20，并在检测到环境变量指定其他标准时报错 "PyTorch requires -std=c++20"；vLLM 也是 C++20。但本文涉及的机制在 C++17 中全部存在，源码树里也没有用到 concepts 等 C++20 特有语法，所有 mini-c10 片段用 `clang++ -std=c++17 -Wall -Wextra` 验证）。
+正文以 C++17 为基线（本机 PyTorch v2.10.0 源码树的顶层 `CMakeLists.txt` 是 `set(CMAKE_CXX_STANDARD 17 ...)`，`torch/utils/cpp_extension.py` 给扩展传的也是 `-std=c++17`；vLLM v0.15.0 的 `CMakeLists.txt` 同样是 `CMAKE_CXX_STANDARD 17`，与本系列一致。本文涉及的机制在 C++17 中全部存在，源码树里也没有用到 concepts 等 C++20 特有语法，所有 mini-c10 片段用 `clang++ -std=c++17 -Wall -Wextra` 验证）。
 
 
 ## 一、模板是生成代码的配方
@@ -185,7 +185,7 @@ note: in instantiation of function template specialization
   SmallVector(ItTy S, ItTy E) : SmallVectorImpl<T>(N) {
 ```
 
-`std::iterator_traits<ItTy>::iterator_category` 依赖 `ItTy`，编译器在解析这段代码时还不知道 `ItTy` 是什么，无法确定 `::iterator_category` 是类型还是静态成员，所以要靠 `typename` 告诉它"这是类型"。vLLM `csrc/libtorch_stable/type_convert.cuh` 里的 `_f16Vec`：
+`std::iterator_traits<ItTy>::iterator_category` 依赖 `ItTy`，编译器在解析这段代码时还不知道 `ItTy` 是什么，无法确定 `::iterator_category` 是类型还是静态成员，所以要靠 `typename` 告诉它"这是类型"。vLLM `csrc/type_convert.cuh` 里的 `_f16Vec`：
 
 ```cpp
 template <typename scalar_t, int width>
@@ -318,7 +318,7 @@ auto TensorBase::register_hook(T&& hook) const -> TensorBase::hook_return_void_t
 
 ### 2.5 CTAD：类模板参数也能推导
 
-C++17 起类模板的参数可以从构造函数实参推导（Class Template Argument Deduction），`std::pair p(1, 2.0)` 得到 `pair<int, double>`。当构造函数是继承来的时，编译器无法自动推导，需要手写**推导指引**（deduction guide）。`c10/util/ArrayRef.h` 因为把大部分构造函数移到了基类 `HeaderOnlyArrayRef` 里（PyTorch 2.x 中的变化：v2.13.0 把 `ArrayRef` 拆成 `torch/headeronly/util/HeaderOnlyArrayRef.h` 的 header-only 基类和 `c10/util/ArrayRef.h` 的派生类，注释说明是为了让不链接 `libtorch.so` 的扩展也能用），所以在类定义后面补了一组指引：
+C++17 起类模板的参数可以从构造函数实参推导（Class Template Argument Deduction），`std::pair p(1, 2.0)` 得到 `pair<int, double>`。当构造函数是继承来的时，编译器无法自动推导，需要手写**推导指引**（deduction guide）。`c10/util/ArrayRef.h` 因为把大部分构造函数移到了基类 `HeaderOnlyArrayRef` 里（PyTorch 2.x 中的变化：v2.10.0 已把 `ArrayRef` 拆成 `torch/headeronly/util/HeaderOnlyArrayRef.h` 的 header-only 基类和 `c10/util/ArrayRef.h` 的派生类，注释说明是为了让不链接 `libtorch.so` 的扩展也能用），所以在类定义后面补了一组指引：
 
 ```cpp
 /// Deduction guides for ArrayRef to support CTAD with inherited constructors
@@ -385,7 +385,7 @@ using DimVector = SmallVector<int64_t, kDimVectorStaticSize>;
 
 ### 3.2 枚举做模板参数：`ScalarTypeToCPPType<N>`
 
-非类型参数可以是枚举值，这是 `AT_DISPATCH` 的基石。`torch/headeronly/core/ScalarType.h`（PyTorch 2.x 中的变化：v2.13.0 把 `ScalarType` 枚举及其映射从 `c10/core/ScalarType.h` 挪进了 `torch/headeronly/`，`c10/core/ScalarType.h` 现在 `#include` 它并补充 `kFloat` 等常量和类型提升表）：
+非类型参数可以是枚举值，这是 `AT_DISPATCH` 的基石。`torch/headeronly/core/ScalarType.h`（PyTorch 2.x 中的变化：v2.10.0 已把 `ScalarType` 枚举及其映射从 `c10/core/ScalarType.h` 挪进了 `torch/headeronly/`，`c10/core/ScalarType.h` 现在 `#include` 它并补充 `kFloat` 等常量和类型提升表）：
 
 ```cpp
 namespace impl {
@@ -436,7 +436,7 @@ AT_FORALL_SCALAR_TYPES_WITH_COMPLEX_AND_QINTS(SPECIALIZE_CppTypeToScalarType)
 
 ### 3.3 CUDA kernel 的 `BLOCK_SIZE`：为什么 GPU 代码特别依赖非类型参数
 
-CUDA kernel 是 C++ 函数（多一个 `__global__`），host 侧的启动代码是普通 C++。vLLM 的 kernel 几乎都把 tile 大小、向量宽度、是否有权重等参数做成非类型模板参数。`csrc/libtorch_stable/cache_kernels.cu`：
+CUDA kernel 是 C++ 函数（多一个 `__global__`），host 侧的启动代码是普通 C++。vLLM 的 kernel 几乎都把 tile 大小、向量宽度、激活函数顺序等参数做成非类型模板参数。`csrc/cache_kernels.cu`：
 
 ```cpp
 template <int BLOCK_Y_SIZE>
@@ -475,54 +475,65 @@ host 侧根据运行期的 `num_tokens` 选择实例化哪一个：
 
 这段 if-else 链是本文最重要的模式之一，第六节的 `AT_DISPATCH` 是它的另一个形态：**运行期的值（`num_tokens`）通过一组分支被映射到有限个编译期常量（1、2、4、8、16……），每个分支实例化一份 kernel**。为什么不直接把 `BLOCK_Y_SIZE` 当普通参数传进 kernel？因为在 GPU 上它决定的东西必须在编译期确定：共享内存数组的大小（`__shared__ float buf[BLOCK_SIZE]` 不能用运行期变量）、`#pragma unroll` 能否完全展开、寄存器分配、以及 `dim3(8, BLOCK_Y_SIZE)` 与 kernel 内部索引计算的一致性。编译期常量让编译器把循环边界、地址偏移全部折叠成立即数；换成运行期参数，每个线程都要多做一次乘除和分支。
 
-`csrc/libtorch_stable/layernorm_kernels.cu` 的 `fused_add_rms_norm_kernel` 把三种参数放在一起：
+`csrc/layernorm_kernels.cu` 的 `fused_add_rms_norm_kernel` 把类型参数和非类型参数放在一起：
 
 ```cpp
-template <typename scalar_t, int width, bool HasWeight>
+template <typename scalar_t, int width>
 __global__ std::enable_if_t<(width > 0) && _typeConvert<scalar_t>::exists>
 fused_add_rms_norm_kernel(
     scalar_t* __restrict__ input,  // [..., hidden_size]
     const int64_t input_stride,
     scalar_t* __restrict__ residual,      // [..., hidden_size]
-    const scalar_t* __restrict__ weight,  // [hidden_size], null if !HasWeight
-    const float epsilon, const int num_tokens, const int hidden_size,
-    const int64_t residual_stride) {
+    const scalar_t* __restrict__ weight,  // [hidden_size]
+    const float epsilon, const int num_tokens, const int hidden_size) {
   // Sanity checks on our vector struct and type-punned pointer arithmetic
   static_assert(std::is_pod_v<_f16Vec<scalar_t, width>>);
   static_assert(sizeof(_f16Vec<scalar_t, width>) == sizeof(scalar_t) * width);
   // ...
 ```
 
-`scalar_t` 是类型参数（由 dtype 分发决定），`width` 是向量宽度（8 或 0，由指针对齐决定），`HasWeight` 是 `bool`（由 `weight` 是否有值决定）。host 侧的选择逻辑：
+`scalar_t` 是类型参数（由 dtype 分发决定），`width` 是向量宽度（8 或 0，由指针对齐决定）。host 侧的选择逻辑：
 
 ```cpp
-#define LAUNCH_FUSED_ADD_RMS_NORM(width, has_weight)                       \
-  VLLM_STABLE_DISPATCH_FLOATING_TYPES(                                     \
-      input.scalar_type(), "fused_add_rms_norm_kernel", [&] {              \
-        if (has_weight) {                                                  \
-          vllm::fused_add_rms_norm_kernel<scalar_t, width, true>           \
-              <<<grid, block, 0, stream>>>(                                \
-                  input.mutable_data_ptr<scalar_t>(), input_stride,        \
-                  residual.mutable_data_ptr<scalar_t>(),                   \
-                  weight->const_data_ptr<scalar_t>(), epsilon, num_tokens, \
-                  hidden_size, residual_stride);                           \
-        } else {                                                           \
-          vllm::fused_add_rms_norm_kernel<scalar_t, width, false>          \
-              <<<grid, block, 0, stream>>>(/* ... */);                     \
-        }                                                                  \
+#define LAUNCH_FUSED_ADD_RMS_NORM(width)                                    \
+  VLLM_DISPATCH_FLOATING_TYPES(                                             \
+      input.scalar_type(), "fused_add_rms_norm_kernel", [&] {               \
+        vllm::fused_add_rms_norm_kernel<scalar_t, width>                    \
+            <<<grid, block, 0, stream>>>(                                   \
+                input.data_ptr<scalar_t>(), input_stride,                   \
+                residual.data_ptr<scalar_t>(), weight.data_ptr<scalar_t>(), \
+                epsilon, num_tokens, hidden_size);                          \
       });
 // ...
-    if (ptrs_are_aligned && offsets_are_multiple_of_vector_width &&
-        !batch_invariant_launch) {
-      LAUNCH_FUSED_ADD_RMS_NORM(8, true);
-    } else {
-      LAUNCH_FUSED_ADD_RMS_NORM(0, true);
-    }
+  if (ptrs_are_aligned && offsets_are_multiple_of_vector_width &&
+      !batch_invariant_launch) {
+    LAUNCH_FUSED_ADD_RMS_NORM(8);
+  } else {
+    LAUNCH_FUSED_ADD_RMS_NORM(0);
+  }
 ```
 
-数一下实例化了多少份 kernel：dtype 三种（`VLLM_STABLE_DISPATCH_FLOATING_TYPES` 是 Float/Half/BFloat16）× `width` 两种 × `HasWeight` 两种 = 12 份，全部在编译期生成，运行期用三层分支选一份。这就是 CUDA 代码 `.cu` 文件编译慢、二进制大的直接原因，也是 host 侧 C++ 必须熟练的部分：你写的每一个 `if` 都在选择一份已经存在的代码，而不是在改变一份代码的行为。
+数一下实例化了多少份 kernel：dtype 三种（`VLLM_DISPATCH_FLOATING_TYPES` 是 Float/Half/BFloat16）× `width` 两种 = 6 份，全部在编译期生成，运行期用两层分支选一份。这就是 CUDA 代码 `.cu` 文件编译慢、二进制大的直接原因，也是 host 侧 C++ 必须熟练的部分：你写的每一个 `if` 都在选择一份已经存在的代码，而不是在改变一份代码的行为。
 
-（`HasWeight` 在上面是通过运行期 `if (has_weight)` 选两份不同实例化，而不是在 kernel 里 `if (HasWeight)`——kernel 里也可以写 `if constexpr (HasWeight)`，第五节讨论。）
+`bool` 也常做非类型参数。`csrc/activation_kernels.cu` 的 `act_and_mul_kernel`：
+
+```cpp
+template <typename scalar_t, scalar_t (*ACT_FN)(const scalar_t&),
+          bool act_first>
+__device__ __forceinline__ scalar_t compute(const scalar_t& x,
+                                            const scalar_t& y) {
+  return act_first ? ACT_FN(x) * y : x * ACT_FN(y);
+}
+// ...
+template <typename scalar_t, scalar_t (*ACT_FN)(const scalar_t&),
+          bool act_first>
+__global__ void act_and_mul_kernel(
+    scalar_t* __restrict__ out,          // [..., d]
+    const scalar_t* __restrict__ input,  // [..., 2, d]
+    const int d) {
+```
+
+`ACT_FN` 是函数指针（`silu_kernel<scalar_t>`、`gelu_kernel<scalar_t>` 等），`act_first` 是 `bool`；`silu_and_mul` 用 `LAUNCH_ACTIVATION_GATE_KERNEL(vllm::silu_kernel, true)` 实例化，`mul_and_silu` 传 `false`。`compute` 里的三目 `act_first ? ... : ...` 条件是编译期常量，编译器会把没选中的一侧整个删掉——也可以写成 `if constexpr (act_first)`，第五节讨论。
 
 
 ## 四、特化与变参模板
@@ -540,7 +551,7 @@ struct ScalarTypeToCPPType<c10::ScalarType::Float> {
 
 3.2 节的 `ScalarTypeToCPPType` 是全特化最纯粹的用法：主模板不定义，只有特化有定义，于是"查表"变成了"选择特化"，查不到的键直接编译失败（`ScalarTypeToCPPType<ScalarType::Undefined>::type` 会报 incomplete type）。
 
-vLLM `csrc/libtorch_stable/type_convert.cuh` 用全特化实现"某类型是否有向量化转换支持"：
+vLLM `csrc/type_convert.cuh` 用全特化实现"某类型是否有向量化转换支持"：
 
 ```cpp
 template <typename torch_type>
@@ -795,7 +806,7 @@ C++17 的 `if constexpr` 要求条件是编译期常量，**没被选中的分�
 
 `sizes()` 返回 `IntArrayRef`，`sym_sizes()` 返回 `SymIntArrayRef`，返回类型不同。用普通 `if`，`generic_sizes<int64_t>` 的 `else` 分支里 `return sym_sizes();` 会因为类型不匹配编译失败；`if constexpr` 让那个分支在 `T = int64_t` 时根本不存在。
 
-vLLM `csrc/libtorch_stable/type_convert.cuh` 的 `_f16Vec::operator+=`：
+vLLM `csrc/type_convert.cuh` 的 `_f16Vec::operator+=`：
 
 ```cpp
   __device__ _f16Vec& operator+=(const _f16Vec<scalar_t, width>& other) {
@@ -812,7 +823,7 @@ vLLM `csrc/libtorch_stable/type_convert.cuh` 的 `_f16Vec::operator+=`：
           // ...
 ```
 
-两层 `if constexpr`：外层看非类型参数 `width` 的奇偶，内层看类型参数 `T2` 是不是 `float2`。生成的每份代码里都没有这些判断，只剩被选中的那条路径。3.3 节提到的 `HasWeight` 如果放进 kernel 体，写法就是 `if constexpr (HasWeight) { ... }`。
+两层 `if constexpr`：外层看非类型参数 `width` 的奇偶，内层看类型参数 `T2` 是不是 `float2`。生成的每份代码里都没有这些判断，只剩被选中的那条路径。3.3 节 `compute` 里的 `act_first ? ACT_FN(x) * y : x * ACT_FN(y)` 换成语句形式，写法就是 `if constexpr (act_first) { ... } else { ... }`。
 
 `aten/src/ATen/Dispatch.h` 的选择性构建钩子也用了它：
 
@@ -861,7 +872,6 @@ SFINAE 是 "Substitution Failure Is Not An Error" 的缩写：在推导模板参
   template <
       typename Container,
       typename U = decltype(std::declval<Container>().data()),
-      // NOLINTNEXTLINE(modernize-use-constraints)
       typename = std::enable_if_t<
           (std::is_same_v<U, T*> || std::is_same_v<U, T const*>)>>
   /* implicit */ HeaderOnlyArrayRef(const Container& container)
@@ -873,16 +883,16 @@ SFINAE 是 "Substitution Failure Is Not An Error" 的缩写：在推导模板参
 **放在返回类型上**（3.3 节 vLLM 的两个 kernel 重载）：
 
 ```cpp
-template <typename scalar_t, int width, bool HasWeight>
+template <typename scalar_t, int width>
 __global__ std::enable_if_t<(width > 0) && _typeConvert<scalar_t>::exists>
 fused_add_rms_norm_kernel(/* ... */)
 // ...
-template <typename scalar_t, int width, bool HasWeight>
+template <typename scalar_t, int width>
 __global__ std::enable_if_t<(width == 0) || !_typeConvert<scalar_t>::exists>
 fused_add_rms_norm_kernel(/* ... */)
 ```
 
-两个同名同参数的函数模板，返回类型分别是 `enable_if_t<A>` 和 `enable_if_t<!A>`（省略第二个参数时默认 `void`）。任意一组 `<scalar_t, width, HasWeight>` 只会让其中一个的返回类型合法，另一个被 SFINAE 移除，于是"向量化版本"和"通用版本"互斥共存。这比一个大 `if constexpr` 更适合 CUDA，因为两个版本的 `__shared__` 声明和循环结构完全不同。
+两个同名同参数的函数模板，返回类型分别是 `enable_if_t<A>` 和 `enable_if_t<!A>`（省略第二个参数时默认 `void`）。任意一组 `<scalar_t, width>` 只会让其中一个的返回类型合法，另一个被 SFINAE 移除，于是"向量化版本"和"通用版本"互斥共存。这比一个大 `if constexpr` 更适合 CUDA，因为两个版本的 `__shared__` 声明和循环结构完全不同。
 
 **放在一个哑参数上**（`aten/src/ATen/native/cpu/Loops.h`）：
 
@@ -926,7 +936,7 @@ concept ContiguousContainerOf = requires(const C& c) {
 
 不满足时编译器会说"约束 `ContiguousContainerOf<X, int64_t>` 不满足，因为 `c.data()` 不存在"，比 SFINAE 的报错好得多。Java 工程师会觉得这终于像 `extends` 了——但注意 concepts 仍是**鸭子类型**：它检查"能不能这样用"，不要求 `Container` 声明实现了某个接口。
 
-PyTorch v2.13.0 用 C++20 编译，但源码树里没有使用 `requires`/`concept`（在 `c10/` 和 `aten/src/ATen/core/` 下搜不到这两个关键字的语法用法）；`HeaderOnlyArrayRef.h` 里 `enable_if` 上方那行 `// NOLINTNEXTLINE(modernize-use-constraints)` 说明 clang-tidy 已经在建议改成 concepts，只是还没有做。vLLM 同样。所以读这两个项目时，约束都长成 `enable_if` 的样子；写新代码时，如果项目允许 C++20，concepts 是更好的选择。
+PyTorch v2.10.0 用 C++17 编译，源码树里自然没有 `requires`/`concept`（在 `c10/` 和 `aten/src/ATen/core/` 下搜不到这两个关键字的语法用法），`HeaderOnlyArrayRef.h` 的容器构造函数就是上面那副 `enable_if` 的样子。vLLM v0.15.0 同样是 C++17。所以读这两个项目时，约束都长成 `enable_if` 的样子；写新代码时，如果项目允许 C++20，concepts 是更好的选择。
 
 ## 六、编译期分派与运行期分派：逐层展开 `AT_DISPATCH_FLOATING_TYPES`
 
@@ -981,7 +991,7 @@ switch (x.scalar_type()) {
       __VA_ARGS__)
 ```
 
-PyTorch 2.x 中的变化：v2.13.0 把 `switch` 的骨架挪到了 `torch/headeronly/core/Dispatch.h`，命名为 `THO_DISPATCH_SWITCH_TMPL`（THO = torch header-only），多出两个"钩子"参数 `PRELUDE` 和 `CHECK_NOT_IMPLEMENTED`，ATen 版传入自己的 profiling 记录宏和 `TORCH_CHECK_NOT_IMPLEMENTED`，header-only 版（供不链接 libtorch 的稳定 ABI 扩展使用）传入空宏和 `STD_TORCH_CHECK`。骨架本身：
+PyTorch 2.x 中的变化：v2.10.0 已把 `switch` 的骨架挪到了 `torch/headeronly/core/Dispatch.h`，命名为 `THO_DISPATCH_SWITCH_TMPL`（THO = torch header-only），多出两个"钩子"参数 `PRELUDE` 和 `CHECK_NOT_IMPLEMENTED`，ATen 版传入自己的 profiling 记录宏和 `TORCH_CHECK_NOT_IMPLEMENTED`，header-only 版（供不链接 libtorch 的稳定 ABI 扩展使用）传入空宏和 `STD_TORCH_CHECK`。骨架本身：
 
 ```cpp
 #define THO_DISPATCH_SWITCH_TMPL(                                           \
@@ -1132,11 +1142,11 @@ vLLM 没有重新发明这套机制，而是直接复用 ATen 的 `AT_DISPATCH_S
 
 两点值得注意。第一，vLLM 的"浮点类型"是 Float/Half/BFloat16，**没有 Double**——推理引擎不需要双精度，多一份实例化只会增加编译时间和二进制大小。第二，`AT_DISPATCH_FP8_CASE` 直接调用 `AT_PRIVATE_CASE_TYPE_USING_HINT` 并把 `HINT` 改成 `fp8_t`：当一个 kernel 需要同时按激活 dtype 和 KV cache 的 fp8 dtype 分派时，两层 `AT_DISPATCH` 嵌套，内层用 `fp8_t` 命名，避免与外层的 `scalar_t` 冲突。这正好说明了 6.4 节的结论——`scalar_t` 只是 `HINT` 参数的默认值，不是什么保留字。
 
-vLLM v0.27 还有一套 `csrc/libtorch_stable/dispatch_utils.h`，用的是 header-only 的 `THO_DISPATCH_SWITCH` / `THO_DISPATCH_CASE`（3.3 节的 `VLLM_STABLE_DISPATCH_FLOATING_TYPES`），服务于不依赖 libtorch ABI 的 kernel 文件。
+同一文件里的 `VLLM_DISPATCH_FP8_TYPES`、`VLLM_DISPATCH_QUANT_TYPES`、`VLLM_DISPATCH_INTEGRAL_TYPES` 等都是同一套路——换 `case` 列表、落到同一个 `AT_DISPATCH_SWITCH`。vLLM v0.15.0 的 `csrc/` 下只有这一套 `dispatch_utils.h`，所有 CUDA kernel 都经它走 ATen 的宏；PyTorch 侧 `torch/headeronly/core/Dispatch.h` 里给稳定 ABI 扩展准备的 `THO_DISPATCH_SWITCH` / `THO_DISPATCH_CASE`（传入空 `PRELUDE` 和 `STD_TORCH_CHECK`），vLLM 0.15 尚未使用。
 
 ### 6.8 `Dispatch_v2.h`：去掉 `_AND2`/`_AND3` 的算术
 
-旧宏族有一个问题：想在默认集合上追加 N 个 dtype，就要用 `AT_DISPATCH_FLOATING_TYPES_AND2`、`_AND3`、`_AND4`……名字里带着个数，组合爆炸。`aten/src/ATen/Dispatch_v2.h`（PyTorch 2.x 中的变化：V2 在 2.3 引入，与 V1 并存；v2.13.0 中它的骨架同样已挪到 `torch/headeronly/core/Dispatch_v2.h`）用一种新写法解决：
+旧宏族有一个问题：想在默认集合上追加 N 个 dtype，就要用 `AT_DISPATCH_FLOATING_TYPES_AND2`、`_AND3`、`_AND4`……名字里带着个数，组合爆炸。`aten/src/ATen/Dispatch_v2.h`（PyTorch 2.x 中的变化：V2 在 2.3 引入，与 V1 并存；v2.10.0 中它的骨架同样已挪到 `torch/headeronly/core/Dispatch_v2.h`）用一种新写法解决：
 
 ```cpp
 //  AT_DISPATCH_V2(
@@ -1290,7 +1300,7 @@ Tensor empty_cpu(
 
 这对应 Schema 里的 `ScalarType? dtype=None`。用法：`opt.has_value()`、`*opt` / `opt.value()`、`opt.value_or(default)`、`opt->member`。它是**值类型**：`optional<ScalarType>` 就是一个 `ScalarType` 加一个 `bool`，放在栈上或参数寄存器里，没有堆分配。Java 的 `Optional<T>` 是一个堆对象，包着一个引用，两者语义相近、代价不同；另外 Java 用 `null` 表示缺失的地方远多于 `Optional`，而 C++ 里 `optional<Tensor>` 和"undefined `Tensor`"（第二篇的 `UndefinedTensorImpl`）是两种不同的"没有"，读源码时要分清。
 
-版本演进（PyTorch 2.x 中的变化）：PyTorch 早期用自己实现的 `c10::optional`（`c10/util/Optional.h` 曾是一个完整的自有实现，因为要支持没有 `<optional>` 的旧编译器；2.1 的 `c10/util/Optional.h` 还是这个自有实现），从 2.2 起 `c10::optional` 变成 `std::optional` 的别名，之后几个版本里 PyTorch 自己的代码逐步改写为直接使用 `std::optional`。v2.13.0 源码树里 `c10/util/Optional.h` 只剩下这些：
+版本演进（PyTorch 2.x 中的变化）：PyTorch 早期用自己实现的 `c10::optional`（`c10/util/Optional.h` 曾是一个完整的自有实现，因为要支持没有 `<optional>` 的旧编译器；2.1 的 `c10/util/Optional.h` 还是这个自有实现），从 2.2 起 `c10::optional` 变成 `std::optional` 的别名，之后几个版本里 PyTorch 自己的代码逐步改写为直接使用 `std::optional`。v2.10.0 源码树里 `c10/util/Optional.h` 只剩下这些：
 
 ```cpp
 namespace c10 {
@@ -1310,7 +1320,7 @@ using std::optional;
 // ... 两个标了 [[deprecated]] 的 value_or_else ...
 ```
 
-`c10::optional` 现在就是 `std::optional` 的一个 `using` 别名，且只在没定义 `C10_NODEPRECATED` 时存在。PyTorch 自己的代码已全部改写为 `std::optional`（在 `aten/`、`c10/`、`torch/csrc/` 下 grep 不到 `c10::optional`）。第三方扩展仍可能写着旧名字——vLLM 的 `csrc/cpu/mamba_cpu.cpp` 就还有 `const c10::optional<at::Tensor>& bias`，能编译只是因为那个 `using`。写新代码一律用 `std::optional`；读到 `c10::optional` 知道它是同一个东西即可。
+`c10::optional` 现在就是 `std::optional` 的一个 `using` 别名，且只在没定义 `C10_NODEPRECATED` 时存在。PyTorch 自己的代码已全部改写为 `std::optional`（在 `aten/`、`c10/`、`torch/csrc/` 下 grep 不到 `c10::optional`）。第三方扩展仍可能写着旧名字，能编译只是因为那个 `using`；vLLM v0.15.0 的 `csrc/` 已经全部改成 `std::optional`（如 `csrc/ops.h` 里的 `const std::optional<torch::Tensor>& alibi_slopes`），grep 不到 `c10::optional`。写新代码一律用 `std::optional`；读到 `c10::optional` 知道它是同一个东西即可。
 
 ### 7.3 `c10::SmallVector<T, N>`：小容量不分配
 
@@ -2101,7 +2111,7 @@ grep -n "fmul\|\tmul\tx8, x8, x9" mul.s
 
 **推导**：函数模板从实参推 `T`，不能从返回值推，所以 `data_ptr<scalar_t>()` 必须显式写；`auto`、`decltype`、`declval`、尾置返回类型、CTAD 推导指引都是同一套规则的延伸。每个 lambda 类型唯一，`parallel_for(const F&)` 每个调用点一份实例。
 
-**非类型模板参数**：`std::array<T, N>`、`SmallVector<T, N>`、`ScalarTypeToCPPType<ScalarType N>`、vLLM kernel 的 `<scalar_t, width, HasWeight>`/`<BLOCK_Y_SIZE>`。值必须是编译期常量，所以运行期的值要经过一组分支才能进入模板——这是 `AT_DISPATCH` 和 vLLM if 链的共同本质。
+**非类型模板参数**：`std::array<T, N>`、`SmallVector<T, N>`、`ScalarTypeToCPPType<ScalarType N>`、vLLM kernel 的 `<scalar_t, width>`/`<scalar_t, ACT_FN, act_first>`/`<BLOCK_Y_SIZE>`。值必须是编译期常量，所以运行期的值要经过一组分支才能进入模板——这是 `AT_DISPATCH` 和 vLLM if 链的共同本质。
 
 **特化与变参**：全特化建查表（`ScalarTypeToCPPType`、`_typeConvert`），偏特化按类型模式换实现（`SmallVectorTemplateBase<T, true>`、`CanonicalizeStrTypes<char[N]>`），函数模板用重载代替偏特化（`_str`）；`Args&&...` + `std::forward` 完美转发（`make_intrusive`），递归展开拼字符串（`c10::str`）。
 
@@ -2109,7 +2119,7 @@ grep -n "fmul\|\tmul\tx8, x8, x9" mul.s
 
 **`AT_DISPATCH_FLOATING_TYPES`**：三层宏——`AT_DISPATCH_FLOATING_TYPES` 生成 `case` 列表；`AT_DISPATCH_SWITCH` → `THO_DISPATCH_SWITCH_TMPL` 是一个 IIFE 里的 `switch`，`default` 抛 `NotImplementedError`；`AT_DISPATCH_CASE` → `AT_PRIVATE_CASE_TYPE_USING_HINT(enum_type, scalar_t, ...)` → `THO_PRIVATE_CASE_TYPE_USING_HINT_TMPL` 在每个 `case` 块里 `using scalar_t = ScalarTypeToCPPTypeT<enum_type>;` 然后 `return lambda();`。**`scalar_t` 是 `case` 块作用域里的一个类型别名，名字由 `AT_DISPATCH_CASE` 硬编码，类型由 `ScalarTypeToCPPType` 全特化表查出；lambda 的文本被复制到每个 `case`，N 个 dtype 就是 N 个闭包类型各编译一次**。vLLM 复用同一套宏，只换 dtype 列表并把 `HINT` 改名 `fp8_t`；`Dispatch_v2.h` 用参数计数技巧去掉 `_AND2`/`_AND3` 后缀，`AT_WRAP` 保护 lambda 里的逗号，最终落到同样的 `SWITCH`/`CASE`。
 
-**视图与容器**：`ArrayRef<T>` 是指针 + 长度的不拥有视图，按值传、不存储，一组隐式构造函数统一各种容器；`std::optional<T>` 是值类型的可选值，`c10::optional` 在 v2.13.0 只剩一个废弃别名；`SmallVector<T, N>` 小容量内联不分配，`DimVector` 是 5 维内联的 shape 容器。
+**视图与容器**：`ArrayRef<T>` 是指针 + 长度的不拥有视图，按值传、不存储，一组隐式构造函数统一各种容器；`std::optional<T>` 是值类型的可选值，`c10::optional` 在 v2.10.0 只剩一个废弃别名；`SmallVector<T, N>` 小容量内联不分配，`DimVector` 是 5 维内联的 shape 容器。
 
 **lambda**：闭包类型唯一、可内联；`[&]` 引用捕获不延长寿命，同步且不逃逸时安全（`AT_DISPATCH` 的 IIFE、`parallel_for` 的 `#pragma omp parallel` 同步块），要存起来或异步时按值/初始化捕获；泛型 lambda 的 `operator()` 是模板；模板参数传 lambda 零开销、`std::function` 类型擦除有代价但可跨 `.so`。
 

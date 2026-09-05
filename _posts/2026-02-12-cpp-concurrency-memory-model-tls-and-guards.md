@@ -401,9 +401,9 @@ struct ThreadSHMContext {
 
 有了 release/acquire 的概念，可以回答本文开头的那个问题了。这是全文第一处"回到源码"：`c10/util/intrusive_ptr.h`。
 
-### 3.1 PyTorch 2.13 的引用计数布局
+### 3.1 PyTorch 2.10 的引用计数布局
 
-先说一个版本敏感的细节。早期的 `intrusive_ptr_target` 有两个独立的原子字段 `refcount_` 和 `weakcount_`，对应两组函数 `atomic_refcount_increment`/`atomic_refcount_decrement` 和 `atomic_weakcount_increment`/`atomic_weakcount_decrement`。在 v2.13.0 的源码里，两个计数已经合并成一个 64 位字段，函数名也随之变成 `atomic_combined_refcount_increment`/`atomic_combined_refcount_decrement`（PyTorch 2.x 中的变化：合并成一个字段是为了能用一条原子指令同时操作强、弱两个计数；最高位 `kHasPyObject` 还被拿来标记"是否有 Python 包装对象"）：
+先说一个版本敏感的细节。早期的 `intrusive_ptr_target` 有两个独立的原子字段 `refcount_` 和 `weakcount_`，对应两组函数 `atomic_refcount_increment`/`atomic_refcount_decrement` 和 `atomic_weakcount_increment`/`atomic_weakcount_decrement`。在 v2.10.0 的源码里，两个计数已经合并成一个 64 位字段，函数名也随之变成 `atomic_combined_refcount_increment`/`atomic_combined_refcount_decrement`（PyTorch 2.x 中的变化：合并成一个字段是为了能用一条原子指令同时操作强、弱两个计数；最高位 `kHasPyObject` 还被拿来标记"是否有 Python 包装对象"）：
 
 ```cpp
 namespace detail {
@@ -606,7 +606,7 @@ class C {
   // A little micro-optimization to save us from tls_get_addr call
   // on destruction
   PODLocalDispatchKeySet* tls_;
-  DispatchKeySet saved_state_;
+  DispatchKeySet include_;
 ```
 
 构造时取一次 TLS 变量的地址存起来，析构时直接用这个指针写回，省掉第二次 `__tls_get_addr`。Java 里没有这种优化空间，因为 `ThreadLocal.get()` 的成本是固定的。
@@ -635,7 +635,7 @@ MSVC 不允许从 DLL 导出 `thread_local` 变量，所以 Windows 上只能导
 
 一个自然的疑问：`no_grad` 为什么不是全局开关？答案是"上下文"和"线程"天然绑定。一个进程里可能同时有：主线程在做推理（`no_grad`），DataLoader 的工作线程在做数据增广（需要 autograd 关闭吗？不一定），autograd 引擎的设备线程在跑 backward（必须以 forward 时的 grad mode 为准）。如果 `no_grad` 是全局的，任何一个线程进入它都会影响其他所有线程，结果是不可预测的。**线程局部是让"作用域内生效"这个语义在多线程下成立的唯一办法**——Python 的 `with` 块是一个线程的执行流上的一段，它只应该影响这个线程。
 
-PyTorch 2.13 的 C++ 层里以 `thread_local` 存储的主要状态：
+PyTorch 2.10 的 C++ 层里以 `thread_local` 存储的主要状态：
 
 | TLS 变量 | 文件 | 类型 | 控制什么 |
 |---|---|---|---|
@@ -678,8 +678,8 @@ void AutogradState::set_tls_state(AutogradState state) {
   bool inference_mode_ : 1;
   bool fw_grad_mode_ : 1;
   bool multithreading_enabled_ : 1;
-  bool view_replay_enabled_ : 1 = false;
-  bool grad_layout_enforcement_enabled_ : 1 = true;
+  // NOLINTNEXTLINE(cppcoreguidelines-use-default-member-init)
+  bool view_replay_enabled_ : 1;
 ```
 
 CUDA 当前 stream 的存储（`c10/cuda/CUDAStream.cpp`）：
@@ -701,9 +701,7 @@ CUDAStream getCurrentCUDAStream(DeviceIndex device_index) {
 
 void setCurrentCUDAStream(CUDAStream stream) {
   initCUDAStreamsOnce();
-  auto device_index = stream.device_index();
-  check_gpu(device_index);
-  current_streams[device_index] = stream.id();
+  current_streams[stream.device_index()] = stream.id();
 }
 ```
 
@@ -1003,35 +1001,43 @@ class C10_API IncludeDispatchKeyGuard {
   // A little micro-optimization to save us from tls_get_addr call
   // on destruction
   PODLocalDispatchKeySet* tls_;
-  DispatchKeySet saved_state_;
+  DispatchKeySet include_;
 };
 ```
 
-`ExcludeDispatchKeyGuard` 结构完全一样。实现在 `c10/core/impl/LocalDispatchKeySet.cpp`：
+`ExcludeDispatchKeyGuard` 结构完全一样（成员名换成 `exclude_`）。实现在 `c10/core/impl/LocalDispatchKeySet.cpp`：
 
 ```cpp
 IncludeDispatchKeyGuard::IncludeDispatchKeyGuard(DispatchKeySet include)
-    : tls_(&raw_local_dispatch_key_set), saved_state_(tls_->included()) {
-  tls_->set_included(saved_state_ | include);
+    : tls_(&raw_local_dispatch_key_set), include_(include - tls_->included()) {
+  if (!include_.empty()) {
+    tls_->set_included(tls_->included() | include_);
+  }
 }
 
 IncludeDispatchKeyGuard::~IncludeDispatchKeyGuard() {
-  tls_->set_included(saved_state_);
+  if (!include_.empty()) {
+    tls_->set_included(tls_->included() - include_);
+  }
 }
 
 ExcludeDispatchKeyGuard::ExcludeDispatchKeyGuard(DispatchKeySet exclude)
-    : tls_(&raw_local_dispatch_key_set), saved_state_(tls_->excluded()) {
-  tls_->set_excluded(saved_state_ | exclude);
+    : tls_(&raw_local_dispatch_key_set), exclude_(exclude - tls_->excluded()) {
+  if (!exclude_.empty()) {
+    tls_->set_excluded(tls_->excluded() | exclude_);
+  }
 }
 
 ExcludeDispatchKeyGuard::~ExcludeDispatchKeyGuard() {
-  tls_->set_excluded(saved_state_);
+  if (!exclude_.empty()) {
+    tls_->set_excluded(tls_->excluded() - exclude_);
+  }
 }
 ```
 
-三步骨架再次出现：`saved_state_` 保存旧集合，构造函数体设置 `旧 | 新增`，析构恢复。`tls_` 缓存 TLS 地址是 4.1 节说的省一次 `__tls_get_addr` 的优化——注意这个地址**只在同一个线程内有效**，而守卫对象本来就不能跨线程移动，所以是安全的。
+三步骨架再次出现，只是"保存"的不是旧集合本身，而是**增量**：`include_` 记下"这次真正新加进去的 key"（`include - tls_->included()`，已经在集合里的不算），构造函数体把增量并进 TLS，析构时再把同一份增量减掉。效果等价于恢复旧值，但如果要加的 key 本来就在集合里，`include_` 为空，构造和析构都不碰 TLS。`tls_` 缓存 TLS 地址是 4.1 节说的省一次 `__tls_get_addr` 的优化——注意这个地址**只在同一个线程内有效**，而守卫对象本来就不能跨线程移动，所以是安全的。
 
-注意守卫只保存和恢复**自己那个集合**（included 或 excluded），不保存另一个。`.cpp` 里一大段注释讨论了"整份快照 vs 只快照自己那一半"的取舍：如果守卫快照整份状态，而中间有人用非 RAII API 改了另一半，守卫析构时会把那个修改也一并抹掉。PyTorch 选择了只恢复自己的部分。`ForceDispatchKeyGuard` 是相反的选择——它快照整份 `LocalDispatchKeySet`，析构时整体恢复，`InferenceMode` 和 `ThreadLocalStateGuard` 用的是这条路径（通过 `_force_tls_local_dispatch_key_set`）。
+注意守卫只改动和恢复**自己那个集合**（included 或 excluded），不碰另一个。`.cpp` 里一大段注释讨论了"整份快照 vs 只快照自己那一半"的取舍：如果守卫快照整份状态，而中间有人用非 RAII API 改了另一半，守卫析构时会把那个修改也一并抹掉。PyTorch 选择了只恢复自己的部分。`ForceDispatchKeyGuard` 是相反的选择——它快照整份 `LocalDispatchKeySet`，析构时整体恢复，`InferenceMode` 和 `ThreadLocalStateGuard` 用的是这条路径（通过 `_force_tls_local_dispatch_key_set`）。
 
 ### 6.5 非 RAII API：为什么也需要
 
@@ -1949,7 +1955,7 @@ struct Vectorized {
   }
   // ...
   void store(void* ptr, int count = size()) const {
-    std::memcpy(ptr, values, std::min<int64_t>(count, size()) * sizeof(T));
+    std::memcpy(ptr, values, count * sizeof(T));
   }
   // ...
 };
@@ -2000,17 +2006,21 @@ class Vectorized<float> {
   }
   // ...
   static Vectorized<float> loadu(const void* ptr, int64_t count = size()) {
-    if (count >= size())
+    if (count == size())
       return _mm256_loadu_ps(reinterpret_cast<const float*>(ptr));
-    // Masked load: lanes [0, count) are read, the rest are zero.
-    // ...
+    __at_align__ float tmp_values[size()];
+    // ... 先把 tmp_values 清零，再 memcpy 前 count 个元素
+    std::memcpy(
+        tmp_values, reinterpret_cast<const float*>(ptr), count * sizeof(float));
+    return _mm256_loadu_ps(tmp_values);
   }
   void store(void* ptr, int64_t count = size()) const {
-    if (count >= size()) {
+    if (count == size()) {
       _mm256_storeu_ps(reinterpret_cast<float*>(ptr), values);
     } else if (count > 0) {
-      // Masked store: only lanes [0, count) are written.
-      // ...
+      float tmp_values[size()];
+      _mm256_storeu_ps(reinterpret_cast<float*>(tmp_values), values);
+      std::memcpy(ptr, tmp_values, count * sizeof(float));
     }
   }
   // ...
@@ -2483,7 +2493,7 @@ out[12345] = 24690
 本篇从 `with torch.no_grad():` 出发，把 C++ 并发模型的几个部件和 PyTorch 在其上搭出的模式串了一遍：
 
 - **线程、锁、条件变量**：与 Java 概念对应，但锁由 RAII 守卫持有，`std::mutex` 不可重入，`condition_variable::wait` 需要 `unique_lock` 和谓词。`c10::ThreadPool` 是这一套的标准样板。
-- **内存模型**：与 JMM 同源，但把 `volatile` 一档拆成六档。release 写与 acquire 读配对建立 happens-before；relaxed 只保证原子性。`intrusive_ptr` 的引用计数 +1 用 relaxed（不需要看到或发布任何数据），-1 用 acq_rel（每次减都可能是最后一次，必须同时扮演 release 和 acquire）。PyTorch 2.13 把强、弱计数合并进一个 64 位原子字段，但这个选择不变。
+- **内存模型**：与 JMM 同源，但把 `volatile` 一档拆成六档。release 写与 acquire 读配对建立 happens-before；relaxed 只保证原子性。`intrusive_ptr` 的引用计数 +1 用 relaxed（不需要看到或发布任何数据），-1 用 acq_rel（每次减都可能是最后一次，必须同时扮演 release 和 acquire）。PyTorch 2.10 把强、弱计数合并进一个 64 位原子字段，但这个选择不变。
 - **`thread_local`**：语言级存储类别，每线程一份，不继承。c10 用它存 grad mode、dispatch key 集合、当前 CUDA stream 和设备、并行区域标志等所有"上下文"状态。零初始化的 POD 才能做成最快的 TLS，`LocalDispatchKeySet` 为此用了 XOR 编码。
 - **守卫**：RAII 从"管资源"推广到"管上下文"。三步骨架——保存旧值、设新值、析构恢复；删掉拷贝和移动；可作为成员组合。`NoGradGuard`、`InferenceMode`、`ExcludeDispatchKeyGuard`、`AutoDispatchBelowADInplaceOrView`、`DeviceGuard`、`CUDAStreamGuard`、`ThreadLocalStateGuard` 全是同一个模板。`DeviceGuard` 额外用"虚接口 + 内联模板"两层结构在不依赖 CUDA 的 `libc10` 里实现对 CUDA 设备的切换。
 - **核心问题的答案**：`torch.no_grad()` 通过 `torch._C._set_grad_enabled` → `c10::GradMode::set_enabled` 修改 `thread_local AutogradState autograd_state_tls` 的一个位；每个 autograd kernel 用 `GradMode::is_enabled()` 决定是否建图。它对其他线程不生效，因为 `thread_local` 每线程一份且不继承。PyTorch 在自己创建线程边界的地方（`at::launch`、autograd 引擎）用 `ThreadLocalState` 显式传播；`at::parallel_for` 出于性能刻意不传播，所以循环体里只能操作裸指针。

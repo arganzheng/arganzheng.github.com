@@ -111,7 +111,7 @@ target_link_libraries(c10_intrusive_ptr_test c10 gtest gtest_main)  # 链接依�
 
 ```cmake
 # c10/CMakeLists.txt
-file(GLOB C10_SRCS CONFIGURE_DEPENDS
+file(GLOB C10_SRCS
         *.cpp
         core/*.cpp
         core/impl/*.cpp
@@ -149,7 +149,7 @@ add_subdirectory(benchmark)
 
 第一篇的 mini-c10 骨架就是照它写的。这里有三处值得停下来。
 
-**`file(GLOB ... CONFIGURE_DEPENDS)`**：用通配符收集源文件。CMake 官方一直不推荐 glob（新增文件后必须重新运行 cmake），`CONFIGURE_DEPENDS` 让构建系统在每次构建前重新检查通配结果，缓解这个问题。c10 用 glob；上层的 `caffe2/CMakeLists.txt` 则从 `build_variables.bzl` 读显式的文件列表（第一篇提过，那是"哪个 `.cpp` 进哪个库"的权威清单）。
+**`file(GLOB ...)`**：用通配符收集源文件。CMake 官方一直不推荐 glob——新增文件后必须重新运行 cmake，否则构建系统不知道它的存在；CMake 3.12 起可以加 `CONFIGURE_DEPENDS` 让构建系统在每次构建前重新检查通配结果，但 v2.10.0 的 `c10/CMakeLists.txt` 没有用它，所以在 c10 下新增一个 `.cpp` 之后要手动重跑 cmake。c10 用 glob；上层的 `caffe2/CMakeLists.txt` 则从 `build_variables.bzl` 读显式的文件列表（第一篇提过，那是"哪个 `.cpp` 进哪个库"的权威清单）。
 
 **`torch_compile_options(c10)`**：一个 CMake 函数，定义在 `cmake/public/utils.cmake`，把整个项目共用的警告选项、`-fvisibility=hidden`、`-Werror` 策略一次加到目标上。第三节读它。
 
@@ -247,7 +247,7 @@ find_library(TORCH_LIBRARY torch PATHS "${TORCH_INSTALL_PREFIX}/lib")
 # ...
 set_target_properties(torch PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES "${TORCH_INCLUDE_DIRS}"
-    CXX_STANDARD 20
+    CXX_STANDARD 17
 )
 if(TORCH_CXX_FLAGS)
   set_property(TARGET torch PROPERTY INTERFACE_COMPILE_OPTIONS "${TORCH_CXX_FLAGS}")
@@ -266,7 +266,7 @@ find_package_handle_standard_args(Torch DEFAULT_MSG TORCH_LIBRARY TORCH_INCLUDE_
 
 4. **静态库分支**：没有 `Caffe2Targets.cmake` 可用（顶层 `CMakeLists.txt` 明确说 "Generated cmake files are only available when building shared libs"），只能手工 `find_library` 每一个 `.a`，而且 `torch`/`torch_cpu` 要用 `--whole-archive`——第一篇和第五篇讲过原因：静态注册的算子所在的 `.o` 没有被任何符号引用，链接器会丢掉它们。这里对三个平台各写了一遍：Linux 的 `-Wl,--whole-archive`、macOS 的 `-Wl,-force_load`、MSVC 的 `-WHOLEARCHIVE:`。
 
-5. **给 `torch` 目标设属性**：`INTERFACE_INCLUDE_DIRECTORIES` 就是 1.3 节的 `INTERFACE` 传递——链接 `torch` 的目标自动拿到头文件路径；`CXX_STANDARD 20` 声明 PyTorch 2.13 的头文件需要 C++20。`TORCH_CXX_FLAGS` 在模板里只是"如果有就设上"——在 v2.13.0 的源码树里，这个模板文件本身并没有 `set(TORCH_CXX_FLAGS ...)`，也没有任何 `_GLIBCXX_USE_CXX11_ABI` 的字样。（PyTorch 2.x 中的变化：早期版本的 `TorchConfig.cmake.in` 会写 `set(TORCH_CXX_FLAGS "-D_GLIBCXX_USE_CXX11_ABI=@GLIBCXX_USE_CXX11_ABI@")`，让下游自动继承 ABI 设置；2.6/2.7 Linux wheel 统一切到 CXX11 ABI 后，2.8 起这一行从 CMake 模板里删除（同时 `cpp_extension.py` 也不再传 `-D_GLIBCXX_USE_CXX11_ABI`）——v2.13.0 的 `cmake/` 目录下已经找不到它。老教程里 `set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")` 这一行在 2.13 上是无害的空操作。）
+5. **给 `torch` 目标设属性**：`INTERFACE_INCLUDE_DIRECTORIES` 就是 1.3 节的 `INTERFACE` 传递——链接 `torch` 的目标自动拿到头文件路径；`CXX_STANDARD 17` 声明 PyTorch 2.10 的头文件需要 C++17——与本系列 mini-c10 用的标准一致。`TORCH_CXX_FLAGS` 在模板里只是"如果有就设上"——在 v2.10.0 的源码树里，这个模板文件本身并没有 `set(TORCH_CXX_FLAGS ...)`，也没有任何 `_GLIBCXX_USE_CXX11_ABI` 的字样。（PyTorch 2.x 中的变化：早期版本的 `TorchConfig.cmake.in` 会写 `set(TORCH_CXX_FLAGS "-D_GLIBCXX_USE_CXX11_ABI=@GLIBCXX_USE_CXX11_ABI@")`，让下游自动继承 ABI 设置；2.6/2.7 Linux wheel 统一切到 CXX11 ABI 后，2.8 起这一行从 CMake 模板里删除（同时 `cpp_extension.py` 也不再传 `-D_GLIBCXX_USE_CXX11_ABI`）——v2.10.0 的 `cmake/` 目录下已经找不到它。老教程里 `set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")` 这一行在 2.10 上是无害的空操作。）
 
 一句话总结 `find_package(Torch)` 找到了什么：**一组 IMPORTED 目标（`torch`、`torch_cpu`、`c10`……），每个目标知道自己的 `.so` 在哪里、头文件在哪里、需要什么 C++ 标准、依赖哪些其他目标**。你链接 `torch`，链接器命令行上出现的是 `libtorch.so libtorch_cpu.so libc10.so ...` 的绝对路径。
 
@@ -279,23 +279,19 @@ cmake_minimum_required(VERSION 3.26)
 # ...
 project(vllm_extensions LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CUDA_STANDARD 20)
-set(CMAKE_CUDA_STANDARD_REQUIRED ON)
-# ...
-# PyTorch headers require C++20; GCC < 11.3 has incomplete C++20 support.
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "11.3")
-  message(FATAL_ERROR
-    "GCC >= 11.3 is required to build vLLM (found ${CMAKE_CXX_COMPILER_VERSION}). "
-    "PyTorch's C++20 headers require a compiler with full C++20 support. "
-    "See: https://github.com/pytorch/pytorch/pull/167929")
-endif()
 # ...
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/utils.cmake)
 # ...
-set(TORCH_SUPPORTED_VERSION_CUDA "2.13.0")
-set(TORCH_SUPPORTED_VERSION_ROCM "2.13.0")
+#
+# Supported/expected torch versions for CUDA/ROCm.
+#
+# Currently, having an incorrect pytorch version results in a warning
+# rather than an error.
+#
+set(TORCH_SUPPORTED_VERSION_CUDA "2.9.1")
+set(TORCH_SUPPORTED_VERSION_ROCM "2.9.1")
 # ...
 if (VLLM_PYTHON_EXECUTABLE)
   find_python_from_executable(${VLLM_PYTHON_EXECUTABLE} "${PYTHON_SUPPORTED_VERSIONS}")
@@ -312,6 +308,8 @@ append_cmake_prefix_path("torch" "torch.utils.cmake_prefix_path")
 # ...
 find_package(Torch REQUIRED)
 ```
+
+两点先说明。第一，`CMAKE_CXX_STANDARD 17`：vLLM 0.15 和 PyTorch 2.10 一样用 C++17 编译，与本系列一致。第二，`TORCH_SUPPORTED_VERSION_CUDA "2.9.1"`：vLLM v0.15.0 钉的是 torch 2.9.1（`pyproject.toml` 和 `requirements/` 里的版本与此保持同步），注释说版本不匹配只是警告而不是错误——`find_package(Torch)` 之后它会比较 `Torch_VERSION` 与这个值。这就是"扩展项目要钉住 libtorch 版本"的具体做法：ABI 契约（第七篇）意味着 vLLM 的 `.so` 只对它编译时那个 libtorch 版本负责。
 
 `append_cmake_prefix_path` 定义在 `cmake/utils.cmake`，就是"问 Python 要路径"：
 
@@ -471,33 +469,30 @@ PyTorch 顶层 `CMakeLists.txt` 默认开启：
 
 ```cmake
 cmake_dependent_option(
-  USE_CCACHE "Attempt using [S]CCache to wrap the compilation" ON "UNIX" OFF)
+  USE_CCACHE "Attempt using CCache to wrap the compilation" ON "UNIX" OFF)
 # ...
 if(USE_CCACHE)
   find_program(CCACHE_PROGRAM ccache)
-  find_program(SCCACHE_EXECUTABLE sccache)
   if(CCACHE_PROGRAM)
-    foreach(LANG CXX C CUDA)
-      set(CMAKE_${LANG}_COMPILER_LAUNCHER
-          "${CCACHE_PROGRAM}"
-          CACHE STRING "${LANG} compiler launcher")
-    endforeach()
-  elseif(SCCACHE_EXECUTABLE)
-    foreach(LANG CXX C CUDA)
-      set(CMAKE_${LANG}_COMPILER_LAUNCHER
-          "${SCCACHE_EXECUTABLE}"
-          CACHE STRING "${LANG} compiler launcher")
-    endforeach()
+    set(CMAKE_C_COMPILER_LAUNCHER
+        "${CCACHE_PROGRAM}"
+        CACHE STRING "C compiler launcher")
+    set(CMAKE_CXX_COMPILER_LAUNCHER
+        "${CCACHE_PROGRAM}"
+        CACHE STRING "CXX compiler launcher")
+    set(CMAKE_CUDA_COMPILER_LAUNCHER
+        "${CCACHE_PROGRAM}"
+        CACHE STRING "CUDA compiler launcher")
   else()
     message(
       STATUS
-        "Could not find neither ccache nor sccache. Consider installing ccache to speed up compilation."
+        "Could not find ccache. Consider installing ccache to speed up compilation."
     )
   endif()
 endif()
 ```
 
-`CMAKE_<LANG>_COMPILER_LAUNCHER` 是 CMake 的标准机制：编译命令从 `g++ -c foo.cpp` 变成 `ccache g++ -c foo.cpp`。注意它对 `CUDA` 也生效——`nvcc` 的结果同样可以缓存。sccache 是 Mozilla 的 ccache 替代品，区别是缓存可以放在 S3/GCS 等远程存储，CI 集群共享；PyTorch 和 vLLM 的 CI 都用 sccache（vLLM 的 `setup.py` 优先选 sccache，其次 ccache，前面已经看到）。`cmake/Dependencies.cmake` 里还有一处针对 sccache 的特殊处理：CUDA 编译默认用 response file 传参数，但 sccache 遇到 response file 会拒绝缓存，所以 `CMAKE_CUDA_USE_RESPONSE_FILE_FOR_*` 被关掉了。
+`CMAKE_<LANG>_COMPILER_LAUNCHER` 是 CMake 的标准机制：编译命令从 `g++ -c foo.cpp` 变成 `ccache g++ -c foo.cpp`。注意它对 `CUDA` 也生效——`nvcc` 的结果同样可以缓存。sccache 是 Mozilla 的 ccache 替代品，区别是缓存可以放在 S3/GCS 等远程存储，CI 集群共享；PyTorch 的 CMake 只自动探测 ccache，CI 用 sccache 是靠 `.ci/` 脚本把包装过的编译器塞进 PATH；vLLM 的 `setup.py` 则自己探测，优先选 sccache，其次 ccache（前面已经看到，它直接传 `-DCMAKE_<LANG>_COMPILER_LAUNCHER=sccache`）。`cmake/Dependencies.cmake` 的 CUDA 分支里还有一处针对 sccache 的特殊处理：CUDA 编译默认用 response file 传参数，但 sccache 遇到 response file 会拒绝缓存，所以检测到 sccache 时 `CMAKE_CUDA_USE_RESPONSE_FILE_FOR_*` 被关掉了。
 
 `CONTRIBUTING.md` 给了检验 ccache 生效的办法：做两次干净构建，第二次应该快得多；或者看 `build/CMakeCache.txt` 里 `CMAKE_CXX_COMPILER_LAUNCHER:STRING=/usr/bin/ccache`。
 
@@ -533,7 +528,7 @@ To force cmake to re-generate native build files (off by default):
             return
 ```
 
-**第二，`USE_*` 开关关掉用不到的部分。** `setup.py` 开头几百行注释是一份开关清单：`USE_CUDA=0`、`USE_DISTRIBUTED=0`、`USE_MKLDNN=0`、`USE_FBGEMM=0`、`USE_NNPACK=0`、`USE_XNNPACK=0`、`USE_FLASH_ATTENTION=0`、`USE_MEM_EFF_ATTENTION=0`、`BUILD_TEST=0`……这些环境变量由 `cmake/EnvVarForwarding.cmake` 转成同名的 CMake 变量（"passes all `BUILD_*`, `USE_*`, and `CMAKE_*` environment variables as `-D` flags"）。`CONTRIBUTING.md` 给的开发配置是：
+**第二，`USE_*` 开关关掉用不到的部分。** `setup.py` 开头几百行注释是一份开关清单：`USE_CUDA=0`、`USE_DISTRIBUTED=0`、`USE_MKLDNN=0`、`USE_FBGEMM=0`、`USE_NNPACK=0`、`USE_XNNPACK=0`、`USE_FLASH_ATTENTION=0`、`USE_MEM_EFF_ATTENTION=0`、`BUILD_TEST=0`……这些环境变量由 `tools/setup_helpers/cmake.py` 的 `generate()` 转成同名的 CMake 变量——它遍历环境，凡是以 `BUILD_`、`USE_`、`CMAKE_` 开头的都原样作为 `-D` 传给 cmake（注释说得很直白："We currently pass over all environment variables that start with `BUILD_`, `USE_`, and `CMAKE_`"），其他少数几个（`UBSAN_FLAGS`、`BLAS`、`CUDNN_ROOT`……）列在同一函数的 `additional_options` 表里。`CONTRIBUTING.md` 给的开发配置是：
 
 ```bash
 DEBUG=1 USE_DISTRIBUTED=0 USE_MKLDNN=0 USE_CUDA=0 BUILD_TEST=0 \
@@ -672,19 +667,12 @@ if(NOT MSVC)
     string(APPEND CMAKE_CXX_FLAGS_DEBUG " -fno-omit-frame-pointer -O0")
     string(APPEND CMAKE_LINKER_FLAGS_DEBUG " -fno-omit-frame-pointer -O0")
   endif()
-  # aarch64 C++ stack unwinding uses frame-pointer chain walking, so frame
-  # pointers must be present in all build types.  The cost is negligible on
-  # aarch64 (31 GPRs vs x86-64's 16, so dedicating x29 rarely spills).
-  if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
-    append_cxx_flag_if_supported("-fno-omit-frame-pointer" CMAKE_CXX_FLAGS)
-  endif()
   append_cxx_flag_if_supported("-fno-math-errno" CMAKE_CXX_FLAGS)
   append_cxx_flag_if_supported("-fno-trapping-math" CMAKE_CXX_FLAGS)
   append_cxx_flag_if_supported("-Werror=format" CMAKE_CXX_FLAGS)
-  # ...
-  # needed for compat with newer versions of clang that use C++20 mangling rules
-  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 18)
-    append_cxx_flag_if_supported("-fclang-abi-compat=17" CMAKE_CXX_FLAGS)
+  if(CMAKE_COMPILER_IS_GNUCXX AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 13)
+    append_cxx_flag_if_supported("-Wno-dangling-reference" CMAKE_CXX_FLAGS)
+    append_cxx_flag_if_supported("-Wno-error=dangling-reference" CMAKE_CXX_FLAGS)
   endif()
 ```
 
@@ -694,14 +682,14 @@ if(NOT MSVC)
 - **`-Wall -Wextra` 加一组 `-Werror=<specific>`**：不是全局 `-Werror`，而是把少数几类**几乎一定是 bug** 的警告升级为错误——函数没有返回值（`return-type`）、有虚函数但析构不虚（`non-virtual-dtor`，第四篇讲过后果）、printf 格式串与参数不匹配（`format`）。其他警告保留为警告。
 - **`-Wno-*` 关掉一批噪音**：`unused-parameter`（接口实现里未用的参数太常见）、`missing-field-initializers`、`unknown-pragmas`（`#pragma omp` 在没有 OpenMP 时会警告）、`maybe-uninitialized`（GCC 的这个警告误报多）。
 - **`WERROR` 是一个 option，默认 OFF**（`option(WERROR "Build with -Werror supported by the compiler" OFF)`），CI 打开。原因是编译器版本不同警告集合不同：在 gcc 11 上干净的代码，gcc 13 可能多出几个新警告，如果默认 `-Werror`，用户用新编译器从源码构建就会失败。这就是核心问题里"不会在别的编译器上炸"的一个方面——**警告是编译器相关的，`-Werror` 让编译器升级变成构建失败**。
-- **`-fno-omit-frame-pointer`**：Debug 构建必开；aarch64 上所有构建类型都开，注释解释了原因：aarch64 的栈回溯靠帧指针链，而保留帧指针在 31 个通用寄存器的架构上几乎没有代价。第六节讲它和 backtrace 的关系。
-- **`-fclang-abi-compat=17`**：第七篇讲的 ABI 问题的一个实例——clang 18 改了 C++20 的 name mangling 规则，PyTorch 用这个选项钉住 clang 17 的规则，保证不同 clang 版本编出来的库能互相链接。
+- **`-fno-omit-frame-pointer`**：Debug 构建必开，和 `-O0`（aarch64 GCC 上是 `-Og`，注释说是为了绕开一个编译器内部错误）一起追加到 `CMAKE_CXX_FLAGS_DEBUG`。第六节讲它和 backtrace 的关系。
+- **`-Wno-dangling-reference`（GCC ≥ 13）**：这是"警告是编译器相关的"的一个具体例子——GCC 13 新增的 `-Wdangling-reference` 对 PyTorch 里大量返回 `const T&` 的访问器误报，只能按编译器版本条件性地关掉。
 
 按目标加的部分在 `cmake/public/utils.cmake` 的 `torch_compile_options()`（删节）：
 
 ```cmake
 function(torch_compile_options libname)
-  set_property(TARGET ${libname} PROPERTY CXX_STANDARD 20)
+  set_property(TARGET ${libname} PROPERTY CXX_STANDARD 17)
   # ...
   else()
     set(private_compile_options
@@ -718,8 +706,7 @@ function(torch_compile_options libname)
       )
     # ...
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-      # ...
-      list(APPEND private_compile_options -Wmove)
+      list(APPEND private_compile_options -Wextra-semi -Wmove)
     else()
       list(APPEND private_compile_options
         # Considered to be flaky.  See the discussion at
@@ -816,7 +803,7 @@ Java IDE 打开一个 Maven 项目，读 `pom.xml` 就知道 classpath，之后�
 [
   {
     "directory": "/path/to/pytorch/build",
-    "command": "/usr/bin/ccache /usr/bin/c++ -DC10_BUILD_MAIN_LIB -DC10_NODEPRECATED -DFMT_HEADER_ONLY=1 ... -I/path/to/pytorch/build/aten/src -I/path/to/pytorch/aten/src -I/path/to/pytorch/build -I/path/to/pytorch ... -O2 -fPIC -Wall -Wextra ... -fvisibility=hidden -std=gnu++20 -o c10/CMakeFiles/c10.dir/core/TensorImpl.cpp.o -c /path/to/pytorch/c10/core/TensorImpl.cpp",
+    "command": "/usr/bin/ccache /usr/bin/c++ -DC10_BUILD_MAIN_LIB -DC10_NODEPRECATED -DFMT_HEADER_ONLY=1 ... -I/path/to/pytorch/build/aten/src -I/path/to/pytorch/aten/src -I/path/to/pytorch/build -I/path/to/pytorch ... -O2 -fPIC -Wall -Wextra ... -fvisibility=hidden -std=gnu++17 -o c10/CMakeFiles/c10.dir/core/TensorImpl.cpp.o -c /path/to/pytorch/c10/core/TensorImpl.cpp",
     "file": "/path/to/pytorch/c10/core/TensorImpl.cpp",
     "output": "c10/CMakeFiles/c10.dir/core/TensorImpl.cpp.o"
   },
@@ -1101,7 +1088,7 @@ addr2line -e /path/to/libtorch_cpu.so -f -C -i 0x1a2b3c4
 
 前提是那个 `.so` 至少保留了符号表（pip wheel 里的 `libtorch_cpu.so` 通常有函数符号但没有行号信息，`addr2line` 能给函数名给不了行号）。macOS 上对应的工具是 `atos`。
 
-**`-fno-omit-frame-pointer` 的作用在这里。** 栈回溯有两种做法：沿着帧指针链（每个栈帧开头保存上一帧的帧指针，形成链表）一路走上去，快而简单；或者读 `.eh_frame`/DWARF 的 unwind 信息，慢但不需要帧指针。`-O2` 默认省掉帧指针（多一个可用寄存器），这时快速回溯不可用，调试器和 profiler 只能走慢路径，某些场景（信号处理函数里、栈被部分破坏时、perf 采样时）走不通，栈就断了。PyTorch 在 Debug 构建和所有 aarch64 构建上都加 `-fno-omit-frame-pointer`（3.2 节），ASan 也要求它（`FindSanitizer.cmake` 里 `-fsanitize=<x>;-fno-omit-frame-pointer` 总是成对出现）——sanitizer 报告里的"这块内存是在哪里分配、哪里释放的"栈就是靠帧指针快速采集的。
+**`-fno-omit-frame-pointer` 的作用在这里。** 栈回溯有两种做法：沿着帧指针链（每个栈帧开头保存上一帧的帧指针，形成链表）一路走上去，快而简单；或者读 `.eh_frame`/DWARF 的 unwind 信息，慢但不需要帧指针。`-O2` 默认省掉帧指针（多一个可用寄存器），这时快速回溯不可用，调试器和 profiler 只能走慢路径，某些场景（信号处理函数里、栈被部分破坏时、perf 采样时）走不通，栈就断了。PyTorch 在 Debug 构建上加 `-fno-omit-frame-pointer`（3.2 节），ASan 也要求它（`FindSanitizer.cmake` 里 `-fsanitize=<x>;-fno-omit-frame-pointer` 总是成对出现）——sanitizer 报告里的"这块内存是在哪里分配、哪里释放的"栈就是靠帧指针快速采集的。
 
 **不用调试器也能拿到 C++ 栈。** PyTorch 的 `TORCH_CHECK` 抛出的 `c10::Error` 可以携带 C++ 栈：设置 `TORCH_SHOW_CPP_STACKTRACES=1`，Python 侧看到的 `RuntimeError` 消息后面会附上 C++ 的回溯。实现在 `torch/csrc/utils/cpp_stacktraces.cpp`：
 
@@ -1282,11 +1269,9 @@ SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior ub.cpp:5:33
 option(USE_ASAN "Use Address+Undefined Sanitizers" OFF)
 option(USE_LSAN "Use Leak Sanitizer" OFF)
 option(USE_TSAN "Use Thread Sanitizer" OFF)
-# ...
-cmake_dependent_option(USE_CUDA "Use CUDA" ON "NOT USE_TSAN" OFF)
 ```
 
-注意 `USE_ASAN` 的描述是 "Address+Undefined"——PyTorch 把 ASan 和 UBSan 绑在一起开；`USE_TSAN` 会强制关掉 CUDA（TSan 和 CUDA 运行时不兼容）。实现在 `cmake/Dependencies.cmake`：
+注意 `USE_ASAN` 的描述是 "Address+Undefined"——PyTorch 把 ASan 和 UBSan 绑在一起开。实现在 `cmake/Dependencies.cmake`：
 
 ```cmake
 if(USE_ASAN OR USE_LSAN OR USE_TSAN)
@@ -1294,29 +1279,28 @@ if(USE_ASAN OR USE_LSAN OR USE_TSAN)
   if(USE_ASAN)
     if(TARGET Sanitizer::address)
       list(APPEND Caffe2_DEPENDENCY_LIBS Sanitizer::address)
-      # ...
     else()
       message(WARNING "ASAN not found. Suppress this warning with -DUSE_ASAN=OFF.")
       caffe2_update_option(USE_ASAN OFF)
     endif()
-    # UBSan (-fsanitize=undefined) combined with ASAN on ROCm Clang
-    # causes ASAN global metadata to reference unaligned original
-    # globals instead of aligned __sanitized_padded_global copies,
-    # triggering an unconditional alignment check abort in the ASAN
-    # runtime. Skip UBSan under USE_ROCM until that interaction is fixed.
-    if(TARGET Sanitizer::undefined AND NOT USE_ROCM)
+    if(TARGET Sanitizer::undefined)
       list(APPEND Caffe2_DEPENDENCY_LIBS Sanitizer::undefined)
     endif()
   endif()
-  # ...
+  if(USE_LSAN)
+    if(TARGET Sanitizer::leak)
+      list(APPEND Caffe2_DEPENDENCY_LIBS Sanitizer::leak)
+    else()
+      message(WARNING "LSAN not found. Suppress this warning with -DUSE_LSAN=OFF.")
+      caffe2_update_option(USE_LSAN OFF)
+    endif()
+  endif()
   if(USE_TSAN)
     if(TARGET Sanitizer::thread)
-      # Use global flags so that all targets (including executables like
-      # torch_shm_manager that don't link torch_cpu) get TSan instrumentation.
-      add_compile_options(-fsanitize=thread)
-      add_link_options(-fsanitize=thread)
+      list(APPEND Caffe2_DEPENDENCY_LIBS Sanitizer::thread)
     else()
-      # ...
+      message(WARNING "TSAN not found. Suppress this warning with -DUSE_TSAN=OFF.")
+      caffe2_update_option(USE_TSAN OFF)
     endif()
   endif()
 endif()
@@ -1358,7 +1342,7 @@ foreach(sanitizer_name IN ITEMS address thread undefined leak memory)
       )
 ```
 
-这是 1.3 节 `INTERFACE` 的教科书用法：`Sanitizer::address` 自己没有任何源文件，它只是一组选项的载体；谁 `target_link_libraries(... Sanitizer::address)`，谁就得到 `-fsanitize=address -fno-omit-frame-pointer -shared-libasan` 的编译和链接选项。`Caffe2_DEPENDENCY_LIBS` 最终链接进 `torch_cpu` 等所有主库，选项就传播到了整个项目。TSan 用的是另一条路——`add_compile_options` 全局加，注释说明了原因：像 `torch_shm_manager` 这样不链接 `torch_cpu` 的可执行文件也需要插桩，否则 TSan 运行时会因为部分代码没插桩而误报。
+这是 1.3 节 `INTERFACE` 的教科书用法：`Sanitizer::address` 自己没有任何源文件，它只是一组选项的载体；谁 `target_link_libraries(... Sanitizer::address)`，谁就得到 `-fsanitize=address -fno-omit-frame-pointer -shared-libasan` 的编译和链接选项。`Caffe2_DEPENDENCY_LIBS` 最终链接进 `torch_cpu` 等所有主库，选项就传播到了整个项目。三种 sanitizer 走的是同一条路，只是各挂一个不同的 `Sanitizer::<name>` 目标。这条路的局限也要知道：不链接 `torch_cpu` 的可执行文件（比如 `torch_shm_manager`）拿不到这些选项，TSan 这类"要求所有代码都插桩"的工具在那些目标上会漏报或误报。v2.10.0 的 CI 里只有 ASan+UBSan 的 job，`USE_TSAN` 是给开发者本地用的开关。
 
 `-shared-libasan` 是理解 CI 脚本里 `LD_PRELOAD` 的关键。ASan 运行时默认静态链接进**可执行文件**；但 PyTorch 是被 Python 解释器 `dlopen` 的 `.so`，可执行文件是没有插桩的 `python`。解决办法是用共享版的 ASan 运行时（`-shared-libasan`），并用 `LD_PRELOAD` 让它在 `python` 启动时就被加载——这样 `malloc`/`free` 从进程一开始就被 ASan 接管。`CONTRIBUTING.md` 的 "Building PyTorch with ASAN" 一节解释得很清楚："PyTorch is distributed as a shared library that is loaded by a third-party executable (Python). It's too much of a hassle to recompile all of Python every time we want to use ASAN."
 
@@ -1375,16 +1359,9 @@ if [[ "$BUILD_ENVIRONMENT" == *-clang*-asan* ]]; then
   export REL_WITH_DEB_INFO=1
   export UBSAN_FLAGS="-fno-sanitize-recover=all"
 fi
-
-if [[ "$BUILD_ENVIRONMENT" == *-tsan* ]]; then
-  export USE_TSAN=1
-  export USE_CUDA=0
-  export USE_XNNPACK=0
-  export USE_FBGEMM=0
-  export USE_DISTRIBUTED=0
 ```
 
-三个选择：用 clang（ASan 是 LLVM 项目，clang 的支持最完整；CI 的 job 名是 `linux-jammy-py3.10-clang18-asan`）；`REL_WITH_DEB_INFO=1`（有优化——ASan 构建本来就慢，`-O0` 会慢到跑不完测试；有符号——报告里才有文件行号）；`UBSAN_FLAGS="-fno-sanitize-recover=all"`（UBSan 默认报告后继续执行，这个选项让它在第一个 UB 处就终止，保证 CI 失败而不是只留一行日志）。`UBSAN_FLAGS` 通过 `cmake/EnvVarForwarding.cmake` 的 `_ENV_PASSTHROUGH` 列表传给 CMake，再由 `FindSanitizer.cmake` 追加到 `undefined` 的选项里（上面的代码里看得到）。
+三个选择：用 clang（ASan 是 LLVM 项目，clang 的支持最完整；CI 的 job 名是 `linux-jammy-py3.10-clang18-asan`）；`REL_WITH_DEB_INFO=1`（有优化——ASan 构建本来就慢，`-O0` 会慢到跑不完测试；有符号——报告里才有文件行号）；`UBSAN_FLAGS="-fno-sanitize-recover=all"`（UBSan 默认报告后继续执行，这个选项让它在第一个 UB 处就终止，保证 CI 失败而不是只留一行日志）。`UBSAN_FLAGS` 不以 `USE_`/`BUILD_` 开头，所以要靠 `tools/setup_helpers/cmake.py` 里 `additional_options` 那张表显式列出才能传给 CMake（2.4 节），再由 `FindSanitizer.cmake` 追加到 `undefined` 的选项里（上面的代码里看得到）。
 
 测试侧就是开头那段 `.ci/pytorch/test.sh`。现在可以逐行解释了：
 
@@ -1403,7 +1380,7 @@ if [[ "$BUILD_ENVIRONMENT" == *-tsan* ]]; then
 | 写代码时 | clangd（内置 clang-tidy） | 类型错误、明显的误用 | 零 |
 | 提交前 | Debug 构建 + gtest/pytest | 逻辑错误 | 分钟级 |
 | 提交前（改了内存/生命周期相关代码时） | ASan + UBSan 构建跑相关测试 | 内存错误、UB | 构建一次几十分钟，跑测试 2–3× 慢 |
-| 改了并发代码时 | TSan 构建跑相关测试 | 数据竞争 | 更慢；PyTorch 有单独的 tsan CI job |
+| 改了并发代码时 | TSan 构建跑相关测试 | 数据竞争 | 更慢；PyTorch 提供 `USE_TSAN` 开关但 CI 没有 TSan job，要自己跑 |
 | CI | 上面全部 + 多编译器矩阵（第十节） | 编译器相关的警告和 ABI 问题 | 由 CI 承担 |
 
 ASan 不是"有空再跑"的东西。第二篇到第七篇讲的每一个所有权、生命周期、引用计数、GIL 边界的问题，最终都以 ASan 报告的形式被发现——如果你跑了的话。
@@ -1457,7 +1434,7 @@ PyTorch 的 C++ 测试按被测库的层次分在三处：
 ```cmake
 # ---[ Test binaries.
 
-file(GLOB_RECURSE C10_ALL_TEST_FILES CONFIGURE_DEPENDS *_test.cpp)
+file(GLOB_RECURSE C10_ALL_TEST_FILES *_test.cpp)
 if(BUILD_TEST)
   foreach(test_src ${C10_ALL_TEST_FILES})
     get_filename_component(test_file_name ${test_src} NAME_WE)
@@ -1475,12 +1452,12 @@ if(BUILD_TEST)
   endforeach()
 endif()
 
-# ---[ C++17/20 header compilation test
+# ---[ C++17 header compilation test
 if(BUILD_TEST)
   add_executable(c10_cpp17_header_build_test util/cpp17_header_build_check.cpp)
   target_link_libraries(c10_cpp17_header_build_test ${C10_LIB} gmock gtest gtest_main)
   set_target_properties(c10_cpp17_header_build_test PROPERTIES
-    CXX_STANDARD 20
+    CXX_STANDARD 17
     CXX_STANDARD_REQUIRED ON
   )
   add_test(NAME c10_cpp17_header_build_test COMMAND $<TARGET_FILE:c10_cpp17_header_build_test>)
@@ -1489,7 +1466,7 @@ endif()
 
 逐行：`GLOB_RECURSE *_test.cpp` 用文件名约定发现测试；`NAME_WE`（name without extension）取出 `intrusive_ptr_test`，加前缀成 `c10_intrusive_ptr_test`；`add_executable` 一个文件一个二进制（好处：某个测试挂了不影响其他的，可以单独重跑；坏处：几十个二进制各自链接 gtest，构建慢——所以 `BUILD_TEST=0` 能省不少时间）；`target_link_libraries(... ${C10_LIB} gmock gtest gtest_main)`——链接被测库和 gtest；`add_test` 把它注册给 CTest（CMake 自带的测试驱动，`ctest -R c10_intrusive` 能按名字跑）；`INSTALL_RPATH` 让安装到 `test/` 目录的二进制能找到 `../lib/libc10.so`（第一篇的 RPATH）。
 
-第二个块是一种特殊的测试："头文件能不能在某个 C++ 标准下编过"。`cpp17_header_build_check.cpp` 只是 include 一堆 c10 头文件，编译成功就是通过。这类测试防的是"某个头文件用了只有 C++23 才有的特性，导致下游用 C++20 的扩展编不过"。
+第二个块是一种特殊的测试："头文件能不能在某个 C++ 标准下编过"。`cpp17_header_build_check.cpp` 只是 include 一堆 c10 头文件，用 `CXX_STANDARD_REQUIRED ON` 严格钉在 C++17 上编译，成功就是通过。这类测试防的是"某个头文件不小心用了只有 C++20 才有的特性（`concept`、`std::span`、`<=>`……），PyTorch 自己的构建碰巧没报错，但下游用 C++17 的扩展编不过"。
 
 gtest 本身来自 `third_party/googletest` submodule，`cmake/Dependencies.cmake` 把它当子目录加进来并强制静态链接（"We will build gtest as static libs and embed it directly into the binary"）——这是 1.1 节说的"依赖没有标准答案"里最常见的一种答案：vendoring。
 
@@ -1553,7 +1530,7 @@ Java 对照：JUnit 一统天下，没有"两层测试用两种语言"的问题�
 以给 `c10/test/util/` 加一个 `foo_test.cpp` 为例：
 
 1. 文件名以 `_test.cpp` 结尾，`GLOB_RECURSE` 自动发现；
-2. 因为用了 glob，要**重新运行 cmake**（`CONFIGURE_DEPENDS` 让 Ninja 在下次构建前自动检查，但更稳妥的是手动 `cmake build/` 或 `CMAKE_FRESH=1`）；
+2. 因为用了 glob（而且 c10 的 glob 没带 `CONFIGURE_DEPENDS`），必须**重新运行 cmake**——手动 `cmake build/`，或者 `CMAKE_FRESH=1` 重新配置；
 3. `BUILD_TEST=1`（默认 ON，但很多开发者的日常配置是 OFF）；
 4. `(cd build && ninja bin/c10_foo_test && ./bin/c10_foo_test)`；
 5. 用 ASan 构建再跑一遍（如果改动涉及内存）；
@@ -1617,7 +1594,7 @@ TabWidth:        8
 UseTab:          Never
 ```
 
-读过前面几篇源码的读者对这些规则应该有直觉：两空格缩进（`IndentWidth: 2`）、80 列、大括号不换行（`Attach`）、`T* p` 而不是 `T *p`（`PointerAlignment: Left`）、`public:` 比类体缩进少一格（`AccessModifierOffset: -1`，这就是源码里 ` public:` 前面那一个空格）、参数一行放不下就**每个参数一行**（`BinPackParameters: false`，所以 `KernelFunction.h` 里的长签名都是竖排的）、`template <...>` 单独一行（`AlwaysBreakTemplateDeclarations`）、include 按"带 `.h` 的尖括号 → 不带 `.h` 的尖括号（标准库） → 其他"三组排序。`StatementMacros` 告诉 clang-format 哪些宏像语句一样以分号结束，否则它会把 `C10_DEFINE_bool(...)` 后面的代码格式弄乱——这是宏（第五篇）给工具链带来的麻烦之一。`Standard: c++17` 只影响格式化器对语法的理解（例如 `>>` 是不是模板闭合），与实际编译用的 C++20 无关。
+读过前面几篇源码的读者对这些规则应该有直觉：两空格缩进（`IndentWidth: 2`）、80 列、大括号不换行（`Attach`）、`T* p` 而不是 `T *p`（`PointerAlignment: Left`）、`public:` 比类体缩进少一格（`AccessModifierOffset: -1`，这就是源码里 ` public:` 前面那一个空格）、参数一行放不下就**每个参数一行**（`BinPackParameters: false`，所以 `KernelFunction.h` 里的长签名都是竖排的）、`template <...>` 单独一行（`AlwaysBreakTemplateDeclarations`）、include 按"带 `.h` 的尖括号 → 不带 `.h` 的尖括号（标准库） → 其他"三组排序。`StatementMacros` 告诉 clang-format 哪些宏像语句一样以分号结束，否则它会把 `C10_DEFINE_bool(...)` 后面的代码格式弄乱——这是宏（第五篇）给工具链带来的麻烦之一。`Standard: c++17` 只影响格式化器对语法的理解（例如 `>>` 是不是模板闭合），它不是编译选项——这里恰好与 CMake 里的 `CMAKE_CXX_STANDARD 17` 一致，但两者互不影响。
 
 vLLM 的 `.clang-format` 更短，`BasedOnStyle: Google` 打底，只覆盖几项（也是两空格、80 列、`PointerAlignment: Left`），并关掉了 include 排序（`SortIncludes: false`，注释说排序会引入错误——CUDA 头文件的包含顺序有时是有意义的）。
 
@@ -1680,7 +1657,6 @@ modernize-*,
 -modernize-use-nodiscard,
 performance-*,
 -performance-enum-size,
-readability-container-contains,
 readability-container-size-empty,
 readability-delete-null-pointer,
 readability-duplicate-include,
@@ -1696,11 +1672,12 @@ readability-string-compare,
 '
 HeaderFilterRegex: '^(aten/|c10/|torch/).*$'
 WarningsAsErrors: '*'
+LineFilter:
+  - name: '/usr/include/.*'
 CheckOptions:
   cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor: true
   cppcoreguidelines-special-member-functions.AllowImplicitlyDeletedCopyOrMove: true
   misc-header-include-cycle.IgnoredFilesList: 'format.h;ivalue.h;custom_class.h;Dict.h;List.h;IListRef.h'
-  performance-inefficient-vector-operation.VectorLikeClasses: '::std::vector;::c10::SmallVector'
 ...
 ```
 
@@ -1709,11 +1686,11 @@ CheckOptions:
 - **`bugprone-*`**：真正的 bug 模式。`bugprone-use-after-move`（第二篇：`std::move` 之后不能再用）、`bugprone-dangling-handle`（第三篇：`ArrayRef`/`string_view` 指向了临时对象）、`bugprone-unchecked-optional-access`（文件头注释专门提到它，"can cause clang-tidy to hang randomly"）。关掉的 `bugprone-macro-parentheses`（宏参数要加括号——PyTorch 的宏太多，很多故意不加）、`bugprone-easily-swappable-parameters`（相邻同类型参数容易传反——`add(a, b)` 这类算子签名到处都是）。
 - **`cppcoreguidelines-*`**：C++ Core Guidelines。关掉的一长串 `pro-type-*`/`pro-bounds-*` 是"禁止裸指针算术、禁止 `reinterpret_cast`、禁止 C 风格数组"——对写 kernel 的代码库不现实（`data_ptr<scalar_t>()[i]` 就是指针算术）。保留的 `cppcoreguidelines-special-member-functions`（第二篇的 Rule of Five：定义了析构就该考虑拷贝/移动）加了两个宽松选项：只有析构函数（`AllowSoleDefaultDtor`）或拷贝/移动被隐式删除（`AllowImplicitlyDeletedCopyOrMove`）时不报。
 - **`modernize-*`**：用 C++11/14/17 的写法替代老写法：`nullptr`、`override`、`using` 别名、`emplace_back`、`= default`。关掉 `modernize-use-auto` 和 `modernize-use-trailing-return-type`（风格选择，PyTorch 不强制 `auto`）。
-- **`performance-*`**：不必要的拷贝（`performance-unnecessary-value-param`：按值传了一个大对象但没有移动它——第二篇的传参规则）、循环里的隐式拷贝（`performance-for-range-copy`：`for (auto x : vec)` 应该是 `const auto&`）、`performance-inefficient-vector-operation`（循环 `push_back` 前没 `reserve`；选项里把 `c10::SmallVector` 也加进了"vector-like"列表）。
+- **`performance-*`**：不必要的拷贝（`performance-unnecessary-value-param`：按值传了一个大对象但没有移动它——第二篇的传参规则）、循环里的隐式拷贝（`performance-for-range-copy`：`for (auto x : vec)` 应该是 `const auto&`）、`performance-inefficient-vector-operation`（循环 `push_back` 前没 `reserve`）。
 - **`readability-*`**：只开了少数几条，不用整组——可读性规则最主观。
 - **`clang-analyzer-*`**：Clang Static Analyzer 的路径敏感分析——空指针解引用、用后释放、死存储。开头 `Module.cpp` 那段代码里的 `NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)` 就是在压制这一组的一条：分析器认为 `x[0]` 读的是未初始化的栈数组（确实是，那是故意的）。
 
-`HeaderFilterRegex: '^(aten/|c10/|torch/).*$'` 让 clang-tidy 也报告头文件里的问题，但只报 PyTorch 自己的头文件，不报 `third_party/`。`WarningsAsErrors: '*'` 让所有开启的检查都是错误——lint 不通过就不能合并。
+`HeaderFilterRegex: '^(aten/|c10/|torch/).*$'` 让 clang-tidy 也报告头文件里的问题，但只报 PyTorch 自己的头文件，不报 `third_party/`；`LineFilter` 再把系统头文件 `/usr/include/` 里的行排除掉。`WarningsAsErrors: '*'` 让所有开启的检查都是错误——lint 不通过就不能合并。
 
 `NOLINT` 注释族是逃生口：`// NOLINTNEXTLINE(check-name)` 压制下一行的指定检查，`// NOLINT` 压制本行所有检查，`// NOLINTBEGIN(...)`/`// NOLINTEND(...)` 压制一段（`intrusive_ptr_test.cpp` 开头有 `// NOLINTBEGIN(clang-analyzer-cplusplus*)`——测试里故意做 self-move、use-after-move 之类的事）。每一个 `NOLINT` 都应该带检查名，说明"我知道这条规则，我有理由违反它"。
 
@@ -1810,7 +1787,6 @@ command = [
 
 | code | 模式 | 规则 |
 |---|---|---|
-| `RAWTHROW` | `\bthrow\b` | 不要裸 `throw`，用 `TORCH_CHECK`/`TORCH_CHECK_WITH`/`C10_THROW_ERROR`（第四篇讲的异常统一为 `c10::Error`，第五篇讲的宏在调用点捕获信息）。exclude 列表很长——"Pre-existing violations; burn down over time" |
 | `INCLUDE` | `#include "` | 不用引号 include，一律 `#include <...>`（第一篇的头文件约定；有 `--replace-pattern` 能自动修） |
 | `PYBIND11_INCLUDE` | `#include <pybind11/...>` | 不直接 include pybind11，用 `<torch/csrc/utils/pybind.h>`（第七篇：那里有 `at::Tensor` 等类型的 caster 和 GIL 处理） |
 | `C10_UNUSED` / `C10_NODISCARD` | 宏名 | 这两个宏已废弃，用 C++17 的 `[[maybe_unused]]` / `[[nodiscard]]` |
@@ -1829,34 +1805,29 @@ Java 对照：Checkstyle 的 XML 配置对应 `.clang-format` + grep 规则；Er
 
 一个 C++ 项目的"构建环境"由三个几乎独立的版本决定，每个都有兼容约束：
 
-| 轴 | PyTorch 2.13 的要求 | 查证位置 |
+| 轴 | PyTorch 2.10 的要求 | 查证位置 |
 |---|---|---|
-| **C++ 标准** | C++20（`set(CMAKE_CXX_STANDARD 20 ...)`）；顶层 `CMakeLists.txt` 检测到环境变量里有 `-std=c++` 会警告 "PyTorch requires -std=c++20" | `CMakeLists.txt`、`c10/CMakeLists.txt`、`torch_compile_options` 里的 `CXX_STANDARD 20`、`TorchConfig.cmake.in` 里给 `torch` 目标设的 `CXX_STANDARD 20`、`cpp_extension.py` 里的 `-std=c++20` |
-| **主机编译器** | GCC ≥ 11.3（"GCC-11.3 or newer is required"）；Clang ≥ 16（"Older clangs (e.g. clang-14) fail to compile C++20 ranges adaptors..."）；AppleClang 不检查版本 | `CMakeLists.txt` 开头 |
-| **CUDA** | ≥ 12.1（`cmake/public/cuda.cmake`："PyTorch requires CUDA 12.1 or above"）；nvcc 版本必须与 CUDA 头文件版本一致（同文件有一个 `detect_cuda_version.cc` 的运行时检查，不一致就 FATAL_ERROR，注释说这常发生在 ccache 包装的 nvcc 与 `CUDA_HOME` 不一致时） | `cmake/public/cuda.cmake` |
+| **C++ 标准** | C++17（`set(CMAKE_CXX_STANDARD 17 ...)`）；顶层 `CMakeLists.txt` 检测到环境变量里有 `-std=c++` 会警告 "PyTorch requires -std=c++17. Please remove -std=c++ settings in your environment." | `CMakeLists.txt`、`c10/CMakeLists.txt`、`torch_compile_options` 里的 `CXX_STANDARD 17`、`TorchConfig.cmake.in` 里给 `torch` 目标设的 `CXX_STANDARD 17`、`cpp_extension.py` 里的 `-std=c++17` |
+| **主机编译器** | GCC ≥ 9.3（"GCC-9.3 or newer is required to compile PyTorch"）；Clang/AppleClang 不检查最低版本（macOS 上只是把 clang 版本打印出来） | `CMakeLists.txt` 开头 |
+| **CUDA** | ≥ 12.0（`cmake/public/cuda.cmake`："PyTorch requires CUDA 12.0 or above"）；nvcc 版本必须与 CUDA 头文件版本一致（同文件有一个 `detect_cuda_version.cc` 的运行时检查，不一致就 FATAL_ERROR，注释说这常发生在 ccache 包装的 nvcc 与 `CUDA_HOME` 不一致时） | `cmake/public/cuda.cmake` |
 
-（PyTorch 2.x 中的变化：总纲成稿时的基线是 C++17，这也是本系列各篇 mini-c10 用 `-std=c++17` 的原因；v2.13.0 源码树里已经全面切到 C++20，`vLLM` 的 `CMakeLists.txt` 也同步要求 `CMAKE_CXX_STANDARD 20` 并检查 GCC ≥ 11.3——注释直接说 "PyTorch headers require C++20"。读者在自己的版本上应以 `CMakeLists.txt` 里的 `CMAKE_CXX_STANDARD` 为准。）
+PyTorch 2.10 与 vLLM 0.15 都以 C++17 编译，与本系列各篇 mini-c10 用的 `-std=c++17` 一致。这个数字不是永远不变的——读者在自己的版本上应以 `CMakeLists.txt` 里的 `CMAKE_CXX_STANDARD` 为准，扩展的标准要跟它走，而不要自己在 `CMAKE_CXX_FLAGS` 里塞一个 `-std=`（那正是顶层 `CMakeLists.txt` 开头那条警告要拦的事）。
 
 三个轴之间还有交叉约束。最重要的是 **CUDA 版本限制了主机编译器版本**：nvcc 把 host 代码交给 gcc/clang 编译，但每个 CUDA 版本只认证了一个 gcc 版本范围。`torch/utils/cpp_extension.py` 把这张表写成了代码：
 
 ```python
 MINIMUM_GCC_VERSION = (5, 0, 0)
 # ...
+# The second value is the exclusive(!) upper bound, i.e. min <= version < max
 CUDA_GCC_VERSIONS: VersionMap = {
     '11.0': (MINIMUM_GCC_VERSION, (10, 0)),
     '11.1': (MINIMUM_GCC_VERSION, (11, 0)),
-    # ...
-    '12.0': ((6, 0, 0), (13, 0)),
-    '12.1': ((6, 0, 0), (13, 0)),
-    '12.2': ((6, 0, 0), (13, 0)),
-    '12.3': ((6, 0, 0), (14, 0)),
-    '12.4': ((6, 0, 0), (14, 0)),
-    '12.5': ((6, 0, 0), (14, 0)),
-    '12.6': ((6, 0, 0), (14, 0)),
-    '12.7': ((6, 0, 0), (14, 0)),
-    '12.8': ((6, 0, 0), (15, 0)),
-    '12.9': ((6, 0, 0), (15, 0)),
-    '13.0': ((6, 0, 0), (16, 0)),
+    '11.2': (MINIMUM_GCC_VERSION, (11, 0)),
+    '11.3': (MINIMUM_GCC_VERSION, (11, 0)),
+    '11.4': ((6, 0, 0), (12, 0)),
+    '11.5': ((6, 0, 0), (12, 0)),
+    '11.6': ((6, 0, 0), (12, 0)),
+    '11.7': ((6, 0, 0), (12, 0)),
 }
 
 MINIMUM_CLANG_VERSION = (3, 3, 0)
@@ -1867,31 +1838,32 @@ CUDA_CLANG_VERSIONS: VersionMap = {
 }
 ```
 
-含义：CUDA 12.4 支持 gcc 6 到 gcc 13（上界 14 不含）。用 gcc 14 配 CUDA 12.4 编扩展，`_check_cuda_version` 会报错。`cpp_extension.py` 里还有 `check_compiler_ok_for_platform`（Linux 上必须是 gcc/g++ 系，因为 PyTorch 的 Linux wheel 是 gcc 编的）和 `get_compiler_abi_compatibility_and_version`（第七篇讲的 ABI 契约：扩展的编译器大版本要和编译 PyTorch 的一致，否则打印 `ABI_INCOMPATIBILITY_WARNING`；`TORCH_DONT_CHECK_COMPILER_ABI=1` 可以跳过）。
+含义：CUDA 11.7 支持 gcc 6 到 gcc 11（上界 12 不含）。用 gcc 12 配 CUDA 11.7 编扩展，`_check_cuda_version` 会报错 "The current installed version of g++ ... is greater than the maximum required version by CUDA 11.7"。注意这张表在 v2.10.0 里只维护到 CUDA 11.7：对 12.x 的 CUDA，`_check_cuda_version` 找不到对应条目，只打印一条 "There are no g++ version bounds defined for CUDA version 12.x" 的警告就放行——此时约束仍然存在（nvcc 自己的 `host_config.h` 会在编译时用 `#error -- unsupported GNU version!` 拦住），只是 PyTorch 不再替你提前检查。`cpp_extension.py` 里还有 `check_compiler_ok_for_platform`（Linux 上必须是 gcc/g++ 系，因为 PyTorch 的 Linux wheel 是 gcc 编的）和 `get_compiler_abi_compatibility_and_version`（第七篇讲的 ABI 契约：扩展的编译器大版本要和编译 PyTorch 的一致，否则打印 `ABI_INCOMPATIBILITY_WARNING`；`TORCH_DONT_CHECK_COMPILER_ABI=1` 可以跳过）。
 
 ### 10.2 PyTorch CI 的矩阵
 
-`.github/workflows/pull.yml` 里的 job 名直接编码了矩阵的一个切片：
+`.github/workflows/pull.yml`（以及同目录的 `linux-aarch64.yml`）里的 job 名直接编码了矩阵的一个切片：
 
 ```text
 linux-jammy-py3.10-gcc11
-linux-jammy-py3.10-clang18
+linux-jammy-py3.10-gcc11-no-ops
+linux-jammy-py3.10-gcc11-pch          # 预编译头
 linux-jammy-py3.10-clang18-asan
-linux-jammy-py3.13-clang18
-linux-jammy-py3.14-clang18
-linux-jammy-py3.14t-clang18          # t = free-threaded Python
-linux-jammy-aarch64-py3.10-gcc11
-linux-jammy-aarch64-py3.10-gcc13
-linux-jammy-cuda13.0-cudnn9-py3.10-clang18
+linux-jammy-py3.10-clang12
+linux-jammy-py3.10-clang12-onnx
+linux-jammy-py3.14-clang12
+linux-jammy-cuda12.8-cudnn9-py3.10-clang12
+linux-jammy-rocm-py3.10
+linux-jammy-aarch64-py3.10            # linux-aarch64.yml，镜像是 gcc13
 ```
 
-每个 job 名是 `<OS>-<Python>-<编译器>[-<变体>]`。PyTorch 同时用 gcc 和 clang 两个编译器家族构建、在 x86_64 和 aarch64 两个架构上构建、用 clang 跑 ASan——这就是"不会在别的编译器上炸"的保障方式：**不靠推理，靠矩阵**。一个改动在 gcc 11 上编过了，clang 18 可能报一个 gcc 不报的警告（`-Werror` 下就是失败）；在 x86 上跑过了，aarch64 上可能因为 `char` 的符号性或未对齐访问而挂。
+每个 job 名是 `<OS>-<Python>-<编译器>[-<变体>]`。PyTorch 同时用 gcc 和 clang 两个编译器家族构建、在 x86_64 和 aarch64 两个架构上构建、用 clang 跑 ASan——这就是"不会在别的编译器上炸"的保障方式：**不靠推理，靠矩阵**。一个改动在 gcc 11 上编过了，clang 12 或 clang 18 可能报一个 gcc 不报的警告（`-Werror` 下就是失败）；在 x86 上跑过了，aarch64 上可能因为 `char` 的符号性或未对齐访问而挂。
 
 ### 10.3 版本不匹配的典型症状
 
 | 症状 | 原因 | 查法 |
 |---|---|---|
-| 编译 PyTorch 头文件时大量报错，涉及 `std::ranges`、`concept`、`requires` | 编译器太老，不完整支持 C++20 | `g++ --version`；对照 `CMakeLists.txt` 的最低版本 |
+| 编译 PyTorch 头文件时大量报错，涉及 `std::optional`、`if constexpr`、折叠表达式、`inline` 变量 | 编译器太老，不完整支持 C++17（或者环境变量里塞了 `-std=c++14` 之类，被顶层 `CMakeLists.txt` 警告过） | `g++ --version`；对照 `CMakeLists.txt` 的最低版本（GCC 9.3） |
 | `nvcc fatal: Unsupported gpu architecture 'compute_120'` | CUDA 太老，不认识新 GPU | `nvcc --version`；`TORCH_CUDA_ARCH_LIST` 去掉新架构 |
 | `#error -- unsupported GNU version! gcc versions later than 13 are not supported!` | gcc 比 CUDA 支持的新 | 上面的 `CUDA_GCC_VERSIONS` 表；装旧 gcc 或用 `-allow-unsupported-compiler`（自担风险） |
 | `import` 扩展时 `undefined symbol: ..._ZNSt7__cxx11...` 或 `...[abi:cxx11]` | 扩展和 PyTorch 的 libstdc++ ABI 不一致（第七篇） | `nm -DC` 看符号里有没有 `[abi:cxx11]`；确认 `_GLIBCXX_USE_CXX11_ABI` |
@@ -2096,7 +2068,7 @@ TEST(IntrusivePtrTest, givenStackObject_whenReclaimed_thenCrashes) {
 
 它展示了 3.1 节 `NDEBUG` 在测试里的意义：`reclaim` 一个栈对象在 Debug 构建下应该被 `TORCH_INTERNAL_ASSERT_DEBUG_ONLY` 拦住并抛异常，Release 下这个检查不存在——**同一份测试在两种构建类型下期待相反的结果**。它被注释掉了，但 `WeakIntrusivePtrTest` 里的对应版本还活着。这类"Debug 有检查、Release 没有"的行为在 PyTorch 里很多，写测试时要意识到测试二进制是哪种构建。
 
-这个文件还有一半（81 个测试）是 `WeakIntrusivePtrTest`，测第二篇末尾提过的 `weak_intrusive_ptr`：`lock()` 在对象活着/死了时的行为、弱引用不阻止析构、弱引用计数和强引用计数的独立性。结构与上面完全平行。
+这个文件还有一半多（172 个测试）是 `WeakIntrusivePtrTest`，测第二篇末尾提过的 `weak_intrusive_ptr`：`lock()` 在对象活着/死了时的行为、弱引用不阻止析构、弱引用计数和强引用计数的独立性。结构与上面完全平行。
 
 ### 11.2 `tools/gdb/pytorch-gdb.py`：调试器扩展是怎么写的
 
@@ -2870,7 +2842,7 @@ UseTab: Never
 5. clang-tidy 无新报告                     lintrunner（需要 build/compile_commands.json）
 6. 改了内存/生命周期相关代码：ASan+UBSan 过  单独的 build-asan 目录，跑相关测试
 7. 改了并发代码：TSan 过                    单独的 build-tsan 目录
-8. 交给 CI：gcc 11 + clang 18 + aarch64 + CUDA 矩阵    自己不用做，但要看结果
+8. 交给 CI：gcc 11 + clang 12/18 + aarch64 + CUDA 矩阵    自己不用做，但要看结果
 ```
 
 1–4 是每次都做的；5 在提交前做；6、7 按改动性质；8 由 CI 承担。跳过 6 是最常见、后果最重的省略——ASan 报告里的三张栈是内存问题唯一可靠的线索，等到线上偶发段错误再查，成本高一个数量级。
@@ -2932,7 +2904,7 @@ UseTab: Never
 |---|---|---|
 | CMake | 描述目标和它们的属性；`find_package` 找已安装的依赖 | `c10/CMakeLists.txt`、`TorchConfig.cmake.in`、`Caffe2Targets.cmake` |
 | Ninja + ccache/sccache | 并行执行、增量构建、跨目录缓存 | `tools/setup_helpers/cmake.py`、`CMAKE_<LANG>_COMPILER_LAUNCHER` |
-| 编译选项 | `-O`/`-g` 的取舍、警告策略、可见性、目标架构 | 顶层 `CMakeLists.txt` 第 1095 行起、`torch_compile_options()`、`cmake/Codegen.cmake` 的 CPU_CAPABILITY |
+| 编译选项 | `-O`/`-g` 的取舍、警告策略、可见性、目标架构 | 顶层 `CMakeLists.txt` 第 1086 行起（`if(NOT MSVC)` 分支）、`torch_compile_options()`、`cmake/Codegen.cmake` 的 CPU_CAPABILITY |
 | `compile_commands.json` + clangd | 让 IDE 和静态分析工具理解项目 | `CMAKE_EXPORT_COMPILE_COMMANDS ON` |
 | gdb/lldb + 扩展脚本 | 看进运行中的进程 | `tools/gdb/pytorch-gdb.py`、`torch::gdb::tensor_repr` |
 | core dump、addr2line、`TORCH_SHOW_CPP_STACKTRACES` | 崩溃后拿到栈 | `torch/csrc/utils/cpp_stacktraces.cpp` |
@@ -2967,7 +2939,7 @@ at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta) {
 
 **`const at::Tensor& x` 为什么这样传？**（第二篇）C++ 的变量默认是值，传 `at::Tensor` 按值会拷贝一个句柄——拷贝一个 `intrusive_ptr<TensorImpl>`，引用计数原子加一再减一，不拷数据但也不是免费的。`const T&` 是"借来看看"：没有拷贝、不能修改、调用方保证在函数返回前对象活着。`double alpha` 按值传是因为它就是 8 个字节，传引用反而多一次间接寻址。这是 C++ 传参的三条规则之一，Java 里没有这个选择——所有对象都是引用，所有基本类型都是值。
 
-**`TORCH_CHECK` 为什么是宏？**（第五篇）函数拿不到调用点的 `__FILE__`、`__LINE__` 和条件表达式的文本；宏可以把 `x.is_floating_point()` 这几个字原样塞进错误消息，让 Python 侧看到的 `RuntimeError` 里有 "Expected x.is_floating_point() to be true"。它抛的 `c10::Error` 经过第四篇讲的异常翻译变成 Python 异常；本篇讲的 `TORCH_SHOW_CPP_STACKTRACES=1` 能让它附上 C++ 栈；`.lintrunner.toml` 的 `RAWTHROW` 规则禁止绕过它直接 `throw`。
+**`TORCH_CHECK` 为什么是宏？**（第五篇）函数拿不到调用点的 `__FILE__`、`__LINE__` 和条件表达式的文本；宏可以把 `x.is_floating_point()` 这几个字原样塞进错误消息，让 Python 侧看到的 `RuntimeError` 里有 "Expected x.is_floating_point() to be true"。它抛的 `c10::Error` 经过第四篇讲的异常翻译变成 Python 异常；本篇讲的 `TORCH_SHOW_CPP_STACKTRACES=1` 能让它附上 C++ 栈；`.clang-tidy` 里的 `hicpp-exception-baseclass` 则保证凡是 `throw` 出去的都派生自 `std::exception`——`c10::Error` 正是。
 
 **`x.contiguous()` 返回的对象要拷贝数据吗？**（第二篇）如果 `x` 已经连续，返回的是 `x` 自己的另一个句柄——引用计数加一，数据零拷贝；如果不连续，才分配新内存并搬数据。返回值是 `at::Tensor` 按值返回，靠移动语义或 RVO，同样不涉及数据拷贝。`auto x_c` 推导出的是 `at::Tensor`，一个 8 字节的句柄。第二篇 mini-c10 的打印实验证明了这条链上每一步的引用计数变化。
 
@@ -2985,13 +2957,13 @@ at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta) {
 
 **Python 调用它时经过了什么？**（第七篇）`torch.ops.myops.scale_shift(t, 2.0, 1.0)` → Python 侧的 `OpOverload.__call__` → C++ 侧的 `torch::jit` 参数解析，把 `PyObject*` 转成 `at::Tensor`（`THPVariable_Unpack`：从 Python 对象里取出它持有的 C++ `Tensor` 句柄，引用计数加一）、`float` 转成 `double` → Dispatcher 按 `t` 的 DispatchKeySet 选到 CPU 实现 → 调用 `scale_shift_cpu` → 返回的 `at::Tensor` 被 `THPVariable_Wrap` 包成新的 Python 对象。全程持有 GIL——除非实现里显式 `py::gil_scoped_release`。本篇 11.2 节 `torch::gdb::tensor_repr` 里的 `PyGILState_Ensure` + `THPVariable_Wrap` + `PyObject_Repr` 是同一组 API 的另一次使用。
 
-**它编译成哪个 `.so`，链接到哪些库？**（第一篇、第八篇）作为扩展，它编成一个独立的 `myops.so`（Python 模块），链接 `libtorch.so`（进而 `libtorch_cpu.so`、`libc10.so`）——`TorchConfig.cmake` 提供的 `torch` 目标一行搞定，或者 `torch.utils.cpp_extension` 替你拼命令行。编译选项必须和 PyTorch 一致：`-std=c++20`（2.13）、同一个 gcc 大版本、同一个 libstdc++ ABI（第七篇），否则 `import` 时 undefined symbol。`-fvisibility=hidden` 下要保证 `PyInit_myops` 是可见的。构建完，Debug 版本能在 gdb 里断到 `scale_shift_cpu`，ASan 版本能验证 `in`/`o` 两个裸指针没有越界，`-Wall -Wextra` 没有新警告，clang-tidy 没有报告，CI 在 gcc 和 clang 上都编过——这个改动才算完成。
+**它编译成哪个 `.so`，链接到哪些库？**（第一篇、第八篇）作为扩展，它编成一个独立的 `myops.so`（Python 模块），链接 `libtorch.so`（进而 `libtorch_cpu.so`、`libc10.so`）——`TorchConfig.cmake` 提供的 `torch` 目标一行搞定，或者 `torch.utils.cpp_extension` 替你拼命令行。编译选项必须和 PyTorch 一致：`-std=c++17`（PyTorch 2.10 的 `TorchConfig.cmake` 和 `cpp_extension.py` 都会替你设上）、同一个 gcc 大版本、同一个 libstdc++ ABI（第七篇），否则 `import` 时 undefined symbol。`-fvisibility=hidden` 下要保证 `PyInit_myops` 是可见的。构建完，Debug 版本能在 gdb 里断到 `scale_shift_cpu`，ASan 版本能验证 `in`/`o` 两个裸指针没有越界，`-Wall -Wextra` 没有新警告，clang-tidy 没有报告，CI 在 gcc 和 clang 上都编过——这个改动才算完成。
 
 十行代码，八篇文章。把它们串起来看，每一篇讨论的都是同一件事的不同侧面：**C++ 把 Java 交给运行时的决定——对象放在哪里、活多久、类型是什么、调哪个实现、线程状态怎么传、怎么与另一个运行时对话、编成什么——全部前移到了编译期和链接期，由程序员显式做出。** 这带来了性能和确定性，也带来了本系列讨论的全部复杂性。
 
 回到总纲承诺的三种能力：
 
-**阅读能力。** 打开 `c10/core/TensorImpl.h`，你知道 `intrusive_ptr_target` 基类意味着什么（第二篇）、`C10_API` 在做什么（第五篇）、`virtual ~TensorImpl()` 为什么必须虚（第四篇）、`std::atomic<size_t> combined_refcount_` 用什么内存序（第六篇）。打开 `aten/src/ATen/core/dispatch/Dispatcher.h`，你能认出 `KernelFunction` 的类型擦除（第四篇）、`call<Return, Args...>` 的变参模板（第三篇）、`TORCH_LIBRARY` 把东西登记进来的路径（第五篇）。打开 `torch/csrc/autograd/python_variable.cpp`，你知道 `THPVariable` 为什么不用 pybind11、`Py_INCREF` 和 `intrusive_ptr` 的引用计数怎么交织（第七篇）。打开 vLLM 的 `csrc/torch_bindings.cpp`，你能读懂 `TORCH_LIBRARY_FRAGMENT(CONCAT(TORCH_EXTENSION_NAME, _custom_ar), custom_ar)` 里的宏拼接（第五篇）、`csrc/core/registration.h` 里 `REGISTER_EXTENSION` 手写 `PyInit_*` 而不用 pybind11 与 Python 稳定 ABI 的关系（第七篇）、它的 `CMakeLists.txt` 怎么找到 libtorch（第八篇）。识别模式、理解意图——这是阅读能力。
+**阅读能力。** 打开 `c10/core/TensorImpl.h`，你知道 `intrusive_ptr_target` 基类意味着什么（第二篇）、`C10_API` 在做什么（第五篇）、`virtual ~TensorImpl()` 为什么必须虚（第四篇）、`std::atomic<size_t> combined_refcount_` 用什么内存序（第六篇）。打开 `aten/src/ATen/core/dispatch/Dispatcher.h`，你能认出 `KernelFunction` 的类型擦除（第四篇）、`call<Return, Args...>` 的变参模板（第三篇）、`TORCH_LIBRARY` 把东西登记进来的路径（第五篇）。打开 `torch/csrc/autograd/python_variable.cpp`，你知道 `THPVariable` 为什么不用 pybind11、`Py_INCREF` 和 `intrusive_ptr` 的引用计数怎么交织（第七篇）。打开 vLLM 的 `csrc/torch_bindings.cpp`，你能读懂 `TORCH_LIBRARY_EXPAND(CONCAT(TORCH_EXTENSION_NAME, _custom_ar), custom_ar)` 里的宏拼接（第五篇）、`csrc/core/registration.h` 里 `REGISTER_EXTENSION` 手写 `PyInit_*` 而不用 pybind11 与 Python 稳定 ABI 的关系（第七篇）、它的 `CMakeLists.txt` 怎么找到 libtorch（第八篇）。识别模式、理解意图——这是阅读能力。
 
 **修改能力。** 写一个新算子时，你会用 `const Tensor&` 传参、按值返回（第二篇）；用 `AT_DISPATCH` 而不是手写 `switch`（第三篇）；用 `TORCH_CHECK` 而不是 `throw`、用 `TORCH_LIBRARY_IMPL` 注册（第五篇）；在 `parallel_for` 的 lambda 里不碰 TLS 状态（第六篇）；释放 GIL 前不碰任何 `PyObject`（第七篇）；然后跑 gtest、ASan、clang-tidy，确认在 gcc 和 clang 上都干净（第八篇）。写出符合项目风格、通过 review、不引入内存错误和 ABI 问题的代码——这是修改能力。
 

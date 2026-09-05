@@ -6,7 +6,7 @@ tags: [C++, AI, AI-Infra]
 catalog: true
 ---
 
-在 Python 里写 `torch.add(a, b)`，如果 `a` 在 CPU 上就跑 CPU kernel，在 GPU 上就跑 CUDA kernel。这个"按参数选实现"的动作在 C++ 层叫 dispatch，做这件事的类叫 `c10::Dispatcher`。它的核心调用路径在 `aten/src/ATen/core/dispatch/Dispatcher.h` 里，删掉调试和 profiler 分支后只剩这几行：
+在 Python 里写 `torch.add(a, b)`，如果 `a` 在 CPU 上就跑 CPU kernel，在 GPU 上就跑 CUDA kernel。这个"按参数选实现"的动作在 C++ 层叫 dispatch，做这件事的类叫 `c10::Dispatcher`。它的核心调用路径在 `aten/src/ATen/core/dispatch/Dispatcher.h` 里（本文引用的 PyTorch 源码以 v2.10.0 为准），删掉调试和 profiler 分支后只剩这几行：
 
 ```cpp
 template <class Return, class... Args>
@@ -631,7 +631,7 @@ class function_ref<Ret(Params...)> {
 
 ```cpp
 template <typename func_t>
-void cpu_kernel(TensorIteratorBase& iter, func_t&& op, int64_t grain_size = at::internal::GRAIN_SIZE, bool check_dynamic_casting = true) {
+void cpu_kernel(TensorIteratorBase& iter, func_t&& op, int64_t grain_size = at::internal::GRAIN_SIZE) {
   using traits = function_traits<func_t>;
   // this could be extended to work with void return types
   TORCH_INTERNAL_ASSERT(iter.ninputs() == traits::arity);
@@ -1026,7 +1026,7 @@ struct make_boxed_from_unboxed_functor final {
     constexpr size_t num_inputs = guts::typelist::size<ArgTypes>::value;
     if constexpr (has_outputs) {
       // ...
-      using ReturnType_ = decay_if_tuple_t<ReturnType>;
+      using ReturnType_ = ::std::decay_t<ReturnType>;
       ReturnType_ output = call_functor_with_args_from_stack<
           KernelFunctor,
           AllowDeprecatedTypes>(functor, dispatchKeySet, stack);
@@ -1178,7 +1178,7 @@ TORCH_LIBRARY_IMPL(_, Conjugate, m) {
 
 `conjugateFallback` 对**所有算子**生效（`_` 表示任意命名空间，`fallback` 表示这个 DispatchKey 下没有专门 kernel 的算子都走它）。它不可能知道每个算子的签名，所以只能是 boxed：从栈上看有哪些 `Tensor`、把共轭位物化、再把调用重新分发下去。同一文件里 `is_bit_set` 又是一个普通的虚函数覆盖——`MathOpFallback` 用虚函数区分 Conjugate 和 Negative 两个 fallback 的差异，因为这里不在热路径上。
 
-（vLLM 的变化：vLLM 当前版本已把 CUDA 算子的注册从 `TORCH_LIBRARY` 全部迁到了 `csrc/libtorch_stable/torch_bindings.cpp` 的 `STABLE_TORCH_LIBRARY_IMPL`——原来的 `csrc/torch_bindings.cpp` 只剩 `#ifdef USE_ROCM` 包住的 ROCm 专用部分，注册形式是 `ops.impl("rms_norm", TORCH_BOX(&rms_norm));`。`TORCH_BOX` 定义在 PyTorch 的 `torch/csrc/stable/library.h`，它用和本节完全相同的技巧——`boxer<FuncT, func>::boxed_fn` 静态函数从 `StableIValue*` 栈上 `unbox_to_tuple`、`std::apply(func, args)`、再 `from<ReturnType>` 装箱——把一个 unboxed 函数包成 boxed 函数指针。走稳定 ABI 时只有 boxed 一条路，因为 `.so` 之间只能约定 C 风格的统一签名，不能约定每个算子各自的 C++ 签名。CPU 后端 `csrc/cpu/torch_bindings.cpp` 仍用 `ops.impl(name, torch::kCPU, &fn)` 的 unboxed 注册。）
+（顺带一提 PyTorch 2.9 之后提供的 stable ABI 层 `torch/csrc/stable/library.h`：它的 `STABLE_TORCH_LIBRARY_IMPL` 只接受 boxed kernel，配套的 `TORCH_BOX(func)` 宏用和本节完全相同的技巧——`boxer<FuncT, func>::boxed_fn` 静态函数从 `StableIValue*` 栈上 `unbox_to_tuple`、`std::apply(func, args)`、再 `from<ReturnType>` 装箱——把一个 unboxed 函数包成 boxed 函数指针。走稳定 ABI 时只有 boxed 一条路，因为 `.so` 之间只能约定 C 风格的统一签名，不能约定每个算子各自的 C++ 签名。vLLM v0.15.0 尚未使用这一层：`csrc/torch_bindings.cpp` 里的 CUDA 算子仍用 `TORCH_LIBRARY_EXPAND(TORCH_EXTENSION_NAME, ops)` 经典方式注册，形式是 `ops.impl("rms_norm", torch::kCUDA, &rms_norm);`，CPU 后端 `csrc/cpu/torch_bindings.cpp` 同样是 `ops.impl(name, torch::kCPU, &fn)`——都是本节的 unboxed 运行期函数指针路径。）
 
 ### 5.6 为什么既有 boxed 又有 unboxed
 
@@ -1517,9 +1517,7 @@ class C10_API Error : public std::exception {
 // lazily inside a kernel (See: advanced indexing).  These turn into
 // IndexError when they cross to Python.
 class C10_API IndexError : public Error {
- public:
   using Error::Error;
-  IndexError(SourceLocation source_location, std::string msg);
 };
 
 // Used in ATen for invalid values.  These turn into
@@ -1566,7 +1564,6 @@ void torchCheckFail(
     const char* file,
     uint32_t line,
     const std::string& msg) {
-  // NOLINTNEXTLINE(modernize-use-designated-initializers)
   throw ::c10::Error({func, file, line}, msg);
 }
 ```
@@ -1949,7 +1946,7 @@ TORCH_LIBRARY_IMPL(aten, CPU, m) {
 }
 ```
 
-（上面是按生成模板整理的示意，本机没有构建目录，无法给出精确生成结果；`m.impl("...", TORCH_FN(...))` 这一行的形式来自 `register_dispatch_key.py` 第 574 行的模板。）
+（上面是按生成模板整理的示意，本机没有构建目录，无法给出精确生成结果；`m.impl("...", TORCH_FN(...))` 这一行的形式来自 `register_dispatch_key.py` 第 568 行的模板。）
 
 顺着 5.5 节的 `CppFunction` 构造函数、5.3 节的 `makeFromUnboxedFunctor`，这一行注册产生的 `KernelFunction` 是：
 
@@ -2187,7 +2184,7 @@ class OperatorHandle;   // 定义在 Dispatcher.h；这里只需要"有这么个
 
 // ---------------------------------------------------------------------------
 // 1. 函数签名萃取：从函数指针 / 函数对象 / lambda 拿到返回类型和参数类型
-//    对照 c10/util/TypeTraits.h 里的 guts::infer_function_traits
+//    对照 c10/util/Metaprogramming.h 里的 guts::infer_function_traits
 // ---------------------------------------------------------------------------
 template <class... Ts>
 struct typelist {};
@@ -2416,7 +2413,7 @@ class KernelFunction final {
 
 | mini-c10 | PyTorch |
 |---|---|
-| `function_traits` / `infer_function_traits` | `c10::guts::function_traits` / `infer_function_traits`（`c10/util/TypeTraits.h`） |
+| `function_traits` / `infer_function_traits` | `c10::guts::function_traits` / `infer_function_traits`（`c10/util/Metaprogramming.h`） |
 | `OperatorKernel : intrusive_ptr_target` | `c10::OperatorKernel` |
 | `WrapFunctionIntoFunctor_<Func, R(Params...)>` | `impl::WrapFunctionIntoFunctor_`（用 `template <auto Func>` 代替 `CompileTimeFunctionPointer`） |
 | `WrapFunctionIntoRuntimeFunctor_` | `impl::WrapFunctionIntoRuntimeFunctor_` |

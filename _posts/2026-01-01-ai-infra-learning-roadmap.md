@@ -347,15 +347,14 @@ graph LR
 | 01 | [Python 在 AI-Infra：从语言机制到生产交付](/python-for-ai-infra.html) | L1 | 7 |
 | 02 | [C++ 在 AI-Infra：从对象模型到算子扩展](/cpp-for-ai-infra.html) | L1 | 8 |
 | 03 | [PyTorch 深度实践：从 Tensor 到深度学习运行时](/deep-dive-into-pytorch.html) | L2 | 10 |
-| 04 | Transformer 与 LLM：结构、算量与数值 | L2 | 7 |
+| 04 | [Transformer 与 LLM：结构、算量与数值](/transformer-and-llm-for-infra-engineers.html) | L2 | 7 |
 | 05 | [GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention](/gpu-kernel-engineering.html) | L2 | 10 |
-| 06 | 通信与互联：从 NCCL 到 RDMA | L3 | 7 |
-| 07 | 大规模训练工程：从 Megatron 到容错 | L4 | 8 |
+| 06 | [通信与互联：从 NCCL 到 RDMA](/communication-and-interconnect-for-ai-infra.html) | L3 | 7 |
+| 07 | [大规模训练工程：从 Megatron 到容错](/large-scale-training-engineering.html) | L4 | 8 |
 | 08 | [大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术](/deep-dive-into-vllm.html) | L4 | 12 |
-| 09 | AI 平台工程：资源层与交付层 | L5 | 8 |
-| 10 | AI-Infra 开源贡献指南 | 横切 | 4 |
+| 09 | [AI 平台工程：资源层与交付层](/ai-platform-engineering.html) | L5 | 8 |
+| 10 | [AI-Infra 开源贡献指南](/contributing-to-ai-infra-open-source.html) | 横切 | 4 |
 
-尚未链接的系列在发布后补上链接。
 
 
 ## 最终目标

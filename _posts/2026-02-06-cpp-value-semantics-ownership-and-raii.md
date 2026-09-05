@@ -59,7 +59,7 @@ at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta) {
 10. 工程实践建议与常见错误；
 11. 总结。
 
-正文以 C++17 为基线（PyTorch 2.x 中的变化：本机 v2.13.0 源码树的顶层 `CMakeLists.txt` 已经把 `CMAKE_CXX_STANDARD` 设为 20，vLLM 的 `CMakeLists.txt` 也是 20；本文涉及的机制全部在 C++17 中就已存在，所有 mini-c10 片段用 `clang++ -std=c++17 -Wall` 验证）。
+正文以 C++17 为基线（本机 PyTorch v2.10.0 源码树的顶层 `CMakeLists.txt` 把 `CMAKE_CXX_STANDARD` 设为 17，vLLM v0.15.0 的 `CMakeLists.txt` 也是 17，与本系列一致；所有 mini-c10 片段用 `clang++ -std=c++17 -Wall` 验证）。
 
 
 ## 一、对象在哪里：栈、堆与值语义
@@ -879,7 +879,7 @@ void TensorImpl::release_resources() {
 
 `StorageImpl::release_resources()` 则是 `data_ptr_.clear();`——数据在强引用归零时立刻归还，不用等弱引用。
 
-PyTorch 2.x 中的变化：早期 2.x 版本里这是两个独立的 `std::atomic<uint32_t> refcount_` 和 `weakcount_`；v2.13.0 已经合并成一个 `combined_refcount_`（低 32 位强计数，高 31 位弱计数，最高位 `kHasPyObject` 标记"是否有 Python 包装对象"），这样一次原子操作就能同时读到两个计数，`reset_not_null_` 里的快速路径就依赖这一点。`TensorImpl.h` 末尾的 size 注释里还留着 "strong refcount / weak refcount TODO: pack these into one word"，说明那段注释比代码旧。本文后面统一说"强计数"和"弱计数"，不再区分它们的物理布局。
+PyTorch 2.x 中的变化：早期 2.x 版本里这是两个独立的 `std::atomic<uint32_t> refcount_` 和 `weakcount_`；v2.10.0 已经合并成一个 `combined_refcount_`（低 32 位强计数，高 31 位弱计数，最高位 `kHasPyObject` 标记"是否有 Python 包装对象"），这样一次原子操作就能同时读到两个计数，`reset_not_null_` 里的快速路径就依赖这一点。`TensorImpl.h` 末尾的 size 注释里还留着 "strong refcount / weak refcount TODO: pack these into one word"，说明那段注释比代码旧。本文后面统一说"强计数"和"弱计数"，不再区分它们的物理布局。
 
 ### 7.3 `intrusive_ptr` 的两个核心操作
 
@@ -963,7 +963,7 @@ PyTorch 2.x 中的变化：早期 2.x 版本里这是两个独立的 `std::atomi
 | 空指针只能是 `nullptr` | `NullType` 模板参数可以指定一个"哨兵对象"作为空值（7.7 节） |
 | 弱引用要保留控制块到弱计数归零 | 弱引用要保留整个对象到弱计数归零（这一点 `intrusive_ptr` 更差——但 `release_resources()` 让昂贵资源提前释放，缓解了这个问题） |
 
-代价是侵入性：`T` 必须继承 `intrusive_ptr_target`，多一个 8 字节的计数字段和一个 vtable 指针。对 `TensorImpl`、`StorageImpl`、autograd 的 `Node`、`c10::ivalue::Object`、`c10d::ProcessGroup` 这些本来就是多态类、本来就要被引用计数管理的类型，这个代价等于零。
+代价是侵入性：`T` 必须继承 `intrusive_ptr_target`，多一个 8 字节的计数字段和一个 vtable 指针。对 `TensorImpl`、`StorageImpl`、`c10::ivalue::Object`、`c10::ivalue::Future`、`c10d::ProcessGroup` 这些本来就是多态类、本来就要被引用计数管理的类型，这个代价等于零。
 
 ### 7.5 创建：`make_intrusive` 与私有的裸指针构造
 
@@ -1113,18 +1113,22 @@ struct THPVariable {
 };
 ```
 
-Python 对象内嵌一个 `at::Tensor`（PyTorch 2.x 中的变化：早期 2.x 版本这里是 `c10::MaybeOwned<at::Tensor> cdata`，v2.13.0 简化为直接持有 `at::Tensor`）。所以一个 `torch.Tensor` 对 `TensorImpl` 贡献一个强引用；反方向，`TensorImpl` 用一个 `PyObjectSlot` 存 `PyObject*`（`c10/core/impl/PyObjectSlot.h`）：
+Python 对象内嵌一个 `at::Tensor`（PyTorch 2.x 中的变化：早期 2.x 版本这里是 `c10::MaybeOwned<at::Tensor> cdata`，v2.10.0 简化为直接持有 `at::Tensor`）。所以一个 `torch.Tensor` 对 `TensorImpl` 贡献一个强引用；反方向，`TensorImpl` 用一个 `PyObjectSlot` 存 `PyObject*`（`c10/core/impl/PyObjectSlot.h`）：
 
 ```cpp
 struct C10_API PyObjectSlot {
  public:
-  PyObjectSlot() : pyobj_(nullptr) {}
+  PyObjectSlot() : pyobj_interpreter_(nullptr), pyobj_(nullptr) {}
 
   PyObject* load_pyobj() const {
     return pyobj_.load(std::memory_order_acquire);
   }
   // ...
  private:
+  // This is now always the global interpreter if the PyObject is set.
+  // Maybe we can remove this field some day...
+  std::atomic<PyInterpreter*> pyobj_interpreter_;
+
   // The PyObject representing this Tensor or nullptr. Ownership is managed
   // by intrusive_ptr. By the time the PyObjectSlot is destroyed, this
   // reference is already dead.
@@ -1135,11 +1139,12 @@ struct C10_API PyObjectSlot {
 `python_variable.cpp` 里的 `THPVariable_WrapWithType` 把一个 C++ `Tensor` 包成 Python 对象时，用 placement new 在 Python 对象的内存里构造 `cdata`：
 
 ```cpp
-    PyObject* wrapper = type->tp_alloc(type, 0);
-    // ...
-    auto v = reinterpret_cast<THPVariable*>(wrapper);
-    new (&v->cdata) Tensor(std::forward<T>(var));
-    return wrapper;
+  obj = type->tp_alloc(type, 0);
+  // ...
+  auto v = reinterpret_cast<THPVariable*>(obj);
+  new (&v->cdata) Tensor(std::forward<T>(var));
+  // ...
+  return obj;
 ```
 
 `THPVariable_dealloc` 在 Python 对象释放时手工调用析构：
@@ -1191,21 +1196,36 @@ Java 里对应的模式叫 Null Object。差别是 C++ 把它做进了智能指�
 
 ### 7.8 `weak_intrusive_ptr`：打破 autograd 图里的环
 
-`weak_intrusive_ptr<T>` 是 `weak_ptr` 的侵入式版本，持有弱计数，`lock()` 在强计数不为零时返回一个 `intrusive_ptr`。最典型的使用者是 autograd（`torch/csrc/autograd/variable.h`，`AutogradMeta`）：
+先看 autograd 里用标准库 `weak_ptr` 打破环的例子（`torch/csrc/autograd/variable.h`，`AutogradMeta`）——autograd 的 `Node` 在 v2.10.0 里由 `std::shared_ptr` 管理（`Node` 继承 `std::enable_shared_from_this<Node>`，`torch/csrc/autograd/function.h`），没有走 `intrusive_ptr`：
 
 ```cpp
 struct TORCH_API AutogradMeta : public c10::AutogradMetaInterface {
   std::string name_;
 
   Variable grad_;
-  c10::intrusive_ptr<Node> grad_fn_;
-  c10::weak_intrusive_ptr<Node> grad_accumulator_;
+  std::shared_ptr<Node> grad_fn_;
+  std::weak_ptr<Node> grad_accumulator_;
   // ...
 ```
 
 一个叶子 tensor 的 `grad_accumulator_`（累加梯度的节点）会反过来持有这个 tensor；如果 `AutogradMeta` 用强引用持有 `grad_accumulator_`，就形成 tensor → AutogradMeta → Node → tensor 的环，永远不释放。用弱引用断开这个环：`Node` 活着是因为反向图持有它，图算完释放，`grad_accumulator_` 自动过期。`grad_fn_` 则用强引用——中间结果的 `grad_fn` 就是靠输出 tensor 持有才活着的。
 
-`Storage::getWeakStorageImpl()`（`c10/core/Storage.h`）也返回一个 `weak_intrusive_ptr<StorageImpl>`，供需要观察 storage 是否还活着但不想延长其寿命的地方使用。
+`weak_intrusive_ptr<T>` 是同一思路的侵入式版本：持有 `intrusive_ptr_target` 里的弱计数，`lock()` 在强计数不为零时返回一个 `intrusive_ptr`，`expired()` 查对象是否已死。它用于被 `intrusive_ptr` 管理的类型，如 `TensorImpl` 和 `StorageImpl`。`VariableHooks::retain_grad`（`torch/csrc/autograd/variable.cpp`）就是一例：要给一个非叶子 tensor 注册一个"反向时把梯度存回自己"的 hook，hook 被 `grad_fn` 持有，如果 hook 再强持有这个 tensor，就是 tensor → grad_fn → hook → tensor 的环，所以 hook 里捕获的是弱引用：
+
+```cpp
+  c10::weak_intrusive_ptr<c10::TensorImpl> weak_self(self.getIntrusivePtr());
+
+  auto retain_grad_hook = [weak_self](const at::TensorBase& grad_base) {
+    at::Tensor grad{grad_base};
+    if (!weak_self.expired() && grad.defined()) {
+      auto var = weak_self.lock();
+      // ... 把 grad 累加到 var->mutable_grad()
+    }
+    return at::TensorBase{};
+  };
+```
+
+`Storage::getWeakStorageImpl()`（`c10/core/Storage.h`）也返回一个 `weak_intrusive_ptr<StorageImpl>`，供需要观察 storage 是否还活着但不想延长其寿命的地方使用（如 `c10d` 和 `ivalue::Future` 记录一次通信涉及的 storage）。
 
 
 ## 八、回到源码：从 `Tensor` 到显存的完整持有链
@@ -1607,7 +1627,7 @@ struct C10_API DefaultCPUAllocator final : at::Allocator {
     void (*deleteFunc)(void*) = &local_raw_delete;
     CUDAStream stream = cuda::getCurrentCUDAStream(device);
 
-    if (!isEnabled()) {
+    if (forceUncachedAllocator() || !isEnabled()) {
       deleteFunc = &uncached_delete;
       devPtr = uncached_allocate(size);
     } else {
@@ -1631,7 +1651,7 @@ void local_raw_delete(void* ptr) {
 }
 ```
 
-只有在缓存分配器被禁用时，删除器才是直接 `cudaFree` 的 `uncached_delete`。所以"`del t` 之后 `nvidia-smi` 显存没有下降"这个所有 PyTorch 用户都遇到过的现象，从 C++ 所有权的角度看是：`Tensor` 析构 → `TensorImpl` 计数归零 → `StorageImpl` 计数归零 → `DataPtr` 析构 → 调 `local_raw_delete` → 显存回到 caching allocator 的空闲块列表，**可以被下一次 `allocate` 复用**，但没有还给驾动。`torch.cuda.empty_cache()` 才会真正 `cudaFree`。缓存池内部怎么切块、怎么处理 stream 语义，是分配器算法的事，不在本文范围；本文只需看到：**整条 RAII 链在 `DataPtr` 这一层结束，最后一步做什么，完全由分配时塞进去的那个函数指针决定。**
+只有在缓存分配器被禁用（或通过 `PYTORCH_NO_CUDA_MEMORY_CACHING` 强制不缓存）时，删除器才是直接 `cudaFree` 的 `uncached_delete`。所以"`del t` 之后 `nvidia-smi` 显存没有下降"这个所有 PyTorch 用户都遇到过的现象，从 C++ 所有权的角度看是：`Tensor` 析构 → `TensorImpl` 计数归零 → `StorageImpl` 计数归零 → `DataPtr` 析构 → 调 `local_raw_delete` → 显存回到 caching allocator 的空闲块列表，**可以被下一次 `allocate` 复用**，但没有还给驾动。`torch.cuda.empty_cache()` 才会真正 `cudaFree`。缓存池内部怎么切块、怎么处理 stream 语义，是分配器算法的事，不在本文范围；本文只需看到：**整条 RAII 链在 `DataPtr` 这一层结束，最后一步做什么，完全由分配时塞进去的那个函数指针决定。**
 
 顺便说明一下为什么 `Allocator` 是全局裸指针而不是被 `StorageImpl` 拥有：`NativeCachingAllocator` 是一个 `static` 对象，生命周期与进程相同；成百万个 `StorageImpl` 都指向它，它比任何一个 `StorageImpl` 都活得久。用 `shared_ptr` 持有它只会白白多做几百万次原子操作。
 
