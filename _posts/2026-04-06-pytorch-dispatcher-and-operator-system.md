@@ -670,6 +670,21 @@ native_functions.yaml 找到 Schema 与 dispatch 字段
     → 用 Profiler 看实际 launch 了哪些 Kernel
 ```
 
+### 4. 本篇涉及的源码位置
+
+本篇讨论的机制在源码中的位置（对应第一篇第四章 §3 的代码地图）：
+
+| 路径 | 内容 |
+|---|---|
+| `aten/src/ATen/native/native_functions.yaml` | 全部原生算子的 Schema 与 `dispatch` 字段 |
+| `torchgen/` | Codegen：`gen.py` 读 yaml，生成注册代码、C++ API 与 Python 绑定 |
+| `aten/src/ATen/core/dispatch/Dispatcher.h`、`OperatorEntry.h` | Dispatcher 与 Operator Table：每个算子一个 `OperatorEntry`，按 DispatchKey 存实现 |
+| `c10/core/DispatchKey.h`、`DispatchKeySet.h` | DispatchKey 的定义与优先级；`DispatchKeySet` 的位运算与最高优先级 Key 计算 |
+| `aten/src/ATen/core/boxing/` | boxed / unboxed 调用约定：Kernel 如何被统一调用 |
+| `aten/src/ATen/TensorIterator.h`、`native/cpu/Loops.h`、`native/cuda/Loops.cuh` | TensorIterator 与它在 CPU / CUDA 上的循环模板 |
+| `aten/src/ATen/native/BinaryOps.cpp`、`native/cpu/BinaryOpsKernel.cpp`、`native/ufunc/add.h` | `add` 的结构化入口、CPU 实现；CUDA 实现由 ufunc Codegen 从 `add.h` 中的标量函数生成 |
+| `build/aten/src/ATen/RegisterCPU.cpp` 等、`torch/csrc/autograd/generated/python_torch_functions*.cpp` | Codegen 产物：各后端的注册文件；`torch.add` 的 Python 绑定（构建后才存在） |
+
 下一篇进入开发态的实践：
 
 > **如何用 C++ 和 CUDA 编写一个自定义算子，完成定义、注册、实现三步，并正确处理 Tensor、dtype、device、stride、Autograd 和 ABI？**

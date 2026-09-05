@@ -1462,6 +1462,21 @@ DDP 全复制只分数据；ZeRO 三级逐个把优化器状态、梯度、参�
 第八篇 CPU 内存 / PCIe             → CPU offload 的约束
 ```
 
+### 5. 本篇涉及的源码位置
+
+本篇讨论的机制在源码中的位置（对应第一篇第四章 §3 的代码地图）：
+
+| 路径 | 内容 |
+|---|---|
+| `torch/distributed/distributed_c10d.py` | `init_process_group`、集合通信的 Python API、进程组管理 |
+| `torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp`、`ProcessGroupGloo.cpp`、`Work.hpp` | NCCL / Gloo 后端；异步通信的 `Work` 句柄 |
+| `torch/csrc/distributed/c10d/reducer.cpp`、`torch/nn/parallel/distributed.py` | DDP：Reducer 的梯度桶与 all-reduce 触发；Python 包装 |
+| `torch/distributed/fsdp/_fully_shard/` | FSDP2：`fully_shard`、分片单元、预取、all-gather / reduce-scatter 的调度 |
+| `torch/distributed/tensor/`、`torch/distributed/device_mesh.py` | DTensor 与 `DeviceMesh` |
+| `torch/distributed/tensor/parallel/` | TP：`ColwiseParallel`、`RowwiseParallel`、`SequenceParallel`、`loss_parallel` |
+| `torch/distributed/pipelining/`、`torch/distributed/tensor/experimental/_attention.py` | PP 的 stage 与调度；CP 的 `context_parallel` |
+| `torch/distributed/checkpoint/`、`torch/distributed/run.py`、`torch/distributed/elastic/` | 分布式 Checkpoint；`torchrun` 与弹性启动 |
+
 到这里，PyTorch 的执行系统从单卡讲到了多机。剩下最后一个问题：这样一个横跨 Python、C++、CUDA、编译器和分布式运行时的框架，如何保证每次改动不破坏正确性和性能？
 
 > **一个复杂深度学习框架如何测试、构建和演进？**

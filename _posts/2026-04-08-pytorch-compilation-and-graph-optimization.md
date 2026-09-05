@@ -1014,7 +1014,19 @@ Python      y = x @ weight + bias; if x.shape[0] > 64: relu(y) else: tanh(y)
 | Inductor vs Triton | Inductor 是 PyTorch 的代码生成器，产出 Triton 源码；Triton 是独立的 GPU 语言与编译器，产出 PTX |
 | `torch.compile` vs `torch.export` | 带回退的 JIT vs 无回退的 AOT；共享 Dynamo 与 FX Graph |
 
-### 4. 排查问题的顺序
+### 4. 同一条流水线的两个出口
+
+本文沿着 `torch.compile` 走完了训练场景下的 JIT 路径。第七章 §7 的表已经说明，同样的 Dynamo → FX → AOTAutograd → Inductor 组件还能组成另一条 AOT 路径：
+
+```text
+训练 / 研究     torch.compile     JIT · 允许 graph break · 产物留在 Python 进程内 · 每次进程启动重新编译（有缓存）
+部署 / 推理     torch.export      AOT · 必须整图捕获 · 产物 ExportedProgram 可序列化
+                AOTInductor       在 export 之上由 Inductor 生成 C++ 与 Kernel，编成共享库，C++ 运行时直接加载
+```
+
+两条路径的分歧只在对 graph break 的态度，共享的部分远多于不同的部分。推理引擎通常会在这套组件上做更多事：vLLM 用 `torch.compile` 配合 CUDA Graphs 消除 decode 阶段的 launch 开销，并用自定义 Inductor pass 融合注意力周边的算子——这些属于 Serving 系统的话题，本系列不展开。
+
+### 5. 排查问题的顺序
 
 ```text
 torch._dynamo.explain               有几张图，为什么断
@@ -1025,6 +1037,21 @@ torch._dynamo.explain               有几张图，为什么断
     → TORCH_LOGS="output_code"       融合是否发生，Extern Kernel 是哪些
     → Profiler                       实际 launch 了什么，各花多少时间
 ```
+
+### 6. 本篇涉及的源码位置
+
+本篇讨论的机制在源码中的位置（对应第一篇第四章 §3 的代码地图）：
+
+| 路径 | 内容 |
+|---|---|
+| `torch/_dynamo/eval_frame.py`、`torch/csrc/dynamo/eval_frame.c` | `torch.compile` 入口；接管 CPython 帧求值的 C 扩展 |
+| `torch/_dynamo/symbolic_convert.py`、`guards.py`、`output_graph.py` | 字节码符号执行、Guard 生成、FX Graph 输出 |
+| `torch/fx/graph.py`、`node.py`、`graph_module.py`、`_symbolic_trace.py` | FX IR：`Graph`、`Node`、`GraphModule`；`symbolic_trace` |
+| `torch/_functorch/aot_autograd.py`、`partitioners.py` | AOTAutograd：联合前反向图的生成；min-cut 切分决定保存什么、重算什么 |
+| `torch/_subclasses/fake_tensor.py`、`torch/fx/experimental/symbolic_shapes.py` | FakeTensor；`SymInt` 与 `ShapeEnv`（动态 shape） |
+| `torch/_decomp/`、`torch/_prims/`、`torch/_refs/` | 算子分解与参考实现：torch 级词汇下降到 ATen 级 |
+| `torch/_inductor/compile_fx.py`、`graph.py`、`scheduler.py`、`codegen/triton.py`、`codegen/cpp.py` | Inductor：入口、lowering、融合决策、Triton 与 C++ 代码生成 |
+| `torch/_inductor/codecache.py`、`torch/export/`、`torch/csrc/inductor/aoti_runtime/` | 编译缓存；`torch.export`；AOTInductor 运行时 |
 
 最后一步是下一篇的起点：
 

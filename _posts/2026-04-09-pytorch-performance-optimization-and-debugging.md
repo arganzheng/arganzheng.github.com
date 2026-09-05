@@ -539,6 +539,8 @@ GPU 已经满负荷，问题变成：它在忙什么？GPU 执行一个 Kernel �
 
 #### 2.1 一个 Kernel 的时间下界
 
+本节会用到 warp、SM、occupancy、shared memory 这几个 CUDA 执行模型的概念，第六篇第七章 §2 有一节最小集介绍；这里默认读者知道它们指什么。
+
 从显存读入数据、写出结果是**访存**；对数据做算术是**计算**。两者在硬件上由不同单元执行，可以重叠。因此一个 Kernel 的时间下界是：
 
 ```text
@@ -1267,6 +1269,21 @@ warmup 后再测，报告中位数与分布
 第五篇 入口 / 分发 / 执行      → 第三章 §1.1：每个算子在 CPU 上的固定成本由此而来
 第七篇 融合与内存规划          → 第三章 §2.4：融合是 memory-bound 算子的处方
 ```
+
+### 6. 本篇涉及的源码位置
+
+本篇讨论的机制在源码中的位置（对应第一篇第四章 §3 的代码地图）：
+
+| 路径 | 内容 |
+|---|---|
+| `torch/utils/benchmark/` | `Timer`、`Compare`：处理预热、同步与统计的 Benchmark 工具 |
+| `torch/profiler/profiler.py`、`torch/csrc/profiler/`、`third_party/kineto/` | Profiler 的 Python 接口、C++ 采集与 CUPTI 集成 |
+| `c10/cuda/CUDAStream.h`、`torch/cuda/streams.py` | Stream 与 Event：异步执行模型的实现 |
+| `c10/cuda/CUDAFunctions.cpp` | `set_sync_debug_mode` 检测隐式同步的实现 |
+| `c10/cuda/CUDACachingAllocator.cpp`、`torch/cuda/memory.py` | 缓存分配器：block 池、碎片、`allocated` / `reserved`、memory snapshot |
+| `torch/cuda/graphs.py`、`aten/src/ATen/cuda/CUDAGraph.cpp` | CUDA Graphs：消除 launch 开销 |
+| `torch/utils/checkpoint.py` | Activation Checkpointing：用 `saved_tensors_hooks` 实现的重算 |
+| `aten/src/ATen/native/transformers/` | `scaled_dot_product_attention` 的 FlashAttention / 内存高效实现选择 |
 
 到这里，单卡上的 PyTorch 已经讲完：Tensor、Autograd、Module、算子、扩展、编译、性能。第四章算过，7B 模型仅静态显存就要 112 GB，单卡放不下。下一篇进入多卡：
 

@@ -1445,6 +1445,21 @@ flowchart TB
     E --> F
 ```
 
+### 5. 本篇涉及的源码位置
+
+本篇讨论的机制在源码中的位置（对应第一篇第四章 §3 的代码地图）：
+
+| 路径 | 内容 |
+|---|---|
+| `c10/core/TensorImpl.h` | Tensor 元数据：`sizes_and_strides_`、`storage_offset_`、`data_type_`、`device_opt_`、`key_set_` |
+| `c10/core/StorageImpl.h` | 底层存储：数据指针、字节数、所属 Allocator |
+| `aten/src/ATen/native/TensorShape.cpp` | `view`、`reshape`、`transpose`、`permute`、`squeeze` 等只改 metadata 的操作 |
+| `aten/src/ATen/native/TensorProperties.cpp`、`TensorConversions.cpp` | `contiguous()`、`.to()`：何时拷贝、何时只改 metadata |
+| `aten/src/ATen/ExpandUtils.h` | 广播规则 `infer_size` 与 `expand` |
+| `c10/core/ScalarType.h`、`aten/src/ATen/native/TypeProperties.cpp` | dtype 定义与 `result_type`（dtype promotion） |
+| `c10/cuda/CUDACachingAllocator.cpp` | 缓存分配器：为什么 `del` 之后显存仍被占用 |
+| `torch/_tensor.py`、`torch/csrc/autograd/python_variable.cpp` | Python `torch.Tensor` 对象与它包装的 C++ Tensor |
+
 下一篇将进入 Tensor 之上的梯度系统：
 
 > **Autograd 如何把一次次 Tensor 运算连接成动态计算图，并在 backward 阶段沿图传播梯度？**

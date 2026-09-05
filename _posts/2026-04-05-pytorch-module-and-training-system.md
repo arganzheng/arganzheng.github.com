@@ -915,7 +915,7 @@ optimizer.state_dict()
 参数 + 梯度 + Optimizer State
 ```
 
-这也是大模型训练中 Optimizer state 可能成为显存主要消耗者的原因之一。
+这也是大模型训练中 Optimizer state 可能成为显存主要消耗者的原因之一：Adam 训练下每个参数要占 16 字节（参数、梯度、两个动量），第八篇会算这笔账。多卡训练时 Optimizer state 是最先被切分到各卡上的状态——第九篇的 ZeRO 与 FSDP 从这里开始。
 
 
 ## 七、Dataset、Sampler 与 DataLoader
@@ -1087,7 +1087,7 @@ GPU 计算完成
 GPU 利用率下降
 ```
 
-所以 GPU 利用率低不一定是模型 Kernel 的问题，也可能是 DataLoader 没有及时提供数据。
+所以 GPU 利用率低不一定是模型 Kernel 的问题，也可能是 DataLoader 没有及时提供数据。第八篇把这种情况单列为一类瓶颈（GPU 在等数据到达），并给出在 Profiler 时间线上把它与"GPU 在等 Python"区分开的方法。
 
 ### 7. `num_workers` 不是越大越好
 
@@ -1446,7 +1446,7 @@ BF16 的指数范围接近 FP32，很多训练场景不需要和 FP16 完全相�
 - 数值结果可能发生变化；
 - 不同 GPU 的收益不同。
 
-应使用正确性测试和 Benchmark 验证，而不是只看代码中出现了 `autocast`。
+应使用正确性测试和 Benchmark 验证，而不是只看代码中出现了 `autocast`。本节只介绍混合精度作为训练 API 的用法；它为什么能加速（Tensor Core 与访存量减半）、什么时候加速不明显、如何用 Benchmark 确认收益，第八篇作为一条性能处方展开。
 
 
 ## 十一、Hooks 与模型观测
@@ -1733,6 +1733,21 @@ grad 是否正确清零和更新？
     ↓
 checkpoint 是否保存了完整状态？
 ```
+
+### 6. 本篇涉及的源码位置
+
+本篇讨论的机制在源码中的位置（对应第一篇第四章 §3 的代码地图）：
+
+| 路径 | 内容 |
+|---|---|
+| `torch/nn/modules/module.py` | `Module`：`__setattr__` 注册、`register_buffer`、`state_dict` / `load_state_dict`、`_apply`（`.to()` 的递归）、hook 链 |
+| `torch/nn/parameter.py`、`torch/nn/modules/container.py` | `Parameter`；`Sequential`、`ModuleList`、`ModuleDict` |
+| `torch/optim/optimizer.py`、`torch/optim/adamw.py` | Optimizer 基类：param groups、`state`、`zero_grad`；AdamW 的 fused / foreach 实现 |
+| `torch/utils/data/dataloader.py`、`sampler.py`、`_utils/` | DataLoader 的 worker 进程、预取；Sampler；`collate`、`pin_memory` 线程 |
+| `torch/amp/autocast_mode.py`、`torch/amp/grad_scaler.py` | autocast 的 Python 入口与 GradScaler |
+| `aten/src/ATen/autocast_mode.cpp` | autocast 的 C++ 实现：作为一个 DispatchKey 拦截算子并转换 dtype（第五篇的机制） |
+| `torch/serialization.py` | `torch.save` / `torch.load`、`weights_only` 的受限 unpickler |
+| `torch/utils/hooks.py` | `RemovableHandle` 与 hook 注册机制 |
 
 下一篇将进入 PyTorch 的算子运行时：
 

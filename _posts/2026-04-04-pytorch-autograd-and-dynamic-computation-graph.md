@@ -603,6 +603,8 @@ y = x²
 
 反向时需要知道 forward 阶段哪些位置大于 0。不同算子会保存不同的中间信息。
 
+这些被保存的中间值统称**激活值**（activation）。它们从 forward 保存到 backward 用完为止，是训练时显存占用中随 batch 和序列长度线性增长的那部分，通常比参数本身大得多。第八篇分析显存构成时，激活值是主要对象；那里的 Activation Checkpointing 做的事就是不保存、反向时重算。
+
 ### 2. 保存输出可能保存整张图
 
 ```python
@@ -1356,6 +1358,21 @@ loss 是否参与了目标参数的计算？
     + 梯度累积
     = 自动求导的核心骨架
 ```
+
+### 6. 本篇涉及的源码位置
+
+本篇讨论的机制在源码中的位置（对应第一篇第四章 §3 的代码地图）：
+
+| 路径 | 内容 |
+|---|---|
+| `torch/csrc/autograd/engine.cpp` | 反向执行引擎：依赖计数、ready queue、按设备的工作线程 |
+| `torch/csrc/autograd/function.h` | `Node`：`grad_fn` 在 C++ 中的基类，`next_edges` 构成计算图 |
+| `torch/csrc/autograd/variable.h` | `AutogradMeta`：`requires_grad`、`grad_`、`grad_fn_` 存放在这里，挂在 TensorImpl 上 |
+| `torch/csrc/autograd/saved_variable.h` | `SavedVariable`：保存中间值与 version counter 检查（in-place 报错的来源） |
+| `tools/autograd/derivatives.yaml` | 每个算子的导数公式 |
+| `torch/csrc/autograd/generated/`（构建后才存在） | 由上者生成：`Functions.cpp`（反向节点）与 `VariableType*.cpp`（注册到 Autograd Key 的包装 Kernel） |
+| `torch/autograd/function.py`、`torch/csrc/autograd/custom_function.h` | Python 与 C++ 的自定义 `autograd.Function` |
+| `torch/autograd/graph.py`、`torch/autograd/gradcheck.py` | `saved_tensors_hooks`；`gradcheck` 的有限差分实现 |
 
 下一篇将进入 Tensor 和 Autograd 之上的模型组织层：
 

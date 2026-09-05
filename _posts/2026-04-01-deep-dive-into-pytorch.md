@@ -227,7 +227,7 @@ Java 背景会帮助理解很多工程概念：
 工程线：Training → Profiling → Distributed → Testing → Build
 ```
 
-需要说明的是，这条主线按**职责层**推进，而不是按源码目录。PyTorch 的源码按库分层是 `torch/`（Python）→ `torch/csrc/`（绑定、Autograd 引擎、c10d）→ `aten/src/ATen/`（Dispatcher、算子）→ `c10/`（TensorImpl、Device、Allocator），两种分层并不重合：第二篇讲的 Tensor 元数据在源码上住在最底层的 c10，却是用户最先接触、其余一切所依赖的抽象，所以放在最前面。第一篇会给出一张"组件 → 源码位置 → 职责层 → 展开篇"的对照表，读者在后续任何一篇里遇到 `c10`、`ATen`、`torch/csrc` 这些名字时，都可以回到这张表定位；第十篇的仓库地图则给出完整目录。
+需要说明的是，这条主线按**职责层**推进，而不是按源码目录。PyTorch 的源码按库分层是 `torch/`（Python）→ `torch/csrc/`（绑定、Autograd 引擎、c10d）→ `aten/src/ATen/`（Dispatcher、算子）→ `c10/`（TensorImpl、Device、Allocator），两种分层并不重合：第二篇讲的 Tensor 元数据在源码上住在最底层的 c10，却是用户最先接触、其余一切所依赖的抽象，所以放在最前面。第一篇会给出一张"组件 → 源码位置 → 职责层 → 展开篇"的对照表；第二到九篇的小结各附一张"本篇涉及的源码位置"表，把该篇讨论的机制落到具体文件；第十篇的仓库地图则给出完整目录。读者可以随时在职责层和源码层两个坐标系之间切换。
 
 这不是严格的单向依赖：
 

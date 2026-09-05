@@ -64,7 +64,7 @@ flowchart TB
 四    进入 C++ 之前：扩展的构建基础
 五    阶段一：Python 实现
 六    阶段二：C++ CPU 实现
-七    阶段三：CUDA 实现
+七    阶段三：CUDA 实现（含读懂 Kernel 所需的 CUDA 执行模型最小集）
 八    阶段四：Autograd 与 Meta
 九    测试与 Benchmark
 十    构建、ABI 与分发
@@ -72,7 +72,7 @@ flowchart TB
 十二  小结
 ```
 
-如果你已经熟悉 C++ 扩展的构建方式，可以跳过第四章；如果没有写过 C++ 扩展，第四章是后面所有代码能跑起来的前提。
+如果你已经熟悉 C++ 扩展的构建方式，可以跳过第四章；如果没有写过 C++ 扩展，第四章是后面所有代码能跑起来的前提。同样，没有 CUDA 编程经验的读者不必另找教程：第七章 §2 用一节讲清读懂本文和第八篇所需的几个 CUDA 概念。
 
 
 ## 二、三步：定义、注册、实现
@@ -851,7 +851,44 @@ launch 后的错误检查
 多卡时切换到正确的设备
 ```
 
-### 2. Kernel
+### 2. 读懂一个 Kernel 需要的几个概念
+
+本系列聚焦在 PyTorch 尽量不涉及 CUDA 相关细节。但下面的 Kernel 代码，以及第八篇分析 GPU 瓶颈时用到的 occupancy、访存合并等词，都建立在几个 CUDA 执行模型的基本概念上。这里用最少的篇幅把它们讲清楚，够读懂本文和第八篇即可；写高性能 Kernel 需要的更多知识不在本系列范围内。
+
+**Host 与 Device**。CPU 及其内存是 host，GPU 及其显存是 device。两边地址空间独立：`x.data_ptr()` 对 CUDA Tensor 返回的是设备地址，在 CPU 代码里解引用会崩溃；反过来，Kernel 里也不能访问主机内存。数据在两边之间移动只能靠显式拷贝（`.to()`、`.cpu()`，第二篇第八章）。所以 Launch 函数的职责之一是：**只把设备指针和标量参数传给 Kernel**。
+
+**Kernel、Thread、Block、Grid**。`__global__` 标记的函数是 Kernel，它描述**一个线程**做什么；launch 时用 `<<<blocks, threads>>>` 指定启动多少线程：`threads` 个线程组成一个 block，`blocks` 个 block 组成一个 grid。所有线程执行同一段代码，靠内建变量区分自己：
+
+```text
+threadIdx.x    线程在 block 内的编号        0 .. blockDim.x - 1
+blockIdx.x     block 在 grid 内的编号       0 .. gridDim.x - 1
+blockDim.x     每个 block 的线程数          launch 时给定
+```
+
+于是 `blockIdx.x * blockDim.x + threadIdx.x` 就是一个全局唯一的线程编号，最常见的用法就是让第 `i` 个线程处理第 `i` 个元素——下面的 Kernel 正是这样。`n` 通常不是 `threads` 的整数倍，最后一个 block 会有多余线程，所以 Kernel 里必须有 `if (i < n)` 的边界检查。
+
+```text
+grid
+├── block 0     thread 0 .. 255   → 元素 0 .. 255
+├── block 1     thread 0 .. 255   → 元素 256 .. 511
+├── ...
+└── block k     thread 0 .. 255   → 元素 256k .. n-1（其余线程直接返回）
+```
+
+`threads` 取 128 到 1024 之间、32 的倍数（256 是最常见的默认值），`blocks` 由元素总数算出。三维的 `threadIdx.y / .z` 等只是把同一编号空间按多维组织，处理图像等数据时方便，对一维 elementwise Kernel 用不到。
+
+**Warp**。硬件并不是逐个线程调度，而是把 block 内每 32 个连续线程编成一个 **warp**，warp 内的线程锁步执行同一条指令。两个直接后果：
+
+- **分支发散**：warp 内线程若走了不同的 `if` 分支，两条分支会串行执行，其他线程空等。`if (i < n)` 只在最后一个 warp 发散一次，代价可忽略；但按元素值分支的 Kernel 可能慢好几倍。
+- **访存合并**：warp 内 32 个线程若访问**连续**的 32 个地址，硬件合并成少数几次内存事务；若地址分散，每个线程一次事务。这就是为什么 Kernel 假设输入 contiguous——第二篇讲的 stride 在这里直接决定访存效率，也是第八篇 memory-bound 分析的根源之一。
+
+**SM、Occupancy 与内存层次**。GPU 由几十到上百个 **SM**（Streaming Multiprocessor）组成，每个 block 被整体分配到一个 SM 上执行，一个 SM 同时驻留多个 block。SM 上活跃 warp 数与最大可驻留 warp 数之比叫 **occupancy**：占用率高，SM 才能在某些 warp 等待访存时切换到其他 warp，把延迟藏起来。每个线程用的寄存器数和每个 block 用的 **shared memory**（block 内线程共享的片上高速缓存，`__shared__` 声明）决定一个 SM 能容纳多少 block，因此也决定 occupancy。本文的 Kernel 不用 shared memory，寄存器也很少，occupancy 不是问题；reduction、矩阵乘这类需要线程间协作的 Kernel 才会用到它。内存层次从快到慢是：寄存器 → shared memory → L2 → 显存（global memory）。`__restrict__` 是对编译器的承诺——指针之间不别名——允许它更激进地缓存和重排访存。
+
+**Stream 与异步**。Kernel launch 是把任务放进一条 **stream**（GPU 上的有序队列）后立即返回，CPU 不等待。同一 stream 内的 Kernel 按提交顺序执行，不同 stream 之间可以并发。PyTorch 的所有算子都提交到"当前 stream"，自定义 Kernel 必须提交到同一条 stream，否则与前后算子之间没有顺序保证（§5 展开）。
+
+**每个线程一个元素**是最简单的 Kernel 形态，也是理解其他形态的起点：elementwise 算子几乎都是它；reduction（求和、softmax）需要 block 内线程用 shared memory 协作；矩阵乘则要把矩阵分块装进 shared memory 复用。PyTorch 的 `TensorIterator` CUDA 版（`at::native::gpu_kernel`）把 elementwise 形态的 launch 配置、stride 处理和向量化都封装好了，本文为了看清结构手写，真实项目应优先用它。
+
+### 3. Kernel
 
 ```cpp
 // scale_shift_cuda.cu
@@ -876,7 +913,7 @@ __global__ void scale_shift_kernel(
 
 Kernel 只表达“对第 `i` 个元素做什么”。它假设输入是连续的一维数组——这个假设由调用方保证。
 
-### 3. Launch 函数
+### 4. Launch 函数
 
 ```cpp
 at::Tensor scale_shift_cuda(const at::Tensor& x, double alpha, double beta) {
@@ -919,14 +956,14 @@ TORCH_LIBRARY_IMPL(myops, CUDA, m) {
 | `C10_CUDA_KERNEL_LAUNCH_CHECK()` | 捕获 launch 配置错误；它**不**等待 Kernel 完成，运行时错误会在之后某次同步时暴露 |
 | `contiguous()` | 这个简单 Kernel 假设一维连续；真实项目可改用 CUDA 版 TensorIterator（`at::native::gpu_kernel`）支持任意 stride |
 
-### 4. 异步语义
+### 5. 异步语义
 
 CUDA Kernel launch 是异步的：函数返回时 Kernel 可能还没执行。两个后果：
 
 - 不能在 launch 函数返回后立刻用 CPU 计时器认为计算已完成（第八篇展开）；
 - Kernel 内的越界访问通常在之后某个同步点（`.cpu()`、`.item()`、`torch.cuda.synchronize()`）才报出，且报错位置与出错 Kernel 无关。调试时设置 `CUDA_LAUNCH_BLOCKING=1` 强制同步，让错误在原地暴露。
 
-### 5. 编译
+### 6. 编译
 
 ```python
 load(name="myops", sources=["scale_shift.cpp", "scale_shift_cuda.cu"], verbose=True)
@@ -1223,6 +1260,21 @@ opcheck 与 gradcheck 通过
 Benchmark 证明它比原生组合有价值
 构建与 ABI 在目标环境可复现
 ```
+
+### 6. 本篇涉及的源码位置
+
+本篇讨论的机制在源码中的位置（对应第一篇第四章 §3 的代码地图）：
+
+| 路径 | 内容 |
+|---|---|
+| `torch/utils/cpp_extension.py` | `load`、`CppExtension`、`CUDAExtension`、`BuildExtension`：扩展的构建与加载 |
+| `torch/library.h`、`torch/library.py` | `TORCH_LIBRARY` / `TORCH_LIBRARY_IMPL` 宏；`torch.library.custom_op`、`register_fake`、`opcheck` |
+| `torch/extension.h`、`torch/csrc/api/include/torch/` | 扩展统一包含的头；libtorch C++ 前端 |
+| `aten/src/ATen/Dispatch.h` | `AT_DISPATCH_*` 宏族 |
+| `c10/cuda/CUDAGuard.h`、`CUDAStream.h`、`CUDAException.h` | `CUDAGuard`、`getCurrentCUDAStream`、`C10_CUDA_KERNEL_LAUNCH_CHECK` |
+| `aten/src/ATen/native/cuda/Loops.cuh` | `gpu_kernel`：CUDA 版 TensorIterator，替代手写 launch 配置 |
+| `torch/csrc/autograd/custom_function.h` | C++ 侧 `torch::autograd::Function` |
+| `torch/testing/_internal/optests/` | `opcheck` 的实现：对自定义算子跑 Schema、Autograd、FakeTensor 等一致性测试 |
 
 下一篇进入编译器：
 
