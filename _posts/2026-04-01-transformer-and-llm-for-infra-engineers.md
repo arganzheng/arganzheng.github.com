@@ -297,7 +297,7 @@ $$
 - weight-only 量化（W4A16）的收益区间：decode 时权重字节数降为 1/4，时间下界随之降为 1/4；prefill 时计算仍在 BF16 Tensor Core 上做，反量化是纯开销——同一个量化格式在两个阶段的收益符号相反，用第二篇的 Roofline 解释；
 - GPTQ（Frantar 等 2022）：基于 Hessian 的逐列量化与误差补偿，为什么它需要校准数据，代价是什么；
 - AWQ（Lin 等 2023）：按激活幅度找出约 1% 的显著权重通道，用逐通道缩放保护它们；
-- SmoothQuant（Xiao 等 2022）：激活里的离群通道让 W8A8 难做，用 $$s_j = \max|X_j|^\alpha / \max|W_j|^{1-\alpha}$$ 把激活的难度迁移到权重上；LLM.int8() 对离群值的另一种处理；
+- SmoothQuant（Xiao 等 2022）：激活里的离群通道让 W8A8 难做，用 $$s_j = \max\lvert X_j\rvert ^\alpha / \max\lvert W_j\rvert ^{1-\alpha}$$ 把激活的难度迁移到权重上；LLM.int8() 对离群值的另一种处理；
 - FP8 推理量化：per-tensor / per-token / per-block scale 的区别，为什么 FP8 比 INT8 对离群值更宽容；W8A8 与 W4A16 在 prefill 与 decode 上各自的位置；
 - KV cache 量化：INT8 / FP8 KV 把第三篇的数字再减半；
 - 投机解码（Leviathan 等 2023；Chen 等 2023）的数学：小模型起草 $$\gamma$$ 个 token，大模型一次前向验证；接受概率 $$\min(1, p(x)/q(x))$$、拒绝后从 $$\text{norm}(\max(0, p - q))$$ 重采样，为什么输出分布与大模型严格一致；期望每轮接受的 token 数
