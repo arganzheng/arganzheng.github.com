@@ -780,54 +780,13 @@ scale_shift(x, alpha, beta) = alpha * x + beta
 
 重点关注训练状态、显存、通信、性能和工程治理。
 
-### 想继续阅读 vLLM 和 LLM Serving
+### 想进入推理系统和 LLM Serving
 
 ```text
-PyTorch 1 → 2 → 4 → 8 → 9
-        ↓
-《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》
+1 → 2 → 4 → 8 → 9
 ```
 
-PyTorch 系列负责解释模型计算、GPU 执行、分布式和性能基础；vLLM 系列负责解释请求调度、KV Cache、Continuous Batching、模型适配、PD 分离和 Serving 集群。两者互为补充，而不是重复讲解。
-
-
-## 与已有系列的关系
-
-目前的学习路线可以形成三组相互衔接的内容。
-
-### 第一组：Python 控制平面
-
-《Python 在 AI-Infra：从语言机制到生产交付》解决的是：
-
-> **如何使用 Python 编写 AI-Infra 系统中的组织、调度、扩展、观测和交付代码？**
-
-它覆盖 Python 运行时、类型系统、并发、动态机制、内存、测试和工程化。
-
-### 第二组：PyTorch 计算运行时
-
-本系列解决的是：
-
-> **如何表达、执行、扩展、优化和分布式运行 Tensor 计算？**
-
-它处于 Python 控制平面和底层硬件执行之间。
-
-### 第三组：LLM Serving 系统
-
-《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》解决的是：
-
-> **如何围绕请求、Token、KV Cache、GPU 和网络构建高性能 LLM Serving 系统？**
-
-三个系列可以连接为：
-
-```text
-Python 语言与工程
-        ↓
-PyTorch 计算与运行时
-        ↓
-模型训练与推理执行
-        ↓
-LLM Serving 与 AI-Infra 系统
-```
+推理引擎建立在 PyTorch 的模型计算、GPU 执行、显存管理和多卡通信之上。这条路径覆盖它们依赖的基础，Serving 系统自身的请求调度、KV Cache 和集群问题不在本系列范围。
 
 
 ## 前置要求与说明
@@ -896,21 +855,12 @@ PyTorch 的以下部分变化较快：
 
 ### 关于 AI-Infra 本身
 
-本系列聚焦 PyTorch 的编程模型、执行引擎、算子系统、编译器、性能和分布式运行时，不试图覆盖所有 AI-Infra 领域。
+本系列聚焦 PyTorch 的编程模型、执行引擎、算子系统、编译器、性能和分布式运行时，不试图覆盖所有 AI-Infra 领域。以下内容与本系列紧邻，但不在范围内：
 
-如果你希望进一步理解：
-
-- LLM 请求生命周期；
-- Continuous Batching；
-- KV Cache；
-- Prefill/Decode；
-- 多卡 Serving；
-- PD 分离；
-- 集群路由和状态管理；
-
-可以继续阅读[《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》](/deep-dive-into-vllm.html)。
-
-如果你希望补齐 Python 控制平面能力，可以阅读[《Python 在 AI-Infra：从语言机制到生产交付》](/python-for-ai-infra.html)。
+- **Python 语言本身**：CPython 的对象模型、GIL、异步、类型系统。本系列假设读者已经掌握，只在 Python 与 C++ 边界处涉及；
+- **C++ 语言本身**：模板、RAII、静态注册等在源码阅读中反复出现的特性。本系列解释它们在 PyTorch 中的用途，不讲语言机制；
+- **单个 CUDA Kernel 的内部优化**：访存合并、共享内存、Tensor Core 编程。第六篇给出读懂一个 Kernel 所需的最小概念，第八篇在系统层面判断瓶颈类型，Kernel 内部如何写到硬件极限不展开；
+- **LLM 推理系统**：请求生命周期、Continuous Batching、KV Cache 管理、Prefill/Decode 分离、集群路由。本系列覆盖它们所依赖的模型计算、GPU 执行、显存和通信基础，不讨论 Serving 系统自身的设计。
 
 
 ## 章节目录
