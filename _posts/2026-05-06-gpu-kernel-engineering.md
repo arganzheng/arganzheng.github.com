@@ -256,7 +256,7 @@ Triton 让写一个融合 kernel 的成本从几百行 CUDA 变成几十行 Pyth
 - CUTLASS 3.x 的分层：`device` → `kernel` → `collective` → `tiled MMA/copy` → CuTe；
 - CuTe 的 `Layout` 与 `Tensor`：用代数方式描述分块和线程映射，为什么它是 FlashAttention-3 和大量新 kernel 的基础；
 - 读一个 CUTLASS GEMM 实例：把它的模板参数与第五篇的 tile 概念一一对应；
-- PyTorch 与 vLLM 如何使用：ATen 的 `matmul` 走 cuBLAS/cuBLASLt，vLLM 的 `csrc/quantization/cutlass_w8a8/` 用 CUTLASS 写 FP8/INT8 GEMM。
+- PyTorch 与 vLLM 如何使用：ATen 的 `matmul` 走 cuBLAS/cuBLASLt，vLLM 的 `csrc/libtorch_stable/quantization/w8a8/cutlass/` 用 CUTLASS 写 FP8/INT8 GEMM。
 
 核心问题是：
 
@@ -393,10 +393,10 @@ Triton 让写一个融合 kernel 的成本从几百行 CUDA 变成几十行 Pyth
 第三篇    ATen  native/cuda/CUDALoops.cuh · Loops.cuh · MemoryAccess.cuh
 第四篇    ATen  native/cuda/Reduce.cuh · SoftMax.cu；vLLM  csrc/layernorm_kernels.cu
 第五篇    CUTLASS  examples 的 SGEMM；PyTorch  cuBLAS 调用路径 native/cuda/Blas.cpp
-第六篇    CUTLASS  include/cutlass/gemm/{device,kernel,collective}；vLLM  csrc/quantization/cutlass_w8a8/
+第六篇    CUTLASS  include/cutlass/gemm/{device,kernel,collective}；vLLM  csrc/libtorch_stable/quantization/w8a8/cutlass/
 第七篇    Triton  python/tutorials；vLLM  model_executor/layers/fused_moe/fused_moe.py；Inductor 生成的 kernel
 第八篇    flash-attention  csrc/flash_attn/src；vLLM  csrc/attention/；FlashInfer  include/flashinfer/attention/
-第九篇    vLLM  csrc/quantization/{gptq_marlin,awq,fp8}/ · csrc/activation_kernels.cu · csrc/pos_encoding_kernels.cu · csrc/moe/
+第九篇    vLLM  csrc/quantization/{marlin,awq,gptq,w8a8/fp8}/ · csrc/activation_kernels.cu · csrc/pos_encoding_kernels.cu · csrc/moe/
 第十篇    vLLM  csrc/torch_bindings.cpp · vllm/_custom_ops.py · tests/kernels/
 ```
 
@@ -470,7 +470,7 @@ Triton 让写一个融合 kernel 的成本从几百行 CUDA 变成几十行 Pyth
 ### 硬件与版本基线
 
 - 硬件：以 **A100** 为默认分析对象（80 GB HBM2e，约 2 TB/s，BF16 Tensor Core 约 312 TFLOPS dense），Hopper 特性随文标注 **H100** 数字；文中给出的带宽和算力数字为公开标称值或数量级示意，实测会因具体型号、频率和功耗设置有差异；
-- 软件：CUDA 12.x、PyTorch 2.x（2.4 及之后）、Triton 3.x、CUTLASS 3.x；FlashAttention 与 vLLM 以主线为准；
+- 软件：CUDA 12.x、PyTorch 2.x（源码阅读以 v2.10.0 为准）、Triton 3.x、CUTLASS 3.x；FlashAttention 以主线为准，vLLM 源码阅读以 v0.20.0 为准；
 - 版本敏感处随文标注：Triton 对 Hopper 特性的支持进度、`AT_DISPATCH_V2`、vLLM attention 后端的默认选择、FlashAttention-3 的接口。
 
 ### 关于 AMD 与其他硬件
