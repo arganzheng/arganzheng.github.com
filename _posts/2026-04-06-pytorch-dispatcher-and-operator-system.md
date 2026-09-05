@@ -6,6 +6,8 @@ tags: [PyTorch, AI, AI-Infra]
 catalog: true
 ---
 
+> 本文是[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)系列的第五篇（共十篇）。上一篇：[`nn.Module` 与训练系统](/pytorch-module-and-training-system.html)　下一篇：[C++ 扩展与自定义算子](/pytorch-cpp-extension-and-custom-operators.html)
+
 上一篇讨论了 `nn.Module` 与训练系统：Module 如何组织子模块、Parameter 和 Buffer，Optimizer 如何更新参数，DataLoader 如何把数据送入训练循环。
 
 但当我们写下：

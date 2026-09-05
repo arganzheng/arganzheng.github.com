@@ -214,7 +214,7 @@ Java 背景会帮助理解很多工程概念：
         ↓
 第九篇：理解多卡如何通过通信协同
         ↓
-第十篇：理解大型框架如何测试、构建和演进
+第十篇：理解一次改动如何经过测试、CI 和发布安全地到达用户
 ```
 
 可以把这条主线进一步归纳为三条相互交织的线索：
@@ -233,8 +233,8 @@ Java 背景会帮助理解很多工程概念：
 - 第六篇会复用第五篇关于 Operator Schema 和 Dispatcher 的知识；
 - 第七篇会同时复用 Tensor metadata 和算子系统；
 - 第八篇会帮助判断第六篇的自定义 Kernel 是否真的有效；
-- 第九篇会复用第八篇的性能分析方法；
-- 第十篇的测试和 Benchmark 方法应该贯穿前九篇。
+- 第九篇会复用第八篇的性能分析方法，并把第八篇的案例模型扩到多卡；
+- 第十篇会把第六篇的自定义算子重新拿出来，让它走完一次完整的工程生命周期。
 
 
 ## 章节结构与分章导读
@@ -528,12 +528,17 @@ Triton / C++ / Library Call
 CPU / GPU
 ```
 
-本篇会用一个简单的矩阵计算模型演示：
+本篇会用一个刻意简单的函数贯穿全文：
 
 ```python
 def f(x, weight, bias):
-    return torch.relu(x @ weight + bias)
+    y = x @ weight + bias
+    if x.shape[0] > 64:
+        return torch.relu(y)
+    return torch.tanh(y)
 ```
+
+一段直线的矩阵计算让编译器的前端、中端、后端各有事可做；一个依赖输入 shape 的 Python 分支则暴露了"从 Python 程序中捕获图"的全部难点。本篇会跟踪这个函数的四次调用——冷编译、热路径、shape 变化、走到另一条分支——分别发生了什么。
 
 重点区分：
 
@@ -550,40 +555,38 @@ def f(x, weight, bias):
 
 > **如何判断一个 PyTorch 程序慢，以及如何定位它为什么慢？**
 
+这一篇的重心是**性能模型**和**测量方法**，优化手段是模型推导出来的结论。它从一个事实出发——CPU 和 GPU 是两条通过队列连接的异步时间线——把性能问题分成两个维度：
+
+```text
+时间维度：五类瓶颈
+  CPU 侧      Python-bound、Launch-bound
+  GPU 侧      Memory-bound、Compute-bound
+  两侧之间    Sync-bound
+
+空间维度：显存
+  真的不够 · 碎片 · 泄漏 · 峰值
+```
+
 内部结构为：
 
 ```text
-8.1 性能模型
-8.2 Benchmark 方法
-8.3 Profiler 与 Nsight
-8.4 CUDA 执行与 Kernel 性能
-8.5 显存分配与内存问题
-8.6 混合精度与数值稳定性
-8.7 一个完整优化案例
+8.1 度量与工具地图：异步执行模型、Benchmark 方法、Profiler 与 Nsight
+8.2 时间维度：五类瓶颈及各自的判断依据与处方
+8.3 空间维度：显存的构成、Caching Allocator、碎片、峰值、泄漏与时空互换
+8.4 完整案例：一个 Transformer block 的训练 step
 ```
 
 这一篇会覆盖：
 
-- CPU 与 CUDA 异步执行；
-- CUDA Event；
-- `torch.cuda.synchronize()`；
-- PyTorch Profiler；
-- `torch.utils.benchmark`；
-- Nsight Systems；
-- Nsight Compute；
-- Kernel Launch Overhead；
-- Memory Bandwidth；
-- Compute Throughput；
-- FLOPs；
-- Arithmetic Intensity；
-- Occupancy；
-- CUDA Stream；
-- CUDA Caching Allocator；
-- `allocated` 与 `reserved`；
-- 显存碎片；
-- Activation Checkpointing；
-- FP16、BF16、TF32；
-- 数值稳定性。
+- CPU 与 CUDA 异步执行、CUDA Stream 与 CUDA Event；
+- `torch.cuda.synchronize()` 与隐式同步点；
+- `torch.utils.benchmark`、PyTorch Profiler、Nsight Systems、Nsight Compute；
+- Kernel Launch 开销、CUDA Graphs；
+- Memory Bandwidth、Compute Throughput、FLOPs、Arithmetic Intensity、Occupancy；
+- 低精度（FP16、BF16、TF32）作为处方及其代价；
+- CUDA Caching Allocator、`allocated` 与 `reserved`、显存碎片；
+- 训练显存的构成与峰值；
+- Activation Checkpointing 等时间与空间的互换。
 
 所有性能结论都遵循同一套流程：
 
@@ -613,143 +616,120 @@ def f(x, weight, bias):
 
 ### 9. 分布式 PyTorch
 
-第九篇从通信原语开始，逐步进入 DDP 和 FSDP。
+第九篇回答单卡放不下模型或跑不完数据之后的问题。它不按 API 组织（DDP 一章、FSDP 一章、张量并行一章），而是用一条主线把所有并行策略放进同一张表：
+
+> **每种并行策略，都是对训练中的五类状态——数据、参数、梯度、优化器状态、激活值——各自做一个决定：复制还是分片。每个决定对应一种集合通信原语和一个通信时机；所有决定加起来，决定了显存占用和通信量。**
+
+全文分三层：
+
+```text
+运行时与工程        torchrun 启动 · 数据切分 · 分布式 Checkpoint · 多机拓扑 · 通信性能分析 · hang 的排查
+        ↑
+并行策略            DDP · ZeRO / FSDP · TP · PP · CP · EP · 多维组合
+        ↑
+通信底座            进程 / Rank / 进程组 · 集合通信原语 · NCCL · α + β 成本模型
+```
 
 这一篇会覆盖：
 
-- Process、Rank、World Size；
-- Process Group；
-- NCCL、Gloo；
-- Broadcast；
-- Reduce；
-- AllReduce；
-- AllGather；
-- ReduceScatter；
-- DistributedDataParallel；
-- Gradient Bucket；
-- 通信与计算重叠；
-- FSDP；
-- 参数、梯度和优化器状态分片；
-- Checkpoint；
-- 多机多卡拓扑；
-- 通信性能和故障排查。
+- SPMD 执行模型、Process、Rank、World Size、Process Group、`DeviceMesh`；
+- NCCL 与 Gloo；
+- Broadcast、Reduce、AllReduce、AllGather、ReduceScatter、AllToAll、P2P；
+- 通信成本模型：α + β、Ring 与 Tree、`algbw` 与 `busbw`；
+- 通信的异步语义与通信/计算重叠；
+- DDP：Reducer、Gradient Bucket、通信 hook；
+- ZeRO 三阶段与 FSDP2：`fully_shard`、DTensor、分片单元、预取、HSDP；
+- 张量并行（TP）：列/行切分、Megatron 式共轭算子、词表并行、Sequence Parallel；
+- 流水线并行（PP）：GPipe、1F1B、交错调度、Zero Bubble、`torch.distributed.pipelining`；
+- 上下文并行（CP）：Ring Attention、负载均衡；
+- 专家并行（EP）：dispatch/combine、容量因子、负载均衡损失；
+- 多维混合并行的组合原则，以及训练与推理的并行选择差异；
+- 分布式 Checkpoint、多机拓扑、通信性能分析、hang 的排查与扩展效率。
 
-DDP 的核心流程可以概括为：
-
-```text
-每个进程持有一份模型副本
-    ↓
-各自处理不同数据
-    ↓
-各自执行前向和反向
-    ↓
-反向过程中同步梯度
-    ↓
-各进程独立更新参数
-```
-
-FSDP 则进一步讨论：
-
-```text
-参数、梯度、optimizer state 如何分片？
-执行某个层时，参数如何临时聚合？
-计算完成后，状态如何重新分片？
-通信成本如何影响整体性能？
-```
+完整案例把第八篇的 Transformer block 训练 step 从 8 卡扩到 4 机 32 卡，逐步说明每一次扩展为什么要换并行策略，以及每一步的显存与通信账。
 
 这一篇的重点不是罗列分布式 API，而是回答：
 
-- 为什么需要通信？
-- 通信发生在什么时候？
-- 通信成本如何影响性能？
-- 参数复制和参数分片如何影响显存？
+- 为什么需要通信？通信发生在 step 的哪个时刻？
+- 每种策略的显存和通信量怎么自己算出来？
+- 为什么 FSDP 比 DDP 多 50% 通信量？为什么 TP 只能在节点内做？
+- 什么时候该从数据并行换到模型并行，多种并行怎么组合？
 - 为什么增加 GPU 数量不一定带来线性加速？
 
 ### 10. PyTorch 的工程体系：一次改动如何安全地到达用户
 
-第十篇作为全系列收束，讨论一个复杂深度学习框架如何保证正确性、性能、可构建性和长期演进。
+前九篇描述的都是一个已经存在、并且正确运行的系统。第十篇换一个问题：**它是怎么做到一直正确、一直可用的？**
 
-这一篇会覆盖：
+> **一个框架的工程体系，就是一次改动从写下到进入用户生产环境所经过的全部关卡，以及每个关卡守住什么。**
 
-- 算子测试；
-- Autograd 测试；
-- `gradcheck`；
-- `gradgradcheck`；
-- Reference Test；
-- OpInfo；
-- dtype、shape、device 测试；
-- contiguous 与 non-contiguous 测试；
-- CPU/CUDA 双后端测试；
-- Benchmark 和性能回归；
-- 从源码构建 PyTorch；
-- CMake、Ninja、Debug/Release；
-- PyTorch 工程目录；
-- ABI；
-- Python API、C++ API 和算子 Schema 的兼容性；
-- 序列化与 checkpoint 兼容性；
-- 后端兼容性和弃用机制。
-
-如果为 PyTorch 添加一个自定义算子，至少需要覆盖：
+全文沿着一次改动的生命周期走一遍：
 
 ```text
-正确性
-├── 多种 shape
-├── 多种 dtype
-├── CPU/CUDA
-├── contiguous/non-contiguous
-├── 空 Tensor
-├── 标量 Tensor
-├── 广播
-├── requires_grad
-├── 极端数值
-├── NaN / Inf
-└── 非法输入
-
-工程质量
-├── 单元测试
-├── gradcheck
-├── Benchmark
-├── 文档
-├── CI
-└── 性能回归
+写下改动
+   ↓
+① 本地构建能跑        仓库地图 · 构建流程与 Codegen · Debug 构建 · 调试到 C++
+   ↓
+② 结果正确            五种 oracle · OpInfo · 设备与 dtype 泛化 · gradcheck 内部 · 确定性
+   ↓
+③ 没有变慢            微基准与指令数 · TorchBench 与编译器看板 · 噪声与阈值
+   ↓
+④ 审查与 CI 合入       CI 分层 · flaky 的流程化处理 · 审批、MergeBot 与回滚
+   ↓
+⑤ 随版本发布          节奏与 release 分支 · wheel 矩阵与 ABI · 平台支持窗口
+   ↓
+⑥ 用户升级不坏        Python API 弃用周期 · 算子 Schema 的 BC/FC · C++ 稳定子集 · state_dict 版本
+   ↓
+⑦ 使用者跟随演进       版本策略 · 升级 playbook · 兼容矩阵 · nightly 与 RC
 ```
 
-最终实践项目是：
+前六关是框架维护者的视角，第七关是使用者的视角。七个关卡共同守住三件事：**正确性**（主要由 ②）、**性能**（主要由 ③）、**兼容性**（主要由 ⑥）；构建是一切验证的前提，合入与发布把验证变成强制的、自动的流程。
 
-> **实现一个支持 CPU、CUDA、Autograd、Meta，并具有完整测试和 Benchmark 的自定义算子。**
+框架与应用的区别在于**组合爆炸**：两千多个算子 × 十几种 dtype × 多个后端 × 各种 shape 与 layout × 多种执行模式。这个事实塑造了数据驱动的 OpInfo 测试、分层的 CI，以及按稳定程度分级的接口面。
 
-它会把前九篇的知识串成一条完整链路：Tensor metadata、Autograd、Dispatcher、C++/CUDA、编译、性能分析、分布式兼容性和工程测试。
+实践终点是把第六篇的 `scale_shift` 算子（`myops` 项目）重新拿出来，让它走完这七关：复用 PyTorch 的测试基础设施、建立 Benchmark 基线与回归阈值、搭 CI 矩阵、守住 Schema 契约并完成一次向后兼容的演进、发布制品，最后站到使用者一侧看如何跟随 PyTorch 升级。
+
+本篇最后给出全系列总结：回到总纲的那段代码和那串追问，逐一作答，并标出每个答案来自哪一篇。
 
 
-## 一个贯穿全系列的实践项目
+## 贯穿全系列的实践线
 
-为了避免每一篇都停留在孤立的 `Foo`、`Bar` 和玩具代码上，系列会使用一个逐步演进的实践项目：
+为了避免每一篇都停留在孤立的 `Foo`、`Bar` 和玩具代码上，系列用两条实践线把机制落到代码上。它们不追求重新实现 PyTorch，而是通过受控的简化实验和一个持续演进的例子，理解 PyTorch 的关键机制。
 
-### Mini PyTorch Runtime
+### 第一条：用简化实现理解机制
 
-项目不追求重新实现 PyTorch，而是通过一组受控的简化实验，理解 PyTorch 的关键机制。
+前半段用两个自己动手写的最小实现，把"看懂"变成"能复现"：
 
 ```text
-阶段 1：实现简化版 Tensor
-阶段 2：实现 Mini-Autograd
-阶段 3：构建简单的 nn.Module 和训练循环
-阶段 4：实现一个 Python 算子
-阶段 5：实现一个 C++ CPU 算子
-阶段 6：实现一个 CUDA 算子
-阶段 7：尝试 FX Graph 和图重写
-阶段 8：使用 Profiler 和 Benchmark 定位瓶颈
-阶段 9：使用 DDP 运行多进程训练
-阶段 10：补充完整测试、构建和性能回归
+第二篇    简化版 Tensor      用 shape、stride、offset 实现索引、transpose 和 contiguous copy
+第三篇    Mini-Autograd      用加法和乘法节点实现保存父节点、拓扑排序和反向传播
 ```
 
-每个阶段都应同时具备：
+### 第二条：贯穿后半段的两个例子
 
-- 最小可运行代码；
-- 正确性测试；
-- 与 PyTorch 结果的对照；
-- 性能基线；
-- 失败案例；
-- Java 工程师容易产生的误解。
+后半段用两个持续演进的例子代替零散的代码片段。
+
+一个是刻意简单的自定义算子：
+
+```text
+scale_shift(x, alpha, beta) = alpha * x + beta
+```
+
+```text
+第六篇    实现它          Python 契约 → C++ CPU → CUDA → Autograd 与 Meta，接入 Dispatcher
+第十篇    发布它          把它所在的 myops 项目走完构建、正确性、性能、CI、发布、兼容七关
+```
+
+另一个是一段真实的训练负载：
+
+```text
+第七篇    一个带 shape 分支的小函数  跟踪它的四次调用，看编译器前端、中端、后端和运行时各做了什么
+第八篇    一个 Transformer block     以它的训练 step 为对象，走完基线 → 采集 → 归类 → 处方 → 优化报告
+第九篇    同一个 Transformer block   从 8 卡扩到 4 机 32 卡，逐步换并行策略，算清每一步的显存与通信账
+```
+
+第四篇和第五篇没有独立的实践项目：第四篇以一个完整训练程序作为落点，第五篇则以原生算子 `add` 的完整路径作为源码阅读的样例。
+
+各篇实践的重心不同：简化实现关注机制是否复现，算子项目关注正确性测试与 Benchmark，案例章节关注测量方法与优化报告。共同的要求只有一条：**每个结论都能在代码或数据上验证，而不是停留在示意图。**
 
 最终目标不是造出一个新的深度学习框架，而是能够从用户代码一路追踪到运行时和硬件，并能解释不同设计的收益与代价。
 
@@ -893,7 +873,7 @@ LLM Serving 与 AI-Infra 系统
 
 ### 版本基线
 
-正文以 **PyTorch 2.x** 为主要基线，具体小版本、CUDA、驱动和编译器版本会在每篇文章的实验环境中明确记录。
+正文以 **PyTorch 2.x（2.4 及之后）** 为基线。系列的重点是机制而不是可复现的基准数据，所以不逐篇给出实验环境；正文中涉及某个版本才引入或行为发生变化的 API（例如 `torch.library.custom_op`、FSDP2 的 `fully_shard`、`torch.load` 的 `weights_only` 默认值）时，会在使用处随文标注版本。文中出现的延迟、带宽、利用率等数字除明确标注硬件规格外均为示意，用于说明数量级与比例关系。
 
 PyTorch 的以下部分变化较快：
 

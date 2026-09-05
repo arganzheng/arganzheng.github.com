@@ -6,6 +6,8 @@ tags: [PyTorch, AI, AI-Infra]
 catalog: true
 ---
 
+> 本文是[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)系列的第三篇（共十篇）。上一篇：[Tensor 与内存布局](/pytorch-tensor-and-memory-layout.html)　下一篇：[`nn.Module` 与训练系统](/pytorch-module-and-training-system.html)
+
 上一篇介绍了 Tensor 的核心模型：它不是一组孤立的数字，而是由 Storage、Shape、Stride、Storage Offset、dtype、device 和 layout 共同描述的一种数据抽象。
 
 但 Tensor 只有数据和布局，还不能完成模型训练。训练还需要回答一个问题：

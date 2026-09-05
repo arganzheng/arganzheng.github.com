@@ -6,6 +6,8 @@ tags: [PyTorch, AI, AI-Infra]
 catalog: true
 ---
 
+> 本文是[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)系列的第六篇（共十篇）。上一篇：[Dispatcher 与算子系统](/pytorch-dispatcher-and-operator-system.html)　下一篇：[编译执行与图优化](/pytorch-compilation-and-graph-optimization.html)
+
 上一篇把算子系统拆成两个维度：开发者在构建时**定义 → 注册 → 实现**，用户在运行时**入口 → 分发 → 执行**，两者通过 Operator Table 交汇。那一篇站在使用者的角度观察原生算子 `add`。
 
 这一篇换到开发者的位置：**自己写一个算子，把它接入 PyTorch 的算子系统**。

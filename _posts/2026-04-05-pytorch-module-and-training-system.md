@@ -6,6 +6,8 @@ tags: [PyTorch, AI, AI-Infra]
 catalog: true
 ---
 
+> 本文是[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)系列的第四篇（共十篇）。上一篇：[自动求导与动态计算图](/pytorch-autograd-and-dynamic-computation-graph.html)　下一篇：[Dispatcher 与算子系统](/pytorch-dispatcher-and-operator-system.html)
+
 上一篇讨论了 Autograd：Tensor 运算如何形成动态计算图，`backward()` 如何沿图传播梯度，以及梯度状态和计算图生命周期之间有什么关系。
 
 但一个真实的模型不会只是几个散落的 Tensor 运算。它通常包含：
@@ -636,6 +638,8 @@ print(result)
 ```
 
 `strict=False` 可以允许缺失或多余 key，但不应该用来掩盖模型结构错误。
+
+`torch.load` 底层是 pickle，反序列化可以执行任意代码。PyTorch 2.6 起 `weights_only=True` 成为默认值：只允许加载 Tensor、基本容器和显式加入白名单的类型。只保存 `state_dict` 的做法天然满足这个限制；如果 checkpoint 里放了自定义对象，在新版本上会遇到 `UnpicklingError`。这类版本行为的变化和 `state_dict` 自身的版本迁移，第十篇会作为兼容性问题专门讨论。
 
 ### 4. 保存可恢复训练的 checkpoint
 

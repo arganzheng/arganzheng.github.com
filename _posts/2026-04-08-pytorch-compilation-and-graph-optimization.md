@@ -6,6 +6,8 @@ tags: [PyTorch, AI, AI-Infra]
 catalog: true
 ---
 
+> 本文是[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)系列的第七篇（共十篇）。上一篇：[C++ 扩展与自定义算子](/pytorch-cpp-extension-and-custom-operators.html)　下一篇：[性能优化与调试](/pytorch-performance-optimization-and-debugging.html)
+
 前两篇讨论的是**单个算子**：第五篇解释一次 `torch.add` 调用如何经过入口、分发、执行；第六篇把一个自定义算子接入了同样的路径。无论原生还是自定义，每个算子都是独立走完这条路的。
 
 这一篇把视角从单个算子拉远到**一段程序**。当我们写下：

@@ -1,10 +1,12 @@
 ---
 layout: post
-title: "PyTorch 深度实践（01）：PyTorch整体介绍" 
+title: "PyTorch 深度实践（01）：PyTorch 整体介绍"
 subtitle: "PyTorch Overall Introduction" 
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
 ---
+
+> 本文是[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)系列的第一篇（共十篇）。下一篇：[Tensor 与内存布局](/pytorch-tensor-and-memory-layout.html)
 
 PyTorch 经常被介绍成一个“深度学习框架”，也经常被使用成一个 Python 库：导入 `torch`，创建 Tensor，定义 `nn.Module`，然后训练模型。
 
@@ -745,6 +747,48 @@ Eager Mode 鼓励动态 Python，但编译器更喜欢稳定、可推断的程�
 - 哪些路径值得写专用 Kernel；
 - 哪些优化只适合特定 shape；
 - 哪些设备差异应该通过 Dispatcher 隔离。
+
+
+## 六、本文小结
+
+### 1. 一个定位
+
+PyTorch 不是一个单纯的 Python 库，而是连接模型代码、Tensor 编程模型、算子运行时、设备后端、Kernel 和硬件的一套计算平台。Python 是它的表达层和控制层，C++ 是运行时和抽象层，CUDA 是设备执行层。
+
+### 2. 两张地图
+
+静态地图回答"东西在哪一层"：
+
+```text
+用户模型与训练代码
+    ↓
+编程模型：Tensor / Autograd / nn.Module / Optimizer
+    ↓
+图与编译：FX / Dynamo / AOTAutograd / Inductor
+    ↓
+算子运行时：Operator Schema / Dispatcher / ATen
+    ↓
+设备与通信：CPU / CUDA / Meta 后端 · 内存分配 · stream · NCCL / Gloo
+    ↓
+Kernel 与硬件
+```
+
+动态地图回答"一次调用怎么走"：
+
+```text
+Python API → Python Binding → Operator Schema → Dispatcher → ATen Operator → Kernel → Hardware
+```
+
+后续每一篇都是这两张地图上某一格的放大：第二篇放大 Tensor，第三篇放大 Autograd，第四篇放大 Module 与训练系统，第五、六篇放大算子运行时，第七篇放大图与编译，第八篇沿动态地图测量时间去了哪里，第九篇放大设备与通信层，第十篇讨论整张图如何被持续维护。
+
+### 3. 四个边界
+
+- Python 与 C++：表达和组织 vs 运行时和抽象；
+- 通用抽象与后端实现：统一语义之下允许必要的实现差异；
+- 灵活性与可分析性：动态 Python 与编译器之间的桥不是无条件成立的；
+- 可移植性与性能特化：通用实现易维护，设备特化更快但更贵。
+
+读后面各篇时遇到的大多数设计取舍，都可以归到这四个边界之一。
 
 
 ## 下一篇

@@ -6,6 +6,8 @@ tags: [PyTorch, AI, AI-Infra]
 catalog: true
 ---
 
+> 本文是[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)系列的第八篇（共十篇）。上一篇：[编译执行与图优化](/pytorch-compilation-and-graph-optimization.html)　下一篇：[分布式 PyTorch](/pytorch-distributed-training.html)
+
 前面七篇建立了 PyTorch 的执行模型：Tensor 如何存储（第二篇），Autograd 如何记录反向（第三篇），算子如何分发到 Kernel（第五篇），编译器如何把多个算子融合成更少的 Kernel（第七篇）。每一篇都在某处留下一句"性能问题第八篇讨论"。
 
 这一篇兑现这些承诺。它围绕一个问题展开：

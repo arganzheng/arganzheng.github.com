@@ -6,6 +6,8 @@ tags: [PyTorch, AI, AI-Infra]
 catalog: true
 ---
 
+> 本文是[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)系列的第十篇（共十篇）。上一篇：[分布式 PyTorch](/pytorch-distributed-training.html)
+
 前九篇讲的是 PyTorch **是什么、怎么运行**：Tensor 怎么存、Autograd 怎么记、算子怎么分发、Kernel 怎么写、编译器怎么融合、性能怎么测、多卡怎么通信。每一篇都在描述一个已经存在、并且正确运行的系统。
 
 这一篇换一个问题：**它是怎么做到一直正确、一直可用的？**
@@ -1015,6 +1017,8 @@ loss.backward()
 
 
 ## 系列目录
+
+- [总纲：从 Tensor 到深度学习运行时](/deep-dive-into-pytorch.html)
 
 1. [PyTorch 整体介绍](/pytorch-overall-introduction.html)
 2. [Tensor 与内存布局](/pytorch-tensor-and-memory-layout.html)
