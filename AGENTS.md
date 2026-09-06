@@ -63,3 +63,20 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
 - Export: append `?print-pdf` and print from the browser.
 
 `slides/reveal-demo.md` is a live demo of all of the above.
+
+## Writing AI-Infra series posts
+
+- **Version/date rule:** a post may only cite software versions (and facts about
+  them) released *before* the post's front-matter date. Check tag dates with
+  `git log -1 --format=%cs <tag>` before pinning a version; pin an explicit tag
+  (e.g. "NCCL 2.28.9", "PyTorch 2.12", "vLLM v0.23.0"), never "近期主线" or a
+  local checkout. Pinned checkouts used so far live next to this repo:
+  `../nccl` (v2.28.9-1), `../nccl-tests` (v2.18.3), `../pytorch-v2.12.0`,
+  `../vllm-v0.23.0` (git worktrees of `../pytorch` / `../vllm`).
+- Cite source as path + function/class name, never line numbers.
+- Length is not a target; rigor and organisation are. Structure: nav quote →
+  intro with the post's core question → `## 一、总览` (ending with 本文的章节安排)
+  → body (`##` Chinese numerals, `###` Arabic) → `## N、本文小结` → `## 下一篇`.
+- Series are independent: no links to posts of other series.
+- `{%`/`{{` inside code (PTX asm, printf formats, regexes) must be wrapped in
+  `{% raw %}` … `{% endraw %}` or the Liquid pass fails the build.

@@ -232,14 +232,14 @@ ncclAllReduce
 - channel：一个 communicator 有多个 channel，每个 channel 是一条独立的 ring 或 tree、对应 kernel 的一个 block、拥有自己的 buffer 和连接；channel 数决定并行度，`NCCL_MIN_NCHANNELS` / `NCCL_MAX_NCHANNELS`；
 - 算法：Ring、Tree、CollNet（借助 IB SHARP 在网络中归约）、NVLS（借助 NVSwitch 归约，Hopper 起）、PAT（大规模 all_gather / reduce_scatter）；`NCCL_ALGO` 覆盖自动选择；
 - 协议：Simple（数据与 flag 分离、需要内存屏障、带宽最高、延迟最高）、LL（8 字节数据搭 8 字节 flag、一次 16 字节原子写、无需屏障、带宽效率 50%、延迟最低）、LL128（128 字节里 120 字节数据、效率约 94%、依赖 NVLink 的写顺序保证）；`NCCL_PROTO`；
-- 调优表：NCCL 按消息大小、rank 数、拓扑估算每种算法与协议组合的时间，选最快的一种（`src/graph/tuning.cc`，master 分支已迁到 `src/tuning/`）；tuner 插件接口；
+- 调优表：NCCL 按消息大小、rank 数、拓扑估算每种算法与协议组合的时间，选最快的一种（`src/graph/tuning.cc`）；tuner 插件接口；
 - enqueue 与 kernel：`src/enqueue.cc` 把集合操作切成任务、分配到 channel、启动一个 kernel；设备侧 `src/device/all_reduce.h` 与 `primitives.h` / `prims_simple.h` / `prims_ll.h` / `prims_ll128.h` 是每个 block 执行的收发原语；
 - proxy 线程：GPU kernel 不能直接驱动网卡，`src/proxy.cc` 里的 CPU 线程替它提交 RDMA 请求、轮询完成；这条 CPU–GPU 协作路径是很多性能问题和 hang 的源头；
 - group 语义：`ncclGroupStart` / `ncclGroupEnd` 把多个操作合成一次启动，send/recv 为什么必须成对放在 group 里。
 
 核心问题是：
 
-> **同一次 8 卡 all_reduce，NCCL 在 NVSwitch 机器上选了 NVLS + Simple，在 PCIe 机器上选了 Ring + LL128，跨 32 台机器时选了 Tree。它是根据什么做出这三个不同决定的？强行用 `NCCL_ALGO=Ring` 会付出什么？**
+> **同一次 8 卡 all_reduce，NCCL 在 NVSwitch 机器上选了 NVLS + Simple，在没有 NVSwitch 的 NVLink 机器上选了 Ring + LL128，在纯 PCIe 机器上只剩 Simple / LL，跨 32 台机器时选了 Tree。它是根据什么做出这三个不同决定的？强行用 `NCCL_ALGO=Ring` 会付出什么？**
 
 实践：用 `NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=INIT,GRAPH,TUNING` 跑一次 all_reduce，逐行解读日志里的拓扑、ring/tree 结构、channel 数与算法协议选择，并与第一、二篇的理论预测对照；导出 `NCCL_TOPO_DUMP_FILE` 和 `NCCL_GRAPH_DUMP_FILE`，改写拓扑文件观察 NCCL 的决策如何变化。
 
@@ -251,7 +251,7 @@ ncclAllReduce
 
 - c10d 的分层：Python 的 `torch.distributed.distributed_c10d` → C++ 的 `ProcessGroup` / `Backend` → `ProcessGroupNCCL`；Store（TCPStore）承担 rendezvous 与 `ncclUniqueId` 的分发；
 - ProcessGroupNCCL 的对象模型：每个 device 一个 `ncclComm`，每个 collective 返回一个 `WorkNCCL`，`Work` 上记录了起止 CUDA event；communicator 的懒创建与 `ncclCommInitRankConfig` 的非阻塞初始化；
-- stream 语义：NCCL 操作在 ProcessGroupNCCL 自己的内部 stream 上执行，与当前计算 stream 通过 event 建立依赖；`work.wait()` 是 stream 级等待，不阻塞 CPU；什么时候才真的阻塞 CPU；
+- stream 语义：`async_op=True` 时 NCCL 操作在 ProcessGroupNCCL 自己的内部 stream 上执行，与当前计算 stream 通过 event 建立依赖（PyTorch 2.12 里 `async_op=False` 则直接在当前 stream 上发起，不返回 `Work`）；`work.wait()` 是 stream 级等待，不阻塞 CPU；什么时候才真的阻塞 CPU；
 - 输入 tensor 的生命周期：为什么需要 `recordStream` 或 `TORCH_NCCL_AVOID_RECORD_STREAMS` 的替代方案，Caching Allocator 与跨 stream 使用的冲突；
 - `async_op=True` 与重叠：通信 kernel 与计算 kernel 在不同 stream 上并发的条件——SM 资源、`NCCL_NTHREADS`、`TORCH_NCCL_HIGH_PRIORITY`；重叠被打断的常见原因（隐式同步、`.item()`、显存分配触发的 `cudaFree`）；
 - 合并（coalescing）：`all_reduce_coalesced`、`_coalescing_manager`、DDP 的 bucket 为什么能把延迟主导的小消息变成带宽主导的大消息；
@@ -272,13 +272,13 @@ ncclAllReduce
 
 这一篇会覆盖：
 
-- nccl-tests 的用法：`all_reduce_perf` 等各原语的测试程序；`-b` / `-e` / `-f` 扫描消息大小，`-g` 每进程 GPU 数，`-n` / `-w` 迭代与预热，`-c` 校验结果；`mpirun` 与 `torchrun` 两种启动方式；
+- nccl-tests 的用法：`all_reduce_perf` 等各原语的测试程序；`-b` / `-e` / `-f` 扫描消息大小，`-g` 每进程 GPU 数，`-n` / `-w` 迭代与预热，`-c` 校验结果；`mpirun` 多进程与单进程多卡两种启动方式（nccl-tests 本身没有 torchrun 模式，torchrun 下用等价的 PyTorch 脚本扫描）；
 - 带宽曲线的读法：以消息大小为横轴、busbw 为纵轴，小消息端的平台是延迟主导（看 α），大消息端的平台是带宽主导（看 β），拐点位置与第一篇的 α-β 模型对照；曲线"该长什么样"——NVLink 节点内、单机 PCIe、跨机 IB 各一条参考线；
 - 常见异常形状：大消息端上不去（链路没走对、GDR 没开、channel 太少）、小消息端太高（协议选错、跨了 NUMA）、中段有凹陷（算法切换点选得不好）、多机比单机慢很多（网卡亲和、NCCL_IB_HCA 没限定、走了 Socket）；
 - 调优参数与它们各自作用的层：`NCCL_ALGO` / `NCCL_PROTO`（算法与协议）、`NCCL_MIN_NCHANNELS` / `NCCL_MAX_NCHANNELS` / `NCCL_NTHREADS`（并行度）、`NCCL_BUFFSIZE`（channel buffer）、`NCCL_P2P_LEVEL` / `NCCL_NET_GDR_LEVEL` / `NCCL_P2P_DISABLE` / `NCCL_SHM_DISABLE`（路径选择）、`NCCL_IB_HCA` / `NCCL_IB_GID_INDEX` / `NCCL_IB_TC` / `NCCL_IB_QPS_PER_CONNECTION` / `NCCL_IB_SPLIT_DATA_ON_QPS`（网络）、`NCCL_SOCKET_IFNAME` / `NCCL_SOCKET_NTHREADS` / `NCCL_NSOCKS_PERTHREAD`（Socket 与 bootstrap）、`NCCL_CROSS_NIC`、`NCCL_NVLS_ENABLE`、`NCCL_COLLNET_ENABLE`；哪些应该动、哪些几乎永远不该动；
 - 日志：`NCCL_DEBUG=WARN` 是生产默认、`INFO` 看决策、`TRACE` 看每次调用；`NCCL_DEBUG_SUBSYS` 按子系统过滤；`NCCL_DEBUG_FILE` 按 rank 分文件；
 - hang 的分类：集合通信参数不一致（某个 rank 的 tensor 大小或 dtype 不同）、调用顺序不一致（某个 rank 多发或少发了一次集合通信）、send/recv 没有配对、两个 communicator 交叉等待、一个 rank 崩溃而其他 rank 在等、网络真的断了；
-- 排查工具：`py-spy dump` 看每个 rank 的 Python 栈、`gdb -p` 看 C++ 栈、`cuda-gdb` 看 kernel 是否在自旋；PyTorch 的 Flight Recorder（`TORCH_NCCL_TRACE_BUFFER_SIZE`、`TORCH_NCCL_DUMP_ON_TIMEOUT`、`torch/distributed/flight_recorder/fr_trace.py` 分析工具）把所有 rank 最近的集合通信记录汇总对齐，直接指出哪个 rank 在哪一次操作上掉了队；`TORCH_NCCL_DESYNC_DEBUG`；
+- 排查工具：`py-spy dump` 看每个 rank 的 Python 栈、`gdb -p` 看 C++ 栈、`cuda-gdb` 看 kernel 是否在自旋；PyTorch 的 Flight Recorder（`TORCH_NCCL_TRACE_BUFFER_SIZE`、`TORCH_NCCL_DUMP_ON_TIMEOUT`，PyTorch 2.12 默认开启，dump 到 `~/.cache/torch/comm_lib_trace_rank_<rank>`；`torch/distributed/flight_recorder/fr_trace.py` 分析工具）把所有 rank 最近的集合通信记录汇总对齐，直接指出哪个 rank 在哪一次操作上掉了队；`TORCH_NCCL_DESYNC_DEBUG`；
 - timeout 的语义：`init_process_group(timeout=...)` 到底约束什么、为什么 checkpoint 保存或数据加载卡住会表现为 NCCL timeout；
 - 正确性问题：结果不一致（浮点归约顺序、`NCCL_ALGO` 不同导致数值不同）、NaN 的来源与 `TORCH_NCCL_NAN_CHECK`、多 communicator 与多 stream 下的数据竞争；
 - 一棵决策树：从现象（慢 / hang / 错）到检查项到处理方式，大致是这个形状：
@@ -308,7 +308,7 @@ hang  所有 rank 停在同一处 → 网络或某个 rank 崩溃：看 dmesg ·
 
 - decode 阶段 TP all_reduce 的账：batch 小、hidden 维度固定，每层一次 all_reduce 只有几十到几百 KB，按第一篇的模型这是纯延迟主导；NCCL 在这个区间的固定开销（kernel 启动、proxy、协议握手）有多大；
 - custom all-reduce：vLLM 的 `csrc/custom_all_reduce.cuh` 用 CUDA IPC（`cudaIpcGetMemHandle` / `cudaIpcOpenMemHandle`）让每张卡直接读写对端显存，one-shot（`cross_device_reduce_1stage`：每张卡读所有人的数据自己归约）与 two-shot（`cross_device_reduce_2stage`：先 reduce_scatter 再 all_gather）两种 kernel 各适合什么消息大小；用 flag 做跨卡同步而不用 NCCL；为什么只在节点内、NVLink 全互联、消息小于一个阈值时启用；
-- 后端的选择链：`vllm/distributed/device_communicators/cuda_communicator.py` 里 all_reduce 的调度顺序——对称内存、quick reduce（ROCm）、FlashInfer、custom all-reduce、最后回落到 PyNccl；`vllm/distributed/parallel_state.py` 的 `GroupCoordinator` 如何管理 TP / PP / DP 组；
+- 后端的选择链：`vllm/distributed/device_communicators/cuda_communicator.py` 里 all_reduce 的调度顺序——NCCL 对称内存（需显式开启）、quick reduce（ROCm）、FlashInfer（需显式开启）、custom all-reduce、torch 对称内存（NVLS 多播）、最后回落到 PyNccl；`vllm/distributed/parallel_state.py` 的 `GroupCoordinator` 如何管理 TP / PP / DP 组；
 - PyNccl：`pynccl_wrapper.py` 用 ctypes 直接加载 `libnccl.so`（`VLLM_NCCL_SO_PATH`）调用 NCCL，为什么推理引擎不直接用 ProcessGroupNCCL——stream 控制、CUDA Graph 捕获、避免 watchdog；
 - CUDA Graph 与通信：all_reduce 被捕获进 graph 需要满足什么条件，custom all-reduce 的 `register_graph_buffers` 在做什么；
 - 对称内存与 NVLS 在推理上的应用：PyTorch 的 symmetric memory、NCCL 的 NVLS，与 custom all-reduce 各自的适用区间；
@@ -340,7 +340,7 @@ hang  所有 rank 停在同一处 → 网络或某个 rank 崩溃：看 dmesg ·
 
 到第七篇结束，读者手上有一套能在任何一台新机器上跑一遍的工具：先画出拓扑，再测每段链路，再跑 nccl-tests 与理论对照，再检查框架侧的重叠与后端选择。它不是一个通信库，但每一次"通信慢了"或"通信卡了"，都能用它在一小时内把问题定位到某一层。
 
-与它平行的源码阅读线（NCCL 以 2.27–2.29 的源码树为准；master 分支近期把 `enqueue.cc` 移入 `src/enqueue/`、`graph/tuning.cc` 移入 `src/tuning/`、`transport/net_ib.cc` 拆为目录，随文标注）：
+与它平行的源码阅读线（NCCL 以 2.28.9 的源码树为准；2.29 起 `transport/net_ib.cc` 拆为目录，更新版本的目录调整随文标注）：
 
 ```text
 第一篇    nccl-tests  src/all_reduce.cu · src/common.cu（algbw / busbw 的计算）
@@ -433,7 +433,7 @@ hang  所有 rank 停在同一处 → 网络或某个 rank 崩溃：看 dmesg ·
 ### 硬件与版本基线
 
 - 硬件：以 **8 卡 A100 / H100 加 NVSwitch 的服务器** 为节点内的默认分析对象（A100 NVLink 双向合计 600 GB/s，H100 900 GB/s；PCIe 4.0 / 5.0 x16），节点间以 **InfiniBand HDR 200 Gb/s 或 NDR 400 Gb/s、每 GPU 一张网卡** 为默认；RoCE v2 的差异随文标注；Blackwell（第五代 NVLink、NVL72）在涉及处标注。文中带宽数字为公开标称值，且明确区分"单向"与"双向合计"；实测会因固件、拓扑、功耗与配置有差异；
-- 软件：NCCL 2.27–2.29（源码路径以此为准，master 分支的目录重组随文标注）、nccl-tests 主线、CUDA 12.x、PyTorch 2.x（2.4 及之后，c10d 的环境变量名以近期源码树为准）、vLLM 主线、rdma-core 与 `libibverbs`、`nvidia-peermem` 或 DMA-BUF；
+- 软件：NCCL 2.28.9（源码路径以此为准，2.29 的目录调整随文标注）、nccl-tests 2.18.3、CUDA 12.x、PyTorch 2.12（环境变量名以此为准，2.4 之前的早期版本无 `TORCH_` 前缀）、vLLM v0.23.0、rdma-core 与 `libibverbs`、`nvidia-peermem` 或 DMA-BUF；
 - 版本敏感处随文标注：NCCL 的算法集合（NVLS、PAT 的加入版本）与 `NCCL_ALGO` 的可选值、ProcessGroupNCCL 的 `TORCH_NCCL_*` 环境变量（早期版本无 `TORCH_` 前缀）、Flight Recorder 的接口、vLLM all_reduce 后端的选择顺序、NIXL 与 Mooncake 的接口。
 
 ### 关于替代硬件
