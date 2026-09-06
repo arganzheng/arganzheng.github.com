@@ -5,7 +5,7 @@ tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
 
-> **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码深度剖析。文中所有文件路径、类名和行号均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
+> **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 
 
 ## 1. 分布式推理的混合并行策略
@@ -2672,3 +2672,6 @@ NCCL_DEBUG_SUBSYS=INIT,GRAPH,NET
 </details>
 
 
+## 下一篇
+
+[模型适配：如何跟上变化极快的模型世界？](/deep-dive-into-vllm-08-model-adaptation-architecture.html)

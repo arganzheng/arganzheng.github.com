@@ -5,7 +5,7 @@ tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
 
-> **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码深度剖析。文中所有文件路径、类名和行号均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
+> **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 
 
 这一章的问题是：**这些已经确定要算的 token，怎么算得更快。**
@@ -102,30 +102,31 @@ Decode 偏 memory-bound、Prefill 偏 compute-bound，但落到 GPU 上，浪费
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
-捕获与重放由 `CudaGraphManager`（`vllm/v1/worker/gpu/cudagraph_utils.py`）负责，而"用哪种模式"由配置枚举 `CUDAGraphMode`（`vllm/config/compilation.py`）描述：
+捕获与重放在默认的 `GPUModelRunner` 路径下由 `CUDAGraphWrapper`（`vllm/compilation/cuda_graph.py`）负责，"这一步用哪种模式、哪个 batch size 的图"由 `CudagraphDispatcher`（`vllm/v1/cudagraph_dispatcher.py`）在每次 forward 前决定；V2 Model Runner（`vllm/v1/worker/gpu/`）则用 `CudaGraphManager`（`cudagraph_utils.py`）承担同样职责。"用哪种模式"由配置枚举 `CUDAGraphMode`（`vllm/config/compilation.py`）描述：
 
 ```python
 # vllm/config/compilation.py
 class CUDAGraphMode(enum.Enum):
-    NONE = 0                        # 全程 Eager
-    PIECEWISE = 1                   # 分段录制（处理动态部分）
-    FULL = 2                        # 完整模型 Forward 录制为一个大图
-    FULL_DECODE_ONLY = (FULL, NONE)       # decode 走 FULL, mixed batch 走 Eager
-    FULL_AND_PIECEWISE = (FULL, PIECEWISE)  # decode 走 FULL, mixed batch 走 PIECEWISE
+    NONE = 0                        # 不录图，全程 eager
+    PIECEWISE = 1                   # 分段录制：attention 等不兼容算子留在图外
+    FULL = 2                        # 整个 forward 录成一张图（所有 batch 都用）
+    FULL_DECODE_ONLY = (FULL, NONE)       # 纯 decode batch 走 FULL，混合 batch 走 eager
+    FULL_AND_PIECEWISE = (FULL, PIECEWISE)  # 纯 decode 走 FULL，混合 batch 走 PIECEWISE（默认）
 ```
 
-| 模式名称 | 技术机制与核心策略 | 性能表现（Decode / Mixed Batch） | 显存开销 | 工业界应用现状 |
-|---|---|---|---|---|
-| NONE | 全程 Eager 模式 CPU 实时解析并逐个发射 CUDA Kernel。 | 差（CPU发射瓶颈，气泡多） 一般（Prefill 可掩盖部分延迟） | 无 | 已淘汰 / 仅调试 仅用于底层算子开发调试或多模态超大输入排错。 |
-| PIECEWISE | 分段录制模式 固定形状层录为小图，动态算子（如Attention）走 Eager。 | 良好（消灭大部分非 Attention 层气泡） 良好（动态算子外置，天然兼容混批） | 中等 | 自研/定制框架 多用于模型包含非标准、无法完整录图的自定义算子场景。 |
-| FULL | 完整模型单图录制 Forward 整体录制为单个无法拆分的超级宏 Kernel。 | 极致（消除 100% 气泡，达硬件极限） 无法运行（形状一变立即崩溃） | 低至中等 | 离线批处理与跑分 用于离线大批量固定格式处理（如Embedding提取）与静态 BenchMark。 |
-| FULL_DECODE_ONLY | 双轨动态切换 纯 Decode 走 FULL 图；混入 Prefill 自动降级至 NONE（Eager）。 | 极致（纯生成阶段拿满无气泡性能） 一般（Prefill 虽走 Eager 但受图影响小） | 中等（需针对常用 BS 做多桶捕获） | 商业推理引擎首选（如 vLLM / TRT-LLM） 工业界最主流的线上部署策略，兼顾极高吞吐与 Continuous Batching 稳定性。 |
-| FULL_AND_PIECEWISE | 混合双轨优化 纯 Decode 走 FULL 大图；混入 Prefill 切换至 PIECEWISE 分段图。 | 极致（纯生成阶段性能达到硬件极限） 优秀（混批下固定层依然享受图加速） | 高（需常驻多套不同形态的多桶图） | 大厂尖端自研内核 属于头部大厂魔改推理框架的进阶方案，针对极高并发、追求极致长尾延迟（P99）的终极生产环境。 |
+后两个是"组合模式"：元组的第一个元素给纯 decode batch 用（`decode_mode()`），第二个给含 prefill 的混合 batch 用（`mixed_mode()`）。为什么要区分？因为 decode batch 的形状只由请求数决定、可以按 batch size 分桶提前录好；而混合 batch 里每个请求的 token 数各不相同，attention 的输入形状几乎不重复，只能把 attention 留在图外、其余层分段录图。
 
-从当前工业界的最新演进来看，随着 PD 分离架构（Prefill-Decode Separation） 逐渐成为大厂的主流选择，上述模式的落地有了更清晰的物理边界：
+| 模式 | 机制 | 适用场景（引自 `CompilationConfig.cudagraph_mode` 的 docstring） | 说明 |
+|---|---|---|---|
+| NONE | 不录图 | 调试；或 attention backend / 自定义算子完全不支持 CUDA Graph | 每一步都由 CPU 逐个发射 kernel，小 batch decode 下 launch 开销占比显著 |
+| PIECEWISE | `torch.compile` 按 `splitting_ops`（默认是 attention 算子）把 forward 切成若干段，每段各录一张图，attention 在段间 eager 执行 | 通用；混合 batch 的默认策略 | 需要 `CompilationMode.VLLM_COMPILE` 且 `splitting_ops` 非空；一次 forward 要 replay N 段图 + N 次 eager attention |
+| FULL | 整个 forward（含 attention）录成**一张图**，一次 replay | "小模型或短 prompt 负载可能有收益；很多 backend 不支持" | 要求 attention backend 支持 CUDA Graph 下的 prefill（形状必须能分桶）；对多数负载不如 FULL_AND_PIECEWISE |
+| FULL_DECODE_ONLY | decode batch 走 FULL；混合 batch 不录图 | "适合 P/D 分离中的 decode 实例：prefill 不重要，可以省下 piecewise 图的显存" | 只录一套 decode 图，显存开销最小的"有图"方案 |
+| FULL_AND_PIECEWISE | decode batch 走 FULL；prefill / 混合 batch 走 PIECEWISE | "对大多数模型最快，是默认值" | 常驻两套图（decode 各桶的 FULL 图 + piecewise 段图），显存开销最大 |
 
-* Decode 节点：由于完全剥离了 Prefill，输入形态被高度固化，大面积直接采用 FULL 模式或高密度的 FULL_DECODE_ONLY 榨干算力。
-* Prefill 节点：由于需要应对 Chunked Prefill 等高度动态的形状变化，更多采用 PIECEWISE 或直接处于 NONE 状态以确保绝对稳定。 
+两个常见误解要澄清。第一，FULL 模式录的是**一张包含全部 kernel 的图**，replay 时 GPU 按图里记录的顺序执行这些 kernel——它减少的是 CPU 侧 launch 开销和 kernel 间的空隙，**不是**把 forward 融合成一个"超级 kernel"，每个 kernel 内部的执行时间一点没变。第二，CUDA Graph 与 `torch.compile` 是两个正交的轴：docstring 明说 "the cudagraph logic is generally orthogonal to the compilation logic"——PIECEWISE 依赖 piecewise 编译，但 FULL 图在不开编译时也能录。`CompilationConfig.mode`（`NONE / STOCK_TORCH_COMPILE / DYNAMO_TRACE_ONCE / VLLM_COMPILE`）管的是"要不要让 Inductor 生成融合 kernel"，`cudagraph_mode` 管的是"生成好的 kernel 序列要不要录成图"。
+
+这组模式和第十章的 PD 分离有一个自然的对应：Decode 实例里没有 prefill，全部 batch 都是"每请求一个 token"的规则形状，`FULL_DECODE_ONLY` 用最少的显存拿到全部收益（这正是 docstring 里点名的用法）；Prefill 实例里每个 batch 的形状都不一样，图的收益本来就小，`PIECEWISE` 甚至 `NONE` 都合理。
 
 ## 2. 数据为什么搬不动？—— 压缩 HBM 流量
 
@@ -393,14 +394,15 @@ Kernel Fusion优化带来的收益主要有三类：
 
 | 融合算子 | 涉及操作 | 实现位置 | 收益 |
 |----------|---------|---------|------|
-| Fused RMSNorm | RMSNorm + Residual Add | `csrc/libtorch_stable/layernorm_kernels.cu` | 减少 1 次 HBM 读写 |
-| Fused RMSNorm + Quant | RMSNorm + 动态 per-token 量化 | `csrc/libtorch_stable/layernorm_quant_kernels.cu` | 归一化后直接出低精度 |
-| Fused RoPE | RoPE + Permute | `csrc/libtorch_stable/pos_encoding_kernels.cu` | 减少中间 tensor |
-| Fused QKV | Q/K/V 三个矩阵乘合并 | PyTorch/cuBLAS | 1 次 GEMM 替代 3 次 |
-| Fused Attention | softmax(QK/√d)V + KV Cache R/W | FlashAttention kernel | 核心融合 |
-| Fused Gate-Up | gate_proj + up_proj + SiLU | cuBLAS + activation | 减少中间存储 |
-| Fused Sampling | top-k + top-p + temperature | `csrc/libtorch_stable/sampler.cu` | GPU 端采样 |
-| Fused KV Cache | Cache write + 量化 | `csrc/libtorch_stable/cache_kernels_fused.cu` | 写入时即量化 |
+| Fused Add + RMSNorm | 残差加 + RMSNorm，一次读写 | `fused_add_rms_norm`（`csrc/libtorch_stable/layernorm_kernels.cu`） | 省掉残差和的一次落地与回读 |
+| RMSNorm + 静态 FP8 量化 | 归一化后直接写出 FP8 | `rms_norm_static_fp8_quant` / `fused_add_rms_norm_static_fp8_quant`（`layernorm_quant_kernels.cu`，该文件只支持 static scale） | 归一化输出不以 BF16 落地 |
+| RMSNorm + 动态 per-token 量化 | 归一化 + 求每行 scale + 量化 | `rms_norm_dynamic_per_token_quant`（`csrc/libtorch_stable/quantization/fused_kernels/`） | 同上，且省掉单独求 scale 的一遍读 |
+| RoPE | 对 Q、K 就地旋转 | `rotary_embedding`（`pos_encoding_kernels.cu`） | 一个 kernel 同时处理 Q 和 K，不生成中间 tensor |
+| 合并 QKV 投影 | Q/K/V 三个权重拼成一个矩阵 | `QKVParallelLinear`（`vllm/model_executor/layers/linear.py`），底层一次 GEMM | 1 次 GEMM 替代 3 次，输入只读一遍 |
+| 合并 Gate/Up 投影 + 激活 | gate_proj 与 up_proj 拼成一个 GEMM，再用一个 kernel 完成 `SiLU(gate) * up` | `MergedColumnParallelLinear` + `SiluAndMul`（`activation.py`，kernel 在 `csrc/libtorch_stable/activation_kernels.cu`） | GEMM 减半次数；激活与逐元素乘不分两趟 |
+| Attention | `softmax(QKᵀ/√d)·V` 全程留在 SRAM，直接从 paged KV Cache 读 | FlashAttention / FlashInfer / Triton 后端 | 本节主角：中间的 N×N 矩阵不落 HBM |
+| KV Cache 写入（MLA） | RoPE + 拼接 + 写 cache + 可选 FP8 转换 | `concat_and_cache_mla_rope_fused`（`cache_kernels_fused.cu`） | MLA 专用；普通模型的写入是 `reshape_and_cache_flash`（`cache_kernels.cu`），只做写入 |
+| 采样中的重算子 | repetition penalty；per-row top-k | `apply_repetition_penalties_`、`top_k_per_row_*`（`sampler.cu`） | 只是采样流水线中的两个 kernel；完整流程（temperature → top-k/top-p → 采样 → logprobs）在 `vllm/v1/sample/sampler.py` 里是多阶段 PyTorch 代码，**不是**一个融合 kernel |
 
 这些融合算子覆盖了推理过程中的几个关键环节：
 
@@ -882,13 +884,17 @@ Model-native Speculation
 
 | 想看什么 | 从哪开始 |
 |---|---|
-| **一轮 batch 在 GPU 上怎么跑** | `vllm/v1/worker/gpu/model_runner.py`、`input_batch.py`（翻译层细节见第 10.4 节） |
+| **一轮 batch 在 GPU 上怎么跑** | `vllm/v1/worker/gpu_model_runner.py`（默认）、`vllm/v1/worker/gpu_input_batch.py`；V2 实现在 `vllm/v1/worker/gpu/`（翻译层细节见第十二章） |
 | CUDA Graph 捕获与重放 | `vllm/v1/worker/gpu/cudagraph_utils.py`；模式枚举在 `vllm/config/compilation.py` |
 | Attention 后端选择 | `vllm/v1/attention/selector.py` → `get_attn_backend()` |
 | 各 Attention 后端实现 | `vllm/v1/attention/backends/`（MLA 变体在 `mla/`） |
-| 投机解码各 Proposer | `vllm/v1/spec_decode/`（EAGLE / MTP 都在 `eagle.py`） |
+| 投机解码各 Proposer | `vllm/v1/spec_decode/`：公共基类 `SpecDecodeBaseProposer`（`llm_base_proposer.py`）、`EagleProposer`（`eagle.py`）、`MedusaProposer`、`NgramProposer`、`DraftModelProposer`；MTP 的 draft 结构是模型的一部分，在 `vllm/model_executor/models/*_mtp.py`（如 `deepseek_mtp.py`），运行时复用 `EagleProposer` |
 | 融合算子（CUDA） | `csrc/libtorch_stable/` |
 | 量化 | `vllm/model_executor/layers/quantization/`（FP8 见 `fp8.py`） |
 
 </details>
 
+
+## 下一篇
+
+[Multi-GPU：一张卡不够时如何扩展？](/deep-dive-into-vllm-07-multi-gpu-scaling-strategies.html)

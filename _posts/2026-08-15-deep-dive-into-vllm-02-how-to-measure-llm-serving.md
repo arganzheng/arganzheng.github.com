@@ -5,7 +5,7 @@ tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
 
-> **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码深度剖析。文中所有文件路径、类名和行号均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
+> **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 
 
 ## 1. LLM Serving 指标总览
@@ -50,14 +50,14 @@ mindmap
 | 维度 | 指标 | 定义 | 主要反映 | 常见影响因素 | 使用注意 |
 |---|---|---|---|---|---|
 | **延迟** | **TTFT**<br>Time To First Token | 请求到达至收到第一个输出 Token 的时间 | 首次响应速度 | 排队、Prompt 长度、Prefill、Prefix Cache、首 Token 生成 | 不等于 Prefill 时间，还包括排队和传输 |
-| **延迟** | **TPOT**<br>Time Per Output Token | Decode 阶段平均生成一个输出 Token 的时间 | 平均生成速度 | Decode Batch、KV Cache 长度、显存带宽、Attention Kernel、量化 | 需明确是否包含首 Token |
+| **延迟** | **TPOT**<br>Time Per Output Token | Decode 阶段平均生成一个输出 Token 的时间：`(E2E − TTFT) / (输出 Token 数 − 1)` | 平均生成速度 | Decode Batch、KV Cache 长度、显存带宽、Attention Kernel、量化 | vLLM 的 `vllm bench serve` 明确**不含首 Token**（报告栏标注 `excl. 1st token`）；对比其他工具时需确认口径 |
 | **延迟** | **ITL**<br>Inter-Token Latency | 相邻两个输出 Token 到达客户端的时间间隔 | 流式输出的连续性和稳定性 | 调度抖动、Batch 变化、抢占、网络传输 | 应重点观察 P95/P99，而不只是平均值 |
 | **延迟** | **E2E Latency** | 从请求发送至完整结果返回的总时间 | 完整请求体验 | 排队、Prefill、Decode、输出长度、网络 | 长输出场景下通常受 Decode 主导 |
 | **延迟** | **Queueing Time** | 请求到达至开始执行前的等待时间 | 系统拥塞程度 | 并发量、Batch 容量、Admission Control、KV Cache 空间 | 高并发时可能成为 TTFT 的主要部分 |
 | **吞吐** | **Output Tokens/s** | 单位时间生成的输出 Token 数 | Decode 吞吐 | Batch Size、显存带宽、Kernel、并行度 | 适合衡量在线生成能力 |
 | **吞吐** | **Total Tokens/s** | 单位时间处理的输入与输出 Token 总数 | 端到端 Token 处理能力 | Prompt 长度、输出长度、Prefill 和 Decode 效率 | 必须说明是否包含输入 Token |
 | **吞吐** | **Requests/s** | 单位时间完成的请求数 | 业务请求处理能力 | 请求长度、并发度、服务策略 | 不能脱离输入输出长度单独比较 |
-| **吞吐** | **Goodput** | 单位时间内满足 SLO 的有效请求或 Token 数 | 满足服务质量后的有效吞吐 | 吞吐、尾延迟、调度、Admission Control | 比理论吞吐更接近实际服务价值 |
+| **吞吐** | **Goodput** | 单位时间内满足 SLO 的**请求数**（req/s） | 满足服务质量后的有效吞吐 | 吞吐、尾延迟、调度、Admission Control | vLLM 的实现是 `request_goodput = 达标请求数 / 时长`，SLO 只能对 `ttft`、`tpot`、`e2el` 三项设阈值（`--goodput ttft:200 tpot:50`）；有些论文按 Token 计 Goodput，注意区分 |
 | **资源效率** | **MFU**<br>Model FLOPs Utilization | 实际模型 FLOPs/s 与理论峰值 FLOPs/s 的比值 | 计算单元利用效率 | GEMM 规模、算子融合、Kernel 调度 | Decode 可能受显存带宽限制，MFU 低不一定代表低效 |
 | **资源效率** | **GPU 利用率** | GPU 活跃时间占比 | GPU 是否持续工作 | 计算、访存、通信、调度和 Kernel Launch | 需要结合 HBM 带宽和 Tokens/s 判断 |
 | **资源效率** | **显存利用率** | 已使用显存与可用显存的比例 | 并发和上下文容量 | 权重、KV Cache、激活、通信 Buffer、运行时开销 | 显存不仅决定模型能否加载，也决定并发度 |
@@ -168,7 +168,37 @@ Total Tokens/s、TTFT、TPOT/ITL 和 P99
 > 不同指标对应不同瓶颈，不同瓶颈对应不同优化手段。  
 > 不能用提高吞吐的方法解决 TTFT，也不能用单纯增加 GPU 利用率的方法解决 P99 或 KV Cache 容量问题。
 
-## 3. 本章小结
+## 3. 在 vLLM 里怎么测：`vllm bench`
+
+上面的指标不是纸面定义，vLLM 自带的压测工具就是按这些口径实现的，读一遍源码可以消除大部分口径歧义。入口是 `vllm bench <子命令>`（`vllm/entrypoints/cli/benchmark/`），子命令分别对应 `vllm/benchmarks/` 下的同名模块：
+
+| 子命令 | 用途 | 实现 |
+|---|---|---|
+| `vllm bench serve` | 对一个已启动的 OpenAI 兼容服务发起在线压测，报告 TTFT / TPOT / ITL / E2E 的均值与分位数、吞吐、Goodput | `vllm/benchmarks/serve.py` |
+| `vllm bench throughput` | 离线吞吐：直接调用 `LLM.generate`，不经 HTTP | `vllm/benchmarks/throughput.py` |
+| `vllm bench latency` | 单 batch 端到端延迟 | `vllm/benchmarks/latency.py` |
+| `vllm bench sweep` | 对多组参数批量跑 `serve` | `vllm/benchmarks/sweep/` |
+
+一次典型的在线压测：
+
+```bash
+vllm bench serve --model <MODEL> --dataset-name sharegpt --dataset-path ShareGPT.json \
+  --request-rate 8 --num-prompts 500 \
+  --percentile-metrics ttft,tpot,itl,e2el --metric-percentiles 50,95,99 \
+  --goodput ttft:300 tpot:60
+```
+
+几个与口径直接相关的实现细节（`vllm/benchmarks/lib/endpoint_request_func.py` 与 `serve.py` 的 `calculate_metrics`）：
+
+- **TTFT** 在客户端收到第一个 SSE chunk 时打点，所以包含了网络与 HTTP 解析开销，不是服务端的 Prefill 时间；
+- **ITL** 是相邻 chunk 到达时刻的差，逐个记录后再算分位数；
+- **TPOT** = `(latency − ttft) / (output_len − 1)`，不含首 Token；
+- **Goodput** 按请求计数，一个请求只有 `ttft`、`tpot`、`e2el` 三项全部达标才算有效；
+- **Total Token throughput** = `(总输入 Token + 总输出 Token) / 时长`，包含输入。
+
+对比不同引擎的 benchmark 数字时，先确认对方工具的这五条口径是否一致，否则数字没有可比性。
+
+## 4. 本章小结
 
 LLM Serving 的指标体系可以归纳为：
 
@@ -186,3 +216,6 @@ LLM Serving 的指标体系可以归纳为：
 > Goodput 衡量系统在满足 SLO 的前提下完成了多少有效工作。
 
 
+## 下一篇
+
+[鸟瞰 vLLM：一个请求如何穿过整个推理系统？](/deep-dive-into-vllm-03-vllm-request-lifecycle-overview.html)

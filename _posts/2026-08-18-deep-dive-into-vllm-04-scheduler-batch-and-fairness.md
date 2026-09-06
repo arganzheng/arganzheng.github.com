@@ -5,7 +5,7 @@ tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
 
-> **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码深度剖析。文中所有文件路径、类名和行号均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
+> **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 
 
 前面我们已经解决了一个重要问题：
@@ -860,15 +860,26 @@ def schedule(self, throttle_prefills=False):
                 self.scheduler_config.long_prefill_token_threshold,
             )
 
-        # 2. 尝试为这些 token 分配 KV Cache
-        blocks = self.kv_cache_manager.allocate_slots(
-            req,
-            num_new_tokens,
-        )
+        # 2. 尝试为这些 token 分配 KV Cache；分不到就抢占别人，直到分到或没人可抢
+        while True:
+            blocks = self.kv_cache_manager.allocate_slots(
+                req, num_new_tokens, num_lookahead_tokens=...,
+            )
+            if blocks is not None:
+                break
+            # 选择牺牲者：FCFS 下是 running 队尾（最晚进入的）；
+            # PRIORITY 下是 (priority, arrival_time) 最大者，即优先级最低、最晚到的
+            if self.policy == SchedulingPolicy.PRIORITY:
+                victim = max(self.running, key=lambda r: (r.priority, r.arrival_time))
+                self.running.remove(victim)
+            else:
+                victim = self.running.pop()
+            self._preempt_request(victim)
+            if victim == req:
+                break          # 抢到自己头上了，说明确实没资源，本轮到此为止
 
         if blocks is None:
-            self._preempt_request(req)
-            continue
+            break
 
         # 3. 消耗本轮 Token Budget
         token_budget -= num_new_tokens
@@ -1520,7 +1531,12 @@ Request
 
 > **尽量避免已经运行很久的 Request 被反复抢占。**
 
-当前实现采用 LIFO 风格的抢占策略，并且被抢占的 Request 会重新放回 Waiting 队列的前部，以便尽快恢复。
+当前实现的牺牲者选择取决于调度策略（`SchedulerConfig.policy`，默认 `"fcfs"`）：
+
+- **FCFS**：`self.running.pop()`，即 running 列表末尾、最晚加入的那个请求——近似 LIFO；
+- **PRIORITY**：`max(self.running, key=lambda r: (r.priority, r.arrival_time))`，即优先级数值最大（最不重要）、其中最晚到达的请求。`priority` 由请求携带，数值越小越优先。
+
+两种策略下被抢占的 Request 都会重新放回 Waiting 队列的前部（`prepend_request`），以便尽快恢复。
 
 概念上：
 
@@ -1777,3 +1793,6 @@ Speculative Decode
 </details>
 
 
+## 下一篇
+
+[KV Cache：LLM Serving 的第一号内存问题](/deep-dive-into-vllm-05-kv-cache-memory-core.html)

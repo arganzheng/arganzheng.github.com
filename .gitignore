@@ -1,4 +1,6 @@
 _site
+.jekyll-cache
+.bundle
 node_modules
 npm-debug.log
 .DS_Store

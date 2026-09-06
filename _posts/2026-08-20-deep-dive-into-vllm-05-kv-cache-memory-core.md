@@ -5,7 +5,7 @@ tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
 
-> **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码深度剖析。文中所有文件路径、类名和行号均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
+> **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 
 
 设想一个场景：
@@ -108,29 +108,40 @@ graph TD
 >
 > 注意一个巧合般的细节：**2000 个 token 的 system prompt 恰好是 125 个整块**。这不是偶然设计，但它揭示了 Prefix Cache 的一个硬约束——只有**装满**的块才会被缓存，所以可复用的边界永远对齐到 `block_size`。下一节就用这一点算账。
 
-`BlockPool`（`vllm/v1/core/block_pool.py`）管理所有物理块的分配和回收，使用双向链表实现高效的 LRU 驱逐：
+`BlockPool`（`vllm/v1/core/block_pool.py`）管理所有物理块的分配和回收。它的设计有一个容易看漏的关键点：**没有单独的"缓存块"集合**。所有 `ref_cnt == 0` 的块——无论是从未用过的空块，还是刚被请求释放、但仍带着 block hash 的"缓存块"——都挂在同一条 `free_block_queue` 双向链表上，按释放时间排序。带 hash 的块同时还被 `cached_block_hash_to_block` 索引着，供 Prefix Cache 查找。
 
 ```python
 # vllm/v1/core/block_pool.py (简化)
 class BlockPool:
-    def __init__(self, num_gpu_blocks: int, ...):
-        self.num_gpu_blocks = num_gpu_blocks
-        self.free_block_queue = FreeKVCacheBlockQueue(num_gpu_blocks)
-        # Prefix Cache: hash → 物理块映射
-        self.cached_block_hash_to_block = BlockHashToBlockMap()
+    def __init__(self, num_gpu_blocks: int, enable_caching: bool, ...):
+        self.free_block_queue = FreeKVCacheBlockQueue(num_gpu_blocks)   # 所有 ref_cnt==0 的块，LRU 序
+        self.cached_block_hash_to_block = BlockHashToBlockMap()         # hash → 块（Prefix Cache 索引）
 
     def get_new_blocks(self, num_blocks: int) -> list[KVCacheBlock]:
-        """从空闲队列分配新块（如果不够，驱逐 LRU 缓存块）"""
+        # 不够就直接报错——调用方（KVCacheManager.allocate_slots）在调用前已确认数量足够
+        if num_blocks > self.get_num_free_blocks():
+            raise ValueError(...)
+        ret = self.free_block_queue.popleft_n(num_blocks)   # 从链表头取：最久未用的先被拿走
+        for block in ret:
+            self._maybe_evict_cached_block(block)   # 若这块还挂着 hash，摘掉 → 这就是"驱逐"
+            block.ref_cnt += 1
+        return ret
+
+    def free_blocks(self, ordered_blocks):
+        # ref_cnt--，归零则放回链表：没 hash 的块插到头部（先被分走），
+        # 有 hash 的块追加到尾部（尽量保留）；hash 不清除，块仍可被 Prefix Cache 命中
         ...
 
-    def free_blocks(self, blocks: Iterable[KVCacheBlock]):
-        """ref_cnt--，归零则回收到空闲队列"""
+    def touch(self, blocks):
+        # Prefix Cache 命中：把 ref_cnt==0 的块从空闲链表摘出来复用，ref_cnt++
         ...
 
     def cache_full_blocks(self, request, blocks, ...):
-        """将满块的 hash 注册到 Prefix Cache"""
+        # 将满块的 hash 注册到 cached_block_hash_to_block
         ...
 ```
+
+于是 LRU 驱逐不是一个显式步骤，而是分配的副作用：空闲链表头部的块就是最久没被访问的块，把它分出去时顺手摘掉它的 hash，这块缓存就"被驱逐"了。反过来，Prefix Cache 命中一个 `ref_cnt == 0` 的块时，`touch()` 把它从链表中摘出——命中即续命。这套设计让"空闲块"和"缓存块"共享同一份容量：缓存永远填满所有当前没在用的显存，且不需要任何后台淘汰线程。
 
 块分配的布局（引自 `allocate_slots()` 注释）：
 
@@ -437,3 +448,6 @@ vLLM V1 当前主要使用 **Recomputation** 策略（`_preempt_request()` 中�
 </details>
 
 
+## 下一篇
+
+[GPU 执行：如何让每个 Token 算得更快？](/deep-dive-into-vllm-06-gpu-execution-kernels-and-graphs.html)

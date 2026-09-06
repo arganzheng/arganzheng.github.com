@@ -5,7 +5,7 @@ tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
 
-> **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码深度剖析。文中所有文件路径、类名和行号均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
+> **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 
 
 ## 1. 痛点：为什么推理引擎必须持续适配新模型？
@@ -2496,3 +2496,7 @@ DeepSeek 对 vLLM 的影响，可以概括为三次协议扩展：
 
 </details>
 
+
+## 下一篇
+
+[硬件解耦：如何不让芯片差异污染 Serving 核心？](/deep-dive-into-vllm-09-hardware-abstraction-and-portability.html)

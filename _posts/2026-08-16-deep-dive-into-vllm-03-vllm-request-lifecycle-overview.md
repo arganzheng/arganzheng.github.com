@@ -5,7 +5,7 @@ tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
 
-> **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码深度剖析。文中所有文件路径、类名和行号均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
+> **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 
 
 ## 1. 静态系统拓扑（自顶向下）
@@ -67,11 +67,13 @@ graph TB
 
 入口位于 `vllm/entrypoints/openai/api_server.py`，基于 FastAPI 构建的 HTTP 服务器，实现了 OpenAI 兼容的 `/v1/chat/completions`、`/v1/completions` 等 REST API。
 
-`AsyncLLM`（`vllm/v1/engine/async_llm.py`）是面向外部的异步引擎接口，负责：
-- 接收 HTTP 请求并转化为内部 `EngineCoreRequest`
-- 管理请求的异步生命周期
-- 支持 SSE 流式响应
-- 数据并行（DP）场景下的多引擎协调
+`AsyncLLM`（`vllm/v1/engine/async_llm.py`）是面向外部的异步引擎接口。它自己不做重活，而是把工作交给三个同目录下的协作者：
+
+- `InputProcessor`（`input_processor.py`）：把文本 / 多模态输入 tokenize、校验采样参数，产出 `EngineCoreRequest`；
+- `EngineCoreClient`（`core_client.py`）：与 `EngineCore` 通信的客户端。默认部署下 `EngineCore` 运行在**独立进程**中，两者通过 ZMQ + msgspec 收发 `EngineCoreRequest` / `EngineCoreOutputs`（`AsyncMPClient`）；单进程调试时用 `InprocClient`。这条进程边界是 vLLM V1 让 HTTP 处理、tokenize / detokenize 与 GPU 调度循环互不阻塞的关键；
+- `OutputProcessor`（`output_processor.py`）：接收 `EngineCoreOutputs`，做 detokenize、stop 条件检查、logprobs 整理，产出 `RequestOutput` 交给 API 层流式返回。
+
+因此 `AsyncLLM` 的职责是：管理请求的异步生命周期、串起上述三者、支持 SSE 流式响应，以及数据并行（DP）场景下的多引擎协调。
 
 ### EngineCore：推理系统的中央调度大脑
 
@@ -126,7 +128,7 @@ graph TB
 常见 GPU 部署中，Executor 会把一次 `execute_model()` 调用分发给一个或多个 Worker；Worker 再调用本地的 `ModelRunner` 执行模型前向、采样和 KV Cache 读写。单卡、同机多进程、Ray 分布式和 external launcher 的进程/设备映射并不完全相同，因此不应把“一个 GPU 固定绑定一个 Worker 进程”写成绝对规则。
 
 每个 Worker 通常负责：
-- `ModelRunner`：负责模型前向计算、输入准备、采样
+- `GPUModelRunner`（`vllm/v1/worker/gpu_model_runner.py`）：负责输入准备（`_prepare_inputs()`）、模型前向（`execute_model()`）、采样（`sample_tokens()`）。本系列图中简写为 ModelRunner。v0.27.1 另有一份新实现 `vllm/v1/worker/gpu/model_runner.py`，通过 `VLLM_USE_V2_MODEL_RUNNER=1` 启用，文中以默认实现为主线
 - 模型权重的分片（Tensor Parallel 下每卡持有一部分）
 - KV Cache 物理显存
 
@@ -158,8 +160,8 @@ sequenceDiagram
     C->>API: POST /v1/chat/completions
     API->>API: 参数解析 & 校验
     API->>E: add_request(prompt, params)
-    E->>E: Tokenization (prompt → token_ids)
-    E->>EC: EngineCoreRequest
+    E->>E: InputProcessor: tokenize → EngineCoreRequest
+    E->>EC: EngineCoreClient 经 ZMQ 发送（跨进程）
     EC->>S: add_request(Request)
 
     Note over S: Request.status = WAITING
@@ -180,11 +182,13 @@ sequenceDiagram
 
     rect rgb(255, 245, 230)
         Note over W,GPU: === Prefill 阶段 ===
-        W->>MR: prepare_inputs(batch)
+        W->>MR: execute_model(SchedulerOutput)
+        MR->>MR: _prepare_inputs(): input_ids / positions / slot_mapping
         MR->>GPU: 模型 Forward (所有 prompt tokens)
         GPU->>GPU: Attention 计算 + KV Cache 写入
         GPU->>GPU: MLP 计算
         GPU-->>MR: logits
+        W->>MR: sample_tokens()
         MR->>MR: Sampling → 第 1 个 output token
     end
 
@@ -199,15 +203,16 @@ sequenceDiagram
             S->>S: schedule()
             S->>KV: allocate_slots(1 new token)
             EC->>EX: execute_model()
-            W->>MR: prepare_inputs(1 token per request)
+            W->>MR: execute_model() → _prepare_inputs(1 token per request)
             MR->>GPU: Forward (读历史 KV Cache + 计算新 token)
             GPU-->>MR: logits
             MR->>MR: Sampling → next token
             MR-->>EC: ModelRunnerOutput
             EC->>S: update_from_output()
         end
-        EC-->>E: token
-        E-->>API: Detokenize + Stream
+        EC-->>E: EngineCoreOutputs
+        E->>E: OutputProcessor: detokenize + stop 检查
+        E-->>API: RequestOutput (stream)
         API-->>C: SSE: data: {"token": "..."}
     end
 
@@ -235,8 +240,11 @@ sequenceDiagram
                                               │  schedule()  │
                                               └──────┬──────┘
                                               SchedulerOutput
-                                              (req_ids, block_table,
-                                               num_tokens_per_req)
+                                              (scheduled_new_reqs[NewRequestData:
+                                                 prompt_token_ids, block_ids, ...],
+                                               scheduled_cached_reqs[new_block_ids],
+                                               num_scheduled_tokens{req_id: n},
+                                               finished_req_ids, ...)
                                                      │
                                               ┌──────▼──────┐
                                               │  Executor    │
@@ -244,8 +252,8 @@ sequenceDiagram
                                               └──────┬──────┘
                                                      │
                                               ┌──────▼──────┐
-                                              │ ModelRunner  │
-                                              │prepare_inputs│
+                                              │GPUModelRunner│
+                                              │_prepare_inputs│
                                               └──────┬──────┘
                                               input_ids, positions,
                                               block_table, slot_mapping
@@ -299,12 +307,19 @@ sequenceDiagram
 
 | 想看什么 | 从哪开始 |
 |---|---|
-| HTTP 入口、OpenAI 兼容接口 | `vllm/entrypoints/openai/api_server.py` |
+| HTTP 入口、OpenAI 兼容接口 | `vllm/entrypoints/openai/api_server.py`（路由）、`vllm/entrypoints/openai/chat_completion/`（chat 接口实现） |
 | 异步请求生命周期、流式响应 | `vllm/v1/engine/async_llm.py` |
+| tokenize 与请求构造 | `vllm/v1/engine/input_processor.py` → `InputProcessor` |
+| 与 EngineCore 进程通信 | `vllm/v1/engine/core_client.py` → `EngineCoreClient` / `AsyncMPClient` |
+| detokenize 与输出整理 | `vllm/v1/engine/output_processor.py` → `OutputProcessor` |
 | **推理主循环（建议从这里入手）** | `vllm/v1/engine/core.py` → `EngineCore.step()` |
+| 调度器给执行层的"订单" | `vllm/v1/core/sched/output.py` → `SchedulerOutput` / `NewRequestData` / `CachedRequestData` |
 | 执行抽象与各种部署形态 | `vllm/v1/executor/abstract.py` |
-| 一轮 batch 在 GPU 上怎么跑 | `vllm/v1/worker/gpu/model_runner.py` |
+| 一轮 batch 在 GPU 上怎么跑 | `vllm/v1/worker/gpu_model_runner.py` → `GPUModelRunner.execute_model()` / `sample_tokens()` |
 
 </details>
 
 
+## 下一篇
+
+[Scheduler：GPU 这一轮到底给谁用？](/deep-dive-into-vllm-04-scheduler-batch-and-fairness.html)

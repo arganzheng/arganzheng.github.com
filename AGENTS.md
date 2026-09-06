@@ -2,12 +2,15 @@
 
 ## Build / preview
 
-Jekyll 4.4.1 is installed against Homebrew's Ruby, which is **not** on `PATH`
-(the system `ruby` is 2.6 and there is no `Gemfile`):
+Jekyll 4.4.1 is installed against Homebrew's Ruby.
+Homebrew Ruby and Gem paths are configured in `~/.zshrc`:
+`/opt/homebrew/opt/ruby/bin:/opt/homebrew/lib/ruby/gems/4.0.0/bin`
+
+A `Gemfile` is also present at repo root:
 
 ```bash
-/opt/homebrew/lib/ruby/gems/*/bin/jekyll build      # -> _site/
-/opt/homebrew/lib/ruby/gems/*/bin/jekyll serve      # http://localhost:4000
+jekyll build            # or bundle exec jekyll build -> _site/
+jekyll serve            # or bundle exec jekyll serve -> http://localhost:4000
 ```
 
 The pre-existing `Conflict: ... the-productive-programmer-on-windows.html`

@@ -10,7 +10,7 @@ catalog: true
 
 《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》以 vLLM v0.27.1 为主要分析对象，从 LLM Serving 的问题本质出发，系统讲解请求生命周期、性能指标、调度、KV Cache、GPU 执行、多卡并行、模型适配、硬件抽象、Prefill/Decode 分离与集群化部署。
 
-本书不局限于算子优化，也不止于源码解读，而是试图回答一个更完整的问题：
+本系列不局限于算子优化，也不止于源码解读，而是试图回答一个更完整的问题：
 
 > **一个文本生成请求，为什么会逐渐演化成一个涉及计算、显存、调度、通信与状态管理的复杂系统？**
 
@@ -47,7 +47,7 @@ catalog: true
 - 多卡并行解决“计算如何切分、状态如何组织”；
 - 集群化部署解决“计算、状态和请求如何跨设备、跨实例流动”。
 
-选择 vLLM，是因为它集中体现了现代 LLM Serving 的许多关键思想，也提供了观察推理系统演进的典型样本。本书既关注 vLLM 的具体实现，也希望借此建立一套可以迁移到其他推理框架和 AI 基础设施的分析方法。
+选择 vLLM，是因为它集中体现了现代 LLM Serving 的许多关键思想，也提供了观察推理系统演进的典型样本。本系列既关注 vLLM 的具体实现，也希望借此建立一套可以迁移到其他推理框架和 AI 基础设施的分析方法。
 
 
 ## 适合哪些读者？
@@ -300,6 +300,32 @@ PD 分离并不是简单地把两个阶段部署到不同机器上。它重新�
 
 沿着这条线阅读，vLLM 不再只是一个“推理框架”，而会呈现为一个持续协调**请求、Token、状态、计算、显存和通信**的动态系统。
 
+## 前置要求与说明
+
+### 前置要求
+
+- 理解 Transformer 的结构与算量：参数量、Prefill / Decode 的 FLOPs 与访存量、KV Cache 的大小公式、GQA / MLA 对 KV 的影响。本系列直接使用这些结论而不再推导，缺少这部分基础的读者建议先读[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)；
+- 理解 PyTorch 运行时的基本结构：Tensor 与算子分发、CUDA stream 与同步、`torch.compile` 的大致工作方式；
+- 能读 Python，能顺着 import 在一个几十万行的代码库里定位对象；
+- 对 GPU 的 memory-bound / compute-bound 有基本判断。
+
+不要求：
+
+- 写过 CUDA kernel 或 Triton——FlashAttention、PagedAttention、量化 kernel 的实现属于[《GPU Kernel 工程》](/gpu-kernel-engineering.html)，本系列只讨论 vLLM 如何选择和调用它们；
+- 了解 NCCL 内部或集合通信算法——多卡章节会用到 all-reduce / all-to-all 的代价结论，原理见[《通信与互联》](/communication-and-interconnect-for-ai-infra.html)；
+- 有分布式训练经验——TP / PP / EP 的推导在[《大规模训练工程》](/large-scale-training-engineering.html)，本系列关注它们在推理中的取舍与 vLLM 的实现。
+
+### 版本与硬件基线
+
+- 源码：**vLLM v0.27.1**（tag `6e448d0`，2026-08-11）。全系列的文件路径、类名和函数名以此为准；vLLM 目录结构变动很快，读旧版本或新版本时请以本地源码对照。文中不引用行号。
+- 引擎：v0.27.1 只有 V1 引擎；`vllm/v1/worker/gpu_model_runner.py` 是默认的 Model Runner，`vllm/v1/worker/gpu/model_runner.py` 是可通过 `VLLM_USE_V2_MODEL_RUNNER` 启用的新实现，文中以前者为主线并在涉及处标注。
+- 硬件：默认以 **H100 SXM（80 GB，约 3.35 TB/s，BF16 约 989 TFLOPS）** 为估算基准，A100 随文标注。文中所有毫秒级、GB/s 级数字除明确注明"实测"外均为**理论下界或量级估算**，用于建立判断，不是 benchmark 结果。
+- 模型：示例以 Llama-3-8B / 70B 为主，MoE 与 MLA 以 DeepSeek-V3 为例。
+
+### 关于其他推理引擎
+
+本系列以 vLLM 为分析对象。SGLang、TensorRT-LLM、LMDeploy 在同一位置的不同选择会在相关章节提及，但不展开；分析方法（问题 → 指标 → 生命周期 → 调度 / 内存 / 执行三个战场 → 扩展）对它们同样适用。
+
 ## 章节目录（建议按顺序阅读）
 
 1. [为什么 LLM Serving 比传统 DL 推理难？](/deep-dive-into-vllm-01-why-llm-serving-is-hard.html)
@@ -316,4 +342,4 @@ PD 分离并不是简单地把两个阶段部署到不同机器上。它重新�
 12. [回到源码：一次请求在 vLLM 内部的真实旅程](/deep-dive-into-vllm-12-source-code-request-walkthrough.html)
 
 
-> **版本说明：**本系列基于 vLLM v0.27.1（tag `6e448d0`，2026-08-11）源码分析。文中路径、类名和行号均以该版本为准；由于 vLLM 迭代较快，阅读时请结合实际版本进行对照。
+> **版本说明：**本系列基于 vLLM v0.27.1（tag `6e448d0`，2026-08-11）源码分析。文中路径、类名和函数名均以该版本为准；由于 vLLM 迭代较快，阅读时请结合实际版本进行对照。
