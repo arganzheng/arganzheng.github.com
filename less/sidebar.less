@@ -40,6 +40,24 @@
             }
         }
     }
+    #tags{
+        margin-bottom: -5px;
+        a{
+            display: inline-block;
+            margin: 0 6px 6px 0;
+            line-height: 1.4;
+            text-decoration: none !important;
+            &:hover, &:active, &:focus{
+                text-decoration: none !important;
+                color: @brand-primary !important;
+            }
+            sup{
+                font-size: 10px;
+                margin-left: 2px;
+                vertical-align: super;
+            }
+        }
+    }
     .short-about{
         img{
             width: 80%;

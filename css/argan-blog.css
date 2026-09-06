@@ -1615,3 +1615,25 @@ div.side-catalog.filtering .catalog-body li.active > a {
 body.outline-unavailable .outline-reopen {
   display: none !important;
 }
+
+/* Sidebar HOT TAGS */
+.sidebar-container #tags {
+  margin-bottom: -5px;
+}
+.sidebar-container #tags a {
+  display: inline-block;
+  margin: 0 6px 6px 0;
+  line-height: 1.4;
+  text-decoration: none !important;
+}
+.sidebar-container #tags a:hover,
+.sidebar-container #tags a:active,
+.sidebar-container #tags a:focus {
+  text-decoration: none !important;
+  color: #0085a1 !important;
+}
+.sidebar-container #tags a sup {
+  font-size: 10px;
+  margin-left: 2px;
+  vertical-align: super;
+}

@@ -152,7 +152,22 @@ layout: default
                       {% for tag in site.tags %}
                       {% assign tag_size = tag[1] | size %}
                       {% if tag_size > 2 %}
-                      <a href="/tags#{{ tag[0] | replace:' ','%20' }}"><span style="margin-top:2px;font-size: {{ tag[1] | size | minus:1 | times:2 | plus:12 }}px;line-height:{{ tag[1] | size | minus:1 | times:2 | times:14 | divided_by:12 | plus:14 }}px">{{ tag[0] }}</span><sup>{{ tag[1].size }}</sup></a>
+                        {% if tag_size >= 40 %}
+                          {% assign tag_font_size = 25 %}
+                        {% elsif tag_size >= 20 %}
+                          {% assign tag_font_size = 22 %}
+                        {% elsif tag_size >= 14 %}
+                          {% assign tag_font_size = 18 %}
+                        {% elsif tag_size >= 9 %}
+                          {% assign tag_font_size = 16 %}
+                        {% elsif tag_size >= 6 %}
+                          {% assign tag_font_size = 15 %}
+                        {% elsif tag_size >= 4 %}
+                          {% assign tag_font_size = 14 %}
+                        {% else %}
+                          {% assign tag_font_size = 13 %}
+                        {% endif %}
+                      <a href="{{ '/tags/' | prepend: site.baseurl }}#{{ tag[0] | replace:' ','%20' }}"><span style="font-size: {{ tag_font_size }}px;">{{ tag[0] }}</span><sup>{{ tag[1].size }}</sup></a>
                       {% endif %}
                       {% endfor %}
                     </div> 
