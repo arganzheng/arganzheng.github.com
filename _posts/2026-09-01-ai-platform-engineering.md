@@ -410,12 +410,15 @@ K8s 的空缺      原生 Kubernetes 为什么满足不了
 
 ### 组件与版本基线
 
-- Kubernetes **1.34 及之后**（DRA 的 `resource.k8s.io/v1` 在此版本 GA）；device plugin 路径对更早版本同样适用，随文标注；
-- NVIDIA 侧：GPU Operator 25.x / 26.x、k8s-device-plugin 0.17 及之后、驱动 R570 及之后；CUDA 12.x 为默认基线，CUDA 13.x 的驱动要求随文标注；
-- 调度：Kueue 0.14 及之后（Topology-Aware Scheduling 进入 beta）、Volcano 1.11 及之后、Kubeflow Trainer 2.x（`TrainJob` API，取代 Training Operator v1 的 `PyTorchJob`）、KubeRay 1.x；
-- 交付：KServe 0.16 及之后（`LLMInferenceService` 从 0.16 起提供，正文以 0.20 附近为准）、LeaderWorkerSet 0.7 及之后（`DisaggregatedSet` 从 0.9 起随包提供）、Gateway API Inference Extension 1.0 及之后（`InferencePool` v1）、Triton Inference Server 2.x、KEDA 2.x；
-- 可观测：DCGM Exporter 3.x / 4.x、Prometheus 2.x / 3.x、OpenTelemetry Collector；
-- 引擎作为被服务对象：PyTorch 2.x、vLLM 0.x 主线，正文只使用它们对外暴露的接口（启动参数、指标、OpenAI 兼容 API），不依赖内部实现。
+正文所有 CRD 字段、资源名、指标名与配置项均按以下版本核对（全部发布于 2026-09-02 之前）：
+
+- Kubernetes **v1.37.0**（DRA 的 `resource.k8s.io/v1` 自 1.34 GA）；device plugin 路径对更早版本同样适用，随文标注；
+- NVIDIA 侧：GPU Operator **v26.7.0**、k8s-device-plugin **v0.20.0**、Container Toolkit **v1.20.0**、DCGM Exporter **4.6.0-4.8.3**、Network Operator **v26.7.0**、k8s-rdma-shared-dev-plugin **v1.5.4**；CUDA 12.x 为默认基线，CUDA 13.x 的驱动要求随文标注；
+- 调度：Kueue **v0.19.2**（主 API `kueue.x-k8s.io/v1beta2`，Topology-Aware Scheduling 的 `Topology` CRD 在 `v1beta1`）、Volcano **v1.15.2**、Kubeflow Trainer **v2.3.0**（`TrainJob` API，取代 Training Operator v1 的 `PyTorchJob`）、KubeRay **v1.7.0**、Slinky slurm-operator **v1.2.2**、Multus CNI **v4.3.0**；
+- 切分：HAMi **v2.10.0**；
+- 交付：KServe **v0.20.0**（`LLMInferenceService` 在 `serving.kserve.io/v1alpha1`）、LeaderWorkerSet **v0.10.0**（`DisaggregatedSet` 在独立的 `disaggregatedset` API group）、Gateway API Inference Extension **v1.6.0**（`InferencePool` v1；Endpoint Picker 自此版本起迁至 llm-d-router）、llm-d **v0.9.0**、llm-d-router **v0.10.0**、Triton Inference Server **v2.72.0**、KEDA **v2.20.2**；
+- 可观测与成本：DCGM Exporter 同上、OpenCost **v1.121.1**、Prometheus / OpenTelemetry Collector 按通用用法；
+- 引擎作为被服务对象：PyTorch **v2.13.0**、vLLM **v0.23.0**，正文只使用它们对外暴露的接口（启动参数、指标、OpenAI 兼容 API），不依赖内部实现。
 
 这一层的组件版本变化比引擎更快，尤其是 DRA、Inference Extension 和 llm-d 这几处仍在快速演进。正文的原则是：**先讲机制和取舍，再讲当前的 API 形态**，API 变化时机制部分仍然成立。版本敏感处随文标注。
 
