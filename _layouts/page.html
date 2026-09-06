@@ -153,21 +153,17 @@ layout: default
                       {% assign tag_size = tag[1] | size %}
                       {% if tag_size > 2 %}
                         {% if tag_size >= 40 %}
-                          {% assign tag_font_size = 25 %}
+                          {% assign weight_class = "tag-weight-s" %}
                         {% elsif tag_size >= 20 %}
-                          {% assign tag_font_size = 22 %}
-                        {% elsif tag_size >= 14 %}
-                          {% assign tag_font_size = 18 %}
-                        {% elsif tag_size >= 9 %}
-                          {% assign tag_font_size = 16 %}
+                          {% assign weight_class = "tag-weight-a" %}
+                        {% elsif tag_size >= 10 %}
+                          {% assign weight_class = "tag-weight-b" %}
                         {% elsif tag_size >= 6 %}
-                          {% assign tag_font_size = 15 %}
-                        {% elsif tag_size >= 4 %}
-                          {% assign tag_font_size = 14 %}
+                          {% assign weight_class = "tag-weight-c" %}
                         {% else %}
-                          {% assign tag_font_size = 13 %}
+                          {% assign weight_class = "tag-weight-d" %}
                         {% endif %}
-                      <a href="{{ '/tags/' | prepend: site.baseurl }}#{{ tag[0] | replace:' ','%20' }}"><span style="font-size: {{ tag_font_size }}px;">{{ tag[0] }}</span><sup>{{ tag[1].size }}</sup></a>
+                      <a href="{{ '/tags/' | prepend: site.baseurl }}#{{ tag[0] | replace:' ','%20' }}" class="{{ weight_class }}"><span>{{ tag[0] }}</span><sup>{{ tag[1].size }}</sup></a>
                       {% endif %}
                       {% endfor %}
                     </div> 
