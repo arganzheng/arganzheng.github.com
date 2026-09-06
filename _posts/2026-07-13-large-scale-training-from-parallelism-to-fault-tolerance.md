@@ -1,7 +1,7 @@
 ---
 layout: post
-title: 大规模训练工程：从 Megatron 到容错（总纲）
-subtitle: Large-Scale Training Engineering, from Megatron to Fault Tolerance
+title: 大规模训练工程：从并行策略到容错恢复（总纲）
+subtitle: Large-Scale Training Engineering, from Parallelism to Fault Tolerance
 tags: [Megatron, DeepSpeed, Distributed Training, AI, AI-Infra]
 catalog: true
 ---
@@ -9,7 +9,7 @@ catalog: true
 
 ## 内容简介
 
-《大规模训练工程：从 Megatron 到容错》是一组共八篇的系列文章，面向已经会用 PyTorch 写训练循环、了解 DDP、准备把训练任务从几张卡放大到几百几千张卡的工程师，系统讲解一个大规模训练任务是如何被**配置、跑满、并且长期跑住**的。
+《大规模训练工程：从并行策略到容错恢复》是一组共八篇的系列文章，面向已经会用 PyTorch 写训练循环、了解 DDP、准备把训练任务从几张卡放大到几百几千张卡的工程师，系统讲解一个大规模训练任务是如何被**配置、跑满、并且长期跑住**的。
 
 它回答的问题是：
 
@@ -137,7 +137,7 @@ torchtitan     用 PyTorch 原生原语组合：DTensor、FSDP2、TP、PP、CP �
 - 显存之外的开销：CUDA context、NCCL buffer、PyTorch Caching Allocator 的碎片与保留、临时 buffer——为什么 80 GB 的卡实际可用只有 70 多 GB；
 - 算力账：每个参数每个 token 前向 2 FLOP、反向 4 FLOP，合计 $$6N$$；注意力部分随序列长度增加的额外项；
 - MFU 的定义（来自 PaLM 论文）：观测到的吞吐（token/s）与在硬件峰值 FLOPS 下的理论最大吞吐之比，**不计**激活重计算的额外 FLOP；HFU（Hardware FLOPs Utilization）则计入重计算——为什么开了重计算后 HFU 会好看而 MFU 不会；
-- 当前的参考水平：Megatron-LM 论文在 A100 集群上报告过 52% 的 MFU，Llama 3 405B 在 8K–16K 张 H100 上报告 38%–43%；千卡 H100 上 dense 模型做到 40% 以上是好成绩，做不到 30% 说明有明确的问题；
+- 当前的参考水平：Megatron-LM（SC'21）论文在 A100 集群上报告过 52% 的峰值算力利用率（其 FLOP 公式含全量重计算，按 PaLM 的口径更接近 HFU），Llama 3 405B 在 8K–16K 张 H100 上报告 38%–43%；千卡 H100 上 dense 模型做到 40% 以上是好成绩，做不到 30% 说明有明确的问题；
 - Megatron-LM 的 `megatron/training/theoretical_memory_usage.py` 与 `training.py` 里的 FLOPs 计算函数：把公式与源码对上。
 
 核心问题是：
@@ -152,15 +152,15 @@ torchtitan     用 PyTorch 原生原语组合：DTensor、FSDP2、TP、PP、CP �
 
 这一篇会覆盖：
 
-- 数据并行（DP）：复制全部状态、切数据；梯度 all-reduce 的通信量为每 step 约 $$2\Psi$$ 字节每卡（$$\Psi$$ 为参数字节数）；梯度 bucket 与反向计算的重叠；
-- ZeRO 的三级分片：Stage 1 切优化器状态、Stage 2 再切梯度、Stage 3 再切参数；每卡显存从 $$16\Psi$$ 降到 $$16\Psi/N_d$$，代价是 Stage 3 的通信量从 $$2\Psi$$ 涨到 $$3\Psi$$（前向 all-gather、反向 all-gather 与 reduce-scatter）；
+- 数据并行（DP）：复制全部状态、切数据；梯度 all-reduce 的通信量为每 step 约 $$2N$$ 字节每卡（$$N$$ 为参数字节数）；梯度 bucket 与反向计算的重叠；
+- ZeRO 的三级分片：Stage 1 切优化器状态、Stage 2 再切梯度、Stage 3 再切参数；每卡显存从 $$16N$$ 降到 $$16N/N_d$$，代价是 Stage 3 的通信量从 $$2N$$ 涨到 $$3N$$（前向 all-gather、反向 all-gather 与 reduce-scatter）；
 - FSDP 作为 ZeRO-3 的 PyTorch 原生实现：FSDP1 的 FlatParameter 与 FSDP2（`fully_shard`）的 per-parameter DTensor 分片；HSDP（Hybrid Sharded Data Parallel）在节点内分片、节点间复制的动机；
 - 张量并行（TP）：切矩阵的行或列，Megatron 式的 column-parallel 与 row-parallel 线性层配对；每层前向两次 all-reduce、反向两次；为什么 TP 几乎只在 NVLink 域内（8 卡）使用；
 - 序列并行（SP，Megatron 意义下）：把 TP 域内 LayerNorm 与 dropout 的激活沿序列切开，all-reduce 变成 all-gather 加 reduce-scatter，通信量不变、激活显存下降；
 - 上下文并行（CP）：沿序列维切注意力本身，Ring Attention 与 DeepSpeed-Ulysses 两种做法的通信形态；长上下文训练为什么必须有它；
 - 流水线并行（PP）：按层切、以 micro-batch 流水；GPipe、1F1B、interleaved 1F1B、zero-bubble 调度；气泡率 $$\frac{p-1}{m}$$ 的推导（$$p$$ 为 stage 数、$$m$$ 为 micro-batch 数）；PP 的通信量最小（只传相邻 stage 之间的激活），所以放在跨节点的慢链路上；
 - 专家并行（EP）：MoE 的专家分布在不同卡上，token 通过 all-to-all 路由；EP 与 DP、TP 的组合方式；负载不均衡对通信和计算的双重影响；
-- 多维并行的组合顺序：为什么通常是 TP 最内（NVLink）、CP 次之、PP 再外、DP 最外；Llama 3 405B 的 TP=8、CP=16、PP=16、DP=128 是这套逻辑的一个实例；
+- 多维并行的组合顺序：为什么通常是 TP 最内（NVLink）、CP 次之、PP 再外、DP 最外；Llama 3 405B 在 16K 卡上的 TP=8、CP=1、PP=16、DP=128，以及 128K 长上下文阶段的 TP=8、CP=16、PP=16、DP=4，是这套逻辑的两个实例；
 - 通信原语与各并行的对应表：all-reduce、all-gather、reduce-scatter、all-to-all、点对点 send/recv 各服务于谁——本系列只用到它们的语义和通信量，不讨论其实现。
 
 核心问题是：
@@ -169,7 +169,7 @@ torchtitan     用 PyTorch 原生原语组合：DTensor、FSDP2、TP、PP、CP �
 
 实践：给计算器加上并行维度：输入 TP/PP/DP/CP/EP 和 ZeRO 级别，输出每卡显存与每 step 各类通信量。
 
-### 3. 三个框架：Megatron-LM、DeepSpeed、torchtitan 的架构对比与源码导读
+### 3. 三个框架：Megatron-LM、DeepSpeed 与 torchtitan 的架构对比与源码导读
 
 第三篇进入源码。三个框架实现了第二篇的同一套策略，这一篇看它们各自怎么组织进程组、怎么存放状态、怎么写训练循环。
 
@@ -177,7 +177,7 @@ torchtitan     用 PyTorch 原生原语组合：DTensor、FSDP2、TP、PP、CP �
 
 - **Megatron-LM / Megatron Core**：`megatron/core/parallel_state.py` 如何初始化并管理 TP、PP、DP、CP、EP 各个进程组；`tensor_parallel/layers.py` 与 `mappings.py` 的 column/row-parallel 线性层与通信原语；`pipeline_parallel/schedules.py` 与 `p2p_communication.py` 的调度与点对点通信；`distributed/distributed_data_parallel.py` 与 `param_and_grad_buffer.py` 的梯度 bucket 与重叠；`optimizer/distrib_optimizer.py` 的分布式优化器（Megatron 版的 ZeRO-1）；`megatron/training/training.py` 的训练循环；
 - **DeepSpeed**：`deepspeed/runtime/engine.py` 的 `DeepSpeedEngine` 如何包裹用户模型；`deepspeed/runtime/zero/stage_1_and_2.py` 与 `stage3.py` 的分片实现；`partition_parameters.py` 如何在 Stage 3 下用 hook 在前向前 all-gather 参数、前向后释放；`deepspeed/runtime/pipe/` 的流水线引擎；JSON 配置驱动的设计及其代价；
-- **torchtitan**：`torchtitan/train.py` 与 `trainer.py` 的训练循环；`torchtitan/distributed/parallel_dims.py` 用 `DeviceMesh` 定义多维并行；`fsdp.py`、`tensor_parallel.py`、`pipeline_parallel.py`、`context_parallel/` 各自对 PyTorch 原生 API 的调用；`torchtitan/components/` 里的 checkpointer、optimizer、metrics、data；
+- **torchtitan**：`torchtitan/train.py` 与 `trainer.py` 的训练循环；`torchtitan/distributed/parallel_dims.py` 用 `DeviceMesh` 定义多维并行；`fsdp.py`、`pipeline_parallel.py`、`context_parallel/` 对 PyTorch 原生 API 的调用，以及 v0.3.0 用 `protocols/sharding.py` 的 `ShardingConfig` 与 `models/common/decoder_sharding.py` 描述 TP 切分的新路径；`torchtitan/components/` 里的 checkpoint、optimizer、metrics、dataloader；
 - 三者的共同底座——PyTorch 分布式：`torch/distributed/device_mesh.py` 的 DeviceMesh、`torch/distributed/tensor/` 的 DTensor 及其 `parallel/` 子包（TP 的原生实现）、`torch/distributed/fsdp/_fully_shard/` 的 FSDP2、`torch/distributed/pipelining/` 的 `stage.py` 与 `schedules.py`；
 - 对照阅读：同一个"前向时把分片参数 all-gather 回来"的动作，在 DeepSpeed Stage 3、FSDP1、FSDP2 里分别是怎么实现的，差别在哪；同一个 1F1B 调度在 Megatron 与 `torch.distributed.pipelining` 里的两种写法；
 - 各自的取舍：Megatron 的性能与侵入性（模型必须用它的层写）、DeepSpeed 的易用与调试难度、torchtitan 的清晰与功能覆盖面；以及 Megatron 近年把 FSDP 引入 `megatron/core/distributed/fsdp/` 所反映的趋势。
@@ -243,7 +243,7 @@ torchtitan     用 PyTorch 原生原语组合：DTensor、FSDP2、TP、PP、CP �
 - 重启：`torchrun`（`torch/distributed/run.py`）与 `torch/distributed/elastic/` 的 agent、rendezvous（`elastic/rendezvous/` 下的 c10d 与 etcd 后端）、`--max-restarts`；进程组重建的成本；进程内重启（in-process restart，NVIDIA Resiliency Extension 的 `inprocess` 模块、Megatron 的 `inprocess_restart.py`）如何跳过进程拉起和 CUDA 初始化，把重启时间从分钟压到秒；
 - 弹性训练：卡数变化后怎么继续——torchft 的思路：把 DP 的各个副本组视为可独立失败的单元，用 Lighthouse 做 quorum，一组挂了其余组继续，坏组恢复后从活着的组拉参数；它与 DDP/FSDP/HSDP 的配合；torchtitan 的 `experiments/torchft/`；LocalSGD/DiLoCo 等异步方法在容错语境下的位置；
 - 坏卡隔离：从故障日志到节点的排除列表；`gpu_sniff_test.py` 这类启动前的硬件自检；调度器的配合（本系列只讲引擎侧提出的要求）；
-- straggler：一张慢卡拖慢整个同步训练；成因（降频、HBM 错误纠正、PCIe 降速、CPU 侧数据加载慢、网络链路差）；检测方法（每 rank 的计算时间与通信等待时间对比，Megatron 的 straggler 检测与 NVIDIA Resiliency Extension）；Meta 2025 年关于 straggler 的 what-if 分析论文给出的结论：不少 straggler 不是硬件问题而是数据与调度不均衡；
+- straggler：一张慢卡拖慢整个同步训练；成因（降频、HBM 错误纠正、PCIe 降速、CPU 侧数据加载慢、网络链路差）；检测方法（每 rank 的计算时间与通信等待时间对比，Megatron 的 straggler 检测与 NVIDIA Resiliency Extension）；ByteDance Seed 与 NYU 2025 年（OSDI）关于 straggler 的 what-if 分析论文给出的结论：不少 straggler 不是硬件问题而是数据与调度不均衡；
 - silent data corruption（SDC）：GPU 算错但不报错，损失是错误的梯度污染全部副本；Llama 3 统计中 SDC 占 1.4%；检测方法——冗余计算、Megatron 的 `megatron/core/rerun_state_machine.py` 通过重跑一个 iteration 比对结果来发现不确定性、周期性的确定性校验；`fault_injector.py` 用于演练；
 - 确定性：可复现的训练是所有校验的前提；`torch.use_deterministic_algorithms`、NCCL 的算法选择、数据顺序的可复现。
 
@@ -266,7 +266,7 @@ torchtitan     用 PyTorch 原生原语组合：DTensor、FSDP2、TP、PP、CP �
 - tokenization 与预处理：离线 tokenize 成二进制索引格式（Megatron 的 `megatron/core/datasets/indexed_dataset.py` 及配套的预处理脚本），还是在线 tokenize；两者对 CPU、存储与可复现性的影响；
 - 数据混合：多来源按权重采样（`blended_dataset.py`、`blended_megatron_dataset_builder.py`）；多阶段训练中权重的变化；混合比例如何在 checkpoint 中记录以便恢复；
 - shuffle 与打包：epoch 级 shuffle 索引的生成与保存；文档打包成定长序列，`packed_seq_params.py` 与 cu_seqlens 让注意力不跨文档；序列长度课程（DeepSpeed 的 `data_pipeline/`）；
-- 流式加载：数据在对象存储上时的流式读取（Megatron datasets 的对象存储支持、torchtitan 的 `components/data/` 与 `hf_datasets/`、Hugging Face datasets 的 streaming、MosaicML StreamingDataset）；预取深度、worker 数与 pinned memory；
+- 流式加载：数据在对象存储上时的流式读取（Megatron datasets 的对象存储支持、torchtitan 的 `components/dataloader.py` 与 `hf_datasets/`、Hugging Face datasets 的 streaming、MosaicML StreamingDataset）；预取深度、worker 数与 pinned memory；
 - 可恢复的数据加载器：恢复后必须从精确的位置继续、不重复不遗漏；有状态的 DataLoader 与 checkpoint 中数据位置的记录；多 rank 下的一致性；
 - 数据加载对 MFU 的影响：如何判断是数据在等 GPU 还是 GPU 在等数据。
 
@@ -322,14 +322,14 @@ torchtitan     用 PyTorch 原生原语组合：DTensor、FSDP2、TP、PP、CP �
 第二篇    PyTorch  torch/distributed/fsdp/_fully_shard/ · torch/distributed/tensor/parallel/ · torch/distributed/pipelining/schedules.py
 第三篇    Megatron-LM  megatron/core/parallel_state.py · tensor_parallel/ · pipeline_parallel/ · distributed/ · optimizer/distrib_optimizer.py
           DeepSpeed    deepspeed/runtime/engine.py · zero/stage_1_and_2.py · zero/stage3.py · zero/partition_parameters.py · pipe/
-          torchtitan   torchtitan/train.py · trainer.py · distributed/parallel_dims.py · distributed/{fsdp,tensor_parallel,pipeline_parallel}.py
+          torchtitan   torchtitan/train.py · trainer.py · distributed/parallel_dims.py · distributed/{fsdp,pipeline_parallel}.py · protocols/sharding.py · models/common/decoder_sharding.py
 第四篇    torchtitan  distributed/activation_checkpoint.py · compile.py；PyTorch  torch/utils/checkpoint.py；Megatron-LM  megatron/core/pipeline_parallel/schedules.py
 第五篇    PyTorch  torch/distributed/checkpoint/{state_dict_saver,planner,filesystem,resharding,staging}.py
-          Megatron-LM  megatron/core/dist_checkpointing/ · megatron/training/checkpointing.py；torchtitan  components/checkpointer/
+          Megatron-LM  megatron/core/dist_checkpointing/ · megatron/training/checkpointing.py；torchtitan  components/checkpoint.py · components/checkpointer/
 第六篇    PyTorch  torch/distributed/run.py · torch/distributed/elastic/agent/server/ · elastic/rendezvous/
           torchft  torchft/manager.py · process_group.py；Megatron-LM  megatron/core/rerun_state_machine.py · megatron/training/{ft_integration,inprocess_restart}.py
 第七篇    Megatron-LM  megatron/core/optimizer/clip_grads.py · megatron/core/datasets/{indexed_dataset,blended_dataset,gpt_dataset}.py
-          torchtitan  components/data/；DeepSpeed  deepspeed/runtime/data_pipeline/
+          torchtitan  components/dataloader.py · hf_datasets/；DeepSpeed  deepspeed/runtime/data_pipeline/
 第八篇    PyTorch  torch/distributed/flight_recorder/ · torch/csrc/distributed/c10d/FlightRecorder.hpp
           Megatron-LM  megatron/core/timers.py；torchtitan  components/metrics.py
 ```
@@ -408,11 +408,11 @@ torchtitan     用 PyTorch 原生原语组合：DTensor、FSDP2、TP、PP、CP �
 
 ### 框架与版本基线
 
-- PyTorch 2.x（2.4 及之后；正文源码片段取自 v2.13.0 源码树）；重点使用 FSDP2（`fully_shard`）、DTensor、`torch.distributed.checkpoint`、`torch.distributed.pipelining`、torchrun 与 Flight Recorder；
-- Megatron-LM 以 `main` 分支的 Megatron Core 为准，源码路径以 `megatron/core/` 与 `megatron/training/` 为主；Megatron Core 的模块划分近年相对稳定，但参数名和默认值变化较快，正文随文标注；
-- DeepSpeed 以 `master` 分支为准，源码路径以 `deepspeed/runtime/` 为主；
-- torchtitan 以 `main` 分支为准；它演进很快，目录结构（`torchtitan/distributed/`、`torchtitan/components/`、`torchtitan/experiments/`）以写作时为准；
-- torchft 与 NVIDIA Resiliency Extension 处于快速迭代期，正文只讨论它们的设计而不依赖具体接口；
+- PyTorch **v2.13.0**（2026-07 发布）；重点使用 FSDP2（`fully_shard`）、DTensor、`torch.distributed.checkpoint`、`torch.distributed.pipelining`、torchrun 与 Flight Recorder；
+- Megatron-LM 以 **Megatron Core 0.18.0**（`core_v0.18.0`，2026-06 发布）为准，源码路径以 `megatron/core/` 与 `megatron/training/` 为主；参数名和默认值变化较快，正文随文标注；
+- DeepSpeed 以 **v0.19.2**（2026-06 发布）为准，源码路径以 `deepspeed/runtime/` 为主；
+- torchtitan 以 **v0.3.0** 为准、torchft 以 **v0.2.0** 为准。这两个版本发布于本系列之后（2026-09 与 2026-08）：torchtitan 在系列开始前唯一的 tag 是半年前的 v0.2.2，目录结构已与主线相去甚远；torchft 则没有更早的 tag。因此涉及它们的文章（第三至八篇）在开头带有"更新 @2026-09-06"声明，标明哪一部分按新版本刷新过，其余项目仍以上面的版本为准；
+- NVIDIA Resiliency Extension 以 **v0.6.0**（2026-05 发布）为准；
 - 硬件以 **H100 SXM（80 GB HBM3，BF16 dense 约 989 TFLOPS）** 为默认分析对象，节点内 8 卡 NVLink、节点间 InfiniBand；给出的公开 MFU 与故障数字均注明来源（Megatron-LM 论文、PaLM 论文、Llama 3 论文），实测会因集群与版本而异。
 
 ### 关于"千卡"
@@ -423,11 +423,11 @@ torchtitan     用 PyTorch 原生原语组合：DTensor、FSDP2、TP、PP、CP �
 ## 章节目录
 
 1. [训练任务的状态解剖：显存账与 MFU](/training-state-anatomy-memory-and-mfu.html)
-2. [并行策略全景：每种并行切的是哪种状态](/parallelism-landscape-dp-tp-pp-cp-ep.html)
-3. [三个框架：Megatron-LM、DeepSpeed、torchtitan 的架构对比与源码导读](/megatron-deepspeed-torchtitan-architecture.html)
+2. [并行策略全景：每种并行切的是哪种状态](/parallelism-strategies-which-state-to-shard.html)
+3. [三个框架：Megatron-LM、DeepSpeed 与 torchtitan 的架构对比与源码导读](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html)
 4. [千卡配置实战：并行搭配、micro-batch、激活重计算与 MFU 调优](/thousand-gpu-configuration-and-mfu-tuning.html)
-5. [分布式 checkpoint：格式、异步保存与重分片恢复](/distributed-checkpointing-async-save-and-resharding.html)
-6. [容错与弹性：故障率数学、straggler、SDC 与弹性训练](/fault-tolerance-elasticity-stragglers-and-sdc.html)
+5. [分布式 checkpoint：格式、异步保存与重分片恢复](/distributed-checkpoint-format-async-save-and-resharding.html)
+6. [容错与弹性：故障率数学、straggler、SDC 与弹性训练](/fault-tolerance-and-elastic-training.html)
 7. [训练稳定性与数据管线：loss spike、梯度范数、数据混合与流式加载](/training-stability-and-data-pipeline.html)
 8. [长时训练的可观测与运维：从指标到 hang 排查](/long-running-training-observability-and-operations.html)
 

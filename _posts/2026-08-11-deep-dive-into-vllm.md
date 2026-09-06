@@ -313,7 +313,7 @@ PD 分离并不是简单地把两个阶段部署到不同机器上。它重新�
 
 - 写过 CUDA kernel 或 Triton——FlashAttention、PagedAttention、量化 kernel 的实现属于[《GPU Kernel 工程》](/gpu-kernel-engineering.html)，本系列只讨论 vLLM 如何选择和调用它们；
 - 了解 NCCL 内部或集合通信算法——多卡章节会用到 all-reduce / all-to-all 的代价结论，原理见[《通信与互联》](/communication-and-interconnect-for-ai-infra.html)；
-- 有分布式训练经验——TP / PP / EP 的推导在[《大规模训练工程》](/large-scale-training-engineering.html)，本系列关注它们在推理中的取舍与 vLLM 的实现。
+- 有分布式训练经验——TP / PP / EP 的推导在[《大规模训练工程》](/large-scale-training-from-parallelism-to-fault-tolerance.html)，本系列关注它们在推理中的取舍与 vLLM 的实现。
 
 ### 版本与硬件基线
 

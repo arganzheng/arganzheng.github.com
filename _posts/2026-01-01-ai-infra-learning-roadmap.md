@@ -138,7 +138,7 @@ Ray Data · 清洗 · 去重`"]
 | | | 04 | Transformer 与 LLM：结构、算量与数值 |
 | | | 05 | GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention |
 | L3 | 通信与互联 | 06 | 通信与互联：从 NCCL 到 RDMA |
-| L4 | 引擎 | 07 | 大规模训练工程：从 Megatron 到容错 |
+| L4 | 引擎 | 07 | 大规模训练工程：从并行策略到容错恢复 |
 | | | 08 | 大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术 |
 | L5 | 平台 | 09 | AI 平台工程：资源层与交付层 |
 | 横切 | 方法 | 10 | AI-Infra 开源贡献指南 |
@@ -230,7 +230,7 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 引擎是把模型、kernel、通信组织成一个持续运行的系统。训练引擎围绕**状态**（参数、梯度、优化器状态、激活值）组织，推理引擎围绕**请求**（调度、KV cache、token 生成）组织。两者共享底层，但问题形态完全不同。
 
-#### 07 大规模训练工程：从 Megatron 到容错
+#### 07 大规模训练工程：从并行策略到容错恢复
 
 > **一个千卡训练任务，怎么配、怎么跑满、怎么跑一个月不倒？**
 
@@ -350,7 +350,7 @@ graph LR
 | 04 | [Transformer 与 LLM：结构、算量与数值](/transformer-and-llm-for-infra-engineers.html) | L2 | 7 |
 | 05 | [GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention](/gpu-kernel-engineering.html) | L2 | 10 |
 | 06 | [通信与互联：从 NCCL 到 RDMA](/communication-and-interconnect-for-ai-infra.html) | L3 | 7 |
-| 07 | [大规模训练工程：从 Megatron 到容错](/large-scale-training-engineering.html) | L4 | 8 |
+| 07 | [大规模训练工程：从并行策略到容错恢复](/large-scale-training-from-parallelism-to-fault-tolerance.html) | L4 | 8 |
 | 08 | [大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术](/deep-dive-into-vllm.html) | L4 | 12 |
 | 09 | [AI 平台工程：资源层与交付层](/ai-platform-engineering.html) | L5 | 8 |
 | 10 | [AI-Infra 开源贡献指南](/contributing-to-ai-infra-open-source.html) | 横切 | 4 |

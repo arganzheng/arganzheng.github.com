@@ -72,7 +72,17 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   (e.g. "NCCL 2.28.9", "PyTorch 2.12", "vLLM v0.23.0"), never "近期主线" or a
   local checkout. Pinned checkouts used so far live next to this repo:
   `../nccl` (v2.28.9-1), `../nccl-tests` (v2.18.3), `../pytorch-v2.12.0`,
-  `../vllm-v0.23.0` (git worktrees of `../pytorch` / `../vllm`).
+  `../vllm-v0.23.0` (git worktrees of `../pytorch` / `../vllm`); series 7 adds
+  `../pytorch-v2.13.0`, `../Megatron-LM` (core_v0.18.0), `../DeepSpeed`
+  (v0.19.2), `../torchtitan` (v0.3.0), `../torchft` (v0.2.0),
+  `../nvidia-resiliency-ext` (v0.6.0).
+- **Update-note exception:** when no usable version predates the post (no tag,
+  or the only tag is months stale), a post may cite a newer version *if* it
+  carries a note right after the series-nav quote:
+  `> **更新 @YYYY-MM-DD**：本文 X 部分基于 vA 刷新；其余源码引用仍以 … 为准。`
+  Use it sparingly, list only the projects actually refreshed, and keep one
+  version set per project per post — refreshing means re-verifying every claim
+  about that project, never mixing two versions in one article.
 - Cite source as path + function/class name, never line numbers.
 - Length is not a target; rigor and organisation are. Structure: nav quote →
   intro with the post's core question → `## 一、总览` (ending with 本文的章节安排)
