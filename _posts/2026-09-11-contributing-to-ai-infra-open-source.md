@@ -29,7 +29,7 @@ catalog: true
 ```text
 环节            PyTorch                                     vLLM
 贡献文档        CONTRIBUTING.md（技术）+ GitHub wiki（流程）   docs/contributing/README.md + AGENTS.md
-大改动的入口    pytorch/rfcs 仓库                            [RFC] issue 模板；>500 行无 RFC 会被标 rfc-required
+大改动的入口    pytorch/rfcs 仓库                            [RFC] issue 模板；文档要求 >500 行的架构改动先有 RFC
 本地检查        lintrunner（.lintrunner.toml），spin lint      pre-commit（.pre-commit-config.yaml）
 PR 描述         三种模板；修 issue 必须写 Fixes #              Purpose / Test Plan / Test Result；标题带 [Kernel] 等前缀
 签名            CLA                                          DCO，每个 commit 带 Signed-off-by
@@ -63,7 +63,7 @@ PyTorch 的源码树有几百万行，`test/` 目录下有两百多个条目；v
 
 ### 每个项目的规则都在变，但变化有规律
 
-近两年这些项目的贡献规则变化很快，最显著的是对 AI 辅助贡献的态度。PyTorch 的 `CONTRIBUTING.md` 新增了 "AI-Assisted Development" 一节，要求新贡献者的 PR 必须对应一个带 `actionable` 标签的 issue；vLLM 在仓库根目录放了 `AGENTS.md`，明确"纯 agent PR 不允许"、"违反可能被自动封禁"。同时 CI 也在变：vLLM 的 `.buildkite/test-pipeline.yaml` 在 2026 年初被拆分成 `.buildkite/test_areas/` 下按领域组织的多个文件；PyTorch 在 `lintrunner` 之上加了 `spin lint` / `spin fixlint` 这层包装，PR 模板的 checklist 里写的已经是后者。
+近两年这些项目的贡献规则变化很快，最显著的是对 AI 辅助贡献的态度。PyTorch 在仓库根目录新增了 `AI_POLICY.md`（`CONTRIBUTING.md` 的 "AI-Assisted Development" 一节指向它），要求新贡献者的 PR 必须对应一个带 `actionable` 标签的 issue；vLLM 在仓库根目录放了 `AGENTS.md`，明确"纯 agent PR 不允许"、"违反可能被自动封禁"。同时 CI 也在变：vLLM 的 `.buildkite/test-pipeline.yaml` 在 2026 年初被拆分成 `.buildkite/test_areas/` 下按领域组织的多个文件；PyTorch 在 `lintrunner` 之上加了 `spin lint` / `spin fixlint` 这层包装，PR 模板的 checklist 里写的已经是后者。
 
 细节会继续变，但背后的逻辑稳定：maintainer 的 review 时间是项目最稀缺的资源，所有规则都是为了保护它。理解了这一点，就能在规则变化后自己推导出新的做法。本系列讲规则，更讲规则背后的逻辑。
 
@@ -152,12 +152,12 @@ PyTorch 的源码树有几百万行，`test/` 目录下有两百多个条目；v
 这一篇会覆盖：
 
 - issue 标签体系：vLLM 的 `good first issue` 与 `new-model` 标签、`docs/contributing/README.md` 里的 "Job Board" 与 onboarding 任务看板；PyTorch 以 `module:` 前缀的模块标签（`.github/labeler.yml`、`label_to_label.yml` 定义了自动打标规则）、`actionable` 标签的含义；标签是 maintainer 表达"我们想要什么"的主要渠道；
-- RFC 与 roadmap：PyTorch 的大改动走 `pytorch/rfcs` 仓库，vLLM 用 `.github/ISSUE_TEMPLATE/750-RFC.yml` 模板（Motivation、Proposed Change、Feedback Period 通常至少一周、CC List），超过 500 行的架构改动没有 RFC 会被打上 `rfc-required`；roadmap issue 是找"maintainer 想做但没人手"的工作的地方；
+- RFC 与 roadmap：PyTorch 的大改动走 `pytorch/rfcs` 仓库，vLLM 用 `.github/ISSUE_TEMPLATE/750-RFC.yml` 模板（Motivation、Proposed Change、Feedback Period 通常至少一周、CC List），超过 500 行的架构改动要求先有 RFC（`docs/contributing/README.md` 提到会打 `rfc-required` 标签，但截至 2026-09 该标签并不在仓库标签列表中——文档与实践不同步是这类项目的常态，正文会讨论怎么对待）；roadmap issue 是找"maintainer 想做但没人手"的工作的地方；
 - CI 失败：vLLM 的 `docs/contributing/ci/failures.md` 描述了 CI 失败看板和 `[CI Failure]` issue 模板；PyTorch 的 HUD 显示 main 上哪些任务在红；修一个已知的 flaky test 是低风险、高感谢度的切入点；
 - 性能回归：vLLM 的 `700-performance-discussion.yml` issue 模板与 `benchmarks/` 目录；PyTorch 的 `benchmarks/` 下按子系统组织的 benchmark 套件；一个带复现脚本和数字的回归报告本身就是贡献；
 - 文档与类型缺口：过时的 docstring、缺失的类型标注、和实际行为不一致的说明；这类改动门槛低，但两个项目现在都明确不欢迎"单个 typo"式的一次性 PR，要成规模、成体系地做；
 - "别人不愿做但有价值"的工作：补测试覆盖、给旧代码加 deprecation warning（vLLM 有 `docs/contributing/deprecation_policy.md`）、把 issue 里的复现整理成测试用例、对硬件适配路径做验证；
-- 先讨论再动手：在 issue 里留言说明意图和方案概要，等 maintainer 回应；PyTorch 明确"没有办法认领 issue"、"新功能的门槛很高"，vLLM 要求大改动先有 RFC；
+- 先讨论再动手：在 issue 里留言说明意图和方案概要，等 maintainer 回应；PyTorch 没有"认领" issue 的机制（assignee 由 maintainer 设置）、新功能的门槛很高，vLLM 要求大改动先有 RFC；
 - 查重：动手前用 `gh issue view --comments` 和 `gh pr list --search` 检查有没有人在做同一件事，vLLM 的 `AGENTS.md` 把这一步列为强制项。
 
 核心问题是：
@@ -172,18 +172,18 @@ PyTorch 的源码树有几百万行，`test/` 目录下有两百多个条目；v
 
 这一篇会覆盖：
 
-- 最小 diff：一个 PR 只做一件事，不顺手重构、不顺手格式化无关文件；PyTorch 的贡献文档把"PR 太长"和"改了无关代码"列为最常见的错误；大改动怎么拆成可独立合入的小块，PyTorch 的 `ghstack` 工作流如何支持一叠相互依赖的 PR；
+- 最小 diff：一个 PR 只做一件事，不顺手重构、不顺手格式化无关文件；PyTorch 的 CI 用 `pr-sanity-check.sh` 对超过 2000 行的 PR 直接报错（需 `skip-pr-sanity-checks` 标签才能绕过），wiki 也把"PR 太长"和"改了无关代码"列为最常见的错误；大改动怎么拆成可独立合入的小块，PyTorch 的 `ghstack` 工作流如何支持一叠相互依赖的 PR；
 - 测试：改动必须带测试，或者说明为什么不能测；PyTorch 用 `torch/testing/_internal/common_utils.py` 的 `TestCase` 与 `run_tests`，数值测试用 `instantiate_device_type_tests` 做成设备无关；vLLM 用 pytest，`AGENTS.md` 给出的原则是"先设计再写、复用已有测试文件、一个测试一个行为、不在 `tests/` 里放一次性 kernel benchmark"；
-- benchmark 数据：性能改动必须附数字——前后对比、测量方法、硬件、shape；vLLM 的 kernel benchmark 放 `benchmarks/kernels/`，端到端用 `benchmark_serving.py`、`benchmark_throughput.py`、`benchmark_latency.py`；PyTorch 的 PR 模板把"性能相关 PR 附 benchmark 结果"列入 checklist；
+- benchmark 数据：性能改动必须附数字——前后对比、测量方法、硬件、shape；vLLM 的 kernel benchmark 放 `benchmarks/kernels/`，端到端用 `vllm bench serve|throughput|latency`（旧的 `benchmarks/benchmark_*.py` 在 v0.28.0 里只剩打印弃用提示的桩）；PyTorch 的 PR 模板把"性能相关 PR 附 benchmark 结果"列入 checklist；
 - 本地 lint：PyTorch 的 `.lintrunner.toml` 定义了数十个 linter（FLAKE8、CLANGFORMAT、CLANGTIDY、RUFF、CODESPELL 等），用 `spin lint` / `spin fixlint` 运行；vLLM 用 `pre-commit`（ruff、clang-format、typos、markdownlint、mypy 多版本、signoff 检查等），`pre-commit install` 后每次 commit 自动跑；lint 不过 CI 根本不会往下走；
 - PR 描述规范：vLLM 的 PR 模板要求 Purpose、Test Plan、Test Result 三段，标题必须带 `[Bugfix]`、`[Kernel]`、`[Core]`、`[Model]`、`[Doc]` 等前缀；PyTorch 的 `.github/PULL_REQUEST_TEMPLATE/` 下有三个模板（修 issue、文档/typo、预先批准），修 issue 的 PR 必须写 `Fixes #`，"没有关联 issue 的 PR 可能被自动关闭"，描述"过于冗长会被视为 spam"；
 - DCO 与签名：vLLM 要求每个 commit 带 `Signed-off-by`（`git commit -s`），`pre-commit` 的 `signoff-commit` 钩子和 `mergify` 都会检查；PyTorch 走 CLA；
 - CI 矩阵：PyTorch 的 `.github/workflows/` 下有一百多个 workflow，`pull.yml` 在每个 PR 上跑，`trunk.yml`、`periodic.yml`、`slow.yml`、`inductor.yml` 在 main 上、按周期或按标签触发，`ciflow/` 标签（`.github/pytorch-probot.yml` 列出）用来手动拉起某一组任务；vLLM 用 Buildkite，`.buildkite/test_areas/*.yaml` 按领域定义任务，每个任务声明 `source_file_dependencies` 决定改了哪些文件才触发、在什么 GPU 上跑；vLLM 的 CI 不会自动为每个 commit 全跑，需要 reviewer 或 `ready` 标签之后用 `/ci run`；
 - 读 CI 日志：怎么区分自己引入的失败和 main 上已有的失败；PyTorch 的 `CONTRIBUTING.md` 有 "CI failure tips" 一节；vLLM 的 CI 失败看板；
-- review 往返：vLLM 承诺 reviewer 每 2–3 天给状态、7 天没动可以 ping，改动要求用 `action-required` 标签表示；PyTorch 由 triage 团队打模块标签并分配 reviewer，4 个工作日没回应可以留言催；怎么回复 review 意见、什么时候争辩、什么时候照做；
+- review 往返：vLLM 承诺 reviewer 每 2–3 天给状态、7 天没动可以 ping（文档提到的 `action-required` 标签同样不在当前标签列表中）；PyTorch 由 triage 团队打模块标签并分配 reviewer，4 个工作日没回应可以留言催；怎么回复 review 意见、什么时候争辩、什么时候照做；
 - merge 机制：PyTorch 由 `@pytorchbot merge` 触发，`.github/merge_rules.yaml` 按文件路径规定谁有权批准、哪些 check 必须过；vLLM 由有权限的 maintainer 打 `ready` 标签并合入，`.github/mergify.yml` 处理自动 rebase 和 `needs-rebase`；
 - 被拒后怎么办：区分"方向不对"、"时机不对"、"做法不对"三种拒绝；哪些可以改了再提，哪些应该放弃；
-- AI 辅助贡献的项目政策：PyTorch 要求"你对你发出的每一行负责"、新贡献者的 PR 必须有 `actionable` issue、新功能 issue 里不要放 AI 生成的方案；vLLM 要求人类提交者审过每一行、PR 描述里声明使用了 AI、commit 加 `Co-authored-by` trailer、说明为什么不与已有 PR 重复、附测试命令与结果，并明确"纯 agent PR 不允许"。
+- AI 辅助贡献的项目政策：PyTorch 的 `AI_POLICY.md` 要求"你对你发出的每一行负责"、新贡献者的 PR 必须有 `actionable` issue、新功能 issue 里不要放 AI 生成的方案；vLLM 要求人类提交者审过每一行、PR 描述里声明使用了 AI、commit 加 `Co-authored-by` trailer、说明为什么不与已有 PR 重复、附测试命令与结果，并明确"纯 agent PR 不允许"。
 
 核心问题是：
 
@@ -234,14 +234,14 @@ PyTorch 的源码树有几百万行，`test/` 目录下有两百多个条目；v
 
 到第三篇结束，读者应该有一个真实提交到 PyTorch 或 vLLM 的 PR；到第四篇结束，应该有一份能给团队里下一个人看的复盘。日志本身不追求好看，只要求每一项都有出处：一个链接、一条命令、一段日志。
 
-与它平行的是文档阅读线。每篇会带读者读两个项目里对应环节的真实文件，路径以本系列写作时的源码树为准：
+与它平行的是文档阅读线。每篇会带读者读两个项目里对应环节的真实文件，路径以 PyTorch v2.14.0 与 vLLM v0.28.0 的源码树为准：
 
 ```text
 第一篇    PyTorch  CONTRIBUTING.md（Codebase structure 一节）· docs/source/community/（contribution_guide.md 已标注 deprecated、指向 wiki；governance.md · persons_of_interest.md）· test/ 与 torch/testing/_internal/ 的组织 · RELEASE.md
           vLLM     docs/contributing/README.md · docs/contributing/incremental_build.md · tests/ 的组织 · RELEASE.md
 第二篇    PyTorch  .github/labeler.yml · .github/label_to_label.yml · .github/ISSUE_TEMPLATE/ · pytorch/rfcs 仓库 · benchmarks/
           vLLM     .github/ISSUE_TEMPLATE/（750-RFC.yml · 450-ci-failure.yml · 700-performance-discussion.yml）· docs/contributing/ci/failures.md · docs/contributing/deprecation_policy.md
-第三篇    PyTorch  CONTRIBUTING.md（AI-Assisted Development · Unit testing · Merging your Change · CI failure tips）· .lintrunner.toml · .github/PULL_REQUEST_TEMPLATE/ · .github/workflows/{pull,trunk,lint,periodic}.yml · .github/pytorch-probot.yml · .github/merge_rules.yaml
+第三篇    PyTorch  CONTRIBUTING.md（AI-Assisted Development · Unit testing · Merging your Change · CI failure tips）· AI_POLICY.md· .lintrunner.toml · .github/PULL_REQUEST_TEMPLATE/ · .github/workflows/{pull,trunk,lint,periodic}.yml · .github/pytorch-probot.yml · .github/merge_rules.yaml
           vLLM     docs/contributing/README.md（DCO · AI Assisted Contributions · PR Title · Reviews）· AGENTS.md · .pre-commit-config.yaml · .github/PULL_REQUEST_TEMPLATE.md · .buildkite/test_areas/ · .buildkite/ci_config.yaml · .github/mergify.yml
 第四篇    两个 PR 各自触及的源码、测试、benchmark 文件，以及 PR 页面上的 CI 与 review 记录
 ```
@@ -311,8 +311,9 @@ PyTorch 的源码树有几百万行，`test/` 目录下有两百多个条目；v
 
 ### 项目与版本基线
 
-- PyTorch 以 **2.x 主线**为准，正文引用的文件路径与政策表述取自 v2.13.0 附近的源码树；
-- vLLM 以 **0.x 主线**为准，正文引用取自 v0.27 附近的源码树；
+- PyTorch 以 **v2.14.0**（2026-09-02 发布）为准，正文引用的文件路径与政策表述均取自该版本源码树；
+- vLLM 以 **v0.28.0**（2026-08-26 发布）为准，正文引用取自该版本源码树；
+- GitHub 上的动态信息（标签、issue、PR 的 review 记录）以 2026-09 初用 `gh` 查询到的为准，正文随文注明查询日期；
 - 贡献规则比源码变化更快。以下几处在写作时正在演化，正文会随文标注：PyTorch 对 AI 辅助贡献与 `actionable` issue 的要求、`spin` 对 `lintrunner` 的包装；vLLM 的 `AGENTS.md`、Buildkite 配置从单文件迁移到 `.buildkite/test_areas/`、CI 触发方式（`/ci run`）与 PR 数量上限。读者动手前应以目标项目当时的 `CONTRIBUTING.md`、`docs/contributing/`、PR 模板为准，本系列教的是如何读懂它们，而不是替代它们；
 - 第四篇选取的两个 PR 在正文中会给出编号与链接；总纲不预先指定，以便在写作时选择当时最有代表性的样本。
 

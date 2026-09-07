@@ -3,7 +3,7 @@ layout: slides
 title: "Java程序员的Python课"
 subtitle: "用 Java 思维快速理解 Python 的关键差异"
 permalink: /slides/java-programmer-python-course.html
-date: 2026-08-23
+date: 2026-01-23
 author: arganzheng
 theme: white
 transition: slide

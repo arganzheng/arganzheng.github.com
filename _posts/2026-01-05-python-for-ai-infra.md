@@ -218,7 +218,7 @@ Java 工程师在这里会遇到最大的落差：
 | Maven 内建依赖解析 | 文件本身不含解析器，工具需自选 |
 | classpath 天然隔离 | 同解释器下一个包只能有一个版本 |
 | 编译器强制类型检查 | mypy 是可选外挂，需自己装进 CI |
-| Spring 定义项目结构 | **没有等价物**，规范需自己立 |
+| Maven 定义项目结构（CoC）| **没有等价物**，规范需自己立 |
 | jar 自包含、平台无关 | wheel 不含解释器，且常绑定平台与 CUDA 版本 |
 
 这一篇覆盖 `pyproject.toml`、虚拟环境、依赖锁定与可复现构建、**AI-Infra 特有的依赖难题**（`torch==2.4.0+cu121` 的本地版本标识、`--index-url` 与 `--extra-index-url` 的区别、CUDA driver/runtime/wheel 三层兼容矩阵）、Ruff 与 pre-commit、打包分发、容器化交付，最后给出一个可直接用的项目骨架。
