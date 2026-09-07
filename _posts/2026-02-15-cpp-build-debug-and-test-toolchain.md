@@ -2006,7 +2006,7 @@ TEST(
 
 `given_when_then` 命名，**每个测试一条断言**——"移动赋值后新指针指向原对象"和"移动赋值后旧指针失效"是两个测试。粒度细到这种程度的好处是失败时测试名就是 bug 描述。注意第三个：`obj1 = std::move(obj1)` 自我移动赋值——标准库对此不做保证，但 `intrusive_ptr` 保证了（因为 copy-and-swap），这个测试锁定了这个保证。`NOLINTNEXTLINE(bugprone-use-after-move)` 精确地压制了 10.3 节那条检查。
 
-**引用计数与析构时序**（第二篇 10.6 节 mini-c10 手工打印的那些事，这里变成了断言）：
+**引用计数与析构时序**（第二篇 11.5 节 mini-c10 手工打印的那些事，这里变成了断言）：
 
 ```cpp
 TEST(IntrusivePtrTest, givenNewPtr_thenHasUseCount1) {
@@ -2028,7 +2028,7 @@ TEST(IntrusivePtrTest, givenPtr_whenDestructed_thenDestructsObject) {
 }
 ```
 
-**`release`/`reclaim` 的所有权转移**（第二篇 8.6 节；第七篇 Python 绑定依赖它）：
+**`release`/`reclaim` 的所有权转移**（第二篇 9.7 节；第七篇 Python 绑定依赖它）：
 
 ```cpp
 TEST(

@@ -1250,7 +1250,7 @@ static int THPVariable_traverse(PyObject* self, visitproc visit, void* arg) {
 ///     visited and cleared as well if they contain any PyObject.
 ```
 
-以及一个诚实的告诫：为了性能不会遍历整个 autograd 图，所以"用户可以制造出无法回收的环"（issue 7343）。这类环的表现是显存不释放，第二篇 9.9 节排查清单里"autograd 保存"那一项的深层原因之一就在这里。
+以及一个诚实的告诫：为了性能不会遍历整个 autograd 图，所以"用户可以制造出无法回收的环"（issue 7343）。这类环的表现是显存不释放，第二篇 10.10 节排查清单里"autograd 保存"那一项的深层原因之一就在这里。
 
 Java 对照：JVM 的 GC 是全局可达性分析，跨 JNI 的引用只要注册成 global ref 就是根，不存在"C++ 对象持有 Java 对象导致的不可收集环"——代价是 C++ 侧持有 Java 对象**永远**阻止它被回收，需要显式删除。CPython 的引用计数 + 环检测则要求 C++ 侧配合报告；报告得对就能回收环，报告错就出 bug。两边的取舍不同，但"C++ 持有的托管对象要专门处理"这一点相同。
 

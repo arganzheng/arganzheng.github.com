@@ -26,7 +26,7 @@ AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "log_sigmoid_cpu", [&] {
 
 一个 Java 工程师读到这里，会在第一行就停住。`AT_DISPATCH_FLOATING_TYPES` 全大写，显然是宏，但它接受一个 lambda，看起来又像函数；`scalar_t` 在整段代码里被当成一个类型来用——声明指针、构造 `Vec`、做 `static_cast`——可是它没有在任何地方被声明，也没有 `#include` 进来。往上翻整个文件，找不到 `typedef` 或 `using scalar_t`。它是从哪里来的？
 
-第二个疑问跟着来：`input.data_ptr<scalar_t>()` 的 `<>`。Java 泛型也用尖括号，但 Java 里没有"按类型参数返回不同的裸指针"这种事；`List<Integer>` 和 `List<String>` 在 JVM 里是同一个类，方法体只有一份字节码。而这里，`data_ptr<float>()` 和 `data_ptr<double>()` 显然要返回不同类型、做不同的事。如果 `scalar_t` 是某种"运行时才知道"的类型，这段代码是怎么编译的？
+第二个疑问跟着来：`input.data_ptr<scalar_t>()` 的 `<>`。宏名里的 FLOATING_TYPES 提示了 `scalar_t` 大概是什么：这个 kernel 要同时支持 `float` 和 `double` 两种 dtype，`scalar_t` 应该就是"当前这次调用的元素类型"的占位符。可是 `input.scalar_type()` 是一个**运行期**才知道的值——tensor 是 `float32` 还是 `float64`，要等到程序跑起来、看到具体的 tensor 才能确定。那么 `data_ptr<scalar_t>()` 到底是什么？Java 泛型也用尖括号，但 Java 里 `List<Integer>` 和 `List<String>` 在 JVM 里是同一个类，方法体只有一份字节码，类型参数在编译后就被擦除了；如果 `data_ptr<T>()` 也是这样，它就不可能对 `float` tensor 返回 `float*`、对 `double` tensor 返回 `double*`——这两种返回值大小不同、算术不同，不可能由一份代码完成。所以 `scalar_t` 既不能是运行期的值，也不能是被擦除的泛型参数。它究竟是什么，这段代码又是怎么编译的？
 
 第三个疑问：`[&]`。它捕获了什么？`output`、`buffer`、`input` 都是外层函数的局部变量，用引用捕获它们安全吗？内层的 `parallel_for` 又用了一次 `[&]`，那是多线程执行的，为什么不用担心？
 
@@ -1464,7 +1464,7 @@ TORCH_API void invoke_parallel(int64_t begin, int64_t end, int64_t grain_size,
 
 ### 5. 引用捕获的生命周期陷阱
 
-`[&]` 生成的是引用成员。如果闭包对象活得比被引用的变量久，调用时就是悬垂引用——第二篇 3.5 节的问题在 lambda 上的形态。典型错误：
+`[&]` 生成的是引用成员。如果闭包对象活得比被引用的变量久，调用时就是悬垂引用——第二篇 4.5 节的问题在 lambda 上的形态。典型错误：
 
 ```cpp
 std::function<void()> make_task(const Tensor& x) {
