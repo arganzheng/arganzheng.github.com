@@ -191,7 +191,7 @@ AI-Infra 项目如果要编译 CUDA kernel，基本都是 `scikit-build-core` �
 where = ["src"]
 ```
 
-> src 布局的原理和它与 `import` 机制的关系，见[《Python 语言机制与运行时原理》](/python-language-mechanisms-and-runtime-internals.html)的"`sys.path`、src 布局与 editable 安装"一节。
+> src 布局的原理和它与 `import` 机制的关系，见[《Python 语言机制与运行时原理》](/python-language-mechanisms-and-runtime-internals.html)的"项目布局、测试与 editable 安装"一节。
 
 ### 5. 工具配置的聚合
 
@@ -824,7 +824,7 @@ ignore = [
 - `ASYNC` 能查出在协程里调用阻塞函数（`time.sleep`、同步 `requests`）这类问题——这正是[篇三](/python-concurrency-asynchrony-and-task-collaboration.html)讲的事件循环阻塞陷阱，Ruff 可以在 CI 里自动拦住一部分；
 - `B008`（函数默认值里调用函数）、`B023`（闭包里的循环变量延迟绑定）都是 Python 特有的陷阱，靠 review 很难每次都发现。
 
-`__init__.py` 那条 per-file-ignore 值得解释：`F401` 是"导入了但没使用"，但 `__init__.py` 里的导入往往是故意做**重导出**（对外暴露 API），并非无用。更规范的做法是配合 `__all__` 声明——见[篇一](/python-language-mechanisms-and-runtime-internals.html)的"声明公共 API：`__all__`"。
+`__init__.py` 那条 per-file-ignore 值得解释：`F401` 是"导入了但没使用"，但 `__init__.py` 里的导入往往是故意做**重导出**（对外暴露 API），并非无用。更规范的做法是配合 `__all__` 声明——见[篇一](/python-language-mechanisms-and-runtime-internals.html)的"模块是对象，包是带 `__path__` 的模块"一节。
 
 ### 2. 渐进式引入与 noqa 的边界
 
