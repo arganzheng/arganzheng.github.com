@@ -75,7 +75,15 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   `../vllm-v0.23.0` (git worktrees of `../pytorch` / `../vllm`); series 7 adds
   `../pytorch-v2.13.0`, `../Megatron-LM` (core_v0.18.0), `../DeepSpeed`
   (v0.19.2), `../torchtitan` (v0.3.0), `../torchft` (v0.2.0),
-  `../nvidia-resiliency-ext` (v0.6.0).
+  `../nvidia-resiliency-ext` (v0.6.0); series 6 (MoE post) adds `../DeepEP`
+  (v1.2.1); series 8 uses `../vllm-v0.27.1`; series 10 uses
+  `../pytorch-v2.14.0` and `../vllm-v0.28.0`. Series 2 pins PyTorch v2.10.0 /
+  vLLM v0.15.0 and series 5 pins vLLM v0.20.0 but have no local worktree —
+  add one (`git -C ../vllm worktree add ../vllm-v0.20.0 v0.20.0`) before
+  re-verifying their source citations.
+- **Series-nav quote** is the first line after front matter:
+  `> 本文是[《系列名》](/overview.html)系列的第 N 篇（共X篇）。上一篇：[…](/slug.html)；下一篇：[…](/slug.html)`
+  (Arabic N, Chinese total; first post has no 上一篇, last has no 下一篇).
 - **Update-note exception:** when no usable version predates the post (no tag,
   or the only tag is months stale), a post may cite a newer version *if* it
   carries a note right after the series-nav quote:

@@ -14,12 +14,33 @@ catalog: true
 
 > **一个序列长度 4k、head dim 128 的 attention，标准实现和 FlashAttention 分别读写多少 HBM？decode 阶段每生成一个 token 要读多少 KV cache，这决定了什么？**
 
+
+## 一、总览
+
+### 1. 方法论与硬件基线
+
 全文遵循同一个方法论：先算理论上应该多快（字节数 / FLOPs / Roofline），再看实现，再解释差距。硬件基线仍然是 A100 SXM 80GB 的公开标称值：HBM2e 约 2.0 TB/s，BF16 Tensor Core 约 312 TFLOPS（dense），ridge point 约 156 FLOP/byte；Hopper 相关内容随文标注 H100（约 3.35 TB/s、约 989 TFLOPS、ridge 约 295）。没有 GPU 可供实测，所有性能数字要么是可推导的理论下界，要么用"通常能达到"的量级区间给出。
+
+### 2. 本文的边界
 
 本篇不讨论 KV cache 的分页**管理**（block 的分配、换入换出、prefix 共享属于推理引擎调度层），只讨论分页之后 kernel 如何**访问**它。
 
+### 3. 本文的章节安排
 
-## 一、先算账：标准 attention 读写多少 HBM
+```text
+第二章  先算账                       记号与两个需要重述的结论、标准实现物化 S 与 P 的 HBM 流量
+第三章  FlashAttention               分块、每个 tile 做什么、O(N²d²/M) 的 HBM 流量、FA 不省 FLOPs 甚至略多
+第四章  FlashAttention-2 与 -3        并行化与 warp 分工、Hopper only 的 FA3、反向传播的 recompute、源码结构
+第五章  推理的两种形态                prefill 由 GEMM 主导、decode 每 token 读全部 KV、GQA 在 kernel 层的含义
+第六章  PagedAttention               block table 间接寻址、vLLM 的 paged_attention_v1、v2 的 partition 就是 split-KV
+第七章  变长 batch、因果掩码与 sliding window   cu_seqlens 的 packed 布局、因果掩码在分块中的处理、sliding window
+第八章  Triton 版与 CUDA 版的结构对照   tutorial 06 的结构、完整 Triton FA 前向（因果 + GQA）、正确性与性能对照、triton_unified_attention、CUDA 核心循环骨架
+第九章  后端生态与 vLLM 的选择        FA2/3、FlashInfer、xFormers、cuDNN、Triton、SDPA 各自的位置与 vLLM 的选择逻辑
+第十章  本文小结
+```
+
+
+## 二、先算账：标准 attention 读写多少 HBM
 
 ### 1. 记号与两个需要重述的结论
 
@@ -69,7 +90,7 @@ $$
 这就是 FlashAttention 要解决的问题：**不是 FLOPs 太多，而是一个 $$N \times N$$ 的中间结果不该被写出去。**
 
 
-## 二、FlashAttention：分块 + online softmax + 不物化 S
+## 三、FlashAttention：分块 + online softmax + 不物化 S
 
 ### 1. 分块
 
@@ -132,7 +153,7 @@ FlashAttention 的 FLOPs 比标准实现**略多**：每个 tile 多了 $$B_r \t
 还有一件容易被忽略的事：$$N^2$$ 次 exp。Tensor Core 极快而 SFU（special function unit，做 exp、rsqrt 等）很慢。A100 每 SM 每周期能做 1024 次 dense BF16 FMA（Tensor Core），但 SFU 只有 16 次/周期。每个 $$S$$ 元素对应 $$4d = 512$$ FLOP = 256 次 FMA，用 Tensor Core 需要 $$256/1024 = 0.25$$ 周期；1 次 exp 需要 $$1/16 \approx 0.06$$ 周期——**exp 占到了 matmul 时间的 1/4**。H100 上 Tensor Core 快了 3 倍多而 SFU 没有同比例提升（Shah 等 2024 给的数字是约 989 TFLOPS matmul 对约 3.9 TFLOPS 特殊函数），这个比例进一步恶化到接近 1:2。所以从 FlashAttention-2 起，"减少非矩阵运算"和"让 exp 与 matmul 重叠"成了主要优化方向，而不是继续省 HBM 流量。
 
 
-## 三、FlashAttention-2 与 FlashAttention-3
+## 四、FlashAttention-2 与 FlashAttention-3
 
 ### 1. FlashAttention-2（Dao 2023）：并行化与 warp 分工
 
@@ -184,7 +205,7 @@ FlashAttention-2 的 CUDA 源码大致位于仓库的 `csrc/flash_attn/src/` 目
 后面第七节的 CUDA 骨架就是这个结构的浓缩。
 
 
-## 四、推理的两种形态：prefill 与 decode
+## 五、推理的两种形态：prefill 与 decode
 
 ### 1. prefill：Q 很长，GEMM 主导
 
@@ -225,7 +246,7 @@ GQA 让 $$g$$ 个 query head 共享一个 KV head，在参数与 KV cache 层面
 做法是把共享同一 KV head 的 $$g$$ 个 query head 放进同一个 thread block（或同一个 tile）。对 decode，$$g$$ 个 $$1 \times d$$ 的 query 恰好可以 pack 成一个 $$g \times d$$ 的矩阵，作为 mma 的 M 维——原本 $$M = 1$$ 的 GEMV 变成 $$M = g$$ 的 GEMM，$$K_j$$ 载入一次被 $$g$$ 行复用，算术强度乘 $$g$$。vLLM 的 Triton unified attention 正是这么做的：`BLOCK_M = 16`（或 `num_queries_per_kv` 向上取到 2 的幂）、`BLOCK_Q = BLOCK_M // num_queries_per_kv`——一个 tile 的 16 行由 `BLOCK_Q` 个 token 位置 × $$g$$ 个 query head 拼成。对 prefill，FA2 里 GQA 的处理是 grid 仍按 query head 展开、kernel 内部用 `h_k = h_q / g` 映射到 KV head，K/V 的复用交给 L2；FA3 与 FlashInfer 则会显式把同一 KV head 的 query head 打包进同一 tile。
 
 
-## 五、PagedAttention：分页 KV cache 的 kernel 侧
+## 六、PagedAttention：分页 KV cache 的 kernel 侧
 
 ### 1. block table 间接寻址
 
@@ -341,7 +362,7 @@ for (int i = threadIdx.x; i < HEAD_SIZE; i += NUM_THREADS) {
 顺带一句版本事实：在 v0.20.0 的 CUDA 路径上，V1 引擎的 attention 已经交给 FlashAttention、FlashInfer 或 Triton 后端；这套 `paged_attention_v1/v2` 主要还在 ROCm 等路径（`rocm_aiter_fa.py`）里使用。但它是理解"分页 KV 如何被 kernel 访问"最直接的教材。
 
 
-## 六、变长 batch、因果掩码与 sliding window
+## 七、变长 batch、因果掩码与 sliding window
 
 ### 1. cu_seqlens：无 padding 的 packed 布局
 
@@ -367,7 +388,7 @@ sliding window（Mistral 等模型用，窗口 $$W$$）让第 $$i$$ 行只看 $$
 一个细节：window 裁剪后，一行的某个 tile 可能整行被 mask（全 $$-\infty$$），此时 $$m_{\text{new}}$$ 若仍是 $$-\infty$$ 会让 $$e^{S - m_{\text{new}}}$$ 变成 NaN。vLLM 的 `softmax_step` 里 `m_j = tl.where(m_j > -inf, m_j, 0.0)` 就是防这个。后面自己写的 kernel通过保证"每行访问的第一个 tile 至少有一个合法列"来规避，但在窗口场景下必须显式处理。
 
 
-## 七、Triton 版 FlashAttention 与 CUDA 版的结构对照
+## 八、Triton 版 FlashAttention 与 CUDA 版的结构对照
 
 ### 1. Triton tutorial 06 的结构
 
@@ -703,7 +724,7 @@ __device__ void attn_1rowblock_warp(/* ... */) {
 标出几个复用点：(a) $$Q$$ 的 A fragment 全程常驻寄存器，这是 "外循环遍历 Q 块" 的直接后果；(b) 步骤 (4) 的 C→A fragment 复用是 FA2 能在寄存器内完成 $$S \to P \to PV$$ 的关键——`m16n8k16` 的累加器布局中每线程持有第 `lane/4` 行与第 `lane/4 + 8` 行的两对相邻元素，与 A 操作数布局中每线程持有的位置重合，只差一次 FP32→BF16 的 pack；(c) 行归约只需 `shfl_xor` 1 和 2 两步，因为 mma 布局里一行的 8 列分布在同一 quad 的 4 个 lane 上（"split Q" 让归约不出 warp）；(d) $$V$$ 需要转置载入（`ldmatrix.trans`），因为 $$PV$$ 的 B 操作数要求 k-major——这就是 FA3 在 FP8 下需要显式重排 $$V$$ 布局的原因（FP8 的 `ldmatrix` 没有对应的转置形式）。
 
 
-## 八、后端生态与 vLLM 的选择
+## 九、后端生态与 vLLM 的选择
 
 到 2026 年 5 月，生产环境里的 attention kernel 主要来自以下几家：
 
@@ -719,7 +740,7 @@ __device__ void attn_1rowblock_warp(/* ... */) {
 vLLM v0.20.0 的选择逻辑在 `vllm/platforms/cuda.py`：用户可用 `--attention-backend`（或环境变量 `VLLM_ATTENTION_BACKEND`）显式指定；不指定时按设备能力给出优先级列表，逐个调用各后端类的 `validate_configuration` 检查 dtype、head size、block size、KV cache 量化等约束，取第一个通过的。sm_80/sm_90 上的默认顺序是 FLASH_ATTN → FLASHINFER → TRITON_ATTN → FLEX_ATTENTION；Blackwell（compute capability 10.x）上把 FLASHINFER 提到最前。FLASH_ATTN 后端内部再由 `fa_utils.get_flash_attn_version` 决定 FA 版本：sm_90 优先 FA3，其余用 FA2（ALiBi 等 FA3 不支持的特性会回退到 FA2）。
 
 
-## 九、小结
+## 十、本文小结
 
 本篇把前七篇的工具用在了一个 kernel 上。回到核心问题：
 

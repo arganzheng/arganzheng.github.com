@@ -30,10 +30,28 @@ AI 负载里除 GEMM 与 attention 之外的绝大多数算子——激活函数
 
 > **一个 elementwise kernel 跑出了 90% 带宽，还有什么可优化的？**
 
+
+## 一、总览
+
+### 1. 答案先说在前面
+
 答案是"没有了，要么融合，要么少做"。这条边界很重要——它决定了工程师应该把时间花在哪里。本文先把"如何到 90%"讲清楚，再解释为什么 90% 是一条墙。
 
+### 2. 本文的章节安排
 
-## 一、一个 warp 的内存请求发生了什么
+```text
+第二章  一个 warp 的内存请求发生了什么   32 字节 sector 与 128 字节 cache line、访问模式与效率表、AoS 与 SoA、写入与只读路径
+第三章  向量化访存                    为什么每线程 4 字节不够、float4 / __nv_bfloat162 / int4、对齐要求与尾部处理
+第四章  grid-stride loop 与占用率      grid 不必等于元素数、Little's law 与 memory-bound 为什么也需要多 warp、占用率的约束
+第五章  非连续 Tensor                 把线性 index 变成多维 offset、TensorIterator 在 host 侧做了什么
+第六章  读 ATen 的 elementwise 实现    入口与路径选择、launch_vectorized_kernel 与 can_vectorize_up_to、向量化与非向量化路径、AT_DISPATCH
+第七章  融合：90% 之后                三个 kernel 与一个 kernel、Inductor 融合的收益来源
+第八章  实践：把 BF16 add 推到 90%     理论下界、naive / 向量化 / 向量化 + grid-stride 三个版本、通用 2D stride 版本、load_inline 测试、读者应看到的量级
+第九章  本文小结
+```
+
+
+## 二、一个 warp 的内存请求发生了什么
 
 ### 1. 32 字节 sector 与 128 字节 cache line
 
@@ -104,10 +122,10 @@ struct Points { float* x; float* y; float* z; };   // 三个独立数组
 
 以上讨论的是加载；存储的合并规则相同——warp 的 32 个写地址按 sector 合并，部分写入的 sector 需要 L2 做字节掩码合并，效率同样按触碰的 sector 数计算。区别在于写不需要等待返回，warp 发出存储指令后可以立即继续，因此写延迟对 kernel 的影响远小于读延迟；但写流量在 HBM 侧同样占带宽，2 读 1 写的 `add` 中写占了三分之一。
 
-对只读数据，从 Volta 起 L1 与纹理缓存已经合并为同一块存储，用 `const T* __restrict__` 修饰的指针，编译器会生成 `ld.global.nc`（non-coherent，等价于 `__ldg`）加载，允许数据在 L1 中缓存且不必与其他 SM 的写入保持一致性。对 elementwise kernel 来说数据只读一次、L1 命中率为零，这条路径的收益不在缓存，而在于编译器得到"没有别名"的保证后可以自由重排加载与存储——把三条加载都提前发出、再统一计算和写回，这正是第三章要讨论的 ILP。
+对只读数据，从 Volta 起 L1 与纹理缓存已经合并为同一块存储，用 `const T* __restrict__` 修饰的指针，编译器会生成 `ld.global.nc`（non-coherent，等价于 `__ldg`）加载，允许数据在 L1 中缓存且不必与其他 SM 的写入保持一致性。对 elementwise kernel 来说数据只读一次、L1 命中率为零，这条路径的收益不在缓存，而在于编译器得到"没有别名"的保证后可以自由重排加载与存储——把三条加载都提前发出、再统一计算和写回，这正是第四章要讨论的 ILP。
 
 
-## 二、向量化访存
+## 三、向量化访存
 
 ### 1. 为什么每线程 4 字节不够
 
@@ -154,16 +172,16 @@ __device__ __forceinline__ int4 add_bf16x8(int4 xa, int4 ba) {
 bool aligned16 = (reinterpret_cast<uintptr_t>(ptr) % 16) == 0;
 ```
 
-不满足时退回标量路径。ATen 的 `can_vectorize_up_to` 做的就是这件事，第五章会读它。
+不满足时退回标量路径。ATen 的 `can_vectorize_up_to` 做的就是这件事，第六章会读它。
 
 第二，**`reinterpret_cast` 的语义**。`reinterpret_cast<const int4*>(x)[i]` 表示"把 `x` 看成 `int4` 数组，取第 i 个"，也就是从 `x` 起第 $$16i$$ 字节处读 16 字节。它要求 `x` 本身 16 字节对齐，而不只是 `x + 16i`。这一点很容易被"我只在 i 为 8 的倍数处访问"的直觉误导。
 
-第三，**尾部**。$$n$$ 不是 8 的倍数时，最后 $$n \bmod 8$$ 个元素不能用 `int4` 读（会越界读取，甚至越界写入）。常见做法是：主循环只处理前 $$\lfloor n / 8 \rfloor \times 8$$ 个元素，剩余的由某个 block 的前几个线程用标量方式补齐。第七章的代码会给出完整写法。
+第三，**尾部**。$$n$$ 不是 8 的倍数时，最后 $$n \bmod 8$$ 个元素不能用 `int4` 读（会越界读取，甚至越界写入）。常见做法是：主循环只处理前 $$\lfloor n / 8 \rfloor \times 8$$ 个元素，剩余的由某个 block 的前几个线程用标量方式补齐。第八章的代码会给出完整写法。
 
 `float4` 对 FP32 是 4 个元素/线程；`__nv_bfloat162` × 4 是 8 个元素/线程；INT8 用 `int4` 是 16 个元素/线程。**每线程处理 4–8 个元素**是 elementwise kernel 最常见的配置，ATen 的默认也在这个范围。
 
 
-## 三、grid-stride loop 与占用率
+## 四、grid-stride loop 与占用率
 
 ### 1. grid 不必等于元素数
 
@@ -192,7 +210,7 @@ $$
 - **复用**：每个线程处理多个元素时，`blockIdx`/`threadIdx` 的地址计算、边界检查等固定开销被摊薄，且一个线程连续发出多个独立加载（不同迭代之间没有依赖），为下一节的延迟隐藏提供 ILP（指令级并行）；
 - **占用率可控**：grid 大小成为一个显式参数，可以调；某些 kernel（如需要跨 block 归约的）也依赖"所有 block 同时驻留"这个性质。
 
-grid-stride 不是免费的：循环控制和 64 位地址算术要占几条指令，尾部迭代会有一部分线程空转。它在 elementwise kernel 上的收益通常是几个百分点，不是决定性的；决定性的是向量化。ATen 的 elementwise kernel 就**没有**用 grid-stride，而是"每 block 处理固定 1024 个元素、grid = ceil(N / 1024)"，第五章会看到。两种写法都能到 90%。
+grid-stride 不是免费的：循环控制和 64 位地址算术要占几条指令，尾部迭代会有一部分线程空转。它在 elementwise kernel 上的收益通常是几个百分点，不是决定性的；决定性的是向量化。ATen 的 elementwise kernel 就**没有**用 grid-stride，而是"每 block 处理固定 1024 个元素、grid = ceil(N / 1024)"，第六章会看到。两种写法都能到 90%。
 
 ### 2. 占用率与 Little's law：memory-bound 为什么也需要多 warp
 
@@ -226,12 +244,12 @@ $$
 
 block 大小本身对 elementwise kernel 影响不大，128 到 512 都常见。太小（如 32 或 64）会撞上每 SM 最多 32 个 block 的限制——32 个 block × 64 线程 = 2048 线程刚好够，但 32 × 32 = 1024 线程只有一半占用率；太大（1024）则一个 block 占满整个 SM，block 之间切换时的空档无法被填补，且尾部 block 的浪费更多。ATen 取 128、本文取 256，都是让每 SM 驻留 8–16 个 block 的选择，粒度足够细，调度器有余地。
 
-还有一个与占用率无关但常被忽视的因素：**每 SM 的 L1/LSU 事务数上限**。一条 warp 级加载指令覆盖 4 条 cache line 时，L1 需要 4 个周期（每周期处理一条 128 B 的 line）才能把它处理完——这不是坏事，恰恰说明 128-bit 加载让 LSU 的每条指令都在做满载的工作；反过来，2 字节的标量加载一条指令只占半条 line，L1 每周期能处理的有效字节数只有向量化时的 1/8。这就是第二章"naive 很难超过 70–80%"的微架构解释。
+还有一个与占用率无关但常被忽视的因素：**每 SM 的 L1/LSU 事务数上限**。一条 warp 级加载指令覆盖 4 条 cache line 时，L1 需要 4 个周期（每周期处理一条 128 B 的 line）才能把它处理完——这不是坏事，恰恰说明 128-bit 加载让 LSU 的每条指令都在做满载的工作；反过来，2 字节的标量加载一条指令只占半条 line，L1 每周期能处理的有效字节数只有向量化时的 1/8。这就是第三章"naive 很难超过 70–80%"的微架构解释。
 
-至此，把 elementwise kernel 写到带宽极限的三件事已经齐了：**合并（连续对齐）、向量化（16 B/线程）、足够的在飞请求（占用率 + ILP）**。第七章把它们落成代码，先解决另一个绕不开的问题——tensor 不连续怎么办。
+至此，把 elementwise kernel 写到带宽极限的三件事已经齐了：**合并（连续对齐）、向量化（16 B/线程）、足够的在飞请求（占用率 + ILP）**。第八章把它们落成代码，先解决另一个绕不开的问题——tensor 不连续怎么办。
 
 
-## 四、非连续 Tensor：stride 与 broadcast
+## 五、非连续 Tensor：stride 与 broadcast
 
 ### 1. 把线性 index 变成多维 offset
 
@@ -262,7 +280,7 @@ int64_t off_b = i0 * bs0 + i1 * bs1;
 PyTorch 的 elementwise 算子并不直接把 sizes/strides 传给 kernel，而是先经过 `TensorIterator`。它在 host 侧完成：形状广播、dtype 推断与类型提升、把可以合并的维度合并（例如 `[m, d]` 两维连续就当作一维 `[m·d]`）、按 stride 重排维度让最内维是访问最密的、判断所有操作数是否连续并检查 32 位索引是否够用——然后把一个"已经整理好的迭代空间"交给 CUDA 端。这样 kernel 只需要处理"连续一维"和"带 OffsetCalculator 的一般情况"两种形态。本文不展开它，只需要知道下一章读到的 `iter.is_contiguous()`、`iter.strides(i)` 这些信息就来自这里。
 
 
-## 五、读 ATen 的 elementwise 实现
+## 六、读 ATen 的 elementwise 实现
 
 有了以上概念，读 PyTorch 的实现就很直接了。源码版本为 v2.10.0，路径在 `aten/src/ATen/native/cuda/` 下，主要是三个头文件：`Loops.cuh`（入口 `gpu_kernel`）、`CUDALoops.cuh`（kernel 与 launch）、`MemoryAccess.cuh`（向量化加载与 policy）。
 
@@ -364,7 +382,7 @@ inline C10_HOST_DEVICE int can_vectorize_up_to(const char *pointer) {
 }
 ```
 
-  `aligned_vector<scalar_t, N>` 是一个 `alignas(sizeof(scalar_t) * N)` 的结构体（`scalar_t val[N]`），它的对齐要求就是向量的字节宽度。这正是第二章说的"host 侧对齐检查"。
+  `aligned_vector<scalar_t, N>` 是一个 `alignas(sizeof(scalar_t) * N)` 的结构体（`scalar_t val[N]`），它的对齐要求就是向量的字节宽度。这正是第三章说的"host 侧对齐检查"。
 - `computeCapability != 90 && != 100` 时把 `vec_size` 压到 4：在 2.10 中，8 元素向量只在 Hopper/Blackwell 上启用——所以 **A100 上 BF16 的 `add` 实际用的是 4 × 2 B = 8 字节（64-bit）加载**，H100 上是 16 字节。源码注释说明这是为了规避一个 NVCC 数值问题，并控制二进制体积（vec8 实例只为 sm_90/sm_100 编译）。
 - `elems_per_thread<io_size>()`：`io_size` 是所有输入与输出元素大小之和（BF16 二元 op 为 6）；它等于 1 时每线程 16 个元素，否则 8 个。`num_threads()` 是 128（`thread_constants.h` 中定义为 `C10_WARP_SIZE * 4`）。所以一个 block 处理 $$128 \times 8 = 1024$$ 个元素，grid = $$\lceil N / 1024 \rceil$$——**不是 grid-stride**。
 
@@ -420,7 +438,7 @@ __device__ inline void load_single_arg(accessor_t to, scalar_t *from) {
 }
 ```
 
-注意 `index = thread_idx + i * num_threads()`：第 i 次迭代时，线程 t 读第 $$t + 128 i$$ 个向量——相邻线程读相邻向量，每次迭代 warp 覆盖连续的 $$32 \times \text{vec\_size} \times \text{sizeof}$$ 字节。BF16、vec 4 时一个 warp 一条指令 256 B、2 条 cache line；每线程 2 次迭代（8 元素 / 4）。这是第一章"连续对齐"与第二章"向量化"在源码里的直接体现。
+注意 `index = thread_idx + i * num_threads()`：第 i 次迭代时，线程 t 读第 $$t + 128 i$$ 个向量——相邻线程读相邻向量，每次迭代 warp 覆盖连续的 $$32 \times \text{vec\_size} \times \text{sizeof}$$ 字节。BF16、vec 4 时一个 warp 一条指令 256 B、2 条 cache line；每线程 2 次迭代（8 元素 / 4）。这是第二章"连续对齐"与第三章"向量化"在源码里的直接体现。
 
 ### 4. 非向量化路径：`unrolled_elementwise_kernel` 与 `elementwise_kernel`
 
@@ -463,7 +481,7 @@ __global__ void elementwise_kernel(int N, func_t f) {
 }
 ```
 
-`nt = 128` 线程、每线程 `vt` 个元素（4 字节以上类型取 2，更小的取 4）。`idx += nt` 保持相邻线程访问相邻 index，展开 `vt` 次给出 ILP。传入的 lambda 用 `OffsetCalculator::get(idx)` 把线性 index 拆成各操作数的字节 offset——它内部就是第四章描述的"逐维 divmod × stride"，只是用 `IntDivider` 的魔数除法代替了真除法，最多支持 25 维（`MAX_DIMS`）。
+`nt = 128` 线程、每线程 `vt` 个元素（4 字节以上类型取 2，更小的取 4）。`idx += nt` 保持相邻线程访问相邻 index，展开 `vt` 次给出 ILP。传入的 lambda 用 `OffsetCalculator::get(idx)` 把线性 index 拆成各操作数的字节 offset——它内部就是第五章描述的"逐维 divmod × stride"，只是用 `IntDivider` 的魔数除法代替了真除法，最多支持 25 维（`MAX_DIMS`）。
 
 三个 kernel 对比一下：
 
@@ -520,7 +538,7 @@ AT_DISPATCH_FLOATING_TYPES_AND2(
 `opmath_type<scalar_t>` 对 Half/BFloat16 给出 `float`，对 float/double 给出自身——这正是"低精度存储、float 计算"约定的框架级实现。
 
 
-## 六、融合：90% 之后
+## 七、融合：90% 之后
 
 ### 1. 三个 kernel 与一个 kernel
 
@@ -567,7 +585,7 @@ kernel 3:  out = t2 * y      读 t2, y       写 out
 这条边界也是本系列后面篇章的组织逻辑：reduction、GEMM、attention 之所以值得单独写 kernel，是因为它们的上限不再是"读一遍写一遍"，而有更多结构可以利用。
 
 
-## 七、实践：把 BF16 add 推到 90%
+## 八、实践：把 BF16 add 推到 90%
 
 ### 1. 理论下界
 
@@ -897,10 +915,10 @@ strided, x.t()        远低于 10%              最内维 stride 4096，每元�
 - **L2 与 DRAM 页局部性**。写回策略、L2 分片之间的交叉带宽、DRAM 页打开/关闭，都不是 kernel 能控制的。
 - **功耗与频率**。带宽压满时 HBM 与 SM 的功耗都高，GPU 可能降频，标称值对应的是理想条件。
 
-这些因素合起来就是那道 90% 的墙。在它面前，继续调 block 大小、展开因子、grid 倍数，收益都在噪声范围内。此时应该做的事在第六章已经说过：融合，或者少做。
+这些因素合起来就是那道 90% 的墙。在它面前，继续调 block 大小、展开因子、grid 倍数，收益都在噪声范围内。此时应该做的事在第七章已经说过：融合，或者少做。
 
 
-## 八、小结
+## 九、本文小结
 
 这一篇围绕一个理论下界（BF16 `add`：6 B/元素，$$n = 2^{28}$$ 时 0.81 ms）讨论了 elementwise kernel 的全部工程要点：
 

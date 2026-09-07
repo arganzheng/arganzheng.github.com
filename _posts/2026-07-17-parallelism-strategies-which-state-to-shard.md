@@ -6,7 +6,7 @@ tags: [Megatron, DeepSpeed, torchtitan, Distributed Training, Parallelism, AI, A
 catalog: true
 ---
 
-> 本文是《大规模训练工程：从并行策略到容错恢复》系列的第 2 篇。上一篇：[训练任务的状态解剖：显存账与 MFU](/training-state-anatomy-memory-and-mfu.html)；下一篇：[三个框架：Megatron-LM、DeepSpeed 与 torchtitan 的架构对比与源码导读](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html)。
+> 本文是[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)系列的第 2 篇（共八篇）。上一篇：[训练任务的状态解剖：显存账与 MFU](/training-state-anatomy-memory-and-mfu.html)；下一篇：[三个框架：Megatron-LM、DeepSpeed 与 torchtitan 的架构对比与源码导读](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html)。
 
 上一篇算出了一个数字：混合精度 + Adam 下，每个参数在训练时要占 16 字节。一个 70B 的模型光是参数、梯度和优化器状态就是 1.13 TB，还没算激活；405B 是 6.5 TB。任何一张 80 GB 的卡都放不下其中的零头。所以这些字节必须被切开放到很多卡上——**怎么切**，就是并行策略的全部内容。
 

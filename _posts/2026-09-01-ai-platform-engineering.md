@@ -410,7 +410,7 @@ K8s 的空缺      原生 Kubernetes 为什么满足不了
 
 ### 组件与版本基线
 
-正文所有 CRD 字段、资源名、指标名与配置项均按以下版本核对（全部发布于 2026-09-02 之前）：
+正文所有 CRD 字段、资源名、指标名与配置项均按以下版本核对（每篇文章只引用早于其发布日期的版本；Slinky slurm-operator v1.2.2 发布于 2026-09-02，与引用它的第一、三篇同日或更早）：
 
 - Kubernetes **v1.37.0**（DRA 的 `resource.k8s.io/v1` 自 1.34 GA）；device plugin 路径对更早版本同样适用，随文标注；
 - NVIDIA 侧：GPU Operator **v26.7.0**、k8s-device-plugin **v0.20.0**、Container Toolkit **v1.20.0**、DCGM Exporter **4.6.0-4.8.3**、Network Operator **v26.7.0**、k8s-rdma-shared-dev-plugin **v1.5.4**；CUDA 12.x 为默认基线，CUDA 13.x 的驱动要求随文标注；

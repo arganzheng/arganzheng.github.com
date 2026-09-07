@@ -246,7 +246,7 @@ Java 工程师在这里会遇到最大的落差：
 1. [语言机制与运行时原理](/python-language-mechanisms-and-runtime-internals.html)
 2. [类型系统与数据契约设计](/python-type-system-and-data-contract-design.html)
 3. [并发、异步与任务协作](/python-concurrency-asynchrony-and-task-collaboration.html)
-4. [Python 动态机制及 AI-Infra 实践](/python-reflection-metaprogramming-and-plugin-architecture.html)
+4. [Python 的动态机制及工程实践](/python-reflection-metaprogramming-and-plugin-architecture.html)
 5. [内存管理与优化](/python-memory-management-and-optimization.html)
 6. [单元测试、问题定位与调试实践](/python-unit-testing-troubleshooting-and-debugging.html)
 7. [项目工程化与生产交付](/python-engineering-and-production-delivery.html)

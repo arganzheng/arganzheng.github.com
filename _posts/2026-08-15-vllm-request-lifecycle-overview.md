@@ -5,10 +5,35 @@ tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
 
+> 本文是[《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》](/deep-dive-into-vllm.html)系列的第 3 篇（共十四篇）。上一篇：[如何衡量一个 LLM Serving 系统？](/how-to-measure-llm-serving.html)；下一篇：[Scheduler：GPU 这一轮到底给谁用？](/scheduler-batch-and-fairness.html)
+
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 
 
-## 1. 静态系统拓扑（自顶向下）
+前两篇分别定义了问题（LLM Serving 为什么难）和尺子（用什么指标衡量）。在深入调度、KV Cache、GPU 执行等单个战场之前，需要先有一张全景图：一个请求进入 vLLM 之后，会经过哪些模块，以什么形式被传递，最后如何变成 token 返回给用户。
+
+本篇的核心问题是：
+
+> **一个请求如何穿过 vLLM 的整个推理系统——哪个模块负责决策、哪个模块负责执行，它们之间传递的到底是什么？**
+
+## 一、总览：静态拓扑、动态生命周期与数据流
+
+### 1. 三个视角看同一个系统
+
+vLLM V1 的整体架构遵循**控制面/数据面分离**的经典设计哲学。本篇从三个视角鸟瞰它：先自顶向下看**静态系统拓扑**——API Server、AsyncLLM、EngineCore、Scheduler / KVCacheManager、Executor / Worker / ModelRunner 各自负责什么；再沿时间轴看**一次请求的完整生命周期**——从 HTTP 进入到 SSE 返回 `[DONE]` 的每一步交互；最后跟着**数据**走一遍，看文本如何变成 token ids、调度结果、GPU 张量、logits，再变回文本。
+
+三个视角合起来回答的是模块之间的分工：EngineCore 驱动循环，Scheduler 决定这一轮谁跑、跑多少 token，Executor 负责分发，ModelRunner 负责真正调用 GPU 算。
+
+### 2. 本文的章节安排
+
+```text
+第二章  静态系统拓扑          自顶向下：API Server 与 AsyncLLM、EngineCore、Scheduler 与 KVCacheManager、Worker 与 Executor
+第三章  一次请求的完整生命周期  从 HTTP 请求到 SSE [DONE] 的时序图
+第四章  数据流                Token 如何穿过整个 Serving 栈
+第五章  本文小结              模块分工，以及与第一篇“四问”的对应
+```
+
+## 二、静态系统拓扑（自顶向下）
 
 vLLM V1 的整体架构遵循**控制面/数据面分离**的经典设计哲学。我们自顶向下，逐层解剖其系统拓扑。
 
@@ -63,7 +88,7 @@ graph TB
 
 从这张图看，从 Client 到 EngineCore 是请求入队路径，传递的是"生成什么"；EngineCore 到 Worker 再到 ModelRunner 是执行路径，携带的是这一轮调度出来的 batch 和 block 布局；而 ModelRunner 返回的只是采样结果，不是下一次 forward 的完整状态。调度状态留在 EngineCore，模型侧负责的是单次前向计算。
 
-### API Server 与 AsyncLLM：异步并发处理的桥头堡
+### 1. API Server 与 AsyncLLM：异步并发处理的桥头堡
 
 入口位于 `vllm/entrypoints/openai/api_server.py`，基于 FastAPI 构建的 HTTP 服务器，实现了 OpenAI 兼容的 `/v1/chat/completions`、`/v1/completions` 等 REST API。
 
@@ -75,7 +100,7 @@ graph TB
 
 因此 `AsyncLLM` 的职责是：管理请求的异步生命周期、串起上述三者、支持 SSE 流式响应，以及数据并行（DP）场景下的多引擎协调。
 
-### EngineCore：推理系统的中央调度大脑
+### 2. EngineCore：推理系统的中央调度大脑
 
 `EngineCore`（`vllm/v1/engine/core.py`）是 vLLM V1 引擎的核心，它的 `step()` 方法驱动整个推理循环：
 
@@ -100,13 +125,13 @@ class EngineCore:
         )
 ```
 
-### Scheduler 与 KVCacheManager：资源管理双核
+### 3. Scheduler 与 KVCacheManager：资源管理双核
 
 `Scheduler`（`vllm/v1/core/sched/scheduler.py`，约 3000 行）是调度的大脑，决定每一轮迭代中哪些请求参与推理、分配多少 token 预算。
 
 `KVCacheManager`（`vllm/v1/core/kv_cache_manager.py`）管理 GPU 显存上的 KV Cache 物理块——分配、释放、前缀缓存复用、驱逐。
 
-### Worker 与 Model Executor：模型执行的设备抽象
+### 4. Worker 与 Model Executor：模型执行的设备抽象
 
 ```mermaid
 graph TB
@@ -142,7 +167,7 @@ graph TB
 这条继承链本身就说明了一件事：**"用不用 Ray"是部署方式的差异，不是执行模型的差异。** Executor 这层抽象的价值就在于把"进程怎么起、卡怎么分"和"一轮 batch 怎么执行"彻底分开，所以 V2 才能靠换掉进程拉起方式来复用同机多进程的全部逻辑。
 
 
-## 2. 一次请求的完整生命周期
+## 三、一次请求的完整生命周期
 
 ```mermaid
 sequenceDiagram
@@ -222,7 +247,7 @@ sequenceDiagram
     API-->>C: SSE: data: [DONE]
 ```
 
-## 3. 数据流：Token 如何穿过整个 Serving 栈
+## 四、数据流：Token 如何穿过整个 Serving 栈
 
 ```
   ┌──────┐     ┌─────────┐     ┌────────┐     ┌───────────┐
@@ -284,13 +309,13 @@ sequenceDiagram
 ```
 
 
-## 4. 总结
+## 五、本文小结
 
 这一章主要要关注的是模块之间的分工：
 
 > **EngineCore 驱动循环，Scheduler 决定这一轮谁跑、跑多少 token，Executor 负责把任务分发下去，ModelRunner 负责真正调用 GPU 算。**
 
-把它和上一章的四问对齐，就得到全文的骨架：
+把它和第一篇的四问对齐，就得到全系列的骨架：
 
 | 四问 | 承担模块 |
 |------|---------|
@@ -322,4 +347,4 @@ sequenceDiagram
 
 ## 下一篇
 
-[Scheduler：GPU 这一轮到底给谁用？](/deep-dive-into-vllm-04-scheduler-batch-and-fairness.html)
+[Scheduler：GPU 这一轮到底给谁用？](/scheduler-batch-and-fairness.html)

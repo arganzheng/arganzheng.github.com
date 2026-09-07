@@ -6,6 +6,7 @@ tags: [Python]
 catalog: true
 ---
 
+> 本文是[《Python 在 AI-Infra：从语言机制到生产交付》](/python-for-ai-infra.html)系列的第 5 篇（共七篇）。上一篇：[Python 的动态机制及工程实践](/python-reflection-metaprogramming-and-plugin-architecture.html)；下一篇：[单元测试、问题定位与调试实践](/python-unit-testing-troubleshooting-and-debugging.html)
 
 在 AI-Infra 系统中，Python 通常不是执行密集计算的主体。模型推理、张量运算和部分数据处理，往往由 C、C++、CUDA 或其他原生运行时完成。
 
@@ -26,11 +27,41 @@ Python 更多承担以下职责：
 - Python 对象与原生数据之间发生了隐式转换；
 - CPU 内存、原生内存和 GPU 显存的所有权边界不清晰。
 
+本文要回答的核心问题是：
+
+> **在 AI-Infra 服务里，哪些内存由 Python 管理、哪些在原生缓冲区或设备上，哪些操作会创建副本或延长对象生命周期，内存持续增长时又该如何定位来源？**
+
+
+## 一、总览
+
+### 1. 本文的范围
+
 本文聚焦 Python 工程师在 AI-Infra 场景下必须掌握的内存知识，包括对象模型、内存分配、复制语义、垃圾回收、缓存生命周期，以及 Python 与原生运行时之间的内存边界。
 
 本文不重点讨论线程、进程、异步调度、动态批处理或 CPU 计算并行化。这些内容属于并发模型和任务协作的范畴。
 
-## 一、为什么 AI-Infra 需要理解 Python 内存
+全文按"对象 → 复制 → 缓冲区与数据布局 → 运行时边界 → 回收机制 → 生命周期 → 排查与实践"的顺序展开：先弄清一个 Python 对象占多少内存、赋值和切片何时产生副本，再看缓冲区协议和 NumPy/PyTorch 的数据布局如何决定隐式复制，然后划清 Python 内存、原生内存与 GPU 显存的边界，接着讨论引用计数、循环 GC、pymalloc 与缓存导致的生命周期问题，最后给出排查方法、设计原则、一个审查案例和一份检查清单。
+
+### 2. 本文的章节安排
+
+```text
+第二章    为什么 AI-Infra 需要理解 Python 内存     一个推理请求经过的内存路径
+第三章    Python 对象模型与内存开销               名称与引用、标量不是裸数据、容器开销、__slots__、数据类
+第四章    复制、视图与对象共享                     赋值不是复制、深拷贝代价、切片副本、视图不等于副本
+第五章    缓冲区协议与底层内存共享                 bytes/bytearray/memoryview、零拷贝不是绝对概念
+第六章    数据布局与隐式复制                       连续与非连续内存、dtype 转换、列表与数组的边界
+第七章    Python 与原生运行时的内存边界             Python 内存≠进程内存、CPU 内存与 GPU 显存、.cpu()/.numpy()/.tolist()
+第八章    引用计数、垃圾回收与内存分配器           引用计数、循环 GC、__del__ 的陷阱、pymalloc
+第九章    缓存、引用与对象生命周期                 无界缓存、闭包与回调、任务与异常对象、弱引用
+第十章    常见内存问题的排查方法                   三类增长、sys.getsizeof、tracemalloc、引用检查、进程级与 GPU 显存诊断
+第十一章  工程实践中的设计原则                     数据表示匹配数据性质、明确复制边界、控制生命周期、降低峰值
+第十二章  一个简单的内存审查案例                   对一段 predict 代码逐项审查
+第十三章  内存优化检查清单                         对象、复制、数据、生命周期、运行时五个层面
+第十四章  附：Java 与 Python 内存管理对照
+第十五章  本文小结
+```
+
+## 二、为什么 AI-Infra 需要理解 Python 内存
 
 一个典型的推理请求可能经历如下过程：
 
@@ -78,7 +109,7 @@ result = tensor.tolist()
 - 内存由 Python 管理，还是由原生库管理？
 - 释放 Python 引用后，底层内存是否真的被归还？
 
-## 二、Python 对象模型与内存开销
+## 三、Python 对象模型与内存开销
 
 ### 1. 名称、引用与对象
 
@@ -254,7 +285,7 @@ class RequestContext:
 
 > 关于 `dataclass` 的完整用法和与 Pydantic `BaseModel` 的对比，参见[《Python 类型系统与数据契约设计》](/python-type-system-and-data-contract-design.html)的"选型指南"一节。
 
-## 三、复制、视图与对象共享
+## 四、复制、视图与对象共享
 
 ### 1. 赋值不是复制
 
@@ -409,7 +440,7 @@ small_copy = large_array[:10].copy()
 - 视图是否会延长大对象生命周期；
 - 共享数据是否可能被意外修改。
 
-## 四、缓冲区协议与底层内存共享
+## 五、缓冲区协议与底层内存共享
 
 ### 1. `bytes`、`bytearray` 与 `memoryview`
 
@@ -502,7 +533,7 @@ tensor = torch.tensor(array, dtype=torch.float32)
 - 数组或张量是否拥有独立存储；
 - 转换接口的具体语义。
 
-## 五、数据布局与隐式复制
+## 六、数据布局与隐式复制
 
 ### 1. 连续内存与非连续内存
 
@@ -588,7 +619,7 @@ values = array.tolist()
 
 如果最终必须返回 JSON，就应明确接受这一步转换的成本，并避免在链路中重复转换。
 
-## 六、Python 与原生运行时的内存边界
+## 七、Python 与原生运行时的内存边界
 
 ### 1. Python 内存不等于进程内存
 
@@ -696,7 +727,7 @@ print(gpu_tensor.dtype)
 print(gpu_tensor.flatten()[:8].cpu().tolist())
 ```
 
-## 七、引用计数、垃圾回收与内存分配器
+## 八、引用计数、垃圾回收与内存分配器
 
 前面几章讨论了 Python 对象的内存开销、复制语义和原生内存边界。但一个关键问题还没有回答：**Python 是如何决定何时释放一个对象的？**
 
@@ -834,7 +865,7 @@ del 大量 Python 对象
 
 如果确实需要将内存归还 OS（例如在模型切换后释放大量临时数据），可以考虑 `gc.collect()` 后观察 RSS 变化，但不应期望 RSS 每次都下降到初始水平。
 
-## 八、缓存、引用与对象生命周期
+## 九、缓存、引用与对象生命周期
 
 ### 1. 无界缓存是常见的内存问题
 
@@ -951,7 +982,7 @@ del model
 
 但如果业务逻辑要求对象必须保持存活，就不应使用弱引用。
 
-## 九、常见内存问题的排查方法
+## 十、常见内存问题的排查方法
 
 ### 1. 先区分三类增长
 
@@ -1111,7 +1142,7 @@ print(torch.cuda.memory_summary())
 nvidia-smi --query-gpu=memory.used,memory.free --format=csv -l 1
 ```
 
-## 十、工程实践中的设计原则
+## 十一、工程实践中的设计原则
 
 ### 1. 让数据表示匹配数据性质
 
@@ -1180,7 +1211,7 @@ AI-Infra 服务经常受到峰值内存限制。即使平均内存占用正常�
 - 转换过程中的临时副本；
 - 失败和超时路径上的资源释放。
 
-## 十一、一个简单的内存审查案例
+## 十二、一个简单的内存审查案例
 
 假设服务中存在如下代码：
 
@@ -1238,7 +1269,7 @@ def predict(array: np.ndarray):
 
 > 尽量在明确的边界完成必要转换，并避免在链路中反复改变数据表示。
 
-## 十二、内存优化检查清单
+## 十三、内存优化检查清单
 
 在优化一条 Python AI-Infra 请求路径时，可以依次检查：
 
@@ -1280,7 +1311,7 @@ def predict(array: np.ndarray):
 - 释放引用后，底层分配器是否仍保留内存？
 - 是否使用了正确层级的监控和诊断工具？
 
-## 附：Java 与 Python 内存管理对照
+## 十四、附：Java 与 Python 内存管理对照
 
 | 维度 | Java | Python (CPython) |
 |---|---|---|
@@ -1297,7 +1328,7 @@ def predict(array: np.ndarray):
 | 弱引用 | `WeakReference` / `WeakHashMap` | `weakref.ref()` / `WeakValueDictionary` |
 | 零拷贝 | NIO `MappedByteBuffer` / Netty `CompositeByteBuf` | `memoryview` / `torch.from_numpy()` 共享存储 |
 
-## 十三、总结
+## 十五、本文小结
 
 Python 内存管理的核心，不只是调用 `del` 或手动触发垃圾回收，而是理解以下几个层次：
 
@@ -1336,3 +1367,7 @@ Python 名称与对象
 ```
 
 当 Python 专注于组织和管理，而连续数据、底层缓冲区和设备资源由合适的原生运行时负责时，系统才能在保持工程灵活性的同时，避免不必要的内存开销。
+
+## 下一篇
+
+[单元测试、问题定位与调试实践](/python-unit-testing-troubleshooting-and-debugging.html)

@@ -6,6 +6,7 @@ tags: [Python]
 catalog: true
 ---
 
+> 本文是[《Python 在 AI-Infra：从语言机制到生产交付》](/python-for-ai-infra.html)系列的第 6 篇（共七篇）。上一篇：[内存管理与优化](/python-memory-management-and-optimization.html)；下一篇：[项目工程化与生产交付](/python-engineering-and-production-delivery.html)
 
 在 AI-Infra 系统中，代码的正确性往往不能只靠阅读来判断。
 
@@ -19,14 +20,46 @@ catalog: true
 - Python 层内存增长缓慢，直到 OOM 时才被发现；
 - 进程卡死但没有崩溃，无法从日志判断阻塞位置。
 
+本文要回答的核心问题是：
+
+> **如何验证一段 AI-Infra Python 代码的行为真的符合预期，以及当异步时序、Mock、动态调用、内存增长或进程卡死出问题时，该用哪个工具从哪里下手？**
+
+
+## 一、总览
+
+### 1. 本文覆盖的工具
+
 本文不展开完整的测试体系，也不讨论大规模监控平台，而是聚焦 Python 工程师每天会用到的工具：
 
 - **测试**：`pytest`、`unittest.mock`、`pytest-asyncio`、`pytest-cov`；
 - **调试**：`pdb`、`logging`、`traceback`、`inspect`；
 - **运行时诊断**：`tracemalloc`、`faulthandler`、`cProfile`。
 
+全文按这三组工具的顺序展开：先用 pytest、fixture、Mock、pytest-asyncio 和 monkeypatch 把测试写对（第二到第六章），再用 pdb、logging、traceback 和 inspect 定位逻辑问题（第七到第十章），然后用 tracemalloc、faulthandler、cProfile 诊断运行时的内存、卡死与热点（第十一到第十三章），最后用 pytest-cov 检查覆盖，并把所有工具收敛成一张按症状选工具的决策树。
 
-## 一、用 pytest 编写单元测试
+### 2. 本文的章节安排
+
+```text
+第二章    用 pytest 编写单元测试                 基本结构、边界输入、自定义 marker
+第三章    使用 fixture 管理测试对象             scope 与 yield、conftest.py 共享
+第四章    用 Mock 隔离模型后端和外部服务         Mock 与 AsyncMock、patch 替换模块中的对象
+第五章    异步代码测试                           测试超时、测试取消、检测未等待的协程
+第六章    使用 monkeypatch 修改运行环境          环境变量、属性与路径的临时替换
+第七章    使用 pdb 定位 Python 逻辑问题          在失败现场检查变量与执行路径
+第八章    日志：从调试打印到生产配置             四个组件、logger 树与 propagate、库与应用分工、结构化日志、请求上下文、与 SLF4J 对照
+第九章    检查异常链和调用栈                     traceback 与 __cause__/__context__
+第十章    使用 inspect 排查动态调用问题          确认插件、装饰器与动态调用背后的真实对象
+第十一章  使用 tracemalloc 定位 Python 内存增长  快照对比找到分配来源
+第十二章  使用 faulthandler 排查卡死             转储线程栈
+第十三章  使用 cProfile 判断 Python 热点         定位 Python 层性能热点
+第十四章  用 pytest-cov 检查测试覆盖范围         分支覆盖与 term-missing
+第十五章  调试决策树                             按症状选工具的速查表
+第十六章  附：Java 与 Python 测试调试工具对照
+第十七章  本文小结
+```
+
+
+## 二、用 pytest 编写单元测试
 
 ### 1. 基本测试结构
 
@@ -140,7 +173,7 @@ pytest -m "slow"            # 只运行慢速测试
 pytest -m "not slow and not gpu"  # 快速冒烟测试
 ```
 
-## 二、使用 fixture 管理测试对象
+## 三、使用 fixture 管理测试对象
 
 `fixture` 适合创建测试所需的后端、配置和临时资源。
 
@@ -248,7 +281,7 @@ def test_config(tmp_path):
 
 测试文件直接在参数中引用 fixture 名称即可，pytest 按目录层级向上查找 `conftest.py`。
 
-## 三、用 Mock 隔离模型后端和外部服务
+## 四、用 Mock 隔离模型后端和外部服务
 
 单元测试通常不应真的访问外部服务或执行代价高昂的初始化。可以用 `AsyncMock` 模拟异步依赖。
 
@@ -344,7 +377,7 @@ async def test_patch_as_context_manager():
 - `patch` 是 `unittest.mock` 提供的，支持 `autospec`（类型安全）、嵌套替换和装饰器用法，适合替换类、模块级对象；
 - `monkeypatch` 是 pytest 内置 fixture，语法更简洁，适合替换环境变量、简单属性和函数。
 
-## 四、异步代码测试
+## 五、异步代码测试
 
 安装并配置 `pytest-asyncio`：
 
@@ -431,7 +464,7 @@ mypy src/
 
 > 关于 asyncio 事件循环、超时、取消和 `TaskGroup` 的详细机制，参见[《Python 并发、异步与任务协作》](/python-concurrency-asynchrony-and-task-collaboration.html)。
 
-## 五、使用 monkeypatch 修改运行环境
+## 六、使用 monkeypatch 修改运行环境
 
 `monkeypatch` 适合临时修改：
 
@@ -487,7 +520,7 @@ monkeypatch.setattr("loader.download_model", fake_download)
 
 > 理解 `monkeypatch` 的替换目标，需要了解 Python 的模块导入和名称绑定机制，参见[《Python 语言机制与运行时原理》](/python-language-mechanisms-and-runtime-internals.html)。
 
-## 六、使用 pdb 定位 Python 逻辑问题
+## 七、使用 pdb 定位 Python 逻辑问题
 
 最直接的方式是在代码中插入：
 
@@ -546,7 +579,7 @@ pytest -s tests/test_scheduler.py::test_timeout_request
 - 任务取消的回调中；
 - 生命周期状态变化的位置。
 
-## 七、日志：从调试打印到生产配置
+## 八、日志：从调试打印到生产配置
 
 日志有两个不同的使用场景：**调试期**临时开 `DEBUG` 看清执行路径，和**生产期**作为常态的可观测性手段。前者关心"我现在想看什么"，后者关心"出问题时能不能查到"。本章先讲前者，再讲后者的配置。
 
@@ -860,7 +893,7 @@ listener.start()
 
 这在异步服务里尤其有意义——写日志是同步 I/O，直接在协程里做会阻塞事件循环。
 
-## 八、检查异常链和调用栈
+## 九、检查异常链和调用栈
 
 不要吞掉原始异常：
 
@@ -900,7 +933,7 @@ except Exception:
 
 原始异常上下文可能丢失，后续很难判断问题究竟发生在网络、后端还是 Python 转换层。
 
-## 九、使用 inspect 排查动态调用问题
+## 十、使用 inspect 排查动态调用问题
 
 插件、装饰器和适配器出问题时，可以使用 `inspect` 检查实际对象。
 
@@ -938,7 +971,7 @@ if not inspect.iscoroutinefunction(plugin.predict):
 
 > 关于反射、`__init_subclass__` 注册和插件发现机制的详细讨论，参见[《Python 动态机制及 AI-Infra 实践》](/python-reflection-metaprogramming-and-plugin-architecture.html)。
 
-## 十、使用 tracemalloc 定位 Python 内存增长
+## 十一、使用 tracemalloc 定位 Python 内存增长
 
 ```python
 import tracemalloc
@@ -994,7 +1027,7 @@ assert reference() is None
 
 > 关于 Python 引用计数、分代 GC、pymalloc 分配器以及 GPU 显存管理的完整讨论，参见[《Python 内存管理与优化》](/python-memory-management-and-optimization.html)。
 
-## 十一、使用 faulthandler 排查卡死
+## 十二、使用 faulthandler 排查卡死
 
 当 Python 进程没有崩溃，但长时间无响应时，可以启用：
 
@@ -1030,7 +1063,7 @@ faulthandler.cancel_dump_traceback_later()
 - 外部调用长时间不返回；
 - 服务看似存活但没有处理请求。
 
-## 十二、使用 cProfile 判断 Python 热点
+## 十三、使用 cProfile 判断 Python 热点
 
 对单个函数进行分析：
 
@@ -1064,7 +1097,7 @@ stats.print_stats(20)
 
 如果主要时间消耗在 C/CUDA 调用中，`cProfile` 只能看到 Python 等待调用的表面，不能替代底层运行时分析工具。
 
-## 十三、用 pytest-cov 检查测试覆盖范围
+## 十四、用 pytest-cov 检查测试覆盖范围
 
 运行：
 
@@ -1097,7 +1130,7 @@ htmlcov/index.html
 
 覆盖率高不等于测试质量高。如果测试只执行成功路径，分支覆盖率仍然可能不足。
 
-## 十四、调试决策树
+## 十五、调试决策树
 
 遇到问题时，根据症状选择工具：
 
@@ -1115,7 +1148,7 @@ htmlcov/index.html
 | 需要快速验证单个函数 | pytest -q | `pytest -q tests/test_backend.py::test_xxx` |
 | 需要静态检查类型和风格 | ruff + mypy | `ruff check . && mypy src/` |
 
-## 附：Java 与 Python 测试调试工具对照
+## 十六、附：Java 与 Python 测试调试工具对照
 
 | 维度 | Java | Python |
 |------|------|--------|
@@ -1135,7 +1168,7 @@ htmlcov/index.html
 | 静态检查 | SpotBugs / Error Prone | ruff / mypy / pyright |
 | 测试分类 | `@Tag("slow")` | `@pytest.mark.slow` / 自定义 marker |
 
-## 总结
+## 十七、本文小结
 
 本文聚焦 Python 工程中最常见的测试和调试工具：
 
@@ -1174,3 +1207,8 @@ graph TD
 ```
 
 这样更符合本系列的定位：从 Python 语言和工具出发，解决 AI-Infra 工程中的实际问题。
+
+
+## 下一篇
+
+[项目工程化与生产交付](/python-engineering-and-production-delivery.html)

@@ -23,16 +23,35 @@ catalog: true
 
 > **同样是 128×128 的分块，用 CUDA Core 和用 Tensor Core 写出来的 kernel 结构差在哪里？为什么 Tensor Core 版本必须关心 fragment 布局和 `ldmatrix`？**
 
+
+## 一、总览
+
+### 1. 答案先说在前面
+
 答案先说在前面，后文逐步展开：
 
 - **计算单元变了**：从"每线程一个 $$TM \times TN$$ 累加器"变成"每 warp 若干个 mma fragment"。累加器仍在寄存器里，但它属于 warp 而不是线程——每个线程持有的是一个 $$16 \times 8$$ 结果矩阵里由硬件规定的 4 个位置。
 - **数据流变了**：从"shared → 寄存器（任意布局）"变成"shared → `ldmatrix` → fragment（固定布局）→ `mma`"。因为 `mma` 指令对 32 个线程各自寄存器里放的是矩阵的哪几个元素有硬性规定，所以你必须关心布局；`ldmatrix` 是硬件提供的"按这个规定从 shared memory 装载"的指令。
 - **Hopper 上再进一步**：数据流变成"TMA → shared（swizzled）→ `wgmma` 直接读 shared"，寄存器里只剩累加器，搬运工作从线程手里拿走交给硬件。
 
+### 2. 数字约定与硬件要求
+
 文中所有数字为公开标称值或可推导的理论值，实测区间用"通常能达到"的措辞给出。本篇实践部分的 kernel 需要 sm_80（A100 / RTX 30 系及更新），Hopper 部分（`wgmma`、TMA）需要 sm_90，以源码结构阅读为主，明确标注。
 
+### 3. 本文的章节安排
 
-## 一、Tensor Core 做什么
+```text
+第二章  Tensor Core 做什么            一条指令一个小矩阵乘加、每 SM 每周期 1024 次乘加、三代编程接口
+第三章  fragment 布局与 ldmatrix       m16n8k16 的三个 fragment、布局为什么这么"奇怪"、ldmatrix 与 .trans、为什么 shared memory 必须 swizzle
+第四章  实践：Ampere BF16 GEMM        先算理论、设计、代码、测试、预期与差距
+第五章  Hopper                       TMA、wgmma、warp specialization
+第六章  CUTLASS 与 CuTe              2.x 与 3.x、3.x 的分层、CuTe Layout、一个 CuTe 小程序、读一个 3.x GEMM 实例与一个 2.x 风格实例
+第七章  PyTorch 与 vLLM 如何使用 Tensor Core   ATen matmul → cuBLAS / cuBLASLt；vLLM 用 CUTLASS 写 cuBLAS 不提供的 GEMM
+第八章  本文小结
+```
+
+
+## 二、Tensor Core 做什么
 
 ### 1. 一条指令，一个小矩阵乘加
 
@@ -124,7 +143,7 @@ wgmma.wait_group.sync.aligned 0;
 三代接口的对照放在文末小结表中。本篇实践用 `mma.sync`，因为它是 Ampere 上唯一能拿到接近峰值性能的手段，也是理解 fragment 布局这个核心概念的最佳入口。
 
 
-## 二、fragment 布局与 ldmatrix
+## 三、fragment 布局与 ldmatrix
 
 ### 1. m16n8k16 的三个 fragment
 
@@ -269,7 +288,7 @@ $$
 Hopper 的 TMA 硬件支持 32B / 64B / 128B 三种 swizzle 模式，`wgmma` 的 descriptor 也带 swizzle 字段——硬件做地址置换，程序员只需要在两边声明同一种模式。Ampere 上没有这个便利，swizzle 要在 `cp.async` 目标地址和 `ldmatrix` 源地址两处手工算出来，但公式是同一个。
 
 
-## 三、实践：Ampere BF16 GEMM
+## 四、实践：Ampere BF16 GEMM
 
 ### 1. 先算理论
 
@@ -548,7 +567,7 @@ print(f"ours {flops / ms / 1e9:.0f} GFLOPS, cuBLAS {flops / ms_ref / 1e9:.0f} GF
 如果读者想再往上推，优先级依次是：换 $$64 \times 64$$ warp tile（block tile 128×256 或 256×128）、开 4–5 stage 的动态 shared memory、把 `ldmatrix` 与 `mma` 做软件流水（在做第 $$ks$$ 步 mma 的同时发出第 $$ks+1$$ 步的 ldmatrix，即"寄存器双缓冲"）。这三项加起来通常能把差距压到 5–10% 以内，也就是 CUTLASS 2.x 的水平。
 
 
-## 四、Hopper：TMA、wgmma 与 warp specialization
+## 五、Hopper：TMA、wgmma 与 warp specialization
 
 以下内容需要 sm_90（H100），本机无法运行，以指令语义和 kernel 结构为主。H100 BF16 Tensor Core 标称约 989 TFLOPS，是 A100 的 3.2 倍，但 shared memory 带宽（每 SM 每周期 128 字节）没有同比增长，SM 数只从 108 增至 132。这意味着 Ampere 那套"每个线程发 `cp.async`、每个 warp 发 `ldmatrix` 再发 `mma`"的结构在 Hopper 上无法喂饱 Tensor Core：**指令发射带宽和 shared memory 带宽都不够**。Hopper 的三项新机制都是针对这一点。
 
@@ -627,13 +646,13 @@ if (warpgroup == producer) {
 vLLM 的 FP8 GEMM 配置里两种都出现，下一章会看到。
 
 
-## 五、CUTLASS 与 CuTe
+## 六、CUTLASS 与 CuTe
 
-手写 `mma.sync` kernel 之后再看 CUTLASS，会发现它做的事情与上一章完全对应，只是把每个决定（tile 形状、warp 排布、fragment 布局、swizzle、流水深度）变成了模板参数。
+手写 `mma.sync` kernel 之后再看 CUTLASS，会发现它做的事情与第四章完全对应，只是把每个决定（tile 形状、warp 排布、fragment 布局、swizzle、流水深度）变成了模板参数。
 
 ### 1. 2.x 与 3.x
 
-CUTLASS 2.x（Volta 到 Ampere）的核心抽象是 `ThreadblockShape / WarpShape / InstructionShape` 三层 tile 加一个 `Stages`，对应上一章的 block tile 128×128×32、warp tile 64×32、mma 形状 16×8×16、3 stage。它的线程 ↔ 数据映射由一堆 `ThreadMap`、`TileIterator` 类手工实现，每种布局、每种数据类型一套。
+CUTLASS 2.x（Volta 到 Ampere）的核心抽象是 `ThreadblockShape / WarpShape / InstructionShape` 三层 tile 加一个 `Stages`，对应第四章的 block tile 128×128×32、warp tile 64×32、mma 形状 16×8×16、3 stage。它的线程 ↔ 数据映射由一堆 `ThreadMap`、`TileIterator` 类手工实现，每种布局、每种数据类型一套。
 
 CUTLASS 3.x（2023 年起）以 **CuTe** 和 **Hopper** 为中心重写：所有"哪个线程持有哪个元素"的问题统一用 CuTe 的 `Layout` 代数表达，kernel 结构围绕 TMA + warp specialization 设计，Ampere 通过同一套接口向下兼容。理解 3.x 的关键是先理解 CuTe，再理解分层。
 
@@ -654,7 +673,7 @@ device::GemmUniversalAdapter<Kernel>      host 侧入口：参数检查、worksp
 CuTe：Layout / Tensor / Shape / Stride / local_tile / local_partition —— 所有层共用的坐标代数
 ```
 
-对应到上一章的手写 kernel：`bf16_gemm_tn()` 是 device 层；`bf16_gemm_tn_kernel` 的 `blockIdx` 解析和 epilogue 是 kernel 层；k 循环加流水是 `CollectiveMma`；`MT × NT` 个 `mma_bf16_16816` 加 6 条 `ldmatrix_x4` 是 `TiledMma` 与 `TiledCopy`；`swz()` 和 `a_row/b_row` 这些索引公式就是 CuTe 要替我们表达的东西。
+对应到第四章的手写 kernel：`bf16_gemm_tn()` 是 device 层；`bf16_gemm_tn_kernel` 的 `blockIdx` 解析和 epilogue 是 kernel 层；k 循环加流水是 `CollectiveMma`；`MT × NT` 个 `mma_bf16_16816` 加 6 条 `ldmatrix_x4` 是 `TiledMma` 与 `TiledCopy`；`swz()` 和 `a_row/b_row` 这些索引公式就是 CuTe 要替我们表达的东西。
 
 ### 3. CuTe：Layout 是从坐标到偏移的函数
 
@@ -674,7 +693,7 @@ $$
 
 - `make_layout(shape, stride)`：构造；只给 shape 时默认列主序（第一维 stride 为 1）。`Layout<Shape<_128,_128>, Stride<_1,_128>>` 是 128×128 的列主序，`Stride<_128,_1>` 是行主序。
 - `make_tensor(ptr, layout)`：Layout 加一个指针就是 Tensor。
-- `local_tile(tensor, tile_shape, coord)`：把 tensor 按 `tile_shape` 切块，取第 `coord` 块。这就是"block tile"——上一章的 `A_blk = A + bm * K` 加上 128×32 的形状。
+- `local_tile(tensor, tile_shape, coord)`：把 tensor 按 `tile_shape` 切块，取第 `coord` 块。这就是"block tile"——第四章的 `A_blk = A + bm * K` 加上 128×32 的形状。
 - `local_partition(tensor, thread_layout, thread_idx)`：把 tensor 按 `thread_layout` **交错**划分给线程，取第 `thread_idx` 个线程的那一份。与 `local_tile` 的区别：tile 是把相邻元素分给同一个人（分块），partition 是把相隔 stride 的元素分给同一个人（交错）。
 - `partition_S(tensor)` / `partition_D(tensor)`（`ThrCopy` 上的方法）：按一个 `TiledCopy` 的源/目标布局划分给当前线程；`partition_A/B/C`（`ThrMMA` 上）按一个 `TiledMma` 的 fragment 布局划分。
 - `print(layout)` / `print_latex(layout)`：打印；后者对二维 layout 输出一张 LaTeX 表，每格标注持有它的 (thread, value)，是理解复杂布局的最好工具。
@@ -686,11 +705,11 @@ ALayout = Layout<Shape <Shape <_4, _8>, Shape <_2, _2, _2>>,
                  Stride<Stride<_32, _1>, Stride<_16, _8, _128>>>
 ```
 
-读法：thread 坐标 $$(t, g)$$，$$t = \text{lane} \bmod 4$$ 的 stride 是 32 = $$16 \times 2$$，即 $$k = 2t$$；$$g = \text{lane}/4$$ 的 stride 是 1，即 $$m = g$$。value 坐标 $$(v_0, v_1, v_2)$$：$$v_0$$ stride 16 是 $$k + 1$$（同一寄存器里的第二个 BF16），$$v_1$$ stride 8 是 $$m + 8$$（`a1`），$$v_2$$ stride 128 是 $$k + 8$$（`a2`）。这正是第二章那张 A fragment 图，只是变成了一个可以被 `print_latex` 打印、可以和其他 Layout 组合的代数对象。
+读法：thread 坐标 $$(t, g)$$，$$t = \text{lane} \bmod 4$$ 的 stride 是 32 = $$16 \times 2$$，即 $$k = 2t$$；$$g = \text{lane}/4$$ 的 stride 是 1，即 $$m = g$$。value 坐标 $$(v_0, v_1, v_2)$$：$$v_0$$ stride 16 是 $$k + 1$$（同一寄存器里的第二个 BF16），$$v_1$$ stride 8 是 $$m + 8$$（`a1`），$$v_2$$ stride 128 是 $$k + 8$$（`a2`）。这正是第三章那张 A fragment 图，只是变成了一个可以被 `print_latex` 打印、可以和其他 Layout 组合的代数对象。
 
 ### 4. 一个 CuTe 小程序
 
-下面用 CuTe 复现上一章的划分：128×128 的 tile → 8 个 warp（2×4，每个 64×32）→ 每个 warp 内 32 个线程。只用到 CuTe 头文件，可以在 host 上编译运行（`nvcc -std=c++17 -I<cutlass>/include cute_demo.cu`）：
+下面用 CuTe 复现第四章的划分：128×128 的 tile → 8 个 warp（2×4，每个 64×32）→ 每个 warp 内 32 个线程。只用到 CuTe 头文件，可以在 host 上编译运行（`nvcc -std=c++17 -I<cutlass>/include cute_demo.cu`）：
 
 ```cpp
 // cute_demo.cu
@@ -732,7 +751,7 @@ int main() {
 }
 ```
 
-`zipped_divide(tile_layout, warp_tiler)` 输出 `((_64,_32),(_2,_4)):((_1,_128),(_64,_4096))`——它的意思是：这个 128×128 的 layout 被重新表达为"warp tile 内坐标 × warp 坐标"两级，第二级的 stride `(64, 4096)` 说明沿 M 移到下一个 warp tile 跨 64 个元素、沿 N 跨 $$32 \times 128 = 4096$$ 个元素。上一章 kernel 里 `warp_m * WM + i * 16 + a_row` 这类手算的索引，在这里被 Layout 代数替代，而且是可组合的：把 `tiled` 与一个 `TiledMma` 的 fragment layout 再 `compose`，就得到"warp 5 的 lane 3 的第 k 个 mma 的 `a2` 寄存器对应全局矩阵的哪个元素"。
+`zipped_divide(tile_layout, warp_tiler)` 输出 `((_64,_32),(_2,_4)):((_1,_128),(_64,_4096))`——它的意思是：这个 128×128 的 layout 被重新表达为"warp tile 内坐标 × warp 坐标"两级，第二级的 stride `(64, 4096)` 说明沿 M 移到下一个 warp tile 跨 64 个元素、沿 N 跨 $$32 \times 128 = 4096$$ 个元素。第四章 kernel 里 `warp_m * WM + i * 16 + a_row` 这类手算的索引，在这里被 Layout 代数替代，而且是可组合的：把 `tiled` 与一个 `TiledMma` 的 fragment layout 再 `compose`，就得到"warp 5 的 lane 3 的第 k 个 mma 的 `a2` 寄存器对应全局矩阵的哪个元素"。
 
 这就是 CuTe 成为 FlashAttention-3 和大量新 kernel 基础的原因：attention kernel 里 Q、K、V、S、P、O 六个张量，每个都有自己的 tile 形状、shared memory swizzle 和 fragment 布局，其中 P 还要从 C fragment 转成 A fragment，V 要用 `.trans` 装载。手算每一处索引既容易错也无法复用；用 Layout 代数写，改一个 tile 形状或换一种 mma 指令只需改一个类型参数。
 
@@ -835,7 +854,7 @@ STD_TORCH_CHECK(c.stride(0) % 16 == 0 && b.stride(1) % 16 == 0);  // 16 Byte Ali
 A 行主序、B 列主序（即 $$N \times K$$ 行主序）、16 字节对齐——与本篇 kernel 的 "TN" 约定和 `cp.async`/`ldmatrix` 的 16 字节要求完全相同。
 
 
-## 六、PyTorch 与 vLLM 如何使用 Tensor Core
+## 七、PyTorch 与 vLLM 如何使用 Tensor Core
 
 ### 1. ATen `matmul` → cuBLAS / cuBLASLt
 
@@ -875,7 +894,7 @@ cuBLAS 覆盖了标准 dtype 的标准 GEMM，但推理系统需要的很多 GEM
 第九篇讨论量化时会回到这些 kernel 的 epilogue 细节；第七篇会看到 Triton 版本的 fused MoE GEMM 如何用完全不同的方式（编译器自动选择 mma 布局与流水）达到相近的效果。
 
 
-## 七、小结
+## 八、本文小结
 
 回到核心问题：同样是 $$128 \times 128$$ 的分块，Tensor Core 版本与 CUDA Core 版本的结构差异在于：
 

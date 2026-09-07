@@ -128,7 +128,7 @@ Ray Data · 清洗 · 去重`"]
 
 ### 第二张图：学习路径
 
-学习路径分五层，加一个横切、一个选修。层的顺序就是推荐的学习顺序，也是各系列的发布顺序。
+学习路径分五层，加一个横切、两个选修。层的顺序就是推荐的学习顺序，也是各系列的发布顺序。
 
 | 层 | 主题 | # | 系列 |
 |---|---|---|---|
@@ -143,6 +143,7 @@ Ray Data · 清洗 · 去重`"]
 | L5 | 平台 | 09 | AI 平台工程：资源层与交付层 |
 | 横切 | 方法 | 10 | AI-Infra 开源贡献指南 |
 | 选修 | 编译器 | — | ML 编译器内部（MLIR / Triton 编译器 / TVM） |
+| 选修 | RL 后训练基础设施 | — | rollout 引擎与训练器的共置、权重同步与调度（verl / OpenRLHF 一类框架） |
 
 ### 两张图的叠加
 
@@ -224,7 +225,7 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 > **一次 all_reduce 从调用到完成，数据在 PCIe、NVLink、InfiniBand 上是怎么流动的？为什么有时候是带宽的问题，有时候是延迟的问题？**
 
-七篇。硬件互联：PCIe / NVLink / NVSwitch / InfiniBand / RoCE 的拓扑与带宽，NUMA 与亲和性；RDMA 与 GPUDirect；NCCL 的算法（Ring / Tree / CollNet）、channel、protocol（LL / LL128 / Simple）与拓扑探测；nccl-tests 与调优参数；集合通信的正确性、死锁与 hang 的排查；推理侧的 KV 传输层（NIXL / UCX）。
+八篇。硬件互联：PCIe / NVLink / NVSwitch / InfiniBand / RoCE 的拓扑与带宽，NUMA 与亲和性；RDMA 与 GPUDirect；NCCL 的算法（Ring / Tree / CollNet）、channel、protocol（LL / LL128 / Simple）与拓扑探测；nccl-tests 与调优参数；集合通信的正确性、死锁与 hang 的排查；推理侧的 KV 传输层（NIXL / UCX）；MoE 的 all-to-all、DeepEP 与 GPU 发起的通信（NVSHMEM / IBGDA）。
 
 ### L4 引擎
 
@@ -240,7 +241,7 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 > **一个文本生成请求，为什么会逐渐演化成一个涉及计算、显存、调度、通信与状态管理的复杂系统？**
 
-十二篇：问题定义 → 指标体系 → 请求生命周期 → 调度 → KV Cache → GPU 执行 → 多卡扩展 → 模型适配 → 硬件抽象 → PD 分离 → Serving Infra 的演进 → 源码走读。以 vLLM 为分析对象，建立一套可迁移到其他推理框架的分析方法。
+十四篇：问题定义 → 指标体系 → 请求生命周期 → 调度 → KV Cache → GPU 执行 → 解码的扩展 → 多卡扩展 → 模型适配 → 请求形态 → 硬件抽象 → PD 分离 → Serving Infra 的演进 → 源码走读。以 vLLM 为分析对象，建立一套可迁移到其他推理框架的分析方法。
 
 ### L5 平台
 
@@ -250,7 +251,9 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 > **一个 GPU 集群如何被切分、调度和喂饱？一个训好的模型如何变成一个可运维的服务？**
 
-八篇。资源层：容器里的 GPU（device plugin、驱动与 CUDA 版本匹配、镜像）；K8s 上的 AI 任务调度（Volcano / Kueue、gang scheduling、拓扑感知）、Slurm 与 Ray；GPU 切分（MIG / vGPU / 时间片）；RDMA 网络配置；存储与 checkpoint I/O（对象存储、并行文件系统）。交付层：Serving 平台（KServe / Triton Inference Server / Ray Serve）、模型网关与路由、多租户与配额、可观测与成本。
+八篇。资源层：容器里的 GPU（device plugin、驱动与 CUDA 版本匹配、镜像）；K8s 上的 AI 任务调度（Volcano / Kueue、gang scheduling、拓扑感知）、Slurm 与 Ray；GPU 切分（MIG / 时间片 / MPS / HAMi，商业 vGPU 仅作对照）；RDMA 网络配置；存储与 checkpoint I/O（对象存储、并行文件系统）。交付层：Serving 平台（KServe / Triton Inference Server / Ray Serve）、模型网关与路由、多租户与配额、可观测与成本。
+
+架构视图右翼的其余几层——实验跟踪与流水线、模型仓库与血缘、离线评测与灰度发布——是 MLOps 的通用问题，与 AI 负载的特殊性关系不大，本系列不展开，只在模型网关一篇把模型仓库当作版本来源提及。
 
 ### 横切：10 AI-Infra 开源贡献指南
 
@@ -261,6 +264,10 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 ### 选修：ML 编译器内部
 
 `torch.compile` 的用法与 Inductor 的工作方式在 03 中覆盖，Triton 的编译流水线在 05 中覆盖。这对绝大多数 AI-Infra 工作已经足够。MLIR 的方言设计、TVM 的调度语言、Triton 编译器自身的实现，只对准备从事编译器开发的读者必要，不进入主线。
+
+### 选修：RL 后训练基础设施
+
+RLHF / GRPO 一类后训练把推理引擎和训练框架绑在同一个任务里：rollout 由 vLLM 这样的引擎生成，训练由 Megatron / FSDP 完成，两者之间要反复同步权重、切换显存归属、平衡生成与训练的算力配比。这是 07 与 08 两个系列的知识在一个系统里的组合，也是当前增长最快的一类 AI-Infra 负载。它没有单列一个系列，原因有二：一是它的每个组件在 07、08 中都已覆盖，新增的是编排而不是新机制；二是框架（verl、OpenRLHF、slime 等）尚在快速收敛，现在写具体实现很快会过期。读完 07 和 08 之后，以"rollout 与训练如何共享一组 GPU"为问题读这些框架的源码，是进入这一方向的路径；算法本身（奖励模型、RL 目标函数）属于算法工程师的地图。
 
 
 ## 系列之间的依赖
@@ -349,9 +356,9 @@ graph LR
 | 03 | [PyTorch 深度实践：从 Tensor 到深度学习运行时](/deep-dive-into-pytorch.html) | L2 | 10 |
 | 04 | [Transformer 与 LLM：结构、算量与数值](/transformer-and-llm-for-infra-engineers.html) | L2 | 7 |
 | 05 | [GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention](/gpu-kernel-engineering.html) | L2 | 10 |
-| 06 | [通信与互联：从 NCCL 到 RDMA](/communication-and-interconnect-for-ai-infra.html) | L3 | 7 |
+| 06 | [通信与互联：从 NCCL 到 RDMA](/communication-and-interconnect-for-ai-infra.html) | L3 | 8 |
 | 07 | [大规模训练工程：从并行策略到容错恢复](/large-scale-training-from-parallelism-to-fault-tolerance.html) | L4 | 8 |
-| 08 | [大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术](/deep-dive-into-vllm.html) | L4 | 12 |
+| 08 | [大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术](/deep-dive-into-vllm.html) | L4 | 14 |
 | 09 | [AI 平台工程：资源层与交付层](/ai-platform-engineering.html) | L5 | 8 |
 | 10 | [AI-Infra 开源贡献指南](/contributing-to-ai-infra-open-source.html) | 横切 | 4 |
 

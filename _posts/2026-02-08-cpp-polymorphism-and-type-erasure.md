@@ -6,6 +6,8 @@ tags: [C++, AI, AI-Infra]
 catalog: true
 ---
 
+> 本文是[《C++ 在 AI-Infra：从对象模型到算子扩展》](/cpp-for-ai-infra.html)系列的第 4 篇（共八篇）。上一篇：[模板与泛型编程](/cpp-templates-and-generic-programming.html)；下一篇：[宏、静态注册与代码生成](/cpp-macros-static-registration-and-codegen.html)
+
 在 Python 里写 `torch.add(a, b)`，如果 `a` 在 CPU 上就跑 CPU kernel，在 GPU 上就跑 CUDA kernel。这个"按参数选实现"的动作在 C++ 层叫 dispatch，做这件事的类叫 `c10::Dispatcher`。它的核心调用路径在 `aten/src/ATen/core/dispatch/Dispatcher.h` 里（本文引用的 PyTorch 源码以 v2.10.0 为准），删掉调试和 profiler 分支后只剩这几行：
 
 ```cpp
@@ -56,24 +58,33 @@ class TORCH_API BoxedKernel final {
 
 > **Dispatcher 拿到一个 `OperatorHandle` 和一组参数后，用什么 C++ 机制调到 CPU kernel？为什么既有 boxed 又有 unboxed？**
 
-全文提纲：
 
-1. 虚函数与 vtable：C++ 里"默认不虚"的多态
-2. 函数指针：最古老的运行期分派
-3. `std::function`、`c10::function_ref`、函数对象与 lambda
-4. CRTP：编译期多态
-5. 类型擦除：`c10::KernelFunction` 的 boxed 与 unboxed 两条路径
-6. `c10::IValue`：手工实现的带类型标签的联合体
-7. 异常：`TORCH_CHECK` 抛出的是什么，如何跨越 C++/Python 边界
-8. 回到源码：从 `at::add` 到 CPU kernel 的完整链路
-9. mini-c10：`DispatchKey`、`KernelFunction`、`OperatorEntry`、`Dispatcher`
-10. 工程实践建议与常见错误
-11. 总结
+## 一、总览
+
+### 1. C++ 的多态不止一种
+
+Java 里"按运行时类型选实现"只有一种做法：接口加虚方法。C++ 有好几种——虚函数、函数指针、函数对象与 lambda、模板与 CRTP、类型擦除、`std::variant`——每一种都在"灵活性"和"零开销"之间取不同的点，AI-Infra 项目会按场景混用。本文先把这几种机制逐个讲清（第二章到第五章），再用它们读懂 `c10::KernelFunction` 的类型擦除和 `c10::IValue` 的 tagged union（第六、七章），补上异常如何跨越 C++/Python 边界（第八章），最后沿 `at::add` 走一遍完整的分发链路，并在 mini-c10 里实现一个最小的 Dispatcher（第九、十章）。
+
+### 2. 本文的章节安排
+
+```text
+第二章    虚函数与 vtable                  virtual/override/final；虚调用在机器层面做了什么；虚析构；TensorImpl 有虚函数而 Tensor 没有；手工 vtable
+第三章    函数指针                        最古老的运行期分派；运行期与编译期函数指针；用 void* 存函数指针
+第四章    std::function、function_ref、函数对象与 lambda   拥有型与非拥有型类型擦除；作为模板参数的零开销策略；四种可调用抽象对比
+第五章    CRTP                           编译期多态的模式与源码用例
+第六章    类型擦除：c10::KernelFunction       三个字段；unboxed 路径；boxed 路径与 IValue 栈；为什么既有 boxed 又有 unboxed
+第七章    c10::IValue                     tag + payload；isTensor/toTensor；std::variant 与 std::visit；enum class
+第八章    异常                           c10::Error；TORCH_CHECK 展开成什么；C++ 异常的规则；跨越 C++/Python 边界
+第九章    回到源码                        从 at::add 到 CPU kernel 的完整链路：torchgen 入口、Dispatcher::call、OperatorEntry::lookup
+第十章    mini-c10                       DispatchKey、IValue、KernelFunction、OperatorEntry、Dispatcher 与验证
+第十一章  工程实践建议与常见错误
+第十二章  本文小结
+```
 
 
-## 一、虚函数与 vtable：C++ 里"默认不虚"的多态
+## 二、虚函数与 vtable：C++ 里"默认不虚"的多态
 
-### 1.1 `virtual`、`override`、`final`、纯虚函数与抽象类
+### 1. `virtual`、`override`、`final`、纯虚函数与抽象类
 
 Java 的实例方法默认就是虚的——只要不是 `final`、`static` 或 `private`，子类就能覆盖，调用点在运行期按对象的实际类型选实现。C++ 反过来：成员函数默认**不虚**，只有显式标 `virtual` 的才参与运行期分派。
 
@@ -81,7 +92,7 @@ Java 的实例方法默认就是虚的——只要不是 `final`、`static` 或 
 
 ```cpp
 struct Shape {                       // 抽象类：有纯虚函数，不能直接实例化
-  virtual ~Shape() = default;        // 虚析构（1.3 节解释为什么必须有）
+  virtual ~Shape() = default;        // 虚析构（2.3 节解释为什么必须有）
   virtual double area() const = 0;   // 纯虚函数：= 0 表示没有默认实现
   virtual const char* name() const { return "Shape"; }
 };
@@ -145,7 +156,7 @@ struct MetaAllocator final : public at::Allocator {
 
 三个关键字全在这段代码里：类标 `final`，`allocate` 和 `raw_deleter` 标 `override`，`copy_data` 标 `final`（既是 override 也禁止再覆盖）。`at::empty` 在 Meta 设备上创建 tensor 时拿到的是一个 `Allocator*`，调 `allocate` 时才决定跑到 `MetaAllocator::allocate`——这就是虚调用。本篇 mini-c10 的 Meta 后端会用同一个思路。
 
-### 1.2 vtable：虚调用在机器层面做了什么
+### 2. vtable：虚调用在机器层面做了什么
 
 Java 工程师对"虚调用"的直觉是 JVM 的 `invokevirtual`，具体实现藏在 JIT 里。C++ 的实现是公开的、可预测的，而且会直接影响对象大小和 ABI：
 
@@ -177,7 +188,7 @@ sizeof(NoVirtual)=8 sizeof(Square)=16
 
 `Square` 没覆盖 `name()`，所以打印 `Shape`；`sizeof` 差的 8 字节就是 vptr。
 
-### 1.3 虚析构：通过基类指针 `delete` 派生类对象
+### 3. 虚析构：通过基类指针 `delete` 派生类对象
 
 Java 没有这个问题：GC 知道每个对象的真实类型。C++ 里 `delete p` 调用的是 `p` **静态类型**的析构函数——如果 `p` 是 `Shape*` 而实际对象是 `Circle`，且 `~Shape()` 不是虚的，那么只有 `~Shape()` 被执行，`Circle` 的成员不会析构，内存大小也可能算错。这是未定义行为，不是"少释放一点"。
 
@@ -208,7 +219,7 @@ struct TORCH_API OperatorKernel : public c10::intrusive_ptr_target {
 
 它没有任何虚方法，唯一的职责是让 `intrusive_ptr<OperatorKernel>` 能正确释放任何派生类。这是"只为析构而存在的基类"——Java 里不需要这种东西。
 
-### 1.4 为什么 `TensorImpl` 有虚函数而 `Tensor` 没有
+### 4. 为什么 `TensorImpl` 有虚函数而 `Tensor` 没有
 
 第二篇讲了 `Tensor` 是句柄、`TensorImpl` 是实体。从多态的角度再看一遍这个分工。
 
@@ -317,7 +328,7 @@ struct TORCH_API NestedTensorImpl : public c10::TensorImpl {
 
 Java 对照：Java 里所有对象都是"实体 + 引用"，`Tensor`/`TensorImpl` 的拆分没有对应物。Java 引用本身不能有方法，所以只能把所有行为放在对象上、全部走虚调用。C++ 把"轻量、可拷贝、无多态"的句柄和"重量、不可拷贝、有多态"的实体拆开，两边各取所需。
 
-### 1.5 手工 vtable：`PyInterpreterVTable`
+### 5. 手工 vtable：`PyInterpreterVTable`
 
 编译器生成的 vtable 有一个限制：它属于类，不能在运行期换。`c10/core/impl/PyInterpreter.h` 展示了一个**手工 vtable** 的用法，理由写在文件头的长注释里，摘录关键部分：
 
@@ -375,14 +386,14 @@ struct C10_API PyInterpreter {
 };
 ```
 
-`PyInterpreterVTable` 本身是一个普通的抽象类（用了编译器的 vtable），`PyInterpreter` 只是一个指向它的指针包装。`disarm()` 把 `vtable_` 换成 `libc10.so` 里一个所有方法都为空的实现。这里有两层间接：编译器 vtable 负责"哪个方法"，手工的 `vtable_` 指针负责"哪套实现、能不能换"。注意 `dispatch(op, stack)` 这个方法——它就是 C++ 回到 Python 执行算子的入口，参数是 `Stack*`，也就是 boxed 调用约定，第五节会解释为什么这里只能是 boxed。
+`PyInterpreterVTable` 本身是一个普通的抽象类（用了编译器的 vtable），`PyInterpreter` 只是一个指向它的指针包装。`disarm()` 把 `vtable_` 换成 `libc10.so` 里一个所有方法都为空的实现。这里有两层间接：编译器 vtable 负责"哪个方法"，手工的 `vtable_` 指针负责"哪套实现、能不能换"。注意 `dispatch(op, stack)` 这个方法——它就是 C++ 回到 Python 执行算子的入口，参数是 `Stack*`，也就是 boxed 调用约定，第六章会解释为什么这里只能是 boxed。
 
 Java 对照：JVM 里一个类的方法表在类加载后固定，但类可以被卸载（class loader 被回收）；Java 用 GC 保证"还有引用就不会卸载"。C++ 的 `dlclose` 不看有没有人还持有指针，所以需要这种防御性设计。
 
 
-## 二、函数指针：最古老的运行期分派
+## 三、函数指针：最古老的运行期分派
 
-### 2.1 语法、类型别名与函数类型
+### 1. 语法、类型别名与函数类型
 
 虚函数之前，C 语言就有运行期分派：函数指针。语法一直是 C++ 最难读的部分之一，AI-Infra 代码里一律用类型别名：
 
@@ -403,11 +414,11 @@ BoxedKernelFunction* fn = &my_boxed_kernel;           // 加 * 才是指针
       void(const OperatorHandle&, DispatchKeySet, Stack*);
 ```
 
-然后在需要指针的地方写 `InternalBoxedKernelFunction* boxed_kernel_func_;`，在模板参数里写 `template <BoxedKernelFunction* func>`。这样写的好处是函数类型可以直接作为模板参数做特化（第五节的 `BoxedKernelWrapper<Result(Args...)>`）。
+然后在需要指针的地方写 `InternalBoxedKernelFunction* boxed_kernel_func_;`，在模板参数里写 `template <BoxedKernelFunction* func>`。这样写的好处是函数类型可以直接作为模板参数做特化（第六章的 `BoxedKernelWrapper<Result(Args...)>`）。
 
 Java 没有函数指针。最接近的是方法引用 `Foo::bar` 和函数式接口，但那是在堆上创建一个实现了接口的对象，调用仍是虚调用。C++ 的函数指针就是一个代码地址，8 字节，调用是一次间接跳转（`call *%rax`），没有对象、没有分配、没有 vtable 查找。
 
-### 2.2 运行期函数指针与编译期函数指针
+### 2. 运行期函数指针与编译期函数指针
 
 函数指针作为参数传进去，编译器只知道"这是某个函数的地址"，不能内联。但如果函数指针作为**非类型模板参数**传进去，编译器在实例化时就知道它指向谁，可以直接调用甚至内联。这是 `KernelFunction` 区分 `makeFromUnboxedFunction` 和 `makeFromUnboxedRuntimeFunction` 的原因，`KernelFunction.h` 的注释写得很直接：
 
@@ -467,7 +478,7 @@ struct CompileTimeFunctionPointer final {
 
 这条路走的是 `makeFromUnboxedRuntimeFunction`，多一次间接调用。对于一个要跑几毫秒的 kernel，这点开销无关紧要；对 `aten::view`、`aten::t` 这类几乎不做计算、每次调用只有几十纳秒的算子就有关系，所以 ATen 内部统一用 `TORCH_FN`。
 
-### 2.3 用 `void*` 存函数指针
+### 3. 用 `void*` 存函数指针
 
 回到开头的 `void* unboxed_kernel_func_`。为什么不存一个类型正确的函数指针？因为 `KernelFunction` 是一个**非模板类**，要能放进 `std::array<KernelFunction, N>` 里统一管理，而每个算子的 kernel 签名都不一样（`Tensor(const Tensor&, const Tensor&)`、`Tensor(const Tensor&, IntArrayRef, bool)`……）。签名是类型的一部分，要放进同一个数组，就必须把签名擦掉。
 
@@ -490,16 +501,16 @@ inline Return callUnboxedKernelFunction(
 两点需要知道：
 
 1. 函数指针和 `void*` 互转在标准里是"条件支持"（conditionally-supported），POSIX 要求支持（`dlsym` 返回 `void*` 就依赖它），所有主流平台都可以。
-2. **cast 回去的签名必须和存进去时一字不差**。`Return(OperatorKernel*, DispatchKeySet, const Tensor&, const Tensor&)` 和 `Return(OperatorKernel*, DispatchKeySet, Tensor, Tensor)` 是不同类型，用错了就是 UB——不是编译错误，而是参数按错误的方式压栈，运行时出错或悄悄算错。这就是为什么 `KernelFunction::call<Return, Args...>` 要求调用方**显式写出模板参数**，以及 `OperatorEntry` 要记 `cpp_signature_` 在注册时校验签名（第八节）。
+2. **cast 回去的签名必须和存进去时一字不差**。`Return(OperatorKernel*, DispatchKeySet, const Tensor&, const Tensor&)` 和 `Return(OperatorKernel*, DispatchKeySet, Tensor, Tensor)` 是不同类型，用错了就是 UB——不是编译错误，而是参数按错误的方式压栈，运行时出错或悄悄算错。这就是为什么 `KernelFunction::call<Return, Args...>` 要求调用方**显式写出模板参数**，以及 `OperatorEntry` 要记 `cpp_signature_` 在注册时校验签名（第九章）。
 
 这里的取舍是：用一点 UB 风险（由注册时的签名检查兜住）换取"一个非模板的 `KernelFunction` 能装任意签名的 kernel，调用时零额外开销"。Java 里没有对应物——JVM 的类型系统不允许擦掉方法签名后再 cast 回来，只能走接口。
 
 
-## 三、`std::function`、`c10::function_ref`、函数对象与 lambda
+## 四、`std::function`、`c10::function_ref`、函数对象与 lambda
 
 函数指针只能指向"函数"，不能带状态。要传一个"带数据的可调用对象"，C++ 有三个层次的工具，代价依次递减：`std::function`（拥有、类型擦除）、`c10::function_ref`（不拥有、类型擦除）、模板参数（不擦除、零开销）。
 
-### 3.1 `std::function`：拥有型的类型擦除，以及它的代价
+### 1. `std::function`：拥有型的类型擦除，以及它的代价
 
 `std::function<R(Args...)>` 能装任何签名兼容的可调用对象——函数指针、lambda、带 `operator()` 的类、`std::bind` 的结果——并按值拥有它。它是 Java 函数式接口（`Runnable`、`Function<T,R>`）最直接的对应物。
 
@@ -560,7 +571,7 @@ struct C10_API InefficientStdFunctionContext {
 
 Java 对照：Java 里每个 lambda 都是堆对象（除非 JIT 逃逸分析消除了它），每次调用都是接口调用；`std::function` 大致就是这个模型在 C++ 里的复现，所以它的代价对 Java 工程师来说"很正常"。不正常的是 C++ 有比它便宜得多的选项，热路径上用 `std::function` 会被 reviewer 打回。
 
-### 3.2 `c10::function_ref`：非拥有的类型擦除
+### 2. `c10::function_ref`：非拥有的类型擦除
 
 很多时候被调用方**不需要拥有**闭包，只是在自己返回前调它几次。这种场景下 `std::function` 的拷贝和堆分配纯属浪费。`c10/util/FunctionRef.h`（从 LLVM 的 `llvm::function_ref` 移植）就是为此设计的，整个实现只有二十几行：
 
@@ -608,7 +619,7 @@ class function_ref<Ret(Params...)> {
 - 构造时，模板构造函数知道 `Callable` 的具体类型，于是实例化一个静态函数 `callback_fn<Callable>`——它知道怎么把 `intptr_t` cast 回 `Callable*` 并调用 `operator()`。把这个静态函数的地址存进 `callback`，把闭包的地址存进 `callable`。
 - 从此 `function_ref` 本身不再知道 `Callable` 是什么，但 `callback_fn<Callable>` 知道。类型信息被"擦掉"，然后藏在了一个函数指针指向的代码里。
 
-`callback_fn<Callable>` 这种"知道具体类型的静态包装函数"是所有类型擦除的核心，第五节 `KernelFunction` 的 `wrap_kernel_functor_unboxed_::call` 和 `make_boxed_from_unboxed_functor::call` 是同一个东西的放大版。
+`callback_fn<Callable>` 这种"知道具体类型的静态包装函数"是所有类型擦除的核心，第六章 `KernelFunction` 的 `wrap_kernel_functor_unboxed_::call` 和 `make_boxed_from_unboxed_functor::call` 是同一个东西的放大版。
 
 它在 PyTorch 里的典型用途是 `TensorIterator` 的循环回调（`aten/src/ATen/TensorIterator.h`）：
 
@@ -623,7 +634,7 @@ class function_ref<Ret(Params...)> {
 
 代价是它**不安全存储**：`callable` 指向调用方栈上的闭包，函数返回后就悬垂了。注释第一句就在强调这一点。
 
-### 3.3 函数对象与 lambda 作为模板参数：零开销的策略
+### 3. 函数对象与 lambda 作为模板参数：零开销的策略
 
 第三种方式不擦除类型：把可调用对象的类型作为模板参数传进去。被调用方为每种可调用类型实例化一份代码，调用点直接调 `op(...)`，编译器完全知道 `op` 是什么，可以内联、可以向量化。
 
@@ -696,7 +707,7 @@ void add_clamp_kernel(
 
 Java 对照：Java 的策略模式（`Comparator<T>`、`Function<T,R>`）在语言层面永远是接口调用，能否内联取决于 JIT 在运行期观察到的调用点是否单态。C++ 模板在编译期就把策略"焊死"在调用点上——代价是每种策略一份代码（二进制体积），和无法在运行期换策略。
 
-### 3.4 四种可调用抽象的对比
+### 4. 四种可调用抽象的对比
 
 | | 函数指针 | `std::function` | `c10::function_ref` | 模板参数 |
 |---|---|---|---|---|
@@ -708,12 +719,12 @@ Java 对照：Java 的策略模式（`Comparator<T>`、`Function<T,R>`）在语�
 | 能放进非模板类 / 数组 | 是 | 是 | 是（短期） | 否 |
 | PyTorch 用例 | `DeleterFnPtr`、`boxed_kernel_func_` | 线程池任务、`from_blob` 删除器 | `TensorIterator::for_each` | `cpu_kernel`、`gpu_kernel`、`AT_DISPATCH` |
 
-`KernelFunction` 需要"能放进非模板类的数组里"（`OperatorEntry::dispatchTable_`），排除了模板参数；需要"每次算子调用零额外开销"，排除了 `std::function`；需要"能带状态"（kernel functor 可以有成员），排除了裸函数指针。于是它自己实现了一个介于 `function_ref` 和 `std::function` 之间的东西：`functor_`（拥有状态，`intrusive_ptr`）+ 两个函数指针。这就是第五节。
+`KernelFunction` 需要"能放进非模板类的数组里"（`OperatorEntry::dispatchTable_`），排除了模板参数；需要"每次算子调用零额外开销"，排除了 `std::function`；需要"能带状态"（kernel functor 可以有成员），排除了裸函数指针。于是它自己实现了一个介于 `function_ref` 和 `std::function` 之间的东西：`functor_`（拥有状态，`intrusive_ptr`）+ 两个函数指针。这就是第六章。
 
 
-## 四、CRTP：编译期多态
+## 五、CRTP：编译期多态
 
-### 4.1 模式本身
+### 1. 模式本身
 
 虚函数解决的问题是"基类的代码调用派生类的实现"。如果基类在编译期就知道派生类是谁，就不需要 vtable。CRTP（Curiously Recurring Template Pattern，奇异递归模板模式）就是让基类以派生类为模板参数：
 
@@ -735,7 +746,7 @@ struct MyModel : ModelBase<MyModel> {          // 把自己传给基类
 
 代价是：`ModelBase<A>` 和 `ModelBase<B>` 是两个无关的类型，不能放进同一个 `std::vector<ModelBase*>`。所以 CRTP 适合"实现复用 + 编译期定制"，不适合"运行期多态容器"。
 
-### 4.2 源码里的真实用例
+### 2. 源码里的真实用例
 
 **用例一：AOTInductor 生成的模型类。** `torch/csrc/inductor/aoti_runtime/model_base.h`，注释直接说明了动机：
 
@@ -809,18 +820,18 @@ class Cloneable : public Module {
   }
 ```
 
-问题是 1.4 节提过的"虚拷贝构造"：`Module::clone()` 是虚函数，但基类不知道要 `make_shared<哪个类型>`。传统做法是每个子类手写一遍 `clone()`。这里用 CRTP 中间层 `Cloneable<Derived>` 自动生成：它知道 `Derived`，所以能写 `std::make_shared<Derived>(self)`，然后以 `override` 的方式把这个实现挂到 `Module` 的虚函数上。用户写 `struct Linear : Cloneable<Linear>`，就同时得到了运行期多态（`shared_ptr<Module>` 容器）和自动生成的 `clone`。注释最后一句解释了为什么不在 `Module` 本身用 CRTP——那样所有存 `Module` 的地方都得变成模板。
+问题是 2.4 节提过的"虚拷贝构造"：`Module::clone()` 是虚函数，但基类不知道要 `make_shared<哪个类型>`。传统做法是每个子类手写一遍 `clone()`。这里用 CRTP 中间层 `Cloneable<Derived>` 自动生成：它知道 `Derived`，所以能写 `std::make_shared<Derived>(self)`，然后以 `override` 的方式把这个实现挂到 `Module` 的虚函数上。用户写 `struct Linear : Cloneable<Linear>`，就同时得到了运行期多态（`shared_ptr<Module>` 容器）和自动生成的 `clone`。注释最后一句解释了为什么不在 `Module` 本身用 CRTP——那样所有存 `Module` 的地方都得变成模板。
 
-### 4.3 Java 对照
+### 3. Java 对照
 
 Java 里形式上最像的是自引用泛型 `class Foo implements Comparable<Foo>`，但它解决的是类型安全（`compareTo(Foo)` 而不是 `compareTo(Object)`），不是分派——`compareTo` 仍然是虚方法。Java 泛型在编译后被擦除，`Base<T>` 里没有办法 `(T) this` 拿到静态类型然后直接调用 `T` 的非虚方法（`T` 的方法本来也都是虚的）。所以 CRTP 在 Java 里没有对应物：Java 不需要它（JIT 会内联单态虚调用），也做不到它（没有编译期实例化）。
 
 读 PyTorch 源码时，看到 `class X : public Base<X>` 就是 CRTP。看到 `static_cast<Derived*>(this)` 就是它在"向下转型"——这个 cast 在 CRTP 之外是危险的，在 CRTP 里是惯用法。
 
 
-## 五、类型擦除：`c10::KernelFunction` 的 boxed 与 unboxed 两条路径
+## 六、类型擦除：`c10::KernelFunction` 的 boxed 与 unboxed 两条路径
 
-### 5.1 什么是类型擦除
+### 1. 什么是类型擦除
 
 前面已经见过三个类型擦除的例子：`std::function`、`c10::function_ref`、`void* unboxed_kernel_func_`。它们的共同结构是：
 
@@ -833,7 +844,7 @@ Java 里不需要这个技巧，因为所有对象都有统一基类 `Object` �
 
 `KernelFunction` 要擦的是 kernel 的**签名**。下面把它拆开看。
 
-### 5.2 三个字段
+### 2. 三个字段
 
 `KernelFunction.h` 的类注释：
 
@@ -877,9 +888,9 @@ Java 里不需要这个技巧，因为所有对象都有统一基类 `Object` �
 | `boxed_kernel_func_` | `void(*)(OperatorKernel*, const OperatorHandle&, DispatchKeySet, Stack*)` | boxed 入口，**永远有效** |
 | `unboxed_kernel_func_` | `void*`，实际是 `Return(*)(OperatorKernel*, DispatchKeySet, Args...)` | unboxed 快路径，**可能为空** |
 
-`OperatorKernel*` 出现在两个函数指针的第一个参数位置上，它就是 `function_ref` 里那个 `intptr_t callable`——"被装进去的东西"的地址。区别是 `KernelFunction` 拥有它（`intrusive_ptr`），而且它有一个公共基类 `OperatorKernel`（只为虚析构存在，1.3 节）。
+`OperatorKernel*` 出现在两个函数指针的第一个参数位置上，它就是 `function_ref` 里那个 `intptr_t callable`——"被装进去的东西"的地址。区别是 `KernelFunction` 拥有它（`intrusive_ptr`），而且它有一个公共基类 `OperatorKernel`（只为虚析构存在，2.3 节）。
 
-### 5.3 unboxed 路径：从 functor 到 `void*`，再回来
+### 3. unboxed 路径：从 functor 到 `void*`，再回来
 
 创建一个 `KernelFunction` 的所有工厂函数最终都汇到 `makeFromUnboxedFunctor`（`KernelFunction_impl.h`）：
 
@@ -944,7 +955,7 @@ class WrapFunctionIntoFunctor_<
 };
 ```
 
-`FuncPtr` 是 2.2 节的 `CompileTimeFunctionPointer`，`func_ptr()` 是 `constexpr`，所以 `(*FuncPtr::func_ptr())(...)` 是对一个编译期已知函数的直接调用，`C10_ALWAYS_INLINE` 再保证它被内联进 `wrap_kernel_functor_unboxed_::call`。最终效果：`unboxed_kernel_func_` 指向的那个函数体**就是 kernel 本身**加一个被丢弃的参数，中间没有任何间接层。这个 functor 类没有数据成员，`functor_` 指向的是一个空对象。
+`FuncPtr` 是 3.2 节的 `CompileTimeFunctionPointer`，`func_ptr()` 是 `constexpr`，所以 `(*FuncPtr::func_ptr())(...)` 是对一个编译期已知函数的直接调用，`C10_ALWAYS_INLINE` 再保证它被内联进 `wrap_kernel_functor_unboxed_::call`。最终效果：`unboxed_kernel_func_` 指向的那个函数体**就是 kernel 本身**加一个被丢弃的参数，中间没有任何间接层。这个 functor 类没有数据成员，`functor_` 指向的是一个空对象。
 
 如果用户注册的是 lambda 或运行期函数指针，用的是 `impl/WrapFunctionIntoRuntimeFunctor.h`：
 
@@ -1000,11 +1011,11 @@ C10_ALWAYS_INLINE Return KernelFunction::call(
 }
 ```
 
-快路径：`unboxed_kernel_func_` 非空 → `callUnboxedKernelFunction`（2.3 节）把 `void*` cast 回 `Return(OperatorKernel*, DispatchKeySet, Args...)` 直接调。慢路径：kernel 只有 boxed 版本 → `BoxedKernelWrapper` 把参数装箱后走 boxed 调用（5.4 节）。
+快路径：`unboxed_kernel_func_` 非空 → `callUnboxedKernelFunction`（3.3 节）把 `void*` cast 回 `Return(OperatorKernel*, DispatchKeySet, Args...)` 直接调。慢路径：kernel 只有 boxed 版本 → `BoxedKernelWrapper` 把参数装箱后走 boxed 调用（6.4 节）。
 
-注释里 "Args is intentionally not Args&&" 值得多说一句。`make_boxed_from_unboxed_functor.h` 开头有一段长注释 `[Note: Argument forwarding in the dispatcher]`，核心意思是：完美转发 `template <class T> void f(T&& t)` 会**从实参推导** `T`，而这里的参数类型必须**由 kernel 的签名决定**——因为 cast 回来的签名必须和存进去的一字不差（2.3 节）。所以 dispatcher 里到处是 `template <class T> func(T t) { func2<T>(std::forward<T>(t)); }` 这种"看起来忘了写 `&&`"的写法，它是故意的：`T` 由调用方显式指定，`std::forward<T>` 按指定的 `T` 决定是拷贝、左值引用还是右值引用。
+注释里 "Args is intentionally not Args&&" 值得多说一句。`make_boxed_from_unboxed_functor.h` 开头有一段长注释 `[Note: Argument forwarding in the dispatcher]`，核心意思是：完美转发 `template <class T> void f(T&& t)` 会**从实参推导** `T`，而这里的参数类型必须**由 kernel 的签名决定**——因为 cast 回来的签名必须和存进去的一字不差（3.3 节）。所以 dispatcher 里到处是 `template <class T> func(T t) { func2<T>(std::forward<T>(t)); }` 这种"看起来忘了写 `&&`"的写法，它是故意的：`T` 由调用方显式指定，`std::forward<T>` 按指定的 `T` 决定是拷贝、左值引用还是右值引用。
 
-### 5.4 boxed 路径：`IValue` 栈与装箱/拆箱
+### 4. boxed 路径：`IValue` 栈与装箱/拆箱
 
 boxed 包装函数 `make_boxed_from_unboxed_functor::call`（同一文件末尾）：
 
@@ -1075,7 +1086,7 @@ struct ivalue_to_arg<const at::Tensor&, AllowDeprecatedTypes> final {
 };
 ```
 
-`IValue::toTensor() &` 返回的是栈上那个 `IValue` 内部 `Tensor` 的引用，kernel 的 `const Tensor&` 形参直接绑定到它，没有引用计数变化。第六节讲 `IValue` 时会看到 `toTensor` 的三个重载。
+`IValue::toTensor() &` 返回的是栈上那个 `IValue` 内部 `Tensor` 的引用，kernel 的 `const Tensor&` 形参直接绑定到它，没有引用计数变化。第七章讲 `IValue` 时会看到 `toTensor` 的三个重载。
 
 反方向——调用方是 unboxed、kernel 只有 boxed（比如 Python 实现的算子、TorchScript 解释器、各种 fallback），`impl/boxing.h` 的 `BoxedKernelWrapper`：
 
@@ -1107,7 +1118,7 @@ struct BoxedKernelWrapper<
 
 `boxArgs` 建一个 `std::vector<IValue>`（一次堆分配）、把每个参数构造成 `IValue` 压进去；调完后 `PopResult` 把栈顶 `IValue` 转回 `Result`。这条路径每次调用至少一次 `vector` 分配和 N 次 `IValue` 构造/析构，是"慢路径"。文件里还有针对 `Tensor&(Tensor&, ...)`（in-place 算子）和 `out=` 算子的其他特化，它们的共同点是返回值就是某个输入引用，不需要从栈上 pop。
 
-### 5.5 三种来源，一个入口：`torch/library.h`
+### 5. 三种来源，一个入口：`torch/library.h`
 
 用户侧的注册 API 把这些工厂函数包在 `torch::CppFunction` 里（`torch/library.h`），它有三个构造函数，用 `enable_if` 区分参数是什么：
 
@@ -1154,7 +1165,7 @@ class TORCH_API CppFunction final {
         {}
 ```
 
-`m.impl("add.Tensor", TORCH_FN(wrapper_CPU_add_Tensor))` 走第二个，`ops.impl("silu_and_mul", torch::kCPU, &silu_and_mul)`（vLLM）走第一个，`m.impl("foo", [](const Tensor& x) { ... })` 走第三个。另外还有静态工厂 `CppFunction::makeFromBoxedFunction<&fn>()` 用来注册纯 boxed kernel。除了 `KernelFunction`，`CppFunction` 还记下 `cpp_signature_`（第八节校验签名用）和从签名推导出的 `schema_`。
+`m.impl("add.Tensor", TORCH_FN(wrapper_CPU_add_Tensor))` 走第二个，`ops.impl("silu_and_mul", torch::kCPU, &silu_and_mul)`（vLLM）走第一个，`m.impl("foo", [](const Tensor& x) { ... })` 走第三个。另外还有静态工厂 `CppFunction::makeFromBoxedFunction<&fn>()` 用来注册纯 boxed kernel。除了 `KernelFunction`，`CppFunction` 还记下 `cpp_signature_`（第九章校验签名用）和从签名推导出的 `schema_`。
 
 一个纯 boxed kernel 的真实例子，`aten/src/ATen/ConjugateFallback.cpp`：
 
@@ -1180,7 +1191,7 @@ TORCH_LIBRARY_IMPL(_, Conjugate, m) {
 
 （顺带一提 PyTorch 2.9 之后提供的 stable ABI 层 `torch/csrc/stable/library.h`：它的 `STABLE_TORCH_LIBRARY_IMPL` 只接受 boxed kernel，配套的 `TORCH_BOX(func)` 宏用和本节完全相同的技巧——`boxer<FuncT, func>::boxed_fn` 静态函数从 `StableIValue*` 栈上 `unbox_to_tuple`、`std::apply(func, args)`、再 `from<ReturnType>` 装箱——把一个 unboxed 函数包成 boxed 函数指针。走稳定 ABI 时只有 boxed 一条路，因为 `.so` 之间只能约定 C 风格的统一签名，不能约定每个算子各自的 C++ 签名。vLLM v0.15.0 尚未使用这一层：`csrc/torch_bindings.cpp` 里的 CUDA 算子仍用 `TORCH_LIBRARY_EXPAND(TORCH_EXTENSION_NAME, ops)` 经典方式注册，形式是 `ops.impl("rms_norm", torch::kCUDA, &rms_norm);`，CPU 后端 `csrc/cpu/torch_bindings.cpp` 同样是 `ops.impl(name, torch::kCPU, &fn)`——都是本节的 unboxed 运行期函数指针路径。）
 
-### 5.6 为什么既有 boxed 又有 unboxed
+### 6. 为什么既有 boxed 又有 unboxed
 
 现在可以回答核心问题的后半句。
 
@@ -1190,8 +1201,8 @@ TORCH_LIBRARY_IMPL(_, Conjugate, m) {
 
 - TorchScript 解释器和 `torch.fx` 之类图执行器：算子是运行期数据。
 - 各种 backend fallback（`Conjugate`、`Negative`、`ZeroTensor`、`Functionalize`、`Batched`……）：一段代码服务所有算子。
-- Python 侧的 `__torch_dispatch__` / `torch.library` 用 Python 实现的 kernel：1.5 节 `PyInterpreterVTable::dispatch(op, stack)` 的签名就是 boxed 的，C++ 到 Python 只能传一个 `IValue` 列表。
-- profiler / RecordFunction 需要拿到参数：`Dispatcher::callWithDispatchKeySlowPath` 会把 unboxed 参数临时装箱交给回调（第八节）。
+- Python 侧的 `__torch_dispatch__` / `torch.library` 用 Python 实现的 kernel：2.5 节 `PyInterpreterVTable::dispatch(op, stack)` 的签名就是 boxed 的，C++ 到 Python 只能传一个 `IValue` 列表。
+- profiler / RecordFunction 需要拿到参数：`Dispatcher::callWithDispatchKeySlowPath` 会把 unboxed 参数临时装箱交给回调（第九章）。
 - 跨 ABI 边界（`torch/csrc/stable`）：只能约定统一签名。
 
 **两条路径必须能互转。** 一个 kernel 不管以哪种方式注册，都可能被以另一种方式调用：Python 实现的算子（boxed）被 C++ 代码 `at::foo(x)` 调（unboxed）；C++ 实现的 CPU kernel（unboxed）被 TorchScript（boxed）调。所以 `KernelFunction` 保证 `boxed_kernel_func_` 永远有效——unboxed 注册的 kernel 自动生成一个 boxed 包装（`make_boxed_from_unboxed_functor`）；而 boxed 注册的 kernel 的 `unboxed_kernel_func_` 为空，unboxed 调用时走 `BoxedKernelWrapper` 装箱。
@@ -1210,9 +1221,9 @@ TORCH_LIBRARY_IMPL(_, Conjugate, m) {
 Java 对照：JVM 里所有方法调用本质上都是"boxed"的——参数类型信息在运行期一直存在，反射调用 `Method.invoke(Object... args)` 就是 boxed 调用约定，普通调用是 JIT 在此基础上特化出的快路径。C++ 没有默认的运行期类型信息，所以 PyTorch 必须**手工**维护两套调用约定，并手工写它们之间的转换。`IValue` 就是这套手工体系里的 `Object`。
 
 
-## 六、`c10::IValue`：手工实现的带类型标签的联合体
+## 七、`c10::IValue`：手工实现的带类型标签的联合体
 
-### 6.1 tag + payload
+### 1. tag + payload
 
 boxed 调用约定需要一个"能装下任何算子参数"的类型。Java 有 `Object`。C++ 没有统一基类，`IValue`（`aten/src/ATen/core/ivalue.h`）是手工造的：一个 tag 说明"现在装的是什么"，一个 union 存实际的值。文件里的类注释：
 
@@ -1318,7 +1329,7 @@ payload 是一个嵌套 union（类定义末尾）：
 
 一个 `IValue` 是 16 字节：8 字节 payload、4 字节 tag、4 字节对齐填充。没有堆分配（除非装的类型本身在堆上）。
 
-### 6.2 `isTensor` / `toTensor`：先问再拆
+### 2. `isTensor` / `toTensor`：先问再拆
 
 对每种类型，`IValue` 提供 `isX()` 和 `toX()`。`toX()` 不做转换，tag 不对就抛异常：
 
@@ -1362,7 +1373,7 @@ inline at::Tensor& IValue::toTensor() & {
 }
 ```
 
-（`aten/src/ATen/core/ivalue_inl.h`。）`std::move(ivalue).toTensor()` 把 `Tensor` **搬出来**，`IValue` 变成 `None`——用于"这个 `IValue` 我不再需要了"，零拷贝零计数变化。`ivalue.toTensor()` 返回**引用**，`IValue` 仍然拥有它——用于 5.4 节 `ivalue_to_arg<const Tensor&>` 那种"借一下"的场景。两者都不会触发引用计数的原子操作。Java 里没有 ref-qualifier 这种东西，因为 Java 没有"这个对象是临时的、可以被掏空"的概念。
+（`aten/src/ATen/core/ivalue_inl.h`。）`std::move(ivalue).toTensor()` 把 `Tensor` **搬出来**，`IValue` 变成 `None`——用于"这个 `IValue` 我不再需要了"，零拷贝零计数变化。`ivalue.toTensor()` 返回**引用**，`IValue` 仍然拥有它——用于 6.4 节 `ivalue_to_arg<const Tensor&>` 那种"借一下"的场景。两者都不会触发引用计数的原子操作。Java 里没有 ref-qualifier 这种东西，因为 Java 没有"这个对象是临时的、可以被掏空"的概念。
 
 `reportToTensorTypeError` 被声明为 `[[noreturn]]` 并放到 `.cpp` 里，注释说明了理由："Outlined error path so that toTensor() can be inlined"——把冷路径（抛异常，需要格式化字符串）挪出去，热路径就只剩一个比较和一个返回，可以被内联。这是 PyTorch 源码里反复出现的手法，`OperatorEntry::reportError` 也是。
 
@@ -1388,7 +1399,7 @@ inline at::Tensor& IValue::toTensor() & {
 
 不管装的是 `Tensor` 还是其他 `intrusive_ptr` 类型，都取出裸指针、`reclaim` 成一个临时 `intrusive_ptr`、让临时对象析构去减计数。这就是第二篇讲 `reclaim` 时说的"接回所有权"。`isIntrusivePtr()` 是从 tag 查一个编译期算好的位图。
 
-### 6.3 与 Java `Object` 的异同
+### 3. 与 Java `Object` 的异同
 
 | | Java `Object` | `c10::IValue` |
 |---|---|---|
@@ -1403,7 +1414,7 @@ inline at::Tensor& IValue::toTensor() & {
 
 类比成立的地方：都是"能装任何东西的盒子"，boxed 调用约定和 Java 反射的 `Object[] args` 在概念上完全对应。类比会误导的地方：`IValue` 不是基类，`Tensor` 不"是一个" `IValue`，把 `Tensor` 装进 `IValue` 是构造一个新对象；`IValue` 的类型集合是**封闭的**，这是 PyTorch 的 schema 类型系统只有固定几十种类型的根本原因。
 
-### 6.4 `std::variant` 与 `std::visit`：标准库版本的 tagged union
+### 4. `std::variant` 与 `std::visit`：标准库版本的 tagged union
 
 C++17 标准库提供了 `IValue` 这种东西的通用版本：`std::variant<T1, T2, ...>` 是一个类型安全的 tagged union，自动管理成员的构造/析构，`std::visit` 按当前类型分派到一个可调用对象。
 
@@ -1444,7 +1455,7 @@ static Tensor _linalg_cond_helper(const Tensor& self, std::variant<Scalar, std::
 
 Java 对照：Java 直到 sealed interfaces + pattern matching switch（Java 17/21）才有接近 `variant` + `visit` 的表达能力，之前只能靠 `instanceof` 链或访问者模式。C++ 的 `variant` 是值类型，不在堆上；Java 的 sealed 实现仍是对象。
 
-### 6.5 `enum class`
+### 5. `enum class`
 
 `IValue::Tag`、`DispatchKey`、`ScalarType` 都是 `enum class`（scoped enum，C++11）：
 
@@ -1469,9 +1480,9 @@ enum class ScalarType : int8_t {          // torch/headeronly/core/ScalarType.h
 Java 对照：Java 的 `enum` 是完整的类——每个枚举值是一个单例对象，可以有字段、方法、构造函数。C++ 的 `enum class` 只是"有名字、有作用域、不隐式转换的整数"，没有方法。`toString(DispatchKey)`、`elementSize(ScalarType)` 这些都是自由函数，通常配一个 `switch`。这也是为什么 `TORCH_FORALL_TAGS` 这类 X-macro 在 C++ 里那么常见：Java 用 `values()` 遍历枚举，C++ 得靠宏生成 `switch` 的每个 `case`。
 
 
-## 七、异常：`TORCH_CHECK` 抛出的是什么，如何跨越 C++/Python 边界
+## 八、异常：`TORCH_CHECK` 抛出的是什么，如何跨越 C++/Python 边界
 
-### 7.1 `c10::Error`
+### 1. `c10::Error`
 
 `c10/util/Exception.h`：
 
@@ -1541,7 +1552,7 @@ class C10_API NotImplementedError : public Error {
 
 `using Error::Error;` 是继承构造函数——子类不重复写一遍基类的构造函数签名。
 
-### 7.2 `TORCH_CHECK` 展开成什么
+### 2. `TORCH_CHECK` 展开成什么
 
 `TORCH_CHECK(cond, "msg", x, ...)` 是宏（为什么是宏而不是函数、`__FILE__`/`__LINE__`/`##__VA_ARGS__` 怎么工作，是第五篇的内容），这里只看它最终抛什么。非精简、非 `STANDALONE_TORCH_HEADER` 模式下的定义：
 
@@ -1572,17 +1583,17 @@ void torchCheckFail(
 
 和 `TORCH_CHECK` 放在一起理解的是 `[[noreturn]]`（`torchCheckFail`、`reportToTensorTypeError`、`OperatorEntry::reportError` 都有）：告诉编译器这个函数不会返回，于是调用它之后的代码可以按"不可达"优化，也不会报"函数没有返回值"的警告。
 
-### 7.3 C++ 异常的几条规则
+### 3. C++ 异常的几条规则
 
 Java 工程师需要校正的几点：
 
 1. **没有 checked exception**。函数签名不声明会抛什么，编译器不检查。`noexcept` 是唯一的标注，意思是"保证不抛"——如果抛了，程序直接 `std::terminate`。析构函数默认是 `noexcept`（第二篇讲过 `~TensorBase() noexcept`），所以析构里不要做会抛的事。
 2. **按 `const&` 捕获**。`catch (const c10::Error& e)`，不要按值（会切片，丢掉派生类信息）。
-3. **异常与 RAII 配合是 C++ 错误处理的全部**。没有 `finally`；栈展开时所有局部对象按逆序析构，锁释放、引用计数递减、设备守卫恢复全在析构里发生（第二篇 5.4 节、第六篇的守卫）。
-4. **异常不能穿过 C 边界**。通过函数指针回调进 C 代码（比如 CUDA runtime、Python C API）的 C++ 函数，如果向外抛异常，行为是未定义的。这是 7.4 节那些宏存在的原因。
+3. **异常与 RAII 配合是 C++ 错误处理的全部**。没有 `finally`；栈展开时所有局部对象按逆序析构，锁释放、引用计数递减、设备守卫恢复全在析构里发生（第二篇 6.4 节、第六篇的守卫）。
+4. **异常不能穿过 C 边界**。通过函数指针回调进 C 代码（比如 CUDA runtime、Python C API）的 C++ 函数，如果向外抛异常，行为是未定义的。这是 8.4 节那些宏存在的原因。
 5. **异常穿过 `.so` 边界需要 ABI 一致**。`libtorch_cpu.so` 抛的 `c10::Error` 要被扩展 `.so` 里的 `catch (const c10::Error&)` 接住，两边对 `c10::Error` 的布局、RTTI、异常处理表的理解必须一致——编译器版本或 `_GLIBCXX_USE_CXX11_ABI` 不同就可能接不住。第七篇讲 ABI 时会回到这里。
 
-### 7.4 跨越 C++/Python 边界
+### 4. 跨越 C++/Python 边界
 
 Python C API 的函数不能抛 C++ 异常——CPython 是 C 代码。所以 `torch/csrc/` 里每个暴露给 Python 的 C++ 函数都包在一对宏里（第六篇开头的 `set_grad_enabled` 就是）：
 
@@ -1643,7 +1654,7 @@ static PyObject* set_grad_enabled(PyObject* _unused, PyObject* args, PyObject* k
 
 机制只有三步：`try` 包住整个函数体；按类型 `catch` C++ 异常（顺序重要——子类在前，`c10::Error` 兜底在后，否则 `IndexError` 会被 `Error` 的 catch 先接住）；每个 catch 分支用 `PyErr_SetString(某个 Python 异常类型, 消息)` 设置 Python 的错误状态，然后 `return nullptr`——这是 Python C API 表示"出错了"的约定。Python 解释器看到返回 `NULL` 且错误状态已设置，就在 Python 侧 raise 对应的异常。
 
-对照 7.1 节那些子类的注释，映射表就是：
+对照 8.1 节那些子类的注释，映射表就是：
 
 | C++ 异常 | Python 异常 |
 |---|---|
@@ -1655,18 +1666,18 @@ static PyObject* set_grad_enabled(PyObject* _unused, PyObject* args, PyObject* k
 | `c10::Error`（其他） | `RuntimeError` |
 | 其他 `std::exception` | `RuntimeError` |
 
-这就是为什么 Python 侧一个越界索引看到的是 `IndexError`，而大多数 `TORCH_CHECK` 失败看到的是 `RuntimeError`。`what_without_backtrace()` 是 7.1 节那个虚函数——默认不显示 C++ 栈，设了 `TORCH_SHOW_CPP_STACKTRACES=1` 才用 `what()`。
+这就是为什么 Python 侧一个越界索引看到的是 `IndexError`，而大多数 `TORCH_CHECK` 失败看到的是 `RuntimeError`。`what_without_backtrace()` 是 8.1 节那个虚函数——默认不显示 C++ 栈，设了 `TORCH_SHOW_CPP_STACKTRACES=1` 才用 `what()`。
 
 pybind11 绑定的函数不用这对宏，而是用 pybind11 自己的异常翻译器（`py::register_exception_translator`）做同样的事。C++ 异常怎样"变成"Python 异常、Python 异常（`python_error`）又怎样在 C++ 里传播、GIL 在这个过程中的状态，是第七篇的内容；本篇只需要知道：**C++ 异常在边界上被 catch 住、翻译成 Python 错误状态，永远不会穿过 C 代码**。
 
 Java 对照：JNI 有同样的边界。JNI 函数不能让 C++ 异常逃逸（会直接崩溃），要 catch 后调 `env->ThrowNew(cls, msg)` 设置 Java 侧的 pending exception，然后正常返回——和 `PyErr_SetString` + `return nullptr` 一一对应。
 
 
-## 八、回到源码：从 `at::add` 到 CPU kernel 的完整链路
+## 九、回到源码：从 `at::add` 到 CPU kernel 的完整链路
 
 前面把零件拆完了，这一节按调用顺序把它们装回去。目标是回答核心问题的前半句：**Dispatcher 拿到 `OperatorHandle` 和参数后，用什么 C++ 机制调到 CPU kernel。** DispatchKeySet 怎么算不展开，只把它当成"从参数得到一个整数下标"。
 
-### 8.1 入口：torchgen 生成的 `at::_ops::add_Tensor::call`
+### 1. 入口：torchgen 生成的 `at::_ops::add_Tensor::call`
 
 `at::add(a, b)` 是 `aten/src/ATen/Functions.h`（生成文件）里的内联函数，转调 `at::_ops::add_Tensor::call(a, b, alpha)`。后者的定义由 `torchgen/gen.py` 生成，模板是：
 
@@ -1720,7 +1731,7 @@ at::Tensor add_Tensor::call(const at::Tensor & self, const at::Tensor & other, c
   }
 ```
 
-`assertSignatureIsCorrect` 把 `FuncType` 和注册 kernel 时记下的 `cpp_signature_` 比较（`OperatorEntry.cpp`）。这就是 2.3 节说的"由注册时的签名检查兜住 `void*` cast 的风险"：只要 `typed<>` 用的签名和 `m.impl` 注册的 kernel 签名一致，后面的 `reinterpret_cast` 就是安全的。
+`assertSignatureIsCorrect` 把 `FuncType` 和注册 kernel 时记下的 `cpp_signature_` 比较（`OperatorEntry.cpp`）。这就是 3.3 节说的"由注册时的签名检查兜住 `void*` cast 的风险"：只要 `typed<>` 用的签名和 `m.impl` 注册的 kernel 签名一致，后面的 `reinterpret_cast` 就是安全的。
 
 `TypedOperatorHandle::call` 只是转调单例：
 
@@ -1735,9 +1746,9 @@ class TypedOperatorHandle<Return(Args...)> final : public OperatorHandle {
   }
 ```
 
-注意 `TypedOperatorHandle<Return(Args...)>` 是对函数类型的偏特化，从 `Return(Args...)` 里拆出 `Return` 和 `Args...`——2.1 节说"函数类型可以作为模板参数做特化"就是指这个用法。
+注意 `TypedOperatorHandle<Return(Args...)>` 是对函数类型的偏特化，从 `Return(Args...)` 里拆出 `Return` 和 `Args...`——3.1 节说"函数类型可以作为模板参数做特化"就是指这个用法。
 
-### 8.2 `Dispatcher::call`
+### 2. `Dispatcher::call`
 
 开头引过，这里看完整版（去掉 `FBCODE_CAFFE2` 分支）：
 
@@ -1780,7 +1791,7 @@ C10_ALWAYS_INLINE_UNLESS_MOBILE Return Dispatcher::call(
 
 1. **算 key**：`getDispatchKeySetUnboxed<Args...>(args...)` 是一个变参模板，在编译期知道哪些参数位置是 `Tensor`，运行期只看那些参数的 key set，再合并线程局部的 include/exclude 集合（第六篇）。结果是一个 64 位的 `DispatchKeySet`。
 2. **查表**：`lookup(dispatchKeySet)`，下一小节。
-3. **调用**：`kernel.template call<Return, Args...>(...)`——5.3 节的 `KernelFunction::call`。`template` 关键字是因为 `kernel` 的类型依赖于模板参数，编译器需要提示 `call` 是一个成员模板（第三篇讲过这个消歧义规则）。
+3. **调用**：`kernel.template call<Return, Args...>(...)`——6.3 节的 `KernelFunction::call`。`template` 关键字是因为 `kernel` 的类型依赖于模板参数，编译器需要提示 `call` 是一个成员模板（第三篇讲过这个消歧义规则）。
 
 `C10_ALWAYS_INLINE_UNLESS_MOBILE` 让整个 `Dispatcher::call` 内联进 `add_Tensor::call`，这样从 `at::add` 到 `KernelFunction::call` 之间没有任何函数调用边界，编译器可以把 `Return`、`Args...` 全部当作常量传播。
 
@@ -1815,9 +1826,9 @@ profiler 分支 `callWithDispatchKeySlowPath` 值得看一眼，它展示了"unb
   }
 ```
 
-profiler 回调的接口是 boxed 的（它对所有算子通用），所以要把参数装成 `IValue`。这里连 `std::vector` 的堆分配都省了：在栈上开一块对齐的字节数组，用 placement new 原地构造 `IValue`，用完手工调析构。这段代码把第六节讲的 `IValue` 手工生命周期管理用到了极致——也说明装箱有多"贵"，值得为它写这么多代码去省一次分配。
+profiler 回调的接口是 boxed 的（它对所有算子通用），所以要把参数装成 `IValue`。这里连 `std::vector` 的堆分配都省了：在栈上开一块对齐的字节数组，用 placement new 原地构造 `IValue`，用完手工调析构。这段代码把第七章讲的 `IValue` 手工生命周期管理用到了极致——也说明装箱有多"贵"，值得为它写这么多代码去省一次分配。
 
-### 8.3 `OperatorEntry::lookup` 与两张表
+### 3. `OperatorEntry::lookup` 与两张表
 
 `aten/src/ATen/core/dispatch/OperatorEntry.h`：
 
@@ -1849,7 +1860,7 @@ profiler 回调的接口是 boxed 的（它对所有算子通用），所以要�
   std::array<KernelFunction, c10::num_runtime_entries> dispatchTable_;
 ```
 
-`num_runtime_entries` 是 `c10/core/DispatchKey.h` 里的 `constexpr`，由 functionality key 数和 backend 数算出。这个数组**内嵌**在 `OperatorEntry` 里，每个算子一份；`KernelFunction` 是值类型（三个指针大小），所以整张表是连续内存，cache 友好。这正是 3.4 节说的"`KernelFunction` 必须能放进非模板类的数组"的原因——如果 kernel 是虚基类指针，表里存的是指针，多一次间接访问；如果是 `std::function`，每项 32 字节且可能各自指向堆上的闭包。
+`num_runtime_entries` 是 `c10/core/DispatchKey.h` 里的 `constexpr`，由 functionality key 数和 backend 数算出。这个数组**内嵌**在 `OperatorEntry` 里，每个算子一份；`KernelFunction` 是值类型（三个指针大小），所以整张表是连续内存，cache 友好。这正是 4.4 节说的"`KernelFunction` 必须能放进非模板类的数组"的原因——如果 kernel 是虚基类指针，表里存的是指针，多一次间接访问；如果是 `std::function`，每项 32 字节且可能各自指向堆上的闭包。
 
 第二张表 `kernels_`：
 
@@ -1927,7 +1938,7 @@ OperatorEntry::AnnotatedKernelContainerIterator OperatorEntry::registerKernel(
 
 开头那段 `TORCH_CHECK(*cpp_signature == ...)` 是第二道签名检查：同一算子在不同 key 下注册的 unboxed kernel 必须签名一致（CPU kernel 和 CUDA kernel 的 C++ 签名不能一个用 `const Tensor&` 一个用 `Tensor`）。`emplace_front` 到 `kernels_`，然后 `updateDispatchTable_` 重算 `dispatchTable_` 对应槽位。`Dispatcher` 是这些操作的唯一入口，它持有一把全局 `std::mutex` 保护所有注册/注销；`lookup` 这条读路径不加锁——`Dispatcher::callBoxed` 上的注释 "this doesn't need the mutex because write operations on the list keep iterators intact" 说明了设计前提：`OperatorEntry` 存在 `std::list` 里，注册新算子不会让已有的句柄失效。
 
-### 8.4 从 `KernelFunction::call` 到 kernel 函数体
+### 4. 从 `KernelFunction::call` 到 kernel 函数体
 
 CPU kernel 是怎么注册进去的？torchgen 生成的 `build/aten/src/ATen/RegisterCPU.cpp`（生成文件，模板在 `torchgen/dest/register_dispatch_key.py`）里，每个算子有一个包装函数和一行注册：
 
@@ -1948,7 +1959,7 @@ TORCH_LIBRARY_IMPL(aten, CPU, m) {
 
 （上面是按生成模板整理的示意，本机没有构建目录，无法给出精确生成结果；`m.impl("...", TORCH_FN(...))` 这一行的形式来自 `register_dispatch_key.py` 第 568 行的模板。）
 
-顺着 5.5 节的 `CppFunction` 构造函数、5.3 节的 `makeFromUnboxedFunctor`，这一行注册产生的 `KernelFunction` 是：
+顺着 6.5 节的 `CppFunction` 构造函数、6.3 节的 `makeFromUnboxedFunctor`，这一行注册产生的 `KernelFunction` 是：
 
 - `functor_` → 一个空的 `WrapFunctionIntoFunctor_<TORCH_FN_TYPE(wrapper_CPU_add_Tensor), ...>` 对象
 - `boxed_kernel_func_` → `&make_boxed_from_unboxed_functor<那个 functor 类型>::call`
@@ -1958,7 +1969,7 @@ TORCH_LIBRARY_IMPL(aten, CPU, m) {
 
 最后三步全是编译期确定的直接调用，`C10_ALWAYS_INLINE` 让它们折叠成一个函数体。所以从 `Dispatcher` 的角度看，"运行期选择实现"只发生了一次：`dispatchTable_[idx]` 之后那一次通过 `void*` 的间接调用。
 
-### 8.5 全景图
+### 5. 全景图
 
 ```mermaid
 flowchart TD
@@ -1984,13 +1995,13 @@ flowchart TD
 > **为什么两条路径？** unboxed 给 C++ 调用方零装箱开销；boxed 给不知道具体签名的通用代码（解释器、fallback、Python、profiler、稳定 ABI）一个统一约定。每个 `KernelFunction` 都保证有 boxed 入口、可能有 unboxed 入口，两者之间的转换（`make_boxed_from_unboxed_functor`、`BoxedKernelWrapper`）由模板在注册时自动生成。
 
 
-## 九、mini-c10：`DispatchKey`、`KernelFunction`、`OperatorEntry`、`Dispatcher`
+## 十、mini-c10：`DispatchKey`、`KernelFunction`、`OperatorEntry`、`Dispatcher`
 
 按系列约定，本篇实现 `minic10/core/DispatchKey.h`、`minic10/dispatch/KernelFunction.h`、`minic10/dispatch/OperatorEntry.h`、`minic10/dispatch/Dispatcher.h`，给 `add`/`mul` 加 Meta 后端，并把算子入口改成走 Dispatcher。boxed 路径需要一个 `IValue`，本篇额外加一个 `minic10/dispatch/IValue.h`（对应真实源码的 `ivalue.h`，布局表里没有列它，是本篇新增的最小文件）；算子的公开声明放在 `minic10/ops/ops.h`。第二篇的 `intrusive_ptr.h`、`Allocator.h`、`StorageImpl.h`、`TensorImpl.h`、`Tensor.h` 原样复用，第三篇的 `MINI_DISPATCH_FLOATING_TYPES` 按约定用一个最小版本。所有代码用 `clang++ -std=c++17 -Wall -Wextra` 编译验证过，并在 `-fsanitize=address,undefined` 下运行无报告。
 
 注册暂时由 `main` 手工调用 `register_add_kernels()` / `register_mul_kernels()` 完成，第五篇改成静态自注册。
 
-### 9.1 `core/DispatchKey.h`
+### 1. `core/DispatchKey.h`
 
 ```cpp
 // minic10/core/DispatchKey.h
@@ -2021,7 +2032,7 @@ inline const char* toString(DispatchKey k) {
 
 `enum class` 加显式底层类型，和 `c10::DispatchKey : uint16_t` 同一形式。枚举值顺序即优先级，`computeDispatchKey` 取最大值。
 
-### 9.2 `dispatch/IValue.h`
+### 2. `dispatch/IValue.h`
 
 ```cpp
 // minic10/dispatch/IValue.h
@@ -2164,9 +2175,9 @@ using Stack = std::vector<IValue>;
 }  // namespace minic10
 ```
 
-对照 6.1、6.2 节：`Tag` + `Payload` union；`Tensor` 是 union 里唯一的非平凡成员，所以 `~Payload()` 为空、由 `destroy()` 按 tag 决定是否调 `~Tensor()`；`toTensor()` 三个 ref-qualifier 重载；`to<T>()` 用 `if constexpr` 做编译期分支。省掉了真实 `IValue` 的 `TriviallyCopyablePayload` 嵌套和 `UndefinedTensorImpl::singleton()` 空值技巧。
+对照 6.1、7.2 节：`Tag` + `Payload` union；`Tensor` 是 union 里唯一的非平凡成员，所以 `~Payload()` 为空、由 `destroy()` 按 tag 决定是否调 `~Tensor()`；`toTensor()` 三个 ref-qualifier 重载；`to<T>()` 用 `if constexpr` 做编译期分支。省掉了真实 `IValue` 的 `TriviallyCopyablePayload` 嵌套和 `UndefinedTensorImpl::singleton()` 空值技巧。
 
-### 9.3 `dispatch/KernelFunction.h`
+### 3. `dispatch/KernelFunction.h`
 
 ```cpp
 // minic10/dispatch/KernelFunction.h
@@ -2424,7 +2435,7 @@ class KernelFunction final {
 
 几处值得注意的 C++：`template <auto Func>` 是 C++17 的"自动推导类型的非类型模板参数"，`makeFromUnboxedFunction<&add_cpu>()` 里 `Func` 的类型是 `Tensor(*)(const Tensor&, const Tensor&)`，值是函数地址——比 `TORCH_FN` 少一层宏，但要求 C++17。`intrusive_ptr<OperatorKernel>::reclaim(functor.release())` 把派生类 `intrusive_ptr` 转成基类 `intrusive_ptr`（第二篇的 `intrusive_ptr` 没有转换构造函数，真实的 `c10::intrusive_ptr` 有）。`(stack.emplace_back(std::forward<Args>(args)), ...)` 是 C++17 折叠表达式，对参数包里每个参数执行一次逗号左边的表达式。
 
-### 9.4 `dispatch/OperatorEntry.h`
+### 4. `dispatch/OperatorEntry.h`
 
 ```cpp
 // minic10/dispatch/OperatorEntry.h
@@ -2511,9 +2522,9 @@ class OperatorEntry final {
 }  // namespace minic10
 ```
 
-`dispatchTable_` 是内嵌的 `std::array`，`kernels_` 是 `unordered_map<DispatchKey, list<KernelFunction>>`，不变式 `dispatchTable_[k] == kernels_[k].front()` 由 `updateDispatchTableEntry_` 维护——8.3 节两张表的最小版本。`reportError` 标 `[[noreturn]]`，错误消息格式模仿真实的 "Could not run ... with arguments from the ... backend"。
+`dispatchTable_` 是内嵌的 `std::array`，`kernels_` 是 `unordered_map<DispatchKey, list<KernelFunction>>`，不变式 `dispatchTable_[k] == kernels_[k].front()` 由 `updateDispatchTableEntry_` 维护——9.3 节两张表的最小版本。`reportError` 标 `[[noreturn]]`，错误消息格式模仿真实的 "Could not run ... with arguments from the ... backend"。
 
-### 9.5 `dispatch/Dispatcher.h`
+### 5. `dispatch/Dispatcher.h`
 
 ```cpp
 // minic10/dispatch/Dispatcher.h
@@ -2632,7 +2643,7 @@ class Dispatcher final {
 
 真实 `Dispatcher` 还有一把全局 `std::mutex` 保护注册路径和一套 `RegistrationHandleRAII` 做注销；本篇省略，第五篇静态注册时再加。
 
-### 9.6 `ops/ops.h`、`ops/add.cpp`、`ops/mul.cpp`
+### 6. `ops/ops.h`、`ops/add.cpp`、`ops/mul.cpp`
 
 ```cpp
 // minic10/ops/ops.h
@@ -2774,11 +2785,11 @@ void register_mul_kernels() {
 
 `binary_meta_boxed` 演示了 boxed kernel 为什么有价值：它不知道也不关心自己在服务哪个算子，从 `op.name()` 能看到，但代码只依赖"栈顶两个 `Tensor`、压回一个 `Tensor`"这个约定。同一个函数注册给 `add` 和 `mul` 都可以。注意它在 `erase` 之前就构造好了 `out`——`a`、`b` 是指向栈内 `IValue` 的引用，`erase` 之后就悬垂了。
 
-`empty_meta` 对应 1.1 节 `MetaAllocator` 的效果：`TensorImpl` 的 `storage_` 是空的 `intrusive_ptr`，`data()` 返回 `nullptr`，`sizes()`/`strides()`/`numel()` 照常工作。
+`empty_meta` 对应 2.1 节 `MetaAllocator` 的效果：`TensorImpl` 的 `storage_` 是空的 `intrusive_ptr`，`data()` 返回 `nullptr`，`sizes()`/`strides()`/`numel()` 照常工作。
 
-`minic10::add` 的实现方式照抄 8.1 节 torchgen 的模板：一个函数局部 `static OperatorHandle` 缓存查表结果，然后 `Dispatcher::singleton().call<Tensor, const Tensor&, const Tensor&>(op, a, b)`——模板参数必须显式写、必须和注册的 kernel 签名一致（`const Tensor&` 而不是 `Tensor`），原因是 2.3 节的 `void*` cast。
+`minic10::add` 的实现方式照抄 9.1 节 torchgen 的模板：一个函数局部 `static OperatorHandle` 缓存查表结果，然后 `Dispatcher::singleton().call<Tensor, const Tensor&, const Tensor&>(op, a, b)`——模板参数必须显式写、必须和注册的 kernel 签名一致（`const Tensor&` 而不是 `Tensor`），原因是 3.3 节的 `void*` cast。
 
-### 9.7 验证
+### 7. 验证
 
 ```cpp
 // main.cpp
@@ -2893,7 +2904,7 @@ registered keys for add: CPU, Meta
 第五篇会把 `register_*_kernels()` 换成 `MINI_LIBRARY_IMPL(minic10, CPU, m) { m.impl("add", &add_cpu); }` 形式的静态注册，`main` 里那两行手工调用消失。
 
 
-## 十、工程实践建议与常见错误
+## 十一、工程实践建议与常见错误
 
 **虚函数**
 
@@ -2939,7 +2950,7 @@ registered keys for add: CPU, Meta
 25. C++ 异常没有 checked/unchecked 之分，也不能穿过 C 边界；Java 的 `finally` 由 RAII 替代。
 
 
-## 十一、总结
+## 十二、本文小结
 
 本文围绕"运行时如何选择实现"，把 C++ 的几种多态机制和 PyTorch Dispatcher 的实现对了一遍。要点：
 

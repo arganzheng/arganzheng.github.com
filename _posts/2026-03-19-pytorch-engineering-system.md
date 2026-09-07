@@ -6,7 +6,7 @@ tags: [PyTorch, AI, AI-Infra]
 catalog: true
 ---
 
-> 本文是[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)系列的第十篇（共十篇）。上一篇：[分布式 PyTorch](/pytorch-distributed-training.html)
+> 本文是[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)系列的第 10 篇（共十篇）。上一篇：[分布式 PyTorch](/pytorch-distributed-training.html)
 
 前九篇讲的是 PyTorch **是什么、怎么运行**：Tensor 怎么存、Autograd 怎么记、算子怎么分发、Kernel 怎么写、编译器怎么融合、性能怎么测、多卡怎么通信。每一篇都在描述一个已经存在、并且正确运行的系统。
 
@@ -86,7 +86,7 @@ PyTorch 有两千多个算子、每个算子有十几种 dtype、两个以上后
 八    第七关：使用者如何跟随演进        版本策略 · 升级 playbook · 兼容矩阵 · 回退
 九    实践终点：把第六篇的 myops 走完这七关
 十    Java 对照
-十一  系列总结：从 loss.backward() 一路追问到底
+十一  本文小结与系列总结：从 loss.backward() 一路追问到底
 ```
 
 
@@ -96,7 +96,7 @@ PyTorch 有两千多个算子、每个算子有十几种 dtype、两个以上后
 
 ### 1. 仓库地图
 
-第一篇第四章 §3 按库给过一张四层的代码地图（`torch/` → `torch/csrc/` → `aten/src/ATen/` → `c10/`）并把各层对应到系列各篇。这里把它展开成构建者需要的完整目录：
+第一篇第七章按库给过一张四层的代码地图（`torch/` → `torch/csrc/` → `aten/src/ATen/` → `c10/`）并把各层对应到系列各篇。这里把它展开成构建者需要的完整目录：
 
 ```text
 pytorch/
@@ -709,7 +709,7 @@ C++ 扩展             针对具体 torch × CUDA 编译（FlashAttention、自�
 myops/
 ├── pyproject.toml / setup.py       第一关：cpp_extension.CUDAExtension；把构建时的 torch 版本写进包元数据
 ├── myops/
-│   ├── __init__.py                 import _C（触发 TORCH_LIBRARY）；注册 autograd / fake；运行时版本检查（第六篇十.4）
+│   ├── __init__.py                 import _C（触发 TORCH_LIBRARY）；注册 autograd / fake；运行时版本检查（第六篇第十章 §4）
 │   ├── _autograd.py                backward、setup_context、fake
 │   └── ops.py                      面向用户的 Python 函数；弃用垫片放这里（第六关）
 ├── csrc/
@@ -807,7 +807,7 @@ def test_compile_matches_eager(self, device, dtype):
 
 `fullgraph=True` 是关键：第六篇注册的 Fake 实现如果缺失或 shape 推错，Dynamo 会 graph break 或报错，测试立刻失败，而不是静默退化成 eager。
 
-分布式测试用第三章 §6 的 `MultiProcessTestCase`，oracle 是"DDP 两卡各 batch/2 的梯度 == 单进程整 batch 的梯度"（第九篇 §三.1.1 的数学等价）：
+分布式测试用第三章 §6 的 `MultiProcessTestCase`，oracle 是"DDP 两卡各 batch/2 的梯度 == 单进程整 batch 的梯度"（第九篇第三章 §1 的数学等价）：
 
 ```python
 # test/test_distributed.py
@@ -849,6 +849,7 @@ CI 中与 `baseline.json` 比较：同一 GPU 型号下任一项中位数慢 15%
 
 ### 4. 第四、五关：CI 矩阵与发布
 
+{% raw %}
 ```yaml
 # .github/workflows/ci.yml（节选）
 jobs:
@@ -871,6 +872,7 @@ jobs:
     strategy: { matrix: { torch: ["2.5.*", "2.6.*"], python: ["3.10", "3.12"] } }
     steps: [build wheel, 上传到内部 index；文件名带 +torch2.6cu124 本地版本标识]
 ```
+{% endraw %}
 
 矩阵的每个格子对应第六章 §2 wheel 矩阵的一个格子——扩展与 PyTorch 的 ABI 绑定在这里变成了显式的构建配置。矩阵不能无限大：选支持窗口内的两个 PyTorch 版本、一个 CUDA、两个 Python，其余组合靠 ABI 规则推断。发布用 tag 触发，制品名里带上它针对的 torch 版本，这是第八章 §4 兼容矩阵的"可写下来"的前提。
 
@@ -900,7 +902,7 @@ myops::scale_shift(Tensor x, float alpha, float beta, Tensor? mask=None) -> Tens
 
 ### 6. 第七关：作为使用者
 
-`myops` 依赖 PyTorch，所以它也要走第八章：`setup.py` 里声明 `torch>=2.5,<2.7`，每个 PyTorch 小版本发布后把 CI 矩阵加一列、跑一遍、必要时重编译并发新 tag；`__init__.py` 里的运行时版本检查（第六篇十.4）把 ABI 不匹配变成明确的 `ImportError`。
+`myops` 依赖 PyTorch，所以它也要走第八章：`setup.py` 里声明 `torch>=2.5,<2.7`，每个 PyTorch 小版本发布后把 CI 矩阵加一列、跑一遍、必要时重编译并发新 tag；`__init__.py` 里的运行时版本检查（第六篇第十章 §4）把 ABI 不匹配变成明确的 `ImportError`。
 
 ### 7. 对照大纲的检查清单
 
@@ -968,7 +970,23 @@ Java 的 `readObject` 里按 `serialVersionUID` 迁移旧字段，与 `_load_fro
 `pull` / `trunk` / `periodic` 的分层对应 Java 项目的 PR check / merge queue / nightly；目标确定对应 Gradle 的按改动选择测试。flaky 测试的机器人自动禁用 + 定期重跑 + 自动恢复，是 Java 团队通常靠人做的事情被流程化——规模逼出来的。
 
 
-## 十一、系列总结：从 `loss.backward()` 一路追问到底
+## 十一、本文小结与系列总结：从 `loss.backward()` 一路追问到底
+
+### 1. 本文小结
+
+一次改动从提交到被用户安全地用上，要过七个关卡；本文按关卡的顺序把 PyTorch 的工程体系走了一遍：
+
+- **本地构建能跑**：仓库按 `torch/` → `torch/csrc/` → `aten/` → `c10/` 分层，Codegen 是构建的一步，改 Schema 比改实现代价高得多；
+- **结果正确**：五种 oracle 定义“对”，OpInfo 用“一处声明、万处生成”化解设备 × dtype × 布局的组合爆炸，gradcheck 守住反向；
+- **没有变慢**：微基准与指令数守 CPU 侧开销，TorchBench 与编译器看板守端到端性能，噪声、阈值与归因是三个难题；
+- **审查、CI 与合入**：CI 分层与目标确定让几十万测试在有限时间内跑完，flaky 靠流程而不是靠人，审批规则与回滚机器可执行；
+- **发布**：固定节奏与 release 分支，wheel 矩阵的每个维度都是 ABI 的一部分，平台支持是滑动窗口；
+- **用户升级不坏**：接口面按稳定程度分级——Python API 有弃用周期，算子 Schema 有自动化 BC/FC 检查，C++ API 无保证但有稳定子集与 PrivateUse1，序列化有版本机制；
+- **使用者跟随演进**：pin 什么、跟多紧，把弃用警告变成 CI 错误，升级 playbook 与版本化的兼容矩阵，用 nightly / RC 提前暴露问题。
+
+第六篇的 `myops` 走完这七关的实践表明：一个树外扩展只要复用 PyTorch 的测试基础设施、把契约与实现分离、把性能基线入库，就能以很低的成本获得同样的保障。
+
+### 2. 系列总结：逐一回答总览篇的追问
 
 总览篇给了一段代码和一串追问，说读完系列应该能回答。现在逐一回答，每个答案标出它来自哪一篇。
 
@@ -1005,7 +1023,7 @@ loss.backward()
 **Tests、Build 和 CI 如何保证系统可持续演进？**（本篇）
 一次改动要过七关：本地构建、正确（五种 oracle、OpInfo 化解组合爆炸、gradcheck 守住反向）、不慢（微基准与整模型看板）、合入（CI 分层、机器化的审批与回滚）、发布（release 分支与 wheel 矩阵）、不坏用户（弃用周期、Schema BC/FC、`state_dict` 版本、PrivateUse1）、以及使用者自己的跟随策略。
 
----
+### 3. 三种能力
 
 总览篇说系列的目标是三种能力。现在可以具体地说它们指什么：
 
@@ -1018,7 +1036,7 @@ loss.backward()
 这三种能力的共同基础是一张地图：**从 Python 用户代码，经过 Autograd、Dispatcher、Kernel、编译器、运行时，到硬件和集群，每一层的职责、边界和代价**。十篇文章画的就是这张图。图画完了，剩下的是在真实系统里反复走它。
 
 
-## 系列目录
+### 4. 系列目录
 
 - [总纲：从 Tensor 到深度学习运行时](/deep-dive-into-pytorch.html)
 

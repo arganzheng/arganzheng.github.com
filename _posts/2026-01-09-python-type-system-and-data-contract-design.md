@@ -6,13 +6,20 @@ tags: [Python]
 catalog: true
 ---
 
-
-
-## 导言：类型系统的两层架构与数据契约
+> 本文是[《Python 在 AI-Infra：从语言机制到生产交付》](/python-for-ai-infra.html)系列的第 2 篇（共七篇）。上一篇：[语言机制与运行时原理](/python-language-mechanisms-and-runtime-internals.html)；下一篇：[并发、异步与任务协作](/python-concurrency-asynchrony-and-task-collaboration.html)
 
 Python 是动态类型语言，但这不意味着"无类型"。自 Python 3.5 引入 `typing` 模块以来，类型注解已经从"可选装饰"演变为大型项目的工程标配。PyTorch、vLLM、FastAPI 等 AI Infra 项目大量依赖类型系统的高级特性。
 
 与 Java 把类型声明、编译检查、`.class` 文件携带类型信息、运行时反射合为一体不同，Python 的类型系统由两个协作层构成——**类型信息提供层**和**类型信息消费层**。而在这两层之上，还有一层工程落地：用它们构建**数据契约**。
+
+本文围绕的核心问题是：
+
+> **Python 的类型信息从哪里来、被谁消费，又如何在系统边界上落成可执行的数据契约？**
+
+
+## 一、总览：类型系统的两层架构与数据契约
+
+### 1. 提供层、消费层与数据契约
 
 ```
                    类型信息提供层
@@ -72,24 +79,36 @@ Python 是动态类型语言，但这不意味着"无类型"。自 Python 3.5 �
 
 Java 把前两件事合为一体：类型写在源码里，编译器既是提供者也是消费者，`.class` 文件既是载体也是运行时反射的依据。Python 则把提供和消费拆开，各层可以单独使用，也可以组合使用。
 
-需要说明的是，前两层和第三层的**组织轴并不相同**：前两层沿着"类型信息如何流动"展开，第三章则切换到"程序的数据结构如何设计"。数据建模**使用**类型系统，但它不是类型信息消费的一个子类——所以本文把它单列一章，而不是塞进消费层。
+需要说明的是，前两层和第三层的**组织轴并不相同**：前两层沿着"类型信息如何流动"展开，第六章则切换到"程序的数据结构如何设计"。数据建模**使用**类型系统，但它不是类型信息消费的一个子类——所以本文把它单列一章，而不是塞进消费层。
 
 本文将按这个顺序展开，每个特性都会说明：**它解决什么问题、怎么用、Java 中对应什么、在 AI Infra 真实项目中长什么样**。
 
+### 2. 本文的章节安排
 
-## 一、类型信息提供层
+提供层和消费层内容都较多，各拆成上下两章：
+
+```text
+第二章  类型信息提供层（上）：类型表达        从基础注解到 TypeVar、Protocol、TypedDict、ParamSpec、TypeGuard、overload 等 typing 工具
+第三章  类型信息提供层（下）：类型载体与分发   .pyi 存根、typeshed、types-*、py.typed/PEP 561、inline types vs stub
+第四章  类型信息消费层（上）：静态分析与推理   mypy 与 pyright、配置与渐进式引入、静态检查的能力边界
+第五章  类型信息消费层（下）：动态消费         __annotations__ 与 get_type_hints、@dataclass 与 Pydantic 如何读注解、beartype、静态与运行时的分工
+第六章  工程落地：数据契约设计               dataclass、Pydantic、序列化与 Schema、BaseSettings、选型指南
+第七章  附录                                Java 与 Python 的类型系统/数据契约对照、决策树、typing 速查表
+第八章  本文小结
+```
+
+
+## 二、类型信息提供层（上）：类型表达
 
 这一层解决"类型信息从哪里来"。它包括两部分：**类型表达**——用什么语法和工具把类型意图写出来；**类型载体与分发**——如何让没有源码注解的库也能提供类型信息给消费方。
-
-### 1. 类型表达
 
 这一部分覆盖所有"把类型意图表达出来"的语法和工具——从 Python 内建的类型注解语法，到 `typing` 模块提供的高级类型构造，再到 `typing_extensions` 对旧版本的兼容。
 
 > **关于 `typing_extensions`**：Python 类型系统演进很快，每个小版本都有新特性。但很多项目需要支持旧版本（AI Infra 项目线上常见 3.8 或 3.10）。`typing_extensions` 把新版本的特性向后移植，是 PyTorch、Pydantic、vLLM、FastAPI 的必装依赖。本文在介绍各特性时会标注版本要求；如果你的项目需要兼容旧版本，从 `typing_extensions` 导入即可。
 
-#### 1.1 基础注解：变量、函数与容器
+### 1. 基础注解：变量、函数与容器
 
-##### 变量和函数注解
+**变量和函数注解**
 
 ```python
 # 变量注解
@@ -118,7 +137,7 @@ String greet(String name, boolean excited) {
 
 核心区别：Java 的类型声明是语法强制的，编译器检查；Python 的类型注解**默认不影响运行时**，需要 mypy/pyright 做静态检查（见消费层"静态分析与推理"部分）。
 
-##### 内置容器类型注解的演进
+**内置容器类型注解的演进**
 
 Python 的容器类型注解经历了三个阶段：
 
@@ -139,7 +158,7 @@ def first[T](items: list[T]) -> T:
 
 **推荐**：如果项目的最低 Python 版本 >= 3.9，直接用小写 `list`、`dict`、`set`、`tuple`，不需要从 `typing` 导入。
 
-##### 真实项目中的基础注解
+**真实项目中的基础注解**
 
 ```python
 # FastAPI: fastapi/applications.py
@@ -173,9 +192,9 @@ def matmul(input: Tensor, other: Tensor, *, out: Tensor | None = None) -> Tensor
 | `Mapping[str, int]` | `collections.abc.Mapping[str, int]` | `Map<String, Integer>` | 只读映射 |
 
 
-#### 1.2 Union、Optional 与 None：表达"可能性"
+### 2. Union、Optional 与 None：表达"可能性"
 
-##### Union 类型
+**Union 类型**
 
 ```python
 # 旧写法：Python 3.5+
@@ -210,7 +229,7 @@ int parseId(RawId raw) {
 }
 ```
 
-##### Optional：可空类型
+**Optional：可空类型**
 
 ```python
 # 三种等价写法
@@ -288,7 +307,7 @@ Optional<User> findUser(long userId) {
 >
 > 所以 Python 3.10 用 `X | Y` 表示联合类型，是这个"合并"语义的自然延续——只不过合并的对象从值变成了类型。
 
-##### 真实项目中的用法
+**真实项目中的用法**
 
 ```python
 # vLLM: sampling_params.py
@@ -301,9 +320,9 @@ class SamplingParams:
 ```
 
 
-#### 1.3 Any、Never 与 NoReturn：类型系统的边界
+### 3. Any、Never 与 NoReturn：类型系统的边界
 
-##### Any：逃逸舱
+**Any：逃逸舱**
 
 ```python
 from typing import Any
@@ -317,7 +336,7 @@ def process(data: Any) -> Any:
 
 **使用场景**：和无类型注解的第三方库交互、快速原型阶段。**不要**把它当作"我不知道该写什么类型"的默认选择。
 
-##### 真实项目中的 Any
+**真实项目中的 Any**
 
 ```python
 # PyTorch: torch/nn/modules/module.py
@@ -344,7 +363,7 @@ class Depends:
 
 核心内部逻辑尽量避免使用 `Any`，用它意味着你主动放弃了类型检查的保护。
 
-##### Never 与 NoReturn
+**Never 与 NoReturn**
 
 ```python
 from typing import Never, NoReturn
@@ -381,7 +400,7 @@ def handle(status: Status) -> str:
             assert_never(unreachable)  # 如果遗漏了某个枚举值，mypy 会报错
 ```
 
-##### 真实项目中的 NoReturn / Never
+**真实项目中的 NoReturn / Never**
 
 ```python
 # click（命令行框架）: click/exceptions.py
@@ -415,7 +434,7 @@ def main(output: OutputFormat) -> None:
 
 `assert_never` 是 Python 3.11 加入 `typing` 模块的内置函数，底层就是 `def assert_never(arg: Never) -> Never`。
 
-##### AI-Infra 中的穷尽检查
+**AI-Infra 中的穷尽检查**
 
 穷尽检查在 AI Infra 代码中极为重要——后端选型、硬件架构、量化方法等枚举分支**必须全部处理**，遗漏一个就可能导致运行时静默失败：
 
@@ -466,7 +485,7 @@ def select_kernel(arch: DeviceArch, dtype: str) -> str:
 这种模式的核心价值：**把运行时的"找不到匹配分支"错误，提前到开发期的 mypy 检查阶段暴露**。在 GPU 硬件快速迭代的 AI Infra 领域，新增硬件/后端是家常便饭，穷尽检查能确保每次新增枚举值时，所有相关的分支逻辑都被更新。
 
 
-#### 1.4 Literal：字面量类型
+### 4. Literal：字面量类型
 
 `Literal` 将类型限制为特定的字面值，类似 Java 中枚举的部分功能，但更轻量。
 
@@ -493,7 +512,7 @@ void setMode(Mode mode) { ... }
 
 区别：`Literal` 是纯静态的，运行时不做检查；Java 枚举是运行时的真实类型。
 
-##### 真实项目中的 Literal
+**真实项目中的 Literal**
 
 ```python
 # vLLM: vllm/config.py — 量化方法限定为几个固定字符串
@@ -509,9 +528,9 @@ HttpMethod = Literal["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
 `Literal` 非常适合替代那些"只接受几个固定字符串"的场景——不值得定义一个完整 Enum 类，但又想让类型检查器帮你约束。
 
 
-#### 1.5 TypeVar 与泛型
+### 5. TypeVar 与泛型
 
-##### TypeVar 基础
+**TypeVar 基础**
 
 `TypeVar` 对应 Java 的类型参数 `<T>`，用于表达"输入和输出之间的类型关系"。
 
@@ -536,7 +555,7 @@ result = first(["a", "b"])    # result: str
 }
 ```
 
-##### bound：类型上界
+**bound：类型上界**
 
 ```python
 from typing import TypeVar
@@ -560,7 +579,7 @@ def freeze(model: M) -> M:
 
 对应 Java 的 `<T extends Number>` 或 `<M extends Module>`。
 
-##### 约束到特定类型
+**约束到特定类型**
 
 ```python
 # T 只能是 str 或 bytes，不能是其他类型
@@ -572,7 +591,7 @@ def concat(a: StrOrBytes, b: StrOrBytes) -> StrOrBytes:
 
 这比 `Union[str, bytes]` 更严格：它要求 `a` 和 `b` 必须是**同一个类型**。
 
-##### 自定义泛型类
+**自定义泛型类**
 
 ```python
 from typing import TypeVar, Generic
@@ -605,7 +624,7 @@ public class Stack<T> {
 }
 ```
 
-##### 协变与逆变
+**协变与逆变**
 
 Java 程序员熟悉 `? extends T`（协变）和 `? super T`（逆变）。Python 通过 TypeVar 的参数来表达：
 
@@ -640,7 +659,7 @@ class ReadOnlyList(Generic[T_co]):
 
 在实践中，很少需要手动声明协变/逆变——Protocol 中类型检查器会自动推断。主要在定义泛型容器/接口类时才需要关心。
 
-##### Python 3.12+ 的新语法
+**Python 3.12+ 的新语法**
 
 Python 3.12 引入了更简洁的泛型语法，不再需要手动创建 `TypeVar`。上面的所有写法都有对应的新形式：
 
@@ -681,7 +700,7 @@ class WriteOnlyList[-T]:    # - 表示逆变（对应旧的 contravariant=True�
 
 新语法更接近 Java 和 TypeScript 的泛型声明方式。如果项目目标版本 >= 3.12，推荐使用。不过截至目前，大多数主流项目（PyTorch、vLLM、Pydantic）仍使用旧语法以兼容 3.10/3.11。
 
-##### 真实项目中的 TypeVar 与泛型
+**真实项目中的 TypeVar 与泛型**
 
 ```python
 # SQLAlchemy: sqlalchemy/orm/session.py
@@ -720,9 +739,9 @@ class Iterator(Iterable[T_co]):
     def __next__(self) -> T_co: ...
 ```
 
-#### 1.6 Callable：函数类型
+### 6. Callable：函数类型
 
-##### 基本用法
+**基本用法**
 
 ```python
 from typing import Callable
@@ -743,7 +762,7 @@ int apply(BiFunction<Integer, Integer, Integer> fn, int a, int b) {
 }
 ```
 
-##### 更灵活的可调用类型
+**更灵活的可调用类型**
 
 `Callable[[int, int], int]` 无法表达 keyword-only 参数、默认值等复杂签名。如果需要精确描述，使用 Protocol：
 
@@ -757,7 +776,7 @@ def sort_with(items: list[str], cmp: Comparator) -> list[str]:
     ...
 ```
 
-##### 任意参数的 Callable
+**任意参数的 Callable**
 
 ```python
 from typing import Callable
@@ -766,7 +785,7 @@ from typing import Callable
 handler: Callable[..., None]  # ... 表示"任意参数"
 ```
 
-##### 真实项目中的 Callable
+**真实项目中的 Callable**
 
 ```python
 # PyTorch: torch/optim/optimizer.py
@@ -797,11 +816,11 @@ class Depends:
     ): ...
 ```
 
-#### 1.7 `type[C]`：类对象本身
+### 7. `type[C]`：类对象本身
 
 上一节的 `Callable` 描述"可以被调用的东西"。而在 Python 里，**类本身就是一个可以被调用的对象**——调用它会返回实例。这引出一个容易被忽略但极其重要的注解：`type[C]`。
 
-##### 实例 vs 类对象
+**实例 vs 类对象**
 
 这是 Python 类型注解里最需要分清的一组区别：
 
@@ -850,9 +869,9 @@ Model build(Class<? extends Model> cls) throws Exception {
 两个实质差异：
 
 1. **构造是一等操作。** Java 拿到 `Class<T>` 后要经过反射才能 `newInstance()`，还要处理一堆受检异常；Python 里 `c()` 就是普通调用，类型检查器甚至会**校验构造参数**——传错参数是静态错误，不是运行时才炸的 `NoSuchMethodException`。
-2. **没有类型擦除。** Java 的 `Class<T>` 之所以常被用作"运行时类型令牌"（比如 `Gson.fromJson(json, Foo.class)`），正是因为泛型被擦除了，运行时拿不到 `T`。Python 没有擦除问题——注解本身在运行时就可以读取（见第二章）——所以 `type[C]` 的用途更纯粹：它就是"我需要一个类，而不是一个实例"。
+2. **没有类型擦除。** Java 的 `Class<T>` 之所以常被用作"运行时类型令牌"（比如 `Gson.fromJson(json, Foo.class)`），正是因为泛型被擦除了，运行时拿不到 `T`。Python 没有擦除问题——注解本身在运行时就可以读取（见第五章）——所以 `type[C]` 的用途更纯粹：它就是"我需要一个类，而不是一个实例"。
 
-##### 典型用途：工厂与注册表
+**典型用途：工厂与注册表**
 
 `type[C]` 最常见的场景是把类当作值来传递和存储：
 
@@ -890,7 +909,7 @@ def load(name: str) -> Model:
 
 注意装饰器的签名 `Callable[[type[T]], type[T]]`——**接收类、返回类**。写成 `Callable[[type], type]` 会丢失具体类型，被装饰的类在下游就变成了 `type[Any]`。
 
-##### `type[C]` vs `Callable[..., C]`
+**`type[C]` vs `Callable[..., C]`**
 
 两者都能表达"能造出 C 的东西"，但语义不同：
 
@@ -919,7 +938,7 @@ build(AbstractModel)     # mypy 报错：抽象类不能实例化
 
 这其实是件好事——静态检查器帮你拦住了 `TypeError: Can't instantiate abstract class`。如果确实只想传递类而不实例化（比如存进注册表），把返回类型改成 `type[AbstractModel]` 即可。
 
-##### classmethod 与 `Self`
+**classmethod 与 `Self`**
 
 classmethod 的第一个参数 `cls` 隐式就是 `type[Self]`，所以通常不需要显式标注：
 
@@ -937,9 +956,9 @@ class TrainConfig(Config): ...
 cfg = TrainConfig.from_dict({})   # 推断为 TrainConfig，不是 Config
 ```
 
-用 `Self` 而不是 `Config` 作返回类型，子类才能拿到正确的推断结果（`Self` 见 1.14 节）。这解决的正是 Java 里"自限定泛型" `class Config<T extends Config<T>>` 那套笨重写法要解决的问题。
+用 `Self` 而不是 `Config` 作返回类型，子类才能拿到正确的推断结果（`Self` 见第二章 §14）。这解决的正是 Java 里"自限定泛型" `class Config<T extends Config<T>>` 那套笨重写法要解决的问题。
 
-##### 与元类的关系
+**与元类的关系**
 
 `type` 除了作为注解，它本身还是 **Python 中所有类的类**——这就是元类的起点：
 
@@ -951,7 +970,7 @@ type(Model)        # <class 'type'>        类的类型是 type
 type(type)         # <class 'type'>        type 是自己的实例，递归终点
 ```
 
-所以自定义元类都写成 `class Meta(type)`：元类就是"类的类"，继承 `type` 才能拦截类的创建过程。Pydantic 的 `ModelMetaclass` 正是这么来的（见第二章 2.2 节）。
+所以自定义元类都写成 `class Meta(type)`：元类就是"类的类"，继承 `type` 才能拦截类的创建过程。Pydantic 的 `ModelMetaclass` 正是这么来的（见第五章 §2）。
 
 两个用法之间的桥梁是：**如果一个类的元类是 `Meta`，那么这个类对象的类型就是 `Meta`**，可以直接用来注解：
 
@@ -963,13 +982,13 @@ def configure(cls: Meta) -> None:     # 只接受元类为 Meta 的类
     ...
 ```
 
-> **注意区分两个 `type`**：内置的 `type`（本节讨论的类对象），和 Python 3.12 引入的软关键字 `type`（用于声明类型别名，如 `type Vector = list[float]`，见 1.14 节）。两者拼写相同但毫无关系，靠语法位置区分。
+> **注意区分两个 `type`**：内置的 `type`（本节讨论的类对象），和 Python 3.12 引入的软关键字 `type`（用于声明类型别名，如 `type Vector = list[float]`，见第二章 §14）。两者拼写相同但毫无关系，靠语法位置区分。
 
-##### 版本说明
+**版本说明**
 
 `typing.Type[C]` 从 Python 3.9 起被内置的 `type[C]` 取代（PEP 585），新代码一律用小写。这和 `List` → `list`、`Dict` → `dict` 是同一次演进。
 
-##### 真实项目中的 `type[C]`
+**真实项目中的 `type[C]`**
 
 ```python
 # transformers: transformers/models/auto/configuration_auto.py
@@ -1007,11 +1026,11 @@ class BaseModel:
 
 这几个例子体现了同一个模式：**框架把"用户提供的类"当作数据存起来，在运行时按需实例化**。这正是 Python 插件化架构的骨架——注册表的值类型永远是 `type[SomeBase]`，而不是 `SomeBase`。Java 里对应的是 Spring 的 `BeanDefinition` 持有 `Class<?>`、或 SPI 的 `ServiceLoader<S>`。
 
-#### 1.8 ABC 与 Protocol：接口的两种方式
+### 8. ABC 与 Protocol：接口的两种方式
 
 Python 定义"接口"有两种机制：**ABC（抽象基类）**和 **Protocol（协议）**。它们的定位不同，适用场景不同，理解两者的区别是读懂 AI Infra 源码的关键。
 
-##### ABC：抽象基类（名义类型）
+**ABC：抽象基类（名义类型）**
 
 ABC（Abstract Base Class）来自标准库的 `abc` 模块，对应 Java 的 `abstract class` + `interface`。
 
@@ -1040,7 +1059,7 @@ BadAnimal()  # TypeError: Can't instantiate abstract class BadAnimal
              # with abstract method speak
 ```
 
-##### 真实项目中的 ABC
+**真实项目中的 ABC**
 
 ABC 在主流框架中大量使用，特别是作为**框架基类**：
 
@@ -1077,7 +1096,7 @@ class Dialect(ABC):
     def create_connect_args(self, url: URL) -> ConnectArgsType: ...
 ```
 
-##### collections.abc 速查
+**collections.abc 速查**
 
 | ABC | 需要实现的方法 | Java 对应 | 说明 |
 |---|---|---|---|
@@ -1094,7 +1113,7 @@ class Dialect(ABC):
 
 在类型注解中，当你希望参数是"只读"的时候，用 `Sequence` 而不是 `list`，用 `Mapping` 而不是 `dict`——这和 Java 中用 `List<T>` 接口而不是 `ArrayList<T>` 作为参数类型是同一个道理。
 
-##### Protocol：结构化子类型（静态鸭子类型）
+**Protocol：结构化子类型（静态鸭子类型）**
 
 ABC 要求显式继承，但 Python 是鸭子类型语言——"如果它走路像鸭子、叫声像鸭子，那它就是鸭子"。`Protocol`（Python 3.8+）将这种理念形式化为类型系统的一部分：**不需要显式继承，只要方法签名匹配就算实现了该协议**。
 
@@ -1133,7 +1152,7 @@ class DatabaseConnection implements Closeable {  // 必须写 implements
 }
 ```
 
-##### ABC vs Protocol：选择指南
+**ABC vs Protocol：选择指南**
 
 | 特性 | Java interface | Python ABC | Python Protocol |
 |---|---|---|---|
@@ -1159,7 +1178,7 @@ class DatabaseConnection implements Closeable {  // 必须写 implements
 
 简单记忆：**框架作者用 ABC，框架使用者用 Protocol**。
 
-##### 带 `@runtime_checkable` 的 Protocol
+**带 `@runtime_checkable` 的 Protocol**
 
 默认情况下 Protocol 只在静态检查时有效。加上 `@runtime_checkable` 后可以用 `isinstance` 做运行时检查：
 
@@ -1176,7 +1195,7 @@ print(isinstance(42, Sized))          # False
 
 注意：`@runtime_checkable` 只检查方法**是否存在**，不检查签名是否匹配。
 
-##### 泛型 Protocol
+**泛型 Protocol**
 
 ```python
 from typing import Protocol, TypeVar
@@ -1190,7 +1209,7 @@ def process(reader: Reader[str]) -> str:
     return reader.read().upper()
 ```
 
-##### 真实项目中的 Protocol
+**真实项目中的 Protocol**
 
 ```python
 # PyTorch 风格：任何实现了 forward 和 __call__ 的对象
@@ -1204,11 +1223,11 @@ class ExecutorBase(Protocol):
     def execute_model(self, seq_group_metadata: list) -> list: ...
 ```
 
-#### 1.9 TypedDict：字典的类型约束
+### 9. TypedDict：字典的类型约束
 
 Python 中大量使用 `dict` 传递数据。`TypedDict` 让你能对字典的"形状"（哪些 key、每个 key 的值类型）进行静态约束。
 
-##### 基本用法
+**基本用法**
 
 ```python
 from typing import TypedDict
@@ -1230,7 +1249,7 @@ bad: MovieRecord = {"title": "X"}  # 缺少 year 和 rating
 
 对应 Java：Java 通常用 DTO / record 代替，很少直接使用 `Map<String, Object>`。
 
-##### 可选字段
+**可选字段**
 
 ```python
 from typing import TypedDict, Required, NotRequired
@@ -1248,15 +1267,15 @@ class Config(TypedDict):
     debug: NotRequired[bool]
 ```
 
-##### TypedDict 与其他数据定义方式的关系
+**TypedDict 与其他数据定义方式的关系**
 
 Python 有三种主流的"结构化数据"定义方式：`TypedDict`（约束字典形状，运行时仍是普通 `dict`）、`dataclass`（标准库数据类，类似 Java Record）、Pydantic `BaseModel`（带运行时校验，类似 Java Bean Validation）。
 
 `TypedDict` 与后两者的根本区别在于：**它不创建新的对象类型**。`MovieRecord` 在运行时就是一个普通 `dict`，类型约束只对静态检查器生效。所以如果数据本身已经是 dict（JSON API 返回值、配置文件解析结果），用 `TypedDict` 约束形状最自然；如果需要创建新的结构化对象，则用 `dataclass` 或 Pydantic。
 
-> 三者的完整对比、选型决策树以及"边界校验、内部传递"的工程模式，见第三章「工程落地：数据契约设计」的选型指南一节。
+> 三者的完整对比、选型决策树以及"边界校验、内部传递"的工程模式，见第六章「工程落地：数据契约设计」的选型指南一节。
 
-##### 用 TypedDict 约束 `**kwargs`（3.12+）
+**用 TypedDict 约束 `**kwargs`（3.12+）**
 
 ```python
 from typing import Unpack, TypedDict
@@ -1274,7 +1293,7 @@ request("https://api.example.com", timeout=5.0)        # OK
 request("https://api.example.com", unknown_key=True)    # mypy 报错
 ```
 
-##### 真实项目中的 TypedDict
+**真实项目中的 TypedDict**
 
 ```python
 # PyTorch: torch/optim/optimizer.py
@@ -1302,7 +1321,7 @@ class ExecuteOptions(TypedDict, total=False):
     yield_per: int
 ```
 
-#### 1.10 Annotated：给类型附加元数据
+### 10. Annotated：给类型附加元数据
 
 `Annotated` 允许在类型上附加额外的元数据，类型检查器本身忽略这些元数据，但框架（如 FastAPI、Pydantic）可以读取并使用。
 
@@ -1313,7 +1332,7 @@ from typing import Annotated
 UserId = Annotated[int, "must be positive"]
 ```
 
-##### Pydantic 中的 Annotated
+**Pydantic 中的 Annotated**
 
 ```python
 from typing import Annotated
@@ -1324,7 +1343,7 @@ class User(BaseModel):
     age: Annotated[int, Field(ge=0, le=150)]
 ```
 
-##### FastAPI 中的 Annotated
+**FastAPI 中的 Annotated**
 
 ```python
 from typing import Annotated
@@ -1349,9 +1368,9 @@ void createUser(@NotNull @Size(min=2, max=50) String name,
 ```
 
 
-#### 1.11 ParamSpec 与 Concatenate：保留装饰器的类型信息
+### 11. ParamSpec 与 Concatenate：保留装饰器的类型信息
 
-##### 问题：装饰器吃掉了类型信息
+**问题：装饰器吃掉了类型信息**
 
 ```python
 from functools import wraps
@@ -1371,7 +1390,7 @@ def add(a: int, b: int) -> int:
 # 原始的 (a: int, b: int) -> int 信息丢失了
 ```
 
-##### ParamSpec 解决方案
+**ParamSpec 解决方案**
 
 ```python
 from typing import ParamSpec, TypeVar, Callable
@@ -1396,7 +1415,7 @@ def add(a: int, b: int) -> int:
 
 `ParamSpec` 捕获了被装饰函数的**完整参数签名**并透传出来。
 
-##### Concatenate：装饰器添加参数
+**Concatenate：装饰器添加参数**
 
 如果装饰器需要在原始函数前面添加参数：
 
@@ -1425,7 +1444,7 @@ def handle(request: Request, user_id: int) -> Response:
 
 Java 没有对应概念——Java 的注解处理器不会改变方法签名。
 
-##### 真实项目中的 ParamSpec
+**真实项目中的 ParamSpec**
 
 ```python
 # Tenacity（重试库）: tenacity/__init__.py
@@ -1454,7 +1473,7 @@ P = ParamSpec("P")
 
 `ParamSpec` 是装饰器密集型项目的"救星"——Python 生态有大量装饰器（retry、cache、trace、auth），没有 `ParamSpec` 之前类型信息全部丢失。
 
-##### AI-Infra 中的 ParamSpec 与 Concatenate
+**AI-Infra 中的 ParamSpec 与 Concatenate**
 
 在 AI Infra 中，装饰器模式无处不在：训练循环的 hook、性能分析、分布式通信包装、自动混合精度等等。`ParamSpec` 和 `Concatenate` 让这些装饰器不再是类型信息的黑洞。
 
@@ -1509,9 +1528,9 @@ log_metrics(loss=0.5, step=100)
 
 这在分布式训练框架中特别有用——很多函数需要 `rank`/`world_size`/`device` 等上下文参数，通过 `Concatenate` 装饰器自动注入后，调用方的代码更干净，类型检查也不会丢失。
 
-#### 1.12 TypeGuard 与 TypeIs：类型收窄
+### 12. TypeGuard 与 TypeIs：类型收窄
 
-##### TypeGuard（3.10+）
+**TypeGuard（3.10+）**
 
 类型收窄函数：返回 `True` 时，告诉类型检查器参数是特定类型。
 
@@ -1535,7 +1554,7 @@ if (data instanceof List<?> list && isStringList(list)) {
 }
 ```
 
-##### TypeIs（3.12+）
+**TypeIs（3.12+）**
 
 `TypeIs` 是 `TypeGuard` 的改进版，行为更直观：
 
@@ -1554,7 +1573,7 @@ def process(val: str | int) -> None:
 
 `TypeGuard` 和 `TypeIs` 的区别：`TypeIs` 在 `else` 分支也会收窄类型，`TypeGuard` 不会。如果你的项目目标版本 >= 3.12，优先用 `TypeIs`。
 
-##### 真实项目中的 TypeGuard
+**真实项目中的 TypeGuard**
 
 ```python
 # Pydantic: pydantic/_internal/_utils.py
@@ -1574,7 +1593,7 @@ def is_numeric_dtype(arr_or_dtype: Any) -> TypeGuard[np.number]: ...
 
 `TypeGuard` 在大型项目中使用相对低频——因为大多数场景 `isinstance` 已经能自动收窄。它主要出现在需要自定义复杂检查逻辑的地方（如容器内元素类型检查），以及类型存根（`.pyi`）文件中。
 
-##### AI-Infra 中的 TypeGuard / TypeIs
+**AI-Infra 中的 TypeGuard / TypeIs**
 
 在 AI Infra 代码中，TypeGuard/TypeIs 最典型的场景是**根据模型/张量的运行时属性做类型分支**——这些属性无法通过简单的 `isinstance` 判断：
 
@@ -1619,7 +1638,7 @@ def optimize(model: nn.Module) -> nn.Module:
 
 这种模式在 vLLM 的模型加载器、PyTorch 的 quantization 模块中都有类似逻辑——虽然不一定用了 `TypeGuard` 注解（很多是运行时 `if` 检查），但理解 TypeGuard 的思路有助于写出更清晰的分支代码。
 
-#### 1.13 overload：多签名声明
+### 13. overload：多签名声明
 
 `@overload` 不是运行时重载（Python 没有函数重载），而是给类型检查器提供多个调用签名的描述。
 
@@ -1643,7 +1662,7 @@ def fetch(url: str, as_json: bool = False) -> dict | str:
 
 对应 Java：Java 的方法重载是编译器真正支持的多个方法；Python 的 `@overload` 只是类型检查层面的声明，运行时只有最后一个实现生效。
 
-##### 真实项目中的 overload
+**真实项目中的 overload**
 
 ```python
 # PyTorch: torch/_C/_VariableFunctions.pyi (类型存根文件)
@@ -1684,9 +1703,9 @@ class Client:
 
 `@overload` 在需要向后兼容旧 API 的项目中尤其常见（如 vLLM 的 generate 方法同时支持新旧调用方式）。
 
-#### 1.14 其他实用工具
+### 14. 其他实用工具
 
-##### Final 和 ClassVar
+**Final 和 ClassVar**
 
 ```python
 from typing import Final, ClassVar
@@ -1719,7 +1738,7 @@ class Module:
     training: bool
 ```
 
-##### Self（3.11+）
+**Self（3.11+）**
 
 ```python
 from typing import Self
@@ -1767,7 +1786,7 @@ class Query(Generic[_T]):
 
 `Self` 在返回 `self` 的链式调用和 `@classmethod` 工厂方法中特别有价值——PEP 673 统计发现它在 typeshed 中的使用频率是 `Callable` 的 40%，非常常见。
 
-##### TypeAlias（3.10+）与 `type` 语句（3.12+）
+**TypeAlias（3.10+）与 `type` 语句（3.12+）**
 
 ```python
 # 3.10+: 显式声明类型别名
@@ -1801,7 +1820,7 @@ JsonValue: TypeAlias = int | float | str | bool | None | list["JsonValue"] | dic
 
 TypeAlias 在大型项目中极为常见——它让复杂的联合类型和嵌套泛型变得可读。
 
-##### cast：类型断言
+**cast：类型断言**
 
 ```python
 from typing import cast
@@ -1827,7 +1846,7 @@ row = cast(tuple[str, int], result.fetchone())
 
 `cast` 的使用频率在成熟项目中相当高。它的典型场景：1) 从 `dict`/`list` 中取值后类型检查器无法推断；2) 经过动态注册/反射后丢失了类型信息。
 
-##### TYPE_CHECKING：避免循环导入
+**TYPE_CHECKING：避免循环导入**
 
 ```python
 from __future__ import annotations
@@ -1844,7 +1863,7 @@ class Light:
 
 这是解决循环导入的标准做法：把只用于类型注解的 import 放在 `if TYPE_CHECKING:` 块中。
 
-##### 真实项目中的 TYPE_CHECKING
+**真实项目中的 TYPE_CHECKING**
 
 ```python
 # vLLM: vllm/entrypoints/openai/generate/api_router.py
@@ -1881,7 +1900,7 @@ class RelationshipProperty:
 `TYPE_CHECKING` 在 vLLM 源码中出现超过 200 次，在 PyTorch 中出现超过 500 次。它是大型 Python 项目管理模块依赖的标准手段。
 
 
-### 2. 类型载体与分发
+## 三、类型信息提供层（下）：类型载体与分发
 
 类型注解要对库的使用者生效，不仅需要写在源码中，还需要以类型检查器能够发现和读取的形式随库分发。
 
@@ -1914,9 +1933,9 @@ PEP 561   规定 Python 包分发类型信息的相关机制
 
 需要注意的是，C/C++ 扩展并不一定没有类型信息；它们通常只是无法通过二进制实现本身被类型检查器直接推导。类型信息仍然可以由 `.pyi` 文件、Python 包装层、外部存根包或类型检查器插件提供。下面我们就展开介绍这种外部存根包的类型信息提供机制。
 
-#### 2.1 .pyi 存根文件与 typeshed
+### 1. .pyi 存根文件与 typeshed
 
-##### .pyi 文件
+**.pyi 文件**
 
 `.pyi`（Python Interface）文件只包含签名，不包含实现。它告诉类型检查器一个模块里有什么函数、什么类型：
 
@@ -1934,7 +1953,7 @@ class TensorBase:
 
 `.pyi` 文件的语法和普通 Python 完全一样，只是函数体都用 `...`（Ellipsis）代替。
 
-##### typeshed
+**typeshed**
 
 [typeshed](https://github.com/python/typeshed) 是 Python 官方维护的类型存根仓库，覆盖：
 
@@ -1943,7 +1962,7 @@ class TensorBase:
 
 mypy 和 pyright 都**内置了 typeshed**，所以你用标准库时不需要手动安装任何存根。
 
-##### types-* 独立存根包
+**types-* 独立存根包**
 
 对于 typeshed 不覆盖的第三方库，社区通过 PyPI 发布独立的存根包，命名规则为 `types-<package>`：
 
@@ -1956,7 +1975,7 @@ pip install types-Pillow       # Pillow 的类型存根
 
 mypy 安装后会自动发现并使用这些存根。
 
-##### 存根文件的查找优先级
+**存根文件的查找优先级**
 
 类型检查器按以下顺序查找类型信息（以 mypy 为例）：
 
@@ -1969,9 +1988,9 @@ mypy 安装后会自动发现并使用这些存根。
 对应 Java：Java 没有存根文件的概念——类型信息编译进 `.class` 文件。最接近的是 `.jar` 中不含实现的接口定义。
 
 
-#### 2.2 py.typed、PEP 561 与类型信息发布
+### 2. py.typed、PEP 561 与类型信息发布
 
-##### PEP 561：类型信息的发布标准
+**PEP 561：类型信息的发布标准**
 
 [PEP 561](https://peps.python.org/pep-0561/) 定义了 Python 库如何声明"我提供了类型信息"。这个标准让类型检查器知道哪些库是"类型安全"的。
 
@@ -1987,7 +2006,7 @@ mypackage/
 
 有了 `py.typed`，类型检查器就知道这个包的类型信息是**官方提供**的（不是第三方猜的），可以放心使用。
 
-##### 三种类型信息发布方式
+**三种类型信息发布方式**
 
 | 方式 | 说明 | 例子 |
 |---|---|---|
@@ -2003,7 +2022,7 @@ mypackage/
 - **requests**：本身无注解，依赖社区的 `types-requests` 独立存根包
 
 
-#### 2.3 inline types vs stub：如何选择
+### 3. inline types vs stub：如何选择
 
 如果你在**开发一个库**，需要决定如何提供类型信息：
 
@@ -2038,17 +2057,15 @@ mypackage = ["py.typed", "*.pyi"]
 
 
 
-## 二、类型信息消费层
+## 四、类型信息消费层（上）：静态分析与推理
 
 类型信息写好了、分发好了，接下来就是"谁来用"。消费方分为两种：**静态分析工具**在开发时检查类型正确性，**动态工具**在运行时利用类型信息做校验和解析。两者互补，不是替代关系。
 
-### 1. 静态分析与推理
-
 类型注解写在源码中，但 Python 解释器**完全忽略**它们——不会做任何检查。真正让类型注解产生价值的是**静态类型检查器**。这一部分关于"谁来检查、怎么检查、检查到什么程度"。
 
-#### 1.1 mypy 与 pyright
+### 1. mypy 与 pyright
 
-##### mypy
+**mypy**
 
 mypy 是 Python 官方的类型检查器，由 Guido van Rossum 本人发起，也是历史最久、社区最广的选择。
 
@@ -2059,7 +2076,7 @@ mypy src/                 # 基本检查
 mypy --strict src/        # 严格模式（推荐新项目）
 ```
 
-##### pyright
+**pyright**
 
 pyright 由 Microsoft 开发，用 TypeScript 编写，是 VS Code 插件 Pylance 的后端。速度是它的最大优势。
 
@@ -2069,7 +2086,7 @@ pip install pyright
 pyright src/
 ```
 
-##### 对比
+**对比**
 
 | 特性 | mypy | pyright |
 |---|---|---|
@@ -2083,7 +2100,7 @@ pyright src/
 
 两者都广泛使用。如果用 VS Code 开发，pyright 通过 Pylance 自动工作；CI 中 mypy 更常见。很多项目**同时**配置两者——本地开发用 pyright 获得即时反馈，CI 用 mypy 做门禁。
 
-##### 类型推断
+**类型推断**
 
 和 Java 的 `var` 一样，类型检查器也能自动推断类型，不需要处处手写注解：
 
@@ -2113,9 +2130,9 @@ def process(data):    # mypy --strict: error: Function is missing a type annotat
 ```
 
 
-#### 1.2 配置实践与渐进式引入
+### 2. 配置实践与渐进式引入
 
-##### pyproject.toml 配置
+**pyproject.toml 配置**
 
 ```toml
 # mypy 配置
@@ -2144,7 +2161,7 @@ reportMissingImports = true
 reportMissingTypeStubs = false
 ```
 
-##### 渐进式引入策略
+**渐进式引入策略**
 
 对于已有大型项目，不可能一步到位开启 `--strict`。推荐的渐进策略：
 
@@ -2185,11 +2202,11 @@ strict = true
 vLLM、FastAPI 等项目都是逐步引入类型检查的——早期代码有大量 `Any` 和 `# type: ignore`，新代码则要求严格注解。
 
 
-#### 1.3 静态检查的能力边界
+### 3. 静态检查的能力边界
 
 类型检查器不是万能的。理解它做不到什么，才能在"加注解"和"写 `# type: ignore`"之间做正确选择。
 
-##### 做不到的事情
+**做不到的事情**
 
 **1. 运行时动态行为**
 
@@ -2235,7 +2252,7 @@ arr = np.array([1, 2, 3])  # 没有存根就是 Any
 result = pickle.loads(data)  # result: Any
 ```
 
-##### 什么时候用 `# type: ignore`
+**什么时候用 `# type: ignore`**
 
 合理的使用场景：
 
@@ -2252,7 +2269,7 @@ result = complex_dynamic_call()  # type: ignore[no-any-return]  # TODO: add prop
 
 不合理的使用：**用 `# type: ignore` 压制所有错误来让 CI 通过**——这意味着类型注解形同虚设。
 
-##### 不同检查器对同一代码的判断可能不同
+**不同检查器对同一代码的判断可能不同**
 
 ```python
 from typing import TypeVar
@@ -2274,15 +2291,15 @@ reveal_type(identity(42))
 如果项目同时使用 mypy 和 pyright，偶尔需要同时满足两者的要求。遇到冲突时，优先修正代码而不是加 `# type: ignore`。
 
 
-### 2. 动态消费：运行时如何读取类型注解
+## 五、类型信息消费层（下）：动态消费——运行时如何读取类型注解
 
 类型注解在运行时**默认被忽略**——Python 解释器不会因为 `x: int = "hello"` 而报错。但注解本身是保留在对象上的，任何代码都可以在运行时把它读出来加以利用：有的用来生成代码（`@dataclass`），有的用来生成校验器（Pydantic），有的用来做即时检查（beartype）。
 
-这一节关注的是**机制**：运行时工具通过什么途径拿到注解、在什么时机拿、拿到之后做了什么。至于用这些工具**怎么设计数据结构**（建模、校验、序列化、配置），是第三章「工程落地：数据契约设计」的主题。
+这一节关注的是**机制**：运行时工具通过什么途径拿到注解、在什么时机拿、拿到之后做了什么。至于用这些工具**怎么设计数据结构**（建模、校验、序列化、配置），是第六章「工程落地：数据契约设计」的主题。
 
-#### 2.1 isinstance、`__annotations__` 与 get_type_hints()：原生能力
+### 1. isinstance、`__annotations__` 与 get_type_hints()：原生能力
 
-##### isinstance：最基本的运行时类型检查
+**isinstance：最基本的运行时类型检查**
 
 ```python
 def process(value: int | str) -> str:
@@ -2298,7 +2315,7 @@ def process(value: int | str) -> str:
 - **不支持 Union**：`isinstance(x, int | str)` 从 3.10 开始才支持
 - **不支持 Protocol**：除非加了 `@runtime_checkable`
 
-##### `__annotations__`：注解存放在哪里
+**`__annotations__`：注解存放在哪里**
 
 在 Python 中，当你在类内部写下 `id: int` 但不赋值时，解释器并不会把它当作普通类变量，而是把这个映射关系存入类的 `__annotations__` 字典：
 
@@ -2323,7 +2340,7 @@ print(greet.__annotations__)
 # {'name': <class 'str'>, 'age': <class 'int'>, 'return': <class 'str'>}
 ```
 
-##### get_type_hints()：更可靠的注解读取
+**get_type_hints()：更可靠的注解读取**
 
 ```python
 from typing import get_type_hints
@@ -2380,11 +2397,11 @@ def validate(cls, data: dict) -> object:
 ```
 
 
-#### 2.2 框架如何消费注解：代码生成与元类
+### 2. 框架如何消费注解：代码生成与元类
 
 上一节的 `validate()` 是一个玩具示例。真实框架读到注解之后做什么？主要有两条技术路线：**装饰器 + 代码生成**（`@dataclass`）和**元类 + 验证树**（Pydantic）。理解这两条路线，就理解了 Python 数据类框架的全部"魔法"。
 
-##### `@dataclass`：读注解，生成代码，但不校验
+**`@dataclass`：读注解，生成代码，但不校验**
 
 标准库的 `@dataclass` 是一个装饰器。当它包裹一个类时：
 
@@ -2416,7 +2433,7 @@ print(user.id)                            # 'not an int'
 
 `dataclasses` 甚至不关心注解的内容是不是一个合法类型——写 `id: "随便什么字符串"` 它也照样生成 `__init__`。所以在类型信息的消费谱系里，`@dataclass` 属于**最轻度**的消费者：它只关心"有哪些字段"，不关心"字段是什么类型"。
 
-##### Pydantic：元类拦截 + 构建验证树
+**Pydantic：元类拦截 + 构建验证树**
 
 Pydantic 走的是更底层的**元类**机制。当模型继承 `BaseModel` 时，Python 在**类创建阶段**（不是实例化阶段，更不是调用阶段）就会触发 Pydantic 的自定义元类。
 
@@ -2440,11 +2457,11 @@ print(type(User))               # <class 'pydantic._internal._model_construction
 print(User.__pydantic_core_schema__ is not None)   # True
 ```
 
-上面 `type(User)` 打印出 `ModelMetaclass` 而不是 `type`，正是 1.7 节"类的类型是 `type`，自定义元类则是 `type` 的子类"那条规则的直接体现。换句话说，`User` 这个**类对象**的类型是 `ModelMetaclass`，所以任何接受 `type[BaseModel]` 的函数都能拿到它。
+上面 `type(User)` 打印出 `ModelMetaclass` 而不是 `type`，正是第二章 §7 "类的类型是 `type`，自定义元类则是 `type` 的子类"那条规则的直接体现。换句话说，`User` 这个**类对象**的类型是 `ModelMetaclass`，所以任何接受 `type[BaseModel]` 的函数都能拿到它。
 
 > 元类本身的机制（`type` 的三参数形式、`__new__` 的拦截时机、与 `__init_subclass__` 的取舍）在[《Python 动态机制及 AI-Infra 实践》](/python-reflection-metaprogramming-and-plugin-architecture.html)的"元类：控制类的创建过程"一节有完整展开，这里只关注它作为注解消费者的角色。
 
-##### 两条路线的对比
+**两条路线的对比**
 
 | | `@dataclass` | Pydantic `BaseModel` |
 |---|---|---|
@@ -2457,12 +2474,12 @@ print(User.__pydantic_core_schema__ is not None)   # True
 
 对应 Java：`@dataclass` 类似 Lombok——编译期往类里塞方法，注解只是生成指令；Pydantic 类似 Hibernate Validator——真正解析注解的语义并在运行时执行校验。差别是 Lombok 在编译期改 AST，`@dataclass` 在运行时 `exec` 字符串。
 
-> **接下来**：这一节讲的是"框架怎么读注解"。至于**用**这些框架怎么设计数据结构——什么时候该用 `dataclass`、什么时候该上 Pydantic、如何做序列化和配置管理——见第三章「工程落地：数据契约设计」。
+> **接下来**：这一节讲的是"框架怎么读注解"。至于**用**这些框架怎么设计数据结构——什么时候该用 `dataclass`、什么时候该上 Pydantic、如何做序列化和配置管理——见第六章「工程落地：数据契约设计」。
 
 
-#### 2.3 beartype 与其他运行时检查工具
+### 3. beartype 与其他运行时检查工具
 
-##### beartype：零配置的运行时类型检查
+**beartype：零配置的运行时类型检查**
 
 如果你不需要 Pydantic 的完整数据建模能力，只想在运行时检查函数参数类型，[beartype](https://github.com/beartype/beartype) 是一个轻量级选择：
 
@@ -2489,7 +2506,7 @@ beartype 的特点：
 | 数据转换 | 不做 | 自动转换 | 不做 |
 | 适用场景 | 防御式编程、调试期 | API 边界、数据建模 | 简单分支判断 |
 
-##### typeguard：另一个运行时检查库
+**typeguard：另一个运行时检查库**
 
 ```python
 from typeguard import typechecked
@@ -2501,7 +2518,7 @@ def process(data: list[str]) -> dict[str, int]:
 
 [typeguard](https://github.com/agronholm/typeguard) 功能类似 beartype，但做**完整**检查（不是抽样），性能开销更大。适合测试环境。
 
-##### 何时需要运行时类型检查
+**何时需要运行时类型检查**
 
 **需要的场景**：
 - API 入参校验（用 Pydantic）
@@ -2514,11 +2531,11 @@ def process(data: list[str]) -> dict[str, int]:
 - 类型检查器已经保证正确的代码
 
 
-#### 2.4 静态与运行时的协作边界
+### 4. 静态与运行时的协作边界
 
 Python 类型系统的一个核心设计原则是：**静态检查和运行时检查是互补的，不是替代关系**。
 
-##### 分工
+**分工**
 
 ```
                     静态检查（mypy/pyright）          运行时检查（Pydantic/beartype）
@@ -2530,7 +2547,7 @@ Python 类型系统的一个核心设计原则是：**静态检查和运行时�
 做不到             校验外部输入的具体值               类型推断、代码可读性提升
 ```
 
-##### 推荐实践
+**推荐实践**
 
 **1. 信任边界（Trust Boundary）模式**：在系统的**入口处**做运行时校验，内部用静态检查。
 
@@ -2575,9 +2592,9 @@ def __init__(self, config: ModelConfig) -> None:  # 只调用一次
 ```
 
 
-## 三、工程落地：数据契约设计
+## 六、工程落地：数据契约设计
 
-前两章沿着"类型信息如何流动"展开：怎么表达、怎么分发、谁来消费。这一章**组织轴切换**——不再讨论类型信息本身，而是讨论用这些能力去构建什么：**数据契约**。
+前四章沿着"类型信息如何流动"展开：怎么表达、怎么分发、谁来消费。这一章**组织轴切换**——不再讨论类型信息本身，而是讨论用这些能力去构建什么：**数据契约**。
 
 所谓数据契约，就是对"一组数据长什么样"的正式约定。在 AI-Infra 系统里，它无处不在：
 
@@ -2606,13 +2623,13 @@ class InferenceConfig(BaseModel):
 2. **运行时校验**：Pydantic 确保传入的数据满足约束（`ge=1`、`le=32768`）；
 3. **文档 / Schema 生成**：FastAPI 自动从这个模型生成 OpenAPI 文档。
 
-这就是"数据契约"的价值——一处声明，三处受益。而它能成立，靠的正是第二章讲的机制。
+这就是"数据契约"的价值——一处声明，三处受益。而它能成立，靠的正是第五章讲的机制。
 
-> **前置阅读**：如果你想先搞清楚 `@dataclass` 和 Pydantic **怎么**读到类型注解、`exec` 代码生成和元类分别在什么时机介入，见第二章「类型信息消费层」的"框架如何消费注解"一节。本章只讲用法与取舍。
+> **前置阅读**：如果你想先搞清楚 `@dataclass` 和 Pydantic **怎么**读到类型注解、`exec` 代码生成和元类分别在什么时机介入，见第五章「类型信息消费层（下）：动态消费」的"框架如何消费注解"一节。本章只讲用法与取舍。
 
 ### 1. dataclass：标准库的数据类
 
-#### 1.1 从原生 `__init__` 到 `@dataclass`
+**从原生 `__init__` 到 `@dataclass`**
 
 最传统的写法是显式定义构造函数：
 
@@ -2663,9 +2680,9 @@ public class User {
 public record User(Long id, String name, String email) {}
 ```
 
-#### 1.2 `__post_init__` 手工校验及其局限
+**`__post_init__` 手工校验及其局限**
 
-`@dataclass` **不做运行时校验**——这一点在第二章已经说明原因：它只把注解当字段清单，不理解注解的语义。所以下面这行不会报错：
+`@dataclass` **不做运行时校验**——这一点在第五章已经说明原因：它只把注解当字段清单，不理解注解的语义。所以下面这行不会报错：
 
 ```python
 user = User(id="abc", name=123, email=None)   # 静默通过
@@ -2702,7 +2719,7 @@ class User:
 
 Java 生态在这一点上遇到了完全相同的问题——`record` 和 Lombok 都只解决"数据容器"，不具备校验能力，所以才需要引入 Hibernate Validator。Python 的答案则是 Pydantic（下一节）。
 
-#### 1.3 `frozen` 与 `slots`
+**`frozen` 与 `slots`**
 
 两个常用参数：
 
@@ -2735,7 +2752,7 @@ class RequestContext:
 
 Pydantic 是 Python 生态中最流行的运行时数据校验框架，也是 FastAPI 的核心基石。它把数据建模、类型转换和深度校验融合在一起——相当于 Java 的 `record` + Bean Validation + Jackson 三者合一。
 
-#### 2.1 BaseModel 基础与类型强制转换
+**BaseModel 基础与类型强制转换**
 
 ```python
 from pydantic import BaseModel, EmailStr
@@ -2762,9 +2779,9 @@ User(id="abc", name="Bob", email="not-an-email")
 #   value is not a valid email address
 ```
 
-注意两点：一是 `EmailStr` 这类语义类型开箱即用；二是**两个错误一次性全部报出来**，而不是遇到第一个就中断——这正是第二章提到的"收集所有错误路径"。
+注意两点：一是 `EmailStr` 这类语义类型开箱即用；二是**两个错误一次性全部报出来**，而不是遇到第一个就中断——这正是第五章提到的"收集所有错误路径"。
 
-#### 2.2 Field：默认值与约束
+**Field：默认值与约束**
 
 `Field()` 用来表达注解本身表达不了的约束（范围、长度、正则）：
 
@@ -2786,7 +2803,7 @@ class User(BaseModel):
     age: int = Field(default=18, ge=0, le=120)
 ```
 
-约束也可以写在 `Annotated` 里，这是 Pydantic v2 更推荐的形式，因为它让类型和元数据分离得更干净（见第一章「类型信息提供层」的 `Annotated` 一节）：
+约束也可以写在 `Annotated` 里，这是 Pydantic v2 更推荐的形式，因为它让类型和元数据分离得更干净（见第二章「类型信息提供层（上）：类型表达」的 `Annotated` 一节）：
 
 ```python
 from typing import Annotated
@@ -2811,7 +2828,7 @@ public record User(
 
 关键差别：Java 的校验**默认不发生**，要靠 `@Valid` 触发；Pydantic 的校验**默认发生**，是 `__init__` 的一部分，无法绕过。
 
-#### 2.3 ValidationError 与错误聚合
+**ValidationError 与错误聚合**
 
 Pydantic 抛出的 `ValidationError` 是结构化的，可以直接转成 API 响应：
 
@@ -2831,7 +2848,7 @@ except ValidationError as e:
 
 `loc` 是字段路径，嵌套模型时会是 `("items", 0, "name")` 这样的元组，能精确定位到出错位置。FastAPI 正是拿这个结构直接生成 422 响应体的。
 
-#### 2.4 AI-Infra 实例
+**AI-Infra 实例**
 
 ```python
 # vLLM: vllm/entrypoints/openai/protocol.py
@@ -2855,7 +2872,7 @@ async def create_chat_completion(request: ChatCompletionRequest):
 
 数据契约不只是"在内存里长什么样"，还包括**怎么进来、怎么出去、怎么被外部理解**。这是 Pydantic 相比 `@dataclass` 的另一个主要优势。
 
-#### 3.1 model_dump 与 model_dump_json
+**model_dump 与 model_dump_json**
 
 ```python
 config = InferenceConfig(model_name="llama-3", backend="cuda")
@@ -2883,7 +2900,7 @@ json.dumps(asdict(some_dataclass))    # datetime 字段会直接抛 TypeError
 
 对应 Java：Jackson 的 `ObjectMapper.writeValueAsString()`，配合 `@JsonProperty`、`@JsonIgnore` 控制字段。
 
-#### 3.2 model_json_schema 与 OpenAPI
+**model_json_schema 与 OpenAPI**
 
 ```python
 InferenceConfig.model_json_schema()
@@ -2903,7 +2920,7 @@ InferenceConfig.model_json_schema()
 
 对应 Java：需要额外引入 Swagger / springdoc 注解，且与 Bean Validation 的注解是两套体系。
 
-#### 3.3 解析 YAML / JSON 配置文件
+**解析 YAML / JSON 配置文件**
 
 AI-Infra 项目大量使用 YAML 配置（vLLM 的引擎参数、DeepSpeed 的并行策略、训练任务的超参）。裸读 YAML 得到的是一个 `dict[str, Any]`，类型信息全丢——这正是数据契约要解决的问题。
 
@@ -2967,7 +2984,7 @@ yaml.safe_dump(config.model_dump(mode="json"))
 
 配置是数据契约的一个特例：数据源是环境变量和 `.env` 文件，内容全是字符串，需要解析成强类型对象。`pydantic-settings` 提供的 `BaseSettings` 专门做这件事。
 
-#### 4.1 基本用法与 .env
+**基本用法与 .env**
 
 ```python
 from pydantic import PostgresDsn
@@ -3001,7 +3018,7 @@ PORT=9000
 DATABASE_URL=postgresql://user:pass@localhost:5432/dbname
 ```
 
-#### 4.2 优先级、前缀与 Fail-Fast
+**优先级、前缀与 Fail-Fast**
 
 - **大小写不敏感**（默认）：类里定义 `PORT`，环境变量写成 `port=1234` 也能识别。
 - **优先级**（由高到低）：
@@ -3014,7 +3031,7 @@ DATABASE_URL=postgresql://user:pass@localhost:5432/dbname
 
 最后这一条是配置契约最重要的性质：**把配置错误从运行期挪到启动期**。
 
-#### 4.3 多环境配置
+**多环境配置**
 
 指定多个 `.env` 文件，右边的覆盖左边的：
 
@@ -3053,7 +3070,7 @@ class Settings(BaseSettings):
 settings = Settings()
 ```
 
-#### 4.4 对比 Spring `@ConfigurationProperties`
+**对比 Spring `@ConfigurationProperties`**
 
 两者目的相同——把松散的配置字符串映射为强类型对象——但实现差异明显：
 
@@ -3068,7 +3085,7 @@ settings = Settings()
 
 ### 5. 选型指南：dataclass vs Pydantic vs TypedDict
 
-#### 5.1 三者对比
+**三者对比**
 
 | 特性 | TypedDict | dataclass | Pydantic |
 |---|---|---|---|
@@ -3081,7 +3098,7 @@ settings = Settings()
 | Schema 生成 | 无 | 无 | `model_json_schema()` |
 | 适用场景 | 已经是 dict 的数据 | 内部数据传递 | 系统边界、外部输入 |
 
-#### 5.2 决策树
+**决策树**
 
 ```text
 外部数据（HTTP / JSON / YAML / 环境变量）
@@ -3097,11 +3114,11 @@ settings = Settings()
     └─ 只想约束形状，不想改变运行时行为 ──→ TypedDict
 ```
 
-#### 5.3 核心原则：边界校验一次，内部自由传递
+**核心原则：边界校验一次，内部自由传递**
 
 **在系统边界用 Pydantic 校验一次，内部传递 `@dataclass` 对象。**
 
-这正是第二章「静态与运行时的协作边界」中信任边界（Trust Boundary）模式在数据建模上的体现：外部数据不可信，进门时付一次校验成本；进门之后数据已经可信，用零开销的 `@dataclass` 传递，靠 mypy 做静态保障。
+这正是第五章「静态与运行时的协作边界」中信任边界（Trust Boundary）模式在数据建模上的体现：外部数据不可信，进门时付一次校验成本；进门之后数据已经可信，用零开销的 `@dataclass` 传递，靠 mypy 做静态保障。
 
 vLLM 的源码就是这个模式：API 层（`entrypoints/openai/protocol.py`）用 Pydantic 定义请求体，引擎内部（`SamplingParams`、`SchedulerConfig`）一律用 `@dataclass`。热路径上不做重复校验。
 
@@ -3113,10 +3130,10 @@ vLLM 的源码就是这个模式：API 层（`entrypoints/openai/protocol.py`）
 > 顺带一提，`attrs` 是比 `@dataclass` 更早、功能更全的第三方库，但在 AI-Infra 生态中已基本被"标准库 `@dataclass` + Pydantic"的组合取代，新项目一般不需要引入。
 
 
-## 附录
+## 七、附录
 
 
-### Java 与 Python 类型系统对照
+### 1. Java 与 Python 类型系统对照
 
 | 维度 | Java 泛型 | Python 泛型 |
 |---|---|---|
@@ -3131,7 +3148,7 @@ vLLM 的源码就是这个模式：API 层（`entrypoints/openai/protocol.py`）
 | 新语法 | 无变化 | 3.12+ `class Stack[T]:` |
 
 
-### Java 与 Python 数据契约对照
+### 2. Java 与 Python 数据契约对照
 
 | 场景 | Java | Python |
 |---|---|---|
@@ -3150,7 +3167,7 @@ vLLM 的源码就是这个模式：API 层（`entrypoints/openai/protocol.py`）
 核心差异：Java 用**多个独立框架**拼出完整的数据契约能力，每个框架各管一段；Python 用 **Pydantic 一个库**覆盖了校验、转换、序列化、Schema 生成、配置绑定的全部环节。
 
 
-### 类型工具选择决策树
+### 3. 类型工具选择决策树
 
 ```
 需要定义数据结构？
@@ -3186,7 +3203,7 @@ vLLM 的源码就是这个模式：API 层（`entrypoints/openai/protocol.py`）
 ```
 
 
-### typing 功能速查表
+### 4. typing 功能速查表
 
 | 工具 | 版本 | 一句话说明 | Java 对应 | 频次 |
 |---|---|---|---|---|
@@ -3219,9 +3236,9 @@ vLLM 的源码就是这个模式：API 层（`entrypoints/openai/protocol.py`）
 > 频次说明：基于 PyTorch、vLLM、FastAPI、Pydantic、httpx、SQLAlchemy 等主流项目源码中的实际出现情况估算。★★★★★ 表示几乎每个模块都会用到，★☆☆☆☆ 表示仅在特定场景出现。
 
 
-## 结语
+## 八、本文小结
 
-回头看这三章，Python 的类型系统其实是一条链路：**注解把类型意图写下来，存根和 `py.typed` 把它分发出去，mypy 和 Pydantic 在两端各自消费它，最后落到数据契约上变成可执行的约束。**
+回头看正文各章，Python 的类型系统其实是一条链路：**注解把类型意图写下来，存根和 `py.typed` 把它分发出去，mypy 和 Pydantic 在两端各自消费它，最后落到数据契约上变成可执行的约束。**
 
 与 Java 的最大差异不在于语法，而在于这条链路是**拆开的**。Java 把声明、检查、载体、反射合为一体，你没得选；Python 把每一环都做成可插拔的组件，你可以只写注解不做检查，也可以只在边界上做运行时校验而内部完全不管。这种自由度是代价也是优势——代价是需要自己决定在哪里投入，优势是可以按项目实际情况精确控制。
 
@@ -3234,3 +3251,8 @@ vLLM 的源码就是这个模式：API 层（`entrypoints/openai/protocol.py`）
 3. **热路径要干净**，内部传递用 `@dataclass`，不要在每 token 的循环里反复做运行时检查。
 
 再遇到 AI Infra 源码中的类型注解，就不会觉得是天书了。关键不是一次记住所有工具，而是理解每个工具解决的问题——在真实代码中遇到时能查到、能读懂、能用对。
+
+
+## 下一篇
+
+[并发、异步与任务协作](/python-concurrency-asynchrony-and-task-collaboration.html)

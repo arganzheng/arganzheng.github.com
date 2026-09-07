@@ -6,7 +6,7 @@ tags: [Open Source, PyTorch, vLLM, AI, AI-Infra]
 catalog: true
 ---
 
-> 本文是《AI-Infra 开源贡献指南》系列的第 2 篇。上一篇：[读懂一个百万行的代码库](/reading-a-million-line-codebase.html)；下一篇：[做出一个能被合入的改动](/landing-a-mergeable-change.html)。
+> 本文是[《AI-Infra 开源贡献指南》](/contributing-to-ai-infra-open-source.html)系列的第 2 篇（共四篇）。上一篇：[读懂一个百万行的代码库](/reading-a-million-line-codebase.html)；下一篇：[做出一个能被合入的改动](/landing-a-mergeable-change.html)。
 
 一个很典型的第一次贡献是这样开始的：打开 PyTorch 的 issue 列表，按 `good first issue` 过滤，看到 #191394 "[Elastic] FileStore rendezvous leaks the mkstemp file descriptor"——`_create_file_store()` 调了 `tempfile.mkstemp()` 却没有关掉返回的文件描述符。问题描述清楚、附了代码链接、改动显然只有几行。花一个晚上搭好环境、复现、修掉、补一个回归测试，第二天开 PR。然后发现，截至 2026-09-07 查询，这个 issue 下已经挂着 **5 个 open 的 PR**（#194259、#194623、#195137、#195711、#196096），最早的一个 8 月 20 日就开了；issue 评论区里还有同一个账号在同一天用同一段模板留了三次"I'd like to take this one"。你的是第六个。
 

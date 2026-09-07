@@ -5,6 +5,8 @@ tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
 
+> 本文是[《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》](/deep-dive-into-vllm.html)系列的第 5 篇（共十四篇）。上一篇：[Scheduler：GPU 这一轮到底给谁用？](/scheduler-batch-and-fairness.html)；下一篇：[GPU 执行：如何让每个 Token 算得更快？](/gpu-execution-kernels-and-graphs.html)
+
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 
 
@@ -20,11 +22,30 @@ PagedAttention 的核心思想，用一句话就能说完：
 
 > **别给请求整块连续空间。把 KV Cache 切成固定大小的小块，用多少申请多少，块与块之间不要求相邻。**
 
-这样"预留"就消失了——因为不再需要预判总长度，只需要在写满当前块时再要一块。这个思路你大概率见过：**它就是操作系统的虚拟内存分页**。下面我们从传统做法的具体代价讲起，再看这套页表思想是怎么被搬到 GPU 上的。
+这样"预留"就消失了——因为不再需要预判总长度，只需要在写满当前块时再要一块。这个思路你大概率见过：**它就是操作系统的虚拟内存分页**。
 
-## 1. PagedAttention 的数学本质与源码实现
+本篇的核心问题是：
 
-### 1.1 痛点：传统显存分配的碎片灾难
+> **这些请求已经计算过的历史状态（KV Cache），应该放在哪里、如何复用、何时释放，才能不让"不确定性"吃掉显存？**
+
+## 一、总览：从分页管理到瘦身
+
+### 1. 三个层面的问题
+
+下面我们从传统做法的具体代价讲起，再看这套页表思想是怎么被搬到 GPU 上的：先看 PagedAttention 的数学本质与 vLLM 中对应的数据结构；再沿一次请求的生命周期看 KV 块如何被分配、写入、读取和归还；最后回答"KV Cache 还能更小吗"——系统管理层的 Prefix Cache 复用、模型架构层的 GQA / MLA 瘦身、数值层的量化压缩，以及显存之外的分层存储。这三层解决的是不同的问题，可以叠加。
+
+### 2. 本文的章节安排
+
+```text
+第二章  PagedAttention 的数学本质与源码实现   碎片灾难、页表思想的映射、核心数据结构关系
+第三章  KV Cache 的写入、读取与生命周期       从 Prefill 批量写入、Decode 逐 slot 追加到完成/抢占时归还
+第四章  KV Cache 还能更小吗                  Prefix Cache、GQA/MQA、MLA、KV 量化、Offloading 与 Swapping
+第五章  本文小结
+```
+
+## 二、PagedAttention 的数学本质与源码实现
+
+### 1. 痛点：传统显存分配的碎片灾难
 
 在 PagedAttention 出现之前，每个请求的 KV Cache 必须在 GPU 显存中预分配一段**连续内存**，其长度等于模型支持的最大序列长度。这造成了两类碎片：
 
@@ -46,7 +67,7 @@ GPU HBM (80 GB)，每个请求按 max_len=2048 预留连续空间
 
 总浪费率有多大？PagedAttention 论文（SOSP'23）测得当时的 SOTA 系统中，**真正存放有效 KV 的显存只占 20.4% ~ 38.2%**——也就是约 60% ~ 80% 被碎片和预留吃掉了。
 
-### 1.2 页表思想的映射：操作系统虚拟内存在推理系统中的重现
+### 2. 页表思想的映射：操作系统虚拟内存在推理系统中的重现
 
 PagedAttention 的灵感直接来自操作系统的虚拟内存管理。核心思想是将连续的逻辑地址空间映射到不连续的物理页框：
 
@@ -89,7 +110,7 @@ kv_cache = torch.zeros(num_blocks, block_size, num_kv_heads, head_dim,
                         dtype=torch.float16, device="cuda")
 ```
 
-### 1.3 源码解密：核心数据结构关系
+### 3. 源码解密：核心数据结构关系
 
 ```mermaid
 graph TD
@@ -106,7 +127,7 @@ graph TD
 
 > **回到我们的例子**：2050 个 prompt token，`block_size=16`，于是需要 `⌈2050/16⌉ = 129` 个块（前 128 块装满 2048 个 token，第 129 块只装 2 个）。生成完 300 个 token 后，序列长 2350，共占 **147 个块**。
 >
-> 注意一个巧合般的细节：**2000 个 token 的 system prompt 恰好是 125 个整块**。这不是偶然设计，但它揭示了 Prefix Cache 的一个硬约束——只有**装满**的块才会被缓存，所以可复用的边界永远对齐到 `block_size`。下一节就用这一点算账。
+> 注意一个巧合般的细节：**2000 个 token 的 system prompt 恰好是 125 个整块**。这不是偶然设计，但它揭示了 Prefix Cache 的一个硬约束——只有**装满**的块才会被缓存，所以可复用的边界永远对齐到 `block_size`。第四章的 Prefix Cache 一节就用这一点算账。
 
 `BlockPool`（`vllm/v1/core/block_pool.py`）管理所有物理块的分配和回收。它的设计有一个容易看漏的关键点：**没有单独的"缓存块"集合**。所有 `ref_cnt == 0` 的块——无论是从未用过的空块，还是刚被请求释放、但仍带着 block hash 的"缓存块"——都挂在同一条 `free_block_queue` 双向链表上，按释放时间排序。带 hash 的块同时还被 `cached_block_hash_to_block` 索引着，供 Prefix Cache 查找。
 
@@ -161,9 +182,9 @@ class BlockPool:
 这个布局也揭示了 Scheduler 为什么不能按请求类型硬分类。一轮迭代中一个请求可能同时覆盖 computed（prefix cache 命中）、new（需要新计算）和 lookahead（spec decode 预留），不同请求在这个轴上的位置各不相同。token 预算模型统一处理这些区间，而不是按"prefill 请求"和"decode 请求"分开。
 
 
-## 2. KV Cache 的写入、读取与生命周期
+## 三、KV Cache 的写入、读取与生命周期
 
-上一节讲的是「块从哪来」，这一节讲「块怎么被用完再还回去」——一次请求从 Prefill 批量写入，到 Decode 逐 slot 追加，最后在完成或被抢占时归还，构成 KV Cache 的完整生命周期。
+上一章讲的是「块从哪来」，这一章讲「块怎么被用完再还回去」——一次请求从 Prefill 批量写入，到 Decode 逐 slot 追加，最后在完成或被抢占时归还，构成 KV Cache 的完整生命周期。
 
 ```
                      KV Cache 生命周期全景
@@ -246,7 +267,7 @@ for each query position:
 注意倒数第二行：**块只有"写满"才会被缓存**。这解释了为什么 Prefix Cache 的命中粒度是 `block_size`，而不是单个 token。
 
 
-## 3. KV Cache 还能更小吗：复用、压缩与分层存储
+## 四、KV Cache 还能更小吗：复用、压缩与分层存储
 
 在进入具体手段之前，先立一个分层框架——**这三层解决的是完全不同的问题，不应该混为一谈**：
 
@@ -258,7 +279,7 @@ for each query position:
 
 三者是正交的，可以叠加：MLA 减少了要存的量，PagedAttention 管理这些量的摆放，FP8 再把每个元素压小。下面按这个顺序展开。
 
-### 3.1 Prefix Cache：重复计算复用
+### 1. Prefix Cache：重复计算复用
 
 在生产环境中，大量请求共享相同的 System Prompt（如 ChatGPT 的系统指令可能占 2000+ tokens）。Prefix Cache 的核心思想是：如果两个请求的前缀 token 完全相同，它们可以共享同一份 KV Cache 块。
 
@@ -280,7 +301,7 @@ vLLM 使用链式哈希确保前缀匹配的正确性——每个块的哈希值
 
 > **回到我们的例子**：那 2000 token 的 system prompt 是 **125 个整块**。第一个请求跑完后它们全部进入缓存；**第二个请求带着同样的 system prompt 到来时，这 125 块全部命中**，只需要 prefill 用户那 50 个 token。
 >
-> 省下多少？按第 1.6 节的量算：
+> 省下多少？按第一篇「一个贯穿全文的例子」的量算：
 >
 > - **计算**：2000 token 的 prefill 不用做了，TTFT 从约 92 ms 掉到 5 ms 量级
 > - **显存**：这 125 块（约 625 MB 的 KV）在两个请求间**共享同一份物理块**，靠 `ref_cnt` 计数，不是复制
@@ -309,7 +330,7 @@ def hash_block_tokens(
 - **链条起点 `NONE_HASH` 默认是随机的。** `init_none_hash()` 在未设置 `PYTHONHASHSEED` 时取 `os.urandom(32)`，即每个进程一个随机起点；只有显式设置 `PYTHONHASHSEED` 才会变成确定值。这是一个刻意的安全默认：随机起点让块哈希无法被外部预测，避免跨租户的缓存探测；而想让多进程/多节点共享同一份 prefix cache，就必须放弃这个默认。**可复现性和不可预测性在这里是一对取舍**，vLLM 默认选了后者。
 - **`extra_keys` 是隔离用的。** 同一串 token 在不同 LoRA adapter、不同多模态输入、不同 `cache_salt`、不同 prompt embeds 下不能复用同一份 KV，这些维度都由 `generate_block_hash_extra_keys()` 收集进 `extra_keys`。也就是说，"前缀相同"的判定比"token 序列相同"严格——这是 prefix cache 的正确性边界。
 
-### 3.2 GQA / MQA：模型结构级 KV Cache 瘦身
+### 2. GQA / MQA：模型结构级 KV Cache 瘦身
 
 KV Cache 的大小与 KV head 数量成正比。Grouped-Query Attention (GQA) 和 Multi-Query Attention (MQA) 通过减少 KV head 数来缩减 KV Cache：
 
@@ -342,7 +363,7 @@ MQA   Q: [1][2][3][4][5][6][7][8]
 | Falcon 7B | MQA | 71 | 1 | 1.4% |
 | DeepSeek V3 | MLA | 128 | - | ~2% (存 576 维 latent，非 128×128 的完整 KV) |
 
-### 3.3 MLA：从 KV Cache 到 Latent Cache
+### 3. MLA：从 KV Cache 到 Latent Cache
 
 DeepSeek V2/V3 提出的 Multi-head Latent Attention (MLA) 是一种更激进的 KV Cache 压缩方案。它不存储完整的 K、V 张量，而是存储一个低维的 latent 向量：
 
@@ -373,7 +394,7 @@ graph LR
 
 vLLM 中 MLA 的实现位于 `vllm/model_executor/layers/mla.py`，通过 `MLAAttentionSpec` 定义其特殊的 KV Cache 规格（存储 latent 而非完整 KV）。
 
-### 3.4 KV Cache Quantization：数值压缩与带宽优化
+### 4. KV Cache Quantization：数值压缩与带宽优化
 
 除了结构级的压缩（GQA/MQA/MLA），还可以通过数值量化进一步压缩 KV Cache：
 
@@ -411,7 +432,7 @@ KV Cache 量化与 PagedAttention 在设计上可以组合：量化后的 KV 仍
 
 **注意**：Softmax 对 Key 的误差特别敏感（因为指数函数会放大误差），长上下文下量化误差可能累积。FP8 是实践中最安全的 KV Cache 量化格式。
 
-### 3.5 KV Cache Offloading 与 Swapping
+### 5. KV Cache Offloading 与 Swapping
 
 当 GPU 显存不足时，vLLM 支持将 KV Cache 卸载到更低层的存储：
 
@@ -448,6 +469,16 @@ vLLM V1 当前主要使用 **Recomputation** 策略（`_preempt_request()` 中�
 </details>
 
 
+## 五、本文小结
+
+- 显存不是被模型吃掉的，是被"不确定性"浪费掉的：请求的最终长度在到达时未知，按最坏情况预留连续显存会造成大量内部碎片。
+- PagedAttention 把 KV Cache 切成固定大小的块，用多少申请多少、块间不要求相邻——这就是操作系统虚拟内存分页在推理系统中的重现；vLLM 中对应 `KVCacheManager`、`BlockPool`、`KVCacheBlock` 与 Block Table 这组数据结构。
+- 一次请求的 KV 生命周期是：Prefill 批量写入 → Decode 逐 slot 追加 → 完成或被抢占时归还；块只有"写满"才会进入 Prefix Cache，所以复用粒度是 `block_size` 而不是单个 token。
+- 让 KV Cache 更小有三个正交层面：系统管理层（PagedAttention、Prefix Cache）解决"怎么管才不浪费"，模型架构层（MQA / GQA / MLA）解决"本来要存多少"，数值层（FP8 / INT8 量化）解决"每个元素占几个字节"。
+- Prefix Cache 依靠链式哈希与 `ref_cnt` 让多个请求共享同一份物理块；在例子里 2000 token 的 system prompt 对应 125 个整块，第二个请求全部命中，只需 prefill 用户那 50 个 token。
+- 显存不够时有 Recomputation、Swapping、量化后 Offload 三种策略；vLLM V1 目前主要用重算，因为在 Prefix Cache 存在时重算的实际代价远低于理论最坏情况。
+
+
 ## 下一篇
 
-[GPU 执行：如何让每个 Token 算得更快？](/deep-dive-into-vllm-06-gpu-execution-kernels-and-graphs.html)
+[GPU 执行：如何让每个 Token 算得更快？](/gpu-execution-kernels-and-graphs.html)

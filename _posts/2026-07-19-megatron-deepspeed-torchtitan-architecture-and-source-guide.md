@@ -6,7 +6,7 @@ tags: [Megatron, DeepSpeed, torchtitan, Distributed Training, AI, AI-Infra]
 catalog: true
 ---
 
-> 本文是《大规模训练工程：从并行策略到容错恢复》系列的第 3 篇。上一篇：[并行策略全景：每种并行切的是哪种状态](/parallelism-strategies-which-state-to-shard.html)；下一篇：[千卡配置实战：并行搭配、micro-batch、激活重计算与 MFU 调优](/thousand-gpu-configuration-and-mfu-tuning.html)。
+> 本文是[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)系列的第 3 篇（共八篇）。上一篇：[并行策略全景：每种并行切的是哪种状态](/parallelism-strategies-which-state-to-shard.html)；下一篇：[千卡配置实战：并行搭配、micro-batch、激活重计算与 MFU 调优](/thousand-gpu-configuration-and-mfu-tuning.html)。
 
 > **更新 @2026-09-06**：本文 torchtitan 部分基于 v0.3.0 刷新；其余源码引用仍以 PyTorch 2.13.0 / Megatron Core 0.18.0 / DeepSpeed 0.19.2 为准。
 

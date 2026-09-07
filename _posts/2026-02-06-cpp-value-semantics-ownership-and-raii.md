@@ -6,6 +6,8 @@ tags: [C++, AI, AI-Infra]
 catalog: true
 ---
 
+> 本文是[《C++ 在 AI-Infra：从对象模型到算子扩展》](/cpp-for-ai-infra.html)系列的第 2 篇（共八篇）。上一篇：[从源码到二进制：编译模型与项目布局](/cpp-compilation-model-and-project-layout.html)；下一篇：[模板与泛型编程](/cpp-templates-and-generic-programming.html)
+
 打开 `aten/src/ATen/core/TensorBase.h`，`at::Tensor` 的基类是这样定义的（类定义开头和结尾）：
 
 ```cpp
@@ -45,32 +47,39 @@ at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta) {
 
 > **`at::Tensor y = x;` 之后 `y` 和 `x` 是什么关系？什么时候数据真正被释放？**
 
-全文按下面的顺序展开：
 
-1. 对象在哪里：栈、堆与值语义；拷贝在哪里发生；
-2. 引用与指针：`T&`、`const T&`、`T*` 各自的使用场景；`const` 的位置与 `const` 成员函数；
-3. 六大特殊成员函数：构造、析构、拷贝构造、拷贝赋值、移动构造、移动赋值；Rule of Zero 与 Rule of Five；
-4. 右值引用与 `std::move`：移动语义为什么让按值返回没有代价；RVO/NRVO；
-5. RAII：把资源的生命周期绑定到对象的生命周期；与 `try-with-resources` 的能力差异；
-6. 标准库的三种智能指针：`unique_ptr`、`shared_ptr`、`weak_ptr` 及其代价；
-7. `c10::intrusive_ptr`：PyTorch 为什么自己实现一套引用计数，比 `shared_ptr` 省了什么，和裸指针互转对 Python 绑定意味着什么；
-8. 回到源码：`Tensor → TensorImpl → Storage → StorageImpl → DataPtr → Allocator` 的完整持有链，CUDA 显存如何借 `DataPtr` 归还，以及核心问题的完整回答；
-9. mini-c10：实现 `intrusive_ptr`、`DataPtr`/`Allocator`、`StorageImpl`、`TensorImpl`、`Tensor`，让第一个 Tensor 跑起来，用析构打印证明释放时序；
-10. 工程实践建议与常见错误；
-11. 总结。
+## 一、总览
+
+### 1. 语言标准与版本基线
 
 正文以 C++17 为基线（本机 PyTorch v2.10.0 源码树的顶层 `CMakeLists.txt` 把 `CMAKE_CXX_STANDARD` 设为 17，vLLM v0.15.0 的 `CMakeLists.txt` 也是 17，与本系列一致；所有 mini-c10 片段用 `clang++ -std=c++17 -Wall` 验证）。
 
+### 2. 本文的章节安排
 
-## 一、对象在哪里：栈、堆与值语义
+```text
+第二章    对象在哪里：栈、堆与值语义          变量就是对象；拷贝在哪里发生；Java 的 = 与 C++ 的 = 含义完全不同
+第三章    引用与指针                        T&、const T&、T* 各自的使用场景；const 的位置；悬垂引用
+第四章    六大特殊成员函数与 Rule of Zero/Five  编译器替你写的六个函数；= default 与 = delete；noexcept 与移动
+第五章    右值引用、std::move 与按值返回       左值与右值；移动在 PyTorch 源码里的样子；RVO/NRVO；x.contiguous() 拷不拷数据
+第六章    RAII                            确定性析构；与 try-with-resources 的边界；析构顺序；异常安全
+第七章    标准智能指针                      unique_ptr、shared_ptr、weak_ptr 及其代价与选择规则
+第八章    c10::intrusive_ptr                PyTorch 为什么自己造一个；计数住在哪里；比 shared_ptr 省了什么；release/reclaim；NullType；weak_intrusive_ptr
+第九章    回到源码：从 Tensor 到显存的完整持有链  Tensor -> TensorImpl -> Storage -> StorageImpl -> DataPtr -> Allocator；CUDA caching allocator；回答核心问题
+第十章    mini-c10：让第一个 Tensor 跑起来      intrusive_ptr、Allocator、StorageImpl、TensorImpl、Tensor；用析构打印验证释放时序
+第十一章  工程实践建议与常见错误
+第十二章  本文小结
+```
 
-### 1.1 Java 的模型：变量是引用，对象在堆上
+
+## 二、对象在哪里：栈、堆与值语义
+
+### 1. Java 的模型：变量是引用，对象在堆上
 
 Java 里写 `Tensor y = x;`，发生的事情是：`x` 和 `y` 是两个引用（本质上是指针），指向堆上的同一个对象。对象什么时候被回收，由 GC 在某个不确定的时刻决定。除了八种基本类型，Java 没有"对象在栈上"这个概念，也没有"把一个对象按值拷贝一份"的默认语义——要拷贝必须显式调用 `clone()` 或拷贝构造。
 
 这个模型简单统一，但它有一个隐藏成本：**每个对象都是一次堆分配，每次访问都是一次间接寻址**。JIT 的逃逸分析能消除一部分，但语言层面没有表达"这个对象就住在这里"的手段。
 
-### 1.2 C++ 的模型：变量就是对象
+### 2. C++ 的模型：变量就是对象
 
 C++ 的默认恰好相反。声明一个变量，就是在当前作用域里创建一个对象；这个对象的存储空间在栈上（或者作为另一个对象的成员，嵌在那个对象里）；作用域结束，对象析构，空间回收。
 
@@ -93,9 +102,9 @@ Point* hp = new Point{1.0, 2.0};   // 在堆上分配，hp 是一个指针（本
 delete hp;                         // 必须手工释放；忘了就泄漏，删两次就崩
 ```
 
-现代 C++ 几乎不直接写 `new`/`delete`，而是用智能指针（第六节）或容器来管理堆对象。但要明白：**智能指针管理的对象在堆上，智能指针本身是一个栈上（或成员）的值对象**。`std::unique_ptr<Point> up = std::make_unique<Point>();` 里，`up` 是一个 8 字节的栈对象，它指向的 `Point` 在堆上。`up` 析构时顺手 `delete` 了那个 `Point`。这就是第五节要讲的 RAII 的雏形。
+现代 C++ 几乎不直接写 `new`/`delete`，而是用智能指针（第七章）或容器来管理堆对象。但要明白：**智能指针管理的对象在堆上，智能指针本身是一个栈上（或成员）的值对象**。`std::unique_ptr<Point> up = std::make_unique<Point>();` 里，`up` 是一个 8 字节的栈对象，它指向的 `Point` 在堆上。`up` 析构时顺手 `delete` 了那个 `Point`。这就是第六章要讲的 RAII 的雏形。
 
-### 1.3 拷贝在哪里发生
+### 3. 拷贝在哪里发生
 
 值语义意味着拷贝会在很多不显眼的地方发生。对一个类型 `T`，下面每一处都会调用 `T` 的拷贝构造函数（除非编译器能省略）：
 
@@ -103,7 +112,7 @@ delete hp;                         // 必须手工释放；忘了就泄漏，删
 T b = a;                 // 1. 初始化
 T c(a);                  // 同上，另一种写法
 void f(T t);  f(a);      // 2. 按值传参
-T g() { T t; return t; } // 3. 按值返回（通常被优化掉，见第四节）
+T g() { T t; return t; } // 3. 按值返回（通常被优化掉，见第五章）
 std::vector<T> v; v.push_back(a);   // 4. 放进容器
 auto lam = [a]() {};     // 5. lambda 按值捕获
 ```
@@ -125,7 +134,7 @@ struct Tracer {
   Tracer(std::string n) : name(std::move(n)) { std::printf("ctor      %s\n", name.c_str()); }
   ~Tracer()                                    { std::printf("dtor      %s\n", name.c_str()); }
   Tracer(const Tracer& o) : name(o.name + "'") { std::printf("copy-ctor %s\n", name.c_str()); }
-  // 移动构造/赋值见第四节
+  // 移动构造/赋值见第五章
 };
 
 void by_value(Tracer t) { /* ... */ }
@@ -152,7 +161,7 @@ dtor      a
 
 三点值得注意：`by_value` 一进一出就是一次拷贝构造加一次析构；`by_cref` 什么都没发生；作用域结束时，对象按声明的**逆序**析构（`b` 先于 `a`）。逆序析构是 C++ 的硬性规则，后面讲 `TensorImpl` 成员释放顺序时会用到。
 
-### 1.4 Java 对照：`=` 的含义完全不同
+### 4. Java 对照：`=` 的含义完全不同
 
 | 表达式 | Java | C++ |
 |---|---|---|
@@ -162,12 +171,12 @@ dtor      a
 | 对象何时销毁 | GC 决定 | 作用域结束时，确定 |
 | 对象在哪 | 堆 | 默认栈/成员内嵌；`new` 才在堆 |
 
-理解这张表之后再看 `at::Tensor y = x;`，会产生一个正确的担心：这是不是拷贝了整个 tensor？答案是"拷贝了整个 `Tensor` 对象，但 `Tensor` 对象只有一个指针那么大"。`Tensor` 是一个刻意设计成**值语义外壳、引用语义内核**的类型：拷贝它很便宜，拷贝之后两个 `Tensor` 共享同一个 `TensorImpl`。这种设计叫句柄（handle）或者 pimpl，第八节会完整拆开。
+理解这张表之后再看 `at::Tensor y = x;`，会产生一个正确的担心：这是不是拷贝了整个 tensor？答案是"拷贝了整个 `Tensor` 对象，但 `Tensor` 对象只有一个指针那么大"。`Tensor` 是一个刻意设计成**值语义外壳、引用语义内核**的类型：拷贝它很便宜，拷贝之后两个 `Tensor` 共享同一个 `TensorImpl`。这种设计叫句柄（handle）或者 pimpl，第九章会完整拆开。
 
 
-## 二、引用与指针：`T&`、`const T&`、`T*`
+## 三、引用与指针：`T&`、`const T&`、`T*`
 
-### 2.1 引用是别名
+### 1. 引用是别名
 
 `T&` 是"对 `T` 的引用"。它不是一个新对象，而是已有对象的另一个名字：
 
@@ -181,7 +190,7 @@ r = 2;        // a == 2
 
 Java 的引用可以为 `null`，可以重新赋值指向别的对象；C++ 的引用两者都不行。因此"Java 引用"更接近 C++ 的指针而不是 C++ 的引用。
 
-### 2.2 三种传参方式与选择规则
+### 2. 三种传参方式与选择规则
 
 一个函数要接收一个 `Tensor`，有三种主要写法：
 
@@ -195,11 +204,11 @@ void f(at::Tensor& t);         // 按非常量引用：零开销，函数内可�
 
 | 写法 | 拷贝？ | 函数内能修改？ | 能接受临时对象？ | 典型用途 |
 |---|---|---|---|---|
-| `T` | 是 | 是（改的是副本） | 是 | 小对象（`int`、`double`、`Device`）；或函数需要自己持有一份（sink 参数，第四节） |
+| `T` | 是 | 是（改的是副本） | 是 | 小对象（`int`、`double`、`Device`）；或函数需要自己持有一份（sink 参数，第五章） |
 | `const T&` | 否 | 否 | 是 | **只读输入的默认选择** |
 | `T&` | 否 | 是 | 否 | 输出参数、in-place 修改 |
 | `T*` | 否 | 看 `const` | 是（传地址） | 可以为空；或者表达"非拥有"关系 |
-| `T&&` | 否 | 是 | 只接受临时对象 | 移动构造/移动赋值（第四节） |
+| `T&&` | 否 | 是 | 只接受临时对象 | 移动构造/移动赋值（第五章） |
 
 回到 `scale_shift_cpu(const at::Tensor& x, double alpha, double beta)`：`x` 只读，用 `const at::Tensor&`；`alpha`、`beta` 是 8 字节的 `double`，按值传比按引用传还便宜（引用底层是指针，也是 8 字节，还多一次解引用）。这正是 PyTorch 生成的算子签名的约定：Tensor 用 `const Tensor&`，标量按值。
 
@@ -224,7 +233,7 @@ void gather_and_maybe_dequant_cache(
 
 顺带一提：`torch::Tensor&` 在这里其实有些多余——`Tensor` 是句柄，通过 `const Tensor&` 也能修改它指向的数据（下一小节解释）。vLLM 这样写更多是历史习惯，PyTorch 自己的 `native_functions.yaml` 生成的算子对 in-place 输出参数也统一用 `const Tensor&` 或 `Tensor&`。
 
-### 2.3 `const` 的位置与含义
+### 3. `const` 的位置与含义
 
 `const` 是 C++ 里出现频率最高、位置最灵活的关键字。规则是：**`const` 修饰它左边最近的东西；左边没东西就修饰右边的**。
 
@@ -268,7 +277,7 @@ const Tensor& t;        // 对 const Tensor 的引用
 
 另一个相关关键字是 `mutable`：标记在成员上，表示即使对象是 const，这个成员也可以改。`intrusive_ptr_target` 的引用计数就是 `mutable` 的（下一节引用），因为对一个 `const TensorImpl` 增减引用计数并不改变它的"逻辑状态"。
 
-### 2.4 指针用在哪里
+### 4. 指针用在哪里
 
 现代 C++ 里，裸指针 `T*` 主要保留两个用途：
 
@@ -288,7 +297,7 @@ const Tensor& t;        // 对 const Tensor 的引用
 
 裸指针**不**再用来表达所有权。看到 `T*` 就应该默认它不拥有对象；拥有关系用 `unique_ptr`、`shared_ptr`、`intrusive_ptr` 表达。PyTorch 源码里凡是名字带 `unsafe` 的、返回裸指针的方法——`unsafeGetTensorImpl()`、`unsafeGetStorageImpl()`——都是在说"我把内部指针借给你看一眼，你别拿它做所有权操作"。
 
-### 2.5 悬垂引用：C++ 没有 GC 兜底
+### 5. 悬垂引用：C++ 没有 GC 兜底
 
 引用和指针都不延长对象的寿命。对象死了，引用就悬垂（dangling），再访问是未定义行为——可能崩，可能读到垃圾，可能碰巧正常。Java 里不存在这个问题，因为只要有引用，对象就活着。
 
@@ -301,14 +310,14 @@ const Tensor& t;        // 对 const Tensor 的引用
       MemoryFormat memory_format=MemoryFormat::Contiguous) && = delete;
 ```
 
-`expect_contiguous()` 返回一个"可能是借用、可能是拥有"的包装（`MaybeOwned`，第八节再讲）。如果在一个临时 `Tensor` 上调用它，借用的对象在这个表达式结束时就死了，返回值立刻悬垂。`&& = delete` 的意思是"禁止在右值上调用这个函数"（`&&` 限定符见第四节），把这种错误从运行期提前到编译期。
+`expect_contiguous()` 返回一个"可能是借用、可能是拥有"的包装（`MaybeOwned`，第九章再讲）。如果在一个临时 `Tensor` 上调用它，借用的对象在这个表达式结束时就死了，返回值立刻悬垂。`&& = delete` 的意思是"禁止在右值上调用这个函数"（`&&` 限定符见第五章），把这种错误从运行期提前到编译期。
 
 这一节的要点：引用是零开销的别名，`const T&` 是只读输入的默认传参方式；`const` 成员函数决定了一个类型能不能在 `const T&` 上使用；裸指针表达非拥有和可空；引用不延长寿命，悬垂是 C++ 特有的风险。
 
 
-## 三、六大特殊成员函数与 Rule of Zero/Five
+## 四、六大特殊成员函数与 Rule of Zero/Five
 
-### 3.1 编译器会替你写的六个函数
+### 1. 编译器会替你写的六个函数
 
 C++ 的每个类都有六个"特殊成员函数"，如果你不写，编译器在需要时会按规则生成：
 
@@ -327,7 +336,7 @@ struct T {
 
 Java 只有构造函数（和几乎不用的 `finalize`），没有拷贝构造、赋值运算符、移动这些概念——因为 Java 的 `=` 永远是引用赋值，不需要定义"拷贝一个对象是什么意思"。C++ 的 `=` 是值操作，所以每个类型都要回答这个问题。
 
-### 3.2 `= default` 与 `= delete`
+### 2. `= default` 与 `= delete`
 
 C++11 加了两个声明方式：
 
@@ -374,7 +383,7 @@ struct C10_API TensorImpl : public c10::intrusive_ptr_target {
 
 这是一个非常实用的阅读线索：**看一个类的特殊成员函数是 `default` 还是 `delete`，就知道它是"值"还是"实体"**。`Tensor`、`Storage`、`Device`、`ScalarType` 是值，随便拷；`TensorImpl`、`StorageImpl`、`Allocator` 是实体，只能通过指针/引用/智能指针访问。
 
-### 3.3 Rule of Zero 与 Rule of Five
+### 3. Rule of Zero 与 Rule of Five
 
 上面两种极端之外还有第三种情况：类直接管理某种资源（裸内存、文件句柄、引用计数），编译器生成的逐成员拷贝是**错的**——两个对象会同时认为自己拥有同一份资源，析构时释放两次。这时必须手写。经验法则有两条：
 
@@ -428,15 +437,15 @@ struct C10_API TensorImpl : public c10::intrusive_ptr_target {
   }
 ```
 
-逐个对照六大函数：默认构造把 `target_` 设为空（`NullType::singleton()`，第七节解释）；移动构造"偷"走 `rhs` 的指针并把 `rhs` 置空，计数不变；拷贝构造复制指针然后 `retain_()`（计数 +1）；析构 `reset_()`（计数 -1，归零就 `delete`）；两个赋值都用了 copy-and-swap 惯用法：先用参数构造一个临时 `tmp`（拷贝或移动），再和 `*this` 交换指针，函数返回时 `tmp` 析构、顺手释放 `*this` 原来持有的引用。这个写法一石三鸟：自赋值安全、异常安全、代码复用。
+逐个对照六大函数：默认构造把 `target_` 设为空（`NullType::singleton()`，第八章解释）；移动构造"偷"走 `rhs` 的指针并把 `rhs` 置空，计数不变；拷贝构造复制指针然后 `retain_()`（计数 +1）；析构 `reset_()`（计数 -1，归零就 `delete`）；两个赋值都用了 copy-and-swap 惯用法：先用参数构造一个临时 `tmp`（拷贝或移动），再和 `*this` 交换指针，函数返回时 `tmp` 析构、顺手释放 `*this` 原来持有的引用。这个写法一石三鸟：自赋值安全、异常安全、代码复用。
 
 （模板版本的 `operator=` 是为了支持从 `intrusive_ptr<Derived>` 赋给 `intrusive_ptr<Base>`，第三篇讲模板时再看。这里只需知道非模板版本转发给了模板版本。）
 
-### 3.4 `noexcept` 与移动
+### 4. `noexcept` 与移动
 
 上面的移动构造、移动赋值和析构都标了 `noexcept`（承诺不抛异常），拷贝构造没标。这不是随手写的。`std::vector<T>` 在扩容搬迁元素时，只有当 `T` 的移动构造是 `noexcept` 时才会用移动，否则为了保证异常安全会退回拷贝。`std::vector<at::Tensor>` 是 PyTorch 里极常见的类型（`TensorList` 的底层就常是它），如果 `Tensor` 的移动不是 `noexcept`，每次扩容都会做几十次引用计数加减而不是几十次指针拷贝。所以 `TensorBase(TensorBase&&) noexcept = default;` 里那个 `noexcept` 是有性能意义的。
 
-### 3.5 赋值运算符后面的 `&`
+### 5. 赋值运算符后面的 `&`
 
 `operator=(const intrusive_ptr& rhs) &` 里参数列表后面那个 `&` 叫**引用限定符**（ref-qualifier），意思是"这个成员函数只能在左值上调用"。`TensorBase.h` 里有一对对应的删除：
 
@@ -446,12 +455,12 @@ struct C10_API TensorImpl : public c10::intrusive_ptr_target {
   TensorBase& operator=(TensorBase&&) && noexcept = delete;
 ```
 
-`&&` 版本被删掉，禁止 `some_function_returning_tensor() = x;` 这种对临时对象赋值的代码——它要么是笔误，要么是想做 in-place 拷贝但写错了。第 2.5 节的 `expect_contiguous() && = delete` 是同一个机制。
+`&&` 版本被删掉，禁止 `some_function_returning_tensor() = x;` 这种对临时对象赋值的代码——它要么是笔误，要么是想做 in-place 拷贝但写错了。第 3.5 节的 `expect_contiguous() && = delete` 是同一个机制。
 
 
-## 四、右值引用、`std::move` 与按值返回
+## 五、右值引用、`std::move` 与按值返回
 
-### 4.1 左值与右值
+### 1. 左值与右值
 
 C++ 把表达式分成两大类。粗略地说：**左值**（lvalue）是有名字、可以取地址、表达式结束后还活着的东西；**右值**（rvalue）是临时的、没名字的、表达式结束就消失的东西。
 
@@ -465,7 +474,7 @@ std::move(a);        // 右值：见下文
 
 区分它们的意义在于：**右值反正马上要死，它的资源可以被"偷"走而不必拷贝**。一个即将析构的 `std::vector` 里的堆缓冲区，与其拷贝一份再把原来的释放，不如直接把缓冲区指针拿过来、把原来的置空。这就是移动语义。
 
-### 4.2 `T&&` 与 `std::move`
+### 2. `T&&` 与 `std::move`
 
 `T&&` 是右值引用：只能绑定到右值。它的存在就是为了写出"只接受临时对象"的重载：
 
@@ -504,7 +513,7 @@ moved-from 对象的状态是"有效但未指定"（valid but unspecified）：�
 
 从 `const TensorBase&` 构造要增加引用计数（有代价），所以要求 `explicit`，调用方必须写 `Tensor(base)` 表明自己知道这件事；从 `TensorBase&&` 构造只是偷一个指针，零成本，允许隐式转换。
 
-### 4.3 移动在 PyTorch 源码里的样子
+### 3. 移动在 PyTorch 源码里的样子
 
 有了移动，C++ 库里到处是 `std::move`。最典型的模式是"sink 参数"：函数需要自己持有一份参数的拷贝，就按值接收，然后 `std::move` 进成员：
 
@@ -547,7 +556,7 @@ TensorImpl::TensorImpl(
 
 顺便说一下：形参 `Storage&& storage` 在函数体内是一个**左值**（它有名字），所以要再移进成员时必须再写一次 `std::move`。"右值引用类型的变量本身是左值"这条规则初看别扭，但它保证了不会在不知情的情况下被偷走资源。
 
-### 4.4 按值返回为什么没有代价：RVO 与 NRVO
+### 4. 按值返回为什么没有代价：RVO 与 NRVO
 
 回到开头的问题：`return out;` 会拷贝吗？
 
@@ -593,7 +602,7 @@ static TensorBase _empty_generic(
 
 `storage_impl` 被 `std::move` 进 `TensorImpl`；`tensor` 用 NRVO 返回。整个函数里没有一次多余的引用计数操作。
 
-### 4.5 `x.contiguous()` 返回的对象要拷贝数据吗
+### 5. `x.contiguous()` 返回的对象要拷贝数据吗
 
 总纲"最终目标"一节的第三个问题现在也能回答了。`TensorBase.h`：
 
@@ -609,16 +618,16 @@ static TensorBase _empty_generic(
 
 如果已经连续，`return *this;` 拷贝一个句柄（引用计数 +1），返回的 `Tensor` 与原来共享同一个 `TensorImpl`；不连续才真正分配新 storage 并拷贝数据。所以 `auto x_c = x.contiguous();` 在多数情况下只是多了一个指向同一 `TensorImpl` 的句柄。
 
-### 4.6 两个常见误用
+### 6. 两个常见误用
 
 **不要写 `return std::move(local);`**。它会阻止 NRVO，把零成本变成一次移动。编译器会给警告（`-Wpessimizing-move`）。
 
 **不要 move 之后再用**。前面 `TensorImpl` 构造函数的例子已经说明了。特别隐蔽的是在循环里 move 一个循环外的变量——第二次迭代时它已经空了。
 
 
-## 五、RAII：把资源绑定到对象的生命周期
+## 六、RAII：把资源绑定到对象的生命周期
 
-### 5.1 确定性析构是 C++ 最重要的语言特性
+### 1. 确定性析构是 C++ 最重要的语言特性
 
 前面几节反复出现"作用域结束时析构"。这件事在 C++ 里是**确定的、同步的、可预测的**：对象离开作用域（正常退出、`return`、`break`、抛异常）的那一刻，析构函数立刻运行。
 
@@ -642,9 +651,9 @@ void read_config() {
 }                             // ……fh 照样析构，文件照样关闭
 ```
 
-第一节的 `Tracer`、第三节的 `intrusive_ptr`、第六节的 `unique_ptr`、第八节的 `DataPtr`——它们全都是 RAII 类型。"资源"可以是堆内存、显存、文件、锁、引用计数、一段"当前设备"上下文（第六篇的 `DeviceGuard`）、任何需要成对操作（获取/释放、进入/退出、加一/减一）的东西。
+第二章的 `Tracer`、第四章的 `intrusive_ptr`、第七章的 `unique_ptr`、第九章的 `DataPtr`——它们全都是 RAII 类型。"资源"可以是堆内存、显存、文件、锁、引用计数、一段"当前设备"上下文（第六篇的 `DeviceGuard`）、任何需要成对操作（获取/释放、进入/退出、加一/减一）的东西。
 
-### 5.2 Java 对照：`try-with-resources` 与 GC 的边界
+### 2. Java 对照：`try-with-resources` 与 GC 的边界
 
 Java 也有释放资源的机制，但它们和 RAII 的能力边界差别很大：
 
@@ -660,7 +669,7 @@ Java 也有释放资源的机制，但它们和 RAII 的能力边界差别很大
 
 GC 的问题则是另一种：它管理的只是 JVM 堆内存。GPU 显存、文件描述符、锁、外部库分配的内存，GC 根本不知道它们存在。Java 的 GPU 库（如 DJL、TornadoVM）都不得不引入手工的 `close()` 或者 `NDManager` 这种作用域管理器，本质上是在 Java 里模拟 RAII。而在 C++ 里这就是语言本身。
 
-### 5.3 析构的顺序
+### 3. 析构的顺序
 
 RAII 的正确性依赖析构顺序的确定性。规则有两条：
 
@@ -679,18 +688,18 @@ delete target                          (intrusive_ptr::reset_not_null_)
             → ~DataPtr(data_ptr_)      → ~UniqueVoidPtr → unique_ptr 调 deleter → 内存归还
 ```
 
-整条链没有一行手写的释放代码。`TensorImpl::~TensorImpl() = default;`（`c10/core/TensorImpl.cpp`）、`~StorageImpl() override = default;`，全靠成员的析构函数层层传递。这就是总纲那句"整条链上没有一处需要手工 `delete`，这就是 RAII"的具体含义。第八节会把每一层的代码摊开看。
+整条链没有一行手写的释放代码。`TensorImpl::~TensorImpl() = default;`（`c10/core/TensorImpl.cpp`）、`~StorageImpl() override = default;`，全靠成员的析构函数层层传递。这就是总纲那句"整条链上没有一处需要手工 `delete`，这就是 RAII"的具体含义。第九章会把每一层的代码摊开看。
 
-### 5.4 异常安全是 RAII 的副产品
+### 4. 异常安全是 RAII 的副产品
 
 Java 用 `finally` 保证清理；C++ 用 RAII。差别是：`finally` 要在每个需要清理的地方写一遍，RAII 写在类型里一次，所有使用点自动获得。PyTorch 的算子实现几乎不写 `try`/`catch`（`TORCH_CHECK` 失败直接抛），却不会泄漏——因为所有中间 `Tensor`、所有 guard 都是 RAII 对象，栈展开时自动清理。
 
 
-## 六、标准智能指针：`unique_ptr`、`shared_ptr`、`weak_ptr`
+## 七、标准智能指针：`unique_ptr`、`shared_ptr`、`weak_ptr`
 
 RAII 用于堆内存的标准化产物就是智能指针。C++11 提供了三种，它们表达三种不同的**所有权关系**。
 
-### 6.1 `std::unique_ptr`：独占所有权，零开销
+### 1. `std::unique_ptr`：独占所有权，零开销
 
 ```cpp
 std::unique_ptr<AutogradMeta> meta = std::make_unique<AutogradMeta>();
@@ -715,9 +724,9 @@ meta->grad_fn_ = ...;
 
 注释说得很清楚：一个 `AutogradMeta` 只属于一个 `TensorImpl`，是独占关系；而且它可以为空（大多数不需要梯度的 tensor 不分配它，省下几十个字节）。`unique_ptr` 恰好同时表达了"独占"和"可空"。
 
-`unique_ptr` 的第二个模板参数是删除器类型。默认是 `std::default_delete<T>`（调 `delete`），但可以换成函数指针或函数对象，让 `unique_ptr` 管理任何"有释放函数"的资源。PyTorch 的 `DataPtr` 底层正是一个 `std::unique_ptr<void, void(*)(void*)>`（第八节），用函数指针删除器让同一个类型能管理 `malloc` 出来的内存、`cudaMalloc` 出来的显存、mmap 的文件、别的框架借来的缓冲区。
+`unique_ptr` 的第二个模板参数是删除器类型。默认是 `std::default_delete<T>`（调 `delete`），但可以换成函数指针或函数对象，让 `unique_ptr` 管理任何"有释放函数"的资源。PyTorch 的 `DataPtr` 底层正是一个 `std::unique_ptr<void, void(*)(void*)>`（第九章），用函数指针删除器让同一个类型能管理 `malloc` 出来的内存、`cudaMalloc` 出来的显存、mmap 的文件、别的框架借来的缓冲区。
 
-### 6.2 `std::shared_ptr`：共享所有权，有代价
+### 2. `std::shared_ptr`：共享所有权，有代价
 
 ```cpp
 auto sp1 = std::make_shared<Node>();
@@ -746,9 +755,9 @@ sp1.reset();                 // 引用计数 1
 // word you add to Tensor is an extra 3.2 gigabytes in RAM.
 ```
 
-这就是第七节 `intrusive_ptr` 存在的动机。
+这就是第八章 `intrusive_ptr` 存在的动机。
 
-### 6.3 `std::weak_ptr`：观察但不拥有
+### 3. `std::weak_ptr`：观察但不拥有
 
 `weak_ptr` 指向一个由 `shared_ptr` 管理的对象，但不增加强引用计数。它用来打破循环引用（A 持有 B、B 持有 A，两者永远不会归零），或者表达"我想知道它是否还活着，但不想让它因为我而活着"。使用时必须先 `lock()` 拿到一个临时 `shared_ptr`（如果对象已死则为空）。
 
@@ -756,7 +765,7 @@ sp1.reset();                 // 引用计数 1
 
 Java 有 `WeakReference`，语义相近：不阻止 GC 回收，`get()` 可能返回 `null`。区别是 Java 的对象死亡时间不确定，`WeakReference` 主要用于缓存；C++ 的 `weak_ptr` 更多用于打破所有权环。
 
-### 6.4 选择规则
+### 4. 选择规则
 
 ```text
 谁拥有这个对象？
@@ -769,9 +778,9 @@ Java 有 `WeakReference`，语义相近：不阻止 GC 回收，`get()` 可能�
 PyTorch 的选择：`TensorImpl` 用 `unique_ptr` 持有 `AutogradMeta`（独占）；`Tensor` 用 `intrusive_ptr` 持有 `TensorImpl`（共享，但要比 `shared_ptr` 便宜）；`StorageImpl` 用裸指针持有 `Allocator`（不拥有）。
 
 
-## 七、`c10::intrusive_ptr`：PyTorch 为什么自己造一个
+## 八、`c10::intrusive_ptr`：PyTorch 为什么自己造一个
 
-### 7.1 侵入式引用计数的思路
+### 1. 侵入式引用计数的思路
 
 `shared_ptr` 的所有代价都来自一件事：引用计数放在对象**外面**（控制块），所以要多一个指针去找它。如果把计数放在对象**里面**——要求被管理的类继承一个含计数字段的基类——那么 `intrusive_ptr` 只需要一个指针，从对象指针就能找到计数，从裸指针也能恢复出智能指针。这叫**侵入式**（intrusive）引用计数，Boost 的 `boost::intrusive_ptr` 是最早的实现，`c10::intrusive_ptr` 是 PyTorch 自己的版本。
 
@@ -788,7 +797,7 @@ PyTorch 的选择：`TensorImpl` 用 `unique_ptr` 持有 `AutogradMeta`（独占
  */
 ```
 
-### 7.2 `intrusive_ptr_target`：计数住在哪里
+### 2. `intrusive_ptr_target`：计数住在哪里
 
 被管理的类必须继承 `intrusive_ptr_target`。它的核心就是一个 64 位原子整数和几个虚函数（`c10/util/intrusive_ptr.h`，`intrusive_ptr_target` 类）：
 
@@ -863,7 +872,7 @@ class C10_API intrusive_ptr_target {
 
 几个细节逐一对应前面几节讲过的机制：
 
-- **`mutable`**（2.3 节）：对 `const TensorImpl` 拷贝一个 `intrusive_ptr` 也要改计数，所以计数是 `mutable`。
+- **`mutable`**（3.3 节）：对 `const TensorImpl` 拷贝一个 `intrusive_ptr` 也要改计数，所以计数是 `mutable`。
 - **`protected` 虚析构**：不允许任何人 `delete` 一个 `intrusive_ptr_target*`——只有 `intrusive_ptr` 内部（是 `friend`）在计数归零时可以。虚析构保证通过基类指针 `delete` 时会调用派生类（`TensorImpl`）的析构函数，第四篇详细讲。
 - **拷贝/移动构造把计数重置为 0**：计数是"这块内存有几个人指着"，拷贝出来的新对象当然还没人指着。这是"计数是内存位置的属性而不是值的属性"的准确表达。
 - **`release_resources()`**：强引用归零但还有弱引用时，对象暂时不能 `delete`（弱引用还要查它死没死），但可以先把昂贵的资源放掉。`TensorImpl::release_resources()` 就是把 `autograd_meta_` 和 `storage_` 重置（`c10/core/TensorImpl.cpp`）：
@@ -881,7 +890,7 @@ void TensorImpl::release_resources() {
 
 PyTorch 2.x 中的变化：早期 2.x 版本里这是两个独立的 `std::atomic<uint32_t> refcount_` 和 `weakcount_`；v2.10.0 已经合并成一个 `combined_refcount_`（低 32 位强计数，高 31 位弱计数，最高位 `kHasPyObject` 标记"是否有 Python 包装对象"），这样一次原子操作就能同时读到两个计数，`reset_not_null_` 里的快速路径就依赖这一点。`TensorImpl.h` 末尾的 size 注释里还留着 "strong refcount / weak refcount TODO: pack these into one word"，说明那段注释比代码旧。本文后面统一说"强计数"和"弱计数"，不再区分它们的物理布局。
 
-### 7.3 `intrusive_ptr` 的两个核心操作
+### 3. `intrusive_ptr` 的两个核心操作
 
 `intrusive_ptr<TTarget, NullType>` 的数据成员只有一个 `TTarget* target_;`。它的全部逻辑集中在两个私有函数上。增加引用（`retain_`）：
 
@@ -946,13 +955,13 @@ PyTorch 2.x 中的变化：早期 2.x 版本里这是两个独立的 `std::atomi
   }
 ```
 
-读这段代码需要的知识全在前面几节：`delete target` 通过虚析构调到 `~TensorImpl`（第五节的析构链由此开始）；`release_resources_and_decrement_weakrefs_` 对应弱引用还在的情况；`std::memory_order_acquire`/`relaxed` 是第六篇的内容，这里只需知道 `atomic_combined_refcount_increment` 用 `relaxed`、`decrement` 用 `acq_rel`，和 `shared_ptr` 的实现一致。`if constexpr` 是第三篇的编译期分支，`TargetTraits<TTarget>::can_have_pyobject` 对 `TensorImpl`、`StorageImpl` 及其子类为 `true`，其他类型这段代码根本不会被编进去。
+读这段代码需要的知识全在前面几节：`delete target` 通过虚析构调到 `~TensorImpl`（第六章的析构链由此开始）；`release_resources_and_decrement_weakrefs_` 对应弱引用还在的情况；`std::memory_order_acquire`/`relaxed` 是第六篇的内容，这里只需知道 `atomic_combined_refcount_increment` 用 `relaxed`、`decrement` 用 `acq_rel`，和 `shared_ptr` 的实现一致。`if constexpr` 是第三篇的编译期分支，`TargetTraits<TTarget>::can_have_pyobject` 对 `TensorImpl`、`StorageImpl` 及其子类为 `true`，其他类型这段代码根本不会被编进去。
 
 关于 PyObject 的那两段是 PyTorch 特有的：当一个 `TensorImpl` 有 Python 包装对象（`torch.Tensor` 实例）时，Python 对象持有 C++ 对象的一个强引用；反过来，只要 C++ 侧还有**其他**强引用（计数从 1 变 2），C++ 就 `incref` Python 对象，保证 Python 端的 `id(t)` 和附着在上面的属性（`t.my_attr = ...`）不会因为 Python 端暂时没人引用而丢失。计数从 2 回到 1 时再 `decref`。这是第七篇 "Python 对象生命周期与 C++ 对象生命周期的交叉"的入口，这里只需知道 `intrusive_ptr` 的引用计数逻辑里有这么一个钩子。
 
-### 7.4 比 `shared_ptr` 省了什么
+### 4. 比 `shared_ptr` 省了什么
 
-把 6.2 节的表反过来看：
+把 7.2 节的表反过来看：
 
 | `shared_ptr` 的代价 | `intrusive_ptr` 怎么省 |
 |---|---|
@@ -960,12 +969,12 @@ PyTorch 2.x 中的变化：早期 2.x 版本里这是两个独立的 `std::atomi
 | 控制块单独分配 | 没有控制块；计数是对象的成员，与对象一次分配 |
 | 对象和计数可能不在同一 cache line | 计数在对象开头（基类子对象），访问对象时计数大概率已在缓存里 |
 | 从裸指针无法恢复 `shared_ptr` | 从 `T*` 直接 `reclaim`/`reclaim_copy` 出 `intrusive_ptr`，无需 `enable_shared_from_this` |
-| 空指针只能是 `nullptr` | `NullType` 模板参数可以指定一个"哨兵对象"作为空值（7.7 节） |
+| 空指针只能是 `nullptr` | `NullType` 模板参数可以指定一个"哨兵对象"作为空值（8.7 节） |
 | 弱引用要保留控制块到弱计数归零 | 弱引用要保留整个对象到弱计数归零（这一点 `intrusive_ptr` 更差——但 `release_resources()` 让昂贵资源提前释放，缓解了这个问题） |
 
 代价是侵入性：`T` 必须继承 `intrusive_ptr_target`，多一个 8 字节的计数字段和一个 vtable 指针。对 `TensorImpl`、`StorageImpl`、`c10::ivalue::Object`、`c10::ivalue::Future`、`c10d::ProcessGroup` 这些本来就是多态类、本来就要被引用计数管理的类型，这个代价等于零。
 
-### 7.5 创建：`make_intrusive` 与私有的裸指针构造
+### 5. 创建：`make_intrusive` 与私有的裸指针构造
 
 `intrusive_ptr` 从裸指针构造的构造函数是**私有**的：
 
@@ -1010,7 +1019,7 @@ inline intrusive_ptr<TTarget, NullType> make_intrusive(Args&&... args) {
 
 为什么不允许公开地 `intrusive_ptr<T>(new T)` 或者 `intrusive_ptr<T>(&stack_object)`？文件里 Note [Stack allocated intrusive_ptr_target safety] 解释了：`intrusive_ptr_target` 的构造函数把计数初始化为 0，只有 `make_intrusive` 会把它置为 1。所以任何从 `T*` 恢复 `intrusive_ptr` 的操作都可以检查"计数是否为 0"来判断这个对象是不是被正规创建的——一个栈对象、一个 `new` 出来但没经过 `make_intrusive` 的对象，计数是 0，debug 构建会立刻断言失败，而不是等到析构时 `delete` 一个栈地址。
 
-### 7.6 与裸指针互转：`release`、`reclaim` 及其变体
+### 6. 与裸指针互转：`release`、`reclaim` 及其变体
 
 这是 `intrusive_ptr` 相对 `shared_ptr` 最重要的能力，也是它能穿过 C API、Python C API、pybind11 这些"只认裸指针"的边界的原因。相关方法都在 `intrusive_ptr` 类的 public 部分：
 
@@ -1158,9 +1167,9 @@ static void THPVariable_dealloc(PyObject* self) {
 }
 ```
 
-`new (&v->cdata) Tensor(...)` 是 placement new（在指定地址构造对象，不分配内存），`cdata.~Variable()` 是显式析构调用。这是 C++ 对象嵌在由 C 运行时（CPython）分配的内存里时的标准做法。`Tensor` 析构 → `intrusive_ptr` 减计数 → 可能触发第五节那条析构链。Python 端的 `del t` 最终就是这样走到 C++ 端的显存释放的。第七篇会完整讲这条路径上的 GIL 和引用计数细节，这里只需要看到：**因为 `Tensor` 是一个可以在任意内存位置构造/析构的值类型，它才能嵌进 `PyObject`。**
+`new (&v->cdata) Tensor(...)` 是 placement new（在指定地址构造对象，不分配内存），`cdata.~Variable()` 是显式析构调用。这是 C++ 对象嵌在由 C 运行时（CPython）分配的内存里时的标准做法。`Tensor` 析构 → `intrusive_ptr` 减计数 → 可能触发第六章那条析构链。Python 端的 `del t` 最终就是这样走到 C++ 端的显存释放的。第七篇会完整讲这条路径上的 GIL 和引用计数细节，这里只需要看到：**因为 `Tensor` 是一个可以在任意内存位置构造/析构的值类型，它才能嵌进 `PyObject`。**
 
-### 7.7 `NullType`：`UndefinedTensorImpl` 作为空值
+### 7. `NullType`：`UndefinedTensorImpl` 作为空值
 
 `intrusive_ptr<TensorImpl, UndefinedTensorImpl>` 的第二个模板参数一直没解释。`intrusive_ptr` 的"空"不一定是 `nullptr`，而是 `NullType::singleton()` 返回的那个指针。默认的 `NullType` 返回 `nullptr`：
 
@@ -1194,7 +1203,7 @@ struct C10_API UndefinedTensorImpl final : public TensorImpl {
 
 Java 里对应的模式叫 Null Object。差别是 C++ 把它做进了智能指针的类型参数里，零运行时开销。
 
-### 7.8 `weak_intrusive_ptr`：打破 autograd 图里的环
+### 8. `weak_intrusive_ptr`：打破 autograd 图里的环
 
 先看 autograd 里用标准库 `weak_ptr` 打破环的例子（`torch/csrc/autograd/variable.h`，`AutogradMeta`）——autograd 的 `Node` 在 v2.10.0 里由 `std::shared_ptr` 管理（`Node` 继承 `std::enable_shared_from_this<Node>`，`torch/csrc/autograd/function.h`），没有走 `intrusive_ptr`：
 
@@ -1228,7 +1237,7 @@ struct TORCH_API AutogradMeta : public c10::AutogradMetaInterface {
 `Storage::getWeakStorageImpl()`（`c10/core/Storage.h`）也返回一个 `weak_intrusive_ptr<StorageImpl>`，供需要观察 storage 是否还活着但不想延长其寿命的地方使用（如 `c10d` 和 `ivalue::Future` 记录一次通信涉及的 storage）。
 
 
-## 八、回到源码：从 `Tensor` 到显存的完整持有链
+## 九、回到源码：从 `Tensor` 到显存的完整持有链
 
 前面七节的机制在这一节全部汇合。目标是把下面这条链的每一段都对应到源码：
 
@@ -1245,7 +1254,7 @@ flowchart LR
 
 三种箭头对应三种所有权：`intrusive_ptr` 是共享所有权（多个 `Tensor` 可以指向一个 `TensorImpl`，多个 `TensorImpl` 可以指向一个 `StorageImpl`——view 就是这样实现的）；`DataPtr` 里的 `unique_ptr` 是独占所有权（一块内存只属于一个 `StorageImpl`）；`Allocator*` 是非拥有。
 
-### 8.1 `Tensor`/`TensorBase`：句柄
+### 1. `Tensor`/`TensorBase`：句柄
 
 `aten/src/ATen/core/TensorBase.h` 的类注释：
 
@@ -1311,7 +1320,7 @@ flowchart LR
 
 `is_same` 比较的是 `impl_` 指针——两个 `Tensor` 是不是同一个 tensor，由它们是否指向同一个 `TensorImpl` 决定，与数据内容无关。`use_count()` 直接暴露引用计数，调试所有权问题时非常有用。
 
-### 8.2 `TensorImpl`：元数据 + 一个 `Storage`
+### 2. `TensorImpl`：元数据 + 一个 `Storage`
 
 `TensorImpl` 是真正的"tensor 对象"：形状、步长、dtype、device、dispatch key、autograd 元数据、版本计数器、Python 对象槽——以及一个 `Storage`。`c10/core/TensorImpl.h` 的成员区（删节）：
 
@@ -1346,7 +1355,7 @@ flowchart LR
 
 注意 `storage_` 是**按值**持有的 `Storage`，不是指针。`Storage` 自己是一个只包装了 `intrusive_ptr<StorageImpl>` 的值类型，所以这里的"按值"仍然只有 8 字节。多个 `TensorImpl` 可以持有指向同一个 `StorageImpl` 的 `Storage`——`x.view(...)`, `x[0]`, `x.t()` 返回的 tensor 各有自己的 `TensorImpl`（不同的 sizes/strides/storage_offset），但共享 `StorageImpl`。这就是"view 不拷贝数据"的实现。
 
-### 8.3 `Storage`：又一层值类型包装
+### 3. `Storage`：又一层值类型包装
 
 `c10/core/Storage.h`：
 
@@ -1391,7 +1400,7 @@ struct C10_API Storage {
 
 `Storage` 对 `StorageImpl` 的关系与 `Tensor` 对 `TensorImpl` 的关系完全一样：值类型句柄 + 引用计数的实体。所有特殊成员函数都是隐式默认的（Rule of Zero）。
 
-### 8.4 `StorageImpl`：拥有一个 `DataPtr`
+### 4. `StorageImpl`：拥有一个 `DataPtr`
 
 `c10/core/StorageImpl.h` 的构造函数和关键成员：
 
@@ -1443,9 +1452,9 @@ struct C10_API StorageImpl : public c10::intrusive_ptr_target {
 };
 ```
 
-第二个构造函数展示了"分配"发生的位置：`allocator->allocate(n)` 返回一个 `DataPtr`（按值，一个右值），被 `std::move` 进 `data_ptr_`。`DataPtr` 是 sink 参数（第 4.3 节的模式）。文件顶部的注释还强调了一个不变式："storage is supposed to uniquely own a data pointer; e.g., two non-null data pointers alias if and only if they are from the same storage"——一块内存只属于一个 `StorageImpl`，这是 `DataPtr` 独占语义的体现。
+第二个构造函数展示了"分配"发生的位置：`allocator->allocate(n)` 返回一个 `DataPtr`（按值，一个右值），被 `std::move` 进 `data_ptr_`。`DataPtr` 是 sink 参数（第 5.3 节的模式）。文件顶部的注释还强调了一个不变式："storage is supposed to uniquely own a data pointer; e.g., two non-null data pointers alias if and only if they are from the same storage"——一块内存只属于一个 `StorageImpl`，这是 `DataPtr` 独占语义的体现。
 
-### 8.5 `DataPtr` 与 `UniqueVoidPtr`：带删除器的独占指针
+### 5. `DataPtr` 与 `UniqueVoidPtr`：带删除器的独占指针
 
 `c10/core/Allocator.h`：
 
@@ -1543,11 +1552,11 @@ class UniqueVoidPtr {
 };
 ```
 
-核心就是那一行 `std::unique_ptr<void, DeleterFnPtr> ctx_;`——第六节说的"带自定义删除器的 `unique_ptr`"。`DeleterFnPtr` 是一个普通函数指针 `void(*)(void*)`，而不是 `std::function`：函数指针只有 8 字节、调用是一次间接跳转，`std::function` 可能要堆分配、还要多一次类型擦除的间接层。代价是删除器**不能捕获任何状态**——它只能拿到一个 `void*`。所以 `UniqueVoidPtr` 把"数据指针"和"上下文指针"分开：删除器收到的是 `ctx_`，不是 `data_`。大多数情况下两者相同（CPU 分配就是这样），但 DLPack 导入时 `ctx` 是一个 `DLManagedTensor*`，`data` 是它里面的数据指针；`from_blob` 传自定义 `std::function` 删除器时，`ctx` 是一个堆上的 `InefficientStdFunctionContext`（`Allocator.h` 里定义，名字里的 Inefficient 提醒你它多了一次分配）。
+核心就是那一行 `std::unique_ptr<void, DeleterFnPtr> ctx_;`——第七章说的"带自定义删除器的 `unique_ptr`"。`DeleterFnPtr` 是一个普通函数指针 `void(*)(void*)`，而不是 `std::function`：函数指针只有 8 字节、调用是一次间接跳转，`std::function` 可能要堆分配、还要多一次类型擦除的间接层。代价是删除器**不能捕获任何状态**——它只能拿到一个 `void*`。所以 `UniqueVoidPtr` 把"数据指针"和"上下文指针"分开：删除器收到的是 `ctx_`，不是 `data_`。大多数情况下两者相同（CPU 分配就是这样），但 DLPack 导入时 `ctx` 是一个 `DLManagedTensor*`，`data` 是它里面的数据指针；`from_blob` 传自定义 `std::function` 删除器时，`ctx` 是一个堆上的 `InefficientStdFunctionContext`（`Allocator.h` 里定义，名字里的 Inefficient 提醒你它多了一次分配）。
 
 第三条差异也值得注意：`std::unique_ptr` 在指针为空时不调删除器，`UniqueVoidPtr` 只看 `ctx_` 不看 `data_`——因为有些分配器对零字节分配也返回一个需要归还的上下文。
 
-### 8.6 `Allocator`：分配的一端，也决定释放的一端
+### 6. `Allocator`：分配的一端，也决定释放的一端
 
 `c10/core/Allocator.h`：
 
@@ -1614,7 +1623,7 @@ struct C10_API DefaultCPUAllocator final : at::Allocator {
 
 `return {data, data, &ReportAndDelete, ...}` 构造一个 `DataPtr`：数据指针和上下文指针都是 `data`，删除器是静态函数 `ReportAndDelete`。
 
-### 8.7 CUDA caching allocator：显存怎么借 `DataPtr` 归还
+### 7. CUDA caching allocator：显存怎么借 `DataPtr` 归还
 
 从所有权的角度看，CUDA 分配器与 CPU 分配器**没有任何区别**。`c10/cuda/CUDACachingAllocator.cpp` 里 `NativeCachingAllocator::allocate`（删节）：
 
@@ -1655,9 +1664,9 @@ void local_raw_delete(void* ptr) {
 
 顺便说明一下为什么 `Allocator` 是全局裸指针而不是被 `StorageImpl` 拥有：`NativeCachingAllocator` 是一个 `static` 对象，生命周期与进程相同；成百万个 `StorageImpl` 都指向它，它比任何一个 `StorageImpl` 都活得久。用 `shared_ptr` 持有它只会白白多做几百万次原子操作。
 
-### 8.8 一次完整的创建：`at::empty`
+### 8. 一次完整的创建：`at::empty`
 
-把上面各层串起来，看一个 tensor 是怎么诞生的。`aten/src/ATen/EmptyTensor.cpp` 的 `_empty_generic`（4.4 节引过）做了三件事：
+把上面各层串起来，看一个 tensor 是怎么诞生的。`aten/src/ATen/EmptyTensor.cpp` 的 `_empty_generic`（5.4 节引过）做了三件事：
 
 1. `c10::make_intrusive<StorageImpl>(use_byte_size_t(), size_bytes, allocator, /*resizable=*/true)`：`new` 一个 `StorageImpl`，它的构造函数调 `allocator->allocate(size_bytes)` 拿到 `DataPtr`（内存在这里分配，删除器在这里确定），强计数置 1。
 2. `detail::make_tensor_base<TensorImpl>(std::move(storage_impl), ks, dtype)`：`intrusive_ptr<StorageImpl>` 隐式转换成 `Storage`（`Storage(c10::intrusive_ptr<StorageImpl> ptr)` 构造函数），再作为 `Storage&&` 移进新 `new` 的 `TensorImpl`；`TensorImpl` 用 `make_intrusive` 创建，强计数置 1；`TensorBase` 包住它。
@@ -1674,7 +1683,7 @@ TensorBase make_tensor_base(Args&&... args) {
 
 整个过程两次堆分配（`StorageImpl`、`TensorImpl`）加一次 `allocate`，没有一次多余的引用计数操作，没有一次数据拷贝。
 
-### 8.9 回答核心问题
+### 9. 回答核心问题
 
 现在可以完整回答 **`at::Tensor y = x;` 之后 `y` 和 `x` 是什么关系？什么时候数据真正被释放？**
 
@@ -1705,11 +1714,11 @@ Java 对照：`Tensor y = x;` 在效果上最接近 Java 的引用赋值（两�
 
 一个常见的困惑："我 `del x` 了，为什么显存没释放？"按上面四步逐条排查：还有别的 Python 变量引用它（步骤 1，Python 端引用）；它被 autograd 图保存了（步骤 1，`SavedVariable`）；它的某个 view 还活着（步骤 2）；释放了但在缓存池里（步骤 4）。每一种都对应链上的一个环节。
 
-### 8.10 借用：`MaybeOwned` 与 `ExclusivelyOwned`
+### 10. 借用：`MaybeOwned` 与 `ExclusivelyOwned`
 
 最后提一下两个为了**省掉引用计数**而存在的工具类型，它们在 `TensorBase.h`、`Storage.h`、`intrusive_ptr.h` 里都有 traits 特化。
 
-`c10::MaybeOwned<Tensor>` 表示"可能拥有、可能只是借用"。`expect_contiguous()` 用它：已经连续时借用 `*this`（不加计数），不连续时拥有新建的 tensor。它通过 `TensorBase` 那个 protected 的 `unsafe_borrow_t` 构造函数创建一个 +0 引用计数的 `Tensor`，并在析构时用 `unsafeReleaseTensorImpl()` "泄漏"它，从而抵消——这正是 7.6 节 `release()`/`reclaim()` 那对操作在库内部的用法：
+`c10::MaybeOwned<Tensor>` 表示"可能拥有、可能只是借用"。`expect_contiguous()` 用它：已经连续时借用 `*this`（不加计数），不连续时拥有新建的 tensor。它通过 `TensorBase` 那个 protected 的 `unsafe_borrow_t` 构造函数创建一个 +0 引用计数的 `Tensor`，并在析构时用 `unsafeReleaseTensorImpl()` "泄漏"它，从而抵消——这正是 8.6 节 `release()`/`reclaim()` 那对操作在库内部的用法：
 
 ```cpp
   // Create a Tensor with a +0 reference count. Special care must be
@@ -1722,7 +1731,7 @@ Java 对照：`Tensor y = x;` 在效果上最接近 Java 的引用赋值（两�
 `c10::ExclusivelyOwned<Tensor>` 表示"我确定我是唯一的持有者"，析构时可以跳过原子减直接 `delete`。这两个类型是 PyTorch 在热路径上压榨引用计数开销的手段。读到它们时，只需要知道它们是 `Tensor` 的"零成本借用视图"和"确定独占视图"，不用深究实现。
 
 
-## 九、mini-c10：让第一个 Tensor 跑起来
+## 十、mini-c10：让第一个 Tensor 跑起来
 
 按系列约定，本篇实现 `minic10/util/intrusive_ptr.h`、`minic10/core/Allocator.h`、`minic10/core/StorageImpl.h`、`minic10/core/TensorImpl.h`、`minic10/core/Tensor.h`。所有片段用 `clang++ -std=c++17 -Wall -Wextra` 编译验证过。命名空间 `minic10`，引用计数字段 `refcount_`。
 
@@ -1753,7 +1762,7 @@ enum class DispatchKey { CPU, Meta, Autograd, NumKeys };
 }
 ```
 
-### 9.1 `util/intrusive_ptr.h`
+### 1. `util/intrusive_ptr.h`
 
 对照 `c10/util/intrusive_ptr.h` 做了三处简化：计数暂时是普通 `uint32_t`（第六篇改成 `std::atomic` 并讨论内存序）；没有 `weak_intrusive_ptr` 和 `NullType` 参数；没有 PyObject 钩子。保留了所有与所有权相关的形状：私有裸指针构造、`make`、`release`/`reclaim`、copy-and-swap 赋值。
 
@@ -1866,7 +1875,7 @@ inline bool operator==(const intrusive_ptr<T>& a, const intrusive_ptr<T>& b) noe
 
 （`Args&&...` 与 `std::forward` 是第三篇的变参模板与完美转发，这里照抄 `c10` 的写法即可；它的作用是把任意参数原样转给 `T` 的构造函数。）
 
-### 9.2 `core/Allocator.h`
+### 2. `core/Allocator.h`
 
 对照 `c10/core/Allocator.h` + `c10/util/UniqueVoidPtr.h` + `c10/core/CPUAllocator.cpp`。`DataPtr` 直接用 `std::unique_ptr<void, DeleterFnPtr>`，不区分 data 与 context（那是 DLPack 等场景才需要的）。`CPUAllocator` 在分配和释放时打印，用来观察时序。
 
@@ -1928,7 +1937,7 @@ inline Allocator* GetCPUAllocator() {
 }  // namespace minic10
 ```
 
-### 9.3 `core/StorageImpl.h`
+### 3. `core/StorageImpl.h`
 
 ```cpp
 // minic10/core/StorageImpl.h
@@ -1965,9 +1974,9 @@ struct StorageImpl : intrusive_ptr_target {
 }  // namespace minic10
 ```
 
-与真实的 `c10::StorageImpl` 一样：拥有一个 `DataPtr`，非拥有地指向一个 `Allocator`，拷贝被删除。析构函数体只是打印，真正的释放由成员 `data_` 的析构完成（5.3 节的规则）。
+与真实的 `c10::StorageImpl` 一样：拥有一个 `DataPtr`，非拥有地指向一个 `Allocator`，拷贝被删除。析构函数体只是打印，真正的释放由成员 `data_` 的析构完成（6.3 节的规则）。
 
-### 9.4 `core/TensorImpl.h`
+### 4. `core/TensorImpl.h`
 
 ```cpp
 // minic10/core/TensorImpl.h
@@ -2023,9 +2032,9 @@ struct TensorImpl : intrusive_ptr_target {
 }  // namespace minic10
 ```
 
-构造函数的两个 sink 参数（`intrusive_ptr<StorageImpl> storage`、`std::vector<int64_t> sizes`）按值接收再 `std::move` 进成员——4.3 节的模式。这里直接持有 `intrusive_ptr<StorageImpl>`，省掉了真实源码里的 `Storage` 那层包装。第三篇会把 `std::vector<int64_t>` 换成 `IntArrayRef`/`SmallVector`。
+构造函数的两个 sink 参数（`intrusive_ptr<StorageImpl> storage`、`std::vector<int64_t> sizes`）按值接收再 `std::move` 进成员——5.3 节的模式。这里直接持有 `intrusive_ptr<StorageImpl>`，省掉了真实源码里的 `Storage` 那层包装。第三篇会把 `std::vector<int64_t>` 换成 `IntArrayRef`/`SmallVector`。
 
-### 9.5 `core/Tensor.h`
+### 5. `core/Tensor.h`
 
 ```cpp
 // minic10/core/Tensor.h
@@ -2076,7 +2085,7 @@ inline Tensor empty(std::vector<int64_t> sizes, ScalarType dtype) {
 
 `empty()` 就是 `_empty_generic` 的缩影：`make_intrusive<StorageImpl>`（此时 `malloc`）→ `make_intrusive<TensorImpl>`（`std::move` 进 storage）→ 包成 `Tensor` → 按值返回。
 
-### 9.6 验证释放时序
+### 6. 验证释放时序
 
 ```cpp
 // main.cpp
@@ -2158,7 +2167,7 @@ y.defined()=0, w use_count=1
   [CPUAllocator] free 0x100d599a0
 ```
 
-逐段对照第八节的结论：
+逐段对照第九章的结论：
 
 - 步骤 1：`malloc` 发生在 `StorageImpl` 构造函数的成员初始化里（`data_(allocator->allocate(nbytes))`），所以打印顺序是 malloc → StorageImpl ctor → TensorImpl ctor。`make_and_fill` 按值返回，没有多余的构造/析构打印——NRVO 生效。
 - 步骤 2、3：拷贝句柄只改计数，`is_same` 为真，通过 `y` 读到的是 `x` 写进去的数据。内层作用域的 `z` 析构只让计数从 3 回到 2，没有任何释放。
@@ -2166,12 +2175,12 @@ y.defined()=0, w use_count=1
 - 步骤 5：`std::move` 不改计数，只是把 `y` 的指针偷给 `w`，`y` 变成 undefined。
 - 步骤 6：`main` 返回，最后一个句柄 `w` 析构，计数 1 → 0，三行析构打印严格按 `TensorImpl → StorageImpl → free` 的顺序出现，而且发生在 `main` 的最后一条语句之后、进程退出之前——确定的时刻，不是"某个时候"。
 
-把 `CPUAllocator::Delete` 换成 `cudaFree`、或者换成"放回空闲块列表"，其余任何一行都不用改。这就是 8.7 节说的"整条 RAII 链在 `DataPtr` 这一层结束，最后一步做什么由删除器决定"。
+把 `CPUAllocator::Delete` 换成 `cudaFree`、或者换成"放回空闲块列表"，其余任何一行都不用改。这就是 9.7 节说的"整条 RAII 链在 `DataPtr` 这一层结束，最后一步做什么由删除器决定"。
 
 第三篇会在这个骨架上加 `ScalarType` 到 C++ 类型的映射和 `MINI_DISPATCH_FLOATING_TYPES`，实现第一个 `add` kernel；第四篇加 `DispatchKey` 分发；第六篇把 `refcount_` 改成原子的。
 
 
-## 十、工程实践建议与常见错误
+## 十一、工程实践建议与常见错误
 
 结合前面的机制，读写 PyTorch/vLLM 风格 C++ 时最常遇到的所有权问题和建议：
 
@@ -2207,7 +2216,7 @@ y.defined()=0, w use_count=1
 
 **释放时机排查**
 
-16. "`del` 了显存没降"按 8.9 节的四步排查：别的 Python 引用 → autograd 保存 → view 还活着 → 在缓存池里。C++ 端 `x.use_count()` 和 `x.storage().use_count()` 直接告诉你前三种情况。
+16. "`del` 了显存没降"按 9.9 节的四步排查：别的 Python 引用 → autograd 保存 → view 还活着 → 在缓存池里。C++ 端 `x.use_count()` 和 `x.storage().use_count()` 直接告诉你前三种情况。
 17. 析构里不要做可能抛异常的事（`TensorBase` 的析构是 `noexcept`），也不要做耗时的事——`THPVariable_clear` 释放大 tensor 前会先放掉 GIL，就是因为某些分配器（`MapAllocator`）的释放很慢。
 
 **Java 直觉需要修正的地方**
@@ -2217,7 +2226,7 @@ y.defined()=0, w use_count=1
 20. 拷贝一个"看起来很大"的对象（`Tensor`）可能很便宜，拷贝一个"看起来很小"的对象（`std::vector<int64_t>`）可能很贵——要看它是句柄还是值。
 
 
-## 十一、总结
+## 十二、本文小结
 
 本文围绕 C++ 的对象模型，把 PyTorch `Tensor` 的持有链从上到下拆开了一遍。要点：
 

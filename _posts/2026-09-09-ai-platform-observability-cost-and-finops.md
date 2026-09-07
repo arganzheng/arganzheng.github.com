@@ -6,7 +6,7 @@ tags: [Kubernetes, GPU, Observability, FinOps, AI, AI-Infra]
 catalog: true
 ---
 
-> 本文是《AI 平台工程：资源层与交付层》系列的第 8 篇（末篇）。上一篇：[模型网关与多租户：路由、配额与灰度](/model-gateway-multi-tenancy-and-quota.html)。
+> 本文是[《AI 平台工程：资源层与交付层》](/ai-platform-engineering.html)系列的第 8 篇（共八篇）。上一篇：[模型网关与多租户：路由、配额与灰度](/model-gateway-multi-tenancy-and-quota.html)。
 
 月初，财务把上个月的 GPU 账单转给平台组：64 张 H100，按云上的小时价折下来是一个七位数。附带一个问题：这些钱花得值不值？平台组打开 Grafana，能给出的数字是两个——DCGM 报的平均"GPU 利用率"78%，节点上 `nvidia.com/gpu` 的平均分配率 85%。看起来不错。但换一个指标，`DCGM_FI_PROF_SM_ACTIVE` 的集群平均只有 35%。三个数字之间差了几十个百分点，而没有一张看板能说清这几十个点分别去了哪里、归哪个团队、对应前七篇里的哪个机制。
 

@@ -6,7 +6,7 @@ tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 ---
 
-> 本文是[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)系列的第四篇（共七篇）。上一篇：[Attention 变体与 KV cache](/attention-variants-and-kv-cache.html)　下一篇：[MoE：路由、激活参数量与通信形态](/moe-compute-and-communication.html)
+> 本文是[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)系列的第 4 篇（共七篇）。上一篇：[Attention 变体与 KV cache](/attention-variants-and-kv-cache.html)；下一篇：[MoE：路由、激活参数量与通信形态](/moe-compute-and-communication.html)
 
 前三篇把一个 Transformer 拆成了参数量、算量、访存量和 KV cache 四个数字。这些数字里有一个变量一直被当作常数处理：上下文长度 $$s$$。第二篇算 prefill 时取 $$s = 8192$$，第三篇算 KV cache 时取 $$s = 131072$$，但都没有回答两个问题：模型凭什么知道一个 token 在第几个位置？以及，一个模型能处理的上下文长度到底由什么决定？
 
@@ -16,12 +16,33 @@ catalog: true
 
 > **一个用 8K 上下文训练的 RoPE 模型，为什么不能直接推理 32K？把 base 从 10000 改到 500000 解决了什么，没解决什么？**
 
+
+## 一、总览：把位置看成波长
+
+### 1. 本文的思路
+
 回答它需要把 RoPE 的每个维度对当作一个有波长的旋转来看。本篇的顺序是：先说明 attention 为什么需要位置信息，再完整推导 RoPE，然后算出它每个维度对的波长，用波长解释外推为什么失败、Position Interpolation / NTK-aware / YaRN / Llama 3.1 各自改了什么；最后回到成本——长上下文的算量与字节数，以及 sliding window、全局/局部交错、attention sink 这些结构手段各自把成本改成了什么函数。
+
+### 2. 数字基线
 
 数字基线与前几篇相同：Llama-3-8B（$$d = 4096$$，32 层，32 个 query 头、8 个 KV 头，$$d_{head} = 128$$）、Llama-3-70B（$$d = 8192$$，80 层，64 个 query 头、8 个 KV 头）、DeepSeek-V3（$$d = 7168$$，61 层，128 头，MLA 的 $$d_c = 512$$、$$d_h^R = 64$$）；硬件以 H100 SXM 为准（BF16 dense 989 TFLOPS，3.35 TB/s，80 GB）。所有 FLOPs 与字节数都是理论下界，不是实测。
 
+### 3. 本文的章节安排
 
-## 一、为什么需要位置编码
+```text
+第二章   为什么需要位置编码        attention 是置换不变的；绝对（正弦/可学习）与相对位置编码
+第三章   RoPE 的推导              d_head/2 个复数、相对性的完整形式、rotate_half 实现、与 KV cache 的关系
+第四章   波长：RoPE 的频谱         每个维度对的波长、8K 训练时哪些对"没转完一圈"、外推为什么失败、base 10000 → 500000
+第五章   长上下文扩展方法          Position Interpolation、NTK-aware、YaRN、Llama 3.1 分段缩放、DeepSeek-V3/Qwen 的配置、ALiBi
+第六章   长上下文的成本            attention 算量与权重算量的交叉点、128K prefill 的 11 秒、KV cache 线性项、s² 的 logits
+第七章   缩短成本的结构手段        sliding window、全局/局部交错、attention sink、稀疏 attention；每种手段改成了什么函数
+第八章   对 Infra 的影响汇总
+第九章   实践                      NumPy 实现 RoPE 并验证相对性、波长表与三种缩放、llm_cost.py 上下文长度扫描
+第十章   本文小结
+```
+
+
+## 二、为什么需要位置编码
 
 ### 1. attention 是置换不变的
 
@@ -68,7 +89,7 @@ T5 把 $$m - n$$ 分桶（距离越远桶越粗），每个桶每个 head 学一
 RoPE 的目标是同时拿到两边的好处：**以绝对位置的形式实现**（每个 token 独立处理自己的 q、k，不需要 $$s \times s$$ 的额外矩阵），**得到相对位置的性质**（$$q_m^\top k_n$$ 只依赖 $$m - n$$）。
 
 
-## 二、RoPE 的推导
+## 三、RoPE 的推导
 
 ### 1. 把 d_head 维向量看成 d_head/2 个复数
 
@@ -118,7 +139,7 @@ $$
 
 旋转矩阵满足 $$R_m^\top R_n = R_{n - m}$$，所以 $$(R_m q)^\top (R_n k) = q^\top R_{n - m} k$$，与复数形式一致。
 
-再看一个直接的推论：与正弦编码不同，RoPE 对 $$e^{\mathrm{i}(m-n)\theta_i}$$ 的依赖是**乘性**的，相对距离通过 $$\cos((m-n)\theta_i)$$ 和 $$\sin((m-n)\theta_i)$$ 调制每一对的内积。高频对（$$\theta_i$$ 大）在距离变化几个 token 时就转过很多圈，对局部顺序敏感；低频对（$$\theta_i$$ 小）在几千个 token 内只转一小段弧，提供"大致离多远"的信息。这个直觉是第三章的基础。
+再看一个直接的推论：与正弦编码不同，RoPE 对 $$e^{\mathrm{i}(m-n)\theta_i}$$ 的依赖是**乘性**的，相对距离通过 $$\cos((m-n)\theta_i)$$ 和 $$\sin((m-n)\theta_i)$$ 调制每一对的内积。高频对（$$\theta_i$$ 大）在距离变化几个 token 时就转过很多圈，对局部顺序敏感；低频对（$$\theta_i$$ 小）在几千个 token 内只转一小段弧，提供"大致离多远"的信息。这个直觉是第四章的基础。
 
 ### 3. 实现：rotate_half 与 cos/sin 缓存
 
@@ -145,7 +166,7 @@ $$
 MLA（DeepSeek-V2/V3）把 K、V 压成一个 512 维的 latent $$c$$，decode 时把 $$W_{UK}$$ 吸收进 query 一侧。问题是旋转矩阵 $$R_n$$ 夹在 $$W_{UK}$$ 与 $$c_n$$ 之间，无法与 $$W_{UK}$$ 交换次序，所以吸收后 $$c_n$$ 上没法再补 RoPE。DeepSeek 的解法是把位置信息分离到一个独立的 64 维 "decoupled RoPE" key 上（$$d_h^R = 64$$），与 latent 一起缓存——每层每 token $$(512 + 64) \times 2 = 1152$$ 字节，61 层 68.6 KiB，这是第三篇 8.6 GiB（128K 上下文）的来源。位置编码的形式直接决定了 KV cache 的结构。
 
 
-## 三、波长：RoPE 的频谱
+## 四、波长：RoPE 的频谱
 
 ### 1. 每个维度对的波长
 
@@ -200,7 +221,7 @@ $$
 Llama 3 把 base 提到 500000，并在 8K 上下文上预训练。从波长表看，它**解决**的是：
 
 - 低频维度的波长被大幅拉长（$$i = 63$$ 从 5.4 万到 256 万，$$i = 48$$ 从 6283 到 11.8 万），在后续扩展到 128K 时，$$\lambda_i > 131072$$ 的维度对有 15 对（$$i \ge 49$$），它们在 128K 内仍然是"单调"的，能提供不重复的长距离位置信号。base 10000 下没有任何一对的波长超过 131072——128K 范围内每一对都至少转完了两圈，"相对距离 500 与 55000"在低频对上几乎不可区分（相位相差刚好接近一圈）。
-- 更大的 base 意味着同样的位置范围对应更小的相位变化，模型在 8K 训练后把上下文扩到 128K 时，需要"填补"的相位缺口相对更规则（YaRN 一类方法的分段处理正是利用这个几何结构，见第四章）。
+- 更大的 base 意味着同样的位置范围对应更小的相位变化，模型在 8K 训练后把上下文扩到 128K 时，需要"填补"的相位缺口相对更规则（YaRN 一类方法的分段处理正是利用这个几何结构，见第五章）。
 
 它**没有解决**的是：
 
@@ -211,7 +232,7 @@ Llama 3 把 base 提到 500000，并在 8K 上下文上预训练。从波长表�
 至此可以回答本篇的核心问题：**8K 训练的 RoPE 模型推不了 32K，是因为低频维度对在训练中没转完一圈，32K 上出现了从未见过的相位；改 base 是在频谱低端腾出更长的波长，让长距离位置在数学上可区分，但"见过"这件事只能靠训练。**
 
 
-## 四、长上下文扩展方法
+## 五、长上下文扩展方法
 
 所有扩展方法面对的是同一个问题：训练长度 $$L$$，目标长度 $$L' = s \cdot L$$（$$s$$ 是扩展倍数，下面用 factor 表示以免与序列长度混淆），如何让 $$[0, L')$$ 内的位置在每个维度对上都落在模型见过的相位范围内。
 
@@ -263,7 +284,7 @@ $$
 \theta_i' = (1 - \gamma_i) \cdot \frac{\theta_i}{\text{factor}} + \gamma_i \cdot \theta_i
 $$
 
-对 base 10000、$$d_{head} = 128$$、$$L = 8192$$：$$r_i > 32$$ 对应 $$\lambda_i < 256$$，即 $$i \le 25$$ 的 26 对不动；$$r_i < 1$$ 对应 $$\lambda_i > 8192$$，即 $$i \ge 50$$ 的 14 对完全插值；中间 24 对线性混合。这与第三章"没转完一圈"的分析完全对应：完全插值的恰好就是那 14 对。
+对 base 10000、$$d_{head} = 128$$、$$L = 8192$$：$$r_i > 32$$ 对应 $$\lambda_i < 256$$，即 $$i \le 25$$ 的 26 对不动；$$r_i < 1$$ 对应 $$\lambda_i > 8192$$，即 $$i \ge 50$$ 的 14 对完全插值；中间 24 对线性混合。这与第四章"没转完一圈"的分析完全对应：完全插值的恰好就是那 14 对。
 
 YaRN 的第二个部分是**attention 温度**。为了对抗长上下文下 softmax 被摊薄，它在 logits 上除以一个 $$t < 1$$：
 
@@ -354,7 +375,7 @@ ALiBi 的外推能力很好：训练 1K、推理 2K 几乎不掉 perplexity，�
 RoPE 加上第 1–5 节的缩放方法，成了 2023 年之后长上下文模型的事实标准。
 
 
-## 五、长上下文的成本
+## 六、长上下文的成本
 
 位置编码决定了模型**能不能**处理长上下文；这一章算它**要花多少**。第二篇的两个基本公式重新写在这里：矩阵乘 $$[m, k] \times [k, n]$$ 是 $$2mkn$$ FLOPs，因此每参数每 token 2 FLOPs；attention 对上下文 $$s$$ 的部分，每层每 token $$QK^\top$$ 与 $$PV$$ 各 $$2 \cdot n_h \cdot d_{head} \cdot s = 2ds$$，合计 $$4ds$$。
 
@@ -411,7 +432,7 @@ Llama-3-8B 一个 128K 请求的 KV cache 是它权重（16.06 GB）的大小；
 还有一项不在 FLOPs 和 KV cache 里，但在实现上更致命：attention 分数矩阵 $$QK^\top$$ 本身是 $$s \times s$$。128K 时单个 head 的 logits 就是 $$131072^2 \times 2\,\text{B} = 32$$ GiB（BF16），32 个 head 就是 1 TiB。它不可能物化。FlashAttention（Dao 等 2022）把 softmax 拆成分块的 online softmax，logits 只在 SRAM 里存一个块，从来不写回 HBM——长上下文可行的前提不是显存大，而是 attention kernel 从不物化 $$s \times s$$。同样，训练时 attention 的中间激活如果物化，反向传播也需要它，这是 FlashAttention 对长上下文训练的意义。
 
 
-## 六、缩短成本的结构手段
+## 七、缩短成本的结构手段
 
 上面的成本函数是 full attention 的：每个 token 看所有前面的 token。改变"看哪些"就改变了函数形式。
 
@@ -441,7 +462,7 @@ StreamingLLM（Xiao 等 2023）观察到一个现象：在 full attention 训练
 
 这解释了为什么朴素的滑窗（丢掉最早的 token）会让 full attention 训练的模型崩溃：sink 被丢了，softmax 的概率没地方去。StreamingLLM 的做法是永远保留开头 4 个 token 的 K、V，再加一个滑动窗口。KV cache 是 $$b \cdot L \cdot (4 + \min(s, W))$$，与滑窗同阶。它使一个 full attention 训练的模型可以在不微调的情况下处理无限长的流式输入——但代价与滑窗一样，窗口之外的信息丢失了，它是"流式稳定"而非"长上下文理解"。
 
-对位置编码有一个细节：保留 sink 并滑动窗口后，位置用的是**cache 内的相对位置**（sink 是 0–3，窗口内从 4 开始连续编号），而不是原始文本中的位置；否则 RoPE 的相对距离会超过训练长度，回到第三章的问题。
+对位置编码有一个细节：保留 sink 并滑动窗口后，位置用的是**cache 内的相对位置**（sink 是 0–3，窗口内从 4 开始连续编号），而不是原始文本中的位置；否则 RoPE 的相对距离会超过训练长度，回到第四章的问题。
 
 ### 4. 稀疏 attention 的形态
 
@@ -469,7 +490,7 @@ MLA（DeepSeek-V3）      (d_c + d_h^R) · L · s（系数减 57 倍） 与 full
 值得注意的是最后一行：MLA 减的是 KV cache 的**系数**（从 3.81 MiB 到 68.6 KiB），不改变它对 $$s$$ 的线性依赖，也不减少 attention 算量；而滑窗改的是**阶**（从 $$s$$ 到常数），但丢信息。两者正交，可以叠加。
 
 
-## 七、对 Infra 的影响汇总
+## 八、对 Infra 的影响汇总
 
 把前两章的成本落到系统上，长上下文带来的影响集中在五处。
 
@@ -486,7 +507,7 @@ MLA（DeepSeek-V3）      (d_c + d_h^R) · L · s（系数减 57 倍） 与 full
 最后一个跨章节的提醒：位置编码的选择会限制以上所有手段。滑窗与 sink 依赖"cache 内相对位置"的重新编号；YaRN 的温度要乘进 cos/sin 表；Llama 3.1 的分段缩放要在 kernel 之前的 inv_freq 计算里实现。推理引擎里 `rope_scaling` 字段解析错误是长上下文精度问题的常见根源之一——数学上只差一个分段规则，效果上是 32K 之后 perplexity 是否发散。
 
 
-## 八、实践
+## 九、实践
 
 ### 1. 用 NumPy 实现 RoPE 并验证相对性
 
@@ -595,9 +616,9 @@ NTK base' = 40890, YaRN sqrt(1/t) = 1.1386
 YaRN 不动 / 混合 / 全插值 的对数: 26 24 14
 ```
 
-三列的形状对应第四章的分析：PI 一刀切除以 4；NTK-aware 在 $$i = 0$$ 不动、在 $$i = 63$$ 恰好除以 4（$$2.887 \times 10^{-5} = 1.155 \times 10^{-4} / 4$$），中间几何过渡；YaRN 在 $$i \le 25$$ 完全不动，$$i \ge 50$$ 与 PI 相同，中间线性混合。想画图的话，对 `i` 画 `theta / new_theta`（缩放比）的三条曲线即可：PI 是水平线 4，NTK 是从 1 到 4 的指数曲线，YaRN 是从 1 到 4 的分段折线，用 `matplotlib.pyplot.semilogy` 把 $$\lambda_i$$ 画在同一横轴上能直接看到 8192 这条线落在 $$i \approx 50$$。
+三列的形状对应第五章的分析：PI 一刀切除以 4；NTK-aware 在 $$i = 0$$ 不动、在 $$i = 63$$ 恰好除以 4（$$2.887 \times 10^{-5} = 1.155 \times 10^{-4} / 4$$），中间几何过渡；YaRN 在 $$i \le 25$$ 完全不动，$$i \ge 50$$ 与 PI 相同，中间线性混合。想画图的话，对 `i` 画 `theta / new_theta`（缩放比）的三条曲线即可：PI 是水平线 4，NTK 是从 1 到 4 的指数曲线，YaRN 是从 1 到 4 的分段折线，用 `matplotlib.pyplot.semilogy` 把 $$\lambda_i$$ 画在同一横轴上能直接看到 8192 这条线落在 $$i \approx 50$$。
 
-把 base 换成 500000、按 Llama 3.1 的 `factor 8 / low 1 / high 4 / 8192` 规则跑同一段逻辑（阈值改成 $$\lambda < 2048$$ 不动、$$\lambda > 8192$$ 除以 8），得到不动 29 对、混合 6 对、全插值 29 对，与第四章第 4 节一致。
+把 base 换成 500000、按 Llama 3.1 的 `factor 8 / low 1 / high 4 / 8192` 规则跑同一段逻辑（阈值改成 $$\lambda < 2048$$ 不动、$$\lambda > 8192$$ 除以 8），得到不动 29 对、混合 6 对、全插值 29 对，与第五章第 4 节一致。
 
 ### 3. llm_cost.py：上下文长度扫描
 
@@ -711,10 +732,10 @@ Llama-3-70B: KV 320.0 KiB/token, weights 139.0 GFLOPs/token
   131072     40.0 G     40.74 PF      68.65 s     343.6 GF      71.2%
 ```
 
-8B 的三列与第五章一致：128K 时 16 GiB、6.5 PFLOP、11 s、attention 占 82%。70B 的权重项脚本给出 139 GFLOPs（$$2 \times (70.55 - 1.05)$$B），正文沿用总纲取整的 141，差异 1.5%，不影响任何结论；70B 的 prefill 时间是"单卡等效"，实际至少要 2 张 H100 才放得下权重。要加 DeepSeek-V3，传入 `mla_rank=512, rope_dim=64` 即可得到 68.6 KiB/token 与 128K 的 8.6 GiB；它的权重 FLOPs 项需要第五篇的 MoE 字段（激活 37B → 74 GFLOPs），attention 项按 128 头、q/k 192 维、v 128 维手算是每层 $$2 \times 128 \times (192 + 128) \cdot s = 81920\,s$$，61 层约 $$5.0 \times 10^6 \cdot s$$（未吸收的朴素形式）。
+8B 的三列与第六章一致：128K 时 16 GiB、6.5 PFLOP、11 s、attention 占 82%。70B 的权重项脚本给出 139 GFLOPs（$$2 \times (70.55 - 1.05)$$B），正文沿用总纲取整的 141，差异 1.5%，不影响任何结论；70B 的 prefill 时间是"单卡等效"，实际至少要 2 张 H100 才放得下权重。要加 DeepSeek-V3，传入 `mla_rank=512, rope_dim=64` 即可得到 68.6 KiB/token 与 128K 的 8.6 GiB；它的权重 FLOPs 项需要第五篇的 MoE 字段（激活 37B → 74 GFLOPs），attention 项按 128 头、q/k 192 维、v 128 维手算是每层 $$2 \times 128 \times (192 + 128) \cdot s = 81920\,s$$，61 层约 $$5.0 \times 10^6 \cdot s$$（未吸收的朴素形式）。
 
 
-## 九、小结
+## 十、本文小结
 
 位置编码在参数量和算量表里几乎不占位置，却决定了上下文长度这个维度的上限与代价。本篇的结论：
 

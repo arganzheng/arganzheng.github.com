@@ -6,7 +6,7 @@ tags: [Kubernetes, GPU, MLOps, AI, AI-Infra]
 catalog: true
 ---
 
-> 本文是《AI 平台工程：资源层与交付层》系列的第 1 篇。上一篇：[总纲](/ai-platform-engineering.html)；下一篇：[容器里的 GPU：驱动、CUDA、device plugin 与镜像](/gpu-in-containers-driver-cuda-device-plugin.html)。
+> 本文是[《AI 平台工程：资源层与交付层》](/ai-platform-engineering.html)系列的第 1 篇（共八篇）。下一篇：[容器里的 GPU：驱动、CUDA、device plugin 与镜像](/gpu-in-containers-driver-cuda-device-plugin.html)。
 
 一个刚装好的 Kubernetes 集群，三台 worker 每台插着一张 GPU。提交一个只有十几行的 Pod，`resources.limits` 里写 `nvidia.com/gpu: 1`，它一直 Pending。`kubectl describe pod` 的 Events 里只有一行：`0/4 nodes are available: 3 Insufficient nvidia.com/gpu`。三张卡明明在那里，`nvidia-smi` 在宿主机上能看到，调度器却说"不够"。
 

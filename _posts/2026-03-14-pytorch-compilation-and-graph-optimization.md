@@ -6,7 +6,7 @@ tags: [PyTorch, AI, AI-Infra]
 catalog: true
 ---
 
-> 本文是[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)系列的第七篇（共十篇）。上一篇：[C++ 扩展与自定义算子](/pytorch-cpp-extension-and-custom-operators.html)　下一篇：[性能优化与调试](/pytorch-performance-optimization-and-debugging.html)
+> 本文是[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)系列的第 7 篇（共十篇）。上一篇：[C++ 扩展与自定义算子](/pytorch-cpp-extension-and-custom-operators.html)；下一篇：[性能优化与调试](/pytorch-performance-optimization-and-debugging.html)
 
 前两篇讨论的是**单个算子**：第五篇解释一次 `torch.add` 调用如何经过入口、分发、执行；第六篇把一个自定义算子接入了同样的路径。无论原生还是自定义，每个算子都是独立走完这条路的。
 
@@ -177,7 +177,7 @@ torch.compile(f, backend="aot_eager")
 
 混淆它们会导致一个常见误解："`torch.compile` 就是先 `symbolic_trace` 再优化"。不是。`symbolic_trace` 无法处理依赖 Tensor 的 Python 控制流——比如 `f` 里的那个 `if`——Dynamo 正是为了解决这个问题才在字节码层重新实现了捕获。第二章用 `symbolic_trace` 演示数据结构（因为它最简单），第三章展示它在 `f` 上如何失败、Dynamo 如何成功。
 
-### 6. 章节安排
+### 6. 本文的章节安排
 
 ```text
 二        IR：FX Graph——所有组件共享的数据结构
@@ -185,7 +185,7 @@ torch.compile(f, backend="aot_eager")
 六        运行时：Graph Break / Guard / Dynamic Shape / 编译缓存
 七        串起来：f 的四次调用——运行时的每条分支
 八        Java 对照
-九        小结
+九        本文小结
 ```
 
 
@@ -1040,7 +1040,7 @@ torch._dynamo.explain               有几张图，为什么断
 
 ### 6. 本篇涉及的源码位置
 
-本篇讨论的机制在源码中的位置（对应第一篇第四章 §3 的代码地图）：
+本篇讨论的机制在源码中的位置（对应第一篇第七章的代码地图）：
 
 | 路径 | 内容 |
 |---|---|

@@ -6,7 +6,7 @@ tags: [PyTorch, AI, AI-Infra]
 catalog: true
 ---
 
-> 本文是[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)系列的第二篇（共十篇）。上一篇：[PyTorch 整体介绍](/pytorch-overall-introduction.html)　下一篇：[自动求导与动态计算图](/pytorch-autograd-and-dynamic-computation-graph.html)
+> 本文是[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)系列的第 2 篇（共十篇）。上一篇：[PyTorch 整体介绍](/pytorch-overall-introduction.html)；下一篇：[自动求导与动态计算图](/pytorch-autograd-and-dynamic-computation-graph.html)
 
 上一篇从整体上介绍了 PyTorch：它不是只有 Python API 的库，而是连接模型代码、Tensor 编程模型、算子运行时、设备后端、Kernel 和硬件的一套计算平台。
 
@@ -29,10 +29,33 @@ catalog: true
 
 > **Tensor 不只是数据本身，而是数据、形状、布局、类型、设备和生命周期的组合。**
 
-本文会从一个简化的 Tensor 模型开始，逐步解释 Storage、Shape、Stride、Storage Offset、dtype、device、view、拷贝和 contiguous。后面 Autograd、Dispatcher、Kernel 和性能分析文章，都会以本文建立的 Tensor 心智模型为基础。
+## 一、总览：一个 Tensor 由哪些部分组成
+
+### 1. 本文的主线
+
+本文会从一个简化的 Tensor 模型开始，逐步解释 Storage、Shape、Stride、Storage Offset、dtype、device、view、拷贝和 contiguous：先建立“逻辑视图 + 物理存储”的整体模型，再逐个展开描述 Tensor 的各个字段，然后讨论 view / clone / detach / in-place 与广播这几组容易混淆的操作，最后从 Tensor 视角解释显存问题，并动手实现一个简化版 Tensor 来验证这套模型。后面 Autograd、Dispatcher、Kernel 和性能分析文章，都会以本文建立的 Tensor 心智模型为基础。
+
+### 2. 本文的章节安排
+
+```text
+第二章   Tensor 的整体模型                逻辑视图与物理存储、核心字段、元素数量与占用空间
+第三章   Shape：Tensor 的逻辑形状          view / reshape / flatten、增删维度
+第四章   Stride：逻辑索引如何映射到内存     stride 的定义、二维与三维例子、view 为何可能
+第五章   Transpose、Permute 与 View        只改 metadata 的变换、转置后 view 为何失败
+第六章   Contiguous：连续布局与数据拷贝     contiguous 的定义、Kernel 为何关心它、其他 layout
+第七章   Storage、Storage Offset 与共享内存  Storage、offset、切片 view、view 的生命周期影响
+第八章   dtype：如何解释每个元素           FP16 与 BF16、dtype promotion、转换的拷贝成本
+第九章   Device：数据到底在哪里执行         .to() 的两个维度、H2D 搬运、device mismatch、Meta device
+第十章   View、Clone、Detach 与 In-place    四组操作的语义边界及其与 Autograd 的关系
+第十一章 Broadcasting                     expand 与 repeat、广播不等于复制、排查方式
+第十二章 从 Tensor 视角理解内存问题        数据 / 缓存 / 计算图内存、生命周期、成本模型
+第十三章 实现一个简化版 Tensor            用 Python 复现 stride、transpose 与 contiguous copy
+第十四章 Java 工程师应该如何理解 Tensor    Tensor 与 Java 数组的关键差异
+第十五章 本文小结
+```
 
 
-## 一、Tensor 的整体模型
+## 二、Tensor 的整体模型
 
 ### 1. Tensor 不只是一个多维数组
 
@@ -178,7 +201,7 @@ print(x.numel())  # 24
 因此，`numel × itemsize` 只能估算数据本体，不能直接等同于进程的完整内存占用。
 
 
-## 二、Shape：Tensor 的逻辑形状
+## 三、Shape：Tensor 的逻辑形状
 
 ### 1. Shape、维度和元素数量
 
@@ -219,7 +242,7 @@ print(x.data_ptr() == y.data_ptr())
 
 ### 3. `view()`、`reshape()` 与 `flatten()`
 
-#### `view()`
+**`view()`**
 
 `view()` 要求现有 stride 能够支持目标形状：
 
@@ -230,7 +253,7 @@ y = x.view(2, 3)
 
 如果布局不满足要求，`view()` 通常会直接报错，而不是自动复制。
 
-#### `reshape()`
+**`reshape()`**
 
 `reshape()` 更宽松：
 
@@ -240,7 +263,7 @@ y = x.reshape(2, 3)
 
 它会在可能时返回 view，在不可能时创建拷贝。因此不能仅凭 `reshape()` 这个名字判断是否发生了内存复制。
 
-#### `flatten()`
+**`flatten()`**
 
 ```python
 x = torch.randn(2, 3, 4)
@@ -290,7 +313,7 @@ y: [[0, 1, 2],
 如果业务语义要求交换维度，应该使用 `transpose()` 或 `permute()`，而不是把 `reshape()` 当成转置。
 
 
-## 三、Stride：逻辑索引如何映射到内存
+## 四、Stride：逻辑索引如何映射到内存
 
 ### 1. 什么是 stride？
 
@@ -413,7 +436,7 @@ print(x.is_contiguous())
 ```
 
 
-## 四、Transpose、Permute 与 View
+## 五、Transpose、Permute 与 View
 
 ### 1. `transpose()` 通常只改变 metadata
 
@@ -530,7 +553,7 @@ print(z[0])  # 200
 ```
 
 
-## 五、Contiguous：连续布局与数据拷贝
+## 六、Contiguous：连续布局与数据拷贝
 
 ### 1. 什么是 contiguous？
 
@@ -610,7 +633,7 @@ PyTorch 还支持其他布局概念，例如：
 所以工程中不应把 layout 简化成一个布尔值。`is_contiguous()` 只是在默认布局语境下回答一个具体问题，不代表 Tensor 的所有存储属性。
 
 
-## 六、Storage、Storage Offset 与共享内存
+## 七、Storage、Storage Offset 与共享内存
 
 ### 1. Storage 是什么？
 
@@ -692,7 +715,7 @@ small = large[0, 0, :10].clone()
 这不是说所有切片都应该 clone，而是要根据对象生命周期和内存成本做决定。
 
 
-## 七、dtype：如何解释每个元素
+## 八、dtype：如何解释每个元素
 
 ### 1. dtype 不只是精度选项
 
@@ -797,7 +820,7 @@ Kernel 的计算 dtype
 ```
 
 
-## 八、Device：数据到底在哪里执行
+## 九、Device：数据到底在哪里执行
 
 ### 1. CPU Tensor 与 CUDA Tensor
 
@@ -926,7 +949,7 @@ print(x.device)
 Meta Tensor 不能像普通 CPU/CUDA Tensor 一样直接读取数值。它说明了“Tensor 的数据”和“Tensor 的元数据”可以在一定程度上分离。
 
 
-## 九、View、Clone、Detach 与 In-place
+## 十、View、Clone、Detach 与 In-place
 
 ### 1. View 与 Clone
 
@@ -1025,7 +1048,7 @@ Autograd 可能需要保存某些 Tensor 的旧值。如果这个 Tensor 在 bac
 > 在需要梯度的计算中，只有明确理解数据依赖和 Autograd 保存关系后，才使用 in-place 优化。
 
 
-## 十、Broadcasting：不复制数据的逻辑扩展
+## 十一、Broadcasting：不复制数据的逻辑扩展
 
 ### 1. 广播解决什么问题？
 
@@ -1100,7 +1123,7 @@ for name, value in {
 shape 相乘相等，不代表两个 Tensor 可以逐元素广播。
 
 
-## 十一、从 Tensor 视角理解内存问题
+## 十二、从 Tensor 视角理解内存问题
 
 ### 1. 数据内存、缓存内存和计算图内存
 
@@ -1192,7 +1215,7 @@ loss_value = loss.detach().item()
 这张表是分析思路，不是对所有特殊后端和布局的绝对保证。
 
 
-## 十二、实现一个简化版 Tensor
+## 十三、实现一个简化版 Tensor
 
 ### 1. 实践目标
 
@@ -1313,7 +1336,7 @@ non-contiguous view
 它的意义不是替代 PyTorch，而是把一个真实框架中的关键数据结构缩小到可以观察的范围。
 
 
-## 十三、Java 工程师应该如何理解 Tensor
+## 十四、Java 工程师应该如何理解 Tensor
 
 ### 1. Tensor 不是 `List<List<Float>>`
 
@@ -1366,7 +1389,7 @@ Tensor
 类比的价值在于搭桥，但不能让 Java 的数组和对象模型覆盖 Tensor 的真实语义。
 
 
-## 十四、本文小结
+## 十五、本文小结
 
 Tensor 是 PyTorch 编程模型的核心数据抽象。理解它，不能只停留在：
 
@@ -1447,7 +1470,7 @@ flowchart TB
 
 ### 5. 本篇涉及的源码位置
 
-本篇讨论的机制在源码中的位置（对应第一篇第四章 §3 的代码地图）：
+本篇讨论的机制在源码中的位置（对应第一篇第七章的代码地图）：
 
 | 路径 | 内容 |
 |---|---|

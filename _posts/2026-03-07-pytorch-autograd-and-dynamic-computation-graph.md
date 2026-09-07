@@ -6,7 +6,7 @@ tags: [PyTorch, AI, AI-Infra]
 catalog: true
 ---
 
-> 本文是[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)系列的第三篇（共十篇）。上一篇：[Tensor 与内存布局](/pytorch-tensor-and-memory-layout.html)　下一篇：[`nn.Module` 与训练系统](/pytorch-module-and-training-system.html)
+> 本文是[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)系列的第 3 篇（共十篇）。上一篇：[Tensor 与内存布局](/pytorch-tensor-and-memory-layout.html)；下一篇：[`nn.Module` 与训练系统](/pytorch-module-and-training-system.html)
 
 上一篇介绍了 Tensor 的核心模型：它不是一组孤立的数字，而是由 Storage、Shape、Stride、Storage Offset、dtype、device 和 layout 共同描述的一种数据抽象。
 
@@ -49,10 +49,30 @@ optimizer.step()
 - 自定义算子如何向 Autograd 提供 backward？
 - 为什么某些 in-place 操作会破坏反向传播？
 
-本文会先从链式法则和向量—雅可比积开始，再逐层解释动态计算图、Autograd Node、梯度累积、图的生命周期和自定义 `autograd.Function`。最后会实现一个 Mini-Autograd，用一个很小的系统复现 PyTorch 反向传播的核心思想。
+## 一、总览：从数学求导到运行时系统
+
+### 1. 本文的主线
+
+本文会先从链式法则和向量—雅可比积开始，再逐层解释动态计算图、Autograd Node、梯度累积、图的生命周期和自定义 `autograd.Function`。中间会专门讨论三种常用的梯度控制方式（`detach()`、`no_grad()`、`inference_mode()`）以及它们和 `model.eval()` 的组合。最后会实现一个 Mini-Autograd，用一个很小的系统复现 PyTorch 反向传播的核心思想，并整理 Autograd 最常见的几类问题和排查顺序。
+
+### 2. 本文的章节安排
+
+```text
+第二章   从数学求导到自动求导                 梯度、链式法则、向量—雅可比积、为什么从标量 Loss 开始
+第三章   动态计算图                          计算图是什么、Eager 下如何动态创建、每次 forward 都是新图
+第四章   requires_grad、Leaf Tensor 与 grad_fn  三个核心属性各决定什么、与 Parameter 的关系
+第五章   backward()：反向传播与梯度累积        一次 backward 的过程、梯度累积、zero_grad、图的释放
+第六章   计算图中的保存值与生命周期            saved tensors、保存输出等于保存整张图、saved_tensors_hooks
+第七章   detach()、no_grad() 与 inference_mode()  三种梯度控制方式的区别及与 model.eval() 的组合
+第八章   自定义 autograd.Function              save_for_backward、多输入与不可导输入、工程边界
+第九章   实现一个 Mini-Autograd                Value 节点、加法与乘法、拓扑排序、backward
+第十章   Autograd 常见问题与排查方法           几类典型报错与梯度异常
+第十一章 Java 工程师如何理解 Autograd          回调、反向程序、显式状态管理的类比
+第十二章 本文小结
+```
 
 
-## 一、从数学求导到自动求导
+## 二、从数学求导到自动求导
 
 ### 1. 梯度解决什么问题？
 
@@ -184,7 +204,7 @@ sum(y) 对 x 的梯度
 > 从当前结果出发，给定一个上游梯度，沿图计算各个输入的向量—雅可比积。
 
 
-## 二、动态计算图：每次执行都记录一条新路径
+## 三、动态计算图：每次执行都记录一条新路径
 
 ### 1. 什么是计算图？
 
@@ -302,7 +322,7 @@ def f(x: torch.Tensor) -> torch.Tensor:
 `torch.compile()` 的一个重要目标，就是在保留这种编程体验的同时，捕获其中适合优化的计算部分。它并不改变 Autograd 的基本数学含义，但可能改变计算图被捕获和执行的方式。
 
 
-## 三、`requires_grad`、Leaf Tensor 与 `grad_fn`
+## 四、`requires_grad`、Leaf Tensor 与 `grad_fn`
 
 ### 1. `requires_grad`
 
@@ -439,7 +459,7 @@ Parameter 注册
 一个普通 Tensor 可以参与梯度计算，但不会因为 `requires_grad=True` 就自动成为模型参数。
 
 
-## 四、`backward()`：反向传播与梯度累积
+## 五、`backward()`：反向传播与梯度累积
 
 ### 1. 一次 backward 的过程
 
@@ -575,7 +595,7 @@ y.backward()
 但 `retain_graph=True` 会延长计算图生命周期、增加内存占用。它应该是有明确理由的选择，而不是遇到错误时盲目添加。
 
 
-## 五、计算图中的保存值与生命周期
+## 六、计算图中的保存值与生命周期
 
 ### 1. backward 为什么需要保存中间值？
 
@@ -678,7 +698,7 @@ Autograd 图生命周期
 因此，内存问题不能只看变量名是否被删除，还要看 Tensor 是否仍然连接着 Storage 或计算图。
 
 
-## 六、`detach()`、`no_grad()` 与 `inference_mode()`
+## 七、`detach()`、`no_grad()` 与 `inference_mode()`
 
 ### 1. `detach()`：切断一个 Tensor 的 Autograd 关系
 
@@ -778,7 +798,7 @@ with torch.enable_grad():
 `train()`、`eval()`、`enable_grad()`、`no_grad()` 和 `inference_mode()` 分别控制不同的状态和上下文，不应该把它们当成同一类 API。
 
 
-## 七、自定义 `autograd.Function`
+## 八、自定义 `autograd.Function`
 
 ### 1. 为什么需要自定义 Autograd？
 
@@ -898,7 +918,7 @@ torch.autograd.gradgradcheck
 进行数值验证。
 
 
-## 八、实现一个 Mini-Autograd
+## 九、实现一个 Mini-Autograd
 
 ### 1. 实践目标
 
@@ -1096,7 +1116,7 @@ Mini-Autograd 没有实现：
 它不是 PyTorch 的替代品，而是一个帮助理解反向传播的数据结构实验。
 
 
-## 九、Autograd 常见问题与排查方法
+## 十、Autograd 常见问题与排查方法
 
 ### 1. `element 0 of tensors does not require grad`
 
@@ -1198,7 +1218,7 @@ torch.autograd.set_detect_anomaly(True)
 定位异常 backward，但它会增加大量开销，只适合调试阶段使用。
 
 
-## 十、Java 工程师如何理解 Autograd
+## 十一、Java 工程师如何理解 Autograd
 
 ### 1. Autograd 不是普通事件回调
 
@@ -1283,7 +1303,7 @@ requires_grad / grad_fn / Graph / Gradient
 ```
 
 
-## 十一、本文小结
+## 十二、本文小结
 
 Autograd 的核心任务，是把数学上的链式法则变成一次沿动态计算图执行的反向遍历。
 
@@ -1361,7 +1381,7 @@ loss 是否参与了目标参数的计算？
 
 ### 6. 本篇涉及的源码位置
 
-本篇讨论的机制在源码中的位置（对应第一篇第四章 §3 的代码地图）：
+本篇讨论的机制在源码中的位置（对应第一篇第七章的代码地图）：
 
 | 路径 | 内容 |
 |---|---|

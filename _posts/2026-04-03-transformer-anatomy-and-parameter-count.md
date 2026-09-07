@@ -14,10 +14,30 @@ catalog: true
 
 > **给你任意一个模型的 `config.json`，不运行代码，能不能在五分钟内算出它的参数量，并说出这些参数在 attention、FFN、embedding 之间怎么分配？误差要在 1% 以内。**
 
+
+## 一、总览：三个基线模型与一张形状表
+
+### 1. 分析对象
+
 贯穿本系列的三个模型是 **Llama-3-8B**、**Llama-3-70B** 和 **DeepSeek-V3**。本篇把前两个 dense 模型算到最后一位，对 DeepSeek-V3 只列出 config 里与前两者不同的字段，它的 attention（MLA）在第三篇、FFN（MoE）在第五篇展开。后续每一篇的 FLOPs、字节数、KV cache、通信量，都建立在本篇的形状表之上。
 
+### 2. 本文的章节安排
 
-## 一、decoder-only Transformer 的整体结构
+```text
+第二章   decoder-only Transformer 的整体结构   四段式、残差流为什么把所有子层锁在维度 d、pre-norm 与 post-norm
+第三章   attention 子层的四个矩阵              W_Q/W_K/W_V/W_O 的形状、MHA/GQA/MQA 只是 n_kv 的取值、代入 Llama-3-8B
+第四章   FFN 子层                              从两矩阵到 SwiGLU 三矩阵、14336 是怎么来的、代入两个模型
+第五章   Norm、bias 与 embedding               RMSNorm 与 LayerNorm、bias 为什么消失、embedding/lm_head 与 tie
+第六章   参数量公式与三个模型                  公式、逐项代入 8B/70B/405B、参数分布、几种常见的算错方式
+第七章   DeepSeek-V3 的 config                 与 dense 模型相比形状不同在哪里
+第八章   对照 modeling_llama.py                每个类对应哪些矩阵、哪些形状
+第九章   shape 追踪                            [batch, seq, hidden] 到 GEMM 的 m、k、n；prefill 与 decode 的差别；TP 如何切
+第十章   实践                                  llm_cost.py 第一版：从 config.json 算参数量
+第十一章 本文小结
+```
+
+
+## 二、decoder-only Transformer 的整体结构
 
 ### 1. 四段式：embedding、L 个 layer、final norm、lm_head
 
@@ -93,7 +113,7 @@ $$
 对本篇的参数量计算而言，两者没有区别：每层都是两个 Norm。对第六篇的数值分析而言，区别很大：pre-norm 的残差流在 BF16 下随深度累积的幅度增长，是低精度训练需要关心的地方。Llama、Mistral、DeepSeek 全部使用 pre-norm，本系列后续默认 pre-norm。
 
 
-## 二、attention 子层的四个矩阵
+## 三、attention 子层的四个矩阵
 
 ### 1. 从 Q、K、V 的定义到矩阵形状
 
@@ -174,7 +194,7 @@ $$
 $$QK^\top$$、softmax、$$PV$$ 这几步没有任何可学习参数，它们的算量与上下文长度 $$s$$ 成正比（每层每 token $$4 d s$$ FLOPs，第二篇推导），但对本篇的参数量没有贡献。RoPE 位置编码也没有参数，它只是对 Q、K 做一个由位置决定的旋转（第四篇）。这提醒我们：**参数量只衡量权重，不衡量 attention 对上下文的那部分计算**，两者在长上下文下会严重分离。
 
 
-## 三、FFN 子层：从两矩阵到 SwiGLU 三矩阵
+## 四、FFN 子层：从两矩阵到 SwiGLU 三矩阵
 
 ### 1. 传统 FFN
 
@@ -249,7 +269,7 @@ Llama-3-70B   8192    28672    704,643,072 = 704.64M    82.3%
 $$d_{ff} / d = 3.5$$，对两个模型都成立。因此 SwiGLU FFN 的参数量可以记成 $$3 \times 3.5 \, d^2 = 10.5 \, d^2$$，比 attention 的 $$2d^2 + 2 d \cdot d_{kv} \approx 2.5 d^2$$ 大 4 倍多。**dense 模型每一层约 80% 的参数在 FFN 里**，这是 MoE 选择把 FFN 而不是 attention 换成专家的直接原因：参数大头在这里，把它"稀疏化"收益最大（第五篇）。
 
 
-## 四、Norm、bias 与 embedding
+## 五、Norm、bias 与 embedding
 
 ### 1. RMSNorm 与 LayerNorm
 
@@ -309,7 +329,7 @@ $$
 训练时 lm_head 输出的 logits 是 `[batch, seq, V]` 的 FP32 张量，$$V = 128256$$ 时每个 token 512 KB，8K 序列、batch 1 就是 4 GB——这是训练显存里经常被忽视的一块，也是很多框架把 lm_head 与 cross-entropy 融合、分块计算的原因。
 
 
-## 五、参数量公式与三个模型
+## 六、参数量公式与三个模型
 
 ### 1. 公式
 
@@ -446,10 +466,10 @@ lm_head               0.525B     6.5%            1.051B     1.5%
 
 **默认 $$n_h \cdot d_{head} = d$$。** 对 Llama 成立，对 DeepSeek-V3（$$128 \times 128 \ne 7168$$）和一些显式给出 `head_dim` 的模型不成立。公式里用 $$n_h d_{head}$$ 而不是 $$d$$ 作为 $$W_Q$$ 的列数、$$W_O$$ 的行数，就不会错。
 
-这些错误都可以用第九章的脚本避免：它按 config 字段逐项算，不依赖任何"通常等于"的假设。
+这些错误都可以用第十章的脚本避免：它按 config 字段逐项算，不依赖任何"通常等于"的假设。
 
 
-## 六、DeepSeek-V3 的 config：形状不同在哪里
+## 七、DeepSeek-V3 的 config：形状不同在哪里
 
 DeepSeek-V3 是本系列的第三个贯穿模型，它的 attention 和 FFN 都不是上面的形状，本篇只列出 config 里的关键字段并说明差异在哪里，推导留给第三篇（MLA）和第五篇（MoE）。
 
@@ -486,7 +506,7 @@ DeepSeek-V3 是本系列的第三个贯穿模型，它的 attention 和 FFN 都�
 把三个模型放在一起看，能看到两条不同的放大路线。Llama 从 8B 到 70B 到 405B 是同一个形状按比例放大：$$d$$、$$L$$、$$n_h$$ 一起增长，$$d_{ff}/d$$ 和 $$n_{kv}$$ 基本不变，每 token 的算量与参数量同步增长。DeepSeek-V3 则是把参数量放大到 671B，但通过路由让每 token 只用其中 37B，算量停留在一个 40B 级 dense 模型的水平；代价是全部 671B 参数都必须常驻显存（FP8 下 671 GB，至少 9 张 H100 只放权重），以及专家之间的 all-to-all 通信。"参数量"这个词在 MoE 出现之后就不再单独对应成本，必须同时报总参数（决定显存）和激活参数（决定算量）——这是本系列反复强调"参数量只是成本的一个维度"的第一个具体例子。
 
 
-## 七、对照 transformers 的 modeling_llama.py
+## 八、对照 transformers 的 modeling_llama.py
 
 `transformers` 库里 `models/llama/modeling_llama.py` 是上面所有形状的代码形式。读它的时候只需要盯住每个 `nn.Linear(in_features, out_features, bias)` 的两个维度，就能与公式一一对应。以下按类结构描述，不引用具体行号（不同版本行号会变，类结构多年稳定）。
 
@@ -591,7 +611,7 @@ class LlamaDecoderLayer(nn.Module):
         return hidden_states
 ```
 
-这是第一章的 pre-norm 结构逐字翻译：两个 RMSNorm（`input_layernorm`、`post_attention_layernorm`，名字里的 "layernorm" 是历史遗留，实际是 RMSNorm），两条残差。
+这是第二章的 pre-norm 结构逐字翻译：两个 RMSNorm（`input_layernorm`、`post_attention_layernorm`，名字里的 "layernorm" 是历史遗留，实际是 RMSNorm），两条残差。
 
 ```python
 class LlamaModel(LlamaPreTrainedModel):
@@ -624,7 +644,7 @@ print(sum(p.numel() for p in model.parameters()))   # 8030261248
 在 `meta` 设备上构造模型不占显存，几秒钟就能验证任意 config 的参数总量。
 
 
-## 八、shape 追踪：[batch, seq, hidden] 到 GEMM 的 m、k、n
+## 九、shape 追踪：[batch, seq, hidden] 到 GEMM 的 m、k、n
 
 参数量决定显存，但决定算量和 kernel 行为的是每个矩阵乘的具体形状。这一节追踪一个 `[batch, seq, hidden]` 的激活张量在一层里经过的每一个 GEMM。
 
@@ -695,10 +715,10 @@ prefill 的 $$m$$ 是整个 prompt 的 token 数，GEMM 是"胖"的，$$m$$ 与 
 - `gate/up_proj` 按 $$n$$ 切，每卡 $$n = 28672 / 8 = 3584$$；
 - `down_proj` 按 $$k$$ 切，每卡 $$k = 1792$$，输出后 all-reduce。
 
-第三章说 $$d_{ff}$$ 对齐到 1024 的倍数，在这里体现为切 8 路后 $$1792 = 14 \times 128$$ 仍是 Tensor Core tile 的倍数。Llama-3-70B 的 $$n_{kv} = 8$$ 同样是为 8 卡 TP 准备的。
+第四章说 $$d_{ff}$$ 对齐到 1024 的倍数，在这里体现为切 8 路后 $$1792 = 14 \times 128$$ 仍是 Tensor Core tile 的倍数。Llama-3-70B 的 $$n_{kv} = 8$$ 同样是为 8 卡 TP 准备的。
 
 
-## 九、实践：llm_cost.py 第一版
+## 十、实践：llm_cost.py 第一版
 
 本系列的贯穿脚本 `llm_cost.py` 从本篇开始，每篇增加几个函数。第一版只做一件事：从超参数算出逐组件参数量并打印表格。完整可运行代码如下。
 
@@ -895,7 +915,7 @@ total                    70.554B    70,553,706,496
 可以试着把其他模型的 `config.json` 喂给脚本：Mistral-7B（$$d = 4096$$、$$L = 32$$、$$n_{kv} = 8$$、$$d_{ff} = 14336$$、$$V = 32000$$）会得到 7.24B，与 Llama-3-8B 的差恰好是词表从 32000 到 128256 多出的 $$2 \times 96256 \times 4096 = 789\text{M}$$；Qwen2.5-7B（$$d = 3584$$、$$L = 28$$、$$n_h = 28$$、$$n_{kv} = 4$$、$$d_{ff} = 18944$$、$$V = 152064$$）会得到 7.6B 左右，与公布的 7.61B 一致（它的 Q/K/V 有 bias，差的几十万个参数在脚本的忽略范围内）。DeepSeek-V3 的 config 喂进去会得到错误的结果，因为它的 attention 与 FFN 不是这个形状——那是第三篇和第五篇要扩展的。
 
 
-## 十、小结
+## 十一、本文小结
 
 本篇把一个 decoder-only Transformer 拆到了每一个矩阵：
 

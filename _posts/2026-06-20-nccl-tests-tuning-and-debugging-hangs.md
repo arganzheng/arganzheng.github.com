@@ -6,7 +6,7 @@ tags: [NCCL, RDMA, GPU, AI, AI-Infra]
 catalog: true
 ---
 
-> 本文是[《通信与互联：从 NCCL 到 RDMA》](/communication-and-interconnect-for-ai-infra.html)系列的第 6 篇（共七篇）。上一篇：[PyTorch 的通信栈：ProcessGroupNCCL、stream 语义与计算通信重叠](/pytorch-communication-stack-processgroupnccl-and-streams.html)　下一篇：[推理侧的通信：custom all-reduce 与 KV 传输](/inference-communication-custom-all-reduce-and-kv-transfer.html)
+> 本文是[《通信与互联：从 NCCL 到 RDMA》](/communication-and-interconnect-for-ai-infra.html)系列的第 6 篇（共八篇）。上一篇：[PyTorch 的通信栈：ProcessGroupNCCL、stream 语义与计算通信重叠](/pytorch-communication-stack-processgroupnccl-and-streams.html)　下一篇：[推理侧的通信：custom all-reduce 与 KV 传输](/inference-communication-custom-all-reduce-and-kv-transfer.html)
 
 前五篇建立了一条完整的因果链：第一篇的 α-β 模型给出一次集合通信的理论时间，第二、三篇给出链路能提供的 β 和 α，第四篇讲 NCCL 如何在探测到的拓扑上选 ring/tree、channel 数、算法与协议去逼近这个上限，第五篇讲 ProcessGroupNCCL 如何把 NCCL kernel 放到自己的 stream 上、watchdog 如何盯着每一个 `WorkNCCL`。这条链上每一环都可能出错，而错误的表现只有三种：**慢**、**卡**、**结果不对**。本篇的任务是把前五篇变成一套可操作的方法——面对这三种现象，先测什么、先看什么、先改什么。
 

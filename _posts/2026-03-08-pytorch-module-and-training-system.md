@@ -6,7 +6,7 @@ tags: [PyTorch, AI, AI-Infra]
 catalog: true
 ---
 
-> 本文是[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)系列的第四篇（共十篇）。上一篇：[自动求导与动态计算图](/pytorch-autograd-and-dynamic-computation-graph.html)　下一篇：[Dispatcher 与算子系统](/pytorch-dispatcher-and-operator-system.html)
+> 本文是[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)系列的第 4 篇（共十篇）。上一篇：[自动求导与动态计算图](/pytorch-autograd-and-dynamic-computation-graph.html)；下一篇：[Dispatcher 与算子系统](/pytorch-dispatcher-and-operator-system.html)
 
 上一篇讨论了 Autograd：Tensor 运算如何形成动态计算图，`backward()` 如何沿图传播梯度，以及梯度状态和计算图生命周期之间有什么关系。
 
@@ -44,7 +44,33 @@ Parameter 更新
 > **PyTorch 如何把模型结构、参数状态、数据管线和训练循环组织成一个可以保存、迁移、复用和扩展的系统？**
 
 
-## 一、从模型对象到训练系统
+## 一、总览：从模型对象到训练系统
+
+### 1. 本文的主线
+
+本文沿着上面那条从 Module 树到参数更新的链路展开：先看一个模型对象里到底包含什么，`nn.Module` 靠什么机制发现子模块、Parameter 和 Buffer，`state_dict` 如何把模型状态变成可保存、可迁移的快照；再进入训练系统的其余部分——训练 / 评估 / 推理三种状态、Optimizer、Dataset / Sampler / DataLoader、CPU 到 GPU 的数据搬运；然后把这些部件拼成一个完整训练循环，并补上混合精度、Hook 和 checkpoint 三个工程上绕不开的话题。
+
+### 2. 本文的章节安排
+
+```text
+第二章   从模型对象到训练系统              一个模型包含什么、Module 树、forward、生命周期容器
+第三章   nn.Module 与模块注册              __setattr__ 的注册机制、ModuleList / ModuleDict / Sequential
+第四章   Parameter、Buffer 与模型状态       三类属性的区别、为什么普通 Tensor 不会自动迁移
+第五章   state_dict                       保存什么、不是完整模型、保存与加载、可恢复 checkpoint
+第六章   训练、评估与推理状态              train() / eval()、eval 不等于关闭梯度、完整评估函数
+第七章   Optimizer 与参数更新              Optimizer 管理什么、梯度清零、参数组、冻结、state
+第八章   Dataset、Sampler 与 DataLoader     三者的职责、collate_fn、瓶颈与 num_workers
+第九章   CPU-GPU 数据传输与训练流水线       设备兼容、模型迁移、pinned memory、理想流水线
+第十章   完整训练循环                     最小循环、完整程序、一次迭代的状态流、常见顺序错误
+第十一章 混合精度训练入门                 autocast、GradScaler 及其边界
+第十二章 Hooks 与模型观测                 Hook 能做什么、成本与风险
+第十三章 Checkpoint 与可恢复训练          保存什么、何时保存、resume 不只是加载权重
+第十四章 Java 工程师如何理解 nn.Module     组件树、Parameter、state_dict、DataLoader 的类比
+第十五章 本文小结
+```
+
+
+## 二、从模型对象到训练系统
 
 ### 1. 一个模型包含什么？
 
@@ -276,7 +302,7 @@ flowchart TB
 后续所有训练行为，都建立在 Module 能够找到并管理这些对象的前提上。
 
 
-## 二、`nn.Module` 与模块注册
+## 三、`nn.Module` 与模块注册
 
 ### 1. 为什么需要注册？
 
@@ -429,7 +455,7 @@ model = nn.Sequential(
 则通常应该使用自定义 Module，而不是强行塞进 Sequential。
 
 
-## 三、Parameter、Buffer 与模型状态
+## 四、Parameter、Buffer 与模型状态
 
 ### 1. Parameter 是什么？
 
@@ -555,7 +581,7 @@ class GoodModule(nn.Module):
 ```
 
 
-## 四、`state_dict`：模型状态的结构化快照
+## 五、`state_dict`：模型状态的结构化快照
 
 ### 1. `state_dict()` 保存什么？
 
@@ -681,7 +707,7 @@ state_dict
 这种设计使得权重状态和模型代码相对解耦，也使得模型结构变更时必须显式处理兼容性。
 
 
-## 五、训练、评估与推理状态
+## 六、训练、评估与推理状态
 
 ### 1. `train()` 与 `eval()`
 
@@ -774,7 +800,7 @@ def evaluate(
 - 按样本数量汇总指标。
 
 
-## 六、Optimizer 与参数更新
+## 七、Optimizer 与参数更新
 
 ### 1. Optimizer 管理什么？
 
@@ -918,7 +944,7 @@ optimizer.state_dict()
 这也是大模型训练中 Optimizer state 可能成为显存主要消耗者的原因之一：Adam 训练下每个参数要占 16 字节（参数、梯度、两个动量），第八篇会算这笔账。多卡训练时 Optimizer state 是最先被切分到各卡上的状态——第九篇的 ZeRO 与 FSDP 从这里开始。
 
 
-## 七、Dataset、Sampler 与 DataLoader
+## 八、Dataset、Sampler 与 DataLoader
 
 ### 1. Dataset 的职责
 
@@ -1141,7 +1167,7 @@ GPU
 但 DataLoader 不是简单的 Java `ExecutorService`：它还涉及 Python 进程、Tensor 共享、pinned memory 和设备搬运。
 
 
-## 八、CPU-GPU 数据传输与训练流水线
+## 九、CPU-GPU 数据传输与训练流水线
 
 ### 1. 模型和数据必须位于兼容设备
 
@@ -1254,7 +1280,7 @@ value = loss.detach().item()
 ```
 
 
-## 九、完整训练循环
+## 十、完整训练循环
 
 ### 1. 最小训练循环
 
@@ -1336,7 +1362,7 @@ sequenceDiagram
 
 ### 4. 训练循环中的常见顺序错误
 
-#### 忘记调用 `optimizer.step()`
+**忘记调用 `optimizer.step()`**
 
 ```python
 loss.backward()
@@ -1345,7 +1371,7 @@ loss.backward()
 
 这样只计算了梯度，没有更新参数。
 
-#### 忘记清空梯度
+**忘记清空梯度**
 
 ```python
 loss.backward()
@@ -1354,7 +1380,7 @@ optimizer.step()
 
 如果没有在下一步前清零，梯度会继续累积。
 
-#### 在 forward 前错误地清零
+**在 forward 前错误地清零**
 
 通常推荐：
 
@@ -1368,7 +1394,7 @@ optimizer.step()
 
 关键不是某一行绝对不能换位置，而是每一次 backward 前必须明确当前 `.grad` 中应该保留什么。
 
-#### 验证阶段仍然构建计算图
+**验证阶段仍然构建计算图**
 
 ```python
 model.eval()
@@ -1385,7 +1411,7 @@ with torch.inference_mode():
 ```
 
 
-## 十、混合精度训练入门
+## 十一、混合精度训练入门
 
 ### 1. 为什么使用混合精度？
 
@@ -1449,7 +1475,7 @@ BF16 的指数范围接近 FP32，很多训练场景不需要和 FP16 完全相�
 应使用正确性测试和 Benchmark 验证，而不是只看代码中出现了 `autocast`。本节只介绍混合精度作为训练 API 的用法；它为什么能加速（Tensor Core 与访存量减半）、什么时候加速不明显、如何用 Benchmark 确认收益，第八篇作为一条性能处方展开。
 
 
-## 十一、Hooks 与模型观测
+## 十二、Hooks 与模型观测
 
 ### 1. Hook 能做什么？
 
@@ -1516,7 +1542,7 @@ model.forward(inputs)
 这与第一篇对 PyTorch 调用路径的介绍相互呼应。
 
 
-## 十二、Checkpoint 与可恢复训练
+## 十三、Checkpoint 与可恢复训练
 
 ### 1. 只保存模型权重
 
@@ -1586,7 +1612,7 @@ start_epoch = checkpoint["epoch"] + 1
 - 外部依赖版本。
 
 
-## 十三、Java 工程师如何理解 `nn.Module`
+## 十四、Java 工程师如何理解 `nn.Module`
 
 ### 1. Module 更像带状态协议的组件树
 
@@ -1644,7 +1670,7 @@ DataLoader 可以类比生产者—消费者，但它还额外包含：
 所以调优 DataLoader 不能只看线程池大小，还要看数据格式、CPU、内存、总线和 GPU 消费速度。
 
 
-## 十四、本文小结
+## 十五、本文小结
 
 本文讨论了 PyTorch 如何把 Module、参数、状态、数据和训练循环组织成完整系统。
 
@@ -1736,7 +1762,7 @@ checkpoint 是否保存了完整状态？
 
 ### 6. 本篇涉及的源码位置
 
-本篇讨论的机制在源码中的位置（对应第一篇第四章 §3 的代码地图）：
+本篇讨论的机制在源码中的位置（对应第一篇第七章的代码地图）：
 
 | 路径 | 内容 |
 |---|---|

@@ -6,7 +6,7 @@ tags: [Kubernetes, GPU, KServe, llm-d, vLLM, AI, AI-Infra]
 catalog: true
 ---
 
-> 本文是[《AI 平台工程：资源层与交付层》](/ai-platform-engineering.html)系列的第 6 篇。上一篇：[网络与存储：RDMA 进容器、并行文件系统与 checkpoint I/O](/rdma-networking-storage-and-checkpoint-io.html)；下一篇：[模型网关与多租户：路由、配额与灰度](/model-gateway-multi-tenancy-and-quota.html)。
+> 本文是[《AI 平台工程：资源层与交付层》](/ai-platform-engineering.html)系列的第 6 篇（共八篇）。上一篇：[网络与存储：RDMA 进容器、并行文件系统与 checkpoint I/O](/rdma-networking-storage-and-checkpoint-io.html)；下一篇：[模型网关与多租户：路由、配额与灰度](/model-gateway-multi-tenancy-and-quota.html)。
 
 一个常见的事故是这样的：某个 70B 模型的推理服务用 Deployment 部署了 2 个副本，每个副本 TP=4 占一台 4 卡机器，HPA 按 CPU 利用率 70% 扩容。晚高峰到来，用户侧 TTFT 从 1 秒涨到 20 秒，`kubectl get hpa` 却显示 CPU 只有 12%——vLLM 的 CPU 几乎全在等 GPU，KV cache 早已占满、几百个请求在引擎内部的等待队列里排队，而 K8s 对此一无所知。值班同学手动把副本改成 6，新 Pod 调度、拉镜像、从对象存储拉 140 GB 权重、加载到显存、做 CUDA graph 捕获，8 分钟后第一个新副本才开始接流量，此时高峰已经过去一半。第二天有人把副本常驻改成 6，于是 16 张 H100 在白天的 20 个小时里几乎空转。
 

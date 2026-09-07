@@ -8,7 +8,7 @@ catalog: true
 
 ## 内容简介
 
-《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》以 vLLM v0.27.1 为主要分析对象，从 LLM Serving 的问题本质出发，系统讲解请求生命周期、性能指标、调度、KV Cache、GPU 执行、多卡并行、模型适配、硬件抽象、Prefill/Decode 分离与集群化部署。
+《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》以 vLLM v0.27.1 为主要分析对象，从 LLM Serving 的问题本质出发，系统讲解请求生命周期、性能指标、调度、KV Cache、GPU 执行、解码的扩展（采样、投机解码与结构化输出）、多卡并行、模型适配、请求形态的扩展（multi-LoRA 与多模态）、硬件抽象、Prefill/Decode 分离与集群化部署，共十四篇。
 
 本系列不局限于算子优化，也不止于源码解读，而是试图回答一个更完整的问题：
 
@@ -190,11 +190,25 @@ KV Cache 并不是普通的临时张量。它是 Decode 阶段持续依赖的请
 
 通过这种区分，可以更准确地理解为什么 GPU 算力很强，LLM Serving 仍然可能受限于带宽、Launch Overhead 或小规模 Decode。
 
-### 7. 从单卡走向多卡：扩展会引入什么新问题？
+### 7. 采样这一步还能怎么变：解码的扩展
+
+第六章结束于"一轮 batch 在 GPU 上跑完 forward 并采样出 token"。第七章紧接着回答：**采样这一步还能怎么变？**
+
+> **同样是"下一个 token"，为什么加上 top-p、加上 draft 模型、加上 JSON schema 之后，调度器、KV 管理和 model runner 都得改？**
+
+这一章讨论三种对 decode 每一步输出方式的扩展：
+
+- logits processors：温度、top-p、惩罚、thinking budget 等如何在同一个 batch 内按请求向量化地生效；
+- 投机解码：draft 多个 token 再验证，改变了调度器的 token 预算与 KV 预分配、model runner 的输入形状、采样器的拒绝采样；
+- 结构化输出：grammar → bitmask → logits 掩码，与调度器的异步编译协同，并与投机解码逐 token 对账。
+
+三者同时牵动第四章的调度、第五章的 KV 与第六章的执行，所以必须放在第六章之后、多卡之前——如果留到多卡与模型适配之后再讲，就要反复回头。
+
+### 8. 从单卡走向多卡：扩展会引入什么新问题？
 
 单卡上的调度、内存和执行问题，在多卡环境中会进一步叠加通信和拓扑约束。
 
-第七章比较 DP、TP、PP、EP、CP 等并行方式，重点不在于罗列概念，而在于说明它们分别解决什么问题、引入什么代价，以及适合什么场景。
+第八章比较 DP、TP、PP、EP、CP 等并行方式，重点不在于罗列概念，而在于说明它们分别解决什么问题、引入什么代价，以及适合什么场景。
 
 核心关注点包括：
 
@@ -208,11 +222,11 @@ KV Cache 并不是普通的临时张量。它是 Decode 阶段持续依赖的请
 
 > **多卡扩展不是简单地“增加 GPU 数量”，而是重新设计计算、状态和通信之间的关系。**
 
-### 8. 从固定模型走向模型生态：抽象如何承受变化？
+### 9. 从固定模型走向模型生态：抽象如何承受变化？
 
 模型结构正在快速演进。不同模型可能在 Attention、MoE、位置编码、缓存布局、权重格式和执行路径上存在明显差异。
 
-第八章讨论 Serving 系统如何承接这些差异，并分析模型适配从临时 Patch 走向体系化抽象的过程。
+第九章讨论 Serving 系统如何承接这些差异，并分析模型适配从临时 Patch 走向体系化抽象的过程。
 
 这里关注的并不只是“新模型能不能运行”，还包括：
 
@@ -226,11 +240,24 @@ KV Cache 并不是普通的临时张量。它是 Decode 阶段持续依赖的请
 
 > **能跑，是模型适配的起点；能够高效、稳定、可维护地运行，才是 Serving Infra 的真正目标。**
 
-### 9. 从单一硬件走向多后端：如何保持核心稳定？
+### 10. 一个请求还可以带什么进来：请求形态的扩展
+
+第九章讲"一个新模型如何接进来"，隐含的假设是一个模型、一份权重、一串 token。第十章回答：**一个请求还可以带什么进来？**
+
+> **当一个 batch 里的请求各带不同的 LoRA、各带几张图片时，"一个模型、一份权重、一串 token"的假设在哪里破了？vLLM 用什么把它重新缝起来，代价是多少？**
+
+这一章讨论两种在模型适配之上的"请求形态"扩展：
+
+- multi-LoRA：同一 batch 内不同 adapter 的 Triton kernel，LoRA 权重的槽位、LRU 与换入换出，`max_loras` / `max_lora_rank` 的显存账，对调度公平性与 CUDA Graph 的影响；
+- 多模态：图像 / 音频 / 视频的 token 化与占位符，encoder 的独立预算与 encoder cache，多模态 prefix cache 的哈希，encoder 输出与 KV 之争。
+
+两者都给后面的硬件抽象（第十一章）与 PD 分离（第十二章）提出了新约束——多模态 encoder 放哪一侧、LoRA 在 PD 两池怎么同步——所以放在第九章之后、第十一章之前。
+
+### 11. 从单一硬件走向多后端：如何保持核心稳定？
 
 当 Serving 系统需要支持不同 GPU、不同加速器和不同软件栈时，硬件差异不能无限向上渗透。
 
-第九章围绕 Platform、Backend、Device、Kernel 和执行后端之间的边界展开，讨论硬件抽象的价值与局限。
+第十一章围绕 Platform、Backend、Device、Kernel 和执行后端之间的边界展开，讨论硬件抽象的价值与局限。
 
 真正的硬件解耦，并不是把所有差异都藏起来，而是明确：
 
@@ -242,11 +269,11 @@ KV Cache 并不是普通的临时张量。它是 Decode 阶段持续依赖的请
 
 这一章会把“可移植性”从口号还原成具体的代码组织和职责边界问题。
 
-### 10. 从资源混部走向计算解耦：为什么需要 PD 分离？
+### 12. 从资源混部走向计算解耦：为什么需要 PD 分离？
 
 当模型规模、请求量和服务目标继续增长时，单个实例同时承担 Prefill 和 Decode，可能不再是最优选择。
 
-第十章讨论 Prefill/Decode Disaggregation，以及由此带来的 KV Transfer、路由、网络、状态亲和性和故障恢复问题。
+第十二章讨论 Prefill/Decode Disaggregation，以及由此带来的 KV Transfer、路由、网络、状态亲和性和故障恢复问题。
 
 PD 分离并不是简单地把两个阶段部署到不同机器上。它重新定义了请求状态的流动方式：
 
@@ -258,9 +285,9 @@ PD 分离并不是简单地把两个阶段部署到不同机器上。它重新�
 
 因此，是否采用 PD 分离，最终取决于工作负载、硬件资源、网络条件和服务目标，而不是某个单一的性能结论。
 
-### 11. 从执行器走向系统：Serving Infra 的下一站
+### 13. 从执行器走向系统：Serving Infra 的下一站
 
-前面的章节主要围绕“如何把请求执行得更好”，第十一章则进一步抽象：
+前面的章节主要围绕“如何把请求执行得更好”，第十三章则进一步抽象：
 
 > **未来的 Serving 系统，是否会从一个模型执行器，演化为管理计算、内存、通信和状态的分布式系统？**
 
@@ -272,7 +299,7 @@ PD 分离并不是简单地把两个阶段部署到不同机器上。它重新�
 
 > **把模型推理从一次函数调用，提升为由系统统一管理的计算与状态过程。**
 
-### 12. 最后回到源码：把抽象还原成工程事实
+### 14. 最后回到源码：把抽象还原成工程事实
 
 最后一章回到 vLLM v0.27.1 源码，将前面建立的概念映射到具体对象、模块和调用链。
 
@@ -294,8 +321,8 @@ PD 分离并不是简单地把两个阶段部署到不同机器上。它重新�
 1. 先从工作负载定义问题；
 2. 再用指标定位矛盾；
 3. 用请求生命周期建立全局视角；
-4. 从调度、内存和执行三个核心战场深入；
-5. 将问题扩展到多卡、模型、硬件和计算解耦；
+4. 从调度、内存和执行三个核心战场深入，并看解码这一步如何被采样、投机与结构化输出扩展；
+5. 将问题扩展到多卡、模型、请求形态（LoRA 与多模态）、硬件和计算解耦；
 6. 最后回到源码，用实现细节验证系统抽象。
 
 沿着这条线阅读，vLLM 不再只是一个“推理框架”，而会呈现为一个持续协调**请求、Token、状态、计算、显存和通信**的动态系统。
@@ -304,16 +331,16 @@ PD 分离并不是简单地把两个阶段部署到不同机器上。它重新�
 
 ### 前置要求
 
-- 理解 Transformer 的结构与算量：参数量、Prefill / Decode 的 FLOPs 与访存量、KV Cache 的大小公式、GQA / MLA 对 KV 的影响。本系列直接使用这些结论而不再推导，缺少这部分基础的读者建议先读[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)；
+- 理解 Transformer 的结构与算量：参数量、Prefill / Decode 的 FLOPs 与访存量、KV Cache 的大小公式、GQA / MLA 对 KV 的影响。本系列直接使用这些结论而不再推导，缺少这部分基础的读者可先补 Transformer 算量与 KV Cache 的推导；
 - 理解 PyTorch 运行时的基本结构：Tensor 与算子分发、CUDA stream 与同步、`torch.compile` 的大致工作方式；
 - 能读 Python，能顺着 import 在一个几十万行的代码库里定位对象；
 - 对 GPU 的 memory-bound / compute-bound 有基本判断。
 
 不要求：
 
-- 写过 CUDA kernel 或 Triton——FlashAttention、PagedAttention、量化 kernel 的实现属于[《GPU Kernel 工程》](/gpu-kernel-engineering.html)，本系列只讨论 vLLM 如何选择和调用它们；
-- 了解 NCCL 内部或集合通信算法——多卡章节会用到 all-reduce / all-to-all 的代价结论，原理见[《通信与互联》](/communication-and-interconnect-for-ai-infra.html)；
-- 有分布式训练经验——TP / PP / EP 的推导在[《大规模训练工程》](/large-scale-training-from-parallelism-to-fault-tolerance.html)，本系列关注它们在推理中的取舍与 vLLM 的实现。
+- 写过 CUDA kernel 或 Triton——FlashAttention、PagedAttention、量化 kernel 的内部实现属于 kernel 工程的范畴，本系列只讨论 vLLM 如何选择和调用它们；
+- 了解 NCCL 内部或集合通信算法——多卡章节会用到 all-reduce / all-to-all 的代价结论，正文会给出理解所需的最小推导，NCCL 与互联硬件的原理不在本系列展开；
+- 有分布式训练经验——TP / PP / EP 在训练侧的推导不在本系列展开，本系列关注它们在推理中的取舍与 vLLM 的实现。
 
 ### 版本与硬件基线
 
@@ -328,18 +355,20 @@ PD 分离并不是简单地把两个阶段部署到不同机器上。它重新�
 
 ## 章节目录（建议按顺序阅读）
 
-1. [为什么 LLM Serving 比传统 DL 推理难？](/deep-dive-into-vllm-01-why-llm-serving-is-hard.html)
-2. [如何衡量一个 LLM Serving 系统？](/deep-dive-into-vllm-02-how-to-measure-llm-serving.html)
-3. [鸟瞰 vLLM：一个请求如何穿过整个推理系统？](/deep-dive-into-vllm-03-vllm-request-lifecycle-overview.html)
-4. [Scheduler：GPU 这一轮到底给谁用？](/deep-dive-into-vllm-04-scheduler-batch-and-fairness.html)
-5. [KV Cache：LLM Serving 的第一号内存问题](/deep-dive-into-vllm-05-kv-cache-memory-core.html)
-6. [GPU 执行：如何让每个 Token 算得更快？](/deep-dive-into-vllm-06-gpu-execution-kernels-and-graphs.html)
-7. [Multi-GPU：一张卡不够时如何扩展？](/deep-dive-into-vllm-07-multi-gpu-scaling-strategies.html)
-8. [模型适配：如何跟上变化极快的模型世界？](/deep-dive-into-vllm-08-model-adaptation-architecture.html)
-9. [硬件解耦：如何不让芯片差异污染 Serving 核心？](/deep-dive-into-vllm-09-hardware-abstraction-and-portability.html)
-10. [PD 分离：从资源混部走向计算解耦](/deep-dive-into-vllm-10-prefill-decode-disaggregation.html)
-11. [Serving Infra 的下一站：从模型执行器到分布式智能操作系统](/deep-dive-into-vllm-11-future-of-serving-infra.html)
-12. [回到源码：一次请求在 vLLM 内部的真实旅程](/deep-dive-into-vllm-12-source-code-request-walkthrough.html)
+1. [为什么 LLM Serving 比传统 DL 推理难？](/why-llm-serving-is-hard.html)
+2. [如何衡量一个 LLM Serving 系统？](/how-to-measure-llm-serving.html)
+3. [鸟瞰 vLLM：一个请求如何穿过整个推理系统？](/vllm-request-lifecycle-overview.html)
+4. [Scheduler：GPU 这一轮到底给谁用？](/scheduler-batch-and-fairness.html)
+5. [KV Cache：LLM Serving 的第一号内存问题](/kv-cache-memory-core.html)
+6. [GPU 执行：如何让每个 Token 算得更快？](/gpu-execution-kernels-and-graphs.html)
+7. [解码的扩展：采样、投机解码与结构化输出](/decoding-extensions-sampling-speculative-and-structured-output.html)
+8. [Multi-GPU：一张卡不够时如何扩展？](/multi-gpu-scaling-strategies.html)
+9. [模型适配：如何跟上变化极快的模型世界？](/model-adaptation-architecture.html)
+10. [请求形态的扩展：multi-LoRA 与多模态](/request-shapes-multi-lora-and-multimodal.html)
+11. [硬件解耦：如何不让芯片差异污染 Serving 核心？](/hardware-abstraction-and-portability.html)
+12. [PD 分离：从资源混部走向计算解耦](/prefill-decode-disaggregation.html)
+13. [Serving Infra 的下一站：从模型执行器到分布式智能操作系统](/future-of-serving-infra.html)
+14. [回到源码：一次请求在 vLLM 内部的真实旅程](/source-code-request-walkthrough.html)
 
 
 > **版本说明：**本系列基于 vLLM v0.27.1（tag `6e448d0`，2026-08-11）源码分析。文中路径、类名和函数名均以该版本为准；由于 vLLM 迭代较快，阅读时请结合实际版本进行对照。

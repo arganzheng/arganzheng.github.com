@@ -16,12 +16,31 @@ catalog: true
 
 > **Triton 的 matmul 比手写 CUDA 少 80% 的代码，性能只差 10%。那 10% 在哪里？什么场景下这 10% 值得手写？**
 
-回答这个问题需要三步：先弄清 Triton 的编程模型到底把什么交给了编译器（第一章）；用 Triton 重写前几篇的三个 kernel，对照代码量和性能（第二章）；然后打开编译器，看它在每一层做了什么优化、留下了什么做不到的（第三、五章）。中间穿插两类"生产中的 Triton"：`torch.compile` 生成的 kernel，和 vLLM 里的 `fused_moe_kernel` 与 prefix-prefill attention（第四章）。
+
+## 一、总览
+
+### 1. 回答这个问题的三步
+
+回答这个问题需要三步：先弄清 Triton 的编程模型到底把什么交给了编译器（第二章）；用 Triton 重写前几篇的三个 kernel，对照代码量和性能（第三章）；然后打开编译器，看它在每一层做了什么优化、留下了什么做不到的（第四、六章）。中间穿插两类"生产中的 Triton"：`torch.compile` 生成的 kernel，和 vLLM 里的 `fused_moe_kernel` 与 prefix-prefill attention（第五章）。
+
+### 2. 方法论与基线
 
 全文延续系列的方法论：**每个 kernel 先算理论上应该多快，再看实现，再解释差距**。硬件基线取 A100 SXM 80GB 的公开标称值：HBM2e 约 2.0 TB/s，BF16 Tensor Core 312 TFLOPS dense，108 个 SM，L2 40 MB。本文没有 GPU 实测，所有性能数字要么是可推导的理论下界，要么用"通常能达到"的区间给出。软件基线为 Triton 3.x、PyTorch v2.10.0、vLLM v0.20.0。
 
+### 3. 本文的章节安排
 
-## 一、把"线程"拿掉之后：Triton 的编程模型
+```text
+第二章  Triton 的编程模型            program 对应 CUDA block、四个原语、layout、tl.constexpr、num_warps / num_stages、autotune 与 heuristics
+第三章  三个 kernel 的 Triton 版本     BF16 elementwise add、按行 softmax、matmul：tl.dot 与 L2 swizzle
+第四章  编译器做了什么               编译流水线的六层、读 TTGIR、读 PTX
+第五章  生产中的 Triton kernel        torch.compile 生成的 kernel、vLLM 的 fused_moe_kernel 与 prefix-prefill attention
+第六章  编译器的边界                 Triton 做不了或做不好的、那 10% 在哪里、什么时候值得手写
+第七章  实践                        正确性对照、性能对照表模板、打印 TTGIR 与 PTX
+第八章  本文小结
+```
+
+
+## 二、把"线程"拿掉之后：Triton 的编程模型
 
 ### 1. 一个 program 对应一个 CUDA block
 
@@ -75,13 +94,13 @@ Triton 的核心原语只有几个，全部围绕"块级张量"：
 
 把 `tl.arange(0, 1024)` 交给一个 `num_warps=4` 的 program，128 个线程各拿 8 个元素。但**哪 8 个**？连续的 8 个（线程 0 拿 0–7，线程 1 拿 8–15）还是跨步的（线程 0 拿 0, 128, 256, …）？
 
-这就是 **layout** ——Triton 编译器为每个块级张量选定的"线程到元素的映射"。它不在源代码里，而是编译器中间表示（TTGIR）的一部分，第三章会读它的具体编码。这里先给出最重要的直觉：
+这就是 **layout** ——Triton 编译器为每个块级张量选定的"线程到元素的映射"。它不在源代码里，而是编译器中间表示（TTGIR）的一部分，第四章会读它的具体编码。这里先给出最重要的直觉：
 
 - 对于要合并访存的 `tl.load`，编译器会选"每个线程拿连续几个元素、相邻线程拿相邻段"的 layout，使一个 warp 的 32 个线程覆盖连续的 32 × 16 字节 = 512 字节，并把每个线程的 8 个 BF16（16 字节）合成一条 128 bit 的向量化 load——这正是第三篇手写 `__nv_bfloat162`/`uint4` 向量化访存所做的事，Triton 自动做了；
 - 对于 `tl.sum(x, axis=0)` 这类归约，编译器先在线程内累加自己持有的元素，再用 warp shuffle 在 warp 内归约，最后（如果跨 warp）经 shared memory 归约——第四篇的三段式 reduction，Triton 自动做了；
 - 对于 `tl.dot`，操作数会被转换成 `mma` 指令要求的 fragment 布局（第六篇手写的 `ldmatrix` + fragment 排布），结果落在 `mma` 输出的布局上。
 
-**layout 是 Triton 把 CUDA 的线程级细节"藏起来"的具体机制**。它能被藏起来，是因为绝大多数 kernel 里"哪个线程拿哪个元素"只有几种合理的选择，编译器按访存模式和运算类型就能选对；它藏不好的场景，就是第五章要讲的边界。
+**layout 是 Triton 把 CUDA 的线程级细节"藏起来"的具体机制**。它能被藏起来，是因为绝大多数 kernel 里"哪个线程拿哪个元素"只有几种合理的选择，编译器按访存模式和运算类型就能选对；它藏不好的场景，就是第六章要讲的边界。
 
 ### 4. `tl.constexpr`：与 CUDA 模板参数的对应
 
@@ -96,7 +115,7 @@ __global__ void add_kernel(...);      // BLOCK_SIZE 是编译期常量，每个�
 
 - **每一组 `constexpr` 取值生成一份独立的机器码**。`add_kernel[grid](..., BLOCK_SIZE=1024)` 与 `BLOCK_SIZE=2048` 会各自编译一份 cubin。Triton 会把编译结果缓存在 `~/.triton/cache/`（可用环境变量 `TRITON_CACHE_DIR` 改），以源码 hash、constexpr 取值、参数类型（以及指针的 16 字节对齐、整数是否为 16 的倍数等**特化属性**）为 key；命中缓存时不重新编译；
 - **`constexpr` 参数可以参与形状**：`tl.arange(0, BLOCK_SIZE)`、`tl.zeros((BLOCK_M, BLOCK_N), ...)` 的形状必须是 constexpr，因为 layout 必须在编译期确定；
-- **`constexpr` 上的 `if` 是编译期分支**：`if USE_BIAS:` 里 `USE_BIAS: tl.constexpr` 为 False 时整段代码被删除，不产生运行时开销。vLLM 的 `fused_moe_kernel` 用十几个 constexpr 开关（`use_fp8_w8a8`、`HAS_BIAS`、`MUL_ROUTED_WEIGHT` 等）让一份源码生成几十种量化/非量化的变体，就是这个用法（第四章会看）。
+- **`constexpr` 上的 `if` 是编译期分支**：`if USE_BIAS:` 里 `USE_BIAS: tl.constexpr` 为 False 时整段代码被删除，不产生运行时开销。vLLM 的 `fused_moe_kernel` 用十几个 constexpr 开关（`use_fp8_w8a8`、`HAS_BIAS`、`MUL_ROUTED_WEIGHT` 等）让一份源码生成几十种量化/非量化的变体，就是这个用法（第五章会看）。
 
 一个容易踩的坑：**普通整数参数也会触发特化**。Triton 默认会对等于 1 的整数参数和能被 16 整除的整数参数做特化（生成不同的 cubin），目的是让编译器知道 stride 为 1（可向量化）或大小是 16 的倍数（可省 mask）。这意味着同一个 kernel 用 `n=1024` 与 `n=1000` 调用可能是两份不同的编译产物——首次遇到新的特化组合时会有一次编译延迟。可以用 `do_not_specialize` 参数关掉。
 
@@ -157,7 +176,7 @@ def softmax_kernel(x_ptr, out_ptr, stride, N, BLOCK_N: tl.constexpr): ...
 两者可以叠加：先 heuristics 定死某些 constexpr（如 `EVEN_K = K % BLOCK_K == 0`，用来在编译期去掉 K 方向的 mask），再 autotune 搜索其余的。
 
 
-## 二、三个 kernel 的 Triton 版本
+## 三、三个 kernel 的 Triton 版本
 
 现在用 Triton 重写第三、四、五篇的三个 kernel。每个都先给理论下界，再给代码，再与 CUDA 版对照代码量和通常能达到的性能。
 
@@ -201,7 +220,7 @@ def triton_add(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
 几个细节：
 
 - **grid 是一个 lambda**，接收 `meta`（本次 launch 的全部 constexpr 与 `num_warps` 等），返回 grid 元组。这样 grid 的计算可以依赖 `BLOCK_SIZE`，在 autotune 的场景下尤其必要——不同 config 的 `BLOCK_SIZE` 不同，grid 也不同；
-- **`n_elements` 不是 constexpr**，它是普通的运行时整数（但会被 16 的倍数特化，见第一章 §4）；
+- **`n_elements` 不是 constexpr**，它是普通的运行时整数（但会被 16 的倍数特化，见第二章 §4）；
 - **mask 的形状**是 `[BLOCK_SIZE]`，与 `offs`、`x`、`y` 一致。最后一个 program 处理尾部时 `mask` 有 False 项，对应位置不读不写；
 - BF16 的加法：Triton 会把 `x + y` 编译成 BF16 → FP32 → 加 → BF16 的序列（Ampere 没有 BF16 的标量加法指令，与 CUDA 里 `__hadd` 的实现一致），结果与 PyTorch 的 `x + y` 逐位相同。
 
@@ -363,14 +382,14 @@ def triton_matmul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 
 更一般地，一波 $$W$$ 个 program、分组大小 $$G$$ 时需要的 panel 数约为 $$G + W/G$$，在 $$G \approx \sqrt{W}$$ 时最小。这个工作集能否放进 L2 直接决定 A、B 的每个 tile 是从 L2 还是从 HBM 读进 SM。A100 的 L2 是 40 MB：22 MiB 能放下，36 MiB 放不下（且 L2 还要放 C 的写回和其他数据）。第五篇推导过分块 GEMM 的全局读取量是 $$M N K (1/B_N + 1/B_M)$$ 个元素——4096³、128 tile 时是 $$2 \times 4096^3 / 128 \times 2\ \text{B} = 2$$ GiB，是 96 MiB 最小流量的 21 倍。这 2 GiB 中有多少落在 L2、多少真去 HBM，就由 swizzle 决定。**L2 带宽约是 HBM 的数倍**，命中率的差异在 compute-bound 的 GEMM 上通常体现为 5–15% 的性能差别。
 
-映射公式本身：`group_id = pid // (G × num_pid_n)` 是第几组；`first_pid_m = group_id × G` 是组的起始行；组内偏移 `pid % num_pid_in_group` 按列主序拆成 `pid_m = first_pid_m + 偏移 % group_size_m`、`pid_n = 偏移 // group_size_m`。`group_size_m = min(num_pid_m - first_pid_m, G)` 处理最后一组不满 $$G$$ 行的情况。这段代码在 vLLM 的 `fused_moe_kernel` 里几乎逐字出现（第四章）。
+映射公式本身：`group_id = pid // (G × num_pid_n)` 是第几组；`first_pid_m = group_id × G` 是组的起始行；组内偏移 `pid % num_pid_in_group` 按列主序拆成 `pid_m = first_pid_m + 偏移 % group_size_m`、`pid_n = 偏移 // group_size_m`。`group_size_m = min(num_pid_m - first_pid_m, G)` 处理最后一组不满 $$G$$ 行的情况。这段代码在 vLLM 的 `fused_moe_kernel` 里几乎逐字出现（第五章）。
 
-**编译器为它做的**（细节见第三章）：为 `a`、`b` 的加载分配 shared memory 缓冲区并选择无 bank conflict 的 swizzled 布局；把 K 循环转成 `num_stages` 级的 `cp.async` 流水；把 `tl.dot` 翻译成 `mma.sync`，并为操作数生成 `ldmatrix`；在 epilogue 把 `mma` 输出布局转成适合合并写回的布局。
+**编译器为它做的**（细节见第四章）：为 `a`、`b` 的加载分配 shared memory 缓冲区并选择无 bank conflict 的 swizzled 布局；把 K 循环转成 `num_stages` 级的 `cp.async` 流水；把 `tl.dot` 翻译成 `mma.sync`，并为操作数生成 `ldmatrix`；在 epilogue 把 `mma` 输出布局转成适合合并写回的布局。
 
 **代码约 60 行（不含 autotune 配置）vs CUDA 版约 200–300 行；性能通常达 cuBLAS 的 80–95%，视 shape**——大而规整的形状（4096³）接近上限，小 M（decode 阶段的 $$M = 16$$）或奇怪的 K 会落到下限甚至更低。
 
 
-## 三、编译器做了什么：从 Python 到 cubin
+## 四、编译器做了什么：从 Python 到 cubin
 
 Triton matmul 能接近 cuBLAS，是因为编译器自动做了第五、六篇手工做的事。要理解"那 10% 在哪里"，先要看清编译器做了哪些、在哪一层做的。
 
@@ -410,7 +429,7 @@ cubin（SASS）                寄存器分配、指令调度，缓存到 ~/.tri
 
 ### 2. 读 TTGIR：layout 的编码
 
-把中间表示 dump 出来有几种方法（第六章有完整代码）：
+把中间表示 dump 出来有几种方法（第七章有完整代码）：
 
 - 环境变量 `TRITON_KERNEL_DUMP=1`（配合 `TRITON_DUMP_DIR=/path` 指定目录），Triton 会把每个 kernel 的 `.ttir`、`.ttgir`、`.llir`、`.ptx`、`.cubin` 写到目录下（默认在 `~/.triton/dump/`）；
 - `kernel[grid](...)` 的返回值是 `CompiledKernel`，它的 `.asm` 字典包含各层：`compiled.asm["ttir"]`、`["ttgir"]`、`["llir"]`、`["ptx"]`、`["cubin"]`；
@@ -460,7 +479,7 @@ TTGIR 里的每个张量类型都带一个 layout 属性。以 `add_kernel`（`B
 Hopper 上的对应物：`wgmma.mma_async.sync.aligned.m64n128k16.f32.bf16.bf16`、`cp.async.bulk.tensor`（TMA）、`mbarrier` 系列指令。
 
 
-## 四、生产中的 Triton kernel
+## 五、生产中的 Triton kernel
 
 ### 1. `torch.compile` 生成的 Triton kernel
 
@@ -499,9 +518,9 @@ def triton_poi_fused_add_mul_0(in_ptr0, in_ptr1, out_ptr0, xnumel, XBLOCK : tl.c
     tl.store(out_ptr0 + (x0), tmp4, xmask)
 ```
 
-对照第二章 §1 的手写 `add_kernel`，它的结构完全一样，只是命名规范化了：`xnumel` 是元素总数，`XBLOCK` 是 `BLOCK_SIZE`，`xindex`/`xmask` 是 `offs`/`mask`，`tmp*` 是融合进来的每一个 elementwise op。`@triton_heuristics.pointwise` 是 Inductor 自己的装饰器（在 `torch/_inductor/runtime/triton_heuristics.py`），它包装了 `triton.autotune`：按 `size_hints` 生成若干 `XBLOCK`/`num_warps` 候选，默认只选一个启发式配置，`torch.compile(mode="max-autotune")` 时才真正 benchmark。`_poi_` 表示 pointwise，`_red_` 表示 reduction（会多出 `rnumel`、`RBLOCK`、`tl.sum(..., 1)`），`_per_` 是 persistent reduction。
+对照第三章 §1 的手写 `add_kernel`，它的结构完全一样，只是命名规范化了：`xnumel` 是元素总数，`XBLOCK` 是 `BLOCK_SIZE`，`xindex`/`xmask` 是 `offs`/`mask`，`tmp*` 是融合进来的每一个 elementwise op。`@triton_heuristics.pointwise` 是 Inductor 自己的装饰器（在 `torch/_inductor/runtime/triton_heuristics.py`），它包装了 `triton.autotune`：按 `size_hints` 生成若干 `XBLOCK`/`num_warps` 候选，默认只选一个启发式配置，`torch.compile(mode="max-autotune")` 时才真正 benchmark。`_poi_` 表示 pointwise，`_red_` 表示 reduction（会多出 `rnumel`、`RBLOCK`、`tl.sum(..., 1)`），`_per_` 是 persistent reduction。
 
-一个重要的事实：**Inductor 的 matmul 默认不用 Triton**。`torch.mm`/`addmm`/`bmm` 在生成的代码里是 `extern_kernels.mm(...)`，即直接调 cuBLAS。只有 `mode="max-autotune"`（或 `torch._inductor.config.max_autotune_gemm=True`）时，Inductor 才会拿它的 Triton matmul 模板（`torch/_inductor/kernel/mm.py`，与第二章 §3 的写法同源，多了 epilogue 融合）与 cuBLAS 同台 benchmark，选快的那个。这本身就是对本文核心问题的一个工业界回答：**Triton 的 GEMM 在多数形状上不如 cuBLAS，但在能把后续 pointwise 融进 epilogue 的场景下可能反超，所以值得比一比**。
+一个重要的事实：**Inductor 的 matmul 默认不用 Triton**。`torch.mm`/`addmm`/`bmm` 在生成的代码里是 `extern_kernels.mm(...)`，即直接调 cuBLAS。只有 `mode="max-autotune"`（或 `torch._inductor.config.max_autotune_gemm=True`）时，Inductor 才会拿它的 Triton matmul 模板（`torch/_inductor/kernel/mm.py`，与第三章 §3 的写法同源，多了 epilogue 融合）与 cuBLAS 同台 benchmark，选快的那个。这本身就是对本文核心问题的一个工业界回答：**Triton 的 GEMM 在多数形状上不如 cuBLAS，但在能把后续 pointwise 融进 epilogue 的场景下可能反超，所以值得比一比**。
 
 ### 2. vLLM 的 `fused_moe_kernel`：grouped GEMM
 
@@ -553,7 +572,7 @@ MoE 层的计算是：每个 token 被路由到 top-k 个 expert，每个 expert
     )
 ```
 
-与第二章 §3 的 matmul 对照，差别只有三处：
+与第三章 §3 的 matmul 对照，差别只有三处：
 
 1. **A 的行是间接寻址的**：`offs_token[:, None] // top_k * stride_am`——`sorted_token_ids` 里存的是 (token, expert) 对的展平索引，除以 `top_k` 得到 token 行号，同一个 token 被路由到 top-k 个 expert 就会出现在 top-k 个 tile 里。这是一次 gather，编译器不能再假定行是连续的，但 K 方向（`offs_k`）仍然连续，向量化仍然可用；
 2. **B 的 expert 由 `off_experts * stride_be` 选定**：`b_ptr` 加上 expert 偏移后，其余与普通 GEMM 相同。`off_experts == -1` 是 expert 并行时"这个 expert 不在本 rank"的标记，直接写零返回；
@@ -635,14 +654,14 @@ def _fwd_kernel(Q, K, V, K_cache, V_cache, B_Loc, sm_scale, ..., Out, ...,
 三层 grid `(batch, head, query 方向的 tile)`，每个 program 负责一个 head 的 `BLOCK_M` 行 query，在 K/V 方向上循环，用 `m_i`、`l_i`、`acc` 三个寄存器驻留的张量做 **online softmax**：$$m_{\text{new}} = \max(m, \max_j s_j)$$，$$l_{\text{new}} = l \cdot e^{m - m_{\text{new}}} + \sum_j e^{s_j - m_{\text{new}}}$$，`acc` 同步按 $$\alpha = e^{m - m_{\text{new}}}$$ 缩放。两次 `tl.dot`（QKᵀ 与 PV）都走 Tensor Core，$$S$$ 与 $$P$$ 从不落到全局内存——这就是 FlashAttention 的算法骨架，下一篇会从头推导。这里值得注意的两点：
 
 - **paged KV cache 的间接寻址**：`B_Loc` 是 block table，`bn` 是物理块号，`off_k` 由 `bn` 与块内偏移拼出。与 `fused_moe_kernel` 一样，这是 Triton 能写、cuBLAS/标准库不能写的"不规整"访存；
-- **`num_stages=1`**：launch 处显式传了 `num_stages=1`（文件顶部的注释也记录了原因）。attention 的内循环有数据依赖（`m_i`、`l_i` 跨迭代传递）、有间接寻址、有两个 `tl.dot`，Triton 的 pipeline pass 对它的收益有限甚至为负，所以关掉。这与 FlashAttention-2/3 手工设计的流水（K 与 V 的加载交错、softmax 与 `mma` 重叠）形成鲜明对比——那正是第五章要讨论的"10%"。
+- **`num_stages=1`**：launch 处显式传了 `num_stages=1`（文件顶部的注释也记录了原因）。attention 的内循环有数据依赖（`m_i`、`l_i` 跨迭代传递）、有间接寻址、有两个 `tl.dot`，Triton 的 pipeline pass 对它的收益有限甚至为负，所以关掉。这与 FlashAttention-2/3 手工设计的流水（K 与 V 的加载交错、softmax 与 `mma` 重叠）形成鲜明对比——那正是第六章要讨论的"10%"。
 
 
-## 五、编译器的边界：那 10% 在哪里
+## 六、编译器的边界：那 10% 在哪里
 
 ### 1. Triton 做不了或做不好的
 
-把第一章"编译器决定"的每一项反过来看，就是 Triton 的边界：
+把第二章"编译器决定"的每一项反过来看，就是 Triton 的边界：
 
 **细粒度 warp 级控制**。Triton 没有 `threadIdx`，也没有"warp 0 做加载、warp 1–7 做计算"这种角色划分。FlashAttention-3 的 **warp specialization**（producer warpgroup 用 TMA 搬数据，consumer warpgroup 做 `wgmma` 与 softmax，二者用 `mbarrier` 同步）和 **ping-pong 调度**（两个 consumer warpgroup 交错执行 GEMM 与 softmax，让 Tensor Core 与 SFU 同时忙）在 Triton 里无法用源码表达。Triton 3.x 的编译器在 Hopper 上有自动 warp specialization 的 pass（把加载与计算自动分给不同 warp），但它是编译器的决定，不是程序员的，且能处理的循环模式有限。
 
@@ -684,7 +703,7 @@ def _fwd_kernel(Q, K, V, K_cache, V_cache, B_Loc, sm_scale, ..., Out, ...,
 其余情况——elementwise、normalization、softmax、非热点的 GEMM 变体（grouped、带奇怪 epilogue 的）、需要快速迭代的研究性 kernel、要同时支持 NVIDIA 与 AMD 的 kernel——Triton 是更好的选择：30–60 行代码、性能通常在手写的 90% 以上、不用管 fragment 布局。**判断标准不是"Triton 能不能写"，而是"这 10% 值多少钱、需要什么指令"**。
 
 
-## 六、实践：正确性、性能表与中间表示
+## 七、实践：正确性、性能表与中间表示
 
 ### 1. 正确性对照
 
@@ -696,7 +715,7 @@ import triton
 import triton.language as tl
 
 # 假定 add_kernel / triton_add、softmax_kernel / triton_softmax、
-# matmul_kernel / triton_matmul 已按第二章定义
+# matmul_kernel / triton_matmul 已按第三章定义
 
 torch.manual_seed(0)
 dev = "cuda"
@@ -818,10 +837,10 @@ grep -c "mma.sync" triton_dump/*/matmul_kernel.ptx
 grep "cp.async.wait_group" triton_dump/*/matmul_kernel.ptx | sort | uniq -c
 ```
 
-期望看到的：`#blocked` 里 `sizePerThread` 含 8（BF16 的 128 bit 向量化）；`#shared` 带 swizzle 参数；`#mma`（或 `#nvidia_mma`）`versionMajor = 2`（Ampere）；PTX 里 `mma.sync.m16n8k16` 与 `cp.async.cg.shared.global` 大量出现，`cp.async.wait_group` 的数字为 `num_stages - 2`；`n_spills` 为 0。如果 `sizePerThread` 是 1 或 `mma.sync` 计数为 0，回到第三章 §3 逐项排查。
+期望看到的：`#blocked` 里 `sizePerThread` 含 8（BF16 的 128 bit 向量化）；`#shared` 带 swizzle 参数；`#mma`（或 `#nvidia_mma`）`versionMajor = 2`（Ampere）；PTX 里 `mma.sync.m16n8k16` 与 `cp.async.cg.shared.global` 大量出现，`cp.async.wait_group` 的数字为 `num_stages - 2`；`n_spills` 为 0。如果 `sizePerThread` 是 1 或 `mma.sync` 计数为 0，回到第四章 §3 逐项排查。
 
 
-## 七、小结
+## 八、本文小结
 
 这一篇把前六篇手工做的事交给了编译器，然后打开编译器看它做了什么、没做什么。
 
@@ -873,7 +892,7 @@ Triton 的边界
   GROUP_SIZE_M swizzle：一波 108 program 的工作集，行主序 ≈ 36 MiB，G=8 分组 ≈ 22 MiB（A100 L2 40 MB）
 ```
 
-下一篇进入 attention：FlashAttention 为什么把 $$O(N^2)$$ 的 HBM 流量降到 $$O(N^2 d^2 / M)$$，FlashAttention-2 与 3 在 warp 分工和 Hopper 特性上做了什么，PagedAttention 的 block table 如何改变 decode 的访存模式——以及第四章 §3 的 Triton 版为什么会在这些地方输给手写版本。
+下一篇进入 attention：FlashAttention 为什么把 $$O(N^2)$$ 的 HBM 流量降到 $$O(N^2 d^2 / M)$$，FlashAttention-2 与 3 在 warp 分工和 Hopper 特性上做了什么，PagedAttention 的 block table 如何改变 decode 的访存模式——以及第五章 §3 的 Triton 版为什么会在这些地方输给手写版本。
 
 
 ## 下一篇

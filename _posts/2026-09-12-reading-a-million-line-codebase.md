@@ -6,7 +6,7 @@ tags: [Open Source, PyTorch, vLLM, AI, AI-Infra]
 catalog: true
 ---
 
-> 本文是《AI-Infra 开源贡献指南》系列的第 1 篇。上一篇：[总纲](/contributing-to-ai-infra-open-source.html)；下一篇：[找到切入点：从 issue、RFC 到性能回归](/finding-your-entry-point-in-open-source.html)。
+> 本文是[《AI-Infra 开源贡献指南》](/contributing-to-ai-infra-open-source.html)系列的第 1 篇（共四篇）。下一篇：[找到切入点：从 issue、RFC 到性能回归](/finding-your-entry-point-in-open-source.html)。
 
 一位工程师在 GitHub 上看到 PyTorch 的一个 issue：`torch.logaddexp` 在 complex128 上 CPU 与 CUDA 的结果不一致。他会写 CUDA，觉得这是个好的第一个 PR。克隆仓库，`rg logaddexp` 一下，两百多个匹配；打开 `torch/__init__.py` 想找 `def logaddexp`，没有；点 IDE 的"跳转到定义"，跳到一个 `.pyi` 文件里的类型签名就断了；再往下找 C++ 实现，发现 `aten/src/ATen/native/BinaryOps.cpp` 里只有一行宏 `CREATE_BINARY_TORCH_IMPL_FUNC(logaddexp_out, logaddexp_stub)`，而 clangd 对整个 `aten/` 目录报"找不到头文件 `ATen/ops/logaddexp_native.h`"——这个文件在仓库里确实不存在。两个小时过去，他还没有找到那个要改的 kernel 在哪个文件。
 

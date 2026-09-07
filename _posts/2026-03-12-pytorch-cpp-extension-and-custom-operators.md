@@ -6,7 +6,7 @@ tags: [PyTorch, AI, AI-Infra]
 catalog: true
 ---
 
-> 本文是[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)系列的第六篇（共十篇）。上一篇：[Dispatcher 与算子系统](/pytorch-dispatcher-and-operator-system.html)　下一篇：[编译执行与图优化](/pytorch-compilation-and-graph-optimization.html)
+> 本文是[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)系列的第 6 篇（共十篇）。上一篇：[Dispatcher 与算子系统](/pytorch-dispatcher-and-operator-system.html)；下一篇：[编译执行与图优化](/pytorch-compilation-and-graph-optimization.html)
 
 上一篇把算子系统拆成两个维度：开发者在构建时**定义 → 注册 → 实现**，用户在运行时**入口 → 分发 → 执行**，两者通过 Operator Table 交汇。那一篇站在使用者的角度观察原生算子 `add`。
 
@@ -69,7 +69,7 @@ flowchart TB
 九    测试与 Benchmark
 十    构建、ABI 与分发
 十一  Java 对照：JNI
-十二  小结
+十二  本文小结
 ```
 
 如果你已经熟悉 C++ 扩展的构建方式，可以跳过第四章；如果没有写过 C++ 扩展，第四章是后面所有代码能跑起来的前提。同样，没有 CUDA 编程经验的读者不必另找教程：第七章 §2 用一节讲清读懂本文和第八篇所需的几个 CUDA 概念。
@@ -85,7 +85,7 @@ flowchart TB
 myops::scale_shift(Tensor x, float alpha, float beta) -> Tensor
 ```
 
-#### 1.1 Schema 的组成
+**Schema 的组成**
 
 ```text
 myops::scale_shift(Tensor x, float alpha, float beta) -> Tensor
@@ -104,7 +104,7 @@ myops::scale_shift.Scalar(Tensor x, float alpha, float beta) -> Tensor
 
 原生算子的 `add.Tensor`、`add.Scalar`、`add.out` 就是这样命名的。
 
-#### 1.2 Schema 类型系统
+**Schema 类型系统**
 
 Schema 有自己的类型名，与 Python 和 C++ 类型是三套不同的写法。写实现函数时必须按这张表对应，否则注册时报错：
 
@@ -124,7 +124,7 @@ Schema 有自己的类型名，与 Python 和 C++ 类型是三套不同的写法
 
 两个高频错误：Schema 的 `float` 对应 C++ 的 `double`，Schema 的 `int` 对应 C++ 的 `int64_t`。
 
-#### 1.3 默认值与 keyword-only 参数
+**默认值与 keyword-only 参数**
 
 ```text
 myops::scale_shift(Tensor x, float alpha=1.0, *, float beta=0.0) -> Tensor
@@ -132,7 +132,7 @@ myops::scale_shift(Tensor x, float alpha=1.0, *, float beta=0.0) -> Tensor
 
 `*` 之后的参数只能用关键字传递，这与 Python 的语法一致。
 
-#### 1.4 alias 与 mutability 标注
+**alias 与 mutability 标注**
 
 如果算子会修改某个输入（in-place），必须在 Schema 中声明：
 
@@ -148,7 +148,7 @@ myops::scale_shift_(Tensor(a!) x, float alpha, float beta) -> Tensor(a!)
 
 定义只是声明“有这样一个算子”。注册是告诉 Dispatcher：**在哪个 DispatchKey 下，用哪个函数实现它**。
 
-#### 2.1 自定义算子常用的 DispatchKey
+**自定义算子常用的 DispatchKey**
 
 | DispatchKey | 含义 | 什么时候注册到它 |
 |---|---|---|
@@ -167,7 +167,7 @@ myops::scale_shift_(Tensor(a!) x, float alpha, float beta) -> Tensor(a!)
 注册 CompositeImplicitAutograd 却手写了 Autograd → 两套反向冲突
 ```
 
-#### 2.2 注册就是往 Operator Table 填槽位
+**注册就是往 Operator Table 填槽位**
 
 第五篇讲过，Operator Table 中每个算子一行，每个 DispatchKey 一个槽位。注册的效果就是填某个槽位：
 
@@ -212,7 +212,7 @@ flowchart LR
 
 `torch.library` 模块提供了在 Python 中完成三步的全部 API。
 
-#### 1.1 显式三步
+**显式三步**
 
 ```python
 import torch
@@ -236,7 +236,7 @@ lib_impl = torch.library.Library("myops", "IMPL")
 lib_impl.impl("scale_shift", scale_shift_cuda_impl, "CUDA")
 ```
 
-#### 1.2 便捷装饰器：`custom_op`
+**便捷装饰器：`custom_op`**
 
 PyTorch 2.4 起提供 `torch.library.custom_op`，把三步压成一个装饰器：
 
@@ -256,7 +256,7 @@ def _(x, alpha, beta):
     return my_cuda_ext.scale_shift(x, alpha, beta)   # 调用已编译的 C++ 扩展
 ```
 
-#### 1.3 Autograd 与 Fake 的注册
+**Autograd 与 Fake 的注册**
 
 Python 侧还提供两个高层 API，对应 Operator Table 的 Autograd 和 Meta 槽位：
 
@@ -267,7 +267,7 @@ torch.library.register_fake("myops::scale_shift")(fake_fn)
 
 第八章展开它们。
 
-#### 1.4 Python 侧能做什么、不能做什么
+**Python 侧能做什么、不能做什么**
 
 | 能 | 不能 |
 |---|---|
@@ -279,7 +279,7 @@ torch.library.register_fake("myops::scale_shift")(fake_fn)
 
 ### 2. C++ 侧：`TORCH_LIBRARY` 宏族
 
-#### 2.1 三个宏
+**三个宏**
 
 ```cpp
 #include <torch/library.h>
@@ -306,7 +306,7 @@ TORCH_LIBRARY_FRAGMENT(myops, m) {
 | `TORCH_LIBRARY_FRAGMENT(ns, m)` | 定义（追加） | 可多次；命名空间已存在时用它 |
 | `TORCH_LIBRARY_IMPL(ns, key, m)` | 注册 | 可多次；每个 (ns, key) 一份 |
 
-#### 2.2 宏在做什么
+**宏在做什么**
 
 这三个宏展开后都是一个**静态初始化对象**。共享库被加载时，C++ 运行时执行静态初始化，对象的构造函数被调用，构造函数里执行你写的花括号代码块，`m.def` / `m.impl` 把 Schema 和函数指针写入 Operator Table。
 
@@ -324,7 +324,7 @@ torch.ops.myops.scale_shift 可用
 
 对 Java 工程师：这与 JNI 的 `JNI_OnLoad` 在 `System.loadLibrary` 时被调用是同一种机制。
 
-#### 2.3 C++ 侧能做什么、不能做什么
+**C++ 侧能做什么、不能做什么**
 
 | 能 | 不能 |
 |---|---|
@@ -433,7 +433,7 @@ CUDA 标志    -gencode arch=compute_80,code=sm_80  （目标 GPU 架构）
 
 ### 4. 三种构建方式
 
-#### 4.1 JIT 编译：`load` 与 `load_inline`
+**JIT 编译：`load` 与 `load_inline`**
 
 最适合实验和本文演示的方式。在 Python 中直接指定源文件，首次调用时编译，结果缓存在 `~/.cache/torch_extensions/`：
 
@@ -466,7 +466,7 @@ mod.double_it(torch.ones(3))   # tensor([2., 2., 2.])
 
 注意 `load_inline` 的 `functions=` 参数用的是 pybind11 方式暴露函数（见第 5 节），不是算子注册。
 
-#### 4.2 setuptools：`setup.py`
+**setuptools：`setup.py`**
 
 发布给他人使用时的标准方式：
 
@@ -501,7 +501,7 @@ myops/
 
 `pip install .` 或 `python setup.py develop` 完成构建与安装。
 
-#### 4.3 CMake
+**CMake**
 
 当扩展是一个更大 C++ 项目的一部分，或需要与其他 C++ 库一起构建时，用 CMake：
 
@@ -519,7 +519,7 @@ target_compile_features(myops PRIVATE cxx_std_17)
 
 `find_package(Torch)` 会导入 PyTorch 的头文件路径、库和 ABI 标志。`CMAKE_PREFIX_PATH` 可以通过 `python -c "import torch; print(torch.utils.cmake_prefix_path)"` 获取。
 
-#### 4.4 三种方式对比
+**三种方式对比**
 
 | 方式 | 编译时机 | 适合 | 缺点 |
 |---|---|---|---|
@@ -533,7 +533,7 @@ target_compile_features(myops PRIVATE cxx_std_17)
 
 这是初学者最容易混淆的地方。C++ 函数让 Python 调到，有两条完全不同的路：
 
-#### 5.1 pybind11：绑定为普通 Python 函数
+**pybind11：绑定为普通 Python 函数**
 
 ```cpp
 #include <torch/extension.h>   // 包含了 pybind11 和 ATen
@@ -553,7 +553,7 @@ myops.scale_shift(x, 2.0, 1.0)   # 一个普通 Python 函数
 
 这条路的本质是：pybind11 生成一个 Python 函数对象，调用时做参数类型转换，然后**直接调用** `scale_shift_cpu`。**Dispatcher 完全不知道这个函数的存在。**
 
-#### 5.2 `TORCH_LIBRARY`：注册为 PyTorch 算子
+**`TORCH_LIBRARY`：注册为 PyTorch 算子**
 
 ```cpp
 #include <torch/library.h>
@@ -574,7 +574,7 @@ torch.ops.myops.scale_shift(x, 2.0, 1.0)   # 经过 Dispatcher
 
 这条路把函数填进 Operator Table，调用时走第五篇的完整运行态路径。
 
-#### 5.3 两者的差别
+**两者的差别**
 
 | | pybind11 | `TORCH_LIBRARY` |
 |---|---|---|
@@ -1134,7 +1134,7 @@ print(t_native.timeit(100))
 
 ### 1. 从 JIT `load` 到 `setup.py`
 
-发布时改为第四章 4.2 节的 setuptools 方式，并在 Python 包的 `__init__.py` 中完成加载与 Python 侧注册：
+发布时改为第四章 §4 的 setuptools 方式，并在 Python 包的 `__init__.py` 中完成加载与 Python 侧注册：
 
 ```python
 # myops/__init__.py
@@ -1263,7 +1263,7 @@ Benchmark 证明它比原生组合有价值
 
 ### 6. 本篇涉及的源码位置
 
-本篇讨论的机制在源码中的位置（对应第一篇第四章 §3 的代码地图）：
+本篇讨论的机制在源码中的位置（对应第一篇第七章的代码地图）：
 
 | 路径 | 内容 |
 |---|---|

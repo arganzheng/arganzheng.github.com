@@ -6,6 +6,8 @@ tags: [C++, AI, AI-Infra]
 catalog: true
 ---
 
+> 本文是[《C++ 在 AI-Infra：从对象模型到算子扩展》](/cpp-for-ai-infra.html)系列的第 6 篇（共八篇）。上一篇：[宏、静态注册与代码生成](/cpp-macros-static-registration-and-codegen.html)；下一篇：[与 Python 之间：pybind11、Python C API 与 ABI](/cpp-pybind11-python-c-api-and-abi.html)
+
 `with torch.no_grad():` 大概是 PyTorch 用户最早学会的几个写法之一。它在 Python 侧是一个上下文管理器，`__enter__` 调 `torch.set_grad_enabled(False)`，`__exit__` 把旧值设回去。顺着 `torch._C._set_grad_enabled` 往下追，会落到 `torch/csrc/autograd/init.cpp` 里的这段 C++：
 
 ```cpp
@@ -69,29 +71,38 @@ struct C10_API NoGradGuard : public AutoGradMode {
 
 > **`with torch.no_grad():` 在 C++ 层做了什么？为什么它对其他线程不生效？**
 
-全文提纲：
 
-1. 线程、锁与条件变量：从 `c10::ThreadPool` 读起
-2. C++ 内存模型：`std::atomic`、六种 memory order 与 happens-before
-3. 为什么 `intrusive_ptr` 的引用计数 relaxed 增、acq_rel 减
-4. `thread_local`：语言机制，以及 c10 里有哪些线程局部状态
-5. 守卫模式：RAII 管理的不只是资源，还有"上下文"
-6. 回到源码：`c10/core/impl/LocalDispatchKeySet.h`
-7. 回到源码：`c10::DeviceGuard` 的两层设计
-8. 回答核心问题：`torch.no_grad()` 的完整链路与 `ThreadLocalState`
-9. `at::parallel_for`：OpenMP、grain size 与线程数
-10. 为什么 CUDA kernel launch 不用锁
-11. SIMD 简介：`at::vec::Vectorized<T>`
-12. mini-c10：原子引用计数、`GradMode.h`、`Parallel.h`
-13. 工程实践建议与常见错误
-14. 总结
+## 一、总览
+
+### 1. 本文的线索：从 TLS 到守卫
+
+开头几段代码里的疑问——`thread_local` 是什么、`NoGradGuard` 为什么只有构造和析构、引用计数为什么 relaxed 增 acq_rel 减、`parallel_for` 为什么不拷贝线程局部状态、CUDA kernel launch 为什么不用锁——共同的背景是 C++ 的并发模型：线程、内存序、线程局部存储，以及 PyTorch 在它们之上搭出的守卫（guard）模式。本文先讲语言机制（第二章到第五章），再讲 PyTorch 用它们搭出的守卫、TLS 传播与 `torch.no_grad()` 的完整链路（第六章到第九章），然后是并行、CUDA launch 与 SIMD（第十章到第十二章），最后在 mini-c10 里落地（第十三章）。
+
+### 2. 本文的章节安排
+
+```text
+第二章    线程、锁与条件变量               从 c10::ThreadPool 读起：std::thread、mutex 与锁守卫、condition_variable
+第三章    C++ 内存模型                    std::atomic、六种 memory order、release/acquire 与 happens-before；vLLM CPU 后端的共享内存握手
+第四章    intrusive_ptr 引用计数的内存序      为什么 relaxed 增、acq_rel 减；与 shared_ptr、Java 的对照
+第五章    thread_local                    存储类别而非类型；c10 里有哪些线程局部状态、为什么做成线程局部
+第六章    守卫模式                        AutoGradMode/NoGradGuard、InferenceMode、AutoDispatchBelowADInplaceOrView；守卫的分类
+第七章    回到源码：LocalDispatchKeySet.h      两个集合；零初始化 + XOR；TLS 变量与两个 RAII 守卫；非 RAII API
+第八章    回到源码：c10::DeviceGuard          DeviceGuardImplInterface 虚接口 + InlineDeviceGuard<T> 内联模板；CUDAStreamGuard
+第九章    回答核心问题                     torch.no_grad() 从 Python 到 TLS；为什么对其他线程不生效；ThreadLocalState
+第十章    at::parallel_for                接口层、决策层、OpenMP 与原生线程池两个执行层；线程数从哪里来
+第十一章  为什么 CUDA kernel launch 不用锁     stream 的顺序语义；当前设备与当前 stream 都是线程局部的
+第十二章  SIMD 简介                       at::vec::Vectorized<T>；inline namespace CPU_CAPABILITY
+第十三章  mini-c10                       原子引用计数、GradMode.h、Parallel.h；两个线程的 TLS 隔离演示
+第十四章  工程实践建议与常见错误
+第十五章  本文小结
+```
 
 
-## 一、线程、锁与条件变量：从 `c10::ThreadPool` 读起
+## 二、线程、锁与条件变量：从 `c10::ThreadPool` 读起
 
 C++11 之后，标准库提供了一套和 Java `java.util.concurrent` 大致对应的基础设施：`std::thread`、`std::mutex`、`std::condition_variable`、`std::atomic`。概念层面 Java 工程师都熟悉，差别集中在两点：**锁的持有由对象生命周期管理**，以及**内存序是显式的**。本节先讲前者，用 `c10/core/thread_pool.h` 与 `.cpp` 里一个真实的线程池做例子；下一节讲后者。
 
-### 1.1 `std::thread`：必须 join 或 detach
+### 1. `std::thread`：必须 join 或 detach
 
 `c10::ThreadPool` 的构造函数（`c10/core/thread_pool.cpp`）：
 
@@ -139,7 +150,7 @@ ThreadPool::~ThreadPool() {
 
 lambda 的捕获列表 `[this, i, init_thread]` 决定了线程体能访问什么。`this` 是裸指针，意味着 `ThreadPool` 对象必须活得比所有工作线程久——析构函数先 join 再返回，正是在维护这个不变量。第三篇讨论过 lambda 捕获与生命周期的关系，这里是多线程场景下同一个问题：**被捕获的引用/指针指向的对象，在线程运行期间不能死**。
 
-### 1.2 `std::mutex` 与两种锁守卫
+### 2. `std::mutex` 与两种锁守卫
 
 `ThreadPool` 有三个同步原语作为成员（`c10/core/thread_pool.h`）：
 
@@ -180,7 +191,7 @@ void ThreadPool::run(std::function<void()> func) {
 
 `lock` 是一个局部变量，函数返回（包括 `TORCH_CHECK` 抛异常）时自动析构、自动解锁。Java 需要 `try { lock.lock(); ... } finally { lock.unlock(); }`，C++ 用第二篇讲过的 RAII 把 `finally` 消灭了。注意 `std::mutex` **不可重入**，同一线程二次 `lock()` 是未定义行为；需要重入用 `std::recursive_mutex`。`c10/cuda/CUDACachingAllocator.cpp` 的设备分配器就用了 `mutable std::recursive_mutex mutex;`，因为它的内部路径会互相调用。Java 的 `synchronized` 和 `ReentrantLock` 都是可重入的，这是一个容易踩的直觉差异。
 
-### 1.3 `std::condition_variable`：wait 必须配谓词
+### 3. `std::condition_variable`：wait 必须配谓词
 
 工作线程的主循环（`c10/core/thread_pool.cpp`）：
 
@@ -246,7 +257,7 @@ void ThreadPool::main_loop(std::size_t index) {
 
 在 Java 里，这个线程池会用 `BlockingQueue` + `ExecutorService` 一行搞定；C++ 标准库没有这种高层封装，所以 c10、ATen、autograd 引擎各自有自己的小线程池。读 PyTorch 并发代码时，会反复看到 `mutex + condition_variable + queue` 这个三件套，本节的模式就是模板。
 
-### 1.4 一个可编译的最小版本
+### 4. 一个可编译的最小版本
 
 把上面的模式抽成 40 行，用 `clang++ -std=c++17 -pthread` 可以直接编译：
 
@@ -291,17 +302,17 @@ class Queue {
 它与 `c10::ThreadPool::main_loop` 是同一个骨架。
 
 
-## 二、C++ 内存模型：`std::atomic`、六种 memory order 与 happens-before
+## 三、C++ 内存模型：`std::atomic`、六种 memory order 与 happens-before
 
 锁解决的是"互斥"，但 PyTorch 里大量热路径（引用计数、`running_` 标志、全局注册表的读）不用锁而用原子操作。理解原子操作需要理解 C++ 内存模型，而这恰好是 Java 工程师最有优势的地方：**JMM 和 C++11 内存模型出自同一批人（Hans Boehm、Doug Lea 等）的同一套思想，happens-before、synchronizes-with 这些词在两边含义一致**。差别在于 C++ 把 Java 只有一档的 `volatile` 拆成了六档，让程序员可以选择比 `volatile` 更弱、更便宜的语义。
 
-### 2.1 为什么需要内存模型
+### 1. 为什么需要内存模型
 
 没有同步的多线程读写同一个非原子变量，在 C++ 里是**数据竞争（data race），未定义行为**——不是"可能读到旧值"，而是编译器可以假定它不发生并据此做任意优化。Java 的立场温和一些：数据竞争是允许的，只是读到的值"不确定"。这个差别决定了 C++ 里凡是跨线程共享且会被修改的变量，要么在锁的保护下，要么必须是 `std::atomic<T>`。
 
 `std::atomic<T>` 保证两件事：**每次读写是不可分割的**（不会读到半个 64 位值），以及**可以指定与其他内存操作的顺序关系**（memory order）。后者才是难点。
 
-### 2.2 六种 memory order
+### 2. 六种 memory order
 
 `<atomic>` 里定义的六个枚举值，按"强度"排列：
 
@@ -316,7 +327,7 @@ class Queue {
 
 `std::atomic<T>` 的所有成员函数（`load`、`store`、`fetch_add`、`compare_exchange_*`）都接受一个 memory order 参数，**默认是 `seq_cst`**。也就是说不写 order 参数永远是正确的，只是可能比必要的慢。
 
-### 2.3 release/acquire 配对建立 happens-before
+### 3. release/acquire 配对建立 happens-before
 
 内存模型的核心规则只有一条：**一个 release 写与一个读到该写入值的 acquire 读之间建立 synchronizes-with 关系，进而 release 之前的所有写对 acquire 之后的所有读可见**。用一段最小代码：
 
@@ -350,7 +361,7 @@ Java 对照：`volatile` 写 ≈ release 写 + seq_cst 全序，`volatile` 读 �
 
 另一个必须划清的边界：**C++ 的 `volatile` 与线程无关**。它只是告诉编译器"这个变量可能被硬件或信号处理函数修改，别优化掉读写"，不提供任何原子性或顺序保证。用 C++ `volatile` 做线程同步是经典错误。
 
-### 2.4 一个真实的例子：vLLM CPU 后端的共享内存握手
+### 4. 一个真实的例子：vLLM CPU 后端的共享内存握手
 
 vLLM 的 CPU 后端用共享内存在多个进程之间做 all-reduce，`csrc/cpu/shm.cpp` 的 `ThreadSHMContext` 用两个"戳"（stamp）做生产者/消费者握手，它的写法恰好把"平台差异"和"内存序"都摆在了一起：
 
@@ -392,16 +403,16 @@ struct ThreadSHMContext {
 };
 ```
 
-生产者写完数据后 `commit_ready_stamp()` 用 **release** 写戳，消费者 `get_ready_stamp()` 用 **acquire** 读戳——正是 2.3 节的模式：戳可见时，戳之前写入的数据也一定可见。x86 分支用 `volatile` 加显式 `_mm_mfence()`，是把硬件强序当作前提的老写法；AArch64 分支则依赖 C++ 内存模型。这个对照说明了为什么标准化的 memory order 值得学：它让同一段代码在不同硬件上有同样的正确性保证，而不需要为每个平台手写 fence。
+生产者写完数据后 `commit_ready_stamp()` 用 **release** 写戳，消费者 `get_ready_stamp()` 用 **acquire** 读戳——正是 3.3 节的模式：戳可见时，戳之前写入的数据也一定可见。x86 分支用 `volatile` 加显式 `_mm_mfence()`，是把硬件强序当作前提的老写法；AArch64 分支则依赖 C++ 内存模型。这个对照说明了为什么标准化的 memory order 值得学：它让同一段代码在不同硬件上有同样的正确性保证，而不需要为每个平台手写 fence。
 
 `static_assert(std::atomic<char>::is_always_lock_free)` 也值得注意：`std::atomic<T>` 对某些 `T` 可能用内部锁实现（比如没有对应宽度原子指令的平台），这行断言在编译期排除这种情况。`c10/util/intrusive_ptr.h` 里对 `std::atomic<uint64_t>` 也有类似的 `static_assert(sizeof(std::atomic<uint64_t>) == 8)`，同一个目的。
 
 
-## 三、为什么 `intrusive_ptr` 的引用计数 relaxed 增、acq_rel 减
+## 四、为什么 `intrusive_ptr` 的引用计数 relaxed 增、acq_rel 减
 
 有了 release/acquire 的概念，可以回答本文开头的那个问题了。这是全文第一处"回到源码"：`c10/util/intrusive_ptr.h`。
 
-### 3.1 PyTorch 2.10 的引用计数布局
+### 1. PyTorch 2.10 的引用计数布局
 
 先说一个版本敏感的细节。早期的 `intrusive_ptr_target` 有两个独立的原子字段 `refcount_` 和 `weakcount_`，对应两组函数 `atomic_refcount_increment`/`atomic_refcount_decrement` 和 `atomic_weakcount_increment`/`atomic_weakcount_decrement`。在 v2.10.0 的源码里，两个计数已经合并成一个 64 位字段，函数名也随之变成 `atomic_combined_refcount_increment`/`atomic_combined_refcount_decrement`（PyTorch 2.x 中的变化：合并成一个字段是为了能用一条原子指令同时操作强、弱两个计数；最高位 `kHasPyObject` 还被拿来标记"是否有 Python 包装对象"）：
 
@@ -435,7 +446,7 @@ inline uint32_t weakcount(uint64_t combined_refcount) {
 
 这不影响本节要讨论的内存序问题——无论一个字段还是两个字段，增和减的 memory order 选择是一样的。
 
-### 3.2 增：relaxed 就够
+### 2. 增：relaxed 就够
 
 `c10/util/intrusive_ptr.h` 中 `detail` 命名空间里的增函数，连注释一起引用：
 
@@ -451,7 +462,7 @@ inline uint64_t atomic_combined_refcount_increment(
 
 为什么增加可以用 relaxed？想一想什么时候会执行 +1：**你手里已经有一个有效的 `intrusive_ptr`**，正在拷贝它。这意味着对象此刻至少有一个强引用，不可能被释放。+1 本身不"发布"任何数据给别的线程，也不需要"看到"别的线程发布的数据；它唯一要保证的是原子性（两个线程同时 +1 结果是 +2 而不是 +1），而这正是 relaxed 提供的全部。注释说的 "happens-before decrement" 由程序逻辑保证：你是先拷贝（+1）、再在某个时刻销毁（-1），同一个线程内顺序天然成立。
 
-### 3.3 减：所有减必须 synchronize-with 最后一次减
+### 3. 减：所有减必须 synchronize-with 最后一次减
 
 减函数的注释更长，把推理过程完整写了出来：
 
@@ -478,7 +489,7 @@ inline uint64_t atomic_combined_refcount_decrement(
 
 问题是执行 -1 的时候不知道自己是不是"最后一个"——只有拿到 `fetch_sub` 的返回值之后才知道。所以每次减都得同时准备好两种角色：既是 release（万一自己不是最后一个），又是 acquire（万一自己是）。这就是 `acq_rel`。注释说的另一种写法是全部用 release，然后只在返回值为 0 时补一个 `std::atomic_thread_fence(memory_order_acquire)`；这在某些平台上略省，但代码更绕，而且在现代 x86/ARM 上 `acq_rel` 的读-改-写指令本身就是一条指令，没有额外代价。
 
-### 3.4 在 `intrusive_ptr` 内部它们是怎么用的
+### 4. 在 `intrusive_ptr` 内部它们是怎么用的
 
 顺着看 `intrusive_ptr<TTarget, NullType>` 的 `retain_()` 与 `reset_not_null_()`（`c10/util/intrusive_ptr.h`，类定义中部）：
 
@@ -529,7 +540,7 @@ inline uint64_t atomic_combined_refcount_decrement(
   }
 ```
 
-`reset_not_null_` 开头那个快速路径值得多看一眼：先用 acquire **读**一次，如果强、弱计数都是 1（`is_uniquely_owned`），说明当前线程是唯一持有者，直接 `store(0, relaxed)` 然后 `delete`，省掉一条带 lock 前缀的读-改-写指令。这是安全的，因为既然只有自己持有，就不可能有另一个线程并发地 +1（要 +1 必须先持有一个拷贝）。acquire 读是为了和之前其他线程的 release 减（它们把计数降到 1）同步——和 3.3 节的推理一致。
+`reset_not_null_` 开头那个快速路径值得多看一眼：先用 acquire **读**一次，如果强、弱计数都是 1（`is_uniquely_owned`），说明当前线程是唯一持有者，直接 `store(0, relaxed)` 然后 `delete`，省掉一条带 lock 前缀的读-改-写指令。这是安全的，因为既然只有自己持有，就不可能有另一个线程并发地 +1（要 +1 必须先持有一个拷贝）。acquire 读是为了和之前其他线程的 release 减（它们把计数降到 1）同步——和 4.3 节的推理一致。
 
 `use_count()` 用 relaxed 读：
 
@@ -544,7 +555,7 @@ inline uint64_t atomic_combined_refcount_decrement(
 
 这个值只用于诊断和调试，读到一个瞬间即过时的数字是可以接受的，不需要任何顺序保证。
 
-### 3.5 和 `std::shared_ptr`、Java 的对照
+### 5. 和 `std::shared_ptr`、Java 的对照
 
 `std::shared_ptr` 的控制块做的是同样的事情（libstdc++ 和 libc++ 的实现里，+1 用 relaxed，-1 用 acq_rel），只是它把计数放在独立分配的控制块里，`intrusive_ptr` 放在对象内部——第二篇讨论过这个取舍。
 
@@ -571,9 +582,9 @@ Java 没有引用计数（GC 负责），但 `AtomicInteger.incrementAndGet()` �
 刚 `new` 出来的对象没有任何其他线程能看到，所以初始化计数用 relaxed `store` 即可——在 x86 上就是一条普通 `mov`。注释里连汇编差异都写清楚了，这种"每条原子指令都要有理由"的态度，是读 c10 代码时应该带着的。
 
 
-## 四、`thread_local`：语言机制，以及 c10 里有哪些线程局部状态
+## 五、`thread_local`：语言机制，以及 c10 里有哪些线程局部状态
 
-### 4.1 `thread_local` 是存储类别，不是类型
+### 1. `thread_local` 是存储类别，不是类型
 
 C++11 把 `thread_local` 加为一个**存储类别说明符**（storage class specifier），与 `static`、`extern` 同级。一个 `thread_local` 变量在每个线程里有一份独立的实例，线程启动时（或首次使用时）初始化，线程退出时析构：
 
@@ -631,7 +642,7 @@ inline C10_API LocalDispatchKeySet tls_local_dispatch_key_set() {
 
 MSVC 不允许从 DLL 导出 `thread_local` 变量，所以 Windows 上只能导出一个访问函数；Linux/macOS 上可以直接 `extern thread_local` 然后内联读取。第一篇讲过的"C++ 没有统一 ABI"在这里又出现了一次。还有 `c10/util/ThreadLocal.h` 里针对老版 Android NDK 的 `c10::ThreadLocal<T>` 包装类（基于 `pthread_key_create`），以及 `C10_DEFINE_TLS_static` 宏——`torch/csrc/autograd/engine.cpp` 里的 `C10_DEFINE_TLS_static(std::shared_ptr<GraphTask>, tls_current_graph_task);` 用的就是它。
 
-### 4.2 为什么 PyTorch 把这些状态做成线程局部的
+### 2. 为什么 PyTorch 把这些状态做成线程局部的
 
 一个自然的疑问：`no_grad` 为什么不是全局开关？答案是"上下文"和"线程"天然绑定。一个进程里可能同时有：主线程在做推理（`no_grad`），DataLoader 的工作线程在做数据增广（需要 autograd 关闭吗？不一定），autograd 引擎的设备线程在跑 backward（必须以 forward 时的 grad mode 为准）。如果 `no_grad` 是全局的，任何一个线程进入它都会影响其他所有线程，结果是不可预测的。**线程局部是让"作用域内生效"这个语义在多线程下成立的唯一办法**——Python 的 `with` 块是一个线程的执行流上的一段，它只应该影响这个线程。
 
@@ -717,7 +728,7 @@ void setCurrentCUDAStream(CUDAStream stream) {
  * a kernel on the same stream from two different threads.
 ```
 
-"stream 池是全局的，当前 stream 是线程局部的"——这一句在第十节讨论 kernel launch 为什么不用锁时还会用到。
+"stream 池是全局的，当前 stream 是线程局部的"——这一句在第十一章讨论 kernel launch 为什么不用锁时还会用到。
 
 还有一个静态初始化的细节。`c10/core/impl/LocalDispatchKeySet.cpp` 开头：
 
@@ -734,14 +745,14 @@ void setCurrentCUDAStream(CUDAStream stream) {
 thread_local PODLocalDispatchKeySet raw_local_dispatch_key_set;
 ```
 
-TLS 变量如果需要动态初始化（调构造函数），编译器要在每次访问处插入"是否已初始化"的检查；零初始化的 POD 则可以直接放在 TLS 段里，访问就是一条访存。为了让"默认包含 `BackendSelect` 和 `ADInplaceOrView`"这个非零默认值仍然能以零初始化存储，PyTorch 用了一个 XOR 技巧：存储的是"与默认值的差异"。第六节回到源码时会看到 `included()` 和 `set_included()` 如何实现这个 XOR。
+TLS 变量如果需要动态初始化（调构造函数），编译器要在每次访问处插入"是否已初始化"的检查；零初始化的 POD 则可以直接放在 TLS 段里，访问就是一条访存。为了让"默认包含 `BackendSelect` 和 `ADInplaceOrView`"这个非零默认值仍然能以零初始化存储，PyTorch 用了一个 XOR 技巧：存储的是"与默认值的差异"。第七章回到源码时会看到 `included()` 和 `set_included()` 如何实现这个 XOR。
 
 
-## 五、守卫模式：RAII 管理的不只是资源，还有"上下文"
+## 六、守卫模式：RAII 管理的不只是资源，还有"上下文"
 
 第二篇讲 RAII 时，管理的对象是内存、文件句柄、锁——"资源"。本篇要把这个概念推广一步：**任何"进入时设置、退出时恢复"的成对操作，都可以用 RAII 对象的构造/析构来承载**。PyTorch 把这类对象统一叫 guard（守卫）。它们管理的不是资源，而是**线程局部的上下文状态**。
 
-### 5.1 最简单的守卫：`AutoGradMode` / `NoGradGuard`
+### 1. 最简单的守卫：`AutoGradMode` / `NoGradGuard`
 
 回到开头的 `c10/core/GradMode.h`：
 
@@ -770,7 +781,7 @@ struct C10_API AutoGradMode {
   /// which is required for moves on types with nontrivial destructors.
 ```
 
-一个可移动的守卫必须有"已被移走、析构时什么都不做"的状态，这会给每次析构加一个分支，而且让"这个守卫到底还在不在生效"变得不直观。PyTorch 选择：需要"可能不生效"的语义时，用单独的 `Optional*Guard` 类型（第七节会看到）。
+一个可移动的守卫必须有"已被移走、析构时什么都不做"的状态，这会给每次析构加一个分支，而且让"这个守卫到底还在不在生效"变得不直观。PyTorch 选择：需要"可能不生效"的语义时，用单独的 `Optional*Guard` 类型（第八章会看到）。
 
 C++ 用法与 Python 的对照：
 
@@ -797,7 +808,7 @@ try {
 
 C++ 守卫把 `prev`、`set`、`try/finally` 三件事压进一个局部变量的声明。忘记 `finally` 在 Java 里是常见 bug；C++ 里只要守卫对象存在，析构就一定会执行，包括异常展开时。
 
-### 5.2 复合守卫：`InferenceMode`
+### 2. 复合守卫：`InferenceMode`
 
 `c10/core/InferenceMode.h` 的守卫同时修改两份 TLS：
 
@@ -845,7 +856,7 @@ struct C10_API InferenceMode {
 
 模式完全相同——保存、设置、恢复——只是保存的是两个快照。头文件里那段 "Note [Expected TLS state in InferenceMode]" 把"进入推理模式意味着 TLS 变成什么样"写成了不变量：`ADInplaceOrView` 从 included 集合移出，Autograd 一族 key 加入 excluded 集合，`GradMode` 关闭。读懂这段不需要理解 autograd 的原理，只需要知道：**Dispatcher 在决定调哪个 kernel 时，会把 tensor 自带的 key 集合与这两个 TLS 集合做并、差运算**（`aten/src/ATen/core/dispatch/DispatchKeyExtractor.h` 里的 `computeDispatchKeySet`：`(((ks | local.included_) - local.excluded_) & key_mask)`）。把 Autograd 加进 excluded，Dispatcher 就跳过 autograd 那一层，直接到后端 kernel。这是本文需要用到的关于 Dispatcher 的全部知识。
 
-### 5.3 守卫之上的守卫：`AutoDispatchBelowADInplaceOrView`
+### 3. 守卫之上的守卫：`AutoDispatchBelowADInplaceOrView`
 
 `aten/src/ATen/core/LegacyTypeDispatch.h` 里的几个守卫，本身不写任何 TLS，而是**把另一个守卫作为成员**：
 
@@ -889,7 +900,7 @@ you finish the current op.
 
 第五篇讨论过代码生成；这是生成代码依赖运行时守卫来维持正确性的一个例子。
 
-### 5.4 守卫的分类
+### 4. 守卫的分类
 
 把本篇涉及的守卫按"管什么"分一下类：
 
@@ -907,14 +918,14 @@ you finish the current op.
 | `at::ThreadLocalStateGuard` | 上面绝大部分 TLS 的一份完整快照 | 多份 TLS | `aten/src/ATen/ThreadLocalState.h` |
 | `at::internal::ThreadIdGuard` | 并行区域内的线程编号 | TLS `this_thread_id` | `aten/src/ATen/Parallel.h` |
 
-它们的共同骨架就是 5.1 节那三步。读 PyTorch 源码时看到任何以 `Guard` 结尾、没有业务方法、删掉了拷贝移动的类型，都可以按这个模板理解。
+它们的共同骨架就是 6.1 节那三步。读 PyTorch 源码时看到任何以 `Guard` 结尾、没有业务方法、删掉了拷贝移动的类型，都可以按这个模板理解。
 
 
-## 六、回到源码：`c10/core/impl/LocalDispatchKeySet.h`
+## 七、回到源码：`c10/core/impl/LocalDispatchKeySet.h`
 
 这个文件是 PyTorch 里最典型的"TLS + 守卫"组合，也是 `InferenceMode`、`AutoDispatchBelow*`、`ThreadLocalState` 的公共基础。逐段读一遍。
 
-### 6.1 文件头注释：两个集合
+### 1. 文件头注释：两个集合
 
 ```cpp
 // TLS management for DispatchKeySet (the "local" DispatchKeySet(s))
@@ -935,9 +946,9 @@ you finish the current op.
 // (if it's inverted, you want the set to be -1 initialized).
 ```
 
-included 集合"额外加入"某些 key，excluded 集合"强制去掉"某些 key，excluded 优先。最后一段 NB 是 4.2 节说的"TLS 必须零初始化"约束的第一次出现。
+included 集合"额外加入"某些 key，excluded 集合"强制去掉"某些 key，excluded 优先。最后一段 NB 是 5.2 节说的"TLS 必须零初始化"约束的第一次出现。
 
-### 6.2 `PODLocalDispatchKeySet`：零初始化 + XOR
+### 2. `PODLocalDispatchKeySet`：零初始化 + XOR
 
 ```cpp
 struct C10_API PODLocalDispatchKeySet {
@@ -979,11 +990,11 @@ struct C10_API LocalDispatchKeySet {
 };
 ```
 
-### 6.3 TLS 变量与访问函数
+### 3. TLS 变量与访问函数
 
-4.1 节已经引用过这段：非 Windows 上 `extern C10_API thread_local PODLocalDispatchKeySet raw_local_dispatch_key_set;` 加一个内联的 `tls_local_dispatch_key_set()`。注释 "Don't let people fiddle with the thread_local directly just because they include this header" 说明了为什么要包一层函数：返回的是**按值拷贝**的 `LocalDispatchKeySet`，调用者拿不到 TLS 的引用，改不了。要改必须走守卫或 `_force_tls_local_dispatch_key_set`。
+5.1 节已经引用过这段：非 Windows 上 `extern C10_API thread_local PODLocalDispatchKeySet raw_local_dispatch_key_set;` 加一个内联的 `tls_local_dispatch_key_set()`。注释 "Don't let people fiddle with the thread_local directly just because they include this header" 说明了为什么要包一层函数：返回的是**按值拷贝**的 `LocalDispatchKeySet`，调用者拿不到 TLS 的引用，改不了。要改必须走守卫或 `_force_tls_local_dispatch_key_set`。
 
-### 6.4 两个 RAII 守卫
+### 4. 两个 RAII 守卫
 
 ```cpp
 class C10_API IncludeDispatchKeyGuard {
@@ -1035,11 +1046,11 @@ ExcludeDispatchKeyGuard::~ExcludeDispatchKeyGuard() {
 }
 ```
 
-三步骨架再次出现，只是"保存"的不是旧集合本身，而是**增量**：`include_` 记下"这次真正新加进去的 key"（`include - tls_->included()`，已经在集合里的不算），构造函数体把增量并进 TLS，析构时再把同一份增量减掉。效果等价于恢复旧值，但如果要加的 key 本来就在集合里，`include_` 为空，构造和析构都不碰 TLS。`tls_` 缓存 TLS 地址是 4.1 节说的省一次 `__tls_get_addr` 的优化——注意这个地址**只在同一个线程内有效**，而守卫对象本来就不能跨线程移动，所以是安全的。
+三步骨架再次出现，只是"保存"的不是旧集合本身，而是**增量**：`include_` 记下"这次真正新加进去的 key"（`include - tls_->included()`，已经在集合里的不算），构造函数体把增量并进 TLS，析构时再把同一份增量减掉。效果等价于恢复旧值，但如果要加的 key 本来就在集合里，`include_` 为空，构造和析构都不碰 TLS。`tls_` 缓存 TLS 地址是 5.1 节说的省一次 `__tls_get_addr` 的优化——注意这个地址**只在同一个线程内有效**，而守卫对象本来就不能跨线程移动，所以是安全的。
 
 注意守卫只改动和恢复**自己那个集合**（included 或 excluded），不碰另一个。`.cpp` 里一大段注释讨论了"整份快照 vs 只快照自己那一半"的取舍：如果守卫快照整份状态，而中间有人用非 RAII API 改了另一半，守卫析构时会把那个修改也一并抹掉。PyTorch 选择了只恢复自己的部分。`ForceDispatchKeyGuard` 是相反的选择——它快照整份 `LocalDispatchKeySet`，析构时整体恢复，`InferenceMode` 和 `ThreadLocalStateGuard` 用的是这条路径（通过 `_force_tls_local_dispatch_key_set`）。
 
-### 6.5 非 RAII API：为什么也需要
+### 5. 非 RAII API：为什么也需要
 
 ```cpp
 // Non-RAII API for manipulating the thread-local dispatch state.
@@ -1065,11 +1076,11 @@ C10_API void tls_set_dispatch_key_included(DispatchKey x, bool desired_state);
 这段注释回答了一个实际问题：Python 的 `with` 块的 `__enter__` 和 `__exit__` 是两次独立的 C++ 调用，中间 C++ 栈已经完全展开，没有任何 C++ 局部变量能活到 `__exit__`。所以 **Python 上下文管理器在 C++ 侧只能用非 RAII 的 set/get 函数**，由 Python 侧的 `__exit__` 负责恢复。这也正是 `torch.no_grad()` 走的路：`torch._C._set_grad_enabled` 是一个非 RAII 的 setter，`prev` 值保存在 Python 对象的 `self.prev` 里。C++ 内部代码则用 `NoGradGuard`。两条路修改的是同一个 TLS。
 
 
-## 七、回到源码：`c10::DeviceGuard` 的两层设计
+## 八、回到源码：`c10::DeviceGuard` 的两层设计
 
 设备守卫管理的上下文不在 PyTorch 自己的 TLS 里，而在 CUDA runtime 里——`cudaSetDevice` 设置的"当前设备"本身就是 CUDA runtime 维护的线程局部状态。这带来一个额外的设计约束：`c10/` 是不依赖 CUDA 的基础库，`libc10.so` 里不能出现 `cudaSetDevice` 的调用，但 `c10::DeviceGuard` 又必须能切换 CUDA 设备。PyTorch 用"虚接口 + 内联模板"两层结构解决这个矛盾，第四篇讨论的两种多态（虚函数与模板）在这里同时出场。
 
-### 7.1 第一层：`DeviceGuardImplInterface`——虚接口
+### 1. 第一层：`DeviceGuardImplInterface`——虚接口
 
 `c10/core/impl/DeviceGuardImplInterface.h`：
 
@@ -1172,7 +1183,7 @@ struct CUDAGuardImpl final : public c10::impl::DeviceGuardImplInterface {
 
 `c10/cuda/impl/CUDAGuardImpl.cpp` 只有一行有效代码：`C10_REGISTER_GUARD_IMPL(CUDA, CUDAGuardImpl)`。`final` 关键字让编译器在**已知具体类型**时可以去虚化（devirtualize）——这就是第二层要利用的。
 
-### 7.2 第二层：`InlineDeviceGuard<T>`——内联模板
+### 2. 第二层：`InlineDeviceGuard<T>`——内联模板
 
 `c10/core/impl/InlineDeviceGuard.h`：
 
@@ -1256,7 +1267,7 @@ flowchart TD
 
 一句话总结：**通用代码走虚接口跨越库边界，后端专用代码走模板把虚调用消掉**。写 CUDA kernel 的 host 代码时应该用 `c10::cuda::CUDAGuard`（或 `at::cuda::CUDAGuard`），不要用 `c10::DeviceGuard`，就是为了走快的那条路。
 
-### 7.3 为什么要包一层：`c10::DeviceGuard` 的样板代码
+### 3. 为什么要包一层：`c10::DeviceGuard` 的样板代码
 
 `c10/core/DeviceGuard.h` 里的 `DeviceGuard` 只是把 `InlineDeviceGuard<VirtualGuardImpl>` 的每个方法转发一遍：
 
@@ -1333,7 +1344,7 @@ void qr_all_reduce(quickreduce::fptr_t _fa, torch::Tensor& inp,
 
 `device_of(inp)` 返回 `std::optional<Device>`，tensor 在 CPU 上时是 `nullopt`，守卫就什么都不做。这个例子里"当前设备"和"当前 stream"两个上下文各由一行代码确定，然后所有 kernel 都在这个上下文里 launch。
 
-### 7.4 `CUDAStreamGuard`：设备 + stream 一起切
+### 4. `CUDAStreamGuard`：设备 + stream 一起切
 
 `c10/cuda/CUDAGuard.h` 的 `CUDAStreamGuard` 持有 `c10::impl::InlineStreamGuard<impl::CUDAGuardImpl> guard_;`。`c10/core/impl/InlineStreamGuard.h` 里 `InlineStreamGuard` **私有继承** `InlineDeviceGuard`：
 
@@ -1359,9 +1370,9 @@ class InlineStreamGuard : private InlineDeviceGuard<T> {
 构造顺序是：先切设备（基类构造），再记录旧 stream，再切 stream。析构顺序自动相反：派生类析构先恢复 stream，然后基类析构恢复设备。C++ 保证基类在派生类之前构造、之后析构，守卫的嵌套对称性由语言直接提供。私有继承在这里表达的是"用基类实现自己，但不对外暴露基类接口"——Java 没有私有继承，最接近的是组合。
 
 
-## 八、回答核心问题：`torch.no_grad()` 的完整链路与 `ThreadLocalState`
+## 九、回答核心问题：`torch.no_grad()` 的完整链路与 `ThreadLocalState`
 
-### 8.1 从 Python 到 TLS
+### 1. 从 Python 到 TLS
 
 把前几节串起来，`with torch.no_grad():` 在 C++ 层做的事情是：
 
@@ -1406,7 +1417,7 @@ inline bool compute_requires_grad(Args&&... args) {
 
 `GradMode::is_enabled()` 返回 false，就不建反向图，输出 tensor 的 `requires_grad` 为 false。这就是 `no_grad` 的效果。
 
-### 8.2 为什么对其他线程不生效
+### 2. 为什么对其他线程不生效
 
 答案现在是显然的：`autograd_state_tls` 是 `thread_local`，**每个 OS 线程有一份独立实例**。`torch._C._set_grad_enabled(False)` 修改的是调用它的那个线程（通常是 Python 主线程）的实例。另一个线程——无论是 Python 的 `threading.Thread`（CPython 线程就是 OS 线程，只是共享 GIL）、DataLoader 的 worker 线程、还是 C++ 的 `at::launch` 线程——读到的是自己那份，初始值 `grad_mode = true`。
 
@@ -1414,7 +1425,7 @@ inline bool compute_requires_grad(Args&&... args) {
 
 Java 对照：Java 的 `ThreadLocal` 有一个子类 `InheritableThreadLocal`，子线程创建时会拷贝父线程的值。C++ 的 `thread_local` **没有**这个机制，新线程的 TLS 一律从初始值开始。PyTorch 需要"继承"语义的地方，必须显式地把状态打包、传过去、在新线程上解包。这就是 `ThreadLocalState` 的作用。
 
-### 8.3 `ThreadLocalState`：显式传播 TLS
+### 3. `ThreadLocalState`：显式传播 TLS
 
 `aten/src/ATen/ThreadLocalState.h`：
 
@@ -1515,11 +1526,11 @@ autograd 引擎也是这样。`torch/csrc/autograd/engine.cpp` 里工作线程�
 所以对"为什么对其他线程不生效"的完整回答是：**默认不生效，因为 `thread_local` 不会继承；但 PyTorch 在自己创建线程边界的地方（`at::launch`、autograd 引擎、JIT fork）用 `ThreadLocalState` 显式传播；而 `at::parallel_for` 特意不传播**——下一节解释为什么。
 
 
-## 九、`at::parallel_for`：OpenMP、grain size 与线程数
+## 十、`at::parallel_for`：OpenMP、grain size 与线程数
 
 总纲开篇那段 `scale_shift_cpu` 里有 `at::parallel_for(0, x_c.numel(), 4096, [&](int64_t begin, int64_t end) { ... })`。它的线程从哪里来？
 
-### 9.1 接口层：`aten/src/ATen/Parallel.h`
+### 1. 接口层：`aten/src/ATen/Parallel.h`
 
 ```cpp
 /*
@@ -1549,7 +1560,7 @@ inline void parallel_for(
 
 三个约定：闭区间起点 `begin`、开区间终点 `end`、每块至少 `grain_size` 个元素。`f` 是模板参数 `F`，lambda 按 `const F&` 传入——第三篇讲过，这意味着每个调用点的 lambda 类型都不同，`parallel_for` 会为每个调用点实例化一份，lambda 体可以被完全内联进循环。
 
-那段 Warning 是第八节的续篇：`parallel_for` **不**传播 TLS，所以循环体里不能调 tensor 算子（算子会读 TLS 决定分发路径），只能操作裸指针。这是刻意的性能取舍：`parallel_for` 是最内层的热循环，每次调用都拷贝十几份 TLS 的开销不可接受；而循环体本来就应该只做算术。
+那段 Warning 是第九章的续篇：`parallel_for` **不**传播 TLS，所以循环体里不能调 tensor 算子（算子会读 TLS 决定分发路径），只能操作裸指针。这是刻意的性能取舍：`parallel_for` 是最内层的热循环，每次调用都拷贝十几份 TLS 的开销不可接受；而循环体本来就应该只做算术。
 
 文件末尾按编译选项选择后端：
 
@@ -1565,7 +1576,7 @@ inline void parallel_for(
 
 两个后端提供同一个函数 `at::internal::invoke_parallel`，`Parallel-inl.h` 在其上实现 `parallel_for`。
 
-### 9.2 决策层：`aten/src/ATen/Parallel-inl.h`
+### 2. 决策层：`aten/src/ATen/Parallel-inl.h`
 
 ```cpp
 template <class F>
@@ -1609,7 +1620,7 @@ inline void parallel_for(
 
 `!at::in_parallel_region()` 防止嵌套并行：如果已经在一个 `parallel_for` 的循环体里，内层的 `parallel_for` 直接串行执行。`c10::ParallelGuard guard(true)` 是 `c10/util/ParallelGuard.h` 里那个 TLS bool 的守卫，每个块执行前置为 true。
 
-### 9.3 执行层 A：OpenMP（`aten/src/ATen/ParallelOpenMP.h`）
+### 3. 执行层 A：OpenMP（`aten/src/ATen/ParallelOpenMP.h`）
 
 ```cpp
 #ifdef _OPENMP
@@ -1657,11 +1668,11 @@ inline void invoke_parallel(
 
 `#pragma omp parallel` 是 OpenMP 的编译器指令：花括号内的代码块由 OpenMP 运行时维护的线程池中的所有线程**各执行一遍**。每个线程通过 `omp_get_thread_num()` 拿到自己的编号，自己算出负责的区间 `[begin_tid, begin_tid + chunk_size)`。线程数上限是 `omp_get_num_threads()`，再被 `divup(总数, grain_size)` 截断——这就是 grain size 参与"分几块"的地方：1000 个元素、grain 300、8 个线程，只用 4 个线程各 250 个。
 
-异常处理值得注意：OpenMP 并行区域**不允许异常逃逸**（会 `terminate`），所以每个线程用 `try/catch(...)` 捕获，用 `std::atomic_flag::test_and_set()` 保证只有第一个异常被存进 `std::exception_ptr`，并行区域结束后在主线程 `rethrow_exception`。`std::atomic_flag` 是最小的原子类型，`test_and_set` 是原子的"置 1 并返回旧值"，这里用它当"只让一个线程进来"的门闩。这是本文第二节的原子操作的又一个实际用途。
+异常处理值得注意：OpenMP 并行区域**不允许异常逃逸**（会 `terminate`），所以每个线程用 `try/catch(...)` 捕获，用 `std::atomic_flag::test_and_set()` 保证只有第一个异常被存进 `std::exception_ptr`，并行区域结束后在主线程 `rethrow_exception`。`std::atomic_flag` 是最小的原子类型，`test_and_set` 是原子的"置 1 并返回旧值"，这里用它当"只让一个线程进来"的门闩。这是本文第三章的原子操作的又一个实际用途。
 
 Java 对照：`#pragma omp parallel` 最接近的是 `IntStream.range(0, n).parallel().forEach(...)`，都是把区间切块交给一个共享的线程池（ForkJoinPool.commonPool 对应 OpenMP 的线程组）。但 OpenMP 是编译器扩展而不是库：`#pragma` 在预处理后由编译器生成 fork/join 代码，没开 `-fopenmp` 时 `#pragma omp` 被忽略、代码退化为单线程。
 
-### 9.4 执行层 B：原生线程池（`aten/src/ATen/ParallelNative.h/.cpp`）
+### 4. 执行层 B：原生线程池（`aten/src/ATen/ParallelNative.h/.cpp`）
 
 不用 OpenMP 时（`AT_PARALLEL_NATIVE`），`invoke_parallel` 不是模板而是普通函数，接受 `std::function`（第四篇讨论过的类型擦除）：
 
@@ -1673,7 +1684,7 @@ TORCH_API void invoke_parallel(
     const std::function<void(int64_t, int64_t)>& f);
 ```
 
-实现在 `aten/src/ATen/ParallelNative.cpp`，把第一节的三件套和第二节的原子操作全用上了：
+实现在 `aten/src/ATen/ParallelNative.cpp`，把第二章的三件套和第三章的原子操作全用上了：
 
 ```cpp
 void invoke_parallel(
@@ -1732,7 +1743,7 @@ void invoke_parallel(
 }
 ```
 
-`state` 是一个匿名结构体的局部变量，被 lambda **按引用**捕获（`&state`），所有任务共享它。`remaining` 计数每个任务完成时减一，最后一个减到 0 的任务 `notify_one()` 唤醒在 `cv.wait` 上阻塞的主线程。这个"等所有任务完成"的模式，Java 里对应 `CountDownLatch`。`_run_with_pool` 把任务提交到 `_get_intraop_pool()`——一个进程级单例的 `c10::TaskThreadPoolBase`，就是第一节读的 `c10::ThreadPool` 的接口。
+`state` 是一个匿名结构体的局部变量，被 lambda **按引用**捕获（`&state`），所有任务共享它。`remaining` 计数每个任务完成时减一，最后一个减到 0 的任务 `notify_one()` 唤醒在 `cv.wait` 上阻塞的主线程。这个"等所有任务完成"的模式，Java 里对应 `CountDownLatch`。`_run_with_pool` 把任务提交到 `_get_intraop_pool()`——一个进程级单例的 `c10::TaskThreadPoolBase`，就是第二章读的 `c10::ThreadPool` 的接口。
 
 两个后端的差别：
 
@@ -1744,7 +1755,7 @@ void invoke_parallel(
 | 与 MKL 的关系 | 共用同一个 OpenMP 线程组，避免两套池互相抖动 | 无关 |
 | 默认构建 | Linux x86 官方 wheel | macOS 与部分移动端构建 |
 
-### 9.5 线程数从哪里来
+### 5. 线程数从哪里来
 
 `at::get_num_threads()` 在 OpenMP 后端（`aten/src/ATen/ParallelOpenMP.cpp`）：
 
@@ -1821,12 +1832,12 @@ int intraop_default_num_threads() {
 
 优先级：`torch.set_num_threads()` > `OMP_NUM_THREADS` > `MKL_NUM_THREADS` > 物理核数（Apple Silicon 上只算性能核）。这就是为什么在多进程数据并行训练时通常要设 `OMP_NUM_THREADS=1`：每个进程默认会开满核数的线程，几个进程加起来严重超订。
 
-### 9.6 `parallel_for` 与 `no_grad` 的关系
+### 6. `parallel_for` 与 `no_grad` 的关系
 
-回到第八节留下的问题。`parallel_for` 的工作线程（无论是 OpenMP 线程组还是原生线程池）都是长期存活的线程，它们的 TLS 保持各自的初始值：grad mode 为 true，dispatch key 集合为默认。如果在 `no_grad` 块里调一个 CPU 算子，算子内部的 `parallel_for` 循环体在工作线程上执行——**工作线程的 `GradMode::is_enabled()` 是 true**。这没有关系，因为循环体只做算术，不读 TLS；autograd 的判断在调用 `parallel_for` 之前就在主线程上做完了。但如果有人在循环体里调 `at::add`（违反了那条 Warning），行为就会和主线程不一致。第十二节的 mini-c10 会把这个现象直接演示出来。
+回到第九章留下的问题。`parallel_for` 的工作线程（无论是 OpenMP 线程组还是原生线程池）都是长期存活的线程，它们的 TLS 保持各自的初始值：grad mode 为 true，dispatch key 集合为默认。如果在 `no_grad` 块里调一个 CPU 算子，算子内部的 `parallel_for` 循环体在工作线程上执行——**工作线程的 `GradMode::is_enabled()` 是 true**。这没有关系，因为循环体只做算术，不读 TLS；autograd 的判断在调用 `parallel_for` 之前就在主线程上做完了。但如果有人在循环体里调 `at::add`（违反了那条 Warning），行为就会和主线程不一致。第十三章的 mini-c10 会把这个现象直接演示出来。
 
 
-## 十、为什么 CUDA kernel launch 不用锁
+## 十一、为什么 CUDA kernel launch 不用锁
 
 一个典型的 CUDA kernel launch 站点（`aten/src/ATen/native/cuda/Embedding.cu`，`embedding_dense_backward_cuda` 的一部分）：
 
@@ -1859,7 +1870,7 @@ int intraop_default_num_threads() {
 
 `<<<grid, block, shared_mem, stream>>>` 是 CUDA 的 kernel 启动语法（nvcc 扩展），第四个参数指定 stream。整段代码没有锁。两个 host 线程同时执行这段代码为什么不会出问题？
 
-### 10.1 stream 的顺序语义
+### 1. stream 的顺序语义
 
 CUDA 的执行模型是：host 线程把工作（kernel、memcpy）**异步地**入队到一条 stream，GPU 按**入队顺序**执行同一条 stream 上的工作，不同 stream 之间没有顺序保证。kernel launch 本身只是"把一个任务描述放进队列"，几微秒就返回，不等 GPU 执行。
 
@@ -1867,9 +1878,9 @@ CUDA 的执行模型是：host 线程把工作（kernel、memcpy）**异步地**
 
 数据依赖的正确性由 stream 顺序保证：同一线程先 launch kernel A 写 tensor X，再 launch kernel B 读 X，只要在同一条 stream，B 一定看到 A 的结果——不需要 host 侧任何同步。这相当于把"happens-before"的责任从 host 内存模型转移到了 GPU 的 stream 语义上。
 
-### 10.2 host 线程模型：当前设备与当前 stream 都是线程局部的
+### 2. host 线程模型：当前设备与当前 stream 都是线程局部的
 
-上面代码里 `at::cuda::getCurrentCUDAStream()` 读的是第四节讲的 `thread_local current_streams`；kernel 在哪个设备上 launch，由 CUDA runtime 线程局部的"当前设备"决定（`cudaSetDevice` 只影响调用线程，`c10/cuda/CUDAFunctions.cpp` 里 CUDA 12 路径还叠了一层 `thread_local static DeviceIndex targetDeviceIndex` 来延迟真正的 `cudaSetDevice` 调用）。
+上面代码里 `at::cuda::getCurrentCUDAStream()` 读的是第五章讲的 `thread_local current_streams`；kernel 在哪个设备上 launch，由 CUDA runtime 线程局部的"当前设备"决定（`cudaSetDevice` 只影响调用线程，`c10/cuda/CUDAFunctions.cpp` 里 CUDA 12 路径还叠了一层 `thread_local static DeviceIndex targetDeviceIndex` 来延迟真正的 `cudaSetDevice` 调用）。
 
 这两个"当前"都是 TLS，两个线程各自设置、各自读取，不会互相干扰，也就不需要锁。PyTorch 的默认用法是**每个 host 线程一条自己的 stream**（默认 stream，或用 `torch.cuda.Stream` + `CUDAStreamGuard` 切到另一条），线程之间通过 CUDA event 或 `stream.wait_stream` 建立依赖，而不是通过 host 侧的锁。
 
@@ -1887,7 +1898,7 @@ flowchart LR
     Q1 -.-|无顺序保证，除非用 event 同步| Q2
 ```
 
-### 10.3 哪里还是有锁的
+### 3. 哪里还是有锁的
 
 不是 CUDA 路径上完全没有锁。`c10/cuda/CUDACachingAllocator.cpp` 的设备内存分配器是进程级共享的：
 
@@ -1906,11 +1917,11 @@ flowchart LR
 Java 对照：这个模型和 Java 里"每个线程自己的 `ExecutorService` 队列，任务之间用 `CompletableFuture` 链接依赖"类似，只是队列在 GPU 上，"当前队列"存在 TLS 里。
 
 
-## 十一、SIMD 简介：`at::vec::Vectorized<T>`
+## 十二、SIMD 简介：`at::vec::Vectorized<T>`
 
 多线程是"多个核同时跑"，SIMD 是"一个核一条指令同时算多个数"。CPU kernel 的性能两者都要。ATen 用 `at::vec::Vectorized<T>` 把不同 ISA（AVX2、AVX512、NEON、SVE、VSX、zarch）的向量指令包成统一的 C++ 类型。本节只讲读懂这层封装需要的最小集。
 
-### 11.1 通用回退：`aten/src/ATen/cpu/vec/vec_base.h`
+### 1. 通用回退：`aten/src/ATen/cpu/vec/vec_base.h`
 
 ```cpp
 #ifdef CPU_CAPABILITY_AVX512
@@ -1972,7 +1983,7 @@ Vectorized<T> inline operator+(const Vectorized<T>& a, const Vectorized<T>& b) {
 
 通用版本就是一个对齐的定长数组加逐元素循环。`VECTOR_WIDTH` 按编译目标决定（AVX2 为 32 字节，`Vectorized<float>::size()` 就是 8）。`loadu`/`store` 是"从内存装入一个向量 / 写回"，`u` 表示 unaligned，不要求地址对齐。
 
-### 11.2 具体 ISA：`aten/src/ATen/cpu/vec/vec256/vec256_float.h`
+### 2. 具体 ISA：`aten/src/ATen/cpu/vec/vec256/vec256_float.h`
 
 AVX2 下 `Vectorized<float>` 被**全特化**（第三篇的概念）成一个包着 `__m256` 的类：
 
@@ -2044,7 +2055,7 @@ Vectorized<float> inline fmadd(
 
 `__m256` 是编译器提供的 256 位向量类型，`_mm256_*_ps` 是 Intel intrinsics——形式上是函数，编译后是单条 AVX2 指令。`operator+` 一条 `vaddps` 同时加 8 个 float；`fmadd` 一条指令算 `a * b + c`。
 
-### 11.3 为什么用 `inline namespace CPU_CAPABILITY`
+### 3. 为什么用 `inline namespace CPU_CAPABILITY`
 
 `aten/src/ATen/cpu/vec/vec256/vec256.h` 里的注释：
 
@@ -2062,7 +2073,7 @@ inline namespace CPU_CAPABILITY {
 
 同一个 kernel 源文件（如 `aten/src/ATen/native/cpu/BinaryOpsKernel.cpp`）会被编译多次，每次用不同的 `-mavx2`/`-mavx512f` 标志和不同的 `CPU_CAPABILITY` 宏值（`DEFAULT`、`AVX2`、`AVX512`……）。如果两份编译结果里的 `at::vec::Vectorized<float>` 名字相同，链接器会认为它们是同一个符号（第一篇讲的 ODR），随机选一个——可能在不支持 AVX512 的机器上执行 AVX512 指令。`inline namespace AVX2 { ... }` 让符号变成 `at::vec::AVX2::Vectorized<float>`，各版本互不冲突，同时 `inline` 让用户写 `at::vec::Vectorized<float>` 就能访问。运行时由 `DispatchStub` 根据 CPU 检测结果选一份——这是第四、五篇讲的运行时分发在 ISA 维度上的应用。
 
-### 11.4 在 kernel 里怎么用
+### 4. 在 kernel 里怎么用
 
 `aten/src/ATen/native/cpu/BinaryOpsKernel.cpp` 的 `add_clamp_kernel`：
 
@@ -2100,11 +2111,11 @@ void add_clamp_kernel(
 `cpu_kernel_vec` 接受两个 lambda：标量版处理向量宽度对不齐的尾部，向量版处理主体。写 kernel 的人只描述"一个元素怎么算"和"一个向量怎么算"，切块、并行（内部调 `at::parallel_for`）、尾部处理都由 `aten/src/ATen/native/cpu/Loops.h` 完成。这一层把本篇讲的多线程（`parallel_for`）和 SIMD（`Vectorized`）叠在了一起：外层多线程分块，内层每个线程用向量指令处理自己的块。
 
 
-## 十二、mini-c10：原子引用计数、`GradMode.h`、`Parallel.h`
+## 十三、mini-c10：原子引用计数、`GradMode.h`、`Parallel.h`
 
 本篇给 mini-c10 加三样东西：把第二篇的 `intrusive_ptr` 引用计数改成原子的；`core/GradMode.h`；`Parallel.h`。然后用两个线程演示 TLS 隔离。以下代码全部用 `clang++ -std=c++17 -Wall -Wextra -pthread` 编译并运行过，也用 `-fsanitize=thread` 跑过一遍无报告。
 
-### 12.1 `minic10/util/intrusive_ptr.h`：`refcount_` 改为 `std::atomic<size_t>`
+### 1. `minic10/util/intrusive_ptr.h`：`refcount_` 改为 `std::atomic<size_t>`
 
 ```cpp
 #pragma once
@@ -2226,7 +2237,7 @@ inline bool operator==(const intrusive_ptr<T>& a, const intrusive_ptr<T>& b) noe
 
 注意 `mutable`：`intrusive_ptr<const T>` 也要能 +1/-1，所以计数字段必须能在 `const` 对象上修改。c10 里 `combined_refcount_` 同样是 `mutable`。
 
-### 12.2 `minic10/core/GradMode.h`
+### 2. `minic10/core/GradMode.h`
 
 ```cpp
 #pragma once
@@ -2267,7 +2278,7 @@ struct NoGradGuard : AutoGradMode {
 
 与 `c10/core/GradMode.h` 的结构一一对应。唯一的实现差异：c10 把 `thread_local` 变量放在 `.cpp` 里（因为它要导出成 `C10_API` 并且要处理 Windows 的限制），mini-c10 为了 header-only 把它放进一个静态成员函数的函数体里——函数内的 `thread_local` 变量在每个线程首次经过该语句时初始化，各翻译单元共享同一个实例（因为 inline 函数满足 ODR）。
 
-### 12.3 `minic10/Parallel.h`：用 `std::thread` 实现
+### 3. `minic10/Parallel.h`：用 `std::thread` 实现
 
 ```cpp
 #pragma once
@@ -2355,7 +2366,7 @@ void parallel_for(int64_t begin, int64_t end, int64_t grain_size, const F& f) {
 - 异常处理用 `mutex + exception_ptr` 代替 `atomic_flag + exception_ptr`，效果相同，前者更直白。
 - **最大的差别**：每次调用都 `std::thread` 创建线程并 `join`。创建一个 OS 线程的成本在几十微秒量级，对一个只处理几万个元素的 kernel 来说可能比计算本身还贵。OpenMP 和 ATen 原生后端都复用长期存活的线程池，这是它们比这个玩具版快得多的原因。另一个差别是 OpenMP 的 `#pragma omp parallel` 让调用线程自己也当一个工作线程（tid 0），这里调用线程只负责等待。
 
-### 12.4 演示：两个线程的 TLS 隔离
+### 4. 演示：两个线程的 TLS 隔离
 
 ```cpp
 #include <cstdio>
@@ -2439,26 +2450,26 @@ out[12345] = 24690
 2. 八个线程各做十万次拷贝和销毁，最终 `use_count()` 回到 1，且 `~Impl` 恰好打印一次——relaxed 增、acq_rel 减在多线程下正确。如果把 `refcount_` 改回普通 `size_t`，`-fsanitize=thread` 会立刻报数据竞争，最终计数也大概率不为 1（多次运行可能触发 double free）。
 3. `parallel_for` 的工作线程读到 `grad enabled = 1`，尽管调用方在 `NoGradGuard` 里——这就是 `at::parallel_for` 那条 Warning 描述的现象。如果第二段用 ATen 的原生线程池，工作线程会长期存活，第二次进入 `parallel_for` 时它们的 TLS 还是上一次留下的值；这也是为什么 `ParallelRegionGuard` 要在每个任务前后设置和清除标志，而不是只设一次。
 
-如果要把 8.3 节的 `ThreadLocalState` 模式也搬进 mini-c10，只需要在 `parallel_for` 里给每个 worker 的 lambda 加上：先在调用线程上 `const bool grad = GradMode::is_enabled();`，在 worker 里 `AutoGradMode g(grad);`。ATen 没有这么做，是出于第九节说的性能考虑。
+如果要把 9.3 节的 `ThreadLocalState` 模式也搬进 mini-c10，只需要在 `parallel_for` 里给每个 worker 的 lambda 加上：先在调用线程上 `const bool grad = GradMode::is_enabled();`，在 worker 里 `AutoGradMode g(grad);`。ATen 没有这么做，是出于第十章说的性能考虑。
 
 
-## 十三、工程实践建议与常见错误
+## 十四、工程实践建议与常见错误
 
-### 13.1 关于内存序
+### 1. 关于内存序
 
 - **不确定就用默认的 `seq_cst`**，正确性优先。只在 profile 显示原子操作是热点时，才按 c10 的模式降级：纯计数用 relaxed，"发布/获取"配对用 release/acquire，读-改-写且要同步用 acq_rel。
 - **每次用非默认 memory order 都写一行注释说明理由**，像 `intrusive_ptr.h` 那样。三个月后的你和 reviewer 都需要它。
 - **不要用 C++ `volatile` 做线程同步**。它在 C++ 里的语义与 Java 完全不同。vLLM `shm.cpp` 的 x86 分支是配合显式 `_mm_mfence()` 的老写法，不要模仿。
 - **`std::atomic<T>` 的 `T` 尽量用平台原生宽度**（`int`、`int64_t`、指针），并在关键位置 `static_assert(std::atomic<T>::is_always_lock_free)`。`std::atomic<SomeStruct>` 大概率会退化成锁。
 
-### 13.2 关于锁
+### 2. 关于锁
 
 - **锁一律用 RAII 守卫持有**，永远不手写 `lock()/unlock()`。中途需要解锁用 `unique_lock`，否则用更轻的 `lock_guard`（C++17 还有 `std::scoped_lock`，可以一次锁多个 mutex 且避免死锁）。
 - **`std::mutex` 不可重入**。如果一个持锁函数会调到另一个也要锁同一个 mutex 的函数，要么重构，要么用 `recursive_mutex`（并意识到这通常是设计有问题的信号）。
 - **不在持锁时调用用户回调**——`c10::ThreadPool::main_loop` 先 `unlock()` 再执行任务就是这个原因。回调可能重入线程池导致死锁。
 - **`condition_variable::wait` 一律带谓词**，处理虚假唤醒。
 
-### 13.3 关于 TLS 与守卫
+### 3. 关于 TLS 与守卫
 
 - **守卫对象必须是有名字的局部变量**。`c10::InferenceMode();`（临时对象）会在这条语句结束时立刻析构，守卫等于没生效；正确写法是 `c10::InferenceMode guard;`。编译器通常会对未使用的临时对象给警告，但不是所有守卫类型都标了 `[[nodiscard]]`。
 - **守卫不能跨线程**。`IncludeDispatchKeyGuard` 缓存了 TLS 地址，`DeviceGuard` 记录的是构造线程的当前设备；把守卫对象（哪怕通过 `std::unique_ptr`）传给另一个线程去析构，恢复的是错误线程的状态。PyTorch 通过删除移动构造函数从根本上杜绝了这条路。
@@ -2467,14 +2478,14 @@ out[12345] = 24690
 - **CUDA 算子的 host 代码用 `c10::cuda::CUDAGuard`/`OptionalCUDAGuard`**，不要用 `c10::DeviceGuard`。前者是模板实例化，去虚化；后者多一次虚调用和一次注册表查找。多 tensor 输入时用 `OptionalCUDAGuard device_guard(device_of(x));` 一次，不要每个 tensor 一个守卫。
 - **kernel launch 后紧跟 `C10_CUDA_KERNEL_LAUNCH_CHECK()`**。launch 是异步的，配置错误（如 block 太大）只能在这里捕获。
 
-### 13.4 关于并行
+### 4. 关于并行
 
 - **`grain_size` 不要太小**。它是"少于多少元素就不并行"的阈值，设成 1 会让小 tensor 也去起线程，反而变慢。多数 ATen 算子用 `at::internal::GRAIN_SIZE`（32768）。
 - **`parallel_for` 不能嵌套并行**，内层会串行执行。把并行放在最外层。
 - **多进程训练设 `OMP_NUM_THREADS`**，否则每个进程默认开满核数的 intra-op 线程，总线程数远超核数。
 - **写 CPU kernel 时把标量版和向量版一起交给 `cpu_kernel_vec`**，不要手写 `Vectorized` 循环和尾部处理。
 
-### 13.5 与 Java 直觉冲突的几处总结
+### 5. 与 Java 直觉冲突的几处总结
 
 | Java 直觉 | C++ 事实 |
 |---|---|
@@ -2488,7 +2499,7 @@ out[12345] = 24690
 | 忘记 `finally` 里的 `remove()`/`unlock()` 是常见 bug | RAII 守卫让"退出时恢复"由析构函数保证，包括异常路径 |
 
 
-## 十四、总结
+## 十五、本文小结
 
 本篇从 `with torch.no_grad():` 出发，把 C++ 并发模型的几个部件和 PyTorch 在其上搭出的模式串了一遍：
 

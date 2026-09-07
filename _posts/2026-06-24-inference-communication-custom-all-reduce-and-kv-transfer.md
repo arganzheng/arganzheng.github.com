@@ -6,7 +6,7 @@ tags: [NCCL, RDMA, GPU, AI, AI-Infra]
 catalog: true
 ---
 
-> 本文是[《通信与互联：从 NCCL 到 RDMA》](/communication-and-interconnect-for-ai-infra.html)系列的第 7 篇（共七篇）。上一篇：[nccl-tests、调优与排障：从带宽曲线到 hang](/nccl-tests-tuning-and-debugging-hangs.html)
+> 本文是[《通信与互联：从 NCCL 到 RDMA》](/communication-and-interconnect-for-ai-infra.html)系列的第 7 篇（共八篇）。上一篇：[nccl-tests、调优与排障：从带宽曲线到 hang](/nccl-tests-tuning-and-debugging-hangs.html)　下一篇：[MoE 的通信：all-to-all、DeepEP 与 GPU 发起的通信](/moe-communication-all-to-all-deepep-and-gpu-initiated.html)
 
 前六篇建立了一条完整的路径：第一篇的 α-β 模型给出任何一次通信的理论下界，第二、三篇给 α 和 β 填上 NVLink、PCIe、InfiniBand 与 RDMA 的真实数字，第四篇讲 NCCL 如何把这些硬件能力组织成一次 `ncclAllReduce`，第五篇讲 PyTorch 如何在 stream 上使用它，第六篇把这一切变成 nccl-tests 的曲线和一棵排障决策树。这些内容的默认场景是训练：消息几十 MB 到几 GB、参与者固定、通信可以和反向计算重叠。
 
@@ -76,7 +76,6 @@ KV 传输回到带宽的账，但和梯度 all_reduce 又不一样：它不是�
         NIXL 与 UCX、Mooncake Transfer Engine
 第八章  测一测与比一比：TP all_reduce 延迟异常与 KV 传输慢的排障检查项
 第九章  本文小结与 comm-probe 增量：tp_ar_bench.py 与 kv_xfer/
-系列总结与系列目录
 ```
 
 
@@ -895,60 +894,13 @@ print(f"efficiency:  {byts/secs/1e9/(nic_gbps/8)*100:.0f}% of NIC, {byts/secs/1e
 
 注意 `probe.py` 里的每 rank 带宽是"传输进行期间"的平均值——`nixl_xfer_time_seconds` 只计时传输本身，不含握手与排队，所以它衡量的是数据面效率，正好用来和 `ib_write_bw` 比。差距在 10–20% 内是正常的软件开销；差一倍以上去查第八章第 2 节的清单——多数情况是 UCX 选了 `cuda_copy` 或 `tcp`，或者 8 个 rank 的流量挤在一两张网卡上。
 
-到这里，七篇文章各自给出的示例代码合起来就是 comm-probe 的全部（它们随文给出、由读者自行保存成对应文件，不是一个已发布的软件包）：`cost_model.py` 算理论值，`topo_map.py` 画拓扑并记录链路实测，`rdma_write.c` 验证 GDR 路径，`nccl_log_reader.py` 读 NCCL 的决策，`overlap_bench.py` 检查框架侧的重叠，`sweep.sh` 与 `hang_lab/` 跑 nccl-tests 曲线与 hang 剧本，`tp_ar_bench.py` 与 `kv_xfer/` 验收推理侧的两个后端。
+到这里，comm-probe 的推理侧部分齐了：`tp_ar_bench.py` 用同一套 all_reduce 输入在 vLLM 的各后端之间切换，`kv_xfer/` 用一对 PD 实例把 NIXL 的传输带宽和第三篇的 `ib_write_bw` 放在一起比。两个脚本都只做一件事——把本篇算出来的理论值（第二章的 α、第六章的字节数除以网卡带宽）和机器上实际跑出来的数字并排打印，差距就是第八章两张清单要查的东西。
+
+推理侧还剩一种通信没有讲：MoE 模型的专家并行。它和本篇的两个场景都不一样——既不是几十 KB 的节点内归约，也不是点对点的大块搬运，而是每层两次、目标由路由结果决定、跨节点、消息大小从 decode 的几 KB 到 prefill 的几 MB 的 all_to_all；NCCL 的 send/recv 经 proxy 线程逐条发起，在 decode 的上千条小消息面前付不起延迟的账，DeepEP 用 NVSHMEM 的 IBGDA 让 GPU 自己写网卡的工作队列。下一篇也是本系列的最后一篇，讨论它，并给出全系列的总结。
+
+> **一层 MoE 的 dispatch + combine，在 EP=64 跨 8 节点时，每个 token 要跨多少条链路、搬多少字节、走几步？为什么 NCCL 的 all_to_all 在 decode 时不够用，DeepEP 又是怎么把它做到几百微秒以内的？**
 
 
-## 系列总结
+## 下一篇
 
-七篇文章走了一条从抽象到物理再回到软件的路：
-
-```text
-第一篇  代价模型        T = α + S/β；ring 的 2(n-1)α + (2(n-1)/n)·S/β；algbw 与 busbw；消息大小的谱
-第二篇  硬件互联        PCIe 各代单向带宽、NVLink 每 GPU 双向合计 600 / 900 GB/s / 1.8 TB/s、IB HDR / NDR；
-                        nvidia-smi topo 的六个等级；NUMA 与亲和；每 GPU 一张网卡的理由
-第三篇  RDMA 与 GDR     verbs：PD / MR / QP / CQ / WR；单边 WRITE / READ 与双边 SEND / RECV；GPUDirect RDMA 的
-                        PCIe 拓扑条件；注册的代价；ib_write_bw --use_cuda
-第四篇  NCCL 架构       bootstrap → 拓扑探测 → 图搜索 → transport → 调优表 → enqueue → kernel → proxy；
-                        Ring / Tree / NVLS；Simple / LL / LL128；channel
-第五篇  PyTorch 通信栈   ProcessGroupNCCL 的 stream 与 event 语义、Work 与 wait 的含义、recordStream、重叠的条件、
-                        watchdog 与 timeout、对称内存
-第六篇  测量与排障       nccl-tests 曲线的读法、调优参数的层次、hang 的分类、Flight Recorder、决策树
-第七篇  推理侧          decode TP all_reduce 的纯延迟账与 custom all-reduce；后端选择链与 PyNccl；CUDA Graph；
-                        KV 传输的带宽账与 NIXL / UCX / Mooncake 的单边 RDMA
-```
-
-贯穿始终的是**两种账**。带宽的账看链路速率、算法的带宽效率（ring 的 $$\frac{2(n-1)}{n}$$、tree 的一半、NVLS 的一步）、协议开销（LL 的 50%、LL128 的 94%）；延迟的账看步数、握手次数、kernel 启动、proxy 的响应。每一处取舍两本账的答案都相反：更多 channel 提高带宽却增加小消息延迟，Tree 降低延迟却在某些拓扑上损失带宽，custom all-reduce 把步数从 14 压到 2 却放弃了大消息的带宽与跨节点的能力，KV 传输用单边 RDMA 跑满网卡却放弃了 NCCL 的集合语义。分清一次通信在算哪本账，是判断"该换算法、该换硬件、还是什么都不用换"的前提；本系列的每一篇都在各自的层上把两本账各算了一遍。
-
-方法是同一个四段法：**算一算**用代价模型给出理论上限，**看一看**读源码、日志、拓扑文件弄清这一层怎么做决定，**测一测**用 nvbandwidth、ib_write_bw、nccl-tests、profiler 测出实际数字，**比一比**解释差距并落成检查清单。它的产物是 comm-probe：
-
-```text
-cost_model.py        α-β 模型 · ring / tree 预测 · algbw 与 busbw 换算                       第一篇
-topo_map.py          解析 nvidia-smi topo / lspci / NUMA · 画拓扑图 · 记录 nvbandwidth 与 ib_write_bw   第二篇
-rdma_write.c         libibverbs 最小 RDMA WRITE · 显存版（GPUDirect RDMA）· 与 ib_write_bw 对照      第三篇
-nccl_log_reader.py   解析 NCCL_DEBUG=INFO 日志 · 提取 ring / tree / channel / 算法协议决策 · 与预测比对  第四篇
-overlap_bench.py     计算与通信重叠的 micro-benchmark · profiler trace 检查 · 重叠失效的复现集        第五篇
-sweep.sh · hang_lab/ nccl-tests 扫描与画图 · 三种 hang 的复现与定位剧本 · 排障决策树                第六篇
-tp_ar_bench.py       vLLM 各 all_reduce 后端延迟对照 · eager / CUDA Graph / PyNccl · 与 nccl-tests 对照  第七篇
-kv_xfer/             两实例 PD 分离 · NixlConnector · 从 /metrics 取 NIXL 带宽 · 与 ib_write_bw 对照      第七篇
-```
-
-拿到一台新机器，按顺序跑一遍：先画拓扑，再测每段链路，再跑 nccl-tests 与理论对照，再检查框架侧的重叠与后端选择。之后每一次"通信慢了"或"通信卡了"，都能用它把问题定位到某一层。
-
-总纲承诺的三种能力，现在可以逐条对照：
-
-1. **阅读能力。** NCCL 的主路径（`init.cc` → `graph/` → `transport/` → `enqueue.cc` → `device/`）、PyTorch c10d 的 `ProcessGroupNCCL`、vLLM 的 `CudaCommunicator` 后端链与 `KVConnector` 的 scheduler / worker 分工，每个设计决定背后都能指出硬件原因：为什么 LL 协议要 8 字节搭 8 字节、为什么 ProcessGroupNCCL 要有内部 stream 与 watchdog、为什么 custom all-reduce 只用 36 个 block 且只能在 NVLink 全互联的节点内用、为什么 KV 传输要用单边 RDMA 而不是 NCCL。
-2. **诊断能力。** 面对一次慢的或卡住的通信：先算理论值（第一篇），再看数据走了哪条链路（第二、三篇），再看 NCCL 或 vLLM 选了什么（第四、七篇的日志），再看框架侧有没有浪费（第五篇），再用 nccl-tests 与 Flight Recorder 把差距或 hang 定位到具体的一层（第六篇）——而不是靠试环境变量。
-3. **决策能力。** 为一个任务判断通信的理论上限、选择算法与传输路径、给平台提出拓扑与亲和的要求（每 GPU 一张网卡、GPU 与 NIC 同一 PCIe switch、TP 不跨节点、容器共享 IPC namespace），并知道什么时候该自己写一个通信原语：消息小、节点内、地址固定、每步上百次、失败可整体重启——四条都满足才值得，否则用 NCCL。
-
-通信层是单卡之外一切系统的底座，也是训练与推理两条路径唯一共享的一层。这个系列把它从 `dist.all_reduce(t)` 一行代码展开到 PCIe、NVLink、InfiniBand 上的每一段路，再收回到 vLLM 的两个 kernel 和一次 RDMA READ。展开是为了看清代价，收回是为了在正确的层上做决定。
-
-
-## 系列目录
-
-1. [集合通信原语与代价模型：α-β 模型与 ring all-reduce](/collective-communication-primitives-and-cost-model.html)
-2. [硬件互联：PCIe、NVLink、NVSwitch 与网络拓扑](/hardware-interconnect-pcie-nvlink-and-topology.html)
-3. [RDMA 与 GPUDirect：绕过 CPU 和主机内存的数据通路](/rdma-and-gpudirect.html)
-4. [NCCL 架构：拓扑探测、channel、算法与协议](/nccl-architecture-topology-channels-algorithms-and-protocols.html)
-5. [PyTorch 的通信栈：ProcessGroupNCCL、stream 语义与计算通信重叠](/pytorch-communication-stack-processgroupnccl-and-streams.html)
-6. [nccl-tests、调优与排障：从带宽曲线到 hang](/nccl-tests-tuning-and-debugging-hangs.html)
-7. [推理侧的通信：custom all-reduce 与 KV 传输](/inference-communication-custom-all-reduce-and-kv-transfer.html)
+[MoE 的通信：all-to-all、DeepEP 与 GPU 发起的通信](/moe-communication-all-to-all-deepep-and-gpu-initiated.html)

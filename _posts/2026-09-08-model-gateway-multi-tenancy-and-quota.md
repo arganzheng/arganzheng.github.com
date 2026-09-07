@@ -6,7 +6,7 @@ tags: [Kubernetes, GPU, Gateway API, llm-d, Multi-Tenancy, AI, AI-Infra]
 catalog: true
 ---
 
-> 本文是《AI 平台工程：资源层与交付层》系列的第 7 篇。上一篇：[Serving 平台：从 InferenceService 到 llm-d](/serving-platforms-kserve-triton-ray-serve-llm-d.html)；下一篇：[可观测、成本与 FinOps](/ai-platform-observability-cost-and-finops.html)。
+> 本文是[《AI 平台工程：资源层与交付层》](/ai-platform-engineering.html)系列的第 7 篇（共八篇）。上一篇：[Serving 平台：从 InferenceService 到 llm-d](/serving-platforms-kserve-triton-ray-serve-llm-d.html)；下一篇：[可观测、成本与 FinOps](/ai-platform-observability-cost-and-finops.html)。
 
 上一篇结束时，一个 70B 模型的 4 个副本已经跑在集群里，KEDA 会按 `vllm:num_requests_waiting` 把它扩到 6 个。把它们暴露出去最省事的做法是一个 `Service` 加一个 Ingress：`kube-proxy` 在 4 个 Pod 之间轮询，客户端拿到一个 URL，`POST /v1/chat/completions`，完事。这套东西跑起来没有任何报错，但第一周的监控会出现一个反直觉的图形：4 个副本的 `vllm:kv_cache_usage_perc` 长期不齐——一个在 95% 上下抖、两个在 60%、一个 30%；TTFT 的 p50 在 400 ms，p99 却到了 6 s；而 `nvidia-smi` 看总算力只用了一半。请求没有多到需要扩容，但排队真实地发生了，发生在那个 95% 的副本上，因为轮询不看它满不满。
 

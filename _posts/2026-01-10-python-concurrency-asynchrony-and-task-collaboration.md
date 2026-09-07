@@ -6,6 +6,8 @@ tags: [Python]
 catalog: true
 ---
 
+> 本文是[《Python 在 AI-Infra：从语言机制到生产交付》](/python-for-ai-infra.html)系列的第 3 篇（共七篇）。上一篇：[类型系统与数据契约设计](/python-type-system-and-data-contract-design.html)；下一篇：[Python 的动态机制及工程实践](/python-reflection-metaprogramming-and-plugin-architecture.html)
+
 在 AI-Infra 系统中，Python 往往并不直接承担最重的数值计算。真正消耗算力的部分，通常由 CUDA、C++、通信库或专用推理引擎完成。
 
 但这并不意味着 Python 不需要并发。
@@ -23,13 +25,39 @@ catalog: true
 
 因此，理解 Python 并发，不能停留在"如何创建线程"或"如何使用 `async`"的层面。更重要的是回答三个工程问题：
 
-1. 当前瓶颈是 CPU、GPU、网络还是外部服务？
-2. 任务之间应该如何协作？
-3. 当下游处理速度跟不上上游输入速度时，系统如何保持稳定？
+> **当前瓶颈是 CPU、GPU、网络还是外部服务？任务之间应该如何协作？当下游处理速度跟不上上游输入速度时，系统如何保持稳定？**
+
+
+## 一、总览
+
+### 1. 三个工程问题与 Java 对照基准
+
+上面三个问题贯穿全文：第一个问题决定选线程、进程还是 asyncio（第二到第五章）；第二个问题对应任务的创建、超时、取消、上下文传递与同步原语（第六到第十章）；第三个问题对应队列、背压、批处理与流式处理（第九、十一、十二章）。后面几章把这些机制放到 GPU 运行时、资源监控和常见错误中检验，最后收敛成一棵决策树。
 
 本文每一节都会给出**对应 Java** 的说明，基准是 **Java 25 LTS**（2025-09 发布）。这个基准很重要：Java 21 之后的虚拟线程、结构化并发和 ScopedValue，让 Java 的并发模型和 Python 的 asyncio 在概念上前所未有地接近，但底层机制和失败模式仍有本质差异。凡是 preview 特性都会显式标注。
 
-## 一、先理解并发：并发不等于并行
+### 2. 本文的章节安排
+
+```text
+第二章    先理解并发：并发不等于并行            并发与并行的区别、并发模型的选择
+第三章    GIL：Python 并发的底层约束           GIL 何时释放、对模型选择的影响、3.13+ free-threaded
+第四章    线程、进程与异步：如何做工程决策       线程适合阻塞 I/O、进程适合 CPU 密集、asyncio 适合高并发 I/O
+第五章    事件循环：调度核心与阻塞陷阱           同步函数放线程池、CPU 密集不进协程、识别事件循环阻塞
+第六章    任务：协程、Task 与 Future            协程对象、Task、Future、TaskGroup
+第七章    超时、取消与异常传播                   asyncio.timeout、取消语义、不要无限等待下游
+第八章    ContextVars：在异步任务中传递上下文    请求上下文如何跨 await 传递
+第九章    生产者—消费者与背压                   有界队列、背压策略不只有等待
+第十章    异步同步原语                           Semaphore、Lock、Event
+第十一章  异步批处理：连接并发与 GPU 利用率      用 Future 桥接请求并发与批量推理
+第十二章  异步流式处理                           客户端断开、流速不匹配、资源清理
+第十三章  混合并发：Python 异步与底层 GPU 运行时  Python 异步与 GPU 异步不是一回事、推理放独立线程
+第十四章  异步资源监控                           后台常驻任务、lifespan 生命周期与优雅停机
+第十五章  常见错误与改进方式                     六个典型错误及其改进
+第十六章  一个实用的并发决策树                   四步决策、Java 与 Python 并发概念速查表
+第十七章  本文小结                               并发的核心是控制复杂性
+```
+
+## 二、先理解并发：并发不等于并行
 
 ### 1. 并发与并行
 
@@ -82,13 +110,13 @@ Python 中常见的并发方式可以分为三类：
 
 **第二行**：Java 几乎从不为了绕开语言限制而开多进程，因为 JVM 里多线程就能吃满多核。Python 的 `ProcessPoolExecutor` 在 Java 里没有等价物——它存在的唯一理由就是 GIL。
 
-**第三行**：Java 21 之后，"高并发 I/O"的答案从 `CompletableFuture`/Reactor 变成了虚拟线程。虚拟线程让你**用同步代码写法拿到异步的伸缩性**，而 Python 至今仍必须显式写 `async`/`await`。这是两个生态最大的分野，后面第三章会展开。
+**第三行**：Java 21 之后，"高并发 I/O"的答案从 `CompletableFuture`/Reactor 变成了虚拟线程。虚拟线程让你**用同步代码写法拿到异步的伸缩性**，而 Python 至今仍必须显式写 `async`/`await`。这是两个生态最大的分野，后面第四章会展开。
 
 没有一种模型适合所有场景。工程上的第一原则是：
 
 > 不要根据 API 的流行程度选择并发模型，而要根据瓶颈类型选择并发模型。
 
-## 二、GIL：Python 并发的底层约束
+## 三、GIL：Python 并发的底层约束
 
 GIL（Global Interpreter Lock）是 CPython 解释器中的一把全局锁。它保证在任意时刻，只有一个线程可以执行 Python 字节码。
 
@@ -158,7 +186,7 @@ python3.13t script.py
 
 对应 Java：free-threaded CPython 面临的挑战，正是 JVM 在 20 多年前就解决过的那些——细粒度锁、无锁数据结构、内存序、伪共享。有一点差异值得留意：JVM 从第一天起就有 JMM 规范，任何库作者都知道自己写的代码要在多线程下正确。而 Python 生态里绝大多数 C 扩展是在"有 GIL 兜底"的假设下写的，所以 free-threaded 模式的真正阻力不在 CPython 本身，而在 NumPy、PyTorch 这些扩展需要逐一审计和适配。这类似于"如果 Java 的整个生态都是在单线程假设下写出来的，然后某天你打开了多线程"。
 
-## 三、线程、进程与异步：如何做工程决策
+## 四、线程、进程与异步：如何做工程决策
 
 ### 1. 线程：适合阻塞 I/O
 
@@ -198,7 +226,7 @@ def run_batch(request_ids: list[str]) -> list[str]:
         return list(executor.map(invoke_sync_model, request_ids))
 ```
 
-线程不会让 Python CPU 代码突破 GIL（参见第二章）。对于纯 Python 的 CPU 密集型计算，增加线程通常不能获得理想的线性加速。
+线程不会让 Python CPU 代码突破 GIL（参见第三章）。对于纯 Python 的 CPU 密集型计算，增加线程通常不能获得理想的线性加速。
 
 但网络请求、磁盘访问和部分 C 扩展操作会释放 GIL，因此线程依然适合大量阻塞 I/O。
 
@@ -380,7 +408,7 @@ try (var pool = Executors.newVirtualThreadPerTaskExecutor()) {
 
 **一个补偿性的好处**：正因为 Python 只在 `await` 处让出，两个 `await` 之间的代码是原子的（相对于同一事件循环内的其他协程），所以协程之间共享可变状态时，很多在 Java 里必须加锁的场景在 Python 里不需要。代价是你必须能一眼看出哪些行是 `await` 点——这也是为什么 Python 保留显式 `async` 语法而不学 Java 走隐式路线的主要论据之一。
 
-## 四、事件循环：调度核心与阻塞陷阱
+## 五、事件循环：调度核心与阻塞陷阱
 
 很多人把 `await` 理解为"等待结果"。更准确地说，`await` 是一次协作式调度机会。
 
@@ -584,11 +612,11 @@ async def monitor_loop_lag(interval: float = 0.5) -> None:
             logger.warning("event loop lag: %.3fs", lag)
 ```
 
-## 五、任务：协程、Task 与 Future
+## 六、任务：协程、Task 与 Future
 
 在 `asyncio` 中，需要区分几个概念。
 
-### 协程对象
+### 1. 协程对象
 
 调用异步函数时，得到的是协程对象：
 
@@ -627,7 +655,7 @@ a, b = await task_a, await task_b
 
 配套的报错也是 Python 特有的：忘记 `await` 时，你得到的不是编译错误（Java 里 `CompletableFuture<String>` 赋给 `String` 编译不过），而是运行时一句 `RuntimeWarning: coroutine 'fetch_data' was never awaited`，业务逻辑静默地没有执行。mypy/pyright 能查出大部分这类问题，务必开启。
 
-### Task
+### 2. Task
 
 Task 是事件循环中被调度执行的协程：
 
@@ -645,7 +673,7 @@ task = asyncio.create_task(fetch_data())
 | `await task` | `f.get()` / `f.join()` | Java 阻塞线程，Python 挂起协程 |
 | `task.done()` | `f.isDone()` | 相同 |
 | `task.result()` | `f.getNow(null)` | 未完成时 Python 抛 `InvalidStateError` |
-| `task.cancel()` | `f.cancel(true)` | 见第六章，取消语义差别很大 |
+| `task.cancel()` | `f.cancel(true)` | 见第七章，取消语义差别很大 |
 | `asyncio.gather(*ts)` | `CompletableFuture.allOf(...)` | `gather` 直接返回结果列表，`allOf` 返回 `Void` |
 | `asyncio.wait(ts, return_when=FIRST_COMPLETED)` | `CompletableFuture.anyOf(...)` | 相同语义 |
 | `task.add_done_callback(fn)` | `f.thenAccept(fn)` / `whenComplete` | Python 没有链式组合子 |
@@ -668,7 +696,7 @@ task.add_done_callback(_background_tasks.discard)
 
 Java 里没有这个问题——线程是 GC root，跑起来的任务不会被回收。
 
-### Future
+### 3. Future
 
 Future 表示一个未来会完成的结果。它通常是底层异步操作和任务调度之间的桥梁。
 
@@ -682,11 +710,11 @@ Future 表示一个未来会完成的结果。它通常是底层异步操作和�
 | `future.set_result(v)` | `f.complete(v)` |
 | `future.set_exception(e)` | `f.completeExceptionally(e)` |
 
-用途也完全一致：当结果由**事件循环之外**的东西产生时（回调式 C 库、另一个线程、批处理器的调度端），用它把回调世界桥接回 `await` 世界。第十章的批处理器就是这个模式的完整例子。
+用途也完全一致：当结果由**事件循环之外**的东西产生时（回调式 C 库、另一个线程、批处理器的调度端），用它把回调世界桥接回 `await` 世界。第十一章的批处理器就是这个模式的完整例子。
 
 跨线程完成 Future 时有一个 Python 特有的约束：**`asyncio.Future` 不是线程安全的**，必须用 `loop.call_soon_threadsafe(future.set_result, value)`。Java 的 `CompletableFuture.complete()` 本身就是线程安全的，可以从任意线程直接调。这也是把回调式 SDK 接入 asyncio 时最常见的错误来源。
 
-### 使用 `TaskGroup` 管理任务
+### 4. 使用 `TaskGroup` 管理任务
 
 在需要启动多个相互关联的任务时，推荐使用结构化并发：
 
@@ -772,7 +800,7 @@ asyncio.create_task(background_job())
 
 如果没有保存引用、处理异常和设计退出流程，任务可能在服务关闭时被强行终止，异常也可能无法被业务感知。这正是 `TaskGroup` 和 `StructuredTaskScope` 共同要消灭的东西——Loom 团队称之为"**逃逸的并发**"，即子任务的生命周期超出了创建它的语法块。
 
-## 六、超时、取消与异常传播
+## 七、超时、取消与异常传播
 
 在 AI 服务中，超时不是异常情况，而是正常的控制手段。
 
@@ -874,7 +902,7 @@ Java 里对应的 `catch (Exception e) { log.error(...); }` **会**把 `Interrup
 
 最后一行的 `asyncio.shield()` 是 Python 独有的实用工具：保护一段"启动了就必须做完"的操作不被外层超时取消，比如写入计费记录、提交事务。Java 侧只能靠手动保存和恢复中断标志。
 
-### 不要无限等待下游
+### 1. 不要无限等待下游
 
 错误示例：
 
@@ -893,7 +921,7 @@ result = await remote_call()
 
 异步只解决"等待期间如何调度其他任务"，并不解决远程服务本身的不可靠性。
 
-## 七、ContextVars：在异步任务中传递上下文
+## 八、ContextVars：在异步任务中传递上下文
 
 AI-Infra 服务通常需要在日志、指标和链路追踪中传递：
 
@@ -995,7 +1023,7 @@ logger.info("inference started")   # 自动带上这两个字段
 
 这条建议和 Loom 团队对 `ScopedValue` 的定位完全一致：它是"隐式的方法参数"，只应该承载那些显式传递会污染每一层签名的横切数据。
 
-## 八、生产者—消费者与背压
+## 九、生产者—消费者与背压
 
 AI-Infra 中一个非常常见的结构是：
 
@@ -1016,7 +1044,7 @@ for request in incoming_requests:
 
 请求越多，Task 越多，内存最终会被耗尽。
 
-### 使用有界队列
+### 1. 使用有界队列
 
 ```python
 import asyncio
@@ -1074,7 +1102,7 @@ async def start_workers(worker_count: int) -> None:
     await asyncio.gather(*workers)
 ```
 
-### 背压策略不只有等待
+### 2. 背压策略不只有等待
 
 在在线推理服务中，队列满时可以采用不同策略：
 
@@ -1107,11 +1135,11 @@ async def submit(request: dict) -> None:
 
 `CallerRunsPolicy` 特别值得一提：它是 Java 生态里被低估的背压神器——队列满时让提交线程自己执行任务，提交方自动被拖慢，压力沿调用链向上游传导。Python 里没有等价物，因为"提交方"是协程，让它同步执行任务反而会阻塞事件循环。
 
-最后一行的 Reactive Streams 是概念上最完整的背压：消费者用 `request(n)` 声明自己能吃多少，需求信号逐级向上游传播。有意思的是，**Python 的异步生成器天然具备这个性质**——`async for` 每次迭代才驱动生成器产出一个元素，消费者不拉就不生产，不需要额外协议。这是第十一章的重点。
+最后一行的 Reactive Streams 是概念上最完整的背压：消费者用 `request(n)` 声明自己能吃多少，需求信号逐级向上游传播。有意思的是，**Python 的异步生成器天然具备这个性质**——`async for` 每次迭代才驱动生成器产出一个元素，消费者不拉就不生产，不需要额外协议。这是第十二章的重点。
 
 背压的目标不是让所有请求都成功，而是防止系统在压力下失控。
 
-## 九、异步同步原语：Semaphore、Lock 与 Event
+## 十、异步同步原语：Semaphore、Lock 与 Event
 
 `asyncio` 提供了一组与 `threading` 模块对应的同步原语，但它们是协作式的——不会阻塞线程，而是让协程在事件循环中等待。
 
@@ -1310,7 +1338,7 @@ void loadAndServe(String path) {
 
 两边共有的坑：`set()` 之后再来的 `wait()` **立即返回**（因为 Event 是有状态的），这和 `Condition.signal()` / `notify()` 的"错过就永远错过"完全不同。想要"错过就等下一次"的语义，用 `asyncio.Condition`。
 
-## 十、异步批处理：连接并发与 GPU 利用率
+## 十一、异步批处理：连接并发与 GPU 利用率
 
 GPU 推理通常不是单个请求越快越好，而是需要在延迟和批量之间做权衡。
 
@@ -1473,9 +1501,9 @@ void runBatchLoop() throws InterruptedException {
 
 `drainTo(collection, maxElements)` 是 Java 独有的便利：一次性把队列里现有元素全捞出来，不需要逐个 `get()`。Python 侧要模拟只能写 `while not queue.empty(): queue.get_nowait()`。
 
-另一个差异是**跨线程回填的安全性**（第五章提过）：Java 的 `CompletableFuture.complete()` 线程安全，推理线程可以直接调；Python 里如果推理跑在别的线程，必须 `loop.call_soon_threadsafe(future.set_result, r)`。上面的 Python 实现之所以能直接 `set_result`，是因为整个循环都在事件循环线程里。
+另一个差异是**跨线程回填的安全性**（第六章提过）：Java 的 `CompletableFuture.complete()` 线程安全，推理线程可以直接调；Python 里如果推理跑在别的线程，必须 `loop.call_soon_threadsafe(future.set_result, r)`。上面的 Python 实现之所以能直接 `set_result`，是因为整个循环都在事件循环线程里。
 
-## 十一、异步流式处理
+## 十二、异步流式处理
 
 对于文本生成、音频处理和视频推理，结果可能不是一次性返回，而是持续产生。
 
@@ -1604,7 +1632,7 @@ async def inference_session(request_id: str):
         await session.close()
 ```
 
-## 十二、混合并发：Python 异步与底层 GPU 运行时
+## 十三、混合并发：Python 异步与底层 GPU 运行时
 
 很多 AI 系统并不是纯 Python 系统：
 
@@ -1719,7 +1747,7 @@ Python 调 PyTorch，本质上是通过 C 扩展（pybind11）进入 native 层�
 
 如果只观察接口总耗时，就很难判断瓶颈到底在哪里。
 
-## 十三、异步资源监控
+## 十四、异步资源监控
 
 资源监控任务通常不应该阻塞主调度循环。
 
@@ -1798,9 +1826,9 @@ app = FastAPI(lifespan=lifespan)
 
 一个 Python 特有的差异：`scheduleAtFixedRate` 是**固定速率**（上一轮超时会连续补跑），而手写的 `while True: work(); await sleep(5)` 是**固定延迟**（对应 `scheduleWithFixedDelay`）。想要固定速率语义得自己算下一次的绝对时刻。上面 `report_gpu_metrics` 用 `finally: await asyncio.sleep(5)` 是固定延迟，对监控场景来说这通常反而是更安全的选择——采集变慢时自动降频，不会雪崩式堆积。
 
-## 十四、常见错误与改进方式
+## 十五、常见错误与改进方式
 
-### 错误一：把所有任务都改成异步
+### 1. 把所有任务都改成异步
 
 异步适合 I/O，不适合自动解决 CPU 瓶颈。
 
@@ -1811,7 +1839,7 @@ async def compute() -> int:
 
 改进方式：根据计算类型选择线程、进程或专用计算运行时。
 
-### 错误二：在协程中调用同步网络库
+### 2. 在协程中调用同步网络库
 
 ```python
 async def handler() -> None:
@@ -1825,14 +1853,14 @@ async def handler() -> None:
 
 **这条对 Java 程序员格外重要。** 在 Java 21+ 的虚拟线程里，直接调用阻塞的 `HttpClient.send()` 是**完全正确**的高并发写法，JDK 会自动卸载线程。同样的直觉搬到 Python 协程里，就是把整个服务卡死的线上事故。迁移时要建立的第一条肌肉记忆是：**Python 的运行时不会替你把阻塞调用变成非阻塞的。**
 
-### 错误三：无限制创建 Task
+### 3. 无限制创建 Task
 
 ```python
 for item in items:
     asyncio.create_task(process(item))
 ```
 
-改进方式：使用有界队列（第八章）、Semaphore（第九章）或固定数量的 worker。
+改进方式：使用有界队列（第九章）、Semaphore（第十章）或固定数量的 worker。
 
 ```python
 semaphore = asyncio.Semaphore(100)
@@ -1845,15 +1873,15 @@ async def limited_process(item: dict) -> None:
 
 但需要注意，Semaphore 只能限制同时执行的任务数，不能替代完整的队列、超时和拒绝策略。
 
-### 错误四：没有设置超时
+### 4. 没有设置超时
 
 任何跨网络边界的调用都可能永远等待。生产环境中的 RPC、数据库、对象存储和模型调用都应设置超时。
 
-### 错误五：忽略取消
+### 5. 忽略取消
 
 服务关闭、客户端断开、超时和上游取消都会触发取消传播。协程必须释放资源，并且通常应重新抛出 `CancelledError`。
 
-### 错误六：把异步当成低延迟保证
+### 6. 把异步当成低延迟保证
 
 异步可以减少等待期间的资源浪费，但不能消除：
 
@@ -1867,25 +1895,25 @@ async def limited_process(item: dict) -> None:
 
 异步改善的是并发组织方式，不是物理执行时间。
 
-## 十五、一个实用的并发决策树
+## 十六、一个实用的并发决策树
 
 可以按照以下顺序做选择：
 
-### 第一步：确定主要瓶颈
+### 1. 确定主要瓶颈
 
 - 网络、数据库、RPC、磁盘等待：优先考虑 `asyncio` 或线程；
 - 纯 Python CPU 计算：优先考虑进程或专用计算库；
 - GPU 推理：重点优化批处理、设备调度和数据移动；
 - 外部任务等待：使用异步任务、队列和状态轮询。
 
-### 第二步：确认依赖库的接口类型
+### 2. 确认依赖库的接口类型
 
 - 原生异步库：直接接入事件循环；
 - 只有同步接口：放入线程池；
 - 不适合进程间复制的大对象：避免直接交给进程池；
 - 线程不安全的客户端：为每个 worker 管理独立实例。
 
-### 第三步：设计容量边界
+### 3. 设计容量边界
 
 至少明确：
 
@@ -1897,7 +1925,7 @@ async def limited_process(item: dict) -> None:
 - 内存和显存上限；
 - 队列满时的处理策略。
 
-### 第四步：设计故障传播
+### 4. 设计故障传播
 
 明确以下问题：
 
@@ -1907,7 +1935,7 @@ async def limited_process(item: dict) -> None:
 - 服务退出时，哪些任务必须完成？
 - 重试是否可能造成重复执行？
 
-### 附：Java 与 Python 并发概念速查表
+### 5. 附：Java 与 Python 并发概念速查表
 
 基准为 **Java 25 LTS** 与 **Python 3.13**。标注"preview"的 Java 特性需要 `--enable-preview`。
 
@@ -1974,7 +2002,7 @@ async def limited_process(item: dict) -> None:
 | 线程/任务转储 | `jstack` / `Thread.dump_to_file` | `asyncio.all_tasks()` + `get_stack()` |
 | 调度延迟 | JFR `jdk.VirtualThreadPinned` | 自建心跳协程测 loop lag |
 
-## 结语：并发的核心是控制复杂性
+## 十七、本文小结：并发的核心是控制复杂性
 
 Python 并发编程的难点，并不在于记住 `async def`、`await` 或线程池 API，而在于建立正确的系统模型：
 
@@ -2012,3 +2040,8 @@ Python 并发编程的难点，并不在于记住 `async def`、`await` 或线�
 1. **不要指望运行时替你兜底。** Java 21 之后，虚拟线程让"用同步代码写高并发"重新成立；Python 没有这条捷径，阻塞就是阻塞，`async` 的传染性是你必须接受的成本。
 2. **概念对得上，默认值经常对不上。** 队列默认无界、锁不可重入、信号量默认公平、`CancelledError` 是 `BaseException`——每一条单独看都是小事，叠在一起就是事故。
 3. **Python 在任务协作层反而更成熟。** `TaskGroup`、`ExceptionGroup`/`except*`、`asyncio.timeout()` 的取消作用域、异步生成器的天然背压，这几样在 Java 侧要么还在 preview，要么需要引入 Reactor 才有。别因为 GIL 就低估 asyncio 的表达能力。
+
+
+## 下一篇
+
+[Python 的动态机制及工程实践](/python-reflection-metaprogramming-and-plugin-architecture.html)

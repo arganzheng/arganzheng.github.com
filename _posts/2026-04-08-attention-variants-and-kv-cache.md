@@ -6,7 +6,7 @@ tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 ---
 
-> 本文是[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)系列的第三篇（共七篇）。上一篇：[前向的算量与访存量](/transformer-flops-bytes-and-roofline.html)　下一篇：[位置编码与长上下文](/positional-encoding-and-long-context.html)
+> 本文是[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)系列的第 3 篇（共七篇）。上一篇：[前向的算量与访存量](/transformer-flops-bytes-and-roofline.html)；下一篇：[位置编码与长上下文](/positional-encoding-and-long-context.html)
 
 上一篇把一次前向拆成了"权重项"和"上下文项"两部分：权重项每 token 每参数 2 FLOPs，与上下文长度无关；上下文项只来自 attention，随序列长度 $$s$$ 线性增长（decode）或平方增长（prefill）。这一篇专门讲 attention，因为它是 Transformer 里唯一成本随上下文增长的部分，也是过去几年结构改动最集中的地方。
 
@@ -18,10 +18,27 @@ MHA、MQA、GQA、MLA 四种结构，做的是同一件事的不同取舍：
 
 > **DeepSeek-V3 有 128 个 attention head、61 层，KV cache 却比 32 头 32 层的 Llama-3-8B 小。这是怎么做到的？代价是什么？**
 
+
+## 一、总览：四种 attention、一把尺子
+
+### 1. 模型与硬件基线
+
 本篇沿用全系列的三个模型：Llama-3-8B（$$d = 4096$$，32 层，32 头 / 8 个 KV 头，$$d_{head} = 128$$）、Llama-3-70B（$$d = 8192$$，80 层，64 头 / 8 个 KV 头）、DeepSeek-V3（$$d = 7168$$，61 层，128 头，MLA）。硬件以 H100 SXM 为默认：80 GB HBM3，3.35 TB/s，BF16 dense 989 TFLOPS，ridge point 约 295 FLOP/byte。所有数字都是理论下界或估算，不是实测。
 
+### 2. 本文的章节安排
 
-## 一、为什么需要 KV cache
+```text
+第二章   为什么需要 KV cache                 attention 在 decode 时的形态、不缓存的代价、大小公式、KV cache 是 decode 的第二项流量
+第三章   MQA 与 GQA                          直接减少 KV head：共享方式、对 decode 算术强度的影响、与张量并行的边界
+第四章   MLA                                 把 K、V 压成一个 latent：完整结构、参数与缓存量、与 RoPE 的冲突、矩阵吸收、与 GQA 同尺对比
+第五章   中间结果与 FlashAttention           4 GiB 的 logits 矩阵、IO 复杂度、因果掩码与 sliding window
+第六章   KV cache 的工程变量                 分页碎片率、prefix 共享、KV 量化、三个因子怎么叠加
+第七章   实践                                给 llm_cost.py 加上 KV cache
+第八章   本文小结
+```
+
+
+## 二、为什么需要 KV cache
 
 ### 1. attention 公式与 decode 的形态
 
@@ -94,7 +111,7 @@ $$
 后面所有变体，都是围着这个公式里的 $$n_{kv} \cdot d_{head}$$ 这一项做减法。
 
 
-## 二、MQA 与 GQA：直接减少 KV head
+## 三、MQA 与 GQA：直接减少 KV head
 
 ### 1. MQA：所有 query head 共享一组 K、V
 
@@ -147,7 +164,7 @@ $$n_{kv}$$ 还悄悄决定了另一件事：tensor parallel 的切分粒度。at
 TP 一旦超过 $$n_{kv}$$（比如 70B 用 TP = 16），KV 头就不够分了，只能**复制**：两张卡持有同一个 KV 头的副本，各算 4 个 query head。此时每卡的 KV cache 不再随 TP 缩小，总的 KV 显存变成 $$\text{TP} / n_{kv}$$ 倍。这是为什么 8 个 KV 头的模型在 8 卡以上的 TP 收益递减，也是 Megatron 与 vLLM 里 `num_kv_heads` 与 TP 度之间要满足整除或复制关系的原因。MLA 只有一个（latent）KV 头，任何 TP 度下都必须整份复制——DeepSeek 自己的推理方案因此在 attention 部分不用 TP 而用 DP（每卡处理不同的请求），这个选择直接来自本节的算术。
 
 
-## 三、MLA：把 K、V 压成一个 latent
+## 四、MLA：把 K、V 压成一个 latent
 
 ### 1. 低秩压缩的想法
 
@@ -283,7 +300,7 @@ $$
 
 ### 6. 吸收后的算量与访存：decode 划算，prefill 不一定
 
-套用第二章第 3 节的推导：每读一个 KV 元素服务 128 个 query head，$$g = 128$$。更精确地算每个 cached token 每层：
+套用第三章第 3 节的推导：每读一个 KV 元素服务 128 个 query head，$$g = 128$$。更精确地算每个 cached token 每层：
 
 - 读取：576 个 BF16，1152 字节；
 - FLOPs：128 个 head，每个 head 做 576 维点积（QK）与 512 维加权和（PV），各 2 FLOPs 每维：$$128 \times 2 \times (576 + 512) = 278528$$；
@@ -321,7 +338,7 @@ prefill 是 compute-bound，多 400 TFLOP 就是多 0.4 秒以上（按 989 TFLO
 4. **不能从 MHA checkpoint 直接转换**：GQA 可以从 MHA 均值池化 uptrain 得到，MLA 的投影结构不同，需要从头训（或专门的转换方法）。
 
 
-## 四、attention 的中间结果与 FlashAttention 的 IO 复杂度
+## 五、attention 的中间结果与 FlashAttention 的 IO 复杂度
 
 前三章讲的是 KV cache——decode 的问题。prefill 阶段 attention 还有另一个显存问题：$$S = QK^\top$$ 这个 $$s \times s$$ 的中间矩阵。
 
@@ -349,7 +366,7 @@ $$
 
 这个推导也解释了为什么 MLA 吸收后 576 的 head dim 需要专门的 kernel：$$B_c = \Theta(M / d)$$，$$d$$ 从 128 变成 576，同样的 SRAM 只能放下不到四分之一的 K、V 行，块变小、外层循环次数变多、$$Q$$ 和 $$O$$ 被重读的次数增加；而流量公式里的 $$d^2$$ 项直接放大 20 倍。FlashMLA 的应对是利用 K 与 V 共享存储（V 是 K 的前 512 维），只装载一份 576 维的数据，再在寄存器与 shared memory 之间重新分配空间——这些属于 kernel 实现，本篇不展开，但它们要解决的问题就是这个公式里的 $$d$$。
 
-对 decode 这个公式退化成另一个形态：$$s_q = 1$$，$$Q$$ 只有一行，外层循环 $$sd / M$$ 次每次重读 $$Q$$ 和 $$O$$ 的代价可以忽略，流量就是 $$O(sd)$$——读一遍 KV cache，即第一章的结论。此时问题不在流量而在**并行度**：一条序列一个 query 只能启动一个线程块，填不满 132 个 SM。FlashDecoding 一类实现把 KV 沿序列维切成若干段并行计算局部 softmax，最后再合并归一化因子——本质是把 online softmax 的"分块可合并"性质用在了另一个维度上。这就是为什么 decode 的 attention kernel 与 prefill 的不是同一个。
+对 decode 这个公式退化成另一个形态：$$s_q = 1$$，$$Q$$ 只有一行，外层循环 $$sd / M$$ 次每次重读 $$Q$$ 和 $$O$$ 的代价可以忽略，流量就是 $$O(sd)$$——读一遍 KV cache，即第二章的结论。此时问题不在流量而在**并行度**：一条序列一个 query 只能启动一个线程块，填不满 132 个 SM。FlashDecoding 一类实现把 KV 沿序列维切成若干段并行计算局部 softmax，最后再合并归一化因子——本质是把 online softmax 的"分块可合并"性质用在了另一个维度上。这就是为什么 decode 的 attention kernel 与 prefill 的不是同一个。
 
 ### 3. 因果掩码与 sliding window
 
@@ -364,7 +381,7 @@ $$
 sliding window attention（Mistral 7B 用 4096 的窗口）进一步只让位置 $$t$$ attend 到 $$[t - w, t]$$。attention 的 FLOPs 变成 $$O(s w)$$——对 $$s$$ 线性；KV cache 也不再随上下文增长，每层每序列最多 $$w$$ 个 token：Mistral 7B（结构与 Llama-3-8B 同为 32 层、8 个 KV 头、$$d_{head} = 128$$）的 KV cache 上限是 $$128 \text{ KiB} \times 4096 = 512$$ MiB，无论上下文多长。代价是超出窗口的信息只能通过多层堆叠间接传递（$$L$$ 层理论感受野 $$L \cdot w$$），长距离检索能力有损，所以后来的模型多是滑窗层与全局层交替（如 Gemma 2、Llama 4 的部分层）。
 
 
-## 五、KV cache 的工程变量
+## 六、KV cache 的工程变量
 
 公式 $$\text{bytes/token} = 2 L n_{kv} d_{head} \cdot \text{bytes/elem}$$ 给的是每 token 的下界。推理引擎实际占用与之的差别来自三件事。
 
@@ -372,7 +389,7 @@ sliding window attention（Mistral 7B 用 4096 的窗口）进一步只让位置
 
 早期实现按每条序列的最大长度预分配连续 KV 显存，一条 8K 上限、实际只用 500 token 的请求浪费 94%。PagedAttention（Kwon 等 2023，vLLM）把每条序列的 KV 切成固定大小的 block（默认 16 个 token），按需分配，逻辑块到物理块的映射表由 kernel 在读 KV 时查。
 
-它对上面公式的影响只有一项：**内部碎片率**。每条序列只有最后一个 block 不满，平均浪费半个 block；Llama-3-8B、block 16 时约 $$8 \times 128 \text{ KiB} = 1$$ MiB 每序列，相对于一条 8K 序列 1 GiB 的 KV 可以忽略。每 token 的字节数不变，变的是"能用上的比例"从几成提到接近 100%，第一章算的"约 52 万 token"这个容量才真的能被填满。
+它对上面公式的影响只有一项：**内部碎片率**。每条序列只有最后一个 block 不满，平均浪费半个 block；Llama-3-8B、block 16 时约 $$8 \times 128 \text{ KiB} = 1$$ MiB 每序列，相对于一条 8K 序列 1 GiB 的 KV 可以忽略。每 token 的字节数不变，变的是"能用上的比例"从几成提到接近 100%，第二章算的"约 52 万 token"这个容量才真的能被填满。
 
 ### 2. prefix 共享
 
@@ -380,7 +397,7 @@ sliding window attention（Mistral 7B 用 4096 的窗口）进一步只让位置
 
 ### 3. 量化：字节数减半
 
-bytes/elem 从 BF16 的 2 降到 FP8（E4M3）或 INT8 的 1，每 token 字节数直接减半：Llama-3-8B 64 KiB，Llama-3-70B 160 KiB，DeepSeek-V3 约 34.3 KiB；128K 上下文分别是 8 GiB、20 GiB、4.3 GiB。缩放因子通常按 head 或按 token 一个，开销不到 1%。decode 时 KV 读取的字节数同样减半，第一章那个 8K × batch 64 的 64 GiB 变成 32 GiB。
+bytes/elem 从 BF16 的 2 降到 FP8（E4M3）或 INT8 的 1，每 token 字节数直接减半：Llama-3-8B 64 KiB，Llama-3-70B 160 KiB，DeepSeek-V3 约 34.3 KiB；128K 上下文分别是 8 GiB、20 GiB、4.3 GiB。缩放因子通常按 head 或按 token 一个，开销不到 1%。decode 时 KV 读取的字节数同样减半，第二章那个 8K × batch 64 的 64 GiB 变成 32 GiB。
 
 数值上 K 比 V 更敏感（K 直接进 softmax 指数，某些通道有明显的离群值），INT4 KV 一般要对 K 做按通道量化、对 V 做按 token 量化（KIVI 一类方法）。FP8 KV 在 H100 上还有一个额外好处：attention kernel 可以直接用 FP8 的输入，不必先反量化。这些是第六、第七篇的内容，这里只需记住：**量化是公式里唯一一个不改变结构就能减半的因子**。
 
@@ -395,7 +412,7 @@ $$
 结构（GQA 的 $$n_{kv}$$、MLA 的 $$d_c + d_h^R$$）决定分母里的元素个数，量化决定 bytes/elem，分页决定碎片率，prefix 共享决定复用倍数。四个乘子彼此独立，可以同时用：一个 MLA + FP8 KV + 分页 + prefix 缓存的服务栈，相对 MHA + BF16 + 预分配的朴素实现，KV 容量的差距可以有两到三个数量级。这四个因子里只有第一个必须在训练前决定，其余三个都是推理侧的选择——这也是为什么 KV cache 是推理系统里优化空间最大的一块。
 
 
-## 六、实践：给 llm_cost.py 加上 KV cache
+## 七、实践：给 llm_cost.py 加上 KV cache
 
 本篇在贯穿脚本里新增 `attn_type` 字段（`"mha" | "gqa" | "mqa" | "mla"`）、MLA 用到的 `kv_lora_rank`（$$d_c$$）与 `qk_rope_head_dim`（$$d_h^R$$）字段，以及 `n_params`（总参数量，取第一篇与第五篇的结果，用来估权重显存）。新增三个函数：`kv_bytes_per_token`、`decode_attn_intensity`、`max_concurrency`。
 
@@ -546,14 +563,14 @@ DeepSeek-V3      16    671GB    4231    2115     528     132
 读这张表要注意几点：
 
 - 并发数是**只算权重与 KV cache 的上界**。实际引擎还要留激活（prefill 一个 chunk 的中间张量）、CUDA graph、框架自身的显存，vLLM 默认 `gpu_memory_utilization=0.9` 一类的预留会再压掉 10% 左右，可以用 `reserve_frac` 模拟；
-- Llama-3-8B 在一张 H100 上 128K 上下文只能放 3 条序列，这就是"长上下文 = 低并发"的定量版本；8K 上下文 59 条对应第一章"64 条 8K 序列"的估算（差别来自 16.06 GB 权重与 64 GiB 预算的取整）；
+- Llama-3-8B 在一张 H100 上 128K 上下文只能放 3 条序列，这就是"长上下文 = 低并发"的定量版本；8K 上下文 59 条对应第二章"64 条 8K 序列"的估算（差别来自 16.06 GB 权重与 64 GiB 预算的取整）；
 - DeepSeek-V3 的 FP8 权重 671 GB 放不进 8 张 H100（640 GB），表里用了 16 卡；即便如此每卡分到的 KV 预算只有约 38 GB，但因为每 token 只有 68.6 KiB，128K 上下文仍能放 66 条——这就是 MLA 对服务成本的意义；
 - FP8 KV 让每一格翻倍，且不改变模型结构，是所有优化中性价比最高的一项——前提是质量可接受。
 
 下一篇会给 `kv_bytes` 加上上下文长度扫描，把 RoPE 外推与 KV 显存放在同一张图里看。
 
 
-## 七、小结
+## 八、本文小结
 
 本篇从 KV cache 公式出发推了四种 attention 结构：
 

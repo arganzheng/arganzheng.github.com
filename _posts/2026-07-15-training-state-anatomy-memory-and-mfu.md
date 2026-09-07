@@ -6,7 +6,7 @@ tags: [Megatron, DeepSpeed, torchtitan, Distributed Training, MFU, AI, AI-Infra]
 catalog: true
 ---
 
-> 本文是《大规模训练工程：从并行策略到容错恢复》系列的第 1 篇。上一篇：[大规模训练工程：从并行策略到容错恢复（总纲）](/large-scale-training-from-parallelism-to-fault-tolerance.html)；下一篇：[并行策略全景：每种并行切的是哪种状态](/parallelism-strategies-which-state-to-shard.html)。
+> 本文是[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)系列的第 1 篇（共八篇）。上一篇：[大规模训练工程：从并行策略到容错恢复（总纲）](/large-scale-training-from-parallelism-to-fault-tolerance.html)；下一篇：[并行策略全景：每种并行切的是哪种状态](/parallelism-strategies-which-state-to-shard.html)。
 
 一张 H100 有 80 GB 显存、标称 989 TFLOPS 的 bf16 算力。一个 70B 参数的模型，用 bf16 混合精度加 Adam 训练，参数、梯度和优化器状态加在一起是 1.13 TB——是那张卡的 14 倍。序列长 8192 时，它每一层的激活值还要 2.3 GB，80 层就是 180 GB。每个 token 的前向加反向要 4.5×10¹¹ 次浮点运算，一条 8192 token 的序列在一张卡上就算满了也要 3.7 秒。
 

@@ -5,16 +5,12 @@ tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
 
+> 本文是[《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》](/deep-dive-into-vllm.html)系列的第 4 篇（共十四篇）。上一篇：[鸟瞰 vLLM：一个请求如何穿过整个推理系统？](/vllm-request-lifecycle-overview.html)；下一篇：[KV Cache：LLM Serving 的第一号内存问题](/kv-cache-memory-core.html)
+
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 
 
-前面我们已经解决了一个重要问题：
-
-> **KV Cache 如何管理？**
-
-PagedAttention 将 KV Cache 从连续的大块显存变成可以按 Block 动态分配和回收的资源，使得不同请求可以灵活共享 GPU 显存。
-
-但有了 KV Cache 之后，还有一个更直接的问题：
+上一篇的全景图里已经出现了一个关键事实：KV Cache 不再是一整块连续显存，而是按 Block 动态分配和回收的资源（PagedAttention），不同请求因此可以灵活共享 GPU 显存——它的管理细节留到第五篇。有了"显存可以按块调配"这个前提，一个更直接的问题就浮上来了：
 
 > **GPU 这一轮到底给谁用？每个请求这一轮应该推进多少？**
 
@@ -49,6 +45,10 @@ Batch
 * Speculative Decoding 甚至会让一次迭代推进多个 token。
 
 因此，LLM Serving 的 Batch 不能再是一个固定不变的集合。
+
+## 一、总览：调度要回答的五个问题
+
+### 1. 从五个问题到一句话定义
 
 vLLM 的调度可以理解为逐渐回答五个问题：
 
@@ -87,10 +87,20 @@ Scheduler 每一轮到底给每个 Request 多少计算额度？
 
 > **在计算资源和 KV Cache 资源的双重约束下，每一轮动态决定哪些 Request 执行，以及每个 Request 本轮推进多少 token。**
 
+### 2. 本文的章节安排
 
-## 1. Continuous Batching：为什么 Batch 必须动态变化？
+```text
+第二章  Continuous Batching            Static Batching 的问题，Batch 为什么必须动态变化
+第三章  Chunked Prefill                长 Prompt 为什么也要分块，代价与 long_prefill_token_threshold
+第四章  Token Budget                   Request 是调度对象、Token 是调度资源；schedule() 的完整例子与核心源码
+第五章  Mixed Batch                    Prefill、Decode 与 Speculative 为什么可以共存；SchedulerOutput
+第六章  Admission Control 与 Preemption  KV Cache 不够时：准入、抢占、重算 vs 换出、LIFO 与 Watermark
+第七章  本文小结                       从“Batch 调度”到“资源调度”
+```
 
-### 1.1 Static Batching 的问题
+## 二、Continuous Batching：为什么 Batch 必须动态变化？
+
+### 1. Static Batching 的问题
 
 传统推理系统通常采用 Static Batching。
 
@@ -165,7 +175,7 @@ GPU
 └── 新请求无法及时进入
 ```
 
-### 1.2 Continuous Batching
+### 2. Continuous Batching
 
 LLM 的生成过程天然是迭代式的：
 
@@ -223,7 +233,7 @@ Iter 6:        [B] [D] [E]      ← C 完成
 > **每一次迭代，都重新决定 GPU 这一轮应该服务哪些 Request。**
 
 
-## 2. Chunked Prefill：为什么一个 Request 也不能一次吃完？
+## 三、Chunked Prefill：为什么一个 Request 也不能一次吃完？
 
 Continuous Batching 解决了：
 
@@ -277,7 +287,7 @@ D Decode   ───────────────────────
 
 这会直接影响 Decode 请求的 TPOT。
 
-### 2.1 Chunked Prefill
+### 1. Chunked Prefill
 
 因此，长 Prompt 也需要被拆成多个 Chunk：
 
@@ -324,7 +334,7 @@ Iter 4   [Chunk4][Decode A][Decode B]
 ...
 ```
 
-### 2.2 Chunked Prefill 的代价
+### 2. Chunked Prefill 的代价
 
 Chunked Prefill 并不是免费优化。
 
@@ -379,7 +389,7 @@ TPOT 更平稳
 > **Token Budget。**
 
 
-### 2.3 `long_prefill_token_threshold`
+### 3. `long_prefill_token_threshold`
 
 在 vLLM 中，可以通过：
 
@@ -432,7 +442,7 @@ Chunk 5 → 2
 > **Scheduler 每一轮到底有多少工作额度可以分配？又应该如何在不同 Request 之间分配？**
 
 
-## 3. Token Budget：Scheduler 每一轮到底怎么分配？
+## 四、Token Budget：Scheduler 每一轮到底怎么分配？
 
 这一节是整个 Scheduler 的核心。
 
@@ -449,7 +459,7 @@ Chunked Prefill 又解决了：
 > **这一轮 GPU 最多处理多少 token？这些 token 应该分给哪些 Request？**
 
 
-### 3.1 Request 是调度对象，Token 是调度资源
+### 1. Request 是调度对象，Token 是调度资源
 
 这里需要先纠正一个非常容易产生误解的说法。
 
@@ -486,7 +496,7 @@ Chunked Prefill 又解决了：
 > **以 Request 为对象，以 token 为资源，决定每个 Request 本轮推进多少 token。**
 
 
-### 3.2 每一轮首先确定 Token Budget
+### 2. 每一轮首先确定 Token Budget
 
 Scheduler 首先需要确定：
 
@@ -541,7 +551,7 @@ max_num_scheduled_tokens = 512
 这就是 Scheduler 最核心的资源分配问题。
 
 
-### 3.3 Request 还需要推进多少？
+### 3. Request 还需要推进多少？
 
 Scheduler 需要知道：
 
@@ -557,7 +567,7 @@ num_computed_tokens
 它们可以帮助我们理解 Scheduler 的工作方式。
 
 
-#### `num_computed_tokens`
+**`num_computed_tokens`**
 
 表示这个 Request 当前已经完成计算的 token 数量。
 
@@ -573,7 +583,7 @@ num_computed_tokens
 对应 KV Cache 已经建立
 ```
 
-#### `num_tokens_with_spec`
+**`num_tokens_with_spec`**
 
 它表示当前 Request 这一轮希望推进到的目标 token 位置。
 
@@ -600,7 +610,7 @@ remaining_tokens = num_tokens_with_spec - num_computed_tokens
 > **这个 Request 当前还需要多少 token 的计算额度。**
 
 
-### 3.4 `num_new_tokens`：本轮真正分配多少？
+### 4. `num_new_tokens`：本轮真正分配多少？
 
 Scheduler 最终真正关心的是：
 
@@ -656,7 +666,7 @@ token_budget -= num_new_tokens
 这就是 Scheduler 最核心的工作。
 
 
-### 3.5 用一个完整例子看懂 `schedule()`
+### 5. 用一个完整例子看懂 `schedule()`
 
 假设当前：
 
@@ -755,7 +765,7 @@ C → 1
 D → 110
 ```
 
-### 3.6 Decode 为什么也是同一个调度模型？
+### 6. Decode 为什么也是同一个调度模型？
 
 现在看普通 Decode。
 
@@ -825,7 +835,7 @@ remaining_tokens 可能大于 1
 Prefill 和 Decode 依然是非常重要的性能分析概念，但它们并不意味着 Scheduler 内部必须存在两个完全独立的“Prefill Scheduler”和“Decode Scheduler”。
 
 
-### 3.7 Scheduler 的核心源码逻辑
+### 7. Scheduler 的核心源码逻辑
 
 在 vLLM V1 中，关键逻辑位于：
 
@@ -970,7 +980,7 @@ Waiting Requests
 > **计算 Request 当前需要推进多少 token，并在本轮剩余 Token Budget 和其他资源约束下决定实际推进多少。**
 
 
-### 3.8 Token Budget 与 KV Cache 是两个不同维度的约束
+### 8. Token Budget 与 KV Cache 是两个不同维度的约束
 
 到这里还需要区分一个非常重要的概念。
 
@@ -1020,7 +1030,7 @@ KV Cache Block 不够
 无法继续接纳 / 需要抢占
 ```
 
-这就是下一节 Admission Control 与 Preemption 要解决的问题。
+这就是下一章 Admission Control 与 Preemption 要解决的问题。
 
 整体调度流程如下：
 
@@ -1055,7 +1065,7 @@ KV Cache Block 不够
           执行                  等待/抢占
 ```
 
-## 4. Mixed Batch：为什么 Prefill、Decode 与 Speculative 可以共存？
+## 五、Mixed Batch：为什么 Prefill、Decode 与 Speculative 可以共存？
 
 前面的 Token Budget 机制实际上已经自然产生了 Mixed Batch。
 
@@ -1070,7 +1080,7 @@ MixedBatch
 > **多个不同类型的 Request 在同一个 Token Budget 下同时获得 token 推进额度。**
 
 
-### 4.1 一轮 GPU 中可以同时有什么？
+### 1. 一轮 GPU 中可以同时有什么？
 
 假设当前：
 
@@ -1122,7 +1132,7 @@ Scheduler 可以得到类似这样的分配：
 这就是 Mixed Batch。
 
 
-### 4.2 Mixed Batch 并不是三种 Batch 拼起来
+### 2. Mixed Batch 并不是三种 Batch 拼起来
 
 这里非常容易产生误解。
 
@@ -1164,7 +1174,7 @@ Mixed Batch
 这也是为什么 Token Budget 是理解 Mixed Batch 的关键。
 
 
-### 4.3 Speculative Decoding 为什么可以自然融入？
+### 3. Speculative Decoding 为什么可以自然融入？
 
 普通 Decode：
 
@@ -1228,7 +1238,7 @@ Speculative Scheduler
 
 因此，Speculative Decoding 与普通 Decode 可以在同一个 iteration 中共存。
 
-### 4.4 SchedulerOutput：调度完成后发生什么？
+### 4. SchedulerOutput：调度完成后发生什么？
 
 Scheduler 完成本轮决策后，并不会直接执行模型计算。
 
@@ -1322,7 +1332,7 @@ SchedulerOutput
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-## 5. Admission Control 与 Preemption：KV Cache 不够怎么办？
+## 六、Admission Control 与 Preemption：KV Cache 不够怎么办？
 
 到这里，Scheduler 已经解决了：
 
@@ -1347,7 +1357,7 @@ KV Cache Blocks
 ```
 
 
-### 5.1 Admission Control：不是所有 Request 都能立即进入 Running
+### 1. Admission Control：不是所有 Request 都能立即进入 Running
 
 假设：
 
@@ -1401,7 +1411,7 @@ Free Blocks 不足
 > **先判断“GPU 有没有能力接纳这个 Request”，再决定是否让它进入 Running。**
 
 
-### 5.2 KV Cache 不够：Preemption
+### 2. KV Cache 不够：Preemption
 
 如果当前 Running Requests 已经占满 KV Cache，而又有更高优先级的调度需求，Scheduler 就可能需要抢占某些 Request。
 
@@ -1445,7 +1455,7 @@ num_computed_tokens = 0
 > **抢占并不是把 Request 本身删除，而是释放它占用的 KV Cache，之后再重新计算。**
 
 
-### 5.3 Recomputation vs Swapping
+### 3. Recomputation vs Swapping
 
 从实现策略上，可以将抢占后的处理方式分为两类：
 
@@ -1484,7 +1494,7 @@ request.num_computed_tokens = 0
 > **从 Scheduler 的角度，这个 Request 后续需要重新计算。**
 
 
-### 5.4 为什么 Recomputation 不一定像想象中那么昂贵？
+### 4. 为什么 Recomputation 不一定像想象中那么昂贵？
 
 乍看之下：
 
@@ -1523,7 +1533,7 @@ Request
 这也是为什么 KV Cache、Prefix Cache 和 Scheduler 并不是三个互相独立的模块，而是共同参与请求生命周期管理。
 
 
-### 5.5 LIFO Preemption 与重新入队
+### 5. LIFO Preemption 与重新入队
 
 在当前实现中，抢占选择和重新入队还涉及队列策略。
 
@@ -1570,7 +1580,7 @@ D → A → B → ...
 这样可以避免被抢占的 Request 长时间得不到恢复。
 
 
-### 5.6 Watermark：给 KV Cache 留一点安全余量
+### 6. Watermark：给 KV Cache 留一点安全余量
 
 Scheduler 还需要避免一种非常糟糕的情况：
 
@@ -1631,7 +1641,7 @@ required_blocks = (
 这种资源震荡。
 
 
-## 6. 本章小结：Scheduler：从“Batch 调度”到“资源调度”
+## 七、本文小结：Scheduler：从“Batch 调度”到“资源调度”
 
 到这里，可以把 vLLM Scheduler 的整个设计串起来。
 
@@ -1795,4 +1805,4 @@ Speculative Decode
 
 ## 下一篇
 
-[KV Cache：LLM Serving 的第一号内存问题](/deep-dive-into-vllm-05-kv-cache-memory-core.html)
+[KV Cache：LLM Serving 的第一号内存问题](/kv-cache-memory-core.html)

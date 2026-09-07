@@ -1,14 +1,24 @@
 ---
 layout: post
-title: 大模型推理系统揭秘（07）：Multi-GPU：一张卡不够时如何扩展？
+title: 大模型推理系统揭秘（08）：Multi-GPU：一张卡不够时如何扩展？
 tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
 
+> 本文是[《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》](/deep-dive-into-vllm.html)系列的第 8 篇（共十四篇）。上一篇：[解码的扩展：采样、投机解码与结构化输出](/decoding-extensions-sampling-speculative-and-structured-output.html)；下一篇：[模型适配：如何跟上变化极快的模型世界？](/model-adaptation-architecture.html)
+
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 
 
-## 1. 分布式推理的混合并行策略
+前面几篇讨论的都是一张卡内部的事：调度器决定这一轮算哪些 token，KV Cache 决定状态放在哪里，GPU 执行决定每个 token 算多快。但模型很快就会大到一张卡装不下，或者一张卡的吞吐远远不够。这时模型、状态和通信都要在多张 GPU 之间重新分配。
+
+本篇的核心问题是：
+
+> **一张卡装不下、或者一张卡不够快时，模型、KV 状态和通信应该怎样在多张 GPU 之间切分？每种切法的代价是什么，通信又该如何优化？**
+
+## 一、总览：分布式推理的混合并行策略
+
+### 1. 五种并行策略与一张选择表
 
 分布式推理的混合并行策略：
 
@@ -22,9 +32,22 @@ catalog: true
 
 这张表里最值得单独说的是 **DP**：它和其余四个不是一类东西。TP/PP/EP/CP 解决的都是"装不下"，是被迫拆分；**DP 解决的是"想要更多"，前提恰恰是单卡装得下**。所以生产部署里通常是"先用 TP/PP/EP/CP 把模型塞进一组卡，再用 DP 把这组卡整体复制 N 份来放大吞吐"——DP 永远是最外层。
 
-下面按 DP → TP → PP → EP → CP 的顺序展开。
+下面按 DP → TP → PP → EP → CP 的顺序展开，再汇总为组合策略，最后进入多 GPU 推理的性能深水区——通信优化。
 
-### 1.1 DP (Data Parallelism)
+### 2. 本文的章节安排
+
+```text
+第二章  DP (Data Parallelism)          完整模型复制，最外层的吞吐倍增器
+第三章  TP (Tensor Parallelism)        层内矩阵按行/列切；Column/Row 配对、Transformer 中的应用、通信代价
+第四章  PP (Pipeline Parallelism)      按层切分；Prefill/Decode 的流动、流水线气泡、对 KV Cache 的影响
+第五章  EP (Expert Parallelism)        MoE 按 Expert 切；Router、All-to-All、Capacity Factor、通信与计算重叠、vLLM 实现
+第六章  CP (Context Parallelism)       按 token 序列切；Ring Attention、vLLM 中的 PCP/DCP
+第七章  混合并行策略汇总               按模型规模与场景的推荐组合与四条经验法则
+第八章  通信优化                       数据流向图谱、NCCL、计算与通信重叠、通信问题定位方法
+第九章  本文小结
+```
+
+## 二、DP (Data Parallelism)
 
 **DP：每个 GPU 持有完整模型副本，各自处理不同请求。**
 
@@ -42,9 +65,9 @@ graph LR
 | 适用 | 模型放得下、但并发不够的场景 |
 | vLLM 实现 | `DPCoordinator`（`vllm/v1/engine/coordinator.py`）管理多个 `EngineCore` 实例，用 ZMQ 做请求分发与负载均衡 |
 
-### 1.2 TP (Tensor Parallelism)
+## 三、TP (Tensor Parallelism)
 
-#### 1.2.1 TP 是什么？
+### 1. TP 是什么？
 
 **TP（Tensor Parallelism）**：将一个 Transformer Layer 内的大矩阵/计算张量切分到多张 GPU 上，让多张 GPU **共同完成同一个请求**的计算。
 
@@ -75,7 +98,7 @@ TP：
 
 代价则是：**GPU 之间需要频繁通信。**
 
-#### 1.2.2 TP 怎么切？
+### 2. TP 怎么切？
 
 以矩阵乘法：
 $$Y=XW$$
@@ -126,7 +149,7 @@ $$Y=XW$$
 | 典型应用 | QKV、Gate/Up     | O、Down       |
 
 
-#### 1.2.3 为什么 Column 和 Row 可以配合而且经常成对出现？
+### 3. 为什么 Column 和 Row 可以配合而且经常成对出现？
 
 两种切法之所以能够配合，是因为：
 
@@ -316,7 +339,7 @@ $$
 $$
 
 
-#### 1.2.4 TP 在 Transformer 中怎么应用？
+### 4. TP 在 Transformer 中怎么应用？
 
 这种“列-行”的组合完美对应了标准 Transformer 解码器（Decoder）内部的组件设计： 
 
@@ -461,7 +484,7 @@ $$
 Gate/Up\rightarrow Activation\rightarrow Down\rightarrow All\text{-}Reduce
 $$
 
-#### 1.2.5 TP 的代价：通信
+### 5. TP 的代价：通信
 
 TP 的核心交换是：**用 GPU 间通信换取单卡计算和显存压力的降低。**
 
@@ -513,7 +536,7 @@ $$
 
 TP=8 时约为 (1.75V)。
 
-#### 1.2.6 为什么 TP 更适合机内高速互联场景？
+### 6. 为什么 TP 更适合机内高速互联场景？
 
 TP 的问题不只是“通信量大”，更重要的是：**All-Reduce 位于每层计算的关键路径，需要同步等待。**
 
@@ -546,9 +569,9 @@ All-Reduce
 
 > **一句话总结：TP 把一个 Transformer Layer 的矩阵计算拆给多张 GPU；Column Parallel 产生输出分片，Row Parallel 产生部分和，再通过 All-Reduce 合并。它用 GPU 间通信换取单卡计算和显存压力的降低，因此尤其依赖高速的机内互联。**
 
-### 1.3 PP (Pipeline Parallelism)
+## 四、PP (Pipeline Parallelism)
 
-#### 1.3.1 PP是什么？
+### 1. PP是什么？
 
 与 TP 主要切分同一层不同，PP 切分的是**不同层（可以而且往往是多个层一个stage）**。
 
@@ -572,7 +595,7 @@ graph LR
 
 对于一个 batch，输入首先经过 GPU 0 的层；GPU 0 产生边界激活后，将其发送给 GPU 1，依此类推。每个 stage 只保存自己负责的模型层，以及这些层对应的中间状态和 KV cache。
 
-#### 1.3.2 为什么推理系统需要 PP
+### 2. 为什么推理系统需要 PP
 
 在 LLM Serving 中，模型规模可能远超单张 GPU 的显存容量。除了模型权重之外，推理时还需要保存：
 
@@ -597,7 +620,7 @@ PP 可以将模型不同层的权重和 KV cache 分布到多个 GPU 上，使�
 - 请求如何经过不同 GPU；
 - 多张 GPU 如何协同完成一次前向计算。
 
-#### 1.3.3 PP 怎么切分模型
+### 3. PP 怎么切分模型
 
 PP 通常将模型按连续层切分：
 
@@ -656,9 +679,9 @@ Stage 2：GPU 8–11，通过 TP 计算 Layers 40–59
 - 每个 PP stage 可以看作一个 TP 计算组。
 
 
-#### 1.3.4 推理请求在 PP 中如何流动
+### 4. 推理请求在 PP 中如何流动
 
-##### ① Prefill 阶段
+**① Prefill 阶段**
 
 Prefill 阶段负责处理用户输入的完整 prompt。
 
@@ -686,7 +709,7 @@ Stage 2：保存 Layers 40–59 的 KV cache
 
 Prefill 通常具有较强的计算特征，输入 token 数量较多，因此比较容易通过批处理或请求并发来提高 GPU 利用率。
 
-##### ② Decode 阶段
+**② Decode 阶段**
 
 Decode 阶段每次只生成一个或少量新 token。
 
@@ -715,7 +738,7 @@ Stage 2：读取本地 KV cache，计算 Layers 40–59
 
 在高并发场景中，系统可以同时调度多个请求或多个 token，使不同 stage 尽量处理不同请求的工作，从而提升整体吞吐。
 
-#### 1.3.5 PP的代价：流水线气泡
+### 5. PP的代价：流水线气泡
 
 所谓流水线气泡，是指某些 GPU 暂时没有可执行的工作，只能等待其他 stage。
 
@@ -776,11 +799,11 @@ Fill 和 Drain 阶段产生的空闲时间，就是流水线气泡的一部分�
 
 因此，PP 往往更适合有一定并发度、注重整体吞吐的 Serving 场景。对于单请求低延迟场景，则需要谨慎评估 stage 串行执行和通信带来的开销。
 
-#### 1.3.6 推理和训练中的 PP 有什么不同
+### 6. 推理和训练中的 PP 有什么不同
 
 PP 既可以用于训练，也可以用于推理，但两者关注的问题不同。
 
-##### ① 训练阶段的 PP
+**① 训练阶段的 PP**
 
 训练时，每个 microbatch 都需要进行：
 
@@ -804,7 +827,7 @@ Backward：Stage 2 → Stage 1 → Stage 0
 - 提高整体训练吞吐；
 - 降低单卡模型状态和激活压力。
 
-##### ② 推理阶段的 PP
+**② 推理阶段的 PP**
 
 推理阶段通常只有 forward，不需要：
 
@@ -823,7 +846,7 @@ Backward：Stage 2 → Stage 1 → Stage 0
 - 如何提升并发吞吐；
 - 如何控制单请求延迟。
 
-##### ③ 对比总结
+**③ 对比总结**
 
 两者的核心区别概括来说如下：
 
@@ -839,38 +862,38 @@ Backward：Stage 2 → Stage 1 → Stage 0
 | 主要优化目标 | 训练吞吐和显存 | Serving 吞吐、延迟和缓存容量 |
 | 边界通信 | 激活 + 反向梯度 | 主要是前向激活 |
 
-#### 1.3.7 PP 对 KV cache 有什么影响
+### 7. PP 对 KV cache 有什么影响
 
 在大模型推理（Inference）场景下，PP 对 KV Cache 的管理、显存占用以及调度带来了极其深远的影响。
 
-##### ① 空间分布式切分：KV Cache 被天然“分层切片”
+**① 空间分布式切分：KV Cache 被天然“分层切片”**
 
 在单卡或张量并行（TP）中，全网所有层的 KV Cache 通常集中在同一张显卡或同一个机组里。但在 PP 并行下每个 Stage（显卡/节点）只负责模型的一部分层（Layers）。因此，只有当前 Stage 所包含层的 KV Cache 会被缓存在该卡的显存中。
 
 例如：一个 4 阶段的 PP 流水线（Stage 0-3），总共 80 层模型。Stage 0 只持有第 1~20 层的模型参数，因此它也只负责创建和维护第 1~20 层的 KV Cache。后序层的 KV Cache 散落在后面的显卡上。
 
-##### ② 显存节约：降低单卡 KV Cache 的上限压力
+**② 显存节约：降低单卡 KV Cache 的上限压力**
 
 大模型推理的显存瓶颈通常在于 模型参数 + KV Cache。
 
 * 单卡纵向扩容：因为 PP 将模型层数均分到了不同卡上，单卡上需要缓存的 KV Cache 层数也变成了总层数的 1/PP_Size。
 * 释放长文本潜力：在处理超长文本（Context Length）或大 Batch 推理时，单卡因为只需要存 1/N 的层，从而能腾出更多显存来容纳更多的 Token，在一定程度上缓解了单卡显存因长文本而崩溃（OOM）的问题。
 
-##### ③ 动态管理难题：跨 Stage 的 Token 调度与绑定
+**③ 动态管理难题：跨 Stage 的 Token 调度与绑定**
 
 在现代推理框架（如 vLLM, LMDeploy）中，通常使用 PagedAttention 来动态申请和管理 KV Cache 虚拟内存块。引入 PP 后，这种管理变得极其复杂：
 
 * 全局调度一致性：当一个 Batch 的请求在不同的 Stage 之间流动时，中央调度器必须确保所有 Stage 在同一时间为同一个请求分配或释放 KV Cache 块。
 * 不均匀负载（Load Imbalance）：由于不同请求的 Prompt 长度和生成长度不同（特别是多轮对话或 Early Stopping），某些请求可能在中间就结束了。调度器需要跨越不同的 PP Stage 去同步“释放”这些不再需要的 KV Cache 块，如果同步不及时，会导致某些 Stage 显存提前占满。
 
-##### ④ 跨机通信：解耦架构下的新瓶颈
+**④ 跨机通信：解耦架构下的新瓶颈**
 
 在一些超大规模推理集群中（如 Speculative Decoding 投机采样或分布式推理），PP 经常跨机部署：
 
 * PP 阶段之间传递的是 Activation（激活值 Tensor），而不是整个 KV Cache。
 * 虽然不需要在网络上传输 KV Cache（因为它们已经常驻在各自层的显卡上），但是由于 PP 的每一步都需要等待前级通信，网络延迟（Latency）会直接增加每个 Token 的生成时间（TP-Time-to-First-Token 和 Time-per-Output-Token）。
 
-#### 1.3.8 什么时候适合使用 PP
+### 8. 什么时候适合使用 PP
 
 PP 通常适合以下推理场景：
 
@@ -920,7 +943,7 @@ PP 更适合：
 
 在这些场景中，PP 虽然能够解决显存问题，但 stage 间的串行执行和通信可能抵消并行带来的收益。
 
-### 1.4 EP (Expert Parallelism)
+## 五、EP (Expert Parallelism)
 
 混合专家模型（Mixture-of-Experts，MoE）通过在模型中引入多个相对独立的 Expert，并利用 Router 为每个 Token 动态选择少量 Expert，从而在不线性增加计算量的情况下扩大模型参数规模。
 
@@ -928,7 +951,7 @@ PP 更适合：
 
 然而，随着 Expert 数量增加，单张 GPU 往往无法容纳全部 Expert 参数。因此，需要将不同 Expert 分布到多张 GPU 上，这就是专家并行（Expert Parallelism，EP）。
 
-#### 1.4.1 EP 的核心思想
+### 1. EP 的核心思想
 
 EP 的基本思想是：
 
@@ -957,7 +980,7 @@ EP 的基本思想是：
 
 需要注意的是，EP 只切分 MoE 层中的 Expert。Router、Attention 层以及其他共享模块是否复制或切分，通常还要结合 Tensor Parallelism（TP）、Data Parallelism（DP）或 Pipeline Parallelism（PP）共同决定。
 
-#### 1.4.2 为什么 MoE 需要 EP
+### 2. 为什么 MoE 需要 EP
 
 在稠密模型中，每个 Token 通常都会经过同一组参数；而在 MoE 模型中，多个 Expert 只对部分 Token 激活。
 
@@ -984,7 +1007,7 @@ Expert 总数：           64
 
 EP 的代价是：Token 不一定会被发送到当前 GPU 上的 Expert，因此必须进行跨 GPU 通信。
 
-#### 1.4.3 EP 的完整执行流程
+### 3. EP 的完整执行流程
 
 一个典型的 EP MoE 层可以抽象为以下五个阶段：
 
@@ -1042,7 +1065,7 @@ graph TD
 └──────────────┘
 ```
 
-##### ① Router 计算
+**① Router 计算**
 
 对于输入 Token 的隐藏状态 \(x_t\)，Router 通常先计算每个 Expert 的打分：
 
@@ -1082,7 +1105,7 @@ Top-2 路由结果：
 
 Router 不仅需要记录 Expert ID，还需要记录每个 Expert 对应的路由权重。后续 Combine 阶段会使用这些权重对不同 Expert 的输出进行加权求和。
 
-##### ② All-to-All Dispatch
+**② All-to-All Dispatch**
 
 Router 完成路由后，系统需要根据 Expert ID 判断 Token 的目标 GPU。
 
@@ -1159,7 +1182,7 @@ GPU 3：t₄
 - Token 属于哪个源 GPU；
 - Token 在目标 Expert 批次中的位置。
 
-##### ③ 本地 Expert 计算
+**③ 本地 Expert 计算**
 
 完成 Dispatch 后，每张 GPU 会收到一批需要由本地 Expert 处理的 Token。由于每张 GPU 只保存部分 Expert，因此它只负责执行这些本地 Expert 的前馈网络计算。
 
@@ -1270,7 +1293,7 @@ Grouped GEMM：
 
 计算完成后，各 Expert 的输出会进入 All-to-All Combine 阶段，返回原始 Token 所在的 GPU，并根据 Router 产生的权重进行聚合。
 
-##### ④ All-to-All Combine
+**④ All-to-All Combine**
 
 Expert 计算完成后，结果需要发回原始 Token 所在的 GPU。这个过程称为 Combine，通常也需要一次 All-to-All 通信。
 
@@ -1321,7 +1344,7 @@ $$
 z_t = x_t + y_t
 $$
 
-#### 1.4.4 EP 通信示意图
+### 4. EP 通信示意图
 
 将整个流程放在一起，可以表示为：
 
@@ -1367,9 +1390,9 @@ $$
 
 对于 4 张 GPU，逻辑结构相同，只是通信参与者从 2 个扩展到 4 个。
 
-#### 1.4.5 Capacity Factor（CF）：专家容量因子
+### 5. Capacity Factor（CF）：专家容量因子
 
-##### ① 为什么需要容量限制
+**① 为什么需要容量限制**
 
 Router 的路由结果是动态的。即使平均情况下 Token 能够均匀分布到各个 Expert，也可能出现某些 Expert 被大量 Token 选中的情况。
 
@@ -1443,7 +1466,7 @@ $$
 
 也就是说，每个 Expert 最多接收约 40 个 Token。
 
-##### ② Capacity Factor 的权衡
+**② Capacity Factor 的权衡**
 
 Capacity Factor 越大，Expert 越不容易溢出，但需要预留更多缓冲空间；Capacity Factor 越小，显存和通信开销较低，但 Token 丢弃概率可能上升。
 
@@ -1484,7 +1507,7 @@ Capacity Factor 减小
 
 训练场景中，Token Overflow 可能通过丢弃、跳过 Expert 或采用残差路径处理。推理场景则通常更加关注延迟稳定性，可能使用固定容量、动态容量或特定的负载均衡机制。
 
-##### ③ 负载均衡损失
+**③ 负载均衡损失**
 
 仅依赖 Capacity Factor 并不能从根本上解决热门 Expert 问题。训练时通常还会加入负载均衡损失，使 Router 尽量均匀地使用不同 Expert。
 
@@ -1507,7 +1530,7 @@ Expert 63：约 1/64 的路由
 
 因此，EP 的性能不仅取决于 GPU 数量，还取决于 Router 是否能够产生较均衡的 Token 分布。
 
-#### 1.4.6 EP 中的通信与计算重叠
+### 6. EP 中的通信与计算重叠
 
 传统实现通常按照以下顺序执行：
 
@@ -1543,7 +1566,7 @@ graph LR
     X0 <-.->|"All-to-All Combine"| X1
 ```
 
-##### ① 分块执行
+**① 分块执行**
 
 一种常见方法是将 Token 分成多个 Chunk：
 
@@ -1574,7 +1597,7 @@ Combine                         [C0]      [C1]      [C2]
 
 这样可以在计算 Chunk 0 的同时，为 Chunk 1 执行 Dispatch，从而减少通信等待。
 
-##### ② 通信与计算重叠的收益
+**② 通信与计算重叠的收益**
 
 理想情况下，系统总耗时可以从：
 
@@ -1611,9 +1634,9 @@ $$
 
 当 Expert 计算量较小而通信量较大时，计算很难完全隐藏通信；当 Batch 较大、Expert GEMM 较充分时，通信与计算重叠的收益通常更加明显。
 
-#### 1.4.7 EP 的主要通信特征与性能瓶颈
+### 7. EP 的主要通信特征与性能瓶颈
 
-##### ① All-to-All 通信量
+**① All-to-All 通信量**
 
 如果每个 Token 选择 Top-K 个 Expert，则 MoE 层的路由数据规模大致与以下因素相关：
 
@@ -1646,7 +1669,7 @@ $$
 
 当一个 Token 被发送到两个 Expert 时，Dispatch 阶段至少需要传输两份相关激活数据，Combine 阶段还需要传回对应结果。
 
-##### ② 负载不均衡
+**② 负载不均衡**
 
 EP 的计算负载由实际路由到每个 Expert 的 Token 数量决定，而不是简单由 GPU 数量决定。
 
@@ -1676,7 +1699,7 @@ $$
 
 因此，即使平均计算量不高，只要一张 GPU 因热门 Expert 而变慢，整个批次的延迟就会受到影响。
 
-##### ③ 小批次 GEMM 效率
+**③ 小批次 GEMM 效率**
 
 MoE 的每个 Expert 只处理一部分 Token。当 Token 数量较少或分布不均时，每个 Expert 的 GEMM 规模可能很小，导致 GPU Tensor Core 利用率下降。
 
@@ -1696,7 +1719,7 @@ Expert 2：███              GEMM 利用率较低
 
 因此，MoE 系统需要在 Token 重排、Expert 分组、批量 GEMM 和通信之间进行联合优化。
 
-#### 1.4.8 EP 与其他并行策略的区别
+### 8. EP 与其他并行策略的区别
 
 | 并行方式 | 切分对象 | 主要目标 | 典型通信 | 主要挑战 |
 |---|---|---|---|---|
@@ -1731,7 +1754,7 @@ EP：不同 GPU 保存不同 Expert
 
 TP 关注的是“一个计算模块如何被多张 GPU 共同完成”；EP 关注的是“不同 Expert 如何被不同 GPU 分别完成”。
 
-#### 1.4.9 EP 与 TP 的组合
+### 9. EP 与 TP 的组合
 
 在实际的大模型系统中，EP 很少单独使用，通常会与 TP 结合。
 
@@ -1790,7 +1813,7 @@ TP 1    │ GPU 1  │ GPU 3  │
 - Expert 计算前后是否需要重新聚合；
 - 通信是否能够通过 NVLink 或节点内高速互联完成。
 
-#### 1.4.10 vLLM 中的 EP 实现
+### 10. vLLM 中的 EP 实现
 
 在 vLLM 等推理引擎中，EP 通常通过通信抽象层实现。上层 MoE 计算逻辑不必直接处理不同通信库的底层细节，而是调用统一的 Dispatch 和 Combine 接口。
 
@@ -1850,7 +1873,7 @@ outputs = communicator.combine(
 | **ROCm AIter** | `experts/rocm_aiter_moe.py` | AMD GPU |
 | **XPU Experts** | `experts/xpu_moe.py` | Intel GPU |
 
-#### 1.4.11 EP 的常见优化方向
+### 11. EP 的常见优化方向
 
 MoE 工程优化通常围绕以下四类手段展开：
 
@@ -1861,7 +1884,7 @@ MoE 工程优化通常围绕以下四类手段展开：
 | **Fused MoE Kernel** | Route + Dispatch + GEMM + Combine 全融进一个 kernel，省掉中间张量的 HBM 往返 |
 | **All-to-All 与计算重叠** | 把通信藏到计算背后 |
 
-##### ① Token 重排与内存布局优化
+**① Token 重排与内存布局优化**
 
 Dispatch 前需要将 Token 按目标 GPU 和目标 Expert 重新排列。高效实现会尽量减少：
 
@@ -1887,7 +1910,7 @@ Dispatch 前需要将 Token 按目标 GPU 和目标 Expert 重新排列。高效
    └── 按 Expert 连续布局，直接进入 GEMM
 ```
 
-##### ② Grouped GEMM
+**② Grouped GEMM**
 
 如果每个 Expert 都单独启动一次 GEMM Kernel，会产生大量 Kernel Launch 开销。Grouped GEMM 可以将多个 Expert 的矩阵乘法组织在一起执行。
 
@@ -1914,7 +1937,7 @@ Grouped GEMM：
 - 多个 Expert 使用相同结构；
 - 需要降低 Kernel Launch 开销的场景。
 
-##### ③ 通信与计算重叠
+**③ 通信与计算重叠**
 
 通过 Chunking、异步通信和多 Stream 调度，可以实现：
 
@@ -1926,7 +1949,7 @@ Grouped GEMM：
 
 从而减少 GPU 等待时间。
 
-##### ④ 通信拓扑感知
+**④ 通信拓扑感知**
 
 EP 性能高度依赖 GPU 之间的连接方式：
 
@@ -1953,7 +1976,7 @@ Node 0 ───── InfiniBand/RoCE ───── Node 1
 - 是否需要分层通信；
 - 是否需要将高频通信限制在节点内。
 
-##### ⑤ Expert 复制与热门 Expert 优化
+**⑤ Expert 复制与热门 Expert 优化**
 
 当某些 Expert 长期成为热门 Expert 时，可以考虑对其进行复制：
 
@@ -1978,9 +2001,9 @@ Router 可以在多个副本之间进一步选择，从而减轻单个 GPU 的�
 - 路由策略复杂度；
 - 参数同步成本，尤其是在训练场景中。
 
-#### 1.4.12 EP 的优点与局限
+### 12. EP 的优点与局限
 
-##### ① 优点
+**① 优点**
 
 1. **降低单卡显存压力**
 
@@ -2002,7 +2025,7 @@ Router 可以在多个副本之间进一步选择，从而减轻单个 GPU 的�
 
    能够适配大规模训练和推理集群。
 
-##### ② 局限
+**② 局限**
 
 1. **All-to-All 通信成本高**
 
@@ -2025,7 +2048,7 @@ Router 可以在多个副本之间进一步选择，从而减轻单个 GPU 的�
    如果 EP 通信跨越节点网络，延迟和带宽可能显著影响性能。
 
 
-#### 1.4.13 总结
+### 13. 总结
 
 专家并行是 MoE 模型扩展的关键并行策略。它通过将不同 Expert 分布到不同 GPU 上，实现 Expert 参数和计算任务的横向扩展。
 
@@ -2073,9 +2096,9 @@ EP 性能
 
 在 vLLM 等推理框架中，EP 通常通过 `dispatch` 和 `combine` 等通信抽象接口实现，并结合 DeepEP、NVLink、FlashInfer 或其他高性能通信后端，尽量降低 MoE 动态路由带来的通信开销。最终目标不是单纯减少通信次数，而是让通信、Token 重排、Expert 计算和结果聚合形成连续的数据流水线。
 
-### 1.5 CP (Context Parallelism)
+## 六、CP (Context Parallelism)
 
-#### 1.5.1 CP 是什么？
+### 1. CP 是什么？
 Context Parallelism（CP）是一种面向长序列的并行技术，其核心思想是将输入序列沿上下文维度切分，并分配到多个 GPU 上。每个 GPU 只负责处理整个序列的一部分 token，从而降低单个 GPU 的显存占用，并支持更长上下文的训练与推理。
 
 例如，对于长度为 64K 的输入序列，在 4 个 GPU 上进行上下文并行时，可以将序列划分为 4 个连续的 chunk：
@@ -2091,7 +2114,7 @@ GPU 3：[t₄₈₀₀₁ ~ t₆₄₀₀₀]       chunk 3
 
 设上下文并行度为 CP，则每个 GPU 通常只需要保存约 1/CP 的序列激活值和 KV Cache。因此，在其他条件相同的情况下，CP 可以显著降低单卡显存压力。例如，4 路 CP 理论上可以将与序列长度相关的显存占用分摊到 4 个 GPU 上。
 
-#### 1.5.2 Ring Attention
+### 2. Ring Attention
 
 但是这样问题也来了：在标准自注意力中，每个 Query 都需要与完整序列上的 Key 和 Value 进行计算。而现在每个 GPU 只保存本地序列片段，就无法直接完成全局注意力计算。
 
@@ -2116,11 +2139,11 @@ Step 3：K₂、V₂ 传递至 GPU 0，GPU 0 继续累加
 Step 4：K₃、V₃ 传递至 GPU 0，完成全局注意力计算
 ```
 
-这个"分块算 + 在线累加"的套路，和第 5.2.2 节的 FlashAttention 是**同一个数学技巧**（Online Softmax），只不过一个跨的是 SRAM 与 HBM，另一个跨的是 GPU 与 GPU。
+这个"分块算 + 在线累加"的套路，和第六篇的 FlashAttention 是**同一个数学技巧**（Online Softmax），只不过一个跨的是 SRAM 与 HBM，另一个跨的是 GPU 与 GPU。
 
 在实际实现中，每个 GPU 会对不同 KV 块产生的注意力结果进行在线归约。为了避免保存所有中间结果，通常采用 Online Softmax 等方法，对不同 KV 分块的注意力结果进行数值稳定的增量合并。
 
-#### 1.5.3 CP 的主要优势
+### 3. CP 的主要优势
 
 1. **降低单卡显存占用**  
    序列相关的激活值和 KV Cache 被分摊到多个 GPU，单卡占用通常随 CP 度数近似降低为原来的 `1/CP`。
@@ -2134,7 +2157,7 @@ Step 4：K₃、V₃ 传递至 GPU 0，完成全局注意力计算
 4. **与其他并行方式结合**  
    CP 可以与数据并行（DP）、张量并行（TP）和流水线并行（PP）组合，形成适用于大模型训练和推理的混合并行架构。
 
-#### 1.5.4 CP 的代价与限制
+### 4. CP 的代价与限制
 
 CP 并不会消除全局注意力的计算和通信需求。由于每个 GPU 都需要访问其他 GPU 的 K、V，因此系统会引入额外的 GPU 间通信开销。CP 的性能通常依赖于：
 
@@ -2146,7 +2169,7 @@ CP 并不会消除全局注意力的计算和通信需求。由于每个 GPU 都
 
 当序列较短或 GPU 间通信带宽不足时，CP 带来的收益可能被通信开销抵消。因此，CP 更适合超长上下文场景，而不是所有序列长度下的默认并行方案。
 
-#### 1.5.5 vLLM 中的 CP
+### 5. vLLM 中的 CP
 
 在 vLLM 等推理框架中，CP 可以根据 Prefill 和 Decode 两个阶段的特点进行进一步划分：
 
@@ -2158,7 +2181,7 @@ Prefill 阶段通常具有较大的序列长度和计算量，更适合通过序
 总体而言，Context Parallelism 通过“切分上下文、局部计算、全局通信”的方式，将超长序列处理扩展到多个 GPU。它特别适用于 64K～1M tokens 等超长上下文场景，是突破单卡序列长度和 KV Cache 显存限制的重要技术。
 
 
-### 1.6 混合并行策略汇总
+## 七、混合并行策略汇总
 
 | 模型规模 / 场景 | 推荐策略 | 说明 |
 |---|---|---|
@@ -2178,7 +2201,7 @@ Prefill 阶段通常具有较大的序列长度和计算量，更适合通过序
 - **DP 永远是最外层的吞吐倍增器**——它不解决"装不下"，只解决"不够快"
 
 
-## 2. 通信优化：推理系统的性能深水区
+## 八、通信优化：推理系统的性能深水区
 
 在多 GPU 推理系统中，计算单元的利用率往往受限于通信延迟和数据移动开销。尤其是在 Decode 阶段，单步生成的 Token 数量很少，矩阵乘法的计算量下降，而跨 GPU 同步仍然存在，通信启动延迟、同步等待和小消息处理效率就会变得格外重要。
 
@@ -2193,7 +2216,7 @@ Prefill 阶段通常具有较大的序列长度和计算量，更适合通过序
 - 通信能否与计算重叠；
 - 实际拓扑是否与并行策略匹配。
 
-### 2.1 数据流向图谱：谁在拖慢速度？
+### 1. 数据流向图谱：谁在拖慢速度？
 
 在讨论通信优化之前，先把一次推理中的主要数据移动路径展开来看。
 
@@ -2295,7 +2318,7 @@ PCIe
 
 > TP 集合通信和 EP Token Dispatch 通常是最值得优先优化的通信路径，因为它们既可能数据量较大，又处于模型层级或 Token 路由的同步依赖链上。CPU-GPU 小消息则更需要关注调用次数、同步方式和启动延迟，而不是链路带宽。
 
-### 2.2 NCCL：多 GPU 通信的默认底座
+### 2. NCCL：多 GPU 通信的默认底座
 
 NCCL（NVIDIA Collective Communications Library）是 NVIDIA 提供的 GPU 集合通信库，主要为多 GPU 和多节点场景提供高性能通信原语。
 
@@ -2314,7 +2337,7 @@ NCCL（NVIDIA Collective Communications Library）是 NVIDIA 提供的 GPU 集�
 
 在 vLLM 或类似推理框架中，模型并行代码通常不会直接管理底层的 NVLink、PCIe 或 InfiniBand。上层只需要调用相应的集合通信接口，底层通信库再根据当前硬件和进程组执行实际的数据移动。
 
-#### 2.2.1 NCCL 如何选择通信路径？
+**2.1 NCCL 如何选择通信路径？**
 
 NCCL 会根据 GPU 拓扑、节点结构、消息规模和可用网络设备选择通信方式。典型路径如下：
 
@@ -2330,7 +2353,7 @@ graph LR
 
 通信性能因此高度依赖物理拓扑。相同数量的 GPU，如果一种机器采用 NVSwitch，而另一种机器主要依赖 PCIe，TP 通信性能可能存在明显差异。跨节点场景中，如果 GPUDirect RDMA 没有正常启用，数据经过 CPU 内存中转，也可能造成显著性能下降。
 
-#### 2.2.2 Ring、Tree 与通信协议
+**2.2 Ring、Tree 与通信协议**
 
 NCCL 内部会根据场景选择不同的通信算法。常见算法包括：
 
@@ -2346,7 +2369,7 @@ NCCL 还会根据消息规模选择不同的通信协议。小消息更关注启
 - Prefill：激活规模更大，更容易受有效带宽影响；
 - MoE：除了带宽，还需要关注 Token 重排、负载不均衡和 All-to-All 的同步特性。
 
-#### 2.2.3 vLLM 中的通信抽象
+**2.3 vLLM 中的通信抽象**
 
 vLLM 对通信后端进行了抽象，使模型代码不需要直接感知底层使用 NCCL、P2P 还是其他实现。整体可以理解为三层：
 
@@ -2360,7 +2383,7 @@ vLLM 对通信后端进行了抽象，使模型代码不需要直接感知底层
 
 这种分层的意义在于：上层模型代码只表达“我要做一次 All-Reduce”，而不必关心底层是通过 NVLink、PCIe、InfiniBand，还是某种专用 Kernel 完成的。
 
-#### 2.2.4 `CustomAllreduce`：针对特定场景的优化
+**2.4 `CustomAllreduce`：针对特定场景的优化**
 
 除了 NCCL，vLLM 还提供了 `CustomAllreduce`。它的目标不是全面替代 NCCL，而是在满足特定条件时，针对机内小消息通信进一步降低固定开销。
 
@@ -2394,7 +2417,7 @@ vLLM 对通信后端进行了抽象，使模型代码不需要直接感知底层
 
 具体支持的 GPU 数量、架构和启用条件可能随 vLLM 版本变化，实际使用时应以对应版本的源码和运行时检查结果为准。
 
-#### 2.2.5 NCCL 的调试与调优入口
+**2.5 NCCL 的调试与调优入口**
 
 NCCL 的调优应遵循“先确认拓扑，再定位瓶颈，最后修改参数”的顺序，而不是一开始就设置大量环境变量。
 
@@ -2441,7 +2464,7 @@ nvidia-smi topo -m
 
 只有在这些基础条件确认无误后，才值得进一步实验 `NCCL_ALGO`、`NCCL_PROTO` 等参数。否则，修改参数很容易掩盖真正的拓扑或硬件配置问题。
 
-### 2.3 计算与通信的深度重叠：隐藏等待时间
+### 3. 计算与通信的深度重叠：隐藏等待时间
 
 即使通信链路已经达到较高带宽，如果计算和通信仍然严格串行，通信时间依然会完整地暴露在端到端延迟中。
 
@@ -2471,7 +2494,7 @@ Comm          [AllReduce₁][AllReduce₂]
 
 所以这里的目标不是减少通信本身的字节数，而是让通信时间尽可能被计算时间覆盖。
 
-#### 2.3.1 使用独立 CUDA Stream
+**3.1 使用独立 CUDA Stream**
 
 最基础的手段是将通信任务调度到独立的 CUDA Stream 上：
 
@@ -2498,7 +2521,7 @@ Communication Stream:     [All-Reduce]─┘
 
 因此，重叠优化的关键不只是创建多个 Stream，而是重新设计依赖关系。
 
-#### 2.3.2 用 Reduce-Scatter 与 All-Gather 拆解 All-Reduce
+**3.2 用 Reduce-Scatter 与 All-Gather 拆解 All-Reduce**
 
 在数学上：
 
@@ -2527,7 +2550,7 @@ Reduce-Scatter  →  本地分片就绪 → 局部计算
 
 此外，拆分后的总通信量通常仍与直接 All-Reduce 处于同一量级，真正的收益来自通信与计算的重叠，而不是简单减少了通信字节数。
 
-#### 2.3.3 MoE 中重叠 All-to-All 与 Expert GEMM
+**3.3 MoE 中重叠 All-to-All 与 Expert GEMM**
 
 MoE 模型的通信流程通常包括：
 
@@ -2570,11 +2593,11 @@ Combine                  [Combine₁][Combine₂]
 
 因此，MoE 通信优化不仅是“把 All-to-All 放到另一个 Stream”，还涉及路由、分桶、内存布局和 Expert 计算粒度的协同设计。
 
-### 2.4 通信问题的定位方法
+### 4. 通信问题的定位方法
 
 通信性能问题通常不能只通过端到端吞吐量判断。需要将问题拆分为拓扑、链路、通信原语和应用依赖几个层次。
 
-#### 2.4.1 第一步：确认物理拓扑
+**4.1 第一步：确认物理拓扑**
 
 ```bash
 nvidia-smi topo -m
@@ -2588,7 +2611,7 @@ nvidia-smi topo -m
 - 是否存在跨 CPU Socket 的额外路径；
 - 多节点 GPU 是否能够使用 GPUDirect RDMA。
 
-#### 2.4.2 第二步：确认 NCCL 识别结果
+**4.2 第二步：确认 NCCL 识别结果**
 
 临时开启 NCCL 日志：
 
@@ -2605,7 +2628,7 @@ NCCL_DEBUG_SUBSYS=INIT,GRAPH,NET
 - 是否使用 NVLink、InfiniBand 或 RoCE；
 - 是否出现回退到 Socket 或 Host Memory 的迹象。
 
-#### 2.4.3 第三步：使用 NCCL Tests 区分通信库问题和应用问题
+**4.3 第三步：使用 NCCL Tests 区分通信库问题和应用问题**
 
 如果 `all_reduce_perf` 的性能已经较差，问题大概率位于硬件拓扑、驱动、网络或 NCCL 配置层面。
 
@@ -2619,7 +2642,7 @@ NCCL_DEBUG_SUBSYS=INIT,GRAPH,NET
 - 是否存在负载不均衡；
 - CUDA Graph 或算子融合是否受到通信依赖影响。
 
-#### 2.4.4 第四步：根据消息规模区分优化方向
+**4.4 第四步：根据消息规模区分优化方向**
 
 | 现象 | 可能原因 | 优先检查方向 |
 |---|---|---|
@@ -2631,7 +2654,7 @@ NCCL_DEBUG_SUBSYS=INIT,GRAPH,NET
 | MoE 通信抖动明显 | Token 分布不均 | 路由、Expert 负载和 Token 分桶 |
 | Decode 吞吐低 | 小消息和同步占主导 | 通信融合、低延迟实现和批处理 |
 
-### 2.5 小结：通信优化的优先级
+### 5. 小结：通信优化的优先级
 
 通信优化可以按照以下顺序推进：
 
@@ -2672,6 +2695,16 @@ NCCL_DEBUG_SUBSYS=INIT,GRAPH,NET
 </details>
 
 
+## 九、本文小结
+
+- 五种并行策略对应五种问题：单层放不下用 **TP**（层内按行/列切），单层放得下但整个模型太大用 **PP**（按层切），MoE Expert 太多用 **EP**（按 Expert 切），上下文太长用 **CP**（按 token 序列切），装得下但要更多吞吐用 **DP**（整体复制）。TP/PP/EP/CP 解决"装不下"，DP 解决"想要更多"，DP 永远是最外层。
+- TP 的 Column/Row 切分成对出现，每层需要 All-Reduce 同步，通信最频繁且在关键路径上，所以优先放在 NVLink 互联的卡之间；PP 只在 Stage 边界传递激活、能容忍更高延迟，适合跨机，但要面对流水线气泡，且 KV Cache 会随层被切到不同 Stage。
+- EP 的执行流程是 Router → All-to-All Dispatch → 本地 Expert 计算 → All-to-All Combine；主要瓶颈是 All-to-All 通信量、负载不均衡与小批次 GEMM 效率，常见优化包括 Token 重排、Grouped GEMM、通信与计算重叠、拓扑感知和热门 Expert 复制；EP 与 TP 可组合，通常 `TP × EP = 总 GPU 数`。
+- CP 用与 FlashAttention 同源的 Online Softmax 在 GPU 之间做"分块算 + 在线累加"，适合 64K～1M token 的超长上下文，序列较短或带宽不足时收益会被通信抵消。
+- 通信优化不能只看链路峰值带宽，要看数据走哪条物理链路、是否在关键路径、消息大小、是否引入全局同步、能否与计算重叠、拓扑是否与并行策略匹配；NCCL 是默认底座，`CustomAllreduce` 针对小张量场景。
+- 定位通信问题的顺序是：确认物理拓扑 → 确认 NCCL 识别结果 → 用 NCCL Tests 区分通信库问题与应用问题 → 按消息规模区分延迟问题与带宽问题；目标是降低通信在完整推理路径中的可见时间，而不是让某次 All-Reduce 的基准数字最大。
+
+
 ## 下一篇
 
-[模型适配：如何跟上变化极快的模型世界？](/deep-dive-into-vllm-08-model-adaptation-architecture.html)
+[模型适配：如何跟上变化极快的模型世界？](/model-adaptation-architecture.html)

@@ -1,14 +1,16 @@
 ---
 layout: post
-title: 大模型推理系统揭秘（11）：Serving Infra 的下一站：从模型执行器到分布式智能操作系统
+title: 大模型推理系统揭秘（13）：Serving Infra 的下一站：从模型执行器到分布式智能操作系统
 tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
 
+> 本文是[《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》](/deep-dive-into-vllm.html)系列的第 13 篇（共十四篇）。上一篇：[PD 分离：从资源混部走向计算解耦](/prefill-decode-disaggregation.html)；下一篇：[回到源码：一次请求在 vLLM 内部的真实旅程](/source-code-request-walkthrough.html)
+
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 
 
-在前面的章节中，我们围绕 vLLM 的核心机制展开了讨论：模型如何加载，算子如何执行，请求如何调度，以及 KV Cache 如何管理。
+在前面各篇中，我们围绕 vLLM 的核心机制展开了讨论：模型如何加载，算子如何执行，请求如何调度，以及 KV Cache 如何管理。
 
 这些机制解决的是一个核心问题：
 
@@ -27,6 +29,14 @@ catalog: true
 + 故障恢复信息
 ```
 
+本篇要回答的核心问题是：
+
+> **未来的 Serving 系统，是否会从一个模型执行器，演化为统一管理计算、状态和调度的分布式系统？如果会，vLLM 在其中处于什么位置？**
+
+## 一、总览：三个平面
+
+### 1. 核心问题的改变
+
 Serving Infra 的核心问题也随之改变：
 
 ```text
@@ -41,12 +51,26 @@ Serving Infra 的核心问题也随之改变：
 - **状态平面**：KV Cache、Prefix Cache 和 Session；
 - **调度平面**：请求路由、容量编排、弹性和恢复。
 
-Serving 系统正在从“模型执行器”演进为“分布式智能操作系统”。
+Serving 系统正在从“模型执行器”演进为“分布式智能操作系统”。本篇按这三个平面展开：先看 Serving 系统正在管理什么、性能指标为何需要重新定义；再依次讨论计算（自动执行计划与自动化并行）、状态（Inference State Plane）、调度（分布式执行）与弹性（状态恢复）；最后回到 vLLM 的位置与边界、AI Serving Operating System 的图景，以及 Serving Engineer 的角色变化。
 
+### 2. 本文的章节安排
 
-## 1. Serving 系统正在管理什么
+```text
+第二章  Serving 系统正在管理什么       从请求响应到智能任务；性能指标需要重新定义
+第三章  计算：从手工并行到自动执行计划  手写 Kernel 的边界；Serving Plan Compiler
+第四章  自动化并行与容量编排           自动并行、拓扑感知规划、Prefill/Decode 容量均衡、MoE 与专家资源
+第五章  状态：从 KV Cache 到 Inference State Plane  分层 KV Cache、Cache-aware Scheduling、状态平面
+第六章  调度：从单体 Engine 到分布式执行  PD 解耦、KV Transfer、请求与状态迁移、Speculative Serving
+第七章  弹性：从故障重试到状态恢复      故障模型、Goodput 驱动的调度、异构硬件与能耗感知
+第八章  vLLM 的位置与边界
+第九章  AI Serving Operating System
+第十章  Serving Engineer 的角色变化
+第十一章 本文小结                     Serving 的下一站
+```
 
-### 1.1 从请求响应到智能任务
+## 二、Serving 系统正在管理什么
+
+### 1. 从请求响应到智能任务
 
 早期的推理服务可以抽象为一个简单流程：
 
@@ -89,7 +113,7 @@ Prefill
 
 Serving 系统管理的对象因此从“请求”扩展为“带状态的任务”。
 
-### 1.2 性能指标需要重新定义
+### 2. 性能指标需要重新定义
 
 吞吐和延迟仍然重要，但已经不足以描述生产系统的真实质量。
 
@@ -119,9 +143,9 @@ $$
 未来的 Serving 系统追求的不是“生成更多 token”，而是 **在满足 SLO 的前提下，以更低的成本完成更多有效任务。**
 
 
-## 2. 计算：从手工并行到自动执行计划
+## 三、计算：从手工并行到自动执行计划
 
-### 2.1 手写 Kernel 的边界
+### 1. 手写 Kernel 的边界
 
 在深度学习系统发展的早期，性能优化主要依赖专家手写 Kernel：
 
@@ -145,7 +169,7 @@ $$
 
 因此，未来的优化对象不会只是单个 Kernel，而是完整的执行计划。
 
-### 2.2 Serving Plan Compiler
+### 2. Serving Plan Compiler
 
 未来的 Serving 编译器可以被抽象为 **Serving Plan Compiler**。
 
@@ -211,13 +235,13 @@ Serving Plan Compiler
 Runtime 根据请求特征和集群状态选择合适的计划。
 
 
-## 3. 自动化并行与容量编排
+## 四、自动化并行与容量编排
 
 自动化并行是 Serving Infra 下一阶段最重要的演进方向之一。
 
 它解决的问题不是“如何启动更多副本”，而是：**如何根据模型、硬件拓扑、请求负载和 SLO，自动生成合适的分布式执行方案。**
 
-### 3.1 从手工配置到自动并行
+### 1. 从手工配置到自动并行
 
 当前部署大模型，通常需要人工配置：
 
@@ -267,7 +291,7 @@ $$
 
 其中，\(P\) 代表完整的并行与部署计划。
 
-### 3.2 自动化并行与 PD 容量均衡
+### 2. 自动化并行与 PD 容量均衡
 
 自动化并行和 Prefill/Decode 容量均衡处于不同层次。
 
@@ -312,7 +336,7 @@ Decode：24 个 Worker
 
 前者决定 Worker 内部如何使用 GPU，后者决定集群中 Prefill 与 Decode 的资源比例。
 
-### 3.3 拓扑感知的并行规划
+### 3. 拓扑感知的并行规划
 
 自动化并行不能只看 GPU 数量，还必须理解硬件拓扑：
 
@@ -347,7 +371,7 @@ GPU 拓扑
 
 这是一种 **Topology-aware Parallelism Planning**。
 
-### 3.4 Prefill/Decode 容量均衡
+### 4. Prefill/Decode 容量均衡
 
 Prefill 和 Decode 的资源特征不同。
 
@@ -398,7 +422,7 @@ KV Cache 位置
 
 这不再是普通的弹性伸缩，而是**面向推理阶段的容量编排。**
 
-### 3.5 MoE 与专家资源
+### 5. MoE 与专家资源
 
 MoE 模型进一步放大了自动并行的复杂度。
 
@@ -422,9 +446,9 @@ MoE 模型进一步放大了自动并行的复杂度。
 并行策略因此不再只是按照参数切分模型，也需要根据真实 token 流量编排计算资源。
 
 
-## 4. 状态：从 KV Cache 到 Inference State Plane
+## 五、状态：从 KV Cache 到 Inference State Plane
 
-### 4.1 KV Cache 已经成为运行时资源
+### 1. KV Cache 已经成为运行时资源
 
 KV Cache 最初只是一次请求生命周期内的临时数据。
 
@@ -440,7 +464,7 @@ KV Cache 最初只是一次请求生命周期内的临时数据。
 
 因此，KV Cache 不应再只是模型实例内部的实现细节，而应成为 Serving 系统的一等资源。
 
-### 4.2 分层 KV Cache
+### 2. 分层 KV Cache
 
 单一的 GPU HBM 很难同时满足超长上下文和长生命周期 Session 的需求。
 
@@ -476,7 +500,7 @@ CPU 内存
 
 “传输还是重算”将成为运行时决策。
 
-### 4.3 Cache-aware Scheduling
+### 3. Cache-aware Scheduling
 
 当 KV Cache 成为共享状态后，请求调度就不能只考虑哪个 Worker 当前最空闲。
 
@@ -506,7 +530,7 @@ CPU 内存
 
 这就是 **Cache-aware Scheduling**，更进一步，也可以称为 **Joint Compute–State Scheduling**。
 
-### 4.4 Inference State Plane
+### 4. Inference State Plane
 
 除了 KV Cache，未来的 Serving 系统还需要管理：
 
@@ -555,9 +579,9 @@ CPU 内存
 
 这将改变 Serving Runtime 的边界：Runtime 不再独占所有状态，而是成为状态平面的一个使用者。
 
-## 5. 调度：从单体 Engine 到分布式执行
+## 六、调度：从单体 Engine 到分布式执行
 
-### 5.1 Prefill/Decode 解耦
+### 1. Prefill/Decode 解耦
 
 传统 Serving Engine 通常将请求接收、Prefill、Decode、KV Cache 管理和结果输出集中在一个进程或一个 Worker 集群中。
 
@@ -602,7 +626,7 @@ Decode 集群
 
 PD 解耦不是简单地拆分两个服务，而是一次执行模型的重构。
 
-### 5.2 KV Cache Transfer
+### 2. KV Cache Transfer
 
 KV Cache Transfer 的成本取决于：
 
@@ -636,7 +660,7 @@ Decode 在哪里执行？
 
 这使得 KV Cache Transfer 不再是一个底层通信细节，而成为全局调度的一部分。
 
-### 5.3 请求迁移与状态迁移
+### 3. 请求迁移与状态迁移
 
 在单体架构中，请求通常与 Worker 强绑定。一旦 Worker 过载或发生故障，请求迁移往往意味着重新开始计算。
 
@@ -662,7 +686,7 @@ Decode 在哪里执行？
 
 只有当状态可以独立于计算实例存在时，请求迁移才真正可行。
 
-### 5.4 Speculative Serving
+### 4. Speculative Serving
 
 投机解码通常被视为模型优化，但在大规模部署中，它也会成为基础设施能力。
 
@@ -691,9 +715,9 @@ Serving 系统需要决定：
 因此，投机解码不应只是模型代码中的一个开关，而可以被抽象为：**由 Serving 系统管理的多模型协同执行计划。**
 
 
-## 6. 弹性：从故障重试到状态恢复
+## 七、弹性：从故障重试到状态恢复
 
-### 6.1 推理系统的故障模型
+### 1. 推理系统的故障模型
 
 传统无状态服务发生故障时，通常只需要重新发送请求。
 
@@ -727,7 +751,7 @@ Worker 级
 
 核心目标不是“永不失败”，而是：**故障发生后，以尽可能低的代价恢复有效执行。**
 
-### 6.2 Goodput 驱动的调度
+### 2. Goodput 驱动的调度
 
 GPU 利用率高，并不代表服务质量高。
 
@@ -764,7 +788,7 @@ $$
 
 这意味着 Serving 调度器会从队列管理器演进为多目标优化系统。
 
-### 6.3 异构硬件与能耗感知
+### 3. 异构硬件与能耗感知
 
 未来的推理集群不会只包含一种 GPU，还可能同时使用：
 
@@ -798,7 +822,7 @@ $$
 资源调度的目标也将从“把请求放到空闲 GPU”演进为：**把合适的请求放到最适合的硬件上。**
 
 
-## 7. vLLM 的位置与边界
+## 八、vLLM 的位置与边界
 
 vLLM 代表了现代 LLM Serving Runtime 的重要发展方向。
 
@@ -854,7 +878,7 @@ Inference State Plane
 vLLM 可以成为其中重要的执行层，但完整的 AI Serving Operating System 需要更多组件共同完成。
 
 
-## 8. AI Serving Operating System
+## 九、AI Serving Operating System
 
 将前面的变化放在一起，可以得到一个未来架构：
 
@@ -900,7 +924,7 @@ vLLM 可以成为其中重要的执行层，但完整的 AI Serving Operating Sy
 + 一个可迁移、可恢复的分布式运行时
 ```
 
-## 9. Serving Engineer 的角色变化
+## 十、Serving Engineer 的角色变化
 
 过去，Serving Engineer 主要关注：
 
@@ -935,7 +959,7 @@ vLLM 可以成为其中重要的执行层，但完整的 AI Serving Operating Sy
 > 不仅要知道模型如何计算，还要知道计算如何被编排、状态如何被管理，以及故障发生后系统如何继续工作。
 
 
-## 10. 结语：Serving 的下一站
+## 十一、本文小结：Serving 的下一站
 
 LLM Serving 的演进，不只是让模型生成 token 更快。
 
@@ -967,4 +991,4 @@ vLLM 解决了高性能模型执行中的许多关键问题，但它代表的更
 
 ## 下一篇
 
-[回到源码：一次请求在 vLLM 内部的真实旅程](/deep-dive-into-vllm-12-source-code-request-walkthrough.html)
+[回到源码：一次请求在 vLLM 内部的真实旅程](/source-code-request-walkthrough.html)

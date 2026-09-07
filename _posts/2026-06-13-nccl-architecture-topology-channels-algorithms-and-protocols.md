@@ -6,7 +6,7 @@ tags: [NCCL, RDMA, GPU, AI, AI-Infra]
 catalog: true
 ---
 
-> 本文是[《通信与互联：从 NCCL 到 RDMA》](/communication-and-interconnect-for-ai-infra.html)系列的第 4 篇（共七篇）。上一篇：[RDMA 与 GPUDirect：绕过 CPU 和主机内存的数据通路](/rdma-and-gpudirect.html)　下一篇：[PyTorch 的通信栈：ProcessGroupNCCL、stream 语义与计算通信重叠](/pytorch-communication-stack-processgroupnccl-and-streams.html)
+> 本文是[《通信与互联：从 NCCL 到 RDMA》](/communication-and-interconnect-for-ai-infra.html)系列的第 4 篇（共八篇）。上一篇：[RDMA 与 GPUDirect：绕过 CPU 和主机内存的数据通路](/rdma-and-gpudirect.html)　下一篇：[PyTorch 的通信栈：ProcessGroupNCCL、stream 语义与计算通信重叠](/pytorch-communication-stack-processgroupnccl-and-streams.html)
 
 前三篇把"硬件能做到什么"的上限摆出来了：[第一篇](/collective-communication-primitives-and-cost-model.html)给出 α-β 模型和 ring all_reduce 的 $$T_{\text{ring}} = 2(n-1)\,\alpha + \frac{2(n-1)}{n}\cdot\frac{S}{\beta}$$；[第二篇](/hardware-interconnect-pcie-nvlink-and-topology.html)给 α 和 β 填上数字——NVLink 每 GPU 双向合计 600/900 GB/s（A100/H100），PCIe 4.0 x16 单向约 32 GB/s，IB NDR 单向 50 GB/s——并用 `nvidia-smi topo -m` 的 `NV#`/`PIX`/`PXB`/`PHB`/`SYS` 描述任意两个设备之间的路径；[第三篇](/rdma-and-gpudirect.html)讲清了跨机时网卡如何绕过 CPU 和主机内存直接读写显存。这些都是"能力"。本篇讲的是 NCCL 如何把这些能力**组织**成一次集合通信：它怎么知道机器长什么样、怎么决定数据走哪条路、怎么把一个 all_reduce 切成多少条并行的流、用哪种算法和协议、以及 GPU 上的 kernel 与 CPU 上的线程如何配合把字节送上网卡。
 

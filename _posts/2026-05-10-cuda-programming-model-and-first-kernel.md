@@ -20,12 +20,31 @@ $$
 
 > **vector add 的 kernel 只有五行，它跑出了理论带宽的多少？没跑满的部分去了哪里？**
 
+
+## 一、总览
+
+### 1. 测量方法与性能数字的约定
+
 回答这个问题需要一套可靠的测量方法。本篇结束时会留下一个 benchmark 脚手架——事件计时、warmup、多次迭代取中位数、L2 flush——它会一直用到第十篇。
 
 依照系列惯例，本文的所有性能数字要么是可推导的理论下界，要么用"通常能达到"的区间给出；本文没有 GPU 实测值，读者自己跑出的数字应当落在给出的区间里。
 
+### 2. 本文的章节安排
 
-## 一、host、device 与 kernel
+```text
+第二章  host、device 与 kernel        两个处理器、两个地址空间；三个函数限定符；发射一个 kernel
+第三章  线程层级：grid、block、thread   三层结构与内建变量、边界检查为什么不可省、block 与 grid 大小怎么选、block 如何切成 warp
+第四章  设备内存与数据搬运            cudaMalloc / cudaMemcpy / cudaFree，以及 PyTorch 为什么不直接用它们
+第五章  stream、event 与异步语义       kernel launch 是异步的、stream、event 的计时与依赖、cudaDeviceSynchronize 的代价
+第六章  错误处理                     同步错误与异步错误、一个 CUDA_CHECK 宏、compute-sanitizer
+第七章  编译：nvcc 做了什么           host/device 分离编译、-arch / -gencode 与 fatbin、compute_XX 与 sm_XX、两个必备的编译选项
+第八章  warp 的执行方式              一条指令一个 mask、分支发散的代价、独立线程调度、active mask 与部分 warp
+第九章  第一个 kernel 的测量          先算理论、L2 flush 为什么必要、完整 C++ 程序与 bench 脚手架、PyTorch 侧等价脚手架、结果应该落在哪里
+第十章  本文小结                     要点回顾与速查表
+```
+
+
+## 二、host、device 与 kernel
 
 ### 1. 两个处理器、两个地址空间
 
@@ -74,7 +93,7 @@ vector_add_f32<<<grid, block>>>(d_a, d_b, d_c, n);
 `<<<grid, block, sharedMemBytes, stream>>>` 四个参数里后两个可省略。`grid` 是要启动多少个 block，`block` 是每个 block 多少线程。这两个数怎么定，是下一节的内容。
 
 
-## 二、线程层级：grid、block、thread
+## 三、线程层级：grid、block、thread
 
 ### 1. 三层结构与内建变量
 
@@ -107,7 +126,7 @@ if (row < M && col < N) out[row * N + col] = ...;
 
 ### 2. 边界检查为什么不可省
 
-grid 大小是向上取整算出来的，所以最后一个 block 里通常有一部分线程对应的索引 $$i \ge n$$。没有 `if (i < n)`，这些线程会越界读写，后果从静默地写坏相邻缓冲区到 `cudaErrorIllegalAddress` 都有可能，而且——后面第五章会讲——这个错误不会在 launch 时报出来。
+grid 大小是向上取整算出来的，所以最后一个 block 里通常有一部分线程对应的索引 $$i \ge n$$。没有 `if (i < n)`，这些线程会越界读写，后果从静默地写坏相邻缓冲区到 `cudaErrorIllegalAddress` 都有可能，而且——后面第六章会讲——这个错误不会在 launch 时报出来。
 
 唯一可以省掉边界检查的情形是 host 侧已经保证 $$n$$ 是 block 大小的整数倍，且这个保证写成了 `assert` 或 `TORCH_CHECK`。
 
@@ -131,7 +150,7 @@ $$
 
 $$n = 2^{28}$$、block = 256 时 grid = 1,048,576 个 block。grid 的 x 维上限是 $$2^{31} - 1$$，y、z 维上限 65535，一维问题不必担心。
 
-要注意 grid 与 SM 数量的关系。A100 有 108 个 SM，如果 grid 只有几十个 block，大部分 SM 是空的；这是第八章"为什么跑不满"的原因之一。下一篇会引入 grid-stride loop，让 grid 大小与元素数解耦。
+要注意 grid 与 SM 数量的关系。A100 有 108 个 SM，如果 grid 只有几十个 block，大部分 SM 是空的；这是第九章"为什么跑不满"的原因之一。下一篇会引入 grid-stride loop，让 grid 大小与元素数解耦。
 
 ### 5. block 在硬件上如何切成 warp
 
@@ -161,7 +180,7 @@ block (8, 8)       linear = x + 8y → 64 线程 = 2 个 warp，每个 warp 覆�
 同一个 block 内的线程可以通过 shared memory 通信、用 `__syncthreads()` 同步；不同 block 之间没有这两种手段（除了原子操作与 Hopper 的 cluster）。block 一旦开始执行就不会迁移到别的 SM，且 SM 会等到 block 内所有 warp 结束才释放它占的资源。
 
 
-## 三、设备内存与数据搬运
+## 四、设备内存与数据搬运
 
 ### 1. `cudaMalloc`、`cudaMemcpy`、`cudaFree`
 
@@ -186,7 +205,7 @@ PyTorch 的每个 CUDA Tensor 的 Storage 背后并不是一次 `cudaMalloc`。�
 所以 PyTorch 用 **Caching Allocator**（`c10/cuda/CUDACachingAllocator.cpp`，v2.10.0）：向驱动申请大块显存后自己切分和复用，Tensor 释放时只是把块还回缓存池而不调 `cudaFree`。这也是为什么 `del` 一个 Tensor 后 `nvidia-smi` 显示的显存占用不会下降。本系列不展开分配器的机制；kernel 开发者需要知道的只是：从 PyTorch 拿到的 `data_ptr()` 是分配器切出来的一段地址，它的对齐通常是 512 字节（分配器的最小粒度），可以放心用于向量化访存。
 
 
-## 四、stream、event 与异步语义
+## 五、stream、event 与异步语义
 
 ### 1. kernel launch 是异步的
 
@@ -255,7 +274,7 @@ event 还可以用于 stream 之间建立依赖（`cudaStreamWaitEvent`），本
 PyTorch 里 `.item()`、`.cpu()`、打印一个 CUDA Tensor 都隐含这种同步；这也是 `torch.cuda.set_sync_debug_mode` 存在的原因。kernel 开发者的原则：**只在 benchmark 与调试代码里同步，正式路径里让 stream 自己排序。**
 
 
-## 五、错误处理
+## 六、错误处理
 
 ### 1. 同步错误与异步错误
 
@@ -299,7 +318,7 @@ launch 之后的习惯写法是 `CUDA_CHECK(cudaGetLastError());`。PyTorch 里�
 一句话：`compute-sanitizer ./vector_add` 会在 kernel 里每次越界访问、未初始化读、竞争条件（`--tool racecheck`）处精确报出线程坐标与源码行（需要 `-lineinfo`）。它比"等到下一次同步点看到一个 illegal address"快一个数量级，写新 kernel 时先过一遍是划算的。
 
 
-## 六、编译：nvcc 做了什么
+## 七、编译：nvcc 做了什么
 
 ### 1. host 与 device 分离编译
 
@@ -390,7 +409,7 @@ nvcc -O3 -arch=sm_80 -lineinfo --ptxas-options=-v -o vector_add vector_add.cu
 ```
 
 
-## 七、warp 的执行方式
+## 八、warp 的执行方式
 
 ### 1. 一条指令、32 个线程、一个 mask
 
@@ -457,7 +476,7 @@ if (i < n) { v = __shfl_down_sync(mask, v, 1); }
 对本篇的 vector add 这一切都用不上——它没有线程间通信。但第四篇的 warp shuffle reduction 会立刻用到。
 
 
-## 八、第一个 kernel 的测量
+## 九、第一个 kernel 的测量
 
 ### 1. 先算理论：3 GiB 要多久
 
@@ -744,7 +763,7 @@ if __name__ == "__main__":
 回到核心问题：**vector add 的五行 kernel 跑出了理论带宽的 80–90%，没跑满的部分主要是 DRAM 本身的物理开销（不可消除）、加上每线程一个元素造成的访存并发不足（下一篇消除）。** 一个只有五行的 kernel 能到这个水平，是因为它的访存模式恰好是理想的：warp 内 32 个线程读 32 个相邻的 float，正好是 128 字节一条 cache line。下一篇会说明这个"恰好"背后的规则，以及打破它的代价。
 
 
-## 九、小结
+## 十、本文小结
 
 ### 1. 要点回顾
 

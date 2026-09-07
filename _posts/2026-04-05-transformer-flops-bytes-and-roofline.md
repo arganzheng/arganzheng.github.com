@@ -6,7 +6,7 @@ tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 ---
 
-> 本文是[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)系列的第 2 篇（共七篇）。上一篇：[Transformer 解剖与参数量](/transformer-anatomy-and-parameter-count.html)　下一篇：[Attention 变体与 KV cache](/attention-variants-and-kv-cache.html)
+> 本文是[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)系列的第 2 篇（共七篇）。上一篇：[Transformer 解剖与参数量](/transformer-anatomy-and-parameter-count.html)；下一篇：[Attention 变体与 KV cache](/attention-variants-and-kv-cache.html)
 
 上一篇把一个 decoder-only Transformer 拆到了能数出每一个参数的粒度。结论可以压缩成一个公式：
 
@@ -26,10 +26,29 @@ $$
 
 > **Llama-3-8B 在一张 H100 上，batch 多大时 decode 从 memory-bound 变成 compute-bound？考虑 KV cache 之后，这个 batch 还能达到吗？**
 
-全文所有数字都是**理论下界或估算**，用于建立数量级判断，不是任何实现的实测值。硬件基线取 H100 SXM（80 GB HBM3，3.35 TB/s，BF16 dense 989 TFLOPS）与 A100 80GB（2.0 TB/s，BF16 312 TFLOPS）的公开标称值。
+
+## 一、总览：从参数表到成本表
+
+### 1. 数字基线与约定
+
+全文所有数字都是**理论下界或估算**，用于建立数量级判断，不是任何实现的实测值。硬件基线取 H100 SXM（80 GB HBM3，3.35 TB/s，BF16 dense 989 TFLOPS）与 A100 80GB（2.0 TB/s，BF16 312 TFLOPS）的公开标称值。模型沿用上一篇的 Llama-3-8B、Llama-3-70B 与 DeepSeek-V3，形状表以上一篇为准。
+
+### 2. 本文的章节安排
+
+```text
+第二章   算量：FLOPs 从哪里来          2mkn、2N FLOPs/token、embedding 为什么不算、attention 的 4ds 上下文项、训练的 6N
+第三章   prefill 与 decode             同一组矩阵，m = s 与 m = B 两种 GEMM 形状
+第四章   访存量                        每步读一遍权重 16.06 GB、KV cache 每 token 128 KiB、激活值可忽略
+第五章   Roofline                      两条上限、算术强度与 ridge point、decode 权重 GEMM 的强度 ≈ B、读 KV 的强度 = g
+第六章   时间下界                      decode 4.8 ms / 208 token/s、加上 KV cache、prefill 8K 与 128K
+第七章   核心问题                      batch 多大 decode 才 compute-bound；8K 上下文下单卡为什么不可达；64 GB 预算
+第八章   训练侧                        每层激活值 sbh(34 + 5as/h)、FlashAttention 与重算、MFU 与 HFU
+第九章   实践                          llm_cost.py 增加 FLOPs、字节数与时间下界；与实测对照的方法
+第十章   本文小结
+```
 
 
-## 一、算量：FLOPs 从哪里来
+## 二、算量：FLOPs 从哪里来
 
 ### 1. 一个矩阵乘法的 FLOPs：2mkn
 
@@ -135,7 +154,7 @@ $$
 即约 **50 万 H100 GPU-小时**；如果全程激活重算（$$8N$$），约 68 万。同样的算法对 Llama-3-70B 得到约 450 万 GPU-小时。这些数字与公开模型卡上的量级一致（模型卡的数字更大，因为包含更低的 MFU、故障重启与实验）。反过来用它们也可以做一件事：给一个训练团队的 GPU 数量与时间，反推他们大概训练了多少 token。
 
 
-## 二、prefill 与 decode：同一组矩阵，两种 GEMM 形状
+## 三、prefill 与 decode：同一组矩阵，两种 GEMM 形状
 
 自回归推理有两个阶段，它们跑的是**同一组权重**，但 GEMM 的形状完全不同。
 
@@ -192,7 +211,7 @@ attention 上下文项        8192 x 4.29 G /2 = 17.6 T   4.29 GFLOPs   （因�
 这些设计能否成立、收益多大，都可以用本篇的数字直接估算，而不需要先实现出来。
 
 
-## 三、访存量：每一步要从 HBM 读什么
+## 四、访存量：每一步要从 HBM 读什么
 
 FLOPs 是成本的一半。另一半是每一步必须从 HBM 搬进 SM 的字节数。decode 一步要读三类数据。
 
@@ -243,7 +262,7 @@ $$
 decode 每步每层的激活是 $$[B, d]$$ 与 $$[B, d_{ff}]$$ 量级的张量，$$B = 64$$ 时是 $$64 \times 14336 \times 2 = 1.8$$ MB，与 GB 量级的权重和 KV 相比差三个数量级，而且大部分能留在 L2 里。prefill 时激活是 $$[s, d_{ff}]$$，$$s = 8192$$ 时 235 MB 每层，需要写回 HBM，但 prefill 是 compute-bound（下面会证明），这些字节数不决定时间。真正让激活值成为问题的是**训练**，第七节单独讨论。
 
 
-## 四、Roofline：把 FLOPs 和字节数放到同一张图上
+## 五、Roofline：把 FLOPs 和字节数放到同一张图上
 
 ### 1. 两条上限
 
@@ -334,7 +353,7 @@ $$
 它等于 GQA 的组大小 $$g$$，与 $$s$$、$$B$$ 都无关——每个请求的 KV 只被自己读，batch 不带来复用。Llama-3-8B 的 $$g = 4$$，70B 的 $$g = 8$$，MHA 是 1。这说明 KV cache 的读取是比权重更"顽固"的 memory-bound 部分：权重的强度随 $$B$$ 线性上升，KV 的强度是个常数。第三篇讲 MLA 时会看到，把 K、V 压成一个低秩向量再"吸收"到权重里，本质上就是把这个常数抬高。
 
 
-## 五、时间下界
+## 六、时间下界
 
 ### 1. decode：4.8 ms，208 token/s
 
@@ -397,7 +416,7 @@ $$
 prefill 的字节数也值得算一次以确认它确实 compute-bound：读权重 16 GB，写 KV cache $$8192 \times 128\ \text{KiB} = 1$$ GiB，激活的读写按每层十几个 $$[8192, 4096]$$ 到 $$[8192, 14336]$$ 的张量估算约几 GB。总字节数在 20–30 GB 量级，带宽时间不到 10 ms，与 240 ms 的算力时间相比可以忽略——prefill 的算术强度在几千，Roofline 图上落在 ridge point 右侧很远。
 
 
-## 六、核心问题：batch 多大 decode 才 compute-bound？
+## 七、核心问题：batch 多大 decode 才 compute-bound？
 
 ### 1. 只看权重：B ≈ 295
 
@@ -455,7 +474,7 @@ $$
 答案的后半段：**考虑 KV cache 之后，B ≈ 295 在 8K 上下文下既放不下、也不会 compute-bound；单卡 Llama-3-8B 的 BF16 decode 在任何实际上下文长度下都是 memory-bound 的。**要改变这个结论，只能减字节：量化权重（第七篇）、压缩 KV cache（第三篇 GQA/MLA、第七篇 KV 量化），或者用多卡把权重读取分摊（tensor parallel 让每卡只读 $$1/n$$ 的权重，但也只提供 $$1/n$$ 的算力——ridge point 不变，只是每卡的 KV 显存变多了）。
 
 
-## 七、训练侧：激活值显存与 MFU
+## 八、训练侧：激活值显存与 MFU
 
 推理时激活值可以忽略，训练时不能：反向传播需要每一层前向的中间结果，它们要在显存里从前向一直活到反向。
 
@@ -523,7 +542,7 @@ MFU 与 HFU 的差别在有重算时才显现。全量重算下硬件每 token �
 把这些乘起来，$$0.8 \times 0.85 \times 0.8 \times 0.9 \approx 0.49$$——50% 左右是大规模训练在没有明显低效的情况下的自然上限。公开的大规模训练报告中 MFU 多在 35–45% 之间，与这个估算一致。
 
 
-## 八、实践：llm_cost.py 增加 FLOPs、字节数与时间下界
+## 九、实践：llm_cost.py 增加 FLOPs、字节数与时间下界
 
 在第一篇脚本（`ModelConfig`、`GPU`、`param_count`）的基础上，本篇新增五个函数和一个打印表格。为了独立可运行，下面把骨架也一并给出。
 
@@ -723,7 +742,7 @@ prefill 131072 causal=True      40.74 PFLOP  @60% MFU 68.651 s
 如果实测与下界差距超过 2 倍，通常不是"硬件就这样"，而是某处有可以修的低效：没开 CUDA graph、KV cache 碎片、batch 没有真正合并、或者某个算子回落到了非融合实现。Roofline 的价值就在于给出"应该多快"的参照，让"慢"变成一个可以定位的问题。
 
 
-## 九、小结
+## 十、本文小结
 
 这一篇建立了本系列的成本模型的第二半。核心链条是：
 

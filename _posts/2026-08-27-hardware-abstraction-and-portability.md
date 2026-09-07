@@ -1,14 +1,16 @@
 ---
 layout: post
-title: 大模型推理系统揭秘（09）：硬件解耦：如何不让芯片差异污染 Serving 核心？
+title: 大模型推理系统揭秘（11）：硬件解耦：如何不让芯片差异污染 Serving 核心？
 tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
 
+> 本文是[《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》](/deep-dive-into-vllm.html)系列的第 11 篇（共十四篇）。上一篇：[请求形态的扩展：multi-LoRA 与多模态](/request-shapes-multi-lora-and-multimodal.html)；下一篇：[PD 分离：从资源混部走向计算解耦](/prefill-decode-disaggregation.html)
+
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 
 
-上一章讨论了模型适配：面对不断变化的模型结构，Serving 框架如何通过统一接口、模型注册和模块化执行路径，降低新模型接入成本。
+上一篇讨论了模型适配：面对不断变化的模型结构，Serving 框架如何通过统一接口、模型注册和模块化执行路径，降低新模型接入成本。
 
 但模型只是变化来源之一。
 
@@ -20,8 +22,27 @@ catalog: true
 
 vLLM 的答案不是在核心代码里堆积更多硬件分支，而是建立一套平台抽象、后端选择和插件扩展机制，把硬件差异尽可能隔离在系统边界之外。
 
+## 一、总览：平台抽象、后端选择与插件扩展
 
-## 1. 一条设计原则：硬件适配不能污染 Serving 核心
+### 1. 三道边界
+
+本篇围绕上面这句话的三个组成部分展开。**平台抽象**：`Platform` / `current_platform` 是硬件能力的统一来源，Serving 核心只依赖抽象能力而不依赖具体芯片；**后端选择**：Platform、Attention Backend 与 Kernel Backend 之间是几条并行路径而不是一棵继承树，Attention 单独做 Selector 有其原因；**插件扩展**：Out-of-Tree 机制让新硬件放到主仓库之外独立演进。随后用昇腾适配作为案例，逐项看一块新芯片需要解决哪些问题、主仓库仍需改什么，一次请求在异构硬件上如何执行，最后给出五条检查项来判断硬件适配是否真正做到了解耦。
+
+### 2. 本文的章节安排
+
+```text
+第二章  一条设计原则                  硬件适配不能污染 Serving 核心：反例与原则
+第三章  Platform                      硬件能力的统一来源；current_platform 如何出现
+第四章  Platform、Attention Backend 与 Kernel Backend   三条路径的真实关系；为什么 Attention 要单独做 Selector
+第五章  Out-of-Tree 插件架构           把新硬件放到主仓库之外
+第六章  昇腾适配需要解决哪些问题       平台识别、Worker 与设备生命周期、Attention Backend、KV Cache、算子、量化、通信
+第七章  OOT 适配的边界                不是“主仓库完全不用改”
+第八章  一次请求在异构硬件上的执行路径
+第九章  如何判断硬件适配是否真正做到了解耦   五条检查项
+第十章  本文小结                      Platform 是边界，不是万能胶
+```
+
+## 二、一条设计原则：硬件适配不能污染 Serving 核心
 
 先看一个反例。
 
@@ -62,16 +83,16 @@ Attention、通信、量化和模型执行路径中也不断加入类似分支�
 
 > **硬件适配不能污染上层 Serving 逻辑。**
 
-把这句话放回前面几章的语境里，会更容易理解。
+把这句话放回前面几篇的语境里，会更容易理解。
 
-第四章的 Scheduler 关心的是：
+第四篇的 Scheduler 关心的是：
 
 - 当前请求需要执行多少 token；
 - 当前 batch 还有多少计算预算；
 - 哪些请求应该继续 decode；
 - 哪些请求应该被抢占或延迟。
 
-第五章的 KV Cache Manager 关心的是：
+第五篇的 KV Cache Manager 关心的是：
 
 - KV Cache 被划分成多少个 block；
 - 哪些 block 已经分配；
@@ -142,7 +163,7 @@ graph TD
 这些问题应该由平台层回答。
 
 
-## 2. Platform：硬件能力的统一来源
+## 三、Platform：硬件能力的统一来源
 
 在 vLLM 中，`Platform` 可以理解为硬件适配的“能力中心”。
 
@@ -203,7 +224,7 @@ Platform 提供平台事实
 
 > **所有硬件都通过相对稳定的抽象边界向 Serving 核心提供能力。**
 
-### 2.1 `current_platform` 是如何出现的？
+### 1. `current_platform` 是如何出现的？
 
 程序启动时，vLLM 需要先确定当前运行平台。这个过程通常涉及：
 
@@ -226,7 +247,7 @@ from vllm.platforms import current_platform
 > **`current_platform` 是运行时平台选择机制的统一出口。它背后可能来自内置平台，也可能来自通过插件机制注册的 Out-of-Tree 平台。**
 
 
-## 3. Platform、Attention Backend 与 Kernel Backend 的真实关系
+## 四、Platform、Attention Backend 与 Kernel Backend 的真实关系
 
 很多人第一次阅读 vLLM 硬件适配代码时，会自然地形成一种“三层调用栈”：
 
@@ -271,7 +292,7 @@ graph TD
     WORKER --> DEVICE["设备初始化、内存管理、执行上下文"]
 ```
 
-### 3.1 路径一：Attention Backend 选择
+### 1. 路径一：Attention Backend 选择
 
 Attention 是 vLLM 中最重要的动态后端选择场景之一。
 
@@ -342,7 +363,7 @@ class CudaPlatform(Platform):
 
 这并不意味着所有平台都必须把选择逻辑写成同样的形式。平台可以根据自己的能力返回合适的实现。
 
-### 3.2 路径二：直接导入平台 Kernel
+### 2. 路径二：直接导入平台 Kernel
 
 并不是所有底层算子都需要经过 Attention Backend。
 
@@ -371,7 +392,7 @@ class CudaPlatform(Platform):
 
 它们的加载不需要经过 Attention Backend。
 
-### 3.3 路径三：平台直接提供通信和其他组件
+### 3. 路径三：平台直接提供通信和其他组件
 
 集合通信同样可能由平台直接决定：
 
@@ -417,7 +438,7 @@ current_platform ────────┼─ Kernel Import
                          └─ Platform Configuration
 ```
 
-### 3.4 为什么 Attention 要单独做 Selector？
+### 4. 为什么 Attention 要单独做 Selector？
 
 Attention 之所以被单独抽象出来，不只是因为它名字特殊，而是因为它同时具备三个特点：
 
@@ -453,7 +474,7 @@ Attention 之所以被单独抽象出来，不只是因为它名字特殊，而�
 两者都属于硬件适配，但解决的问题不同。
 
 
-## 4. Out-of-Tree插件架构：把新硬件放到主仓库之外
+## 五、Out-of-Tree 插件架构：把新硬件放到主仓库之外
 
 如果每接入一种硬件，都必须修改 vLLM 主仓库，那么硬件生态很容易受到两个问题限制：
 
@@ -514,9 +535,9 @@ if device == "npu":
 一个真正可用的昇腾后端，通常需要完成以下工作。
 
 
-## 5. 昇腾适配需要解决哪些问题？
+## 六、昇腾适配需要解决哪些问题？
 
-### 5.1 平台识别与注册
+### 1. 平台识别与注册
 
 首先，vLLM 必须能够识别当前设备，并将其映射到 Ascend 平台实现。
 
@@ -562,7 +583,7 @@ sequenceDiagram
 > **平台注册只解决“让系统看见这个硬件”，不代表底层算子、通信和模型执行都已经可用。**
 
 
-### 5.2 Worker 与设备生命周期
+### 2. Worker 与设备生命周期
 
 Serving 核心通常不会直接操作每一种硬件的底层运行时，而是通过 Worker 负责：
 
@@ -608,7 +629,7 @@ CANN Runtime 初始化
 - 多进程下的设备隔离；
 - 进程退出时的资源清理。
 
-### 5.3 Attention Backend
+### 3. Attention Backend
 
 Attention 通常是昇腾适配中最关键的部分之一。
 
@@ -688,7 +709,7 @@ Prefill 或 Decode
 如果平台只实现了一个能够计算 Attention 的算子，但不能正确理解 vLLM 的 KV Cache block 布局，那么它仍然不能作为完整的 vLLM Attention Backend 使用。
 
 
-### 5.4 KV Cache 与内存管理
+### 4. KV Cache 与内存管理
 
 vLLM 的 KV Cache 管理器通常应该保持平台无关。它负责的是逻辑 block：
 
@@ -731,7 +752,7 @@ graph TD
 如果这两个层次混在一起，未来接入另一种 NPU 时，就会再次出现核心逻辑复制。
 
 
-### 5.5 基础算子与自定义 Kernel
+### 5. 基础算子与自定义 Kernel
 
 完整的模型执行不仅包含 Attention，还包括大量基础算子：
 
@@ -781,7 +802,7 @@ graph TD
 性能可接受
 ```
 
-### 5.6 量化支持
+### 6. 量化支持
 
 量化是硬件适配中非常容易产生差异的部分。
 
@@ -826,7 +847,7 @@ def get_supported_quantization(cls):
 > **把硬件限制变成可查询、可验证的能力，而不是隐藏在深层 Kernel 错误中。**
 
 
-### 5.7 分布式通信与并行策略
+### 7. 分布式通信与并行策略
 
 单卡推理只是硬件适配的一部分。大模型部署经常需要：
 
@@ -873,7 +894,7 @@ AscendPlatform → AscendCommunicator → HCCL
 
 所以，硬件适配的验证范围必须覆盖单卡和多卡。
 
-## 6. OOT 适配的边界：不是“主仓库完全不用改”
+## 七、OOT 适配的边界：不是“主仓库完全不用改”
 
 “Out-of-Tree”经常被简化成一句话：
 
@@ -918,7 +939,7 @@ OOT 能否做到真正独立，取决于主仓库是否已经提供足够稳定�
 一个成熟的 OOT 插件，实际上是一个独立的适配层和发行生态。
 
 
-## 7. 一次请求在异构硬件上的执行路径
+## 八、一次请求在异构硬件上的执行路径
 
 把前面的模块组合起来，可以得到一个更完整的请求执行路径：
 
@@ -961,11 +982,11 @@ sequenceDiagram
 > **上层流程保持稳定，底层实现可以替换。**
 
 
-## 8. 如何判断硬件适配是否真正做到了解耦？
+## 九、如何判断硬件适配是否真正做到了解耦？
 
 可以用下面几个问题进行检查。
 
-### 8.1 检查一：Serving 核心是否出现设备判断？
+### 1. 检查一：Serving 核心是否出现设备判断？
 
 重点搜索：
 
@@ -978,7 +999,7 @@ device.type == ...
 
 如果这些判断大量出现在 Scheduler、请求状态机和 KV Cache 逻辑中，说明硬件边界可能已经被突破。
 
-### 8.2 检查二：平台能力是否可以被查询？
+### 2. 检查二：平台能力是否可以被查询？
 
 例如：
 
@@ -991,7 +1012,7 @@ current_platform.check_and_update_config(...)
 
 如果上层必须自己判断“这个芯片是否支持某算子”，说明能力抽象还不够完整。
 
-### 8.3 检查三：不支持的配置是否能提前失败？
+### 3. 检查三：不支持的配置是否能提前失败？
 
 理想情况是：
 
@@ -1009,7 +1030,7 @@ current_platform.check_and_update_config(...)
 请求执行到某个深层 Kernel 时崩溃
 ```
 
-### 8.4 检查四：插件是否能独立演进？
+### 4. 检查四：插件是否能独立演进？
 
 一个好的 OOT 适配应该能够：
 
@@ -1019,7 +1040,7 @@ current_platform.check_and_update_config(...)
 - 尽量减少对主仓库的侵入；
 - 在主仓库升级时有清晰的兼容边界。
 
-### 8.5 检查五：是否只完成了“能跑”，还是同时完成了“跑得好”？
+### 5. 检查五：是否只完成了“能跑”，还是同时完成了“跑得好”？
 
 硬件适配至少要验证：
 
@@ -1036,7 +1057,7 @@ KV Cache 正确
 能在 NPU 上返回结果，只能说明适配链路打通了；能在真实模型、真实 batch 和真实上下文长度下稳定达到目标吞吐，才算完成了工程适配。
 
 
-## 9. 小结：Platform 是边界，不是万能胶
+## 十、本文小结：Platform 是边界，不是万能胶
 
 这一章最重要的结论可以概括为三句话。
 
@@ -1113,4 +1134,4 @@ Serving 核心保持稳定
 
 ## 下一篇
 
-[PD 分离：从资源混部走向计算解耦](/deep-dive-into-vllm-10-prefill-decode-disaggregation.html)
+[PD 分离：从资源混部走向计算解耦](/prefill-decode-disaggregation.html)

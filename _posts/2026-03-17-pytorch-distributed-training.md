@@ -6,7 +6,7 @@ tags: [PyTorch, AI, AI-Infra]
 catalog: true
 ---
 
-> 本文是[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)系列的第九篇（共十篇）。上一篇：[性能优化与调试](/pytorch-performance-optimization-and-debugging.html)　下一篇：[PyTorch 的工程体系：一次改动如何安全地到达用户](/pytorch-engineering-system.html)
+> 本文是[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)系列的第 9 篇（共十篇）。上一篇：[性能优化与调试](/pytorch-performance-optimization-and-debugging.html)；下一篇：[PyTorch 的工程体系：一次改动如何安全地到达用户](/pytorch-engineering-system.html)
 
 前八篇都在一张卡上。第八篇末尾算过一笔账：Adam 训练下每个参数的静态显存是 16 字节，7B 参数的模型仅参数、梯度和优化器状态就要 112 GB，激活值还没算。一张 80 GB 的卡放不下。即使放得下，第八篇案例里那个 38M 参数的小模型在单卡上跑到 2207 samples/s 之后，GPU 已经饱和——再要快，只能加卡。
 
@@ -30,7 +30,7 @@ DDP、ZeRO 的三个阶段、FSDP、张量并行、流水线并行、上下文�
 单卡训练有两个独立的上限：
 
 ```text
-吞吐极限    GPU 已饱和（第八篇第三章 §2.9），每秒处理的样本数到顶，训练时间只能靠加卡缩短
+吞吐极限    GPU 已饱和（第八篇第六章 §9），每秒处理的样本数到顶，训练时间只能靠加卡缩短
 容量极限    模型状态 + 激活值超过显存，一张卡根本放不下
 ```
 
@@ -62,7 +62,7 @@ DDP、ZeRO 的三个阶段、FSDP、张量并行、流水线并行、上下文�
 后文的显存和通信量计算反复用到以下符号，集中声明一次：
 
 ```text
-P       模型参数量（个）。bf16 参数占 2P 字节，fp32 占 4P 字节；Adam + 混合精度的静态状态共 16P 字节（第八篇第四章 §2）
+P       模型参数量（个）。bf16 参数占 2P 字节，fp32 占 4P 字节；Adam + 混合精度的静态状态共 16P 字节（第八篇第八章 §2）
 N       某个并行维度上的进程数（并行度）；只有一个维度时等于 world size
 B       每个进程一次处理的序列数（per-rank batch）
 S       序列长度（token 数）
@@ -73,7 +73,7 @@ M       流水线并行的 micro-batch 数
 α, β    一次通信的固定延迟、单位字节的传输时间（β = 1/带宽），第二章 §4
 ```
 
-一个 Transformer 层的激活值大约是 B × S × H 的若干倍（不做 checkpointing 时约 34 倍，第五章会用到），所以"激活值"在公式里都写成 ∝ B·S·H。
+一个 Transformer 层的激活值大约是 B × S × H 的若干倍（不做 checkpointing 时约 34 倍，第十一章会用到），所以"激活值"在公式里都写成 ∝ B·S·H。
 
 ### 4. 三层结构
 
@@ -92,28 +92,21 @@ M       流水线并行的 micro-batch 数
 ### 5. 本文的章节安排
 
 ```text
-二    通信底座：进程、进程组与集合通信
-      1  SPMD 执行模型
-      2  进程组与后端
-      3  集合通信原语
-      4  成本模型：α + β、Ring 与 Tree
-      5  通信也是异步的
+第二章   通信底座：进程、进程组与集合通信     SPMD、进程组与后端、集合通信原语、α + β 成本模型、通信也是异步的
 
-三    并行策略：复制还是分片
-      1  DDP：复制模型、切分数据、同步梯度
-      2  ZeRO 与 FSDP：分片状态
-      3  TP：切分一层内部（含 Sequence Parallel）
-      4  PP：切分层与层之间（含训练调度）
-      5  CP：切分序列
-      6  EP：切分 Expert
-      7  组合与选择：训练 vs 推理
-      8  统一表
+并行策略：复制还是分片
+  第三章   并行策略（1）：DDP                复制模型、切分数据、同步梯度；Reducer 与梯度桶
+  第四章   并行策略（2）：ZeRO 与 FSDP       分片状态；FSDP2、prefetch、HSDP、offload、混合精度
+  第五章   并行策略（3）：TP                 切分一层内部（含 Sequence Parallel 与异步 TP）
+  第六章   并行策略（4）：PP                 切分层与层之间（含训练调度）
+  第七章   并行策略（5）：CP                 切分序列：Ring Attention
+  第八章   并行策略（6）：EP                 切分 Expert
+  第九章   并行策略的组合与选择               训练 vs 推理、决策顺序、多维 mesh、统一表
 
-四    运行时与工程：启动、数据、Checkpoint、拓扑、性能与故障
-
-五    完整案例：把第八篇的 Transformer block 扩到 8 卡、再扩到 4 机
-六    Java 对照
-七    小结
+第十章   运行时与工程                       启动、数据、Checkpoint、拓扑、性能与故障
+第十一章 完整案例                           把第八篇的 Transformer block 扩到 8 卡、再扩到 4 机
+第十二章 Java 对照
+第十三章 本文小结
 ```
 
 
@@ -149,9 +142,9 @@ print(rank, t)                                      # 每个进程都得到 0+1+
 dist.destroy_process_group()
 ```
 
-用 `torchrun --nproc_per_node=8 script.py` 启动，就会有 8 个进程运行这段代码。启动机制第四章 §1 细讲。
+用 `torchrun --nproc_per_node=8 script.py` 启动，就会有 8 个进程运行这段代码。启动机制第十章 §1 细讲。
 
-SPMD 的关键后果是：**代码中每一处集合通信，都必须被所有参与的进程以相同的顺序调用**。如果 rank 0 走了 `if` 分支多调用了一次 `all_reduce`，而其他 rank 没有，rank 0 会永远等待——这是分布式训练中最常见的 hang 成因，第四章 §6 讨论。
+SPMD 的关键后果是：**代码中每一处集合通信，都必须被所有参与的进程以相同的顺序调用**。如果 rank 0 走了 `if` 分支多调用了一次 `all_reduce`，而其他 rank 没有，rank 0 会永远等待——这是分布式训练中最常见的 hang 成因，第十章 §6 讨论。
 
 ### 2. 进程组与后端
 
@@ -167,7 +160,7 @@ SPMD 的关键后果是：**代码中每一处集合通信，都必须被所有�
 
 后端决定了原语的实现方式和性能，不影响 Python 层的语义。
 
-**子进程组**用于让一部分进程参与通信。多维并行（第三章 §7）大量依赖它：例如 16 张卡做"2 路数据并行 × 8 路张量并行"，需要 2 个各含 8 卡的张量并行组和 8 个各含 2 卡的数据并行组。
+**子进程组**用于让一部分进程参与通信。多维并行（第九章）大量依赖它：例如 16 张卡做"2 路数据并行 × 8 路张量并行"，需要 2 个各含 8 卡的张量并行组和 8 个各含 2 卡的数据并行组。
 
 ```python
 tp_group = dist.new_group(ranks=[0, 1, 2, 3, 4, 5, 6, 7])       # 必须所有进程都调用，即使自己不在组里
@@ -185,7 +178,7 @@ mesh["tp"].get_group()     # 本进程所在的 tp 组（同一行）
 mesh["dp"].get_group()     # 本进程所在的 dp 组（同一列）
 ```
 
-DeviceMesh 是 FSDP2、TP、CP API 的共同输入，第三章会反复用到。
+DeviceMesh 是 FSDP2、TP、CP API 的共同输入，第三至九章会反复用到。
 
 ### 3. 集合通信原语
 
@@ -259,7 +252,7 @@ dist.send(t, dst=1);  dist.recv(t, src=0)
 
 ### 4. 成本模型：α + β、Ring 与 Tree
 
-#### 4.1 α + β 模型
+**α + β 模型**
 
 一次点对点传输的时间用 **α + β 模型**近似：
 
@@ -267,9 +260,9 @@ dist.send(t, dst=1);  dist.recv(t, src=0)
 T(n) = α + β · n        α：延迟（固定开销，微秒级）    β：每字节传输时间 = 1 / 带宽    n：字节数
 ```
 
-小消息由 α 主导，大消息由 β·n 主导。这和第八篇 Kernel launch 的固定成本是同一个结构：**消息越小越浪费，所以要把小消息合并成大消息**——这就是 DDP 梯度桶（第三章 §1.2）存在的理由，也是 FSDP 分片单元不能太小（第三章 §2.4）的理由。
+小消息由 α 主导，大消息由 β·n 主导。这和第八篇 Kernel launch 的固定成本是同一个结构：**消息越小越浪费，所以要把小消息合并成大消息**——这就是 DDP 梯度桶（第三章 §2）存在的理由，也是 FSDP 分片单元不能太小（第四章 §4）的理由。
 
-#### 4.2 Ring all-reduce 分步走一遍
+**Ring all-reduce 分步走一遍**
 
 集合通信的成本取决于算法。最常用的 **Ring** 算法把 N 个进程排成环，每个进程只和左右邻居通信。以 N=4、数据切成 4 块为例，all_reduce 的 reduce_scatter 阶段：
 
@@ -294,7 +287,7 @@ all_reduce 总时间  ≈ 2(N-1) · α  +  2 · (N-1)/N · β · n
 
 带宽项 `2(N-1)/N · β · n` 在 N 很大时趋近 `2βn`——**与进程数无关**。这是 Ring 算法的价值：每个 rank 收发的总字节数约为数据量的 2 倍，不随 N 增长；单独的 all_gather 和 reduce_scatter 各约 1 倍。本文后面所有"通信量"都用这个口径：**每个 rank 收发的字节数**。
 
-#### 4.3 Tree、NVLS 与协议
+**Tree、NVLS 与协议**
 
 延迟项 `2(N-1)α` 随 N 线性增长，几百卡时几十微秒的 α 累积成毫秒。NCCL 因此提供其他算法：
 
@@ -307,7 +300,7 @@ CollNet   把 Tree / NVLS 与 IB 交换机的 SHARP 归约结合，跨节点
 
 NCCL 还按消息大小选择**协议**：`LL`（8 字节数据 + 标志位一起发，延迟最低，小消息）、`LL128`（128 字节粒度，NVLink 上兼顾延迟与带宽）、`Simple`（大块传输，带宽最高，大消息）。算法和协议都由 NCCL 根据拓扑和消息大小自动选，`NCCL_ALGO` / `NCCL_PROTO` 可以强制指定，通常只用于基准实验。
 
-#### 4.4 带宽层级
+**带宽层级**
 
 β 由链路决定，层级差异巨大：
 
@@ -318,7 +311,7 @@ InfiniBand NDR（节点间，每网卡）      400 Gb/s ≈ 50 GB/s；一台 8 �
 以太网 100 GbE                       约 12 GB/s
 ```
 
-**节点内和节点间的带宽差近一个数量级**。这一个事实决定了第三章中"TP 只在节点内做"、"PP 用于跨节点"和 HSDP 的设计。
+**节点内和节点间的带宽差近一个数量级**。这一个事实决定了第三至九章中"TP 只在节点内做"、"PP 用于跨节点"和 HSDP 的设计。
 
 `nccl-tests` 报告两个带宽：**algbw**（算法带宽）= 数据量 / 时间，是用户视角的速度；**busbw**（总线带宽）= algbw × 2(N−1)/N（all_reduce 时），换算成链路实际承载的流量，用来和硬件规格比较。看 busbw 接近 NVLink 或 IB 的标称值，说明通信库和硬件都正常；看 algbw 才知道自己的 all_reduce 要多久。
 
@@ -334,19 +327,17 @@ work.wait()                                  # 让当前 Stream 等待通信完�
 
 `async_op=False`（默认）等价于调用后立刻 `wait()`——注意即使如此 CPU 也**不**阻塞，只是让计算 Stream 排在通信之后。真正的 CPU 阻塞只发生在 `.item()`、`synchronize()` 这类第八篇讨论过的同步点。
 
-这个机制是"通信与计算重叠"的基础：反向传播还在算后面几层的梯度时，前面几层的梯度已经在通信 Stream 上做 all_reduce。两条 Stream 同时占用 GPU 的不同资源（SM 算力 vs 网络/拷贝引擎），互不阻塞。第三章 §1.2 和 §2.5 分别是 DDP 和 FSDP 对它的运用。
+这个机制是"通信与计算重叠"的基础：反向传播还在算后面几层的梯度时，前面几层的梯度已经在通信 Stream 上做 all_reduce。两条 Stream 同时占用 GPU 的不同资源（SM 算力 vs 网络/拷贝引擎），互不阻塞。第三章 §2 和第四章 §5 分别是 DDP 和 FSDP 对它的运用。
 
 两个限制：
 
 - 通信 Kernel 也占用少量 SM（NCCL 默认每个 channel 用一个 SM 做数据搬运，常见配置下共占用几个到十几个 SM），与计算 Kernel 竞争，重叠期间计算会慢几个百分点；
-- "放到另一条 Stream"不等于重叠：如果下一步计算**依赖**通信结果（TP 的 all_reduce 就是这样），再多的 Stream 也只能等。真正的重叠要求重新安排依赖，让通信的输出不是紧接着的那步计算的输入——DDP 的桶、FSDP 的 prefetch、PP 的 micro-batch、异步 TP 的分块（第三章 §3.7）都是这个原则的不同实现。
+- "放到另一条 Stream"不等于重叠：如果下一步计算**依赖**通信结果（TP 的 all_reduce 就是这样），再多的 Stream 也只能等。真正的重叠要求重新安排依赖，让通信的输出不是紧接着的那步计算的输入——DDP 的桶、FSDP 的 prefetch、PP 的 micro-batch、异步 TP 的分块（第五章 §7）都是这个原则的不同实现。
 
 
-## 三、并行策略：复制还是分片
+## 三、并行策略（1）：DDP——复制模型、切分数据、同步梯度
 
-### 1. DDP：复制模型、切分数据、同步梯度
-
-#### 1.1 只分片数据
+### 1. 只分片数据
 
 `DistributedDataParallel` 是最简单的并行策略，五类状态的决定是：
 
@@ -367,7 +358,7 @@ model = Block(...).cuda(local_rank)
 model = DDP(model, device_ids=[local_rank])           # 构造时从 rank 0 broadcast 参数，保证初始一致
 optimizer = torch.optim.AdamW(model.parameters())
 
-for x in loader:                                       # loader 用 DistributedSampler 切分数据（第四章 §2）
+for x in loader:                                       # loader 用 DistributedSampler 切分数据（第十章 §2）
     loss = model(x).pow(2).mean()
     loss.backward()                                    # 反向过程中 DDP 自动 all_reduce 梯度
     optimizer.step()                                   # 每个 rank 各自更新，结果一致
@@ -376,11 +367,11 @@ for x in loader:                                       # loader 用 DistributedS
 
 训练循环和单卡几乎一样，梯度同步藏在 `backward()` 里。
 
-#### 1.2 Reducer：把 all_reduce 藏进反向
+### 2. Reducer：把 all_reduce 藏进反向
 
 DDP 的核心组件是 C++ 实现的 **Reducer**。它在构造时给每个参数注册一个 autograd hook（`Tensor.register_post_accumulate_grad_hook`，挂在第三篇计算图末端那个把梯度累积进 `.grad` 的节点上），当某个参数的梯度在反向中算完，hook 通知 Reducer。
 
-如果每个参数算完就单独 all_reduce，会有几百到几千次小消息，被第二章 §4.1 的 α 项吃掉。Reducer 把参数分成**桶（Bucket）**，默认每桶 25 MB（`bucket_cap_mb`），一个桶内所有参数的梯度都就位后，对整个桶发起一次异步 all_reduce：
+如果每个参数算完就单独 all_reduce，会有几百到几千次小消息，被第二章 §4 的 α 项吃掉。Reducer 把参数分成**桶（Bucket）**，默认每桶 25 MB（`bucket_cap_mb`），一个桶内所有参数的梯度都就位后，对整个桶发起一次异步 all_reduce：
 
 ```text
 反向传播（计算 Stream）      layer L → layer L-1 → ... → layer 1
@@ -398,12 +389,12 @@ backward() 返回前                                                            
 
 `gradient_as_bucket_view=True` 让参数的 `.grad` 直接是桶内存的视图，省一次拷贝和一份梯度显存。`static_graph=True` 告诉 DDP 计算图每次迭代相同，可以跳过未使用参数的检查，并允许一次反向中多次调用同一模块的参数正确归约。
 
-#### 1.3 显存账：DDP 不省显存
+### 3. 显存账：DDP 不省显存
 
 DDP 复制了参数、梯度和优化器状态，每个 rank 的静态显存与单卡相同：
 
 ```text
-每 rank 静态显存 = 16P 字节（Adam + 混合精度，第八篇第四章 §2）
+每 rank 静态显存 = 16P 字节（Adam + 混合精度，第八篇第八章 §2）
 7B 模型 → 每卡 112 GB    → 无论多少张卡，DDP 都放不下
 ```
 
@@ -411,7 +402,7 @@ DDP 解决的**只是吞吐极限**。它降低的是每卡的 batch，从而降
 
 通信量：每 step 一次梯度 all_reduce，每 rank 收发约 2 倍梯度字节数（fp32 梯度即 2 × 4P = 8P 字节；后文简写为 **2P 量级**，指以状态大小为单位的倍数）。
 
-#### 1.4 通信压缩：`register_comm_hook`
+### 4. 通信压缩：`register_comm_hook`
 
 DDP 允许替换桶的通信逻辑：
 
@@ -426,7 +417,7 @@ model.register_comm_hook(state, powerSGD_hook.powerSGD_hook)                    
 
 前者几乎无损（归约在 bf16 上做，累加误差略大于 fp32）；后者是有损压缩，适合带宽极度受限（跨数据中心、以太网）的场景。hook 拿到的是整个桶的 Tensor，返回一个 Future——自定义的通信策略都从这里进。
 
-#### 1.5 几个必须知道的细节
+### 5. 几个必须知道的细节
 
 **梯度累积**：如果每次 `backward()` 都同步，累积 4 次就通信 4 次。`no_sync()` 关闭中间几次的同步：
 
@@ -449,7 +440,7 @@ with Join([model]):
     for x in loader: ...
 ```
 
-生产中更常见的做法是让 `DistributedSampler` 保证等长（第四章 §2）。
+生产中更常见的做法是让 `DistributedSampler` 保证等长（第十章 §2）。
 
 **BatchNorm**：每个 rank 只看到 batch/N 的样本，统计量是局部的。`nn.SyncBatchNorm.convert_sync_batchnorm(model)` 让 BN 在 all_reduce 统计量之后归一化。LayerNorm 按样本归一化，没有这个问题。
 
@@ -457,13 +448,13 @@ with Join([model]):
 
 **`torch.compile`**：`torch.compile(DDP(model))` 时，Dynamo 的 DDPOptimizer 会在桶边界插入 graph break（第七篇），让编译后的图仍能在反向中触发 Reducer 的 hook。否则整张图的反向作为一个整体，所有梯度同时就位，桶的重叠机制失效。
 
-#### 1.6 何时够用
+### 6. 何时够用
 
-模型能放进单卡、且激活值留有余量时，DDP 是首选：实现简单，通信量最小（2P 量级），几乎无额外计算开销。第五章案例的第一步就是它。超出单卡容量，进入下一节。
+模型能放进单卡、且激活值留有余量时，DDP 是首选：实现简单，通信量最小（2P 量级），几乎无额外计算开销。第十一章案例的第一步就是它。超出单卡容量，进入下一章。
 
-### 2. ZeRO 与 FSDP：分片状态
+## 四、并行策略（2）：ZeRO 与 FSDP——分片状态
 
-#### 2.1 ZeRO 的三级分片
+### 1. ZeRO 的三级分片
 
 DDP 中的冗余显而易见：N 个 rank 持有 N 份完全相同的参数、梯度和优化器状态。**ZeRO**（Zero Redundancy Optimizer，DeepSpeed 提出）的思路是逐级消除这些冗余，分三个阶段，每个阶段多分片一类状态：
 
@@ -486,9 +477,9 @@ DDP 中的冗余显而易见：N 个 rank 持有 N 份完全相同的参数、�
 
 结论用主线表达：**ZeRO-1/2 只改变了"归约后的梯度给谁"，是 all_reduce 恒等式的直接应用，不增加通信；ZeRO-3 把参数也分片，多出的 P 是"用到时凑齐"的代价**。
 
-PyTorch 中 ZeRO-1 对应 `ZeroRedundancyOptimizer`（配合 DDP 使用），ZeRO-3 对应 **FSDP**（Fully Sharded Data Parallel）。ZeRO-2 对应 FSDP 的 `reshard_after_forward=False` 模式（§2.4）。生产中 FSDP 是主要选择。
+PyTorch 中 ZeRO-1 对应 `ZeroRedundancyOptimizer`（配合 DDP 使用），ZeRO-3 对应 **FSDP**（Fully Sharded Data Parallel）。ZeRO-2 对应 FSDP 的 `reshard_after_forward=False` 模式（§4）。生产中 FSDP 是主要选择。
 
-#### 2.2 FSDP 的执行流程
+### 2. FSDP 的执行流程
 
 以一个 4 层模型、每层作为一个分片单元为例，FSDP 一个 step 的时间线：
 
@@ -517,7 +508,7 @@ sharded ──all_gather──► unsharded ──计算──► (前向后 res
 
 FSDP2 用两条专用 Stream 驱动这个循环：一条 all-gather Stream，一条 reduce-scatter Stream；all_gather 的输出先落到一块连续的通信缓冲区，再按参数切成视图交给模块。梯度的 reduce_scatter 完成后，本地分片梯度累加到 DTensor 参数的 `.grad` 上——优化器看到的就是普通的分片参数和分片梯度。
 
-#### 2.3 FSDP2：`fully_shard`
+### 3. FSDP2：`fully_shard`
 
 PyTorch 有两代 FSDP 实现。第一代 `FullyShardedDataParallel`（FSDP1）是一个包装类，把被包装模块的所有参数拍平成一个大 `FlatParameter` 再切分；第二代 **FSDP2** 以 `fully_shard` 函数为入口，按参数逐个切分，用 **DTensor** 表示分片后的参数。FSDP2 是 2.4 以后的推荐路径，本文以它为主线。
 
@@ -547,7 +538,7 @@ meta 设备初始化是大模型的必要步骤：7B 模型 fp32 参数 28 GB，
 - `module` 的每个参数被替换为 `DTensor`，在 mesh 的 dp 维上按 dim 0 分片：`param.to_local()` 拿到本地分片，`param.full_tensor()` 触发 all_gather 得到完整参数；
 - 前向 hook 负责 all_gather 和释放，反向 hook 负责 all_gather、释放和 reduce_scatter。
 
-**DTensor** 是 PyTorch 2.x 的分布式 Tensor 抽象：一个逻辑上完整的 Tensor，附带一个 **Placement** 描述它在 DeviceMesh 每一维上是 `Shard(dim)`、`Replicate()` 还是 `Partial()`（各 rank 持有待归约的部分和）。FSDP2 的参数是 `Shard(0)`；TP 的参数按列或按行 `Shard`；两者组合就是 2D 的 Placement。DTensor 上的算子会根据输入的 Placement 自动插入需要的通信（例如两个 `Partial` 相加不需要通信，`Partial` 转 `Replicate` 需要 all_reduce），并推导输出的 Placement。DTensor 让"复制还是分片"从策略的隐含约定变成了 Tensor 元数据的一部分，§3 的 TP 和第四章 §3 的 Checkpoint 都建立在它上面。
+**DTensor** 是 PyTorch 2.x 的分布式 Tensor 抽象：一个逻辑上完整的 Tensor，附带一个 **Placement** 描述它在 DeviceMesh 每一维上是 `Shard(dim)`、`Replicate()` 还是 `Partial()`（各 rank 持有待归约的部分和）。FSDP2 的参数是 `Shard(0)`；TP 的参数按列或按行 `Shard`；两者组合就是 2D 的 Placement。DTensor 上的算子会根据输入的 Placement 自动插入需要的通信（例如两个 `Partial` 相加不需要通信，`Partial` 转 `Replicate` 需要 all_reduce），并推导输出的 Placement。DTensor 让"复制还是分片"从策略的隐含约定变成了 Tensor 元数据的一部分，§3 的 TP 和第十章 §3 的 Checkpoint 都建立在它上面。
 
 FSDP2 相对 FSDP1 的实际差别：
 
@@ -559,7 +550,7 @@ state_dict    直接是 DTensor，无需特殊上下文   vs  需要 state_dict_
 灵活性        同一单元内可混合 frozen 参数、不同 dtype 参数    vs  FlatParameter 要求同 dtype、同 requires_grad
 ```
 
-#### 2.4 分片单元与 wrap 策略
+### 4. 分片单元与 wrap 策略
 
 `fully_shard` 施加在哪些模块上，决定了分片单元的粒度，这是 FSDP 最重要的性能决定：
 
@@ -579,9 +570,9 @@ False            前向后保留到反向                      → ZeRO-2，通�
 整数 k           前向后重新分片到 k 个 rank（而非 N）  → 节点内保留、节点间释放的折中
 ```
 
-#### 2.5 重叠：prefetch
+### 5. 重叠：prefetch
 
-按 §2.2 的时间线，每层计算前要等 all_gather 完成，通信不重叠。FSDP 用 **prefetch** 解决：在计算第 i 层时，就在 all-gather Stream 上发起第 i+1 层的 all_gather。
+按 §2 的时间线，每层计算前要等 all_gather 完成，通信不重叠。FSDP 用 **prefetch** 解决：在计算第 i 层时，就在 all-gather Stream 上发起第 i+1 层的 all_gather。
 
 ```text
 计算 Stream      [layer 1 计算    ][layer 2 计算    ][layer 3 计算    ]
@@ -599,9 +590,9 @@ for i, block in enumerate(model.blocks):
         block.set_modules_to_backward_prefetch([model.blocks[i - 1]])
 ```
 
-重叠是否真的发生，要在 Profiler 时间线里看 NCCL Kernel 是否与计算 Kernel 并排（第四章 §5）。
+重叠是否真的发生，要在 Profiler 时间线里看 NCCL Kernel 是否与计算 Kernel 并排（第十章 §5）。
 
-#### 2.6 梯度累积与 `torch.compile`
+### 6. 梯度累积与 `torch.compile`
 
 FSDP2 的梯度累积用 `set_requires_gradient_sync`：
 
@@ -617,7 +608,7 @@ for i, x in enumerate(loader):
 
 与 `torch.compile` 组合的推荐方式是**先编译每个 block，再 `fully_shard`**：FSDP2 的 hook 在模块边界，天然是 graph break 的位置；编译的图在 block 内部，不跨越通信。
 
-#### 2.7 通信量与 HSDP
+### 7. 通信量与 HSDP
 
 FSDP 每 step 通信 3P，其中 2P 是 all_gather 参数（bf16，`param_dtype`），P 是 reduce_scatter 梯度（`reduce_dtype`，fp32 时字节数翻倍）。以 7B 模型、8 卡为例：
 
@@ -638,7 +629,7 @@ fully_shard(block, mesh=mesh)    # 2D mesh：在 shard 维分片，在 replicate
 
 参数在节点**内**分片（all_gather 和 reduce_scatter 走 NVLink），在节点**间**复制：每个节点 reduce_scatter 之后，各 rank 只对自己持有的 **1/8 梯度分片**做跨节点 all_reduce。跨 IB 的流量因此从 FSDP 的 3P 降到 2P/8，而且可以按层与反向重叠。用主线的话说：同一类状态在不同的 mesh 维上做不同的决定。代价是每个节点持有完整的一份状态，显存不再随节点数下降。
 
-#### 2.8 CPU offload 与显存的再一次交换
+### 8. CPU offload 与显存的再一次交换
 
 FSDP 允许把分片后的参数、梯度和优化器状态放到 CPU 内存，只在计算时搬到 GPU：
 
@@ -647,27 +638,27 @@ from torch.distributed.fsdp import CPUOffloadPolicy
 fully_shard(block, mesh=mesh, offload_policy=CPUOffloadPolicy())
 ```
 
-这是第八篇第四章 §9 提到的 ZeRO-Offload：GPU 显存降到只剩激活值和当前层参数，代价是每层参数经过 PCIe 往返，PCIe 带宽（64 GB/s）比 NVLink 低一个数量级，通常只在显存实在不够、又不能加卡时使用。
+这是第八篇第八章 §9 提到的 ZeRO-Offload：GPU 显存降到只剩激活值和当前层参数，代价是每层参数经过 PCIe 往返，PCIe 带宽（64 GB/s）比 NVLink 低一个数量级，通常只在显存实在不够、又不能加卡时使用。
 
-#### 2.9 混合精度策略
+### 9. 混合精度策略
 
 `MixedPrecisionPolicy` 与第四篇的 `autocast` 不同，它作用在**参数存储**层面：
 
 ```text
 param_dtype     all_gather 时把 fp32 分片 cast 成 bf16 再通信 → 通信量减半，计算用 bf16
 reduce_dtype    reduce_scatter 用的 dtype；fp32 更稳定，代价是梯度通信量翻倍
-本地分片        始终是 fp32 主参数，优化器在 fp32 上更新（第八篇第三章 §2.6 的理由）
+本地分片        始终是 fp32 主参数，优化器在 fp32 上更新（第八篇第六章 §6 的理由）
 ```
 
 它比 autocast 更彻底（不需要每个算子判断是否 cast），且与 FSDP 的通信天然结合。两者可以叠加。
 
-### 3. TP：切分一层内部
+## 五、并行策略（3）：TP——切分一层内部
 
 DDP 和 FSDP 都是**数据并行**：每个 rank 处理不同的数据，对**同一个完整模型**做前向和反向。FSDP 分片的只是状态的存储，计算时仍然要把一层的参数凑齐——所以单层的参数和它的激活值必须放进一张卡。当单层大到放不下（超大 hidden 维），或者 FSDP 的 3P 通信在跨节点时藏不住，就需要切分**计算本身**。
 
 **张量并行**（Tensor Parallel，TP）把一个 Linear 层的权重矩阵切开，TP 组内的每个 rank 算一部分输出、**处理同一份数据**。
 
-#### 3.1 两种切法：列并行与行并行
+### 1. 两种切法：列并行与行并行
 
 一个 Linear 层 Y = XW，X 是 [tokens, H_in]，W 是 [H_in, H_out]。切 W 有两种方向：
 
@@ -693,7 +684,7 @@ X（复制） ──列并行 W₁──► Yᵢ（分片） ──逐元素激�
 
 这正是 Transformer MLP 的结构：fc1（H → 4H）列并行，gelu 逐元素在分片上独立算，fc2（4H → H）行并行，末尾一次 all_reduce。中间 4H 维的激活从头到尾都是分片的，**不需要凑齐**。整个 MLP 前向只通信一次。
 
-#### 3.2 反向也要通信：f 和 g
+### 2. 反向也要通信：f 和 g
 
 训练不只有前向。把列并行和行并行的边界看成两个算子 f 和 g（Megatron-LM 的记法）：
 
@@ -709,17 +700,17 @@ f 和 g 互为**共轭**：一个前向通信、反向不通信，另一个反�
 
 权重的梯度不需要通信：每个 rank 持有 Wᵢ，∂L/∂Wᵢ 只依赖本地的输入分片和输出梯度，算完就是最终值。用主线的话说，TP 的参数、梯度、优化器状态都是分片的，且分片之间**没有冗余**，所以不需要归约。
 
-#### 3.3 Attention 与 Embedding 的切分
+### 3. Attention 与 Embedding 的切分
 
 **Attention 按 head 切**。q、k、v 的三个投影是列并行，每个 rank 得到 heads/N 个 head 的 q、k、v（H/N 列刚好是 heads/N 个 head 拼起来）；attention 计算在 head 之间独立，各 rank 本地完成；输出投影 proj 是行并行，末尾 all_reduce。要求 head 数能被 N 整除；GQA 时 kv head 数也要能整除。
 
-这里有一个工程细节：第八篇案例把 q、k、v 合并成一个 `qkv` Linear（3H 列）。对它做列并行，每个 rank 拿到的是 3H/N 列——是 q 的一段、k 的一段、v 的一段**交错**在一起，本地 `split(H, dim=-1)` 会切错。要么把 qkv 拆成三个 Linear，要么在切分时按 [q 段, k 段, v 段] 的顺序重排权重（Megatron 的做法）。第五章案例会先做这个改动。
+这里有一个工程细节：第八篇案例把 q、k、v 合并成一个 `qkv` Linear（3H 列）。对它做列并行，每个 rank 拿到的是 3H/N 列——是 q 的一段、k 的一段、v 的一段**交错**在一起，本地 `split(H, dim=-1)` 会切错。要么把 qkv 拆成三个 Linear，要么在切分时按 [q 段, k 段, v 段] 的顺序重排权重（Megatron 的做法）。第十一章案例会先做这个改动。
 
 **Embedding 按 vocab 切**（行并行的变体）：每个 rank 持有词表的 1/N 行，查表时不在自己范围内的 token 输出 0，然后 all_reduce——只有一个 rank 贡献非零值，求和等于查表结果。
 
 **输出层与 loss**：输出投影 H → V 列并行，logits 按 vocab 维分片为 [B, S, V/N]。logits 是训练中最大的单个激活（V 通常 32k～256k），all_gather 它代价很高。`loss_parallel` 直接在分片的 logits 上算 cross-entropy：每个 rank 算本地 vocab 段的 exp 和，all_reduce 一个 [B, S] 的标量场得到 softmax 分母，再各自算自己那段的 loss。通信量从 B·S·V 降到 B·S。
 
-#### 3.4 PyTorch 的 TP API
+### 4. PyTorch 的 TP API
 
 ```python
 from torch.distributed.tensor.parallel import (
@@ -750,7 +741,7 @@ with loss_parallel():
 
 `parallelize_module` 把指定子模块的参数替换成对应 Placement 的 DTensor（`ColwiseParallel` → 权重 `Shard(0)`，`RowwiseParallel` → `Shard(1)`，注意 PyTorch 的 Linear 权重是 [out, in]），并在模块的输入/输出边界按 `input_layouts` / `output_layouts` 插入通信。默认 `use_local_output=True`，模块输出是普通的本地 Tensor，所以 attention 内部的 view / transpose 按本地 shape 写即可——这就是 `n_heads //= N` 那行的原因。
 
-#### 3.5 通信量与适用范围
+### 5. 通信量与适用范围
 
 TP 每次 all_reduce 的数据是一层的输入/输出激活 [B, S, H]：
 
@@ -777,7 +768,7 @@ TP 度越大，每卡的 GEMM 越小（[tokens, H] × [H, 4H/N]），GPU 利用�
 数据                        复制，TP 组内所有 rank 处理同一份数据
 ```
 
-#### 3.6 Sequence Parallel：把复制的激活也切掉
+### 6. Sequence Parallel：把复制的激活也切掉
 
 TP 下层的输入/输出激活是复制的。LayerNorm、Dropout、残差相加作用在这些复制的激活上，N 个 rank 算了 N 遍一样的东西，还各存了一份。**Sequence Parallel**（Megatron-LM 的 SP，与 CP 不同）把这些区域的激活按**序列维**切分，每个 rank 只持有 S/N 个 token 的 LayerNorm 输入输出。
 
@@ -804,9 +795,9 @@ parallelize_module(block, tp_mesh, {
 })
 ```
 
-#### 3.7 异步 TP：让关键路径上的通信也能重叠
+### 7. 异步 TP：让关键路径上的通信也能重叠
 
-§3.5 说 TP 的 all_reduce 无法重叠，这在"整块通信、整块计算"的粒度上是对的。**异步 TP**（Async TP / 微流水线）把 all_gather + 矩阵乘、矩阵乘 + reduce_scatter 各拆成若干块，块间流水：
+§5 说 TP 的 all_reduce 无法重叠，这在"整块通信、整块计算"的粒度上是对的。**异步 TP**（Async TP / 微流水线）把 all_gather + 矩阵乘、矩阵乘 + reduce_scatter 各拆成若干块，块间流水：
 
 ```text
 不拆     [all_gather 全部        ][matmul 全部          ]
@@ -825,7 +816,7 @@ model = torch.compile(model)
 
 这是第七篇编译器与本篇通信的交汇点：图优化的对象不再只是算子，也包括通信。推理引擎在前向图上做的是同一件事。
 
-### 4. PP：切分层与层之间
+## 六、并行策略（4）：PP——切分层与层之间
 
 **流水线并行**（Pipeline Parallel，PP）把模型按层分成 K 段（stage），每段放在一张卡（或一个 TP 组）上，数据像流水线一样依次经过：
 
@@ -846,11 +837,11 @@ stage 3（卡 3）   layer 25-32 + 输出层 + loss
 数据                        切成 micro-batch 依次流过所有 stage
 ```
 
-#### 4.1 气泡
+### 1. 气泡
 
 问题是**气泡（bubble）**：stage 1 必须等 stage 0 算完才能开始，反向同理。如果一个 batch 整体流过，任何时刻只有一个 stage 在工作，利用率 1/K。解法是把 batch 切成 M 个 **micro-batch**，让多个 micro-batch 在不同 stage 上同时流动。
 
-#### 4.2 训练调度的演进
+### 2. 训练调度的演进
 
 **GPipe**：所有 micro-batch 先做完前向，再做反向：
 
@@ -889,7 +880,7 @@ Interleaved 1F1B  上者 / v      ∝ K（略高）             × v
 Zero Bubble       → 0           更高                    同 1F1B
 ```
 
-#### 4.3 PyTorch 的 PP API
+### 3. PyTorch 的 PP API
 
 `torch.distributed.pipelining`（2.4 起以 prototype 状态进入主库）提供 stage 抽象和上述调度。手工切分是最可控的方式：
 
@@ -922,13 +913,13 @@ stage = pipe.build_stage(rank, device)
 
 代价是模型必须可追踪，且完整模型要先构造出来（可以在 meta 设备上）。
 
-#### 4.4 负载均衡
+### 4. 负载均衡
 
 stage 划分不均匀时，最慢的 stage 决定节奏，其他 stage 等它。第一段有 embedding、最后一段有输出层和 loss（V 维的大矩阵乘），按层数平分往往不均匀；输出层的 logits 也让最后一段显存更高。常见做法是首尾 stage 少放一两层。1F1B 下还要考虑第一段保存激活最多（等最后一段的反向回来）。
 
 PP 的代价不是通信而是气泡和负载不均。推理侧的 PP 面对另一组问题：没有反向所以没有 1F1B 的调度问题，但请求长度动态变化，气泡更难消除；KV Cache 按 stage 分布。
 
-### 5. CP：切分序列
+## 七、并行策略（5）：CP——切分序列
 
 TP 和 PP 切的都是参数。当序列很长（32k、128k 以上）时，瓶颈变成**激活值**：每层激活 ∝ B·S·H，attention 的 score 矩阵 ∝ S²（SDPA 不物化它，但计算量仍 ∝ S²）。即使 B=1，S=128k 时一层的激活也是 GB 级；FSDP 不分片激活，TP 只分到 1/8。
 
@@ -942,7 +933,7 @@ TP 和 PP 切的都是参数。当序列很长（32k、128k 以上）时，瓶�
 
 Transformer 中除了 attention，所有算子都是逐 token 的（Linear、LayerNorm、gelu 都不跨 token），序列分片后各 rank 独立算，不需要通信。**只有 attention 需要看到全部 token 的 K 和 V**。
 
-#### 5.1 Ring Attention
+### 1. Ring Attention
 
 每个 rank 持有自己那段的 Q、K、V。计算本地 Q 对全部 K、V 的 attention，分 N 步：第 j 步用当前手里的 K、V 块算一块部分 attention，同时把这块 K、V 发给右邻、从左邻收下一块；N 步后每个 rank 的 Q 见过了所有 K、V：
 
@@ -961,7 +952,7 @@ step N-1 完成
 
 另一条路线是 **Ulysses**（DeepSpeed）：在 attention 前用 all_to_all 把"序列分片"转成"head 分片"，attention 按 head 本地算完，再 all_to_all 转回序列分片。通信量更少但 CP 度受 head 数限制。两者可以叠加。
 
-#### 5.2 PyTorch 的 CP API
+### 2. PyTorch 的 CP API
 
 ```python
 from torch.distributed.tensor.experimental import context_parallel
@@ -981,7 +972,7 @@ CP 组内参数是复制的，所以 CP 通常与 FSDP 共用一个 mesh 维：F
 
 推理侧的 CP 有不同的形态：Prefill 阶段切分序列，Decode 阶段切分 KV Cache，两者的通信模式与训练侧的 Ring Attention 不同，本文不展开。
 
-### 6. EP：切分 Expert
+## 八、并行策略（6）：EP——切分 Expert
 
 MoE（Mixture of Experts）模型的 MLP 由 E 个 expert 组成，每个 token 由 router 选 top-k 个 expert 计算。参数量 ∝ E，但每个 token 的计算量只 ∝ k。E=64、k=2 时参数是稠密模型的 32 倍而计算只有 2 倍——这正是 MoE 的价值，也是它的分布式难点：**参数太多放不下，但每个 expert 的计算又太小不值得 TP**。
 
@@ -1012,9 +1003,9 @@ combine       all_to_all：结果按原顺序送回 token 所属的 rank，按�
 
 router 的具体算法、capacity factor 的取舍、grouped GEMM 与 token 重排的 kernel 实现属于模型与算子层的话题，本文只关注 EP 的通信与状态分布。
 
-### 7. 组合与选择
+## 九、并行策略的组合与选择
 
-#### 7.1 训练 vs 推理：同一组策略，不同的重心
+### 1. 训练 vs 推理：同一组策略，不同的重心
 
 同一组并行策略在推理中也全部用得上，但重心不同。本文的主线放在训练上，两者的差别集中在几点：
 
@@ -1030,7 +1021,7 @@ router 的具体算法、capacity factor 的取舍、grouped GEMM 与 token 重�
 
 推理没有优化器状态、没有反向，所以 ZeRO / FSDP 那一整节在推理中没有对应物；反过来，KV Cache 的分布和 decode 的小消息优化在训练中没有对应物。
 
-#### 7.2 决策顺序
+### 2. 决策顺序
 
 训练配置的经验顺序，从内到外：
 
@@ -1045,7 +1036,7 @@ router 的具体算法、capacity factor 的取舍、grouped GEMM 与 token 重�
 
 推理侧的决策顺序与此对照：第 4 步不存在（参数复制是免费的），第 6 步变成"DP 多实例"。
 
-#### 7.3 多维并行的 mesh
+### 3. 多维并行的 mesh
 
 各维度组合成 DeviceMesh，从内到外的顺序要与拓扑对齐——**最内层的维度（TP）必须落在同一节点**。以 2 机 16 卡为例：
 
@@ -1059,9 +1050,9 @@ fully_shard(model, mesh=mesh["dp"])
 
 参数变成 2D DTensor：在 tp 维按列/行 `Shard`，在 dp 维按 dim 0 `Shard`。加上 PP（`("pp", "dp", "tp")`）、CP（`("dp", "cp", "tp")`，FSDP 用 `mesh["dp", "cp"]` 展平的维）就是所谓 4D 并行。`torchrun` 的 rank 分配是节点内连续的，`init_device_mesh` 按 rank 顺序填 mesh，所以最后一维自然落在节点内——mesh 维度的顺序写反了，TP 会跨节点，性能差一个数量级。
 
-### 8. 统一表
+### 4. 统一表
 
-把本章所有策略放进一张表。P 为参数量，N 为该并行维度的度，通信量以状态大小为单位：
+把第三至八章的所有策略放进一张表。P 为参数量，N 为该并行维度的度，通信量以状态大小为单位：
 
 | 策略 | 数据 | 参数 | 梯度 | 优化器状态 | 激活 | 通信原语 | 通信时机 | 每 rank 静态显存 | 通信量 / step |
 |---|---|---|---|---|---|---|---|---|---|
@@ -1078,7 +1069,7 @@ fully_shard(model, mesh=mesh["dp"])
 读这张表的方式：**先看"参数"列决定了显存能否放下，再看"通信原语"和"通信时机"列决定通信能否被计算隐藏**。任何新策略，只要填出它的行，性能特征就清楚了。
 
 
-## 四、运行时与工程
+## 十、运行时与工程
 
 ### 1. 启动：`torchrun`
 
@@ -1105,7 +1096,7 @@ MASTER_ADDR / MASTER_PORT    rank 0 所在地址，用于初始化时的 rendezv
 
 `init_process_group()` 不带参数时读这些变量。所有进程通过 `MASTER_ADDR:MASTER_PORT` 上的 TCPStore 交换 NCCL 的通信 ID，之后的通信不再经过它。
 
-`torchrun` 还提供弹性能力（`--max_restarts`）：某个进程失败时杀掉所有进程、从 checkpoint 重启。这反映了 NCCL 训练的故障模型——**任何一个 rank 挂掉，集合通信就无法完成，整个作业必须重启**。没有"部分失败继续运行"的选项（第六章会与微服务对比）。
+`torchrun` 还提供弹性能力（`--max_restarts`）：某个进程失败时杀掉所有进程、从 checkpoint 重启。这反映了 NCCL 训练的故障模型——**任何一个 rank 挂掉，集合通信就无法完成，整个作业必须重启**。没有"部分失败继续运行"的选项（第十二章会与微服务对比）。
 
 ### 2. 数据切分与随机性
 
@@ -1161,7 +1152,7 @@ set_state_dict(model, optimizer, model_state_dict=model_sd, optim_state_dict=opt
 
 ### 4. 多机拓扑
 
-第二章 §4.4 给出了带宽层级。真实机器上的拓扑：
+第二章 §4 给出了带宽层级。真实机器上的拓扑：
 
 ```text
 节点内    8 张 GPU 通过 NVSwitch 全互联（DGX/HGX），任意两卡间 NVLink 带宽相同
@@ -1184,11 +1175,11 @@ NCCL INFO Connected all rings, Connected all trees
 NCCL_SOCKET_IFNAME=eth0      指定 TCP 用哪个网络接口（初始化和 Gloo 用；多网卡机器常见问题）
 NCCL_IB_HCA=mlx5             指定 IB 网卡
 NCCL_P2P_DISABLE=1           禁用 GPU 直连（排查 NVLink 硬件问题时）
-NCCL_ALGO / NCCL_PROTO       强制算法（Ring/Tree/NVLS）和协议（LL/LL128/Simple），见第二章 §4.3
+NCCL_ALGO / NCCL_PROTO       强制算法（Ring/Tree/NVLS）和协议（LL/LL128/Simple），见第二章 §4
 NCCL_NET_GDR_LEVEL           GPUDirect RDMA 的开启条件
 ```
 
-多维并行的 mesh 布局必须与拓扑对齐（第三章 §7.3）。通信性能不达预期时，排查顺序是：先用 `nvidia-smi topo -m` 确认物理拓扑 → 用 `NCCL_DEBUG=INFO` 确认 NCCL 识别到的拓扑与之一致 → 用 nccl-tests 测裸通信带宽，区分是通信库问题还是应用问题 → 按消息规模判断是 α 主导还是 β 主导，决定优化方向。
+多维并行的 mesh 布局必须与拓扑对齐（第九章 §3）。通信性能不达预期时，排查顺序是：先用 `nvidia-smi topo -m` 确认物理拓扑 → 用 `NCCL_DEBUG=INFO` 确认 NCCL 识别到的拓扑与之一致 → 用 nccl-tests 测裸通信带宽，区分是通信库问题还是应用问题 → 按消息规模判断是 α 主导还是 β 主导，决定优化方向。
 
 ### 5. 通信性能分析
 
@@ -1218,7 +1209,7 @@ NCCL_NET_GDR_LEVEL           GPUDirect RDMA 的开启条件
 5. 跨节点带宽                NCCL_DEBUG 确认是否走了 IB；nvidia-smi topo 确认 GPU 与网卡的亲和
 ```
 
-NCCL 自带 `nccl-tests`（`all_reduce_perf` 等）可以在不跑模型的情况下测量集群的原始集合通信带宽（第二章 §4.4 的 busbw），是排除"网络本身有问题"的第一步。
+NCCL 自带 `nccl-tests`（`all_reduce_perf` 等）可以在不跑模型的情况下测量集群的原始集合通信带宽（第二章 §4 的 busbw），是排除"网络本身有问题"的第一步。
 
 ### 6. 故障排查：hang
 
@@ -1227,7 +1218,7 @@ NCCL 自带 `nccl-tests`（`all_reduce_perf` 等）可以在不跑模型的情�
 ```text
 集合通信不匹配    某个 rank 多调或少调了一次集合通信；或调用顺序不同；或 Tensor 形状不同
                   常见来源：条件分支、数据量不等（§2）、只在 rank 0 做的 logging 里含集合通信、异常在某个 rank 被吞掉
-计算图不一致      DDP 中某个 rank 有参数未使用（第三章 §1.5）
+计算图不一致      DDP 中某个 rank 有参数未使用（第三章 §5）
 硬件 / 网络       某张卡挂了、IB 链路断了、NCCL 内部错误
 ```
 
@@ -1259,14 +1250,14 @@ torchfrtrace --prefix /tmp/nccl_trace_rank_          # 分析：哪个 rank 缺�
 ```text
 通信时间          带宽项 2βn 不随 N 减少；延迟项 2(N-1)α 随 N 增加；只有重叠部分是免费的
 同步等待          BSP 模型下每步所有 rank 必须到齐，最慢的决定速度；rank 越多，出现慢 rank 的概率越大
-计算效率          总 batch 不变时 per-rank batch = batch/N，Kernel 变小、GPU 利用率下降（第八篇第三章 §1）；TP 度越大 GEMM 越小
+计算效率          总 batch 不变时 per-rank batch = batch/N，Kernel 变小、GPU 利用率下降（第八篇第五章）；TP 度越大 GEMM 越小
 算法效率          总 batch 随 N 增大时，超过临界 batch 后每步的收益递减，需要更多 step 才能收敛——这是优化理论问题，不是系统问题
 ```
 
 前三组是本文的范围，第四组是为什么"卡多了 loss 反而降得慢"的解释——分布式系统做到了线性吞吐，但每个样本的价值下降了。工程上用学习率缩放、warmup 和更长的训练来补偿。
 
 
-## 五、完整案例：从 8 卡到 4 机
+## 十一、完整案例：从 8 卡到 4 机
 
 接着第八篇的案例。终点是：12 层 Transformer block，H=512，约 38M 参数，B=64，bf16 + compile + SDPA，单卡 29 ms/step，2207 samples/s，峰值显存 8.4 GB。GPU 已饱和。数字为示意，比例关系反映真实规律。
 
@@ -1286,7 +1277,7 @@ model = torch.compile(DDP(model, device_ids=[local_rank], gradient_as_bucket_vie
 
 通信账：fp32 梯度 38M × 4 B = 151 MB，ring all_reduce 每卡收发 2 × 7/8 × 151 ≈ 264 MB，NVLink 下约 0.8 ms，全部藏在约 19 ms 的反向里。多出的 1.5 ms 来自最后一个桶无法重叠、以及 NCCL Kernel 占用的少量 SM。Profiler 确认：NCCL Kernel 与反向 Kernel 并排，只有末尾 0.3 ms 的通信暴露。
 
-显存只多了桶缓冲（`gradient_as_bucket_view=True` 时 `.grad` 就是桶的视图，几乎不额外占用），静态部分不变——DDP 不省显存（第三章 §1.3）。
+显存只多了桶缓冲（`gradient_as_bucket_view=True` 时 `.grad` 就是桶的视图，几乎不额外占用），静态部分不变——DDP 不省显存（第三章 §3）。
 
 ### 2. 第二步：模型放大，单卡放不下
 
@@ -1303,7 +1294,7 @@ fully_shard(model, mesh=mesh, mp_policy=mp)
 model.to_empty(device="cuda"); model.init_weights()
 ```
 
-先算显存。静态 16P/8 = 14 GB，prefetch 时两层完整 bf16 参数 0.8 GB。激活值：不做 checkpointing 时 Transformer 每层每 token 约 34 × H 字节（bf16，SDPA 不物化 score 矩阵），H=4096 时 136 KB；每卡 B=8、S=4096 共 32k token，32 层 → **143 GB**，远超显存。第八篇第四章 §7 说 checkpointing 在那个案例里"不值得"，这里结论反过来：每个 block 做 checkpointing，只保存 block 输入（每层每 token 2H = 8 KB），激活值降到约 8.6 GB，加上重算时一层的完整激活 4.5 GB，共约 13 GB。代价是前向多算一遍，约增加 33% 计算。
+先算显存。静态 16P/8 = 14 GB，prefetch 时两层完整 bf16 参数 0.8 GB。激活值：不做 checkpointing 时 Transformer 每层每 token 约 34 × H 字节（bf16，SDPA 不物化 score 矩阵），H=4096 时 136 KB；每卡 B=8、S=4096 共 32k token，32 层 → **143 GB**，远超显存。第八篇第八章 §7 说 checkpointing 在那个案例里"不值得"，这里结论反过来：每个 block 做 checkpointing，只保存 block 输入（每层每 token 2H = 8 KB），激活值降到约 8.6 GB，加上重算时一层的完整激活 4.5 GB，共约 13 GB。代价是前向多算一遍，约增加 33% 计算。
 
 ```text
 8 卡 FSDP   每卡 B=8    总 token 8 × 8 × 4096 = 262k / step
@@ -1317,13 +1308,13 @@ model.to_empty(device="cuda"); model.init_weights()
 
 ### 3. 第三步：4 机 32 卡
 
-再加 3 台机器。总 batch 保持 64 个序列不变（第四章 §7 的算法约束：总 batch 不能无限加大），每卡 B 从 8 降到 2。直接把 mesh 扩到 32：
+再加 3 台机器。总 batch 保持 64 个序列不变（第十章 §7 的算法约束：总 batch 不能无限加大），每卡 B 从 8 降到 2。直接把 mesh 扩到 32：
 
 ```text
 32 卡 FSDP   每卡 B=2   step: 1.7 s    吞吐: 154k tokens/s    扩展效率（对 8 卡）: 62%    每卡峰值显存: 10 GB
 ```
 
-效率掉了近四成。通信账：每卡收发的 56 GB **不随卡数减少**（第二章 §4.2 的带宽项），但每卡的计算随 B 缩到 1/4，只剩约 1.05 s；而 ring 现在跨节点，最慢一段是 IB，每 GPU 50 GB/s，56 GB 要 1.1 s——**通信时间超过了计算时间，无论怎么重叠都藏不住**。Profiler 确认：计算泳道有大段空白在等 all_gather 和 reduce_scatter。
+效率掉了近四成。通信账：每卡收发的 56 GB **不随卡数减少**（第二章 §4 的带宽项），但每卡的计算随 B 缩到 1/4，只剩约 1.05 s；而 ring 现在跨节点，最慢一段是 IB，每 GPU 50 GB/s，56 GB 要 1.1 s——**通信时间超过了计算时间，无论怎么重叠都藏不住**。Profiler 确认：计算泳道有大段空白在等 all_gather 和 reduce_scatter。
 
 用 HSDP：节点内分片，节点间复制：
 
@@ -1340,9 +1331,9 @@ fully_shard(block, mesh=mesh, mp_policy=mp)
 
 ### 4. 再往后：TP 与 CP 何时进场
 
-如果模型再大一倍（14B，静态 224 GB，节点内 8 卡分片后每卡 28 GB，加激活约 45 GB），HSDP 仍可行；到 70B（静态 1.1 TB，节点内分片后每卡 140 GB）就放不下了，这时引入 TP=8 让节点内 8 卡切分每一层：每卡参数 2P/8，FSDP 再在跨节点的 dp 维上分片——mesh 变成 `("dp", "tp")`，参数是 2D DTensor（第三章 §7.3）。TP 的代价是每层 4 次关键路径上的 all_reduce，B=2、S=4096、H=8192 时每次 134 MB，NVLink 下 0.4 ms，80 层共 130 ms，占 step 的几个百分点，可以接受；换成跨节点则不可接受。
+如果模型再大一倍（14B，静态 224 GB，节点内 8 卡分片后每卡 28 GB，加激活约 45 GB），HSDP 仍可行；到 70B（静态 1.1 TB，节点内分片后每卡 140 GB）就放不下了，这时引入 TP=8 让节点内 8 卡切分每一层：每卡参数 2P/8，FSDP 再在跨节点的 dp 维上分片——mesh 变成 `("dp", "tp")`，参数是 2D DTensor（第九章 §3）。TP 的代价是每层 4 次关键路径上的 all_reduce，B=2、S=4096、H=8192 时每次 134 MB，NVLink 下 0.4 ms，80 层共 130 ms，占 step 的几个百分点，可以接受；换成跨节点则不可接受。
 
-如果序列从 4k 拉到 128k，激活值（即使 checkpointing 后）∝ S 增长 32 倍，attention 计算 ∝ S² 增长 1000 倍，单卡放不下一个序列——CP 进场，把序列切到 8 卡，与 FSDP 共用 mesh 维度（第三章 §5.2）。
+如果序列从 4k 拉到 128k，激活值（即使 checkpointing 后）∝ S 增长 32 倍，attention 计算 ∝ S² 增长 1000 倍，单卡放不下一个序列——CP 进场，把序列切到 8 卡，与 FSDP 共用 mesh 维度（第七章 §2）。
 
 ### 5. 优化报告
 
@@ -1354,10 +1345,10 @@ fully_shard(block, mesh=mesh, mp_policy=mp)
 | 32 卡 FSDP | 154k tokens/s（62%） | 10 GB | 56 GB（跨 IB） | 0.6 s | 通信不随卡数减少，计算随 batch 减少 |
 | 32 卡 HSDP | 234k tokens/s（94%） | 21 GB | 49 GB 内 + 5.3 GB 间 | 0.05 s | 显存不随节点数下降 |
 
-每一步的决策依据都是第三章 §8 那张表的两列：**先看每卡显存放不放得下，再看通信时间能不能被计算隐藏**。第三步还展示了第四章 §7 的第一组和第三组原因同时发生：卡数翻四倍，通信量不变而计算量缩到四分之一，两条曲线交叉，扩展效率断崖式下跌。
+每一步的决策依据都是第九章 §4 那张表的两列：**先看每卡显存放不放得下，再看通信时间能不能被计算隐藏**。第三步还展示了第十章 §7 的第一组和第三组原因同时发生：卡数翻四倍，通信量不变而计算量缩到四分之一，两条曲线交叉，扩展效率断崖式下跌。
 
 
-## 六、Java 工程师如何理解分布式 PyTorch
+## 十二、Java 工程师如何理解分布式 PyTorch
 
 Java 工程师做过分布式系统，但 PyTorch 分布式训练和微服务、消息队列所在的那个"分布式"在几个基本假设上相反。先说相反的，再说相通的。
 
@@ -1416,10 +1407,10 @@ DCP 的 sharded checkpoint + reshard 能力，对应分布式存储的快照与 
 
 ### 6. 扩展效率 vs Amdahl / USL
 
-第四章 §7 的四组原因，Java 工程师在 Universal Scalability Law 里见过：线性项是并行部分，α 是串行部分（不能重叠的通信、同步等待），β 是一致性代价（rank 越多、越可能等最慢的）。分布式训练的 USL 曲线和数据库连接池、线程池的曲线形状相同，只是横轴是 GPU 数。
+第十章 §7 的四组原因，Java 工程师在 Universal Scalability Law 里见过：线性项是并行部分，α 是串行部分（不能重叠的通信、同步等待），β 是一致性代价（rank 越多、越可能等最慢的）。分布式训练的 USL 曲线和数据库连接池、线程池的曲线形状相同，只是横轴是 GPU 数。
 
 
-## 七、本文小结
+## 十三、本文小结
 
 ### 1. 一条主线
 
@@ -1436,7 +1427,7 @@ DDP 全复制只分数据；ZeRO 三级逐个把优化器状态、梯度、参�
 
 ```text
 通信底座    SPMD · 进程组 · 集合通信原语 · α+β 与 Ring / Tree 成本模型 · 通信是异步 Kernel、重叠要求重排依赖
-并行策略    第三章 §8 那张表
+并行策略    第九章 §4 那张表
 运行时      torchrun · DistributedSampler · DCP · 拓扑对齐 · 扩展效率 · Flight Recorder
 ```
 
@@ -1464,7 +1455,7 @@ DDP 全复制只分数据；ZeRO 三级逐个把优化器状态、梯度、参�
 
 ### 5. 本篇涉及的源码位置
 
-本篇讨论的机制在源码中的位置（对应第一篇第四章 §3 的代码地图）：
+本篇讨论的机制在源码中的位置（对应第一篇第七章的代码地图）：
 
 | 路径 | 内容 |
 |---|---|
