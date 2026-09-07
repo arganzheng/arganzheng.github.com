@@ -1,4 +1,5 @@
 _site
+.devin
 .jekyll-cache
 .bundle
 node_modules
