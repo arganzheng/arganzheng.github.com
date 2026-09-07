@@ -16,7 +16,7 @@ $$
 
 算术强度低于 156 FLOP/byte 的计算，时间下界由字节数决定：$$T \ge \text{bytes} / (2.0\ \text{TB/s})$$；高于它的，由 FLOPs 决定。一个 BF16 的 elementwise 加法 $$y = x + b$$，每元素读 4 字节、写 2 字节、做 1 次 FLOP，算术强度 $$1/6 \approx 0.17$$，距拐点差三个数量级，是彻底的 memory-bound——它的时间只由要搬多少字节决定。
 
-这一篇写这个 kernel。但写它之前需要先把 CUDA 编程模型本身讲清楚：代码在哪里运行、线程如何组织、内存在哪里、什么时候真正开始执行、错误什么时候报出来、编译器把源码变成了什么。这些是后面八篇每一段代码都依赖的基础。然后回答总纲提出的核心问题：
+这一篇写这个 kernel。上一篇从硬件一侧讲了 SM、warp 和 block，并在末尾给出了硬件层级与 grid / block / thread 的对应图；本篇从这些名字出发，把 CUDA 编程模型讲清楚：代码在哪里运行、线程如何组织和编号、内存在哪里、什么时候真正开始执行、错误什么时候报出来、编译器把源码变成了什么。这些是后面八篇每一段代码都依赖的基础。然后回答总纲提出的核心问题：
 
 > **vector add 的 kernel 只有五行，它跑出了理论带宽的多少？没跑满的部分去了哪里？**
 
@@ -97,7 +97,34 @@ vector_add_f32<<<grid, block>>>(d_a, d_b, d_c, n);
 
 ### 1. 三层结构与内建变量
 
-一次 kernel launch 启动一个 **grid**；grid 由若干 **block** 组成；block 由若干 **thread** 组成。grid 和 block 都可以是一维、二维或三维的，用 `dim3` 表示。每个线程可以读到四个内建变量：
+一次 kernel launch 启动一个 **grid**；grid 由若干 **block** 组成；block 由若干 **thread** 组成。这三个名字对应上一篇讲的硬件层级：grid 撒满整卡，一个 block 整块落到一个 SM 上、不迁移，block 内的线程被硬件按 32 个连续编号切成 warp，每个线程是 warp 里的一个 lane：
+
+```mermaid
+flowchart TB
+    classDef sw fill:#dbeafe,stroke:#1d4ed8
+    classDef hw fill:#fef3c7,stroke:#b45309
+    subgraph HW["硬件位置（上一篇）"]
+        direction TB
+        G["整块 GPU<br/>108 个 SM"]:::hw --> S["SM<br/>4 个调度器、192 KB shared"]:::hw --> W["Warp<br/>32 线程，调度与发射的单位"]:::hw --> C["一个执行 lane"]:::hw
+    end
+    subgraph SW["编程模型（本篇）"]
+        direction TB
+        g["Grid<br/>gridDim 个 block<br/>launch 时给出"]:::sw --> b["Block<br/>blockDim 个线程<br/>launch 时给出"]:::sw --> w["（warp：无内建变量<br/>threadIdx.x / 32 自己算）"]:::sw --> t["Thread<br/>threadIdx / blockIdx 唯一标识"]:::sw
+    end
+    G <-.->|"block 间无序、独立<br/>无同步、无共享内存"| g
+    S <-.->|"整块落到一个 SM<br/>共享 shared memory<br/>__syncthreads 对齐"| b
+    W <-.->|"每 32 个连续线程<br/>切成一个 warp"| w
+    C <-.->|"同一条指令<br/>各算各的数据"| t
+```
+
+| 概念 | 谁决定 | 典型大小 | 能做什么 / 不能做什么 |
+|---|---|---|---|
+| **Grid** | 程序员，launch 时给 `gridDim` | 几千到几百万个 block | block 间无序、无同步、无共享内存 |
+| **Block** | 程序员，launch 时给 `blockDim` | 128 / 256 / 512 线程 | 共享 shared memory，`__syncthreads()` 对齐 |
+| **Warp** | 硬件，固定 32 | 32 线程 | 同一条指令；分歧时串行；访存以 warp 为粒度合并 |
+| **Thread** | 程序员写的代码 | 1 | 有自己的寄存器、编号、分支路径 |
+
+本章补上这幅画面在代码一侧的细节：坐标怎么编号、边界怎么检查、尺寸怎么选、block 如何切成 warp。grid 和 block 都可以是一维、二维或三维的，用 `dim3` 表示。每个线程可以读到四个内建变量：
 
 ```text
 threadIdx   本线程在 block 内的坐标      (x, y, z)
@@ -154,7 +181,23 @@ $$n = 2^{28}$$、block = 256 时 grid = 1,048,576 个 block。grid 的 x 维上�
 
 ### 5. block 在硬件上如何切成 warp
 
-程序员看到的是 block 和 thread；硬件调度的是 warp。一个 block 被分配到一个 SM 之后，它的线程被**线性化**再按 32 个一组切分：
+程序员看到的是 block 和 thread；硬件调度的是 warp。一个 block 被分配到一个 SM 之后，它的线程被**线性化**再按 32 个一组切分。一维 block 最直观：
+
+```mermaid
+flowchart TB
+    classDef w0 fill:#dbeafe,stroke:#1d4ed8
+    classDef w1 fill:#dcfce7,stroke:#15803d
+    classDef w2 fill:#ffedd5,stroke:#c2410c
+    classDef w3 fill:#f3e8ff,stroke:#7e22ce
+    classDef dim fill:#f3f4f6,stroke:#9ca3af,color:#6b7280
+    subgraph Block["一个 Block（blockDim.x = 256）= 8 个 warp"]
+        direction LR
+        W0["Warp 0<br/>threadIdx.x 0 … 31"]:::w0 ~~~ W1["Warp 1<br/>32 … 63"]:::w1 ~~~ W2["Warp 2<br/>64 … 95"]:::w2 ~~~ W3["Warp 3<br/>96 … 127"]:::w3 ~~~ Wd["…"]:::dim ~~~ W7["Warp 7<br/>224 … 255"]:::dim
+    end
+    Block ==>|"整个 block 落到一个 SM 上"| SM["SM：4 个 warp 调度器<br/>轮流从驻留的所有 warp 里挑就绪者发射指令"]
+```
+
+代码里没有 `warpIdx` 这样的内建变量，需要时用 `threadIdx.x / 32` 自己算（lane 号是 `threadIdx.x % 32`）。多维 block 先线性化：
 
 $$
 \text{linear} = \text{threadIdx.x} + \text{threadIdx.y} \cdot \text{blockDim.x} + \text{threadIdx.z} \cdot \text{blockDim.x} \cdot \text{blockDim.y}, \qquad \text{warp} = \lfloor \text{linear} / 32 \rfloor

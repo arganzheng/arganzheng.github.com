@@ -138,7 +138,8 @@ Triton 让写一个融合 kernel 的成本从几百行 CUDA 变成几十行 Pyth
 这一篇会讨论：
 
 - CPU 与 GPU 的设计目标差异：延迟优化与吞吐优化；
-- SM、warp、SIMT 执行模型；一块 A100 或 H100 有多少 SM、每个 SM 有多少 warp 调度器、能同时驻留多少线程；
+- 硬件怎么组织工作：warp（32 个 lane 一条指令，SIMT）、block（分派到 SM 的单位）；以及一张硬件层级与编程模型名字（grid / block / thread）的对应图，作为通往第二篇的桥；
+- SM、warp、SIMT 的硬件实现；一块 A100 或 H100 有多少 SM、每个 SM 有多少 warp 调度器、能同时驻留多少线程；
 - 内存层次：寄存器、共享内存/L1、L2、HBM，各层的容量、带宽和延迟的数量级；
 - Tensor Core 的位置和它与 CUDA Core 的关系；
 - Roofline 模型：算术强度、带宽屋顶、算力屋顶、拐点；

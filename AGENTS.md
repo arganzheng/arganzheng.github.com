@@ -98,3 +98,12 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
 - Series are independent: no links to posts of other series.
 - `{%`/`{{` inside code (PTX asm, printf formats, regexes) must be wrapped in
   `{% raw %}` … `{% endraw %}` or the Liquid pass fails the build.
+- **Diagrams over prose.** Every structural/architectural point should have a
+  diagram. Prefer ```` ```mermaid ```` (rendered by `_includes/rich-content.html`,
+  Mermaid 10.9.1: `~~~` invisible links to force row/column order, `classDef`
+  colours, `<br/>` in quoted labels; horizontal layouts shrink to unreadable
+  size at 755 px width, so favour `flowchart TB`). When Mermaid cannot express
+  it or renders badly (log-axis plots, precise geometry, dense layouts), generate
+  an SVG/PNG into `img/in-post/<post-slug>-<name>.{svg,png}` and embed it with
+  `![alt](/img/in-post/...)`. Verify rendering in a real browser
+  (`jekyll serve` + check `.mermaid-error`), not just `jekyll build`.
