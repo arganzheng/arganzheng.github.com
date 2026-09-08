@@ -28,10 +28,30 @@
     // 2. Process Standard Kramdown Footnotes
     processFootnotes(container, popover);
 
-    // 3. Process Inline Tips
+    // 3. Process Reverse Footnote Back-links
+    processReverseFootnotes();
+
+    // 4. Process Inline Tips
     processInlineTips(container, popover);
 
     // --- Helpers ---
+
+    function scrollToTargetWithOffset(targetEl) {
+      if (!targetEl) return;
+      var navbar = document.querySelector('nav.navbar-fixed-top');
+      var navHeight = navbar ? navbar.offsetHeight : 65;
+      var targetRect = targetEl.getBoundingClientRect();
+      var targetTop = targetRect.top + (window.pageYOffset || document.documentElement.scrollTop) - navHeight - 16;
+
+      window.scrollTo({
+        top: Math.max(0, targetTop),
+        behavior: 'smooth'
+      });
+
+      targetEl.classList.remove('footnote-highlight-flash');
+      void targetEl.offsetWidth; // trigger reflow
+      targetEl.classList.add('footnote-highlight-flash');
+    }
 
     function createPopover() {
       var existing = document.getElementById('inline-popover-card');
@@ -73,6 +93,21 @@
       document.addEventListener('click', function (e) {
         if (!card.contains(e.target) && (!currentTrigger || !currentTrigger.contains(e.target))) {
           hidePopover();
+        }
+      });
+
+      // Jump to bottom footnote from inside popover
+      card.addEventListener('click', function (e) {
+        var jumpLink = e.target.closest('.popover-jump-footnote a');
+        if (jumpLink) {
+          e.preventDefault();
+          var hash = jumpLink.hash ? jumpLink.hash.slice(1) : '';
+          var targetLi = document.getElementById(hash);
+          hidePopover();
+          if (targetLi) {
+            history.pushState(null, null, '#' + hash);
+            scrollToTargetWithOffset(targetLi);
+          }
         }
       });
 
@@ -176,10 +211,13 @@
 
     function simpleMarkdownToHtml(text) {
       if (!text) return '';
-      // Escape raw HTML entities
-      var div = document.createElement('div');
-      div.textContent = text;
-      var safe = div.innerHTML;
+      var hasHtml = /<[a-z][\s\S]*>/i.test(text);
+      var safe = text;
+      if (!hasHtml) {
+        var div = document.createElement('div');
+        div.textContent = text;
+        safe = div.innerHTML;
+      }
 
       // Inline code `code`
       safe = safe.replace(/`([^`]+)`/g, '<code>$1</code>');
@@ -263,7 +301,9 @@
       for (var j = 0; j < backLinks.length; j++) {
         backLinks[j].parentNode.removeChild(backLinks[j]);
       }
-      return clone.innerHTML.trim();
+      var html = clone.innerHTML.trim();
+      html += '<div class="popover-jump-footnote"><a href="#' + hash + '">查看文末完整脚注 <i class="fa fa-angle-double-down"></i></a></div>';
+      return html;
     }
 
     // --- 2. Process Standard Kramdown Footnotes ---
@@ -293,22 +333,53 @@
           });
 
           targetTrigger.addEventListener('click', function (e) {
-            // On touch or click, toggle
-            if (currentTrigger === targetTrigger && popover.classList.contains('is-active')) {
-              hidePopover();
-              e.preventDefault();
+            var isTouch = e.pointerType === 'touch' || (e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents);
+            if (isTouch) {
+              // On touch device, tapping toggles the popup
+              if (currentTrigger === targetTrigger && popover.classList.contains('is-active')) {
+                hidePopover();
+                e.preventDefault();
+              } else {
+                e.preventDefault();
+                showPopover(targetTrigger, function () {
+                  return getFootnoteContent(hash);
+                });
+              }
             } else {
-              e.preventDefault();
-              showPopover(targetTrigger, function () {
-                return getFootnoteContent(hash);
-              });
+              // On desktop with mouse, click smoothly jumps to the footnote at the bottom!
+              hidePopover();
+              var targetLi = document.getElementById(hash);
+              if (targetLi) {
+                e.preventDefault();
+                history.pushState(null, null, '#' + hash);
+                scrollToTargetWithOffset(targetLi);
+              }
             }
           });
         })();
       }
     }
 
-    // --- 3. Process Inline Tips ---
+    // --- 3. Process Reverse Footnotes (Jump back to reference) ---
+    function processReverseFootnotes() {
+      var backLinks = document.querySelectorAll('.footnotes a.reversefootnote');
+      for (var i = 0; i < backLinks.length; i++) {
+        (function (link) {
+          link.addEventListener('click', function (e) {
+            var href = link.getAttribute('href') || '';
+            var hash = link.hash ? link.hash.slice(1) : href.replace(/^#/, '');
+            var target = document.getElementById(hash);
+            if (target) {
+              e.preventDefault();
+              history.pushState(null, null, '#' + hash);
+              scrollToTargetWithOffset(target);
+            }
+          });
+        })(backLinks[i]);
+      }
+    }
+
+    // --- 4. Process Inline Tips ---
     function processInlineTips(root, popover) {
       // 3.1 Elements with .inline-tip
       var tipEls = root.querySelectorAll('.inline-tip');
