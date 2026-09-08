@@ -199,6 +199,19 @@ $$
 bank = (t * 32 + k) % 32 = k          ← 所有 32 个线程落在同一个 bank
 ```
 
+```text
+tile[32][32]，字地址 = 行·32 + 列，bank = 字地址 % 32  ⇒  同一列的所有元素都在同一个 bank
+
+            bank 0   bank 1   bank 2   …   bank 31
+行 0        [0][0]   [0][1]   [0][2]   …   [0][31]
+行 1        [1][0]   [1][1]   [1][2]   …   [1][31]
+  ⋮           ⋮        ⋮        ⋮              ⋮
+行 31       [31][0]  [31][1]  [31][2]  …   [31][31]
+
+按行访问 tile[k][t]：warp 的 32 个线程沿一行 → 32 个不同 bank → 1 个周期
+按列访问 tile[t][k]：warp 的 32 个线程沿一列 → 全部落在 bank k → 32 个周期（32-way conflict）
+```
+
 这是 32-way conflict，一次访问要 32 个周期，等于把 shared memory 带宽砍成 1/32。按行访问 `tile[k][threadIdx.x]` 则地址连续，bank 各不相同，无冲突。所以规则是：**warp 内相邻线程访问的地址在 4 字节粒度上应该连续，或者至少 stride 与 32 互质**。stride 为 2 → 2-way，stride 为 4 → 4-way，stride 为 32 → 32-way；stride 为奇数则无冲突。
 
 ### 5. padding 与 swizzle
@@ -211,6 +224,18 @@ bank = (t * 32 + k) % 32 = k          ← 所有 32 个线程落在同一个 ban
 __shared__ float tile[32][33];   // 每行多一个字
 // 线程 t 访问 tile[t][k]：字地址 = t * 33 + k
 // bank = (t * 33 + k) % 32 = (t + k) % 32   ← 32 个线程落在 32 个不同 bank
+```
+
+```text
+tile[32][33]，字地址 = 行·33 + 列，bank = (行 + 列) % 32  ⇒  每往下一行，整行向右错开一个 bank
+
+            bank 0   bank 1   bank 2   bank 3   …
+行 0        [0][0]   [0][1]   [0][2]   [0][3]   …
+行 1         pad     [1][0]   [1][1]   [1][2]   …
+行 2                  pad     [2][0]   [2][1]   …
+行 3                           pad     [3][0]   …
+
+按列访问 tile[t][0]：行 t 的第 0 列落在 bank t → 32 个不同 bank → 无冲突
 ```
 
 代价是浪费 1/33 的 shared memory，以及行宽不再是 2 的幂、地址计算多一次乘法。对 32×32 的 tile 这个代价可以忽略。
@@ -260,6 +285,18 @@ for (int s = blockDim.x / 2; s > 0; s >>= 1) {
   if (tid < s) sdata[tid] += sdata[tid + s];
   __syncthreads();
 }
+```
+
+两种寻址方式在 8 个元素上的对比（数字是线程 tid，箭头表示谁把谁加到自己身上）：
+
+```text
+v1 交错寻址（stride 翻倍）              v2 顺序寻址（stride 减半）
+sdata  0 1 2 3 4 5 6 7                  sdata  0 1 2 3 4 5 6 7
+s=1    0←1 2←3 4←5 6←7   活跃 tid 0,2,4,6   s=4    0←4 1←5 2←6 3←7   活跃 tid 0,1,2,3
+s=2    0←2     4←6       活跃 tid 0,4       s=2    0←2 1←3           活跃 tid 0,1
+s=4    0←4               活跃 tid 0         s=1    0←1               活跃 tid 0
+       活跃线程是隔开的：同一 warp 内一半旁观（发散）      活跃线程永远是连续的前 s 个：整 warp 活跃或整 warp 空闲
+       访问 sdata[2·s·tid]：stride 为 2 的幂 → bank conflict   访问 sdata[tid]、sdata[tid+s]：连续 → 无冲突
 ```
 
 第一轮 `s=512`：前 512 个线程分别加后 512 个。活跃线程永远是连续的前 $$s$$ 个，所以：warp 要么全活跃要么全不活跃（$$s \ge 32$$ 时），没有发散；`sdata[tid]` 和 `sdata[tid+s]` 对连续的 tid 都是连续地址，没有 bank conflict；没有取模。
@@ -349,6 +386,30 @@ __device__ float block_reduce_sum_v6(float v, float* shared /* >= 32 floats */) 
 }
 ```
 
+```mermaid
+flowchart TB
+    classDef w fill:#dbeafe,stroke:#1d4ed8
+    classDef sh fill:#fef9c3,stroke:#a16207
+    classDef r fill:#dcfce7,stroke:#15803d
+    subgraph L1["级 1：每个 warp 用 5 步 shuffle 归约自己的 32 个值（无 shared、无 sync）"]
+        direction LR
+        W0["warp 0<br/>32 → 1"]:::w ~~~ W1["warp 1<br/>32 → 1"]:::w ~~~ Wd["…"]:::w ~~~ W31["warp 31<br/>32 → 1"]:::w
+    end
+    L1 -->|"lane 0 各写一个部分和"| SH["shared[32]：32 个部分和<br/>__syncthreads() ×1"]:::sh
+    SH -->|"warp 0 读 32 个值"| L2["级 2：warp 0 再 5 步 shuffle<br/>32 → 1"]:::w
+    L2 --> R["block 总和<br/>（warp 0 的所有 lane 都持有）"]:::r
+```
+
+`__shfl_xor_sync` 的蝶形交换，以 8 个 lane 为例（实际 32 个 lane 5 步）：
+
+```text
+lane      0    1    2    3    4    5    6    7
+初值      a    b    c    d    e    f    g    h
+off=4     a+e  b+f  c+g  d+h  e+a  f+b  g+c  h+d      每个 lane 与 lane^4 交换并相加
+off=2     (a+e)+(c+g) …  每个 lane 与 lane^2 交换
+off=1     全部 8 个 lane 都得到 a+b+…+h                与 lane^1 交换
+```
+
 这里用 `__shfl_xor_sync` 而不是 `__shfl_down_sync`：XOR 版本做的是蝶形交换，5 轮之后**所有 32 个 lane** 都持有总和，而不只是 lane 0。这在需要把结果广播给整个 warp 时省掉一次额外的 shuffle。
 
 整个 block 归约只用了 1 次 `__syncthreads()`、32 个 float 的 shared memory（128 字节）、10 步 shuffle。如果 kernel 里要连续调两次 block reduce（比如 LayerNorm 先求均值再求方差），第二次调用的 `shared[wid] = v` 可能在有线程还没读完上一次 `shared[lane]` 时发生，所以在写之前要再加一次 `__syncthreads()`——PyTorch 的 `BlockReduceSum` 就是这样做的（后面读源码会看到）。
@@ -423,6 +484,19 @@ RMSNorm、softmax、LayerNorm 都是**按行归约**：输入是 $$[R, d]$$，�
 
 **一行一个 warp**（warp-per-row）：一个 warp 的 32 个 lane 分担一行，每 lane $$d / 32$$ 个元素放在寄存器里，用 5 步 shuffle 汇总。一个 block 装若干个 warp（比如 4 或 8），grid 大小 = $$R / \text{warps\_per\_block}$$。不需要 shared memory，不需要 `__syncthreads()`。
 
+```text
+输入 [R, d]                block-per-row                          warp-per-row
+                    ┌──────────────────────────┐          ┌──────────────────────────┐
+行 0  ───────────►  │ block 0：T 个线程分担 d 个 │          │ block 0 ─ warp 0 ──► 行 0  │
+行 1  ───────────►  │ block 1                  │          │         ─ warp 1 ──► 行 1  │
+行 2  ───────────►  │ block 2                  │          │         ─ warp 2 ──► 行 2  │
+行 3  ───────────►  │ block 3                  │          │         ─ warp 3 ──► 行 3  │
+  ⋮                 │  ⋮                       │          │ block 1 ─ warp 0 ──► 行 4  │
+                    └──────────────────────────┘          └──────────────────────────┘
+grid = R 个 block                                          grid = R / warps_per_block
+每线程 d/T 个元素，block_reduce（shared + sync）              每 lane d/32 个元素在寄存器里，5 步 shuffle，零 shared、零 sync
+```
+
 选哪个由 $$d$$ 决定：
 
 - $$d \le 1024$$（BF16 一行 ≤ 2 KiB）：一个 warp 处理一行，每 lane 最多 32 个元素、32 个寄存器，寄存器驻留、零 shared、零 block sync，三遍扫描全在寄存器里。PyTorch 的 `dispatch_softmax_forward` 走的就是这条路（阈值是 `dim_size <= 2048 && dim_size * sizeof(scalar_t) <= 8192`，即 BF16/FP16/FP32 都到 2048、FP64 到 1024，后面读源码会看到）。
@@ -469,6 +543,16 @@ l_{\text{new}} = l \cdot e^{m - m_{\text{new}}} + e^{x_i - m_{\text{new}}}
 $$
 
 第一项把旧的和从"相对旧 max"换算成"相对新 max"——因为 $$\sum_{j<i} e^{x_j - m} \cdot e^{m - m_{\text{new}}} = \sum_{j<i} e^{x_j - m_{\text{new}}}$$；第二项是新元素相对新 max 的贡献。如果 $$m_{\text{new}} = m$$（新元素没有刷新最大值），修正因子 $$e^0 = 1$$，退化成普通累加。指数的参数永远 $$\le 0$$，不会溢出。
+
+```text
+x = [1, 3, 2, 5]，逐个吃进 (m, l)：
+
+看到 1    m=1   l = 1                                  = e⁰
+看到 3    m=3   l = 1·e^(1−3) + e⁰                     ← 旧和整体乘 e^(旧m−新m) 换算到新 max
+看到 2    m=3   l = (e^(−2) + 1)·e⁰ + e^(2−3)           ← max 没变，修正因子是 1
+看到 5    m=5   l = (…)·e^(3−5) + e⁰                    ← 再换算一次
+结束      m=5   l = e^(1−5) + e^(3−5) + e^(2−5) + e⁰    与"先求 max 再求和"完全一致，只扫了一遍
+```
 
 一遍扫完，$$(m, l)$$ 就是最终的 max 和 sum。归一化仍需要再过一遍写出 $$y_i = e^{x_i - m} / l$$，所以 HBM 意义上的遍数是**读 2 次、写 1 次**，比三遍少一次读。
 

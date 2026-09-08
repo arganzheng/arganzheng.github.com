@@ -83,6 +83,22 @@ sector |---- 0 ----|---- 1 ----|---- 2 ----|---- 3 ----|
 - **未对齐起始**（起点偏移 4 B）：128 B 数据从 sector 0 的第 4 字节开始，尾巴落入第 5 个 sector，搬运 160 B，效率 80%。
 - **随机地址**：最坏 32 个 sector，效率 12.5%，且没有任何局部性可利用。
 
+前三种画出来（■ 是线程真正需要的 4 B，□ 是被一并搬来但没人用的字节，每格 32 B 一个 sector）：
+
+```text
+连续、对齐        |■■■■■■■■|■■■■■■■■|■■■■■■■■|■■■■■■■■|                        4 sector   100%
+                  s0       s1       s2       s3
+
+起点偏移 4 B      |□■■■■■■■|■■■■■■■■|■■■■■■■■|■■■■■■■■|■□□□□□□□|              5 sector    80%
+                  s0       s1       s2       s3       s4
+
+跨步 2            |■□■□■□■□|■□■□■□■□|■□■□■□■□|■□■□■□■□|■□■□■□■□|■□■□■□■□|■□■□■□■□|■□■□■□■□|   8 sector    50%
+                  s0       s1       s2       s3       s4       s5       s6       s7
+
+跨步 8            |■□□□□□□□|■□□□□□□□|■□□□□□□□| … 每线程独占一个 sector …  |■□□□□□□□|         32 sector  12.5%
+                  s0       s1       s2                                    s31
+```
+
 汇总成表：
 
 ```text
@@ -114,6 +130,16 @@ Point* pts;                         // 线程 i 读 pts[i].x
 struct Points { float* x; float* y; float* z; };   // 三个独立数组
 ```
 
+两种布局下，"warp 读 32 个点的 x 分量"触碰的内存：
+
+```text
+AoS  pts[i] = {x, y, z}       内存： x0 y0 z0 | x1 y1 z1 | x2 y2 z2 | x3 …          线程 i 读 x_i，间隔 12 B
+                              warp 触碰：■□□■□□■□□■□□ … 共 384 B、12 sector，有效 128 B → 33%
+
+SoA  x[], y[], z[]            内存： x0 x1 x2 x3 … x31 | … （y、z 在别处）          线程 i 读 x[i]，间隔 4 B
+                              warp 触碰：■■■■■■■■■■■■ … 共 128 B、4 sector          → 100%
+```
+
 `x[i]` 连续，效率 100%。深度学习框架里的 tensor 天然是 SoA：一个 tensor 一块连续内存，dtype 单一。这也是为什么 tensor 抽象对 GPU 友好——当你在 kernel 里定义结构体数组时，要意识到你在往 AoS 的方向走。
 
 一个反例是刻意的 AoS：把 RoPE 的 cos/sin 交错存放成 `(cos, sin)` 对，这样一个线程一次 `float2` 加载就同时拿到两者，反而比两个数组各读一次少一条指令。规则不是"永远 SoA"，而是"让一个线程一次访问的字节在内存里连续，让相邻线程访问的字节也连续"。
@@ -130,6 +156,15 @@ struct Points { float* x; float* y; float* z; };   // 三个独立数组
 ### 1. 为什么每线程 4 字节不够
 
 上一节的结论是连续访问效率 100%，看起来问题已经解决。但 A100 的 2.0 TB/s 是一个很高的速率：每个 SM 每秒要吞掉 $$2.0 \times 10^{12} / 108 \approx 18.5$$ GB/s，按 1.41 GHz 折算约 13 字节/周期。一条 32 线程 × 4 B 的加载指令带回 128 B，也就是每个 SM 每 10 个周期就得发出一条加载指令并让它命中——这还没算地址计算、边界判断、类型转换和存储指令。
+
+```text
+每线程 4 B（float）     线程  0    1    2    3   …  31          一条 warp 加载 = 128 B
+                       地址 |----|----|----|----| … |----|
+
+每线程 16 B（float4）   线程  0                1                …  31    一条 warp 加载 = 512 B
+                       地址 |----------------|----------------| … |----------------|
+                            同样 4 个 sector 一组连续，但一条指令搬 4 倍的字节，在飞的请求也多 4 倍
+```
 
 对 BF16 更糟：每线程 2 B，一条指令只带回 64 B。指令发射能力（每个 SM 4 个 warp 调度器，每周期各发一条）在 memory-bound kernel 里通常够用，但 LSU（load/store unit）的请求队列和 L1 的每周期事务数是有限资源。经验上，**每线程只搬 2–4 字节的 kernel 很难超过 70–80% 的带宽**。
 
@@ -194,6 +229,17 @@ for (int64_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
 }
 ```
 
+```text
+n = 12 个元素，grid × block = 4 个线程（T0…T3）
+
+一线程一元素（grid = 3 个 block）      T0 T1 T2 T3 | T4 T5 T6 T7 | T8 T9 T10 T11
+                                      e0 e1 e2 e3   e4 e5 e6 e7   e8 e9 e10 e11
+
+grid-stride（grid 固定 1 个 block）    第 1 轮   T0 T1 T2 T3 → e0  e1  e2  e3
+                                      第 2 轮   T0 T1 T2 T3 → e4  e5  e6  e7      步长 = 4 = 全 grid 线程数
+                                      第 3 轮   T0 T1 T2 T3 → e8  e9  e10 e11     每一轮内相邻线程仍访问相邻地址
+```
+
 这就是 **grid-stride loop**：grid 大小与 $$n$$ 解耦，每个线程处理 $$\lceil n / (\text{grid} \times \text{block}) \rceil$$ 个元素，步长是整个 grid 的线程总数。相邻线程仍然访问相邻地址，合并性质不变。
 
 grid 该多大？一个常见选择是**每 SM 可驻留 block 数 × SM 数**，再乘一个小倍数（2–4）：
@@ -221,6 +267,17 @@ HBM 的访问延迟约 500–800 ns（A100 上典型值取 ~600 ns）。带宽 2
 $$
 \text{在飞字节数} = 2.0\ \text{TB/s} \times 600\ \text{ns} \approx 1.2\ \text{MB}
 $$
+
+```mermaid
+flowchart LR
+    classDef k fill:#dbeafe,stroke:#1d4ed8
+    BW["带宽 2.0 TB/s"]:::k --> L["Little's law<br/>在飞字节 = 带宽 × 延迟"]
+    LAT["HBM 延迟 ~600 ns"]:::k --> L
+    L --> F["整卡需保持 ≈1.2 MB 在飞<br/>÷ 108 SM ≈ 11 KB / SM"]
+    F --> A["每 warp 一条 32-bit 加载 = 128 B<br/>→ 需要 ≈88 个 warp / SM<br/>超过 64 的硬件上限"]
+    F --> B["每 warp 一条 128-bit 加载 = 512 B<br/>→ 需要 ≈22 个 warp / SM"]
+    F --> C["每 warp 两条 128-bit 加载在飞（ILP）<br/>→ 需要 ≈11 个 warp / SM"]
+```
 
 分到 108 个 SM 上，每个 SM 要保持约 11 KB 的加载请求在路上。一个 warp 一条 128-bit 加载（32 线程 × 16 B）是 512 B，所以每个 SM 至少要有
 
@@ -269,6 +326,17 @@ int64_t i0 = i / size1;
 int64_t i1 = i - i0 * size1;
 int64_t off_x = i0 * xs0 + i1 * xs1;
 int64_t off_b = i0 * bs0 + i1 * bs1;
+```
+
+```text
+输出 y[m=3, d=4]，线程拿到线性 i = 6   →   i0 = 6 / 4 = 1，i1 = 6 % 4 = 2
+
+x 连续 [3,4]，stride (4, 1)          off_x = 1·4 + 2·1 = 6        ┌ x00 x01 x02 x03 ┐
+                                                                  │ x10 x11 [x12] x13│
+                                                                  └ x20 x21 x22 x23 ┘
+b 广播 [1,4]→[3,4]，stride (0, 1)    off_b = 1·0 + 2·1 = 2        [ b0  b1  [b2]  b3 ]   三行读同一段
+
+x 转置 view，stride (1, 3)           off_x = 1·1 + 2·3 = 7        相邻线程 i1 差 1 → 地址差 3 个元素：不再合并
 ```
 
 **broadcast 就是 stride 为 0**：`b` 的形状 `[1, d]` 扩展到 `[m, d]`，第 0 维的 stride 设为 0，所有行读同一段内存。不需要物化任何数据。
@@ -559,6 +627,23 @@ kernel 3:  out = t2 * y      读 t2, y       写 out
 每个元素共 5 次读、3 次写，BF16 下 $$8 \times 2 = 16$$ 字节。三个 kernel 各自都可以做到 90% 带宽，但**总字节数是 16 B/元素**。
 
 融合成一个 kernel：读 x、b、y，算完写 out。3 次读、1 次写，$$4 \times 2 = 8$$ 字节。总时间减半，而三个中间量 `t1`、`t2` 根本不需要存在。
+
+```mermaid
+flowchart TB
+    classDef hbm fill:#fee2e2,stroke:#b91c1c
+    classDef k fill:#dbeafe,stroke:#1d4ed8
+    classDef reg fill:#dcfce7,stroke:#15803d
+    subgraph A["三个独立 kernel：每个元素 5 读 3 写 = 16 B"]
+        direction LR
+        x1["x, b"]:::hbm --> k1["add"]:::k --> t1["t1（HBM）"]:::hbm --> k2["silu"]:::k --> t2["t2（HBM）"]:::hbm --> k3["mul"]:::k --> o1["out"]:::hbm
+        y1["y"]:::hbm --> k3
+    end
+    subgraph B["融合 kernel：每个元素 3 读 1 写 = 8 B"]
+        direction LR
+        x2["x, b, y"]:::hbm --> kf["add → silu → mul<br/>t1、t2 只在寄存器里"]:::reg --> o2["out"]:::hbm
+    end
+    A ~~~ B
+```
 
 ```text
                          读     写     字节/元素(BF16)   相对时间

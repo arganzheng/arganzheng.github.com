@@ -50,7 +50,28 @@ $$
 
 一个 CUDA 程序同时运行在两个处理器上。**host** 是 CPU 和它的内存；**device** 是 GPU 和它的显存（HBM）。两边有各自独立的地址空间：host 上的指针不能在 GPU 上解引用，反之亦然。数据要从一边到另一边，必须显式拷贝（或者使用统一内存/pinned 内存这类机制，本系列不展开）。
 
-控制流始终在 host 上。CPU 负责分配显存、拷贝数据、发起 GPU 上的计算、等待结果。GPU 上运行的每一段代码都是被 CPU"发射"（launch）出去的一个函数，这个函数叫 **kernel**。
+控制流始终在 host 上。CPU 负责分配显存、拷贝数据、发起 GPU 上的计算、等待结果。GPU 上运行的每一段代码都是被 CPU"发射"（launch）出去的一个函数，这个函数叫 **kernel**：
+
+```mermaid
+flowchart LR
+    classDef h fill:#fef3c7,stroke:#b45309
+    classDef d fill:#dbeafe,stroke:#1d4ed8
+    subgraph HOST["host：CPU + 内存"]
+        direction TB
+        CPU["CPU<br/>控制流在这里<br/>分配、拷贝、launch、等待"]:::h
+        HM["host 内存<br/>h_a、h_b、h_c"]:::h
+    end
+    subgraph DEV["device：GPU + HBM"]
+        direction TB
+        SMs["108 个 SM<br/>执行 kernel"]:::d
+        DM["显存 HBM<br/>d_a、d_b、d_c"]:::d
+    end
+    HM ---|"cudaMemcpy（双向）<br/>经 PCIe / NVLink"| DM
+    CPU -->|"kernel#lt;#lt;#lt;grid, block#gt;#gt;#gt;(d_a, d_b, d_c)<br/>只传 device 指针"| SMs
+    SMs ---|"读写"| DM
+```
+
+两个地址空间的分界就是图中间那条线：`h_a` 只能在左边解引用，`d_a` 只能在右边；跨线的唯一通道是显式拷贝。
 
 ### 2. 三个函数限定符
 
@@ -264,6 +285,29 @@ auto t1 = std::chrono::steady_clock::now();   // 只测到了 launch 的开销�
 
 正确的方法有两种：在 `t1` 之前加 `cudaDeviceSynchronize()`（粗糙），或者用 CUDA event 让 GPU 自己给时间戳（推荐，见第 3 小节）。
 
+```mermaid
+sequenceDiagram
+    participant CPU
+    participant Q as GPU 命令队列
+    participant GPU
+    CPU->>Q: launch k1（几微秒后返回）
+    CPU->>Q: launch k2
+    CPU->>Q: launch k3
+    Note over CPU: t1 - t0 只量到三次 launch 的开销
+    Q->>GPU: k1
+    activate GPU
+    Note over GPU: k1 运行 1.6 ms
+    deactivate GPU
+    Q->>GPU: k2
+    activate GPU
+    deactivate GPU
+    CPU->>GPU: cudaDeviceSynchronize()
+    Q->>GPU: k3
+    activate GPU
+    deactivate GPU
+    GPU-->>CPU: 三个 kernel 全部完成，CPU 才返回
+```
+
 异步是 GPU 编程性能模型的核心。CPU 可以连续发射几十个 kernel 而不等待，GPU 按顺序消化；只要 CPU 发射得比 GPU 执行得快，GPU 就不会空转。反过来，任何让 CPU 停下来等 GPU 的调用，都是流水线上的一个气泡。
 
 ### 2. stream
@@ -280,6 +324,19 @@ CUDA_CHECK(cudaStreamCreate(&stream));
 vector_add_f32<<<grid, block, 0, stream>>>(d_a, d_b, d_c, n);
 CUDA_CHECK(cudaStreamSynchronize(stream));   // 只等这一条 stream
 CUDA_CHECK(cudaStreamDestroy(stream));
+```
+
+三种情形放在一条时间线上：
+
+```text
+                 时间 ──────────────────────────────────────────────────────→
+同一 stream      ▓▓ k1 ▓▓▓▓ k2 ▓▓▓ memcpy ▓▓ k3 ▓▓          严格按提交顺序，一个接一个
+
+stream A         ▓▓ k1 ▓▓▓▓▓▓▓ k3 ▓▓▓▓
+stream B              ▓▓▓ k2 ▓▓▓  ▓▓ k4 ▓▓                  无顺序保证，可并发（只要 SM 资源够）
+
+默认 stream 0    ▓▓ k1 ▓▓  ·······等 B 完成······  ▓ k3 ▓  legacy 默认 stream 与其他 stream 互相等待，
+stream B                  ▓▓▓ k2 ▓▓▓                       把并发变回串行
 ```
 
 在 PyTorch 扩展里，永远用 `at::cuda::getCurrentCUDAStream()` 拿当前 stream 再传给 launch，否则你的 kernel 会跑在默认 stream 上，与 PyTorch 自己的 stream 之间失去顺序保证（或者因默认 stream 的全局同步语义拖慢一切）。
@@ -300,6 +357,14 @@ CUDA_CHECK(cudaEventRecord(stop, stream));
 CUDA_CHECK(cudaEventSynchronize(stop));       // CPU 等到 stop 被 GPU 执行到
 float ms = 0.f;
 CUDA_CHECK(cudaEventElapsedTime(&ms, start, stop));   // 毫秒，分辨率约 0.5 µs
+```
+
+```text
+stream 上的顺序     [ record start ]──[ kernel 1.6 ms ]──[ record stop ]
+GPU 时间戳                ↑ t_start                          ↑ t_stop
+                          └──────── cudaEventElapsedTime ────┘   = t_stop − t_start，与 CPU 何时来问无关
+
+CPU                 launch…launch…record…   cudaEventSynchronize(stop) 阻塞 …… 返回 → 读 ms
 ```
 
 `cudaEventElapsedTime` 测的是 GPU 上两个标记之间的时间，不含 CPU 侧 launch 的开销，也不受 CPU 何时调用 `cudaEventSynchronize` 影响。这是 kernel 计时的标准做法；PyTorch 的 `torch.cuda.Event` 是它的封装。
@@ -326,6 +391,19 @@ CUDA API 的错误分两类。
 **同步错误**在调用返回时就知道：`cudaMalloc` 显存不足、launch 配置非法（block 超过 1024 线程、shared memory 超限）、传了错的指针给 `cudaMemcpy`。这类错误通过 API 的返回值报出。
 
 **异步错误**发生在 GPU 执行期间：越界访问、非法指令、断言失败。因为 launch 是异步的，CPU 在错误发生时早已往下走了；错误会被记录在上下文里，在**下一次任何与 GPU 同步的调用**时才报出来——可能是几十行之后的一个 `cudaMemcpy`，报出的是一个与它自身毫无关系的 `cudaErrorIllegalAddress`。而且这类错误是**粘性**的：上下文进入不可恢复状态，之后所有 CUDA 调用都返回同一个错误，只能重启进程。
+
+```mermaid
+sequenceDiagram
+    participant CPU
+    participant GPU
+    CPU->>GPU: launch kernel（越界写）
+    Note over CPU: launch 立刻返回 cudaSuccess，CPU 继续往下走
+    CPU->>CPU: 几十行其他 host 代码
+    Note over GPU: kernel 执行到越界处<br/>上下文记录 cudaErrorIllegalAddress，进入粘性错误态
+    CPU->>GPU: cudaMemcpy(h_c, d_c, …)（第一个同步点）
+    GPU-->>CPU: 返回 cudaErrorIllegalAddress
+    Note over CPU: 错误报在 memcpy 这一行，<br/>与它本身无关；之后所有调用都返回同一错误
+```
 
 三尖括号 launch 本身没有返回值，所以要用两个 API 查询它：
 
@@ -423,6 +501,22 @@ PyTorch 的 wheel 就是这样构建的（`TORCH_CUDA_ARCH_LIST` 环境变量控
 
 JIT 的代价是第一次加载时几秒到几十秒的编译（结果缓存在 `~/.nv/ComputeCache`，默认上限可用 `CUDA_CACHE_MAXSIZE` 调），以及 JIT 出的代码可能不如 ptxas 针对该架构离线编译的优——它不知道新架构的调度细节，也无法用新架构独有的指令。所以生产环境的做法是：为所有目标架构提供 SASS，再附一份最高版本的 PTX 兜底。
 
+运行时加载 kernel 的选择过程：
+
+```mermaid
+flowchart TD
+    classDef ok fill:#dcfce7,stroke:#15803d
+    classDef jit fill:#fef9c3,stroke:#a16207
+    classDef bad fill:#fee2e2,stroke:#b91c1c
+    A["driver 打开 fatbin<br/>当前 GPU 是 sm_XX"] --> B{"有 sm_XX 的 SASS？"}
+    B -->|"有"| C["直接加载，零开销"]:::ok
+    B -->|"没有"| D{"有同一大版本、更低小版本的 SASS？<br/>例如 sm_80 cubin 跑在 sm_86 上"}
+    D -->|"有"| C
+    D -->|"没有"| E{"有 compute_YY ≤ XX 的 PTX？"}
+    E -->|"有"| F["JIT 编译 PTX → SASS<br/>首次几秒到几十秒，缓存到 ~/.nv/ComputeCache<br/>可能不如离线 ptxas 的代码优"]:::jit
+    E -->|"没有"| G["cudaErrorNoKernelImageForDevice"]:::bad
+```
+
 一个常见的错误现象值得记住：在 H100 上运行一个只有 `-gencode arch=compute_80,code=sm_80`（没有 PTX）编出来的程序，会得到 `cudaErrorNoKernelImageForDevice`——"no kernel image is available for execution on the device"。
 
 ### 4. 两个必备的编译选项
@@ -468,6 +562,15 @@ if (threadIdx.x % 2 == 0) {
 } else {
   x = g(x);       // 奇数 lane 执行，偶数 lane 被 mask 掉
 }
+```
+
+```text
+                 active mask（lane 31 … lane 0）              有效 lane
+if 之前          11111111 11111111 11111111 11111111          32/32
+执行 f 的所有指令  01010101 01010101 01010101 01010101          16/32   ← 奇数 lane 旁观，但占用发射槽位
+执行 g 的所有指令  10101010 10101010 10101010 10101010          16/32   ← 偶数 lane 旁观
+会合之后          11111111 11111111 11111111 11111111          32/32
+                                                 总时间 = T(f) + T(g)
 ```
 
 warp 不能一半执行 `f`、一半执行 `g`；它会**两路都走**：先以 mask = 偶数 lane 执行 `f` 的所有指令，再以 mask = 奇数 lane 执行 `g` 的所有指令，最后在 `if` 之后重新会合（reconverge）。执行时间是两路之和，而每一路只有一半的 lane 在做有用功——等效吞吐减半。嵌套 `if` 或 `switch` 的分支数越多，损失越大；极端情况是 32 路各不相同，吞吐降为 1/32。
@@ -538,6 +641,14 @@ BF16 版本每个数组 512 MiB、总流量 1.5 GiB，下界约 0.8 ms。FLOPs �
 A100 有 40 MB L2。如果 benchmark 的工作集小于 40 MB（比如 $$n = 2^{20}$$ 的 float 数组，三个共 12 MB），第一次运行把数据从 HBM 搬进 L2，**第二次及以后的运行直接命中 L2**——L2 带宽是 HBM 的数倍，测出的"带宽"会远超 2.0 TB/s，是虚高的。而在真实工作负载里，一个 elementwise kernel 的输入通常是上一个 kernel 刚写出来的、可能在 L2 里也可能不在，取决于中间隔了多少其他 kernel——最保守、最可复现的假设是**不在**。
 
 解决方法：在每次计时迭代之前，对一块**至少 2 倍 L2 大小**的缓冲区做一次 `cudaMemsetAsync`，把 L2 里的旧数据全部逐出。A100 取 128 MB（H100 L2 是 50 MB，128 MB 同样够用）。memset 在同一 stream 上排在 kernel 之前，`start` event 记录在 memset 之后，所以它的时间不会被算进去。
+
+一次计时迭代在 stream 上的布置：
+
+```text
+stream   [ memsetAsync 128 MB：逐出 L2 ]──[ record start ]──[ kernel ]──[ record stop ]──（下一次迭代…）
+                    不计时                       └──────── 计入 ms ────────┘
+重复 N 次，取中位数；之前先跑几次 warmup（触发 JIT / 模块加载、让频率爬上来）
+```
 
 本篇 $$n = 2^{28}$$ 的工作集是 3 GiB，远大于 L2，flush 与否差别不大；但脚手架要通用到第十篇的所有 kernel，其中很多（RMSNorm 一行 16 KiB、decode 阶段的小 GEMM）工作集都在 L2 以内，flush 是必需的。`triton.testing.do_bench` 默认也做同样的事。
 

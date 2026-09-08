@@ -23,6 +23,33 @@ GEMM 是这个系列的转折点。一个 4096×4096×4096 的矩阵乘法有 13
 
 全文只用 CUDA Core 做 FP32 SGEMM，不碰 Tensor Core。这是刻意的：分块、寄存器复用、软件流水、bank conflict 这些原理在 FP32 上最容易看清楚，而下一篇的 Tensor Core、CUTLASS、CuTe 只是把同一套结构换成了更宽的指令。方法论与前几篇一致：**每一版先算它的访存量与算术强度，把它标在 Roofline 上，再写代码，再解释差距。**
 
+六个版本是一条"瓶颈不断迁移"的路：每解决一层瓶颈，下一层就浮出来。先把整条路画出来，后面每一章只是放大其中一步：
+
+```mermaid
+flowchart TB
+    v1["v1 naive<br/>一线程一输出，操作数全从全局读<br/>I_HBM = 0.25 · ~1–3%"]
+    v2["v2 shared 分块<br/>32×32 tile 进 shared，block 内复用<br/>I_HBM = 8 · ~10–20%"]
+    v3["v3 寄存器分块<br/>每线程 8×8 外积，128×128 tile<br/>I_HBM = 32 · I_smem = 2 · ~40–60%"]
+    v4["v4 加载优化<br/>float4 LDG/LDS + A 转置存入<br/>~55–70%"]
+    v5["v5 cp.async 流水<br/>3-stage 环形 buffer，每 tile 1 次同步<br/>~70–80%"]
+    cublas["cuBLAS<br/>warp tile 重映射 · swizzle · epilogue 重排<br/>~85–95%"]
+
+    v1 -- "瓶颈：L1/L2 请求数、load 延迟" --> v2
+    v2 -- "瓶颈：shared 带宽（上限 25%）" --> v3
+    v3 -- "瓶颈：LDS 指令数、bank conflict" --> v4
+    v4 -- "瓶颈：加载与计算串行" --> v5
+    v5 -- "瓶颈：LDS/FFMA 配比、残余 conflict" --> cublas
+
+    classDef mem fill:#fde2e2,stroke:#c0392b
+    classDef smem fill:#fdf1d6,stroke:#b9770e
+    classDef comp fill:#dff5e1,stroke:#1e8449
+    class v1,v2 mem
+    class v3,v4 smem
+    class v5,cublas comp
+```
+
+红色两版对全局/L2 是 memory-bound；黄色两版跨过了 HBM 的 ridge，瓶颈落在 shared 与指令上；绿色两版已是 compute-bound，只剩"非计算开销"可压。
+
 ### 2. 记号与硬件基线
 
 约定：$$C = A \cdot B$$，$$A$$ 为 $$M \times K$$，$$B$$ 为 $$K \times N$$，$$C$$ 为 $$M \times N$$，全部行主序（row-major）、FP32、$$M = N = K = 4096$$。硬件以 A100 SXM 80GB 为基准：FP32 CUDA Core 19.5 TFLOPS、HBM 约 2.0 TB/s、108 个 SM、每 SM 每周期 shared memory 带宽 128 字节、32 个 4 字节宽的 bank，均为公开标称值。
@@ -155,6 +182,23 @@ __global__ void sgemm_v1_naive(int M, int N, int K,
 //   sgemm_v1_naive<<<grid, block>>>(M, N, K, A, B, C);
 ```
 
+一个 warp 在某个 $$k$$ 上读到的是什么，画出来一看就明白：
+
+```text
+              A (M×K, 行主序)                 B (K×N, 行主序)                C (M×N)
+          k →                             col →
+     row  ┌──────────────────┐          ┌────────────────────────┐        ┌────────────────────────┐
+      ↓   │                  │      k   │                        │        │                        │
+          │                  │      ↓   │  ······████████████····│ ← 行 k │                        │
+  row ───►│ ······■·········  │          │        ↑ 32 个连续 float│        │  ······████████████····│ ← warp 的
+          │        ↑ A[row][k]│          │          = 128 B       │        │        ↑ 32 个输出      │   32 个输出
+          │  同一地址，广播   │          │          1 次合并访存   │        │   C[row][col..col+31]  │
+          └──────────────────┘          └────────────────────────┘        └────────────────────────┘
+
+  warp 的 32 个线程: threadIdx.x = 0..31 → col = col0 + 0..31, row 相同
+  每前进一个 k: 1 条 FFMA（64 FLOP） ← 1 sector 的 A（广播） + 4 sector 的 B（128 B）
+```
+
 `threadIdx.x` 映射到列而不是行是有意的：一个 warp 的 32 个线程在同一个 $$k$$ 上读 $$B[k][\text{col} \ldots \text{col}+31]$$，是连续的 128 字节，一次合并访存；而它们读的 $$A[\text{row}][k]$$ 是同一个地址，硬件广播。如果反过来把 `threadIdx.x` 映射到行，warp 内 32 个线程读 $$A$$ 的 32 个不同行，跨度 $$K \times 4 = 16$$ KB，每个线程一个 sector，带宽利用率 1/8——第三篇讲过的非合并访问。
 
 ### 2. 访存量与算术强度
@@ -193,6 +237,26 @@ L1 的命中率并不高（$$B$$ 是 64 MiB 的流式访问，一个 SM 上的 b
 ### 1. 分块把算术强度变成一个可设计的参数
 
 把 $$C$$ 切成 $$BM \times BN$$ 的 tile，每个 block 负责一个 tile。计算这个 tile 需要 $$A$$ 的 $$BM \times K$$ 条带和 $$B$$ 的 $$K \times BN$$ 条带；沿 $$K$$ 再切成长度 $$BK$$ 的段，每一段把 $$A$$ 的 $$BM \times BK$$ 子块与 $$B$$ 的 $$BK \times BN$$ 子块载入 shared memory，block 内所有线程从 shared 取数做 $$BM \cdot BN \cdot BK$$ 次 FMA。
+
+```text
+                 K                                 N                              N
+        ┌───┬───┬───┬───┐                ┌────┬────┬────┬────┐          ┌────┬────┬────┬────┐
+        │   │   │   │   │                │    │▓▓▓▓│    │    │ BK       │    │    │    │    │
+   M    ├───┼───┼───┼───┤          K     ├────┼────┼────┼────┤          ├────┼────┼────┼────┤
+        │▓▓▓│▓▓▓│▓▓▓│▓▓▓│ BM             │    │▓▓▓▓│    │    │     M    │    │████│    │    │ BM
+        ├───┼───┼───┼───┤                ├────┼────┼────┼────┤          ├────┼────┼────┼────┤
+        │   │   │   │   │                │    │▓▓▓▓│    │    │          │    │    │    │    │
+        └───┴───┴───┴───┘                └────┴────┴────┴────┘          └────┴────┴────┴────┘
+         A 的 BM×K 条带                    B 的 K×BN 条带                  C 的一个 BM×BN tile
+                                                                          （一个 block 负责）
+              ─── 沿 K 每次取一段 BK ───►
+
+   第 t 段:  As[BM][BK] ◄── A 条带第 t 块      Bs[BK][BN] ◄── B 条带第 t 块
+             __syncthreads()
+             block 内 BM×BN 个输出各做 BK 次 FMA，操作数全部来自 As / Bs
+             __syncthreads()
+   共 K/BK 段。每个 A 元素进 shared 一次后被 BN 个输出用到，每个 B 元素被 BM 个输出用到。
+```
 
 数一下全局读取量。每个 tile 沿 $$K$$ 读取 $$(BM + BN) \cdot K$$ 个元素，共 $$\frac{M}{BM} \cdot \frac{N}{BN}$$ 个 tile：
 
@@ -273,6 +337,21 @@ $$
 
 A100 每个 SM 每周期能从 shared memory 取 128 字节 = 32 个 float，也就是每周期服务一个 warp 宽度的一次访问（一个"wavefront"）。一个 SM 有 64 个 FP32 单元，峰值每周期 64 次 FMA，即每周期 2 条 warp 级 FFMA 指令。按 v2 的取数模式，一条 FFMA 前面有 2 条 LDS，各占一个 wavefront（$$A$$ 的广播也是一个 wavefront，只是数据少），所以每周期 2 条 FFMA 需要 4 个 wavefront，而 shared 只能给 1 个：
 
+```text
+  FMA 单元想要的节奏（每周期 2 条 warp 级 FFMA）:
+    周期:    1        2        3        4
+    FFMA:  ██ ██    ██ ██    ██ ██    ██ ██        ← 需要 4 个 wavefront/周期 喂数据
+
+  shared memory 能给的（每周期 1 个 wavefront）:
+    周期:    1        2        3        4
+    LDS :  ▓        ▓        ▓        ▓             ← 4 个周期只够喂 2 条 FFMA（每条要 A、B 各 1 个 wavefront）
+
+  实际节奏被 shared 拖成:
+    周期:    1        2        3        4
+           LDS A    LDS B    LDS A    LDS B
+                    FFMA              FFMA          ← 4 个周期 2 条 FFMA，峰值需要 8 条：上限 25%
+```
+
 $$
 \text{shared 带宽上限} = \frac{1}{4} \times \text{FP32 峰值} = 25\%
 $$
@@ -286,7 +365,32 @@ $$
 
 ### 1. 每线程算 TM×TN 个输出
 
-让每个线程负责 $$C$$ tile 里一个 $$TM \times TN$$ 的小块。每前进一个 $$k$$，线程从 shared 读 $$A$$ 的 $$TM$$ 个数（同一列 $$k$$ 上的 $$TM$$ 行）和 $$B$$ 的 $$TN$$ 个数（同一行 $$k$$ 上的 $$TN$$ 列），做外积，$$TM \times TN$$ 次 FMA 累加到寄存器里。$$TM = TN = 8$$：
+让每个线程负责 $$C$$ tile 里一个 $$TM \times TN$$ 的小块。每前进一个 $$k$$，线程从 shared 读 $$A$$ 的 $$TM$$ 个数（同一列 $$k$$ 上的 $$TM$$ 行）和 $$B$$ 的 $$TN$$ 个数（同一行 $$k$$ 上的 $$TN$$ 列），做外积，$$TM \times TN$$ 次 FMA 累加到寄存器里。
+
+```text
+  一个线程、一个 k 上做的事（TM = TN = 4 示意；本文实际 8×8）:
+
+        b_frag[0..TN)  ◄── Bs[k][tn*TN .. +TN)  （shared 里一行连续 TN 个，一条 LDS.128）
+        ┌────┬────┬────┬────┐
+        │ b0 │ b1 │ b2 │ b3 │
+  a_frag└────┴────┴────┴────┘
+  ┌────┐┌────┬────┬────┬────┐
+  │ a0 ││a0b0│a0b1│a0b2│a0b3│      acc[i][j] += a_frag[i] * b_frag[j]
+  ├────┤├────┼────┼────┼────┤
+  │ a1 ││a1b0│a1b1│a1b2│a1b3│      读入 TM + TN = 8 个数
+  ├────┤├────┼────┼────┼────┤      做   TM × TN = 16 次 FMA
+  │ a2 ││a2b0│a2b1│a2b2│a2b3│      每个 a 被用 TN 次，每个 b 被用 TM 次
+  ├────┤├────┼────┼────┼────┤
+  │ a3 ││a3b0│a3b1│a3b2│a3b3│      acc[TM][TN] 常驻寄存器，沿整个 K 累加
+  └────┘└────┴────┴────┴────┘
+    ▲
+    └── As[k][tm*TM .. +TM)  （A 转置存放后也是一行连续 TM 个）
+
+  v2 的一个线程:  读 2 个数 → 1 次 FMA          I_smem = 0.25
+  v3 的一个线程:  读 16 个数 → 64 次 FMA (8×8)   I_smem = 2
+```
+
+$$TM = TN = 8$$：
 
 $$
 I_{\text{shared, v3}} = \frac{2 \cdot TM \cdot TN}{(TM + TN) \times 4\ \text{B}} = \frac{128}{64} = 2\ \text{FLOP/byte}
@@ -294,13 +398,27 @@ $$
 
 对 shared 的算术强度从 0.25 升到 2，读取量按 LDS 指令数算减少 $$2 TM \cdot TN / (TM + TN) = 8$$ 倍；如果只按需要独立传输的数据算（v2 里 $$A$$ 那次读在 warp 内是广播，只传一份），减少 $$TM \cdot TN / (TM + TN) = 4$$ 倍。两种算法给出的结论相同：shared 不再是瓶颈。用上一节的 wavefront 语言重算：一个 warp 每前进一个 $$k$$ 发 64 条 FFMA、4 条 128 位的 LDS（$$A$$、$$B$$ 各两条 `float4`），64 条 FFMA 按峰值要 32 个周期（每周期 2 条 warp 级 FFMA），4 条 LDS 中 $$A$$ 的两条是广播、各 1 个 wavefront，$$B$$ 的两条各 2–4 个 wavefront，合计不超过 10 个周期，shared 端有 3 倍以上的余量。指令流里 FFMA 占到 90% 以上。
 
-同时 block 的线程数从 $$BM \cdot BN$$ 降到 $$\frac{BM}{TM} \cdot \frac{BN}{TN}$$：128×128 的 tile、8×8 的线程块，只要 256 个线程。这就解锁了 32 FLOP/byte 的全局算术强度。三层复用一起看：
+同时 block 的线程数从 $$BM \cdot BN$$ 降到 $$\frac{BM}{TM} \cdot \frac{BN}{TN}$$：128×128 的 tile、8×8 的线程块，只要 256 个线程。这就解锁了 32 FLOP/byte 的全局算术强度。三层复用一起看，就是同一个"越靠近计算单元、容量越小、复用越密"的金字塔：
 
-```text
-层次            复用单位                 每次载入被用几次
-HBM → shared    BM×BK 与 BK×BN 的 tile    每个 A 元素被 BN 个输出用到，每个 B 元素被 BM 个输出用到
-shared → 寄存器  TM 个 a 与 TN 个 b        每个 a 被 TN 次 FMA 用到，每个 b 被 TM 次 FMA 用到
-寄存器           TM×TN 个累加器            沿整个 K 累加，K 次写回一次
+```mermaid
+flowchart TB
+    hbm["HBM / L2<br/>A: M×K　B: K×N　C: M×N<br/>每个元素被 BN（或 BM）个输出用到"]
+    smem["shared memory（block 级）<br/>As: BM×BK　Bs: BK×BN<br/>每次载入被 block 内所有线程复用<br/>I_HBM = BM·BN / 2(BM+BN) = 32"]
+    reg["寄存器（线程级）<br/>a_frag[TM]　b_frag[TN]<br/>每个 a 用 TN 次，每个 b 用 TM 次<br/>I_smem = TM·TN / 2(TM+TN) = 2"]
+    acc["累加器 acc[TM][TN]<br/>沿整个 K 累加，K 次 FMA 才写回一次"]
+
+    hbm -- "cp.async / LDG.128，每 BK 一次" --> smem
+    smem -- "LDS.128，每 k 一次" --> reg
+    reg -- "FFMA ×(TM·TN)，每 k" --> acc
+
+    classDef l0 fill:#fde2e2,stroke:#c0392b
+    classDef l1 fill:#fdf1d6,stroke:#b9770e
+    classDef l2 fill:#dff5e1,stroke:#1e8449
+    classDef l3 fill:#dde9f7,stroke:#2e6da4
+    class hbm l0
+    class smem l1
+    class reg l2
+    class acc l3
 ```
 
 ### 2. 寄存器压力与占用率
@@ -320,6 +438,25 @@ $$
 **向量化**。256 个线程要搬 $$128 \times 8 = 1024$$ 个 $$A$$ 元素和 1024 个 $$B$$ 元素，每人 4 + 4 个，正好一个 `float4`。128 位加载（`LDG.128`）把加载指令数降到 1/4，对 L1 的请求数也更少。前提是地址 16 字节对齐：$$K$$、$$N$$ 是 4 的倍数，基址来自 `cudaMalloc`（256 字节对齐），就满足。
 
 **转置**。计算阶段线程要读"同一列 $$k$$ 上连续 $$TM$$ 行"的 $$A$$。如果 shared 里 $$A$$ 按原样存 `As[BM][BK]`，这 8 个数的地址间隔是 $$BK$$ 个 float，不连续，只能用 8 条 32 位 `LDS`；而且在 warp 内如果有 8 个线程的 `tm` 不同、读同一个 `kk`，它们的地址间隔 $$8 \times BK \times 4$$ 字节，$$BK = 8$$ 时正好是 256 字节，全部落在同一个 bank——8 路 bank conflict。两个经典解法：一是 `As[BM][BK + 1]` 的 padding，行跨度变成 9 个 float，同一列的元素错开一个 bank，conflict 消失，但 8 个数仍然不连续、不能用 `float4` 读；二是**转置存入** `As[BK][BM]`，同一 $$k$$ 的 $$BM$$ 个 $$A$$ 元素在 shared 里连续，读取阶段一条 `LDS.128` 取 4 个，两条取完 $$TM = 8$$，且 16 个共享同一个 `tm` 的线程读同一地址、是广播。转置的代价发生在写入端：`float4` 从全局读进来的 4 个 $$k$$ 连续元素要拆成 4 次标量写到 shared 的 4 个不同行。每个 tile 只写一次、读 $$BK$$ 次，把开销放在写这边是对的。
+
+```text
+  As[BM][BK]（原样存放，BK = 8）                As[BK][BM]（转置存放）
+  线程要读: 同一 k 上连续 TM = 8 行 ──►          同一 k 的 BM 个元素在一行里连续
+
+        k: 0  1  2  3  4  5  6  7                     m: 0  1  2  3  4  5  6  7  8 ...
+  m=0    [ ■  .  .  .  .  .  .  . ]              k=0  [ ■  ■  ■  ■  ■  ■  ■  ■  .  ... ]
+  m=1    [ ■  .  .  .  .  .  .  . ]              k=1  [ .  .  .  .  .  .  .  .  .  ... ]
+  m=2    [ ■  .  .  .  .  .  .  . ]              k=2  [ .  .  .  .  .  .  .  .  .  ... ]
+  ...      ■                                      ...
+  m=7    [ ■  .  .  .  .  .  .  . ]
+                                                 读: 2 条 LDS.128（连续 8 个 float）
+  读: 8 条标量 LDS，地址间隔 BK×4 = 32 B          写: 全局 float4 的 4 个 k 拆成 4 次标量写
+  warp 内不同 tm 的线程地址间隔 8×32 B = 256 B         （每 tile 只写 1 次、读 BK 次，代价放在写端划得来）
+  → 全部落在同一 bank，8 路 conflict
+
+  折中方案 As[BM][BK+1]（padding）: 行跨度 9 个 float → 同列元素错开 1 个 bank，conflict 消失，
+                                   但 8 个数仍不连续，不能 float4 读
+```
 
 $$B$$ 不需要转置：计算阶段读"同一行 $$k$$ 上连续 $$TN$$ 列"，正好是 `Bs[BK][BN]` 的一行里连续的 8 个，`float4` 直接读。
 
@@ -444,7 +581,24 @@ sgemm_v3_regtile(int M, int N, int K,
 
 ### 1. Ampere 之前的写法：寄存器预取
 
-思路是让 tile $$k+1$$ 的加载与 tile $$k$$ 的计算重叠。在 Ampere 之前，全局到 shared 的数据必须经过寄存器，所以流水线是三段式的：在计算 tile $$k$$ 之前，先把 tile $$k+1$$ 从全局 `LDG` 到一组临时寄存器（这些 load 是异步的，发出去就可以继续算）；算完 tile $$k$$ 之后把临时寄存器写进 shared 的**另一套** buffer；一次 `__syncthreads()`，交换 buffer 指针，进入下一轮。两套 shared buffer 就是"双缓冲"。代价是那组临时寄存器（本文配置下 8 个）和更复杂的代码；收益是加载延迟被计算掩盖，每个 tile 的同步从两次降到一次——因为写入的是另一套 buffer，不需要"读完再写"的那次同步。
+思路是让 tile $$k+1$$ 的加载与 tile $$k$$ 的计算重叠。先看 v3 的时间轴到底浪费在哪：
+
+```text
+  v3（串行）:  每个 tile 先加载、同步、再计算、再同步；两种单元轮流空转
+    加载单元  ██████            ██████            ██████
+    FMA 单元        ████████████      ████████████      ████████████
+              ├ load 0 ┤ sync ├ compute 0 ┤ sync ├ load 1 ┤ ...
+    时间 ────────────────────────────────────────────────────────────►
+
+  v5（流水）:  tile t+1、t+2 的加载在途时算 tile t；FMA 单元几乎不停
+    加载单元  ██████ ██████ ██████ ██████ ██████ ██████
+    FMA 单元         ████████████████████████████████████████████
+              ├ L0 ┤├ L1 ┤├ L2 ┤
+                    ├ C0 ┤├ C1 ┤├ C2 ┤ ...        每 tile 只有 1 次 __syncthreads()
+    时间 ────────────────────────────────────────────────────────────►
+```
+
+在 Ampere 之前，全局到 shared 的数据必须经过寄存器，所以流水线是三段式的：在计算 tile $$k$$ 之前，先把 tile $$k+1$$ 从全局 `LDG` 到一组临时寄存器（这些 load 是异步的，发出去就可以继续算）；算完 tile $$k$$ 之后把临时寄存器写进 shared 的**另一套** buffer；一次 `__syncthreads()`，交换 buffer 指针，进入下一轮。两套 shared buffer 就是"双缓冲"。代价是那组临时寄存器（本文配置下 8 个）和更复杂的代码；收益是加载延迟被计算掩盖，每个 tile 的同步从两次降到一次——因为写入的是另一套 buffer，不需要"读完再写"的那次同步。
 
 ### 2. Ampere 的 cp.async：绕过寄存器
 
@@ -458,6 +612,25 @@ __syncthreads()            # 对所有线程而言 tile t 已落地；且所有�
 issue cp.async for tile t + S - 1 → buffer (t + S - 1) mod S   ( == (t - 1) mod S，刚释放的那套 )
 commit_group               # 即使没有实际 copy 也 commit 一个空 group，保持 group 计数一致
 compute tile t from buffer t mod S
+```
+
+把 $$S = 3$$ 的环形 buffer 逐轮画出来，`wait_group(S-2) = wait_group(1)` 为什么恰好保证 tile $$t$$ 落地就一目了然：
+
+```text
+  S = 3，buffer 0/1/2 轮转。 ▓ = 正在被计算   ░ = 在途（cp.async 已发出）   · = 空闲/刚释放
+
+              buf0     buf1     buf2     本轮动作
+  prologue    ░tile0   ░tile1   ·        发出 tile 0、1 → commit ×2
+  ─────────────────────────────────────────────────────────────────────────────
+  t = 0       ▓tile0   ░tile1   ░tile2   wait_group(1): 允许 1 个在途(tile1) → tile0 已到
+                                          sync；发出 tile2 → buf2；算 tile0
+  t = 1       ░tile3   ▓tile1   ░tile2   wait_group(1): 允许 tile2 在途 → tile1 已到
+                                          sync（所有人算完 tile0，buf0 可复用）；发出 tile3 → buf0；算 tile1
+  t = 2       ░tile3   ░tile4   ▓tile2   发出 tile4 → buf1；算 tile2
+  t = 3       ▓tile3   ░tile4   ░tile5   发出 tile5 → buf2；算 tile3
+  ...
+  规律: 第 t 轮算 buf[t mod 3]，往 buf[(t-1) mod 3]（上一轮刚算完的）里填 tile t+2
+        永远有 S-1 = 2 个 tile 在途，每轮 1 次 __syncthreads()
 ```
 
 每个 tile 只有一次 `__syncthreads()`。shared 用量：
@@ -667,6 +840,18 @@ $$
 \frac{1024}{216} \approx 4.74\ \text{waves}
 $$
 
+```text
+  216 个 block 槽位（108 SM × 2）                      时间 ────►
+  ┌──────────────────────────────────────────────────┐
+  │ wave 1  ████████████████████████████████████ 216 │
+  │ wave 2  ████████████████████████████████████ 216 │
+  │ wave 3  ████████████████████████████████████ 216 │
+  │ wave 4  ████████████████████████████████████ 216 │
+  │ wave 5  ███████████████████████████░░░░░░░░░ 160 │ ← 26% 的槽位空转
+  └──────────────────────────────────────────────────┘
+  1024 block / 216 = 4.74 wave，但要付 5 个 wave 的时间 → 效率 4.74 / 5 = 94.8%
+```
+
 前 4 波满载，第 5 波只有 $$0.74 \times 216 = 160$$ 个 block，SM 有 26% 在空转。如果每个 block 的时间相同，整体效率是 $$4.74 / 5 = 94.8\%$$，损失 5%。这叫 wave quantization（波次量化）。缓解办法有：换一个让 block 数接近 216 整数倍的 tile 尺寸（比如 128×256 → 512 个 block，每 SM 1 个 → 4.74 波，没有改善；256×128 同理；64×128 → 2048 个 block，每 SM 3 个 → 324 并发 → 6.3 波，第 7 波 32%，效率 90%——更差），或者用第九节的 stream-K 把最后一波的工作按 $$K$$ 拆碎分给所有 SM。cuBLAS 的启发式选择 kernel 时就在权衡这些，这也是为什么同一个 GEMM 换一组形状，cuBLAS 的效率会在 85% 与 95% 之间跳动。
 
 
@@ -686,6 +871,8 @@ v5     32                   2               残余 bank conflict、LDS/FFMA 配�
 cuBLAS 16–21（多种 tile）    ≥2              —                                  ~85–95%
 理论    683                 —               算力                                100%（7.0 ms）
 ```
+
+![六版 SGEMM 在 A100 FP32 Roofline 上的位置](/img/in-post/gemm-from-naive-to-tiled-roofline.svg)
 
 从 Roofline 的视角复述一遍这条路径：v1 在图的最左边，x 轴 0.25、被斜线压死；v2 向右走到 8，仍在斜线下面，而且换成 shared memory 那条 Roofline 之后更明显；v3 跨过 ridge 到 32，进入水平线下方，从此以后的优化都不再改变 x 坐标，只是让点沿着垂直方向向水平线靠近——v4 减少指令数、v5 重叠加载与计算，都是在"已经 compute-bound"的前提下压缩非计算的开销。**跨过 ridge 只需要分块；贴近峰值需要流水线。**
 
@@ -714,6 +901,26 @@ $$
 $$
 
 108 个 SM 只有 32 个有活干，其余 76 个空转——不论 kernel 写得多好，上限是 30%。而且每个 block 要独自沿 $$K = 4096$$ 走完 512 个 tile，串行时间很长。
+
+```text
+  M = 8, N = K = 4096, tile 128×128 → C 只有 32 个 tile
+
+  普通:      32 个 block，各自沿 K 走完 512 段            108 个 SM 中 76 个空转
+    SM 0..31   ████████████████████████████████████████  (每个 block 串行 512 个 BK)
+    SM 32..107 ·········································
+
+  split-K:   K 切 4 段，128 个 block，每个只走 128 段，再归约        全部 SM 有活干
+    SM 0..107  ██████████ ┐
+               ██████████ ├─► 4 个部分和 → atomicAdd 到 C，或写 workspace[4][M][N] 再 reduce
+               ...        ┘
+
+  stream-K:  总工作量 32 tile × 512 段 = 16384 段，均分给 108 个持久 block，每个 ~152 段
+    block 0    [tile0: 段 0..151]
+    block 1    [tile0: 段 152..303]
+    block 2    [tile0: 段 304..455]
+    block 3    [tile0: 段 456..511 │ tile1: 段 0..95]   ← 跨 tile 边界，部分和经 workspace + flag 拼回
+    ...                                                  没有"最后一波"：工作按量切而不是按 tile 切
+```
 
 **split-K** 的解法是把 $$K$$ 切成 $$S$$ 段，每段一个 block 独立算部分和，然后归约。$$S = 4$$ 时 block 数变成 128，能覆盖 108 个 SM；归约有两种做法：各 block 用 `atomicAdd` 直接加到 $$C$$ 上（简单，但 FP32 原子加的顺序不确定，结果不可复现，且要先把 $$C$$ 清零），或者写到一个 $$S \times M \times N$$ 的 workspace，再跑一个小 kernel 求和（确定性，多一次 launch 与一次 $$S \times M \times N$$ 的读写）。cuBLAS 与 CUTLASS 都提供 split-K，CUTLASS 的 `GemmSplitKParallel` 就是后一种。
 

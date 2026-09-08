@@ -90,6 +90,29 @@ decode 阶段（$$M = 1$$ 或几十）这张表会完全翻转：所有 GEMM 的
 
 **Nsight Compute（ncu）** 只看单个 kernel 的内部：它把这个 kernel 重放（replay）几十次，每次采集一组硬件计数器，最后拼成一份报告。开销极大（一个 kernel 可能被重放 40 次以上），所以必须用过滤器只选一两个 kernel。它回答的是"这个 kernel 为什么慢"。
 
+```mermaid
+flowchart TB
+    theory["① 先算理论下界<br/>每个 kernel 的 bytes / BW、FLOPs / P_peak"]
+    tp["② torch.profiler<br/>哪个算子慢？（Python 栈 ↔ kernel）"]
+    nsys["③ Nsight Systems（nsys）<br/>时间线：kernel 之间有空隙吗？CPU 拖后腿吗？<br/>开销 ~几 %，可跑整个前向"]
+    gap{"时间在 kernel 之间<br/>还是 kernel 内部？"}
+    between["修 launch / 同步 / 分配器<br/>CUDA graph、去 .item()、算子融合<br/>（ncu 帮不上）"]
+    which["按 实测 / 理论下界 的比值排序<br/>比值最大的 kernel 是下一步对象"]
+    ncu["④ Nsight Compute（ncu）<br/>重放 40+ 次采硬件计数器<br/>只对 1–2 个 kernel 用 -k / -c 过滤"]
+    fix["⑤ 第五章的决策树 → 改 kernel → 回到 ①"]
+
+    theory --> tp --> nsys --> gap
+    gap -- "之间" --> between
+    gap -- "内部" --> which --> ncu --> fix
+
+    classDef coarse fill:#dde9f7,stroke:#2e6da4
+    classDef fine fill:#fdf1d6,stroke:#b9770e
+    classDef act fill:#dff5e1,stroke:#1e8449
+    class theory,tp,nsys coarse
+    class ncu fine
+    class between,which,fix act
+```
+
 顺序永远是先 nsys 再 ncu：先确认时间确实花在 kernel 内部而不是 kernel 之间，再确认是哪个 kernel，最后才打开 ncu。用 ncu 去优化一个只占 2% 时间的 kernel，或者去优化一个其实被 CPU launch 开销卡住的 decode 循环，都是浪费。
 
 ### 2. 用 NVTX 标记 + nsys 找出最耗时的 kernel
@@ -210,6 +233,20 @@ ncu-ui rms_full.ncu-rep
 
 ### 4. Warp State Statistics：warp 在等什么
 
+```text
+  一个 warp 调度器手里的 4 个 warp，逐周期看它们在干什么（▶ = 被选中发射，S = stall 等待，· = 就绪未选中）:
+
+  周期:     1   2   3   4   5   6   7   8   9  10  11  12
+  warp 0    ▶   S   S   S   S   S   S   S   S   ▶   S   S      LDG 发出后等 ~600 周期数据回来 → long scoreboard
+  warp 1    ·   ▶   S   S   S   S   S   S   S   S   ▶   S
+  warp 2    ·   ·   ▶   S   S   S   S   S   S   S   S   ▶
+  warp 3    ·   ·   ·   ▶   S   S   S   S   S   S   S   S
+  发射槽:   ✓   ✓   ✓   ✓   ✗   ✗   ✗   ✗   ✗   ✓   ✓   ✓      ← 第 5–9 周期没有任何 warp 就绪：调度器空转
+
+  ncu 统计的是: 每发一条指令，warp 平均 stall 了多少周期，按原因分类（上图全是 long scoreboard）
+  解法只有两个: 更多 warp（occupancy ↑，让 · 更多）或每个 warp 发出更多独立请求再等（ILP ↑，让 S 更短）
+```
+
 这一节是 latency-bound kernel 的核心。每个 SM 有 4 个 warp 调度器，每个周期各挑一个"就绪"的 warp 发一条指令。一个 warp 不就绪时处于某种 **stall** 状态；ncu 统计每个 warp 平均每发一条指令要 stall 多少周期，并按原因分解。原因的读法：
 
 ```text
@@ -285,6 +322,19 @@ Launch Statistics
 
 这份报告说"没什么可改的"：带宽利用率已经在 80% 上下，stall 集中在 long scoreboard 但 DRAM 已经忙，occupancy 高。剩下 10–20% 的差距来自 DRAM 读写切换、行尾的归约同步与 kernel 启动/收尾，是工程上接受的水平。
 
+把"做对了"和"有问题"两个版本的关键指标并排画出来，会发现 stall 分布几乎一样，差别全在 SOL 与 occupancy：
+
+```text
+                        做对了的版本                    有问题的版本
+                        16 B 向量化，256 线程            2 B 标量，128 线程，smem 限 3 block/SM
+  SOL Memory %          ████████████████░░░░ 80         ████████░░░░░░░░░░░░ 40    ← 差别在这
+  SOL Compute %         ███░░░░░░░░░░░░░░░░░ 15         ██░░░░░░░░░░░░░░░░░░ 12
+  Occupancy achieved %  ████████████████░░░░ 80         ███░░░░░░░░░░░░░░░░░ 15    ← 差别在这
+  Sectors / Request     16（理想）                       2（合并了，但每条指令只搬 64 B）
+  long scoreboard %     █████████████░░░░░░░ 65         ██████████████░░░░░░ 70    ← 几乎一样！
+  结论                  memory-bound，到头了             latency-bound，在飞的字节太少
+```
+
 对比一个**有问题**的版本的典型形态：同样的 kernel，如果每线程只做 2 字节标量加载、且一个 block 只有 128 线程、每 SM 驻留 block 数被 shared memory 限制在 3——报告会变成 SOL Memory 35–50%、SOL Compute 10–15%（两者都低：latency-bound）、Sectors/Req 2（合并了但每个请求只搬 64 B，LSU 指令数是向量化版本的 8 倍，LG throttle 上升）、theoretical occupancy 19%、achieved 15%、long scoreboard 70% 以上。这两份报告的 stall 分布几乎一样，结论完全相反——判断依据是 SOL 与 occupancy，而不是 stall 本身。这就是第五章决策树的起点。
 
 
@@ -292,39 +342,50 @@ Launch Statistics
 
 ### 1. 决策树
 
-```text
-                          读 GPU Speed of Light
-                                 │
-        ┌────────────────────────┼────────────────────────┐
-        │                        │                        │
-  Memory > 80%             Compute > 80%           两者都 < 40–50%
-  memory-bound             compute-bound           latency-bound
-        │                        │                        │
-  已到带宽极限，            看 Compute Workload：       看 Occupancy 与 Warp State
-  只能减少字节数：           Tensor pipe 利用率？              │
-   · 融合相邻 kernel              │                 ┌────────┴─────────┐
-   · 重算代替存储           高 → 已到算力极限，       occupancy 低         occupancy 够
-   · 低精度存储/传输          换算法或换精度               │                    │
-   · 减少重复读（tile 复用）  低 → Tensor Core 没用上   限制因素？          看主导 stall：
-                             或 fragment 转换/         · 寄存器 → 减每线程    · long scoreboard 高
-                             softmax/地址计算太多：      工作量、__launch_       → 访存延迟未隐藏：
-                             · 换 mma/wgmma 形状        bounds__、-maxrreg-     更多 ILP（多个独立
-                             · ldmatrix / TMA           count（注意 spill）      加载在飞）、向量化、
-                             · 交错 softmax 与 GEMM    · shared → 减 tile、      cp.async 多级流水、
-                             · 减少类型转换              swizzle 代替 padding    提高 occupancy
-                                                      · grid 太小（waves<1）  · MIO / short scoreboard
-                                                        → split-K、更小 tile、  → shared 访问过多或
-                                                        更多 block              bank conflict：寄存器
-                                                      · tail（waves 非整数）    分块、swizzle、ldmatrix
-                                                        → 调 tile 让 wave 满   · barrier 高 → 同步太多：
-                                                                                双缓冲减同步、warp 级
-                                                                                独立工作、减小 block
-                                                                              · LG throttle → 访存指令
-                                                                                太碎：向量化
-                                                                              · math pipe throttle
-                                                                                → 其实 compute-bound
-                                                                              · no instruction → 展开
-                                                                                过度，减小代码体积
+```mermaid
+flowchart TB
+    sol["读 GPU Speed of Light"]
+    mem["Memory > 80%<br/><b>memory-bound</b>"]
+    comp["Compute > 80%<br/><b>compute-bound</b>"]
+    lat["两者都 < 40–50%<br/><b>latency-bound</b>"]
+    sol --> mem
+    sol --> comp
+    sol --> lat
+
+    memfix["已到带宽极限，只能减字节：<br/>· 融合相邻 kernel<br/>· 重算代替存储<br/>· 低精度存储 / 传输<br/>· 减少重复读（tile 复用）"]
+    mem --> memfix
+
+    tensor{"Compute Workload：<br/>Tensor pipe 利用率？"}
+    comp --> tensor
+    thi["高 → 已到算力极限<br/>换算法或换精度"]
+    tlo["低 → Tensor Core 没用上，或<br/>fragment 转换 / softmax / 地址计算太多：<br/>· 换 mma / wgmma 形状<br/>· ldmatrix / TMA<br/>· 交错 softmax 与 GEMM<br/>· 减少类型转换"]
+    tensor -- "高" --> thi
+    tensor -- "低" --> tlo
+
+    occ{"Occupancy 够吗？"}
+    lat --> occ
+    occlo["occupancy 低 → 看限制因素：<br/>· 寄存器 → 减每线程工作量、__launch_bounds__、<br/>　-maxrregcount（盯住 spill）<br/>· shared → 减 tile、swizzle 代替 padding<br/>· grid 太小（waves < 1）→ split-K、更小 tile<br/>· tail（waves 非整数）→ 调 tile 让 wave 满"]
+    stall{"occupancy 够 →<br/>看主导 stall"}
+    occ -- "低" --> occlo
+    occ -- "够" --> stall
+
+    s1["long scoreboard<br/>访存延迟未隐藏：<br/>ILP（多个独立加载在飞）、<br/>向量化、cp.async 流水"]
+    s2["MIO / short scoreboard<br/>shared 访问过多或 bank conflict：<br/>寄存器分块、swizzle、ldmatrix"]
+    s3["barrier<br/>同步太多：双缓冲减同步、<br/>warp 级独立工作、减小 block"]
+    s4["LG throttle → 访存指令太碎：向量化<br/>math pipe throttle → 其实 compute-bound<br/>no instruction → 展开过度，减代码体积"]
+    stall --> s1
+    stall --> s2
+    stall --> s3
+    stall --> s4
+
+    classDef m fill:#fde2e2,stroke:#c0392b
+    classDef c fill:#dff5e1,stroke:#1e8449
+    classDef l fill:#fdf1d6,stroke:#b9770e
+    classDef q fill:#dde9f7,stroke:#2e6da4
+    class mem,memfix m
+    class comp,thi,tlo c
+    class lat,occlo,s1,s2,s3,s4 l
+    class sol,tensor,occ,stall q
 ```
 
 这棵树的第一层用 SOL 把 kernel 分成三类，因为三类的优化手段互斥：memory-bound 的 kernel 提高 occupancy 没有用（带宽已满）；latency-bound 的 kernel 做融合没有用（问题不是字节数）。第二层才看 stall——stall 原因只在 latency-bound 分支里有诊断价值。
@@ -347,6 +408,17 @@ Launch Statistics
 - 把循环里"加载→用→加载→用"改成"先发出 4 个独立加载、再依次使用"（编译器在没有别名与循环携带依赖时会自动做，`#pragma unroll` 加 `__restrict__` 能帮它）；
 - 向量化：每线程一次 16 字节，同样多的数据用 1/4 甚至 1/8 的指令数，每条指令带回更多字节；
 - `cp.async` 多级流水（Ampere）或 TMA（Hopper）：让下一个 tile 的加载与当前 tile 的计算重叠，把"等内存"的时间换成"算上一块"的时间。
+
+```text
+  一个 SM 要跑满带宽，必须时刻有 ≈ 延迟 × 每 SM 带宽份额 = 600 周期 × 13 B/周期 ≈ 8 KB 在飞
+
+  （每格 = 1 KB）
+  需要在飞                              ████████ 8 KB
+  16 warp × 1 请求 × 512 B              ████████ 8 KB                          ← 刚够；block 切换 / tail 一来就掉下去
+  16 warp × 4 请求 × 512 B（ILP 4）      ████████████████████████████████ 32 KB  ← 4 倍余量
+  8 warp（占用 12.5%）× 8 请求 × 512 B   ████████████████████████████████ 32 KB  ← cuBLAS/CUTLASS 的活法
+  16 warp × 1 请求 × 64 B（标量 BF16）    █ 1 KB                                 ← 带宽最多到 1/8
+```
 
 延迟隐藏的账是这样的：DRAM 延迟约 500–800 周期，一个 SM 要把带宽跑满需要"在飞"的字节数 ≈ 延迟 × 每 SM 带宽份额。A100 每 SM 每周期约 2.0 TB/s ÷ 108 ÷ 1.41 GHz ≈ 13 字节，乘 600 周期约 8 KB 在飞。16 个 warp、每 warp 一次 512 字节的请求只有 8 KB——刚刚够，任何一点不均衡就掉下来；每 warp 同时发 4 个请求就是 32 KB，余量充足。这就是为什么低 occupancy 下 ILP 能救回来，也是 cuBLAS/CUTLASS 在 12.5% occupancy 下仍能满带宽的原因。
 
@@ -750,6 +822,31 @@ at::Tensor my_gemm(const at::Tensor& a, const at::Tensor& b) {
 
 第二到九篇用 `torch.utils.cpp_extension.load_inline` 把 kernel 暴露成一个普通的 Python 函数，测试与 benchmark 够用了。但一个普通函数对 PyTorch 是黑盒：`torch.compile` 遇到它会 graph break（Dynamo 不知道它对 tensor 做了什么，只能把图切开、把这个调用留给 eager）；`torch.export` 无法序列化它；autograd 不知道它有没有原地修改输入。把 kernel 注册成 **算子（operator）** 就是给 PyTorch 一份"它做了什么"的声明：一个 schema 字符串描述输入输出与可变性，一个 fake kernel 描述输出的 shape/dtype/device 如何由输入决定。有了这两样，编译器就能把它当成一个不透明但形状已知的节点放进图里。
 
+```mermaid
+flowchart TB
+    py["Python: torch.ops.my_ops.rms_norm(x, w, eps)"]
+    disp["Dispatcher<br/>按输入 tensor 的 device / 是否 Fake 选实现"]
+    schema["TORCH_LIBRARY(my_ops)<br/>schema: rms_norm(Tensor x, Tensor w, float eps) -> Tensor<br/>声明输入输出与可变性"]
+    cuda["TORCH_LIBRARY_IMPL(my_ops, CUDA)<br/>真正 launch kernel"]
+    fake["register_fake / Meta<br/>只算输出 shape · dtype · device，不碰数据"]
+    eager["eager 执行<br/>真实 CUDA tensor"]
+    compile["torch.compile / torch.export<br/>Dynamo 用 fake kernel 追踪形状，<br/>算子成为图中一个不透明节点（不 graph break）"]
+    check["torch.library.opcheck<br/>校验 schema、fake 与真实实现一致、<br/>autograd / 别名声明"]
+
+    py --> disp
+    schema -. "注册" .-> disp
+    disp -- "CUDA tensor" --> cuda --> eager
+    disp -- "FakeTensor" --> fake --> compile
+    check -. "测试时跑一遍所有路径" .-> disp
+
+    classDef c fill:#dff5e1,stroke:#1e8449
+    classDef f fill:#dde9f7,stroke:#2e6da4
+    classDef s fill:#fdf1d6,stroke:#b9770e
+    class cuda,eager c
+    class fake,compile f
+    class schema,check s
+```
+
 本文只讲 kernel 开发者需要的最小集，不展开 Dispatcher 的原理。
 
 ### 2. C++ 侧：TORCH_LIBRARY + TORCH_LIBRARY_IMPL
@@ -1019,6 +1116,37 @@ kernel 注册进 `torch.ops._C` 只是让它可调用；决定"什么时候调�
 
 
 ## 十一、一个 kernel PR 的完整流程
+
+从想法到合入，一条 kernel PR 要过的关卡按顺序排出来是这样的（每一步的"产出物"就是下一步的输入）：
+
+```mermaid
+flowchart TB
+    idea["动机：哪个模型 / shape / 现有 kernel 离 Roofline 差多少"]
+    rfc["① 开 issue / RFC<br/>方案、架构与 dtype 范围、benchmark 计划<br/>→ 等 maintainer 正面回应"]
+    impl["② 实现<br/>csrc/ kernel + ops.h + torch_bindings.cpp + CMakeLists<br/>+ _custom_ops.py + 层里的选择逻辑"]
+    test["③ 正确性<br/>tests/kernels/：FP32 参考、按 dtype 的 tolerance<br/>边界 shape、非连续输入、opcheck"]
+    bench["④ benchmark<br/>warmup、L2 flush、中位数<br/>多 shape × 多 GPU（≥ A100 + H100）的 before/after 表"]
+    eval{"改变了数值行为？<br/>（量化、累加顺序）"}
+    lmeval["模型评测<br/>lm_eval GSM8K 等"]
+    lint["⑤ pre-commit run --all-files<br/>ruff / clang-format / mypy；git commit -s（DCO）"]
+    pr["⑥ PR：Purpose / Test Plan / Test Result<br/>+ AI 辅助声明"]
+    review["⑦ review：该不该有 → 正确性边界 → 数值 →<br/>多架构 fallback → 编译时间与体积 → 复用 → benchmark 可信度"]
+    ci["⑧ CI 硬件矩阵<br/>Buildkite kernels.yaml：按 source_file_dependencies 触发，<br/>指定 device: h100 / b200"]
+    merge["合入"]
+
+    idea --> rfc --> impl --> test --> bench --> eval
+    eval -- "是" --> lmeval --> lint
+    eval -- "否" --> lint
+    lint --> pr --> review --> ci --> merge
+    review -. "改" .-> impl
+
+    classDef talk fill:#dde9f7,stroke:#2e6da4
+    classDef code fill:#dff5e1,stroke:#1e8449
+    classDef gate fill:#fdf1d6,stroke:#b9770e
+    class idea,rfc,pr,review talk
+    class impl,test,bench,lmeval code
+    class lint,ci,eval gate
+```
 
 ### 1. 先讨论，再写
 

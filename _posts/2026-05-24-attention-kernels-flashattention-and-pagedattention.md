@@ -89,6 +89,37 @@ $$
 
 这就是 FlashAttention 要解决的问题：**不是 FLOPs 太多，而是一个 $$N \times N$$ 的中间结果不该被写出去。**
 
+```mermaid
+flowchart LR
+    subgraph std["标准实现：三个 kernel，S 与 P 往返 HBM"]
+        direction TB
+        q1["Q, K（HBM，各 1 MiB）"] --> g1["GEMM #1"]
+        g1 -- "写 S 32 MiB" --> s1["S（HBM）"]
+        s1 -- "读 32 MiB" --> sm1["softmax"]
+        sm1 -- "写 P 32 MiB" --> p1["P（HBM）"]
+        p1 -- "读 32 MiB" --> g2["GEMM #2"]
+        v1["V（HBM，1 MiB）"] --> g2
+        g2 -- "写 O 1 MiB" --> o1["O（HBM）"]
+    end
+    subgraph fa["FlashAttention：一个 kernel，S/P 只存在于片上"]
+        direction TB
+        q2["Q_i, K_j, V_j tile<br/>（HBM → smem / 寄存器）"] --> g3["GEMM #1 → S_ij<br/>寄存器（FP32）"]
+        g3 --> sm2["online softmax → P̃_ij<br/>寄存器，同时更新 m, l"]
+        sm2 --> g4["GEMM #2：O_i += P̃_ij V_j<br/>寄存器累加器"]
+        g4 -- "遍历完所有 j 后写 1 次" --> o2["O（HBM，1 MiB）"]
+    end
+    std ~~~ fa
+
+    classDef hbm fill:#fde2e2,stroke:#c0392b
+    classDef chip fill:#dff5e1,stroke:#1e8449
+    classDef k fill:#dde9f7,stroke:#2e6da4
+    class q1,s1,p1,v1,o1,q2,o2 hbm
+    class g3,sm2,g4 chip
+    class g1,sm1,g2 k
+```
+
+红色是 HBM 上的张量：左边 N² 大小的 S、P 各进出 HBM 两次（128 MiB），右边只剩 Q、K、V、O 四个 N·d 大小的张量。
+
 
 ## 三、FlashAttention：分块 + online softmax + 不物化 S
 
@@ -103,6 +134,29 @@ $$
 这里 $$m_i$$ 是每一行的全局最大值（一个 $$B_r$$ 维向量），$$e^{\cdot}$$ 逐元素。分子和分母都是**对 $$j$$ 的求和**——这正是 online softmax 能处理的形式。
 
 ### 2. 每个 tile 做什么
+
+```text
+  一个 thread block 负责 Q 的第 i 块（B_r 行），沿 K/V 的块 j = 1, 2, 3, ... 扫过去：
+
+        K^T (d × N)                                     V (N × d)
+        ┌────┬────┬────┬────┐                           ┌──────────┐
+        │ K₁ │ K₂ │ K₃ │ K₄ │  每次取一块 K_j (B_c 列)    │    V₁    │
+        └────┴────┴────┴────┘                           ├──────────┤
+                 ▲                                      │    V₂    │  每次取对应的 V_j (B_c 行)
+   Q_i           │                                      ├──────────┤
+  ┌─────┐   ┌────┴────┐        ┌───────┐               │    V₃    │
+  │ B_r │ × │  K_j^T  │  =     │ S_ij  │ B_r × B_c     ├──────────┤
+  │ × d │   └─────────┘        │(寄存器)│               │    V₄    │
+  └─────┘                      └───┬───┘               └──────────┘
+   常驻                            │  行 max → m_new；P̃ = exp(S - m_new)；行和 → l̃
+                                   ▼
+                     ┌───────────────────────────┐          ┌──────────┐
+   block 里的状态:   │ m_i [B_r]   l_i [B_r]       │  O_i  =  │ O_i·α +  │  α = exp(m_old - m_new)
+                     │ O_i [B_r × d]（未归一化）   │ ◄──────  │  P̃_ij V_j │  （第二个 GEMM）
+                     └───────────────────────────┘          └──────────┘
+
+   j 走完 → O_i / l_i → 写回 HBM。S_ij、P̃_ij 从头到尾没有离开寄存器。
+```
 
 一个 thread block 拿到 $$Q_i$$（放进 shared memory 或直接进寄存器），维护三个运行量：行最大值 $$m_i \in \mathbb{R}^{B_r}$$（初值 $$-\infty$$）、行分母 $$l_i \in \mathbb{R}^{B_r}$$（初值 0）、未归一化的输出累加器 $$O_i \in \mathbb{R}^{B_r \times d}$$（初值 0）。然后依次遍历 $$K_j, V_j$$：
 
@@ -165,6 +219,20 @@ FA2 做了三处改动：
 
 **warp 分工从 "split K" 改为 "split Q"。** 一个 block 里通常有 4 个 warp。FA1 让 4 个 warp 各持有 $$K_j$$ 的一段（沿 $$B_c$$ 切），每个 warp 算出 $$S_{ij}$$ 的一个列切片；但 softmax 是按**行**归约的，行最大值和行和需要跨 4 个 warp 通过 shared memory 同步——每个 tile 都要 `__syncthreads()` 加 shared 读写。FA2 让 4 个 warp 各持有 $$Q_i$$ 的若干行（$$B_r = 128$$ 时每 warp 32 行，或用 16 行的 mma 形状），每个 warp 独立算出自己那些行对完整 $$K_j$$ 的 $$S$$、独立做行 softmax、独立累加 $$O$$——**warp 之间零通信**。代价是 $$K_j, V_j$$ 要被 4 个 warp 各读一遍（从 shared memory，不是 HBM），但这比每 tile 一次跨 warp 归约便宜得多。
 
+```text
+  FA1: "split K" —— 4 个 warp 各拿 K_j 的 1/4 列              FA2: "split Q" —— 4 个 warp 各拿 Q_i 的 1/4 行
+
+            K_j 的列: w0 │ w1 │ w2 │ w3                          K_j 全部列（每个 warp 都读一遍 smem）
+        ┌────────────────────────────┐                        ┌────────────────────────────┐
+        │  w0  │  w1  │  w2  │  w3   │  Q_i 全部行             │ ◄──── warp 0 的 16/32 行 ────►│
+   S_ij │  w0  │  w1  │  w2  │  w3   │                   S_ij │ ◄──── warp 1 ────────────────►│
+        │  w0  │  w1  │  w2  │  w3   │                        │ ◄──── warp 2 ────────────────►│
+        │  w0  │  w1  │  w2  │  w3   │                        │ ◄──── warp 3 ────────────────►│
+        └────────────────────────────┘                        └────────────────────────────┘
+   行 max / 行和 横跨 4 个 warp                             每一行完整地在一个 warp 手里
+   → 每个 tile: smem 写 → __syncthreads → 读 → 归约         → 行归约只需 warp 内 shfl，warp 间零通信
+```
+
 **延迟 rescale，减少非 matmul 运算。** 上一节的算法每个 tile 都对 $$O_i$$ 乘 $$\mathrm{diag}(e^{m - m_{\text{new}}})$$，FA1 还在每个 tile 里除 $$l$$。FA2 只做前者（这是不可省的），除法只在最后做一次；同时用 exp2 替代 exp、把 $$1/\sqrt d$$ 和 $$\log_2 e$$ 预先合并成一个 scale 乘进 $$S$$，让每个元素只剩一次乘法和一次 `ex2` 指令。
 
 FA2 在 A100 上通常能达到 BF16 峰值的 50%–73%（论文数字），即前向大约 160–230 TFLOPS 量级；这已经是 GEMM 级别的效率。
@@ -178,6 +246,22 @@ FA3 只针对 sm_90。它把 Hopper 的三项硬件特性（wgmma、TMA、更大
 - **两个 consumer warpgroup 的 ping-pong**：当 warpgroup 1 在做 $$S = QK^T$$ 的 GEMM 时，warpgroup 2 在做上一 tile 的 softmax（exp、max、sum）；然后互换。Tensor Core 与 SFU 同时忙碌，把上一节说的 "exp 占 matmul 时间的一半" 隐藏掉；
 - **块内 GEMM–softmax 流水**：单个 warpgroup 内也把第 $$j$$ 块的 softmax 与第 $$j+1$$ 块的 $$QK^T$$ 重叠（软件流水，需要多一套 $$S$$ 的寄存器）；
 - **FP8**：$$Q, K, V$$ 用 FP8 e4m3 喂给 FP8 wgmma（H100 上约 1979 TFLOPS 标称）；为控制精度做块级量化（per-block scale）以及"非相干处理"（用随机正交矩阵把离群值摊平）；FP8 wgmma 要求 $$V$$ 是 k-major 布局，需要在 shared memory 里做一次转置/布局重排。
+
+```text
+  没有 ping-pong：一个 warpgroup 串行，Tensor Core 在 softmax 期间空转
+    WG:        [GEMM S_j][softmax_j][GEMM PV_j][GEMM S_j+1][softmax_j+1][GEMM PV_j+1] ...
+    Tensor Core ████████          ████████  ████████            ████████
+    SFU (exp)            ████████                      ████████
+    时间 ─────────────────────────────────────────────────────────────────────►
+
+  ping-pong：两个 consumer warpgroup 错半拍，一个做 GEMM 时另一个做 softmax
+    WG1:       [GEMM S_j  ][softmax_j  ][GEMM PV_j ][GEMM S_j+1][softmax_j+1] ...
+    WG2:                   [GEMM S_k  ][softmax_k  ][GEMM PV_k ][GEMM S_k+1 ] ...
+    Tensor Core ██████████  ██████████  ██████████  ██████████  ██████████     ← 几乎不停
+    SFU (exp)               ██████████  ██████████  ██████████  ██████████
+    时间 ─────────────────────────────────────────────────────────────────────►
+    （producer warpgroup 在旁边只管发 TMA、等 barrier，不占图）
+```
 
 FA3 论文报告 H100 上 BF16 前向达到 ~740 TFLOPS（约 75% 峰值），FP8 接近 1.2 PFLOPS。sm_80 上用不了这些，A100 上的最优解仍然是 FA2。
 
@@ -237,11 +321,37 @@ $$
 t_{\text{decode}} \ge \frac{\text{权重字节}}{\text{BW}} + \frac{\text{batch} \times s \times 128\ \text{KiB}}{\text{BW}}
 $$
 
+```text
+  一步 decode 必须从 HBM 读的字节（Llama-3-8B，BF16，A100 2.0 TB/s；每格 = 1 GB）
+
+  batch×s =   4k   权重 ████████████████ 16 GB (8 ms)   KV ▏0.5 GB                          → KV 占 3%
+  batch×s =  32k   权重 ████████████████ 16 GB          KV ████ 4 GB                         → 20%
+  batch×s = 131k   权重 ████████████████ 16 GB          KV ████████████████ 16 GB            → 各占一半
+  batch×s = 262k   权重 ████████████████ 16 GB          KV ████████████████████████████████ 32 GB → KV 成为主项
+  能动的杠杆: KV 量化 FP8（KV 条减半） · GQA（g 倍缩小） · 权重量化 INT4（权重条缩到 1/4）
+```
+
 Llama-3-8B 的 BF16 权重约 16 GB，在 A100 上读一遍约 8 ms。KV 那一项随 batch 与上下文线性增长：batch 1、$$s = 4096$$ 时 512 MiB 只占权重的 3%；但当 $$\text{batch} \times s$$ 超过 $$16\ \text{GB} / 128\ \text{KiB} \approx 131\text{k}$$ 个 token（例如 batch 32、$$s = 4096$$）时，**KV 的读取时间超过权重的读取时间**。这就是为什么推理引擎在长上下文、大 batch 时会把 KV cache 量化到 FP8、为什么 GQA/MQA 直接缩小 $$g$$ 倍的 KV、以及为什么 decode attention kernel 的全部目标就是"以接近峰值带宽的速度把 KV 读一遍"。
 
 ### 3. GQA 在 kernel 层的含义
 
 GQA 让 $$g$$ 个 query head 共享一个 KV head，在参数与 KV cache 层面的节省是显然的。kernel 层的问题是：**怎么保证 KV 真的只从 HBM 读一次，而不是 $$g$$ 个 query head 各读一次？**
+
+```text
+  Llama-3-8B: 32 个 query head，8 个 KV head，g = 4
+
+  朴素: 每个 query head 一个 block                      打包: 同一 KV head 的 g 个 query head 进同一 tile
+    q head 0 ──► block 0 ──读 K/V head 0──┐               ┌ q head 0 (token t) ┐
+    q head 1 ──► block 1 ──读 K/V head 0──┤ 同一份 KV      │ q head 1 (token t) │ 4 行
+    q head 2 ──► block 2 ──读 K/V head 0──┤ 被读 4 次      │ q head 2 (token t) │       ×  BLOCK_Q = 4 个 token
+    q head 3 ──► block 3 ──读 K/V head 0──┘ （靠 L2 兜底） │ q head 3 (token t) │
+                                                          ├ q head 0 (token t+1)┤       = BLOCK_M = 16 行
+    decode 时每个 block 是 M = 1 的 GEMV                   │ ...                 │
+                                                          └ q head 3 (token t+3)┘
+                                                                   × K_j^T  →  一条 mma 的 M 维填满
+                                                          K/V head 0 只读一次，算术强度 × g
+  vLLM unified attention: query_pos = offs_m // g,  head = kv_head*g + offs_m % g
+```
 
 做法是把共享同一 KV head 的 $$g$$ 个 query head 放进同一个 thread block（或同一个 tile）。对 decode，$$g$$ 个 $$1 \times d$$ 的 query 恰好可以 pack 成一个 $$g \times d$$ 的矩阵，作为 mma 的 M 维——原本 $$M = 1$$ 的 GEMV 变成 $$M = g$$ 的 GEMM，$$K_j$$ 载入一次被 $$g$$ 行复用，算术强度乘 $$g$$。vLLM 的 Triton unified attention 正是这么做的：`BLOCK_M = 16`（或 `num_queries_per_kv` 向上取到 2 的幂）、`BLOCK_Q = BLOCK_M // num_queries_per_kv`——一个 tile 的 16 行由 `BLOCK_Q` 个 token 位置 × $$g$$ 个 query head 拼成。对 prefill，FA2 里 GQA 的处理是 grid 仍按 query head 展开、kernel 内部用 `h_k = h_q / g` 映射到 KV head，K/V 的复用交给 L2；FA3 与 FlashInfer 则会显式把同一 KV head 的 query head 打包进同一 tile。
 
@@ -255,6 +365,20 @@ Kwon 等 2023 的 PagedAttention 把每个序列的 KV cache 切成固定大小�
 $$
 \text{physical} = \text{block\_table}[s][\lfloor t / B \rfloor], \qquad \text{addr} = \text{physical} \times \text{block\_stride} + \text{head} \times \text{head\_stride} + (t \bmod B) \times \ldots
 $$
+
+```text
+  序列 s 的逻辑 KV（按 token 顺序）        block_table[s]        物理 KV cache（所有序列共用的 block 池，每块 16 token）
+
+  token  0-15  = 逻辑块 0  ───────────►  [0] = 7
+  token 16-31  = 逻辑块 1  ───────────►  [1] = 2               blk:  0     1     2     3     4     5     6     7
+  token 32-47  = 逻辑块 2  ───────────►  [2] = 5                  ┌─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┐
+  token 48-63  = 逻辑块 3  ───────────►  [3] = 4                  │其他 │其他 │ s:1 │其他 │ s:3 │ s:2 │ 空  │ s:0 │
+                                                                  └─────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┘
+                                                                   序列 s 的 4 个块散落在 7、2、5、4，物理上不连续
+  读 token t 的 K:  physical = block_table[s][t / 16]             ← 一次 int32 查表（L1/L2 命中）
+                    addr = physical × block_stride + head × head_stride + (t % 16) × ...
+  块内 16 个 token 连续（合并访问）；块与块之间随机跳
+```
 
 即多一次查表（一个 int32 读，几乎总在 L1/L2 里），然后按物理块地址读连续的 $$B$$ 个 token。对 kernel 而言，KV 不再是一个 $$[N, d]$$ 的连续矩阵，而是 $$N/B$$ 个通过指针数组间接访问的 $$[B, d]$$ 小矩阵——这也是为什么 block size 不能太小：每个 block 内的读是连续合并的，块间是随机跳转。
 
@@ -318,6 +442,23 @@ for (int block_idx = start_block_idx + warp_idx; block_idx < end_block_idx;
 }
 ```
 
+```text
+  K cache 一个 (block, kv_head) 内的布局 [head_size/x][block_size][x]
+  BF16: x = 8（16 B），block_size = 16，head_size = 128 → 16 个 dim 组
+
+                    token 0   token 1   token 2  ...  token 15
+  dim 组 0 (d 0-7)  [ 16 B ] [ 16 B ] [ 16 B ] ... [ 16 B ]   ← 16 个 token 的同一组 dim 连续 = 256 B
+  dim 组 1 (d 8-15) [ 16 B ] [ 16 B ] [ 16 B ] ... [ 16 B ]
+  ...
+  dim 组 15         [ 16 B ] [ 16 B ] [ 16 B ] ... [ 16 B ]
+
+  一个 warp = 16 个 thread group（每组 2 线程）= 16 个 token：
+    第 j 轮，group g 的线程 0 读 token g 的 dim 组 2j，线程 1 读 dim 组 2j+1
+    → 32 段 16 B 落在两行上，每行 256 B 连续 = 2 条 cache line，完美合并
+  若按 [block_size][head_size]（token 主序）存：16 个 token 的同一 dim 组相隔 256 B，
+    warp 的 16 次访问散在 16 条 cache line 上
+```
+
 注意 K cache 的布局 `[num_blocks, num_kv_heads, head_size/x, block_size, x]`，其中 `x = 16 / sizeof(cache_t)`（BF16 时 8）。它把 head dim 拆成 `head_size/x` 组，每组 `x` 个元素，**同一 token 的 `x` 个连续元素放在一起**（最内维），而 `block_size` 个 token 在倒数第二维。这样一个 thread group 读一个 token 的第 `offset1` 组时，读到的是 16 字节连续数据；同一个 warp 的 16 个 group 读 16 个 token 的同一组，地址是连续的 16 × 16 = 256 字节——正好是 2 条 cache line，完美合并。这是 KV cache 布局要服从 kernel 访存模式的直接例子，也是为什么这个布局被叫作 "x-major"。
 
 `Qk_dot::dot` 在组内做 shuffle 归约得到完整点积（`attention_utils.cuh`）。每个 group 的 0 号线程把 logit 写进 shared memory 的 `logits[]`（FP32），并更新自己的 `qk_max`。
@@ -330,7 +471,28 @@ for (int block_idx = start_block_idx + warp_idx; block_idx < end_block_idx;
 
 v1 的并行度是 `num_seqs × num_heads` 个 block。decode 时 batch 8、32 head 只有 256 个 block，每个 128 线程；108 个 SM 每个能驻留 2048 线程（16 个这样的 block），也就是**只用到了硬件并发能力的 15% 左右**，带宽拉不满。而 memory-bound kernel 的唯一目标就是拉满带宽。
 
-`paged_attention_v2.cu` 的解法是 `PARTITION_SIZE = 512`：把序列按 512 个 token 切成 `max_num_partitions` 段，grid 变成 `(num_heads, num_seqs, max_num_partitions)`，每个 block 只处理自己那 512 个 token（32 个 KV block），各自算出局部的 $$(m, l, O)$$ 写进 `max_logits`、`exp_sums`、`tmp_out`。然后 `paged_attention_v2_reduce_kernel` 合并：
+```mermaid
+flowchart LR
+    subgraph v1["v1：grid (heads, seqs)，一个 block 走完整个序列"]
+        direction TB
+        a1["block (h, s)<br/>遍历 KV block 0 … n"] --> b1["整序列 logits 进 smem<br/>两级 reduction 得 m, l"] --> c1["PV 累加 → O"]
+    end
+    subgraph v2["v2：grid (heads, seqs, partitions)，每 512 token 一个 block"]
+        direction TB
+        p0["block (h, s, 0)<br/>token 0–511"] --> r0["(m₀, l₀, O₀)"]
+        p1["block (h, s, 1)<br/>token 512–1023"] --> r1["(m₁, l₁, O₁)"]
+        p2["block (h, s, 2)<br/>…"] --> r2["(m₂, l₂, O₂)"]
+        r0 & r1 & r2 --> red["reduce kernel<br/>m = max mᵢ<br/>l = Σ lᵢ·e^(mᵢ−m)<br/>O = Σ Oᵢ·lᵢ·e^(mᵢ−m) / l"]
+    end
+    v1 ~~~ v2
+
+    classDef lo fill:#fde2e2,stroke:#c0392b
+    classDef hi fill:#dff5e1,stroke:#1e8449
+    class a1,b1,c1 lo
+    class p0,p1,p2,r0,r1,r2,red hi
+```
+
+v1 的并行度是 seqs × heads 个 block；v2 乘上 partition 数，用一个额外的小 kernel 把各段的 $$(m, l, O)$$ 按 online softmax 的合并公式拼回来。`paged_attention_v2.cu` 的解法是 `PARTITION_SIZE = 512`：把序列按 512 个 token 切成 `max_num_partitions` 段，grid 变成 `(num_heads, num_seqs, max_num_partitions)`，每个 block 只处理自己那 512 个 token（32 个 KV block），各自算出局部的 $$(m, l, O)$$ 写进 `max_logits`、`exp_sums`、`tmp_out`。然后 `paged_attention_v2_reduce_kernel` 合并：
 
 ```cpp
 // csrc/attention/attention_kernels.cuh (vLLM v0.20.0), reduce kernel 节选
@@ -369,13 +531,38 @@ for (int i = threadIdx.x; i < HEAD_SIZE; i += NUM_THREADS) {
 推理时一个 batch 里各请求长度不同。如果按最长的 pad 成 `[B, N_max, d]`，短序列的 padding 位置白白浪费计算和显存。FlashAttention 的 `varlen` 接口改用 **packed 布局**：所有序列的 token 首尾相接排成 `[total_tokens, H, d]`，另给一个前缀和数组：
 
 ```text
-seq_lens   = [3, 5, 2]
-cu_seqlens = [0, 3, 8, 10]      # 长度 B+1，cu_seqlens[i] 是第 i 个序列的起点
+  padded [B, N_max, d]（N_max = 5）          packed [total_tokens, d] + cu_seqlens
+  seq 0  [ a0 a1 a2 ·  ·  ]  ← 2 个 pad     [ a0 a1 a2 │ b0 b1 b2 b3 b4 │ c0 c1 ]
+  seq 1  [ b0 b1 b2 b3 b4 ]                   ▲          ▲                ▲       ▲
+  seq 2  [ c0 c1 ·  ·  ·  ]  ← 3 个 pad       0          3                8       10
+  15 个槽位，5 个是 pad（浪费 1/3）
+                                              seq_lens   = [3, 5, 2]
+                                              cu_seqlens = [0, 3, 8, 10]   # 长度 B+1
+                                              block 拿到 b 后: 行范围 [cu_seqlens[b], cu_seqlens[b+1])
 ```
 
 kernel 里一个 block 拿到序列编号 $$b$$ 后，用 `cu_seqlens[b]` 和 `cu_seqlens[b+1]` 找到自己 $$Q$$ 的起止行、用 `cu_seqlens_k` 找到 $$K, V$$ 的起止；grid 的 Q-block 维要覆盖 $$\sum_b \lceil N_b / B_r \rceil$$。vLLM 的 Triton kernel 用 `query_start_len_ptr` 上的二分查找（`find_seq_idx`）把一个一维的 `program_id(0)` 映射回 `(seq_idx, q_block_local_idx)`；FA2 的 `flash_attn_varlen_func` 则把 grid 按 `max_seqlen_q / B_r × batch` 开、越界的 block 直接返回。vLLM 调用 FA 时，`k`/`v` 传的是整个 paged KV cache，KV 侧的长度用 `seqused_k` 而非 `cu_seqlens_k` 给出，再配 `block_table` 做分页寻址（`vllm/v1/attention/backends/flash_attn.py`）——这是 vLLM 维护的 vllm-flash-attn fork 加进 FA 的能力。
 
 ### 2. 因果掩码在分块中的处理
+
+```text
+  N = 8 块（B_r = B_c），S 按块划分：             同一张图加 sliding window（W = 3 块）:
+
+  Q块↓ K块→ 0   1   2   3   4   5   6   7        Q块↓ K块→ 0   1   2   3   4   5   6   7
+    0    [ ◪ ][   ][   ][   ][   ][   ][   ][   ]    0    [ ◪ ][   ][   ][   ][   ][   ][   ][   ]
+    1    [ █ ][ ◪ ][   ][   ][   ][   ][   ][   ]    1    [ █ ][ ◪ ][   ][   ][   ][   ][   ][   ]
+    2    [ █ ][ █ ][ ◪ ][   ][   ][   ][   ][   ]    2    [ ◩ ][ █ ][ ◪ ][   ][   ][   ][   ][   ]
+    3    [ █ ][ █ ][ █ ][ ◪ ][   ][   ][   ][   ]    3    [   ][ ◩ ][ █ ][ ◪ ][   ][   ][   ][   ]
+    4    [ █ ][ █ ][ █ ][ █ ][ ◪ ][   ][   ][   ]    4    [   ][   ][ ◩ ][ █ ][ ◪ ][   ][   ][   ]
+    5    [ █ ][ █ ][ █ ][ █ ][ █ ][ ◪ ][   ][   ]    5    [   ][   ][   ][ ◩ ][ █ ][ ◪ ][   ][   ]
+    6    [ █ ][ █ ][ █ ][ █ ][ █ ][ █ ][ ◪ ][   ]    6    [   ][   ][   ][   ][ ◩ ][ █ ][ ◪ ][   ]
+    7    [ █ ][ █ ][ █ ][ █ ][ █ ][ █ ][ █ ][ ◪ ]    7    [   ][   ][   ][   ][   ][ ◩ ][ █ ][ ◪ ]
+
+  █ 完整块：无 mask，纯 GEMM + softmax（主循环第一段）      每个 Q 块只跑 W 个 tile：O(N²) → O(N·W)
+  ◪ 对角块：块内逐元素 mask（主循环第二段）                ◩ 左边界块：块内 mask 掉 j < i − W + 1
+  空白：整块跳过，不读 K/V、不算                            右上仍然整块跳过
+  → FLOPs 与 KV 读取都省约一半
+```
 
 因果 attention 里第 $$i$$ 行只看 $$j \le i$$ 列。对分块实现，这意味着 $$Q$$ 块 $$i$$ 只需要遍历 $$K$$ 块 $$j \le i$$（上三角的块整个跳过），**FLOPs 与 KV 读取量都省一半**；只有对角块（$$j = i$$，或 $$B_r \ne B_c$$ 时的几个跨对角块）内部才需要逐元素 mask。所以实现上主循环分成两段：先跑 off-diagonal 的块（无 mask，纯 GEMM + softmax），再跑对角块（有 mask）。把 mask 分支从主循环里拿掉，让编译器为绝大多数迭代生成无分支的代码，这是 FA2 和 Triton tutorial 都采用的结构。
 
@@ -736,6 +923,35 @@ __device__ void attn_1rowblock_warp(/* ... */) {
 - **PyTorch 的 `scaled_dot_product_attention`**：不是一个独立 kernel 而是一个分发器，按输入的 dtype、head dim、是否有 mask、是否需要梯度等条件在 FlashAttention-2、cuDNN、memory-efficient（xFormers 派生）与 math 四个后端之间选择；`torch.nn.attention.sdpa_kernel` 可以强制指定。本篇实践里的 `F.scaled_dot_product_attention(..., is_causal=True, enable_gqa=True)` 在 A100 上通常走 FlashAttention-2 后端，所以它既是正确性参考也是一个有意义的性能基线。
 
 选择的原则可以压缩成三条：prefill 追求 Tensor Core 利用率，优先 FA3（sm_90）或 FA2；decode 追求带宽利用率与并行度，split-KV 的策略质量比 GEMM 效率更重要，FlashInfer 与 FA3 的 scheduler 在这里下了最多功夫；需要非标准特性（新的 mask 形状、bias、KV 量化格式）时，Triton 版本的修改成本远低于 CUDA 版本，这是它在生产系统里一直有一席之地的原因。
+
+```mermaid
+flowchart TB
+    start["vLLM 启动：选 attention 后端"]
+    user{"--attention-backend /<br/>VLLM_ATTENTION_BACKEND 指定了？"}
+    forced["用指定后端<br/>（不通过校验则报错）"]
+    cap{"设备能力"}
+    order80["sm_80 / sm_90 优先级<br/>FLASH_ATTN → FLASHINFER → TRITON_ATTN → FLEX_ATTENTION"]
+    order100["sm_100+（Blackwell）优先级<br/>FLASHINFER → FLASH_ATTN → TRITON_ATTN → FLEX_ATTENTION"]
+    val["逐个调用 validate_configuration<br/>dtype · head size · block size · KV 量化 · ALiBi …"]
+    pick["取第一个通过的后端"]
+    fav{"FLASH_ATTN 内部：<br/>sm_90 且特性支持？"}
+    fa3["FA3"]
+    fa2["FA2"]
+
+    start --> user
+    user -- "是" --> forced
+    user -- "否" --> cap
+    cap -- "8.x / 9.x" --> order80 --> val
+    cap -- "10.x" --> order100 --> val
+    val --> pick --> fav
+    fav -- "是" --> fa3
+    fav -- "否（sm_80，或 ALiBi 等 FA3 不支持）" --> fa2
+
+    classDef d fill:#dde9f7,stroke:#2e6da4
+    classDef r fill:#dff5e1,stroke:#1e8449
+    class user,cap,fav d
+    class forced,pick,fa3,fa2 r
+```
 
 vLLM v0.20.0 的选择逻辑在 `vllm/platforms/cuda.py`：用户可用 `--attention-backend`（或环境变量 `VLLM_ATTENTION_BACKEND`）显式指定；不指定时按设备能力给出优先级列表，逐个调用各后端类的 `validate_configuration` 检查 dtype、head size、block size、KV cache 量化等约束，取第一个通过的。sm_80/sm_90 上的默认顺序是 FLASH_ATTN → FLASHINFER → TRITON_ATTN → FLEX_ATTENTION；Blackwell（compute capability 10.x）上把 FLASHINFER 提到最前。FLASH_ATTN 后端内部再由 `fa_utils.get_flash_attn_version` 决定 FA 版本：sm_90 优先 FA3，其余用 FA2（ALiBi 等 FA3 不支持的特性会回退到 FA2）。
 

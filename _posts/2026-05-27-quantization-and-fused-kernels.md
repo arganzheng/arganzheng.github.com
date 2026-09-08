@@ -57,6 +57,20 @@ INT8        8   有符号整数        127               —（均匀间隔 1）
 INT4        4   有符号整数        7（或 0..15 + zp） —                16 个电平
 ```
 
+把位布局画出来（S = 符号，E = 指数位，M = 尾数位）：
+
+```text
+  FP32   [S][E E E E E E E E][M M M M M M M M M M M M M M M M M M M M M M M]   1 + 8 + 23
+  BF16   [S][E E E E E E E E][M M M M M M M]                                 1 + 8 + 7   ← FP32 砍掉低 16 位
+  FP16   [S][E E E E E][M M M M M M M M M M]                                 1 + 5 + 10  ← 指数少 3 位，65504 溢出
+  E4M3   [S][E E E E][M M M]                                                 1 + 4 + 3   ← 最大 448，无 inf
+  E5M2   [S][E E E E E][M M]                                                 1 + 5 + 2   ← FP16 砍掉低 8 位
+  INT8   [S][I I I I I I I]                                                  范围由外部 scale 决定
+  INT4   [S][I I I]  或  [U U U U] + zero point                              16 个电平
+
+  指数位 → 动态范围（BF16 与 FP32 相同）    尾数位 → 相对精度（BF16 0.8%，E4M3 12.5%）
+```
+
 几个要点：
 
 - **BF16 与 FP16 的取舍**：BF16 拿 FP32 的高 16 位，指数范围与 FP32 相同，所以不会像 FP16 那样在 65504 处溢出；代价是尾数只有 7 位，相对精度 $$2^{-7} \approx 0.8\%$$。LLM 推理里激活的 outlier 可以到几百甚至上千，所以 BF16 成为默认。
@@ -123,6 +137,26 @@ __device__ inline void dequant<half2, vllm::kU4B8.id(), false>(int q,
 }
 ```
 
+```text
+  一个 uint32 q 装 8 个 INT4，每格 4 bit（哪个逻辑权重放哪一格由 repack 决定）:
+   bit 31   28   24   20   16   12    8    4    0
+      [ e7 ][ e6 ][ e5 ][ e4 ][ e3 ][ e2 ][ e1 ][ e0 ]
+      └──── 高半字（16 bit）────┘└──── 低半字（16 bit）────┘
+  这一次调用解出 e0, e4（低 4 bit）与 e1, e5（bit 4..7）；e2/e3/e6/e7 由调用方 q >> 8 后再调一次
+
+  lo = lop3(q, LO=0x000f000f, EX=0x64006400)  ── 取每个半字的低 4 bit，或上 FP16 的 1024 编码:
+      半字 = 0 1 1 0 0 1 [0 0 0 0 0 0 q0 q0 q0 q0]
+             S  E(=25→2^10)      M（低 4 bit = q0）          → FP16 值 = 1024 + q0
+      两个半字并排就是一个 half2: {1024+q4, 1024+q0}
+      __hsub2(lo, 0x6408 = 1032)  →  {q4 − 8, q0 − 8}         一条指令完成"减 1024 + 减零点 8"
+
+  hi = lop3(q, HI=0x00f000f0, EX=0x64006400)  ── 取 bit 4..7，它落在尾数第 4..7 位:
+      半字 = 0 1 1 0 0 1 [0 0 q1 q1 q1 q1 0 0 0 0]              → FP16 值 = 1024 + 16·q1
+      __hfma2(hi, 0x2c00 = 1/16, 0xd480 = −72)  →  (1024 + 16q1)/16 − 72 = q1 − 8
+
+  4 个元素、4 条指令（2 lop3 + 1 hsub2 + 1 hfma2），全程没有 int→float 的 cvt
+```
+
 逐行看：`lo` 取每个 16 位半字的低 4 位（第 0、4 个元素），或上 `0x6400` 得到 $$1024 + q$$；`SUB = 0x6408` 是 FP16 的 $$1032 = 1024 + 8$$，一次 `__hsub2` 同时完成"减 1024"和"减零点 8"。`hi` 取 bit 4 到 7（第 1、5 个元素），它们在尾数里的位置高了 4 位，表示的值是 $$1024 + 16q$$；`MUL = 0x2c00` 是 FP16 的 $$1/16$$，`ADD = 0xd480` 是 $$-72 = -(1024/16 + 8)$$，一次 `__hfma2` 完成 $$(1024 + 16q)/16 - 72 = q - 8$$。**四个元素、四条指令**（两条 `lop3`、一条 `hsub2`、一条 `hfma2`，均摊每元素一条），再乘 scale 是每两个元素一条 `hmul2`。BF16 版本同理，只是"magic"常数换成 `0x4300`（BF16 的 128，尾数 7 位，最低位权重 1）。这一招只用整数逻辑与 FP16 算术，比逐元素的 `cvt` + 减法 + 乘法（每元素 3 到 4 条）快得多，且不占用 Tensor Core。
 
 注意它假设权重的位排列已被预先打乱成"第 0、4 个元素在低半字，第 1、5 个在高半字"这种交错顺序——这就是 Marlin 需要 **repack** 步骤的原因之一。
@@ -171,6 +205,10 @@ $$
 H100 上对应 4.8 ms 与 1.2 ms。理论上界是 4 倍（更准确是 $$16 / 4.15 \approx 3.9$$），实际因为 lm_head 通常不量化、KV cache 读取不变、小 M 下 kernel 效率不到峰值带宽，落到 **2.5 到 3.5 倍**——这就是"快 3 倍"。
 
 **prefill（M = 数千）**：$$I \approx M \gg 156$$，两者都在 compute-bound 一侧。此时时间由 $$2MKN / P_{peak}$$ 决定——**INT4 不减少 FLOPs**，Tensor Core 做的仍是 BF16 `mma`，权重字节少读的那 24 MiB（对 4096×4096）在 0.44 ms 的计算时间面前只值 12 µs。而反量化是纯额外指令：每个 BF16 权重元素进入 `mma` 之前，都要在寄存器里被 `lop3` + `hfma2` + `hmul2` 处理一次，而且是**每被一个 block 加载一次就处理一次**——权重 tile $$BN \times BK$$ 被 $$M / BM$$ 个 block 各加载一遍，所以反量化的总指令数约 $$KN \cdot (M / BM) \cdot c$$（$$c \approx 1$$ 条/元素）。$$M = 4096$$、$$BM = 64$$ 时是 $$4096^2 \times 64 \approx 1.1$$ G 条整数/FP16 指令，与 `ldmatrix`、`mma` 抢同一个 warp 调度器的 issue slot。加上 INT4 kernel 的 tile 配置是为小 M 调的（Marlin 的 `thread_m_blocks` 最大 4，即 $$BM \le 64$$），大 M 下比 cuBLAS 为大 tile 优化的 BF16 kernel 慢 10% 到 30% 是常见的。
+
+把两条曲线画在同一张图上，三个区域一目了然（$$K = N = 4096$$，A100，理论下界）：
+
+![W4A16 与 BF16 GEMM 时间随 M 的变化](/img/in-post/quantization-and-fused-kernels-w4a16-roofline.svg)
 
 **交叉点**在哪里？INT4 GEMM 从 memory-bound 变 compute-bound 的 M 满足 $$4M \approx 156$$，即 $$M \approx 40$$；BF16 的交叉点是 $$M \approx 156$$。在 $$M < 40$$ 时 INT4 的收益随 M 减小而增大（趋近 4 倍）；$$40 < M < 156$$ 时 INT4 已经 compute-bound 而 BF16 还在 memory-bound，两者接近；$$M > 156$$ 时两者都 compute-bound，INT4 因反量化开销略慢。H100 上 ridge 是 295，交叉点约 $$M \approx 74$$。
 
@@ -283,6 +321,22 @@ $$
 - **per-tensor**：$$s_a$$、$$s_b$$ 各一个标量；
 - **per-token**（激活按行）：$$s_a$$ 是长度 $$M$$ 的向量，每个 token 一个 scale——这是动态量化的自然粒度，因为一个 token 的激活是一次 reduction 就能拿到 absmax 的单位；
 - **per-channel**（权重按列）：$$s_b$$ 是长度 $$N$$ 的向量，每个输出通道一个 scale，离线算好。
+
+```text
+  D = s_a · s_b · (A_q · B_q)     哪些 scale 能提到求和号外面，看它是否依赖 k
+
+  per-tensor            per-token (A 按行)      per-channel (B 按列)     per-block 128×128 (B) + 1×128 (A)
+  A: ┌────────┐ s_a     A: ┌────────┐ s_a[0]    B: ┌──┬──┬──┬──┐         B:  k→ ┌────┬────┬────┐
+     │        │            ├────────┤ s_a[1]       │  │  │  │  │            ┌────┼ s₀₀│ s₀₁│ s₀₂│
+     │        │            ├────────┤ s_a[2]       │  │  │  │  │         k  │    ├────┼────┼────┤
+     └────────┘            └────────┘ ...          └──┴──┴──┴──┘         ↓  │    │ s₁₀│ s₁₁│ s₁₂│
+  B: ┌────────┐ s_b        每行一个                 s_b[0] [1] [2] [3]        └────┴────┴────┴────┘
+     └────────┘                                    每列一个                  scale 随 k 块变化！
+  ────────────────────────────────────────────────────────────────────────────────────────────────
+  epilogue 乘一次          epilogue 按行广播乘        epilogue 按列广播乘       不能放 epilogue：
+  主循环纯 FP8 mma         主循环纯 FP8 mma          主循环纯 FP8 mma          每 128 个 k 把部分和 × s 再累加
+                                                                            （顺带把 wgmma 有限精度累加 promote 到 FP32）
+```
 
 CUTLASS 3.x 用 Epilogue Visitor Tree（EVT）表达这件事。vLLM 的定义：
 
@@ -504,6 +558,25 @@ $$\cos$$ 与 $$\sin$$ 与输入无关，预先算成 `cos_sin_cache[max_position
 - **NEOX 风格**（GPT-NeoX、Llama、Qwen 等）：第 $$j$$ 个平面是 $$(x[j], x[j + d/2])$$——前半段与后半段配对，就是 HuggingFace 代码里的 `rotate_half`；
 - **GPT-J 风格**（GPT-J、ChatGLM 等，也叫 interleaved）：第 $$j$$ 个平面是 $$(x[2j], x[2j+1])$$——相邻两个元素配对。
 
+```text
+  一个 head 的向量 x[0..d)，d = 8 示意。同色/同编号的两个分量组成一个旋转平面 j，用同一组 (cos θ_j, sin θ_j)
+
+  NEOX（rotate_half）:  第 j 个平面 = (x[j], x[j + d/2])
+     x:  [ 0 ][ 1 ][ 2 ][ 3 ][ 0'][ 1'][ 2'][ 3']
+           └────┼────┼────┼────┘    │    │    │        平面 0 = (x[0], x[4])
+                └────┼────┼─────────┘    │    │        平面 1 = (x[1], x[5])
+                     └────┼──────────────┘    │        ...
+                          └───────────────────┘
+     线程 j 读 x[j] 与 x[j+4]：warp 读两段各 32 个连续元素
+
+  GPT-J（interleaved）:  第 j 个平面 = (x[2j], x[2j+1])
+     x:  [ 0 ][ 0'][ 1 ][ 1'][ 2 ][ 2'][ 3 ][ 3']
+           └──┘     └──┘     └──┘     └──┘             平面 0 = (x[0], x[1]) ...
+     线程 j 读相邻的一对：warp 读一段 64 个连续元素
+
+  两种布局旋转的数学完全一样，差别只在 x_index / y_index 怎么算、cos/sin 表怎么查
+```
+
 vLLM 用一个 `IS_NEOX` 模板参数区分，差别只在索引：
 
 ```cpp
@@ -600,18 +673,35 @@ $$
 
 GPU 上不能一个 token 一个 token 地算——要把走同一个 expert 的 token 收集到一起做 GEMM。于是 vLLM 的 fused MoE 流水线（`vllm/model_executor/layers/fused_moe/fused_moe.py` 编排，kernel 在 `csrc/moe/`）是：
 
-```text
-router logits [T, E]
-  -> topk_softmax                 每 token 选 top-k：topk_weights [T, k]、topk_ids [T, k]（可 renormalize）
-  -> moe_align_block_size         按 expert 排序 token；每个 expert 的 token 数 padding 到 BLOCK_M 倍数；
-                                  产出 sorted_token_ids、expert_ids（每个 M-tile 属于哪个 expert）、
-                                  num_tokens_post_padded
-  -> grouped GEMM #1              Triton fused_moe_kernel：每个 M-tile 查 expert_ids 选 W1[e]，
-                                  输出 [T*k, 2*d_ff]（gate 与 up）
-  -> SiLU-and-mul                 [T*k, d_ff]
-  -> grouped GEMM #2              同一 kernel，W2[e]，输出 [T*k, d]，epilogue 里可乘 topk_weights
-  -> moe_sum / unpermute          按 token 把 k 个 expert 的输出加权求和 -> [T, d]
+```mermaid
+flowchart TB
+    logits["router logits [T, E]"]
+    topk["topk_softmax<br/>每 token 选 top-k（可 renormalize）"]
+    ids["topk_weights [T, k]<br/>topk_ids [T, k]"]
+    align["moe_align_block_size<br/>按 expert 计数排序，每段 pad 到 BLOCK_M 倍数"]
+    meta["sorted_token_ids [T·k + pad]<br/>expert_ids [#M-tile]<br/>num_tokens_post_padded"]
+    g1["grouped GEMM #1（fused_moe_kernel）<br/>每个 M-tile: A 行 = gather(sorted_token_ids)，B = W1[expert_ids[tile]]"]
+    gu["[T·k, 2·d_ff]（gate ‖ up）"]
+    act["SiLU-and-mul"]
+    h["[T·k, d_ff]"]
+    g2["grouped GEMM #2<br/>B = W2[e]，epilogue × topk_weights"]
+    o["[T·k, d]"]
+    sum["moe_sum / unpermute<br/>每 token 把 k 份加起来"]
+    out["[T, d]"]
+
+    logits --> topk --> ids --> align --> meta --> g1 --> gu --> act --> h --> g2 --> o --> sum --> out
+    ids -. "topk_weights" .-> g2
+    x["x [T, d]"] -. "间接寻址读行" .-> g1
+
+    classDef small fill:#dde9f7,stroke:#2e6da4
+    classDef gemm fill:#fdf1d6,stroke:#b9770e
+    classDef data fill:#f4f4f4,stroke:#999
+    class topk,align,act,sum small
+    class g1,g2 gemm
+    class logits,ids,meta,gu,h,o,out,x data
 ```
+
+蓝色是"小 kernel"（字节量微不足道，存在的意义是省 launch 与中间张量），黄色两个 grouped GEMM 才是时间大户——下面 §4 解释它们为什么比 dense GEMM 效率低。
 
 ### 2. `topk_softmax`：一个 warp 的一部分处理一行
 
@@ -675,6 +765,22 @@ b_ptrs = b_ptr + off_experts * stride_be + (offs_k[:, None] * stride_bk + offs_b
 A 的行地址是 `offs_token // top_k`（同一个 token 被 $$k$$ 个 expert 各读一次），B 的基址加 `off_experts * stride_be` 选中 expert 的权重——**每个 tile 有自己的 B 矩阵**，这就是 grouped GEMM 与普通 GEMM 的唯一区别。
 
 ### 4. 为什么 grouped GEMM 的效率低
+
+```text
+  dense FFN: 一份权重 W 被全部 T 行摊薄            MoE: E 份权重，每份只被 T·k/E 行摊薄，且分布不均
+
+     T 行 ┌──────────┐                            E0 (热门)  ┌────┬────┬────┐  3 个 M-tile
+          │██████████│ × W                                   │████│████│██░░│  ← 最后一个 tile pad 掉一半
+          │██████████│                            E1         ┌────┐
+          │██████████│                                       │█░░░│  ← 1 个 tile，3/4 是 pad
+          │██████████│                            E2 (冷门)  ┌────┐
+          └──────────┘                                       │░░░░│  ← 只有 padding（或 tile 直接跳过）
+     I ≈ T FLOP/byte                              E3         ┌────┬────┐
+                                                             │████│█░░░│
+                                                  ...
+                                                  每个 expert 的 I ≈ T·k/E；pad 行照样喂进 mma（算力白烧）；
+                                                  tile 数不均 → 有的 SM 早早空转（第五篇的 wave quantization 放大版）
+```
 
 每个 expert 的 GEMM 是 $$[M_e, K] \times [K, N]$$，$$M_e$$ 是分到它的 token 数。平均 $$\bar{M}_e = Tk / E$$：DeepSeek-V3 decode batch 128 时 $$128 \times 8 / 256 = 4$$，prefill 4096 token 时也只有 128。用 §3.2 的公式，每个 expert GEMM 的算术强度约为 $$\bar{M}_e$$（BF16）——**每个 expert 的权重只被 $$Tk/E$$ 行摊薄**，而 dense FFN 的权重被全部 $$T$$ 行摊薄。所以同样 $$T$$ 下 MoE 的 FFN 部分比 dense 更靠 Roofline 的 memory-bound 一侧，交叉点要 $$Tk/E > 156$$，即 $$T > 156 E / k \approx 5000$$（DeepSeek-V3）。再加上 padding 浪费（每个 expert 平均浪费 `BLOCK_M/2` 行，$$E = 256$$、`BLOCK_M = 64` 时是 8192 行的空 `mma`）与负载不均（热门 expert 的 tile 多，冷 expert 只有一个 tile），grouped GEMM 达到的 MFU 通常显著低于同规模 dense GEMM。这也是 FP8 与 W4 权重对 MoE 模型收益更大的原因——它们几乎总在 memory-bound 一侧。
 
@@ -1018,6 +1124,38 @@ __global__ void w4a16_gemv_kernel(__nv_bfloat16* __restrict__ y,
 10  down GEMM                    h x Wd [4096,14336]^T             ffn_out [T,4096]      第六篇 / §9.4
     -> 下一层的步 1 以 (x = ffn_out, residual) 进入
 ```
+
+画成数据流，颜色标出每一步是本系列哪一篇的 kernel、以及哪些边界被融合掉了：
+
+```mermaid
+flowchart TB
+    in["x [T,4096] + residual [T,4096]"]
+    n1["① fused_add_rms_norm<br/>residual += x；xn = norm(residual)·w"]
+    qkv["② QKV GEMM [T,4096]×[6144,4096]ᵀ<br/>BF16 mma.sync（T 大）/ INT4 GEMV（T 小）"]
+    rope["③ rope_neox（q, k 就地）"]
+    cache["④ reshape_and_cache<br/>k, v → paged KV cache"]
+    attn["⑤ attention<br/>prefill: flash / decode: paged"]
+    og["⑥ O GEMM [T,4096]×[4096,4096]ᵀ"]
+    n2["⑦ fused_add_rms_norm<br/>residual += attn_out；xn2 = norm(residual)"]
+    gu["⑧ gate_up GEMM [T,4096]×[28672,4096]ᵀ"]
+    silu["⑨ silu_and_mul → h [T,14336]"]
+    down["⑩ down GEMM [T,14336]×[4096,14336]ᵀ"]
+    out["ffn_out [T,4096] → 下一层的 ①"]
+
+    in --> n1 --> qkv --> rope --> cache --> attn --> og --> n2 --> gu --> silu --> down --> out
+    rope -. "q" .-> attn
+
+    classDef p9 fill:#dff5e1,stroke:#1e8449
+    classDef p6 fill:#fdf1d6,stroke:#b9770e
+    classDef p8 fill:#dde9f7,stroke:#2e6da4
+    classDef d fill:#f4f4f4,stroke:#999
+    class n1,rope,silu,n2 p9
+    class qkv,og,gu,down p6
+    class cache,attn p8
+    class in,out d
+```
+
+绿色四个是本篇 §9 的 elementwise/row-wise kernel（memory-bound，融合的对象），黄色四个 GEMM 来自第六篇（T 大时 compute-bound，T 小时退化成读权重），蓝色两个是第八篇的 attention 读写端。分开数的话一层 10 次 launch；生产系统会继续把 ①+② 的量化、③+④、⑨ 进 ⑧ 的 epilogue 融掉。
 
 PyTorch eager 对照实现（省略 KV cache，用 `F.scaled_dot_product_attention` 做 attention）：
 

@@ -34,6 +34,41 @@ catalog: true
 - **数据流变了**：从"shared → 寄存器（任意布局）"变成"shared → `ldmatrix` → fragment（固定布局）→ `mma`"。因为 `mma` 指令对 32 个线程各自寄存器里放的是矩阵的哪几个元素有硬性规定，所以你必须关心布局；`ldmatrix` 是硬件提供的"按这个规定从 shared memory 装载"的指令。
 - **Hopper 上再进一步**：数据流变成"TMA → shared（swizzled）→ `wgmma` 直接读 shared"，寄存器里只剩累加器，搬运工作从线程手里拿走交给硬件。
 
+三条数据流并排画出来，本篇的主线就是从左到右这条演化：
+
+```mermaid
+flowchart LR
+    subgraph cc["CUDA Core（第五篇）"]
+        direction TB
+        g1["global"] -- "cp.async<br/>每线程 16 B" --> s1["shared<br/>（padding / 转置）"]
+        s1 -- "LDS.128<br/>任意布局" --> r1["寄存器<br/>a_frag / b_frag"]
+        r1 -- "FFMA ×64<br/>每线程 8×8 外积" --> acc1["acc[8][8]<br/>属于线程"]
+    end
+    subgraph amp["Tensor Core · Ampere（本篇第四章）"]
+        direction TB
+        g2["global"] -- "cp.async<br/>每线程 16 B" --> s2["shared<br/>（XOR swizzle）"]
+        s2 -- "ldmatrix.x4<br/>硬件规定布局" --> r2["fragment<br/>a[4] b[2]"]
+        r2 -- "mma.sync m16n8k16<br/>每 warp 一条 = 4096 FLOP" --> acc2["acc[4]<br/>属于 warp"]
+    end
+    subgraph hop["Tensor Core · Hopper（第五章）"]
+        direction TB
+        g3["global"] -- "TMA<br/>1 个线程发 1 条指令搬整个 tile" --> s3["shared<br/>（硬件 swizzle）"]
+        s3 -- "wgmma.mma_async<br/>经 descriptor 直接读 shared" --> acc3["acc[64+]<br/>属于 warpgroup"]
+    end
+    cc ~~~ amp ~~~ hop
+
+    classDef mem fill:#fde2e2,stroke:#c0392b
+    classDef smem fill:#fdf1d6,stroke:#b9770e
+    classDef reg fill:#dff5e1,stroke:#1e8449
+    classDef acc fill:#dde9f7,stroke:#2e6da4
+    class g1,g2,g3 mem
+    class s1,s2,s3 smem
+    class r1,r2 reg
+    class acc1,acc2,acc3 acc
+```
+
+三条链越往右越短：寄存器这一级先从"任意布局"变成"硬件规定布局"，到 Hopper 干脆消失，操作数不再经过线程手里。
+
 ### 2. 数字约定与硬件要求
 
 文中所有数字为公开标称值或可推导的理论值，实测区间用"通常能达到"的措辞给出。本篇实践部分的 kernel 需要 sm_80（A100 / RTX 30 系及更新），Hopper 部分（`wgmma`、TMA）需要 sm_90，以源码结构阅读为主，明确标注。
@@ -69,6 +104,23 @@ mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32  D, A, B, C
 
 逐段读：`mma.sync` 是 warp 级同步矩阵乘加；`aligned` 要求 warp 内所有线程执行同一条指令；`m16n8k16` 是形状 $$M=16, N=8, K=16$$；`row.col` 表示 $$A$$ 按行主序、$$B$$ 按列主序给出（这两个修饰符对 BF16 是固定的，只有这一种组合）；`.f32.bf16.bf16.f32` 依次是 $$D$$、$$A$$、$$B$$、$$C$$ 的类型——输入 BF16，累加 FP32。
 
+```text
+  一个 warp 的一条指令:
+
+  FFMA                                  mma.sync.m16n8k16
+  32 个 lane 各做 1 次 d = a*b + c        32 个 lane 协作做 D[16×8] = A[16×16] · B[16×8] + C[16×8]
+
+  lane: 0  1  2  ...  31                       A (16×16)          B (16×8)        D (16×8)
+        ▪  ▪  ▪  ...  ▪                   ┌────────────────┐   ┌────────┐     ┌────────┐
+                                          │                │   │        │     │        │
+  = 32 次乘加 = 64 FLOP                    │  256 个 BF16    │ · │128 BF16│  =  │128 FP32│
+                                          │                │   │        │     │        │
+                                          └────────────────┘   └────────┘     └────────┘
+                                          = 16·8·16 = 2048 次乘加 = 4096 FLOP     （64 倍）
+
+  操作数放哪: 每 lane 4+2 个 32 位寄存器装 A、B（各 2 个 BF16），4 个 f32 装 D —— 硬件规定谁拿哪几个
+```
+
 一条 `m16n8k16` 做 $$16 \times 8 \times 16 = 2048$$ 次乘加，即 **4096 FLOP**。相比之下，一个 warp 执行一条 FFMA 是 32 次乘加、64 FLOP。指令数差 64 倍，这就是 Tensor Core 提升算力密度的方式：用更少的指令发射、更少的寄存器读写，换更多的算术。
 
 Ampere 支持的输入类型和对应形状（Tensor Core 路径）：
@@ -91,6 +143,18 @@ A100 每个 SM 有 4 个 Tensor Core（每个 warp 调度器一个），每个 T
 $$
 108 \text{ SM} \times 1024 \text{ FMA/clk} \times 2 \text{ FLOP/FMA} \times 1.41 \text{ GHz} \approx 312 \text{ TFLOPS}
 $$
+
+```text
+  一个 warp 调度器的指令预算（每周期最多发 1 条指令；它的 Tensor Core 每 8 周期吃 1 条 mma）:
+
+  周期:        0    1    2    3    4    5    6    7  │  8    9   10   11   12   13   14   15
+  Tensor Core: [████████ mma #0 (2048 FMA) ████████]│[████████ mma #1 ████████████████████]
+  发射槽:      mma  ldm  ldm  addr sync loop ldm  ·  │ mma  ldm  ldm  addr ...
+                    └──── 这 7 个槽要装下下一条 mma 需要的全部准备工作 ────┘
+
+  Tensor Core 饱和的条件: 每 8 个周期至少发 1 条 mma，其余 ≤ 7 条指令完成装载 + 地址 + 控制
+  → 第五篇里"读 TM+TN 个数做 TM×TN 次 FMA"的指令配比在这里完全不够看
+```
 
 这个数字对写 kernel 有一个直接的推论：一条 `m16n8k16` 是 2048 次乘加，一个 Tensor Core 每周期 256 次，所以**一条 mma 在 Tensor Core 上占 8 个周期**。要让 Tensor Core 饱和，每个调度器上必须每 8 个周期发出一条 mma。中间那 8 个周期，同一个调度器只能发出大约 8 条其他指令——装载 fragment、算地址、同步、循环控制，全部要挤在这个预算里。CUDA Core 版本的 GEMM 里，每个线程"从 shared memory 读 $$TM + TN$$ 个数、做 $$TM \cdot TN$$ 次 FMA"这种比例，在 Tensor Core 上完全不够看：**装载数据的指令必须极度高效**。这就是 `ldmatrix`（一条指令装满一个 fragment）、`cp.async`（不占寄存器的搬运）以及 Hopper 上 TMA（一条指令搬整个 tile）存在的理由。
 
@@ -168,14 +232,23 @@ a3       groupID + 8   t*2+8, t*2+9
 画成图（每格标出持有该元素的 lane 和寄存器；一格是两个相邻 BF16）：
 
 ```text
-A (16 x 16 BF16)          列 0-1  2-3  4-5  6-7  | 8-9  10-11 12-13 14-15
-行 0  (groupID 0)          T0.a0 T1.a0 T2.a0 T3.a0 | T0.a2 T1.a2 T2.a2 T3.a2
-行 1  (groupID 1)          T4.a0 T5.a0 T6.a0 T7.a0 | T4.a2 T5.a2 T6.a2 T7.a2
-...
-行 7  (groupID 7)         T28.a0 ...              | T28.a2 ...
-行 8  (groupID 0)          T0.a1 T1.a1 T2.a1 T3.a1 | T0.a3 T1.a3 T2.a3 T3.a3
-...
-行 15 (groupID 7)         T28.a1 ...              | T28.a3 ...
+A (16 x 16 BF16)     列: 0-1    2-3    4-5    6-7   │  8-9   10-11  12-13  14-15
+行 0  (g=0)             T0.a0  T1.a0  T2.a0  T3.a0 │ T0.a2  T1.a2  T2.a2  T3.a2
+行 1  (g=1)             T4.a0  T5.a0  T6.a0  T7.a0 │ T4.a2  T5.a2  T6.a2  T7.a2
+行 2  (g=2)             T8.a0  T9.a0 T10.a0 T11.a0 │ T8.a2  T9.a2 T10.a2 T11.a2
+行 3  (g=3)            T12.a0 T13.a0 T14.a0 T15.a0 │T12.a2 T13.a2 T14.a2 T15.a2
+行 4  (g=4)            T16.a0 T17.a0 T18.a0 T19.a0 │T16.a2 T17.a2 T18.a2 T19.a2
+行 5  (g=5)            T20.a0 T21.a0 T22.a0 T23.a0 │T20.a2 T21.a2 T22.a2 T23.a2
+行 6  (g=6)            T24.a0 T25.a0 T26.a0 T27.a0 │T24.a2 T25.a2 T26.a2 T27.a2
+行 7  (g=7)            T28.a0 T29.a0 T30.a0 T31.a0 │T28.a2 T29.a2 T30.a2 T31.a2
+─────────────────────────────────────────────────────┼─────────────────────────────
+行 8  (g=0)             T0.a1  T1.a1  T2.a1  T3.a1 │ T0.a3  T1.a3  T2.a3  T3.a3
+行 9  (g=1)             T4.a1  T5.a1  T6.a1  T7.a1 │ T4.a3  T5.a3  T6.a3  T7.a3
+ ...  (g=2..6)           同上规律：行 8+g 由 quad g 持有
+行 15 (g=7)            T28.a1 T29.a1 T30.a1 T31.a1 │T28.a3 T29.a3 T30.a3 T31.a3
+
+  四个 8×8 象限 = 四个寄存器: 左上 a0 · 左下 a1 · 右上 a2 · 右下 a3
+  每一行由一个 quad（4 个连续 lane）持有，quad 内第 t 个 lane 拿列 2t, 2t+1
 ```
 
 **B fragment（$$16 \times 8$$，$$K \times N$$，BF16）**：每线程 2 个寄存器：
@@ -210,14 +283,21 @@ c3       groupID + 8   t*2+1
 ```
 
 ```text
-C/D (16 x 8 FP32)          列 0     1     2     3     4     5     6     7
-行 0  (groupID 0)          T0.c0 T0.c1 T1.c0 T1.c1 T2.c0 T2.c1 T3.c0 T3.c1
-行 1  (groupID 1)          T4.c0 T4.c1 T5.c0 T5.c1 ...
-...
-行 7  (groupID 7)         T28.c0 T28.c1 ...
-行 8  (groupID 0)          T0.c2 T0.c3 T1.c2 T1.c3 ...
-...
-行 15 (groupID 7)         T28.c2 T28.c3 ...
+C/D (16 x 8 FP32)    列:  0      1      2      3      4      5      6      7
+行 0  (g=0)             T0.c0  T0.c1  T1.c0  T1.c1  T2.c0  T2.c1  T3.c0  T3.c1   ◄ quad 0
+行 1  (g=1)             T4.c0  T4.c1  T5.c0  T5.c1  T6.c0  T6.c1  T7.c0  T7.c1   ◄ quad 1
+行 2  (g=2)             T8.c0  T8.c1  T9.c0  T9.c1 T10.c0 T10.c1 T11.c0 T11.c1
+行 3  (g=3)            T12.c0 T12.c1 T13.c0 T13.c1 T14.c0 T14.c1 T15.c0 T15.c1
+行 4  (g=4)            T16.c0 T16.c1 T17.c0 T17.c1 T18.c0 T18.c1 T19.c0 T19.c1
+行 5  (g=5)            T20.c0 T20.c1 T21.c0 T21.c1 T22.c0 T22.c1 T23.c0 T23.c1
+行 6  (g=6)            T24.c0 T24.c1 T25.c0 T25.c1 T26.c0 T26.c1 T27.c0 T27.c1
+行 7  (g=7)            T28.c0 T28.c1 T29.c0 T29.c1 T30.c0 T30.c1 T31.c0 T31.c1   ◄ quad 7
+─────────────────────────────────────────────────────────────────────────────────
+行 8  (g=0)             T0.c2  T0.c3  T1.c2  T1.c3  T2.c2  T2.c3  T3.c2  T3.c3   ◄ quad 0 again
+ ...  (g=1..6)           行 8+g 由 quad g 持有，寄存器换成 c2 c3
+行 15 (g=7)            T28.c2 T28.c3 T29.c2 T29.c3 T30.c2 T30.c3 T31.c2 T31.c3
+
+  每行 8 个 FP32 全部在同一个 quad 手里（每 lane 2 个）→ 行内 max/sum 只需 quad 内 2 次 shfl_xor
 ```
 
 一个 warp 64 个寄存器（32 线程 × 2）装下 $$16 \times 16$$ 个 BF16 的 A，正好不多不少；C 是 32 × 4 = 128 个 float，正好 $$16 \times 8$$。fragment 布局的本质是一个**双射**：`(lane, reg) ↔ (row, col)`。
@@ -233,8 +313,19 @@ C/D (16 x 8 FP32)          列 0     1     2     3     4     5     6     7
 **D 的布局能直接作为下一次 mma 的 A**。比较 C/D 与 A 的布局：C 中线程持有 `(groupID, t*2..t*2+1)` 与 `(groupID+8, t*2..t*2+1)`，A 中线程持有 `(groupID, t*2..t*2+1)`、`(groupID+8, ...)`、以及列 +8 的两组。所以**两个相邻 n8 tile 的 C fragment 拼起来（$$16 \times 16$$），逐对把 FP32 转成 BF16x2，就得到一个合法的 A fragment**：
 
 ```text
-tile0.{c0,c1} → a0      tile0.{c2,c3} → a1
-tile1.{c0,c1} → a2      tile1.{c2,c3} → a3
+  上一条 mma 的两个 n8 输出 tile（FP32）            下一条 mma 的 A fragment（BF16）
+       tile 0 (16×8)      tile 1 (16×8)                    16×16
+     ┌───────────────┬───────────────┐              ┌───────┬───────┐
+ 行  │ c0 c1 (quad g)│ c0' c1'       │   cvt f32→   │  a0   │  a2   │  行 0-7
+ 0-7 │   FP32 ×2     │   FP32 ×2     │   bf16x2     │       │       │
+     ├───────────────┼───────────────┤  ─────────►  ├───────┼───────┤
+ 行  │ c2 c3         │ c2' c3'       │              │  a1   │  a3   │  行 8-15
+8-15 │               │               │              │       │       │
+     └───────────────┴───────────────┘              └───────┴───────┘
+        lane 拿 (g, 2t..2t+1)                          lane 拿 (g, 2t..2t+1) —— 同一个位置！
+
+  tile0.{c0,c1} → a0      tile0.{c2,c3} → a1
+  tile1.{c0,c1} → a2      tile1.{c2,c3} → a3        全程在寄存器里，不经过 shared memory
 ```
 
 FlashAttention 里 $$O = P \cdot V$$ 的 $$P = \text{softmax}(S)$$ 就是上一步 mma 的输出。有了这个性质，$$P$$ 可以留在寄存器里直接作为下一次 mma 的 A 操作数，不需要写回 shared memory 再读出来。这一点是 FlashAttention-2 在 Ampere 上能做到高 Tensor Core 利用率的关键之一。
@@ -250,6 +341,23 @@ ldmatrix.sync.aligned.m8n8.x4.shared.b16 {r0, r1, r2, r3}, [addr];
 ```
 
 语义：一个 warp 协作从 shared memory 载入 **4 个 $$8 \times 8$$ 的 16 位矩阵**（`.x4`；也有 `.x1`、`.x2`）。每个 $$8 \times 8$$ 矩阵占 8 行 × 16 字节。**每个线程提供一行的起始地址**：lane 0–7 提供第 0 个矩阵的 8 行，lane 8–15 提供第 1 个矩阵的 8 行，lane 16–23 第 2 个，lane 24–31 第 3 个。载入后，对第 $$i$$ 个矩阵，线程 `lane` 的 `r_i` 里放的是该矩阵第 `lane/4` 行、第 `(lane%4)*2` 和 `+1` 列的两个元素——**这正好是 mma fragment 里一个寄存器的布局**。
+
+```text
+  ldmatrix.x4 装一个 16×16 的 A 子块（shared memory 里行主序，一行 = 16 个 BF16 = 32 B）
+
+                列 0-7 (16 B)      列 8-15 (16 B)
+             ┌─────────────────┬─────────────────┐
+   行 0-7    │  矩阵 #0 → r0    │  矩阵 #2 → r2    │   ◄ lane 0-7 各给一行的地址（列 0）
+             │  = a0            │  = a2            │   ◄ lane 16-23 各给一行的地址（列 8）
+             ├─────────────────┼─────────────────┤
+   行 8-15   │  矩阵 #1 → r1    │  矩阵 #3 → r3    │   ◄ lane 8-15 各给一行的地址（列 0）
+             │  = a1            │  = a3            │   ◄ lane 24-31 各给一行的地址（列 8）
+             └─────────────────┴─────────────────┘
+
+  lane 提供地址:   row = lane % 16,   col = 8 × (lane / 16)
+  lane 收到数据:   每个 8×8 矩阵里 第 lane/4 行、第 (lane%4)×2, +1 列 —— 恰好是 mma 要的布局
+  32 个 lane 各出 1 个地址、各收 4 个寄存器，一条指令装满整个 fragment
+```
 
 于是 A fragment 的 4 个寄存器对应 $$16 \times 16$$ 子块的四个 $$8 \times 8$$ 象限：`a0` = (行 0–7, 列 0–7)，`a1` = (行 8–15, 列 0–7)，`a2` = (行 0–7, 列 8–15)，`a3` = (行 8–15, 列 8–15)。让 lane 0–7 提供行 0–7、列 0 的地址，lane 8–15 提供行 8–15、列 0，lane 16–23 提供行 0–7、列 8，lane 24–31 提供行 8–15、列 8，一条 `ldmatrix.x4` 就把整个 A fragment 装好了。用公式写，lane 提供的地址是：
 
@@ -280,6 +388,37 @@ CUDA Core 版本的 GEMM 也有这个问题（第五篇通过 padding 或转置�
 $$
 \text{chunk}_{\text{phys}} = \text{chunk}_{\text{logic}} \oplus \left( \lfloor r / 2 \rfloor \bmod 4 \right)
 $$
+
+把一个 phase 里 8 个 lane 读的 8 行、同一逻辑 chunk（以 $$c = 0$$ 为例）的落点列出来：
+
+```text
+  一行 64 B = 4 个 16 B chunk；shared 的 32 个 bank 分成 8 个 bank 组（每组 16 B）
+  第 r 行第 p 个物理 chunk 落在 bank 组 (4r + p) mod 8
+
+  不 swizzle（物理 chunk = 逻辑 chunk = 0）              swizzle（物理 chunk = 0 ^ ((r>>1)&3)）
+  行 r   物理 chunk   bank 组                             行 r   物理 chunk   bank 组
+   0        0          0  ┐                                0        0          0
+   1        0          4  │ 只用到 {0, 4} 两个组             1        0          4
+   2        0          0  │ → 4 路 conflict                 2        1          1
+   3        0          4  │                                 3        1          5
+   4        0          0  │                                 4        2          2
+   5        0          4  │                                 5        2          6
+   6        0          0  │                                 6        3          3
+   7        0          4  ┘                                 7        3          7
+                                                            8 个访问 → 8 个不同的组，无 conflict
+
+  物理位置示意（每行 4 格 = 4 个 chunk，■ = 这个 phase 读到的 chunk）:
+       不 swizzle                swizzle
+   r=0 [■][ ][ ][ ]           r=0 [■][ ][ ][ ]
+   r=1 [■][ ][ ][ ]           r=1 [■][ ][ ][ ]
+   r=2 [■][ ][ ][ ]           r=2 [ ][■][ ][ ]
+   r=3 [■][ ][ ][ ]           r=3 [ ][■][ ][ ]
+   r=4 [■][ ][ ][ ]           r=4 [ ][ ][■][ ]
+   r=5 [■][ ][ ][ ]           r=5 [ ][ ][■][ ]
+   r=6 [■][ ][ ][ ]           r=6 [ ][ ][ ][■]
+   r=7 [■][ ][ ][ ]           r=7 [ ][ ][ ][■]
+   一列到底 → 撞 bank          错成阶梯 → 铺满 8 个 bank 组
+```
 
 验证：物理 bank 组 = $$(4r + \text{chunk}_{\text{phys}}) \bmod 8 = 4 (r \bmod 2) + (c \oplus \lfloor r/2 \rfloor \bmod 4)$$。$$r = 0..7$$ 时，$$r \bmod 2$$ 取 2 个值、$$\lfloor r/2 \rfloor \bmod 4$$ 取 4 个值，组合出 8 个互不相同的 bank 组。无冲突。
 
@@ -313,6 +452,32 @@ shared memory：3 stage x (A 128x32 + B 128x32) BF16 = 3 x 16 KiB = 48 KiB（静
 swizzle：chunk ^= (row >> 1) & 3
 流水：cp.async 3 stage，prologue 预取 2 个 tile；每轮 wait_group 1 + __syncthreads 后预取第 kt+2 个 tile
 寄存器：64 累加器 + 16 (A frag) + 8 (B frag) + 地址 ≈ 100–128/线程
+```
+
+三层 tile 嵌套画出来：
+
+```text
+  block tile 128×128（256 线程 = 8 warp，排成 2×4）
+  ┌──────────┬──────────┬──────────┬──────────┐
+  │  warp 0  │  warp 2  │  warp 4  │  warp 6  │  64 行
+  │  64×32   │  64×32   │  64×32   │  64×32   │
+  ├──────────┼──────────┼──────────┼──────────┤
+  │  warp 1  │  warp 3  │  warp 5  │  warp 7  │  64 行
+  │  64×32   │  64×32   │  64×32   │  64×32   │
+  └──────────┴──────────┴──────────┴──────────┘
+      32 列      32 列      32 列      32 列        warp_m = warp % 2, warp_n = warp / 2
+
+  一个 warp tile 64×32 = MT×NT = 4×4 个 m16n8 mma tile，每个 4 个 f32 累加器 → 64 个/线程
+  ┌────┬────┬────┬────┐
+  │0,0 │0,1 │0,2 │0,3 │  16 行     每个 k16 步:
+  ├────┼────┼────┼────┤              4 条 ldmatrix.x4 装 A 的 4 个 16×16 子块（af[0..3]）
+  │1,0 │1,1 │1,2 │1,3 │              2 条 ldmatrix.x4 装 B 的 4 个 n8 tile（bf[0..3]，每条装 2 个）
+  ├────┼────┼────┼────┤              16 条 mma：acc[i][j] += af[i] · bf[j]
+  │2,0 │2,1 │2,2 │2,3 │
+  ├────┼────┼────┼────┤            = 6 条装载 + 16 条 mma → mma 占 73% 的发射槽
+  │3,0 │3,1 │3,2 │3,3 │
+  └────┴────┴────┴────┘
+    8 列  8 列  8 列  8 列
 ```
 
 为聚焦 Tensor Core 部分，本版假设 $$M, N$$ 是 128 的倍数、$$K$$ 是 32 的倍数（边界处理与第五篇相同：用 `cp.async` 的 src-size 操作数做零填充，或对残余 tile 走标量路径）。
@@ -605,7 +770,29 @@ Ampere kernel 中每个 warp 既搬数据又算矩阵，两种工作交织在同
 - **Producer warpgroup**（4 个 warp，实际只有 1 个线程干活）：循环地等待某个 stage 变空、发出 TMA 装载 A 和 B 到该 stage、`arrive.expect_tx`；
 - **Consumer warpgroup(s)**（1 或 2 个，各 4 个 warp）：循环地等待某个 stage 装满、对它发 `wgmma`、算完后通知该 stage 已空。
 
-同步用两组 mbarrier，每个 stage 一对：`full_barrier[s]`（producer 到 consumer："数据到了"）和 `empty_barrier[s]`（consumer 到 producer："我读完了，可以覆盖"）。伪代码：
+同步用两组 mbarrier，每个 stage 一对：`full_barrier[s]`（producer 到 consumer："数据到了"）和 `empty_barrier[s]`（consumer 到 producer："我读完了，可以覆盖"）。两个角色围着 stage 环形 buffer 转，时序如下（2 个 stage 示意）：
+
+```mermaid
+sequenceDiagram
+    participant P as Producer warp（1 个线程发 TMA）
+    participant S0 as stage 0（full0 / empty0）
+    participant S1 as stage 1（full1 / empty1）
+    participant C as Consumer warpgroup（wgmma）
+
+    P->>S0: expect_tx + TMA load tile 0
+    P->>S1: expect_tx + TMA load tile 1
+    Note over P: wait empty[0]（阻塞）
+    S0-->>C: full[0] 翻转：tile 0 到齐
+    C->>C: wgmma ×(BK/16) on stage 0, commit
+    S1-->>C: full[1] 翻转：tile 1 到齐
+    C->>C: wgmma on stage 1, commit，wait_group 1 → stage 0 的 wgmma 完成
+    C->>S0: arrive empty[0]
+    S0-->>P: empty[0] 翻转：可以覆盖
+    P->>S0: expect_tx + TMA load tile 2
+    Note over P,C: 如此往复：producer 永远领先 STAGES-1 个 tile，consumer 永远有一组 wgmma 在飞
+```
+
+伪代码：
 
 ```text
 // 共享：STAGES 个 stage，每个有 full[s]、empty[s] 两个 mbarrier
@@ -671,6 +858,48 @@ device::GemmUniversalAdapter<Kernel>      host 侧入口：参数检查、worksp
        └─ collective::CollectiveEpilogue<...>                             写回 + 融合算子（EVT）
             └─ TiledCopy / fusion::Sm90EVT
 CuTe：Layout / Tensor / Shape / Stride / local_tile / local_partition —— 所有层共用的坐标代数
+```
+
+把这棵树和第四章的手写 kernel 左右对照：
+
+```mermaid
+flowchart TB
+    subgraph cutlass["CUTLASS 3.x"]
+        direction TB
+        dev["device::GemmUniversalAdapter<br/>参数检查、workspace、launch"]
+        ker["kernel::GemmUniversal<br/>__global__ 函数体、tile 坐标、warp 角色"]
+        ml["collective::CollectiveMma<br/>k 循环 + 多 stage 流水"]
+        ep["collective::CollectiveEpilogue<br/>写回 + EVT 融合"]
+        tm["TiledMma<br/>MMA_Atom 平铺成 warp tile"]
+        tc["TiledCopy<br/>Copy_Atom 平铺成 block 拷贝"]
+        cute["CuTe Layout / Tensor<br/>所有层共用的坐标代数"]
+        dev --> ker --> ml
+        ker --> ep
+        ml --> tm
+        ml --> tc
+        tm & tc & ep --> cute
+    end
+    subgraph hand["第四章手写 kernel"]
+        direction TB
+        h1["bf16_gemm_tn()<br/>host 函数"]
+        h2["bf16_gemm_tn_kernel<br/>blockIdx 解析、warp_m/warp_n"]
+        h3["for kt … cp_async_wait / __syncthreads / load_tile"]
+        h4["acc → bf16x2 store"]
+        h5["16 × mma_bf16_16816"]
+        h6["load_tile + 6 × ldmatrix_x4"]
+        h7["swz()、a_row/a_col、b_row/b_col"]
+        h1 --> h2 --> h3
+        h2 --> h4
+        h3 --> h5
+        h3 --> h6
+        h5 & h6 & h4 --> h7
+    end
+    cutlass ~~~ hand
+
+    classDef c fill:#dde9f7,stroke:#2e6da4
+    classDef h fill:#dff5e1,stroke:#1e8449
+    class dev,ker,ml,ep,tm,tc,cute c
+    class h1,h2,h3,h4,h5,h6,h7 h
 ```
 
 对应到第四章的手写 kernel：`bf16_gemm_tn()` 是 device 层；`bf16_gemm_tn_kernel` 的 `blockIdx` 解析和 epilogue 是 kernel 层；k 循环加流水是 `CollectiveMma`；`MT × NT` 个 `mma_bf16_16816` 加 6 条 `ldmatrix_x4` 是 `TiledMma` 与 `TiledCopy`；`swz()` 和 `a_row/b_row` 这些索引公式就是 CuTe 要替我们表达的东西。
@@ -749,6 +978,27 @@ int main() {
   print_latex(thr_layout);   // 打印 8x4 线程网格的 LaTeX 表格
   return 0;
 }
+```
+
+三步划分对应三张越来越小的图，`local_tile` 是"切块"、`local_partition` 是"交错"：
+
+```text
+  ① tile 128×128，layout (_128,_128):(_1,_128)          zipped_divide(tile, (64,32)) →
+  ┌────┬────┬────┬────┐                                 ((_64,_32),(_2,_4)) : ((_1,_128),(_64,_4096))
+  │w0  │w2  │w4  │w6  │                                  └ warp tile 内坐标 ┘ └ 第几个 warp ┘
+  ├────┼────┼────┼────┤
+  │w1  │w3  │▓w5▓│w7  │
+  └────┴────┴────┴────┘
+
+  ② local_tile(T, (64,32), (1,2)) → warp 5 的 64×32 子块，layout (_64,_32):(_1,_128)
+     起始偏移 = 1·64 + 2·32·128 = 8256        （切块：相邻元素给同一个 warp）
+
+  ③ local_partition(wT, 8×4 线程网格, lane 3) → lane 3 = 线程坐标 (3, 0)，每隔 8 行、每隔 4 列取一个
+     列:   0  1  2  3  4  5  6  7  8 ...
+     行 3  [■  .  .  .  ■  .  .  .  ■ ...]
+     行 11 [■  .  .  .  ■  .  .  .  ■ ...]        （交错：相隔 stride 的元素给同一个线程）
+     行 19 [■  .  .  .  ■  .  .  .  ■ ...]
+     ...  → 8×8 个元素，layout (_8,_8):(_8,_512)：stride 8 = 隔 8 行，512 = 隔 4 列 × 128
 ```
 
 `zipped_divide(tile_layout, warp_tiler)` 输出 `((_64,_32),(_2,_4)):((_1,_128),(_64,_4096))`——它的意思是：这个 128×128 的 layout 被重新表达为"warp tile 内坐标 × warp 坐标"两级，第二级的 stride `(64, 4096)` 说明沿 M 移到下一个 warp tile 跨 64 个元素、沿 N 跨 $$32 \times 128 = 4096$$ 个元素。第四章 kernel 里 `warp_m * WM + i * 16 + a_row` 这类手算的索引，在这里被 Layout 代数替代，而且是可组合的：把 `tiled` 与一个 `TiledMma` 的 fragment layout 再 `compose`，就得到"warp 5 的 lane 3 的第 k 个 mma 的 `a2` 寄存器对应全局矩阵的哪个元素"。

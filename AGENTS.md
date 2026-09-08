@@ -98,12 +98,24 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
 - Series are independent: no links to posts of other series.
 - `{%`/`{{` inside code (PTX asm, printf formats, regexes) must be wrapped in
   `{% raw %}` … `{% endraw %}` or the Liquid pass fails the build.
-- **Diagrams over prose.** Every structural/architectural point should have a
-  diagram. Prefer ```` ```mermaid ```` (rendered by `_includes/rich-content.html`,
-  Mermaid 10.9.1: `~~~` invisible links to force row/column order, `classDef`
-  colours, `<br/>` in quoted labels; horizontal layouts shrink to unreadable
-  size at 755 px width, so favour `flowchart TB`). When Mermaid cannot express
-  it or renders badly (log-axis plots, precise geometry, dense layouts), generate
-  an SVG/PNG into `img/in-post/<post-slug>-<name>.{svg,png}` and embed it with
-  `![alt](/img/in-post/...)`. Verify rendering in a real browser
-  (`jekyll serve` + check `.mermaid-error`), not just `jekyll build`.
+- **图文并茂，一图胜千言.** Posts must not be walls of text. Whenever a
+  concept is about *structure, flow, layout, or state over time* (architecture,
+  execution hierarchy, memory layout, timelines, decision trees, algorithm
+  state evolution), draw it — a diagram is the primary explanation and the prose
+  supports it, not the other way round. Before finishing a post, re-read it
+  section by section and ask "would a reader understand this faster from a
+  picture?"; if yes, add one. Each diagram must carry an explanation the text
+  cannot easily give — no decorative figures.
+  - Structure / flow / timelines / decisions → ```` ```mermaid ```` (rendered by
+    `_includes/rich-content.html`, Mermaid 10.9.1: `~~~` invisible links to force
+    row/column order, `classDef` colours, `<br/>` in quoted labels; horizontal
+    layouts shrink to unreadable size at 755 px width, so favour `flowchart TB`
+    and split overly tall graphs).
+  - Cell-exact layouts (byte/sector maps, bank mappings, reduction trees,
+    thread→address tables) → monospace ASCII in a fenced `text` block; exact
+    alignment matters more than styling here and Mermaid renders them badly.
+  - Anything neither handles well (log-axis plots, precise geometry, dense
+    grids) → generate an SVG/PNG into `img/in-post/<post-slug>-<name>.{svg,png}`
+    and embed with `![alt](/img/in-post/...)`.
+  - Verify rendering in a real browser (`jekyll serve` + check `.mermaid-error`
+    and eyeball each SVG's size), not just `jekyll build`.

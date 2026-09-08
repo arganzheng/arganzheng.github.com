@@ -74,6 +74,20 @@ def add_kernel(x_ptr, y_ptr, out_ptr, n, BLOCK_SIZE: tl.constexpr):
     tl.store(out_ptr + offs, x + y, mask=mask)
 ```
 
+```text
+  CUDA（SIMT）：写的是"一个线程"                       Triton（块级张量）：写的是"一个 block"
+
+  block 0                                              program 0
+  ┌────┬────┬────┬────┬─────┬─────┐                    ┌────────────────────────────────────┐
+  │ t0 │ t1 │ t2 │ t3 │ ... │t127 │  每个线程一份代码     │ offs = [0, 1, 2, ..., 1023]  (张量) │  一份代码
+  │ ↓  │ ↓  │ ↓  │ ↓  │     │  ↓  │  idx 是标量          │ mask = offs < n              (张量) │  操作整块
+  │x[0]│x[1]│x[2]│x[3]│     │x[127]│ if (idx<n) 是分支   │ x = tl.load(x_ptr + offs, mask)    │  mask 是谓词
+  └────┴────┴────┴────┴─────┴─────┘                    └────────────────────────────────────┘
+                                                                          │ 编译器决定
+  程序员决定: 线程 i 拿元素 blockIdx*128 + i                              ▼
+                                                        128 个线程 × 8 个元素/线程（layout，源码里看不到）
+```
+
 CUDA 版的 `idx` 是一个标量，Triton 版的 `offs` 是一个长度为 `BLOCK_SIZE` 的张量；CUDA 版的 `if (idx < n)` 是一个分支，Triton 版的 `mask` 是一个逐元素的谓词。CUDA 里"128 个线程各自算一个 `idx`"这件事，在 Triton 里被 `tl.arange` 一次性表达为一个张量，由编译器决定这 `BLOCK_SIZE` 个元素怎么分给 128 个线程。
 
 ### 2. 四个原语：program_id、arange、load/store、mask
@@ -93,6 +107,22 @@ Triton 的核心原语只有几个，全部围绕"块级张量"：
 ### 3. layout：编译器决定线程到元素的映射
 
 把 `tl.arange(0, 1024)` 交给一个 `num_warps=4` 的 program，128 个线程各拿 8 个元素。但**哪 8 个**？连续的 8 个（线程 0 拿 0–7，线程 1 拿 8–15）还是跨步的（线程 0 拿 0, 128, 256, …）？
+
+```text
+  tl.arange(0, 1024)，num_warps = 4 → 128 线程，每人 8 个元素。两种分法：
+
+  ① 连续（编译器为 load/store 选的）: 线程 i 拿 [8i, 8i+8)
+     元素: |0 1 2 3 4 5 6 7|8 . . . . . 15|16 . . . . 23| ...                  |1016 ... 1023|
+     线程: |      t0       |      t1      |      t2     | ...                  |    t127     |
+     → 每线程 8 × 2 B = 16 B 连续 → 一条 128 bit load；warp 0 覆盖 [0, 512 B) 连续 → 完全合并
+
+  ② 跨步: 线程 i 拿 i, i+128, i+256, ...
+     元素: |0 |1 |2 | ... |127|128|129| ...
+     线程: |t0|t1|t2| ... |t127|t0 |t1 | ...
+     → 每线程每次只能 load 2 B；warp 一次访问 32 × 2 B = 64 B 连续，8 次才凑够 512 B
+
+  TTGIR 里 ① 写成: #blocked<{sizePerThread=[8], threadsPerWarp=[32], warpsPerCTA=[4], order=[0]}>
+```
 
 这就是 **layout** ——Triton 编译器为每个块级张量选定的"线程到元素的映射"。它不在源代码里，而是编译器中间表示（TTGIR）的一部分，第四章会读它的具体编码。这里先给出最重要的直觉：
 
@@ -157,7 +187,27 @@ def matmul_kernel(a_ptr, b_ptr, c_ptr, M, N, K, ...):
     ...
 ```
 
-它的工作方式：
+它的工作方式，用一次调用的流程画出来：
+
+```mermaid
+flowchart TB
+    invoke["调用 kernel#91;grid#93;(args)"]
+    key{"(M, N, K) 这组 key<br/>进程内缓存里有吗？"}
+    prune["prune_configs_by<br/>early_config_prune / perf_model 剪枝"]
+    loop["对每个候选 config：<br/>编译（或命中 ~/.triton/cache）→ 跑若干次 → 取中位数"]
+    pick["选最快的 config<br/>写入进程内字典（不落盘）"]
+    launch["按选中的 constexpr / num_warps / num_stages 发射"]
+    invoke --> key
+    key -- "没有（首次遇到这组形状）" --> prune --> loop --> pick --> launch
+    key -- "有" --> launch
+
+    classDef slow fill:#fde2e2,stroke:#c0392b
+    classDef fast fill:#dff5e1,stroke:#1e8449
+    class prune,loop,pick slow
+    class launch fast
+```
+
+红色部分只在每组新 key 首次出现时走一次，但每次都要几秒到几分钟——这就是"第一个请求慢"的来源。
 
 - **`configs`** 列出候选：每个 `triton.Config` 包含一组 constexpr 取值和 `num_warps`/`num_stages`；
 - **`key`** 列出哪些运行时参数的取值变化会触发重新搜索。`key=["M", "N", "K"]` 意味着每一组新的 (M, N, K) 都会跑一次搜索，结果缓存在进程内的字典里（**不持久化到磁盘**，进程重启后重新搜索；这一点常被误解）；
@@ -380,6 +430,27 @@ def triton_matmul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 - **行主序**：前 108 个 program 的 `pid_m` 取 0–3（108/32 ≈ 3.4），`pid_n` 跑遍 0–31。它们需要的数据：A 的 4 个行 panel（每个 $$128 \times 4096 \times 2\ \text{B} = 1$$ MiB），加 B 的**全部** 32 个列 panel（每个 $$4096 \times 128 \times 2\ \text{B} = 1$$ MiB），共约 36 MiB；
 - **分组（`GROUP_SIZE_M = 8`）**：把 program 按 8 个 `pid_m` 为一组重排，组内按列主序走：同一组的 $$8 \times 32 = 256$$ 个 program 中，前 108 个覆盖 `pid_m` 0–7 的全部 8 行 panel，`pid_n` 只到 0–13（108/8 = 13.5）。需要的数据：A 的 8 个 panel + B 的 14 个 panel ≈ 22 MiB。
 
+缩小到 8×8 个 tile、一波 16 个 program 来画（数字标的是 pid，▓ 是这一波正在算的 tile）：
+
+```text
+  行主序 pid_m = pid // 8                          分组 G = 4，组内列主序
+  一波 16 个 program 覆盖 2 整行                    一波 16 个 program 覆盖 4 行 × 4 列
+
+  pid_n→ 0  1  2  3  4  5  6  7                    pid_n→ 0  1  2  3  4  5  6  7
+  m=0  [▓0 ▓1 ▓2 ▓3 ▓4 ▓5 ▓6 ▓7]                   m=0  [▓0 ▓4 ▓8 ▓12  .  .  .  . ]
+  m=1  [▓8 ▓9 ▓10▓11▓12▓13▓14▓15]                  m=1  [▓1 ▓5 ▓9 ▓13  .  .  .  . ]
+  m=2  [ .  .  .  .  .  .  .  . ]                   m=2  [▓2 ▓6 ▓10▓14  .  .  .  . ]
+  m=3  [ .  .  .  .  .  .  .  . ]                   m=3  [▓3 ▓7 ▓11▓15  .  .  .  . ]
+  m=4  [ .  .  .  .  .  .  .  . ]                   m=4  [ .  .  .  .  .  .  .  . ]
+  ...                                               ...
+
+  需要 A 的行 panel: m = 0,1        → 2 个           需要 A 的行 panel: m = 0..3       → 4 个
+  需要 B 的列 panel: n = 0..7 全部  → 8 个           需要 B 的列 panel: n = 0..3       → 4 个
+  工作集: 10 个 panel                                 工作集: 8 个 panel   ← 一般地 G + W/G，G ≈ √W 时最小
+
+  放大到 4096³ / 128 tile / 一波 108 program:       行主序 4 + 32 = 36 MiB   vs   G=8: 8 + 14 = 22 MiB（L2 40 MB）
+```
+
 更一般地，一波 $$W$$ 个 program、分组大小 $$G$$ 时需要的 panel 数约为 $$G + W/G$$，在 $$G \approx \sqrt{W}$$ 时最小。这个工作集能否放进 L2 直接决定 A、B 的每个 tile 是从 L2 还是从 HBM 读进 SM。A100 的 L2 是 40 MB：22 MiB 能放下，36 MiB 放不下（且 L2 还要放 C 的写回和其他数据）。第五篇推导过分块 GEMM 的全局读取量是 $$M N K (1/B_N + 1/B_M)$$ 个元素——4096³、128 tile 时是 $$2 \times 4096^3 / 128 \times 2\ \text{B} = 2$$ GiB，是 96 MiB 最小流量的 21 倍。这 2 GiB 中有多少落在 L2、多少真去 HBM，就由 swizzle 决定。**L2 带宽约是 HBM 的数倍**，命中率的差异在 compute-bound 的 GEMM 上通常体现为 5–15% 的性能差别。
 
 映射公式本身：`group_id = pid // (G × num_pid_n)` 是第几组；`first_pid_m = group_id × G` 是组的起始行；组内偏移 `pid % num_pid_in_group` 按列主序拆成 `pid_m = first_pid_m + 偏移 % group_size_m`、`pid_n = 偏移 // group_size_m`。`group_size_m = min(num_pid_m - first_pid_m, G)` 处理最后一组不满 $$G$$ 行的情况。这段代码在 vLLM 的 `fused_moe_kernel` 里几乎逐字出现（第五章）。
@@ -395,23 +466,40 @@ Triton matmul 能接近 cuBLAS，是因为编译器自动做了第五、六篇�
 
 ### 1. 编译流水线的六层
 
-```text
-Python 源码
-   │  @triton.jit：JITFunction 解析 Python AST，按 constexpr 特化
-   ▼
-TTIR（Triton IR）            与硬件无关的块级张量 IR：tt.load / tt.store / tt.dot / tt.reduce
-   │  转换 + 加 layout 编码
-   ▼
-TTGIR（TritonGPU IR）        每个张量带 layout：#blocked / #shared / #mma / #dot_op
-   │  coalescing、pipeline、prefetch、layout 转换消除、去 barrier …
-   ▼
-LLVM IR（NVPTX 后端）        线程级标量代码，layout 已经被"展开"成线程索引运算
-   │  LLVM 优化 + NVPTX codegen
-   ▼
-PTX                         mma.sync / cp.async / ld.global.v4 …
-   │  ptxas
-   ▼
-cubin（SASS）                寄存器分配、指令调度，缓存到 ~/.triton/cache/
+```mermaid
+flowchart TB
+    py["Python 源码<br/>@triton.jit 函数"]
+    ttir["TTIR（Triton IR）<br/>硬件无关的块级张量 IR<br/>tt.load / tt.store / tt.dot / tt.reduce / scf.for"]
+    ttgir["TTGIR（TritonGPU IR）<br/>每个张量带 layout<br/>#blocked / #shared / #mma / #dot_op"]
+    llir["LLVM IR（NVPTX）<br/>线程级标量/向量代码<br/>layout 已展开成线程索引运算"]
+    ptx["PTX<br/>mma.sync / cp.async / ldmatrix / ld.global.v4"]
+    cubin["cubin（SASS）<br/>缓存到 ~/.triton/cache/"]
+
+    py -- "AST 解析、constexpr 代入<br/>编译期分支删除" --> ttir
+    ttir -- "为每个张量选初始 layout" --> ttgir
+    ttgir -- "coalesce · pipeline · prefetch<br/>layout 转换消除 · swizzle · barrier 插入" --> llir
+    llir -- "LLVM 优化 + NVPTX codegen" --> ptx
+    ptx -- "ptxas：寄存器分配、指令调度" --> cubin
+
+    m1["≈ 模板实例化 / if constexpr"]
+    m2["≈ 第 3–6 篇手工做的全部：<br/>向量化、多 stage cp.async、ldmatrix<br/>bank conflict 消除、__syncthreads 位置"]
+    m3["≈ 手写线程索引、shfl、inline PTX"]
+    m4["= nvcc 后端，与 CUDA 相同"]
+    ttir ~~~ m1
+    ttgir ~~~ m2
+    llir ~~~ m3
+    cubin ~~~ m4
+    m1 -.- ttir
+    m2 -.- ttgir
+    m3 -.- llir
+    m4 -.- cubin
+
+    classDef ir fill:#dde9f7,stroke:#2e6da4
+    classDef hot fill:#fdf1d6,stroke:#b9770e
+    classDef note fill:#f4f4f4,stroke:#999,stroke-dasharray: 4 3
+    class py,ttir,llir,ptx,cubin ir
+    class ttgir hot
+    class m1,m2,m3,m4 note
 ```
 
 每一层做什么：
@@ -449,6 +537,23 @@ TTGIR 里的每个张量类型都带一个 layout 属性。以 `add_kernel`（`B
 
 ```text
 #blocked = #ttg.blocked<{sizePerThread = [1, 8], threadsPerWarp = [4, 8], warpsPerCTA = [4, 1], order = [1, 0]}>
+```
+
+```text
+  sizePerThread=[1,8], threadsPerWarp=[4,8], warpsPerCTA=[4,1], order=[1,0]  作用在 [128, 32] 的 A tile 上
+
+  一个 warp 铺出 4 行 × (8 线程 × 8 元素 = 64 列)，但 tile 只有 32 列 → 列方向按 32 取模"回绕"，
+  后 4 个线程持有的是前 4 个线程同一份数据的副本（每格 = 1 个线程的 8 个连续 BF16 = 16 B = 一条 128 bit load）
+
+         列: 0-7    8-15   16-23  24-31  │ 32-63（不存在，回绕到 0-31）
+  行 0     [ t0  ][ t1  ][ t2  ][ t3  ]  │ t4 t5 t6 t7 = t0..t3 的副本   ┐
+  行 1     [ t8  ][ t9  ][ t10 ][ t11 ]  │ t12..t15 副本                 │ warp 0 覆盖 4 行 × 32 列
+  行 2     [ t16 ][ t17 ][ t18 ][ t19 ]  │ t20..t23 副本                 │ = 256 B 连续
+  行 3     [ t24 ][ t25 ][ t26 ][ t27 ]  │ t28..t31 副本                 ┘
+  行 4-7    warp 1      行 8-11  warp 2      行 12-15  warp 3           → 4 个 warp 一轮铺 16 行
+  行 16-127 再走 7 轮，每线程共持有 8 × 8 = 64 个元素
+
+  同一行的 4 个线程各取连续 16 B → 一行 64 B 一次合并访问；每条 load 都是 128 bit
 ```
 
 `order = [1, 0]` 表示第 1 维（列，K 方向）是最快变化的维；`sizePerThread = [1, 8]` 每线程持有一行中的 8 个连续列（16 字节，一条 128 bit load）；`threadsPerWarp = [4, 8]` 一个 warp 覆盖 4 行 × (8 线程 × 8 元素 = 64 列)——但 tile 只有 32 列，所以 warp 内 8 个线程中实际是 4 个覆盖 32 列，layout 会"回绕"（wrap）复制；`warpsPerCTA = [4, 1]` 4 个 warp 沿行方向排开。这个 layout 只是全局内存 → 寄存器的加载布局，随后会被写入 `#shared` 布局的 shared memory：
@@ -528,6 +633,26 @@ MoE 层的计算是：每个 token 被路由到 top-k 个 expert，每个 expert
 
 - `sorted_token_ids`：把 $$M \times \text{top\_k}$$ 个 (token, expert) 对按 expert 排序后的 token 索引，并在每个 expert 的段尾填充到 `BLOCK_SIZE_M` 的整数倍（填充位置的值 $$\geq$$ `num_valid_tokens`，用来做 mask）；
 - `expert_ids`：长度为 `EM / BLOCK_SIZE_M`，第 $$i$$ 项告诉第 $$i$$ 个 M 方向的 tile 属于哪个 expert。
+
+```text
+  例: 5 个 token，top_k = 2，3 个 expert，BLOCK_SIZE_M = 4
+
+  路由结果 (token → experts):  t0→{E0,E2}  t1→{E1,E0}  t2→{E0,E1}  t3→{E2,E1}  t4→{E1,E0}
+  展平索引 = token*top_k + slot:  t0:0,1  t1:2,3  t2:4,5  t3:6,7  t4:8,9
+
+  moe_align_block_size → 按 expert 排序，每个 expert 的段尾 pad 到 4 的倍数（pad 值 ≥ num_valid_tokens=10）
+
+  sorted_token_ids: [ 0  3  4  9 │ 2  5  7  8 │ 1  6  P  P ]      P = padding
+                      └─ E0 ─┘     └─ E1 ─┘     └─ E2 ─┘
+  expert_ids:       [    0    │    1    │    2    ]              第 i 个 M-tile 属于哪个 expert
+                     tile 0     tile 1     tile 2
+
+  pid_m = 2 的 program:
+     off_experts = expert_ids[2] = 2              → B = W_2（b_ptr + 2 * stride_be）
+     offs_token  = sorted_token_ids[8..12) = [1 6 P P]
+     A 的行     = offs_token // top_k = [0 3 P P]  → gather x[0], x[3]（P 行被 token_mask 屏蔽，读 0、不写）
+     C 的行     = offs_token 本身 = [1 6 P P]      → 写到 (token, slot) 展平后的输出行
+```
 
 排序和填充由 `moe_align_block_size`（`vllm/model_executor/layers/fused_moe/moe_align_block_size.py`）在 kernel 之前完成。有了这两个数组，grouped GEMM 就变成了一个普通 GEMM：M 方向的 tile 编号 `pid_m` 通过 `expert_ids[pid_m]` 找到 expert，通过 `sorted_token_ids[pid_m * BLOCK_SIZE_M + arange]` 找到该 tile 的 token 行。核心片段（`vllm/model_executor/layers/fused_moe/fused_moe.py`，v0.20.0，`fused_moe_kernel`，略去量化分支）：
 
@@ -693,7 +818,31 @@ def _fwd_kernel(Q, K, V, K_cache, V_cache, B_Loc, sm_scale, ..., Out, ...,
 
 ### 3. 什么时候值得手写
 
-反过来就是答案：
+反过来就是答案，先画成一棵决策树：
+
+```mermaid
+flowchart TB
+    q0{"需要 Triton 没暴露的指令？<br/>mma/cp.async/mbarrier 级 PTX、<br/>stmatrix、TMA multicast、cluster"}
+    q1{"是 memory-bound 吗？<br/>elementwise / norm / softmax / gather"}
+    q2{"是端到端热点吗？<br/>占比 ≥ 30%、形状固定、<br/>大规模长期运行"}
+    q3{"目标是 Hopper 极限吗？<br/>warp specialization、ping-pong、<br/>Tensor Core 利用率 75%+"}
+    hand["手写 CUDA / CUTLASS / CuTe<br/>（FlashAttention、DeepGEMM、vLLM CUTLASS MoE）"]
+    triton["Triton<br/>30–60 行，手写的 90% 以上<br/>（torch.compile 融合 kernel、fused_moe、研究性 kernel）"]
+
+    q0 -- "是" --> hand
+    q0 -- "否" --> q1
+    q1 -- "是：访存对了就到顶，没有 10% 可榨" --> triton
+    q1 -- "否（GEMM / attention 类）" --> q2
+    q2 -- "否" --> triton
+    q2 -- "是" --> q3
+    q3 -- "是" --> hand
+    q3 -- "否：Ampere 上差距 5–10%，看值不值几周工程" --> triton
+
+    classDef h fill:#fde2e2,stroke:#c0392b
+    classDef t fill:#dff5e1,stroke:#1e8449
+    class hand h
+    class triton t
+```
 
 - **生产中的热点 GEMM 或 attention**：如果一个 kernel 占端到端时间的 30% 以上、形状固定、要在成千上万张卡上跑几个月，10% 就是 3% 的总成本，值得几周的 CUTLASS/CuTe 工程。FlashAttention、DeepGEMM、vLLM 的 CUTLASS MoE 后端都是这个逻辑；
 - **需要特殊指令**：FP8 的 per-block scaling 要在 `wgmma` 的累加器上做精细的 scale（DeepGEMM 的核心技巧）、用 `stmatrix` 做 epilogue、用 `cp.reduce.async.bulk` 做 TMA 归约、用 `mbarrier` 做跨 warp 的生产者-消费者——这些指令 Triton 没有暴露；
