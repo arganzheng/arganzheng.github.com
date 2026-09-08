@@ -67,8 +67,18 @@ defaults:
 
 
 
-# Disqus settings
-disqus_username: argan
+# Comments: giscus (GitHub Discussions), rendered by _includes/comments.html.
+# IDs come from https://giscus.app or
+# `gh api graphql -f query='{ repository(owner:"arganzheng", name:"arganzheng.github.com"){ id discussionCategories(first:10){ nodes{ id name } } } }'`
+giscus:
+  repo: arganzheng/arganzheng.github.com
+  repo_id: MDEwOlJlcG9zaXRvcnkzNDg1NTY2
+  category: Comments
+  category_id: DIC_kwDOADUvfs4DFI2e
+  lang: zh-CN
+  theme: light
+  input_position: top
+  reactions_enabled: 1
 
 # Related posts count
 related_posts_threshold: 3

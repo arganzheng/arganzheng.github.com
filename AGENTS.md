@@ -44,6 +44,12 @@ END of both `css/argan-blog.css` and `css/argan-blog.min.css` by hand
   and they only look inside `.post-container` and `.reveal .slides`.
 - `_includes/analytics.html` — GA + Baidu Tongji, shared by `footer.html` and
   `_layouts/slides.html`
+- `_includes/comments.html` — giscus (GitHub Discussions) comment box, used by
+  `_layouts/post.html`, `header-post.html` and `keynote.html`. Configured by the
+  `giscus:` block in `_config.yml`; threads are mapped by `page.url`
+  (`data-mapping="specific"`), so renaming a post's permalink orphans its
+  comments. Disqus was removed on purpose: it is blocked in mainland China and
+  its embed injected VigLink affiliate links (`a.vglnk`) into article text.
 
 ## Writing a deck
 
