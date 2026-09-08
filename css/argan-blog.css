@@ -1921,3 +1921,35 @@ li[id^="fn:"] {
     max-width: calc(100vw - 24px);
   }
 }
+
+/* giscus comment section wrapper (less/comments.less) */
+.comment {
+  margin-top: 40px;
+  padding-top: 24px;
+  border-top: 1px solid #eeeeee;
+}
+.comment .comment-title {
+  margin: 0 0 6px;
+}
+.comment .comment-hint {
+  margin: 0 0 18px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #808080;
+}
+.comment .comment-hint a {
+  color: #808080;
+  text-decoration: underline;
+}
+.comment .comment-hint a:hover,
+.comment .comment-hint a:focus {
+  color: #0085a1;
+}
+.comment .comment-hint code {
+  padding: 1px 4px;
+  font-size: 12px;
+}
+.comment .giscus,
+.comment .giscus-frame {
+  width: 100%;
+}

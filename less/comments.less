@@ -1,0 +1,35 @@
+@import "variables.less";
+
+// giscus comment section (_includes/comments.html). The widget itself is an
+// iframe themed by css/giscus-theme.css; this only styles the wrapper.
+.comment {
+	margin-top: 40px;
+	padding-top: 24px;
+	border-top: 1px solid @gray-light;
+
+	.comment-title {
+		margin: 0 0 6px;
+	}
+	.comment-hint {
+		margin: 0 0 18px;
+		font-size: 13px;
+		line-height: 1.7;
+		color: @gray;
+		a {
+			color: @gray;
+			text-decoration: underline;
+			&:hover,
+			&:focus {
+				color: @brand-primary;
+			}
+		}
+		code {
+			padding: 1px 4px;
+			font-size: 12px;
+		}
+	}
+	.giscus,
+	.giscus-frame {
+		width: 100%;
+	}
+}

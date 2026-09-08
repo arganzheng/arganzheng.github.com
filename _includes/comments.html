@@ -1,8 +1,23 @@
 {% if site.giscus.repo %}
+{% comment %}
+  The custom theme is an https:// URL that giscus loads inside its iframe; a
+  http://localhost stylesheet would be blocked as mixed content, so fall back to
+  the built-in "light" theme when previewing locally (JEKYLL_ENV != production).
+{% endcomment %}
+{% assign giscus_theme = site.giscus.theme | default: 'light' %}
+{% if jekyll.environment != 'production' and giscus_theme contains '://' %}
+  {% assign giscus_theme = 'light' %}
+{% endif %}
 <!-- giscus 评论框（GitHub Discussions） start -->
-<div class="comment">
+<section class="comment" id="comments">
+    <p class="h3 comment-title">COMMENTS</p>
+    <p class="comment-hint">
+        评论基于 <a href="https://github.com/{{ site.giscus.repo }}/discussions" target="_blank" rel="noopener noreferrer">GitHub Discussions</a>，
+        使用 GitHub 账号登录即可发表，支持 Markdown 语法（图片直接粘贴、代码块用 <code>```</code> 包裹）。
+        首次加载需要连接 GitHub，可能需要几秒钟。
+    </p>
     <div class="giscus"></div>
-</div>
+</section>
 <script src="https://giscus.app/client.js"
         data-repo="{{ site.giscus.repo }}"
         data-repo-id="{{ site.giscus.repo_id }}"
@@ -13,8 +28,8 @@
         data-strict="0"
         data-reactions-enabled="{{ site.giscus.reactions_enabled | default: 1 }}"
         data-emit-metadata="0"
-        data-input-position="{{ site.giscus.input_position | default: 'top' }}"
-        data-theme="{{ site.giscus.theme | default: 'light' }}"
+        data-input-position="{{ site.giscus.input_position | default: 'bottom' }}"
+        data-theme="{{ giscus_theme }}"
         data-lang="{{ site.giscus.lang | default: 'zh-CN' }}"
         data-loading="lazy"
         crossorigin="anonymous"

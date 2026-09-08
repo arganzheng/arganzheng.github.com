@@ -76,8 +76,9 @@ giscus:
   category: Comments
   category_id: DIC_kwDOADUvfs4DFI2e
   lang: zh-CN
-  theme: light
-  input_position: top
+  # custom theme served from this site (css/giscus-theme.css); local preview falls back to "light"
+  theme: https://arganzheng.life/css/giscus-theme.css
+  input_position: bottom
   reactions_enabled: 1
 
 # Related posts count
