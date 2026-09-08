@@ -85,7 +85,7 @@ giscus:
 # relay worker in tools/annotations-worker/ (see its README); leave empty to
 # disable the feature. Local dev can override it with localStorage.annotationsApi.
 annotations:
-  api: ""
+  api: "https://blog-annotations.arganzheng.workers.dev"
 
 # Related posts count
 related_posts_threshold: 3
