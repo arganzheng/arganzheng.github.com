@@ -81,6 +81,12 @@ giscus:
   input_position: bottom
   reactions_enabled: 1
 
+# Highlight annotations on posts (js/annotations.js). `api` is the URL of the
+# relay worker in tools/annotations-worker/ (see its README); leave empty to
+# disable the feature. Local dev can override it with localStorage.annotationsApi.
+annotations:
+  api: ""
+
 # Related posts count
 related_posts_threshold: 3
 

@@ -205,6 +205,34 @@ tags: [Blog, Demo, Markdown]
 
 ---
 
+## 七、场景五：读者划线批注（Highlight Annotations）
+
+上面几种都是**作者**写给读者的解释；划线批注反过来，让**读者**在正文任意一句话上留下自己的评论，效果类似 Medium 的 highlight 或 Hypothesis。
+
+### 怎么用
+
+1. 在正文里用鼠标（或触屏长按）**选中一段文字**，选区上方会浮出一个小工具条：`评论` 与 `复制链接`。
+2. 点 `评论`，就地弹出批注编辑器：顶部是你选中的原文作为引用（context），下面是 Markdown 输入框（支持链接、代码、图片，可切换「预览」）。
+3. 用 GitHub 账号登录后点 `发表`（或按 `⌘/Ctrl + Enter`）。登录复用文末评论区的 giscus 登录，只需登录一次；登录跳转前后草稿会自动保留。
+4. 发表成功后，被批注的文字立刻变成**淡黄色高亮**；任何读者悬停或点击高亮，都能看到这段文字下的全部批注、赞同数与回复入口。
+5. `复制链接` 会生成一个带 [Text Fragment](https://developer.mozilla.org/docs/Web/URI/Fragment/Text_fragments) 的 URL（`#:~:text=…`），在 Chrome / Safari 里打开会直接高亮到这句话。
+
+### 它是怎么存的
+
+批注并不需要一个新的后台：它就是文章 GitHub Discussions 讨论串里的一条普通评论，只是开头多了一段带定位链接的引用：
+
+~~~markdown
+> 被划线的原文
+>
+> <sub>[§ 原文位置](https://arganzheng.life/<slug>.html#:~:text=prefix-,start,end,-suffix)</sub>
+
+读者写的批注正文
+~~~
+
+页面加载时，脚本把讨论串里这种形状的评论解析成 W3C Web Annotation 的 `TextQuoteSelector { exact, prefix, suffix }`，在正文里先做精确匹配，找不到再做**模糊锚定**（Hypothesis 同款的近似字符串匹配），所以原文小修小改后高亮依然能对上；改动太大对不上的批注会在评论区顶部列为「未能定位」，不会丢。
+
+> 💡 你现在就可以试试：选中本段任意几个字，点「评论」。
+
 [^nccl]: **NCCL (NVIDIA Collective Communications Library)**：英伟达专为 GPU 集群优化的集合通信库。实现了跨 PCIe、NVLink 和 InfiniBand 网络的广播、归约与 AllGather 操作。详见 [NCCL 官方仓库](https://github.com/NVIDIA/nccl)。
 
 [^ring-allreduce]: **Ring AllReduce 算法**：一种通信带宽利用率极高的分布式归约算法。每个进程仅与左右邻居通信，将数据切分成 $$S/N$$ 大小的块分步环状传递，通信量与节点数 $$N$$ 无关。

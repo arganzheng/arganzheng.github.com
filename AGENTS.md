@@ -50,6 +50,62 @@ END of both `css/argan-blog.css` and `css/argan-blog.min.css` by hand
   (`data-mapping="specific"`), so renaming a post's permalink orphans its
   comments. Disqus was removed on purpose: it is blocked in mainland China and
   its embed injected VigLink affiliate links (`a.vglnk`) into article text.
+- `js/annotations.js` — reader highlight annotations ("划线批注"), see below.
+
+## Highlight annotations (js/annotations.js)
+
+Readers select text in `.post-container` → floating toolbar (`评论` /
+`复制链接`) → inline composer → the note is posted as a **normal comment** of
+the post's giscus Discussion, shaped as
+
+```markdown
+> quoted passage
+>
+> <sub>[§ 原文位置](https://arganzheng.life/<slug>.html#:~:text=prefix-,start,end,-suffix)</sub>
+
+note (Markdown)
+```
+
+On load the thread is fetched, comments of that shape are parsed into a W3C
+`TextQuoteSelector {exact, prefix, suffix}` (exact = blockquote text,
+prefix/suffix = the Text Fragment), anchored exactly or fuzzily
+(`js/vendor/approx-string-match.js`, MIT, the algorithm Hypothesis uses) and
+wrapped in `<mark class="annotation-hl">`; hover/tap shows the card. Anchors
+that no longer match are listed under the comment hint as "未能定位".
+
+- **Data path**: the browser cannot call `giscus.app/api/*` (CORS is limited
+  to giscus' own origin) or GitHub GraphQL anonymously, so
+  `tools/annotations-worker/` is a secret-free Cloudflare Worker that relays
+  `GET /discussions?term=` (giscus public API, 60 s edge cache, `&t=` bypasses),
+  `POST /token` (giscus session → GitHub token) and `POST /discussions`
+  (create the thread for a post nobody commented on yet). Deploy with
+  `wrangler deploy` (see its README) and put the URL in `_config.yml`
+  `annotations.api`; an empty `api` disables the feature.
+- **Posting** reuses the reader's giscus login: giscus' `client.js` stores the
+  session in `localStorage["giscus-session"]` of *our* origin; we exchange it
+  via the worker and call `api.github.com/graphql addDiscussionComment`
+  directly, then reload the giscus iframe. This relies on giscus internals
+  that are stable but not a public contract — any failure degrades to a
+  "复制引用" button (paste into giscus). Login = redirect to
+  `giscus.app/api/oauth/authorize?redirect_uri=<page>`; the draft is kept in
+  `sessionStorage` across the round-trip.
+- **Local dev**: `cd tools/annotations-worker && npx wrangler dev` (no login
+  needed, talks to the real giscus API), then in the console
+  `localStorage.annotationsApi = 'http://localhost:8787'`. A static JSON with
+  the `{discussion:{comments:[…]}}` shape served with CORS also works for
+  testing anchoring. `window.BlogAnnotations` exposes `reload/anchor/
+  buildIndex/buildCommentBody/parseComment/list` for console debugging.
+- **Interplay with footnotes / tips**: the text index excludes footnote
+  markers (`sup[id^=fnref]`, `a.footnote`, `.footnotes`), KaTeX, Mermaid and
+  the comment section; `<mark>` wraps text nodes only, so bound events and
+  `data-tip` on `.inline-tip` / `sup` survive. Inside `.inline-tip` /
+  `sup.has-popup-footnote` the annotation card is click-only (hover stays with
+  the tip); inside `a.external-link` clicks navigate and hover shows the card.
+  All three share the singleton `window.InlinePopover` (exported by
+  `js/inline-popups.js`), so only one card is ever open.
+- Anchoring waits for `richcontent:rendered` when the post has Mermaid/KaTeX
+  (6 s fallback) and re-anchors on every later event. Styles live in
+  `less/annotations.less` (appended by hand to both CSS bundles).
 
 ## Writing a deck
 

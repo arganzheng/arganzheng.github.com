@@ -9,11 +9,17 @@
   {% assign giscus_theme = 'light' %}
 {% endif %}
 <!-- giscus 评论框（GitHub Discussions） start -->
-<section class="comment" id="comments">
+<section class="comment" id="comments"
+         data-annotations-api="{{ site.annotations.api }}"
+         data-page-path="{{ page.url }}"
+         data-site-url="{{ site.url }}{{ site.baseurl }}"
+         data-repo-id="{{ site.giscus.repo_id }}"
+         data-category-id="{{ site.giscus.category_id }}">
     <p class="h3 comment-title">COMMENTS</p>
     <p class="comment-hint">
         评论基于 <a href="https://github.com/{{ site.giscus.repo }}/discussions" target="_blank" rel="noopener noreferrer">GitHub Discussions</a>，
         使用 GitHub 账号登录即可发表，支持 Markdown 语法（图片直接粘贴、代码块用 <code>```</code> 包裹）。
+        选中正文任意文字，点浮动的「评论」按钮即可对这段文字划线批注。
         首次加载需要连接 GitHub，可能需要几秒钟。
     </p>
     <div class="giscus"></div>
@@ -27,7 +33,7 @@
         data-term="{{ page.url }}"
         data-strict="0"
         data-reactions-enabled="{{ site.giscus.reactions_enabled | default: 1 }}"
-        data-emit-metadata="0"
+        data-emit-metadata="1"
         data-input-position="{{ site.giscus.input_position | default: 'bottom' }}"
         data-theme="{{ giscus_theme }}"
         data-lang="{{ site.giscus.lang | default: 'zh-CN' }}"

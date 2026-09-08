@@ -1953,3 +1953,371 @@ li[id^="fn:"] {
 .comment .giscus-frame {
   width: 100%;
 }
+
+/* highlight annotations (less/annotations.less) */
+.post-container mark.annotation-hl {
+  padding: 0;
+  color: inherit;
+  background-color: rgba(255, 213, 79, 0.32);
+  box-shadow: inset 0 -2px 0 rgba(214, 158, 0, 0.75);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.post-container mark.annotation-hl mark.annotation-hl {
+  background-color: rgba(255, 196, 0, 0.5);
+}
+.post-container mark.annotation-hl:hover {
+  background-color: rgba(255, 196, 0, 0.5);
+}
+.post-container mark.annotation-hl.is-new {
+  animation: annotation-flash 2.5s ease-out forwards;
+}
+.post-container a.external-link mark.annotation-hl,
+.post-container .inline-tip mark.annotation-hl {
+  color: inherit;
+}
+.post-container pre mark.annotation-hl {
+  background-color: rgba(255, 213, 79, 0.22);
+}
+@keyframes annotation-flash {
+  0% {
+    background-color: rgba(255, 196, 0, 0.85);
+  }
+  100% {
+    background-color: rgba(255, 213, 79, 0.32);
+  }
+}
+.annotation-toolbar {
+  position: absolute;
+  z-index: 1060;
+  display: none;
+  padding: 4px;
+  background: #1f2328;
+  color: #fff;
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+  font-size: 13px;
+  line-height: 1;
+  white-space: nowrap;
+  user-select: none;
+}
+.annotation-toolbar button {
+  background: transparent;
+  border: 0;
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.annotation-toolbar button:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+.annotation-toolbar button + button {
+  margin-left: 2px;
+  border-left: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 0 4px 4px 0;
+}
+.annotation-toolbar button .fa {
+  margin-right: 2px;
+}
+.annotation-toolbar .annotation-tb-arrow {
+  position: absolute;
+  left: 50%;
+  bottom: -5px;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  background: #1f2328;
+  transform: rotate(45deg);
+}
+.annotation-toolbar.is-below .annotation-tb-arrow {
+  bottom: auto;
+  top: -5px;
+}
+.annotation-composer {
+  position: absolute;
+  z-index: 1070;
+  display: none;
+  width: 480px;
+  max-width: calc(100vw - 24px);
+  background: #fff;
+  border: 1px solid #d0d7de;
+  border-radius: 10px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.16), 0 2px 8px rgba(0, 0, 0, 0.06);
+  font-size: 14px;
+  color: #24292f;
+  overflow: hidden;
+}
+.annotation-composer.is-sheet {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  width: auto;
+}
+.annotation-composer.is-busy {
+  opacity: 0.7;
+  pointer-events: none;
+}
+.annotation-composer .ac-quote {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #f6f8fa;
+  border-bottom: 1px solid #eaeef2;
+  color: #57606a;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.annotation-composer .ac-quote .fa {
+  margin-top: 3px;
+  color: #0085a1;
+  flex: none;
+}
+.annotation-composer .ac-quote .ac-quote-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.annotation-composer .ac-tabs {
+  display: flex;
+  align-items: center;
+  padding: 8px 14px 0;
+  gap: 4px;
+}
+.annotation-composer .ac-tabs button {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 4px 8px 6px;
+  font-size: 13px;
+  color: #57606a;
+  cursor: pointer;
+}
+.annotation-composer .ac-tabs button.is-active {
+  color: #0085a1;
+  border-bottom-color: #0085a1;
+  font-weight: 600;
+}
+.annotation-composer .ac-tabs .ac-tabs-hint {
+  margin-left: auto;
+  font-size: 12px;
+  color: #8c959f;
+}
+.annotation-composer .ac-text {
+  display: block;
+  width: 100%;
+  min-height: 96px;
+  margin: 8px 0 0;
+  padding: 10px 14px;
+  border: 0;
+  border-top: 1px solid #eaeef2;
+  border-bottom: 1px solid #eaeef2;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+}
+.annotation-composer .ac-text:focus {
+  box-shadow: inset 0 0 0 1px rgba(0, 133, 161, 0.4);
+}
+.annotation-composer .ac-preview {
+  min-height: 96px;
+  max-height: 260px;
+  overflow: auto;
+  margin-top: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid #eaeef2;
+  border-bottom: 1px solid #eaeef2;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.annotation-composer .ac-preview p {
+  margin: 0 0 8px;
+}
+.annotation-composer .ac-preview pre {
+  font-size: 12px;
+  padding: 8px 10px;
+}
+.annotation-composer .ac-preview img {
+  max-width: 100%;
+}
+.annotation-composer .ac-status {
+  display: none;
+  padding: 8px 14px 0;
+  font-size: 12.5px;
+  color: #57606a;
+}
+.annotation-composer .ac-status.is-error {
+  color: #cf222e;
+}
+.annotation-composer .ac-status .ac-fallback {
+  margin-left: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  border: 1px solid #d0d7de;
+  border-radius: 4px;
+  background: #f6f8fa;
+  color: #24292f;
+  cursor: pointer;
+}
+.annotation-composer .ac-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+}
+.annotation-composer .ac-user {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.annotation-composer .ac-user img {
+  border-radius: 50%;
+}
+.annotation-composer .ac-user a {
+  color: #24292f;
+  font-weight: 600;
+  text-decoration: none;
+}
+.annotation-composer .ac-muted {
+  color: #8c959f;
+  font-style: normal;
+}
+.annotation-composer .ac-buttons {
+  display: flex;
+  gap: 8px;
+}
+.annotation-composer .ac-buttons button {
+  padding: 6px 12px;
+  font-size: 13px;
+  border-radius: 6px;
+  border: 1px solid #d0d7de;
+  background: #f6f8fa;
+  color: #24292f;
+  cursor: pointer;
+}
+.annotation-composer .ac-buttons button:hover {
+  background: #eaeef2;
+}
+.annotation-composer .ac-buttons button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.annotation-composer .ac-buttons .ac-login,
+.annotation-composer .ac-buttons .ac-submit {
+  background: #0085a1;
+  border-color: #0085a1;
+  color: #fff;
+}
+.annotation-composer .ac-buttons .ac-login:hover,
+.annotation-composer .ac-buttons .ac-submit:hover {
+  background: #006c82;
+}
+.inline-popover-card.annotation-card {
+  max-width: 460px;
+}
+.inline-popover-card.annotation-card .popover-content {
+  max-height: 360px;
+}
+.inline-popover-card.annotation-card .annotation-item {
+  padding: 8px 0;
+}
+.inline-popover-card.annotation-card .annotation-item + .annotation-item {
+  border-top: 1px solid #eaeef2;
+}
+.inline-popover-card.annotation-card .annotation-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  color: #57606a;
+}
+.inline-popover-card.annotation-card .annotation-meta time {
+  margin-left: auto;
+}
+.inline-popover-card.annotation-card .annotation-author {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #24292f !important;
+  font-weight: 600;
+  text-decoration: none !important;
+}
+.inline-popover-card.annotation-card .annotation-author img {
+  border-radius: 50%;
+}
+.inline-popover-card.annotation-card .annotation-note {
+  font-size: 13.5px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+.inline-popover-card.annotation-card .annotation-note img {
+  max-width: 100%;
+}
+.inline-popover-card.annotation-card .annotation-note > :last-child {
+  margin-bottom: 0;
+}
+.inline-popover-card.annotation-card .annotation-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #8c959f;
+}
+.inline-popover-card.annotation-card .annotation-actions a {
+  margin-left: auto;
+  color: #8c959f;
+}
+.inline-popover-card.annotation-card .annotation-actions a:hover {
+  color: #0085a1;
+}
+.comment .annotation-orphans {
+  margin: -8px 0 16px;
+  font-size: 12.5px;
+  color: #8c959f;
+}
+.comment .annotation-orphans .fa {
+  margin-right: 4px;
+}
+.comment .annotation-orphans a {
+  color: #57606a;
+  text-decoration: underline dotted;
+}
+.comment .annotation-orphans a:hover {
+  color: #0085a1;
+}
+.annotation-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 32px;
+  z-index: 1080;
+  transform: translate(-50%, 12px);
+  padding: 10px 16px;
+  background: #1f2328;
+  color: #fff;
+  font-size: 13px;
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.annotation-toast.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+@media (max-width: 480px) {
+  .inline-popover-card.annotation-card {
+    max-width: calc(100vw - 24px);
+  }
+}

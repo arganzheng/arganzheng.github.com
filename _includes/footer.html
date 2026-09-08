@@ -127,6 +127,10 @@
 <!-- Inline popups, popup footnotes, and external link styling -->
 <script src="{{ "/js/inline-popups.js" | prepend: site.baseurl }}"></script>
 
+<!-- Highlight annotations: select text in a post -> "评论" -> note stored as a giscus comment -->
+<script src="{{ "/js/vendor/approx-string-match.js" | prepend: site.baseurl }}"></script>
+<script src="{{ "/js/annotations.js" | prepend: site.baseurl }}"></script>
+
 <!-- Service Worker -->
 <script type="text/javascript">
     if(navigator.serviceWorker){

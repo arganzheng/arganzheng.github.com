@@ -13,28 +13,17 @@
 (function () {
   'use strict';
 
-  function initInlinePopups() {
-    var container = document.querySelector('.post-container');
-    if (!container) return;
-
-    var popover = createPopover();
+  /**
+   * Shared singleton popover card. Exposed as window.InlinePopover so other
+   * scripts (js/annotations.js) can reuse the same card instead of stacking
+   * their own; only one card is ever visible at a time.
+   */
+  var InlinePopover = (function () {
+    var popover = null;
     var currentTrigger = null;
     var showTimer = null;
     var hideTimer = null;
-
-    // 1. Process External Links
-    processExternalLinks(container);
-
-    // 2. Process Standard Kramdown Footnotes
-    processFootnotes(container, popover);
-
-    // 3. Process Reverse Footnote Back-links
-    processReverseFootnotes();
-
-    // 4. Process Inline Tips
-    processInlineTips(container, popover);
-
-    // --- Helpers ---
+    var currentClass = '';
 
     function scrollToTargetWithOffset(targetEl) {
       if (!targetEl) return;
@@ -54,8 +43,9 @@
     }
 
     function createPopover() {
+      if (popover) return popover;
       var existing = document.getElementById('inline-popover-card');
-      if (existing) return existing;
+      if (existing) { popover = existing; return existing; }
 
       var card = document.createElement('div');
       card.id = 'inline-popover-card';
@@ -119,15 +109,16 @@
         }
       });
 
+      popover = card;
       return card;
     }
 
-    function scheduleShow(trigger, contentProvider) {
+    function scheduleShow(trigger, contentProvider, opts) {
       clearTimeout(hideTimer);
       clearTimeout(showTimer);
       showTimer = setTimeout(function () {
-        showPopover(trigger, contentProvider);
-      }, 100);
+        showPopover(trigger, contentProvider, opts);
+      }, (opts && opts.delay) || 100);
     }
 
     function scheduleHide() {
@@ -138,11 +129,20 @@
       }, 200);
     }
 
-    function showPopover(trigger, contentProvider) {
+    function showPopover(trigger, contentProvider, opts) {
+      createPopover();
       currentTrigger = trigger;
       var contentEl = popover.querySelector('.popover-content');
       var htmlContent = typeof contentProvider === 'function' ? contentProvider() : contentProvider;
-      contentEl.innerHTML = htmlContent;
+      if (currentClass) popover.classList.remove(currentClass);
+      currentClass = (opts && opts.className) || '';
+      if (currentClass) popover.classList.add(currentClass);
+      if (htmlContent && htmlContent.nodeType) {
+        contentEl.innerHTML = '';
+        contentEl.appendChild(htmlContent);
+      } else {
+        contentEl.innerHTML = htmlContent;
+      }
       renderMathIfPresent(contentEl);
 
       popover.style.display = 'block';
@@ -209,6 +209,64 @@
       currentTrigger = null;
     }
 
+    function renderMathIfPresent(el) {
+      if (typeof renderMathInElement === 'function') {
+        renderMathInElement(el, {
+          delimiters: [
+            { left: '\\[', right: '\\]', display: true },
+            { left: '\\(', right: '\\)', display: false },
+            { left: '$$', right: '$$', display: true },
+            { left: '$', right: '$', display: false }
+          ],
+          ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'],
+          ignoredClasses: ['mermaid', 'highlight', 'highlighter-rouge'],
+          throwOnError: false,
+          errorColor: '#cf222e'
+        });
+      }
+    }
+
+    return {
+      show: showPopover,
+      hide: hidePopover,
+      scheduleShow: scheduleShow,
+      scheduleHide: scheduleHide,
+      scrollToTargetWithOffset: scrollToTargetWithOffset,
+      renderMathIfPresent: renderMathIfPresent,
+      isActive: function () { return !!popover && popover.classList.contains('is-active'); },
+      isActiveFor: function (el) { return currentTrigger === el && this.isActive(); },
+      currentTrigger: function () { return currentTrigger; },
+      element: function () { return createPopover(); }
+    };
+  })();
+
+  window.InlinePopover = InlinePopover;
+
+  function initInlinePopups() {
+    var container = document.querySelector('.post-container');
+    if (!container) return;
+
+    var popover = InlinePopover.element();
+    var scheduleShow = InlinePopover.scheduleShow;
+    var scheduleHide = InlinePopover.scheduleHide;
+    var showPopover = InlinePopover.show;
+    var hidePopover = InlinePopover.hide;
+    var scrollToTargetWithOffset = InlinePopover.scrollToTargetWithOffset;
+
+    // 1. Process External Links
+    processExternalLinks(container);
+
+    // 2. Process Standard Kramdown Footnotes
+    processFootnotes(container, popover);
+
+    // 3. Process Reverse Footnote Back-links
+    processReverseFootnotes();
+
+    // 4. Process Inline Tips
+    processInlineTips(container, popover);
+
+    // --- Helpers ---
+
     function simpleMarkdownToHtml(text) {
       if (!text) return '';
       var hasHtml = /<[a-z][\s\S]*>/i.test(text);
@@ -266,23 +324,6 @@
       }
     }
 
-    function renderMathIfPresent(el) {
-      if (typeof renderMathInElement === 'function') {
-        renderMathInElement(el, {
-          delimiters: [
-            { left: '\\[', right: '\\]', display: true },
-            { left: '\\(', right: '\\)', display: false },
-            { left: '$$', right: '$$', display: true },
-            { left: '$', right: '$', display: false }
-          ],
-          ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'],
-          ignoredClasses: ['mermaid', 'highlight', 'highlighter-rouge'],
-          throwOnError: false,
-          errorColor: '#cf222e'
-        });
-      }
-    }
-
     function isInternalHost(host) {
       if (!host) return true;
       if (host === window.location.hostname) return true;
@@ -336,7 +377,7 @@
             var isTouch = e.pointerType === 'touch' || (e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents);
             if (isTouch) {
               // On touch device, tapping toggles the popup
-              if (currentTrigger === targetTrigger && popover.classList.contains('is-active')) {
+              if (InlinePopover.isActiveFor(targetTrigger)) {
                 hidePopover();
                 e.preventDefault();
               } else {
@@ -437,7 +478,7 @@
           if (!href || href === '#' || href === 'javascript:void(0)') {
             e.preventDefault();
           }
-          if (currentTrigger === el && popover.classList.contains('is-active')) {
+          if (InlinePopover.isActiveFor(el)) {
             hidePopover();
           } else {
             showPopover(el, htmlContent);

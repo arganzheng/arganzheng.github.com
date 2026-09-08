@@ -1,0 +1,8 @@
+name = "blog-annotations"
+main = "worker.js"
+compatibility_date = "2025-06-01"
+
+[vars]
+REPO = "arganzheng/arganzheng.github.com"
+CATEGORY = "Comments"
+ALLOWED_ORIGINS = "https://arganzheng.life,https://arganzheng.github.io,http://localhost:4000"
