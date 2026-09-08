@@ -157,3 +157,22 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
     always quote labels and write literal `[`/`]`/`{`/`}` as `#91;`/`#93;`/
     `#123;`/`#125;`; one message per line in `sequenceDiagram`, no `;` inside.
     Brief used for the diagram pass: `tools/diagram-brief.md`.
+
+## Writing Popup Footnotes & Inline Tips
+
+Supported in all posts within `.post-container` via `js/inline-popups.js`:
+
+1. **External links**: Any `http://` or `https://` link pointing outside the blog
+   automatically gets `class="external-link"`, `target="_blank"`, `rel="noopener noreferrer"`,
+   a dashed underline, and a top-right `↗` icon (`fa-external-link`).
+2. **Standard Markdown Footnotes (Popup Footnotes)**:
+   - Write standard Kramdown footnotes: `概念[^name]` and `[^name]: 解释内容（支持完整 Markdown/链接/加粗/代码块）`。
+   - Readers hovering or clicking `[1]` will see the explanation pop up right beside the reference without jumping to the bottom.
+3. **Inline Tips (原地行内解释)**:
+   - For short 1-2 sentence concept explanations where you don't want to navigate to the bottom:
+     - Pure Markdown link: `[概念](# "tip: 解释文案，支持 **加粗**、\`代码\`")`
+     - Kramdown IAL: `[概念](#){: .tip data-tip="解释文案"}`
+     - Liquid Include: `{% include tip.html text="概念" tip="解释文案" url="可选更多链接" %}`
+     - Inline HTML: `<span class="inline-tip" data-tip="解释文案">概念</span>`
+   - Renders with a dashed underline and top-right `?` icon (`fa-question-circle`), popping up a floating card on hover/click.
+
