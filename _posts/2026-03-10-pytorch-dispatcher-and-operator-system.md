@@ -143,6 +143,28 @@ variants   → 暴露为函数、方法，或两者都有    ← 决定入口层
 dispatch   → 各 DispatchKey 对应的实现函数名 ← 下一章：注册
 ```
 
+把这条声明逐段拆开，可以看到每一段各自决定了系统的哪一部分：
+
+```text
+- func: add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor
+        └───┬────┘ └────────────────────┬─────────────────────┘     └─┬──┘
+            │                           │                             └─ 返回值
+            │                           └─ 参数：名称 / 类型 / 默认值
+            └─ 算子名.overload 名
+  ◄── Schema：决定 Python / C++ 入口的函数签名，是所有实现共同遵守的契约
+
+  variants: function, method    ◄── 决定入口层生成什么：
+            └──┬───┘  └─┬──┘        function → torch.add(x, y)
+               │        └─ 方法     method   → Tensor.add，即 x.add(y)
+               └─ 函数
+
+  dispatch:                     ◄── 决定 Operator Table 中 add.Tensor 一行
+    CPU, CUDA: add                  哪些槽位由谁填：
+    Meta: add_meta                  CPU / CUDA 槽位 ← at::native::add
+                                    Meta 槽位       ← at::native::add_meta
+                                    (Autograd 槽位由 Codegen 另行生成)
+```
+
 ### 3. 自定义算子：`torch.library`
 
 原生算子之外，开发者可以通过 `torch.library`（Python）或 `TORCH_LIBRARY`（C++）定义新算子：
@@ -308,6 +330,27 @@ Operator Table 里填的函数，就是实现层的入口。它有三种来源�
 | Composite 路径 | 调用其他 `at::` 算子组合出语义，**重新进入 Dispatcher** | `CompositeImplicitAutograd` 算子 | 本层不直接启动 |
 | Meta 路径 | 只推断输出 shape / dtype / stride | 所有算子的 Meta 实现 | 否 |
 
+五种模式并不是随意挑选的，选哪一种基本由算子的计算形态决定：
+
+```mermaid
+flowchart TB
+    Q0["一个算子实现该怎么写？"] --> Q1{"只需要推断 shape / dtype，<br/>不算数值？"}
+    Q1 -->|"是"| META["Meta 路径<br/>只构造输出元数据，不 launch Kernel"]
+    Q1 -->|"否"| Q2{"能用已有 at:: 算子<br/>组合出语义？"}
+    Q2 -->|"是"| COMP["Composite 路径<br/>CompositeImplicit / ExplicitAutograd<br/>子算子重新进入 Dispatcher"]
+    Q2 -->|"否"| Q3{"矩阵乘 / 卷积等<br/>有成熟厂商库？"}
+    Q3 -->|"是"| LIB["厂商库路径<br/>cuBLAS / cuDNN / MKL / oneDNN"]
+    Q3 -->|"否"| Q4{"逐元素 / 广播 / 归约<br/>这类规则遍历？"}
+    Q4 -->|"是"| TI["TensorIterator 路径<br/>Kernel 只写 a + alpha * b"]
+    Q4 -->|"否，需要专用并行结构"| DK["直接 Kernel 路径<br/>自己写 launch 与索引逻辑"]
+    classDef nokernel fill:#eeeeee,stroke:#888888;
+    classDef kernel fill:#e3f2fd,stroke:#1565c0;
+    classDef reenter fill:#fff3e0,stroke:#ef6c00;
+    class META nokernel;
+    class TI,DK,LIB kernel;
+    class COMP reenter;
+```
+
 此外还有外部后端（XLA、Lazy Tensor）把调用记录到自己的图中延迟执行，这属于后端运行时的设计，本文不展开。
 
 ### 3. TensorIterator：为什么把它单独抽出来
@@ -437,6 +480,30 @@ y: CUDA Tensor                      → {CUDA}
 DispatchKeySet = {AutogradCUDA, CUDA}
 ```
 
+这一步的合并是位运算：各输入的 KeySet 做 OR，再叠加线程局部（TLS）的 include 集合、减去 exclude 集合，最后取最高优先级的 Key：
+
+```mermaid
+flowchart TB
+    TX["x: CUDA Tensor, requires_grad=True<br/>KeySet = #123;AutogradCUDA, CUDA#125;"]
+    TY["y: CUDA Tensor<br/>KeySet = #123;CUDA#125;"]
+    TLS["线程局部状态 TLS<br/>no_grad → excluded 加入 Autograd<br/>torch.func / tracing → included 加入相应 Key"]
+    OR["OR 合并所有输入的 KeySet<br/>#123;AutogradCUDA, CUDA#125;"]
+    MERGE["加上 TLS included，减去 TLS excluded"]
+    KS["本次调用的 DispatchKeySet<br/>梯度开启：#123;AutogradCUDA, CUDA#125;<br/>no_grad 下：#123;CUDA#125;"]
+    TOP["取最高优先级 Key<br/>AutogradCUDA（或 no_grad 下的 CUDA）"]
+    TX --> OR
+    TY --> OR
+    OR --> MERGE
+    TLS --> MERGE
+    MERGE --> KS --> TOP
+    classDef input fill:#e3f2fd,stroke:#1565c0;
+    classDef ctx fill:#fff3e0,stroke:#ef6c00;
+    classDef result fill:#e8f5e9,stroke:#2e7d32;
+    class TX,TY input;
+    class TLS ctx;
+    class KS,TOP result;
+```
+
 如果输入位于不同设备，会在这一步报错，而不是随便选一个 Kernel。
 
 ### 3. 按优先级选 Key，查表
@@ -466,6 +533,34 @@ Autograd 包装实现（Codegen 生成）：
 后端实现 at::native::add
 ```
 
+按时间顺序看，一次 `add` 调用会两次经过 Dispatcher：
+
+```mermaid
+sequenceDiagram
+    participant C as 调用方 at::add
+    participant D as Dispatcher
+    participant A as AutogradCUDA 包装
+    participant K as CUDA kernel
+    C->>D: add.Tensor(x, y)
+    Note over D: KeySet = AutogradCUDA + CUDA，取最高优先级 AutogradCUDA
+    D->>A: 第一次分发
+    activate A
+    Note over A: 检查 requires_grad，创建 AddBackward0，保存反向所需的值
+    Note over A: AutoDispatchBelowAutograd：TLS excluded 加入 Autograd
+    A->>D: 再次调用 add.Tensor(x, y)
+    Note over D: KeySet 去掉 Autograd 后只剩 CUDA
+    D->>K: 第二次分发
+    activate K
+    Note over K: at::native::add → TensorIterator → launch CUDA Kernel
+    K-->>D: 结果 Tensor
+    deactivate K
+    D-->>A: 结果 Tensor
+    Note over A: 给结果挂上 grad_fn = AddBackward0
+    A-->>D: 结果 Tensor(带 grad_fn)
+    deactivate A
+    D-->>C: 返回 z
+```
+
 这就是“Autograd Kernel 与设备 Kernel 是什么关系”的答案：Autograd 是注册在包装 Key 上的一层实现，通过**再次分发**串联到后端实现。Functionalize、Python Dispatch、Vmap 都是同样的机制。
 
 在 `torch.no_grad()` 中，全局状态会让 Autograd Key 被排除，DispatchKeySet 直接是 `{CUDA}`，跳过包装层。
@@ -488,6 +583,25 @@ z = x + y
 ```
 
 `at::native::add` 构造 TensorIterator：对齐 `(2,3)` 与 `(3)`，让 `y` 以 stride 为 0 的方式参与遍历（不复制数据，与第二篇 `expand()` 同机制）；检查 dtype 提升；检测输入是否连续，选择快速路径或通用 stride 路径；按块划分后调用 CPU 向量化 Kernel 或 launch CUDA Kernel。
+
+广播后 `y` 的元数据变为 `shape=(2,3) stride=(0,1)`，于是每个输出位置读到的 `x` / `y` 存储偏移如下：
+
+```text
+x: shape=(2,3) stride=(3,1)          y: shape=(3) stride=(1)
+                                     broadcast → shape=(2,3) stride=(0,1)
+
+offset(i,j) = i*stride[0] + j*stride[1]
+
+             j=0          j=1          j=2
+        ┌────────────┬────────────┬────────────┐
+  i=0   │ x@0  y@0   │ x@1  y@1   │ x@2  y@2   │   x: 0*3+j   y: 0*0+j
+        ├────────────┼────────────┼────────────┤
+  i=1   │ x@3  y@0   │ x@4  y@1   │ x@5  y@2   │   x: 1*3+j   y: 1*0+j
+        └────────────┴────────────┴────────────┘
+                ▲
+                └─ 第二行 x 的偏移继续 +3，y 的偏移回到 0/1/2：
+                   stride 0 让 y 的 3 个元素被重复读取，没有任何复制
+```
 
 对非连续输入（如 `x.transpose(0, 1) + 1`），TensorIterator 直接按任意 stride 遍历，不强制 `contiguous()`。何时复制、何时直接遍历，是第八篇性能分析的话题之一。
 

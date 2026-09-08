@@ -372,6 +372,43 @@ value 是 Module？    → 注册到 _modules
 否则                 → 作为普通属性保存
 ```
 
+把 Buffer 也算进来，`__setattr__()` 的完整决策路径如下——绿色分支的对象会进入 Module 的内部字典，从而被框架“看见”；灰色分支的对象只是 Python 对象属性：
+
+```mermaid
+flowchart TB
+    S["self.name = value"]
+    Q1{"value 是 nn.Parameter？"}
+    Q2{"value 是 nn.Module？"}
+    Q3{"name 已在 _buffers 中？"}
+    P["_parameters#91;name#93; = value<br/>可训练参数"]
+    M["_modules#91;name#93; = value<br/>子模块"]
+    B["_buffers#91;name#93; = value<br/>模型状态 Buffer"]
+    D["__dict__#91;name#93; = value<br/>普通属性"]
+    V["框架可见：<br/>parameters() / state_dict() / .to() / train()"]
+    I["框架不可见：<br/>不进 parameters()、state_dict()<br/>.to(device) 不会迁移"]
+
+    S --> Q1
+    Q1 -->|"是"| P
+    Q1 -->|"否"| Q2
+    Q2 -->|"是"| M
+    Q2 -->|"否"| Q3
+    Q3 -->|"是"| B
+    Q3 -->|"否"| D
+    P --> V
+    M --> V
+    B --> V
+    D --> I
+
+    classDef visible fill:#e8f5e9,stroke:#2e7d32;
+    classDef hidden fill:#eeeeee,stroke:#757575;
+    classDef q fill:#fff8e1,stroke:#f9a825;
+    class P,M,B,V visible;
+    class D,I hidden;
+    class Q1,Q2,Q3 q;
+```
+
+注意 Buffer 走的是“名字已经被 `register_buffer()` 登记过”这条判断，而不是看 value 的类型——这也是为什么必须先 `register_buffer("scale", ...)`，之后再 `self.scale = new_tensor` 才会更新 Buffer 而不是变成普通属性。
+
 这也是为什么下面几种对象的行为不同：
 
 ```python
@@ -618,6 +655,29 @@ state_dict key
 Tensor 状态
 ```
 
+把 Module 树和 `state_dict` 并排放在一起看会更直观：左边是嵌套的对象树，右边是按"模块路径 + 属性名"拍平后的 key。Parameter 和持久化 Buffer 都会生成 key，无状态模块（如 ReLU）什么也不产生；下面以一个加了 BatchNorm 的 MLP 为例：
+
+```text
+Module 树（嵌套对象）                      state_dict（扁平 key -> Tensor）
+────────────────────────────────         ──────────────────────────────
+MLP
+├── fc1: Linear
+│   ├── weight       (Parameter) ──────▶ "fc1.weight"
+│   └── bias         (Parameter) ──────▶ "fc1.bias"
+├── act: ReLU                (无状态，不产生任何 key)
+├── bn: BatchNorm1d
+│   ├── weight       (Parameter) ──────▶ "bn.weight"
+│   ├── bias         (Parameter) ──────▶ "bn.bias"
+│   ├── running_mean (Buffer)    ──────▶ "bn.running_mean"
+│   ├── running_var  (Buffer)    ──────▶ "bn.running_var"
+│   └── num_batches_tracked (Buffer) ─▶ "bn.num_batches_tracked"
+└── fc2: Linear
+    ├── weight       (Parameter) ──────▶ "fc2.weight"
+    └── bias         (Parameter) ──────▶ "fc2.bias"
+
+不包含：类定义 / forward 逻辑 / optimizer 状态 / scheduler / RNG 状态
+```
+
 ### 2. `state_dict` 不是完整模型
 
 ```python
@@ -763,6 +823,15 @@ train / eval
 no_grad / inference_mode
     → Autograd 记录
 ```
+
+两个维度正交，组合起来一共六种状态。下表每个格子写的是：Dropout / BatchNorm 的行为、是否构建计算图、典型用途：
+
+| | 梯度开启（默认） | `torch.no_grad()` | `torch.inference_mode()` |
+|---|---|---|---|
+| `model.train()` | Dropout 随机丢弃，BN 用 batch 统计并更新 `running_*`<br/>**建图**<br/>正常训练 step | Dropout 随机丢弃，BN 用 batch 统计并更新 `running_*`<br/>不建图<br/>训练中临时的无梯度计算（如 EMA 权重更新、手写参数修改） | 同上，BN 仍更新 `running_*`<br/>不建图，且输出 Tensor 不能再进入 Autograd<br/>少见，通常没有理由这样组合 |
+| `model.eval()` | Dropout 关闭（恒等），BN 用 `running_*`，不更新<br/>**建图**（显存和时间白白浪费）<br/>需要对输入求梯度的场景：对抗样本、显著性图、部分蒸馏 | Dropout 关闭，BN 用 `running_*`<br/>不建图<br/>验证 / 评估，输出后续还可能参与梯度计算时 | Dropout 关闭，BN 用 `running_*`<br/>不建图，跳过版本计数与 view 追踪，最省<br/>纯推理 / 验证：默认首选 |
+
+真正的“推理”只有右下角那一格：`eval()` 负责让 Module 行为确定，`inference_mode()` 负责让 Autograd 彻底退出；缺任何一个都不算完整。
 
 ### 3. 一个完整的评估函数
 
@@ -941,6 +1010,23 @@ optimizer.state_dict()
 参数 + 梯度 + Optimizer State
 ```
 
+以 FP32 + Adam(W) 为例，每一个标量参数在显存里对应四块同样大小的内存，其中一半属于 Optimizer state：
+
+```text
+每个参数（FP32, Adam/AdamW）
+┌────────────┬────────────┬────────────┬────────────┐
+│   param    │    grad    │  exp_avg   │ exp_avg_sq │
+│  (weight)  │  (.grad)   │ (一阶动量) │ (二阶动量) │
+│    4 B     │    4 B     │    4 B     │    4 B     │
+└────────────┴────────────┴────────────┴────────────┘
+ ◀───── Module 持有 ─────▶ ◀── Optimizer.state 持有 ──▶
+                                        合计 16 B / 参数
+
+换算：7B 参数模型
+    7e9 × 16 B  ≈ 112 GB           （尚未计入激活值、临时缓冲）
+    其中 param + grad = 56 GB，Optimizer state = 56 GB
+```
+
 这也是大模型训练中 Optimizer state 可能成为显存主要消耗者的原因之一：Adam 训练下每个参数要占 16 字节（参数、梯度、两个动量），第八篇会算这笔账。多卡训练时 Optimizer state 是最先被切分到各卡上的状态——第九篇的 ZeRO 与 FSDP 从这里开始。
 
 
@@ -1102,6 +1188,50 @@ CPU → GPU
     ↓
 GPU 计算
 ```
+
+把这条链路展开到进程 / 线程层面，就能看到 `num_workers`、`prefetch_factor`、`pin_memory` 三个参数各自作用在哪一段，以及瓶颈最终在哪里表现出来：
+
+```mermaid
+flowchart TB
+    subgraph main["DataLoader 主进程"]
+        SM["Sampler<br/>产生本 batch 的索引列表"]
+        IQ["index_queue<br/>把索引分发给 worker"]
+        RQ["结果队列（worker_result_queue）<br/>深度 = num_workers × prefetch_factor"]
+        PIN["pin_memory 线程<br/>把 batch 复制到 pinned memory"]
+        IT["for inputs, targets in loader:<br/>训练循环取走 batch"]
+    end
+    subgraph workers["worker 进程池（num_workers 个）"]
+        GI["Dataset.__getitem__(idx)<br/>读盘、解码、预处理（CPU 密集）"]
+        CO["collate_fn<br/>把样本堆叠成 batch Tensor"]
+    end
+    H2D["inputs.to(device, non_blocking=True)<br/>CPU -> GPU 复制（PCIe）"]
+    GPU["GPU forward / backward / step"]
+    WAIT["瓶颈点：GPU 等 batch<br/>结果队列为空 -> GPU 空转"]
+
+    SM --> IQ
+    IQ --> GI
+    GI --> CO
+    CO --> RQ
+    RQ --> PIN
+    PIN --> IT
+    IT --> H2D
+    H2D --> GPU
+    RQ -.->|"队列空"| WAIT
+    WAIT -.-> GPU
+
+    classDef knob fill:#fff8e1,stroke:#f9a825;
+    classDef par fill:#e3f2fd,stroke:#1565c0;
+    classDef gpu fill:#e8f5e9,stroke:#2e7d32;
+    classDef bad fill:#ffebee,stroke:#c62828;
+    class RQ,PIN knob;
+    class GI,CO par;
+    class GPU,H2D gpu;
+    class WAIT bad;
+```
+
+- `num_workers` 决定蓝色部分有多少个进程并行执行 `__getitem__` + `collate_fn`；
+- `prefetch_factor`（默认 2）决定每个 worker 最多提前准备多少个 batch，也就是结果队列的深度；
+- `pin_memory=True` 才会启动 pin_memory 线程，后面的 `non_blocking=True` 复制才可能真正异步。
 
 如果前面的数据准备速度低于 GPU 消耗速度，就会出现：
 
@@ -1460,6 +1590,44 @@ for inputs, targets in loader:
     scaler.update()
 ```
 
+这三行各自做了什么、和 autocast、Optimizer 之间怎么配合，用一次迭代的时序来看：
+
+```mermaid
+sequenceDiagram
+    participant T as 训练循环
+    participant AC as autocast
+    participant S as GradScaler
+    participant O as Optimizer
+
+    T->>AC: with autocast(dtype=float16)
+    activate AC
+    Note over AC: forward 中 matmul 等算子用 FP16 计算<br/>loss 等归约算子保持 FP32
+    AC-->>T: outputs, loss
+    deactivate AC
+
+    T->>S: scaler.scale(loss)
+    S-->>T: loss × scale（scale 初始 65536）
+    T->>T: (loss × scale).backward()
+    Note over T: 梯度被同比例放大<br/>避免 FP16 下小梯度下溢成 0
+
+    T->>S: scaler.step(optimizer)
+    activate S
+    S->>S: unscale_(optimizer)：grad ÷= scale
+    S->>S: 检查所有 grad 是否含 inf / nan
+    alt 梯度正常
+        S->>O: optimizer.step()
+        O-->>S: 参数已更新
+    else 发现 inf / nan
+        Note over S,O: 跳过本步 optimizer.step()<br/>参数保持不变
+    end
+    deactivate S
+
+    T->>S: scaler.update()
+    Note over S: 本步溢出 -> scale ÷= 2<br/>连续 2000 步正常 -> scale ×= 2
+```
+
+要点有两个：`scaler.step()` 内部才做 unscale 和溢出检查，所以如果需要在 step 前做梯度裁剪，必须先显式调用 `scaler.unscale_(optimizer)`；`scaler.update()` 让 scale 自适应——溢出就减半、长期稳定就翻倍，这也是它必须在每步 `step()` 之后调用的原因。
+
 BF16 的指数范围接近 FP32，很多训练场景不需要和 FP16 完全相同的缩放策略，但具体行为仍取决于硬件、算子和版本。
 
 ### 4. 混合精度的边界
@@ -1602,6 +1770,55 @@ start_epoch = checkpoint["epoch"] + 1
 ```
 
 如果只加载模型而不加载 Optimizer state，训练可能不能从原来的优化轨迹继续。
+
+一个完整的 save / resume 流程如下。save 时是“收集所有会影响后续训练轨迹的状态”，resume 时则有严格的先后顺序——模型对象必须先由代码构造出来，`optimizer` 又必须在 `model.to(device)` 之后才能 `load_state_dict`，否则 Optimizer state 会留在 CPU 上、与参数设备不一致：
+
+```mermaid
+flowchart TB
+    subgraph trainer["训练器持有的状态（save 时收集）"]
+        S1["model.state_dict()<br/>参数 + 持久化 Buffer"]
+        S2["optimizer.state_dict()<br/>exp_avg / exp_avg_sq<br/>step / param_groups"]
+        S3["scheduler.state_dict()<br/>last_epoch、base_lrs"]
+        S4["scaler.state_dict()<br/>当前 scale、growth_tracker"]
+        S5["epoch + global_step<br/>训练进度"]
+        S6["RNG 状态<br/>random / numpy / torch / cuda"]
+        S7["DataLoader / Sampler 位置<br/>epoch 内已消费的 batch 数"]
+        S1 ~~~ S2
+        S3 ~~~ S4
+        S5 ~~~ S6
+    end
+    CK["checkpoint = dict(...) 收齐全部状态<br/>torch.save(checkpoint, tmp)<br/>os.replace(tmp, path) 原子写入"]
+    S2 --> CK
+    S4 --> CK
+    S6 --> CK
+    S7 --> CK
+
+    classDef st fill:#e3f2fd,stroke:#1565c0;
+    classDef io fill:#fff8e1,stroke:#f9a825;
+    class S1,S2,S3,S4,S5,S6,S7 st;
+    class CK io;
+```
+
+resume 是 save 的逆过程，但顺序不能乱：
+
+```mermaid
+flowchart TB
+    R0["torch.load(path, map_location='cpu')<br/>weights_only=True 默认，只含 Tensor / 基本容器"]
+    R1["1. 用代码重新构造 model / optimizer / scheduler<br/>state_dict 里没有类定义和 forward"]
+    R2["2. model.load_state_dict(ckpt#91;'model'#93;, strict=True)<br/>校验 key 与 shape"]
+    R3["3. model.to(device)"]
+    R4["4. optimizer.load_state_dict(ckpt#91;'optimizer'#93;)<br/>必须在 to(device) 之后：state 会被搬到参数所在设备"]
+    R5["5. scheduler / scaler.load_state_dict"]
+    R6["6. 恢复 RNG 状态，start_epoch = epoch + 1<br/>Sampler.set_epoch / 跳过已消费 batch"]
+    R0 --> R1 --> R2 --> R3 --> R4 --> R5 --> R6
+
+    classDef io fill:#fff8e1,stroke:#f9a825;
+    classDef step fill:#e8f5e9,stroke:#2e7d32;
+    classDef warn fill:#ffebee,stroke:#c62828;
+    class R0 io;
+    class R1,R2,R3,R5,R6 step;
+    class R4 warn;
+```
 
 这就像 Java 服务恢复业务状态时，不只是恢复一个对象字段，还可能需要恢复：
 

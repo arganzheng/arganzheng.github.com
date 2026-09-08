@@ -1,0 +1,54 @@
+# 补图任务通用规范（PyTorch 系列）
+
+你的任务：给指定的一篇中文技术博客文章补充解释性图表，让读者"看图就懂"。**只修改指定的那一个 `_posts/*.md` 文件**（以及必要时在 `img/in-post/` 下新建 SVG）。不要改其他文章，不要改 AGENTS.md，不要 git commit。
+
+## 写作原则
+
+- 一图胜千言、图文并茂：凡是结构（分层/组成）、架构、流程/时序、内存/字节布局、随时间变化的状态、决策树，都以图为主、文字为辅。图放在对应段落的文字**之前或紧随其后**，并保留原有文字（可微调一两句引出图，不要删减原有技术内容和代码）。
+- 每张图必须承载文字不容易表达的信息，不要装饰性图片。不要给纯代码讲解硬加图；已有表格/ASCII 图/Mermaid 的段落不重复加。
+- **画之前先问增益**：这张图能表达什么文字/列表/表格表达不了的东西？——映射关系（索引↔storage）、并发关系（两个 stream 谁等谁）、分支决策、随时间演化的状态，这些值得画。如果图只是把一个列表的各项用箭头连起来，就不要画。明确不值得画的：阅读顺序建议、章节大纲、"能力阶梯"式的追问链、系列路线图、任何本质是线性列表或已经是表格的内容。总览/导航类文章最多加一张表。
+- 任务清单里的每一条是"待验证的假设"而不是命令：读完对应段落后若判断加图没有增益，可以跳过并在汇报中说明理由。
+- 文中原本的 `A → B → C` 一行式 text 箭头链如果承担了"图"的职责但表达力不够，可以升级为 Mermaid；如果只是简短列表就保留。
+- 不要新增/删除无关的注释或章节，不改前置 front matter，不改章节编号。
+
+## 图的类型选择
+
+| 内容 | 用什么 |
+|---|---|
+| 结构、分层、流程、时序、决策树、关系 | ```` ```mermaid ```` |
+| 字节/位域布局、storage↔索引映射、stride 表、rank 网格、精确对齐的格子 | ```` ```text ```` 里的 monospace ASCII |
+| 多维对比 | Markdown 表格 |
+| 对数坐标图（Roofline）、精确几何、柱状图 | 手写 SVG 放到 `img/in-post/<post-slug>-<name>.svg`，用 `![alt](/img/in-post/<post-slug>-<name>.svg)` 引用；`<post-slug>` 是文件名去掉日期前缀和 `.md`。SVG 参考 `img/in-post/gemm-from-naive-to-tiled-roofline.svg` 的风格（viewBox 宽 ≤ 760，字体 13–14px，深色线条、浅色填充）。 |
+
+## Mermaid 硬性规则（渲染器是 Mermaid 10.9.1，页面内容宽度约 755px）
+
+1. **优先 `flowchart TB`**。横向布局在 755px 下会缩得看不清；节点超过 ~4 列就改竖排或拆成两张图。`sequenceDiagram` 参与者 ≤ 5 个。
+2. 节点 ID 只用英文字母数字下划线，**禁止**用 Mermaid 保留词做 ID：`end`, `call`, `click`, `style`, `class`, `default`, `graph`, `subgraph`, `direction`, `link`, `linkStyle`, `classDef`, `o`, `x`（单字母 o/x 会被当作边的箭头）。
+3. 标签**一律用双引号包裹**：`A["标签文字"]`。标签里的方括号写成 `#91;` `#93;`，括号 `()` 在引号内可以直接用；换行用 `<br/>`；不要在标签里用 `{` `}` `|` `;`。
+4. `sequenceDiagram` 每条消息一行，消息文本里不要有 `;` 和换行；用 `Note over A,B: 文字` 加注释；`activate/deactivate` 可用；`loop`/`alt`/`par` 块要有对应的 `end`。
+5. 需要强制排列顺序时用不可见边 `A ~~~ B`。配色用 `classDef name fill:#...,stroke:#...;` + `class A,B name;`，不要用 `style` 语句逐个节点上色。
+6. `subgraph id["标题"]` 形式给子图命名；子图 ID 不能和节点 ID 重名。
+7. Mermaid 代码块里**不能**出现 `{%` 或 `{{`（Liquid 会炸）。所有代码块里若必须出现这两种字符，用 `{% raw %}`…`{% endraw %}` 包裹。
+8. 每张 Mermaid 图控制在 ~25 个节点以内，过大就拆。
+
+## ASCII 图规则
+
+- 放在 ```` ```text ```` 块中，每行宽度 **≤ 80 字符**（中文按 2 字符计），避免横向滚动。
+- 对齐要精确；用 `┌─┐│└┘├┤┬┴┼` 或纯 `+-|` 都可以，但一张图内风格一致。
+
+## 校验（必须做）
+
+写完后（**不要自己运行 `jekyll build`/`jekyll serve`**，本地 `jekyll serve` 已在 http://localhost:4000 运行并会在文件保存后约 10–20 秒自动重新生成；多个 agent 在并行工作，重复 build 会互相覆盖 `_site/`）：
+
+1. 保存文件后 `sleep 20`，然后运行渲染校验脚本（它会在 Chrome 里开独立标签页、等待 Mermaid 渲染完、输出报告后关闭标签页）：
+   ```
+   cd /Users/argan/Code/arganzheng.github.com && node tools/check-render.cjs <post-slug>
+   ```
+   `<post-slug>` 是文件名去掉日期前缀和 `.md`，例如 `pytorch-autograd-and-dynamic-computation-graph`。
+2. 要求输出为 `[PASS]`：`errs=0`，`ok==mermaid`，`brokenImgs=0`。`errTexts` 会给出出错图的前几行源码，据此定位修正。`sizes` 里任何一张图高度 > 1600px 说明太大要拆；宽度 < 450px 且节点很多说明该改竖排。`widePre` 列出会横向滚动的 `<pre>` 块首行——**你新增**的 ASCII 图不应出现在里面（原有的代码块可以忽略）。
+3. 若脚本报告的 `href` 不是你的页面或 `mermaid=0` 而你明明加了图，说明 serve 还没重新生成，`sleep 15` 后重试。
+4. 有报错就修正后重复，直到 PASS。若 Liquid 语法错误导致页面根本没生成（404），检查是否在代码块里写了 `{%` / `{{`。
+
+## 交付
+
+最后用中文简要汇报：新增了哪些图（章节 + 图类型 + 一句话），校验结果（mermaid 数量/ok/errs、SVG 是否加载、build 是否通过）。

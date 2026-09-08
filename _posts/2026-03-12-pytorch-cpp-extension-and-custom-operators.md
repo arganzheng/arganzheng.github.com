@@ -746,6 +746,34 @@ auto iter = at::TensorIteratorConfig()
 
 TensorIterator 处理广播、stride 和并行划分，Kernel 只写单元素计算。这是第五篇讲的原生算子最常用的实现模式。
 
+两种选择的差别，用同一个逻辑 shape=(2,3) 的两种 stride 看得最清楚——逻辑格子相同，落在 storage 上的位置却不同：
+
+```text
+storage（6 个元素，下标 s0..s5）
+┌────┬────┬────┬────┬────┬────┐
+│ s0 │ s1 │ s2 │ s3 │ s4 │ s5 │
+└────┴────┴────┴────┴────┴────┘
+
+A. contiguous  shape=(2,3) stride=(3,1)   offset = i*3 + j
+   ┌────┬────┬────┐
+   │ s0 │ s1 │ s2 │  行 0 → s0 s1 s2   一维顺序遍历 s0..s5
+   ├────┼────┼────┤                     与逻辑顺序一致
+   │ s3 │ s4 │ s5 │  行 1 → s3 s4 s5
+   └────┴────┴────┘
+
+B. x.t()       shape=(2,3) stride=(1,2)   offset = i*1 + j*2
+   ┌────┬────┬────┐
+   │ s0 │ s2 │ s4 │  行 0 → s0 s2 s4   一维顺序遍历 s0..s5
+   ├────┼────┼────┤                     会把元素错位
+   │ s1 │ s3 │ s5 │  行 1 → s1 s3 s5
+   └────┴────┴────┘
+
+选择 A：x.contiguous() 先把 B 拷贝成 A 的排列，再跑简单的一维 kernel
+选择 B：TensorIterator 直接按 stride=(1,2) 算每个元素地址，不拷贝
+```
+
+`contiguous()` 用一次拷贝换取 Kernel 的简单；TensorIterator 用更复杂的地址计算换取零拷贝。
+
 本章选 B 展示原生写法；自定义算子的早期版本选 A 完全合理——先正确，再优化。
 
 ### 4. 处理 dtype：`AT_DISPATCH`
@@ -875,12 +903,53 @@ grid
 └── block k     thread 0 .. 255   → 元素 256k .. n-1（其余线程直接返回）
 ```
 
+把公式代入一组具体数字：n=1024、每 block 256 线程，正好切成 4 个 block，每个线程的 `idx` 由所在 block 的起点加上自己在 block 内的编号得到：
+
+```text
+n = 1024, threads = 256  →  blocks = (1024 + 255) / 256 = 4
+idx = blockIdx.x * blockDim.x + threadIdx.x
+
+┌────────────┬─────────────┬────────────────┬────────────────┐
+│ blockIdx.x │ threadIdx.x │ idx 计算        │ 处理的元素      │
+├────────────┼─────────────┼────────────────┼────────────────┤
+│     0      │ 0 .. 255    │ 0*256 + t      │    0 ..  255   │
+│     1      │ 0 .. 255    │ 1*256 + t      │  256 ..  511   │
+│     2      │ 0 .. 255    │ 2*256 + t      │  512 ..  767   │
+│     3      │ 0 .. 255    │ 3*256 + t      │  768 .. 1023   │
+└────────────┴─────────────┴────────────────┴────────────────┘
+若 n = 1000：blocks 仍为 4，block 3 中 idx 1000..1023 的 24 个线程
+被 if (i < n) 拦住，直接返回。
+```
+
 `threads` 取 128 到 1024 之间、32 的倍数（256 是最常见的默认值），`blocks` 由元素总数算出。三维的 `threadIdx.y / .z` 等只是把同一编号空间按多维组织，处理图像等数据时方便，对一维 elementwise Kernel 用不到。
 
 **Warp**。硬件并不是逐个线程调度，而是把 block 内每 32 个连续线程编成一个 **warp**，warp 内的线程锁步执行同一条指令。两个直接后果：
 
 - **分支发散**：warp 内线程若走了不同的 `if` 分支，两条分支会串行执行，其他线程空等。`if (i < n)` 只在最后一个 warp 发散一次，代价可忽略；但按元素值分支的 Kernel 可能慢好几倍。
 - **访存合并**：warp 内 32 个线程若访问**连续**的 32 个地址，硬件合并成少数几次内存事务；若地址分散，每个线程一次事务。这就是为什么 Kernel 假设输入 contiguous——第二篇讲的 stride 在这里直接决定访存效率，也是第八篇 memory-bound 分析的根源之一。
+
+访存合并的效果可以直接数事务次数。一个 warp 的 32 个线程各读一个 float（4B），硬件按 128B 对齐的段发起事务：
+
+```text
+warp = 32 个连续线程 t0..t31，每线程读 1 个 float（4B），事务粒度 128B
+
+(a) 连续访问 x[idx]                  32 × 4B = 128B，正好一段
+    线程  t0  t1  t2  t3  ...  t31
+    字节  0   4   8   12  ...  124    → 同一 128B 段 → 1 次事务
+    ┌──────────────────────────────┐
+    │ 段 #0：字节 0 .. 127         │  128B 全部被用到
+    └──────────────────────────────┘
+
+(b) 跨步访问 x[2*idx]                地址相隔 8B，跨越两段
+    线程  t0  t1  t2  ...  t15 │ t16  t17 ...  t31
+    字节  0   8   16 ...  120  │ 128  136 ...  248  → 2 次事务
+    ┌──────────────────────────────┐┌──────────────────────────────┐
+    │ 段 #0：字节 0 .. 127         ││ 段 #1：字节 128 .. 255       │
+    └──────────────────────────────┘└──────────────────────────────┘
+      只用到一半字节                  只用到一半字节 → 带宽利用率 50%
+```
+
+stride 越大，同一 warp 触碰的段越多；极端情况下 32 个线程落在 32 个不同的段，事务数是合并访问的 32 倍。
 
 **SM、Occupancy 与内存层次**。GPU 由几十到上百个 **SM**（Streaming Multiprocessor）组成，每个 block 被整体分配到一个 SM 上执行，一个 SM 同时驻留多个 block。SM 上活跃 warp 数与最大可驻留 warp 数之比叫 **occupancy**：占用率高，SM 才能在某些 warp 等待访存时切换到其他 warp，把延迟藏起来。每个线程用的寄存器数和每个 block 用的 **shared memory**（block 内线程共享的片上高速缓存，`__shared__` 声明）决定一个 SM 能容纳多少 block，因此也决定 occupancy。本文的 Kernel 不用 shared memory，寄存器也很少，occupancy 不是问题；reduction、矩阵乘这类需要线程间协作的 Kernel 才会用到它。内存层次从快到慢是：寄存器 → shared memory → L2 → 显存（global memory）。`__restrict__` 是对编译器的承诺——指针之间不别名——允许它更激进地缓存和重排访存。
 
@@ -1037,7 +1106,34 @@ TORCH_LIBRARY_IMPL(myops, Autograd, m) {
 }
 ```
 
-`AutoDispatchBelowADInplaceOrView` 就是第五篇讲的“包装 Key 执行后去掉自身 Key 再次分发”：forward 内部再次调用算子时不能再进入 Autograd Key，否则无限递归。
+这段代码最值得看清的是 `forward` 里那次“再入 Dispatcher”的调用路径——同一个算子被 Dispatcher 分发了两次，第二次的 KeySet 少了 Autograd：
+
+```mermaid
+sequenceDiagram
+    participant Py as Python 调用方
+    participant D as Dispatcher
+    participant AG as Autograd 包装
+    participant K as CUDA kernel
+    Py->>D: torch.ops.myops.scale_shift(x, 2.0, 1.0)
+    Note over D: x 的 KeySet 含 AutogradCUDA 和 CUDA<br/>取最高优先级 Autograd
+    D->>AG: 命中 Autograd 槽位 scale_shift_autograd
+    activate AG
+    Note over AG: ScaleShiftFunction::apply<br/>ctx 保存 alpha
+    Note over AG: AutoDispatchBelowADInplaceOrView<br/>从当前线程 KeySet 去掉 Autograd
+    AG->>D: 再次 scale_shift::call(x, alpha, beta)
+    Note over D: 剩余 KeySet 只有 CUDA<br/>不会再命中 Autograd，无递归
+    D->>K: 命中 CUDA 槽位 scale_shift_cuda
+    activate K
+    K-->>D: out
+    deactivate K
+    D-->>AG: out
+    Note over AG: 给 out 挂 grad_fn 指向 backward
+    AG-->>D: out（requires_grad=True）
+    deactivate AG
+    D-->>Py: y
+```
+
+`AutoDispatchBelowADInplaceOrView` 就是第五篇讲的“包装 Key 执行后去掉自身 Key 再次分发”：forward 内部再次调用算子时不能再进入 Autograd Key，否则无限递归。图中第二次 `::call` 之所以能落到 CUDA kernel，正是因为查表前 KeySet 已经被剔除了 Autograd。
 
 ### 4. 注册 Meta / Fake 实现
 
@@ -1057,6 +1153,34 @@ def _fake(x, alpha, beta):
 | CUDA | `scale_shift_cuda` | 三 |
 | Autograd | `register_autograd` 生成的包装 | 四 |
 | Meta（Fake） | `_fake` | 四 |
+
+把这张表按运行态的调用顺序展开，就是一次完整的分发路径：先命中包装 Key，剥掉它之后再按设备落到某个后端槽位；Meta 那条分支不跑真实 Kernel，专供 FakeTensor 与 `torch.compile` 推断 shape：
+
+```mermaid
+flowchart TB
+    IN["torch.ops.myops.scale_shift(x, 2.0, 1.0)"]
+    KS["计算 DispatchKeySet<br/>device 决定后端 Key<br/>requires_grad 决定是否含 Autograd"]
+    AGS["Autograd 槽位<br/>register_autograd 生成的包装"]
+    STRIP["保存 ctx，去掉 Autograd Key<br/>再次分发"]
+    SEL{"剩余最高 Key"}
+    CPUS["CPU 槽位<br/>scale_shift_cpu"]
+    CUDAS["CUDA 槽位<br/>scale_shift_cuda"]
+    METAS["Meta 槽位<br/>_fake：只产出 shape / dtype / device"]
+    OUT["返回 out，挂 grad_fn"]
+    OUT2["FakeTensor / torch.compile 图捕获<br/>不运行真实 Kernel"]
+    IN --> KS
+    KS -->|含 Autograd Key| AGS --> STRIP --> SEL
+    KS -->|requires_grad=False| SEL
+    SEL -->|CPU| CPUS --> OUT
+    SEL -->|CUDA| CUDAS --> OUT
+    SEL -->|Meta| METAS --> OUT2
+    classDef auto fill:#fde9c9,stroke:#c77d00;
+    classDef backend fill:#dbeafe,stroke:#1d4ed8;
+    classDef meta fill:#e5e7eb,stroke:#4b5563;
+    class AGS,STRIP auto;
+    class CPUS,CUDAS backend;
+    class METAS,OUT2 meta;
+```
 
 这一行现在与原生算子 `add` 的结构相同，用户调用时的分发过程也相同。四个阶段中，用户代码 `torch.ops.myops.scale_shift(x, 2.0, 1.0)` 一行都没有改变。
 
@@ -1259,6 +1383,29 @@ stride   contiguous() 或 TensorIterator，二选一
 opcheck 与 gradcheck 通过
 Benchmark 证明它比原生组合有价值
 构建与 ABI 在目标环境可复现
+```
+
+把这七条按顺序串起来，就是一张核对流程图——前四步对应 Operator Table 的四个槽位，后三步是把它交给别人之前必须过的关：
+
+```mermaid
+flowchart TB
+    S1["1. Schema 定义<br/>myops::scale_shift(Tensor x, float alpha, float beta) → Tensor<br/>声明 mutates_args / alias"]
+    S2["2. 后端实现并注册<br/>CPU / CUDA / Meta 槽位"]
+    S3["3. Autograd 注册<br/>register_autograd 或 Autograd Key"]
+    S4["4. Fake / abstract impl<br/>register_fake，供 FakeTensor 与 torch.compile"]
+    S5["5. 校验<br/>opcheck + gradcheck（float64）"]
+    S6["6. Benchmark 对比 native<br/>2.0 * x + 1.0 两个 Kernel vs 一个融合 Kernel"]
+    S7["7. 构建 / ABI 检查<br/>_GLIBCXX_USE_CXX11_ABI 一致<br/>torch 版本 pin，TORCH_CUDA_ARCH_LIST 覆盖目标 GPU"]
+    R["重新评估是否值得维护一份 C++/CUDA 代码"]
+    S1 --> S2 --> S3 --> S4 --> S5 --> S6 --> S7
+    S5 -->|失败，回头修实现或 Fake| S2
+    S6 -->|不比 native 快| R
+    classDef table fill:#dbeafe,stroke:#1d4ed8;
+    classDef verify fill:#dcfce7,stroke:#15803d;
+    classDef ship fill:#fde9c9,stroke:#c77d00;
+    class S1,S2,S3,S4 table;
+    class S5,S6 verify;
+    class S7,R ship;
 ```
 
 ### 6. 本篇涉及的源码位置

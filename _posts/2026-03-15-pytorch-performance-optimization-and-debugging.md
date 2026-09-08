@@ -110,6 +110,34 @@ CPU 执行 Python 代码，走完第五篇的入口和分发，把 Kernel **提�
 确认没有回归      正确性测试通过；显存、精度、编译时间是否变差
 ```
 
+其中"定位瓶颈"一步是一棵决策树：先看 GPU 泳道的形态，再看是谁在占时间，最后落到五类之一及其处方（工具与处方的完整对照见 §4 的表格和第四章 §6）：
+
+```mermaid
+flowchart TB
+    tl["采集时间线：torch.profiler / nsys"] --> q1{"GPU 泳道的形态？"}
+    q1 -->|"稀疏，大段空闲"| q2{"CPU 在忙什么？"}
+    q1 -->|"与 CPU 泳道交替空洞"| sync["Sync-bound<br/>第七章"]
+    q1 -->|"密集，Kernel 首尾相接"| q3{"CUDA 时间被谁占？"}
+    q2 -->|"cudaLaunchKernel 占大头<br/>Kernel 多而短"| launch["Launch-bound<br/>第五章"]
+    q2 -->|"Python 函数 / 框架逻辑"| py["Python-bound<br/>第五章"]
+    q3 -->|"add / layer_norm<br/>softmax 等逐元素与归约"| mem["Memory-bound<br/>第六章"]
+    q3 -->|"mm / bmm / conv"| comp["Compute-bound<br/>第六章"]
+    launch --> launch_rx["增大 batch、融合<br/>fused 优化器<br/>CUDA Graphs"]
+    py --> py_rx["向量化、compile<br/>预处理移出循环"]
+    sync --> data["特例：数据加载<br/>GPU 大段空白，CPU 停在 DataLoader"]
+    data --> sync_rx["批量 .item()<br/>pinned + non_blocking<br/>num_workers、prefetch"]
+    mem --> mem_rx["融合 / SDPA<br/>bf16、数据布局"]
+    comp --> comp_rx["Tensor Core<br/>bf16 / TF32<br/>减少计算量"]
+    classDef cpu fill:#fde9d9,stroke:#c0392b;
+    classDef gpu fill:#e8f5e9,stroke:#1e8449;
+    classDef mid fill:#fff4d6,stroke:#b9770e;
+    classDef rx fill:#f4f4f4,stroke:#888;
+    class launch,py cpu;
+    class mem,comp gpu;
+    class sync,data mid;
+    class launch_rx,py_rx,sync_rx,mem_rx,comp_rx rx;
+```
+
 ### 6. 本文的章节安排
 
 ```text
@@ -177,7 +205,49 @@ CUDA Stream 是 GPU 的一条命令队列。同一 Stream 内的 Kernel 按提�
 
 ### 3. 同步是测量的边界
 
-任何需要 CPU 拿到 GPU 数据的操作都会阻塞 CPU 直到队列排空——这就是同步。对测量而言，同步是**必要的**：没有同步就测不到 GPU 时间。对性能而言，同步是**有代价的**：它让两条时间线互相等待。哪些操作会隐式同步、代价何时显现，是第七章 Sync-bound 的内容。这一章只需记住：**测量必须同步，且只在测量边界同步**。
+任何需要 CPU 拿到 GPU 数据的操作都会阻塞 CPU 直到队列排空——这就是同步。对测量而言，同步是**必要的**：没有同步就测不到 GPU 时间。对性能而言，同步是**有代价的**：它让两条时间线互相等待。
+
+把 §1 的三段代码放到两条时间线上，就能看清 `time.time()` 到底测到了什么、`synchronize()` 在哪里把 CPU 拖住：
+
+```mermaid
+sequenceDiagram
+    participant CPU as CPU 线程（Python）
+    participant GPU as GPU default stream
+    Note over CPU: t0 = time.time()
+    CPU->>GPU: launch Kernel A（入队，立即返回）
+    Note over GPU: 开始执行 A
+    CPU->>GPU: launch Kernel B（入队，立即返回）
+    CPU->>GPU: launch Kernel C（入队，立即返回）
+    Note over CPU: t1 = time.time()<br/>t1 - t0 ≈ 三次 launch 的 CPU 开销（几十微秒）
+    Note over GPU: A 完成，执行 B
+    CPU->>GPU: torch.cuda.synchronize()
+    activate CPU
+    Note over CPU: CPU 阻塞，等队列排空
+    Note over GPU: B 完成，执行 C
+    GPU-->>CPU: 队列排空，synchronize 返回
+    deactivate CPU
+    Note over CPU: t2 = time.time()<br/>t2 - t0 = 真实耗时（CPU 提交 + GPU 执行 + 等待）
+```
+
+CUDA Event 则把"打点"这件事交给 GPU 自己做——Event 也是入队的一条命令，GPU 执行到它时记下时间戳，CPU 全程不必参与：
+
+```mermaid
+sequenceDiagram
+    participant CPU as CPU 线程（Python）
+    participant GPU as GPU default stream
+    CPU->>GPU: start.record()（入队一个 Event）
+    CPU->>GPU: launch Kernel A、B、C
+    CPU->>GPU: end.record()（入队一个 Event）
+    Note over CPU: CPU 立即继续，不阻塞
+    Note over GPU: 执行到 start Event，记录时间戳 Ts
+    Note over GPU: 依次执行 A、B、C
+    Note over GPU: 执行到 end Event，记录时间戳 Te
+    CPU->>GPU: torch.cuda.synchronize()
+    GPU-->>CPU: 队列排空
+    Note over CPU: start.elapsed_time(end) = Te - Ts<br/>纯 GPU 区间，不含 CPU 提交时间
+```
+
+哪些操作会隐式同步、代价何时显现，是第七章 Sync-bound 的内容。这一章只需记住：**测量必须同步，且只在测量边界同步**。
 
 
 ## 三、度量（2）：Benchmark 方法——怎么得到可信的数字
@@ -563,7 +633,11 @@ ridge point     FP32:  19.5e12 / 2e12 ≈ 10 FLOP/Byte
                 FP16:  312e12 / 2e12 ≈ 156 FLOP/Byte
 ```
 
-Kernel 的 AI 低于 ridge point → memory-bound，能达到的算力 = AI × 带宽；高于 → compute-bound，能达到的算力 = 峰值。画成图就是 Roofline：横轴 AI，纵轴可达算力，一条斜线接一条水平线。
+Kernel 的 AI 低于 ridge point → memory-bound，能达到的算力 = AI × 带宽；高于 → compute-bound，能达到的算力 = 峰值。画成图就是 Roofline：横轴 AI，纵轴可达算力，一条斜线接一条水平线。下图用上面的 A100 数字画出两条 roof（FP32 与 BF16 Tensor Core 共用同一条带宽斜线，ridge point 不同），并把 §3 将要分析的几个算子标在图上：
+
+![A100 Roofline：横轴 Arithmetic Intensity，纵轴可达算力，斜线是 HBM 2.0 TB/s，两条水平线分别是 FP32 19.5 TFLOPS 与 BF16 Tensor Core 312 TFLOPS，ridge point 分别约 10 与 156 FLOP/Byte；add、relu、softmax 落在斜线左下段，小 mm 接近 FP32 ridge，4096³ 的 bf16 mm 落在 312 TFLOPS 的水平线上](/img/in-post/pytorch-performance-optimization-and-debugging-roofline.svg)
+
+逐元素算子挤在斜线最左下角——它们能达到的算力只有峰值的百分之一以下，唯一的出路是沿斜线向右（减少访存、提高 AI）；大矩阵乘落在水平线上，只能靠抬高水平线（Tensor Core）或减少运算量。
 
 ### 3. 把第七篇的三个算子归类
 
@@ -772,6 +846,30 @@ for batch in loader:
     current.record_stream(torch.cuda.current_stream())        # 告知 allocator 跨 Stream 使用
 ```
 
+把这段代码里四个角色的交互画出来，两条 Stream 上并发的部分和必须串行的依赖就一目了然：
+
+```mermaid
+sequenceDiagram
+    participant W as DataLoader worker
+    participant P as pinned buffer
+    participant CS as copy_stream
+    participant MS as compute_stream（默认）
+    W->>P: 准备 batch i+1，collate 进 pinned memory
+    P->>CS: to(cuda, non_blocking=True) 入队一次 H2D 拷贝
+    par copy_stream 上传输
+        Note over CS: DMA 引擎搬运 batch i+1
+    and compute_stream 上计算
+        Note over MS: 前向 / 反向 batch i（Kernel 队列不断）
+    end
+    MS->>CS: current_stream().wait_stream(copy_stream)
+    Note over CS,MS: 在 compute_stream 里插入一个等待 copy_stream 的 Event<br/>之后提交的 Kernel 保证在拷贝完成后才执行
+    CS-->>MS: 拷贝完成，依赖满足
+    MS->>CS: batch.record_stream(compute_stream)
+    Note over CS,MS: 告知 allocator 这块内存被 compute_stream 使用<br/>copy_stream 上的 Tensor 释放后不会被立刻复用
+    Note over MS: 前向 / 反向 batch i+1
+    W->>P: 同时准备 batch i+2，循环继续
+```
+
 `wait_stream` 表达跨 Stream 依赖，`record_stream` 防止 allocator 在拷贝完成前回收内存。这两行漏掉任何一行都会产生难以复现的数据错误——这是多 Stream 的主要风险。`DataLoader` 加 `pin_memory` 加 `non_blocking` 在大多数情况下已经足够，显式多 Stream 用于传输时间与计算时间同量级的场景。
 
 ### 6. 处方四：消除数据依赖的 shape
@@ -881,7 +979,31 @@ of which 2.31 GiB is free. Process has 76.84 GiB memory in use. Of the allocated
 68.12 GiB is allocated by PyTorch, and 7.91 GiB is reserved by PyTorch but unallocated.
 ```
 
-"reserved but unallocated" 接近 8 GB 就是碎片。缓解手段：
+"reserved but unallocated" 接近 8 GB 就是碎片。下面把一个 Segment 内部画出来（1 MB = 2 格），并标出两种常见"处方"各自作用在哪一层：
+
+```text
+一个 20 MB 的 Segment（reserved 20 MB，allocated 11 MB，空闲 9 MB）
+
+┌────────┬──────┬──────────┬──────┬────┬──────┐
+│ used 4 │free 3│  used 5  │free 3│ u2 │free 3│
+└────────┴──────┴──────────┴──────┴────┴──────┘
+0        4      7          12     15   17     20 MB
+
+请求 5 MB：三块空闲各 3 MB，无一块 >= 5 MB
+        → 空闲总量 9 MB 也帮不上 → 向驱动 cudaMalloc 新 Segment → 可能 OOM
+
+expandable_segments:True   Segment 尾部可原地扩展（映射新物理页），
+                           新请求接在尾部，而不是再开一个独立 Segment：
+┌────────┬──────┬──────────┬──────┬────┬──────┬──────────┐
+│ used 4 │free 3│  used 5  │free 3│ u2 │free 3│  new 5   │
+└────────┴──────┴──────────┴──────┴────┴──────┴──────────┘
+
+empty_cache()              只把"整块全空"的 Segment 还给驱动；
+                           上面这个 Segment 里还有 used 块，一字节也还不了
+                           → 它不解决碎片，只减少 reserved
+```
+
+缓解手段：
 
 - `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`：让 Segment 可以扩展而不是新申请，显著减少碎片（2.x 引入）；
 - 让 shape 稳定：动态 shape 是碎片的主要来源，因为每种 shape 的 Block 大小不同；
@@ -928,6 +1050,35 @@ total_loss += loss.detach()   # 正确且不同步
 from torch.utils.checkpoint import checkpoint
 
 y = checkpoint(transformer_block, x, use_reentrant=False)
+```
+
+两种模式下前向保存什么、反向到达时做什么，对比如下（L 层，每 k 层一个 checkpoint block）：
+
+```mermaid
+flowchart TB
+    subgraph normal["默认：前向保存每层激活，显存 O(L)"]
+        direction TB
+        n_in["输入 x"] --> n_l1["层 1 前向<br/>保存激活 a1"]
+        n_l1 --> n_l2["层 2 前向<br/>保存激活 a2"]
+        n_l2 --> n_l3["… 层 L 前向<br/>保存激活 aL"]
+        n_l3 --> n_bw["反向：直接读 aL … a1<br/>时间 = 1 次前向 + 1 次反向"]
+    end
+    subgraph ckpt["checkpoint：只保存 block 入口，显存 O(L/k)"]
+        direction TB
+        c_in["输入 x"] --> c_b1["block 1 前向（k 层）<br/>只保存入口 x1，内部激活即弃"]
+        c_b1 --> c_b2["… block L/k 前向<br/>只保存入口"]
+        c_b2 --> c_arrive["反向到达 block j"]
+        c_arrive --> c_re["用入口 xj 重算 block j 前向<br/>临时得到 k 层激活"]
+        c_re --> c_bw["对 block j 做 backward<br/>释放重算的激活"]
+        c_bw -->|"下一个 block j-1"| c_arrive
+        c_bw --> c_done["时间 ≈ 2 次前向 + 1 次反向<br/>约 +30%"]
+    end
+    classDef save fill:#fde9d9,stroke:#c0392b;
+    classDef light fill:#e8f5e9,stroke:#1e8449;
+    classDef recompute fill:#fff4d6,stroke:#b9770e;
+    class n_l1,n_l2,n_l3 save;
+    class c_b1,c_b2 light;
+    class c_re recompute;
 ```
 
 代价是被 checkpoint 的段前向算两遍，通常增加约 30% 计算时间，换来激活显存从 O(层数) 降到 O(√层数) 或更低。第七篇提过，AOTAutograd 的切分器在编译时自动做局部版本的这个权衡。
@@ -1131,6 +1282,10 @@ checkpoint 后加大 batch 的吞吐（1882）反而低于不 checkpoint 的 bat
 | `torch.compile` | 51 → 38 ms | 访存（融合）+ Launch | −0.9 GB | 浮点结合顺序 | shape 变化触发重编译 | 47 s 冷编译 |
 | SDPA | 38 → 29 ms | 访存（不物化 score） | −3.5 GB | 与手写实现容差内一致 | 要求 head_dim 等满足 Kernel 约束 | 无 |
 | checkpoint | 29 → 36 ms | — | −4.3 GB | 无 | — | +30% 计算，**未采用** |
+
+把这几步的 step 时间与峰值显存画在一起，能看到两条曲线并不同向：第一步 batch 加大让 step 变长、显存暴涨，却是吞吐提升最大的一步；之后三步在 batch=64 不变的前提下同时压低时间和显存。
+
+![案例五步的 step 时间（柱）与峰值显存（折线）：基线 48.2 ms / 3.1 GB → batch=64 118 ms / 19.6 GB → bf16 51 ms / 12.8 GB → compile 38 ms / 11.9 GB → SDPA 29 ms / 8.4 GB；checkpoint 36 ms / 4.1 GB 未采用；吞吐从 166 到 2207 samples/s](/img/in-post/pytorch-performance-optimization-and-debugging-case-steps.svg)
 
 从 166 到 2207 samples/s，13 倍。其中没有一项是"优化某个 Kernel"，全部是**改变瓶颈类别**：先消灭 launch-bound，再对 compute-bound 用 Tensor Core，再对 memory-bound 做融合。
 

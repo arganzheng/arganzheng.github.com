@@ -319,7 +319,36 @@ bfloat16    rtol 1.6e-2   atol 1e-5
 
 第六篇说"用 `gradcheck`，必须 float64"。这一节说它做了什么，从而知道它能抓什么、抓不到什么。
 
-`torch.autograd.gradcheck(fn, inputs)` 的核心是比较两个 Jacobian：
+`torch.autograd.gradcheck(fn, inputs)` 的核心是比较两个 Jacobian——左边一列完全不碰被测的反向代码，右边一列完全依赖它：
+
+```mermaid
+flowchart TB
+    IN["被测函数 y = f(x)<br/>x 为 float64 且 requires_grad=True"]
+    subgraph num["数值 Jacobian：与实现无关的真值"]
+        N1["对每个输入元素 x_i：<br/>把 x_i 改成 x_i + eps 和 x_i − eps<br/>各跑一次前向（共 2 × 输入元素数 次）"]
+        N2["J_num#91;:, i#93; = (f(x+eps) − f(x−eps)) / 2eps<br/>eps 默认 1e-6，float32 的差分淹没在舍入里<br/>所以必须 float64"]
+        N1 --> N2
+    end
+    subgraph ana["解析 Jacobian：被测的反向实现"]
+        A1["对每个输出元素 y_j：<br/>grad_output = one-hot 向量 e_j<br/>调用一次 backward（共 输出元素数 次）"]
+        A2["J_ana#91;j, :#93; = ∂y_j / ∂x<br/>来自 derivatives.yaml 或自定义 backward"]
+        A1 --> A2
+    end
+    CMP["逐元素比较<br/>allclose(J_num, J_ana, atol=1e-5, rtol=1e-3)"]
+    FAST["快模式 fast_mode=True：取随机向量 u、v<br/>左边只算 vᵀ J u 的数值值，右边只算一次 vᵀ J 再点乘 u<br/>O(1) 次前向 + O(1) 次反向"]
+    IN --> N1
+    IN --> A1
+    N2 --> CMP
+    A2 --> CMP
+    CMP -.- FAST
+
+    classDef truth fill:#e8f5e9,stroke:#2e7d32;
+    classDef tested fill:#fff8e1,stroke:#f9a825;
+    classDef note fill:#f4f4f4,stroke:#888;
+    class N1,N2 truth;
+    class A1,A2 tested;
+    class FAST note;
+```
 
 ```text
 数值 Jacobian    对每个输入元素 xᵢ 加减 eps，重新算前向，(f(x+eps) - f(x-eps)) / 2eps      → 与实现无关的真值
@@ -466,6 +495,44 @@ inductor    编译器的正确性与性能基准（第四章 §2），部分每 
 
 在 `pull` 层内部，**目标确定**（Target Determination）按改动的文件排序测试：改了 `aten/native/cuda/Reduce.cu` 就先跑 reduction 相关的测试文件，历史上被这个文件的改动弄红过的测试排在前面。测试文件再被**分片**到多台机器并行。这是在"不能全跑"的前提下把漏网概率压到可接受的折中。
 
+把几层和合入、回滚（§3）放在一张图里，能看到验证是分两段的：合入**前**只有 `pull` 层挡着，合入**后**更慢更全的层在主干上继续跑，红了就回滚：
+
+```mermaid
+flowchart TB
+    PR["PR 提交 / 更新"]
+    TD["Target Determination<br/>按改动文件给测试文件排序<br/>历史上被它弄红过的排前面，再分片到多机"]
+    PULL["pull 层：每个 PR<br/>几个 Linux 构建 + 测试子集，约两小时"]
+    FIX["回到 PR 修复"]
+    REVIEW["审批<br/>merge_rules.yaml 按路径指定批准人"]
+    BOT["@pytorchbot merge<br/>机器人等所需 CI 全绿后合入主干"]
+    TRUNK["trunk 层：合入后（或 PR 加 ciflow/trunk 标签）<br/>macOS、Windows、多 GPU、更慢的测试"]
+    PERIODIC["periodic 层：每晚<br/>慢测试、ROCm、多机分布式、Debug 构建"]
+    IND["inductor 专项<br/>编译器正确性 + 性能基准，部分每 PR、部分每晚"]
+    REVERT["@pytorchbot revert -m 原因<br/>先恢复主干再讨论"]
+    NIGHTLY["主干保持绿色 → 每晚构建 nightly"]
+
+    PR --> TD --> PULL
+    PULL -->|"红"| FIX --> PR
+    PULL -->|"绿"| REVIEW --> BOT
+    BOT --> TRUNK --> PERIODIC --> NIGHTLY
+    BOT --> IND
+    TRUNK -.->|"红"| REVERT
+    PERIODIC -.->|"红"| REVERT
+    IND -.->|"看板出现拐点，bisect 到 PR"| REVERT
+    REVERT -.-> FIX
+
+    classDef pre fill:#e3f2fd,stroke:#1565c0;
+    classDef post fill:#e8f5e9,stroke:#2e7d32;
+    classDef bad fill:#ffebee,stroke:#c62828;
+    classDef bot fill:#fff8e1,stroke:#f9a825;
+    class TD,PULL pre;
+    class TRUNK,PERIODIC,IND,NIGHTLY post;
+    class FIX,REVERT bad;
+    class REVIEW,BOT bot;
+```
+
+蓝色是合入前的验证，绿色是合入后的验证：越慢、越依赖特殊硬件的测试越靠后，代价是它们发现的问题要靠回滚而不是靠拦截来处理。
+
 ### 2. flaky 的流程化处理
 
 第三章 §5 说过，几十万个测试实例中总有偶发失败。处理它的机制必须是自动的，否则**flaky 测试的成本不是那一个测试，而是它让所有人开始忽略红色的 CI**：
@@ -509,6 +576,33 @@ cut 出 release/2.x 分支 → 发布候选 RC1、RC2 …
 补丁 2.x.1、2.x.2：同样走 cherry-pick 流程
 ```
 
+用分支图看更直观：主干一直往前走并每天出 nightly，release 分支从 cut 那一刻起只靠 cherry-pick 前进，RC 和正式版、补丁版都是它上面的 tag：
+
+```mermaid
+gitGraph TB:
+    commit id: "PR 合入（每天出 nightly）"
+    commit id: "更多 PR 合入"
+    branch release/2.x
+    checkout release/2.x
+    commit id: "cut：距发布约 6 周"
+    commit id: "RC1" tag: "v2.x.0-rc1"
+    checkout main
+    commit id: "新特性 A（进下个版本）"
+    commit id: "回归修复 B"
+    checkout release/2.x
+    cherry-pick id: "回归修复 B"
+    commit id: "RC2" tag: "v2.x.0-rc2"
+    commit id: "正式发布" tag: "v2.x.0"
+    checkout main
+    commit id: "新特性 C"
+    commit id: "关键 bug 修复 D"
+    checkout release/2.x
+    cherry-pick id: "关键 bug 修复 D"
+    commit id: "补丁" tag: "v2.x.1"
+    checkout main
+    commit id: "继续合入 → 下次 cut"
+```
+
 一个改动合入主干后，落在哪个版本取决于它相对 cut 日期的位置。想让用户尽早用到、或想让用户尽早暴露问题，就是 nightly 存在的理由——第八章会讲使用者怎样利用它。
 
 ### 2. 制品：wheel 矩阵与 ABI
@@ -520,6 +614,14 @@ Python 版本    × 3.9 ~ 3.13
 加速后端       × CPU / CUDA 11.8 / CUDA 12.x（通常同时支持两三个）/ ROCm / XPU
 平台           × Linux x86_64 / Linux aarch64 / Windows / macOS arm64
 ```
+
+三个维度各自绑定一部分 ABI，第六篇 ABI 一节列出的因素可以逐一归到某一维上：
+
+| 维度 | 取值（以 2.x 系列的发布为例） | 落在这一维上的 ABI 约束 |
+|---|---|---|
+| Python 版本 | 3.9 / 3.10 / 3.11 / 3.12 / 3.13 | CPython 扩展 ABI：wheel 文件名里的 `cp312-cp312` 标签，`torch/_C.cpython-*.so` 只能被同一小版本的解释器加载 |
+| 加速后端 | CPU / CUDA 11.8 / CUDA 12.x（如 12.4、12.6，通常同时支持两三个）/ ROCm / XPU | `+cu124` 本地版本标识；CUDA minor version compatibility——12.x 编出的 wheel 可以在任何 12.y 的驱动上运行，但 C++ 扩展仍要用与 wheel 相同的 CUDA 版本编译；`nvidia-*` PyPI 包（cuBLAS、cuDNN、NCCL）的版本随之固定 |
+| 平台 | Linux x86_64 / Linux aarch64 / Windows / macOS arm64 | manylinux 标签规定 glibc 最低版本；libstdc++ 的 CXX11 ABI（Linux 从 2.6 起统一为 cxx11 ABI，`_GLIBCXX_USE_CXX11_ABI=1`）；Windows 绑定 MSVC 运行时；macOS 绑定最低系统版本 |
 
 每个组合一个 wheel，`torch==2.x.y+cu124` 的 `+cu124` 是本地版本标识（Python 系列讨论过）。CUDA wheel 不再打包整个 CUDA Toolkit，而是依赖 `nvidia-*` 的 PyPI 包（cuBLAS、cuDNN、NCCL 各自是一个 wheel），`libtorch_cuda.so` 在加载时通过 rpath 找到它们。`libtorch` 压缩包提供纯 C++ 使用（CMake 的 `find_package(Torch)`）。
 
@@ -611,13 +713,22 @@ CI 里的 `test/forward_backward_compatibility/check_forward_backward_compatibil
 `torch.save` 的文件是一个 zip 包：
 
 ```text
-model.pt（zip）
-├── data.pkl        pickle 序列化的对象图；Tensor 被替换为 (storage 类型, key, device, numel) 的引用
-├── data/0          storage 0 的原始字节
-├── data/1
-├── version         格式版本号
-└── byteorder
+model.pt（zip 包）
+├── data.pkl      pickle 序列化的对象图（不含 Tensor 数据本身）
+│                 OrderedDict（state_dict）
+│                 ├── "bn.weight" → Tensor 引用：
+│                 │     ("storage", FloatStorage, key="0", "cpu", numel=64)
+│                 ├── "bn.bias"   → ("storage", FloatStorage, key="1", ...)
+│                 ├── ...
+│                 └── _metadata["bn"]["version"] = 2   ← nn.Module._version
+├── data/0        storage key "0" 的原始字节（bn.weight）
+├── data/1        storage key "1" 的原始字节（bn.bias）
+├── data/...
+├── version       zip 容器的格式版本号
+└── byteorder     "little" / "big"，跨字节序机器加载时用
 ```
+
+`data.pkl` 里只有对象图和 Tensor 的"引用"，真正的字节在 `data/<key>` 里，因此 `mmap=True` 才能按需读取；`_metadata` 挂在 `state_dict` 上，每个子模块前缀一条，`version` 就来自下面要说的 `_version`。
 
 pickle 带来的问题是安全：反序列化可以执行任意代码。`torch.load(weights_only=True)` 使用受限的 unpickler，只允许 Tensor、基本容器和显式加入白名单（`torch.serialization.add_safe_globals`）的类型；2.6 起它是默认值。这是 §2 弃用流程的一个实例，也是为什么很多旧代码在 2.6 上报 `UnpicklingError`。`mmap=True` 让大 checkpoint 按需读取而不是一次载入内存。
 
@@ -632,6 +743,30 @@ class _BatchNorm(nn.Module):
             # 版本 2 新增了 num_batches_tracked；旧 checkpoint 没有，补一个默认值
             state_dict[prefix + "num_batches_tracked"] = torch.tensor(0, dtype=torch.long)
         super()._load_from_state_dict(...)
+```
+
+保存与加载两侧的版本号怎样对上、旧 checkpoint 在哪一步被"升级"：
+
+```mermaid
+flowchart TB
+    SAVE["保存时（旧版本代码）<br/>_BatchNorm._version = 1<br/>state_dict 只有 weight / bias / running_mean / running_var"]
+    META["state_dict._metadata#91;'bn'#93;#91;'version'#93; = 1<br/>随 data.pkl 一起写进 model.pt"]
+    LOAD["加载时（新版本代码）<br/>_BatchNorm._version = 2，期望多一个 num_batches_tracked"]
+    HOOK["load_state_dict 逐模块调用 _load_from_state_dict<br/>传入 local_metadata = _metadata#91;prefix#93;"]
+    JUDGE{"version 缺失<br/>或低于 2？"}
+    PATCH["补 state_dict#91;prefix + 'num_batches_tracked'#93; = 0<br/>再交给父类按名字装载"]
+    PASS["直接按名字装载"]
+    OK["加载成功，无需用户改 checkpoint"]
+    SAVE --> META --> LOAD --> HOOK --> JUDGE
+    JUDGE -->|"是（旧 checkpoint）"| PATCH --> OK
+    JUDGE -->|"否（新 checkpoint）"| PASS --> OK
+
+    classDef old fill:#fff8e1,stroke:#f9a825;
+    classDef new fill:#e3f2fd,stroke:#1565c0;
+    classDef good fill:#e8f5e9,stroke:#2e7d32;
+    class SAVE,META old;
+    class LOAD,HOOK,PATCH,PASS new;
+    class OK good;
 ```
 
 这就是 BatchNorm 在 1.0 之前加字段而旧 checkpoint 仍能加载的机制。自己写的 Module 加了 buffer 或改了参数名，应该走同样的路，而不是让用户手动改 checkpoint。第九篇的 DCP 在此之上加了分片与 reshard；生态中的 `safetensors` 用纯 Tensor 字典 + JSON 头绕开了 pickle。
@@ -678,6 +813,40 @@ python -W error::FutureWarning -W error::DeprecationWarning -m pytest tests/
 8. 灰度                先升级一部分作业或一个集群分区，观察一段时间再全量
 ```
 
+画成流程：每一步都有明确的输出物，通过才进下一步，失败则回到旧镜像 tag——回退的成本在每一层都一样低，这是分层的前提：
+
+```mermaid
+flowchart TB
+    S1["1. 读发布说明<br/>输出：BC 变更与弃用清单、平台窗口核对结果"]
+    S2["2. 重编译 C++ / CUDA 扩展<br/>输出：针对新版本的扩展制品，扩展自测全过"]
+    S3["3. 在隔离环境安装 + CPU 单元测试<br/>输出：-W error::FutureWarning 下测试全绿"]
+    S4["4. 单卡功能测试<br/>输出：小模型几十步 loss 曲线，与旧版本容差内一致"]
+    S5["5. checkpoint 兼容<br/>输出：旧 checkpoint 在新版本加载并续训成功"]
+    S6["6. 多卡与 compile<br/>输出：DDP / FSDP / torch.compile 各一轮，编译时间与 graph break 对比"]
+    S7["7. 性能基线对比<br/>输出：同硬件 Benchmark 表，变慢项已归因并决定是否接受"]
+    S8["8. 灰度<br/>输出：部分作业或一个分区运行一段时间的观察记录"]
+    DONE["全量升级<br/>新镜像 tag 成为默认"]
+    BACK["回退：换回旧镜像 tag<br/>镜像含完整兼容矩阵，不在启动时 pip install"]
+    S1 -->|"通过"| S2 -->|"通过"| S3 -->|"通过"| S4 -->|"通过"| S5 -->|"通过"| S6 -->|"通过"| S7 -->|"通过"| S8 -->|"通过"| DONE
+    S1 -.->|"有无法接受的 BC 变更"| BACK
+    S2 -.->|"失败"| BACK
+    S3 -.->|"失败"| BACK
+    S4 -.->|"失败"| BACK
+    S5 -.->|"失败"| BACK
+    S6 -.->|"失败"| BACK
+    S7 -.->|"回归不可接受"| BACK
+    S8 -.->|"线上异常"| BACK
+
+    classDef low fill:#e8f5e9,stroke:#2e7d32;
+    classDef mid fill:#fff8e1,stroke:#f9a825;
+    classDef high fill:#e3f2fd,stroke:#1565c0;
+    classDef bad fill:#ffebee,stroke:#c62828;
+    class S1,S2,S3 low;
+    class S4,S5,S6,S7 mid;
+    class S8,DONE high;
+    class BACK bad;
+```
+
 每一层失败都有回退路径：镜像是版本化的，回退就是换回旧 tag。所以**镜像必须包含完整的兼容矩阵**（下一节），而不是在启动时 `pip install`。
 
 ### 4. 兼容矩阵管理
@@ -690,6 +859,34 @@ CUDA 运行时          由 torch wheel 的 +cuXXX 决定（第六章 §2）
 PyTorch              小版本
 C++ 扩展             针对具体 torch × CUDA 编译（FlashAttention、自定义算子、Apex ...）
 上层框架             Lightning、DeepSpeed、Megatron、vLLM 等各自声明的 torch 版本范围
+```
+
+五者是一条单向的约束链：上游限定下游能取的值，而升级频率恰好反过来——越靠上游越慢：
+
+```mermaid
+flowchart TB
+    DRV["NVIDIA 驱动<br/>集群级、随节点镜像走，升级最慢<br/>决定了 CUDA 版本的上限"]
+    CUDA["CUDA 运行时<br/>由 torch wheel 的 +cuXXX 与 nvidia-* PyPI 包决定"]
+    PT["PyTorch 小版本<br/>torch==2.x.y+cuXXX"]
+    EXT["C++ 扩展（ABI 绑定）<br/>FlashAttention、Apex、自定义算子 ..."]
+    FW["上层框架<br/>Lightning / DeepSpeed / Megatron / vLLM"]
+    NOTE["约束方向：自上而下，上游限定下游<br/>升级频率：自上而下，从慢到快<br/>规划升级：从驱动开始倒推"]
+
+    DRV -->|"驱动版本 ≥ 运行时要求的最低版本"| CUDA
+    CUDA -->|"一个 wheel 只为一个 CUDA 版本编译"| PT
+    PT -->|"针对具体 torch × CUDA 编译，C++ 无 BC"| EXT
+    PT -->|"各自声明 torch 版本范围"| FW
+    EXT -->|"框架依赖扩展的具体版本"| FW
+    DRV ~~~ NOTE
+
+    classDef slow fill:#e3f2fd,stroke:#1565c0;
+    classDef mid fill:#e8f5e9,stroke:#2e7d32;
+    classDef fast fill:#fff8e1,stroke:#f9a825;
+    classDef note fill:#f4f4f4,stroke:#888;
+    class DRV,CUDA slow;
+    class PT,EXT mid;
+    class FW fast;
+    class NOTE note;
 ```
 
 管理方式是把这个矩阵**写下来并版本化**：一个镜像对应一组确定的版本，镜像 tag 就是矩阵的名字。任何一项的升级都产生新的镜像 tag，并走 §3 的 playbook。驱动是最慢的一项，往往决定了 CUDA 版本的上限，从而决定了能用的 PyTorch 版本——规划升级时从它开始倒推。

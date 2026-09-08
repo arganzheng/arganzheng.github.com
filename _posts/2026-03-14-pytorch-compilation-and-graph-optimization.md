@@ -319,6 +319,35 @@ Dynamo 通过 CPython 的帧求值钩子（PEP 523）介入：在解释器执行
     遇到无法分析的调用   → 停止捕获（第六章）
 ```
 
+把 `f` 的字节码逐条走一遍，可以看到三件事同时发生：模拟栈上放的不是真实 Tensor 而是 `VariableTracker`（下表记作 `T(·)`，内部持有 FakeTensor 和指向 FX 节点的 Proxy），Tensor 操作变成 FX 节点，Python 值操作在栈上直接折叠：
+
+```text
+字节码                  模拟栈（栈顶在右）                产出的 FX 节点
+----------------------  --------------------------------  ----------------------
+LOAD_FAST x             [ T(x) ]                          placeholder l_x_
+LOAD_FAST weight        [ T(x), T(weight) ]               placeholder l_weight_
+BINARY_OP @             [ T(matmul) ]                     call_function matmul
+LOAD_FAST bias          [ T(matmul), T(bias) ]            placeholder l_bias_
+BINARY_OP +             [ T(y) ]                          call_function add
+STORE_FAST y            [ ]                               y 记入模拟的局部变量表
+LOAD_FAST x             [ T(x) ]
+LOAD_ATTR shape         [ Size(128, 32) ]                 Python 值，栈上折叠
+LOAD_CONST 0            [ Size(128, 32), 0 ]
+BINARY_SUBSCR           [ 128 ]                           FakeTensor 的元数据
+LOAD_CONST 64           [ 128, 64 ]
+COMPARE_OP >            [ True ]                          编译期算出，记 Guard
+POP_JUMP_IF_FALSE       跳转方向已静态决定 → 继续追踪 relu 分支
+LOAD_GLOBAL torch       [ torch ]
+LOAD_ATTR relu          [ torch.relu ]                    Python 值，记 Guard
+LOAD_FAST y             [ torch.relu, T(y) ]
+CALL 1                  [ T(relu) ]                       call_function relu
+RETURN_VALUE            [ ]                               output (relu,)
+
+若条件换成 x.sum() > 0：COMPARE_OP 的结果是 T(...) 而不是 True/False，
+POP_JUMP_IF_FALSE 无法决定跳转方向 → graph break：到此为止的节点先编译成
+一张图，if 交还 Python 在运行时求值（第六章 §1）。
+```
+
 FakeTensor 是第五篇 Meta Tensor 的扩展：只有 shape、stride、dtype 和一个“假装的”device，不持有数据。Dynamo 用它跑一遍程序，得到每个中间结果的元数据，但不做任何真实计算。这也是第六篇强调自定义算子必须注册 Fake 实现的原因：没有它，Dynamo 走到这个算子就无法继续推断。
 
 ### 3. 产出三样东西
@@ -429,6 +458,43 @@ AOTAutograd 的名字就是它的做法：**Ahead-Of-Time** 地运行一遍 Auto
 
 这里复用的正是第三篇的 Autograd 引擎和第五篇的 Autograd DispatchKey：追踪过程中每个算子仍然经过 Autograd 包装层、记录反向节点，只是底层执行的是 Meta Kernel 而非真实 Kernel。**AOTAutograd 没有重新实现求导规则，它借用了 Eager 的求导规则，只是把过程记录下来。**
 
+把这一节的追踪和下一节的切分连起来，对 `f` 而言就是下图：joint graph 里前向节点和反向节点同在一张图上，切分器在两者之间找一条"割线"，割线穿过的中间值就是需要从前向传给反向的 saved tensors。
+
+```mermaid
+flowchart TB
+    IN["Dynamo 的 torch 级前向图<br/>matmul → add → relu"]
+    IN --> TR["FakeTensor 执行前向，Autograd 照常记录 grad_fn<br/>对输出调用反向，引擎回溯的每一步也被追踪成节点"]
+    TR --> JG
+    subgraph JG["joint graph：前向 + 反向在同一张 FX Graph 里"]
+        MM["aten.mm(x, weight)<br/>输入 x、weight 反向要用 → 保存"]
+        ADD["aten.add(mm, bias)<br/>反向不需要，体积大、重算便宜 → 不保存"]
+        RL["aten.relu(add)<br/>threshold_backward 需要 → 保存"]
+        THB["aten.threshold_backward(tangent, relu, 0)"]
+        GX["aten.mm(grad, weight.t) → grad_x"]
+        GW["aten.mm(x.t, grad) → grad_weight"]
+        GB["aten.sum(grad, 0) → grad_bias"]
+        MM --> ADD --> RL --> THB
+        THB --> GX
+        THB --> GW
+        THB --> GB
+    end
+    JG --> CUT["min-cut 分区：在前向节点与反向节点之间找一条割线<br/>目标是割线穿过的张量总体积最小<br/>体积小、重算贵的值保存；体积大、重算便宜的值留给反向重算"]
+    CUT --> FW["前向图<br/>输出 relu，额外输出 saved tensors: relu、x、weight"]
+    CUT --> BW["反向图<br/>输入 saved tensors + tangent，输出三个梯度"]
+    FW -.->|"saved tensors"| BW
+    CUT --> TRADE["权衡<br/>多保存：显存高、反向快<br/>少保存：显存低、反向多算一段前向<br/>（第八篇 Activation Checkpointing 的自动化版本）"]
+    classDef saved fill:#e3f2e1,stroke:#2e7d32;
+    classDef recomp fill:#fff3e0,stroke:#ef6c00;
+    classDef bwd fill:#e8eaf6,stroke:#3949ab;
+    classDef note fill:#fafafa,stroke:#9e9e9e,stroke-dasharray: 4 3;
+    class MM,RL saved;
+    class ADD recomp;
+    class THB,GX,GW,GB bwd;
+    class TRADE note;
+```
+
+绿色节点的输出（或输入）被保存下来成为前向图的额外输出、反向图的额外输入；橙色节点的输出不保存——对 `f` 来说反向根本不需要它，而在更长的 pointwise 链里，这类值即使被需要也倾向于重算。
+
 ### 3. 切分：什么该保存，什么该重算
 
 前向和反向之间需要传递中间值——`relu` 的反向需要知道前向输出哪些位置为正。Eager 里这些值由 `grad_fn` 的 saved tensors 持有（第三篇）。编译后，它们成为前向图的额外输出、反向图的额外输入。
@@ -516,6 +582,32 @@ Buffer 生命周期  何时分配、何时释放、能否复用
 Triton / C++ 源码 + call() 调度代码
 ```
 
+把每一步在 `f` 的前向图上落实，就是下图：三个 ATen 节点进去，一个 cuBLAS 调用加一个 Triton Kernel 出来。
+
+```mermaid
+flowchart TB
+    IN["ATen 级 FX Graph<br/>aten.mm → aten.add → aten.relu"]
+    IN --> LOW["lowering：降到 Inductor IR<br/>每个节点变成 “给定索引 i，如何算出该位置的值”"]
+    LOW --> IR
+    subgraph IR["Inductor IR"]
+        EK["mm：ExternKernel<br/>不生成代码，调 cuBLAS"]
+        PW1["add：Pointwise<br/>i → buf0#91;i#93; + bias#91;i % 64#93;"]
+        PW2["relu：Pointwise<br/>i → max(add(i), 0)"]
+        EK --> PW1 --> PW2
+    end
+    IR --> SCH["Scheduler 融合决策<br/>相邻 pointwise 合并为一个循环体：max(buf0#91;i#93; + bias#91;i % 64#93;, 0)<br/>reduction 可吸收其前面的 pointwise 作为输入<br/>ExternKernel 是黑盒，不参与融合"]
+    SCH --> MEM["内存规划<br/>buf0 (mm 输出) 在 fused kernel 读完后不再被引用<br/>→ relu 输出原地写回：buf1 = buf0"]
+    MEM --> CG["codegen<br/>GPU：Triton kernel 源码 + Python call() wrapper<br/>CPU：C++ + OpenMP / SIMD"]
+    CG --> CC["编译缓存<br/>FX Graph 缓存（源码）→ Triton 缓存（cubin）<br/>命中则跳过生成与编译"]
+    CC --> OUT["产物：extern mm + triton_poi_fused_add_relu_0<br/>2 次 launch，0 个新增中间 Tensor"]
+    classDef ext fill:#eceff1,stroke:#546e7a;
+    classDef pw fill:#e3f2fd,stroke:#1565c0;
+    classDef stage fill:#fffde7,stroke:#f9a825;
+    class EK ext;
+    class PW1,PW2 pw;
+    class LOW,SCH,MEM,CG,CC stage;
+```
+
 Inductor IR 的核心表示方式是**循环级的**：一个逐元素算子不是“对 Tensor 做 add”，而是“对索引 `i`，输出 `a[i] + b[i]`”。这种表示让融合成为简单的函数组合：`relu(add(a, b))` 在索引 `i` 上就是 `max(a[i] + b[i], 0)`，天然是一个循环体。
 
 ### 3. 融合决策
@@ -583,9 +675,58 @@ Kernel 名字编码了它的来源：`poi` 是 pointwise（`red` 是 reduction�
 - **内存复用是静态决定的**。`buf1 = buf0` 不是运行时分配器的决定，而是编译器看到 `mm` 的输出在 `add` 之后不再被引用，直接原地写。
 - **shape 被烧进了代码**。`128`、`64`、`8192` 都是常量。这是 Guard 存在的原因之一：输入 shape 一变，这份代码就不再正确。
 
+把 `call()` 里的 buffer 生命周期画出来，可以看清"内存复用是静态决定的"这句话：三个逻辑中间值（`mm`、`add`、`relu` 的输出）最终只对应一次显存分配。
+
+```text
+时间 →              extern mm        fused add_relu             return
+                    |----------------|--------------------------|------>
+逻辑中间值
+  mm 的输出         #================#  最后一次读：kernel 内 tl.load
+  add 的输出                          .  融合进循环体，只存在于寄存器 tmp2
+  relu 的输出                         #==========================#  返回值
+
+物理 buffer
+  buf0 (128x64)     #================#  del buf0
+  buf1 = buf0                         #==========================#  同一块显存
+                                      ^
+                    mm 输出在此之后不再被读 → relu 输出原地写回（in_out_ptr0）
+
+Eager：t1、y、out 三次分配       Inductor：buf0 一次分配，buf1 只是别名
+```
+
+这张时间线里 `add` 的输出一行是空的：它没有对应任何显存，只在 Triton Kernel 的寄存器里活了一条指令的时间。这正是融合收益的来源（§6）。
+
 ### 5. Triton 是什么，为什么选它
 
 Triton 是一种用 Python 语法编写 GPU Kernel 的语言和编译器。与 CUDA C++ 的差别在抽象层级：CUDA 以**线程**为单位编程，开发者管理线程索引、共享内存、同步；Triton 以**块**（block）为单位，开发者描述一个块处理哪些元素，编译器负责线程映射、内存合并访问、指令调度。
+
+以一个长度 1024 的向量、`BLOCK = 256` 为例，两种模型的分工差别如下：
+
+```text
+x[0..1023]，BLOCK = 256 → grid = 4 个 program，pid = tl.program_id(0)
+
+  pid = 0          pid = 1          pid = 2          pid = 3
+  x[0..255]        x[256..511]      x[512..767]      x[768..1023]
++----------------+----------------+----------------+----------------+
+| offs = 0*256   | offs = 1*256   | offs = 2*256   | offs = 3*256   |
+|  + arange(256) |  + arange(256) |  + arange(256) |  + arange(256) |
++----------------+----------------+----------------+----------------+
+        |
+        | 一个 program 的 256 个元素，由编译器映射到线程（num_warps = 4）：
+        v
+  warp 0          warp 1          warp 2          warp 3
+  线程 0..31      线程 32..63     线程 64..95     线程 96..127
+  每线程 2 个元素（256 / 128），相邻线程取相邻地址 → 合并成整段访存
+
+CUDA 手写（开发者自己算线程索引、自己保证访存合并）：
+  i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i < n) y[i] = f(x[i]);
+Triton（只描述一个块处理哪些元素，线程映射交给编译器）：
+  offs = pid * BLOCK + tl.arange(0, BLOCK);  mask = offs < n
+  tl.store(y + offs, f(tl.load(x + offs, mask)), mask)
+```
+
+§4 那段生成代码里的 `xoffset = tl.program_id(0) * XBLOCK`、`xindex = xoffset + tl.arange(0, XBLOCK)` 正是上图的第一层；线程这一层在源码里完全不出现。
 
 Inductor 选择 Triton 生成 GPU 代码的原因：
 
@@ -728,6 +869,22 @@ Guard 是编译栈的**正确性基础**：Inductor 之所以能把 `128`、`64`
                                 → 重编译，这次走 tanh 分支，Guard 为 s0 <= 64
 ```
 
+把这条演化链画成状态机：节点是函数当前积累的编译产物，边是每次调用带来的转移；黄色边表示流水线真正运行，绿色边表示直接复用。注意每次重编译后 Guard 的形态都在变。
+
+```mermaid
+flowchart TB
+    S0["没有任何产物"]
+    S0 -->|"① x: #91;128, 32#93;<br/>无条目可查 → 静态编译"| SA["产物 A：relu 版<br/>128 / 64 / 8192 烧成常量<br/>Guard: size#91;0#93; == 128"]
+    SA -->|"② x: #91;256, 32#93;<br/>size#91;0#93; == 128 失败 → 自动动态化重编译<br/>第 0 维标为符号 s0，if s0 > 64 用 256 定为 True"| SB["产物 A + B<br/>B：relu 版，xnumel 为运行时参数<br/>Guard: s0 > 64（分支条件本身，而非 == 256）"]
+    SB -->|"③ x: #91;512, 32#93;<br/>s0 > 64 通过 → 复用 B，流水线不运行"| SB
+    SB -->|"④ x: #91;32, 32#93;<br/>s0 > 64 失败 → 重编译，走 tanh 分支"| SC["产物 A + B + C<br/>C：tanh 版，Guard: s0 ≤ 64"]
+    SC -->|"此后每次调用只查 Guard<br/>s0 > 64 → B，s0 ≤ 64 → C"| SC
+    classDef st fill:#e8eaf6,stroke:#3949ab;
+    class S0,SA,SB,SC st;
+    linkStyle 0,1,3 stroke:#c9a227,stroke-width:2px;
+    linkStyle 2,4 stroke:#2e7d32,stroke-width:2px;
+```
+
 注意第二次编译时 Guard 从 `== 128` 变成了 `> 64`：Dynamo 在符号维度上追踪分支条件时，记录的是**让当前分支成立的最弱约束**，而不是具体值。分支条件本身变成了 Guard。最终这个函数积累了两份编译产物——`relu` 版和 `tanh` 版——由 `s0 > 64` 这条 Guard 决定走哪份，这正是原始 Python 程序里那个 `if` 的语义，只是判断从 Python 解释器移到了 Guard 检查。
 
 也可以显式控制：`torch.compile(f, dynamic=True)` 让所有维度一开始就是符号；`torch._dynamo.mark_dynamic(x, 0)` 标记特定维度；`mark_static` 反之。
@@ -785,7 +942,7 @@ flowchart TB
     A[调用 compiled_f] --> B[帧钩子截获 f 的字节码]
     B --> C[Dynamo 符号求值<br/>FakeTensor 推断元数据]
     C --> D[torch 级 FX Graph<br/>matmul → add → relu<br/>if 已特化掉]
-    C --> G[Guard 列表<br/>size[0] == 128 / dtype / device / …]
+    C --> G["Guard 列表<br/>size#91;0#93; == 128 / dtype / device / …"]
     D --> E[AOTAutograd<br/>Fake 执行前向 + 反向]
     E --> F1[ATen 级前向图<br/>mm → add → relu]
     E --> F2[ATen 级反向图<br/>threshold_backward → mm × 2 → sum]
@@ -860,6 +1017,26 @@ Guard 检查：条目 1 要求 size[0] == 128 → 失败
     → 后端：融合 Kernel 变为 triton_poi_fused_add_tanh_0
     → 作为第三个缓存条目写入
     → 执行
+```
+
+与 §1 冷编译那张图对照，这一次的入口逻辑是"逐条查 Guard、都不命中才进流水线"：
+
+```mermaid
+flowchart TB
+    IN["调用 compiled_f(x4, weight, bias)，x4: #91;32, 32#93;<br/>帧钩子取出 f 的缓存条目列表（此时 2 条），逐条查 Guard"]
+    IN --> E1["条目 1：type(x) is Tensor · dtype · device · size#91;0#93; == 128"]
+    E1 -->|"通过"| P1["运行产物 1<br/>relu 版，静态 128"]
+    E1 -->|"32 ≠ 128，失败"| E2["条目 2：同样的元数据检查 · s0 > 64"]
+    E2 -->|"通过"| P2["运行产物 2<br/>relu 版，符号 s0"]
+    E2 -->|"32 > 64 为假，失败"| RC["都不命中 → 触发编译器<br/>Dynamo：追踪到 tanh 分支，Guard s0 ≤ 64<br/>AOTAutograd：反向变为 1 - tanh²<br/>Inductor：triton_poi_fused_add_tanh_0<br/>追加为条目 3（上限 8，超限退回 Eager）"]
+    RC --> P3["运行产物 3<br/>tanh 版"]
+    E2 -.->|"之后 batch ≤ 64 的调用：<br/>条目 3 的 Guard s0 ≤ 64 通过"| P3
+    classDef hit fill:#e3f2e1,stroke:#2e7d32;
+    classDef guard fill:#fafafa,stroke:#616161;
+    classDef compile fill:#fff3cd,stroke:#c9a227;
+    class P1,P2,P3 hit;
+    class E1,E2 guard;
+    class RC compile;
 ```
 
 到这里，原始 Python 程序里的 `if` 被完整地"翻译"进了运行时控制层：两条分支各有一份编译产物，`s0 > 64` 这条 Guard 就是原来的分支条件。这也说明 Guard 检查不只是"防御性验证"，它是编译后程序控制流的一部分。

@@ -384,6 +384,28 @@ stride = (3, 1)
 - 行索引增加 1，需要跨过 3 个元素；
 - 列索引增加 1，只需要跨过 1 个元素。
 
+把 storage 的线性下标和逻辑格子放在一起看，每个格子里写的就是它落在 storage 的哪个位置：
+
+```text
+storage（一维，下标即物理位置）
+ idx:   0     1     2     3     4     5
+      ┌─────┬─────┬─────┬─────┬─────┬─────┐
+      │  a  │  b  │  c  │  d  │  e  │  f  │
+      └─────┴─────┴─────┴─────┴─────┴─────┘
+       └─── row i=0 ───┘ └─── row i=1 ───┘
+            相邻两行起点相差 3 = stride[0]
+
+x: shape=(2,3), stride=(3,1)       offset(i,j) = i*3 + j*1
+            j=0          j=1          j=2
+       ┌────────────┬────────────┬────────────┐
+  i=0  │ (0,0)→0  a │ (0,1)→1  b │ (0,2)→2  c │
+       ├────────────┼────────────┼────────────┤
+  i=1  │ (1,0)→3  d │ (1,1)→4  e │ (1,2)→5  f │
+       └────────────┴────────────┴────────────┘
+  j 增 1 → 物理位置 +1 (stride[1]=1)
+  i 增 1 → 物理位置 +3 (stride[0]=3)
+```
+
 ### 3. 三维 Tensor 的 stride
 
 ```python
@@ -413,6 +435,26 @@ offset(i, j, k)
     + i × 12
     + j × 4
     + k × 1
+```
+
+把 24 个 storage 下标按 `i` 切成两个 `3 × 4` 平面，就能直观看到三个 stride 各自“跨过”多少元素：
+
+```text
+x: shape=(2,3,4), stride=(12,4,1)    offset(i,j,k) = i*12 + j*4 + k*1
+
+      i=0: idx 0..11                  i=1: idx 12..23
+        k=0  k=1  k=2  k=3                  k=0  k=1  k=2  k=3
+      ┌────┬────┬────┬────┐               ┌────┬────┬────┬────┐
+  j=0 │  0 │  1 │  2 │  3 │           j=0 │ 12 │ 13 │ 14 │ 15 │
+      ├────┼────┼────┼────┤               ├────┼────┼────┼────┤
+  j=1 │  4 │  5 │  6 │  7 │           j=1 │ 16 │ 17 │ 18 │ 19 │
+      ├────┼────┼────┼────┤               ├────┼────┼────┼────┤
+  j=2 │  8 │  9 │ 10 │ 11 │           j=2 │ 20 │ 21 │ 22 │ 23 │
+      └────┴────┴────┴────┘               └────┴────┴────┴────┘
+
+  k 增 1 → +1  (stride[2])   相邻元素
+  j 增 1 → +4  (stride[1])   跨过一行 4 个元素
+  i 增 1 → +12 (stride[0])   跨过一整个 3×4 = 12 个元素的平面
 ```
 
 ### 4. stride 让 view 成为可能
@@ -466,6 +508,37 @@ x[i, j] → offset = i × 3 + j × 1
 y[i, j] → offset = i × 1 + j × 3
 ```
 
+用同一份 storage 把两个视图画出来，可以看到 `y` 只是把 stride 的两个分量交换了，逐行读 `y` 时在 storage 里是跳着走的：
+
+```text
+同一份 storage
+ idx:   0     1     2     3     4     5
+      ┌─────┬─────┬─────┬─────┬─────┬─────┐
+      │  0  │  1  │  2  │  3  │  4  │  5  │
+      └─────┴─────┴─────┴─────┴─────┴─────┘
+
+x: shape=(2,3), stride=(3,1)        offset(i,j) = i*3 + j*1
+            j=0          j=1          j=2
+       ┌────────────┬────────────┬────────────┐
+  i=0  │ (0,0)→0    │ (0,1)→1    │ (0,2)→2    │   读第 0 行：idx 0,1,2
+       ├────────────┼────────────┼────────────┤
+  i=1  │ (1,0)→3    │ (1,1)→4    │ (1,2)→5    │   读第 1 行：idx 3,4,5
+       └────────────┴────────────┴────────────┘
+
+y = x.t(): shape=(3,2), stride=(1,3)   offset(i,j) = i*1 + j*3
+            j=0          j=1
+       ┌────────────┬────────────┐
+  i=0  │ (0,0)→0    │ (0,1)→3    │   读第 0 行：idx 0,3
+       ├────────────┼────────────┤
+  i=1  │ (1,0)→1    │ (1,1)→4    │   读第 1 行：idx 1,4
+       ├────────────┼────────────┤
+  i=2  │ (2,0)→2    │ (2,1)→5    │   读第 2 行：idx 2,5
+       └────────────┴────────────┘
+
+  x 按逻辑顺序遍历访问的 storage 下标：0 1 2 3 4 5（连续）
+  y 按逻辑顺序遍历访问的 storage 下标：0 3 1 4 2 5（跳跃）
+```
+
 这是一种典型的 zero-copy view。
 
 ### 2. `permute()` 可以重新排列多个维度
@@ -504,6 +577,21 @@ z = y.view(6)
 ```
 
 这段代码可能失败，因为 `y` 的 stride 已经不符合把它直接解释成一个连续的一维序列的条件。
+
+`view(6)` 只允许改 metadata，因此它需要一个单一的 stride 就能从 `z[k]` 走到 `z[k+1]`。把 `y` 的逻辑顺序和实际 storage 下标对齐写出来，就能看到这个条件为什么不满足：
+
+```text
+view(6) 要求：逻辑上相邻的元素，在 storage 中以同一个 stride 相邻
+
+  z 的下标 k        0      1      2      3      4      5
+  对应 y 元素     y[0,0] y[0,1] y[1,0] y[1,1] y[2,0] y[2,1]
+  storage 下标      0      3      1      4      2      5
+  相邻差值            +3     -2     +3     -2     +3
+                    ↑ 不是常数 → 无法用 (stride,) 表达 → view 报错
+
+  y 需要的"连续顺序"：storage 依次是 0 3 1 4 2 5
+  storage 的实际顺序：              0 1 2 3 4 5   ← 两者不一致
+```
 
 通常可以这样处理：
 
@@ -581,6 +669,27 @@ print(z.shape)            # torch.Size([3, 2])
 ```
 
 如果原 Tensor 已经连续，`contiguous()` 通常可以直接返回自身或等价的引用；如果不连续，它会分配新的 Storage，并按照逻辑顺序复制数据。
+
+以上一章的转置视图 `y` 为例，`contiguous()` 前后的两条 storage 如下：
+
+```text
+before: y = x.t()   shape=(3,2) stride=(1,3)   与 x 共享 storage
+        storage   idx:  0   1   2   3   4   5
+                      ┌───┬───┬───┬───┬───┬───┐
+                      │ 0 │ 1 │ 2 │ 3 │ 4 │ 5 │
+                      └───┴───┴───┴───┴───┴───┘
+        按 y 的逻辑顺序读取：idx 0 → 3 → 1 → 4 → 2 → 5（跳跃访问）
+
+        读取结果        0   3   1   4   2   5
+                        │   │   │   │   │   │   逐元素复制（真实拷贝）
+                        ▼   ▼   ▼   ▼   ▼   ▼
+after:  z = y.contiguous()   shape=(3,2) stride=(2,1)   新分配的 storage
+        storage'  idx:  0   1   2   3   4   5
+                      ┌───┬───┬───┬───┬───┬───┐
+                      │ 0 │ 3 │ 1 │ 4 │ 2 │ 5 │
+                      └───┴───┴───┴───┴───┴───┘
+        z[i,j] = storage'[i*2 + j]    逻辑顺序 == 物理顺序，可直接 view(6)
+```
 
 因此：
 
@@ -669,17 +778,24 @@ print(y.storage_offset())
 `y` 逻辑上有六个元素，但它从原始 Storage 的位置 2 开始解释：
 
 ```text
-x Storage: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-                 ↑              ↑
-              offset=2       logical end
+x: shape=(10,), stride=(1,), storage_offset=0
+ idx:   0   1   2   3   4   5   6   7   8   9
+      ┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+      │ 0 │ 1 │ 2 │ 3 │ 4 │ 5 │ 6 │ 7 │ 8 │ 9 │   同一份 storage
+      └───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+                ▲                       ▲
+                │ y 起点                │ y 终点（不含）
+                storage_offset = 2      offset + 6*stride = 8
 
-y:              [2, 3, 4, 5, 6, 7]
+y = x[2:8]: shape=(6,), stride=(1,), storage_offset=2
+               y0  y1  y2  y3  y4  y5      ← 6 个逻辑元素
+               =2  =3  =4  =5  =6  =7      ← 直接落在 idx 2..7 上
 ```
 
 对于一维 Tensor，可以粗略写成：
 
 ```text
-y[i] = Storage[storage_offset + i × stride]
+y[i] = Storage[storage_offset + i × stride] = Storage[2 + i]
 ```
 
 ### 3. 切片也可能只是 view
@@ -748,6 +864,31 @@ FP16 和 BF16 都通常占用 16 bit，但位分配不同：
 ```text
 FP16：更多位用于尾数，指数范围较小
 BF16：指数范围接近 FP32，尾数精度较低
+```
+
+把三种格式的位域画在一起（每个字符代表 1 bit）：
+
+```text
+bit: 31 30    23 22                    0
+FP32 ┌─┬────────┬───────────────────────┐
+     │S│ exp(8) │      mantissa(23)     │  1 + 8 + 23 = 32 bit
+     └─┴────────┴───────────────────────┘  范围 ~1e-38 .. 3e38，~7 位十进制精度
+
+bit: 15 14 10 9        0
+FP16 ┌─┬─────┬──────────┐
+     │S│exp 5│ mant(10) │  1 + 5 + 10 = 16 bit
+     └─┴─────┴──────────┘  范围 ~6e-5 .. 65504（易溢出/下溢），~3 位十进制精度
+
+bit: 15 14     7 6     0
+BF16 ┌─┬────────┬───────┐
+     │S│ exp(8) │mant(7)│  1 + 8 + 7 = 16 bit
+     └─┴────────┴───────┘  指数位和 FP32 一样，范围相同；~2 位十进制精度
+
+BF16 = FP32 直接砍掉低 16 位尾数（符号位、指数位与 FP32 完全一致）：
+FP32 ┌─┬────────┬───────┬────────────────┐
+     │S│ exp(8) │mant 7 │  mant 低 16 位 │
+     └─┴────────┴───────┴────────────────┘
+      └── BF16 保留 ───┘ └─ 直接丢弃 ───┘
 ```
 
 因此二者的工程特性不同：
@@ -876,6 +1017,37 @@ Kernel 执行
 ```
 
 如果数据搬运跟不上 GPU 计算，GPU 就会等待输入。
+
+把这条路径按 `pin_memory` 和 `non_blocking` 两个开关展开，可以看清哪一步是真正的同步点、哪一步可以和计算重叠：
+
+```mermaid
+flowchart TB
+    DISK["磁盘 / 数据集文件"]
+    PAGE["CPU pageable 内存<br/>DataLoader worker 进程读取、预处理"]
+    PIN["CPU pinned 内存（页锁定，不会被换出）<br/>pin_memory=True 时由 DataLoader 主进程拷入"]
+    H2D_SYNC["H2D 拷贝：同步<br/>来源是 pageable 内存，或 non_blocking=False<br/>CPU 线程阻塞直到拷贝完成 —— 同步点"]
+    H2D_ASYNC["H2D 拷贝：异步 DMA<br/>pinned 来源 + non_blocking=True<br/>CPU 立即返回，拷贝排入当前 CUDA stream"]
+    GPU["GPU 显存中的 batch Tensor"]
+    KERNEL["Kernel 执行<br/>同一 stream 上按序排队，自动等拷贝完成<br/>CPU 不需要等待"]
+    IMPLICIT["隐式同步点：.item()、print(tensor)、.cpu()<br/>会让 CPU 等待 stream 上全部工作完成，<br/>把异步拷贝的收益吃掉"]
+
+    DISK --> PAGE
+    PAGE -->|"pin_memory=True<br/>(主机内再拷一次)"| PIN
+    PAGE -->|"pin_memory=False"| H2D_SYNC
+    PIN -->|"non_blocking=False"| H2D_SYNC
+    PIN -->|"non_blocking=True"| H2D_ASYNC
+    H2D_SYNC --> GPU
+    H2D_ASYNC --> GPU
+    GPU --> KERNEL
+    KERNEL -.-> IMPLICIT
+
+    classDef sync fill:#fde2e2,stroke:#c0392b;
+    classDef async fill:#e3f4e1,stroke:#2e7d32;
+    classDef mem fill:#eef3fb,stroke:#3b6ea5;
+    class H2D_SYNC,IMPLICIT sync;
+    class H2D_ASYNC async;
+    class PAGE,PIN,GPU mem;
+```
 
 DataLoader 常见配置包括：
 
@@ -1075,6 +1247,28 @@ z = x + y
 - 其中一个为 1；
 - 某个维度不存在。
 
+对 `(2, 3) + (3,)` 这个例子，PyTorch 实际做的是先把 `y` 右对齐补成 `(1, 3)`，再用 `expand` 得到一个 `shape=(2,3)`、`stride=(0,1)` 的视图，物理上不多占一个字节：
+
+```text
+第一步：右对齐比较各维
+        x   (2, 3)
+        y   (   3)   → 缺失的维度视为 1，补成 (1, 3)
+        -----------
+        z   (2, 3)   → 1 可以扩展成 2，3 == 3 保持不变
+
+第二步：y.expand(2, 3)  shape=(2,3), stride=(0,1)，不分配新 storage
+
+ expand 视图（逻辑 2x3）                 y 的 storage（物理只有 3 个元素）
+        j=0     j=1     j=2                  idx:  0    1    2
+     ┌───────┬───────┬───────┐                  ┌────┬────┬────┐
+ i=0 │ →idx0 │ →idx1 │ →idx2 │ ──┐              │ y0 │ y1 │ y2 │
+     ├───────┼───────┼───────┤   ├─ 两行都读 ─▶ └────┴────┴────┘
+ i=1 │ →idx0 │ →idx1 │ →idx2 │ ──┘
+     └───────┴───────┴───────┘
+
+ offset(i,j) = i*0 + j*1 = j   ← i 变化不移动物理位置，两行读的是同一段内存
+```
+
 ### 2. `expand()` 与 `repeat()`
 
 ```python
@@ -1141,6 +1335,36 @@ Autograd 保存的中间结果
 Kernel 临时 workspace
     ↓
 Allocator 缓存
+```
+
+把这几类放进同一块 GPU 显存里看，并标出 `memory_allocated()` 与 `memory_reserved()` 各自覆盖的范围：
+
+```mermaid
+flowchart TB
+    subgraph RESERVED["memory_reserved()：Caching Allocator 向 CUDA 申请并持有的显存"]
+        direction TB
+        subgraph ALLOCATED["memory_allocated()：当前被活跃 Tensor 占用的部分"]
+            direction TB
+            PARAM["模型参数<br/>numel × itemsize，训练全程存活"]
+            GRAD["梯度 .grad<br/>与参数同形状，backward 后出现"]
+            OPT["Optimizer state<br/>Adam：每个参数额外 2 份 FP32 状态"]
+            ACT["前向保存的激活<br/>Autograd 为 backward 保留，随 batch / 序列长度增长"]
+            WS["Kernel 临时 workspace<br/>cuBLAS / cuDNN 的中间缓冲，用完即还给分配器"]
+        end
+        CACHE["已释放、仍被缓存的块（reserved 但未 allocated）<br/>del / 出作用域后 allocated 下降，reserved 不降<br/>供后续分配直接复用，empty_cache() 才归还 CUDA"]
+    end
+    OUTSIDE["不在 reserved 之内：CUDA context、cuBLAS handle、NCCL 缓冲<br/>nvidia-smi 能看到，torch.cuda.memory_* 看不到"]
+
+    PARAM ~~~ GRAD ~~~ OPT ~~~ ACT ~~~ WS
+    ALLOCATED ~~~ CACHE
+    RESERVED ~~~ OUTSIDE
+
+    classDef live fill:#e3f4e1,stroke:#2e7d32;
+    classDef cache fill:#fff3cd,stroke:#b8860b;
+    classDef ext fill:#eeeeee,stroke:#777777;
+    class PARAM,GRAD,OPT,ACT,WS live;
+    class CACHE cache;
+    class OUTSIDE ext;
 ```
 
 因此，下面两个数字不是同一个概念：

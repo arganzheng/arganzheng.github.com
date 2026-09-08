@@ -229,6 +229,21 @@ Java 背景会帮助理解很多工程概念：
 
 需要说明的是，这条主线按**职责层**推进，而不是按源码目录。PyTorch 的源码按库分层是 `torch/`（Python）→ `torch/csrc/`（绑定、Autograd 引擎、c10d）→ `aten/src/ATen/`（Dispatcher、算子）→ `c10/`（TensorImpl、Device、Allocator），两种分层并不重合：第二篇讲的 Tensor 元数据在源码上住在最底层的 c10，却是用户最先接触、其余一切所依赖的抽象，所以放在最前面。第一篇会给出一张"组件 → 源码位置 → 职责层 → 展开篇"的对照表；第二到九篇的小结各附一张"本篇涉及的源码位置"表，把该篇讨论的机制落到具体文件；第十篇的仓库地图则给出完整目录。读者可以随时在职责层和源码层两个坐标系之间切换。
 
+把上面几条线索、源码坐标和后文"贯穿全系列的实践线"合在一起，十篇文章可以汇总成一张表：
+
+| 篇次 | 标题 | 所在线索 | 核心源码目录 | 实践落点 |
+|---|---|---|---|---|
+| 1 | PyTorch 整体介绍 | 三条线的起点：全局地图 | 全仓库四层：`torch/` → `torch/csrc/` → `aten/src/ATen/` → `c10/` | 无独立项目，建立地图与对照表 |
+| 2 | Tensor 与内存布局 | 抽象线：Tensor | `c10/core/`（TensorImpl、StorageImpl） | 简化版 Tensor：用 shape、stride、offset 实现索引、transpose 和 contiguous copy |
+| 3 | 自动求导与动态计算图 | 抽象线：Autograd | `torch/csrc/autograd/` | Mini-Autograd：加法与乘法节点、保存父节点、拓扑排序、反向传播 |
+| 4 | `nn.Module` 与训练系统 | 抽象线：Module；工程线：Training | `torch/nn/` `torch/optim/` `torch/utils/data/` | 一个完整的训练程序 |
+| 5 | Dispatcher 与算子系统 | 抽象线：Operator；执行线：C++ | `aten/src/ATen/` `torchgen/` | 原生算子 `add` / `add_` / `add.out` 的完整路径 |
+| 6 | C++ 扩展与自定义算子 | 执行线：Python → C++ → CUDA → Kernel | `torch/csrc/` `torch/utils/cpp_extension.py` | `scale_shift` 算子（`myops` 项目）：Python 契约 → C++ CPU → CUDA → Autograd 与 Meta |
+| 7 | 编译执行与图优化 | 抽象线：Compiler | `torch/_dynamo/` `torch/_functorch/` `torch/_inductor/` `torch/fx/` | 一个带 shape 分支的小函数，跟踪其四次调用 |
+| 8 | 性能优化与调试 | 工程线：Profiling；执行线：Kernel → Hardware | `torch/profiler/` `c10/cuda/` `torch/cuda/` | 一个 Transformer block 的训练 step：基线 → 采集 → 归类 → 处方 → 优化报告 |
+| 9 | 分布式 PyTorch | 工程线：Distributed | `torch/csrc/distributed/` `torch/distributed/` | 同一个 Transformer block 从 8 卡扩到 4 机 32 卡，算清显存与通信账 |
+| 10 | PyTorch 的工程体系 | 工程线：Testing → Build | `test/` `torch/testing/` `tools/` `.github/` | 把 `myops` 项目走完构建、正确性、性能、CI、发布、兼容七关 |
+
 这不是严格的单向依赖：
 
 - 第五篇会复用第二篇关于 stride、dtype 和 device 的知识；
@@ -890,23 +905,23 @@ loss.backward()
 一路追问并回答：
 
 ```text
-Tensor 如何表示输入？
+Tensor 如何表示输入？（第二篇）
     ↓
-Module 如何组织模型？
+Module 如何组织模型？（第四篇）
     ↓
-Autograd 如何构建计算图？
+Autograd 如何构建计算图？（第三篇）
     ↓
-Dispatcher 如何选择算子？
+Dispatcher 如何选择算子？（第五篇）
     ↓
-Kernel 在 CPU 或 GPU 上如何执行？
+自定义算子如何接入 Dispatcher 与 Autograd？（第六篇）
     ↓
-Compiler 如何对计算进行变换？
+Compiler 如何对计算进行变换？（第七篇）
     ↓
-Profiler 如何告诉我们瓶颈在哪里？
+Profiler 如何告诉我们瓶颈在哪里？（第八篇）
     ↓
-Distributed Runtime 如何让多卡协同？
+Distributed Runtime 如何让多卡协同？（第九篇）
     ↓
-Tests、Build 和 CI 如何保证系统可持续演进？
+Tests、Build 和 CI 如何保证系统可持续演进？（第十篇）
 ```
 
 最终的目标不是“会用 PyTorch”，而是具备下面三种能力：

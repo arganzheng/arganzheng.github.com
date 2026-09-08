@@ -29,7 +29,7 @@ highlighter: rouge
 # paginate_path: /page/:num/
 permalink: /:title.html
 paginate: 10
-exclude: ["less","node_modules","Gruntfile.js","package.json","README.md","AGENTS.md"]
+exclude: ["less","node_modules","Gruntfile.js","package.json","README.md","AGENTS.md","tools"]
 anchorjs: true                          # if you want to customize anchor. check out line:181 of `post.html`
 
 

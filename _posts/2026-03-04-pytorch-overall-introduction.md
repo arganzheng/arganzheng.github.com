@@ -645,6 +645,33 @@ Dispatcher 根据运行时信息选择实现。影响选择的因素可能包括
               具体 Kernel
 ```
 
+把这三行再展开一步——以两个 `requires_grad=True` 的 CUDA Tensor 相加为例——分发实际上会经过两轮查表：
+
+```mermaid
+flowchart TB
+    META["Tensor 元数据<br/>device · dtype · layout · requires_grad"]
+    CTX["全局上下文<br/>no_grad · tracing · functorch"]
+    KS["合成 DispatchKeySet<br/>例：#91;Autograd, CUDA#93;"]
+    TOP["取最高优先级 Key<br/>→ Autograd"]
+    TBL["Operator Table 查 add.Tensor 一行<br/>按 Key 挂着各实现"]
+    AG["Autograd Kernel<br/>记录 AddBackward0，保存反向所需信息"]
+    RED["从 KeySet 中去掉 Autograd<br/>再次分发 → CUDA"]
+    CU["CUDA Kernel<br/>native/cuda/ 下的 add 实现"]
+
+    META --> KS
+    CTX --> KS
+    KS --> TOP --> TBL --> AG --> RED --> CU
+
+    classDef input fill:#e0f2fe,stroke:#0369a1;
+    classDef disp fill:#fef3c7,stroke:#b45309;
+    classDef kern fill:#dcfce7,stroke:#15803d;
+    class META,CTX input;
+    class KS,TOP,TBL,RED disp;
+    class AG,CU kern;
+```
+
+Autograd 在这里只是表里优先级更高的一个 Key：它先被命中、做完记录后把自己从 KeySet 中去掉再分发，才轮到设备 Kernel。如果是 CPU Tensor，最后一步命中的就是 CPU Kernel；如果处于 `no_grad()`，Autograd Key 会在合成 KeySet 时就被排除。第五篇会展开这张表的每一格。
+
 这不是 Java 方法重载的简单等价物。Java 重载通常依据编译期静态类型选择方法，而 PyTorch 的分发还会受到设备、Autograd、Tracing 和运行时上下文影响。
 
 ### 5. 第五步：ATen Operator
@@ -821,6 +848,15 @@ c10/                 结果 Tensor 的 TensorImpl 与 StorageImpl 在此构造�
 
 ## 八、PyTorch 工程中最重要的几个边界
 
+前面三张地图描述的是"系统由什么组成、代码怎么流动、东西在哪"。读源码和做取舍时，更常遇到的是四个反复出现的边界。先用一张表汇总，再逐个展开：
+
+| 边界 | 一侧 | 另一侧 | 工程取舍 | 典型例子 | 展开篇 |
+|---|---|---|---|---|---|
+| Python 与 C++ | Python：表达模型结构、组织训练流程、配置与实验逻辑 | C++ / CUDA：运行时、高性能数据结构、设备后端、低层算子 | 不是"Python 慢、C++ 快"，而是按职责分层；性能敏感路径逐步下沉 | `torch._C` 绑定与参数解析；C++ 扩展遇到的 ABI、stride、dtype、生命周期问题 | 第五、六篇 |
+| 通用抽象与后端实现 | 统一的 Tensor API 与算子 Schema | CPU / CUDA / Meta 等后端各自的 Kernel 与能力差异 | 在统一语义之下允许后端保留必要的实现差异 | 同一个 `add` 在 CPU、CUDA、Meta 上分别有实现；某些算子只在部分后端支持、dtype 能力不同 | 第五篇 |
+| 灵活性与可分析性 | Eager Mode：动态 Python、控制流直接参与计算 | Compiler：需要稳定、可推断的程序 | 更多动态性换表达力，更多静态性换优化机会；`torch.compile()` 在两者间搭桥 | graph break、guard、动态 shape、编译缓存 | 第七篇 |
+| 可移植性与性能特化 | 通用实现：跨设备、易维护 | 设备特化：专用 Kernel、特定 shape 的优化 | 判断哪些逻辑留在通用层、哪些路径值得写专用 Kernel、哪些差异交给 Dispatcher 隔离 | TensorIterator 的通用逐元素 Kernel vs 调用 cuBLAS / cuDNN 或手写 CUDA Kernel | 第六、八篇 |
+
 ### 1. Python 与 C++ 的边界
 
 Python 适合：
@@ -869,7 +905,36 @@ Eager Mode 鼓励动态 Python，但编译器更喜欢稳定、可推断的程�
 更多静态性 → 更好的分析和优化机会
 ```
 
-`torch.compile()` 的工程价值就在于尝试在两者之间建立桥梁。但这座桥不是无条件成立的，graph break、动态 shape 和运行时 guard 都是需要理解的边界。
+`torch.compile()` 的工程价值就在于尝试在两者之间建立桥梁。但这座桥不是无条件成立的，graph break、动态 shape 和运行时 guard 都是需要理解的边界。下图是这座桥的骨架：
+
+```mermaid
+flowchart TB
+    EAGER["Eager Python 代码<br/>model(x)"]
+    DYN["TorchDynamo<br/>在字节码层捕获 Tensor 操作"]
+    FX["可捕获部分 → FX Graph<br/>编译后执行，由 guard 守护"]
+    BRK["不可捕获处 → graph break<br/>该段回落到 Eager 逐算子执行"]
+    NEXT["下次调用：先检查 guard"]
+    HIT["guard 通过<br/>直接运行已编译代码"]
+    MISS["guard 失效（shape、类型、分支变了）<br/>重新捕获并编译"]
+
+    EAGER --> DYN
+    DYN --> FX
+    DYN --> BRK
+    FX --> NEXT
+    BRK --> NEXT
+    NEXT --> HIT
+    NEXT --> MISS
+    MISS -.-> DYN
+
+    classDef eager fill:#e0f2fe,stroke:#0369a1;
+    classDef comp fill:#dcfce7,stroke:#15803d;
+    classDef warn fill:#fef3c7,stroke:#b45309;
+    class EAGER,BRK eager;
+    class DYN,FX,HIT comp;
+    class NEXT,MISS warn;
+```
+
+灵活性保留在 graph break 这条分支上：捕获不了的地方退回 Eager，程序仍然正确；可分析性来自 FX Graph 这条分支：能捕获的部分成为图并被优化，代价是每次调用都要付一次 guard 检查、且 guard 失效会触发重编译。第七篇会用一个带 shape 分支的函数把这四条路径各走一遍。
 
 ### 4. 可移植性与性能特化的边界
 

@@ -325,6 +325,27 @@ work = dist.all_reduce(t, async_op=True)     # 立即返回 Work 句柄，通信
 work.wait()                                  # 让当前 Stream 等待通信完成（是 Stream 间的依赖，不阻塞 CPU）
 ```
 
+这三行代码涉及三个执行者——CPU 线程、计算 Stream、NCCL 通信 Stream——它们之间的关系用时序图看最清楚：
+
+```mermaid
+sequenceDiagram
+    participant CPU as CPU 线程
+    participant CS as compute stream
+    participant NS as NCCL stream
+    CPU->>CS: 提交 layer L 的反向 kernel
+    CPU->>NS: all_reduce(t, async_op=True)
+    Note over CPU,NS: 立即返回 Work 句柄，CPU 不阻塞
+    CPU->>CS: 提交 layer L-1 的反向 kernel
+    par 两条 Stream 同时在 GPU 上跑
+        CS->>CS: 计算 layer L-1（占用 SM）
+        NS->>NS: ncclDevKernel_AllReduce（占用网络 / 拷贝引擎）
+    end
+    CPU->>CS: work.wait()
+    Note over CS,NS: wait() 只是让 compute stream 等待 NCCL stream 上的一个事件
+    NS-->>CS: 事件完成，t 可用
+    CPU->>CS: 提交依赖 t 的后续 kernel
+```
+
 `async_op=False`（默认）等价于调用后立刻 `wait()`——注意即使如此 CPU 也**不**阻塞，只是让计算 Stream 排在通信之后。真正的 CPU 阻塞只发生在 `.item()`、`synchronize()` 这类第八篇讨论过的同步点。
 
 这个机制是"通信与计算重叠"的基础：反向传播还在算后面几层的梯度时，前面几层的梯度已经在通信 Stream 上做 all_reduce。两条 Stream 同时占用 GPU 的不同资源（SM 算力 vs 网络/拷贝引擎），互不阻塞。第三章 §2 和第四章 §5 分别是 DDP 和 FSDP 对它的运用。
@@ -371,7 +392,35 @@ for x in loader:                                       # loader 用 DistributedS
 
 DDP 的核心组件是 C++ 实现的 **Reducer**。它在构造时给每个参数注册一个 autograd hook（`Tensor.register_post_accumulate_grad_hook`，挂在第三篇计算图末端那个把梯度累积进 `.grad` 的节点上），当某个参数的梯度在反向中算完，hook 通知 Reducer。
 
-如果每个参数算完就单独 all_reduce，会有几百到几千次小消息，被第二章 §4 的 α 项吃掉。Reducer 把参数分成**桶（Bucket）**，默认每桶 25 MB（`bucket_cap_mb`），一个桶内所有参数的梯度都就位后，对整个桶发起一次异步 all_reduce：
+如果每个参数算完就单独 all_reduce，会有几百到几千次小消息，被第二章 §4 的 α 项吃掉。Reducer 把参数分成**桶（Bucket）**，默认每桶 25 MB（`bucket_cap_mb`），一个桶内所有参数的梯度都就位后，对整个桶发起一次异步 all_reduce。从"参数 → hook → 桶 → all_reduce"的结构看：
+
+```mermaid
+flowchart TB
+    subgraph grads["反向传播：梯度按 layer 4 → 1 的顺序陆续就位"]
+        G4["grad(layer 4)<br/>post_accumulate_grad_hook"]
+        G3["grad(layer 3)<br/>post_accumulate_grad_hook"]
+        G2["grad(layer 2)<br/>post_accumulate_grad_hook"]
+        G1["grad(layer 1)<br/>post_accumulate_grad_hook"]
+    end
+    subgraph buckets["Reducer 的桶：按注册顺序逆序划分，每桶 ≈ 25 MB"]
+        B0["bucket 0<br/>layer 4 + layer 3 的梯度（连续内存）"]
+        B1["bucket 1<br/>layer 2 + layer 1 的梯度（连续内存）"]
+    end
+    G4 -- "hook 通知 Reducer" --> B0
+    G3 -- "hook 通知 Reducer" --> B0
+    G2 -- "hook 通知 Reducer" --> B1
+    G1 -- "hook 通知 Reducer" --> B1
+    B0 -- "桶内参数全部就位" --> AR0["通信 Stream：异步 all_reduce(bucket 0)<br/>与 layer 2、1 的反向计算重叠"]
+    B1 -- "桶内参数全部就位" --> AR1["通信 Stream：异步 all_reduce(bucket 1)<br/>最后一个桶，无法重叠"]
+    AR0 --> W["backward() 返回前等待所有桶完成<br/>归约结果就在桶内存里（gradient_as_bucket_view）"]
+    AR1 --> W
+    classDef comm fill:#fde68a,stroke:#b45309;
+    classDef bucket fill:#dbeafe,stroke:#1d4ed8;
+    class AR0,AR1 comm;
+    class B0,B1 bucket;
+```
+
+在时间轴上展开就是：
 
 ```text
 反向传播（计算 Stream）      layer L → layer L-1 → ... → layer 1
@@ -627,6 +676,30 @@ mesh = init_device_mesh("cuda", (num_nodes, gpus_per_node), mesh_dim_names=("rep
 fully_shard(block, mesh=mesh)    # 2D mesh：在 shard 维分片，在 replicate 维复制
 ```
 
+以 4 节点 × 8 卡为例，这个 2D mesh 的排布和两类通信各走哪条链路：
+
+```text
+mesh_shape = (4, 8), mesh_dim_names = ("replicate", "shard")
+
+                 shard 维 →  (同一行 = 同一节点, NVLink)
+                 gpu0  gpu1  gpu2  gpu3  gpu4  gpu5  gpu6  gpu7
+               ┌─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┐
+  node 0       │  0  │  1  │  2  │  3  │  4  │  5  │  6  │  7  │
+               ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤
+  node 1       │  8  │  9  │ 10  │ 11  │ 12  │ 13  │ 14  │ 15  │
+               ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤
+  node 2       │ 16  │ 17  │ 18  │ 19  │ 20  │ 21  │ 22  │ 23  │
+               ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤
+  node 3       │ 24  │ 25  │ 26  │ 27  │ 28  │ 29  │ 30  │ 31  │
+               └─────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┘
+  replicate 维 ↓  (同一列 = 4 个节点上编号相同的卡, IB)
+
+shard 组     = 一行，如 {0..7}         参数在组内分片
+               all_gather / reduce_scatter 在行内进行，走 NVLink
+replicate 组 = 一列，如 {0,8,16,24}    参数在组间复制
+               对自己持有的 1/8 梯度分片做 all_reduce，走 IB
+```
+
 参数在节点**内**分片（all_gather 和 reduce_scatter 走 NVLink），在节点**间**复制：每个节点 reduce_scatter 之后，各 rank 只对自己持有的 **1/8 梯度分片**做跨节点 all_reduce。跨 IB 的流量因此从 FSDP 的 3P 降到 2P/8，而且可以按层与反向重叠。用主线的话说：同一类状态在不同的 mesh 维上做不同的决定。代价是每个节点持有完整的一份状态，显存不再随节点数下降。
 
 ### 8. CPU offload 与显存的再一次交换
@@ -779,6 +852,32 @@ TP 下层的输入/输出激活是复制的。LayerNorm、Dropout、残差相加
 现在  g：reduce_scatter（部分和 → 序列分片，每 rank 只拿 S/N 个 token 的完整和）
       f：all_gather（序列分片 → 完整，进入列并行前凑齐所有 token）
 反向  g 的反向是 all_gather，f 的反向是 reduce_scatter
+```
+
+把一个 Transformer 子层（以 MLP 为例）从进到出画出来，哪段激活是序列分片、哪段是 hidden 分片、哪里发生通信：
+
+```mermaid
+flowchart TB
+    S0["LayerNorm / Dropout / 残差<br/>激活按序列维分片：每 rank 持有 S/N 个 token"]
+    F["f：all_gather（序列维）<br/>凑齐全部 S 个 token → 复制的输入"]
+    subgraph tp["TP 区域（激活按 hidden 维 / head 维分片）"]
+        COL["Column parallel（fc1 / wq wk wv）<br/>输出 #91;S, 4H/N#93;"]
+        LOCAL["gelu / attention<br/>本地计算，激活仍分片"]
+        ROW["Row parallel（fc2 / wo）<br/>输出 #91;S, H#93; 部分和"]
+        COL --> LOCAL --> ROW
+    end
+    G["g：reduce_scatter（序列维）<br/>归约 + 分片：每 rank 只拿 S/N 个 token 的完整和"]
+    S1["下一段 LayerNorm / 残差<br/>激活按序列维分片"]
+    REMARK["原来 g 处的一次 all_reduce = reduce_scatter + all_gather<br/>拆成两半后通信量不变，但 TP 区域外的激活按 TP 度切成 1/N<br/>反向：g 的反向是 all_gather，f 的反向是 reduce_scatter"]
+    S0 --> F --> COL
+    ROW --> G --> S1
+    S1 ~~~ REMARK
+    classDef comm fill:#fde68a,stroke:#b45309;
+    classDef seqshard fill:#dbeafe,stroke:#1d4ed8;
+    classDef remark fill:#f3f4f6,stroke:#6b7280;
+    class F,G comm;
+    class S0,S1 seqshard;
+    class REMARK remark;
 ```
 
 reduce_scatter + all_gather 的总通信量与一次 all_reduce 相同，所以 SP **不增加通信**，却把 TP 区域外所有激活的显存降到 1/N。它总是与 TP 一起开。
@@ -944,6 +1043,27 @@ step 1   rank i 用 K_{i-1}, V_{i-1}  累加 Q_i 对块 i-1 的 attention     �
 step N-1 完成
 ```
 
+以 N=4 为例，把每个 rank 在每一步手里持有的 K/V 块列成表，ring 的传递规律一目了然——Q 不动，K/V 每步整体右移一格：
+
+```text
+rank i 持有 Q_i 不动；K/V 块沿 ring 传给右邻（rank 3 → rank 0 回绕）
+每一步：用手里的 K/V 块算局部 attention 并 online-softmax 累加，
+        同时把这块 K/V send 给右邻、从左邻 recv 下一块
+
+              step 0      step 1      step 2      step 3
+            ┌───────────┬───────────┬───────────┬───────────┐
+  rank 0    │  KV₀      │  KV₃      │  KV₂      │  KV₁      │
+  rank 1    │  KV₁      │  KV₀      │  KV₃      │  KV₂      │
+  rank 2    │  KV₂      │  KV₁      │  KV₀      │  KV₃      │
+  rank 3    │  KV₃      │  KV₂      │  KV₁      │  KV₀      │
+            └───────────┴───────────┴───────────┴───────────┘
+                  │  send KV_j → rank i+1  /  recv KV_{j-1} ← rank i-1
+                  └─ 与本步的 attention 计算重叠
+
+第 j 步 rank i：(out, m, l) ← merge(out, attn(Q_i, KV_j))   # online softmax
+4 步后每个 Q_i 都见过 KV₀ ~ KV₃，得到与不切分时完全相同的结果
+```
+
 "分块算、在线累加"依赖 **online softmax**：每块得到局部的 max 和 exp 和，合并时按 max 差重新缩放——与 FlashAttention 在 SRAM 分块时的技巧完全相同，只是分块跨越的是 GPU 而不是显存层级。K、V 的传输（send/recv）与当前块的 attention 计算重叠，只要每块的计算时间大于传输时间，通信就被隐藏。
 
 通信量：每层前向每 rank 收发 (N−1)/N × 2 × B·(S/N)·H × 2 字节 × N 块 ≈ 4·B·S·H·(N−1)/N 字节（K 和 V 各一份），反向再传一次 K、V 加上它们的梯度。与 TP 同一量级，但**可以重叠**，且 GQA 下 K、V 的 head 数少，通信量随之减少。
@@ -993,6 +1113,33 @@ expert 计算   每个 rank 对收到的 token 跑本地 expert（grouped GEMM�
 combine       all_to_all：结果按原顺序送回 token 所属的 rank，按权重加和
 ```
 
+从 rank 0 的一批 token 出发，看它们在 EP 组里走了一圈的路径（rank 1 的 token 走的是对称的路径）：
+
+```mermaid
+flowchart TB
+    T0["Rank 0 的 token<br/>hidden #91;B·S, H#93;"]
+    R0["router（本地）<br/>每个 token 选 top-k 个 expert 及权重"]
+    A2A1["第一次 all_to_all：dispatch<br/>把 token 的 hidden 发到所选 expert 所在的 rank<br/>每 token 发出 k 份 → 通信量 k·B·S·H"]
+    E0["Rank 0 本地 expert 0 ~ E/N-1<br/>grouped GEMM，每个 expert 一个小矩阵乘"]
+    E1["Rank 1 本地 expert E/N ~ 2E/N-1<br/>grouped GEMM"]
+    A2A2["第二次 all_to_all：combine<br/>expert 输出按 token 归属送回原 rank<br/>每 token 收回 k 份 → 通信量 k·B·S·H"]
+    C0["Rank 0 combine<br/>按 router 权重加权求和，恢复 token 原顺序"]
+    BOTTLE["两次 all_to_all 都在关键路径上：<br/>expert 计算要等 dispatch 到齐，combine 要等所有 expert 算完<br/>这就是 EP 的通信瓶颈——偏好 NVLink，跨节点靠分块流水重叠"]
+    T0 --> R0 --> A2A1
+    A2A1 --> E0
+    A2A1 --> E1
+    E0 --> A2A2
+    E1 --> A2A2
+    A2A2 --> C0
+    C0 ~~~ BOTTLE
+    classDef comm fill:#fde68a,stroke:#b45309;
+    classDef expert fill:#dcfce7,stroke:#15803d;
+    classDef remark fill:#f3f4f6,stroke:#6b7280;
+    class A2A1,A2A2 comm;
+    class E0,E1 expert;
+    class BOTTLE remark;
+```
+
 这是第二章 §3 中 all_to_all 的主要用途。通信量：每个 token 发 k 份 hidden 出去再收 k 份回来，每层 2 × k × B·S·H × 2 字节，与 TP 同一量级，且与 TP 一样在关键路径上——所以 EP 也偏好 NVLink，跨节点时要靠分块流水（先到的 token 先算）重叠。
 
 训练特有的两个问题：
@@ -1032,6 +1179,52 @@ router 的具体算法、capacity factor 的取舍、grouped GEMM 与 token 重�
 4. 模型状态放不下                              → FSDP（节点内） / HSDP（跨节点）
 5. 跨节点带宽不够、层数多                       → PP 跨节点，micro-batch 数 ≥ 4K
 6. 剩下的所有卡                                → 数据并行维度，最外层
+```
+
+画成决策树，每个叶子标出它应该落在节点内还是跨节点——这也决定了它在 DeviceMesh 中的位置（§3）：
+
+前三步决定**切计算**的维度（都从节点内开始）：
+
+```mermaid
+flowchart TB
+    Q1{"单层参数 + 激活放不进一张卡？<br/>或 FSDP 的 3P 通信藏不住？"}
+    TP["TP + SP<br/>节点内，度 ≤ 8"]
+    Q2{"序列太长，单卡放不下<br/>一个序列的激活？"}
+    CP["CP<br/>与 FSDP 共用维度，可跨节点"]
+    Q3{"MoE 模型？"}
+    EP["EP<br/>优先节点内，EP × TP ≤ 节点内卡数"]
+    NEXT["继续：状态分片与跨节点（下图）"]
+    Q1 -- "是" --> TP
+    Q1 -- "否 / 已选定" --> Q2
+    Q2 -- "是" --> CP
+    Q2 -- "否 / 已选定" --> Q3
+    Q3 -- "是" --> EP
+    Q3 -- "否 / 已选定" --> NEXT
+    classDef intra fill:#dbeafe,stroke:#1d4ed8;
+    classDef inter fill:#fde68a,stroke:#b45309;
+    classDef remark fill:#f3f4f6,stroke:#6b7280;
+    class TP,EP intra;
+    class CP inter;
+    class NEXT remark;
+```
+
+后三步决定**切状态**的维度和跨节点的方式，剩下的卡全部给数据并行：
+
+```mermaid
+flowchart TB
+    Q4{"整个模型状态（16P）放不下？"}
+    Q5{"跨节点带宽能藏住<br/>FSDP 的 3P 通信？"}
+    FSDP["FSDP<br/>节点内为主，带宽够时可跨节点"]
+    HSDP["HSDP：节点内分片 + 节点间复制<br/>或 PP：按层切、跨节点 send/recv，M ≥ 4K"]
+    DP["剩余的卡 → 数据并行维<br/>最外层，跨节点，扩吞吐"]
+    Q4 -- "是" --> Q5
+    Q4 -- "否" --> DP
+    Q5 -- "能" --> FSDP
+    Q5 -- "不能" --> HSDP
+    FSDP --> DP
+    HSDP --> DP
+    classDef inter fill:#fde68a,stroke:#b45309;
+    class FSDP,HSDP,DP inter;
 ```
 
 推理侧的决策顺序与此对照：第 4 步不存在（参数复制是免费的），第 6 步变成"DP 多实例"。
@@ -1220,6 +1413,36 @@ NCCL 自带 `nccl-tests`（`all_reduce_perf` 等）可以在不跑模型的情�
                   常见来源：条件分支、数据量不等（§2）、只在 rank 0 做的 logging 里含集合通信、异常在某个 rank 被吞掉
 计算图不一致      DDP 中某个 rank 有参数未使用（第三章 §5）
 硬件 / 网络       某张卡挂了、IB 链路断了、NCCL 内部错误
+```
+
+排查顺序可以画成一棵决策树，从"是不是所有 rank 都卡住了"开始问：
+
+```mermaid
+flowchart TB
+    S["训练静止不动（hang）"]
+    Q1{"所有 rank 都卡住？"}
+    ONE["部分 rank 没卡：看它们在干什么<br/>提前 return / 异常被吞 / 已进入下一个 epoch 或退出"]
+    Q2{"py-spy dump 各 rank 的栈：<br/>都停在同一处集合通信？"}
+    Q3{"集合通信的调用次数 / 顺序 / shape<br/>各 rank 是否一致？"}
+    FIX1["找不一致的来源：<br/>if 分支、只在 rank 0 的 logging 里做通信、<br/>DDP 未使用参数（find_unused_parameters）"]
+    Q4{"各 rank 数据量相等？"}
+    FIX2["某 rank 多跑一步 backward：<br/>DistributedSampler 补齐 / drop_last / Join"]
+    NET["网络或 NCCL 环境：<br/>NCCL_DEBUG=INFO 看 ring 是否建立、走的是否 IB<br/>nvidia-smi 看卡是否掉了，nccl-tests 测裸带宽"]
+    FR["工具：TORCH_DISTRIBUTED_DEBUG=DETAIL 逐次校验<br/>Flight Recorder（TORCH_NCCL_TRACE_BUFFER_SIZE +<br/>TORCH_NCCL_DUMP_ON_TIMEOUT）+ torchfrtrace 直接指出谁缺席"]
+    S --> Q1
+    Q1 -- "否" --> ONE
+    Q1 -- "是" --> Q2
+    Q2 -- "否：停在不同的调用" --> Q3
+    Q2 -- "是：同一处，都在等" --> NET
+    Q3 -- "不一致" --> FIX1
+    Q3 -- "一致" --> Q4
+    Q4 -- "不等" --> FIX2
+    Q4 -- "相等" --> NET
+    Q3 -.-> FR
+    classDef fix fill:#dcfce7,stroke:#15803d;
+    classDef tool fill:#f3f4f6,stroke:#6b7280;
+    class ONE,FIX1,FIX2,NET fix;
+    class FR tool;
 ```
 
 排查工具：

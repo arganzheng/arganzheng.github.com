@@ -165,6 +165,7 @@ vᵀJ
 
 其中 `v` 是从后续计算传回来的梯度。PyTorch 的 `backward()` 正是沿着计算图计算这种反向量积。
 
+
 ### 4. 为什么 backward 通常从标量 Loss 开始？
 
 ```python
@@ -217,7 +218,7 @@ z = y + 3
 loss = z.sum()
 ```
 
-可以表示为：
+其 forward 关系可以简单表示为：
 
 ```text
 x ─────┐
@@ -233,6 +234,44 @@ x ─────┘        + → z → sum → loss
 - 算子；
 - 输出 Tensor；
 - 反向传播需要的局部信息。
+
+加上反向传播需要的信息，可以表示为下面这张图：
+
+```mermaid
+flowchart TB
+    tX["x（leaf, requires_grad=True）"]
+    c3["3（Python 常数，不入图）"]
+    mul(["MulBackward0"])
+    add(["AddBackward0"])
+    sm(["SumBackward0"])
+    acc(["AccumulateGrad<br/>把梯度写入 x.grad"])
+    tY["y = x * x<br/>y.grad_fn → MulBackward0"]
+    tZ["z = y + 3<br/>z.grad_fn → AddBackward0"]
+    tL["loss = z.sum()<br/>loss.grad_fn → SumBackward0"]
+
+    tX --> mul
+    tX --> mul
+    mul --> tY
+    tY --> add
+    c3 --> add
+    add --> tZ
+    tZ --> sm
+    sm --> tL
+
+    sm -.->|"next_functions"| add
+    add -.->|"next_functions<br/>(常数 3 对应 None)"| mul
+    mul -.->|"next_functions"| acc
+    acc -.-> tX
+
+    classDef tensor fill:#e3f2fd,stroke:#1565c0;
+    classDef gradfn fill:#fff3e0,stroke:#ef6c00;
+    classDef const fill:#f5f5f5,stroke:#9e9e9e,stroke-dasharray:4 2;
+    class tX,tY,tZ,tL tensor;
+    class mul,add,sm,acc gradfn;
+    class c3 const;
+```
+
+矩形是 Tensor，圆角节点是 Autograd 记录下来的反向节点（也就是每个 non-leaf Tensor 的 `grad_fn`）；实线是 forward 的数据流，虚线是反向节点之间的 `next_functions` 指向——backward 正是沿着虚线从 `loss` 一路走回 `x`。
 
 ### 2. Eager Mode 下的图是动态创建的
 
@@ -428,6 +467,7 @@ print(y.grad_fn.next_functions)
 ```
 
 这些对象属于 Autograd 的运行时实现细节，不应该依赖具体类名编写业务逻辑。它们的价值主要在于调试和理解计算图。
+
 
 ### 5. requires_grad 与 Parameter
 
@@ -636,6 +676,42 @@ for inputs, targets in loader:
 ```
 
 如果这些 `loss` 仍然连接着 Autograd 图，那么列表可能间接持有每个 step 的计算图和中间 Tensor，导致显存持续增长。
+
+下图对比了两种写法的引用链。左边 `losses.append(loss)` 只多持有了一个标量 Tensor，但它的 `grad_fn` 顺着 `next_functions` 连到整张图，图上每个节点的 saved tensors（激活值）都因此无法释放；右边 `loss.item()` 把引用链在第一步就切断，backward 结束后整张图正常回收：
+
+```mermaid
+flowchart TB
+    subgraph keep["losses.append(loss)：持有 loss 就持有整张图"]
+        direction TB
+        k_list["Python list losses"]
+        k_loss["loss（Tensor）"]
+        k_fn["loss.grad_fn<br/>MseLossBackward0"]
+        k_sv1["saved tensors<br/>outputs, targets"]
+        k_fn2["next_functions →<br/>AddmmBackward0 / ReluBackward0 …"]
+        k_sv2["saved tensors<br/>每一层的激活值"]
+        k_list -->|"引用"| k_loss
+        k_loss -->|"引用"| k_fn
+        k_fn -->|"持有"| k_sv1
+        k_fn -->|"next_functions"| k_fn2
+        k_fn2 -->|"持有"| k_sv2
+    end
+    subgraph free["losses.append(loss.item())：引用链被切断"]
+        direction TB
+        f_list["Python list losses"]
+        f_val["Python float"]
+        f_loss["loss（Tensor）<br/>没有外部引用"]
+        f_graph["grad_fn 与 saved tensors<br/>backward 后即释放"]
+        f_list -->|"引用"| f_val
+        f_val -.-|"item() 只取数值，不引用 Tensor"| f_loss
+        f_loss -.-> f_graph
+    end
+    classDef retained fill:#ffebee,stroke:#c62828;
+    classDef released fill:#e8f5e9,stroke:#2e7d32;
+    classDef plain fill:#f5f5f5,stroke:#9e9e9e;
+    class k_loss,k_fn,k_sv1,k_fn2,k_sv2 retained;
+    class f_loss,f_graph released;
+    class k_list,f_list,f_val plain;
+```
 
 如果只需要记录数值，应转换为不再连接图的标量：
 
@@ -849,6 +925,38 @@ forward：y = x²
 局部导数：dy/dx = 2x
 上游梯度：grad_output = dLoss/dy
 输入梯度：dLoss/dx = grad_output × 2x
+```
+
+`forward` 和 `backward` 并不是被同一段代码先后调用的：`forward` 由 `Square.apply()` 立即执行，`backward` 则要等到 `y.backward()` 时由 Autograd 引擎回调，两者之间靠 `ctx` 传递状态：
+
+```mermaid
+sequenceDiagram
+    participant Caller as Python 调用方
+    participant Fwd as Square.forward
+    participant Ctx as ctx
+    participant Engine as autograd engine
+    participant Bwd as Square.backward
+
+    Caller->>Fwd: Square.apply(x)
+    activate Fwd
+    Fwd->>Ctx: ctx.save_for_backward(x)
+    Note over Ctx: x 被引用并挂在反向节点上
+    Fwd-->>Caller: y = x * x（y.grad_fn = SquareBackward）
+    deactivate Fwd
+
+    Note over Caller,Engine: forward 结束，图已建好，等待 backward
+
+    Caller->>Engine: y.backward()
+    activate Engine
+    Engine->>Bwd: backward(ctx, grad_output = dLoss/dy)
+    activate Bwd
+    Bwd->>Ctx: ctx.saved_tensors
+    Ctx-->>Bwd: (x,)
+    Bwd-->>Engine: grad_input = grad_output * 2 * x
+    deactivate Bwd
+    Engine->>Caller: x.grad += grad_input（AccumulateGrad）
+    Note over Ctx,Engine: 节点释放，saved tensors 随之释放
+    deactivate Engine
 ```
 
 ### 3. `ctx.save_for_backward()`
@@ -1083,6 +1191,28 @@ d = a × b + a
 ∂d/∂b = a = 2
 ```
 
+对应的 Value 图如下：实线是 `parents` 关系，虚线是逆拓扑序执行 `backward_fn` 时的梯度流。`a` 同时是 `c` 和 `d` 的父节点，两条路径的梯度在 `a.grad` 上累加（`+=`），这正是 `∂d/∂a = b + 1` 的来源：
+
+```mermaid
+flowchart TB
+    va["a = Value(2.0)<br/>grad = 3 + 1 = 4"]
+    vb["b = Value(3.0)<br/>grad = 2"]
+    vc["c = multiply(a, b) = 6.0<br/>op = *, parents = (a, b)<br/>grad = 1"]
+    vd["d = add(c, a) = 8.0<br/>op = +, parents = (c, a)<br/>grad = 1（root）"]
+    va --> vc
+    vb --> vc
+    vc --> vd
+    va --> vd
+    vd -.->|"c.grad += 1"| vc
+    vd -.->|"a.grad += 1"| va
+    vc -.->|"a.grad += b.data × 1 = 3"| va
+    vc -.->|"b.grad += a.data × 1 = 2"| vb
+    classDef leaf fill:#e8f5e9,stroke:#2e7d32;
+    classDef inner fill:#e3f2fd,stroke:#1565c0;
+    class va,vb leaf;
+    class vc,vd inner;
+```
+
 Mini-Autograd 只有很少的代码，却已经包含了 Autograd 的核心结构：
 
 ```text
@@ -1117,6 +1247,47 @@ Mini-Autograd 没有实现：
 
 
 ## 十、Autograd 常见问题与排查方法
+
+Autograd 的问题大多集中在几类：链路没接上、链路被切断、保存值被改、状态没清、图已释放。下面这棵决策树给出一个从上到下的排查顺序，后面几个小节分别展开每个分支：
+
+```mermaid
+flowchart TB
+    start["backward 报错 / 梯度为 None / 梯度数值不对"]
+    q1{"目标 Tensor 或参数<br/>requires_grad=True？"}
+    a1["设置 requires_grad=True<br/>检查参数是否被误冻结"]
+    q2{"loss.grad_fn 存在？<br/>沿路径打印 requires_grad / grad_fn"}
+    a2["链路被切断：detach() / no_grad()<br/>inference_mode() / .item() / 不可导操作"]
+    q3{"报 version counter<br/>modified by an inplace operation？"}
+    a3["in-place 修改了被保存的值<br/>移除 add_() 等或改用 out-of-place"]
+    q4{"梯度是预期的整数倍<br/>或随 step 单调变大？"}
+    a4["忘了 zero_grad()<br/>梯度在 .grad 上累积"]
+    q5{"第二次 backward 报<br/>buffers have already been freed？"}
+    a5["图已释放：重新 forward<br/>或有明确理由时 retain_graph=True"]
+    q6{"是 non-leaf 的 .grad 为 None？"}
+    a6["正常现象<br/>调试时用 retain_grad()"]
+    a7["NaN / Inf：检查输入、dtype、lr<br/>set_detect_anomaly(True) 定位"]
+
+    start --> q1
+    q1 -->|"否"| a1
+    q1 -->|"是"| q2
+    q2 -->|"否"| a2
+    q2 -->|"是"| q3
+    q3 -->|"是"| a3
+    q3 -->|"否"| q4
+    q4 -->|"是"| a4
+    q4 -->|"否"| q5
+    q5 -->|"是"| a5
+    q5 -->|"否"| q6
+    q6 -->|"是"| a6
+    q6 -->|"否"| a7
+
+    classDef question fill:#fff3e0,stroke:#ef6c00;
+    classDef answer fill:#e8f5e9,stroke:#2e7d32;
+    classDef entry fill:#ffebee,stroke:#c62828;
+    class q1,q2,q3,q4,q5,q6 question;
+    class a1,a2,a3,a4,a5,a6,a7 answer;
+    class start entry;
+```
 
 ### 1. `element 0 of tensors does not require grad`
 

@@ -106,6 +106,19 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   section by section and ask "would a reader understand this faster from a
   picture?"; if yes, add one. Each diagram must carry an explanation the text
   cannot easily give — no decorative figures.
+  - **The test is gain, not coverage.** Before drawing, ask what the diagram
+    shows that the surrounding text/list/table does not: a mapping (index ↔
+    storage), a concurrency relation (two streams, who waits for whom), a
+    branching decision, a state that evolves. If the diagram would just
+    restate a list with arrows between the items, don't draw it. Concrete
+    things that do *not* deserve a diagram (learned the hard way — the
+    series-overview post's Mermaid figures were all removed as 画蛇添足):
+    reading-order suggestions, chapter outlines, "capability ladders" of
+    questions, series roadmaps, anything whose content is a linear list or is
+    already a table. Overview/navigation posts usually need a table at most.
+  - When a batch of diagrams is added (e.g. by parallel agents working from a
+    checklist), re-read each one afterwards with the same question; a
+    checklist item is a hypothesis, not a mandate.
   - Structure / flow / timelines / decisions → ```` ```mermaid ```` (rendered by
     `_includes/rich-content.html`, Mermaid 10.9.1: `~~~` invisible links to force
     row/column order, `classDef` colours, `<br/>` in quoted labels; horizontal
@@ -118,4 +131,29 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
     grids) → generate an SVG/PNG into `img/in-post/<post-slug>-<name>.{svg,png}`
     and embed with `![alt](/img/in-post/...)`.
   - Verify rendering in a real browser (`jekyll serve` + check `.mermaid-error`
-    and eyeball each SVG's size), not just `jekyll build`.
+    and eyeball each SVG's size), not just `jekyll build`. Use the checker
+    script for this:
+
+    ```bash
+    jekyll serve --future &                              # http://localhost:4000
+    ~/.claude/skills/browser/scripts/start.cjs           # Chrome with CDP on :9222
+    node tools/check-render.cjs <post-slug> [<post-slug> ...]
+    ```
+
+    `check-render.cjs` opens each `/<slug>.html` in its own Chrome tab, waits
+    for Mermaid to finish, prints `[PASS]`/`[FAIL]` with `mermaid/ok/errs`
+    counts, the first lines of any failing diagram source (`errTexts`), each
+    SVG's rendered size (`sizes`, flag anything > 1600 px tall or squeezed
+    < 450 px wide), `/img/in-post/` image sizes, broken images and `<pre>`
+    blocks that overflow horizontally (`widePre`), then closes the tab. Safe
+    to run from several agents in parallel. Post slug = file name without the
+    date prefix and `.md`. It needs only the `ws` module, which it loads from
+    `~/.claude/skills/browser/node_modules` (the browser skill's install); if
+    that path moves, edit the `require` at the top of the script. Hand-drawn SVGs still need an eyeball pass for
+    label collisions: `curl -s -X PUT "localhost:9222/json/new?http://localhost:4000/img/in-post/<name>.svg"`
+    then `~/.claude/skills/browser/scripts/screenshot.cjs` and view the PNG.
+  - Mermaid 10.9.1 pitfalls seen so far: reserved words as node IDs (`end`,
+    `call`, `click`, `style`, `class`, `default`, `o`, `x`) break parsing;
+    always quote labels and write literal `[`/`]`/`{`/`}` as `#91;`/`#93;`/
+    `#123;`/`#125;`; one message per line in `sequenceDiagram`, no `;` inside.
+    Brief used for the diagram pass: `tools/diagram-brief.md`.
