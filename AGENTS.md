@@ -33,6 +33,17 @@ source for reference, then append the corresponding compiled CSS to the
 END of both `css/argan-blog.css` and `css/argan-blog.min.css` by hand
 (compile a fragment with `node_modules/.bin/lessc` if helpful).
 
+## Deploy
+
+`.github/workflows/deploy.yml` builds with the Gemfile's Jekyll (4.4) and
+publishes via `actions/deploy-pages` (Pages `build_type: workflow`; the legacy
+GitHub-side Jekyll 3.10 build is off). Triggers: push to `master`, daily at
+00:05 Beijing (so future-dated posts go live on their date — the build has no
+`--future`), or manually. `timezone: Asia/Shanghai` in `_config.yml` decides
+what "future" means. `Gemfile.lock` carries the `x86_64-linux` platform for the
+runners (`bundle lock --add-platform x86_64-linux` after changing gems).
+Pages has `https_enforced` on.
+
 ## CI
 
 - `.github/workflows/check.yml` (push / PR touching posts, layouts, includes,

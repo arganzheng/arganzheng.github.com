@@ -1,0 +1,52 @@
+# Build with the Jekyll pinned in Gemfile (4.4) and publish to GitHub Pages.
+# Replaces the legacy "GitHub builds it with Jekyll 3.10" mode, so local, CI
+# and production run the same Jekyll. Future-dated posts are still held back
+# (no --future), and the daily schedule publishes them on their date
+# (timezone: Asia/Shanghai in _config.yml).
+name: deploy
+
+on:
+  push:
+    branches: [master]
+  schedule:
+    - cron: '5 16 * * *'   # 00:05 Beijing — picks up posts whose date arrived
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+      - uses: actions/configure-pages@v5
+        id: pages
+      - name: Build
+        run: bundle exec jekyll build --strict_front_matter
+        env:
+          JEKYLL_ENV: production
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deployment

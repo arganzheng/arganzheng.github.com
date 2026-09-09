@@ -7,6 +7,7 @@ description: "阿甘，Server-Side Engineer & Architect. | 这里是 @arganzheng
 keyword: "阿甘, arganzheng, 博客，个人网站, 互联网, 服务端, 架构, 大数据, 高并发, 人工智能, AI, Java, C++, Python, Shell, Linux"
 url: "https://arganzheng.life"      # your host, for absolute URL
 baseurl: ""                        # for example, '/blog' if your blog hosted on 'host/blog'
+timezone: Asia/Shanghai            # post dates and "is this post in the future" are decided in this zone
 
 
 
