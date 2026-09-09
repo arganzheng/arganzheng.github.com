@@ -1,0 +1,82 @@
+# Build the site and, in a headless Chrome, render the posts touched by the
+# push/PR (tools/check-render.cjs: Mermaid errors, broken images, overflowing
+# <pre>). Also checks every internal link/image of the built site (lychee,
+# offline). External links are checked by links.yml on a schedule instead —
+# they are slow and flaky and should not block a post.
+name: check
+
+on:
+  push:
+    branches: [master, main]
+    paths: ['_posts/**', '_layouts/**', '_includes/**', '_data/**', 'img/**', 'js/**', 'css/**', '_config.yml', 'tools/check-render.cjs', '.github/workflows/check.yml']
+  pull_request:
+    paths: ['_posts/**', '_layouts/**', '_includes/**', '_data/**', 'img/**', 'js/**', 'css/**', '_config.yml', 'tools/check-render.cjs', '.github/workflows/check.yml']
+  workflow_dispatch:
+    inputs:
+      slugs:
+        description: 'Post slugs to render (space separated); empty = latest 15'
+        required: false
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+
+      - name: Build
+        run: bundle exec jekyll build --future --strict_front_matter
+        env:
+          JEKYLL_ENV: production
+
+      - name: Internal links & images (lychee, offline)
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: --offline --root-dir "${{ github.workspace }}/_site" --include-fragments --no-progress --exclude-path _site/slides "_site/**/*.html"
+          fail: true
+
+      - name: Pick posts to render
+        id: slugs
+        run: |
+          set -euo pipefail
+          if [ -n "${{ github.event.inputs.slugs || '' }}" ]; then
+            SLUGS="${{ github.event.inputs.slugs }}"
+          else
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              RANGE="origin/${{ github.base_ref }}...HEAD"
+            else
+              RANGE="${{ github.event.before }}..${{ github.sha }}"
+            fi
+            CHANGED=$(git diff --name-only --diff-filter=AMR $RANGE -- '_posts/*.md' 2>/dev/null | sed -E 's#_posts/[0-9]{4}-[0-9]{2}-[0-9]{2}-##; s#\.md$##' | tr '\n' ' ' || true)
+            # nothing post-specific changed (layout/js/css) -> smoke-test the 15 newest posts
+            LATEST=$(ls _posts/*.md | sort | tail -15 | sed -E 's#_posts/[0-9]{4}-[0-9]{2}-[0-9]{2}-##; s#\.md$##' | tr '\n' ' ')
+            SLUGS="${CHANGED:-$LATEST}"
+          fi
+          echo "slugs=$SLUGS" >> "$GITHUB_OUTPUT"
+          echo "will render: $SLUGS"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Serve + headless Chrome
+        run: |
+          npm i --no-save --no-audit --no-fund ws@8
+          (cd _site && python3 -m http.server 4000 >/tmp/http.log 2>&1 &)
+          google-chrome --headless=new --remote-debugging-port=9222 --no-sandbox --disable-gpu --window-size=1280,900 about:blank >/tmp/chrome.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf localhost:9222/json/version >/dev/null && curl -sf localhost:4000/ >/dev/null && break; sleep 1; done
+          curl -s localhost:9222/json/version | head -3
+
+      - name: Render check
+        run: node tools/check-render.cjs ${{ steps.slugs.outputs.slugs }}

@@ -33,6 +33,22 @@ source for reference, then append the corresponding compiled CSS to the
 END of both `css/argan-blog.css` and `css/argan-blog.min.css` by hand
 (compile a fragment with `node_modules/.bin/lessc` if helpful).
 
+## CI
+
+- `.github/workflows/check.yml` (push / PR touching posts, layouts, includes,
+  data, img, js, css): `jekyll build --strict_front_matter`, then **lychee
+  offline** over `_site/**/*.html` (every internal link, image and `#fragment`
+  must resolve — this is what caught the phantom `/pwa/manifest.json`), then
+  `tools/check-render.cjs` in headless Chrome for the posts changed in the
+  push (or the 15 newest when only infrastructure changed; `workflow_dispatch`
+  takes explicit slugs). `check-render.cjs` reads `SITE` / `CDP` from the
+  environment and falls back to the browser skill's `ws` when there is no
+  local one. Run the link check locally with `brew install lychee` and
+  `lychee --offline --root-dir $PWD/_site --include-fragments '_site/**/*.html'`.
+- `.github/workflows/links.yml` (Mondays, or manual): external links, never
+  blocking; opens/updates an issue labelled `dead-links`. Set the repo
+  variable `DEAD_LINKS_ISSUE` to an issue number to keep updating one issue.
+
 ## Layout
 
 - `_posts/` — blog posts, `layout: post`, permalink `/:title.html`

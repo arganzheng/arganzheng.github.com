@@ -1,0 +1,54 @@
+# Weekly external link check over the built site. Old posts accumulate dead
+# links; this opens (or updates) one issue labelled `dead-links` with the report
+# instead of failing anybody's push. Internal links are checked on every push by
+# check.yml.
+name: external links
+
+on:
+  schedule:
+    - cron: '0 2 * * 1'   # Mondays 02:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  links:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+      - run: bundle exec jekyll build --future
+        env:
+          JEKYLL_ENV: production
+
+      - name: lychee
+        id: lychee
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --no-progress --root-dir "${{ github.workspace }}/_site"
+            --exclude-path _site/slides --exclude-path _site/feed.xml
+            --scheme http --scheme https
+            --exclude '^https?://(localhost|127\.0\.0\.1|arganzheng\.life|arganzheng\.github\.io)'
+            --exclude '^https?://(twitter|x)\.com' --exclude '^https?://(www\.)?linkedin\.com'
+            --exclude '^https?://(www\.)?zhihu\.com' --exclude 'giscus\.app/api'
+            --max-concurrency 8 --timeout 20 --max-retries 2 --accept '200..=299,403,429'
+            --cache --max-cache-age 1d
+            "_site/**/*.html"
+          fail: false
+          output: lychee/out.md
+
+      - name: Open / update the dead-links issue
+        if: steps.lychee.outputs.exit_code != 0
+        uses: peter-evans/create-issue-from-file@v5
+        with:
+          title: '外链检查：有失效链接'
+          content-filepath: lychee/out.md
+          labels: dead-links
+          issue-number: ${{ vars.DEAD_LINKS_ISSUE || '' }}
