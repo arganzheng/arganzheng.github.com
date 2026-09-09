@@ -205,8 +205,6 @@ tags: [Blog, Demo, Markdown]
 
 ---
 
-> 以上都是**作者**写给读者的解释。反过来，读者也可以在正文任意一句话上划线、留下评论、甚至一键给作者提 Issue——那是另一套机制，见 [《博客交互演示：读者划线评论（Highlight Annotations）》](/highlight-annotations-demo.html)。
-
 [^nccl]: **NCCL (NVIDIA Collective Communications Library)**：英伟达专为 GPU 集群优化的集合通信库。实现了跨 PCIe、NVLink 和 InfiniBand 网络的广播、归约与 AllGather 操作。详见 [NCCL 官方仓库](https://github.com/NVIDIA/nccl)。
 
 [^ring-allreduce]: **Ring AllReduce 算法**：一种通信带宽利用率极高的分布式归约算法。每个进程仅与左右邻居通信，将数据切分成 $$S/N$$ 大小的块分步环状传递，通信量与节点数 $$N$$ 无关。
