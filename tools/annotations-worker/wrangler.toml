@@ -7,5 +7,8 @@ REPO = "arganzheng/arganzheng.github.com"
 CATEGORY = "Comments"
 ALLOWED_ORIGINS = "https://arganzheng.life,https://arganzheng.github.io,http://localhost:4000"
 ISSUE_LABEL = "划线评论"
-# POST /issues additionally needs a secret (not a var):
-#   wrangler secret put GITHUB_TOKEN   # fine-grained PAT, this repo only, Issues: read & write
+# POST /issues files issues as our own GitHub App (Issues: read & write, installed
+# on REPO). Fill in the App ID here; the private key is a secret, not a var:
+#   wrangler secret put GITHUB_APP_PRIVATE_KEY < ~/Downloads/<app>.private-key.pem
+# GITHUB_INSTALLATION_ID is optional (looked up via /repos/{REPO}/installation).
+GITHUB_APP_ID = ""

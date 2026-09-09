@@ -15,13 +15,16 @@
  *
  * repo / category are fixed via wrangler.toml [vars]; the worker never accepts them from the request.
  *
- * /issues is the one route that needs a secret. The reader's token comes from the
+ * /issues is the one route that needs secrets. The reader's token comes from the
  * giscus GitHub App, whose only permission is Discussions: read & write, so it
  * cannot open issues. The worker therefore verifies the reader (GET /user with
- * their token) and files the issue itself with GITHUB_TOKEN — a fine-grained PAT
- * limited to this repo with Issues: read & write — crediting the reader in the
- * body. Without GITHUB_TOKEN the route answers 501 and the client hides the
- * checkbox after the first attempt.
+ * their token) and files the issue itself *as our own GitHub App* (Issues: read
+ * & write on this repo), crediting the reader in the body. App auth never
+ * expires: the worker signs a 10-minute RS256 JWT with the App's private key
+ * (GITHUB_APP_PRIVATE_KEY secret, PEM — PKCS#1 as downloaded from GitHub or
+ * PKCS#8 both work) and trades it for a 1-hour installation token, cached in
+ * the isolate. Needs GITHUB_APP_ID (var) and the App installed on the repo.
+ * Without the key the route answers 501 and the client hides the checkbox.
  */
 
 const GISCUS = 'https://giscus.app/api';
@@ -148,7 +151,7 @@ function githubHeaders(token) {
 }
 
 async function createIssue(request, env, cors) {
-  if (!env.GITHUB_TOKEN) return json({ error: 'Issue 功能未启用（worker 未配置 GITHUB_TOKEN）' }, 501, cors);
+  if (!env.GITHUB_APP_PRIVATE_KEY || !env.GITHUB_APP_ID) return json({ error: 'Issue 功能未启用（worker 未配置 GitHub App）' }, 501, cors);
 
   // Who is asking? Only signed-in giscus users may file issues, and the issue
   // credits them; the GitHub App user token is enough to answer GET /user.
@@ -166,7 +169,7 @@ async function createIssue(request, env, cors) {
 
   const label = env.ISSUE_LABEL || '划线评论';
   const repo = `${GITHUB}/repos/${env.REPO}`;
-  const headers = githubHeaders(env.GITHUB_TOKEN);
+  const headers = githubHeaders(await installationToken(env));
   // Make sure the label exists (422 = already there).
   const lr = await fetch(`${repo}/labels`, {
     method: 'POST',
@@ -187,4 +190,75 @@ async function createIssue(request, env, cors) {
   const data = await r.json();
   if (!r.ok) return json({ error: data.message || `create issue: HTTP ${r.status}` }, r.status === 403 ? 502 : r.status, cors);
   return json({ number: data.number, url: data.html_url }, 201, { ...cors, 'Cache-Control': 'no-store' });
+}
+
+// ---- GitHub App authentication --------------------------------------------
+
+let cachedInstallation = null; // { token, expiresAt } — per isolate, so a warm worker reuses it
+
+async function installationToken(env) {
+  if (cachedInstallation && cachedInstallation.expiresAt - Date.now() > 60_000) return cachedInstallation.token;
+  const jwt = await appJwt(env.GITHUB_APP_ID, env.GITHUB_APP_PRIVATE_KEY);
+  const appHeaders = githubHeaders(jwt);
+
+  let installationId = env.GITHUB_INSTALLATION_ID;
+  if (!installationId) {
+    const ir = await fetch(`${GITHUB}/repos/${env.REPO}/installation`, { headers: appHeaders });
+    if (!ir.ok) throw new Error(`GitHub App 未安装到 ${env.REPO}（HTTP ${ir.status}）`);
+    installationId = (await ir.json()).id;
+  }
+  const tr = await fetch(`${GITHUB}/app/installations/${installationId}/access_tokens`, {
+    method: 'POST',
+    headers: appHeaders,
+    body: JSON.stringify({ permissions: { issues: 'write' } }),
+  });
+  const data = await tr.json();
+  if (!tr.ok) throw new Error(`installation token: ${data.message || tr.status}`);
+  cachedInstallation = { token: data.token, expiresAt: Date.parse(data.expires_at) };
+  return data.token;
+}
+
+async function appJwt(appId, pem) {
+  const now = Math.floor(Date.now() / 1000);
+  const enc = (o) => b64url(new TextEncoder().encode(JSON.stringify(o)));
+  const unsigned = `${enc({ alg: 'RS256', typ: 'JWT' })}.${enc({ iat: now - 60, exp: now + 540, iss: String(appId) })}`;
+  const key = await crypto.subtle.importKey('pkcs8', pemToPkcs8(pem), { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(unsigned));
+  return `${unsigned}.${b64url(new Uint8Array(sig))}`;
+}
+
+function b64url(bytes) {
+  let s = '';
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+// GitHub hands out PKCS#1 keys ("BEGIN RSA PRIVATE KEY"); WebCrypto only imports
+// PKCS#8, which is just the PKCS#1 blob wrapped in an AlgorithmIdentifier.
+function pemToPkcs8(pem) {
+  const body = pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
+  const der = Uint8Array.from(atob(body), (c) => c.charCodeAt(0));
+  if (!/BEGIN RSA PRIVATE KEY/.test(pem)) return der; // already PKCS#8
+  const rsaOid = [0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00];
+  const octet = derTLV(0x04, der);
+  return derTLV(0x30, concat([0x02, 0x01, 0x00], rsaOid, octet));
+}
+
+function derTLV(tag, content) {
+  const len = content.length;
+  let lenBytes;
+  if (len < 0x80) lenBytes = [len];
+  else {
+    const bytes = [];
+    for (let n = len; n > 0; n >>= 8) bytes.unshift(n & 0xff);
+    lenBytes = [0x80 | bytes.length, ...bytes];
+  }
+  return concat([tag, ...lenBytes], content);
+}
+
+function concat(...parts) {
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let off = 0;
+  for (const p of parts) { out.set(p, off); off += p.length; }
+  return out;
 }

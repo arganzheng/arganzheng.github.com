@@ -83,11 +83,13 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
   `· [⚑ Issue #N](url)` appended inside the `<sub>` line; `parseComment` reads
   that link back and the panel shows the note with a red flag badge and left
   stripe (`.has-issue`). The reader's giscus token cannot open issues (the
-  giscus GitHub App only has the Discussions permission), so this is the one
-  route that needs a worker secret — a fine-grained PAT `GITHUB_TOKEN` with
-  Issues: write on this repo; the worker verifies the reader via `GET /user`
-  with their token and credits them in the issue body. Without the secret the
-  route returns 501 and the client hides the checkbox.
+  giscus GitHub App only has the Discussions permission), so the worker acts
+  as *our own* GitHub App (Issues: write, installed on the repo): it signs an
+  RS256 JWT with `GITHUB_APP_PRIVATE_KEY` (secret; PKCS#1 or PKCS#8 PEM) for
+  `GITHUB_APP_ID` (var), exchanges it for a cached 1 h installation token,
+  verifies the reader via `GET /user` with *their* token and credits them in
+  the issue body. No expiring credentials. Without the key the route returns
+  501 and the client hides the checkbox. Setup steps: worker README.
 - **Spacing gotcha**: the theme's `.post-container img { margin: 1.5em auto
   1.6em }` hits every `<img>` inside the in-flow panel — avatar rules must
   reset `margin: 0` or replies get ~40 px of phantom whitespace.
