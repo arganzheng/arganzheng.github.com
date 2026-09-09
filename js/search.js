@@ -186,8 +186,8 @@
 
   // Load the fulltext NDJSON exactly once at page load. Contents are merged
   // into the in-memory index; afterwards every search is pure in-memory.
-  function loadFulltextOnce(url, indexByUrl, onProgress, onDone) {
-    fetch(url + "?t=" + Date.now())
+  function loadFulltextOnce(url, options, indexByUrl, onProgress, onDone) {
+    fetch(url + (options.version ? "?v=" + options.version : ""))
       .then(function(resp) {
         if (!resp.ok) throw new Error("HTTP " + resp.status);
         return resp.text();
@@ -250,7 +250,9 @@
     var listNode = document.getElementById(options.resultsId);
     if (!inputNode || !statsNode || !listNode) return;
 
-    var cacheBust = "?t=" + Date.now();
+    // `options.version` is the build stamp: the index URL changes per deploy and is
+    // cacheable in between (the 10 MB fulltext used to be re-downloaded every open).
+    var cacheBust = options.version ? "?v=" + options.version : "";
     fetch(options.dataUrl + cacheBust)
       .then(function(resp) { return resp.json(); })
       .then(function(data) {
@@ -281,7 +283,7 @@
         inputNode.addEventListener("input", runSearchDebounced);
 
         if (options.contentUrl) {
-          loadFulltextOnce(options.contentUrl, indexByUrl, function() {}, function(err) {
+          loadFulltextOnce(options.contentUrl, options, indexByUrl, function() {}, function(err) {
             state.fulltextReady = true;
             if (err) return;
             // Refresh current query with fulltext-aware results.

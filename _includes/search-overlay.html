@@ -133,7 +133,7 @@
     }
 </style>
 
-<script src="{{ '/js/search.js' | prepend: site.baseurl }}"></script>
+<script src="{{ '/js/search.js' | prepend: site.baseurl }}?v={{ site.time | date: '%Y%m%d%H%M' }}"></script>
 <script>
     (function () {
         var overlay = document.getElementById('search-overlay');
@@ -151,7 +151,8 @@
                     statsId: 'search-overlay-stats',
                     resultsId: 'search-overlay-results',
                     dataUrl: '{{ '/search.json' | prepend: site.baseurl }}',
-                    contentUrl: '{{ '/search-content.ndjson' | prepend: site.baseurl }}'
+                    contentUrl: '{{ '/search-content.ndjson' | prepend: site.baseurl }}',
+                    version: '{{ site.time | date: '%Y%m%d%H%M' }}'
                 });
             }
             // Wait until the slide-up transition has started, then focus.
