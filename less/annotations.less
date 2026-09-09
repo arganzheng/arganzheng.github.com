@@ -269,15 +269,19 @@
 			align-items: center;
 			gap: 10px;
 		}
-		.ap-reply-btn {
+		.ap-reply-btn,
+		.ap-edit-btn,
+		.ap-delete-btn {
 			padding: 0;
 			border: 0;
 			background: none;
 			font-size: 12px;
 			color: @annot-faint;
 			cursor: pointer;
+			white-space: nowrap;
 			&:hover { color: @brand-primary; }
 		}
+		.ap-delete-btn:hover { color: #cf222e; }
 		.ap-github { color: @annot-faint; &:hover { color: @brand-primary; } }
 		.ap-issue-badge {
 			display: inline-flex;
@@ -306,6 +310,20 @@
 		border-top: 1px solid #eaeef2;
 		&.is-busy { opacity: 0.7; pointer-events: none; }
 	}
+	// editing one's own comment in place (inside .ap-comment-main)
+	.ap-inline-editor {
+		margin-top: 4px;
+		border: 1px solid @annot-border;
+		border-radius: 6px;
+		overflow: hidden;
+		.ap-tabs { padding: 4px 8px 0; }
+		.ap-text { margin-top: 4px; border-bottom: 0; }
+		.ap-preview { margin-top: 4px; border-bottom: 0; }
+		.ap-footer { padding: 6px 8px; justify-content: flex-end; }
+		.ap-user, .ap-hint { display: none; }
+		.ap-buttons button { padding: 4px 12px; font-size: 12.5px; }
+	}
+	.ap-comment.is-deleting { opacity: 0.4; pointer-events: none; }
 	.ap-tabs {
 		display: flex;
 		align-items: center;
@@ -466,6 +484,7 @@
 	}
 	&.is-editor .ap-text { min-height: 180px; }
 	&.is-thread .ap-editor .ap-text { min-height: 130px; }
+	&.is-thread .ap-inline-editor .ap-text { min-height: 90px; }
 }
 
 @keyframes annotation-panel-in {

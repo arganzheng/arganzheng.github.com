@@ -524,7 +524,7 @@
     list.forEach(function (a) {
       thread.appendChild(commentEl(a, a.noteHTML, false, function () { setReplyTarget(a, a.author.login); }));
       (a.replies || []).forEach(function (r) {
-        thread.appendChild(commentEl(r, r.bodyHTML, true, function () { setReplyTarget(a, r.author.login); }));
+        thread.appendChild(commentEl(r, r.bodyHTML, true, function () { setReplyTarget(a, r.author.login); }, a));
       });
     });
     renderEditor(editorHost, {
@@ -546,8 +546,10 @@
     });
   }
 
-  function commentEl(c, html, isReply, onReply) {
+  // `parent` is the top-level annotation a reply belongs to (undefined for top-level).
+  function commentEl(c, html, isReply, onReply, parent) {
     var el = document.createElement('div');
+    var mine = viewer && c.author && viewer.login === c.author.login;
     el.className = 'ap-comment' + (isReply ? ' is-reply' : '') + (c.issue ? ' has-issue' : '');
     el.innerHTML =
       '<a class="ap-avatar" href="' + escapeAttr(c.author.url) + '" target="_blank" rel="noopener noreferrer"><img src="' + escapeAttr(c.author.avatarUrl) + '" alt=""></a>' +
@@ -558,7 +560,9 @@
           (c.issue ? '<a class="ap-issue-badge" href="' + escapeAttr(c.issue.url) + '" target="_blank" rel="noopener noreferrer" title="已同时提交为 GitHub Issue"><i class="fa fa-flag"></i> Issue' + (c.issue.number ? ' #' + c.issue.number : '') + '</a>' : '') +
           '<span class="ap-meta-actions">' +
             (onReply ? '<button type="button" class="ap-reply-btn"><i class="fa fa-reply"></i> 回复</button>' : '') +
-            '<a class="ap-github" href="' + escapeAttr(c.url) + '" target="_blank" rel="noopener noreferrer" title="在 GitHub 上查看"><i class="fa fa-github"></i></a>' +
+            (mine ? '<button type="button" class="ap-edit-btn" title="编辑"><i class="fa fa-pencil"></i> 编辑</button>' +
+                    '<button type="button" class="ap-delete-btn" title="删除"><i class="fa fa-trash-o"></i> 删除</button>' : '') +
+            '<a class="ap-github" href="' + escapeAttr(c.url) + '" target="_blank" rel="noopener noreferrer" title="在 GitHub 上查看 / 编辑"><i class="fa fa-github"></i></a>' +
           '</span>' +
         '</div>' +
         '<div class="ap-comment-body"></div>' +
@@ -567,7 +571,78 @@
     body.appendChild(sanitizeHtml(html));
     InlinePopover.renderMathIfPresent(body);
     if (onReply) el.querySelector('.ap-reply-btn').addEventListener('click', onReply);
+    if (mine) {
+      el.querySelector('.ap-edit-btn').addEventListener('click', function () { startEdit(el, c, isReply, parent); });
+      el.querySelector('.ap-delete-btn').addEventListener('click', function () { deleteComment(el, c, isReply, parent); });
+    }
     return el;
+  }
+
+  // ------------------------------------------------- edit / delete (own comments)
+
+  var NODE_BODY = 'query($id: ID!) { node(id: $id) { ... on DiscussionComment { body } } }';
+  var UPDATE_COMMENT = 'mutation($id: ID!, $body: String!) { updateDiscussionComment(input: {commentId: $id, body: $body}) { comment { id bodyHTML } } }';
+  var DELETE_COMMENT = 'mutation($id: ID!) { deleteDiscussionComment(input: {id: $id}) { comment { id } } }';
+
+  // A top-level note's raw body starts with the quote header; only the note is editable.
+  function stripQuoteHeader(md) {
+    var lines = md.replace(/\r/g, '').split('\n'), i = 0;
+    if (!/^>/.test(lines[0])) return md;
+    while (i < lines.length && /^>/.test(lines[i])) i++;
+    while (i < lines.length && !lines[i].trim()) i++;
+    return lines.slice(i).join('\n');
+  }
+
+  function startEdit(el, c, isReply, parent) {
+    if (el.querySelector('.ap-inline-editor')) return;
+    var bodyEl = el.querySelector('.ap-comment-body');
+    var host = document.createElement('div');
+    host.className = 'ap-editor ap-inline-editor';
+    host.innerHTML = '<span class="ap-muted">正在读取原文…</span>';
+    bodyEl.style.display = 'none';
+    bodyEl.parentNode.insertBefore(host, bodyEl.nextSibling);
+    function cancel() { host.parentNode.removeChild(host); bodyEl.style.display = ''; }
+    graphql(NODE_BODY, { id: c.id }).then(function (data) {
+      var raw = (data.node && data.node.body) || '';
+      var ta = renderEditor(host, {
+        placeholder: '编辑评论…',
+        submitLabel: '保存',
+        compact: true,
+        inline: true,
+        initialText: isReply ? raw : stripQuoteHeader(raw),
+        onCancel: cancel,
+        onSubmit: function (text) {
+          var body = isReply ? text : buildCommentBody(c.selector, text, c.issue);
+          return graphql(UPDATE_COMMENT, { id: c.id, body: body }).then(function (res) {
+            var html = res.updateDiscussionComment.comment.bodyHTML;
+            if (isReply) c.bodyHTML = html;
+            else { var p = parseComment({ id: c.id, bodyHTML: html, author: c.author, createdAt: c.createdAt }); c.noteHTML = p ? p.noteHTML : html; }
+            refreshThreadPanel();
+            showToast('已保存');
+            refreshGiscus();
+          });
+        }
+      });
+      ta.focus();
+    }).catch(function (err) { host.innerHTML = '<span class="ap-status is-error">' + escapeHtml(err.message) + '</span>'; setTimeout(cancel, 2500); });
+  }
+
+  function deleteComment(el, c, isReply, parent) {
+    var n = !isReply && c.replies && c.replies.length;
+    if (!window.confirm(n ? '删除这条评论？它下面的 ' + n + ' 条回复也会一起删除。' : '删除这条评论？')) return;
+    el.classList.add('is-deleting');
+    graphql(DELETE_COMMENT, { id: c.id }).then(function () {
+      if (isReply) {
+        parent.replies = parent.replies.filter(function (r) { return r.id !== c.id; });
+        parent.replyCount = parent.replies.length;
+      } else {
+        annotations = annotations.filter(function (a) { return a.id !== c.id; });
+        if (panelState) panelState.ids = panelState.ids.filter(function (id) { return id !== c.id; });
+      }
+      applyHighlights(); // re-renders (or closes) the thread panel
+      showToast('已删除');
+      refreshGiscus();
+    }).catch(function (err) { el.classList.remove('is-deleting'); showToast('删除失败：' + err.message); });
   }
 
   // ---------------------------------------------------------------- editor
@@ -588,6 +663,7 @@
   ];
 
   function renderEditor(host, opts) {
+    host.classList.toggle('is-inline', !!opts.inline);
     host.innerHTML =
       '<div class="ap-tabs"><button type="button" class="is-active" data-tab="write">撰写</button><button type="button" data-tab="preview">预览</button>' +
         '<span class="ap-format">' + FORMAT_BUTTONS.map(function (b) {
@@ -762,6 +838,8 @@
     graphql('{ viewer { login avatarUrl url } }').then(function (data) {
       viewer = data.viewer;
       renderViewer(userEl, viewer);
+      // now we know which comments are the reader's own -> show 编辑 / 删除
+      if (panelState && panelState.kind === 'thread' && !panel.querySelector('.ap-text').value) refreshThreadPanel();
     }).catch(function (err) {
       userEl.innerHTML = '<span class="ap-muted">' + escapeHtml(err.message) + '</span>';
       if (!getSession()) { loginBtn.style.display = ''; submitBtn.style.display = 'none'; }

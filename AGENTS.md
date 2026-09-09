@@ -94,6 +94,14 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
   verifies the reader via `GET /user` with *their* token and credits them in
   the issue body. No expiring credentials. Without the key the route returns
   501 and the client hides the checkbox. Setup steps: worker README.
+- **Own comments** (author login == `viewer.login`) get 编辑 / 删除 in the
+  meta row. Edit fetches the raw body (`node(id){ body }`), strips the quote
+  header for top-level notes (`stripQuoteHeader`), reuses `renderEditor` with
+  `inline: true` inside the comment, and saves with `updateDiscussionComment`
+  re-wrapping via `buildCommentBody` (selector + issue link preserved).
+  Delete = `deleteDiscussionComment` after `confirm`; state is patched locally
+  and `applyHighlights()` re-renders/closes the panel. The thread re-renders
+  once the viewer query returns so the buttons appear on first open.
 - **Spacing gotcha**: the theme's `.post-container img { margin: 1.5em auto
   1.6em }` hits every `<img>` inside the in-flow panel — avatar rules must
   reset `margin: 0` or replies get ~40 px of phantom whitespace.

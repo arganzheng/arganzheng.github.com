@@ -2198,16 +2198,24 @@ li[id^="fn:"] {
   align-items: center;
   gap: 10px;
 }
-.post-container .annotation-panel .ap-comment-meta .ap-reply-btn {
+.post-container .annotation-panel .ap-comment-meta .ap-reply-btn,
+.post-container .annotation-panel .ap-comment-meta .ap-edit-btn,
+.post-container .annotation-panel .ap-comment-meta .ap-delete-btn {
   padding: 0;
   border: 0;
   background: none;
   font-size: 12px;
   color: #8c959f;
   cursor: pointer;
+  white-space: nowrap;
 }
-.post-container .annotation-panel .ap-comment-meta .ap-reply-btn:hover {
+.post-container .annotation-panel .ap-comment-meta .ap-reply-btn:hover,
+.post-container .annotation-panel .ap-comment-meta .ap-edit-btn:hover,
+.post-container .annotation-panel .ap-comment-meta .ap-delete-btn:hover {
   color: #0085a1;
+}
+.post-container .annotation-panel .ap-comment-meta .ap-delete-btn:hover {
+  color: #cf222e;
 }
 .post-container .annotation-panel .ap-comment-meta .ap-github {
   color: #8c959f;
@@ -2318,6 +2326,39 @@ li[id^="fn:"] {
 }
 .post-container .annotation-panel .ap-editor.is-busy {
   opacity: 0.7;
+  pointer-events: none;
+}
+.post-container .annotation-panel .ap-inline-editor {
+  margin-top: 4px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.post-container .annotation-panel .ap-inline-editor .ap-tabs {
+  padding: 4px 8px 0;
+}
+.post-container .annotation-panel .ap-inline-editor .ap-text {
+  margin-top: 4px;
+  border-bottom: 0;
+}
+.post-container .annotation-panel .ap-inline-editor .ap-preview {
+  margin-top: 4px;
+  border-bottom: 0;
+}
+.post-container .annotation-panel .ap-inline-editor .ap-footer {
+  padding: 6px 8px;
+  justify-content: flex-end;
+}
+.post-container .annotation-panel .ap-inline-editor .ap-user,
+.post-container .annotation-panel .ap-inline-editor .ap-hint {
+  display: none;
+}
+.post-container .annotation-panel .ap-inline-editor .ap-buttons button {
+  padding: 4px 12px;
+  font-size: 12.5px;
+}
+.post-container .annotation-panel .ap-comment.is-deleting {
+  opacity: 0.4;
   pointer-events: none;
 }
 .post-container .annotation-panel .ap-tabs {
@@ -2608,6 +2649,9 @@ li[id^="fn:"] {
 }
 .post-container .annotation-panel.is-thread .ap-editor .ap-text {
   min-height: 130px;
+}
+.post-container .annotation-panel.is-thread .ap-inline-editor .ap-text {
+  min-height: 90px;
 }
 @keyframes annotation-panel-in {
   from {
