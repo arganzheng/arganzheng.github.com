@@ -54,6 +54,10 @@ END of both `css/argan-blog.css` and `css/argan-blog.min.css` by hand
 
 ## Highlight annotations (js/annotations.js)
 
+Reader-facing demo/manual: `_posts/2026-09-09-highlight-annotations-demo.md`
+(`/highlight-annotations-demo.html`); the author-side features (footnotes,
+tips, external links) have their own demo post, `popup-footnotes-and-inline-tips-demo`.
+
 Code-review / WeChat-reading style, no hover popups. Readers select text in
 `.post-container` → floating toolbar (`评论` / `复制链接`) → an **in-flow editor
 panel** is inserted right after the paragraph (取消 / 提交评论 bottom-right).
