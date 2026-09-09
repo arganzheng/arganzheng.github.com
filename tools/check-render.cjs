@@ -25,7 +25,8 @@ const CHECK = `(() => {
     errs: errs.length,
     errTexts: errs.map(e=>e.textContent.trim().split("\\n").slice(0,3).join(" | ").slice(0,200)),
     sizes: m.map(e=>{const s=e.querySelector("svg"); return s? [Math.round(s.getBoundingClientRect().width), Math.round(s.getBoundingClientRect().height)] : null}),
-    brokenImgs: [...document.images].filter(i=>i.complete&&i.naturalWidth===0).map(i=>i.src),
+    brokenImgs: [...document.images].filter(i=>i.complete&&i.naturalWidth===0&&new URL(i.src).origin===location.origin).map(i=>i.src),
+    brokenExternalImgs: [...document.images].filter(i=>i.complete&&i.naturalWidth===0&&new URL(i.src).origin!==location.origin).map(i=>i.src),
     imgs: [...document.images].filter(i=>i.src.includes("/img/in-post/")).map(i=>[i.src.split("/").pop(), i.naturalWidth, i.naturalHeight]),
     widePre: [...document.querySelectorAll("pre")].filter(p=>p.scrollWidth>p.clientWidth+2).map(p=>p.textContent.trim().split("\\n")[0].slice(0,60)),
     pending: m.filter(e=>!e.querySelector("svg")&&!e.classList.contains("mermaid-error")).length + [...document.images].filter(i=>!i.complete).length
@@ -54,6 +55,7 @@ async function check(slug) {
   console.log(`\n== ${slug} [${status}]`);
   console.log(`mermaid=${out.mermaid} ok=${out.ok} errs=${out.errs} pending=${out.pending} brokenImgs=${out.brokenImgs.length}`);
   if (out.errTexts.length) console.log('errTexts:', out.errTexts);
+  if (out.brokenExternalImgs.length) console.log('WARN broken external images (not failing; hotlinks rot):', JSON.stringify(out.brokenExternalImgs));
   console.log('sizes:', JSON.stringify(out.sizes));
   if (out.imgs.length) console.log('imgs:', JSON.stringify(out.imgs));
   if (out.widePre.length) console.log(`widePre(${out.widePre.length}):`, JSON.stringify(out.widePre));

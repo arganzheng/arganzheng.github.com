@@ -276,7 +276,7 @@ MySQL Cluster本质上是在提交的时候通过两阶段提交协议将数据�
 
 MySQL Cluster包含以下三种类型的节点: 
 
-![MySQL Cluster Components](http://dev.mysql.com/doc/refman/5.7/en/images/cluster-components-1.png)
+（组件示意图见 [MySQL 官方文档：NDB Cluster Core Concepts](https://dev.mysql.com/doc/refman/8.0/en/mysql-cluster-basics.html)，原图已不允许外链。）
 
 * SQL Node: SQL节点就是传统的MySQL server，包括NDB/Cluster存储引擎。SQL节点处理所有的SQL请求，解析，优化和查询缓存。应用一般是与SQL节点通讯。	
 * Data Node: 即NDB集群组件。数据节点组成data node group，它的作用主要是存储数据，同时还负责：
@@ -326,7 +326,7 @@ MySQL Cluster要实现完全冗余和容错，至少需要4台物理主机，其
 
 #### 2. [Percona XtraDB Cluster(PXC, uses Galera cluster)](https://www.percona.com/doc/percona-xtradb-cluster/5.6/index.html)
 
-![Percona-xtradb-cluster](https://www.percona.com/doc/percona-xtradb-cluster/5.6/_images/cluster-diagram1.png)
+（集群示意图见 [Percona XtraDB Cluster 文档](https://docs.percona.com/percona-xtradb-cluster/8.0/index.html)，原图已不允许外链。）
 
 与MySQL Cluster实现上的不同 [About Percona XtraDB Cluster](https://www.percona.com/doc/percona-xtradb-cluster/5.6/intro.html)
 
