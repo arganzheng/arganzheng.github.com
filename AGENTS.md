@@ -100,7 +100,11 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
   `inline: true` inside the comment, and saves with `updateDiscussionComment`
   re-wrapping via `buildCommentBody` (selector + issue link preserved).
   Delete = `deleteDiscussionComment` after `confirm`; state is patched locally
-  and `applyHighlights()` re-renders/closes the panel. The thread re-renders
+  and `applyHighlights()` re-renders/closes the panel. GitHub does *not*
+  cascade: a top-level comment with replies is soft-deleted (`deletedAt` set,
+  replies kept, shown as "This comment was deleted" on GitHub and in giscus);
+  `parseComment` skips `deletedAt` comments, so such a thread vanishes from
+  the article on reload — the confirm text says so. The thread re-renders
   once the viewer query returns so the buttons appear on first open.
 - **Spacing gotcha**: the theme's `.post-container img { margin: 1.5em auto
   1.6em }` hits every `<img>` inside the in-flow panel — avatar rules must

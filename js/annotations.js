@@ -629,7 +629,10 @@
 
   function deleteComment(el, c, isReply, parent) {
     var n = !isReply && c.replies && c.replies.length;
-    if (!window.confirm(n ? '删除这条评论？它下面的 ' + n + ' 条回复也会一起删除。' : '删除这条评论？')) return;
+    // GitHub soft-deletes a comment that has replies: the replies stay, the
+    // comment shows as "This comment was deleted" on GitHub / in giscus. Here
+    // the whole thread disappears because the quote header is gone with it.
+    if (!window.confirm(n ? '删除这条评论？它的 ' + n + ' 条回复会保留在 GitHub 上（显示为「此评论已删除」），但不再在文中显示。' : '删除这条评论？')) return;
     el.classList.add('is-deleting');
     graphql(DELETE_COMMENT, { id: c.id }).then(function () {
       if (isReply) {
