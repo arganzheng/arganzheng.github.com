@@ -156,7 +156,7 @@ issue start with `<sub>[⚑ Issue #N](url)</sub>` (recognised by
 replies, `deletedAt` set) render as 「此评论已删除」 with their replies.
 
 Code-review / WeChat-reading style, no hover popups. Readers select text in
-`.post-container` → floating toolbar (`评论` / `复制链接`) → an **in-flow editor
+`.post-container` → floating toolbar (`评论` / `复制` / `搜一搜` / `复制链接`) → an **in-flow editor
 panel** is inserted right after the paragraph (取消 / 提交评论 bottom-right).
 The note is posted as a **normal comment** of the post's giscus Discussion:
 

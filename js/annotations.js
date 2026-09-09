@@ -2,7 +2,7 @@
  * annotations.js — highlight comments ("划线评论") on blog posts.
  *
  * Interaction (code-review / WeChat-reading style, no hover popups):
- *   - Select text in the article -> floating toolbar: 「评论」 / 「复制链接」.
+ *   - Select text in the article -> floating toolbar: 「评论」 / 「复制」 / 「搜一搜」 / 「复制链接」.
  *   - 「评论」 opens a large editor panel *in the flow*, right below the
  *     paragraph, with 取消 / 提交评论 bottom-right. If the selection lies inside
  *     an already-annotated passage the note joins that thread instead.
@@ -1471,6 +1471,8 @@
     toolbar.className = 'annotation-toolbar';
     toolbar.innerHTML =
       '<button type="button" class="annotation-tb-comment"><i class="fa fa-comment-o"></i> 评论</button>' +
+      '<button type="button" class="annotation-tb-copy" title="复制选中的文字"><i class="fa fa-copy"></i> 复制</button>' +
+      '<button type="button" class="annotation-tb-search" title="用 Google 搜这段文字"><i class="fa fa-search"></i> 搜一搜</button>' +
       '<button type="button" class="annotation-tb-link" title="复制分享链接：打开后自动定位并高亮这段文字"><i class="fa fa-link"></i></button>' +
       '<span class="annotation-tb-arrow"></span>';
     toolbar.addEventListener('mousedown', function (e) { e.preventDefault(); }); // keep the selection
@@ -1483,6 +1485,21 @@
       var endNode = range.endContainer;
       hideToolbar();
       openComposer(sel, offsets, endNode);
+    });
+    toolbar.querySelector('.annotation-tb-copy').addEventListener('click', function (e) {
+      e.stopPropagation();
+      var range = currentRange();
+      if (!range) return;
+      copyText(range.toString()).then(function () { showToast('已复制'); });
+      hideToolbar();
+    });
+    toolbar.querySelector('.annotation-tb-search').addEventListener('click', function (e) {
+      e.stopPropagation();
+      var range = currentRange();
+      if (!range) return;
+      var q = range.toString().replace(/\s+/g, ' ').trim().slice(0, 200);
+      window.open('https://www.google.com/search?q=' + encodeURIComponent(q), '_blank', 'noopener');
+      hideToolbar();
     });
     toolbar.querySelector('.annotation-tb-link').addEventListener('click', function (e) {
       e.stopPropagation();
