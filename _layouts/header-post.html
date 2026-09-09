@@ -10,8 +10,16 @@ layout: default
 <style type="text/css">
     header.intro-header{
         position: relative;
-        background-image: url('{{ site.baseurl }}/{% if page.header-img %}{{ page.header-img }}{% else %}{{ site.header-img }}{% endif %}')
+        background-image: url('{{ site.baseurl }}/{% if page.header-img %}{{ page.header-img }}{% else %}{{ site.header-img }}{% endif %}');
+        {% if page.header-bg-css %}background: {{ page.header-bg-css }};{% endif %}
     }
+    {% if page.header-img-credit %}
+    header.intro-header .header-img-credit{
+        position: absolute; right: 12px; bottom: 8px;
+        font-size: 12px; color: rgba(255,255,255,0.7);
+    }
+    header.intro-header .header-img-credit a{ color: rgba(255,255,255,0.85); }
+    {% endif %}
 
     {% if page.header-mask %}
     header.intro-header .header-mask{
@@ -24,6 +32,9 @@ layout: default
 </style>
 <header class="intro-header" >
     <div class="header-mask"></div>
+    {% if page.header-img-credit %}
+    <div class="header-img-credit">Image by <a href="{{ page.header-img-credit-href | default: '#' }}" target="_blank" rel="noopener noreferrer">{{ page.header-img-credit }}</a></div>
+    {% endif %}
     <div class="container">
         <div class="row">
             <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">

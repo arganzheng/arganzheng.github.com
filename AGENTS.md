@@ -70,6 +70,11 @@ Pages has `https_enforced` on.
 
 ## Layout
 
+- Post layouts: `post` (default, text header), `header-post` (hero image;
+  front matter `header-img`, `header-bg-css`, `header-mask`,
+  `header-img-credit(-href)`), `keynote` (header is an `iframe` of a slide
+  deck, `navcolor: invert` for light decks). `redirect_from:` works
+  (jekyll-redirect-from). `tools/new-post.py` scaffolds a post/draft.
 - `_posts/` — blog posts, `layout: post`, permalink `/:title.html`
 - `slides/` — reveal.js decks, `layout: slides` (or set in front matter),
   URL `/slides/:name.html`, indexed by `slides.html` (`/slides/`)
@@ -123,9 +128,12 @@ User-facing wording is always 评论 (划线评论 for passage-level ones, 回�
 replies) — never 标注 / 批注. "annotation" survives only in identifiers, file
 names and the W3C selector terminology.
 
-Reader-facing demo/manual: `_posts/2026-08-03-highlight-annotations-demo.md`
-(`/highlight-annotations-demo.html`); the author-side features (footnotes,
-tips, external links) have their own demo post, `popup-footnotes-and-inline-tips-demo`.
+Two manuals only: reader-facing `_posts/2026-08-03-highlight-annotations-demo.md`
+(`/highlight-annotations-demo.html`) and the maintainer manual
+`_posts/2026-09-09-blog-user-manual.md` (`/blog-user-manual.html`, which also
+carries the live footnote / tips / external-link examples; the old
+`popup-footnotes-and-inline-tips-demo` post redirects there via
+`jekyll-redirect-from`). Keep both up to date when features change.
 
 One data model, two views. `comments` holds every top-level comment of the
 post's discussion (`parseComment`); those whose body starts with the quote

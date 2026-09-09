@@ -94,5 +94,5 @@ localStorage.annotationsApi = 'http://localhost:8787'
 Smoke test:
 
 ```bash
-curl -H 'Origin: http://localhost:4000' 'http://localhost:8787/discussions?term=/popup-footnotes-and-inline-tips-demo.html'
+curl -H 'Origin: http://localhost:4000' 'http://localhost:8787/discussions?term=/blog-user-manual.html'
 ```

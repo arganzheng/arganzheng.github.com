@@ -7,7 +7,7 @@ updated: 2026-09-09
 tags: [Blog, Demo, GitHub]
 ---
 
-> 本文是**读者划线评论**功能的官方演示与说明。它和[浮窗脚注、行内 Tips](/popup-footnotes-and-inline-tips-demo.html) 方向相反：那些是**作者**写给读者的解释，这个是**读者**写给作者和其他读者的——像 Medium 的 highlight、Kindle 的热门标注、或者 Code Review 工具里的行内评论，直接在正文的某句话上留下讨论。你现在就可以在本文任意一段上试。
+> 本文是**读者划线评论**功能的官方演示与说明。它和[浮窗脚注、行内 Tips](/blog-user-manual.html#6-浮窗脚注与行内-tips作者给读者的解释) 方向相反：那些是**作者**写给读者的解释，这个是**读者**写给作者和其他读者的——像 Medium 的 highlight、Kindle 的热门标注、或者 Code Review 工具里的行内评论，直接在正文的某句话上留下讨论。你现在就可以在本文任意一段上试。
 
 ---
 

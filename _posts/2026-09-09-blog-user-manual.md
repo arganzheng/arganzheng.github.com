@@ -4,9 +4,10 @@ title: "本博客使用手册：GitHub Pages、写作规范与站点能力"
 subtitle: "How This Blog Works: Hosting, Writing Conventions, Reader Features and Ops"
 catalog: true
 tags: [Blog, GitHub, Jekyll]
+redirect_from: /popup-footnotes-and-inline-tips-demo.html
 ---
 
-这是写给我自己的备忘：博客怎么托管、怎么发布、写文章有哪些约定、读者能用哪些功能、出了问题去哪儿看。技术细节以仓库里的 `AGENTS.md` 为准，本文只讲"怎么用"。两篇交互演示可以直接上手试：[浮窗脚注与行内 Tips](/popup-footnotes-and-inline-tips-demo.html)（作者侧）、[读者划线评论](/highlight-annotations-demo.html)（读者侧）。
+这是写给我自己的备忘：博客怎么托管、怎么发布、写文章有哪些约定、读者能用哪些功能、出了问题去哪儿看。技术细节以仓库里的 `AGENTS.md` 为准，本文只讲"怎么用"。给读者看的那份在[《读者划线评论》](/highlight-annotations-demo.html)——本站只有这两篇"手册"，一篇给站点维护者（我），一篇给读者。
 
 ---
 
@@ -46,27 +47,53 @@ Pages 有两种模式。老式（legacy）是 GitHub 自己用 Jekyll 3.10 和�
 
 ## 二、写文章
 
-### 1. 文件与 front matter
+### 1. 三种文章布局，以及它们和幻灯片的区别
 
-文章放在 `_posts/YYYY-MM-DD-slug.md`，URL 是 `/slug.html`（`permalink: /:title.html`，注意改文件名 = 改 URL = 评论串和外部链接都会断）。
+| `layout:` | 头部 | 用途 | 现存文章 |
+| :--- | :--- | :--- | :--- |
+| `post` | 无大图，白底标题 + meta 行 | **默认**，所有技术文章 | 370+ |
+| `header-post` | 全宽背景图（或 CSS 渐变）+ 白字标题，导航栏反白 | 随笔、生活类，想要一张封面时 | 3 篇（2017 年的随笔） |
+| `keynote` | 头部是一个 **iframe，嵌一份在线幻灯片**，正文在下面 | 一次分享的「幻灯片 + 文字稿 + 评论」合在一页 | 0 篇 |
+
+`keynote` 和 `slides/` 目录下的幻灯片是两回事：**`slides` 布局是幻灯片本身**（`slides/xxx.md` 用 Markdown 写、reveal.js 渲染成全屏演示，URL `/slides/xxx.html`，见下文第 9 小节）；**`keynote` 是一篇文章**，只是把某个幻灯片 URL（自己的 `/slides/xxx.html` 或外部的 Slides.com / Speaker Deck）嵌在头部，下面可以写讲稿、参考资料，也有评论区和阅读数。典型用法：先在 `slides/` 写好幻灯片，再建一篇 `keynote` 文章 `iframe: /slides/xxx.html` 作为它的"落地页"。注意 keynote 页面的标题、标签只出现在 `<title>` 和列表里，页面头部就是幻灯片本身。
+
+### 2. front matter 全部字段
+
+文章放在 `_posts/YYYY-MM-DD-slug.md`，URL 是 `/slug.html`（`permalink: /:title.html`；改文件名 = 改 URL = 评论串和外部链接都会断，非改不可时加 `redirect_from`）。
 
 ```yaml
 ---
-layout: post            # 或 header-post（大图头部）、keynote
-title: "标题"
-subtitle: "副标题（可选，也用作 SEO 描述的兜底）"
+layout: post                  # post | header-post | keynote
+title: "标题"                  # 系列文章约定「系列名（NN）：副标题」
+subtitle: "副标题"             # 可选；也是分享卡片 / 搜索引擎描述的兜底
+date: 2026-09-09 14:30:00     # 可选；文件名已含日期，同一天多篇想控制顺序时再写时间
 tags: [AI, AI-Infra]
-catalog: true           # 右侧浮动目录；正文里写 [TOC] 也会自动开启
-series: deep-dive-into-vllm   # 系列文章才写，见下
-updated: 2026-09-20     # 可选，大改后写上：头部显示「更新于」，也进 JSON-LD dateModified
-description: "一句话摘要"  # 可选，给分享卡片和搜索引擎用；不写则用 subtitle，再不写用正文开头
-header-img: img/xxx.jpg  # 可选，仅 header-post 布局；也会成为分享卡片的图
+catalog: true                 # 右侧浮动目录；正文里写 [TOC] 也会自动开启
+series: deep-dive-into-vllm   # 系列文章才写，key 见 _data/series.yml
+updated: 2026-09-20           # 大改后写上：头部显示「更新于」，JSON-LD dateModified
+description: "一句话摘要"       # 分享卡片 / 搜索引擎；不写用 subtitle，再不写用正文开头
+author: arganzheng            # 可选，默认 arganzheng
+published: false              # Jekyll 内建：不构建这篇（比放草稿目录更方便临时下线）
+redirect_from: /old-slug.html # 旧地址 301 过来（jekyll-redirect-from），可写数组
+
+# 仅 header-post：
+header-img: img/post-bg-2015.jpg                          # 背景图；也是分享卡片的图
+header-bg-css: "linear-gradient(to right, #24b94a, #38ef7d)"  # 用 CSS 渐变代替图
+header-mask: 0.3              # 图上压一层黑色遮罩的透明度，字看不清时用
+header-img-credit: "Unsplash" # 右下角「Image by …」
+header-img-credit-href: "https://unsplash.com/photos/xxx"
+
+# 仅 keynote：
+iframe: "/slides/reveal-demo.html"   # 嵌入的幻灯片地址
+navcolor: invert              # 幻灯片是浅色背景时，把导航栏文字变深色
 ---
 ```
 
+不存在的字段：上游 Hux 主题有 `mathjax: true`（本站公式自动检测、KaTeX 渲染，不用开关）、`header-style: text`（本站的 `post` 布局就是纯文字头部）、`multilingual` / `lang`（双语切换，本站没移植）、`nav-style`（本站叫 `navcolor` 且只有 keynote 用）。
+
 文章头部那一行「Posted by … | 日期 · 更新于 | 约 N 分钟 · X.Xk 字 | N 次阅读」是自动的：阅读时长按去掉代码块后的字数 / 450 字每分钟估算。
 
-### 2. 系列文章
+### 3. 系列文章
 
 系列信息**不写在正文里**，写在 front matter 的 `series:` 字段，取值是 `_data/series.yml` 里的 key。同系列文章按日期排序，页面自动生成三样东西：文首的「本文是《…》系列的第 N 篇（共 X 篇）。上一篇：…；下一篇：…」引用块、文末的系列目录、以及把 Previous / Next 换成系列内的上一篇 / 下一篇。
 
@@ -74,39 +101,81 @@ header-img: img/xxx.jpg  # 可选，仅 header-post 布局；也会成为分享�
 
 非系列文章的文末 Previous / Next 仍是按时间的相邻文章，另有按 tag 推荐的「YOU MIGHT ALSO LIKE」。
 
-### 3. 草稿与本地预览
+### 4. 新建、草稿与本地预览
 
 ```bash
+python3 tools/new-post.py my-slug "标题" --tags AI,AI-Infra --series deep-dive-into-vllm   # 生成 _posts/今天-my-slug.md
+python3 tools/new-post.py my-slug "标题" --draft                                          # 生成 _drafts/my-slug.md
 jekyll serve --future            # http://localhost:4000，含未来日期的文章
 jekyll serve --future --drafts   # 再加上 _drafts/ 里的草稿
 ```
 
-草稿放 `_drafts/`（文件名不用带日期），只有加 `--drafts` 时才会出现在本地预览里，线上永远不发布；写完移到 `_posts/` 并加上日期即可。
+草稿放 `_drafts/`（文件名不用带日期），只有加 `--drafts` 时才会出现在本地预览里，线上永远不发布；写完移到 `_posts/` 并加上日期即可。`new-post.py` 会校验 `--series` 的 key 是否存在。
 
-### 4. Markdown 能力
+### 5. Markdown 能力速查
 
-kramdown（GFM 模式），加上博客自己的一些扩展：
+kramdown（GFM 模式），加上博客自己的扩展：
 
 | 你写的 | 效果 |
 | :--- | :--- |
 | ```` ```python ```` 等围栏代码 | rouge 高亮；右上角自动有**复制**按钮；过宽的代码块横向滚动 |
 | ```` ```mermaid ```` | Mermaid 图，浏览器端渲染；点击图放大 / 缩放 / 拖动 |
-| `$$ ... $$` | KaTeX 公式（行内和块级都用 `$$`） |
+| `$$ ... $$` | KaTeX 公式（行内和块级都用 `$$`），有公式的页面才加载 KaTeX |
 | `![alt](/img/in-post/x.webp)` | 自动 lazy 加载；≥ 200px 的图点击放大 |
-| `概念[^名字]` + `[^名字]: 解释` | 标准脚注，但读者悬停编号就地弹出卡片，不跳到文末 |
-| `[概念](# "tip: 一句话解释")` | 行内 Tips：虚线下划线 + `?` 角标，悬停弹出（另有 IAL / include / HTML 三种写法，见演示文） |
+| `概念[^名字]` + `[^名字]: 解释` | 浮窗脚注：悬停编号就地弹出卡片，见下一小节 |
+| `[概念](# "tip: 一句话解释")` | 行内 Tips：虚线下划线 + `?` 角标，见下一小节 |
 | 站外链接 | 自动加虚线下划线和 ↗ 图标、新窗口打开 |
 | `[TOC]` | 就地生成目录，同时开启右侧浮动目录 |
 | 表格 | GitHub 风格，手机上横向滚动 |
-| `<i class="fa fa-xxx"></i>` | Font Awesome 4.7 图标，见第五节的注意事项 |
+| `<i class="fa fa-xxx"></i>` | Font Awesome 4.7 图标（约 150 个常用的已内置，见第五节） |
 
-图片：新图先放 `img/in-post/`，大于 20 KB 的 png/jpg 跑一次 `python3 tools/webp-images.py --apply` 会转成 WebP 并自动改写引用（先不带 `--apply` 是预览）。手绘 SVG 直接放，不用转。
+### 6. 浮窗脚注与行内 Tips（作者给读者的解释）
 
-`{% raw %}{%{% endraw %}` 和 `{% raw %}{{{% endraw %}` 出现在代码里（PTX、Go template、Jinja）必须包在 <code>&#123;% raw %&#125;…&#123;% endraw %&#125;</code> 里，否则 Liquid 会把它当模板语法，构建直接失败——写这一段本身就让构建失败了一次。
+这是本站最常用的两个"不打断阅读的解释"手段。原则：**解释长（多段、代码、表格、列表）用脚注，一两句话用行内 Tips**。
 
-### 5. 幻灯片
+**浮窗脚注**就是标准 Markdown 脚注，只是读者悬停编号时就地弹出卡片、点击才平滑跳到文末（并避开吸顶导航栏）；脚注内容支持完整 Markdown。看一段实际效果——悬停下面的编号：
 
-`slides/xxx.md` 用 `layout: slides` 是 reveal.js 演示文稿，URL `/slides/xxx.html`，`/slides/` 是索引页。`---` 分页（前面留空行），`<!-- v -->` 纵向子页，`?print-pdf` 导出 PDF。`slides/2026-08-01-reveal-demo.md` 是全部语法的活演示。
+> 在现代分布式深度学习架构中，集群通信与算子实现至关重要。业界广泛采用 NCCL 集合通信库[^nccl]，并借助 Ring AllReduce 算法[^ring-allreduce]实现跨卡梯度同步。在服务层，vLLM 引擎[^vllm]引入了 PagedAttention 显存优化。底层算子常通过 PyTorch C++ 扩展骨架[^kernel-code]开发；混合并行切分时要评估各并行策略的显存与通信模式[^parallelism-table]。
+
+对应源码（脚注定义放文末任意位置，缩进四格可以放代码块和表格）：
+
+```markdown
+业界广泛采用 NCCL 集合通信库[^nccl]，……开发高性能融合算子[^kernel-code]。
+
+[^nccl]: **NCCL**：英伟达的集合通信库……详见 [NCCL 官方仓库](https://github.com/NVIDIA/nccl)。
+
+[^kernel-code]: **PyTorch C++ 算子实现骨架**：
+    ~~~cpp
+    #include <torch/extension.h>
+    torch::Tensor custom_add(torch::Tensor a, torch::Tensor b) { return a + b; }
+    ~~~
+```
+
+**行内 Tips** 有四种写法，效果一样（虚线下划线 + `?` 角标，悬停或轻触弹出；支持加粗、代码、链接、公式，不支持代码块和列表）：
+
+| 写法 | 示例 | 效果 |
+| :--- | :--- | :--- |
+| Markdown 链接 title（**推荐**） | `[GIL](# "tip: 全局解释器锁……")` | 在 Python 中，[GIL](# "tip: Global Interpreter Lock（全局解释器锁）：确保同一时刻只有一个线程执行 Python 字节码，是 CPU 密集型任务并发的主要约束。") 是多线程计算的主要制约 |
+| kramdown IAL | `[MVCC](#){: .tip data-tip="……"}` | [MVCC](#){: .tip data-tip="Multi-Version Concurrency Control：保留数据项的历史版本，读不阻塞写、写不阻塞读。"} 是高并发隔离的核心机制 |
+| Liquid include（可带「了解更多 ↗」外链） | `{% raw %}{% include tip.html text="RDMA" tip="……" url="https://…" %}{% endraw %}` | {% include tip.html text="RDMA" tip="Remote Direct Memory Access：网卡绕过内核与 CPU 直接读写远端内存，大幅降低时延。" url="https://en.wikipedia.org/wiki/Remote_direct_memory_access" %} 是消除传输瓶颈的基石 |
+| 原生 HTML | `<span class="inline-tip" data-tip="……">词</span>` | <span class="inline-tip" data-tip="Overlap：用多 CUDA Stream 让 GEMM 计算与 AllReduce 通信同时进行，隐藏通信时延。">计算与通信重叠</span> 能显著提升 MFU |
+| 公式也行 | `[AllGather 通信量](# "tip: 每卡发送 $\frac{N-1}{N} S$")` | [AllGather 通信量](# "tip: 在 $N$ 个 GPU 间同步大小为 $S$ 的张量时，Ring AllGather 每卡发送 $\frac{N-1}{N} S$。") 可精确量化 |
+
+交互细节（不用记，知道有就行）：悬停 100 ms 后才弹出防误触；鼠标移入卡片可以复制文字、点里面的链接；空间不够自动翻到下方；`Esc`、点空白处、鼠标移开都能关；手机上轻触弹出、再触关闭。
+
+**外链**不需要任何标记：[PyTorch 官网](https://pytorch.org/) 这样的站外链接自动带 ↗ 并新窗口打开，[归档](/archive/) 这样的站内链接保持原样。
+
+### 7. 图片
+
+新图先放 `img/in-post/`，大于 20 KB 的 png/jpg 跑一次 `python3 tools/webp-images.py --apply` 会转成 WebP 并自动改写引用（先不带 `--apply` 是预览）。手绘 SVG 直接放，不用转。文章里用绝对路径 `/img/in-post/xxx.webp`。
+
+### 8. Liquid 陷阱
+
+`{% raw %}{%{% endraw %}` 和 `{% raw %}{{{% endraw %}` 出现在代码里（PTX、Go template、Jinja）必须包在 <code>&#123;% raw %&#125;…&#123;% endraw %&#125;</code> 里，否则 Liquid 会把它当模板语法，构建直接失败——写这一段本身就让构建失败了一次。`raw` 不能嵌套。
+
+### 9. 幻灯片
+
+`slides/xxx.md` 用 `layout: slides` 是 reveal.js 演示文稿，URL `/slides/xxx.html`，`/slides/` 是索引页。`---` 分页（前面留空行），`<!-- v -->` 纵向子页，`?print-pdf` 导出 PDF。`slides/2026-08-01-reveal-demo.md` 是全部语法的活演示；想给它配文字稿就建一篇 `layout: keynote` 的文章嵌进去（见本节第 1 小节）。
 
 ---
 
@@ -182,6 +251,7 @@ Worker 代码在 `tools/annotations-worker/`，部署用 `wrangler deploy`；它
 - **Font Awesome**：用的是自托管子集（20 KB，全量 77 KB），里面固定包含约 150 个常用图标，正常写文章不用管。如果用了子集外的图标，`check` workflow 会失败并直接列出图标名，这时跑 `python3 tools/fa-subset.py`（需要 `pip install fonttools brotli`）或把图标名加进脚本的 `ALWAYS` 列表。
 - **依赖**：Ruby 依赖在 `Gemfile` / `Gemfile.lock`（改动后跑 `bundle lock --add-platform x86_64-linux`，CI 是 Linux）；Dependabot 会自动开 PR 升级。Node 只在本地编译 less 和跑检查脚本时用。
 - **Service Worker**：`sw.js` 保留但已禁用（`service-worker: false`），不要开——它的实现会给每个请求加随机参数，等于关掉所有缓存。
+- **和上游 Hux 主题的关系**：本站 fork 自 [huxpro.github.io](https://github.com/Huxpro/huxpro.github.io)（V1.8 时代），之后各自演化。上游后来加的东西里，`header-bg-css`、`header-img-credit`、`published: false` 的用法这次已对齐（见第二节）；`multilingual` 双语切换、`header-style: text`、`mathjax` 开关、`nav-style`、Rake 建文脚本没有移植（前两者本站用不上，后三者本站有等价物：公式自动检测、`navcolor`、`tools/new-post.py`）。本站独有而上游没有的：系列导航、`updated`、`description`、`[TOC]` + 浮动目录、浮窗脚注 / 行内 Tips、划线评论 / 投票 / 阅读数、reveal.js 幻灯片布局、Actions 部署与 CI 检查、WebP / 图标子集。上游的 `_doc/Manual.md` 仍值得偶尔看一眼有没有新东西。
 - **评论系统的两个外部依赖**：giscus.app 的 OAuth / 读接口（稳定但非公开契约）和 Cloudflare Worker 免费额度。任何一个挂了，页面退化为「复制评论内容去 GitHub 粘贴」，文章本身不受影响。
 
 ---
@@ -201,3 +271,32 @@ Worker 代码在 `tools/annotations-worker/`，部署用 `wrangler deploy`；它
 | 看死链 | Issues → 标签 `dead-links`（每周一更新） |
 | 部署失败 | Actions → deploy → 看红色那步；多半是 front matter YAML 或 Liquid 语法 |
 | 图标不显示 | 看 `check` 的 Font Awesome 那步给出的名字，跑 `tools/fa-subset.py` |
+
+---
+
+[^nccl]: **NCCL (NVIDIA Collective Communications Library)**：英伟达专为 GPU 集群优化的集合通信库，实现了跨 PCIe、NVLink 和 InfiniBand 的广播、归约与 AllGather。详见 [NCCL 官方仓库](https://github.com/NVIDIA/nccl)。
+
+[^ring-allreduce]: **Ring AllReduce**：每个进程只与左右邻居通信，把数据切成 $$S/N$$ 大小的块环状传递，总通信量与节点数 $$N$$ 无关。
+
+[^vllm]: **vLLM** 是伯克利推出的高效 LLM 推理与服务引擎。
+
+    核心创新是借鉴操作系统虚拟内存分页思想的 **PagedAttention**，把显存浪费从 60%–80% 压到 4% 以下。
+
+[^kernel-code]: **PyTorch C++ 算子实现骨架**——脚注里可以放代码块：
+    ~~~cpp
+    #include <torch/extension.h>
+    torch::Tensor custom_add(torch::Tensor a, torch::Tensor b) {
+        return a + b;
+    }
+    PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+        m.def("forward", &custom_add, "Custom Add Forward");
+    }
+    ~~~
+
+[^parallelism-table]: **三种并行策略速查**——脚注里也可以放表格：
+
+    | 并行策略 | 切分对象 | 主要通信算子 |
+    | :--- | :--- | :--- |
+    | **张量并行 (TP)** | 权重矩阵 ($W$) | All-Reduce |
+    | **流水线并行 (PP)** | 网络层数 | P2P (Send/Recv) |
+    | **数据并行 (DP/ZeRO)** | 批量样本 | Reduce-Scatter / All-Gather |
