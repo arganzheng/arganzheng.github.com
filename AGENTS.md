@@ -128,12 +128,15 @@ User-facing wording is always 评论 (划线评论 for passage-level ones, 回�
 replies) — never 标注 / 批注. "annotation" survives only in identifiers, file
 names and the W3C selector terminology.
 
-Two manuals only: reader-facing `_posts/2026-08-03-highlight-annotations-demo.md`
-(`/highlight-annotations-demo.html`) and the maintainer manual
-`_posts/2026-09-09-blog-user-manual.md` (`/blog-user-manual.html`, which also
-carries the live footnote / tips / external-link examples; the old
-`popup-footnotes-and-inline-tips-demo` post redirects there via
-`jekyll-redirect-from`). Keep both up to date when features change.
+Two manuals only: reader-facing `_posts/2026-08-03-a-letter-to-readers.md`
+(《致读者的一封信》, `/a-letter-to-readers.html`: what the features are and
+how to use them, casual tone, FAQ — no implementation detail) and the
+maintainer memo `_posts/2026-09-09-blog-memo.md` (《博客备忘录》,
+`/blog-memo.html`: hosting, config, writing conventions incl. live footnote /
+tips examples, CI, ops, FAQ and a Releases log — bump it when shipping a
+feature). Old URLs `highlight-annotations-demo`, `blog-user-manual`,
+`popup-footnotes-and-inline-tips-demo` redirect via `jekyll-redirect-from`.
+Keep both up to date when features change.
 
 One data model, two views. `comments` holds every top-level comment of the
 post's discussion (`parseComment`); those whose body starts with the quote

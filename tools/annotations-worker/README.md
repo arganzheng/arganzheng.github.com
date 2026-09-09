@@ -76,7 +76,7 @@ first use, no migration to run. Without the binding the route answers 501 and
 the client hides the counter. Smoke test:
 
 ```bash
-curl -H 'Origin: http://localhost:4000' 'https://blog-annotations.<subdomain>.workers.dev/views?path=/highlight-annotations-demo.html'
+curl -H 'Origin: http://localhost:4000' 'https://blog-annotations.<subdomain>.workers.dev/views?path=/a-letter-to-readers.html'
 ```
 
 ## Local development
@@ -94,5 +94,5 @@ localStorage.annotationsApi = 'http://localhost:8787'
 Smoke test:
 
 ```bash
-curl -H 'Origin: http://localhost:4000' 'http://localhost:8787/discussions?term=/blog-user-manual.html'
+curl -H 'Origin: http://localhost:4000' 'http://localhost:8787/discussions?term=/a-letter-to-readers.html'
 ```
