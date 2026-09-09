@@ -81,7 +81,7 @@ jekyll serve --future            # http://localhost:4000，含未来日期的文
 jekyll serve --future --drafts   # 再加上 _drafts/ 里的草稿
 ```
 
-注意仓库里的草稿目录叫 `_draft`（没有 s），Jekyll 不认识它，等于一个纯粹的私人存放处；想用 `--drafts` 预览得放到 `_drafts/`。
+草稿放 `_drafts/`（文件名不用带日期），只有加 `--drafts` 时才会出现在本地预览里，线上永远不发布；写完移到 `_posts/` 并加上日期即可。
 
 ### 4. Markdown 能力
 
