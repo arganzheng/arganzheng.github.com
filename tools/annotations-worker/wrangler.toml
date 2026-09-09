@@ -10,5 +10,6 @@ ISSUE_LABEL = "划线评论"
 # POST /issues files issues as our own GitHub App (Issues: read & write, installed
 # on REPO). Fill in the App ID here; the private key is a secret, not a var:
 #   wrangler secret put GITHUB_APP_PRIVATE_KEY < ~/Downloads/<app>.private-key.pem
-# GITHUB_INSTALLATION_ID is optional (looked up via /repos/{REPO}/installation).
-GITHUB_APP_ID = ""
+# GITHUB_INSTALLATION_ID is optional (looked up via /repos/{REPO}/installation). 配置可以少一次 API 调用
+GITHUB_INSTALLATION_ID160220353
+GITHUB_APP_ID = "4880637"
