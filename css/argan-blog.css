@@ -1964,7 +1964,7 @@ li[id^="fn:"] {
   cursor: pointer;
   transition: background-color 0.15s ease;
 }
-.post-container mark.annotation-hl mark.annotation-hl {
+.post-container mark.annotation-hl.is-multi {
   background-color: rgba(255, 196, 0, 0.5);
 }
 .post-container mark.annotation-hl:hover {
@@ -2040,7 +2040,7 @@ li[id^="fn:"] {
   position: absolute;
   z-index: 1070;
   display: none;
-  width: 480px;
+  width: 600px;
   max-width: calc(100vw - 24px);
   background: #fff;
   border: 1px solid #d0d7de;
@@ -2111,7 +2111,7 @@ li[id^="fn:"] {
 .annotation-composer .ac-text {
   display: block;
   width: 100%;
-  min-height: 96px;
+  min-height: 150px;
   margin: 8px 0 0;
   padding: 10px 14px;
   border: 0;
@@ -2127,8 +2127,8 @@ li[id^="fn:"] {
   box-shadow: inset 0 0 0 1px rgba(0, 133, 161, 0.4);
 }
 .annotation-composer .ac-preview {
-  min-height: 96px;
-  max-height: 260px;
+  min-height: 150px;
+  max-height: 360px;
   overflow: auto;
   margin-top: 8px;
   padding: 10px 14px;
@@ -2140,12 +2140,79 @@ li[id^="fn:"] {
 .annotation-composer .ac-preview p {
   margin: 0 0 8px;
 }
-.annotation-composer .ac-preview pre {
-  font-size: 12px;
-  padding: 8px 10px;
+.annotation-composer .ac-preview > :last-child {
+  margin-bottom: 0;
 }
 .annotation-composer .ac-preview img {
   max-width: 100%;
+}
+.annotation-composer .ac-preview code {
+  font-size: 12.5px;
+  padding: 2px 5px;
+  background: #f6f8fa;
+  border-radius: 4px;
+}
+.annotation-composer .ac-preview pre {
+  margin: 8px 0;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  background: #f6f8fa;
+  border: 1px solid #e1e4e8;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+.annotation-composer .ac-preview pre code {
+  padding: 0;
+  background: none;
+  border: 0;
+  font-size: inherit;
+}
+.annotation-composer .ac-preview table {
+  display: table;
+  width: auto;
+  max-width: 100%;
+  margin: 8px 0;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.annotation-composer .ac-preview table th,
+.annotation-composer .ac-preview table td {
+  padding: 5px 10px;
+  border: 1px solid #d0d7de;
+}
+.annotation-composer .ac-preview table th {
+  background: #f6f8fa;
+  font-weight: 600;
+}
+.annotation-composer .ac-preview table tr:nth-child(2n) td {
+  background: #fafbfc;
+}
+.annotation-composer .ac-preview blockquote {
+  margin: 8px 0;
+  padding: 4px 12px;
+  color: #57606a;
+  border-left: 3px solid #d0d7de;
+}
+.annotation-composer .ac-preview ul,
+.annotation-composer .ac-preview ol {
+  padding-left: 22px;
+  margin: 6px 0 8px;
+}
+.annotation-composer .ac-preview h1,
+.annotation-composer .ac-preview h2,
+.annotation-composer .ac-preview h3,
+.annotation-composer .ac-preview h4 {
+  font-size: 1.05em;
+  margin: 10px 0 6px;
+  font-weight: 600;
+}
+.annotation-composer .ac-preview a {
+  color: #0085a1;
+}
+.annotation-composer .ac-preview .zeroclipboard-container,
+.annotation-composer .ac-preview .snippet-clipboard-content .ClipboardButton {
+  display: none;
 }
 .annotation-composer .ac-status {
   display: none;
@@ -2222,10 +2289,10 @@ li[id^="fn:"] {
   background: #006c82;
 }
 .inline-popover-card.annotation-card {
-  max-width: 460px;
+  max-width: 560px;
 }
 .inline-popover-card.annotation-card .popover-content {
-  max-height: 360px;
+  max-height: 480px;
 }
 .inline-popover-card.annotation-card .annotation-item {
   padding: 8px 0;
@@ -2260,11 +2327,82 @@ li[id^="fn:"] {
   line-height: 1.6;
   word-break: break-word;
 }
-.inline-popover-card.annotation-card .annotation-note img {
-  max-width: 100%;
+.inline-popover-card.annotation-card .annotation-note p {
+  margin: 0 0 8px;
 }
 .inline-popover-card.annotation-card .annotation-note > :last-child {
   margin-bottom: 0;
+}
+.inline-popover-card.annotation-card .annotation-note img {
+  max-width: 100%;
+}
+.inline-popover-card.annotation-card .annotation-note code {
+  font-size: 12.5px;
+  padding: 2px 5px;
+  background: #f6f8fa;
+  border-radius: 4px;
+}
+.inline-popover-card.annotation-card .annotation-note pre {
+  margin: 8px 0;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  background: #f6f8fa;
+  border: 1px solid #e1e4e8;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+.inline-popover-card.annotation-card .annotation-note pre code {
+  padding: 0;
+  background: none;
+  border: 0;
+  font-size: inherit;
+}
+.inline-popover-card.annotation-card .annotation-note table {
+  display: table;
+  width: auto;
+  max-width: 100%;
+  margin: 8px 0;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.inline-popover-card.annotation-card .annotation-note table th,
+.inline-popover-card.annotation-card .annotation-note table td {
+  padding: 5px 10px;
+  border: 1px solid #d0d7de;
+}
+.inline-popover-card.annotation-card .annotation-note table th {
+  background: #f6f8fa;
+  font-weight: 600;
+}
+.inline-popover-card.annotation-card .annotation-note table tr:nth-child(2n) td {
+  background: #fafbfc;
+}
+.inline-popover-card.annotation-card .annotation-note blockquote {
+  margin: 8px 0;
+  padding: 4px 12px;
+  color: #57606a;
+  border-left: 3px solid #d0d7de;
+}
+.inline-popover-card.annotation-card .annotation-note ul,
+.inline-popover-card.annotation-card .annotation-note ol {
+  padding-left: 22px;
+  margin: 6px 0 8px;
+}
+.inline-popover-card.annotation-card .annotation-note h1,
+.inline-popover-card.annotation-card .annotation-note h2,
+.inline-popover-card.annotation-card .annotation-note h3,
+.inline-popover-card.annotation-card .annotation-note h4 {
+  font-size: 1.05em;
+  margin: 10px 0 6px;
+  font-weight: 600;
+}
+.inline-popover-card.annotation-card .annotation-note a {
+  color: #0085a1;
+}
+.inline-popover-card.annotation-card .annotation-note .zeroclipboard-container,
+.inline-popover-card.annotation-card .annotation-note .snippet-clipboard-content .ClipboardButton {
+  display: none;
 }
 .inline-popover-card.annotation-card .annotation-actions {
   display: flex;
@@ -2274,12 +2412,81 @@ li[id^="fn:"] {
   font-size: 12px;
   color: #8c959f;
 }
+.inline-popover-card.annotation-card .annotation-actions button {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  color: #8c959f;
+  cursor: pointer;
+}
+.inline-popover-card.annotation-card .annotation-actions button:hover,
+.inline-popover-card.annotation-card .annotation-actions button.is-open {
+  color: #0085a1;
+}
 .inline-popover-card.annotation-card .annotation-actions a {
   margin-left: auto;
   color: #8c959f;
 }
 .inline-popover-card.annotation-card .annotation-actions a:hover {
   color: #0085a1;
+}
+.inline-popover-card.annotation-card .annotation-replies {
+  margin: 8px 0 0 12px;
+  padding-left: 12px;
+  border-left: 2px solid #eaeef2;
+}
+.inline-popover-card.annotation-card .annotation-reply {
+  padding: 6px 0;
+}
+.inline-popover-card.annotation-card .annotation-reply + .annotation-reply {
+  border-top: 1px dashed #eaeef2;
+}
+.inline-popover-card.annotation-card .annotation-reply .annotation-note {
+  font-size: 13px;
+}
+.inline-popover-card.annotation-card .annotation-reply-box {
+  margin-top: 8px;
+}
+.inline-popover-card.annotation-card .annotation-reply-box textarea {
+  display: block;
+  width: 100%;
+  min-height: 60px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  resize: vertical;
+  outline: none;
+}
+.inline-popover-card.annotation-card .annotation-reply-box textarea:focus {
+  border-color: #0085a1;
+}
+.inline-popover-card.annotation-card .annotation-reply-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #cf222e;
+}
+.inline-popover-card.annotation-card .annotation-reply-send,
+.inline-popover-card.annotation-card .annotation-login {
+  padding: 4px 10px;
+  font-size: 12.5px;
+  border-radius: 6px;
+  border: 1px solid #0085a1;
+  background: #0085a1;
+  color: #fff;
+  cursor: pointer;
+}
+.inline-popover-card.annotation-card .annotation-reply-send:disabled,
+.inline-popover-card.annotation-card .annotation-login:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 .comment .annotation-orphans {
   margin: -8px 0 16px;

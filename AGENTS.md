@@ -61,7 +61,7 @@ the post's giscus Discussion, shaped as
 ```markdown
 > quoted passage
 >
-> <sub>[§ 原文位置](https://arganzheng.life/<slug>.html#:~:text=prefix-,start,end,-suffix)</sub>
+> <sub>[§ 原文位置](https://arganzheng.life/<slug>.html#annot-<fnv1a>:~:text=prefix-,start,end,-suffix)</sub>
 
 note (Markdown)
 ```
@@ -70,8 +70,19 @@ On load the thread is fetched, comments of that shape are parsed into a W3C
 `TextQuoteSelector {exact, prefix, suffix}` (exact = blockquote text,
 prefix/suffix = the Text Fragment), anchored exactly or fuzzily
 (`js/vendor/approx-string-match.js`, MIT, the algorithm Hypothesis uses) and
-wrapped in `<mark class="annotation-hl">`; hover/tap shows the card. Anchors
-that no longer match are listed under the comment hint as "未能定位".
+wrapped in `<mark class="annotation-hl">` (one mark per text piece, carrying
+every covering id — overlaps never nest); hover/tap shows the card with the
+note, its replies and an in-card reply box (`addDiscussionComment` with
+`replyToId`). Anchors that no longer match are listed under the comment hint
+as "未能定位".
+- **Permalink**: `#annot-<hash>` (FNV-1a of the normalised quote) sits before
+  the `:~:` directive because browsers hide the directive from
+  `location.hash`; on load the script scrolls/flashes/opens that annotation
+  itself. The Text Fragment part is `start,end` whenever the quote spans a
+  gap (footnote marker etc. that the browser's matcher sees but our index
+  skips), keeps CJK unescaped for readability and drops prefix/suffix when
+  the quote is unique on the page. `复制链接` copies the same URL without the
+  `#annot-` id.
 
 - **Data path**: the browser cannot call `giscus.app/api/*` (CORS is limited
   to giscus' own origin) or GitHub GraphQL anonymously, so
@@ -84,7 +95,9 @@ that no longer match are listed under the comment hint as "未能定位".
 - **Posting** reuses the reader's giscus login: giscus' `client.js` stores the
   session in `localStorage["giscus-session"]` of *our* origin; we exchange it
   via the worker and call `api.github.com/graphql addDiscussionComment`
-  directly, then reload the giscus iframe. This relies on giscus internals
+  directly, then refresh giscus by loading a hidden second iframe and swapping
+  it in once it reports (giscus' client.js only resizes the iframe it created,
+  so `annotations.js` applies `resizeHeight` messages itself). This relies on giscus internals
   that are stable but not a public contract — any failure degrades to a
   "复制引用" button (paste into giscus). Login = redirect to
   `giscus.app/api/oauth/authorize?redirect_uri=<page>`; the draft is kept in
@@ -138,8 +151,12 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   `../pytorch-v2.13.0`, `../Megatron-LM` (core_v0.18.0), `../DeepSpeed`
   (v0.19.2), `../torchtitan` (v0.3.0), `../torchft` (v0.2.0),
   `../nvidia-resiliency-ext` (v0.6.0); series 6 (MoE post) adds `../DeepEP`
-  (v1.2.1); series 8 uses `../vllm-v0.27.1`; series 10 uses
-  `../pytorch-v2.14.0` and `../vllm-v0.28.0`. Series 2 pins PyTorch v2.10.0 /
+  (v1.2.1); series 8 uses `../vllm-v0.27.1`; series 9 and 10 use
+  `../vllm-v0.28.0` (series 9 only for CLI flags / metric names / OpenAI
+  protocol fields; its platform components are pinned to their Aug-2026
+  releases, local checkouts `../kueue`, `../volcano`, `../kserve`, `../llm-d`,
+  `../llm-d-router`, `../gpu-operator` etc.); series 10 also uses
+  `../pytorch-v2.14.0`. Series 2 pins PyTorch v2.10.0 /
   vLLM v0.15.0 and series 5 pins vLLM v0.20.0 but have no local worktree —
   add one (`git -C ../vllm worktree add ../vllm-v0.20.0 v0.20.0`) before
   re-verifying their source citations.
@@ -181,6 +198,10 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   - When a batch of diagrams is added (e.g. by parallel agents working from a
     checklist), re-read each one afterwards with the same question; a
     checklist item is a hypothesis, not a mandate.
+  - The converse also holds: "the prose doesn't cover it" is not a reason to
+    drop a valuable diagram. If the concept belongs to the post's topic, add
+    the prose *and* the diagram together; only skip when the concept is out
+    of scope for that post or the diagram adds nothing.
   - Structure / flow / timelines / decisions → ```` ```mermaid ```` (rendered by
     `_includes/rich-content.html`, Mermaid 10.9.1: `~~~` invisible links to force
     row/column order, `classDef` colours, `<br/>` in quoted labels; horizontal

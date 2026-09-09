@@ -214,8 +214,8 @@ tags: [Blog, Demo, Markdown]
 1. 在正文里用鼠标（或触屏长按）**选中一段文字**，选区上方会浮出一个小工具条：`评论` 与 `复制链接`。
 2. 点 `评论`，就地弹出批注编辑器：顶部是你选中的原文作为引用（context），下面是 Markdown 输入框（支持链接、代码、图片，可切换「预览」）。
 3. 用 GitHub 账号登录后点 `发表`（或按 `⌘/Ctrl + Enter`）。登录复用文末评论区的 giscus 登录，只需登录一次；登录跳转前后草稿会自动保留。
-4. 发表成功后，被批注的文字立刻变成**淡黄色高亮**；任何读者悬停或点击高亮，都能看到这段文字下的全部批注、赞同数与回复入口。
-5. `复制链接` 会生成一个带 [Text Fragment](https://developer.mozilla.org/docs/Web/URI/Fragment/Text_fragments) 的 URL（`#:~:text=…`），在 Chrome / Safari 里打开会直接高亮到这句话。
+4. 发表成功后，被批注的文字立刻变成**淡黄色高亮**，文末评论区在后台静默刷新；任何读者悬停或点击高亮，都能看到这段文字下的全部批注、赞同数和回复，并可以直接在卡片里回复，不用跳去 GitHub。
+5. `复制链接` 会生成一个带 [Text Fragment](https://developer.mozilla.org/docs/Web/URI/Fragment/Text_fragments) 的分享链接（形如 `…html#:~:text=选中的文字`），别人打开会直接滚动并高亮到这句话。批注里的 `§ 原文位置` 是同样的链接，多带一个 `#annot-…` 标识，打开后会定位到高亮并展开这条批注。
 
 ### 它是怎么存的
 
@@ -224,7 +224,7 @@ tags: [Blog, Demo, Markdown]
 ~~~markdown
 > 被划线的原文
 >
-> <sub>[§ 原文位置](https://arganzheng.life/<slug>.html#:~:text=prefix-,start,end,-suffix)</sub>
+> <sub>[§ 原文位置](https://arganzheng.life/<slug>.html#annot-1a2b3c4d:~:text=prefix-,start,end,-suffix)</sub>
 
 读者写的批注正文
 ~~~

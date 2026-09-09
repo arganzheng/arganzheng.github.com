@@ -19,7 +19,7 @@
 		cursor: pointer;
 		transition: background-color 0.15s ease;
 
-		mark.annotation-hl {
+		&.is-multi {
 			background-color: @annot-bg-hover;
 		}
 		&:hover {
@@ -100,7 +100,7 @@
 	position: absolute;
 	z-index: 1070;
 	display: none;
-	width: 480px;
+	width: 600px;
 	max-width: ~"calc(100vw - 24px)";
 	background: #fff;
 	border: 1px solid #d0d7de;
@@ -172,7 +172,7 @@
 	.ac-text {
 		display: block;
 		width: 100%;
-		min-height: 96px;
+		min-height: 150px;
 		margin: 8px 0 0;
 		padding: 10px 14px;
 		border: 0;
@@ -188,8 +188,8 @@
 		}
 	}
 	.ac-preview {
-		min-height: 96px;
-		max-height: 260px;
+		min-height: 150px;
+		max-height: 360px;
 		overflow: auto;
 		margin-top: 8px;
 		padding: 10px 14px;
@@ -197,9 +197,7 @@
 		border-bottom: 1px solid #eaeef2;
 		font-size: 14px;
 		line-height: 1.6;
-		p { margin: 0 0 8px; }
-		pre { font-size: 12px; padding: 8px 10px; }
-		img { max-width: 100%; }
+		.github-markdown();
 	}
 	.ac-status {
 		display: none;
@@ -269,11 +267,59 @@
 	}
 }
 
+// GitHub-rendered comment HTML (bodyHTML) has no styles of its own.
+.github-markdown() {
+	p { margin: 0 0 8px; }
+	> :last-child { margin-bottom: 0; }
+	img { max-width: 100%; }
+	code {
+		font-size: 12.5px;
+		padding: 2px 5px;
+		background: #f6f8fa;
+		border-radius: 4px;
+	}
+	pre {
+		margin: 8px 0;
+		padding: 8px 10px;
+		font-size: 12.5px;
+		line-height: 1.45;
+		background: #f6f8fa;
+		border: 1px solid #e1e4e8;
+		border-radius: 6px;
+		overflow-x: auto;
+		code { padding: 0; background: none; border: 0; font-size: inherit; }
+	}
+	table {
+		display: table;
+		width: auto;
+		max-width: 100%;
+		margin: 8px 0;
+		border-collapse: collapse;
+		font-size: 13px;
+		th, td {
+			padding: 5px 10px;
+			border: 1px solid #d0d7de;
+		}
+		th { background: #f6f8fa; font-weight: 600; }
+		tr:nth-child(2n) td { background: #fafbfc; }
+	}
+	blockquote {
+		margin: 8px 0;
+		padding: 4px 12px;
+		color: #57606a;
+		border-left: 3px solid #d0d7de;
+	}
+	ul, ol { padding-left: 22px; margin: 6px 0 8px; }
+	h1, h2, h3, h4 { font-size: 1.05em; margin: 10px 0 6px; font-weight: 600; }
+	a { color: @brand-primary; }
+	.zeroclipboard-container, .snippet-clipboard-content .ClipboardButton { display: none; }
+}
+
 // ---- popover card variant listing the annotations of a highlight
 .inline-popover-card.annotation-card {
-	max-width: 460px;
+	max-width: 560px;
 	.popover-content {
-		max-height: 360px;
+		max-height: 480px;
 	}
 	.annotation-item {
 		padding: 8px 0;
@@ -307,8 +353,7 @@
 		font-size: 13.5px;
 		line-height: 1.6;
 		word-break: break-word;
-		img { max-width: 100%; }
-		> :last-child { margin-bottom: 0; }
+		.github-markdown();
 	}
 	.annotation-actions {
 		display: flex;
@@ -317,11 +362,67 @@
 		margin-top: 6px;
 		font-size: 12px;
 		color: #8c959f;
+		button {
+			padding: 0;
+			border: 0;
+			background: none;
+			font-size: 12px;
+			color: #8c959f;
+			cursor: pointer;
+			&:hover, &.is-open { color: @brand-primary; }
+		}
 		a {
 			margin-left: auto;
 			color: #8c959f;
 			&:hover { color: @brand-primary; }
 		}
+	}
+	.annotation-replies {
+		margin: 8px 0 0 12px;
+		padding-left: 12px;
+		border-left: 2px solid #eaeef2;
+	}
+	.annotation-reply {
+		padding: 6px 0;
+		+ .annotation-reply { border-top: 1px dashed #eaeef2; }
+		.annotation-note { font-size: 13px; }
+	}
+	.annotation-reply-box {
+		margin-top: 8px;
+		textarea {
+			display: block;
+			width: 100%;
+			min-height: 60px;
+			padding: 6px 8px;
+			font: inherit;
+			font-size: 13px;
+			line-height: 1.5;
+			border: 1px solid #d0d7de;
+			border-radius: 6px;
+			resize: vertical;
+			outline: none;
+			&:focus { border-color: @brand-primary; }
+		}
+	}
+	.annotation-reply-actions {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 8px;
+		margin-top: 6px;
+		font-size: 12px;
+		color: #cf222e;
+	}
+	.annotation-reply-send,
+	.annotation-login {
+		padding: 4px 10px;
+		font-size: 12.5px;
+		border-radius: 6px;
+		border: 1px solid @brand-primary;
+		background: @brand-primary;
+		color: #fff;
+		cursor: pointer;
+		&:disabled { opacity: 0.6; cursor: default; }
 	}
 }
 

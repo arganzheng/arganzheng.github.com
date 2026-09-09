@@ -160,8 +160,10 @@
       var gap = 9;
       var placement = 'top';
 
-      // Check if space on top is sufficient
-      if (triggerRect.top - popoverRect.height - gap < 10) {
+      // Check if space on top is sufficient (below the fixed navbar)
+      var navbar = document.querySelector('nav.navbar-fixed-top');
+      var navHeight = navbar ? navbar.offsetHeight : 0;
+      if (triggerRect.top - popoverRect.height - gap < navHeight + 10) {
         placement = 'bottom';
       }
 

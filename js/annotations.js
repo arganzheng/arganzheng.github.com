@@ -8,7 +8,7 @@
  *
  *     > quoted passage
  *     >
- *     > <sub>[§ 原文位置](https://arganzheng.life/<slug>.html#:~:text=prefix-,start,end,-suffix)</sub>
+ *     > <sub>[§ 原文位置](https://arganzheng.life/<slug>.html#annot-<hash>:~:text=prefix-,start,end,-suffix)</sub>
  *
  *     the note
  *
@@ -44,6 +44,7 @@
   var EXCLUDE_SELECTOR = '.comment, .pager, .related-posts, .share, .footnotes, .reversefootnote, sup[id^="fnref"], a.footnote, ' +
     'script, style, noscript, svg, .katex, .mermaid, button, .anchorjs-link, .annotation-toolbar, .annotation-composer';
   var HOVER_OWNERS = '.inline-tip, sup.has-popup-footnote'; // hover belongs to these; annotation card is click-only inside them
+  var GHOST = { login: 'ghost', url: 'https://github.com/ghost', avatarUrl: 'https://avatars.githubusercontent.com/u/10137?s=64&v=4' };
 
   var cfg = null;
   var container = null;
@@ -56,6 +57,7 @@
   var composer = null;
   var toast = null;
   var pendingSelector = null;
+  var pendingOffsets = null;
   var selectionTimer = null;
 
   // ------------------------------------------------------------------ init
@@ -80,7 +82,7 @@
     bindSelection();
     bindGiscusMessages();
     whenRichContentSettled(function () {
-      loadAnnotations(false).then(restoreDraft);
+      loadAnnotations(false).then(function () { restoreDraft(); focusFromHash(); });
     });
   }
 
@@ -113,12 +115,23 @@
     return !!(el && el.closest && el.closest(EXCLUDE_SELECTOR));
   }
 
+  // `gaps` records normalised positions preceded by excluded content (e.g. a
+  // footnote marker) — the browser's own Text Fragment matcher *does* see that
+  // content, so fragments must not span a gap.
   function buildIndex() {
     var text = '';
     var nodes = [];
+    var gaps = {};
     var lastWasSpace = true;
-    var walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
-      acceptNode: function (n) { return isExcluded(n) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT; }
+    var gapPending = false;
+    var walker = document.createTreeWalker(container, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+      acceptNode: function (n) {
+        if (n.nodeType === 1) {
+          if (n.matches(EXCLUDE_SELECTOR)) { gapPending = true; return NodeFilter.FILTER_REJECT; }
+          return NodeFilter.FILTER_SKIP;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }
     });
     while (walker.nextNode()) {
       var node = walker.currentNode;
@@ -133,12 +146,13 @@
         } else {
           lastWasSpace = false;
         }
+        if (gapPending) { gaps[text.length] = true; gapPending = false; }
         charIdx[i] = text.length;
         text += ch;
       }
       nodes.push({ node: node, charIdx: charIdx });
     }
-    index = { text: text, nodes: nodes };
+    index = { text: text, nodes: nodes, gaps: gaps };
     return index;
   }
 
@@ -250,8 +264,8 @@
 
   // ------------------------------------------------------------- highlight
 
+  // Character offsets of [start, end) inside each text node of the current index.
   function segmentsFor(start, end) {
-    buildIndex(); // node map may be stale after earlier wraps; text is unchanged
     var segs = [];
     for (var n = 0; n < index.nodes.length; n++) {
       var entry = index.nodes[n], c = entry.charIdx, from = -1, to = -1;
@@ -261,23 +275,6 @@
       if (from !== -1) segs.push({ node: entry.node, from: from, to: to });
     }
     return segs;
-  }
-
-  function wrapSegments(segs, ids) {
-    var marks = [];
-    for (var i = 0; i < segs.length; i++) {
-      var s = segs[i], node = s.node;
-      if (s.to < node.nodeValue.length) node.splitText(s.to);
-      if (s.from > 0) node = node.splitText(s.from);
-      if (!node.nodeValue.trim()) continue;
-      var mark = document.createElement('mark');
-      mark.className = 'annotation-hl';
-      mark.setAttribute('data-annotation-ids', ids.join(' '));
-      node.parentNode.insertBefore(mark, node);
-      mark.appendChild(node);
-      marks.push(mark);
-    }
-    return marks;
   }
 
   function unwrapAll() {
@@ -290,22 +287,51 @@
     container.normalize();
   }
 
+  // One pass over a single index: every text node is cut at all highlight
+  // boundaries and each piece gets ONE <mark> carrying every annotation id that
+  // covers it (overlaps therefore never nest). Pieces are wrapped back-to-front
+  // so splitText() never invalidates offsets still to be processed.
   function applyHighlights() {
     unwrapAll();
     buildIndex();
-    var orphans = [];
+    var orphans = [], perNode = [], byNode = new Map();
     for (var i = 0; i < annotations.length; i++) {
       var a = annotations[i];
       a.range = anchor(a.selector);
       a.marks = [];
       if (!a.range) { orphans.push(a); continue; }
+      var segs = segmentsFor(a.range.start, a.range.end);
+      for (var s = 0; s < segs.length; s++) {
+        var bucket = byNode.get(segs[s].node);
+        if (!bucket) { bucket = { node: segs[s].node, segs: [] }; byNode.set(segs[s].node, bucket); perNode.push(bucket); }
+        bucket.segs.push({ from: segs[s].from, to: segs[s].to, id: a.id });
+      }
     }
-    for (var j = 0; j < annotations.length; j++) {
-      var b = annotations[j];
-      if (!b.range) continue;
-      b.marks = wrapSegments(segmentsFor(b.range.start, b.range.end), [b.id]);
-      for (var k = 0; k < b.marks.length; k++) bindMark(b.marks[k]);
+    for (var n = 0; n < perNode.length; n++) {
+      var node = perNode[n].node, nodeSegs = perNode[n].segs;
+      var bounds = [];
+      nodeSegs.forEach(function (sg) { if (bounds.indexOf(sg.from) === -1) bounds.push(sg.from); if (bounds.indexOf(sg.to) === -1) bounds.push(sg.to); });
+      bounds.sort(function (x, y) { return x - y; });
+      for (var b = bounds.length - 2; b >= 0; b--) {
+        var from = bounds[b], to = bounds[b + 1];
+        var ids = nodeSegs.filter(function (sg) { return sg.from <= from && sg.to >= to; }).map(function (sg) { return sg.id; });
+        if (!ids.length) continue;
+        var piece = node;
+        if (to < piece.nodeValue.length) piece.splitText(to);
+        if (from > 0) piece = piece.splitText(from);
+        if (!piece.nodeValue.trim()) continue;
+        var mark = document.createElement('mark');
+        mark.className = 'annotation-hl' + (ids.length > 1 ? ' is-multi' : '');
+        mark.setAttribute('data-annotation-ids', ids.join(' '));
+        piece.parentNode.insertBefore(mark, piece);
+        mark.appendChild(piece);
+        bindMark(mark);
+        ids.forEach(function (id) { var an = findAnnotation(id); if (an) an.marks.push(mark); });
+      }
     }
+    annotations.forEach(function (an) {
+      an.marks.sort(function (x, y) { return x.compareDocumentPosition(y) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1; });
+    });
     buildIndex();
     renderOrphans(orphans);
   }
@@ -350,43 +376,136 @@
     return null;
   }
 
-  function flashMarks(marks) {
+  // #annot-<hash> (the part of the permalink before `:~:`) -> scroll, flash, open card.
+  function focusFromHash() {
+    var m = /^#annot-([0-9a-f]{8})/.exec(location.hash || '');
+    if (!m) return;
+    for (var i = 0; i < annotations.length; i++) {
+      var a = annotations[i];
+      if (annotHash(a.selector.exact) !== m[1] || !a.marks.length) continue;
+      // Instant scroll (the browser may already have jumped for the Text
+      // Fragment), then open the card once layout has settled.
+      var mark = a.marks[0];
+      window.scrollTo({ top: Math.max(0, mark.getBoundingClientRect().top + window.pageYOffset - 160), behavior: 'instant' });
+      flashMarks(a.marks, true);
+      setTimeout(function () { InlinePopover.show(mark, buildCard(idsFor(mark)), { className: 'annotation-card' }); }, 200);
+      return;
+    }
+  }
+
+  function flashMarks(marks, noScroll) {
     for (var i = 0; i < marks.length; i++) {
       marks[i].classList.add('is-new');
       (function (m) { setTimeout(function () { m.classList.remove('is-new'); }, 2500); })(marks[i]);
     }
-    if (marks[0]) InlinePopover.scrollToTargetWithOffset(marks[0]);
+    if (marks[0] && !noScroll) InlinePopover.scrollToTargetWithOffset(marks[0]);
   }
 
   // ------------------------------------------------------------------ card
+
+  function authorHtml(author) {
+    return '<a class="annotation-author" href="' + escapeAttr(author.url) + '" target="_blank" rel="noopener noreferrer">' +
+      '<img src="' + escapeAttr(author.avatarUrl) + '" alt="" width="20" height="20">' +
+      '<span>' + escapeHtml(author.login) + '</span></a>';
+  }
+
+  function timeHtml(iso) {
+    return '<time datetime="' + escapeAttr(iso) + '" title="' + escapeAttr(new Date(iso).toLocaleString()) + '">' + relativeTime(iso) + '</time>';
+  }
 
   function buildCard(ids) {
     var wrap = document.createElement('div');
     wrap.className = 'annotation-list';
     for (var i = 0; i < ids.length; i++) {
       var a = findAnnotation(ids[i]);
-      if (!a) continue;
-      var item = document.createElement('div');
-      item.className = 'annotation-item';
-      item.innerHTML =
-        '<div class="annotation-meta">' +
-          '<a class="annotation-author" href="' + escapeAttr(a.author.url) + '" target="_blank" rel="noopener noreferrer">' +
-            '<img src="' + escapeAttr(a.author.avatarUrl) + '" alt="" width="20" height="20">' +
-            '<span>' + escapeHtml(a.author.login) + '</span>' +
-          '</a>' +
-          '<time datetime="' + escapeAttr(a.createdAt) + '" title="' + escapeAttr(new Date(a.createdAt).toLocaleString()) + '">' + relativeTime(a.createdAt) + '</time>' +
-        '</div>' +
-        '<div class="annotation-note"></div>' +
-        '<div class="annotation-actions">' +
-          (a.upvoteCount ? '<span class="annotation-upvotes" title="赞同"><i class="fa fa-caret-up"></i> ' + a.upvoteCount + '</span>' : '') +
-          '<a href="' + escapeAttr(a.url) + '" target="_blank" rel="noopener noreferrer">' +
-            (a.replyCount ? a.replyCount + ' 条回复' : '回复') + ' <i class="fa fa-github"></i></a>' +
-        '</div>';
-      item.querySelector('.annotation-note').appendChild(sanitizeHtml(a.noteHTML));
-      wrap.appendChild(item);
+      if (a) wrap.appendChild(buildItem(a));
     }
     if (!wrap.childNodes.length) wrap.textContent = '批注已删除或不可用。';
     return wrap;
+  }
+
+  function buildItem(a) {
+    var item = document.createElement('div');
+    item.className = 'annotation-item';
+    item.setAttribute('data-annotation-id', a.id);
+    var replies = a.replies || [];
+    item.innerHTML =
+      '<div class="annotation-meta">' + authorHtml(a.author) + timeHtml(a.createdAt) + '</div>' +
+      '<div class="annotation-note"></div>' +
+      '<div class="annotation-actions">' +
+        (a.upvoteCount ? '<span class="annotation-upvotes" title="赞同"><i class="fa fa-caret-up"></i> ' + a.upvoteCount + '</span>' : '') +
+        (replies.length ? '<button type="button" class="annotation-toggle-replies"><i class="fa fa-comments-o"></i> ' + replies.length + ' 条回复</button>' : '') +
+        '<button type="button" class="annotation-reply-btn"><i class="fa fa-reply"></i> 回复</button>' +
+        '<a href="' + escapeAttr(a.url) + '" target="_blank" rel="noopener noreferrer" title="在 GitHub 上查看"><i class="fa fa-github"></i></a>' +
+      '</div>' +
+      '<div class="annotation-replies" style="display:none"></div>' +
+      '<div class="annotation-reply-box" style="display:none"></div>';
+    item.querySelector('.annotation-note').appendChild(sanitizeHtml(a.noteHTML));
+
+    var repliesEl = item.querySelector('.annotation-replies');
+    replies.forEach(function (r) {
+      var el = document.createElement('div');
+      el.className = 'annotation-reply';
+      el.innerHTML = '<div class="annotation-meta">' + authorHtml(r.author) + timeHtml(r.createdAt) + '</div><div class="annotation-note"></div>';
+      el.querySelector('.annotation-note').appendChild(sanitizeHtml(r.bodyHTML));
+      repliesEl.appendChild(el);
+    });
+    var toggle = item.querySelector('.annotation-toggle-replies');
+    if (toggle) toggle.addEventListener('click', function () {
+      var open = repliesEl.style.display !== 'none';
+      repliesEl.style.display = open ? 'none' : 'block';
+      toggle.classList.toggle('is-open', !open);
+    });
+    item.querySelector('.annotation-reply-btn').addEventListener('click', function () {
+      var box = item.querySelector('.annotation-reply-box');
+      if (box.style.display !== 'none') { box.style.display = 'none'; return; }
+      renderReplyBox(box, a);
+      box.style.display = 'block';
+      var ta = box.querySelector('textarea');
+      if (ta) ta.focus();
+    });
+    return item;
+  }
+
+  function renderReplyBox(box, a) {
+    box.innerHTML = '';
+    if (!getSession()) {
+      box.innerHTML = '<button type="button" class="annotation-login"><i class="fa fa-github"></i> 使用 GitHub 登录后回复</button>';
+      box.querySelector('.annotation-login').addEventListener('click', login);
+      return;
+    }
+    box.innerHTML =
+      '<textarea rows="2" placeholder="回复 @' + escapeAttr(a.author.login) + '…（支持 Markdown）"></textarea>' +
+      '<div class="annotation-reply-actions"><span class="annotation-reply-status"></span>' +
+      '<button type="button" class="annotation-reply-send"><i class="fa fa-paper-plane"></i> 发送</button></div>';
+    var ta = box.querySelector('textarea');
+    var send = box.querySelector('.annotation-reply-send');
+    var status = box.querySelector('.annotation-reply-status');
+    function doSend() {
+      var text = ta.value.trim();
+      if (!text) return;
+      send.disabled = true; ta.disabled = true; status.textContent = '发送中…';
+      graphql(ADD_COMMENT, { body: text, discussionId: discussion.id, replyToId: a.id }).then(function (data) {
+        var c = data.addDiscussionComment.comment;
+        a.replies = (a.replies || []).concat([{ id: c.id, url: c.url, author: c.author, createdAt: c.createdAt, bodyHTML: c.bodyHTML }]);
+        a.replyCount = a.replies.length;
+        var trigger = InlinePopover.currentTrigger();
+        if (trigger) {
+          InlinePopover.show(trigger, buildCard(idsFor(trigger)), { className: 'annotation-card' });
+          var item = InlinePopover.element().querySelector('[data-annotation-id="' + a.id + '"]');
+          var t = item && item.querySelector('.annotation-toggle-replies');
+          if (t) t.click();
+        }
+        showToast('回复已发送');
+        refreshGiscus();
+      }).catch(function (err) {
+        send.disabled = false; ta.disabled = false;
+        status.textContent = err.message || String(err);
+        if (!getSession()) renderReplyBox(box, a);
+      });
+    }
+    send.addEventListener('click', doSend);
+    ta.addEventListener('keydown', function (e) { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); doSend(); } });
   }
 
   function sanitizeHtml(html) {
@@ -475,7 +594,7 @@
     var root = doc.body.firstChild;
     var quote = root.firstElementChild;
     if (!quote || quote.tagName !== 'BLOCKQUOTE') return null;
-    var links = quote.querySelectorAll('a[href*="#:~:text="]');
+    var links = quote.querySelectorAll('a[href*=":~:text="]');
     var link = null;
     for (var i = 0; i < links.length; i++) {
       try {
@@ -494,18 +613,27 @@
     return {
       id: c.id,
       url: c.url,
-      author: c.author || { login: 'ghost', url: 'https://github.com/ghost', avatarUrl: 'https://avatars.githubusercontent.com/u/10137?s=64&v=4' },
+      author: c.author || GHOST,
       createdAt: c.createdAt,
       upvoteCount: c.upvoteCount || 0,
       replyCount: (c.replies && (c.replies.totalCount !== undefined ? c.replies.totalCount : c.replies.length)) || c.replyCount || 0,
+      replies: parseReplies(c.replies),
       noteHTML: root.innerHTML,
       selector: { exact: exact, prefix: fragment.prefix, suffix: fragment.suffix }
     };
   }
 
+  // giscus' adapter returns replies as a plain array; GitHub GraphQL as {nodes}.
+  function parseReplies(replies) {
+    var list = Array.isArray(replies) ? replies : (replies && replies.nodes) || [];
+    return list.filter(function (r) { return r && !r.deletedAt && !r.isMinimized; }).map(function (r) {
+      return { id: r.id, url: r.url, createdAt: r.createdAt, bodyHTML: r.bodyHTML, author: r.author || GHOST };
+    });
+  }
+
   function parseTextFragment(href) {
     var out = { prefix: '', suffix: '' };
-    var m = /#:~:text=([^&]*)/.exec(href);
+    var m = /:~:text=([^&]*)/.exec(href);
     if (!m) return out;
     var parts = m[1].split(',');
     var dec = function (s) { try { return decodeURIComponent(s); } catch (e) { return s; } };
@@ -516,36 +644,78 @@
 
   // ------------------------------------------------------- serialisation
 
-  function encodeFragmentPart(s) { return encodeURIComponent(s).replace(/-/g, '%2D'); }
+  // Only escape what URL / Text Fragment / Markdown-link syntax needs; CJK and
+  // other non-ASCII stay readable (browsers accept raw UTF-8 in fragments).
+  function encodeFragmentPart(s) {
+    return s.replace(/[\s%&,\-#()"'<>\[\]\\^`{}|]/g, function (c) {
+      return '%' + ('0' + c.charCodeAt(0).toString(16).toUpperCase()).slice(-2);
+    });
+  }
 
   // Text Fragments match prefix/suffix on word boundaries, so drop a Latin word
   // that our fixed-width context window cut in half (CJK has no such boundary).
   function trimPartialWordStart(s) { return /^[A-Za-z0-9]/.test(s) && /\s/.test(s) ? s.replace(/^\S*\s+/, '') : s; }
   function trimPartialWordEnd(s) { return /[A-Za-z0-9]$/.test(s) && /\s/.test(s) ? s.replace(/\s+\S*$/, '') : s; }
 
-  function buildTextFragment(sel) {
-    var parts = [];
-    var prefix = trimPartialWordStart(sel.prefix || '').trim();
-    var suffix = trimPartialWordEnd(sel.suffix || '').trim();
-    if (prefix) parts.push(encodeFragmentPart(prefix) + '-');
-    if (sel.exact.length > FRAGMENT_SPLIT_AT) {
-      parts.push(encodeFragmentPart(sel.exact.slice(0, FRAGMENT_EDGE_CHARS).trim()));
-      parts.push(encodeFragmentPart(sel.exact.slice(-FRAGMENT_EDGE_CHARS).trim()));
-    } else {
-      parts.push(encodeFragmentPart(sel.exact));
-    }
-    if (suffix) parts.push('-' + encodeFragmentPart(suffix));
-    return '#:~:text=' + parts.join(',');
+  function countOccurrences(text, needle) {
+    var n = 0, from = 0, at;
+    while (needle && (at = text.indexOf(needle, from)) !== -1) { n++; from = at + 1; }
+    return n;
   }
 
-  function permalink(sel) { return cfg.siteUrl + cfg.path + buildTextFragment(sel); }
+  // Split [start, end) of the index into runs that contain no gap (see buildIndex).
+  function runsWithoutGaps(start, end) {
+    var runs = [], runStart = start;
+    for (var i = start + 1; i < end; i++) {
+      if (index.gaps[i]) { runs.push([runStart, i]); runStart = i; }
+    }
+    runs.push([runStart, end]);
+    return runs;
+  }
+
+  // `offsets` (index range of the quote) is known when the fragment is built
+  // from a live selection; it lets us avoid gaps and drop redundant context.
+  function buildTextFragment(sel, offsets) {
+    var parts = [];
+    var exact = sel.exact;
+    var unique = index ? countOccurrences(index.text, exact) === 1 : false;
+    var prefix = unique ? '' : trimPartialWordStart(sel.prefix || '').trim();
+    var suffix = unique ? '' : trimPartialWordEnd(sel.suffix || '').trim();
+    var runs = offsets && index ? runsWithoutGaps(offsets.start, offsets.end) : [[0, exact.length]];
+    if (prefix) parts.push(encodeFragmentPart(prefix) + '-');
+    if (runs.length === 1 && exact.length <= FRAGMENT_SPLIT_AT) {
+      parts.push(encodeFragmentPart(exact));
+    } else {
+      var base = offsets ? offsets.start : 0;
+      var first = runs[0], last = runs[runs.length - 1];
+      var head = exact.slice(first[0] - base, Math.min(first[1], first[0] + FRAGMENT_EDGE_CHARS) - base).trim();
+      var tail = exact.slice(Math.max(last[0], last[1] - FRAGMENT_EDGE_CHARS) - base, last[1] - base).trim();
+      parts.push(encodeFragmentPart(head));
+      if (tail && tail !== head) parts.push(encodeFragmentPart(tail));
+    }
+    if (suffix) parts.push('-' + encodeFragmentPart(suffix));
+    return ':~:text=' + parts.join(',');
+  }
+
+  // Short stable id of a quote, used as the plain fragment (#annot-xxxxxxxx) in
+  // front of the Text Fragment so our own script can locate the highlight
+  // (browsers hide the `:~:` directive from location.hash). FNV-1a, 32 bit.
+  function annotHash(exact) {
+    var h = 0x811c9dc5;
+    for (var i = 0; i < exact.length; i++) { h ^= exact.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+    return ('0000000' + h.toString(16)).slice(-8);
+  }
+
+  function permalink(sel, offsets, withId) {
+    return cfg.siteUrl + cfg.path + '#' + (withId ? 'annot-' + annotHash(sel.exact) : '') + buildTextFragment(sel, offsets);
+  }
 
   function escapeMarkdown(s) {
     return s.replace(/[\\`*_\[\]<>~|]/g, '\\$&').replace(/^([#>+\-]|\d+\.)/, '\\$1');
   }
 
-  function buildCommentBody(sel, note) {
-    return '> ' + escapeMarkdown(sel.exact) + '\n>\n> <sub>[§ 原文位置](' + permalink(sel) + ')</sub>\n\n' + note.trim() + '\n';
+  function buildCommentBody(sel, note, offsets) {
+    return '> ' + escapeMarkdown(sel.exact) + '\n>\n> <sub>[§ 原文位置](' + permalink(sel, offsets, true) + ')</sub>\n\n' + note.trim() + '\n';
   }
 
   // ------------------------------------------------------------ selection
@@ -612,14 +782,16 @@
       if (!offsets) { hideToolbar(); return; }
       var sel = selectorFromOffsets(offsets);
       hideToolbar();
-      openComposer(sel, range.getBoundingClientRect());
+      openComposer(sel, range.getBoundingClientRect(), '', offsets);
     });
     toolbar.querySelector('.annotation-tb-link').addEventListener('click', function (e) {
       e.stopPropagation();
       var range = currentRange();
       var offsets = range && rangeToOffsets(range);
       if (!offsets) return;
-      copyText(permalink(selectorFromOffsets(offsets))).then(function () { showToast('已复制指向这段文字的链接'); });
+      copyText(permalink(selectorFromOffsets(offsets), offsets, false)).then(function () {
+        showToast('链接已复制：打开它会直接滚动并高亮到这段文字，适合分享给别人');
+      });
       hideToolbar();
     });
     document.body.appendChild(toolbar);
@@ -664,9 +836,10 @@
     return composer;
   }
 
-  function openComposer(sel, rect, draftText) {
+  function openComposer(sel, rect, draftText, offsets) {
     ensureComposer();
     pendingSelector = sel;
+    pendingOffsets = offsets || anchor(sel);
     InlinePopover.hide();
     composer.querySelector('.ac-quote-text').textContent = sel.exact;
     composer.querySelector('.ac-quote-text').title = sel.exact;
@@ -696,6 +869,7 @@
     if (!composer) return;
     composer.style.display = 'none';
     pendingSelector = null;
+    pendingOffsets = null;
   }
 
   function switchTab(tab) {
@@ -843,8 +1017,8 @@
 
   // --------------------------------------------------------------- submit
 
-  var ADD_COMMENT = 'mutation($body: String!, $discussionId: ID!) {' +
-    ' addDiscussionComment(input: {body: $body, discussionId: $discussionId}) { comment {' +
+  var ADD_COMMENT = 'mutation($body: String!, $discussionId: ID!, $replyToId: ID) {' +
+    ' addDiscussionComment(input: {body: $body, discussionId: $discussionId, replyToId: $replyToId}) { comment {' +
     ' id url createdAt upvoteCount bodyHTML author { login avatarUrl url } replies { totalCount } } } }';
 
   function ensureDiscussion() {
@@ -873,7 +1047,7 @@
     var note = composer.querySelector('.ac-text').value.trim();
     if (!note) { setStatus('批注内容不能为空', 'error'); return; }
     var sel = pendingSelector;
-    var body = buildCommentBody(sel, note);
+    var body = buildCommentBody(sel, note, pendingOffsets);
     setBusy(true);
     setStatus('正在发表…');
     ensureDiscussion().then(function (id) {
@@ -891,7 +1065,7 @@
       applyHighlights();
       if (a.range) flashMarks(a.marks);
       showToast('批注已发表');
-      reloadGiscus();
+      refreshGiscus();
     }).catch(function (err) {
       setBusy(false);
       var msg = err.message || String(err);
@@ -914,17 +1088,48 @@
     });
   }
 
-  function reloadGiscus() {
-    var iframe = document.querySelector('iframe.giscus-frame');
-    if (iframe) iframe.src = iframe.src; // eslint-disable-line no-self-assign
+  // Refresh the giscus list without blanking it: load a second, hidden iframe
+  // with the same src and swap it in once it has reported its height.
+  var pendingSwap = null;
+  function refreshGiscus() {
+    var old = document.querySelector('.giscus iframe.giscus-frame');
+    if (!old || pendingSwap) return;
+    var fresh = document.createElement('iframe');
+    ['src', 'title', 'scrolling', 'allow'].forEach(function (k) { if (old.getAttribute(k)) fresh.setAttribute(k, old.getAttribute(k)); });
+    fresh.className = 'giscus-frame';
+    fresh.style.cssText = 'position:absolute;top:0;left:0;width:100%;visibility:hidden;height:' + old.offsetHeight + 'px';
+    old.parentNode.style.position = 'relative';
+    old.parentNode.appendChild(fresh);
+    pendingSwap = { old: old, fresh: fresh, timer: setTimeout(function () { finishSwap(); }, 15000) };
   }
 
-  // Refetch when giscus reports a changed comment count (data-emit-metadata="1"),
-  // e.g. a reader pasted a formatted quote straight into the giscus box.
+  function finishSwap() {
+    if (!pendingSwap) return;
+    var sw = pendingSwap;
+    pendingSwap = null;
+    clearTimeout(sw.timer);
+    if (!sw.fresh.parentNode) return;
+    sw.fresh.style.position = ''; sw.fresh.style.visibility = ''; sw.fresh.style.top = ''; sw.fresh.style.left = '';
+    if (sw.old.parentNode) sw.old.parentNode.removeChild(sw.old);
+  }
+
+  // giscus (data-emit-metadata="1") posts its height and discussion metadata.
+  // Heights are applied here for swapped-in iframes (giscus' client.js only
+  // knows the iframe it created); a changed comment count triggers a refetch,
+  // e.g. when a reader pasted a formatted quote straight into the giscus box.
   function bindGiscusMessages() {
     window.addEventListener('message', function (event) {
       if (event.origin !== GISCUS_ORIGIN) return;
-      var d = event.data && event.data.giscus && event.data.giscus.discussion;
+      var g = event.data && event.data.giscus;
+      if (!g) return;
+      var frames = document.querySelectorAll('.giscus iframe.giscus-frame');
+      for (var i = 0; i < frames.length; i++) {
+        if (frames[i].contentWindow !== event.source) continue;
+        if (g.resizeHeight) frames[i].style.height = g.resizeHeight + 'px';
+        // the widget has rendered once it reports either its height or its metadata
+        if (pendingSwap && frames[i] === pendingSwap.fresh && (g.resizeHeight || g.discussion)) finishSwap();
+      }
+      var d = g.discussion;
       if (!d || typeof d.totalCommentCount !== 'number') return;
       if (discussion && discussion.totalCommentCount === d.totalCommentCount) return;
       if (!discussion && d.totalCommentCount === 0) return;
@@ -989,6 +1194,9 @@
     anchor: anchor,
     buildIndex: buildIndex,
     buildTextFragment: buildTextFragment,
+    annotHash: annotHash,
+    permalink: permalink,
+    refreshGiscus: refreshGiscus,
     buildCommentBody: buildCommentBody,
     parseComment: parseComment,
     list: function () { return annotations; }
