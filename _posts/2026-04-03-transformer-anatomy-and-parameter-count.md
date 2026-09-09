@@ -92,6 +92,60 @@ $$
 - attention 内部可以把 $$d$$ 拆成 $$n_h$$ 个 head、每个 head 只有 $$d_{head}$$ 维，但最后必须有一个 $$W_O$$ 把 $$n_h \cdot d_{head}$$ 维重新投影回 $$d$$；
 - FFN 内部可以把向量放大到 $$d_{ff} = 14336$$ 维，但必须有一个 down 矩阵把它压回 $$d = 4096$$。
 
+把一层（以 Llama-3-8B 为例，$$T$$ 为 token 数）内部的数据流和每一步的张量形状画出来，可以看到宽度只在两个子层内部变化、回到残差流时又都是 $$d = 4096$$；带参数的矩阵只有七个，其余节点（attention 计算、SiLU、逐元素乘、残差加法）都没有参数：
+
+```mermaid
+flowchart TB
+    Hin["h_in #91;T, 4096#93;"]
+    subgraph attn["attention 子层（41.94M 参数）"]
+        N1["RMSNorm（γ: 4096）"]
+        Q["q_proj 4096→4096<br/>#91;T, 32×128#93;"]
+        K["k_proj 4096→1024<br/>#91;T, 8×128#93;"]
+        V["v_proj 4096→1024<br/>#91;T, 8×128#93;"]
+        ATT["softmax(QKᵀ/√128)·V<br/>32 个 head，无参数<br/>#91;T, 32×128#93;"]
+        O["o_proj 4096→4096<br/>#91;T, 4096#93;"]
+    end
+    ADD1["h + Attn(...) #91;T, 4096#93;"]
+    subgraph ffn["FFN 子层（176.16M 参数）"]
+        N2["RMSNorm（γ: 4096）"]
+        G["gate_proj 4096→14336<br/>#91;T, 14336#93;"]
+        U["up_proj 4096→14336<br/>#91;T, 14336#93;"]
+        MUL["SiLU(gate) ⊙ up<br/>无参数 #91;T, 14336#93;"]
+        D["down_proj 14336→4096<br/>#91;T, 4096#93;"]
+    end
+    ADD2["h + FFN(...) #91;T, 4096#93;"]
+    Hout["h_out #91;T, 4096#93;"]
+
+    Hin --> N1
+    N1 --> Q
+    N1 --> K
+    N1 --> V
+    Q --> ATT
+    K --> ATT
+    V --> ATT
+    ATT --> O
+    O --> ADD1
+    Hin -- "残差" --> ADD1
+    ADD1 --> N2
+    N2 --> G
+    N2 --> U
+    G --> MUL
+    U --> MUL
+    MUL --> D
+    D --> ADD2
+    ADD1 -- "残差" --> ADD2
+    ADD2 --> Hout
+
+    classDef weight fill:#dbeafe,stroke:#1d4ed8;
+    classDef noparam fill:#f3f4f6,stroke:#6b7280,stroke-dasharray:4 2;
+    classDef stream fill:#fef3c7,stroke:#b45309;
+    class Q,K,V,O,G,U,D weight;
+    class ATT,MUL noparam;
+    class Hin,ADD1,ADD2,Hout stream;
+```
+
+蓝色是七个带权重的 `nn.Linear`（加上两个 RMSNorm 的 $$\gamma$$ 就是一层的全部参数），虚线灰色是没有参数的计算，黄色是残差流上的张量——它们的最后一维始终是 4096。
+
 从系统视角看，残差流（residual stream）是一条固定宽度为 $$d$$ 的"总线"，attention 和 FFN 是挂在总线上的两种"设备"，各自从总线读一份 $$d$$ 维数据、处理、再把 $$d$$ 维结果加回总线。每一层的激活值 `[batch, seq, d]` 在 32 层之间形状不变，这也是第二篇算激活值显存时可以直接用 $$\text{batch} \times \text{seq} \times d$$ 的原因。
 
 ### 3. pre-norm 与 post-norm
@@ -145,6 +199,25 @@ $$n_{kv}$$ 与 $$n_h$$ 的关系定义了三种 attention：
 MHA  (multi-head)          n_kv = n_h          每个 Q head 有自己的 K/V head
 GQA  (grouped-query)       1 < n_kv < n_h      每 g = n_h / n_kv 个 Q head 共用一组 K/V
 MQA  (multi-query)         n_kv = 1            所有 Q head 共用一组 K/V
+```
+
+三者的差别只在 Q head 到 K/V head 的映射：第 $$i$$ 个 Q head 使用第 $$\lfloor i / g \rfloor$$ 组 K/V。以 $$n_h = 8$$ 个 Q head 为例（Llama-3-8B 是 32 个，映射规律相同）：
+
+```text
+MHA   n_kv = n_h = 8,  g = 1        每个 Q head 独占一组 K/V
+Q head    0    1    2    3    4    5    6    7
+          │    │    │    │    │    │    │    │
+KV head   0    1    2    3    4    5    6    7          d_kv = 8 × d_head
+
+GQA   n_kv = 2,  g = 4              每 4 个 Q head 共用一组 K/V
+Q head    0    1    2    3    4    5    6    7
+          └────┴──┬─┴────┘    └────┴──┬─┴────┘
+KV head           0                   1                 d_kv = 2 × d_head
+
+MQA   n_kv = 1,  g = 8              所有 Q head 共用一组 K/V
+Q head    0    1    2    3    4    5    6    7
+          └────┴────┴────┴─┬──┴────┴────┴────┘
+KV head                    0                            d_kv = 1 × d_head
 ```
 
 Llama-3-8B 是 GQA，$$n_h = 32$$、$$n_{kv} = 8$$，每 $$g = 4$$ 个 Q head 共用一组 K/V；70B 是 $$n_h = 64$$、$$n_{kv} = 8$$，$$g = 8$$。记
@@ -317,6 +390,20 @@ V \cdot d = 128256 \times 4096 = 525{,}336{,}576 = 525.3\text{M}
 $$
 
 两份合计 1.05B，占 8.03B 的 13.1%。Llama-3-70B：$$128256 \times 8192 = 1.05\text{B}$$，两份 2.10B，占 70.55B 的 3.0%。
+
+把词表大小、是否 tie 和模型规模放在一起看，embedding 部分的占比跨越两个数量级：
+
+| 模型 | $$V$$ | $$d$$ | tie | $$V \cdot d$$ | embedding + lm_head | 占总参数 |
+|---|---|---|---|---|---|---|
+| Qwen2.5-0.5B | 151936 | 896 | 是 | 136M | 136M（一份） | 约 27% |
+| Llama-2-7B | 32000 | 4096 | 否 | 131M | 262M | 3.9% |
+| Mistral-7B | 32000 | 4096 | 否 | 131M | 262M | 3.6% |
+| Llama-3-8B | 128256 | 4096 | 否 | 525M | 1.05B | 13.1% |
+| Llama-3-70B | 128256 | 8192 | 否 | 1.05B | 2.10B | 3.0% |
+| Llama-3.1-405B | 128256 | 16384 | 否 | 2.10B | 4.20B | 1.0% |
+| DeepSeek-V3 | 129280 | 7168 | 否 | 927M | 1.85B | 0.3% |
+
+同为 $$d = 4096$$、$$L = 32$$ 的 Llama-2-7B 与 Llama-3-8B，占比差 3 倍多，全部来自词表从 32000 扩到 128256；Qwen2.5-0.5B 即使 tie 了也有超过四分之一的参数是查表用的 embedding。
 
 词表大小对系统的影响有两面：
 
@@ -715,6 +802,20 @@ prefill 的 $$m$$ 是整个 prompt 的 token 数，GEMM 是"胖"的，$$m$$ 与 
 - `gate/up_proj` 按 $$n$$ 切，每卡 $$n = 28672 / 8 = 3584$$；
 - `down_proj` 按 $$k$$ 切，每卡 $$k = 1792$$，输出后 all-reduce。
 
+列成表可以看出规律：每个子层都是"先按 $$n$$ 切、再按 $$k$$ 切"的一对，前者输出在各卡上天然是分片、不需要通信，后者各卡得到的是部分和、必须 all-reduce；一层只有两次通信，分别在 `o_proj` 和 `down_proj` 之后。
+
+| GEMM | 完整权重 $$[k, n]$$ | 8 路 TP 每卡 | 切分维度 | 每卡持有的 head | 输出后通信 |
+|---|---|---|---|---|---|
+| q_proj | [4096, 4096] | [4096, 512] | $$n$$（列） | Q head $$4r \ldots 4r+3$$ | 无 |
+| k_proj | [4096, 1024] | [4096, 128] | $$n$$（列） | KV head $$r$$ | 无 |
+| v_proj | [4096, 1024] | [4096, 128] | $$n$$（列） | KV head $$r$$ | 无 |
+| o_proj | [4096, 4096] | [512, 4096] | $$k$$（行） | 同上 4 个 Q head 的输出 | all-reduce |
+| gate_proj | [4096, 14336] | [4096, 1792] | $$n$$（列） | — | 无 |
+| up_proj | [4096, 14336] | [4096, 1792] | $$n$$（列） | — | 无 |
+| down_proj | [14336, 4096] | [1792, 4096] | $$k$$（行） | — | all-reduce |
+
+（$$r = 0 \ldots 7$$ 为卡号。）attention 内部的 $$QK^\top$$、softmax、$$PV$$ 按 head 独立，每卡只算自己那 4 个 Q head 和 1 个 KV head，也不需要通信。
+
 第四章说 $$d_{ff}$$ 对齐到 1024 的倍数，在这里体现为切 8 路后 $$1792 = 14 \times 128$$ 仍是 Tensor Core tile 的倍数。Llama-3-70B 的 $$n_{kv} = 8$$ 同样是为 8 卡 TP 准备的。
 
 
@@ -912,7 +1013,16 @@ total                    70.554B    70,553,706,496
 
 八个字段决定了全部 8,030,261,248 个参数：`hidden_size`、`intermediate_size`、`num_hidden_layers`、`num_attention_heads`、`num_key_value_heads`、`vocab_size`、`tie_word_embeddings`，以及隐含的 `head_dim = 4096 / 32`。`rope_theta = 500000` 是第四篇的主角，`max_position_embeddings = 8192` 是它的训练上下文长度，`torch_dtype` 告诉我们权重以 BF16 存储、每参数 2 字节。
 
-可以试着把其他模型的 `config.json` 喂给脚本：Mistral-7B（$$d = 4096$$、$$L = 32$$、$$n_{kv} = 8$$、$$d_{ff} = 14336$$、$$V = 32000$$）会得到 7.24B，与 Llama-3-8B 的差恰好是词表从 32000 到 128256 多出的 $$2 \times 96256 \times 4096 = 789\text{M}$$；Qwen2.5-7B（$$d = 3584$$、$$L = 28$$、$$n_h = 28$$、$$n_{kv} = 4$$、$$d_{ff} = 18944$$、$$V = 152064$$）会得到 7.6B 左右，与公布的 7.61B 一致（它的 Q/K/V 有 bias，差的几十万个参数在脚本的忽略范围内）。DeepSeek-V3 的 config 喂进去会得到错误的结果，因为它的 attention 与 FFN 不是这个形状——那是第三篇和第五篇要扩展的。
+可以试着把其他模型的 `config.json` 喂给脚本。几个 7B 级 dense 模型的关键字段与脚本输出如下，同一个公式对它们全部适用，差别只在字段取值：
+
+| 模型 | $$d$$ | $$L$$ | $$n_h$$ / $$n_{kv}$$ | $$d_{ff}$$ | $$V$$ | tie | 每层参数 | 脚本总参数 | 公布值 |
+|---|---|---|---|---|---|---|---|---|---|
+| Llama-2-7B | 4096 | 32 | 32 / 32（MHA） | 11008 | 32000 | 否 | 202.4M | 6.74B | 6.74B |
+| Mistral-7B | 4096 | 32 | 32 / 8 | 14336 | 32000 | 否 | 218.1M | 7.24B | 7.24B |
+| Llama-3-8B | 4096 | 32 | 32 / 8 | 14336 | 128256 | 否 | 218.1M | 8.03B | 8.03B |
+| Qwen2.5-7B | 3584 | 28 | 28 / 4 | 18944 | 152064 | 否 | 233.1M | 7.62B | 7.61B |
+
+Mistral-7B（$$d = 4096$$、$$L = 32$$、$$n_{kv} = 8$$、$$d_{ff} = 14336$$、$$V = 32000$$）会得到 7.24B，与 Llama-3-8B 的差恰好是词表从 32000 到 128256 多出的 $$2 \times 96256 \times 4096 = 789\text{M}$$；Qwen2.5-7B（$$d = 3584$$、$$L = 28$$、$$n_h = 28$$、$$n_{kv} = 4$$、$$d_{ff} = 18944$$、$$V = 152064$$）会得到 7.6B 左右，与公布的 7.61B 一致（它的 Q/K/V 有 bias，差的几十万个参数在脚本的忽略范围内）。DeepSeek-V3 的 config 喂进去会得到错误的结果，因为它的 attention 与 FFN 不是这个形状——那是第三篇和第五篇要扩展的。
 
 
 ## 十一、本文小结

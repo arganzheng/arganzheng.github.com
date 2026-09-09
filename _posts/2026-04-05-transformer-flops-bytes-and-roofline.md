@@ -137,6 +137,35 @@ $$
 - 前向：$$2N$$，如上；
 - 反向：每个 GEMM 要算两个梯度。对输入的梯度 $$\partial L / \partial X = \partial L / \partial Y \cdot W^\top$$ 是一次 $$[m, n] \times [n, k]$$，$$2mkn$$；对权重的梯度 $$\partial L / \partial W = X^\top \cdot \partial L / \partial Y$$ 是一次 $$[k, m] \times [m, n]$$，也是 $$2mkn$$。合计 $$4N$$。
 
+三个 GEMM 的输入来源画出来，就能看到反向为什么恰好是前向的两倍，以及为什么前向的激活 $$X$$ 必须保存到反向（第八节的激活显存问题就从这里来）：
+
+```mermaid
+flowchart TB
+  subgraph fwd["前向：1 个 GEMM，2mkn"]
+    X["X  #91;m, k#93;<br/>本层输入（激活）"]
+    W["W  #91;k, n#93;<br/>权重"]
+    Y["Y = X·W  #91;m, n#93;<br/>传给下一层"]
+    X --> Y
+    W --> Y
+  end
+  subgraph bwd["反向：2 个 GEMM，共 4mkn"]
+    dY["dY  #91;m, n#93;<br/>下一层传回的梯度"]
+    dX["dX = dY·Wᵀ<br/>#91;m, n#93; × #91;n, k#93;，2mkn<br/>传给前一层"]
+    dW["dW = Xᵀ·dY<br/>#91;k, m#93; × #91;m, n#93;，2mkn<br/>交给优化器"]
+    dY --> dX
+    dY --> dW
+  end
+  Y -. "反向从 Y 的梯度开始" .-> dY
+  W -. "Wᵀ 复用权重" .-> dX
+  X -. "Xᵀ 需要保存到反向" .-> dW
+  classDef act fill:#fdebd0,stroke:#b9770e;
+  classDef wt fill:#d6eaf8,stroke:#2e6da4;
+  classDef grad fill:#fadbd8,stroke:#c0392b;
+  class X,Y act;
+  class W wt;
+  class dY,dX,dW grad;
+```
+
 所以每 token $$6N$$，训练 $$D$$ 个 token 总计 $$6ND$$。若开了激活重算（activation checkpointing），反向前要把前向重做一遍，再加 $$2N$$，成为 $$8N$$。
 
 代入 Llama-3-8B 在 15T token 上训练：
@@ -207,6 +236,19 @@ attention 上下文项        8192 x 4.29 G /2 = 17.6 T   4.29 GFLOPs   （因�
 - **continuous batching**：既然一步 decode 无论 $$B$$ 是 1 还是 64 都要读一遍权重，把尽可能多的请求塞进同一步就是免费的吞吐。vLLM 一类引擎在每步之间动态加入新请求、移出结束的请求，就是为了让 $$m = B$$ 尽量大；
 - **chunked prefill**：一个 8K 的 prefill 要占用 GPU 约四分之一秒，期间其他请求的 decode 全部停住。把 prefill 切成若干块与 decode 步交替执行，用 prefill 的高算术强度"填满" decode 步空闲的 Tensor Core；
 - **prefill/decode 分离**：两个阶段的瓶颈不同（一个吃算力，一个吃带宽），把它们放到不同的 GPU 上各自调优，中间通过网络传 KV cache。
+
+以 chunked prefill 为例，把单张卡上的时间轴画出来，就能看到它解决的是什么：
+
+```text
+不切分（一个 8K prefill 进来）：
+  |<--------- prefill 8K，约 240 ms，I 约 8000 --------->|d|d|d|d|d|
+  其他请求的 decode 在这 240 ms 里一步也走不了，token 间延迟出现尖峰
+
+chunked prefill（切成 8 块，每块 1K token 约 30 ms）：
+  |p1|d|p2|d|p3|d|p4|d|p5|d|p6|d|p7|d|p8|d|d|d|
+  每一步 = 一块 prefill（高 I，喂饱 Tensor Core）+ 一步 decode（低 I，读权重）
+  同一步里权重只读一遍，两类算子共用；首 token 慢了几步 decode，但 TBT 平稳
+```
 
 这些设计能否成立、收益多大，都可以用本篇的数字直接估算，而不需要先实现出来。
 
@@ -352,6 +394,22 @@ $$
 
 它等于 GQA 的组大小 $$g$$，与 $$s$$、$$B$$ 都无关——每个请求的 KV 只被自己读，batch 不带来复用。Llama-3-8B 的 $$g = 4$$，70B 的 $$g = 8$$，MHA 是 1。这说明 KV cache 的读取是比权重更"顽固"的 memory-bound 部分：权重的强度随 $$B$$ 线性上升，KV 的强度是个常数。第三篇讲 MLA 时会看到，把 K、V 压成一个低秩向量再"吸收"到权重里，本质上就是把这个常数抬高。
 
+把第 3–5 小节出现过的几类算子的 FLOPs、字节数与强度放在一起（每层或整模型均可，比值不变；$$m$$ 是该 GEMM 一起处理的行数）：
+
+| 算子 | FLOPs | 从 HBM 读写的字节 | 算术强度 $$I$$ | Llama-3-8B / H100 |
+|---|---|---|---|---|
+| decode 权重 GEMM（BF16） | $$2 N_{gemm} B$$ | $$2 N_{gemm}$$ | $$B$$ | $$B = 1$$ 时 1；要 compute-bound 需 $$B \approx 295$$ |
+| decode 权重 GEMM（FP8） | $$2 N_{gemm} B$$ | $$N_{gemm}$$ | $$2B$$ | ridge 同时变为 590，仍需 $$B \approx 295$$ |
+| decode 读 KV cache（每层） | $$4 n_h d_{head} s B$$ | $$4 n_{kv} d_{head} s B$$ | $$n_h / n_{kv} = g$$ | 4，与 $$B$$、$$s$$ 无关 |
+| prefill 权重 GEMM | $$2 N_{gemm} s$$ | $$2 N_{gemm}$$ | $$s$$ | $$s = 8192$$ 时约 8000 |
+| RMSNorm、残差、RoPE 等逐元素算子 | $$\approx 4 m d$$ | $$4 m d$$（读+写，BF16） | $$\approx 1$$ | 永远在带宽线上，只能靠融合减少次数 |
+
+再把这些点按真实数值放到对数坐标的 Roofline 上（第 3 小节的示意图只标了两个点，这里是完整的一张）：
+
+![Llama-3-8B 各算子在 H100 Roofline 上的位置](/img/in-post/transformer-flops-bytes-and-roofline-roofline.svg)
+
+几个值得盯住的位置：$$B = 1$$ 的 decode 与 RMSNorm 落在同一点（$$I = 1$$），只能用 3.35 TFLOPS；纯权重的 decode 沿带宽线随 $$B$$ 向右上爬，到 $$B = 295$$ 才碰到 roof；但一旦加上 8K 上下文的 KV 读取，$$B = 64$$ 的点就被拉回到 $$I = 14.6$$，而且 $$B$$ 再大也越不过 $$I \approx 18$$ 那条线（第七节会算这个极限）；KV 读取本身钉在 $$I = g = 4$$ 不动；prefill 则在最右端吃满算力 roof。灰色虚线是 A100 的 roofline：ridge 从 156 挪到 295，同一个 $$B$$ 在 H100 上离 compute-bound 更远。
+
 
 ## 六、时间下界
 
@@ -493,6 +551,25 @@ $$
 - **两个 LayerNorm $$4 sbh$$**：各保存输入 $$2sbh$$。
 
 三部分相加：$$34 sbh + 5 a s^2 b = sbh(34 + 5as/h)$$。
+
+逐张量列成表，并代入 Llama-3-8B 的形状（$$h = 4096$$，$$a = 32$$，$$s = 8192$$，$$b = 1$$）：
+
+| 块 | 反向需要的张量 | 字节 | 随 $$s$$ | Llama-3-8B, 8K |
+|---|---|---|---|---|
+| attention | Q、K、V 投影的输入 | $$2sbh$$ | 线性 | 64 MiB |
+| | Q、K（$$QK^\top$$ 的两个输入） | $$4sbh$$ | 线性 | 128 MiB |
+| | softmax 输出 $$[b, a, s, s]$$ | $$2as^2b$$ | **平方** | **4 GiB** |
+| | softmax 后的 dropout mask | $$as^2b$$ | **平方** | **2 GiB** |
+| | dropout 输出（$$PV$$ 的 P 输入） | $$2as^2b$$ | **平方** | **4 GiB** |
+| | V（$$PV$$ 的另一个输入） | $$2sbh$$ | 线性 | 64 MiB |
+| | $$W_O$$ 的输入 | $$2sbh$$ | 线性 | 64 MiB |
+| | 输出 dropout mask | $$sbh$$ | 线性 | 32 MiB |
+| FFN | 第一个 linear 的输入 | $$2sbh$$ | 线性 | 64 MiB |
+| | GeLU 的输入 $$[s, b, 4h]$$ | $$8sbh$$ | 线性 | 256 MiB |
+| | 第二个 linear 的输入 | $$8sbh$$ | 线性 | 256 MiB |
+| | dropout mask | $$sbh$$ | 线性 | 32 MiB |
+| LayerNorm ×2 | 各自的输入 | $$4sbh$$ | 线性 | 128 MiB |
+| **合计** | | $$34sbh + 5as^2b$$ | | **1.06 GiB + 10 GiB** |
 
 代入 Llama-3-8B 的形状（$$h = 4096$$，$$a = 32$$，$$s = 8192$$，$$b = 1$$）：
 

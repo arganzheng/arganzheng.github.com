@@ -49,7 +49,25 @@ DeepSeek 开源的 DeepEP 是对这三个不同的一份完整回答：一套面
 
 四步里有两步是通信，而且是**成对**的：combine 的通信矩阵是 dispatch 的转置，谁发给了谁多少，收回来时就是谁发回给谁多少。所以 DeepEP 的 `dispatch` 返回一个 `handle`，`combine` 直接拿它复用布局信息，不用再算一次；反向传播时 dispatch 的梯度是一次 combine、combine 的梯度是一次 dispatch（Megatron `fused_a2a.py` 里 `FusedDispatch.backward` 调 `buffer.combine`，`FusedCombine.backward` 调 `buffer.dispatch`）。
 
-通信矩阵由路由决定，这是 MoE 通信区别于前七篇一切通信的地方。同一个模型、同一个 batch 大小，两个 step 的 all_to_all 各 rank 收发的字节数可以差很多；某个专家热门时，持有它的 rank 收到的 token 比别人多几倍，all_to_all 的完成时间由这个最慢的 rank 决定。
+通信矩阵由路由决定，这是 MoE 通信区别于前七篇一切通信的地方。同一个模型、同一个 batch 大小，两个 step 的 all_to_all 各 rank 收发的字节数可以差很多；某个专家热门时，持有它的 rank 收到的 token 比别人多几倍，all_to_all 的完成时间由这个最慢的 rank 决定。把某一步的通信矩阵写出来就能看到这两点：
+
+```text
+dispatch 的通信矩阵 C[i][j] = rank i 发给 rank j 的 token 拷贝数
+（EP=4 示意，T=64、k=8，每 rank 发出 512 份；rank3 持有一个热门专家）
+
+               收: rank0   rank1   rank2   rank3      行和（发出）
+  rank0 发         120      90      40     262          512
+  rank1 发         110      85      45     272          512
+  rank2 发         115      95      35     267          512
+  rank3 发         105      90      50     267          512
+  ───────────────────────────────────────────────────
+  列和（收到）      450     360     170    1068   ← 平均 512，rank3 收 2.1 倍
+                                                    它的接收、GEMM、combine
+                                                    都最慢，其余 3 个 rank 等它
+
+combine 的通信矩阵 = Cᵀ：rank3 要发回 1068 份，rank2 只发回 170 份；
+矩阵每个 step 都随 topk_idx 变化，所以 dispatch 前必须先知道各列的和
+```
 
 ### 2. 两本账在 MoE 上的落点
 
@@ -389,7 +407,33 @@ kForwarderCoordinator   维护 RDMA 接收侧的 head（告诉发送方可以覆
 kNVLReceivers           从本卡的 NVL buffer 读出 token 落到 recv_x 的最终位置
 ```
 
-一份跨节点的 token 拷贝的路径是：源 GPU 的 `kRDMASender` → RDMA → 目标节点同号 GPU 的对称 buffer → 该 GPU 的 `kRDMAAndNVLForwarder` → NVLink → 目标 GPU 的 NVL buffer → 目标 GPU 的 `kNVLReceivers` → `recv_x`。这正是第二章说的"网卡上只走一份、到节点内再 NVLink 分发"；`Buffer.dispatch` 的文档写明了它的拓扑要求："节点内的 rank 经 NVLink 可见，**同 GPU 序号**的 rank 经 RDMA 可见"——和第四篇 PXN（GPU 经 NVLink 借同节点另一张 GPU 的 NIC）以及第二篇 rail-optimized 网络（同号 GPU 的网卡在同一个 rail 上）是同一件事的三个侧面。RDMA 侧的对称 buffer 也是每 channel 一段环形队列（`rdma_channel_data`、`rdma_channel_head` / `rdma_channel_tail`），`SymBuffer` 模板按 "channel × 对端 RDMA rank" 切片；元数据 `rdma_channel_meta` 每 channel 每对端 `NUM_MAX_NVL_PEERS * 2 + 2` 个 int，就是"我这一 channel 要给你们节点每张卡多少 token"。
+一份跨节点的 token 拷贝的路径是：源 GPU 的 `kRDMASender` → RDMA → 目标节点同号 GPU 的对称 buffer → 该 GPU 的 `kRDMAAndNVLForwarder` → NVLink → 目标 GPU 的 NVL buffer → 目标 GPU 的 `kNVLReceivers` → `recv_x`。用一个 token 的三个目标专家恰好都落在同一个远端节点的情形，把它和平坦 all_to_all 并排画出来：
+
+```mermaid
+flowchart TB
+    subgraph flat["平坦 all_to_all（NCCL send/recv、DeepEP low-latency）：3 份各自过网卡"]
+        S1["节点 0 · GPU 2<br/>token t 的 3 个目标专家分别在节点 1 的 GPU 1 / 3 / 5"]
+        S1 -- "RDMA ①" --> F1["节点 1 · GPU 1"]
+        S1 -- "RDMA ②" --> F3["节点 1 · GPU 3"]
+        S1 -- "RDMA ③" --> F5["节点 1 · GPU 5"]
+    end
+    subgraph dedup["DeepEP normal kernel：按节点去重，网卡只过 1 份，节点内 NVLink 分发"]
+        S2["节点 0 · GPU 2<br/>kRDMASender：写本地 RDMA 发送队列<br/>nvshmemi_ibgda_put_nbi_warp"]
+        S2 -- "RDMA ①（发往同号 GPU）" --> R2["节点 1 · GPU 2<br/>对称 RDMA buffer（rdma_channel_data）<br/>kRDMAAndNVLForwarder 读 SourceMeta 决定去向"]
+        R2 -- "NVLink 写 NVL buffer" --> D1["节点 1 · GPU 1<br/>kNVLReceivers → recv_x"]
+        R2 -- "NVLink 写 NVL buffer" --> D3["节点 1 · GPU 3<br/>kNVLReceivers → recv_x"]
+        R2 -- "NVLink 写 NVL buffer" --> D5["节点 1 · GPU 5<br/>kNVLReceivers → recv_x"]
+    end
+    F3 ~~~ S2
+    classDef nic fill:#fde2e2,stroke:#c0392b;
+    classDef nvl fill:#e3f2e1,stroke:#2e7d32;
+    classDef src fill:#e8eef7,stroke:#34495e;
+    class S1,S2 src;
+    class F1,F3,F5,R2 nic;
+    class D1,D3,D5 nvl;
+```
+
+红色节点是经网卡到达的，绿色是经 NVLink 到达的：平坦算法三份都过网卡（50 GB/s 的那段），去重后网卡只过一份，其余两跳落在 NVLink 上——第二章第 2 节"7 份压到 4.6 份"的算术就是这张图对全部 token 求期望。这正是第二章说的"网卡上只走一份、到节点内再 NVLink 分发"；`Buffer.dispatch` 的文档写明了它的拓扑要求："节点内的 rank 经 NVLink 可见，**同 GPU 序号**的 rank 经 RDMA 可见"——和第四篇 PXN（GPU 经 NVLink 借同节点另一张 GPU 的 NIC）以及第二篇 rail-optimized 网络（同号 GPU 的网卡在同一个 rail 上）是同一件事的三个侧面。RDMA 侧的对称 buffer 也是每 channel 一段环形队列（`rdma_channel_data`、`rdma_channel_head` / `rdma_channel_tail`），`SymBuffer` 模板按 "channel × 对端 RDMA rank" 切片；元数据 `rdma_channel_meta` 每 channel 每对端 `NUM_MAX_NVL_PEERS * 2 + 2` 个 int，就是"我这一 channel 要给你们节点每张卡多少 token"。
 
 combine 是镜像：`kNVLSender`（本地专家输出经 NVLink 送到同节点负责该来源节点的 GPU）、`kNVLAndRDMAForwarder`（把本节点 8 张卡送来的、同一个目标节点的结果**先归约**再 RDMA 发回去——combine 的加权求和一部分在转发点完成）、`kRDMAReceiver`、`kCoordinator`。
 
@@ -431,6 +475,55 @@ if (return_recv_hook) recv_hook = [=]() { launcher(LOW_LATENCY_RECV_PHASE); };
 
 `return_recv_hook=True` 时只启动 send 阶段——kernel 发完所有 RDMA 请求就**退出**，SM 全部释放，RDMA 在网卡与对端显存之间继续进行，GPU 上什么都不在跑；框架在合适的时机调用 `hook()`，它再启动一次同一个 kernel、只执行 recv 阶段。README 的双 micro-batch 图和"不占用任何 SM 资源"说的就是这段窗口：batch A 的 dispatch 在飞，SM 全给 batch B 的 attention。这是第五篇"计算通信重叠"的极限形态——重叠的不是两个 kernel，而是一个 kernel 和一段没有 kernel 的时间。send 和 recv 不在同一个 kernel 里时不需要 `cg::this_grid().sync()`，源码里 `if (phases & LOW_LATENCY_SEND_PHASE) cg::this_grid().sync();` 只在合并执行时做一次 grid 同步。`low_latency_dispatch` 的文档同时警告：只有两组 buffer，任一时刻最多只能持有 2 次 LL kernel 的结果张量。
 
+把上面三段合成一张图——一次 LL dispatch 里数据、计数与 kernel 生命周期是怎么走的：
+
+```mermaid
+flowchart TB
+    subgraph send["send 阶段：LOW_LATENCY_SEND_PHASE"]
+        A["token warp：读一行 BF16<br/>kUseFP8 时每 128 通道求 amax、转 FP8<br/>写本地发送槽（16 B 头 + 数据 + scale）"]
+        B["前 top-k 个 warp 各管一个目标专家<br/>算 dst_rank、dst_expert_local_idx<br/>目标槽位 = recv_x#91;dst_expert#93;#91;src_rank#93;#91;slot#93;"]
+        C{"nvshmemi_get_p2p_ptr 非零？"}
+        D["NVLink 可达<br/>UNROLLED_WARP_COPY 直写对端显存"]
+        E["nvshmemi_ibgda_put_nbi_warp<br/>warp 自己写 WQE、敲 doorbell<br/>qp_id = dst_expert_local_idx"]
+        F["最后一个 warp：本 rank 全部发完后<br/>对每个 (dst_rank, expert) 原子加<br/>rdma_recv_count = -num_sent - 1"]
+        A --> B --> C
+        C -- "是" --> D --> F
+        C -- "否" --> E --> F
+    end
+    G["kernel 退出，SM 全部释放<br/>RDMA 在网卡与对端显存之间继续<br/>return_recv_hook=True 时框架稍后调用 hook()"]
+    subgraph recv["recv 阶段：LOW_LATENCY_RECV_PHASE（hook 再启动同一 kernel）"]
+        H["每个 warp group 负责一个 (local_expert, src_rank)<br/>一个 lane 用 ld_acquire 自旋等 rdma_recv_count 非零<br/>clock64 计时累加进 dispatch_wait_recv_cost_stats"]
+        I["解码 n = -count - 1<br/>atomicAdd(packed_recv_count#91;expert#93;, n) 领一段输出下标"]
+        J["把 n 个槽拷到 packed_recv_x#91;expert#93;#91;...#93;<br/>输出天然按本地专家分组，不再 permute"]
+        H --> I --> J
+    end
+    F --> G --> H
+    classDef phase fill:#e8eef7,stroke:#34495e;
+    classDef net fill:#fde2e2,stroke:#c0392b;
+    classDef idle fill:#fff4d6,stroke:#b9770e;
+    class A,B,C,D,F,H,I,J phase;
+    class E net;
+    class G idle;
+```
+
+黄色那一格就是 hook 带来的窗口。把它放到时间轴上，就是 README 的双 micro-batch 重叠：
+
+```text
+双 micro-batch 重叠（batch A / B 交替，一层 MoE；LL kernel + return_recv_hook）
+
+时间 ───────────────────────────────────────────────────────────────────►
+SM 上在跑    │ A:attn │A:disp│   B:attn   │A:recv│ A:expert │B:disp│  ...
+             │        │ send │            │ hook │   GEMM   │ send │
+             ├────────┼──────┼────────────┼──────┼──────────┼──────┤
+网卡 / RDMA  │        │      │A:disp 在飞 │      │          │B:disp│
+（无 kernel）│        │      │（数据在飞）│      │          │ 在飞 │
+
+A:disp send   只执行 SEND_PHASE：warp 写完 WQE、敲完 doorbell，kernel 即退出
+B:attn        此时 GPU 上没有任何通信 kernel，SM 全部给 batch B 的 attention
+A:recv hook   框架需要 A 的结果时调用 hook()，同一 kernel 只跑 RECV_PHASE
+对比 normal   dispatch kernel 从发到收全程占 num_sms 个 SM 自旋等 head / tail
+```
+
 combine（`internode_ll.cu` 的 `combine<kUseLogFMT, kHidden, kNumMaxTopk, kNumMaxUnrolls>`）结构相同：send 阶段每个专家把输出按 `src_info` 送回源 rank 的槽位（`zero_copy=True` 时专家 GEMM 直接写进 `get_next_low_latency_combine_buffer` 给的 RDMA buffer，省一次拷贝），发一个 flag；recv 阶段每个 token 等它 top-k 个来源的 flag，按 `topk_weights` 在接收端加权求和。`kNumMaxTopk = 11`，`SUPPORTED_HIDDEN_SIZES` 由模板实例化决定（vLLM 侧列出 2048～8192 的八个值）。
 
 ### 3. NVSHMEM：对称堆、put 与 IBGDA
@@ -464,7 +557,30 @@ nvshmemi_ibgda_put_nbi_warp(uint64_t req_rptr, uint64_t req_lptr, size_t bytes, 
 
 这段代码回答了第三、四篇留下的问题：**GPU 为什么"不能"驱动网卡，以及现在为什么能**。不能，是因为 QP 的队列、DBR 和 doorbell 页原本只映射给 CPU，verbs 库是 CPU 侧代码；能，是因为 IBGDA 让 NVSHMEM 在初始化时用 DevX 把这三样东西的地址交给 GPU（doorbell 页要经 `PeerMappingOverride` 允许 GPU 写另一个 PCIe 设备的 BAR），之后 GPU 线程对它们的 store 就是 PCIe 上的写事务，与 CPU 写没有区别。
 
-**它拿掉了哪一部分 α。** 对比第四篇的 proxy 链路：
+**它拿掉了哪一部分 α。** 对比第四篇的 proxy 链路，先把两条路上的参与者画出来——同一条跨节点消息，从发送 kernel 到接收 kernel 各经过谁：
+
+```mermaid
+sequenceDiagram
+    participant GK as GPU kernel
+    participant PX as CPU proxy
+    participant NW as NIC / 网络
+    participant RPX as 对端 proxy
+    participant RGK as 对端 GPU
+    Note over GK,RGK: NCCL NET：两端各过一次 CPU，proxy 串行服务所有 channel
+    GK->>GK: 写 channel buffer，推 tail
+    PX->>GK: 轮询到 tail（PCIe 读 / GDRCopy）
+    PX->>NW: ibv_post_send 写 WQE、DBR、doorbell
+    NW->>RPX: CQ 完成，对端 proxy 轮询到
+    RPX->>RGK: 推对端 tail
+    RGK->>RGK: 轮询到 tail，读 channel buffer
+    Note over GK,RGK: IBGDA（DeepEP LL）：CPU 不在路径上，每个 warp 独立发起
+    GK->>GK: warp 写 WQE、更新 DBR（GPU 内存）
+    GK->>NW: warp 写 doorbell（一次 PCIe 写）
+    NW->>RGK: 数据 + 原子加计数落在对端显存
+    RGK->>RGK: warp 轮询本地 rdma_recv_count
+```
+
+两位 CPU proxy 在下半段没有任何消息经过——省掉的正是它们两端的轮询周期、软件路径和串行化。逐项对照：
 
 ```text
 NCCL NET（proxy）一条消息的发起：                              IBGDA 一条消息的发起：

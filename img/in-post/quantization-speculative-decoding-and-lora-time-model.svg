@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="700" height="450" viewBox="0 0 700 450" font-family="-apple-system, 'Helvetica Neue', Arial, sans-serif" font-size="12">
+  <rect width="700" height="450" fill="#ffffff"/>
+  <!-- plot area: x 70..660 (log10 m: 0..3, 196.7 px/decade), y 30..370 (log10 ms: 0..1.301, 261.3 px/decade) -->
+  <!-- grid -->
+  <g stroke="#e5e5e5" stroke-width="1">
+    <line x1="70" y1="370" x2="660" y2="370"/>
+    <line x1="70" y1="291.3" x2="660" y2="291.3"/>
+    <line x1="70" y1="187.4" x2="660" y2="187.4"/>
+    <line x1="70" y1="108.7" x2="660" y2="108.7"/>
+    <line x1="70" y1="30" x2="660" y2="30"/>
+    <line x1="70" y1="30" x2="70" y2="370"/>
+    <line x1="266.7" y1="30" x2="266.7" y2="370"/>
+    <line x1="463.3" y1="30" x2="463.3" y2="370"/>
+    <line x1="660" y1="30" x2="660" y2="370"/>
+  </g>
+  <!-- axes -->
+  <g stroke="#333" stroke-width="1.2">
+    <line x1="70" y1="370" x2="660" y2="370"/>
+    <line x1="70" y1="30" x2="70" y2="370"/>
+  </g>
+  <!-- x ticks -->
+  <g fill="#333" text-anchor="middle">
+    <text x="70" y="388">1</text>
+    <text x="266.7" y="388">10</text>
+    <text x="463.3" y="388">100</text>
+    <text x="660" y="388">1000</text>
+    <text x="365" y="412" font-size="13">一次前向处理的 token 行数 m（decode 时 m = B，投机验证时 m = B(γ+1)）</text>
+  </g>
+  <!-- y ticks -->
+  <g fill="#333" text-anchor="end">
+    <text x="62" y="374">1</text>
+    <text x="62" y="295.3">2</text>
+    <text x="62" y="191.4">5</text>
+    <text x="62" y="112.7">10</text>
+    <text x="62" y="34">20</text>
+  </g>
+  <text x="18" y="200" fill="#333" font-size="13" text-anchor="middle" transform="rotate(-90 18 200)">每步时间下界 T(m)（ms，Llama-3-8B，H100）</text>
+
+  <!-- ridge markers -->
+  <line x1="443.2" y1="30" x2="443.2" y2="370" stroke="#888" stroke-width="1" stroke-dasharray="4 4"/>
+  <line x1="561.6" y1="30" x2="561.6" y2="370" stroke="#888" stroke-width="1" stroke-dasharray="4 4"/>
+  <text x="440" y="44" fill="#555" font-size="11" text-anchor="end">ridge/4 ≈ 79</text>
+  <text x="565" y="44" fill="#555" font-size="11" text-anchor="start">ridge ≈ 316</text>
+
+  <!-- compute slope: T = m × 15.2 µs, from m=79 (1.2 ms) to m=1000 (15.2 ms) -->
+  <line x1="443.2" y1="349.3" x2="660" y2="61.2" stroke="#1e8449" stroke-width="2.5"/>
+  <text x="592" y="228" fill="#1e8449" font-size="12" text-anchor="middle" transform="rotate(-53 592 228)">compute：m × 15.2 µs</text>
+
+  <!-- BF16 memory floor: 4.79 ms flat until m=316 -->
+  <line x1="70" y1="192.2" x2="561.6" y2="192.2" stroke="#c0392b" stroke-width="2.5"/>
+  <text x="80" y="182" fill="#c0392b" font-size="12">BF16：16.06 GB / 3.35 TB/s = 4.8 ms</text>
+
+  <!-- W4A16 memory floor: 1.2 ms flat until m=79 -->
+  <line x1="70" y1="349.3" x2="443.2" y2="349.3" stroke="#2e6da4" stroke-width="2.5"/>
+  <text x="80" y="340" fill="#2e6da4" font-size="12">W4A16：4.0 GB / 3.35 TB/s = 1.2 ms</text>
+
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#666"/>
+    </marker>
+  </defs>
+
+  <!-- quantization: B=1, BF16 -> W4A16, 4x down -->
+  <line x1="380" y1="200" x2="380" y2="341" stroke="#666" stroke-width="1.2" stroke-dasharray="3 3" marker-end="url(#arr)"/>
+  <text x="372" y="272" fill="#666" font-size="11" text-anchor="end">量化：字节 ÷4，时间 ÷4</text>
+  <text x="372" y="287" fill="#666" font-size="11" text-anchor="end">（只在 m &lt; ridge/4 成立）</text>
+
+  <!-- speculative: B=1 -> m=5, free -->
+  <line x1="78" y1="210" x2="200" y2="210" stroke="#666" stroke-width="1.2" stroke-dasharray="3 3" marker-end="url(#arr)"/>
+  <text x="140" y="228" fill="#666" font-size="11" text-anchor="middle">投机 B=1 → m=5</text>
+  <text x="140" y="242" fill="#666" font-size="11" text-anchor="middle">T 不变，验证免费</text>
+
+  <!-- speculative: B=128 -> m=640, T doubles -->
+  <line x1="490" y1="188" x2="614" y2="118" stroke="#666" stroke-width="1.2" stroke-dasharray="3 3" marker-end="url(#arr)"/>
+  <text x="505" y="160" fill="#666" font-size="11" text-anchor="end">投机 B=128 → m=640</text>
+  <text x="505" y="174" fill="#666" font-size="11" text-anchor="end">T 4.8 → 9.7 ms，加速比 1.39</text>
+
+  <!-- points -->
+  <g stroke="#fff" stroke-width="1.5">
+    <circle cx="70" cy="192.2" r="6" fill="#c0392b"/>
+    <circle cx="207.5" cy="192.2" r="6" fill="#c0392b"/>
+    <circle cx="484.4" cy="192.2" r="6" fill="#c0392b"/>
+    <circle cx="621.9" cy="111.8" r="6" fill="#c0392b"/>
+    <circle cx="70" cy="349.3" r="6" fill="#2e6da4"/>
+  </g>
+  <g fill="#333" font-size="11">
+    <text x="484.4" y="209" text-anchor="middle">B=128</text>
+    <text x="628" y="108" text-anchor="start">m=640</text>
+    <text x="207.5" y="228" text-anchor="middle">m=5</text>
+  </g>
+
+  <!-- footnote -->
+  <text x="365" y="438" fill="#666" font-size="11" text-anchor="middle">两条平台是 memory-bound 区（字节决定时间），斜线是 compute-bound 区（FLOPs 决定时间）；量化下移平台，投机右移工作点</text>
+</svg>

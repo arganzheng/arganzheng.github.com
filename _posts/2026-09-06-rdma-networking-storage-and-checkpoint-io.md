@@ -167,7 +167,47 @@ k8s.v1.cni.cncf.io/network-status    Pod 上（Multus 写回）：每个接口�
 
 ### 3. 三种接入方式
 
-RDMA 网卡进 Pod 的第二张网卡有三种常见接法。它们决定的是**IP 接口**怎么进 Pod；RDMA 设备文件由第四章的 device plugin 负责，两者是正交的。
+RDMA 网卡进 Pod 的第二张网卡有三种常见接法。它们决定的是**IP 接口**怎么进 Pod；RDMA 设备文件由第四章的 device plugin 负责，两者是正交的。下图把这两条链放在一起看：kubelet 创建 Pod 时分别走 CNI 和 device plugin 两个扩展点，前者给 Pod 两个 IP 接口（`eth0` 走内核协议栈；`net1` 也是内核接口，但 NCCL 只用它做握手），后者把 `/dev/infiniband/*` 挂进容器；NCCL 的数据面最终只经 verbs 直达 HCA，两条链在此汇合。唯一的交叉点是 NAD 上的 `resourceName` 注解——host-device/sriov 接法需要 CNI 知道 device plugin 分到了哪张网卡。
+
+```mermaid
+flowchart TB
+    PodSpec["Pod spec<br/>annotations: k8s.v1.cni.cncf.io/networks: rdma-net<br/>resources.limits: rdma/rdma_shared_device_a: 1"]
+    subgraph ipchain["IP 接口这条链（第三章，CNI 扩展点）"]
+        Kubelet1["kubelet 调 CNI ADD"]
+        NAD["NAD rdma-net<br/>spec.config = CNI JSON<br/>注解 resourceName（host-device/sriov 才需要）"]
+        Multus["Multus 元插件<br/>读 networks 注解，取 NAD，逐个调 delegate"]
+        DefCNI["默认 CNI<br/>Calico / Cilium / Flannel"]
+        Delegate["delegate CNI<br/>ipoib / macvlan / host-device / sriov"]
+        Eth0["eth0：veth + overlay IP<br/>Service / NetworkPolicy / DNS 只认它<br/>数据走内核协议栈"]
+        Net1["net1：RDMA 侧 IP<br/>IPoIB 子接口 / macvlan / VF<br/>内核接口，只承担 OOB 握手与 RoCE GID"]
+    end
+    subgraph devchain["设备文件这条链（第四章，device plugin 扩展点）"]
+        Kubelet2["kubelet 调 device plugin Allocate"]
+        DP["rdma-shared-dev-plugin（一组 PF × rdmaHcaMax）<br/>或 SR-IOV device plugin（一 VF 一 Pod）"]
+        DevFiles["/dev/infiniband/uverbsN umadN issmN rdma_cm<br/>以 rwm 挂进容器；需 IPC_LOCK"]
+    end
+    Verbs["NCCL IB transport<br/>用户态 verbs 经 uverbsN 下发工作请求<br/>数据 GPU 显存 ⇄ HCA（GPUDirect RDMA），绕过内核协议栈"]
+
+    PodSpec --> Kubelet1
+    PodSpec --> Kubelet2
+    Kubelet1 --> Multus
+    NAD --> Multus
+    Multus --> DefCNI --> Eth0
+    Multus --> Delegate --> Net1
+    Kubelet2 --> DP --> DevFiles
+    DP -. "分配结果（PCI deviceID）经 resourceName 注解传给 delegate" .-> Delegate
+    Net1 -- "握手" --> Verbs
+    DevFiles -- "数据面" --> Verbs
+
+    classDef kernel fill:#fde2e2,stroke:#c0392b;
+    classDef bypass fill:#e3f4e1,stroke:#2e7d32;
+    classDef oob fill:#fff4d6,stroke:#b7791f;
+    class Eth0 kernel;
+    class Net1 oob;
+    class Verbs,DevFiles bypass;
+```
+
+红色是走内核协议栈的数据路径（NCCL 回落到 socket 时用的就是它），黄色是只做控制面的接口，绿色是 RDMA 数据面。三种接法的差别只在 `Delegate → Net1` 这一格：
 
 ```text
 接入方式       CNI 类型       进 Pod 的是什么                       独占性              适用
@@ -401,7 +441,39 @@ spec.gdrcopy.enabled              GDRCopySpec：gdrdrv 驱动
 
 ### 3. 两个 Operator 的顺序
 
-两者的依赖关系是：**nvidia_peermem 要针对当前的 OFED 内核模块编译并在其后加载**。所以推荐顺序是 Network Operator 的 OFED 驱动先就位，GPU Operator 的驱动容器再启动；OFED 升级重载后，`nvidia-peermem-ctr` 的 `reload_nvidia_peermem` 负责重新加载。Network Operator 用节点标签 `network.nvidia.com/operator.mofed.wait` 表达"OFED 尚未就绪"（`controllers/mofed_wait_labels.go` 设置；`pkg/nodeinfo/attributes.go` 的 `NodeLabelWaitOFED`），GPU Operator 在 `internal/nodeinfo/attributes.go` 里定义了同名常量；这个标签也出现在 Network Operator Helm values 的 `configDaemonNodeSelector` 里。两个 Operator 各自的 Helm 参数与安装顺序以 NVIDIA 文档为准，本篇只说明机制。
+两者的依赖关系是：**nvidia_peermem 要针对当前的 OFED 内核模块编译并在其后加载**。所以推荐顺序是 Network Operator 的 OFED 驱动先就位，GPU Operator 的驱动容器再启动；OFED 升级重载后，`nvidia-peermem-ctr` 的 `reload_nvidia_peermem` 负责重新加载。Network Operator 用节点标签 `network.nvidia.com/operator.mofed.wait` 表达"OFED 尚未就绪"（`controllers/mofed_wait_labels.go` 设置；`pkg/nodeinfo/attributes.go` 的 `NodeLabelWaitOFED`），GPU Operator 在 `internal/nodeinfo/attributes.go` 里定义了同名常量；这个标签也出现在 Network Operator Helm values 的 `configDaemonNodeSelector` 里。两个 Operator 各自的 Helm 参数与安装顺序以 NVIDIA 文档为准，本篇只说明机制。把这条依赖链画出来，两个 Operator 之间靠的是一个宿主机路径和一个节点标签：
+
+```mermaid
+flowchart TB
+    NCP["NicClusterPolicy.spec.ofedDriver<br/>（Network Operator）"]
+    OFED["OFED / DOCA 驱动容器 DaemonSet<br/>加载 mlx5_core · ib_core · ib_uverbs · rdma_cm"]
+    Publish["驱动树发布到宿主机<br/>/run/mellanox/drivers"]
+    WaitLabel["节点标签 network.nvidia.com/operator.mofed.wait<br/>OFED 就绪前存在，就绪后移除"]
+    CP["ClusterPolicy.spec.driver.rdma.enabled = true<br/>（GPU Operator）"]
+    GPUDrv["GPU 驱动容器 DaemonSet<br/>nvidia / nvidia_uvm / nvidia_modeset"]
+    Peermem["nvidia-peermem-ctr sidecar<br/>挂 /run/mellanox/drivers（HostToContainer）<br/>reload_nvidia_peermem：针对当前 ib_core 编译并加载"]
+    Validator["validator：lsmod 有 nvidia_peermem<br/>→ 写 nvidia-peermem-ready 状态文件"]
+    Ready["Pod 里 NCCL 日志出现 via NET/IB/N/GDRDMA"]
+    Upgrade["OFED 升级（upgradePolicy）<br/>drain 节点 → 重载 mlx5_core<br/>所有用着网卡的 Pod 断开"]
+
+    NCP --> OFED --> Publish
+    OFED --> WaitLabel
+    CP --> GPUDrv --> Peermem
+    WaitLabel -- "GPU Operator 用同名常量判断 OFED 是否就绪" --> GPUDrv
+    Publish -- "peermem 必须针对这套 ib_core 编译、在其后加载" --> Peermem
+    Peermem --> Validator --> Ready
+    Upgrade --> OFED
+    Upgrade -. "重载后 probe_nvidia_peermem 失败，sidecar 重新 reload" .-> Peermem
+
+    classDef netop fill:#e3f0fb,stroke:#1f5f99;
+    classDef gpuop fill:#e3f4e1,stroke:#2e7d32;
+    classDef warn fill:#fde2e2,stroke:#c0392b;
+    class NCP,OFED,Publish,WaitLabel netop;
+    class CP,GPUDrv,Peermem,Validator gpuop;
+    class Upgrade warn;
+```
+
+蓝色属于 Network Operator，绿色属于 GPU Operator；两条实线跨色边就是全部耦合点。红色的 OFED 升级会把整条链从头重跑一遍，这也是为什么 `maxParallelUpgrades: 1` 与 `drain` 在训练集群上几乎是必配的。
 
 ### 4. `nvidia_peermem` 与 DMA-BUF
 
@@ -524,7 +596,36 @@ Channel 00/0 : 0[0] -> 8[0] [send] via NET/IB/0/GDRDMA                src/transp
 GPU Direct RDMA Disabled for GPU 3 / HCA … (distance 5 > 3)           src/graph/paths.cc               peermem/DMA-BUF 在但拓扑距离超过 NCCL_NET_GDR_LEVEL
 ```
 
-只要第一行列出了正确数量的 HCA、`Using network IB`、每个 channel 都有 `GDRDMA`，网络这一层就是通的；再慢就不是平台的问题，而是第三章之外的调优范围。
+只要第一行列出了正确数量的 HCA、`Using network IB`、每个 channel 都有 `GDRDMA`，网络这一层就是通的；再慢就不是平台的问题，而是第三章之外的调优范围。按固定顺序读这几行，就是一棵四层决策树，每一层的"否"分支都对应一个明确的修法：
+
+```mermaid
+flowchart TB
+    Start["NCCL_DEBUG=INFO<br/>NCCL_DEBUG_SUBSYS=INIT,NET"]
+    Q1{"Using network<br/>IB 还是 Socket？"}
+    Sock["Using network Socket：回落了<br/>前面必有 NET/IB : No device found.<br/>容器里没有 uverbs：没请求 rdma/… 资源、<br/>selector 没匹配到网卡、节点 Allocatable 为 0"]
+    Q2{"NET/IB : Using<br/>HCA 数够？"}
+    FewHCA["NET/IB : Using 列出的 HCA 少于期望<br/>NCCL_IB_HCA 名字写成 netdev 名、^ 排除反了，<br/>或 shared plugin 的 selector 只选了部分网卡"]
+    Q3{"OOB 接口<br/>是 net1？"}
+    OOB["OOB eth0:10.244…：握手走了 overlay<br/>握手慢、偶发 timeout<br/>设 NCCL_SOCKET_IFNAME=net1"]
+    Q4{"每个 channel<br/>都有 /GDRDMA？"}
+    NoGDR["via NET/IB/N 后没有 /GDRDMA：数据经 host 内存中转，带宽约一半<br/>宿主机 lsmod 无 nvidia_peermem → 开 driver.rdma.enabled<br/>GPU Direct RDMA Disabled (distance N > M) → 拓扑 / NCCL_NET_GDR_LEVEL"]
+    OK["网络这一层是通的<br/>再慢看大消息 busbw：NCCL 调优或硬件问题，不在平台层"]
+
+    Start --> Q1
+    Q1 -- "Socket" --> Sock
+    Q1 -- "IB" --> Q2
+    Q2 -- "否" --> FewHCA
+    Q2 -- "是" --> Q3
+    Q3 -- "否" --> OOB
+    Q3 -- "是" --> Q4
+    Q4 -- "否" --> NoGDR
+    Q4 -- "是" --> OK
+
+    classDef bad fill:#fde2e2,stroke:#c0392b;
+    classDef good fill:#e3f4e1,stroke:#2e7d32;
+    class Sock,FewHCA,OOB,NoGDR bad;
+    class OK good;
+```
 
 ### 4. 常见的坑
 
@@ -645,6 +746,39 @@ spec:
 
 `ReadWriteMany` 是训练 checkpoint 的硬要求——64 个 Pod 同时写同一个目录。并行文件系统（Lustre、Storage Scale、WEKA、BeeGFS）各有自己的 CSI 驱动，也有很多集群直接在节点上挂好文件系统再以 `hostPath` 进 Pod——后者绕过了 CSI 的生命周期管理，但对静态、全集群共享的并行文件系统是常见做法。
 
+缓存层这一类方案（JuiceFS/Alluxio/Fluid）在 Pod 里也只是一个 PVC，但一次 `read()` 在节点上要经过的组件比并行文件系统多得多——元数据和数据分两条路，数据又按缓存命中与否分两条：
+
+```mermaid
+flowchart TB
+    subgraph podside["训练 Pod"]
+        DL["dataloader worker<br/>open / stat / read"]
+        Mount["PVC 挂载点（FUSE 文件系统）"]
+    end
+    subgraph nodeside["同一节点上的 CSI node 侧"]
+        FUSE["FUSE 客户端进程<br/>DaemonSet 或 per-PVC mount Pod<br/>占节点 CPU / 内存；重启时使用者 I/O 中断"]
+        Hit{"数据块在<br/>本地缓存？"}
+        Cache["本地 NVMe 缓存目录 → 数据沿原路返回 Pod<br/>hostPath / local PV<br/>容量与驱逐策略决定命中率"]
+    end
+    Meta["元数据引擎<br/>JuiceFS：Redis / TiKV 等；Alluxio：master<br/>open / stat 全走这里：小文件性能的来源，也是新的单点"]
+    Obj["对象存储（S3 / MinIO）<br/>数据集与权重的源"]
+
+    DL --> Mount --> FUSE
+    FUSE -- "元数据请求" --> Meta
+    FUSE -- "数据请求" --> Hit
+    Hit -- "命中：本地 NVMe 带宽" --> Cache
+    Hit -- "未命中：首次读受对象存储吞吐限制" --> Obj
+    Obj -- "回填缓存，再从缓存返回" --> Cache
+
+    classDef hot fill:#e3f4e1,stroke:#2e7d32;
+    classDef cold fill:#fde2e2,stroke:#c0392b;
+    classDef spof fill:#fff4d6,stroke:#b7791f;
+    class Cache hot;
+    class Obj cold;
+    class Meta,FUSE spof;
+```
+
+绿色是命中后的热路径（数据集第二个 epoch 起、权重第二个副本起走的路），红色是冷路径，黄色是平台要额外运维的两个进程——图里的每个黄框都对应下面的一条注意点。
+
 两个平台层的注意点：
 
 - **FUSE 客户端跑在哪**。JuiceFS/Alluxio 的 CSI 通常在节点上以 DaemonSet 或 per-PVC 的 mount Pod 运行 FUSE 进程；它的 CPU/内存是平台开销，而且升级 CSI 或 mount Pod 重启期间，用着这个卷的训练 Pod 的 I/O 可能中断（各产品的平滑升级能力以其文档为准）。
@@ -698,7 +832,25 @@ $$
 - `FileSystemWriter` 本身实现了 `BlockingAsyncStager`（`staging.py`）：stage 是同步的 D2H 拷贝（可用 pinned memory 加速），upload 在后台。
 - `DefaultStager(StagingOptions(use_pinned_memory=True, use_shared_memory=True, use_async_staging=True, use_non_blocking_copy=True))`：把 stage 也做成异步，训练几乎不停。
 
-于是算术变成：
+两种模式在一个 checkpoint 间隔内的时间线（横轴不按比例）——关键差别是训练在哪个时刻可以继续、存储写占据的是哪一段：
+
+```text
+                 ckpt N 开始                                ckpt N+1 开始
+                 │                                          │
+同步 dcp.save    │ ◀─── 停顿 ~60 s ───▶ │                   │
+  训练 (GPU)   ──┤   GPU 空转，等写完   ├── 训练 ~29 min ───┤ 停顿…
+  存储写       ──┤██ 1 TB @ 16.7 GB/s ██├────── 空闲 ───────┤███
+                 │                      │                   │
+异步 async_save  │◀ stage ▶ │                               │
+  训练 (GPU)   ──┤ D2H 秒级 ├──────── 训练 ~30 min ─────────┤ stage…
+  host 内存    ──┤ 15.6 GB/rank pinned 副本 ─ upload 完释放 ┤
+  存储写       ──┤          ├█ 1 TB @ ≥0.56 GB/s 后台 █├空闲┤███
+                            ▲                          ▲
+                            upload 开始                必须在 ckpt N+1 前完成，
+                                                       否则积压（监控这段时长）
+```
+
+同步模式下存储在 1 分钟里被压满、其余 29 分钟空闲，带宽需求由"停顿能忍多久"决定；异步模式下训练只在 stage 期间停，存储写被摊到整个间隔上，带宽需求由"下一次 checkpoint 之前写得完"决定，但 host 内存里的副本要一直驻留到 upload 结束。于是算术变成：
 
 ```text
                        同步 dcp.save                 异步 dcp.async_save
@@ -713,6 +865,17 @@ $$
 ```
 
 异步 checkpoint 把存储带宽需求降了一个量级以上，代价是每节点上百 GB 的 host 内存和"最新一份可能还没落盘"的语义。平台要做的是：给训练 Pod 留够 host 内存（`resources.requests.memory` 要算上这一份）、存储网与 RDMA 网分开（否则后台写会和 all_reduce 抢带宽）、并监控 upload 的完成时间是否一直小于 checkpoint 间隔——一旦超过就会积压。
+
+把同一套算术（14 字节/参数、30 分钟一次、同步要求 1 分钟写完）推到别的规模上，能看出哪一项随什么变化。下面全是推算，不是实测：
+
+| 任务规模 | 状态总量 | 同步：聚合写 | 同步：每节点 | 同步：每 rank | 异步：聚合写（30 min 内） | 异步：pinned host 内存 / 节点 |
+|---|---|---|---|---|---|---|
+| 7B，8 卡 1 节点 | ≈ 0.1 TB | 1.6 GB/s | 1.6 GB/s | 205 MB/s | 0.05 GB/s | ≈ 98 GB（整份状态压在一个节点） |
+| 70B，64 卡 8 节点（本文设定） | ≈ 1 TB | 16.7 GB/s | 2.1 GB/s | 260 MB/s | 0.56 GB/s | ≈ 125 GB |
+| 70B，1024 卡 128 节点（DP 扩到千卡） | ≈ 1 TB（总量与并行策略无关） | 16.7 GB/s | 0.13 GB/s | 16 MB/s | 0.56 GB/s | ≈ 8 GB |
+| 405B，1024 卡 128 节点 | ≈ 5.7 TB | 95 GB/s | 0.74 GB/s | 93 MB/s | 3.2 GB/s | ≈ 44 GB |
+
+三个规律：**聚合写带宽只跟状态总量挂钩**，与卡数无关——同一个 70B 从 64 卡扩到 1024 卡，存储侧的 16.7 GB/s 一分不少，只是摊到每节点、每 rank 的份额变小了；**千卡训练更大的模型时，同步写要的聚合带宽（这里 95 GB/s）对大多数集群配套的并行文件系统都是很高的要求**（能否达到以具体部署为准），异步才把它拉回到几 GB/s 的量级——这是"千卡任务默认异步 checkpoint"的算术依据；**异步的 host 内存代价随节点数摊薄**，反而是小集群跑大模型（第一行）最吃紧：8 卡节点要拿出近 100 GB host 内存放副本。
 
 ### 5. `dcp-bench.py`：测这两个数字
 

@@ -274,6 +274,35 @@ float sm90SpeedArrayInter[] = { 48.0, 45.0, 42.0, 40.0, 30.0, 24.0, 22.0, 20.0, 
 4. 有解后进入**第二个 pass**：`ncclTopoDupChannels` 在带宽够高时（`bwIntra >= 25`）把 channel 复制一倍、每条带宽减半；然后尝试升一档速度看能不能保持同样的 channel 数。
 5. 完全找不到时退化为"按 GPU 编号顺序的 1 条 ring，带宽 0.1"，并打 `Could not find a path for pattern %d, falling back to simple order`。
 
+把这个"搜—不完美—放宽一项—重搜"的循环和两个出口画出来：
+
+```mermaid
+flowchart TB
+  S0["从 speedArray 取第一个 ≤ maxBw 的速度<br/>bwIntra = bwInter = speed，sameChannels = 1"]
+  S1["ncclTopoSearchRec：DFS 回溯<br/>沿 type ≤ typeIntra 且余量 ≥ speed 的链路走遍所有 GPU<br/>每找到一条就从链路上扣带宽、记一个 channel"]
+  Q1{"nChannels × speed ≥ totalBw?<br/>(完美解，time == -1)"}
+  RL["第一个 pass：按顺序只放宽一项<br/>1 允许各 channel 不同 (sameChannels = 0)<br/>2 换更简单的 tree pattern<br/>3 放宽 typeIntra / typeInter<br/>4 允许 crossNic (进出不同 NIC)<br/>5 speed 降一档"]
+  QANY{"放宽项用尽：<br/>有过任何解?"}
+  P2["第二个 pass<br/>bwIntra ≥ 25 时 ncclTopoDupChannels：channel ×2、带宽 ÷2<br/>再试升一档速度，能保持 channel 数就采用"]
+  FB["退化：按 GPU 编号 1 条 ring，bw 0.1<br/>falling back to simple order"]
+  OUT["ncclTopoGraph：nChannels、bwIntra/bwInter<br/>typeIntra/typeInter、intra#91;#93; GPU 顺序、inter#91;#93; NIC"]
+  S0 --> S1 --> Q1
+  Q1 -->|"是"| P2
+  Q1 -->|"否，还有可放宽项"| RL
+  RL -->|"重搜"| S1
+  Q1 -->|"否"| QANY
+  QANY -->|"是，取最优的那个"| P2
+  QANY -->|"否"| FB
+  P2 --> OUT
+  FB --> OUT
+  classDef good fill:#e8f5e9,stroke:#2e7d32;
+  classDef bad fill:#fdecea,stroke:#c62828;
+  classDef q fill:#fff8e1,stroke:#f9a825;
+  class P2,OUT good;
+  class FB bad;
+  class Q1,QANY q;
+```
+
 结果由 `ncclTopoPrintGraph` 打出：`Pattern 4, crossNic 0, nChannels 12, bw 20.000000/20.000000, type NVL/PIX, sameChannels 1`，后面每行一个 channel 的 GPU 顺序（多机时首尾带 NET）。以 8 卡 A100 + NVSwitch 为例，GPU→NVS 链路 240 GB/s，`speedArrayIntra` 从 40 开始：40 一条只能放 6 条（240/40）、不到 totalBw；降到 20 可以放 12 条 = 240，命中 `nChannels*bwInter >= totalBw`，得到 **12 条 20 GB/s 的 ring**。这就是 A100 机器日志里常见的 `nChannels 12, bw 20.0/20.0` 的来源。
 
 ### 3. 从节点内图到全局 ring 与 tree：connect.cc
@@ -287,9 +316,61 @@ float sm90SpeedArrayInter[] = { 48.0, 45.0, 42.0, 40.0, 30.0, 24.0, 22.0, 20.0, 
 - **channel 复制**：`nChannels = min(MAXCHANNELS, nChannels*2)`——每个搜出来的 channel 变两个，第二份跑另一棵树（double binary tree 的两棵），ring 则完全相同。这是为什么 12 变 24。Hopper 多机且节点内带宽高时还会再翻一倍到 16 以上。
 - 最后按 `NCCL_MIN_NCHANNELS` / `NCCL_MAX_NCHANNELS`（旧名 `NCCL_MIN_NRINGS`/`NCCL_MAX_NRINGS`，`ncclMinNchannels`/`ncclMaxNchannels`）和 `ncclConfig_t` 的 `minCTAs`/`maxCTAs` 裁剪或复制，`ncclBuildRings` 从 prev/next 数组重建每条 ring 并校验它确实回到起点、包含所有 rank，rank 0 打出 `Channel %02d/%02d : 0 1 2 3 …`（`src/graph/rings.cc: dumpLine`）。
 
+以两节点、每节点 4 卡为例（**示意**），search.cc 给每个节点的是一条"NIC 进 → 4 个 GPU → NIC 出"的局部路径，`connectRings` 只做一件事——把出口接到下一个节点的入口：
+
+```text
+节点内图（search.cc 每节点一份，GPU 顺序 = intra[]）
+  节点 A: NET/1 -> GPU0 -> GPU3 -> GPU2 -> GPU1 -> NET/1  ringRecv=0 ringSend=1
+  节点 B: NET/1 -> GPU0 -> GPU3 -> GPU2 -> GPU1 -> NET/1  ringRecv=4 ringSend=5
+          (节点 B 的 rank = 4 + 本地 GPU 号)
+
+connectRings：节点 n 的 ringSend 接节点 n+1 的 ringRecv
+        +----------------- NVLink ------------------+
+        |   0 -----> 3 -----> 2 -----> 1            |   节点 A
+        |   ^                          |            |
+        +---|--------------------------|------------+
+            | IB (NET/1)               | IB (NET/1)
+        +---|--------------------------|------------+
+        |   5 <----- 6 <----- 7 <----- 4            |   节点 B
+        +----------------- NVLink ------------------+
+
+日志（rank 0 视角）：
+  Channel 01/xx :  0  3  2  1  4  7  6  5     rings.cc: dumpLine，全局顺序
+  Ring 01 : 5 -> 0 -> 3                      prev=5 在另一台机器，next=3 在本机
+```
+
+一圈 8 步里 6 步走 NVLink、2 步走 IB——这就是第八章 ring 延迟公式里 `nsteps - nInterSteps` 与 `nInterSteps` 的来源。
+
 ### 4. double binary tree
 
 `src/graph/trees.cc` 只有一百多行，值得读一遍。`ncclGetBtree` 用位运算建一棵"叶节点和内部节点交替"的二叉树：rank 的最低置位比特决定它在第几层，父节点是把该比特清零再置高一位，两个子节点是加减半个比特。`ncclGetDtree` 用它建两棵树：偶数个节点时第二棵是第一棵的**镜像**（rank $$r$$ 映射到 $$n-1-r$$），奇数时是**平移一位**。效果是：在第一棵树里是叶子的节点，在第二棵里是内部节点，反之亦然。第一篇讲过朴素二叉树的带宽只有一半（叶子只发不收或只收不发），两棵互补的树各承担一半数据，把带宽补回来——这就是第一篇 tree 一节的实现。
+
+8 个节点时两棵树长这样（顶点是**节点**而不是 GPU；节点内 GPU 挂成链）：
+
+```text
+ncclGetDtree(nNodes = 8)
+
+  树 0（ncclGetBtree）                树 1（偶数节点：镜像 r -> 7-r）
+              0                                    7
+              |                                    |
+              4                                    3
+            /   \                                /   \
+           2     6                              5     1
+          / \   / \                            / \   / \
+         1   3 5   7                          6   4 2   0
+
+  内部节点  0 4 2 6（偶数）             7 3 5 1（奇数）
+  叶子      1 3 5 7（奇数）             6 4 2 0（偶数）
+  -> 每个节点在一棵树里是叶子（只收或只发），在另一棵里是内部节点；
+     两棵树各跑一半数据，两个方向的链路都被用上。
+
+  ncclGetBtree(rank) 的位运算：b = rank 的最低置位比特
+    父 = (rank ^ b) | (b << 1)，越界则 rank ^ b；子 = rank -/+ b/2
+    例：rank 6 = 0b110，b = 2 -> 父 (4)|4 = 4，子 5、7
+        rank 4 = 0b100，b = 4 -> 父 (0)|8 = 8 越界 -> 0，子 2、6
+```
+
+两节点时退化为 `0 -> 1` 与 `1 -> 0`，对应第十章日志里 `Tree 0 : -1 -> 0 -> 1/8/-1`（rank 0 是第一棵树的根）和 `Tree 12 : 8 -> 0 -> …`（第二棵树里 hostB 的 8 是 rank 0 的父）。
 
 树的深度记在 `channel->tree.depth = nRanks/nNodes - 1 + log2i(nNodes)`：节点内链的长度加节点间树的高度。8 卡 × 32 节点：$$7 + 5 = 12$$。
 
@@ -444,6 +525,29 @@ do {
 
 **LL128**（`src/device/prims_ll128.h`）。LL 的思路，但把粒度放大到 128 字节：一个 warp 的 8 个线程各持 16 字节组成一个 128 字节的 line，其中 **120 字节数据 + 8 字节 flag**（`NCCL_LL128_LINESIZE 128`、`NCCL_LL128_DATAELEMS 15`，即 15 个 8 字节数据 + 1 个 8 字节 flag；`flagThread = (tid % 8) == 7`，每 8 个线程里第 8 个的高 8 字节存 flag）。接收方只检查 flag 那 8 字节。这依赖一个硬件保证：**128 字节的写在 NVLink 上按顺序、整体可见**——flag 可见时同一 line 的 120 字节一定可见。PCIe 不给这个保证，所以 LL128 只在 NVLink 路径上启用（下一小节）；发送到网络时 proxy 在 sysmem 里要逐 line 检查 flag（`sendProxyProgress` 里对 LL128 的特殊处理）。**带宽效率 120/128 = 93.75%**（调优模型用 0.92），延迟介于 LL 和 Simple 之间。它需要 `__threadfence`（Hopper 上 `__threadfence_system`）只在跨 step 边界处做一次（`postSend`），比 Simple 每 slot 一次 fence 便宜的原因是它的 step 更小、且数据自身带 flag 不需要接收方额外一次 `tail` 往返。
 
+两种"数据自带 flag"的 line 布局对照如下——效率 50% 与 93.75% 就是从格子数直接读出来的：
+
+```text
+LL：ncclLLFifoLine，16 B = 一条 st.volatile.global.v4.u32（原子）
+ byte   0       4       8       12      16
+        +-------+-------+-------+-------+
+        | data1 | flag1 | data2 | flag2 |     8 B 数据 + 8 B flag -> 50%
+        +-------+-------+-------+-------+
+         val 低 32 位    val 高 32 位         flag = NCCL_LL_FLAG(step+1)
+ 接收方：16 B volatile load，直到 flag1 == flag2 == 期望值；flag 在数据之后，
+        网络上 8 B 原子/有序送达也不会出现"flag 到了数据没到"
+
+LL128：一个 128 B line 由一个 warp 里的 8 个线程各持 16 B 拼成
+ 线程    t0      t1      t2      t3      t4      t5      t6      t7
+        +-------+-------+-------+-------+-------+-------+-------+-------+
+        | d | d | d | d | d | d | d | d | d | d | d | d | d | d | d | F |
+        +-------+-------+-------+-------+-------+-------+-------+-------+
+ byte   0      16      32      48      64      80      96     112 120 128
+ d = 8 B 数据 × 15 = 120 B，F = 8 B flag（flagThread = tid%8 == 7 的高 8 B）
+ -> 120/128 = 93.75%；接收方只查 F；依赖 NVLink 上 128 B 写整体按序可见，
+    PCIe 不给这个保证，所以 LL128 只在 NVLink 路径上启用
+```
+
 ### 3. 效率与延迟排序
 
 ```text
@@ -462,6 +566,33 @@ Simple    ≈ 100%        512 KiB slot + fence + head/tail     最高   最高  
 - `NCCL_PROTO` / `NCCL_ALGO` 环境变量：`parseList` 支持 `ring,tree`、`^LL128`（排除）、`allreduce:tree;broadcast:ring`（按集合操作分别指定）。rank 0 会打 `NCCL_ALGO set by environment to …` 和一张 `Enabled NCCL Func/Proto/Algo Matrix`。
 - **LL128 默认"条件启用"**（`protoEnable = 2`）：要求节点内路径类型 ≤ `NVB`（必须是 NVLink）、节点间路径类型 ≤ `PXB`（Hopper 起放宽到 `PXN`/`P2C`，`NCCL_LL128_C2C`）、所有 GPU 计算能力相同且 ≥ 7.0。**纯 PCIe 机器上 LL128 是关的**。
 - 单机禁 NVLSTree；没有 collnet 时禁 CollNetDirect/CollNetChain 和多机的 NVLS；没有 NVSwitch 禁 CollNetDirect；NVLS/NVLSTree 只有 Simple；CollNet 只有 Simple；PAT 只有 Simple。
+
+把这些判定按 all_reduce 串起来，就是"初始化的拓扑输入 → 执行期候选集"的决策链（第八章的手算只在候选集里比大小）：
+
+```mermaid
+flowchart TB
+  IN["输入：typeIntra / typeInter、有无 NVS、nNodes、collnet 插件、计算能力<br/>Ring、Tree、LL、Simple 总是可用，三道门决定还能加什么"]
+  Q128["门 1  typeIntra ≤ NVB 且 typeInter ≤ PXB (Hopper 起 PXN/P2C)<br/>且各 GPU 计算能力相同且 ≥ 7.0 ?"]
+  QNVS["门 2  有 NVSwitch、Hopper 起、驱动支持 cuMulticast ?"]
+  QN1["nNodes == 1 ?"]
+  QCN["门 3  有 collnet 插件且 nNodes ≥ NCCL_COLLNET_NODE_THRESHOLD ?"]
+  ENV["NCCL_ALGO / NCCL_PROTO 再清零一部分，rank 0 打印 Enabled Func/Proto/Algo Matrix"]
+  SEL["bandwidths#91;coll#93;#91;algo#93;#91;proto#93; ≠ 0 的组合 = 执行期候选集<br/>ncclTopoGetAlgoTime 对每个候选算 T = lat × latCount + S / (1000 × bw)，取最小"]
+  IN --> Q128
+  Q128 -->|"是：+ Ring/Tree 的 LL128"| QNVS
+  Q128 -->|"否：LL128 全为 0 (纯 PCIe、混卡)"| QNVS
+  QNVS -->|"否：NVLS / NVLSTree 全为 0"| QCN
+  QNVS -->|"是"| QN1
+  QN1 -->|"是：+ NVLS+Simple"| QCN
+  QN1 -->|"否：+ NVLSTree+Simple"| QCN
+  QCN -->|"是：+ CollNetChain+Simple，有 NVSwitch 再 + CollNetDirect 与多机 NVLS"| ENV
+  QCN -->|"否：CollNet 全为 0，多机 NVLS = 0"| ENV
+  ENV --> SEL
+  classDef q fill:#fff8e1,stroke:#f9a825;
+  classDef out fill:#e8f5e9,stroke:#2e7d32;
+  class Q128,QNVS,QN1,QCN q;
+  class SEL out;
+```
 
 所以"NCCL 为什么不用 LL128"的答案几乎总是路径类型：日志里 `type PIX/PIX` 或 `type PHB/…` 就是原因。
 
@@ -668,6 +799,31 @@ CUCHECKGOTO(cuLaunchKernelEx(&launchConfig, fn, nullptr, extra), ret, do_return)
 
 kernel 名形如 `ncclDevKernel_AllReduce_Sum_f32_RING_LL128`（`src/device/generate.py` 生成，profiler 里看到的就是它）。`ncclKernelMain`（`src/device/common.h`）里每个 block：用 `channelMask` 算自己是第几个置位 → 得到 `channelId`；warp 0 把 `ncclKernelComm` 拷进 shared memory、warp 1 拷本 channel 的 `ncclDevChannel`、其余 warp 加载工作批（`loadWorkBatchToShmem`）；然后按 `funcId` 跳到 `RunWorkBatch<coll, ty, redop, algo, proto>::run()`，批里还有下一批就继续，直到 `nextBatchIx == -1`。**同一个 kernel 可以顺序执行多个集合操作**（一个 group 里的），这是 group 减少 kernel 启动次数的机制。
 
+任务、channel、block 三者的映射（**示意**，一个 group 里两个 all_reduce）：
+
+```text
+group 内：A = 1 MB   -> Algo Ring proto Simple channel{Lo..Hi}={0..7}
+          B = 64 KB  -> Algo Tree proto LL     channel{Lo..Hi}={0..1}
+
+ncclKernelPlan (channelMask = 0b1111_1111) ==> 一次 cuLaunchKernelEx，grid = 8
+
+              block 0   block 1   block 2   block 3         block 7
+              ch 0      ch 1      ch 2      ch 3            ch 7
+             +---------+---------+---------+---------+     +---------+
+ work batch 0| A 的1/8 | A 的1/8 | A 的1/8 | A 的1/8 | ... | A 的1/8 |
+             +---------+---------+---------+---------+     +---------+
+ work batch 1| B 的1/2 | B 的1/2 |   --    |   --    | ... |   --    |
+             +---------+---------+---------+---------+     +---------+
+              nextBatchIx == -1 -> 该 block 结束
+
+ batch 0：8 个 block 各沿自己那条 ring 跑完整个 ring 算法，处理 A 的 1/8
+ batch 1：只有 ch 0/1 的 block 再沿 tree 跑 B 的 1/2，其余 block 直接退出
+ 每个 block：channelMask -> channelId -> 拷 ncclDevChannel 进 shmem
+             -> 按 batch 的 funcId 跳到 RunWorkBatch<...algo,proto>::run()
+```
+
+不同 channel 之间没有任何同步——同一份数据被切成 8 份各走各的 ring，这就是第六章说"channel 是并行度单位"的含义。
+
 ### 4. 设备侧原语
 
 `src/device/all_reduce.h` 的 `runRing` 就是第一篇的 ring 算法逐字翻译：
@@ -712,6 +868,35 @@ NET transport 的 `sendProxyProgress`（`src/transport/net.cc`）对每个 chann
 3. 对 `done < transmitted` 的请求调 `ncclNet->test`，完成了就 `sendHead` 前进，GPU 可以复用该 slot。
 
 接收侧 `recvProxyProgress` 对称：先 `irecv` 把 slot 交给网卡，完成后（GDR 时可能还要 `iflush` 确保数据对 GPU 可见）推 `recvMem->tail` 让 GPU 去读。所有 GPU–proxy 之间的同步都靠 `head`/`tail` 这两个 64 位计数器，位于 GPU 能读写的内存里（`gdcSync` 开着时用 GDRCopy 让 CPU 直接写显存里的计数器，省一次 PCIe 往返——第三篇讲的 GDRCopy 用途）。
+
+一个 slot 从发送端 GPU 写入到接收端 GPU 读走，五个参与者之间谁等谁：
+
+```mermaid
+sequenceDiagram
+  participant GK as 发送端 GPU kernel
+  participant SP as 发送端 proxy
+  participant NET as 网卡 / 网络
+  participant RP as 接收端 proxy
+  participant RK as 接收端 GPU kernel
+  Note over GK,RK: GPU 与 proxy 之间只靠 head / tail 两个 64 位计数器同步
+  SP->>GK: posted++，写 sendMem.head（有 slot 可写）
+  RP->>NET: irecv(slot)，先把接收 slot 交给网卡
+  GK->>GK: 归约后把 chunk 写进 slot
+  GK->>SP: recvMem.tail++，connFifo 记下该 slot 的字节数
+  SP->>NET: 轮询看到 tail 前进，isend(slot)，transmitted++
+  NET->>NET: RDMA write，GDR 时直接落对端显存
+  loop 每轮 progress
+    SP->>NET: test(request)
+  end
+  NET-->>SP: 发送完成，done++，推 sendHead（slot 可复用）
+  NET-->>RP: test 返回接收完成，GDR 时再 iflush
+  RP->>RK: recvMem.tail++（数据可读）
+  RK->>RK: waitPeer 自旋看到 tail 前进，读 slot、归约、继续
+  RK->>RP: head++（slot 已消费，可再 irecv）
+  Note over GK,RK: 每个 channel 一份 ProxyArgs 独立推进，最多 NCCL_STEPS = 8 个 slot 在飞
+```
+
+GPU 侧的等待全部是自旋（`waitPeer`），proxy 侧的等待是 `test` 轮询——任何一环停下来，另一环就永远等着。
 
 为什么它是 hang 和性能问题的常见源头：
 

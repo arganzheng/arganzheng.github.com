@@ -240,7 +240,9 @@ $$
 
 这解释了几个常见的观察：为什么 8 卡节点内要到 64～128 MB 才接近平台；为什么 64 卡跨机的曲线在 256 MB 以下都"看起来没跑满"；为什么 DDP 默认 25 MB 的 bucket 在单机 8 卡上刚过拐点、在 64 卡上还在爬坡（这是为什么大规模下 NCCL 会为中等消息选 Tree——把 $$2(n-1)$$ 步的延迟项换成 $$2\log_2 n$$ 步）。
 
-把这些预测线叠在实测曲线上，就是第十章 `sweep.sh` 画的图。预测与实测的三种偏差各有含义：**平台低**是 β 的问题（路径、GDR、channel）；**左端整体偏低**（小消息 time 偏大）是 α 的问题（协议、跨 NUMA、proxy）；**中段偏离**是算法/协议切换的问题。
+把这些预测线叠在实测曲线上，就是第十章 `sweep.sh` 画的图。预测与实测的三种偏差各有含义：**平台低**是 β 的问题（路径、GDR、channel）；**左端整体偏低**（小消息 time 偏大）是 α 的问题（协议、跨 NUMA、proxy）；**中段偏离**是算法/协议切换的问题。下图用 ring 模型把三种偏差画在同一张对数坐标图上（8×H100 的典型参数，非实测）——α 的问题只动左半段，β 的问题只动右半段，切换点的问题只在拐点附近出现：
+
+![ring 模型下的 busbw 曲线：延迟主导区、拐点区、带宽主导区，以及 α 翻倍、β 减半、中段凹陷三种偏差的形状](/img/in-post/nccl-tests-tuning-and-debugging-hangs-busbw-curve.svg)
 
 ### 3. 三条参考线
 
@@ -634,6 +636,30 @@ watchdog 发现某个 work 超时
   → 看到就调用 dumpDebuggingInfo()，把 FlightRecorder 的内容 pickle 后交给 DebugInfoWriter::write 写文件
 ```
 
+这条流程里有两个线程、两类 rank 在协作——超时的 rank 的 watchdog 只负责"喊"，真正写文件的是每个 rank 自己的 monitor 线程，包括那个没有超时的掉队者：
+
+```mermaid
+sequenceDiagram
+    participant WD as rank k 的 watchdog
+    participant ST as TCPStore
+    participant MK as rank k 的 monitor
+    participant M5 as rank 5 的 monitor (掉队者)
+    Note over WD: checkTimeout() 为真：某 work 超过 opTimeout_
+    WD->>WD: 打 timeout 日志, printTraceback()
+    WD->>ST: broadcastDumpSignal() 写 key exception_dump
+    WD->>MK: shouldDump_ = true
+    loop 每 TORCH_NCCL_COORD_CHECK_MILSEC (1 s)
+        MK->>ST: 查 exception_dump
+        M5->>ST: 查 exception_dump
+    end
+    ST-->>MK: 有信号
+    ST-->>M5: 有信号
+    MK->>MK: dumpDebuggingInfo() 写 trace_k
+    M5->>M5: dumpDebuggingInfo() 写 trace_5 (没超时也 dump)
+    Note over WD,MK: watchdog sleep 4 x WAIT_TIMEOUT_DUMP_MILSEC (60 s) 给 dump 留时间
+    WD->>WD: 抛 DistBackendError (ASYNC_ERROR_HANDLING=3), 进程退出
+```
+
 于是**所有 rank**——包括那个没超时、只是掉队的 rank——都会 dump。这是它能对齐的前提。如果 TCPStore 已经不可用（rank 0 死了），其他 rank 收不到信号，就只能靠各自的 timeout 触发本地 dump。
 
 不想等 10 分钟 timeout 时，有两条手动触发的路：`torch._C._distributed_c10d._dump_nccl_trace()`（Python 侧，返回 pickle bytes，需要 Python 线程能响应——hang 在 `.item()` 时它不能）；或者设置 `TORCH_NCCL_DEBUG_INFO_PIPE_FILE=/tmp/fr_pipe`，hang 时 `echo 1 > /tmp/fr_pipe<rank>.pipe`，monitor 线程会 dump（它不依赖 Python 线程；管道只在 uid 为 0 的默认 PG 上创建，按全局 rank 命名）。后者是复现实验里最方便的。
@@ -665,7 +691,37 @@ COLLECTIVE_STATE_MISMATCH   有的 completed、有的 scheduled/started         
 UNDECIDED                   alltoall 这类需要看全部 rank 才能判断
 ```
 
-输出里第一处非 `FULLY_MATCHED` 的序号和 `culprit` rank 就是答案。对类 B 有一个细节：如果每一步的 all_reduce 大小完全相同，跳过一次的 rank 在后续每个序号上的形状都与别人一致，匹配会一路 `FULLY_MATCHED`，直到最后一个序号上别人有条目、它没有——这时报的是 `COLLECTIVE_STATE_MISMATCH` 或缺失条目，指向同一个 rank，只是不能告诉你它是在哪一步跳过的。真实训练里 DDP bucket、FSDP 各层参数的形状各不相同，所以这个歧义很少出现；第十章 `hang_lab/` 的脚本故意让每步大小不同，就是为了让匹配结果无歧义。
+输出里第一处非 `FULLY_MATCHED` 的序号和 `culprit` rank 就是答案。把 64 份账本按序号排成一张表，三大类 hang 各有一眼可辨的签名——这正是第九章决策树 hang 分支第一层"一致还是不一致"的判据：
+
+```text
+fr_trace.py 的视角：一行一个 rank，一格一条 entry；格内是 input_sizes（元素数）
+与状态：C = completed，S = started（kernel 已启动、在等对端）
+
+① 类 A（代码）：同一序号上形状不同 → SIZE_OR_SYNTAX_MISMATCH，culprit = rank 3
+          seq 4        seq 5        seq 6
+rank 0    [1M] C       [2M] C       [3M] S
+rank 1    [1M] C       [2M] C       [3M] S
+rank 3    [1M] C       [2M] C       [3M+1K] S   ← 只有它不同，看这条的 Python 栈
+rank 7    [1M] C       [2M] C       [3M] S
+  （类 B 的样子相同：跳过一次的 rank 在该序号上顶着"下一步"的形状 [4M]）
+
+② 类 E-卡住（环境）：rank 5 比别人少一条，且它的最后一条是 C
+          seq 4        seq 5        seq 6
+rank 0    [1M] C       [2M] C       [3M] S
+rank 1    [1M] C       [2M] C       [3M] S
+rank 5    [1M] C       [2M] C         --        ← 没调用 seq 6：卡在 torch.save
+rank 7    [1M] C       [2M] C       [3M] S
+  （类 E-崩溃：rank 5 连 dump 文件都没有，fr_trace 加 --allow-incomplete-ranks）
+
+③ 类 F（网络 / 硬件）：全部 rank 完全一致，都停在 seq 6、都是 S
+          seq 4        seq 5        seq 6
+rank 0    [1M] C       [2M] C       [3M] S
+rank 1    [1M] C       [2M] C       [3M] S
+ ...       ...          ...          ...
+rank 63   [1M] C       [2M] C       [3M] S      ← 无 culprit：看 WARN、dmesg
+```
+
+对类 B 有一个细节：如果每一步的 all_reduce 大小完全相同，跳过一次的 rank 在后续每个序号上的形状都与别人一致，匹配会一路 `FULLY_MATCHED`，直到最后一个序号上别人有条目、它没有——这时报的是 `COLLECTIVE_STATE_MISMATCH` 或缺失条目，指向同一个 rank，只是不能告诉你它是在哪一步跳过的。真实训练里 DDP bucket、FSDP 各层参数的形状各不相同，所以这个歧义很少出现；第十章 `hang_lab/` 的脚本故意让每步大小不同，就是为了让匹配结果无歧义。
 
 ### 6. `TORCH_NCCL_DESYNC_DEBUG`
 
@@ -680,7 +736,22 @@ Flight Recorder 之前的机制，仍然可用。开启后（`ProcessGroupNCCL.c
 
 `torch/distributed/distributed_c10d.py` 的 `init_process_group(timeout=None)`：NCCL 后端默认 `default_pg_nccl_timeout` = 10 分钟（`ProcessGroupNCCL.hpp` 的 `kProcessGroupNCCLDefaultTimeout` = 10 × 60 × 1000 ms；其他后端 `kProcessGroupDefaultTimeout` = 30 分钟）。这个值成为每个 `WorkNCCL` 的 `opTimeout_`，也可以在 `new_group(timeout=)` 里按 PG 覆盖。
 
-它约束的是：**从 `WorkNCCL` 对象创建（即 CPU 线程调用 `dist.all_reduce` 的那一刻，`workStartTime_ = steady_clock::now()`）到 watchdog 观察到它的结束 event 完成之间的墙钟时间**。注意三点：
+它约束的是：**从 `WorkNCCL` 对象创建（即 CPU 线程调用 `dist.all_reduce` 的那一刻，`workStartTime_ = steady_clock::now()`）到 watchdog 观察到它的结束 event 完成之间的墙钟时间**。把 CPU 线程、NCCL stream 与 watchdog 三条时间线并排，这个区间覆盖了什么、不覆盖什么就清楚了：
+
+```text
+t0 = CPU 调用 dist.all_reduce：WorkNCCL 创建，workStartTime_ 起算
+│
+│ CPU 线程    ─┬─ 立即返回 ── Python 继续 ── .item()/wait() 阻塞 ─────────────▶
+│              │                              （CPU 侧等多久，timeout 不管）
+│ NCCL stream ─┴─[排在前面的 GEMM 30 s]─[NCCL kernel 自旋等对端 ……]─[end event]
+│                                                                            │
+│ watchdog     每 1 s：now − workStartTime_ > opTimeout_ 且 end event 未完成？
+│
+├──────────── opTimeout_ 计量区间（默认 10 min，含排队与等对端）──────────────┤
+t0                                                              end event 完成
+```
+
+注意三点：
 
 - 时钟从 CPU enqueue 开始，不是从 kernel 开始执行。如果 NCCL stream 前面排着一个 30 秒的 GEMM（第五篇的 stream 依赖），这 30 秒也算在里面；
 - 它不约束 CPU 侧的任何等待。`work.wait()` 默认是 stream 级等待不阻塞 CPU（第五篇），Python 线程卡在别处与这个 timeout 无关——除非 `TORCH_NCCL_BLOCKING_WAIT=1`，那时 `wait()` 会在 CPU 上轮询 `isCompleted()` 并在同一个 timeout 后抛异常（这个模式下 2.12 不再创建 watchdog 线程，日志里会有 "TORCH_NCCL_BLOCKING_WAIT is enabled, NO watchdog thread is created"）；

@@ -8,7 +8,7 @@ catalog: true
 
 > 本文是[《AI 平台工程：资源层与交付层》](/ai-platform-engineering.html)系列的第 2 篇（共八篇）。上一篇：[引擎的需求清单与平台的整体架构](/ai-platform-engine-requirements-and-architecture.html)　下一篇：[AI 任务调度：gang scheduling、队列与拓扑感知](/ai-job-scheduling-gang-queue-topology.html)
 
-上一篇结束在一个 Pending 的 Pod 上：`resources.limits` 里写了 `nvidia.com/gpu: 1`，`kubectl describe` 里是 `0/3 nodes are available: 3 Insufficient nvidia.com/gpu`。原因很直接——没有任何组件告诉 kubelet 这台机器上有 GPU。但把 device plugin 装上、Pod 调度成功之后，故障并没有结束，只是换了地方：Pod `Running`，`torch.cuda.is_available()` 返回 `False`，日志里一行 `CUDA driver version is insufficient for CUDA runtime version`；或者容器根本起不来，`kubectl describe` 里是 `nvidia-container-cli: requirement error: unsatisfied condition: cuda>=13.0`；或者一切正常，直到某个 kernel 启动时报 `the provided PTX was compiled with an unsupported toolchain`。
+上一篇结束在一个 Pending 的 Pod 上：`resources.limits` 里写了 `nvidia.com/gpu: 1`，`kubectl describe` 里是 `0/3 nodes are available: 3 Insufficient nvidia.com/gpu`。原因很直接——没有任何组件告诉 kubelet 这台机器上有 GPU。但把 device plugin 装上、Pod 调度成功之后，故障并没有结束，只是换了地方：Pod `Running`，`torch.cuda.is_available()` 返回 `False`，日志里一行 `CUDA driver version is insufficient for CUDA runtime version`；或者容器根本起不来，`kubectl describe` 里是 `nvidia-container-cli: requirement error: unsatisfied condition: cuda>=13.1`；或者一切正常，直到某个 kernel 启动时报 `the provided PTX was compiled with an unsupported toolchain`。
 
 这些报错都不是 Kubernetes 的问题，也不是引擎的问题。它们来自一件事：一个容器要用上 GPU，必须让四层软件——内核态驱动、用户态驱动库、CUDA Runtime、上层库——在版本上互相接受，而这四层分别由四个不同的角色控制：内核驱动由节点管理员（或 GPU Operator 的驱动容器）装，用户态驱动库由 Container Toolkit 从宿主机挂进容器，CUDA Runtime 随镜像（或 pip wheel）走，上层库由训练框架和推理引擎自己带。这四个角色互不知情，只靠 NVIDIA 定义的三条兼容规则维系。
 
@@ -16,7 +16,7 @@ catalog: true
 
 本篇要回答总纲提出的核心问题：
 
-> **宿主机驱动 535、镜像里 CUDA 12.4 的 PyTorch、代码里调用了 CUDA 12.4 新增的 API——这个组合能跑吗？如果宿主机驱动是 470 呢？答案取决于三条兼容规则中的哪一条适用。**
+> **宿主机驱动 580（原生 CUDA 13.0）、镜像里 CUDA 13.1 编译的 PyTorch、代码里调用了 CUDA 13.1 新增的 API——这个组合能跑吗？如果宿主机驱动是 570（原生 CUDA 12.8）呢？答案取决于三条兼容规则中的哪一条适用。**
 
 源码与 CRD 以 Kubernetes v1.37.0（device plugin API `staging/src/k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1`、DRA API `staging/src/k8s.io/api/resource/v1`）、NVIDIA k8s-device-plugin v0.20.0、NVIDIA Container Toolkit v1.20.0、NVIDIA GPU Operator v26.7.0 为准。CUDA 与驱动的版本基线、前向兼容支持的 GPU 与驱动分支，以 NVIDIA CUDA 兼容性文档为准，本文只给规则和查法，不写成实测。
 
@@ -93,7 +93,7 @@ catalog: true
     pip wheel）   │ 第 3 层  CUDA Runtime libcudart.so.12（或静态链进 libtorch_cuda.so）                          │
                  │                      来源：nvidia-cuda-runtime-cu12 wheel / nvidia/cuda:*-runtime；版本 = torch.version.cuda │
                  ├─ ─ ─ ─ ─ ─ ─ ─ ─ 注入边界：Container Toolkit 把下面两层"挂"进容器 ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─┤
-   宿主机         │ 第 2 层  用户态驱动   libcuda.so.535.x  libnvidia-ml.so.535.x  libnvidia-ptxjitcompiler.so.535.x  │
+   宿主机         │ 第 2 层  用户态驱动   libcuda.so.580.x  libnvidia-ml.so.580.x  libnvidia-ptxjitcompiler.so.580.x  │
    （驱动包）     │                      nvidia-smi；版本 = nvidia-smi 左上角的 Driver Version                       │
                  │ 第 1 层  内核态驱动   nvidia.ko  nvidia-uvm.ko  nvidia-modeset.ko  → /dev/nvidia0 … /dev/nvidiactl /dev/nvidia-uvm │
                  └───────────────────────────────────────────────────────────────────┘
@@ -105,7 +105,7 @@ catalog: true
 - **第 3 层对第 2 层的要求是"不低于某个基线"而不是"相等"**。这就是 CUDA 兼容规则存在的意义：它让镜像可以独立于节点驱动构建和分发。
 - **第 4 层对第 3 层是编译期绑定**。cuDNN 9 for CUDA 12 只能配 cudart 12；NCCL 的 `libnccl.so.2` 按 CUDA 大版本分包。这层由框架决定，平台不干预。
 
-`nvidia-smi` 右上角显示的 `CUDA Version: 12.2` 是第 2 层的属性——这个驱动**最高**原生支持到哪个 CUDA 版本，不代表机器上装了 CUDA Toolkit。`torch.version.cuda` 是第 3 层的属性——PyTorch 编译时用的 Toolkit 版本。两者不同是常态，能不能一起工作由下面三条规则决定。
+`nvidia-smi` 右上角显示的 `CUDA Version: 13.0` 是第 2 层的属性——这个驱动**最高**原生支持到哪个 CUDA 版本，不代表机器上装了 CUDA Toolkit。`torch.version.cuda` 是第 3 层的属性——PyTorch 编译时用的 Toolkit 版本。两者不同是常态，能不能一起工作由下面三条规则决定。
 
 ### 2. 三条兼容规则
 
@@ -121,28 +121,28 @@ CUDA 12.x   驱动 >= 525.60.13
 CUDA 13.x   驱动 >= 580.65.06
 ```
 
-所以驱动 535（原生对应 CUDA 12.2）可以运行 CUDA 12.4、12.8 编译的程序。但有两个限制：
+所以驱动 580（原生对应 CUDA 13.0，正是 13.x 的基线）可以运行 CUDA 13.1 及之后 13.x 编译的程序；同理驱动 535（原生对应 CUDA 12.2）可以运行 CUDA 12.4、12.8 编译的程序。但有两个限制：
 
 - **PTX JIT 不在此列**。新 Toolkit 生成的 PTX 用新的 PTX ISA 版本，旧驱动里的 `libnvidia-ptxjitcompiler.so` 不认识它，报 `cudaErrorUnsupportedPtxVersion`（222，"the provided PTX was compiled with an unsupported toolchain"）。程序必须带目标 GPU 的 SASS（`-gencode arch=compute_90,code=sm_90`），只带 PTX 靠 JIT 的路径在 minor version compatibility 下不工作。PyTorch 的 wheel 为每个支持的架构都编了 SASS，所以一般没问题；只有当 GPU 架构比 wheel 编译时支持的最新架构还新、只能靠 PTX 时才会撞上。
-- **新 Toolkit 里依赖新驱动的 API 不可用**。CUDA Runtime 通过 `cuGetProcAddress` 向驱动查询入口点，12.4 新增而 535 驱动没有的入口，调用时返回 `cudaErrorCallRequiresNewerDriver`（36，"the API call requires a newer CUDA driver than the one currently installed"）。这是核心问题里"调用了 12.4 新增 API"那一半的答案。
+- **新 Toolkit 里依赖新驱动的 API 不可用**。CUDA Runtime 通过 `cuGetProcAddress` 向驱动查询入口点，13.1 新增而 580 驱动没有的入口，调用时返回 `cudaErrorCallRequiresNewerDriver`（36，"the API call requires a newer CUDA driver than the one currently installed"）。这是核心问题里"调用了 13.1 新增 API"那一半的答案。
 
-例子：驱动 535 + PyTorch 2.4（CUDA 12.4）——能 import、能算矩阵乘、能训练，因为 SASS 都在；如果代码直接调了 12.4 才有的驱动侧入口（例如某些 graph 或 memory pool 的新接口），那一处返回 36。
+例子：驱动 580 + CUDA 13.1 编译的 PyTorch——能 import、能算矩阵乘、能训练，因为 SASS 都在；如果代码直接调了 13.1 才有的驱动侧入口（例如某些 graph 或 memory pool 的新接口），那一处返回 36。
 
-**规则三：forward compatibility——跨大版本，旧驱动跑新 Toolkit，需要 `cuda-compat` 包，仅数据中心 GPU。** 驱动 470 想跑 CUDA 12.x，或驱动 535 想跑 CUDA 13.x，minor version compatibility 不覆盖。NVIDIA 提供 `cuda-compat-<major>-<minor>` 包（如 `cuda-compat-12-4`、`cuda-compat-13-0`），把一份**新版本的用户态驱动库**——`libcuda.so`、`libnvidia-ptxjitcompiler.so`、`libnvidia-nvvm.so`——装到 `/usr/local/cuda-<ver>/compat/`，让新的用户态驱动库配合旧的内核驱动工作。限制（以 NVIDIA 文档为准）：只支持数据中心 GPU（Tesla / NVIDIA 数据中心品牌，不含 GeForce、大部分 RTX 工作站卡）；旧驱动必须来自被支持的分支（通常是 LTSB 分支，如 470、535 等）；某些需要内核驱动配合的新功能不可用。
+**规则三：forward compatibility——跨大版本，旧驱动跑新 Toolkit，需要 `cuda-compat` 包，仅数据中心 GPU。** 驱动 570（或更早的 535）想跑 CUDA 13.x，或驱动 470 想跑 CUDA 12.x，minor version compatibility 不覆盖。NVIDIA 提供 `cuda-compat-<major>-<minor>` 包（如 `cuda-compat-13-0`、`cuda-compat-13-1`），把一份**新版本的用户态驱动库**——`libcuda.so`、`libnvidia-ptxjitcompiler.so`、`libnvidia-nvvm.so`——装到 `/usr/local/cuda-<ver>/compat/`，让新的用户态驱动库配合旧的内核驱动工作。限制（以 NVIDIA 文档为准）：只支持数据中心 GPU（Tesla / NVIDIA 数据中心品牌，不含 GeForce、大部分 RTX 工作站卡）；旧驱动必须来自被支持的分支（通常是 LTSB 分支，如 470、535 等）；某些需要内核驱动配合的新功能不可用。
 
-例子：驱动 470（原生 CUDA 11.4）的数据中心节点上跑 `nvidia/cuda:12.4.1-runtime` 镜像——镜像的 base 层带 `cuda-compat-12-4`，Container Toolkit 把 compat 目录加入 `ldconfig`（第三章第 1 节），`libcuda.so.550.x` 取代宿主机挂进来的 `libcuda.so.470.x`，程序按 CUDA 12.4 运行。同样的镜像在 GeForce 卡上：compat 库拒绝加载，回到 `cudaErrorInsufficientDriver`（35）。
+例子：驱动 570（原生 CUDA 12.8）的数据中心节点上跑 `nvidia/cuda:13.1.2-runtime` 镜像——镜像的 base 层带 `cuda-compat-13-1`，Container Toolkit 把 compat 目录加入 `ldconfig`（第三章第 1 节），`libcuda.so.590.x` 取代宿主机挂进来的 `libcuda.so.570.x`，程序按 CUDA 13.1 运行。同样的镜像在 GeForce 卡上：compat 库拒绝加载，回到 `cudaErrorInsufficientDriver`（35）。
 
 ### 3. 怎么查
 
 | 要查什么 | 命令 | 读法 |
 |---|---|---|
-| 节点驱动版本、驱动原生支持的最高 CUDA | `nvidia-smi`（宿主机或容器内） | 左上 `Driver Version: 535.183.01`；右上 `CUDA Version: 12.2`。后者是第 2 层的上限，不是 Toolkit |
+| 节点驱动版本、驱动原生支持的最高 CUDA | `nvidia-smi`（宿主机或容器内） | 左上 `Driver Version: 580.65.06`；右上 `CUDA Version: 13.0`。后者是第 2 层的上限，不是 Toolkit |
 | 驱动版本（脚本用） | `nvidia-smi --query-gpu=driver_version --format=csv,noheader`；或 `cat /proc/driver/nvidia/version` | 第 2 层与第 1 层同版本，`/proc` 那个是内核模块报的 |
-| 镜像里 PyTorch 编译用的 Toolkit | `python -c "import torch; print(torch.version.cuda)"` | 第 3 层。`12.4` 表示 cudart 12.4；与 `nvidia-smi` 的 `CUDA Version` 比较，判断落在哪条规则 |
-| Runtime 实际看到的驱动能力 | `python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_capability())"`；C 里是 `cudaDriverGetVersion()` vs `cudaRuntimeGetVersion()` | `is_available()` 为 `False` 且 stderr 有 `The NVIDIA driver on your system is too old (found version 11040)`，是规则二/三都没满足 |
-| 容器里生效的是宿主机驱动还是 compat 库 | `ldconfig -p \| grep libcuda.so`；`ls /usr/local/cuda/compat/` | compat 生效时 `libcuda.so.1` 指向 `/usr/local/cuda/compat/libcuda.so.5xx.*` 而不是 `/usr/lib/x86_64-linux-gnu/libcuda.so.535.*` |
-| compat 包版本 | `dpkg -l \| grep cuda-compat` 或 `rpm -qa \| grep cuda-compat` | 包名 `cuda-compat-12-4`，版本号是其中 `libcuda.so` 的驱动版本 |
-| GPU 是否数据中心品牌 | `nvidia-smi --query-gpu=name --format=csv,noheader`；或看 Toolkit 的 `NVIDIA_REQUIRE_CUDA` 判定结果 | 官方 CUDA 镜像的 `NVIDIA_REQUIRE_CUDA` 里含 `brand=tesla,driver>=470,driver<471` 这类子句，就是为 forward compat 留的口子 |
+| 镜像里 PyTorch 编译用的 Toolkit | `python -c "import torch; print(torch.version.cuda)"` | 第 3 层。`13.1` 表示 cudart 13.1；与 `nvidia-smi` 的 `CUDA Version` 比较，判断落在哪条规则 |
+| Runtime 实际看到的驱动能力 | `python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_capability())"`；C 里是 `cudaDriverGetVersion()` vs `cudaRuntimeGetVersion()` | `is_available()` 为 `False` 且 stderr 有 `The NVIDIA driver on your system is too old (found version 12080)`，是规则二/三都没满足 |
+| 容器里生效的是宿主机驱动还是 compat 库 | `ldconfig -p \| grep libcuda.so`；`ls /usr/local/cuda/compat/` | compat 生效时 `libcuda.so.1` 指向 `/usr/local/cuda/compat/libcuda.so.590.*` 而不是 `/usr/lib/x86_64-linux-gnu/libcuda.so.570.*` |
+| compat 包版本 | `dpkg -l \| grep cuda-compat` 或 `rpm -qa \| grep cuda-compat` | 包名 `cuda-compat-13-1`，版本号是其中 `libcuda.so` 的驱动版本 |
+| GPU 是否数据中心品牌 | `nvidia-smi --query-gpu=name --format=csv,noheader`；或看 Toolkit 的 `NVIDIA_REQUIRE_CUDA` 判定结果 | 官方 CUDA 镜像的 `NVIDIA_REQUIRE_CUDA` 里含 `brand=tesla,driver>=570,driver<571` 这类子句，就是为 forward compat 留的口子 |
 
 ### 4. 为什么 PyTorch wheel 带 CUDA Runtime 不带驱动
 
@@ -150,19 +150,54 @@ CUDA 13.x   驱动 >= 580.65.06
 
 - 第 2 层必须与第 1 层同版本，而 wheel 不知道你的内核驱动是什么；
 - 第 2 层是 NVIDIA 驱动包的一部分，许可与分发方式和 Toolkit 不同；
-- 第 2 层通过 `ldconfig` 从系统路径找。容器里这条路径由 Container Toolkit 铺好——它把宿主机的 `libcuda.so.535.x` 挂到容器的 `/usr/lib/x86_64-linux-gnu/` 并跑一次 `ldconfig`。
+- 第 2 层通过 `ldconfig` 从系统路径找。容器里这条路径由 Container Toolkit 铺好——它把宿主机的 `libcuda.so.580.x` 挂到容器的 `/usr/lib/x86_64-linux-gnu/` 并跑一次 `ldconfig`。
 
-所以"镜像里 CUDA 12.4"和"节点驱动 535"这两个数字分别由两个不相关的过程决定，兼容规则是它们之间唯一的契约。`torch.version.cuda`、`nvidia-smi` 的 `CUDA Version`、`nvcc --version` 三个数字互不相同是正常的，分别是第 3 层、第 2 层上限、以及构建时的 Toolkit。
+所以"镜像里 CUDA 13.1"和"节点驱动 580"这两个数字分别由两个不相关的过程决定，兼容规则是它们之间唯一的契约。`torch.version.cuda`、`nvidia-smi` 的 `CUDA Version`、`nvcc --version` 三个数字互不相同是正常的，分别是第 3 层、第 2 层上限、以及构建时的 Toolkit。
 
 ### 5. 核心问题的三个组合
 
+把三条规则连成一棵决策树——输入是节点的驱动 D（`nvidia-smi` 的 `Driver Version` 与右上角 `CUDA Version` 上限）和镜像的 Toolkit T（`torch.version.cuda`），沿着判断走到叶子就是结果与对应的错误码：
+
+```mermaid
+flowchart TB
+    IN["输入：驱动 D（nvidia-smi 的 Driver Version，CUDA Version 上限）<br/>Toolkit T（torch.version.cuda / cudaRuntimeGetVersion）"]
+    Q1{"D 原生支持的 CUDA 版本 ≥ T ?"}
+    R1["规则一：向后兼容<br/>无条件能跑"]
+    Q2{"同一 CUDA 大版本，且<br/>D ≥ 该大版本基线 ?<br/>11.x 450.80.02 / 12.x 525.60.13 / 13.x 580.65.06"}
+    R2["规则二：minor version compatibility<br/>能跑，kernel 走 SASS"]
+    R2a["例外一：只带 PTX 靠 JIT<br/>cudaErrorUnsupportedPtxVersion (222)"]
+    R2b["例外二：调用 T 新增的驱动侧 API<br/>cudaErrorCallRequiresNewerDriver (36)"]
+    Q3{"数据中心 GPU，且 D 在受支持分支，<br/>且镜像含 cuda-compat-T ?"}
+    R3["规则三：forward compatibility<br/>compat 的 libcuda.so 经 ldconfig 生效<br/>ldconfig -p 指向 /usr/local/cuda/compat/"]
+    R4["不能跑<br/>容器创建期：NVIDIA_REQUIRE_CUDA 拒绝（unsatisfied condition）<br/>绕过后：cudaErrorInsufficientDriver (35)，is_available() 为 False"]
+    IN --> Q1
+    Q1 -->|"是"| R1
+    Q1 -->|"否"| Q2
+    Q2 -->|"是"| R2
+    R2 -.-> R2a
+    R2 -.-> R2b
+    Q2 -->|"否（跨大版本或低于基线）"| Q3
+    Q3 -->|"是"| R3
+    Q3 -->|"否"| R4
+    classDef ok fill:#e6f4ea,stroke:#2e7d32;
+    classDef warn fill:#fff8e1,stroke:#f9a825;
+    classDef bad fill:#fdecea,stroke:#c62828;
+    classDef q fill:#e3f2fd,stroke:#1565c0;
+    class R1,R2,R3 ok;
+    class R2a,R2b warn;
+    class R4 bad;
+    class Q1,Q2,Q3 q;
+```
+
+下表是核心问题的三个组合在这棵树上落到的叶子：
+
 | 组合 | 适用规则 | 结果 |
 |---|---|---|
-| 驱动 535 + CUDA 12.4 的 PyTorch，常规使用 | 规则二（12.x 基线 525.60.13 ≤ 535） | **能跑**。`torch.cuda.is_available()` 为 `True`，kernel 走 SASS。`nvidia-smi` 仍显示 `CUDA Version: 12.2`，这不是错 |
-| 驱动 535 + CUDA 12.4 的 PyTorch + 代码调用 12.4 新增的驱动侧 API | 规则二不覆盖新入口 | **那一处调用失败**：`cudaErrorCallRequiresNewerDriver`（36）。其余功能正常。解法是升驱动，或在数据中心 GPU 上装 `cuda-compat-12-4` 转入规则三——compat 的 `libcuda.so` 是 12.4 对应的驱动，新入口就有了 |
-| 驱动 470 + CUDA 12.4 的 PyTorch | 规则二不适用（470 < 525.60.13，跨大版本）；只剩规则三 | **数据中心 GPU + 镜像含 `cuda-compat-12-4` + 470 是受支持分支**：能跑，容器内 `ldconfig -p` 看到 `libcuda.so` 来自 `/usr/local/cuda/compat/`。**其他情况**：容器启动阶段被 Toolkit 的 `NVIDIA_REQUIRE_CUDA` 检查拒绝（`unsatisfied condition: cuda>=12.4`），或绕过检查后 `cudaErrorInsufficientDriver`（35）、`torch.cuda.is_available()` 为 `False` |
+| 驱动 580 + CUDA 13.1 的 PyTorch，常规使用 | 规则二（13.x 基线 580.65.06 ≤ 580） | **能跑**。`torch.cuda.is_available()` 为 `True`，kernel 走 SASS。`nvidia-smi` 仍显示 `CUDA Version: 13.0`，这不是错 |
+| 驱动 580 + CUDA 13.1 的 PyTorch + 代码调用 13.1 新增的驱动侧 API | 规则二不覆盖新入口 | **那一处调用失败**：`cudaErrorCallRequiresNewerDriver`（36）。其余功能正常。解法是把驱动升到 13.1 对应的 ≥ 590.44.01，或在数据中心 GPU 上装 `cuda-compat-13-1` 转入规则三——compat 的 `libcuda.so` 是 13.1 对应的 590 驱动，新入口就有了 |
+| 驱动 570 + CUDA 13.x 的 PyTorch | 规则二不适用（570 < 580.65.06，跨大版本）；只剩规则三 | **数据中心 GPU + 镜像含 `cuda-compat-13-x` + 570 是受支持分支**：能跑，容器内 `ldconfig -p` 看到 `libcuda.so` 来自 `/usr/local/cuda/compat/`。**其他情况**：容器启动阶段被 Toolkit 的 `NVIDIA_REQUIRE_CUDA` 检查拒绝（`unsatisfied condition: cuda>=13.1`），或绕过检查后 `cudaErrorInsufficientDriver`（35）、`torch.cuda.is_available()` 为 `False` |
 
-驱动 535 这一档还有一个隐藏问题：CUDA 13.x 的基线是 580，所以 535 节点跑 CUDA 13 镜像是跨大版本，与"470 跑 12.4"同一处境。第九章练手项目的 `mismatch/Dockerfile` 就用这个组合复现两种报错。
+第三行不是假设的边角情况，而是 2026 年最常见的坑：PyTorch 从 2.11 起 PyPI 默认 wheel 切到 CUDA 13.0，驱动停在 5xx 且 < 580 的集群（570、550、535 都一样）只要 `pip install torch` 就直接落到规则三——不是数据中心 GPU、或镜像里没有 `cuda-compat-13-x`，就是上面那两个报错。第九章练手项目的 `mismatch/Dockerfile` 就用这个组合复现两种报错。
 
 
 ## 三、Container Toolkit：把驱动注入容器
@@ -180,6 +215,33 @@ Container Toolkit 是"注入边界"的执行者。它以 NVIDIA Container Toolki
 3. 检查 `--require` 条件；
 4. 在容器 rootfs 内运行 `ldconfig`，让 `libcuda.so.1` 的符号链接和 ld cache 指向刚挂进来的库。
 
+把这条调用链按时间画出来，可以看清两件事：OCI spec 只在 `create` 之前被改过一次（只加了一条 hook），真正的注入发生在 `runc` 已经建好 namespace、尚未 exec 容器进程的 prestart 窗口里；以及 `--require` 检查失败为什么表现为"容器起不来"而不是 CUDA 报错——它在 hook 里就返回了非零退出码：
+
+```mermaid
+sequenceDiagram
+    participant CD as containerd（RuntimeClass nvidia）
+    participant NCR as nvidia-container-runtime
+    participant RUNC as runc
+    participant HOOK as nvidia-container-runtime-hook
+    participant CLI as nvidia-container-cli
+    CD->>NCR: create（OCI spec，含 Pod 的环境变量）
+    NCR->>NCR: stableRuntimeModifier.Modify 追加 prestart hook
+    NCR->>RUNC: create（改过的 spec）
+    RUNC->>RUNC: 建 namespace、挂 rootfs、fork init 进程（暂停）
+    RUNC->>HOOK: prestart（stdin 传容器 state，含 init pid）
+    HOOK->>HOOK: doPrestart 读 NVIDIA_VISIBLE_DEVICES / DRIVER_CAPABILITIES / REQUIRE_*
+    HOOK->>CLI: configure --device=… --compute --utility --require=… --pid=… --ldconfig=…
+    CLI->>CLI: setns 进入容器的 mount namespace
+    Note over CLI: 1 建 /dev/nvidia* 节点，写 cgroup device 白名单
+    Note over CLI: 2 bind mount 宿主机 libcuda.so / libnvidia-ml.so / nvidia-smi
+    Note over CLI: 3 检查 --require，不满足则报 unsatisfied condition
+    Note over CLI: 4 在 rootfs 内跑 ldconfig，/usr/local/cuda/compat 加入搜索路径
+    CLI-->>HOOK: 退出码
+    HOOK-->>RUNC: 退出码（非 0 则 create 失败，Pod 事件 CreateContainerError）
+    RUNC->>RUNC: 恢复 init 进程，exec 容器入口
+    RUNC-->>CD: 容器 Running
+```
+
 第四步是 forward compatibility 在容器里生效的地方：`api/config/v1/runtime.go` 的 `legacyModeConfig.CUDACompatMode`（`cuda-compat-mode`）默认 `ldconfig`，把 `/usr/local/cuda/compat` 加进 `ldconfig` 的搜索路径；如果镜像的 compat 目录里 `libcuda.so` 比宿主机的新，ld cache 就指向它。另两个取值 `mount` 与 `hook`（`enable-cuda-compat` hook，`internal/discover/hooks.go` 的 `EnableCudaCompatHook`）是 CDI 路径下的实现。
 
 ### 2. 三个环境变量
@@ -188,7 +250,7 @@ hook 路径的全部输入都是容器的环境变量，定义在 `internal/conf
 
 - **`NVIDIA_VISIBLE_DEVICES`**：给这个容器哪些 GPU。取值是 GPU 索引（`0,1`）、UUID（`GPU-fef8089b-…`）、`all` 或 `none`（以及 MIG 设备 `MIG-GPU-…`）。device plugin 的 `Allocate` 默认就通过这个变量传递分配结果（第四章第 3 节）。config.toml 里 `accept-nvidia-visible-devices-envvar-when-unprivileged`（`Config.AcceptEnvvarUnprivileged`）决定非特权容器设这个变量是否被接受——K8s 场景下它是一个安全阀：设为 `false` 后，用户 Pod 自己写 `NVIDIA_VISIBLE_DEVICES=all` 绕过 device plugin 分配的做法就失效了，但 device plugin 也必须改用 volume-mounts 或 CDI 策略传递设备列表。
 - **`NVIDIA_DRIVER_CAPABILITIES`**：挂哪些驱动库。`internal/config/image/capabilities.go` 定义了 `compute`、`utility`、`graphics`、`video`、`display`、`ngx`、`compat32`、`all`；默认 `DefaultDriverCapabilities` 是 `utility,compute`。训练和推理只需要默认值；要用 NVENC 解码视频数据集就加 `video`。`nvidia/cuda` 官方镜像在 Dockerfile 里设了 `NVIDIA_DRIVER_CAPABILITIES=compute,utility`。
-- **`NVIDIA_REQUIRE_CUDA`**（及所有 `NVIDIA_REQUIRE_*`）：容器对宿主机的要求，`internal/config/image/cuda_image.go` 的 `CUDA.GetRequirements` 收集它们传给 `--require`。`nvidia/cuda:12.4.1-*` 镜像里的值形如 `cuda>=12.4 brand=unknown,driver>=470,driver<471 brand=tesla,driver>=470,driver<471 … brand=tesla,driver>=535,driver<536`——第一段要求驱动原生支持 12.4，后面每段是"品牌 X 且驱动在 forward-compat 支持的分支内"的例外。检查不通过时 `nvidia-container-cli` 报 `requirement error: unsatisfied condition: cuda>=12.4`（Go 侧对应实现见 `internal/requirements/constraints/binary.go` 的 `binary.Assert`），容器创建失败，`kubectl describe pod` 里是 `CreateContainerError` 或 `RunContainerError`。`NVIDIA_DISABLE_REQUIRE=1` 可以跳过这个检查——只用于把报错从"容器起不来"推后到"CUDA 初始化失败"，方便看清 Runtime 的错误码，不是修复。
+- **`NVIDIA_REQUIRE_CUDA`**（及所有 `NVIDIA_REQUIRE_*`）：容器对宿主机的要求，`internal/config/image/cuda_image.go` 的 `CUDA.GetRequirements` 收集它们传给 `--require`。`nvidia/cuda:13.1.2-*` 镜像里的值形如 `cuda>=13.1 brand=unknown,driver>=535,driver<536 brand=tesla,driver>=535,driver<536 … brand=tesla,driver>=570,driver<571 … brand=tesla,driver>=580,driver<581`——第一段要求驱动原生支持 13.1，后面每段是"品牌 X 且驱动在 forward-compat 支持的分支内"的例外（570 节点就是靠 `driver>=570,driver<571` 这一段放行的）。检查不通过时 `nvidia-container-cli` 报 `requirement error: unsatisfied condition: cuda>=13.1`（Go 侧对应实现见 `internal/requirements/constraints/binary.go` 的 `binary.Assert`），容器创建失败，`kubectl describe pod` 里是 `CreateContainerError` 或 `RunContainerError`。`NVIDIA_DISABLE_REQUIRE=1` 可以跳过这个检查——只用于把报错从"容器起不来"推后到"CUDA 初始化失败"，方便看清 Runtime 的错误码，不是修复。
 
 ### 3. CDI：把注入变成一份声明
 
@@ -243,6 +305,37 @@ service DevicePlugin                       插件提供，socket 在 /var/lib/ku
 ```
 
 kubelet 侧的实现在 `pkg/kubelet/cm/devicemanager/manager.go` 的 `ManagerImpl`：`PluginConnected` 处理注册，`PluginListAndWatchReceiver` → `genericDeviceUpdateCallback` 维护 `healthyDevices` / `unhealthyDevices` 两个集合并生成 `GetCapacity` 上报给节点状态；Pod 准入时 `Allocate` → `allocateContainerResources` → `devicesToAllocate` 从健康集合里挑设备，先经 Topology Manager 的 NUMA 亲和过滤（`filterByAffinity`），再调 `callGetPreferredAllocationIfAvailable` 征求插件意见，最后调插件的 `Allocate` 拿注入指令；`GetDeviceRunContainerOptions` 在创建容器时把这些指令并入 CRI 请求。分配结果写入 checkpoint 文件（`checkpointFile`）以便 kubelet 重启后恢复。
+
+把插件侧和 kubelet 侧串成一次完整的生命周期，注意方向：只有 `Register` 是插件主动调 kubelet，其余五个方法都是 kubelet 调插件；`ListAndWatch` 是一条常驻的流，`Allocate` 才是每个容器创建时发生一次的调用；调度器在整条链上只看到一个整数：
+
+```mermaid
+sequenceDiagram
+    participant P as nvidia-device-plugin
+    participant K as kubelet device manager
+    participant A as API server 与调度器
+    participant C as containerd
+    P->>P: NVML 枚举 GPU，按 migStrategy / sharing 生成 ResourceManager
+    P->>K: Register(version=v1beta1, endpoint=nvidia-gpu.sock, resource=nvidia.com/gpu)
+    K->>P: GetDevicePluginOptions
+    P-->>K: getPreferredAllocationAvailable=true
+    K->>P: ListAndWatch（长连接流）
+    P-->>K: 全部设备：GPU-uuid0 Healthy … GPU-uuid7 Healthy
+    K->>A: 节点状态 capacity / allocatable nvidia.com/gpu=8
+    Note over A: 调度器只做整数减法（NodeResourcesFit），选定节点
+    A->>K: Pod 绑定到本节点，请求 nvidia.com/gpu=2
+    K->>K: devicesToAllocate 从健康集合出发，filterByAffinity 按 NUMA 过滤
+    K->>P: GetPreferredAllocation(available, size=2)
+    P-->>K: alignedAlloc 按 NVLink 拓扑挑 2 张（仅建议）
+    K->>P: Allocate(devices_ids)
+    P-->>K: envs NVIDIA_VISIBLE_DEVICES=GPU-uuid… 或 cdi_devices nvidia.com/gpu=GPU-uuid…
+    K->>K: 写 checkpoint
+    K->>C: CreateContainer（env / annotations / CDI 设备名并入 CRI 请求）
+    Note over C: Container Toolkit 或原生 CDI 注入设备与驱动库（第三章）
+    loop 健康状态变化
+        P-->>K: 重发 ListAndWatch 列表（某卡 Unhealthy）
+        K->>A: allocatable 减 1（已在用这张卡的 Pod 不驱逐）
+    end
+```
 
 这个模型里 kubelet 只知道三件事：**资源名、每个设备的 ID 字符串、健康与否**。调度器知道的更少：只有 `status.allocatable` 里的一个整数。
 
@@ -343,13 +436,41 @@ nvidia.com/gpu.count                8
 nvidia.com/gpu.memory               81559（MiB）
 nvidia.com/gpu.family               hopper          nvidia.com/gpu.compute.major / .minor    9 / 0
 nvidia.com/gpu.replicas             1（时间片副本数）  nvidia.com/gpu.sharing-strategy          none | time-slicing | mps
-nvidia.com/cuda.driver.major/.minor/.rev      535 / 183 / 01     （internal/lm/nvml.go；另有 cuda.driver-version.* 全称版）
-nvidia.com/cuda.runtime.major/.minor          12 / 2             （驱动原生支持的 CUDA 上限，与 nvidia-smi 右上角一致）
+nvidia.com/cuda.driver.major/.minor/.rev      580 / 65 / 06      （internal/lm/nvml.go；另有 cuda.driver-version.* 全称版）
+nvidia.com/cuda.runtime.major/.minor          13 / 0             （驱动原生支持的 CUDA 上限，与 nvidia-smi 右上角一致）
 nvidia.com/mig.capable  nvidia.com/mig.strategy  nvidia.com/mps.capable  nvidia.com/gpu.mode
 nvidia.com/gpu.machine              机型（internal/lm/machine-type.go）   nvidia.com/gfd.timestamp   本次标签时间
 ```
 
 MIG 策略为 `mixed` 时资源名变成 `nvidia.com/mig-1g.5gb` 之类，标签前缀随之变为 `nvidia.com/mig-1g.5gb.product` 等（`internal/lm/mig-strategy.go`）。
+
+三组标签不是并列的，而是一条因果链：NFD 的硬件标签触发 Operator 打部署标签，部署标签是各 operand DaemonSet 的 `nodeSelector`，GFD 作为其中一个 operand 跑起来之后才有第三组属性标签；三组里只有第三组是给 Pod 和上层调度器消费的：
+
+```mermaid
+flowchart TB
+    subgraph src1["来源一：NFD（硬件事实）"]
+        NFD["NFD 扫 PCI 总线，vendor 10de"] --> L1["feature.node.kubernetes.io/pci-10de.present=true"]
+    end
+    subgraph src2["来源二：GPU Operator（部署控制）"]
+        OP["controllers/state_manager.go"] --> L2["nvidia.com/gpu.present=true"]
+        OP --> L3["nvidia.com/gpu.deploy.driver / container-toolkit / device-plugin /<br/>gpu-feature-discovery / dcgm-exporter / mig-manager / operator-validator = true"]
+    end
+    subgraph src3["来源三：GFD（设备属性）"]
+        GFD["GFD DaemonSet（NVML 读卡）"] --> L4["nvidia.com/gpu.product / gpu.memory / gpu.count / gpu.family /<br/>cuda.driver.major / cuda.runtime.major / mig.capable …"]
+    end
+    L1 --> OP
+    L3 -->|"作为 operand DaemonSet 的 nodeSelector"| DS["driver → toolkit → device plugin → GFD → DCGM Exporter<br/>（每步等 validator 通过）"]
+    DS --> GFD
+    L3 -.->|"某项改为 false = 该组件从此节点撤走"| DS
+    L4 --> USE1["Pod nodeSelector / nodeAffinity<br/>按型号、显存、驱动大版本选节点"]
+    L4 --> USE2["Kueue ResourceFlavor 分池（第三篇）"]
+    classDef lbl fill:#fff8e1,stroke:#f9a825;
+    classDef comp fill:#e3f2fd,stroke:#1565c0;
+    classDef use fill:#e6f4ea,stroke:#2e7d32;
+    class L1,L2,L3,L4 lbl;
+    class NFD,OP,GFD,DS comp;
+    class USE1,USE2 use;
+```
 
 这组标签是 device plugin 时代"按属性选卡"的全部手段：Pod 写 `nodeSelector: {nvidia.com/gpu.product: NVIDIA-H100-80GB-HBM3}` 或用 `nodeAffinity` 表达"`nvidia.com/gpu.memory` 大于某值"（标签是字符串，只能用 `In` 枚举，不能比大小）。第三篇 Kueue 的 `ResourceFlavor` 也靠这些标签把"H100 池"和"A100 池"分开。`nvidia.com/cuda.driver.major` 标签则可以用来把 CUDA 13 的镜像只调度到驱动 ≥ 580 的节点——把第二章的兼容规则前移到调度期，虽然粗糙，但比容器起不来好。
 
@@ -395,6 +516,31 @@ Pod 侧的接法是两处：`spec.resourceClaims[]` 声明（`name` + `resourceC
 DRA 的核心变化是**分配决定由调度器做**（结构化参数，structured parameters）：调度器读所有 `ResourceSlice`，在 `pkg/scheduler/framework/plugins/dynamicresources/dynamicresources.go` 的 `DynamicResources` 插件里，`PreFilter` 收集 Pod 的 claims 并检查 DeviceClass 存在（`validateDeviceClass`），`Filter` 对每个节点跑分配算法看能否满足全部请求，`Reserve` 暂定结果，`PreBind` 把 `status.allocation` 写回 `ResourceClaim`（`bindClaim`）并把 Pod 加进 `reservedFor`。驱动**不参与调度**，它只负责两件事：发布 `ResourceSlice`，以及在节点上按分配结果准备设备。
 
 节点上，kubelet 的 DRA manager（`pkg/kubelet/cm/dra/manager.go`）在 Pod 启动前调 `PrepareResources`，通过 kubelet plugin gRPC（`staging/src/k8s.io/kubelet/pkg/apis/dra/v1/api.proto` 的 `NodePrepareResources` / `NodeUnprepareResources`）让驱动做节点侧准备，驱动返回每个设备的 `cdi_device_ids`——**DRA 的注入手段就是 CDI**，kubelet 把这些 CDI 设备名放进 CRI 请求，containerd 按第三章的 CDI spec 注入。Pod 结束后 `UnprepareResources` 清理。
+
+与第四章第 1 节的 device plugin 时序对照着看：分配决定从 kubelet 移到了调度器，驱动只在两端出现——开头发布 `ResourceSlice`，结尾把已分配的设备翻译成 CDI 设备名；调度器读的不再是一个整数而是每张卡的属性：
+
+```mermaid
+sequenceDiagram
+    participant D as NVIDIA DRA driver（gpu.nvidia.com）
+    participant A as API server
+    participant S as kube-scheduler（DynamicResources 插件）
+    participant K as kubelet DRA manager
+    participant C as containerd
+    D->>A: 发布 ResourceSlice（每张卡的 attributes / capacity）
+    Note over A: 管理员创建 DeviceClass，用户提交 ResourceClaimTemplate + Pod
+    A->>A: 控制器按模板为该 Pod 生成一个 ResourceClaim
+    S->>A: 读 ResourceSlice、DeviceClass、ResourceClaim
+    S->>S: PreFilter 校验 DeviceClass 存在
+    S->>S: Filter 对每个节点跑分配算法（类选择器 AND 请求选择器，constraints）
+    S->>S: Reserve 暂定分配结果
+    S->>A: PreBind 写 claim.status.allocation（driver / pool / device）与 reservedFor，绑定 Pod
+    A->>K: Pod 到本节点
+    K->>D: NodePrepareResources(claim)
+    D-->>K: cdi_device_ids（nvidia.com/gpu=GPU-uuid）
+    K->>C: CreateContainer（CRI 请求携带 CDI 设备名）
+    Note over C: 按 CDI spec 注入设备节点、驱动库与 hook（第三章第 3 节）
+    Note over D,K: Pod 结束后 kubelet 调 NodeUnprepareResources 清理
+```
 
 与 device plugin 相比，kubelet 的角色从"分配者"退成"执行者"；调度器从"减法器"升为"求解器"。代价是调度器要读的对象多了一个数量级（每节点一到多个 `ResourceSlice`，每 Pod 一个 `ResourceClaim`），v1.37 changelog 里一半以上的 DRA 条目是调度性能与 informer 缓存的修复。
 
@@ -588,7 +734,7 @@ devel 到 base 通常能去掉 5 GB 以上；`--no-cache-dir` 与清理 apt 列�
 三条规则          向后兼容：新驱动跑旧 Toolkit，无条件
                   minor version：同大版本内旧驱动跑新 Toolkit；基线 11.x ≥ 450.80.02、12.x ≥ 525.60.13、13.x ≥ 580.65.06；PTX JIT 与新驱动 API 除外（222 / 36）
                   forward：跨大版本需 cuda-compat 包，仅数据中心 GPU 与受支持驱动分支；容器里靠 Toolkit 的 cuda-compat-mode 生效
-核心问题          535 + CUDA 12.4 常规：能跑（规则二）；调 12.4 新 API：那一处 36；470 + 12.4：只有数据中心 GPU + compat 包能跑，否则 unsatisfied condition 或 35
+核心问题          580 + CUDA 13.1 常规：能跑（规则二）；调 13.1 新 API：那一处 36；570 + 13.x：只有数据中心 GPU + compat 包能跑，否则 unsatisfied condition 或 35
 Toolkit           legacy：prestart hook → nvidia-container-cli configure，读 NVIDIA_VISIBLE_DEVICES / DRIVER_CAPABILITIES / REQUIRE_CUDA
                   CDI：nvidia-ctk cdi generate 生成 nvidia.com/gpu=<idx|uuid> 声明，运行时原生注入；v1.20.0 默认 auto → jit-cdi
 device plugin     v1beta1：Register / GetDevicePluginOptions / ListAndWatch / GetPreferredAllocation / Allocate / PreStartContainer
@@ -644,7 +790,7 @@ mini-platform/
     │   ├── deviceclass.yaml   第六章第 4 节的 DeviceClass
     │   └── claim.yaml         ResourceClaimTemplate + 使用它的 Pod
     └── mismatch/
-        ├── Dockerfile         故意用 CUDA 13.0 镜像配 535/570 驱动节点
+        ├── Dockerfile         故意用 CUDA 13.0 镜像配 570/535 驱动节点
         ├── probe.cu           打印 runtime / driver 版本并触发 CUDA 初始化
         └── pod.yaml           两种运行方式：默认（Toolkit 拒绝）与 NVIDIA_DISABLE_REQUIRE=1（看到 Runtime 错误码）
 ```
@@ -745,7 +891,7 @@ spec:
     enabled: false
 ```
 
-**（2）复现版本不匹配。** `mismatch/` 用 CUDA 13.0 的镜像去配驱动 535 或 570 的节点（13.x 基线 580，跨大版本）。如果你的节点驱动已经 ≥ 580，把 `FROM` 换成更新的 CUDA 大版本，或反过来找一台旧驱动节点——目的是让"镜像 Toolkit 大版本 > 驱动原生支持的大版本"。
+**（2）复现版本不匹配。** `mismatch/` 用 CUDA 13.0 的镜像去配驱动 570（或 535）的节点（13.x 基线 580，跨大版本——就是核心问题第三个组合）。如果你的节点驱动已经 ≥ 580，把 `FROM` 换成更新的 CUDA 大版本，或反过来找一台旧驱动节点——目的是让"镜像 Toolkit 大版本 > 驱动原生支持的大版本"。
 
 ```c
 // mini-platform/gpu/mismatch/probe.cu —— 打印第 2 层与第 3 层的版本，再做一次会触发 context 初始化的调用
@@ -817,23 +963,23 @@ spec:
 预期看到的三种结果（文本为示意，以你的驱动与 GPU 为准）：
 
 ```text
-A. 驱动 535/570 + 非数据中心 GPU（或 compat 不支持该分支），mismatch-default：
+A. 驱动 570/535 + 非数据中心 GPU（或 compat 不支持该分支），mismatch-default：
    kubectl describe pod mismatch-default → Warning Failed ... nvidia-container-cli: requirement error:
      unsatisfied condition: cuda>=13.0, please update your driver to a newer version, or use an earlier cuda container
    容器根本没起来——这是 NVIDIA_REQUIRE_CUDA 在容器创建阶段的拦截。
 
 B. 同一节点，mismatch-disable-require：
-   runtime 13.0  driver-supports 12.2
+   runtime 13.0  driver-supports 12.8        （570 节点；535 节点是 12.2）
    cudaFree(0): CUDA driver version is insufficient for CUDA runtime version (35)
    容器起来了，Runtime 在初始化时拒绝——这是 PyTorch 场景下 torch.cuda.is_available() 为 False 的底层原因。
 
-C. 驱动 535 + 数据中心 GPU + 535 在 CUDA 13.0 forward-compat 支持的分支内（以 NVIDIA 文档为准），两个 Pod 都是：
+C. 驱动 570 + 数据中心 GPU + 570 在 CUDA 13.0 forward-compat 支持的分支内（以 NVIDIA 文档为准），两个 Pod 都是：
    runtime 13.0  driver-supports 13.0
    devices: 1
    容器里 ldconfig -p | grep libcuda.so 指向 /usr/local/cuda/compat/ —— 规则三生效，镜像 base 层的 cuda-compat-13-0 被 Toolkit 启用。
 ```
 
-把 A、B、C 三个结果对回第二章第 5 节的表：A 与 B 是"470 跑 12.4"那一格的两种表现，C 是唯一能跑的分支。
+把 A、B、C 三个结果对回第二章第 5 节的表：A 与 B 是"570 跑 13.x"那一格的两种表现，C 是唯一能跑的分支。
 
 **（3）DRA 初试。** 需要 Kubernetes ≥ 1.34 与 NVIDIA DRA driver。在 GPU Operator v26.7.0 上这意味着换到实验性的 `GPUCluster` 路径（`helm install … --set clusterPolicy.deployCR=false --set gpuCluster.deployCR=true`，与 ClusterPolicy 互斥——**在另一个测试集群上做，不要在刚装好的主集群上切**），或者按 `k8s-dra-driver-gpu` 文档单独安装驱动。之后 `kubectl apply -f gpu/dra/deviceclass.yaml -f gpu/dra/claim.yaml`，按第六章第 4 节的命令看 `ResourceClaim.status.allocation` 里分到的设备名，再把 `quantity('40Gi')` 改成 `quantity('200Gi')` 重新提交——Pod 会 Pending，`kubectl describe pod dra-probe` 的事件里能看到 DynamicResources 插件给出的原因：没有任何设备满足选择器。这是 device plugin 模型下不可能出现的一条信息——它只会说 `Insufficient nvidia.com/gpu`。
 

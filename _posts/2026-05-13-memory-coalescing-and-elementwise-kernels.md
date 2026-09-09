@@ -62,6 +62,15 @@ GPU 不是按线程访问内存的，而是按 warp。一个 warp 的 32 个线�
 - **sector**：32 字节，是 L2 与 HBM 之间、以及 L1 与 L2 之间传输的最小单位；
 - **cache line**：128 字节，由 4 个连续的 sector 组成，是 L1 的行大小。
 
+把整条访存路径的各级放在一起看，sector 与 cache line 分别是哪两级之间的搬运单位、以及后面几章反复用到的延迟与带宽数字，都在这张表里（A100 SXM 80GB，延迟与 L1/L2 带宽为微基准测得的典型量级，不同型号有差异）：
+
+| 层级 | 容量 | 与上一级之间的传输粒度 | 延迟量级 | 带宽量级 |
+|---|---|---|---|---|
+| 寄存器 | 256 KB / SM（65536 × 32 bit） | 直接作为操作数 | 0 | — |
+| L1（与共享内存合用） | 192 KB / SM | 128 B cache line = 4 个 sector | ~30 cycle | ~128 B / cycle / SM |
+| L2 | 40 MB（整卡） | 32 B sector（L1 ↔ L2） | ~200 cycle | 数 TB/s（整卡） |
+| HBM2e | 80 GB | 32 B sector（L2 ↔ HBM） | ~600 ns ≈ 800 cycle | 2.0 TB/s |
+
 一次 warp 级加载最终被拆成若干个 sector 请求。**决定效率的不是线程数，而是这 32 个地址一共触碰了多少个 sector**。有效字节数（warp 真正需要的）除以实际搬运的字节数（sector 数 × 32 B），就是访存效率。
 
 举最简单的例子：32 个线程每人读一个 `float`（4 字节），地址连续且起点按 128 字节对齐。总共需要 128 字节，恰好落在 4 个 sector 里，效率 100%。这是所有 elementwise kernel 应该追求的形态：
@@ -212,6 +221,22 @@ bool aligned16 = (reinterpret_cast<uintptr_t>(ptr) % 16) == 0;
 第二，**`reinterpret_cast` 的语义**。`reinterpret_cast<const int4*>(x)[i]` 表示"把 `x` 看成 `int4` 数组，取第 i 个"，也就是从 `x` 起第 $$16i$$ 字节处读 16 字节。它要求 `x` 本身 16 字节对齐，而不只是 `x + 16i`。这一点很容易被"我只在 i 为 8 的倍数处访问"的直觉误导。
 
 第三，**尾部**。$$n$$ 不是 8 的倍数时，最后 $$n \bmod 8$$ 个元素不能用 `int4` 读（会越界读取，甚至越界写入）。常见做法是：主循环只处理前 $$\lfloor n / 8 \rfloor \times 8$$ 个元素，剩余的由某个 block 的前几个线程用标量方式补齐。第八章的代码会给出完整写法。
+
+三个细节合在一起，就是第八章向量化 kernel 的元素 ↔ 线程映射（BF16，每格 2 B）：
+
+```text
+n = 8·n_vec + tail    例：n = 21 → n_vec = 2，tail = 5
+
+元素   e0 e1 e2 e3 e4 e5 e6 e7 | e8 … e15 | e16 e17 e18 e19 e20
+字节   0                    15 | 16    31 | 32  34  36  38  40
+       └──── int4 #0 ────────┘ └ int4 #1 ┘ └── 尾部：不足 16 B ──┘
+       线程 i=0 一条 16 B 加载   线程 i=1     block 0 的线程 0…4
+                                             各标量处理 1 个元素
+
+起始地址决定整条路径能否向量化：
+  x.data_ptr()         …0000 (allocator 保证 512 B 对齐)   % 16 == 0 → int4
+  x[:, 1:].data_ptr()  …0002 (storage_offset = 1 个 BF16)  % 16 != 0 → 退回标量
+```
 
 `float4` 对 FP32 是 4 个元素/线程；`__nv_bfloat162` × 4 是 8 个元素/线程；INT8 用 `int4` 是 16 个元素/线程。**每线程处理 4–8 个元素**是 elementwise kernel 最常见的配置，ATen 的默认也在这个范围。
 
@@ -388,6 +413,29 @@ void gpu_kernel_impl_nocast(TensorIteratorBase& iter, const func_t& f) {
 
 路径选择只有一个分支：**全部操作数连续 → 向量化路径；否则 → 带 `OffsetCalculator` 的通用路径**。`data` 是一个 `char*` 数组，`data[0]` 是输出、其后是输入；lambda `f` 的参数类型（通过 `function_traits` 提取）决定了每个操作数的元素类型。
 
+从 `gpu_kernel` 到最终落地的三个 kernel，一共经过两次判断；后面 2–4 节逐个读它们，这里先把整条决策链画出来：
+
+```mermaid
+flowchart TB
+    classDef host fill:#f1f5f9,stroke:#475569
+    classDef dec fill:#fef3c7,stroke:#b45309
+    classDef k fill:#dbeafe,stroke:#1d4ed8
+    OP["算子实现：gpu_kernel(iter, lambda)<br/>AT_DISPATCH 已把运行期 dtype 变成 scalar_t"]:::host
+    IMPL["gpu_kernel_impl_nocast<br/>data(0) = 输出，data(1..) = 输入"]:::host
+    Q1{"iter.is_contiguous()<br/>所有操作数都连续？"}:::dec
+    LV["launch_vectorized_kernel<br/>vec_size = min(16 / sizeof, can_vectorize_up_to)<br/>非 sm_90 / sm_100 再压到 ≤ 4"]:::host
+    Q2{"vec_size ≥ 2？<br/>输出与每个输入指针都对齐"}:::dec
+    KV["vectorized_elementwise_kernel(vec_size)<br/>128 线程 × 8 元素 = 1024 元素 / block<br/>只有最后一个 block 走带边界检查的 unroll"]:::k
+    KU["unrolled_elementwise_kernel<br/>标量加载，每线程 4 元素<br/>TrivialOffsetCalculator + 每元素边界检查"]:::k
+    OC["make_offset_calculator(iter)<br/>逐维 divmod × stride，IntDivider 魔数除法"]:::host
+    KL["elementwise_kernel(128, 2 或 4)（legacy）<br/>标量加载 + OffsetCalculator::get(idx)"]:::k
+    OP --> IMPL --> Q1
+    Q1 -- "是" --> LV --> Q2
+    Q2 -- "是（2 / 4 / 8）" --> KV
+    Q2 -- "否（= 1，对齐不够）" --> KU
+    Q1 -- "否（stride / broadcast）" --> OC --> KL
+```
+
 ### 2. `launch_vectorized_kernel` 与 `can_vectorize_up_to`
 
 连续路径先决定向量宽度（CUDA 分支，去掉 ROCm 部分）：
@@ -507,6 +555,20 @@ __device__ inline void load_single_arg(accessor_t to, scalar_t *from) {
 ```
 
 注意 `index = thread_idx + i * num_threads()`：第 i 次迭代时，线程 t 读第 $$t + 128 i$$ 个向量——相邻线程读相邻向量，每次迭代 warp 覆盖连续的 $$32 \times \text{vec\_size} \times \text{sizeof}$$ 字节。BF16、vec 4 时一个 warp 一条指令 256 B、2 条 cache line；每线程 2 次迭代（8 元素 / 4）。这是第二章"连续对齐"与第三章"向量化"在源码里的直接体现。
+
+```text
+一个 block（128 线程 t）处理 1024 个 BF16；vec_size = 4（A100）→ 每线程 2 次迭代
+
+迭代 i=0  向量 idx = t         t=0     t=1     t=2    …  t=127
+          元素                 e0-3    e4-7    e8-11  …  e508-511    连续 1024 B
+迭代 i=1  向量 idx = t + 128   t=0     t=1     t=2    …  t=127
+          元素                 e512-5  e516-9  e520-3 …  e1020-1023  连续 1024 B
+
+线程 t 的 8 个寄存器槽 to(4·i + j)： e[4t..4t+3]，e[512+4t..512+4t+3]
+一个 warp 一次迭代：32 线程 × 4 元素 × 2 B = 256 B = 2 条完整 cache line
+
+最后一个 block：remaining = N - 1024·blockIdx.x < 1024 → 整个 block 改走 unroll
+```
 
 ### 4. 非向量化路径：`unrolled_elementwise_kernel` 与 `elementwise_kernel`
 

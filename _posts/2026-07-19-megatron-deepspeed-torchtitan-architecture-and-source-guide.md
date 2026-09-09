@@ -133,7 +133,28 @@ PyTorch 2.13.0        torch/distributed/
 
 `megatron/core/parallel_state.py` 是一个由模块级全局变量组成的注册表：`_TENSOR_MODEL_PARALLEL_GROUP`、`_DATA_PARALLEL_GROUP`、`_DATA_PARALLEL_GROUP_WITH_CP` 等几十个变量，各配一个 `get_*_group()` 读取函数。填这些变量的是 `initialize_model_parallel()`，它的签名里有 TP、PP、VP、CP、EP 各维度的大小，以及决定 rank 排布的 `order`，默认 `"tp-cp-ep-dp-pp"`。
 
-排布由 `RankGenerator` 类完成。它接收各维度大小与 `order` 字符串，`get_ranks(token)` 对一个形如 `"tp"`、`"dp-cp"`、`"tp-ep-pp"` 的 token 调用 `generate_masked_orthogonal_rank_groups()`：把世界大小按 `order` 拆成一个多维网格，token 里出现的维度是"变化的"、其余维度是"固定的"，枚举固定维度的每一种取值，就得到一个进程组的 rank 列表。所以 `"tp-cp-ep-dp-pp"` 的含义是 TP 变化最快（相邻 rank、同节点）、PP 变化最慢——第二篇解释过这来自"TP 不可重叠必须 NVLink、PP 通信最少可放最远"。
+排布由 `RankGenerator` 类完成。它接收各维度大小与 `order` 字符串，`get_ranks(token)` 对一个形如 `"tp"`、`"dp-cp"`、`"tp-ep-pp"` 的 token 调用 `generate_masked_orthogonal_rank_groups()`：把世界大小按 `order` 拆成一个多维网格，token 里出现的维度是"变化的"、其余维度是"固定的"，枚举固定维度的每一种取值，就得到一个进程组的 rank 列表。所以 `"tp-cp-ep-dp-pp"` 的含义是 TP 变化最快（相邻 rank、同节点）、PP 变化最慢——第二篇解释过这来自"TP 不可重叠必须 NVLink、PP 通信最少可放最远"。用本篇练手项目的 8 卡配置（TP 2 × PP 2 × DP 2）把"掩码"这件事画出来：
+
+```text
+world_size = 8，order = "tp-cp-ep-dp-pp"，TP 2 × DP 2 × PP 2（cp = ep = 1）
+rank = tp + 2·dp + 4·pp        tp 变化最快（相邻卡），pp 最慢
+
+                 dp=0            dp=1
+              tp=0   tp=1     tp=0   tp=1
+  pp=0     +------+------+  +------+------+
+           |   0  |   1  |  |   2  |   3  |
+           +------+------+  +------+------+
+  pp=1     +------+------+  +------+------+
+           |   4  |   5  |  |   6  |   7  |
+           +------+------+  +------+------+
+
+get_ranks("tp")     变 tp，固定 dp,pp  -> {0,1} {2,3} {4,5} {6,7}
+get_ranks("dp")     变 dp，固定 tp,pp  -> {0,2} {1,3} {4,6} {5,7}
+get_ranks("pp")     变 pp，固定 tp,dp  -> {0,4} {1,5} {2,6} {3,7}
+get_ranks("tp-dp")  变 tp,dp，固定 pp  -> {0,1,2,3} {4,5,6,7}
+```
+
+同一张 8 卡网格，token 里出现的维度"变化"、其余"固定"，一次枚举就得到一组进程组；第 3 节 torchtitan 的 `DeviceMesh` 视图 `("pp", "dp_shard", "tp")` 给出的正是同一张网格，只是"哪些卡在一组"改由 mesh 的索引语义回答。
 
 `initialize_model_parallel()` 里有两个 `RankGenerator`：`decoder_rank_generator`（tp/cp/dp/pp，ep 固定为 1）和 `expert_decoder_rank_generator`（tp/ep/dp/pp，cp 固定为 1）。这是因为 EP 与 CP 在 Megatron 里被视为互斥的维度（`RankGenerator.__init__` 有 `ep == 1 or cp == 1` 的断言）：专家层的 DP 组 `expt-dp` 大小是 $$N_d N_c / N_e$$，与非专家层的 `dp-cp` 组不同。两套生成器分别为 dense 部分和 MoE 部分建组，而 PP 组必须一致（函数里有对应断言）。
 
@@ -234,6 +255,32 @@ Megatron 的 `distributed/distributed_data_parallel.py` 的 `DistributedDataPara
 3. 按 `bucket_size`（默认 `max(40000000, 1000000 × dp_size)` 个元素）把 buffer 切成若干 `_ParamAndGradBucket`，再把 bucket 组成 `_ParamAndGradBucketGroup`——通信以 bucket group 为单位发起。用分布式优化器时每个 bucket 会被 pad 到 `dp_size` 的整数倍，使 `shard_buffer()` 能把它均分给各 DP rank。
 4. 给每个参数注册反向 hook（`_make_backward_post_hook()`）：hook 里 `param.main_grad.add_(param.grad)` 然后 `param.grad = None`（若梯度累积融合已经直接写进 `main_grad`，这一步跳过），再 `register_grad_ready()`——当一个 bucket group 里所有参数的梯度在本 step 的最后一个 micro-batch 都就位时，`start_grad_sync()` 发起通信：分布式优化器下是 reduce-scatter（`dist_reduce_scatter_func` 到 `shard_buffer(bucket.grad_data, dp_size)` 里本 rank 的那一段），否则是 all-reduce；`overlap_grad_reduce=True` 时异步发起、`finish_grad_sync()` 等待。
 
+把这两段内存、bucket 与 DP 分片画在一起（下一节的分布式优化器就是在这张图上按字节区间切）：
+
+```text
+一个 _ParamAndGradBuffer：同一 (param_dtype, grad_dtype) 组的全部参数，
+按反向顺序排列（最后一层在最前）；dp_size = 4
+
+             |<------------ bucket 0 ----------->|<---- bucket 1 --->|
+param_data   +------------+----+------------+----+---------+----+---+
+(bf16)       |    W_L     |b_L |   W_L-1    |pad |  W_L-2  |... |pad|
+             +------------+----+------------+----+---------+----+---+
+grad_data    +------------+----+------------+----+---------+----+---+
+(fp32)       |    dW_L    |db_L|   dW_L-1   |pad |  dW_L-2 |... |pad|
+             +------------+----+------------+----+---------+----+---+
+shard_buffer +--------+--------+--------+--------+----+----+----+----+
+(per bucket, | rank0  | rank1  | rank2  | rank3  | r0 | r1 | r2 | r3 |
+ dp_size=4)  +--------+--------+--------+--------+----+----+----+----+
+
+param.data      = param_data[a:b] 的视图
+param.main_grad = grad_data[a:b] 的视图（同一偏移，两段独立内存）
+分片边界 ≠ 参数边界：W_L 前 8 个元素归 rank0、后 4 个归 rank1，
+  DistributedOptimizer 只为本 rank 段建 fp32 主参数与 m、v
+反向：bucket 内梯度全部就位 -> reduce-scatter(grad_data[bucket])，
+  本 rank 段即归约结果
+step：fp32 主参数分片 -> param_data[本 rank 段]（转 bf16）-> all-gather 拼回完整
+```
+
 前几个 micro-batch 的反向不触发通信：`no_sync()` 上下文（由调度函数通过 `config.no_sync_func` 调用）把 `is_last_microbatch` 置 False，hook 只累加不发送。这就是第二篇说的"梯度 bucket 与反向计算重叠"的实现。
 
 `param_data` 与 `grad_data` 是两段独立的内存。`_ParamAndGradBuffer.__init__` 里有一个例外：参数是 MXFP8 张量且用分布式优化器时，二者共享同一段 `shared_buffer`（fp32 梯度时 `param_data` 是它前半段的 bf16 视图）——优化器步骤后 all-gather 更新的参数时复用已经归约完、不再需要的梯度 buffer。bf16 训练走的是两段独立内存的常规路径。
@@ -312,6 +359,38 @@ pretrain()
 
 三点值得注意。第一，`train_step()` 被 `rerun_state_machine.should_run_forward_backward()` 的 while 循环包着——这是第六篇要讲的 SDC 检测机制的入口，正常情况下只跑一次。第二，调度函数不知道 DDP 的存在，它通过 `config` 上的四个回调（`no_sync_func`、`grad_sync_func`、`param_sync_func`、`finalize_model_grads_func`）与 DDP 交互，所以 `schedules.py` 能在没有 DDP 的场合（推理、测试）复用。第三，`training_log()` 在 `--log-memory-to-tensorboard` 时直接读 `torch.cuda.memory_stats()` 的 `reserved_bytes.all.current`、`allocated_bytes.all.current`、`allocated_bytes.all.peak` 写 TensorBoard——本篇练手项目的 `probe_memory.py` 读的是同一组键。
 
+把第二点画成时序，重点看两处异步：reduce-scatter 在最后一个 micro-batch 的反向里发出、在 `finalize_model_grads` 里等；all-gather 在 `optimizer.step()` 里发出、在**下一个** step 的前向 pre-hook 里等。调度函数与 DDP 之间没有直接引用，只有四个回调和两个 hook：
+
+```mermaid
+sequenceDiagram
+    participant TS as train_step
+    participant DOPT as DistributedOptimizer
+    participant SCH as forward_backward_func
+    participant DDP as DDP / BucketGroup
+    participant NC as DP 组集合通信
+    TS->>TS: model_chunk.zero_grad_buffer()
+    TS->>DOPT: zero_grad()
+    DOPT->>DDP: start_param_sync()（第一个 bucket group）
+    DDP-)NC: all-gather param_data（异步，上一 step 已更新）
+    TS->>SCH: forward_backward_func(...)
+    loop m 个 micro-batch
+        SCH->>DDP: no_sync_func()（非最后一个时只累加）
+        SCH->>DDP: forward pre-hook: finish_param_sync()
+        DDP-->>NC: 只等该参数所在 bucket 的 all-gather
+        SCH->>SCH: forward_step / backward_step
+        SCH->>DDP: backward post-hook: main_grad += grad, register_grad_ready()
+    end
+    Note over SCH,NC: 最后一个 micro-batch，bucket group 内梯度全部就位
+    DDP-)NC: reduce-scatter grad_data（异步，与剩余反向重叠）
+    SCH->>DDP: finalize_model_grads_func: finish_grad_sync()
+    DDP-->>NC: 等 reduce-scatter 完成
+    SCH->>NC: finalize_model_grads: embedding 等跨组 all-reduce
+    TS->>DOPT: step()
+    DOPT->>DOPT: grad_data[本 rank 段] 拷入主参数.grad, Adam 更新, 拷回 param_data
+    DOPT->>DDP: step_with_ready_grads: start_param_sync()
+    DDP-)NC: all-gather param_data（异步，下一 step 的 pre-hook 才等）
+```
+
 ### 7. Megatron-FSDP：趋势
 
 `megatron/core/distributed/fsdp/` 是 0.18.0 里 Megatron 自己的 FSDP 实现，`--use-megatron-fsdp` 打开。`fsdp/src/megatron_fsdp/fully_shard.py` 的 `ShardingStrategy` 枚举把四级写得很直白：`NO_SHARD`、`OPTIM`（ZeRO-1）、`OPTIM_GRADS`（ZeRO-2）、`OPTIM_GRADS_PARAMS`（ZeRO-3），由 `--data-parallel-sharding-strategy` 选；`megatron_fsdp.py` 的 `MegatronFSDP` 是模块包装类，`mcore_fsdp_adapter.py` 的 `FullyShardedDataParallel` 把它接进 Megatron 的 `_BaseDataParallel` 接口，与 `DistributedDataParallel` 平级。它保留了 Megatron 的 buffer 思路（`fsdp/src/megatron_fsdp/param_and_grad_buffer.py`）但把参数也切了，并且用 DTensor 表达分片（`uneven_dtensor.py`），checkpoint 格式 `--ckpt-format fsdp_dtensor`。`DistributedOptimizer.step_with_ready_grads()` 里有一个 `use_megatron_fsdp` 分支，调用 `model_chunk.start_param_sync()` 提前 all-gather 主参数。
@@ -365,7 +444,49 @@ DeepSpeedEngine.__init__
   _configure_lr_scheduler()
 ```
 
-所以 DeepSpeed 的"ZeRO 优化器"是一个**优化器包装类**：它接管用户优化器的 `param_groups`，把里面的参数替换成分片；ZeRO 的一切——分片、hook、通信——都在这个包装类里，engine 只在 `backward()` 与 `step()` 里调用它。这与 Megatron（DDP 负责梯度通信、优化器负责参数分片与 all-gather，两个类）和 torchtitan（FSDP 负责一切通信、优化器是普通的）都不同。
+所以 DeepSpeed 的"ZeRO 优化器"是一个**优化器包装类**：它接管用户优化器的 `param_groups`，把里面的参数替换成分片；ZeRO 的一切——分片、hook、通信——都在这个包装类里，engine 只在 `backward()` 与 `step()` 里调用它。这与 Megatron（DDP 负责梯度通信、优化器负责参数分片与 all-gather，两个类）和 torchtitan（FSDP 负责一切通信、优化器是普通的）都不同。三种"谁持有分片、谁发起通信"的归属画在一起（黄色 = 分片与集合通信所在的类）：
+
+```mermaid
+flowchart TB
+    subgraph MG["Megatron Core"]
+        direction TB
+        MG_S["schedules.py<br/>经 4 个回调驱动 DDP"]
+        MG_D["DistributedDataParallel<br/>_ParamAndGradBuffer<br/>梯度 hook / reduce-scatter<br/>执行参数 all-gather"]
+        MG_O["DistributedOptimizer<br/>fp32 主参数 1/N_d 分片<br/>Adam 后发起 all-gather"]
+        MG_M["模型层：core/transformer<br/>必须用它的层写"]
+        MG_S --> MG_D
+        MG_D <--> MG_O
+        MG_D --> MG_M
+        MG_O ~~~ MG_M
+    end
+    subgraph DS["DeepSpeed"]
+        direction TB
+        DS_E["DeepSpeedEngine<br/>forward / backward / step<br/>判断梯度累积边界"]
+        DS_Z["ZeRO 优化器包装类<br/>stage_1_and_2 / stage3<br/>分片 + hook + 全部通信"]
+        DS_U["用户 optimizer<br/>只看到 fp32 分区"]
+        DS_M["任意 nn.Module，零侵入<br/>Stage 3 下参数是空壳"]
+        DS_E --> DS_Z
+        DS_Z --> DS_U
+        DS_E --> DS_M
+        DS_U ~~~ DS_M
+    end
+    subgraph TT["torchtitan"]
+        direction TB
+        TT_T["Trainer.train_step<br/>无显式集合通信"]
+        TT_F["fully_shard（FSDP2）<br/>hook 内 unshard / reshard<br/>reduce-scatter，全部通信"]
+        TT_O["torch.optim.AdamW<br/>普通优化器，更新 fp32 分片"]
+        TT_M["Module 协议 + ShardingConfig<br/>参数是 DTensor"]
+        TT_T --> TT_F
+        TT_T --> TT_O
+        TT_F --> TT_M
+        TT_F ~~~ TT_O
+        TT_O ~~~ TT_M
+    end
+    classDef comm fill:#fde68a,stroke:#b45309;
+    classDef plain fill:#e0f2fe,stroke:#0369a1;
+    class MG_D,MG_O,DS_Z,TT_F comm;
+    class MG_M,DS_M,DS_U,TT_M,TT_O plain;
+```
 
 ### 3. Stage 1 / 2：扁平分区
 
@@ -390,6 +511,35 @@ Stage 3 的实现分散在四个文件里，按参数的生命周期读：
 **取回与释放（`parameter_offload.py` + `partitioned_param_coordinator.py`）**。`DeepSpeedZeRoOffload.setup_zero_stage3_hooks()` 遍历模型的每个子 module，`_register_deepspeed_module()` 给它注册四个 hook：`_pre_forward_module_hook`、`_post_forward_module_hook`、`_pre_backward_module_hook`、`_post_backward_module_hook`。它们分别调用 `pre_sub_module_forward_function()` → `PartitionedParameterCoordinator.fetch_sub_module(sub_module, forward=True)`（把该 module 直接持有的参数 all-gather 回来，`ds_status` 变 `AVAILABLE`，`param.data` 指向拼好的完整张量）、`post_sub_module_forward_function()` → `release_sub_module()`（对不再被任何活跃 module 使用、且非 `ds_persist` 的参数调用 `__release_param()` → `param.partition()`，完整张量释放）；反向对称。
 
 `PartitionedParameterCoordinator` 里有两个提高效率的机制。**trace**：第一个 step 记录 module 的执行顺序（`record_module()`），之后按这个顺序**预取**——`fetch_sub_module()` 在取回当前 module 的参数时，顺带发起后面几个 module 的 all-gather（总量由 `stage3_prefetch_bucket_size` 控制），`stage3_max_live_parameters` 限制同时活着的完整参数总数、`stage3_max_reuse_distance` 决定"很快又要用"的参数不释放。**coalesced all-gather**：`all_gather_coalesced()`（`partition_parameters.py` 里的 `_all_gather_coalesced()`）把一个 module 的多个参数拼成一次 `all_gather_into_tensor` 调用，返回 `AllGatherCoalescedHandle`，`wait()` 时再拆回各参数。
+
+四个文件在一层的前向、反向里各自出场的次序如下（`ds_status` 与 `param.data` 的身份随之变化四次）：
+
+```mermaid
+sequenceDiagram
+    participant FW as 层 k forward / backward
+    participant HK as DeepSpeedZeRoOffload
+    participant PC as ParamCoordinator
+    participant P as 层 k 的 weight
+    participant Z3 as Stage3 优化器
+    FW->>HK: _pre_forward_module_hook
+    HK->>PC: fetch_sub_module(层 k, forward=True)
+    PC->>P: all_gather_coalesced：N_d 个碎片拼成完整
+    Note over P: NOT_AVAILABLE -> INFLIGHT -> AVAILABLE，param.data 指向完整张量
+    PC-)PC: 按 trace 顺带预取层 k+1.. 的参数
+    FW->>FW: GEMM 读完整 weight
+    FW->>HK: _post_forward_module_hook
+    HK->>PC: release_sub_module(层 k)
+    PC->>P: partition()（非 ds_persist 且无活跃 module 使用）
+    Note over P: AVAILABLE -> NOT_AVAILABLE，param.data 换回空张量
+    FW->>HK: _pre_backward_module_hook
+    HK->>PC: fetch_sub_module(层 k, forward=False)
+    PC->>P: 再 all-gather 一次
+    FW->>Z3: 梯度 hook reduce_partition_and_remove_grads
+    Z3->>Z3: 进 IPG bucket，满则 reduce-scatter，本 rank 段写入 fp32 分区 .grad
+    FW->>HK: _post_backward_module_hook
+    HK->>PC: release_sub_module(层 k)
+    PC->>P: partition()，param.grad = None
+```
 
 **梯度（`stage3.py`）**。`create_reduce_and_remove_grad_hooks()` 给每个参数注册 `reduce_partition_and_remove_grads` hook；梯度就位后进 IPG bucket（`IPGBucketZ3`），满了 `__reduce_and_partition_ipg_grads()` → `__avg_scatter_grads()`（reduce-scatter）→ `partition_grads()` 把本 rank 分区的梯度写进 `fp32_partitioned_groups_flat[sub_group].grad` 或 bf16 的梯度分区（取决于 `gradient_accumulation_dtype`），然后 `param.grad = None`。反向结束时该参数本身也已被 `_post_backward_module_hook` 释放。
 
@@ -550,7 +700,28 @@ fully_shard([norm, lm_head], ..., reshard_after_forward=False)    最后几层�
 
 `fully_shard()` 来自 `torch/distributed/fsdp/_fully_shard/_fully_shard.py`。对一个 module 调用它：把 module 的类动态换成 `FSDP<原类名>`（多继承 `FSDPModule`）、建一个 `FSDPState`（`_fsdp_state.py`）和一个 `FSDPParamGroup`（`_fsdp_param_group.py`），组内每个参数一个 `FSDPParam`（`_fsdp_param.py`）。`FSDPParam._init_sharded_param()` 把参数沿第 0 维切成 `mesh` 大小份，本 rank 的一份包成 `DTensor(placements=(Shard(0),))`（HSDP 时 `(Replicate(), Shard(0))`），**dtype 保持原样**——torchtitan 默认 `training.dtype = float32`，所以分片是 fp32。如果参数已经是 TP 的 DTensor（`Shard(0)` 或 `Shard(1)` 在 tp 维），FSDP 在它外面再加一维，得到一个二维 mesh 上的 DTensor。
 
-前向与反向由 `FSDPState` 注册的 hook 驱动（`_register_group_forward_hooks()`）：`_pre_forward` → `FSDPParamGroup.pre_forward()` → `unshard()`（`_fsdp_collectives.py` 的 `foreach_all_gather()`：组内所有参数的分片拷进一个连续 buffer、一次 `all_gather_into_tensor`，输入在此处按 `mp_policy.param_dtype` 转 bf16）→ `wait_for_unshard()` → `foreach_all_gather_copy_out()` → `FSDPParam.to_unsharded()`（bf16 的完整参数注册到 module 上）；`_post_forward` → `post_forward()` → `reshard()` → `to_sharded()`（释放 bf16，module 上又是 fp32 分片）；反向 `pre_backward()` 再 unshard（`_backward_prefetch()` 按前向的逆序预取），`post_backward()` → `foreach_reduce()`（梯度拷进连续 buffer、`reduce_dtype` 为 fp32 的 reduce-scatter、结果写到分片参数的 `.grad`——也是 `Shard(0)` 的 fp32 DTensor）。三条 stream（`FSDPCommContext` 的 all-gather / reduce-scatter / all-reduce stream）让通信与计算重叠。
+前向与反向由 `FSDPState` 注册的 hook 驱动（`_register_group_forward_hooks()`）：`_pre_forward` → `FSDPParamGroup.pre_forward()` → `unshard()`（`_fsdp_collectives.py` 的 `foreach_all_gather()`：组内所有参数的分片拷进一个连续 buffer、一次 `all_gather_into_tensor`，输入在此处按 `mp_policy.param_dtype` 转 bf16）→ `wait_for_unshard()` → `foreach_all_gather_copy_out()` → `FSDPParam.to_unsharded()`（bf16 的完整参数注册到 module 上）；`_post_forward` → `post_forward()` → `reshard()` → `to_sharded()`（释放 bf16，module 上又是 fp32 分片）；反向 `pre_backward()` 再 unshard（`_backward_prefetch()` 按前向的逆序预取），`post_backward()` → `foreach_reduce()`（梯度拷进连续 buffer、`reduce_dtype` 为 fp32 的 reduce-scatter、结果写到分片参数的 `.grad`——也是 `Shard(0)` 的 fp32 DTensor）。三条 stream（`FSDPCommContext` 的 all-gather / reduce-scatter / all-reduce stream）让通信与计算重叠。一个 `fully_shard` 单元建出来的对象（上半）与它们在 `FSDPCommContext` 的两条通信 stream 上的分工（下半，黄色；所有单元共享同一个 context）：
+
+```mermaid
+flowchart TB
+    FS["fully_shard(block, mesh, mp_policy)<br/>block 的类换成 FSDPTransformerBlock"]
+    ST["FSDPState<br/>注册 _pre_forward / _post_forward<br/>/ _pre_backward hook"]
+    PG["FSDPParamGroup<br/>unshard / reshard / post_backward"]
+    PR["FSDPParam × k（w1 / w2 / w3 ...）<br/>每个持有一个 DTensor Shard(0) fp32<br/>unshard 后临时挂上完整 bf16"]
+    AG["all_gather_stream<br/>foreach_all_gather：分片转 bf16、<br/>拷进连续 buffer、一次 all-gather"]
+    RS["reduce_scatter_stream<br/>foreach_reduce：bf16 梯度拷进<br/>buffer、fp32 reduce-scatter"]
+    AR["all_reduce_stream<br/>仅 HSDP：dp_replicate 维 all-reduce"]
+    FS --> ST --> PG --> PR
+    PR ~~~ AG
+    AG ~~~ RS
+    PG <-- "pre_forward / pre_backward: unshard<br/>wait_for_unshard 后 to_unsharded" --> AG
+    PG <-- "post_backward<br/>.grad 写回 Shard(0) fp32 分片" --> RS
+    RS --> AR
+    classDef stream fill:#fde68a,stroke:#b45309;
+    classDef shard fill:#e0f2fe,stroke:#0369a1;
+    class AG,RS,AR stream;
+    class PR shard;
+```
 
 ### 5. PP 与 CP
 
@@ -687,6 +858,15 @@ cooldown: for i in range(num_warmup_microbatches):
 **PyTorch：先是过程式，再是动作表**。`torch/distributed/pipelining/schedules.py` 的 `Schedule1F1B._step_microbatches()` 结构与 Megatron 几乎逐行对应：`warmup_chunks = min(n_microbatches, num_stages - stage_index)`，warmup 循环 `get_fwd_recv_ops()` → `forward_one_chunk()` → `get_fwd_send_ops()`，稳态循环把上一轮的 `fwd_sends` 与本轮的 `bwd_recvs` 合成一次 `_batch_p2p()`（注释写的是"1B1F"——先反向再前向，与 Megatron 的"1F1B"只是切入点不同）。差别在两处：通信操作是 `dist.P2POp` 列表由 `PipelineStage`（`stage.py`）生成、调度器只负责 batch 与 wait，接收 buffer 的形状由 `PipelineStage._prepare_forward_infra()` 在第一个 micro-batch 时推断（`_forward_metadata_inference()`，`_utils.py` 的 `InferenceMode` 决定静态还是动态推断）而不是像 Megatron 那样由 `get_tensor_shapes()` 从配置算出；`backward_one_chunk()` 走 `_backward.py` 的 `stage_backward()`，它还有 `stage_backward_input()` / `stage_backward_weight()` 两个拆开的版本——这是 zero-bubble 调度的前提。
 
 `Schedule1F1B` 同时实现了 `_get_pipeline_order()`：把上面的过程翻译成一张按时间步排列的 `_Action` 表（`_ComputationType` 枚举：`FORWARD`、`FULL_BACKWARD`、`BACKWARD_INPUT`、`BACKWARD_WEIGHT`、`SEND_F` / `RECV_F` / `SEND_B` / `RECV_B`、`UNSHARD` / `RESHARD`、`REDUCE_GRAD`）。`_PipelineScheduleRuntime` 就是执行这种表的解释器：`_add_send_recv()` 给计算动作插入配对的通信动作、`_add_unshard_reshard()` 插入 FSDP 的 unshard / reshard（PP 与 FSDP 组合时让参数 all-gather 提前）、`_merge_bw()` 把相邻的 `BACKWARD_INPUT` 与 `BACKWARD_WEIGHT` 合并。`ScheduleInterleaved1F1B`、`ScheduleInterleavedZeroBubble`、`ScheduleZBVZeroBubble`、`ScheduleDualPipeV` 都是 `_PipelineScheduleRuntime` 的子类，只重写 `_calculate_single_rank_operations()` 生成各自的表；`_load_csv()` 甚至允许从 CSV 加载一张手写的表——torchtitan 的 `pipeline_parallel_schedule_csv` 就接在这里。
+
+三种写法里"调度在哪一层被写死"不同：Megatron 写在代码里，DeepSpeed 写在指令生成器里，PyTorch 写在一张可变换的表里——
+
+| | Megatron：过程式 | DeepSpeed：指令流 | PyTorch：动作表 |
+|---|---|---|---|
+| 调度长什么样 | `forward_backward_pipelining_without_interleaving()` 的 warmup / steady / cooldown 三段循环 | `TrainSchedule.steps()` 生成器，每步 yield 一组 `PipeInstruction` | `_calculate_single_rank_operations()` 生成的 `_Action` 表（或 `_load_csv` 载入手写表） |
+| 谁执行它 | 函数本身 | `PipelineEngine._exec_schedule` 按 `_INSTRUCTION_MAP` 查表调 `_exec_*` | `_PipelineScheduleRuntime` 逐 `_Action` 解释执行 |
+| 通信在哪发出 | `P2PCommunicator._communicate()`，四类收发打包成一次 `batch_isend_irecv` | `_exec_send_activations` 等，走 `pipe/p2p.py` | `PipelineStage.get_fwd_recv_ops()` 等生成 `P2POp`，`_batch_p2p` 合并 |
+| 改调度要动什么 | 改代码（interleaved 版本另写了一千行） | 改生成器；只有一种调度 | 换一张表；PP × FSDP、zero-bubble 都是表变换（`_add_send_recv` / `_add_unshard_reshard` / `_merge_bw`） |
 
 两种写法的取舍：Megatron 的过程式**快**——每一步做什么在代码里写死，没有解释开销，与 Megatron 自己的 DDP、分布式优化器、interleaved 调度的 `overlap_p2p_comm` 深度耦合（`forward_backward_pipelining_with_interleaving()` 有一千行）；PyTorch 的动作表**通用**——新调度只是一张新表，PP 与 FSDP、与 zero-bubble 的组合是表变换，代价是每步的解释与 `_batch_p2p` 的开销，以及形状推断带来的第一步延迟。DeepSpeed 的 `TrainSchedule` 在两者之间：指令序列是声明的，但只有一种调度。
 

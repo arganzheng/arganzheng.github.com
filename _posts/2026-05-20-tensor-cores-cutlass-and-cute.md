@@ -680,6 +680,26 @@ void bf16_gemm_tn(const __nv_bfloat16* A, const __nv_bfloat16* B, __nv_bfloat16*
 - **shared memory**：$$3 \times 2 \times 128 \times 32 \times 2$$ B = 49152 B，恰好是不 opt-in 的 48 KiB 静态上限。想用 4 stage 需要改成 `extern __shared__` 加 `cudaFuncSetAttribute(..., cudaFuncAttributeMaxDynamicSharedMemorySize, 65536)`。
 - **占用率**：每线程约 128 个寄存器 × 256 线程 = 32768，每 SM 可驻留 2 个 block（寄存器）；shared memory 48 KiB × 2 = 96 KiB，也允许 2 个。2 个 block = 16 个 warp，每个调度器 4 个 warp，足以隐藏 mma 与 ldmatrix 的延迟。
 
+把"流水的正确性"那一条按轮次展开，看每一轮三个 stage 各自在干什么：
+
+```text
+  STAGES = 3 环形 buffer：任一时刻 1 个 stage 在算、2 个 stage 的 cp.async 在飞
+
+  轮 kt│ wait_group 1 后到齐│ 计算 ldmatrix+mma │ 预取 cp.async           │ 在飞
+  ─────┼────────────────────┼───────────────────┼─────────────────────────┼─────
+   pro │ —                  │ —                 │ tile 0→s0, tile 1→s1    │ 0, 1
+    0  │ tile 0             │ s0 ← tile 0       │ tile 2 → s2             │ 1, 2
+    1  │ tile 1             │ s1 ← tile 1       │ tile 3 → s0 (刚读完)    │ 2, 3
+    2  │ tile 2             │ s2 ← tile 2       │ tile 4 → s1 (刚读完)    │ 3, 4
+    3  │ tile 3             │ s0 ← tile 3       │ tile 5 → s2 (刚读完)    │ 4, 5
+   ... │ tile kt            │ s(kt%3)           │ tile kt+2 → s((kt-1)%3) │
+   KT-2│ tile KT-2          │ s((KT-2)%3)       │ 无 (空 commit 保计数)   │ KT-1
+   KT-1│ tile KT-1          │ s((KT-1)%3)       │ 无 (空 commit)          │ —
+
+  预取写入的 stage (kt+2)%3 == (kt-1)%3，正是上一轮刚算完的那个；
+  中间的 __syncthreads 保证"所有 warp 读完 kt-1"发生在"任何线程覆盖它"之前
+```
+
 ### 4. 测试
 
 用 `load_inline` 接到 PyTorch，与 `torch.matmul` 对照（B 传入 `W` 本身即 $$N \times K$$，参考值是 `x @ W.T`）：
@@ -749,6 +769,23 @@ cp.async.bulk.tensor.2d.shared::cluster.global.mbarrier::complete_tx::bytes
 - `{x, y}` 是 tile 在全局张量中的多维坐标（元素单位），硬件负责算地址、处理边界（越界部分填零）、做 swizzle；
 - 完成通知通过 **mbarrier**：发起前用 `mbarrier.arrive.expect_tx` 告知 barrier "期待 N 个字节到达"，TMA 每写完一段就把 `tx-count` 减掉相应字节数，消费者用 `mbarrier.try_wait.parity` 等到 barrier 翻转；
 - **单线程发起**：整个 block 只需一个线程发出这条指令，其他线程完全空闲。
+
+mbarrier 的"到达计数 + 事务字节数"双条件是理解 TMA 完成通知的关键，把一个 `full[s]` barrier 在一轮里的状态列出来（以 A、B 各一个 $$128 \times 64$$ BF16 tile = 16 KiB 为例）：
+
+```text
+  full[s]：arrival count 初值 1（仅 producer 的 1 个线程 arrive），tx-count 初值 0
+
+  事件                                 pending arrivals  tx-count  phase
+  ─────────────────────────────────────────────────────────────────────────────
+  上一轮翻转后的初始态                 1                 0         p
+  producer: arrive.expect_tx(32768)    0                 32768     p
+  TMA 写完 A tile: complete_tx 16384   0                 16384     p
+  TMA 写完 B tile: complete_tx 16384   0                 0         p → p^1 翻转
+  consumer: try_wait.parity(p)         —                 —         返回 true
+
+  两个计数同时归零才翻转：线程"到了"（arrivals）且字节"到了"（tx-count）；
+  consumer 只盯 phase 位，不关心谁在搬、分几次搬——TMA 因此能单线程发起
+```
 
 对比 Ampere：256 个线程各发 4 条 `cp.async` + 算地址，变成 1 个线程发 2 条指令。释放出来的不只是指令槽，还有寄存器（不需要每线程保存全局指针和偏移）。
 
@@ -829,6 +866,23 @@ if (warpgroup == producer) {
 
 - **Cooperative**：两个 consumer 合作算同一个 output tile（如 $$256 \times 128$$，各算 128 行），同时进入主循环、同时做 epilogue。tile 大、shared memory 算术强度高，适合大 M、N。
 - **Ping-pong**：两个 consumer 各算一个不同的 $$128 \times N$$ tile，通过一个额外的 ordered barrier 错开：一个在跑 mainloop 时另一个在做 epilogue，然后交换。这样 Tensor Core 在 epilogue 期间也不空闲。适合 epilogue 相对较重（如带量化 scale 的输出）的场景。
+
+两种调度下 Tensor Core 的忙闲对比（WG1 / WG2 是两个 consumer warpgroup，时间从左到右）：
+
+```text
+  Cooperative：两个 consumer 合算一个 256x128 tile（各 128 行），同进同出
+  WG1 │ mainloop t0 行 0-127  │ epi t0 │ mainloop t1 行 0-127  │ epi t1
+  WG2 │ mainloop t0 行 128-255│ epi t0 │ mainloop t1 行 128-255│ epi t1
+  TC  │ ██████ WG1+WG2 ██████ │  空闲  │ ██████ WG1+WG2 ██████ │  空闲
+
+  Ping-pong：两个 consumer 各算一个 128x128 tile，用 ordered barrier 错开
+  WG1 │ mainloop t0      │ epi t0  │ 等 WG2  │ mainloop t2      │ epi t2  │ 等
+  WG2 │ 等 WG1           │ mainloop t1      │ epi t1  │ 等 WG1  │ mainloop t3
+  TC  │ ████ WG1 ████    │ ████ WG2 ████    │ ████ WG1 ████    │ ████ WG2
+
+  Cooperative：tile 大、shared 算术强度高，但每次 epilogue 期间 Tensor Core 空转
+  Ping-pong  ：一个 WG 做 epilogue 时另一个在喂 Tensor Core，epilogue 越重越划算
+```
 
 vLLM 的 FP8 GEMM 配置里两种都出现，下一章会看到。
 
@@ -1136,6 +1190,41 @@ Tensor& addmm_out_cuda_impl(Tensor& result, const Tensor& self, const Tensor& ma
 - **cuBLAS 路径**（`at::cuda::blas::gemm`，调用 `cublasGemmEx` / `cublasGemmStridedBatchedEx`）：一般的 $$\alpha AB + \beta C$$，没有 epilogue 融合；激活单独再跑一个 elementwise kernel。
 
 所以对 PyTorch 用户，"Tensor Core 有没有用上"由 dtype 与对齐决定：BF16/FP16 输入默认走 Tensor Core；FP32 输入默认**不**走 TF32 Tensor Core，需要 `torch.backends.cuda.matmul.allow_tf32 = True`（或 `set_float32_matmul_precision("high")`）；维度不是 8（BF16）/ 16（INT8、FP8）的倍数时 cuBLAS 可能退到效率较低的 kernel，这也是为什么 vocab size、hidden size 通常对齐到 64 或 128。
+
+把这几个分派条件画成一棵决策树，从 `torch.matmul` 到最终落在哪种计算单元、几个 kernel：
+
+```mermaid
+flowchart TB
+    entry["torch.matmul / torch.mm / nn.Linear<br/>→ addmm_out_cuda_impl"]
+    dt{"输入 dtype？"}
+    entry --> dt
+    bf["BF16 / FP16<br/>Tensor Core（mma.sync / wgmma）"]
+    tf32["TF32 Tensor Core<br/>m16n8k8，输入截断到 19 位"]
+    fp32["FP32 CUDA Core FFMA<br/>A100 上限 19.5 TFLOPS"]
+    i8["INT8 / FP8：不走 addmm<br/>torch._scaled_mm 或<br/>vLLM 的 CUTLASS kernel（下一节）"]
+    dt -- "BF16 / FP16" --> bf
+    dt -- "FP32 且 allow_tf32=True" --> tf32
+    dt -- "FP32（默认）" --> fp32
+    dt -- "INT8 / FP8" --> i8
+    bias{"self 是可广播成 1-D 的 bias<br/>且未禁用 Lt？"}
+    bf --> bias
+    tf32 --> bias
+    fp32 --> bias
+    lt["cuBLASLt cublasLtMatmul<br/>epilogue 融合 BIAS / RELU / GELU<br/>1 个 kernel"]
+    cb["cuBLAS cublasGemmEx<br/>alpha·AB + beta·C<br/>激活另跑 1 个 elementwise kernel"]
+    bias -- "是" --> lt
+    bias -- "否" --> cb
+    lt -. "Lt 启发式失败则回退" .-> cb
+
+    classDef q fill:#fdf1d6,stroke:#b9770e
+    classDef tc fill:#dff5e1,stroke:#1e8449
+    classDef cc fill:#fde2e2,stroke:#c0392b
+    classDef lib fill:#dde9f7,stroke:#2e6da4
+    class dt,bias q
+    class bf,tf32 tc
+    class fp32 cc
+    class lt,cb,i8 lib
+```
 
 ### 2. vLLM：用 CUTLASS 写 cuBLAS 不提供的 GEMM
 

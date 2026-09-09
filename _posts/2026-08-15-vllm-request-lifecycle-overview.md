@@ -166,6 +166,47 @@ graph TB
 
 这条继承链本身就说明了一件事：**"用不用 Ray"是部署方式的差异，不是执行模型的差异。** Executor 这层抽象的价值就在于把"进程怎么起、卡怎么分"和"一轮 batch 怎么执行"彻底分开，所以 V2 才能靠换掉进程拉起方式来复用同机多进程的全部逻辑。
 
+### 5. 进程视角：三类进程与两道 IPC 边界
+
+上面几节按"模块"切分，但真正决定谁会阻塞谁的是**进程边界**。默认的 `vllm serve` + `MultiprocExecutor` 部署下，一个请求要跨越三类进程，中间是两种完全不同的 IPC 机制：
+
+```mermaid
+flowchart TB
+    subgraph PA["进程 A：API Server（uvicorn 事件循环 + AsyncLLM）"]
+        direction TB
+        HTTP["FastAPI 路由<br/>/v1/chat/completions"]
+        IPROC["InputProcessor<br/>tokenize → EngineCoreRequest"]
+        OPROC["OutputProcessor<br/>detokenize + stop 检查 → RequestOutput"]
+        MPC["AsyncMPClient<br/>input_socket / output_socket"]
+    end
+    subgraph PB["进程 B：EngineCoreProc"]
+        direction TB
+        INT["输入线程 process_input_sockets<br/>msgspec 反序列化 → input_queue"]
+        LOOP["主线程 run_busy_loop<br/>Scheduler.schedule() / update_from_output()"]
+        OUTT["输出线程 process_output_sockets<br/>output_queue → msgspec 序列化"]
+        EXEC["MultiprocExecutor<br/>rpc_broadcast_mq / worker_response_mq"]
+    end
+    subgraph PC["进程 C…：WorkerProc × (TP × PP)"]
+        direction TB
+        WK["Worker → GPUModelRunner<br/>execute_model() / sample_tokens()"]
+        GPU["GPU：模型权重分片 + KV Cache"]
+    end
+    HTTP --> IPROC --> MPC
+    MPC -- "ZMQ + msgspec<br/>EngineCoreRequest" --> INT --> LOOP
+    LOOP -- "SchedulerOutput<br/>共享内存 MessageQueue（广播）" --> EXEC --> WK --> GPU
+    WK -. "ModelRunnerOutput<br/>worker_response_mq（仅 output_rank 回传）" .-> EXEC
+    EXEC -.-> LOOP
+    LOOP --> OUTT -- "ZMQ + msgspec<br/>EngineCoreOutputs（只有 token ids）" --> MPC --> OPROC --> HTTP
+    classDef ipc fill:#fff4e0,stroke:#d9822b;
+    class MPC,INT,OUTT,EXEC ipc;
+```
+
+三点值得留意：
+
+- **A ↔ B 走 ZMQ socket + msgspec**（`vllm/v1/engine/core_client.py` → `AsyncMPClient`；`vllm/v1/engine/core.py` → `EngineCoreProc`）。跨越这条边界的是 `EngineCoreRequest`（token ids 已经算好）和 `EngineCoreOutputs`（只有新 token ids，没有文本）——所以 tokenize 和 detokenize 都留在进程 A，GPU 循环所在的进程 B 从不碰字符串。
+- **B ↔ C 走共享内存 `MessageQueue`**（`vllm/distributed/device_communicators/shm_broadcast.py`）。`SchedulerOutput` 经 `rpc_broadcast_mq` 一次广播给所有 Worker（TP 各 rank 需要同一份调度结果），而 `ModelRunnerOutput` 默认只由 `output_rank` 那一个 Worker 经自己的 `worker_response_mq` 回传，避免 N 份重复结果。
+- 进程 B 内部又分三个线程：输入线程负责反序列化、输出线程负责序列化，主线程只跑 `schedule → execute → update_from_output` 这个 busy loop。这样序列化开销不会插进调度循环的关键路径。`UniProcExecutor` 时进程 C 退化为进程 B 内的一个对象，B ↔ C 边界消失，但 A ↔ B 依旧存在（`InprocClient` 除外）。
+
 
 ## 三、一次请求的完整生命周期
 
@@ -247,6 +288,39 @@ sequenceDiagram
     API-->>C: SSE: data: [DONE]
 ```
 
+### 1. 流式输出：一个 token 从 GPU 到客户端
+
+上面的时序图把 EngineCore 和 AsyncLLM 之间画成了同步的请求-应答，实际上它们跨进程、各自有独立的循环。下面把 decode 循环中**一个 token 的回程**放大，重点看两件事：detokenize 发生在哪个进程，以及引擎循环为什么不需要等它。
+
+```mermaid
+sequenceDiagram
+    participant MR as ModelRunner<br/>(Worker 进程, GPU)
+    participant EC as EngineCore 主线程<br/>(进程 B)
+    participant OT as EngineCore 输出线程<br/>(进程 B)
+    participant OH as AsyncLLM output_handler<br/>(进程 A)
+    participant GEN as generate() → SSE<br/>(进程 A)
+
+    Note over MR: 第 N 步 forward 结束, logits 已在 GPU
+    MR->>MR: _sample(): sampled_token_ids (GPU tensor)
+    MR->>MR: _bookkeeping_sync(): D2H 拷贝 → Python 嵌套 list
+    MR-->>EC: ModelRunnerOutput (仅 token ids, 经 worker_response_mq)
+    EC->>EC: Scheduler.update_from_output(): 追加 output_token_ids, 判 max_tokens / stop_token_ids
+    EC->>OT: output_queue.put(EngineCoreOutputs)
+    par 进程 B 继续下一步
+        EC->>EC: schedule() 第 N+1 步, 下发 execute_model
+        MR->>MR: 第 N+1 步 forward 已在 GPU 上运行
+    and 进程 A 处理第 N 步的 token
+        OT->>OH: ZMQ 发送 msgspec 序列化的 EngineCoreOutputs
+        OH->>OH: OutputProcessor.process_outputs(): IncrementalDetokenizer.update() → 文本增量
+        OH->>OH: 检查 stop 字符串, 命中则 abort_requests_async 通知进程 B
+        OH->>GEN: RequestOutputCollector.put(RequestOutput)
+        GEN->>GEN: await collector.get(), 序列化为 SSE chunk 写回客户端
+    end
+    Note over OH,GEN: 若消费端慢于生产端, Collector 会把多个 delta 合并成一个 RequestOutput
+```
+
+这张图解释了第二章第 5 节那两道进程边界的实际收益：进程 B 的主线程把 `EngineCoreOutputs` 丢进 `output_queue` 后立刻回到 `schedule()`，序列化由输出线程做，detokenize 和 stop 字符串检查由进程 A 的 `output_handler` 协程做，三者互不等待。代价是 stop **字符串**（而非 stop token id）的判定要晚一步——进程 A 检测到后反向发 abort，GPU 可能已经为这个请求多算了一步。另外，`RequestOutputCollector` 在 `DELTA` 模式下会把积压的输出合并，因此客户端收到的一个 SSE chunk 不一定恰好对应一个 decode 步。
+
 ## 四、数据流：Token 如何穿过整个 Serving 栈
 
 ```
@@ -307,6 +381,22 @@ sequenceDiagram
   └──────┘     └─────────┘                    └─────────────┘
   "Sure, here's a joke..."
 ```
+
+上图沿着数据走了一遍，但同一个请求在每一层其实是**不同的对象**——它们定义在不同文件、活在不同进程、寿命也不同。把这些对象排成一张表，就能看出"谁持有请求的真状态、谁只是一次性的快照"：
+
+| 对象 | 定义位置 | 所在进程 | 生存期 | 它是什么 |
+|---|---|---|---|---|
+| HTTP JSON → `ChatCompletionRequest` | `vllm/entrypoints/openai/chat_completion/protocol.py` | A（API Server） | 一次 HTTP 连接 | 文本 prompt + 采样参数（用户视角） |
+| `EngineCoreRequest` | `vllm/v1/engine/__init__.py` | A → B（msgspec 序列化过 ZMQ） | 只传一次 | 扁平的 IPC 载荷：`prompt_token_ids`、`sampling_params`、`arrival_time`… 已 tokenize，无状态 |
+| `Request` | `vllm/v1/request.py`（`from_engine_core_request`） | B（Scheduler 内部） | 从入队到 `free()` | **请求状态的唯一权威副本**：`status` 状态机、`num_computed_tokens`、`output_token_ids`、`block_hashes` |
+| `NewRequestData` / `CachedRequestData` | `vllm/v1/core/sched/output.py` | B → C（共享内存广播） | 一个 step | `SchedulerOutput` 里的两种"订单"：首次调度的请求带全量 `prompt_token_ids` + `block_ids`；已在 batch 里的只带增量 `new_token_ids` + `new_block_ids` |
+| `SchedulerOutput` | `vllm/v1/core/sched/output.py` | B → C | 一个 step | 上面两者 + `num_scheduled_tokens{req_id: n}` + `finished_req_ids` 等：这一轮"谁跑、跑多少、块在哪" |
+| `CachedRequestState` + `InputBatch` 行 | `vllm/v1/worker/gpu_input_batch.py` | C（Worker 常驻） | 从首次调度到 `finished_req_ids` | Worker 侧对 `Request` 的**镜像**，靠增量订单保持同步；`InputBatch` 是按行排列的持久 batch（`token_ids_cpu`、`block_table`） |
+| `ModelRunnerOutput` | `vllm/v1/outputs.py` | C → B（`worker_response_mq`） | 一个 step | `req_ids` + `sampled_token_ids: list[list[int]]` + logprobs：只有采样结果，不含任何状态 |
+| `EngineCoreOutput(s)` | `vllm/v1/engine/__init__.py` | B → A（ZMQ） | 一个 step | 每个请求的 `new_token_ids` + `finish_reason`；仍然只有 token ids |
+| `RequestOutput` | `vllm/outputs.py` | A（`OutputProcessor` 产出） | 一个 SSE chunk | 第一次出现**文本**：detokenize 后的增量 `text` + `token_ids` |
+
+表里有两条规律。第一，**状态只在 B 和 C 各有一份**：`Request` 是权威，`CachedRequestState` 是靠每步增量同步的镜像；所有跨进程的载荷（`EngineCoreRequest`、`SchedulerOutput`、`ModelRunnerOutput`、`EngineCoreOutputs`）都是无状态的一次性消息，读完即弃，也因此可以随意序列化、走任何 IPC 通道。第二，**文本只在进程 A 出现**：从 `EngineCoreRequest` 到 `EngineCoreOutputs` 全程都是 token ids，进程 B、C 完全不需要 tokenizer。
 
 
 ## 五、本文小结

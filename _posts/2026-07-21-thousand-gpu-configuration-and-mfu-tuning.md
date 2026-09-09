@@ -187,6 +187,33 @@ A  TP8/PP4/DP32   2.2 B      4.4 GB    8.8 GB    2.2B×12/32  = 0.8 GB   14.0 GB
 
 $$d = 1024 / (8p)$$：候选 A 是 32，B 是 64。每条流水线每 step 处理 $$B/d$$ 条序列，$$b=1$$ 时 $$m = B/d$$：A 是 16，B 是 8。
 
+三个维度落到 128 个节点上是什么样子，用候选 A 画出来（Megatron `initialize_model_parallel()` 默认 `order="tp-cp-ep-dp-pp"`，TP 变化最快、PP 最慢；torchtitan 的 DeviceMesh 维度顺序 `pp, dp, cp, tp` 结果相同）：
+
+```text
+候选 A：TP8 / PP4 / DP32   rank = tp + 8·dp + 256·pp   节点 n = dp + 32·pp
+                                         （节点 n 放 rank 8n...8n+7）
+
+              dp=0       dp=1       dp=2     ...     dp=31
+            ┌──────────┬──────────┬──────────┬─────┬──────────┐
+ pp=0       │ 节点 0   │ 节点 1   │ 节点 2   │ ... │ 节点 31  │ rank   0– 255
+ (stage 0)  │ rank 0–7 │ rank 8–15│ 16–23    │     │ 248–255  │
+            ├──────────┼──────────┼──────────┼─────┼──────────┤
+ pp=1       │ 节点 32  │ 节点 33  │ 节点 34  │ ... │ 节点 63  │ rank 256– 511
+            ├──────────┼──────────┼──────────┼─────┼──────────┤
+ pp=2       │ 节点 64  │ 节点 65  │ 节点 66  │ ... │ 节点 95  │ rank 512– 767
+            ├──────────┼──────────┼──────────┼─────┼──────────┤
+ pp=3       │ 节点 96  │ 节点 97  │ 节点 98  │ ... │ 节点 127 │ rank 768–1023
+            └──────────┴──────────┴──────────┴─────┴──────────┘
+
+ 一个格子 = 一个 TP 组：节点内 8 卡，走 NVSwitch（0.94 GB/层/micro-batch）
+ 一列     = 一条流水线：节点 k → 32+k → 64+k → 96+k，p2p 走节点间网卡
+ 一行同号 GPU = 一个 DP 组：32 个节点的第 i 张卡，reduce-scatter/all-gather
+             走节点间网卡；共 8×4 = 32 个 DP 组，每组 32 个 rank
+ v=4 交错时 stage 0 持有层 1–5 / 21–25 / 41–45 / 61–65，其余 stage 类推
+```
+
+这张图解释了后面所有通信量为什么落在哪条链路上：TP 的 300 GB/step 全部在格子内的 NVSwitch 上；PP 的 p2p 只在纵向相邻两格之间；DP 的 8.8 GB/step 横跨一行的 32 个节点，且 32 个 DP 组同时在跑，每张网卡都被自己那一组占用。
+
 气泡率：A 非交错 $$3/16 = 18.8\%$$，B 是 $$1/8 = 12.5\%$$——都太高。交错调度取 $$v=4$$（A 每 chunk 5 层，B 每 chunk 10 层）：A 降到 $$3/64 = 4.7\%$$，B 降到 $$1/32 = 3.1\%$$。Megatron 用 `--num-virtual-stages-per-pipeline-rank 4`（或 `--num-layers-per-virtual-pipeline-stage`），调度在 `megatron/core/pipeline_parallel/schedules.py` 的 `forward_backward_pipelining_with_interleaving()`；PyTorch 侧是 `torch/distributed/pipelining/schedules.py` 的 `ScheduleInterleaved1F1B`，torchtitan 通过 `pipeline_parallel_schedule = "Interleaved1F1B"` 选它。
 
 DP 的通信：ZeRO-1（Megatron 的分布式优化器 `--use-distributed-optimizer`）每 step 每卡 reduce-scatter 一次梯度、all-gather 一次更新后的 bf16 参数，量约 $$2 \times N_{local} \times 2$$ 字节（`--grad-reduce-in-bf16` 时）：A 是 8.8 GB、B 是 17.6 GB；按 50 GB/s 网卡分别是 0.18 s 和 0.35 s，占 4.75 s 目标的 4% 和 7%，且两段都能重叠（第五章）。
@@ -257,7 +284,15 @@ $$
 
 $$b$$ 小的问题是**GEMM 形状**。TP8 + SP 下一层的线性层输入是 $$(s \cdot b / t) \times h = 1024b \times 8192$$，与 $$8192 \times (4 \cdot 8192 / 8)$$ 的权重相乘；$$b=1$$ 时 M 维只有 1024（all-gather 后 8192），H100 的大 GEMM 在 M 达到几千时才接近峰值，M=1024 的效率通常在 60–70%。同时 kernel 数量与 $$b$$ 无关而每个 kernel 变短，CPU 发射开销的占比上升（第六章第 7 节）。
 
-$$b$$ 大的问题是**激活与气泡**。激活随 $$b$$ 线性增长（候选 A 的 $$b=2$$ 到 54 GB）；$$m = B/(d \cdot b)$$ 随 $$b$$ 反比缩小，气泡率 $$\frac{p-1}{m v}$$ 随之上升——$$b=2$$ 让候选 A 的 $$m$$ 从 16 掉到 8，气泡从 4.7% 翻到 9.4%。所以 PP 下 $$b$$ 几乎总是 1 或 2，而"用更大的 micro-batch 提高 GEMM 效率"这条路在 PP 下是被气泡堵死的：要 GEMM 效率就得减小 $$p$$（候选 B）或不用 PP（FSDP，但通信压不住）。这是三个约束互相牵制最直接的例子。
+$$b$$ 大的问题是**激活与气泡**。激活随 $$b$$ 线性增长（候选 A 的 $$b=2$$ 到 54 GB）；$$m = B/(d \cdot b)$$ 随 $$b$$ 反比缩小，气泡率 $$\frac{p-1}{m v}$$ 随之上升——$$b=2$$ 让候选 A 的 $$m$$ 从 16 掉到 8，气泡从 4.7% 翻到 9.4%。把 $$b$$ 从 1 拨到 4，两个候选的三个量一起动：
+
+| $$b$$ | GEMM M 维（AG 后 $$s \cdot b$$） | A：$$m$$ | A：气泡 v=1 → v=4 | A：每卡显存 | B：$$m$$ | B：气泡 v=1 → v=4 | B：每卡显存 |
+|---|---|---|---|---|---|---|---|
+| 1 | 8192 | 16 | 18.8% → 4.7% | ~49 GB | 8 | 12.5% → 3.1% | ~62 GB |
+| 2 | 16384 | 8 | 37.5% → 9.4% | ~76 GB（紧） | 4 | 25% → 6.3% | ~89 GB ✗ |
+| 4 | 32768 | 4 | 75% → 18.8% | ~130 GB ✗ | 2 | 50% → 12.5% | ~143 GB ✗ |
+
+所以 PP 下 $$b$$ 几乎总是 1 或 2，而"用更大的 micro-batch 提高 GEMM 效率"这条路在 PP 下是被气泡堵死的：要 GEMM 效率就得减小 $$p$$（候选 B）或不用 PP（FSDP，但通信压不住）。这是三个约束互相牵制最直接的例子。
 
 序列打包（第七篇）是绕开这个矛盾的手段之一：$$b=1$$ 但一条"序列"里装多个文档，M 维不变、token 利用率上去。Megatron 的 `--micro-batch-size 1` 配 packed sequence 是标准写法（`arguments.py` 里有对应断言：sequence packing 要求 micro_batch_size 为 1）。
 
@@ -328,7 +363,20 @@ torchtitan v0.3.0 的 `torchtitan/distributed/activation_checkpoint.py` 在这�
 
 反向是从最后一层往前算的，第 $$L$$ 层的梯度算完时前面 $$L-1$$ 层还在算——这段时间足够把第 $$L$$ 层的梯度 reduce 出去。实现上把参数按反向顺序分到若干 bucket，一个 bucket 的梯度全部就位就发一次 reduce-scatter。Megatron 在 `megatron/core/distributed/distributed_data_parallel_config.py` 的 `DistributedDataParallelConfig` 里有全部旋钮：`overlap_grad_reduce`（`--overlap-grad-reduce`）、`bucket_size` / `num_buckets`（`--ddp-bucket-size` / `--ddp-num-buckets`）、`pad_buckets_for_high_nccl_busbw`（把 bucket 补到 $$2^{16}$$ 的倍数，因为 ring 算法的每卡消息是 bucket_size/dp_size，对齐才有高 busbw）、`average_in_collective`。分布式优化器之后的参数 all-gather 同理与**下一个 step 的前向**重叠：`overlap_param_gather`（`--overlap-param-gather`），`align_param_gather` 让各 PP stage 同时发起以免互相等。
 
-有一个陷阱：梯度累积期间不能 reduce。$$m$$ 个 micro-batch 只有最后一个的反向该触发通信，前 $$m-1$$ 个要关掉——Megatron 在 `schedules.py` 里通过 `no_sync_func` / `disable_grad_sync()` / `enable_grad_sync()` 做这件事；FSDP2 是 `set_requires_gradient_sync(False)`（`torch/distributed/fsdp/_fully_shard/_fully_shard.py` 的 `FSDPModule`），并可用 `set_reshard_after_backward(False)` 让累积期间不重新分片参数、省掉下一次 all-gather。**重叠只在最后一个 micro-batch 的反向里发生**，所以 DP 通信能藏起来的上限是"一次反向的时间"，$$m$$ 越大这个上限相对越宽松。
+有一个陷阱：梯度累积期间不能 reduce。$$m$$ 个 micro-batch 只有最后一个的反向该触发通信，前 $$m-1$$ 个要关掉——Megatron 在 `schedules.py` 里通过 `no_sync_func` / `disable_grad_sync()` / `enable_grad_sync()` 做这件事；FSDP2 是 `set_requires_gradient_sync(False)`（`torch/distributed/fsdp/_fully_shard/_fully_shard.py` 的 `FSDPModule`），并可用 `set_reshard_after_backward(False)` 让累积期间不重新分片参数、省掉下一次 all-gather。**重叠只在最后一个 micro-batch 的反向里发生**，所以 DP 通信能藏起来的上限是"一次反向的时间"，$$m$$ 越大这个上限相对越宽松。把一个 step 的两条 stream 摆在同一根时间轴上（以 4 个 bucket 为例）：
+
+```text
+时间 ──────────────────────────────────────────────────────────────────────────►
+      micro-batch 1..m-1 micro-batch m（最后一个）   等    opt 下一 step
+     ┌──────────────────┬──┬──────┬─────┬─────┬─────┬─────┬───┬─────────┬──────┐
+计算 │F1B1..F(m-1)B(m-1)│Fm│L80-61│60-41│40-21│L20-1│ 空  │opt│F1' L1-20│L21-..│
+通信 │ no_sync 不发梯度 │  │      │RS b3│RS b2│RS b1│RS b0│   │AG b0    │AG b1 │
+     └──────────────────┴──┴──────┴─────┴─────┴─────┴─────┴───┴─────────┴──────┘
+                                   ▲ 层80-61 就位    ▲ 尾部    ▲ AG 盖住
+                                     发 bucket 3       暴露      下一步前向
+```
+
+RS = reduce-scatter 梯度，AG = all-gather 更新后的参数；bucket 按反向顺序编号（b3 是最后几层，最先算完）。图里能看出三件事：前 $$m-1$$ 个 micro-batch 通信流是空的；最后一个 bucket（b0，最前面几层）算完时反向已经结束，它的 reduce-scatter 没有计算可以盖，是必然暴露的尾部（第六章第 3 节预算里的"DP 尾部 0.05–0.1 s"）；all-gather 要等优化器更新完，所以它盖住的是**下一个 step** 的前向，前向从第 1 层开始算、b0 恰好也是第 1 层附近的参数，顺序天然匹配。
 
 ### 2. TP 通信与 GEMM 的重叠
 
@@ -381,6 +429,29 @@ $$T_{ideal}$$ 是模型 FLOP 除以标称峰值（候选 A：2.0 s），七个 $
 5 kernel 效率    kernel 都在跑，但每个 GEMM 的 FLOP/时长 低于峰值；非 GEMM 多  计算 kernel 总时长 − T_ideal
 6 CPU 发射开销   计算 stream 有细碎空隙，CPU 线程在忙（Python / aten 调度）    GPU 全空 且 不在 DataLoader 中 的空隙
 7 straggler      集合通信 kernel 时长 ≫ 字节数/带宽；跨 rank 计算时间不一致   多 rank trace：计算时长的 max − median；或集合通信时长 − 理论传输时间
+```
+
+表里的七种形状两两之间容易混：4 与 6 都是"GPU 全空"，只差 CPU 线程当时在干什么；2 与 7 都是"通信 kernel 很长"，只差是带宽不够还是在等别人；3 与 5 都是"计算 kernel 在跑"，只差反向里有没有多出一份前向。把时间线上任意一段空隙归到某一项，走的是下面这棵判定树：
+
+```mermaid
+flowchart TB
+    S["取一段 step 内的时间片<br/>看三条泳道：计算 / 通信 / CPU"] --> Q1{"计算 stream 有 kernel 在跑？"}
+    Q1 -- "是" --> Q5{"反向区间 GEMM 时长<br/>超过前向的 2 倍？"}
+    Q5 -- "是，超出部分" --> R3["③ 重计算"]
+    Q5 -- "否" --> R5["⑤ kernel 效率<br/>GEMM 达峰率 + 非 GEMM 时长"]
+    Q1 -- "否" --> Q2{"通信 stream 有 NCCL kernel？"}
+    Q2 -- "是" --> Q3{"kernel 名是 SendRecv？"}
+    Q3 -- "是" --> R1["① PP 气泡"]
+    Q3 -- "否，集合通信" --> Q4{"时长 ≈ 字节数 / 带宽？"}
+    Q4 -- "是" --> R2["② 未重叠通信"]
+    Q4 -- "否，远超" --> R7["⑦ straggler<br/>多 rank trace 比计算时长 max − median 确认"]
+    Q2 -- "否，GPU 全空" --> Q6{"CPU 线程停在 DataLoader？"}
+    Q6 -- "是" --> R4["④ 数据等待"]
+    Q6 -- "否，在 Python / aten 调度" --> R6["⑥ CPU 发射开销"]
+    classDef q fill:#fff7e0,stroke:#c8a038;
+    classDef r fill:#e8f2ff,stroke:#3d6fb4;
+    class Q1,Q2,Q3,Q4,Q5,Q6 q;
+    class R1,R2,R3,R4,R5,R6,R7 r;
 ```
 
 前六项一个 rank 的 trace 就能测；第七项需要多个 rank。第九章的 `mfu_breakdown.py` 实现的就是这张表。Nsight Systems 的对应做法：`nsys profile --capture-range=cudaProfilerApi -t cuda,nvtx`，用 `nsys stats --report cuda_gpu_kern_sum` 拿 kernel 分类汇总，用 NVTX（Megatron `--nvtx-ranges`）标出前向/反向/优化器区间；Nsight 的优势是能看到 SM 占用率和多进程的同一时间轴，劣势是文件大、不能按 Python 栈归因。

@@ -392,6 +392,42 @@ class CudaPlatform(Platform):
 
 它们的加载不需要经过 Attention Backend。
 
+`import_kernels()` 只解决“把 `torch.ops._C.*` 这些符号装进进程”，还没有回答另一个问题：模型层里的一次 `SiluAndMul()(x)`，到底怎么走到不同后端的实现？这一步由 `vllm/model_executor/custom_op.py` 里的 `CustomOp` 基类负责。它的分派不是每次 forward 时做 `if is_cuda()`，而是在构造时一次性完成两层决策：先看插件有没有用 `CustomOp.register_oot` 把整个算子类换掉；再由 `dispatch_forward()` 根据“该算子是否启用”和 `current_platform` 选定一个 `forward_*` 方法，绑定到 `self._forward_method`，之后 `forward()` 只是转调它：
+
+```mermaid
+flowchart TB
+    NEW["模型层构造算子实例，如 SiluAndMul()<br/>CustomOp.__new__ 查 op_registry_oot"]
+    OOTCLS["改为实例化插件用 register_oot<br/>注册的替代类（整类替换）"]
+    INIT["__init__ → dispatch_forward()<br/>一次性绑定 self._forward_method"]
+    ENABLED{"该算子是否启用？<br/>compilation_config.custom_ops"}
+    NATIVE["forward_native<br/>纯 PyTorch 实现，可被 torch.compile 融合"]
+    PLAT{"current_platform 是哪一种？"}
+    HIP["is_rocm → forward_hip<br/>未重写时默认转调 forward_cuda"]
+    OTHERS["is_cpu / is_tpu / is_xpu / is_out_of_tree<br/>→ forward_cpu / _tpu / _xpu / _oot<br/>未重写时默认转调 forward_native"]
+    CUDA["其余 → forward_cuda<br/>调用 torch.ops._C.silu_and_mul<br/>（import_kernels() 加载的 _C 扩展）"]
+
+    NEW -->|"未注册"| INIT
+    NEW -->|"已注册"| OOTCLS
+    OOTCLS --> INIT
+    INIT --> ENABLED
+    ENABLED -->|"否"| NATIVE
+    ENABLED -->|"是"| PLAT
+    PLAT --> HIP
+    PLAT --> OTHERS
+    PLAT --> CUDA
+    HIP -.->|"默认"| CUDA
+    OTHERS -.->|"默认"| NATIVE
+
+    classDef core fill:#e8f3ff,stroke:#4a90e2;
+    classDef plugin fill:#fff4d6,stroke:#d99a00;
+    classDef kern fill:#e8f8ee,stroke:#4a9c68;
+    class NEW,INIT,ENABLED,PLAT core;
+    class OOTCLS plugin;
+    class CUDA,HIP kern;
+```
+
+图里有三处值得注意。第一，`forward_hip` 默认直接转调 `forward_cuda`，因为 vLLM 假设 HIP 编译出的 `_C` 扩展与 CUDA 版本接口相同；而 `forward_cpu` / `forward_tpu` / `forward_xpu` / `forward_oot` 默认都退回 `forward_native`，也就是“没有专用 Kernel 就用纯 PyTorch 跑”。各后端只需要重写自己有专用实现的那一个方法：以 `SiluAndMul` 为例，`forward_xpu` 被重写为转调 `forward_cuda`（XPU 也编译了 `_C`），`forward_cpu` 只在 PowerPC 上走 `_C`、其余架构走 native。第二，“是否启用”这个分支由编译配置控制：算子被禁用时统一走 `forward_native`，让 `torch.compile` 有机会把它和相邻算子融合，这是 Kernel 路径与编译路径的交界。第三，OOT 平台有两种介入方式——粗粒度的 `register_oot` 整类替换，或者细粒度地只实现 `forward_oot`——这两个钩子都在主仓库里，插件不必 patch `dispatch_forward()`。
+
 ### 3. 路径三：平台直接提供通信和其他组件
 
 集合通信同样可能由平台直接决定：
@@ -437,6 +473,19 @@ current_platform ────────┼─ Kernel Import
                          │
                          └─ Platform Configuration
 ```
+
+把这几条路径落到 v0.27.1 的内置后端和 OOT 插件上，每个扩展点分别由谁实现，可以对照下表（Worker 类名来自各平台 `check_and_update_config()` 对 `parallel_config.worker_cls == "auto"` 的填充，Attention 一列只列该平台 `get_attn_backend_cls()` 最常返回的几种）：
+
+| 后端 | Platform 类 | Worker / ModelRunner | Attention Backend | `import_kernels()` 加载 | Device Communicator |
+|---|---|---|---|---|---|
+| CUDA | `CudaPlatform`（`cuda.py`，按 NVML 可用性选 `NvmlCudaPlatform` / `NonNvmlCudaPlatform`） | `gpu_worker.Worker` + `GPUModelRunner` | FlashAttention / FlashInfer / Triton 等，按 compute capability 与配置排优先级 | `_C_stable_libtorch`、`_moe_C_stable_libtorch`、可选 `_qutlass_C` | `CudaCommunicator`（NCCL） |
+| ROCm | `RocmPlatform`（`rocm.py`） | 复用 `gpu_worker.Worker` + `GPUModelRunner` | `ROCM_AITER_FA` / `ROCM_ATTN` / `TRITON_ATTN` 等 | 继承 CUDA 列表，再加 `_rocm_C` | 复用 `CudaCommunicator`（底层为 RCCL） |
+| CPU | `CpuPlatform`（`cpu.py`；`ZenCpuPlatform` 子类） | `CPUWorker` + `CPUModelRunner` | 固定 `CPU_ATTN`（`CPUAttentionBackend`） | `_C`（按 AVX2 / AVX512 选库） | `CpuCommunicator` |
+| XPU | `XPUPlatform`（`xpu.py`） | `XPUWorker` + `XPUModelRunner` | `FLASH_ATTN` / `TRITON_ATTN` 等 | 只导入 `_moe_C`，不导入 `_C` | `XpuCommunicator`（XCCL） |
+| TPU | `TpuPlatform`，由独立包 `tpu_inference` 提供，主仓库 `tpu.py` 只做转发 import | 由 `tpu_inference` 提供 | 由 `tpu_inference` 提供 | 无 `_C` 扩展 | 由 `tpu_inference` 提供 |
+| OOT 插件（如 vllm-ascend） | 通过 `vllm.platform_plugins` entry point 注册的 `AscendPlatform` | 插件自带 NPU Worker / ModelRunner | 插件自定义 Backend（可经 `AttentionBackendEnum.CUSTOM` 注册） | 插件自己的 custom ops，或 `register_oot` 整类替换 | 插件提供（HCCL） |
+
+这张表有两个值得留意的地方。一是 ROCm 与 CUDA 共用 Worker、ModelRunner 和 Communicator，差异只落在 Platform 与 Kernel 扩展两层——这是“上层稳定、底层替换”做得最彻底的一对。二是 TPU 在 v0.27.1 里实际上已经走了和 OOT 插件相同的路径：主仓库只保留一个转发用的 `tpu.py`，真正实现在 `tpu_inference` 包里，这也说明第五章要讲的 Out-of-Tree 机制并不只是给第三方厂商用的。
 
 ### 4. 为什么 Attention 要单独做 Selector？
 
@@ -731,21 +780,7 @@ block 0、block 1、block 2……
 - 内存池或缓存分配器；
 - 多卡场景下的内存隔离。
 
-理想的分层是：
-
-```mermaid
-graph TD
-    MANAGER["KV Cache Manager<br/>逻辑 Block 分配、回收、复用"]
-    WORKER["Ascend Worker<br/>把逻辑容量映射为 NPU 内存"]
-    ALLOC["NPU Memory Allocator<br/>内存池、设备 Tensor、生命周期"]
-    KERNEL["Ascend Attention Kernel<br/>按照 block table 读取 KV Cache"]
-
-    MANAGER --> WORKER
-    WORKER --> ALLOC
-    ALLOC --> KERNEL
-```
-
-关键点在于：
+理想的分层是 KV Cache Manager → Worker → NPU Memory Allocator → Attention Kernel，各层只认识相邻一层。关键点在于：
 
 > **KV Cache Manager 不应该知道 Ascend 的内存 API；Ascend Worker 也不应该重新实现一套 KV Cache 调度逻辑。**
 
@@ -945,26 +980,20 @@ OOT 能否做到真正独立，取决于主仓库是否已经提供足够稳定�
 
 ```mermaid
 sequenceDiagram
-    participant API as OpenAI API / Client
-    participant Engine as vLLM Engine
-    participant Scheduler as Scheduler
-    participant Cache as KV Cache Manager
-    participant Worker as Platform Worker
-    participant Attn as Attention Backend
+    participant Core as Engine / Scheduler / KV Cache Manager<br/>（设备无关）
+    participant Worker as Platform Worker<br/>（设备生命周期）
+    participant Attn as Attention Backend<br/>（平台专用）
     participant Device as GPU / NPU
 
-    API->>Engine: 发送请求
-    Engine->>Scheduler: 加入请求队列
-    Scheduler->>Cache: 分配或查找 KV Cache Block
-    Scheduler->>Worker: 下发本轮执行计划
+    Core->>Core: 排队、分配 KV Block、生成执行计划
+    Core->>Worker: 下发本轮 SchedulerOutput（只有 block id 与 token id）
+    Worker->>Device: 执行 Embedding / GEMM / Norm 等通用算子
     Worker->>Attn: 执行 Attention
     Attn->>Device: 调用平台专用 Attention Kernel
     Device-->>Attn: 返回 Attention 结果
-    Worker->>Device: 执行其他模型算子
     Device-->>Worker: 返回 logits
-    Worker-->>Engine: 返回执行结果
-    Engine-->>API: 返回 token
-    Engine->>Cache: 更新 KV Cache 状态
+    Worker-->>Core: 返回 ModelRunnerOutput（token id）
+    Core->>Core: 更新 KV Cache 状态、返回 token
 ```
 
 在这条路径中：
@@ -1075,31 +1104,7 @@ Attention Backend、Kernel、通信组件、Worker 和平台扩展，都可能�
 
 > **Out-of-Tree 让硬件适配可以独立演进，但前提是主仓库提供稳定的扩展契约。**
 
-因此，vLLM 的硬件解耦并不是简单地增加几个平台类，而是建立了多层边界：
-
-```mermaid
-graph TD
-    CORE["Serving Core<br/>请求、调度、KV Cache、Engine"]
-
-    ABSTRACT["抽象契约<br/>Platform · Backend · Worker · Communicator"]
-
-    DEVICE["平台实现<br/>CUDA · ROCm · Ascend · XPU"]
-
-    RUNTIME["硬件运行时<br/>CUDA · HIP · CANN · oneAPI"]
-
-    KERNEL["高性能 Kernel<br/>Attention · GEMM · MoE · Quantization"]
-
-    CORE --> ABSTRACT
-    ABSTRACT --> DEVICE
-    DEVICE --> RUNTIME
-    RUNTIME --> KERNEL
-
-    style CORE fill:#e8f3ff,stroke:#4a90e2
-    style ABSTRACT fill:#fff4d6,stroke:#d99a00
-    style DEVICE fill:#e8f8ee,stroke:#4a9c68
-```
-
-最终，硬件差异应该停留在最底层：
+因此，vLLM 的硬件解耦并不是简单地增加几个平台类，而是建立了多层边界——Serving Core / 抽象契约 / 平台实现 / 硬件运行时 / Kernel。最终，硬件差异应该停留在最底层：
 
 ```text
 芯片差异

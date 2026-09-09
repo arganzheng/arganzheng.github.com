@@ -253,7 +253,28 @@ LLM Serving 中：
 - 请求完成时间不确定；
 - 每轮活跃请求集合不确定。
 
-因此，系统需要持续调度，而不是只在请求到达时进行一次 Batch 组装。
+因此，系统需要持续调度，而不是只在请求到达时进行一次 Batch 组装。下面用 4 个槽位、12 个 step 的时间线对比两种做法（`P` = Prefill，`D` = Decode 一步，`E` = 生成 EOS 的那一步，`.` = 槽位空转）：
+
+```text
+静态 Batch：整批同进同出，最长的请求决定整批何时结束
+step    1  2  3  4  5  6  7  8  9 10 11 12
+R1     [P][D][D][D][E] .  .  .  .  .  .  .    5 步有效，7 步空转
+R2     [P][D][D][D][D][D][D][D][D][D][D][E]   12 步有效
+R3     [P][D][E] .  .  .  .  .  .  .  .  .    3 步有效，9 步空转
+R4     [P][D][D][D][D][D][E] .  .  .  .  .    7 步有效，5 步空转
+R5..   ── 排队，直到 step 12 整批结束才能进入 ──▶
+有效槽位 27 / 48
+
+Continuous Batching：以 step 为粒度，完成的请求离开，等待的请求补位
+step    1  2  3  4  5  6  7  8  9 10 11 12
+slot1  [P][D][D][D][E][P][D][D][D][D][E][P]   R1 → R5 → R8
+slot2  [P][D][D][D][D][D][D][D][D][D][D][E]   R2
+slot3  [P][D][E][P][D][D][D][D][E][P][D][D]   R3 → R6 → R9
+slot4  [P][D][D][D][D][D][E][P][D][D][D][D]   R4 → R7
+有效槽位 48 / 48
+```
+
+静态 Batch 里，R3 在 step 3 就结束了，但它的槽位要空转到 step 12 才能让给排队的 R5；输出长度越不均匀，浪费越大。Continuous Batching 把调度粒度从“一批请求”降到“一个 step”，任何一步结束都可以有请求离开、有请求进入，槽位始终有事可做。代价是同一个 step 里会混着新请求的 Prefill 和老请求的 Decode（如 step 6 的 slot1 与 slot2），一个长 Prompt 的 Prefill 会拖慢同批所有 Decode 的这一步——这正是第三章说的资源竞争，也是 Chunked Prefill 和 Token Budget 要解决的问题。
 
 ### 2. 变化二：从无状态推理变成带状态推理
 
@@ -312,6 +333,21 @@ Prefill 更偏向计算密集型，Decode 更偏向访存密集型。
 | ↳ TP=8 时每张卡承担 | `320 KB ÷ 8` | 40 KB |
 | 这个请求最终的 KV 总量 | `2350 × 320 KB` | **约 734 MB** |
 | 权重每卡 | `141 GB ÷ 8` | 17.6 GB |
+
+有了这两个量，就可以给第三章“Prefill 偏 Compute-Bound、Decode 偏 Memory-Bound”的判断算一笔账。线性层的 FLOPs 按 `2 × 参数量 × token 数` 估，每卡参数 `70.6B ÷ 8 ≈ 8.8B`；HBM 读取按“权重读一遍 + 历史 KV 读一遍”估；H100 SXM 的 FP16 稠密算力约 989 TFLOPS、HBM 带宽约 3.35 TB/s，拐点（ridge point）约 295 FLOP/B——算术强度高于它是 Compute-Bound，低于它是 Memory-Bound：
+
+| 一个 step（每卡） | FLOPs | HBM 读取 | 算术强度 | 相对拐点 295 | 下界耗时 |
+|---|---|---|---|---|---|
+| Prefill，2050 token | `2 × 8.8G × 2050` ≈ 36 TFLOP | 权重 17.6 GB | ≈ 4100 FLOP/B | 高 14× → **Compute-Bound** | 算力：36T / 989T ≈ **37 ms** |
+| Decode，Batch=1，L=2350 | `2 × 8.8G` ≈ 17.6 GFLOP | 17.6 GB + KV 94 MB | ≈ 1 FLOP/B | 低 300× → **Memory-Bound** | 带宽：17.7 GB / 3.35 TB/s ≈ **5.3 ms** |
+| Decode，Batch=64，L=2350 | 64 × 17.6G ≈ 1.1 TFLOP | 17.6 GB + KV 6.0 GB | ≈ 48 FLOP/B | 低 6× → 仍 Memory-Bound | 带宽：23.6 GB / 3.35 TB/s ≈ **7.0 ms** |
+| Decode，Batch=256，L=2350 | 256 × 17.6G ≈ 4.5 TFLOP | 17.6 GB + KV 24 GB | ≈ 108 FLOP/B | 低 2.7× → 仍 Memory-Bound | 带宽：41.6 GB / 3.35 TB/s ≈ **12.4 ms** |
+
+这张表忽略了 Attention 自身的 FLOPs、TP 通信和 Kernel 效率，只给理想下界，但已经足够说明几件事：
+
+- Prefill 2050 个 token 的算力时间是权重读取时间的 7 倍，GPU 在“算”；Decode 一步做的计算只要 0.02 ms，却要花 5.3 ms 把 17.6 GB 权重从 HBM 搬一遍，GPU 在“等数据”。
+- Decode 从 Batch=1 到 Batch=64，一步的耗时只从 5.3 ms 涨到 7.0 ms，工作量却是 64 倍——权重读取被整批分摊，这就是第四章“扩大 Batch 提升吞吐”的来源。
+- 但 KV 读取不能分摊：每个请求的历史 KV 都要各读一遍，Batch=256 时 KV 读取（24 GB）已经超过权重本身，一步耗时开始随 Batch 线性上涨。KV Cache 不只是显存容量问题，也是带宽问题，这是后续 KV Cache 各篇和 GQA/MLA、KV 量化存在的原因。
 
 
 ## 八、本文小结

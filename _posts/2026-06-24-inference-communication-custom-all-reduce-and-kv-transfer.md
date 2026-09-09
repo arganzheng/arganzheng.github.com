@@ -198,6 +198,31 @@ struct __align__(16) RankData { const void* ptrs[8]; };
 struct __align__(16) RankSignals { Signal* signals[8]; };
 ```
 
+把这三组东西放在一张图里看（以 world_size = 4、rank 0 的进程为视角）：每个 rank 拥有一块 meta 与一块 buffer，其他 rank 经 IPC 映射拿到它们在自己地址空间里的指针；`RankData` 的一个槽位就是"同一个逻辑缓冲区在 4 张卡上的 4 个地址"，kernel 拿到它就能直接解引用：
+
+```text
+rank 0 进程里的三组指针（world_size = 4）
+
+  meta_ptrs[i]   → rank i 的 meta 块（rank i cudaMalloc，其余 rank IPC 映射）
+  ┌──────────────────┬──────────────────────────────────────────┐
+  │ Signal           │ tmp buffer（two-shot 的中间结果区）        │
+  │   start[36][8]   │                                          │
+  │   end[36][8]     │               max_size 字节               │
+  │   _flag[36]      │                                          │
+  └──────────────────┴──────────────────────────────────────────┘
+  ◄─ sizeof(Signal) ─►◄─────────────── max_size ────────────────►
+
+  buffer_ptrs[i] → rank i 的预注册输入缓冲区（eager 模式先 memcpy 进来）
+
+  rank_data（本地 8 MB，一排 RankData 槽位；槽位 k = 缓冲区 k 的 4 个地址）
+  槽位 k: ┌─────────┬─────────┬─────────┬─────────┐
+          │ ptrs[0] │ ptrs[1] │ ptrs[2] │ ptrs[3] │ ← kernel 参数 RankData*
+          └────┬────┴────┬────┴────┬────┴────┬────┘
+               │         │         │         │   本地 load   远端 load（NVLink）
+               ▼         ▼         ▼         ▼
+            GPU0 显存  GPU1 显存  GPU2 显存  GPU3 显存
+```
+
 ### 2. Signal 与 flag 同步：barrier_at_start 与 barrier_at_end
 
 没有 NCCL，跨卡同步靠 flag。`Signal` 结构（同一文件 `csrc/custom_all_reduce.cuh`，8 是硬编码的最大 rank 数）：
@@ -233,6 +258,25 @@ DINLINE void barrier_at_start(const RankSignals& sg, Signal* self_sg, int rank) 
 
 block 里前 `ngpus` 个线程各负责一个对端：线程 i 把 `flag` 写到 rank i 的 `Signal` 里属于本 rank 的槽位（一次经 NVLink 的远端 store），然后自旋读本地槽位直到 rank i 也写过来。这是一次 all-to-all 的 flag 交换，延迟约等于一次 NVLink 往返。`barrier_at_end` 结构相同但用 `end` 数组，并且在非最终同步时用 `st.release.sys` / `ld.acquire.sys`（`st_flag_release` / `ld_flag_acquire`）保证前面的数据写入对对端可见；最终同步（`final_sync = true`）不需要可见性保证，用 volatile 版本更快。ROCm 分支用 `__scoped_atomic_store_n` / `__scoped_atomic_load_n` 实现同样语义。
 
+把 4 个 rank 同一个 block 的 `start` 槽位排成矩阵，就能看清这次 flag 交换的形状——每个 rank **写一行、读一列**：
+
+```text
+barrier_at_start，block b，world_size = 4，本轮期望值 f
+列 = Signal 所在的 rank（读者，本地 load）  行 = 槽位下标 = 写入者 rank
+
+                   rank0.start[b] rank1.start[b] rank2.start[b] rank3.start[b]
+  [0] ← rank 0 写       f              f              f              f
+  [1] ← rank 1 写       f              f              f              f
+  [2] ← rank 2 写       f              f              f              f
+  [3] ← rank 3 写       f              f              f              f
+                        ▲
+        rank 0 的线程 0..3 各自旋读本列一格；4 格全为 f 才过 __syncthreads
+
+  每个 rank：写一行 = 线程 i 向 rank i 做一次远端 store（i = 自己时是本地）
+             读一列 = 线程 i 自旋 volatile load 本地槽位 [i]
+  end[b] 是另一张同形矩阵；_flag[b] 每轮 +1，上一轮残留的 f-1 不会误触发
+```
+
 第四篇讲过 NCCL 的 LL 协议也是用 flag 免屏障。区别在于：NCCL 的 flag 跟着每 8 字节数据走，是数据通道的一部分；custom all-reduce 的 flag 只在 kernel 开头和结尾各交换一次，数据通道是裸的 `ld.global`。
 
 ### 3. one-shot 与 two-shot kernel
@@ -259,6 +303,34 @@ __global__ void __launch_bounds__(512, 1)
 每个线程处理 16 字节：从 8 个 rank 的输入各读一个 16 字节向量（7 次经 NVLink 的远端 load），在 fp32 累加，转回 BF16 写到本地输出。全 kernel 两次 barrier。源码注释特别说明不重排地址，让所有 rank 以相同顺序累加，结果 bit 级一致——训练里 `NCCL_ALGO` 不同导致数值不同的问题（第六篇）在这里不存在。
 
 **two-shot**（`cross_device_reduce_2stage`）：先 reduce_scatter 再 all_gather。每个 rank 负责 `size / ngpus` 那一段：读 8 个 rank 该段的数据归约，写到自己 `Signal` 后面的临时区（`get_tmp_buf`）；`barrier_at_end` 同步（非最终，带 release/acquire）；然后每个线程从 8 个 rank 的临时区各读回一段拼成完整结果。源码注释强调两个阶段必须用相同的 `tid` 处理相同的下标，因为跨设备可见性只在相同 tid 的线程之间有保证。
+
+两种 kernel 的数据流放在一起对照（world_size = 4，输入切成 4 段 c0..c3）：
+
+```text
+X_r = rank r 的输入，Σ = 4 个 rank 求和；每行是一个 rank 在该阶段读什么、写什么
+
+one-shot（1stage）：每个 rank 读全部 4 份输入，各自算出完整结果
+   barrier_at_start ────────────────────────────────────────────────────
+   rank 0  读 X_0[c0..c3] X_1[c0..c3] X_2[c0..c3] X_3[c0..c3] → Σ[c0..c3]
+   rank 1  读 X_0[c0..c3] X_1[c0..c3] X_2[c0..c3] X_3[c0..c3] → Σ[c0..c3]
+   rank 2  读 （同上）                                        → Σ[c0..c3]
+   rank 3  读 （同上）                                        → Σ[c0..c3]
+           每 rank 远端读 (n-1)·S，结果直接写本地 result，没有中间缓冲
+   barrier_at_end（final，volatile）──────────────────────────────────
+
+two-shot（2stage）：reduce-scatter 到各自 tmp，再 all-gather
+   barrier_at_start ────────────────────────────────────────────────────
+   阶段 1  rank 0  读 X_0[c0] X_1[c0] X_2[c0] X_3[c0] → Σ[c0] → rank0.tmp
+           rank 1  读 X_0[c1] X_1[c1] X_2[c1] X_3[c1] → Σ[c1] → rank1.tmp
+           rank 2  读 X_*[c2]                          → Σ[c2] → rank2.tmp
+           rank 3  读 X_*[c3]                          → Σ[c3] → rank3.tmp
+           每 rank 远端读 (n-1)/n·S
+   barrier_at_end（非 final，release/acquire：tmp 对所有对端可见）───
+   阶段 2  每个 rank  读 rank0.tmp  rank1.tmp  rank2.tmp  rank3.tmp
+                      =  Σ[c0]      Σ[c1]      Σ[c2]      Σ[c3]  → result
+           每 rank 再远端读 (n-1)/n·S；两阶段同一 tid 处理同一下标
+   barrier_at_end（final）──────────────────────────────────────────────
+```
 
 两者的选择在 `CustomAllreduce::allreduce`（同文件）的 `REDUCE_CASE` 宏里，可用环境变量 `VLLM_CUSTOM_ALLREDUCE_ALGO`（取值 `1stage` / `oneshot` / `2stage` / `twoshot`）强制：
 
@@ -493,6 +565,31 @@ kernel 参数里的 `RankData*` 指向 `rank_data` 数组中一个**尚未填内
 2. Python 侧用 `dist.broadcast_object_list` 在 gloo group 上逐 rank 广播（源码注释说 `all_gather_object` 与 inference mode 下的 gloo 不兼容），每个 rank 拿到所有 rank 的句柄与偏移列表；
 3. `register_graph_buffers`（C++）对每个远端句柄 `open_ipc_handle`（有 `ipc_handles_` 缓存去重）加偏移得到对端地址，填成 `RankData` 一次 `cudaMemcpy` 写进预留的槽位。
 
+三个阶段里，kernel 参数指向的 `RankData` 槽位地址始终不变，变的只是它的内容：
+
+```mermaid
+flowchart TB
+    subgraph cap["捕获期间（cudaStreamIsCapturing 为 Active）"]
+        C1["allreduce(input) 被调用"] --> C2["ptrs = d_rank_data_base_ + k<br/>预留第 k 个 RankData 槽位：地址固定，内容为空"]
+        C2 --> C3["graph_unreg_buffers_.push_back(input)<br/>只记下本 rank 的输入地址"]
+        C3 --> C4["kernel 带着 RankData* = 槽位 k 进入 graph"]
+    end
+    subgraph reg["捕获结束：capture() 退出 → register_graph_buffers"]
+        R1["get_graph_buffer_ipc_meta<br/>cuPointerGetAttribute 找分配块基址<br/>cudaIpcGetMemHandle 导出句柄 + 偏移"] --> R2["gloo group 上 broadcast_object_list<br/>每个 rank 拿到全部 rank 的句柄与偏移"]
+        R2 --> R3["open_ipc_handle（ipc_handles_ 去重）+ 偏移<br/>得到全部对端地址"]
+        R3 --> R4["cudaMemcpy 把 RankData 填进槽位 k"]
+    end
+    subgraph rep["回放"]
+        P1["graph.replay()：kernel 参数仍是槽位 k"] --> P2["读到完整的 n 个地址<br/>直接 ld.global 对端显存"]
+    end
+    C4 --> R1
+    R4 --> P1
+    classDef pend fill:#fff3cd,stroke:#b8860b;
+    classDef done fill:#d4edda,stroke:#2e7d32;
+    class C2 pend;
+    class R4,P2 done;
+```
+
 回放时 kernel 读到的 `RankData` 已经是完整的 8 个地址。这个设计的前提是每次回放输入地址不变，源码注释也提到故意不对地址去重，以防不同 rank 的分配模式不同。这也是第三章第 5 节"为什么不能用在训练上"里"地址固定"那一条的来源。
 
 ### 3. graph_capture 上下文
@@ -578,6 +675,36 @@ else:
 - **prefill TP > decode TP**（如 P 用 TP8、D 用 TP2）：每个 decode rank 从多个 prefill rank 读，拼成自己的 head 集合。GQA 下 KV head 数可能小于 prefill 的 TP 度，多个 prefill rank 持有同一个 head 的副本，`np.unique` 去重只读一份。
 - **MLA**：所有 rank 的 KV 相同，每个 decode rank 只需读一个 prefill rank，按 `tp_rank * remote_tp_size // tp_size` 分散到不同的远端 rank 上，让读负载均匀。
 
+用 8 个 KV head 把三种情况画出来（block 内 head 连续排列，箭头表示"谁读谁的哪一段"）：
+
+```text
+(a) P TP2 → D TP8（decode TP ≥ prefill TP）：多个 D rank 读同一 P rank 的不同段
+      P rank 0 的 block            P rank 1 的 block
+     ┌────┬────┬────┬────┐        ┌────┬────┬────┬────┐
+     │ h0 │ h1 │ h2 │ h3 │        │ h4 │ h5 │ h6 │ h7 │
+     └─┬──┴─┬──┴─┬──┴─┬──┘        └─┬──┴─┬──┴─┬──┴─┬──┘
+       ▼    ▼    ▼    ▼             ▼    ▼    ▼    ▼
+      D0   D1   D2   D3            D4   D5   D6   D7
+     attn_ranks = [tp_rank × 2 // 8]，rank_offset_factor = tp_rank % 4 →段内偏移
+     → 8 个 D rank 用 8 张网卡同时读；P 侧每张网卡的出向带宽被 4 个读者共享
+
+(b) P TP8 → D TP2（prefill TP > decode TP）：一个 D rank 从多个 P rank 拼 head
+     P rank:  0     1     2     3     4     5     6     7
+            ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐
+            │h0│  │h1│  │h2│  │h3│  │h4│  │h5│  │h6│  │h7│
+            └┬─┘  └┬─┘  └┬─┘  └┬─┘  └┬─┘  └┬─┘  └┬─┘  └┬─┘
+             └─────┴─────┴─────┘     └─────┴─────┴─────┘
+                      ▼                        ▼
+                     D0                       D1
+     attn_ranks = [4r, 4r+1, 4r+2, 4r+3]
+
+(c) GQA 去重：只有 4 个 KV head 时 P TP8 相邻两 rank 持同一 head 的副本
+     P rank:  0     1     2     3     4     5     6     7
+             h0    h0    h1    h1    h2    h2    h3    h3
+             ▲           ▲                 ▲           ▲
+     D0 只读 P{0, 2}（np.unique 去重）       D1 只读 P{4, 6}
+```
+
 `_nixl_handshake` 里 `transfer_topo.handshake_target_ranks(remote_tp_size)` 用同一套逻辑决定要和远端哪几个 rank 握手——只和自己会读的那些 rank 建立连接。
 
 ### 4. 为什么不用 NCCL
@@ -652,6 +779,39 @@ self._recving_transfers[request_id].append(handle)
 
 之后每一步 `get_finished` → `_pop_done_transfers` 用 `check_xfer_state(handle)` 轮询：`DONE` 则取 `get_xfer_telemetry` 记录字节数与耗时进 `NixlKVConnectorStats`，`PROC` 则继续等，其他状态按失败处理。prefill 侧 `_get_new_notifs` 收通知，计数达到 world_size 后把请求标为 `done_sending`，scheduler 侧才释放 block。整条路径上 GPU 没有执行任何与传输相关的指令。
 
+把四个阶段按一个请求的生命周期串起来。注意两点：握手只在第一次遇到某个 prefill engine 时发生一次；数据面的 READ 由 decode 侧网卡发起，期间两边的 GPU 都在跑别的请求：
+
+```mermaid
+sequenceDiagram
+    participant R as Router / 客户端
+    participant PS as Prefill scheduler
+    participant PW as Prefill worker (GPU+NIC)
+    participant DS as Decode scheduler
+    participant DW as Decode worker (GPU+NIC)
+    Note over PS,DW: 首次遇到该 prefill engine 时的一次性握手（ZMQ 旁路通道）
+    DW->>PS: GET_META_MSG(remote_rank) 到 VLLM_NIXL_SIDE_CHANNEL_HOST/PORT
+    PS-->>DW: NixlAgentMetadata（UCX 地址、KV 基址、block 数与长度、layout）
+    Note over DW: compute_tp_mapping → add_remote_agent → 展开远端描述符
+    R->>PS: 请求 A（kv_producer 侧）
+    PS->>PW: 调度 prefill
+    activate PW
+    PW-->>PS: prefill 完成，KV 留在显存 block 里
+    deactivate PW
+    PS-->>R: 首 token + remote block ids 与 engine 信息
+    R->>DS: 请求 A（kv_consumer 侧，带 kv_transfer_params）
+    DS->>DS: 分配本地 block → build_connector_meta
+    DS->>DW: KVConnectorMetadata（local 与 remote block ids）
+    DW->>PW: make_prepped_xfer READ + transfer：单边 RDMA READ，网卡 DMA 搬数据
+    Note over PW: 被读期间继续跑请求 B 的 prefill
+    Note over DW: 读取期间继续回放其他请求的 decode step
+    DW->>DW: 每步 get_finished → check_xfer_state 轮询
+    DW-->>PW: 传输完成，NIXL 自动发 notif（请求 id 与 world_size）
+    PW->>PS: _get_new_notifs 计数达 world_size → done_sending
+    PS->>PS: request_finished → 释放请求 A 的 block
+    DW->>DS: KVConnectorOutput：请求 A 的 KV 已就位
+    DS->>DW: 请求 A 进入 decode step
+```
+
 ### 3. NIXL 与 UCX
 
 **NIXL**（NVIDIA Inference Xfer Library）是 NVIDIA 为推理数据搬运设计的库，出自 Dynamo 项目。它的抽象是：agent（一个进程一个）、内存注册（`register_memory`，支持 VRAM / DRAM / 文件等多种 memory type）、描述符列表、传输请求（READ / WRITE，带可选通知）、后端插件。后端里 UCX 负责网络与节点内 GPU 之间的传输，另有 GPUDirect Storage、POSIX 文件、对象存储等后端用于 KV 卸载到存储；vLLM 的 `backends` 配置默认只有 `UCX`。NIXL 的价值在于统一了"注册—描述—传输—通知"的接口，让 connector 不必直接面对 verbs 或 UCX 的 API，也让 KV 从显存传到远端显存、远端主机内存、本地 NVMe 用同一套代码。
@@ -677,6 +837,18 @@ NIXL 的 READ 和 Mooncake 的 WRITE 是单边 RDMA 的两个方向，第三篇�
 ### 5. kv_buffer_device 与 host buffer 路径
 
 `kv_buffer_device="cuda"`（默认）时 NIXL 直接注册显存为 `VRAM`，传输走 GPUDirect RDMA（跨节点）或 CUDA IPC（节点内）。`kv_buffer_device="cpu"` 时 `use_host_buffer` 为真：`initialize_host_xfer_buffer` 分配与 KV cache 同形状的 pinned host 缓冲区注册为 `DRAM`，prefill 侧 `wait_for_save` → `save_kv_to_host` 用 `copy_blocks` 把 KV 从显存拷到 host 缓冲区，decode 侧读到 host 缓冲区后 `sync_recved_kv_to_device` 拷回显存。多两次 PCIe 拷贝（第二篇：x16 PCIe 5.0 单向 64 GB/s 标称），但不依赖 `nvidia-peermem`；在 GPUDirect RDMA 不可用（跨 root complex、驱动限制、云环境）的机器上这是可用的退路。排障时"KV 传输慢"的第一个检查项就是确认自己在哪条路径上。
+
+把第六章第 4 节的四个约束和本章的几条路径放在一张表里，NCCL 一列作为对照：
+
+| | NCCL send/recv（对照） | NixlConnector（UCX） | MooncakeConnector | kv_buffer_device=cpu（NIXL 之上） |
+|---|---|---|---|---|
+| 发起方 / 方向 | 双边，两侧同时调用 | decode 侧发起 READ | prefill 侧发起 WRITE | 同 NIXL，但两端各多一次 D2H / H2D 拷贝 |
+| 数据搬运者 | GPU kernel（占 SM）+ proxy 线程 | 网卡 DMA，GPU 不参与 | 网卡 DMA，GPU 不参与 | 网卡 DMA + `copy_blocks` 的 PCIe 拷贝 |
+| 建连 | communicator 固定成员，增减实例需全体重建 | agent 两两按需握手（ZMQ 旁路） | `P2PHANDSHAKE` 两两握手 | 同 NIXL |
+| 注册 | channel buffer 中转，无需注册用户内存 | 启动时 `register_memory` 整块 KV 池（VRAM） | `batch_register_memory` 整块 KV 池 | 注册 pinned host 缓冲区（DRAM） |
+| 与计算的关系 | 同 stream 上的 kernel，与 decode 的 CUDA Graph 回放冲突 | CPU 线程轮询 `check_xfer_state`，与 GPU 完全解耦 | 线程池同步 WRITE，与 GPU 解耦 | 拷贝占用 PCIe 与一次 kernel，其余解耦 |
+| 失败范围 | 整个 communicator abort | 单请求（`_handle_failed_transfer`、`kv_load_failure_policy`） | 单请求 | 单请求 |
+| 依赖 | NCCL | GPUDirect RDMA（`nvidia-peermem` / DMA-BUF）或节点内 `cuda_ipc` | Mooncake Transfer Engine + RDMA | 不依赖 GDR，受 PCIe 带宽限制 |
 
 
 ## 八、测一测与比一比：推理侧的排障

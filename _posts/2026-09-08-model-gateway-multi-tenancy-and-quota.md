@@ -18,14 +18,14 @@ catalog: true
 
 > **两个租户共用一个 70B 模型的 4 个副本，A 租户的配额是 B 的三倍。当两者同时打满时，网关应该按什么规则决定哪个请求排队、排在哪个副本上？"配额"在这里指的是 GPU 时间、token 数还是请求数？**
 
-版本锚点：Gateway API Inference Extension（下称 GIE）v1.6.0（`inference.networking.k8s.io/v1`、`inference.networking.x-k8s.io/v1alpha1`）；llm-d-router v0.10.0（`llm-d.ai/v1alpha2`、`llm-d.ai/v1alpha1` 的 `EndpointPickerConfig`）；llm-d v0.9.0 的 guides；vLLM v0.23.0 只用它的 OpenAI 协议字段、启动参数与指标名；KServe v0.20.0 的 `LLMInferenceService` 只做对照。全部发布于本文日期之前。一个必须先说明的事实：**GIE 在 v1.6.0 已经不再包含 Endpoint Picker 的实现**——它的仓库里只剩 `InferencePool` API（`api/v1`）、实验性的 `InferencePoolImport`（`apix/v1alpha1`）、一个只做轮询的轻量参考实现 `pkg/lwepp` 和 conformance 套件；调度插件、`InferenceObjective`、`InferenceModelRewrite` 都在 llm-d 社区的 `llm-d-router` 仓库里。本篇据此分工：**池的定义看 GIE，选副本的逻辑看 llm-d-router**。
+版本锚点：Gateway API Inference Extension（下称 GIE）v1.6.0（`inference.networking.k8s.io/v1`、`inference.networking.x-k8s.io/v1alpha1`）；llm-d-router v0.10.0（`llm-d.ai/v1alpha2`、`llm-d.ai/v1alpha1` 的 `EndpointPickerConfig`）；llm-d v0.9.0 的 guides；vLLM v0.28.0 只用它的 OpenAI 协议字段、启动参数与指标名；KServe v0.20.0 的 `LLMInferenceService` 只做对照。全部发布于本文日期之前。一个必须先说明的事实：**GIE 在 v1.6.0 已经不再包含 Endpoint Picker 的实现**——它的仓库里只剩 `InferencePool` API（`api/v1`）、实验性的 `InferencePoolImport`（`apix/v1alpha1`）、一个只做轮询的轻量参考实现 `pkg/lwepp` 和 conformance 套件；调度插件、`InferenceObjective`、`InferenceModelRewrite` 都在 llm-d 社区的 `llm-d-router` 仓库里。本篇据此分工：**池的定义看 GIE，选副本的逻辑看 llm-d-router**。
 
 
 ## 一、总览
 
 ### 1. 引擎的需求
 
-推理引擎对网关这一层的要求，可以从它自己暴露出来的东西反推。vLLM v0.23.0 的 OpenAI 兼容服务在 `/metrics` 上给出 `vllm:num_requests_waiting`、`vllm:num_requests_running`、`vllm:kv_cache_usage_perc`、`vllm:lora_requests_info`（`vllm/v1/metrics/loggers.py`），在 `--kv-events-config` 打开时还会通过 ZMQ 发布 KV block 的 stored / removed 事件（`vllm/engine/arg_utils.py` 的 `kv_events_config`）。引擎把这些东西暴露出来，是因为它知道自己的三个事实平台必须知道：
+推理引擎对网关这一层的要求，可以从它自己暴露出来的东西反推。vLLM v0.28.0 的 OpenAI 兼容服务在 `/metrics` 上给出 `vllm:num_requests_waiting`、`vllm:num_requests_running`、`vllm:kv_cache_usage_perc`、`vllm:lora_requests_info`（`vllm/v1/metrics/loggers.py`），在 `--kv-events-config` 打开时还会通过 ZMQ 发布 KV block 的 stored / removed 事件（`vllm/engine/arg_utils.py` 的 `kv_events_config`）。引擎把这些东西暴露出来，是因为它知道自己的三个事实平台必须知道：
 
 - **KV cache 是硬约束，而且是每副本独立的。** 一个副本的 KV cache 用到 95%，新请求就在它的 waiting 队列里等；旁边的副本 30% 空着也帮不上忙。请求一旦被送到某个副本，就不能再迁走（迁移 KV cache 的代价与重新 prefill 相当）。所以**选副本必须在请求到达时一次做对**。
 - **prefill 的代价可以被缓存吃掉，但缓存在副本本地。** 开了 `--enable-prefix-caching` 后，同一前缀的第二个请求命中缓存，prefill 的计算几乎为零；但缓存在哪个副本，只有那个副本知道。同一会话的多轮请求、同一 system prompt 的一批请求，落在同一副本上 TTFT 差好几倍。
@@ -296,6 +296,50 @@ llm-d-router `docs/architecture.md` 把一个请求在 EPP 里的路径分成两
 
 **Scheduling** 每个 profile 跑一次（`pkg/epp/scheduling/scheduler_profile.go` 的 `SchedulerProfile.Run`）：filter 链顺序过滤 → 每个 scorer 给每个候选打 0～1 分（`enforceScoreRange` 截断）→ `weightedScorePerEndpoint[endpoint] += score × weight` → picker 选。多个 profile 由 **profile handler** 编排：PD 分离就是 prefill 与 decode 两个 profile。
 
+上面 12 步是"顺利路径"。把请求可能**离开**这条流水线的出口全部标出来，才能看清哪一步会拒绝、拒绝时 GPU 有没有被消耗（步骤编号对应上面的列表；429 的 `x-llm-d-request-dropped-reason` 取值见第五章 4 节）：
+
+```mermaid
+flowchart TB
+    IN["1–4 请求到达 EPP（外层已剥头 / 注入头 / 预扣 TPM）<br/>解析 body、模型名重写、取 priority 与 fairness ID"]
+    SAT{"5 Admit：池饱和？"}
+    BAND["所在 band 的 maxRequests / maxBytes 已满？"]
+    Q["入 band 队列：fairness 轮转 → ordering 出队"]
+    TTL{"等待超过 defaultRequestTTL？"}
+    ADM["6–9 Locate 候选、Screener、DataProducer<br/>Admitter（如 latency-slo-admitter）拒绝？"]
+    EMPTY["10 每 profile：filter → scorer → picker<br/>候选为空？"]
+    FWD["11–12 写 x-gateway-destination-endpoint<br/>repackage body → 转发到 Pod"]
+    R429a["429 rejected-saturated"]
+    R429b["429 rejected-ttl-expired"]
+    R429c["429 rejected-context-cancelled<br/>（排队中客户端断开）"]
+    RADM["拒绝（未进引擎，未消耗 GPU）"]
+    R503["503 无可用 endpoint"]
+    EVICT["evicted-*：已消耗部分 GPU<br/>（enableEviction 时被高优先级挤出）"]
+
+    IN --> SAT
+    SAT -- "否：直接放行（work-conserving）" --> ADM
+    SAT -- "是" --> BAND
+    BAND -- "是" --> R429a
+    BAND -- "否" --> Q
+    Q --> TTL
+    TTL -- "是" --> R429b
+    TTL -- "否，轮到它" --> ADM
+    Q -. "客户端断开" .-> R429c
+    ADM -- "是" --> RADM
+    ADM -- "否" --> EMPTY
+    EMPTY -- "是" --> R503
+    EMPTY -- "否" --> FWD
+    FWD -. "在途被驱逐" .-> EVICT
+
+    classDef rej fill:#fde2e1,stroke:#b3261e;
+    classDef ok fill:#e3f2e1,stroke:#2e7d32;
+    classDef dec fill:#fff4d6,stroke:#b58900;
+    class R429a,R429b,R429c,RADM,R503,EVICT rej;
+    class FWD ok;
+    class SAT,BAND,TTL,ADM,EMPTY dec;
+```
+
+图里有一条分界线值得记住：所有 `rejected-*` 出口都在请求进入引擎之前，客户端可以放心重试；只有 `evicted-*` 发生在转发之后，已经花了 prefill 甚至部分 decode。外层认证层的 429（TPM / 并发 / RPM）不在图中——它在请求到达 EPP 之前就发生了。
+
 ### 2. 插件类型与实名清单
 
 插件类型名是配置文件里 `type:` 的值，全部来自 `pkg/epp/framework/plugins/` 下各插件源码的常量（`README.md` 说明 `cmd/epp/runner/runner.go` 是稳定级别的唯一来源，当前全部为 Alpha 或 Beta；Alpha 插件需要 `--allow-experimental-plugins`）。与本篇相关的：
@@ -419,6 +463,24 @@ $$
 
 上面的配置里前缀命中满分 3、队列与 KV 各 2、LoRA 1，总分 8。一个前缀完全命中但队列最长的副本得 3 + 0 + kv，一个无命中但完全空闲的副本得 0 + 2 + 2 = 4——**只有当前缀命中省下的 prefill 值得付出更长的排队时**（这由 `prefix-cache-scorer` 的 `matchLengthWeight` 与 `queue-scorer` 的权重比决定），请求才会去热副本。`prefix-cache-affinity-filter` 在 scorer 之前先做了一层：命中率高于阈值的 sticky 副本存在且没有明显过载时，候选集只剩它们，scorer 只在 sticky 集内分负载；sticky 副本的 TTFT 比其他副本高出 `maxTTFTPenaltyMs` 以上时它打破亲和，候选集回到全集。这个 filter 的 README 解释了它为什么存在：`prefix-cache-scorer` + `max-score-picker` 会把相似前缀的并发请求全部堆到一个副本（hot-spotting），换 `weighted-random-picker` 又会稀释亲和；filter 把"亲和"与"分负载"拆成两步。
 
+用上面的配置对 4 个副本算一遍，能看到 filter 与 scorer 各自在哪一步起作用（假设 `prefix-cache-affinity-filter` 没有形成 sticky 子集，或已因 TTFT 惩罚打破亲和；`prefix-cache-scorer` 只按命中比例，忽略 `matchLengthWeight`；`queue-scorer` 在过滤后的候选内按最短 1 / 最长 0 线性）：
+
+```text
+请求：8k token 前缀，model=support-v1；权重 prefix 3 / queue 2 / kv 2 / lora 1
+
+      前缀   等待  KV    LoRA    drop-overloaded      各项原始分        加权
+      命中   队列  使用  状态    (kv>0.9 或 queue>4)  p    q    k    l   总分
+r1    100%   6     0.95  已加载  淘汰（两项都超）      —                  —
+r2     75%   3     0.70  已加载  通过                 0.75 0    0.30 1.0  3.85
+r3      0%   0     0.20  有空位  通过                 0    1.0  0.80 0.8  4.40 *
+r4      0%   1     0.40  已满    通过                 0    0.67 0.60 0    2.53
+
+r2 = 3×0.75 + 2×0 + 2×0.30 + 1×1.0 = 3.85
+r3 = 3×0    + 2×1.0 + 2×0.80 + 1×0.8 = 4.40   ← max-score-picker 选它
+```
+
+r1 的前缀全命中、adapter 也已加载，但 KV 0.95 与队列 6 让它在 scorer 之前就被 `drop-overloaded` 淘汰——filter 是硬约束，分数再高也救不回来。剩下三个里 r2 有 75% 命中，却因为队列最长（queue 得 0）、KV 较高而输给完全空闲的 r3：3 分的前缀权重不足以抵消 2 + 2 分的负载差。要让 r2 赢，要么把 `prefix-cache-scorer` 的权重提到 5 以上，要么靠 `prefix-cache-affinity-filter` 在 scorer 之前把候选缩到 {r2}——这正是它存在的意义。
+
 `docs/architecture.md` 的 "Default plugins" 一节列了不写也会注入的东西：单 profile 时自动加 `single-profile-handler`，没有 picker 时加 `max-score-picker`，scorer 的 weight 默认 1.0，parser 默认三个都开，flow control 的三个默认策略与 `utilization-detector`，数据层的 `metrics-data-source` + `core-metrics-extractor`（这是 50 ms 一次的 `/metrics` 抓取，`--refresh-metrics-interval`）。
 
 ### 4. 近似 vs 精确前缀缓存
@@ -435,6 +497,30 @@ $$
 
 PD 分离下一个请求要选两个 Pod。`disagg-profile-handler` 先跑 `decode` profile（总是），再由 decider 决定是否跑 `prefill` profile：`prefix-based-pd-decider` 读 decode 候选上的前缀匹配信息，只有**未命中的后缀长度 ≥ `nonCachedTokens`** 时才值得分离（`promptTokens` 另设一个最短提示长度门槛）。两个 profile 各自用 `prefill-filter` / `decode-filter`（按 `llm-d.ai/role` 标签，或用 `label-selector-filter` 适配外部系统的标签）缩候选，各自打分。结果写成两个 header：`x-gateway-destination-endpoint` 指向 decode Pod，`x-prefiller-host-port` 指向 prefill Pod（`docs/disaggregation.md`）。
 
+```mermaid
+sequenceDiagram
+    participant GW as Gateway
+    participant EPP as EPP (disagg-profile-handler)
+    participant D as decode Pod (pd-sidecar + vLLM)
+    participant P as prefill Pod
+
+    GW->>EPP: ProcessingRequest(headers + body)
+    Note over EPP: decode profile 总是跑 → 选出 D<br/>prefix-based-pd-decider 读 D 上的前缀匹配：<br/>未命中后缀 ≥ nonCachedTokens？
+    alt 需要分离
+        EPP-->>GW: x-gateway-destination-endpoint = D<br/>x-prefiller-host-port = P
+        GW->>D: 转发（网关只认第一个 header）
+        D->>P: sidecar 看到 x-prefiller-host-port，先转给 P 做 prefill
+        Note over D,P: KV 经 connector（NIXL / shared-storage / Mooncake …）从 P 传到 D
+        P-->>D: prefill 完成
+        Note over D: 本地 vLLM 只做 decode
+    else 不分离（前缀基本命中，或 prompt 短于门槛）
+        EPP-->>GW: x-gateway-destination-endpoint = D
+        GW->>D: 转发
+        Note over D: sidecar 未见 x-prefiller-host-port，本地 prefill + decode
+    end
+    D-->>GW: SSE 流
+```
+
 网关只认识第一个 header，把请求发到 decode Pod。decode Pod 里跑着 `pd-sidecar`（`pkg/sidecar/proxy/`）：看到 `x-prefiller-host-port` 就先把请求转给 prefill Pod 做 prefill（KV 通过 NIXL、shared-storage、SGLang、Mooncake 等 connector 传输，`pkg/sidecar/constants/constants.go`），再在本地 decode；没有这个 header 就本地做完两段。所以 PD 分离对网关是透明的——这是 llm-d 把"选两个 Pod"塞进单目标 ext_proc 协议的方式。v0.9.0 还有一个实验性的 **Coordinator** 形态（`docs/coordinator_architecture.md`、`guides/coord-disaggregation`）：一个独立服务把 encode / prefill / decode 作为流水线步骤，每步再通过网关 + EPP 选 Pod，不再需要每 Pod 一个 sidecar。
 
 ### 6. EPP 自身的部署形态
@@ -446,7 +532,7 @@ EPP 是有状态的：近似前缀索引、在途负载、flow control 的队列
 
 ### 1. OpenAI 协议作为路由键
 
-事实标准是 OpenAI 的 `/v1/chat/completions` 与 `/v1/completions`。vLLM v0.23.0 的请求模型在 `vllm/entrypoints/openai/chat_completion/protocol.py` 的 `ChatCompletionRequest`：`model: str | None`、`messages`、`stream: bool | None = False`、`stream_options: StreamOptions | None`（`engine/protocol.py`：`include_usage`、`continuous_usage_stats`）、`max_completion_tokens`（`max_tokens` 已标 deprecated）。响应的 `UsageInfo` 有 `prompt_tokens`、`completion_tokens`、`total_tokens`、`prompt_tokens_details.cached_tokens`。
+事实标准是 OpenAI 的 `/v1/chat/completions` 与 `/v1/completions`。vLLM v0.28.0 的请求模型在 `vllm/entrypoints/openai/chat_completion/protocol.py` 的 `ChatCompletionRequest`：`model: str | None`、`messages`、`stream: bool | None = False`、`stream_options: StreamOptions | None`（`engine/protocol.py`：`include_usage`、`continuous_usage_stats`）、`max_completion_tokens`（`max_tokens` 已标 deprecated）。响应的 `UsageInfo` 有 `prompt_tokens`、`completion_tokens`、`total_tokens`、`prompt_tokens_details.cached_tokens`。
 
 对网关来说这份协议有三处不便。第一，**路由键在请求体里**：`model` 是 JSON 字段，`HTTPRoute` 的 match 只看 path、header、query。所以要有一个组件先读 body、把 `model` 提到 header 里——GIE 的 `1964-pluggable-bbr-framework` 提案（Draft）描述的 body-based router 注入 `X-Gateway-Model-Name`；llm-d v0.9.0 实际使用的是独立仓库 `llm-d-inference-payload-processor`（IPP），它按带 `inference.llm-d.ai/ipp-managed: "true"` 标签的 ConfigMap 里的 `baseModel` 与 `adapters` 列表，把请求体里的 `model` 映射到基础模型名并注入 `X-Gateway-Base-Model-Name` 头，`HTTPRoute` 再按这个头匹配到对应的 `InferencePool`（`guides/multi-model-routing`）。LoRA 名也在这张表里——`"model": "food-review-1"` 会被映射到它的基础模型的池，池内再由 EPP 的 `lora-affinity-scorer` 选副本。第二，**流式响应是 SSE**：`text/event-stream`，每行 `data: {...}`，以 `data: [DONE]` 结束，连接可能持续几分钟，网关不能按普通 HTTP 响应缓冲。第三，**`model` 字段同时是路由键和引擎参数**：vLLM 用它选 LoRA adapter（`--lora-modules` 注册的名字或动态加载的名字），所以网关改写它（版本重定向）时要保证改写后的名字引擎认识。
 
@@ -506,6 +592,28 @@ spec:
 ```
 
 flow control（`pkg/epp/flowcontrol/`，`featureGates: ["flowControl"]` 打开，默认关）在 `Admit` 处生效：饱和检测器（`concurrency-detector` 按在途请求数，`utilization-detector` 按抓到的 KV / 队列指标；后者受指标滞后影响，`guides/flow-control/tuning.md` 建议生产用前者）判断池是否饱和；未饱和直接放行（work-conserving，不会在 GPU 有余量时人为限流）；饱和时请求进入按 `priority` 分的 band，band 内按 `fairnessPolicyRef` 在流之间选（`round-robin-fairness-policy` 轮转各 fairness ID；`global-strict-fairness-policy` 忽略流、全局排序），流内按 `orderingPolicyRef` 选（`fcfs-ordering-policy` 先到先服务；`edf` / `slo-deadline` 按截止时间）。每个 band 有 `maxRequests` / `maxBytes` 上限，超过直接 429；排队超过 `defaultRequestTTL`（默认 60 s）也 429。429 响应带 `x-llm-d-request-dropped-reason` 头（`rejected-saturated`、`rejected-ttl-expired`、`rejected-context-cancelled`、`evicted-*`），前缀 `rejected-*` 表示没消耗 GPU、可放心重试，`evicted-*` 表示已经算了一部分（`docs/api-reference/epp-http-headers.md`）。`enableEviction: true` 时高优先级请求被饱和挡住可以把在途的负优先级请求杀掉腾位。
+
+这几条规则叠在一起，在一次过载里的表现用一条时间线最清楚。下面假设池已饱和、每个 tick 恰好释放 1 个在途槽位；A 是 `premium-traffic`（band 100），B、C 是 `standard-traffic`（band 0，两个 fairness ID），D 是 `best-effort-traffic`（band -10，`maxRequests` 缩成 2 便于演示）；TTL 缩成 8 tick。记法 `B3` = fairness ID B 有 3 个请求在排队；每行是该 tick 处理完到达与出队后的队列状态：
+
+```text
+tick 到达         band100  band0     band-10  出队  说明
+                  (A)      (B | C)   (D,上限2)
+  0  A2 B3 C1 D3  A2       B3 | C1   D2       —     D 第 3 个进不了 band：
+                                                    429 rejected-saturated
+  1  —            A1       B3 | C1   D2       A
+  2  B1           —        B4 | C1   D2       A     band100 清空前 band0 不动
+  3  —            —        B3 | C1   D2       B     同 band 内 round-robin：先 B
+  4  —            —        B3 | —    D2       C     …再 C；C 空了
+  5  A1           —        B3 | —    D2       A     新到的 A 严格优先，插到 B 前
+  6  —            —        B2 | —    D2       B
+  7  —            —        B1 | —    D2       B
+  8  —            —        —  | —    —        B     D2 等满 8 tick：
+                                                    429 rejected-ttl-expired
+  9  —            —        —  | —    —        —     队列空、饱和解除：
+                                                    新请求直接放行
+```
+
+三点从表里直接读出来：**优先级之间是抢占式的**——tick 5 新到的 A 越过已经等了 5 个 tick 的 B；**公平只在 band 内**——B 有 4 个请求、C 只有 1 个，轮转时仍是一人一个，C 不会被 B 的数量淹没；**负 band 在饱和期间几乎拿不到槽位**，所以它的 `maxRequests` 与 TTL 应该小，让 best-effort 请求快速拿到 `rejected-*` 去重试或降级，而不是在队列里占着内存等 60 s。
 
 回到"A 的配额是 B 的三倍"：EPP 的公平策略在 v0.10.0 只有等份轮转与全局严格两种（还有实验性的 `program-aware-fairness`），**没有按权重的公平**。所以"三倍"不能在 EPP 层表达，只能在外层用 TPM 配额表达；EPP 层能表达的是"A 与 B 谁的优先级更高"以及"同一优先级内不让任何一方饿死"。
 
@@ -614,7 +722,25 @@ spec:
           退还 预扣 − 实际（可能为负：输入估算偏低时补扣）；并发 −1；写账单事件
 ```
 
-预扣值的选择是一个取舍：按 `max_completion_tokens` 全额预扣最安全，但客户端常填一个很大的默认值（4096、8192），会让 TPM 配额看起来瞬间用完；按历史平均输出预扣更平滑，但突发的长输出可以短时超配额。`maxCompletionTokensDefault` 与单请求上限是这个取舍的两个旋钮。
+把这两步放到一个租户的桶上连续走几个请求，能看到 TPM 余量与并发计数各自在什么时候变化、两种 429 分别由谁触发。取租户 B 在 `llama-70b` 上的规则，桶余量缩到 20,000 便于看清，忽略桶的按分钟补充：
+
+```text
+并发上限 2；预扣 = 输入估算 + min(max_completion_tokens 或缺省 1024, 上限)
+
+t  事件                        预扣 / 结算           余量    并发  结果
+0  r1 到达 输入≈3,000 max=1024  −4,024                15,976   1   放行
+1  r2 到达 输入≈6,000 max=4096  −10,096                5,880   2   放行
+2  r3 到达 输入≈500  max=1024   余量够，但并发 2≥2      5,880   2   429（并发）
+3  r1 结束 usage 3,100+210      +4,024 −3,310 = +714   6,594   1   结算，退还
+4  r3 重试                      −1,524                 5,070   2   放行
+5  r2 生成中断开，最后一个 usage +10,096 −7,250         7,916   1   按已生成计
+   = 6,050+1,200                = +2,846
+6  r4 到达 输入≈30,000          需 31,024 > 7,916      7,916   1   429（TPM），
+                                                                   未进 EPP
+7  r3 结束 usage 620+1,024      +1,524 −1,644 = −120   7,796   0   估低，补扣
+```
+
+t=2 与 t=6 是两种不同的拒绝：前者余量足够但 KV 占用（并发）到顶，后者并发有空但速率额度不够——只限一个维度就会漏掉另一种。t=5 依赖 `continuous_usage_stats`，否则只能按已转发的 chunk 数估 completion；t=7 的补扣说明预扣只是估算，账本以 `usage` 为准。：按 `max_completion_tokens` 全额预扣最安全，但客户端常填一个很大的默认值（4096、8192），会让 TPM 配额看起来瞬间用完；按历史平均输出预扣更平滑，但突发的长输出可以短时超配额。`maxCompletionTokensDefault` 与单请求上限是这个取舍的两个旋钮。
 
 输入 token 的估算精度决定退还量的方差。EPP 自己在这一步有工具：`token-producer` 的 `estimate` 后端不调用 tokenizer，按字符估算；精确分词要调引擎的 `/v1/chat/completions/render` 或内置 tokenizer。外层配额执行器可以复用同样的思路：估算用于预扣，精确值等 `usage`。
 
@@ -713,6 +839,47 @@ spec:
 
 EPP 在 `modelRewriteIfNeeded` 里按规则改写请求体的 `model`，改写后的名字进入调度（`lora-affinity-scorer` 用它查副本上是否已加载）与指标（`target_model_name` 标签）。`rules[]` 按顺序首个匹配生效；多个 `InferenceModelRewrite` 指向同一池时 Exact 匹配优先于空 `matches`（全匹配），再按创建时间。llm-d `guides/rollouts/adapter-rollout.md` 用它做 LoRA 的 90/10 → 100 切换。这一层的回滚同样是改权重，而且**前缀缓存不受影响**——两个 adapter 版本共享基础模型的 KV cache（LoRA 不改变基础模型的 KV）。
 
+两层灰度在对象上的落点、以及它们与前缀缓存边界的关系，放在一张图里（下一节的 header 定向也画在其中）：
+
+```mermaid
+flowchart TB
+    REQ["请求 model=llama-70b 或 support-assistant<br/>IPP 都映射为 X-Gateway-Base-Model-Name: llama-70b"]
+    subgraph route["HTTPRoute llama-70b —— 池间灰度（跨缓存边界）"]
+        R1["rule 1：匹配 header x-canary=fp8<br/>或认证层注入的 x-tenant-tier=internal"]
+        R2["rule 2：无 header 条件<br/>weight 90 / 10，按请求随机"]
+    end
+    subgraph poolA["InferencePool llama-70b-bf16 —— 独立 EPP 与前缀索引"]
+        EPPA["EPP-bf16"]
+        subgraph rw["InferenceModelRewrite support-assistant —— 池内灰度"]
+            V1["→ support-assistant-v1（90）"]
+            V2["→ support-assistant-v2（10）"]
+        end
+        PA["bf16 Pod × 3<br/>两版 adapter 共享基础模型 KV"]
+    end
+    subgraph poolB["InferencePool llama-70b-fp8 —— 独立 EPP 与前缀索引"]
+        EPPB["EPP-fp8"]
+        PB["fp8 Pod × 1"]
+    end
+
+    REQ --> R1
+    REQ --> R2
+    R1 -- "100" --> EPPB
+    R2 -- "90" --> EPPA
+    R2 -- "10" --> EPPB
+    EPPA -- "model=support-assistant 时" --> V1
+    EPPA -- "model=support-assistant 时" --> V2
+    V1 --> PA
+    V2 --> PA
+    EPPB --> PB
+
+    classDef pool fill:#e8f0fe,stroke:#1a56db;
+    classDef canary fill:#fff4d6,stroke:#b58900;
+    class EPPA,EPPB,PA,PB pool;
+    class R1,R2,V1,V2 canary;
+```
+
+读法：一个请求只要跨过 `HTTPRoute` 这一层的分流，就换了一个 EPP 和一套前缀索引——rule 2 的 10% 分流对多轮会话来说是 10% 的全量 prefill；rule 1 按 header 定向把"用户"而不是"请求"作为分流粒度，同一用户始终在一个池里。`InferenceModelRewrite` 的分流发生在 EPP 之后、同一个池之内，两版 adapter 共享基础模型的 KV，切换不打散缓存。
+
 ### 3. 按 header 或租户定向与回滚
 
 "内部员工先用新版本"、"某个租户固定用 FP8"，用 `HTTPRoute` 的 header match 做：一条 rule 匹配 `x-canary: fp8`（或认证层按租户注入的 `x-tenant-tier: internal`）指向 FP8 池、权重 100；下一条 rule 不带 header 匹配、按 90/10。Gateway API 规定 rule 按最具体的 match 优先，所以带 header 的先命中。这比随机权重更适合 LLM，因为定向的粒度是用户，一个用户的所有请求都在同一个池里，缓存亲和得以保持。回滚是删掉那条 rule。
@@ -721,7 +888,7 @@ EPP 在 `modelRewriteIfNeeded` 里按规则改写请求体的 `model`，改写�
 
 ### 4. LoRA：动态加载与按 adapter 路由
 
-vLLM v0.23.0 的 LoRA 有两条加载路径：启动时 `--enable-lora --max-loras N --lora-modules name=path`（`vllm/entrypoints/openai/cli_args.py` 的 `lora_modules`，值为 `LoRAModulePath{name, path, base_model_name}`）；运行时 `POST /v1/load_lora_adapter` / `/v1/unload_lora_adapter`（`vllm/entrypoints/serve/lora/api_router.py`，需要环境变量 `VLLM_ALLOW_RUNTIME_LORA_UPDATING=True`），或者更省事的 `VLLM_PLUGINS=lora_filesystem_resolver` + `VLLM_LORA_RESOLVER_CACHE_DIR=/adapters`，让引擎在收到未知 `model` 名时到目录里找同名 adapter 自动加载（llm-d `guides/rollouts/adapter-rollout.md` 用的就是这条）。`--max-loras` 限制同时驻留 GPU 的 adapter 数，超过就要换出。
+vLLM v0.28.0 的 LoRA 有两条加载路径：启动时 `--enable-lora --max-loras N --lora-modules name=path`（`vllm/entrypoints/openai/cli_args.py` 的 `lora_modules`，值为 `LoRAModulePath{name, path, base_model_name}`）；运行时 `POST /v1/load_lora_adapter` / `/v1/unload_lora_adapter`（`vllm/entrypoints/serve/lora/api_router.py`，需要环境变量 `VLLM_ALLOW_RUNTIME_LORA_UPDATING=True`），或者更省事的 `VLLM_PLUGINS=lora_filesystem_resolver` + `VLLM_LORA_RESOLVER_CACHE_DIR=/adapters`，让引擎在收到未知 `model` 名时到目录里找同名 adapter 自动加载（llm-d `guides/rollouts/adapter-rollout.md` 用的就是这条）。`--max-loras` 限制同时驻留 GPU 的 adapter 数，超过就要换出。
 
 网关这一层的两件事：**池的选择**由 IPP 的 `adapters` 列表把 adapter 名映射到基础模型的池（5.1）；**副本的选择**由 `lora-affinity-scorer` 按 `vllm:lora_requests_info` 的 `running_lora_adapters` / `waiting_lora_adapters` / `max_lora` 打分：已加载 1.0、未加载但有空位 0.8、正在等待加载 0.6、满了 0.0。它的 README 承认这个算法"highly biased towards vLLM's current dynamic LoRA implementation"。一个几十个 adapter 的多租户微调场景里，权重设置的直觉是：`lora-affinity-scorer` 的权重要高于负载类 scorer，因为换入一个 adapter 的代价（从磁盘读几百 MB、占显存）通常大于多排几个请求的代价；但也不能压过 `prefix-cache-scorer`，因为 adapter 亲和与前缀亲和往往指向同一个副本（同一租户的请求既用同一 adapter 又共享 system prompt），冲突时前缀命中省的是 prefill 时间，更直接。
 
@@ -834,7 +1001,7 @@ PD            两个 profile，两个 header（x-gateway-destination-endpoint �
 | PD sidecar | llm-d-router `pkg/sidecar/proxy/`、`pkg/sidecar/constants/constants.go`、`docs/disaggregation.md` | `KVConnectorNIXLV2` / `KVConnectorSharedStorage` / `KVConnectorSGLang` / `KVConnectorMooncake`；`x-prefiller-host-port`、`llm-d.ai/role` |
 | 运维 | llm-d-router `docs/operations.md`、`docs/architecture.md` | Active-Active / Active-Passive；Default plugins；`--config-file` / `--config-text` / `--refresh-metrics-interval` / `--allow-experimental-plugins` |
 | llm-d guides | llm-d `guides/optimized-baseline/router/*.values.yaml`、`guides/flow-control/{objectives.yaml,router/*.values.yaml,README.md}`、`guides/precise-prefix-cache-routing/`、`guides/multi-model-routing/manifests/`、`guides/rollouts/{blue-green-update,adapter-rollout}.md`、`docs/infrastructure/gateway/README.md`、`docs/architecture/core/router/proxy.md`、`docs/api-reference/epp-http-headers.md` | `peakPrefillThroughput`；`X-Gateway-Base-Model-Name`、`inference.llm-d.ai/ipp-managed`；`x-llm-d-request-dropped-reason` 取值；Standalone / Gateway 模式 |
-| vLLM v0.23.0 | `vllm/entrypoints/openai/chat_completion/protocol.py`、`openai/engine/protocol.py`、`openai/cli_args.py`、`openai/models/protocol.py`、`serve/lora/api_router.py`、`vllm/envs.py`、`vllm/engine/arg_utils.py`、`vllm/v1/metrics/loggers.py` | `ChatCompletionRequest.model` / `stream` / `stream_options` / `max_completion_tokens`；`StreamOptions.include_usage` / `continuous_usage_stats`；`UsageInfo.prompt_tokens` / `completion_tokens` / `total_tokens` / `prompt_tokens_details`；`PromptTokenUsageInfo.cached_tokens`；`--lora-modules`、`LoRAModulePath`；`/v1/load_lora_adapter` / `/v1/unload_lora_adapter`；`VLLM_ALLOW_RUNTIME_LORA_UPDATING`、`VLLM_LORA_RESOLVER_CACHE_DIR`；`--enable-lora` / `--max-loras` / `--enable-prefix-caching` / `--kv-events-config`；`vllm:num_requests_waiting` / `num_requests_running` / `kv_cache_usage_perc` / `prefix_cache_hits` / `lora_requests_info` / `cache_config_info` |
+| vLLM v0.28.0 | `vllm/entrypoints/openai/chat_completion/protocol.py`、`openai/engine/protocol.py`、`openai/cli_args.py`、`openai/models/protocol.py`、`serve/lora/api_router.py`、`vllm/envs.py`、`vllm/engine/arg_utils.py`、`vllm/v1/metrics/loggers.py` | `ChatCompletionRequest.model` / `stream` / `stream_options` / `max_completion_tokens`；`StreamOptions.include_usage` / `continuous_usage_stats`；`UsageInfo.prompt_tokens` / `completion_tokens` / `total_tokens` / `prompt_tokens_details`；`PromptTokenUsageInfo.cached_tokens`；`--lora-modules`、`LoRAModulePath`；`/v1/load_lora_adapter` / `/v1/unload_lora_adapter`；`VLLM_ALLOW_RUNTIME_LORA_UPDATING`、`VLLM_LORA_RESOLVER_CACHE_DIR`；`--enable-lora` / `--max-loras` / `--enable-prefix-caching` / `--kv-events-config`；`vllm:num_requests_waiting` / `num_requests_running` / `kv_cache_usage_perc` / `prefix_cache_hits` / `lora_requests_info` / `cache_config_info` |
 | KServe v0.20.0 对照 | `pkg/apis/serving/v1alpha1/llm_inference_service_types.go` | `LLMInferenceServiceSpec.Router`；`RouterSpec.Route` / `Gateway` / `Scheduler`；`SchedulerSpec.Pool` / `Config` / `Template` / `Replicas`；`SchedulerConfigSpec.Inline` / `Ref` |
 
 ### 3. mini-platform 本篇增量：`gateway/`

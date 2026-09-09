@@ -171,6 +171,50 @@ vLLM V1 的核心数据对象（定义在 `vllm/v1/request.py`、`vllm/v1/core/s
 - **`EngineCoreRequest` → `Request` 是一次跨进程翻译**。前者是能被 msgspec 序列化、走 ZMQ 的扁平数据；后者是带状态机、会被反复修改的活对象。这条边界就是第二章控制面的进程边界。
 - **显存域是唯一"跨请求共享"的域**。请求域、调度域、模型域的对象都属于某一次请求或某一轮迭代，而 `KVCacheBlock` 会被多个请求通过 `ref_cnt` 共享——Prefix Cache 的全部魔法都发生在这一行。
 
+上面的全景图按域列出了字段，但没有回答"这些对象之间靠什么串起来"。答案是两把钥匙——`request_id` 和 `block_id`——以及一次跨进程的复制：调度器进程里 `Request` 通过 `request_id` 找到它的 `KVCacheBlock` 列表，块对象只在这个进程存在；跨到 Worker 进程时，`SchedulerOutput` 只带整数 `block_id`，Worker 用它填 `BlockTable` 的一行，再由 `BlockTable` 派生出 kernel 真正读写 KV 张量所需的 `slot_mapping`：
+
+```mermaid
+flowchart TB
+    subgraph SB["EngineCore 进程：Scheduler / KVCacheManager"]
+        direction TB
+        REQ["Request<br/>request_id, status, num_computed_tokens<br/>output_token_ids, block_hashes"]
+        R2B["SingleTypeKVCacheManager.req_to_blocks<br/>request_id → list#91;KVCacheBlock#93;"]
+        BLK["KVCacheBlock<br/>block_id, ref_cnt, block_hash"]
+        POOL["BlockPool<br/>blocks#91;block_id#93; + cached_block_hash_to_block"]
+    end
+    SO["SchedulerOutput（每步一份, 走共享内存）<br/>NewRequestData.block_ids / CachedRequestData.new_block_ids<br/>只带 block_id 整数, 不带 KVCacheBlock 对象"]
+    subgraph SC["Worker 进程：GPUModelRunner"]
+        direction TB
+        CRS["requests: req_id → CachedRequestState<br/>block_ids, num_computed_tokens, output_token_ids"]
+        IB["InputBatch（持久 batch, 按行组织）<br/>req_id_to_index: req_id → row<br/>token_ids_cpu#91;row, :#93;"]
+        BT["BlockTable（每个 KV cache group 一张）<br/>block_table#91;row, j#93; = block_id"]
+        SM["slot_mapping#91;token#93; = block_id × block_size + offset<br/>compute_slot_mapping() Triton kernel 在 GPU 上算"]
+        KV["KV Cache 张量（GPU HBM）<br/>kv_cache#91;block_id#93;#91;offset#93;"]
+    end
+    REQ -- "request_id" --> R2B --> BLK
+    BLK -- "block_id 下标" --> POOL
+    REQ -. "block_hashes 查前缀命中" .-> POOL
+    R2B -- "取 block_id" --> SO
+    SO -- "_update_states()" --> CRS
+    CRS -- "add_request(): 占一行" --> IB
+    IB -- "block_ids 写入该行" --> BT
+    BT -- "commit_block_table() H2D" --> SM
+    SM -- "reshape_and_cache 写 KV" --> KV
+    BT -. "attention kernel 按行读 KV" .-> KV
+    classDef state fill:#e8f1ff,stroke:#3b6fb6;
+    classDef msg fill:#fff4e0,stroke:#d9822b;
+    classDef mem fill:#e9f7e9,stroke:#3a8a3a;
+    class REQ,CRS state;
+    class SO msg;
+    class BLK,POOL,KV mem;
+```
+
+读这张图要抓住三处"断开"：
+
+1. **`KVCacheBlock` 对象不出进程。** `ref_cnt`、`block_hash` 只在 Scheduler 侧有意义（决定能否复用、何时释放），Worker 侧看到的只是一个整数 `block_id`。所以 Prefix Cache 命中与否，Worker 完全不知情——它只是少收到几个要写的 token。
+2. **`CachedRequestState` 是 `Request` 的只读镜像。** 两者字段高度重合（`num_computed_tokens`、`output_token_ids`、`block_ids`），但前者靠每步 `CachedRequestData` 的增量维护，从不反向同步；`Request` 才是权威。
+3. **`InputBatch` 的行号是临时的。** `req_id_to_index` 每步都可能因 `condense()`（把尾行搬到空洞）而变化，`BlockTable` 和 `token_ids_cpu` 都按行号索引，所以它们必须和 `InputBatch` 同步搬行（`move_row` / `swap_row`）。`request_id` 是跨进程的稳定身份，行号只是 Worker 内一次 step 的临时坐标。
+
 ## 四、请求状态机：系统如何决定"下一步做什么"
 
 ### 1. 请求状态机
@@ -323,10 +367,52 @@ class RequestStatus(enum.IntEnum):
 
 现在可以回头看这一层为什么必须存在：`slot_mapping` 是第五篇分块存储的直接产物（KV 不连续，所以必须逐 token 给出落点），`block_table` 是 Prefix Cache 共享的直接产物（多个请求可能指向同一个物理块），而"走 Graph 还是 Eager"则是第六篇 CUDA Graph 那个约束的落地位置（图里的形状必须固定）。**三个字段，三篇的设计约束。**
 
+### 1. 一步之内的时序：CPU 与 GPU 在哪里等谁
+
+上面讲的是"翻译什么"，还有一个问题是"翻译和计算在时间上怎么排"。第二章那张流水线图说 CPU 准备 N+1 步时 GPU 在算 N 步，它成立的前提是**一步之内 CPU 几乎不等 GPU**。v0.27.1 把一步拆成 `execute_model()` 和 `sample_tokens()` 两次调用，下面按时间顺序标出每个动作发生在 CPU 还是 GPU、哪里是异步入队、哪里是真正的同步点：
+
+```mermaid
+sequenceDiagram
+    participant EC as EngineCore.step()<br/>(EngineCore 进程)
+    participant MR as GPUModelRunner<br/>(Worker 进程, CPU 侧)
+    participant GPU as GPU 默认 stream
+
+    EC->>MR: execute_model(SchedulerOutput) 经 rpc_broadcast_mq, non_block=True
+    Note over EC: 拿到 future 就返回, 转去算 get_grammar_bitmask()
+    activate MR
+    MR->>MR: _update_states(): 增删 CachedRequestState, InputBatch.condense()
+    MR->>GPU: commit_block_table(): block_table H2D (non_blocking, 先发以便重叠)
+    MR->>MR: _prepare_inputs(): numpy 拼 input_ids / positions / query_start_loc / seq_lens
+    MR->>GPU: copy_to_gpu(): pinned buffer → GPU (non_blocking)
+    MR->>GPU: compute_slot_mapping(): Triton kernel 由 block_table 算出 slot_mapping
+    MR->>GPU: _model_forward(): 逐层 launch kernel, 或 CUDA Graph 一次 replay
+    MR->>GPU: compute_logits()
+    Note over MR,GPU: 以上全部异步入队, CPU 提交完即返回, GPU 此时往往还在跑 forward
+    MR-->>EC: 返回 None (logits 等留在 execute_model_state)
+    deactivate MR
+    EC->>MR: sample_tokens(grammar_output)
+    activate MR
+    MR->>GPU: apply_grammar_bitmask() 与 _sample(): 采样 kernel 入队
+    MR->>GPU: _bookkeeping_sync(): sampled_token_ids D2H 到 pinned buffer
+    GPU-->>MR: transfer_event.synchronize() — 整步唯一的 CPU 等 GPU 点
+    MR->>MR: tolist() → ModelRunnerOutput(req_ids, sampled_token_ids)
+    MR-->>EC: ModelRunnerOutput 经 worker_response_mq
+    deactivate MR
+    EC->>EC: Scheduler.update_from_output()
+    Note over EC,GPU: 开启 async scheduling 时, D2H 改由 AsyncGPUModelRunnerOutput 在独立 copy stream 上做, 此处不再同步, 下一步 schedule() 不等本步的 token
+```
+
+几点解读：
+
+- **`execute_model()` 全程不同步。** 从 `_update_states()` 到 `compute_logits()`，CPU 做的只是填 pinned buffer、发 `non_blocking` 拷贝、launch kernel（或 replay 一张图）。`commit_block_table()` 被刻意放在最前面，让 block table 的 H2D 拷贝和后面的 numpy 计算重叠——这是源码注释里明说的优化。
+- **同步点只有一个，且被推到最后。** `_bookkeeping_sync()` 里的 `_to_list()` 用 `transfer_event.synchronize()` 等采样结果落到 CPU；它用 CUDA event 而不是 `tolist()` 直接触发的全 stream 同步，是为了不阻塞其他 stream 上的拷贝（比如 KV 传输）。在这个点之前，GPU 上排着的是 forward + 采样整条队列，CPU 等的时间就是 GPU 真正的计算时间。
+- **为什么拆成两次调用。** `execute_model()` 返回后、`sample_tokens()` 之前，EngineCore 有一个窗口可以做需要上一步结果的事（结构化输出的 grammar bitmask），而 GPU 此刻正在跑 forward——把 CPU 侧这段工作塞进 GPU 的空当。
+- **async scheduling 把最后那个同步点也拿掉了。** 采样结果留在 GPU，`AsyncGPUModelRunnerOutput` 在另一条 copy stream 上做 D2H，Scheduler 用占位 token 先调度下一步，等结果到达再修正。这就是第二章"流水线化"在源码里更激进的形态。
+
 
 ## 六、从请求到 GPU Kernel 的完整调用链
 
-把前面所有环节串成一条链，可以清楚看到语言边界（Python → C++ → CUDA）落在哪几个位置：
+把前面所有环节串成一条链，可以清楚看到三道边界——两道进程边界（③ ZMQ、⑤ 共享内存队列）和一道 Python → CUDA 边界（⑦）——落在哪几个位置：
 
 ```
   HTTP Request ("Hello")
@@ -347,7 +433,7 @@ class RequestStatus(enum.IntEnum):
        ▼
   Scheduler.schedule() → SchedulerOutput
        │
-       │ ⑤  Python → C++ 边界
+       │ ⑤  进程边界 (共享内存 MessageQueue)
        ▼
   Executor.execute_model() → Worker.execute_model()
        │
@@ -387,7 +473,7 @@ class RequestStatus(enum.IntEnum):
 | ② | 异步引擎 | `AsyncLLM.add_request()` → Tokenizer → `[15496, 11, …]` | Python（async） |
 | ③ | 进程边界 | `EngineCore.add_request()` → `Scheduler.add_request()` | **Python IPC：ZMQ + msgspec** |
 | ④ | 调度 | `Scheduler.schedule()` → `SchedulerOutput` | Python（调度算法） |
-| ⑤ | 执行分发 | `Executor.execute_model()` → `Worker.execute_model()` | **Python → C++ 边界** |
+| ⑤ | 执行分发 | `Executor.execute_model()` → `Worker.execute_model()` | **进程边界：共享内存 `MessageQueue`（`rpc_broadcast_mq`）** |
 | ⑥ | 张量准备 | `ModelRunner._execute_model()` → `prepare_inputs()`：构建 `input_ids`、`positions`、`block_table` | Python |
 | ⑦ | 模型前向 | `model.forward(...)`；每层 RMSNorm → QKV → RoPE → Attention → O_proj → MLP | **Python → CUDA 边界（PyTorch dispatch）** |
 | ⑧ | Attention kernel | Attention Backend → `flash_attn_varlen_func()` 或 `flashinfer.decode()` | **CUDA Kernel Launch（C++ runtime）** |
@@ -395,13 +481,54 @@ class RequestStatus(enum.IntEnum):
 | ⑩ | 取回结果 | Sampling：`logits` → `sampled_token_ids`（GPU tensor → CPU list） | **GPU → CPU** |
 | ⑪ | 输出处理 | `ModelRunnerOutput` → `Scheduler.update_from_output()` → Detokenizer → SSE Stream → Client | Python |
 
-三条语言边界（③⑤⑦）恰好把这条链切成了四段，而它们的位置不是随意的：
+三道边界（③⑤⑦）恰好把这条链切成了四段，而它们的位置不是随意的：
 
 - **③ 是进程边界** —— API 层与引擎核心分离，为的是不让 HTTP 处理阻塞调度循环；
-- **⑤ 是控制面与数据面的边界** —— 上游全是决策，下游全是计算（第二章）；
+- **⑤ 也是进程边界，同时是控制面与数据面的边界** —— 上游全是决策，下游全是计算（第二章）；EngineCore 只把 `SchedulerOutput` 序列化后经共享内存广播给 Worker 进程，单卡时 Executor 与 Worker 同进程（`UniProcExecutor`）则退化为普通函数调用；
 - **⑦ 是 Python 与 GPU 的边界** —— 过了这里就再没有 Python 开销可言。
 
 前面说"Python 控制面只占 ~1%"，指的正是 ①–⑥ 这一段相对 ⑦–⑩ 的耗时占比。
+
+上面那条链是"时间顺序"，下面换成"调用栈"再看一遍。区别在于嵌套关系：`step()` 是一个普通函数，`schedule()`、`execute_model()`、`update_from_output()` 都是它的直接子调用，⑪ 返回的地方就是 ④ 出发的地方；而三段栈分别活在三个进程里，栈与栈之间只靠消息队列衔接，没有任何一个 Python 帧同时横跨两道边界：
+
+```text
+进程 A · API Server                          vllm/entrypoints/, vllm/v1/engine/
+└─ create_chat_completion()                  chat_completion/serving.py
+   └─ AsyncLLM.generate()                    async_llm.py
+      ├─ add_request()
+      │  ├─ InputProcessor.process_inputs()  input_processor.py   tokenize
+      │  └─ AsyncMPClient.add_request_async() core_client.py      ZMQ 发送 ↓
+      └─ await RequestOutputCollector.get()  ◀─ output_handler() 协程 ↑
+         └─ OutputProcessor.process_outputs() output_processor.py detokenize
+═══ 进程边界 ①：ZMQ + msgspec（EngineCoreRequest ↓ / EngineCoreOutputs ↑）═════
+进程 B · EngineCoreProc                      vllm/v1/engine/core.py
+├─ process_input_sockets() 输入线程          ◀─ ZMQ 收 EngineCoreRequest
+│  └─ preprocess_add_request() → Request.from_engine_core_request()
+├─ run_busy_loop() 主线程
+│  └─ step()
+│     ├─ Scheduler.schedule()                core/sched/scheduler.py
+│     │  ├─ KVCacheManager.get_computed_blocks()   core/kv_cache_manager.py
+│     │  └─ KVCacheManager.allocate_slots()
+│     ├─ MultiprocExecutor.execute_model()   executor/multiproc_executor.py
+│     │  └─ collective_rpc() → rpc_broadcast_mq.enqueue()   共享内存广播 ↓
+│     ├─ MultiprocExecutor.sample_tokens()   同上, 阻塞等 worker_response_mq ↑
+│     └─ Scheduler.update_from_output()      ◀─ ModelRunnerOutput
+└─ process_output_sockets() 输出线程         → ZMQ 发 EngineCoreOutputs ↑
+═══ 进程边界 ②：共享内存 MessageQueue（SchedulerOutput ↓ / ModelRunnerOutput ↑）
+进程 C · WorkerProc（每个 TP/PP rank 一个）  vllm/v1/worker/
+└─ worker_busy_loop()                        executor/multiproc_executor.py
+   └─ Worker.execute_model() / sample_tokens()   gpu_worker.py
+      └─ GPUModelRunner                      gpu_model_runner.py
+         ├─ _update_states()      CPU: 同步 CachedRequestState / InputBatch
+         ├─ _prepare_inputs()     CPU → GPU: H2D 拷贝 + slot_mapping kernel
+         ├─ _model_forward()   ┐  Python → CUDA 边界（PyTorch dispatch）
+         ├─ compute_logits()   │  Attention → flash_attn / FlashInfer kernel
+         ├─ _sample()          │  或整段 CUDA Graph replay
+         └─ _bookkeeping_sync()┘  GPU → CPU: 整步唯一的 D2H 同步点
+```
+
+这张树回答了一个链式图回答不了的问题：**每个进程里"常驻"的是什么。** 进程 A 常驻的是每个请求一个的 `generate()` 协程和一个全局 `output_handler()` 协程；进程 B 常驻的是三个线程，其中主线程的栈底永远是 `run_busy_loop() → step()`；进程 C 常驻的是 `worker_busy_loop()`，它从共享内存里取出方法名和参数、反射调用 `Worker` 上的同名方法、把返回值塞回响应队列——`execute_model` 和 `sample_tokens` 对它来说只是两个字符串。三段栈都是"死循环 + 一次调用"的形状，请求本身不在任何一个栈上，它只是三条消息队列里流过的数据。
+
 
 
 ## 七、附录：各环节耗时量级

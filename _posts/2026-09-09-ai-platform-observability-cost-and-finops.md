@@ -20,7 +20,7 @@ catalog: true
 
 > **一个 64 卡集群上月账单 X 元，DCGM 显示平均分配率 85%、平均 `SM_ACTIVE` 35%。这 50 个百分点的差距分别来自哪里——排队等 gang、训练的通信等待、推理的低峰空转、开发环境的长期占用？每一项对应本系列哪一篇的机制？**
 
-版本以 NVIDIA DCGM Exporter 4.6.0-4.8.3、vLLM v0.23.0（只用指标名）、Kueue v0.19.2、OpenCost v1.121.1、llm-d-router v0.10.0（Endpoint Picker 的指标）、Kubernetes v1.37.0 为准。kube-state-metrics、cAdvisor、Prometheus 与 OpenTelemetry 只用通行的指标名与概念，不引用其源码。GPU 单价与吞吐数字全部是标注为假设的算例，不是任何供应商的报价或实测。本篇不引用其他系列的文章；训练框架与推理引擎的内部只作为指标来源，不展开。
+版本以 NVIDIA DCGM Exporter 4.6.0-4.8.3、vLLM v0.28.0（只用指标名）、Kueue v0.19.2、OpenCost v1.121.1、llm-d-router v0.10.0（Endpoint Picker 的指标）、Kubernetes v1.37.0 为准。kube-state-metrics、cAdvisor、Prometheus 与 OpenTelemetry 只用通行的指标名与概念，不引用其源码。GPU 单价与吞吐数字全部是标注为假设的算例，不是任何供应商的报价或实测。本篇不引用其他系列的文章；训练框架与推理引擎的内部只作为指标来源，不展开。
 
 
 ## 一、总览
@@ -119,7 +119,7 @@ Pod     kube_node_status_allocatable{resource="nvidia_com_gpu"}   kube-state-met
         kueue_pending_workloads{cluster_queue,status}             Kueue v0.19.2             排队深度；status=active / inadmissible
         kueue_admitted_active_workloads · kueue_admission_wait_time_seconds  Kueue          在跑的任务数；从提交到准入的等待
         kueue_cluster_queue_resource_usage / _nominal_quota / _resource_reservation  Kueue   队列用量 / 名义配额 / 预留，按 flavor 与 resource
-引擎    vllm:num_requests_running · vllm:num_requests_waiting     vLLM v0.23.0              在跑 / 排队的请求数（gauge）
+引擎    vllm:num_requests_running · vllm:num_requests_waiting     vLLM v0.28.0              在跑 / 排队的请求数（gauge）
         vllm:kv_cache_usage_perc                                  vLLM                      KV cache 占用（0–1）
         vllm:time_to_first_token_seconds（histogram）              vLLM                      TTFT
         vllm:inter_token_latency_seconds · vllm:request_time_per_output_token_seconds  vLLM  ITL（逐 token）与每请求 TPOT
@@ -145,6 +145,29 @@ DCGM Exporter 以 DaemonSet 跑在每个 GPU 节点上，通过 DCGM host engine
 
 再往上一层是 **Pod label**：`--kubernetes-enable-pod-labels`（Helm `kubernetes.enablePodLabels: true`，会一并创建读 Pod 的 ClusterRole）让 PodMapper 用 kube client 读 Pod 对象的 labels，经 `utils.SanitizeLabelName` 把 `.` `/` `-` 换成 `_` 后直接作为指标标签（`team` → `team`，`app.kubernetes.io/name` → `app_kubernetes_io_name`）；只有与保留名冲突时（如 Pod 上有一个叫 `gpu` 的 label）才加 `pod_label_` 前缀（`availablePodLabelName`）。`kubernetes.podLabelAllowlistRegex` 限定哪些 label 进指标——不限定的话每个 Pod 的全部 label 都变成时序标签，第四章会算这笔基数账。`--kubernetes-enable-pod-uid` 加 `pod_uid`；`kubernetesDRA.enabled` 让它同时识别 DRA 分配的设备（`dra.go`，标签 `dra_claim_name` 等），对应第二篇的 `ResourceClaim` 路线。
 
+把上面两段合起来，PodMapper 做的是一个三路 join——设备指标、设备到 Pod 的分配记录、Pod 的 label 分别来自三个只有各自才知道的地方：
+
+```mermaid
+flowchart TB
+    subgraph src["同一节点上的三个数据源"]
+        DCGM["DCGM host engine<br/>gpu=3 · UUID=GPU-… · SM_ACTIVE=0.41<br/>只知道卡，不知道给了谁"]
+        KUBELET["kubelet pod-resources API<br/>/var/lib/kubelet/pod-resources 的 socket<br/>List(): pod → container → 设备 ID 列表"]
+        API["kube-apiserver<br/>Pod 对象的 labels：team=a、queue-name=…"]
+    end
+    PM["PodMapper（--kubernetes）<br/>按 --kubernetes-gpu-id-type（uid / device-name）<br/>把 DCGM 的设备与 kubelet 的设备 ID 对上"]
+    DCGM --> PM
+    KUBELET -->|"设备 ID → pod / namespace / container"| PM
+    API -->|"--kubernetes-enable-pod-labels<br/>经 podLabelAllowlistRegex 过滤、SanitizeLabelName 改名"| PM
+    OUT["DCGM_FI_PROF_SM_ACTIVE#123;gpu=3, UUID=…, hostname=node-7,<br/>pod=train-ddp-0, namespace=team-a,<br/>container=pytorch, team=a#125; 0.41"]
+    NOPOD["pod-resources 里没有这张卡<br/>→ 指标带 pod 空标签：未分配<br/>（第三章分配率的分母 − 分子）"]
+    PM --> OUT
+    PM -.-> NOPOD
+    classDef srcs fill:#eef5ff,stroke:#4a78b5;
+    classDef outp fill:#f0f8ec,stroke:#5b8c3a;
+    class DCGM,KUBELET,API srcs;
+    class OUT,NOPOD outp;
+```
+
 这一步的产物是本篇全部归因的基础：一条 `DCGM_FI_PROF_SM_ACTIVE{gpu="3",UUID="GPU-…",hostname="node-7",pod="train-ddp-0",namespace="team-a",container="pytorch",team="a"} 0.41` 同时回答了"哪张卡、在哪个节点、给了谁、属于哪个团队、此刻算得多满"。
 
 ### 3. 为什么 GPU_UTIL 不是利用率
@@ -161,6 +184,25 @@ DCGM_FI_PROF_PIPE_TENSOR_ACTIVE    Tensor core 管线活跃周期比例；训练
 DCGM_FI_PROF_DRAM_ACTIVE           HBM 接口收发数据的周期比例；decode 是 memory-bound，这个指标才反映它是否吃满带宽
 ```
 
+三个"活跃"指标在同一张卡上是逐级包含的：有 Tensor core 在算就一定有 SM 有 warp，有 SM 有 warp 就一定有 kernel 在跑，反过来都不成立。把开头那个集群的 78%（`GPU_UTIL`）与 35%（`SM_ACTIVE`）放到一个采样窗口里看，每一级的差距各有一类来源：
+
+```text
+一张卡、一个采样窗口（以 100 个周期计；TENSOR_ACTIVE 的 22 为示意值）
+                 0                                                100
+GPU_UTIL   78    ███████████████████████████████████████░░░░░░░░░░░
+                 │← 有至少一个 kernel 在执行 ─────────→│← 空闲 ──→│
+                 差距 22：没有 kernel——排队占位、低峰无请求、dev 挂着
+SM_ACTIVE  35    ██████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+                 │← SM 有 warp ──→│← kernel 在跑但 SM 大多空着 ──→│
+                 差距 43：kernel 只占少数 SM（NCCL 通信 kernel 自旋等对端、
+                 小 batch decode）· kernel 之间的空隙与 launch 开销
+TENSOR_ACTIVE 22 ███████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+                 │←矩阵乘─→│← SM 在算但不是 Tensor core ─────────→│
+                 差距 13：elementwise / softmax / KV 读写（memory-bound）
+```
+
+第一段差距（`GPU_UTIL` 到 100%）是"卡上什么都没跑"，第三章的分配率与第十章的低峰空转、开发环境占用都落在这里；第二段差距是本篇最关心的——**卡看起来在忙（`GPU_UTIL` 高）但 SM 大多空着**，训练的通信等待与推理的小批量 decode 都藏在这一段；第三段差距对训练是正常开销，对 decode 则要换 `DRAM_ACTIVE` 来看（memory-bound 负载吃满 HBM 带宽时 `TENSOR_ACTIVE` 本来就低，不是浪费）。
+
 哪一个是"利用率"取决于负载：训练与 prefill 看 `TENSOR_ACTIVE`，decode 看 `DRAM_ACTIVE`，跨负载比较用 `SM_ACTIVE`——它对两类负载都有意义，也是总纲核心问题里用的那个。本篇第三章的三个数字用 `SM_ACTIVE`；OpenCost 用的是 `GR_ENGINE_ACTIVE`（第七章），两者数值不同，做对账时要知道各自看的是什么。一个实用的经验：**`GPU_UTIL` 高而 `SM_ACTIVE` 低，是"分配了但没算满"的最直接证据**，多数情况下是通信等待（训练）或小批量 decode（推理）。
 
 ### 4. 容器与 Pod 层
@@ -171,7 +213,7 @@ Kueue 的控制器指标（`pkg/metrics/metrics.go`，Subsystem 为 `kueue`）�
 
 ### 5. 引擎层：vllm:* 与训练框架
 
-vLLM 的指标在 `vllm/v1/metrics/loggers.py` 的 `PrometheusStatLogger` 里定义，全部带 `model_name` 与 `engine` 两个标签（DP 多引擎时每个引擎一份，`create_metric_per_engine`）。按用途分三组：
+vLLM 的指标在 `vllm/v1/metrics/loggers.py` 的 `PrometheusStatLogger` 里定义，全部带 `model_name` 与 `engine` 两个标签（DP 多引擎时每个引擎一份，由 `vllm/v1/metrics/utils.py` 的 `create_metric_per_engine` 生成）。按用途分三组：
 
 ```text
 组        指标                                                  类型 / 说明
@@ -213,6 +255,23 @@ vLLM 的指标在 `vllm/v1/metrics/loggers.py` 的 `PrometheusStatLogger` 里定
 分配率 A   = 已分配的 GPU 数 / 集群可分配的 GPU 数                 调度视角："给出去了多少"
 使用率 U   = 已分配 GPU 上 SM_ACTIVE 的平均                        引擎视角："给出去的算得多满"
 有效利用率 E = 全部 GPU 上 SM_ACTIVE 的平均 ≈ A × U                平台视角："买来的算了多少"
+```
+
+`E ≈ A × U` 不只是代数：把横轴画成卡的份额、纵轴画成已分配卡上"在算"的时间份额，E 就是一块矩形的面积，两段差距是围着它的两块空白（数字用总纲核心问题的 85% / 35%）：
+
+```text
+           ←──────── 已分配 A = 85% ────────→←1-A→
+          ┌──────────────────────────────────┬──────┐ 100%
+          │                                  │      │
+ 分配了   │  分配了但没算                    │  没  │
+ 但没算   │  A × (1-U) = 50 个点             │  给  │
+ 1-U=59%  │                                  │  出  │
+          ├──────────────────────────────────┤  去  │
+ 算了     │                                  │  15  │
+ U=41%    │  E = A × U = 35 个点             │  个  │
+          │                                  │  点  │
+          └──────────────────────────────────┴──────┘ 0
+          横轴：卡的份额；纵轴：已分配卡上算的时间份额；面积 = GPU 时间
 ```
 
 三个数都按时间平均（一天、一月），也都可以按 namespace、队列、团队切分。它们之间的两段差距是平台可改进空间的两个部分：`1 − A` 是**没给出去的**（碎片、预留、隔离的坏节点、配额设置过紧），`A − E = A(1 − U)` 是**给出去了但没算的**（排队占位、通信等待、低峰空转、开发环境挂着）。总纲核心问题里的 85% 与 35% 就是 A 与 E；由此 U = 35 / 85 ≈ 41%，第十章把 `A − E = 50` 个点分解到原因。
@@ -281,7 +340,7 @@ Prometheus 的 ServiceMonitor（dcgm-exporter Helm 的 `serviceMonitor.enabled`�
 
 ### 3. OpenTelemetry：把一个请求串起来
 
-指标回答"总体怎样"，trace 回答"这一个请求为什么慢"。一个推理请求的路径是网关（Envoy）→ `ext_proc` 调 EPP → EPP 选副本 → Envoy 转发到引擎 → 引擎排队、prefill、decode、流式返回。每一跳都可能是延迟的来源：网关限流排队、EPP 的调度插件耗时（`llm_d_epp_plugin_duration_seconds{extension_point,plugin_type,plugin_name}` 与 `llm_d_epp_scheduler_e2e_duration_seconds` 是它的指标面）、引擎的 `request_queue_time_seconds`。把它们对齐需要一个跨进程的 trace context：Envoy 与 EPP 支持 W3C `traceparent` 头的传播，vLLM 有 OpenTelemetry 导出（以 v0.23.0 文档为准，启动参数决定是否开启）。OpenTelemetry Collector 收三方的 span，送到 Tempo / Jaeger 一类后端，一个请求的瓦片图上就能看到三跳各占多少。
+指标回答"总体怎样"，trace 回答"这一个请求为什么慢"。一个推理请求的路径是网关（Envoy）→ `ext_proc` 调 EPP → EPP 选副本 → Envoy 转发到引擎 → 引擎排队、prefill、decode、流式返回。每一跳都可能是延迟的来源：网关限流排队、EPP 的调度插件耗时（`llm_d_epp_plugin_duration_seconds{extension_point,plugin_type,plugin_name}` 与 `llm_d_epp_scheduler_e2e_duration_seconds` 是它的指标面）、引擎的 `request_queue_time_seconds`。把它们对齐需要一个跨进程的 trace context：Envoy 与 EPP 支持 W3C `traceparent` 头的传播，vLLM 有 OpenTelemetry 导出（以 v0.28.0 文档为准，启动参数决定是否开启）。OpenTelemetry Collector 收三方的 span，送到 Tempo / Jaeger 一类后端，一个请求的瓦片图上就能看到三跳各占多少。
 
 trace 的采样率要低（1%–5%）——每个请求一个 span 树的存储成本远高于指标；但**慢请求要全采**：tail-based sampling 在 Collector 里按"端到端超过 SLO"的条件保留。trace 与指标的关系是：指标发现 TTFT p95 越线 → trace 找到越线请求都卡在哪一跳 → 回到那一跳的指标看原因。
 
@@ -377,7 +436,28 @@ Pod label   team / project / cost-center 一类的 label            要进 DCGM 
 租户        EPP 的 fairness_id                                   请求层；只有 token 数，没有 GPU 小时——要靠第八章的换算
 ```
 
-一条卡的 GPU 小时先按 `pod` 归到 Pod，再按 Pod 的 label 归到团队；一个推理副本的 GPU 小时归到模型，再按该模型各租户的 token 占比**二次分摊**到租户。共享成本（DCGM Exporter、Prometheus、网关自己占的资源）按各团队 GPU 小时的比例分摊，或者作为平台成本单列——OpenCost 的 `SharedCost` / `shareIdle` 参数就是这两种选择。
+一条卡的 GPU 小时先按 `pod` 归到 Pod，再按 Pod 的 label 归到团队；一个推理副本的 GPU 小时归到模型，再按该模型各租户的 token 占比**二次分摊**到租户。共享成本（DCGM Exporter、Prometheus、网关自己占的资源）按各团队 GPU 小时的比例分摊，或者作为平台成本单列——OpenCost 的 `SharedCost` / `shareIdle` 参数就是这两种选择。整条分摊链路如下，实线是钱的归属，虚线是两种可选的"摊回去"：
+
+```mermaid
+flowchart TB
+    ASSET["集群全部 GPU 小时 × 单价 = 资产成本<br/>（64 卡 × 720 h，按卡型 / MIG profile 取价）"]
+    ASSET --> ALLOC["已分配：DCGM 指标带 pod 标签<br/>按 UUID + pod 积分 → 每段分配的 GPU 小时"]
+    ASSET --> UNALLOC["未分配：pod 标签为空<br/>1 − A：碎片 · 坏节点 · 配额过紧"]
+    UNALLOC --> IDLE["平台闲置成本<br/>OpenCost 的 gpuIdleCost<br/>shareIdle 时按 GPU 小时比例摊给各团队"]
+    ALLOC --> TRAINPOD["训练 Pod<br/>label: team · kueue queue-name"]
+    ALLOC --> SERVEPOD["推理副本 Pod<br/>label: app · model_name"]
+    ALLOC --> SHAREDPOD["平台自身的 GPU Pod<br/>（若有）"]
+    TRAINPOD --> TEAM["团队 / 队列账单<br/>按分配计费；闲置 (1 − U) 只作展示列"]
+    SERVEPOD --> MODEL["模型账单<br/>GPU 小时 → 每百万 token 成本（第八章）"]
+    MODEL -->|"按 fairness_id 的 token 占比二次分摊<br/>数据源：EPP 指标或网关日志"| TENANT["租户账单<br/>只有 token 数，没有 GPU 小时"]
+    SHAREDPOD --> SHARED["共享成本 SharedCost<br/>按各团队 GPU 小时比例摊，或单列"]
+    SHARED -.-> TEAM
+    IDLE -.-> TEAM
+    classDef money fill:#fff4e0,stroke:#c98a1a;
+    classDef idle fill:#f3f3f3,stroke:#888,stroke-dasharray:4 2;
+    class TEAM,MODEL,TENANT money;
+    class UNALLOC,IDLE,SHARED idle;
+```
 
 ### 3. OpenCost 的 GPU 支持
 
@@ -399,6 +479,20 @@ OpenCost v1.121.1 的分配模型（`core/pkg/opencost/allocation.go` 的 `Alloc
 - **排队成本**：任务等资源的时间不占 GPU，但占人的时间与项目进度。度量是 `kueue_admission_wait_time_seconds` 的和乘以任务请求的卡数——"如果配额够，这些 GPU 小时本来可以在这段时间里产出"。它与闲置成本是同一枚硬币的两面：闲置在 A 团队的卡，就是 B 团队在排的队。两者同时高，说明配额（第三篇）切得不对或 cohort 借用没开。
 - **冷启动成本**：推理副本从调度到就绪的时间里卡已分配但没服务；训练任务启动期同理。`(就绪时间 − 调度时间) × 卡数 × 单价 × 次数`。缩容到零省的是常驻成本，付的是每次冷启动——两者的比值决定该不该缩零（第六篇）。
 
+把"按分配计费"与"闲置作展示列"放到总纲那个 64 卡集群的一个月账上，`allocate.py`（第十二章）输出的形状大致如下。**全部数字为假设**：单价取第八章的 2.5 美元/卡时，A = 85%、E = 35% 与第十章一致，四个团队的构成是编出来凑这两个数的：
+
+| 归属 | 分配 GPU 小时 | 账单（按分配） | U（SM_ACTIVE） | 忙的 GPU 小时 | 闲置成本（展示列，不计费） | 闲置主要去向（第十章） |
+|---|---|---|---|---|---|---|
+| team-a（训练） | 20,000 | $50,000 | 55% | 11,000 | $22,500 | 通信 / 数据等待、checkpoint 停顿、排队占位 |
+| serving（推理） | 12,000 | $30,000 | 30% | 3,600 | $21,000 | 低峰空转、扩容冷启动、decode 的测量上限 |
+| dev（开发 / notebook） | 5,000 | $12,500 | 4% | 200 | $12,000 | 长期占用 |
+| research-b（训练） | 2,168 | $5,420 | 60% | 1,301 | $2,168 | 通信等待 |
+| **已分配合计** | 39,168（A = 85%） | $97,920 | 41% | 16,101 | $57,668（≈ 50 个点） | A − E |
+| 未分配（碎片 · 坏节点 · 配额过紧） | 6,912（1 − A = 15%） | $17,280 | — | — | $17,280（15 个点） | 1 − A；OpenCost 的 gpuIdleCost |
+| **集群合计** | 46,080（64 × 720 h） | $115,200 | E = 35% | 16,101 | $74,948（65 个点） | |
+
+三点读法。账单一列的合计是 97,920 而不是 115,200：未分配的 17,280 美元没有主，要么按 `shareIdle` 摊回各团队，要么作为平台成本单列——两种做法都会让某个人对这 15 个点负责。闲置成本一列合计 74,948 美元，是全部账单的 65%，正是 `1 − E`；其中 dev 的 12,000 美元几乎全是闲置，用 4% 的 U 对着 12,500 美元的账单，比任何说教都有效。serving 一行还能往下算：12,000 GPU 小时是 3,000 个 TP=4 副本小时，若副本平均负载为满载的 40%（第八章的 $$U$$，注意它不是 `SM_ACTIVE`），输出约 8,640 M token，每百万 token 3.47 美元——就是第八章算例里那个数。
+
 
 ## 八、每百万 token 的成本
 
@@ -418,7 +512,7 @@ $$P_{\text{GPU}}$$ 是每卡每小时单价，$$N_{\text{GPU}}$$ 是一个副本
 
 - **量化**：FP8 / INT8 权重让同一张卡的权重占用减半、KV cache 空间增加、decode 的带宽需求下降，$$T$$ 上升（幅度以引擎实测为准，通常在 1.3–2 倍之间）；代价是精度评测与两个版本的灰度（第七篇）。$$C_{1M}$$ 按 $$T$$ 的倍数下降。
 - **PD 分离**：prefill 与 decode 放在不同的 Pod 组（第六篇的 `DisaggregatedSet` 形态），各自按自己的饱和点扩缩。它不一定降低单副本的 $$T$$，但**把 goodput 提上去**——decode 不再被突发的长 prefill 打断，TPOT 稳定，同样的卡数能承诺更严的 SLO；也让两侧可以用不同的卡型（prefill 用算力强的、decode 用带宽大的），改变 $$P_{\text{GPU}}$$ 的构成。
-- **批大小**：并发上限（vLLM 的 `--max-num-seqs`、`--max-num-batched-tokens`，以 v0.23.0 文档为准）越大 $$T$$ 越高，但 TPOT 随之上升；在 SLO 内取最大批就是第六章的饱和点。`vllm:iteration_tokens_total` 直方图显示实际每步的 token 数，与配置的上限比就知道批有没有填满——填不满是负载不够（$$U$$ 的问题），不是引擎的问题。
+- **批大小**：并发上限（vLLM 的 `--max-num-seqs`、`--max-num-batched-tokens`，以 v0.28.0 文档为准）越大 $$T$$ 越高，但 TPOT 随之上升；在 SLO 内取最大批就是第六章的饱和点。`vllm:iteration_tokens_total` 直方图显示实际每步的 token 数，与配置的上限比就知道批有没有填满——填不满是负载不够（$$U$$ 的问题），不是引擎的问题。
 
 ### 3. 与 API 定价的量级对比
 
@@ -445,7 +539,27 @@ FinOps 的"回路"指成本数据改变前七篇的参数，而不是只出一�
 某租户 token 占比高但 SLO 达成率低                             提高该租户的 priority 或独立 InferencePool    第七篇：租户优先级与配额
 ```
 
-每一行的左边是一条 recording rule 或一个看板面板，右边是一个 PR。回路的周期按月：月初出账单与分解表，月中改配置，月末看三个数字的变化。
+每一行的左边是一条 recording rule 或一个看板面板，右边是一个 PR。回路的周期按月：月初出账单与分解表，月中改配置，月末看三个数字的变化。闭合起来是这样一个环——它与"出报表"的区别只在最后一条边：
+
+```mermaid
+flowchart TB
+    M["四层指标<br/>DCGM · kube-state-metrics · Kueue · vllm:* · llm_d_epp_*"]
+    M --> R["recording rules<br/>A / U / E · 按团队 / 队列 · TTFT p95 · token 速率"]
+    R --> BILL["月初：账单 + 分解表<br/>allocate.py / OpenCost：GPU 小时 × 单价<br/>按团队 / 模型 / 租户；50 个点去了哪里"]
+    BILL --> REVIEW["月初：与各团队对账<br/>闲置列 · 排队成本 · 每百万 token 成本"]
+    REVIEW --> KQ["改配额（第三篇）<br/>ClusterQueue nominalQuota · cohort 借用"]
+    REVIEW --> KS["改切分（第四篇）<br/>MIG profile · HAMi 份额 · 时间片"]
+    REVIEW --> KA["改扩缩容（第六篇）<br/>KEDA 阈值 · minReplica · 缩零"]
+    REVIEW --> KP["改采购<br/>A 的 p95 → 预留；峰值 − p95 → 按需"]
+    KQ --> APPLY["月中：PR 合并生效"]
+    KS --> APPLY
+    KA --> APPLY
+    KP --> APPLY
+    APPLY --> CHECK["月末：A / U / E 与 SLO 变了多少<br/>同一组 recording rules，同一张看板"]
+    CHECK -->|"下一个月"| M
+    classDef knob fill:#fff4e0,stroke:#c98a1a;
+    class KQ,KS,KA,KP knob;
+```
 
 ### 2. 容量规划
 
@@ -559,7 +673,7 @@ DCGM Exporter 4.6.0-4.8.3   etc/default-counters.csv · etc/dcp-metrics-included
                             internal/pkg/utils/utils.go                             SanitizeLabelName
                             deployment/values.yaml · templates/daemonset.yaml       kubernetes.enablePodLabels / podLabelAllowlistRegex / rbac · kubeletPath · customMetrics · serviceMonitor · arguments
 Kubernetes v1.37.0          pkg/kubelet/cm/devicemanager/manager.go                 ManagerImpl.GetDevices(podUID, containerName)（pod-resources List 的设备来源）
-vLLM v0.23.0                vllm/v1/metrics/loggers.py                              PrometheusStatLogger：全部 vllm:* 名字与桶；labelnames = [model_name, engine]；create_metric_per_engine
+vLLM v0.28.0                vllm/v1/metrics/loggers.py · metrics/utils.py           PrometheusStatLogger：全部 vllm:* 名字与桶；labelnames = [model_name, engine]；create_metric_per_engine
                             vllm/v1/metrics/perf.py                                 vllm:estimated_flops_per_gpu_total 等估算指标（本篇未用）
                             docs/design/metrics.md                                  Counter 的 _total 后缀；ITL 即 TPOT 的说明
 Kueue v0.19.2               pkg/metrics/metrics.go                                  kueue_pending_workloads{cluster_queue,status} · admitted_active_workloads · admission_wait_time_seconds ·

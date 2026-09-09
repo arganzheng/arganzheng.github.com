@@ -176,6 +176,22 @@ __syncthreads();
 
 **第二，sync 是有代价的**。每次 `__syncthreads()` 都让 block 内先到的 warp 空转，等最慢的 warp。一个 1024 线程的 block 有 32 个 warp，某个 warp 因为一次 cache miss 晚到 500 个周期，其他 31 个 warp 就一起浪费 500 个周期。reduction 树每一级都 sync 一次，10 级就是 10 次全 block 等待。后面第四章的优化有一大半是在减少 sync 的次数。
 
+```text
+一次 __syncthreads() 的代价：block 内 4 个 warp，warp 2 因一次 cache miss 晚到
+
+时间  ────────────────────────────────────────────────►
+warp 0  ========|............................|  继续
+warp 1  ==========|..........................|  继续
+warp 2  ==================== cache miss =====|  继续
+warp 3  ========|............................|  继续
+                                             ▲
+        = 在干活   . 在栅栏上空等             所有 warp 到齐才放行
+
+浪费的 warp·周期 ≈ Σ(最慢 warp 的到达时间 − 各 warp 自己的到达时间)
+1024 线程 = 32 个 warp，某 warp 晚 500 周期，其余 31 个 warp 各空等 500 周期
+reduction 树每一级一次栅栏：v1/v2 是 10 级 × 32 个 warp 的等待，v6 只剩 1 级
+```
+
 ### 4. bank conflict：32 个 bank，每个 4 字节
 
 shared memory 在物理上被切成 **32 个 bank**，每个 bank 每周期能服务一个 4 字节的访问。连续的 4 字节字轮流分配给 32 个 bank：
@@ -247,6 +263,26 @@ __shared__ float tile[32][32];
 __device__ __forceinline__ int swz(int r, int c) { return c ^ (r & 31); }
 // 写：tile[r][swz(r, c)] = v;   读：v = tile[r][swz(r, c)];
 // 线程 t 读第 k 列：物理列 = k ^ t，32 个 t 给出 32 个不同的物理列 → 32 个不同 bank
+```
+
+用 8×8 的 tile 演示（实际 32×32 用 `c ^ (r & 31)`），每格写的是"存放在该物理位置的**逻辑列号**"：
+
+```text
+tile[8][8]，物理列 = 逻辑列 ^ 行号，bank = 物理列（按 8 个 bank 演示）
+
+          物理列  0  1  2  3  4  5  6  7
+行 0（^0）        0  1  2  3  4  5  6  7      不动
+行 1（^1）        1  0  3  2  5  4  7  6      相邻两列互换
+行 2（^2）        2  3  0  1  6  7  4  5
+行 3（^3）        3  2  1  0  7  6  5  4
+行 4（^4）        4  5  6  7  0  1  2  3      前后两半互换
+行 5（^5）        5  4  7  6  1  0  3  2
+行 6（^6）        6  7  4  5  2  3  0  1
+行 7（^7）        7  6  5  4  3  2  1  0
+
+每一行仍是 0..7 的一个排列 → 不浪费空间（对比 padding 每行多 1 格）
+按列读逻辑列 0：找每行的 "0"，它在行 r 落在物理列 r → 8 个线程 8 个不同 bank，无冲突
+按行读行 r：8 个元素仍占满物理列 0..7 → 同样无冲突
 ```
 
 XOR 是一个置换：对固定的 `r`，`c → c ^ r` 把 0..31 一一映射到 0..31，所以每行的 32 个元素仍然占满 32 个位置，不浪费空间；对固定的 `c`，不同的 `r` 给出不同的物理列，所以按列访问不再冲突。swizzle 是 CUTLASS/CuTe 里 shared memory layout 的标准做法（第六篇会看到 `Swizzle<3,3,3>` 这样的类型），因为 `ldmatrix` 和 Tensor Core 的 fragment 加载要求 16 字节对齐、padding 不好用。
@@ -340,6 +376,23 @@ if (tid < 32) {
 ```
 
 `__shfl_down_sync(mask, v, off)` 返回 lane `lane + off` 的 `v`（越界时返回自己的 `v`），mask 为全 1 表示 32 个 lane 全部参与。5 轮之后 lane 0 持有 32 个值的和。shuffle 不经过 shared memory，没有 bank 问题，也不需要 `__syncthreads()`——它本身就是 warp 内的同步点。
+
+用 8 个 lane 演示 `__shfl_down_sync` 的归约树（实际 32 个 lane、`off = 16, 8, 4, 2, 1`），每格是"已累加进该 lane 的原始 lane 集合"：
+
+```text
+每步 lane i 读 lane i+off 的值加到自己身上；i+off ≥ 8 的 lane 读回自己，值不变
+
+lane    0       1       2       3       4       5       6       7
+初值    0       1       2       3       4       5       6       7
+off=4   0+4     1+5     2+6     3+7     4       5       6       7
+off=2   0+2+4+6 1+3+5+7 2+4+6   3+5+7   4+6     5+7     6       7
+off=1   0..7    1..7    2..7    3..7    4..7    5+6+7   6+7     7
+        ▲
+        只有 lane 0 是完整总和；其他 lane 是"从自己往右"的部分和，不能用
+        （所以 v4 里由 tid == 0 写 sdata[0]）
+
+对比 v6 用的 __shfl_xor_sync：lane i 与 lane i^off 互换，3 步后 8 个 lane 都持有 0..7
+```
 
 减少了：5 次 `__syncthreads()`（10 次 → 5 次）、最后 5 级的 shared 读写。
 
@@ -720,6 +773,22 @@ if (dim_size <= 2048 && dim_size*sizeof(scalar_t) <= 8192) {
 }
 ```
 
+这段 host 代码本质是一棵按行长度分派的决策树，四个叶子对应四种"行放在哪里"的策略：
+
+```mermaid
+flowchart TB
+    classDef q fill:#fef9c3,stroke:#a16207
+    classDef k fill:#dbeafe,stroke:#1d4ed8
+    classDef k2 fill:#dcfce7,stroke:#15803d
+    Q1{"dim_size ≤ 2048<br/>且 dim_size × sizeof(scalar_t) ≤ 8 KiB？"}:::q
+    Q1 -->|"是（BF16 到 2048，FP64 到 1024）"| WS["dispatch_softmax_forward<br/>warp-per-row：一行进一个 warp 的寄存器<br/>零 shared、零 __syncthreads()"]:::k2
+    Q1 -->|"否"| Q2{"每线程潜在寄存器数<br/>potential_reg_cnt < 10？"}:::q
+    Q2 -->|"是"| REG["cunn_SoftMaxForwardReg<br/>block-per-row，整行留在寄存器"]:::k
+    Q2 -->|"否"| Q3{"整行放得进 shared？<br/>can_use_smem"}:::q
+    Q3 -->|"是"| SM["cunn_SoftMaxForwardSmem<br/>行暂存 shared，三遍在 shared 上做"]:::k
+    Q3 -->|"否"| GL["cunn_SoftMaxForward<br/>只用归约的 shared，三遍重读 global（L2 兜底）"]:::k
+```
+
 **小行走 warp softmax**。`dispatch_softmax_forward`（`PersistentSoftmax.cuh`）在 `dim_size <= 2048` 且一行不超过 8 KiB 时被选中。它把 `dim_size` 向上取到 2 的幂 `next_power_of_two`，用 `log2_elements` 作为模板参数实例化 `softmax_warp_forward`：每个 warp 处理 `WARP_BATCH` 行（≤128 元素时 2 行，否则 1 行），每 lane 持有 `WARP_ITERATIONS = next_power_of_two / 32` 个元素在寄存器数组 `elements[WARP_BATCH][WARP_ITERATIONS]` 里；block 固定 128 线程 = 4 个 warp；max 和 sum 各用一次 `warp_reduce`：
 
 ```cpp
@@ -784,6 +853,25 @@ C10_DEVICE bool mark_block_finished() const {
   }
   // ... __syncthreads(); return is_last_block_done_shared;
 }
+```
+
+跨 block 的这一级，谁等谁、原子操作用在哪里，画出来是：
+
+```mermaid
+flowchart TB
+    classDef b fill:#dbeafe,stroke:#1d4ed8
+    classDef g fill:#fef9c3,stroke:#a16207
+    classDef r fill:#dcfce7,stroke:#15803d
+    classDef gray fill:#f3f4f6,stroke:#6b7280
+    subgraph blocks["同一个输出由 gridDim.y 个 block 分担，各自先做 thread + block 归约"]
+        direction LR
+        B0["block y=0<br/>部分和 p0"]:::b ~~~ B1["block y=1<br/>部分和 p1"]:::b ~~~ Bd["…"]:::b ~~~ Bn["block y=n-1<br/>部分和 p(n-1)"]:::b
+    end
+    blocks -->|"写 staging#91;y#93;，然后 __threadfence()"| ST["global staging buffer<br/>p0, p1, …, p(n-1)"]:::g
+    ST --> AT["prev = atomicAdd(semaphores#91;x#93;, 1)<br/>原子只用来计数，不累加浮点"]:::g
+    AT -->|"prev < n-1"| EX["不是最后一个到达的 block<br/>直接退出"]:::gray
+    AT -->|"prev == n-1"| LAST["最后到达的 block<br/>读回全部 n 个部分和<br/>再做一次树形归约（顺序固定，结果确定）"]:::r
+    LAST --> OUT["写最终输出"]:::r
 ```
 
 读这三处源码可以看到同一个模式的三种规模：softmax 的 warp 版本是"一级"（只有 shuffle），block 版本和 vLLM 的 RMSNorm 是"两级"（shuffle + shared），`Reduce.cuh` 是"三级"（shuffle + shared + global semaphore）。

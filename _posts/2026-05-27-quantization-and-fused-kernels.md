@@ -262,6 +262,31 @@ __global__ void Marlin(
   // reductions as possible.
 ```
 
+把注释里这个 3×3 tile、5 个 block 的例子展开——哪个 block 算哪些 tile、哪些 slice 需要跨 block 归约：
+
+```text
+  B 矩阵切成 3 个列 slice × 3 个 K 块 = 9 个 tile，5 个 block 按列优先各领一条
+  stripe（9 / 5 → 前 4 个 block 各 2 个 tile，最后一个 1 个）
+
+              slice 0     slice 1     slice 2
+            ┌───────────┬───────────┬───────────┐
+   K 块 0   │  block 0  │  block 1  │  block 3  │
+            ├───────────┼───────────┼───────────┤
+   K 块 1   │  block 0  │  block 2  │  block 3  │
+            ├───────────┼───────────┼───────────┤
+   K 块 2   │  block 1  │  block 2  │  block 4  │
+            └───────────┴───────────┴───────────┘
+
+  同一 slice 的部分和落在两个 block 里 → 用 locks[slice] 做 global reduce:
+    slice 0 = block 0 (K 块 0,1) + block 1 (K 块 2)
+    slice 1 = block 1 (K 块 0)   + block 2 (K 块 1,2)
+    slice 2 = block 3 (K 块 0,1) + block 4 (K 块 2)
+  block 1 横跨两个 slice: 先写出 slice 0 的部分和，再开始 slice 1
+
+  对比: "一个 slice 一个 block" 只有 3 个 block 有活干（5 个 SM 空 2 个）;
+        "一个 tile 一个 block" 有 9 个 block，但每个 slice 都要 3 路全局归约。
+```
+
 主循环是一个双层展开的流水：外层 `pipe` 遍历 stage，内层 `k` 遍历一个 stage 内的 `mma` 步；每步先把下一步的 B 打包数据、scale、zero point 从 shared 取到寄存器（`fetch_to_registers`），在倒数第二步发起下一个 stage 的 `cp.async`（`fetch_to_shared`），然后调用 `matmul(k, pipe)`——在那里面完成 `dequant_data` → `scale` → `mma`。同一份文件 `marlin.cu` 的 host 侧为小 batch 与大 batch 各准备了一组 `(thread_k, thread_n, num_threads)` 配置（如 `{128, 128, 256}` 与 `{64, 256, 256}`），并把 M 按 64 行一段切开重复调用。
 
 ### 4. GPTQ、AWQ 与 Marlin 的关系；Machete
@@ -373,6 +398,42 @@ $$
 
 内层求和只在一个 128 宽的 K 块内做，**每个块的部分和要先乘上该块的 scale 再累加到总和**——这一步必须在主循环里、每 128 个 K 做一次，不能推到 epilogue。它带来两个后果：一是 K 循环里多了一次"累加器 × scale 再加到另一组累加器"的 FP32 运算，需要两套累加寄存器；二是这恰好给了一个机会把 `wgmma` 的有限精度累加"promote"到真正的 FP32——每 128 个 K，把 Tensor Core 累加器的值乘 scale 后加进 CUDA Core 维护的 FP32 累加器，然后清零 Tensor Core 累加器重新开始。DeepGEMM（DeepSeek 2025）用 JIT 生成针对具体形状的 kernel、TMA 搬运、`wgmma` 异步发射、warp specialization（producer warp 做 TMA，consumer warpgroup 做 `wgmma` + promote）来实现它；vLLM 在 `csrc/libtorch_stable/quantization/w8a8/cutlass/c3x/scaled_mm_blockwise_sm90_fp8.cu` 里用 CUTLASS 的 blockwise scaling mainloop 做了同样的事。
 
+两种路径的 K 循环放在一起对比——scale 乘在哪、需要几套累加器：
+
+```mermaid
+flowchart TB
+    subgraph ep["per-tensor / per-token / per-channel：scale 不依赖 k"]
+        direction TB
+        e1["载入 A_q, B_q 的一个 K tile"]
+        e2["wgmma：acc_tc += A_q · B_q<br/>(一套 FP32 累加器，硬件内部精度有限)"]
+        e3{"K 遍历完？"}
+        e4["epilogue：D = s_a(i) · s_b(j) · acc_tc<br/>转 BF16 写出"]
+        e1 --> e2 --> e3
+        e3 -- "否" --> e1
+        e3 -- "是" --> e4
+    end
+    subgraph bl["per-block 128×128：scale 依赖 k 所在的块 b"]
+        direction TB
+        b1["载入第 b 块的 A_q, B_q（128 个 k）"]
+        b2["wgmma：acc_tc += A_q · B_q"]
+        b3["promote（CUDA Core，FP32）：<br/>acc_fp32 += s_a(i,b) · s_b(b,j) · acc_tc<br/>acc_tc = 0"]
+        b4{"b 遍历完？"}
+        b5["epilogue：D = acc_fp32 转 BF16 写出<br/>(不再乘 scale)"]
+        b1 --> b2 --> b3 --> b4
+        b4 -- "否" --> b1
+        b4 -- "是" --> b5
+    end
+
+    classDef tc fill:#fdf1d6,stroke:#b9770e
+    classDef cc fill:#dde9f7,stroke:#2e6da4
+    classDef epi fill:#dff5e1,stroke:#1e8449
+    class e2,b2 tc
+    class b3 cc
+    class e4,b5 epi
+```
+
+黄色是 Tensor Core 上的 `wgmma`，蓝色是每 128 个 K 插进主循环的 CUDA Core 步骤——它既是"按块乘 scale"，也是把有限精度的 Tensor Core 累加器搬进真 FP32 累加器的 promote；绿色 epilogue 在右边只剩类型转换。
+
 ### 4. Ampere 的 fallback
 
 A100 没有 FP8 Tensor Core。FP8 权重在 Ampere 上只能是**存储格式**：加载时用位运算转成 BF16（`__nv_cvt_fp8_to_halfraw` 的软件展开，或用与 INT4 类似的 magic-number 技巧——Marlin 的 `dequant<..., kFE4M3fn>` 就是这样做的，把 FP8 的指数尾数移进 FP16 的位域再乘一个 $$2^{\Delta e}$$ 的修正），然后走 BF16 `mma`。这时它是一个 W8A16 kernel，收益只有 decode 侧的字节减半，没有算力侧的收益。vLLM 的 `scaled_mm_c2x_sm89_fp8_dispatch.cuh` 面向 Ada（sm_89，有 FP8 Tensor Core 但没有 `wgmma`），sm_80 的 FP8 走 Marlin 的 W8A16 路径。
@@ -443,6 +504,42 @@ __global__ void dynamic_per_token_scaled_fp8_quant_kernel_strided(
 ### 1. 融合为什么赢：只有字节
 
 这一章的所有 kernel 都是 memory-bound 的 elementwise 或 row-wise 操作，算术强度在 1 FLOP/byte 以下（回顾：BF16 的 $$y = x + b$$ 每元素 6 字节、1 FLOP，$$1/6$$ FLOP/byte，与 A100 的 ridge 156 差三个数量级）。它们的理论时间就是字节数除以带宽，融合唯一的目的是**减少往返 HBM 的字节数**——中间结果留在寄存器里，不写出再读回。所以每种模式先列字节表。
+
+以"residual add → RMSNorm → 动态量化"这条 decoder layer 里最常见的链为例，分开做与融合做各有哪些张量经过 HBM（每元素字节数，BF16 输入）：
+
+```mermaid
+flowchart TB
+    subgraph sep["分开：3 次 launch，共 13 B/元素"]
+        direction TB
+        s_in["HBM: x, residual（读 2+2 B）"]
+        s_add["add kernel"]
+        s_r["HBM: residual'（写 2 B，再读 2 B）"]
+        s_norm["RMSNorm kernel"]
+        s_xn["HBM: xn BF16（写 2 B，再读 2 B）"]
+        s_q["动态量化 kernel<br/>absmax → scale → cvt"]
+        s_out["HBM: x_fp8（写 1 B）+ scale"]
+        s_in --> s_add --> s_r --> s_norm --> s_xn --> s_q --> s_out
+    end
+    subgraph fus["融合：1 次 launch，共 7 B/元素"]
+        direction TB
+        f_in["HBM: x, residual（读 2+2 B）"]
+        f_k["fused add + RMSNorm + quant<br/>z = x + r → rms → absmax → cvt<br/>z 留在寄存器 / L1"]
+        f_r["HBM: residual'（写 2 B）"]
+        f_out["HBM: x_fp8（写 1 B）+ scale"]
+        f_in --> f_k
+        f_k --> f_r
+        f_k --> f_out
+    end
+
+    classDef hbm fill:#f4f4f4,stroke:#999
+    classDef gone fill:#fde2e2,stroke:#c0392b,stroke-dasharray:4 2
+    classDef kern fill:#dff5e1,stroke:#1e8449
+    class s_in,s_out,f_in,f_r,f_out hbm
+    class s_r,s_xn gone
+    class s_add,s_norm,s_q,f_k kern
+```
+
+红色虚框是融合后不再物化的中间张量：`xn` 完全消失，`residual'` 仍要写（下一个子层要用）但不再读回。左边 13 B（6 + 4 + 3）对右边 7 B，与 §4.5、§5.3 两张字节表一致。
 
 ### 2. bias + activation 与 SiLU-and-mul
 
@@ -658,6 +755,35 @@ __global__ void reshape_and_cache_kernel(
 
 K cache 的 `[num_blocks, num_heads, head_size/x, block_size, x]` 布局里，$$x = 16 / \text{sizeof(cache\_t)}$$（BF16 时 8）：把 head_size 维切成若干段，每段 $$x$$ 个元素（16 字节）连续存放，同一段内 `block_size` 个 token 相邻。这是为 v1 PagedAttention kernel 设计的——那里一个 thread group 一次读 16 字节的 K，正好是一个 token 在一段上的 $$x$$ 个元素，`block_size` 个 token 的同一段连续，一个 warp 一次读的就是连续 `block_size × 16` 字节。V cache 的 `[num_blocks, num_heads, head_size, block_size]` 则是 head_size 维在外、token 在内，对应 v1 kernel 里 V 按列（head_size 维）做点积、沿 token 维合并读取。写入端的代价是 V 的每个元素要跨 `block_size` 的 stride 写（上面 `value_dst[i * block_size]`）——写是分散的，但每个 token 只有 4 KiB，可以接受。
 
+把一个 cache block 里一个 KV head 的存放方式画出来（BF16，`head_size = 128`，`block_size = 16`，`x = 8`）：
+
+```text
+  K[t, h, d] 落在 key_cache[blk][h][d / 8][t][d % 8]   每格 = 8 个 BF16 = 16 B
+
+  K cache（一个 blk、一个 h）: [head_size/x = 16 段][block_size = 16][x = 8]
+              段 0        段 1        段 2               段 15
+             d 0..7      d 8..15     d 16..23           d 120..127
+            ┌────────┐  ┌────────┐  ┌────────┐         ┌────────┐
+   token 0  │  16 B  │  │  16 B  │  │  16 B  │   ...   │  16 B  │
+   token 1  │  16 B  │  │  16 B  │  │  16 B  │         │  16 B  │
+    ...     │  ...   │  │  ...   │  │  ...   │         │  ...   │
+   token 15 │  16 B  │  │  16 B  │  │  16 B  │         │  16 B  │
+            └────────┘  └────────┘  └────────┘         └────────┘
+            一段 256 B 连续: 16 个 token 的同一 8 维相邻，读端一个 warp 读一段
+   写入 token t: 16 段各写 16 B，段间 stride 256 B（16 次 16 B 向量写）
+
+  V[t, h, d] 落在 value_cache[blk][h][d][t]            每格 = 1 个 BF16 = 2 B
+
+  V cache（一个 blk、一个 h）: [head_size = 128][block_size = 16]
+             token 0   1    2   ...  15
+   d = 0     [ v ][ v ][ v ] ... [ v ]   ← 一行 32 B 连续: 同一 d 的 16 个 token
+   d = 1     [ v ][ v ][ v ] ... [ v ]      读端沿 token 维做点积、合并读取
+    ...
+   d = 127   [ v ][ v ][ v ] ... [ v ]
+   写入 token t: 128 个元素各写 2 B，stride 32 B（value_dst[i * block_size]）
+   → 分散写，但每 token 只有 4 KiB
+```
+
 `reshape_and_cache_flash_kernel` 服务于 FlashAttention / FlashInfer 后端，布局是 `[num_blocks, block_size, num_heads, head_size]`（NHD：一个 token 的所有 head 连续，就是普通的 `[tokens, heads, head_size]` 每 `block_size` 行切一页）或 `[num_blocks, num_heads, block_size, head_size]`（HND）。NHD 下写入是一个 token 整段连续，`vectorize_with_alignment<VEC_SIZE>` 一次 16 字节。两种 kernel 的 `Fp8KVCacheDataType kv_dt` 模板参数与 `k_scale / v_scale` 指针处理 **FP8 KV cache**：`CopyWithScaleOp` 在 `kv_dt != kAuto` 时调用 `fp8::scaled_convert`，把 BF16 除以 scale、饱和、转 E4M3 后写入，读取端（attention kernel）再乘回来。KV cache 用 FP8 之后每 token 从 128 KiB 变成 64 KiB，decode 时读 KV 的时间减半——这与权重量化的逻辑完全一样，都是 memory-bound 侧的字节交易。
 
 
@@ -714,6 +840,30 @@ router logits 一行只有 $$E$$ 个数（8 到 256），一个 block 一行太�
 - `sorted_token_ids[max_num_tokens_padded]`：按 expert 排好的 (token, k-slot) 扁平索引 $$i = t \cdot k + j$$，每个 expert 的一段 padding 到 `block_size`（Triton GEMM 的 `BLOCK_M`）的倍数，padding 位填 `numel`（越界哨兵，GEMM 里对它 mask 掉）；
 - `expert_ids[max_num_m_blocks]`：第 $$m$$ 个 M-tile 属于哪个 expert；
 - `num_tokens_post_padded`：padding 后的总行数。
+
+一个小例子把三个输出的关系摆出来（$$T = 5$$、$$k = 2$$、$$E = 3$$、`block_size = 4`）：
+
+```text
+  扁平索引 i = t·k + j
+  topk_ids   t=0: [0,2]   t=1: [1,0]   t=2: [0,1]   t=3: [2,0]   t=4: [0,1]
+  i           0   1        2   3        4   5        6   7        8   9
+  expert      0   2        1   0        0   1        2   0        0   1
+
+  计数           e0 = 5    e1 = 3    e2 = 2
+  pad 到 4 倍    e0 = 8    e1 = 4    e2 = 4     cumsum = [0, 8, 12, 16]
+                                                num_tokens_post_padded = 16
+
+  sorted_token_ids（pad 位填 numel = 10，GEMM 里被 token_mask 挡掉）
+   位置     0   1   2   3   4   5   6   7 |   8   9  10  11 |  12  13  14  15
+   值       0   3   4   7   8  10  10  10 |   2   5   9  10 |   1   6  10  10
+         └─── tile 0 ───┘└─── tile 1 ───┘  └─── tile 2 ───┘  └─── tile 3 ───┘
+  expert_ids    0               0                 1                 2
+  同一 expert 内的顺序由 atomicAdd 到达顺序决定（不稳定，GEMM 不在乎）
+
+  M-tile m 的 A 行 = sorted_token_ids[4m .. 4m+3] // k（即 token 编号）
+                 B = W[expert_ids[m]]
+  例: tile 1 只有 token 8//2 = 4 一行有效，其余 3 行是 pad；tile 3 读 token 0、3
+```
 
 ```cpp
 // csrc/moe/moe_align_sum_kernels.cu（v0.20.0），_moe_align_block_size 核心

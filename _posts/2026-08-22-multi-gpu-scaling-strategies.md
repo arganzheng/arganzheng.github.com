@@ -65,6 +65,22 @@ graph LR
 | 适用 | 模型放得下、但并发不够的场景 |
 | vLLM 实现 | `DPCoordinator`（`vllm/v1/engine/coordinator.py`）管理多个 `EngineCore` 实例，用 ZMQ 做请求分发与负载均衡 |
 
+模型装得下时，最常见的一个取舍是：同样两张卡，跑 DP=2（两个完整副本 + 前端负载均衡）还是 TP=2（一个副本，两卡合算一个请求）？两者在延迟、吞吐和显存上的差别正好相反：
+
+| 维度 | DP=2（两个副本） | TP=2（一个副本） |
+|---|---|---|
+| 权重显存 | 每卡一份完整权重，总共两份 | 每卡 1/2 权重 |
+| 单卡可用 KV Cache | 被完整权重挤占，较小 | 权重减半腾出空间，且 KV 按 head 切分，每卡只存 1/2 |
+| 单请求延迟（TTFT / TPOT） | 等于单卡延迟，**不会更快** | 每卡计算量减半，但每层 2 次 All-Reduce 在关键路径上；NVLink 下通常明显更低，PCIe 下未必 |
+| 吞吐 | 两个独立 batch，近似线性 ×2 | 一个更大的 batch；小 batch Decode 时通信开销占比高，吞吐增益不到 ×2 |
+| GPU 间通信 | 无 | 每层 2 次 All-Reduce，逻辑量约 2 × B × S × H × sizeof(dtype)（见第三章） |
+| 前端需要什么 | 请求路由 / 负载均衡（`DPCoordinator`，或外部 LB 挂多个实例） | 不需要，一个 `EngineCore` 即可 |
+| Prefix Cache | 同一会话可能落到不同副本，前缀缓存被稀释，需要会话亲和路由 | 全局只有一份 |
+| 故障隔离 | 一个副本挂了另一个仍在服务 | 任一卡故障整个实例停摆 |
+| 适合 | 小模型、高并发、单卡延迟已达标 | 模型偏大、要压低单请求延迟、机内有 NVLink |
+
+一句话：**DP 买的是吞吐和隔离，TP 买的是单请求延迟和 KV 容量**。两者不冲突——生产上常见的"DP × TP"就是先用 TP 把单请求延迟压到目标以下，再用 DP 复制若干份填满并发。
+
 ## 三、TP (Tensor Parallelism)
 
 ### 1. TP 是什么？
@@ -1012,15 +1028,6 @@ EP 的代价是：Token 不一定会被发送到当前 GPU 上的 Expert，因�
 一个典型的 EP MoE 层可以抽象为以下五个阶段：
 
 从工程实现角度看，MoE 的瓶颈并不是“一个大 GEMM 算不动”，而是 **Router + 动态 Dispatch + 变长 Grouped GEMM + Combine** 这一整条动态流水线：
-
-```mermaid
-graph TD
-    H["hidden_states [B, S, D]"] --> R
-    R["<b>Router</b>（Linear）<br/>gate(x) → logits [B×S, E]<br/>→ top-k → expert_ids, weights"] --> D
-    D["<b>Dispatch</b>（Permute）<br/>把 token 按 expert_id 重排<br/>experts_input[e] = 路由到 expert e 的 token"] --> G
-    G["<b>Expert 并行 GEMM</b>（Grouped GEMM）<br/>Expert 0: W_gate_0 @ x₀ · SiLU<br/>Expert 1: W_gate_1 @ x₁ · SiLU<br/>⋯<br/><i>每个 expert 拿到的 token 数不同</i>"] --> C
-    C["<b>Combine</b>（Unpermute + Scale）<br/>output = Σ weightₖ × expertₖ_output"]
-```
 
 ```text
                     MoE 层执行流程
@@ -2200,6 +2207,40 @@ Prefill 阶段通常具有较大的序列长度和计算量，更适合通过序
 - **EP 与 TP 可组合**，通常 `TP × EP = 总 GPU 数`
 - **DP 永远是最外层的吞吐倍增器**——它不解决"装不下"，只解决"不够快"
 
+把三种策略叠在一起时，每张卡到底是哪个 TP rank、哪个 PP stage、哪个 DP 副本，以及哪条通信走哪条链路，用一个具体的例子最清楚。vLLM 在 `vllm/distributed/parallel_state.py` 的 `initialize_model_parallel()` 里按 **DP × PP × PCP × TP** 的顺序排布 rank（TP 在最内层，相邻 rank 优先落在同一台机器上），下面以 TP=2 × PP=2 × DP=2、两台 4 卡机器为例：
+
+```text
+TP=2 × PP=2 × DP=2，8 张 GPU，2 台机器、每机 4 卡
+rank 布局 DP × PP × TP（TP 最内层）：rank = dp×4 + pp×2 + tp
+
+             ┌─ Node 0：DP rank 0（副本 0）┐ ┌─ Node 1：DP rank 1（副本 1）┐
+             │  TP rank 0     TP rank 1    │ │  TP rank 0     TP rank 1    │
+PP stage 0   │ ┌────────┐    ┌────────┐    │ │ ┌────────┐    ┌────────┐    │
+Layers 0–39  │ │ rank 0 │════│ rank 1 │    │ │ │ rank 4 │════│ rank 5 │    │
+             │ │ GPU 0  │    │ GPU 1  │    │ │ │ GPU 0  │    │ GPU 1  │    │
+             │ └───┬────┘    └───┬────┘    │ │ └───┬────┘    └───┬────┘    │
+             │     │ send/recv   │         │ │     │ send/recv   │         │
+PP stage 1   │ ┌───▼────┐    ┌───▼────┐    │ │ ┌───▼────┐    ┌───▼────┐    │
+Layers 40–79 │ │ rank 2 │════│ rank 3 │    │ │ │ rank 6 │════│ rank 7 │    │
+             │ │ GPU 2  │    │ GPU 3  │    │ │ │ GPU 2  │    │ GPU 3  │    │
+             │ └────────┘    └────────┘    │ │ └────────┘    └────────┘    │
+             └─────────────────────────────┘ └─────────────────────────────┘
+════ TP 组 All-Reduce（NVLink）    │▼ PP 组 P2P    两个副本之间不传递激活
+
+TP 组：[0,1] [2,3] [4,5] [6,7]      PP 组：[0,2] [1,3] [4,6] [5,7]
+DP 组：[0,4] [1,5] [2,6] [3,7]      EP 组（若开 EP）：[0,1,4,5] [2,3,6,7]
+```
+
+读这张网格时注意三件事：
+
+| 组 | 成员 | 传什么 | 走哪条链路 | 频率 |
+|---|---|---|---|---|
+| TP 组 | 同一 stage、同一副本内的 2 张卡 | 激活的 All-Reduce | 机内 NVLink | 每层 2 次，关键路径 |
+| PP 组 | 同一副本、同一 TP rank 的两个 stage | `hidden_states` 的 send/recv | 机内（本例）；每机只有 2 卡时会跨机 IB/RoCE | 每个 microbatch 1 次 |
+| DP 组 | 两个副本中位置相同的卡 | 不传激活；只在 MoE + EP 时 Expert 的 All-to-All 会跨副本 | 跨机 | 副本间的请求分发与 step 对齐由 `DPCoordinator` 走 ZMQ 完成 |
+
+进程层面，每个 DP 副本对应一个独立的 `EngineCore`，它自己的 `MultiprocExecutor` 拉起 TP × PP = 4 个 `WorkerProc`（每卡一个进程）；两台机器上因此各有 4 个 worker 进程和一个 EngineCore。这也是"TP 优先放 NVLink、PP 可跨机、DP 在最外层"三条法则在 rank 编号上的直接体现：TP 组是编号相邻的卡，PP 组间隔一个 TP 组，DP 组间隔一整个副本。
+
 
 ## 八、通信优化：推理系统的性能深水区
 
@@ -2382,6 +2423,39 @@ vLLM 对通信后端进行了抽象，使模型代码不需要直接感知底层
 其中，`CudaCommunicator` 通常对应 NCCL 路径；`CpuCommunicator` 可用于 CPU 通信；在特定硬件和场景下，还可能使用 FlashInfer 或其他专门优化的实现。
 
 这种分层的意义在于：上层模型代码只表达“我要做一次 All-Reduce”，而不必关心底层是通过 NVLink、PCIe、InfiniBand，还是某种专用 Kernel 完成的。
+
+这三层解决的是"GPU 之间的数据怎么走"。还有一个前置问题：TP 组里的多个进程是怎样拿到**同一份输入**、又由谁把结果交回调度器的？这条控制路径在 vLLM v1 里不走 NCCL。`MultiprocExecutor`（`vllm/v1/executor/multiproc_executor.py`）为每个 TP × PP rank 拉起一个 `WorkerProc` 进程，进程之间靠两类基于共享内存的 `MessageQueue`（`vllm/distributed/device_communicators/shm_broadcast.py`）通信：
+
+- `rpc_broadcast_mq`：executor 一写、所有 worker 同读。`collective_rpc()` 把 `(method, args, kwargs, output_rank)` 入队一次，每个 `WorkerProc.worker_busy_loop()` 各自出队并在本地 `Worker` 上调用同名方法；
+- `worker_response_mq`：每个 worker 一条，但 `execute_model` 只让 `rank == output_rank` 的那一个把 `ModelRunnerOutput` 写回。`_get_output_rank()` 选的是**最后一个 PP stage 的第一个 TP rank**（`world_size - tp_size × pcp_size`），其余 rank 算完即丢弃返回值，不占用回传队列。
+
+以 TP=2、PP=1 为例，一个 decode step 的消息路径如下：
+
+```mermaid
+sequenceDiagram
+    participant E as EngineCore<br/>(Scheduler)
+    participant X as MultiprocExecutor
+    participant Q as rpc_broadcast_mq<br/>(共享内存 MessageQueue)
+    participant W0 as WorkerProc rank 0<br/>(TP rank 0 = output_rank)
+    participant W1 as WorkerProc rank 1<br/>(TP rank 1)
+    E->>X: execute_model(scheduler_output)
+    X->>Q: enqueue(("execute_model", args, output_rank=0))
+    Note over X,Q: collective_rpc 只写一次，所有 worker 读到同一份 SchedulerOutput
+    Q-->>W0: dequeue
+    Q-->>W1: dequeue
+    activate W0
+    activate W1
+    W0->>W0: worker.execute_model() 前向
+    W1->>W1: worker.execute_model() 前向
+    W0<<->>W1: NCCL All-Reduce（TP 组，每层 2 次，走 GroupCoordinator → CudaCommunicator / CustomAllreduce）
+    deactivate W1
+    Note over W1: rank != output_rank，返回值丢弃，不回复
+    W0->>X: worker_response_mq.enqueue((SUCCESS, ModelRunnerOutput))
+    deactivate W0
+    X->>E: ModelRunnerOutput（sampled token ids）
+```
+
+两点值得注意。第一，`_is_driver_worker()`（`rank % tp_size == 0`）标出的 "driver worker" 在 v1 里只剩一个标记：输入由共享内存一次广播给所有 worker，不存在早期版本那种"driver 先收输入、再用 NCCL 广播给其他 TP worker"的第二跳，GPU 之间的 NCCL 通信只承担激活的 All-Reduce 和 PP 的 send/recv。第二，PP > 1 时非首 stage 的 worker 在 `GPUWorker.execute_model()` 里先通过 `get_pp_group().irecv_tensor_dict()` 等上游激活，非末 stage 算完用 `isend_tensor_dict()` 异步发出并返回 `None`，只有末 stage 产出 `ModelRunnerOutput`——这正是 `output_rank` 必须落在最后一个 PP stage 的原因。
 
 **2.4 `CustomAllreduce`：针对特定场景的优化**
 

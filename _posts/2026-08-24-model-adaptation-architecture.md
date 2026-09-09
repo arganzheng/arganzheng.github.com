@@ -200,18 +200,6 @@ vLLM 通过 `ModelConfig` 对外部参数和 Hugging Face 配置进行统一解�
 - tokenizer 和多模态相关配置；
 - 模型是否具备某些运行能力或限制。
 
-可以将这一过程表示为：
-
-```mermaid
-flowchart TD
-    A[raw args / model name] --> B[ModelConfig]
-    B --> C[read HF configuration]
-    C --> D[resolve runner type]
-    D --> E[resolve conversion type]
-    E --> F[inspect capabilities]
-    F --> G[stable execution intent]
-```
-
 `ModelConfig` 的价值不在于简单保存参数，而在于完成一次**语义收敛**：
 
 ```text
@@ -249,22 +237,36 @@ flowchart TD
 - `module:class` 形式的懒加载；
 - auto 模式下的回退策略。
 
-其基本数据流可以表示为：
-
-```mermaid
-flowchart LR
-    HF[HF architecture metadata] --> REG[ModelRegistry]
-    REG --> I[inspect_model_cls]
-    REG --> R[resolve_model_cls]
-    R --> CLS[model class]
-```
-
 在工程上，模型检查和模型解析通常可以分成两个阶段：
 
 - `inspect_model_cls`：在模型真正实例化之前，检查模型能力、接口或元信息；
 - `resolve_model_cls`：真正获取并返回用于实例化的模型类。
 
 这种“两阶段”设计能够避免在仅需要判断模型能力时，就提前导入、初始化或执行大量模型相关逻辑。
+
+落到 `vllm/model_executor/models/registry.py` 上，这两个阶段是靠“惰性注册项”实现的。内置模型表 `_VLLM_MODELS` 里每个 arch 只记录 `(模块名, 类名)`，启动时被包成 `_LazyRegisteredModel`，主进程并不 import 任何模型文件；`inspect_model_cls` 需要能力信息时，先查 `VLLM_CACHE_ROOT/modelinfos` 下按源码 hash 缓存的 `_ModelInfo`，未命中才用 `_run_in_subprocess` 在子进程里 import 模型类并跑一遍 Protocol 检查（`is_text_generation_model`、`supports_pp`、`is_hybrid` 等），这样主进程在解析配置阶段不会因为 import 模型文件而提前初始化 CUDA；只有 `resolve_model_cls → load_model_cls` 才真正 `importlib.import_module`。arch 名本身也要先经过两层解析：`model_impl` 决定是否走 Transformers backend，`_normalize_arch` 把 `XxxForSequenceClassification` 这类后缀变体回退到基础 arch。整个解析路径如下：
+
+```mermaid
+flowchart TB
+    ARCH["hf_config.architectures<br/>例如 #91;LlamaForCausalLM#93;"] --> INTREE{"model_impl 与注册表<br/>(_VLLM_MODELS + register_model)"}
+    INTREE -->|"transformers, 或 auto 且未注册"| TF["_try_resolve_transformers<br/>Transformers backend 类"]
+    INTREE -->|"vllm 且未注册"| ERR["_raise_for_unsupported"]
+    INTREE -->|"已注册"| NORM["_normalize_arch<br/>后缀变体回退到基础 arch"]
+    NORM -->|"内置表 / module:class 字符串"| LAZY["_LazyRegisteredModel<br/>只记 module_name + class_name<br/>主进程尚未 import"]
+    NORM -->|"register_model 传入类对象"| REGD["_RegisteredModel<br/>已 import, 直接持有类"]
+    LAZY -->|"inspect_model_cls"| CACHE{"modelinfos 缓存命中<br/>且源码 hash 一致?"}
+    LAZY -->|"load_model_cls"| LOAD["importlib.import_module<br/>→ initialize_model<br/>model_cls(vllm_config, prefix)"]
+    CACHE -->|"是"| MI["_ModelInfo → ModelConfig<br/>runner_type / convert_type<br/>supports_pp / is_hybrid ..."]
+    CACHE -->|"否"| SUB["_run_in_subprocess<br/>子进程 import 并做 Protocol 检查<br/>主进程不初始化 CUDA"]
+    SUB -->|"写回缓存"| MI
+    REGD --> MI
+    classDef lazy fill:#fff3e0,stroke:#e65100;
+    classDef info fill:#e3f2fd,stroke:#1565c0;
+    class LAZY,SUB lazy;
+    class MI info;
+```
+
+图中左右两条出口对应两个阶段：`inspect_model_cls` 一路只产出 `_ModelInfo`（供 `ModelConfig` 判定 runner/convert type 和能力位），`load_model_cls` 一路才产出可实例化的模型类。也正因为能力信息来自一次隔离的子进程检查并被缓存，注册表可以容纳几百个 arch 而不让每次启动都 import 全部模型文件。
 
 这里需要明确一个常见误区：
 
@@ -320,14 +322,14 @@ PyTorch nn.Module
 
 ```mermaid
 classDiagram
-    class nn.Module
+    class nn_Module["nn.Module"]
     class VllmModel~Protocol~
     class VllmModelForTextGeneration~Protocol~
     class SupportsPooling~Protocol~
     class SupportsMultiModal~Protocol~
     class SupportsSpeculativeDecoding~Protocol~
 
-    nn.Module <|-- ConcreteModel
+    nn_Module <|-- ConcreteModel
     VllmModel <.. ConcreteModel
     VllmModelForTextGeneration <.. ConcreteModel
     SupportsPooling <.. ConcreteModel
@@ -371,19 +373,6 @@ vLLM 将模型初始化和权重装配集中到 loader 相关抽象中。概念�
   → 设备侧整理
 ```
 
-可以表示为：
-
-```mermaid
-flowchart TD
-    A[resolved model class] --> B[initialize model]
-    B --> C[read checkpoint]
-    C --> D[WeightsMapper / model-specific mapping]
-    D --> E[split / merge / shard weights]
-    E --> F[load parameters]
-    F --> G[quantization and post-processing]
-    G --> H[model.eval()]
-```
-
 `WeightsMapper` 的作用不只是简单重命名。实际加载过程可能同时包含以下几类转换。
 
 1、参数命名差异：checkpoint 中的 key 与模型实现中的参数名可能不同，需要进行重命名或前缀转换。
@@ -405,6 +394,41 @@ flowchart TD
 - 延迟初始化；
 - 设备侧布局转换；
 - 加载后量化处理。
+
+前两类转换在 vLLM 里是同一条规则完成的，可以用 Llama 的 attention 和 MLP 权重看清楚。`vllm/model_executor/models/llama.py` 中 `LlamaModel.hf_to_vllm_mapper` 的 `orig_to_new_stacked` 把 HF 的三个独立投影映射到一个融合层 `QKVParallelLinear`，并给每个来源打上 `shard_id`；`gate_proj/up_proj` 同理映射到 `MergedColumnParallelLinear`，`shard_id` 是整数下标。`shard_id` 再由融合层的 `weight_loader` 翻译成融合参数里的行偏移和本 rank 应取的 HF 行区间：
+
+```text
+Llama-3-8B, TP=2：hidden=4096, 32 Q 头 / 8 KV 头, head_dim=128
+每个 rank：num_heads=16, num_kv_heads=4, num_kv_head_replicas=1
+
+HF key (无 model.layers.N.)    HF shape       → vLLM 参数              shard_id
+self_attn.q_proj.weight       [4096, 4096]   → self_attn.qkv_proj.weight   "q"
+self_attn.k_proj.weight       [1024, 4096]   → self_attn.qkv_proj.weight   "k"
+self_attn.v_proj.weight       [1024, 4096]   → self_attn.qkv_proj.weight   "v"
+mlp.gate_proj.weight          [14336, 4096]  → mlp.gate_up_proj.weight      0
+mlp.up_proj.weight            [14336, 4096]  → mlp.gate_up_proj.weight      1
+
+rank r 的 qkv_proj.weight  [3072, 4096]  (output_dim=0, 按行拼接, 非等比)
+ 行偏移
+    0 ┌───────────────────────────┐ ← q_proj.weight[2048r : 2048r+2048)
+      │ "q" shard   16 头 x 128   │   shard_rank = tp_rank
+ 2048 ├───────────────────────────┤ ← k_proj.weight[ 512r :  512r+512)
+      │ "k" shard    4 头 x 128   │   shard_rank = tp_rank // replicas
+ 2560 ├───────────────────────────┤ ← v_proj.weight[ 512r :  512r+512)
+      │ "v" shard    4 头 x 128   │
+ 3072 └───────────────────────────┘
+
+rank r 的 gate_up_proj.weight  [14336, 4096]  (intermediate 14336 / 2)
+    0 ┌───────────────────────────┐ ← gate_proj.weight[7168r : 7168r+7168)
+      │ shard 0  (gate)           │
+ 7168 ├───────────────────────────┤ ← up_proj.weight[7168r : 7168r+7168)
+      │ shard 1  (up)             │
+14336 └───────────────────────────┘
+```
+
+偏移由 `QKVParallelLinear.weight_loader` 按 `q → 0`、`k → num_heads*head_size`、`v → (num_heads+num_kv_heads)*head_size` 计算；`MergedColumnParallelLinear.weight_loader` 则用 `sum(output_sizes[:shard_id])`。注意 k/v 的行区间用 `shard_rank = tp_rank // num_kv_head_replicas` 而不是 `tp_rank`：当 `tp_size > num_kv_heads` 时（例如 8 个 KV 头跑 TP=16），多个 rank 会复制同一个 KV 头，这就是 GQA 在 TP 下的权重复制发生的位置。
+
+这条规则如何被触发，取决于 `AutoWeightsLoader`（`vllm/model_executor/models/utils.py`）的分派：`load_weights` 先用 mapper 改名并把 `shard_id` 挂在张量对象上（`WeightsMapper.apply`），再按名字前缀逐级下钻子模块——`PPMissingLayer` 直接跳过；子模块自带 `load_weights` 的（如 `QKVParallelLinear.load_weights`）委托给它，由它调用 `param.weight_loader(param, w, shard_id)` 完成上图的偏移与切片；普通参数调用 `param.weight_loader`，没有的用 `default_weight_loader` 整块拷贝；对不上任何模块/参数的名字，要么命中 `skip_prefixes`/`ignore_unexpected_*` 规则被忽略（`rotary_emb.inv_freq` 一类默认忽略），要么直接抛 `ValueError` 并列出可用参数名。
 
 因此，更准确的表述是：
 
@@ -506,17 +530,6 @@ Worker / ModelRunner：
 - 是否有 encoder 或多模态输入；
 - 哪些请求已经完成；
 - 哪些 KV 或 encoder 状态需要创建、更新或释放。
-
-数据流可以表示为：
-
-```mermaid
-flowchart LR
-    S[Scheduler] -->|SchedulerOutput| W[Worker]
-    W --> R[ModelRunner]
-    R --> O[ModelRunnerOutput]
-    O --> W
-    W --> S
-```
 
 `SchedulerOutput` 的重要性在于，它将调度决策从具体执行方式中分离出来：
 
@@ -1003,8 +1016,6 @@ Python Module
 CUDA / Triton / CPU Kernel
 ```
 
-**图 7-5  Custom Op 的分层结构**
-
 适合下沉为 Custom Op 的部分包括：
 
 - Attention；
@@ -1293,6 +1304,23 @@ C. 新增模型实现，并扩展运行时状态、执行协议或 backend
 - 是否需要特殊 attention metadata。
 
 这些能力应通过已有的能力契约或 Protocol 表达，而不是通过运行时对具体模型类进行大量类型判断。
+
+具体到代码，一个 decoder-only 生成模型的顶层类（以 `LlamaForCausalLM` 为参照）需要提供的成员并不多，但每一项都有明确的调用方和校验方，缺一项通常在启动的某个固定阶段报错：
+
+| 成员 | 谁调用 / 谁校验 | 作用 | 何时必需 |
+|---|---|---|---|
+| `__init__(self, *, vllm_config, prefix="")` | `initialize_model` 以 `model_cls(vllm_config=..., prefix=...)` 实例化；`VllmModel` Protocol 检查 `vllm_config` 关键字 | 从 `vllm_config.model_config.hf_config` 读结构超参，组合公共层；`prefix` 用于量化/LoRA 按名字定位层 | 总是 |
+| `embed_input_ids(input_ids)` | ModelRunner；`is_vllm_model` 检查 | 把 token id 变成 embedding，与 `forward` 分离以便多模态/EAGLE 直接注入 `inputs_embeds` | 总是 |
+| `forward(input_ids, positions, intermediate_tensors=None, inputs_embeds=None)` | ModelRunner 每 step 调用；Protocol 检查关键字名 `input_ids`、`positions` | 表达一次模型计算，返回最后一层 hidden states（PP 非末段返回 `IntermediateTensors`） | 总是，关键字名不能改 |
+| `compute_logits(hidden_states)` | ModelRunner；`VllmModelForTextGeneration` Protocol | `LogitsProcessor(lm_head, hidden)`，TP rank>0 返回 `None` | 生成模型；pooling 模型改为 `pooler` |
+| `load_weights(weights) -> set[str]` | `DefaultModelLoader.load_weights`，返回值用于检查是否有参数未加载 | 通常仅委托 `AutoWeightsLoader`，加上 `skip_prefixes`（如 tie_word_embeddings 时跳过 `lm_head.`） | 总是 |
+| `hf_to_vllm_mapper: WeightsMapper` | `load_weights` 传给 `AutoWeightsLoader`；LoRA/量化用 `get_unstacked_mapper` 解析原始名 | checkpoint 名 → vLLM 参数名 + `shard_id`（见第三章第 4 节） | checkpoint 命名与实现不一致时 |
+| `packed_modules_mapping` | `SupportsLoRA` / `SupportsQuant` | 融合层 ↔ 原子层（`qkv_proj: [q_proj, k_proj, v_proj]`），LoRA 与量化配置按原子层名匹配 | 用了融合线性层且要支持 LoRA 或量化 |
+| `embedding_modules` | `SupportsLoRA` | 标出 embedding / lm_head 的 LoRA 目标 | 支持 LoRA 时 |
+| `make_empty_intermediate_tensors` | `SupportsPP`；ModelRunner 在 PP 非首段构造输入 | 声明 PP 段间传递的 tensor 名与形状 | 支持 Pipeline Parallel 时 |
+| 注册项 | `ModelRegistry` | 内置：在 `registry.py` 的 `_TEXT_GENERATION_MODELS` 加一行 `"XxxForCausalLM": ("xxx", "XxxForCausalLM")`；树外：`ModelRegistry.register_model("XxxForCausalLM", "pkg.mod:XxxForCausalLM")` | 总是 |
+
+表里没有出现 attention kernel、KV Cache、调度这些词：它们都被 `Attention` 层、`ParallelLinear` 等公共组件封装了，模型类只需要把它们按正确的形状拼起来。
 
 **2.2 权重装配**
 

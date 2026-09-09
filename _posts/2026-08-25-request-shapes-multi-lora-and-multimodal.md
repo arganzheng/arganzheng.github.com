@@ -21,6 +21,13 @@ catalog: true
 
 > **当一个 batch 里的请求各带不同的 LoRA、各带几张图片时，"一个模型、一份权重、一串 token"的假设在哪里破了？vLLM 用什么把它重新缝起来，代价是多少？**
 
+**先说答案**，后面的章节都是这几句话的展开：
+
+- **multi-LoRA** 靠两件事：一是**一个 kernel 处理全部 adapter**——token 不按 adapter 物理重排，只是先算出一份"按 adapter 分好组的行号名单"，每个 adapter 的计算单元照名单去 gather（按索引取）自己的行；二是**槽位静态预分配 + 两层 LRU**——GPU 上按 `max_loras × max_lora_rank` 一次买断一排空槽，adapter 权重在磁盘 → CPU → GPU 槽位之间用两级 LRU 换入换出。
+- **多模态**靠三件事：encoder（ViT 等）**单独跑、单独算预算**，输出按图片哈希做**短期缓存**；prompt 里的图片位置先放普通占位 token，查表得到"形状对但值错"的 embedding，再用一张**布尔掩码**把 encoder 输出盖上去。
+- 两者都要**隔离 prefix cache**：往 KV 块哈希里多加一个键（adapter 名 / 图片哈希 + 偏移），否则不同 adapter、不同图片会错误地复用同一份 KV。
+- **代价**：multi-LoRA 花的是显存（静态买断）与 kernel launch 次数，不是 FLOPs；多模态花的主要是图片占位 token 的 KV（比 encoder 输出大约 20 倍、且伴随请求全程），encoder 输出本身既小又短命。
+
 ## 一、总览：假设在哪里破了
 
 ### 1. 三个隐含假设
@@ -54,7 +61,7 @@ catalog: true
 ```text
 第二章  multi-LoRA        一段回顾；同 batch 异构 adapter 的 Triton kernel；槽位与 LRU；显存账；映射如何进入调度与执行；动态加载；CUDA graph；量化 + LoRA
 第三章  多模态            输入处理流水线与 processor 缓存；占位符与 embedding 合并；encoder 的独立执行与预算；EncoderCacheManager；多模态 prefix cache；显存账；视频与音频
-第四章  叠加与向后        LoRA + 多模态；留给硬件抽象（11）与 PD 分离（12）的问题
+第四章  叠加与向后        LoRA + 多模态；留给硬件抽象（11）与 PD 分离（12）的问题；两个扩展的开销对照
 第五章  本文小结
 ```
 
@@ -62,29 +69,35 @@ catalog: true
 
 ### 1. 一段回顾
 
-LoRA 把权重更新约束为低秩：`W' = W + (α/r)·B·A`，`A ∈ ℝ^{r×in}`，`B ∈ ℝ^{out×r}`，`r ≪ min(in, out)`。训练完可以把 `B·A` 合并进 `W`，推理时零开销——**但 serving 不能合并**：合并后一份 `W'` 只服务一个 adapter，服务 8 个 adapter 就要 8 份 70B 权重。所以 serving 必须保持 unmerged 形式：
+LoRA 把权重更新约束为低秩：`W' = W + (α/r)·B·A`，`A ∈ ℝ^{r×in}`，`B ∈ ℝ^{out×r}`，`r ≪ min(in, out)`。训练完可以把 `B·A` 合并进 `W`，推理时零开销——**但 serving 不能合并**：合并后一份 `W'` 只服务一个 adapter，服务 8 个 adapter 就要 8 份 70B 权重。所以 serving 必须保持 unmerged（不合并）形式：
 
-```text
-y = W·x + (α/r)·B·(A·x)
-    ───┬──   ─────────┬────────
-   基座 GEMM        LoRA 路径：先 shrink（in → r）再 expand（r → out）
-   全 batch 共享     每一行按自己的 adapter 选 A、B
-```
+$$ y = Wx + \frac{\alpha}{r}\, B(Ax) $$
+
+等号右边两部分的待遇不同：第一项 `Wx` 是**基座 GEMM，整个 batch 共享同一份 W**；第二项是 **LoRA 路径**，先用 `A` 把 `in` 维压到 `r` 维（这一步叫 **shrink**），再用 `B` 从 `r` 维展回 `out` 维（叫 **expand**）——而 `A`、`B` 要**按行**选：x 的每一行 token 属于哪个请求、请求挂了哪个 adapter，就用哪个 adapter 的 `A`、`B`。
 
 LoRA 路径的 FLOPs 是 `2·r·(in + out)` 对比基座的 `2·in·out`，`r=16`、`hidden=8192` 时约 0.2%——计算上几乎免费。**问题从来不在 FLOPs，而在"每一行选自己的 A、B"这件事怎么在一个 kernel 里做**，以及这些 A、B 放哪里、怎么换。
 
 ### 2. 同 batch 异构 adapter 的 kernel
 
-朴素做法是按 adapter 把 batch 切开、逐个做小 GEMM：8 个 adapter 就是 8 次 launch，每次只处理几行——decode 阶段本来就是 launch-bound（第六篇），这条路走不通。Punica（`vllm/lora/punica_wrapper/punica_gpu.py` 的文件头引用了论文 *Punica: Multi-Tenant LoRA Serving*）的思路是**一个 kernel 处理全部 adapter**：把 token 按 adapter 分组，grid 的一个维度遍历 adapter，每个 program 只加载自己 adapter 的权重块和自己那组 token。
+**问题**：一个 batch 里有 6 行 token，第 0、1、5 行要乘客服 adapter 的 A、B，第 2 行要乘代码 adapter 的，第 3、4 行不用 LoRA。GPU 上一次矩阵乘默认是"所有行乘同一个矩阵"，怎么让不同的行乘不同的矩阵？
 
-vLLM v0.27.1 的实现是两个 Triton kernel（`vllm/lora/ops/triton_ops/`）：
+**两条走不通的路**：一是按 adapter 把 batch 切开、逐个做小 GEMM——8 个 adapter 就是 8 次 launch，每次只处理几行，decode 阶段本来就是 launch-bound（一步的时间被上千次 kernel 启动的固定开销而不是计算量决定，第六篇），这条路走不通；二是先把 token 按 adapter **物理重排**成连续的几段再算——每层都要重排一次 x 再把 y 排回去，搬数据的开销比 LoRA 本身的计算还大。
 
-| kernel | 做什么 | 形状 |
+**Punica 的直觉**（`vllm/lora/punica_wrapper/punica_gpu.py` 的文件头引用了论文 *Punica: Multi-Tenant LoRA Serving*）用一个类比来说：一个班的学生按座位坐着**不动**（x 的行不动），老师手里有一张**按小组分好的点名单**（排序后的行号数组），第 1 组的老师照名单去找第 0、1、5 号座位的学生，第 2 组的老师去找第 2 号座位的——学生不换座位，换的只是老师看名单的那一段。落到 GPU 上：**一次 launch 处理全部 adapter**，kernel 的 grid（一次 launch 里所有计算单元的排列）多开一维遍历 adapter，每个 program（grid 里的一个计算单元）只看自己 adapter 那一段名单，按名单里的行号从原始 x 里 **gather**（按索引取行）自己要算的几行，乘自己 adapter 的权重块，再把结果按同样的行号加回 y。x 和 y 从头到尾都没有被重排。
+
+下图就是这个 6 token 例子（`max_loras=3`，所以 grid 第三维有 `max_loras + 1 = 4` 格）：上半是 x 的 6 行及其归属，中间是"点名单"——按槽位排好的行号数组，下半是 4 个 program 各自照名单去 gather 哪些行：
+
+![multi-LoRA kernel 的 gather：token 不动，按排序后的行号名单分组取行](/img/in-post/request-shapes-multi-lora-and-multimodal-lora-gather.svg)
+
+**"点名单"是怎么来的**：每个 token 先有一个"槽位号"（`token_lora_mapping`，无 LoRA 记 −1）；对它做一次**稳定排序**（`torch.sort(stable=True)`），得到的**下标**就是按槽位分好组的行号名单（−1 的排在最前）；再做一次 `torch.unique(return_counts=True)`，得到"有哪些槽位、每个槽位几行"，前缀和一下就知道每组在名单里从第几行开始。这些就是 kernel 需要的**五张元数据张量**，由 `LoRAKernelMeta`（`vllm/lora/ops/triton_ops/lora_kernel_metadata.py`）维护、`prepare_tensors()` 每步填一次。每张表回答一个问题：
+
+| 张量 | 回答的问题 | 例子里的值 |
 |---|---|---|
-| `_lora_shrink_kernel`（`lora_shrink_op.py`） | `buffer[slice] += x @ A[slice, lora_id]ᵀ · scale` | `x: [tokens, in]` → `buffer: [num_slices, tokens, r]`，**fp32** |
-| `_lora_expand_kernel`（`lora_expand_op.py`） | `y[:, offset:offset+out_slice] += buffer[slice] @ B[slice, lora_id]ᵀ` | `buffer` → 加回基座输出 `y: [tokens, out]` |
-
-kernel 靠五张元数据张量知道"哪些行属于哪个 adapter"，它们由 `LoRAKernelMeta`（`lora_kernel_metadata.py`）维护：
+| `token_lora_mapping` `[tokens]` | 第 i 行 token 用哪个槽位？（−1 = 无 LoRA） | `[1, 1, 2, -1, -1, 1]` |
+| `token_indices_sorted_by_lora_ids` `[tokens]` | 点名单本身：按槽位分组后的原始行号 | `[3, 4 │ 0, 1, 5 │ 2]` |
+| `active_lora_ids` `[max_loras + 1]` | 名单里第 k 组是哪个槽位？（尾部空位填 −1） | `[-1, 1, 2, -1]` |
+| `num_tokens_per_lora` `[max_loras + 1]` | 第 k 组有几行？ | `[2, 3, 1, 0]` |
+| `lora_token_start_loc` `[max_loras + 2]` | 第 k 组从名单第几行开始？（前缀和） | `[0, 2, 5, 6, …]` |
 
 ```python
 @dataclass
@@ -96,7 +109,26 @@ class LoRAKernelMeta:
     lora_token_start_loc: torch.Tensor            # 每个槽位在排序数组里的起点（前缀和）
 ```
 
-`prepare_tensors()` 每步做一次 `torch.sort(stable=True)` 和一次 `torch.unique(return_counts=True)`，把上面五张表填好。kernel 里的关键几行（`_lora_shrink_kernel`）：
+**"槽位号"又是怎么来的**：这条链上其实有三种编号，名字都带 `lora`，很容易混。请求带来的是 adapter 的全局 id；GPU 上 adapter 权重按**槽位**堆放，kernel 只认槽位；kernel 内部还有一个 grid 下标。对照如下：
+
+| 编号 | 谁产生 | 取值范围 | 无 LoRA 时 | 在哪里被用到 |
+|---|---|---|---|---|
+| `lora_int_id`（adapter 全局 id） | 用户 / API 注册时在 `LoRARequest` 里指定（`vllm/lora/request.py`），必须 > 0 且全局唯一 | 正整数 | `0` | `InputBatch.request_lora_mapping[req_index]`（`vllm/v1/worker/gpu_input_batch.py`）、`LoRAMapping.index_mapping / prompt_mapping`（`vllm/lora/layers/utils.py`）；`LoRAModelManager.lora_index_to_id` 的**值** |
+| 槽位下标（`lora_index_to_id` 的下标；kernel 里的 `lora_id`） | `LoRAModelManager.activate_adapter()` 找第一个空槽时分配；`convert_mapping()`（`vllm/lora/punica_wrapper/utils.py`）按 `lora_index_to_id` 把 `lora_int_id` 反查成它 | `0 … max_loras − 1` | `−1` | `token_lora_mapping`、`active_lora_ids`；`lora_a_stacked[slot]` / `lora_b_stacked[slot]` 的第 0 维 |
+| `lora_idx`（grid 第三维下标） | kernel 内 `tl.program_id(axis=2)` | `0 … max_loras`（共 `max_loras + 1` 格） | 该格 `active_lora_ids[lora_idx] == −1` 时整个 program 直接 `return` | 只在 kernel 里，用来读 `active_lora_ids` / `num_tokens_per_lora` / `lora_token_start_loc` 的第 `lora_idx` 项 |
+
+记住一句话：**请求认 `lora_int_id`，显存认槽位，kernel 的 program 认自己在 grid 里的格号，再用格号查出槽位**。例子里 `lora_idx=1` 这一格查到槽位 1，于是它去 `lora_token_start_loc[1]=2` 开始的名单里取 3 行（第 0、1、5 行），乘 `lora_a_stacked[1]`；`lora_idx=0` 和 `lora_idx=3` 查到 −1，整格退出。
+
+有了名单，剩下的就是两次普通的小矩阵乘。vLLM v0.27.1 的实现是两个 Triton kernel（`vllm/lora/ops/triton_ops/`）：
+
+| kernel | 做什么 | 形状 |
+|---|---|---|
+| `_lora_shrink_kernel`（`lora_shrink_op.py`） | `buffer[slice] += x @ A[slice, lora_id]ᵀ · scale` | `x: [tokens, in]` → `buffer: [num_slices, tokens, r]`，**fp32** |
+| `_lora_expand_kernel`（`lora_expand_op.py`） | `y[:, offset:offset+out_slice] += buffer[slice] @ B[slice, lora_id]ᵀ` | `buffer` → 加回基座输出 `y: [tokens, out]` |
+
+结果：y 第 0、1、5 行 `+= B₁·(A₁·x)`，第 2 行 `+= B₂·(A₂·x)`，第 3、4 行只有基座输出。
+
+把上面的话对应到 kernel 源码里的关键几行（`_lora_shrink_kernel`；不想看代码的读者可以跳过这段，前面的图已经是全部原理）：
 
 ```python
 slice_id = tl.program_id(axis=1)
@@ -110,10 +142,10 @@ if cta_m_offset >= lora_m_size:
     return                                             # 超出这个 adapter 的行数：早退
 lora_m_indices_start = tl.load(lora_token_start_loc + lora_idx)
 ram = tl.load(token_indices_sorted_by_lora_ids + lora_m_indices_start + cta_m_offset + tl.arange(0, BLOCK_M) % cta_m_len)
-                                                       # 这个 CTA 要处理的原始行号（gather）
+                                                       # 这个 CTA（= program）要处理的原始行号（gather）
 ```
 
-于是一次 launch、grid 大小 `[M/BLOCK_M × N/BLOCK_N × SPLIT_K, num_slices, max_loras + 1]`，每个 program 用 `ram` 从原始 `x` 里 gather 自己那几行——**不需要真的把 token 按 adapter 重排**，只是按排序后的索引读。`SLICE_NUM` 维度让 QKV、gate/up 这种合并的投影（`MergedQKVParallelLinearWithLoRA`、`MergedColumnParallelLinearWithLoRA`）一次 launch 处理多个切片。
+于是一次 launch、grid 大小 `[M/BLOCK_M × N/BLOCK_N × SPLIT_K, num_slices, max_loras + 1]`（第一维是普通分块 GEMM 的 tile 编号，第二维是切片，第三维就是上面的 `lora_idx`），每个 program 用 `ram` 从原始 `x` 里 gather 自己那几行——**不需要真的把 token 按 adapter 重排**，只是按排序后的索引读。`SLICE_NUM` 维度让 QKV、gate/up 这种合并的投影（`MergedQKVParallelLinearWithLoRA`、`MergedColumnParallelLinearWithLoRA`）一次 launch 处理多个切片。
 
 调用链：`BaseLinearLayerWithLoRA.apply()`（`vllm/lora/layers/base_linear.py`）→ 基座 `quant_method.apply()` 出 `output` → `punica_wrapper.add_lora_linear(output, x, lora_a_stacked, lora_b_stacked, ...)`（`PunicaWrapperGPU`）→ 分配 fp32 `buffer [num_slices, tokens, r]` → `add_shrink()` → `add_expand()`。**每个带 LoRA 的线性层每步多两次 kernel launch 加一块 fp32 中间缓冲**——第 4 节算账时会回到这里。
 
@@ -121,7 +153,9 @@ ram = tl.load(token_indices_sorted_by_lora_ids + lora_m_indices_start + cta_m_of
 
 ### 3. 槽位与 LRU：adapter 在 GPU 和 CPU 之间怎么换
 
-"每一行选自己的 A、B"要求所有活跃 adapter 的权重**已经在 GPU 上、按槽位堆好**。`BaseLinearLayerWithLoRA.create_lora_weights()` 在模型加载时为每个 LoRA 层一次性分配：
+上一节的 kernel 假定"每个活跃 adapter 的 A、B 已经在 GPU 上、按槽位堆好"。这一节讲这些槽位怎么来、adapter 怎么进出。先给一句话版本：**GPU 上一开始就按 `max_loras` 个空槽把显存买断，adapter 权重在"磁盘 → CPU 内存 → GPU 槽位"两级楼梯上换入换出，每级各有一个 LRU；GPU 层被淘汰只是把槽位让出来（权重还在 CPU 层），CPU 层被淘汰才是真正丢掉。**
+
+先看槽位。`BaseLinearLayerWithLoRA.create_lora_weights()` 在模型加载时为每个 LoRA 层一次性分配：
 
 ```python
 self.lora_a_stacked = tuple(torch.zeros(max_loras, 1, lora_a_out_size, self.input_size, dtype=lora_dtype, device=device)
@@ -132,19 +166,32 @@ self.lora_b_stacked = tuple(torch.zeros(max_loras, 1, lora_b_out_size, max_lora_
 
 第 0 维是**槽位**（`max_loras` 个），第 2/3 维按 `max_lora_rank` 分配——一个 rank-8 的 adapter 也占一个 rank-16 的槽，多出的部分是零。`set_lora(index, lora_a, lora_b)` 把一个 adapter 的权重 `copy_` 进槽位 `index`（TP 下先 `slice_lora_a/b` 切出本卡的分片），`reset_lora(index)` 清零。
 
-槽位由 `LoRAModelManager`（`vllm/lora/model_manager.py`）分配，它维护两层缓存：
+槽位由 `LoRAModelManager`（`vllm/lora/model_manager.py`）分配，它维护两层缓存，外加一张"槽位 → adapter id"的对照表：
 
-```text
-_registered_adapters: AdapterLRUCache[LoRAModel]   容量 = max_cpu_loras   ← CPU 上已加载的 adapter（LoRAModel 对象，权重张量）
-_active_adapters:     AdapterLRUCache[None]        容量 = max_loras       ← 已 copy 进 GPU 槽位的 adapter
-lora_index_to_id:     list[int | None]             长度 = max_loras       ← 槽位号 → adapter id
-```
+| 层 | 容器 | 容量 | 存什么 |
+|---|---|---|---|
+| CPU 层 | `_registered_adapters: AdapterLRUCache[LoRAModel]` | `max_cpu_loras` | 已从磁盘加载的 adapter（`LoRAModel` 对象，权重张量在主机内存） |
+| GPU 层 | `_active_adapters: AdapterLRUCache[None]` | `max_loras` | 已 `copy_` 进 GPU 槽位的 adapter（只记 id，权重就在 `*_stacked` 里） |
+| 对照表 | `lora_index_to_id: list[Optional[int]]` | 长度 `max_loras` | 槽位号 → `lora_int_id`，`None` 表示空槽 |
 
-`activate_adapter(lora_id)`：找第一个空槽（`lora_index_to_id` 里的 `None`），遍历 `self.modules` 里每个 LoRA 层调用 `set_lora()`——**激活一个 adapter = 对每一层做一次 H2D 拷贝**。`LRUCacheLoRAModelManager.activate_adapter()` 在槽满时先 `_active_adapters.remove_oldest()`，其 `_on_remove` 回调把槽位清空。两层缓存的 LRU 序在每次访问时 `touch()`，`pin_adapter()` 可以把某个 adapter 钉在两层里不被淘汰。
+`activate_adapter(lora_id)`：找第一个空槽（`lora_index_to_id` 里的 `None`），遍历 `self.modules` 里每个 LoRA 层调用 `set_lora()`——**激活一个 adapter = 对每一层做一次 H2D（host-to-device，CPU 内存 → 显存）拷贝**。`LRUCacheLoRAModelManager.activate_adapter()` 在槽满时先 `_active_adapters.remove_oldest()`，其 `_on_remove` 回调把槽位清空。两层缓存的 LRU 序在每次访问时 `touch()`，`pin_adapter()` 可以把某个 adapter 钉在两层里不被淘汰。
 
 Worker 侧是 `LRUCacheWorkerLoRAManager`（`vllm/lora/worker_manager.py`）：`_apply_adapters(lora_requests)` 先检查本步请求的不同 adapter 数 ≤ `lora_slots`（超了直接 `RuntimeError`——但调度器保证了不会超，见第 5 节），然后对每个 `add_adapter()`：不在 CPU 缓存里就 `_load_adapter()`——用 `PEFTHelper.from_local_dir()`（`vllm/lora/peft_helper.py`）读 `adapter_config.json` 并 `validate_legal()`（rank 不能超过 `max_lora_rank`），`LoRAModel.from_local_checkpoint()`（`vllm/lora/lora_model.py`）读 safetensors；CPU 缓存满则 `remove_oldest_adapter()`；最后 `activate_adapter()`。源码注释特意说明先加载再淘汰是为了"确保新 adapter 有效后再驱逐旧的"，代价是 CPU 侧短暂超过 `max_cpu_loras`。
 
-每一步的映射由 `LoRAModelRunnerMixin.set_active_loras()`（`vllm/v1/worker/lora_model_runner_mixin.py`）驱动：`InputBatch.make_lora_inputs()` 从 `request_lora_mapping[req_index]` 展开出 `token_lora_mapping`（每个调度 token 一个槽位号）和 `prompt_lora_mapping`（每个采样位置一个，给 `LogitsProcessorWithLoRA` 用），打包成 `LoRAMapping` → `set_active_adapters()` → `LoRAModelManager._set_adapter_mapping()` → `punica_wrapper.update_metadata()` → `LoRAKernelMeta.prepare_tensors()`。注意映射里放的是**槽位号**（`lora_index_to_id` 的下标 + 1，0 表示无 LoRA），不是 adapter id——kernel 只认槽位。
+把两层 LRU 放在一起看一段请求流（`max_loras=2`、`max_cpu_loras=3`，四个 adapter a/b/c/d），可以看清"哪一步读磁盘、哪一步只做 H2D、哪一步两层都要淘汰"（CPU LRU 一列左边最旧、右边最新）：
+
+| 步 | 本步 adapter | 发生了什么 | GPU 槽位 [0] | GPU 槽位 [1] | CPU LRU | 代价 |
+|---|---|---|---|---|---|---|
+| 1 | a | 磁盘 → CPU 加载 a；`activate` → 槽 0 | a | – | `[a]` | 读盘 + H2D |
+| 2 | b | 磁盘 → CPU 加载 b；`activate` → 槽 1 | a | b | `[a b]` | 读盘 + H2D |
+| 3 | a, b | 两层都命中，只 `touch()` | a | b | `[a b]` | 零拷贝 |
+| 4 | c | 磁盘 → CPU 加载 c；GPU 满：`remove_oldest` = a（槽 0 清零），c 逐层 H2D `copy_` 进槽 0 | **c** | b | `[a b c]` | 读盘 + H2D |
+| 5 | a | CPU 命中，不读磁盘；GPU 满：淘汰 b（槽 1），a 重新 H2D 进槽 1 | c | **a** | `[b c a]` | 只 H2D |
+| 6 | d | CPU 满（3）：先加载 d 再淘汰最旧的 b；GPU 淘汰 c，d 进槽 0 | **d** | a | `[c a d]` | 读盘 + H2D |
+
+读磁盘：步 1、2、4、6；只 H2D：步 5；零拷贝：步 3。GPU 层的淘汰只是把槽位清零，adapter 仍留在 CPU 层（步 4 的 a 在步 5 免去了磁盘读）；CPU 层的淘汰才真正丢弃权重。第 6 节会说明这些加载都发生在 `execute_model` 里、整个 batch 同步等待。
+
+每一步的映射由 `LoRAModelRunnerMixin.set_active_loras()`（`vllm/v1/worker/lora_model_runner_mixin.py`）驱动：`InputBatch.make_lora_inputs()` 从 `request_lora_mapping[req_index]` 展开出 `token_lora_mapping`（每个调度 token 一个）和 `prompt_lora_mapping`（每个采样位置一个，给 `LogitsProcessorWithLoRA` 用），打包成 `LoRAMapping` → `set_active_adapters()` → `LoRAModelManager._set_adapter_mapping()` → `punica_wrapper.update_metadata()` → `LoRAKernelMeta.prepare_tensors()`。注意这条链上有一次**编号换算**：`InputBatch` 与 `LoRAMapping` 里放的是 adapter 的 `lora_int_id`（0 表示无 LoRA），到 `punica_wrapper/utils.py` 的 `convert_mapping()` 才按 `lora_index_to_id` 反查成**槽位下标**（−1 表示无 LoRA）——kernel 只认槽位（就是第 2 节那张三种编号对照表的第一行到第二行）。
 
 ### 4. 显存账：`max_loras` × `max_lora_rank` 买了什么
 
@@ -219,7 +266,35 @@ Worker 侧是 `LRUCacheWorkerLoRAManager`（`vllm/lora/worker_manager.py`）：`
 
 ### 1. 输入处理流水线：HF processor 的复用与缓存
 
-文本请求的输入处理是 tokenizer 一步；多模态请求要先把图片变成像素张量、算出它会占多少 token、把占位符插进 prompt。vLLM 把这条链放在 `vllm/multimodal/processing/`，由 `MultiModalRegistry`（`vllm/multimodal/registry.py`）按模型类找到对应的 `BaseMultiModalProcessor`（`processing/processor.py`）。它的 `apply()` docstring 概括了三步：
+文本请求的输入处理是 tokenizer 一步；多模态请求要先把图片变成像素张量、算出它会占多少 token、把占位符（placeholder：在 prompt 里替图片"占座"的 N 个特殊 token，N = 这张图会变成多少个 embedding）插进 prompt。先把一张图从进门到变成 KV 的完整路径摆出来——它跨了三个进程，两级缓存（processor cache、encoder cache）分别落在前两个进程的边界上，本章 1–4 节就是沿着这条路径展开：
+
+```mermaid
+flowchart TB
+  subgraph api["API server 进程：输入处理（第 1 节）"]
+    img["图片 + 文本 prompt<br/>MultiModalHasher 对原始像素算 mm_hash"] --> pcache{"processor cache 命中?"}
+    pcache -- "未命中" --> hf["HF processor<br/>resize / 切 patch → pixel_values"]
+    pcache -- "命中" --> nodata["data = None<br/>张量不再过 IPC"]
+    hf --> ph["PromptReplacement<br/>image → N 个 image_token，产出 PlaceholderRange"]
+    nodata --> ph
+  end
+  ph -- "MultiModalFeatureSpec<br/>(mm_hash, mm_position, data)" --> ecm
+  subgraph eng["EngineCore 进程：Scheduler（第 3、4 节）"]
+    ecm["EncoderCacheManager<br/>check_and_update_cache / can_allocate<br/>扣 encoder_compute_budget"] --> so["SchedulerOutput<br/>scheduled_encoder_inputs / free_encoder_mm_hashes"]
+  end
+  subgraph wk["Worker 进程：GPUModelRunner.execute_model（第 2、3 节）"]
+    so --> enc["_execute_mm_encoder()：ViT embed_multimodal()<br/>先于 decoder 单独跑，输出写入<br/>encoder_cache#91;mm_hash#93;（普通 dict，显存）"]
+    so --> emb["embed_input_ids()<br/>占位 token 查表：形状对、值错"]
+    enc --> merge["_gather_mm_embeddings()<br/>is_mm_embed 掩码就地覆盖"]
+    emb --> merge
+    merge --> dec["decoder forward → KV Cache"]
+  end
+  classDef cache fill:#fff3cd,stroke:#b8860b;
+  classDef gpu fill:#e3f2fd,stroke:#1565c0;
+  class pcache,enc cache;
+  class emb,merge,dec gpu;
+```
+
+vLLM 把第一段（输入处理）放在 `vllm/multimodal/processing/`，由 `MultiModalRegistry`（`vllm/multimodal/registry.py`）按模型类找到对应的 `BaseMultiModalProcessor`（`processing/processor.py`）。它的 `apply()` docstring 概括了三步：
 
 ```text
 1. 对 prompt 文本和多模态数据一起调用 HF processor，得到 token ids 和处理后的张量（pixel_values 等）
@@ -246,6 +321,10 @@ class PlaceholderRange:
 
 ### 2. 多模态 token 与占位符如何进入 prompt
 
+**问题**：decoder 的输入必须是一条 `[num_tokens, hidden]` 的 embedding 矩阵，文本 token 的那几行查 embedding 表就有了，可图片那几行的 embedding 是 ViT 算出来的，怎么把两种来源拼到一条矩阵里？
+
+**直觉**：不拼，而是**先占位、再覆盖**。prompt 里图片所在的位置先塞上 `length` 个普通的占位 token（模型专用的 image token id，重复 N 次）——它们和文本一样走查表，得到的向量**形状是对的、值是错的**（谁会在意一个占位符查出来什么）；然后拿 encoder 的输出，用一张"哪些位置是图片"的布尔掩码，把这些行**就地盖掉**。这样 decoder 看到的仍是一条普通的 embedding 矩阵，调度器、KV 分块也仍然按普通 token 数。
+
 到 model runner 时，多模态请求的 `prompt_token_ids` 已经是一串普通 token id，其中 `mm_position` 指向的区间填的是模型的 image token id（重复 `length` 次）。它们和文本 token 一起走 `embed_input_ids()`，得到一个"错误但形状正确"的 embedding；然后在正确的位置**覆盖**成 encoder 输出：
 
 ```python
@@ -256,11 +335,21 @@ def _merge_multimodal_embeddings(inputs_embeds, multimodal_embeddings, is_multim
     return inputs_embeds
 ```
 
-`is_multimodal` 这张 `[total_num_scheduled_tokens]` 的布尔掩码由 `GPUModelRunner._gather_mm_embeddings()` 构造：遍历本步每个请求、找出与 `[num_computed_tokens, num_computed_tokens + num_scheduled_tokens)` 窗口重叠的 `mm_features`（`get_mm_features_in_window()`），对每个重叠的图计算本步覆盖的是它的第 `start_idx` 到 `end_idx` 个占位——**chunked prefill 可以把一张图切在两个 chunk 里**，这一步 chunk 只取 encoder 输出的对应片段（`pos_info.get_embeds_indices_in_range()` 处理 `is_embed` 掩码下的下标换算）。掩码在 CPU pinned 内存上填好再传 GPU，避免 D2H 同步。
+这张掩码有两处让它不那么平凡。一是**占位区间里可能夹着真文本**：有的模型在每行图像 token 之间插一个换行 token，它在 `PlaceholderRange` 的区间之内，却不该被覆盖——`is_embed` 就是区间内的一张细粒度掩码，标出哪些位置真的要填 encoder 输出。二是 **chunked prefill**（第四篇：一个长 prompt 分几步算，每步只算一个 chunk）**可以把一张图切在两个 chunk 里**：这一步只算图的前半，就只能取 encoder 输出的前半——而"前半"要在两个坐标系之间换算：prompt 位置坐标下的"占位区间第几个位置"，和 encoder 输出坐标下的"第几个 embedding"，两者因为夹着的文本 token 而错位。
+
+具体地，`is_multimodal` 这张 `[total_num_scheduled_tokens]` 的布尔掩码由 `GPUModelRunner._gather_mm_embeddings()` 构造：遍历本步每个请求、找出与 `[num_computed_tokens, num_computed_tokens + num_scheduled_tokens)` 窗口重叠的 `mm_features`（`get_mm_features_in_window()`），对每个重叠的图计算本步覆盖的是它的第 `start_idx` 到 `end_idx` 个占位，只取 encoder 输出的对应片段（`pos_info.get_embeds_indices_in_range()` 处理 `is_embed` 掩码下的下标换算）。掩码在 CPU pinned 内存上填好再传 GPU，避免 D2H 同步。
+
+下面用一个 13 token 的 prompt 把这几层下标对齐：`PlaceholderRange` 给出占位区间（offset=2，length=9），`is_embed` 挖掉区间里夹着的文本 token（位置 6 是一个换行），encoder 一共输出 8 个 embedding e0..e7；chunk 窗口再把区间切成两半，每半只取 encoder 输出的对应片段：
+
+![占位区间、is_embed 掩码、encoder 输出下标与两个 chunk 窗口的对齐](/img/in-post/request-shapes-multi-lora-and-multimodal-placeholder-align.svg)
+
+最后一步就是 `inputs_embeds[is_mm_embed] = mm_embeds_flat`——盖掉查表得到的占位 embedding。注意两点：位置 6 的换行虽然在占位区间内，但 `is_embed=0`，它保留查表 embedding，encoder 输出的下标也跳过它；chunk 2 的 `start_idx=4` 是"encoder 输出的第 4 个"而不是"占位区间的第 5 个位置"——`get_embeds_indices_in_range()` 做的正是这两个坐标系之间的换算。
 
 encoder 输出从 `self.encoder_cache[mm_hash]` 取——这是一个普通的 `dict[str, torch.Tensor]`，不是预分配的显存池。取不到会 `RuntimeError("Encoder cache miss")`，唯一的例外是 EAGLE 的 draft 多看了一个位置、读到了尚未编码的下一张图（调度器与 runner 用 `shift_computed_tokens=1` 表达这个偏移，见第七篇的投机解码一章）。
 
 ### 3. encoder 的独立执行与预算
+
+先用一句话建立这两节的画面：**encoder 是一道单独的菜，有自己的锅（每步的计算预算）和临时盘子（encoder cache）；菜做好先放盘子里，decoder 要用时从盘子里取；等这张图的占位区间 prefill 完、菜上桌了，盘子就可以收走**。第 3 节讲锅——encoder 怎么单独跑、预算怎么算、预算不够时调度器怎么办；第 4 节讲盘子——`EncoderCacheManager` 怎么给盘子记账。
 
 encoder（ViT / 音频编码器）不是 decoder forward 的一部分——它在 `execute_model` 里**先于** decoder 单独跑（`GPUModelRunner._execute_mm_encoder()`）：从 `scheduler_output.scheduled_encoder_inputs` 取出本步要编码的项，`group_and_batch_mm_kwargs()`（`vllm/v1/worker/utils.py`）按模态分组、同模态的项拼成一个 batch，调用模型的 `embed_multimodal(**kwargs)`（`SupportsMultiModal` 协议，`vllm/model_executor/models/interfaces.py`），输出按 `mm_hash` 写进 `self.encoder_cache`。视觉编码器可以有自己的 CUDA graph（`EncoderCudaGraphManager`，`vllm/v1/worker/encoder_cudagraph.py`）。TP 下有两种切法（`MultiModalConfig.mm_encoder_tp_mode`）："weights" 按 TP 切 ViT 权重（默认），"data" 每卡持有完整 ViT、把图片分给各卡（`run_dp_sharded_vision_model()`，`vllm/model_executor/models/vision.py`）——ViT 很小，切权重通信占比高，切数据往往更快。
 
@@ -286,13 +375,31 @@ encoder 用双向注意力，一张图必须整体编码（注释："the encoder
 
 ### 4. `EncoderCacheManager`：encoder 输出的分配与释放
 
-`EncoderCacheManager`（`vllm/v1/core/encoder_cache_manager.py`）管的是 encoder cache 的**账**，不是显存本身（显存就是 worker 上那个 dict）：
+接着上面的比喻：盘子（encoder 输出的显存）在 worker 进程里，就是 `GPUModelRunner.encoder_cache` 那个普通 dict；但**哪个盘子有人在用、哪个盘子可以收、什么时候通知 worker 收**，这本账在调度器进程里，由 `EncoderCacheManager`（`vllm/v1/core/encoder_cache_manager.py`）记。它管的是**账**，不是显存本身，账本上只有四样东西：
 
-```text
-cache_size / num_free_slots / num_freeable_slots     单位：embedding 数
-cached:     dict[mm_hash → set[request_id]]          谁在引用这份输出
-freeable:   OrderedDict[mm_hash → num_embeds]        引用数为 0、可以被驱逐的，FIFO
-freed:      list[mm_hash]                            本步真正驱逐的，通过 SchedulerOutput.free_encoder_mm_hashes 通知 worker pop
+| 字段 | 类型 | 含义 |
+|---|---|---|
+| `cache_size` / `num_free_slots` / `num_freeable_slots` | `int` | 总容量 / 空余 / 可回收，单位都是 **embedding 数** |
+| `cached` | `dict[mm_hash → set[request_id]]` | 哪些请求正在引用这份 encoder 输出（引用数 > 0 不可驱逐） |
+| `freeable` | `OrderedDict[mm_hash → num_embeds]` | 引用数已归零、可以被驱逐的，FIFO 先进先出 |
+| `freed` | `list[mm_hash]` | 本步真正驱逐的，通过 `SchedulerOutput.free_encoder_mm_hashes` 通知 worker `pop` |
+
+一个 `mm_hash` 在这套账里的状态迁移如下（`freeable` 与 `cached` 之间可以来回，`freed` 之后 worker 才真正释放显存）：
+
+```mermaid
+flowchart TB
+  none["不在 cache<br/>（未编码，或已被 worker pop）"]
+  none -- "can_allocate() 通过 → allocate()<br/>扣 num_free_slots，引用 +1" --> sched["本步 scheduled_encoder_inputs<br/>worker _execute_mm_encoder() 写入 dict"]
+  sched --> cached["cached#91;mm_hash#93;<br/>= 引用它的 request_id 集合<br/>引用数 > 0，不可驱逐"]
+  cached -- "另一请求 check_and_update_cache()<br/>命中：引用 +1，不再调度 encoder" --> cached
+  cached -- "占位区间 prefill 完 /<br/>请求结束或被抢占<br/>free_encoder_input()，引用归零" --> freeable["freeable（FIFO）<br/>可被驱逐，但输出仍在 dict 里"]
+  freeable -- "新请求引用同一张图<br/>从 freeable 摘出，引用 +1" --> cached
+  freeable -- "别的图 can_allocate() 空间不够<br/>从 FIFO 头部驱逐" --> freed["freed 列表<br/>随 SchedulerOutput.<br/>free_encoder_mm_hashes 下发"]
+  freed -- "下一步 execute_model 开头<br/>encoder_cache.pop()" --> none
+  classDef live fill:#e8f5e9,stroke:#2e7d32;
+  classDef dying fill:#fff3cd,stroke:#b8860b;
+  class sched,cached live;
+  class freeable,freed dying;
 ```
 
 生命周期：
@@ -365,6 +472,18 @@ CPU 侧还有 processor cache 的 `4 GiB × (api_server_count + dp_size)`。
 - **encoder 放哪一侧？** 它的输出只在 prefill 时需要，自然属于 P 侧；但 P 侧的显存本来就要给大 batch 的 prefill 激活，ViT 的峰值激活会挤它。v0.27.1 已经有第三种选择的骨架：`ECTransferConfig`（`vllm/config/ec_transfer.py`）与 `vllm/distributed/ec_transfer/` 定义了 encoder cache 的 producer / consumer，`mm_encoder_only=True` 让一个实例只跑 encoder，调度器里 `_try_schedule_encoder_inputs()` 的 `external_load_encoder_input` 分支对应"encoder 输出从远端来"。E/P/D 三池分离的问题是：encoder 输出（每张图 9–21 MB）值不值得走一次网络？
 - **LoRA 在两个池怎么同步？** KV 的块哈希包含 `lora_name`，P 侧算出的 KV 只对同一个 adapter 有效；D 侧必须有同一个 adapter 且槽位可用，否则传过来的 KV 无法使用。两个池的 `max_loras`、adapter 集合、LRU 状态如何保持一致，是 PD 分离下 multi-LoRA 的新问题。
 - **处理器缓存在哪一侧？** `mm_processor_cache` 在 API 进程与引擎进程之间；PD 分离后请求要经过 P 和 D 两个引擎，图片张量是传两次、还是 D 侧根本不需要（只需要 KV）？
+
+### 4. 两个扩展的开销对照
+
+把第二章第 4 节和第三章第 6 节的账放到一张表里，回答开头问的"代价是多少"（数字仍是我们的例子：Llama-3-70B、8×H100、TP=8）：
+
+| | multi-LoRA | 多模态 |
+|---|---|---|
+| **显存：静态** | `max_loras × max_lora_rank` 买断：8 个 rank-16 槽位 ≈ **1.44 GB / 卡**，= 36K token 的 KV 或 15 个例子请求；CUDA graph 多录一套 | encoder 激活峰值：`profile_run()` 实测后从可用显存里扣掉（ViT 对 1024² 图有 5329 个 patch 的注意力）；encoder cache 上限 `max_num_batched_tokens` 个 embedding ≈ 268 MB |
+| **显存：动态** | fp32 中间缓冲 `[num_slices, tokens, r]`，每层 KB 级；CPU 侧 `max_cpu_loras × 414 MB` × worker 数 | 一张图的 encoder 输出 9–21 MB、只活几步；**它占的 KV 184–426 MB、活全程**（≈ 20×）；CPU 侧 processor cache `4 GiB × (api_server_count + dp_size)` |
+| **计算与 launch** | FLOPs +0.2%；**+1120 次 kernel launch / 步**（7 模块 × 2 × 80 层），必须进 CUDA graph；每步一次 `sort` + `unique` | encoder 是 decoder 之前的一次独立 forward，可有自己的 CUDA graph；占位 token 的 decoder 计算与普通 token 相同 |
+| **调度新约束** | 一步内活跃 adapter 数 ≤ `max_loras`，超出的 waiting 请求被跳过（FCFS 被打破，无 aging）；新 adapter 首次加载时整个 batch 同步等磁盘 | encoder compute budget（每步 ≤ `max_num_batched_tokens` 个 embedding），一张图整体编码不可拆；预算不够则 `num_new_tokens` 截到图之前，甚至为 0；encoder-decoder 模型关闭 chunked prefill 与 prefix cache |
+| **正确性 / 隔离** | 块哈希 `extra_keys` 加 `lora_name`：同一前缀在不同 adapter 下是两条哈希链、两份块 | 块哈希 `extra_keys` 加 `(mm_hash, 图起点相对块起点的偏移)`：相同 token 序列、不同图 → 从图开始全部不命中 |
 
 <details markdown="1">
 <summary><b>📂 本章源码导航</b></summary>

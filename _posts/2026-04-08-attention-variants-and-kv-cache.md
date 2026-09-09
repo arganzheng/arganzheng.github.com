@@ -56,7 +56,18 @@ $$
 
 ### 2. 不缓存的代价
 
-自回归生成第 $$t$$ 个 token 时，它的 query 要与前面全部 $$t$$ 个位置的 key 做点积，再对 $$t$$ 个 value 加权求和。这 $$t$$ 个位置的 $$K$$、$$V$$ 在生成第 $$t-1$$ 个 token 时已经算过一遍，而且**数值完全不变**（causal 模型里，前面的 token 看不到后面的 token）。
+自回归生成第 $$t$$ 个 token 时，它的 query 要与前面全部 $$t$$ 个位置的 key 做点积，再对 $$t$$ 个 value 加权求和。这 $$t$$ 个位置的 $$K$$、$$V$$ 在生成第 $$t-1$$ 个 token 时已经算过一遍，而且**数值完全不变**（causal 模型里，前面的 token 看不到后面的 token）。把 decode 的前几步排开看，cache 每步只追加一行，但每步都要被整份读一遍：
+
+```text
+步    本步新算     KV cache（每层，只追加、不修改）        读取    score 行
+t=1   q1 k1 v1     [k1 v1]                                1 行    q1·k1
+t=2   q2 k2 v2     [k1 v1][k2 v2]                         2 行    q2·[k1 k2]
+t=3   q3 k3 v3     [k1 v1][k2 v2][k3 v3]                  3 行    q3·[k1 k2 k3]
+t=4   q4 k4 v4     [k1 v1][k2 v2][k3 v3][k4 v4]           4 行    q4·[k1 … k4]
+ ⋮                  ↑ 算过一次就不再变化（causal）         O(t)
+
+不缓存的 t=4：x1..x4 全部重算 → q、k、v 各 4 行，score 4×4，单步 O(t²)
+```
 
 如果不缓存，生成第 $$t$$ 个 token 时就得把前 $$t$$ 个 token 重新做一次完整前向：
 
@@ -126,7 +137,28 @@ Grouped-Query Attention（Ainslie 等 2023）取中间值：把 $$n_h$$ 个 quer
 - Llama-3-8B：$$n_h = 32$$，$$n_{kv} = 8$$，$$g = 4$$；
 - Llama-3-70B：$$n_h = 64$$，$$n_{kv} = 8$$，$$g = 8$$。
 
-$$g = 1$$ 是 MHA，$$g = n_h$$ 是 MQA。Llama-3-8B 的 128 KiB/token、70B 的 320 KiB/token，就是 GQA 下的数字。参数量上 Llama-3-8B 每层 $$W_K$$、$$W_V$$ 各 $$4096 \times 8 \times 128 = 4.19$$M，与 $$W_Q$$、$$W_O$$ 的 16.78M 相比只剩四分之一——上一篇算出的每层 attention 41.94M，已经包含了这一节省。
+$$g = 1$$ 是 MHA，$$g = n_h$$ 是 MQA。四种结构的差别，就是 query head 到 KV head 的映射方式不同（以 $$n_h = 8$$ 为例；MLA 放在第四章展开，这里先看它在这张图里的位置）：
+
+```text
+                 q0   q1   q2   q3   q4   q5   q6   q7     每层每 token 缓存
+MHA  (n_kv=8)    │    │    │    │    │    │    │    │
+                 kv0  kv1  kv2  kv3  kv4  kv5  kv6  kv7    8 × 2 × d_head
+
+GQA  (n_kv=2)    │    │    │    │    │    │    │    │
+  g = 4          └────┴─┬──┴────┘    └────┴─┬──┴────┘
+                       kv0                 kv1         2 × 2 × d_head
+
+MQA  (n_kv=1)    │    │    │    │    │    │    │    │
+                 └────┴────┴────┴──┬─┴────┴────┴────┘
+                                  kv0                  1 × 2 × d_head
+
+MLA              │    │    │    │    │    │    │    │
+                 W_UK,h / W_UV,h：每个 head 各自的升维矩阵（是权重，不缓存）
+                 └────┴────┴────┴──┬─┴────┴────┴────┘
+                       c^KV (d_c) + k^R (d_h^R)        d_c + d_h^R
+```
+
+Llama-3-8B 的 128 KiB/token、70B 的 320 KiB/token，就是 GQA 下的数字。参数量上 Llama-3-8B 每层 $$W_K$$、$$W_V$$ 各 $$4096 \times 8 \times 128 = 4.19$$M，与 $$W_Q$$、$$W_O$$ 的 16.78M 相比只剩四分之一——上一篇算出的每层 attention 41.94M，已经包含了这一节省。
 
 Ainslie 等 2023 的另一个贡献是**从已有 MHA checkpoint 转换**：把同一组内 $$g$$ 个 head 的 $$W_K$$（以及 $$W_V$$）做均值池化，
 
@@ -161,7 +193,24 @@ GQA 的 $$g$$ 把这个数字从 1 提到 4 或 8，距 ridge point 295 仍差�
 
 $$n_{kv}$$ 还悄悄决定了另一件事：tensor parallel 的切分粒度。attention 按 head 切分时，每张卡拿到 $$n_h / \text{TP}$$ 个 query head 和 $$n_{kv} / \text{TP}$$ 个 KV head。Llama-3-70B 的 8 个 KV 头意味着 TP = 8 时每卡恰好一个 KV 头、8 个 query head，KV cache 也恰好按卡均分——每卡每 token $$320 / 8 = 40$$ KiB。
 
-TP 一旦超过 $$n_{kv}$$（比如 70B 用 TP = 16），KV 头就不够分了，只能**复制**：两张卡持有同一个 KV 头的副本，各算 4 个 query head。此时每卡的 KV cache 不再随 TP 缩小，总的 KV 显存变成 $$\text{TP} / n_{kv}$$ 倍。这是为什么 8 个 KV 头的模型在 8 卡以上的 TP 收益递减，也是 Megatron 与 vLLM 里 `num_kv_heads` 与 TP 度之间要满足整除或复制关系的原因。MLA 只有一个（latent）KV 头，任何 TP 度下都必须整份复制——DeepSeek 自己的推理方案因此在 attention 部分不用 TP 而用 DP（每卡处理不同的请求），这个选择直接来自本节的算术。
+TP 一旦超过 $$n_{kv}$$（比如 70B 用 TP = 16），KV 头就不够分了，只能**复制**：两张卡持有同一个 KV 头的副本，各算 4 个 query head：
+
+```text
+Llama-3-70B：n_h = 64，n_kv = 8，320 KiB/token
+
+TP = 8    卡0        卡1        卡2        …   卡7
+query     q0..q7     q8..q15    q16..q23       q56..q63
+KV head   kv0        kv1        kv2            kv7
+          每卡 40 KiB/token，8 卡合计 320 KiB（恰好均分）
+
+TP = 16   卡0     卡1     卡2     卡3     …   卡14    卡15
+query     q0..3   q4..7   q8..11  q12..15     q56..59 q60..63
+KV head   kv0     kv0     kv1     kv1         kv7     kv7
+          └──复制───┘     └──复制───┘             └──复制───┘
+          每卡仍 40 KiB/token，16 卡合计 640 KiB（TP/n_kv = 2 倍）
+```
+
+此时每卡的 KV cache 不再随 TP 缩小，总的 KV 显存变成 $$\text{TP} / n_{kv}$$ 倍。这是为什么 8 个 KV 头的模型在 8 卡以上的 TP 收益递减，也是 Megatron 与 vLLM 里 `num_kv_heads` 与 TP 度之间要满足整除或复制关系的原因。MLA 只有一个（latent）KV 头，任何 TP 度下都必须整份复制——DeepSeek 自己的推理方案因此在 attention 部分不用 TP 而用 DP（每卡处理不同的请求），这个选择直接来自本节的算术。
 
 
 ## 四、MLA：把 K、V 压成一个 latent
@@ -209,6 +258,58 @@ o_{t,h} = \sum_{j \le t} \text{softmax}_j\left(\frac{q_{t,h}^\top k_{j,h}}{\sqrt
 $$
 
 $$W_O$$ 是 $$16384 \times 7168$$（$$16384 = 128 \times 128$$，value 的 head dim 是 128）。这就是总纲基线里 $$d_{head} = 192$$（q/k：128 nope + 64 rope）、v 为 128 的来源。
+
+把上面几组投影连起来，一个 token 在一层 MLA 里的数据流如下——注意只有虚线框里的两个量进 KV cache，升维后的 $$k^C$$、$$v^C$$ 和 query 侧的一切都是即算即用：
+
+```mermaid
+flowchart TB
+    H["h_t (7168)"]
+    subgraph qside["Query 侧（不进 cache）"]
+        direction TB
+        DQ["W_DQ: 7168 → 1536"]
+        CQ["c^Q_t (1536)"]
+        UQ["W_UQ + W_QR: 1536 → 128 × 192"]
+        QC["q^C_t: 128 head × 128"]
+        QR["q^R_t: 128 head × 64<br/>每 head 各自 RoPE"]
+    end
+    subgraph kvside["KV 侧"]
+        direction TB
+        DKV["W_DKV + W_KR: 7168 → 576"]
+        CKV["c^KV_t (512)<br/>RMSNorm"]
+        KR["k^R_t (64)<br/>RoPE，128 个 head 共享"]
+        UK["W_UK: 512 → 128 × 128"]
+        UV["W_UV: 512 → 128 × 128"]
+        KC["k^C_t: 128 head × 128"]
+        VC["v^C_t: 128 head × 128"]
+    end
+    CAT["q_t,h = #91;q^C ; q^R#93; (192)<br/>k_j,h = #91;k^C ; k^R#93; (192)"]
+    ATT["softmax(q·k / √192) · v^C<br/>128 个 head，各得 128 维"]
+    WO["W_O: 16384 → 7168"]
+    U["u_t (7168)"]
+
+    H --> DQ --> CQ --> UQ
+    UQ --> QC
+    UQ --> QR
+    H --> DKV
+    DKV --> CKV
+    DKV --> KR
+    CKV --> UK --> KC
+    CKV --> UV --> VC
+    QC --> CAT
+    QR --> CAT
+    KC --> CAT
+    KR --> CAT
+    CAT --> ATT
+    VC --> ATT
+    ATT --> WO --> U
+
+    classDef cache fill:#fde68a,stroke:#b45309,stroke-width:2px,stroke-dasharray:5 3;
+    classDef weight fill:#e0e7ff,stroke:#4338ca;
+    class CKV,KR cache;
+    class DQ,UQ,DKV,UK,UV,WO weight;
+```
+
+黄色虚线框是 cache 里的全部内容：每 token 每层 512 + 64 = 576 个数。
 
 这些量在 DeepSeek-V3 的 `config.json` 里对应的字段是：
 
@@ -298,6 +399,44 @@ $$
 
 这在 kernel 层面就是一个 **head dim 为 576/512、128 个 query head 共享一个 KV head 的 MQA**。vLLM、SGLang 中的 MLA decode 路径以及 DeepSeek 开源的 FlashMLA，都是按这个形状写的。
 
+把"字面执行"与"吸收后"两条路径并排放在一起，可以看清吸收到底挪动了什么——同一份 cache，升维矩阵从 cache 一侧（每个 cached token 都要乘）挪到了 query / 输出一侧（每步只乘一次）：
+
+```mermaid
+flowchart TB
+    subgraph naive["非吸收路径（字面公式，prefill 用）"]
+        direction TB
+        N0["cache: c^KV_j (512), k^R_j (64)"]
+        N1["W_UK, W_UV 升维<br/>每个 cached token 2 × 512 × 32768 FLOPs"]
+        N2["k^C_j, v^C_j: 128 head × 128"]
+        N3["标准 attention<br/>q·k 192 维，p·v 128 维"]
+        N4["o_t,h (128) × 128 head"]
+        N5["W_O: 16384 → 7168"]
+        N0 --> N1 --> N2 --> N3 --> N4 --> N5
+    end
+    subgraph absorb["吸收路径（decode 用）"]
+        direction TB
+        A0["q^C_t,h (128)"]
+        A1["W_UK,h^T（可离线并入 W_UQ）<br/>每步 128 次 128 × 512 矩阵向量乘"]
+        A2["q~_t,h (512) 拼 q^R_t,h (64) → 576"]
+        A3["cache: #91;c^KV_j ; k^R_j#93; (576)<br/>直接点积，不升维"]
+        A4["p_t,j,h → Σ_j p · c^KV_j<br/>o~_t,h (512)"]
+        A5["W_O,h · W_UV,h（离线合并 7168 × 512）"]
+        A0 --> A1 --> A2 --> A3 --> A4 --> A5
+    end
+    OUT["u_t (7168)：两条路径数值相同"]
+    N5 --> OUT
+    A5 --> OUT
+
+    classDef cache fill:#fde68a,stroke:#b45309,stroke-width:2px;
+    classDef moved fill:#dcfce7,stroke:#15803d;
+    classDef heavy fill:#fee2e2,stroke:#b91c1c;
+    class N0,A3 cache;
+    class N1 heavy;
+    class A1,A5 moved;
+```
+
+红色是被消掉的"每个 cached token 都要做"的升维，绿色是它被挪到的新位置——只与当前 query 有关、每步一次。
+
 ### 6. 吸收后的算量与访存：decode 划算，prefill 不一定
 
 套用第三章第 3 节的推导：每读一个 KV 元素服务 128 个 query head，$$g = 128$$。更精确地算每个 cached token 每层：
@@ -375,6 +514,31 @@ $$
 $$
 \sum_{t=1}^{s} t \approx \frac{s^2}{2}
 $$
+
+两种 mask 在 score 矩阵上的形状，以及分块实现能跳过哪些块：
+
+```text
+因果掩码（s = 12，块大小 4）          sliding window（w = 4）
+t↓  j = 0 … 11 →                      t↓  j = 0 … 11 →
+0    ■ · · · │ · · · · │ · · · ·      0    ■ · · · · · · · · · · ·
+1    ■ ■ · · │ · · · · │ · · · ·      1    ■ ■ · · · · · · · · · ·
+2    ■ ■ ■ · │ · · · · │ · · · ·      2    ■ ■ ■ · · · · · · · · ·
+3    ■ ■ ■ ■ │ · · · · │ · · · ·      3    ■ ■ ■ ■ · · · · · · · ·
+     ────────┼─────────┼─────────
+4    ■ ■ ■ ■ │ ■ · · · │ · · · ·      4    · ■ ■ ■ ■ · · · · · · ·
+5    ■ ■ ■ ■ │ ■ ■ · · │ · · · ·      5    · · ■ ■ ■ ■ · · · · · ·
+6    ■ ■ ■ ■ │ ■ ■ ■ · │ · · · ·      6    · · · ■ ■ ■ ■ · · · · ·
+7    ■ ■ ■ ■ │ ■ ■ ■ ■ │ · · · ·      7    · · · · ■ ■ ■ ■ · · · ·
+     ────────┼─────────┼─────────
+8    ■ ■ ■ ■ │ ■ ■ ■ ■ │ ■ · · ·      8    · · · · · ■ ■ ■ ■ · · ·
+9    ■ ■ ■ ■ │ ■ ■ ■ ■ │ ■ ■ · ·      9    · · · · · · ■ ■ ■ ■ · ·
+10   ■ ■ ■ ■ │ ■ ■ ■ ■ │ ■ ■ ■ ·      10   · · · · · · · ■ ■ ■ ■ ·
+11   ■ ■ ■ ■ │ ■ ■ ■ ■ │ ■ ■ ■ ■      11   · · · · · · · · ■ ■ ■ ■
+
+■ 计算   · 掩掉（不算）
+因果：上三角 3 块整块跳过、对角 3 块半算、下三角 3 块全算 → ≈ s²/2
+sliding window：每行最多 w 个 ■ → O(s·w)，cache 只需保留最近 w 个 token
+```
 
 上一篇的 prefill 数字就用了这一点：Llama-3-8B 8K prefill 不利用掩码约 158 TFLOP，利用后约 140 TFLOP；128K 时 attention 项按 $$s^2/2$$ 计约 4.5 PFLOP，若不利用则是 9 PFLOP，比权重项的 2 PFLOP 多得多。128K 以上的 prefill，causal skip 不是优化，是必需。
 

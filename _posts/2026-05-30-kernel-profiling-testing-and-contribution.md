@@ -168,6 +168,26 @@ nsys stats --report nvtx_kern_sum layer.nsys-rep
 - **每个 kernel 的均值与理论下界的比值**。用第一节的表逐个除，比值最大（离 Roofline 最远）的就是下一步 ncu 的对象。
 - **kernel 之间的空隙**。在 `nsys-ui` 里打开 `.nsys-rep`，把时间线放大到一个 NVTX 区间内，看相邻 kernel 之间是否有空白。空白通常来自：CPU 侧 Python 开销（每个算子几十微秒的 dispatch，在 decode 这种每个 kernel 只有几微秒的场景下会让 GPU 大部分时间空转）、显式或隐式的同步（`.item()`、`.cpu()`、`print(tensor)`）、分配器在 cache miss 时调用 `cudaMalloc`。这些都不是 kernel 的问题，不该用 ncu 去修，该用 CUDA graph、减少同步或者融合算子去修。
 
+同一个 decoder layer 在 prefill 与 decode 两种形状下，nsys 时间线的 CPU 行与 GPU 行长成完全不同的样子——空隙是不是问题，一眼就能看出来：
+
+```text
+prefill（M = 8192）: kernel 几百 µs，CPU 把 launch 排进队列后就跑到 GPU 前面去了
+时间 →
+CPU  ▌L▌L▌L▌L▌  ……（launch 只占几 µs，CPU 大部分时间在等 GPU）
+GPU  ██ norm ██│████████ QKV GEMM ████████│██ RoPE ██│██████ attn ██████
+               ↑ 空隙 ≈ 0：GPU 是瓶颈 → 找离理论下界最远的 kernel，开 ncu
+
+decode（M = 1）eager: kernel 只有 3–5 µs，每次 Python dispatch 却要 20–50 µs
+时间 →
+CPU  ███ dispatch ███│███ dispatch ███│███ dispatch ███│███ dispatch ███│
+GPU  ▌norm▌··········│▌GEMV▌··········│▌RoPE▌··········│▌attn▌··········│
+                     ↑ 空隙 >> kernel：GPU 大部分时间空转，ncu 帮不上
+
+decode + CUDA graph: 一次 replay 提交整张图，kernel 之间只剩 ~1–2 µs 的硬件间隙
+CPU  ▌replay▌
+GPU  ▌norm▌GEMV▌RoPE▌attn▌o_proj▌norm▌gate/up▌SiLU▌down▌
+```
+
 多 stream 场景（通信与计算重叠、prefill 与 decode 混排）在 nsys 时间线上表现为多行 kernel 并行；如果期望重叠却看到串行，通常是某个 API 隐式同步了默认 stream。这类问题也只有 nsys 看得到。
 
 ### 3. torch.profiler 与 nsys 的关系
@@ -279,11 +299,44 @@ $$
 
 其中 $$T$$ 是 block 线程数、$$R_{alloc}$$ 是按 warp 粒度向上取整到 256 的倍数后的每线程寄存器数、$$S_{block}$$ 是每 block 的 shared memory（静态加动态，还要加上每 block 1 KB 的系统保留）。ncu 在 Occupancy 一节直接列出 "Block Limit Registers / Shared Mem / Warps / SM"，最小的那个就是限制因素。`Registers Per Thread` 在 Launch Statistics 里；超过 32 就开始压缩 occupancy（$$65536 / (32 \times 2048) = 1$$，即每线程 32 个寄存器刚好允许满 occupancy）。GEMM 用 128–255 个寄存器是常态，那时 theoretical occupancy 只有 12.5–25%，这是设计取舍而不是缺陷——它靠 ILP 而不是 TLP 隐藏延迟。
 
+把这个公式套到本文出现的三种 kernel 配置上（A100：每 SM 65536 寄存器、164 KB 可配置 shared、最多 32 block / 64 warp），能看到"取最小"落在不同的项上：
+
+| 配置（T 线程 / R 寄存器 / S shared per block） | Registers 限 $$\lfloor 65536/(R \cdot T) \rfloor$$ | Shared 限 $$\lfloor 164 / (S + 1) \rfloor$$ | Warps 限 $$\lfloor 2048 / T \rfloor$$ | 限制因素 → block/SM | theoretical occupancy |
+|---|---|---|---|---|---|
+| 第 7 节"做对了"的 RMSNorm：256 / 32 / ~1 KB | 8 | 82（被 32 上限截断） | 8 | 寄存器 = 线程数 → 8 | 64 warp = **100%** |
+| 第 7 节"有问题"的 RMSNorm：128 / 32 / 48 KB | 16 | 3 | 16 | **shared → 3** | 12 warp = **19%** |
+| 大 tile BF16 GEMM：256 / 128 / 32 KB（2 级流水） | 2 | 4 | 8 | **寄存器 → 2** | 16 warp = **25%** |
+
+前两行是同一个 kernel 的两种写法，限制因素完全不同：第二行即使把寄存器和线程数调好，只要 shared 不减，occupancy 就卡在 19%。第三行就是总纲问题里的 25%——它由寄存器决定，而寄存器数是分块大小的直接结果，压寄存器意味着改算法或冒 spill 的风险。
+
 **Achieved occupancy**（`sm__warps_active.avg.pct_of_peak_sustained_active`）是运行期间实际的平均驻留 warp 数。它低于 theoretical 的原因主要是 **tail effect**：grid 不够大或 block 执行时间不均，kernel 后期只有零星 block 在跑，平均值被拉低。另一个原因是 block 之间调度不均衡（`__syncthreads` 让整个 block 一起等）。achieved 与 theoretical 差距大，看 Launch Statistics 的 waves。
 
 ### 6. Launch Statistics、Compute Workload Analysis 与 Source Counters
 
 **Launch Statistics** 列出 grid/block 尺寸、每线程寄存器、静态/动态 shared、以及 **Waves Per SM**：grid 中的 block 数除以（SM 数 × 每 SM 最大驻留 block 数）。0.4 wave 说明 GPU 一大半 SM 是空的（grid 太小，decode 阶段的 GEMM、小 batch 的 attention 常见）；1.2 wave 说明第一波满、第二波只有 20%，尾巴占了将近一半时间——这时把 tile 减小或 split-K 让 wave 数变成整数附近或远大于 1，往往比任何 kernel 内部的优化更有效。
+
+```text
+  108 个 SM × 每 SM 8 block = 一波 864 个 block
+  纵轴 = 忙碌 SM 比例，横轴 = 时间（假设 block 耗时相同，一波 = 一个 block 时长）
+
+  waves = 0.4（grid ≈ 346，decode 阶段的小 GEMM）
+  100% ┤
+       │                  60% 的 SM 从头到尾空着：问题在 grid，不在 kernel 体内
+   40% ┤██████████
+       └──────────▶ t
+
+  waves = 1.2（grid ≈ 1037）
+  100% ┤██████████
+       │██████████
+   20% ┤████████████████████     第二波只有 20% 的 block，却占近一半时间（tail）
+       └──────────┴─────────▶ t  SOL 是全程平均值，被这一半拉低
+
+  waves = 9.5（grid = 8192，fused add+RMSNorm）
+  100% ┤████████████████████████████████████████████████████████████████
+   50% ┤                                                                ██
+       └────────────────────────────────────────────────────────────────┴─▶ t
+         尾巴只占 1/10 波：achieved occupancy ≈ theoretical
+```
 
 **Compute Workload Analysis** 给每个 pipe 的利用率：FMA（浮点乘加）、ALU（整数与逻辑）、**Tensor**（mma/wgmma）、LSU（访存指令发射）、XU（超越函数、类型转换）、FP16 等。对 GEMM 与 attention，`sm__pipe_tensor_cycles_active.avg.pct_of_peak_sustained_active` 是唯一重要的数——它就是 Tensor Core 利用率，cuBLAS 大形状 GEMM 通常在 70–90%。如果 SOL Compute 高但 Tensor pipe 低而 ALU/FMA 高，说明时间花在 Tensor Core 之外：地址计算、fragment 布局转换、softmax 的 exp、类型转换（BF16 到 FP32 再回来）。attention 里 XU pipe 高是典型：每个 $$QK^T$$ 元素一个 `exp`，在 H100 上 MUFU 吞吐（每 SM 每周期 16 次）相对 Tensor Core 已经是瓶颈之一，FlashAttention-3（Shah 等 2024）把 softmax 与 GEMM 在 warpgroup 间交错正是为了掩盖它。
 
@@ -619,6 +672,24 @@ def test_rms_norm_opcheck(rows, d, layout):
     torch.library.opcheck(torch.ops.my_ops.rms_norm, (x, w, 1e-6))
 ```
 
+`make_input` 的四种布局在 storage 里长这样（以 `rows=2, d=4` 为例），它决定了第九章 host 包装里走哪条路：
+
+```text
+  x[i][j] 落在 storage 的哪个格子（■ = 属于 x，· = storage 里不属于 x 的元素）
+
+  contiguous    ■■■■■■■■             stride=(4,1)  连续
+                └r0─┘└r1─┘                     → 直接按行读
+
+  sliced        ■■■■····■■■■····     stride=(8,1)  非连续，但 stride(1)=1
+                └r0─┘    └r1─┘                 → stride(0)=8 传给 kernel，零拷贝
+
+  row_strided   ■■■■····■■■■····     stride=(8,1)  与 sliced 的 stride 完全相同
+                └r0─┘    └r1─┘                 → kernel 无法区分，也不需要区分
+
+  transposed    ■■■■■■■■             stride=(1,2)  stride(1)≠1：同一行元素不相邻
+                x00 x10 x01 x11 …              → host 侧 .contiguous() 拷一份再算
+```
+
 运行 `pytest -v test_rms_norm.py`。参数化后第一个测试有 $$4 \times 5 \times 4 = 80$$ 个用例，每个几毫秒；加上边界、dtype 拒绝、大元素数与 opcheck，一分钟以内。这份文件覆盖了第 2 小节清单里除"多架构"之外的所有项——多架构靠在不同机器上跑同一份文件。
 
 
@@ -811,6 +882,41 @@ at::Tensor my_gemm(const at::Tensor& a, const at::Tensor& b) {
   }
   TORCH_CHECK(false, "my_gemm requires compute capability >= 8.0, got ", cc);
 }
+```
+
+编译期与运行期是两级互相独立的选择：nvcc 按 `-gencode` 把同一份源码编成多份 SASS 装进一个 fatbin，运行时**驱动**按当前 GPU 从 fatbin 里挑 SASS（挑不到就 JIT PTX）；而 **host 函数**按 compute capability 挑调用哪个入口。前者对代码透明，后者必须自己写：
+
+```mermaid
+flowchart TB
+    src["my_gemm.cu<br/>device 代码用 __CUDA_ARCH__ 在编译期分支<br/>host 代码看不到这个宏"]
+    nvcc["nvcc -gencode ×3<br/>device 阶段每个目标编一遍"]
+    subgraph fatbin["一个 fatbin（嵌在 .so 里）"]
+        s80["SASS sm_80<br/>cp.async + mma.sync 分支"]
+        s90["SASS sm_90<br/>TMA + wgmma 分支"]
+        ptx["PTX compute_90<br/>供更新架构 JIT"]
+    end
+    src --> nvcc
+    nvcc --> s80
+    nvcc --> s90
+    nvcc --> ptx
+
+    host["运行期 host: my_gemm()<br/>cc = major × 10 + minor（运行时查询）<br/>cc ≥ 90 → my_gemm_sm90 · cc ≥ 80 → my_gemm_sm80 · 否则 TORCH_CHECK 报错"]
+    a100["A100（cc 8.0）<br/>驱动加载 sm_80 SASS"]
+    h100["H100（cc 9.0）<br/>驱动加载 sm_90 SASS"]
+    newer["更新架构（无匹配 SASS）<br/>驱动 JIT compute_90 PTX：首次启动慢，且用不上新特性"]
+    host --> a100
+    host --> h100
+    host --> newer
+    s80 -. "驱动挑选" .-> a100
+    s90 -. "驱动挑选" .-> h100
+    ptx -. "驱动 JIT" .-> newer
+
+    classDef build fill:#dde9f7,stroke:#2e6da4
+    classDef bin fill:#fdf1d6,stroke:#b9770e
+    classDef run fill:#dff5e1,stroke:#1e8449
+    class src,nvcc build
+    class s80,s90,ptx bin
+    class host,a100,h100,newer run
 ```
 
 纯 CUDA 侧对应 `cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, dev)`。Python 侧是 `torch.cuda.get_device_capability()` 返回 `(major, minor)`，vLLM 封装成 `current_platform.has_device_capability(80)`。两个原则：**Hopper-only 路径必须有 fallback**——要么回到 sm_80 实现，要么明确报错并在 Python 侧提前选择别的后端，不能让用户在 A100 上看到一个 `no kernel image is available` 的运行时错误；**运行时分派的粒度放在 host 函数一级**，不要在 kernel 内部用 `if (cc >= 90)` 分支——kernel 内部用 `__CUDA_ARCH__` 在编译期决定，两个 SASS 各自最优。

@@ -164,6 +164,36 @@ class BlockPool:
 
 于是 LRU 驱逐不是一个显式步骤，而是分配的副作用：空闲链表头部的块就是最久没被访问的块，把它分出去时顺手摘掉它的 hash，这块缓存就"被驱逐"了。反过来，Prefix Cache 命中一个 `ref_cnt == 0` 的块时，`touch()` 把它从链表中摘出——命中即续命。这套设计让"空闲块"和"缓存块"共享同一份容量：缓存永远填满所有当前没在用的显存，且不需要任何后台淘汰线程。
 
+用一个 6 块的小池子把这四个动作（`get_new_blocks` / `free_blocks` / 驱逐 / `touch`）在链表上走一遍，就能看清"空闲"和"缓存"是怎么共享同一条队列的：
+
+```text
+free_block_queue：只放 ref_cnt==0 的块。head = 最先被分走；tail = 最近释放
+[n*] 表示该块仍挂着 block_hash（可被 Prefix Cache 命中）
+
+T0  启动，6 块全空闲
+    head → [0][1][2][3][4][5] ← tail
+
+T1  Req A get_new_blocks(3)：从 head 依次 popleft
+    head → [3][4][5] ← tail            A 持有 0,1,2（ref_cnt=1）
+
+T2  Req A 完成，free_blocks(reversed(blocks))
+    块 0,1 写满、带 hash → append 到 tail（按块序反向：1 先入，0 后入）
+    块 2 未写满、无 hash → prepend 到 head（最先被淘汰）
+    head → [2][3][4][5][1*][0*] ← tail
+                          ↑  ↑ 序列末尾的块排在前缀块之前 → 先被淘汰
+
+T3  Req C get_new_blocks(5)：popleft 2,3,4,5 和 1*
+    分到 1* 时 _maybe_evict_cached_block 摘掉它的 hash —— 这就是"驱逐"
+    head → [0*] ← tail                 C 持有 2,3,4,5,1（ref_cnt=1）
+
+T4  Req B 到来，前缀与 A 相同：
+    块 0 hash 命中 → touch()：从链表摘出，ref_cnt 0→1（续命，无需重算）
+    块 1 hash 已被摘 → 未命中 → 需 get_new_blocks(1)，但链表已空 → 等待
+    head → (空) ← tail                 B 持有 0
+```
+
+T2 里有个容易忽略的细节：`KVCacheManager.free()` 是把请求的块**反序**交给 `free_blocks()` 的，于是同一个请求里越靠后的块越靠近 head、越先被淘汰，而前缀块尽量留到最后——这和 Prefix Cache "命中总是从前缀开始"的访问模式是配套的。
+
 块分配的布局（引自 `allocate_slots()` 注释）：
 
 ```
@@ -266,6 +296,20 @@ for each query position:
 
 注意倒数第二行：**块只有"写满"才会被缓存**。这解释了为什么 Prefix Cache 的命中粒度是 `block_size`，而不是单个 token。
 
+上表里的 `ref_cnt--` 之所以要"归零才真正归还"，是因为一个物理块可能同时被多个请求持有。沿着贯穿全文的例子，跟踪那 125 个 system prompt 块的引用计数怎样随事件变化：
+
+| 时刻 | 事件 | 125 个前缀块的 `ref_cnt` | 块此刻在哪 |
+|---|---|---|---|
+| ① | Req A 到达，`allocate_slots()` → `get_new_blocks()` | 0 → **1** | 从 `free_block_queue` 头部弹出，归 A |
+| ② | A 的 Prefill 写满这些块 → `cache_full_blocks()` | 1 | hash 注册进 `cached_block_hash_to_block` |
+| ③ | Req B 到达，`get_computed_blocks()` 命中 → `touch()` | 1 → **2** | 同一份物理块被 A、B 共享，不复制 |
+| ④ | A 完成（或被抢占），`free()` | 2 → **1** | **不归还**——B 还在用 |
+| ⑤ | B 完成，`free()` | 1 → **0** | 追加到 `free_block_queue` 尾部，hash 保留，仍可命中 |
+| ⑥a | Req C 带同样 system prompt 到来 → `touch()` | 0 → **1** | 从链表中间摘出，缓存续命 |
+| ⑥b | 或者 Req D 要新块，`get_new_blocks()` 弹到它 | 0 → **1** | `_maybe_evict_cached_block()` 摘掉 hash，缓存被驱逐 |
+
+也就是说 `ref_cnt` 只回答"有几个请求正在用"，块是否可复用由 hash 是否还在决定；两者独立，这是第四章 Prefix Cache 一节的前提。
+
 
 ## 四、KV Cache 还能更小吗：复用、压缩与分层存储
 
@@ -297,7 +341,31 @@ sequenceDiagram
     Note over B: 只需 Prefill "Bye" 那 1 个块<br/>省下 2000 tokens 的计算 + 一整份 KV 显存
 ```
 
-vLLM 使用链式哈希确保前缀匹配的正确性——每个块的哈希值依赖其前驱块的哈希，因此只有完全相同的前缀序列才会产生相同的哈希链。
+vLLM 使用链式哈希确保前缀匹配的正确性——每个块的哈希值依赖其前驱块的哈希，因此只有完全相同的前缀序列才会产生相同的哈希链。下图把三种情况摆在一起：B 与 A 共享前缀（命中 + 分叉），C 只在第一个 token 上与 A 不同（全部未命中）：
+
+```text
+链式哈希：h_i = hash(h_{i-1}, 本块 16 个 token, extra_keys)，h_0 前驱 = NONE_HASH
+查找：逐块沿链比对 hash，第一次未命中即停止，之后的块全部重算
+
+           Blk 0          Blk 1      ...    Blk 124        Blk 125
+Req A  h0=hash(NONE,   h1=hash(h0,        h124=hash(h123,  "Hi" 未写满
+       t1..t16)        t17..t32)          ...)             → 不参与 hash
+         │0xABC1         │0xDEF2            │0x77F0           │
+         ▼               ▼                  ▼                 ▼
+       ┌──────┐        ┌──────┐           ┌──────┐          ┌──────┐
+       │PB 7  │        │PB 13 │    ...    │PB 91 │          │PB 40 │ A 私有
+       │ref=2 │        │ref=2 │           │ref=2 │          │ref=1 │
+       └──────┘        └──────┘           └──────┘          └──────┘
+         ▲               ▲                  ▲               ┌──────┐
+         │命中           │命中               │命中            │PB 55 │ B 私有
+Req B  h0 相同 ───────► h1 相同 ──── ... ──► h124 相同  ─────►│ref=1 │ "Bye"
+                                            125 块共享        └──────┘ 分叉
+
+Req C  h0'=hash(NONE, t1',t2..t16) ≠ h0 → 未命中，查找停止
+       即使 t2..t2000 与 A 完全相同，h1'=hash(h0',…) 也全部不同 → 一块都复用不了
+```
+
+由此可见"命中"不是单块比对，而是从链头开始的一段连续匹配：分叉点之前的块共享同一份物理块（`ref_cnt` 累加），分叉点及之后各自申请新块；而链头一旦不同，后面再像也没用——这正是链式哈希保证正确性的方式，代价是命中的粒度只能是"前缀"。
 
 > **回到我们的例子**：那 2000 token 的 system prompt 是 **125 个整块**。第一个请求跑完后它们全部进入缓存；**第二个请求带着同样的 system prompt 到来时，这 125 块全部命中**，只需要 prefill 用户那 50 个 token。
 >

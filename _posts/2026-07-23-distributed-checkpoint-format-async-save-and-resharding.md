@@ -356,7 +356,27 @@ class AppState(Stateful):
 - `_check_shard_metadata_pair_overlap(shard1, shard2)`：每一维上，若一块的起点 ≥ 另一块的终点则不相交；所有维都相交才算相交（矩形相交的标准判定）。
 - `_shards_get_overlap_region_wrt_saved_tensor(saved_shard, current_shard)`：对每一维返回 `(dim, 在已存块内的偏移, 在本地块内的偏移, 长度)`——长度是两段的 `min(终点) - max(起点)`，偏移是各自起点到 `max(起点)` 的距离。
 
-一个数字例子。上一节那个 `[4096, 4096]` 的权重在 TP=2 下存成两块 `[0:2048]`、`[2048:4096]`。现在换成 FSDP 在 6 个 rank 上按第 0 维切——4096 除不尽 6，DTensor 的分片是 683、683、683、683、683、681。rank 2 的本地块是 `offsets=[1366, 0], sizes=[683, 4096]`，它跨过了 2048 这条线：
+一个数字例子。上一节那个 `[4096, 4096]` 的权重在 TP=2 下存成两块 `[0:2048]`、`[2048:4096]`。现在换成 FSDP 在 6 个 rank 上按第 0 维切——4096 除不尽 6，DTensor 的分片是 683、683、683、683、683、681。把两侧的块沿第 0 维并排画出来，重分片就是左右两列的区间求交：
+
+```text
+行号   磁盘上的块（TP=2 保存）             加载侧的本地块（FSDP 6 rank）
+   0 ┌───────────────────────────┐    ┌──────────────────────┐
+     │ chunk 0                   │    │ rank 0  [0, 683)     │
+     │ offsets=[0,0]             │    ├──────────────────────┤
+     │ sizes=[2048,4096]         │    │ rank 1  [683, 1366)  │
+     │ → __0_0.distcp            │    ├──────────────────────┤
+     │                           │    │ rank 2  [1366, 2049) │ ← 跨过 2048
+2048 ├───────────────────────────┤    │ ┄┄┄┄┄┄┄┄ 2048 ┄┄┄┄┄┄ │
+     │ chunk 1                   │    ├──────────────────────┤
+     │ offsets=[2048,0]          │    │ rank 3  [2049, 2732) │
+     │ sizes=[2048,4096]         │    ├──────────────────────┤
+     │ → __1_0.distcp            │    │ rank 4  [2732, 3415) │
+     │                           │    ├──────────────────────┤
+4096 └───────────────────────────┘    │ rank 5  [3415, 4096) │
+                                      └──────────────────────┘
+```
+
+rank 0、1、3、4、5 的本地块各自完全落在一个磁盘块里，一个 `ReadItem` 就够；rank 2 的本地块是 `offsets=[1366, 0], sizes=[683, 4096]`，它跨过了 2048 这条线：
 
 ```text
 与已存块 0 [0:2048]    ：min(2048, 2049) - max(0, 1366) = 682   → ReadItem(storage_offsets=[1366, 0], dest_offsets=[0, 0],   lengths=[682, 4096])
@@ -367,7 +387,26 @@ rank 2 发两个读请求，从 `__0_0.distcp` 读 682 行、从 `__1_0.distcp` 
 
 ### 3. 能重分片与不能重分片的边界
 
-重分片能自动发生，条件是：**同一个 FQN、同一个全局形状、分片在磁盘上表达成全局坐标的块**。在这个条件下，DP 度、FSDP 分片数、TP 度、CP 度的任何变化都由上面的交集算法吸收。三种情况需要额外工作：
+重分片能自动发生，条件是：**同一个 FQN、同一个全局形状、分片在磁盘上表达成全局坐标的块**。加载时对 state_dict 里的每个张量，这三个条件是依次检查的，哪一步不满足就落到哪种"额外工作"：
+
+```mermaid
+flowchart TB
+    S["加载：state_dict 里的一个本地张量"] --> Q1{"FQN 在 .metadata 里？"}
+    Q1 -- "否" --> K["key 不一致：PP 虚拟 stage 的 model0 / model1 前缀<br/>→ planner 展平 key（MCoreSavePlanner / ModelWrapper）<br/>或 allow_partial_load / strictness 放行"]
+    Q1 -- "是" --> Q2{"全局形状一致？"}
+    Q2 -- "否" --> M["Size mismatch：张量定义随并行度变<br/>（grouped GEMM 的 #91;E_local, …#93; 随 EP 度变）<br/>→ ShardedTensorFactory 保存时按专家拆开"]
+    Q2 -- "是" --> Q3{"磁盘上的块带全局坐标？"}
+    Q3 -- "否" --> N["按字节切的连续缓冲：Megatron dp_reshardable<br/>/ DeepSpeed ZeRO optim_states<br/>→ 只能同 DP 度原样读回，或先转 fully_reshardable / universal"]
+    Q3 -- "是" --> OK["自动重分片：本地块 ∩ 磁盘块 → ReadItem<br/>DP / FSDP / TP / CP 任意变化，零通信"]
+    classDef good fill:#e6f4ea,stroke:#2e7d32;
+    classDef work fill:#fff4e5,stroke:#ef6c00;
+    classDef q fill:#e3f2fd,stroke:#1565c0;
+    class OK good;
+    class K,M,N work;
+    class Q1,Q2,Q3 q;
+```
+
+在三个条件都满足的情况下，DP 度、FSDP 分片数、TP 度、CP 度的任何变化都由上面的交集算法吸收。三种情况需要额外工作：
 
 - **PP 切分点变化**：PP 不切张量，切的是层。`layers.31.wq.weight` 无论在哪个 stage 都叫这个名字，所以 PP 度变化本身没问题；但 Megatron 的 `model0`/`model1` 这种按虚拟 stage 编号的顶层 key 会变，需要 planner 展平（Megatron 的 `MCoreSavePlanner` 用 ShardedTensor 的 `key` 而不是 dict 路径）。torchtitan 通过 `ModelWrapper` 把多个 stage 的 state_dict 合成一个扁平 dict 解决同一问题。
 - **优化器状态的分片不跟随参数**：Megatron 分布式优化器默认把 fp32 主参数与矩按"bucket 里的连续字节"切给 DP rank，与参数的逻辑形状无关。这种布局在磁盘上表达不成"参数 X 的第几块"，只能在 DP 度不变时原样读回（第七章第 3 节的 `dp_reshardable` vs `fully_reshardable`）。
@@ -447,6 +486,34 @@ GPU / 主 stream  ────────────────┤ 阻塞 δ 
 - **staging 的正确性窗口**。`use_async_staging=True` 时拷贝在后台线程进行，训练不能在拷贝完成前修改参数——也就是 `optimizer.step()` 之前必须等 `staging_completion`。torchtitan 把 `checkpointer.maybe_wait_for_staging()` 放在 `train_step()` 里 `clip_grad_norm_` 之后、`optimizers.step()` 之前：前向反向已经和拷贝重叠过了，只在真正要改参数时才等。这是 δ 能进一步压低的原因：staging 与整个前向反向重叠，训练只在 `step()` 前等剩余部分。
 - **GC**。staged dict 是几万个张量对象，Python 的分代 GC 会在保存期间被触发；torchtitan 在 `_save()` 前后手动 `GarbageCollection.collect()`，Megatron 的 `async_utils.py` 里有 `_disable_gc()` 上下文。
 
+把上面两个等待点（`staging_completion` 在 `optimizer.step()` 前、`upload_completion` 在下一次保存前）放到一条时间线上，就是 torchtitan `async_with_pinned_mem` 模式下"谁等谁"的完整关系：
+
+```mermaid
+sequenceDiagram
+    participant T as 训练循环（主线程）
+    participant ST as staging（拷贝线程 / 拷贝 stream）
+    participant EX as 后台 executor（线程或子进程）
+    participant FS as 文件系统
+    Note over T: step k 结束，调用 async_save
+    T->>ST: stage(state_dict)，GPU→pinned host 拷贝开始
+    ST-->>T: 立即返回 staging_completion future
+    T->>EX: execute_save(staged dict)，得到 upload_completion future
+    Note over T,ST: step k+1 的前向、反向与 D2H 拷贝重叠
+    T->>T: forward / backward / clip_grad_norm_
+    ST-->>T: staging_completion 完成
+    Note over T: maybe_wait_for_staging，optimizer.step 前必须等到这里
+    T->>T: optimizer.step（此后才允许改参数）
+    EX->>EX: plan，gloo reduce_scatter（不能碰 NCCL）
+    EX->>FS: 写 __i_k.distcp 并 fsync
+    EX->>FS: 写 .metadata.tmp 后 rename 为 .metadata
+    FS-->>EX: 完成
+    EX-->>T: upload_completion 完成
+    Note over T: step k+2 … k+n 照常训练
+    Note over T,EX: 下一次 async_save 前 maybe_wait_for_saving 等 upload_completion
+```
+
+δ 是训练真正停下来等的时间：同步 staging 时是整段拷贝，异步 staging 时只剩 `optimizer.step()` 前等拷贝尾巴的那一小段；后台写入越长，越有可能在最后一行把下一次保存挡住。
+
 
 ## 七、Megatron 的 dist_checkpointing
 
@@ -483,6 +550,27 @@ fully_reshardable           sharded_param_state_fully_reshardable  每个参数�
  reshardable）
 fully_sharded_model_space   sharded_param_state_fs_model_space     同上的旧实现                              同上               标注将废弃
 dp_zero_gather_scatter      sharded_param_state_dp_zero            DP rank 0 gather 全部后写                  只能变 DP 度        通信量大；标注将废弃
+```
+
+两种格式在磁盘上"一块"指什么，画出来最清楚——同一个 bucket，`dp_reshardable` 按字节等分给 DP rank，`fully_reshardable` 按参数边界切：
+
+```text
+DistributedOptimizer 的一个 bucket（DP=4）：参数按顺序拍平进一段连续 fp32 缓冲
+
+ 参数       p0 (wq)         p1 (wk)        p2 (wv)          p3 (wo)
+        ┌───────────────┬───────────┬─────────────────┬─────────────┐
+        │ 16 单位       │ 12 单位   │ 18 单位         │ 14 单位     │
+        └───────────────┴───────────┴─────────────────┴─────────────┘
+ DP 切分 ├──────────────┼──────────────┼──────────────┼──────────────┤
+          rank 0         rank 1         rank 2         rank 3
+          [0, 15)        [15, 30)       [30, 45)       [45, 60)
+
+dp_reshardable    磁盘上一块 = "bucket b 的字节 [15, 30)"
+                  （ShardedTensor + flattened_range），切分线落在 p0、p2 内部；
+                  TP 变 → 参数大小与排列变 → 字节区间不再对应任何东西
+fully_reshardable 磁盘上一块 = "p1 的 exp_avg 的第 j 块"（与模型参数同全局坐标）
+                  保存时把 rank 持有的字节区间按参数边界切开、还原成参数形状；
+                  加载时反向——多一次切拼，换来 TP/PP/EP/DP 任意变
 ```
 
 默认的 `dp_reshardable` 之所以只能变 DP，是因为 bucket 的边界与切分依赖 `DistributedOptimizer` 内部的参数排列——同一个模型在 TP=4 与 TP=8 下 bucket 里的字节顺序不同。想换 TP/PP 加载，保存时就得用 `fully_reshardable`。`distrib_optim_fully_reshardable_mem_efficient` 是它的省内存变体（gloo 通信、单 rank 写）。`--no-ckpt-fully-parallel-save` 会让 `dp_reshardable` 格式连 DP 都不能变（`CheckpointConfig.fully_parallel_save` 的文档说明如此）。
@@ -567,7 +655,21 @@ torchtitan v0.3.0 把 checkpoint 放在 `torchtitan/components/checkpointer/`：
 二级：PFS / 对象存储         每 N₂ ≫ N₁ 步一次；持久；恢复时从这里读
 ```
 
-一级 checkpoint 的问题是"节点坏了它的分片就没了"，解法是**副本**：每个 rank 的本地分片同时发一份给另外一个或几个节点（走 NCCL / RDMA，带宽远高于 PFS）。恢复时坏节点的替代者从持有副本的邻居节点拿数据，其余节点从自己的本地盘读——整个恢复不碰 PFS。Megatron 的 `non_persistent_ckpt_type="local"` 加 `--replication --replication-jump J --replication-factor F` 就是这个模型：`megatron/training/training.py` 从 nvidia-resiliency-ext 导入 `LocalCheckpointManager` 与 `CliqueReplicationStrategy`，rank $$n$$ 的副本放在 $$n + J, n + 2J, \ldots$$；`non_persistent_local_ckpt_algo` 的 `fully_parallel` / `atomic` 决定本地写法。DCP 侧 `staging.py` 的 `_ReplicationStager` 与 `_pg_transport.py` 的 `PGTransport`（通过进程组直接传 state_dict）是同一思路的构件，2.13 里仍是内部 API，torchft 用后者做副本组之间的状态同步（第六篇）。
+一级 checkpoint 的问题是"节点坏了它的分片就没了"，解法是**副本**：每个 rank 的本地分片同时发一份给另外一个或几个节点（走 NCCL / RDMA，带宽远高于 PFS）。恢复时坏节点的替代者从持有副本的邻居节点拿数据，其余节点从自己的本地盘读——整个恢复不碰 PFS。Megatron 的 `non_persistent_ckpt_type="local"` 加 `--replication --replication-jump J --replication-factor F` 就是这个模型：`megatron/training/training.py` 从 nvidia-resiliency-ext 导入 `LocalCheckpointManager` 与 `CliqueReplicationStrategy`，rank $$n$$ 的副本放在 $$n + J, n + 2J, \ldots$$；`non_persistent_local_ckpt_algo` 的 `fully_parallel` / `atomic` 决定本地写法。以 8 个节点、J=2、F=3 为例，副本的放置与恢复路径是：
+
+```text
+本地 checkpoint 的副本放置（8 节点，replication_jump J=2，replication_factor F=3）
+
+节点        0     1     2     3     4     5     6     7
+本地分片   S0    S1    S2    S3    S4    S5    S6    S7   ← 每 N₁ 步写本机 NVMe
+副本 +J    S6    S7    S0    S1    S2    S3    S4    S5   ← 走 NCCL / RDMA 推过来
+副本 +2J   S4    S5    S6    S7    S0    S1    S2    S3
+
+节点 3 故障 → 替代节点上线 → 从节点 5（+J）或节点 7（+2J）拉回 S3；
+其余节点从本机 NVMe 读自己的 S_n。整个恢复不碰 PFS。
+```
+
+DCP 侧 `staging.py` 的 `_ReplicationStager` 与 `_pg_transport.py` 的 `PGTransport`（通过进程组直接传 state_dict）是同一思路的构件，2.13 里仍是内部 API，torchft 用后者做副本组之间的状态同步（第六篇）。
 
 多级存储改变了 Young 公式里的两个量：一级 checkpoint 的 δ 更小（本地写），所以 τ₁ 可以更短；二级只需要保证"节点整批丢失"这种低频事件下的恢复，τ₂ 可以按更低的故障率算。
 

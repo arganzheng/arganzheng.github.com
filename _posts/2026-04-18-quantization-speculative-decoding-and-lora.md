@@ -96,6 +96,30 @@ $$s$$ 与 $$z$$ 按什么范围共享，决定了量化的**粒度**：
 - **per-channel**：每个输出通道（矩阵的一列/一行）一个 $$s$$。$$W_Q$$ 有 4096 个 scale，元数据仍可忽略。这是 INT8 权重量化的常态。
 - **per-group**：沿输入维度每 $$g$$ 个权重一个 $$s$$（和 $$z$$），$$g = 128$$ 是 4-bit 的事实标准。粒度越细，每个 group 的范围越紧，量化误差越小，但元数据线性增长。
 
+三种粒度在同一个 $$W \in \mathbb{R}^{d_{out} \times d_{in}}$$ 上的 $$(s, z)$$ 共享范围（行 = 输出通道，横向 = GEMM 的归约维 $$k = d_{in}$$）：
+
+```text
+                 d_in（归约维 k）─────────────────────▶
+           ┌────────────────────────────────────────┐
+per-tensor │ 整个矩阵共用一个 (s, z)                │ 元数据 1 个
+           └────────────────────────────────────────┘
+
+           ┌────────────────────────────────────────┐
+per-       │ 行 0 ························ (s0, z0) │ 元数据 d_out 个
+channel    │ 行 1 ························ (s1, z1) │ （W_Q: 4096 个）
+           │ ...                                    │
+           └────────────────────────────────────────┘
+
+           ┌─────────┬─────────┬─────────┬──────────┐
+per-group  │ g=128   │ g=128   │ g=128   │ ...      │ 每行 d_in/g 组
+g=128      │(s00,z00)│(s01,z01)│(s02,z02)│          │ 元数据 d_out·d_in/g
+           ├─────────┼─────────┼─────────┼──────────┤ （W_Q: 4096×32
+           │(s10,z10)│(s11,z11)│(s12,z12)│ ...      │  = 131072 个）
+           └─────────┴─────────┴─────────┴──────────┘
+```
+
+per-channel 的 scale 沿 $$k$$ 不变，可以在 GEMM 累加完之后在 epilogue 一次乘回；per-group 的 scale 沿 $$k$$ 每 $$g$$ 个元素换一次，必须在累加过程中乘——这是 W4A16 kernel 要在片上做反量化、而不能把 scale 留到最后的原因。
+
 per-group 的元数据开销直接算：每个权重 $$b$$ 位，每 $$g$$ 个权重摊一个 scale 和一个 zero，
 
 $$
@@ -230,6 +254,16 @@ $$
 
 LLM.int8()（Dettmers 等 2022）选择不迁移而是**分离**：把 $$X$$ 中任一元素绝对值超过阈值（论文用 6.0）的列（hidden 维度）单独抽出来与对应权重行做 FP16 GEMM，其余部分做 INT8 按行/按列 vector-wise 量化 GEMM，最后相加。离群维度约占 0.1%，精度保持得很好，但两个 GEMM 加上 gather/scatter 使它在多数情况下比 FP16 慢，主要价值是省显存而不是提速。
 
+到这里出现的几种方案，量化对象、怎么定 $$s$$、要不要校准数据、运行时有没有额外算子，各不相同：
+
+| 方案 | 量化对象 | 怎么定 $$s$$ / 怎么处理离群 | 校准需求 | 运行时额外开销 | 产出与 kernel |
+|---|---|---|---|---|---|
+| RTN | W | $$s = \max/(2^{b-1}-1)$$，直接四舍五入 | 无 | 无 | INT8 per-channel 够用，INT4 掉点明显 |
+| GPTQ | W（INT4/INT3） | 逐列量化，误差按 $$H^{-1}$$ 分摊到未量化列 | 约 128 条 × 2048 token，收集 $$H = 2XX^\top$$；数 GPU 小时 | 无 | 标准 INT4 per-group，W4A16 kernel（Marlin 等）通用 |
+| AWQ | W（INT4） | 按激活统计放大约 1% 显著输入通道（$$s_j = \text{mean}\lvert X_j\rvert^{\alpha}$$）再 RTN | 少量前向统计 + $$\alpha$$ 网格搜索，无反向、无 Hessian | 无（$$\text{diag}(s)^{-1}$$ 折进 RMSNorm） | 同上，与 GPTQ 格式相同 |
+| SmoothQuant | W + A（INT8） | 激活通道 ÷ $$s_j$$、权重行 × $$s_j$$，把离群从激活迁到权重 | 静态 $$\max\lvert X_j\rvert$$ 统计 | 静态时无；退到 per-token 动态时每步算一次 max | INT8 GEMM（W8A8） |
+| LLM.int8() | W + A（INT8） | 离群列（$$\lvert x\rvert > 6$$）抽出走 FP16，其余 vector-wise INT8 | 无（运行时检测） | 两个 GEMM + gather/scatter，通常比 FP16 慢 | 混合 INT8/FP16，主要省显存 |
+
 ### 7. FP8 推理量化：浮点的相对精度 vs 整数的绝对精度
 
 H100 提供 FP8 Tensor Core（E4M3 与 E5M2，dense 1979 TFLOPS，BF16 的两倍），使 W8A8 有了比 INT8 更宽容的载体。原因在格式本身：
@@ -247,7 +281,33 @@ scale 的粒度在 FP8 里同样重要：
 
 ### 8. W8A8 与 W4A16 各自的位置
 
-现在可以把两类量化放到 Roofline 上：
+两类量化在 kernel 里的数据流不同——差别在**反量化发生在哪一步**、**乘加用哪种 Tensor Core**：
+
+```mermaid
+flowchart TB
+    subgraph w4["W4A16（weight-only）"]
+        direction TB
+        h4["HBM：INT4 权重 + scale/zero<br/>读 1/4 的字节"] --> dq["SM 片上反量化 → BF16<br/>移位、掩码、× s、+ z<br/>每个权重元素做一次，与 m 无关"]
+        a4["HBM：BF16 activations #91;m, k#93;<br/>不量化"] --> tc4["BF16 Tensor Core GEMM<br/>FLOPs 不变 = 2mkn"]
+        dq --> tc4
+        tc4 --> o4["BF16 输出"]
+    end
+    subgraph w8["W8A8（FP8 / INT8）"]
+        direction TB
+        h8["HBM：FP8/INT8 权重 + scale<br/>读 1/2 的字节"] --> tc8["FP8/INT8 Tensor Core GEMM<br/>算力 2×，累加 FP32/INT32"]
+        a8["activations 在线量化<br/>per-token 算 max → FP8/INT8<br/>（SmoothQuant 先 ÷ s）"] --> tc8
+        tc8 --> ep["epilogue：× s_w × s_a<br/>乘回 BF16"]
+        ep --> o8["BF16 输出"]
+    end
+    classDef mem fill:#fdebd0,stroke:#b9770e;
+    classDef cvt fill:#fadbd8,stroke:#c0392b;
+    classDef tc fill:#d5f5e3,stroke:#1e8449;
+    class h4,a4,h8 mem;
+    class dq,a8,ep cvt;
+    class tc4,tc8 tc;
+```
+
+左边省的只有权重字节，乘加与 BF16 完全相同，反量化是加进去的工作；右边权重字节减半、activations 也变成 8 位，乘加本身换到了两倍算力的 Tensor Core 上。现在可以把两类量化放到 Roofline 上：
 
 ```text
                  权重字节     GEMM 精度        decode (memory-bound)   prefill (compute-bound)
@@ -291,7 +351,30 @@ decode 每步读 16 GB 权重、产出 $$B$$ 个 token。$$B = 1$$ 时，4.8 ms 
 3. 从 $$i = 1$$ 起逐个判定：以概率 $$\min(1, p_i(x_i) / q_i(x_i))$$ 接受 $$x_i$$；一旦拒绝，从修正分布 $$\text{norm}(\max(0, p_i - q_i))$$ 采样一个 token 替代 $$x_i$$，本轮结束；
 4. 若 $$\gamma$$ 个全部接受，再从 $$p_{\gamma+1}$$ 采样一个 token。
 
-每轮至少产出 1 个 token（拒绝时的重采样或全接受时的额外采样），最多 $$\gamma + 1$$ 个。
+每轮至少产出 1 个 token（拒绝时的重采样或全接受时的额外采样），最多 $$\gamma + 1$$ 个。一轮的分支与回退如下：
+
+```mermaid
+flowchart TB
+    dr["草稿模型自回归 γ 步<br/>x_1 … x_γ ~ q，成本 γ · c · T(B)"] --> vf["目标模型一次前向 prefix, x_1 … x_γ<br/>得到 p_1 … p_γ+1，成本 T(B(γ+1))"]
+    vf --> i1["i = 1"]
+    i1 --> acc{"以概率 min(1, p_i(x_i) / q_i(x_i))<br/>接受 x_i？"}
+    acc -->|"接受"| more{"i = γ？"}
+    more -->|"否，i ← i + 1"| acc
+    more -->|"是，γ 个全接受"| bonus["从 p_γ+1 再采样 1 个<br/>本轮产出 γ + 1 个"]
+    acc -->|"拒绝"| rs["从 norm(max(0, p_i − q_i)) 重采样替代 x_i<br/>本轮产出 i 个"]
+    rs --> rb["回退：丢弃位置 i 之后的<br/>草稿 token 与 KV cache 条目"]
+    rb --> nx["下一轮"]
+    bonus --> nx
+    nx --> dr
+    classDef draft fill:#fdebd0,stroke:#b9770e;
+    classDef target fill:#d6eaf8,stroke:#2e6da4;
+    classDef ok fill:#d5f5e3,stroke:#1e8449;
+    classDef bad fill:#fadbd8,stroke:#c0392b;
+    class dr draft;
+    class vf target;
+    class bonus ok;
+    class rs,rb bad;
+```
 
 关键性质：**输出分布严格等于 $$p$$**。看单步。在某一位置，草稿提出 $$x$$ 的概率是 $$q(x)$$，被接受的概率是 $$\min(1, p(x)/q(x))$$，所以"接受且输出 $$x$$"的概率是
 
@@ -394,6 +477,10 @@ batch B    T(B) ms    T(5B) ms    加速比（峰值算力）   加速比（60% 
 
 第二列按 60% MFU 折算实际可达算力（593 TFLOPS，有效 ridge 约 177，转折 batch 约 35）：$$B = 64$$ 时验证前向已进入计算区，加速比掉到 1.6；$$B = 128$$ 时低于 1。再算上真实系统里草稿模型在大 batch 下的开销、每轮调度与采样的固定成本、以及 $$\alpha$$ 在不同位置并不独立同分布，**"batch 64 时没有收益"** 是这条曲线的工程表述——精确的转折位置随模型、硬件、$$\gamma$$ 移动，但它的量级由 $$\text{ridge}/(\gamma + 1)$$ 决定。
 
+把第三章与本章的数字画在同一条 $$T(m)$$ 曲线上（对数坐标）：量化把 memory-bound 的平台**向下**移，投机解码把工作点**向右**推，两者的收益都止于平台与斜线的交点：
+
+![Llama-3-8B 在 H100 上的 T(m) 曲线：BF16 与 W4A16 两条平台、共同的 compute 斜线，量化下移平台、投机右移工作点](/img/in-post/quantization-speculative-decoding-and-lora-time-model.svg)
+
 于是核心问题的两半合上了：INT4 在 $$B < \text{ridge}/4$$ 时兑现字节收益，投机解码在 $$B < \text{ridge}/(\gamma+1)$$ 时兑现并行验证的收益——**两者都只在 Roofline 的斜线上有效，越过 ridge 就消失甚至反转**。它们优化的是同一个量：memory-bound 区间里被浪费的算力。这也意味着两者可以叠加：W4A16 的目标模型验证 5 个 token 同样几乎免费，只是转折 batch 变成 $$\text{ridge}/(4 \times 5) \approx 15$$。
 
 ### 5. 草稿从哪里来
@@ -472,6 +559,28 @@ $$
 $$
 
 $$W_Q$$：$$16 \times 8192 / 16.78\text{M} \approx 0.78\%$$；$$W_K$$、$$W_V$$：$$16 \times 5120 / 4.19\text{M} \approx 1.95\%$$；FFN 三个矩阵约 0.50%。训练的 FLOPs 几乎全在冻结权重的前向与反向上，**LoRA 省的是状态不是算量**——反向仍要算 $$\partial L / \partial x$$ 穿过每一层，只省掉了 $$\partial L / \partial W$$ 那一项（约占反向的一半），所以 LoRA 训练每 token 约 $$4N$$ 而非 $$6N$$ FLOPs。
+
+一层线性层上的前向与反向，实线是前向、虚线是反向，标出哪些梯度仍要算、哪一项被省掉：
+
+```mermaid
+flowchart TB
+    x["输入 x<br/>（仍需保存供反向，激活值不省）"] --> W["冻结 W  d_out × d_in<br/>BF16 一份：无梯度、无主权重、无 Adam"]
+    x --> A["A  r × d_in<br/>可训练，高斯初始化"]
+    A --> B["B  d_out × r<br/>可训练，初始为 0"]
+    W --> y["y = Wx + (α/r) BAx<br/>额外 FLOPs ≈ r(d_in + d_out) / (d_in d_out) 不到 1%"]
+    B --> y
+    y --> gy["∂L/∂y（来自上一层的反向）"]
+    gy -.->|"∂L/∂x = Wᵀ ∂L/∂y  仍要算，穿过每一层"| x
+    gy -.->|"∂L/∂B = ∂L/∂y (Ax)ᵀ"| B
+    gy -.->|"∂L/∂A = Bᵀ ∂L/∂y xᵀ"| A
+    gy -.->|"∂L/∂W  不算：省掉反向约一半、省掉 14 B/参数状态"| W
+    classDef frozen fill:#eeeeee,stroke:#888;
+    classDef train fill:#d5f5e3,stroke:#1e8449;
+    classDef act fill:#fdebd0,stroke:#b9770e;
+    class W frozen;
+    class A,B train;
+    class x,y,gy act;
+```
 
 推理时有两条路：
 

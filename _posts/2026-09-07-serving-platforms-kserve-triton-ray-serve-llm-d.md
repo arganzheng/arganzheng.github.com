@@ -18,7 +18,7 @@ catalog: true
 
 > **一个 TP=4 的 70B 模型服务，晚高峰要从 2 副本扩到 6 副本，每个副本从调度到能接流量要 8 分钟。扩缩容指标选什么、阈值定多少、提前多久触发，才能在高峰到来前就绪而不在平时浪费 16 张卡？**
 
-本文的 CRD 与源码以 **LeaderWorkerSet v0.10.0、KServe v0.20.0、llm-d v0.9.0（EPP 来自 llm-d-router v0.10.0）、Triton Inference Server v2.72.0、KubeRay v1.7.0、KEDA v2.20.2** 为准，Gateway API Inference Extension 以 v1.6.0 为准；被服务的引擎是 vLLM v0.23.0，只使用它的启动参数、指标名与 OpenAI 兼容接口。文中出现的硬件与时间数字是量级估算，标注"非实测"；核心问题里的"8 分钟"是题设。
+本文的 CRD 与源码以 **LeaderWorkerSet v0.10.0、KServe v0.20.0、llm-d v0.9.0（EPP 来自 llm-d-router v0.10.0）、Triton Inference Server v2.72.0、KubeRay v1.7.0、KEDA v2.20.2** 为准，Gateway API Inference Extension 以 v1.6.0 为准；被服务的引擎是 vLLM v0.28.0，只使用它的启动参数、指标名与 OpenAI 兼容接口。文中出现的硬件与时间数字是量级估算，标注"非实测"；核心问题里的"8 分钟"是题设。
 
 
 ## 一、总览
@@ -78,6 +78,17 @@ catalog: true
 
 四个层次：**副本形态**回答"一个副本是几个 Pod、怎么起、怎么重启、怎么滚动"；**Serving 控制面**回答"用户声明什么、控制器生成什么"；**扩缩容**回答"看什么指标、何时加减副本"；**权重加载**回答"140 GB 从哪来、多久到显存"。四个层次相对独立——可以只用 LWS + KEDA 不用 KServe，也可以用 KServe 但把扩缩容交给它内置的 KEDA 集成。
 
+把本篇涉及的组件按这四个层次（外加"请求怎么进来"与"批处理/多模型"两列）逐个定位，可以看到它们的重叠与空白——没有一个组件覆盖全部，而 KServe `LLMInferenceService` 与 llm-d 恰好是同一套架构的两种包装：
+
+| 组件 | 用户声明什么 | 副本形态（多 Pod 副本 / PD） | 请求入口与调度 | 扩缩容 | 权重加载 | 批处理 / 多模型 |
+|---|---|---|---|---|---|---|
+| LeaderWorkerSet / DisaggregatedSet | group（leader + workers）；roles × slices | 自己就是副本形态：一个 group = 一个副本；每个 role 一个 LWS | 无（headless Service，流量自己接到 leader） | 只提供 `/scale`：`hpaPodSelector` 只选 leader；`DisaggregatedSetRoleScaler` 每角色一个 | 无（`volumeClaimTemplates` 可给节点本地缓存） | 无，全在引擎内部 |
+| KServe `InferenceService` | predictor / transformer / explainer / canary | Deployment（Standard）或 Knative Service（Knative）；`workerSpec` 多节点 | Knative 路由或 Ingress；transformer → predictor 串行 | 内置：HPA / KPA / KEDA（`scaleMetric`、`autoScaling.metrics`），不能表达 PD | storage-initializer（`s3://` `hf://`）、`pvc://`、`oci://`、`LocalModelCache` | `batcher`（请求级凑批）；ModelMesh 多模型共享进程 |
+| KServe `LLMInferenceService` | 一个 LLM 服务：`model` + `template`/`worker` + `prefill` + `router` + `scaling` | Deployment（单节点）/ LWS（`worker` 非空）；`prefill` 与 decode 各一组 | 生成 HTTPRoute + InferencePool + EPP（来自 llm-d） | `scaling.wva` → HPA 或 KEDA actuator；prefill / decode 独立 | 同上；`storageInitializer.enabled: false` 可关 | 无，vLLM 内部连续批处理 |
+| Triton Inference Server | model repository + `config.pbtxt` | 单进程，K8s 对象自选（通常 Deployment） | 进程内按模型名分发；无跨副本路由 | 无（外部 HPA/KEDA 看 `nv_inference_*`） | repository 路径（本地 / S3 / GCS / Azure） | `dynamic_batching`、`sequence_batching`、`ensemble`；多框架多模型一个进程 |
+| Ray Serve / `RayService` | Python deployment 图 + `serveConfigV2` + `rayClusterConfig` | replica 是 Ray actor，放在 Ray worker Pod 内；K8s 只见 head / worker Pod | Serve HTTP proxy 按 `route_prefix` 到 deployment；deployment 间 handle 调用 | 三层：Serve autoscaler（`target_ongoing_requests`）→ Ray autoscaler（worker Pod）→ cluster autoscaler | 引擎自理（`ray.serve.llm` 的 `model_loading_config`） | `@serve.batch`；多阶段 DAG 在进程间零拷贝传对象 |
+| llm-d v0.9.0 | Router Helm values（EPP 插件链）+ 模型服务器 Kustomize overlay | Deployment / LWS / DisaggregatedSet（recipes 提供） | Router = Proxy + EPP；InferencePool（GIE） | KEDA `ScaledObject`（EPP 汇总指标）/ WVA 路径 | recipes 里 PVC 或 HF 下载；Fast Model Actuation 热启动 | 引擎内部；Batch Serving 属于 workloads 路径 |
+
 ### 4. 本文的章节安排
 
 ```text
@@ -105,7 +116,7 @@ catalog: true
 
 ### 2. 四种形态 × K8s 对象表
 
-| 形态 | 引擎参数（vLLM v0.23.0） | Pod 数 / 副本 | 副本对象 | 稳定网络标识 | 扩缩容目标 | 典型模型 |
+| 形态 | 引擎参数（vLLM v0.28.0） | Pod 数 / 副本 | 副本对象 | 稳定网络标识 | 扩缩容目标 | 典型模型 |
 |---|---|---|---|---|---|---|
 | 单 Pod 单卡 | 默认 | 1 | Deployment | 不需要 | Deployment `/scale` | 7B–14B |
 | 单 Pod 多卡 | `--tensor-parallel-size N`（N ≤ 节点卡数） | 1 | Deployment | 不需要（进程组在 Pod 内） | Deployment `/scale` | 32B–70B（TP=2–8） |
@@ -124,6 +135,49 @@ catalog: true
 ### 1. 对象模型
 
 LWS 的类型定义在 `lws api/leaderworkerset/v1/leaderworkerset_types.go`。`LeaderWorkerSetSpec` 的注释给出全部语义：一个 **group** 由一个 leader 和 M 个 worker 组成，共 `size = M + 1` 个 Pod；`replicas` 是 group 的数量；group 的索引 `leaderIndex` 从 0 到 N−1，leader Pod 名为 `<lws>-<leaderIndex>`，worker 名为 `<lws>-<leaderIndex>-<workerIndex>`（workerIndex 从 1 到 M，leader 自己的 workerIndex 为 0）。控制器为每个 group 建一个 leader Pod 加一个管理 worker 的 StatefulSet，所以 group 内部的名字稳定、顺序可控。
+
+以 `replicas: 2, size: 3` 为例，控制器实际创建的对象及它们之间的关系如下——注意 leader 由一个 StatefulSet 统一管理（所以 `<lws>-0`、`<lws>-1` 名字稳定），而每个 group 的 worker 各有一个自己的 StatefulSet，HPA 与 Service 都只"看见"leader：
+
+```mermaid
+flowchart TB
+    LWS["LeaderWorkerSet vllm<br/>replicas: 2 · size: 3"]
+    LSTS["leader StatefulSet vllm<br/>(replicas = 2)"]
+    SVC["headless Service vllm<br/>subdomainPolicy: Shared"]
+    LWS --> LSTS
+    LWS --> SVC
+    subgraph g0["group 0（一个副本）"]
+        L0["leader Pod vllm-0<br/>worker-index=0<br/>API server + rank 0"]
+        WS0["worker StatefulSet vllm-0"]
+        W01["Pod vllm-0-1<br/>--node-rank 1"]
+        W02["Pod vllm-0-2<br/>--node-rank 2"]
+        L0 --> WS0
+        WS0 --> W01
+        WS0 --> W02
+    end
+    subgraph g1["group 1（另一个副本）"]
+        L1["leader Pod vllm-1"]
+        WS1["worker StatefulSet vllm-1"]
+        W11["Pod vllm-1-1"]
+        W12["Pod vllm-1-2"]
+        L1 --> WS1
+        WS1 --> W11
+        WS1 --> W12
+    end
+    LSTS --> L0
+    LSTS --> L1
+    HPA["HPA / KEDA<br/>hpaPodSelector: worker-index=0"]
+    HPA -. "只统计 leader 的指标" .-> L0
+    HPA -. " " .-> L1
+    SVC -. "DNS: vllm-0.vllm / vllm-0-1.vllm<br/>= LWS_LEADER_ADDRESS" .-> W01
+    classDef leader fill:#dbeafe,stroke:#1d4ed8;
+    classDef worker fill:#f1f5f9,stroke:#64748b;
+    classDef ctl fill:#fef3c7,stroke:#b45309;
+    class L0,L1 leader;
+    class W01,W02,W11,W12 worker;
+    class LWS,LSTS,WS0,WS1,SVC,HPA ctl;
+```
+
+图里有两个对扩缩容与故障恢复重要的事实：`RecreateGroupOnPodRestart` 的作用域是一个 group 子图——`vllm-0-2` 的容器重启会让 `vllm-0` 与 `vllm-0-1` 一起重建，但不影响 group 1；`replicas` 从 2 改成 1 时删掉的是整个 group 1（leader Pod 与它的 worker StatefulSet），而不是某几个 Pod。
 
 Pod 上注入的标签与环境变量（同文件常量）：
 
@@ -160,7 +214,7 @@ LWS_WORKER_INDEX                           组内编号
 
 ### 3. 完整示例：TP=8 × PP=2 的 405B
 
-用 vLLM v0.23.0 的多进程多节点模式（`docs/serving/parallelism_scaling.md` 的 "Running vLLM with MultiProcessing"：head 节点 `--nnodes 2 --node-rank 0 --master-addr`，worker 节点加 `--headless`；参数定义在 `vllm/engine/arg_utils.py` 与 `vllm/entrypoints/openai/cli_args.py`）。权重放在一个 ReadOnlyMany 的 PVC 上，避免每个 group 各自从 HF 下载。
+用 vLLM v0.28.0 的多进程多节点模式（`docs/serving/parallelism_scaling.md` 的 "Running vLLM with MultiProcessing"：head 节点 `--nnodes 2 --node-rank 0 --master-addr`，worker 节点加 `--headless`；参数定义在 `vllm/engine/arg_utils.py` 与 `vllm/entrypoints/openai/cli_args.py`）。权重放在一个 ReadOnlyMany 的 PVC 上，避免每个 group 各自从 HF 下载。
 
 ```yaml
 # mini-platform/serve/lws-vllm.yaml —— 一个副本 = 2 台 8 卡机器；replicas 是副本数
@@ -192,7 +246,7 @@ spec:
       spec:
         containers:
         - name: vllm
-          image: vllm/vllm-openai:v0.23.0
+          image: vllm/vllm-openai:v0.28.0
           command: ["sh", "-c"]
           args:
           - >-
@@ -235,7 +289,7 @@ spec:
       spec:
         containers:
         - name: vllm
-          image: vllm/vllm-openai:v0.23.0
+          image: vllm/vllm-openai:v0.28.0
           command: ["sh", "-c"]
           args:
           - >-
@@ -273,7 +327,7 @@ spec:
   - { name: http, port: 8000, targetPort: 8000 }
 ```
 
-三点说明。第一，worker 的 `--node-rank $(LWS_WORKER_INDEX)` 只在 `size: 2` 时恰好等于 1；更多节点时 worker index 从 1 起、node-rank 也从 1 起，仍然一致。第二，`LWS_LEADER_ADDRESS` 是 DNS 名，vLLM 文档里写的是 `<HEAD_NODE_IP>`，主机名能否被 torch 分布式初始化接受以 v0.23.0 实际行为为准，不行就在启动脚本里先 `getent hosts` 解析成 IP。第三，`lws docs/examples/vllm/GPU/lws.yaml` 给的是 Ray 后端的写法：leader 用 `multi-node-serving.sh leader --ray_cluster_size=$(LWS_GROUP_SIZE)` 起 Ray head，worker 用 `multi-node-serving.sh worker --ray_address=$(LWS_LEADER_ADDRESS)` 加入，然后在 leader 上 `--distributed-executor-backend ray`；这个脚本在 vLLM v0.23.0 里位于 `examples/ray_serving/multi-node-serving.sh`。两种方式的差别只在进程组怎么组建，LWS 层完全相同。
+三点说明。第一，worker 的 `--node-rank $(LWS_WORKER_INDEX)` 只在 `size: 2` 时恰好等于 1；更多节点时 worker index 从 1 起、node-rank 也从 1 起，仍然一致。第二，`LWS_LEADER_ADDRESS` 是 DNS 名，vLLM 文档里写的是 `<HEAD_NODE_IP>`，主机名能否被 torch 分布式初始化接受以 v0.28.0 实际行为为准，不行就在启动脚本里先 `getent hosts` 解析成 IP。第三，`lws docs/examples/vllm/GPU/lws.yaml` 给的是 Ray 后端的写法：leader 用 `multi-node-serving.sh leader --ray_cluster_size=$(LWS_GROUP_SIZE)` 起 Ray head，worker 用 `multi-node-serving.sh worker --ray_address=$(LWS_LEADER_ADDRESS)` 加入，然后在 leader 上 `--distributed-executor-backend ray`；这个脚本在 vLLM v0.28.0 里位于 `examples/ray_serving/multi-node-serving.sh`。两种方式的差别只在进程组怎么组建，LWS 层完全相同。
 
 ### 4. DisaggregatedSet：P/D 角色作为一个对象
 
@@ -476,6 +530,43 @@ vllm serve /mnt/models
 
 多节点走 `workload_multi_node.go`：`expectedMainMultiNodeLWS` / `expectedPrefillMultiNodeLWS` 生成 `LeaderWorkerSet`，`reconcileMultiNodeWorkload` 用 `PreserveLWSReplicas` 选项保留外部扩缩容器改过的副本数。也就是说，LLMInferenceService 多节点形态的底层仍是第三章的 LWS。
 
+把第 4 节那个 PD 分离示例交给控制器，生成物与请求路径如下。上排是 spec 的三块字段，下面是 K8s 里实际出现的对象；实线是控制器的"生成 / 引用"关系，虚线是运行时的请求流——两者是两回事，排障时要分开看：
+
+```mermaid
+flowchart TB
+    subgraph spec["LLMInferenceService llama-70b（用户写的）"]
+        Srouter["router:<br/>gateway #123;#125; · route #123;#125; · scheduler #123;#125;"]
+        Swork["model.uri pvc://…<br/>template(TP=4, replicas 2)<br/>prefill(TP=2, replicas 4)"]
+        Sscaling["scaling /<br/>prefill.scaling（可选）"]
+    end
+    HR["HTTPRoute<br/>parentRef → 默认 Gateway<br/>backendRef → InferencePool"]
+    IP["InferencePool llama-70b<br/>selector: llm-d 标签<br/>extensionRef → EPP"]
+    EPP["Deployment EPP<br/>llm-d-router-endpoint-picker<br/>--pool-name llama-70b"]
+    PRE["Deployment prefill（有 worker 时为 LWS）<br/>4 × 2 GPU · kv_producer<br/>pvc 直挂 /mnt/models"]
+    DEC["Deployment decode（有 worker 时为 LWS）<br/>2 × 4 GPU · kv_consumer<br/>pvc 直挂 /mnt/models"]
+    SO["HPA / KEDA ScaledObject<br/>decode 与 prefill 各一个"]
+    Srouter --> HR
+    HR -- "backendRef" --> IP
+    IP -- "extensionRef" --> EPP
+    Swork --> PRE
+    Swork --> DEC
+    Sscaling --> SO
+    SO -- "/scale" --> PRE
+    SO -- "/scale" --> DEC
+    HR -. "1. Gateway 匹配路由，backend 是 pool 而非 Service" .-> IP
+    IP -. "2. Gateway 以 ext-proc 咨询 EPP" .-> EPP
+    EPP -. "3. 选出 prefill + decode Pod，Gateway 转发" .-> PRE
+    PRE -. "4. KV 经 NIXL / RDMA 直传" .-> DEC
+    classDef user fill:#fef3c7,stroke:#b45309;
+    classDef obj fill:#dbeafe,stroke:#1d4ed8;
+    classDef eng fill:#dcfce7,stroke:#15803d;
+    class Srouter,Swork,Sscaling user;
+    class HR,IP,EPP,SO obj;
+    class PRE,DEC eng;
+```
+
+排障时按这张图找对象：`kubectl get httproute,inferencepool,deploy,lws -n serve` 能看到全部生成物；请求 5xx 先看 EPP 日志（是否选到了 Pod），再看 decode Pod 的 vLLM 日志（KV 是否收到）；改了 `template` 却没生效，多半是 well-known config 与本对象 spec 的合并优先级问题。
+
 ### 6. 权重加载路径
 
 两个 CRD 共用 `pkg/webhook/admission/pod/storage_initializer_injector.go` 的逻辑，按 `storageUri` 的 scheme 分三条路（scheme 常量在 `pkg/constants/constants.go`）：
@@ -581,6 +672,30 @@ RayService 适合的场景：Python 逻辑重、多阶段、需要在阶段之�
 - **InferencePool**：来自 GIE 的 API（`inference.networking.k8s.io/v1`，v1.6.0 的 GIE 仓库只保留 InferencePool API、`apix/v1alpha1` 扩展 API、轻量参考 EPP `pkg/lwepp` 与 conformance），用标签选择器把服务同一基础模型的 Pod 归为一组，文档称之为 "LLM-optimized Service"。**Variant** 是 pool 内通过 Pod 标签区分的子集——prefill 与 decode、不同成本或性能档位。
 - **Model Server**：vLLM 或 SGLang。`core/model-servers.md` 列出 EPP 默认抓取的指标及各引擎的对应名：TotalQueuedRequests ↔ `vllm:num_requests_waiting`，TotalRunningRequests ↔ `vllm:num_requests_running`，KVCacheUtilization ↔ `vllm:kv_cache_usage_perc`，以及可选的 `vllm:cache_config_info` 标签 `block_size` / `num_gpu_blocks`（给前缀缓存打分器用）。这张表是"引擎需要暴露什么才能被正确路由"的接口清单。
 
+三个概念在一次请求里怎么协作，用 PD 分离路径（`router/pd-disaggregation.values.yaml` 的插件链）走一遍最清楚。EPP 不在数据路径上：它只回答"送到哪"，请求体仍由 Proxy 转发；prefill 与 decode 的选择用两个不同的 `schedulingProfile`，打分依据也不同：
+
+```mermaid
+sequenceDiagram
+    participant C as 客户端
+    participant P as Router Proxy<br/>(Envoy / GIE L7)
+    participant E as EPP<br/>(Endpoint Picker)
+    participant D as decode Pod<br/>(vLLM + routing-proxy sidecar)
+    participant F as prefill Pod<br/>(vLLM)
+    C->>P: POST /v1/chat/completions
+    P->>E: ext-proc 请求头 + body(model, prompt)
+    Note over E: 候选 = InferencePool 选中的 Pod<br/>指标来自周期抓取 /metrics 与 KVEvents
+    Note over E: decode profile: decode-filter → active-request-scorer<br/>(num_requests_running 少者高分)
+    Note over E: prefill profile: prefill-filter → prefix-cache-affinity-filter<br/>→ token-load-scorer(前缀命中多 + 排队 token 少者高分)
+    E-->>P: 目标 decode Pod + header x-prefiller-host-port
+    P->>D: 转发请求(带 prefill 目标头)
+    D->>F: sidecar 先发给 prefill(max_tokens=1, kv_transfer_params)
+    F-->>D: prefill 完成，KV 经 NIXL / RDMA 直传 decode 显存
+    D-->>P: decode 逐 token 流式返回
+    P-->>C: SSE 流
+```
+
+如果不做 PD 分离（Optimized Baseline 路径），第 3–5 步只剩一个 profile：`prefix-cache-scorer` 与 `queue-scorer` / `kv-cache-utilization-scorer` 加权求和，选出一个 Pod 后 Proxy 直接转发，Pod 上也没有 sidecar。两条路径共用的一点是：**EPP 的所有评分输入都来自 Model Server 的指标约定**——引擎不导出 `vllm:kv_cache_usage_perc` 或不发 KV 事件，对应打分器就退化成随机。
+
 高级模式在此之上叠加：KV cache 管理（前缀感知路由的近似与精确两种、`KVEvents` 驱动的 KV-Cache Indexer、CPU/SSD 分层卸载、P2P 前缀共享）、PD 分离（Router 同时选 prefill 与 decode 端点并协调 KV 传输，decode Pod 上有一个 `routing-proxy` sidecar，镜像 `llm-d-router-disagg-sidecar`）、预测延迟路由（XGBoost 在线训练的 latency predictor sidecar）、批处理、自动扩缩容。
 
 ### 2. 交付物
@@ -626,7 +741,7 @@ Workloads                  Agentic Serving；Multimodal；RL rollout；Batch Ser
 
 vLLM 进程的 CPU 做三件事：HTTP 与 tokenizer、调度器每步的簿记、向 GPU 提交 kernel 并等待。GPU 满载时 CPU 可能只有百分之十几；GPU 空转时 CPU 也差不多——CPU 与负载几乎解耦。内存同理：KV cache 在显存里，host 内存基本不随并发变化。`nvidia.com/gpu` 是整数资源，K8s 没有"GPU 利用率"这个指标；DCGM 的 `DCGM_FI_DEV_GPU_UTIL` 只表示"有 kernel 在跑"，一个请求就能让它到 100%（第八篇）。
 
-真正的负载在引擎内部，vLLM v0.23.0 在 `vllm/v1/metrics/loggers.py` 里注册（标签是 `model_name` 与 `engine`）：
+真正的负载在引擎内部，vLLM v0.28.0 在 `vllm/v1/metrics/loggers.py` 里注册（标签是 `model_name` 与 `engine`）：
 
 ```text
 vllm:num_requests_running              正在被批处理执行的请求数（gauge）
@@ -667,7 +782,44 @@ advanced.scalingModifiers                          formula / target / activation
 fallback              failureThreshold 次取指标失败后的副本数 replicas 与 behavior（static / currentReplicas / …）
 ```
 
-KEDA 的工作方式是**生成并拥有一个 HPA**：它自己实现 `external.metrics.k8s.io`，把每个 trigger 变成 HPA 的一个 External 指标，HPA 的比例计算（desired = ceil(current × metric / target)）与 behavior 仍是 K8s 的；KEDA 额外做的是 0 ↔ 1 的激活（`activationThreshold`）、多触发器、cron 与 fallback。Prometheus scaler 的 metadata 键在 `pkg/scalers/prometheus_scaler.go` 的 `prometheusMetadata`：`serverAddress`、`query`（必须聚合成一个数）、`threshold`、`activationThreshold`（可选，超过它才算"活跃"，用于缩零判断）、`namespace`、`queryParameters`、`customHeaders`、`ignoreNullValues`（默认 true）、`unsafeSsl`、`timeout`。cron scaler（`cron_scaler.go`）的键是 `start`、`end`、`timezone`、`desiredReplicas`。多个触发器同时存在时，HPA 取各指标算出的期望副本数的最大值。
+KEDA 的工作方式是**生成并拥有一个 HPA**：它自己实现 `external.metrics.k8s.io`，把每个 trigger 变成 HPA 的一个 External 指标，HPA 的比例计算（desired = ceil(current × metric / target)）与 behavior 仍是 K8s 的；KEDA 额外做的是 0 ↔ 1 的激活（`activationThreshold`）、多触发器、cron 与 fallback。
+
+下图把两条链路放在一起对比。粗看都是"Prometheus → 某个 metrics API → HPA → `/scale`"，差别在谁拥有 HPA、PromQL 写在哪、以及 0 ↔ 1 这一步由谁做；括号里是信号延迟的三段来源，第八章的 `T_signal ≈ 1 分钟` 就是它们之和：
+
+```mermaid
+flowchart TB
+    VLLM["vLLM Pod /metrics<br/>vllm:num_requests_running …"]
+    PROM["Prometheus<br/>(抓取间隔 15–30 s)"]
+    VLLM --> PROM
+    subgraph hpaPath["路径 A：HPA + prometheus-adapter"]
+        AD["prometheus-adapter<br/>规则文件把 PromQL 映射成指标名<br/>实现 custom / external.metrics.k8s.io"]
+        HPA1["HPA（用户手写）<br/>metrics#91;#93;.type: Pods / External<br/>minReplicas ≥ 1"]
+        AD --> HPA1
+    end
+    subgraph kedaPath["路径 B：KEDA ScaledObject"]
+        SO["ScaledObject（用户手写）<br/>triggers#91;#93;: prometheus query / cron<br/>fallback · idleReplicaCount"]
+        KM["keda-operator + metrics-apiserver<br/>(pollingInterval 15 s)<br/>实现 external.metrics.k8s.io"]
+        HPA2["HPA（KEDA 生成并拥有）<br/>每个 trigger = 一个 External 指标<br/>behavior 原样拷入"]
+        SO --> KM
+        SO -- "生成" --> HPA2
+        KM --> HPA2
+        KM -- "0 ↔ minReplicaCount<br/>activationThreshold" --> SCALE
+    end
+    PROM --> AD
+    PROM --> KM
+    HPA1 -- "desired = ceil(cur × metric / target)<br/>(同步周期 15 s)" --> SCALE
+    HPA2 -- "多指标取最大值<br/>(同步周期 15 s)" --> SCALE
+    SCALE["/scale 子资源<br/>Deployment · LWS · DisaggregatedSetRoleScaler"]
+    SCALE --> VLLM
+    classDef src fill:#f1f5f9,stroke:#64748b;
+    classDef a fill:#fef3c7,stroke:#b45309;
+    classDef b fill:#dbeafe,stroke:#1d4ed8;
+    class VLLM,PROM,SCALE src;
+    class AD,HPA1 a;
+    class SO,KM,HPA2 b;
+```
+
+`SCALE → VLLM` 这条回边是闭环里最慢的一段：改了 `replicas` 之后新副本要 8 分钟才开始上报指标，这期间流量还在涨、`ceil(total / target)` 只会算出更大的 desired。这个控制回路的死区（dead time）约 9 分钟，远大于 HPA 的 15 秒同步周期，所以扩容侧不应再加稳定窗口或分步试探（第三节 `scaleUp.stabilizationWindowSeconds: 0`、`Pods: 4` 一步到位），而缩容侧要用 15 分钟窗口把"回落是不是暂时的"这个判断拖到有把握为止。Prometheus scaler 的 metadata 键在 `pkg/scalers/prometheus_scaler.go` 的 `prometheusMetadata`：`serverAddress`、`query`（必须聚合成一个数）、`threshold`、`activationThreshold`（可选，超过它才算"活跃"，用于缩零判断）、`namespace`、`queryParameters`、`customHeaders`、`ignoreNullValues`（默认 true）、`unsafeSsl`、`timeout`。cron scaler（`cron_scaler.go`）的键是 `start`、`end`、`timezone`、`desiredReplicas`。多个触发器同时存在时，HPA 取各指标算出的期望副本数的最大值。
 
 KServe 与 llm-d 都选择了 KEDA 作为 LLM 扩缩容的执行器：KServe `InferenceService` 的 `autoscalerClass: keda` 与 `LLMInferenceService.scaling.wva.keda`（类型直接引用 `kedav1alpha1.Fallback` 与 `kedav1alpha1.AdvancedConfig`），llm-d 的 Workload Autoscaling 路径（`guides/workload-autoscaling/keda-epp-queue/`）给的就是一个 `ScaledObject`。
 
@@ -816,6 +968,29 @@ N = 2 时，`2 × 64 − D ≥ 56` → `D ≤ 72` → 每副本在途请求 ≤ 
 - **cron 触发器**在 19:48 把期望副本抬到 6：20:00 开始爬升、20:40 到峰值，而 6 个副本在 19:48 + 9 分钟 = 19:57 就绪，比第一个额外副本被需要的时刻（D 超过 128，约 20:04）早 7 分钟。多花的是 4 个副本 × 12 分钟 ≈ 3.2 卡时/天。cron 的 `end: 23:30` 之后地板回到 `minReplicaCount: 2`，但实际缩容由 HPA 的 `scaleDown` behavior 控制。
 - **`num_requests_running` 阈值 36** 仍然保留，负责 cron 没覆盖的意外流量；因为高峰已由 cron 抬到 6 副本，它在正常高峰里算出的 desired 是 ceil(350 / 36) = 10——**这会覆盖 cron 的 6**（HPA 取最大值）。所以在有 cron 的方案里，反应式阈值应该抬到接近饱和：取 **56**（88%），此时它在预期高峰内不动（350 / 56 = 6.25 → 7，只多 1 个副本），只在流量超出预测 10% 以上时介入；穿透时间 = (2 × 64 − 2 × 56) / 6.25 ≈ 2.6 分钟的排队，作为"预测失败时的代价"可以接受，也可以再加一层 `num_requests_waiting` 兜底。
 - **缩容慢**：`scaleDown.stabilizationWindowSeconds: 900` 加每 5 分钟缩 1 个。23:30 之后 6 → 2 要 20 分钟以上，多花约 4 × 0.3 h ≈ 1.3 卡时/天，换来的是回落期一次二次高峰不需要再等 8 分钟。
+
+把三种方案放到同一条时间轴上，差别一眼可见——图中 `D` 是并发（第 1 节的假设曲线），`N` 是就绪副本数，`▓` 是 waiting > 0 的时段：
+
+```text
+时刻        19:48  19:57  20:00  20:04  20:20  20:40 ... 23:30  23:50  24:00
+D 并发       100    100    100    125    225    350       350    150    100
+            ------+------+------+------+------+------ ... ------+------+-----
+常驻 6      N= 6      6      6      6      6      6         6      6      6
+            全天多 16 卡 x 20.5 h = 328 卡时/天
+
+反应式      N= 2      2      2      2 ^    4 ^    8 ^ 10   10      9 ... 5
+阈值 36     D 越过 N x 36 即触发, 决策后 9 分钟才就绪; 爬升 6.25/min 快于追赶
+            ---> 爬升期阶段性 waiting > 0; 峰值 ceil(350/36) = 10 副本
+            ---> 高峰多 16 卡 x 3.5 h = 56 卡时/天
+
+组合方案    N= 2 ^    6      6      6      6      6         6 v    5 ... 2
+cron 19:48  19:48 cron 抬到 6, 19:57 就绪 (比 D > 128 的 20:04 早 7 分)
++ running   running 56 在预期高峰内不动 (350/56 -> 7, 最多多 1 副本)
+  56 / wait 4  23:30 地板回 2; 15 分钟窗口 + 每 5 分钟缩 1, 6 -> 2 约 20 分钟
+            ---> 3.2 + 1.3 卡时 = 约 5 卡时/天
+```
+
+（`^` 表示扩容决策、`v` 表示缩容开始；`N` 是**就绪**副本数，决策与就绪之间隔 9 分钟。）
 
 三项合计每天约 5 卡时的额外开销，对比反应式的 56 卡时与常驻的 328 卡时。剩下的不确定性在预测本身：高峰提前、周末形态不同、营销活动——这些由第八篇的容量规划回路去修正 cron 的时间与 `desiredReplicas`。
 

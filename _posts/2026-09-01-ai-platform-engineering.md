@@ -418,7 +418,7 @@ K8s 的空缺      原生 Kubernetes 为什么满足不了
 - 切分：HAMi **v2.10.0**；
 - 交付：KServe **v0.20.0**（`LLMInferenceService` 在 `serving.kserve.io/v1alpha1`）、LeaderWorkerSet **v0.10.0**（`DisaggregatedSet` 在独立的 `disaggregatedset` API group）、Gateway API Inference Extension **v1.6.0**（`InferencePool` v1；Endpoint Picker 自此版本起迁至 llm-d-router）、llm-d **v0.9.0**、llm-d-router **v0.10.0**、Triton Inference Server **v2.72.0**、KEDA **v2.20.2**；
 - 可观测与成本：DCGM Exporter 同上、OpenCost **v1.121.1**、Prometheus / OpenTelemetry Collector 按通用用法；
-- 引擎作为被服务对象：PyTorch **v2.13.0**、vLLM **v0.23.0**，正文只使用它们对外暴露的接口（启动参数、指标、OpenAI 兼容 API），不依赖内部实现。
+- 引擎作为被服务对象：PyTorch **v2.13.0**、vLLM **v0.28.0**，正文只使用它们对外暴露的接口（启动参数、指标、OpenAI 兼容 API），不依赖内部实现。
 
 这一层的组件版本变化比引擎更快，尤其是 DRA、Inference Extension 和 llm-d 这几处仍在快速演进。正文的原则是：**先讲机制和取舍，再讲当前的 API 形态**，API 变化时机制部分仍然成立。版本敏感处随文标注。
 

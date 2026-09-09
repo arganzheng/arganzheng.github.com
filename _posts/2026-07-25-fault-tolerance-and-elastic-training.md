@@ -301,6 +301,27 @@ rendezvous 回答一个问题：**这一轮参与训练的是哪些节点，各�
 
 `--nnodes=min:max` 由 `run.py` 的 `parse_min_max_nnodes()` 解析，进入 `RendezvousSettings` 的 `min_nodes / max_nodes`。`_RendezvousJoinOp` 的规则：参与者达到 `max_nodes` 立即完成；达到 `min_nodes` 但未到 `max_nodes` 时，从达到 min 的时刻起再等 `last_call` 超时（默认 30 秒，`RendezvousTimeout` 的 `_DEFAULT_TIMEOUTS`），期间有新节点来就接纳，超时后以当前成员完成；一直不到 min 则等 `join` 超时（默认 600 秒）后失败。另两个超时：`close`（30 秒）与 `heartbeat`（5 秒，节点用 `_keep_alive()` 定期更新自己在状态里的时间戳，`_sanitize()` 把超时未心跳的节点从参与者里剔掉）。这四个值通过 `--rdzv-conf join_timeout=…,last_call_timeout=…` 调整。
 
+把 `_RendezvousJoinOp` 的分支与四个超时画在一起（每次 `sync()` 后重新走一遍判断）：
+
+```mermaid
+flowchart TB
+    S["节点启动 / 重启：_RendezvousJoinOp 写入参与者列表<br/>每 5 s _keep_alive 刷新心跳"] --> Q1{"参与者数 ≥ max_nodes？"}
+    Q1 -->|"是"| DONE["完成：round += 1，分配 group_rank / world_size / store<br/>worker 运行中，_sanitize 剔除 5 s 无心跳的节点"]
+    Q1 -->|"否"| Q2{"参与者数 ≥ min_nodes？"}
+    Q2 -->|"是"| LC["从达到 min 起等 last_call（默认 30 s）<br/>期间新节点可继续加入"]
+    LC -->|"又有节点来"| Q1
+    LC -->|"last_call 超时"| DONE
+    Q2 -->|"否，未到 join 超时：sleep 后 sync() 再看"| Q1
+    Q2 -->|"否，join 超时（默认 600 s）"| FAIL["RendezvousTimeoutError<br/>agent 返回 FAILED"]
+    DONE -->|"num_nodes_waiting > 0：有新节点在等"| RS["agent _restart_workers()<br/>成员变化不计入 max_restarts"] --> S
+    classDef ok fill:#e8f5e9,stroke:#2e7d32;
+    classDef bad fill:#ffebee,stroke:#c62828;
+    classDef wait fill:#fff8e1,stroke:#f9a825;
+    class DONE ok;
+    class FAIL bad;
+    class LC wait;
+```
+
 `last_call` 是 T_r 里一个容易被忽视的固定开销：**弹性模式下每次重启至少多等 30 秒**，等"可能还有节点要来"。集群规模确定、不打算弹性时把 `min:max` 设成相等，达到 max 立即完成，省掉这 30 秒。
 
 ### 4. 一次进程重启的时间账
@@ -366,6 +387,30 @@ termination_grace_time                  5 s                                     
 
 一次重启的流程：某 rank 抛异常或超时 → `MonitorThread` 通知 store → 其他 rank 的 `MonitorThread` 收到、向主线程注入 `RankShouldRestart` → 所有 rank 执行 `abort`（解开卡住的集合通信）→ `finalize` 清理 → `health_check` → 通过 store 的 barrier 会合 → `rank_assignment` 算出新的 rank 与 world size（不健康的 rank 变为 inactive，返回 None）→ `initialize` → 重新调用训练函数。整个过程进程不退出、CUDA context 不重建、Python 模块不重新 import。
 
+把这个循环连同它的三个分支（不健康 rank 被剔除、健康 rank 不够时交给外层 `ft_launcher`、hard timeout 直接杀）画出来：
+
+```mermaid
+flowchart TB
+    T["训练函数运行中（被 Wrapper 包裹）<br/>MonitorThread · MonitorProcess · ProgressWatchdog 各自轮询"] --> E{"触发条件"}
+    E -->|"本 rank 抛异常"| N["MonitorThread 经内部 TCPStore 通知全部 rank<br/>各 rank 主线程被注入 RankShouldRestart<br/>last_call_wait 1 s 合并并发故障"]
+    E -->|"进度停滞 > soft_timeout 60 s<br/>或心跳丢失 > heartbeat_timeout 30 s"| N
+    E -->|"停滞 > hard_timeout 90 s"| K["直接终止该 rank<br/>（SIGTERM → 5 s → SIGKILL）"]
+    N --> A["abort：AbortTorchDistributed / AbortTransformerEngine，解开卡住的集合通信<br/>finalize：ThreadedFinalize 限时清理（Megatron 的 destroy_state）"]
+    A --> H{"health_check<br/>CudaHealthCheck + GPU / NVLink"}
+    H -->|"不健康"| I["该 rank 变为 inactive<br/>（返回 None，退出参与）"]
+    H -->|"健康"| BR["内部 store 上 barrier 会合（barrier_timeout 120 s）<br/>rank_assignment：Tree / ShiftRanks / FillGaps<br/>算新 rank 与 world size，热备 rank 补位"]
+    I --> BR
+    BR --> Q{"活跃 rank ≥ min_world_size？"}
+    Q -->|"是"| INIT["initialize：RetryController<br/>重新调用训练函数（进程 / CUDA / import 全部保留）"] --> T
+    Q -->|"否"| NR["NestedRestarter 上报 RankMonitorServer<br/>由 ft_launcher 做进程级重启（外层兜底）"]
+    classDef run fill:#e8f5e9,stroke:#2e7d32;
+    classDef bad fill:#ffebee,stroke:#c62828;
+    classDef step fill:#e3f2fd,stroke:#1565c0;
+    class T,INIT run;
+    class K,I,NR bad;
+    class A,BR step;
+```
+
 ### 3. Megatron 的 `inprocess_restart.py`
 
 `megatron/training/inprocess_restart.py` 把上面的组件按 Megatron 的需要装配起来（`--inprocess-restart` 打开，参数在 `arguments.py` 的 `_add_inprocess_restart_args()`，每个 `Wrapper` 超时都有对应的 `--inprocess-*` 参数）：
@@ -396,6 +441,34 @@ termination_grace_time                  5 s                                     
 
 torchft v0.2.0 的协调服务 Lighthouse 是 Rust 实现（`src/lighthouse.rs`，二进制入口 `src/bin/lighthouse.rs`，通过 `pyproject.toml` 暴露为 `torchft_lighthouse` 命令），gRPC 接口在 `proto/torchft.proto`：`LighthouseService` 有 `Quorum` 与 `Heartbeat` 两个 RPC，`ManagerService` 有 `Quorum / CheckpointMetadata / ShouldCommit / Kill`。每个副本组的 rank 0 运行一个 `ManagerServer`（`src/manager.rs`，Python 侧类型在 `torchft/_torchft.pyi`）作为副本的代表向 Lighthouse 发心跳和 quorum 请求；副本内其他 rank 通过 `ManagerClient` 找自己的 `ManagerServer`。
 
+三层角色的关系——注意副本组**内部**仍是普通的、不容错的 NCCL 进程组，torchft 只接管副本**之间**的那一维：
+
+```mermaid
+flowchart TB
+    LH["Lighthouse（Rust，torchft_lighthouse）<br/>LighthouseService：Quorum / Heartbeat<br/>每 quorum_tick_ms 100 ms 跑一次 quorum_compute"]
+    subgraph rg0["副本组 0 = 一个 DP 副本"]
+        direction TB
+        M0["rank 0：ManagerServer<br/>副本代表，发心跳与 quorum 请求"]
+        W0["rank 1..k：ManagerClient<br/>副本内 TP / PP / FSDP：普通 ProcessGroupNCCL"]
+        M0 --- W0
+    end
+    subgraph rg1["副本组 1 … N-1（结构相同）"]
+        direction TB
+        M1["rank 0：ManagerServer"]
+        W1["rank 1..k：ManagerClient<br/>普通 ProcessGroupNCCL"]
+        M1 --- W1
+    end
+    LH <-->|"Heartbeat（超时 5 s）<br/>Quorum RPC"| M0
+    LH <-->|"Heartbeat / Quorum"| M1
+    rg0 <-.->|"副本间梯度 all-reduce<br/>torchft 可重配置进程组，随 quorum_id 重建<br/>heal 时经 HTTP / PG transport 拉参数"| rg1
+    classDef svc fill:#fff8e1,stroke:#f9a825;
+    classDef mgr fill:#e3f2fd,stroke:#1565c0;
+    classDef wk fill:#f5f5f5,stroke:#616161;
+    class LH svc;
+    class M0,M1 mgr;
+    class W0,W1 wk;
+```
+
 `LighthouseOpt` 四个参数：`--min_replicas`（多少副本才成 quorum）、`--join_timeout_ms`（默认 60000：等还在心跳但没来参加的副本多久）、`--quorum_tick_ms`（默认 100：多久检查一次）、`--heartbeat_timeout_ms`（默认 5000：多久没心跳算死）。`quorum_compute()` 是核心规则，按顺序：
 
 ```text
@@ -422,6 +495,41 @@ Python 侧 `torchft/manager.py` 的 `Manager` 是训练循环看到的全部接�
 - **`start_quorum()`**：在前向之前调（`torchft/optim.py` 的 `OptimizerWrapper.zero_grad()` 就是调它）。它把 `_async_quorum()` 提交到单线程 executor，`use_async_quorum=True` 时立刻返回让前向先跑，quorum 在后台算。`_async_quorum()` 向 `ManagerServer` 发 `_quorum()`；拿到结果后若 `quorum_id` 变了，调 `self._pg.configure(store_addr, replica_id, replica_rank, replica_world_size, quorum_id, group_rank, group_world_size, ranks_in_quorum)` **重建副本间进程组**（这是 torchft 进程组类的关键能力，普通 `ProcessGroupNCCL` 做不到），并重置 Flight Recorder 的记录路径；若 `heal`，在专用的 recovery stream 上从 `recover_src` 拉 checkpoint（`_checkpoint_transport.recv_checkpoint()`），存为 `_pending_state_dict`，等安全时刻再 `_apply_pending_state_dict()`；若 `recover_dst_replica_ranks` 非空，把自己的 state dict 发给它们。
 - **`allreduce(tensor)`**：DDP 的 comm hook 调它（`torchft/ddp.py` 的 `DistributedDataParallel._comm_hook` → `state.allreduce(bucket.buffer())`）。它先等 quorum future，若本 step 已经 `errored()` 则返回一个不做事的 `_DummyWork`；否则在重配置过的进程组上发 all-reduce，`wrap_future()` 把结果按 `num_participants()` 归一化，**任何异常被捕获并记进 `report_error()` 而不抛出**——一个副本挂掉时其他副本的 all-reduce 会失败，但训练循环不崩，只是这一步作废。`should_quantize=True` 时走 `torchft/collectives.py` 的 `allreduce_quantized()`（Triton 实现的量化 all-reduce）。
 - **`should_commit()`**：反向之后、optimizer step 之前调（`OptimizerWrapper.step()` 只在它返回 True 时真正 step）。它同步 recovery stream、检查进程组有没有错、若在 healing 就应用 pending state dict，然后把"本 rank 这步是否成功"（有足够副本且没错）发给 `ManagerServer`，`ManagerServer` 在副本内做一致性决定：**副本内任一 rank 失败则整个副本这步不提交**。返回 True 时 `_step += 1`、`_batches_committed += num_participants()`；`max_retries` 次连续失败则抛异常。
+
+一个 step 里这三次交互与前向反向的重叠关系（`use_async_quorum=True`；heal 分支只在本副本落后时走）：
+
+```mermaid
+sequenceDiagram
+    participant T as 训练循环 / OptimizerWrapper
+    participant M as Manager (Python)
+    participant S as ManagerServer (副本 rank 0)
+    participant L as Lighthouse
+    participant P as 恢复源副本
+    T->>M: zero_grad() → start_quorum()
+    Note over M: _async_quorum() 提交到后台线程，立即返回
+    par 前向与 quorum 重叠
+        T->>T: forward 先跑
+    and
+        M->>S: _quorum(step)
+        S->>L: Quorum RPC（副本代表）
+        L-->>S: Quorum(quorum_id, 成员列表)
+        S-->>M: replica_rank / max_step / heal / recover_src
+        Note over M: quorum_id 变了 → pg.configure() 重建副本间进程组
+    end
+    opt heal：本副本 step 落后于 max_step
+        M->>P: recv_checkpoint()（HTTPTransport / PGTransport，recovery stream）
+        P-->>M: state_dict → 存为 _pending_state_dict
+    end
+    T->>M: backward 中 comm hook → allreduce(grad)
+    Note over M: 先等 quorum future，出错则 report_error() 并返回 _DummyWork
+    M-->>T: 按 num_participants() 归一化的梯度
+    T->>M: step() → should_commit()
+    Note over M: 同步 recovery stream，healing 则 _apply_pending_state_dict()
+    M->>S: should_commit(本 rank 这步是否成功)
+    Note over S: 副本内任一 rank 失败 → 整个副本这步不提交
+    S-->>M: True / False
+    M-->>T: True 才 optimizer.step()，_step += 1
+```
 
 进程组类在 `torchft/process_group.py`：`ProcessGroup` 基类增加 `configure()` / `abort()` / `errored()` / `shutdown()`；`ProcessGroupWrapper` 包一个真实后端并在 `configure()` 时销毁重建；`ProcessGroupGloo` / `ProcessGroupNCCL` / `ProcessGroupXCCL` 是对应后端；`ProcessGroupBaby*`（`ProcessGroupBabyNCCL` 等）把后端放进**子进程**——NCCL 的 abort 可能卡住或搞坏 CUDA context，放在子进程里坏了就杀掉重开，用共享内存传张量；`ManagedProcessGroup` 让 FSDP/HSDP 这类不走 comm hook 的代码也能用 torchft：它的 `allreduce()` 直接调 `manager.allreduce()`，`size()` 返回 `manager.num_participants()`；`ErrorSwallowingProcessGroupWrapper` 与 `FakeProcessGroupWrapper` 用于测试与注入。
 
@@ -453,6 +561,21 @@ README 的例子是 8 卡单机两副本组、每组 FSDP 4 卡：先起 Lightho
 ### 7. 代价与边界
 
 torchft 不是免费的：每步一次 quorum RPC（快速路径下几毫秒，与前向重叠）；`allreduce` 多一层 Python wrapper 和 future 回调；进程组重配置时 NCCL communicator 要重建（同一个 T_r 里的大头，但只重建副本维那一个 comm，且其他副本组不受影响）；`FIXED_WITH_SPARES` 要多养备用副本；`DYNAMIC` 模式下副本数变化意味着 global batch 变化，需要训练配方能容忍。v0.2.0 的进程组 abort 路径仍标注为实验性（Baby 进程组就是为它的不可靠而设计的），torchtitan 的集成也标注为 experimental。它解决的是"DP 副本级"的容错；副本内部（TP/PP/FSDP）的故障仍然要靠前几章的重启。
+
+把第四、五、六章的三种恢复方式放在一起对照——它们不是替代关系，而是按故障单元从大到小、保留状态从少到多排列，实践中嵌套使用：
+
+| 维度 | 进程重启（torchrun / ft_launcher） | 进程内重启（NVRx inprocess.Wrapper） | 副本组弹性（torchft） |
+|---|---|---|---|
+| 故障单元 | 整个任务：任一 worker 挂，所有节点的 worker 全部重启 | 整个任务的通信层：所有健康 rank 同时重进训练函数 | 一个 DP 副本组：坏组退出 quorum，其余组不停 |
+| 保留什么 | 什么都不保留 | 进程、CUDA context、import、JIT 缓存、数据集索引、DataLoader worker | 全部；连 checkpoint 加载也省掉（从邻居拉参数） |
+| 重建什么 | 进程 + CUDA + 全部 NCCL communicator + 数据集 | 全部 NCCL communicator（abort 后重建） | 只重建副本维那一个 communicator（`pg.configure()`） |
+| T_d（hang） | NCCL watchdog 600 s；NVRx section 超时分钟级 | ProgressWatchdog + `soft_timeout` 60 s；心跳 30 s | `heartbeat_timeout_ms` 5 s + `join_timeout_ms` 60 s |
+| T_r 量级 | 2–5 分钟 | 十几秒到一分钟 | ≈ 0（其余组不重启；坏组回来时 heal 秒到几十秒） |
+| T_l | 从存储加载 checkpoint | 从存储或本地 / 内存 checkpoint | 从活着的副本拉 state dict |
+| world size | 固定；`min:max` 弹性重启仍是全体重建 | 固定：靠热备 rank（`Tree` 的 RESERVE 层）补位 | 动态：`DYNAMIC` 改 DP 度，或 `FIXED_WITH_SPARES` 养备用副本 |
+| 对训练代码的要求 | 启动时有 checkpoint 就加载 | 训练函数可重入：全局状态可销毁重建 | 并行度必须含 replicate 维；副本间通信交给 Manager / ManagedProcessGroup |
+| 覆盖不了的 | — | 健康 rank < `min_world_size` → 交外层 ft_launcher | 副本内部（TP/PP/FSDP）故障：整组退出，再靠前两种重启 |
+| 框架支持 | 三框架皆可 | Megatron `--inprocess-restart` | torchft 原生 DDP；torchtitan `experiments/torchft/`（HSDP） |
 
 
 ## 七、坏卡隔离与开训前自检
@@ -494,6 +617,20 @@ NVRx 的 `shared_utils/health_check.py` 提供 `GPUHealthCheck`（NVML：ECC、X
 ### 2. 检测原理：每 rank 的计算时间 vs 等待时间
 
 判据只有一条：**慢的 rank 计算时间长、通信等待时间短；被拖的 rank 反之**。所以检测需要每个 rank 各自记录"本 step 花在计算 kernel 上的时间"与"花在集合通信里的时间"，然后跨 rank 比较——单个 rank 的时间线分不清"我慢"和"我在等别人"。
+
+```text
+一个 step 内各 rank 的时间线（rank 5 是 straggler）
+时间 ────────────────────────────────────────────────────────────▶
+rank 0  │████ 计算 ████│░░░░░░░ 等待 all-reduce ░░░░░░░│▒ 通信 ▒│
+rank 1  │████ 计算 ████│░░░░░░░ 等待 all-reduce ░░░░░░░│▒ 通信 ▒│
+rank 5  │████████████ 计算（慢）██████████████████████│▒ 通信 ▒│ ← 计算长、等待≈0
+rank 6  │████ 计算 ████│░░░░░░░ 等待 all-reduce ░░░░░░░│▒ 通信 ▒│
+        ▲              ▲                               ▲
+        step 开始       快 rank 进入集合通信，开始等      最慢 rank 到达，
+                        （单看自己：像是"通信慢"）        all-reduce 才真正开始
+```
+
+从单个快 rank 的视角，"等待"和"通信"都发生在同一个 all-reduce 调用里，看起来只是通信变慢了；只有把所有 rank 的计算时间并排比较，才能看出谁把大家拖住了。
 
 实现有两个层次。轻量的：在训练循环里用 CUDA event 给前向反向计时（不含通信），每 N 步 all-gather 各 rank 的计时，算 min/max/中位数；重的：CUPTI 拿到每个 kernel 的实际执行时间，按 kernel 名聚合，能把"GEMM 慢了"和"数据加载慢了"分开。
 
@@ -563,6 +700,32 @@ optimizer.step()
 - **状态机**（`RerunState`）：`NOT_RUNNING_YET → INITIAL_RUN → RERUNNING_IN_PLACE`（第一次重跑，同一张卡）；若重跑结果与初次**不同** → 归因 `TRANSIENT_ERROR`（瞬时错误，`RerunDiagnostic`），记录后按 `fatal` 决定退出或继续；若**相同** → `WILL_RERUN_FROM_CHECKPOINT`：`should_checkpoint_and_exit()` 返回 `(True, True, EXIT_CODE_RESUME_TO_DISAMBIGUATE)`，保存 checkpoint 并退出，**由外部调度器在不同的 GPU 上重启**；重启后进入 `RERUNNING_FROM_CHECKPOINT`，再跑一次：与初次不同 → `PERSISTENT_ERROR`（原来那张卡的持久错误，`suspicious_node / suspicious_device` 记的就是它）；相同 → `CORRECT_RESULT`（不是硬件问题，是数据或算法导致的真实 NaN/spike）；若重启落回同一张卡则 `RERUNNING_AGAIN_FROM_CHECKPOINT` 再来。`result_rejected_tracker_filename` 指定的文件记录每次事件与 `RerunValidationStatus`（`FIRST_RERUN_REPRODUCIBLE` 等），`get_skipped_iterations_from_tracker_file()` 让第七篇的"跳过坏 batch"能读它。
 - **三种模式**（`RerunMode`，配置 `resilience_config.py` 的 `RerunStateMachineConfig.rerun_mode`，默认 `validate_results`）：`DISABLED`；`VALIDATE_RESULTS`（上述全部逻辑）；`REPORT_DETERMINISM_STATS`——不触发重跑，而是每隔 `REPORTING_INTERVAL_ITERATIONS` 步**主动**重跑并用 `QuickStats` 统计两次结果的相对差异，报告这个模型在这套配置下有多不确定。它的用途是校准：如果 `tolerance=0` 下正常的非确定性就会让比较失败，`VALIDATE_RESULTS` 模式会误报，先用它测出正常的差异范围。
 - **注入**：`RerunErrorInjector(error_injection_rate, error_injection_type)`（配置 `error_injection_rate`，如 1000 表示每 1000 次校验注入一次；`error_injection_type` 取 `correct_result / transient_error / persistent_error`）在 `validate_result()` 里按概率篡改结果或让比较失败，用来演练整条归因链路。
+
+`RerunState` 的完整转移——两次比对、三种结论，中间隔着一次"存盘退出、换卡重启"：
+
+```mermaid
+flowchart TB
+    S0["NOT_RUNNING_YET"] --> S1["INITIAL_RUN<br/>保存 RNG 状态，包装 data iterator"]
+    S1 --> V{"validate_result：rejection_func 为 True？<br/>（NaN / Inf / spiky loss / large grad）"}
+    V -->|"否"| OK["正常：should_checkpoint_and_exit 返回 False<br/>optimizer.step()"]
+    V -->|"任一 rank 为是（_reduce_any）"| S2["RERUNNING_IN_PLACE<br/>恢复 RNG、rewind iterator<br/>同一张卡重跑本 step"]
+    S2 --> C1{"两次结果经 comparison_func<br/>在 tolerance 内一致？"}
+    C1 -->|"不一致"| TR["TRANSIENT_ERROR（瞬时错误）<br/>记录到 tracker 文件，fatal 则退出，否则继续"]
+    C1 -->|"一致"| S3["WILL_RERUN_FROM_CHECKPOINT<br/>should_checkpoint_and_exit → 存 checkpoint 并退出<br/>EXIT_CODE_RESUME_TO_DISAMBIGUATE"]
+    S3 --> SCHED["外部调度器重启任务"]
+    SCHED --> SAME{"落回同一张卡？"}
+    SAME -->|"是"| AGAIN["RERUNNING_AGAIN_FROM_CHECKPOINT<br/>再存盘退出"] --> SCHED
+    SAME -->|"否"| S4["RERUNNING_FROM_CHECKPOINT<br/>在另一张卡上重跑同一 step"]
+    S4 --> C2{"与初次结果一致？"}
+    C2 -->|"不一致"| PE["PERSISTENT_ERROR<br/>原卡持久坏：记 suspicious_node / suspicious_device"]
+    C2 -->|"一致"| CR["CORRECT_RESULT<br/>不是硬件：数据或算法导致的真实 NaN / spike"]
+    classDef ok fill:#e8f5e9,stroke:#2e7d32;
+    classDef bad fill:#ffebee,stroke:#c62828;
+    classDef st fill:#e3f2fd,stroke:#1565c0;
+    class OK,CR ok;
+    class TR,PE bad;
+    class S1,S2,S3,S4,AGAIN st;
+```
 
 文档里两条假设值得记住：控制流必须确定（重跑要产生相同序列的 `validate_result` 调用），但**计算不必确定**（通过 `tolerance` 容忍）；以及它只能重跑当前 step——上一步算错、这一步才表现为 spike 的情况抓不到。
 

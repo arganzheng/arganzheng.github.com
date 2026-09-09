@@ -137,6 +137,30 @@ class CUDAGraphMode(enum.Enum):
 
 后两个是"组合模式"：元组的第一个元素给纯 decode batch 用（`decode_mode()`），第二个给含 prefill 的混合 batch 用（`mixed_mode()`）。为什么要区分？因为 decode batch 的形状只由请求数决定、可以按 batch size 分桶提前录好；而混合 batch 里每个请求的 token 数各不相同，attention 的输入形状几乎不重复，只能把 attention 留在图外、其余层分段录图。
 
+"按 batch size 分桶提前录好"具体是怎么做的？图里 kernel 的形状是固定的，所以不可能给每一个可能的 batch 大小都录一张图；vLLM 的做法是只在一组离散的 `cudagraph_capture_sizes` 上录图，运行时把实际 batch **向上 pad** 到最近的桶：
+
+```text
+cudagraph_capture_sizes（默认生成规则，vllm/config/compilation.py）：
+  [1, 2, 4] + range(8, 256, 8) + range(256, max+1, 16)
+  max = max_cudagraph_capture_size，默认 min(max_num_seqs × 2, 512)
+
+启动时：每个 size 各录一张图（decode 的 FULL 图按 num_reqs = size 录）
+  size:  1   2   4   8   16   24   32  ...  248  256  272  ...  512
+  图:   G1  G2  G4  G8  G16  G24  G32 ...  G248 G256 G272 ...  G512
+
+运行时：CudagraphDispatcher._bs_to_padded_graph_size[num_tokens]
+  实际 decode batch        pad 到   replay    白算的行
+  ────────────────────    ──────   ──────    ────────
+    3 个请求                  4      G4        1 / 4
+    5 个请求                  8      G8        3 / 8
+    9 个请求                 16     G16        7 / 16
+   17 个请求                 24     G24        7 / 24
+  200 个请求                200    G200        0
+  600 个请求（> max 512）   不 pad   eager     ——（dispatch 返回 NONE）
+```
+
+被 pad 出来的行喂的是占位 token，算完直接丢弃；换来的是任意 batch 大小都能命中一张已录好的图。桶在 8 以上按 8 步进、256 以上按 16 步进，正是因为 batch 越大，多算几行的相对开销越可以忽略；而 1、2、4 单独成桶，是因为小 batch 下 pad 一行就是 25%~100% 的浪费。`dispatch()` 最终返回的 `BatchDescriptor(num_tokens, num_reqs, uniform)` 就是查图用的 key——decode batch 带 `uniform=True` 去查 FULL 图，查不到就退化为去掉 `num_reqs` 和 `uniform` 的宽松 key 查 PIECEWISE 图，再查不到才走 eager。
+
 | 模式 | 机制 | 适用场景（引自 `CompilationConfig.cudagraph_mode` 的 docstring） | 说明 |
 |---|---|---|---|
 | NONE | 不录图 | 调试；或 attention backend / 自定义算子完全不支持 CUDA Graph | 每一步都由 CPU 逐个发射 kernel，小 batch decode 下 launch 开销占比显著 |
@@ -144,6 +168,30 @@ class CUDAGraphMode(enum.Enum):
 | FULL | 整个 forward（含 attention）录成**一张图**，一次 replay | "小模型或短 prompt 负载可能有收益；很多 backend 不支持" | 要求 attention backend 支持 CUDA Graph 下的 prefill（形状必须能分桶）；对多数负载不如 FULL_AND_PIECEWISE |
 | FULL_DECODE_ONLY | decode batch 走 FULL；混合 batch 不录图 | "适合 P/D 分离中的 decode 实例：prefill 不重要，可以省下 piecewise 图的显存" | 只录一套 decode 图，显存开销最小的"有图"方案 |
 | FULL_AND_PIECEWISE | decode batch 走 FULL；prefill / 混合 batch 走 PIECEWISE | "对大多数模型最快，是默认值" | 常驻两套图（decode 各桶的 FULL 图 + piecewise 段图），显存开销最大 |
+
+PIECEWISE 的"分段"落到一层 Transformer 上长什么样？`VllmBackend.split_graph()`（`vllm/compilation/backends.py`）拿到整个 forward 的 FX 图后，在每一个 `splitting_ops`（默认是 `_attention_ops`，即 `vllm::unified_attention_with_output` 等）处切一刀，切出来的每一段交给 Inductor 编译并由 `CUDAGraphWrapper` 各录一张图；attention 本身留在图外 eager 调用：
+
+```mermaid
+flowchart TB
+    IN["上一层输出 hidden #91;num_tokens, hidden#93;"] --> SEG1
+    subgraph SEG1["段 i：Inductor 编译 → 录成 CUDA Graph（按 num_tokens 桶固定形状）"]
+        N1["RMSNorm"] --> QKV["QKV GEMM（QKVParallelLinear）"] --> ROPE["RoPE"]
+    end
+    SEG1 --> ATT["vllm::unified_attention_with_output（splitting_op）<br/>eager 调用 FlashAttention / FlashInfer<br/>内部写 paged KV Cache 再算 attention<br/>形状随每个请求的 seq_len 变化"]
+    ATT --> SEG2
+    subgraph SEG2["段 i+1：编译 → CUDA Graph"]
+        OPJ["O Proj GEMM"] --> AR1["All-Reduce（TP）"] --> N2["Fused Add + RMSNorm"] --> MLP["Gate/Up GEMM → SiLU·Mul → Down GEMM"] --> AR2["All-Reduce（TP）"]
+    end
+    SEG2 --> NEXT["下一层的段 i+2 …<br/>（段 i+1 与下一层的段 i+2 之间无 splitting_op，实际合为同一段）"]
+    classDef graphseg fill:#e8f5e9,stroke:#1b5e20;
+    classDef eager fill:#fff3e0,stroke:#e65100;
+    classDef plain fill:#f5f5f5,stroke:#616161;
+    class N1,QKV,ROPE,OPJ,AR1,N2,MLP,AR2 graphseg;
+    class ATT eager;
+    class IN,NEXT plain;
+```
+
+于是 80 层的模型一次 forward 要 replay 约 81 段图、eager 调用 80 次 attention（相邻两层之间没有 splitting_op，上一层的后半段与下一层的前半段是同一段）。绿色段内 kernel 之间没有 launch 气泡，橙色的 attention 因为形状不固定只能由 CPU 逐次发射——但它是一层里最"胖"的 kernel，launch 开销相对可以接受；这就是 PIECEWISE 在混合 batch 下的取舍。FULL 模式则是把上图从头到尾（包括橙色的 attention）录成一张图，因此要求 attention backend 也能在固定形状下工作，这只对"每请求 1 个 token"的纯 decode batch 才容易满足。
 
 两个常见误解要澄清。第一，FULL 模式录的是**一张包含全部 kernel 的图**，replay 时 GPU 按图里记录的顺序执行这些 kernel——它减少的是 CPU 侧 launch 开销和 kernel 间的空隙，**不是**把 forward 融合成一个"超级 kernel"，每个 kernel 内部的执行时间一点没变。第二，CUDA Graph 与 `torch.compile` 是两个正交的轴：docstring 明说 "the cudagraph logic is generally orthogonal to the compilation logic"——PIECEWISE 依赖 piecewise 编译，但 FULL 图在不开编译时也能录。`CompilationConfig.mode`（`NONE / STOCK_TORCH_COMPILE / DYNAMO_TRACE_ONCE / VLLM_COMPILE`）管的是"要不要让 Inductor 生成融合 kernel"，`cudagraph_mode` 管的是"生成好的 kernel 序列要不要录成图"。
 

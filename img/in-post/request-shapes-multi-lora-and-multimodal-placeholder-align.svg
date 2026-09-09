@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="740" height="405" viewBox="0 0 740 405" font-family="-apple-system, 'Helvetica Neue', Arial, sans-serif" font-size="13">
+  <rect width="740" height="405" fill="#ffffff"/>
+  <!-- column i: x = 140 + 46*i, w = 42 ; centre = 161 + 46*i -->
+
+  <!-- highlight band for position 6 (the newline inside the placeholder range) -->
+  <rect x="414" y="50" width="46" height="138" fill="#fce4ec" opacity="0.6"/>
+
+  <!-- row: position -->
+  <text x="130" y="42" text-anchor="end" fill="#333">位置</text>
+  <g fill="#555" text-anchor="middle" font-family="Menlo, Consolas, monospace" font-size="12">
+    <text x="161" y="42">0</text><text x="207" y="42">1</text><text x="253" y="42">2</text><text x="299" y="42">3</text>
+    <text x="345" y="42">4</text><text x="391" y="42">5</text><text x="437" y="42" fill="#c62828" font-weight="bold">6</text><text x="483" y="42">7</text>
+    <text x="529" y="42">8</text><text x="575" y="42">9</text><text x="621" y="42">10</text><text x="667" y="42">11</text><text x="713" y="42">12</text>
+  </g>
+
+  <!-- row: prompt_token_ids -->
+  <text x="130" y="72" text-anchor="end" fill="#333" font-size="11" font-family="Menlo, Consolas, monospace">prompt_token_ids</text>
+  <g stroke-width="1.2">
+    <rect x="140" y="56" width="42" height="24" fill="#fff" stroke="#999"/>
+    <rect x="186" y="56" width="42" height="24" fill="#fff" stroke="#999"/>
+    <rect x="232" y="56" width="42" height="24" fill="#e8f5e9" stroke="#2e7d32"/>
+    <rect x="278" y="56" width="42" height="24" fill="#e8f5e9" stroke="#2e7d32"/>
+    <rect x="324" y="56" width="42" height="24" fill="#e8f5e9" stroke="#2e7d32"/>
+    <rect x="370" y="56" width="42" height="24" fill="#e8f5e9" stroke="#2e7d32"/>
+    <rect x="416" y="56" width="42" height="24" fill="#ffcdd2" stroke="#c62828"/>
+    <rect x="462" y="56" width="42" height="24" fill="#e8f5e9" stroke="#2e7d32"/>
+    <rect x="508" y="56" width="42" height="24" fill="#e8f5e9" stroke="#2e7d32"/>
+    <rect x="554" y="56" width="42" height="24" fill="#e8f5e9" stroke="#2e7d32"/>
+    <rect x="600" y="56" width="42" height="24" fill="#e8f5e9" stroke="#2e7d32"/>
+    <rect x="646" y="56" width="42" height="24" fill="#fff" stroke="#999"/>
+    <rect x="692" y="56" width="42" height="24" fill="#fff" stroke="#999"/>
+  </g>
+  <g fill="#333" text-anchor="middle" font-size="11">
+    <text x="161" y="73">Sys</text><text x="207" y="73">Usr</text>
+    <text x="253" y="73" fill="#1b5e20">&lt;im&gt;</text><text x="299" y="73" fill="#1b5e20">&lt;im&gt;</text>
+    <text x="345" y="73" fill="#1b5e20">&lt;im&gt;</text><text x="391" y="73" fill="#1b5e20">&lt;im&gt;</text>
+    <text x="437" y="73" fill="#b71c1c" font-family="Menlo, Consolas, monospace">\n</text>
+    <text x="483" y="73" fill="#1b5e20">&lt;im&gt;</text><text x="529" y="73" fill="#1b5e20">&lt;im&gt;</text>
+    <text x="575" y="73" fill="#1b5e20">&lt;im&gt;</text><text x="621" y="73" fill="#1b5e20">&lt;im&gt;</text>
+    <text x="667" y="73">Q1</text><text x="713" y="73">Q2</text>
+  </g>
+
+  <!-- PlaceholderRange bracket: positions 2..10 -->
+  <g stroke="#2e7d32" stroke-width="1.5" fill="none">
+    <path d="M232,86 L232,96 L642,96 L642,86"/>
+  </g>
+  <text x="437" y="110" text-anchor="middle" fill="#2e7d32" font-size="12">PlaceholderRange：offset=2，length=9（区间里夹着位置 6 的换行）</text>
+
+  <!-- row: is_embed -->
+  <text x="130" y="138" text-anchor="end" fill="#333" font-size="11" font-family="Menlo, Consolas, monospace">is_embed</text>
+  <g stroke-width="1.2">
+    <rect x="232" y="122" width="42" height="24" fill="#e8f5e9" stroke="#2e7d32"/>
+    <rect x="278" y="122" width="42" height="24" fill="#e8f5e9" stroke="#2e7d32"/>
+    <rect x="324" y="122" width="42" height="24" fill="#e8f5e9" stroke="#2e7d32"/>
+    <rect x="370" y="122" width="42" height="24" fill="#e8f5e9" stroke="#2e7d32"/>
+    <rect x="416" y="122" width="42" height="24" fill="#ffcdd2" stroke="#c62828"/>
+    <rect x="462" y="122" width="42" height="24" fill="#e8f5e9" stroke="#2e7d32"/>
+    <rect x="508" y="122" width="42" height="24" fill="#e8f5e9" stroke="#2e7d32"/>
+    <rect x="554" y="122" width="42" height="24" fill="#e8f5e9" stroke="#2e7d32"/>
+    <rect x="600" y="122" width="42" height="24" fill="#e8f5e9" stroke="#2e7d32"/>
+  </g>
+  <g fill="#333" text-anchor="middle" font-family="Menlo, Consolas, monospace" font-size="12">
+    <text x="253" y="139">1</text><text x="299" y="139">1</text><text x="345" y="139">1</text><text x="391" y="139">1</text>
+    <text x="437" y="139" fill="#b71c1c" font-weight="bold">0</text>
+    <text x="483" y="139">1</text><text x="529" y="139">1</text><text x="575" y="139">1</text><text x="621" y="139">1</text>
+  </g>
+
+  <!-- row: encoder output index -->
+  <text x="130" y="167" text-anchor="end" fill="#333" font-size="11">encoder 输出下标</text>
+  <g fill="#333" text-anchor="middle" font-family="Menlo, Consolas, monospace" font-size="12">
+    <text x="253" y="171" fill="#1b5e20">e0</text><text x="299" y="171" fill="#1b5e20">e1</text>
+    <text x="345" y="171" fill="#1b5e20">e2</text><text x="391" y="171" fill="#1b5e20">e3</text>
+    <text x="437" y="171" fill="#b71c1c">–</text>
+    <text x="483" y="171" fill="#1b5e20">e4</text><text x="529" y="171" fill="#1b5e20">e5</text>
+    <text x="575" y="171" fill="#1b5e20">e6</text><text x="621" y="171" fill="#1b5e20">e7</text>
+  </g>
+  <text x="690" y="171" text-anchor="middle" fill="#555" font-size="11">共 8 个</text>
+  <text x="130" y="181" text-anchor="end" fill="#888" font-size="10">（跳过 is_embed=0）</text>
+
+  <!-- separator -->
+  <line x1="20" y1="192" x2="720" y2="192" stroke="#ddd" stroke-width="1"/>
+
+  <!-- chunk 1: positions 0..6 -->
+  <rect x="140" y="202" width="318" height="22" rx="3" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.5"/>
+  <text x="299" y="217" text-anchor="middle" fill="#0d47a1" font-size="11">chunk 1：窗口 [0,7)  num_computed=0, scheduled=7</text>
+  <text x="130" y="246" text-anchor="end" fill="#333" font-size="11" font-family="Menlo, Consolas, monospace">is_mm_embed</text>
+  <g stroke-width="1.2">
+    <rect x="140" y="230" width="42" height="24" fill="#fff" stroke="#999"/>
+    <rect x="186" y="230" width="42" height="24" fill="#fff" stroke="#999"/>
+    <rect x="232" y="230" width="42" height="24" fill="#e8f5e9" stroke="#2e7d32"/>
+    <rect x="278" y="230" width="42" height="24" fill="#e8f5e9" stroke="#2e7d32"/>
+    <rect x="324" y="230" width="42" height="24" fill="#e8f5e9" stroke="#2e7d32"/>
+    <rect x="370" y="230" width="42" height="24" fill="#e8f5e9" stroke="#2e7d32"/>
+    <rect x="416" y="230" width="42" height="24" fill="#ffcdd2" stroke="#c62828"/>
+  </g>
+  <g fill="#333" text-anchor="middle" font-family="Menlo, Consolas, monospace" font-size="12">
+    <text x="161" y="247">0</text><text x="207" y="247">0</text><text x="253" y="247">1</text><text x="299" y="247">1</text>
+    <text x="345" y="247">1</text><text x="391" y="247">1</text><text x="437" y="247" fill="#b71c1c">0</text>
+  </g>
+  <text x="468" y="247" fill="#0d47a1" font-size="12">→ 取 e0..e3（start_idx=0, end_idx=4）</text>
+
+  <!-- chunk 2: positions 7..12 -->
+  <rect x="462" y="272" width="272" height="22" rx="3" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.5"/>
+  <text x="598" y="287" text-anchor="middle" fill="#0d47a1" font-size="11">chunk 2：窗口 [7,13)  num_computed=7, scheduled=6</text>
+  <text x="130" y="316" text-anchor="end" fill="#333" font-size="11" font-family="Menlo, Consolas, monospace">is_mm_embed</text>
+  <g stroke-width="1.2">
+    <rect x="462" y="300" width="42" height="24" fill="#e8f5e9" stroke="#2e7d32"/>
+    <rect x="508" y="300" width="42" height="24" fill="#e8f5e9" stroke="#2e7d32"/>
+    <rect x="554" y="300" width="42" height="24" fill="#e8f5e9" stroke="#2e7d32"/>
+    <rect x="600" y="300" width="42" height="24" fill="#e8f5e9" stroke="#2e7d32"/>
+    <rect x="646" y="300" width="42" height="24" fill="#fff" stroke="#999"/>
+    <rect x="692" y="300" width="42" height="24" fill="#fff" stroke="#999"/>
+  </g>
+  <g fill="#333" text-anchor="middle" font-family="Menlo, Consolas, monospace" font-size="12">
+    <text x="483" y="317">1</text><text x="529" y="317">1</text><text x="575" y="317">1</text><text x="621" y="317">1</text>
+    <text x="667" y="317">0</text><text x="713" y="317">0</text>
+  </g>
+  <text x="140" y="317" fill="#0d47a1" font-size="12">取 e4..e7（start_idx=4, end_idx=8）→</text>
+  <text x="140" y="345" fill="#555" font-size="11">start_idx=4 是"encoder 输出的第 4 个"，不是"占位区间的第 5 个位置"——两个坐标系因位置 6 而错位 1</text>
+
+  <line x1="20" y1="360" x2="720" y2="360" stroke="#ddd" stroke-width="1"/>
+  <text x="20" y="385" fill="#333" font-size="12" font-family="Menlo, Consolas, monospace">inputs_embeds[is_mm_embed] = mm_embeds_flat</text>
+  <text x="380" y="385" fill="#555" font-size="12">← 每个 chunk 只盖自己窗口内的占位行</text>
+</svg>

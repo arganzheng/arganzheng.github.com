@@ -155,6 +155,21 @@ $$
 \text{rotate\_half}(x) = \left[ -x_{[d/2:]},\; x_{[:d/2]} \right]
 $$
 
+两种配对的维度布局对照如下（$$d_{head} = 128$$，第 $$i$$ 对共用同一个 $$\theta_i$$）：
+
+```text
+原论文（相邻配对）  第 i 对 = (x_2i, x_2i+1)
+  x0 x1 | x2 x3 | x4 x5 | ... | x126 x127
+  └─┬─┘   └─┬─┘   └─┬─┘         └───┬────┘
+   θ_0     θ_1     θ_2              θ_63
+
+HF rotate_half（前后半配对）  第 i 对 = (x_i, x_i+64)
+  x0  x1  x2  ...  x63 | x64  x65  x66  ...  x127
+  │   │   │         │     │    │    │          │
+  θ_0 θ_1 θ_2      θ_63   θ_0  θ_1  θ_2       θ_63
+  └───┴───┴─────────┴──── 对应位置两两配对 ────┘
+```
+
 两种配对方式在数学上等价（只是维度的一个固定置换），但 checkpoint 的 $$W_Q$$、$$W_K$$ 行顺序要与配对方式一致——Llama 官方权重转成 HF 格式时对 q/k 投影做的那次 permute 就是为此。这是位置编码唯一会出现在"权重转换"环节的地方，也是一个常见的精度对不上的来源。
 
 计算上，$$\cos(m\theta_i)$$ 和 $$\sin(m\theta_i)$$ 与输入无关，可以预先算好一张 $$[L_{max}, d_{head}]$$ 的表（cos/sin 各一张，$$L_{max} = 131072$$、$$d_{head} = 128$$ 时 BF16 各 32 MiB；FP32 各 64 MiB），推理时按位置索引取行、与 q 和 k 做一次逐元素乘加。每 token 每层的额外算量约 $$6 \cdot n_h \cdot d_{head}$$ 次乘加（q 和 k 各三个逐元素操作），对 Llama-3-8B 是每层约 $$6 \times 4096 \times 2 \approx 49$$ KFLOPs，相比每层 436 MFLOPs 的权重 GEMM 是万分之一，可以忽略。它真正的开销在访存：这是一个逐元素的 memory-bound 操作，所以推理引擎通常把它融进 QKV 投影之后的 kernel 或 attention kernel 里（vLLM 的 `rotary_embedding` kernel 会在写入 KV cache 之前原位完成旋转）。
@@ -212,6 +227,20 @@ $$
 - **低频对**（$$\lambda_i > 8192$$，$$i \ge 50$$）：训练时只见过 $$[0, 2\pi \cdot 8192/\lambda_i)$$ 这段弧。以 $$i = 63$$ 为例，$$\lambda_{63} \approx 54410$$，训练中最多转过 $$8192/54410 \approx 0.15$$ 圈，即 $$54°$$。推 32K 时要转到 $$0.6$$ 圈（$$217°$$）——$$\cos$$ 从训练中见过的 $$[0.59, 1]$$ 区间跑到了 $$-0.8$$。对这些维度而言，$$q_i \bar{k}_i e^{\mathrm{i}(m-n)\theta_i}$$ 落在了一个模型**从未见过的相位**上，它对这些维度的 $$W_Q$$、$$W_K$$ 学到的任何模式都建立在"这一对的相位不会超过 $$54°$$"的前提下。
 - **中间对**（$$\lambda_i$$ 在几千量级）：部分相位见过，部分没见过。
 
+把几个代表性维度对在训练（8K）与推理（32K）下扫过的相位范围画在同一把 0°–360° 的尺子上（base 10000，每格 15°；满格表示至少转完一圈、全部相位见过）：
+
+```text
+维度对          场景       0°  转过的相位（每格 15°）  360°
+i=48  λ=6283    训练 8K    [########################]  1.30 圈，全相位见过
+                推理 32K   [########################]  5.2 圈，没有新相位
+i=52  λ=11174   训练 8K    [##################......]  264°
+                推理 32K   [########################]  2.9 圈 → 96° 从未见过
+i=56  λ=19869   训练 8K    [##########..............]  148°
+                推理 32K   [########################]  1.65 圈 → 212° 从未见过
+i=63  λ=54410   训练 8K    [####....................]  54°
+                推理 32K   [##############..........]  217° → 163° 从未见过
+```
+
 结果是 attention 分数在长距离上出现训练时没有的取值，而 softmax 对分数是指数敏感的：某几个错误的高分就会把注意力吸走，perplexity 在超过训练长度后迅速发散。这不是"模型不够聪明"，而是低频维度上的输入分布发生了偏移。
 
 一个常被忽略的细节：attention 分数是 64 对的**和**。即使只有 14 对（约 22%）的相位出界，只要这 14 对上 $$\lvert q_i \rvert \cdot \lvert k_i \rvert$$ 不小，总分就会被带偏。经验上模型恰恰倾向于在低频维度上放较大的范数——因为训练中低频维度几乎是单调的（相位没转完一圈时 $$\cos$$ 是单调的），是模型判断"离多远"最好用的特征。
@@ -266,6 +295,8 @@ $$
 
 NTK-aware 的问题是它对高频维度**完全**不动，而某些中高频维度的波长其实略大于 $$L$$ 的一个分数，它们外推时也会轻微出界。它也没有处理熵的问题。
 
+还有一个与"改哪个量"无关、但工程上很重要的变体：**Dynamic NTK**（HF 的 `rope_scaling.type = "dynamic"`）。上面的 factor 是固定的——即使当前序列只有 2K，频谱也已经按 factor 4 拉长，短文本的分辨率白白受损。Dynamic 版把 factor 变成当前序列长度的函数：$$s \le L$$ 时 factor = 1，原频谱一点不动；$$s > L$$ 时按 $$\text{factor} = s/L$$ 实时重算 base' 与 cos/sin 表。代价在推理侧：base 随长度变，cos/sin 表不能预计算一次用到底，每当序列跨过 $$L$$ 后每步都要更新；更麻烦的是 KV cache 里已存的 k 是用**旧** base 旋转的，与新 base 下的 q 不一致——严格实现要么重算已缓存的 k（违背 KV cache 的初衷），要么接受这个不一致（HF 的实现选了后者）。这就是 vLLM 这类推理框架对 dynamic 支持有限、生产上多用静态 YaRN 的原因。
+
 ### 3. YaRN：按波长分三段，再修正温度
 
 YaRN（Yet another RoPE extensioN，Peng 等 2023）把 NTK-aware 的"按频率区分对待"做成了显式的分段规则。定义第 $$i$$ 对在训练长度内转过的圈数：
@@ -285,6 +316,12 @@ $$
 $$
 
 对 base 10000、$$d_{head} = 128$$、$$L = 8192$$：$$r_i > 32$$ 对应 $$\lambda_i < 256$$，即 $$i \le 25$$ 的 26 对不动；$$r_i < 1$$ 对应 $$\lambda_i > 8192$$，即 $$i \ge 50$$ 的 14 对完全插值；中间 24 对线性混合。这与第四章"没转完一圈"的分析完全对应：完全插值的恰好就是那 14 对。
+
+把三种方法对每个维度对的缩放比 $$\theta_i / \theta_i'$$ 画在同一张图上（base 10000、$$d_{head} = 128$$、$$L = 8192$$、factor 4），三条曲线的形状就是三种方法的全部区别：
+
+![PI、NTK-aware、YaRN 三种方法对 64 个维度对的缩放比：PI 是水平线 4，NTK-aware 从 1 指数过渡到 4，YaRN 在 λ<256 不动、λ>8192 完全插值、中间线性混合](/img/in-post/positional-encoding-and-long-context-rope-scaling.svg)
+
+PI 对所有维度一刀切；NTK-aware 用一条指数曲线让高频端少动、低频端多动，但 $$i = 40$$ 附近（波长约 2000、训练中转过 4 圈）仍被缩了 2.4 倍；YaRN 把这条曲线"拉直"成三段，$$i \le 25$$ 严格不动。
 
 YaRN 的第二个部分是**attention 温度**。为了对抗长上下文下 softmax 被摊薄，它在 logits 上除以一个 $$t < 1$$：
 
@@ -350,6 +387,16 @@ DeepSeek-V3 的 `config.json`：
 
 Qwen2.5 的做法类似：预训练与默认配置是 32K，官方说明中给出的 128K 配置是在 `rope_scaling` 里填 `type: yarn`、`factor: 4.0`、`original_max_position_embeddings: 32768`。因为 HF 的 YaRN 实现是静态的（对所有长度都按 factor 缩放），Qwen 建议只在确实需要处理超过 32K 的输入时才启用它，否则短文本的性能会轻微下降——这正是前面说的"插值损伤高频维度分辨率"的体现。vLLM 与 SGLang 读的就是这几个字段。
 
+把第 1–5 节的方法按"改了哪个量、按什么规则改、还需要什么"放在一起对照：
+
+| 方法 | 改的量 | 高频对 / 低频对 / 中间 | 温度修正 | 训练代价与采用者 |
+|---|---|---|---|---|
+| Position Interpolation | 位置 $$m \to m/\text{factor}$$，等价于所有 $$\theta_i$$ ÷ factor | 全部 ÷ factor，一刀切；高频分辨率受损 | 无 | 约 1000 步微调（Llama → 32K）；早期社区扩展 |
+| NTK-aware | base $$\to \text{base} \cdot \text{factor}^{d/(d-2)}$$ | $$i = 0$$ 不动 / 最低频恰好 ÷ factor / 几何级数指数过渡 | 无 | 可不微调但效果有限；Llama 3 的 base 500000 在效果上等价于此 |
+| Dynamic NTK | 同 NTK-aware，但 factor $$= \max(1, s/L)$$ 随当前长度变 | 同上；$$s \le L$$ 时完全不动 | 无 | 无需训练；短文本零损伤，但 cos/sin 表要随长度重算、KV cache 中旧 k 与新 base 不一致，推理框架支持有限 |
+| YaRN | 按 $$r_i = L/\lambda_i$$ 分三段 | $$r_i > \beta$$ 不动 / $$r_i < \alpha$$ ÷ factor / 线性混合 | $$\sqrt{1/t} = 0.1\ln(\text{factor}) + 1$$，乘进 cos/sin 表 | 约 400 步微调（Llama 2 → 64K）；DeepSeek-V2/V3（factor 40）、Qwen2.5（factor 4） |
+| Llama 3.1 `llama3` | 同 YaRN 分段，$$\alpha = 1$$、$$\beta = 4$$ | $$\lambda_i < 2048$$ 不动（29 对）/ $$\lambda_i > 8192$$ ÷ 8（29 对）/ 线性混合（6 对） | 无，靠长序列训练解决熵 | 8K 预训练后分阶段长序列训练 800B token；Llama 3.1 |
+
 ### 6. ALiBi：不旋转，直接加线性惩罚
 
 ALiBi（Attention with Linear Biases，Press 等 2021）走了完全不同的路：不给 q、k 加任何位置信息，直接在 attention 分数上减去一个与距离成正比的惩罚：
@@ -372,7 +419,15 @@ ALiBi 的外推能力很好：训练 1K、推理 2K 几乎不掉 perplexity，�
 - 它无法表达内容与位置的交互——惩罚只依赖距离，与 q、k 的内容无关。
 - 工程上，bias 项要在 attention kernel 里逐元素加，FlashAttention 2 支持 ALiBi 但需要额外的分支；而 RoPE 只在进 kernel 之前对 q、k 做一次逐元素操作，kernel 本身完全不需要知道位置编码的存在。
 
-RoPE 加上第 1–5 节的缩放方法，成了 2023 年之后长上下文模型的事实标准。
+RoPE 加上第 1–5 节的缩放方法，成了 2023 年之后长上下文模型的事实标准。把第二章与本章出现过的五种位置编码放在一起，从 Infra 关心的几个维度对照：
+
+| 方案 | 注入位置 | 分数依赖 | 位置参数 | 超出训练长度 | KV cache 兼容 | 对 attention kernel 的要求 |
+|---|---|---|---|---|---|---|
+| 正弦绝对编码（原始 Transformer） | embedding 上**加** $$p_m$$ | 展开含 $$p_m^\top W p_n$$，依赖绝对位置 | 0 | 可计算，模型不会用 | 兼容（位置已在 K 里） | 无 |
+| 可学习绝对编码（GPT-2、BERT） | embedding 上加查表行 | 依赖绝对位置 | $$L_{max} \times d$$（GPT-2：1024 × 768） | 物理上不可能（没有那一行） | 兼容 | 无 |
+| 相对 bias（T5、Transformer-XL） | logits 上加 $$b_{m-n}$$ | 只依赖 $$m - n$$ | 每 head 每桶一个标量 | 远距离落入最粗的桶，可用 | 差：bias 依赖 $$m - n$$，每个新 query 重算 | 需要 $$s \times s$$ bias 物化或 kernel 内查表 |
+| RoPE | q、k 上**乘**旋转 $$R_m$$ | 只依赖 $$m - n$$，且与 q、k 内容交互 | 0 | 低频对出现未见相位，失败；需缩放 + 训练 | 天然兼容：存旋转后的 k | 无（kernel 之前逐元素完成） |
+| ALiBi（BLOOM、MPT） | logits 上减 $$\mu_h (m - n)$$ | 只依赖 $$m - n$$，与内容无关 | 0（斜率固定） | 好：惩罚形状不随距离变 | 兼容 | 需要 kernel 内逐元素加 bias（FA2 有分支支持） |
 
 
 ## 六、长上下文的成本
@@ -462,7 +517,16 @@ StreamingLLM（Xiao 等 2023）观察到一个现象：在 full attention 训练
 
 这解释了为什么朴素的滑窗（丢掉最早的 token）会让 full attention 训练的模型崩溃：sink 被丢了，softmax 的概率没地方去。StreamingLLM 的做法是永远保留开头 4 个 token 的 K、V，再加一个滑动窗口。KV cache 是 $$b \cdot L \cdot (4 + \min(s, W))$$，与滑窗同阶。它使一个 full attention 训练的模型可以在不微调的情况下处理无限长的流式输入——但代价与滑窗一样，窗口之外的信息丢失了，它是"流式稳定"而非"长上下文理解"。
 
-对位置编码有一个细节：保留 sink 并滑动窗口后，位置用的是**cache 内的相对位置**（sink 是 0–3，窗口内从 4 开始连续编号），而不是原始文本中的位置；否则 RoPE 的相对距离会超过训练长度，回到第四章的问题。
+对位置编码有一个细节：保留 sink 并滑动窗口后，位置用的是**cache 内的相对位置**（sink 是 0–3，窗口内从 4 开始连续编号），而不是原始文本中的位置；否则 RoPE 的相对距离会超过训练长度，回到第四章的问题。以 $$W = 6$$、当前正在生成第 10003 个 token 为例，cache 里的内容与它们用的 RoPE 位置是：
+
+```text
+原始位置   0   1   2   3 | 4 … 9996 | 9997 9998 9999 10000 10001 10002 | 10003
+           └ sink 保留 ┘   └ 已丢弃┘  └─────── 窗口 W=6 ─────────────┘ 新 token
+cache 槽   0   1   2   3               4    5    6     7     8     9
+RoPE 位置  0   1   2   3               4    5    6     7     8     9      10
+```
+
+新 token 与最早的窗口 token（t9997）之间的相对距离在 RoPE 看来是 $$10 - 4 = 6$$，而不是原文中的 6006；sink 与新 token 的距离是 10，不是 10003。所有相对距离都被控制在 $$W + 4$$ 之内，永远不会超出训练长度。
 
 ### 4. 稀疏 attention 的形态
 
@@ -500,7 +564,17 @@ MLA（DeepSeek-V3）      (d_c + d_h^R) · L · s（系数减 57 倍） 与 full
 
 **TTFT：单请求的物理下界。** 用户感知的首 token 延迟至少等于 prefill 时间。一个 128K 请求在单卡 8B 上的 TTFT 下界约 11 s（60% MFU），要压到 1 s 以内需要至少 11 张卡并行处理同一个请求——这是序列并行的动机之一。
 
-**chunked prefill 的必要性。** 如果调度器让一个 128K 请求一次性 prefill，它会独占 GPU 约 11 s，期间所有正在 decode 的请求全部停顿——它们的 token 间延迟从几十毫秒跳到 11 s。chunked prefill（Sarathi-Serve，Agrawal 等 2023；vLLM 与 SGLang 默认启用）把长 prefill 切成若干个 chunk（例如每次 2K–8K token），每个调度步里让一个 prefill chunk 与若干 decode 请求拼成一个 batch。decode 请求的 KV 读取是 memory-bound、prefill chunk 是 compute-bound，两者拼在一起恰好能同时用满带宽与算力。代价是长请求自己的 TTFT 略微变长，换来其他请求的延迟稳定。
+**chunked prefill 的必要性。** 如果调度器让一个 128K 请求一次性 prefill，它会独占 GPU 约 11 s，期间所有正在 decode 的请求全部停顿——它们的 token 间延迟从几十毫秒跳到 11 s。chunked prefill（Sarathi-Serve，Agrawal 等 2023；vLLM 与 SGLang 默认启用）把长 prefill 切成若干个 chunk（例如每次 2K–8K token），每个调度步里让一个 prefill chunk 与若干 decode 请求拼成一个 batch。decode 请求的 KV 读取是 memory-bound、prefill chunk 是 compute-bound，两者拼在一起恰好能同时用满带宽与算力。代价是长请求自己的 TTFT 略微变长，换来其他请求的延迟稳定。两种调度下同一段时间内 GPU 上发生的事对比如下（P = 128K 请求的 prefill，D = 已在 decode 的请求各出一个 token）：
+
+```text
+时间 →      0 s                                     11 s
+不分块      [PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP][D][D][D][D]…
+decode 请求  ←──────── 停顿 11 s，没有新 token ────────→ 恢复，每步几十 ms
+
+chunked     [P2K+D][P2K+D][P2K+D][P2K+D] … [P2K+D][D][D]…
+decode 请求  每步都出 token，步长略增（batch 里多了一个 compute-bound 的 chunk）
+128K 请求    TTFT 从 11 s 变成 11 s + 若干 decode 步的开销
+```
 
 **序列并行 / context parallel 的动机。** 当单个请求的 KV cache（70B 的 40 GiB）或激活（128K 时每层的 hidden state 就是 $$131072 \times 8192 \times 2\,\text{B} = 2$$ GiB）放不进一张卡、或 TTFT 要求单请求必须由多卡并行时，就需要把**序列维度**切到多张卡上。TP 切的是 head 维度（第三篇），每张卡仍要处理全部 $$s$$ 个 token；序列并行切的是 token 维度，每张卡处理 $$s/P$$ 个 token，但 attention 需要所有 token 的 K、V——Ring Attention（Liu 等 2023）让 K、V 块在卡之间环形传递，每张卡对每个到达的 K、V 块做一次局部 attention 并用 online softmax 合并。它引入了新的通信项（每层传一遍全部 K、V），是长上下文训练与超长请求推理的标准手段。
 

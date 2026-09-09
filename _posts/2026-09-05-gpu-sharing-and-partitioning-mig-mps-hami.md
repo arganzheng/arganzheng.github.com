@@ -123,6 +123,37 @@ CUDA Multi-Process Service 换了一种思路：不让多个 context 轮转，�
 - `CUDA_MPS_PINNED_DEVICE_MEM_LIMIT`（或控制命令 `set_default_device_pinned_mem_limit`）：每个客户端能分配的显存上限；
 - `CUDA_MPS_ACTIVE_THREAD_PERCENTAGE`（或 `set_default_active_thread_percentage`）：每个客户端可用的 SM 比例。
 
+时间片与 MPS 的结构差别在 context 的数量与位置：
+
+```mermaid
+flowchart TB
+    subgraph ts["时间片：每个进程一个 context，驱动轮转"]
+        direction TB
+        tsA["进程 A"] --> ctxA["CUDA context A"]
+        tsB["进程 B"] --> ctxB["CUDA context B"]
+        ctxA --> tsGPU["GPU（驱动按时间片切换 context）"]
+        ctxB --> tsGPU
+    end
+    subgraph mps["MPS：所有进程合并到 server 的一个 context"]
+        direction TB
+        mpsA["进程 A（客户端）<br/>独立 GPU 地址空间"] --> pipeA["CUDA_MPS_PIPE_DIRECTORY"]
+        mpsB["进程 B（客户端）<br/>独立 GPU 地址空间"] --> pipeA
+        pipeA --> server["nvidia-cuda-mps-server<br/>pinned mem limit / active thread %"]
+        server --> ctxS["单个 CUDA context"]
+        ctxS --> mpsGPU["GPU（EXCLUSIVE_PROCESS，只对 server 开放）"]
+        ctl["nvidia-cuda-mps-control -d"] -. "set_default_*" .-> server
+    end
+    ts ~~~ mps
+    classDef proc fill:#e3f2fd,stroke:#1565c0;
+    classDef ctx fill:#fff3e0,stroke:#ef6c00;
+    classDef gpu fill:#e8f5e9,stroke:#2e7d32;
+    classDef srv fill:#fce4ec,stroke:#c62828;
+    class tsA,tsB,mpsA,mpsB proc;
+    class ctxA,ctxB,ctxS ctx;
+    class tsGPU,mpsGPU gpu;
+    class server,ctl,pipeA srv;
+```
+
 两者都是**软限制**：显存上限由 MPS server 在分配时检查，越界的 `cudaMalloc` 失败——这确实让一个客户端的 OOM 不再蔓延到别人；算力比例限制的是客户端可占用的 SM 上限，不保证下限。故障域上，Volta 起 MPS 对致命错误有有限的隔离（受影响的客户端被终止，其他客户端可能继续），但 MPS server 本身崩溃会带走所有客户端；具体行为以 NVIDIA MPS 文档为准。
 
 MPS 的另一个硬性前提：GPU 要设为 `EXCLUSIVE_PROCESS` 计算模式，只允许 MPS server 一个进程直接打开它。这意味着**MPS 与直接使用 GPU 的进程互斥**，也意味着开关 MPS 要先清空 GPU 上的进程。
@@ -134,6 +165,37 @@ Multi-Instance GPU 是 Ampere 起数据中心 GPU（A30、A100、H100、H200、B
 每个 GI 内部还可以再划 **Compute Instance（CI）**：多个 CI 共享同一个 GI 的显存与带宽，但各自有独立的 SM。CI 之间显存不隔离，用途是让同一显存分区里的两组 kernel 并行。K8s 侧默认每个 GI 一个 CI（device plugin `mixed` 策略只上报 `C == G` 的 profile，第三章第 3 节），本篇不展开 CI。
 
 MIG 的代价来自"硬"：分区几何是固定的枚举（第三章），改几何要清空 GPU，切下来的 SM 与带宽不能借给邻居；一个 GI 空闲时它的资源就是空闲的，没有超卖。它把利用率问题从"谁来抢"变成了"分几块"。
+
+把三种机制下两个进程的 kernel 在 SM 上的占用画到同一条时间轴上，"轮转"、"并发"、"分区"的差别就很直观：
+
+```text
+  横轴 = 时间，纵轴 = SM；A / B = 两个进程的 kernel；s = context 切换；. = 空闲
+
+  时间片：同一时刻只有一个 context 在 GPU 上，A、B 轮转，各自独占全部 SM
+  SM 高 ┤AAAAAAAAsBBBBBBBBsAAAAAAAAsBBBBBBBBsAAAA
+        │AAAAAAAAsBBBBBBBBsAAAAAAAAsBBBBBBBBsAAAA
+        │AAAAAAAAsBBBBBBBBsAAAAAAAAsBBBBBBBBsAAAA
+  SM 0  ┤AAAAAAAAsBBBBBBBBsAAAAAAAAsBBBBBBBBsAAAA
+        └────────────────────────────────────────▶ t
+        A 的墙钟 ≈ 单跑的 2 倍 + 切换开销，随 B 负载波动；显存整卡可见、先到先得
+
+  MPS：一个 context，A、B 的 kernel 同时占不同 SM（active thread % 各 50）
+  SM 高 ┤BBBBBBBBBBBBBB........BBBBBBBBBBBBBBBBBB   ← B 的上限 50%
+        │BBBBBBBBBBBBBB........BBBBBBBBBBBBBBBBBB
+        │AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA   ← A 的上限 50%：B 空闲时
+  SM 0  ┤AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA      A 也拿不到上面的 SM
+        └────────────────────────────────────────▶ t
+        无切换；显存按 pinned mem limit 软限制；带宽与 L2 共享；server 崩则全崩
+
+  MIG：两个 GI，各有独立的 SM、L2 slice、显存分区与带宽
+  GI-1  ┤BBBBBB......BBBBBBBBBBBBB......BBBBBBBBB
+  (3g)  │BBBBBB......BBBBBBBBBBBBB......BBBBBBBBB
+  ──────┼────────────────────────────────────────   ← 硬件边界：OOM / Xid 不越过
+  GI-0  │AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+  (3g)  ┤AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+        └────────────────────────────────────────▶ t
+        A 的性能与 B 完全无关；B 空闲时它的 SM 与带宽也空着（无超卖）
+```
 
 ### 5. 四层对照
 
@@ -180,6 +242,39 @@ MIG 把 GPU 的资源切成 **slice**：A100 有 7 个计算 slice（每个 14 �
 1. **计算 slice 总数 ≤ 7，显存 slice 总数 ≤ 8**。`3g.20gb × 2` 用掉 6 个计算 slice 与全部 8 个显存 slice——第 7 个计算 slice 没有显存可配，被浪费。这是核心问题里 `3g.20gb + 3g.20gb` 只能得到**两个**实例的原因。
 2. **每个 profile 只能放在固定的位置**（placement）。GI 不是任意排列：`4g.20gb` 只能占前四个 slice，`3g.20gb` 有两个合法起点，`2g.10gb` 有三个。一张卡上先创建的 GI 会限制后续 GI 的可选位置，产生碎片。
 3. **混合几何合法但受上述约束**。A100 40 GB 上 `3g.20gb + 2g.10gb + 1g.5gb`（6 计算 / 7 显存）和 `4g.20gb + 3g.20gb`（7 / 8）都合法；GPU Operator 的 `all-balanced` 配置在 80 GB 卡上用的是 `1g.10gb × 2 + 2g.20gb × 1 + 3g.40gb × 1`。
+
+把 A100 40 GB 的 7 个计算 slice 与 8 个显存 slice 画成一排格子，几个常见几何的占位如下（placement 以 NVIDIA MIG 用户指南为准，此处为示意）：
+
+```text
+  计算 slice（7 个，每个 14 SM）        显存 slice（8 个，每个 5 GB）
+  位置:  0    1    2    3    4    5    6      0   1   2   3   4   5   6   7
+
+  all-1g.5gb（7 个实例）
+       ┌────┬────┬────┬────┬────┬────┬────┐  ┌───┬───┬───┬───┬───┬───┬───┬───┐
+       │ 1g │ 1g │ 1g │ 1g │ 1g │ 1g │ 1g │  │ 1 │ 2 │ 3 │ 4 │ 5 │ 6 │ 7 │ - │
+       └────┴────┴────┴────┴────┴────┴────┘  └───┴───┴───┴───┴───┴───┴───┴───┘
+       7 个 1g 实例用掉 7 个显存 slice，第 8 片空着                          ▲
+
+  all-3g.20gb（2 个实例）—— 核心问题的方案一
+       ┌──────────────┬──────────────┬────┐  ┌───────────────┬───────────────┐
+       │   3g.20gb A  │   3g.20gb B  │ .. │  │   A（4 片）   │   B（4 片）   │
+       └──────────────┴──────────────┴────┘  └───────────────┴───────────────┘
+                                        ▲ 第 7 个计算 slice 没有显存可配，浪费
+
+  4g.20gb + 3g.20gb（7 / 8，用满）
+       ┌───────────────────┬──────────────┐  ┌───────────────┬───────────────┐
+       │      4g.20gb      │   3g.20gb    │  │   4 片        │   4 片        │
+       └───────────────────┴──────────────┘  └───────────────┴───────────────┘
+       4g 只能从位置 0 起；3g 有两个合法起点（0 或 4）
+
+  3g.20gb + 2g.10gb + 1g.5gb（6 / 7）
+       ┌──────────────┬─────────┬────┬────┐  ┌───────────────┬───────┬───┬───┐
+       │   3g.20gb    │ 2g.10gb │ 1g │ .. │  │   4 片        │ 2 片  │ 1 │ - │
+       └──────────────┴─────────┴────┴────┘  └───────────────┴───────┴───┴───┘
+
+  碎片：先建 2g.10gb 于位置 4-5，再想放 4g.20gb（只能占 0-3）仍可；
+        但若先建 1g.5gb 于位置 2，4g.20gb 就再也放不下——placement 固定导致的碎片
+```
 
 ### 2. 重新配置为什么要清空 GPU
 
@@ -383,7 +478,7 @@ metadata:
 spec:
   containers:
   - name: vllm
-    image: vllm/vllm-openai:v0.23.0
+    image: vllm/vllm-openai:v0.28.0
     args:
     - --model=Qwen/Qwen2.5-7B-Instruct
     - --max-model-len=8192
@@ -409,6 +504,44 @@ HAMi 在容器内强制显存与算力上限的方式是 **CUDA 驱动 API 拦�
 - **`/etc/ld.so.preload`**：除非容器显式设了 `CUDA_DISABLE_CONTROL=true`，plugin 把宿主机的 `ld.so.preload` 挂进容器，其内容（仓库 `lib/nvidia/ld.so.preload`）就是一行 `/usr/local/vgpu/libvgpu.so`。
 
 于是容器里任何进程加载 `libcuda.so` 时，`libvgpu.so` 已先被动态链接器预加载，它导出同名的 CUDA 驱动 API 符号，在 `cuMemAlloc` 一类分配调用上检查累计用量是否超过 `CUDA_DEVICE_MEMORY_LIMIT`，超过则返回 OOM 错误；在显存查询上按配额改写返回值——这就是为什么上面的 Pod 里 vLLM 的 `--gpu-memory-utilization=0.9` 是相对 24 GB 而不是相对 80 GB 计算的（HAMi README 的生态表把与 vLLM 的集成描述为 "Run inference servers with GPU memory caps"；改写细节以 HAMi-core 文档为准）。算力限制的实现是在 kernel 提交路径上按 `CUDA_DEVICE_SM_LIMIT` 做令牌式节流：利用率超过份额时延迟后续提交。
+
+一次 CUDA 调用在 HAMi 容器里走的路径，以及两个限制各在哪一步生效：
+
+```mermaid
+flowchart TB
+    app["容器内进程（vLLM / PyTorch）<br/>调用 cuMemAlloc、cuLaunchKernel、cuMemGetInfo"]
+    preload["动态链接器读 /etc/ld.so.preload<br/>= /usr/local/vgpu/libvgpu.so"]
+    vgpu["libvgpu.so（HAMi-core）<br/>导出与 libcuda 同名的驱动 API 符号"]
+    memchk{"cuMemAlloc：累计用量 +<br/>本次 ≤ CUDA_DEVICE_MEMORY_LIMIT_i ?"}
+    oom["返回 CUDA_ERROR_OUT_OF_MEMORY<br/>只有本容器失败，邻居无感"]
+    smchk{"cuLaunchKernel：利用率<br/>≤ CUDA_DEVICE_SM_LIMIT ?"}
+    throttle["延迟提交（令牌式节流）"]
+    query["cuMemGetInfo：按配额改写返回值<br/>vLLM 看到的总显存 = gpumem"]
+    cache[("CUDA_DEVICE_MEMORY_SHARED_CACHE<br/>同卡多容器共享的用量记账文件")]
+    libcuda["真实 libcuda.so → 驱动 → GPU<br/>（时间片轮转，故障域仍是整卡）"]
+
+    app --> preload --> vgpu
+    vgpu --> memchk
+    vgpu --> smchk
+    vgpu --> query
+    memchk -- "否" --> oom
+    memchk -- "是" --> libcuda
+    smchk -- "否" --> throttle --> libcuda
+    smchk -- "是" --> libcuda
+    query --> libcuda
+    memchk -. "读写累计用量" .-> cache
+
+    classDef hook fill:#fff3e0,stroke:#ef6c00;
+    classDef bad fill:#ffebee,stroke:#c62828;
+    classDef real fill:#e8f5e9,stroke:#2e7d32;
+    classDef appc fill:#e3f2fd,stroke:#1565c0;
+    class preload,vgpu,memchk,smchk,query,throttle,cache hook;
+    class oom bad;
+    class libcuda real;
+    class app appc;
+```
+
+`CUDA_DISABLE_CONTROL=true` 会让 plugin 不挂 `ld.so.preload`，图中橙色的拦截层就不存在，容器直接看到整卡——这是调试时的逃生口，也说明限制完全依赖预加载生效。
 
 这个设计的性质要说清楚：
 
@@ -484,6 +617,18 @@ NVIDIA vGPU（历史上的 GRID，含面向计算的 vCS/vComputeServer 许可�
 对 `3g.20gb` 的推演类似：3/7 的 SM，但 4/8 的带宽——decode 只慢到整卡的一半左右，prefill 慢到 3/7。**profile 的显存 slice 与计算 slice 比例不同**，是选 profile 时容易忽略的一点：`3g.20gb` 对 decode 密集的对话服务比对 prefill 密集的服务更划算。
 
 HAMi 与 MPS 的情况不同：它们不切带宽与 L2，`gpucores: 40` 的容器在邻居空闲时拿不到超过 40% 的 SM（默认策略），但拿到的是**整卡的带宽**。所以 HAMi 下的 decode 性能接近整卡（只要邻居不同时打满），prefill 受 SM 份额限制。这也是 HAMi 在推理场景总吞吐通常高于 MIG 的机制原因——以及它的延迟波动更大的原因：邻居一忙，带宽与 L2 就要分。
+
+把各方案拿到的资源份额与两个阶段的瓶颈对上（A100 40 GB，定性推演，非实测）：
+
+| 方案 | SM 份额 | 显存带宽 / L2 份额 | 显存上限 | prefill（compute-bound）延迟 ≈ | decode（memory-bound）每 token 延迟 ≈ | 邻居忙时的波动 |
+|---|---|---|---|---|---|---|
+| MIG `1g.5gb` | 1/7（固定） | 1/8（固定） | 5 GB（硬） | 整卡 × 7 | 整卡 × 8 | 无 |
+| MIG `3g.20gb` | 3/7（固定） | 4/8（固定） | 20 GB（硬） | 整卡 × 7/3 | 整卡 × 2 | 无 |
+| HAMi `gpucores: 40` | ≤ 40%（节流上限） | 整卡（不切，与邻居共享） | `gpumem`（软） | 整卡 × 2.5 | 邻居空闲时 ≈ 整卡 | 带宽与 L2 被邻居分走时上升 |
+| MPS `replicas: 2` | ≤ 50%（上限） | 整卡（共享） | 1/2（软） | 整卡 × 2 | 邻居空闲时 ≈ 整卡 | 同 HAMi |
+| 时间片 `replicas: 2` | 轮转，无保证 | 轮到时整卡 | 无 | 随邻居 | 随邻居 | 最大，含 context 切换抖动 |
+
+表里最值得看的是 MIG 两行的 SM 与带宽份额**不成比例**（`3g.20gb` 是 3/7 对 4/8），以及 HAMi / MPS 的带宽列是"整卡"——前者决定了同一 profile 对 prefill 密集与 decode 密集的服务划算程度不同，后者是软件切分总吞吐更高、延迟波动也更大的直接原因。
 
 引擎侧的另一个影响是**启动时的显存探测**。vLLM 按 `--gpu-memory-utilization` × 可见显存总量预留 KV cache。在 MIG 实例里可见显存就是 GI 的显存，没有问题；在 HAMi 里可见显存被拦截库改写为 `gpumem` 配额，也没有问题；在裸时间片与 MPS 里，vLLM 看到的是整卡显存，`0.9 × 80 GB` 会撞上邻居——必须手动把 `--gpu-memory-utilization` 调到 `1/N` 以下并留出余量（MPS 下 pinned memory limit 会让越界的分配失败，时间片下则是先到先得）。
 
@@ -670,7 +815,7 @@ metadata:
 spec:
   containers:
   - name: vllm
-    image: vllm/vllm-openai:v0.23.0
+    image: vllm/vllm-openai:v0.28.0
     args:
     - --model=Qwen/Qwen2.5-7B-Instruct
     - --max-model-len=8192
@@ -693,7 +838,7 @@ metadata:
 spec:
   containers:
   - name: vllm
-    image: vllm/vllm-openai:v0.23.0
+    image: vllm/vllm-openai:v0.28.0
     args:
     - --model=Qwen/Qwen2.5-7B-Instruct
     - --max-model-len=32768

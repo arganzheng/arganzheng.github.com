@@ -159,7 +159,24 @@ Triton 藏起了线程，但留下两个与硬件直接相关的旋钮，都在 
 - occupancy——第二篇的公式在这里照样适用：每 SM 寄存器上限 65536，一个 block 用 `R × num_warps × 32` 个寄存器，`R` 由编译器分配，可以在 `kernel.n_regs` 里读到；`kernel.n_spills` 给出溢出数，不为 0 通常意味着该减 tile 或加 `num_warps`；
 - 一般经验：elementwise 用 4；处理 4096 以上长度的 softmax 行用 8 或 16；`[128, 256]` 的 matmul tile 用 8。
 
-**`num_stages`**：软件流水的深度，即编译器把 `for` 循环体（典型是 GEMM 的 K 循环）转换成多级流水时，同时在飞的迭代数。Ampere 上默认 3。它精确对应第五、六篇手写的**多 stage `cp.async` 流水**：`num_stages=3` 意味着 shared memory 里同时保有 3 个 K-tile 的缓冲区，一个在被 `mma` 消费，另两个正在从全局内存异步加载。它的效果与代价：
+**`num_stages`**：软件流水的深度，即编译器把 `for` 循环体（典型是 GEMM 的 K 循环）转换成多级流水时，同时在飞的迭代数。Ampere 上默认 3。它精确对应第五、六篇手写的**多 stage `cp.async` 流水**：`num_stages=3` 意味着 shared memory 里同时保有 3 个 K-tile 的缓冲区，一个在被 `mma` 消费，另两个正在从全局内存异步加载。把 K 循环的前几个迭代按缓冲区画出来，就能看到"3 个缓冲区、2 个在飞"是怎么轮转的，以及第四章读 PTX 时 `cp.async.wait_group` 后面那个数字从哪来：
+
+```text
+  num_stages = 3：shared memory 里 3 个 K-tile 缓冲区轮转（Tk = 第 k 个 tile）
+
+  K 迭代     buf0       buf1       buf2       本迭代：先等、再算、再发
+  prologue   T0 <-load  T1 <-load  (空)       先发 num_stages-1 = 2 组 cp.async
+  k = 0      T0 [mma]   T1 在飞    T2 <-load  wait_group 1 -> mma(T0) -> 发 T2
+  k = 1      T3 <-load  T1 [mma]   T2 在飞    wait_group 1 -> mma(T1) -> 发 T3
+  k = 2      T3 在飞    T4 <-load  T2 [mma]   wait_group 1 -> mma(T2) -> 发 T4
+  k = 3      T3 [mma]   T4 在飞    T5 <-load  ...（buf = k mod 3）
+
+  任一时刻：1 个 buf 被 mma 消费、2 个在飞；T(k+2) 复用上一迭代刚消费完的 buf。
+  wait_group N 的 N = 等待之后仍允许在飞的 cp.async 组数 = num_stages - 2
+  （num_stages=3 -> wait_group 1；num_stages=4 -> wait_group 2）
+```
+
+它的效果与代价：
 
 - 更深的流水能掩盖更长的全局访存延迟，但 shared memory 占用线性增长：一个 `BLOCK_M=128, BLOCK_N=128, BLOCK_K=32` 的 BF16 tile，A 与 B 各 128 × 32 × 2 B = 8 KiB，每 stage 16 KiB，`num_stages=4` 共 64 KiB——超过默认 48 KB 上限，Triton 会自动申请 opt-in 的动态 shared memory，但同一 SM 能驻留的 block 数随之下降；
 - Hopper 上，`num_stages` 同样控制 TMA 加载的流水深度；
@@ -271,7 +288,18 @@ def triton_add(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
 
 - **grid 是一个 lambda**，接收 `meta`（本次 launch 的全部 constexpr 与 `num_warps` 等），返回 grid 元组。这样 grid 的计算可以依赖 `BLOCK_SIZE`，在 autotune 的场景下尤其必要——不同 config 的 `BLOCK_SIZE` 不同，grid 也不同；
 - **`n_elements` 不是 constexpr**，它是普通的运行时整数（但会被 16 的倍数特化，见第二章 §4）；
-- **mask 的形状**是 `[BLOCK_SIZE]`，与 `offs`、`x`、`y` 一致。最后一个 program 处理尾部时 `mask` 有 False 项，对应位置不读不写；
+- **mask 的形状**是 `[BLOCK_SIZE]`，与 `offs`、`x`、`y` 一致。最后一个 program 处理尾部时 `mask` 有 False 项，对应位置不读不写。用一个小 `n` 把 grid、`offs`、`mask` 三者的对应关系摆出来：
+
+  ```text
+  n = 2500, BLOCK_SIZE = 1024 -> grid = cdiv(2500, 1024) = 3 个 program
+
+  pid  offs = pid*1024 + arange(0, 1024)  mask = offs < 2500     实际访存
+  0    [   0, 1024)                       全 True                1024 个元素
+  1    [1024, 2048)                       全 True                1024 个元素
+  2    [2048, 3072)                       [2048, 2500) True      452 个元素
+                                          [2500, 3072) False     不发 load/store
+  ```
+
 - BF16 的加法：Triton 会把 `x + y` 编译成 BF16 → FP32 → 加 → BF16 的序列（Ampere 没有 BF16 的标量加法指令，与 CUDA 里 `__hadd` 的实现一致），结果与 PyTorch 的 `x + y` 逐位相同。
 
 编译器为它做的：`BLOCK_SIZE=1024`、`num_warps=4` → 128 线程各 8 个连续元素 → 每线程一条 128 bit 的 `ld.global.v4.b32`，一个 warp 一次读 512 字节连续内存，完全合并。这正是第三篇手写的向量化方案。**代码约 12 行 vs CUDA 版（含向量化、尾部处理、launch）约 50–80 行；性能通常与手写 CUDA 相当（都是带宽的 85–92%）**，因为 memory-bound kernel 只要访存模式对了就到顶了，没有留给手工优化的空间。
@@ -423,6 +451,18 @@ def triton_matmul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 
 **K 循环与 `tl.dot`**。`a` 是 `[BLOCK_M, BLOCK_K]` 的 BF16 张量，`b` 是 `[BLOCK_K, BLOCK_N]`，`tl.dot(a, b, acc)` 计算 `acc += a @ b`，累加器是 FP32 的 `[BLOCK_M, BLOCK_N]`。编译器把它翻译成 Ampere 上的 `mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32`——一个 `128 × 128 × 32` 的 tile 需要 $$(128/16) \times (128/8) \times (32/16) = 256$$ 条 `mma.sync`，分给 4 个 warp 各 64 条。这对应第六篇手写的 fragment 循环，但程序员不需要知道 `m16n8k16` 是什么。Hopper 上同一行 `tl.dot` 会被编译成 `wgmma.mma_async`。
 
+autotune 列表里的五个 config 看起来只是几组数字，但每一组都对应一份确定的资源账：shared memory 由 `(BLOCK_M + BLOCK_N) × BLOCK_K × 2 B × num_stages` 决定，累加器寄存器由 `BLOCK_M × BLOCK_N / (num_warps × 32)` 决定，tile 越大对 L2/HBM 的算术强度 `BLOCK_M × BLOCK_N / (BLOCK_M + BLOCK_N)` 越高但 program 越少。把它们算出来，就能看出 autotune 实际在什么之间取舍：
+
+| config（BM×BN×BK / warps / stages） | 每 stage smem（A+B） | 总 smem | acc 寄存器/线程 | mma.sync / warp / K-step | 4096³ 的 program 数 | tile 算术强度（FLOP/B） |
+|---|---|---|---|---|---|---|
+| 128×256×64 / 8 / 3 | 16 + 32 = 48 KiB | 144 KiB | 128 | 128 | 512 | 85 |
+| 128×128×32 / 4 / 4 | 8 + 8 = 16 KiB | 64 KiB | 128 | 64 | 1024 | 64 |
+| 64×128×32 / 4 / 4 | 4 + 8 = 12 KiB | 48 KiB | 64 | 32 | 2048 | 43 |
+| 128×64×32 / 4 / 4 | 8 + 4 = 12 KiB | 48 KiB | 64 | 32 | 2048 | 43 |
+| 64×64×32 / 4 / 5 | 4 + 4 = 8 KiB | 40 KiB | 32 | 16 | 4096 | 32 |
+
+第一行是"大 tile、深流水、高复用"：144 KiB shared memory 让一个 SM 只能驻留一个 program，靠 8 个 warp 与最高的算术强度撑满 Tensor Core，适合 4096³ 这种大而规整的形状；最后一行是"小 tile、多 program"：4096 个 program 能填满 108 个 SM 的多个波次、尾波浪费小，但算术强度只有第一行的 3/8，A、B 从 L2 读的次数也多。中间三行是折中。对 $$M = 16$$ 这类小形状，前两行的 `BLOCK_M = 128` 有 7/8 是空转，autotune 会自然选到后面的 config——但选项也只有这五个，这是第六章"小 shape 的 tile 选择"要讨论的局限。
+
 **mask 与 `other=0.0`**。K 方向的 mask 只在 `K % BLOCK_K != 0` 时的最后一个迭代有作用，越界的位置填 0，对点积没有贡献。M/N 方向没有 mask，而是用了 `% M`、`% N` 取模：越界的行会回卷到矩阵开头，读到的是合法地址上的无用数据，算出来的 `acc` 行在 epilogue 被 `c_mask` 丢弃。这样做是为了让 `tl.load` 在 K 循环内不带 M/N 方向的 mask——mask 会阻碍编译器生成 `cp.async` 的多 stage 流水（带 mask 的加载需要额外的谓词处理）。这是 Triton 官方教程 `03-matrix-multiplication.py` 的写法。
 
 **`GROUP_SIZE_M` 的 L2 swizzle**。这是 matmul kernel 里最不直观、也最值得推导的一段。grid 是一维的，共 $$P = \lceil M/B_M \rceil \times \lceil N/B_N \rceil$$ 个 program。最简单的映射是行主序：`pid_m = pid // num_pid_n`，`pid_n = pid % num_pid_n`。用 $$M = N = K = 4096$$、$$B_M = B_N = 128$$ 代入，$$\lceil 4096/128 \rceil = 32$$，共 1024 个 program。A100 的 108 个 SM 同时驻留的 program 数取决于 occupancy，设一"波"约 108 个（每 SM 一个）：
@@ -570,12 +610,57 @@ TTGIR 里的每个张量类型都带一个 layout 属性。以 `add_kernel`（`B
 
 `versionMajor = 2` 是 Ampere 的 `mma.sync`（Hopper `wgmma` 是 3），`instrShape = [16, 8]` 是 `m16n8`，`warpsPerCTA = [2, 2]` 4 个 warp 排成 2 × 2 各负责 64 × 64 的子块。epilogue 的 `tl.store` 需要的 layout 与 `#mma` 不同，中间会有一个 `ttg.convert_layout` ——这一次 shared memory 往返就是 epilogue 的固有开销之一。
 
+把这几个 layout 按一个 K 迭代里数据流过的顺序串起来，标出每一步数据所在的存储层次、编译器为这一步生成的 PTX 指令，以及它替代了前几篇的哪段手写代码：
+
+```mermaid
+flowchart TB
+    gA["全局内存：A、B 的 K-tile（BF16）"]
+    blk["#blocked（加载布局）<br/>sizePerThread=#91;1,8#93;：每线程连续 8 个 BF16 = 16 B<br/>只决定每个线程负责搬哪 16 B"]
+    shr["#shared = swizzled_shared（shared memory）<br/>vec=8, perPhase=2, maxPhase=4<br/>num_stages 个 K-tile 的环形缓冲"]
+    dop["#dot_op（寄存器：mma fragment）<br/>A、B 操作数在各线程里的片段"]
+    mma["#mma = nvidia_mma（寄存器：FP32 累加器）<br/>warpsPerCTA=#91;2,2#93;, instrShape=#91;16,8#93;"]
+    blk2["#blocked（写回布局，寄存器）<br/>每线程连续 8 个 BF16，可合并写"]
+    gC["全局内存：C tile（BF16）"]
+
+    gA -- "cp.async.cg.shared.global，每线程 16 B<br/>（Pipeline pass，绕过寄存器直写 smem）" --> shr
+    gA -. "Coalesce pass 按此布局切分<br/>每线程的 16 B 块" .-> blk
+    blk -.-> shr
+    shr -- "ldmatrix.x4（转置折进 .trans）<br/>swizzle 保证读 8×8 子块无 bank conflict" --> dop
+    dop -- "mma.sync.m16n8k16 × 64 / warp / K-step" --> mma
+    mma -- "acc.to(bf16) 后 ttg.convert_layout<br/>= st.shared + bar.sync + ld.shared" --> blk2
+    blk2 -- "st.global.v4.b32 + c_mask 谓词" --> gC
+
+    n1["≈ 第 3 篇 uint4 向量化<br/>+ 第 5 篇多 stage cp.async"]
+    n2["≈ 第 6 篇 ldmatrix<br/>+ padding / XOR swizzle"]
+    n3["≈ 第 6 篇 fragment 循环<br/>+ __syncthreads 位置"]
+    n4["epilogue 固有开销：<br/>一次 smem 往返 + 两次 barrier"]
+    shr ~~~ n1
+    dop ~~~ n2
+    mma ~~~ n3
+    blk2 ~~~ n4
+    n1 -.- shr
+    n2 -.- dop
+    n3 -.- mma
+    n4 -.- blk2
+
+    classDef gmem fill:#f4f4f4,stroke:#666
+    classDef smem fill:#fdf1d6,stroke:#b9770e
+    classDef reg fill:#dde9f7,stroke:#2e6da4
+    classDef note fill:#ffffff,stroke:#999,stroke-dasharray: 4 3
+    class gA,gC gmem
+    class shr smem
+    class blk,dop,mma,blk2 reg
+    class n1,n2,n3,n4 note
+```
+
+灰色是全局内存、黄色是 shared memory、蓝色是寄存器。一个 K-tile 从 A/B 到累加器只经过一次 shared memory（流水路径下 `cp.async` 甚至不经过寄存器），而累加器到 C 却要**再**经过一次 shared memory——这就是上面说的 `convert_layout` 开销，也是第六章"寄存器级布局控制"边界的具体位置。
+
 ### 3. 读 PTX：mma、cp.async 与 stage 数
 
 `compiled.asm["ptx"]` 是文本，直接 `grep`：
 
 - `mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32` 出现 → `tl.dot` 用上了 Tensor Core。数一数它在循环体里出现的次数，应等于 $$(B_M/16)(B_N/8)(B_K/16)/\text{num\_warps}$$；如果看到的是 `fma.rn.f32`，说明 `tl.dot` 的输入 dtype 或形状不满足要求，退化成了 CUDA Core；
-- `cp.async.cg.shared.global` / `cp.async.commit_group` / `cp.async.wait_group N` 出现 → 多 stage 流水生效。**`wait_group` 后面的数字就是允许在飞的 group 数，等于 `num_stages - 2`**（`num_stages=3` 时是 `wait_group 1`）——这是从 PTX 反推 stage 数最可靠的办法；
+- `cp.async.cg.shared.global` / `cp.async.commit_group` / `cp.async.wait_group N` 出现 → 多 stage 流水生效。**`wait_group` 后面的数字就是允许在飞的 group 数，等于 `num_stages - 2`**（`num_stages=3` 时是 `wait_group 1`，原因见第二章 §5 的缓冲区轮转图）——这是从 PTX 反推 stage 数最可靠的办法；
 - `ldmatrix.sync.aligned.m8n8.x4.shared.b16` 出现 → 操作数从 shared memory 到 fragment 的搬运用了 `ldmatrix`（带 `.trans` 后缀说明折进了转置）；
 - `ld.global.v4.b32` / `st.global.v4.b32` → 128 bit 向量化访存；如果是 `ld.global.b16`，向量化失败；
 - `bar.sync 0` 的数量与位置对应 `__syncthreads()`；

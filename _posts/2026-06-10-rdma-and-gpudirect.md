@@ -43,6 +43,32 @@ TCP/IP 的路径上有内核协议栈、至少两次内存拷贝和一个必须�
   拷贝：0 次  主机内存：不在数据面上  CPU：只下发请求、轮询完成
 ```
 
+上面的箭头链只说了"经过谁"，没说"在哪条 PCIe 链路上"。把一台 8 卡机器里一对 GPU + NIC 所在的那一小片 PCIe 拓扑画出来，三条路径落在物理链路上的差别才看得清：A 和 B 都要上行穿过 root complex 进主机内存再下来，C 在 PCIe switch 内部就折返了。
+
+```mermaid
+flowchart TB
+  subgraph host["主机侧（root complex 之上）"]
+    CPU["CPU<br/>协议栈 + memcpy（仅路径 A 参与数据面）"]
+    MEM["主机内存<br/>A：staging + socket buffer<br/>B：pinned staging"]
+  end
+  RC["CPU 的 PCIe root complex"]
+  subgraph sw["PCIe switch（GPU 与 NIC 同挂其下）"]
+    GPU["GPU HBM（经 BAR1 映射到 PCIe 地址空间）"]
+    NIC["NIC DMA 引擎"]
+  end
+  NET["网线（InfiniBand / RoCE）"]
+  CPU <--> MEM
+  MEM <--> RC
+  GPU -- "A / B：D2H 拷贝，上行到主机内存" --> RC
+  RC -- "A / B：NIC DMA 从主机内存读走" --> NIC
+  GPU -- "C：NIC 直接 DMA 显存，switch 内转发，不到 root complex" --> NIC
+  NIC --> NET
+  classDef hostc fill:#fde8e8,stroke:#b94a48;
+  classDef swc fill:#e8f4fd,stroke:#3a7bd5;
+  class CPU,MEM,RC hostc;
+  class GPU,NIC swc;
+```
+
 三条路径的**数据面**差别是拷贝次数和 PCIe 跳数，**控制面**差别是 CPU 参与的深度。RDMA 把 CPU 参与的控制面从"每个包"降到"每个 Work Request"——对 NCCL 这种一次 RDMA WRITE 搬几十 KB 到几 MB 的用法，就是每个消息一次（分段、重传、ACK 都由网卡在协议层完成），GPUDirect 把数据面从"两跳 PCIe 加一次主机内存往返"降到"PCIe switch 内部一跳"。第二章会给每条路径算出带宽上限，那张表是本篇核心问题的答案。
 
 ### 2. 两本账在这一层的形态
@@ -261,6 +287,28 @@ RDMA READ 在 NCCL 里只用于一个特殊目的：GDR 接收后的 **flush**�
   5. ncclIbTest 轮询 CQ，收到 RECV_RDMA_WITH_IMM，记录 imm_data 为大小
 ```
 
+把两侧 proxy 与两侧网卡放在一条时间轴上，谁等谁就清楚了：接收方先动（post recv、写 FIFO），发送方在 FIFO 元素到达前只能自旋；数据 WRITE 本身不产生对端完成，是最后那个 WITH_IMM 让接收方的 CQ 里冒出一个 CQE。
+
+```mermaid
+sequenceDiagram
+    participant RP as 接收方 proxy
+    participant RN as 接收方 NIC
+    participant SN as 发送方 NIC
+    participant SP as 发送方 proxy
+    RP->>RN: ncclIbIrecv：每个 QP post 一个 0 SGE 的 recv WR
+    RP->>RN: ncclIbPostFifo：post RDMA WRITE，内容是 FIFO 元素 (addr, size, rkeys, tag, idx)
+    RN->>SN: FIFO 元素落到发送方 comm 的 fifo 槽位（64 字节）
+    Note over SP: ncclIbIsend 自旋等待 slots 首元素的 idx 等于 fifoHead+1，再校验 tag
+    SP->>SN: ncclIbMultiSend：post RDMA WRITE 链（数据，send_flags = 0，不产生完成）
+    SP->>SN: 末尾一个 RDMA WRITE WITH IMM（imm_data = size，IBV_SEND_SIGNALED）
+    SN->>RN: 数据包直达 slots 里给出的 addr（GDR 下就是 GPU channel buffer）
+    SN->>RN: WITH IMM（AR 开启且消息大于阈值时是 0 字节）
+    RN-->>SN: ACK（RC 可靠传输，由网卡完成）
+    RN->>RP: CQE IBV_WC_RECV_RDMA_WITH_IMM，消耗那个 0 SGE recv WR
+    SN->>SP: CQE IBV_WC_RDMA_WRITE，wr_id 对应本次请求
+    Note over RP,SP: 双方 ncclIbTest 各 poll 到一个完成，接收方由 wc.imm_data 得知收了多少字节
+```
+
 `ncclIbSendFifo` 每个元素 64 字节（`static_assert` 保证 32 字节对齐），含 `addr`、`size`、`rkeys[NCCL_IB_MAX_DEVS_PER_NIC]`（合并多网卡时每设备一个 rkey）、`nreqs`、`tag`、`idx`。这是一个"接收方驱动"（receiver-driven）的设计：接收方先说"我准备好了，这里是地址"，发送方才写。它也是 NCCL 的一种流控——发送方永远不会写到接收方没准备好的地方，channel buffer 里的 `NCCL_STEPS` 个 slot 通过这个 FIFO 循环复用。
 
 在两本账上：一次数据传输的延迟是"FIFO 写（一次 RDMA WRITE，约 1–2 µs）+ 数据写 + 完成"，比纯 SEND/RECV 多一个 α，但 NCCL 的 FIFO 是流水化的——接收方总是提前 post 好多个 slot，稳态下 FIFO 写不在关键路径上。带宽上，每次数据传输额外的开销只有 64 字节的 FIFO 元素和一个 0 字节的 IMM，可以忽略。
@@ -300,6 +348,23 @@ GID                128 位全局标识（RoCE 必需；IB 跨子网时用），�
 MTU                本端口的 active_mtu，双方取最小
 PSN                起始包序号（可以都用 0）
 rkey + 地址        如果对端要做单边操作，还要告诉它我的 buffer 地址和 rkey
+```
+
+状态机的三步和这次带外交换是交错的，哪一步必须等对端、哪一步可以先做，用时间轴看更直观——尤其是"为什么 recv WR 要在交换之前就 post 好"：
+
+```mermaid
+sequenceDiagram
+    participant A as 本端（ncclIbConnect）
+    participant B as 对端（ncclIbAccept）
+    Note over A,B: 各自独立：ibv_alloc_pd、ibv_create_cq、ibv_create_qp（QP 处于 RESET）
+    Note over A,B: 各自独立：ibv_modify_qp 到 INIT，只需本地 pkey_index、port_num、access_flags
+    Note over A,B: INIT 后即可 ibv_post_recv，此时对端还发不出任何包，recv WR 一定先于数据就位
+    A->>B: TCP 连接（bootstrap socket，走 NCCL_SOCKET_IFNAME 指定的网卡）
+    A->>B: 本端 ncclIbConnectionMetadata：QPN、LID/GID、MTU、PSN、fifoAddr、fifoRkey
+    B->>A: 对端 ncclIbConnectionMetadata
+    Note over A,B: 有了对端 QPN 与地址向量，才能 ibv_modify_qp 到 RTR（可收）
+    Note over A,B: 再填本地 timeout、retry_cnt、sq_psn，ibv_modify_qp 到 RTS（可发）
+    A->>B: 第一个 RDMA WRITE：对端已在 RTR 且 recv WR 已就位，不会 RNR NAK
 ```
 
 NCCL 的 `struct ncclIbConnectionMetadata` 就是这个包：`qpInfo[]`（每个 QP 的 `qpn` 加 ECE 扩展信息）、`devs[]`（每个物理设备的 `lid`、`ib_port`、`mtu`、`link_layer`、`gid`、`fifoRkey`）、`fifoAddr`（FIFO 的地址，接收方要往这里 RDMA WRITE）、`tc`、`sl`。
@@ -462,6 +527,31 @@ PCIe 上任何设备都可以向另一个设备的 BAR（Base Address Register�
 - **`nvidia-peermem` 内核模块**（旧名 `nv_peer_mem`）：向 RDMA 子系统注册一个 peer memory client；`ibv_reg_mr` 收到显存地址时，`ib_core` 发现不是普通内存，调 `nvidia-peermem` → NVIDIA 驱动的 `nvidia_p2p_get_pages` 拿到 BAR1 里的物理页（2 MB 粒度）→ 写进 MTT。对应用透明：还是 `ibv_reg_mr(pd, cudaMalloc 的指针, ...)`。要求 `nvidia-peermem` 模块已加载（`lsmod | grep peermem`），且它是 out-of-tree 的，随 NVIDIA 驱动一起编译。
 - **DMA-BUF**：Linux 内核标准的跨设备 buffer 共享机制。应用调 `cuMemGetHandleForAddressRange(&fd, ptr, size, CU_MEM_RANGE_HANDLE_TYPE_DMA_BUF_FD, 0)` 让 NVIDIA 驱动为这段显存导出一个 dma-buf 文件描述符，再 `ibv_reg_dmabuf_mr(pd, offset, length, iova, fd, access)` 让网卡驱动 attach 这个 dma-buf、拿到映射。不需要 `nvidia-peermem`，走内核主线 API（内核 5.12+，rdma-core 1.12+ 即 `IBVERBS_1.12` 符号版本，CUDA 11.7+，NVIDIA 开源内核模块或 R515+ 驱动）。这是未来的方向，也是容器与不能加载第三方模块的环境里的唯一选择。
 
+两条路从同一个显存指针出发，在不同层分叉，最后汇合到同一张网卡翻译表；NCCL 的选择顺序是先试 DMA-BUF、失败再落到 peermem：
+
+```mermaid
+flowchart TB
+  APP["显存指针（cudaMalloc 返回的设备地址）<br/>NCCL channel buffer 或用户 buffer"]
+  Q1{"DMA-BUF 可用？<br/>ncclIbDmaBufSupport 且 dmaBufSupported"}
+  APP --> Q1
+  Q1 -- "是" --> CUH["cuMemGetHandleForAddressRange<br/>NVIDIA 驱动为这段显存导出 dma-buf fd"]
+  CUH --> REGD["ibv_reg_dmabuf_mr(pd, offset, len, iova = addr, fd)"]
+  REGD --> ATT["ib_core / mlx5：dma_buf_attach + map<br/>拿到 BAR1 总线地址的 sg 表（内核主线 API）"]
+  Q1 -- "否：FALL-THROUGH to nv_peermem" --> REGM["ibv_reg_mr(pd, 显存指针, len)<br/>与注册主机内存的调用完全一样"]
+  REGM --> IBC["ib_core：普通 pin 页失败<br/>查询已注册的 peer memory client"]
+  IBC --> PM["nvidia-peermem（out-of-tree 模块）<br/>nvidia_p2p_get_pages，2 MB 页粒度"]
+  PM --> ATT2["BAR1 里的物理页列表"]
+  ATT --> MTT["写进 NIC 的 MPT / MTT<br/>返回 lkey / rkey"]
+  ATT2 --> MTT
+  MTT --> DMA["之后 NIC DMA 直接对 BAR1 地址发 PCIe 读写<br/>不经 root complex，主机内存不在数据面"]
+  classDef dmabuf fill:#e8f4fd,stroke:#3a7bd5;
+  classDef peer fill:#fff3e0,stroke:#e08a1e;
+  classDef common fill:#e9f7ef,stroke:#2e8b57;
+  class CUH,REGD,ATT dmabuf;
+  class REGM,IBC,PM,ATT2 peer;
+  class MTT,DMA common;
+```
+
 NCCL 两条路都支持，探测逻辑在 `net_ib.cc`：
 
 - `ncclIbGdrSupport`：检查 `/sys/kernel/mm/memory_peers/nv_mem/version`、`/sys/kernel/mm/memory_peers/nv_mem_nc/version` 或 `/sys/module/nvidia_peermem/version` 三个路径之一是否存在（`ibGdrSupportInitOnce`），存在则 `props->ptrSupport |= NCCL_PTR_CUDA`。
@@ -510,6 +600,26 @@ GDR 有两个方向：接收（网卡**写**显存）和发送（网卡**读**�
 ### 4. flush：为什么收完还要读一次
 
 网卡把数据 DMA 写进显存后，向 CPU（proxy 线程）写完成；proxy 更新 flag，GPU kernel 看到 flag 去读数据。PCIe 上"数据写到 GPU"与"完成写到 CPU"是两条不同的路径，PCIe 的顺序模型不保证 GPU 看到 flag 时数据已经全部落在 HBM 里（可能还在 GPU 的 PCIe 入口 buffer 里）。解决办法是 proxy 在通知 GPU 之前对刚收到的 buffer 做一次 **RDMA READ**（本地 loopback QP，读回几个字节）：READ 的响应必须等之前所有到达该地址的写都可见，这样 READ 完成即意味着数据已就位。
+
+这个竞争关系画成时间轴如下——关键是"数据到 HBM"与"CQE 到 CPU"是两条互不保序的 PCIe 路径，flush 用一次 non-posted 读把它们串起来：
+
+```mermaid
+sequenceDiagram
+    participant NIC as 本地 NIC
+    participant HBM as GPU 显存（channel buffer）
+    participant PX as proxy 线程（CPU）
+    participant K as GPU kernel
+    NIC->>HBM: RDMA WRITE 数据（PCIe posted write，可能还停在 GPU 的 PCIe 入口 buffer）
+    NIC->>PX: CQE RECV_RDMA_WITH_IMM（另一条 PCIe 路径，写到主机内存的 CQ）
+    Note over NIC,PX: 两条路径互不保序：CPU 看到 CQE 时，数据未必已经落到 HBM
+    PX->>NIC: ncclIbIflush：对 loopback QP post 一个 RDMA READ，读回刚收的 buffer 开头几字节
+    NIC->>HBM: PCIe 读（non-posted），响应必须等此前所有到达该地址的写可见
+    HBM-->>NIC: 读响应
+    NIC->>PX: CQE RDMA READ 完成，等价于"数据已在 HBM"
+    PX->>K: 更新接收 tail / flag（主机内存，或经 GDRCopy 写进显存）
+    K->>HBM: 轮询到 flag 后读数据，此时保证完整
+    Note over PX,K: Hopper（compCap 大于等于 90）PCIe 实现保序，ncclTopoNeedFlush 判定不需要，省下 1–2 µs
+```
 
 这就是 `ncclIbIflush` 的 `IBV_WR_RDMA_READ` 与 `gpuFlush.qp`（一个连到自己的 QP，`ncclIbAccept` 里 `ncclIbRtrQp(..., rCommDev->gpuFlush.qp.qp->qp_num, ...)` 目标 QPN 是自己）。`rComm->flushEnabled` 在 GDR 可用且 `NCCL_GDR_FLUSH_DISABLE` 为 0 时置 1。`paths.cc` 的 `ncclTopoNeedFlush` 进一步决定要不要真的 flush：`cudaCompCap >= 90`（Hopper）时不需要，Hopper 的 PCIe 实现保证了顺序；C2C 平台数据走 PCIe、flag 走 C2C 的组合要强制 flush；`NCCL_NET_FORCE_FLUSH` 可强制。GDRCopy 提供了另一种 flush 方式（`NCCL_GDRCOPY_FLUSH_ENABLE`，用 CPU 经 BAR1 读一下显存），下一章讲。
 

@@ -150,6 +150,43 @@ PCIe 的每次读写都是一个 TLP，带着目标地址。GPU0 要写 GPU1 的
 - **root complex 的 P2P 转发能力**：不是所有 CPU 都以全速转发 P2P 写，Intel 平台会把 P2P 流量拆成 64 字节的 TLP 转发（NCCL 源码 `src/graph/topo.h` 的注释明确提到这一点，并为此对 Intel CPU 的 GPU–GPU PCIe 带宽打折），实际带宽可能只有链路的一半；
 - **跨 socket**：如果 GPU0 在 CPU0 下、GPU4 在 CPU1 下，还要跨 UPI，带宽再打折，延迟再加。
 
+把这三条 P2P 路径叠到第 2 节那棵树上，就是 `nvidia-smi topo -m` 里 `PIX`/`PHB`/`SYS` 三个等级的物理含义（下一节的 ACS 用虚线画出：它把本该在 switch 内完成的 ① 强行改道成 ②）：
+
+```mermaid
+flowchart TB
+  subgraph cpu0["CPU0（NUMA 0）"]
+    RC0["root complex 0<br/>（IOMMU）"]
+    SW0["PCIe switch 0"]
+    SW1["PCIe switch 1"]
+    G0["GPU0"]
+    G1["GPU1"]
+    G2["GPU2"]
+  end
+  subgraph cpu1["CPU1（NUMA 1）"]
+    RC1["root complex 1"]
+    SW2["PCIe switch 2"]
+    G4["GPU4"]
+  end
+  RC0 --- SW0
+  RC0 --- SW1
+  SW0 --- G0
+  SW0 --- G1
+  SW1 --- G2
+  RC1 --- SW2
+  SW2 --- G4
+  RC0 -. "UPI / Infinity Fabric" .- RC1
+  G0 == "① PIX：switch 内转发，不上行" ==> G1
+  G0 == "② PHB：上行到 RC0 再下行，受 RC 转发能力限制" ==> G2
+  G0 == "③ SYS：再跨 UPI，最慢，P2P 可能被禁" ==> G4
+  G0 -. "ACS 开启时：① 被重定向到 RC0 的 IOMMU 再送回" .-> RC0
+  classDef gpu fill:#dbe9f6,stroke:#3b6ea5;
+  classDef sw fill:#f4f4f4,stroke:#777;
+  classDef rc fill:#fdf1d6,stroke:#b8860b;
+  class G0,G1,G2,G4 gpu;
+  class SW0,SW1,SW2 sw;
+  class RC0,RC1 rc;
+```
+
 所以 PCIe P2P 的带宽从"同 switch"到"跨 socket"是一条下坡路：同 switch 下能接近链路带宽的 80–90%；经 root complex 通常明显更低且随 CPU 平台差异很大；跨 socket 最差。NCCL 对这几段各有一个内部估算值，见本章第 5 节。
 
 ### 4. 为什么跨 root complex 的 P2P 可能"不可用"：ACS 与 IOMMU
@@ -212,6 +249,37 @@ NVLink 是 NVIDIA 专有的 GPU 间互联，与 PCIe 相比有三点本质区别
 ### 2. NVSwitch：any-to-any 全带宽
 
 没有 NVSwitch 时，GPU 的链路要分给不同的邻居。以 8 卡 V100 的 DGX-1 为例，每卡 6 条链路，不可能与另外 7 张卡各连一条，只能形成一个 hybrid cube-mesh：有的卡对之间 2 条链路，有的 1 条，有的 0 条（要经第三张卡转发）。此时两卡之间的带宽取决于它们是谁，ring 的构造要精心贴合物理连线。
+
+```mermaid
+flowchart TB
+  subgraph mesh["无 NVSwitch：DGX-1 式 hybrid cube-mesh（每卡 6 链路，只画 4 卡）"]
+    M0["GPU0"]
+    M1["GPU1"]
+    M2["GPU2"]
+    M3["GPU3"]
+    M0 -- "2 条" --- M1
+    M0 -- "1 条" --- M2
+    M1 -- "1 条" --- M3
+    M2 -- "2 条" --- M3
+    M0 -. "0 条：要经 GPU1 或 GPU2 转发" .- M3
+  end
+  subgraph nvs["有 NVSwitch：每卡全部链路接到交换机，任意一对都能用满发送方全部链路"]
+    N0["GPU0"]
+    N1["GPU1"]
+    N2["GPU2"]
+    N7["… GPU7"]
+    NS["NVSwitch 组<br/>DGX A100：6 颗，每卡 12 条<br/>DGX H100：4 颗，每卡 18 条"]
+    N0 -- "12 / 18 条" --- NS
+    N1 -- "12 / 18 条" --- NS
+    N2 -- "12 / 18 条" --- NS
+    N7 -- "12 / 18 条" --- NS
+  end
+  mesh ~~~ nvs
+  classDef gpu fill:#dbe9f6,stroke:#3b6ea5;
+  classDef sw fill:#e3f2e1,stroke:#4a8a3a;
+  class M0,M1,M2,M3,N0,N1,N2,N7 gpu;
+  class NS sw;
+```
 
 NVSwitch 把这变成了交换网络。每张 GPU 的所有链路全部接到 NVSwitch 芯片上（DGX A100 用 6 颗第二代 NVSwitch，每卡 12 条链路每颗 switch 各 2 条；DGX H100 用 4 颗第三代 NVSwitch，每卡 18 条链路分到 4 颗上），任意两张 GPU 之间的流量由 switch 交换。效果是：**任意一对 GPU 之间都能用满发送方的全部链路带宽**，与它们的编号无关；8 张卡同时全速对外发送，switch 的总交换容量足以承载（DGX H100 的 4 颗 NVSwitch 合计双向 7.2 TB/s，正好是 8 × 900 GB/s）。这就是"any-to-any 全带宽"，也是 `nvidia-smi topo -m` 里 GPU 之间清一色 `NV12` 或 `NV18` 的物理含义。
 
@@ -525,6 +593,24 @@ pinned memory 有代价：分配慢（要 pin 页、建立映射），占用不�
 
 ### 2. staging buffer：什么时候数据必须经过主机内存
 
+NCCL 决定一次传输要不要经过主机内存，走的是下面这棵决策树——两个分叉点分别由第五章第 6 节的 `NCCL_P2P_LEVEL` 与 `NCCL_NET_GDR_LEVEL` 门控，默认边界都是 `PXB`：
+
+```mermaid
+flowchart TB
+  S["GPU A 要把数据送到 GPU B"] --> Q1{"B 在同一节点？"}
+  Q1 -- "是" --> Q2{"A–B 路径等级 ≤ NCCL_P2P_LEVEL（默认 PXB）<br/>且 cudaDeviceCanAccessPeer = 1？"}
+  Q2 -- "是，路径为 NVL" --> P1["P2P transport 经 NVLink<br/>SM 直接 load/store 对端显存"]
+  Q2 -- "是，路径为 PIX / PXB" --> P2["P2P transport 经 PCIe switch<br/>DMA 直写对端 BAR"]
+  Q2 -- "否：PHB / SYS、ACS、平台白名单外" --> P3["SHM transport（src/transport/shm.cc）<br/>A 写主机共享内存，B 再读回<br/>PCIe 走两遍，延迟约翻倍"]
+  Q1 -- "否" --> Q3{"A–NIC 路径等级 ≤ NCCL_NET_GDR_LEVEL（默认 PXB）<br/>且 nvidia-peermem 已加载、网卡支持？"}
+  Q3 -- "是" --> N1["GPUDirect RDMA<br/>网卡直接 DMA 显存<br/>日志：via NET/IB/n/GDRDMA"]
+  Q3 -- "否" --> N2["host staging<br/>D2H 拷到 pinned buffer，网卡再从主机内存 DMA<br/>每方向多一次 PCIe 传输与 5–10 µs"]
+  classDef fast fill:#e3f2e1,stroke:#4a8a3a;
+  classDef slow fill:#fbe9e7,stroke:#c0392b;
+  class P1,P2,N1 fast;
+  class P3,N2 slow;
+```
+
 有三种情况数据不能从源 GPU 直接到目的地，必须先落到主机内存的一块 **staging buffer** 再被搬走：
 
 - **节点内、P2P 不可用**：两张 GPU 之间的路径等级超过 `NCCL_P2P_LEVEL`（默认 `PXB`）——即 `PHB`/`NODE`/`SYS`——或者 `cudaDeviceCanAccessPeer` 返回 0（ACS、平台白名单）。NCCL 用 SHM transport（`src/transport/shm.cc`）：源 GPU 把数据写进主机共享内存，目的 GPU 再从那里读走。数据在 PCIe 上走了两遍（一次上行写到内存、一次下行读回来），还占用内存带宽；两次 PCIe 传输用两条不同的链路（源和目的各自的 x16），所以带宽上限约等于一条 PCIe 链路的带宽，但延迟翻倍、CPU 内存带宽被占用。
@@ -544,6 +630,25 @@ pinned memory 有代价：分配慢（要 pin 页、建立映射），占用不�
 
 几十台以上的 GPU 服务器之间用多层交换机连成 **fat-tree**（Clos 网络）：叶交换机（leaf）向下接服务器网卡、向上接脊交换机（spine），两层能接几百到上千个端口，三层可到上万。fat-tree 的理想是**无阻塞**：每台 leaf 向上的总带宽等于向下的总带宽，任意两个端口之间都能同时全速通信。实际部署为了省钱常做**超额订阅**（oversubscription）：leaf 下行 64 个端口、上行只有 32 个，比值 2:1，跨 leaf 的流量在上行链路上争抢，同时全速跨 leaf 通信时每条流只能拿到一半带宽。
 
+以一台 2:1 超额订阅的 leaf 为例：
+
+```text
+        spine0         spine1         spine2         spine3
+           ╲              │              │              ╱
+            ╲ 8 条        │ 8 条         │ 8 条        ╱ 8 条
+             ╲            │              │            ╱
+              ┌───────────┴──────────────┴───────────┐
+              │                 leaf0                │  上行 4 × 8 = 32 端口
+              └─┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬─┘
+                │  │  │  │  │  │  │  │  │  │  │  │    下行 64 端口（8 台机器 × 8 NIC）
+              NIC0 ……………………………………………………………… NIC63
+
+  超额订阅比 = 下行 64 : 上行 32 = 2 : 1
+  同一 leaf 下两台机器   β = 网卡速率（NDR 50 GB/s）
+  跨 leaf                β = min(网卡速率, 上行总带宽 ÷ 同时跨 leaf 的流数)
+                         64 张网卡同时全部跨 leaf → 每流 ≈ 25 GB/s，打对折
+```
+
 对代价模型的意义：跨节点 β 不再是一个常数。同一 leaf 下的两台机器之间 β 是网卡速率；跨 leaf 时 β 取网卡速率与"上行带宽 ÷ 同时跨 leaf 的流数"的较小者。一个 512 卡的任务如果被打散在 16 台 leaf 上，它的 all_reduce 几乎每一步都跨 leaf，在 2:1 超额订阅的网络里 β 的有效值可能只有一半。这是"同一个任务换了机器分配就变慢"的常见原因。
 
 IB 网络另有一个特点：路由由子网管理器（Subnet Manager）静态计算，一条流走哪条上行路径在连接建立时就定了，不像以太网 ECMP 那样按流哈希。多条流哈希到同一条上行链路的冲突在两种网络里都存在，IB 的自适应路由（Adaptive Routing）和 NCCL 每个连接多 QP（`NCCL_IB_QPS_PER_CONNECTION`，第六篇）都是缓解手段。
@@ -551,6 +656,38 @@ IB 网络另有一个特点：路由由子网管理器（Subnet Manager）静态
 ### 2. rail-optimized 设计
 
 一台 8 卡机器有 8 张网卡，传统做法是把 8 张网卡接到同一台 leaf 上（一台机器一个 leaf 端口组）。**rail-optimized** 反过来：把所有机器的 NIC0 接到 leaf 0，所有机器的 NIC1 接到 leaf 1，……，所有机器的 NIC7 接到 leaf 7。每台 leaf 对应一条 **rail**，一条 rail 上是全部机器同一编号的网卡——也就是同一编号的 GPU。
+
+```mermaid
+flowchart TB
+  SP["spine"]
+  subgraph rails["leaf 层：一台 leaf 就是一条 rail"]
+    L0["leaf 0 = rail 0<br/>接所有机器的 NIC0"]
+    L3["leaf 3 = rail 3<br/>接所有机器的 NIC3"]
+  end
+  subgraph nodeA["节点 A"]
+    A0["GPU0 + NIC0"]
+    A3["GPU3 + NIC3"]
+    A0 -. "NVLink" .- A3
+  end
+  subgraph nodeB["节点 B"]
+    B0["GPU0' + NIC0'"]
+    B3["GPU3' + NIC3'"]
+    B0 -. "NVLink" .- B3
+  end
+  SP --- L0
+  SP --- L3
+  L0 --- A0
+  L0 --- B0
+  L3 --- A3
+  L3 --- B3
+  A0 == "① 同 rail：GPU0 → GPU0'<br/>只经 leaf 0，一跳" ==> B0
+  A3 == "② 跨 rail：GPU3 → GPU0'<br/>leaf 3 → spine → leaf 0，三段链路" ==> B0
+  A3 == "③ PXN：先经 NVLink 交给本机 GPU0<br/>再从 NIC0 走 rail 0，避开 spine" ==> A0
+  classDef leaf fill:#fdf1d6,stroke:#b8860b;
+  classDef gpu fill:#dbe9f6,stroke:#3b6ea5;
+  class L0,L3,SP leaf;
+  class A0,A3,B0,B3 gpu;
+```
 
 它的依据正是第四章的分析：GPU i 用 NIC i，所以跨节点的流量天然按 GPU 编号分成了 8 股互不干扰的流。在 rail-optimized 网络里，节点 A 的 GPU0 到节点 B 的 GPU0 的流量只经过 leaf 0，**一跳**，不上 spine；只有 GPU0 到 GPU3 这种跨 rail 的流量才需要经 spine 绕行（两跳、三段链路，且与其他跨 rail 流争抢 spine 带宽）。而分层 all_reduce 的节点间阶段恰好是"每台机器的 GPU i 与其他机器的 GPU i 通信"，全部落在同一条 rail 内。结果：节点间通信的大部分流量只走 leaf，spine 层可以做更高的超额订阅而不影响 all_reduce，延迟少一跳。
 

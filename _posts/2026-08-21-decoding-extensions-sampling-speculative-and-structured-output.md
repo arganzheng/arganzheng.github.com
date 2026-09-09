@@ -107,6 +107,32 @@ class Sampler(nn.Module):
 
 这个顺序不是随意的。**第 5 步与第 7c 步的区分——"会不会改变 argmax"——是整个流水线的组织原则**：`min_tokens` 把 EOS 置 `-inf`、`logit_bias` 直接加偏置，这两个会改变最大值在哪里，所以必须在 greedy 分支之前做；而 `min_p` 只是把低于阈值的 token 砍掉，最大值永远留着，greedy 请求做不做都一样，所以放到温度之后、只对随机采样的行做。这样一个 batch 里 greedy 与 random 的请求可以走同一条流水线，最后一行 `torch.where` 分流，不需要拆 batch。
 
+把这个"先共用、再分叉、最后按行合流"的结构画出来（整张 `[num_reqs, V]` 的 logits 从头到尾没有被拆成两个 batch）：
+
+```mermaid
+flowchart TB
+    L["logits #91;num_reqs, V#93; → float32<br/>（若要 logprobs，先留一份原始 logits）"]
+    PRE["会改变 argmax 的处理<br/>allowed_token_ids → bad_words<br/>→ min_tokens / logit_bias → penalties"]
+    L --> PRE
+    PRE --> GR["greedy 分支<br/>argmax(logits)，整张一起算"]
+    PRE --> TEMP["温度：logits / temperature<br/>（greedy 行的温度先换成 1）"]
+    TEMP --> MINP["argmax-invariant 处理器<br/>默认只有 min_p"]
+    MINP --> TKP["top_k / top_p<br/>Triton / FlashInfer / 逐行 sort"]
+    TKP --> RND["随机采样<br/>argmax(probs / Exp(1) 噪声)<br/>带 seed 的行单独覆盖噪声"]
+    GR --> ALLG["all_greedy？直接返回 greedy"]
+    GR --> WH["torch.where(temperature < eps, greedy, random)<br/>逐行选择，不拆 batch"]
+    RND --> WH
+    WH --> OUT["sampled_token_ids #91;num_reqs, 1#93;<br/>+ top-k logprobs（按 logprobs_mode 取哪份分布）"]
+    classDef shared fill:#eef3fb,stroke:#3b6ea5;
+    classDef greedy fill:#e8f5e9,stroke:#2e7d32;
+    classDef random fill:#fff3e0,stroke:#ef6c00;
+    class L,PRE,WH,OUT shared;
+    class GR,ALLG greedy;
+    class TEMP,MINP,TKP,RND random;
+```
+
+蓝色是全 batch 共用的段，绿色只对 greedy 有意义、橙色只对随机采样有意义，但两条支路都在整张张量上跑——greedy 请求也会被除以 1、被 top-k 过一遍，只是结果最后被 `torch.where` 丢掉。这是"向量化优先于省算"的取舍：多算几行远比拆 batch、多发 kernel 便宜。
+
 还有一个容易漏看的点：**logprobs 默认取的是"原始" logits 的 log-softmax**（`logprobs_mode="raw_logprobs"`），也就是第 1 步那份、还没经过 penalties 和温度的。源码注释明说这与 V0 不同——V0 返回的是采样用的 processed 分布。如果你的评测依赖 logprobs，这个差别要知道。
 
 ### 2. 每请求不同参数：向量化，而不是循环
@@ -297,6 +323,33 @@ request.num_computed_tokens -= num_rejected                    # 被拒的位置
 
 第六篇第五章说 KV 要"回滚"——落到源码上，**回滚就是这一行减法**。被拒 token 占的槽位不需要真的释放，下一步的 token 会直接覆盖它们（`slot_mapping` 按 `num_computed_tokens` 算）。第九篇 MTP 一节说的"暂存状态 vs 提交状态"，在 vLLM 里的实现就是 `num_computed_tokens` 与实际写入 KV 位置之间的这个差。
 
+用一个请求连续两步的 KV 槽位把这件事画出来（K=3，第一步接受 1 个、拒绝 2 个）：
+
+```text
+step t   调度前 num_computed_tokens = N，draft = [d1 d2 d3]
+  slot        N      N+1    N+2    N+3    N+4    N+5
+            +------+------+------+------+------+------+
+  input_ids |  s   |  d1  |  d2  |  d3  |      |      |  s = 上一步采出的 token
+            +------+------+------+------+------+------+
+  logits    verify verify verify bonus                  4 个位置的 logits
+  用途        d1     d2     d3
+  验证结果    ok     REJ    (skip) (skip)                d2 被拒 -> recovered r2
+                                                        output = [d1, r2]
+                                                        accepted=1  rejected=2
+
+update_from_output(): num_computed_tokens = N + 4 - 2 = N + 2  <- "回滚"即此一行
+  slot N+2 / N+3 里仍是 d2 / d3 写下的 KV，不释放、不清零，只是"当作没算过"
+
+step t+1  num_new_tokens = 1 + 3，slot_mapping 从 N+2 开始
+  slot        N      N+1    N+2    N+3    N+4    N+5
+            +------+------+------+------+------+------+
+  input_ids | (s)  | (d1) |  r2  |  d1' |  d2' |  d3' | r2 与新 draft 覆盖脏槽位
+            +------+------+------+------+------+------+
+             已计算  已计算  <-- 本步 forward 重写这 4 个位置的 KV -->
+```
+
+两点从图上一眼可见：`s` 这个"上一步采出的 token"在 step t 才写 KV，所以每步的输入总是 `1 + K` 个而不是 `K` 个；被拒位置的 KV 没有任何清理动作，正确性完全靠 `num_computed_tokens` 这个游标——prefix cache 的 `cache_blocks()` 也以它为界只缓存已计算的完整块，脏槽位因此不会被别的请求命中。
+
 同一处还调用 `make_spec_decoding_stats()` 累积 `SpecDecodingStats`（`vllm/v1/spec_decode/metrics.py`）：`num_drafts`、`num_draft_tokens`、`num_accepted_tokens`、以及**按位置**的 `num_accepted_tokens_per_pos` / `num_draft_tokens_per_pos`。它随 `SchedulerStats` 回到前端，`SpecDecodingLogging.log()` 定期打印一行：
 
 ```text
@@ -468,7 +521,25 @@ if model_output is None:
     model_output = self.model_executor.sample_tokens(grammar_output)            # 掩码在采样前才送到 worker
 ```
 
-**bitmask 的生成与 forward 是重叠的**。这是 V1 把 `execute_model` 和 `sample_tokens` 拆成两个 RPC 的原因之一——掩码不需要在 forward 之前就绪，只需要在采样之前就绪。
+**bitmask 的生成与 forward 是重叠的**。这是 V1 把 `execute_model` 和 `sample_tokens` 拆成两个 RPC 的原因之一——掩码不需要在 forward 之前就绪，只需要在采样之前就绪。两条时间线并排看：
+
+```text
+时间 --------------------------------------------------------------->
+
+GPU worker  |<--- execute_model(): forward --->|      |<- sample_tokens() ->|
+            | ################################ | idle | mask ## Sampler ### |
+            ^                                  |      ^
+            | RPC 1 (non_block, 返回 future)   |      | RPC 2 (grammar_output)
+            |                                  |      |
+CPU 调度器  | get_grammar_bitmask():           |      |
+进程        | 逐请求 fill_bitmask              |      |
+            | ################   future.result() 等待 | 发 RPC 2 -> 等采样结果
+            |<-- 与 forward 重叠 -->|
+
+正常：填 bitmask 比 forward 短，被完全遮住，GPU 不多等
+异常：请求多 / K 大 / 每步只有几 ms 时，填 bitmask 比 forward 长
+      -> GPU 在 idle 段空转等 RPC 2，fill_bitmask_parallel_threshold 为此而设
+```
 
 ### 2. 后端抽象
 
@@ -505,6 +576,29 @@ class StructuredOutputGrammar(ABC):                 # 请求级，一个请求�
 1. **重排**。调度器给的 bitmask 行序是 `structured_output_request_ids` 的顺序，worker 的 logits 行序是 `input_batch.req_ids` 的顺序，而且投机解码下每个请求占 `1 + num_drafts` 行。函数先按 `input_batch.req_ids` 算出每个结构化请求的 logits 起始行（累加前面请求的 draft 数），再把 bitmask 搬到一张 `[logits.shape[0], 4008]` 的 pinned 张量里对应的行上，其余行全 `-1`；
 2. **打掩码**。`xgr.apply_token_bitmask_inplace(logits, bitmask, indices)`——一个 kernel，对 `indices` 指定的行把 bit 为 0 的 token 置 `-inf`。所有行都要打时 `indices=None`。
 
+重排这一步用一个三请求的 batch 画出来。A 不用结构化输出但带 1 个 draft，B 用 JSON 约束、没有 draft，C 用 JSON 约束、带 2 个 draft；调度器按 `structured_output_request_ids = [C, B]` 的顺序填，worker 的 logits 却按 `req_ids = [A, B, C]` 排：
+
+```text
+调度器侧 GrammarOutput.bitmask    worker 侧：按 logits 行重排后的 bitmask
+行序 = [C, B]                     行序 = req_ids = [A, B, C]
+每行 4008 x int32 = 16 KB         每请求占 1 + num_drafts 行
++-----+--------------+            +-----+--------------+--------------------+
+| row | 内容         |            | row | logits 行    | 掩码来源           |
++-----+--------------+            +-----+--------------+--------------------+
+|  0  | C: pos 0     |            |  0  | A: pos 0     | 全 -1（不约束）    |
+|  1  | C: pos 1     |            |  1  | A: bonus     | 全 -1              |
+|  2  | C: bonus     |            |  2  | B: pos 0     | <- 左表 row 3      |
+|  3  | B: pos 0     |            |  3  | C: pos 0     | <- 左表 row 0      |
++-----+--------------+            |  4  | C: pos 1     | <- 左表 row 1      |
+                                  |  5  | C: bonus     | <- 左表 row 2      |
+                                  +-----+--------------+--------------------+
+                                  indices = [2, 3, 4, 5]
+                                  apply_token_bitmask_inplace(logits, bitmask,
+                                                              indices)
+```
+
+右表的行号就是 `logits_indices` 的行号：C 的起始行 3 = A 的 2 行 + B 的 1 行，所以一个请求 draft 数的变化会挪动它后面所有结构化请求的掩码位置——这张 `[logits.shape[0], 4008]` 的 pinned 张量每步都要重新填。
+
 注意它作用在**进 Sampler 之前的原始 logits** 上。掩码是硬 `-inf`，放在温度、penalties 之前或之后对"哪些 token 可能被选中"没有影响，但会影响 logprobs：`raw_logprobs` 模式下返回的 logprobs 是打掩码之后、其他处理之前的分布。
 
 **回到我们的例子**：batch=64 全部开 JSON 约束、不开投机：每步 CPU 填 64 行、H2D 传 `64 × 16 KB = 1 MB`、GPU 一个掩码 kernel 扫 33 MB logits。三项都在百微秒量级。
@@ -516,6 +610,35 @@ class StructuredOutputGrammar(ABC):                 # 请求级，一个请求�
 **① draft 先过一遍 grammar。** `Scheduler.update_draft_token_ids()` 拿到 proposer 的 draft 后，对结构化请求调 `grammar.validate_tokens(spec_token_ids)`——**不推进 FSM**，只返回合法的最长前缀。不合法的尾部直接扔掉（同步路径）或补 `-1`（异步路径 `update_draft_token_ids_in_output()`，因为 `scheduled_spec_decode_tokens` 的长度已经定了）。这是为什么 `StructuredOutputGrammar` 需要 `validate_tokens()` 这个"只看不动"的方法。
 
 **② bitmask 每个位置一行。** 第 i 个 draft 位置的合法 token 集合取决于前 i-1 个 draft 都被接受时 FSM 的状态。`grammar_bitmask()` 的循环因此对每个请求：填第 0 行（当前状态）→ `accept_tokens([d₁])` 推进 → 填第 1 行 → `accept_tokens([d₂])` → … → 填 bonus 行 → **`rollback(state_advancements)` 全部回退**。遇到 `-1`（无效 draft）就停止推进、后续行不再约束。于是 FSM 每步被推进 K 次再回退 K 次——结构化输出的 CPU 成本随 K 线性增长，这也是并行填充路径要求 `max_num_spec_tokens == 0` 的原因（推进/回退是有状态的，不好切成独立任务）。
+
+用一个最小的例子把"FSM 状态 ↔ 掩码行"的对应画出来。grammar 是 `{"n": <整数>}`，请求已经输出了 `{"n":`，draft 是 `[4, 2, }]`（K=3）：
+
+```text
+FSM 状态 / 当前允许什么       grammar_bitmask() 动作     bitmask 行 (bit=1 允许)
+---------------------------  -------------------------  ------------------------
+S0  刚输出 {"n":              fill_bitmask(row 0) ---->  row 0: 数字类 token = 1
+    允许: 数字 token                                            其余 bit = 0
+ |  accept_tokens([4])  推进（假设 d1 会被接受）
+ v
+S1  已输出 {"n":4             fill_bitmask(row 1) ---->  row 1: 数字类 + "}" = 1
+    允许: 数字 / }
+ |  accept_tokens([2])
+ v
+S2  已输出 {"n":42            fill_bitmask(row 2) ---->  row 2: 数字类 + "}" = 1
+    允许: 数字 / }
+ |  accept_tokens([}])
+ v
+S3  已输出 {"n":42}  已终止   fill_bitmask(row 3) ---->  row 3: 只有 EOS = 1
+    允许: EOS                 （bonus 行）
+ |  rollback(3)  三步全部撤销
+ v
+S0  回到起点                  真正的推进在 update_from_output 里，
+                              按实际接受的 token 再 accept_tokens 一次
+
+若 d2 = -1（无效 draft）：走到 S1 就停，row 2 / row 3 填全 -1（不约束）
+```
+
+四行掩码分别对应四个不同的 FSM 状态，这就是"每个位置一行"的含义；而这一路推进全是**假设** draft 会被接受得出的，所以最后必须 `rollback` 回 S0，等 `RejectionSampler` 给出真正接受了几个，再由调度器推进一次。
 
 真正采样时，bonus 行走普通 `Sampler`、target 行走 `RejectionSampler`，两者的输入 logits 都已被各自的行掩码挖过，所以**被接受的 draft 与 recovered token 都一定合法**——`update_from_output()` 里的 `accept_tokens()` 若返回 False，源码直接记 error 并把请求置为 `FINISHED_ERROR`，因为这在设计上不应发生。
 

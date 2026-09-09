@@ -127,7 +127,7 @@ DeepSpeed 这一列后文不再展开：它的计时与监控概念与 Megatron 
 二、三层指标的采集      Megatron 的 Timers 与 training_log · torchtitan 的 MetricsProcessor 与结构化日志 · memory_stats · DCGM · TB/W&B 与 Prometheus 的分工 · 每 rank 可见性
 三、hang 排查           Flight Recorder：记什么 · 开关与默认值 · 从超时到 dump 的链路 · fr_trace 分析器 · 一次完整走查 · py-spy · TORCH_DISTRIBUTED_DEBUG · 常见成因
 四、性能回归的排查      step 时间慢慢变长的四个嫌疑 · profiler 时间线对比 · 少数 rank 上的 Nsight · 与七项拆解的衔接
-五、告警设计            page 与 record 的边界 · 规则表 · 抑制与合并
+五、告警设计            page 与 record 的边界 · 规则表 · 抑制与合并 · 任务状态与告警的对应
 六、运维流程            开训检查清单 · 值班手册 · 复盘模板
 七、成本视角            GPU 小时的换算 · 用它排优先级
 八、本文小结            要点 · 源码位置 · train-ledger 的 dash/ 与 runbook.md · Flight Recorder hang 演练
@@ -235,7 +235,35 @@ num_device_alloc / num_device_free     cudaMalloc / cudaFree 调用次数；稳�
 
 分工的原则：**凡是要按 rank 看、要告警的，进 Prometheus；凡是要与上一次实验对比曲线形状的，进 TensorBoard / W&B**。两边有重叠（loss、MFU 两边都要），重叠部分以 Prometheus 为告警源、TensorBoard 为分析源。不要用 TensorBoard 做告警（它没有查询语言，事件文件是追加的二进制），也不要用 Prometheus 存每 step 的 loss 曲线（它按时间抓取，会漏 step，且长期保留成本高）。
 
-训练进程向 Prometheus 暴露指标有两条路：进程内起一个 HTTP 端口（`prometheus_client` 的 `start_http_server`），千卡下就是一千个抓取目标，服务发现要能跟上 torchrun 重启后的端口变化；或者训练进程只写本地 JSONL（第 3 节的做法），节点上一个 sidecar 读文件并暴露——一个节点一个目标，重启不影响。第八章的 `dash/jsonl_exporter.py` 走第二条路。
+训练进程向 Prometheus 暴露指标有两条路：进程内起一个 HTTP 端口（`prometheus_client` 的 `start_http_server`），千卡下就是一千个抓取目标，服务发现要能跟上 torchrun 重启后的端口变化；或者训练进程只写本地 JSONL（第 3 节的做法），节点上一个 sidecar 读文件并暴露——一个节点一个目标，重启不影响。第八章的 `dash/jsonl_exporter.py` 走第二条路。把三层指标的采集点、落地位置与两种后端画在一起，能看清"谁在每个节点上跑、谁只有一份、谁绕过了训练进程"：
+
+```mermaid
+flowchart TB
+  subgraph node1["每个节点上（×128）"]
+    RK["rank 0..7 训练进程<br/>训练循环算任务层指标<br/>memory_stats 等进程层指标"]
+    JS["本地 JSONL<br/>signals/ · structured_logs/<br/>每 rank 一个文件，追加写"]
+    EXP["jsonl_exporter.py :9400（sidecar）<br/>tail 本节点 8 个文件<br/>gauge 带 rank 标签"]
+    DCGM["dcgm-exporter<br/>从驱动读 DCGM_FI_*（硬件层）<br/>不经过训练进程"]
+    RK -->|"每 step 追加一行"| JS --> EXP
+  end
+  MR["metrics rank（全任务一个）<br/>print_rank_last / _get_metrics_rank"]
+  TBW["TensorBoard / W&B<br/>按 step 的曲线：loss · grad norm · MFU<br/>算法与训练工程师看"]
+  PROM["Prometheus<br/>每 15–60 s 抓取；标签 job / rank / host / gpu<br/>一个节点一个抓取目标"]
+  AM["Alertmanager<br/>group_by job · inhibit_rules"]
+  PAGE["page → 值班的人"]
+  GF["Grafana 面板（dash/panels.md）"]
+  RK -.->|"loss 跨 DP 归约后<br/>仅一个 rank 写"| MR --> TBW
+  EXP -->|"抓取"| PROM
+  DCGM -->|"抓取"| PROM
+  PROM --> AM --> PAGE
+  PROM --> GF
+  classDef proc fill:#e3f2fd,stroke:#1e6bb8;
+  classDef store fill:#fff8e1,stroke:#c58a00;
+  classDef view fill:#e8f5e9,stroke:#2e7d32;
+  class RK,MR proc;
+  class JS,EXP,DCGM,PROM store;
+  class TBW,AM,PAGE,GF view;
+```
 
 ### 6. 每 rank 的可见性
 
@@ -338,6 +366,33 @@ TORCH_DISTRIBUTED_DEBUG                     OFF                          OFF / I
             ├─ DebugInfoWriter::getWriter(globalRank()).write(trace)   → <TORCH_FR_DUMP_TEMP_FILE><rank>
             └─ 日志："Flight Recorder trace successfully dumped." / "Finished flight recorder successfully. Output can be analyzed using the fr_trace script."
          第一次带栈 dump 若在 TORCH_NCCL_WAIT_TIMEOUT_DUMP_MILSEC 内没完成，再试一次不带栈
+```
+
+上面是单个 rank 内两条线程各自的调用树；跨 rank 看，dump 信号是怎样从发现超时的 rank k 传到其余 rank、以及为什么 watchdog 要在抛异常前多睡 60 秒，用时序图更清楚：
+
+```mermaid
+sequenceDiagram
+  participant WK as rank k Watchdog
+  participant MK as rank k Monitor (PG 0)
+  participant TS as TCPStore (rank 0)
+  participant MJ as 其余 rank 的 Monitor
+  participant FS as TORCH_FR_DUMP_TEMP_FILE
+  Note over WK,MJ: 集合通信 seq N 上 rank k 等了 timeout_ms（默认 10 min，torchtitan 100 s）
+  WK->>WK: 打印超时消息 + printTraceback()
+  WK->>TS: broadcastSignal(kStoreDumpKey, rank k)
+  WK->>MK: shouldDump_ = true
+  activate WK
+  Note over WK: sleep 4 × WAIT_TIMEOUT_DUMP_MILSEC = 60 s，给全体 rank 时间
+  MK->>FS: dumpDebuggingInfo() 写文件 prefix + k
+  loop 每 COORD_CHECK_MILSEC = 1 s
+    MJ->>TS: check(kStoreDumpKey)?
+  end
+  TS-->>MJ: 有，来自 rank k
+  MJ->>FS: dumpDebuggingInfo() 各写文件 prefix + j
+  Note over MK,FS: 带栈 dump 在 15 s 内未完成则重试一次不带栈
+  deactivate WK
+  WK->>WK: 按 ASYNC_ERROR_HANDLING=3 抛异常（不 abort communicator）
+  Note over WK,FS: 若为 1（TearDown）会先 abort，其余 rank 的 dump 来不及写完
 ```
 
 几个细节决定了实际能不能拿到文件。dump 是在 **monitor 线程**里做的，不是 watchdog 线程——因为 watchdog 可能正卡在 CUDA API 上；monitor 线程同时负责检查 watchdog 的心跳（`TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC`，默认 8 分钟），watchdog 卡死时它也会 dump 然后 `LOG(FATAL)` 终止进程。只有 **PG uid 0**（默认进程组）的 monitor 线程做 dump 与轮询 TCPStore，因为所有进程组共用同一个 FlightRecorder 单例，dump 一次就包含全部进程组的记录。信号通过 **TCPStore** 传播，所以 TCPStore（rendezvous 用的那个，rank 0 上）必须还活着；如果 rank 0 自己崩了，其他 rank 的 monitor 会打 "Failed to check the should dump flag on TCPStore" 然后放弃。
@@ -443,6 +498,17 @@ all_reduce(input_sizes=[[1]], state=scheduled)
 
 `-j` 模式按 rank 列出每条记录（`Op.__repr__` 的短格式：操作、输入尺寸、状态；`-v` 给出全部字段），`--print_stack_trace` 把去重后的栈按 `stack_id` 列在后面。rank 5 的第 2891 次集合通信是一个 1 元素的 `all_reduce`，来自 `train.py` 的 `_check_batch`——一段只在某个条件下执行的校验代码，在 rank 5 上被触发了（例如它那份数据里出现了一个坏样本，代码想 all-reduce 一个标志位），其他 rank 没有触发，直接进了下一层的 all-gather。两边都在等：rank 5 等别人参加它的 all_reduce，别人等 rank 5 参加 all-gather。这就是 FR 能给出的全部：**序号、操作、尺寸、状态、发起栈、缺席者**。剩下的（为什么 rank 5 走了那个分支）回到代码与第七篇的数据管线。
 
+把 8 个 rank 的环形缓冲按 `collective_seq_id` 对齐，分析器看到的就是下面这张表——"第一个不一致的列"就是答案，之后 rank 5 的每条记录都会与其他 rank 错开一格：
+
+```text
+seq    rank 0,1,2,3,4,6,7          rank 5                  匹配结果
+─────  ──────────────────────────  ──────────────────────  ───────────────────
+2889   _allgather_base  completed  _allgather_base compl.  FULLY_MATCHED
+2890   _reduce_scatter  completed  _reduce_scatter compl.  FULLY_MATCHED
+2891 ► _allgather_base  scheduled  all_reduce [1]  sched.  case 1: missing {5}
+2892   （未发起，阻塞在 2891）      （未发起，等 7 rank）     —
+```
+
 如果第二步的输出是 "Collective sequence number: 2891 has errors ... Culprit rank 5; Error type: SIZE_OR_SYNTAX_MISMATCH"，说明 rank 5 发了同类型但尺寸不同的张量——变长序列没有 pad 到一致、或某个 rank 的 micro-batch 数不同；如果是 "No errors found"，转第 5 节末尾的硬件路径。
 
 ### 7. py-spy 与 TORCH_DISTRIBUTED_DEBUG
@@ -478,7 +544,33 @@ GIL 死锁 / 日志锁                         FR 无异常；py-spy 多个线�
 watchdog 自己卡死                         "watchdog got stuck for 480 seconds"，monitor 线程 abort   通常是 CUDA API hang，按硬件路径处理
 ```
 
-前五条是**代码问题**，8 卡上开 `TORCH_DISTRIBUTED_DEBUG=DETAIL` 就能抓到；后四条是**环境问题**，只能靠 FR 排除掉代码问题后转向硬件层指标。
+前五条是**代码问题**，8 卡上开 `TORCH_DISTRIBUTED_DEBUG=DETAIL` 就能抓到；后四条是**环境问题**，只能靠 FR 排除掉代码问题后转向硬件层指标。把本章的工具按"先看什么、结果指向哪里"串起来，就是值班时从 step 停止到归因的决策树（第六章的 runbook 是它的命令版）：
+
+```mermaid
+flowchart TB
+  S["step 计数停止<br/>（TrainingStepStalled）"] --> Q1{"restarts 面板 +1 /<br/>torchrun 有 death signal？"}
+  Q1 -->|"是"| R["不是 hang，是重启中<br/>看第六篇的恢复链路"]
+  Q1 -->|"否"| Q2{"stderr 里有<br/>Watchdog caught timeout？"}
+  Q2 -->|"否（未到超时或<br/>卡在 NCCL 之外）"| PS["py-spy dump 全部 rank"]
+  PS --> Q3{"多数 rank 停在 wait，<br/>少数停在别处？"}
+  Q3 -->|"少数在 .item / print<br/>/ 锁 / DataLoader"| C1["代码或数据问题<br/>去掉同步点 · 换 handler · 第七篇"]
+  Q3 -->|"全部在 ncclCommInitRank"| C2["通信初始化卡住<br/>TCPStore · SOCKET_IFNAME · 网卡"]
+  Q2 -->|"是"| FR["等 dump（60–75 s）<br/>收集 comm_traces/ → torchfrtrace"]
+  FR --> Q4{"fr_trace 结论"}
+  Q4 -->|"missing ranks /<br/>TYPE_MISMATCH"| C3["rank 相关分支 · dataloader 耗尽<br/>· micro-batch 数不一致"]
+  Q4 -->|"Culprit rank<br/>SIZE_OR_SYNTAX"| C4["变长输入未 pad<br/>PP 收发配对错"]
+  Q4 -->|"No errors found"| HW{"dmesg XID / DCGM DBE /<br/>IB 计数器异常？"}
+  HW -->|"有"| C5["硬件：隔离节点<br/>从 checkpoint 重启"]
+  HW -->|"无"| C6["网络或未知：查 IB 连通性<br/>无结论则整体重启"]
+  classDef q fill:#fff8e1,stroke:#c58a00;
+  classDef code fill:#e3f2fd,stroke:#1e6bb8;
+  classDef env fill:#fdecea,stroke:#c62828;
+  class Q1,Q2,Q3,Q4,HW q;
+  class C1,C3,C4 code;
+  class C2,C5,C6 env;
+```
+
+蓝色是**代码问题**（8 卡复现即可修），红色是**环境问题**（处置是隔离与重启，白天再找根因）。
 
 
 ## 四、性能回归的排查
@@ -546,7 +638,29 @@ fi
 
 ### 4. 与七项拆解的衔接
 
-第四篇的七项是**空间分解**（一个 step 的时间去了哪里），本章的四个嫌疑是**时间分解**（哪一项随时间变了）。两者用同一份工具（`mfu_breakdown.py` 与 trace），区别只在于本章要两份 trace 做差。straggler 是两者的交点：第四篇说它在时间线上表现为"集合通信 kernel 时长远超字节数除以带宽"，本章补上它的**时间性**——一张卡的降频、一条链路的错误计数上涨，都是渐进的，在硬件层指标上比在 MFU 上更早可见。所以"step 时间从 12 秒变成 40 秒"这个核心问题里，先看的不是 profiler，而是：`topk(3, step_time_seconds)` 是不是集中在某几个 rank；那几个 rank 所在卡的 `DCGM_FI_DEV_SM_CLOCK` 与 `NVLINK_*_ERROR_COUNT` 有没有异常；`data_loading(%)` 有没有涨；`inactive_split_bytes` 有没有涨。四个查询，一分钟，四个嫌疑各排除或坐实一个。
+第四篇的七项是**空间分解**（一个 step 的时间去了哪里），本章的四个嫌疑是**时间分解**（哪一项随时间变了）。两者用同一份工具（`mfu_breakdown.py` 与 trace），区别只在于本章要两份 trace 做差。straggler 是两者的交点：第四篇说它在时间线上表现为"集合通信 kernel 时长远超字节数除以带宽"，本章补上它的**时间性**——一张卡的降频、一条链路的错误计数上涨，都是渐进的，在硬件层指标上比在 MFU 上更早可见。所以"step 时间从 12 秒变成 40 秒"这个核心问题里，先看的不是 profiler，而是：`topk(3, step_time_seconds)` 是不是集中在某几个 rank；那几个 rank 所在卡的 `DCGM_FI_DEV_SM_CLOCK` 与 `NVLINK_*_ERROR_COUNT` 有没有异常；`data_loading(%)` 有没有涨；`inactive_split_bytes` 有没有涨。四个查询，一分钟，四个嫌疑各排除或坐实一个。查询有先后：第一刀先切"少数 rank 还是全体"，因为它把硬件嫌疑与其余三个分开，后面的每一步都只在自己那一侧查：
+
+```mermaid
+flowchart TB
+  S["step 时间变长 / MFU 下滑<br/>（无报错）"] --> Q1{"topk(3, step_time) by rank<br/>集中在少数 rank？"}
+  Q1 -->|"是：少数 rank 拖全体"| Q2{"那几张卡的 DCGM<br/>SM_CLOCK 掉 / TEMP 高 /<br/>NVLINK_ERROR 增长？"}
+  Q2 -->|"时钟 / 温度"| A1["降频 straggler<br/>隔离节点 · 报机房"]
+  Q2 -->|"链路错误"| A2["链路 straggler<br/>换端口 / 线缆 · 隔离"]
+  Q2 -->|"都正常"| A3["软件侧 straggler<br/>该 rank 的 py-spy / Nsight<br/>（日志、GC、锁）"]
+  Q1 -->|"否：全体一致变慢"| Q3{"data_loading(%) 涨？"}
+  Q3 -->|"是"| A4["数据源变慢<br/>预取 · worker · 离线 tokenize"]
+  Q3 -->|"否"| Q4{"inactive_split_bytes 涨<br/>且 num_alloc_retries 非 0？"}
+  Q4 -->|"是"| A5["显存碎片<br/>expandable_segments · 固定形状"]
+  Q4 -->|"否"| Q5{"stdout 字节 / step 涨<br/>或 checkpoint 时长涨？"}
+  Q5 -->|"是"| A6["日志过多 / 存储变慢<br/>限流 warning · 查存储"]
+  Q5 -->|"否"| A7["两份 trace 用 mfu_breakdown 做差<br/>comm_exposed 涨 = 网络"]
+  classDef q fill:#fff8e1,stroke:#c58a00;
+  classDef hw fill:#fdecea,stroke:#c62828;
+  classDef sw fill:#e3f2fd,stroke:#1e6bb8;
+  class Q1,Q2,Q3,Q4,Q5 q;
+  class A1,A2 hw;
+  class A3,A4,A5,A6,A7 sw;
+```
 
 
 ## 五、告警设计
@@ -606,6 +720,47 @@ Prometheus 规则的形式（完整文件见第八章的 `dash/alerts.yml`）：
 ### 3. 抑制与合并
 
 千卡任务的告警会**成串**来：一张卡 XID → 该 rank 崩溃 → 其他 1023 个 rank 超时 → 1023 条 "step stalled"（如果按 rank 告警）→ torchrun 重启 → 1024 条 "process restarted"。三条纪律：任务级指标（step 计数、loss）**按 job 聚合后告警**，不按 rank；硬件级告警按卡，但用 Alertmanager 的 `group_by: [job]` 把同一任务 5 分钟内的告警合成一条通知；设 `inhibit_rules`——`TrainingRestarting` 活跃时抑制同一 job 的 `TrainingStepStalled`，`GpuXidError` 活跃时抑制同一节点的 `GpuClockLow`。目标是值班的人在凌晨三点收到**一条**消息："run42 的 step 停在 51,300，node037 gpu 5 在 02:58 报 XID 79，自动重启进行中（第 1 次）"——而不是一千条。
+
+### 4. 任务状态与告警的对应
+
+抑制规则和值班手册里的升级条件，背后是同一个东西：从运维视角看，一个运行中的任务只有几个状态，每条告警只在特定状态下有意义，每个状态迁移要么是自动的（torchrun / ft_launcher 触发）、要么要人来决定。把它画出来，抑制规则就不是零散的经验，而是"同一状态下不重复报"这一条原则的展开：
+
+```mermaid
+flowchart TB
+    RUN["正常训练<br/>step 前进，restarts 计数不变"]
+    STALL["停滞<br/>TrainingStepStalled 触发（page）<br/>等 Watchdog 超时 → FR dump"]
+    NAN["数值异常<br/>TrainingLossNotFinite（page）<br/>框架内建停止或人工停"]
+    XID["单卡硬件异常<br/>GpuXidError（page）<br/>任务可能仍在跑"]
+    RESTART["自动重启中<br/>TrainingRestarting 活跃<br/>抑制同 job 的 StepStalled"]
+    RESUME["从 checkpoint 恢复<br/>加载 + 回退重算<br/>数据位置校验"]
+    ESC["升级到二线<br/>人工介入：排除节点 / 修代码 / 回退数据"]
+    STOP["停任务<br/>连续 K 次重启失败（page）<br/>或 checkpoint 无法保存"]
+
+    RUN -->|"step N 分钟未前进"| STALL
+    RUN -->|"loss NaN / Inf"| NAN
+    RUN -->|"XID / DBE"| XID
+    STALL -->|"rank 崩溃或超时<br/>launcher 自动拉起"| RESTART
+    NAN -->|"人工选 NaN 前 ≥100 步的 checkpoint<br/>跳过数据区间"| RESTART
+    XID -->|"任务未受影响：<br/>下一 checkpoint 后主动排除节点"| RESTART
+    XID -->|"已拖成 hang"| STALL
+    RESTART --> RESUME
+    RESUME -->|"loss 衔接、数据顺序一致<br/>restarts +1"| RUN
+    RESUME -->|"30 min 内再次停滞"| ESC
+    RESUME -->|"连续 K = 2–3 次失败"| STOP
+    ESC -->|"处置后重启"| RESTART
+    ESC -->|"无法归因"| STOP
+
+    classDef ok fill:#dcfce7,stroke:#15803d;
+    classDef page fill:#fee2e2,stroke:#b91c1c;
+    classDef auto fill:#dbeafe,stroke:#1d4ed8;
+    classDef human fill:#fef3c7,stroke:#b45309;
+    class RUN ok;
+    class STALL,NAN,XID,STOP page;
+    class RESTART,RESUME auto;
+    class ESC human;
+```
+
+红色是会 page 的状态，蓝色是自动迁移（不需要人），黄色是必须有人决定的。从图上能直接读出三件事。第一，**为什么 `TrainingRestarting` 要抑制 `StepStalled`**：停滞是重启的前一个状态，重启期间 step 当然不前进，再报一次是重复。第二，**XID 有两条出边**：任务还在跑时主动排除节点走蓝色的自动路径，等它拖成 hang 再处理就多付一次 dump 与 Watchdog 超时——这就是第 1 节把 XID 归为 page 的原因。第三，**从"恢复"出去的三条边就是升级条件**：回到正常是默认；30 分钟内再停滞说明根因没除，进黄色人工状态；连续 K 次失败说明自动恢复已经不工作，直接停——继续让 launcher 拉起只会反复消耗回退重算的时间。值班手册（第六章第 2 节）里每个症状的"升级"一行，就是这张图上对应节点的出边。
 
 
 ## 六、运维流程
@@ -714,7 +869,23 @@ $$
 
 **一个 MFU 百分点**：设计目标 42%，一个点是吞吐的 $$1/42 \approx 2.4\%$$。一个跑 30 天的任务，1 个 MFU 点等于 0.71 天，约 44,000 美元；第四篇那 10 个点就是 44 万美元，或者一周的训练时间。这解释了为什么第四篇说"MFU 从 32% 到 42% 不是锦上添花"。
 
-**一次 hang**：从停止到 step 时间恢复基准，第六章复盘那个例子是 67 分钟（含回退重算），约 1,143 GPU 小时、2,860 美元。其中 43 分钟的停机可以拆成：检测 100 秒（有告警）或 10 分钟（只靠 NCCL 默认超时）、dump 与等待 1–2 分钟、人工决策 9 分钟（有 runbook）或 30 分钟以上（没有）、重启与 rendezvous 8 分钟、加载 7 分钟、回退重算 24 分钟。**告警与 runbook 两项合起来省下的时间（约 30 分钟 = 512 GPU 小时 = 1,280 美元）每次事故都在发生**——以每三小时一次的频率，一天 8 次，一个月就是 30 万美元。这就是本篇讨论的东西的价格。
+**一次 hang**：从停止到 step 时间恢复基准，第六章复盘那个例子是 67 分钟（含回退重算），约 1,143 GPU 小时、2,860 美元。其中 43 分钟的停机可以拆成：检测 100 秒（有告警）或 10 分钟（只靠 NCCL 默认超时）、dump 与等待 1–2 分钟、人工决策 9 分钟（有 runbook）或 30 分钟以上（没有）、重启与 rendezvous 8 分钟、加载 7 分钟、回退重算 24 分钟。**告警与 runbook 两项合起来省下的时间（约 30 分钟 = 512 GPU 小时 = 1,280 美元）每次事故都在发生**——以每三小时一次的频率，一天 8 次，一个月就是 30 万美元。这就是本篇讨论的东西的价格。把两种情形的时间线并排（每格约 2 分钟），省下的正是最前面和中间那两段——检测靠告警、决策靠 runbook，其余四段（dump、重启、加载、回退重算）与监控无关：
+
+```text
+每格 ≈ 2 分钟    D 检测    F dump 等待    H 人工决策
+                 R 重启与 rendezvous    L 加载    C 回退重算
+
+无告警、无 runbook（靠 NCCL 10 min 超时发现；从原则推导命令）
+  DDDDD F HHHHHHHHHHHHHHH RRRR LLLL CCCCCCCCCCCC
+  10    2  30+             8    7    24                          （分钟）
+
+有告警、有 runbook（step 停 100 s 即 page；照手册执行）
+  D F HHHHH RRRR LLLL CCCCCCCCCCCC
+  2 2 9     8    7    24                                         （分钟）
+
+差 ≈ 13 格 ≈ 30 min × 1024 卡 ≈ 512 GPU 小时 ≈ 1,280 美元/次
+每 3 h 一次 → 一天 8 次 → ≈ 30 万美元/月
+```
 
 **checkpoint 间隔**：第五篇的 Young 公式给出 $$\tau_{opt} \approx \sqrt{2\delta M}$$。$$\delta = 45$$ 秒（异步保存对 step 的实际干扰）、$$M = 3$$ 小时时 $$\tau_{opt} \approx 16$$ 分钟；间隔从 24 分钟缩到 16 分钟，平均回退重算从 12 分钟降到 8 分钟，每次故障省 4 分钟 × 1024 卡 = 68 GPU 小时，一天 8 次就是 550 GPU 小时，约 1,400 美元/天——而代价是每天多存 30 次 checkpoint 的存储与 I/O。
 

@@ -171,12 +171,53 @@ logit 增长      max attention logit 单调升，越过 ~100        grad norm �
 优化器状态      grad norm 有一段低平台                        正常量级梯度被放大                          换数据顺序后消失
 ```
 
+表是"指纹 → 成因"的对照，真正值班时是按信号一层层排除的。把上表压成一棵决策树，问题的顺序是"哪种成因的信号最独特、最早能看到"：
+
+```mermaid
+flowchart TB
+    S["loss 单步跳升<br/>grad norm 同步跳 > 3×"] --> Q0{"loss 已 NaN<br/>或持续上升不回头?"}
+    Q0 -->|是| DIV["发散：先回退，再归因"]
+    Q0 -->|否| Q1{"spike 前 max attention logit<br/>单调上升、越过 ~100?"}
+    DIV --> Q1
+    Q1 -->|是| C3["成因三：logit 增长"]
+    C3 --> A3["开 QK-LayerNorm / qk_clip<br/>回退到上升开始之前"]
+    Q1 -->|否| Q2{"param norm 增速变快<br/>且 grad norm 缓升?"}
+    Q2 -->|是| C1["成因一：学习率"]
+    C1 --> A1["降 LR / 加长 warmup / 查调度拐点<br/>回退到异常开始之前重训"]
+    Q2 -->|否| Q3{"global_max_loss 某个 rank<br/>远高于 avg?"}
+    Q3 -->|是| C4["成因四：坏数据"]
+    C4 --> A4["反查该 rank 那一步的样本<br/>回退 + 跳过；特征加进过滤规则"]
+    Q3 -->|否| Q4{"spike 前 grad norm<br/>有一段低于正常的平台?"}
+    Q4 -->|是| C5["成因五：优化器状态"]
+    C5 --> A5["回退 ~100 步 + 跳过 200–500 batch<br/>让状态与数据错相"]
+    Q4 -->|否| Q5{"单步跳、立刻回落<br/>num_zeros_in_grad 异常?"}
+    Q5 -->|是| C2["成因二：bf16 精度"]
+    C2 --> A2["通常不处理<br/>核对第三章的精度纪律检查表"]
+    Q5 -->|否| W["瞬时 spike：观察窗内等待<br/>多数 50–100 步内自行回落"]
+    classDef cause fill:#fde9d9,stroke:#c0504d;
+    classDef action fill:#e2efda,stroke:#548235;
+    classDef ask fill:#fff2cc,stroke:#bf9000;
+    class C1,C2,C3,C4,C5,DIV cause;
+    class A1,A2,A3,A4,A5,W action;
+    class Q0,Q1,Q2,Q3,Q4,Q5 ask;
+```
+
 归因不是为了写报告，而是决定下一步：LR 与 logit 成因要改配置（并可能回退到更早的 checkpoint 重训一段）；坏数据与优化器状态成因用回退 + 跳过；bf16 成因通常不处理，但要检查精度链有没有被误配。
 
 
 ## 三、预防
 
-预防的目标是把每一步更新的方差压在一个阈值之下，让上面五种成因中的任何一种都不足以把参数推出稳定区。六种手段按"必开"到"按需"排列。
+预防的目标是把每一步更新的方差压在一个阈值之下，让上面五种成因中的任何一种都不足以把参数推出稳定区。六种手段按"必开"到"按需"排列。先用一张表把"每种手段对准第二章的哪个成因、付什么代价、三框架里的开关在哪"对齐，各节再展开实现细节：
+
+| 手段 | 对准的成因 | 代价 | Megatron Core 0.18.0 | torchtitan v0.3.0 |
+|---|---|---|---|---|
+| 全局梯度范数裁剪 | 五种成因的最后一道闸：把单步更新的量级压在阈值下 | 一次全局 all-reduce + 一次 multi-tensor scale；归约组算错会**安静地**过度裁剪 | `--clip-grad`（默认 1.0） | `TrainingConfig.max_norm`（默认 1.0） |
+| warmup | 成因一（$$\hat v$$ 未建立时步长偏大） | 前几百步 LR 偏低；scheduler 状态必须进 checkpoint | `OptimizerParamScheduler(lr_warmup_steps)` | `LRSchedulersContainer(warmup_steps=200)` |
+| QK-LayerNorm / qk_clip | 成因三（注意力 logit 增长） | 每层两个小 norm kernel，MFU 几乎不变 | `qk_layernorm` / `qk_l2_norm`；`qk_clip_threshold` 兜底 | 无开关，在模型定义里加 |
+| z-loss | 输出 logit 整体漂移（发散前兆） | 多一项 $$10^{-4}\log^2 Z$$，可忽略 | 仅 MoE 路由 `moe_z_loss_coeff`；输出层要自加 | 无，要自加 |
+| weight decay 例外 | norm gain / bias / embedding 范数被压小后放大相对更新 | 无算力代价，需要参数分组 | 1-D 与 `.bias` 默认 `wd_mult=0`；embedding 需 override | 所有参数同一 `weight_decay` |
+| 精度纪律 | 成因二（bf16 舍入吞掉更新 / 累积 / softmax / logits） | 每参数多 2–12 字节显存与 reduce 带宽 | `--accumulate-allreduce-grads-in-fp32`、`attention_softmax_in_fp32` | FSDP2 `reduce_dtype=fp32`，分片参数本体 fp32 |
+| fp16 loss scale | fp16 梯度下溢（bf16 不需要） | 溢出步整步跳过；scale 本身要进 checkpoint | `DynamicGradScaler` | 无 fp16 路径 |
 
 ### 1. 全局梯度范数裁剪
 
@@ -332,6 +373,44 @@ step time / data_loading(%)        第四篇的 MFU 账                         
 
 数据管线的目标有三条：喂得快（不成为 MFU 账上的一项）、可控（混合比例、shuffle、打包都按配方精确执行）、可回放（第七章）。本章讲前两条在 Megatron 里的实现——它是三个框架中最完整的一套——并对照 DeepSpeed 与 torchtitan。
 
+先看 Megatron 整条管线的各个环节**分别在哪里跑**——离线一次、启动时只有 rank 0、每个 rank、DataLoader worker 进程、还是训练进程——以及第七章要用的那个整数 `consumed_train_samples` 插在哪一环：
+
+```mermaid
+flowchart TB
+    subgraph OFF["离线，一次性（CPU 集群）"]
+        J["JSONL 文本"]
+        P["tools/preprocess_data.py<br/>tokenize + append EOD"]
+        BIN[".bin：token id 裸字节<br/>.idx：长度 / 偏移 / 文档边界"]
+    end
+    subgraph R0["启动时，仅 rank 0（helpers.cpp），其余 rank 等待"]
+        IDX["GPTDataset 三索引<br/>document / sample / shuffle"]
+        BL["BlendedDataset 两索引<br/>dataset_index / dataset_sample_index"]
+        CACHE["path_to_cache/*.npy<br/>文件名含全部配置的哈希"]
+    end
+    subgraph ALL["每个 rank，启动时"]
+        MM["numpy.load(mmap_mode=r) 索引<br/>+ memmap .bin，只读访问到的页"]
+        SMP["MegatronPretrainingSampler<br/>从 consumed_train_samples 起数<br/>切 #91;dp_rank×mbs, (dp_rank+1)×mbs) 给本 rank"]
+    end
+    subgraph WK["DataLoader worker（每 rank 2–8 个进程）"]
+        GI["GPTDataset.__getitem__<br/>三索引查表 → .bin O(1) 读 → mask / position_ids"]
+        Q["pin_memory 输出队列<br/>prefetch_factor × num_workers 个 batch 在飞"]
+    end
+    subgraph TR["训练进程（PP 首尾 stage 读，TP 组内 broadcast）"]
+        GB["get_batch() → H2D → train_step"]
+        CNT["步末 consumed_train_samples += B<br/>随 args 进 checkpoint"]
+    end
+    J --> P --> BIN --> IDX --> BL --> CACHE --> MM --> SMP --> GI --> Q --> GB --> CNT
+    CNT -. 恢复或跳过时只改这个整数 .-> SMP
+    classDef once fill:#e7e6e6,stroke:#7f7f7f;
+    classDef every fill:#deebf7,stroke:#2e75b6;
+    classDef hot fill:#fff2cc,stroke:#bf9000;
+    class J,P,BIN,IDX,BL,CACHE once;
+    class MM,GI,Q,GB every;
+    class SMP,CNT hot;
+```
+
+灰色环节在训练开始前或启动时只做一次，其产物（`.bin/.idx`、索引缓存）是所有 rank 共享的只读文件；蓝色环节每步都在跑；黄色的两处是同一个整数的生产者与消费者——数据位置进 checkpoint、恢复、跳过 batch，改的都只是它。
+
 ### 1. 离线 tokenize 还是在线
 
 ```text
@@ -381,6 +460,33 @@ shuffle_index    1-D         [0..num_samples) 的随机排列（_build_shuffle_i
 
 `__getitem__(idx)` → `_query_document_sample_shuffle_indices(idx)`：`idx = shuffle_index[idx]`，查 `sample_index[idx]` 与 `sample_index[idx+1]` 得到起止文档与偏移，对跨越的每个文档调 `dataset.get(document_index[i], offset, length)`，拼接，不足则 pad。然后 `_get_ltor_masks_and_position_ids()` 造 loss mask、position ids 与（可选的）attention mask。
 
+三次查表把一个样本号一路映射到 `.bin` 里的字节区间，中间不复制任何 token（下图取 $$s = 8$$，一个样本是 9 个 token，跨了两个文档）：
+
+```text
+GPTDataset.__getitem__(idx)：三次查表，零拷贝
+
+ idx = 5
+   │  shuffle_index（seed 决定的随机排列）
+   ▼
+ shuffle_index[5] = 2                       ← 文档流上的第 2 个样本
+   │  sample_index（(num_samples+1) × 2，helpers.cpp build_sample_idx）
+   ▼
+ sample_index[2] = (doc_pos 1, offset 2)    ← 起点
+ sample_index[3] = (doc_pos 2, offset 3)    ← 终点（含）
+   │  document_index（每个 epoch 一份文档 id 的随机排列）
+   ▼
+ doc_pos:          0      1      2      3
+ document_index: [  7  |  12  |  3   |  9  | ... ]
+                          │      │
+   │  IndexedDataset.get(doc, offset, length)：sequence_pointers[doc] 定位
+   ▼
+ .bin  ┆ doc 12: t0 t1 [t2 t3 t4 t5 EOD] ┆ doc 3: [u0 u1 u2 u3] EOD ┆ doc 9 ...
+                       └──── 5 个 ────┘         └── 4 个 ──┘
+ 样本 2 = t2 t3 t4 t5 EOD u0 u1 u2 u3      （跨文档；EOD 是唯一的边界标记）
+```
+
+第四章的"反查坏 batch"就是把这条链倒着走：`consumed_train_samples` 加 rank 的切片位置给出 `idx`，三次查表后拿到文档 id，去 `.bin` 里看那几个文档是什么。
+
 三个要点：
 
 - **确定性。** 三个索引全部由 `numpy.random.RandomState(config.random_seed)` 生成（`--seed`），给定 seed、数据集、`sequence_length`、`num_samples`，索引是确定的。这是"数据顺序可回放"的第一层保证。
@@ -400,6 +506,34 @@ torchtitan 的对应物是 `torchtitan/hf_datasets/interleaved.py` 的 `Interlea
 ### 5. 打包与 cu_seqlens
 
 预训练的"打包"在 Megatron 里是隐式的：`GPTDataset` 的样本是文档流上连续的 $$s+1$$ 个 token，天然跨文档，EOD token 是边界。要不要让注意力跨文档，由两个开关决定：`--reset-attention-mask` 让 `_get_ltor_masks_and_position_ids()` 把 EOD 之后的 token 对 EOD 之前的 token 的注意力置零（块对角 mask），`--reset-position-ids` 让每个文档的 position 从 0 重新数。默认两者都关（跨文档注意力，Llama 2 之前的常规做法）；Llama 3 论文说明他们在预训练中使用了文档内注意力，长上下文阶段尤其重要。
+
+用上一节那个跨文档的样本（取其前 $$s = 8$$ 个 token 作输入）画出两种设置下的 attention mask 与 position ids，以及同一布局在显式打包与 torchtitan 里的编码：
+
+```text
+行 = query，列 = key；x 可见，. 屏蔽
+
+           默认：跨文档因果                    --reset-attention-mask
+   key   t2 t3 t4 t5 EOD u0 u1 u2           t2 t3 t4 t5 EOD u0 u1 u2
+   t2     x  .  .  .  .   .  .  .            x  .  .  .  .   .  .  .
+   t3     x  x  .  .  .   .  .  .            x  x  .  .  .   .  .  .
+   t4     x  x  x  .  .   .  .  .            x  x  x  .  .   .  .  .
+   t5     x  x  x  x  .   .  .  .            x  x  x  x  .   .  .  .
+   EOD    x  x  x  x  x   .  .  .            x  x  x  x  x   .  .  .
+   u0     x  x  x  x  x   x  .  .            .  .  .  .  .   x  .  .
+   u1     x  x  x  x  x   x  x  .            .  .  .  .  .   x  x  .
+   u2     x  x  x  x  x   x  x  x            .  .  .  .  .   x  x  x
+   pos    0  1  2  3  4   5  6  7            0  1  2  3  4   0  1  2
+          （position_ids 连续）            （--reset-position-ids 每文档归零）
+
+ 同一布局的显式打包（thd，micro_batch_size = 1）：
+   cu_seqlens = [0, 5, 8]
+   段 0 = 位置 [0,5)，doc 12 的尾；段 1 = 位置 [5,8)，doc 3 的头
+ torchtitan 的编码：
+   positions = [0,1,2,3,4,0,1,2]
+   positions == 0 处即段起点，cumsum 得文档 id → FlexAttention 块对角 mask
+```
+
+右侧的块对角 mask 就是 `reset_attention_mask` 的效果：`u0` 之后的 token 看不到 EOD 及其之前的任何 token；左侧默认设置下 `u0` 能看到整段 doc 12，模型要自己学会"EOD 之前的内容与我无关"。
 
 显式的打包——变长序列拼成一条、注意力 kernel 按 `cu_seqlens` 分段——走 `megatron/core/packed_seq_params.py` 的 `PackedSeqParams(qkv_format="thd", cu_seqlens_q, cu_seqlens_kv, cu_seqlens_q_padded, cu_seqlens_kv_padded, max_seqlen_q, max_seqlen_kv, ...)`，传给 TE 的 fused attention 与 RoPE kernel；`thd` 格式（token-major，没有 batch 维）让一个 micro-batch 就是一条打包序列，这就是第四篇说"sequence packing 要求 `micro_batch_size = 1`"的原因。0.18.0 里造 `cu_seqlens` 的是 SFT 路径：`megatron/training/datasets/sft_dataset.py` 的 `SFTDataset.__getitem__()` 贪心地把对话塞进 `pack_length`，记录每条的累计长度到 `cu_seqlens`，CP 开启时把每条 pad 到 `2 × cp_size` 的倍数（CP 的负载均衡切分要求）；`pretrain_gpt.py` 的 `get_batch()` 拿到 `cu_seqlens` 与 `cu_seqlens_padded` 后构造 `PackedSeqParams`，并调 `update_seqlen_stats_from_cu_seqlens()` 让 FLOPs 计算按真实长度而不是 pad 后长度算——打包后 MFU 的分子要用真实 token 数。
 
@@ -442,7 +576,22 @@ torchtitan 用另一种编码：`HuggingFaceTextDataset` 输出 `positions`，�
 
 ### 3. Megatron：位置是一个整数
 
-Megatron 的方案是最简单也最健壮的：**数据位置 = 训练已消费的样本数**，一个整数。
+Megatron 的方案是最简单也最健壮的：**数据位置 = 训练已消费的样本数**，一个整数。把它画在样本号的数轴上，三条要求、跳过、换 DP 都是对这一个数的操作：
+
+```text
+样本号全序（shuffle 后固定；d = 4 个 DP rank，mbs = 2，B = d × mbs = 8）
+
+          ...已消费 T 步...│←─── step T+1 的 global batch ────→│←─ T+2 ─...
+ 样本号                T·B │ +0  +1 │ +2  +3 │ +4  +5 │ +6  +7 │ +8  +9 ...
+ DP 切片                   │ rank 0 │ rank 1 │ rank 2 │ rank 3 │ rank 0 ...
+                             ▲                                   ▲
+       checkpoint@T 只记一个整数：                        worker 已预取到这里
+       consumed_train_samples = T·B                       （kill 时随进程消失）
+
+ 恢复    sampler = range(T·B, total) 重新数 → 第一个 batch 仍是 +0..+7  → ① ②
+ 跳过 n  consumed_train_samples += n·B（dummy_train_step 逐个消费）→ (T+n)·B
+ 换 DP   d = 8、mbs = 1 时切法变成 8 片各 1 个，样本全序不变 → 仍从 T·B 续
+```
 
 - **保存**：`args.consumed_train_samples`（以及 `skipped_train_samples`、`consumed_valid_samples`）是 `args` 的字段，`checkpointing.py` 的 `generate_state_dict()` 把整个 `args` 存进 `state_dict['args']`；`iteration` 单独存 `state_dict['iteration']`。**不保存 DataLoader 或 sampler 的任何对象状态**（`maybe_save_dataloader_state()` 只对 Megatron Energon 多模态加载器生效，源码注释明确说内建的文本加载器"creates index files upfront"，不需要保存）。
 - **恢复**：`load_checkpoint()` 从 `checkpoint_args` 读回 `consumed_train_samples`、`skipped_train_samples`、`consumed_valid_samples`，`update_num_microbatches(consumed_samples=...)` 让 batch 渐增的状态也对齐。`build_train_valid_test_data_loaders()` → `build_pretraining_data_loader(dataset, consumed_samples)`（`megatron/training/datasets/data_samplers.py`）→ `MegatronPretrainingSampler(total_samples, consumed_samples, micro_batch_size, data_parallel_rank, data_parallel_size)`。它的 `__iter__()` 就是 `for idx in range(self.consumed_samples, self.total_samples)`：每凑满 `micro_batch_size × data_parallel_size` 个连续的样本号，切出 `[dp_rank × mbs, (dp_rank + 1) × mbs)` 那一片给本 rank。位置、切分、顺序全部由这个整数与 DP 配置决定；`GPTDataset.__getitem__` 对同一个样本号在任何 rank、任何时刻返回同一批 token（第六章第 3 节的确定性索引）。

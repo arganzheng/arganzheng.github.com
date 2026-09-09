@@ -198,7 +198,27 @@ $$B_r$$ 由 shared memory 大小 $$M$$ 决定：一个 tile 要同时放下 $$Q_
 
 算一下算术强度确认：以 66 MiB 计，$$I = 8.6\ \text{G} / 69\ \text{MB} \approx 125$$；以实际 HBM 流量 4 MiB 计，$$I \approx 2000$$。无论哪种口径都在 156 附近或远高于它。
 
-顺便说明一下循环顺序对这笔账的影响。上面按 "外层遍历 $$Q$$ 块、内层遍历 $$K, V$$ 块" 来数，这是 FlashAttention-2 的顺序；FlashAttention-1 论文里是反过来的——外层遍历 $$K_j, V_j$$（每块只从 HBM 载入一次），内层遍历 $$Q_i$$，于是 $$Q$$ 以及运行量 $$O_i, m_i, l_i$$ 要被反复从 HBM 读进来、更新、写回去，共 $$N / B_c$$ 遍。两种顺序的渐近流量都是 $$\Theta(N^2 d^2 / M)$$，但 v2 的顺序让 $$O_i$$ 全程留在寄存器，少了一份 $$N / B_c$$ 倍的 $$O$$ 读写，也少了它带来的同步——这是下一节 FA2 第一项改动的动机。
+顺便说明一下循环顺序对这笔账的影响。上面按 "外层遍历 $$Q$$ 块、内层遍历 $$K, V$$ 块" 来数，这是 FlashAttention-2 的顺序；FlashAttention-1 论文里是反过来的——外层遍历 $$K_j, V_j$$（每块只从 HBM 载入一次），内层遍历 $$Q_i$$，于是 $$Q$$ 以及运行量 $$O_i, m_i, l_i$$ 要被反复从 HBM 读进来、更新、写回去，共 $$N / B_c$$ 遍。两种顺序的渐近流量都是 $$\Theta(N^2 d^2 / M)$$，但 v2 的顺序让 $$O_i$$ 全程留在寄存器，少了一份 $$N / B_c$$ 倍的 $$O$$ 读写，也少了它带来的同步——这是下一节 FA2 第一项改动的动机。两种循环顺序下，哪些量常驻片上、哪些量在 HBM 上往返，对照如下：
+
+```text
+  FA1：外层 K/V 块、内层 Q 块              每个 (batch, head) 一个 thread block
+    for j in K/V 块:
+      load K_j, V_j → smem                 HBM 读 1 次
+      for i in Q 块:
+        load Q_i, O_i, m_i, l_i ← HBM      每个 (i, j) 都读：共 N/B_c 遍
+        S_ij → P_ij → rescale → O_i +=     寄存器
+        store O_i, m_i, l_i → HBM          每个 (i, j) 都写：共 N/B_c 遍
+    往返 HBM 的是 O（N×d）；并行度 = batch × heads，block 内串行扫 j
+
+  FA2：外层 Q 块、内层 K/V 块            每个 (batch, head, i) 一个 thread block
+    load Q_i → 寄存器                      HBM 读 1 次
+    O_i, m_i, l_i = 0                      寄存器常驻
+    for j in K/V 块:
+      load K_j, V_j → smem                 HBM/L2 读，共 N/B_r 遍（多命中 L2）
+      S_ij → P_ij → rescale → O_i +=       寄存器
+    store O_i / l_i → HBM                  写 1 次
+    往返 HBM 的只剩 K/V；并行度 = batch × heads × N/B_r
+```
 
 ### 4. 一个重要修正：FA 不省 FLOPs，甚至略多
 
@@ -296,6 +316,22 @@ FlashAttention-2 的 CUDA 源码大致位于仓库的 `csrc/flash_attn/src/` 目
 prefill 处理 prompt 的全部 token，$$Q$$ 有 $$N_q$$ 行、$$K, V$$ 有 $$N_k = N_q$$ 行（或加上已缓存的前缀）。这就是训练前向的形状，$$4N_q N_k d$$ 的 FLOPs 配 $$O(N d)$$ 级的 HBM 流量，compute-bound。FlashAttention-2/3 是为这个场景设计的，效率与 GEMM 同级。
 
 现代推理引擎还有一种混合形态：chunked prefill 把一个长 prompt 切成若干 chunk，每步只 prefill 一个 chunk，并与其他请求的 decode token 拼进同一个 batch。此时一个 batch 里既有 $$N_q$$ 为几百上千的请求，也有 $$N_q = 1$$ 的请求，它们的 $$K, V$$ 都是 "已缓存的前缀 + 本步新 token"。这正是 `cu_seqlens`（第六节）与 "统一 prefill/decode 的 kernel"（第七节）存在的原因：kernel 不能假设 $$Q$$ 是长是短，只能按每个序列各自的 `query_len` 与 `context_len` 工作。
+
+```text
+  一个 chunked-prefill batch：请求 A 正在 prefill 第二个 chunk，B、C 在 decode
+
+  请求  q_len  ctx_len   Q 行(packed)   能看到的 key（位置 0 … ctx_len+q）
+  A       4       8      a0 ──►  ████████▣
+                         a1 ──►  ████████▣▣
+                         a2 ──►  ████████▣▣▣
+                         a3 ──►  ████████▣▣▣▣          seq_len = 12
+  B       1      11      b0 ──►  ███████████▣          seq_len = 12
+  C       1       5      c0 ──►  █████▣                seq_len = 6
+
+  cu_seqlens_q = [0, 4, 5, 6]（Q 共 6 行）   seq_lens = [12, 12, 6]（K/V 长度）
+  █ 已在 KV cache 里的前缀   ▣ 本步新 token（K/V 先写入 cache，再被本步读到）
+  同一个 kernel：各序列只是 (q_len, ctx_len) 两个数不同；A 的 4 行就是一个因果块
+```
 
 ### 2. decode：Q 只有一行，每 token 读全部 KV
 
@@ -908,6 +944,26 @@ __device__ void attn_1rowblock_warp(/* ... */) {
 }
 ```
 
+步骤 (4) 的 C→A fragment 复用值得单独画出来——这是 $$S \to P \to PV$$ 能全程留在寄存器的原因：
+
+```text
+  mma.m16n8k16（BF16 → FP32）每个 lane 持有的元素：g = lane/4 (0..7), t = lane%4
+
+  C/D 累加器（16×8 FP32）一个 n8 片     A 操作数（16×16 BF16）一个 k16 片
+           列 2t   2t+1                        列 2t 2t+1      2t+8 2t+9
+   行 g    [ c0    c1 ]                行 g    [ a0  a1 ]      [ a4  a5 ]
+   行 g+8  [ c2    c3 ]                行 g+8  [ a2  a3 ]      [ a6  a7 ]
+                                               └─reg0──┘      └─reg2──┘ (行 g)
+                                               └─reg1──┘      └─reg3──┘ (行 g+8)
+
+  S 的 8 个 n8 片 → P 的 4 个 k16 片：相邻两片拼一片，寄存器内 pack 成 bf16x2
+  frag_p[kk].reg0 = pack(acc_s[2kk][0],   acc_s[2kk][1])    // 行 g,   列 0-7
+  frag_p[kk].reg1 = pack(acc_s[2kk][2],   acc_s[2kk][3])    // 行 g+8, 列 0-7
+  frag_p[kk].reg2 = pack(acc_s[2kk+1][0], acc_s[2kk+1][1])  // 行 g,   列 8-15
+  frag_p[kk].reg3 = pack(acc_s[2kk+1][2], acc_s[2kk+1][3])  // 行 g+8, 列 8-15
+  同一 lane 在 C 里持有的 (行, 列) 与它要为 A 提供的 (行, k) 重合 → 不经 smem
+```
+
 标出几个复用点：(a) $$Q$$ 的 A fragment 全程常驻寄存器，这是 "外循环遍历 Q 块" 的直接后果；(b) 步骤 (4) 的 C→A fragment 复用是 FA2 能在寄存器内完成 $$S \to P \to PV$$ 的关键——`m16n8k16` 的累加器布局中每线程持有第 `lane/4` 行与第 `lane/4 + 8` 行的两对相邻元素，与 A 操作数布局中每线程持有的位置重合，只差一次 FP32→BF16 的 pack；(c) 行归约只需 `shfl_xor` 1 和 2 两步，因为 mma 布局里一行的 8 列分布在同一 quad 的 4 个 lane 上（"split Q" 让归约不出 warp）；(d) $$V$$ 需要转置载入（`ldmatrix.trans`），因为 $$PV$$ 的 B 操作数要求 k-major——这就是 FA3 在 FP8 下需要显式重排 $$V$$ 布局的原因（FP8 的 `ldmatrix` 没有对应的转置形式）。
 
 
@@ -921,6 +977,18 @@ __device__ void attn_1rowblock_warp(/* ... */) {
 - **cuDNN attention**：NVIDIA 在 cuDNN 8.9+ 提供的 fused attention（Hopper 上很强），是 PyTorch `scaled_dot_product_attention` 的后端之一（与 FlashAttention-2 后端、memory-efficient 后端、math 后端并列，由 `torch.backends.cuda` 的开关和形状约束决定走哪个）。
 - **Triton 实现**：vLLM 的 `triton_unified_attention.py`（上一节）、SGLang 的 Triton 后端、Triton tutorial 06 及其衍生。可移植性最好（ROCm 直接可用），性能在 Ampere 上通常落后手写 FA2 一到三成，在 Hopper 上落后 FA3 更多。
 - **PyTorch 的 `scaled_dot_product_attention`**：不是一个独立 kernel 而是一个分发器，按输入的 dtype、head dim、是否有 mask、是否需要梯度等条件在 FlashAttention-2、cuDNN、memory-efficient（xFormers 派生）与 math 四个后端之间选择；`torch.nn.attention.sdpa_kernel` 可以强制指定。本篇实践里的 `F.scaled_dot_product_attention(..., is_causal=True, enable_gqa=True)` 在 A100 上通常走 FlashAttention-2 后端，所以它既是正确性参考也是一个有意义的性能基线。
+
+把上面几家按几个维度并排：
+
+| 后端 | 实现方式 | 目标架构 | 分页 KV | 变长 / split-KV | 强项 | 在 vLLM v0.20.0 中 |
+|---|---|---|---|---|---|---|
+| FlashAttention-2 | CUDA + CuTe 手写，`mma.sync` | sm_80+ | 原版无；vllm-flash-attn 加 `block_table` + `seqused_k` | `cu_seqlens`；`num_splits` | prefill，Tensor Core 利用率 | `FLASH_ATTN`（sm_80 默认） |
+| FlashAttention-3 | CUDA + CuTe，wgmma / TMA / warp specialization | sm_90 only | 同上 | 同上，另有 `scheduler_metadata` 预先算 split | Hopper prefill，FP8 | `FLASH_ATTN`（sm_90 默认，ALiBi 等回退 FA2） |
+| FlashInfer | CUDA，JIT 编译变体，`plan()`/`run()` | sm_80+ | 原生 paged | `plan()` 在 CPU 侧做 split-KV 负载均衡 | decode、paged prefill | `FLASHINFER`（Blackwell 上排第一） |
+| xFormers | CUDA（CUTLASS） | Ampere 前后均可 | 无 | 有 varlen | 通用、老硬件 | 早期默认，现主要视觉模型 |
+| cuDNN attention | 闭源库，cuDNN 8.9+ | Ampere / Hopper，Hopper 上最强 | 无 | 有 | Hopper 训练 | 经 PyTorch SDPA 间接使用 |
+| Triton 实现 | Triton（`triton_unified_attention.py` 等） | 任意，含 ROCm | 每 token 查表的 gather load | `find_seq_idx` 二分；3D 模式 segments | 可移植、易改（新 mask / KV 格式） | `TRITON_ATTN`（prefill/decode 统一） |
+| PyTorch SDPA | 分发器，不是 kernel | 随后端 | 无 | 随后端 | 正确性参考 / 基线 | 本文测试的 reference |
 
 选择的原则可以压缩成三条：prefill 追求 Tensor Core 利用率，优先 FA3（sm_90）或 FA2；decode 追求带宽利用率与并行度，split-KV 的策略质量比 GEMM 效率更重要，FlashInfer 与 FA3 的 scheduler 在这里下了最多功夫；需要非标准特性（新的 mask 形状、bias、KV 量化格式）时，Triton 版本的修改成本远低于 CUDA 版本，这是它在生产系统里一直有一席之地的原因。
 

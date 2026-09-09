@@ -79,6 +79,38 @@ $$y = \sum_{i \in \text{TopK}(s)} g_i \cdot \text{FFN}_i(x) \ \big(+ \sum_{j=1}^
 
 括号里的共享专家是 DeepSeek 系列的做法：有 $$n_{shared}$$ 个专家不经过路由、对所有 token 都激活，第八章再讨论它的意义。
 
+把三步放在一起，一个 token 经过 MoE 层的数据流如下（以 $$k = 2$$ 为例，灰色是未被选中、这一步不参与计算的专家；共享专家绕过 router 直接接收输入）：
+
+```mermaid
+flowchart TB
+    TOK["输入 token x（d 维）"]
+    RT["router：W_r x，W_r 是 E × d<br/>softmax 或 sigmoid 得到 E 个分数 s_i"]
+    TK["top-k 选择（k = 2）<br/>g_i = s_i / Σ s_j（i ∈ TopK），其余 g_i = 0"]
+    TOK --> RT --> TK
+    subgraph routed["E 个路由专家：结构相同、参数独立的 SwiGLU FFN，各 3·d·d_ff 参数"]
+        E1["FFN_1<br/>选中，g_1 > 0"]
+        E2["FFN_2<br/>未选中，不计算"]
+        EE["… FFN_E<br/>选中，g_E > 0"]
+    end
+    subgraph shared["共享专家（DeepSeek 系列）"]
+        SH["FFN_shared<br/>不经 router，所有 token 都过"]
+    end
+    TK -->|"x，权重 g_1"| E1
+    TK -.->|"g_2 = 0"| E2
+    TK -->|"x，权重 g_E"| EE
+    TOK --> SH
+    SUM["y = g_1·FFN_1(x) + g_E·FFN_E(x) + FFN_shared(x)<br/>这一层只算了 k + n_shared 个 FFN，却持有 E + n_shared 个"]
+    E1 --> SUM
+    EE --> SUM
+    SH --> SUM
+    classDef active fill:#dff0d8,stroke:#3c763d;
+    classDef idle fill:#f5f5f5,stroke:#aaaaaa,color:#888888;
+    classDef sh fill:#fcf8e3,stroke:#8a6d3b;
+    class E1,EE active;
+    class E2 idle;
+    class SH sh;
+```
+
 对一个 token 而言，这一层只执行了 $$k$$（加共享）个 FFN 的计算，算量是 $$k \cdot 6 d d_{ff}$$，与 $$E$$ 无关。但这一层持有 $$E \cdot 3 d d_{ff}$$ 个参数，全部要放在显存里。参数量与算量的解耦就发生在这里。
 
 这个想法本身不新：Shazeer 等 2017 在 LSTM 上做过稀疏门控的 MoE 层，GShard（Lepikhin 等 2020）与 Switch Transformer（Fedus 等 2021）把它搬到 Transformer 并解决了大规模训练的均衡与并行问题。Mixtral（Jiang 等 2024）与 DeepSeek 系列让它成为开源模型的主流结构。结构层面几年没有大变，变的是粒度与规模，而正是粒度与规模决定了系统成本。
@@ -337,6 +369,33 @@ EP 下一个 MoE 层的执行流程：
 
 attention 部分在 EP 下通常是数据并行的（每卡处理 batch 的一个切片，各自持有自己序列的 KV cache），所以 token "所在的卡"是明确的。每个 MoE 层两次 all-to-all，58 层共 116 次，全部在前向的关键路径上。
 
+用一个缩小的例子把 token、专家、卡三者的映射摆出来（EP4，$$E = 8$$，$$k = 2$$，每卡持有 2 个 token）：
+
+```text
+           rank0        rank1        rank2        rank3
+持有专家    e0  e1       e2  e3       e4  e5       e6  e7
+持有 token  t0  t1       t2  t3       t4  t5       t6  t7
+
+router 结果（每 token 选 2 个专家）：
+  t0 -> {e1, e4}   t2 -> {e0, e5}   t4 -> {e0, e4}   t6 -> {e1, e7}
+  t1 -> {e2, e7}   t3 -> {e3, e6}   t5 -> {e0, e2}   t7 -> {e5, e7}
+
+dispatch 的 all-to-all 矩阵：行 = 发送方（token 所在卡），列 = 接收方
+（专家所在卡），格子 = 发送的 hidden 向量份数（每份 d 个元素）
+
+              -> rank0   -> rank1   -> rank2   -> rank3    发出合计
+  rank0          1          1          1          1           4
+  rank1          1          1          1          1           4
+  rank2          2          1          1          0           4
+  rank3          1          0          1          2           4
+  收到合计       5          3          4          4         16 = 8 x k
+
+各专家实际收到的行数（第六章 grouped GEMM 的 M）：
+  e0:3  e1:2  e2:2  e3:1  e4:2  e5:2  e6:1  e7:3
+```
+
+每卡**发出**的份数恒为 $$B_{local} \times k = 4$$，与路由无关；每卡**收到**的份数取决于路由结果，rank0 收 5 份、rank1 收 3 份，这就是负载不均在通信上的体现（第七章）。对角线上的格子是本卡专家，不走网络。combine 是这张矩阵的转置：每个专家把输出沿原路发回 token 所在卡，只是每份的字节数不同（下一节）。
+
 ### 2. 字节数
 
 每个 token 发给每个专家的是一个长度 $$d = 7168$$ 的向量。DeepSeek-V3 的做法是 dispatch 用 FP8、combine 用 BF16（combine 要做加权求和，精度要求更高）：
@@ -375,13 +434,74 @@ prefill 阶段的数字更直观：一个 4096 token 的序列，每层 dispatch
 
 如果 8 个专家随机分布在 40 个节点上，一个 token 要跨 IB 发到接近 8 个不同节点。DeepSeek-V3 在路由时加了一条限制：**每个 token 最多发到 4 个节点**（node-limited routing）。做法是先按每个节点上专家的亲和度之和（取节点内 top-3 专家分数相加）选出 4 个节点，再在这 4 个节点的专家里取 top-8。这样每 token 的跨 IB 流量最多是 4 份 dispatch + 4 份 combine，而不是 8 份。
 
+这个限制之所以能省流量，是因为一份 hidden state 只需跨 IB 到达目标节点**一次**，节点内再由 NVLink 分发给该节点上的多个专家。下图以一个 token 的 8 个专家落在 4 个节点（1 + 3 + 2 + 2）为例：
+
+```mermaid
+flowchart TB
+    T["token 的 hidden state（本节点 N0）<br/>先按节点亲和度选 4 个节点，再在其中取 top-8"]
+    subgraph n0["节点 N0（本节点）"]
+        G0["本地 GPU<br/>专家 a"]
+    end
+    subgraph n1["节点 N1：3 个专家"]
+        G1["入口 GPU<br/>专家 b"]
+        F1["NVLink 转发<br/>专家 c、d 所在 GPU"]
+    end
+    subgraph n2["节点 N2：2 个专家"]
+        G2["入口 GPU<br/>专家 e"]
+        F2["NVLink 转发<br/>专家 f 所在 GPU"]
+    end
+    subgraph n3["节点 N3：2 个专家"]
+        G3["入口 GPU<br/>专家 g"]
+        F3["NVLink 转发<br/>专家 h 所在 GPU"]
+    end
+    T -->|"NVLink"| G0
+    T -->|"IB 1 份"| G1
+    T -->|"IB 1 份"| G2
+    T -->|"IB 1 份"| G3
+    G1 --> F1
+    G2 --> F2
+    G3 --> F3
+    classDef ib fill:#f2dede,stroke:#a94442;
+    classDef nv fill:#dff0d8,stroke:#3c763d;
+    class G1,G2,G3 ib;
+    class G0,F1,F2,F3 nv;
+```
+
+不限制节点数时，8 个专家随机落在 40 个节点上，跨 IB 几乎要发 7–8 份；限制到 4 个节点后至多 4 份（图中本节点占了一个名额，所以是 3 份），其余复制发生在带宽高 3 倍的 NVLink 上。
+
 报告还给了一个基于带宽比的说法：一份数据经 IB 到达某节点后，可以经 NVLink 转发给节点内的多张 GPU；由于 NVLink 带宽是 IB 的 3.2 倍，在 IB 传输时间内 NVLink 可以把它转发给约 3.2 个目标而不成为瓶颈——报告的表述是每个 token 可以"等价地"路由到 $$4 \times 3.2 \approx 13$$ 个专家而不增加通信开销，top-8 在这个上限之内。这是报告的近似论证，转述于此供理解设计意图。
 
 节点受限路由是训练时就加进路由规则的，不是部署时的优化——它改变了模型，因此必须在训练时就决定。这是 MoE 设计里"系统约束反过来塑造模型结构"的一个直接例子。
 
 ### 4. EP 与 TP 的对比
 
-MoE 的 FFN 有两种切法。
+MoE 的 FFN 有两种切法。先看两种切法下权重与 token 各自怎么分布（4 个专家、4 张卡，$$f = d_{ff}$$）：
+
+```text
+TP-4：切矩阵。每卡持有所有专家的 1/4（W_gate/W_up 切列，W_down 切行）
+
+           expert0     expert1     expert2     expert3
+  rank0   [d, f/4]    [d, f/4]    [d, f/4]    [d, f/4]     每卡 E 个瘦矩阵
+  rank1   [d, f/4]    [d, f/4]    [d, f/4]    [d, f/4]
+  rank2   [d, f/4]    [d, f/4]    [d, f/4]    [d, f/4]
+  rank3   [d, f/4]    [d, f/4]    [d, f/4]    [d, f/4]
+
+  token 不移动：每卡对全部 token 算全部专家的局部结果，
+  最后 all-reduce 一个 [B, d]，通信量与 k、E 无关
+
+EP-4：切专家。每卡持有 E/4 个完整专家
+
+           expert0     expert1     expert2     expert3
+  rank0    [d, f]         -           -           -        每卡 E/N 个完整矩阵
+  rank1       -        [d, f]         -           -
+  rank2       -           -        [d, f]         -
+  rank3       -           -           -        [d, f]
+
+  token 移动：dispatch all-to-all -> 本地 grouped GEMM -> combine all-to-all，
+  通信量与 k 成正比
+
+DeepSeek-V3 的专家 [7168, 2048]：TP-8 每卡切片 [7168, 256]，EP 每卡完整 [7168, 2048]
+```
 
 **张量并行（TP）** 切每个专家的矩阵：$$n$$ 卡 TP 下，每个专家的 $$W_{gate}, W_{up}$$ 按列切成 $$n$$ 份、$$W_{down}$$ 按行切成 $$n$$ 份，每张卡持有所有 $$E$$ 个专家的 $$1/n$$。每张卡对所有 token 算所有专家的局部结果，最后做一次 all-reduce。all-reduce 的通信量是标准结论：对 $$B$$ 个 token 的 $$[B, d]$$ 输出，每卡收发
 
@@ -458,7 +578,22 @@ $$\text{capacity} = C \cdot \frac{T \cdot k}{E}$$
 
 $$C = 1$$ 时容量恰好等于均匀分配下的平均行数；Switch Transformer 用 1.0–1.25。收到的 token 超过容量的专家丢弃多余 token——这些 token 在这一层不经过 FFN，只沿残差连接直接通过。$$C$$ 越大丢弃越少但填充（padding）越多、计算浪费越大。
 
-固定容量的动机是系统性的：训练框架希望每个专家的输入是一个形状固定的张量 $$[\text{capacity}, d]$$，这样 all-to-all 的缓冲区大小、GEMM 的形状在编译期就能确定，不需要动态分配。代价是两头浪费——欠载的专家要 padding 到 capacity，超载的专家要丢 token。以 DeepSeek-V3 prefill 4096 token、$$C = 1.25$$ 为例，每专家容量 160 行；若某个专家实际收到 200 行，40 行被丢弃（20%）；若只收到 80 行，另外 80 行是零填充，GEMM 的一半算力浪费。
+固定容量的动机是系统性的：训练框架希望每个专家的输入是一个形状固定的张量 $$[\text{capacity}, d]$$，这样 all-to-all 的缓冲区大小、GEMM 的形状在编译期就能确定，不需要动态分配。代价是两头浪费——欠载的专家要 padding 到 capacity，超载的专家要丢 token。以 DeepSeek-V3 prefill 4096 token、$$C = 1.25$$ 为例，每专家容量 160 行；若某个专家实际收到 200 行，40 行被丢弃（20%）；若只收到 80 行，另外 80 行是零填充，GEMM 的一半算力浪费。把几个专家的实际行数画在同一条容量线上：
+
+```text
+T = 4096, k = 8, E = 256：平均 Tk/E = 128 行；C = 1.25 -> capacity = 160 行
+每个字符 = 8 行：# 实际 token   . 零填充 padding   x 超出容量被 drop
+
+                                   avg  cap
+                                   128  160
+expert 0  rows=200  ################:####|xxxxx   40 行 drop（20%）
+expert 1  rows=160  ################:####|        恰好填满
+expert 2  rows=128  ################:....|        32 行 padding
+expert 3  rows= 80  ##########......:....|        80 行 padding，GEMM 一半浪费
+                    <-- 每专家固定 [160, d] 输入 -->
+```
+
+容量线两侧都是浪费：线右边的 token 被丢，线左边的空位被算。$$C$$ 只能在两种浪费之间移动，不能同时消除。
 
 推理时一般不丢弃（dropless），改用动态大小的 grouped GEMM——每个专家有多少行就算多少行，这正是 grouped GEMM 支持不等行数的原因。因此训练与推理在 token drop 上的行为存在差异，训练时被丢弃过的 token 在推理时会正常经过专家；这个差异在实践中通常可以接受，但它是"训练时的均衡策略如何影响推理形态"的一个例子。DeepSeek-V3 训练时就不做 token drop，避免了这个差异。
 
@@ -477,6 +612,24 @@ EP 下一层的时间由最慢的那张卡决定——所有卡都要等 combine
 - 它所在卡的 grouped GEMM 时间翻倍（M 翻倍；在访存瓶颈的 decode 阶段 M 翻倍时间不一定翻倍，但在 prefill 是接近线性的）；
 - 它收到的 dispatch 字节数翻倍，发出的 combine 字节数翻倍——all-to-all 的完成时间由最大的收发方决定；
 - 其余 255 张卡在这一层的后半段空闲。
+
+用 4 张卡的时间线看"谁在等谁"（每格 = 均衡时一个阶段的时间）：
+
+```text
+均衡（每专家都收到 Tk/E 行）：
+rank0-3     |disp|GEMM|comb|
+            0    1    2    3                        全层 = 3 格
+
+不均衡（e2 收到 2x 平均）：
+rank0 (e0)  |disp    |GEMM|....|comb    |
+rank1 (e1)  |disp    |GEMM|....|comb    |
+rank2 (e2)  |disp    |GEMM GEMM|comb    |   <- 收 2x 字节、算 2x 行、发 2x 字节
+rank3 (e3)  |disp    |GEMM|....|comb    |
+            0        2    3    4        6           全层 = 6 格
+
+disp / comb 是 all-to-all，结束时间由最大收发方 rank2 决定，所有卡一起等；
+GEMM 阶段其余 3 张卡 1 格后算完（....），要等 rank2 算完才能进入 combine。
+```
 
 结果是这一层的耗时约为均衡时的 2 倍，全层的算力利用率降到约 50%。58 层里只要几层出现热点，整体吞吐就明显下降。这就是为什么 DeepSeek-V3 的部署方案里有"冗余专家"（把热门专家复制到多张卡上）与周期性根据负载统计重排专家的机制——EP 下负载均衡不再只是训练时的建模问题，而是推理时的调度问题。
 

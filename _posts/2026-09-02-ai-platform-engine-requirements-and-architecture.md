@@ -18,7 +18,7 @@ catalog: true
 
 > **一个 4 节点 32 卡的训练任务和一个 TP=2、副本数动态变化的推理服务，各自对平台提出的需求列成一张表，哪几条是原生 Kubernetes 满足不了的？**
 
-全文的版本锚点：Kubernetes v1.37.0；引擎侧只引用 PyTorch 2.13.0 的 `torchrun` 环境变量与 rendezvous 语义、vLLM v0.23.0 的指标名与启动参数，不进入任何引擎内部实现。平台组件的版本随全景图逐一标注，全部发布于本文日期之前。
+全文的版本锚点：Kubernetes v1.37.0；引擎侧只引用 PyTorch 2.13.0 的 `torchrun` 环境变量与 rendezvous 语义、vLLM v0.28.0 的指标名与启动参数，不进入任何引擎内部实现。平台组件的版本随全景图逐一标注，全部发布于本文日期之前。
 
 
 ## 一、总览
@@ -147,6 +147,32 @@ LOCAL_RANK     本进程在本节点上的编号（0..nproc_per_node-1），代�
 
 `torchrun` 把这个事实做成了显式的策略。`run.py` 文档的 "Failure Modes" 一节写明：$$n$$ 个 worker 中任意 $$k \le n$$ 个失败，**所有** worker 被停止并重启，最多 `--max-restarts` 次。实现上，`torch/distributed/elastic/agent/server/api.py` 的 `SimpleElasticAgent._invoke_run()` 每隔 `monitor_interval` 调用 `_monitor_workers()`，一旦返回 `WorkerState.FAILED` 或 `UNHEALTHY`，就调用 `_restart_workers()`——停掉本地整组、重新 rendezvous、重新分配 `RANK` 与 `WORLD_SIZE`、重新启动。因为所有节点的 agent 共享同一个 rendezvous，一个节点重启 worker 组会让其他节点在下一轮 rendezvous 中察觉并跟着重启。至于 agent 自身或整个节点消失，文档明确写：由任务管理器决定是让整个任务失败（"gang semantics"）还是补一个节点——**这一步是平台的责任**。
 
+两条故障路径与两个责任方画在一起：
+
+```mermaid
+flowchart TB
+    subgraph torch_side["torchrun 自己处理"]
+        W["某个 worker 进程退出或不健康"] --> M["本机 agent _monitor_workers()<br/>看到 FAILED / UNHEALTHY"]
+        M --> R{"已重启次数 < --max-restarts ?"}
+        R -- "是" --> K["_restart_workers()<br/>停掉本机整组 worker"]
+        K --> RZ["重新 rendezvous<br/>其他节点 agent 察觉，跟着停组重来"]
+        RZ --> RA["重新分配 RANK / WORLD_SIZE<br/>全部 worker 从上次 checkpoint 恢复"]
+        R -- "否" --> F["agent 报告任务失败"]
+    end
+    subgraph plat_side["平台(任务管理器)处理"]
+        A["agent 进程或整个节点消失"] --> P{"gang 语义还是补节点 ?"}
+        P -- "gang" --> FJ["整个任务失败<br/>释放全部 GPU，等重新排队"]
+        P -- "补节点" --> RP["调度一个新 Pod 顶替<br/>等它加入 rendezvous"]
+    end
+    RP --> RZ
+    classDef torch fill:#e8f0fe,stroke:#3b6fd1;
+    classDef plat fill:#fdf1e0,stroke:#d18a2b;
+    class W,M,R,K,RZ,RA,F torch;
+    class A,P,FJ,RP plat;
+```
+
+左边是 `torchrun` 在 `--max-restarts` 之内能自己闭环的部分：worker 挂了，本机停组、全员重新 rendezvous、重新编号、从 checkpoint 继续，平台看到的只是 Pod 还在 Running。右边是 `torchrun` 管不到的部分：agent 或节点没了，对应的 Pod 消失，要么整组重建（gang），要么补一个 Pod 让它回到左边的 rendezvous 路径——两种选择都要由平台做出。
+
 对平台的推论有三条：
 
 - **全员到齐才算开始**。$$W$$ 个 Pod 里只起了 $$W-1$$ 个，起来的那些在 rendezvous 里等着，占着 GPU 不干活。等待的时间越长浪费越大，如果最后一个 Pod 永远等不到资源，就是死锁的开端（第三篇）。
@@ -203,13 +229,27 @@ LOCAL_RANK     本进程在本节点上的编号（0..nproc_per_node-1），代�
 
 这个差别对平台有两个后果。第一，同一张卡上 prefill 与 decode 混跑时互相干扰：一个长 prompt 的 prefill 会让正在 decode 的所有请求那一步变慢，用户看到的是输出突然卡一下。第二，两个阶段的最优硬件不同：prefill 要算力，decode 要显存带宽和容量。PD 分离（prefill 与 decode 跑在不同的 Pod 组里，中间传 KV cache）把它们拆开，各自扩缩——这意味着**一个服务有两种副本、两套扩缩容指标、副本之间还要传数据**，第六篇和第七篇会处理它的部署与路由形态。本文只需要知道：推理服务的"副本"可能不止一种。
 
-对应两个阶段的两个延迟指标贯穿交付层三篇：**TTFT**（time to first token，prefill 阶段加排队时间）与 **TPOT**（time per output token，decode 每步的时间）。vLLM v0.23.0 在 `vllm/v1/metrics/loggers.py` 的 `PrometheusStatLogger` 里以 `vllm:time_to_first_token_seconds` 和 `vllm:inter_token_latency_seconds` 两个直方图暴露它们。
+对应两个阶段的两个延迟指标贯穿交付层三篇：**TTFT**（time to first token，prefill 阶段加排队时间）与 **TPOT**（time per output token，decode 每步的时间）。vLLM v0.28.0 在 `vllm/v1/metrics/loggers.py` 的 `PrometheusStatLogger` 里以 `vllm:time_to_first_token_seconds` 和 `vllm:inter_token_latency_seconds` 两个直方图暴露它们。
 
 ### 3. 显存是硬约束
 
-一个副本的显存由两部分组成：**权重**（模型大小 × 每参数字节，固定）与 **KV cache**（每个在处理的 token 的 key/value，随并发与上下文长度增长）。引擎启动时按 `--gpu-memory-utilization`（vLLM v0.23.0 `vllm/config/cache.py` 的 `CacheConfig.gpu_memory_utilization`，默认 0.92）预留这一比例的显存，权重占掉一块，**剩下的全部划给 KV cache**。KV cache 的大小决定同时能服务多少请求；KV cache 满了，新请求进等待队列，`vllm:num_requests_waiting` 上升，TTFT 拉长。
+一个副本的显存由两部分组成：**权重**（模型大小 × 每参数字节，固定）与 **KV cache**（每个在处理的 token 的 key/value，随并发与上下文长度增长）。引擎启动时按 `--gpu-memory-utilization`（vLLM v0.28.0 `vllm/config/cache.py` 的 `CacheConfig.gpu_memory_utilization`，默认 0.92）预留这一比例的显存，权重占掉一块，**剩下的全部划给 KV cache**。KV cache 的大小决定同时能服务多少请求；KV cache 满了，新请求进等待队列，`vllm:num_requests_waiting` 上升，TTFT 拉长。
 
-这带来三条平台约束：
+同一张 80 GB 卡上，权重占多少直接决定 KV cache 剩多少：
+
+```text
+80 GB 卡，--gpu-memory-utilization=0.92 → 引擎预留 73.6 GB，其余留给 CUDA context 等
+
+7B bf16   ┌───────────┬────────────────────────────────────────────────┬─────┐
+          │ 权重 14GB │                KV cache ~60 GB                 │ 空闲│
+          └───────────┴────────────────────────────────────────────────┴─────┘
+30B bf16  ┌────────────────────────────────────────────────┬───────────┬─────┐
+          │                   权重 60 GB                   │ KV ~14 GB │ 空闲│
+          └────────────────────────────────────────────────┴───────────┴─────┘
+           0       10      20      30      40      50      60      70      80 GB
+```
+
+KV cache 决定同时能服务多少 token；两张图的 KV 段差 4 倍多，意味着同样并发下 30B 的副本数要多几倍。这带来三条平台约束：
 
 - **不能超卖**。显存不像 CPU 可以时间片轮转，也不像内存可以 swap。两个引擎进程被放到同一张卡上、各自按 92% 预留，第二个直接 OOM。平台要么给整卡，要么用有显存隔离的切分方式（第四篇）。
 - **模型越大，权重占比越高，能服务的并发越低**。一张 80 GB 的卡跑 7B bf16 模型，权重 14 GB、KV cache 可用约 60 GB；跑 30B 模型，权重 60 GB、KV cache 只剩十几 GB。同样的卡，后者的副本数要多好几倍才能撑住同样的并发。容量规划不能只数卡。
@@ -235,7 +275,7 @@ LOCAL_RANK     本进程在本节点上的编号（0..nproc_per_node-1），代�
 
 Kubernetes 原生的 HPA 以 CPU 与内存利用率为默认信号。对推理服务这两个信号都无意义：GPU 上的 kernel 在跑时 CPU 几乎空闲，内存（宿主机内存）也与负载无关。GPU 利用率（DCGM 的 `DCGM_FI_DEV_GPU_UTIL`）看起来相关，但它只表示"这段时间内有没有 kernel 在跑"，一个 decode 请求就能让它接近 100%，与"还能接多少请求"无关（第八篇）。
 
-真正能说明负载的数字在引擎内部。vLLM v0.23.0 的 `vllm/v1/metrics/loggers.py` 里 `PrometheusStatLogger` 定义的指标中，与扩缩容和路由直接相关的是：
+真正能说明负载的数字在引擎内部。vLLM v0.28.0 的 `vllm/v1/metrics/loggers.py` 里 `PrometheusStatLogger` 定义的指标中，与扩缩容和路由直接相关的是：
 
 ```text
 vllm:num_requests_running          正在 decode 的请求数
@@ -312,7 +352,24 @@ kube-scheduler 的工作单位是**单个 Pod**。它从队列里取一个 Pod�
 
 Filter 阶段对 GPU 的判断在 `pkg/scheduler/framework/plugins/noderesources/fit.go`（Kubernetes v1.37.0）的 `Fits()` 与 `fitsRequest()`：把 Pod 请求的每种资源与节点 `allocatable` 减去已分配量比较，任一不足就返回一个 `InsufficientResource`，`Reason` 字段对扩展资源就是 `Insufficient <资源名>`。开头那行 `Insufficient nvidia.com/gpu` 就是这里生成的。对调度器来说，`nvidia.com/gpu` 只是一个字符串键加一个整数——与 `example.com/foo` 没有任何区别。
 
-这个模型对训练任务的后果是：32 个 Pod 逐个调度，前 30 个成功、后 2 个 Pending，前 30 个占着 240 张卡等待；另一个任务的 Pod 恰好拿走了剩下的卡，两个任务都凑不齐、都不释放——死锁。原生的缓解手段只有 `PriorityClass` 与抢占，但抢占也是按单 Pod 决定的。**gang scheduling 必须由一个知道"组"的调度器或准入控制器实现**，这是第三篇。
+这个模型对训练任务的后果是：32 个 Pod 逐个调度，前 30 个成功、后 2 个 Pending，前 30 个占着 240 张卡等待；另一个任务的 Pod 恰好拿走了剩下的卡，两个任务都凑不齐、都不释放——死锁。用一个更小的池把这个状态画出来：
+
+```text
+池：6 台 8 卡节点 = 48 张卡；任务 A、B 同时提交，各要 4 个 Pod × 8 卡
+
+          节点1   节点2   节点3   节点4   节点5   节点6
+调度顺序   A-0     B-0     A-1     B-1     A-2     B-2      ← 逐 Pod 交替绑定
+           ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐
+           │A 8卡│ │B 8卡│ │A 8卡│ │B 8卡│ │A 8卡│ │B 8卡│   48 张卡全部被占
+           └─────┘ └─────┘ └─────┘ └─────┘ └─────┘ └─────┘
+Pending    A-3 等第 4 个节点                B-3 等第 4 个节点
+
+A 的 24 张卡在 rendezvous 里等 A-3，B 的 24 张卡在等 B-3；
+两边都不释放、都凑不齐 → 死锁。
+gang 调度的做法：凑不齐 4 个节点，就一个 Pod 也不绑定。
+```
+
+原生的缓解手段只有 `PriorityClass` 与抢占，但抢占也是按单 Pod 决定的。**gang scheduling 必须由一个知道"组"的调度器或准入控制器实现**，这是第三篇。
 
 kube-scheduler 也不知道拓扑。它有 `nodeAffinity` 与 `podAffinity`，可以表达"这些 Pod 要在有某个 label 的节点上"，但不能表达"这 4 个 Pod 要在**同一个**机柜里，哪个机柜都行"——`podAffinity` 的 `topologyKey` 只能把 Pod 往已有 Pod 所在的域聚，第一个 Pod 落哪里是随机的，而且它是逐 Pod 判断，不会为了整组的拓扑退回重选。
 
@@ -401,6 +458,32 @@ Pod 组抽象      LeaderWorkerSet / JobSet 定义"哪些 Pod 是一组"，调�
 ```
 
 训练任务只走资源层：`TrainJob` 提交、Kueue 准入、Pod 起来、跑完释放，交付层的三篇对它几乎没有内容（除了第八篇的任务级可观测与成本）。推理服务两层都走：先由资源层给出 Pod，再由交付层包装成服务。这也是为什么总纲说前四篇按"一个训练任务从提交到跑起来"推进、后三篇按"一个推理请求从进入到计费"推进。
+
+把"训练任务只走资源层"这条路展开到组件，可以看到它在哪三处会停下来等：
+
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant T as Trainer 控制器
+    participant Q as Kueue
+    participant S as kube-scheduler
+    participant N as 节点 kubelet + torchrun
+    U->>T: kubectl apply TrainJob
+    T->>T: 生成 JobSet / Job，suspend=true
+    T->>Q: 出现 Workload，要 4 Pod × 8 GPU
+    Note over Q: 等待点 1：排队等 ClusterQueue 配额，分钟到小时
+    Q->>T: 准入，改 suspend=false
+    T->>S: 4 个 Pod 进入调度队列
+    Note over S: 等待点 2：逐 Pod Filter / Score，没有 gang 时可能 3 个绑定后卡住
+    S->>N: 绑定 Pod 到节点
+    N->>N: device plugin Allocate，注入设备文件与 RANK / MASTER_ADDR
+    Note over N: 等待点 3：torchrun rendezvous 等 min_nodes 到齐，先到的占卡空等
+    N->>N: 全员到齐开始训练，每 T 分钟写 checkpoint
+    N-->>T: 任一 Pod 失败 → 组级重启或任务失败
+    N-->>Q: 任务结束，Workload 完成，配额与 GPU 释放
+```
+
+这条链上没有任何一个组件同步阻塞另一个：每一步都是控制器各自 reconcile，"等待"表现为某个对象停在中间状态——Workload 未准入、Pod Pending、worker 卡在 rendezvous。三个等待点里只有第一个是平台**有意**让它等（排队是配额的正常语义），后两个是浪费：等待点 2 占着卡等剩余 Pod 调度，等待点 3 占着卡等 rendezvous。Kueue 的准入把"凑齐再放行"提前到等待点 1，Volcano 的 gang 在等待点 2 一起绑定，两者都是为了把后两处的空等压到接近零——这是第三篇的核心。
 
 ### 4. 组件全景图按层落位
 
@@ -590,7 +673,17 @@ checkpoint 突发写            PVC 无带宽语义               PFS / 对象�
 
 - **单团队、固定负载、几台机器**。三台 8 卡机跑一个团队的训练，`torchrun` 直接上 SSH 或用 Slurm 就够了，gang 与配额没有多租户就没有意义。
 - **只有推理、只有小模型、副本数固定**。一个 Deployment 加 Service 加 HPA（就算看 CPU 也无所谓，因为不扩）可能足够；InferencePool 与 EPP 的收益在副本多、请求长短悬殊、prefix 重复率高时才明显。
-- **云上托管服务能接受黑盒**。各云的 GPU 节点池替你做了第二篇（驱动与插件），托管推理服务替你做了第六、七篇的大部分；代价是排障时看不到内部、换厂商时经验不迁移。本系列讨论的是自建路线，托管服务在相关处会标注"替你做了哪一步"。
+- **云上托管服务能接受黑盒**。各云的 GPU 节点池替你做了第二篇（驱动与插件），托管推理服务替你做了第六、七篇的大部分；代价是排障时看不到内部、换厂商时经验不迁移。本系列讨论的是自建路线，托管服务在相关处会标注"替你做了哪一步"。按层看，托管方案替掉的主要是两头（设备层与交付层的黑盒部分），中间的调度、切分与规划仍然留在你手上：
+
+| 层（篇） | 自建要装的 | 托管方案替你做了什么 | 仍然留给你的 |
+|---|---|---|---|
+| 设备（2） | GPU Operator、device plugin / DRA、Container Toolkit | 云 GPU 节点池预装驱动、Toolkit、device plugin，节点自带型号标签 | 驱动 / CUDA 版本跟随云镜像节奏；DRA 通常要自己开启 |
+| 调度（3） | Kueue / Volcano、Kubeflow Trainer | 托管 Kubernetes 基本不做；个别云有托管队列 / 批调度产品 | 配额、gang、拓扑、抢占策略几乎全部自建 |
+| 切分（4） | MIG Manager、时间片 / MPS、HAMi | 节点池可选固定 MIG 规格 | 动态改 profile、软件切分、隔离与利用率的取舍 |
+| 网络存储（5） | Network Operator、Multus、RDMA plugin、CSI | RDMA 实例自带驱动与 CNI 配置；托管并行文件系统提供 CSI | 突发写与并发读的容量规划；NCCL 是否真走了 RDMA 的验证 |
+| Serving（6） | LeaderWorkerSet、KServe / llm-d、KEDA | 托管推理服务：副本、扩缩、就绪全部黑盒 | 冷启动与扩缩策略不可调；自定义引擎参数受限 |
+| 网关（7） | Inference Extension + EPP | 托管模型 API 自带路由、限流、按 token 计费 | 多模型统一入口、跨厂商一致的租户配额 |
+| 可观测与成本（8） | DCGM Exporter、OpenCost | 云监控给 GPU 基础指标；账单按实例小时 | 引擎指标、每百万 token 成本、分配率 vs 使用率 |
 
 ### 4. 本系列的边界
 
@@ -626,8 +719,8 @@ checkpoint 突发写            PVC 无带宽语义               PFS / 对象�
 | PyTorch 2.13.0 `torch/distributed/run.py` | 模块文档：`--nnodes` / `--nproc-per-node` / `--rdzv-backend` / `--rdzv-endpoint` / `--rdzv-id` / `--max-restarts`；环境变量 `MASTER_ADDR`、`MASTER_PORT`、`WORLD_SIZE`、`RANK`、`LOCAL_RANK`、`LOCAL_WORLD_SIZE`、`TORCHELASTIC_RUN_ID`；"Failure Modes" 与 "Membership Changes" 两节 |
 | PyTorch 2.13.0 `torch/distributed/elastic/agent/server/api.py` | `SimpleElasticAgent._invoke_run()`（监控循环：`SUCCEEDED` → `_exit_barrier()`；`FAILED` / `UNHEALTHY` → `_restart_workers()` 或停止）、`_rendezvous()`、`_monitor_workers()`；`local_elastic_agent.py` 的 `LocalElasticAgent` 是本机实现 |
 | PyTorch 2.13.0 `torch/distributed/elastic/rendezvous/dynamic_rendezvous.py` | `RendezvousSettings.min_nodes` / `max_nodes`、`_DistributedRendezvousOpExecutor`；`rendezvous/api.py` 的 `RendezvousHandler.next_rendezvous()`；`c10d_rendezvous_backend.py` 为默认后端 |
-| vLLM v0.23.0 `vllm/v1/metrics/loggers.py` | `PrometheusStatLogger`：`vllm:num_requests_running`、`vllm:num_requests_waiting`、`vllm:kv_cache_usage_perc`、`vllm:prefix_cache_hits` / `vllm:prefix_cache_queries`、`vllm:num_preemptions`、`vllm:time_to_first_token_seconds`、`vllm:inter_token_latency_seconds`、`vllm:request_queue_time_seconds` |
-| vLLM v0.23.0 `vllm/config/cache.py`、`vllm/config/parallel.py` | `CacheConfig.gpu_memory_utilization`（默认 0.92）；`ParallelConfig.tensor_parallel_size` |
+| vLLM v0.28.0 `vllm/v1/metrics/loggers.py` | `PrometheusStatLogger`：`vllm:num_requests_running`、`vllm:num_requests_waiting`、`vllm:kv_cache_usage_perc`、`vllm:prefix_cache_hits` / `vllm:prefix_cache_queries`、`vllm:num_preemptions`、`vllm:time_to_first_token_seconds`、`vllm:inter_token_latency_seconds`、`vllm:request_queue_time_seconds` |
+| vLLM v0.28.0 `vllm/config/cache.py`、`vllm/config/parallel.py` | `CacheConfig.gpu_memory_utilization`（默认 0.92）；`ParallelConfig.tensor_parallel_size` |
 | Kubernetes v1.37.0 `pkg/scheduler/framework/plugins/noderesources/fit.go` | `Fits()`、`fitsRequest()`、`InsufficientResource`（`Reason` 为 `Insufficient <资源名>`） |
 | Kubernetes v1.37.0 `staging/src/k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1/api.proto` | `ListAndWatch`、`GetPreferredAllocation`、`Allocate` 三个 rpc；`pkg/kubelet/cm/devicemanager/manager.go` 的 `ManagerImpl.Allocate()` / `GetCapacity()` |
 | Kubernetes v1.37.0 `staging/src/k8s.io/api/resource/v1/types.go` | DRA 的 `ResourceSlice`、`ResourceClaim`、`ResourceClaimTemplate`、`DeviceClass`（第二篇展开） |

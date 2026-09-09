@@ -926,6 +926,50 @@ def schedule(self, throttle_prefills=False):
     return SchedulerOutput(...)
 ```
 
+把上面两个循环的分支画出来，可以更清楚地看到 Token Budget 递减、KV Cache 分配失败时的抢占循环，以及 waiting 队列在什么条件下根本不会被看一眼（本轮发生过抢占、running 已达 `max_num_seqs`、预算已耗尽）：
+
+```mermaid
+flowchart TB
+    S0["token_budget = max_num_scheduled_tokens"] --> R0
+    subgraph RunLoop["1. 遍历 running 队列（Decode / 未完成的 Prefill）"]
+        R0["取下一个 running 请求"] --> R1["num_new_tokens = min(remaining,<br/>token_budget, long_prefill_threshold)"]
+        R1 --> R2["allocate_slots() 分配 KV block"]
+        R2 -->|"成功"| R3["token_budget -= num_new_tokens<br/>加入 scheduled_running_reqs"]
+        R2 -->|"失败"| R4["选牺牲者：FCFS 取 running 队尾<br/>PRIORITY 取 (priority, arrival) 最大者"]
+        R4 --> R5["_preempt_request(victim)<br/>释放 KV，进入 waiting 队头"]
+        R5 --> R6{"victim 就是<br/>当前请求？"}
+        R6 -->|"否"| R2
+        R6 -->|"是：确实没资源"| W0
+        R3 --> R7{"还有 running<br/>请求？"}
+        R7 -->|"是"| R0
+    end
+    R7 -->|"否"| W0{"本轮有抢占？<br/>running 数已达 max_num_seqs？<br/>token_budget == 0？"}
+    W0 -->|"任一成立"| OUT
+    W0 -->|"都不成立"| W1
+    subgraph WaitLoop["2. 遍历 waiting 队列（新请求 / 被抢占请求）"]
+        W1["peek 队头请求<br/>get_computed_blocks() 查 Prefix Cache"] --> W2["num_new_tokens = min(prompt - 已命中,<br/>token_budget, long_prefill_threshold)"]
+        W2 --> W3["allocate_slots() 分配 KV block<br/>需额外满足 watermark 余量"]
+        W3 -->|"失败：KV 不够"| OUT
+        W3 -->|"成功"| W4["status = RUNNING<br/>token_budget -= num_new_tokens<br/>移入 running"]
+        W4 --> W5{"waiting 非空 且<br/>预算 > 0 且 未达 max_num_seqs？"}
+        W5 -->|"是"| W1
+    end
+    W5 -->|"否"| OUT["生成 SchedulerOutput"]
+    classDef budget fill:#e8f1fb,stroke:#3a6ea5;
+    classDef kv fill:#fdf1e0,stroke:#c9812a;
+    classDef pre fill:#fbe4e4,stroke:#b94a48;
+    classDef done fill:#e6f4ea,stroke:#3c8c4f;
+    class S0,R1,R3,W2,W4 budget;
+    class R2,W3 kv;
+    class R4,R5 pre;
+    class OUT done;
+```
+
+两点在源码里容易被忽略、但对理解"公平性"很关键：
+
+* **running 优先于 waiting**。已经在跑的 Decode 请求先拿预算和 KV，新请求只能吃剩下的——这是保证 TPOT 平稳的前提；
+* **本轮一旦发生抢占，waiting 队列直接跳过**（`if not preempted_reqs` 才进入第二个循环）。因为抢占说明 KV Cache 已经紧张，再接纳新请求只会立刻触发下一次抢占。
+
 这里最值得注意的是：
 
 ```python
@@ -1064,6 +1108,20 @@ KV Cache Block 不够
              ▼                   ▼
           执行                  等待/抢占
 ```
+
+### 9. 另一个上限：`max_num_seqs`
+
+Token Budget 限制的是"本轮算多少 token"，但 Scheduler 还有第二个计算侧上限：`SchedulerConfig.max_num_seqs`（`Scheduler.__init__` 里赋给 `self.max_num_running_reqs`）。它限制的是**同时处于 running 的请求个数**：waiting 循环每次接纳新请求之前，都会先检查 `len(self.running) >= self.max_num_running_reqs`，达到就直接 `break`。
+
+两个上限卡住的是 Batch 的不同维度，哪一个先生效取决于 workload 形态：
+
+| 场景 | 配置 | running 请求构成 | 本轮 token 数 | 先碰到哪个上限 | 后果 |
+| --- | --- | --- | ---: | --- | --- |
+| Prefill 为主 | budget=2048, max_num_seqs=256 | 4 个新请求，Prompt 各 1000 | 2048 | **Token Budget**：前两个各拿 1000，第三个只拿 48（chunk），第四个本轮进不来 | running 只有 3 个，远未到 256；GPU 算力被打满 |
+| Decode 为主 | budget=2048, max_num_seqs=256 | 256 个请求都在 Decode，各 1 token | 256 | **max_num_seqs**：第 257 个 waiting 请求即使有 KV、预算还剩 1792 也进不来 | 预算只用了 12.5%，GPU 显著欠载（memory-bound） |
+| 混合 | budget=2048, max_num_seqs=256 | 200 个 Decode + 1 个 Prefill 1800 | 2000 | 都没碰到；再来一个 Prompt 300 的请求只能拿 48 | 典型 Mixed Batch，长 Prefill 被自然切成 chunk |
+
+从这张表可以看出，Decode 为主的在线服务往往是 `max_num_seqs` 而不是 Token Budget 在决定 Batch 大小——每个 Decode 请求只消耗 1 token 的预算，却占掉一个 running 名额，同时还长期占着 KV Cache。这也是为什么调大 `max_num_seqs` 通常要和 KV Cache 容量（`gpu_memory_utilization`、Block 数）一起考虑：名额放开了，但 KV 装不下，结果就是下一章要讲的抢占。
 
 ## 五、Mixed Batch：为什么 Prefill、Decode 与 Speculative 可以共存？
 
@@ -1454,6 +1512,34 @@ num_computed_tokens = 0
 
 > **抢占并不是把 Request 本身删除，而是释放它占用的 KV Cache，之后再重新计算。**
 
+把状态放到一起看，一个 Request 在 Scheduler 眼里的生命周期是一个很小的状态机（`vllm/v1/request.py` 的 `RequestStatus`）。注意 PREEMPTED 并不是一个独立的队列——它只是 waiting 队列里一种特殊的状态：被 `prepend_request` 放到队头，恢复时 `num_computed_tokens` 从 0（或 Prefix Cache 命中数）重新开始：
+
+```mermaid
+flowchart TB
+    NEW(("add_request()")) --> WAITING["WAITING<br/>在 waiting 队列排队<br/>num_computed_tokens = 0"]
+    WAITING -->|"waiting 循环：allocate_slots() 成功<br/>且未达 max_num_seqs"| RUNNING["RUNNING<br/>在 running 列表<br/>每轮拿 num_new_tokens"]
+    WAITING -->|"KV 不够 / 预算耗尽 / 名额已满"| WAITING
+    RUNNING -->|"running 循环：allocate_slots() 失败<br/>被选为牺牲者 _preempt_request()"| PREEMPTED["PREEMPTED<br/>KV block 已释放<br/>num_computed_tokens = 0<br/>放回 waiting 队头"]
+    PREEMPTED -->|"下一轮 waiting 循环重新接纳<br/>Prefix Cache 命中部分可跳过"| RUNNING
+    RUNNING -->|"生成 EOS / stop string"| FS["FINISHED_STOPPED"]
+    RUNNING -->|"达到 max_tokens 或 max_model_len"| FL["FINISHED_LENGTH_CAPPED"]
+    RUNNING -->|"客户端取消 abort"| FA["FINISHED_ABORTED"]
+    WAITING -->|"排队中被 abort"| FA
+    FS --> FREE(("释放 KV Cache"))
+    FL --> FREE
+    FA --> FREE
+    classDef wait fill:#fdf1e0,stroke:#c9812a;
+    classDef run fill:#e6f4ea,stroke:#3c8c4f;
+    classDef pre fill:#fbe4e4,stroke:#b94a48;
+    classDef fin fill:#ececec,stroke:#666;
+    class WAITING wait;
+    class RUNNING run;
+    class PREEMPTED pre;
+    class FS,FL,FA fin;
+```
+
+`RequestStatus` 是一个 `IntEnum`，`is_finished()` 的判断就是 `status > PREEMPTED`——所有终态（还包括 `FINISHED_ERROR`、`FINISHED_REPETITION` 等少见分支）都排在 PREEMPTED 之后。图中省略了 `WAITING_FOR_STRUCTURED_OUTPUT_GRAMMAR`、`WAITING_FOR_REMOTE_KVS` 等几个"仍在等待但暂不可调度"的子状态，它们在 waiting 循环里会被跳过并挂到 `skipped_waiting` 队列，对本文关注的 Batch 组成没有影响。
+
 
 ### 3. Recomputation vs Swapping
 
@@ -1578,6 +1664,34 @@ D → A → B → ...
 ```
 
 这样可以避免被抢占的 Request 长时间得不到恢复。
+
+把前面几节串起来，用一个具体的 step 序列看抢占、重新入队和 Recomputation 在时间上是怎样交错的（Block = 16 token，KV Cache 初始空闲 7 块，watermark = 0；A/B/C 已在 Decode，D 是新到请求，Prompt = 60 token）：
+
+```text
+P(n) = Prefill n token    D = Decode 1 token    × = 已被抢占，不在 running
+
+step│  A  │  B  │  C  │   D   │空闲块│ 这一轮发生了什么
+────┼─────┼─────┼─────┼───────┼─────┼─────────────────────────────────
+  1 │  D  │  D  │  D  │ P(60) │ 7→3 │ waiting 循环接纳 D，一次 Prefill 完
+    │     │     │     │       │     │ 占 4 块（60 token 落在第 4 块内）
+  2 │  D  │  D  │  D  │   D   │ 3→2 │ A 生成的 token 跨入新块，再占 1 块
+  3 │  D  │  D  │  D  │   ×   │ 2→4 │ B 跨块（2→1）；C 跨块时 allocate
+    │     │     │     │       │     │ 失败 → 牺牲 running 队尾的 D（LIFO）
+    │     │     │     │       │     │ D 释放 4 块（1→5），C 拿 1 块（→4）
+    │     │     │     │       │     │ 本轮有抢占，waiting 队列不再接纳
+  4 │  D  │  D  │  D  │ P(14) │ 4→0 │ D 在 waiting 队头被重新接纳：
+    │     │     │     │       │     │ 62 token 中前 48 命中 Prefix Cache
+    │     │     │     │       │     │ （3 个整块还在池里），只重算 14 个
+  5 │  D  │  D  │  D  │   D   │ 0→0 │ 四个请求都在 Decode；空闲为 0，
+    │     │     │     │       │     │ 下一个跨块就会再次触发抢占
+```
+
+几个值得注意的细节：
+
+* step 3 中真正"缺块"的是 C，但牺牲者是 D——FCFS 下 `self.running.pop()` 取的是最晚进入 running 的请求，与谁触发了失败无关；
+* step 3 抢占发生后，即使预算还剩很多、waiting 里还有别的新请求，第二个循环也不会执行（`if not preempted_reqs`）；
+* step 4 中 D 需要重算的是 60 个 Prompt token 加上 step 1、2 已经生成的 2 个 token，共 62 个；其中 3 个整块（48 token）的 hash 仍在 Block Pool 里可以命中（Prefix Cache 的细节见第五篇），所以 `num_new_tokens = 14` 而不是 62——这就是 §4 说的"Recomputation 不一定那么贵"；
+* step 5 空闲块归零，说明 step 4 的接纳其实已经把系统推到了悬崖边，下一节的 Watermark 正是为了在 step 4 就拒绝这次接纳。
 
 
 ### 6. Watermark：给 KV Cache 留一点安全余量

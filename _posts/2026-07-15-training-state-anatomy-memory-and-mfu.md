@@ -198,7 +198,38 @@ def num_bytes_per_parameter(data_parallel_size):
     return 18 if not args.use_distributed_optimizer else 6 + (12 / data_parallel_size)
 ```
 
-18 就是上一节的 2 + 4 + 12；`6 + 12/d` 是分布式优化器（ZeRO-1）下的每参数字节：bf16 参数 2 与 fp32 梯度 4 不切，fp32 主参数与两个矩 12 按 DP 度 $$d$$ 切。同一仓库 `docs/user-guide/features/dist_optimizer.md` 里的表格列出了三种精度组合：fp16 参数 + fp16 梯度 20 / $$4 + 16/d$$（fp16 下 Megatron 把主参数与梯度都放进优化器分片），bf16 参数 + fp32 梯度 18 / $$6 + 12/d$$，fp32 参数 + fp32 梯度 16 / $$8 + 8/d$$。这三行与本章的推导完全一致，是检验记账方法的一个好锚点。
+18 就是上一节的 2 + 4 + 12；`6 + 12/d` 是分布式优化器（ZeRO-1）下的每参数字节：bf16 参数 2 与 fp32 梯度 4 不切，fp32 主参数与两个矩 12 按 DP 度 $$d$$ 切。同一仓库 `docs/user-guide/features/dist_optimizer.md` 里的表格列出了三种精度组合：fp16 参数 + fp16 梯度 20 / $$4 + 16/d$$（fp16 下 Megatron 把主参数与梯度都放进优化器分片），bf16 参数 + fp32 梯度 18 / $$6 + 12/d$$，fp32 参数 + fp32 梯度 16 / $$8 + 8/d$$。这三行与本章的推导完全一致，是检验记账方法的一个好锚点。把四种组合按字节画成条，就能看出"不切的部分"与"按 $$d$$ 切的部分"各是哪几块：
+
+```text
+每格宽度与每参数字节数成正比；[ ] 内是分布式优化器 / ZeRO-1
+按 DP 度 d 切分的部分，[ ] 外的部分每张卡都完整保留。
+
+bf16 参数 + bf16 梯度（本篇的 16；ZeRO 论文的 2 + 2 + K，K = 12）
+┌────┬────┬────────┬────────┬────────┐
+│p16 │g16 │ master │ Adam m │ Adam v │
+└────┴────┴────────┴────────┴────────┘
+  2    2  [    4   +   4    +    4   ]   = 16   →  4 + 12/d
+
+bf16 参数 + fp32 梯度（Megatron 默认的 18：main_grad 是 fp32）
+┌────┬────────┬────────┬────────┬────────┐
+│p16 │  g32   │ master │ Adam m │ Adam v │
+└────┴────────┴────────┴────────┴────────┘
+  2      4    [    4   +   4    +    4   ]   = 18   →  6 + 12/d
+
+fp16 参数 + fp16 梯度（Megatron 的 20：主参数与主梯度都进优化器分片）
+┌────┬────┬────────┬────────┬────────┬────────┐
+│p16 │g16 │  g32   │ master │ Adam m │ Adam v │
+└────┴────┴────────┴────────┴────────┴────────┘
+  2    2  [    4   +   4    +    4   +   4    ]   = 20   →  4 + 16/d
+
+fp32 参数 + fp32 梯度（16：参数本身就是 fp32，没有主参数）
+┌────────┬────────┬────────┬────────┐
+│  p32   │  g32   │ Adam m │ Adam v │
+└────────┴────────┴────────┴────────┘
+    4        4    [   4    +    4   ]   = 16   →  8 + 8/d
+```
+
+四条里 Adam 的两个矩始终是 8 字节且始终可切；变化的只是梯度用几字节、主参数是否单独一份、以及 Megatron 在 fp16 下把 fp32 主梯度也放进分片。
 
 `report_theoretical_memory()` 在训练日志里把这个数与激活估算一起打印（`training.py` 的 `training_log()` 在第一次报告显存时调用它，随后 `report_memory()` 打印 `torch.cuda.memory_allocated()` 等实测值），理论与实测并排，是第三篇"对账"要用的工具。
 
@@ -245,7 +276,34 @@ $$
   每层每 token   11h + 19h + 4h = 34h，外加 5as        →  每层  sbh(34 + 5as/h)
 ```
 
-34 这个系数里，**24 是可以被张量并行切开的**（Q、K、V、PV 输出、GELU 前后的 MLP 中间态——按头或按列分布在 TP 卡上），**10 是切不开的**（两个 LayerNorm 的输入 4h、注意力与 MLP 的输入各 2h、两个 dropout mask 各 1h——每张 TP 卡上都是完整的），这是第二篇讲序列并行时 "10 + 24/t" 的来源。
+34 这个系数里，**24 是可以被张量并行切开的**（Q、K、V、PV 输出、GELU 前后的 MLP 中间态——按头或按列分布在 TP 卡上），**10 是切不开的**（两个 LayerNorm 的输入 4h、注意力与 MLP 的输入各 2h、两个 dropout mask 各 1h——每张 TP 卡上都是完整的），这是第二篇讲序列并行时 "10 + 24/t" 的来源。把这些被保留的张量标在一层的数据通路上（每个节点标的是**该算子为反向保留的输入/输出**，蓝色可被 TP 切开、橙色每张 TP 卡都完整保留）：
+
+```mermaid
+flowchart TB
+    subgraph attn["LayerNorm 1 + 注意力块：保留 13h + 5as"]
+        LN1["LayerNorm 1<br/>保留输入 2h"]
+        QKV["Q/K/V 投影<br/>保留输入 2h"]
+        SC["QKᵀ<br/>保留 Q、K 共 4h"]
+        SM["softmax + attn dropout<br/>保留 softmax 输出 2as、mask 1as、dropout 输出 2as"]
+        PV["PV → 输出投影<br/>保留 V 2h、输出投影的输入 2h"]
+        DO1["输出 dropout<br/>保留 mask 1h"]
+        LN1 --> QKV --> SC --> SM --> PV --> DO1
+    end
+    subgraph mlp["LayerNorm 2 + MLP 块：保留 21h"]
+        LN2["LayerNorm 2<br/>保留输入 2h"]
+        FC1["第一个线性层 h→4h<br/>保留输入 2h"]
+        GE["GELU → 第二个线性层 4h→h<br/>保留 GELU 输入 8h、第二个线性层的输入 8h"]
+        DO2["dropout<br/>保留 mask 1h"]
+        LN2 --> FC1 --> GE --> DO2
+    end
+    DO1 -- "残差相加" --> LN2
+    classDef tp fill:#dbeafe,stroke:#1d4ed8;
+    classDef full fill:#ffedd5,stroke:#c2410c;
+    class SC,SM,PV,GE tp;
+    class LN1,QKV,DO1,LN2,FC1,DO2 full;
+```
+
+橙色六项合计 $$2 + 2 + 1 + 2 + 2 + 1 = 10$$；蓝色四个节点里按 $$h$$ 计的项合计 $$4 + (2 + 2) + (8 + 8) = 24$$，softmax 一项就是分数矩阵的 $$5as$$（同样按头切开）。
 
 $$5as$$ 这一项与其他项性质不同：它随 $$s^2$$ 增长（乘回 $$sb$$ 后是 $$5as^2b$$），来自 softmax 输出、dropout mask 和 dropout 输出这三个 $$[b, a, s, s]$$ 的张量——注意力分数矩阵。当 $$s = 8192$$、$$a = 64$$、$$h = 8192$$ 时 $$5as/h = 320$$，是 34 的十倍：**不用 FlashAttention 的话，一层激活 90% 以上是分数矩阵**。
 
@@ -327,6 +385,28 @@ reserved    allocator 向驱动申请、尚未归还的字节（所有 segment �
 device used 驱动看到的本进程占用：reserved + context + NCCL + 其他库    torch.cuda.mem_get_info() 的差 / nvidia-smi
 ```
 
+三个数是层层包含的关系，哪些东西落在哪一层、哪些根本不经过 allocator，画出来是这样：
+
+```text
+┌─ 驱动看到的本进程占用：mem_get_info() 的差 / nvidia-smi ─────────────────┐
+│                                                                          │
+│  ┌─ CUDA context + 库 kernel ─┐  ┌─ NCCL buffer ─┐  cudaMalloc 直接分配  │
+│  │        0.5 - 1 GiB         │  │   1 - 3 GiB   │  不经 allocator       │
+│  └────────────────────────────┘  └───────────────┘  reserved 里看不到    │
+│                                                                          │
+│  ┌─ reserved：allocator 持有的全部 segment（memory_reserved()）───────┐  │
+│  │                                                                    │  │
+│  │  ┌─ allocated：活着的 block（memory_allocated()）───────────────┐  │  │
+│  │  │ 参数 │ 梯度 │ 优化器状态 │ 激活（前向涨、反向落）│ workspace │  │  │
+│  │  └──────────────────────────────────────────────────────────────┘  │  │
+│  │                                                                    │  │
+│  │  ┌─ 缓存的空闲 block ──────────┐  ┌─ 碎片 inactive_split_bytes ─┐  │  │
+│  │  │ 上个 step 释放的激活，等复用│  │ 相邻 block 在用，合不回去   │  │  │
+│  │  └─────────────────────────────┘  └─────────────────────────────┘  │  │
+│  └────────────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
 `torch.cuda.memory_stats()`（`torch/cuda/memory.py`）返回全部计数器，键的形式是 `"{stat}.{pool}.{current|peak|allocated|freed}"`：`allocated_bytes`、`reserved_bytes`、`active_bytes`、`inactive_split_bytes`（碎片：segment 里被切出、当前空闲但因为相邻 block 在用而无法合并的部分）、`requested_bytes`（用户实际请求的字节，与 `allocated_bytes` 的差是分配器的对齐与舍入开销）、`num_alloc_retries`（`cudaMalloc` 失败后释放缓存重试的次数——它不为零说明已经在 OOM 边缘）、`num_ooms`。Megatron 的 `training_log()` 在 `--log-memory-to-tensorboard` 时记录的就是其中的 `reserved_bytes.all.current`、`allocated_bytes.all.current`、`allocated_bytes.all.peak`。
 
 reserved 与 allocated 的差有两个来源。一是**缓存**：反向释放的激活 block 留在池里等下一个 step 复用，这是设计如此，不是浪费——但它意味着 reserved 在第一个 step 后就基本等于峰值 allocated 加上碎片。二是**碎片**：分配器把请求分成小池（≤ 1 MiB，`kSmallSize`，装在 2 MiB 的 segment 里，`kSmallBuffer`）与大池（大于 1 MiB，segment 至少 20 MiB，`large_segment_size` 默认 20971520，即原先的 `kLargeBuffer`；大于 10 MiB 的请求按 2 MiB 取整单独分配，`kMinLargeAlloc` / `kRoundLarge`；所有请求至少按 512 字节对齐，`kMinBlockSize`——这些常数在 `c10/core/AllocatorConfig.h`）。大池里不同大小的张量交替分配释放，会留下大量无法合并的空洞，典型的训练进程碎片在 reserved 的 5–15%。`PYTORCH_ALLOC_CONF`（2.13.0 推荐的通用名字，旧名 `PYTORCH_CUDA_ALLOC_CONF` 仍接受，见 `c10/core/AllocatorConfig.cpp`）的 `expandable_segments:True` 让 segment 可以通过虚拟地址映射按需扩展，把多个物理块拼成一个连续的虚拟区间，大幅降低碎片，是长序列、变长 batch 训练的常用设置；`garbage_collection_threshold` 与 `max_split_size_mb` 是另两个相关开关。
@@ -364,6 +444,33 @@ Megatron 的 `report_memory()`（`megatron/training/utils/common_utils.py`）在
 $$
 \text{FLOP/token} \approx 6N
 $$
+
+三个 GEMM 各自读什么、写什么，画出来也顺带解释了第四章"为什么每个线性层的输入要保留到反向"——wgrad 要用它：
+
+```mermaid
+flowchart TB
+    subgraph fwd["前向：1 个 GEMM，每参数 2 FLOP"]
+        Xin["输入 x #91;tokens, n#93;<br/>保留到反向（这就是激活）"]
+        W["权重 W #91;n, k#93;<br/>bf16 计算参数"]
+        Y["输出 y = x W #91;tokens, k#93;<br/>2nk FLOP / token"]
+        Xin --> Y
+        W --> Y
+    end
+    subgraph bwd["反向：2 个 GEMM，每参数 4 FLOP"]
+        dY["上游梯度 ∂y #91;tokens, k#93;"]
+        dX["dgrad：∂x = ∂y Wᵀ<br/>2nk FLOP / token，传给前一层"]
+        dW["wgrad：∂W = xᵀ ∂y<br/>2nk FLOP / token，累加进梯度 buffer"]
+        dY --> dX
+        dY --> dW
+    end
+    Y ~~~ dY
+    W -.->|"读 Wᵀ"| dX
+    Xin -.->|"读保留的 x"| dW
+    classDef act fill:#dbeafe,stroke:#1d4ed8;
+    classDef wt fill:#ffedd5,stroke:#c2410c;
+    class Xin act;
+    class W,dW wt;
+```
 
 严格地说，这里的参数数应是**参与 GEMM 的参数数** $$N_{\text{GEMM}}$$。输入 embedding 是查表，不算；输出层 $$[h, V]$$ 是一个真正的 GEMM，要算；LayerNorm、bias、RMSNorm 的权重参与的是逐元素运算，量级是 $$h$$ 而不是 $$h^2$$，忽略。对 Llama 3 70B，$$N_{\text{GEMM}} = 68.45\text{B（层）} + 1.05\text{B（输出层）} = 69.5\text{B}$$，与总参数量 $$N = 70.55\text{B}$$ 差 1.5%，所以工程上直接写 $$6N$$，本系列也不再区分。
 
@@ -455,7 +562,17 @@ $$
 
 选择性重计算（只重算注意力分数）多的只是前向那部分 $$QK^T$$ 与 $$PV$$：每层每 token $$2sh$$（因果），相对 $$6N + 6Lsh$$ 是很小的一项，HFU 只比 MFU 高一两个百分点。
 
-于是同一个训练任务，开全量重计算之后：step 时间变长（多算了 1/3 的前向）→ tokens/s 下降 → MFU **下降**；而 HFU 的分子也乘了 4/3，抵消了大部分下降，甚至可能上升（重计算的 GEMM 形状规整、kernel 效率高）。**HFU 上升不等于训练变快**。这是为什么读任何"利用率"数字时要先问它是哪一个。
+于是同一个训练任务，开全量重计算之后：step 时间变长（多算了 1/3 的前向）→ tokens/s 下降 → MFU **下降**；而 HFU 的分子也乘了 4/3，抵消了大部分下降，甚至可能上升（重计算的 GEMM 形状规整、kernel 效率高）。**HFU 上升不等于训练变快**。这是为什么读任何"利用率"数字时要先问它是哪一个。两个口径逐项对比：
+
+| | MFU | HFU |
+|---|---|---|
+| 分子里的 FLOP/token | 模型 FLOP：$$6N + 6Lsh$$，不含重计算 | 硬件实际执行的 FLOP：模型 FLOP + 重计算 |
+| 分母 | $$N_{\text{GPU}} \times$$ 峰值 FLOPS（dense 标称） | 同左 |
+| 依赖什么 | 只依赖模型与硬件，可跨系统比较 | 还依赖实现（重计算策略、kernel 融合） |
+| 开全量重计算后 | step 变慢 → tokens/s 下降 → **下降** | 分子 × 4/3，基本抵消，**不变或上升** |
+| 只开选择性重计算 / FlashAttention | 不变 | 比 MFU 高 1–2 个百分点 |
+| 能换算成什么 | 训练要跑多少天 | GPU 忙不忙 |
+| 谁在报告 | PaLM、Llama 3 Table 4、Megatron 的 TFLOP/s/GPU ÷ 峰值 | Narayanan et al. 2021 的 52%（含重计算那次前向） |
 
 ### 3. 同一个例子算两遍
 
