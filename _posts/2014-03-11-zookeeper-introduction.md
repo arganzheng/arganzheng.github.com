@@ -31,7 +31,7 @@ ZooKeeper允许分布式进程之间通过一个共享的层级命名空间来�
 
 ZooKeeper本身也是有集群化的。如下图：
 
-![ZooKeeper Cluster](/img/in-post/zookeeper-cluster.jpg)
+![ZooKeeper Cluster](/img/in-post/zookeeper-cluster.webp)
 
 客户端与单个服务端相连，它维持一个TCP连接，在其上发送请求，获得响应，获得监控事件和发送心跳检测。如果到服务端的TCP连接断了，客户端会连接另一个服务端。组成ZooKeeper服务的每个服务端都知道其它服务端的存在，它们维护一个服务端状态的内存镜像，连同事务日志和快照保存在持久化存储中，只要大部分服务端可用，ZooKeeper服务就可用。
 

@@ -425,7 +425,7 @@ public interface Query {
 #### 1、创建图谱
 
 以[Titan](http://s3.thinkaurelius.com/docs/titan/1.0.0/getting-started.html)的神图谱为例：
-![graph-of-the-gods](/img/in-post/titan-god-family-graph.png)
+![graph-of-the-gods](/img/in-post/titan-god-family-graph.webp)
 
 ```java
 /**

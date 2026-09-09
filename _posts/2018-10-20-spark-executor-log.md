@@ -16,15 +16,15 @@ catalog: true
 就进入到Spark作业监控的 WEB UI 界面，这个页面就是你 Spark 应用程序历史执行界面：例如`http://bj01-prd-hadoop001.arganzheng.lan:18088/history/application_1537448956025_2516133/jobs/`。到这个界面之后，可以点击 Executors 菜单，这时候你可以进入到 Spark 程序的 Executors 界面，里面列出所有Executor信息，以表格的形式展示，在表格中有 Logs 这列，里面就是你Spark应用程序运行的日志。
 
 
-![spark-web-ui-1.png](/img/in-post/spark-web-ui-1.png)
+![spark-web-ui-1.png](/img/in-post/spark-web-ui-1.webp)
 
-![spark-web-ui-2.png](/img/in-post/spark-web-ui-2.png)
+![spark-web-ui-2.png](/img/in-post/spark-web-ui-2.webp)
 
-![spark-web-ui-3.png](/img/in-post/spark-web-ui-3.png)
+![spark-web-ui-3.png](/img/in-post/spark-web-ui-3.webp)
 
 也可以从 driver 日志中直接拿到程序的 web UI 地址（Tracking URL），直接在driver日志中搜索“tracking URL“并将该URL在浏览器中打开:
 
-![spark-driver-log.png](/img/in-post/spark-driver-log.png)
+![spark-driver-log.png](/img/in-post/spark-driver-log.webp)
 
 
 ### 方法二: 直接查看 HDFS 上的日志文件

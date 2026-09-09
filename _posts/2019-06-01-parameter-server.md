@@ -34,7 +34,7 @@ Parameter Server 中文名称叫做参数服务器，是分布式机器学习框
 
 ### 架构
 
-![parameter-server-arch.jpg](/img/in-post/parameter-server-arch.jpg)
+![parameter-server-arch.jpg](/img/in-post/parameter-server-arch.webp)
 
 上图的 resource manager 在实际系统中往往是复用现有的资源管理系统，比如 yarn、mesos 或者 k8s；底下的 training data 毋庸置疑的需要类似GFS的分布式文件系统的支持，一般是 HDFS；剩下的部分就是参数服务器的核心组件了。
 
@@ -77,7 +77,7 @@ w.pull(R, dest)
 因此，异步控制在分布式机器学习系统中，是非常重要的功能之一。Parameter Server 一般会提供如下三个级别的异步控制协议： BSP（Bulk Synchronous Parallel），SSP（Stalness Synchronous Parallel） 和 ASP（Asynchronous Parallel）， 它们的同步限制依次放宽。为了追求更快的计算速度，算法可以选择更宽松的同步协议。
 
 
-![sync_controller.png](/img/in-post/sync_controller.png)
+![sync_controller.png](/img/in-post/sync_controller.webp)
 
 ####  1. BSP
 
@@ -108,7 +108,7 @@ Task之间完全不用相互等待，先完成的Task，继续下一轮的训练
 
 腾讯和北京大学联合开发并开源了一个基于参数服务器（Parameter Server）理念开发的高性能分布式机器学习平台，叫做 Angle。在这篇 [Angle的架构设计](https://github.com/Angel-ML/angel/blob/master/docs/overview/architecture.md) 文章中，比较详细的介绍了Angle 基于 PS 的架构：
 
-![ps-angel-architecture.png](/img/in-post/ps-angel-architecture.png)
+![ps-angel-architecture.png](/img/in-post/ps-angel-architecture.webp)
 
 它的架构设计，从整体可以分为3大模块：
 
@@ -139,7 +139,7 @@ Task之间完全不用相互等待，先完成的Task，继续下一轮的训练
 
 在这篇文章 [零距离观察蚂蚁+阿里中的大规模机器学习框架](https://yq.aliyun.com/articles/59941) 中，蚂蚁金服资深技术专家周俊比较详细的介绍了阿里巴巴的 Parameter Server 的架构。如下图所示：
 
-![alibaba-ps-arch-roles.jpg](/img/in-post/alibaba-ps-arch-roles.jpg)
+![alibaba-ps-arch-roles.jpg](/img/in-post/alibaba-ps-arch-roles.webp)
 
 框架的大致结构如上图所示，包括三大模块：Server Node、Worker Node 和 Coordinator，分别用于 模型分片存储、数据分片存储 和 总体流程控制。
 

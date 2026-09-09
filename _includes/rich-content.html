@@ -113,7 +113,7 @@
           });
         });
 
-        // Swapping <pre> for an <svg> changes the height of a slide, so reveal.js
+        // Swapping the pre block for an svg changes the height of a slide, so reveal.js
         // has to re-measure. `_layouts/slides.html` listens for this.
         renderQueue.then(function () {
           document.dispatchEvent(new CustomEvent('richcontent:rendered'));

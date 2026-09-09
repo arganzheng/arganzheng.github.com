@@ -220,8 +220,8 @@ score(q,d)  =
 
 我们知道ES(Lucene)主要是依靠倒排索引(Inverted Index)实现快速的检索。倒排索引的数据结构大概如下：
 
-![inverted-index](/img/in-post/inverted-index.jpg)
-![inverted-index-textposition](/img/in-post/inverted_index_textposition.jpg)
+![inverted-index](/img/in-post/inverted-index.webp)
+![inverted-index-textposition](/img/in-post/inverted_index_textposition.webp)
 
 假设我们需要按照某个字段排序，那么DB需要获取每一个匹配文档的那个字段的值。但是倒排索引只能给我们一大堆的docId，并没有排序字段的值。也就是说为了排序我们还需要正排的信息。如果能够把这个排序字段的值也“附加”在倒排索引中，那么可以省去这个获取正排信息的开销。
 

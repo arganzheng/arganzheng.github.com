@@ -55,7 +55,15 @@ Pages has `https_enforced` on.
   takes explicit slugs). `check-render.cjs` reads `SITE` / `CDP` from the
   environment and falls back to the browser skill's `ws` when there is no
   local one. Run the link check locally with `brew install lychee` and
-  `lychee --offline --root-dir $PWD/_site --include-fragments '_site/**/*.html'`.
+  `lychee --offline --root-dir $PWD/_site --include-fragments --exclude '/tags/?#' '_site/**/*.html'`
+  (`/tags/#x` anchors are excluded: lychee cannot check fragments on a
+  directory index). Gotcha: lychee skips `<pre>`/`<code>` content and treats an
+  unclosed `<pre>` *anywhere* — even inside a JS comment — as "rest of the
+  document is verbatim", silently checking nothing after it. Never write a
+  literal `<pre>` in inline script comments.
+- Images: `img/in-post/` is WebP (`tools/webp-images.py` converted the old
+  png/jpg in bulk and rewrote references; run it again for new large images,
+  `--apply` to write). Site-level `img/*.jpg` stay JPEG (og:image targets).
 - `.github/workflows/links.yml` (Mondays, or manual): external links, never
   blocking; opens/updates an issue labelled `dead-links`. Set the repo
   variable `DEAD_LINKS_ISSUE` to an issue number to keep updating one issue.

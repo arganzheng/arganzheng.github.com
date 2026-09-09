@@ -248,7 +248,7 @@ Consumer读消息也是从Leader读取，只有被commit过的消息（offset低
 
 Kafka Replication的数据流如下图所示：
 
-![kafka-replication-dataflow](/img/in-post/kafka-replication-dataflow.png)
+![kafka-replication-dataflow](/img/in-post/kafka-replication-dataflow.webp)
 
 关于这方面的内容比较多而且复杂，这里就不展开了，这篇文章写的很好，有兴趣的同学可以学习 [Kafka设计解析（二）：Kafka High Availability （上）](http://www.infoq.com/cn/articles/kafka-analysis-part-2)。
 
@@ -257,7 +257,7 @@ Kafka Replication的数据流如下图所示：
 
 下面这张图非常简单明了的显示kafka的所有游标（https://rongxinblog.wordpress.com/2016/07/29/kafka-high-watermark/）:
 
-![Kafka的各种游标](/img/in-post/kafka-offsets.png)
+![Kafka的各种游标](/img/in-post/kafka-offsets.webp)
 
 下面简单的说明一下：
 

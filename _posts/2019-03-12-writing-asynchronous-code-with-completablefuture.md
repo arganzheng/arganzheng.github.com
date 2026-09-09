@@ -559,7 +559,7 @@ Caused by: java.lang.RuntimeException: Oops!
 
 下面我们看一下怎样使用 CompletableFuture 构建和并发执行一个 DAG 任务：
 
-![call-tree-multistages.png](/img/in-post/call-tree-multistages.png)
+![call-tree-multistages.png](/img/in-post/call-tree-multistages.webp)
 
 如上图所示，我们将执行如下一系列操作:
 

@@ -17,7 +17,7 @@ catalog: true
 实战
 ----
 
-![Before-PS](/img/in-post/Before-PS.jpg)
+![Before-PS](/img/in-post/Before-PS.webp)
 
 步骤一：在通道中选择色斑比较明显的通道，如这里的green通道，复制该通道，得到green copy通道。
 
@@ -36,5 +36,5 @@ catalog: true
 
 效果图：
 
-![After-PS](/img/in-post/After-PS.jpg)
+![After-PS](/img/in-post/After-PS.webp)
 

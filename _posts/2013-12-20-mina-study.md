@@ -5,7 +5,7 @@ catalog: true
 tags: [Mina, NIO, Java, 网络编程]
 ---
 
-![mina](/img/in-post/mina.jpg)
+![mina](/img/in-post/mina.webp)
 
 
 Mina框架

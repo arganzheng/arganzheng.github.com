@@ -147,7 +147,7 @@ catalog: true
 
 **结论**
 
-最终状态还是弱了一些，事件序列会好一些，存储可以采用HBase这样的分布式存储系统，性能问题可以采用预聚合等方式解决。[Google Cloud Monitor](Introduction to the Cloud Monitoring API)就是采用这个这种方式的：
+最终状态还是弱了一些，事件序列会好一些，存储可以采用HBase这样的分布式存储系统，性能问题可以采用预聚合等方式解决。[Google Cloud Monitor](https://cloud.google.com/monitoring/api/v3)就是采用这个这种方式的：
 
 > The Google Cloud Monitoring API lets you access monitoring data for Google Cloud services. The data is organized as metrics and stored as data points that represent information at a specific time or over a specific time period. Examples include the current CPU utilization of your virtual machine, the number of requests received by you web server, or custom metrics you define yourself. A list of data points measured at successive times is called a time series.
 

@@ -126,7 +126,7 @@ x and y refer to exactly the same logger object.
 
 看一下下面的例子就知道了：
 
-![Log4j Appender Additivity Example](/img/in-post/log4j-appender-additivity-example.jpg)
+![Log4j Appender Additivity Example](/img/in-post/log4j-appender-additivity-example.webp)
 
 **TIPS** 一般来说一条日志，在同一种类型的appender（比如文件）只需要记录一次就可以了。所以，建议对同一种类型的appender设置`additivity=false`。
 

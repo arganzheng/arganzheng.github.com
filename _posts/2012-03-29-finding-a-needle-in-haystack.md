@@ -6,7 +6,7 @@ catalog: true
 
 最近在学习分布式存储和数据分析相关的东西，特别是看了Facebook的这篇论文：[Finding a needle in Haystack: Facebook’s photo storage][haystack]，感觉特别与阿里巴巴现在的现状类似。阿里现在的图片存储正处于Facebook的原始阶段——CDN(中美有各自的CDN) ==> imageServer(apache+squid) ==> NFS共享存储。
 
-![NFS-based-Desgin](/img/in-post/haystack-nfs-based-desgin.png)
+![NFS-based-Desgin](/img/in-post/haystack-nfs-based-desgin.webp)
 
 **说明** CDN的作用
 
@@ -52,22 +52,22 @@ that photo.
 
 下面是Haystack的存储结构设计：
 
-![Haystatck object](/img/in-post/haystack-object.png)
+![Haystatck object](/img/in-post/haystack-object.webp)
 
 其中index各个字段含义如下：
 
-![Haystack index](/img/in-post/haystack-index.png)
+![Haystack index](/img/in-post/haystack-index.webp)
 
 所有的元数据字段如下：
 
-![Haystack metadata](/img/in-post/haystack-metadata.png)
+![Haystack metadata](/img/in-post/haystack-metadata.webp)
 
 可以看到Haystack的元数据真的是非常的少，除了位置信息（key, offset, size）之外，就是一个反正攻击的cookies和逻辑删除的flags，还有完整校验的checksum，还有数据恢复用的Magic Number。原来操作系统级别的metadata，像user, group, mode, atime, ctime等都不保存。所以是非常利于缓存和索引的。
 
 
 整个Haystack架构如下：
 
-![Haystatck object](/img/in-post/haystack-serving-a-photo.png)
+![Haystatck object](/img/in-post/haystack-serving-a-photo.webp)
 
 可以看到包含如下几个组件：
 

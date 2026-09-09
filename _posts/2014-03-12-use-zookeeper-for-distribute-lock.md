@@ -66,7 +66,7 @@ ZooKeeper中还有一种名为临时节点的节点，临时节点由某个客�
 
 具体算法流程如下图所示:
 
-![利用临时顺序节点实现共享锁](/img/in-post/zk-for-distribute-lock-2.png)
+![利用临时顺序节点实现共享锁](/img/in-post/zk-for-distribute-lock-2.webp)
 
 
 使用上述算法进行测试的的结果如下表所示：
@@ -103,7 +103,7 @@ ZK的临时顺序节点本质上就是一种按照创建顺序排队的机制。
 
 下面这个图很形象的描述了这个过程：
 
-![ZK实现选主](/img/in-post/Zookeeper-Leader-Election.jpg)
+![ZK实现选主](/img/in-post/Zookeeper-Leader-Election.webp)
 
 每一个参与的client都主要做如下事情：
 

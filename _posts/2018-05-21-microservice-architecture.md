@@ -165,7 +165,7 @@ Service Mesh有如下几个特点：
 
 Service Mesh的架构如下图所示：
 
-![service-mesh-arch](/img/in-post/service-mesh-arch.png)
+![service-mesh-arch](/img/in-post/service-mesh-arch-png.webp)
 
 Service Mesh作为Sidebar运行，对应用程序来说是透明，所有应用程序间的流量都会通过它，所以对应用程序流量的控制都可以在Service Mesh中实现。
 
@@ -243,7 +243,7 @@ Istio服务网格逻辑上分为数据面板和控制面板：
 
 下图为Istio的架构设计图，主要包括了Envoy、Pilot、Mixer和Istio-Auth等。 
 
-![istio-arch](/img/in-post/istio-arch.jpg)
+![istio-arch](/img/in-post/istio-arch.webp)
 
 * Envoy: 扮演Sidecar的功能，协调服务网格中所有服务的出入站流量，并提供服务发现、负载均衡、限流熔断等能力，还可以收集与流量相关的性能指标。
 * Pilot: 负责部署在Service Mesh中的Envoy实例的生命周期管理。本质上是负责流量管理和控制，将流量和基础设施扩展解耦，这是Istio的核心。可以把Pilot看做是管理Sidecar的Sidecar, 但是这个特殊的Sidacar并不承载任何业务流量。Pilot让运维人员通过Pilot指定它们希望流量遵循什么规则，而不是哪些特定的pod/VM应该接收流量。有了Pilot这个组件，我们可以非常容易的实现 A/B 测试和金丝雀Canary测试。
@@ -258,7 +258,7 @@ Conduit各方面的设计理念与Istio非常类似，作者使用Rust语言重�
 
 Conduit service mesh也是由数据面板和控制面板组成。数据面板承载应用实际的网络流量。控制面板驱动数据面板，并对外提供北向接口。
 
-![conduit-arch](/img/in-post/conduit-arch.png)
+![conduit-arch](/img/in-post/conduit-arch.webp)
 
 其中控制面板 (control plane) 主要由下面四个组件构成:
 
@@ -271,7 +271,7 @@ Conduit service mesh也是由数据面板和控制面板组成。数据面板承
 
 最后，Conduit 还提供了一个本地命令行工具 (CLI)，用于跟控制面板和数据面板交互。和一个 Dashboard，用于服务监控和治理。可以通过 `linkerd dashboard` 命令启动。
 
-![conduit-stat](/img/in-post/conduit-stat.png)
+![conduit-stat](/img/in-post/conduit-stat.webp)
 
 说明：Conduit 后面合并到 Linkerd 2.0，因此本质上 Linkerd 2.0 = Conduit。
 
@@ -284,7 +284,7 @@ Linkerd 1.x和 Envoy 像是分布式的 Sidebar，多个类似 Linkerd 1.x 和 E
 
 而 Istio 和 Conduit (Linkerd 2.x) 则是站在了一个更高的角度，它将Service Mesh分为了Data Plane和Control Plane。Data Plane负责微服务间的所有网络通信，而Control Plane负责管理Data Plane Proxy:
 
-![service-mesh-arch](/img/in-post/service-mesh-arch.jpg)
+![service-mesh-arch](/img/in-post/service-mesh-arch.webp)
 
 而且Istio和Conduit引入了Kubernetes，这也弥合了应用调度框架与Service Mesh之间的空隙。
 
@@ -312,13 +312,13 @@ Serverless 的意思并不是无服务器，而是去除有关对服务器运行
 
 这就是为什么有了 Linkerd 和 Envoy 之后，还会进一步进化出 Istio 和 Conduit。它们相对于老的 serive mesh 框架最大的特点就是基于 Kubernetes 设计，补足了Kubernetes在微服务间服务通讯上的短板。虽然Dubbo、Spring Cloud等都是成熟的微服务框架，但是它们或多或少都会和具体语言或应用场景绑定，并只解决了微服务Dev层面的问题。若想解决Ops问题，它们还需和诸如[Cloud Foundry](https://www.cloudfoundry.org/)、[Mesos](http://mesos.apache.org/)、或[Kubernetes](https://kubernetes.io/)这类资源调度框架做结合：
 
-![sevicemesh-with-k8s](/img/in-post/sevicemesh-with-k8s.png)
+![sevicemesh-with-k8s](/img/in-post/sevicemesh-with-k8s.webp)
 
 Kubernetes本身就是一个和开发语言无关的、通用的容器管理平台，它可以支持运行云原生和传统的容器化应用。并且它覆盖了微服务的Dev和Ops阶段，结合Service Mesh，它可以为用户提供完整端到端的微服务体验。
 
 因此我们有理由推测，未来的微服务架构和技术栈可能是如下形式:
 
-![msa-stack](/img/in-post/msa-stack.jpg)
+![msa-stack](/img/in-post/msa-stack.webp)
 
 云平台(或者自建机房) 为微服务提供了资源能力（计算、存储和网络等），容器 作为最小工作单元被 Kubernetes 调度和编排，Service Mesh 管理微服务的服务通信，最后通过 API Gateway 向外暴露微服务的业务接口。
 

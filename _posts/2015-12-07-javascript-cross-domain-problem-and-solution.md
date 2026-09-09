@@ -160,7 +160,7 @@ WebSocket是一个基于TCP的协议，它提供了一种建立在TCP链接之�
 
 #### 实现
 
-![WebSockets](/img/in-post/websocket.png)
+![WebSockets](/img/in-post/websocket.webp)
 
 可以看到，在双向通信之前，WebSocket需要先握手建立持久链接。这个握手协议是建立在HTTP协议之上的：
 

@@ -258,7 +258,7 @@ struct block_device {
 };
 ```
 
-![blockSubsystem](/img/in-post/blockSubsystem.jpg "blockSubsystem")
+![blockSubsystem](/img/in-post/blockSubsystem.webp "blockSubsystem")
 
 《UTLK, 3th》Figure 14-3. Linking the block device descriptors with the other structures of the block subsystem
 

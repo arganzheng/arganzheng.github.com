@@ -222,7 +222,7 @@ stdout_logfile=/home/jhli/wide-and-deep/tensorflow.log
 
 supervisor还提供了一个可视化管理界面，比如上面的配置，可以在 `http://10.21.7.1:8001/` 进行访问查看，界面效果大致如下所示：
 
-![Supervisor管理界面](/img/in-post/supervisor-web.png)
+![Supervisor管理界面](/img/in-post/supervisor-web.webp)
 
 如果启动之后新增或者更新配置，那么可以执行这个命令加载：
 

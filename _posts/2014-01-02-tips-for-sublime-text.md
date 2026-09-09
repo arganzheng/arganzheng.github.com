@@ -40,7 +40,7 @@ On OS X, go to “Sublime Text 2 » Preferences”.
     
 1. fileName     ## Go To File
 2. [fileName]@methodName    ## Go To method of file，if fileName为空，表示当前文件，等效于⌘r。
-3. [fileName]:lineNumber    ## Go To line number of file, if fileName为空，表示当期文件，等效于Ctrl-g。
+3. `[fileName]:lineNumber`    ## Go To line number of file, if fileName为空，表示当期文件，等效于Ctrl-g。
 
 ### Favorite Plugins
 

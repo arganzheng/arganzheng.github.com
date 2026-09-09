@@ -64,7 +64,7 @@ Segmentation fault (core dumped)
 
 果然屡试不爽。看core堆栈信息也非常莫名其妙：
 
-![test core dump.png](/img/in-post/test-core.png)
+![test core dump.png](/img/in-post/test-core.webp)
 
 奇怪的是把返回值改成int就没有问题。只有string有问题。
 

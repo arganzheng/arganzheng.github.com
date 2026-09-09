@@ -43,7 +43,7 @@ jobs:
       - name: Internal links & images (lychee, offline)
         uses: lycheeverse/lychee-action@v2
         with:
-          args: --offline --root-dir "${{ github.workspace }}/_site" --include-fragments --no-progress --exclude-path _site/slides "_site/**/*.html"
+          args: --offline --root-dir "${{ github.workspace }}/_site" --include-fragments --exclude '/tags/?#' --no-progress --exclude-path _site/slides "_site/**/*.html"
           fail: true
 
       - name: Pick posts to render

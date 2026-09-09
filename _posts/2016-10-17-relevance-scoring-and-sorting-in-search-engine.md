@@ -134,7 +134,7 @@ The vector space model provides a way of comparing a multiterm query against a d
 
 现在 文档和query都以向量的形式表示在同一个向量空间，同一向量空间中两个向量的相识度其实就是他们之间的角度(angle between them)，角度越小越相似。用[余弦相似性](http://en.wikipedia.org/wiki/Cosine_similarity)就可以简单的解决这个问题，视觉效果如下图所示：
 
-![elas_17in02.png]((/img/in-post/elas_17in02.png)
+![elas_17in02.png]((/img/in-post/elas_17in02.webp)
 
 
 **TIPS** 
@@ -189,7 +189,7 @@ TF/IDF算法，包含以下三个因子：
 5. [Optimizing Search Results in Elasticsearch with Scoring and Boosting](https://qbox.io/blog/optimizing-search-results-in-elasticsearch-with-scoring-and-boosting)
 6. [Advanced Scoring in elasticsearch](https://jontai.me/blog/2013/01/advanced-scoring-in-elasticsearch/)
 7. [How to Implement a Search Engine Part 1: Create Index](http://www.ardendertat.com/2011/05/30/how-to-implement-a-search-engine-part-1-create-index/)
-8. [http://www.ruanyifeng.com/blog/2013/03/tf-idf.html](TF-IDF与余弦相似性的应用（一）：自动提取关键词)
+8. [TF-IDF与余弦相似性的应用（一）：自动提取关键词](http://www.ruanyifeng.com/blog/2013/03/tf-idf.html)
 9. [TF-IDF与余弦相似性的应用（二）：找出相似文章](http://www.ruanyifeng.com/blog/2013/03/cosine_similarity.html)
 10. [BM25 The Next Generation of Lucene Relevance](http://opensourceconnections.com/blog/2015/10/16/bm25-the-next-generation-of-lucene-relevation/)
 

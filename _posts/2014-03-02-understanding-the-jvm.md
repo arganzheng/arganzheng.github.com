@@ -9,7 +9,7 @@ tags: [Java, JVM]
 Java内存区域
 -----------
 
-![JVM的体系结构](/img/in-post/jvm.png)
+![JVM的体系结构](/img/in-post/jvm.webp)
 
 
 1. 程序计数器
@@ -187,24 +187,24 @@ JAVA_OPTS="
 
 #### JVM的分代内存布局
 
-![JVM的分代内存布局](/img/in-post/jvm-gc.png)
+![JVM的分代内存布局](/img/in-post/jvm-gc.webp)
 
 #### 新生代的GC
 
-![新生代的GC](/img/in-post/gc-young.png)
+![新生代的GC](/img/in-post/gc-young.webp)
 
 #### 老年代的GC
 
-![老年代的GC](/img/in-post/gc-old.png)
+![老年代的GC](/img/in-post/gc-old.webp)
 
 #### 各种GC行为比较
 
-![各种GC行为比较](/img/in-post/gc-comparison.png)
+![各种GC行为比较](/img/in-post/gc-comparison.webp)
 
 
 #### GC算法的选择
 
-![GC算法的选择](/img/in-post/gc-selection.png)
+![GC算法的选择](/img/in-post/gc-selection.webp)
 
 **说明** 各个版本的默认GC策略
 
@@ -356,11 +356,11 @@ Arthas 是Alibaba开源的Java诊断工具，功能强大，简单易用。
 2. 扩展类加载器(`Extension ClassLoader`)：这个ClassLoader由`sun.misc.Launcher$ExtClassLoader`实现，它负责加载`$JAVAHOME/lib/ext`目录中的，或者被`java.ext.dirs`系统变量所指定的路径中的所有类库，开发者可以直接使用扩展类加载器。
 3. 应用程序类加载器(`Application ClassLoader`)：这个类加载器由`sun.misc.Launcher$AppClassLoader`来实现。由于这个类加载器是`ClassLoader.getSystemClassLoader()`方法的返回值，所以一般也称之为系统类加载器(`SystemClassLoader`)。它负责加载用户类路径(通过`$classpath`环境变量指定)上所指定的类库，开发者可以直接使用这个类加载器，如果应用程序中没有自定义过自己的类加载器，一般情况下这个就是程序中默认的类加载器。
 
-![各种类加载器](/img/in-post/classloader2.png)
+![各种类加载器](/img/in-post/classloader2.webp)
 
 我们的应用程序都是由这三种类加载器相互配合进行加载的，如果有必要，还可以加入自己定义的类加载器。这些类加载器之间的关系一般会如下图所示：
 
-![类加载器双亲委派模型](/img/in-post/classloader.png)
+![类加载器双亲委派模型](/img/in-post/classloader.webp)
 
 即所谓的双亲委派模型(Parents Delegation Model)。注意，这里虽有看起来像是继承关系，其实是通过组合关系来复用父类加载器的代码。
     

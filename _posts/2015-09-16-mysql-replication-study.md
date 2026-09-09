@@ -11,7 +11,7 @@ catalog: true
 
 如下图所示：
 
-![MySQL主从同步原理图](/img/in-post/mysql-replication.jpg)
+![MySQL主从同步原理图](/img/in-post/mysql-replication.webp)
 
 1. Master将binlog推送给每个连接上来的slave
 2. Slave的IO线程将Master发送过来的binlog写入到本地的Relay log日志文件

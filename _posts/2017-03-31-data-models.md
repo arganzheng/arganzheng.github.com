@@ -30,7 +30,7 @@ catalog: true
 * Graph Databases
 	* Neo4j
 	* Graph Engine (Microsoft)
-	* [Titan](titan.thinkaurelius.com) => [JanusGraph](http://janusgraph.org/)
+	* [Titan](http://titan.thinkaurelius.com) => [JanusGraph](http://janusgraph.org/)
 	* Cayley
 	* ArangoDB
 	* OrientDB

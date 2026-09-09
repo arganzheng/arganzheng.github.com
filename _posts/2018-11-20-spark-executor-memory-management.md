@@ -51,7 +51,7 @@ Spark 1.6之后引入了统一内存管理，包括了堆内内存 (On-heap Memo
 
 默认情况下，Spark 仅仅使用了堆内内存。Spark 对堆内内存的管理是一种逻辑上的“规划式”的管理，Executor 端的堆内内存区域在逻辑上被划分为以下四个区域: 
 
-![spark-memory-overview](/img/in-post/spark-memory-overview.jpg)
+![spark-memory-overview](/img/in-post/spark-memory-overview.webp)
 
 1. 执行内存 (Execution Memory) : 主要用于存放 Shuffle、Join、Sort、Aggregation 等计算过程中的临时数据；
 2. 存储内存 (Storage Memory) : 主要用于存储 spark 的 cache 数据，例如RDD的缓存、unroll数据；
@@ -60,7 +60,7 @@ Spark 1.6之后引入了统一内存管理，包括了堆内内存 (On-heap Memo
 
 下面的图对这个四个内存区域的分配比例做了详细的描述: 
 
-![spark-in-heap-memory-overview](/img/in-post/spark-in-heap-memory-overview.png)
+![spark-in-heap-memory-overview](/img/in-post/spark-in-heap-memory-overview.webp)
 
 
 1、预留内存 (Reserved Memory) 
@@ -98,7 +98,7 @@ Spark 1.6 开始引入了 Off-heap memory (详见SPARK-11389)。这种模式不�
 
 如果堆外内存被启用，那么 Executor 内将同时存在堆内和堆外内存，两者的使用互补影响，这个时候 Executor 中的 Execution 内存是堆内的 Execution 内存和堆外的 Execution 内存之和，同理，Storage 内存也一样。其内存分布如下图所示：
 
-![spark-off-heap-memory-overview](/img/in-post/spark-off-heap-memory-overview.png)
+![spark-off-heap-memory-overview](/img/in-post/spark-off-heap-memory-overview.webp)
 
 相比堆内内存，堆外内存只区分 Execution 内存和 Storage 内存：
 
@@ -119,7 +119,7 @@ Spark 1.6 开始引入了 Off-heap memory (详见SPARK-11389)。这种模式不�
 
 统一内存管理机制，与静态内存管理最大的区别在于存储内存和执行内存共享同一块空间，可以动态占用对方的空闲区域：
 
-![spark-memory-eviction](/img/in-post/spark-memory-eviction.png)
+![spark-memory-eviction](/img/in-post/spark-memory-eviction.webp)
 
 其中最重要的优化在于动态占用机制，其规则如下：
 
@@ -174,7 +174,7 @@ C = spark.task.cpus
 
 如果考虑堆外内存则大概是如下结构：
 
-![Executor堆内和堆外内存示意图](/img/in-post/spark-executor-memory-logic-2.png)
+![Executor堆内和堆外内存示意图](/img/in-post/spark-executor-memory-logic-2.webp)
 
 
 ### 一个示例
@@ -187,7 +187,7 @@ C = spark.task.cpus
 
 由于没有设置 `spark.memory.fraction` 和 `spark.memory.storageFraction` 参数，我们可以看到 Spark UI 关于 Storage Memory 的显示如下：
 
-![spark-web-ui-storage-memory](/img/in-post/spark-web-ui-storage-memory.png)
+![spark-web-ui-storage-memory](/img/in-post/spark-web-ui-storage-memory.webp)
 
 上图很清楚地看到 Storage Memory 的可用内存是 10.1GB，这个数是咋来的呢？根据前面的规则，我们可以得出以下的计算：
 
@@ -275,7 +275,7 @@ spark.memory.offHeap.size       10737418240
 
 从上面可以看出，堆外内存为 10GB，现在 Spark UI 上面显示的 Storage Memory 可用内存为 20.9GB，如下：
 
-![spark-web-ui-storage-memory-2](/img/in-post/spark-web-ui-storage-memory-2.png)
+![spark-web-ui-storage-memory-2](/img/in-post/spark-web-ui-storage-memory-2.webp)
 
 其实 Spark UI 上面显示的 Storage Memory 可用内存等于堆内内存和堆外内存之和，计算公式如下：
 
@@ -323,7 +323,7 @@ Max executor peak JVM used memory : 6.6 GB
 Suggested spark.executor.memory : 7 GB 
 ```
 
-![spark-executor-jvm-userd-memory-heuristic](/img/in-post/spark-executor-jvm-used-memory-heuristic.jpg)
+![spark-executor-jvm-userd-memory-heuristic](/img/in-post/spark-executor-jvm-used-memory-heuristic.webp)
 
 #### 2. Executor Unified Memory Heuristic 
 
@@ -345,7 +345,7 @@ Max peak unified memory : 1.2 GB
 Suggested spark.memory.fraction : 0.2
 ```
 
-![spark-executor-jvm-unified-memory-heuristic](/img/in-post/spark-executor-jvm-unified-memory-heuristic.jpg)
+![spark-executor-jvm-unified-memory-heuristic](/img/in-post/spark-executor-jvm-unified-memory-heuristic.webp)
 
 
 #### 3. Executor OOM类错误 （错误代码 137、143等）
@@ -407,7 +407,7 @@ Data Skew 是指任务间处理的数据量存大较大的差异。
 
 解决方案: 同 3。
 
-![spark-execution-memory-spill-heuristic](/img/in-post/spark-execution-memory-spill-heuristic.jpg)
+![spark-execution-memory-spill-heuristic](/img/in-post/spark-execution-memory-spill-heuristic.webp)
 
 
 #### 4. Executor GC Heuristic

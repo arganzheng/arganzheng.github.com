@@ -608,4 +608,4 @@ SimpleTriggerImpl也是类似，但是相对复杂一下。这里就不展开了
 参考文档
 -------
 
-1. [http://www.nurkiewicz.com/2012/04/quartz-scheduler-misfire-instructions.html](Quartz scheduler misfire instructions explained)
+1. [Quartz scheduler misfire instructions explained](http://www.nurkiewicz.com/2012/04/quartz-scheduler-misfire-instructions.html)

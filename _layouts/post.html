@@ -10,7 +10,7 @@ layout: default
             <small class="text-muted">{% include post-meta.html %}</small>
             <div>
                 {% for tag in page.tags %}
-                <a href="{{ site.baseurl }}/tags#{{ tag }}" title="{{ tag }}"><span class="label label-primary">{{ tag }}<span></a>
+                <a href="{{ site.baseurl }}/tags/#{{ tag }}" title="{{ tag }}"><span class="label label-primary">{{ tag }}<span></a>
                 {% endfor %}
             </div>
         </div>

@@ -8,11 +8,11 @@ tags: [puppeteer, chrome-headless, crawler]
 
 最近 [国家企业信用信息公示系统](http://gd.gsxt.gov.cn/index.html) 的验证码又升级了。之前是 点按后滑动拼图方式:
 
-![点按拖动拼图方式](/img/in-post/geetest-v3-2.png)
+![点按拖动拼图方式](/img/in-post/geetest-v3-2.webp)
 
 解决方案虽然麻烦，但是偏向于工程架构方面，没有什么算法的东东：
 
-![点按拖动拼图方式解决方案](/img/in-post/geetest-v3-2-solution.png)
+![点按拖动拼图方式解决方案](/img/in-post/geetest-v3-2-solution.webp)
 
 但是最近升级之后新增了一种验证码模式——点按后顺序选字方式：
 
@@ -22,7 +22,7 @@ tags: [puppeteer, chrome-headless, crawler]
 
 但是这个验证码要 进入到首页在搜索框输入文字点击搜索按钮 才会出现:
 
-![国家企业信用信息公示系统点按拖动拼图验证](/img/in-post/geetest-v3-3-gsxt.png)
+![国家企业信用信息公示系统点按拖动拼图验证](/img/in-post/geetest-v3-3-gsxt.webp)
 
 所以我们要能够模拟用户请求进入到首页在搜索框输入文字然后点击搜索按钮，将弹出的验证码图片保存下来。
 

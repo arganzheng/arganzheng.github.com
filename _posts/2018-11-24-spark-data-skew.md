@@ -180,7 +180,7 @@ dataFrame 和 sparkSql 可以设置 `spark.sql.shuffle.partitions=[num_tasks]` �
 
 通过 Spark 的 Broadcast 机制，将 Reduce 端 Join 转化为 Map 端 Join，这意味着 Spark 现在不需要跨节点做 shuffle 而是直接通过本地文件进行 join，从而完全消除 Shuffle 带来的数据倾斜。
 
-![spark-data-skew-mapjoin](/img/in-post/spark-data-skew-mapjoin.png)
+![spark-data-skew-mapjoin](/img/in-post/spark-data-skew-mapjoin.webp)
 
 
 ```python

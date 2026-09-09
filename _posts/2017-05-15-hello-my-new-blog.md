@@ -16,16 +16,16 @@ tags: [生活, jekyll, 博客]
 
 然后就断断续续在上面写技术博客，一直到最近，由于原来的域名忘记续费过期了，上Godaddy上想重新购买发现居然被人注册了。这确实有点吃惊，因为这个域名 `arganzheng.me` 是我的昵称加姓氏的，理论上除了暗恋我的人不会购买这样的域名。不过谷歌了一下，发现经过我这五年的原创深耕，我的博客每天的独立用户居然达到上千个，估计每天广告收入可以达到：8.4$：
 
-![old-blog-domain-value](/img/in-post/old-blog-domain-value.jpeg)
+![old-blog-domain-value](/img/in-post/old-blog-domain-value.webp)
 
 我才知道原来我的博客还挺受欢迎的。难怪我的博客域名失效，最早得到反馈的是博客的读者们[得意]：
 
-![old-blog-remind](/img/in-post/old-blog-remind1.jpeg)
-![old-blog-remind](/img/in-post/old-blog-remind2.jpeg)
+![old-blog-remind](/img/in-post/old-blog-remind1.webp)
+![old-blog-remind](/img/in-post/old-blog-remind2.webp)
 
 老的域名回购费用太高，干脆重新注册了一个域名 `arganzheng.life`。然后想，这么多粉丝关注我的博客，原来的博客样式确实有点过于简单，而且基本都是技术文章，干脆趁这个机会，重新把博客改版，搞成一个生活+技术的博客。花了几天时间终于搞出了现在的模样。大家可以对比一下之前的博客，是不是感觉好很多：
 
-![old-blog](/img/in-post/old-blog.png)
+![old-blog](/img/in-post/old-blog.webp)
 
 然后有了我的博客上的第一篇生活类文章:)
 

@@ -43,16 +43,16 @@ Single Sign On,单点登录。有统一的用户名和密码验证中心为各�
 
 在Kerberos体系中，包含三方四角色。三方是指客户端，鉴权服务器，与业务服务器。四种角色是指鉴权服务器可以分为AS（Authentication Server）和TGS(Ticket-Granting Server)两个角色。如下图所示：
 
-![Kerberos体系三方四角色交互](/img/in-post/kerberos-login.jpg)
+![Kerberos体系三方四角色交互](/img/in-post/kerberos-login.webp)
 
 在Kerberos流程中，在登录时，首先需要提交TGTGT到AS进行密码验证，如果密码正确则能够得到GTK_TGTGT。此时生成GTK_TGT派发TGT，并使用GTK_TGTGT加密后返回客户端。当客户端收到TGT后，通过TGS换取相应的业务小票ST去访问业务服务器。
 
 具体流程见下面：
 
-![kerberos-login-step-1](/img/in-post/kerberos-login-step-1.jpg)
-![kerberos-login-step-1](/img/in-post/kerberos-login-step-2.jpg)
-![kerberos-login-step-1](/img/in-post/kerberos-login-step-3.jpg)
-![kerberos-login-step-1](/img/in-post/kerberos-login-step-4.jpg)
+![kerberos-login-step-1](/img/in-post/kerberos-login-step-1.webp)
+![kerberos-login-step-1](/img/in-post/kerberos-login-step-2.webp)
+![kerberos-login-step-1](/img/in-post/kerberos-login-step-3.webp)
+![kerberos-login-step-1](/img/in-post/kerberos-login-step-4.webp)
 
 
 **TIPS** 
@@ -79,7 +79,7 @@ Wtlogin是使用对称加密的方式保证通信信道以及账户安全。在�
 
 登录过程中所涉及到的密钥使用情况，如下图所示:
 
-![登录加密信道中密钥的使用](/img/in-post/kerberos-keys.jpg)
+![登录加密信道中密钥的使用](/img/in-post/kerberos-keys.webp)
 
 登录的第一条命令，客户端使用密码通过运算得到的密钥加密的TGTGT进行登录，此时只有AS服务器有用户的密码信息，可以解开得到GTK_TGTGT，并且使用GTK_TGTGT加密返回客户端的数据。
 

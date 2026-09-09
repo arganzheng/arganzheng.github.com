@@ -100,7 +100,7 @@ GitFlow 演进
 
 GithubFlow 模式，其实就是在 TrunkBased 的基础上，增加了个人仓库和 Pull Request 合并代码的操作，与在同一个仓库里增加个人分支的做法类似，从实用的意义来说，它更合适分布式团队。GithubFlow 也有演进版本，例如强调了多环境部署和将仓库或分支与环境关联的 GitlabFlow 模式。
 
-![github-flow.png](/img/in-post/github-flow.png)
+![github-flow.png](/img/in-post/github-flow.webp)
 
 ### 演进3 —— 引入 hotfix 分支
 
@@ -120,7 +120,7 @@ GitFlow 简化
 
 GitFlow 模式是若干模式的集大成者，包含一个主干分支、一个开发分支、许多的特性分支、许多的发布分支和 Hotfix 分支，以及许多繁琐的合并规则。由于对每个阶段的每项操作定义十分明确，它曾经是很多重视流程的企业眼里的香馍馍。但它流程复杂，使用起来并不是很容易。
 
-![gitflow.png](/img/in-post/gitflow.png)
+![gitflow.png](/img/in-post/gitflow.webp)
 
 但是与软件开发中的其他实践一样，Git 分支管理并没有普遍适用的最佳做法，而只有对每个团队和项目而言最适合的做法。不同的团队应该根据自己团队人员组成和意愿、项目的发布周期等因素选择最适合的策略，找到最适合团队的管理方式。现在我们来看一下怎么简化 GitFlow。
 
@@ -142,7 +142,7 @@ develop 分支是为了让功能分支能够尽快的进行合并以及作为发
 
 综上，我们决定废除 develop 分支，引入搭车发布的分支开发模式:
 
-![gitflow_simplify.png](/img/in-post/gitflow_simplify.png)
+![gitflow_simplify.png](/img/in-post/gitflow_simplify.webp)
 
 **使用流程**
 

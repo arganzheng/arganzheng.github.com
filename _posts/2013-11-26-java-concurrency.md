@@ -362,7 +362,7 @@ Future返回对象可以是Callable的返回值：
 2. 访问控制
 
 
-![Java内存模型](/img/in-post/java_memory_model.png)
+![Java内存模型](/img/in-post/java_memory_model.webp)
 
 #### volatile
 
