@@ -3013,6 +3013,57 @@ li[id^="fn:"] {
   font-size: 13.5px;
   color: #8c959f;
 }
+.post-container .annotation-comments .ac-hot {
+  margin: 14px 0 4px;
+  padding: 12px 14px 6px;
+  background: #fffbea;
+  border: 1px solid #f5e6a3;
+  border-radius: 6px;
+}
+.post-container .annotation-comments .ac-hot:empty {
+  display: none;
+}
+.post-container .annotation-comments .ac-hot .ac-hot-title {
+  margin-bottom: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #8a6d00;
+}
+.post-container .annotation-comments .ac-hot .ac-hot-title .fa {
+  margin-right: 3px;
+}
+.post-container .annotation-comments .ac-hot .ac-hot-item {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 13.5px;
+  color: #24292f;
+  text-decoration: none;
+}
+.post-container .annotation-comments .ac-hot .ac-hot-item:hover .ac-hot-quote {
+  background-color: rgba(255, 196, 0, 0.5);
+}
+.post-container .annotation-comments .ac-hot .ac-hot-quote {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 2px;
+  background-color: rgba(255, 213, 79, 0.32);
+  box-shadow: inset 0 -2px 0 rgba(214, 158, 0, 0.75);
+  border-radius: 2px;
+}
+.post-container .annotation-comments .ac-hot .ac-hot-meta {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: #8c959f;
+  white-space: nowrap;
+}
+.post-container .annotation-comments .ac-hot .ac-hot-meta .fa {
+  color: #1a7f37;
+}
 .post-container .annotation-comments .ac-group {
   padding: 0;
   border-bottom: 1px solid #eaeef2;

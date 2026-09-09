@@ -585,6 +585,38 @@
 		.ac-github { margin-left: auto; color: @annot-faint; text-decoration: none; &:hover { color: @brand-primary; } }
 	}
 	.ac-empty { margin: 14px 0; font-size: 13.5px; color: @annot-faint; }
+	// 「最受关注的段落」
+	.ac-hot {
+		&:empty { display: none; }
+		margin: 14px 0 4px;
+		padding: 12px 14px 6px;
+		background: #fffbea;
+		border: 1px solid #f5e6a3;
+		border-radius: 6px;
+		.ac-hot-title { margin-bottom: 8px; font-size: 12.5px; font-weight: 600; color: #8a6d00; .fa { margin-right: 3px; } }
+		.ac-hot-item {
+			display: flex;
+			align-items: baseline;
+			gap: 12px;
+			margin-bottom: 8px;
+			font-size: 13.5px;
+			color: #24292f;
+			text-decoration: none;
+			&:hover .ac-hot-quote { background-color: @annot-bg-hover; }
+		}
+		.ac-hot-quote {
+			flex: 1 1 auto;
+			min-width: 0;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+			padding: 0 2px;
+			background-color: @annot-bg;
+			box-shadow: inset 0 -2px 0 @annot-line;
+			border-radius: 2px;
+		}
+		.ac-hot-meta { flex: 0 0 auto; font-size: 12px; color: @annot-faint; white-space: nowrap; .fa { color: #1a7f37; } }
+	}
 	.ac-group {
 		padding: 0;
 		border-bottom: 1px solid #eaeef2;

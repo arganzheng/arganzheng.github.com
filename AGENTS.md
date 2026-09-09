@@ -200,6 +200,10 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
   and patches `votes.mine` / `likes.mine` in place (`updateVoteEls`). GitHub's
   native discussion-comment `upvote` is deliberately not used (top-level only,
   no downvote). Don't re-add the giscus iframe for reactions.
+- **最受关注的段落** (`renderHotPassages`, `.ac-hot` above the comment list):
+  anchored passages ranked by `2 × net votes + comments`, shown only when
+  there are 2+ passages, max 3; clicking scrolls to the passage and opens its
+  thread. Re-ranked on every vote (`updateVoteEls`).
 - **Page views**: `loadViews()` → `POST /views {path}` once per browser per
   post per day (`localStorage["viewed:<path>"]`), otherwise `GET /views`;
   localhost never increments. The worker keeps `views(path, count)` in a D1

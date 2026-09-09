@@ -24,6 +24,7 @@ tags: [Blog, Demo, GitHub]
 | 点 `复制链接` | 得到 `…html#hl=选中的文字`，别人打开会自动定位并闪烁这段文字 |
 | 点某条评论的 <i class="fa fa-caret-up"></i> / <i class="fa fa-caret-down"></i> | 赞同 / 反对，中间是净分（Stack Overflow 式），一人一票，再点取消 |
 | 点评论区顶部的 <i class="fa fa-thumbs-o-up"></i> `有用` | 给整篇文章点赞；旁边的 <i class="fa fa-eye"></i> 是阅读数 |
+| 看评论区顶部的「最受关注的段落」 | 被划线最多、投票最高的几句话，点一下跳回原文并展开讨论 |
 
 所有内容都存在文章的 [GitHub Discussions](https://github.com/arganzheng/arganzheng.github.com/discussions) 讨论串里，没有额外的数据库。**文末评论区和划线评论是同一套东西**：同一个讨论串、同一个编辑器、同样的回复 / 编辑 / 删除 / 提 Issue，区别只是一个挂在某句话上、一个挂在整篇文章上。划线评论会同时出现在文末列表里（带着它引用的原文和 `§ 原文位置` 链接，点击就跳回那句话）。
 

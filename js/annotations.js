@@ -699,6 +699,7 @@
     if (!commentsHost) return;
     commentsHost.innerHTML =
       '<div class="ac-head"><span class="ac-count">正在加载评论…</span></div>' +
+      '<div class="ac-hot"></div>' +
       '<div class="ac-list"></div>' +
       '<div class="ap-editor ac-editor"></div>';
     renderEditor(commentsHost.querySelector('.ac-editor'), {
@@ -716,6 +717,7 @@
   function renderCommentSection() {
     if (!commentsHost) return;
     renderLikeBar();
+    renderHotPassages();
     var list = commentsHost.querySelector('.ac-list');
     list.innerHTML = '';
     if (!comments.length) {
@@ -730,6 +732,45 @@
         group.appendChild(commentEl(r, r.bodyHTML, true, function () { openInlineReply(c, r.author.login, group); }, c));
       });
       list.appendChild(group);
+    });
+  }
+
+  // 「最受关注的段落」: the anchored passages ranked by votes + activity, Medium's
+  // "top highlight" — only when there is something to rank (2+ passages), max 3.
+  var HOT_MAX = 3;
+  function renderHotPassages() {
+    var host = commentsHost.querySelector('.ac-hot');
+    var groups = {};
+    annotations.forEach(function (a) {
+      if (!a.range || !a.marks.length) return;
+      var key = a.range.start + '-' + a.range.end;
+      (groups[key] = groups[key] || []).push(a);
+    });
+    var ranked = Object.keys(groups).map(function (k) {
+      var g = groups[k], votes = 0, comments = 0;
+      g.forEach(function (a) {
+        votes += a.votes.up - a.votes.down; comments += 1 + a.replies.length;
+        a.replies.forEach(function (r) { votes += r.votes.up - r.votes.down; });
+      });
+      return { group: g, votes: votes, comments: comments, score: votes * 2 + comments };
+    }).sort(function (x, y) { return y.score - x.score; });
+    if (ranked.length < 2) { host.innerHTML = ''; return; }
+    host.innerHTML = '<div class="ac-hot-title"><i class="fa fa-fire"></i> 最受关注的段落</div>';
+    ranked.slice(0, HOT_MAX).forEach(function (r) {
+      var a = r.group[0];
+      var item = document.createElement('a');
+      item.className = 'ac-hot-item';
+      item.href = '#annot-' + annotHash(a.selector.exact);
+      item.innerHTML =
+        '<span class="ac-hot-quote">' + escapeHtml(a.selector.exact) + '</span>' +
+        '<span class="ac-hot-meta">' + (r.votes ? '<i class="fa fa-caret-up"></i> ' + r.votes + ' · ' : '') + r.comments + ' 条评论</span>';
+      item.addEventListener('click', function (e) {
+        e.preventDefault();
+        scrollIntoViewInstant(a.marks[0]);
+        flashMarks(a.marks);
+        openThread(groupIdsFor(a), a.marks[a.marks.length - 1]);
+      });
+      host.appendChild(item);
     });
   }
 
@@ -1593,6 +1634,7 @@
 
   // Every rendering of a comment (panel + bottom section) shows the same votes.
   function updateVoteEls(rec) {
+    if (commentsHost) renderHotPassages(); // ranking follows the votes
     var els = document.querySelectorAll('.ap-comment[data-comment-id="' + rec.id + '"] .ap-vote');
     for (var i = 0; i < els.length; i++) {
       var span = document.createElement('span');
