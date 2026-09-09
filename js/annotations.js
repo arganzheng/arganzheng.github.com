@@ -52,7 +52,7 @@
   var GITHUB_MARKDOWN = 'https://api.github.com/markdown';
   var SESSION_KEY = 'giscus-session';
   var CONTEXT_CHARS = 32;
-  var EXCLUDE_SELECTOR = '.comment, .pager, .related-posts, .share, .footnotes, .reversefootnote, sup[id^="fnref"], a.footnote, ' +
+  var EXCLUDE_SELECTOR = '.comment, .pager, .related-posts, .footnotes, .reversefootnote, sup[id^="fnref"], a.footnote, ' +
     'script, style, noscript, svg, .katex, .mermaid, button, .anchorjs-link, .annotation-toolbar, .annotation-panel, .annotation-marker';
   var BLOCK_SELECTOR = 'p, li, pre, blockquote, h1, h2, h3, h4, h5, h6, dd, dt, figure, .highlight, table';
   var GHOST = { login: 'ghost', url: 'https://github.com/ghost', avatarUrl: 'https://avatars.githubusercontent.com/u/10137?s=64&v=4' };

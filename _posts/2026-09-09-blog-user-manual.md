@@ -173,7 +173,6 @@ Worker 代码在 `tools/annotations-worker/`，部署用 `wrangler deploy`；它
 - **分享卡片**：每页都有 Open Graph / Twitter Card / JSON-LD，贴到微信、Twitter、Slack 会显示标题、摘要、图（默认 `img/home-bg.jpg`，文章可用 `header-img` 覆盖）。
 - **统计**：Google Analytics、百度统计、Cloudflare Web Analytics 三个都接着（`_includes/analytics.html`、`head.html`）。
 - **404 页**、`robots.txt`、`sitemap.xml`（jekyll-sitemap 插件生成）都有。
-- 文末的 JiaThis 分享按钮：jiathis.com 早已停服，脚本返回空，这块是历史遗留，可以删。
 
 ---
 
