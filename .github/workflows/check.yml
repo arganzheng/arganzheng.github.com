@@ -40,6 +40,9 @@ jobs:
         env:
           JEKYLL_ENV: production
 
+      - name: Font Awesome subset covers every icon in use
+        run: python3 tools/fa-subset.py --check
+
       - name: Internal links & images (lychee, offline)
         uses: lycheeverse/lychee-action@v2
         with:

@@ -97,9 +97,11 @@ Pages has `https_enforced` on.
   tags were removed). Font Awesome 4.7 is a self-hosted **subset**:
   `tools/fa-subset.py` scans templates/js/posts/less for `fa-*` classes and
   `content:"\fXXX"` glyphs and writes `css/font-awesome.min.css` +
-  `fonts/fontawesome-webfont.woff2` (~5 KB each) from the full copies in
-  `tools/fa/`. **Re-run it after using a new icon**, or it renders as a blank
-  box (needs `pip install fonttools brotli`). `sw.js` is disabled via
+  `fonts/fontawesome-webfont.woff2` (~20 KB, vs 77 KB full) from the full
+  copies in `tools/fa/`. ~150 common icons are always included (`ALWAYS` in
+  the script) so new posts rarely need anything; CI runs `--check` and fails
+  with the missing icon names if they do — then run the script (needs
+  `pip install fonttools brotli`). `sw.js` is disabled via
   `service-worker: false`.
 - `_includes/comments.html` — comment section (GitHub Discussions), used by
   `_layouts/post.html`, `header-post.html` and `keynote.html`. It is an empty
