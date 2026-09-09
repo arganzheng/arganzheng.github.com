@@ -3,11 +3,8 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="google-site-verification" content="xBT4GhYoi5qRD5tr338pgPM5OWHHIDR6mNg1a3euekI" />
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-    <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
-    <meta name="description" content="{{ site.description }}">
-    <meta name="keywords"  content="{{ site.keyword }}">
+    <meta name="description" content="{% if page.description %}{{ page.description | escape }}{% elsif page.subtitle %}{{ page.subtitle | escape }}{% else %}{{ site.description }}{% endif %}">
+    <meta name="keywords"  content="{% if page.tags and page.tags != empty %}{{ page.tags | join: ', ' | escape }}, {% endif %}{{ site.keyword }}">
     <meta name="theme-color" content="{{ site.chrome-tab-theme-color }}">
     
     <title>{% if page.title %}{{ page.title }} - {{ site.SEOTitle }}{% else %}{{ site.SEOTitle }}{% endif %}</title>
@@ -20,28 +17,24 @@
     
     <!-- Canonical URL -->
     <link rel="canonical" href="{{ page.url | replace:'index.html','' | prepend: site.baseurl | prepend: site.url }}">
+    {% if site.RSS %}<link rel="alternate" type="application/rss+xml" title="{{ site.title }}" href="{{ site.baseurl }}/feed.xml">{% endif %}
 
+    {% include seo.html %}
+
+    {% comment %} Cache-busting: `v` changes on every build, so a deploy invalidates the old bundles. {% endcomment %}
+    {% assign v = site.time | date: '%Y%m%d%H%M' %}
     <!-- Bootstrap Core CSS -->
-    <link rel="stylesheet" href="{{ "/css/bootstrap.min.css" | prepend: site.baseurl }}">
+    <link rel="stylesheet" href="{{ "/css/bootstrap.min.css" | prepend: site.baseurl }}?v={{ v }}">
 
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="{{ "/css/argan-blog.min.css" | prepend: site.baseurl }}"> 
-    <link rel="stylesheet" href="{{ "/css/github-markdown.css" | prepend: site.baseurl }}">
+    <link rel="stylesheet" href="{{ "/css/argan-blog.min.css" | prepend: site.baseurl }}?v={{ v }}"> 
+    <link rel="stylesheet" href="{{ "/css/github-markdown.css" | prepend: site.baseurl }}?v={{ v }}">
 
     <!-- Pygments Github CSS -->
-    <link rel="stylesheet" href="{{ "/css/syntax.css" | prepend: site.baseurl }}">
+    <link rel="stylesheet" href="{{ "/css/syntax.css" | prepend: site.baseurl }}?v={{ v }}">
 
-    <!-- Custom Fonts -->
-    <!-- <link href="http://maxcdn.bootstrapcdn.com/font-awesome/4.3.0/css/font-awesome.min.css" rel="stylesheet" type="text/css"> -->
-    <!-- Hux change font-awesome CDN to qiniu -->
-    <link href="//cdnjs.cloudflare.com/ajax/libs/font-awesome/4.6.3/css/font-awesome.min.css" rel="stylesheet" type="text/css">
-
-    <!-- HTML5 Shim and Respond.js IE8 support of HTML5 elements and media queries -->
-    <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
-    <!--[if lt IE 9]>
-        <script src="https://oss.maxcdn.com/libs/html5shiv/3.7.0/html5shiv.js"></script>
-        <script src="https://oss.maxcdn.com/libs/respond.js/1.4.2/respond.min.js"></script>
-    <![endif]-->
+    <!-- Font Awesome 4.7 (self-hosted: css/font-awesome.min.css + fonts/fontawesome-webfont.*) -->
+    <link rel="stylesheet" href="{{ "/css/font-awesome.min.css" | prepend: site.baseurl }}">
 
     <!-- ga & ba script hoook -->
     <script></script>

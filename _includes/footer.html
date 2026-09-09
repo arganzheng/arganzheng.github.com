@@ -91,14 +91,15 @@
     </div>
 </footer>
 
+{% assign v = site.time | date: '%Y%m%d%H%M' %}
 <!-- jQuery -->
-<script src="{{ "/js/jquery.min.js " | prepend: site.baseurl }}"></script>
+<script src="{{ "/js/jquery.min.js" | prepend: site.baseurl }}?v={{ v }}"></script>
 
 <!-- Bootstrap Core JavaScript -->
-<script src="{{ "/js/bootstrap.min.js " | prepend: site.baseurl }}"></script>
+<script src="{{ "/js/bootstrap.min.js" | prepend: site.baseurl }}?v={{ v }}"></script>
 
 <!-- Custom Theme JavaScript -->
-<script src="{{ "/js/argan-blog.min.js " | prepend: site.baseurl }}"></script>
+<script src="{{ "/js/argan-blog.min.js" | prepend: site.baseurl }}?v={{ v }}"></script>
 
 <!-- WeChat QR popover: toggle on icon click, close on any outside click -->
 <script>
@@ -113,23 +114,23 @@
 </script>
 
 <!-- Markdown [TOC] support -->
-<script src="{{ "/js/toc.js" | prepend: site.baseurl }}"></script>
+<script src="{{ "/js/toc.js" | prepend: site.baseurl }}?v={{ v }}"></script>
 
 <!-- Click-to-zoom for Mermaid diagrams -->
-<script src="{{ "/js/diagram-zoom.js" | prepend: site.baseurl }}"></script>
+<script src="{{ "/js/diagram-zoom.js" | prepend: site.baseurl }}?v={{ v }}"></script>
 
 <!-- Copy button on code blocks and diagrams -->
-<script src="{{ "/js/code-copy.js" | prepend: site.baseurl }}"></script>
+<script src="{{ "/js/code-copy.js" | prepend: site.baseurl }}?v={{ v }}"></script>
 
 <!-- Member-access colouring that rouge cannot express -->
-<script src="{{ "/js/code-tokens.js" | prepend: site.baseurl }}"></script>
+<script src="{{ "/js/code-tokens.js" | prepend: site.baseurl }}?v={{ v }}"></script>
 
 <!-- Inline popups, popup footnotes, and external link styling -->
-<script src="{{ "/js/inline-popups.js" | prepend: site.baseurl }}"></script>
+<script src="{{ "/js/inline-popups.js" | prepend: site.baseurl }}?v={{ v }}"></script>
 
-<!-- Highlight annotations: select text in a post -> "评论" -> note stored as a giscus comment -->
-<script src="{{ "/js/vendor/approx-string-match.js" | prepend: site.baseurl }}"></script>
-<script src="{{ "/js/annotations.js" | prepend: site.baseurl }}"></script>
+<!-- Comments & highlight comments (划线评论): rendered from the post's GitHub Discussion -->
+<script src="{{ "/js/vendor/approx-string-match.js" | prepend: site.baseurl }}?v={{ v }}"></script>
+<script src="{{ "/js/annotations.js" | prepend: site.baseurl }}?v={{ v }}"></script>
 
 <!-- Service Worker -->
 <script type="text/javascript">

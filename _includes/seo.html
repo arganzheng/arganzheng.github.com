@@ -1,0 +1,57 @@
+{% comment %}
+  Open Graph / Twitter Card / JSON-LD for every page. Posts (layout post,
+  header-post, keynote) are `article`; everything else is `website`.
+  Description priority: page.description > page.subtitle > excerpt > site.
+  Image: page.header-img > site.header-img (made absolute).
+{% endcomment %}
+{% assign seo_is_post = false %}
+{% if page.layout == 'post' or page.layout == 'header-post' or page.layout == 'keynote' %}{% assign seo_is_post = true %}{% endif %}
+{% assign seo_title = page.title | default: site.SEOTitle %}
+{% if page.description %}{% assign seo_desc = page.description %}
+{% elsif page.subtitle %}{% assign seo_desc = page.subtitle %}
+{% elsif page.excerpt %}{% assign seo_desc = page.excerpt | strip_html | normalize_whitespace | truncate: 160 %}
+{% else %}{% assign seo_desc = site.description %}{% endif %}
+{% assign seo_img = page.header-img | default: site.header-img %}
+{% unless seo_img contains '://' %}{% assign seo_img = seo_img | prepend: '/' | replace: '//', '/' | prepend: site.baseurl | prepend: site.url %}{% endunless %}
+{% assign seo_url = page.url | replace: 'index.html', '' | prepend: site.baseurl | prepend: site.url %}
+<meta property="og:site_name" content="{{ site.title }}">
+<meta property="og:type" content="{% if seo_is_post %}article{% else %}website{% endif %}">
+<meta property="og:title" content="{{ seo_title | escape }}">
+<meta property="og:description" content="{{ seo_desc | escape }}">
+<meta property="og:url" content="{{ seo_url }}">
+<meta property="og:image" content="{{ seo_img }}">
+<meta property="og:locale" content="zh_CN">
+{% if seo_is_post %}
+<meta property="article:published_time" content="{{ page.date | date_to_xmlschema }}">
+{% if page.updated %}<meta property="article:modified_time" content="{{ page.updated | date_to_xmlschema }}">{% endif %}
+<meta property="article:author" content="{{ site.url }}{{ site.baseurl }}/about/">
+{% for tag in page.tags %}<meta property="article:tag" content="{{ tag | escape }}">
+{% endfor %}{% endif %}
+<meta name="twitter:card" content="summary_large_image">
+{% if site.twitter_username %}<meta name="twitter:site" content="@{{ site.twitter_username }}">{% endif %}
+<meta name="twitter:title" content="{{ seo_title | escape }}">
+<meta name="twitter:description" content="{{ seo_desc | escape }}">
+<meta name="twitter:image" content="{{ seo_img }}">
+<script type="application/ld+json">
+{% if seo_is_post %}{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "mainEntityOfPage": { "@type": "WebPage", "@id": {{ seo_url | jsonify }} },
+  "headline": {{ seo_title | jsonify }},
+  "description": {{ seo_desc | jsonify }},
+  "image": {{ seo_img | jsonify }},
+  "datePublished": {{ page.date | date_to_xmlschema | jsonify }},
+  "dateModified": {{ page.updated | default: page.date | date_to_xmlschema | jsonify }},
+  "author": { "@type": "Person", "name": "arganzheng", "url": "{{ site.url }}{{ site.baseurl }}/about/" },
+  "publisher": { "@type": "Person", "name": "arganzheng", "url": "{{ site.url }}{{ site.baseurl }}/" },
+  "keywords": {{ page.tags | join: ', ' | jsonify }},
+  "inLanguage": "zh-CN"
+}{% else %}{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": {{ site.title | jsonify }},
+  "url": "{{ site.url }}{{ site.baseurl }}/",
+  "description": {{ site.description | jsonify }},
+  "author": { "@type": "Person", "name": "arganzheng" }
+}{% endif %}
+</script>
