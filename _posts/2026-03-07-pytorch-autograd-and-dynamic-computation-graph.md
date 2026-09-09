@@ -1,12 +1,11 @@
 ---
 layout: post
+series: deep-dive-into-pytorch
 title: "PyTorch 深度实践（03）：自动求导与动态计算图"
 subtitle: "Autograd and Dynamic Computation Graphs in PyTorch"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)系列的第 3 篇（共十篇）。上一篇：[Tensor 与内存布局](/pytorch-tensor-and-memory-layout.html)；下一篇：[`nn.Module` 与训练系统](/pytorch-module-and-training-system.html)
 
 上一篇介绍了 Tensor 的核心模型：它不是一组孤立的数字，而是由 Storage、Shape、Stride、Storage Offset、dtype、device 和 layout 共同描述的一种数据抽象。
 

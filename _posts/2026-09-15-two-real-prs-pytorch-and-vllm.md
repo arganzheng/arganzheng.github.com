@@ -1,12 +1,11 @@
 ---
 layout: post
+series: contributing-to-ai-infra-open-source
 title: "AI-Infra 开源贡献指南（04）：两个真实 PR 的完整走读——PyTorch 与 vLLM"
 subtitle: "Two Real Pull Requests, End to End: One in PyTorch, One in vLLM"
 tags: [Open Source, PyTorch, vLLM, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《AI-Infra 开源贡献指南》](/contributing-to-ai-infra-open-source.html)系列的第 4 篇（共四篇）。上一篇：[做出一个能被合入的改动](/landing-a-mergeable-change.html)。
 
 前三篇讲的都是规则：目录怎么读、标签怎么看、PR 怎么写、CI 怎么跑。规则读完之后最常见的一种失败是——它们在脑子里是分开的。一个贡献者知道 vLLM 要在描述里写 Purpose / Test Plan / Test Result，知道 PyTorch 要用 `@pytorchbot merge`，知道 CI 红了要先看是不是 main 本来就红；但真正开一个 PR 的时候，他不知道这些规则在**一个真实的时间线上**是怎么排列的：哪一步会卡多久、reviewer 的第一条评论通常是关于什么、"改了再提"到底要往返几次、合入之后什么时候才算进了版本。规则是静态的，一次贡献是动态的，中间缺一段实录。
 

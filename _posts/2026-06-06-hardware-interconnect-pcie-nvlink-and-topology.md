@@ -1,12 +1,11 @@
 ---
 layout: post
+series: communication-and-interconnect
 title: "通信与互联（02）：硬件互联——PCIe、NVLink、NVSwitch 与网络拓扑"
 subtitle: "Hardware Interconnect: PCIe, NVLink, NVSwitch and Network Topology"
 tags: [NCCL, RDMA, GPU, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《通信与互联：从 NCCL 到 RDMA》](/communication-and-interconnect-for-ai-infra.html)系列的第 2 篇（共八篇）。上一篇：[集合通信原语与代价模型：α-β 模型与 ring all-reduce](/collective-communication-primitives-and-cost-model.html)　下一篇：[RDMA 与 GPUDirect：绕过 CPU 和主机内存的数据通路](/rdma-and-gpudirect.html)
 
 上一篇把一次通信的时间写成 $$T = \alpha + S/\beta$$：α 是固定开销，β 是带宽，S 是字节数；ring all_reduce 在 n 个参与者上的时间是 $$T_{\text{ring}} = 2(n-1)\,\alpha + \frac{2(n-1)}{n}\cdot\frac{S}{\beta}$$。这个模型能算出"8 卡 1 GB 的 all_reduce 在 25 GB/s 的链路上大约 70 ms"，但它有两个空位：α 和 β 是多少，取决于数据走的是哪条链路。同一台机器上，两张 GPU 之间的 β 可能是 450 GB/s，也可能是 25 GB/s，也可能只有 10 GB/s，差 40 倍；α 可能是 2 微秒，也可能是 20 微秒。哪一个成立，由硬件拓扑决定。
 

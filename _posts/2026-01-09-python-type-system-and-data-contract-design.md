@@ -1,12 +1,11 @@
 ---
 layout: post
+series: python-for-ai-infra
 title: Python 在 AI-Infra（02）：类型系统与数据契约设计
 subtitle: Python Type System and Data Contract Design
 tags: [Python]
 catalog: true
 ---
-
-> 本文是[《Python 在 AI-Infra：从语言机制到生产交付》](/python-for-ai-infra.html)系列的第 2 篇（共七篇）。上一篇：[语言机制与运行时原理](/python-language-mechanisms-and-runtime-internals.html)；下一篇：[并发、异步与任务协作](/python-concurrency-asynchrony-and-task-collaboration.html)
 
 Python 是动态类型语言，但这不意味着"无类型"。自 Python 3.5 引入 `typing` 模块以来，类型注解已经从"可选装饰"演变为大型项目的工程标配。PyTorch、vLLM、FastAPI 等 AI Infra 项目大量依赖类型系统的高级特性。
 

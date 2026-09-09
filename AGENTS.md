@@ -269,18 +269,25 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   vLLM v0.15.0 and series 5 pins vLLM v0.20.0 but have no local worktree —
   add one (`git -C ../vllm worktree add ../vllm-v0.20.0 v0.20.0`) before
   re-verifying their source citations.
-- **Series-nav quote** is the first line after front matter:
-  `> 本文是[《系列名》](/overview.html)系列的第 N 篇（共X篇）。上一篇：[…](/slug.html)；下一篇：[…](/slug.html)`
-  (Arabic N, Chinese total; first post has no 上一篇, last has no 下一篇).
+- **Series membership** is front matter, not prose: `series: <key>` where
+  `<key>` is an entry in `_data/series.yml` (`name`, `overview` URL). Members
+  are ordered by date; the layouts render the top quote (`本文是《…》系列的第
+  N 篇（共X篇）。上一篇：…；下一篇：…`, `_includes/series-nav.html`), the
+  bottom table of contents (`series-toc.html`) and a series-aware pager
+  (`post-pager.html`, chronological Previous/Next for non-series posts). Do
+  **not** hand-write the nav quote any more; the overview post itself has no
+  `series:` key. Titles are `系列名（NN）：副标题` — the nav/TOC show the part
+  after `）：`. New series: add the key to `_data/series.yml` first.
+  `tools/migrate-series.py` converted the old hand-written quotes (idempotent).
 - **Update-note exception:** when no usable version predates the post (no tag,
   or the only tag is months stale), a post may cite a newer version *if* it
-  carries a note right after the series-nav quote:
+  carries a note as the first line of the body:
   `> **更新 @YYYY-MM-DD**：本文 X 部分基于 vA 刷新；其余源码引用仍以 … 为准。`
   Use it sparingly, list only the projects actually refreshed, and keep one
   version set per project per post — refreshing means re-verifying every claim
   about that project, never mixing two versions in one article.
 - Cite source as path + function/class name, never line numbers.
-- Length is not a target; rigor and organisation are. Structure: nav quote →
+- Length is not a target; rigor and organisation are. Structure: (update note) →
   intro with the post's core question → `## 一、总览` (ending with 本文的章节安排)
   → body (`##` Chinese numerals, `###` Arabic) → `## N、本文小结` → `## 下一篇`.
 - Series are independent: no links to posts of other series.

@@ -1,12 +1,11 @@
 ---
 layout: post
+series: gpu-kernel-engineering
 title: "GPU Kernel 工程（04）：共享内存与 reduction——softmax、LayerNorm 与 online softmax"
 subtitle: "Shared Memory and Reductions: Softmax, LayerNorm and Online Softmax"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention》](/gpu-kernel-engineering.html)系列的第 4 篇（共十篇）。上一篇：[访存合并与 elementwise kernel](/memory-coalescing-and-elementwise-kernels.html)　下一篇：[GEMM：从 naive 到分块](/gemm-from-naive-to-tiled.html)
 
 上一篇的 elementwise kernel 有一个共同特征：每个线程只管自己的元素，线程之间不需要说话。把访存合并、向量化、grid-stride 做对，带宽就能推到 90% 以上。
 

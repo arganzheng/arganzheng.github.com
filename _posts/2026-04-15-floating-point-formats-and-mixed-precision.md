@@ -1,12 +1,11 @@
 ---
 layout: post
+series: transformer-and-llm
 title: "Transformer 与 LLM（06）：浮点格式、数值稳定性与混合精度"
 subtitle: "Floating-Point Formats, Numerical Stability and Mixed Precision"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)系列的第 6 篇（共七篇）。上一篇：[MoE：路由、激活参数量与通信形态](/moe-compute-and-communication.html)；下一篇：[量化、投机解码与 LoRA](/quantization-speculative-decoding-and-lora.html)
 
 前五篇算了大量的字节数：Llama-3-8B 的权重 16.06 GB、KV cache 每 token 128 KiB、decode 一步至少搬 16 GB。所有这些数字都默认"每个数占 2 字节"，也就是 BF16。这一篇把镜头再推近一层，从"每个数占几个字节"进入"这几个字节里到底存了什么"，回答一个在训练和推理系统里都绕不开的问题：
 

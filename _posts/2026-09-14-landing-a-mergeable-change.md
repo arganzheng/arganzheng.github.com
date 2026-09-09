@@ -1,12 +1,11 @@
 ---
 layout: post
+series: contributing-to-ai-infra-open-source
 title: "AI-Infra 开源贡献指南（03）：做出一个能被合入的改动"
 subtitle: "Landing a Mergeable Change: Diff, Tests, Benchmarks, PR, CI and Review"
 tags: [Open Source, PyTorch, vLLM, CI, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《AI-Infra 开源贡献指南》](/contributing-to-ai-infra-open-source.html)系列的第 3 篇（共四篇）。上一篇：[找到切入点：从 issue、RFC 到性能回归](/finding-your-entry-point-in-open-source.html)　下一篇：[两个真实 PR 的完整走读：PyTorch 与 vLLM](/two-real-prs-pytorch-and-vllm.html)
 
 一个 PR 在 vLLM 里开了十天。作者修了一个真实的 bug，本地测试全绿，描述写了两屏，还顺手把同一目录下三个文件的 import 排了序。十天里发生的事是：DCO check 红了（有一个 commit 忘了 `-s`）；`pre-commit` 没跑（新贡献者的 PR 默认不跑，需要 `verified` 或 `ready` 标签）；Buildkite 一个任务也没起（`/ci run` 要有写权限的 reviewer 来敲）；mergify 打上了 `needs-rebase`（main 已经往前走了两百个 commit）；标题没有 `[Bugfix]` 前缀，没人被分派。reviewer 最终打开它时，看到的是一个 diff 里混着无关的 import 重排、描述里找不到"怎么测的"、CI 一片灰色的 PR。他留了一句"could you split the unrelated changes out and add a test plan?"，然后去看下一个。
 

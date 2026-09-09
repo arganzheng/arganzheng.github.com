@@ -1,11 +1,10 @@
 ---
 layout: post
+series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（14）：回到源码：一次请求在 vLLM 内部的真实旅程
 tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
-
-> 本文是[《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》](/deep-dive-into-vllm.html)系列的第 14 篇（共十四篇）。上一篇：[Serving Infra 的下一站：从模型执行器到分布式智能操作系统](/future-of-serving-infra.html)
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 

@@ -1,12 +1,11 @@
 ---
 layout: post
+series: large-scale-training
 title: "大规模训练工程（06）：容错与弹性——故障率数学、straggler、SDC 与弹性训练"
 subtitle: "Fault Tolerance and Elasticity: Failure Math, Stragglers, SDC and Elastic Training"
 tags: [PyTorch, Megatron, torchft, Fault Tolerance, Distributed Training, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)系列的第 6 篇（共八篇）。上一篇：[分布式 checkpoint：格式、异步保存与重分片恢复](/distributed-checkpoint-format-async-save-and-resharding.html)；下一篇：[训练稳定性与数据管线：loss spike、梯度范数、数据混合与流式加载](/training-stability-and-data-pipeline.html)。
 
 > **更新 @2026-09-06**：本文 torchft 部分基于 v0.2.0、torchtitan 部分基于 v0.3.0 刷新；其余源码引用仍以 PyTorch 2.13.0 / Megatron Core 0.18.0 / NVIDIA Resiliency Extension 0.6.0 为准。
 

@@ -1,0 +1,30 @@
+{%- comment -%}
+  Previous / Next under a post. Inside a series these are the series
+  neighbours (labelled 上一篇 / 下一篇); otherwise the chronological
+  page.previous / page.next as before. Needs series-context.html first.
+{%- endcomment -%}
+{%- if series_meta -%}
+  {%- assign pager_prev = series_prev -%}{%- assign pager_next = series_next -%}
+  {%- assign prev_label = '上一篇' -%}{%- assign next_label = '下一篇' -%}
+{%- else -%}
+  {%- assign pager_prev = page.previous -%}{%- assign pager_next = page.next -%}
+  {%- assign prev_label = 'Previous' -%}{%- assign next_label = 'Next' -%}
+{%- endif -%}
+<ul class="pager">
+    {% if pager_prev and pager_prev.url %}
+    <li class="previous">
+        <a href="{{ pager_prev.url | prepend: site.baseurl | replace: '//', '/' }}" data-toggle="tooltip" data-placement="top" title="{{ pager_prev.title }}">
+        {{ prev_label }}<br>
+        <span>{{ pager_prev.title }}</span>
+        </a>
+    </li>
+    {% endif %}
+    {% if pager_next and pager_next.url %}
+    <li class="next">
+        <a href="{{ pager_next.url | prepend: site.baseurl | replace: '//', '/' }}" data-toggle="tooltip" data-placement="top" title="{{ pager_next.title }}">
+        {{ next_label }}<br>
+        <span>{{ pager_next.title }}</span>
+        </a>
+    </li>
+    {% endif %}
+</ul>

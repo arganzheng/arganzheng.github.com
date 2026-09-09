@@ -1,0 +1,25 @@
+{%- comment -%}
+  Sets, for a post with `series:` in its front matter:
+    series_meta   the entry from _data/series.yml (name, overview)
+    series_posts  members ordered by date (oldest first)
+    series_index  1-based position of the current post
+    series_total  member count
+    series_prev / series_next  neighbouring posts (nil at the ends)
+  Include once before series-nav.html / series-toc.html / the pager.
+{%- endcomment -%}
+{%- assign series_meta = nil -%}
+{%- if page.series -%}
+  {%- assign series_meta = site.data.series[page.series] -%}
+  {%- assign series_posts = site.posts | where: "series", page.series | sort: "date" -%}
+  {%- assign series_total = series_posts | size -%}
+  {%- assign series_index = 0 -%}
+  {%- assign series_prev = nil -%}
+  {%- assign series_next = nil -%}
+  {%- for p in series_posts -%}
+    {%- if p.url == page.url -%}
+      {%- assign series_index = forloop.index -%}
+      {%- unless forloop.first -%}{%- assign prev_i = forloop.index0 | minus: 1 -%}{%- assign series_prev = series_posts[prev_i] -%}{%- endunless -%}
+      {%- unless forloop.last -%}{%- assign series_next = series_posts[forloop.index] -%}{%- endunless -%}
+    {%- endif -%}
+  {%- endfor -%}
+{%- endif -%}

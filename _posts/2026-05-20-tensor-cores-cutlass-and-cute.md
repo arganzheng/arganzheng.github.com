@@ -1,12 +1,11 @@
 ---
 layout: post
+series: gpu-kernel-engineering
 title: "GPU Kernel 工程（06）：Tensor Core、CUTLASS 与 CuTe"
 subtitle: "Tensor Cores, CUTLASS and CuTe: Programming the Matrix Units"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention》](/gpu-kernel-engineering.html)系列的第 6 篇（共十篇）。上一篇：[GEMM：从 naive 到分块](/gemm-from-naive-to-tiled.html)　下一篇：[Triton：块级编程与编译器的边界](/triton-block-level-programming.html)
 
 上一篇用 CUDA Core 把 GEMM 的分块结构讲透了。回顾一下那个结构，因为本篇要做的事情就是把它"接"到另一种计算单元上：
 

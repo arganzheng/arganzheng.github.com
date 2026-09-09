@@ -1,12 +1,11 @@
 ---
 layout: post
+series: gpu-kernel-engineering
 title: "GPU Kernel 工程（09）：量化与融合 kernel——推理系统的其余部分"
 subtitle: "Quantized and Fused Kernels: The Rest of the Inference Stack"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention》](/gpu-kernel-engineering.html)系列的第 9 篇（共十篇）。上一篇：[Attention Kernel：FlashAttention 与 PagedAttention](/attention-kernels-flashattention-and-pagedattention.html)　下一篇：[剖析、测试与贡献](/kernel-profiling-testing-and-contribution.html)
 
 上一篇把 attention 讨论完了。一个 decoder layer 里除了 attention 和标准 GEMM，剩下的是一堆"小 kernel"：RMSNorm、RoPE、SiLU-mul、把 KV 写进分页 cache、把权重从 INT4 解开、把激活压成 FP8、MoE 的 token 重排、采样。它们单个都不复杂，但数量多、变化快，加起来占掉推理时间的一个可观比例——而且是 vLLM、SGLang 这些项目里 PR 最活跃的区域。
 

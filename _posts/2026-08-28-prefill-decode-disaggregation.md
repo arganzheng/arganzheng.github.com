@@ -1,11 +1,10 @@
 ---
 layout: post
+series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（12）：PD 分离：从资源混部走向计算解耦
 tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
-
-> 本文是[《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》](/deep-dive-into-vllm.html)系列的第 12 篇（共十四篇）。上一篇：[硬件解耦：如何不让芯片差异污染 Serving 核心？](/hardware-abstraction-and-portability.html)；下一篇：[Serving Infra 的下一站：从模型执行器到分布式智能操作系统](/future-of-serving-infra.html)
 
 > **版本说明**：实现分析以 vLLM v0.27.1（tag `6e448d0`）为准，重点走读 **NIXL pull + 示例 Proxy** 的交接路径。通用架构、其他 Connector 的选择和系统设计建议会分别说明，不把一种实现视为 PD 分离的唯一路径。文中算例均为注明假设的理论估算，不是本地 GPU 或网络实测。
 

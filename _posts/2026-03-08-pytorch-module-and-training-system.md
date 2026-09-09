@@ -1,12 +1,11 @@
 ---
 layout: post
+series: deep-dive-into-pytorch
 title: "PyTorch 深度实践（04）：nn.Module 与训练系统"
 subtitle: "nn.Module and Training Systems in PyTorch"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)系列的第 4 篇（共十篇）。上一篇：[自动求导与动态计算图](/pytorch-autograd-and-dynamic-computation-graph.html)；下一篇：[Dispatcher 与算子系统](/pytorch-dispatcher-and-operator-system.html)
 
 上一篇讨论了 Autograd：Tensor 运算如何形成动态计算图，`backward()` 如何沿图传播梯度，以及梯度状态和计算图生命周期之间有什么关系。
 

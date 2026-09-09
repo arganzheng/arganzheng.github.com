@@ -1,12 +1,11 @@
 ---
 layout: post
+series: gpu-kernel-engineering
 title: "GPU Kernel 工程（07）：Triton——块级编程与编译器的边界"
 subtitle: "Triton: Block-Level Programming and Where the Compiler Stops"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention》](/gpu-kernel-engineering.html)系列的第 7 篇（共十篇）。上一篇：[Tensor Core、CUTLASS 与 CuTe](/tensor-cores-cutlass-and-cute.html)　下一篇：[Attention Kernel：FlashAttention 与 PagedAttention](/attention-kernels-flashattention-and-pagedattention.html)
 
 前六篇一直在 CUDA 的世界里：每个线程算什么、warp 怎么合并访存、shared memory 怎么分块、`mma.sync` 怎么喂 fragment。到了第六篇，一个能跑到 cuBLAS 七八成性能的 BF16 GEMM 已经是两三百行代码，而且每一行都有"为什么这样写"的理由——tile 尺寸、bank conflict 的 padding、`cp.async` 的 stage 数、寄存器分块的形状。
 

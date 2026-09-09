@@ -1,12 +1,11 @@
 ---
 layout: post
+series: python-for-ai-infra
 title: Python 在 AI-Infra（07）：项目工程化与生产交付
 subtitle: Python Project Engineering and Production Delivery
 tags: [Python]
 catalog: true
 ---
-
-> 本文是[《Python 在 AI-Infra：从语言机制到生产交付》](/python-for-ai-infra.html)系列的第 7 篇（共七篇）。上一篇：[单元测试、问题定位与调试实践](/python-unit-testing-troubleshooting-and-debugging.html)
 
 前面几篇讨论的都是"代码本身"：语言机制、类型与数据契约、并发、元编程、内存、测试与调试。这一篇讨论一件不同的事——**怎么把这些代码变成一个可以交付的东西**。
 

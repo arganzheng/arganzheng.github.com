@@ -1,12 +1,11 @@
 ---
 layout: post
+series: cpp-for-ai-infra
 title: "C++ 在 AI-Infra（06）：并发、内存模型、TLS 与守卫"
 subtitle: "Concurrency, Memory Model, TLS and Guards"
 tags: [C++, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《C++ 在 AI-Infra：从对象模型到算子扩展》](/cpp-for-ai-infra.html)系列的第 6 篇（共八篇）。上一篇：[宏、静态注册与代码生成](/cpp-macros-static-registration-and-codegen.html)；下一篇：[与 Python 之间：pybind11、Python C API 与 ABI](/cpp-pybind11-python-c-api-and-abi.html)
 
 `with torch.no_grad():` 大概是 PyTorch 用户最早学会的几个写法之一。它在 Python 侧是一个上下文管理器，`__enter__` 调 `torch.set_grad_enabled(False)`，`__exit__` 把旧值设回去。顺着 `torch._C._set_grad_enabled` 往下追，会落到 `torch/csrc/autograd/init.cpp` 里的这段 C++：
 

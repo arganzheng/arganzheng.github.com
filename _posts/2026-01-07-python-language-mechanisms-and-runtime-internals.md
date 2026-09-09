@@ -1,12 +1,11 @@
 ---
 layout: post
+series: python-for-ai-infra
 title: Python 在 AI-Infra（01）：语言机制与运行时原理
 subtitle: Python Language Mechanisms and Runtime Internals
 tags: [Python]
 catalog: true
 ---
-
-> 本文是[《Python 在 AI-Infra：从语言机制到生产交付》](/python-for-ai-infra.html)系列的第 1 篇（共七篇）。下一篇：[类型系统与数据契约设计](/python-type-system-and-data-contract-design.html)
 
 Python 常被认为是一门"简单易学"的语言。但在深度学习框架、推理服务和分布式训练系统里，真正需要掌握的不是语法，而是语法背后的运行时模型。下面这些在 AI-Infra 代码里随处可见的写法，每一行都依赖一个可以被替换、被拦截、被扩展的机制：
 

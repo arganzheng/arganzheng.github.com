@@ -1,12 +1,11 @@
 ---
 layout: post
+series: cpp-for-ai-infra
 title: "C++ 在 AI-Infra（03）：模板与泛型编程"
 subtitle: "Templates and Generic Programming"
 tags: [C++, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《C++ 在 AI-Infra：从对象模型到算子扩展》](/cpp-for-ai-infra.html)系列的第 3 篇（共八篇）。上一篇：[值、引用与所有权：对象模型与 RAII](/cpp-value-semantics-ownership-and-raii.html)；下一篇：[多态与类型擦除：运行时如何选择实现](/cpp-polymorphism-and-type-erasure.html)
 
 打开 `aten/src/ATen/native/cpu/Activation.cpp`，`log_sigmoid` 的 CPU kernel 里有这么一段（`log_sigmoid_cpu_kernel` 的 `else` 分支，删节）：
 

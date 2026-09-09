@@ -1,12 +1,11 @@
 ---
 layout: post
+series: communication-and-interconnect
 title: "通信与互联（01）：集合通信原语与代价模型——α-β 模型与 ring all-reduce"
 subtitle: "Collective Communication Primitives and the Alpha-Beta Cost Model: Deriving Ring All-Reduce"
 tags: [NCCL, RDMA, GPU, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《通信与互联：从 NCCL 到 RDMA》](/communication-and-interconnect-for-ai-infra.html)系列的第 1 篇（共八篇）。下一篇：[硬件互联：PCIe、NVLink、NVSwitch 与网络拓扑](/hardware-interconnect-pcie-nvlink-and-topology.html)
 
 总纲把这个系列要回答的问题定为一句话：一次 all_reduce 从调用到完成，数据在 PCIe、NVLink、InfiniBand 上是怎么流动的，为什么有时候是带宽的问题、有时候是延迟的问题。要回答它，先得有一把尺子。没有尺子，nccl-tests 打出来的 `busbw 23.1 GB/s` 只是一个数字，profiler 里 `ncclDevKernel_AllReduce` 的 145 µs 也只是一个数字，你不知道它们是好是坏、离上限多远、差的那部分该去哪一层找。
 

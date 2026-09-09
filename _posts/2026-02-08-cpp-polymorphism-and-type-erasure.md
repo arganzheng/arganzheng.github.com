@@ -1,12 +1,11 @@
 ---
 layout: post
+series: cpp-for-ai-infra
 title: "C++ 在 AI-Infra（04）：多态与类型擦除——运行时如何选择实现"
 subtitle: "Polymorphism and Type Erasure"
 tags: [C++, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《C++ 在 AI-Infra：从对象模型到算子扩展》](/cpp-for-ai-infra.html)系列的第 4 篇（共八篇）。上一篇：[模板与泛型编程](/cpp-templates-and-generic-programming.html)；下一篇：[宏、静态注册与代码生成](/cpp-macros-static-registration-and-codegen.html)
 
 在 Python 里写 `torch.add(a, b)`，如果 `a` 在 CPU 上就跑 CPU kernel，在 GPU 上就跑 CUDA kernel。这个"按参数选实现"的动作在 C++ 层叫 dispatch，做这件事的类叫 `c10::Dispatcher`。它的核心调用路径在 `aten/src/ATen/core/dispatch/Dispatcher.h` 里（本文引用的 PyTorch 源码以 v2.10.0 为准），删掉调试和 profiler 分支后只剩这几行：
 

@@ -1,12 +1,11 @@
 ---
 layout: post
+series: deep-dive-into-pytorch
 title: "PyTorch 深度实践（01）：PyTorch 整体介绍"
 subtitle: "PyTorch Overall Introduction" 
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)系列的第 1 篇（共十篇）。下一篇：[Tensor 与内存布局](/pytorch-tensor-and-memory-layout.html)
 
 PyTorch 经常被介绍成一个“深度学习框架”，也经常被使用成一个 Python 库：导入 `torch`，创建 Tensor，定义 `nn.Module`，然后训练模型。
 

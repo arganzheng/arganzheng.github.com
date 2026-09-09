@@ -1,12 +1,11 @@
 ---
 layout: post
+series: deep-dive-into-pytorch
 title: "PyTorch 深度实践（09）：分布式 PyTorch"
 subtitle: "Distributed Training in PyTorch: Collectives, DDP, FSDP, TP, PP, CP and EP"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)系列的第 9 篇（共十篇）。上一篇：[性能优化与调试](/pytorch-performance-optimization-and-debugging.html)；下一篇：[PyTorch 的工程体系：一次改动如何安全地到达用户](/pytorch-engineering-system.html)
 
 前八篇都在一张卡上。第八篇末尾算过一笔账：Adam 训练下每个参数的静态显存是 16 字节，7B 参数的模型仅参数、梯度和优化器状态就要 112 GB，激活值还没算。一张 80 GB 的卡放不下。即使放得下，第八篇案例里那个 38M 参数的小模型在单卡上跑到 2207 samples/s 之后，GPU 已经饱和——再要快，只能加卡。
 

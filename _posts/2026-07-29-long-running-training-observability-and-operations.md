@@ -1,12 +1,11 @@
 ---
 layout: post
+series: large-scale-training
 title: "大规模训练工程（08）：长时训练的可观测与运维——从指标到 hang 排查"
 subtitle: Observability and Operations for Long-Running Training
 tags: [PyTorch, Megatron, torchtitan, Observability, Distributed Training, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)系列的第 8 篇（共八篇）。上一篇：[训练稳定性与数据管线：loss spike、梯度范数、数据混合与流式加载](/training-stability-and-data-pipeline.html)。
 
 > **更新 @2026-09-06**：本文 torchtitan 部分基于 v0.3.0 刷新；其余源码引用仍以 PyTorch 2.13.0 / Megatron Core 0.18.0 为准。
 

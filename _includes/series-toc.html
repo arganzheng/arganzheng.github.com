@@ -1,0 +1,15 @@
+{%- comment -%}
+  Bottom-of-post series table of contents. Needs series-context.html first.
+{%- endcomment -%}
+{%- if series_meta -%}
+<div class="series-toc">
+  <p class="h3">系列：<a href="{{ series_meta.overview | prepend: site.baseurl }}">{{ series_meta.name }}</a></p>
+  <ol>
+    {%- for p in series_posts %}
+    <li{% if p.url == page.url %} class="is-current"{% endif %}>
+      {%- if p.url == page.url %}<span>{{ p.title | split: '）：' | last }}</span>{% else %}<a href="{{ p.url | prepend: site.baseurl }}">{{ p.title | split: '）：' | last }}</a>{% endif -%}
+    </li>
+    {%- endfor %}
+  </ol>
+</div>
+{%- endif -%}

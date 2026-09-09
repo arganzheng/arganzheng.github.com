@@ -1950,6 +1950,71 @@ li[id^="fn:"] {
   font-size: 12px;
 }
 
+/* series navigation (less/series.less) */
+.post-container blockquote.series-nav {
+  font-size: 15px;
+  color: #57606a;
+  border-left-color: #0085a1;
+}
+.post-container blockquote.series-nav a {
+  color: #0085a1;
+  text-decoration: none;
+}
+.post-container blockquote.series-nav a:hover {
+  text-decoration: underline;
+}
+.post-container blockquote.series-nav p {
+  margin: 0;
+}
+.series-toc {
+  margin: 40px 0 10px;
+  padding: 18px 22px 12px;
+  background: #f6f8fa;
+  border: 1px solid #eaeef2;
+  border-radius: 6px;
+}
+.series-toc .h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+.series-toc .h3 a {
+  color: inherit;
+  text-decoration: none;
+}
+.series-toc .h3 a:hover {
+  color: #0085a1;
+}
+.series-toc ol {
+  margin: 0;
+  padding-left: 1.6em;
+  columns: 2;
+  column-gap: 32px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.series-toc ol li {
+  margin: 0 0 6px;
+  break-inside: avoid;
+}
+.series-toc ol a {
+  color: #57606a;
+  text-decoration: none;
+}
+.series-toc ol a:hover {
+  color: #0085a1;
+}
+.series-toc ol .is-current {
+  font-weight: 600;
+  color: #24292f;
+}
+@media (max-width: 767px) {
+  .series-toc ol {
+    columns: 1;
+  }
+}
+
 /* highlight annotations (less/annotations.less) */
 .post-container mark.annotation-hl {
   padding: 0;

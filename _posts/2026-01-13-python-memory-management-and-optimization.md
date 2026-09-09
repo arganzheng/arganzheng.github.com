@@ -1,12 +1,11 @@
 ---
 layout: post
+series: python-for-ai-infra
 title: Python 在 AI-Infra（05）：内存管理与优化
 subtitle: Python Memory Management and Optimization
 tags: [Python]
 catalog: true
 ---
-
-> 本文是[《Python 在 AI-Infra：从语言机制到生产交付》](/python-for-ai-infra.html)系列的第 5 篇（共七篇）。上一篇：[Python 的动态机制及工程实践](/python-reflection-metaprogramming-and-plugin-architecture.html)；下一篇：[单元测试、问题定位与调试实践](/python-unit-testing-troubleshooting-and-debugging.html)
 
 在 AI-Infra 系统中，Python 通常不是执行密集计算的主体。模型推理、张量运算和部分数据处理，往往由 C、C++、CUDA 或其他原生运行时完成。
 

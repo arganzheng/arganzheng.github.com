@@ -1,12 +1,11 @@
 ---
 layout: post
+series: transformer-and-llm
 title: "Transformer 与 LLM（01）：Transformer 解剖与参数量"
 subtitle: "Transformer Anatomy and Parameter Count: From config.json to 8.03B"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)系列的第 1 篇（共七篇）。下一篇：[前向的算量与访存量](/transformer-flops-bytes-and-roofline.html)
 
 做推理系统、训练基础设施或 kernel 的工程师，迟早会被问到这样的问题：这个模型有多少参数？一张 80 GB 的卡放得下吗？某个 GEMM 的 $$m, k, n$$ 是多少？为什么 Llama 的 FFN 中间维度是 14336 这样一个看起来不整的数？这些问题的答案全部藏在一个几十行的 `config.json` 里，不需要下载权重，也不需要运行代码。
 

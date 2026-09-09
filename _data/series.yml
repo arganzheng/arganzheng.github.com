@@ -1,0 +1,35 @@
+# Post series. A post joins one by putting `series: <key>` in its front matter;
+# order within a series is by date. The overview post is *not* a member (it has
+# no `series:` key) — it is linked from the nav as 系列总览. Rendering:
+# _includes/series-nav.html (top quote), series-toc.html (bottom list), and the
+# post layouts' pager, which switches to series prev/next.
+python-for-ai-infra:
+  name: Python 在 AI-Infra：从语言机制到生产交付
+  overview: /python-for-ai-infra.html
+cpp-for-ai-infra:
+  name: C++ 在 AI-Infra：从对象模型到算子扩展
+  overview: /cpp-for-ai-infra.html
+deep-dive-into-pytorch:
+  name: PyTorch 深度实践：从 Tensor 到深度学习运行时
+  overview: /deep-dive-into-pytorch.html
+transformer-and-llm:
+  name: Transformer 与 LLM：结构、算量与数值
+  overview: /transformer-and-llm-for-infra-engineers.html
+gpu-kernel-engineering:
+  name: GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention
+  overview: /gpu-kernel-engineering.html
+communication-and-interconnect:
+  name: 通信与互联：从 NCCL 到 RDMA
+  overview: /communication-and-interconnect-for-ai-infra.html
+large-scale-training:
+  name: 大规模训练工程：从并行策略到容错恢复
+  overview: /large-scale-training-from-parallelism-to-fault-tolerance.html
+deep-dive-into-vllm:
+  name: 大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术
+  overview: /deep-dive-into-vllm.html
+ai-platform-engineering:
+  name: AI 平台工程：资源层与交付层
+  overview: /ai-platform-engineering.html
+contributing-to-ai-infra-open-source:
+  name: AI-Infra 开源贡献指南
+  overview: /contributing-to-ai-infra-open-source.html

@@ -1,12 +1,11 @@
 ---
 layout: post
+series: gpu-kernel-engineering
 title: "GPU Kernel 工程（08）：Attention Kernel——FlashAttention 与 PagedAttention"
 subtitle: "Attention Kernels: FlashAttention and PagedAttention from Derivation to Code"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention》](/gpu-kernel-engineering.html)系列的第 8 篇（共十篇）。上一篇：[Triton：块级编程与编译器的边界](/triton-block-level-programming.html)　下一篇：[量化与融合 kernel](/quantization-and-fused-kernels.html)
 
 前七篇分别处理了 GPU 的硬件结构与 Roofline、CUDA 执行模型、访存合并、shared memory 与 reduction（其中包括 online softmax）、GEMM 的分块、Tensor Core 与 CUTLASS、Triton。这一篇是它们的汇合点：attention 同时包含两个 GEMM（$$QK^T$$ 与 $$PV$$）、一个逐行的 reduction（softmax），以及推理时特有的内存访问模式（分页的 KV cache）。它是 Transformer 推理里最重要、也最难写好的 kernel。
 

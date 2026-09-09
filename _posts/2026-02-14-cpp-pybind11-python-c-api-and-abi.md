@@ -1,12 +1,11 @@
 ---
 layout: post
+series: cpp-for-ai-infra
 title: "C++ 在 AI-Infra（07）：与 Python 之间——pybind11、Python C API 与 ABI"
 subtitle: "pybind11, the Python C API and ABI"
 tags: [C++, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《C++ 在 AI-Infra：从对象模型到算子扩展》](/cpp-for-ai-infra.html)系列的第 7 篇（共八篇）。上一篇：[并发、内存模型、TLS 与守卫](/cpp-concurrency-memory-model-tls-and-guards.html)；下一篇：[构建、调试与测试工具链](/cpp-build-debug-and-test-toolchain.html)
 
 `torch.Tensor` 在 Python 里是一个再普通不过的对象：能 `isinstance`、能子类化、能 `t.foo = 1` 挂属性、能被 `gc` 收集。但它在 C++ 里的定义，在 `torch/csrc/autograd/python_variable.h` 开头：
 

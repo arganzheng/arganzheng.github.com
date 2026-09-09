@@ -1,12 +1,11 @@
 ---
 layout: post
+series: cpp-for-ai-infra
 title: "C++ 在 AI-Infra（08）：构建、调试与测试工具链"
 subtitle: "Build, Debug and Test Toolchain"
 tags: [C++, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《C++ 在 AI-Infra：从对象模型到算子扩展》](/cpp-for-ai-infra.html)系列的第 8 篇（共八篇）。上一篇：[与 Python 之间：pybind11、Python C API 与 ABI](/cpp-pybind11-python-c-api-and-abi.html)
 
 PyTorch 的 CI 测试脚本 `.ci/pytorch/test.sh` 里有一段很奇怪的代码。在 ASan 构建下，它先设置一堆环境变量，然后**故意让 Python 进程崩溃四次**：
 

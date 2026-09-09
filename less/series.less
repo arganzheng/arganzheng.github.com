@@ -1,0 +1,44 @@
+@import "variables.less";
+
+// Series navigation (_data/series.yml + _includes/series-*.html): the quote
+// line at the top of a post and the table of contents at the bottom. Compiled
+// output is inserted by hand into css/argan-blog{,.min}.css, right before the
+// annotations block (see AGENTS.md).
+
+.post-container blockquote.series-nav {
+	font-size: 15px;
+	color: #57606a;
+	border-left-color: @brand-primary;
+	a { color: @brand-primary; text-decoration: none; &:hover { text-decoration: underline; } }
+	p { margin: 0; }
+}
+
+.series-toc {
+	margin: 40px 0 10px;
+	padding: 18px 22px 12px;
+	background: #f6f8fa;
+	border: 1px solid #eaeef2;
+	border-radius: 6px;
+	.h3 {
+		margin: 0 0 10px;
+		font-size: 15px;
+		font-weight: 700;
+		letter-spacing: 0;
+		a { color: inherit; text-decoration: none; &:hover { color: @brand-primary; } }
+	}
+	ol {
+		margin: 0;
+		padding-left: 1.6em;
+		columns: 2;
+		column-gap: 32px;
+		font-size: 14px;
+		line-height: 1.5;
+		li { margin: 0 0 6px; break-inside: avoid; }
+		a { color: #57606a; text-decoration: none; &:hover { color: @brand-primary; } }
+		.is-current { font-weight: 600; color: #24292f; }
+	}
+}
+
+@media (max-width: 767px) {
+	.series-toc ol { columns: 1; }
+}

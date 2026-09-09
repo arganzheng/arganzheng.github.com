@@ -1,12 +1,11 @@
 ---
 layout: post
+series: ai-platform-engineering
 title: "AI 平台工程（05）：网络与存储——RDMA 进容器、并行文件系统与 checkpoint I/O"
 subtitle: "Networking and Storage: RDMA in Containers, Parallel File Systems and Checkpoint I/O"
 tags: [Kubernetes, GPU, RDMA, Storage, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《AI 平台工程：资源层与交付层》](/ai-platform-engineering.html)系列的第 5 篇（共八篇）。上一篇：[GPU 共享与切分：MIG、时间片、MPS 与 HAMi](/gpu-sharing-and-partitioning-mig-mps-hami.html)；下一篇：[Serving 平台：从 InferenceService 到 llm-d](/serving-platforms-kserve-triton-ray-serve-llm-d.html)。
 
 一个 8 节点 64 卡的训练任务在裸机上跑通了，`all_reduce_perf` 的大消息 busbw 接近网卡的标称值。同一个镜像、同一套 NCCL 环境变量搬到 Kubernetes 上，Pod 全部 Running，任务也在正常推进，只是 step time 慢了两倍多。再跑一次 `all_reduce_perf`，busbw 只剩裸机的三分之一。日志里没有报错，`nvidia-smi` 显示八张卡都在，`ibstat` 在宿主机上也一切正常。
 

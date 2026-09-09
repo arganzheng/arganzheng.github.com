@@ -1,12 +1,11 @@
 ---
 layout: post
+series: communication-and-interconnect
 title: "通信与互联（08）：MoE 的通信——all-to-all、DeepEP 与 GPU 发起的通信"
 subtitle: "Communication for MoE: All-to-All, DeepEP and GPU-Initiated Networking"
 tags: [NCCL, RDMA, GPU, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《通信与互联：从 NCCL 到 RDMA》](/communication-and-interconnect-for-ai-infra.html)系列的第 8 篇（共八篇）。上一篇：[推理侧的通信：custom all-reduce 与 KV 传输](/inference-communication-custom-all-reduce-and-kv-transfer.html)
 
 前七篇处理的通信有一个共同点：参与者之间交换的字节数在调用之前就是确定的。all_reduce 的每个 rank 拿同样大小的 buffer，all_gather 的每个 rank 贡献同样大小的一片，KV 传输的 block 列表由 scheduler 事先算好。第一篇给 all_to_all 留了一句话——"$$n(n-1)$$ 条不同的流，无法从绕环一圈里得到好处，跨节点时会同时压满所有链路，是 MoE 训练最难对付的通信模式"——然后就再没有回来。本篇回到这里。
 

@@ -1,12 +1,11 @@
 ---
 layout: post
+series: transformer-and-llm
 title: "Transformer 与 LLM（02）：前向的算量与访存量"
 subtitle: "FLOPs, Bytes and Roofline: Prefill versus Decode"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)系列的第 2 篇（共七篇）。上一篇：[Transformer 解剖与参数量](/transformer-anatomy-and-parameter-count.html)；下一篇：[Attention 变体与 KV cache](/attention-variants-and-kv-cache.html)
 
 上一篇把一个 decoder-only Transformer 拆到了能数出每一个参数的粒度。结论可以压缩成一个公式：
 

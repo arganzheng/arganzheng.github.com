@@ -1,12 +1,11 @@
 ---
 layout: post
+series: transformer-and-llm
 title: "Transformer 与 LLM（05）：MoE 的路由、激活参数量与通信形态"
 subtitle: "Mixture of Experts: Routing, Active Parameters and Communication Patterns"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)系列的第 5 篇（共七篇）。上一篇：[位置编码与长上下文](/positional-encoding-and-long-context.html)；下一篇：[浮点格式、数值稳定性与混合精度](/floating-point-formats-and-mixed-precision.html)
 
 前四篇讨论的都是 dense 模型：每个 token 经过每一层时，会用到这一层的全部权重。参数量、每 token 算量、每步 decode 的权重读取量，三者之间只差一个常数——参数量 $$N$$ 对应每 token $$2N$$ FLOPs，对应每步读 $$N \times \text{bytes/elem}$$ 字节。
 

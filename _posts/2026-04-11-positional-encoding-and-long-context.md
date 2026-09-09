@@ -1,12 +1,11 @@
 ---
 layout: post
+series: transformer-and-llm
 title: "Transformer 与 LLM（04）：位置编码与长上下文"
 subtitle: "Positional Encoding and Long Context: RoPE Wavelengths, Extrapolation and Cost"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)系列的第 4 篇（共七篇）。上一篇：[Attention 变体与 KV cache](/attention-variants-and-kv-cache.html)；下一篇：[MoE：路由、激活参数量与通信形态](/moe-compute-and-communication.html)
 
 前三篇把一个 Transformer 拆成了参数量、算量、访存量和 KV cache 四个数字。这些数字里有一个变量一直被当作常数处理：上下文长度 $$s$$。第二篇算 prefill 时取 $$s = 8192$$，第三篇算 KV cache 时取 $$s = 131072$$，但都没有回答两个问题：模型凭什么知道一个 token 在第几个位置？以及，一个模型能处理的上下文长度到底由什么决定？
 

@@ -1,12 +1,11 @@
 ---
 layout: post
+series: communication-and-interconnect
 title: "通信与互联（05）：PyTorch 的通信栈——ProcessGroupNCCL、stream 语义与计算通信重叠"
 subtitle: "PyTorch's Communication Stack: ProcessGroupNCCL, Stream Semantics, and Compute-Communication Overlap"
 tags: [NCCL, RDMA, GPU, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《通信与互联：从 NCCL 到 RDMA》](/communication-and-interconnect-for-ai-infra.html)系列的第 5 篇（共八篇）。上一篇：[NCCL 架构：拓扑探测、channel、算法与协议](/nccl-architecture-topology-channels-algorithms-and-protocols.html)　下一篇：[nccl-tests、调优与排障：从带宽曲线到 hang](/nccl-tests-tuning-and-debugging-hangs.html)
 
 上一篇沿着 `ncclAllReduce` 走完了 NCCL 内部的全部路径：bootstrap、拓扑探测、ring/tree 搜索、transport 建连、调优表、enqueue、一个 kernel 里 nChannels 个 block 各跑一条环，跨机时由 proxy 线程替 GPU 驱动网卡。那一篇的结论可以压缩成一句话：**NCCL 是一个把集合通信编译成 CUDA kernel 的库，`ncclAllReduce(sendbuf, recvbuf, count, dtype, op, comm, stream)` 的最后一个参数决定了这个 kernel 排进哪条队列**。这一篇就从这最后一个参数开始。
 

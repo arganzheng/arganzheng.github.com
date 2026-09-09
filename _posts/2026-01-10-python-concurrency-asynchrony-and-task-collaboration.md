@@ -1,12 +1,11 @@
 ---
 layout: post
+series: python-for-ai-infra
 title: Python 在 AI-Infra（03）：并发、异步与任务协作
 subtitle: Python Concurrency, Asynchrony, and Task Collaboration in AI Systems
 tags: [Python]
 catalog: true
 ---
-
-> 本文是[《Python 在 AI-Infra：从语言机制到生产交付》](/python-for-ai-infra.html)系列的第 3 篇（共七篇）。上一篇：[类型系统与数据契约设计](/python-type-system-and-data-contract-design.html)；下一篇：[Python 的动态机制及工程实践](/python-reflection-metaprogramming-and-plugin-architecture.html)
 
 在 AI-Infra 系统中，Python 往往并不直接承担最重的数值计算。真正消耗算力的部分，通常由 CUDA、C++、通信库或专用推理引擎完成。
 

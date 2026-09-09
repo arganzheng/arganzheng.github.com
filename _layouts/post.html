@@ -31,28 +31,13 @@ layout: default
             <div class=" col-lg-12 col-md-12 post-container">
            {% endif %}
 
-				{{ content | replace: '<img src=', '<img loading="lazy" decoding="async" src=' }}
+				{% include series-context.html %}{% include series-nav.html %}
+{{ content | replace: '<img src=', '<img loading="lazy" decoding="async" src=' }}
+{% include series-toc.html %}
 
                 <hr style="visibility: hidden;">
 
-                <ul class="pager">
-                    {% if page.previous.url %}
-                    <li class="previous">
-                        <a href="{{ page.previous.url | prepend: site.baseurl | replace: '//', '/' }}" data-toggle="tooltip" data-placement="top" title="{{page.previous.title}}">
-                        Previous<br>
-                        <span>{{page.previous.title}}</span>
-                        </a>
-                    </li>
-                    {% endif %}
-                    {% if page.next.url %}
-                    <li class="next">
-                        <a href="{{ page.next.url | prepend: site.baseurl | replace: '//', '/' }}" data-toggle="tooltip" data-placement="top" title="{{page.next.title}}">
-                        Next<br>
-                        <span>{{page.next.title}}</span>
-                        </a>
-                    </li>
-                    {% endif %}
-                </ul>
+                {% include post-pager.html %}
 
                 <!-- related posts -->
                 <div class="related-posts">

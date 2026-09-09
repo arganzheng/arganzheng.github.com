@@ -1,12 +1,11 @@
 ---
 layout: post
+series: gpu-kernel-engineering
 title: "GPU Kernel 工程（10）：剖析、测试与贡献——把 kernel 做成产品"
 subtitle: "Profiling, Testing and Contributing: Turning a Kernel into a Product"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention》](/gpu-kernel-engineering.html)系列的第 10 篇（共十篇）。上一篇：[量化与融合 kernel](/quantization-and-fused-kernels.html)
 
 前九篇结束时，手上有一个用自己写的 kernel 跑通的 decoder layer 前向：RMSNorm、RoPE、BF16 Tensor Core GEMM、FlashAttention 前向、SiLU-mul、fused residual+RMSNorm、INT4 weight-only GEMM。它们能跑、结果和 PyTorch eager 对得上、每一个都在自己的 benchmark 里比 naive 版本快很多。
 

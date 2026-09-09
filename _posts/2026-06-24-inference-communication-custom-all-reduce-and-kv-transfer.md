@@ -1,12 +1,11 @@
 ---
 layout: post
+series: communication-and-interconnect
 title: "通信与互联（07）：推理侧的通信——custom all-reduce 与 KV 传输"
 subtitle: "Communication on the Inference Side: Custom All-Reduce and KV Cache Transfer"
 tags: [NCCL, RDMA, GPU, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《通信与互联：从 NCCL 到 RDMA》](/communication-and-interconnect-for-ai-infra.html)系列的第 7 篇（共八篇）。上一篇：[nccl-tests、调优与排障：从带宽曲线到 hang](/nccl-tests-tuning-and-debugging-hangs.html)　下一篇：[MoE 的通信：all-to-all、DeepEP 与 GPU 发起的通信](/moe-communication-all-to-all-deepep-and-gpu-initiated.html)
 
 前六篇建立了一条完整的路径：第一篇的 α-β 模型给出任何一次通信的理论下界，第二、三篇给 α 和 β 填上 NVLink、PCIe、InfiniBand 与 RDMA 的真实数字，第四篇讲 NCCL 如何把这些硬件能力组织成一次 `ncclAllReduce`，第五篇讲 PyTorch 如何在 stream 上使用它，第六篇把这一切变成 nccl-tests 的曲线和一棵排障决策树。这些内容的默认场景是训练：消息几十 MB 到几 GB、参与者固定、通信可以和反向计算重叠。
 

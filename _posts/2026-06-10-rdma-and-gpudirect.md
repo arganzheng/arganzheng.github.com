@@ -1,12 +1,11 @@
 ---
 layout: post
+series: communication-and-interconnect
 title: "通信与互联（03）：RDMA 与 GPUDirect——绕过 CPU 和主机内存的数据通路"
 subtitle: "RDMA and GPUDirect: Bypassing the CPU and Host Memory"
 tags: [NCCL, RDMA, GPU, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《通信与互联：从 NCCL 到 RDMA》](/communication-and-interconnect-for-ai-infra.html)系列的第 3 篇（共八篇）。上一篇：[硬件互联：PCIe、NVLink、NVSwitch 与网络拓扑](/hardware-interconnect-pcie-nvlink-and-topology.html)　下一篇：[NCCL 架构：拓扑探测、channel、算法与协议](/nccl-architecture-topology-channels-algorithms-and-protocols.html)
 
 上一篇给出了节点间链路的物理上限：一张 NDR InfiniBand 网卡 400 Gb/s，约 50 GB/s 单向；一张 HDR 200 Gb/s，约 25 GB/s。也给出了它挂在哪里：每张 GPU 配一张网卡，两者在同一个 PCIe switch 下（`nvidia-smi topo -m` 里的 `PIX` 或 `PXB`），走 PCIe 4.0 x16（单向约 32 GB/s）或 PCIe 5.0 x16（单向约 64 GB/s）。这些数字是链路的能力，不是软件能拿到的带宽。软件拿到多少，取决于数据从显存到网线之间经过了什么。
 

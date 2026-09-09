@@ -1,12 +1,11 @@
 ---
 layout: post
+series: ai-platform-engineering
 title: "AI 平台工程（02）：容器里的 GPU——驱动、CUDA、device plugin 与镜像"
 subtitle: "GPUs in Containers: Driver, CUDA, Device Plugin, DRA and Images"
 tags: [Kubernetes, GPU, CUDA, DRA, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《AI 平台工程：资源层与交付层》](/ai-platform-engineering.html)系列的第 2 篇（共八篇）。上一篇：[引擎的需求清单与平台的整体架构](/ai-platform-engine-requirements-and-architecture.html)　下一篇：[AI 任务调度：gang scheduling、队列与拓扑感知](/ai-job-scheduling-gang-queue-topology.html)
 
 上一篇结束在一个 Pending 的 Pod 上：`resources.limits` 里写了 `nvidia.com/gpu: 1`，`kubectl describe` 里是 `0/3 nodes are available: 3 Insufficient nvidia.com/gpu`。原因很直接——没有任何组件告诉 kubelet 这台机器上有 GPU。但把 device plugin 装上、Pod 调度成功之后，故障并没有结束，只是换了地方：Pod `Running`，`torch.cuda.is_available()` 返回 `False`，日志里一行 `CUDA driver version is insufficient for CUDA runtime version`；或者容器根本起不来，`kubectl describe` 里是 `nvidia-container-cli: requirement error: unsatisfied condition: cuda>=13.1`；或者一切正常，直到某个 kernel 启动时报 `the provided PTX was compiled with an unsupported toolchain`。
 

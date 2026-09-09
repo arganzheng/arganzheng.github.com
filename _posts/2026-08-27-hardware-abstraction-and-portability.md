@@ -1,11 +1,10 @@
 ---
 layout: post
+series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（11）：硬件解耦：如何不让芯片差异污染 Serving 核心？
 tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
-
-> 本文是[《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》](/deep-dive-into-vllm.html)系列的第 11 篇（共十四篇）。上一篇：[请求形态的扩展：multi-LoRA 与多模态](/request-shapes-multi-lora-and-multimodal.html)；下一篇：[PD 分离：从资源混部走向计算解耦](/prefill-decode-disaggregation.html)
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 

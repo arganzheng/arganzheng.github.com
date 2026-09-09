@@ -1,12 +1,11 @@
 ---
 layout: post
+series: gpu-kernel-engineering
 title: "GPU Kernel 工程（05）：GEMM——从 naive 到分块"
 subtitle: "GEMM from Naive to Tiled: Reaching the Compute Ceiling on CUDA Cores"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention》](/gpu-kernel-engineering.html)系列的第 5 篇（共十篇）。上一篇：[共享内存与 reduction](/shared-memory-reduction-and-softmax.html)　下一篇：[Tensor Core、CUTLASS 与 CuTe](/tensor-cores-cutlass-and-cute.html)
 
 前四篇讨论的 kernel——elementwise、reduction、softmax、LayerNorm——有一个共同点：它们都是 memory-bound 的。每个元素读进来、算一两次、写回去，算术强度远低于 ridge point，优化的全部目标是"把 HBM 带宽用满"。做到了带宽的 80–90%，这类 kernel 就到头了。
 

@@ -1,12 +1,11 @@
 ---
 layout: post
+series: python-for-ai-infra
 title: Python 在 AI-Infra（06）：单元测试、问题定位与调试实践
 subtitle: Python Unit Testing, Troubleshooting, and Debugging
 tags: [Python]
 catalog: true
 ---
-
-> 本文是[《Python 在 AI-Infra：从语言机制到生产交付》](/python-for-ai-infra.html)系列的第 6 篇（共七篇）。上一篇：[内存管理与优化](/python-memory-management-and-optimization.html)；下一篇：[项目工程化与生产交付](/python-engineering-and-production-delivery.html)
 
 在 AI-Infra 系统中，代码的正确性往往不能只靠阅读来判断。
 

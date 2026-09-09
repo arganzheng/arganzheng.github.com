@@ -1,12 +1,11 @@
 ---
 layout: post
+series: python-for-ai-infra
 title: Python 在 AI-Infra（04）：Python的动态机制及工程实践
 subtitle: Python Dynamic Mechanisms and Practice
 tags: [Python]
 catalog: true
 ---
-
-> 本文是[《Python 在 AI-Infra：从语言机制到生产交付》](/python-for-ai-infra.html)系列的第 4 篇（共七篇）。上一篇：[并发、异步与任务协作](/python-concurrency-asynchrony-and-task-collaboration.html)；下一篇：[内存管理与优化](/python-memory-management-and-optimization.html)
 
 在传统业务系统中，Python 的动态特性常常被视为一种“方便开发”的语言能力：可以通过字符串获取属性，可以在运行时导入模块，也可以用装饰器包装函数。
 

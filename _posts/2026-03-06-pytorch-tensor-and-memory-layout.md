@@ -1,12 +1,11 @@
 ---
 layout: post
+series: deep-dive-into-pytorch
 title: "PyTorch 深度实践（02）：Tensor 与内存布局"
 subtitle: "Tensor Abstraction and Memory Layout in PyTorch"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)系列的第 2 篇（共十篇）。上一篇：[PyTorch 整体介绍](/pytorch-overall-introduction.html)；下一篇：[自动求导与动态计算图](/pytorch-autograd-and-dynamic-computation-graph.html)
 
 上一篇从整体上介绍了 PyTorch：它不是只有 Python API 的库，而是连接模型代码、Tensor 编程模型、算子运行时、设备后端、Kernel 和硬件的一套计算平台。
 

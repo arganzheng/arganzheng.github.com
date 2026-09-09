@@ -1,12 +1,11 @@
 ---
 layout: post
+series: gpu-kernel-engineering
 title: "GPU Kernel 工程（03）：访存合并与 elementwise kernel"
 subtitle: "Memory Coalescing and Elementwise Kernels: Hitting the Bandwidth Ceiling"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention》](/gpu-kernel-engineering.html)系列的第 3 篇（共十篇）。上一篇：[CUDA 编程模型与第一个 kernel](/cuda-programming-model-and-first-kernel.html)　下一篇：[共享内存与 reduction](/shared-memory-reduction-and-softmax.html)
 
 上一篇写出了第一个 kernel：一个 BF16 的 `y = x + b`，每个线程处理一个元素。它能跑、结果正确，但没有回答"它跑得够快吗"。这一篇就回答这个问题，并把答案推到极限。
 

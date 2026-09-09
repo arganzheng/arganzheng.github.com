@@ -1,11 +1,10 @@
 ---
 layout: post
+series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（07）：解码的扩展：采样、投机解码与结构化输出
 tags: [AI, AI-Infra, 大模型推理]
 catalog: true
 ---
-
-> 本文是[《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》](/deep-dive-into-vllm.html)系列的第 7 篇（共十四篇）。上一篇：[GPU 执行：如何让每个 Token 算得更快？](/gpu-execution-kernels-and-graphs.html)；下一篇：[Multi-GPU：一张卡不够时如何扩展？](/multi-gpu-scaling-strategies.html)
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 

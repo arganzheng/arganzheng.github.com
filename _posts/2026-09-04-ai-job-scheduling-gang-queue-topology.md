@@ -1,12 +1,11 @@
 ---
 layout: post
+series: ai-platform-engineering
 title: "AI 平台工程（03）：AI 任务调度——gang scheduling、队列与拓扑感知"
 subtitle: "Scheduling AI Jobs: Gang Scheduling, Queues, Quotas and Topology Awareness"
 tags: [Kubernetes, GPU, Kueue, Volcano, Scheduling, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《AI 平台工程：资源层与交付层》](/ai-platform-engineering.html)系列的第 3 篇（共八篇）。上一篇：[容器里的 GPU：驱动、CUDA、device plugin 与镜像](/gpu-in-containers-driver-cuda-device-plugin.html)　下一篇：[GPU 共享与切分：MIG、时间片、MPS 与 HAMi](/gpu-sharing-and-partitioning-mig-mps-hami.html)
 
 周一早上，集群里有 40 张空闲的 GPU。算法团队提交了一个 4 节点 32 卡的预训练任务，`kubectl get pods` 显示 30 个 Pod `Running`、2 个 `Pending`。`describe` 那两个 Pending 的 Pod，事件是 `0/12 nodes are available: 12 Insufficient nvidia.com/gpu`——剩下的 8 张卡分散在四台机器上，每台两张，而这个任务的每个 Pod 要 8 张。30 个已经起来的 Pod 在 `torchrun` 的 rendezvous 里等那两个永远不会来的同伴，占着 30 张卡什么也不算。另一个团队的 8 卡任务也在 Pending：它要的 8 张卡本来在，现在被这 30 个 Pod 中的某几个占了一部分。集群分配率 95%，有效利用率接近零，而且没有任何一方会自己退让。
 

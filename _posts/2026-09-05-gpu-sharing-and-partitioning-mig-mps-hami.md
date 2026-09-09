@@ -1,12 +1,11 @@
 ---
 layout: post
+series: ai-platform-engineering
 title: "AI 平台工程（04）：GPU 共享与切分——MIG、时间片、MPS 与 HAMi"
 subtitle: "Sharing and Partitioning GPUs: MIG, Time-Slicing, MPS and HAMi"
 tags: [Kubernetes, GPU, MIG, HAMi, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《AI 平台工程：资源层与交付层》](/ai-platform-engineering.html)系列的第 4 篇（共八篇）。上一篇：[AI 任务调度：gang scheduling、队列与拓扑感知](/ai-job-scheduling-gang-queue-topology.html)　下一篇：[网络与存储：RDMA 进容器、并行文件系统与 checkpoint I/O](/rdma-networking-storage-and-checkpoint-io.html)
 
 月底看账单，推理平台上一张 80 GB 的 H100 每小时几美元，一个月跑满是四位数。再看 DCGM 的曲线：这张卡上唯一的服务是一个 7B 模型的 vLLM 副本，`DCGM_FI_DEV_FB_USED` 常年 22 GB 左右，`DCGM_FI_PROF_SM_ACTIVE` 白天峰值不到 30%，夜里几乎是零。也就是说，这张卡四分之三的显存和七成以上的算力在付费但没有产出。集群里这样的卡有几十张：每个团队的每个小模型都要"一张卡"，因为 `nvidia.com/gpu: 1` 是 device plugin 唯一听得懂的请求。
 

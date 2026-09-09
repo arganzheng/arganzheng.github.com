@@ -1,12 +1,11 @@
 ---
 layout: post
+series: transformer-and-llm
 title: "Transformer 与 LLM（07）：量化、投机解码与 LoRA"
 subtitle: "Quantization, Speculative Decoding and LoRA: Three Ways to Reshape the Computation"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)系列的第 7 篇（共七篇）。上一篇：[浮点格式、数值稳定性与混合精度](/floating-point-formats-and-mixed-precision.html)
 
 前六篇把一个 Transformer 拆成了四组变量：参数量 $$N$$、每 token 的 FLOPs、每步要搬的字节数、每 token 的 KV cache。这些变量由结构决定——层数、hidden、GQA 的组数、专家数——一旦 `config.json` 定下来，它们就定下来了。
 

@@ -1,12 +1,11 @@
 ---
 layout: post
+series: transformer-and-llm
 title: "Transformer 与 LLM（03）：Attention 变体与 KV cache"
 subtitle: "Attention Variants and the KV Cache: Deriving MHA, GQA, MQA and MLA"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)系列的第 3 篇（共七篇）。上一篇：[前向的算量与访存量](/transformer-flops-bytes-and-roofline.html)；下一篇：[位置编码与长上下文](/positional-encoding-and-long-context.html)
 
 上一篇把一次前向拆成了"权重项"和"上下文项"两部分：权重项每 token 每参数 2 FLOPs，与上下文长度无关；上下文项只来自 attention，随序列长度 $$s$$ 线性增长（decode）或平方增长（prefill）。这一篇专门讲 attention，因为它是 Transformer 里唯一成本随上下文增长的部分，也是过去几年结构改动最集中的地方。
 

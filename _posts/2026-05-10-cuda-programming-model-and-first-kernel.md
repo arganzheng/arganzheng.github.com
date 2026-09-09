@@ -1,12 +1,11 @@
 ---
 layout: post
+series: gpu-kernel-engineering
 title: "GPU Kernel 工程（02）：CUDA 编程模型与第一个 kernel"
 subtitle: "The CUDA Programming Model and Your First Kernel, Measured"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention》](/gpu-kernel-engineering.html)系列的第 2 篇（共十篇）。上一篇：[GPU 为什么这样设计：硬件结构与 Roofline](/gpu-architecture-and-roofline.html)　下一篇：[访存合并与 elementwise kernel](/memory-coalescing-and-elementwise-kernels.html)
 
 上一篇建立了本系列的分析框架，用到的结论可以压缩成三个数字。GPU 的基本执行单位是 **warp**：32 个线程共用一个指令流，一条指令同时作用在 32 个数据上。以 A100 SXM 80GB 为默认分析对象（标称值）：HBM2e 带宽约 **2.0 TB/s**，BF16 Tensor Core 算力 312 TFLOPS，两者相除得到 Roofline 的拐点（ridge point）：
 

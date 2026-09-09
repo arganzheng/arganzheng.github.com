@@ -1,12 +1,11 @@
 ---
 layout: post
+series: cpp-for-ai-infra
 title: "C++ 在 AI-Infra（01）：从源码到二进制——编译模型与项目布局"
 subtitle: "Compilation Model and Project Layout"
 tags: [C++, AI, AI-Infra]
 catalog: true
 ---
-
-> 本文是[《C++ 在 AI-Infra：从对象模型到算子扩展》](/cpp-for-ai-infra.html)系列的第 1 篇（共八篇）。下一篇：[值、引用与所有权：对象模型与 RAII](/cpp-value-semantics-ownership-and-raii.html)
 
 `import torch` 背后，Python 解释器真正加载的第一个 C 语言文件只有 15 行。它是 `torch/csrc/stub.c`，全文如下：
 
