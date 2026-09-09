@@ -67,10 +67,14 @@ The note is posted as a **normal comment** of the post's giscus Discussion:
 note (Markdown)
 ```
 
-Further notes on the *same passage* are replies to that comment
-(`addDiscussionComment` with `replyToId`): when a selection lies inside an
-existing annotation's range the editor says "加入该讨论" and posts a reply, so a
-passage has exactly one thread on GitHub too.
+Further notes on the *same passage* are either new top-level comments with the
+same quote (grouped into one thread by identical anchor range; the panel's
+editor defaults to this) or replies to a specific comment
+(`addDiscussionComment` with `replyToId`, via each comment's 「回复」 button).
+When a selection lies inside an existing annotation's range the toolbar's
+「评论」 opens that passage's thread instead of a new editor, so a passage has
+exactly one thread on GitHub too. The editor has a small Markdown toolbar
+(`applyFormat`) and its submit button is disabled while empty.
 
 On load the thread is fetched, comments of that shape are parsed into a W3C
 `TextQuoteSelector` (exact = blockquote text), anchored exactly or fuzzily

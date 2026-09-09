@@ -229,7 +229,7 @@
 
 	// thread
 	.ap-thread {
-		padding: 6px 14px 4px;
+		padding: 2px 14px 0;
 		max-height: 520px;
 		overflow-y: auto;
 	}
@@ -238,12 +238,12 @@
 		display: flex;
 		align-items: flex-start;
 		gap: 10px;
-		padding: 10px 0;
+		padding: 8px 0 6px;
 		+ .ap-comment { border-top: 1px solid #eaeef2; }
 		&.is-reply {
-			margin-left: 38px;
+			margin-left: 36px;
 			border-top: 0 !important;
-			padding-top: 4px;
+			padding: 2px 0 6px;
 			.ap-avatar img { width: 22px; height: 22px; }
 		}
 		&.is-new { animation: annotation-comment-in 1.6s ease-out; }
@@ -257,11 +257,26 @@
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		margin-bottom: 4px;
+		margin-bottom: 2px;
 		font-size: 12.5px;
 		color: @annot-faint;
 		> a:first-child { color: #24292f; font-weight: 600; text-decoration: none; }
-		.ap-github { margin-left: auto; color: @annot-faint; &:hover { color: @brand-primary; } }
+		.ap-meta-actions {
+			margin-left: auto;
+			display: inline-flex;
+			align-items: center;
+			gap: 10px;
+		}
+		.ap-reply-btn {
+			padding: 0;
+			border: 0;
+			background: none;
+			font-size: 12px;
+			color: @annot-faint;
+			cursor: pointer;
+			&:hover { color: @brand-primary; }
+		}
+		.ap-github { color: @annot-faint; &:hover { color: @brand-primary; } }
 	}
 	.ap-comment-body {
 		font-size: 14px;
@@ -289,7 +304,46 @@
 			cursor: pointer;
 			&.is-active { color: @brand-primary; border-bottom-color: @brand-primary; font-weight: 600; }
 		}
-		.ap-tabs-hint { margin-left: auto; font-size: 12px; color: @annot-faint; }
+		.ap-format {
+			margin-left: auto;
+			display: inline-flex;
+			gap: 2px;
+			button {
+				width: 28px;
+				height: 26px;
+				padding: 0;
+				border-bottom: 0;
+				border-radius: 4px;
+				color: @annot-muted;
+				font-size: 12.5px;
+				&:hover { background: #eaeef2; color: #24292f; }
+			}
+		}
+	}
+	.ap-reply-chip {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin: 8px 14px 0;
+		padding: 3px 8px;
+		width: max-content;
+		max-width: 100%;
+		font-size: 12.5px;
+		color: @brand-primary;
+		background: fade(@brand-primary, 8%);
+		border: 1px solid fade(@brand-primary, 30%);
+		border-radius: 12px;
+		button {
+			border: 0;
+			background: none;
+			color: @brand-primary;
+			font-size: 15px;
+			line-height: 1;
+			padding: 0 2px;
+			cursor: pointer;
+			&:hover { color: #cf222e; }
+		}
+		+ .ap-text { margin-top: 6px; }
 	}
 	.ap-text {
 		display: block;
@@ -351,7 +405,9 @@
 	.ap-muted { color: @annot-faint; font-style: normal; }
 	.ap-buttons {
 		display: flex;
+		align-items: center;
 		gap: 8px;
+		.ap-hint { font-size: 12px; color: @annot-faint; margin-right: 4px; }
 		button {
 			padding: 6px 14px;
 			font-size: 13px;
@@ -372,7 +428,7 @@
 		}
 	}
 	&.is-editor .ap-text { min-height: 180px; }
-	&.is-thread .ap-editor .ap-text { min-height: 84px; }
+	&.is-thread .ap-editor .ap-text { min-height: 130px; }
 }
 
 @keyframes annotation-panel-in {
@@ -420,6 +476,8 @@
 	.post-container .annotation-panel {
 		.ap-head .ap-count { display: none; }
 		.ap-footer { flex-wrap: wrap; }
+		.ap-buttons .ap-hint { display: none; }
+		.ap-tabs .ap-format button:nth-child(n+7) { display: none; }
 		.ap-comment.is-reply { margin-left: 20px; }
 	}
 }

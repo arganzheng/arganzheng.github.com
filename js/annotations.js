@@ -497,22 +497,50 @@
         '<button type="button" class="ap-close" title="收起">×</button>' +
       '</div>' +
       '<div class="ap-thread"></div>' +
-      '<div class="ap-editor ap-join"></div>';
+      '<div class="ap-editor"></div>';
     panel.querySelector('.ap-close').addEventListener('click', closePanel);
     var thread = panel.querySelector('.ap-thread');
+    var editorHost = panel.querySelector('.ap-editor');
+    var replyTo = null; // { annotation, mention } or null = comment on the passage
+
+    function setReplyTarget(a, mentionLogin) {
+      replyTo = a ? { annotation: a, mention: mentionLogin } : null;
+      var chip = editorHost.querySelector('.ap-reply-chip');
+      chip.style.display = replyTo ? 'flex' : 'none';
+      if (replyTo) chip.querySelector('span').textContent = '回复 @' + mentionLogin;
+      var ta = editorHost.querySelector('.ap-text');
+      ta.placeholder = replyTo ? '回复 @' + mentionLogin + '…' : '对这段文字发表评论…';
+      editorHost.querySelector('.ap-submit-label').textContent = replyTo ? '回复' : '发表评论';
+      if (replyTo && mentionLogin !== a.author.login && !ta.value) ta.value = '@' + mentionLogin + ' ';
+      ta.focus();
+      ta.dispatchEvent(new Event('input'));
+    }
+
     list.forEach(function (a) {
-      thread.appendChild(commentEl(a, a.noteHTML, false));
-      (a.replies || []).forEach(function (r) { thread.appendChild(commentEl(r, r.bodyHTML, true)); });
+      thread.appendChild(commentEl(a, a.noteHTML, false, function () { setReplyTarget(a, a.author.login); }));
+      (a.replies || []).forEach(function (r) {
+        thread.appendChild(commentEl(r, r.bodyHTML, true, function () { setReplyTarget(a, r.author.login); }));
+      });
     });
-    renderEditor(panel.querySelector('.ap-editor'), {
-      placeholder: '加入讨论…（支持 Markdown，⌘/Ctrl+Enter 发送）',
+    renderEditor(editorHost, {
+      placeholder: '对这段文字发表评论…',
       submitLabel: '发表评论',
       compact: true,
-      onSubmit: function (text) { return postReply(primary, text); }
+      replyChip: true,
+      onCancel: closePanel,
+      onSubmit: function (text) {
+        return replyTo ? postReply(replyTo.annotation, text) : postAnnotation(primary.selector, text);
+      },
+      fallbackText: function (text) { return replyTo ? text : buildCommentBody(primary.selector, text); }
+    });
+    editorHost.querySelector('.ap-reply-chip button').addEventListener('click', function () {
+      var ta = editorHost.querySelector('.ap-text');
+      if (replyTo && ta.value.trim() === '@' + replyTo.mention) ta.value = '';
+      setReplyTarget(null);
     });
   }
 
-  function commentEl(c, html, isReply) {
+  function commentEl(c, html, isReply, onReply) {
     var el = document.createElement('div');
     el.className = 'ap-comment' + (isReply ? ' is-reply' : '');
     el.innerHTML =
@@ -521,13 +549,17 @@
         '<div class="ap-comment-meta"><a href="' + escapeAttr(c.author.url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(c.author.login) + '</a>' +
           '<time datetime="' + escapeAttr(c.createdAt) + '" title="' + escapeAttr(new Date(c.createdAt).toLocaleString()) + '">' + relativeTime(c.createdAt) + '</time>' +
           (c.upvoteCount ? '<span class="ap-upvotes"><i class="fa fa-caret-up"></i> ' + c.upvoteCount + '</span>' : '') +
-          '<a class="ap-github" href="' + escapeAttr(c.url) + '" target="_blank" rel="noopener noreferrer" title="在 GitHub 上查看"><i class="fa fa-github"></i></a>' +
+          '<span class="ap-meta-actions">' +
+            (onReply ? '<button type="button" class="ap-reply-btn"><i class="fa fa-reply"></i> 回复</button>' : '') +
+            '<a class="ap-github" href="' + escapeAttr(c.url) + '" target="_blank" rel="noopener noreferrer" title="在 GitHub 上查看"><i class="fa fa-github"></i></a>' +
+          '</span>' +
         '</div>' +
         '<div class="ap-comment-body"></div>' +
       '</div>';
     var body = el.querySelector('.ap-comment-body');
     body.appendChild(sanitizeHtml(html));
     InlinePopover.renderMathIfPresent(body);
+    if (onReply) el.querySelector('.ap-reply-btn').addEventListener('click', onReply);
     return el;
   }
 
@@ -535,38 +567,62 @@
 
   // Shared editor block: textarea + preview + auth + buttons. `opts.onSubmit(text)`
   // returns a promise; the editor shows errors and offers the clipboard fallback.
+  var FORMAT_BUTTONS = [
+    { key: 'bold', icon: 'fa-bold', title: '加粗 (**文字**)' },
+    { key: 'italic', icon: 'fa-italic', title: '斜体 (*文字*)' },
+    { key: 'heading', icon: 'fa-header', title: '标题 (### )' },
+    { key: 'quote', icon: 'fa-quote-right', title: '引用 (> )' },
+    { key: 'code', icon: 'fa-code', title: '行内代码 (`code`)' },
+    { key: 'codeblock', icon: 'fa-file-code-o', title: '代码块 (```)' },
+    { key: 'link', icon: 'fa-link', title: '链接 [文字](url)' },
+    { key: 'image', icon: 'fa-picture-o', title: '图片 ![说明](url)' },
+    { key: 'ul', icon: 'fa-list-ul', title: '无序列表 (- )' },
+    { key: 'ol', icon: 'fa-list-ol', title: '有序列表 (1. )' }
+  ];
+
   function renderEditor(host, opts) {
     host.innerHTML =
       '<div class="ap-tabs"><button type="button" class="is-active" data-tab="write">撰写</button><button type="button" data-tab="preview">预览</button>' +
-        '<span class="ap-tabs-hint">支持 Markdown · 图片可直接贴链接</span></div>' +
-      '<textarea class="ap-text" rows="' + (opts.compact ? 3 : 6) + '" placeholder="' + escapeAttr(opts.placeholder) + '"></textarea>' +
+        '<span class="ap-format">' + FORMAT_BUTTONS.map(function (b) {
+          return '<button type="button" data-format="' + b.key + '" title="' + b.title + '"><i class="fa ' + b.icon + '"></i></button>';
+        }).join('') + '</span>' +
+      '</div>' +
+      (opts.replyChip ? '<div class="ap-reply-chip" style="display:none"><i class="fa fa-reply"></i><span></span><button type="button" title="改为对这段文字评论">×</button></div>' : '') +
+      '<textarea class="ap-text" rows="' + (opts.compact ? 4 : 6) + '" placeholder="' + escapeAttr(opts.placeholder) + '"></textarea>' +
       '<div class="ap-preview" style="display:none"></div>' +
       '<div class="ap-status" style="display:none"></div>' +
       '<div class="ap-footer">' +
         '<span class="ap-user"></span>' +
         '<span class="ap-buttons">' +
+          '<span class="ap-hint">Markdown · ⌘/Ctrl+Enter 提交</span>' +
           (opts.onCancel ? '<button type="button" class="ap-cancel">取消</button>' : '') +
           '<button type="button" class="ap-login"><i class="fa fa-github"></i> 使用 GitHub 登录</button>' +
-          '<button type="button" class="ap-submit"><i class="fa fa-paper-plane"></i> ' + escapeHtml(opts.submitLabel) + '</button>' +
+          '<button type="button" class="ap-submit" disabled><i class="fa fa-paper-plane"></i> <span class="ap-submit-label">' + escapeHtml(opts.submitLabel) + '</span></button>' +
         '</span>' +
       '</div>';
     var ta = host.querySelector('.ap-text');
+    var submitBtn = host.querySelector('.ap-submit');
     if (opts.initialText) ta.value = opts.initialText;
-    if (opts.onChange) ta.addEventListener('input', function () { opts.onChange(ta.value); });
+    function updateSubmitState() { submitBtn.disabled = host.classList.contains('is-busy') || !ta.value.trim(); }
+    ta.addEventListener('input', function () { updateSubmitState(); if (opts.onChange) opts.onChange(ta.value); });
+    updateSubmitState();
     if (opts.onCancel) host.querySelector('.ap-cancel').addEventListener('click', opts.onCancel);
     host.querySelector('.ap-login').addEventListener('click', function () { if (opts.beforeLogin) opts.beforeLogin(ta.value); login(); });
-    var tabs = host.querySelectorAll('.ap-tabs button');
+    var tabs = host.querySelectorAll('.ap-tabs button[data-tab]');
     for (var i = 0; i < tabs.length; i++) tabs[i].addEventListener('click', function () { switchTab(host, this.getAttribute('data-tab')); });
+    var fmts = host.querySelectorAll('.ap-format button');
+    for (var f = 0; f < fmts.length; f++) fmts[f].addEventListener('click', function () { switchTab(host, 'write'); applyFormat(ta, this.getAttribute('data-format')); });
 
     function submit() {
       var text = ta.value.trim();
-      if (!text) { setStatus(host, '内容不能为空', 'error'); return; }
+      if (!text) return;
       setBusy(host, true);
       setStatus(host, '正在发表…');
       opts.onSubmit(text).then(function () {
         setBusy(host, false);
       }).catch(function (err) {
         setBusy(host, false);
+        updateSubmitState();
         var msg = err.message || String(err);
         setStatus(host, msg + ' — 也可以复制内容后粘贴到文末评论框发表。', 'error');
         var fallback = document.createElement('button');
@@ -585,10 +641,62 @@
         refreshAuthUI(host);
       });
     }
-    host.querySelector('.ap-submit').addEventListener('click', submit);
-    ta.addEventListener('keydown', function (e) { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); submit(); } });
+    submitBtn.addEventListener('click', submit);
+    ta.addEventListener('keydown', function (e) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); submit(); return; }
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === 'b' || e.key === 'i' || e.key === 'k')) {
+        e.preventDefault();
+        applyFormat(ta, e.key === 'b' ? 'bold' : e.key === 'i' ? 'italic' : 'link');
+      }
+    });
     refreshAuthUI(host);
     return ta;
+  }
+
+  // Minimal Markdown helpers for the toolbar: wrap the selection or prefix the
+  // selected lines; setRangeText keeps the browser's undo stack intact.
+  function applyFormat(ta, kind) {
+    var v = ta.value, s = ta.selectionStart, e = ta.selectionEnd, sel = v.slice(s, e);
+    function wrap(left, right, placeholder) {
+      var inner = sel || placeholder;
+      ta.setRangeText(left + inner + right, s, e, 'select');
+      if (!sel) ta.setSelectionRange(s + left.length, s + left.length + inner.length);
+      else ta.setSelectionRange(s + left.length, s + left.length + inner.length);
+    }
+    function prefixLines(prefixFn) {
+      var ls = v.lastIndexOf('\n', s - 1) + 1;
+      var le = v.indexOf('\n', e); if (le === -1) le = v.length;
+      var lines = v.slice(ls, le).split('\n');
+      var out = lines.map(function (l, i) { return prefixFn(i) + l; }).join('\n');
+      ta.setRangeText(out, ls, le, 'select');
+      ta.setSelectionRange(ls, ls + out.length);
+    }
+    function block(open, close, placeholder) {
+      var inner = sel || placeholder;
+      var before = (s > 0 && v.charAt(s - 1) !== '\n') ? '\n' : '';
+      var after = (e < v.length && v.charAt(e) !== '\n') ? '\n' : '';
+      var text = before + open + '\n' + inner + '\n' + close + after;
+      ta.setRangeText(text, s, e, 'select');
+      var innerStart = s + before.length + open.length + 1;
+      ta.setSelectionRange(innerStart, innerStart + inner.length);
+    }
+    switch (kind) {
+      case 'bold': wrap('**', '**', '加粗文字'); break;
+      case 'italic': wrap('*', '*', '斜体文字'); break;
+      case 'code': wrap('`', '`', 'code'); break;
+      case 'heading': prefixLines(function () { return '### '; }); break;
+      case 'quote': prefixLines(function () { return '> '; }); break;
+      case 'ul': prefixLines(function () { return '- '; }); break;
+      case 'ol': prefixLines(function (i) { return (i + 1) + '. '; }); break;
+      case 'codeblock': block('```', '```', '代码'); break;
+      case 'link':
+        if (/^https?:\/\//.test(sel)) { ta.setRangeText('[链接文字](' + sel + ')', s, e, 'select'); ta.setSelectionRange(s + 1, s + 5); }
+        else { var t = sel || '链接文字'; ta.setRangeText('[' + t + '](url)', s, e, 'select'); ta.setSelectionRange(s + t.length + 3, s + t.length + 6); }
+        break;
+      case 'image': ta.setRangeText('![' + (sel || '图片说明') + '](url)', s, e, 'select'); ta.setSelectionRange(s + (sel || '图片说明').length + 4, s + (sel || '图片说明').length + 7); break;
+    }
+    ta.focus();
+    ta.dispatchEvent(new Event('input'));
   }
 
   function switchTab(host, tab) {
@@ -622,6 +730,8 @@
     var btns = host.querySelectorAll('button, textarea');
     for (var i = 0; i < btns.length; i++) btns[i].disabled = !!busy;
     host.classList.toggle('is-busy', !!busy);
+    var ta = host.querySelector('.ap-text'), submit = host.querySelector('.ap-submit');
+    if (!busy && ta && submit) submit.disabled = !ta.value.trim();
   }
 
   function refreshAuthUI(host) {
@@ -669,34 +779,33 @@
 
   function openComposer(sel, offsets, anchorNode, draftText) {
     var join = joinTargetFor(offsets);
-    panelState = { kind: 'editor', selector: sel, offsets: offsets, join: join ? join.id : null };
+    if (join) {
+      // same passage -> one thread; the editor there defaults to a comment on the passage
+      openThread(groupIdsFor(join), join.marks[join.marks.length - 1]);
+      var joinTa = panel.querySelector('.ap-text');
+      if (joinTa) { if (draftText) joinTa.value = draftText; joinTa.focus(); joinTa.dispatchEvent(new Event('input')); }
+      return;
+    }
+    panelState = { kind: 'editor', selector: sel, offsets: offsets };
     ensurePanel();
     panel.className = 'annotation-panel is-editor';
     panel.innerHTML =
       '<div class="ap-head">' +
         '<i class="fa fa-quote-left"></i><span class="ap-quote" title="' + escapeAttr(sel.exact) + '">' + escapeHtml(sel.exact) + '</span>' +
-        (join ? '<span class="ap-count">这段文字已有批注，你的评论将加入该讨论</span>' : '<span class="ap-count">新批注</span>') +
+        '<span class="ap-count">新批注</span>' +
         '<button type="button" class="ap-close" title="取消">×</button>' +
       '</div>' +
-      (join ? '<div class="ap-thread ap-thread-preview"></div>' : '') +
       '<div class="ap-editor"></div>';
     panel.querySelector('.ap-close').addEventListener('click', cancelComposer);
-    if (join) {
-      var thread = panel.querySelector('.ap-thread');
-      groupIdsFor(join).map(findAnnotation).forEach(function (a) {
-        thread.appendChild(commentEl(a, a.noteHTML, false));
-        (a.replies || []).forEach(function (r) { thread.appendChild(commentEl(r, r.bodyHTML, true)); });
-      });
-    }
     var ta = renderEditor(panel.querySelector('.ap-editor'), {
-      placeholder: join ? '加入讨论…（支持 Markdown，⌘/Ctrl+Enter 提交）' : '写下你对这段文字的批注…（支持 Markdown，⌘/Ctrl+Enter 提交）',
+      placeholder: '写下你对这段文字的批注…',
       submitLabel: '提交评论',
       initialText: draftText || '',
       onCancel: cancelComposer,
       onChange: saveDraft,
       beforeLogin: saveDraft,
-      fallbackText: function (text) { return join ? text : buildCommentBody(sel, text); },
-      onSubmit: function (text) { return join ? postReply(join, text, true) : postAnnotation(sel, text); }
+      fallbackText: function (text) { return buildCommentBody(sel, text); },
+      onSubmit: function (text) { return postAnnotation(sel, text); }
     });
     mountPanel(anchorNode);
     if (window.getSelection) window.getSelection().removeAllRanges();
@@ -729,12 +838,11 @@
     });
   }
 
-  function postReply(a, text, fromComposer) {
+  function postReply(a, text) {
     return graphql(ADD_COMMENT, { body: text, discussionId: discussion.id, replyToId: a.id }).then(function (data) {
       var c = data.addDiscussionComment.comment;
       a.replies = (a.replies || []).concat([{ id: c.id, url: c.url, author: c.author || GHOST, createdAt: c.createdAt, bodyHTML: c.bodyHTML }]);
       a.replyCount = a.replies.length;
-      if (fromComposer) clearDraft();
       applyHighlights(); // marker counts
       openThread(groupIdsFor(a), a.marks[a.marks.length - 1]);
       var items = panel.querySelectorAll('.ap-comment');
