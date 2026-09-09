@@ -21,4 +21,4 @@ GITHUB_APP_ID = "4880637"
 [[d1_databases]]
 binding = "DB"
 database_name = "blog-views"
-database_id = "REPLACE_WITH_DATABASE_ID"
+database_id = "c83e2b0b-f57b-4f1b-987b-21bf528503b7"
