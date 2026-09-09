@@ -94,9 +94,13 @@ Pages has `https_enforced` on.
   natural width, not inside `<a>`) in the zoom/pan lightbox.
 - Local CSS/JS in `head.html` / `footer.html` carry `?v=<build time>` for
   cache busting (GitHub Pages serves `max-age=600`; the old `no-cache` meta
-  tags were removed). Font Awesome 4.7 is self-hosted
-  (`css/font-awesome.min.css` + `fonts/fontawesome-webfont.*`); `sw.js` is
-  disabled via `service-worker: false`.
+  tags were removed). Font Awesome 4.7 is a self-hosted **subset**:
+  `tools/fa-subset.py` scans templates/js/posts/less for `fa-*` classes and
+  `content:"\fXXX"` glyphs and writes `css/font-awesome.min.css` +
+  `fonts/fontawesome-webfont.woff2` (~5 KB each) from the full copies in
+  `tools/fa/`. **Re-run it after using a new icon**, or it renders as a blank
+  box (needs `pip install fonttools brotli`). `sw.js` is disabled via
+  `service-worker: false`.
 - `_includes/comments.html` — comment section (GitHub Discussions), used by
   `_layouts/post.html`, `header-post.html` and `keynote.html`. It is an empty
   `section.comment > .annotation-comments` shell with data attributes; the
