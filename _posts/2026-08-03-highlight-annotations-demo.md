@@ -1,12 +1,12 @@
 ---
 layout: post
-title: "博客交互演示：读者划线评论（Highlight Annotations）"
-subtitle: "Interactive Demo: Select Any Sentence, Comment on It, Flag It as an Issue"
+title: "博客交互演示：读者划线评论"
+subtitle: "Interactive Demo: Select Any Sentence, Comment on It, Vote, Flag It as an Issue"
 catalog: true
 tags: [Blog, Demo, GitHub]
 ---
 
-> 本文是**读者划线评论（Highlight Annotations）**功能的官方演示与说明。它和[浮窗脚注、行内 Tips](/popup-footnotes-and-inline-tips-demo.html) 方向相反：那些是**作者**写给读者的解释，这个是**读者**写给作者和其他读者的——像 Medium 的 highlight、Kindle 的热门标注、或者 Code Review 工具里的行内评论，直接在正文的某句话上留下讨论。你现在就可以在本文任意一段上试。
+> 本文是**读者划线评论**功能的官方演示与说明。它和[浮窗脚注、行内 Tips](/popup-footnotes-and-inline-tips-demo.html) 方向相反：那些是**作者**写给读者的解释，这个是**读者**写给作者和其他读者的——像 Medium 的 highlight、Kindle 的热门标注、或者 Code Review 工具里的行内评论，直接在正文的某句话上留下讨论。你现在就可以在本文任意一段上试。
 
 ---
 
@@ -21,6 +21,8 @@ tags: [Blog, Demo, GitHub]
 | 点某条评论右侧的 `回复` | 变成对那条评论的回复（框上出现「回复 @某人」，× 切回） |
 | 勾上 <i class="fa fa-flag" style="color:#d1242f"></i> `同时提交 Issue` 再发表 | 额外在博客仓库开一个 GitHub Issue，评论带红旗徽章 |
 | 点 `复制链接` | 得到 `…html#hl=选中的文字`，别人打开会自动定位并闪烁这段文字 |
+| 点某条评论的 <i class="fa fa-caret-up"></i> / <i class="fa fa-caret-down"></i> | 赞同 / 反对，中间是净分（Stack Overflow 式），一人一票，再点取消 |
+| 点评论区顶部的 <i class="fa fa-thumbs-o-up"></i> `有用` | 给整篇文章点赞；旁边的 <i class="fa fa-eye"></i> 是阅读数 |
 
 所有内容都存在文章的 [GitHub Discussions](https://github.com/arganzheng/arganzheng.github.com/discussions) 讨论串里，没有额外的数据库。**文末评论区和划线评论是同一套东西**：同一个讨论串、同一个编辑器、同样的回复 / 编辑 / 删除 / 提 Issue，区别只是一个挂在某句话上、一个挂在整篇文章上。划线评论会同时出现在文末列表里（带着它引用的原文和 `§ 原文位置` 链接，点击就跳回那句话）。
 
@@ -73,6 +75,7 @@ def all_reduce(tensors, group):
 - 工具条：加粗、斜体、标题、引用、行内代码、代码块、链接、图片、无序 / 有序列表；`⌘/Ctrl+B`、`I`、`K` 对应加粗、斜体、链接。不熟 Markdown 也能写，熟的直接敲。
 - 内容为空时 `发表评论` 是灰的；`取消` 和右上角 `×` 都是收起。
 - GitHub 登录只需登一次，文末评论区和划线评论共用；登录会跳到 GitHub 再跳回来，**草稿会保留**。登录后用户名旁有 `退出`。
+- 每条评论和回复右侧有 <i class="fa fa-caret-up"></i> 分数 <i class="fa fa-caret-down"></i>：赞同 / 反对各一票，可切换、可取消；分数为负会标红。评论区顶部的 `有用` 是整篇文章的点赞，旁边是阅读数。
 - 自己发的评论右侧有 `编辑` / `删除`（只有你自己能看到），原地改、原地删，不用去 GitHub；每条评论右侧的 <i class="fa fa-github"></i> 图标是它在 GitHub 上的原文链接。
 - 发表失败时（网络、权限）会给一个「复制内容」按钮，把带引用的 Markdown 复制出来，粘贴到文末评论框里发也是一样的效果。
 
@@ -104,31 +107,43 @@ def all_reduce(tensors, group):
 
 匹配到的区间被切成若干 `<mark>` 包住文字节点——只包文字，不动结构，所以链接、公式、Tips 的悬停都照常工作；重叠的划线共享同一个 `<mark>`（带多个 id），不会嵌套。
 
-### 3. 数据通路：一个不存密钥的 Cloudflare Worker
+### 3. 数据通路：一个很薄的 Cloudflare Worker
 
 ```mermaid
 flowchart TB
     B["浏览器<br/>js/annotations.js"]
-    W["Cloudflare Worker<br/>(转发层，本身无密钥)"]
+    W["Cloudflare Worker<br/>(转发 + 阅读数计数)"]
     G["giscus.app API<br/>(只借它读讨论串和做 GitHub 登录)"]
     GH["GitHub GraphQL / REST"]
     B -- "① 读讨论串<br/>② giscus 登录态换 token" --> W
     W -- "①② 原样转发" --> G
     B -- "③ 发评论 / 回复<br/>（读者自己的 token）" --> GH
+    B -- "③ 点赞 / 投票<br/>= addReaction / removeReaction" --> GH
     B -- "④ 同时提交 Issue<br/>（带读者 token）" --> W
+    B -- "⑤ 阅读数 +1 / 读取" --> W
+    D1["Cloudflare D1<br/>views(path, count)"]
+    W -- "⑤" --> D1
     W -- "④ 验读者身份，再以博客的<br/>GitHub App 身份建 Issue" --> GH
     classDef c fill:#f6f8fa,stroke:#d0d7de,color:#24292f;
-    class B,W,G,GH c;
+    class B,W,G,GH,D1 c;
 ```
 
 文末评论区以前是 [giscus](https://giscus.app) 的 iframe；现在 iframe 没有了，评论列表和划线评论由同一段脚本渲染（所以才能做到两边一致），giscus 只剩两个用途：匿名读取讨论串的公开接口，和 GitHub 登录的 OAuth 中转。浏览器不能直接调 giscus 的接口（CORS 只放行它自己的域名），所以中间加了一层 Worker 做转发和 60 秒缓存。**发评论、改评论、删评论用的都是读者自己的 GitHub 身份**：登录回跳后会话存在本站的 `localStorage` 里，脚本用它换出 token，直接调 GitHub GraphQL（`addDiscussionComment` / `updateDiscussionComment` / `deleteDiscussionComment`），评论显示为读者本人，在 GitHub 上也能继续编辑。
 
+### 4. 点赞、投票、阅读数
+
+点赞和投票也没有自己的存储，用的是 GitHub 自带的 **reactions**：文章的 `有用` 是讨论串本身的 👍，评论的 <i class="fa fa-caret-up"></i> / <i class="fa fa-caret-down"></i> 是那条评论的 👍 / 👎，净分就是两者之差。GitHub 限定一个人对同一对象每种 reaction 只能点一次，所以「一人一票」是天然的；换边时脚本先撤掉旧的再加新的。写入走读者自己的 token（`addReaction` / `removeReaction`），读取时匿名接口只给计数，登录后再用读者 token 查一次 `viewerHasReacted`，把你投过的箭头点亮。在 GitHub 上看，就是评论下面多了几个 👍 👎——两边完全一致。
+
+阅读数是唯一需要自己存的东西（GitHub 没有这个概念）：Worker 绑一张 Cloudflare D1 表 `views(path, count)`，页面加载时 `POST /views` 加一并返回计数；同一浏览器对同一篇文章一天只算一次（`localStorage`），本地预览只读不写。它是「看过多少次」的粗略量级，不是统计产品。
+
+### 5. Issue 的特殊通路
+
 只有「同时提交 Issue」走了不同的路：giscus 这个 GitHub App 只申请了 Discussions 权限，读者的 token 开不了 Issue。所以 Worker 先用读者 token 向 GitHub 核实身份，再以**博客自己的 GitHub App** 身份创建 Issue（正文首行署名「由 @读者 提出」）。App 凭据靠私钥签短期 JWT 换取安装令牌，不像 PAT 那样会过期。
 
-### 4. 隐私与边界
+### 6. 隐私与边界
 
 - 登录授权给的是 giscus 这个 GitHub App（只有 Discussions 读写权限），本站不保存你的任何凭据；Worker 只转发，不落库。
-- 没有 emoji reactions——GitHub 目前不允许 App 签发的用户 token 点赞，giscus 里那个按钮本来也是灰的。
+- Worker 只保存两样东西：博客自己 GitHub App 的私钥（用来建 Issue）和每篇文章的阅读次数；不记录谁读过。
 - 你能在 GitHub 上编辑、删除自己的评论，页面下次加载就会同步。
 - 所有内容公开可见，和 GitHub Discussions 一致。
 

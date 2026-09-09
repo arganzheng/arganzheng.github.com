@@ -12,8 +12,18 @@
  *   POST /token        { session }             -> { token }   (giscus /api/oauth/token)
  *   POST /discussions  { input }               -> { id }      (giscus /api/discussions, Authorization passthrough)
  *   POST /issues       { title, body }         -> { number, url }  (optional, see below)
+ *   GET  /views?path=/slug.html                -> { views }       (optional, needs the D1 binding)
+ *   POST /views        { path }                -> { views }       increments, then returns the count
  *
  * repo / category are fixed via wrangler.toml [vars]; the worker never accepts them from the request.
+ *
+ * Likes and votes are NOT here: they are GitHub reactions (THUMBS_UP on the
+ * post's Discussion, THUMBS_UP / THUMBS_DOWN on its comments) and the browser
+ * reads them from the giscus payload and writes them via GitHub GraphQL with the
+ * reader's token. Only the page-view counter needs our own storage — a D1 table
+ * `views(path, count)`. The browser increments at most once per path per day
+ * (localStorage), the worker only accepts paths that look like a post URL. Good
+ * enough for a blog; not an analytics product.
  *
  * /issues is the one route that needs secrets. The reader's token comes from the
  * giscus GitHub App, whose only permission is Discussions: read & write, so it
@@ -47,6 +57,7 @@ export default {
       if (request.method === 'POST' && url.pathname === '/token') return await relay(`${GISCUS}/oauth/token`, request, cors);
       if (request.method === 'POST' && url.pathname === '/discussions') return await createDiscussion(request, env, cors);
       if (request.method === 'POST' && url.pathname === '/issues') return await createIssue(request, env, cors);
+      if (url.pathname === '/views' && (request.method === 'GET' || request.method === 'POST')) return await views(request, url, env, cors);
     } catch (err) {
       return json({ error: err.message || String(err) }, 502, cors);
     }
@@ -190,6 +201,31 @@ async function createIssue(request, env, cors) {
   const data = await r.json();
   if (!r.ok) return json({ error: data.message || `create issue: HTTP ${r.status}` }, r.status === 403 ? 502 : r.status, cors);
   return json({ number: data.number, url: data.html_url }, 201, { ...cors, 'Cache-Control': 'no-store' });
+}
+
+// ---- page views (D1) -------------------------------------------------------
+
+const VIEW_PATH = /^\/[A-Za-z0-9_\-./]{1,200}\.html$/;
+let viewsTableReady = null;
+
+async function views(request, url, env, cors) {
+  if (!env.DB) return json({ error: '阅读数未启用（worker 未绑定 D1）' }, 501, cors);
+  const path = request.method === 'GET' ? url.searchParams.get('path') : (await request.json().catch(() => ({}))).path;
+  if (typeof path !== 'string' || !VIEW_PATH.test(path) || path.includes('..')) return json({ error: '`path` must be a post URL' }, 400, cors);
+
+  if (!viewsTableReady) viewsTableReady = env.DB.exec('CREATE TABLE IF NOT EXISTS views (path TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0, updated_at TEXT)');
+  await viewsTableReady;
+
+  let row;
+  if (request.method === 'POST') {
+    row = await env.DB.prepare(
+      'INSERT INTO views (path, count, updated_at) VALUES (?1, 1, ?2) ' +
+      'ON CONFLICT(path) DO UPDATE SET count = count + 1, updated_at = ?2 RETURNING count'
+    ).bind(path, new Date().toISOString()).first();
+  } else {
+    row = await env.DB.prepare('SELECT count FROM views WHERE path = ?1').bind(path).first();
+  }
+  return json({ views: (row && row.count) || 0 }, 200, { ...cors, 'Cache-Control': 'no-store' });
 }
 
 // ---- GitHub App authentication --------------------------------------------

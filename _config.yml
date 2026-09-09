@@ -79,7 +79,7 @@ giscus:
   category: Comments
   category_id: DIC_kwDOADUvfs4DFI2e
 
-# Comments + highlight annotations (js/annotations.js). `api` is the URL of the
+# Comments, highlight comments (划线评论), likes/votes, page views (js/annotations.js). `api` is the URL of the
 # relay worker in tools/annotations-worker/ (see its README); leave empty to
 # disable comments entirely. Local dev can override it with localStorage.annotationsApi.
 annotations:

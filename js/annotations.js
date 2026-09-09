@@ -1,5 +1,5 @@
 /**
- * annotations.js — highlight annotations ("划线批注") on blog posts.
+ * annotations.js — highlight comments ("划线评论") on blog posts.
  *
  * Interaction (code-review / WeChat-reading style, no hover popups):
  *   - Select text in the article -> floating toolbar: 「评论」 / 「复制链接」.
@@ -62,7 +62,9 @@
   var index = null;          // { text, nodes:[{node, charIdx:[]}] }
   var comments = [];         // every top-level comment of the post's discussion (see parseComment)
   var annotations = [];      // the subset with a selector, anchored in the article
-  var discussion = null;     // { id, url, totalCommentCount }
+  var discussion = null;     // { id, url, totalCommentCount, likes: { up, mine } }
+  var pageViews = null;      // number once GET/POST /views answered; stays null when the worker has no counter
+  var loaded = false;        // loadDiscussion() has answered (either way)
   var loadError = null;
   var commentsHost = null;   // .annotation-comments in section.comment (the bottom comment section)
   var token = null;
@@ -97,6 +99,7 @@
     takeSessionFromUrl();
     bindSelection();
     initCommentSection();
+    loadViews();
     window.addEventListener('hashchange', focusFromHash);
     whenRichContentSettled(function () {
       loadDiscussion(false).then(function () { if (!restoreDraft()) focusFromHash(); });
@@ -371,7 +374,7 @@
       var marker = document.createElement('span');
       marker.className = 'annotation-marker';
       marker.setAttribute('data-annotation-ids', group.map(function (a) { return a.id; }).join(' '));
-      marker.setAttribute('title', count + ' 条批注，点击查看');
+      marker.setAttribute('title', count + ' 条评论，点击查看');
       marker.innerHTML = '<i class="fa fa-comment"></i><span class="annotation-marker-count">' + count + '</span>';
       marker.addEventListener('click', function (e) {
         e.preventDefault(); e.stopPropagation();
@@ -435,7 +438,7 @@
         openThread(groupIdsFor(a), a.marks[a.marks.length - 1]);
         return;
       }
-      showToast('这条批注对应的原文找不到了（可能已被修改）');
+      showToast('这条评论对应的原文找不到了（可能已被修改）');
       return;
     }
     var hl = /^#hl=(.*)$/.exec(h);
@@ -516,7 +519,7 @@
     panel.innerHTML =
       '<div class="ap-head">' +
         '<i class="fa fa-quote-left"></i><span class="ap-quote" title="' + escapeAttr(primary.selector.exact) + '">' + escapeHtml(primary.selector.exact) + '</span>' +
-        '<span class="ap-count">' + total + ' 条批注</span>' +
+        '<span class="ap-count">' + total + ' 条评论</span>' +
         '<button type="button" class="ap-close" title="收起">×</button>' +
       '</div>' +
       '<div class="ap-thread"></div>' +
@@ -579,9 +582,9 @@
         '<div class="ap-comment-meta"><a href="' + escapeAttr(c.author.url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(c.author.login) + '</a>' +
           '<time datetime="' + escapeAttr(c.createdAt) + '" title="' + escapeAttr(new Date(c.createdAt).toLocaleString()) + '">' + relativeTime(c.createdAt) + '</time>' +
           (c.lastEditedAt ? '<span class="ap-edited" title="' + escapeAttr(new Date(c.lastEditedAt).toLocaleString()) + '">已编辑</span>' : '') +
-          (c.upvoteCount ? '<span class="ap-upvotes"><i class="fa fa-caret-up"></i> ' + c.upvoteCount + '</span>' : '') +
           (c.issue ? '<a class="ap-issue-badge" href="' + escapeAttr(c.issue.url) + '" target="_blank" rel="noopener noreferrer" title="已同时提交为 GitHub Issue"><i class="fa fa-flag"></i> Issue' + (c.issue.number ? ' #' + c.issue.number : '') + '</a>' : '') +
           '<span class="ap-meta-actions">' +
+            (c.deleted ? '' : voteHtml(c)) +
             (onReply ? '<button type="button" class="ap-reply-btn"><i class="fa fa-reply"></i> 回复</button>' : '') +
             (mine ? '<button type="button" class="ap-edit-btn" title="编辑"><i class="fa fa-pencil"></i> 编辑</button>' +
                     '<button type="button" class="ap-delete-btn" title="删除"><i class="fa fa-trash-o"></i> 删除</button>' : '') +
@@ -602,6 +605,7 @@
       });
     }
     if (onReply) el.querySelector('.ap-reply-btn').addEventListener('click', onReply);
+    if (!c.deleted) bindVote(el.querySelector('.ap-vote'), c);
     if (mine) {
       el.querySelector('.ap-edit-btn').addEventListener('click', function () { startEdit(el, c, isReply, parent); });
       el.querySelector('.ap-delete-btn').addEventListener('click', function () { deleteComment(el, c, isReply, parent); });
@@ -710,11 +714,8 @@
 
   function renderCommentSection() {
     if (!commentsHost) return;
-    var head = commentsHost.querySelector('.ac-head'), list = commentsHost.querySelector('.ac-list');
-    var total = comments.reduce(function (n, c) { return n + (c.deleted ? 0 : 1) + c.replies.length; }, 0);
-    head.innerHTML =
-      '<span class="ac-count">' + (loadError ? '<i class="fa fa-exclamation-circle"></i> 评论加载失败：' + escapeHtml(loadError.message) : total + ' 条评论') + '</span>' +
-      (discussion && discussion.url ? '<a class="ac-github" href="' + escapeAttr(discussion.url) + '" target="_blank" rel="noopener noreferrer" title="这个讨论串在 GitHub Discussions 上"><i class="fa fa-github"></i> GitHub</a>' : '');
+    renderLikeBar();
+    var list = commentsHost.querySelector('.ac-list');
     list.innerHTML = '';
     if (!comments.length) {
       if (!loadError) list.innerHTML = '<p class="ac-empty">还没有评论。可以在下方留言，也可以选中正文任意文字，对那句话发表评论。</p>';
@@ -729,6 +730,26 @@
       });
       list.appendChild(group);
     });
+  }
+
+  // Head of the comment section: 「👍 有用」 (the Discussion's THUMBS_UP), page
+  // views, comment count, link to GitHub. Re-rendered on its own after a like /
+  // views response so the editors below are left alone.
+  function renderLikeBar() {
+    if (!commentsHost) return;
+    var head = commentsHost.querySelector('.ac-head');
+    var total = comments.reduce(function (n, c) { return n + (c.deleted ? 0 : 1) + c.replies.length; }, 0);
+    var likes = (discussion && discussion.likes) || parseVotes(null);
+    head.innerHTML =
+      '<button type="button" class="ac-like' + (likes.mine === 'up' ? ' is-active' : '') + '" title="' + (likes.mine === 'up' ? '取消点赞' : '觉得这篇文章有用？点个赞（GitHub 登录）') + '">' +
+        '<i class="fa ' + (likes.mine === 'up' ? 'fa-thumbs-up' : 'fa-thumbs-o-up') + '"></i> 有用' + (likes.up ? ' <b>' + likes.up + '</b>' : '') + '</button>' +
+      (pageViews !== null ? '<span class="ac-views" title="阅读次数"><i class="fa fa-eye"></i> ' + pageViews + '</span>' : '') +
+      '<span class="ac-count">' + (loadError ? '<i class="fa fa-exclamation-circle"></i> 评论加载失败：' + escapeHtml(loadError.message)
+        : !loaded ? '正在加载评论…' : '<i class="fa fa-comment-o"></i> ' + total + ' 条评论') + '</span>' +
+      (discussion && discussion.url ? '<a class="ac-github" href="' + escapeAttr(discussion.url) + '" target="_blank" rel="noopener noreferrer" title="这个讨论串在 GitHub Discussions 上"><i class="fa fa-github"></i> GitHub</a>' : '');
+    head.querySelector('.ac-like').addEventListener('click', toggleLike);
+    var meta = document.querySelector('.post-views');
+    if (meta) meta.textContent = pageViews !== null ? ' | ' + pageViews + ' 次阅读' : '';
   }
 
   // Reply box right under the comment's replies (only one open at a time).
@@ -761,6 +782,8 @@
     token = null; viewer = null;
     var hosts = document.querySelectorAll('.ap-editor');
     for (var i = 0; i < hosts.length; i++) if (hosts[i].querySelector('.ap-user')) refreshAuthUI(hosts[i]);
+    if (discussion) discussion.likes.mine = null; // the counts stay, our own vote marks go
+    comments.forEach(function (c) { c.votes.mine = null; c.replies.forEach(function (r) { r.votes.mine = null; }); });
     renderCommentSection();
     if (panelState && panelState.kind === 'thread') refreshThreadPanel();
   }
@@ -992,6 +1015,7 @@
     for (var i = 0; i < hosts.length; i++) if (hosts[i].querySelector('.ap-user')) refreshAuthUI(hosts[i]);
     if (panelState && panelState.kind === 'thread' && !panel.querySelector('.ap-text').value) refreshThreadPanel();
     if (commentsHost && !commentsHost.querySelector('.ac-reply-editor, .ap-inline-editor')) renderCommentSection();
+    loadViewerReactions();
   }
 
   function renderViewer(userEl, v) {
@@ -1031,13 +1055,13 @@
     panel.innerHTML =
       '<div class="ap-head">' +
         '<i class="fa fa-quote-left"></i><span class="ap-quote" title="' + escapeAttr(sel.exact) + '">' + escapeHtml(sel.exact) + '</span>' +
-        '<span class="ap-count">新批注</span>' +
+        '<span class="ap-count">新评论</span>' +
         '<button type="button" class="ap-close" title="取消">×</button>' +
       '</div>' +
       '<div class="ap-editor"></div>';
     panel.querySelector('.ap-close').addEventListener('click', cancelComposer);
     var ta = renderEditor(panel.querySelector('.ap-editor'), {
-      placeholder: '写下你对这段文字的批注…',
+      placeholder: '写下你对这段文字的评论…',
       submitLabel: '提交评论',
       initialText: draftText || '',
       issueOption: true,
@@ -1077,7 +1101,7 @@
         openThread(groupIdsFor(a), a.marks[a.marks.length - 1]);
       }
       flashComment(a.id);
-      showToast(issue ? '批注已发表，Issue #' + issue.number + ' 已创建' : '批注已发表');
+      showToast(issue ? '评论已发表，Issue #' + issue.number + ' 已创建' : '评论已发表');
     });
   }
 
@@ -1127,7 +1151,7 @@
   function postReply(a, text) {
     return graphql(ADD_COMMENT, { body: text, discussionId: discussion.id, replyToId: a.id }).then(function (data) {
       var c = data.addDiscussionComment.comment;
-      a.replies = (a.replies || []).concat([{ id: c.id, url: c.url, author: c.author || GHOST, createdAt: c.createdAt, lastEditedAt: null, bodyHTML: c.bodyHTML }]);
+      a.replies = (a.replies || []).concat([{ id: c.id, url: c.url, author: c.author || GHOST, createdAt: c.createdAt, lastEditedAt: null, bodyHTML: c.bodyHTML, votes: parseVotes(null) }]);
       a.replyCount = a.replies.length;
       syncViews(); // marker counts, panel, comment section
       flashComment(c.id);
@@ -1188,14 +1212,15 @@
     var qs = '?term=' + encodeURIComponent(cfg.path) + (fresh ? '&t=' + Date.now() : '');
     return api('/discussions' + qs).then(function (data) {
       var d = data && data.discussion;
-      discussion = d ? { id: d.id, url: d.url, totalCommentCount: d.totalCommentCount } : null;
+      discussion = d ? { id: d.id, url: d.url, totalCommentCount: d.totalCommentCount, likes: parseVotes(d.reactions || d.reactionGroups) } : null;
       comments = d ? parseComments(d.comments || []) : [];
-      loadError = null;
+      loadError = null; loaded = true;
       syncViews();
+      if (viewer) loadViewerReactions(); // the anonymous payload cannot know what *we* voted
       return annotations;
     }).catch(function (err) {
       console.warn('[annotations] load failed:', err.message);
-      loadError = err;
+      loadError = err; loaded = true;
       buildIndex();
       renderCommentSection();
       return [];
@@ -1234,7 +1259,7 @@
       createdAt: c.createdAt,
       lastEditedAt: c.lastEditedAt || null,
       deleted: !!c.deletedAt,
-      upvoteCount: c.upvoteCount || 0,
+      votes: parseVotes(c.reactions || c.reactionGroups),
       replyCount: (c.replies && (c.replies.totalCount !== undefined ? c.replies.totalCount : c.replies.length)) || c.replyCount || 0,
       replies: replies,
       bodyHTML: c.deletedAt ? '' : (c.bodyHTML || ''),
@@ -1288,8 +1313,25 @@
   function parseReplies(replies) {
     var list = Array.isArray(replies) ? replies : (replies && replies.nodes) || [];
     return list.filter(function (r) { return r && !r.deletedAt && !r.isMinimized; }).map(function (r) {
-      return { id: r.id, url: r.url, createdAt: r.createdAt, lastEditedAt: r.lastEditedAt || null, bodyHTML: r.bodyHTML, author: r.author || GHOST };
+      return { id: r.id, url: r.url, createdAt: r.createdAt, lastEditedAt: r.lastEditedAt || null, bodyHTML: r.bodyHTML, author: r.author || GHOST,
+        votes: parseVotes(r.reactions || r.reactionGroups) };
     });
+  }
+
+  // 👍 / 👎 GitHub reactions are our up / down votes. giscus' adapter ships them as
+  // { THUMBS_UP: { count, viewerHasReacted }, … }, GitHub GraphQL as
+  // reactionGroups [{ content, viewerHasReacted, reactors { totalCount } }].
+  function parseVotes(src) {
+    var v = { up: 0, down: 0, mine: null };
+    function take(content, n, mine) {
+      var dir = content === 'THUMBS_UP' ? 'up' : content === 'THUMBS_DOWN' ? 'down' : null;
+      if (!dir) return;
+      v[dir] = n || 0;
+      if (mine) v.mine = dir;
+    }
+    if (Array.isArray(src)) src.forEach(function (g) { take(g.content, g.reactors ? g.reactors.totalCount : (g.users ? g.users.totalCount : 0), g.viewerHasReacted); });
+    else if (src) Object.keys(src).forEach(function (k) { take(k, src[k].count, src[k].viewerHasReacted); });
+    return v;
   }
 
   // Older links carried a Text Fragment with prefix-/-suffix context; keep reading it.
@@ -1466,7 +1508,118 @@
 
   var ADD_COMMENT = 'mutation($body: String!, $discussionId: ID!, $replyToId: ID) {' +
     ' addDiscussionComment(input: {body: $body, discussionId: $discussionId, replyToId: $replyToId}) { comment {' +
-    ' id url createdAt upvoteCount bodyHTML author { login avatarUrl url } replies { totalCount } } } }';
+    ' id url createdAt bodyHTML author { login avatarUrl url } replies { totalCount } } } }';
+
+  // ------------------------------------------------ likes / votes (reactions)
+
+  var REACTION_FIELDS = 'reactionGroups { content viewerHasReacted reactors { totalCount } }';
+  var VIEWER_REACTIONS = 'query($id: ID!) { node(id: $id) { ... on Discussion { ' + REACTION_FIELDS +
+    ' comments(first: 100) { nodes { id ' + REACTION_FIELDS + ' replies(first: 100) { nodes { id ' + REACTION_FIELDS + ' } } } } } } }';
+  var ADD_REACTION = 'mutation($id: ID!, $content: ReactionContent!) { addReaction(input: {subjectId: $id, content: $content}) { reaction { id } } }';
+  var REMOVE_REACTION = 'mutation($id: ID!, $content: ReactionContent!) { removeReaction(input: {subjectId: $id, content: $content}) { reaction { id } } }';
+  var CONTENT = { up: 'THUMBS_UP', down: 'THUMBS_DOWN' };
+
+  // The relay serves the discussion anonymously (cached), so once the reader is
+  // known fetch the same reactions with their token to learn what they voted.
+  var viewerReactionsPending = false;
+  function loadViewerReactions() {
+    if (!discussion || !discussion.id || viewerReactionsPending) return;
+    viewerReactionsPending = true;
+    graphql(VIEWER_REACTIONS, { id: discussion.id }).then(function (data) {
+      viewerReactionsPending = false;
+      var d = data.node;
+      if (!d) return;
+      var byId = {};
+      comments.forEach(function (c) { byId[c.id] = c; c.replies.forEach(function (r) { byId[r.id] = r; }); });
+      discussion.likes = parseVotes(d.reactionGroups);
+      (d.comments.nodes || []).forEach(function (n) {
+        if (byId[n.id]) byId[n.id].votes = parseVotes(n.reactionGroups);
+        (n.replies.nodes || []).forEach(function (r) { if (byId[r.id]) byId[r.id].votes = parseVotes(r.reactionGroups); });
+      });
+      comments.forEach(function (c) { updateVoteEls(c); c.replies.forEach(updateVoteEls); });
+      renderLikeBar();
+    }).catch(function () { viewerReactionsPending = false; });
+  }
+
+  // Toggle the reader's 👍 / 👎 on a comment (`dir` = 'up' | 'down'): optimistic,
+  // one vote per person, switching sides removes the other reaction first.
+  function toggleVote(rec, dir) {
+    if (!getSession()) { showToast('登录 GitHub 后即可投票'); return; }
+    var v = rec.votes, prev = { up: v.up, down: v.down, mine: v.mine };
+    var steps = [];
+    if (v.mine === dir) { v[dir] = Math.max(0, v[dir] - 1); v.mine = null; steps.push([REMOVE_REACTION, dir]); }
+    else {
+      if (v.mine) { v[v.mine] = Math.max(0, v[v.mine] - 1); steps.push([REMOVE_REACTION, v.mine]); }
+      v[dir] += 1; v.mine = dir; steps.push([ADD_REACTION, dir]);
+    }
+    updateVoteEls(rec);
+    steps.reduce(function (p, s) {
+      return p.then(function () { return graphql(s[0], { id: rec.id, content: CONTENT[s[1]] }); });
+    }, Promise.resolve()).catch(function (err) {
+      rec.votes = prev;
+      updateVoteEls(rec);
+      showToast('投票失败：' + err.message);
+    });
+  }
+
+  // 👍 on the post's Discussion = 「有用」. A post nobody has commented on has no
+  // discussion yet; liking it creates one (login needed either way).
+  var likePending = false;
+  function toggleLike() {
+    if (!getSession()) { saveCommentDraft(commentsHost && commentsHost.querySelector('.ac-editor .ap-text') ? commentsHost.querySelector('.ac-editor .ap-text').value : ''); login(); return; }
+    if (likePending) return;
+    likePending = true;
+    ensureDiscussion().then(function (id) {
+      var v = discussion.likes, on = v.mine !== 'up';
+      v.up = Math.max(0, v.up + (on ? 1 : -1)); v.mine = on ? 'up' : null;
+      renderLikeBar();
+      return graphql(on ? ADD_REACTION : REMOVE_REACTION, { id: id, content: CONTENT.up }).catch(function (err) {
+        v.up = Math.max(0, v.up + (on ? -1 : 1)); v.mine = on ? null : 'up';
+        renderLikeBar();
+        throw err;
+      });
+    }).catch(function (err) { showToast('点赞失败：' + err.message); }).then(function () { likePending = false; });
+  }
+
+  function voteHtml(rec) {
+    var v = rec.votes || parseVotes(null), score = v.up - v.down;
+    return '<span class="ap-vote' + (v.mine ? ' is-' + v.mine : '') + '" title="' + v.up + ' 赞同 · ' + v.down + ' 反对">' +
+      '<button type="button" class="ap-vote-up" title="赞同"><i class="fa fa-caret-up"></i></button>' +
+      '<b class="ap-vote-score' + (score < 0 ? ' is-negative' : '') + '">' + score + '</b>' +
+      '<button type="button" class="ap-vote-down" title="反对"><i class="fa fa-caret-down"></i></button></span>';
+  }
+
+  // Every rendering of a comment (panel + bottom section) shows the same votes.
+  function updateVoteEls(rec) {
+    var els = document.querySelectorAll('.ap-comment[data-comment-id="' + rec.id + '"] .ap-vote');
+    for (var i = 0; i < els.length; i++) {
+      var span = document.createElement('span');
+      span.innerHTML = voteHtml(rec);
+      bindVote(span.firstChild, rec);
+      els[i].parentNode.replaceChild(span.firstChild, els[i]);
+    }
+  }
+
+  function bindVote(voteEl, rec) {
+    voteEl.querySelector('.ap-vote-up').addEventListener('click', function () { toggleVote(rec, 'up'); });
+    voteEl.querySelector('.ap-vote-down').addEventListener('click', function () { toggleVote(rec, 'down'); });
+  }
+
+  // ----------------------------------------------------------- page views
+
+  // Count once per browser per post per day; local previews only read the number.
+  function loadViews() {
+    var key = 'viewed:' + cfg.path, now = Date.now(), last = 0;
+    try { last = +localStorage.getItem(key) || 0; } catch (e) { /* ignore */ }
+    var local = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+    var count = !local && now - last > 86400000;
+    var req = count ? api('/views', { method: 'POST', body: { path: cfg.path } }) : api('/views?path=' + encodeURIComponent(cfg.path));
+    req.then(function (data) {
+      if (count) { try { localStorage.setItem(key, String(now)); } catch (e) { /* ignore */ } }
+      pageViews = typeof data.views === 'number' ? data.views : null;
+      renderLikeBar();
+    }).catch(function () { pageViews = null; });
+  }
 
   function ensureDiscussion() {
     if (discussion && discussion.id) return Promise.resolve(discussion.id);
@@ -1483,7 +1636,7 @@
         });
       }).then(function (data) {
         if (!data.id) throw new Error('无法创建讨论串');
-        discussion = { id: data.id, url: '', totalCommentCount: 0 };
+        discussion = { id: data.id, url: '', totalCommentCount: 0, likes: parseVotes(null) };
         return data.id;
       });
     });
@@ -1521,7 +1674,7 @@
     if (!orphans.length) return;
     var box = document.createElement('p');
     box.className = 'annotation-orphans';
-    box.innerHTML = '<i class="fa fa-unlink"></i> ' + orphans.length + ' 条划线批注未能定位到原文（原文可能已修改）：';
+    box.innerHTML = '<i class="fa fa-unlink"></i> ' + orphans.length + ' 条划线评论未能定位到原文（原文可能已修改）：';
     for (var i = 0; i < orphans.length; i++) {
       var a = document.createElement('a');
       a.href = orphans[i].url; a.target = '_blank'; a.rel = 'noopener noreferrer';
@@ -1593,6 +1746,7 @@
     shareLink: shareLink,
     buildCommentBody: buildCommentBody,
     parseComment: parseComment,
+    parseVotes: parseVotes,
     openThread: openThread,
     closePanel: closePanel,
     logout: logout,

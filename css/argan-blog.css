@@ -2249,6 +2249,51 @@ li[id^="fn:"] {
 .post-container .annotation-comments .ap-comment-meta .ap-github:hover {
   color: #0085a1;
 }
+.post-container .annotation-panel .ap-comment-meta .ap-vote,
+.post-container .annotation-comments .ap-comment-meta .ap-vote {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  margin-right: 2px;
+}
+.post-container .annotation-panel .ap-comment-meta .ap-vote button,
+.post-container .annotation-comments .ap-comment-meta .ap-vote button {
+  padding: 0 3px;
+  border: 0;
+  background: none;
+  font-size: 15px;
+  line-height: 1;
+  color: #afb8c1;
+  cursor: pointer;
+}
+.post-container .annotation-panel .ap-comment-meta .ap-vote button:hover,
+.post-container .annotation-comments .ap-comment-meta .ap-vote button:hover {
+  color: #24292f;
+}
+.post-container .annotation-panel .ap-comment-meta .ap-vote .ap-vote-score,
+.post-container .annotation-comments .ap-comment-meta .ap-vote .ap-vote-score {
+  min-width: 14px;
+  text-align: center;
+  font-size: 12.5px;
+  color: #57606a;
+}
+.post-container .annotation-panel .ap-comment-meta .ap-vote .ap-vote-score.is-negative,
+.post-container .annotation-comments .ap-comment-meta .ap-vote .ap-vote-score.is-negative {
+  color: #cf222e;
+}
+.post-container .annotation-panel .ap-comment-meta .ap-vote.is-up .ap-vote-up,
+.post-container .annotation-comments .ap-comment-meta .ap-vote.is-up .ap-vote-up {
+  color: #1a7f37;
+}
+.post-container .annotation-panel .ap-comment-meta .ap-vote.is-down .ap-vote-down,
+.post-container .annotation-comments .ap-comment-meta .ap-vote.is-down .ap-vote-down {
+  color: #cf222e;
+}
+.post-container .annotation-panel .ap-comment-meta .ap-vote.is-up .ap-vote-score,
+.post-container .annotation-comments .ap-comment-meta .ap-vote.is-up .ap-vote-score {
+  color: #1a7f37;
+  font-weight: 600;
+}
 .post-container .annotation-panel .ap-comment-meta .ap-issue-badge,
 .post-container .annotation-comments .ap-comment-meta .ap-issue-badge {
   display: inline-flex;
@@ -2841,6 +2886,37 @@ li[id^="fn:"] {
   font-size: 13px;
   color: #57606a;
 }
+.post-container .annotation-comments .ac-head .ac-like {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 11px;
+  border: 1px solid #d0d7de;
+  border-radius: 999px;
+  background: #fff;
+  font-size: 13px;
+  color: #57606a;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.post-container .annotation-comments .ac-head .ac-like b {
+  font-weight: 600;
+}
+.post-container .annotation-comments .ac-head .ac-like:hover {
+  border-color: #0085a1;
+  color: #0085a1;
+}
+.post-container .annotation-comments .ac-head .ac-like.is-active {
+  border-color: #1a7f37;
+  background: #dafbe1;
+  color: #1a7f37;
+}
+.post-container .annotation-comments .ac-head .ac-views {
+  color: #8c959f;
+}
+.post-container .annotation-comments .ac-head .ac-views .fa {
+  margin-right: 2px;
+}
 .post-container .annotation-comments .ac-head .ac-count {
   font-weight: 600;
   color: #24292f;
@@ -2960,5 +3036,18 @@ li[id^="fn:"] {
   .post-container .annotation-panel .ap-comment.is-reply,
   .post-container .annotation-comments .ap-comment.is-reply {
     margin-left: 20px;
+  }
+  .post-container .annotation-panel .ap-comment-meta,
+  .post-container .annotation-comments .ap-comment-meta {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  .post-container .annotation-panel .ap-comment-meta .ap-meta-actions,
+  .post-container .annotation-comments .ap-comment-meta .ap-meta-actions {
+    gap: 8px;
+  }
+  .post-container .annotation-comments .ac-head {
+    flex-wrap: wrap;
+    row-gap: 6px;
   }
 }

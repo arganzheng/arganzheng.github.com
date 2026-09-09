@@ -48,16 +48,21 @@ END of both `css/argan-blog.css` and `css/argan-blog.min.css` by hand
   `_layouts/post.html`, `header-post.html` and `keynote.html`. It is an empty
   `section.comment > .annotation-comments` shell with data attributes; the
   list and editor are rendered by `js/annotations.js` (same code as the
-  highlight annotations, see below). Repo/category IDs live in the `giscus:`
+  highlight comments, see below). Repo/category IDs live in the `giscus:`
   block of `_config.yml` (the giscus GitHub App is still the login broker and
   the thread mapping is giscus-compatible: one discussion per `page.url`, so
   renaming a permalink orphans its comments). No giscus iframe is loaded any
   more — it could not be given edit/delete/toolbar/issue controls. Disqus was
   removed even earlier: blocked in mainland China and it injected VigLink
   affiliate links (`a.vglnk`) into article text.
-- `js/annotations.js` — comments + reader highlight annotations ("划线评论"), see below.
+- `js/annotations.js` — comments, reader highlight comments ("划线评论"), likes /
+  votes and page views, see below.
 
-## Comments & highlight annotations (js/annotations.js)
+## Comments & highlight comments (js/annotations.js)
+
+User-facing wording is always 评论 (划线评论 for passage-level ones, 回复 for
+replies) — never 标注 / 批注. "annotation" survives only in identifiers, file
+names and the W3C selector terminology.
 
 Reader-facing demo/manual: `_posts/2026-08-03-highlight-annotations-demo.md`
 (`/highlight-annotations-demo.html`); the author-side features (footnotes,
@@ -70,8 +75,8 @@ article. `syncViews()` re-renders both the highlights/panel
 (`applyHighlights`) and the bottom section (`renderCommentSection`) after
 every mutation. `commentEl` and `renderEditor` are shared, so plain comments
 and passage notes have identical reply / edit / delete / 「同时提交 Issue」
-controls. The bottom section (`.annotation-comments`): header with count and
-GitHub link, `.ac-group` per top-level comment with its replies, inline reply
+controls. The bottom section (`.annotation-comments`): header bar
+(`renderLikeBar`: 「有用」 like button, page views, count, GitHub link), `.ac-group` per top-level comment with its replies, inline reply
 editor (`openInlineReply`), and a persistent editor (`.ac-editor`,
 `clearOnSubmit`, draft in `sessionStorage`). Plain comments filed with an
 issue start with `<sub>[⚑ Issue #N](url)</sub>` (recognised by
@@ -126,6 +131,24 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
   `parseComment` skips `deletedAt` comments, so such a thread vanishes from
   the article on reload — the confirm text says so. The thread re-renders
   once the viewer query returns so the buttons appear on first open.
+- **Likes / votes** are plain GitHub reactions, no own storage: the post's
+  「有用」 is `THUMBS_UP` on the Discussion (`toggleLike`, creates the
+  discussion first for an uncommented post), each comment's ▲ score ▼
+  (`.ap-vote`, in the meta row) is `THUMBS_UP` / `THUMBS_DOWN` on that
+  comment (`toggleVote`, optimistic, switching sides removes the other
+  reaction first; `addReaction` / `removeReaction`). `parseVotes` reads both
+  giscus' `{THUMBS_UP:{count,viewerHasReacted}}` and GraphQL
+  `reactionGroups`. The relay's payload is anonymous, so `loadViewerReactions`
+  re-queries the discussion with the reader's token once the viewer is known
+  and patches `votes.mine` / `likes.mine` in place (`updateVoteEls`). GitHub's
+  native discussion-comment `upvote` is deliberately not used (top-level only,
+  no downvote). Don't re-add the giscus iframe for reactions.
+- **Page views**: `loadViews()` → `POST /views {path}` once per browser per
+  post per day (`localStorage["viewed:<path>"]`), otherwise `GET /views`;
+  localhost never increments. The worker keeps `views(path, count)` in a D1
+  database (binding `DB` in `wrangler.toml`; without it the route is 501 and
+  the counter is simply not shown). Rendered in the head bar and into
+  `.post-views` in the post header (all three post layouts have the span).
 - **Spacing gotcha**: the theme's `.post-container img { margin: 1.5em auto
   1.6em }` hits every `<img>` inside the in-flow panel — avatar rules must
   reset `margin: 0` or replies get ~40 px of phantom whitespace.
@@ -150,11 +173,12 @@ re-anchoring.
   still parsed.
 - **Data path**: the browser cannot call `giscus.app/api/*` (CORS is limited
   to giscus' own origin) or GitHub GraphQL anonymously, so
-  `tools/annotations-worker/` is a secret-free Cloudflare Worker that relays
+  `tools/annotations-worker/` is a thin Cloudflare Worker that relays
   `GET /discussions?term=` (giscus public API, 60 s edge cache, `&t=` bypasses),
   `POST /token` (giscus session → GitHub token), `POST /discussions`
-  (create the thread for a post nobody commented on yet) and the optional
-  `POST /issues` (needs the GitHub App credentials, above). Deploy with
+  (create the thread for a post nobody commented on yet), the optional
+  `POST /issues` (needs the GitHub App credentials, above) and the optional
+  `GET`/`POST /views` page counter (needs the D1 binding). Deploy with
   `wrangler deploy` (see its README) and put the URL in `_config.yml`
   `annotations.api`; an empty `api` disables the feature.
 - **Login** = redirect to `giscus.app/api/oauth/authorize?redirect_uri=<page>`;
@@ -173,7 +197,7 @@ re-anchoring.
   the `{discussion:{comments:[…]}}` shape served with CORS also works for
   testing anchoring. `window.BlogAnnotations` exposes
   `reload/anchor/buildIndex/annotHash/threadLink/shareLink/buildCommentBody/
-  parseComment/openThread/closePanel/logout/list/comments`.
+  parseComment/parseVotes/openThread/closePanel/logout/list/comments`.
 - **Interplay with footnotes / tips**: the text index excludes footnote
   markers (`sup[id^=fnref]`, `a.footnote`, `.footnotes`), KaTeX, Mermaid,
   markers/panels and the comment section; `<mark>` wraps text nodes only, so

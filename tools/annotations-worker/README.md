@@ -1,7 +1,9 @@
 # blog-annotations worker
 
 Cloudflare Worker that relays the giscus API for `js/annotations.js` (the post
-comment section and the highlight annotations). See `worker.js` header for the routes.
+comment section and the highlight comments) and keeps the page-view counter.
+See `worker.js` header for the routes. Likes and votes need nothing here: they
+are GitHub reactions written by the browser with the reader's token.
 
 ## Deploy (once, free tier)
 
@@ -57,6 +59,25 @@ Without the key the route answers 501 and the client simply reports that the
 feature is off. The worker only accepts the request when the
 `Authorization: Bearer <reader token>` header resolves via `GET /user`, i.e.
 from readers signed in through giscus.
+
+## Optional: page views (GET/POST /views)
+
+One row per post in a Cloudflare D1 database (free tier is plenty: the browser
+increments at most once per post per day per browser). One-off setup:
+
+```bash
+cd tools/annotations-worker
+wrangler d1 create blog-views       # prints database_id
+```
+
+Paste the id into the `[[d1_databases]]` block of `wrangler.toml` (replace
+`REPLACE_WITH_DATABASE_ID`), then `wrangler deploy`. The table is created on
+first use, no migration to run. Without the binding the route answers 501 and
+the client hides the counter. Smoke test:
+
+```bash
+curl -H 'Origin: http://localhost:4000' 'https://blog-annotations.<subdomain>.workers.dev/views?path=/highlight-annotations-demo.html'
+```
 
 ## Local development
 

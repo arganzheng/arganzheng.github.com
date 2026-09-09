@@ -295,6 +295,33 @@
 		}
 		.ap-delete-btn:hover { color: #cf222e; }
 		.ap-github { color: @annot-faint; &:hover { color: @brand-primary; } }
+		// ▲ score ▼ — THUMBS_UP / THUMBS_DOWN reactions on the comment
+		.ap-vote {
+			display: inline-flex;
+			align-items: center;
+			gap: 1px;
+			margin-right: 2px;
+			button {
+				padding: 0 3px;
+				border: 0;
+				background: none;
+				font-size: 15px;
+				line-height: 1;
+				color: #afb8c1;
+				cursor: pointer;
+				&:hover { color: #24292f; }
+			}
+			.ap-vote-score {
+				min-width: 14px;
+				text-align: center;
+				font-size: 12.5px;
+				color: @annot-muted;
+				&.is-negative { color: #cf222e; }
+			}
+			&.is-up .ap-vote-up { color: #1a7f37; }
+			&.is-down .ap-vote-down { color: #cf222e; }
+			&.is-up .ap-vote-score { color: #1a7f37; font-weight: 600; }
+		}
 		.ap-issue-badge {
 			display: inline-flex;
 			align-items: center;
@@ -527,6 +554,24 @@
 		border-bottom: 1px solid #eaeef2;
 		font-size: 13px;
 		color: @annot-muted;
+		// 「👍 有用 N」 — THUMBS_UP on the post's Discussion
+		.ac-like {
+			display: inline-flex;
+			align-items: center;
+			gap: 5px;
+			padding: 3px 11px;
+			border: 1px solid @annot-border;
+			border-radius: 999px;
+			background: #fff;
+			font-size: 13px;
+			color: @annot-muted;
+			cursor: pointer;
+			transition: all 0.15s ease;
+			b { font-weight: 600; }
+			&:hover { border-color: @brand-primary; color: @brand-primary; }
+			&.is-active { border-color: #1a7f37; background: #dafbe1; color: #1a7f37; }
+		}
+		.ac-views { color: @annot-faint; .fa { margin-right: 2px; } }
 		.ac-count { font-weight: 600; color: #24292f; .fa { color: #cf222e; margin-right: 4px; } }
 		.ac-github { margin-left: auto; color: @annot-faint; text-decoration: none; &:hover { color: @brand-primary; } }
 	}
@@ -596,5 +641,8 @@
 		.ap-buttons .ap-hint { display: none; }
 		.ap-tabs .ap-format button:nth-child(n+7) { display: none; }
 		.ap-comment.is-reply { margin-left: 20px; }
+		.ap-comment-meta { flex-wrap: wrap; row-gap: 2px; }
+		.ap-comment-meta .ap-meta-actions { gap: 8px; }
 	}
+	.post-container .annotation-comments .ac-head { flex-wrap: wrap; row-gap: 6px; }
 }
