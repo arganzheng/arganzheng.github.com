@@ -1,0 +1,17 @@
+{%- comment -%}
+  Post header meta line: author | date (· updated) | reading time · length | views.
+  `updated:` is an optional front-matter date. Reading time assumes ~450 CJK
+  characters / minute on the HTML-stripped body (code blocks are excluded so
+  they don't inflate the count). `.post-views` is filled by js/annotations.js.
+{%- endcomment -%}
+{%- assign body = content | replace: '<pre', '<xpre' -%}
+{%- assign body_parts = body | split: '<xpre' -%}
+{%- assign prose = '' -%}
+{%- for part in body_parts -%}{%- if forloop.first -%}{%- assign prose = prose | append: part -%}{%- else -%}{%- assign after = part | split: '</pre>' | last -%}{%- assign prose = prose | append: after -%}{%- endif -%}{%- endfor -%}
+{%- assign chars = prose | strip_html | strip_newlines | replace: ' ', '' | size -%}
+{%- assign minutes = chars | divided_by: 450.0 | ceil -%}
+{%- if minutes < 1 -%}{%- assign minutes = 1 -%}{%- endif -%}
+{%- if chars >= 1000 -%}{%- assign kchars = chars | divided_by: 100.0 | round | divided_by: 10.0 -%}{%- assign length = kchars | append: 'k 字' -%}{%- else -%}{%- assign length = chars | append: ' 字' -%}{%- endif -%}
+Posted by <a href="{{ '/about/' | prepend: site.baseurl }}">{{ page.author | default: 'arganzheng' }}</a>
+| <time datetime="{{ page.date | date_to_xmlschema }}">{{ page.date | date: "%B %-d, %Y" }}</time>{% if page.updated %} <span class="post-updated" title="最后更新">· 更新于 <time datetime="{{ page.updated | date_to_xmlschema }}">{{ page.updated | date: "%Y-%m-%d" }}</time></span>{% endif %}
+| <span class="post-length" title="{{ chars }} 字（不含代码）">约 {{ minutes }} 分钟 · {{ length }}</span><span class="post-views"></span>

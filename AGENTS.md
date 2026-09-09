@@ -44,6 +44,24 @@ END of both `css/argan-blog.css` and `css/argan-blog.min.css` by hand
   and they only look inside `.post-container` and `.reveal .slides`.
 - `_includes/analytics.html` — GA + Baidu Tongji, shared by `footer.html` and
   `_layouts/slides.html`
+- `_includes/seo.html` — Open Graph / Twitter Card / JSON-LD (`BlogPosting` for
+  the three post layouts, `WebSite` elsewhere), included from `head.html`.
+  Description priority: `page.description` > `page.subtitle` > excerpt.
+  `og:image` = `page.header-img` or `site.header-img`.
+- `_includes/post-meta.html` — the "Posted by … | date (· 更新于) | 约 N 分钟 ·
+  X.Xk 字 | N 次阅读" line under the title, shared by the three post layouts.
+  Reading time = HTML-stripped body without `<pre>` blocks / 450 chars per
+  minute. Optional front matter: `updated: YYYY-MM-DD` (also feeds
+  `dateModified` / `article:modified_time`), `description:` (SEO text).
+- Post layouts pipe `content` through `replace: '<img src=', '<img
+  loading="lazy" decoding="async" src='` — every content image is lazy.
+  `js/diagram-zoom.js` opens Mermaid diagrams *and* content images (>= 200 px
+  natural width, not inside `<a>`) in the zoom/pan lightbox.
+- Local CSS/JS in `head.html` / `footer.html` carry `?v=<build time>` for
+  cache busting (GitHub Pages serves `max-age=600`; the old `no-cache` meta
+  tags were removed). Font Awesome 4.7 is self-hosted
+  (`css/font-awesome.min.css` + `fonts/fontawesome-webfont.*`); `sw.js` is
+  disabled via `service-worker: false`.
 - `_includes/comments.html` — comment section (GitHub Discussions), used by
   `_layouts/post.html`, `header-post.html` and `keynote.html`. It is an empty
   `section.comment > .annotation-comments` shell with data attributes; the

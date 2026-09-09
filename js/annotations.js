@@ -580,6 +580,7 @@
       '<a class="ap-avatar" href="' + escapeAttr(c.author.url) + '" target="_blank" rel="noopener noreferrer"><img src="' + escapeAttr(c.author.avatarUrl) + '" alt=""></a>' +
       '<div class="ap-comment-main">' +
         '<div class="ap-comment-meta"><a href="' + escapeAttr(c.author.url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(c.author.login) + '</a>' +
+          (c.owner && !c.deleted ? '<span class="ap-owner" title="博客作者">作者</span>' : '') +
           '<time datetime="' + escapeAttr(c.createdAt) + '" title="' + escapeAttr(new Date(c.createdAt).toLocaleString()) + '">' + relativeTime(c.createdAt) + '</time>' +
           (c.lastEditedAt ? '<span class="ap-edited" title="' + escapeAttr(new Date(c.lastEditedAt).toLocaleString()) + '">已编辑</span>' : '') +
           (c.issue ? '<a class="ap-issue-badge" href="' + escapeAttr(c.issue.url) + '" target="_blank" rel="noopener noreferrer" title="已同时提交为 GitHub Issue"><i class="fa fa-flag"></i> Issue' + (c.issue.number ? ' #' + c.issue.number : '') + '</a>' : '') +
@@ -1151,7 +1152,7 @@
   function postReply(a, text) {
     return graphql(ADD_COMMENT, { body: text, discussionId: discussion.id, replyToId: a.id }).then(function (data) {
       var c = data.addDiscussionComment.comment;
-      a.replies = (a.replies || []).concat([{ id: c.id, url: c.url, author: c.author || GHOST, createdAt: c.createdAt, lastEditedAt: null, bodyHTML: c.bodyHTML, votes: parseVotes(null) }]);
+      a.replies = (a.replies || []).concat([{ id: c.id, url: c.url, author: c.author || GHOST, createdAt: c.createdAt, lastEditedAt: null, bodyHTML: c.bodyHTML, owner: c.authorAssociation === 'OWNER', votes: parseVotes(null) }]);
       a.replyCount = a.replies.length;
       syncViews(); // marker counts, panel, comment section
       flashComment(c.id);
@@ -1259,6 +1260,7 @@
       createdAt: c.createdAt,
       lastEditedAt: c.lastEditedAt || null,
       deleted: !!c.deletedAt,
+      owner: c.authorAssociation === 'OWNER',
       votes: parseVotes(c.reactions || c.reactionGroups),
       replyCount: (c.replies && (c.replies.totalCount !== undefined ? c.replies.totalCount : c.replies.length)) || c.replyCount || 0,
       replies: replies,
@@ -1314,7 +1316,7 @@
     var list = Array.isArray(replies) ? replies : (replies && replies.nodes) || [];
     return list.filter(function (r) { return r && !r.deletedAt && !r.isMinimized; }).map(function (r) {
       return { id: r.id, url: r.url, createdAt: r.createdAt, lastEditedAt: r.lastEditedAt || null, bodyHTML: r.bodyHTML, author: r.author || GHOST,
-        votes: parseVotes(r.reactions || r.reactionGroups) };
+        owner: r.authorAssociation === 'OWNER', votes: parseVotes(r.reactions || r.reactionGroups) };
     });
   }
 
@@ -1508,7 +1510,7 @@
 
   var ADD_COMMENT = 'mutation($body: String!, $discussionId: ID!, $replyToId: ID) {' +
     ' addDiscussionComment(input: {body: $body, discussionId: $discussionId, replyToId: $replyToId}) { comment {' +
-    ' id url createdAt bodyHTML author { login avatarUrl url } replies { totalCount } } } }';
+    ' id url createdAt bodyHTML authorAssociation author { login avatarUrl url } replies { totalCount } } } }';
 
   // ------------------------------------------------ likes / votes (reactions)
 

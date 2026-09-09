@@ -3,6 +3,7 @@ layout: post
 title: "博客交互演示：读者划线评论"
 subtitle: "Interactive Demo: Select Any Sentence, Comment on It, Vote, Flag It as an Issue"
 catalog: true
+updated: 2026-09-09
 tags: [Blog, Demo, GitHub]
 ---
 

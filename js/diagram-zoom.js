@@ -1,13 +1,17 @@
 /*!
  * diagram-zoom.js
- * Click a Mermaid diagram to open it full screen, then zoom (wheel / buttons /
- * pinch) and pan (drag). Rendered diagrams are capped at the column width, which
- * makes the big flowcharts in long posts unreadable without this.
+ * Click a Mermaid diagram or a content image to open it full screen, then zoom
+ * (wheel / buttons / pinch) and pan (drag). Rendered diagrams and wide figures
+ * are capped at the column width, which makes them unreadable without this.
+ * Images inside links, tiny images (icons, QR codes < 200 px) and the comment
+ * section are left alone.
  */
 (function () {
     'use strict';
 
     var SELECTOR = '.post-container .mermaid';
+    var IMG_SELECTOR = '.post-container img';
+    var IMG_MIN = 200;
     var MIN_SCALE = 0.1;
     var MAX_SCALE = 12;
     var ZOOM_STEP = 1.25;
@@ -164,6 +168,12 @@
         var rect = svg.getBoundingClientRect();
         natural.width = (box && box.width) || rect.width || 800;
         natural.height = (box && box.height) || rect.height || 600;
+        if (svg.tagName === 'IMG') {
+            natural.width = svg.naturalWidth || rect.width || 800;
+            natural.height = svg.naturalHeight || rect.height || 600;
+            clone.removeAttribute('loading');
+            clone.style.margin = '0';
+        }
 
         // Mermaid injects a <style> inside the svg whose rules are all scoped by the
         // svg's id, so the clone needs its own id wired into those rules - otherwise
@@ -200,8 +210,24 @@
         if (overlay && overlay.contains(e.target)) return;
         var diagram = e.target.closest && e.target.closest(SELECTOR);
         var svg = diagram && diagram.querySelector('svg');
-        if (svg) open(svg);
+        if (svg) { open(svg); return; }
+        var img = e.target.closest && e.target.closest(IMG_SELECTOR);
+        if (img && zoomable(img)) open(img);
     });
+
+    function zoomable(img) {
+        return !img.closest('a, .comment, .annotation-panel') && img.naturalWidth >= IMG_MIN &&
+            (img.naturalWidth > img.clientWidth + 20 || img.clientWidth >= 400);
+    }
+
+    // zoom-in cursor on the images that actually open (decided once they are loaded)
+    function markImages() {
+        Array.prototype.forEach.call(document.querySelectorAll(IMG_SELECTOR), function (img) {
+            var mark = function () { if (zoomable(img)) img.style.cursor = 'zoom-in'; };
+            if (img.complete) mark(); else img.addEventListener('load', mark);
+        });
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', markImages); else markImages();
 
     window.addEventListener('resize', function () {
         if (overlay && overlay.classList.contains('open')) fit();

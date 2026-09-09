@@ -40,7 +40,7 @@ layout: default
                     {% comment %} if page.subtitle {% endcomment %}
                     <h2 class="subheading">{{ page.subtitle }}</h2>
                     {% comment %} endif {% endcomment %}
-                    <span class="meta">Posted by <a href="{{'/about/' | prepend: site.baseurl }}">arganzheng</a> | {{ page.date | date: "%B %-d, %Y" }}<span class="post-views"></span></span>
+                    <span class="meta">{% include post-meta.html %}</span>
                 </div>
             </div>
         </div>
@@ -60,7 +60,7 @@ layout: default
            {% else %}
             <div class=" col-lg-12 col-md-12 post-container">
            {% endif %}
-				{{ content }}
+				{{ content | replace: '<img src=', '<img loading="lazy" decoding="async" src=' }}
 
                 <hr style="visibility: hidden;">
 

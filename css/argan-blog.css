@@ -2208,6 +2208,16 @@ li[id^="fn:"] {
   font-weight: 600;
   text-decoration: none;
 }
+.post-container .annotation-panel .ap-comment-meta .ap-owner,
+.post-container .annotation-comments .ap-comment-meta .ap-owner {
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 16px;
+  color: #0969da;
+  background: #ddf4ff;
+  border: 1px solid #b6e3ff;
+  border-radius: 8px;
+}
 .post-container .annotation-panel .ap-comment-meta .ap-meta-actions,
 .post-container .annotation-comments .ap-comment-meta .ap-meta-actions {
   margin-left: auto;
