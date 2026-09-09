@@ -86,6 +86,9 @@ giscus:
 # disable the feature. Local dev can override it with localStorage.annotationsApi.
 annotations:
   api: "https://blog-annotations.arganzheng.workers.dev"
+  # Show the 「同时提交 Issue」 checkbox in the editor (needs the worker's
+  # GITHUB_TOKEN secret, see tools/annotations-worker/README.md).
+  issues: true
 
 # Related posts count
 related_posts_threshold: 3

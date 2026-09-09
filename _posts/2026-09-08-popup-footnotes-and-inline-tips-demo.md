@@ -216,7 +216,8 @@ tags: [Blog, Demo, Markdown]
 3. 用 GitHub 账号登录后提交（或按 `⌘/Ctrl + Enter`）。登录复用文末评论区的 giscus 登录，只需登录一次；登录跳转前后草稿会自动保留。
 4. 提交成功后，被批注的文字变成**淡黄色高亮**，段尾出现一个带数字的对话框标记 <span class="annotation-marker" style="display:inline-flex;align-items:center;gap:3px;padding:0 6px;height:18px;font-size:11px;line-height:18px;font-weight:600;color:#8a6d00;background:#fff3bf;border:1px solid #f5d96b;border-radius:9px;vertical-align:2px;"><i class="fa fa-comment"></i>1</span>。点击标记（或高亮本身）会在段落下方展开这段文字的全部批注与回复；文末评论区会在后台静默刷新。
 5. 展开的面板底部就是评论框：默认是**对这段文字**发表新评论；点某条评论右侧的「回复」则变成对该评论的回复（框上方出现「回复 @某人」标签，点 × 可切回）。工具条提供加粗 / 斜体 / 标题 / 引用 / 代码 / 代码块 / 链接 / 图片 / 列表按钮（`⌘/Ctrl+B/I/K` 亦可），不熟 Markdown 也能写。**同一段文字只有一个讨论串**：如果你选中的文字落在已有批注的范围内，会直接展开那个讨论串而不是新建批注（在 GitHub 上也是同一个 thread）。
-6. `复制链接` 会生成一个可读的分享链接（形如 `…html#hl=选中的文字`），别人打开后会自动滚动到这段文字并闪烁两秒。批注里的 `§ 原文位置` 链接是 `…html#annot-<短哈希>`，打开后定位到高亮并展开这条讨论。
+6. 借鉴 Code Review 工具的「检视意见」：如果你觉得这段文字**有问题需要作者修改**（笔误、事实错误、过时的结论），提交前勾上右下角的 <i class="fa fa-flag" style="color:#d1242f"></i> `同时提交 Issue`，脚本会先在博客仓库创建一个带 `划线评论` 标签的 GitHub Issue（以你的 GitHub 账号署名），再发表评论并在评论里附上 `⚑ Issue #N` 链接；这类评论在面板里会带红旗徽章和左侧红线，和一般的讨论区分开。回复某条评论时没有这个选项。
+7. `复制链接` 会生成一个可读的分享链接（形如 `…html#hl=选中的文字`），别人打开后会自动滚动到这段文字并闪烁两秒。批注里的 `§ 原文位置` 链接是 `…html#annot-<短哈希>`，打开后定位到高亮并展开这条讨论。
 
 ### 它是怎么存的
 
@@ -225,10 +226,12 @@ tags: [Blog, Demo, Markdown]
 ~~~markdown
 > 被划线的原文
 >
-> <sub>[§ 原文位置](https://arganzheng.life/<slug>.html#annot-1a2b3c4d)</sub>
+> <sub>[§ 原文位置](https://arganzheng.life/<slug>.html#annot-1a2b3c4d) · [⚑ Issue #12](https://github.com/<repo>/issues/12)</sub>
 
 读者写的批注正文
 ~~~
+
+（`⚑ Issue` 那截只在勾了「同时提交 Issue」时才有。）
 
 同一段文字的后续评论则是这条评论的回复。页面加载时，脚本把讨论串里这种形状的评论解析成 W3C Web Annotation 的 `TextQuoteSelector { exact }`（引用块即原文），在正文里先做精确匹配，找不到再做**模糊锚定**（Hypothesis 同款的近似字符串匹配），所以原文小修小改后高亮依然能对上；改动太大对不上的批注会在评论区顶部列为「未能定位」，不会丢。
 

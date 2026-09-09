@@ -6,3 +6,6 @@ compatibility_date = "2025-06-01"
 REPO = "arganzheng/arganzheng.github.com"
 CATEGORY = "Comments"
 ALLOWED_ORIGINS = "https://arganzheng.life,https://arganzheng.github.io,http://localhost:4000"
+ISSUE_LABEL = "划线评论"
+# POST /issues additionally needs a secret (not a var):
+#   wrangler secret put GITHUB_TOKEN   # fine-grained PAT, this repo only, Issues: read & write

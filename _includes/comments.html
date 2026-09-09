@@ -14,7 +14,8 @@
          data-page-path="{{ page.url }}"
          data-site-url="{{ site.url }}{{ site.baseurl }}"
          data-repo-id="{{ site.giscus.repo_id }}"
-         data-category-id="{{ site.giscus.category_id }}">
+         data-category-id="{{ site.giscus.category_id }}"
+         data-issues="{% if site.annotations.issues %}1{% else %}0{% endif %}">
     <p class="h3 comment-title">COMMENTS</p>
     <p class="comment-hint">
         评论基于 <a href="https://github.com/{{ site.giscus.repo }}/discussions" target="_blank" rel="noopener noreferrer">GitHub Discussions</a>，

@@ -15,12 +15,14 @@
  *
  *     > quoted passage
  *     >
- *     > <sub>[§ 原文位置](https://arganzheng.life/<slug>.html#annot-<hash>)</sub>
+ *     > <sub>[§ 原文位置](https://arganzheng.life/<slug>.html#annot-<hash>) · [⚑ Issue #N](…)</sub>
  *
  *     the note
  *
- * — so it reads naturally on GitHub. Further notes on the same passage are
- * replies to that comment. On load the thread is fetched through the
+ * — so it reads naturally on GitHub. The optional `⚑ Issue` link is added when
+ * the reader ticks 「同时提交 Issue」 (code-review style "this needs fixing"): the
+ * relay files a GitHub Issue first, then the comment links to it and is shown
+ * with a red flag badge. On load the thread is fetched through the
  * secret-free relay in tools/annotations-worker/, comments of that shape are
  * parsed into a W3C TextQuoteSelector { exact, prefix, suffix } and anchored
  * exactly first, then fuzzily (approx-string-match, the algorithm Hypothesis
@@ -80,6 +82,7 @@
       siteUrl: (section.getAttribute('data-site-url') || location.origin).replace(/^http:/, 'https:').replace(/\/$/, ''),
       repoId: section.getAttribute('data-repo-id') || '',
       categoryId: section.getAttribute('data-category-id') || '',
+      issues: section.getAttribute('data-issues') === '1',
       section: section
     };
 
@@ -511,6 +514,8 @@
       var ta = editorHost.querySelector('.ap-text');
       ta.placeholder = replyTo ? '回复 @' + mentionLogin + '…' : '对这段文字发表评论…';
       editorHost.querySelector('.ap-submit-label').textContent = replyTo ? '回复' : '发表评论';
+      var issueOpt = editorHost.querySelector('.ap-issue'); // replies are never issues
+      if (issueOpt) { issueOpt.style.display = replyTo ? 'none' : ''; if (replyTo) issueOpt.querySelector('input').checked = false; }
       if (replyTo && mentionLogin !== a.author.login && !ta.value) ta.value = '@' + mentionLogin + ' ';
       ta.focus();
       ta.dispatchEvent(new Event('input'));
@@ -527,9 +532,10 @@
       submitLabel: '发表评论',
       compact: true,
       replyChip: true,
+      issueOption: true,
       onCancel: closePanel,
-      onSubmit: function (text) {
-        return replyTo ? postReply(replyTo.annotation, text) : postAnnotation(primary.selector, text);
+      onSubmit: function (text, extra) {
+        return replyTo ? postReply(replyTo.annotation, text) : postAnnotation(primary.selector, text, extra.issue);
       },
       fallbackText: function (text) { return replyTo ? text : buildCommentBody(primary.selector, text); }
     });
@@ -542,13 +548,14 @@
 
   function commentEl(c, html, isReply, onReply) {
     var el = document.createElement('div');
-    el.className = 'ap-comment' + (isReply ? ' is-reply' : '');
+    el.className = 'ap-comment' + (isReply ? ' is-reply' : '') + (c.issue ? ' has-issue' : '');
     el.innerHTML =
       '<a class="ap-avatar" href="' + escapeAttr(c.author.url) + '" target="_blank" rel="noopener noreferrer"><img src="' + escapeAttr(c.author.avatarUrl) + '" alt=""></a>' +
       '<div class="ap-comment-main">' +
         '<div class="ap-comment-meta"><a href="' + escapeAttr(c.author.url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(c.author.login) + '</a>' +
           '<time datetime="' + escapeAttr(c.createdAt) + '" title="' + escapeAttr(new Date(c.createdAt).toLocaleString()) + '">' + relativeTime(c.createdAt) + '</time>' +
           (c.upvoteCount ? '<span class="ap-upvotes"><i class="fa fa-caret-up"></i> ' + c.upvoteCount + '</span>' : '') +
+          (c.issue ? '<a class="ap-issue-badge" href="' + escapeAttr(c.issue.url) + '" target="_blank" rel="noopener noreferrer" title="已同时提交为 GitHub Issue"><i class="fa fa-flag"></i> Issue' + (c.issue.number ? ' #' + c.issue.number : '') + '</a>' : '') +
           '<span class="ap-meta-actions">' +
             (onReply ? '<button type="button" class="ap-reply-btn"><i class="fa fa-reply"></i> 回复</button>' : '') +
             '<a class="ap-github" href="' + escapeAttr(c.url) + '" target="_blank" rel="noopener noreferrer" title="在 GitHub 上查看"><i class="fa fa-github"></i></a>' +
@@ -595,6 +602,7 @@
         '<span class="ap-user"></span>' +
         '<span class="ap-buttons">' +
           '<span class="ap-hint">Markdown · ⌘/Ctrl+Enter 提交</span>' +
+          (opts.issueOption && cfg.issues ? '<label class="ap-issue" title="除评论外，再以你的名义在 GitHub 仓库创建一个 Issue，提醒作者这里可能有问题"><input type="checkbox"><i class="fa fa-flag"></i> 同时提交 Issue</label>' : '') +
           (opts.onCancel ? '<button type="button" class="ap-cancel">取消</button>' : '') +
           '<button type="button" class="ap-login"><i class="fa fa-github"></i> 使用 GitHub 登录</button>' +
           '<button type="button" class="ap-submit" disabled><i class="fa fa-paper-plane"></i> <span class="ap-submit-label">' + escapeHtml(opts.submitLabel) + '</span></button>' +
@@ -616,14 +624,17 @@
     function submit() {
       var text = ta.value.trim();
       if (!text) return;
+      var issueBox = host.querySelector('.ap-issue input');
+      var wantIssue = !!(issueBox && issueBox.checked);
       setBusy(host, true);
-      setStatus(host, '正在发表…');
-      opts.onSubmit(text).then(function () {
+      setStatus(host, wantIssue ? '正在创建 Issue…' : '正在发表…');
+      opts.onSubmit(text, { issue: wantIssue }).then(function () {
         setBusy(host, false);
       }).catch(function (err) {
         setBusy(host, false);
         updateSubmitState();
         var msg = err.message || String(err);
+        if (err.issuesDisabled) { cfg.issues = false; var lbl = host.querySelector('.ap-issue'); if (lbl) lbl.parentNode.removeChild(lbl); }
         setStatus(host, msg + ' — 也可以复制内容后粘贴到文末评论框发表。', 'error');
         var fallback = document.createElement('button');
         fallback.type = 'button';
@@ -727,7 +738,7 @@
   }
 
   function setBusy(host, busy) {
-    var btns = host.querySelectorAll('button, textarea');
+    var btns = host.querySelectorAll('button, textarea, input');
     for (var i = 0; i < btns.length; i++) btns[i].disabled = !!busy;
     host.classList.toggle('is-busy', !!busy);
     var ta = host.querySelector('.ap-text'), submit = host.querySelector('.ap-submit');
@@ -801,11 +812,12 @@
       placeholder: '写下你对这段文字的批注…',
       submitLabel: '提交评论',
       initialText: draftText || '',
+      issueOption: true,
       onCancel: cancelComposer,
       onChange: saveDraft,
       beforeLogin: saveDraft,
       fallbackText: function (text) { return buildCommentBody(sel, text); },
-      onSubmit: function (text) { return postAnnotation(sel, text); }
+      onSubmit: function (text, extra) { return postAnnotation(sel, text, extra.issue); }
     });
     mountPanel(anchorNode);
     if (window.getSelection) window.getSelection().removeAllRanges();
@@ -815,15 +827,20 @@
 
   function cancelComposer() { clearDraft(); closePanel(); }
 
-  function postAnnotation(sel, text) {
-    var body = buildCommentBody(sel, text);
+  // With `withIssue` the GitHub Issue is filed first so the comment can link to
+  // it (the comment is the record readers see; the issue is the author's todo).
+  function postAnnotation(sel, text, withIssue) {
+    var issue = null;
     return ensureDiscussion().then(function (id) {
-      return graphql(ADD_COMMENT, { body: body, discussionId: id });
+      return (withIssue ? createIssue(sel, text) : Promise.resolve(null)).then(function (is) {
+        issue = is;
+        return graphql(ADD_COMMENT, { body: buildCommentBody(sel, text, issue), discussionId: id });
+      });
     }).then(function (data) {
       var c = data.addDiscussionComment.comment;
       var a = parseComment(c) || {
         id: c.id, url: c.url, author: c.author || GHOST, createdAt: c.createdAt, upvoteCount: 0, replyCount: 0, replies: [],
-        noteHTML: c.bodyHTML, selector: sel
+        noteHTML: c.bodyHTML, selector: sel, issue: issue
       };
       annotations.push(a);
       clearDraft();
@@ -833,8 +850,26 @@
         flashMarks(a.marks);
         openThread(groupIdsFor(a), a.marks[a.marks.length - 1]);
       }
-      showToast('批注已发表');
+      showToast(issue ? '批注已发表，Issue #' + issue.number + ' 已创建' : '批注已发表');
       refreshGiscus();
+    });
+  }
+
+  function createIssue(sel, text) {
+    var titleEl = document.querySelector('.page-header .title, .post-heading h1, h1');
+    var postTitle = (titleEl && titleEl.textContent) || document.title.split(/\s[-|]\s/)[0];
+    var snippet = sel.exact.length > 40 ? sel.exact.slice(0, 40) + '…' : sel.exact;
+    var body = '> ' + escapeMarkdown(sel.exact) + '\n>\n> [§ 原文位置](' + threadLink(sel) + ')\n\n' + text.trim() + '\n';
+    return ensureToken().then(function (tk) {
+      return api('/issues', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + tk },
+        body: { title: postTitle.trim() + '：「' + snippet + '」', body: body }
+      });
+    }).catch(function (err) {
+      if (/501|未启用/.test(err.message)) err.issuesDisabled = true;
+      err.message = '创建 Issue 失败：' + err.message;
+      throw err;
     });
   }
 
@@ -937,6 +972,8 @@
     var fragment = parseTextFragment(link.getAttribute('href'));
     var linkBlock = link.closest('p, sub') || link;
     while (linkBlock.parentNode !== quote && linkBlock.parentNode !== root) linkBlock = linkBlock.parentNode;
+    var issueLink = linkBlock.querySelector('a[href*="/issues/"]');
+    var issueNo = issueLink && /\/issues\/(\d+)/.exec(issueLink.getAttribute('href'));
     linkBlock.parentNode.removeChild(linkBlock);
     var exact = quote.textContent.replace(/\s+/g, ' ').trim();
     if (!exact) return null;
@@ -950,7 +987,8 @@
       replyCount: (c.replies && (c.replies.totalCount !== undefined ? c.replies.totalCount : c.replies.length)) || c.replyCount || 0,
       replies: parseReplies(c.replies),
       noteHTML: root.innerHTML,
-      selector: { exact: exact, prefix: fragment.prefix, suffix: fragment.suffix }
+      selector: { exact: exact, prefix: fragment.prefix, suffix: fragment.suffix },
+      issue: issueLink ? { url: issueLink.getAttribute('href'), number: issueNo ? +issueNo[1] : 0 } : null
     };
   }
 
@@ -997,8 +1035,9 @@
     return s.replace(/[\\`*_\[\]<>~|]/g, '\\$&').replace(/^([#>+\-]|\d+\.)/, '\\$1');
   }
 
-  function buildCommentBody(sel, note) {
-    return '> ' + escapeMarkdown(sel.exact) + '\n>\n> <sub>[§ 原文位置](' + threadLink(sel) + ')</sub>\n\n' + note.trim() + '\n';
+  function buildCommentBody(sel, note, issue) {
+    var links = '[§ 原文位置](' + threadLink(sel) + ')' + (issue ? ' · [⚑ Issue #' + issue.number + '](' + issue.url + ')' : '');
+    return '> ' + escapeMarkdown(sel.exact) + '\n>\n> <sub>' + links + '</sub>\n\n' + note.trim() + '\n';
   }
 
   // ------------------------------------------------------------ selection

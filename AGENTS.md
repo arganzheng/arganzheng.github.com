@@ -76,6 +76,22 @@ When a selection lies inside an existing annotation's range the toolbar's
 exactly one thread on GitHub too. The editor has a small Markdown toolbar
 (`applyFormat`) and its submit button is disabled while empty.
 
+- **「同时提交 Issue」** (checkbox next to the buttons, passage-level notes only,
+  shown when `_config.yml` `annotations.issues: true`): code-review style
+  "this needs fixing". The worker's `POST /issues` files a GitHub Issue
+  (label `划线评论`) *first*, then the comment is posted with
+  `· [⚑ Issue #N](url)` appended inside the `<sub>` line; `parseComment` reads
+  that link back and the panel shows the note with a red flag badge and left
+  stripe (`.has-issue`). The reader's giscus token cannot open issues (the
+  giscus GitHub App only has the Discussions permission), so this is the one
+  route that needs a worker secret — a fine-grained PAT `GITHUB_TOKEN` with
+  Issues: write on this repo; the worker verifies the reader via `GET /user`
+  with their token and credits them in the issue body. Without the secret the
+  route returns 501 and the client hides the checkbox.
+- **Spacing gotcha**: the theme's `.post-container img { margin: 1.5em auto
+  1.6em }` hits every `<img>` inside the in-flow panel — avatar rules must
+  reset `margin: 0` or replies get ~40 px of phantom whitespace.
+
 On load the thread is fetched, comments of that shape are parsed into a W3C
 `TextQuoteSelector` (exact = blockquote text), anchored exactly or fuzzily
 (`js/vendor/approx-string-match.js`, MIT, Hypothesis' algorithm) and wrapped in
@@ -98,8 +114,9 @@ re-anchoring.
   to giscus' own origin) or GitHub GraphQL anonymously, so
   `tools/annotations-worker/` is a secret-free Cloudflare Worker that relays
   `GET /discussions?term=` (giscus public API, 60 s edge cache, `&t=` bypasses),
-  `POST /token` (giscus session → GitHub token) and `POST /discussions`
-  (create the thread for a post nobody commented on yet). Deploy with
+  `POST /token` (giscus session → GitHub token), `POST /discussions`
+  (create the thread for a post nobody commented on yet) and the optional
+  `POST /issues` (needs `GITHUB_TOKEN`, above). Deploy with
   `wrangler deploy` (see its README) and put the URL in `_config.yml`
   `annotations.api`; an empty `api` disables the feature.
 - **Posting** reuses the reader's giscus login: giscus' `client.js` stores the
