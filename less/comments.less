@@ -1,7 +1,7 @@
 @import "variables.less";
 
-// giscus comment section (_includes/comments.html). The widget itself is an
-// iframe themed by css/giscus-theme.css; this only styles the wrapper.
+// comment section wrapper (_includes/comments.html); the list itself is
+// rendered by js/annotations.js and styled in annotations.less.
 .comment {
 	margin-top: 40px;
 	padding-top: 24px;
@@ -27,9 +27,5 @@
 			padding: 1px 4px;
 			font-size: 12px;
 		}
-	}
-	.giscus,
-	.giscus-frame {
-		width: 100%;
 	}
 }

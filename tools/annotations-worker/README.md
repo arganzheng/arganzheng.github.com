@@ -1,7 +1,7 @@
 # blog-annotations worker
 
-Secret-free Cloudflare Worker that relays the giscus API for `js/annotations.js`
-(highlight annotations on blog posts). See `worker.js` header for the routes.
+Cloudflare Worker that relays the giscus API for `js/annotations.js` (the post
+comment section and the highlight annotations). See `worker.js` header for the routes.
 
 ## Deploy (once, free tier)
 

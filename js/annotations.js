@@ -34,10 +34,14 @@
  * highlight and no dependency on the browser's matcher (footnote markers
  * broke it).
  *
- * Posting reuses the reader's giscus session (localStorage["giscus-session"],
- * written by giscus' client.js): the relay exchanges it for a GitHub token and
- * the browser calls GitHub GraphQL directly, as the giscus iframe does. Any
- * failure degrades to copying the quote for pasting into giscus.
+ * The comment section at the bottom of the post is rendered here too (no giscus
+ * iframe any more): the same discussion, the same commentEl / renderEditor, so
+ * plain comments and passage notes share reply / edit / delete / 「同时提交
+ * Issue」. giscus is kept only as the OAuth broker: login redirects to
+ * giscus.app/api/oauth/authorize, which comes back with ?giscus=<session>; we
+ * store it under localStorage["giscus-session"], the relay exchanges it for a
+ * GitHub token and the browser calls GitHub GraphQL directly. Any failure
+ * degrades to copying the Markdown for posting on GitHub.
  */
 
 (function () {
@@ -56,8 +60,11 @@
   var cfg = null;
   var container = null;
   var index = null;          // { text, nodes:[{node, charIdx:[]}] }
-  var annotations = [];      // parsed + anchored annotations
+  var comments = [];         // every top-level comment of the post's discussion (see parseComment)
+  var annotations = [];      // the subset with a selector, anchored in the article
   var discussion = null;     // { id, url, totalCommentCount }
+  var loadError = null;
+  var commentsHost = null;   // .annotation-comments in section.comment (the bottom comment section)
   var token = null;
   var viewer = null;
   var toolbar = null;
@@ -83,15 +90,28 @@
       repoId: section.getAttribute('data-repo-id') || '',
       categoryId: section.getAttribute('data-category-id') || '',
       issues: section.getAttribute('data-issues') === '1',
+      repo: section.getAttribute('data-repo') || '',
       section: section
     };
 
+    takeSessionFromUrl();
     bindSelection();
-    bindGiscusMessages();
+    initCommentSection();
     window.addEventListener('hashchange', focusFromHash);
     whenRichContentSettled(function () {
-      loadAnnotations(false).then(function () { if (!restoreDraft()) focusFromHash(); });
+      loadDiscussion(false).then(function () { if (!restoreDraft()) focusFromHash(); });
     });
+  }
+
+  // giscus' OAuth flow redirects back to `redirect_uri?giscus=<session>`; its
+  // client.js used to store that — now we do (same key, same JSON encoding).
+  function takeSessionFromUrl() {
+    var url = new URL(location.href);
+    var session = url.searchParams.get('giscus');
+    if (!session) return;
+    try { localStorage.setItem(SESSION_KEY, JSON.stringify(session)); } catch (e) { /* ignore */ }
+    url.searchParams.delete('giscus');
+    history.replaceState(history.state, '', url.toString());
   }
 
   // Mermaid / KaTeX rewrite the DOM asynchronously; anchor after they finish
@@ -549,13 +569,16 @@
   // `parent` is the top-level annotation a reply belongs to (undefined for top-level).
   function commentEl(c, html, isReply, onReply, parent) {
     var el = document.createElement('div');
-    var mine = viewer && c.author && viewer.login === c.author.login;
-    el.className = 'ap-comment' + (isReply ? ' is-reply' : '') + (c.issue ? ' has-issue' : '');
+    var mine = !c.deleted && viewer && c.author && viewer.login === c.author.login;
+    if (c.deleted) onReply = null;
+    el.className = 'ap-comment' + (isReply ? ' is-reply' : '') + (c.issue ? ' has-issue' : '') + (c.deleted ? ' is-deleted' : '');
+    el.setAttribute('data-comment-id', c.id);
     el.innerHTML =
       '<a class="ap-avatar" href="' + escapeAttr(c.author.url) + '" target="_blank" rel="noopener noreferrer"><img src="' + escapeAttr(c.author.avatarUrl) + '" alt=""></a>' +
       '<div class="ap-comment-main">' +
         '<div class="ap-comment-meta"><a href="' + escapeAttr(c.author.url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(c.author.login) + '</a>' +
           '<time datetime="' + escapeAttr(c.createdAt) + '" title="' + escapeAttr(new Date(c.createdAt).toLocaleString()) + '">' + relativeTime(c.createdAt) + '</time>' +
+          (c.lastEditedAt ? '<span class="ap-edited" title="' + escapeAttr(new Date(c.lastEditedAt).toLocaleString()) + '">已编辑</span>' : '') +
           (c.upvoteCount ? '<span class="ap-upvotes"><i class="fa fa-caret-up"></i> ' + c.upvoteCount + '</span>' : '') +
           (c.issue ? '<a class="ap-issue-badge" href="' + escapeAttr(c.issue.url) + '" target="_blank" rel="noopener noreferrer" title="已同时提交为 GitHub Issue"><i class="fa fa-flag"></i> Issue' + (c.issue.number ? ' #' + c.issue.number : '') + '</a>' : '') +
           '<span class="ap-meta-actions">' +
@@ -568,8 +591,16 @@
         '<div class="ap-comment-body"></div>' +
       '</div>';
     var body = el.querySelector('.ap-comment-body');
-    body.appendChild(sanitizeHtml(html));
-    InlinePopover.renderMathIfPresent(body);
+    if (c.deleted) body.innerHTML = '<em class="ap-muted">此评论已删除</em>';
+    else {
+      body.appendChild(sanitizeHtml(html));
+      InlinePopover.renderMathIfPresent(body);
+      // same hash twice fires no hashchange — re-run the focus by hand
+      body.addEventListener('click', function (e) {
+        var a = e.target.closest && e.target.closest('a[href^="#"]');
+        if (a && location.hash === a.getAttribute('href')) { e.preventDefault(); focusFromHash(); }
+      });
+    }
     if (onReply) el.querySelector('.ap-reply-btn').addEventListener('click', onReply);
     if (mine) {
       el.querySelector('.ap-edit-btn').addEventListener('click', function () { startEdit(el, c, isReply, parent); });
@@ -609,17 +640,17 @@
         submitLabel: '保存',
         compact: true,
         inline: true,
-        initialText: isReply ? raw : stripQuoteHeader(raw),
+        initialText: c.selector ? stripQuoteHeader(raw) : raw,
         onCancel: cancel,
         onSubmit: function (text) {
-          var body = isReply ? text : buildCommentBody(c.selector, text, c.issue);
+          var body = c.selector ? buildCommentBody(c.selector, text, c.issue) : text;
           return graphql(UPDATE_COMMENT, { id: c.id, body: body }).then(function (res) {
-            var html = res.updateDiscussionComment.comment.bodyHTML;
-            if (isReply) c.bodyHTML = html;
-            else { var p = parseComment({ id: c.id, bodyHTML: html, author: c.author, createdAt: c.createdAt }); c.noteHTML = p ? p.noteHTML : html; }
-            refreshThreadPanel();
+            c.bodyHTML = res.updateDiscussionComment.comment.bodyHTML;
+            c.lastEditedAt = new Date().toISOString();
+            if (!isReply) { var keep = c.selector; c.selector = null; c.noteHTML = null; c.issue = null; parseBodyHeader(c); if (!c.selector && keep) { c.selector = keep; c.noteHTML = c.bodyHTML; } }
+            syncViews();
+            flashComment(c.id);
             showToast('已保存');
-            refreshGiscus();
           });
         }
       });
@@ -629,23 +660,109 @@
 
   function deleteComment(el, c, isReply, parent) {
     var n = !isReply && c.replies && c.replies.length;
-    // GitHub soft-deletes a comment that has replies: the replies stay, the
-    // comment shows as "This comment was deleted" on GitHub / in giscus. Here
-    // the whole thread disappears because the quote header is gone with it.
-    if (!window.confirm(n ? '删除这条评论？它的 ' + n + ' 条回复会保留在 GitHub 上（显示为「此评论已删除」），但不再在文中显示。' : '删除这条评论？')) return;
+    // GitHub soft-deletes a comment that has replies: the replies stay and the
+    // comment shows as 「此评论已删除」 (same as on GitHub). A highlighted passage
+    // loses its anchor with the quote header, so it disappears from the article.
+    var msg = n
+      ? (c.selector ? '删除这条评论？它的 ' + n + ' 条回复会保留（显示为「此评论已删除」），但这段划线会从文中消失。' : '删除这条评论？它的 ' + n + ' 条回复会保留，原位显示为「此评论已删除」。')
+      : '删除这条评论？';
+    if (!window.confirm(msg)) return;
     el.classList.add('is-deleting');
     graphql(DELETE_COMMENT, { id: c.id }).then(function () {
       if (isReply) {
         parent.replies = parent.replies.filter(function (r) { return r.id !== c.id; });
         parent.replyCount = parent.replies.length;
+      } else if (c.replies.length) {
+        c.deleted = true; c.bodyHTML = ''; c.selector = null; c.noteHTML = null; c.issue = null;
+        if (panelState) panelState.ids = panelState.ids.filter(function (id) { return id !== c.id; });
       } else {
-        annotations = annotations.filter(function (a) { return a.id !== c.id; });
+        comments = comments.filter(function (a) { return a.id !== c.id; });
         if (panelState) panelState.ids = panelState.ids.filter(function (id) { return id !== c.id; });
       }
-      applyHighlights(); // re-renders (or closes) the thread panel
+      syncViews(); // re-renders (or closes) the thread panel and the comment section
       showToast('已删除');
-      refreshGiscus();
     }).catch(function (err) { el.classList.remove('is-deleting'); showToast('删除失败：' + err.message); });
+  }
+
+  // ------------------------------------------------- bottom comment section
+
+  // The classic comment list under the post: the same discussion, the same
+  // commentEl / renderEditor as the in-article panel, so every comment (with or
+  // without a passage) gets the same reply / edit / delete / issue controls.
+  function initCommentSection() {
+    commentsHost = cfg.section.querySelector('.annotation-comments');
+    if (!commentsHost) return;
+    commentsHost.innerHTML =
+      '<div class="ac-head"><span class="ac-count">正在加载评论…</span></div>' +
+      '<div class="ac-list"></div>' +
+      '<div class="ap-editor ac-editor"></div>';
+    renderEditor(commentsHost.querySelector('.ac-editor'), {
+      placeholder: '写下你的评论…（想针对某句话说？选中正文里的文字，点「评论」）',
+      submitLabel: '发表评论',
+      issueOption: true,
+      clearOnSubmit: true,
+      initialText: readCommentDraft(),
+      onChange: saveCommentDraft,
+      beforeLogin: saveCommentDraft,
+      onSubmit: function (text, extra) { return postComment(text, extra.issue).then(function () { saveCommentDraft(''); }); }
+    });
+  }
+
+  function renderCommentSection() {
+    if (!commentsHost) return;
+    var head = commentsHost.querySelector('.ac-head'), list = commentsHost.querySelector('.ac-list');
+    var total = comments.reduce(function (n, c) { return n + (c.deleted ? 0 : 1) + c.replies.length; }, 0);
+    head.innerHTML =
+      '<span class="ac-count">' + (loadError ? '<i class="fa fa-exclamation-circle"></i> 评论加载失败：' + escapeHtml(loadError.message) : total + ' 条评论') + '</span>' +
+      (discussion && discussion.url ? '<a class="ac-github" href="' + escapeAttr(discussion.url) + '" target="_blank" rel="noopener noreferrer" title="这个讨论串在 GitHub Discussions 上"><i class="fa fa-github"></i> GitHub</a>' : '');
+    list.innerHTML = '';
+    if (!comments.length) {
+      if (!loadError) list.innerHTML = '<p class="ac-empty">还没有评论。可以在下方留言，也可以选中正文任意文字，对那句话发表评论。</p>';
+      return;
+    }
+    comments.forEach(function (c) {
+      var group = document.createElement('div');
+      group.className = 'ac-group';
+      group.appendChild(commentEl(c, c.bodyHTML, false, function () { openInlineReply(c, c.author.login, group); }, null));
+      c.replies.forEach(function (r) {
+        group.appendChild(commentEl(r, r.bodyHTML, true, function () { openInlineReply(c, r.author.login, group); }, c));
+      });
+      list.appendChild(group);
+    });
+  }
+
+  // Reply box right under the comment's replies (only one open at a time).
+  function openInlineReply(c, mention, group) {
+    var old = commentsHost.querySelector('.ac-reply-editor');
+    if (old) old.parentNode.removeChild(old);
+    var host = document.createElement('div');
+    host.className = 'ap-editor ac-reply-editor';
+    group.appendChild(host);
+    var ta = renderEditor(host, {
+      placeholder: '回复 @' + mention + '…',
+      submitLabel: '回复',
+      compact: true,
+      inline: true,
+      initialText: mention !== c.author.login ? '@' + mention + ' ' : '',
+      onCancel: function () { host.parentNode.removeChild(host); },
+      onSubmit: function (text) { return postReply(c, text); }
+    });
+    ta.focus();
+  }
+
+  function commentDraftKey() { return 'commentDraft:' + cfg.path; }
+  function saveCommentDraft(text) {
+    try { if (text && text.trim()) sessionStorage.setItem(commentDraftKey(), text); else sessionStorage.removeItem(commentDraftKey()); } catch (e) { /* ignore */ }
+  }
+  function readCommentDraft() { try { return sessionStorage.getItem(commentDraftKey()) || ''; } catch (e) { return ''; } }
+
+  function logout() {
+    try { localStorage.removeItem(SESSION_KEY); } catch (e) { /* ignore */ }
+    token = null; viewer = null;
+    var hosts = document.querySelectorAll('.ap-editor');
+    for (var i = 0; i < hosts.length; i++) if (hosts[i].querySelector('.ap-user')) refreshAuthUI(hosts[i]);
+    renderCommentSection();
+    if (panelState && panelState.kind === 'thread') refreshThreadPanel();
   }
 
   // ---------------------------------------------------------------- editor
@@ -709,6 +826,13 @@
       setStatus(host, wantIssue ? '正在创建 Issue…' : '正在发表…');
       opts.onSubmit(text, { issue: wantIssue }).then(function () {
         setBusy(host, false);
+        if (opts.clearOnSubmit && host.isConnected) {
+          ta.value = '';
+          if (issueBox) issueBox.checked = false;
+          switchTab(host, 'write');
+          setStatus(host, '');
+          updateSubmitState();
+        }
       }).catch(function (err) {
         setBusy(host, false);
         updateSubmitState();
@@ -829,7 +953,7 @@
     var loginBtn = host.querySelector('.ap-login');
     var submitBtn = host.querySelector('.ap-submit');
     if (!getSession()) {
-      userEl.innerHTML = '<span class="ap-muted">登录 GitHub 后即可发表（与文末评论区同一账号）</span>';
+      userEl.innerHTML = '<span class="ap-muted">登录 GitHub 后即可发表</span>';
       loginBtn.style.display = '';
       submitBtn.style.display = 'none';
       return;
@@ -838,21 +962,44 @@
     submitBtn.style.display = '';
     if (viewer) { renderViewer(userEl, viewer); return; }
     userEl.innerHTML = '<span class="ap-muted">正在连接 GitHub…</span>';
-    graphql('{ viewer { login avatarUrl url } }').then(function (data) {
+    fetchViewer();
+  }
+
+  var VIEWER_QUERY = '{ viewer { login avatarUrl url } }';
+  var viewerPending = null;
+  // One request at a time; onViewerKnown() updates every editor on success.
+  function fetchViewer() {
+    if (viewer || viewerPending) return;
+    viewerPending = graphql(VIEWER_QUERY).then(function (data) {
+      viewerPending = null;
       viewer = data.viewer;
-      renderViewer(userEl, viewer);
-      // now we know which comments are the reader's own -> show 编辑 / 删除
-      if (panelState && panelState.kind === 'thread' && !panel.querySelector('.ap-text').value) refreshThreadPanel();
+      onViewerKnown();
     }).catch(function (err) {
-      userEl.innerHTML = '<span class="ap-muted">' + escapeHtml(err.message) + '</span>';
-      if (!getSession()) { loginBtn.style.display = ''; submitBtn.style.display = 'none'; }
+      viewerPending = null;
+      var hosts = document.querySelectorAll('.ap-editor');
+      for (var i = 0; i < hosts.length; i++) {
+        var u = hosts[i].querySelector('.ap-user');
+        if (u) u.innerHTML = '<span class="ap-muted">' + escapeHtml(err.message) + '</span>';
+        if (!getSession()) refreshAuthUI(hosts[i]);
+      }
     });
+  }
+
+  // The reader's identity just became known: show it in every editor and
+  // re-render the lists so their own comments get 编辑 / 删除.
+  function onViewerKnown() {
+    var hosts = document.querySelectorAll('.ap-editor');
+    for (var i = 0; i < hosts.length; i++) if (hosts[i].querySelector('.ap-user')) refreshAuthUI(hosts[i]);
+    if (panelState && panelState.kind === 'thread' && !panel.querySelector('.ap-text').value) refreshThreadPanel();
+    if (commentsHost && !commentsHost.querySelector('.ac-reply-editor, .ap-inline-editor')) renderCommentSection();
   }
 
   function renderViewer(userEl, v) {
     userEl.innerHTML =
       '<img src="' + escapeAttr(v.avatarUrl) + '" alt="" width="22" height="22"> ' +
-      '<a href="' + escapeAttr(v.url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(v.login) + '</a>';
+      '<a href="' + escapeAttr(v.url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(v.login) + '</a>' +
+      '<button type="button" class="ap-logout" title="退出 GitHub 登录">退出</button>';
+    userEl.querySelector('.ap-logout').addEventListener('click', logout);
   }
 
   // --------------------------------------------------------- new annotation
@@ -919,28 +1066,51 @@
       });
     }).then(function (data) {
       var c = data.addDiscussionComment.comment;
-      var a = parseComment(c) || {
-        id: c.id, url: c.url, author: c.author || GHOST, createdAt: c.createdAt, upvoteCount: 0, replyCount: 0, replies: [],
-        noteHTML: c.bodyHTML, selector: sel, issue: issue
-      };
-      annotations.push(a);
+      var a = parseComment(c);
+      if (!a.selector) { a.selector = sel; a.noteHTML = c.bodyHTML; a.issue = issue; } // GitHub rendered it unexpectedly
+      comments.push(a);
       clearDraft();
       closePanel();
-      applyHighlights();
+      syncViews();
       if (a.marks.length) {
         flashMarks(a.marks);
         openThread(groupIdsFor(a), a.marks[a.marks.length - 1]);
       }
+      flashComment(a.id);
       showToast(issue ? '批注已发表，Issue #' + issue.number + ' 已创建' : '批注已发表');
-      refreshGiscus();
     });
   }
 
+  // A plain comment from the section at the bottom (no passage). With an
+  // issue the body starts with `<sub>[⚑ Issue #N](url)</sub>` so it can be
+  // recognised (parseBodyHeader) and shown with the flag badge.
+  function postComment(text, withIssue) {
+    var issue = null;
+    return ensureDiscussion().then(function (id) {
+      return (withIssue ? createIssue(null, text) : Promise.resolve(null)).then(function (is) {
+        issue = is;
+        var body = (issue ? '<sub>[⚑ Issue #' + issue.number + '](' + issue.url + ')</sub>\n\n' : '') + text.trim() + '\n';
+        return graphql(ADD_COMMENT, { body: body, discussionId: id });
+      });
+    }).then(function (data) {
+      var c = parseComment(data.addDiscussionComment.comment);
+      if (issue && !c.issue) c.issue = issue;
+      comments.push(c);
+      syncViews();
+      flashComment(c.id);
+      showToast(issue ? '评论已发表，Issue #' + issue.number + ' 已创建' : '评论已发表');
+    });
+  }
+
+  // `sel` is null for a plain comment.
   function createIssue(sel, text) {
     var titleEl = document.querySelector('.page-header .title, .post-heading h1, h1');
     var postTitle = (titleEl && titleEl.textContent) || document.title.split(/\s[-|]\s/)[0];
-    var snippet = sel.exact.length > 40 ? sel.exact.slice(0, 40) + '…' : sel.exact;
-    var body = '> ' + escapeMarkdown(sel.exact) + '\n>\n> [§ 原文位置](' + threadLink(sel) + ')\n\n' + text.trim() + '\n';
+    var snippet = sel ? sel.exact : text.trim().split('\n')[0].replace(/^[#>*\-\s]+/, '');
+    if (snippet.length > 40) snippet = snippet.slice(0, 40) + '…';
+    var body = sel
+      ? '> ' + escapeMarkdown(sel.exact) + '\n>\n> [§ 原文位置](' + threadLink(sel) + ')\n\n' + text.trim() + '\n'
+      : text.trim() + '\n\n— 来自文章评论区：' + cfg.siteUrl + cfg.path + '#comments\n';
     return ensureToken().then(function (tk) {
       return api('/issues', {
         method: 'POST',
@@ -957,15 +1127,18 @@
   function postReply(a, text) {
     return graphql(ADD_COMMENT, { body: text, discussionId: discussion.id, replyToId: a.id }).then(function (data) {
       var c = data.addDiscussionComment.comment;
-      a.replies = (a.replies || []).concat([{ id: c.id, url: c.url, author: c.author || GHOST, createdAt: c.createdAt, bodyHTML: c.bodyHTML }]);
+      a.replies = (a.replies || []).concat([{ id: c.id, url: c.url, author: c.author || GHOST, createdAt: c.createdAt, lastEditedAt: null, bodyHTML: c.bodyHTML }]);
       a.replyCount = a.replies.length;
-      applyHighlights(); // marker counts
-      openThread(groupIdsFor(a), a.marks[a.marks.length - 1]);
-      var items = panel.querySelectorAll('.ap-comment');
-      if (items.length) items[items.length - 1].classList.add('is-new');
-      showToast('评论已发表');
-      refreshGiscus();
+      syncViews(); // marker counts, panel, comment section
+      flashComment(c.id);
+      showToast('回复已发表');
     });
+  }
+
+  // Briefly tint every rendering of a comment (panel and bottom section).
+  function flashComment(id) {
+    var els = document.querySelectorAll('.ap-comment[data-comment-id="' + id + '"]');
+    for (var i = 0; i < els.length; i++) els[i].classList.add('is-new');
   }
 
   // Draft survives the GitHub login round-trip.
@@ -1011,19 +1184,30 @@
     });
   }
 
-  function loadAnnotations(fresh) {
+  function loadDiscussion(fresh) {
     var qs = '?term=' + encodeURIComponent(cfg.path) + (fresh ? '&t=' + Date.now() : '');
     return api('/discussions' + qs).then(function (data) {
       var d = data && data.discussion;
       discussion = d ? { id: d.id, url: d.url, totalCommentCount: d.totalCommentCount } : null;
-      annotations = d ? parseComments(d.comments || []) : [];
-      applyHighlights();
+      comments = d ? parseComments(d.comments || []) : [];
+      loadError = null;
+      syncViews();
       return annotations;
     }).catch(function (err) {
       console.warn('[annotations] load failed:', err.message);
+      loadError = err;
       buildIndex();
+      renderCommentSection();
       return [];
     });
+  }
+
+  // `comments` is the source of truth; the article highlights and the comment
+  // section at the bottom are two views of it. Call after every mutation.
+  function syncViews() {
+    annotations = comments.filter(function (c) { return c.selector; });
+    applyHighlights();
+    renderCommentSection();
   }
 
   function parseComments(comments) {
@@ -1035,12 +1219,48 @@
     return out;
   }
 
+  // Every top-level comment of the discussion becomes a record; the ones that
+  // carry the quote header additionally get `selector` / `noteHTML` and are
+  // highlighted in the article. Deleted-but-with-replies comments are kept as
+  // placeholders (GitHub soft-deletes those) so their replies stay readable.
   function parseComment(c) {
-    if (!c || c.deletedAt || c.isMinimized || !c.bodyHTML) return null;
-    var doc = new DOMParser().parseFromString('<div>' + c.bodyHTML + '</div>', 'text/html');
+    if (!c || c.isMinimized) return null;
+    var replies = parseReplies(c.replies);
+    if (c.deletedAt && !replies.length) return null;
+    var rec = {
+      id: c.id,
+      url: c.url,
+      author: c.author || GHOST,
+      createdAt: c.createdAt,
+      lastEditedAt: c.lastEditedAt || null,
+      deleted: !!c.deletedAt,
+      upvoteCount: c.upvoteCount || 0,
+      replyCount: (c.replies && (c.replies.totalCount !== undefined ? c.replies.totalCount : c.replies.length)) || c.replyCount || 0,
+      replies: replies,
+      bodyHTML: c.deletedAt ? '' : (c.bodyHTML || ''),
+      selector: null, noteHTML: null, issue: null
+    };
+    if (!rec.deleted) parseBodyHeader(rec);
+    return rec;
+  }
+
+  // Fill rec.selector / noteHTML / issue from the comment's HTML (see file header).
+  function parseBodyHeader(rec) {
+    var doc = new DOMParser().parseFromString('<div>' + rec.bodyHTML + '</div>', 'text/html');
     var root = doc.body.firstChild;
-    var quote = root.firstElementChild;
-    if (!quote || quote.tagName !== 'BLOCKQUOTE') return null;
+    var first = root.firstElementChild;
+    if (!first) return;
+    var issueLink, issueNo;
+    if (first.tagName !== 'BLOCKQUOTE') {
+      // plain comment filed with 「同时提交 Issue」: leading <p><sub>[⚑ Issue #N](…)</sub></p>
+      if (first.tagName === 'P' && first.querySelector('sub a[href*="/issues/"]') && first.textContent.trim().length < 40) {
+        issueLink = first.querySelector('a[href*="/issues/"]');
+        issueNo = /\/issues\/(\d+)/.exec(issueLink.getAttribute('href'));
+        rec.issue = { url: issueLink.getAttribute('href'), number: issueNo ? +issueNo[1] : 0 };
+      }
+      return;
+    }
+    var quote = first;
     var links = quote.querySelectorAll('a[href*="#annot-"], a[href*=":~:text="]');
     var link = null;
     for (var i = 0; i < links.length; i++) {
@@ -1049,35 +1269,26 @@
         if (u.pathname === cfg.path) { link = links[i]; break; }
       } catch (e) { /* ignore */ }
     }
-    if (!link) return null;
+    if (!link) return;
     var fragment = parseTextFragment(link.getAttribute('href'));
     var linkBlock = link.closest('p, sub') || link;
     while (linkBlock.parentNode !== quote && linkBlock.parentNode !== root) linkBlock = linkBlock.parentNode;
-    var issueLink = linkBlock.querySelector('a[href*="/issues/"]');
-    var issueNo = issueLink && /\/issues\/(\d+)/.exec(issueLink.getAttribute('href'));
+    issueLink = linkBlock.querySelector('a[href*="/issues/"]');
+    issueNo = issueLink && /\/issues\/(\d+)/.exec(issueLink.getAttribute('href'));
     linkBlock.parentNode.removeChild(linkBlock);
     var exact = quote.textContent.replace(/\s+/g, ' ').trim();
-    if (!exact) return null;
+    if (!exact) return;
     root.removeChild(quote);
-    return {
-      id: c.id,
-      url: c.url,
-      author: c.author || GHOST,
-      createdAt: c.createdAt,
-      upvoteCount: c.upvoteCount || 0,
-      replyCount: (c.replies && (c.replies.totalCount !== undefined ? c.replies.totalCount : c.replies.length)) || c.replyCount || 0,
-      replies: parseReplies(c.replies),
-      noteHTML: root.innerHTML,
-      selector: { exact: exact, prefix: fragment.prefix, suffix: fragment.suffix },
-      issue: issueLink ? { url: issueLink.getAttribute('href'), number: issueNo ? +issueNo[1] : 0 } : null
-    };
+    rec.noteHTML = root.innerHTML;
+    rec.selector = { exact: exact, prefix: fragment.prefix, suffix: fragment.suffix };
+    rec.issue = issueLink ? { url: issueLink.getAttribute('href'), number: issueNo ? +issueNo[1] : 0 } : null;
   }
 
   // giscus' adapter returns replies as a plain array; GitHub GraphQL as {nodes}.
   function parseReplies(replies) {
     var list = Array.isArray(replies) ? replies : (replies && replies.nodes) || [];
     return list.filter(function (r) { return r && !r.deletedAt && !r.isMinimized; }).map(function (r) {
-      return { id: r.id, url: r.url, createdAt: r.createdAt, bodyHTML: r.bodyHTML, author: r.author || GHOST };
+      return { id: r.id, url: r.url, createdAt: r.createdAt, lastEditedAt: r.lastEditedAt || null, bodyHTML: r.bodyHTML, author: r.author || GHOST };
     });
   }
 
@@ -1245,6 +1456,7 @@
         }
         if (data.errors && data.errors.length) throw new Error(data.errors[0].message);
         if (!r.ok) throw new Error(data.message || ('HTTP ' + r.status));
+        if (!viewer && query !== VIEWER_QUERY) fetchViewer(); // an earlier attempt failed; the token works now
         return data.data;
       });
     });
@@ -1258,7 +1470,7 @@
 
   function ensureDiscussion() {
     if (discussion && discussion.id) return Promise.resolve(discussion.id);
-    return loadAnnotations(true).then(function () {
+    return loadDiscussion(true).then(function () {
       if (discussion && discussion.id) return discussion.id;
       var meta = document.querySelector("meta[property='og:description'], meta[name='description']");
       var backLink = location.href.replace(/#.*$/, '');
@@ -1277,53 +1489,6 @@
     });
   }
 
-  // Refresh the giscus list without blanking it: load a second, hidden iframe
-  // with the same src and swap it in once it has reported.
-  var pendingSwap = null;
-  function refreshGiscus() {
-    var old = document.querySelector('.giscus iframe.giscus-frame');
-    if (!old || pendingSwap) return;
-    var fresh = document.createElement('iframe');
-    ['src', 'title', 'scrolling', 'allow'].forEach(function (k) { if (old.getAttribute(k)) fresh.setAttribute(k, old.getAttribute(k)); });
-    fresh.className = 'giscus-frame';
-    fresh.style.cssText = 'position:absolute;top:0;left:0;width:100%;visibility:hidden;height:' + old.offsetHeight + 'px';
-    old.parentNode.style.position = 'relative';
-    old.parentNode.appendChild(fresh);
-    pendingSwap = { old: old, fresh: fresh, timer: setTimeout(function () { finishSwap(); }, 15000) };
-  }
-
-  function finishSwap() {
-    if (!pendingSwap) return;
-    var sw = pendingSwap;
-    pendingSwap = null;
-    clearTimeout(sw.timer);
-    if (!sw.fresh.parentNode) return;
-    sw.fresh.style.position = ''; sw.fresh.style.visibility = ''; sw.fresh.style.top = ''; sw.fresh.style.left = '';
-    if (sw.old.parentNode) sw.old.parentNode.removeChild(sw.old);
-  }
-
-  // giscus (data-emit-metadata="1") posts its height and discussion metadata.
-  // Heights are applied here for swapped-in iframes (giscus' client.js only
-  // knows the iframe it created); a changed comment count triggers a refetch.
-  function bindGiscusMessages() {
-    window.addEventListener('message', function (event) {
-      if (event.origin !== GISCUS_ORIGIN) return;
-      var g = event.data && event.data.giscus;
-      if (!g) return;
-      var frames = document.querySelectorAll('.giscus iframe.giscus-frame');
-      for (var i = 0; i < frames.length; i++) {
-        if (frames[i].contentWindow !== event.source) continue;
-        if (g.resizeHeight) frames[i].style.height = g.resizeHeight + 'px';
-        if (pendingSwap && frames[i] === pendingSwap.fresh && (g.resizeHeight || g.discussion)) finishSwap();
-      }
-      var d = g.discussion;
-      if (!d || typeof d.totalCommentCount !== 'number') return;
-      if (discussion && discussion.totalCommentCount === d.totalCommentCount) return;
-      if (!discussion && d.totalCommentCount === 0) return;
-      loadAnnotations(true);
-    });
-  }
-
   // ---------------------------------------------------------------- utils
 
   function sanitizeHtml(html) {
@@ -1338,7 +1503,12 @@
         var name = attrs[k].name, value = attrs[k].value;
         if (/^on/i.test(name) || ((name === 'href' || name === 'src') && /^\s*javascript:/i.test(value))) el.removeAttribute(name);
       }
-      if (el.tagName === 'A') { el.setAttribute('target', '_blank'); el.setAttribute('rel', 'noopener noreferrer nofollow'); }
+      if (el.tagName === 'A') {
+        var samePage = null;
+        try { var u = new URL(el.getAttribute('href') || '', location.href); if (u.pathname === cfg.path && u.hash) samePage = u.hash; } catch (e) { /* ignore */ }
+        if (samePage) el.setAttribute('href', samePage); // `§ 原文位置` → handled by hashchange
+        else { el.setAttribute('target', '_blank'); el.setAttribute('rel', 'noopener noreferrer nofollow'); }
+      }
     }
     var frag = document.createDocumentFragment();
     while (root.firstChild) frag.appendChild(document.adoptNode(root.firstChild));
@@ -1415,7 +1585,7 @@
 
   // Exposed for debugging / tests in the browser console.
   window.BlogAnnotations = {
-    reload: function () { return loadAnnotations(true); },
+    reload: function () { return loadDiscussion(true); },
     anchor: anchor,
     buildIndex: buildIndex,
     annotHash: annotHash,
@@ -1425,8 +1595,9 @@
     parseComment: parseComment,
     openThread: openThread,
     closePanel: closePanel,
-    refreshGiscus: refreshGiscus,
-    list: function () { return annotations; }
+    logout: logout,
+    list: function () { return annotations; },
+    comments: function () { return comments; }
   };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

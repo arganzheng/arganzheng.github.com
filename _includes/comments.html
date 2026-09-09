@@ -1,46 +1,28 @@
-{% if site.giscus.repo %}
+{% if site.giscus.repo and site.annotations.api %}
 {% comment %}
-  The custom theme is an https:// URL that giscus loads inside its iframe; a
-  http://localhost stylesheet would be blocked as mixed content, so fall back to
-  the built-in "light" theme when previewing locally (JEKYLL_ENV != production).
+  Comments live in the post's GitHub Discussion (repo/category from the giscus:
+  block) and are rendered by js/annotations.js — the same code that renders the
+  in-article highlight notes, so both get reply / edit / delete / issue controls.
+  GitHub login goes through giscus' OAuth broker; no giscus iframe is loaded.
 {% endcomment %}
-{% assign giscus_theme = site.giscus.theme | default: 'light' %}
-{% if jekyll.environment != 'production' and giscus_theme contains '://' %}
-  {% assign giscus_theme = 'light' %}
-{% endif %}
-<!-- giscus 评论框（GitHub Discussions） start -->
+<!-- comments (GitHub Discussions, rendered by js/annotations.js) start -->
 <section class="comment" id="comments"
          data-annotations-api="{{ site.annotations.api }}"
          data-page-path="{{ page.url }}"
          data-site-url="{{ site.url }}{{ site.baseurl }}"
+         data-repo="{{ site.giscus.repo }}"
          data-repo-id="{{ site.giscus.repo_id }}"
          data-category-id="{{ site.giscus.category_id }}"
          data-issues="{% if site.annotations.issues %}1{% else %}0{% endif %}">
     <p class="h3 comment-title">COMMENTS</p>
     <p class="comment-hint">
-        评论基于 <a href="https://github.com/{{ site.giscus.repo }}/discussions" target="_blank" rel="noopener noreferrer">GitHub Discussions</a>，
-        使用 GitHub 账号登录即可发表，支持 Markdown 语法（图片直接粘贴、代码块用 <code>```</code> 包裹）。
-        选中正文任意文字，点浮动的「评论」按钮即可对这段文字划线批注。
-        首次加载需要连接 GitHub，可能需要几秒钟。
+        评论存放在 <a href="https://github.com/{{ site.giscus.repo }}/discussions" target="_blank" rel="noopener noreferrer">GitHub Discussions</a>，
+        用 GitHub 账号登录即可发表，支持 Markdown。
+        想针对正文某句话说？选中那段文字，点浮出的「评论」即可划线评论；觉得哪里写错了，发表时勾上「同时提交 Issue」。
     </p>
-    <div class="giscus"></div>
+    <div class="annotation-comments">
+        <noscript>评论需要 JavaScript。你也可以直接到 <a href="https://github.com/{{ site.giscus.repo }}/discussions">GitHub Discussions</a> 查看和参与讨论。</noscript>
+    </div>
 </section>
-<script src="https://giscus.app/client.js"
-        data-repo="{{ site.giscus.repo }}"
-        data-repo-id="{{ site.giscus.repo_id }}"
-        data-category="{{ site.giscus.category }}"
-        data-category-id="{{ site.giscus.category_id }}"
-        data-mapping="specific"
-        data-term="{{ page.url }}"
-        data-strict="0"
-        data-reactions-enabled="{{ site.giscus.reactions_enabled | default: 1 }}"
-        data-emit-metadata="1"
-        data-input-position="{{ site.giscus.input_position | default: 'bottom' }}"
-        data-theme="{{ giscus_theme }}"
-        data-lang="{{ site.giscus.lang | default: 'zh-CN' }}"
-        data-loading="lazy"
-        crossorigin="anonymous"
-        async>
-</script>
-<!-- giscus 评论框 end -->
+<!-- comments end -->
 {% endif %}

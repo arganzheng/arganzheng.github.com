@@ -129,6 +129,15 @@
 // GitHub-rendered comment HTML (bodyHTML) has no styles of its own.
 .github-markdown() {
 	p { margin: 0 0 8px; }
+	blockquote {
+		margin: 0 0 8px;
+		padding: 2px 12px;
+		font-size: inherit;
+		color: @annot-muted;
+		border-left: 3px solid @annot-border;
+		background: none;
+		sub a { text-decoration: none; }
+	}
 	> :last-child { margin-bottom: 0; }
 	img { max-width: 100%; }
 	code {
@@ -174,8 +183,11 @@
 	.zeroclipboard-container, .snippet-clipboard-content .ClipboardButton { display: none; }
 }
 
-// ---- in-flow panel (thread or editor), inserted right after the paragraph
-.post-container .annotation-panel {
+// ---- in-flow panel (thread or editor), inserted right after the paragraph,
+// and the comment section at the bottom of the post: same building blocks
+// (.ap-comment, .ap-editor, …), so one rule set for both.
+.post-container .annotation-panel,
+.post-container .annotation-comments {
 	margin: 12px 0 20px;
 	background: #fff;
 	border: 1px solid @annot-border;
@@ -484,7 +496,55 @@
 	}
 	&.is-editor .ap-text { min-height: 180px; }
 	&.is-thread .ap-editor .ap-text { min-height: 130px; }
-	&.is-thread .ap-inline-editor .ap-text { min-height: 90px; }
+	.ap-inline-editor .ap-text { min-height: 90px !important; }
+	.ap-edited { font-size: 11.5px; color: @annot-faint; }
+	.ap-comment.is-deleted .ap-comment-body { font-size: 13px; }
+	.ap-logout {
+		margin-left: 6px;
+		padding: 0 6px;
+		border: 0;
+		background: none;
+		font-size: 11.5px;
+		color: @annot-faint;
+		cursor: pointer;
+		&:hover { color: #cf222e; text-decoration: underline; }
+	}
+}
+
+// the bottom section is a plain list, not a floating card
+.post-container .annotation-comments {
+	margin: 0;
+	border: 0;
+	border-radius: 0;
+	box-shadow: none;
+	animation: none;
+	overflow: visible;
+	.ac-head {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 0 0 8px;
+		border-bottom: 1px solid #eaeef2;
+		font-size: 13px;
+		color: @annot-muted;
+		.ac-count { font-weight: 600; color: #24292f; .fa { color: #cf222e; margin-right: 4px; } }
+		.ac-github { margin-left: auto; color: @annot-faint; text-decoration: none; &:hover { color: @brand-primary; } }
+	}
+	.ac-empty { margin: 14px 0; font-size: 13.5px; color: @annot-faint; }
+	.ac-group {
+		padding: 0;
+		border-bottom: 1px solid #eaeef2;
+		.ap-comment + .ap-comment { border-top: 0; }
+		.ap-comment.has-issue { margin-left: 0; margin-right: 0; padding-left: 10px; padding-right: 0; }
+	}
+	.ac-reply-editor { margin: 4px 0 12px 38px; }
+	.ac-editor {
+		margin-top: 18px;
+		border: 1px solid @annot-border;
+		border-radius: 8px;
+		overflow: hidden;
+		.ap-text { min-height: 150px; }
+	}
 }
 
 @keyframes annotation-panel-in {
@@ -529,7 +589,8 @@
 }
 
 @media (max-width: 480px) {
-	.post-container .annotation-panel {
+	.post-container .annotation-panel,
+	.post-container .annotation-comments {
 		.ap-head .ap-count { display: none; }
 		.ap-footer { flex-wrap: wrap; }
 		.ap-buttons .ap-hint { display: none; }

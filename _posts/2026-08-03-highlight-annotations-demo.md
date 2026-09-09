@@ -22,7 +22,7 @@ tags: [Blog, Demo, GitHub]
 | 勾上 <i class="fa fa-flag" style="color:#d1242f"></i> `同时提交 Issue` 再发表 | 额外在博客仓库开一个 GitHub Issue，评论带红旗徽章 |
 | 点 `复制链接` | 得到 `…html#hl=选中的文字`，别人打开会自动定位并闪烁这段文字 |
 
-所有内容都存在文章的 [GitHub Discussions](https://github.com/arganzheng/arganzheng.github.com/discussions) 讨论串里，就是文末评论区用的那个，没有额外的数据库。
+所有内容都存在文章的 [GitHub Discussions](https://github.com/arganzheng/arganzheng.github.com/discussions) 讨论串里，没有额外的数据库。**文末评论区和划线评论是同一套东西**：同一个讨论串、同一个编辑器、同样的回复 / 编辑 / 删除 / 提 Issue，区别只是一个挂在某句话上、一个挂在整篇文章上。划线评论会同时出现在文末列表里（带着它引用的原文和 `§ 原文位置` 链接，点击就跳回那句话）。
 
 ---
 
@@ -72,7 +72,7 @@ def all_reduce(tensors, group):
 - **撰写 / 预览**两个页签，预览用 GitHub 的渲染器，所见即 GitHub 上所得。
 - 工具条：加粗、斜体、标题、引用、行内代码、代码块、链接、图片、无序 / 有序列表；`⌘/Ctrl+B`、`I`、`K` 对应加粗、斜体、链接。不熟 Markdown 也能写，熟的直接敲。
 - 内容为空时 `发表评论` 是灰的；`取消` 和右上角 `×` 都是收起。
-- 登录复用文末评论区（giscus）的 GitHub 登录，只需登一次。登录会跳到 GitHub 再跳回来，**草稿会保留**。
+- GitHub 登录只需登一次，文末评论区和划线评论共用；登录会跳到 GitHub 再跳回来，**草稿会保留**。登录后用户名旁有 `退出`。
 - 自己发的评论右侧有 `编辑` / `删除`（只有你自己能看到），原地改、原地删，不用去 GitHub；每条评论右侧的 <i class="fa fa-github"></i> 图标是它在 GitHub 上的原文链接。
 - 发表失败时（网络、权限）会给一个「复制内容」按钮，把带引用的 Markdown 复制出来，粘贴到文末评论框里发也是一样的效果。
 
@@ -110,7 +110,7 @@ def all_reduce(tensors, group):
 flowchart TB
     B["浏览器<br/>js/annotations.js"]
     W["Cloudflare Worker<br/>(转发层，本身无密钥)"]
-    G["giscus.app API"]
+    G["giscus.app API<br/>(只借它读讨论串和做 GitHub 登录)"]
     GH["GitHub GraphQL / REST"]
     B -- "① 读讨论串<br/>② giscus 登录态换 token" --> W
     W -- "①② 原样转发" --> G
@@ -121,13 +121,14 @@ flowchart TB
     class B,W,G,GH c;
 ```
 
-浏览器不能直接调 giscus 的接口（CORS 只放行它自己的域名），所以中间加了一层 Worker 做转发和 60 秒缓存。**发评论用的是读者自己的 GitHub 身份**：giscus 登录后把会话存在本站的 `localStorage` 里，脚本用它换出 token，直接调 GitHub GraphQL 的 `addDiscussionComment`——和 giscus 的 iframe 做的事一模一样，评论显示为读者本人。
+文末评论区以前是 [giscus](https://giscus.app) 的 iframe；现在 iframe 没有了，评论列表和划线评论由同一段脚本渲染（所以才能做到两边一致），giscus 只剩两个用途：匿名读取讨论串的公开接口，和 GitHub 登录的 OAuth 中转。浏览器不能直接调 giscus 的接口（CORS 只放行它自己的域名），所以中间加了一层 Worker 做转发和 60 秒缓存。**发评论、改评论、删评论用的都是读者自己的 GitHub 身份**：登录回跳后会话存在本站的 `localStorage` 里，脚本用它换出 token，直接调 GitHub GraphQL（`addDiscussionComment` / `updateDiscussionComment` / `deleteDiscussionComment`），评论显示为读者本人，在 GitHub 上也能继续编辑。
 
 只有「同时提交 Issue」走了不同的路：giscus 这个 GitHub App 只申请了 Discussions 权限，读者的 token 开不了 Issue。所以 Worker 先用读者 token 向 GitHub 核实身份，再以**博客自己的 GitHub App** 身份创建 Issue（正文首行署名「由 @读者 提出」）。App 凭据靠私钥签短期 JWT 换取安装令牌，不像 PAT 那样会过期。
 
 ### 4. 隐私与边界
 
-- 登录授权给的是 giscus（和文末评论区一样），本站不保存你的任何凭据；Worker 只转发，不落库。
+- 登录授权给的是 giscus 这个 GitHub App（只有 Discussions 读写权限），本站不保存你的任何凭据；Worker 只转发，不落库。
+- 没有 emoji reactions——GitHub 目前不允许 App 签发的用户 token 点赞，giscus 里那个按钮本来也是灰的。
 - 你能在 GitHub 上编辑、删除自己的评论，页面下次加载就会同步。
 - 所有内容公开可见，和 GitHub Discussions 一致。
 

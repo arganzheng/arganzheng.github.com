@@ -67,27 +67,25 @@ defaults:
 
 
 
-# Comments: giscus (GitHub Discussions), rendered by _includes/comments.html.
-# IDs come from https://giscus.app or
+# Comments: GitHub Discussions, one thread per post (mapped by page.url), read
+# and written through tools/annotations-worker/ and rendered by
+# js/annotations.js (_includes/comments.html). The giscus GitHub App is still
+# what readers log in with and the thread mapping is giscus-compatible, hence
+# the block name. IDs come from https://giscus.app or
 # `gh api graphql -f query='{ repository(owner:"arganzheng", name:"arganzheng.github.com"){ id discussionCategories(first:10){ nodes{ id name } } } }'`
 giscus:
   repo: arganzheng/arganzheng.github.com
   repo_id: MDEwOlJlcG9zaXRvcnkzNDg1NTY2
   category: Comments
   category_id: DIC_kwDOADUvfs4DFI2e
-  lang: zh-CN
-  # custom theme served from this site (css/giscus-theme.css); local preview falls back to "light"
-  theme: https://arganzheng.life/css/giscus-theme.css
-  input_position: bottom
-  reactions_enabled: 1
 
-# Highlight annotations on posts (js/annotations.js). `api` is the URL of the
+# Comments + highlight annotations (js/annotations.js). `api` is the URL of the
 # relay worker in tools/annotations-worker/ (see its README); leave empty to
-# disable the feature. Local dev can override it with localStorage.annotationsApi.
+# disable comments entirely. Local dev can override it with localStorage.annotationsApi.
 annotations:
   api: "https://blog-annotations.arganzheng.workers.dev"
-  # Show the 「同时提交 Issue」 checkbox in the editor (needs the worker's
-  # GITHUB_TOKEN secret, see tools/annotations-worker/README.md).
+  # Show the 「同时提交 Issue」 checkbox in the editors (needs the worker's
+  # GitHub App credentials, see tools/annotations-worker/README.md).
   issues: true
 
 # Related posts count

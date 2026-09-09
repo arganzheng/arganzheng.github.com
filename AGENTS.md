@@ -44,19 +44,39 @@ END of both `css/argan-blog.css` and `css/argan-blog.min.css` by hand
   and they only look inside `.post-container` and `.reveal .slides`.
 - `_includes/analytics.html` — GA + Baidu Tongji, shared by `footer.html` and
   `_layouts/slides.html`
-- `_includes/comments.html` — giscus (GitHub Discussions) comment box, used by
-  `_layouts/post.html`, `header-post.html` and `keynote.html`. Configured by the
-  `giscus:` block in `_config.yml`; threads are mapped by `page.url`
-  (`data-mapping="specific"`), so renaming a post's permalink orphans its
-  comments. Disqus was removed on purpose: it is blocked in mainland China and
-  its embed injected VigLink affiliate links (`a.vglnk`) into article text.
-- `js/annotations.js` — reader highlight annotations ("划线批注"), see below.
+- `_includes/comments.html` — comment section (GitHub Discussions), used by
+  `_layouts/post.html`, `header-post.html` and `keynote.html`. It is an empty
+  `section.comment > .annotation-comments` shell with data attributes; the
+  list and editor are rendered by `js/annotations.js` (same code as the
+  highlight annotations, see below). Repo/category IDs live in the `giscus:`
+  block of `_config.yml` (the giscus GitHub App is still the login broker and
+  the thread mapping is giscus-compatible: one discussion per `page.url`, so
+  renaming a permalink orphans its comments). No giscus iframe is loaded any
+  more — it could not be given edit/delete/toolbar/issue controls. Disqus was
+  removed even earlier: blocked in mainland China and it injected VigLink
+  affiliate links (`a.vglnk`) into article text.
+- `js/annotations.js` — comments + reader highlight annotations ("划线评论"), see below.
 
-## Highlight annotations (js/annotations.js)
+## Comments & highlight annotations (js/annotations.js)
 
-Reader-facing demo/manual: `_posts/2026-09-09-highlight-annotations-demo.md`
+Reader-facing demo/manual: `_posts/2026-08-03-highlight-annotations-demo.md`
 (`/highlight-annotations-demo.html`); the author-side features (footnotes,
 tips, external links) have their own demo post, `popup-footnotes-and-inline-tips-demo`.
+
+One data model, two views. `comments` holds every top-level comment of the
+post's discussion (`parseComment`); those whose body starts with the quote
+header get `selector`/`noteHTML` and are the `annotations` highlighted in the
+article. `syncViews()` re-renders both the highlights/panel
+(`applyHighlights`) and the bottom section (`renderCommentSection`) after
+every mutation. `commentEl` and `renderEditor` are shared, so plain comments
+and passage notes have identical reply / edit / delete / 「同时提交 Issue」
+controls. The bottom section (`.annotation-comments`): header with count and
+GitHub link, `.ac-group` per top-level comment with its replies, inline reply
+editor (`openInlineReply`), and a persistent editor (`.ac-editor`,
+`clearOnSubmit`, draft in `sessionStorage`). Plain comments filed with an
+issue start with `<sub>[⚑ Issue #N](url)</sub>` (recognised by
+`parseBodyHeader`). Soft-deleted comments (GitHub keeps a comment that has
+replies, `deletedAt` set) render as 「此评论已删除」 with their replies.
 
 Code-review / WeChat-reading style, no hover popups. Readers select text in
 `.post-container` → floating toolbar (`评论` / `复制链接`) → an **in-flow editor
@@ -134,26 +154,26 @@ re-anchoring.
   `GET /discussions?term=` (giscus public API, 60 s edge cache, `&t=` bypasses),
   `POST /token` (giscus session → GitHub token), `POST /discussions`
   (create the thread for a post nobody commented on yet) and the optional
-  `POST /issues` (needs `GITHUB_TOKEN`, above). Deploy with
+  `POST /issues` (needs the GitHub App credentials, above). Deploy with
   `wrangler deploy` (see its README) and put the URL in `_config.yml`
   `annotations.api`; an empty `api` disables the feature.
-- **Posting** reuses the reader's giscus login: giscus' `client.js` stores the
-  session in `localStorage["giscus-session"]` of *our* origin; we exchange it
-  via the worker and call `api.github.com/graphql` directly, then refresh
-  giscus by loading a hidden second iframe and swapping it in once it reports
-  (giscus' client.js only resizes the iframe it created, so `annotations.js`
-  applies `resizeHeight` messages itself). This relies on giscus internals
-  that are stable but not a public contract — any failure degrades to a
-  "复制内容" button (paste into giscus). Login = redirect to
-  `giscus.app/api/oauth/authorize?redirect_uri=<page>`; the editor draft is
-  kept in `sessionStorage` across the round-trip.
+- **Login** = redirect to `giscus.app/api/oauth/authorize?redirect_uri=<page>`;
+  giscus comes back with `?giscus=<session>`, which `takeSessionFromUrl()`
+  stores in `localStorage["giscus-session"]` (JSON string, same as giscus'
+  client.js did) and strips from the URL. The worker exchanges the session for
+  a GitHub token and the browser calls `api.github.com/graphql` directly. The
+  viewer is fetched once (`fetchViewer`, `onViewerKnown` re-renders every
+  editor and list); 「退出」 clears the session (`logout`). This relies on
+  giscus' OAuth/API endpoints, which are stable but not a public contract —
+  any failure degrades to a "复制内容" button (paste on GitHub). Editor drafts
+  survive the login round-trip in `sessionStorage`.
 - **Local dev**: `cd tools/annotations-worker && npx wrangler dev` (no login
   needed, talks to the real giscus API), then in the console
   `localStorage.annotationsApi = 'http://localhost:8787'`. A static JSON with
   the `{discussion:{comments:[…]}}` shape served with CORS also works for
   testing anchoring. `window.BlogAnnotations` exposes
   `reload/anchor/buildIndex/annotHash/threadLink/shareLink/buildCommentBody/
-  parseComment/openThread/closePanel/refreshGiscus/list`.
+  parseComment/openThread/closePanel/logout/list/comments`.
 - **Interplay with footnotes / tips**: the text index excludes footnote
   markers (`sup[id^=fnref]`, `a.footnote`, `.footnotes`), KaTeX, Mermaid,
   markers/panels and the comment section; `<mark>` wraps text nodes only, so

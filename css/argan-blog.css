@@ -1949,10 +1949,6 @@ li[id^="fn:"] {
   padding: 1px 4px;
   font-size: 12px;
 }
-.comment .giscus,
-.comment .giscus-frame {
-  width: 100%;
-}
 
 /* highlight annotations (less/annotations.less) */
 .post-container mark.annotation-hl {
@@ -2071,7 +2067,8 @@ li[id^="fn:"] {
   bottom: auto;
   top: -5px;
 }
-.post-container .annotation-panel {
+.post-container .annotation-panel,
+.post-container .annotation-comments {
   margin: 12px 0 20px;
   background: #fff;
   border: 1px solid #d0d7de;
@@ -2083,7 +2080,8 @@ li[id^="fn:"] {
   overflow: hidden;
   animation: annotation-panel-in 0.18s ease-out;
 }
-.post-container .annotation-panel .ap-head {
+.post-container .annotation-panel .ap-head,
+.post-container .annotation-comments .ap-head {
   display: flex;
   align-items: flex-start;
   gap: 8px;
@@ -2093,26 +2091,30 @@ li[id^="fn:"] {
   color: #57606a;
   font-size: 13px;
 }
-.post-container .annotation-panel .ap-head > .fa {
+.post-container .annotation-panel .ap-head > .fa,
+.post-container .annotation-comments .ap-head > .fa {
   margin-top: 4px;
   color: #0085a1;
   flex: none;
 }
-.post-container .annotation-panel .ap-head .ap-quote {
+.post-container .annotation-panel .ap-head .ap-quote,
+.post-container .annotation-comments .ap-head .ap-quote {
   flex: 1 1 auto;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.post-container .annotation-panel .ap-head .ap-count {
+.post-container .annotation-panel .ap-head .ap-count,
+.post-container .annotation-comments .ap-head .ap-count {
   flex: none;
   color: #8c959f;
   font-size: 12px;
   white-space: nowrap;
   margin-top: 1px;
 }
-.post-container .annotation-panel .ap-head .ap-close {
+.post-container .annotation-panel .ap-head .ap-close,
+.post-container .annotation-comments .ap-head .ap-close {
   flex: none;
   margin: -4px -6px -4px 2px;
   width: 26px;
@@ -2125,61 +2127,74 @@ li[id^="fn:"] {
   cursor: pointer;
   border-radius: 4px;
 }
-.post-container .annotation-panel .ap-head .ap-close:hover {
+.post-container .annotation-panel .ap-head .ap-close:hover,
+.post-container .annotation-comments .ap-head .ap-close:hover {
   background: #eaeef2;
   color: #24292f;
 }
-.post-container .annotation-panel .ap-thread {
+.post-container .annotation-panel .ap-thread,
+.post-container .annotation-comments .ap-thread {
   padding: 2px 14px 0;
   max-height: 520px;
   overflow-y: auto;
 }
-.post-container .annotation-panel .ap-thread-preview {
+.post-container .annotation-panel .ap-thread-preview,
+.post-container .annotation-comments .ap-thread-preview {
   max-height: 260px;
 }
-.post-container .annotation-panel .ap-comment {
+.post-container .annotation-panel .ap-comment,
+.post-container .annotation-comments .ap-comment {
   display: flex;
   align-items: flex-start;
   gap: 10px;
   padding: 10px 0;
 }
-.post-container .annotation-panel .ap-comment + .ap-comment {
+.post-container .annotation-panel .ap-comment + .ap-comment,
+.post-container .annotation-comments .ap-comment + .ap-comment {
   border-top: 1px solid #eaeef2;
 }
-.post-container .annotation-panel .ap-comment.is-reply {
+.post-container .annotation-panel .ap-comment.is-reply,
+.post-container .annotation-comments .ap-comment.is-reply {
   margin-left: 38px;
   border-top: 0 !important;
   padding: 4px 0 6px;
 }
-.post-container .annotation-panel .ap-comment.is-reply .ap-avatar img {
+.post-container .annotation-panel .ap-comment.is-reply .ap-avatar img,
+.post-container .annotation-comments .ap-comment.is-reply .ap-avatar img {
   width: 22px;
   height: 22px;
 }
-.post-container .annotation-panel .ap-comment.is-new {
+.post-container .annotation-panel .ap-comment.is-new,
+.post-container .annotation-comments .ap-comment.is-new {
   animation: annotation-comment-in 1.6s ease-out;
 }
-.post-container .annotation-panel .ap-comment.has-issue {
+.post-container .annotation-panel .ap-comment.has-issue,
+.post-container .annotation-comments .ap-comment.has-issue {
   box-shadow: inset 3px 0 0 #d1242f;
   padding-left: 10px;
   margin-left: -14px;
   padding-right: 14px;
   margin-right: -14px;
 }
-.post-container .annotation-panel .ap-avatar {
+.post-container .annotation-panel .ap-avatar,
+.post-container .annotation-comments .ap-avatar {
   flex: none;
 }
-.post-container .annotation-panel .ap-avatar img {
+.post-container .annotation-panel .ap-avatar img,
+.post-container .annotation-comments .ap-avatar img {
   width: 28px;
   height: 28px;
   margin: 0;
   border-radius: 50%;
   display: block;
 }
-.post-container .annotation-panel .ap-comment-main {
+.post-container .annotation-panel .ap-comment-main,
+.post-container .annotation-comments .ap-comment-main {
   flex: 1 1 auto;
   min-width: 0;
 }
-.post-container .annotation-panel .ap-comment-meta {
+.post-container .annotation-panel .ap-comment-meta,
+.post-container .annotation-comments .ap-comment-meta {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -2187,20 +2202,25 @@ li[id^="fn:"] {
   font-size: 12.5px;
   color: #8c959f;
 }
-.post-container .annotation-panel .ap-comment-meta > a:first-child {
+.post-container .annotation-panel .ap-comment-meta > a:first-child,
+.post-container .annotation-comments .ap-comment-meta > a:first-child {
   color: #24292f;
   font-weight: 600;
   text-decoration: none;
 }
-.post-container .annotation-panel .ap-comment-meta .ap-meta-actions {
+.post-container .annotation-panel .ap-comment-meta .ap-meta-actions,
+.post-container .annotation-comments .ap-comment-meta .ap-meta-actions {
   margin-left: auto;
   display: inline-flex;
   align-items: center;
   gap: 10px;
 }
 .post-container .annotation-panel .ap-comment-meta .ap-reply-btn,
+.post-container .annotation-comments .ap-comment-meta .ap-reply-btn,
 .post-container .annotation-panel .ap-comment-meta .ap-edit-btn,
-.post-container .annotation-panel .ap-comment-meta .ap-delete-btn {
+.post-container .annotation-comments .ap-comment-meta .ap-edit-btn,
+.post-container .annotation-panel .ap-comment-meta .ap-delete-btn,
+.post-container .annotation-comments .ap-comment-meta .ap-delete-btn {
   padding: 0;
   border: 0;
   background: none;
@@ -2210,20 +2230,27 @@ li[id^="fn:"] {
   white-space: nowrap;
 }
 .post-container .annotation-panel .ap-comment-meta .ap-reply-btn:hover,
+.post-container .annotation-comments .ap-comment-meta .ap-reply-btn:hover,
 .post-container .annotation-panel .ap-comment-meta .ap-edit-btn:hover,
-.post-container .annotation-panel .ap-comment-meta .ap-delete-btn:hover {
+.post-container .annotation-comments .ap-comment-meta .ap-edit-btn:hover,
+.post-container .annotation-panel .ap-comment-meta .ap-delete-btn:hover,
+.post-container .annotation-comments .ap-comment-meta .ap-delete-btn:hover {
   color: #0085a1;
 }
-.post-container .annotation-panel .ap-comment-meta .ap-delete-btn:hover {
+.post-container .annotation-panel .ap-comment-meta .ap-delete-btn:hover,
+.post-container .annotation-comments .ap-comment-meta .ap-delete-btn:hover {
   color: #cf222e;
 }
-.post-container .annotation-panel .ap-comment-meta .ap-github {
+.post-container .annotation-panel .ap-comment-meta .ap-github,
+.post-container .annotation-comments .ap-comment-meta .ap-github {
   color: #8c959f;
 }
-.post-container .annotation-panel .ap-comment-meta .ap-github:hover {
+.post-container .annotation-panel .ap-comment-meta .ap-github:hover,
+.post-container .annotation-comments .ap-comment-meta .ap-github:hover {
   color: #0085a1;
 }
-.post-container .annotation-panel .ap-comment-meta .ap-issue-badge {
+.post-container .annotation-panel .ap-comment-meta .ap-issue-badge,
+.post-container .annotation-comments .ap-comment-meta .ap-issue-badge {
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -2237,29 +2264,49 @@ li[id^="fn:"] {
   text-decoration: none;
   white-space: nowrap;
 }
-.post-container .annotation-panel .ap-comment-meta .ap-issue-badge:hover {
+.post-container .annotation-panel .ap-comment-meta .ap-issue-badge:hover,
+.post-container .annotation-comments .ap-comment-meta .ap-issue-badge:hover {
   background: #ffd8d3;
 }
-.post-container .annotation-panel .ap-comment-body {
+.post-container .annotation-panel .ap-comment-body,
+.post-container .annotation-comments .ap-comment-body {
   font-size: 14px;
   word-break: break-word;
 }
-.post-container .annotation-panel .ap-comment-body p {
+.post-container .annotation-panel .ap-comment-body p,
+.post-container .annotation-comments .ap-comment-body p {
   margin: 0 0 8px;
 }
-.post-container .annotation-panel .ap-comment-body > :last-child {
+.post-container .annotation-panel .ap-comment-body blockquote,
+.post-container .annotation-comments .ap-comment-body blockquote {
+  margin: 0 0 8px;
+  padding: 2px 12px;
+  font-size: inherit;
+  color: #57606a;
+  border-left: 3px solid #d0d7de;
+  background: none;
+}
+.post-container .annotation-panel .ap-comment-body blockquote sub a,
+.post-container .annotation-comments .ap-comment-body blockquote sub a {
+  text-decoration: none;
+}
+.post-container .annotation-panel .ap-comment-body > :last-child,
+.post-container .annotation-comments .ap-comment-body > :last-child {
   margin-bottom: 0;
 }
-.post-container .annotation-panel .ap-comment-body img {
+.post-container .annotation-panel .ap-comment-body img,
+.post-container .annotation-comments .ap-comment-body img {
   max-width: 100%;
 }
-.post-container .annotation-panel .ap-comment-body code {
+.post-container .annotation-panel .ap-comment-body code,
+.post-container .annotation-comments .ap-comment-body code {
   font-size: 12.5px;
   padding: 2px 5px;
   background: #f6f8fa;
   border-radius: 4px;
 }
-.post-container .annotation-panel .ap-comment-body pre {
+.post-container .annotation-panel .ap-comment-body pre,
+.post-container .annotation-comments .ap-comment-body pre {
   margin: 8px 0;
   padding: 8px 10px;
   font-size: 12.5px;
@@ -2269,13 +2316,15 @@ li[id^="fn:"] {
   border-radius: 6px;
   overflow-x: auto;
 }
-.post-container .annotation-panel .ap-comment-body pre code {
+.post-container .annotation-panel .ap-comment-body pre code,
+.post-container .annotation-comments .ap-comment-body pre code {
   padding: 0;
   background: none;
   border: 0;
   font-size: inherit;
 }
-.post-container .annotation-panel .ap-comment-body table {
+.post-container .annotation-panel .ap-comment-body table,
+.post-container .annotation-comments .ap-comment-body table {
   display: table;
   width: auto;
   max-width: 100%;
@@ -2284,90 +2333,117 @@ li[id^="fn:"] {
   font-size: 13px;
 }
 .post-container .annotation-panel .ap-comment-body table th,
-.post-container .annotation-panel .ap-comment-body table td {
+.post-container .annotation-comments .ap-comment-body table th,
+.post-container .annotation-panel .ap-comment-body table td,
+.post-container .annotation-comments .ap-comment-body table td {
   padding: 5px 10px;
   border: 1px solid #d0d7de;
 }
-.post-container .annotation-panel .ap-comment-body table th {
+.post-container .annotation-panel .ap-comment-body table th,
+.post-container .annotation-comments .ap-comment-body table th {
   background: #f6f8fa;
   font-weight: 600;
 }
-.post-container .annotation-panel .ap-comment-body table tr:nth-child(2n) td {
+.post-container .annotation-panel .ap-comment-body table tr:nth-child(2n) td,
+.post-container .annotation-comments .ap-comment-body table tr:nth-child(2n) td {
   background: #fafbfc;
 }
-.post-container .annotation-panel .ap-comment-body blockquote {
+.post-container .annotation-panel .ap-comment-body blockquote,
+.post-container .annotation-comments .ap-comment-body blockquote {
   margin: 8px 0;
   padding: 4px 12px;
   color: #57606a;
   border-left: 3px solid #d0d7de;
 }
 .post-container .annotation-panel .ap-comment-body ul,
-.post-container .annotation-panel .ap-comment-body ol {
+.post-container .annotation-comments .ap-comment-body ul,
+.post-container .annotation-panel .ap-comment-body ol,
+.post-container .annotation-comments .ap-comment-body ol {
   padding-left: 22px;
   margin: 6px 0 8px;
 }
 .post-container .annotation-panel .ap-comment-body h1,
+.post-container .annotation-comments .ap-comment-body h1,
 .post-container .annotation-panel .ap-comment-body h2,
+.post-container .annotation-comments .ap-comment-body h2,
 .post-container .annotation-panel .ap-comment-body h3,
-.post-container .annotation-panel .ap-comment-body h4 {
+.post-container .annotation-comments .ap-comment-body h3,
+.post-container .annotation-panel .ap-comment-body h4,
+.post-container .annotation-comments .ap-comment-body h4 {
   font-size: 1.05em;
   margin: 10px 0 6px;
   font-weight: 600;
 }
-.post-container .annotation-panel .ap-comment-body a {
+.post-container .annotation-panel .ap-comment-body a,
+.post-container .annotation-comments .ap-comment-body a {
   color: #0085a1;
 }
 .post-container .annotation-panel .ap-comment-body .zeroclipboard-container,
-.post-container .annotation-panel .ap-comment-body .snippet-clipboard-content .ClipboardButton {
+.post-container .annotation-comments .ap-comment-body .zeroclipboard-container,
+.post-container .annotation-panel .ap-comment-body .snippet-clipboard-content .ClipboardButton,
+.post-container .annotation-comments .ap-comment-body .snippet-clipboard-content .ClipboardButton {
   display: none;
 }
-.post-container .annotation-panel .ap-editor {
+.post-container .annotation-panel .ap-editor,
+.post-container .annotation-comments .ap-editor {
   border-top: 1px solid #eaeef2;
 }
-.post-container .annotation-panel .ap-editor.is-busy {
+.post-container .annotation-panel .ap-editor.is-busy,
+.post-container .annotation-comments .ap-editor.is-busy {
   opacity: 0.7;
   pointer-events: none;
 }
-.post-container .annotation-panel .ap-inline-editor {
+.post-container .annotation-panel .ap-inline-editor,
+.post-container .annotation-comments .ap-inline-editor {
   margin-top: 4px;
   border: 1px solid #d0d7de;
   border-radius: 6px;
   overflow: hidden;
 }
-.post-container .annotation-panel .ap-inline-editor .ap-tabs {
+.post-container .annotation-panel .ap-inline-editor .ap-tabs,
+.post-container .annotation-comments .ap-inline-editor .ap-tabs {
   padding: 4px 8px 0;
 }
-.post-container .annotation-panel .ap-inline-editor .ap-text {
+.post-container .annotation-panel .ap-inline-editor .ap-text,
+.post-container .annotation-comments .ap-inline-editor .ap-text {
   margin-top: 4px;
   border-bottom: 0;
 }
-.post-container .annotation-panel .ap-inline-editor .ap-preview {
+.post-container .annotation-panel .ap-inline-editor .ap-preview,
+.post-container .annotation-comments .ap-inline-editor .ap-preview {
   margin-top: 4px;
   border-bottom: 0;
 }
-.post-container .annotation-panel .ap-inline-editor .ap-footer {
+.post-container .annotation-panel .ap-inline-editor .ap-footer,
+.post-container .annotation-comments .ap-inline-editor .ap-footer {
   padding: 6px 8px;
   justify-content: flex-end;
 }
 .post-container .annotation-panel .ap-inline-editor .ap-user,
-.post-container .annotation-panel .ap-inline-editor .ap-hint {
+.post-container .annotation-comments .ap-inline-editor .ap-user,
+.post-container .annotation-panel .ap-inline-editor .ap-hint,
+.post-container .annotation-comments .ap-inline-editor .ap-hint {
   display: none;
 }
-.post-container .annotation-panel .ap-inline-editor .ap-buttons button {
+.post-container .annotation-panel .ap-inline-editor .ap-buttons button,
+.post-container .annotation-comments .ap-inline-editor .ap-buttons button {
   padding: 4px 12px;
   font-size: 12.5px;
 }
-.post-container .annotation-panel .ap-comment.is-deleting {
+.post-container .annotation-panel .ap-comment.is-deleting,
+.post-container .annotation-comments .ap-comment.is-deleting {
   opacity: 0.4;
   pointer-events: none;
 }
-.post-container .annotation-panel .ap-tabs {
+.post-container .annotation-panel .ap-tabs,
+.post-container .annotation-comments .ap-tabs {
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 8px 14px 0;
 }
-.post-container .annotation-panel .ap-tabs button {
+.post-container .annotation-panel .ap-tabs button,
+.post-container .annotation-comments .ap-tabs button {
   background: transparent;
   border: 0;
   border-bottom: 2px solid transparent;
@@ -2376,17 +2452,20 @@ li[id^="fn:"] {
   color: #57606a;
   cursor: pointer;
 }
-.post-container .annotation-panel .ap-tabs button.is-active {
+.post-container .annotation-panel .ap-tabs button.is-active,
+.post-container .annotation-comments .ap-tabs button.is-active {
   color: #0085a1;
   border-bottom-color: #0085a1;
   font-weight: 600;
 }
-.post-container .annotation-panel .ap-tabs .ap-format {
+.post-container .annotation-panel .ap-tabs .ap-format,
+.post-container .annotation-comments .ap-tabs .ap-format {
   margin-left: auto;
   display: inline-flex;
   gap: 2px;
 }
-.post-container .annotation-panel .ap-tabs .ap-format button {
+.post-container .annotation-panel .ap-tabs .ap-format button,
+.post-container .annotation-comments .ap-tabs .ap-format button {
   width: 28px;
   height: 26px;
   padding: 0;
@@ -2395,11 +2474,13 @@ li[id^="fn:"] {
   color: #57606a;
   font-size: 12.5px;
 }
-.post-container .annotation-panel .ap-tabs .ap-format button:hover {
+.post-container .annotation-panel .ap-tabs .ap-format button:hover,
+.post-container .annotation-comments .ap-tabs .ap-format button:hover {
   background: #eaeef2;
   color: #24292f;
 }
-.post-container .annotation-panel .ap-reply-chip {
+.post-container .annotation-panel .ap-reply-chip,
+.post-container .annotation-comments .ap-reply-chip {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -2413,7 +2494,8 @@ li[id^="fn:"] {
   border: 1px solid rgba(0, 133, 161, 0.3);
   border-radius: 12px;
 }
-.post-container .annotation-panel .ap-reply-chip button {
+.post-container .annotation-panel .ap-reply-chip button,
+.post-container .annotation-comments .ap-reply-chip button {
   border: 0;
   background: none;
   color: #0085a1;
@@ -2422,13 +2504,16 @@ li[id^="fn:"] {
   padding: 0 2px;
   cursor: pointer;
 }
-.post-container .annotation-panel .ap-reply-chip button:hover {
+.post-container .annotation-panel .ap-reply-chip button:hover,
+.post-container .annotation-comments .ap-reply-chip button:hover {
   color: #cf222e;
 }
-.post-container .annotation-panel .ap-reply-chip + .ap-text {
+.post-container .annotation-panel .ap-reply-chip + .ap-text,
+.post-container .annotation-comments .ap-reply-chip + .ap-text {
   margin-top: 6px;
 }
-.post-container .annotation-panel .ap-text {
+.post-container .annotation-panel .ap-text,
+.post-container .annotation-comments .ap-text {
   display: block;
   width: 100%;
   margin: 8px 0 0;
@@ -2443,10 +2528,12 @@ li[id^="fn:"] {
   outline: none;
   background: #fff;
 }
-.post-container .annotation-panel .ap-text:focus {
+.post-container .annotation-panel .ap-text:focus,
+.post-container .annotation-comments .ap-text:focus {
   box-shadow: inset 0 0 0 1px rgba(0, 133, 161, 0.4);
 }
-.post-container .annotation-panel .ap-preview {
+.post-container .annotation-panel .ap-preview,
+.post-container .annotation-comments .ap-preview {
   min-height: 120px;
   max-height: 420px;
   overflow: auto;
@@ -2455,22 +2542,40 @@ li[id^="fn:"] {
   border-top: 1px solid #eaeef2;
   border-bottom: 1px solid #eaeef2;
 }
-.post-container .annotation-panel .ap-preview p {
+.post-container .annotation-panel .ap-preview p,
+.post-container .annotation-comments .ap-preview p {
   margin: 0 0 8px;
 }
-.post-container .annotation-panel .ap-preview > :last-child {
+.post-container .annotation-panel .ap-preview blockquote,
+.post-container .annotation-comments .ap-preview blockquote {
+  margin: 0 0 8px;
+  padding: 2px 12px;
+  font-size: inherit;
+  color: #57606a;
+  border-left: 3px solid #d0d7de;
+  background: none;
+}
+.post-container .annotation-panel .ap-preview blockquote sub a,
+.post-container .annotation-comments .ap-preview blockquote sub a {
+  text-decoration: none;
+}
+.post-container .annotation-panel .ap-preview > :last-child,
+.post-container .annotation-comments .ap-preview > :last-child {
   margin-bottom: 0;
 }
-.post-container .annotation-panel .ap-preview img {
+.post-container .annotation-panel .ap-preview img,
+.post-container .annotation-comments .ap-preview img {
   max-width: 100%;
 }
-.post-container .annotation-panel .ap-preview code {
+.post-container .annotation-panel .ap-preview code,
+.post-container .annotation-comments .ap-preview code {
   font-size: 12.5px;
   padding: 2px 5px;
   background: #f6f8fa;
   border-radius: 4px;
 }
-.post-container .annotation-panel .ap-preview pre {
+.post-container .annotation-panel .ap-preview pre,
+.post-container .annotation-comments .ap-preview pre {
   margin: 8px 0;
   padding: 8px 10px;
   font-size: 12.5px;
@@ -2480,13 +2585,15 @@ li[id^="fn:"] {
   border-radius: 6px;
   overflow-x: auto;
 }
-.post-container .annotation-panel .ap-preview pre code {
+.post-container .annotation-panel .ap-preview pre code,
+.post-container .annotation-comments .ap-preview pre code {
   padding: 0;
   background: none;
   border: 0;
   font-size: inherit;
 }
-.post-container .annotation-panel .ap-preview table {
+.post-container .annotation-panel .ap-preview table,
+.post-container .annotation-comments .ap-preview table {
   display: table;
   width: auto;
   max-width: 100%;
@@ -2495,52 +2602,69 @@ li[id^="fn:"] {
   font-size: 13px;
 }
 .post-container .annotation-panel .ap-preview table th,
-.post-container .annotation-panel .ap-preview table td {
+.post-container .annotation-comments .ap-preview table th,
+.post-container .annotation-panel .ap-preview table td,
+.post-container .annotation-comments .ap-preview table td {
   padding: 5px 10px;
   border: 1px solid #d0d7de;
 }
-.post-container .annotation-panel .ap-preview table th {
+.post-container .annotation-panel .ap-preview table th,
+.post-container .annotation-comments .ap-preview table th {
   background: #f6f8fa;
   font-weight: 600;
 }
-.post-container .annotation-panel .ap-preview table tr:nth-child(2n) td {
+.post-container .annotation-panel .ap-preview table tr:nth-child(2n) td,
+.post-container .annotation-comments .ap-preview table tr:nth-child(2n) td {
   background: #fafbfc;
 }
-.post-container .annotation-panel .ap-preview blockquote {
+.post-container .annotation-panel .ap-preview blockquote,
+.post-container .annotation-comments .ap-preview blockquote {
   margin: 8px 0;
   padding: 4px 12px;
   color: #57606a;
   border-left: 3px solid #d0d7de;
 }
 .post-container .annotation-panel .ap-preview ul,
-.post-container .annotation-panel .ap-preview ol {
+.post-container .annotation-comments .ap-preview ul,
+.post-container .annotation-panel .ap-preview ol,
+.post-container .annotation-comments .ap-preview ol {
   padding-left: 22px;
   margin: 6px 0 8px;
 }
 .post-container .annotation-panel .ap-preview h1,
+.post-container .annotation-comments .ap-preview h1,
 .post-container .annotation-panel .ap-preview h2,
+.post-container .annotation-comments .ap-preview h2,
 .post-container .annotation-panel .ap-preview h3,
-.post-container .annotation-panel .ap-preview h4 {
+.post-container .annotation-comments .ap-preview h3,
+.post-container .annotation-panel .ap-preview h4,
+.post-container .annotation-comments .ap-preview h4 {
   font-size: 1.05em;
   margin: 10px 0 6px;
   font-weight: 600;
 }
-.post-container .annotation-panel .ap-preview a {
+.post-container .annotation-panel .ap-preview a,
+.post-container .annotation-comments .ap-preview a {
   color: #0085a1;
 }
 .post-container .annotation-panel .ap-preview .zeroclipboard-container,
-.post-container .annotation-panel .ap-preview .snippet-clipboard-content .ClipboardButton {
+.post-container .annotation-comments .ap-preview .zeroclipboard-container,
+.post-container .annotation-panel .ap-preview .snippet-clipboard-content .ClipboardButton,
+.post-container .annotation-comments .ap-preview .snippet-clipboard-content .ClipboardButton {
   display: none;
 }
-.post-container .annotation-panel .ap-status {
+.post-container .annotation-panel .ap-status,
+.post-container .annotation-comments .ap-status {
   padding: 8px 14px 0;
   font-size: 12.5px;
   color: #57606a;
 }
-.post-container .annotation-panel .ap-status.is-error {
+.post-container .annotation-panel .ap-status.is-error,
+.post-container .annotation-comments .ap-status.is-error {
   color: #cf222e;
 }
-.post-container .annotation-panel .ap-status .ap-fallback {
+.post-container .annotation-panel .ap-status .ap-fallback,
+.post-container .annotation-comments .ap-status .ap-fallback {
   margin-left: 4px;
   padding: 2px 8px;
   font-size: 12px;
@@ -2550,14 +2674,16 @@ li[id^="fn:"] {
   color: #24292f;
   cursor: pointer;
 }
-.post-container .annotation-panel .ap-footer {
+.post-container .annotation-panel .ap-footer,
+.post-container .annotation-comments .ap-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   padding: 10px 14px;
 }
-.post-container .annotation-panel .ap-user {
+.post-container .annotation-panel .ap-user,
+.post-container .annotation-comments .ap-user {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -2566,38 +2692,46 @@ li[id^="fn:"] {
   font-size: 13px;
 }
 .post-container .annotation-panel .ap-user > span,
-.post-container .annotation-panel .ap-user > a {
+.post-container .annotation-comments .ap-user > span,
+.post-container .annotation-panel .ap-user > a,
+.post-container .annotation-comments .ap-user > a {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.post-container .annotation-panel .ap-user img {
+.post-container .annotation-panel .ap-user img,
+.post-container .annotation-comments .ap-user img {
   margin: 0;
   border-radius: 50%;
 }
-.post-container .annotation-panel .ap-user a {
+.post-container .annotation-panel .ap-user a,
+.post-container .annotation-comments .ap-user a {
   color: #24292f;
   font-weight: 600;
   text-decoration: none;
 }
-.post-container .annotation-panel .ap-muted {
+.post-container .annotation-panel .ap-muted,
+.post-container .annotation-comments .ap-muted {
   color: #8c959f;
   font-style: normal;
 }
-.post-container .annotation-panel .ap-buttons {
+.post-container .annotation-panel .ap-buttons,
+.post-container .annotation-comments .ap-buttons {
   display: flex;
   align-items: center;
   gap: 8px;
   flex: none;
   white-space: nowrap;
 }
-.post-container .annotation-panel .ap-buttons .ap-hint {
+.post-container .annotation-panel .ap-buttons .ap-hint,
+.post-container .annotation-comments .ap-buttons .ap-hint {
   font-size: 12px;
   color: #8c959f;
   margin-right: 4px;
 }
-.post-container .annotation-panel .ap-buttons .ap-issue {
+.post-container .annotation-panel .ap-buttons .ap-issue,
+.post-container .annotation-comments .ap-buttons .ap-issue {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -2608,17 +2742,21 @@ li[id^="fn:"] {
   cursor: pointer;
   user-select: none;
 }
-.post-container .annotation-panel .ap-buttons .ap-issue input {
+.post-container .annotation-panel .ap-buttons .ap-issue input,
+.post-container .annotation-comments .ap-buttons .ap-issue input {
   margin: 0;
   cursor: pointer;
 }
-.post-container .annotation-panel .ap-buttons .ap-issue .fa {
+.post-container .annotation-panel .ap-buttons .ap-issue .fa,
+.post-container .annotation-comments .ap-buttons .ap-issue .fa {
   color: #d1242f;
 }
-.post-container .annotation-panel .ap-buttons .ap-issue:hover {
+.post-container .annotation-panel .ap-buttons .ap-issue:hover,
+.post-container .annotation-comments .ap-buttons .ap-issue:hover {
   color: #24292f;
 }
-.post-container .annotation-panel .ap-buttons button {
+.post-container .annotation-panel .ap-buttons button,
+.post-container .annotation-comments .ap-buttons button {
   padding: 6px 14px;
   font-size: 13px;
   border-radius: 6px;
@@ -2627,31 +2765,127 @@ li[id^="fn:"] {
   color: #24292f;
   cursor: pointer;
 }
-.post-container .annotation-panel .ap-buttons button:hover {
+.post-container .annotation-panel .ap-buttons button:hover,
+.post-container .annotation-comments .ap-buttons button:hover {
   background: #eaeef2;
 }
-.post-container .annotation-panel .ap-buttons button:disabled {
+.post-container .annotation-panel .ap-buttons button:disabled,
+.post-container .annotation-comments .ap-buttons button:disabled {
   cursor: default;
   opacity: 0.6;
 }
 .post-container .annotation-panel .ap-buttons .ap-login,
-.post-container .annotation-panel .ap-buttons .ap-submit {
+.post-container .annotation-comments .ap-buttons .ap-login,
+.post-container .annotation-panel .ap-buttons .ap-submit,
+.post-container .annotation-comments .ap-buttons .ap-submit {
   background: #0085a1;
   border-color: #0085a1;
   color: #fff;
 }
 .post-container .annotation-panel .ap-buttons .ap-login:hover,
-.post-container .annotation-panel .ap-buttons .ap-submit:hover {
+.post-container .annotation-comments .ap-buttons .ap-login:hover,
+.post-container .annotation-panel .ap-buttons .ap-submit:hover,
+.post-container .annotation-comments .ap-buttons .ap-submit:hover {
   background: #006c82;
 }
-.post-container .annotation-panel.is-editor .ap-text {
+.post-container .annotation-panel.is-editor .ap-text,
+.post-container .annotation-comments.is-editor .ap-text {
   min-height: 180px;
 }
-.post-container .annotation-panel.is-thread .ap-editor .ap-text {
+.post-container .annotation-panel.is-thread .ap-editor .ap-text,
+.post-container .annotation-comments.is-thread .ap-editor .ap-text {
   min-height: 130px;
 }
-.post-container .annotation-panel.is-thread .ap-inline-editor .ap-text {
-  min-height: 90px;
+.post-container .annotation-panel .ap-inline-editor .ap-text,
+.post-container .annotation-comments .ap-inline-editor .ap-text {
+  min-height: 90px !important;
+}
+.post-container .annotation-panel .ap-edited,
+.post-container .annotation-comments .ap-edited {
+  font-size: 11.5px;
+  color: #8c959f;
+}
+.post-container .annotation-panel .ap-comment.is-deleted .ap-comment-body,
+.post-container .annotation-comments .ap-comment.is-deleted .ap-comment-body {
+  font-size: 13px;
+}
+.post-container .annotation-panel .ap-logout,
+.post-container .annotation-comments .ap-logout {
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 0;
+  background: none;
+  font-size: 11.5px;
+  color: #8c959f;
+  cursor: pointer;
+}
+.post-container .annotation-panel .ap-logout:hover,
+.post-container .annotation-comments .ap-logout:hover {
+  color: #cf222e;
+  text-decoration: underline;
+}
+.post-container .annotation-comments {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  animation: none;
+  overflow: visible;
+}
+.post-container .annotation-comments .ac-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 0 8px;
+  border-bottom: 1px solid #eaeef2;
+  font-size: 13px;
+  color: #57606a;
+}
+.post-container .annotation-comments .ac-head .ac-count {
+  font-weight: 600;
+  color: #24292f;
+}
+.post-container .annotation-comments .ac-head .ac-count .fa {
+  color: #cf222e;
+  margin-right: 4px;
+}
+.post-container .annotation-comments .ac-head .ac-github {
+  margin-left: auto;
+  color: #8c959f;
+  text-decoration: none;
+}
+.post-container .annotation-comments .ac-head .ac-github:hover {
+  color: #0085a1;
+}
+.post-container .annotation-comments .ac-empty {
+  margin: 14px 0;
+  font-size: 13.5px;
+  color: #8c959f;
+}
+.post-container .annotation-comments .ac-group {
+  padding: 0;
+  border-bottom: 1px solid #eaeef2;
+}
+.post-container .annotation-comments .ac-group .ap-comment + .ap-comment {
+  border-top: 0;
+}
+.post-container .annotation-comments .ac-group .ap-comment.has-issue {
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 10px;
+  padding-right: 0;
+}
+.post-container .annotation-comments .ac-reply-editor {
+  margin: 4px 0 12px 38px;
+}
+.post-container .annotation-comments .ac-editor {
+  margin-top: 18px;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.post-container .annotation-comments .ac-editor .ap-text {
+  min-height: 150px;
 }
 @keyframes annotation-panel-in {
   from {
@@ -2707,19 +2941,24 @@ li[id^="fn:"] {
   transform: translate(-50%, 0);
 }
 @media (max-width: 480px) {
-  .post-container .annotation-panel .ap-head .ap-count {
+  .post-container .annotation-panel .ap-head .ap-count,
+  .post-container .annotation-comments .ap-head .ap-count {
     display: none;
   }
-  .post-container .annotation-panel .ap-footer {
+  .post-container .annotation-panel .ap-footer,
+  .post-container .annotation-comments .ap-footer {
     flex-wrap: wrap;
   }
-  .post-container .annotation-panel .ap-buttons .ap-hint {
+  .post-container .annotation-panel .ap-buttons .ap-hint,
+  .post-container .annotation-comments .ap-buttons .ap-hint {
     display: none;
   }
-  .post-container .annotation-panel .ap-tabs .ap-format button:nth-child(n+7) {
+  .post-container .annotation-panel .ap-tabs .ap-format button:nth-child(n+7),
+  .post-container .annotation-comments .ap-tabs .ap-format button:nth-child(n+7) {
     display: none;
   }
-  .post-container .annotation-panel .ap-comment.is-reply {
+  .post-container .annotation-panel .ap-comment.is-reply,
+  .post-container .annotation-comments .ap-comment.is-reply {
     margin-left: 20px;
   }
 }
