@@ -54,36 +54,42 @@ END of both `css/argan-blog.css` and `css/argan-blog.min.css` by hand
 
 ## Highlight annotations (js/annotations.js)
 
-Readers select text in `.post-container` → floating toolbar (`评论` /
-`复制链接`) → inline composer → the note is posted as a **normal comment** of
-the post's giscus Discussion, shaped as
+Code-review / WeChat-reading style, no hover popups. Readers select text in
+`.post-container` → floating toolbar (`评论` / `复制链接`) → an **in-flow editor
+panel** is inserted right after the paragraph (取消 / 提交评论 bottom-right).
+The note is posted as a **normal comment** of the post's giscus Discussion:
 
 ```markdown
 > quoted passage
 >
-> <sub>[§ 原文位置](https://arganzheng.life/<slug>.html#annot-<fnv1a>:~:text=prefix-,start,end,-suffix)</sub>
+> <sub>[§ 原文位置](https://arganzheng.life/<slug>.html#annot-<fnv1a of quote>)</sub>
 
 note (Markdown)
 ```
 
-On load the thread is fetched, comments of that shape are parsed into a W3C
-`TextQuoteSelector {exact, prefix, suffix}` (exact = blockquote text,
-prefix/suffix = the Text Fragment), anchored exactly or fuzzily
-(`js/vendor/approx-string-match.js`, MIT, the algorithm Hypothesis uses) and
-wrapped in `<mark class="annotation-hl">` (one mark per text piece, carrying
-every covering id — overlaps never nest); hover/tap shows the card with the
-note, its replies and an in-card reply box (`addDiscussionComment` with
-`replyToId`). Anchors that no longer match are listed under the comment hint
-as "未能定位".
-- **Permalink**: `#annot-<hash>` (FNV-1a of the normalised quote) sits before
-  the `:~:` directive because browsers hide the directive from
-  `location.hash`; on load the script scrolls/flashes/opens that annotation
-  itself. The Text Fragment part is `start,end` whenever the quote spans a
-  gap (footnote marker etc. that the browser's matcher sees but our index
-  skips), keeps CJK unescaped for readability and drops prefix/suffix when
-  the quote is unique on the page. `复制链接` copies the same URL without the
-  `#annot-` id.
+Further notes on the *same passage* are replies to that comment
+(`addDiscussionComment` with `replyToId`): when a selection lies inside an
+existing annotation's range the editor says "加入该讨论" and posts a reply, so a
+passage has exactly one thread on GitHub too.
 
+On load the thread is fetched, comments of that shape are parsed into a W3C
+`TextQuoteSelector` (exact = blockquote text), anchored exactly or fuzzily
+(`js/vendor/approx-string-match.js`, MIT, Hypothesis' algorithm) and wrapped in
+`<mark class="annotation-hl">` (one mark per text piece carrying every covering
+id — overlaps never nest). Each distinct passage gets a `.annotation-marker`
+(comment icon + count) after its last mark; clicking it or the highlight
+toggles the **thread panel** below the paragraph: notes, replies, and an editor
+to join. Anchors that no longer match are listed under the comment hint as
+"未能定位". Only one panel exists (`panelState`); it is re-rendered after
+re-anchoring.
+
+- **Links**: `#annot-<hash>` opens a thread, `#hl=<readable text>` (from
+  `复制链接`) flashes a passage for 2.5 s. Both are handled by the script on
+  load *and* on `hashchange` (giscus opens `§ 原文位置` in the same tab). No
+  Text Fragment (`:~:text=`) is emitted any more: browsers hide it from
+  `location.hash`, its native matcher breaks on footnote markers, and its purple
+  `::target-text` highlight never goes away. Old links with `:~:text=` are
+  still parsed.
 - **Data path**: the browser cannot call `giscus.app/api/*` (CORS is limited
   to giscus' own origin) or GitHub GraphQL anonymously, so
   `tools/annotations-worker/` is a secret-free Cloudflare Worker that relays
@@ -94,28 +100,30 @@ as "未能定位".
   `annotations.api`; an empty `api` disables the feature.
 - **Posting** reuses the reader's giscus login: giscus' `client.js` stores the
   session in `localStorage["giscus-session"]` of *our* origin; we exchange it
-  via the worker and call `api.github.com/graphql addDiscussionComment`
-  directly, then refresh giscus by loading a hidden second iframe and swapping
-  it in once it reports (giscus' client.js only resizes the iframe it created,
-  so `annotations.js` applies `resizeHeight` messages itself). This relies on giscus internals
+  via the worker and call `api.github.com/graphql` directly, then refresh
+  giscus by loading a hidden second iframe and swapping it in once it reports
+  (giscus' client.js only resizes the iframe it created, so `annotations.js`
+  applies `resizeHeight` messages itself). This relies on giscus internals
   that are stable but not a public contract — any failure degrades to a
-  "复制引用" button (paste into giscus). Login = redirect to
-  `giscus.app/api/oauth/authorize?redirect_uri=<page>`; the draft is kept in
-  `sessionStorage` across the round-trip.
+  "复制内容" button (paste into giscus). Login = redirect to
+  `giscus.app/api/oauth/authorize?redirect_uri=<page>`; the editor draft is
+  kept in `sessionStorage` across the round-trip.
 - **Local dev**: `cd tools/annotations-worker && npx wrangler dev` (no login
   needed, talks to the real giscus API), then in the console
   `localStorage.annotationsApi = 'http://localhost:8787'`. A static JSON with
   the `{discussion:{comments:[…]}}` shape served with CORS also works for
-  testing anchoring. `window.BlogAnnotations` exposes `reload/anchor/
-  buildIndex/buildCommentBody/parseComment/list` for console debugging.
+  testing anchoring. `window.BlogAnnotations` exposes
+  `reload/anchor/buildIndex/annotHash/threadLink/shareLink/buildCommentBody/
+  parseComment/openThread/closePanel/refreshGiscus/list`.
 - **Interplay with footnotes / tips**: the text index excludes footnote
-  markers (`sup[id^=fnref]`, `a.footnote`, `.footnotes`), KaTeX, Mermaid and
-  the comment section; `<mark>` wraps text nodes only, so bound events and
-  `data-tip` on `.inline-tip` / `sup` survive. Inside `.inline-tip` /
-  `sup.has-popup-footnote` the annotation card is click-only (hover stays with
-  the tip); inside `a.external-link` clicks navigate and hover shows the card.
-  All three share the singleton `window.InlinePopover` (exported by
-  `js/inline-popups.js`), so only one card is ever open.
+  markers (`sup[id^=fnref]`, `a.footnote`, `.footnotes`), KaTeX, Mermaid,
+  markers/panels and the comment section; `<mark>` wraps text nodes only, so
+  bound events and `data-tip` on `.inline-tip` / `sup` survive. Hover on a
+  tip still shows the tip popover (annotations have no hover UI); clicking a
+  highlight inside a tip opens the thread panel with `stopPropagation`;
+  highlights inside `a.external-link` let the link navigate (use the marker).
+  `window.InlinePopover` (exported by `js/inline-popups.js`) is only used for
+  `scrollToTargetWithOffset` / `renderMathIfPresent`.
 - Anchoring waits for `richcontent:rendered` when the post has Mermaid/KaTeX
   (6 s fallback) and re-anchors on every later event. Styles live in
   `less/annotations.less` (appended by hand to both CSS bundles).

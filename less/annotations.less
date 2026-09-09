@@ -1,14 +1,19 @@
 @import "variables.less";
 
-// Highlight annotations (js/annotations.js): <mark> highlights in the article,
-// the floating selection toolbar, the inline composer, the popover card
-// variant and the toast. Compiled output is appended by hand to
-// css/argan-blog{,.min}.css (see AGENTS.md).
+// Highlight annotations (js/annotations.js): <mark> highlights + comment-count
+// markers in the article, the floating selection toolbar, the in-flow panel
+// (thread / editor) inserted below a paragraph, the toast. Compiled output is
+// appended by hand to css/argan-blog{,.min}.css (see AGENTS.md).
 
 @annot-bg: rgba(255, 213, 79, 0.32);
 @annot-bg-hover: rgba(255, 196, 0, 0.5);
 @annot-line: rgba(214, 158, 0, 0.75);
+@annot-border: #d0d7de;
+@annot-soft: #f6f8fa;
+@annot-muted: #57606a;
+@annot-faint: #8c959f;
 
+// ---- highlights & markers
 .post-container {
 	mark.annotation-hl {
 		padding: 0;
@@ -18,10 +23,7 @@
 		border-radius: 2px;
 		cursor: pointer;
 		transition: background-color 0.15s ease;
-
-		&.is-multi {
-			background-color: @annot-bg-hover;
-		}
+		&.is-multi,
 		&:hover {
 			background-color: @annot-bg-hover;
 		}
@@ -29,7 +31,12 @@
 			animation: annotation-flash 2.5s ease-out forwards;
 		}
 	}
-	// keep the tip / external-link decoration of the wrapped element intact
+	mark.annotation-flash {
+		padding: 0;
+		color: inherit;
+		border-radius: 2px;
+		animation: annotation-flash 2.5s ease-out forwards;
+	}
 	a.external-link mark.annotation-hl,
 	.inline-tip mark.annotation-hl {
 		color: inherit;
@@ -37,10 +44,38 @@
 	pre mark.annotation-hl {
 		background-color: rgba(255, 213, 79, 0.22);
 	}
+
+	.annotation-marker {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		margin: 0 2px 0 4px;
+		padding: 0 6px;
+		height: 18px;
+		font-size: 11px;
+		line-height: 18px;
+		font-weight: 600;
+		color: #8a6d00;
+		background: #fff3bf;
+		border: 1px solid #f5d96b;
+		border-radius: 9px;
+		vertical-align: 2px;
+		cursor: pointer;
+		user-select: none;
+		white-space: nowrap;
+		transition: background-color 0.15s ease, color 0.15s ease;
+		.fa { font-size: 11px; }
+		&:hover {
+			color: #fff;
+			background: @brand-primary;
+			border-color: @brand-primary;
+		}
+	}
 }
 
 @keyframes annotation-flash {
-	0% { background-color: rgba(255, 196, 0, 0.85); }
+	0% { background-color: rgba(255, 196, 0, 0.9); }
+	70% { background-color: rgba(255, 196, 0, 0.9); }
 	100% { background-color: @annot-bg; }
 }
 
@@ -67,17 +102,13 @@
 		border-radius: 4px;
 		font-size: 13px;
 		cursor: pointer;
-		&:hover {
-			background: rgba(255, 255, 255, 0.14);
-		}
+		&:hover { background: rgba(255, 255, 255, 0.14); }
 		+ button {
 			margin-left: 2px;
 			border-left: 1px solid rgba(255, 255, 255, 0.18);
 			border-radius: 0 4px 4px 0;
 		}
-		.fa {
-			margin-right: 2px;
-		}
+		.fa { margin-right: 2px; }
 	}
 	.annotation-tb-arrow {
 		position: absolute;
@@ -95,178 +126,6 @@
 	}
 }
 
-// ---- inline composer (Google-AI-Mode-like panel anchored below the selection)
-.annotation-composer {
-	position: absolute;
-	z-index: 1070;
-	display: none;
-	width: 600px;
-	max-width: ~"calc(100vw - 24px)";
-	background: #fff;
-	border: 1px solid #d0d7de;
-	border-radius: 10px;
-	box-shadow: 0 14px 40px rgba(0, 0, 0, 0.16), 0 2px 8px rgba(0, 0, 0, 0.06);
-	font-size: 14px;
-	color: #24292f;
-	overflow: hidden;
-
-	&.is-sheet {
-		position: fixed;
-		left: 12px;
-		right: 12px;
-		bottom: 12px;
-		width: auto;
-	}
-	&.is-busy {
-		opacity: 0.7;
-		pointer-events: none;
-	}
-
-	.ac-quote {
-		display: flex;
-		align-items: flex-start;
-		gap: 8px;
-		padding: 10px 14px;
-		background: #f6f8fa;
-		border-bottom: 1px solid #eaeef2;
-		color: #57606a;
-		font-size: 13px;
-		line-height: 1.5;
-		.fa {
-			margin-top: 3px;
-			color: @brand-primary;
-			flex: none;
-		}
-		.ac-quote-text {
-			display: -webkit-box;
-			-webkit-line-clamp: 3;
-			-webkit-box-orient: vertical;
-			overflow: hidden;
-		}
-	}
-	.ac-tabs {
-		display: flex;
-		align-items: center;
-		padding: 8px 14px 0;
-		gap: 4px;
-		button {
-			background: transparent;
-			border: 0;
-			border-bottom: 2px solid transparent;
-			padding: 4px 8px 6px;
-			font-size: 13px;
-			color: #57606a;
-			cursor: pointer;
-			&.is-active {
-				color: @brand-primary;
-				border-bottom-color: @brand-primary;
-				font-weight: 600;
-			}
-		}
-		.ac-tabs-hint {
-			margin-left: auto;
-			font-size: 12px;
-			color: #8c959f;
-		}
-	}
-	.ac-text {
-		display: block;
-		width: 100%;
-		min-height: 150px;
-		margin: 8px 0 0;
-		padding: 10px 14px;
-		border: 0;
-		border-top: 1px solid #eaeef2;
-		border-bottom: 1px solid #eaeef2;
-		font: inherit;
-		font-size: 14px;
-		line-height: 1.6;
-		resize: vertical;
-		outline: none;
-		&:focus {
-			box-shadow: inset 0 0 0 1px fade(@brand-primary, 40%);
-		}
-	}
-	.ac-preview {
-		min-height: 150px;
-		max-height: 360px;
-		overflow: auto;
-		margin-top: 8px;
-		padding: 10px 14px;
-		border-top: 1px solid #eaeef2;
-		border-bottom: 1px solid #eaeef2;
-		font-size: 14px;
-		line-height: 1.6;
-		.github-markdown();
-	}
-	.ac-status {
-		display: none;
-		padding: 8px 14px 0;
-		font-size: 12.5px;
-		color: #57606a;
-		&.is-error {
-			color: #cf222e;
-		}
-		.ac-fallback {
-			margin-left: 4px;
-			padding: 2px 8px;
-			font-size: 12px;
-			border: 1px solid #d0d7de;
-			border-radius: 4px;
-			background: #f6f8fa;
-			color: #24292f;
-			cursor: pointer;
-		}
-	}
-	.ac-footer {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 8px;
-		padding: 10px 14px;
-	}
-	.ac-user {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		font-size: 13px;
-		img {
-			border-radius: 50%;
-		}
-		a {
-			color: #24292f;
-			font-weight: 600;
-			text-decoration: none;
-		}
-	}
-	.ac-muted {
-		color: #8c959f;
-		font-style: normal;
-	}
-	.ac-buttons {
-		display: flex;
-		gap: 8px;
-		button {
-			padding: 6px 12px;
-			font-size: 13px;
-			border-radius: 6px;
-			border: 1px solid #d0d7de;
-			background: #f6f8fa;
-			color: #24292f;
-			cursor: pointer;
-			&:hover { background: #eaeef2; }
-			&:disabled { cursor: default; opacity: 0.6; }
-		}
-		.ac-login,
-		.ac-submit {
-			background: @brand-primary;
-			border-color: @brand-primary;
-			color: #fff;
-			&:hover { background: darken(@brand-primary, 6%); }
-		}
-	}
-}
-
 // GitHub-rendered comment HTML (bodyHTML) has no styles of its own.
 .github-markdown() {
 	p { margin: 0 0 8px; }
@@ -275,7 +134,7 @@
 	code {
 		font-size: 12.5px;
 		padding: 2px 5px;
-		background: #f6f8fa;
+		background: @annot-soft;
 		border-radius: 4px;
 	}
 	pre {
@@ -283,7 +142,7 @@
 		padding: 8px 10px;
 		font-size: 12.5px;
 		line-height: 1.45;
-		background: #f6f8fa;
+		background: @annot-soft;
 		border: 1px solid #e1e4e8;
 		border-radius: 6px;
 		overflow-x: auto;
@@ -298,16 +157,16 @@
 		font-size: 13px;
 		th, td {
 			padding: 5px 10px;
-			border: 1px solid #d0d7de;
+			border: 1px solid @annot-border;
 		}
-		th { background: #f6f8fa; font-weight: 600; }
+		th { background: @annot-soft; font-weight: 600; }
 		tr:nth-child(2n) td { background: #fafbfc; }
 	}
 	blockquote {
 		margin: 8px 0;
 		padding: 4px 12px;
-		color: #57606a;
-		border-left: 3px solid #d0d7de;
+		color: @annot-muted;
+		border-left: 3px solid @annot-border;
 	}
 	ul, ol { padding-left: 22px; margin: 6px 0 8px; }
 	h1, h2, h3, h4 { font-size: 1.05em; margin: 10px 0 6px; font-weight: 600; }
@@ -315,125 +174,224 @@
 	.zeroclipboard-container, .snippet-clipboard-content .ClipboardButton { display: none; }
 }
 
-// ---- popover card variant listing the annotations of a highlight
-.inline-popover-card.annotation-card {
-	max-width: 560px;
-	.popover-content {
-		max-height: 480px;
-	}
-	.annotation-item {
-		padding: 8px 0;
-		+ .annotation-item {
-			border-top: 1px solid #eaeef2;
+// ---- in-flow panel (thread or editor), inserted right after the paragraph
+.post-container .annotation-panel {
+	margin: 12px 0 20px;
+	background: #fff;
+	border: 1px solid @annot-border;
+	border-radius: 8px;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
+	font-size: 14px;
+	line-height: 1.6;
+	color: #24292f;
+	overflow: hidden;
+	animation: annotation-panel-in 0.18s ease-out;
+
+	.ap-head {
+		display: flex;
+		align-items: flex-start;
+		gap: 8px;
+		padding: 10px 14px;
+		background: @annot-soft;
+		border-bottom: 1px solid #eaeef2;
+		color: @annot-muted;
+		font-size: 13px;
+		> .fa { margin-top: 4px; color: @brand-primary; flex: none; }
+		.ap-quote {
+			flex: 1 1 auto;
+			display: -webkit-box;
+			-webkit-line-clamp: 2;
+			-webkit-box-orient: vertical;
+			overflow: hidden;
+		}
+		.ap-count {
+			flex: none;
+			color: @annot-faint;
+			font-size: 12px;
+			white-space: nowrap;
+			margin-top: 1px;
+		}
+		.ap-close {
+			flex: none;
+			margin: -4px -6px -4px 2px;
+			width: 26px;
+			height: 26px;
+			border: 0;
+			background: transparent;
+			color: @annot-faint;
+			font-size: 18px;
+			line-height: 26px;
+			cursor: pointer;
+			border-radius: 4px;
+			&:hover { background: #eaeef2; color: #24292f; }
 		}
 	}
-	.annotation-meta {
+
+	// thread
+	.ap-thread {
+		padding: 6px 14px 4px;
+		max-height: 520px;
+		overflow-y: auto;
+	}
+	.ap-thread-preview { max-height: 260px; }
+	.ap-comment {
+		display: flex;
+		align-items: flex-start;
+		gap: 10px;
+		padding: 10px 0;
+		+ .ap-comment { border-top: 1px solid #eaeef2; }
+		&.is-reply {
+			margin-left: 38px;
+			border-top: 0 !important;
+			padding-top: 4px;
+			.ap-avatar img { width: 22px; height: 22px; }
+		}
+		&.is-new { animation: annotation-comment-in 1.6s ease-out; }
+	}
+	.ap-avatar {
+		flex: none;
+		img { width: 28px; height: 28px; border-radius: 50%; display: block; }
+	}
+	.ap-comment-main { flex: 1 1 auto; min-width: 0; }
+	.ap-comment-meta {
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		margin-bottom: 6px;
+		margin-bottom: 4px;
 		font-size: 12.5px;
-		color: #57606a;
-		time {
-			margin-left: auto;
-		}
+		color: @annot-faint;
+		> a:first-child { color: #24292f; font-weight: 600; text-decoration: none; }
+		.ap-github { margin-left: auto; color: @annot-faint; &:hover { color: @brand-primary; } }
 	}
-	.annotation-author {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		color: #24292f !important;
-		font-weight: 600;
-		text-decoration: none !important;
-		img {
-			border-radius: 50%;
-		}
-	}
-	.annotation-note {
-		font-size: 13.5px;
-		line-height: 1.6;
+	.ap-comment-body {
+		font-size: 14px;
 		word-break: break-word;
 		.github-markdown();
 	}
-	.annotation-actions {
+
+	// editor
+	.ap-editor {
+		border-top: 1px solid #eaeef2;
+		&.is-busy { opacity: 0.7; pointer-events: none; }
+	}
+	.ap-tabs {
 		display: flex;
 		align-items: center;
-		gap: 12px;
-		margin-top: 6px;
-		font-size: 12px;
-		color: #8c959f;
+		gap: 4px;
+		padding: 8px 14px 0;
 		button {
-			padding: 0;
+			background: transparent;
 			border: 0;
-			background: none;
-			font-size: 12px;
-			color: #8c959f;
-			cursor: pointer;
-			&:hover, &.is-open { color: @brand-primary; }
-		}
-		a {
-			margin-left: auto;
-			color: #8c959f;
-			&:hover { color: @brand-primary; }
-		}
-	}
-	.annotation-replies {
-		margin: 8px 0 0 12px;
-		padding-left: 12px;
-		border-left: 2px solid #eaeef2;
-	}
-	.annotation-reply {
-		padding: 6px 0;
-		+ .annotation-reply { border-top: 1px dashed #eaeef2; }
-		.annotation-note { font-size: 13px; }
-	}
-	.annotation-reply-box {
-		margin-top: 8px;
-		textarea {
-			display: block;
-			width: 100%;
-			min-height: 60px;
-			padding: 6px 8px;
-			font: inherit;
+			border-bottom: 2px solid transparent;
+			padding: 4px 8px 6px;
 			font-size: 13px;
-			line-height: 1.5;
-			border: 1px solid #d0d7de;
-			border-radius: 6px;
-			resize: vertical;
-			outline: none;
-			&:focus { border-color: @brand-primary; }
+			color: @annot-muted;
+			cursor: pointer;
+			&.is-active { color: @brand-primary; border-bottom-color: @brand-primary; font-weight: 600; }
+		}
+		.ap-tabs-hint { margin-left: auto; font-size: 12px; color: @annot-faint; }
+	}
+	.ap-text {
+		display: block;
+		width: 100%;
+		margin: 8px 0 0;
+		padding: 10px 14px;
+		border: 0;
+		border-top: 1px solid #eaeef2;
+		border-bottom: 1px solid #eaeef2;
+		font: inherit;
+		font-size: 14px;
+		line-height: 1.6;
+		resize: vertical;
+		outline: none;
+		background: #fff;
+		&:focus { box-shadow: inset 0 0 0 1px fade(@brand-primary, 40%); }
+	}
+	.ap-preview {
+		min-height: 120px;
+		max-height: 420px;
+		overflow: auto;
+		margin-top: 8px;
+		padding: 10px 14px;
+		border-top: 1px solid #eaeef2;
+		border-bottom: 1px solid #eaeef2;
+		.github-markdown();
+	}
+	.ap-status {
+		padding: 8px 14px 0;
+		font-size: 12.5px;
+		color: @annot-muted;
+		&.is-error { color: #cf222e; }
+		.ap-fallback {
+			margin-left: 4px;
+			padding: 2px 8px;
+			font-size: 12px;
+			border: 1px solid @annot-border;
+			border-radius: 4px;
+			background: @annot-soft;
+			color: #24292f;
+			cursor: pointer;
 		}
 	}
-	.annotation-reply-actions {
+	.ap-footer {
 		display: flex;
 		align-items: center;
-		justify-content: flex-end;
+		justify-content: space-between;
 		gap: 8px;
-		margin-top: 6px;
-		font-size: 12px;
-		color: #cf222e;
+		padding: 10px 14px;
 	}
-	.annotation-reply-send,
-	.annotation-login {
-		padding: 4px 10px;
-		font-size: 12.5px;
-		border-radius: 6px;
-		border: 1px solid @brand-primary;
-		background: @brand-primary;
-		color: #fff;
-		cursor: pointer;
-		&:disabled { opacity: 0.6; cursor: default; }
+	.ap-user {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 13px;
+		img { border-radius: 50%; }
+		a { color: #24292f; font-weight: 600; text-decoration: none; }
 	}
+	.ap-muted { color: @annot-faint; font-style: normal; }
+	.ap-buttons {
+		display: flex;
+		gap: 8px;
+		button {
+			padding: 6px 14px;
+			font-size: 13px;
+			border-radius: 6px;
+			border: 1px solid @annot-border;
+			background: @annot-soft;
+			color: #24292f;
+			cursor: pointer;
+			&:hover { background: #eaeef2; }
+			&:disabled { cursor: default; opacity: 0.6; }
+		}
+		.ap-login,
+		.ap-submit {
+			background: @brand-primary;
+			border-color: @brand-primary;
+			color: #fff;
+			&:hover { background: darken(@brand-primary, 6%); }
+		}
+	}
+	&.is-editor .ap-text { min-height: 180px; }
+	&.is-thread .ap-editor .ap-text { min-height: 84px; }
+}
+
+@keyframes annotation-panel-in {
+	from { opacity: 0; transform: translateY(-4px); }
+	to { opacity: 1; transform: none; }
+}
+@keyframes annotation-comment-in {
+	0% { background-color: rgba(255, 213, 79, 0.35); }
+	100% { background-color: transparent; }
 }
 
 // ---- orphaned annotations (text changed too much to anchor)
 .comment .annotation-orphans {
 	margin: -8px 0 16px;
 	font-size: 12.5px;
-	color: #8c959f;
+	color: @annot-faint;
 	.fa { margin-right: 4px; }
 	a {
-		color: #57606a;
+		color: @annot-muted;
 		text-decoration: underline dotted;
 		&:hover { color: @brand-primary; }
 	}
@@ -455,14 +413,13 @@
 	opacity: 0;
 	pointer-events: none;
 	transition: opacity 0.2s ease, transform 0.2s ease;
-	&.is-visible {
-		opacity: 1;
-		transform: translate(-50%, 0);
-	}
+	&.is-visible { opacity: 1; transform: translate(-50%, 0); }
 }
 
 @media (max-width: 480px) {
-	.inline-popover-card.annotation-card {
-		max-width: ~"calc(100vw - 24px)";
+	.post-container .annotation-panel {
+		.ap-head .ap-count { display: none; }
+		.ap-footer { flex-wrap: wrap; }
+		.ap-comment.is-reply { margin-left: 20px; }
 	}
 }

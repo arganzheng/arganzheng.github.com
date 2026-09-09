@@ -1,34 +1,41 @@
 /**
  * annotations.js — highlight annotations ("划线批注") on blog posts.
  *
- * Readers select any passage of the article, click "评论" in the floating
- * toolbar and write a Markdown note in an inline composer. The note is posted
- * as a normal comment of the post's giscus / GitHub Discussions thread, in
- * the form
+ * Interaction (code-review / WeChat-reading style, no hover popups):
+ *   - Select text in the article -> floating toolbar: 「评论」 / 「复制链接」.
+ *   - 「评论」 opens a large editor panel *in the flow*, right below the
+ *     paragraph, with 取消 / 提交评论 bottom-right. If the selection lies inside
+ *     an already-annotated passage the note joins that thread instead.
+ *   - Every annotated passage ends with a small comment-count marker; clicking
+ *     it (or the highlight) expands a thread panel below the paragraph: all
+ *     notes on that passage, their replies, and a box to add yours.
+ *
+ * Storage: a note is a normal comment of the post's giscus / GitHub Discussions
+ * thread —
  *
  *     > quoted passage
  *     >
- *     > <sub>[§ 原文位置](https://arganzheng.life/<slug>.html#annot-<hash>:~:text=prefix-,start,end,-suffix)</sub>
+ *     > <sub>[§ 原文位置](https://arganzheng.life/<slug>.html#annot-<hash>)</sub>
  *
  *     the note
  *
- * so it reads naturally on GitHub too. On load, the thread is fetched through
- * the secret-free relay in tools/annotations-worker/, comments of that shape
- * are parsed back into a W3C TextQuoteSelector { exact, prefix, suffix } and
- * anchored in the article — exactly first, then fuzzily (approx-string-match,
- * the algorithm Hypothesis uses) so highlights survive small edits — and
- * rendered as <mark> elements with a hover/tap card (window.InlinePopover
- * from js/inline-popups.js).
+ * — so it reads naturally on GitHub. Further notes on the same passage are
+ * replies to that comment. On load the thread is fetched through the
+ * secret-free relay in tools/annotations-worker/, comments of that shape are
+ * parsed into a W3C TextQuoteSelector { exact, prefix, suffix } and anchored
+ * exactly first, then fuzzily (approx-string-match, the algorithm Hypothesis
+ * uses) so highlights survive small edits.
  *
- * Posting reuses the reader's giscus session (GitHub login stored by giscus'
- * client.js in localStorage["giscus-session"]): the relay exchanges it for a
- * GitHub token and the browser calls GitHub's GraphQL API directly, the same
- * way the giscus iframe does. If anything in that path fails we fall back to
- * copying the quote to the clipboard so it can be pasted into giscus.
+ * Links: `#annot-<hash>` (FNV-1a of the quote) locates a thread, `#hl=<text>`
+ * (from 「复制链接」) flashes a passage. Both are handled here on load and on
+ * hashchange — no Text Fragment directive, so no sticky purple browser
+ * highlight and no dependency on the browser's matcher (footnote markers
+ * broke it).
  *
- * Config comes from data-* attributes on `section.comment` (see
- * _includes/comments.html); `localStorage.annotationsApi` overrides the API
- * base for local development.
+ * Posting reuses the reader's giscus session (localStorage["giscus-session"],
+ * written by giscus' client.js): the relay exchanges it for a GitHub token and
+ * the browser calls GitHub GraphQL directly, as the giscus iframe does. Any
+ * failure degrades to copying the quote for pasting into giscus.
  */
 
 (function () {
@@ -39,11 +46,9 @@
   var GITHUB_MARKDOWN = 'https://api.github.com/markdown';
   var SESSION_KEY = 'giscus-session';
   var CONTEXT_CHARS = 32;
-  var FRAGMENT_SPLIT_AT = 150;
-  var FRAGMENT_EDGE_CHARS = 20;
   var EXCLUDE_SELECTOR = '.comment, .pager, .related-posts, .share, .footnotes, .reversefootnote, sup[id^="fnref"], a.footnote, ' +
-    'script, style, noscript, svg, .katex, .mermaid, button, .anchorjs-link, .annotation-toolbar, .annotation-composer';
-  var HOVER_OWNERS = '.inline-tip, sup.has-popup-footnote'; // hover belongs to these; annotation card is click-only inside them
+    'script, style, noscript, svg, .katex, .mermaid, button, .anchorjs-link, .annotation-toolbar, .annotation-panel, .annotation-marker';
+  var BLOCK_SELECTOR = 'p, li, pre, blockquote, h1, h2, h3, h4, h5, h6, dd, dt, figure, .highlight, table';
   var GHOST = { login: 'ghost', url: 'https://github.com/ghost', avatarUrl: 'https://avatars.githubusercontent.com/u/10137?s=64&v=4' };
 
   var cfg = null;
@@ -54,10 +59,9 @@
   var token = null;
   var viewer = null;
   var toolbar = null;
-  var composer = null;
+  var panel = null;          // the single in-flow panel (thread or editor)
+  var panelState = null;     // { kind:'thread'|'editor', ids, selector, offsets, join }
   var toast = null;
-  var pendingSelector = null;
-  var pendingOffsets = null;
   var selectionTimer = null;
 
   // ------------------------------------------------------------------ init
@@ -81,8 +85,9 @@
 
     bindSelection();
     bindGiscusMessages();
+    window.addEventListener('hashchange', focusFromHash);
     whenRichContentSettled(function () {
-      loadAnnotations(false).then(function () { restoreDraft(); focusFromHash(); });
+      loadAnnotations(false).then(function () { if (!restoreDraft()) focusFromHash(); });
     });
   }
 
@@ -115,23 +120,12 @@
     return !!(el && el.closest && el.closest(EXCLUDE_SELECTOR));
   }
 
-  // `gaps` records normalised positions preceded by excluded content (e.g. a
-  // footnote marker) — the browser's own Text Fragment matcher *does* see that
-  // content, so fragments must not span a gap.
   function buildIndex() {
     var text = '';
     var nodes = [];
-    var gaps = {};
     var lastWasSpace = true;
-    var gapPending = false;
-    var walker = document.createTreeWalker(container, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
-      acceptNode: function (n) {
-        if (n.nodeType === 1) {
-          if (n.matches(EXCLUDE_SELECTOR)) { gapPending = true; return NodeFilter.FILTER_REJECT; }
-          return NodeFilter.FILTER_SKIP;
-        }
-        return NodeFilter.FILTER_ACCEPT;
-      }
+    var walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+      acceptNode: function (n) { return isExcluded(n) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT; }
     });
     while (walker.nextNode()) {
       var node = walker.currentNode;
@@ -146,13 +140,12 @@
         } else {
           lastWasSpace = false;
         }
-        if (gapPending) { gaps[text.length] = true; gapPending = false; }
         charIdx[i] = text.length;
         text += ch;
       }
       nodes.push({ node: node, charIdx: charIdx });
     }
-    index = { text: text, nodes: nodes, gaps: gaps };
+    index = { text: text, nodes: nodes };
     return index;
   }
 
@@ -166,10 +159,7 @@
       var node = entry.node, len = node.nodeValue.length;
       if (start === -1) {
         for (var k = 0; k <= len; k++) {
-          if (range.comparePoint(node, k) >= 0) {
-            start = firstIndexAtOrAfter(entry, k);
-            break;
-          }
+          if (range.comparePoint(node, k) >= 0) { start = firstIndexAtOrAfter(entry, k); break; }
         }
       }
       for (var m = len; m >= 0; m--) {
@@ -181,7 +171,6 @@
       }
     }
     if (start === -1 || end === -1 || end <= start) return null;
-    // trim surrounding whitespace
     while (start < end && index.text.charAt(start) === ' ') start++;
     while (end > start && index.text.charAt(end - 1) === ' ') end--;
     return end > start ? { start: start, end: end } : null;
@@ -189,7 +178,6 @@
 
   function firstIndexAtOrAfter(entry, k) {
     for (var i = k; i < entry.charIdx.length; i++) if (entry.charIdx[i] !== -1) return entry.charIdx[i];
-    // node ends before any kept char: next kept char in the document
     var pos = index.nodes.indexOf(entry);
     for (var n = pos + 1; n < index.nodes.length; n++) {
       var c = index.nodes[n].charIdx;
@@ -277,8 +265,44 @@
     return segs;
   }
 
-  function unwrapAll() {
-    var marks = container.querySelectorAll('mark.annotation-hl');
+  // Cut text nodes at every boundary and wrap each piece in ONE <mark> carrying
+  // every id that covers it (overlaps never nest). Pieces are processed
+  // back-to-front so splitText() never invalidates pending offsets.
+  function wrapPieces(items, className) {
+    var perNode = [], byNode = new Map(), marks = [];
+    items.forEach(function (it) {
+      segmentsFor(it.start, it.end).forEach(function (sg) {
+        var bucket = byNode.get(sg.node);
+        if (!bucket) { bucket = { node: sg.node, segs: [] }; byNode.set(sg.node, bucket); perNode.push(bucket); }
+        bucket.segs.push({ from: sg.from, to: sg.to, id: it.id });
+      });
+    });
+    perNode.forEach(function (bucket) {
+      var node = bucket.node, bounds = [];
+      bucket.segs.forEach(function (sg) { if (bounds.indexOf(sg.from) === -1) bounds.push(sg.from); if (bounds.indexOf(sg.to) === -1) bounds.push(sg.to); });
+      bounds.sort(function (x, y) { return x - y; });
+      for (var b = bounds.length - 2; b >= 0; b--) {
+        var from = bounds[b], to = bounds[b + 1];
+        var ids = bucket.segs.filter(function (sg) { return sg.from <= from && sg.to >= to; }).map(function (sg) { return sg.id; });
+        if (!ids.length) continue;
+        var piece = node;
+        if (to < piece.nodeValue.length) piece.splitText(to);
+        if (from > 0) piece = piece.splitText(from);
+        if (!piece.nodeValue.trim()) continue;
+        var mark = document.createElement('mark');
+        mark.className = className + (ids.length > 1 ? ' is-multi' : '');
+        mark.setAttribute('data-annotation-ids', ids.join(' '));
+        piece.parentNode.insertBefore(mark, piece);
+        mark.appendChild(piece);
+        marks.push(mark);
+      }
+    });
+    marks.sort(function (x, y) { return x.compareDocumentPosition(y) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1; });
+    return marks;
+  }
+
+  function unwrap(selector) {
+    var marks = container.querySelectorAll(selector);
     for (var i = 0; i < marks.length; i++) {
       var m = marks[i], parent = m.parentNode;
       while (m.firstChild) parent.insertBefore(m.firstChild, m);
@@ -287,88 +311,68 @@
     container.normalize();
   }
 
-  // One pass over a single index: every text node is cut at all highlight
-  // boundaries and each piece gets ONE <mark> carrying every annotation id that
-  // covers it (overlaps therefore never nest). Pieces are wrapped back-to-front
-  // so splitText() never invalidates offsets still to be processed.
   function applyHighlights() {
-    unwrapAll();
+    var markers = container.querySelectorAll('.annotation-marker');
+    for (var i = 0; i < markers.length; i++) markers[i].parentNode.removeChild(markers[i]);
+    unwrap('mark.annotation-hl');
     buildIndex();
-    var orphans = [], perNode = [], byNode = new Map();
-    for (var i = 0; i < annotations.length; i++) {
-      var a = annotations[i];
+
+    var orphans = [], items = [];
+    annotations.forEach(function (a) {
       a.range = anchor(a.selector);
       a.marks = [];
-      if (!a.range) { orphans.push(a); continue; }
-      var segs = segmentsFor(a.range.start, a.range.end);
-      for (var s = 0; s < segs.length; s++) {
-        var bucket = byNode.get(segs[s].node);
-        if (!bucket) { bucket = { node: segs[s].node, segs: [] }; byNode.set(segs[s].node, bucket); perNode.push(bucket); }
-        bucket.segs.push({ from: segs[s].from, to: segs[s].to, id: a.id });
-      }
-    }
-    for (var n = 0; n < perNode.length; n++) {
-      var node = perNode[n].node, nodeSegs = perNode[n].segs;
-      var bounds = [];
-      nodeSegs.forEach(function (sg) { if (bounds.indexOf(sg.from) === -1) bounds.push(sg.from); if (bounds.indexOf(sg.to) === -1) bounds.push(sg.to); });
-      bounds.sort(function (x, y) { return x - y; });
-      for (var b = bounds.length - 2; b >= 0; b--) {
-        var from = bounds[b], to = bounds[b + 1];
-        var ids = nodeSegs.filter(function (sg) { return sg.from <= from && sg.to >= to; }).map(function (sg) { return sg.id; });
-        if (!ids.length) continue;
-        var piece = node;
-        if (to < piece.nodeValue.length) piece.splitText(to);
-        if (from > 0) piece = piece.splitText(from);
-        if (!piece.nodeValue.trim()) continue;
-        var mark = document.createElement('mark');
-        mark.className = 'annotation-hl' + (ids.length > 1 ? ' is-multi' : '');
-        mark.setAttribute('data-annotation-ids', ids.join(' '));
-        piece.parentNode.insertBefore(mark, piece);
-        mark.appendChild(piece);
-        bindMark(mark);
-        ids.forEach(function (id) { var an = findAnnotation(id); if (an) an.marks.push(mark); });
-      }
-    }
-    annotations.forEach(function (an) {
-      an.marks.sort(function (x, y) { return x.compareDocumentPosition(y) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1; });
+      if (a.range) items.push({ start: a.range.start, end: a.range.end, id: a.id }); else orphans.push(a);
     });
+    wrapPieces(items, 'annotation-hl').forEach(function (mark) {
+      bindMark(mark);
+      mark.getAttribute('data-annotation-ids').split(' ').forEach(function (id) { var an = findAnnotation(id); if (an) an.marks.push(mark); });
+    });
+    insertMarkers();
     buildIndex();
     renderOrphans(orphans);
+    if (panelState && panelState.kind === 'thread') refreshThreadPanel();
+  }
+
+  // One marker per distinct passage (annotations with an identical range share it).
+  function insertMarkers() {
+    var groups = {};
+    annotations.forEach(function (a) {
+      if (!a.range || !a.marks.length) return;
+      var key = a.range.start + '-' + a.range.end;
+      (groups[key] = groups[key] || []).push(a);
+    });
+    Object.keys(groups).forEach(function (key) {
+      var group = groups[key];
+      var count = group.reduce(function (n, a) { return n + 1 + (a.replies || []).length; }, 0);
+      var last = group[0].marks[group[0].marks.length - 1];
+      var marker = document.createElement('span');
+      marker.className = 'annotation-marker';
+      marker.setAttribute('data-annotation-ids', group.map(function (a) { return a.id; }).join(' '));
+      marker.setAttribute('title', count + ' 条批注，点击查看');
+      marker.innerHTML = '<i class="fa fa-comment"></i><span class="annotation-marker-count">' + count + '</span>';
+      marker.addEventListener('click', function (e) {
+        e.preventDefault(); e.stopPropagation();
+        toggleThread(group.map(function (a) { return a.id; }), last);
+      });
+      last.insertAdjacentElement('afterend', marker);
+    });
   }
 
   function reanchorAll() {
-    if (annotations.length) applyHighlights();
-    else buildIndex();
+    if (annotations.length) applyHighlights(); else buildIndex();
   }
 
   function bindMark(mark) {
-    var hoverOwner = mark.closest(HOVER_OWNERS);
-    var isLink = !!mark.closest('a[href]');
-    if (!hoverOwner) {
-      mark.addEventListener('mouseenter', function () {
-        InlinePopover.scheduleShow(mark, function () { return buildCard(idsFor(mark)); }, { className: 'annotation-card', delay: 250 });
-      });
-      mark.addEventListener('mouseleave', function () { InlinePopover.scheduleHide(); });
-    }
+    if (mark.closest('a[href]:not(.inline-tip)')) return; // links keep navigating; use the marker
     mark.addEventListener('click', function (e) {
-      if (isLink && !hoverOwner) return; // let external links navigate; hover shows the card
       e.preventDefault();
       e.stopPropagation();
-      if (InlinePopover.isActiveFor(mark)) InlinePopover.hide();
-      else InlinePopover.show(mark, buildCard(idsFor(mark)), { className: 'annotation-card' });
+      toggleThread(idsFor(mark), mark);
     });
   }
 
   function idsFor(mark) {
-    var ids = [], el = mark;
-    while (el && el !== container) {
-      if (el.nodeType === 1 && el.classList.contains('annotation-hl')) {
-        var own = (el.getAttribute('data-annotation-ids') || '').split(' ');
-        for (var i = 0; i < own.length; i++) if (own[i] && ids.indexOf(own[i]) === -1) ids.push(own[i]);
-      }
-      el = el.parentNode;
-    }
-    return ids;
+    return (mark.getAttribute('data-annotation-ids') || '').split(' ').filter(Boolean);
   }
 
   function findAnnotation(id) {
@@ -376,174 +380,393 @@
     return null;
   }
 
-  // #annot-<hash> (the part of the permalink before `:~:`) -> scroll, flash, open card.
+  function flashMarks(marks) {
+    marks.forEach(function (m) {
+      m.classList.add('is-new');
+      setTimeout(function () { m.classList.remove('is-new'); }, 2500);
+    });
+  }
+
+  // Temporary highlight for `#hl=` links: wrap, flash, unwrap.
+  function flashRange(range) {
+    var marks = wrapPieces([{ start: range.start, end: range.end, id: 'flash' }], 'annotation-flash');
+    if (!marks.length) return;
+    scrollIntoViewInstant(marks[0]);
+    setTimeout(function () { unwrap('mark.annotation-flash'); buildIndex(); }, 2600);
+  }
+
+  function scrollIntoViewInstant(el) {
+    window.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + window.pageYOffset - 160), behavior: 'instant' });
+  }
+
+  // #annot-<hash> -> open that thread; #hl=<text> -> flash that passage.
   function focusFromHash() {
-    var m = /^#annot-([0-9a-f]{8})/.exec(location.hash || '');
-    if (!m) return;
-    for (var i = 0; i < annotations.length; i++) {
-      var a = annotations[i];
-      if (annotHash(a.selector.exact) !== m[1] || !a.marks.length) continue;
-      // Instant scroll (the browser may already have jumped for the Text
-      // Fragment), then open the card once layout has settled.
-      var mark = a.marks[0];
-      window.scrollTo({ top: Math.max(0, mark.getBoundingClientRect().top + window.pageYOffset - 160), behavior: 'instant' });
-      flashMarks(a.marks, true);
-      setTimeout(function () { InlinePopover.show(mark, buildCard(idsFor(mark)), { className: 'annotation-card' }); }, 200);
+    var h = location.hash || '';
+    var m = /^#annot-([0-9a-f]{8})/.exec(h);
+    if (m) {
+      for (var i = 0; i < annotations.length; i++) {
+        var a = annotations[i];
+        if (annotHash(a.selector.exact) !== m[1] || !a.marks.length) continue;
+        scrollIntoViewInstant(a.marks[0]);
+        flashMarks(a.marks);
+        openThread(groupIdsFor(a), a.marks[a.marks.length - 1]);
+        return;
+      }
+      showToast('这条批注对应的原文找不到了（可能已被修改）');
       return;
     }
-  }
-
-  function flashMarks(marks, noScroll) {
-    for (var i = 0; i < marks.length; i++) {
-      marks[i].classList.add('is-new');
-      (function (m) { setTimeout(function () { m.classList.remove('is-new'); }, 2500); })(marks[i]);
+    var hl = /^#hl=(.*)$/.exec(h);
+    if (hl) {
+      var exact;
+      try { exact = decodeURIComponent(hl[1]); } catch (e) { exact = hl[1]; }
+      var range = anchor({ exact: exact.replace(/\+/g, ' ') });
+      if (range) flashRange(range); else showToast('链接指向的文字在本页找不到了');
     }
-    if (marks[0] && !noScroll) InlinePopover.scrollToTargetWithOffset(marks[0]);
   }
 
-  // ------------------------------------------------------------------ card
-
-  function authorHtml(author) {
-    return '<a class="annotation-author" href="' + escapeAttr(author.url) + '" target="_blank" rel="noopener noreferrer">' +
-      '<img src="' + escapeAttr(author.avatarUrl) + '" alt="" width="20" height="20">' +
-      '<span>' + escapeHtml(author.login) + '</span></a>';
+  // ids of every annotation sharing `a`'s exact passage
+  function groupIdsFor(a) {
+    return annotations.filter(function (b) {
+      return b.range && a.range && b.range.start === a.range.start && b.range.end === a.range.end;
+    }).map(function (b) { return b.id; });
   }
 
-  function timeHtml(iso) {
-    return '<time datetime="' + escapeAttr(iso) + '" title="' + escapeAttr(new Date(iso).toLocaleString()) + '">' + relativeTime(iso) + '</time>';
+  // ---------------------------------------------------------------- panel
+
+  // Block element after which an in-flow panel for `node` is inserted.
+  function blockFor(node) {
+    var el = node.nodeType === 1 ? node : node.parentNode;
+    var cell = el.closest('td, th');
+    var block = cell ? cell.closest('table') : el.closest(BLOCK_SELECTOR);
+    if (block && block.tagName === 'PRE' && block.parentNode.classList.contains('highlight')) block = block.parentNode;
+    if (block && block.parentNode && block.parentNode.classList.contains('highlighter-rouge')) block = block.parentNode;
+    return (block && container.contains(block) && block !== container) ? block : el;
   }
 
-  function buildCard(ids) {
-    var wrap = document.createElement('div');
-    wrap.className = 'annotation-list';
-    for (var i = 0; i < ids.length; i++) {
-      var a = findAnnotation(ids[i]);
-      if (a) wrap.appendChild(buildItem(a));
-    }
-    if (!wrap.childNodes.length) wrap.textContent = '批注已删除或不可用。';
-    return wrap;
+  function ensurePanel() {
+    if (panel) return panel;
+    panel = document.createElement('div');
+    panel.className = 'annotation-panel';
+    panel.addEventListener('click', function (e) { e.stopPropagation(); });
+    panel.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+    return panel;
   }
 
-  function buildItem(a) {
-    var item = document.createElement('div');
-    item.className = 'annotation-item';
-    item.setAttribute('data-annotation-id', a.id);
-    var replies = a.replies || [];
-    item.innerHTML =
-      '<div class="annotation-meta">' + authorHtml(a.author) + timeHtml(a.createdAt) + '</div>' +
-      '<div class="annotation-note"></div>' +
-      '<div class="annotation-actions">' +
-        (a.upvoteCount ? '<span class="annotation-upvotes" title="赞同"><i class="fa fa-caret-up"></i> ' + a.upvoteCount + '</span>' : '') +
-        (replies.length ? '<button type="button" class="annotation-toggle-replies"><i class="fa fa-comments-o"></i> ' + replies.length + ' 条回复</button>' : '') +
-        '<button type="button" class="annotation-reply-btn"><i class="fa fa-reply"></i> 回复</button>' +
-        '<a href="' + escapeAttr(a.url) + '" target="_blank" rel="noopener noreferrer" title="在 GitHub 上查看"><i class="fa fa-github"></i></a>' +
+  function mountPanel(afterNode) {
+    ensurePanel();
+    var block = blockFor(afterNode);
+    block.parentNode.insertBefore(panel, block.nextSibling);
+    hideToolbar();
+  }
+
+  function closePanel() {
+    if (panel && panel.parentNode) panel.parentNode.removeChild(panel);
+    panelState = null;
+  }
+
+  function toggleThread(ids, anchorMark) {
+    if (panelState && panelState.kind === 'thread' && panelState.ids.join() === ids.join()) { closePanel(); return; }
+    openThread(ids, anchorMark);
+  }
+
+  function openThread(ids, anchorMark) {
+    var list = ids.map(findAnnotation).filter(Boolean);
+    if (!list.length) return;
+    panelState = { kind: 'thread', ids: ids };
+    ensurePanel();
+    panel.className = 'annotation-panel is-thread';
+    renderThread(list);
+    mountPanel(anchorMark || list[0].marks[list[0].marks.length - 1]);
+    if (window.getSelection) window.getSelection().removeAllRanges();
+  }
+
+  function refreshThreadPanel() {
+    var list = panelState.ids.map(findAnnotation).filter(Boolean);
+    if (!list.length || !list[0].marks.length) { closePanel(); return; }
+    renderThread(list);
+    if (!panel.parentNode) mountPanel(list[0].marks[list[0].marks.length - 1]);
+  }
+
+  function renderThread(list) {
+    var primary = list[0];
+    var total = list.reduce(function (n, a) { return n + 1 + (a.replies || []).length; }, 0);
+    panel.innerHTML =
+      '<div class="ap-head">' +
+        '<i class="fa fa-quote-left"></i><span class="ap-quote" title="' + escapeAttr(primary.selector.exact) + '">' + escapeHtml(primary.selector.exact) + '</span>' +
+        '<span class="ap-count">' + total + ' 条批注</span>' +
+        '<button type="button" class="ap-close" title="收起">×</button>' +
       '</div>' +
-      '<div class="annotation-replies" style="display:none"></div>' +
-      '<div class="annotation-reply-box" style="display:none"></div>';
-    item.querySelector('.annotation-note').appendChild(sanitizeHtml(a.noteHTML));
-
-    var repliesEl = item.querySelector('.annotation-replies');
-    replies.forEach(function (r) {
-      var el = document.createElement('div');
-      el.className = 'annotation-reply';
-      el.innerHTML = '<div class="annotation-meta">' + authorHtml(r.author) + timeHtml(r.createdAt) + '</div><div class="annotation-note"></div>';
-      el.querySelector('.annotation-note').appendChild(sanitizeHtml(r.bodyHTML));
-      repliesEl.appendChild(el);
+      '<div class="ap-thread"></div>' +
+      '<div class="ap-editor ap-join"></div>';
+    panel.querySelector('.ap-close').addEventListener('click', closePanel);
+    var thread = panel.querySelector('.ap-thread');
+    list.forEach(function (a) {
+      thread.appendChild(commentEl(a, a.noteHTML, false));
+      (a.replies || []).forEach(function (r) { thread.appendChild(commentEl(r, r.bodyHTML, true)); });
     });
-    var toggle = item.querySelector('.annotation-toggle-replies');
-    if (toggle) toggle.addEventListener('click', function () {
-      var open = repliesEl.style.display !== 'none';
-      repliesEl.style.display = open ? 'none' : 'block';
-      toggle.classList.toggle('is-open', !open);
+    renderEditor(panel.querySelector('.ap-editor'), {
+      placeholder: '加入讨论…（支持 Markdown，⌘/Ctrl+Enter 发送）',
+      submitLabel: '发表评论',
+      compact: true,
+      onSubmit: function (text) { return postReply(primary, text); }
     });
-    item.querySelector('.annotation-reply-btn').addEventListener('click', function () {
-      var box = item.querySelector('.annotation-reply-box');
-      if (box.style.display !== 'none') { box.style.display = 'none'; return; }
-      renderReplyBox(box, a);
-      box.style.display = 'block';
-      var ta = box.querySelector('textarea');
-      if (ta) ta.focus();
-    });
-    return item;
   }
 
-  function renderReplyBox(box, a) {
-    box.innerHTML = '';
-    if (!getSession()) {
-      box.innerHTML = '<button type="button" class="annotation-login"><i class="fa fa-github"></i> 使用 GitHub 登录后回复</button>';
-      box.querySelector('.annotation-login').addEventListener('click', login);
-      return;
-    }
-    box.innerHTML =
-      '<textarea rows="2" placeholder="回复 @' + escapeAttr(a.author.login) + '…（支持 Markdown）"></textarea>' +
-      '<div class="annotation-reply-actions"><span class="annotation-reply-status"></span>' +
-      '<button type="button" class="annotation-reply-send"><i class="fa fa-paper-plane"></i> 发送</button></div>';
-    var ta = box.querySelector('textarea');
-    var send = box.querySelector('.annotation-reply-send');
-    var status = box.querySelector('.annotation-reply-status');
-    function doSend() {
+  function commentEl(c, html, isReply) {
+    var el = document.createElement('div');
+    el.className = 'ap-comment' + (isReply ? ' is-reply' : '');
+    el.innerHTML =
+      '<a class="ap-avatar" href="' + escapeAttr(c.author.url) + '" target="_blank" rel="noopener noreferrer"><img src="' + escapeAttr(c.author.avatarUrl) + '" alt=""></a>' +
+      '<div class="ap-comment-main">' +
+        '<div class="ap-comment-meta"><a href="' + escapeAttr(c.author.url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(c.author.login) + '</a>' +
+          '<time datetime="' + escapeAttr(c.createdAt) + '" title="' + escapeAttr(new Date(c.createdAt).toLocaleString()) + '">' + relativeTime(c.createdAt) + '</time>' +
+          (c.upvoteCount ? '<span class="ap-upvotes"><i class="fa fa-caret-up"></i> ' + c.upvoteCount + '</span>' : '') +
+          '<a class="ap-github" href="' + escapeAttr(c.url) + '" target="_blank" rel="noopener noreferrer" title="在 GitHub 上查看"><i class="fa fa-github"></i></a>' +
+        '</div>' +
+        '<div class="ap-comment-body"></div>' +
+      '</div>';
+    var body = el.querySelector('.ap-comment-body');
+    body.appendChild(sanitizeHtml(html));
+    InlinePopover.renderMathIfPresent(body);
+    return el;
+  }
+
+  // ---------------------------------------------------------------- editor
+
+  // Shared editor block: textarea + preview + auth + buttons. `opts.onSubmit(text)`
+  // returns a promise; the editor shows errors and offers the clipboard fallback.
+  function renderEditor(host, opts) {
+    host.innerHTML =
+      '<div class="ap-tabs"><button type="button" class="is-active" data-tab="write">撰写</button><button type="button" data-tab="preview">预览</button>' +
+        '<span class="ap-tabs-hint">支持 Markdown · 图片可直接贴链接</span></div>' +
+      '<textarea class="ap-text" rows="' + (opts.compact ? 3 : 6) + '" placeholder="' + escapeAttr(opts.placeholder) + '"></textarea>' +
+      '<div class="ap-preview" style="display:none"></div>' +
+      '<div class="ap-status" style="display:none"></div>' +
+      '<div class="ap-footer">' +
+        '<span class="ap-user"></span>' +
+        '<span class="ap-buttons">' +
+          (opts.onCancel ? '<button type="button" class="ap-cancel">取消</button>' : '') +
+          '<button type="button" class="ap-login"><i class="fa fa-github"></i> 使用 GitHub 登录</button>' +
+          '<button type="button" class="ap-submit"><i class="fa fa-paper-plane"></i> ' + escapeHtml(opts.submitLabel) + '</button>' +
+        '</span>' +
+      '</div>';
+    var ta = host.querySelector('.ap-text');
+    if (opts.initialText) ta.value = opts.initialText;
+    if (opts.onChange) ta.addEventListener('input', function () { opts.onChange(ta.value); });
+    if (opts.onCancel) host.querySelector('.ap-cancel').addEventListener('click', opts.onCancel);
+    host.querySelector('.ap-login').addEventListener('click', function () { if (opts.beforeLogin) opts.beforeLogin(ta.value); login(); });
+    var tabs = host.querySelectorAll('.ap-tabs button');
+    for (var i = 0; i < tabs.length; i++) tabs[i].addEventListener('click', function () { switchTab(host, this.getAttribute('data-tab')); });
+
+    function submit() {
       var text = ta.value.trim();
-      if (!text) return;
-      send.disabled = true; ta.disabled = true; status.textContent = '发送中…';
-      graphql(ADD_COMMENT, { body: text, discussionId: discussion.id, replyToId: a.id }).then(function (data) {
-        var c = data.addDiscussionComment.comment;
-        a.replies = (a.replies || []).concat([{ id: c.id, url: c.url, author: c.author, createdAt: c.createdAt, bodyHTML: c.bodyHTML }]);
-        a.replyCount = a.replies.length;
-        var trigger = InlinePopover.currentTrigger();
-        if (trigger) {
-          InlinePopover.show(trigger, buildCard(idsFor(trigger)), { className: 'annotation-card' });
-          var item = InlinePopover.element().querySelector('[data-annotation-id="' + a.id + '"]');
-          var t = item && item.querySelector('.annotation-toggle-replies');
-          if (t) t.click();
-        }
-        showToast('回复已发送');
-        refreshGiscus();
+      if (!text) { setStatus(host, '内容不能为空', 'error'); return; }
+      setBusy(host, true);
+      setStatus(host, '正在发表…');
+      opts.onSubmit(text).then(function () {
+        setBusy(host, false);
       }).catch(function (err) {
-        send.disabled = false; ta.disabled = false;
-        status.textContent = err.message || String(err);
-        if (!getSession()) renderReplyBox(box, a);
+        setBusy(host, false);
+        var msg = err.message || String(err);
+        setStatus(host, msg + ' — 也可以复制内容后粘贴到文末评论框发表。', 'error');
+        var fallback = document.createElement('button');
+        fallback.type = 'button';
+        fallback.className = 'ap-fallback';
+        fallback.innerHTML = '<i class="fa fa-clipboard"></i> 复制内容';
+        fallback.addEventListener('click', function () {
+          copyText(opts.fallbackText ? opts.fallbackText(text) : text).then(function () {
+            showToast('已复制，请粘贴到评论框（⌘/Ctrl+V）');
+            var target = document.getElementById('comments');
+            if (target) InlinePopover.scrollToTargetWithOffset(target);
+          });
+        });
+        host.querySelector('.ap-status').appendChild(document.createTextNode(' '));
+        host.querySelector('.ap-status').appendChild(fallback);
+        refreshAuthUI(host);
       });
     }
-    send.addEventListener('click', doSend);
-    ta.addEventListener('keydown', function (e) { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); doSend(); } });
+    host.querySelector('.ap-submit').addEventListener('click', submit);
+    ta.addEventListener('keydown', function (e) { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); submit(); } });
+    refreshAuthUI(host);
+    return ta;
   }
 
-  function sanitizeHtml(html) {
-    var doc = new DOMParser().parseFromString('<div>' + (html || '') + '</div>', 'text/html');
-    var root = doc.body.firstChild;
-    var bad = root.querySelectorAll('script, style, iframe, object, embed, link, meta, form, input, textarea, button');
-    for (var i = 0; i < bad.length; i++) bad[i].parentNode.removeChild(bad[i]);
-    var all = root.querySelectorAll('*');
-    for (var j = 0; j < all.length; j++) {
-      var el = all[j], attrs = el.attributes;
-      for (var k = attrs.length - 1; k >= 0; k--) {
-        var name = attrs[k].name, value = attrs[k].value;
-        if (/^on/i.test(name) || ((name === 'href' || name === 'src') && /^\s*javascript:/i.test(value))) el.removeAttribute(name);
+  function switchTab(host, tab) {
+    var tabs = host.querySelectorAll('.ap-tabs button');
+    for (var i = 0; i < tabs.length; i++) tabs[i].classList.toggle('is-active', tabs[i].getAttribute('data-tab') === tab);
+    var ta = host.querySelector('.ap-text'), pv = host.querySelector('.ap-preview');
+    ta.style.display = tab === 'write' ? '' : 'none';
+    pv.style.display = tab === 'preview' ? 'block' : 'none';
+    if (tab === 'preview') renderPreview(pv, ta.value);
+  }
+
+  function renderPreview(pv, md) {
+    if (!md.trim()) { pv.innerHTML = '<em class="ap-muted">没有内容可预览</em>'; return; }
+    pv.innerHTML = '<em class="ap-muted">渲染中…</em>';
+    var headers = { 'Content-Type': 'application/json', Accept: 'application/vnd.github+json' };
+    if (token) headers.Authorization = 'Bearer ' + token;
+    fetch(GITHUB_MARKDOWN, { method: 'POST', headers: headers, body: JSON.stringify({ text: md, mode: 'gfm' }) })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+      .then(function (html) { pv.innerHTML = ''; pv.appendChild(sanitizeHtml(html)); InlinePopover.renderMathIfPresent(pv); })
+      .catch(function () { pv.innerHTML = '<em class="ap-muted">预览暂不可用（GitHub API 无法访问）</em>'; });
+  }
+
+  function setStatus(host, msg, kind) {
+    var st = host.querySelector('.ap-status');
+    st.textContent = msg || '';
+    st.className = 'ap-status' + (kind ? ' is-' + kind : '');
+    st.style.display = msg ? 'block' : 'none';
+  }
+
+  function setBusy(host, busy) {
+    var btns = host.querySelectorAll('button, textarea');
+    for (var i = 0; i < btns.length; i++) btns[i].disabled = !!busy;
+    host.classList.toggle('is-busy', !!busy);
+  }
+
+  function refreshAuthUI(host) {
+    var userEl = host.querySelector('.ap-user');
+    var loginBtn = host.querySelector('.ap-login');
+    var submitBtn = host.querySelector('.ap-submit');
+    if (!getSession()) {
+      userEl.innerHTML = '<span class="ap-muted">登录 GitHub 后即可发表（与文末评论区同一账号）</span>';
+      loginBtn.style.display = '';
+      submitBtn.style.display = 'none';
+      return;
+    }
+    loginBtn.style.display = 'none';
+    submitBtn.style.display = '';
+    if (viewer) { renderViewer(userEl, viewer); return; }
+    userEl.innerHTML = '<span class="ap-muted">正在连接 GitHub…</span>';
+    graphql('{ viewer { login avatarUrl url } }').then(function (data) {
+      viewer = data.viewer;
+      renderViewer(userEl, viewer);
+    }).catch(function (err) {
+      userEl.innerHTML = '<span class="ap-muted">' + escapeHtml(err.message) + '</span>';
+      if (!getSession()) { loginBtn.style.display = ''; submitBtn.style.display = 'none'; }
+    });
+  }
+
+  function renderViewer(userEl, v) {
+    userEl.innerHTML =
+      '<img src="' + escapeAttr(v.avatarUrl) + '" alt="" width="22" height="22"> ' +
+      '<a href="' + escapeAttr(v.url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(v.login) + '</a>';
+  }
+
+  // --------------------------------------------------------- new annotation
+
+  // An existing annotation whose passage contains the selection -> join it.
+  function joinTargetFor(offsets) {
+    var best = null;
+    annotations.forEach(function (a) {
+      if (!a.range) return;
+      if (a.range.start <= offsets.start && a.range.end >= offsets.end) {
+        if (!best || (a.range.end - a.range.start) < (best.range.end - best.range.start)) best = a;
       }
-      if (el.tagName === 'A') { el.setAttribute('target', '_blank'); el.setAttribute('rel', 'noopener noreferrer nofollow'); }
-    }
-    var frag = document.createDocumentFragment();
-    while (root.firstChild) frag.appendChild(document.adoptNode(root.firstChild));
-    return frag;
+    });
+    return best;
   }
 
-  function renderOrphans(orphans) {
-    var old = cfg.section.querySelector('.annotation-orphans');
-    if (old) old.parentNode.removeChild(old);
-    if (!orphans.length) return;
-    var box = document.createElement('p');
-    box.className = 'annotation-orphans';
-    box.innerHTML = '<i class="fa fa-unlink"></i> ' + orphans.length + ' 条划线批注未能定位到原文（原文可能已修改）：';
-    for (var i = 0; i < orphans.length; i++) {
-      var a = document.createElement('a');
-      a.href = orphans[i].url; a.target = '_blank'; a.rel = 'noopener noreferrer';
-      a.textContent = '@' + orphans[i].author.login;
-      a.title = orphans[i].selector.exact;
-      box.appendChild(a);
-      if (i < orphans.length - 1) box.appendChild(document.createTextNode('、'));
+  function openComposer(sel, offsets, anchorNode, draftText) {
+    var join = joinTargetFor(offsets);
+    panelState = { kind: 'editor', selector: sel, offsets: offsets, join: join ? join.id : null };
+    ensurePanel();
+    panel.className = 'annotation-panel is-editor';
+    panel.innerHTML =
+      '<div class="ap-head">' +
+        '<i class="fa fa-quote-left"></i><span class="ap-quote" title="' + escapeAttr(sel.exact) + '">' + escapeHtml(sel.exact) + '</span>' +
+        (join ? '<span class="ap-count">这段文字已有批注，你的评论将加入该讨论</span>' : '<span class="ap-count">新批注</span>') +
+        '<button type="button" class="ap-close" title="取消">×</button>' +
+      '</div>' +
+      (join ? '<div class="ap-thread ap-thread-preview"></div>' : '') +
+      '<div class="ap-editor"></div>';
+    panel.querySelector('.ap-close').addEventListener('click', cancelComposer);
+    if (join) {
+      var thread = panel.querySelector('.ap-thread');
+      groupIdsFor(join).map(findAnnotation).forEach(function (a) {
+        thread.appendChild(commentEl(a, a.noteHTML, false));
+        (a.replies || []).forEach(function (r) { thread.appendChild(commentEl(r, r.bodyHTML, true)); });
+      });
     }
-    var hint = cfg.section.querySelector('.comment-hint');
-    (hint || cfg.section).insertAdjacentElement(hint ? 'afterend' : 'afterbegin', box);
+    var ta = renderEditor(panel.querySelector('.ap-editor'), {
+      placeholder: join ? '加入讨论…（支持 Markdown，⌘/Ctrl+Enter 提交）' : '写下你对这段文字的批注…（支持 Markdown，⌘/Ctrl+Enter 提交）',
+      submitLabel: '提交评论',
+      initialText: draftText || '',
+      onCancel: cancelComposer,
+      onChange: saveDraft,
+      beforeLogin: saveDraft,
+      fallbackText: function (text) { return join ? text : buildCommentBody(sel, text); },
+      onSubmit: function (text) { return join ? postReply(join, text, true) : postAnnotation(sel, text); }
+    });
+    mountPanel(anchorNode);
+    if (window.getSelection) window.getSelection().removeAllRanges();
+    ta.focus();
+    saveDraft(ta.value);
+  }
+
+  function cancelComposer() { clearDraft(); closePanel(); }
+
+  function postAnnotation(sel, text) {
+    var body = buildCommentBody(sel, text);
+    return ensureDiscussion().then(function (id) {
+      return graphql(ADD_COMMENT, { body: body, discussionId: id });
+    }).then(function (data) {
+      var c = data.addDiscussionComment.comment;
+      var a = parseComment(c) || {
+        id: c.id, url: c.url, author: c.author || GHOST, createdAt: c.createdAt, upvoteCount: 0, replyCount: 0, replies: [],
+        noteHTML: c.bodyHTML, selector: sel
+      };
+      annotations.push(a);
+      clearDraft();
+      closePanel();
+      applyHighlights();
+      if (a.marks.length) {
+        flashMarks(a.marks);
+        openThread(groupIdsFor(a), a.marks[a.marks.length - 1]);
+      }
+      showToast('批注已发表');
+      refreshGiscus();
+    });
+  }
+
+  function postReply(a, text, fromComposer) {
+    return graphql(ADD_COMMENT, { body: text, discussionId: discussion.id, replyToId: a.id }).then(function (data) {
+      var c = data.addDiscussionComment.comment;
+      a.replies = (a.replies || []).concat([{ id: c.id, url: c.url, author: c.author || GHOST, createdAt: c.createdAt, bodyHTML: c.bodyHTML }]);
+      a.replyCount = a.replies.length;
+      if (fromComposer) clearDraft();
+      applyHighlights(); // marker counts
+      openThread(groupIdsFor(a), a.marks[a.marks.length - 1]);
+      var items = panel.querySelectorAll('.ap-comment');
+      if (items.length) items[items.length - 1].classList.add('is-new');
+      showToast('评论已发表');
+      refreshGiscus();
+    });
+  }
+
+  // Draft survives the GitHub login round-trip.
+  function draftKey() { return 'annotationDraft:' + cfg.path; }
+  function saveDraft(text) {
+    if (!panelState || panelState.kind !== 'editor') return;
+    if (typeof text !== 'string') { var ta = panel && panel.querySelector('.ap-text'); text = ta ? ta.value : ''; }
+    try { sessionStorage.setItem(draftKey(), JSON.stringify({ selector: panelState.selector, text: text })); } catch (e) { /* ignore */ }
+  }
+  function clearDraft() { try { sessionStorage.removeItem(draftKey()); } catch (e) { /* ignore */ } }
+  function restoreDraft() {
+    var raw = null;
+    try { raw = sessionStorage.getItem(draftKey()); } catch (e) { /* ignore */ }
+    if (!raw) return false;
+    var draft;
+    try { draft = JSON.parse(raw); } catch (e) { clearDraft(); return false; }
+    if (!draft || !draft.selector) { clearDraft(); return false; }
+    var range = anchor(draft.selector);
+    if (!range) { clearDraft(); return false; }
+    var segs = segmentsFor(range.start, range.end);
+    if (!segs.length) { clearDraft(); return false; }
+    var last = segs[segs.length - 1].node;
+    scrollIntoViewInstant(last.parentNode);
+    openComposer(draft.selector, range, last, draft.text);
+    return true;
   }
 
   // --------------------------------------------------------- data loading
@@ -594,7 +817,7 @@
     var root = doc.body.firstChild;
     var quote = root.firstElementChild;
     if (!quote || quote.tagName !== 'BLOCKQUOTE') return null;
-    var links = quote.querySelectorAll('a[href*=":~:text="]');
+    var links = quote.querySelectorAll('a[href*="#annot-"], a[href*=":~:text="]');
     var link = null;
     for (var i = 0; i < links.length; i++) {
       try {
@@ -631,6 +854,7 @@
     });
   }
 
+  // Older links carried a Text Fragment with prefix-/-suffix context; keep reading it.
   function parseTextFragment(href) {
     var out = { prefix: '', suffix: '' };
     var m = /:~:text=([^&]*)/.exec(href);
@@ -644,78 +868,29 @@
 
   // ------------------------------------------------------- serialisation
 
-  // Only escape what URL / Text Fragment / Markdown-link syntax needs; CJK and
-  // other non-ASCII stay readable (browsers accept raw UTF-8 in fragments).
+  // Escape only what URL / Markdown-link syntax needs; CJK stays readable.
   function encodeFragmentPart(s) {
-    return s.replace(/[\s%&,\-#()"'<>\[\]\\^`{}|]/g, function (c) {
+    return s.replace(/[\s%&#()"'<>\[\]\\^`{}|]/g, function (c) {
       return '%' + ('0' + c.charCodeAt(0).toString(16).toUpperCase()).slice(-2);
     });
   }
 
-  // Text Fragments match prefix/suffix on word boundaries, so drop a Latin word
-  // that our fixed-width context window cut in half (CJK has no such boundary).
-  function trimPartialWordStart(s) { return /^[A-Za-z0-9]/.test(s) && /\s/.test(s) ? s.replace(/^\S*\s+/, '') : s; }
-  function trimPartialWordEnd(s) { return /[A-Za-z0-9]$/.test(s) && /\s/.test(s) ? s.replace(/\s+\S*$/, '') : s; }
-
-  function countOccurrences(text, needle) {
-    var n = 0, from = 0, at;
-    while (needle && (at = text.indexOf(needle, from)) !== -1) { n++; from = at + 1; }
-    return n;
-  }
-
-  // Split [start, end) of the index into runs that contain no gap (see buildIndex).
-  function runsWithoutGaps(start, end) {
-    var runs = [], runStart = start;
-    for (var i = start + 1; i < end; i++) {
-      if (index.gaps[i]) { runs.push([runStart, i]); runStart = i; }
-    }
-    runs.push([runStart, end]);
-    return runs;
-  }
-
-  // `offsets` (index range of the quote) is known when the fragment is built
-  // from a live selection; it lets us avoid gaps and drop redundant context.
-  function buildTextFragment(sel, offsets) {
-    var parts = [];
-    var exact = sel.exact;
-    var unique = index ? countOccurrences(index.text, exact) === 1 : false;
-    var prefix = unique ? '' : trimPartialWordStart(sel.prefix || '').trim();
-    var suffix = unique ? '' : trimPartialWordEnd(sel.suffix || '').trim();
-    var runs = offsets && index ? runsWithoutGaps(offsets.start, offsets.end) : [[0, exact.length]];
-    if (prefix) parts.push(encodeFragmentPart(prefix) + '-');
-    if (runs.length === 1 && exact.length <= FRAGMENT_SPLIT_AT) {
-      parts.push(encodeFragmentPart(exact));
-    } else {
-      var base = offsets ? offsets.start : 0;
-      var first = runs[0], last = runs[runs.length - 1];
-      var head = exact.slice(first[0] - base, Math.min(first[1], first[0] + FRAGMENT_EDGE_CHARS) - base).trim();
-      var tail = exact.slice(Math.max(last[0], last[1] - FRAGMENT_EDGE_CHARS) - base, last[1] - base).trim();
-      parts.push(encodeFragmentPart(head));
-      if (tail && tail !== head) parts.push(encodeFragmentPart(tail));
-    }
-    if (suffix) parts.push('-' + encodeFragmentPart(suffix));
-    return ':~:text=' + parts.join(',');
-  }
-
-  // Short stable id of a quote, used as the plain fragment (#annot-xxxxxxxx) in
-  // front of the Text Fragment so our own script can locate the highlight
-  // (browsers hide the `:~:` directive from location.hash). FNV-1a, 32 bit.
+  // Short stable id of a quote (FNV-1a, 32 bit) used in #annot-<hash> links.
   function annotHash(exact) {
     var h = 0x811c9dc5;
     for (var i = 0; i < exact.length; i++) { h ^= exact.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
     return ('0000000' + h.toString(16)).slice(-8);
   }
 
-  function permalink(sel, offsets, withId) {
-    return cfg.siteUrl + cfg.path + '#' + (withId ? 'annot-' + annotHash(sel.exact) : '') + buildTextFragment(sel, offsets);
-  }
+  function threadLink(sel) { return cfg.siteUrl + cfg.path + '#annot-' + annotHash(sel.exact); }
+  function shareLink(sel) { return cfg.siteUrl + cfg.path + '#hl=' + encodeFragmentPart(sel.exact); }
 
   function escapeMarkdown(s) {
     return s.replace(/[\\`*_\[\]<>~|]/g, '\\$&').replace(/^([#>+\-]|\d+\.)/, '\\$1');
   }
 
-  function buildCommentBody(sel, note, offsets) {
-    return '> ' + escapeMarkdown(sel.exact) + '\n>\n> <sub>[§ 原文位置](' + permalink(sel, offsets, true) + ')</sub>\n\n' + note.trim() + '\n';
+  function buildCommentBody(sel, note) {
+    return '> ' + escapeMarkdown(sel.exact) + '\n>\n> <sub>[§ 原文位置](' + threadLink(sel) + ')</sub>\n\n' + note.trim() + '\n';
   }
 
   // ------------------------------------------------------------ selection
@@ -726,7 +901,7 @@
       selectionTimer = setTimeout(updateToolbar, 250);
     });
     document.addEventListener('mouseup', function () { setTimeout(updateToolbar, 10); });
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { hideToolbar(); closeComposer(); } });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { hideToolbar(); if (panelState && panelState.kind === 'thread') closePanel(); } });
     window.addEventListener('scroll', function () { if (toolbar && toolbar.style.display === 'block') positionToolbar(); }, { passive: true });
   }
 
@@ -741,7 +916,7 @@
   }
 
   function updateToolbar() {
-    if (composer && composer.style.display === 'block') return;
+    if (panelState && panelState.kind === 'editor') return;
     var range = currentRange();
     if (!range) { hideToolbar(); return; }
     ensureToolbar();
@@ -755,9 +930,9 @@
     var rect = range.getBoundingClientRect();
     var scrollX = window.pageXOffset, scrollY = window.pageYOffset;
     var w = toolbar.offsetWidth, h = toolbar.offsetHeight;
-    var top = rect.top + scrollY - h - 10;
-    toolbar.classList.toggle('is-below', rect.top - h - 10 < 60);
-    if (rect.top - h - 10 < 60) top = rect.bottom + scrollY + 10;
+    var below = rect.top - h - 10 < 60;
+    toolbar.classList.toggle('is-below', below);
+    var top = below ? rect.bottom + scrollY + 10 : rect.top + scrollY - h - 10;
     var left = rect.left + scrollX + rect.width / 2 - w / 2;
     left = Math.max(scrollX + 8, Math.min(left, scrollX + document.documentElement.clientWidth - w - 8));
     toolbar.style.top = top + 'px';
@@ -772,7 +947,7 @@
     toolbar.className = 'annotation-toolbar';
     toolbar.innerHTML =
       '<button type="button" class="annotation-tb-comment"><i class="fa fa-comment-o"></i> 评论</button>' +
-      '<button type="button" class="annotation-tb-link" title="复制指向这段文字的链接"><i class="fa fa-link"></i></button>' +
+      '<button type="button" class="annotation-tb-link" title="复制分享链接：打开后自动定位并高亮这段文字"><i class="fa fa-link"></i></button>' +
       '<span class="annotation-tb-arrow"></span>';
     toolbar.addEventListener('mousedown', function (e) { e.preventDefault(); }); // keep the selection
     toolbar.querySelector('.annotation-tb-comment').addEventListener('click', function (e) {
@@ -781,160 +956,22 @@
       var offsets = range && rangeToOffsets(range);
       if (!offsets) { hideToolbar(); return; }
       var sel = selectorFromOffsets(offsets);
+      var endNode = range.endContainer;
       hideToolbar();
-      openComposer(sel, range.getBoundingClientRect(), '', offsets);
+      openComposer(sel, offsets, endNode);
     });
     toolbar.querySelector('.annotation-tb-link').addEventListener('click', function (e) {
       e.stopPropagation();
       var range = currentRange();
       var offsets = range && rangeToOffsets(range);
       if (!offsets) return;
-      copyText(permalink(selectorFromOffsets(offsets), offsets, false)).then(function () {
-        showToast('链接已复制：打开它会直接滚动并高亮到这段文字，适合分享给别人');
+      copyText(shareLink(selectorFromOffsets(offsets))).then(function () {
+        showToast('分享链接已复制：打开后会自动定位并高亮这段文字');
       });
       hideToolbar();
     });
     document.body.appendChild(toolbar);
     return toolbar;
-  }
-
-  // ------------------------------------------------------------- composer
-
-  function ensureComposer() {
-    if (composer) return composer;
-    composer = document.createElement('div');
-    composer.className = 'annotation-composer';
-    composer.setAttribute('role', 'dialog');
-    composer.innerHTML =
-      '<div class="ac-quote"><i class="fa fa-quote-left"></i><span class="ac-quote-text"></span></div>' +
-      '<div class="ac-tabs"><button type="button" class="is-active" data-tab="write">撰写</button><button type="button" data-tab="preview">预览</button>' +
-        '<span class="ac-tabs-hint">支持 Markdown</span></div>' +
-      '<textarea class="ac-text" rows="4" placeholder="写下你对这段文字的批注…（可引用链接、代码、图片）"></textarea>' +
-      '<div class="ac-preview" style="display:none"></div>' +
-      '<div class="ac-status"></div>' +
-      '<div class="ac-footer">' +
-        '<span class="ac-user"></span>' +
-        '<span class="ac-buttons">' +
-          '<button type="button" class="ac-cancel">取消</button>' +
-          '<button type="button" class="ac-login"><i class="fa fa-github"></i> 使用 GitHub 登录</button>' +
-          '<button type="button" class="ac-submit"><i class="fa fa-paper-plane"></i> 发表</button>' +
-        '</span>' +
-      '</div>';
-    composer.addEventListener('click', function (e) { e.stopPropagation(); });
-    composer.addEventListener('mousedown', function (e) { e.stopPropagation(); });
-    composer.querySelector('.ac-cancel').addEventListener('click', function () { clearDraft(); closeComposer(); });
-    composer.querySelector('.ac-login').addEventListener('click', login);
-    composer.querySelector('.ac-submit').addEventListener('click', submit);
-    var ta = composer.querySelector('.ac-text');
-    ta.addEventListener('input', saveDraft);
-    ta.addEventListener('keydown', function (e) {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); submit(); }
-    });
-    var tabs = composer.querySelectorAll('.ac-tabs button');
-    for (var i = 0; i < tabs.length; i++) tabs[i].addEventListener('click', function () { switchTab(this.getAttribute('data-tab')); });
-    document.body.appendChild(composer);
-    return composer;
-  }
-
-  function openComposer(sel, rect, draftText, offsets) {
-    ensureComposer();
-    pendingSelector = sel;
-    pendingOffsets = offsets || anchor(sel);
-    InlinePopover.hide();
-    composer.querySelector('.ac-quote-text').textContent = sel.exact;
-    composer.querySelector('.ac-quote-text').title = sel.exact;
-    composer.querySelector('.ac-text').value = draftText || '';
-    setStatus('');
-    switchTab('write');
-    composer.style.display = 'block';
-    positionComposer(rect);
-    refreshAuthUI();
-    if (window.getSelection) window.getSelection().removeAllRanges();
-    composer.querySelector('.ac-text').focus();
-    saveDraft();
-  }
-
-  function positionComposer(rect) {
-    if (window.innerWidth <= 768 || !rect) { composer.style.top = composer.style.left = ''; composer.classList.add('is-sheet'); return; }
-    composer.classList.remove('is-sheet');
-    var scrollX = window.pageXOffset, scrollY = window.pageYOffset;
-    var w = composer.offsetWidth;
-    var left = rect.left + scrollX + rect.width / 2 - w / 2;
-    left = Math.max(scrollX + 12, Math.min(left, scrollX + document.documentElement.clientWidth - w - 12));
-    composer.style.left = left + 'px';
-    composer.style.top = (rect.bottom + scrollY + 12) + 'px';
-  }
-
-  function closeComposer() {
-    if (!composer) return;
-    composer.style.display = 'none';
-    pendingSelector = null;
-    pendingOffsets = null;
-  }
-
-  function switchTab(tab) {
-    var tabs = composer.querySelectorAll('.ac-tabs button');
-    for (var i = 0; i < tabs.length; i++) tabs[i].classList.toggle('is-active', tabs[i].getAttribute('data-tab') === tab);
-    var ta = composer.querySelector('.ac-text'), pv = composer.querySelector('.ac-preview');
-    ta.style.display = tab === 'write' ? '' : 'none';
-    pv.style.display = tab === 'preview' ? 'block' : 'none';
-    if (tab === 'preview') renderPreview(ta.value);
-  }
-
-  function renderPreview(md) {
-    var pv = composer.querySelector('.ac-preview');
-    if (!md.trim()) { pv.innerHTML = '<em class="ac-muted">没有内容可预览</em>'; return; }
-    pv.innerHTML = '<em class="ac-muted">渲染中…</em>';
-    var headers = { 'Content-Type': 'application/json', Accept: 'application/vnd.github+json' };
-    if (token) headers.Authorization = 'Bearer ' + token;
-    fetch(GITHUB_MARKDOWN, { method: 'POST', headers: headers, body: JSON.stringify({ text: md, mode: 'gfm' }) })
-      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
-      .then(function (html) { pv.innerHTML = ''; pv.appendChild(sanitizeHtml(html)); InlinePopover.renderMathIfPresent(pv); })
-      .catch(function () { pv.innerHTML = '<em class="ac-muted">预览暂不可用（GitHub API 无法访问）</em>'; });
-  }
-
-  function setStatus(msg, kind) {
-    var st = composer.querySelector('.ac-status');
-    st.textContent = msg || '';
-    st.className = 'ac-status' + (kind ? ' is-' + kind : '');
-    st.style.display = msg ? 'block' : 'none';
-  }
-
-  function setBusy(busy) {
-    var btns = composer.querySelectorAll('button');
-    for (var i = 0; i < btns.length; i++) btns[i].disabled = !!busy;
-    composer.classList.toggle('is-busy', !!busy);
-  }
-
-  // Draft survives the GitHub login round-trip.
-  function draftKey() { return 'annotationDraft:' + cfg.path; }
-  function saveDraft() {
-    if (!pendingSelector) return;
-    try {
-      sessionStorage.setItem(draftKey(), JSON.stringify({ selector: pendingSelector, text: composer.querySelector('.ac-text').value }));
-    } catch (e) { /* ignore */ }
-  }
-  function clearDraft() { try { sessionStorage.removeItem(draftKey()); } catch (e) { /* ignore */ } }
-  function restoreDraft() {
-    var raw = null;
-    try { raw = sessionStorage.getItem(draftKey()); } catch (e) { /* ignore */ }
-    if (!raw) return;
-    var draft;
-    try { draft = JSON.parse(raw); } catch (e) { clearDraft(); return; }
-    if (!draft || !draft.selector) { clearDraft(); return; }
-    var range = anchor(draft.selector);
-    var rect = null;
-    if (range) {
-      var segs = segmentsFor(range.start, range.end);
-      if (segs.length) {
-        var r = document.createRange();
-        r.setStart(segs[0].node, segs[0].from);
-        r.setEnd(segs[segs.length - 1].node, segs[segs.length - 1].to);
-        rect = r.getBoundingClientRect();
-        InlinePopover.scrollToTargetWithOffset(segs[0].node.parentNode);
-      }
-    }
-    openComposer(draft.selector, rect, draft.text);
   }
 
   // ----------------------------------------------------------------- auth
@@ -947,7 +984,6 @@
   }
 
   function login() {
-    saveDraft();
     var url = new URL(location.href);
     url.hash = '';
     url.searchParams.delete('giscus');
@@ -986,36 +1022,7 @@
     });
   }
 
-  function refreshAuthUI() {
-    var userEl = composer.querySelector('.ac-user');
-    var loginBtn = composer.querySelector('.ac-login');
-    var submitBtn = composer.querySelector('.ac-submit');
-    if (!getSession()) {
-      userEl.innerHTML = '<span class="ac-muted">登录 GitHub 后即可发表</span>';
-      loginBtn.style.display = '';
-      submitBtn.style.display = 'none';
-      return;
-    }
-    loginBtn.style.display = 'none';
-    submitBtn.style.display = '';
-    if (viewer) { renderViewer(viewer); return; }
-    userEl.innerHTML = '<span class="ac-muted">正在连接 GitHub…</span>';
-    graphql('{ viewer { login avatarUrl url } }').then(function (data) {
-      viewer = data.viewer;
-      renderViewer(viewer);
-    }).catch(function (err) {
-      userEl.innerHTML = '<span class="ac-muted">' + escapeHtml(err.message) + '</span>';
-      if (!getSession()) { loginBtn.style.display = ''; submitBtn.style.display = 'none'; }
-    });
-  }
-
-  function renderViewer(v) {
-    composer.querySelector('.ac-user').innerHTML =
-      '<img src="' + escapeAttr(v.avatarUrl) + '" alt="" width="22" height="22"> ' +
-      '<a href="' + escapeAttr(v.url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(v.login) + '</a>';
-  }
-
-  // --------------------------------------------------------------- submit
+  // --------------------------------------------------------------- GitHub
 
   var ADD_COMMENT = 'mutation($body: String!, $discussionId: ID!, $replyToId: ID) {' +
     ' addDiscussionComment(input: {body: $body, discussionId: $discussionId, replyToId: $replyToId}) { comment {' +
@@ -1042,54 +1049,8 @@
     });
   }
 
-  function submit() {
-    if (!pendingSelector) return;
-    var note = composer.querySelector('.ac-text').value.trim();
-    if (!note) { setStatus('批注内容不能为空', 'error'); return; }
-    var sel = pendingSelector;
-    var body = buildCommentBody(sel, note, pendingOffsets);
-    setBusy(true);
-    setStatus('正在发表…');
-    ensureDiscussion().then(function (id) {
-      return graphql(ADD_COMMENT, { body: body, discussionId: id });
-    }).then(function (data) {
-      var c = data.addDiscussionComment.comment;
-      var a = parseComment(c) || {
-        id: c.id, url: c.url, author: c.author, createdAt: c.createdAt, upvoteCount: 0, replyCount: 0,
-        noteHTML: c.bodyHTML, selector: sel
-      };
-      annotations.push(a);
-      clearDraft();
-      closeComposer();
-      setBusy(false);
-      applyHighlights();
-      if (a.range) flashMarks(a.marks);
-      showToast('批注已发表');
-      refreshGiscus();
-    }).catch(function (err) {
-      setBusy(false);
-      var msg = err.message || String(err);
-      setStatus(msg + ' — 你也可以复制引用后粘贴到下方评论框发表。', 'error');
-      var fallback = document.createElement('button');
-      fallback.type = 'button';
-      fallback.className = 'ac-fallback';
-      fallback.innerHTML = '<i class="fa fa-clipboard"></i> 复制引用';
-      fallback.addEventListener('click', function () {
-        copyText(body).then(function () {
-          showToast('已复制，请粘贴到评论框（⌘/Ctrl+V）');
-          clearDraft(); closeComposer();
-          var target = document.getElementById('comments');
-          if (target) InlinePopover.scrollToTargetWithOffset(target);
-        });
-      });
-      composer.querySelector('.ac-status').appendChild(document.createTextNode(' '));
-      composer.querySelector('.ac-status').appendChild(fallback);
-      if (!getSession()) refreshAuthUI();
-    });
-  }
-
   // Refresh the giscus list without blanking it: load a second, hidden iframe
-  // with the same src and swap it in once it has reported its height.
+  // with the same src and swap it in once it has reported.
   var pendingSwap = null;
   function refreshGiscus() {
     var old = document.querySelector('.giscus iframe.giscus-frame');
@@ -1115,8 +1076,7 @@
 
   // giscus (data-emit-metadata="1") posts its height and discussion metadata.
   // Heights are applied here for swapped-in iframes (giscus' client.js only
-  // knows the iframe it created); a changed comment count triggers a refetch,
-  // e.g. when a reader pasted a formatted quote straight into the giscus box.
+  // knows the iframe it created); a changed comment count triggers a refetch.
   function bindGiscusMessages() {
     window.addEventListener('message', function (event) {
       if (event.origin !== GISCUS_ORIGIN) return;
@@ -1126,7 +1086,6 @@
       for (var i = 0; i < frames.length; i++) {
         if (frames[i].contentWindow !== event.source) continue;
         if (g.resizeHeight) frames[i].style.height = g.resizeHeight + 'px';
-        // the widget has rendered once it reports either its height or its metadata
         if (pendingSwap && frames[i] === pendingSwap.fresh && (g.resizeHeight || g.discussion)) finishSwap();
       }
       var d = g.discussion;
@@ -1138,6 +1097,44 @@
   }
 
   // ---------------------------------------------------------------- utils
+
+  function sanitizeHtml(html) {
+    var doc = new DOMParser().parseFromString('<div>' + (html || '') + '</div>', 'text/html');
+    var root = doc.body.firstChild;
+    var bad = root.querySelectorAll('script, style, iframe, object, embed, link, meta, form, input, textarea, button');
+    for (var i = 0; i < bad.length; i++) bad[i].parentNode.removeChild(bad[i]);
+    var all = root.querySelectorAll('*');
+    for (var j = 0; j < all.length; j++) {
+      var el = all[j], attrs = el.attributes;
+      for (var k = attrs.length - 1; k >= 0; k--) {
+        var name = attrs[k].name, value = attrs[k].value;
+        if (/^on/i.test(name) || ((name === 'href' || name === 'src') && /^\s*javascript:/i.test(value))) el.removeAttribute(name);
+      }
+      if (el.tagName === 'A') { el.setAttribute('target', '_blank'); el.setAttribute('rel', 'noopener noreferrer nofollow'); }
+    }
+    var frag = document.createDocumentFragment();
+    while (root.firstChild) frag.appendChild(document.adoptNode(root.firstChild));
+    return frag;
+  }
+
+  function renderOrphans(orphans) {
+    var old = cfg.section.querySelector('.annotation-orphans');
+    if (old) old.parentNode.removeChild(old);
+    if (!orphans.length) return;
+    var box = document.createElement('p');
+    box.className = 'annotation-orphans';
+    box.innerHTML = '<i class="fa fa-unlink"></i> ' + orphans.length + ' 条划线批注未能定位到原文（原文可能已修改）：';
+    for (var i = 0; i < orphans.length; i++) {
+      var a = document.createElement('a');
+      a.href = orphans[i].url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+      a.textContent = '@' + orphans[i].author.login;
+      a.title = orphans[i].selector.exact;
+      box.appendChild(a);
+      if (i < orphans.length - 1) box.appendChild(document.createTextNode('、'));
+    }
+    var hint = cfg.section.querySelector('.comment-hint');
+    (hint || cfg.section).insertAdjacentElement(hint ? 'afterend' : 'afterbegin', box);
+  }
 
   function copyText(text) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -1165,7 +1162,7 @@
     toast.textContent = msg;
     toast.classList.add('is-visible');
     clearTimeout(toast._timer);
-    toast._timer = setTimeout(function () { toast.classList.remove('is-visible'); }, 3000);
+    toast._timer = setTimeout(function () { toast.classList.remove('is-visible'); }, 3500);
   }
 
   function relativeTime(iso) {
@@ -1193,12 +1190,14 @@
     reload: function () { return loadAnnotations(true); },
     anchor: anchor,
     buildIndex: buildIndex,
-    buildTextFragment: buildTextFragment,
     annotHash: annotHash,
-    permalink: permalink,
-    refreshGiscus: refreshGiscus,
+    threadLink: threadLink,
+    shareLink: shareLink,
     buildCommentBody: buildCommentBody,
     parseComment: parseComment,
+    openThread: openThread,
+    closePanel: closePanel,
+    refreshGiscus: refreshGiscus,
     list: function () { return annotations; }
   };
 

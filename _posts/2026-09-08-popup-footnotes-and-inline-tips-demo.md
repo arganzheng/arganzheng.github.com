@@ -212,10 +212,11 @@ tags: [Blog, Demo, Markdown]
 ### 怎么用
 
 1. 在正文里用鼠标（或触屏长按）**选中一段文字**，选区上方会浮出一个小工具条：`评论` 与 `复制链接`。
-2. 点 `评论`，就地弹出批注编辑器：顶部是你选中的原文作为引用（context），下面是 Markdown 输入框（支持链接、代码、图片，可切换「预览」）。
-3. 用 GitHub 账号登录后点 `发表`（或按 `⌘/Ctrl + Enter`）。登录复用文末评论区的 giscus 登录，只需登录一次；登录跳转前后草稿会自动保留。
-4. 发表成功后，被批注的文字立刻变成**淡黄色高亮**，文末评论区在后台静默刷新；任何读者悬停或点击高亮，都能看到这段文字下的全部批注、赞同数和回复，并可以直接在卡片里回复，不用跳去 GitHub。
-5. `复制链接` 会生成一个带 [Text Fragment](https://developer.mozilla.org/docs/Web/URI/Fragment/Text_fragments) 的分享链接（形如 `…html#:~:text=选中的文字`），别人打开会直接滚动并高亮到这句话。批注里的 `§ 原文位置` 是同样的链接，多带一个 `#annot-…` 标识，打开后会定位到高亮并展开这条批注。
+2. 点 `评论`，段落下方会**就地展开一个评论框**（和 Code Review 工具的行内评论一样）：顶部是你选中的原文作为引用，下面是 Markdown 输入框（可切换「预览」），右下角是 `取消` / `提交评论`。
+3. 用 GitHub 账号登录后提交（或按 `⌘/Ctrl + Enter`）。登录复用文末评论区的 giscus 登录，只需登录一次；登录跳转前后草稿会自动保留。
+4. 提交成功后，被批注的文字变成**淡黄色高亮**，段尾出现一个带数字的对话框标记 <span class="annotation-marker" style="display:inline-flex;align-items:center;gap:3px;padding:0 6px;height:18px;font-size:11px;line-height:18px;font-weight:600;color:#8a6d00;background:#fff3bf;border:1px solid #f5d96b;border-radius:9px;vertical-align:2px;"><i class="fa fa-comment"></i>1</span>。点击标记（或高亮本身）会在段落下方展开这段文字的全部批注与回复，底部可以直接加入讨论；文末评论区会在后台静默刷新。
+5. **同一段文字只有一个讨论串**：如果你选中的文字落在已有批注的范围内，评论框会提示"加入该讨论"，你的评论会作为回复挂在同一条线程下（在 GitHub 上也是同一个 thread），不会产生第二条独立批注。
+6. `复制链接` 会生成一个可读的分享链接（形如 `…html#hl=选中的文字`），别人打开后会自动滚动到这段文字并闪烁两秒。批注里的 `§ 原文位置` 链接是 `…html#annot-<短哈希>`，打开后定位到高亮并展开这条讨论。
 
 ### 它是怎么存的
 
@@ -224,12 +225,12 @@ tags: [Blog, Demo, Markdown]
 ~~~markdown
 > 被划线的原文
 >
-> <sub>[§ 原文位置](https://arganzheng.life/<slug>.html#annot-1a2b3c4d:~:text=prefix-,start,end,-suffix)</sub>
+> <sub>[§ 原文位置](https://arganzheng.life/<slug>.html#annot-1a2b3c4d)</sub>
 
 读者写的批注正文
 ~~~
 
-页面加载时，脚本把讨论串里这种形状的评论解析成 W3C Web Annotation 的 `TextQuoteSelector { exact, prefix, suffix }`，在正文里先做精确匹配，找不到再做**模糊锚定**（Hypothesis 同款的近似字符串匹配），所以原文小修小改后高亮依然能对上；改动太大对不上的批注会在评论区顶部列为「未能定位」，不会丢。
+同一段文字的后续评论则是这条评论的回复。页面加载时，脚本把讨论串里这种形状的评论解析成 W3C Web Annotation 的 `TextQuoteSelector { exact }`（引用块即原文），在正文里先做精确匹配，找不到再做**模糊锚定**（Hypothesis 同款的近似字符串匹配），所以原文小修小改后高亮依然能对上；改动太大对不上的批注会在评论区顶部列为「未能定位」，不会丢。
 
 > 💡 你现在就可以试试：选中本段任意几个字，点「评论」。
 
