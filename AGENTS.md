@@ -73,7 +73,9 @@ Pages has `https_enforced` on.
 - Post layouts: `post` (default, text header), `header-post` (hero image;
   front matter `header-img`, `header-bg-css`, `header-mask`,
   `header-img-credit(-href)`), `keynote` (header is an `iframe` of a slide
-  deck, `navcolor: invert` for light decks). `redirect_from:` works
+  deck sized to the viewport, `navcolor: invert` for light decks; same body
+  as the others — catalog, pager, related, comments; demo post
+  `keynote-layout-demo`). `redirect_from:` works
   (jekyll-redirect-from). `tools/new-post.py` scaffolds a post/draft.
 - `_posts/` — blog posts, `layout: post`, permalink `/:title.html`
 - `slides/` — reveal.js decks, `layout: slides` (or set in front matter),
