@@ -9,7 +9,7 @@ catalog: true
 
 ## 内容简介
 
-《Transformer 与 LLM：结构、算量与数值》是一组共七篇的系列文章，面向不训练模型、但要为模型搭建训练与推理系统的工程师，以及想知道自己的模型在硬件上"花多少钱"的算法工程师。它讲的是大语言模型的**成本结构**：每一层做多少次乘加、读多少字节、存多少状态，这些数字由哪些超参数决定，以及各种结构上和数值上的改动如何改变这些数字。
+《Transformer 与 LLM：结构、算量与数值》是一组共八篇的系列文章，面向不训练模型、但要为模型搭建训练与推理系统的工程师，以及想知道自己的模型在硬件上"花多少钱"的算法工程师。它讲的是大语言模型的**成本结构**：每一层做多少次乘加、读多少字节、存多少状态，这些数字由哪些超参数决定，以及各种结构上和数值上的改动如何改变这些数字。
 
 它回答的问题是：
 
@@ -42,6 +42,7 @@ vocab_size           128256
 运行变量    batch · 上下文长度 · prefill 还是 decode                          → 第二、四篇
 数值变量    每个数占几个字节 · 在哪一步累加 · 误差怎么积累                       → 第六篇
 方法变量    量化格式 · 投机解码的草稿与接受率 · LoRA 的秩                      → 第七篇
+模态变量    图片分辨率 · patch 与 merge 大小 · encoder 深度 · 注入方式             → 第八篇
 ```
 
 读完之后，读者应该能把任何一个模型放进这四组变量里，算出它在任何一张 GPU 上的成本表。
@@ -104,7 +105,7 @@ BF16 为什么能训练而 FP16 需要 loss scaling？混合精度里的 FP32 ma
 
 ## 系列的整体主线
 
-七篇文章按"先建立成本模型，再看每一种结构和数值上的改动如何改变它"的顺序推进：
+八篇文章按"先建立成本模型，再看每一种结构和数值上的改动如何改变它，最后看输入不再是文本时账怎么变"的顺序推进：
 
 ```text
 第一篇：Transformer 解剖与参数量 —— 每个矩阵的形状，从 config.json 算出 8.03B
@@ -120,16 +121,18 @@ BF16 为什么能训练而 FP16 需要 loss scaling？混合精度里的 FP32 ma
 第六篇：浮点格式、数值稳定性与混合精度 —— 数值在哪里丢失，为什么还能工作
         ↓
 第七篇：量化、投机解码与 LoRA —— 三种改变计算形态的方法及其数学
+        ↓
+第八篇：多模态 —— vision encoder 的算量、connector 决定的 token 数、image token 的 KV 代价
 ```
 
-前两篇建立成本模型：一个 dense Transformer 在给定超参数下的参数量、FLOPs、字节数。第三到五篇是**结构**上的改动：分别改变 KV cache、上下文长度、参数与激活参数的比例。第六、七篇是**数值**上的改动：改变每个数占几个字节，以及绕过 decode 串行瓶颈的方法。
+前两篇建立成本模型：一个 dense Transformer 在给定超参数下的参数量、FLOPs、字节数。第三到五篇是**结构**上的改动：分别改变 KV cache、上下文长度、参数与激活参数的比例。第六、七篇是**数值**上的改动：改变每个数占几个字节，以及绕过 decode 串行瓶颈的方法。第八篇是**输入**上的改动：token 不再来自 tokenizer，而来自一个独立的 encoder，token 数由图片分辨率决定。
 
 三条交织的线索：
 
 ```text
 成本线：参数量 → FLOPs 与字节数 → KV cache → 长上下文的二次项 → 激活参数与通信量 → 字节/数 → 量化后的字节数
 硬件线：Roofline 与 ridge point → decode 的 memory-bound → 多卡的通信 → Tensor Core 的累加精度 → 低精度 GEMM 的收益区间
-模型线：Llama-3-8B / 70B（dense、GQA）→ DeepSeek-V3（MLA、MoE、FP8）→ Mixtral 8x7B（粗粒度 MoE）
+模型线：Llama-3-8B / 70B（dense、GQA）→ DeepSeek-V3（MLA、MoE、FP8）→ Mixtral 8x7B（粗粒度 MoE）→ LLaVA-1.5 / Qwen2-VL / Llama-3.2-Vision（多模态）
 ```
 
 每一篇都用同样的方法：**写出公式，代入真实模型的超参数，算出数字，解释数字对系统意味着什么**。
@@ -289,7 +292,7 @@ $$
 
 ### 7. 量化、投机解码与 LoRA：改变计算形态的三种方法
 
-最后一篇讲三种在不改变模型结构的前提下改变其计算形态的方法。它们分别攻击前面算出的三个成本项：量化减少权重字节数，投机解码绕过 decode 的串行瓶颈，LoRA 把微调的状态从 16 字节/参数降到几乎为零。
+第七篇讲三种在不改变模型结构的前提下改变其计算形态的方法。它们分别攻击前面算出的三个成本项：量化减少权重字节数，投机解码绕过 decode 的串行瓶颈，LoRA 把微调的状态从 16 字节/参数降到几乎为零。
 
 这一篇会覆盖：
 
@@ -316,12 +319,33 @@ $$
 
 > **同一个 INT4 量化模型，decode 快 3 倍，prefill 反而慢；同一套投机解码，batch 1 时加速 2 倍，batch 64 时没有收益。这两个现象背后是同一条 Roofline。**
 
-实践：脚本增加量化后的字节数、投机解码的期望加速、LoRA 的参数与状态三组输出，完成最终的成本表；用 vLLM 加载 BF16 与 INT4 两个版本的同一模型，在 batch 1 和 batch 64 下实测 decode 与 prefill 吞吐，与推导对照。本篇最后给出全系列总结。
+实践：脚本增加量化后的字节数、投机解码的期望加速、LoRA 的参数与状态三组输出，完成最终的成本表；用 vLLM 加载 BF16 与 INT4 两个版本的同一模型，在 batch 1 和 batch 64 下实测 decode 与 prefill 吞吐，与推导对照。
+
+### 8. 多模态：vision encoder 的算量与 image token 的 KV 代价
+
+最后一篇把输入从 token id 扩展到图片、视频与音频。前七篇的所有账都以"token 数由 tokenizer 决定"为前提；多模态模型把一张图先送进一个独立的 vision encoder（ViT），再由 connector 变成几百到几千个 token 插进 prompt。于是多了三笔账：encoder 自己的算量、connector 决定的 token 数、这些 token 进入 decoder 后与文本 token 完全相同的 prefill FLOPs 与 KV cache。
+
+这一篇会覆盖：
+
+- patchify 与 ViT 的参数量、FLOPs 公式：$$N_{vit} \approx 12 L_{vit} d_{vit}^2$$，一张图的 FLOPs $$= 2 N_{vit} n_p + 4 L_{vit} n_p^2 d_{vit}$$；代入 CLIP ViT-L/14-336（0.3 B、576 patch、0.38 TFLOP）、Qwen2-VL 的 ViT（0.63 B、1024² 图 5476 patch、11.8 TFLOP，attention 二次项占 42%）与 Qwen2.5-VL 的 window attention 为什么能砍掉三分之一；
+- 分辨率策略：固定分辨率（LLaVA）、固定 tile 动态 tile 数（InternVL、Llama 3.2 Vision）、原生动态分辨率（Qwen2-VL）各自的 patch 数范围；
+- connector 的三类：MLP projector（不压缩）、2×2 merge / pixel-shuffle（÷4）、Perceiver resampler / Q-Former（定长）；image token 数的公式 $$n_{img} = \lceil H/28 \rceil \lceil W/28 \rceil$$——同一张 1024² 的图从 576 到 6404 个 token，差 11 倍；
+- image token 在 decoder 里的三个字节数：prefill FLOPs $$2 N n_{img}$$、KV $$n_{img} \cdot 2 L n_{kv} d_{head} \cdot 2$$ B、encoder 输出 $$n_{img} d_{model} \cdot 2$$ B；70B 规格下 1369 个 token 的 KV 是 428 MiB、encoder 输出 21 MiB，比值 $$2 L n_{kv} d_{head} / d_{model} = 20$$，且 KV 活到请求结束而 encoder 输出用完即弃——**图片贵的不是 encoder，是它变成的 token 在 decoder 里占的 KV**；
+- cross-attention 注入（Llama 3.2 Vision）：图片特征不进序列，8 个 cross-attention 层的 K / V 固定为 200 MiB，与 decoder-only 注入的 800 MiB 对照；用 0.5 B 参数换序列长度；
+- M-RoPE：把 $$d_{head}$$ 的 64 对旋转维度按 16 / 24 / 24 分给 $$(t, h, w)$$，图片在位置空间里占的长度是边长而不是面积——但不改变 KV 的账；
+- 视频与音频：一分钟 720p 视频约 36K token；Whisper encoder 30 秒 → 1500 个位置、50 token / 秒；所有模态最终归结为进入 decoder 的 token 数；
+- 训练侧：冻结 encoder 省的是激活值而不是状态；样本 token 数的方差对打包的影响；图片解码把数据管线的瓶颈搬到 CPU。
+
+核心问题是：
+
+> **一张 1024×1024 的图片在 Qwen2-VL 里等于多少个 token？为什么"encoder 输出只有 21 MB"与"这张图占 400 MB 显存"两句话同时成立？**
+
+实践：脚本增加 vision encoder 的参数与 FLOPs、image token 数、image token 在 decoder 中的三个字节数；成本表新增"一张 1024² 图片"一行，按三种注入方式对照。本篇最后给出全系列总结。
 
 
 ## 贯穿全系列的实践线
 
-本系列的贯穿物是**一张成本表和一组生成它的推导脚本**。脚本从第一篇的参数量开始，每篇增加几列，到第七篇结束时可以为任何一个给出 `config.json` 的模型、任何一组硬件参数输出：
+本系列的贯穿物是**一张成本表和一组生成它的推导脚本**。脚本从第一篇的参数量开始，每篇增加几列，到第八篇结束时可以为任何一个给出 `config.json` 的模型、任何一组硬件参数输出：
 
 ```text
 第一篇    参数量                 逐层、逐矩阵；attention / FFN / embedding 的分布
@@ -331,9 +355,10 @@ $$
 第五篇    MoE                    总参数 · 激活参数 · 期望激活专家数 · all-to-all 字节数
 第六篇    精度                   各格式的字节数与训练状态；误差随累加长度的增长
 第七篇    量化 · 投机 · LoRA      量化后字节数；期望加速比；LoRA 参数与状态
+第八篇    多模态                 ViT 参数与 FLOPs；image token 数；image token 的 prefill FLOPs 与 KV
 ```
 
-三个模型贯穿全部七篇：**Llama-3-8B** 与 **Llama-3-70B** 代表 dense + GQA 的主流结构，**DeepSeek-V3** 代表 MLA + 细粒度 MoE + FP8 的另一条路线；Mixtral 8x7B 在 MoE 一篇作为粗粒度专家的对照。每篇算出的数字都会填进同一张表，读者在第七篇结束时手上有一张三个模型在 H100 上的完整成本对照。表的骨架大致如下（BF16，H100 SXM，数字为理论值）：
+三个模型贯穿前七篇：**Llama-3-8B** 与 **Llama-3-70B** 代表 dense + GQA 的主流结构，**DeepSeek-V3** 代表 MLA + 细粒度 MoE + FP8 的另一条路线；Mixtral 8x7B 在 MoE 一篇作为粗粒度专家的对照；第八篇加入 LLaVA-1.5、Qwen2-VL、Llama-3.2-Vision 三个多模态模型，把"一张图"作为一行放进同一张表。每篇算出的数字都会填进同一张表，读者在第八篇结束时手上有一张这些模型在 H100 上的完整成本对照。表的骨架大致如下（BF16，H100 SXM，数字为理论值）：
 
 ```text
                         Llama-3-8B        Llama-3-70B       DeepSeek-V3
@@ -357,6 +382,7 @@ batch 1 decode 时间下界   4.8 ms（单卡）     不能单卡           不�
 第五篇    Fedus 等 2021（Switch Transformer）· Mixtral 与 DeepSeek-V3 的技术报告 · transformers 的 modeling_deepseek_v3.py
 第六篇    Micikevicius 等 2017（混合精度）· Micikevicius 等 2022（FP8 格式）· DeepSeek-V3 技术报告的 FP8 训练章节
 第七篇    Frantar 等 2022（GPTQ）· Lin 等 2023（AWQ）· Xiao 等 2022（SmoothQuant）· Leviathan 等 2023（投机解码）· Hu 等 2021（LoRA）
+第八篇    Dosovitskiy 等 2020（ViT）· Liu 等 2023（LLaVA-1.5）· Qwen2-VL 与 Qwen2.5-VL 技术报告 · Alayrac 等 2022（Flamingo）· Llama 3.2 Vision 与 InternVL2 的 config.json
 ```
 
 
@@ -365,16 +391,16 @@ batch 1 decode 时间下界   4.8 ms（单卡）     不能单卡           不�
 ### 完整学习路径
 
 ```text
-1 → 2 → 3 → 4 → 5 → 6 → 7
+1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 ```
 
 ### 做推理系统，最关心显存与吞吐
 
 ```text
-1 → 2 → 3 → 7
+1 → 2 → 3 → 7 → 8
 ```
 
-参数量、算量与访存量、KV cache、量化与投机解码，是推理系统容量规划的四块。第四篇在需要支持长上下文时补读。
+参数量、算量与访存量、KV cache、量化与投机解码，是推理系统容量规划的四块；服务多模态模型时第八篇必读——一张图的 KV 需求由分辨率决定，方差远大于纯文本请求。第四篇在需要支持长上下文时补读。
 
 ### 做训练基础设施，最关心状态与通信
 
@@ -395,10 +421,10 @@ GEMM 的 $$m, k, n$$、attention 的 head 数与 head dim、MoE grouped GEMM 的
 ### 算法工程师，想知道结构选择的硬件代价
 
 ```text
-2 → 3 → 4 → 5
+2 → 3 → 4 → 5 → 8
 ```
 
-先有 Roofline，再看 GQA 组数、MLA、RoPE base、专家粒度分别改变了成本表的哪一格。
+先有 Roofline，再看 GQA 组数、MLA、RoPE base、专家粒度、分辨率与 connector 压缩比分别改变了成本表的哪一格。
 
 ### 排查数值问题
 
@@ -419,7 +445,7 @@ loss 变 NaN、量化后输出异常、两个 kernel 的结果对不上——第
 - **分布式并行的实现**：TP / PP / EP / 序列并行如何切分与同步、集合通信的算法。本系列在 MoE 一篇讨论 EP 的通信**量**，不讨论通信**怎么做**。
 - **框架 API**：`transformers`、PyTorch、vLLM 的使用方式。实践部分会调用它们做验证，但不解释它们。
 - **非 Transformer 结构**：状态空间模型（Mamba 一类）、线性 attention、扩散模型。它们改变了成本结构的基本形态，值得单独讨论，不进入本系列。
-- **多模态**：视觉编码器、音频前端。本系列只讨论文本 decoder。
+- **多模态的训练与对齐方法**：第八篇只把 vision encoder、connector 与 image token 当作计算对象来算账，不讨论视觉-语言对齐怎么训、数据怎么配；扩散模型（图像 / 视频生成）的成本结构与自回归 LLM 完全不同，不进入本系列。
 
 
 ## 前置要求与说明
@@ -440,7 +466,7 @@ loss 变 NaN、量化后输出异常、两个 kernel 的结果对不上——第
 
 ### 版本与模型基线
 
-- 模型：以 **Llama-3-8B / 70B**（Llama 3 与 3.1 结构相同，$$d = 4096 / 8192$$，32 / 80 层，GQA 8 个 KV 头，$$d_{head} = 128$$，vocab 128256）和 **DeepSeek-V3**（$$d = 7168$$，61 层，128 头，MLA 的 $$d_c = 512$$、$$d_h^R = 64$$，256 个路由专家 + 1 个共享专家取 top-8，专家 $$d_{ff} = 2048$$）为主要分析对象，超参数取自各自公开的 `config.json` 与技术报告；Mixtral 8x7B 在 MoE 一篇作为对照；
+- 模型：以 **Llama-3-8B / 70B**（Llama 3 与 3.1 结构相同，$$d = 4096 / 8192$$，32 / 80 层，GQA 8 个 KV 头，$$d_{head} = 128$$，vocab 128256）和 **DeepSeek-V3**（$$d = 7168$$，61 层，128 头，MLA 的 $$d_c = 512$$、$$d_h^R = 64$$，256 个路由专家 + 1 个共享专家取 top-8，专家 $$d_{ff} = 2048$$）为主要分析对象，超参数取自各自公开的 `config.json` 与技术报告；Mixtral 8x7B 在 MoE 一篇作为对照；多模态一篇以 **LLaVA-1.5-7B**（CLIP ViT-L/14-336）、**Qwen2-VL-7B / Qwen2.5-VL-7B**（32 层 d=1280 的 ViT，2×2 merge，M-RoPE）与 **Llama-3.2-11B-Vision**（cross-attention 注入）为分析对象，InternVL2-8B 作为 tile 方案的对照，超参数取自各自的 `config.json`；
 - 硬件：以 **H100 SXM** 为默认（80 GB HBM3，3.35 TB/s，BF16 dense 约 989 TFLOPS，FP8 dense 约 1979 TFLOPS），必要处标注 **A100**（80 GB，约 2 TB/s，BF16 约 312 TFLOPS）；这些是公开标称值，实测会因型号、频率与功耗设置有差异；
 - 文中所有 FLOPs 与字节数都是**理论下界**，用于建立数量级判断与相互比较，不是任何具体实现的实测值；实测与理论的差距本身就是本系列要教读者解释的东西；
 - 论文引用以第一作者与年份标注；方法本身比它们在某个框架中的实现稳定，正文只在必要处提及 vLLM、Megatron、Transformer Engine 等项目中的对应实现。
@@ -455,6 +481,7 @@ loss 变 NaN、量化后输出异常、两个 kernel 的结果对不上——第
 5. [MoE：路由、激活参数量与通信形态](/moe-compute-and-communication.html)
 6. [浮点格式、数值稳定性与混合精度](/floating-point-formats-and-mixed-precision.html)
 7. [量化、投机解码与 LoRA：改变计算形态的三种方法](/quantization-speculative-decoding-and-lora.html)
+8. [多模态：vision encoder 的算量与 image token 的 KV 代价](/multimodal-vision-encoder-cost-and-image-token-kv.html)
 
 
 ## 最终目标
@@ -473,6 +500,7 @@ batch 开到多大才能把算力用起来？                    → 第二篇�
 量化能快多少？在哪个阶段快？                        → 第七篇：字节数与 Roofline
 投机解码值得开吗？加速上界是多少？                   → 第七篇：期望接受长度
 微调它需要多少显存？                               → 第六篇、第七篇：训练状态与 LoRA
+一张图等于多少 token？贵在哪一环？                  → 第八篇：patch 数、connector 压缩比与 image token 的 KV
 ```
 
 最终目标是三种能力：

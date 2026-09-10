@@ -53,7 +53,7 @@ catalog: true
 **回到我们的例子**（Llama-3-70B、8×H100、TP=8、2050 token prompt、生成 300 token，每 token KV 320 KB、每卡 40 KB）。本篇会给它加两样东西：
 
 - **8 个 rank-16 的 LoRA 槽位**：静态显存约 **1.44 GB / 卡**——相当于每卡 36K token 的 KV，或者 15 个这样的请求；每步多 1120 次 kernel launch；
-- **把 2000 token 的 system prompt 换成一张图**：LLaVA 类 336×336 → 576 个 token，Qwen2-VL 类 1024×1024 → 约 1300 个 token。encoder 输出 9–21 MB，但这些 token 的 KV 是 184–426 MB——**图片贵的不是 encoder 输出，是它占的 KV**。
+- **把 2000 token 的 system prompt 换成一张图**：LLaVA 类 336×336 → 576 个 token，Qwen2-VL 类 1024×1024 → 1369 个 token（37×37）。encoder 输出 9–22 MB，但这些 token 的 KV 是 184–438 MB——**图片贵的不是 encoder 输出，是它占的 KV**。
 
 ### 4. 本文的章节安排
 
@@ -426,15 +426,15 @@ flowchart TB
 
 **回到我们的例子**，把 2000 token 的 system prompt 换成一张图：
 
-| | LLaVA 类（336×336，14 px patch，24×24=576 token） | Qwen2-VL 类（1024×1024，14 px patch，2×2 合并，≈1332 token） |
+| | LLaVA 类（336×336，14 px patch，24×24=576 token） | Qwen2-VL 类（1024×1024，14 px patch，2×2 合并，1369 token） |
 |---|---|---|
-| 占位 token | 576 | ≈ 1332 |
-| encoder 输出（hidden=8192，bf16） | `576 × 16 KB ≈ 9.4 MB` | `1332 × 16 KB ≈ 21 MB` |
-| 这些 token 的 KV（320 KB/token，全部 8 卡） | `576 × 320 KB ≈ 184 MB` | `1332 × 320 KB ≈ 426 MB` |
+| 占位 token | 576 | 1369 |
+| encoder 输出（hidden=8192，bf16） | `576 × 16 KB ≈ 9.4 MB` | `1369 × 16 KB ≈ 22 MB` |
+| 这些 token 的 KV（320 KB/token，全部 8 卡） | `576 × 320 KB ≈ 184 MB` | `1369 × 320 KB ≈ 438 MB` |
 | KV / encoder 输出 | **≈ 20×** | **≈ 20×** |
 | 驻留时间 | 几步（prefill 期间） | 全请求（2350 步的 decode 都要读） |
 
-**一张图真正贵的地方是它的 KV，不是 encoder 输出**——后者小 20 倍、活得短得多。这解释了为什么 encoder cache 的上限可以简单地绑到 `max_num_batched_tokens`：`16384 × 16 KB = 268 MB`，相对 80 GB 的卡不值得精细管理；而图片占的 KV 直接进第五篇那套按块管理的体系，第四篇的 Token Budget 也直接把 1332 个占位 token 当普通 prefill token 计费。
+**一张图真正贵的地方是它的 KV，不是 encoder 输出**——后者小 20 倍、活得短得多。这解释了为什么 encoder cache 的上限可以简单地绑到 `max_num_batched_tokens`：`16384 × 16 KB = 268 MB`，相对 80 GB 的卡不值得精细管理；而图片占的 KV 直接进第五篇那套按块管理的体系，第四篇的 Token Budget 也直接把 1369 个占位 token 当普通 prefill token 计费。
 
 encoder **激活**的峰值是另一笔：ViT 对 1024×1024 图有 5329 个 patch，注意力矩阵 `5329² × heads`，比它的输出大得多。vLLM 不试图精确算它，而是在 `profile_run()` 里用 `get_dummy_encoder_profile_inputs()`（`encoder_budget.py`）按 `mm_max_items_per_batch` 个最大尺寸的假图**实测一次峰值**，从可用显存里扣掉，剩下的才给 KV Cache。`skip_mm_profiling=True` 可以跳过以加快启动，代价是这部分显存需要用户自己预估——文档明说 "shifts the responsibility to users"。
 
@@ -468,7 +468,7 @@ CPU 侧还有 processor cache 的 `4 GiB × (api_server_count + dp_size)`。
 
 ### 3. 留给第十二篇（PD 分离）的问题
 
-- **encoder 放哪一侧？** 它的输出只在 prefill 时需要，自然属于 P 侧；但 P 侧的显存本来就要给大 batch 的 prefill 激活，ViT 的峰值激活会挤它。v0.27.1 已经有第三种选择的骨架：`ECTransferConfig`（`vllm/config/ec_transfer.py`）与 `vllm/distributed/ec_transfer/` 定义了 encoder cache 的 producer / consumer，`mm_encoder_only=True` 让一个实例只跑 encoder，调度器里 `_try_schedule_encoder_inputs()` 的 `external_load_encoder_input` 分支对应"encoder 输出从远端来"。E/P/D 三池分离的问题是：encoder 输出（每张图 9–21 MB）值不值得走一次网络？
+- **encoder 放哪一侧？** 它的输出只在 prefill 时需要，自然属于 P 侧；但 P 侧的显存本来就要给大 batch 的 prefill 激活，ViT 的峰值激活会挤它。v0.27.1 已经有第三种选择的骨架：`ECTransferConfig`（`vllm/config/ec_transfer.py`）与 `vllm/distributed/ec_transfer/` 定义了 encoder cache 的 producer / consumer，`mm_encoder_only=True` 让一个实例只跑 encoder，调度器里 `_try_schedule_encoder_inputs()` 的 `external_load_encoder_input` 分支对应"encoder 输出从远端来"。E/P/D 三池分离的问题是：encoder 输出（每张图 9–22 MB）值不值得走一次网络？
 - **LoRA 在两个池怎么同步？** KV 的块哈希包含 `lora_name`，P 侧算出的 KV 只对同一个 adapter 有效；D 侧必须有同一个 adapter 且槽位可用，否则传过来的 KV 无法使用。两个池的 `max_loras`、adapter 集合、LRU 状态如何保持一致，是 PD 分离下 multi-LoRA 的新问题。
 - **处理器缓存在哪一侧？** `mm_processor_cache` 在 API 进程与引擎进程之间；PD 分离后请求要经过 P 和 D 两个引擎，图片张量是传两次、还是 D 侧根本不需要（只需要 KV）？
 
@@ -479,7 +479,7 @@ CPU 侧还有 processor cache 的 `4 GiB × (api_server_count + dp_size)`。
 | | multi-LoRA | 多模态 |
 |---|---|---|
 | **显存：静态** | `max_loras × max_lora_rank` 买断：8 个 rank-16 槽位 ≈ **1.44 GB / 卡**，= 36K token 的 KV 或 15 个例子请求；CUDA graph 多录一套 | encoder 激活峰值：`profile_run()` 实测后从可用显存里扣掉（ViT 对 1024² 图有 5329 个 patch 的注意力）；encoder cache 上限 `max_num_batched_tokens` 个 embedding ≈ 268 MB |
-| **显存：动态** | fp32 中间缓冲 `[num_slices, tokens, r]`，每层 KB 级；CPU 侧 `max_cpu_loras × 414 MB` × worker 数 | 一张图的 encoder 输出 9–21 MB、只活几步；**它占的 KV 184–426 MB、活全程**（≈ 20×）；CPU 侧 processor cache `4 GiB × (api_server_count + dp_size)` |
+| **显存：动态** | fp32 中间缓冲 `[num_slices, tokens, r]`，每层 KB 级；CPU 侧 `max_cpu_loras × 414 MB` × worker 数 | 一张图的 encoder 输出 9–22 MB、只活几步；**它占的 KV 184–438 MB、活全程**（≈ 20×）；CPU 侧 processor cache `4 GiB × (api_server_count + dp_size)` |
 | **计算与 launch** | FLOPs +0.2%；**+1120 次 kernel launch / 步**（7 模块 × 2 × 80 层），必须进 CUDA graph；每步一次 `sort` + `unique` | encoder 是 decoder 之前的一次独立 forward，可有自己的 CUDA graph；占位 token 的 decoder 计算与普通 token 相同 |
 | **调度新约束** | 一步内活跃 adapter 数 ≤ `max_loras`，超出的 waiting 请求被跳过（FCFS 被打破，无 aging）；新 adapter 首次加载时整个 batch 同步等磁盘 | encoder compute budget（每步 ≤ `max_num_batched_tokens` 个 embedding），一张图整体编码不可拆；预算不够则 `num_new_tokens` 截到图之前，甚至为 0；encoder-decoder 模型关闭 chunked prefill 与 prefix cache |
 | **正确性 / 隔离** | 块哈希 `extra_keys` 加 `lora_name`：同一前缀在不同 adapter 下是两条哈希链、两份块 | 块哈希 `extra_keys` 加 `(mm_hash, 图起点相对块起点的偏移)`：相同 token 序列、不同图 → 从图开始全部不命中 |

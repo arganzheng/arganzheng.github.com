@@ -11,6 +11,8 @@ catalog: true
 
 这是一张给后端工程师——尤其是 Java、Go 等托管语言背景的工程师——转向 AI-Infra 方向的学习地图。它把这个方向需要的知识组织成十个系列，说明每个系列解决什么问题、为什么放在那个位置、彼此之间如何依赖，以及按不同目标应该走哪条路径。
 
+它是三张 AI 学习地图中的第一张：这一张面向**跑模型的人**（AI-Infra 工程师），[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)面向**造模型的人**，第三张面向**用模型的人**（AI 应用工程师，另文梳理）。三张地图有重叠的名词，分工在本文末尾的[《与算法工程师地图的关系》](#与算法工程师地图的关系)一节说明。
+
 地图回答三个问题：
 
 > **AI-Infra 由哪些层组成？每一层需要掌握什么？按什么顺序学？**
@@ -144,6 +146,7 @@ Ray Data · 清洗 · 去重`"]
 | 横切 | 方法 | 10 | AI-Infra 开源贡献指南 |
 | 选修 | 编译器 | — | ML 编译器内部（MLIR / Triton 编译器 / TVM） |
 | 选修 | RL 后训练基础设施 | — | rollout 引擎与训练器的共置、权重同步与调度（verl / OpenRLHF 一类框架） |
+| 选修 | 扩散模型推理基础设施 | — | 图像 / 视频生成的 serving：无 KV cache、compute-bound、多步去噪的并行（xDiT 一类） |
 
 ### 两张图的叠加
 
@@ -205,7 +208,7 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 > **Infra 工程师不训练模型，但必须知道自己在优化什么：这个模型的每一步算多少、读多少、存多少？**
 
-七篇。Transformer 前向的逐层算量与访存量；Attention 变体（MHA / GQA / MQA / MLA）与 KV cache 大小的推导；位置编码与长上下文；MoE 的路由与通信形态；浮点格式（FP32 / TF32 / BF16 / FP16 / FP8 / INT8 / INT4）、数值稳定性与混合精度为什么能工作；量化算法（GPTQ / AWQ / SmoothQuant / FP8）的原理与代价；投机解码的数学；LoRA 等参数高效方法的计算形态。
+八篇。Transformer 前向的逐层算量与访存量；Attention 变体（MHA / GQA / MQA / MLA）与 KV cache 大小的推导；位置编码与长上下文；MoE 的路由与通信形态；浮点格式（FP32 / TF32 / BF16 / FP16 / FP8 / INT8 / INT4）、数值稳定性与混合精度为什么能工作；量化算法（GPTQ / AWQ / SmoothQuant / FP8）的原理与代价；投机解码的数学；LoRA 等参数高效方法的计算形态；多模态：vision encoder 的算量、connector 决定的 image token 数、image token 在 decoder 里与文本同价的 KV。
 
 这一篇由**推导**驱动而不是由 API 驱动。它同时服务两类读者：Infra 工程师借它理解优化对象，算法工程师借它理解自己的模型在硬件上的成本。
 
@@ -269,6 +272,10 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 RLHF / GRPO 一类后训练把推理引擎和训练框架绑在同一个任务里：rollout 由 vLLM 这样的引擎生成，训练由 Megatron / FSDP 完成，两者之间要反复同步权重、切换显存归属、平衡生成与训练的算力配比。这是 07 与 08 两个系列的知识在一个系统里的组合，也是当前增长最快的一类 AI-Infra 负载。它没有单列一个系列，原因有二：一是它的每个组件在 07、08 中都已覆盖，新增的是编排而不是新机制；二是框架（verl、OpenRLHF、slime 等）尚在快速收敛，现在写具体实现很快会过期。读完 07 和 08 之后，以"rollout 与训练如何共享一组 GPU"为问题读这些框架的源码，是进入这一方向的路径；算法本身（奖励模型、RL 目标函数）属于算法工程师的地图。
 
+### 选修：扩散模型推理基础设施
+
+图像与视频生成模型（Stable Diffusion、FLUX、Sora 一类）的推理与 LLM serving 形态完全不同：没有 KV cache，没有 prefill / decode 之分，每一步都是对整张 latent 的一次完整前向，几十步迭代，compute-bound；多卡扩展靠序列并行、CFG 并行与 patch 并行（xDiT、DistriFusion 一类），而不是张量并行加 KV 传输。它是一类真实存在的 AI-Infra 负载，但 08 系列建立的分析方法（请求、调度、KV、批处理）在它身上大半用不上。它没有进入主线，原因是当前生产流量与开源社区的重心都在 LLM；04 系列第八篇讨论了多模态**理解**模型（把图片送进 LLM）的成本，生成模型的成本结构需要另一套推导，留作后续。
+
 
 ## 系列之间的依赖
 
@@ -316,6 +323,31 @@ graph LR
 | 读懂源码，暂时不定方向 | 01 → 02 → 03 → 04 | 到 04 为止具备阅读这个领域几乎任何项目源码的基础，再按兴趣向下（05、06）或向上（07、08、09） |
 
 
+## 与算法工程师地图的关系
+
+这张地图与[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)有大量重叠的名词——Python、PyTorch、CUDA、Transformer、LoRA、量化、混合精度、DDP / FSDP。重叠是正常的：两类工程师面对同一个系统。分工用一条规则说清：
+
+> **同一个主题，算法地图回答"为什么这样建模、效果如何"，Infra 地图回答"在硬件上花多少钱、系统怎么实现"。**
+
+| 重叠主题 | Infra 地图负责（本图） | 算法地图负责 | 本图系列 |
+|---|---|---|---|
+| Python | 语言机制、运行时、内存、C 扩展、交付 | 会写、会读训练代码 | 01 |
+| PyTorch | Dispatcher、Autograd 引擎、编译、分布式通信栈的实现 | Tensor / Autograd / Module / DataLoader / AMP / DDP 的用法 | 03 |
+| GPU / CUDA | CUDA 编程模型、访存、Tensor Core、Triton、FlashAttention 的实现 | 算力与带宽两个上限、显存去向、为什么 batch 大才快 | 05 |
+| Transformer 结构 | 各结构的参数量、FLOPs、KV、通信量 | 各结构的建模动机与效果 | 04（共享） |
+| 量化 | 字节数与收益区间、量化 kernel | 选哪种方法、精度损失多大 | 04 · 05 |
+| LoRA | 参数与状态的账、多 LoRA 服务的 kernel 与调度 | 微调配方、秩与目标矩阵的选择 | 04 · 08 |
+| 投机解码 | 加速比的数学、引擎中的实现 | 草稿模型的训练、接受率 | 04 · 08 |
+| 混合精度 / FP8 | 格式、累加精度、数值丢失的位置 | 用法、对训练稳定性的影响 | 04 |
+| 分布式训练 | 并行策略、checkpoint、容错、MFU | DDP / FSDP 的启用、并行度对配方的影响 | 03 · 07 |
+| 推理系统机制 | PagedAttention、continuous batching、chunked prefill、PD 分离 | 知道存在；自己的结构对它们意味着什么 | 08 |
+| RL 后训练 | rollout 引擎与训练器的共置、权重同步 | 算法：奖励、目标函数、配方 | 选修 |
+| 数据管线 | tokenization 离线化、流式加载、打包的**实现** | 数据配比、质量、去重的**决策** | 07 |
+| 多模态 | encoder 的调度与缓存、image token 的 KV、请求形态 | VLM 架构选择、对齐训练、扩散模型 | 04 · 08 |
+
+04 系列是两张地图共享的唯一系列：它讨论的对象——模型作为一个计算对象的成本——恰好是两类工程师对话的语言。Infra 工程师从中知道要优化什么，算法工程师从中知道自己的每个结构决定在硬件上花多少钱。
+
+
 ## 边界与说明
 
 ### 主线与替代品
@@ -333,10 +365,24 @@ graph LR
 
 ### 不在地图上的内容
 
-- **算法与训练方法**：预训练配方、SFT、RLHF / DPO、评测、数据工程。这些属于算法工程师的路径，另有一张地图；04 是两条路径的交点。
+- **算法与训练方法**：预训练配方、数据配比、SFT、RLHF / DPO / GRPO、评测、多模态的对齐训练、扩散模型的数学。这些属于[算法工程师的地图](/ai-algorithm-engineer-learning-roadmap.html)；04 是两条路径的交点。
+- **经典机器学习与前 Transformer 时代的深度学习**：scikit-learn 一族、XGBoost、CNN / RNN 的模型谱系。AI-Infra 的负载以 Transformer 为主，CNN 时代的推理基础设施（TensorRT、Triton Inference Server）只在 09 作为 serving 平台出现。残差连接、LayerNorm 这些 Transformer 借用的部件，04 在需要处直接给出。
+- **NLP 基础与 tokenizer**：分词算法（BPE / SentencePiece）、词向量、n-gram。tokenizer 在本图中只以它对系统的影响出现：词表大小决定 embedding 与 lm_head 的参数量（04 第一篇）、tokenize / detokenize 在推理引擎里留在 CPU 侧的进程（08 第三篇）、离线 tokenization 与 `.bin / .idx` 索引（07 第七篇）。
 - **通用后端与云原生知识**：K8s 本身、网络基础、Linux 系统编程。假设读者作为后端工程师已经具备；09 只讲它们在 AI 负载下的特殊之处。
-- **数学**：线性代数、概率、优化的系统课程。04 和 05 会在需要处给出推导，但不从零讲起。
-- **Agent 框架与应用层**：RAG、工具调用、编排框架。它们在推理引擎之上，属于应用开发，不是基础设施。
+- **数学的系统课程**：不从零讲线性代数、概率与优化。但 AI-Infra 用到的数学是一个很小的子集，列出来比一句"另有课程"更有用：
+
+  | 数学 | 用在哪里 |
+  |---|---|
+  | 矩阵乘法的形状规则、转置、分块 | 04 第一、二篇的参数量与 FLOPs；05 的 GEMM 分块 |
+  | 范数、误差的相对与绝对量 | 04 第六篇的数值误差、第七篇的量化误差 |
+  | softmax、交叉熵、KL 散度 | 04 第七篇的投机解码分布等式；05 的 online softmax |
+  | 期望、概率分布的基本操作 | 04 第五篇的期望激活专家数、第七篇的期望接受长度 |
+  | 链式法则 | 03 第三篇的 Autograd |
+  | 指数加权平均 | 07 第一篇的 Adam 状态与它的 8 字节/参数 |
+  | 幂律与对数坐标 | 04 第二篇的 scaling law、05 与 06 的 Roofline 与带宽-延迟模型 |
+
+  超出这张表的推导，04 和 05 会在需要处自带。
+- **Agent 框架与应用层**：RAG、工具调用、编排框架、Prompt 工程。它们在推理引擎之上，属于应用开发，是第三张地图的内容。
 
 ### 版本与时效
 
@@ -354,7 +400,7 @@ graph LR
 | 01 | [Python 在 AI-Infra：从语言机制到生产交付](/python-for-ai-infra.html) | L1 | 7 |
 | 02 | [C++ 在 AI-Infra：从对象模型到算子扩展](/cpp-for-ai-infra.html) | L1 | 8 |
 | 03 | [PyTorch 深度实践：从 Tensor 到深度学习运行时](/deep-dive-into-pytorch.html) | L2 | 10 |
-| 04 | [Transformer 与 LLM：结构、算量与数值](/transformer-and-llm-for-infra-engineers.html) | L2 | 7 |
+| 04 | [Transformer 与 LLM：结构、算量与数值](/transformer-and-llm-for-infra-engineers.html) | L2 | 8 |
 | 05 | [GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention](/gpu-kernel-engineering.html) | L2 | 10 |
 | 06 | [通信与互联：从 NCCL 到 RDMA](/communication-and-interconnect-for-ai-infra.html) | L3 | 8 |
 | 07 | [大规模训练工程：从并行策略到容错恢复](/large-scale-training-from-parallelism-to-fault-tolerance.html) | L4 | 8 |

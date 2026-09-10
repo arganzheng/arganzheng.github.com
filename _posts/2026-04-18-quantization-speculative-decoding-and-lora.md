@@ -9,7 +9,7 @@ catalog: true
 
 前六篇把一个 Transformer 拆成了四组变量：参数量 $$N$$、每 token 的 FLOPs、每步要搬的字节数、每 token 的 KV cache。这些变量由结构决定——层数、hidden、GQA 的组数、专家数——一旦 `config.json` 定下来，它们就定下来了。
 
-最后一篇讲的是三种**不改结构、只改计算形态**的方法。它们分别攻击前面算出的三个成本项：
+本篇讲的是三种**不改结构、只改计算形态**的方法。它们分别攻击前面算出的三个成本项：
 
 - **量化**减少权重（和 KV cache）的字节数，攻击的是 decode 每步要搬的 16 GB；
 - **投机解码**用一次前向验证多个 token，攻击的是 decode 每步只产出一个 token 的串行形态；
@@ -24,7 +24,7 @@ catalog: true
 
 ### 1. 本文的路线
 
-三种方法各攻击一个成本项，本篇的顺序也与之对应：先把这条 Roofline 重新写出来（第二章），再依次看量化如何改权重字节数 $$W_{bytes}$$（第三章）、投机解码如何改每步的 $$m$$（第四章）、LoRA 如何改训练时的 $$N$$（第五章），最后在 llm_cost.py 里补齐全系列的最终成本表（第六章）。数字基线沿用前几篇：Llama-3-8B、Llama-3-70B、DeepSeek-V3，硬件以 H100 SXM 为准，所有数字都是理论下界或估算，不是实测。
+三种方法各攻击一个成本项，本篇的顺序也与之对应：先把这条 Roofline 重新写出来（第二章），再依次看量化如何改权重字节数 $$W_{bytes}$$（第三章）、投机解码如何改每步的 $$m$$（第四章）、LoRA 如何改训练时的 $$N$$（第五章），最后在 llm_cost.py 里补齐文本模型的成本表（第六章）。数字基线沿用前几篇：Llama-3-8B、Llama-3-70B、DeepSeek-V3，硬件以 H100 SXM 为准，所有数字都是理论下界或估算，不是实测。
 
 ### 2. 本文的章节安排
 
@@ -33,8 +33,8 @@ catalog: true
 第三章   量化：改变 W_bytes                 基本形式与粒度、W4A16 的收益区间、交叉点 B ≈ ridge/4、GPTQ/AWQ/SmoothQuant、FP8、W8A8、KV cache 量化
 第四章   投机解码：改变 m                   分布等式、期望接受数与加速比、验证 γ+1 个 token 何时免费、草稿从哪里来
 第五章   LoRA：改变训练时的 N               形式与参数量、训练状态 128 GB → 16.7 GB、额外 FLOPs 与 kernel 数、QLoRA
-第六章   实践                               脚本新增的三组函数、最终成本表、BF16 与 INT4 的对照实验设计
-第七章   本文小结与系列总结                 三种方法各改一个变量；七篇文章留下的公式与数字
+第六章   实践                               脚本新增的三组函数、文本模型的成本表、BF16 与 INT4 的对照实验设计
+第七章   本文小结                          三种方法各改一个变量
 ```
 
 
@@ -605,7 +605,7 @@ LoRA 的 16.7 GB 里 16.06 GB 是冻结的 BF16 底座。QLoRA（Dettmers 等 20
 8B 底座：$$8.03\text{B} \times 4.13 / 8 \approx 4.1$$ GB，保留部分层高精度后**约 4.5 GB**；加 LoRA 状态 0.67 GB，权重侧不到 5.2 GB，一张 24 GB 的消费级卡可以微调 8B 模型（激活值决定能开多长的序列）。代价是每次前向和反向都要反量化整份权重，每步时间明显长于 BF16 LoRA——又是第三章的结论：量化省字节，反量化加算量，训练是 compute-bound 的，所以 QLoRA 是**用时间换显存**。
 
 
-## 六、实践：完成最终成本表
+## 六、实践：完成文本模型的成本表
 
 ### 1. 脚本新增的三组函数
 
@@ -738,9 +738,9 @@ Llama-3-70B: 70.55B  BF16 141.1 GB  INT4(g128) 4.25 bit -> 37.48 GB
 
 70B 的 BF16 decode 下界 42 ms 是"假设能放进一张卡"的数值，实际放不进；INT4 的 11.2 ms 是真的单卡数字。换 `keep_embed_bf16=True` 得到 40.6 GB / 12.1 ms；换 `zero_bits=4` 得到 4.16 bit。
 
-### 2. 最终成本表
+### 2. 文本模型的成本表
 
-七篇的数字合到一张表（H100 SXM，理论值；DeepSeek-V3 列用第三、五篇的 MLA 与 MoE 版本函数）：
+前七篇的数字合到一张表（H100 SXM，理论值；DeepSeek-V3 列用第三、五篇的 MLA 与 MoE 版本函数）：
 
 ```text
                             Llama-3-8B          Llama-3-70B           DeepSeek-V3
@@ -779,9 +779,7 @@ DeepSeek-V3 的投机一行按其技术报告的 MTP 接受率转述；LoRA 一�
 若再加投机解码（vLLM 的 `speculative_config`，用 n-gram 或一个小草稿模型），预期 batch 1 下 ITL 明显下降，batch 64 下不变或上升，与第四章表格一致。**任何实测与下界的差距都应该能归因到本文模型忽略的某一项**——这比数字本身重要。
 
 
-## 七、本文小结与系列总结
-
-### 1. 本文小结
+## 七、本文小结
 
 三种方法各改一个变量：
 
@@ -815,53 +813,9 @@ LoRA 额外 FLOPs（W_Q）               0.78%             0.39%             —
 
 核心问题的答案：INT4 模型 decode 快、prefill 慢，投机解码 batch 1 有效、batch 64 无效，是同一条 Roofline 上的同一件事——**两种方法都在兑现 memory-bound 区间里空转的算力，一个用省下的字节换时间，一个用多算的 FLOPs 换 token；一旦 batch（或 prompt 长度）把工作点推过 ridge，算力不再空转，两者的收益就同时消失。** 而 LoRA 站在训练这一侧，它省的不是算力也不是带宽，是每参数 16 字节的状态。
 
+到这里，文本 LLM 的成本模型已经完整：结构决定参数量、KV 与通信量，精度决定字节数，量化、投机解码与 LoRA 在不改结构的前提下改变计算形态。还剩一个前提没有动过——所有账都假设 token 来自 tokenizer。下一篇把输入换成图片：一张图先经过一个独立的 vision encoder，再变成几百到几千个 token 插进 prompt，它的算量花在哪里、这些 token 在 decoder 里的 KV 与文本 token 有没有区别，是本系列的最后一站。
 
-### 2. 全系列总结
 
-七篇文章，每篇留下几个公式和几个数字：
+## 下一篇
 
-```text
-第一篇  参数量        每层 attention d(d_q + 2d_kv + d_q)、FFN 3·d·d_ff；Llama-3-8B 218.1M/层 × 32 + 1.05B = 8.03B；
-                      70B 70.55B；DeepSeek-V3 671B（每 token 激活 37B）；Mixtral 46.7B（激活 12.9B）
-第二篇  FLOPs·字节    GEMM 2mkn；每参数每 token 2 FLOPs；8B 每 token 15 GFLOPs；prefill 8K 约 158 TFLOP；
-                      decode 算术强度 ≈ B；H100 ridge 295；decode 下界 16.06 GB / 3.35 TB/s = 4.8 ms
-第三篇  KV cache      2·L·n_kv·d_head·bytes；8B GQA 128 KiB/token（MHA 512 KiB）；70B 320 KiB；
-                      MLA (512+64)×2×61 = 68.6 KiB，压缩 57×；一张 H100 放 8B 后约 50 万 token 的 KV
-第四篇  长上下文      RoPE 波长 2π·base^(2i/d)；base 500000 最低频 ~250 万；attention 二次项 4ds/层；
-                      8B 128K prefill 权重 2.0 PFLOP + attention 4.5 PFLOP；128K KV 16 GiB
-第五篇  MoE           期望激活专家 E·[1−(1−k/E)^B]：DeepSeek-V3 B=32 → 163，B=128 → 252；
-                      dispatch 7 KiB + combine 14 KiB 每 token 每专家；grouped GEMM 每专家 128 行
-第六篇  数值          BF16 1/8/7 ε=2^-7；FP16 max 65504，softmax 溢出 x > 11.09；E4M3 max 448；
-                      混合精度 + Adam 16 B/参数，8B 训练状态 128 GB；FP8 每 128 元素提升 FP32 累加
-第七篇  量化·投机·LoRA INT4 g128 4.25 bit，70B 37.5 GB 单卡；W4A16 decode 4.8 → 1.27 ms，转折 B ≈ ridge/4；
-                      投机 E = (1−α^(γ+1))/(1−α) = 3.36，加速 2.4×，转折 B ≈ ridge/(γ+1)；
-                      LoRA r=16 41.9M（0.52%），训练状态 128 GB → 16.7 GB
-```
-
-贯穿这些数字的是**四组变量**的成本模型：
-
-$$
-\text{参数量 } N \ \to\ \text{FLOPs/token} \approx 2N,\ \text{权重字节} = N \cdot \text{bytes/param},\ \text{KV cache/token} = 2 L n_{kv} d_{head} \cdot \text{bytes/elem}
-$$
-
-再加一张卡的两个上限（算力 $$F$$、带宽 $$BW$$）和一个比值（ridge $$= F / BW$$）。结构（GQA、MLA、MoE、RoPE）决定前三组变量的值；精度（BF16、FP8、INT4）决定 bytes；工作点（batch、序列长度、prefill 还是 decode）决定落在 Roofline 的哪一侧。每一篇都是在这个模型里填一格。
-
-回到总纲的"最终目标"——拿到一个 `config.json` 和一张 GPU 的规格表，现在能回答：
-
-```text
-它有多少参数，分布在哪里？                 → 逐矩阵公式代入 config；8B 里 87% 在 FFN+attention、13% 在 embedding/lm_head
-一张卡放得下吗？剩多少显存？               → N × bytes/param；BF16 8B 占 16 GB，70B 需 INT4 才能单卡；剩余给 KV cache
-每 token 多少 FLOPs？各阶段瓶颈？          → 2N；prefill compute-bound，decode memory-bound，分界是 ridge
-batch 开到多大才能用满算力？               → B ≈ ridge ≈ 295（H100 BF16），FP8 下 591；W4A16 后是 ridge/4
-支持多长上下文？代价在哪？                 → KV cache 线性项 + attention 二次项；RoPE 的波长决定外推
-attention 变体让 kernel 长什么样？          → GQA 的 4/8 个 query 头共享一个 KV 头；MLA 的吸收让 KV 变成 576 维
-MoE 多卡要传多少数据？                     → 每 token 每专家 7 + 14 KiB，乘期望激活专家数
-用什么精度？哪一步会出数值问题？            → BF16 前向、FP32 累加与主权重；softmax 与 RMSNorm 的溢出/下溢点
-量化能快多少？在哪个阶段？                 → 字节数之比，只在 decode 且 B ≲ ridge/k 时兑现；W8A8 才对 prefill 有效
-投机解码值得开吗？上界多少？               → (1−α^(γ+1))/(1−α) 除以 (γc+1)，只在 B ≲ ridge/(γ+1) 时成立
-微调需要多少显存？                         → 全量 16 B/参数；LoRA 为 2 B/参数 + 可忽略；激活值另算，随序列长度线性
-```
-
-这三种能力——不看 benchmark 先算出理论值、用理论值判断优化的有效区间、用同一张表与算法、kernel、平台工程师对话——是本系列试图建立的全部内容。
-
-本系列的边界也在这里：它只把模型当作一个**计算对象**，算它的参数、算量、字节数与通信量。FlashAttention 与量化 GEMM 的 kernel 怎么写、continuous batching 与 PagedAttention 怎么调度、TP / PP / EP 怎么切分与同步、训练配方怎么定——这些都建立在本系列给出的数字之上，但各自是另一个系列的内容。回到总纲：[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)。
+[多模态：vision encoder 的算量与 image token 的 KV 代价](/multimodal-vision-encoder-cost-and-image-token-kv.html)
