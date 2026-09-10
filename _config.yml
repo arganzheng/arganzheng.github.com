@@ -122,11 +122,12 @@ service-worker: false
 
 # Recommends — sidebar "RECOMMEND": title / href / desc (one line on why it's worth reading)
 # License notice under every article (_includes/post-license.html). A post can
-# set `license: false` or its own `license: {name, url}`.
+# set `license: false` or its own `license: {name, url, note}`. In `note`,
+# `%url%` becomes the article's own link.
 license:
-  name: CC BY-NC-SA 4.0
-  url: https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans
-  note: 商业使用请先联系我
+  name: CC BY 4.0
+  url: https://creativecommons.org/licenses/by/4.0/deed.zh-hans
+  note: 在保留原文作者、署名以及完整原文链接（%url%）的前提下，欢迎各种形式的转载、翻译或商业引用。
 
 recommends:
   - title: 美团技术团队

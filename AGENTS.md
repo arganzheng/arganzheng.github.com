@@ -109,8 +109,9 @@ Pages has `https_enforced` on.
   Description priority: `page.description` > `page.subtitle` > excerpt.
   `og:image` = `page.header-img` or `site.header-img`.
 - `_includes/post-license.html` — license notice after the body (all three post
-  layouts); text from `_config.yml` `license: {name, url, note}`, a post can set
-  `license: false` or its own map. Excluded from the WeChat export.
+  layouts); text from `_config.yml` `license: {name, url, note}` (CC BY 4.0;
+  `%url%` in `note` = the article's link — Liquid can't take `{url}` inside
+  `{{ }}`), a post can set `license: false` or its own map. Excluded from the WeChat export.
 - Sidebar readability overrides (darker text, bigger/bolder section titles,
   RECOMMEND title/desc contrast; the theme's `<hr>` rhythm is kept) live at the
   end of `less/extras.less`, not in `sidebar.less`. Footer: RSS + GitHub Star (count via anonymous REST, cached

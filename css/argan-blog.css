@@ -3590,7 +3590,7 @@ li[id^="fn:"] {
   height: 15px;
   padding: 0 5px;
   border-radius: 8px;
-  background: #f0883e;
+  background: #0085a1;
   color: #fff;
   font-size: 10px;
   font-weight: 600;
@@ -3614,14 +3614,10 @@ li[id^="fn:"] {
   font-size: 14px;
 }
 .life-card-meta .post-stats {
-  display: flex;
-  margin: 8px 0 0;
-  gap: 0 14px;
+  margin-left: 10px;
+  gap: 0 11px;
 }
 .life-card-meta .post-stats::before {
-  display: none;
-}
-.life-card-meta .post-stats:empty {
   display: none;
 }
 .life-card-meta .post-stats .ps .fa {
@@ -3632,7 +3628,12 @@ li[id^="fn:"] {
   color: rgba(255, 255, 255, 0.8);
 }
 .life-card-meta .post-stats .ps b {
+  background: rgba(255, 255, 255, 0.92);
+  color: #333;
   box-shadow: none;
+}
+.life-card-meta .post-stats .ps.is-zero b {
+  background: rgba(255, 255, 255, 0.55);
 }
 .intro-header .post-heading .meta .post-stats .ps .fa,
 .intro-header .post-heading .meta .post-stats .ps-up .fa {

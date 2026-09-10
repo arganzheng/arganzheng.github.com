@@ -62,7 +62,7 @@
 }
 .post-actions + .comment { margin-top: 18px; padding-top: 0; border-top: 0; }
 // ---- `.post-stats` badge strip (js/share.js paints it): 阅读 · 有用 · 评论 · 分享,
-// each an icon with an orange count pill sitting at its top-right corner. Same
+// each an icon with a count pill (brand teal) sitting at its top-right corner. Same
 // markup in the post header meta and in list metas (index.html, life.html).
 .post-stats {
 	display: inline-flex;
@@ -90,7 +90,7 @@
 			height: 15px;
 			padding: 0 5px;
 			border-radius: 8px;
-			background: #f0883e;
+			background: @brand-primary;
 			color: #fff;
 			font-size: 10px;
 			font-weight: 600;
@@ -106,16 +106,16 @@
 }
 // list "Posted by … | date" line: sit on the baseline of that text
 .post-preview .post-meta .post-stats { margin-left: 10px; .ps .fa { font-size: 14px; } }
-// life cards (white text on an image): pale icons, ring in the card colour
+// life cards (white text on an image): inline like the Tech list, pale icons,
+// white pill so it reads on the photo; wraps as one unit if the card is narrow
 .life-card-meta .post-stats {
-	display: flex;
-	margin: 8px 0 0;
-	gap: 0 14px;
+	margin-left: 10px;
+	gap: 0 11px;
 	&::before { display: none; }
-	&:empty { display: none; }
 	.ps .fa { color: rgba(255, 255, 255, 0.8); opacity: 1; }
 	.ps-up .fa { color: rgba(255, 255, 255, 0.8); }
-	.ps b { box-shadow: none; }
+	.ps b { background: rgba(255, 255, 255, 0.92); color: #333; box-shadow: none; }
+	.ps.is-zero b { background: rgba(255, 255, 255, 0.55); }
 }
 // hero header (header-post / keynote): white meta text over an image
 .intro-header .post-heading .meta .post-stats {
