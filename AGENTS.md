@@ -70,6 +70,14 @@ Pages has `https_enforced` on.
 
 ## Layout
 
+- Categories: front matter `category:` is `life` (essays; badge on the home
+  list, cards on `/life/` = `life.html`, `[Life]` in the archive), `meta`
+  (about the blog itself: kept out of the home flow, `[Blog]` in the archive,
+  linked from the footer) or absent (tech). Feed items carry `<category>`.
+- `/admin/stats.html` + `js/dashboard.js`: author dashboard (views ranking via
+  worker `GET /views/top`, recent comments via GraphQL with the giscus
+  session, open issues via REST). `sitemap: false`, `noindex: true`
+  (`head.html` emits the robots meta for `page.noindex`).
 - `index.html`: posts with `pinned: true` lead page 1 (badge `.post-pin`) and
   are skipped in the paginated flow. Sidebar (`_layouts/page.html`): HOT TAGS
   threshold is `site.featured-condition-size`; RECOMMEND renders

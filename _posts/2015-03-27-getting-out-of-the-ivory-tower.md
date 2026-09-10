@@ -1,6 +1,7 @@
 ---
 title: 走出象牙塔
 layout: post
+category: life
 catalog: true
 ---
 

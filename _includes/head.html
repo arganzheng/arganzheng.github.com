@@ -6,6 +6,7 @@
     <meta name="description" content="{% if page.description %}{{ page.description | escape }}{% elsif page.subtitle %}{{ page.subtitle | escape }}{% else %}{{ site.description }}{% endif %}">
     <meta name="keywords"  content="{% if page.tags and page.tags != empty %}{{ page.tags | join: ', ' | escape }}, {% endif %}{{ site.keyword }}">
     <meta name="theme-color" content="{{ site.chrome-tab-theme-color }}">
+    {% if page.noindex %}<meta name="robots" content="noindex, nofollow">{% endif %}
     
     <title>{% if page.title %}{{ page.title }} - {{ site.SEOTitle }}{% else %}{{ site.SEOTitle }}{% endif %}</title>
 

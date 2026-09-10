@@ -4,7 +4,7 @@
 Create a post skeleton with the front matter this site understands.
 
     tools/new-post.py my-slug "标题" [--subtitle "副标题"] [--tags AI,AI-Infra]
-                      [--series deep-dive-into-vllm] [--date 2026-10-01] [--draft]
+                      [--series deep-dive-into-vllm] [--category life|meta] [--date 2026-10-01] [--draft]
                       [--layout post|header-post|keynote] [--header-img img/x.jpg] [--iframe /slides/x.html]
 
 Writes _posts/<date>-<slug>.md (or _drafts/<slug>.md with --draft) and prints the
@@ -20,6 +20,7 @@ ap.add_argument('--subtitle', default=''); ap.add_argument('--tags', default='')
 ap.add_argument('--series', default=''); ap.add_argument('--date', default=datetime.date.today().isoformat())
 ap.add_argument('--layout', default='post', choices=['post', 'header-post', 'keynote'])
 ap.add_argument('--header-img', default=''); ap.add_argument('--iframe', default='')
+ap.add_argument('--category', default='', choices=['', 'life', 'meta'])
 ap.add_argument('--draft', action='store_true'); ap.add_argument('--no-catalog', action='store_true')
 a = ap.parse_args()
 
@@ -29,6 +30,7 @@ if a.series:
 if a.layout == 'keynote' and not a.iframe: sys.exit('--layout keynote needs --iframe <deck url>')
 
 fm = ['layout: ' + a.layout]
+if a.category: fm.append('category: ' + a.category)
 if a.series: fm.append('series: ' + a.series)
 fm.append('title: "%s"' % a.title.replace('"', '\\"'))
 if a.subtitle: fm.append('subtitle: "%s"' % a.subtitle.replace('"', '\\"'))

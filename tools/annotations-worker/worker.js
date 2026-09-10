@@ -14,6 +14,7 @@
  *   POST /issues       { title, body }         -> { number, url }  (optional, see below)
  *   GET  /views?path=/slug.html                -> { views }       (optional, needs the D1 binding)
  *   POST /views        { path }                -> { views }       increments, then returns the count
+ *   GET  /views/top?limit=50[&order=recent]   -> { rows: [{ path, views, updated_at }] }  for the author's dashboard
  *
  * repo / category are fixed via wrangler.toml [vars]; the worker never accepts them from the request.
  *
@@ -58,6 +59,7 @@ export default {
       if (request.method === 'POST' && url.pathname === '/discussions') return await createDiscussion(request, env, cors);
       if (request.method === 'POST' && url.pathname === '/issues') return await createIssue(request, env, cors);
       if (url.pathname === '/views' && (request.method === 'GET' || request.method === 'POST')) return await views(request, url, env, cors);
+      if (url.pathname === '/views/top' && request.method === 'GET') return await viewsTop(url, env, cors);
     } catch (err) {
       return json({ error: err.message || String(err) }, 502, cors);
     }
@@ -226,6 +228,16 @@ async function views(request, url, env, cors) {
     row = await env.DB.prepare('SELECT count FROM views WHERE path = ?1').bind(path).first();
   }
   return json({ views: (row && row.count) || 0 }, 200, { ...cors, 'Cache-Control': 'no-store' });
+}
+
+async function viewsTop(url, env, cors) {
+  if (!env.DB) return json({ error: '阅读数未启用（worker 未绑定 D1）' }, 501, cors);
+  if (!viewsTableReady) viewsTableReady = env.DB.exec('CREATE TABLE IF NOT EXISTS views (path TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0, updated_at TEXT)');
+  await viewsTableReady;
+  const limit = Math.min(500, Math.max(1, parseInt(url.searchParams.get('limit') || '50', 10) || 50));
+  const order = url.searchParams.get('order') === 'recent' ? 'updated_at DESC' : 'count DESC';
+  const { results } = await env.DB.prepare(`SELECT path, count AS views, updated_at FROM views ORDER BY ${order} LIMIT ?1`).bind(limit).all();
+  return json({ rows: results || [] }, 200, { ...cors, 'Cache-Control': 'public, max-age=60' });
 }
 
 // ---- GitHub App authentication --------------------------------------------

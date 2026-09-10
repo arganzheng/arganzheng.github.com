@@ -1,0 +1,47 @@
+---
+layout: page
+title: Dashboard
+description: "作者视角：阅读排行、最近评论、待处理的 Issue"
+permalink: /admin/stats.html
+sitemap: false
+noindex: true
+---
+
+{% comment %}
+  Author dashboard. Everything shown is public data pulled client-side:
+  view counts from the worker (D1), open issues from the GitHub REST API
+  (no token), recent comments via GitHub GraphQL with the same giscus login
+  the comment box uses. Not linked from anywhere, noindex, out of the sitemap.
+{% endcomment %}
+<div class="dash"
+     data-api="{{ site.annotations.api }}"
+     data-repo="{{ site.giscus.repo }}"
+     data-category-id="{{ site.giscus.category_id }}"
+     data-site-url="{{ site.url }}{{ site.baseurl }}">
+
+  <section class="dash-section" id="dash-views">
+    <h3>阅读排行 <small><a href="#" data-order="top" class="is-active">总量</a> · <a href="#" data-order="recent">最近有人读</a></small></h3>
+    <p class="dash-hint">一个浏览器一篇一天计一次；本地预览不计。</p>
+    <table class="dash-table"><thead><tr><th>#</th><th>文章</th><th class="num">阅读</th><th>最近</th></tr></thead><tbody><tr><td colspan="4" class="dash-muted">加载中…</td></tr></tbody></table>
+  </section>
+
+  <section class="dash-section" id="dash-comments">
+    <h3>最近评论 <small><span class="dash-auth"></span></small></h3>
+    <div class="dash-list"><p class="dash-muted">需要 GitHub 登录（和评论框同一个登录）。</p></div>
+  </section>
+
+  <section class="dash-section" id="dash-issues">
+    <h3>待处理</h3>
+    <div class="dash-list"><p class="dash-muted">加载中…</p></div>
+  </section>
+</div>
+
+<script>
+// title lookup for view paths (posts + pages), generated at build time
+window.DASH_TITLES = {
+{% for p in site.posts %}  {{ p.url | jsonify }}: {{ p.title | jsonify }},
+{% endfor %}{% for p in site.pages %}{% if p.title %}  {{ p.url | jsonify }}: {{ p.title | jsonify }},
+{% endif %}{% endfor %}  "": ""
+};
+</script>
+<script src="{{ '/js/dashboard.js' | prepend: site.baseurl }}?v={{ site.time | date: '%Y%m%d%H%M' }}"></script>

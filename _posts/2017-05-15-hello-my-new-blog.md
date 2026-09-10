@@ -2,6 +2,7 @@
 title: 阿甘的网络日志
 subtitle: Hello world, hello my new blog
 layout: header-post
+category: life
 header-img: "img/post-bg-2015.jpg"
 tags: [生活, jekyll, 博客]
 ---

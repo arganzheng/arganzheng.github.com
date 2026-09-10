@@ -2,6 +2,7 @@
 title: Thanksgiving in 2017
 subtitle: thanks, for everything you did
 layout: header-post
+category: life
 header-img: "img/post-bg-2015.jpg"
 tags: [生活, 感恩节]
 ---

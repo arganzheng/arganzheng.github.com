@@ -16,11 +16,12 @@ description: "stay hungry, stay foolish"
 </div>
 <hr>
 {% endfor %}{% endif %}
-{% for post in paginator.posts %}{% unless post.pinned %}
-<div class="post-preview">
+{% comment %} `category: meta` (about the blog itself) stays out of the flow; `category: life` gets a badge and its own /life/ page. {% endcomment %}
+{% for post in paginator.posts %}{% unless post.pinned or post.category == 'meta' %}
+<div class="post-preview{% if post.category == 'life' %} is-life{% endif %}">
     <a href="{{ post.url | prepend: site.baseurl }}">
         <h2 class="post-title">
-            {{ post.title }}
+            {% if post.category == 'life' %}<span class="post-cat">生活</span>{% endif %}{{ post.title }}
         </h2>
         {% if post.subtitle %}
         <h3 class="post-subtitle">
