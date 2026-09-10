@@ -1,7 +1,11 @@
 ---
 title: 走出象牙塔
-layout: post
+subtitle: 给即将踏入社会的师弟师妹们的一些建议
+layout: header-post
+header-img: "img/home-bg.jpg"
+header-mask: 0.25
 category: life
+tags: [生活, 工作, 分享]
 catalog: true
 ---
 

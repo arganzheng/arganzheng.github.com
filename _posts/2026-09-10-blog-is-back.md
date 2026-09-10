@@ -3,7 +3,7 @@ title: 个人博客终于迎来了久违的更新
 subtitle: 写了近百篇文章，顺手把博客也重做了一遍
 layout: header-post
 category: life
-header-img: "img/tag-bg.jpg"
+header-img: "img/post-bg-2015.jpg"
 header-mask: 0.25
 tags: [生活, 博客, jekyll]
 catalog: true
@@ -12,7 +12,7 @@ description: "把 AI-Infra 重新捡起来之后，博客也跟着大修了一�
 
 才发现入职菊厂以来就再也没有写过个人博客了。最近把 AI-Infra 重新捡了起来，肝了两个周末，在 AI 的帮助下写了一篇长篇巨著《[大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术](/deep-dive-into-vllm.html)》。真的是长篇巨著，将近 20 万字，所以又把它拆成了十几篇文章。
 
-然后就有点收不住了。写完 vLLM 发现前面还有一大堆东西值得系统地梳理一遍：Python 和 C++ 在 AI-Infra 里到底用到哪些语言机制、PyTorch 从 Tensor 到 Dispatcher 到编译器是怎么串起来的、Transformer 的算量和数值怎么算、CUDA Kernel 怎么从 naive 写到 FlashAttention、NCCL / RDMA 通信、千卡训练的并行与容错、AI 平台工程、最后是怎么给 PyTorch / vLLM 提第一个 PR。几个月下来变成了**十个系列、近百篇文章**，大概是这个博客过去十年产量的总和。
+然后就有点收不住了。写完 vLLM 发现前面还有一大堆东西值得系统地梳理一遍：Python 和 C++ 在 AI-Infra 里到底用到哪些语言机制、PyTorch 从 Tensor 到 Dispatcher 到编译器是怎么串起来的、Transformer 的算量和数值怎么算、CUDA Kernel 怎么从 naive 写到 FlashAttention、NCCL / RDMA 通信、千卡训练的并行与容错、AI 平台工程、最后是怎么给 PyTorch / vLLM 提第一个 PR。整理下来变成了**十个系列、近百篇文章**，大概是这个博客过去十年产量的总和。
 
 写这么多，自然就想让它们好读一点。于是顺便把博客也更新了一下——本来只是想改个目录样式，结果一路改下来，几乎把能碰的地方都碰了一遍。这篇记个流水账。
 
@@ -124,12 +124,11 @@ description: "把 AI-Infra 重新捡起来之后，博客也跟着大修了一�
 - 每次提交都跑一遍 CI：构建、用 lychee 检查全站两万多个内部链接和锚点、再用无头 Chrome 把改动的文章真的渲染一遍，看 Mermaid 有没有画出来、图片有没有 404。每周一还会检查一次外链，坏了就自动开一个 Issue。
 - 文章图片全部转成 WebP（20 MB → 5.8 MB），Font Awesome 改成只含用到的图标的子集（77 KB → 20 KB），静态资源按构建版本缓存。
 - 补齐了 Open Graph / Twitter Card / JSON-LD、RSS 自动发现、强制 HTTPS——分享到微信和推特时终于有正常的卡片了。
-- 写了一份《[博客备忘录](/blog-memo.html)》给自己，记怎么部署、怎么写、怎么维护、都改过什么，免得下次再隔几年回来又要从头摸。
 
 顺便说一句，这轮改动里的大部分代码是和 AI 结对写出来的：我说要什么、看效果、挑毛病，它写。写文章也是类似的分工。效率确实和以前不是一个量级——但要什么、什么是对的，还是得自己想清楚。
 
 ## 最后
 
-博客地址：[https://arganzheng.life/](https://arganzheng.life/)，基于 GitHub Pages 搭建，[源码在这里](https://github.com/arganzheng/arganzheng.github.com)，喜欢的同学可以直接 fork。
+博客地址：[https://arganzheng.life/](https://arganzheng.life/)，基于 GitHub Pages 搭建，喜欢的同学可以直接 fork。
 
 感觉还是要把博客重新捡起来，强迫自己学习和思考。与君共勉。
