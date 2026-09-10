@@ -97,6 +97,25 @@ still GitHub reactions). Needs the D1 binding; 501 without it.
 menu (system share sheet completed, Weibo / X / LinkedIn opened, WeChat QR
 shown, link copied); localhost previews don't count. Same D1 binding.
 
+## Passage 赞 / 存疑 (GET/POST /reactions)
+
+Anonymous per-passage reactions, same trust model. One row per
+`(path, hash)` in `passage_reactions(path, hash, quote, up, doubt)` — `hash` is
+the FNV-1a id `js/annotations.js` already uses for `#annot-<hash>` links,
+`quote` the exact text (≤ 600 chars) so the browser can re-anchor and underline
+a passage that has reactions but no comment. `POST {path, hash, quote, kind:
+'up'|'doubt', on: true|false}` toggles one reader's reaction (the browser
+remembers its own in `localStorage["react:<path>:<hash>"]`), `GET
+/reactions?path=` lists the post's passages with any count.
+
+## Dashboard reads (/stats/top, /views/daily, /reactions/top)
+
+`GET /stats/top?limit=100` joins views / votes / shares per post; `GET
+/views/daily?days=30` returns per-day totals (Beijing dates, from the
+`views_daily(path, day, count)` table that every `POST /views` also writes) plus
+the posts read most in the window; `GET /reactions/top?kind=doubt|up&limit=50`
+lists the most doubted / liked passages. All public, cached 1–5 min.
+
 ## List-page counters (GET /stats)
 
 `GET /stats?paths=/a.html,/b.html` (up to 20) returns, per path, `views`,

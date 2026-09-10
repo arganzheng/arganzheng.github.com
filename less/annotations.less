@@ -689,3 +689,60 @@
 	}
 	.post-container .annotation-comments .ac-head { flex-wrap: wrap; row-gap: 6px; }
 }
+
+// ---- passage 赞 / 存疑 (anonymous reactions, js/annotations.js `react`)
+@annot-doubt: #d1242f;
+.post-container {
+	// a doubted passage: dotted red line instead of the amber dashed one — the
+	// author should spot it
+	mark.annotation-hl.has-doubt { border-bottom-style: dotted; border-bottom-color: fade(@annot-doubt, 75%); }
+	mark.annotation-hl.has-doubt:hover { border-bottom-color: @annot-doubt; background-color: fade(@annot-doubt, 7%); }
+	mark.annotation-hl.has-doubt.is-multi { border-bottom-style: solid; }
+	// the marker carries up to three icon+count pairs
+	.annotation-marker {
+		.fa + .annotation-marker-count + .fa { margin-left: 5px; }
+		&.has-doubt { color: @annot-doubt; background: #fff1f1; border-color: #f7c5c8; }
+		&.has-doubt:hover { color: #fff; background: @annot-doubt; border-color: @annot-doubt; }
+	}
+}
+.annotation-toolbar {
+	.annotation-tb-sep { display: inline-block; width: 1px; height: 16px; margin: 0 4px; background: rgba(255, 255, 255, 0.28); vertical-align: middle; }
+	.annotation-tb-sep + button { margin-left: 0; border-left: 0; border-radius: 4px; }
+	.annotation-tb-up:hover .fa { color: #ffd166; }
+	.annotation-tb-doubt:hover .fa { color: #ff8a8a; }
+}
+.annotation-panel .ap-react {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 8px;
+	padding: 10px 14px 0;
+	.ap-react-btn {
+		display: inline-flex;
+		align-items: center;
+		height: 28px;
+		padding: 0 11px;
+		border: 1px solid @annot-border;
+		border-radius: 14px;
+		background: #fff;
+		color: @annot-muted;
+		font-size: 13px;
+		line-height: 1;
+		cursor: pointer;
+		white-space: nowrap;
+		transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+		.fa { margin-right: 5px; font-size: 14px; }
+		b { margin-left: 4px; font-weight: 600; }
+		&:hover { color: @brand-primary; border-color: @brand-primary; background: #f2f7f8; }
+	}
+	.ap-react-up.is-on { color: #9a6700; border-color: #e6c25a; background: #fff8c5; &:hover { background: #fff1a8; border-color: #d4a72c; } }
+	.ap-react-doubt.is-on { color: @annot-doubt; border-color: #f7c5c8; background: #fff1f1; &:hover { background: #ffe0e2; border-color: @annot-doubt; } }
+	.ap-react-say { font-size: 13px; color: @annot-doubt; text-decoration: none; margin-left: 2px; &:hover { text-decoration: underline; } }
+}
+@media (max-width: 767px) {
+	// six buttons don't fit a phone: 复制 / 搜一搜 / 链接 become icon-only
+	.annotation-toolbar {
+		button { padding: 6px 8px; }
+		.annotation-tb-copy, .annotation-tb-search { font-size: 0; .fa { font-size: 13px; margin: 0; } }
+	}
+}

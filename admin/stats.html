@@ -1,7 +1,7 @@
 ---
 layout: page
 title: Dashboard
-description: "作者视角：阅读排行、最近评论、待处理的 Issue"
+description: "作者视角：阅读趋势、文章榜、读者存疑的句子、最近评论、待处理的 Issue"
 permalink: /admin/stats.html
 sitemap: false
 noindex: true
@@ -9,9 +9,10 @@ noindex: true
 
 {% comment %}
   Author dashboard. Everything shown is public data pulled client-side:
-  view counts from the worker (D1), open issues from the GitHub REST API
-  (no token), recent comments via GitHub GraphQL with the same giscus login
-  the comment box uses. Not linked from anywhere, noindex, out of the sitemap.
+  counters from the worker (D1: views / views_daily / votes / shares /
+  passage_reactions), open issues from the GitHub REST API (no token), recent
+  comments via GitHub GraphQL with the same giscus login the comment box uses.
+  Not linked from anywhere, noindex, out of the sitemap.
 {% endcomment %}
 <div class="dash"
      data-api="{{ site.annotations.api }}"
@@ -19,10 +20,25 @@ noindex: true
      data-category-id="{{ site.giscus.category_id }}"
      data-site-url="{{ site.url }}{{ site.baseurl }}">
 
-  <section class="dash-section" id="dash-views">
-    <h3>阅读排行 <small><a href="#" data-order="top" class="is-active">总量</a> · <a href="#" data-order="recent">最近有人读</a></small></h3>
-    <p class="dash-hint">一个浏览器一篇一天计一次；本地预览不计。</p>
-    <table class="dash-table"><thead><tr><th>#</th><th>文章</th><th class="num">阅读</th><th>最近</th></tr></thead><tbody><tr><td colspan="4" class="dash-muted">加载中…</td></tr></tbody></table>
+  <section class="dash-section" id="dash-trend">
+    <h3>阅读趋势 <small><a href="#" data-days="7">7 天</a> · <a href="#" data-days="30" class="is-active">30 天</a> · <a href="#" data-days="90">90 天</a></small></h3>
+    <p class="dash-hint">按北京时间每天合计；一个浏览器一篇一天计一次，本地预览不计。<span class="dash-trend-sum"></span></p>
+    <div class="dash-bars"><p class="dash-muted">加载中…</p></div>
+    <div class="dash-trend-top"></div>
+  </section>
+
+  <section class="dash-section" id="dash-posts">
+    <h3>文章榜 <small class="dash-sort-hint">点表头排序</small></h3>
+    <table class="dash-table dash-posts">
+      <thead><tr><th>#</th><th>文章</th><th class="num is-sortable is-active" data-sort="views">阅读</th><th class="num is-sortable" data-sort="up">有用</th><th class="num is-sortable" data-sort="rate" title="有用 ÷ 阅读">有用率</th><th class="num is-sortable" data-sort="shares">分享</th><th class="num is-sortable" data-sort="comments">评论</th><th class="is-sortable" data-sort="recent">最近</th></tr></thead>
+      <tbody><tr><td colspan="8" class="dash-muted">加载中…</td></tr></tbody>
+    </table>
+  </section>
+
+  <section class="dash-section" id="dash-passages">
+    <h3>读者划出来的句子 <small><a href="#" data-kind="doubt" class="is-active">存疑最多</a> · <a href="#" data-kind="up">点赞最多</a></small></h3>
+    <p class="dash-hint">读者选中一段话点「存疑」或「赞」（匿名，不用登录）。存疑多的句子最值得回头看一眼；点句子直达原文并展开讨论。</p>
+    <div class="dash-list"><p class="dash-muted">加载中…</p></div>
   </section>
 
   <section class="dash-section" id="dash-comments">

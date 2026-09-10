@@ -1,7 +1,11 @@
 /**
- * dashboard.js — the author's /admin/stats.html: view ranking (worker /views/top),
- * recent comments (GitHub GraphQL with the giscus login, same session key as
- * annotations.js), open issues (GitHub REST, public). All read-only.
+ * dashboard.js — the author's /admin/stats.html, all read-only:
+ *   - 阅读趋势: worker /views/daily (per-day totals + the posts read most in the window)
+ *   - 文章榜: worker /stats/top (views · 有用 · 分享 per post) + comment counts
+ *     from /stats?paths= in chunks; sortable by clicking a header
+ *   - 读者划出来的句子: worker /reactions/top?kind=doubt|up (passage 存疑 / 赞)
+ *   - recent comments: GitHub GraphQL with the giscus login (same session key
+ *     as annotations.js); open issues: GitHub REST, public.
  */
 (function () {
   'use strict';
@@ -24,27 +28,100 @@
   }
   function titleOf(path) { return titles[path] || path; }
 
-  // ---- views
-  function loadViews(order) {
-    var tbody = document.querySelector('#dash-views tbody');
-    fetch(api + '/views/top?limit=100&order=' + order).then(function (r) { return r.json(); }).then(function (data) {
-      if (!data.rows || !data.rows.length) { tbody.innerHTML = '<tr><td colspan="4" class="dash-muted">还没有数据</td></tr>'; return; }
-      var total = data.rows.reduce(function (n, r) { return n + r.views; }, 0);
-      tbody.innerHTML = data.rows.map(function (r, i) {
-        return '<tr><td class="dash-muted">' + (i + 1) + '</td><td><a href="' + h(r.path) + '">' + h(titleOf(r.path)) + '</a></td>' +
-          '<td class="num">' + r.views + '</td><td class="dash-muted">' + (r.updated_at ? ago(r.updated_at) : '') + '</td></tr>';
-      }).join('') + '<tr><td></td><td class="dash-muted">以上 ' + data.rows.length + ' 篇合计</td><td class="num">' + total + '</td><td></td></tr>';
-    }).catch(function (err) { tbody.innerHTML = '<tr><td colspan="4" class="dash-muted">加载失败：' + h(err.message) + '</td></tr>'; });
+  function getJson(url) { return fetch(url).then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status)); return d; }); }); }
+  function activate(links, el) { Array.prototype.forEach.call(links, function (x) { x.classList.remove('is-active'); }); el.classList.add('is-active'); }
+  function fmt(n) { return n >= 10000 ? (n / 10000).toFixed(1).replace(/\.0$/, '') + ' 万' : String(n); }
+
+  // ---- 阅读趋势 (views_daily)
+  function loadTrend(days) {
+    var bars = document.querySelector('#dash-trend .dash-bars'), top = document.querySelector('#dash-trend .dash-trend-top'), sum = document.querySelector('#dash-trend .dash-trend-sum');
+    getJson(api + '/views/daily?days=' + days).then(function (data) {
+      var byDay = {};
+      (data.days || []).forEach(function (d) { byDay[d.day] = d.views; });
+      // one bar per calendar day, zero-filled, oldest first (Beijing dates)
+      var list = [], now = Date.now() + 8 * 3600e3;
+      for (var i = days - 1; i >= 0; i--) { var day = new Date(now - i * 86400e3).toISOString().slice(0, 10); list.push({ day: day, views: byDay[day] || 0 }); }
+      var max = Math.max.apply(null, list.map(function (d) { return d.views; }).concat([1]));
+      var total = list.reduce(function (n, d) { return n + d.views; }, 0);
+      sum.textContent = '这 ' + days + ' 天合计 ' + fmt(total) + ' 次，日均 ' + Math.round(total / days) + '。';
+      bars.innerHTML = list.map(function (d) {
+        var hgt = Math.max(d.views ? 2 : 0, Math.round(d.views / max * 100));
+        return '<span class="dash-bar" title="' + d.day + '：' + d.views + ' 次"><i style="height:' + hgt + '%"></i></span>';
+      }).join('') + '<span class="dash-bar-axis"><small>' + list[0].day + '</small><small>峰值 ' + max + '</small><small>' + list[list.length - 1].day + '</small></span>';
+      var paths = (data.paths || []).slice(0, 8);
+      top.innerHTML = paths.length ? '<h4>这段时间读得最多</h4><ol class="dash-top">' + paths.map(function (p) {
+        return '<li><a href="' + h(p.path) + '">' + h(titleOf(p.path)) + '</a> <span class="dash-muted">' + fmt(p.views) + '</span></li>';
+      }).join('') + '</ol>' : '';
+    }).catch(function (err) { bars.innerHTML = '<p class="dash-muted">加载失败：' + h(err.message) + '</p>'; });
   }
-  Array.prototype.forEach.call(document.querySelectorAll('#dash-views [data-order]'), function (a) {
-    a.addEventListener('click', function (e) {
-      e.preventDefault();
-      Array.prototype.forEach.call(document.querySelectorAll('#dash-views [data-order]'), function (x) { x.classList.remove('is-active'); });
-      a.classList.add('is-active');
-      loadViews(a.getAttribute('data-order'));
-    });
+  var trendLinks = document.querySelectorAll('#dash-trend [data-days]');
+  Array.prototype.forEach.call(trendLinks, function (a) {
+    a.addEventListener('click', function (e) { e.preventDefault(); activate(trendLinks, a); loadTrend(parseInt(a.getAttribute('data-days'), 10)); });
   });
-  loadViews('top');
+  loadTrend(30);
+
+  // ---- 文章榜 (/stats/top + comment counts from /stats)
+  var postRows = [], postSort = 'views';
+  function renderPosts() {
+    var tbody = document.querySelector('#dash-posts tbody');
+    if (!postRows.length) { tbody.innerHTML = '<tr><td colspan="8" class="dash-muted">还没有数据</td></tr>'; return; }
+    var rows = postRows.slice().sort(function (a, b) {
+      if (postSort === 'recent') return (b.updated_at || '') < (a.updated_at || '') ? -1 : 1;
+      if (postSort === 'rate') return b.rate - a.rate;
+      return (b[postSort] || 0) - (a[postSort] || 0);
+    });
+    var t = { views: 0, up: 0, shares: 0, comments: 0 };
+    rows.forEach(function (r) { t.views += r.views; t.up += r.up; t.shares += r.shares; t.comments += r.comments || 0; });
+    tbody.innerHTML = rows.map(function (r, i) {
+      return '<tr><td class="dash-muted">' + (i + 1) + '</td><td><a href="' + h(r.path) + '">' + h(titleOf(r.path)) + '</a></td>' +
+        '<td class="num">' + fmt(r.views) + '</td><td class="num">' + (r.up || '') + '</td>' +
+        '<td class="num dash-muted">' + (r.views >= 20 && r.up ? (r.rate * 100).toFixed(1) + '%' : '') + '</td>' +
+        '<td class="num">' + (r.shares || '') + '</td><td class="num">' + (r.comments == null ? '<span class="dash-muted">…</span>' : (r.comments || '')) + '</td>' +
+        '<td class="dash-muted">' + (r.updated_at ? ago(r.updated_at) : '') + '</td></tr>';
+    }).join('') + '<tr class="dash-total"><td></td><td class="dash-muted">以上 ' + rows.length + ' 篇合计</td><td class="num">' + fmt(t.views) + '</td><td class="num">' + t.up + '</td><td></td><td class="num">' + t.shares + '</td><td class="num">' + t.comments + '</td><td></td></tr>';
+  }
+  function loadPosts() {
+    var tbody = document.querySelector('#dash-posts tbody');
+    getJson(api + '/stats/top?limit=100').then(function (data) {
+      postRows = (data.rows || []).map(function (r) { return { path: r.path, views: r.views || 0, up: r.up || 0, shares: r.shares || 0, updated_at: r.updated_at, comments: null, rate: r.views ? (r.up || 0) / r.views : 0 }; });
+      renderPosts();
+      // comment counts: /stats takes 20 paths a call (giscus lookups, edge-cached)
+      var paths = postRows.map(function (r) { return r.path; }), chunks = [];
+      while (paths.length) chunks.push(paths.splice(0, 20));
+      chunks.forEach(function (chunk) {
+        getJson(api + '/stats?paths=' + encodeURIComponent(chunk.join(','))).then(function (d) {
+          postRows.forEach(function (r) { var it = d.items && d.items[r.path]; if (it) r.comments = it.comments || 0; });
+          renderPosts();
+        }).catch(function () { postRows.forEach(function (r) { if (chunk.indexOf(r.path) >= 0 && r.comments == null) r.comments = 0; }); renderPosts(); });
+      });
+    }).catch(function (err) { tbody.innerHTML = '<tr><td colspan="8" class="dash-muted">加载失败：' + h(err.message) + '</td></tr>'; });
+  }
+  var sortHeads = document.querySelectorAll('#dash-posts th[data-sort]');
+  Array.prototype.forEach.call(sortHeads, function (th) {
+    th.addEventListener('click', function () { activate(sortHeads, th); postSort = th.getAttribute('data-sort'); renderPosts(); });
+  });
+  loadPosts();
+
+  // ---- 读者划出来的句子 (/reactions/top)
+  function loadPassages(kind) {
+    var host = document.querySelector('#dash-passages .dash-list');
+    getJson(api + '/reactions/top?kind=' + kind + '&limit=30').then(function (data) {
+      var rows = data.rows || [];
+      if (!rows.length) { host.innerHTML = '<p class="dash-muted">还没有人' + (kind === 'doubt' ? '存疑' : '点赞') + '。</p>'; return; }
+      host.innerHTML = '<ol class="dash-quotes">' + rows.map(function (r) {
+        return '<li class="' + (kind === 'doubt' && r.doubt ? 'is-doubt' : '') + '"><a class="dash-quote" href="' + h(r.path) + '#annot-' + h(r.hash) + '">' + h(r.quote) + '</a>' +
+          '<div class="dash-quote-meta"><a href="' + h(r.path) + '">' + h(titleOf(r.path)) + '</a> · ' +
+          (r.doubt ? '<span class="is-doubt"><i class="fa fa-question-circle"></i> ' + r.doubt + '</span> ' : '') +
+          (r.up ? '<span><i class="fa fa-thumbs-up"></i> ' + r.up + '</span> ' : '') +
+          (r.updated_at ? '<span class="dash-muted">· ' + ago(r.updated_at) + '</span>' : '') + '</div></li>';
+      }).join('') + '</ol>';
+    }).catch(function (err) { host.innerHTML = '<p class="dash-muted">加载失败：' + h(err.message) + '</p>'; });
+  }
+  var kindLinks = document.querySelectorAll('#dash-passages [data-kind]');
+  Array.prototype.forEach.call(kindLinks, function (a) {
+    a.addEventListener('click', function (e) { e.preventDefault(); activate(kindLinks, a); loadPassages(a.getAttribute('data-kind')); });
+  });
+  loadPassages('doubt');
 
   // ---- issues (public REST)
   function loadIssues() {

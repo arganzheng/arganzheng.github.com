@@ -19,6 +19,9 @@
  *   POST /votes        { path, dir, prev }     -> { up, down, shares }
  *   POST /shares       { path }                -> { shares }    one more share (any channel of the share menu)
  *   GET  /stats?paths=/a.html,/b.html          -> { items: { path: { views, comments, up, down, shares, id, url } } }
+ *   GET  /reactions?path=/slug.html            -> { items: [{ hash, quote, up, doubt }] }   passage-level 赞 / 存疑 (anonymous)
+ *   POST /reactions    { path, hash, quote, kind, on } -> { up, doubt }
+ *   dashboard: GET /stats/top, /views/daily?days=30, /reactions/top?kind=doubt|up
  *
  * repo / category are fixed via wrangler.toml [vars]; the worker never accepts them from the request.
  *
@@ -65,9 +68,13 @@ export default {
       if (request.method === 'POST' && url.pathname === '/issues') return await createIssue(request, env, cors);
       if (url.pathname === '/views' && (request.method === 'GET' || request.method === 'POST')) return await views(request, url, env, cors);
       if (url.pathname === '/views/top' && request.method === 'GET') return await viewsTop(url, env, cors);
+      if (url.pathname === '/views/daily' && request.method === 'GET') return await viewsDaily(url, env, cors);
       if (url.pathname === '/stats' && request.method === 'GET') return await stats(url, env, ctx, cors);
+      if (url.pathname === '/stats/top' && request.method === 'GET') return await statsTop(url, env, cors);
       if (url.pathname === '/votes' && (request.method === 'GET' || request.method === 'POST')) return await votes(request, url, env, cors);
       if (url.pathname === '/shares' && request.method === 'POST') return await shares(request, env, cors);
+      if (url.pathname === '/reactions' && (request.method === 'GET' || request.method === 'POST')) return await reactions(request, url, env, cors);
+      if (url.pathname === '/reactions/top' && request.method === 'GET') return await reactionsTop(url, env, cors);
     } catch (err) {
       return json({ error: err.message || String(err) }, 502, cors);
     }
@@ -228,14 +235,47 @@ async function views(request, url, env, cors) {
 
   let row;
   if (request.method === 'POST') {
-    row = await env.DB.prepare(
-      'INSERT INTO views (path, count, updated_at) VALUES (?1, 1, ?2) ' +
-      'ON CONFLICT(path) DO UPDATE SET count = count + 1, updated_at = ?2 RETURNING count'
-    ).bind(path, new Date().toISOString()).first();
+    await ensureDailyTable(env);
+    const now = new Date().toISOString();
+    const rs = await env.DB.batch([
+      env.DB.prepare(
+        'INSERT INTO views (path, count, updated_at) VALUES (?1, 1, ?2) ' +
+        'ON CONFLICT(path) DO UPDATE SET count = count + 1, updated_at = ?2 RETURNING count'
+      ).bind(path, now),
+      env.DB.prepare(
+        'INSERT INTO views_daily (path, day, count) VALUES (?1, ?2, 1) ' +
+        'ON CONFLICT(path, day) DO UPDATE SET count = count + 1'
+      ).bind(path, beijingDay()),
+    ]);
+    row = rs[0].results && rs[0].results[0];
   } else {
     row = await env.DB.prepare('SELECT count FROM views WHERE path = ?1').bind(path).first();
   }
   return json({ views: (row && row.count) || 0 }, 200, { ...cors, 'Cache-Control': 'no-store' });
+}
+
+// Per-day counts (Beijing dates, the blog's timezone) for the dashboard's trend
+// view: `views_daily(path, day, count)`, written alongside `views` on every POST.
+// GET /views/daily?days=30 -> { days: [{ day, views }], paths: [{ path, views }] }
+// (totals per day, and the posts read most in that window).
+let dailyTableReady = null;
+function ensureDailyTable(env) {
+  if (!dailyTableReady) dailyTableReady = env.DB.exec('CREATE TABLE IF NOT EXISTS views_daily (path TEXT NOT NULL, day TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (path, day))');
+  return dailyTableReady;
+}
+function beijingDay(offsetDays = 0) {
+  return new Date(Date.now() + 8 * 3600e3 - offsetDays * 86400e3).toISOString().slice(0, 10);
+}
+async function viewsDaily(url, env, cors) {
+  if (!env.DB) return json({ error: '阅读数未启用（worker 未绑定 D1）' }, 501, cors);
+  await ensureDailyTable(env);
+  const days = Math.min(365, Math.max(1, parseInt(url.searchParams.get('days') || '30', 10) || 30));
+  const since = beijingDay(days - 1);
+  const [d, p] = await env.DB.batch([
+    env.DB.prepare('SELECT day, SUM(count) AS views FROM views_daily WHERE day >= ?1 GROUP BY day ORDER BY day').bind(since),
+    env.DB.prepare('SELECT path, SUM(count) AS views FROM views_daily WHERE day >= ?1 GROUP BY path ORDER BY views DESC LIMIT 30').bind(since),
+  ]);
+  return json({ since, days: d.results || [], paths: p.results || [] }, 200, { ...cors, 'Cache-Control': 'public, max-age=300' });
 }
 
 async function viewsTop(url, env, cors) {
@@ -280,6 +320,66 @@ async function votes(request, url, env, cors) {
   }
   const sh = await env.DB.prepare('SELECT count FROM shares WHERE path = ?1').bind(path).first();
   return json({ up: (row && row.up) || 0, down: (row && row.down) || 0, shares: (sh && sh.count) || 0 }, 200, { ...cors, 'Cache-Control': 'no-store' });
+}
+
+// Dashboard: every post's counters in one table.
+// GET /stats/top?limit=100 -> { rows: [{ path, views, up, shares, updated_at }] }
+async function statsTop(url, env, cors) {
+  if (!env.DB) return json({ error: '未启用（worker 未绑定 D1）' }, 501, cors);
+  if (!viewsTableReady) viewsTableReady = env.DB.exec('CREATE TABLE IF NOT EXISTS views (path TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0, updated_at TEXT)');
+  await Promise.all([viewsTableReady, ensureVotesTable(env), ensureSharesTable(env)]);
+  const limit = Math.min(500, Math.max(1, parseInt(url.searchParams.get('limit') || '100', 10) || 100));
+  const { results } = await env.DB.prepare(
+    'SELECT v.path, v.count AS views, v.updated_at, COALESCE(o.up, 0) AS up, COALESCE(s.count, 0) AS shares ' +
+    'FROM views v LEFT JOIN votes o ON o.path = v.path LEFT JOIN shares s ON s.path = v.path ORDER BY v.count DESC LIMIT ?1'
+  ).bind(limit).all();
+  return json({ rows: results || [] }, 200, { ...cors, 'Cache-Control': 'public, max-age=60' });
+}
+
+// Passage-level 赞 / 存疑, anonymous like the article counters. One row per
+// (post, passage): `hash` is the FNV-1a id js/annotations.js already uses for
+// #annot-<hash> links, `quote` the exact text so the browser can draw the
+// underline on a passage nobody has commented on (it re-anchors the quote).
+// GET  /reactions?path=…                          -> { items: [{ hash, quote, up, doubt }] }
+// POST /reactions { path, hash, quote, kind, on }  kind 'up' | 'doubt', on true/false (toggle)
+//                                                  -> { up, doubt }
+// GET  /reactions/top?kind=doubt|up&limit=50       -> { rows: [{ path, hash, quote, up, doubt, updated_at }] }
+const HASH = /^[0-9a-f]{8}$/;
+const QUOTE_MAX = 600;
+let reactionsTableReady = null;
+function ensureReactionsTable(env) {
+  if (!reactionsTableReady) reactionsTableReady = env.DB.exec('CREATE TABLE IF NOT EXISTS passage_reactions (path TEXT NOT NULL, hash TEXT NOT NULL, quote TEXT NOT NULL, up INTEGER NOT NULL DEFAULT 0, doubt INTEGER NOT NULL DEFAULT 0, updated_at TEXT, PRIMARY KEY (path, hash))');
+  return reactionsTableReady;
+}
+async function reactions(request, url, env, cors) {
+  if (!env.DB) return json({ error: '段落点赞未启用（worker 未绑定 D1）' }, 501, cors);
+  await ensureReactionsTable(env);
+  if (request.method === 'GET') {
+    const path = url.searchParams.get('path');
+    if (typeof path !== 'string' || !VIEW_PATH.test(path) || path.includes('..')) return json({ error: '`path` must be a post URL' }, 400, cors);
+    const { results } = await env.DB.prepare('SELECT hash, quote, up, doubt FROM passage_reactions WHERE path = ?1 AND (up > 0 OR doubt > 0)').bind(path).all();
+    return json({ items: results || [] }, 200, { ...cors, 'Cache-Control': 'no-store' });
+  }
+  const b = await request.json().catch(() => ({}));
+  if (typeof b.path !== 'string' || !VIEW_PATH.test(b.path) || b.path.includes('..')) return json({ error: '`path` must be a post URL' }, 400, cors);
+  if (typeof b.hash !== 'string' || !HASH.test(b.hash)) return json({ error: '`hash` must be 8 hex chars' }, 400, cors);
+  if (b.kind !== 'up' && b.kind !== 'doubt') return json({ error: '`kind` must be up | doubt' }, 400, cors);
+  const quote = String(b.quote || '').replace(/\s+/g, ' ').trim().slice(0, QUOTE_MAX);
+  if (!quote) return json({ error: '`quote` is required' }, 400, cors);
+  const delta = b.on === false ? -1 : 1, col = b.kind;
+  const row = await env.DB.prepare(
+    `INSERT INTO passage_reactions (path, hash, quote, ${col}, updated_at) VALUES (?1, ?2, ?3, MAX(0, ?4), ?5) ` +
+    `ON CONFLICT(path, hash) DO UPDATE SET ${col} = MAX(0, ${col} + ?4), updated_at = ?5 RETURNING up, doubt`
+  ).bind(b.path, b.hash, quote, delta, new Date().toISOString()).first();
+  return json({ up: (row && row.up) || 0, doubt: (row && row.doubt) || 0 }, 200, { ...cors, 'Cache-Control': 'no-store' });
+}
+async function reactionsTop(url, env, cors) {
+  if (!env.DB) return json({ error: '段落点赞未启用（worker 未绑定 D1）' }, 501, cors);
+  await ensureReactionsTable(env);
+  const kind = url.searchParams.get('kind') === 'up' ? 'up' : 'doubt';
+  const limit = Math.min(200, Math.max(1, parseInt(url.searchParams.get('limit') || '50', 10) || 50));
+  const { results } = await env.DB.prepare(`SELECT path, hash, quote, up, doubt, updated_at FROM passage_reactions WHERE ${kind} > 0 ORDER BY ${kind} DESC, updated_at DESC LIMIT ?1`).bind(limit).all();
+  return json({ rows: results || [] }, 200, { ...cors, 'Cache-Control': 'public, max-age=60' });
 }
 
 // Share counter: POST /shares { path } -> { shares }. Bumped by js/share.js

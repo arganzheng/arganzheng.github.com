@@ -2,13 +2,19 @@
  * annotations.js — highlight comments ("划线评论") on blog posts.
  *
  * Interaction (code-review / WeChat-reading style, no hover popups):
- *   - Select text in the article -> floating toolbar: 「评论」 / 「复制」 / 「搜一搜」 / 「复制链接」.
+ *   - Select text in the article -> floating toolbar: 「赞」 / 「存疑」 / 「评论」 /
+ *     「复制」 / 「搜一搜」 / 「复制链接」.
+ *   - 「赞」 / 「存疑」 are anonymous per-passage counters (worker /reactions,
+ *     D1; no login, one per browser in localStorage) — "raising a hand".
+ *     A passage with reactions but no comment is underlined too (its quote is
+ *     stored server-side and re-anchored here); 存疑 shows as a red dotted line.
  *   - 「评论」 opens a large editor panel *in the flow*, right below the
  *     paragraph, with 取消 / 提交评论 bottom-right. If the selection lies inside
- *     an already-annotated passage the note joins that thread instead.
- *   - Every annotated passage ends with a small comment-count marker; clicking
- *     it (or the highlight) expands a thread panel below the paragraph: all
- *     notes on that passage, their replies, and a box to add yours.
+ *     an already-underlined passage the note joins that passage instead.
+ *   - Every passage ends with a small marker (💬 comments · 👍 · ❓, non-zero
+ *     ones); clicking it (or the underline) expands a thread panel below the
+ *     paragraph: a 赞 / 存疑 row, all notes on that passage, their replies, and
+ *     a box to add yours.
  *
  * Storage: a note is a normal comment of the post's giscus / GitHub Discussions
  * thread —
@@ -62,6 +68,7 @@
   var index = null;          // { text, nodes:[{node, charIdx:[]}] }
   var comments = [];         // every top-level comment of the post's discussion (see parseComment)
   var annotations = [];      // the subset with a selector, anchored in the article
+  var reactions = {};        // hash -> { hash, quote, up, doubt, range, marks }: anonymous passage 赞 / 存疑 (worker /reactions)
   var discussion = null;     // { id, url, totalCommentCount, likes: { up, mine } }
   var pageViews = null;      // number once GET/POST /views answered; stays null when the worker has no counter
   var loaded = false;        // loadDiscussion() has answered (either way)
@@ -106,7 +113,7 @@
     loadViews();
     window.addEventListener('hashchange', focusFromHash);
     whenRichContentSettled(function () {
-      loadDiscussion(false).then(function () { if (!restoreDraft()) focusFromHash(); });
+      Promise.all([loadDiscussion(false), loadReactions()]).then(function () { if (!restoreDraft()) focusFromHash(); });
     });
   }
 
@@ -347,15 +354,33 @@
     unwrap('mark.annotation-hl');
     buildIndex();
 
-    var orphans = [], items = [];
+    var orphans = [], items = [], anchoredHash = {};
     annotations.forEach(function (a) {
       a.range = anchor(a.selector);
       a.marks = [];
-      if (a.range) items.push({ start: a.range.start, end: a.range.end, id: a.id }); else orphans.push(a);
+      if (a.range) { items.push({ start: a.range.start, end: a.range.end, id: a.id }); anchoredHash[annotHash(a.selector.exact)] = true; }
+      else orphans.push(a);
+    });
+    // Passages with 赞 / 存疑 but no comment: anchor their stored quote so they
+    // get the underline too (id 'r:<hash>'). A commented passage's reactions ride
+    // on the comment marks.
+    Object.keys(reactions).forEach(function (h) {
+      var r = reactions[h];
+      r.range = null; r.marks = [];
+      if (!(r.up > 0 || r.doubt > 0) || anchoredHash[h]) return;
+      r.range = anchor({ exact: r.quote });
+      if (r.range) items.push({ start: r.range.start, end: r.range.end, id: 'r:' + h });
     });
     wrapPieces(items, 'annotation-hl').forEach(function (mark) {
       bindMark(mark);
-      mark.getAttribute('data-annotation-ids').split(' ').forEach(function (id) { var an = findAnnotation(id); if (an) an.marks.push(mark); });
+      var doubt = false;
+      mark.getAttribute('data-annotation-ids').split(' ').forEach(function (id) {
+        var an = findAnnotation(id), r = null;
+        if (an) { an.marks.push(mark); r = reactions[annotHash(an.selector.exact)]; }
+        else if (id.indexOf('r:') === 0 && reactions[id.slice(2)]) { r = reactions[id.slice(2)]; r.marks.push(mark); }
+        if (r && r.doubt > 0) doubt = true;
+      });
+      if (doubt) mark.classList.add('has-doubt');
     });
     insertMarkers();
     buildIndex();
@@ -363,33 +388,77 @@
     if (panelState && panelState.kind === 'thread') refreshThreadPanel();
   }
 
-  // One marker per distinct passage (annotations with an identical range share it).
-  function insertMarkers() {
-    var groups = {};
+  // Every underlined passage: `{ key, ids, list, hash, exact, reaction, marks }` —
+  // `list` = the annotations sharing that exact range (may be empty for a
+  // reaction-only passage, whose ids are ['r:<hash>']).
+  function passages() {
+    var groups = {}, out = [];
     annotations.forEach(function (a) {
       if (!a.range || !a.marks.length) return;
       var key = a.range.start + '-' + a.range.end;
-      (groups[key] = groups[key] || []).push(a);
+      if (!groups[key]) { groups[key] = { key: key, list: [], marks: a.marks }; out.push(groups[key]); }
+      groups[key].list.push(a);
     });
-    Object.keys(groups).forEach(function (key) {
-      var group = groups[key];
-      var count = group.reduce(function (n, a) { return n + 1 + (a.replies || []).length; }, 0);
-      var last = group[0].marks[group[0].marks.length - 1];
+    out.forEach(function (g) {
+      g.exact = g.list[0].selector.exact; g.hash = annotHash(g.exact);
+      g.ids = g.list.map(function (a) { return a.id; }); g.reaction = reactions[g.hash] || null;
+    });
+    Object.keys(reactions).forEach(function (h) {
+      var r = reactions[h];
+      if (!r.marks.length) return;
+      out.push({ key: r.range.start + '-' + r.range.end, ids: ['r:' + h], list: [], hash: h, exact: r.quote, reaction: r, marks: r.marks });
+    });
+    return out;
+  }
+  // The passage behind a set of ids (annotation ids or 'r:<hash>'); null when it
+  // is not on the page. A reaction-only passage that just got its first comment
+  // is found again through the hash.
+  function passageFor(ids) {
+    var hash = null, a = null;
+    for (var i = 0; i < ids.length && !hash; i++) {
+      if (ids[i].indexOf('r:') === 0) hash = ids[i].slice(2);
+      else if ((a = findAnnotation(ids[i]))) hash = annotHash(a.selector.exact);
+    }
+    if (!hash) return null;
+    var all = passages();
+    for (var j = 0; j < all.length; j++) if (all[j].hash === hash) return all[j];
+    return null;
+  }
+  function commentCount(p) { return p.list.reduce(function (n, a) { return n + (a.deleted ? 0 : 1) + (a.replies || []).length; }, 0); }
+
+  // One marker per passage: 💬 comments · 👍 up · ❓ doubt (only the non-zero ones).
+  function markerHtml(p) {
+    var r = p.reaction, n = commentCount(p);
+    return (n ? '<i class="fa fa-comment"></i><span class="annotation-marker-count">' + n + '</span>' : '') +
+      (r && r.up ? '<i class="fa fa-thumbs-up"></i><span class="annotation-marker-count">' + r.up + '</span>' : '') +
+      (r && r.doubt ? '<i class="fa fa-question-circle"></i><span class="annotation-marker-count">' + r.doubt + '</span>' : '');
+  }
+  function markerTitle(p) {
+    var r = p.reaction, parts = [], n = commentCount(p);
+    if (n) parts.push(n + ' 条评论');
+    if (r && r.up) parts.push(r.up + ' 人赞');
+    if (r && r.doubt) parts.push(r.doubt + ' 人存疑');
+    return parts.join(' · ') + '，点击查看';
+  }
+  function insertMarkers() {
+    passages().forEach(function (p) {
+      var last = p.marks[p.marks.length - 1];
       var marker = document.createElement('span');
-      marker.className = 'annotation-marker';
-      marker.setAttribute('data-annotation-ids', group.map(function (a) { return a.id; }).join(' '));
-      marker.setAttribute('title', count + ' 条评论，点击查看');
-      marker.innerHTML = '<i class="fa fa-comment"></i><span class="annotation-marker-count">' + count + '</span>';
+      marker.className = 'annotation-marker' + (p.reaction && p.reaction.doubt ? ' has-doubt' : '');
+      marker.setAttribute('data-annotation-ids', p.ids.join(' '));
+      marker.setAttribute('data-hash', p.hash);
+      marker.setAttribute('title', markerTitle(p));
+      marker.innerHTML = markerHtml(p);
       marker.addEventListener('click', function (e) {
         e.preventDefault(); e.stopPropagation();
-        toggleThread(group.map(function (a) { return a.id; }), last);
+        toggleThread(p.ids, last);
       });
       last.insertAdjacentElement('afterend', marker);
     });
   }
 
   function reanchorAll() {
-    if (annotations.length) applyHighlights(); else buildIndex();
+    if (annotations.length || Object.keys(reactions).length) applyHighlights(); else buildIndex();
   }
 
   function bindMark(mark) {
@@ -434,12 +503,11 @@
     var h = location.hash || '';
     var m = /^#annot-([0-9a-f]{8})/.exec(h);
     if (m) {
-      for (var i = 0; i < annotations.length; i++) {
-        var a = annotations[i];
-        if (annotHash(a.selector.exact) !== m[1] || !a.marks.length) continue;
-        scrollIntoViewInstant(a.marks[0]);
-        flashMarks(a.marks);
-        openThread(groupIdsFor(a), a.marks[a.marks.length - 1]);
+      var p = passageFor(['r:' + m[1]]);
+      if (p) {
+        scrollIntoViewInstant(p.marks[0]);
+        flashMarks(p.marks);
+        openThread(p.ids, p.marks[p.marks.length - 1]);
         return;
       }
       showToast('这条评论对应的原文找不到了（可能已被修改）');
@@ -500,35 +568,59 @@
   }
 
   function openThread(ids, anchorMark) {
-    var list = ids.map(findAnnotation).filter(Boolean);
-    if (!list.length) return;
-    panelState = { kind: 'thread', ids: ids };
+    var p = passageFor(ids);
+    if (!p) return;
+    panelState = { kind: 'thread', ids: p.ids };
     ensurePanel();
     panel.className = 'annotation-panel is-thread';
-    renderThread(list);
-    mountPanel(anchorMark || list[0].marks[list[0].marks.length - 1]);
+    renderThread(p);
+    mountPanel(anchorMark || p.marks[p.marks.length - 1]);
     if (window.getSelection) window.getSelection().removeAllRanges();
   }
 
   function refreshThreadPanel() {
-    var list = panelState.ids.map(findAnnotation).filter(Boolean);
-    if (!list.length || !list[0].marks.length) { closePanel(); return; }
-    renderThread(list);
-    if (!panel.parentNode) mountPanel(list[0].marks[list[0].marks.length - 1]);
+    var p = passageFor(panelState.ids);
+    if (!p || !p.marks.length) { closePanel(); return; }
+    panelState.ids = p.ids;
+    renderThread(p);
+    if (!panel.parentNode) mountPanel(p.marks[p.marks.length - 1]);
   }
 
-  function renderThread(list) {
-    var primary = list[0];
-    var total = list.reduce(function (n, a) { return n + 1 + (a.replies || []).length; }, 0);
+  // 赞 / 存疑 row of the thread panel (also re-rendered alone after a click).
+  function reactBarHtml(p) {
+    var r = p.reaction || { up: 0, doubt: 0 }, up = myReaction(p.hash, 'up'), doubt = myReaction(p.hash, 'doubt');
+    return '<button type="button" class="ap-react-btn ap-react-up' + (up ? ' is-on' : '') + '" title="' + (up ? '取消赞' : '赞这段话（不用登录）') + '"><i class="fa ' + (up ? 'fa-thumbs-up' : 'fa-thumbs-o-up') + '"></i> 赞' + (r.up ? ' <b>' + r.up + '</b>' : '') + '</button>' +
+      '<button type="button" class="ap-react-btn ap-react-doubt' + (doubt ? ' is-on' : '') + '" title="' + (doubt ? '取消存疑' : '觉得这段话有问题？（不用登录）') + '"><i class="fa ' + (doubt ? 'fa-question-circle' : 'fa-question-circle-o') + '"></i> 存疑' + (r.doubt ? ' <b>' + r.doubt + '</b>' : '') + '</button>' +
+      (doubt ? '<a href="#" class="ap-react-say">说说哪里不对 →</a>' : '');
+  }
+  function bindReactBar(host, p) {
+    host.querySelector('.ap-react-up').addEventListener('click', function () { react(p.exact, 'up'); });
+    host.querySelector('.ap-react-doubt').addEventListener('click', function () { react(p.exact, 'doubt'); });
+    var say = host.querySelector('.ap-react-say');
+    if (say) say.addEventListener('click', function (e) {
+      e.preventDefault();
+      var ta = panel.querySelector('.ap-text');
+      if (ta) { ta.focus(); ta.scrollIntoView({ block: 'nearest' }); }
+    });
+  }
+
+  function renderThread(p) {
+    var list = p.list, primary = list[0] || null;
+    var selector = primary ? primary.selector : { exact: p.exact };
+    var total = commentCount(p);
     panel.innerHTML =
       '<div class="ap-head">' +
-        '<i class="fa fa-quote-left"></i><span class="ap-quote" title="' + escapeAttr(primary.selector.exact) + '">' + escapeHtml(primary.selector.exact) + '</span>' +
-        '<span class="ap-count">' + total + ' 条评论</span>' +
+        '<i class="fa fa-quote-left"></i><span class="ap-quote" title="' + escapeAttr(p.exact) + '">' + escapeHtml(p.exact) + '</span>' +
+        '<span class="ap-count">' + (total ? total + ' 条评论' : '还没有评论') + '</span>' +
         '<button type="button" class="ap-close" title="收起">×</button>' +
       '</div>' +
+      '<div class="ap-react"></div>' +
       '<div class="ap-thread"></div>' +
       '<div class="ap-editor"></div>';
     panel.querySelector('.ap-close').addEventListener('click', closePanel);
+    var reactHost = panel.querySelector('.ap-react');
+    reactHost.innerHTML = reactBarHtml(p);
+    bindReactBar(reactHost, p);
     var thread = panel.querySelector('.ap-thread');
     var editorHost = panel.querySelector('.ap-editor');
     var replyTo = null; // { annotation, mention } or null = comment on the passage
@@ -562,9 +654,9 @@
       issueOption: true,
       onCancel: closePanel,
       onSubmit: function (text, extra) {
-        return replyTo ? postReply(replyTo.annotation, text) : postAnnotation(primary.selector, text, extra.issue);
+        return replyTo ? postReply(replyTo.annotation, text) : postAnnotation(selector, text, extra.issue);
       },
-      fallbackText: function (text) { return replyTo ? text : buildCommentBody(primary.selector, text); }
+      fallbackText: function (text) { return replyTo ? text : buildCommentBody(selector, text); }
     });
     editorHost.querySelector('.ap-reply-chip button').addEventListener('click', function () {
       var ta = editorHost.querySelector('.ap-text');
@@ -744,35 +836,36 @@
   var HOT_MAX = 3;
   function renderHotPassages() {
     var host = commentsHost.querySelector('.ac-hot');
-    var groups = {};
-    annotations.forEach(function (a) {
-      if (!a.range || !a.marks.length) return;
-      var key = a.range.start + '-' + a.range.end;
-      (groups[key] = groups[key] || []).push(a);
-    });
-    var ranked = Object.keys(groups).map(function (k) {
-      var g = groups[k], votes = 0, comments = 0;
-      g.forEach(function (a) {
-        votes += a.votes.up - a.votes.down; comments += 1 + a.replies.length;
-        a.replies.forEach(function (r) { votes += r.votes.up - r.votes.down; });
+    // score = passage 赞 + 2 × 存疑 + 2 × net comment votes + comments
+    var ranked = passages().map(function (p) {
+      var votes = 0, n = commentCount(p), r = p.reaction || { up: 0, doubt: 0 };
+      p.list.forEach(function (a) {
+        votes += a.votes.up - a.votes.down;
+        a.replies.forEach(function (x) { votes += x.votes.up - x.votes.down; });
       });
-      return { group: g, votes: votes, comments: comments, score: votes * 2 + comments };
-    }).sort(function (x, y) { return y.score - x.score; });
+      return { p: p, votes: votes, comments: n, up: r.up, doubt: r.doubt, score: r.up + 2 * r.doubt + votes * 2 + n };
+    }).filter(function (x) { return x.score > 0; }).sort(function (x, y) { return y.score - x.score; });
     if (ranked.length < 2) { host.innerHTML = ''; return; }
     host.innerHTML = '<div class="ac-hot-title"><i class="fa fa-fire"></i> 最受关注的段落</div>';
-    ranked.slice(0, HOT_MAX).forEach(function (r) {
-      var a = r.group[0];
+    ranked.slice(0, HOT_MAX).forEach(function (x) {
+      var p = x.p, meta = [];
+      if (x.up) meta.push('<i class="fa fa-thumbs-up"></i> ' + x.up);
+      if (x.doubt) meta.push('<i class="fa fa-question-circle"></i> ' + x.doubt);
+      if (x.votes) meta.push('<i class="fa fa-caret-up"></i> ' + x.votes);
+      if (x.comments) meta.push(x.comments + ' 条评论');
       var item = document.createElement('a');
       item.className = 'ac-hot-item';
-      item.href = '#annot-' + annotHash(a.selector.exact);
+      item.href = '#annot-' + p.hash;
       item.innerHTML =
-        '<span class="ac-hot-quote">' + escapeHtml(a.selector.exact) + '</span>' +
-        '<span class="ac-hot-meta">' + (r.votes ? '<i class="fa fa-caret-up"></i> ' + r.votes + ' · ' : '') + r.comments + ' 条评论</span>';
+        '<span class="ac-hot-quote">' + escapeHtml(p.exact) + '</span>' +
+        '<span class="ac-hot-meta">' + meta.join(' · ') + '</span>';
       item.addEventListener('click', function (e) {
         e.preventDefault();
-        scrollIntoViewInstant(a.marks[0]);
-        flashMarks(a.marks);
-        openThread(groupIdsFor(a), a.marks[a.marks.length - 1]);
+        var q = passageFor(p.ids);
+        if (!q) return;
+        scrollIntoViewInstant(q.marks[0]);
+        flashMarks(q.marks);
+        openThread(q.ids, q.marks[q.marks.length - 1]);
       });
       host.appendChild(item);
     });
@@ -1075,24 +1168,25 @@
 
   // --------------------------------------------------------- new annotation
 
-  // An existing annotation whose passage contains the selection -> join it.
-  function joinTargetFor(offsets) {
+  // The underlined passage (commented or reaction-only) that contains the
+  // selection — smallest wins — or null. A selection inside it joins it instead
+  // of starting a second thread / counter for the same place.
+  function passageContaining(offsets) {
     var best = null;
-    annotations.forEach(function (a) {
-      if (!a.range) return;
-      if (a.range.start <= offsets.start && a.range.end >= offsets.end) {
-        if (!best || (a.range.end - a.range.start) < (best.range.end - best.range.start)) best = a;
-      }
+    passages().forEach(function (p) {
+      var range = p.list.length ? p.list[0].range : p.reaction.range;
+      if (!range || range.start > offsets.start || range.end < offsets.end) return;
+      if (!best || (range.end - range.start) < best.len) best = { p: p, len: range.end - range.start };
     });
-    return best;
+    return best ? best.p : null;
   }
 
   function openComposer(sel, offsets, anchorNode, draftText) {
-    var join = joinTargetFor(offsets);
+    var join = passageContaining(offsets);
     if (join) {
       // same passage -> one thread; the editor there defaults to a comment on the passage
-      openThread(groupIdsFor(join), join.marks[join.marks.length - 1]);
-      var joinTa = panel.querySelector('.ap-text');
+      openThread(join.ids, join.marks[join.marks.length - 1]);
+      var joinTa = panel && panel.querySelector('.ap-text');
       if (joinTa) { if (draftText) joinTa.value = draftText; joinTa.focus(); joinTa.dispatchEvent(new Event('input')); }
       return;
     }
@@ -1268,7 +1362,7 @@
     }).catch(function (err) {
       console.warn('[annotations] load failed:', err.message);
       loadError = err; loaded = true;
-      buildIndex();
+      applyHighlights(); // reaction-only passages still get their underline
       renderCommentSection();
       return [];
     });
@@ -1475,12 +1569,29 @@
     toolbar = document.createElement('div');
     toolbar.className = 'annotation-toolbar';
     toolbar.innerHTML =
+      '<button type="button" class="annotation-tb-up" title="赞这段话（不用登录）"><i class="fa fa-thumbs-o-up"></i> 赞</button>' +
+      '<button type="button" class="annotation-tb-doubt" title="觉得这段话有问题？存疑（不用登录）"><i class="fa fa-question-circle-o"></i> 存疑</button>' +
+      '<span class="annotation-tb-sep"></span>' +
       '<button type="button" class="annotation-tb-comment"><i class="fa fa-comment-o"></i> 评论</button>' +
       '<button type="button" class="annotation-tb-copy" title="复制选中的文字"><i class="fa fa-copy"></i> 复制</button>' +
       '<button type="button" class="annotation-tb-search" title="用 Google 搜这段文字"><i class="fa fa-search"></i> 搜一搜</button>' +
       '<button type="button" class="annotation-tb-link" title="复制分享链接：打开后自动定位并高亮这段文字"><i class="fa fa-link"></i></button>' +
       '<span class="annotation-tb-arrow"></span>';
     toolbar.addEventListener('mousedown', function (e) { e.preventDefault(); }); // keep the selection
+    ['up', 'doubt'].forEach(function (kind) {
+      toolbar.querySelector('.annotation-tb-' + kind).addEventListener('click', function (e) {
+        e.stopPropagation();
+        var range = currentRange();
+        var offsets = range && rangeToOffsets(range);
+        hideToolbar();
+        if (!offsets) return;
+        // inside an underlined passage -> react on that passage, not on a new sub-range
+        var p = passageContaining(offsets);
+        var exact = p ? p.exact : selectorFromOffsets(offsets).exact;
+        if (window.getSelection) window.getSelection().removeAllRanges();
+        reactFromToolbar(exact, kind);
+      });
+    });
     toolbar.querySelector('.annotation-tb-comment').addEventListener('click', function (e) {
       e.stopPropagation();
       var range = currentRange();
@@ -1650,6 +1761,78 @@
   function bindVote(voteEl, rec) {
     voteEl.querySelector('.ap-vote-up').addEventListener('click', function () { toggleVote(rec, 'up'); });
     voteEl.querySelector('.ap-vote-down').addEventListener('click', function () { toggleVote(rec, 'down'); });
+  }
+
+  // ------------------------------------------------ passage 赞 / 存疑 (anonymous)
+  // Same trust model as page views: the worker keeps `passage_reactions(path,
+  // hash, quote, up, doubt)` in D1, one row per passage; the browser remembers
+  // its own choices in localStorage and sends toggles. No GitHub login — this
+  // is "raising a hand", commenting is "speaking". A local preview only posts
+  // when `localStorage.annotationsApi` points it at a dev worker.
+  var reactLocalOnly = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && !localStorage.getItem('annotationsApi');
+
+  function reactKey(hash, kind) { return 'react:' + cfg.path + ':' + hash + ':' + kind; }
+  function myReaction(hash, kind) { try { return localStorage.getItem(reactKey(hash, kind)) === '1'; } catch (e) { return false; } }
+  function rememberReaction(hash, kind, on) { try { if (on) localStorage.setItem(reactKey(hash, kind), '1'); else localStorage.removeItem(reactKey(hash, kind)); } catch (e) { /* ignore */ } }
+
+  function loadReactions() {
+    return api('/reactions?path=' + encodeURIComponent(cfg.path)).then(function (data) {
+      reactions = {};
+      (data.items || []).forEach(function (it) {
+        if (it && /^[0-9a-f]{8}$/.test(it.hash)) reactions[it.hash] = { hash: it.hash, quote: it.quote || '', up: it.up || 0, doubt: it.doubt || 0, range: null, marks: [] };
+      });
+      if (loaded) { applyHighlights(); if (commentsHost) renderHotPassages(); }
+    }).catch(function (err) { console.warn('[annotations] reactions unavailable:', err.message); });
+  }
+
+  // Toggle my 赞 / 存疑 on the passage with this exact text. Optimistic; the
+  // underline / marker / open panel / ranking follow the new counts.
+  function react(exact, kind) {
+    var hash = annotHash(exact);
+    var r = reactions[hash] || (reactions[hash] = { hash: hash, quote: exact, up: 0, doubt: 0, range: null, marks: [] });
+    var on = !myReaction(hash, kind), before = r[kind];
+    r[kind] = Math.max(0, r[kind] + (on ? 1 : -1));
+    rememberReaction(hash, kind, on);
+    refreshReactionViews(hash);
+    if (reactLocalOnly) return Promise.resolve({ on: on, r: r });
+    return api('/reactions', { method: 'POST', body: { path: cfg.path, hash: hash, quote: exact, kind: kind, on: on } })
+      .then(function (d) { r.up = d.up || 0; r.doubt = d.doubt || 0; refreshReactionViews(hash); return { on: on, r: r }; })
+      .catch(function (err) {
+        r[kind] = before; rememberReaction(hash, kind, !on); refreshReactionViews(hash);
+        showToast('操作失败：' + err.message);
+        return null;
+      });
+  }
+
+  // Cheap path when the passage is already underlined (repaint its marker and the
+  // panel's reaction row); otherwise re-anchor so the underline appears / goes.
+  function refreshReactionViews(hash) {
+    var p = passageFor(['r:' + hash]), r = reactions[hash];
+    var alive = r && (r.up > 0 || r.doubt > 0);
+    if (!p || (!alive && !p.list.length)) { applyHighlights(); if (commentsHost) renderHotPassages(); return; }
+    p.marks.forEach(function (m) { m.classList.toggle('has-doubt', !!(r && r.doubt > 0)); });
+    var marker = container.querySelector('.annotation-marker[data-hash="' + hash + '"]');
+    if (marker) { marker.innerHTML = markerHtml(p); marker.title = markerTitle(p); marker.classList.toggle('has-doubt', !!(r && r.doubt > 0)); }
+    if (panelState && panelState.kind === 'thread' && passageFor(panelState.ids) && passageFor(panelState.ids).hash === hash) {
+      var host = panel.querySelector('.ap-react');
+      if (host) { host.innerHTML = reactBarHtml(p); bindReactBar(host, p); }
+      var count = panel.querySelector('.ap-count');
+      if (count) count.textContent = commentCount(p) ? commentCount(p) + ' 条评论' : '还没有评论';
+    }
+    if (commentsHost) renderHotPassages();
+  }
+
+  // From the selection toolbar: 赞 just underlines and confirms; 存疑 also opens
+  // the passage panel, whose 「说说哪里不对 →」 leads into the editor.
+  function reactFromToolbar(exact, kind) {
+    var hash = annotHash(exact);
+    var wasOn = myReaction(hash, kind);
+    react(exact, kind);
+    var p = passageFor(['r:' + hash]);
+    if (!p || !p.marks.length) { showToast(wasOn ? '已取消' : (kind === 'up' ? '已赞' : '已标记存疑')); return; }
+    flashMarks(p.marks);
+    if (kind === 'doubt' && !wasOn) openThread(p.ids, p.marks[p.marks.length - 1]);
+    else showToast(wasOn ? (kind === 'up' ? '已取消赞' : '已取消存疑') : '已赞这段话');
   }
 
   // ----------------------------------------------------------- page views

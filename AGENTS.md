@@ -78,10 +78,16 @@ Pages has `https_enforced` on.
   them). No `meta` category any more — docs about the blog are plain posts
   (the two manuals are also linked from the footer). Feed items carry
   `<category>` (`tech` / `life`).
-- `/admin/stats.html` + `js/dashboard.js`: author dashboard (views ranking via
-  worker `GET /views/top`, recent comments via GraphQL with the giscus
-  session, open issues via REST). `sitemap: false`, `noindex: true`
-  (`head.html` emits the robots meta for `page.noindex`).
+- `/admin/stats.html` + `js/dashboard.js`: author dashboard — 阅读趋势
+  (worker `GET /views/daily?days=`, per-day bars from `views_daily`, Beijing
+  dates), 文章榜 (`GET /stats/top`: views · 有用 · 有用率 · 分享 + comment counts
+  via `/stats?paths=` in chunks of 20; click a `th[data-sort]` to sort), 读者划出
+  来的句子 (`GET /reactions/top?kind=doubt|up`), recent comments via GraphQL
+  with the giscus session (alias the `comments(last:3)` field — a response key
+  named `comments` twice is a GraphQL validation error and looked like a login
+  failure), open issues via REST. `sitemap: false`, `noindex: true`
+  (`head.html` emits the robots meta for `page.noindex`). Its styles are
+  hand-appended to the CSS files (`.dash*`), there is no Less source.
 - `index.html`: posts with `pinned: true` lead page 1 (badge `.post-pin`) and
   are skipped in the paginated flow. Sidebar (`_layouts/page.html`): HOT TAGS
   threshold is `site.featured-condition-size`; RECOMMEND renders
@@ -281,15 +287,32 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
   and patches `votes.mine` / `likes.mine` in place (`updateVoteEls`). GitHub's
   native discussion-comment `upvote` is deliberately not used (top-level only,
   no downvote). Don't re-add the giscus iframe for reactions.
+- **Passage 赞 / 存疑** (`react`, `reactions` map, toolbar buttons
+  `.annotation-tb-up/-doubt`, panel row `.ap-react`): anonymous counters, no
+  login, like the article 「有用」. Worker `GET/POST /reactions` keeps
+  `passage_reactions(path, hash, quote, up, doubt)` in D1; `hash` =
+  `annotHash(exact)` (the `#annot-<hash>` id), `quote` lets `applyHighlights`
+  anchor and underline a passage nobody commented on (mark ids `r:<hash>`,
+  same `mark.annotation-hl`; `.has-doubt` = red dotted line). One reader's
+  choices live in `localStorage["react:<path>:<hash>:<kind>"]`. The unit of
+  everything passage-level is `passages()` / `passageFor(ids)` (`{ ids, list,
+  hash, exact, reaction, marks }`): markers (`markerHtml`: 💬 · 👍 · ❓),
+  `openThread`, `passageContaining(offsets)` (a selection inside an
+  underlined passage joins it — comment or reaction), `renderHotPassages`.
+  `refreshReactionViews` repaints marker / panel row in place and only
+  re-anchors when an underline must appear or vanish. Toolbar 存疑 opens the
+  passage panel (its 「说说哪里不对 →」 focuses the editor); 赞 just flashes +
+  toasts. Local previews post only when `localStorage.annotationsApi` is set.
 - **最受关注的段落** (`renderHotPassages`, `.ac-hot` above the comment list):
-  anchored passages ranked by `2 × net votes + comments`, shown only when
-  there are 2+ passages, max 3; clicking scrolls to the passage and opens its
-  thread. Re-ranked on every vote (`updateVoteEls`).
+  passages ranked by `赞 + 2 × 存疑 + 2 × net comment votes + comments`, shown
+  only when there are 2+ scored passages, max 3; clicking scrolls to the
+  passage and opens its thread. Re-ranked on every vote / reaction.
 - **Page views**: `loadViews()` → `POST /views {path}` once per browser per
   post per day (`localStorage["viewed:<path>"]`), otherwise `GET /views`;
   localhost never increments. The worker keeps `views(path, count)` in a D1
   database (binding `DB` in `wrangler.toml`; without it the route is 501 and
-  the counter is simply not shown). Handed to `share.js` via `blog:stats` for
+  the counter is simply not shown) and, per Beijing day, `views_daily(path,
+  day, count)` for the dashboard trend. Handed to `share.js` via `blog:stats` for
   the `.post-stats` badge in the post header (all three post layouts).
 - **Spacing gotcha**: the theme's `.post-container img { margin: 1.5em auto
   1.6em }` hits every `<img>` inside the in-flow panel — avatar rules must
