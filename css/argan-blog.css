@@ -1950,6 +1950,52 @@ li[id^="fn:"] {
   font-size: 12px;
 }
 
+/* site extras (less/extras.less) */
+.post-preview.is-pinned .post-pin {
+  display: inline-block;
+  vertical-align: 4px;
+  margin-right: 8px;
+  padding: 1px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+  color: #9a6700;
+  background: #fff8c5;
+  border: 1px solid #f5d96b;
+  border-radius: 9px;
+}
+.post-preview.is-pinned .post-pin .fa {
+  margin-right: 2px;
+  font-size: 11px;
+}
+.sidebar-container .recommends ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.sidebar-container .recommends li {
+  margin: 0 0 12px;
+  line-height: 1.45;
+}
+.sidebar-container .recommends a {
+  font-weight: 600;
+  text-decoration: none;
+}
+.sidebar-container .recommends a .fa {
+  margin-left: 4px;
+  font-size: 11px;
+  opacity: 0.6;
+}
+.sidebar-container .recommends .recommend-desc {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  color: #bfbfbf;
+}
+.post-container .related-posts {
+  margin-top: 48px;
+}
+
 /* series navigation (less/series.less) */
 .post-container blockquote.series-nav {
   font-size: 15px;

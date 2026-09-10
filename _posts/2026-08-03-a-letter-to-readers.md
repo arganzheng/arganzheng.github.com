@@ -5,6 +5,7 @@ subtitle: "这个博客写什么、有哪些好玩的功能、怎么用——以
 catalog: true
 updated: 2026-09-09
 tags: [Blog, GitHub]
+pinned: true
 redirect_from: /highlight-annotations-demo.html
 ---
 

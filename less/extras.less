@@ -1,0 +1,39 @@
+@import "variables.less";
+
+// Small site-wide additions that don't belong to one component: pinned posts on
+// the home page, the RECOMMEND sidebar list, spacing between the pager and the
+// related posts. Compiled output is inserted by hand into css/argan-blog{,.min}.css
+// right before the series block (see AGENTS.md).
+
+// ---- pinned posts (index.html, front matter `pinned: true`)
+.post-preview.is-pinned {
+	.post-pin {
+		display: inline-block;
+		vertical-align: 4px;
+		margin-right: 8px;
+		padding: 1px 8px;
+		font-size: 12px;
+		font-weight: 600;
+		line-height: 18px;
+		color: #9a6700;
+		background: #fff8c5;
+		border: 1px solid #f5d96b;
+		border-radius: 9px;
+		.fa { margin-right: 2px; font-size: 11px; }
+	}
+}
+
+// ---- RECOMMEND (sidebar)
+.sidebar-container .recommends {
+	ul { list-style: none; margin: 0; padding: 0; }
+	li { margin: 0 0 12px; line-height: 1.45; }
+	a {
+		font-weight: 600;
+		text-decoration: none;
+		.fa { margin-left: 4px; font-size: 11px; opacity: 0.6; }
+	}
+	.recommend-desc { display: block; margin-top: 2px; font-size: 13px; color: @gray-l; }
+}
+
+// ---- breathing room between Previous / Next and YOU MIGHT ALSO LIKE
+.post-container .related-posts { margin-top: 48px; }

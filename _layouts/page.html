@@ -151,7 +151,7 @@ layout: default
                     <div id="tags">
                       {% for tag in site.tags %}
                       {% assign tag_size = tag[1] | size %}
-                      {% if tag_size > 2 %}
+                      {% if tag_size > site.featured-condition-size %}
                         {% if tag_size >= 40 %}
                           {% assign weight_class = "tag-weight-s" %}
                         {% elsif tag_size >= 20 %}
@@ -171,15 +171,20 @@ layout: default
                 {% endif %}
 
 
-                <!-- Useful Blog -->
+                <!-- Recommended reading (site.recommends: title / href / desc) -->
                 {% if site.recommends %}
-                <hr>
-                <h5>RECOMMEND</h5>
-                <ul class="list-inline">
-                    {% for recommend in site.recommends %}
-                        <li><a href="{{recommend.href}}">{{recommend.title}}</a></li>
+                <section class="recommends">
+                    <hr class="hidden-sm hidden-xs">
+                    <h5>RECOMMEND</h5>
+                    <ul>
+                    {% for r in site.recommends %}
+                        <li>
+                            <a href="{{ r.href }}" target="_blank" rel="noopener noreferrer">{{ r.title }}<i class="fa fa-external-link"></i></a>
+                            {% if r.desc %}<span class="recommend-desc">{{ r.desc }}</span>{% endif %}
+                        </li>
                     {% endfor %}
-                </ul>
+                    </ul>
+                </section>
                 {% endif %}
     		</div>
         {% endif %}

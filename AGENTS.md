@@ -70,6 +70,12 @@ Pages has `https_enforced` on.
 
 ## Layout
 
+- `index.html`: posts with `pinned: true` lead page 1 (badge `.post-pin`) and
+  are skipped in the paginated flow. Sidebar (`_layouts/page.html`): HOT TAGS
+  threshold is `site.featured-condition-size`; RECOMMEND renders
+  `site.recommends` (`title`/`href`/`desc`) as external links. Styles for these
+  live in `less/extras.less` (inserted before the series block in both CSS
+  bundles, same hand-compile procedure).
 - Post layouts: `post` (default, text header), `header-post` (hero image;
   front matter `header-img`, `header-bg-css`, `header-mask`,
   `header-img-credit(-href)`), `keynote` (header is an `iframe` of a slide

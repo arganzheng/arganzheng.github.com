@@ -29,7 +29,7 @@ MODIFIERS = {'lg', '2x', '3x', '4x', '5x', 'fw', 'ul', 'li', 'spin', 'pulse', 'i
 ALWAYS = set("""
 question-circle external-link circle check check-circle check-square-o square-o times times-circle
 exclamation-circle exclamation-triangle info-circle info question lightbulb-o bell-o bell warning
-star star-o star-half-o heart heart-o thumbs-up thumbs-down thumbs-o-up thumbs-o-down
+thumb-tack star star-o star-half-o heart heart-o thumbs-up thumbs-down thumbs-o-up thumbs-o-down
 bookmark bookmark-o flag flag-o tag tags bolt fire trophy gift
 arrow-up arrow-down arrow-left arrow-right arrow-circle-up arrow-circle-down arrow-circle-left arrow-circle-right
 long-arrow-up long-arrow-down long-arrow-left long-arrow-right exchange refresh repeat undo

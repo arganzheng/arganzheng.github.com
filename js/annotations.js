@@ -792,6 +792,8 @@
     head.querySelector('.ac-like').addEventListener('click', toggleLike);
     var meta = document.querySelector('.post-views');
     if (meta) meta.textContent = pageViews !== null ? ' | ' + pageViews + ' 次阅读' : '';
+    var metaLikes = document.querySelector('.post-likes');
+    if (metaLikes) metaLikes.textContent = likes.up ? ' · ' + likes.up + ' 人觉得有用' : '';
   }
 
   // Reply box right under the comment's replies (only one open at a time).

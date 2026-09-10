@@ -110,7 +110,7 @@ sidebar-avatar: /img/avatar-argan-msup.jpg      # use absolute URL, seeing it's 
 
 # Featured Tags
 featured-tags: true                     # whether or not using Feature-Tags
-featured-condition-size: 1              # A tag will be featured if the size of it is more than this condition value
+featured-condition-size: 2              # HOT TAGS shows tags used by MORE than this many posts (2 -> 3+ posts)
 
 
 
@@ -120,20 +120,17 @@ service-worker: false
 
 
 
-# Recommends
-recommends: [
-    {
-        title: "美团技术团队",
-        href: "https://tech.meituan.com/"
-    },{
-        title: "Jay Alammar",
-        href: "https://jalammar.github.io/"
-    },{
-        title: "Eugene Yan",
-        href: "https://eugeneyan.com/"
-    },{
-        title: "deeplearning.ai",
-        href: "https://www.deeplearning.ai/"
-    }
-    
-]
+# Recommends — sidebar "RECOMMEND": title / href / desc (one line on why it's worth reading)
+recommends:
+  - title: 美团技术团队
+    href: https://tech.meituan.com/
+    desc: 国内少有的持续高质量的一线工程实践，尤其是分布式与搜索推荐
+  - title: Jay Alammar
+    href: https://jalammar.github.io/
+    desc: 用图讲透 Transformer / LLM 的第一人，The Illustrated 系列
+  - title: Eugene Yan
+    href: https://eugeneyan.com/
+    desc: 机器学习系统与 LLM 应用落地的长文，工程视角
+  - title: deeplearning.ai
+    href: https://www.deeplearning.ai/
+    desc: 吴恩达的课程与 The Batch 周报，跟进 AI 进展的低成本方式
