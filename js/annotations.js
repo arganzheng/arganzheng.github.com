@@ -791,12 +791,11 @@
       '<span class="ac-count">' + (loadError ? '<i class="fa fa-exclamation-circle"></i> 评论加载失败：' + escapeHtml(loadError.message)
         : !loaded ? '正在加载评论…' : '<i class="fa fa-comment-o"></i> ' + total + ' 条评论') + '</span>' +
       (discussion && discussion.url ? '<a class="ac-github" href="' + escapeAttr(discussion.url) + '" target="_blank" rel="noopener noreferrer" title="这个讨论串在 GitHub Discussions 上"><i class="fa fa-github"></i> GitHub</a>' : '');
-    // Views and comment count go to the action bar; its 赞同 / 反对 are
-    // anonymous worker-side counters owned by js/share.js, not GitHub reactions.
-    var bar = document.querySelector('.post-actions:not(.is-compact)');
-    if (bar && window.PostActions) window.PostActions.render(bar, { views: pageViews, comments: loaded ? total : null });
+    // Header meta: views and comment count (「有用」 there is js/share.js's).
     var meta = document.querySelector('.post-views');
     if (meta) meta.textContent = pageViews !== null ? ' | ' + pageViews + ' 次阅读' : '';
+    var metaComments = document.querySelector('.post-comments');
+    if (metaComments) metaComments.innerHTML = loaded ? ' · <i class="fa fa-comment-o"></i> ' + total + ' 条评论' : '';
   }
 
   // Reply box right under the comment's replies (only one open at a time).

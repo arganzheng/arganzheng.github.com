@@ -1,61 +1,55 @@
 @import "variables.less";
 
-// ---- action bar (_includes/post-actions.html, js/share.js): 赞同/反对 · 阅读 · 评论 · 分享
+// ---- action bar above the comments (_includes/post-actions.html, js/share.js): 有用 · 分享 · [复制为公众号格式]
 .post-actions {
 	position: relative;
 	display: flex;
 	align-items: center;
 	flex-wrap: wrap;
-	gap: 6px 14px;
-	margin: 36px 0 8px;
-	padding-top: 14px;
+	gap: 8px 10px;
+	margin: 44px 0 0;
+	padding: 14px 0;
 	border-top: 1px solid #eee;
+	border-bottom: 1px solid #eee;
 	font-size: 14px;
 	color: @gray;
-	.pa-item, .pa-vote button {
+	.pa-item {
 		display: inline-flex;
 		align-items: center;
-		height: 32px;
-		padding: 0 10px;
-		border: 0;
-		border-radius: 4px;
-		background: transparent;
-		color: @gray;
+		height: 34px;
+		padding: 0 14px;
+		border: 1px solid #d0d7de;
+		border-radius: 17px;
+		background: #fff;
+		color: #444;
 		font-size: 14px;
 		line-height: 1;
 		cursor: pointer;
 		text-decoration: none;
 		white-space: nowrap;
-		transition: color 0.15s ease, background-color 0.15s ease;
-		.fa { margin-right: 5px; font-size: 15px; }
-		b { font-weight: 600; margin: 0 0 0 3px; }
-		&:hover, &:focus { color: @brand-primary; background: #f2f7f8; text-decoration: none; outline: none; }
+		transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+		.fa { margin-right: 6px; font-size: 15px; }
+		b { font-weight: 600; margin-left: 4px; }
+		&:hover, &:focus { color: @brand-primary; border-color: @brand-primary; background: #f2f7f8; text-decoration: none; outline: none; }
 		&[hidden] { display: none; }
 	}
-	.pa-views { cursor: default; &:hover { color: @gray; background: transparent; } }
-	// Zhihu-style vote pair: two joined pills
-	.pa-vote {
-		display: inline-flex;
-		button { background: #f2f7f8; color: @brand-primary; font-weight: 600; }
-		.pa-up { border-radius: 4px 0 0 4px; padding: 0 12px; .fa { font-size: 18px; margin-right: 6px; } }
-		.pa-down { border-radius: 0 4px 4px 0; margin-left: 1px; padding: 0 9px; .fa { margin: 0; font-size: 18px; } }
-		button:hover, button:focus { background: #e1eef1; }
-		&.is-up .pa-up, &.is-down .pa-down { background: @brand-primary; color: #fff; }
-		&.is-up .pa-up:hover, &.is-down .pa-down:hover { background: darken(@brand-primary, 6%); }
+	.pa-like {
+		.fa { color: #e0245e; }
+		&.is-active { color: #e0245e; border-color: #f4b4c8; background: #fff0f4; &:hover { background: #ffe3eb; border-color: #e0245e; } }
 	}
 	.pa-export {
-		margin-left: auto;
 		color: #fff;
 		background: #07c160;
+		border-color: #07c160;
 		font-size: 13px;
-		&:hover, &:focus { color: #fff; background: #06ad56; }
+		&:hover, &:focus { color: #fff; background: #06ad56; border-color: #06ad56; }
 		&[disabled] { opacity: 0.6; cursor: wait; }
 	}
 	.pa-toast {
 		position: absolute;
-		right: 0;
+		left: 0;
 		bottom: ~"calc(100% + 6px)";
-		max-width: 360px;
+		max-width: 420px;
 		padding: 6px 10px;
 		border-radius: 6px;
 		background: #1f2328;
@@ -65,28 +59,11 @@
 		pointer-events: none;
 		&[hidden] { display: none; }
 	}
-	// under a list entry: lighter, no rule, smaller
-	&.is-compact {
-		margin: 4px 0 0;
-		padding-top: 0;
-		border-top: 0;
-		gap: 4px 6px;
-		font-size: 13px;
-		.pa-item, .pa-vote button { height: 28px; font-size: 13px; padding: 0 8px; .fa { font-size: 14px; } }
-		.pa-vote .pa-up { padding: 0 10px; .fa { font-size: 16px; } }
-		.pa-vote .pa-down { padding: 0 8px; .fa { font-size: 16px; } }
-	}
 }
-// the bar sits right above the comment section and takes over its top rule
-.post-actions:not(.is-compact) { margin: 44px 0 0; padding: 14px 0; border-bottom: 1px solid #eee; }
 .post-actions + .comment { margin-top: 18px; padding-top: 0; border-top: 0; }
-// under a home-list entry: hug the "Posted by" line, and let the entry's own
-// padding provide the gap to the <hr>
-.post-preview .post-actions.is-compact { margin: 0 0 0 -8px; }
-.post-preview > .post-meta { margin-bottom: 6px; }
-.life-card-wrap .post-actions.is-compact { margin: 8px 2px 0; }
-.life-card-wrap { display: flex; flex-direction: column; }
-.life-card-wrap .life-card { flex: 1; }
+// 「N 人觉得有用」 in list metas (js/share.js fills it) and the post header meta
+.post-likes-inline, .post-likes { .fa { font-size: 0.85em; color: #e0245e; } }
+.life-card-meta .post-likes-inline .fa { color: rgba(255, 255, 255, 0.75); }
 
 // share menu (one element, appended to body)
 .pa-share-pop {
@@ -129,10 +106,8 @@
 }
 @media (max-width: 767px) {
 	.post-actions {
-		gap: 6px 4px;
-		.pa-item, .pa-vote button { height: 36px; }
-		.pa-export { width: 100%; margin: 6px 0 0; justify-content: center; }
-		&.is-compact { gap: 4px 2px; .pa-lbl { display: none; } .pa-item, .pa-vote button { padding: 0 7px; } }
+		.pa-item { height: 36px; }
+		.pa-export { width: 100%; justify-content: center; }
 		.pa-toast { left: 0; right: 0; max-width: none; text-align: center; }
 	}
 }

@@ -148,20 +148,21 @@ Pages has `https_enforced` on.
   affiliate links (`a.vglnk`) into article text.
 - `js/annotations.js` — comments, reader highlight comments ("划线评论"), likes /
   votes and page views, see below.
-- `_includes/post-actions.html` + `js/share.js` (+ `less/share.less`) — Zhihu-style
-  action bar 「▲ 赞同 N ▼ · N 次阅读 · N 条评论 · 分享」. Post page: included
-  right above `comments.html` in all three post layouts. **Article votes are
-  anonymous**: worker `GET/POST /votes` keeps `votes(path, up, down)` in D1,
-  the browser remembers its own choice in `localStorage["vote:<path>"]` and
-  sends the transition `{path, dir, prev}`; localhost never posts. No GitHub
-  login (the old discussion-THUMBS_UP 「有用」 is gone; comment votes stay
-  reactions). `share.js` owns the votes on every bar; on the post page
-  `annotations.js` only paints views + comment count into it
-  (`renderLikeBar` → `PostActions.render`; `.ac-head` keeps count + GitHub
-  link). List pages (`index.html`, `life.html`): `compact=true` bars, one
-  `GET /stats?paths=…` (views + votes from D1, comments / discussion id from
-  the giscus API, 120 s edge cache). annotations.js runs `takeSessionFromUrl()`
-  and exposes `BlogAnnotations.core` (`api`, `graphql`, `getSession`, `login`,
+- `_includes/post-actions.html` + `js/share.js` (+ `less/share.less`) — action bar
+  「♥ 有用 N · 分享 · [复制为公众号格式]」 right above `comments.html` in all
+  three post layouts. **「有用」 is anonymous**: worker `GET/POST /votes` keeps
+  `votes(path, up, down)` in D1 (only `up` is used now — no downvote), the
+  browser remembers its choice in `localStorage["vote:<path>"]` and sends the
+  transition `{path, dir, prev}`; localhost never posts. No GitHub login (the
+  old discussion-THUMBS_UP 「有用」 is gone; comment votes stay reactions).
+  Counters live in the header meta line (`post-meta.html`): `.post-views` and
+  `.post-comments` are filled by `annotations.js` (`renderLikeBar`),
+  `.post-likes` (「N 人觉得有用」) by `share.js`. List pages (`index.html`,
+  `life.html`) have **no buttons**, only a `.post-likes-inline` span per post
+  in the meta line that `share.js` fills from one `GET /stats?paths=…` (views +
+  votes from D1, comments / discussion id from the giscus API, 120 s edge
+  cache). annotations.js runs `takeSessionFromUrl()` and exposes
+  `BlogAnnotations.core` (`api`, `graphql`, `getSession`, `login`,
   `ensureToken`) even on non-post pages. 「分享」 opens a
   single body-level `.pa-share-pop` menu: Web Share API (only when supported),
   Weibo / X / LinkedIn intent URLs built in JS, WeChat QR
@@ -262,8 +263,8 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
   `parseComment` skips `deletedAt` comments, so such a thread vanishes from
   the article on reload — the confirm text says so. The thread re-renders
   once the viewer query returns so the buttons appear on first open.
-- **Comment votes** are plain GitHub reactions, no own storage (article-level
-  赞同 / 反对 are the anonymous worker counters described above): each comment's ▲ score ▼
+- **Comment votes** are plain GitHub reactions, no own storage (the article-level
+  「有用」 is the anonymous worker counter described above): each comment's ▲ score ▼
   (`.ap-vote`, in the meta row) is `THUMBS_UP` / `THUMBS_DOWN` on that
   comment (`toggleVote`, optimistic, switching sides removes the other
   reaction first; `addReaction` / `removeReaction`). `parseVotes` reads both

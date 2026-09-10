@@ -3462,108 +3462,72 @@ li[id^="fn:"] {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px 14px;
-  margin: 36px 0 8px;
-  padding-top: 14px;
+  gap: 8px 10px;
+  margin: 44px 0 0;
+  padding: 14px 0;
   border-top: 1px solid #eee;
+  border-bottom: 1px solid #eee;
   font-size: 14px;
   color: #808080;
 }
-.post-actions .pa-item,
-.post-actions .pa-vote button {
+.post-actions .pa-item {
   display: inline-flex;
   align-items: center;
-  height: 32px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: #808080;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid #d0d7de;
+  border-radius: 17px;
+  background: #fff;
+  color: #444;
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
   text-decoration: none;
   white-space: nowrap;
-  transition: color 0.15s ease, background-color 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
 }
-.post-actions .pa-item .fa,
-.post-actions .pa-vote button .fa {
-  margin-right: 5px;
+.post-actions .pa-item .fa {
+  margin-right: 6px;
   font-size: 15px;
 }
-.post-actions .pa-item b,
-.post-actions .pa-vote button b {
+.post-actions .pa-item b {
   font-weight: 600;
-  margin: 0 0 0 3px;
+  margin-left: 4px;
 }
 .post-actions .pa-item:hover,
-.post-actions .pa-vote button:hover,
-.post-actions .pa-item:focus,
-.post-actions .pa-vote button:focus {
+.post-actions .pa-item:focus {
   color: #0085a1;
+  border-color: #0085a1;
   background: #f2f7f8;
   text-decoration: none;
   outline: none;
 }
-.post-actions .pa-item[hidden],
-.post-actions .pa-vote button[hidden] {
+.post-actions .pa-item[hidden] {
   display: none;
 }
-.post-actions .pa-views {
-  cursor: default;
+.post-actions .pa-like .fa {
+  color: #e0245e;
 }
-.post-actions .pa-views:hover {
-  color: #808080;
-  background: transparent;
+.post-actions .pa-like.is-active {
+  color: #e0245e;
+  border-color: #f4b4c8;
+  background: #fff0f4;
 }
-.post-actions .pa-vote {
-  display: inline-flex;
-}
-.post-actions .pa-vote button {
-  background: #f2f7f8;
-  color: #0085a1;
-  font-weight: 600;
-}
-.post-actions .pa-vote .pa-up {
-  border-radius: 4px 0 0 4px;
-  padding: 0 12px;
-}
-.post-actions .pa-vote .pa-up .fa {
-  font-size: 18px;
-  margin-right: 6px;
-}
-.post-actions .pa-vote .pa-down {
-  border-radius: 0 4px 4px 0;
-  margin-left: 1px;
-  padding: 0 9px;
-}
-.post-actions .pa-vote .pa-down .fa {
-  margin: 0;
-  font-size: 18px;
-}
-.post-actions .pa-vote button:hover,
-.post-actions .pa-vote button:focus {
-  background: #e1eef1;
-}
-.post-actions .pa-vote.is-up .pa-up,
-.post-actions .pa-vote.is-down .pa-down {
-  background: #0085a1;
-  color: #fff;
-}
-.post-actions .pa-vote.is-up .pa-up:hover,
-.post-actions .pa-vote.is-down .pa-down:hover {
-  background: #006c82;
+.post-actions .pa-like.is-active:hover {
+  background: #ffe3eb;
+  border-color: #e0245e;
 }
 .post-actions .pa-export {
-  margin-left: auto;
   color: #fff;
   background: #07c160;
+  border-color: #07c160;
   font-size: 13px;
 }
 .post-actions .pa-export:hover,
 .post-actions .pa-export:focus {
   color: #fff;
   background: #06ad56;
+  border-color: #06ad56;
 }
 .post-actions .pa-export[disabled] {
   opacity: 0.6;
@@ -3571,9 +3535,9 @@ li[id^="fn:"] {
 }
 .post-actions .pa-toast {
   position: absolute;
-  right: 0;
+  left: 0;
   bottom: calc(100% + 6px);
-  max-width: 360px;
+  max-width: 420px;
   padding: 6px 10px;
   border-radius: 6px;
   background: #1f2328;
@@ -3585,60 +3549,18 @@ li[id^="fn:"] {
 .post-actions .pa-toast[hidden] {
   display: none;
 }
-.post-actions.is-compact {
-  margin: 4px 0 0;
-  padding-top: 0;
-  border-top: 0;
-  gap: 4px 6px;
-  font-size: 13px;
-}
-.post-actions.is-compact .pa-item,
-.post-actions.is-compact .pa-vote button {
-  height: 28px;
-  font-size: 13px;
-  padding: 0 8px;
-}
-.post-actions.is-compact .pa-item .fa,
-.post-actions.is-compact .pa-vote button .fa {
-  font-size: 14px;
-}
-.post-actions.is-compact .pa-vote .pa-up {
-  padding: 0 10px;
-}
-.post-actions.is-compact .pa-vote .pa-up .fa {
-  font-size: 16px;
-}
-.post-actions.is-compact .pa-vote .pa-down {
-  padding: 0 8px;
-}
-.post-actions.is-compact .pa-vote .pa-down .fa {
-  font-size: 16px;
-}
-.post-actions:not(.is-compact) {
-  margin: 44px 0 0;
-  padding: 14px 0;
-  border-bottom: 1px solid #eee;
-}
 .post-actions + .comment {
   margin-top: 18px;
   padding-top: 0;
   border-top: 0;
 }
-.post-preview .post-actions.is-compact {
-  margin: 0 0 0 -8px;
+.post-likes-inline .fa,
+.post-likes .fa {
+  font-size: 0.85em;
+  color: #e0245e;
 }
-.post-preview > .post-meta {
-  margin-bottom: 6px;
-}
-.life-card-wrap .post-actions.is-compact {
-  margin: 8px 2px 0;
-}
-.life-card-wrap {
-  display: flex;
-  flex-direction: column;
-}
-.life-card-wrap .life-card {
-  flex: 1;
+.life-card-meta .post-likes-inline .fa {
+  color: rgba(255, 255, 255, 0.75);
 }
 .pa-share-pop {
   position: absolute;
@@ -3710,27 +3632,12 @@ li[id^="fn:"] {
   color: #808080;
 }
 @media (max-width: 767px) {
-  .post-actions {
-    gap: 6px 4px;
-  }
-  .post-actions .pa-item,
-  .post-actions .pa-vote button {
+  .post-actions .pa-item {
     height: 36px;
   }
   .post-actions .pa-export {
     width: 100%;
-    margin: 6px 0 0;
     justify-content: center;
-  }
-  .post-actions.is-compact {
-    gap: 4px 2px;
-  }
-  .post-actions.is-compact .pa-lbl {
-    display: none;
-  }
-  .post-actions.is-compact .pa-item,
-  .post-actions.is-compact .pa-vote button {
-    padding: 0 7px;
   }
   .post-actions .pa-toast {
     left: 0;

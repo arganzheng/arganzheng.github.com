@@ -12,8 +12,7 @@ description: "stay hungry, stay foolish"
         {% if post.subtitle %}<h3 class="post-subtitle">{{ post.subtitle }}</h3>{% endif %}
         <div class="post-content-preview">{{ post.description | default: post.content | strip_html | remove: '[TOC]' | truncate:340 }}</div>
     </a>
-    <p class="post-meta">Posted by <a href="{{'/about' | prepend: site.baseurl }}">arganzheng</a> | {{ post.date | date: "%B %-d, %Y" }}</p>
-    {% include post-actions.html post=post compact=true %}
+    <p class="post-meta">Posted by <a href="{{'/about' | prepend: site.baseurl }}">arganzheng</a> | {{ post.date | date: "%B %-d, %Y" }}<span class="post-likes-inline" data-path="{{ post.url }}" data-annotations-api="{{ site.annotations.api }}"></span></p>
 </div>
 <hr>
 {% endfor %}{% endif %}
@@ -34,9 +33,8 @@ description: "stay hungry, stay foolish"
         </div>
     </a>
     <p class="post-meta">
-        Posted by <a href="{{'/about' | prepend: site.baseurl }}">arganzheng</a> | {{ post.date | date: "%B %-d, %Y" }}
+        Posted by <a href="{{'/about' | prepend: site.baseurl }}">arganzheng</a> | {{ post.date | date: "%B %-d, %Y" }}<span class="post-likes-inline" data-path="{{ post.url }}" data-annotations-api="{{ site.annotations.api }}"></span>
     </p>
-    {% include post-actions.html post=post compact=true %}
 </div>
 <hr>
 {% endfor %}
