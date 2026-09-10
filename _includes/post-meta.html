@@ -1,8 +1,10 @@
 {%- comment -%}
-  Post header meta line: author | date (· updated) | reading time · length | views.
-  `updated:` is an optional front-matter date. Reading time assumes ~450 CJK
-  characters / minute on the HTML-stripped body (code blocks are excluded so
-  they don't inflate the count). `.post-views` is filled by js/annotations.js.
+  Post header meta line: author | date (· updated) | reading time · length |
+  阅读 · 有用 · 评论 · 分享 badges. `updated:` is an optional front-matter date.
+  Reading time assumes ~450 CJK characters / minute on the HTML-stripped body
+  (code blocks are excluded so they don't inflate the count). `.post-stats` is
+  painted by js/share.js (views / comment count come from js/annotations.js via
+  the `blog:stats` event); the same strip sits in the list metas.
 {%- endcomment -%}
 {%- assign body = content | replace: '<pre', '<xpre' -%}
 {%- assign body_parts = body | split: '<xpre' -%}
@@ -14,4 +16,4 @@
 {%- if chars >= 1000 -%}{%- assign kchars = chars | divided_by: 100.0 | round | divided_by: 10.0 -%}{%- assign length = kchars | append: 'k 字' -%}{%- else -%}{%- assign length = chars | append: ' 字' -%}{%- endif -%}
 Posted by <a href="{{ '/about/' | prepend: site.baseurl }}">{{ page.author | default: 'arganzheng' }}</a>
 | <time datetime="{{ page.date | date_to_xmlschema }}">{{ page.date | date: "%B %-d, %Y" }}</time>{% if page.updated %} <span class="post-updated" title="最后更新">· 更新于 <time datetime="{{ page.updated | date_to_xmlschema }}">{{ page.updated | date: "%Y-%m-%d" }}</time></span>{% endif %}
-| <span class="post-length" title="{{ chars }} 字（不含代码）">约 {{ minutes }} 分钟 · {{ length }}</span><span class="post-views"></span><span class="post-likes"></span><span class="post-comments"></span>
+| <span class="post-length" title="{{ chars }} 字（不含代码）">约 {{ minutes }} 分钟 · {{ length }}</span><span class="post-stats" data-path="{{ page.url }}" data-annotations-api="{{ site.annotations.api }}"></span>

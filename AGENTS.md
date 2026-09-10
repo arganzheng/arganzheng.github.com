@@ -155,13 +155,19 @@ Pages has `https_enforced` on.
   browser remembers its choice in `localStorage["vote:<path>"]` and sends the
   transition `{path, dir, prev}`; localhost never posts. No GitHub login (the
   old discussion-THUMBS_UP 「有用」 is gone; comment votes stay reactions).
-  Counters live in the header meta line (`post-meta.html`): `.post-views` and
-  `.post-comments` are filled by `annotations.js` (`renderLikeBar`),
-  `.post-likes` (「N 人觉得有用」) by `share.js`. List pages (`index.html`,
-  `life.html`) have **no buttons**, only a `.post-likes-inline` span per post
-  in the meta line that `share.js` fills from one `GET /stats?paths=…` (views +
-  votes from D1, comments / discussion id from the giscus API, 120 s edge
-  cache). annotations.js runs `takeSessionFromUrl()` and exposes
+  Counters are one `.post-stats` **badge strip** (`data-path`): 阅读 (eye) ·
+  有用 (heart) · 评论 · 分享 icons, each with an orange count pill (`.ps > b`,
+  `.is-zero` greys a 0; the full wording is in `title`). `share.js` paints it
+  (`paintStrip`, partial patches merged per element). On the post page the
+  strip sits in the header meta line (`post-meta.html`): 有用 + 分享 come from
+  `GET /votes`, views / comment count from `annotations.js`, which dispatches
+  `blog:stats` (`{views}` / `{comments}`) from `renderLikeBar`. List pages
+  (`index.html`, `life.html`) have **no buttons**, only the strip per post,
+  filled from one `GET /stats?paths=…` (views + votes + shares from D1,
+  comments / discussion id from the giscus API, 120 s edge cache). Every
+  completed share (system sheet resolved, Weibo/X/LinkedIn opened, QR shown,
+  link copied) is one `POST /shares {path}` → D1 `shares(path, count)`;
+  localhost never posts. annotations.js runs `takeSessionFromUrl()` and exposes
   `BlogAnnotations.core` (`api`, `graphql`, `getSession`, `login`,
   `ensureToken`) even on non-post pages. 「分享」 opens a
   single body-level `.pa-share-pop` menu: Web Share API (only when supported),
@@ -282,8 +288,8 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
   post per day (`localStorage["viewed:<path>"]`), otherwise `GET /views`;
   localhost never increments. The worker keeps `views(path, count)` in a D1
   database (binding `DB` in `wrangler.toml`; without it the route is 501 and
-  the counter is simply not shown). Rendered in the head bar and into
-  `.post-views` in the post header (all three post layouts have the span).
+  the counter is simply not shown). Handed to `share.js` via `blog:stats` for
+  the `.post-stats` badge in the post header (all three post layouts).
 - **Spacing gotcha**: the theme's `.post-container img { margin: 1.5em auto
   1.6em }` hits every `<img>` inside the in-flow panel — avatar rules must
   reset `margin: 0` or replies get ~40 px of phantom whitespace.

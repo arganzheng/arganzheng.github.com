@@ -61,9 +61,67 @@
 	}
 }
 .post-actions + .comment { margin-top: 18px; padding-top: 0; border-top: 0; }
-// 「N 人觉得有用」 in list metas (js/share.js fills it) and the post header meta
-.post-likes-inline, .post-likes { .fa { font-size: 0.85em; color: #e0245e; } }
-.life-card-meta .post-likes-inline .fa { color: rgba(255, 255, 255, 0.75); }
+// ---- `.post-stats` badge strip (js/share.js paints it): 阅读 · 有用 · 评论 · 分享,
+// each an icon with an orange count pill sitting at its top-right corner. Same
+// markup in the post header meta and in list metas (index.html, life.html).
+.post-stats {
+	display: inline-flex;
+	align-items: center;
+	vertical-align: baseline;
+	gap: 0 14px;
+	margin-left: 10px;
+	white-space: nowrap;
+	&:empty { display: none; }
+	// the meta line's own separator, only when there is something to show
+	&::before { content: "|"; margin-right: 10px; }
+	.ps {
+		position: relative;
+		display: inline-flex;
+		align-items: flex-end;
+		font-weight: normal;
+		font-style: normal;
+		cursor: default;
+		.fa { font-size: 15px; line-height: 1; opacity: 0.85; }
+		b {
+			position: relative;
+			top: -7px;
+			margin-left: -3px;
+			min-width: 16px;
+			height: 15px;
+			padding: 0 5px;
+			border-radius: 8px;
+			background: #f0883e;
+			color: #fff;
+			font-size: 10px;
+			font-weight: 600;
+			line-height: 15px;
+			text-align: center;
+			font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+			letter-spacing: 0;
+			box-shadow: 0 0 0 1.5px #fff;
+		}
+		&.is-zero b { background: #c8ccd1; }
+	}
+	.ps-up .fa { color: #e0245e; opacity: 1; }
+}
+// list "Posted by … | date" line: sit on the baseline of that text
+.post-preview .post-meta .post-stats { margin-left: 10px; .ps .fa { font-size: 14px; } }
+// life cards (white text on an image): pale icons, ring in the card colour
+.life-card-meta .post-stats {
+	display: flex;
+	margin: 8px 0 0;
+	gap: 0 14px;
+	&::before { display: none; }
+	&:empty { display: none; }
+	.ps .fa { color: rgba(255, 255, 255, 0.8); opacity: 1; }
+	.ps-up .fa { color: rgba(255, 255, 255, 0.8); }
+	.ps b { box-shadow: none; }
+}
+// hero header (header-post / keynote): white meta text over an image
+.intro-header .post-heading .meta .post-stats {
+	.ps .fa, .ps-up .fa { color: rgba(255, 255, 255, 0.85); opacity: 1; }
+	.ps b { box-shadow: none; }
+}
 
 // share menu (one element, appended to body)
 .pa-share-pop {
@@ -105,6 +163,8 @@
 	}
 }
 @media (max-width: 767px) {
+	// narrow screens: the strip takes its own line under the meta text
+	.post-stats { display: flex; margin: 6px 0 0; &::before { display: none; } &:empty { display: none; } }
 	.post-actions {
 		.pa-item { height: 36px; }
 		.pa-export { width: 100%; justify-content: center; }

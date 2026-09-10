@@ -19,7 +19,7 @@ permalink: /life/
       <h2>{{ post.title }}</h2>
       {% if post.subtitle %}<p class="life-card-subtitle">{{ post.subtitle }}</p>{% endif %}
       <p class="life-card-excerpt">{{ post.description | default: post.content | strip_html | remove: '[TOC]' | truncate: 120 }}</p>
-      <p class="life-card-meta">{{ post.date | date: "%Y-%m-%d" }}{% if post.tags.size > 0 %} · {{ post.tags | join: ' / ' }}{% endif %}<span class="post-likes-inline" data-path="{{ post.url }}" data-annotations-api="{{ site.annotations.api }}"></span></p>
+      <p class="life-card-meta">{{ post.date | date: "%Y-%m-%d" }}{% if post.tags.size > 0 %} · {{ post.tags | join: ' / ' }}{% endif %}<span class="post-stats" data-path="{{ post.url }}" data-annotations-api="{{ site.annotations.api }}"></span></p>
     </div>
   </a>
 {% endfor %}

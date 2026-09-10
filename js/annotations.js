@@ -778,11 +778,8 @@
     });
   }
 
-  // Head of the comment section: 「👍 有用」 (the Discussion's THUMBS_UP), page
-  // views, comment count, link to GitHub. Re-rendered on its own after a like /
-  // views response so the editors below are left alone.
-  // The section head keeps the count and the GitHub link; views / comment count
-  // are also painted into the action bar above (_includes/post-actions.html).
+  // Head of the comment section: comment count and the GitHub link. Re-rendered
+  // on its own after a views / load response so the editors below are left alone.
   function renderLikeBar() {
     if (!commentsHost) return;
     var head = commentsHost.querySelector('.ac-head');
@@ -791,11 +788,12 @@
       '<span class="ac-count">' + (loadError ? '<i class="fa fa-exclamation-circle"></i> 评论加载失败：' + escapeHtml(loadError.message)
         : !loaded ? '正在加载评论…' : '<i class="fa fa-comment-o"></i> ' + total + ' 条评论') + '</span>' +
       (discussion && discussion.url ? '<a class="ac-github" href="' + escapeAttr(discussion.url) + '" target="_blank" rel="noopener noreferrer" title="这个讨论串在 GitHub Discussions 上"><i class="fa fa-github"></i> GitHub</a>' : '');
-    // Header meta: views and comment count (「有用」 there is js/share.js's).
-    var meta = document.querySelector('.post-views');
-    if (meta) meta.textContent = pageViews !== null ? ' | ' + pageViews + ' 次阅读' : '';
-    var metaComments = document.querySelector('.post-comments');
-    if (metaComments) metaComments.innerHTML = loaded ? ' · <i class="fa fa-comment-o"></i> ' + total + ' 条评论' : '';
+    // Header meta badges (`.post-stats`) are painted by js/share.js; hand it
+    // what we know (views once the worker answered, comment count once loaded).
+    var stats = {};
+    if (pageViews !== null) stats.views = pageViews;
+    if (loaded) stats.comments = total;
+    if (Object.keys(stats).length) { try { document.dispatchEvent(new CustomEvent('blog:stats', { detail: stats })); } catch (e) { /* old browsers */ } }
   }
 
   // Reply box right under the comment's replies (only one open at a time).

@@ -3554,13 +3554,93 @@ li[id^="fn:"] {
   padding-top: 0;
   border-top: 0;
 }
-.post-likes-inline .fa,
-.post-likes .fa {
-  font-size: 0.85em;
-  color: #e0245e;
+.post-stats {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: baseline;
+  gap: 0 14px;
+  margin-left: 10px;
+  white-space: nowrap;
 }
-.life-card-meta .post-likes-inline .fa {
-  color: rgba(255, 255, 255, 0.75);
+.post-stats:empty {
+  display: none;
+}
+.post-stats::before {
+  content: "|";
+  margin-right: 10px;
+}
+.post-stats .ps {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-end;
+  font-weight: normal;
+  font-style: normal;
+  cursor: default;
+}
+.post-stats .ps .fa {
+  font-size: 15px;
+  line-height: 1;
+  opacity: 0.85;
+}
+.post-stats .ps b {
+  position: relative;
+  top: -7px;
+  margin-left: -3px;
+  min-width: 16px;
+  height: 15px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: #f0883e;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 15px;
+  text-align: center;
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  letter-spacing: 0;
+  box-shadow: 0 0 0 1.5px #fff;
+}
+.post-stats .ps.is-zero b {
+  background: #c8ccd1;
+}
+.post-stats .ps-up .fa {
+  color: #e0245e;
+  opacity: 1;
+}
+.post-preview .post-meta .post-stats {
+  margin-left: 10px;
+}
+.post-preview .post-meta .post-stats .ps .fa {
+  font-size: 14px;
+}
+.life-card-meta .post-stats {
+  display: flex;
+  margin: 8px 0 0;
+  gap: 0 14px;
+}
+.life-card-meta .post-stats::before {
+  display: none;
+}
+.life-card-meta .post-stats:empty {
+  display: none;
+}
+.life-card-meta .post-stats .ps .fa {
+  color: rgba(255, 255, 255, 0.8);
+  opacity: 1;
+}
+.life-card-meta .post-stats .ps-up .fa {
+  color: rgba(255, 255, 255, 0.8);
+}
+.life-card-meta .post-stats .ps b {
+  box-shadow: none;
+}
+.intro-header .post-heading .meta .post-stats .ps .fa,
+.intro-header .post-heading .meta .post-stats .ps-up .fa {
+  color: rgba(255, 255, 255, 0.85);
+  opacity: 1;
+}
+.intro-header .post-heading .meta .post-stats .ps b {
+  box-shadow: none;
 }
 .pa-share-pop {
   position: absolute;
@@ -3632,6 +3712,16 @@ li[id^="fn:"] {
   color: #808080;
 }
 @media (max-width: 767px) {
+  .post-stats {
+    display: flex;
+    margin: 6px 0 0;
+  }
+  .post-stats::before {
+    display: none;
+  }
+  .post-stats:empty {
+    display: none;
+  }
   .post-actions .pa-item {
     height: 36px;
   }

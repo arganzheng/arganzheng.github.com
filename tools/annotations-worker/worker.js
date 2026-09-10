@@ -15,16 +15,21 @@
  *   GET  /views?path=/slug.html                -> { views }       (optional, needs the D1 binding)
  *   POST /views        { path }                -> { views }       increments, then returns the count
  *   GET  /views/top?limit=50[&order=recent]   -> { rows: [{ path, views, updated_at }] }  for the author's dashboard
+ *   GET  /votes?path=/slug.html                -> { up, down, shares }   anonymous article 「有用」 (D1)
+ *   POST /votes        { path, dir, prev }     -> { up, down, shares }
+ *   POST /shares       { path }                -> { shares }    one more share (any channel of the share menu)
+ *   GET  /stats?paths=/a.html,/b.html          -> { items: { path: { views, comments, up, down, shares, id, url } } }
  *
  * repo / category are fixed via wrangler.toml [vars]; the worker never accepts them from the request.
  *
- * Likes and votes are NOT here: they are GitHub reactions (THUMBS_UP on the
- * post's Discussion, THUMBS_UP / THUMBS_DOWN on its comments) and the browser
- * reads them from the giscus payload and writes them via GitHub GraphQL with the
- * reader's token. Only the page-view counter needs our own storage — a D1 table
- * `views(path, count)`. The browser increments at most once per path per day
- * (localStorage), the worker only accepts paths that look like a post URL. Good
- * enough for a blog; not an analytics product.
+ * Comment votes are NOT here: they are GitHub reactions (THUMBS_UP / THUMBS_DOWN
+ * on a comment) and the browser reads them from the giscus payload and writes
+ * them via GitHub GraphQL with the reader's token. The anonymous per-article
+ * counters — page views, 「有用」 and shares — live in three D1 tables
+ * (`views`, `votes`, `shares`, one row per path). The browser rate-limits itself
+ * (views once per day, one 「有用」 per browser, both in localStorage), the worker
+ * only accepts paths that look like a post URL. Good enough for a blog; not an
+ * analytics product.
  *
  * /issues is the one route that needs secrets. The reader's token comes from the
  * giscus GitHub App, whose only permission is Discussions: read & write, so it
@@ -62,6 +67,7 @@ export default {
       if (url.pathname === '/views/top' && request.method === 'GET') return await viewsTop(url, env, cors);
       if (url.pathname === '/stats' && request.method === 'GET') return await stats(url, env, ctx, cors);
       if (url.pathname === '/votes' && (request.method === 'GET' || request.method === 'POST')) return await votes(request, url, env, cors);
+      if (url.pathname === '/shares' && request.method === 'POST') return await shares(request, env, cors);
     } catch (err) {
       return json({ error: err.message || String(err) }, 502, cors);
     }
@@ -258,7 +264,7 @@ async function votes(request, url, env, cors) {
   const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
   const path = request.method === 'GET' ? url.searchParams.get('path') : body.path;
   if (typeof path !== 'string' || !VIEW_PATH.test(path) || path.includes('..')) return json({ error: '`path` must be a post URL' }, 400, cors);
-  await ensureVotesTable(env);
+  await Promise.all([ensureVotesTable(env), ensureSharesTable(env)]);
   let row;
   if (request.method === 'POST') {
     const dir = DIRS.has(body.dir) ? body.dir : null, prev = DIRS.has(body.prev) ? body.prev : null;
@@ -272,12 +278,34 @@ async function votes(request, url, env, cors) {
   } else {
     row = await env.DB.prepare('SELECT up, down FROM votes WHERE path = ?1').bind(path).first();
   }
-  return json({ up: (row && row.up) || 0, down: (row && row.down) || 0 }, 200, { ...cors, 'Cache-Control': 'no-store' });
+  const sh = await env.DB.prepare('SELECT count FROM shares WHERE path = ?1').bind(path).first();
+  return json({ up: (row && row.up) || 0, down: (row && row.down) || 0, shares: (sh && sh.count) || 0 }, 200, { ...cors, 'Cache-Control': 'no-store' });
+}
+
+// Share counter: POST /shares { path } -> { shares }. Bumped by js/share.js
+// whenever a reader uses the share menu (system sheet, Weibo/X/LinkedIn, WeChat
+// QR, copy link). Same trust level as views; `shares(path, count)` in D1.
+let sharesTableReady = null;
+function ensureSharesTable(env) {
+  if (!sharesTableReady) sharesTableReady = env.DB.exec('CREATE TABLE IF NOT EXISTS shares (path TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0, updated_at TEXT)');
+  return sharesTableReady;
+}
+async function shares(request, env, cors) {
+  if (!env.DB) return json({ error: '分享计数未启用（worker 未绑定 D1）' }, 501, cors);
+  const body = await request.json().catch(() => ({}));
+  const path = body.path;
+  if (typeof path !== 'string' || !VIEW_PATH.test(path) || path.includes('..')) return json({ error: '`path` must be a post URL' }, 400, cors);
+  await ensureSharesTable(env);
+  const row = await env.DB.prepare(
+    'INSERT INTO shares (path, count, updated_at) VALUES (?1, 1, ?2) ' +
+    'ON CONFLICT(path) DO UPDATE SET count = count + 1, updated_at = ?2 RETURNING count'
+  ).bind(path, new Date().toISOString()).first();
+  return json({ shares: (row && row.count) || 0 }, 200, { ...cors, 'Cache-Control': 'no-store' });
 }
 
 // GET /stats?paths=/a.html,/b.html  (<= 20) -> per-post counters for list pages:
-// { items: { "/a.html": { views, comments, up, down, id, url } } }
-// views and up/down from D1 (0 without the binding), comments / discussion id
+// { items: { "/a.html": { views, comments, up, down, shares, id, url } } }
+// views, up/down and shares from D1 (0 without the binding), comments / discussion id
 // from the giscus public API (one lookup per path, first page only).
 // Cached 120 s at the edge per path so a listing of 10 posts is cheap.
 const STATS_MAX = 20;
@@ -286,17 +314,19 @@ async function stats(url, env, ctx, cors) {
   if (!paths.length) return json({ error: '`paths` is required' }, 400, cors);
   for (const p of paths) if (!VIEW_PATH.test(p) || p.includes('..')) return json({ error: `bad path ${p}` }, 400, cors);
 
-  let viewsByPath = {}, votesByPath = {};
+  let viewsByPath = {}, votesByPath = {}, sharesByPath = {};
   if (env.DB) {
     if (!viewsTableReady) viewsTableReady = env.DB.exec('CREATE TABLE IF NOT EXISTS views (path TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0, updated_at TEXT)');
-    await Promise.all([viewsTableReady, ensureVotesTable(env)]);
+    await Promise.all([viewsTableReady, ensureVotesTable(env), ensureSharesTable(env)]);
     const marks = paths.map((_, i) => `?${i + 1}`).join(',');
-    const [v, w] = await Promise.all([
+    const [v, w, s] = await Promise.all([
       env.DB.prepare(`SELECT path, count FROM views WHERE path IN (${marks})`).bind(...paths).all(),
       env.DB.prepare(`SELECT path, up, down FROM votes WHERE path IN (${marks})`).bind(...paths).all(),
+      env.DB.prepare(`SELECT path, count FROM shares WHERE path IN (${marks})`).bind(...paths).all(),
     ]);
     for (const r of v.results || []) viewsByPath[r.path] = r.count;
     for (const r of w.results || []) votesByPath[r.path] = { up: r.up, down: r.down };
+    for (const r of s.results || []) sharesByPath[r.path] = r.count;
   }
 
   const cache = caches.default;
@@ -315,7 +345,7 @@ async function stats(url, env, ctx, cors) {
                : { id: null, url: null, comments: 0 };
       if (r.ok || r.status === 404) ctx.waitUntil(cache.put(key, json(d, 200, { 'Cache-Control': 'public, s-maxage=120' })));
     }
-    items[p] = { ...d, views: viewsByPath[p] || 0, up: (votesByPath[p] || {}).up || 0, down: (votesByPath[p] || {}).down || 0 };
+    items[p] = { ...d, views: viewsByPath[p] || 0, up: (votesByPath[p] || {}).up || 0, down: (votesByPath[p] || {}).down || 0, shares: sharesByPath[p] || 0 };
   }));
   return json({ items }, 200, { ...cors, 'Cache-Control': 'public, max-age=60' });
 }

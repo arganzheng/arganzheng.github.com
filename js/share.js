@@ -1,21 +1,24 @@
 /*!
  * share.js — the action bar above a post's comments (_includes/post-actions.html)
- * and the 「N 人觉得有用」 counters on list pages.
+ * and the `.post-stats` badge strips (阅读 · 有用 · 评论 · 分享, icon + orange
+ * count pill) in the post header meta and in every list entry's meta line.
  *   - 有用 (heart): anonymous per-post counter in the worker's D1 (POST /votes,
- *     dir 'up' | null), one per browser (localStorage), no login. The number is
- *     mirrored into the header meta (`.post-likes`) and, on list pages, into
- *     `.post-likes-inline` spans via one GET /stats?paths=….
+ *     dir 'up' | null), one per browser (localStorage), no login.
  *   - 分享 popover: system share sheet (Web Share API), Weibo / X / LinkedIn
  *     intent links, WeChat QR (js/vendor/qrcode.min.js, loaded on first use),
  *     copy link. One popover element, re-anchored to whichever button opened it.
+ *     Every completed share is one POST /shares.
+ *   - stats: list pages get everything from one GET /stats?paths=…; on the post
+ *     page 有用 / 分享 come from GET /votes and views / comment count arrive from
+ *     js/annotations.js as `blog:stats` events ({views} / {comments}).
  *   - author-only 「复制为公众号格式」 (lazy js/wechat-export.js).
  */
 (function () {
   'use strict';
 
   var bars = Array.prototype.slice.call(document.querySelectorAll('.post-actions'));
-  var inline = Array.prototype.slice.call(document.querySelectorAll('.post-likes-inline'));
-  if (!bars.length && !inline.length) return;
+  var strips = Array.prototype.slice.call(document.querySelectorAll('.post-stats'));
+  if (!bars.length && !strips.length) return;
   var enc = encodeURIComponent;
   var version = (document.currentScript && (document.currentScript.src.match(/[?&]v=([^&]+)/) || [])[1]) || '';
 
@@ -30,15 +33,34 @@
   function fmt(n) { return n >= 10000 ? (n / 10000).toFixed(1).replace(/\.0$/, '') + ' 万' : String(n); }
 
   // ------------------------------------------------------------------ paint
-  function likeText(n) { return '<i class="fa fa-heart"></i> ' + fmt(n) + ' 人觉得有用'; }
+  // A `.post-stats` strip: four icons, each with a count pill. Numbers arrive
+  // piecemeal (votes / stats / annotations.js), so each strip keeps its own
+  // partial state and is repainted with what is known so far.
+  var STATS = [
+    { k: 'views', icon: 'fa-eye', label: '次阅读' },
+    { k: 'up', icon: 'fa-heart', label: '人觉得有用' },
+    { k: 'comments', icon: 'fa-comment-o', label: '条评论' },
+    { k: 'shares', icon: 'fa-share-alt', label: '次分享' }
+  ];
+  function paintStrip(el, patch) {
+    var st = el._stats || (el._stats = {});
+    Object.keys(patch).forEach(function (k) { if (patch[k] != null) st[k] = patch[k]; });
+    el.innerHTML = STATS.filter(function (s) { return st[s.k] != null; }).map(function (s) {
+      var n = st[s.k];
+      return '<span class="ps ps-' + s.k + (n ? '' : ' is-zero') + '" title="' + fmt(n) + ' ' + s.label + '"><i class="fa ' + s.icon + '"></i><b>' + fmt(n) + '</b></span>';
+    }).join('');
+  }
+  function paintStrips(path, patch) {
+    strips.forEach(function (el) { if (el.getAttribute('data-path') === path) paintStrip(el, patch); });
+  }
+
   function render(bar, st) {
     var btn = bar.querySelector('.pa-like');
     bar.querySelector('.pa-like-n').textContent = st.up ? ' ' + fmt(st.up) : '';
     btn.classList.toggle('is-active', st.mine === 'up');
     btn.querySelector('.fa').className = 'fa ' + (st.mine === 'up' ? 'fa-heart' : 'fa-heart-o');
     btn.title = st.mine === 'up' ? '取消' : '觉得这篇文章有用？点个心（不用登录）';
-    var meta = document.querySelector('.post-likes');
-    if (meta) meta.innerHTML = st.up ? ' · ' + likeText(st.up) : '';
+    paintStrips(bar.getAttribute('data-path'), { up: st.up, shares: st.shares });
   }
 
   function toast(bar, msg, ms) {
@@ -85,11 +107,11 @@
     pop.addEventListener('click', function (e) {
       var item = e.target.closest('.pa-sp-item');
       if (!item || !popFor) return;
-      var k = item.getAttribute('data-k'), d = dataOf(popFor);
-      if (k === 'native') { navigator.share({ title: d.title, text: d.text || d.title, url: d.url }).catch(function () { /* cancelled */ }); closePop(); }
-      else if (k === 'wechat') { e.preventDefault(); showQR(d.url); }
-      else if (k === 'copy') { copyText(d.url).then(function () { toast(popFor, '已复制链接'); }, function () { toast(popFor, '复制失败'); }); closePop(); }
-      else closePop();
+      var k = item.getAttribute('data-k'), d = dataOf(popFor), bar = popFor;
+      if (k === 'native') { navigator.share({ title: d.title, text: d.text || d.title, url: d.url }).then(function () { countShare(bar); }, function () { /* cancelled */ }); closePop(); }
+      else if (k === 'wechat') { e.preventDefault(); showQR(d.url); countShare(bar); }
+      else if (k === 'copy') { copyText(d.url).then(function () { toast(bar, '已复制链接'); countShare(bar); }, function () { toast(bar, '复制失败'); }); closePop(); }
+      else { countShare(bar); closePop(); }
     });
     document.addEventListener('click', function (e) { if (pop && !pop.hidden && !pop.contains(e.target) && !e.target.closest('.pa-share')) closePop(); });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closePop(); });
@@ -164,29 +186,40 @@
   function bindVotes(bar) {
     bar.querySelector('.pa-like').addEventListener('click', function () { vote(bar); });
   }
-  // Post page: one GET /votes for this article.
+  // One completed share (any channel) = POST /shares. Optimistic; previews don't count.
+  function countShare(bar) {
+    var st = bar._stats, api = apiBase(bar), path = bar.getAttribute('data-path');
+    if (!st || !api) return;
+    st.shares = (st.shares || 0) + 1;
+    render(bar, st);
+    if (local) return;
+    fetch(api + '/shares', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: path }) })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { if (d && typeof d.shares === 'number') { st.shares = d.shares; render(bar, st); } })
+      .catch(function () { /* keep the optimistic number */ });
+  }
+  // Post page: one GET /votes for this article (有用 + 分享 counts).
   function loadVotes(bar) {
     var api = apiBase(bar), path = bar.getAttribute('data-path');
     if (!api) return;
     fetch(api + '/votes?path=' + enc(path)).then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); }).then(function (d) {
-      bar._stats = { up: d.up || 0, mine: myVote(path) };
+      bar._stats = { up: d.up || 0, shares: d.shares || 0, mine: myVote(path) };
       render(bar, bar._stats);
-    }).catch(function () { bar._stats = { up: 0, mine: myVote(path) }; render(bar, bar._stats); });
+    }).catch(function () { bar._stats = { up: 0, shares: 0, mine: myVote(path) }; render(bar, bar._stats); });
   }
-  // List pages: one GET /stats for all the 「N 人觉得有用」 spans.
-  function loadInline(list) {
+  // List pages: one GET /stats for all the strips (views, 有用, comments, shares).
+  function loadStats(list) {
     var api = apiBase(list[0]);
     if (!api) return;
-    var byPath = {};
-    list.forEach(function (el) { byPath[el.getAttribute('data-path')] = el; });
-    var paths = Object.keys(byPath), chunks = [];
+    var paths = [];
+    list.forEach(function (el) { var p = el.getAttribute('data-path'); if (paths.indexOf(p) < 0) paths.push(p); });
+    var chunks = [];
     while (paths.length) chunks.push(paths.splice(0, 20));
     chunks.forEach(function (chunk) {
       fetch(api + '/stats?paths=' + enc(chunk.join(','))).then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); }).then(function (data) {
         chunk.forEach(function (p) {
-          var it = data.items && data.items[p], el = byPath[p];
-          if (!it || !el) return;
-          el.innerHTML = ' · ' + likeText(it.up || 0);
+          var it = data.items && data.items[p];
+          if (it) paintStrips(p, { views: it.views || 0, up: it.up || 0, comments: it.comments || 0, shares: it.shares || 0 });
         });
       }).catch(function () { /* stays blank */ });
     });
@@ -202,7 +235,13 @@
     bindVotes(bar);
     loadVotes(bar);
   });
-  if (inline.length) loadInline(inline);
+  // Post page: the header strip gets views / comment count from js/annotations.js;
+  // list pages: one /stats round trip for every strip.
+  if (bars.length) {
+    document.addEventListener('blog:stats', function (e) { if (e.detail) paintStrips(bars[0].getAttribute('data-path'), e.detail); });
+  } else if (strips.length) {
+    loadStats(strips);
+  }
 
   // ------------------------------------------------- author: WeChat export
   var exportBtn = document.querySelector('.post-actions .pa-export');

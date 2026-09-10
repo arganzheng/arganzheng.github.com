@@ -83,21 +83,29 @@ curl -H 'Origin: http://localhost:4000' 'https://blog-annotations.<subdomain>.wo
 
 ## Article votes (GET/POST /votes)
 
-Anonymous 赞同 / 反对 on a post, same trust model as views: one D1 row per
-post (`votes(path, up, down)`), the browser keeps its own choice in
-`localStorage["vote:<path>"]` and sends the transition
-(`POST {path, dir, prev}` with `up` / `down` / `null`), `GET /votes?path=`
-reads the counts. No GitHub login involved (comment votes are still GitHub
-reactions). Needs the D1 binding; 501 without it.
+Anonymous 「有用」 on a post, same trust model as views: one D1 row per post
+(`votes(path, up, down)` — the UI only uses `up` today), the browser keeps its
+own choice in `localStorage["vote:<path>"]` and sends the transition
+(`POST {path, dir, prev}` with `up` / `null`), `GET /votes?path=` reads the
+counts (plus `shares`, below). No GitHub login involved (comment votes are
+still GitHub reactions). Needs the D1 binding; 501 without it.
+
+## Share counter (POST /shares)
+
+`POST /shares { path }` adds one to `shares(path, count)` and returns
+`{ shares }`. `js/share.js` calls it whenever a reader actually uses the share
+menu (system share sheet completed, Weibo / X / LinkedIn opened, WeChat QR
+shown, link copied); localhost previews don't count. Same D1 binding.
 
 ## List-page counters (GET /stats)
 
-`GET /stats?paths=/a.html,/b.html` (up to 20) returns, per path, `views` and
-`up` / `down` (D1, 0 without the binding), and from the giscus public API
-`comments` (comments + replies), `id` and `url` of the discussion (`null`
-when nobody has commented yet). Each path is cached 120 s at the edge, so the home page
-(10 posts) costs at most 10 giscus lookups every two minutes. Used by
-`js/share.js` for the action bar under every post preview.
+`GET /stats?paths=/a.html,/b.html` (up to 20) returns, per path, `views`,
+`up` / `down` and `shares` (D1, 0 without the binding), and from the giscus
+public API `comments` (comments + replies), `id` and `url` of the discussion
+(`null` when nobody has commented yet). Each path is cached 120 s at the edge,
+so the home page (10 posts) costs at most 10 giscus lookups every two minutes.
+Used by `js/share.js` for the 阅读 / 有用 / 评论 / 分享 badges in every list
+entry's meta line.
 
 ## Local development
 
