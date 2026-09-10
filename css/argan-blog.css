@@ -2295,17 +2295,20 @@ li[id^="fn:"] {
 
 /* highlight annotations (less/annotations.less) */
 .post-container mark.annotation-hl {
-  padding: 0;
+  padding: 0 0 1px;
   color: inherit;
-  background-color: rgba(255, 213, 79, 0.32);
-  box-shadow: inset 0 -2px 0 rgba(214, 158, 0, 0.75);
-  border-radius: 2px;
+  background-color: transparent;
+  border-bottom: 1.5px dashed rgba(214, 158, 0, 0.85);
+  border-radius: 0;
   cursor: pointer;
-  transition: background-color 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
-.post-container mark.annotation-hl.is-multi,
+.post-container mark.annotation-hl.is-multi {
+  border-bottom: 2px solid rgba(214, 158, 0, 0.85);
+}
 .post-container mark.annotation-hl:hover {
-  background-color: rgba(255, 196, 0, 0.5);
+  background-color: rgba(255, 213, 79, 0.22);
+  border-bottom-color: #b5860a;
 }
 .post-container mark.annotation-hl.is-new {
   animation: annotation-flash 2.5s ease-out forwards;
@@ -2321,7 +2324,7 @@ li[id^="fn:"] {
   color: inherit;
 }
 .post-container pre mark.annotation-hl {
-  background-color: rgba(255, 213, 79, 0.22);
+  border-bottom-color: rgba(214, 158, 0, 0.6);
 }
 .post-container .annotation-marker {
   display: inline-flex;
@@ -2359,7 +2362,7 @@ li[id^="fn:"] {
     background-color: rgba(255, 196, 0, 0.9);
   }
   100% {
-    background-color: rgba(255, 213, 79, 0.32);
+    background-color: transparent;
   }
 }
 .annotation-toolbar {

@@ -5,9 +5,12 @@
 // (thread / editor) inserted below a paragraph, the toast. Compiled output is
 // appended by hand to css/argan-blog{,.min}.css (see AGENTS.md).
 
-@annot-bg: rgba(255, 213, 79, 0.32);
-@annot-bg-hover: rgba(255, 196, 0, 0.5);
-@annot-line: rgba(214, 158, 0, 0.75);
+// WeChat-reading style: a dashed underline under the passage, no wash (a solid
+// yellow block was too loud on long passages). Amber keeps it apart from the
+// teal dashed `.inline-tip` (author's tips); a light wash only on hover.
+@annot-bg: transparent;
+@annot-bg-hover: rgba(255, 213, 79, 0.22);
+@annot-line: rgba(214, 158, 0, 0.85);
 @annot-border: #d0d7de;
 @annot-soft: #f6f8fa;
 @annot-muted: #57606a;
@@ -16,17 +19,16 @@
 // ---- highlights & markers
 .post-container {
 	mark.annotation-hl {
-		padding: 0;
+		padding: 0 0 1px;
 		color: inherit;
 		background-color: @annot-bg;
-		box-shadow: inset 0 -2px 0 @annot-line;
-		border-radius: 2px;
+		border-bottom: 1.5px dashed @annot-line;
+		border-radius: 0;
 		cursor: pointer;
-		transition: background-color 0.15s ease;
-		&.is-multi,
-		&:hover {
-			background-color: @annot-bg-hover;
-		}
+		transition: background-color 0.15s ease, border-color 0.15s ease;
+		// several threads on one passage: a solid, slightly heavier line
+		&.is-multi { border-bottom: 2px solid @annot-line; }
+		&:hover { background-color: @annot-bg-hover; border-bottom-color: #b5860a; }
 		&.is-new {
 			animation: annotation-flash 2.5s ease-out forwards;
 		}
@@ -42,7 +44,7 @@
 		color: inherit;
 	}
 	pre mark.annotation-hl {
-		background-color: rgba(255, 213, 79, 0.22);
+		border-bottom-color: rgba(214, 158, 0, 0.6);
 	}
 
 	.annotation-marker {

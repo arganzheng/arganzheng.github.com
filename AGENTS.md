@@ -157,7 +157,7 @@ Pages has `https_enforced` on.
   transition `{path, dir, prev}`; localhost never posts. No GitHub login (the
   old discussion-THUMBS_UP 「有用」 is gone; comment votes stay reactions).
   Counters are one `.post-stats` **badge strip** (`data-path`): 阅读 (eye) ·
-  有用 (heart) · 评论 · 分享 icons, each with an orange count pill (`.ps > b`,
+  有用 (heart) · 评论 · 分享 icons, each with a brand-teal count pill (`.ps > b`,
   `.is-zero` greys a 0; the full wording is in `title`). `share.js` paints it
   (`paintStrip`, partial patches merged per element). On the post page the
   strip sits in the header meta line (`post-meta.html`): 有用 + 分享 come from
@@ -299,7 +299,9 @@ On load the thread is fetched, comments of that shape are parsed into a W3C
 `TextQuoteSelector` (exact = blockquote text), anchored exactly or fuzzily
 (`js/vendor/approx-string-match.js`, MIT, Hypothesis' algorithm) and wrapped in
 `<mark class="annotation-hl">` (one mark per text piece carrying every covering
-id — overlaps never nest). Each distinct passage gets a `.annotation-marker`
+id — overlaps never nest). Marks are a dashed amber underline, no background
+(WeChat-reading style; `.is-multi` = solid line, wash on hover only) — teal
+dashed is reserved for `.inline-tip`. Each distinct passage gets a `.annotation-marker`
 (comment icon + count) after its last mark; clicking it or the highlight
 toggles the **thread panel** below the paragraph: notes, replies, and an editor
 to join. Anchors that no longer match are listed under the comment hint as
