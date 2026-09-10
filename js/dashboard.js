@@ -61,7 +61,7 @@
   loadTrend(30);
 
   // ---- 文章榜 (/stats/top + comment counts from /stats)
-  var postRows = [], postSort = 'views', POSTS_TOP = 20, postsExpanded = false;
+  var postRows = [], postSort = 'views', POSTS_TOP = 10, postsExpanded = false;
   function renderPosts() {
     var tbody = document.querySelector('#dash-posts tbody');
     if (!postRows.length) { tbody.innerHTML = '<tr><td colspan="8" class="dash-muted">还没有数据</td></tr>'; return; }

@@ -3852,11 +3852,13 @@ li[id^="fn:"] {
     padding: 6px 8px;
   }
   .annotation-toolbar .annotation-tb-copy,
-  .annotation-toolbar .annotation-tb-search {
+  .annotation-toolbar .annotation-tb-search,
+  .annotation-toolbar .annotation-tb-share {
     font-size: 0;
   }
   .annotation-toolbar .annotation-tb-copy .fa,
-  .annotation-toolbar .annotation-tb-search .fa {
+  .annotation-toolbar .annotation-tb-search .fa,
+  .annotation-toolbar .annotation-tb-share .fa {
     font-size: 13px;
     margin: 0;
   }

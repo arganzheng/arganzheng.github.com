@@ -81,7 +81,7 @@ Pages has `https_enforced` on.
 - `/admin/stats.html` + `js/dashboard.js`: author dashboard — 阅读趋势
   (worker `GET /views/daily?days=`, per-day bars from `views_daily`, Beijing
   dates), 文章榜 (`GET /stats/top`: views · 有用 · 有用率 · 分享 + comment counts
-  via `/stats?paths=` in chunks of 20; click a `th[data-sort]` to sort; TOP 20 by default, `.dash-toggle` expands), 读者划出
+  via `/stats?paths=` in chunks of 20; click a `th[data-sort]` to sort; TOP 10 by default, `.dash-toggle` expands), 读者划出
   来的句子 (`GET /reactions/top?kind=doubt|up`), recent comments via GraphQL
   with the giscus session (alias the `comments(last:3)` field — a response key
   named `comments` twice is a GraphQL validation error and looked like a login
@@ -316,8 +316,6 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
 - **Quote escaping gotcha**: `escapeMarkdown` must produce `1\.5px`, not
   `\1.5px` — a backslash before a digit is literal in GFM, the parsed quote
   gets an extra `\` and its hash no longer matches the `§ 原文位置` link.
-  `parseBodyHeader` repairs old comments of that shape by trusting the hash in
-  the link.
 - **最受关注的段落** (`renderHotPassages`, `.ac-hot` above the comment list):
   passages ranked by `赞 + 2 × 存疑 + 2 × net comment votes + comments`, shown
   only when there are 2+ scored passages, max 3; clicking scrolls to the

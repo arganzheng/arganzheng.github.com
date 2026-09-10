@@ -1451,13 +1451,6 @@
     linkBlock.parentNode.removeChild(linkBlock);
     var exact = quote.textContent.replace(/\s+/g, ' ').trim();
     if (!exact) return;
-    // Comments posted before escapeMarkdown was fixed carry a literal "\" before
-    // a leading digit; trust the hash in the § 原文位置 link and repair the quote.
-    var linkHash = /#annot-([0-9a-f]{8})/.exec(link.getAttribute('href'));
-    if (linkHash && annotHash(exact) !== linkHash[1]) {
-      var fixed = exact.replace(/^\\(?=\d)/, '');
-      if (fixed !== exact && annotHash(fixed) === linkHash[1]) exact = fixed;
-    }
     root.removeChild(quote);
     rec.noteHTML = root.innerHTML;
     rec.selector = { exact: exact, prefix: fragment.prefix, suffix: fragment.suffix };
@@ -1590,7 +1583,7 @@
       '<button type="button" class="annotation-tb-comment"><i class="fa fa-comment-o"></i> 评论</button>' +
       '<button type="button" class="annotation-tb-copy" title="复制选中的文字"><i class="fa fa-copy"></i> 复制</button>' +
       '<button type="button" class="annotation-tb-search" title="用 Google 搜这段文字"><i class="fa fa-search"></i> 搜一搜</button>' +
-      '<button type="button" class="annotation-tb-share" title="分享这段话：微博 / X / 微信 / 复制链接（打开后自动定位这段文字）" aria-haspopup="true" aria-expanded="false"><i class="fa fa-share-alt"></i></button>' +
+      '<button type="button" class="annotation-tb-share" title="分享这段话：微博 / X / 微信 / 复制链接（打开后自动定位这段文字）" aria-haspopup="true" aria-expanded="false"><i class="fa fa-share-alt"></i> 分享</button>' +
       '<span class="annotation-tb-arrow"></span>';
     toolbar.addEventListener('mousedown', function (e) { e.preventDefault(); }); // keep the selection
     ['up', 'doubt'].forEach(function (kind) {
