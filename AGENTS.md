@@ -81,7 +81,7 @@ Pages has `https_enforced` on.
 - `/admin/stats.html` + `js/dashboard.js`: author dashboard — 阅读趋势
   (worker `GET /views/daily?days=`, per-day bars from `views_daily`, Beijing
   dates), 文章榜 (`GET /stats/top`: views · 有用 · 有用率 · 分享 + comment counts
-  via `/stats?paths=` in chunks of 20; click a `th[data-sort]` to sort), 读者划出
+  via `/stats?paths=` in chunks of 20; click a `th[data-sort]` to sort; TOP 20 by default, `.dash-toggle` expands), 读者划出
   来的句子 (`GET /reactions/top?kind=doubt|up`), recent comments via GraphQL
   with the giscus session (alias the `comments(last:3)` field — a response key
   named `comments` twice is a GraphQL validation error and looked like a login
@@ -229,7 +229,7 @@ issue start with `<sub>[⚑ Issue #N](url)</sub>` (recognised by
 replies, `deletedAt` set) render as 「此评论已删除」 with their replies.
 
 Code-review / WeChat-reading style, no hover popups. Readers select text in
-`.post-container` → floating toolbar (`评论` / `复制` / `搜一搜` / `复制链接`) → an **in-flow editor
+`.post-container` → floating toolbar (`赞` / `存疑` / `评论` / `复制` / `搜一搜` / `分享`) → an **in-flow editor
 panel** is inserted right after the paragraph (取消 / 提交评论 bottom-right).
 The note is posted as a **normal comment** of the post's giscus Discussion:
 
@@ -290,7 +290,7 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
 - **Passage 赞 / 存疑** (`react`, `reactions` map, toolbar buttons
   `.annotation-tb-up/-doubt`, panel row `.ap-react`): anonymous counters, no
   login, like the article 「有用」. Worker `GET/POST /reactions` keeps
-  `passage_reactions(path, hash, quote, up, doubt)` in D1; `hash` =
+  `passage_reactions(path, hash, quote, up, doubt, share)` in D1; `hash` =
   `annotHash(exact)` (the `#annot-<hash>` id), `quote` lets `applyHighlights`
   anchor and underline a passage nobody commented on (mark ids `r:<hash>`,
   same `mark.annotation-hl`; `.has-doubt` = red dotted line). One reader's
@@ -303,6 +303,21 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
   re-anchors when an underline must appear or vanish. Toolbar 存疑 opens the
   passage panel (its 「说说哪里不对 →」 focuses the editor); 赞 just flashes +
   toasts. Local previews post only when `localStorage.annotationsApi` is set.
+- **Passage 分享** (`sharePassage`, toolbar `.annotation-tb-share`, panel
+  `.ap-react-share`): opens the article's share popover — `js/share.js` exposes
+  `window.BlogShare.open(btn, { url, title, text, onShared, toast })` — with
+  `threadLink` when the passage has comments, else `shareLink` (`#hl=`), and
+  the quote as text. Each completed share = `countPassageShare` → `POST
+  /reactions kind:'share'` (+1, no toggle, `share` column; the worker also
+  bumps the article's `shares` row and the response's `shares` is forwarded as
+  a `blog:stats` event for the header badge). A share alone does not underline
+  a passage (only up / doubt do); the count shows in the panel row and the
+  marker title. Dashboard 读者划出来的句子 has a 分享最多 tab.
+- **Quote escaping gotcha**: `escapeMarkdown` must produce `1\.5px`, not
+  `\1.5px` — a backslash before a digit is literal in GFM, the parsed quote
+  gets an extra `\` and its hash no longer matches the `§ 原文位置` link.
+  `parseBodyHeader` repairs old comments of that shape by trusting the hash in
+  the link.
 - **最受关注的段落** (`renderHotPassages`, `.ac-hot` above the comment list):
   passages ranked by `赞 + 2 × 存疑 + 2 × net comment votes + comments`, shown
   only when there are 2+ scored passages, max 3; clicking scrolls to the
@@ -332,7 +347,7 @@ to join. Anchors that no longer match are listed under the comment hint as
 re-anchoring.
 
 - **Links**: `#annot-<hash>` opens a thread, `#hl=<readable text>` (from
-  `复制链接`) flashes a passage for 2.5 s. Both are handled by the script on
+  passage `分享` of an uncommented passage) flashes a passage for 2.5 s. Both are handled by the script on
   load *and* on `hashchange` (giscus opens `§ 原文位置` in the same tab). No
   Text Fragment (`:~:text=`) is emitted any more: browsers hide it from
   `location.hash`, its native matcher breaks on footnote markers, and its purple

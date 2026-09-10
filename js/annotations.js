@@ -3,9 +3,12 @@
  *
  * Interaction (code-review / WeChat-reading style, no hover popups):
  *   - Select text in the article -> floating toolbar: 「赞」 / 「存疑」 / 「评论」 /
- *     「复制」 / 「搜一搜」 / 「复制链接」.
+ *     「复制」 / 「搜一搜」 / 「分享」.
  *   - 「赞」 / 「存疑」 are anonymous per-passage counters (worker /reactions,
  *     D1; no login, one per browser in localStorage) — "raising a hand".
+ *   - 「分享」 opens the article's share popover (js/share.js, window.BlogShare)
+ *     for the passage link; completed shares are counted per passage (`share`
+ *     in /reactions) and on the article.
  *     A passage with reactions but no comment is underlined too (its quote is
  *     stored server-side and re-anchored here); 存疑 shows as a red dotted line.
  *   - 「评论」 opens a large editor panel *in the flow*, right below the
@@ -35,7 +38,7 @@
  * uses) so highlights survive small edits.
  *
  * Links: `#annot-<hash>` (FNV-1a of the quote) locates a thread, `#hl=<text>`
- * (from 「复制链接」) flashes a passage. Both are handled here on load and on
+ * (from 「分享」 of a passage nobody commented on) flashes a passage. Both are handled here on load and on
  * hashchange — no Text Fragment directive, so no sticky purple browser
  * highlight and no dependency on the browser's matcher (footnote markers
  * broke it).
@@ -438,6 +441,7 @@
     if (n) parts.push(n + ' 条评论');
     if (r && r.up) parts.push(r.up + ' 人赞');
     if (r && r.doubt) parts.push(r.doubt + ' 人存疑');
+    if (r && r.share) parts.push(r.share + ' 次分享');
     return parts.join(' · ') + '，点击查看';
   }
   function insertMarkers() {
@@ -588,14 +592,16 @@
 
   // 赞 / 存疑 row of the thread panel (also re-rendered alone after a click).
   function reactBarHtml(p) {
-    var r = p.reaction || { up: 0, doubt: 0 }, up = myReaction(p.hash, 'up'), doubt = myReaction(p.hash, 'doubt');
+    var r = p.reaction || { up: 0, doubt: 0, share: 0 }, up = myReaction(p.hash, 'up'), doubt = myReaction(p.hash, 'doubt');
     return '<button type="button" class="ap-react-btn ap-react-up' + (up ? ' is-on' : '') + '" title="' + (up ? '取消赞' : '赞这段话（不用登录）') + '"><i class="fa ' + (up ? 'fa-thumbs-up' : 'fa-thumbs-o-up') + '"></i> 赞' + (r.up ? ' <b>' + r.up + '</b>' : '') + '</button>' +
       '<button type="button" class="ap-react-btn ap-react-doubt' + (doubt ? ' is-on' : '') + '" title="' + (doubt ? '取消存疑' : '觉得这段话有问题？（不用登录）') + '"><i class="fa ' + (doubt ? 'fa-question-circle' : 'fa-question-circle-o') + '"></i> 存疑' + (r.doubt ? ' <b>' + r.doubt + '</b>' : '') + '</button>' +
+      '<button type="button" class="ap-react-btn ap-react-share" title="分享这段话（微博 / X / 微信 / 复制链接）" aria-haspopup="true" aria-expanded="false"><i class="fa fa-share-alt"></i> 分享' + (r.share ? ' <b>' + r.share + '</b>' : '') + '</button>' +
       (doubt ? '<a href="#" class="ap-react-say">说说哪里不对 →</a>' : '');
   }
   function bindReactBar(host, p) {
     host.querySelector('.ap-react-up').addEventListener('click', function () { react(p.exact, 'up'); });
     host.querySelector('.ap-react-doubt').addEventListener('click', function () { react(p.exact, 'doubt'); });
+    host.querySelector('.ap-react-share').addEventListener('click', function (e) { e.stopPropagation(); sharePassage(e.currentTarget, p.exact, p.list.length > 0); });
     var say = host.querySelector('.ap-react-say');
     if (say) say.addEventListener('click', function (e) {
       e.preventDefault();
@@ -1445,6 +1451,13 @@
     linkBlock.parentNode.removeChild(linkBlock);
     var exact = quote.textContent.replace(/\s+/g, ' ').trim();
     if (!exact) return;
+    // Comments posted before escapeMarkdown was fixed carry a literal "\" before
+    // a leading digit; trust the hash in the § 原文位置 link and repair the quote.
+    var linkHash = /#annot-([0-9a-f]{8})/.exec(link.getAttribute('href'));
+    if (linkHash && annotHash(exact) !== linkHash[1]) {
+      var fixed = exact.replace(/^\\(?=\d)/, '');
+      if (fixed !== exact && annotHash(fixed) === linkHash[1]) exact = fixed;
+    }
     root.removeChild(quote);
     rec.noteHTML = root.innerHTML;
     rec.selector = { exact: exact, prefix: fragment.prefix, suffix: fragment.suffix };
@@ -1508,7 +1521,9 @@
   function shareLink(sel) { return cfg.siteUrl + cfg.path + '#hl=' + encodeFragmentPart(sel.exact); }
 
   function escapeMarkdown(s) {
-    return s.replace(/[\\`*_\[\]<>~|]/g, '\\$&').replace(/^([#>+\-]|\d+\.)/, '\\$1');
+    // A backslash only escapes ASCII punctuation: `1\.` not `\1.` (the latter
+    // rendered literally and broke the quote's hash for passages like "1.5px").
+    return s.replace(/[\\`*_\[\]<>~|]/g, '\\$&').replace(/^[#>+\-]/, '\\$&').replace(/^(\d+)([.)])/, '$1\\$2');
   }
 
   function buildCommentBody(sel, note, issue) {
@@ -1575,7 +1590,7 @@
       '<button type="button" class="annotation-tb-comment"><i class="fa fa-comment-o"></i> 评论</button>' +
       '<button type="button" class="annotation-tb-copy" title="复制选中的文字"><i class="fa fa-copy"></i> 复制</button>' +
       '<button type="button" class="annotation-tb-search" title="用 Google 搜这段文字"><i class="fa fa-search"></i> 搜一搜</button>' +
-      '<button type="button" class="annotation-tb-link" title="复制分享链接：打开后自动定位并高亮这段文字"><i class="fa fa-link"></i></button>' +
+      '<button type="button" class="annotation-tb-share" title="分享这段话：微博 / X / 微信 / 复制链接（打开后自动定位这段文字）" aria-haspopup="true" aria-expanded="false"><i class="fa fa-share-alt"></i></button>' +
       '<span class="annotation-tb-arrow"></span>';
     toolbar.addEventListener('mousedown', function (e) { e.preventDefault(); }); // keep the selection
     ['up', 'doubt'].forEach(function (kind) {
@@ -1617,15 +1632,14 @@
       window.open('https://www.google.com/search?q=' + encodeURIComponent(q), '_blank', 'noopener');
       hideToolbar();
     });
-    toolbar.querySelector('.annotation-tb-link').addEventListener('click', function (e) {
+    toolbar.querySelector('.annotation-tb-share').addEventListener('click', function (e) {
       e.stopPropagation();
       var range = currentRange();
       var offsets = range && rangeToOffsets(range);
       if (!offsets) return;
-      copyText(shareLink(selectorFromOffsets(offsets))).then(function () {
-        showToast('分享链接已复制：打开后会自动定位并高亮这段文字');
-      });
-      hideToolbar();
+      // inside an underlined passage -> share that passage (its thread link)
+      var p = passageContaining(offsets);
+      sharePassage(e.currentTarget, p ? p.exact : selectorFromOffsets(offsets).exact, !!(p && p.list.length));
     });
     document.body.appendChild(toolbar);
     return toolbar;
@@ -1779,7 +1793,7 @@
     return api('/reactions?path=' + encodeURIComponent(cfg.path)).then(function (data) {
       reactions = {};
       (data.items || []).forEach(function (it) {
-        if (it && /^[0-9a-f]{8}$/.test(it.hash)) reactions[it.hash] = { hash: it.hash, quote: it.quote || '', up: it.up || 0, doubt: it.doubt || 0, range: null, marks: [] };
+        if (it && /^[0-9a-f]{8}$/.test(it.hash)) reactions[it.hash] = { hash: it.hash, quote: it.quote || '', up: it.up || 0, doubt: it.doubt || 0, share: it.share || 0, range: null, marks: [] };
       });
       if (loaded) { applyHighlights(); if (commentsHost) renderHotPassages(); }
     }).catch(function (err) { console.warn('[annotations] reactions unavailable:', err.message); });
@@ -1789,14 +1803,14 @@
   // underline / marker / open panel / ranking follow the new counts.
   function react(exact, kind) {
     var hash = annotHash(exact);
-    var r = reactions[hash] || (reactions[hash] = { hash: hash, quote: exact, up: 0, doubt: 0, range: null, marks: [] });
+    var r = reactions[hash] || (reactions[hash] = { hash: hash, quote: exact, up: 0, doubt: 0, share: 0, range: null, marks: [] });
     var on = !myReaction(hash, kind), before = r[kind];
     r[kind] = Math.max(0, r[kind] + (on ? 1 : -1));
     rememberReaction(hash, kind, on);
     refreshReactionViews(hash);
     if (reactLocalOnly) return Promise.resolve({ on: on, r: r });
     return api('/reactions', { method: 'POST', body: { path: cfg.path, hash: hash, quote: exact, kind: kind, on: on } })
-      .then(function (d) { r.up = d.up || 0; r.doubt = d.doubt || 0; refreshReactionViews(hash); return { on: on, r: r }; })
+      .then(function (d) { r.up = d.up || 0; r.doubt = d.doubt || 0; r.share = d.share || 0; refreshReactionViews(hash); return { on: on, r: r }; })
       .catch(function (err) {
         r[kind] = before; rememberReaction(hash, kind, !on); refreshReactionViews(hash);
         showToast('操作失败：' + err.message);
@@ -1804,11 +1818,45 @@
       });
   }
 
+  // 分享 a passage: the same popover as the article's 「分享」 (js/share.js,
+  // window.BlogShare) with the passage link and the quote as text. Every completed
+  // share is one more `share` on the passage (worker also bumps the article's
+  // share count). No toggle, no memory — a share is a share.
+  function sharePassage(btn, exact, hasThread) {
+    var sel = { exact: exact };
+    var url = hasThread ? threadLink(sel) : shareLink(sel);
+    var quote = exact.length > 120 ? exact.slice(0, 118) + '…' : exact;
+    var bar = document.querySelector('.post-actions');
+    var counted = function () { countPassageShare(exact); };
+    if (!window.BlogShare) {
+      copyText(url).then(function () { showToast('分享链接已复制：打开后会自动定位这段文字'); counted(); });
+      return;
+    }
+    window.BlogShare.open(btn, {
+      url: url,
+      title: (bar && bar.getAttribute('data-title')) || document.title,
+      text: '「' + quote + '」',
+      onShared: counted,
+      toast: showToast
+    });
+  }
+  function countPassageShare(exact) {
+    var hash = annotHash(exact);
+    var r = reactions[hash] || (reactions[hash] = { hash: hash, quote: exact, up: 0, doubt: 0, share: 0, range: null, marks: [] });
+    r.share = (r.share || 0) + 1;
+    refreshReactionViews(hash);
+    if (reactLocalOnly) return;
+    api('/reactions', { method: 'POST', body: { path: cfg.path, hash: hash, quote: exact, kind: 'share' } })
+      .then(function (d) { r.up = d.up || 0; r.doubt = d.doubt || 0; r.share = d.share || 0; refreshReactionViews(hash); if (typeof d.shares === 'number') document.dispatchEvent(new CustomEvent('blog:stats', { detail: { shares: d.shares } })); })
+      .catch(function () { /* keep the optimistic number */ });
+  }
+
   // Cheap path when the passage is already underlined (repaint its marker and the
   // panel's reaction row); otherwise re-anchor so the underline appears / goes.
   function refreshReactionViews(hash) {
     var p = passageFor(['r:' + hash]), r = reactions[hash];
     var alive = r && (r.up > 0 || r.doubt > 0);
+    if (!p && !alive) return; // e.g. a share of a passage nobody underlined: nothing to paint
     if (!p || (!alive && !p.list.length)) { applyHighlights(); if (commentsHost) renderHotPassages(); return; }
     p.marks.forEach(function (m) { m.classList.toggle('has-doubt', !!(r && r.doubt > 0)); });
     var marker = container.querySelector('.annotation-marker[data-hash="' + hash + '"]');

@@ -20,7 +20,7 @@
  *   POST /shares       { path }                -> { shares }    one more share (any channel of the share menu)
  *   GET  /stats?paths=/a.html,/b.html          -> { items: { path: { views, comments, up, down, shares, id, url } } }
  *   GET  /reactions?path=/slug.html            -> { items: [{ hash, quote, up, doubt }] }   passage-level 赞 / 存疑 (anonymous)
- *   POST /reactions    { path, hash, quote, kind, on } -> { up, doubt }
+ *   POST /reactions    { path, hash, quote, kind, on } -> { up, doubt, share }   kind up | doubt (toggle) | share (+1)
  *   dashboard: GET /stats/top, /views/daily?days=30, /reactions/top?kind=doubt|up
  *
  * repo / category are fixed via wrangler.toml [vars]; the worker never accepts them from the request.
@@ -340,15 +340,21 @@ async function statsTop(url, env, cors) {
 // (post, passage): `hash` is the FNV-1a id js/annotations.js already uses for
 // #annot-<hash> links, `quote` the exact text so the browser can draw the
 // underline on a passage nobody has commented on (it re-anchors the quote).
-// GET  /reactions?path=…                          -> { items: [{ hash, quote, up, doubt }] }
-// POST /reactions { path, hash, quote, kind, on }  kind 'up' | 'doubt', on true/false (toggle)
-//                                                  -> { up, doubt }
-// GET  /reactions/top?kind=doubt|up&limit=50       -> { rows: [{ path, hash, quote, up, doubt, updated_at }] }
+// GET  /reactions?path=…                          -> { items: [{ hash, quote, up, doubt, share }] }
+// POST /reactions { path, hash, quote, kind, on }  kind 'up' | 'doubt' (on true/false = toggle)
+//                                                  or 'share' (always +1, also bumps the
+//                                                  article's `shares` row) -> { up, doubt, share, shares? }
+// GET  /reactions/top?kind=doubt|up|share&limit=50 -> { rows: [{ path, hash, quote, up, doubt, share, updated_at }] }
 const HASH = /^[0-9a-f]{8}$/;
 const QUOTE_MAX = 600;
+const REACTION_KINDS = ['up', 'doubt', 'share'];
 let reactionsTableReady = null;
 function ensureReactionsTable(env) {
-  if (!reactionsTableReady) reactionsTableReady = env.DB.exec('CREATE TABLE IF NOT EXISTS passage_reactions (path TEXT NOT NULL, hash TEXT NOT NULL, quote TEXT NOT NULL, up INTEGER NOT NULL DEFAULT 0, doubt INTEGER NOT NULL DEFAULT 0, updated_at TEXT, PRIMARY KEY (path, hash))');
+  if (!reactionsTableReady) {
+    reactionsTableReady = env.DB.exec('CREATE TABLE IF NOT EXISTS passage_reactions (path TEXT NOT NULL, hash TEXT NOT NULL, quote TEXT NOT NULL, up INTEGER NOT NULL DEFAULT 0, doubt INTEGER NOT NULL DEFAULT 0, share INTEGER NOT NULL DEFAULT 0, updated_at TEXT, PRIMARY KEY (path, hash))')
+      // `share` was added later: migrate tables created without it (D1 has no ADD COLUMN IF NOT EXISTS)
+      .then(() => env.DB.exec('ALTER TABLE passage_reactions ADD COLUMN share INTEGER NOT NULL DEFAULT 0').catch(() => {}));
+  }
   return reactionsTableReady;
 }
 async function reactions(request, url, env, cors) {
@@ -357,28 +363,31 @@ async function reactions(request, url, env, cors) {
   if (request.method === 'GET') {
     const path = url.searchParams.get('path');
     if (typeof path !== 'string' || !VIEW_PATH.test(path) || path.includes('..')) return json({ error: '`path` must be a post URL' }, 400, cors);
-    const { results } = await env.DB.prepare('SELECT hash, quote, up, doubt FROM passage_reactions WHERE path = ?1 AND (up > 0 OR doubt > 0)').bind(path).all();
+    const { results } = await env.DB.prepare('SELECT hash, quote, up, doubt, share FROM passage_reactions WHERE path = ?1 AND (up > 0 OR doubt > 0 OR share > 0)').bind(path).all();
     return json({ items: results || [] }, 200, { ...cors, 'Cache-Control': 'no-store' });
   }
   const b = await request.json().catch(() => ({}));
   if (typeof b.path !== 'string' || !VIEW_PATH.test(b.path) || b.path.includes('..')) return json({ error: '`path` must be a post URL' }, 400, cors);
   if (typeof b.hash !== 'string' || !HASH.test(b.hash)) return json({ error: '`hash` must be 8 hex chars' }, 400, cors);
-  if (b.kind !== 'up' && b.kind !== 'doubt') return json({ error: '`kind` must be up | doubt' }, 400, cors);
+  if (!REACTION_KINDS.includes(b.kind)) return json({ error: '`kind` must be up | doubt | share' }, 400, cors);
   const quote = String(b.quote || '').replace(/\s+/g, ' ').trim().slice(0, QUOTE_MAX);
   if (!quote) return json({ error: '`quote` is required' }, 400, cors);
-  const delta = b.on === false ? -1 : 1, col = b.kind;
+  const col = b.kind, delta = col === 'share' ? 1 : (b.on === false ? -1 : 1), now = new Date().toISOString();
   const row = await env.DB.prepare(
     `INSERT INTO passage_reactions (path, hash, quote, ${col}, updated_at) VALUES (?1, ?2, ?3, MAX(0, ?4), ?5) ` +
-    `ON CONFLICT(path, hash) DO UPDATE SET ${col} = MAX(0, ${col} + ?4), updated_at = ?5 RETURNING up, doubt`
-  ).bind(b.path, b.hash, quote, delta, new Date().toISOString()).first();
-  return json({ up: (row && row.up) || 0, doubt: (row && row.doubt) || 0 }, 200, { ...cors, 'Cache-Control': 'no-store' });
+    `ON CONFLICT(path, hash) DO UPDATE SET ${col} = MAX(0, ${col} + ?4), updated_at = ?5 RETURNING up, doubt, share`
+  ).bind(b.path, b.hash, quote, delta, now).first();
+  const out = { up: (row && row.up) || 0, doubt: (row && row.doubt) || 0, share: (row && row.share) || 0 };
+  if (col === 'share') out.shares = await bumpShares(env, b.path, now); // a passage share is an article share too
+  return json(out, 200, { ...cors, 'Cache-Control': 'no-store' });
 }
 async function reactionsTop(url, env, cors) {
   if (!env.DB) return json({ error: '段落点赞未启用（worker 未绑定 D1）' }, 501, cors);
   await ensureReactionsTable(env);
-  const kind = url.searchParams.get('kind') === 'up' ? 'up' : 'doubt';
+  const want = url.searchParams.get('kind');
+  const kind = REACTION_KINDS.includes(want) ? want : 'doubt';
   const limit = Math.min(200, Math.max(1, parseInt(url.searchParams.get('limit') || '50', 10) || 50));
-  const { results } = await env.DB.prepare(`SELECT path, hash, quote, up, doubt, updated_at FROM passage_reactions WHERE ${kind} > 0 ORDER BY ${kind} DESC, updated_at DESC LIMIT ?1`).bind(limit).all();
+  const { results } = await env.DB.prepare(`SELECT path, hash, quote, up, doubt, share, updated_at FROM passage_reactions WHERE ${kind} > 0 ORDER BY ${kind} DESC, updated_at DESC LIMIT ?1`).bind(limit).all();
   return json({ rows: results || [] }, 200, { ...cors, 'Cache-Control': 'public, max-age=60' });
 }
 
@@ -395,12 +404,15 @@ async function shares(request, env, cors) {
   const body = await request.json().catch(() => ({}));
   const path = body.path;
   if (typeof path !== 'string' || !VIEW_PATH.test(path) || path.includes('..')) return json({ error: '`path` must be a post URL' }, 400, cors);
+  return json({ shares: await bumpShares(env, path, new Date().toISOString()) }, 200, { ...cors, 'Cache-Control': 'no-store' });
+}
+async function bumpShares(env, path, now) {
   await ensureSharesTable(env);
   const row = await env.DB.prepare(
     'INSERT INTO shares (path, count, updated_at) VALUES (?1, 1, ?2) ' +
     'ON CONFLICT(path) DO UPDATE SET count = count + 1, updated_at = ?2 RETURNING count'
-  ).bind(path, new Date().toISOString()).first();
-  return json({ shares: (row && row.count) || 0 }, 200, { ...cors, 'Cache-Control': 'no-store' });
+  ).bind(path, now).first();
+  return (row && row.count) || 0;
 }
 
 // GET /stats?paths=/a.html,/b.html  (<= 20) -> per-post counters for list pages:

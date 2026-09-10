@@ -107,13 +107,13 @@
     pop.addEventListener('click', function (e) {
       var item = e.target.closest('.pa-sp-item');
       if (!item || !popFor) return;
-      var k = item.getAttribute('data-k'), d = dataOf(popFor), bar = popFor;
-      if (k === 'native') { navigator.share({ title: d.title, text: d.text || d.title, url: d.url }).then(function () { countShare(bar); }, function () { /* cancelled */ }); closePop(); }
-      else if (k === 'wechat') { e.preventDefault(); showQR(d.url); countShare(bar); }
-      else if (k === 'copy') { copyText(d.url).then(function () { toast(bar, '已复制链接'); countShare(bar); }, function () { toast(bar, '复制失败'); }); closePop(); }
-      else { countShare(bar); closePop(); }
+      var k = item.getAttribute('data-k'), d = popFor, done = function () { d.onShared(k); };
+      if (k === 'native') { navigator.share({ title: d.title, text: d.text || d.title, url: d.url }).then(done, function () { /* cancelled */ }); closePop(); }
+      else if (k === 'wechat') { e.preventDefault(); showQR(d.url); done(); }
+      else if (k === 'copy') { copyText(d.url).then(function () { d.toast('已复制链接'); done(); }, function () { d.toast('复制失败'); }); closePop(); }
+      else { done(); closePop(); }
     });
-    document.addEventListener('click', function (e) { if (pop && !pop.hidden && !pop.contains(e.target) && !e.target.closest('.pa-share')) closePop(); });
+    document.addEventListener('click', function (e) { if (pop && !pop.hidden && !pop.contains(e.target) && !(popFor && popFor.btn.contains(e.target))) closePop(); });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closePop(); });
     window.addEventListener('resize', closePop);
     return pop;
@@ -125,11 +125,15 @@
       text: bar.getAttribute('data-text') || ''
     };
   }
-  function openPop(bar, btn) {
-    var p = ensurePop(), d = dataOf(bar);
-    popFor = bar;
+  // Open the popover anchored to `btn`. `ctx` = { url, title, text, onShared(kind),
+  // toast(msg) }; js/annotations.js reuses it for passage links (BlogShare.open).
+  function openPop(ctx, btn) {
+    var p = ensurePop(), d = ctx;
+    if (popFor) closePop();
+    popFor = ctx; ctx.btn = btn;
+    ctx.onShared = ctx.onShared || function () {}; ctx.toast = ctx.toast || function () {};
     p.querySelector('[data-k="weibo"]').href = 'https://service.weibo.com/share/share.php?url=' + enc(d.url) + '&title=' + enc(d.title + (d.text ? ' — ' + d.text : ''));
-    p.querySelector('[data-k="x"]').href = 'https://twitter.com/intent/tweet?url=' + enc(d.url) + '&text=' + enc(d.title);
+    p.querySelector('[data-k="x"]').href = 'https://twitter.com/intent/tweet?url=' + enc(d.url) + '&text=' + enc(d.title + (d.text ? ' — ' + d.text : ''));
     p.querySelector('[data-k="linkedin"]').href = 'https://www.linkedin.com/sharing/share-offsite/?url=' + enc(d.url);
     var qr = p.querySelector('.pa-sp-qr'); qr.hidden = true; qr.querySelector('.pa-sp-qr-img').innerHTML = '';
     p.hidden = false; p.style.visibility = 'hidden';
@@ -145,9 +149,10 @@
   function closePop() {
     if (!pop || pop.hidden) return;
     pop.hidden = true;
-    if (popFor) popFor.querySelector('.pa-share').setAttribute('aria-expanded', 'false');
+    if (popFor && popFor.btn) popFor.btn.setAttribute('aria-expanded', 'false');
     popFor = null;
   }
+  function isOpenFor(btn) { return !!(pop && !pop.hidden && popFor && popFor.btn === btn); }
   function showQR(url) {
     var ready = window.qrcode ? Promise.resolve() : loadScript('/js/vendor/qrcode.min.js');
     ready.then(function () {
@@ -155,8 +160,19 @@
       var box = pop.querySelector('.pa-sp-qr');
       box.querySelector('.pa-sp-qr-img').innerHTML = qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
       box.hidden = false;
-    }, function () { if (popFor) toast(popFor, '二维码加载失败'); });
+    }, function () { if (popFor) popFor.toast('二维码加载失败'); });
   }
+  function shareCtx(bar) {
+    var d = dataOf(bar);
+    d.onShared = function () { countShare(bar); };
+    d.toast = function (msg) { toast(bar, msg); };
+    return d;
+  }
+  window.BlogShare = {
+    open: function (btn, ctx) { if (isOpenFor(btn)) closePop(); else openPop(ctx, btn); },
+    close: closePop,
+    copyText: copyText
+  };
 
   // ------------------------------------------------------------- 有用
   // An anonymous counter kept by the worker (D1), like page views: no GitHub
@@ -230,7 +246,7 @@
     var shareBtn = bar.querySelector('.pa-share');
     shareBtn.addEventListener('click', function (e) {
       e.stopPropagation();
-      if (pop && !pop.hidden && popFor === bar) closePop(); else openPop(bar, shareBtn);
+      if (isOpenFor(shareBtn)) closePop(); else openPop(shareCtx(bar), shareBtn);
     });
     bindVotes(bar);
     loadVotes(bar);
@@ -238,7 +254,12 @@
   // Post page: the header strip gets views / comment count from js/annotations.js;
   // list pages: one /stats round trip for every strip.
   if (bars.length) {
-    document.addEventListener('blog:stats', function (e) { if (e.detail) paintStrips(bars[0].getAttribute('data-path'), e.detail); });
+    document.addEventListener('blog:stats', function (e) {
+      if (!e.detail) return;
+      // a passage share (annotations.js) is an article share too
+      if (typeof e.detail.shares === 'number' && bars[0]._stats) bars[0]._stats.shares = e.detail.shares;
+      paintStrips(bars[0].getAttribute('data-path'), e.detail);
+    });
   } else if (strips.length) {
     loadStats(strips);
   }

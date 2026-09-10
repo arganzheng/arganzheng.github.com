@@ -61,24 +61,30 @@
   loadTrend(30);
 
   // ---- 文章榜 (/stats/top + comment counts from /stats)
-  var postRows = [], postSort = 'views';
+  var postRows = [], postSort = 'views', POSTS_TOP = 20, postsExpanded = false;
   function renderPosts() {
     var tbody = document.querySelector('#dash-posts tbody');
     if (!postRows.length) { tbody.innerHTML = '<tr><td colspan="8" class="dash-muted">还没有数据</td></tr>'; return; }
-    var rows = postRows.slice().sort(function (a, b) {
+    var all = postRows.slice().sort(function (a, b) {
       if (postSort === 'recent') return (b.updated_at || '') < (a.updated_at || '') ? -1 : 1;
       if (postSort === 'rate') return b.rate - a.rate;
       return (b[postSort] || 0) - (a[postSort] || 0);
     });
+    // the long tail (one view each) says nothing — TOP 20 unless expanded
+    var rows = postsExpanded ? all : all.slice(0, POSTS_TOP);
     var t = { views: 0, up: 0, shares: 0, comments: 0 };
-    rows.forEach(function (r) { t.views += r.views; t.up += r.up; t.shares += r.shares; t.comments += r.comments || 0; });
+    all.forEach(function (r) { t.views += r.views; t.up += r.up; t.shares += r.shares; t.comments += r.comments || 0; });
     tbody.innerHTML = rows.map(function (r, i) {
       return '<tr><td class="dash-muted">' + (i + 1) + '</td><td><a href="' + h(r.path) + '">' + h(titleOf(r.path)) + '</a></td>' +
         '<td class="num">' + fmt(r.views) + '</td><td class="num">' + (r.up || '') + '</td>' +
         '<td class="num dash-muted">' + (r.views >= 20 && r.up ? (r.rate * 100).toFixed(1) + '%' : '') + '</td>' +
         '<td class="num">' + (r.shares || '') + '</td><td class="num">' + (r.comments == null ? '<span class="dash-muted">…</span>' : (r.comments || '')) + '</td>' +
         '<td class="dash-muted">' + (r.updated_at ? ago(r.updated_at) : '') + '</td></tr>';
-    }).join('') + '<tr class="dash-total"><td></td><td class="dash-muted">以上 ' + rows.length + ' 篇合计</td><td class="num">' + fmt(t.views) + '</td><td class="num">' + t.up + '</td><td></td><td class="num">' + t.shares + '</td><td class="num">' + t.comments + '</td><td></td></tr>';
+    }).join('') +
+      (all.length > POSTS_TOP ? '<tr class="dash-expand"><td></td><td colspan="7"><a href="#" class="dash-toggle">' + (postsExpanded ? '只看 TOP ' + POSTS_TOP : '展开全部 ' + all.length + ' 篇') + '</a></td></tr>' : '') +
+      '<tr class="dash-total"><td></td><td class="dash-muted">全部 ' + all.length + ' 篇合计</td><td class="num">' + fmt(t.views) + '</td><td class="num">' + t.up + '</td><td></td><td class="num">' + t.shares + '</td><td class="num">' + t.comments + '</td><td></td></tr>';
+    var toggle = tbody.querySelector('.dash-toggle');
+    if (toggle) toggle.addEventListener('click', function (e) { e.preventDefault(); postsExpanded = !postsExpanded; renderPosts(); });
   }
   function loadPosts() {
     var tbody = document.querySelector('#dash-posts tbody');
@@ -107,12 +113,13 @@
     var host = document.querySelector('#dash-passages .dash-list');
     getJson(api + '/reactions/top?kind=' + kind + '&limit=30').then(function (data) {
       var rows = data.rows || [];
-      if (!rows.length) { host.innerHTML = '<p class="dash-muted">还没有人' + (kind === 'doubt' ? '存疑' : '点赞') + '。</p>'; return; }
+      if (!rows.length) { host.innerHTML = '<p class="dash-muted">还没有人' + ({ doubt: '存疑', up: '点赞', share: '分享' }[kind] || '点赞') + '。</p>'; return; }
       host.innerHTML = '<ol class="dash-quotes">' + rows.map(function (r) {
         return '<li class="' + (kind === 'doubt' && r.doubt ? 'is-doubt' : '') + '"><a class="dash-quote" href="' + h(r.path) + '#annot-' + h(r.hash) + '">' + h(r.quote) + '</a>' +
           '<div class="dash-quote-meta"><a href="' + h(r.path) + '">' + h(titleOf(r.path)) + '</a> · ' +
           (r.doubt ? '<span class="is-doubt"><i class="fa fa-question-circle"></i> ' + r.doubt + '</span> ' : '') +
           (r.up ? '<span><i class="fa fa-thumbs-up"></i> ' + r.up + '</span> ' : '') +
+          (r.share ? '<span><i class="fa fa-share-alt"></i> ' + r.share + '</span> ' : '') +
           (r.updated_at ? '<span class="dash-muted">· ' + ago(r.updated_at) + '</span>' : '') + '</div></li>';
       }).join('') + '</ol>';
     }).catch(function (err) { host.innerHTML = '<p class="dash-muted">加载失败：' + h(err.message) + '</p>'; });

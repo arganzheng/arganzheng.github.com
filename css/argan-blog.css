@@ -3938,6 +3938,10 @@ li[id^="fn:"] {
   border-bottom: 0;
   color: #57606a;
 }
+.dash .dash-table .dash-expand td {
+  font-size: 13px;
+  text-align: left;
+}
 .dash .dash-quotes {
   margin: 0;
   padding-left: 1.6em;
