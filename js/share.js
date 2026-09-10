@@ -3,11 +3,11 @@
  *   - 分享 popover: system share sheet (Web Share API), Weibo / X / LinkedIn
  *     intent links, WeChat QR (js/vendor/qrcode.min.js, loaded on first use),
  *     copy link. One popover element, re-anchored to whichever button opened it.
- *   - list pages (`.is-compact`): one GET /stats?paths=… for all bars, then
- *     赞同 / 反对 through BlogAnnotations.core (GitHub reactions on the post's
- *     Discussion; creates the discussion first when there is none).
- *   - post page: js/annotations.js owns the counters and votes; we add the
- *     author-only 「复制为公众号格式」 (lazy js/wechat-export.js).
+ *   - 赞同 / 反对: anonymous per-post counters in the worker's D1 (POST /votes),
+ *     one vote per browser (localStorage), no login. List pages get all their
+ *     numbers (votes, views, comments) from one GET /stats?paths=…; on the post
+ *     page js/annotations.js supplies views + comment count.
+ *   - post page: author-only 「复制为公众号格式」 (lazy js/wechat-export.js).
  * window.PostActions.render(bar, {up, down, mine, views, comments}) paints a bar.
  */
 (function () {
@@ -17,7 +17,6 @@
   if (!bars.length) return;
   var enc = encodeURIComponent;
   var version = (document.currentScript && (document.currentScript.src.match(/[?&]v=([^&]+)/) || [])[1]) || '';
-  var core = function () { return window.BlogAnnotations && window.BlogAnnotations.core; };
 
   function loadScript(src) {
     return new Promise(function (resolve, reject) {
@@ -32,15 +31,21 @@
   // ------------------------------------------------------------------ paint
   function render(bar, st) {
     var up = bar.querySelector('.pa-up'), down = bar.querySelector('.pa-down'), vote = bar.querySelector('.pa-vote');
-    if (st.up != null) bar.querySelector('.pa-up-n').textContent = st.up ? ' ' + fmt(st.up) : '';
-    if (st.down != null) down.title = st.down ? '反对（' + st.down + '）' : '反对';
-    vote.classList.toggle('is-up', st.mine === 'up');
-    vote.classList.toggle('is-down', st.mine === 'down');
-    up.title = st.mine === 'up' ? '取消赞同' : '赞同';
+    if (st.up != null) {
+      bar.querySelector('.pa-up-n').textContent = st.up ? ' ' + fmt(st.up) : '';
+      down.title = st.down ? '反对（' + st.down + '）' : '反对';
+      vote.classList.toggle('is-up', st.mine === 'up');
+      vote.classList.toggle('is-down', st.mine === 'down');
+      up.title = st.mine === 'up' ? '取消赞同' : '赞同';
+      if (!bar.classList.contains('is-compact')) {
+        var meta = document.querySelector('.post-likes');
+        if (meta) meta.textContent = st.up ? ' · ' + fmt(st.up) + ' 人赞同' : '';
+      }
+    }
     var views = bar.querySelector('.pa-views');
     if (st.views != null) { views.querySelector('b').textContent = fmt(st.views); views.hidden = false; }
     var c = bar.querySelector('.pa-comments b');
-    if (st.comments != null) c.textContent = st.comments ? fmt(st.comments) + ' 条' : '';
+    if (st.comments != null) c.textContent = fmt(st.comments) + ' 条';
   }
 
   function toast(bar, msg, ms) {
@@ -138,66 +143,48 @@
     }, function () { if (popFor) toast(popFor, '二维码加载失败'); });
   }
 
-  // -------------------------------------------------- votes on list pages
-  function listVote(bar, dir) {
-    var c = core();
-    if (!c) return;
-    if (!c.getSession()) { c.login(); return; }
-    var st = bar._stats;
-    if (!st || bar._pending) return;
-    bar._pending = true;
-    var prev = { up: st.up, down: st.down, mine: st.mine }, steps = [];
-    if (st.mine === dir) { st[dir] = Math.max(0, st[dir] - 1); st.mine = null; steps.push([c.reactions.remove, dir]); }
-    else {
-      if (st.mine) { st[st.mine] = Math.max(0, st[st.mine] - 1); steps.push([c.reactions.remove, st.mine]); }
-      st[dir] += 1; st.mine = dir; steps.push([c.reactions.add, dir]);
-    }
+  // ------------------------------------------------------------- votes
+  // Article 赞同 / 反对 are anonymous counters kept by the worker (D1), like page
+  // views: no GitHub login, one vote per browser remembered in localStorage.
+  // (Comment votes stay GitHub reactions — those need an identity.)
+  function apiBase(bar) { return (localStorage.getItem('annotationsApi') || bar.getAttribute('data-annotations-api') || '').replace(/\/$/, ''); }
+  function myVote(path) { try { return localStorage.getItem('vote:' + path) || null; } catch (e) { return null; } }
+  function remember(path, dir) { try { if (dir) localStorage.setItem('vote:' + path, dir); else localStorage.removeItem('vote:' + path); } catch (e) { /* ignore */ } }
+  var local = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+
+  function vote(bar, dir) {
+    var st = bar._stats, api = apiBase(bar), path = bar.getAttribute('data-path');
+    if (!st || bar._pending || !api) return;
+    var prev = st.mine, next = prev === dir ? null : dir;
+    var before = { up: st.up, down: st.down, mine: st.mine };
+    if (prev) st[prev] = Math.max(0, st[prev] - 1);
+    if (next) st[next] += 1;
+    st.mine = next;
     render(bar, st);
-    ensureDiscussion(bar).then(function (id) {
-      return steps.reduce(function (p, s) { return p.then(function () { return c.graphql(s[0], { id: id, content: c.reactions.content[s[1]] }); }); }, Promise.resolve());
-    }).catch(function (err) {
-      st.up = prev.up; st.down = prev.down; st.mine = prev.mine; render(bar, st);
-      toast(bar, '投票失败：' + err.message, 3000);
-    }).then(function () { bar._pending = false; });
+    if (local) { remember(path, next); return; } // previews don't count
+    bar._pending = true;
+    fetch(api + '/votes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: path, dir: next, prev: prev }) })
+      .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status)); return d; }); })
+      .then(function (d) { st.up = d.up; st.down = d.down; remember(path, next); render(bar, st); })
+      .catch(function (err) { st.up = before.up; st.down = before.down; st.mine = before.mine; render(bar, st); toast(bar, '投票失败：' + err.message, 3000); })
+      .then(function () { bar._pending = false; });
   }
-  // A post nobody has commented on has no Discussion yet: create it (same body as annotations.js).
-  function ensureDiscussion(bar) {
-    var st = bar._stats, c = core();
-    if (st.id) return Promise.resolve(st.id);
-    var path = bar.getAttribute('data-path'), d = dataOf(bar);
-    return c.ensureToken().then(function (tk) {
-      return c.api('/discussions', {
-        method: 'POST', headers: { Authorization: 'Bearer ' + tk },
-        body: { input: { repositoryId: bar.getAttribute('data-repo-id'), categoryId: bar.getAttribute('data-category-id'), title: path, body: '# ' + path + '\n\n' + d.text + '\n\n' + d.url } }
-      });
-    }).then(function (data) {
-      var id = data && (data.id || (data.discussion && data.discussion.id));
-      if (!id) throw new Error('无法创建讨论串');
-      st.id = id;
-      return id;
-    });
+  function bindVotes(bar) {
+    bar.querySelector('.pa-up').addEventListener('click', function () { vote(bar, 'up'); });
+    bar.querySelector('.pa-down').addEventListener('click', function () { vote(bar, 'down'); });
   }
-  // The relay's /stats is anonymous; once logged in, ask GitHub which side we are on.
-  var MINE_QUERY = 'query($ids: [ID!]!) { nodes(ids: $ids) { ... on Discussion { id reactionGroups { content viewerHasReacted } } } }';
-  function loadMine(list) {
-    var c = core();
-    if (!c || !c.getSession()) return;
-    var ids = list.filter(function (b) { return b._stats && b._stats.id; }).map(function (b) { return b._stats.id; });
-    if (!ids.length) return;
-    c.graphql(MINE_QUERY, { ids: ids }).then(function (data) {
-      (data.nodes || []).forEach(function (n) {
-        if (!n) return;
-        list.forEach(function (b) {
-          if (b._stats.id !== n.id) return;
-          b._stats.mine = null;
-          (n.reactionGroups || []).forEach(function (g) { if (g.viewerHasReacted) b._stats.mine = g.content === 'THUMBS_UP' ? 'up' : g.content === 'THUMBS_DOWN' ? 'down' : b._stats.mine; });
-          render(b, b._stats);
-        });
-      });
-    }).catch(function () { /* stays anonymous */ });
+  // Post page: one GET /votes for this article.
+  function loadVotes(bar) {
+    var api = apiBase(bar), path = bar.getAttribute('data-path');
+    if (!api) return;
+    fetch(api + '/votes?path=' + enc(path)).then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); }).then(function (d) {
+      bar._stats = { up: d.up || 0, down: d.down || 0, mine: myVote(path) };
+      render(bar, bar._stats);
+    }).catch(function () { bar._stats = { up: 0, down: 0, mine: myVote(path) }; render(bar, bar._stats); });
   }
+  // List pages: one GET /stats for every bar (views, comments, votes).
   function loadStats(list) {
-    var api = (localStorage.getItem('annotationsApi') || list[0].getAttribute('data-annotations-api') || '').replace(/\/$/, '');
+    var api = apiBase(list[0]);
     if (!api) return;
     var byPath = {};
     list.forEach(function (b) { byPath[b.getAttribute('data-path')] = b; });
@@ -205,15 +192,12 @@
     while (paths.length) chunks.push(paths.splice(0, 20));
     chunks.forEach(function (chunk) {
       fetch(api + '/stats?paths=' + enc(chunk.join(','))).then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); }).then(function (data) {
-        var touched = [];
         chunk.forEach(function (p) {
           var it = data.items && data.items[p], bar = byPath[p];
           if (!it || !bar) return;
-          bar._stats = { id: it.id, up: it.up || 0, down: it.down || 0, mine: null, views: it.views, comments: it.comments || 0 };
+          bar._stats = { up: it.up || 0, down: it.down || 0, mine: myVote(p), views: it.views || 0, comments: it.comments || 0 };
           render(bar, bar._stats);
-          touched.push(bar);
         });
-        loadMine(touched);
       }).catch(function () { /* counters stay blank */ });
     });
   }
@@ -226,12 +210,10 @@
       e.stopPropagation();
       if (pop && !pop.hidden && popFor === bar) closePop(); else openPop(bar, shareBtn);
     });
-    if (bar.classList.contains('is-compact')) {
-      bar.querySelector('.pa-up').addEventListener('click', function () { listVote(bar, 'up'); });
-      bar.querySelector('.pa-down').addEventListener('click', function () { listVote(bar, 'down'); });
-    }
+    bindVotes(bar);
   });
   if (compact.length) loadStats(compact);
+  bars.filter(function (b) { return !b.classList.contains('is-compact'); }).forEach(loadVotes);
 
   // ------------------------------------------------- author: WeChat export
   var exportBtn = document.querySelector('.post-actions:not(.is-compact) .pa-export');

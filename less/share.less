@@ -28,7 +28,7 @@
 		white-space: nowrap;
 		transition: color 0.15s ease, background-color 0.15s ease;
 		.fa { margin-right: 5px; font-size: 15px; }
-		b { font-weight: 600; margin: 0 3px; }
+		b { font-weight: 600; margin: 0 0 0 3px; }
 		&:hover, &:focus { color: @brand-primary; background: #f2f7f8; text-decoration: none; outline: none; }
 		&[hidden] { display: none; }
 	}
@@ -80,7 +80,10 @@
 // the bar sits right above the comment section and takes over its top rule
 .post-actions:not(.is-compact) { margin: 44px 0 0; padding: 14px 0; border-bottom: 1px solid #eee; }
 .post-actions + .comment { margin-top: 18px; padding-top: 0; border-top: 0; }
-.post-preview .post-actions.is-compact { margin-top: -6px; margin-bottom: 4px; }
+// under a home-list entry: hug the "Posted by" line, and let the entry's own
+// padding provide the gap to the <hr>
+.post-preview .post-actions.is-compact { margin: 0 0 0 -8px; }
+.post-preview > .post-meta { margin-bottom: 6px; }
 .life-card-wrap .post-actions.is-compact { margin: 8px 2px 0; }
 .life-card-wrap { display: flex; flex-direction: column; }
 .life-card-wrap .life-card { flex: 1; }

@@ -61,6 +61,7 @@ export default {
       if (url.pathname === '/views' && (request.method === 'GET' || request.method === 'POST')) return await views(request, url, env, cors);
       if (url.pathname === '/views/top' && request.method === 'GET') return await viewsTop(url, env, cors);
       if (url.pathname === '/stats' && request.method === 'GET') return await stats(url, env, ctx, cors);
+      if (url.pathname === '/votes' && (request.method === 'GET' || request.method === 'POST')) return await votes(request, url, env, cors);
     } catch (err) {
       return json({ error: err.message || String(err) }, 502, cors);
     }
@@ -241,10 +242,43 @@ async function viewsTop(url, env, cors) {
   return json({ rows: results || [] }, 200, { ...cors, 'Cache-Control': 'public, max-age=60' });
 }
 
+// Article-level 赞同 / 反对, anonymous (no GitHub login), one row per post in D1.
+// GET  /votes?path=…                      -> { up, down }
+// POST /votes { path, dir, prev }         dir/prev ∈ 'up' | 'down' | null: the
+//   browser remembers its own vote in localStorage and sends the transition
+//   (prev -> dir); we add/subtract accordingly. Same trust level as page views.
+let votesTableReady = null;
+function ensureVotesTable(env) {
+  if (!votesTableReady) votesTableReady = env.DB.exec('CREATE TABLE IF NOT EXISTS votes (path TEXT PRIMARY KEY, up INTEGER NOT NULL DEFAULT 0, down INTEGER NOT NULL DEFAULT 0, updated_at TEXT)');
+  return votesTableReady;
+}
+const DIRS = new Set(['up', 'down']);
+async function votes(request, url, env, cors) {
+  if (!env.DB) return json({ error: '投票未启用（worker 未绑定 D1）' }, 501, cors);
+  const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
+  const path = request.method === 'GET' ? url.searchParams.get('path') : body.path;
+  if (typeof path !== 'string' || !VIEW_PATH.test(path) || path.includes('..')) return json({ error: '`path` must be a post URL' }, 400, cors);
+  await ensureVotesTable(env);
+  let row;
+  if (request.method === 'POST') {
+    const dir = DIRS.has(body.dir) ? body.dir : null, prev = DIRS.has(body.prev) ? body.prev : null;
+    if (dir === prev) return json({ error: 'nothing to change' }, 400, cors);
+    const dUp = (dir === 'up' ? 1 : 0) - (prev === 'up' ? 1 : 0);
+    const dDown = (dir === 'down' ? 1 : 0) - (prev === 'down' ? 1 : 0);
+    row = await env.DB.prepare(
+      'INSERT INTO votes (path, up, down, updated_at) VALUES (?1, MAX(0, ?2), MAX(0, ?3), ?4) ' +
+      'ON CONFLICT(path) DO UPDATE SET up = MAX(0, up + ?2), down = MAX(0, down + ?3), updated_at = ?4 RETURNING up, down'
+    ).bind(path, dUp, dDown, new Date().toISOString()).first();
+  } else {
+    row = await env.DB.prepare('SELECT up, down FROM votes WHERE path = ?1').bind(path).first();
+  }
+  return json({ up: (row && row.up) || 0, down: (row && row.down) || 0 }, 200, { ...cors, 'Cache-Control': 'no-store' });
+}
+
 // GET /stats?paths=/a.html,/b.html  (<= 20) -> per-post counters for list pages:
 // { items: { "/a.html": { views, comments, up, down, id, url } } }
-// views from D1 (0 without the binding), the rest from the giscus public API
-// (one discussion lookup per path, first page only — counts are in the header).
+// views and up/down from D1 (0 without the binding), comments / discussion id
+// from the giscus public API (one lookup per path, first page only).
 // Cached 120 s at the edge per path so a listing of 10 posts is cheap.
 const STATS_MAX = 20;
 async function stats(url, env, ctx, cors) {
@@ -252,13 +286,17 @@ async function stats(url, env, ctx, cors) {
   if (!paths.length) return json({ error: '`paths` is required' }, 400, cors);
   for (const p of paths) if (!VIEW_PATH.test(p) || p.includes('..')) return json({ error: `bad path ${p}` }, 400, cors);
 
-  let viewsByPath = {};
+  let viewsByPath = {}, votesByPath = {};
   if (env.DB) {
     if (!viewsTableReady) viewsTableReady = env.DB.exec('CREATE TABLE IF NOT EXISTS views (path TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0, updated_at TEXT)');
-    await viewsTableReady;
+    await Promise.all([viewsTableReady, ensureVotesTable(env)]);
     const marks = paths.map((_, i) => `?${i + 1}`).join(',');
-    const { results } = await env.DB.prepare(`SELECT path, count FROM views WHERE path IN (${marks})`).bind(...paths).all();
-    for (const r of results || []) viewsByPath[r.path] = r.count;
+    const [v, w] = await Promise.all([
+      env.DB.prepare(`SELECT path, count FROM views WHERE path IN (${marks})`).bind(...paths).all(),
+      env.DB.prepare(`SELECT path, up, down FROM votes WHERE path IN (${marks})`).bind(...paths).all(),
+    ]);
+    for (const r of v.results || []) viewsByPath[r.path] = r.count;
+    for (const r of w.results || []) votesByPath[r.path] = { up: r.up, down: r.down };
   }
 
   const cache = caches.default;
@@ -273,16 +311,11 @@ async function stats(url, env, ctx, cors) {
       const r = await fetch(`${GISCUS}/discussions?${qs}`, { headers: { Accept: 'application/json' } });
       const data = r.ok ? await r.json() : null;
       const disc = data && data.discussion;
-      const votes = (disc && disc.reactions) || {};
-      d = disc ? {
-        id: disc.id, url: disc.url,
-        comments: (disc.totalCommentCount || 0) + (disc.totalReplyCount || 0),
-        up: (votes.THUMBS_UP && votes.THUMBS_UP.count) || 0,
-        down: (votes.THUMBS_DOWN && votes.THUMBS_DOWN.count) || 0,
-      } : { id: null, url: null, comments: 0, up: 0, down: 0 };
+      d = disc ? { id: disc.id, url: disc.url, comments: (disc.totalCommentCount || 0) + (disc.totalReplyCount || 0) }
+               : { id: null, url: null, comments: 0 };
       if (r.ok || r.status === 404) ctx.waitUntil(cache.put(key, json(d, 200, { 'Cache-Control': 'public, s-maxage=120' })));
     }
-    items[p] = { ...d, views: viewsByPath[p] || 0 };
+    items[p] = { ...d, views: viewsByPath[p] || 0, up: (votesByPath[p] || {}).up || 0, down: (votesByPath[p] || {}).down || 0 };
   }));
   return json({ items }, 200, { ...cors, 'Cache-Control': 'public, max-age=60' });
 }

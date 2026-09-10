@@ -781,31 +781,22 @@
   // Head of the comment section: 「👍 有用」 (the Discussion's THUMBS_UP), page
   // views, comment count, link to GitHub. Re-rendered on its own after a like /
   // views response so the editors below are left alone.
-  // The counters live in the action bar above the comments (_includes/post-actions.html:
-  // 赞同 / 反对 on the post's Discussion, views, comment count); the section head
-  // only keeps the count and the GitHub link. Same data also feeds the header meta.
+  // The section head keeps the count and the GitHub link; views / comment count
+  // are also painted into the action bar above (_includes/post-actions.html).
   function renderLikeBar() {
     if (!commentsHost) return;
     var head = commentsHost.querySelector('.ac-head');
     var total = comments.reduce(function (n, c) { return n + (c.deleted ? 0 : 1) + c.replies.length; }, 0);
-    var likes = (discussion && discussion.likes) || parseVotes(null);
     head.innerHTML =
       '<span class="ac-count">' + (loadError ? '<i class="fa fa-exclamation-circle"></i> 评论加载失败：' + escapeHtml(loadError.message)
         : !loaded ? '正在加载评论…' : '<i class="fa fa-comment-o"></i> ' + total + ' 条评论') + '</span>' +
       (discussion && discussion.url ? '<a class="ac-github" href="' + escapeAttr(discussion.url) + '" target="_blank" rel="noopener noreferrer" title="这个讨论串在 GitHub Discussions 上"><i class="fa fa-github"></i> GitHub</a>' : '');
+    // Views and comment count go to the action bar; its 赞同 / 反对 are
+    // anonymous worker-side counters owned by js/share.js, not GitHub reactions.
     var bar = document.querySelector('.post-actions:not(.is-compact)');
-    if (bar && window.PostActions) {
-      window.PostActions.render(bar, { up: likes.up, down: likes.down, mine: likes.mine, views: pageViews, comments: loaded ? total : null });
-      if (!bar._annotBound) {
-        bar._annotBound = true;
-        bar.querySelector('.pa-up').addEventListener('click', function () { toggleLike('up'); });
-        bar.querySelector('.pa-down').addEventListener('click', function () { toggleLike('down'); });
-      }
-    }
+    if (bar && window.PostActions) window.PostActions.render(bar, { views: pageViews, comments: loaded ? total : null });
     var meta = document.querySelector('.post-views');
     if (meta) meta.textContent = pageViews !== null ? ' | ' + pageViews + ' 次阅读' : '';
-    var metaLikes = document.querySelector('.post-likes');
-    if (metaLikes) metaLikes.textContent = likes.up ? ' · ' + likes.up + ' 人赞同' : '';
   }
 
   // Reply box right under the comment's replies (only one open at a time).
@@ -1639,34 +1630,6 @@
     });
   }
 
-  // 👍 / 👎 on the post's Discussion = 赞同 / 反对 on the article (same rules as
-  // comment votes: one per person, switching sides removes the other first). A
-  // post nobody has commented on has no discussion yet; voting creates one
-  // (login needed either way — we redirect and come back).
-  var likePending = false;
-  function toggleLike(dir) {
-    dir = dir || 'up';
-    if (!getSession()) { saveCommentDraft(commentsHost && commentsHost.querySelector('.ac-editor .ap-text') ? commentsHost.querySelector('.ac-editor .ap-text').value : ''); login(); return; }
-    if (likePending) return;
-    likePending = true;
-    ensureDiscussion().then(function (id) {
-      var v = discussion.likes, prev = { up: v.up, down: v.down, mine: v.mine }, steps = [];
-      if (v.mine === dir) { v[dir] = Math.max(0, v[dir] - 1); v.mine = null; steps.push([REMOVE_REACTION, dir]); }
-      else {
-        if (v.mine) { v[v.mine] = Math.max(0, v[v.mine] - 1); steps.push([REMOVE_REACTION, v.mine]); }
-        v[dir] += 1; v.mine = dir; steps.push([ADD_REACTION, dir]);
-      }
-      renderLikeBar();
-      return steps.reduce(function (p, st) {
-        return p.then(function () { return graphql(st[0], { id: id, content: CONTENT[st[1]] }); });
-      }, Promise.resolve()).catch(function (err) {
-        discussion.likes = prev;
-        renderLikeBar();
-        throw err;
-      });
-    }).catch(function (err) { showToast('投票失败：' + err.message); }).then(function () { likePending = false; });
-  }
-
   function voteHtml(rec) {
     var v = rec.votes || parseVotes(null), score = v.up - v.down;
     return '<span class="ap-vote' + (v.mine ? ' is-' + v.mine : '') + '" title="' + v.up + ' 赞同 · ' + v.down + ' 反对">' +
@@ -1840,8 +1803,8 @@
     list: function () { return annotations; },
     comments: function () { return comments; },
     viewer: function () { return viewer; },
-    // Auth / API plumbing shared with js/share.js (votes on list pages).
-    core: { api: api, graphql: graphql, getSession: getSession, login: login, ensureToken: ensureToken, parseVotes: parseVotes, reactions: { add: ADD_REACTION, remove: REMOVE_REACTION, content: CONTENT } }
+    // Auth / API plumbing other scripts may reuse.
+    core: { api: api, graphql: graphql, getSession: getSession, login: login, ensureToken: ensureToken }
   };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

@@ -104,28 +104,24 @@
 }
 
 // ---- sidebar readability: the theme's @gray-l (#bfbfbf) text is too faint,
-// and the section titles did not read as titles. Overrides sidebar.less.
+// and the section titles did not read as titles. Type only — the <hr> between
+// sections stays as in the theme. Overrides sidebar.less.
 .sidebar-container {
 	color: #555;
 	h5 {
-		margin: 0 0 14px;
-		padding-bottom: 8px;
-		border-bottom: 2px solid #e8e8e8;
-		font-size: 13px;
+		font-size: 15px;
 		font-weight: 700;
-		letter-spacing: 2px;
-		text-transform: uppercase;
+		letter-spacing: 1.5px;
 		color: #333;
 		a { color: #333 !important; &:hover { color: @brand-primary !important; } }
 	}
-	section + section, .visible-md + section { margin-top: 28px; }
-	hr { display: none; } // the bordered headings separate the sections now
 	a { color: #555 !important; }
 	.short-about p { color: #555; }
 	.tags a, #tags a { color: #555 !important; border-color: #ccc; }
 	.recommends {
-		a { color: #333 !important; &:hover { color: @brand-primary !important; } }
-		.recommend-desc { color: #777; }
+		li { margin-bottom: 14px; }
+		a { font-size: 15px; font-weight: 600; color: #333 !important; &:hover { color: @brand-primary !important; } }
+		.recommend-desc { font-size: 12.5px; font-weight: 300; line-height: 1.5; color: #8a8a8a; }
 	}
 }
 

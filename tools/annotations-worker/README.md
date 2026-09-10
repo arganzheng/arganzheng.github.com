@@ -81,13 +81,21 @@ curl -H 'Origin: http://localhost:4000' 'https://blog-annotations.<subdomain>.wo
 
 `GET /views/top?limit=50&order=count|recent` feeds the author dashboard.
 
+## Article votes (GET/POST /votes)
+
+Anonymous 赞同 / 反对 on a post, same trust model as views: one D1 row per
+post (`votes(path, up, down)`), the browser keeps its own choice in
+`localStorage["vote:<path>"]` and sends the transition
+(`POST {path, dir, prev}` with `up` / `down` / `null`), `GET /votes?path=`
+reads the counts. No GitHub login involved (comment votes are still GitHub
+reactions). Needs the D1 binding; 501 without it.
+
 ## List-page counters (GET /stats)
 
-`GET /stats?paths=/a.html,/b.html` (up to 20) returns, per path, `views`
-(D1, 0 without the binding), and from the giscus public API `comments`
-(comments + replies), `up` / `down` (THUMBS_UP / THUMBS_DOWN on the
-discussion), `id` and `url` of the discussion (`null` when nobody has
-commented yet). Each path is cached 120 s at the edge, so the home page
+`GET /stats?paths=/a.html,/b.html` (up to 20) returns, per path, `views` and
+`up` / `down` (D1, 0 without the binding), and from the giscus public API
+`comments` (comments + replies), `id` and `url` of the discussion (`null`
+when nobody has commented yet). Each path is cached 120 s at the edge, so the home page
 (10 posts) costs at most 10 giscus lookups every two minutes. Used by
 `js/share.js` for the action bar under every post preview.
 

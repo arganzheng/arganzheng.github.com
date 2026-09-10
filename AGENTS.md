@@ -111,9 +111,9 @@ Pages has `https_enforced` on.
 - `_includes/post-license.html` — license notice after the body (all three post
   layouts); text from `_config.yml` `license: {name, url, note}`, a post can set
   `license: false` or its own map. Excluded from the WeChat export.
-- Sidebar readability overrides (darker text, bordered uppercase section
-  titles, no `<hr>`) live at the end of `less/extras.less`, not in
-  `sidebar.less`. Footer: RSS + GitHub Star (count via anonymous REST, cached
+- Sidebar readability overrides (darker text, bigger/bolder section titles,
+  RECOMMEND title/desc contrast; the theme's `<hr>` rhythm is kept) live at the
+  end of `less/extras.less`, not in `sidebar.less`. Footer: RSS + GitHub Star (count via anonymous REST, cached
   a day in localStorage); no article links there.
 - `_includes/post-meta.html` — the "Posted by … | date (· 更新于) | 约 N 分钟 ·
   X.Xk 字 | N 次阅读" line under the title, shared by the three post layouts.
@@ -150,18 +150,19 @@ Pages has `https_enforced` on.
   votes and page views, see below.
 - `_includes/post-actions.html` + `js/share.js` (+ `less/share.less`) — Zhihu-style
   action bar 「▲ 赞同 N ▼ · N 次阅读 · N 条评论 · 分享」. Post page: included
-  right above `comments.html` in all three post layouts; `annotations.js`
-  paints it (`renderLikeBar` → `PostActions.render`) and binds the votes
-  (`toggleLike(dir)`: THUMBS_UP / THUMBS_DOWN on the Discussion, same rules as
-  comment votes; the old 「有用」 in `.ac-head` is gone, the head keeps count +
-  GitHub link). List pages (`index.html`, `life.html`): `compact=true` bars,
-  `share.js` fetches the worker's `GET /stats?paths=…` once (views from D1,
-  comments / 👍 / 👎 / discussion id from the giscus API, 120 s edge cache) and
-  votes through `BlogAnnotations.core` (`api`, `graphql`, `getSession`,
-  `login`, `ensureToken`, reaction mutations — annotations.js now runs
-  `takeSessionFromUrl()` and sets `cfg.api` from any `[data-annotations-api]`
-  before bailing on non-post pages, so the OAuth round trip works from a list
-  page; a post without a discussion gets one created first). 「分享」 opens a
+  right above `comments.html` in all three post layouts. **Article votes are
+  anonymous**: worker `GET/POST /votes` keeps `votes(path, up, down)` in D1,
+  the browser remembers its own choice in `localStorage["vote:<path>"]` and
+  sends the transition `{path, dir, prev}`; localhost never posts. No GitHub
+  login (the old discussion-THUMBS_UP 「有用」 is gone; comment votes stay
+  reactions). `share.js` owns the votes on every bar; on the post page
+  `annotations.js` only paints views + comment count into it
+  (`renderLikeBar` → `PostActions.render`; `.ac-head` keeps count + GitHub
+  link). List pages (`index.html`, `life.html`): `compact=true` bars, one
+  `GET /stats?paths=…` (views + votes from D1, comments / discussion id from
+  the giscus API, 120 s edge cache). annotations.js runs `takeSessionFromUrl()`
+  and exposes `BlogAnnotations.core` (`api`, `graphql`, `getSession`, `login`,
+  `ensureToken`) even on non-post pages. 「分享」 opens a
   single body-level `.pa-share-pop` menu: Web Share API (only when supported),
   Weibo / X / LinkedIn intent URLs built in JS, WeChat QR
   (`js/vendor/qrcode.min.js`, qrcode-generator 1.4.4 MIT, lazy-loaded), copy
@@ -261,10 +262,8 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
   `parseComment` skips `deletedAt` comments, so such a thread vanishes from
   the article on reload — the confirm text says so. The thread re-renders
   once the viewer query returns so the buttons appear on first open.
-- **Likes / votes** are plain GitHub reactions, no own storage: the post's
-  「赞同 / 反对」 (action bar) is `THUMBS_UP` / `THUMBS_DOWN` on the Discussion
-  (`toggleLike(dir)`, creates the discussion first for an uncommented post),
-  each comment's ▲ score ▼
+- **Comment votes** are plain GitHub reactions, no own storage (article-level
+  赞同 / 反对 are the anonymous worker counters described above): each comment's ▲ score ▼
   (`.ap-vote`, in the meta row) is `THUMBS_UP` / `THUMBS_DOWN` on that
   comment (`toggleVote`, optimistic, switching sides removes the other
   reaction first; `addReaction` / `removeReaction`). `parseVotes` reads both

@@ -1,13 +1,11 @@
 {%- comment -%}
-  Zhihu-style action bar: 赞同 / 反对 (THUMBS_UP / THUMBS_DOWN on the post's
-  GitHub Discussion), views, comment count, 分享 (popover with the platforms)
-  and — on the post page — the author-only 「复制为公众号格式」.
+  Zhihu-style action bar: 赞同 / 反对 (anonymous counters in the worker's D1,
+  no login), views, comment count, 分享 (popover with the platforms) and — on
+  the post page — the author-only 「复制为公众号格式」.
   Usage:  {% include post-actions.html %}                       post page, above the comments
           {% include post-actions.html post=post compact=true %} under a list entry
-  Post page: js/annotations.js fills the counters (it owns the discussion state)
-  and binds the votes; js/share.js does the share popover / export button.
-  List pages: js/share.js fetches GET /stats for all bars at once and votes
-  through BlogAnnotations.core.
+  js/share.js drives everything (votes via POST /votes, list counters via one
+  GET /stats); on the post page js/annotations.js supplies views + comment count.
 {%- endcomment -%}
 {%- assign p = include.post | default: page -%}
 <div class="post-actions{% if include.compact %} is-compact{% endif %}"
@@ -16,9 +14,7 @@
      data-title="{{ p.title | escape }}"
      data-text="{{ p.subtitle | default: p.description | default: '' | escape }}"
      data-author="{{ site.github_username | strip }}"
-     data-annotations-api="{{ site.annotations.api }}"
-     data-repo-id="{{ site.giscus.repo_id }}"
-     data-category-id="{{ site.giscus.category_id }}">
+     data-annotations-api="{{ site.annotations.api }}">
   <span class="pa-vote">
     <button type="button" class="pa-up" title="赞同"><i class="fa fa-caret-up"></i> 赞同<b class="pa-up-n"></b></button>
     <button type="button" class="pa-down" title="反对" aria-label="反对"><i class="fa fa-caret-down"></i></button>

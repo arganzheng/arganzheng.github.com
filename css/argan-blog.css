@@ -2166,13 +2166,9 @@ li[id^="fn:"] {
   color: #555;
 }
 .sidebar-container h5 {
-  margin: 0 0 14px;
-  padding-bottom: 8px;
-  border-bottom: 2px solid #e8e8e8;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
-  letter-spacing: 2px;
-  text-transform: uppercase;
+  letter-spacing: 1.5px;
   color: #333;
 }
 .sidebar-container h5 a {
@@ -2180,13 +2176,6 @@ li[id^="fn:"] {
 }
 .sidebar-container h5 a:hover {
   color: #0085a1 !important;
-}
-.sidebar-container section + section,
-.sidebar-container .visible-md + section {
-  margin-top: 28px;
-}
-.sidebar-container hr {
-  display: none;
 }
 .sidebar-container a {
   color: #555 !important;
@@ -2199,14 +2188,22 @@ li[id^="fn:"] {
   color: #555 !important;
   border-color: #ccc;
 }
+.sidebar-container .recommends li {
+  margin-bottom: 14px;
+}
 .sidebar-container .recommends a {
+  font-size: 15px;
+  font-weight: 600;
   color: #333 !important;
 }
 .sidebar-container .recommends a:hover {
   color: #0085a1 !important;
 }
 .sidebar-container .recommends .recommend-desc {
-  color: #777;
+  font-size: 12.5px;
+  font-weight: 300;
+  line-height: 1.5;
+  color: #8a8a8a;
 }
 .post-license {
   margin: 40px 0 0;
@@ -3497,7 +3494,7 @@ li[id^="fn:"] {
 .post-actions .pa-item b,
 .post-actions .pa-vote button b {
   font-weight: 600;
-  margin: 0 3px;
+  margin: 0 0 0 3px;
 }
 .post-actions .pa-item:hover,
 .post-actions .pa-vote button:hover,
@@ -3628,8 +3625,10 @@ li[id^="fn:"] {
   border-top: 0;
 }
 .post-preview .post-actions.is-compact {
-  margin-top: -6px;
-  margin-bottom: 4px;
+  margin: 0 0 0 -8px;
+}
+.post-preview > .post-meta {
+  margin-bottom: 6px;
 }
 .life-card-wrap .post-actions.is-compact {
   margin: 8px 2px 0;
