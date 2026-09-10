@@ -5,6 +5,7 @@ title: "C++ 在 AI-Infra（04）：多态与类型擦除——运行时如何选
 subtitle: "Polymorphism and Type Erasure"
 tags: [C++, AI, AI-Infra]
 catalog: true
+updated: 2026-09-10
 ---
 
 在 Python 里写 `torch.add(a, b)`，如果 `a` 在 CPU 上就跑 CPU kernel，在 GPU 上就跑 CUDA kernel。这个"按参数选实现"的动作在 C++ 层叫 dispatch，做这件事的类叫 `c10::Dispatcher`。它的核心调用路径在 `aten/src/ATen/core/dispatch/Dispatcher.h` 里（本文引用的 PyTorch 源码以 v2.10.0 为准），删掉调试和 profiler 分支后只剩这几行：
@@ -24,6 +25,8 @@ C10_ALWAYS_INLINE_UNLESS_MOBILE Return Dispatcher::call(
       op, dispatchKeySet, std::forward<Args>(args)...);
 }
 ```
+
+这段代码的语法密度很高——变参模板 `class... Args`、`.template` 消歧义、`std::forward`——都是[第三篇](/cpp-templates-and-generic-programming.html)讲过的内容（§2.5、§3.1、§5.4）。没看过也不要紧，现在只需要读出它做的三件事：从参数算出一个 `DispatchKeySet`（"这次调用该走哪个后端"）；用它 `lookup` 到一个 `KernelFunction`；调用这个 `KernelFunction`。本文要回答的就是第三步"怎么调"。
 
 `lookup` 返回的 `KernelFunction` 定义在 `aten/src/ATen/core/boxing/KernelFunction.h`，它的数据成员是：
 
@@ -48,6 +51,14 @@ class TORCH_API BoxedKernel final {
   // ...
   c10::intrusive_ptr<OperatorKernel> functor_;
   InternalBoxedKernelFunction* boxed_kernel_func_;
+};
+```
+
+`functor_` 指向的 `OperatorKernel`（`aten/src/ATen/core/boxing/OperatorKernel.h`）整个定义只有一行——一个虚析构函数，没有任何别的成员：
+
+```cpp
+struct TORCH_API OperatorKernel : public c10::intrusive_ptr_target {
+  ~OperatorKernel() override = default;
 };
 ```
 
@@ -163,6 +174,35 @@ Java 工程师对"虚调用"的直觉是 JVM 的 `invokevirtual`，具体实现�
 - 每个**有虚函数的类的对象**开头多一个隐藏指针（vptr），指向所属类的 vtable。所以 `sizeof(Square)` 是 16（vptr 8 字节 + `double` 8 字节），而没有虚函数的 `struct NoVirtual { double x; }` 是 8。
 - 通过基类指针/引用调 `s->area()`，编译成：读 `s` 的 vptr → 取第 N 个槽位 → 间接跳转。三步，每次调用都做。
 - 编译器看到的是"一个指针 + 一个槽位号"，不知道会跳到哪里，所以**不能内联**。这一点和 Java 不同：HotSpot 会做类层次分析和内联缓存，绝大多数单态调用点最终被内联成直接调用。C++ 的 AOT 编译器只有在能证明实际类型时（局部变量、`final` 类、LTO 下整个程序只有一个实现）才能 devirtualize。跨 `.so` 边界（`libtorch_cpu.so` 调 `libtorch_cuda.so` 里的实现）永远做不到。
+
+用上一节的 `Shape` / `Circle` / `Square` 画出来就是下面这样。两个对象各自开头有一个 vptr，指向**所属类**的 vtable；两张 vtable 槽位顺序一致（0 析构、1 `area`、2 `name`），`Square` 没覆盖 `name`，它的第 2 槽仍然指向 `Shape::name`。`s->area()` 就是沿着"对象 → vptr → 第 1 槽 → 函数"跳三次：
+
+```mermaid
+flowchart LR
+    subgraph objs["堆上的对象（通过 Shape* 访问）"]
+        direction TB
+        C["Circle 对象<br/>[0] vptr<br/>[8] double r = 1.0"]
+        S["Square 对象<br/>[0] vptr<br/>[8] double s = 2.0"]
+    end
+    subgraph vt["vtable（只读数据段，每个类一张）"]
+        direction TB
+        VC["vtable for Circle<br/>[0] ~Circle<br/>[1] Circle::area<br/>[2] Circle::name"]
+        VS["vtable for Square<br/>[0] ~Square<br/>[1] Square::area<br/>[2] Shape::name（继承，未覆盖）"]
+    end
+    subgraph fn["代码段"]
+        direction TB
+        F1["Circle::area"]
+        F2["Circle::name"]
+        F3["Square::area"]
+        F4["Shape::name"]
+    end
+    C -- "① 读 vptr" --> VC
+    S -- "① 读 vptr" --> VS
+    VC -- "② 取第 1 槽 → ③ 跳转" --> F1
+    VC --> F2
+    VS -- "② 取第 1 槽 → ③ 跳转" --> F3
+    VS --> F4
+```
 
 这就是 PyTorch 在**热路径**上尽量不用虚函数的原因。`Dispatcher::call` 每秒被调用几百万次，如果 `KernelFunction` 是接口，每个算子调用多一次不可内联的虚跳转。后面会看到它用函数指针 + 模板做到了"运行期选择、但调到具体 kernel 时是直接调用"。
 

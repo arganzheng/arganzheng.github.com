@@ -5,6 +5,7 @@ title: Python 在 AI-Infra（01）：语言机制与运行时原理
 subtitle: Python Language Mechanisms and Runtime Internals
 tags: [Python]
 catalog: true
+updated: 2026-09-10
 ---
 
 Python 常被认为是一门"简单易学"的语言。但在深度学习框架、推理服务和分布式训练系统里，真正需要掌握的不是语法，而是语法背后的运行时模型。下面这些在 AI-Infra 代码里随处可见的写法，每一行都依赖一个可以被替换、被拦截、被扩展的机制：
@@ -19,7 +20,7 @@ self.linear = nn.Linear(4, 4)      __setattr__ 拦截赋值，把子模块登记
 except Exception: log; raise       异常是否重抛，决定 Worker 是否退出
 ```
 
-不理解这些机制，读 PyTorch 或 vLLM 的源码就只能逐行翻译语法；理解之后，才能看出一个框架"为什么这样设计"，也才能解释那些经典故障——"本地能跑、换台机器就 `ImportError`"、"明明写了注册装饰器、运行时却找不到后端"、"生成器持有的文件一直没关"。
+这七行分别在第四、六、六 / 八、九、七、五、十章展开，第十二章会逐行给出答案。不理解这些机制，读 PyTorch 或 vLLM 的源码就只能逐行翻译语法；理解之后，才能看出一个框架"为什么这样设计"，也才能解释那些经典故障——"本地能跑、换台机器就 `ImportError`"、"明明写了注册装饰器、运行时却找不到后端"、"生成器持有的文件一直没关"。
 
 本文不试图覆盖 Python 的全部特性，只回答一个问题：
 
@@ -106,26 +107,21 @@ import 语句 ──finder/loader──► 模块对象 ──执行顶层代码
 
 ### 3. 本文的章节安排
 
-```text
-第二章    执行模型：源码如何变成正在运行的代码     code object、字节码、函数对象、执行帧、名称绑定
-第三章    作用域与闭包：名称在哪里被解析           LEGB 的编译期本质、cell、nonlocal、延迟绑定
-第四章    模块与导入系统：代码如何被加载           import 的执行过程、meta_path/PathFinder/loader 三层机制、
-                                                sys.path 与启动方式、项目布局与 editable 安装、
-                                                sys.modules 与注册前提、循环导入、动态导入、导入语法
-第五章    类与对象模型：对象如何被创建和查找       type、属性查找算法、描述符、方法绑定与三种内建描述符、
-                                                __getattr__、__new__/__init__、MRO 与 super、Mixin 与组合
-第六章    对象协议：语法背后的特殊方法             __call__、迭代协议、__getitem__、真值、__eq__/__hash__
-第七章    装饰器：用闭包和描述符改写调用路径       基本机制、wraps、参数化、类装饰器与注册、与描述符的叠放顺序、异步
-第八章    生成器与惰性执行                       帧的挂起、惰性的成本、yield from、关闭与清理
-第九章    上下文管理器                           with 的展开、contextlib、AI-Infra 中的用法、异步版本
-第十章    异常处理与失败传播                     层级、错误边界、异常链、记录并重抛
-第十一章  一个推理组件的完整运行时追踪           按导入、创建、调用、流式、异常五个阶段追踪 Runner，并归纳工程建议
-第十二章  本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 执行模型：源码如何变成正在运行的代码 | code object、字节码、函数对象、执行帧、名称绑定 |
+| 三 | 作用域与闭包：名称在哪里被解析 | LEGB 的编译期本质、cell、`nonlocal`、延迟绑定 |
+| 四 | 模块与导入系统：代码如何被加载 | `import` 的执行过程、`meta_path` / `PathFinder` / loader 三层机制、`sys.path` 与启动方式、项目布局与 editable 安装、`sys.modules` 与注册前提、循环导入、动态导入、导入语法 |
+| 五 | 类与对象模型：对象如何被创建和查找 | `type`、属性查找算法、描述符、方法绑定与三种内建描述符、`__getattr__`、`__new__` / `__init__`、MRO 与 `super`、Mixin 与组合 |
+| 六 | 对象协议：语法背后的特殊方法 | `__call__`、迭代协议、`__getitem__`、真值、`__eq__` / `__hash__` |
+| 七 | 装饰器：用闭包和描述符改写调用路径 | 基本机制、`wraps`、参数化、类装饰器与注册、与描述符的叠放顺序、异步 |
+| 八 | 生成器与惰性执行 | 帧的挂起、惰性的成本、`yield from`、关闭与清理 |
+| 九 | 上下文管理器 | `with` 的展开、`contextlib`、AI-Infra 中的用法、异步版本 |
+| 十 | 异常处理与失败传播 | 层级、错误边界、异常链、记录并重抛 |
+| 十一 | 一个推理组件的完整运行时追踪 | 按导入、创建、调用、流式、异常五个阶段追踪 `Runner`，并归纳工程建议 |
+| 十二 | 本文小结 | 开头七行代码的答案 |
 
-与 Java 的对照放在知识点最近的位置，而不是集中在文末：多数章以一小节"与 Java 的对照"收尾，第四、五章则直接放在导入语法、`classmethod`、多继承这几个差异最大的知识点旁边。对照的目的是借用读者已有的心智模型来定位差异，离知识点越近越有用。
-
-本文所有带输出的示例都在 CPython 3.12 上实际运行过；涉及 PyTorch 源码的地方以 PyTorch 2.9.0 为准，只引用文件路径和函数名。
+示例输出基于 CPython 3.12，PyTorch 源码以 2.9.0 为准。
 
 
 ## 二、执行模型：源码如何变成正在运行的代码
@@ -421,13 +417,17 @@ def make_fns():
 print([fn() for fn in make_fns()])          # [2, 2, 2]
 ```
 
-用 §2 的知识解释：`i` 是 `make_fns` 的 cell 变量，三个 lambda 的 `__closure__` 指向**同一个** cell（可以打印 `id(fn.__closure__[0])` 验证，三者相同）。lambda 体里的 `i` 在**调用时**才 `LOAD_DEREF`，此时循环早已结束，cell 里是最后一个值。
+先看清 `lambda: i` 这个写法本身。`lambda 参数列表: 表达式` 定义一个匿名函数，冒号前是参数、冒号后是返回值；`lambda: i` 的参数列表是**空的**，所以 `i` 不是参数，而是一个要到外层去找的自由变量——每次调用它，都去 `make_fns` 的作用域里取 `i` **当前**的值。
+
+用 §2 的知识解释结果：`i` 是 `make_fns` 的 cell 变量，三个 lambda 的 `__closure__` 指向**同一个** cell（可以打印 `id(fn.__closure__[0])` 验证，三者相同）。lambda 体里的 `i` 在**调用时**才 `LOAD_DEREF`，此时循环早已结束，cell 里是最后一个值。
 
 修法是在创建时就把值固定下来——用默认参数（默认值在 `def`/`lambda` 求值时计算一次）：
 
 ```python
 fns.append(lambda i=i: i)                    # [0, 1, 2]
 ```
+
+`i=i` 里等号左边是 lambda 自己的参数 `i`，右边是循环变量 `i` 此刻的值，被当作默认值存进函数对象（`fn.__defaults__`）；调用 `fn()` 时不传参，就用这个默认值，于是 lambda 体里的 `i` 变成了局部变量，不再去外层找。注意不能写成 `lambda i: i`——那是一个**必须**接收一个参数的恒等函数，`fn()` 会直接报 `TypeError: <lambda>() missing 1 required positional argument: 'i'`。
 
 或者用 `functools.partial(handler, i)`，语义更明确。构造一批 Worker 回调、为每个 GPU 生成一个任务函数、在循环里注册 hook，都会遇到这个问题。
 
@@ -442,7 +442,7 @@ fns.append(lambda i=i: i)                    # [0, 1, 2]
 
 ### 6. 与 Java 的对照
 
-Java 的 lambda 和匿名内部类也能捕获外层变量，但捕获的变量必须是 **effectively final**——编译器直接禁止 §4 那种"捕获一个会变的循环变量"的写法，也就不存在延迟绑定问题。代价是 Java 无法像 §3 那样通过闭包修改外层局部变量，需要改用数组、`AtomicInteger` 或对象字段。
+Java 的 lambda 和匿名内部类也能捕获外层变量，但捕获的变量必须是 **effectively final**——编译器直接禁止 §4 那种"捕获一个会变的循环变量"的写法，也就不存在延迟绑定问题。注意 final 约束的是**引用**不能重新赋值，引用指向的对象本身照样可以修改：lambda 里不能写 `count++`，但可以 `counter.incrementAndGet()` 或 `holder[0]++`。所以 Java 无法像 §3 那样用 `nonlocal` 直接重绑一个外层局部变量，而是要把可变状态装进一个对象——数组、`AtomicInteger` 或对象字段——再捕获这个对象的引用。
 
 两种设计的根本差异：Java 捕获的是**值**（拷贝进 lambda 对象），Python 捕获的是**变量**（共享 cell）。读 Python 代码时要时刻记得这点：闭包看到的是变量的当前值，不是创建时的快照。
 
@@ -1884,7 +1884,19 @@ Python 没有受检异常，所有异常都是 Java 意义上的 `RuntimeExcepti
 异常          沿帧链传播，经过每个 __exit__ 和 finally；只记录不重抛是反模式
 ```
 
-读 AI-Infra 代码时，这些机制对应的是这些问题：
+回到开头那七行代码，现在每一行都有了答案：
+
+| 开头的写法 | 背后的机制 | 在哪一节 |
+|---|---|---|
+| `import torch` 触发 `.so` 加载、算子注册 | `import` 是运行时动作：`PathFinder` 找到 `torch/_C.*.so`，`ExtensionFileLoader` `dlopen` 它并调 `PyInit__C`；顶层代码顺带执行注册 | 四 §3、§6 |
+| `model(x)` 走 `__call__`，中间插入 hooks | 调用语法查的是**类型**上的 `__call__`；`nn.Module.__call__` = `_wrapped_call_impl` → pre-hooks → `forward` → hooks，所以 `model.forward(x)` 绕过全部 hook | 六 §1、§2 |
+| `for batch in loader` | 迭代协议：`for` 先调 `loader.__iter__()` 拿一个新迭代器（每个 epoch 一个），再反复调它的 `__next__`；用生成器写迭代器时，"暂停 / 恢复"就是帧在 `yield` 处挂起、下一次 `next` 恢复 | 六 §3、八 §1 |
+| `with torch.inference_mode()` | `with` 展开为 `__enter__` / `__exit__`；这类上下文管理器进入时切换一个线程局部状态、退出时恢复，异常也照样恢复 | 九 §1、§3 |
+| `@register("cuda")` 注册表能否填上取决于谁导入了它 | 装饰器在**定义时**执行一次；定义所在的模块没被导入、或被以两个名字导入，注册就不会发生或发生两次 | 七 §5、四 §6 |
+| `self.linear = nn.Linear(4, 4)` 登记到 `_modules` | `Module.__setattr__` 拦截赋值写进 `_modules`（不进 `__dict__`），读取时属性查找算法在类和实例字典都找不到，落到 `__getattr__` 从 `_modules` 取回 | 五 §3、§6 |
+| `except Exception: log; raise` | 异常沿帧链传播，途经每个 `__exit__` 和 `finally`；只记录不重抛，Worker 会带着错误状态继续跑；裸 `raise` 保留原始 traceback | 十 §1、§5 |
+
+再往外一层，读 AI-Infra 代码时常见的这些疑问，也都落在同一组机制上：
 
 - 一个后端为什么"写了注册装饰器却找不到"——它所在的模块没被导入，或被以两个名字导入了；
 - 一份代码为什么"`python -m` 能跑、`python script.py` 不能"——`sys.path[0]` 和 `__package__` 不同；
