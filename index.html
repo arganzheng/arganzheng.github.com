@@ -16,12 +16,12 @@ description: "stay hungry, stay foolish"
 </div>
 <hr>
 {% endfor %}{% endif %}
-{% comment %} `category: meta` (about the blog itself) stays out of the flow; `category: life` gets a badge and its own /life/ page. {% endcomment %}
-{% for post in paginator.posts %}{% unless post.pinned or post.category == 'meta' %}
-<div class="post-preview{% if post.category == 'life' %} is-life{% endif %}">
+{% comment %} Tech flow only: `category: life` posts and pinned ones are excluded from the paginator by _plugins/home_flow.rb (life lives on /life/). {% endcomment %}
+{% for post in paginator.posts %}
+<div class="post-preview">
     <a href="{{ post.url | prepend: site.baseurl }}">
         <h2 class="post-title">
-            {% if post.category == 'life' %}<span class="post-cat">生活</span>{% endif %}{{ post.title }}
+            {{ post.title }}
         </h2>
         {% if post.subtitle %}
         <h3 class="post-subtitle">
@@ -37,7 +37,7 @@ description: "stay hungry, stay foolish"
     </p>
 </div>
 <hr>
-{% endunless %}{% endfor %}
+{% endfor %}
 
 <!-- Pager -->
 {% if paginator.total_pages > 1 %}

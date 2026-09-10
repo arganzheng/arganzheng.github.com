@@ -70,10 +70,14 @@ Pages has `https_enforced` on.
 
 ## Layout
 
-- Categories: front matter `category:` is `life` (essays; badge on the home
-  list, cards on `/life/` = `life.html`, `[Life]` in the archive), `meta`
-  (about the blog itself: kept out of the home flow, `[Blog]` in the archive,
-  linked from the footer) or absent (tech). Feed items carry `<category>`.
+- Categories: front matter `category:` is `life` (essays; nav **Life** →
+  cards on `/life/` = `life.html`, `[Life]` in the archive) or absent (tech;
+  nav **Tech** = the paginated home). `_plugins/home_flow.rb` sets
+  `hidden: true` on life + pinned posts so jekyll-paginate leaves them out of
+  the home flow without gaps (site.posts / archive / tags / feed still include
+  them). No `meta` category any more — docs about the blog are plain posts
+  (the two manuals are also linked from the footer). Feed items carry
+  `<category>` (`tech` / `life`).
 - `/admin/stats.html` + `js/dashboard.js`: author dashboard (views ranking via
   worker `GET /views/top`, recent comments via GraphQL with the giscus
   session, open issues via REST). `sitemap: false`, `noindex: true`

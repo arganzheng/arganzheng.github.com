@@ -1,6 +1,5 @@
 ---
 layout: post
-category: meta
 title: "致读者的一封信"
 subtitle: "这个博客写什么、有哪些好玩的功能、怎么用——以及一份 FAQ"
 catalog: true

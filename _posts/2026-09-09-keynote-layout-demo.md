@@ -1,6 +1,5 @@
 ---
 layout: keynote
-category: meta
 title: "keynote 布局演示：给一份幻灯片配上讲稿"
 subtitle: "上面是可以翻页的幻灯片，下面是文字稿、参考资料和评论区"
 iframe: "/slides/reveal-demo.html"

@@ -162,7 +162,7 @@ permalink: /archive/
 {% assign slide_pages = site.pages | where: "layout", "slides" %}
 {% assign timeline_rows = "" %}
 {% for item in site.posts %}
-  {% capture row %}{{ item.date | date: "%Y%m%d%H%M%S" }}::{{ item.date | date: "%Y" }}::{{ item.date | date: "%Y-%m" }}::{{ item.date | date: "%B" }}::{{ item.date | date: "%Y/%m/%d" }}::{{ item.category | default: "post" }}::{{ item.url | prepend: site.baseurl }}::{{ item.title | replace: "::", "：" }}::{{ item.subtitle | default: "" | replace: "::", "：" }}###{% endcapture %}
+  {% capture row %}{{ item.date | date: "%Y%m%d%H%M%S" }}::{{ item.date | date: "%Y" }}::{{ item.date | date: "%Y-%m" }}::{{ item.date | date: "%B" }}::{{ item.date | date: "%Y/%m/%d" }}::{{ item.category | default: "tech" }}::{{ item.url | prepend: site.baseurl }}::{{ item.title | replace: "::", "：" }}::{{ item.subtitle | default: "" | replace: "::", "：" }}###{% endcapture %}
   {% assign timeline_rows = timeline_rows | append: row %}
 {% endfor %}
 {% for item in slide_pages %}
@@ -209,10 +209,8 @@ permalink: /archive/
       <span style="color: #0085a1; font-size: 12px;">[Slides]</span>
       {% elsif item_type == "life" %}
       <span style="color: #b35c00; font-size: 12px;">[Life]</span>
-      {% elsif item_type == "meta" %}
-      <span style="color: #999; font-size: 12px;">[Blog]</span>
       {% else %}
-      <span style="color: #999; font-size: 12px;">[Post]</span>
+      <span style="color: #999; font-size: 12px;">[Tech]</span>
       {% endif %}
       <a class="archive-entry" href="{{ item_url }}">
         <span class="archive-title">{{ item_title }}</span>
@@ -271,7 +269,7 @@ permalink: /archive/
       }
 
       results.innerHTML = list.map(function (item, index) {
-        var typeLabel = item.type === 'slides' ? '[Slides]' : '[Post]';
+        var typeLabel = item.type === 'slides' ? '[Slides]' : item.type === 'life' ? '[Life]' : '[Tech]';
         var subtitle = item.subtitle ? ('<small>' + escapeHtml(item.subtitle) + '</small>') : '';
         return '<li><button type="button" class="archive-goto-option' + (index === activeIndex ? ' active' : '') + '" data-index="' + index + '">' +
           escapeHtml(typeLabel + ' ' + item.title) + subtitle +
