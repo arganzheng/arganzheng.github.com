@@ -85,8 +85,8 @@
                 </ul>
                 <p class="copyright text-muted">
                     Copyright &copy; {{ site.title }} {{ site.time | date: '%Y' }}
-                    &nbsp;·&nbsp; <a href="{{ '/a-letter-to-readers.html' | prepend: site.baseurl }}">致读者的一封信</a>
                     &nbsp;·&nbsp; <a href="{{ '/feed.xml' | prepend: site.baseurl }}">RSS</a>
+                    &nbsp;·&nbsp; <a class="footer-star" href="https://github.com/{{ site.github_username | strip }}/{{ site.github_username | strip }}.github.com" target="_blank" rel="noopener noreferrer" title="喜欢这个博客？到 GitHub 点个 Star"><i class="fa fa-github"></i> Star<span class="footer-star-count" hidden></span></a>
                 </p>
             </div>
         </div>
@@ -134,6 +134,21 @@
 <script src="{{ "/js/vendor/approx-string-match.js" | prepend: site.baseurl }}?v={{ v }}"></script>
 <script src="{{ "/js/annotations.js" | prepend: site.baseurl }}?v={{ v }}"></script>
 <script src="{{ "/js/share.js" | prepend: site.baseurl }}?v={{ v }}"></script>
+<script>
+// GitHub star count in the footer (anonymous REST, 60 req/h is plenty; cached a day per browser).
+(function () {
+  var el = document.querySelector('.footer-star-count');
+  if (!el) return;
+  var key = 'gh-stars:{{ site.github_username | strip }}', now = Date.now();
+  function show(n) { el.textContent = ' ' + n; el.hidden = false; }
+  try { var c = JSON.parse(localStorage.getItem(key) || 'null'); if (c && now - c.t < 86400000) { show(c.n); return; } } catch (e) { /* ignore */ }
+  fetch('https://api.github.com/repos/{{ site.github_username | strip }}/{{ site.github_username | strip }}.github.com').then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+    if (!d || typeof d.stargazers_count !== 'number') return;
+    show(d.stargazers_count);
+    try { localStorage.setItem(key, JSON.stringify({ n: d.stargazers_count, t: now })); } catch (e) { /* ignore */ }
+  }).catch(function () { /* stays "Star" */ });
+})();
+</script>
 
 <!-- Service Worker -->
 <script type="text/javascript">

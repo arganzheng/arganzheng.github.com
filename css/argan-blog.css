@@ -2162,7 +2162,75 @@ li[id^="fn:"] {
 .dash .dash-comment a:hover {
   color: #0085a1;
 }
-
+.sidebar-container {
+  color: #555;
+}
+.sidebar-container h5 {
+  margin: 0 0 14px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #e8e8e8;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #333;
+}
+.sidebar-container h5 a {
+  color: #333 !important;
+}
+.sidebar-container h5 a:hover {
+  color: #0085a1 !important;
+}
+.sidebar-container section + section,
+.sidebar-container .visible-md + section {
+  margin-top: 28px;
+}
+.sidebar-container hr {
+  display: none;
+}
+.sidebar-container a {
+  color: #555 !important;
+}
+.sidebar-container .short-about p {
+  color: #555;
+}
+.sidebar-container .tags a,
+.sidebar-container #tags a {
+  color: #555 !important;
+  border-color: #ccc;
+}
+.sidebar-container .recommends a {
+  color: #333 !important;
+}
+.sidebar-container .recommends a:hover {
+  color: #0085a1 !important;
+}
+.sidebar-container .recommends .recommend-desc {
+  color: #777;
+}
+.post-license {
+  margin: 40px 0 0;
+  padding: 12px 16px;
+  border-left: 3px solid #0085a1;
+  background: #f6f8fa;
+  border-radius: 0 6px 6px 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #57606a;
+}
+.post-license p {
+  margin: 0;
+}
+.post-license a {
+  color: #0085a1;
+  text-decoration: none;
+}
+.post-license a:hover {
+  text-decoration: underline;
+}
+.post-license .fa {
+  margin-right: 4px;
+}
 /* series navigation (less/series.less) */
 .post-container blockquote.series-nav {
   font-size: 15px;

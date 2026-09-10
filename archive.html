@@ -8,7 +8,7 @@ permalink: /archive/
 <div class="archive-goto-file">
   <label for="archive-goto-input">Go to article</label>
   <div class="archive-goto-input-wrap">
-    <span class="archive-goto-icon" aria-hidden="true">🔍</span>
+    <span class="archive-goto-icon" aria-hidden="true"><i class="fa fa-search"></i></span>
     <input
       id="archive-goto-input"
       type="search"
@@ -39,19 +39,21 @@ permalink: /archive/
   }
   .archive-goto-icon {
     position: absolute;
-    left: 10px;
+    left: 11px;
     top: 50%;
     transform: translateY(-50%);
-    font-size: 16px;
-    opacity: .78;
+    font-size: 14px;
+    color: #6e7781;
     pointer-events: none;
   }
+  .archive-goto-file input:focus + .archive-goto-icon,
+  .archive-goto-input-wrap:focus-within .archive-goto-icon { color: #0085a1; }
   .archive-goto-file input {
     width: 100%;
     box-sizing: border-box;
     border: 1px solid #d0d7de;
     border-radius: 8px;
-    padding: 10px 36px 10px 30px;
+    padding: 10px 36px 10px 32px;
     background: #f6f8fa;
     transition: border-color .15s ease, background .15s ease;
   }

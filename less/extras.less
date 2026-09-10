@@ -102,3 +102,44 @@
 	.dash-thread-head { margin-bottom: 4px; a { font-weight: 600; text-decoration: none; } }
 	.dash-comment { padding: 3px 0 3px 12px; border-left: 2px solid #eaeef2; a { color: #57606a; text-decoration: none; &:hover { color: #0085a1; } } }
 }
+
+// ---- sidebar readability: the theme's @gray-l (#bfbfbf) text is too faint,
+// and the section titles did not read as titles. Overrides sidebar.less.
+.sidebar-container {
+	color: #555;
+	h5 {
+		margin: 0 0 14px;
+		padding-bottom: 8px;
+		border-bottom: 2px solid #e8e8e8;
+		font-size: 13px;
+		font-weight: 700;
+		letter-spacing: 2px;
+		text-transform: uppercase;
+		color: #333;
+		a { color: #333 !important; &:hover { color: @brand-primary !important; } }
+	}
+	section + section, .visible-md + section { margin-top: 28px; }
+	hr { display: none; } // the bordered headings separate the sections now
+	a { color: #555 !important; }
+	.short-about p { color: #555; }
+	.tags a, #tags a { color: #555 !important; border-color: #ccc; }
+	.recommends {
+		a { color: #333 !important; &:hover { color: @brand-primary !important; } }
+		.recommend-desc { color: #777; }
+	}
+}
+
+// ---- per-post license notice (_includes/post-license.html)
+.post-license {
+	margin: 40px 0 0;
+	padding: 12px 16px;
+	border-left: 3px solid @brand-primary;
+	background: #f6f8fa;
+	border-radius: 0 6px 6px 0;
+	font-size: 13px;
+	line-height: 1.7;
+	color: #57606a;
+	p { margin: 0; }
+	a { color: @brand-primary; text-decoration: none; &:hover { text-decoration: underline; } }
+	.fa { margin-right: 4px; }
+}

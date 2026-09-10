@@ -1,0 +1,11 @@
+{%- comment -%}
+  License notice at the end of every article. `license:` block in _config.yml
+  (name / url); a post can set `license: false` to hide it or override the
+  fields with its own `license:` map.
+{%- endcomment -%}
+{%- assign lic = page.license | default: site.license -%}
+{%- if lic and lic != false %}
+<div class="post-license">
+  <p><i class="fa fa-creative-commons"></i>本文由 <a href="{{ '/about/' | prepend: site.baseurl }}">{{ page.author | default: site.github_username | strip }}</a> 创作，采用 <a href="{{ lic.url }}" target="_blank" rel="license noopener noreferrer">{{ lic.name }}</a> 许可协议。转载请注明出处：<a href="{{ site.url }}{{ site.baseurl }}{{ page.url }}">{{ site.url }}{{ site.baseurl }}{{ page.url }}</a>{% if lic.note %}；{{ lic.note }}{% endif %}</p>
+</div>
+{%- endif %}

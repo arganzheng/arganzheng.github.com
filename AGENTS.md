@@ -108,6 +108,13 @@ Pages has `https_enforced` on.
   the three post layouts, `WebSite` elsewhere), included from `head.html`.
   Description priority: `page.description` > `page.subtitle` > excerpt.
   `og:image` = `page.header-img` or `site.header-img`.
+- `_includes/post-license.html` — license notice after the body (all three post
+  layouts); text from `_config.yml` `license: {name, url, note}`, a post can set
+  `license: false` or its own map. Excluded from the WeChat export.
+- Sidebar readability overrides (darker text, bordered uppercase section
+  titles, no `<hr>`) live at the end of `less/extras.less`, not in
+  `sidebar.less`. Footer: RSS + GitHub Star (count via anonymous REST, cached
+  a day in localStorage); no article links there.
 - `_includes/post-meta.html` — the "Posted by … | date (· 更新于) | 约 N 分钟 ·
   X.Xk 字 | N 次阅读" line under the title, shared by the three post layouts.
   Reading time = HTML-stripped body without `<pre>` blocks / 450 chars per
