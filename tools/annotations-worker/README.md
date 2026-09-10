@@ -79,6 +79,18 @@ the client hides the counter. Smoke test:
 curl -H 'Origin: http://localhost:4000' 'https://blog-annotations.<subdomain>.workers.dev/views?path=/a-letter-to-readers.html'
 ```
 
+`GET /views/top?limit=50&order=count|recent` feeds the author dashboard.
+
+## List-page counters (GET /stats)
+
+`GET /stats?paths=/a.html,/b.html` (up to 20) returns, per path, `views`
+(D1, 0 without the binding), and from the giscus public API `comments`
+(comments + replies), `up` / `down` (THUMBS_UP / THUMBS_DOWN on the
+discussion), `id` and `url` of the discussion (`null` when nobody has
+commented yet). Each path is cached 120 s at the edge, so the home page
+(10 posts) costs at most 10 giscus lookups every two minutes. Used by
+`js/share.js` for the action bar under every post preview.
+
 ## Local development
 
 ```bash

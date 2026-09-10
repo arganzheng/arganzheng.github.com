@@ -80,9 +80,14 @@
   function init() {
     var section = document.querySelector('section.comment[data-annotations-api]');
     container = document.querySelector('.post-container');
+    // List pages have no comment section but do have action bars (js/share.js)
+    // that vote through our auth helpers: pick up a returning OAuth session and
+    // the API base from any element that carries it, then stop.
+    var carrier = section || document.querySelector('[data-annotations-api]');
+    var api = (localStorage.getItem('annotationsApi') || (carrier && carrier.getAttribute('data-annotations-api')) || '').replace(/\/$/, '');
+    takeSessionFromUrl();
+    cfg = { api: api, path: location.pathname };
     if (!section || !container || !window.InlinePopover) return;
-
-    var api = (localStorage.getItem('annotationsApi') || section.getAttribute('data-annotations-api') || '').replace(/\/$/, '');
     if (!api) return;
 
     cfg = {
@@ -96,7 +101,6 @@
       section: section
     };
 
-    takeSessionFromUrl();
     bindSelection();
     initCommentSection();
     loadViews();
@@ -777,23 +781,31 @@
   // Head of the comment section: 「👍 有用」 (the Discussion's THUMBS_UP), page
   // views, comment count, link to GitHub. Re-rendered on its own after a like /
   // views response so the editors below are left alone.
+  // The counters live in the action bar above the comments (_includes/post-actions.html:
+  // 赞同 / 反对 on the post's Discussion, views, comment count); the section head
+  // only keeps the count and the GitHub link. Same data also feeds the header meta.
   function renderLikeBar() {
     if (!commentsHost) return;
     var head = commentsHost.querySelector('.ac-head');
     var total = comments.reduce(function (n, c) { return n + (c.deleted ? 0 : 1) + c.replies.length; }, 0);
     var likes = (discussion && discussion.likes) || parseVotes(null);
     head.innerHTML =
-      '<button type="button" class="ac-like' + (likes.mine === 'up' ? ' is-active' : '') + '" title="' + (likes.mine === 'up' ? '取消点赞' : '觉得这篇文章有用？点个赞（GitHub 登录）') + '">' +
-        '<i class="fa ' + (likes.mine === 'up' ? 'fa-thumbs-up' : 'fa-thumbs-o-up') + '"></i> 有用' + (likes.up ? ' <b>' + likes.up + '</b>' : '') + '</button>' +
-      (pageViews !== null ? '<span class="ac-views" title="阅读次数"><i class="fa fa-eye"></i> ' + pageViews + '</span>' : '') +
       '<span class="ac-count">' + (loadError ? '<i class="fa fa-exclamation-circle"></i> 评论加载失败：' + escapeHtml(loadError.message)
         : !loaded ? '正在加载评论…' : '<i class="fa fa-comment-o"></i> ' + total + ' 条评论') + '</span>' +
       (discussion && discussion.url ? '<a class="ac-github" href="' + escapeAttr(discussion.url) + '" target="_blank" rel="noopener noreferrer" title="这个讨论串在 GitHub Discussions 上"><i class="fa fa-github"></i> GitHub</a>' : '');
-    head.querySelector('.ac-like').addEventListener('click', toggleLike);
+    var bar = document.querySelector('.post-actions:not(.is-compact)');
+    if (bar && window.PostActions) {
+      window.PostActions.render(bar, { up: likes.up, down: likes.down, mine: likes.mine, views: pageViews, comments: loaded ? total : null });
+      if (!bar._annotBound) {
+        bar._annotBound = true;
+        bar.querySelector('.pa-up').addEventListener('click', function () { toggleLike('up'); });
+        bar.querySelector('.pa-down').addEventListener('click', function () { toggleLike('down'); });
+      }
+    }
     var meta = document.querySelector('.post-views');
     if (meta) meta.textContent = pageViews !== null ? ' | ' + pageViews + ' 次阅读' : '';
     var metaLikes = document.querySelector('.post-likes');
-    if (metaLikes) metaLikes.textContent = likes.up ? ' · ' + likes.up + ' 人觉得有用' : '';
+    if (metaLikes) metaLikes.textContent = likes.up ? ' · ' + likes.up + ' 人赞同' : '';
   }
 
   // Reply box right under the comment's replies (only one open at a time).
@@ -1627,23 +1639,32 @@
     });
   }
 
-  // 👍 on the post's Discussion = 「有用」. A post nobody has commented on has no
-  // discussion yet; liking it creates one (login needed either way).
+  // 👍 / 👎 on the post's Discussion = 赞同 / 反对 on the article (same rules as
+  // comment votes: one per person, switching sides removes the other first). A
+  // post nobody has commented on has no discussion yet; voting creates one
+  // (login needed either way — we redirect and come back).
   var likePending = false;
-  function toggleLike() {
+  function toggleLike(dir) {
+    dir = dir || 'up';
     if (!getSession()) { saveCommentDraft(commentsHost && commentsHost.querySelector('.ac-editor .ap-text') ? commentsHost.querySelector('.ac-editor .ap-text').value : ''); login(); return; }
     if (likePending) return;
     likePending = true;
     ensureDiscussion().then(function (id) {
-      var v = discussion.likes, on = v.mine !== 'up';
-      v.up = Math.max(0, v.up + (on ? 1 : -1)); v.mine = on ? 'up' : null;
+      var v = discussion.likes, prev = { up: v.up, down: v.down, mine: v.mine }, steps = [];
+      if (v.mine === dir) { v[dir] = Math.max(0, v[dir] - 1); v.mine = null; steps.push([REMOVE_REACTION, dir]); }
+      else {
+        if (v.mine) { v[v.mine] = Math.max(0, v[v.mine] - 1); steps.push([REMOVE_REACTION, v.mine]); }
+        v[dir] += 1; v.mine = dir; steps.push([ADD_REACTION, dir]);
+      }
       renderLikeBar();
-      return graphql(on ? ADD_REACTION : REMOVE_REACTION, { id: id, content: CONTENT.up }).catch(function (err) {
-        v.up = Math.max(0, v.up + (on ? -1 : 1)); v.mine = on ? null : 'up';
+      return steps.reduce(function (p, st) {
+        return p.then(function () { return graphql(st[0], { id: id, content: CONTENT[st[1]] }); });
+      }, Promise.resolve()).catch(function (err) {
+        discussion.likes = prev;
         renderLikeBar();
         throw err;
       });
-    }).catch(function (err) { showToast('点赞失败：' + err.message); }).then(function () { likePending = false; });
+    }).catch(function (err) { showToast('投票失败：' + err.message); }).then(function () { likePending = false; });
   }
 
   function voteHtml(rec) {
@@ -1818,7 +1839,9 @@
     logout: logout,
     list: function () { return annotations; },
     comments: function () { return comments; },
-    viewer: function () { return viewer; }
+    viewer: function () { return viewer; },
+    // Auth / API plumbing shared with js/share.js (votes on list pages).
+    core: { api: api, graphql: graphql, getSession: getSession, login: login, ensureToken: ensureToken, parseVotes: parseVotes, reactions: { add: ADD_REACTION, remove: REMOVE_REACTION, content: CONTENT } }
   };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

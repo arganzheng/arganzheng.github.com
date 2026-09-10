@@ -60,6 +60,7 @@ export default {
       if (request.method === 'POST' && url.pathname === '/issues') return await createIssue(request, env, cors);
       if (url.pathname === '/views' && (request.method === 'GET' || request.method === 'POST')) return await views(request, url, env, cors);
       if (url.pathname === '/views/top' && request.method === 'GET') return await viewsTop(url, env, cors);
+      if (url.pathname === '/stats' && request.method === 'GET') return await stats(url, env, ctx, cors);
     } catch (err) {
       return json({ error: err.message || String(err) }, 502, cors);
     }
@@ -238,6 +239,52 @@ async function viewsTop(url, env, cors) {
   const order = url.searchParams.get('order') === 'recent' ? 'updated_at DESC' : 'count DESC';
   const { results } = await env.DB.prepare(`SELECT path, count AS views, updated_at FROM views ORDER BY ${order} LIMIT ?1`).bind(limit).all();
   return json({ rows: results || [] }, 200, { ...cors, 'Cache-Control': 'public, max-age=60' });
+}
+
+// GET /stats?paths=/a.html,/b.html  (<= 20) -> per-post counters for list pages:
+// { items: { "/a.html": { views, comments, up, down, id, url } } }
+// views from D1 (0 without the binding), the rest from the giscus public API
+// (one discussion lookup per path, first page only — counts are in the header).
+// Cached 120 s at the edge per path so a listing of 10 posts is cheap.
+const STATS_MAX = 20;
+async function stats(url, env, ctx, cors) {
+  const paths = String(url.searchParams.get('paths') || '').split(',').map((s) => s.trim()).filter(Boolean).slice(0, STATS_MAX);
+  if (!paths.length) return json({ error: '`paths` is required' }, 400, cors);
+  for (const p of paths) if (!VIEW_PATH.test(p) || p.includes('..')) return json({ error: `bad path ${p}` }, 400, cors);
+
+  let viewsByPath = {};
+  if (env.DB) {
+    if (!viewsTableReady) viewsTableReady = env.DB.exec('CREATE TABLE IF NOT EXISTS views (path TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0, updated_at TEXT)');
+    await viewsTableReady;
+    const marks = paths.map((_, i) => `?${i + 1}`).join(',');
+    const { results } = await env.DB.prepare(`SELECT path, count FROM views WHERE path IN (${marks})`).bind(...paths).all();
+    for (const r of results || []) viewsByPath[r.path] = r.count;
+  }
+
+  const cache = caches.default;
+  const items = {};
+  await Promise.all(paths.map(async (p) => {
+    const key = new Request(`${url.origin}/stats/one?path=${encodeURIComponent(p)}`);
+    let d = null;
+    const hit = await cache.match(key);
+    if (hit) d = await hit.json();
+    else {
+      const qs = new URLSearchParams({ repo: env.REPO, category: env.CATEGORY, term: p, first: '1' });
+      const r = await fetch(`${GISCUS}/discussions?${qs}`, { headers: { Accept: 'application/json' } });
+      const data = r.ok ? await r.json() : null;
+      const disc = data && data.discussion;
+      const votes = (disc && disc.reactions) || {};
+      d = disc ? {
+        id: disc.id, url: disc.url,
+        comments: (disc.totalCommentCount || 0) + (disc.totalReplyCount || 0),
+        up: (votes.THUMBS_UP && votes.THUMBS_UP.count) || 0,
+        down: (votes.THUMBS_DOWN && votes.THUMBS_DOWN.count) || 0,
+      } : { id: null, url: null, comments: 0, up: 0, down: 0 };
+      if (r.ok || r.status === 404) ctx.waitUntil(cache.put(key, json(d, 200, { 'Cache-Control': 'public, s-maxage=120' })));
+    }
+    items[p] = { ...d, views: viewsByPath[p] || 0 };
+  }));
+  return json({ items }, 200, { ...cors, 'Cache-Control': 'public, max-age=60' });
 }
 
 // ---- GitHub App authentication --------------------------------------------

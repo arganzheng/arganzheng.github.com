@@ -3391,180 +3391,284 @@ li[id^="fn:"] {
   }
 }
 
-/* ---- share bar (less/share.less) ---- */
-.post-share {
+/* ---- action bar (less/share.less) ---- */
+.post-actions {
   position: relative;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 6px 14px;
   margin: 36px 0 8px;
   padding-top: 14px;
   border-top: 1px solid #eee;
   font-size: 14px;
   color: #808080;
 }
-.post-share .post-share-label {
-  margin-right: 6px;
-  font-weight: 600;
-  letter-spacing: 1px;
-  color: #808080;
-}
-.post-share .post-share-btn {
-  position: relative;
+.post-actions .pa-item,
+.post-actions .pa-vote button {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  min-width: 34px;
-  height: 34px;
-  padding: 0 8px;
+  height: 32px;
+  padding: 0 10px;
   border: 0;
-  border-radius: 17px;
+  border-radius: 4px;
   background: transparent;
   color: #808080;
-  font-size: 17px;
+  font-size: 14px;
   line-height: 1;
   cursor: pointer;
   text-decoration: none;
+  white-space: nowrap;
   transition: color 0.15s ease, background-color 0.15s ease;
 }
-.post-share .post-share-btn:hover,
-.post-share .post-share-btn:focus {
+.post-actions .pa-item .fa,
+.post-actions .pa-vote button .fa {
+  margin-right: 5px;
+  font-size: 15px;
+}
+.post-actions .pa-item b,
+.post-actions .pa-vote button b {
+  font-weight: 600;
+  margin: 0 3px;
+}
+.post-actions .pa-item:hover,
+.post-actions .pa-vote button:hover,
+.post-actions .pa-item:focus,
+.post-actions .pa-vote button:focus {
   color: #0085a1;
   background: #f2f7f8;
   text-decoration: none;
   outline: none;
 }
-.post-share .post-share-btn[aria-expanded="true"] {
-  color: #0085a1;
-  background: #e6f2f5;
-}
-.post-share .post-share-btn[hidden] {
+.post-actions .pa-item[hidden],
+.post-actions .pa-vote button[hidden] {
   display: none;
 }
-.post-share .post-share-export {
-  margin-left: auto;
+.post-actions .pa-views {
+  cursor: default;
+}
+.post-actions .pa-views:hover {
+  color: #808080;
+  background: transparent;
+}
+.post-actions .pa-vote {
+  display: inline-flex;
+}
+.post-actions .pa-vote button {
+  background: #f2f7f8;
+  color: #0085a1;
+  font-weight: 600;
+}
+.post-actions .pa-vote .pa-up {
+  border-radius: 4px 0 0 4px;
   padding: 0 12px;
-  font-size: 13px;
+}
+.post-actions .pa-vote .pa-up .fa {
+  font-size: 18px;
+  margin-right: 6px;
+}
+.post-actions .pa-vote .pa-down {
+  border-radius: 0 4px 4px 0;
+  margin-left: 1px;
+  padding: 0 9px;
+}
+.post-actions .pa-vote .pa-down .fa {
+  margin: 0;
+  font-size: 18px;
+}
+.post-actions .pa-vote button:hover,
+.post-actions .pa-vote button:focus {
+  background: #e1eef1;
+}
+.post-actions .pa-vote.is-up .pa-up,
+.post-actions .pa-vote.is-down .pa-down {
+  background: #0085a1;
+  color: #fff;
+}
+.post-actions .pa-vote.is-up .pa-up:hover,
+.post-actions .pa-vote.is-down .pa-down:hover {
+  background: #006c82;
+}
+.post-actions .pa-export {
+  margin-left: auto;
   color: #fff;
   background: #07c160;
+  font-size: 13px;
 }
-.post-share .post-share-export .fa {
-  margin-right: 6px;
-  font-size: 15px;
-}
-.post-share .post-share-export:hover,
-.post-share .post-share-export:focus {
+.post-actions .pa-export:hover,
+.post-actions .pa-export:focus {
   color: #fff;
   background: #06ad56;
 }
-.post-share .post-share-export[disabled] {
+.post-actions .pa-export[disabled] {
   opacity: 0.6;
   cursor: wait;
 }
-.post-share .post-share-toast {
+.post-actions .pa-toast {
   position: absolute;
-  left: 50%;
-  bottom: calc(100% + 8px);
-  transform: translateX(-50%);
-  display: none;
-  max-width: 320px;
-  padding: 5px 10px;
+  right: 0;
+  bottom: calc(100% + 6px);
+  max-width: 360px;
+  padding: 6px 10px;
   border-radius: 6px;
   background: #1f2328;
   color: #fff;
   font-size: 12px;
   line-height: 1.4;
-  white-space: nowrap;
   pointer-events: none;
 }
-.post-share .post-share-toast::after {
-  content: "";
+.post-actions .pa-toast[hidden] {
+  display: none;
+}
+.post-actions.is-compact {
+  margin: 4px 0 0;
+  padding-top: 0;
+  border-top: 0;
+  gap: 4px 6px;
+  font-size: 13px;
+}
+.post-actions.is-compact .pa-item,
+.post-actions.is-compact .pa-vote button {
+  height: 28px;
+  font-size: 13px;
+  padding: 0 8px;
+}
+.post-actions.is-compact .pa-item .fa,
+.post-actions.is-compact .pa-vote button .fa {
+  font-size: 14px;
+}
+.post-actions.is-compact .pa-vote .pa-up {
+  padding: 0 10px;
+}
+.post-actions.is-compact .pa-vote .pa-up .fa {
+  font-size: 16px;
+}
+.post-actions.is-compact .pa-vote .pa-down {
+  padding: 0 8px;
+}
+.post-actions.is-compact .pa-vote .pa-down .fa {
+  font-size: 16px;
+}
+.post-actions:not(.is-compact) {
+  margin: 44px 0 0;
+  padding: 14px 0;
+  border-bottom: 1px solid #eee;
+}
+.post-actions + .comment {
+  margin-top: 18px;
+  padding-top: 0;
+  border-top: 0;
+}
+.post-preview .post-actions.is-compact {
+  margin-top: -6px;
+  margin-bottom: 4px;
+}
+.life-card-wrap .post-actions.is-compact {
+  margin: 8px 2px 0;
+}
+.life-card-wrap {
+  display: flex;
+  flex-direction: column;
+}
+.life-card-wrap .life-card {
+  flex: 1;
+}
+.pa-share-pop {
   position: absolute;
-  left: 50%;
-  top: 100%;
-  margin-left: -5px;
-  border: 5px solid transparent;
-  border-top-color: #1f2328;
-}
-.post-share .post-share-btn.is-toast .post-share-toast {
-  display: block;
-}
-.post-share .post-share-export .post-share-toast {
-  white-space: normal;
-  width: max-content;
-  left: auto;
-  right: 0;
-  transform: none;
-}
-.post-share .post-share-export .post-share-toast::after {
-  left: auto;
-  right: 24px;
-}
-.post-share .post-share-wechat {
-  position: relative;
-  display: inline-flex;
-}
-.post-share .post-share-qr {
-  position: absolute;
-  left: 50%;
-  bottom: calc(100% + 10px);
-  transform: translateX(-50%);
   z-index: 1050;
-  display: block;
-  width: 176px;
-  padding: 12px 12px 10px;
-  text-align: center;
+  min-width: 180px;
+  padding: 6px;
   background: #fff;
   border: 1px solid #d0d7de;
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(140, 149, 159, 0.2);
 }
-.post-share .post-share-qr[hidden] {
+.pa-share-pop[hidden] {
   display: none;
 }
-.post-share .post-share-qr::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 100%;
-  margin-left: -7px;
-  border: 7px solid transparent;
-  border-top-color: #fff;
+.pa-share-pop .pa-sp-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #24292f;
+  font-size: 14px;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
 }
-.post-share .post-share-qr .post-share-qr-img svg {
+.pa-share-pop .pa-sp-item .fa {
+  width: 22px;
+  margin-right: 8px;
+  font-size: 16px;
+  text-align: center;
+  color: #808080;
+}
+.pa-share-pop .pa-sp-item:hover,
+.pa-share-pop .pa-sp-item:focus {
+  background: #f2f7f8;
+  color: #0085a1;
+  text-decoration: none;
+  outline: none;
+}
+.pa-share-pop .pa-sp-item:hover .fa,
+.pa-share-pop .pa-sp-item:focus .fa {
+  color: #0085a1;
+}
+.pa-share-pop .pa-sp-qr {
+  display: block;
+  padding: 8px 6px 4px;
+  border-top: 1px solid #eee;
+  margin-top: 4px;
+  text-align: center;
+}
+.pa-share-pop .pa-sp-qr[hidden] {
+  display: none;
+}
+.pa-share-pop .pa-sp-qr svg {
   display: block;
   width: 150px;
   height: 150px;
   margin: 0 auto;
 }
-.post-share .post-share-qr .post-share-qr-hint {
+.pa-share-pop .pa-sp-qr .pa-sp-qr-hint {
   display: block;
-  margin-top: 8px;
+  margin-top: 6px;
   font-size: 12px;
   line-height: 1.4;
   color: #808080;
 }
 @media (max-width: 767px) {
-  .post-share .post-share-btn {
-    min-width: 40px;
-    height: 40px;
-    font-size: 19px;
+  .post-actions {
+    gap: 6px 4px;
   }
-  .post-share .post-share-export {
+  .post-actions .pa-item,
+  .post-actions .pa-vote button {
+    height: 36px;
+  }
+  .post-actions .pa-export {
     width: 100%;
     margin: 6px 0 0;
     justify-content: center;
-    height: 36px;
   }
-  .post-share .post-share-export .post-share-toast {
-    right: auto;
-    left: 50%;
-    transform: translateX(-50%);
+  .post-actions.is-compact {
+    gap: 4px 2px;
   }
-  .post-share .post-share-export .post-share-toast::after {
-    left: 50%;
-    right: auto;
-    margin-left: -5px;
+  .post-actions.is-compact .pa-lbl {
+    display: none;
+  }
+  .post-actions.is-compact .pa-item,
+  .post-actions.is-compact .pa-vote button {
+    padding: 0 7px;
+  }
+  .post-actions .pa-toast {
+    left: 0;
+    right: 0;
+    max-width: none;
+    text-align: center;
   }
 }

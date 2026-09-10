@@ -13,6 +13,7 @@ description: "stay hungry, stay foolish"
         <div class="post-content-preview">{{ post.description | default: post.content | strip_html | remove: '[TOC]' | truncate:340 }}</div>
     </a>
     <p class="post-meta">Posted by <a href="{{'/about' | prepend: site.baseurl }}">arganzheng</a> | {{ post.date | date: "%B %-d, %Y" }}</p>
+    {% include post-actions.html post=post compact=true %}
 </div>
 <hr>
 {% endfor %}{% endif %}
@@ -35,6 +36,7 @@ description: "stay hungry, stay foolish"
     <p class="post-meta">
         Posted by <a href="{{'/about' | prepend: site.baseurl }}">arganzheng</a> | {{ post.date | date: "%B %-d, %Y" }}
     </p>
+    {% include post-actions.html post=post compact=true %}
 </div>
 <hr>
 {% endfor %}

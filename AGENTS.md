@@ -141,9 +141,22 @@ Pages has `https_enforced` on.
   affiliate links (`a.vglnk`) into article text.
 - `js/annotations.js` — comments, reader highlight comments ("划线评论"), likes /
   votes and page views, see below.
-- `_includes/share.html` + `js/share.js` (+ `less/share.less`) — share bar after
-  the body in all three post layouts: Web Share API button (hidden when
-  unsupported), Weibo / X / LinkedIn intent URLs built in JS, WeChat QR popover
+- `_includes/post-actions.html` + `js/share.js` (+ `less/share.less`) — Zhihu-style
+  action bar 「▲ 赞同 N ▼ · N 次阅读 · N 条评论 · 分享」. Post page: included
+  right above `comments.html` in all three post layouts; `annotations.js`
+  paints it (`renderLikeBar` → `PostActions.render`) and binds the votes
+  (`toggleLike(dir)`: THUMBS_UP / THUMBS_DOWN on the Discussion, same rules as
+  comment votes; the old 「有用」 in `.ac-head` is gone, the head keeps count +
+  GitHub link). List pages (`index.html`, `life.html`): `compact=true` bars,
+  `share.js` fetches the worker's `GET /stats?paths=…` once (views from D1,
+  comments / 👍 / 👎 / discussion id from the giscus API, 120 s edge cache) and
+  votes through `BlogAnnotations.core` (`api`, `graphql`, `getSession`,
+  `login`, `ensureToken`, reaction mutations — annotations.js now runs
+  `takeSessionFromUrl()` and sets `cfg.api` from any `[data-annotations-api]`
+  before bailing on non-post pages, so the OAuth round trip works from a list
+  page; a post without a discussion gets one created first). 「分享」 opens a
+  single body-level `.pa-share-pop` menu: Web Share API (only when supported),
+  Weibo / X / LinkedIn intent URLs built in JS, WeChat QR
   (`js/vendor/qrcode.min.js`, qrcode-generator 1.4.4 MIT, lazy-loaded), copy
   link. No third-party script. The author-only 「复制为公众号格式」 button is
   shown when the GitHub viewer equals `site.github_username`: annotations.js
@@ -186,7 +199,7 @@ article. `syncViews()` re-renders both the highlights/panel
 every mutation. `commentEl` and `renderEditor` are shared, so plain comments
 and passage notes have identical reply / edit / delete / 「同时提交 Issue」
 controls. The bottom section (`.annotation-comments`): header bar
-(`renderLikeBar`: 「有用」 like button, page views, count, GitHub link), `.ac-group` per top-level comment with its replies, inline reply
+(`renderLikeBar`: count + GitHub link; it also paints the `.post-actions` bar above the section), `.ac-group` per top-level comment with its replies, inline reply
 editor (`openInlineReply`), and a persistent editor (`.ac-editor`,
 `clearOnSubmit`, draft in `sessionStorage`). Plain comments filed with an
 issue start with `<sub>[⚑ Issue #N](url)</sub>` (recognised by
@@ -242,8 +255,9 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
   the article on reload — the confirm text says so. The thread re-renders
   once the viewer query returns so the buttons appear on first open.
 - **Likes / votes** are plain GitHub reactions, no own storage: the post's
-  「有用」 is `THUMBS_UP` on the Discussion (`toggleLike`, creates the
-  discussion first for an uncommented post), each comment's ▲ score ▼
+  「赞同 / 反对」 (action bar) is `THUMBS_UP` / `THUMBS_DOWN` on the Discussion
+  (`toggleLike(dir)`, creates the discussion first for an uncommented post),
+  each comment's ▲ score ▼
   (`.ap-vote`, in the meta row) is `THUMBS_UP` / `THUMBS_DOWN` on that
   comment (`toggleVote`, optimistic, switching sides removes the other
   reaction first; `addReaction` / `removeReaction`). `parseVotes` reads both

@@ -14,6 +14,7 @@ permalink: /life/
 <div class="life-grid">
 {% for post in life_posts %}
   {% assign cover = post.header-img | default: site.header-img %}
+  <div class="life-card-wrap">
   <a class="life-card" href="{{ post.url | prepend: site.baseurl }}" style="background-image: url('{{ site.baseurl }}/{{ cover }}')">
     <div class="life-card-body">
       <h2>{{ post.title }}</h2>
@@ -22,6 +23,8 @@ permalink: /life/
       <p class="life-card-meta">{{ post.date | date: "%Y-%m-%d" }}{% if post.tags.size > 0 %} · {{ post.tags | join: ' / ' }}{% endif %}</p>
     </div>
   </a>
+  {% include post-actions.html post=post compact=true %}
+  </div>
 {% endfor %}
 </div>
 {% if life_posts.size == 0 %}<p>还没有。</p>{% endif %}

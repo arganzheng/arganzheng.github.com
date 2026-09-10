@@ -1,0 +1,33 @@
+{%- comment -%}
+  Zhihu-style action bar: 赞同 / 反对 (THUMBS_UP / THUMBS_DOWN on the post's
+  GitHub Discussion), views, comment count, 分享 (popover with the platforms)
+  and — on the post page — the author-only 「复制为公众号格式」.
+  Usage:  {% include post-actions.html %}                       post page, above the comments
+          {% include post-actions.html post=post compact=true %} under a list entry
+  Post page: js/annotations.js fills the counters (it owns the discussion state)
+  and binds the votes; js/share.js does the share popover / export button.
+  List pages: js/share.js fetches GET /stats for all bars at once and votes
+  through BlogAnnotations.core.
+{%- endcomment -%}
+{%- assign p = include.post | default: page -%}
+<div class="post-actions{% if include.compact %} is-compact{% endif %}"
+     data-path="{{ p.url }}"
+     data-url="{{ site.url }}{{ site.baseurl }}{{ p.url }}"
+     data-title="{{ p.title | escape }}"
+     data-text="{{ p.subtitle | default: p.description | default: '' | escape }}"
+     data-author="{{ site.github_username | strip }}"
+     data-annotations-api="{{ site.annotations.api }}"
+     data-repo-id="{{ site.giscus.repo_id }}"
+     data-category-id="{{ site.giscus.category_id }}">
+  <span class="pa-vote">
+    <button type="button" class="pa-up" title="赞同"><i class="fa fa-caret-up"></i> 赞同<b class="pa-up-n"></b></button>
+    <button type="button" class="pa-down" title="反对" aria-label="反对"><i class="fa fa-caret-down"></i></button>
+  </span>
+  <span class="pa-item pa-views" title="阅读次数" hidden><i class="fa fa-eye"></i> <b></b><span class="pa-lbl"> 次阅读</span></span>
+  <a class="pa-item pa-comments" href="{{ p.url | prepend: site.baseurl }}#comments" title="评论"><i class="fa fa-comment-o"></i> <b></b>评论</a>
+  <button type="button" class="pa-item pa-share" title="分享" aria-haspopup="true" aria-expanded="false"><i class="fa fa-share-alt"></i> 分享</button>
+  {%- unless include.compact %}
+  <button type="button" class="pa-item pa-export" title="复制为公众号 / 知乎可粘贴的格式（仅作者可见）" hidden><i class="fa fa-wechat"></i> 复制为公众号格式</button>
+  {%- endunless %}
+  <span class="pa-toast" aria-live="polite" hidden></span>
+</div>

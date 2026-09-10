@@ -1,100 +1,135 @@
 @import "variables.less";
 
-// ---- share bar under the article (_includes/share.html, js/share.js)
-.post-share {
+// ---- action bar (_includes/post-actions.html, js/share.js): 赞同/反对 · 阅读 · 评论 · 分享
+.post-actions {
 	position: relative;
 	display: flex;
 	align-items: center;
 	flex-wrap: wrap;
-	gap: 4px;
+	gap: 6px 14px;
 	margin: 36px 0 8px;
 	padding-top: 14px;
 	border-top: 1px solid #eee;
 	font-size: 14px;
 	color: @gray;
-	.post-share-label {
-		margin-right: 6px;
-		font-weight: 600;
-		letter-spacing: 1px;
-		color: @gray;
-	}
-	.post-share-btn {
-		position: relative;
+	.pa-item, .pa-vote button {
 		display: inline-flex;
 		align-items: center;
-		justify-content: center;
-		min-width: 34px;
-		height: 34px;
-		padding: 0 8px;
+		height: 32px;
+		padding: 0 10px;
 		border: 0;
-		border-radius: 17px;
+		border-radius: 4px;
 		background: transparent;
 		color: @gray;
-		font-size: 17px;
+		font-size: 14px;
 		line-height: 1;
 		cursor: pointer;
 		text-decoration: none;
+		white-space: nowrap;
 		transition: color 0.15s ease, background-color 0.15s ease;
+		.fa { margin-right: 5px; font-size: 15px; }
+		b { font-weight: 600; margin: 0 3px; }
 		&:hover, &:focus { color: @brand-primary; background: #f2f7f8; text-decoration: none; outline: none; }
-		&[aria-expanded="true"] { color: @brand-primary; background: #e6f2f5; }
 		&[hidden] { display: none; }
 	}
-	.post-share-export {
+	.pa-views { cursor: default; &:hover { color: @gray; background: transparent; } }
+	// Zhihu-style vote pair: two joined pills
+	.pa-vote {
+		display: inline-flex;
+		button { background: #f2f7f8; color: @brand-primary; font-weight: 600; }
+		.pa-up { border-radius: 4px 0 0 4px; padding: 0 12px; .fa { font-size: 18px; margin-right: 6px; } }
+		.pa-down { border-radius: 0 4px 4px 0; margin-left: 1px; padding: 0 9px; .fa { margin: 0; font-size: 18px; } }
+		button:hover, button:focus { background: #e1eef1; }
+		&.is-up .pa-up, &.is-down .pa-down { background: @brand-primary; color: #fff; }
+		&.is-up .pa-up:hover, &.is-down .pa-down:hover { background: darken(@brand-primary, 6%); }
+	}
+	.pa-export {
 		margin-left: auto;
-		padding: 0 12px;
-		font-size: 13px;
 		color: #fff;
 		background: #07c160;
-		.fa { margin-right: 6px; font-size: 15px; }
+		font-size: 13px;
 		&:hover, &:focus { color: #fff; background: #06ad56; }
 		&[disabled] { opacity: 0.6; cursor: wait; }
 	}
-	// "已复制" bubble above the button
-	.post-share-toast {
+	.pa-toast {
 		position: absolute;
-		left: 50%;
-		bottom: ~"calc(100% + 8px)";
-		transform: translateX(-50%);
-		display: none;
-		max-width: 320px;
-		padding: 5px 10px;
+		right: 0;
+		bottom: ~"calc(100% + 6px)";
+		max-width: 360px;
+		padding: 6px 10px;
 		border-radius: 6px;
 		background: #1f2328;
 		color: #fff;
 		font-size: 12px;
 		line-height: 1.4;
-		white-space: nowrap;
 		pointer-events: none;
-		&::after { content: ""; position: absolute; left: 50%; top: 100%; margin-left: -5px; border: 5px solid transparent; border-top-color: #1f2328; }
-	}
-	.post-share-btn.is-toast .post-share-toast { display: block; }
-	.post-share-export .post-share-toast { white-space: normal; width: max-content; left: auto; right: 0; transform: none; &::after { left: auto; right: 24px; } }
-	// WeChat QR popover
-	.post-share-wechat { position: relative; display: inline-flex; }
-	.post-share-qr {
-		position: absolute;
-		left: 50%;
-		bottom: ~"calc(100% + 10px)";
-		transform: translateX(-50%);
-		z-index: 1050;
-		display: block;
-		width: 176px;
-		padding: 12px 12px 10px;
-		text-align: center;
-		background: #fff;
-		border: 1px solid #d0d7de;
-		border-radius: 8px;
-		box-shadow: 0 8px 24px rgba(140, 149, 159, 0.2);
 		&[hidden] { display: none; }
-		&::after { content: ""; position: absolute; left: 50%; top: 100%; margin-left: -7px; border: 7px solid transparent; border-top-color: #fff; }
-		.post-share-qr-img svg { display: block; width: 150px; height: 150px; margin: 0 auto; }
-		.post-share-qr-hint { display: block; margin-top: 8px; font-size: 12px; line-height: 1.4; color: @gray; }
+	}
+	// under a list entry: lighter, no rule, smaller
+	&.is-compact {
+		margin: 4px 0 0;
+		padding-top: 0;
+		border-top: 0;
+		gap: 4px 6px;
+		font-size: 13px;
+		.pa-item, .pa-vote button { height: 28px; font-size: 13px; padding: 0 8px; .fa { font-size: 14px; } }
+		.pa-vote .pa-up { padding: 0 10px; .fa { font-size: 16px; } }
+		.pa-vote .pa-down { padding: 0 8px; .fa { font-size: 16px; } }
+	}
+}
+// the bar sits right above the comment section and takes over its top rule
+.post-actions:not(.is-compact) { margin: 44px 0 0; padding: 14px 0; border-bottom: 1px solid #eee; }
+.post-actions + .comment { margin-top: 18px; padding-top: 0; border-top: 0; }
+.post-preview .post-actions.is-compact { margin-top: -6px; margin-bottom: 4px; }
+.life-card-wrap .post-actions.is-compact { margin: 8px 2px 0; }
+.life-card-wrap { display: flex; flex-direction: column; }
+.life-card-wrap .life-card { flex: 1; }
+
+// share menu (one element, appended to body)
+.pa-share-pop {
+	position: absolute;
+	z-index: 1050;
+	min-width: 180px;
+	padding: 6px;
+	background: #fff;
+	border: 1px solid #d0d7de;
+	border-radius: 8px;
+	box-shadow: 0 8px 24px rgba(140, 149, 159, 0.2);
+	&[hidden] { display: none; }
+	.pa-sp-item {
+		display: flex;
+		align-items: center;
+		width: 100%;
+		height: 36px;
+		padding: 0 10px;
+		border: 0;
+		border-radius: 6px;
+		background: transparent;
+		color: #24292f;
+		font-size: 14px;
+		text-align: left;
+		text-decoration: none;
+		cursor: pointer;
+		.fa { width: 22px; margin-right: 8px; font-size: 16px; text-align: center; color: @gray; }
+		&:hover, &:focus { background: #f2f7f8; color: @brand-primary; text-decoration: none; outline: none; .fa { color: @brand-primary; } }
+	}
+	.pa-sp-qr {
+		display: block;
+		padding: 8px 6px 4px;
+		border-top: 1px solid #eee;
+		margin-top: 4px;
+		text-align: center;
+		&[hidden] { display: none; }
+		svg { display: block; width: 150px; height: 150px; margin: 0 auto; }
+		.pa-sp-qr-hint { display: block; margin-top: 6px; font-size: 12px; line-height: 1.4; color: @gray; }
 	}
 }
 @media (max-width: 767px) {
-	.post-share {
-		.post-share-btn { min-width: 40px; height: 40px; font-size: 19px; }
-		.post-share-export { width: 100%; margin: 6px 0 0; justify-content: center; height: 36px; }
-		.post-share-export .post-share-toast { right: auto; left: 50%; transform: translateX(-50%); &::after { left: 50%; right: auto; margin-left: -5px; } }
+	.post-actions {
+		gap: 6px 4px;
+		.pa-item, .pa-vote button { height: 36px; }
+		.pa-export { width: 100%; margin: 6px 0 0; justify-content: center; }
+		&.is-compact { gap: 4px 2px; .pa-lbl { display: none; } .pa-item, .pa-vote button { padding: 0 7px; } }
+		.pa-toast { left: 0; right: 0; max-width: none; text-align: center; }
 	}
 }
