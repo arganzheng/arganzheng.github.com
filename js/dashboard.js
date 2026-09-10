@@ -84,7 +84,7 @@
   var QUERY = 'query($owner: String!, $name: String!, $cat: ID!) { repository(owner: $owner, name: $name) {' +
     ' discussions(first: 20, categoryId: $cat, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes {' +
     ' title url updatedAt comments { totalCount } reactionGroups { content reactors { totalCount } }' +
-    ' comments: comments(last: 3) { nodes { url createdAt bodyText author { login } replies(last: 2) { nodes { url createdAt bodyText author { login } } } } } } } } }';
+    ' recent: comments(last: 3) { nodes { url createdAt bodyText author { login } replies(last: 2) { nodes { url createdAt bodyText author { login } } } } } } } } }';
 
   function loadComments() {
     if (!session()) {
@@ -109,7 +109,7 @@
         listEl.innerHTML = nodes.map(function (d) {
           var likes = (d.reactionGroups || []).filter(function (g) { return g.content === 'THUMBS_UP'; }).map(function (g) { return g.reactors.totalCount; })[0] || 0;
           var items = [];
-          (d.comments.nodes || []).forEach(function (c) {
+          (d.recent.nodes || []).forEach(function (c) {
             items.push(c);
             (c.replies.nodes || []).forEach(function (r) { items.push(r); });
           });
