@@ -6,14 +6,12 @@ catalog: true
 updated: 2026-09-09
 tags: [Blog, GitHub]
 pinned: true
-redirect_from: /highlight-annotations-demo.html
 ---
 
 你好，欢迎来到这里。
 
 这封信不长，讲三件事：这个博客写什么、页面上那些不太常见的小功能是干什么的、以及你可能会问的几个问题。**每个功能都可以在本文里直接试**——这封信本身就是演示场地，随便划、随便点，不会弄坏什么。
 
----
 
 ## 一、这里写什么
 
@@ -23,7 +21,6 @@ redirect_from: /highlight-annotations-demo.html
 
 写作的习惯：**引用源码只写路径和函数名，不写行号**；凡是讲结构、流程、时间线的地方尽量画图；系列文章会锁定软件版本（比如 "vLLM v0.27.1"），所以看到的代码和你手上的可能不同，以文中声明的版本为准。
 
----
 
 ## 二、阅读时会遇到的小东西
 
@@ -66,7 +63,6 @@ flowchart LR
 
 页面是响应式的：手机上侧栏挪到底部、目录收成一个按钮、代码和表格左右滑动而不是换行挤在一起。字体跟随你的系统（iPhone 上是苹方 + San Francisco，Windows 上是微软雅黑），不下载任何网络字体，所以打开很快、也不会闪一下换字体。上面说的所有交互——悬停解释、划线评论、图放大——在手机上都是"轻触"版本。
 
----
 
 ## 三、评论：不只是文末留言
 
@@ -103,7 +99,6 @@ flowchart LR
 
 自己发的评论右侧有「编辑」「删除」，原地改、原地删。有人回复你时，GitHub 会按你的通知设置发邮件，不用守在这里。
 
----
 
 ## 四、订阅与联系
 
@@ -111,7 +106,6 @@ flowchart LR
 - **GitHub**：[arganzheng](https://github.com/arganzheng)，文章的勘误 Issue 和 Discussions 都在博客仓库里。
 - 页脚有知乎、微信公众号（二维码）、LinkedIn。
 
----
 
 ## 五、FAQ
 
@@ -131,7 +125,7 @@ flowchart LR
 
 **阅读数怎么算的？** 一个浏览器一篇文章一天算一次，我自己本地预览不算。它只是个量级参考。
 
-**这个博客是用什么做的？** Jekyll + GitHub Pages，评论借 GitHub Discussions，一个很小的 Cloudflare Worker 做中转和计数。想了解细节可以看给我自己写的[《博客备忘录》](/blog-memo.html)。
+**这个博客是用什么做的？** Jekyll + GitHub Pages，评论借 GitHub Discussions，一个很小的 Cloudflare Worker 做中转和计数。
 
 ---
 
