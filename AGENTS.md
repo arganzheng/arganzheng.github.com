@@ -141,6 +141,26 @@ Pages has `https_enforced` on.
   affiliate links (`a.vglnk`) into article text.
 - `js/annotations.js` — comments, reader highlight comments ("划线评论"), likes /
   votes and page views, see below.
+- `_includes/share.html` + `js/share.js` (+ `less/share.less`) — share bar after
+  the body in all three post layouts: Web Share API button (hidden when
+  unsupported), Weibo / X / LinkedIn intent URLs built in JS, WeChat QR popover
+  (`js/vendor/qrcode.min.js`, qrcode-generator 1.4.4 MIT, lazy-loaded), copy
+  link. No third-party script. The author-only 「复制为公众号格式」 button is
+  shown when the GitHub viewer equals `site.github_username`: annotations.js
+  dispatches `blog:viewer` (detail = viewer or null on logout) from
+  `onViewerKnown()` / `logout()` and exposes `BlogAnnotations.viewer()`.
+  Clicking lazy-loads `js/wechat-export.js`, which clones `.post-container`,
+  strips chrome (series nav/TOC, pager, related, comments, highlights, copy
+  buttons), inlines styles per tag (Rouge token colours read from the live DOM
+  via getComputedStyle), turns external links / footnotes / inline tips into a
+  numbered 「参考与脚注」 list (WeChat strips links), replaces KaTeX with
+  codecogs images (Zhihu: `zhihu.com/equation`, `target: 'zhihu'`), re-renders
+  Mermaid with `htmlLabels:false` (foreignObject taints the canvas) into PNG
+  data URLs, converts same-origin `.webp` to JPEG data URLs (<= 1280 px), and
+  writes `text/html` + `text/plain` via `ClipboardItem` (contenteditable +
+  execCommand fallback). Relative URLs resolve against the canonical page URL,
+  not localhost. Whether the WeChat editor accepts base64 images on paste is
+  only verified by pasting.
 
 ## Comments & highlight comments (js/annotations.js)
 

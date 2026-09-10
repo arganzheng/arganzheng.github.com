@@ -3,7 +3,6 @@ layout: default
 ---
 
 <!-- Image to hack wechat -->
-<!-- <img src="/img/icon_wechat.png" width="0" height="0"> -->
 <!-- <img src="{{ site.baseurl }}/{% if page.header-img %}{{ page.header-img }}{% else %}{{ site.header-img }}{% endif %}" width="0" height="0"> -->
 
 <!-- Post Header -->
@@ -74,6 +73,7 @@ layout: default
 				{% include series-context.html %}{% include series-nav.html %}
 {{ content | replace: '<img src=', '<img loading="lazy" decoding="async" src=' }}
 {% include series-toc.html %}
+{% include share.html %}
 
                 <hr style="visibility: hidden;">
 

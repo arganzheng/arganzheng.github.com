@@ -1,0 +1,100 @@
+@import "variables.less";
+
+// ---- share bar under the article (_includes/share.html, js/share.js)
+.post-share {
+	position: relative;
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 4px;
+	margin: 36px 0 8px;
+	padding-top: 14px;
+	border-top: 1px solid #eee;
+	font-size: 14px;
+	color: @gray;
+	.post-share-label {
+		margin-right: 6px;
+		font-weight: 600;
+		letter-spacing: 1px;
+		color: @gray;
+	}
+	.post-share-btn {
+		position: relative;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 34px;
+		height: 34px;
+		padding: 0 8px;
+		border: 0;
+		border-radius: 17px;
+		background: transparent;
+		color: @gray;
+		font-size: 17px;
+		line-height: 1;
+		cursor: pointer;
+		text-decoration: none;
+		transition: color 0.15s ease, background-color 0.15s ease;
+		&:hover, &:focus { color: @brand-primary; background: #f2f7f8; text-decoration: none; outline: none; }
+		&[aria-expanded="true"] { color: @brand-primary; background: #e6f2f5; }
+		&[hidden] { display: none; }
+	}
+	.post-share-export {
+		margin-left: auto;
+		padding: 0 12px;
+		font-size: 13px;
+		color: #fff;
+		background: #07c160;
+		.fa { margin-right: 6px; font-size: 15px; }
+		&:hover, &:focus { color: #fff; background: #06ad56; }
+		&[disabled] { opacity: 0.6; cursor: wait; }
+	}
+	// "已复制" bubble above the button
+	.post-share-toast {
+		position: absolute;
+		left: 50%;
+		bottom: ~"calc(100% + 8px)";
+		transform: translateX(-50%);
+		display: none;
+		max-width: 320px;
+		padding: 5px 10px;
+		border-radius: 6px;
+		background: #1f2328;
+		color: #fff;
+		font-size: 12px;
+		line-height: 1.4;
+		white-space: nowrap;
+		pointer-events: none;
+		&::after { content: ""; position: absolute; left: 50%; top: 100%; margin-left: -5px; border: 5px solid transparent; border-top-color: #1f2328; }
+	}
+	.post-share-btn.is-toast .post-share-toast { display: block; }
+	.post-share-export .post-share-toast { white-space: normal; width: max-content; left: auto; right: 0; transform: none; &::after { left: auto; right: 24px; } }
+	// WeChat QR popover
+	.post-share-wechat { position: relative; display: inline-flex; }
+	.post-share-qr {
+		position: absolute;
+		left: 50%;
+		bottom: ~"calc(100% + 10px)";
+		transform: translateX(-50%);
+		z-index: 1050;
+		display: block;
+		width: 176px;
+		padding: 12px 12px 10px;
+		text-align: center;
+		background: #fff;
+		border: 1px solid #d0d7de;
+		border-radius: 8px;
+		box-shadow: 0 8px 24px rgba(140, 149, 159, 0.2);
+		&[hidden] { display: none; }
+		&::after { content: ""; position: absolute; left: 50%; top: 100%; margin-left: -7px; border: 7px solid transparent; border-top-color: #fff; }
+		.post-share-qr-img svg { display: block; width: 150px; height: 150px; margin: 0 auto; }
+		.post-share-qr-hint { display: block; margin-top: 8px; font-size: 12px; line-height: 1.4; color: @gray; }
+	}
+}
+@media (max-width: 767px) {
+	.post-share {
+		.post-share-btn { min-width: 40px; height: 40px; font-size: 19px; }
+		.post-share-export { width: 100%; margin: 6px 0 0; justify-content: center; height: 36px; }
+		.post-share-export .post-share-toast { right: auto; left: 50%; transform: translateX(-50%); &::after { left: 50%; right: auto; margin-left: -5px; } }
+	}
+}

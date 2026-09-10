@@ -824,6 +824,7 @@
   function logout() {
     try { localStorage.removeItem(SESSION_KEY); } catch (e) { /* ignore */ }
     token = null; viewer = null;
+    try { document.dispatchEvent(new CustomEvent('blog:viewer', { detail: null })); } catch (e) { /* old browsers */ }
     var hosts = document.querySelectorAll('.ap-editor');
     for (var i = 0; i < hosts.length; i++) if (hosts[i].querySelector('.ap-user')) refreshAuthUI(hosts[i]);
     if (discussion) discussion.likes.mine = null; // the counts stay, our own vote marks go
@@ -1060,6 +1061,8 @@
     if (panelState && panelState.kind === 'thread' && !panel.querySelector('.ap-text').value) refreshThreadPanel();
     if (commentsHost && !commentsHost.querySelector('.ac-reply-editor, .ap-inline-editor')) renderCommentSection();
     loadViewerReactions();
+    // Other scripts (js/share.js: author-only buttons) want to know who is logged in.
+    try { document.dispatchEvent(new CustomEvent('blog:viewer', { detail: viewer })); } catch (e) { /* old browsers */ }
   }
 
   function renderViewer(userEl, v) {
@@ -1814,7 +1817,8 @@
     closePanel: closePanel,
     logout: logout,
     list: function () { return annotations; },
-    comments: function () { return comments; }
+    comments: function () { return comments; },
+    viewer: function () { return viewer; }
   };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

@@ -86,7 +86,6 @@
                 <p class="copyright text-muted">
                     Copyright &copy; {{ site.title }} {{ site.time | date: '%Y' }}
                     &nbsp;·&nbsp; <a href="{{ '/a-letter-to-readers.html' | prepend: site.baseurl }}">致读者的一封信</a>
-                    &nbsp;·&nbsp; <a href="{{ '/blog-memo.html' | prepend: site.baseurl }}">博客备忘录</a>
                     &nbsp;·&nbsp; <a href="{{ '/feed.xml' | prepend: site.baseurl }}">RSS</a>
                 </p>
             </div>
@@ -134,6 +133,7 @@
 <!-- Comments & highlight comments (划线评论): rendered from the post's GitHub Discussion -->
 <script src="{{ "/js/vendor/approx-string-match.js" | prepend: site.baseurl }}?v={{ v }}"></script>
 <script src="{{ "/js/annotations.js" | prepend: site.baseurl }}?v={{ v }}"></script>
+<script src="{{ "/js/share.js" | prepend: site.baseurl }}?v={{ v }}"></script>
 
 <!-- Service Worker -->
 <script type="text/javascript">
