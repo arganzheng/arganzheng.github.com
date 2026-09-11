@@ -33,3 +33,6 @@ ai-platform-engineering:
 contributing-to-ai-infra-open-source:
   name: AI-Infra 开源贡献指南
   overview: /contributing-to-ai-infra-open-source.html
+deep-learning-foundations:
+  name: 深度学习基础：从反向传播到残差
+  overview: /deep-learning-foundations.html
