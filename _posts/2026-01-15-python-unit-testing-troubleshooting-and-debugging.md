@@ -38,24 +38,24 @@ catalog: true
 
 ### 2. 本文的章节安排
 
-```text
-第二章    用 pytest 编写单元测试                 基本结构、边界输入、自定义 marker
-第三章    使用 fixture 管理测试对象             scope 与 yield、conftest.py 共享
-第四章    用 Mock 隔离模型后端和外部服务         Mock 与 AsyncMock、patch 替换模块中的对象
-第五章    异步代码测试                           测试超时、测试取消、检测未等待的协程
-第六章    使用 monkeypatch 修改运行环境          环境变量、属性与路径的临时替换
-第七章    使用 pdb 定位 Python 逻辑问题          在失败现场检查变量与执行路径
-第八章    日志：从调试打印到生产配置             四个组件、logger 树与 propagate、库与应用分工、结构化日志、请求上下文、与 SLF4J 对照
-第九章    检查异常链和调用栈                     traceback 与 __cause__/__context__
-第十章    使用 inspect 排查动态调用问题          确认插件、装饰器与动态调用背后的真实对象
-第十一章  使用 tracemalloc 定位 Python 内存增长  快照对比找到分配来源
-第十二章  使用 faulthandler 排查卡死             转储线程栈
-第十三章  使用 cProfile 判断 Python 热点         定位 Python 层性能热点
-第十四章  用 pytest-cov 检查测试覆盖范围         分支覆盖与 term-missing
-第十五章  调试决策树                             按症状选工具的速查表
-第十六章  附：Java 与 Python 测试调试工具对照
-第十七章  本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 用 pytest 编写单元测试 | 基本结构、边界输入、自定义 marker |
+| 三 | 使用 fixture 管理测试对象 | scope 与 yield、`conftest.py` 共享 |
+| 四 | 用 Mock 隔离模型后端和外部服务 | Mock 与 AsyncMock、patch 替换模块中的对象 |
+| 五 | 异步代码测试 | 测试超时、测试取消、检测未等待的协程 |
+| 六 | 使用 monkeypatch 修改运行环境 | 环境变量、属性与路径的临时替换 |
+| 七 | 使用 pdb 定位 Python 逻辑问题 | 在失败现场检查变量与执行路径 |
+| 八 | 日志：从调试打印到生产配置 | 四个组件、logger 树与 propagate、库与应用分工、结构化日志、请求上下文、与 SLF4J 对照 |
+| 九 | 检查异常链和调用栈 | traceback 与 `__cause__/__context__` |
+| 十 | 使用 inspect 排查动态调用问题 | 确认插件、装饰器与动态调用背后的真实对象 |
+| 十一 | 使用 tracemalloc 定位 Python 内存增长 | 快照对比找到分配来源 |
+| 十二 | 使用 faulthandler 排查卡死 | 转储线程栈 |
+| 十三 | 使用 cProfile 判断 Python 热点 | 定位 Python 层性能热点 |
+| 十四 | 用 pytest-cov 检查测试覆盖范围 | 分支覆盖与 term-missing |
+| 十五 | 调试决策树 | 按症状选工具的速查表 |
+| 十六 | 附：Java 与 Python 测试调试工具对照 |  |
+| 十七 | 本文小结 |  |
 
 
 ## 二、用 pytest 编写单元测试

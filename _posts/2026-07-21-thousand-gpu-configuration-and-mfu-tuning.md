@@ -136,16 +136,16 @@ DeepSpeed 这一列后文不再展开：它的配置面是 JSON，概念与 Mega
 
 ### 5. 本文的章节安排
 
-```text
-二、从规格推配置          70B / 1024 H100 的四步推导：TP → PP → DP → CP；三个候选；推导表；预期 MFU 与 step 时间
-三、global batch、micro-batch 与梯度累积   三个量的关系 · micro-batch 的两头约束 · 三框架里它们叫什么
-四、激活重计算与 offload  三种策略的代价 · Megatron 参数族 · torch.utils.checkpoint 与 torchtitan 的三种 AC · offload
-五、通信与计算的重叠      DP reduce · TP 通信 · PP p2p 各自怎么重叠 · 重叠失败的五种原因
-六、MFU 损失的七项拆解    每项的现象、在 profiler 时间线上的形状、测法与处置 · 回答"缺的 10 个点"
-七、融合、低精度与编译    TE FP8 · 融合 kernel · torch.compile per-block 与 FSDP2/TP 的兼容 · CUDA Graph
-八、配置纪律              版本控制 · 前后基准 · 变更留痕
-九、本文小结              要点 · 源码位置 · train-ledger 的 sweep/ 与 mfu_breakdown.py · 外推到 1024 卡
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 从规格推配置 | 70B / 1024 H100 的四步推导：TP → PP → DP → CP；三个候选；推导表；预期 MFU 与 step 时间 |
+| 三 | global batch、micro-batch 与梯度累积 | 三个量的关系 · micro-batch 的两头约束 · 三框架里它们叫什么 |
+| 四 | 激活重计算与 offload | 三种策略的代价 · Megatron 参数族 · `torch.utils.checkpoint` 与 torchtitan 的三种 AC · offload |
+| 五 | 通信与计算的重叠 | DP reduce · TP 通信 · PP p2p 各自怎么重叠 · 重叠失败的五种原因 |
+| 六 | MFU 损失的七项拆解 | 每项的现象、在 profiler 时间线上的形状、测法与处置 · 回答"缺的 10 个点" |
+| 七 | 融合、低精度与编译 | TE FP8 · 融合 kernel · `torch.compile` per-block 与 FSDP2/TP 的兼容 · CUDA Graph |
+| 八 | 配置纪律 | 版本控制 · 前后基准 · 变更留痕 |
+| 九 | 本文小结 | 要点 · 源码位置 · train-ledger 的 sweep/ 与 `mfu_breakdown.py` · 外推到 1024 卡 |
 
 
 ## 二、从规格推配置：70B / 1024 H100 的完整推导

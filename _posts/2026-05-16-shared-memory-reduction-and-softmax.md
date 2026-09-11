@@ -28,18 +28,18 @@ catalog: true
 
 ### 3. 本文的章节安排
 
-```text
-第二章  先算理论下界                  RMSNorm 读一次写一次、softmax 三遍还是一遍、naive 慢 10 倍的四个来源
-第三章  shared memory                声明方式、容量与 L1 的关系、__syncthreads() 的语义与陷阱、bank conflict、padding 与 swizzle
-第四章  reduction 的六个版本           从交错寻址到两级 shuffle，v1–v6 逐版对比
-第五章  warp 级原语与原子操作          __shfl_*_sync 家族、投票与硬件归约、cooperative groups、原子操作什么时候用、什么时候避免
-第六章  一行一个 block，还是一行一个 warp   两种行归约分工的取舍
-第七章  softmax                      为什么要减 max、三遍与两遍、online softmax 的推导、通向 FlashAttention
-第八章  LayerNorm 与 RMSNorm          均方在 FP32 累加、Welford 与相消、fused residual + RMSNorm
-第九章  读源码                       vLLM rms_norm_kernel、PyTorch SoftMax.cu、PyTorch Reduce.cuh
-第十章  实践：RMSNorm 与 online softmax  warp/block reduce 模板、RMSNorm kernel、online softmax kernel、对照测试与预期量级
-第十一章 本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 先算理论下界 | RMSNorm 读一次写一次、softmax 三遍还是一遍、naive 慢 10 倍的四个来源 |
+| 三 | shared memory | 声明方式、容量与 L1 的关系、`__syncthreads()` 的语义与陷阱、bank conflict、padding 与 swizzle |
+| 四 | reduction 的六个版本 | 从交错寻址到两级 shuffle，v1–v6 逐版对比 |
+| 五 | warp 级原语与原子操作 | `__shfl_*_sync` 家族、投票与硬件归约、cooperative groups、原子操作什么时候用、什么时候避免 |
+| 六 | 一行一个 block，还是一行一个 warp | 两种行归约分工的取舍 |
+| 七 | softmax | 为什么要减 max、三遍与两遍、online softmax 的推导、通向 FlashAttention |
+| 八 | LayerNorm 与 RMSNorm | 均方在 FP32 累加、Welford 与相消、fused residual + RMSNorm |
+| 九 | 读源码 | vLLM `rms_norm_kernel`、PyTorch `SoftMax.cu`、PyTorch `Reduce.cuh` |
+| 十 | 实践：RMSNorm 与 online softmax | warp/block reduce 模板、RMSNorm kernel、online softmax kernel、对照测试与预期量级 |
+| 十一 | 本文小结 |  |
 
 
 ## 二、先算理论下界

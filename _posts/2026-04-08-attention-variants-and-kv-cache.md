@@ -26,15 +26,15 @@ MHA、MQA、GQA、MLA 四种结构，做的是同一件事的不同取舍：
 
 ### 2. 本文的章节安排
 
-```text
-第二章   为什么需要 KV cache                 attention 在 decode 时的形态、不缓存的代价、大小公式、KV cache 是 decode 的第二项流量
-第三章   MQA 与 GQA                          直接减少 KV head：共享方式、对 decode 算术强度的影响、与张量并行的边界
-第四章   MLA                                 把 K、V 压成一个 latent：完整结构、参数与缓存量、与 RoPE 的冲突、矩阵吸收、与 GQA 同尺对比
-第五章   中间结果与 FlashAttention           4 GiB 的 logits 矩阵、IO 复杂度、因果掩码与 sliding window
-第六章   KV cache 的工程变量                 分页碎片率、prefix 共享、KV 量化、三个因子怎么叠加
-第七章   实践                                给 llm_cost.py 加上 KV cache
-第八章   本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 为什么需要 KV cache | attention 在 decode 时的形态、不缓存的代价、大小公式、KV cache 是 decode 的第二项流量 |
+| 三 | MQA 与 GQA | 直接减少 KV head：共享方式、对 decode 算术强度的影响、与张量并行的边界 |
+| 四 | MLA | 把 K、V 压成一个 latent：完整结构、参数与缓存量、与 RoPE 的冲突、矩阵吸收、与 GQA 同尺对比 |
+| 五 | 中间结果与 FlashAttention | 4 GiB 的 logits 矩阵、IO 复杂度、因果掩码与 sliding window |
+| 六 | KV cache 的工程变量 | 分页碎片率、prefix 共享、KV 量化、三个因子怎么叠加 |
+| 七 | 实践 | 给 `llm_cost.py` 加上 KV cache |
+| 八 | 本文小结 |  |
 
 
 ## 二、为什么需要 KV cache

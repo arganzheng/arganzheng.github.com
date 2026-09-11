@@ -30,17 +30,17 @@ $$
 
 ### 2. 本文的章节安排
 
-```text
-第二章  host、device 与 kernel        两个处理器、两个地址空间；三个函数限定符；发射一个 kernel
-第三章  线程层级：grid、block、thread   三层结构与内建变量、边界检查为什么不可省、block 与 grid 大小怎么选、block 如何切成 warp
-第四章  设备内存与数据搬运            cudaMalloc / cudaMemcpy / cudaFree，以及 PyTorch 为什么不直接用它们
-第五章  stream、event 与异步语义       kernel launch 是异步的、stream、event 的计时与依赖、cudaDeviceSynchronize 的代价
-第六章  错误处理                     同步错误与异步错误、一个 CUDA_CHECK 宏、compute-sanitizer
-第七章  编译：nvcc 做了什么           host/device 分离编译、-arch / -gencode 与 fatbin、compute_XX 与 sm_XX、两个必备的编译选项
-第八章  warp 的执行方式              一条指令一个 mask、分支发散的代价、独立线程调度、active mask 与部分 warp
-第九章  第一个 kernel 的测量          先算理论、L2 flush 为什么必要、完整 C++ 程序与 bench 脚手架、PyTorch 侧等价脚手架、结果应该落在哪里
-第十章  本文小结                     要点回顾与速查表
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | host、device 与 kernel | 两个处理器、两个地址空间；三个函数限定符；发射一个 kernel |
+| 三 | 线程层级：grid、block、thread | 三层结构与内建变量、边界检查为什么不可省、block 与 grid 大小怎么选、block 如何切成 warp |
+| 四 | 设备内存与数据搬运 | cudaMalloc / cudaMemcpy / cudaFree，以及 PyTorch 为什么不直接用它们 |
+| 五 | stream、event 与异步语义 | kernel launch 是异步的、stream、event 的计时与依赖、cudaDeviceSynchronize 的代价 |
+| 六 | 错误处理 | 同步错误与异步错误、一个 `CUDA_CHECK` 宏、compute-sanitizer |
+| 七 | 编译：nvcc 做了什么 | host/device 分离编译、-arch / -gencode 与 fatbin、`compute_XX` 与 `sm_XX`、两个必备的编译选项 |
+| 八 | warp 的执行方式 | 一条指令一个 mask、分支发散的代价、独立线程调度、active mask 与部分 warp |
+| 九 | 第一个 kernel 的测量 | 先算理论、L2 flush 为什么必要、完整 C++ 程序与 bench 脚手架、PyTorch 侧等价脚手架、结果应该落在哪里 |
+| 十 | 本文小结 | 要点回顾与速查表 |
 
 
 ## 二、host、device 与 kernel

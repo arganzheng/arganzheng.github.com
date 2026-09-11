@@ -74,15 +74,15 @@ flowchart LR
 
 ### 3. 本文的章节安排
 
-```text
-第二章  Tensor Core 做什么            一条指令一个小矩阵乘加、每 SM 每周期 1024 次乘加、三代编程接口
-第三章  fragment 布局与 ldmatrix       m16n8k16 的三个 fragment、布局为什么这么"奇怪"、ldmatrix 与 .trans、为什么 shared memory 必须 swizzle
-第四章  实践：Ampere BF16 GEMM        先算理论、设计、代码、测试、预期与差距
-第五章  Hopper                       TMA、wgmma、warp specialization
-第六章  CUTLASS 与 CuTe              2.x 与 3.x、3.x 的分层、CuTe Layout、一个 CuTe 小程序、读一个 3.x GEMM 实例与一个 2.x 风格实例
-第七章  PyTorch 与 vLLM 如何使用 Tensor Core   ATen matmul → cuBLAS / cuBLASLt；vLLM 用 CUTLASS 写 cuBLAS 不提供的 GEMM
-第八章  本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | Tensor Core 做什么 | 一条指令一个小矩阵乘加、每 SM 每周期 1024 次乘加、三代编程接口 |
+| 三 | fragment 布局与 ldmatrix | m16n8k16 的三个 fragment、布局为什么这么"奇怪"、ldmatrix 与 .trans、为什么 shared memory 必须 swizzle |
+| 四 | 实践：Ampere BF16 GEMM | 先算理论、设计、代码、测试、预期与差距 |
+| 五 | Hopper | TMA、wgmma、warp specialization |
+| 六 | CUTLASS 与 CuTe | 2.x 与 3.x、3.x 的分层、CuTe Layout、一个 CuTe 小程序、读一个 3.x GEMM 实例与一个 2.x 风格实例 |
+| 七 | PyTorch 与 vLLM 如何使用 Tensor Core | ATen matmul → cuBLAS / cuBLASLt；vLLM 用 CUTLASS 写 cuBLAS 不提供的 GEMM |
+| 八 | 本文小结 |  |
 
 
 ## 二、Tensor Core 做什么

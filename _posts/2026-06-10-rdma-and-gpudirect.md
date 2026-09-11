@@ -78,18 +78,18 @@ flowchart TB
 
 ### 3. 本文的章节安排
 
-```text
-二、为什么需要 RDMA           TCP 路径的拷贝与 CPU 代价；kernel bypass / zero copy / CPU offload；三条路径对照表（核心问题）
-三、verbs 编程模型            device → PD → MR / CQ / QP；lkey 与 rkey；RC / UC / UD；WR 与 WC；post 与 poll
-四、单边与双边操作             RDMA WRITE / READ 与 SEND / RECV；NCCL 为什么用 RDMA WRITE + IMM；net_ib.cc 的 FIFO 机制
-五、连接建立                  QP 状态机；交换什么信息；TCP 还是 rdma_cm；NCCL 的多 QP 与 adaptive routing
-六、InfiniBand 与 RoCE v2      链路层、LID 与 GID、信用流控与 PFC + ECN；NCCL_IB_GID_INDEX；NCCL_IB_TC / TIMEOUT / RETRY_CNT
-七、内存注册的代价与 MR cache   pin 页与地址翻译；注册为什么慢；NCCL 的 ncclIbMrCache；ncclCommRegister
-八、GPUDirect RDMA            网卡 DMA 到显存的机制；nvidia-peermem 与 DMA-BUF；NCCL_NET_GDR_LEVEL / GDR_READ；flush；PCIe 拓扑限制
-九、GDRCopy 与 GPUDirect 家族   CPU 直接读写显存映射；NCCL 用它做什么；GPUDirect P2P / Storage
-十、测一测与比一比             ibstat / ibv_devinfo / show_gids / rdma link / ib_write_bw --use_cuda；检查清单
-十一、本文小结                要点、排障检查项、源码位置、comm-probe 的 rdma_write.c
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 为什么需要 RDMA | TCP 路径的拷贝与 CPU 代价；kernel bypass / zero copy / CPU offload；三条路径对照表（核心问题） |
+| 三 | verbs 编程模型 | device → PD → MR / CQ / QP；lkey 与 rkey；RC / UC / UD；WR 与 WC；post 与 poll |
+| 四 | 单边与双边操作 | RDMA WRITE / READ 与 SEND / RECV；NCCL 为什么用 RDMA WRITE + IMM；`net_ib.cc` 的 FIFO 机制 |
+| 五 | 连接建立 | QP 状态机；交换什么信息；TCP 还是 `rdma_cm`；NCCL 的多 QP 与 adaptive routing |
+| 六 | InfiniBand 与 RoCE v2 | 链路层、LID 与 GID、信用流控与 PFC + ECN；`NCCL_IB_GID_INDEX`；`NCCL_IB_TC` / TIMEOUT / `RETRY_CNT` |
+| 七 | 内存注册的代价与 MR cache | pin 页与地址翻译；注册为什么慢；NCCL 的 ncclIbMrCache；ncclCommRegister |
+| 八 | GPUDirect RDMA | 网卡 DMA 到显存的机制；nvidia-peermem 与 DMA-BUF；`NCCL_NET_GDR_LEVEL` / `GDR_READ`；flush；PCIe 拓扑限制 |
+| 九 | GDRCopy 与 GPUDirect 家族 | CPU 直接读写显存映射；NCCL 用它做什么；GPUDirect P2P / Storage |
+| 十 | 测一测与比一比 | ibstat / `ibv_devinfo` / `show_gids` / rdma link / `ib_write_bw` --use_cuda；检查清单 |
+| 十一 | 本文小结 | 要点、排障检查项、源码位置、comm-probe 的 `rdma_write.c` |
 
 
 ## 二、为什么需要 RDMA

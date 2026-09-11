@@ -87,15 +87,15 @@ EP              4 × 路由 token × 层数 × m                    all-to-all  
 
 ### 4. 本文的章节安排
 
-```text
-第二章  数据并行与 ZeRO      DP 的 2N；ZeRO-1/2/3 各切什么；3N 的推导；FSDP1 vs FSDP2；HSDP
-第三章  张量并行与序列并行    列切 + 行切的配对；每层 2 + 2 次 all-reduce；为什么不出节点；SP 把 all-reduce 拆成 AG + RS
-第四章  上下文并行           为什么 TP/SP 不够；Ring Attention 与 Ulysses 的通信形态；GQA 的影响
-第五章  流水线并行           GPipe → 1F1B → interleaved → zero-bubble；气泡率 (p-1)/m 的推导；通信量最小
-第六章  专家并行             专家的状态形态；all-to-all 通信量；负载不均的双重代价；EP 与 DP/TP 的组合
-第七章  组合与实例           五元组大表；组合顺序 TP → CP → PP → DP 及原因；Llama 3 405B 代入；原语对应表；三框架对照
-第八章  小结                 要点、源码位置、train-ledger 的 ledger/parallel.py
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 数据并行与 ZeRO | DP 的 2N；ZeRO-1/2/3 各切什么；3N 的推导；FSDP1 vs FSDP2；HSDP |
+| 三 | 张量并行与序列并行 | 列切 + 行切的配对；每层 2 + 2 次 all-reduce；为什么不出节点；SP 把 all-reduce 拆成 AG + RS |
+| 四 | 上下文并行 | 为什么 TP/SP 不够；Ring Attention 与 Ulysses 的通信形态；GQA 的影响 |
+| 五 | 流水线并行 | GPipe → 1F1B → interleaved → zero-bubble；气泡率 (p-1)/m 的推导；通信量最小 |
+| 六 | 专家并行 | 专家的状态形态；all-to-all 通信量；负载不均的双重代价；EP 与 DP/TP 的组合 |
+| 七 | 组合与实例 | 五元组大表；组合顺序 TP → CP → PP → DP 及原因；Llama 3 405B 代入；原语对应表；三框架对照 |
+| 八 | 小结 | 要点、源码位置、train-ledger 的 `ledger/parallel.py` |
 
 
 ## 二、数据并行与 ZeRO：切优化器状态、梯度、参数

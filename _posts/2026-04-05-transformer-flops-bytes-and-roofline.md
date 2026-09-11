@@ -34,17 +34,17 @@ $$
 
 ### 2. 本文的章节安排
 
-```text
-第二章   算量：FLOPs 从哪里来          2mkn、2N FLOPs/token、embedding 为什么不算、attention 的 4ds 上下文项、训练的 6N
-第三章   prefill 与 decode             同一组矩阵，m = s 与 m = B 两种 GEMM 形状
-第四章   访存量                        每步读一遍权重 16.06 GB、KV cache 每 token 128 KiB、激活值可忽略
-第五章   Roofline                      两条上限、算术强度与 ridge point、decode 权重 GEMM 的强度 ≈ B、读 KV 的强度 = g
-第六章   时间下界                      decode 4.8 ms / 208 token/s、加上 KV cache、prefill 8K 与 128K
-第七章   核心问题                      batch 多大 decode 才 compute-bound；8K 上下文下单卡为什么不可达；64 GB 预算
-第八章   训练侧                        每层激活值 sbh(34 + 5as/h)、FlashAttention 与重算、MFU 与 HFU
-第九章   实践                          llm_cost.py 增加 FLOPs、字节数与时间下界；与实测对照的方法
-第十章   本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 算量：FLOPs 从哪里来 | 2mkn、2N FLOPs/token、embedding 为什么不算、attention 的 4ds 上下文项、训练的 6N |
+| 三 | prefill 与 decode | 同一组矩阵，m = s 与 m = B 两种 GEMM 形状 |
+| 四 | 访存量 | 每步读一遍权重 16.06 GB、KV cache 每 token 128 KiB、激活值可忽略 |
+| 五 | Roofline | 两条上限、算术强度与 ridge point、decode 权重 GEMM 的强度 ≈ B、读 KV 的强度 = g |
+| 六 | 时间下界 | decode 4.8 ms / 208 token/s、加上 KV cache、prefill 8K 与 128K |
+| 七 | 核心问题 | batch 多大 decode 才 compute-bound；8K 上下文下单卡为什么不可达；64 GB 预算 |
+| 八 | 训练侧 | 每层激活值 `sbh(34` + 5as/h)、FlashAttention 与重算、MFU 与 HFU |
+| 九 | 实践 | `llm_cost.py` 增加 FLOPs、字节数与时间下界；与实测对照的方法 |
+| 十 | 本文小结 |  |
 
 
 ## 二、算量：FLOPs 从哪里来

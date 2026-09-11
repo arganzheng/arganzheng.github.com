@@ -86,15 +86,15 @@ Java 把前两件事合为一体：类型写在源码里，编译器既是提供
 
 提供层和消费层内容都较多，各拆成上下两章：
 
-```text
-第二章  类型信息提供层（上）：类型表达        从基础注解到 TypeVar、Protocol、TypedDict、ParamSpec、TypeGuard、overload 等 typing 工具
-第三章  类型信息提供层（下）：类型载体与分发   .pyi 存根、typeshed、types-*、py.typed/PEP 561、inline types vs stub
-第四章  类型信息消费层（上）：静态分析与推理   mypy 与 pyright、配置与渐进式引入、静态检查的能力边界
-第五章  类型信息消费层（下）：动态消费         __annotations__ 与 get_type_hints、@dataclass 与 Pydantic 如何读注解、beartype、静态与运行时的分工
-第六章  工程落地：数据契约设计               dataclass、Pydantic、序列化与 Schema、BaseSettings、选型指南
-第七章  附录                                Java 与 Python 的类型系统/数据契约对照、决策树、typing 速查表
-第八章  本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 类型信息提供层（上）：类型表达 | 从基础注解到 TypeVar、Protocol、TypedDict、ParamSpec、TypeGuard、overload 等 typing 工具 |
+| 三 | 类型信息提供层（下）：类型载体与分发 | .pyi 存根、typeshed、types-*、`py.typed/PEP` 561、inline types vs stub |
+| 四 | 类型信息消费层（上）：静态分析与推理 | mypy 与 pyright、配置与渐进式引入、静态检查的能力边界 |
+| 五 | 类型信息消费层（下）：动态消费 | `__annotations__` 与 `get_type_hints`、@dataclass 与 Pydantic 如何读注解、beartype、静态与运行时的分工 |
+| 六 | 工程落地：数据契约设计 | dataclass、Pydantic、序列化与 Schema、BaseSettings、选型指南 |
+| 七 | 附录 | Java 与 Python 的类型系统/数据契约对照、决策树、typing 速查表 |
+| 八 | 本文小结 |  |
 
 
 ## 二、类型信息提供层（上）：类型表达

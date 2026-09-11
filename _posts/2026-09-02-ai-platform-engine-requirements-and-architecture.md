@@ -92,17 +92,17 @@ Service 轮询 + HPA 看 CPU      副本状态在引擎内部；请求长短差�
 
 ### 4. 本文的章节安排
 
-```text
-第二章  训练任务的形态与需求     torchrun 的进程组与 rendezvous；MASTER_ADDR / WORLD_SIZE / RANK；一个进程挂掉为什么全停；四条资源需求
-第三章  推理服务的形态与需求     副本的三种形态；prefill 与 decode；显存硬约束；扩容时间；负载信号在引擎内部
-第四章  两组矛盾的需求          独占 vs 共享、拓扑 vs 弹性、批处理 vs 长驻；混部为什么难；两者的共同点
-第五章  原生 Kubernetes 的空缺   kube-scheduler 的逐 Pod 模型；device plugin 的计数模型；一张网卡；Service 与 HPA 的假设
-第六章  平台的两层拆分          资源层与交付层的输入输出；组件全景图按层落位；Slurm 与 Ray 的位置
-第七章  核心问题：两张需求表     32 卡训练任务与 TP=2 推理服务各一张表，"原生 K8s 能否满足"列与补缺的篇目
-第八章  全系列术语表            gang、cohort、ResourceFlavor、MIG profile、InferencePool、EPP、TTFT/TPOT、goodput、分配率与使用率
-第九章  代价与边界              四栏表；每叠一层的代价；本系列的边界；托管服务替你做了什么
-第十章  小结                    要点、源码与 CRD 位置、mini-platform 的第一批文件
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 训练任务的形态与需求 | torchrun 的进程组与 rendezvous；`MASTER_ADDR` / `WORLD_SIZE` / RANK；一个进程挂掉为什么全停；四条资源需求 |
+| 三 | 推理服务的形态与需求 | 副本的三种形态；prefill 与 decode；显存硬约束；扩容时间；负载信号在引擎内部 |
+| 四 | 两组矛盾的需求 | 独占 vs 共享、拓扑 vs 弹性、批处理 vs 长驻；混部为什么难；两者的共同点 |
+| 五 | 原生 Kubernetes 的空缺 | kube-scheduler 的逐 Pod 模型；device plugin 的计数模型；一张网卡；Service 与 HPA 的假设 |
+| 六 | 平台的两层拆分 | 资源层与交付层的输入输出；组件全景图按层落位；Slurm 与 Ray 的位置 |
+| 七 | 核心问题：两张需求表 | 32 卡训练任务与 TP=2 推理服务各一张表，"原生 K8s 能否满足"列与补缺的篇目 |
+| 八 | 全系列术语表 | gang、cohort、ResourceFlavor、MIG profile、InferencePool、EPP、TTFT/TPOT、goodput、分配率与使用率 |
+| 九 | 代价与边界 | 四栏表；每叠一层的代价；本系列的边界；托管服务替你做了什么 |
+| 十 | 小结 | 要点、源码与 CRD 位置、mini-platform 的第一批文件 |
 
 
 ## 二、训练任务的形态与需求

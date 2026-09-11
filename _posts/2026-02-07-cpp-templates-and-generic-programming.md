@@ -46,20 +46,20 @@ AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "log_sigmoid_cpu", [&] {
 
 ### 2. 本文的章节安排
 
-```text
-第二章    模板是生成代码的配方              函数模板与类模板；实例化发生在哪里；与 Java 类型擦除的根本差别；typename 与 template 消歧义
-第三章    推导                           从实参推导、显式指定、auto/decltype、返回类型推导、CTAD
-第四章    非类型模板参数                    std::array<T, N>、SmallVector<T, N>、ScalarTypeToCPPType<N>、CUDA kernel 的 BLOCK_SIZE
-第五章    特化与变参模板                    全特化、偏特化、函数模板为什么不能偏特化；参数包展开
-第六章    把分支移到编译期                   constexpr、if constexpr、static_assert、SFINAE 与 enable_if、C++20 concepts
-第七章    编译期分派与运行期分派              逐层展开 AT_DISPATCH_FLOATING_TYPES，回答核心问题；vLLM 的 dispatch_utils.h；Dispatch_v2.h
-第八章    轻量视图与容器                    c10::ArrayRef/IntArrayRef、std::optional、c10::SmallVector
-第九章    lambda                         闭包类型、捕获列表与 C++98 对照、初始化捕获、泛型 lambda、作为模板参数、引用捕获的生命周期陷阱
-第十章    回到源码                        重读 scale_shift_cpu 与 data_ptr<T> 的显式实例化
-第十一章  mini-c10                       ScalarType 映射、MINI_DISPATCH_FLOATING_TYPES、ArrayRef、第一个模板化 kernel，用 nm 观察多份 kernel
-第十二章  工程实践建议与常见错误
-第十三章  本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 模板是生成代码的配方 | 函数模板与类模板；实例化发生在哪里；与 Java 类型擦除的根本差别；typename 与 template 消歧义 |
+| 三 | 推导 | 从实参推导、显式指定、auto/decltype、返回类型推导、CTAD |
+| 四 | 非类型模板参数 | `std::array<T, N>`、`SmallVector<T, N>`、`ScalarTypeToCPPType<N>`、CUDA kernel 的 `BLOCK_SIZE` |
+| 五 | 特化与变参模板 | 全特化、偏特化、函数模板为什么不能偏特化；参数包展开 |
+| 六 | 把分支移到编译期 | constexpr、if constexpr、`static_assert`、SFINAE 与 `enable_if`、C++20 concepts |
+| 七 | 编译期分派与运行期分派 | 逐层展开 `AT_DISPATCH_FLOATING_TYPES`，回答核心问题；vLLM 的 `dispatch_utils.h`；`Dispatch_v2.h` |
+| 八 | 轻量视图与容器 | `c10::ArrayRef/IntArrayRef`、`std::optional`、`c10::SmallVector` |
+| 九 | lambda | 闭包类型、捕获列表与 C++98 对照、初始化捕获、泛型 lambda、作为模板参数、引用捕获的生命周期陷阱 |
+| 十 | 回到源码 | 重读 `scale_shift_cpu` 与 `data_ptr<T>` 的显式实例化 |
+| 十一 | mini-c10 | ScalarType 映射、`MINI_DISPATCH_FLOATING_TYPES`、ArrayRef、第一个模板化 kernel，用 nm 观察多份 kernel |
+| 十二 | 工程实践建议与常见错误 |  |
+| 十三 | 本文小结 |  |
 
 
 ## 二、模板是生成代码的配方

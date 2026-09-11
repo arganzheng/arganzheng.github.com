@@ -90,15 +90,15 @@ loss scale          fp16：DynamicGradScaler（hysteresis/backoff）；    fp16�
 
 ### 5. 本文的章节安排
 
-```text
-二、loss spike：现象与成因     三种形态 · 五种成因（LR / bf16 / logit / 坏数据 / 优化器状态）各自的机理与信号指纹
-三、预防                       全局范数裁剪的三框架实现 · warmup · z-loss 与 QK-LayerNorm · WD 例外 · 精度纪律 · fp16 loss scale
-四、处理：回退与跳过           PaLM 的做法 · 三个前提 · Megatron 的 --iterations-to-skip 与 tracker 文件 · 回退多远与跳过多少的账
-五、必须记录的信号             清单 · 正常与异常形态 · Megatron training_log / torchtitan MetricsProcessor / DeepSpeed 的对应
-六、数据管线（上）：存储与索引 离线 vs 在线 · .bin/.idx 格式 · document/sample/shuffle 三索引与缓存 · 混合与多阶段 · 打包与 cu_seqlens · DeepSpeed 课程学习
-七、数据管线（下）：加载与恢复 流式读取 · 可恢复的三条要求 · Megatron / torchtitan / DeepSpeed 的恢复语义 · 数据等待与 MFU
-八、本文小结                   要点 · 源码位置 · train-ledger 的 signals/ 与 data/replay_check.py · 回答核心问题
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | loss spike：现象与成因 | 三种形态 · 五种成因（LR / bf16 / logit / 坏数据 / 优化器状态）各自的机理与信号指纹 |
+| 三 | 预防 | 全局范数裁剪的三框架实现 · warmup · z-loss 与 QK-LayerNorm · WD 例外 · 精度纪律 · fp16 loss scale |
+| 四 | 处理：回退与跳过 | PaLM 的做法 · 三个前提 · Megatron 的 --iterations-to-skip 与 tracker 文件 · 回退多远与跳过多少的账 |
+| 五 | 必须记录的信号 | 清单 · 正常与异常形态 · Megatron `training_log` / torchtitan MetricsProcessor / DeepSpeed 的对应 |
+| 六 | 数据管线（上）：存储与索引 | 离线 vs 在线 · `.bin`/`.idx` 格式 · document/sample/shuffle 三索引与缓存 · 混合与多阶段 · 打包与 `cu_seqlens` · DeepSpeed 课程学习 |
+| 七 | 数据管线（下）：加载与恢复 | 流式读取 · 可恢复的三条要求 · Megatron / torchtitan / DeepSpeed 的恢复语义 · 数据等待与 MFU |
+| 八 | 本文小结 | 要点 · 源码位置 · train-ledger 的 signals/ 与 `data/replay_check.py` · 回答核心问题 |
 
 
 ## 二、loss spike：现象与成因

@@ -27,15 +27,15 @@ catalog: true
 
 ### 2. 本文的章节安排
 
-```text
-第二章  控制面与数据面的分离       Python 控制面 vs C++/CUDA 数据面；为什么要解耦；PyBind11 与 Triton
-第三章  四个域                     请求域、调度域、显存域、模型域：给源码里的每个对象定位
-第四章  请求状态机                 RequestStatus 状态机；Scheduler 的统一 token 预算决策
-第五章  翻译层                     SchedulerOutput 如何变成 GPU 张量：slot_mapping 与 block_table
-第六章  从请求到 GPU Kernel 的完整调用链   十个环节与三道边界
-第七章  附录：各环节耗时量级       Llama-2-7B / A100 单卡口径下的耗时表与 batch 摊薄效应
-第八章  本文小结与系列总结         同一个请求的五笔账、四问的答案、三句话
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 控制面与数据面的分离 | Python 控制面 vs C++/CUDA 数据面；为什么要解耦；PyBind11 与 Triton |
+| 三 | 四个域 | 请求域、调度域、显存域、模型域：给源码里的每个对象定位 |
+| 四 | 请求状态机 | RequestStatus 状态机；Scheduler 的统一 token 预算决策 |
+| 五 | 翻译层 | SchedulerOutput 如何变成 GPU 张量：`slot_mapping` 与 `block_table` |
+| 六 | 从请求到 GPU Kernel 的完整调用链 | 十个环节与三道边界 |
+| 七 | 附录：各环节耗时量级 | Llama-2-7B / A100 单卡口径下的耗时表与 batch 摊薄效应 |
+| 八 | 本文小结与系列总结 | 同一个请求的五笔账、四问的答案、三句话 |
 
 ## 二、控制面与数据面的分离
 

@@ -22,17 +22,17 @@ catalog: true
 
 ### 2. 本文的章节安排
 
-```text
-第二章  两种设计目标：延迟与吞吐      CPU 与 GPU 的晶体管预算怎么分、零开销上下文切换、一个 SM 长什么样
-第三章  硬件怎么组织工作            warp：32 个 lane 一条指令（SIMT）；block：分派到 SM 的单位；硬件层级与编程模型名字的对应图
-第四章  SM、warp 与 SIMT 的硬件实现   分歧怎么串行、靠 warp 切换而非乱序执行隐藏延迟、驻留上限、Tensor Core 与 CUDA Core 的关系
-第五章  内存层次                     寄存器 / shared / L1 / L2 / HBM 的容量、带宽、延迟一张表；每一级给谁用；容量决定分块尺寸
-第六章  Roofline 模型                算术强度、两条屋顶、ridge point、四个例子、GEMM 何时真的 compute-bound、两个利用率、一个可运行的计算器
-第七章  硬件代际                     Volta / Ampere / Hopper / Blackwell 各自引入了什么
-第八章  工具链地图                   nvcc、PTX/SASS、cuobjdump、nsys、ncu、compute-sanitizer 各看什么
-第九章  系统层与 kernel 层的边界     哪些瓶颈属于系统层；本系列只讨论时间线上的实心色块；一张诊断决策图
-第十章  本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 两种设计目标：延迟与吞吐 | CPU 与 GPU 的晶体管预算怎么分、零开销上下文切换、一个 SM 长什么样 |
+| 三 | 硬件怎么组织工作 | warp：32 个 lane 一条指令（SIMT）；block：分派到 SM 的单位；硬件层级与编程模型名字的对应图 |
+| 四 | SM、warp 与 SIMT 的硬件实现 | 分歧怎么串行、靠 warp 切换而非乱序执行隐藏延迟、驻留上限、Tensor Core 与 CUDA Core 的关系 |
+| 五 | 内存层次 | 寄存器 / shared / L1 / L2 / HBM 的容量、带宽、延迟一张表；每一级给谁用；容量决定分块尺寸 |
+| 六 | Roofline 模型 | 算术强度、两条屋顶、ridge point、四个例子、GEMM 何时真的 compute-bound、两个利用率、一个可运行的计算器 |
+| 七 | 硬件代际 | Volta / Ampere / Hopper / Blackwell 各自引入了什么 |
+| 八 | 工具链地图 | nvcc、PTX/SASS、cuobjdump、nsys、ncu、compute-sanitizer 各看什么 |
+| 九 | 系统层与 kernel 层的边界 | 哪些瓶颈属于系统层；本系列只讨论时间线上的实心色块；一张诊断决策图 |
+| 十 | 本文小结 |  |
 
 本文不写 CUDA 代码。grid、block、thread 这些名字在代码里怎么写、怎么编号，是下一篇的内容；本文只在第三章末尾给出硬件层级与这些名字的对应图，作为两篇之间的桥。
 

@@ -58,21 +58,21 @@ Java 仍是参照系。Java 没有预处理器，条件编译靠运行期 `if` �
 
 ### 2. 本文的章节安排
 
-```text
-第二章    预处理器                       预处理发生在编译之前；#、##、__VA_ARGS__；两层间接；预定义宏
-第三章    宏的三种用途                     条件编译、生成重复代码、在调用点捕获信息；什么时候不该用宏
-第四章    TORCH_CHECK                    把一个宏完整展开一遍：C10_UNLIKELY、惰性拼接消息、torchCheckFail；为什么它必须是宏
-第五章    静态初始化与静态注册模式            三种存储期；静态注册模式；REGISTER_DISPATCH；与 ServiceLoader 的对照
-第六章    TORCH_LIBRARY 展开成什么           TorchLibraryInit 注册器；m.def 与 m.impl；TORCH_LIBRARY_IMPL；回答核心问题
-第七章    静态初始化顺序问题                 问题本身与三种规避方式；静态初始化阶段的纪律
-第八章    符号可见性                       -fvisibility=hidden 与 C10_API 一族；静态库为什么会丢掉注册；vLLM 的注册方式；用 nm 检查
-第九章    平台与编译器宏                    __GNUC__/__clang__/_MSC_VER、_WIN32/__APPLE__/__linux__、__CUDACC__/__CUDA_ARCH__、构建配置宏
-第十章    代码生成                        native_functions.yaml、torchgen/gen.py、模板 + 生成器、一个 yaml 条目生成了什么、CMake 如何驱动
-第十一章  回到源码                        library.cpp 的 Library::_def；vLLM 的两个绑定文件；torch/headeronly/macros/Macros.h
-第十二章  mini-c10                       MINI_CHECK、MINI_API、MINI_LIBRARY/MINI_LIBRARY_IMPL；算子文件自注册；四种链接方式验证
-第十三章  工程实践建议与常见错误
-第十四章  本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 预处理器 | 预处理发生在编译之前；#、##、`__VA_ARGS__`；两层间接；预定义宏 |
+| 三 | 宏的三种用途 | 条件编译、生成重复代码、在调用点捕获信息；什么时候不该用宏 |
+| 四 | `TORCH_CHECK` | 把一个宏完整展开一遍：`C10_UNLIKELY`、惰性拼接消息、torchCheckFail；为什么它必须是宏 |
+| 五 | 静态初始化与静态注册模式 | 三种存储期；静态注册模式；`REGISTER_DISPATCH`；与 ServiceLoader 的对照 |
+| 六 | `TORCH_LIBRARY` 展开成什么 | TorchLibraryInit 注册器；`m.def` 与 `m.impl`；`TORCH_LIBRARY_IMPL`；回答核心问题 |
+| 七 | 静态初始化顺序问题 | 问题本身与三种规避方式；静态初始化阶段的纪律 |
+| 八 | 符号可见性 | -fvisibility=hidden 与 `C10_API` 一族；静态库为什么会丢掉注册；vLLM 的注册方式；用 nm 检查 |
+| 九 | 平台与编译器宏 | `__GNUC__/__clang__/_MSC_VER`、`_WIN32/__APPLE__/__linux__`、`__CUDACC__/__CUDA_ARCH__`、构建配置宏 |
+| 十 | 代码生成 | `native_functions.yaml`、`torchgen/gen.py`、模板 + 生成器、一个 yaml 条目生成了什么、CMake 如何驱动 |
+| 十一 | 回到源码 | `library.cpp` 的 `Library::_def`；vLLM 的两个绑定文件；`torch/headeronly/macros/Macros.h` |
+| 十二 | mini-c10 | `MINI_CHECK`、`MINI_API`、`MINI_LIBRARY/MINI_LIBRARY_IMPL`；算子文件自注册；四种链接方式验证 |
+| 十三 | 工程实践建议与常见错误 |  |
+| 十四 | 本文小结 |  |
 
 
 ## 二、预处理器：文本层面的另一种语言

@@ -178,14 +178,14 @@ torch.compile(f, backend="aot_eager")
 
 ### 6. 本文的章节安排
 
-```text
-二        IR：FX Graph——所有组件共享的数据结构
-三 ~ 五   编译器：前端 Dynamo 捕获 → 中端 AOTAutograd 变换 → 后端 Inductor 代码生成
-六        运行时：Graph Break / Guard / Dynamic Shape / 编译缓存
-七        串起来：f 的四次调用——运行时的每条分支
-八        Java 对照
-九        本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | IR：FX Graph——所有组件共享的数据结构 |  |
+| 三 | ~ 五 | 编译器：前端 Dynamo 捕获 → 中端 AOTAutograd 变换 → 后端 Inductor 代码生成 |
+| 六 | 运行时：Graph Break / Guard / Dynamic Shape / 编译缓存 |  |
+| 七 | 串起来：f 的四次调用——运行时的每条分支 |  |
+| 八 | Java 对照 |  |
+| 九 | 本文小结 |  |
 
 
 ## 二、IR：FX Graph

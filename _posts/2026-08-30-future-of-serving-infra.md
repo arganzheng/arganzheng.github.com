@@ -54,18 +54,18 @@ Serving 系统正在从“模型执行器”演进为“分布式智能操作系
 
 ### 2. 本文的章节安排
 
-```text
-第二章  Serving 系统正在管理什么       从请求响应到智能任务；性能指标需要重新定义
-第三章  计算：从手工并行到自动执行计划  手写 Kernel 的边界；Serving Plan Compiler
-第四章  自动化并行与容量编排           自动并行、拓扑感知规划、Prefill/Decode 容量均衡、MoE 与专家资源
-第五章  状态：从 KV Cache 到 Inference State Plane  分层 KV Cache、Cache-aware Scheduling、状态平面
-第六章  调度：从单体 Engine 到分布式执行  PD 解耦、KV Transfer、请求与状态迁移、Speculative Serving
-第七章  弹性：从故障重试到状态恢复      故障模型、Goodput 驱动的调度、异构硬件与能耗感知
-第八章  vLLM 的位置与边界
-第九章  AI Serving Operating System
-第十章  Serving Engineer 的角色变化
-第十一章 本文小结                     Serving 的下一站
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | Serving 系统正在管理什么 | 从请求响应到智能任务；性能指标需要重新定义 |
+| 三 | 计算：从手工并行到自动执行计划 | 手写 Kernel 的边界；Serving Plan Compiler |
+| 四 | 自动化并行与容量编排 | 自动并行、拓扑感知规划、Prefill/Decode 容量均衡、MoE 与专家资源 |
+| 五 | 状态：从 KV Cache 到 Inference State Plane | 分层 KV Cache、Cache-aware Scheduling、状态平面 |
+| 六 | 调度：从单体 Engine 到分布式执行 | PD 解耦、KV Transfer、请求与状态迁移、Speculative Serving |
+| 七 | 弹性：从故障重试到状态恢复 | 故障模型、Goodput 驱动的调度、异构硬件与能耗感知 |
+| 八 | vLLM 的位置与边界 |  |
+| 九 | AI Serving Operating System |  |
+| 十 | Serving Engineer 的角色变化 |  |
+| 十一 | 本文小结 | Serving 的下一站 |
 
 ## 二、Serving 系统正在管理什么
 

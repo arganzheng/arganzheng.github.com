@@ -28,17 +28,17 @@ catalog: true
 
 ### 3. 本文的章节安排
 
-```text
-第二章   为什么需要位置编码        attention 是置换不变的；绝对（正弦/可学习）与相对位置编码
-第三章   RoPE 的推导              d_head/2 个复数、相对性的完整形式、rotate_half 实现、与 KV cache 的关系
-第四章   波长：RoPE 的频谱         每个维度对的波长、8K 训练时哪些对"没转完一圈"、外推为什么失败、base 10000 → 500000
-第五章   长上下文扩展方法          Position Interpolation、NTK-aware、YaRN、Llama 3.1 分段缩放、DeepSeek-V3/Qwen 的配置、ALiBi
-第六章   长上下文的成本            attention 算量与权重算量的交叉点、128K prefill 的 11 秒、KV cache 线性项、s² 的 logits
-第七章   缩短成本的结构手段        sliding window、全局/局部交错、attention sink、稀疏 attention；每种手段改成了什么函数
-第八章   对 Infra 的影响汇总
-第九章   实践                      NumPy 实现 RoPE 并验证相对性、波长表与三种缩放、llm_cost.py 上下文长度扫描
-第十章   本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 为什么需要位置编码 | attention 是置换不变的；绝对（正弦/可学习）与相对位置编码 |
+| 三 | RoPE 的推导 | `d_head/2` 个复数、相对性的完整形式、`rotate_half` 实现、与 KV cache 的关系 |
+| 四 | 波长：RoPE 的频谱 | 每个维度对的波长、8K 训练时哪些对"没转完一圈"、外推为什么失败、base 10000 → 500000 |
+| 五 | 长上下文扩展方法 | Position Interpolation、NTK-aware、YaRN、Llama 3.1 分段缩放、DeepSeek-V3/Qwen 的配置、ALiBi |
+| 六 | 长上下文的成本 | attention 算量与权重算量的交叉点、128K prefill 的 11 秒、KV cache 线性项、s² 的 logits |
+| 七 | 缩短成本的结构手段 | sliding window、全局/局部交错、attention sink、稀疏 attention；每种手段改成了什么函数 |
+| 八 | 对 Infra 的影响汇总 |  |
+| 九 | 实践 | NumPy 实现 RoPE 并验证相对性、波长表与三种缩放、`llm_cost.py` 上下文长度扫描 |
+| 十 | 本文小结 |  |
 
 
 ## 二、为什么需要位置编码

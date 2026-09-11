@@ -80,20 +80,17 @@ catalog: true
 
 ### 4. 本文的章节安排
 
-```text
-二、PCIe            lane 与代际怎么换算成 GB/s；root complex、switch、P2P 事务；
-                    为什么跨 root complex 的 P2P 慢甚至不可用；ACS；NCCL 如何估算 PCIe 带宽
-三、NVLink/NVSwitch 每代的链路数与带宽；NVSwitch 如何做到 any-to-any 全带宽；
-                    为什么 NVLink 上的 all_reduce 几乎不受消息大小影响；NVLink SHARP
-四、网卡与网络      IB 的代际与速率；RoCE v2 与 PFC/ECN；8 卡为什么配 8 张 400 Gb/s 网卡
-五、读拓扑          nvidia-smi topo -m 的六个等级与一张样例矩阵；lspci -tv；topo -mp；
-                    回答核心问题；NCCL 的路径类型与选网卡逻辑
-六、NUMA 与亲和     socket、内存节点、PCIe 设备的归属；为什么绑核影响通信；NCCL 怎么用亲和
-七、主机内存        pinned memory、staging buffer；什么时候必须经过主机内存
-八、集群拓扑        fat-tree 与超额订阅；rail-optimized；对调度的意义
-九、测一测          nvbandwidth、p2pBandwidthLatencyTest、ib_write_bw 各测哪一段；数字该长什么样
-十、小结            要点、检查项、源码位置、comm-probe 的 topo_map.py
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | PCIe | lane 与代际怎么换算成 GB/s；root complex、switch、P2P 事务；为什么跨 root complex 的 P2P 慢甚至不可用；ACS；NCCL 如何估算 PCIe 带宽 |
+| 三 | NVLink/NVSwitch | 每代的链路数与带宽；NVSwitch 如何做到 any-to-any 全带宽；为什么 NVLink 上的 `all_reduce` 几乎不受消息大小影响；NVLink SHARP |
+| 四 | 网卡与网络 | IB 的代际与速率；RoCE v2 与 PFC/ECN；8 卡为什么配 8 张 400 Gb/s 网卡 |
+| 五 | 读拓扑 | nvidia-smi topo -m 的六个等级与一张样例矩阵；lspci -tv；topo -mp；回答核心问题；NCCL 的路径类型与选网卡逻辑 |
+| 六 | NUMA 与亲和 | socket、内存节点、PCIe 设备的归属；为什么绑核影响通信；NCCL 怎么用亲和 |
+| 七 | 主机内存 | pinned memory、staging buffer；什么时候必须经过主机内存 |
+| 八 | 集群拓扑 | fat-tree 与超额订阅；rail-optimized；对调度的意义 |
+| 九 | 测一测 | nvbandwidth、p2pBandwidthLatencyTest、`ib_write_bw` 各测哪一段；数字该长什么样 |
+| 十 | 小结 | 要点、检查项、源码位置、comm-probe 的 `topo_map.py` |
 
 
 ## 二、PCIe：lane、代际、root complex 与 P2P

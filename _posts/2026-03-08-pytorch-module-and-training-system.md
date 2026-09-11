@@ -51,22 +51,22 @@ Parameter 更新
 
 ### 2. 本文的章节安排
 
-```text
-第二章   从模型对象到训练系统              一个模型包含什么、Module 树、forward、生命周期容器
-第三章   nn.Module 与模块注册              __setattr__ 的注册机制、ModuleList / ModuleDict / Sequential
-第四章   Parameter、Buffer 与模型状态       三类属性的区别、为什么普通 Tensor 不会自动迁移
-第五章   state_dict                       保存什么、不是完整模型、保存与加载、可恢复 checkpoint
-第六章   训练、评估与推理状态              train() / eval()、eval 不等于关闭梯度、完整评估函数
-第七章   Optimizer 与参数更新              Optimizer 管理什么、梯度清零、参数组、冻结、state
-第八章   Dataset、Sampler 与 DataLoader     三者的职责、collate_fn、瓶颈与 num_workers
-第九章   CPU-GPU 数据传输与训练流水线       设备兼容、模型迁移、pinned memory、理想流水线
-第十章   完整训练循环                     最小循环、完整程序、一次迭代的状态流、常见顺序错误
-第十一章 混合精度训练入门                 autocast、GradScaler 及其边界
-第十二章 Hooks 与模型观测                 Hook 能做什么、成本与风险
-第十三章 Checkpoint 与可恢复训练          保存什么、何时保存、resume 不只是加载权重
-第十四章 Java 工程师如何理解 nn.Module     组件树、Parameter、state_dict、DataLoader 的类比
-第十五章 本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 从模型对象到训练系统 | 一个模型包含什么、Module 树、forward、生命周期容器 |
+| 三 | `nn.Module` 与模块注册 | `__setattr__` 的注册机制、ModuleList / ModuleDict / Sequential |
+| 四 | Parameter、Buffer 与模型状态 | 三类属性的区别、为什么普通 Tensor 不会自动迁移 |
+| 五 | `state_dict` | 保存什么、不是完整模型、保存与加载、可恢复 checkpoint |
+| 六 | 训练、评估与推理状态 | `train()` / `eval()`、eval 不等于关闭梯度、完整评估函数 |
+| 七 | Optimizer 与参数更新 | Optimizer 管理什么、梯度清零、参数组、冻结、state |
+| 八 | Dataset、Sampler 与 DataLoader | 三者的职责、`collate_fn`、瓶颈与 `num_workers` |
+| 九 | CPU-GPU 数据传输与训练流水线 | 设备兼容、模型迁移、pinned memory、理想流水线 |
+| 十 | 完整训练循环 | 最小循环、完整程序、一次迭代的状态流、常见顺序错误 |
+| 十一 | 混合精度训练入门 | autocast、GradScaler 及其边界 |
+| 十二 | Hooks 与模型观测 | Hook 能做什么、成本与风险 |
+| 十三 | Checkpoint 与可恢复训练 | 保存什么、何时保存、resume 不只是加载权重 |
+| 十四 | Java 工程师如何理解 `nn.Module` | 组件树、Parameter、`state_dict`、DataLoader 的类比 |
+| 十五 | 本文小结 |  |
 
 
 ## 二、从模型对象到训练系统

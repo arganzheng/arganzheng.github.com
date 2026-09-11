@@ -69,20 +69,20 @@ at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta) {
 
 ### 3. 本文的章节安排
 
-```text
-第二章    读本文需要的 C++ 语法最小集         类的写法、构造/析构、初始化列表、this 与 ->、关键字速查、模板怎么读
-第三章    对象在哪里：栈、堆与值语义          先建立内存的图像；变量就是对象；拷贝在哪里发生；Java 的 = 与 C++ 的 = 含义完全不同
-第四章    引用与指针                        T&、const T&、T* 各自的使用场景；const 的位置与含义；const 成员函数；悬垂引用
-第五章    六大特殊成员函数与 Rule of Zero/Five  编译器替你写的六个函数；一个 double free 的完整案例；= default 与 = delete
-第六章    右值引用、std::move 与按值返回       左值与右值；移动构造；std::move 什么都不移动；RVO/NRVO；noexcept 与移动
-第七章    RAII                            确定性析构；与 try-with-resources 的边界；析构顺序；异常安全
-第八章    标准智能指针                      unique_ptr、shared_ptr、weak_ptr：三种所有权关系及其代价
-第九章    c10::intrusive_ptr                先用 60 行玩具版讲原理，再读真实源码；比 shared_ptr 省了什么；release/reclaim；NullType；弱引用
-第十章    回到源码：从 Tensor 到显存的完整持有链  Tensor -> TensorImpl -> Storage -> StorageImpl -> DataPtr -> Allocator；回答核心问题
-第十一章  mini-c10：让第一个 Tensor 跑起来      intrusive_ptr、Allocator、StorageImpl、TensorImpl、Tensor；用析构打印验证释放时序
-第十二章  工程实践建议与常见错误
-第十三章  本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 读本文需要的 C++ 语法最小集 | 类的写法、构造/析构、初始化列表、this 与 ->、关键字速查、模板怎么读 |
+| 三 | 对象在哪里：栈、堆与值语义 | 先建立内存的图像；变量就是对象；拷贝在哪里发生；Java 的 = 与 C++ 的 = 含义完全不同 |
+| 四 | 引用与指针 | T&、const T&、T* 各自的使用场景；const 的位置与含义；const 成员函数；悬垂引用 |
+| 五 | 六大特殊成员函数与 Rule of Zero/Five | 编译器替你写的六个函数；一个 double free 的完整案例；= default 与 = delete |
+| 六 | 右值引用、`std::move` 与按值返回 | 左值与右值；移动构造；`std::move` 什么都不移动；RVO/NRVO；noexcept 与移动 |
+| 七 | RAII | 确定性析构；与 try-with-resources 的边界；析构顺序；异常安全 |
+| 八 | 标准智能指针 | `unique_ptr`、`shared_ptr`、`weak_ptr`：三种所有权关系及其代价 |
+| 九 | `c10::intrusive_ptr` | 先用 60 行玩具版讲原理，再读真实源码；比 `shared_ptr` 省了什么；release/reclaim；NullType；弱引用 |
+| 十 | 回到源码：从 Tensor 到显存的完整持有链 | Tensor -> TensorImpl -> Storage -> StorageImpl -> DataPtr -> Allocator；回答核心问题 |
+| 十一 | mini-c10：让第一个 Tensor 跑起来 | `intrusive_ptr`、Allocator、StorageImpl、TensorImpl、Tensor；用析构打印验证释放时序 |
+| 十二 | 工程实践建议与常见错误 |  |
+| 十三 | 本文小结 |  |
 
 
 ## 二、读本文需要的 C++ 语法最小集

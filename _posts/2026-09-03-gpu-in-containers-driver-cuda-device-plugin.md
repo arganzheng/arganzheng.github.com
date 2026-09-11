@@ -69,16 +69,16 @@ catalog: true
 
 ### 4. 本文的章节安排
 
-```text
-二、四层栈与三条兼容规则      哪层在宿主机、哪层在容器；向后 / minor version / forward 三条规则各配例子与查法；PyTorch wheel 为什么带 cudart 不带 libcuda；核心问题的三个组合
-三、Container Toolkit          nvidia-container-runtime 的 legacy hook 路径；NVIDIA_VISIBLE_DEVICES / NVIDIA_DRIVER_CAPABILITIES / NVIDIA_REQUIRE_CUDA；CDI 与 nvidia-ctk cdi generate；jit-cdi
-四、device plugin              v1beta1 gRPC 五个方法；NVIDIA 插件如何上报 nvidia.com/gpu、Allocate 返回什么；健康检查；三个局限
-五、GPU Operator               ClusterPolicy 的组件字段；节点标签的三个来源（NFD → gpu.present → gpu.deploy.* → GFD）；驱动容器与 hostPaths；Helm 安装与 values
-六、DRA                        DeviceClass / ResourceSlice / ResourceClaim / ResourceClaimTemplate；CEL 选择器与 capacity；调度器与 kubelet 侧；完整示例；v1.37 的特性状态与 NVIDIA DRA driver
-七、镜像                       nvidia/cuda 的 base / runtime / devel；PyTorch / vLLM 镜像的层；多阶段构建；拉取时间的算术；预热与 P2P 分发
-八、代价与边界                 四栏表；每个机制引入的新问题；什么场景不该用
-九、本文小结                   要点、源码与 CRD 位置、mini-platform/gpu/ 增量
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 四层栈与三条兼容规则 | 哪层在宿主机、哪层在容器；向后 / minor version / forward 三条规则各配例子与查法；PyTorch wheel 为什么带 cudart 不带 libcuda；核心问题的三个组合 |
+| 三 | Container Toolkit | nvidia-container-runtime 的 legacy hook 路径；`NVIDIA_VISIBLE_DEVICES` / `NVIDIA_DRIVER_CAPABILITIES` / `NVIDIA_REQUIRE_CUDA`；CDI 与 nvidia-ctk cdi generate；jit-cdi |
+| 四 | device plugin | v1beta1 gRPC 五个方法；NVIDIA 插件如何上报 `nvidia.com/gpu`、Allocate 返回什么；健康检查；三个局限 |
+| 五 | GPU Operator | ClusterPolicy 的组件字段；节点标签的三个来源（NFD → `gpu.present` → `gpu.deploy.*` → GFD）；驱动容器与 hostPaths；Helm 安装与 values |
+| 六 | DRA | DeviceClass / ResourceSlice / ResourceClaim / ResourceClaimTemplate；CEL 选择器与 capacity；调度器与 kubelet 侧；完整示例；`v1.37` 的特性状态与 NVIDIA DRA driver |
+| 七 | 镜像 | nvidia/cuda 的 base / runtime / devel；PyTorch / vLLM 镜像的层；多阶段构建；拉取时间的算术；预热与 P2P 分发 |
+| 八 | 代价与边界 | 四栏表；每个机制引入的新问题；什么场景不该用 |
+| 九 | 本文小结 | 要点、源码与 CRD 位置、mini-platform/gpu/ 增量 |
 
 
 ## 二、四层栈与三条兼容规则

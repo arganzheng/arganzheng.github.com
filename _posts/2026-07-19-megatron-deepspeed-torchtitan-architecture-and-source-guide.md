@@ -114,14 +114,14 @@ PyTorch 2.13.0        torch/distributed/
 
 ### 5. 本文的章节安排
 
-```text
-第二章  进程组          Megatron parallel_state 的 RankGenerator；DeepSpeed groups.py 的 mpu 委托；torchtitan ParallelDims 的 mesh 拆分；对照表
-第三章  Megatron-LM     TP 层与 mappings；DDP 的 buffer 与 bucket；分布式优化器；bf16 参数的一生；训练循环；Megatron-FSDP
-第四章  DeepSpeed       DeepSpeedEngine；Stage 1/2 的扁平分区；Stage 3 的 ds_tensor 与 hook；bf16 参数的一生；训练循环；pipe/ 与 JSON
-第五章  torchtitan      Trainer.__init__ 的装配顺序；ShardingConfig 描述的 TP；fully_shard 的应用；PP 与 CP；bf16 参数的一生；train_step
-第六章  对照阅读        三条时序并排；前向前 all-gather 的三种实现（Stage 3 / FSDP1 / FSDP2）；1F1B 的两种写法；取舍表
-第七章  小结            要点、源码位置、train-ledger 的 runs/ 与 probe_memory.py
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 进程组 | Megatron `parallel_state` 的 RankGenerator；DeepSpeed `groups.py` 的 mpu 委托；torchtitan ParallelDims 的 mesh 拆分；对照表 |
+| 三 | Megatron-LM | TP 层与 mappings；DDP 的 buffer 与 bucket；分布式优化器；bf16 参数的一生；训练循环；Megatron-FSDP |
+| 四 | DeepSpeed | DeepSpeedEngine；Stage 1/2 的扁平分区；Stage 3 的 `ds_tensor` 与 hook；bf16 参数的一生；训练循环；pipe/ 与 JSON |
+| 五 | torchtitan | `Trainer.__init__` 的装配顺序；ShardingConfig 描述的 TP；`fully_shard` 的应用；PP 与 CP；bf16 参数的一生；`train_step` |
+| 六 | 对照阅读 | 三条时序并排；前向前 all-gather 的三种实现（Stage 3 / FSDP1 / FSDP2）；1F1B 的两种写法；取舍表 |
+| 七 | 小结 | 要点、源码位置、train-ledger 的 runs/ 与 `probe_memory.py` |
 
 
 ## 二、进程组：谁和谁通信

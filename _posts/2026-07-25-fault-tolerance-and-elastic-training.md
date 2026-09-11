@@ -104,17 +104,17 @@ Megatron 是这一章的主角：它和 NVRx 一起覆盖了检测、进程内�
 
 ### 5. 本文的章节安排
 
-```text
-二、故障率数学          集群 MTBF · 有效训练时间的五项公式 · Young 公式的位置 · Llama 3 数字代入 · 85%→95% 该缩短哪一段
-三、三类故障 × 检测手段  显式 / 隐式 / 静默 · 检测矩阵 · NCCL watchdog 与 TORCH_NCCL_* · NVRx fault_tolerance 与 Megatron ft_integration
-四、重启：torchrun 与 rendezvous   run.py → launcher/api.py → elastic agent · rendezvous 的 c10d/etcd 后端与 min:max · --max-restarts · 一次重启的时间账
-五、进程内重启          为什么进程重启慢 · NVRx inprocess.Wrapper 的组件 · Megatron inprocess_restart.py · 与 ft_launcher 的嵌套
-六、弹性训练：torchft    副本组模型 · Lighthouse 的 quorum 规则（Rust） · Manager 的 start_quorum / allreduce / should_commit · 恢复 · DDP/HSDP 与 torchtitan · LocalSGD/DiLoCo
-七、坏卡隔离与预检       从日志到排除列表 · gpu_sniff_test · NVRx 健康检查
-八、straggler           成因 · 计算时间 vs 等待时间 · Megatron StragglerDetector · NVRx attribution/straggler · what-if 论文的结论
-九、SDC 与确定性         为什么危险 · 冗余与校验 · RerunStateMachine 的机制与三种模式 · fault_injector · 确定性
-十、本文小结            要点 · 源码位置 · train-ledger 的 ledger/availability.py 与 chaos/
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 故障率数学 | 集群 MTBF · 有效训练时间的五项公式 · Young 公式的位置 · Llama 3 数字代入 · 85%→95% 该缩短哪一段 |
+| 三 | 三类故障 × 检测手段 | 显式 / 隐式 / 静默 · 检测矩阵 · NCCL watchdog 与 `TORCH_NCCL_*` · NVRx `fault_tolerance` 与 Megatron `ft_integration` |
+| 四 | 重启：torchrun 与 rendezvous | `run.py` → `launcher/api.py` → elastic agent · rendezvous 的 c10d/etcd 后端与 `min:max` · --max-restarts · 一次重启的时间账 |
+| 五 | 进程内重启 | 为什么进程重启慢 · NVRx `inprocess.Wrapper` 的组件 · Megatron `inprocess_restart.py` · 与 `ft_launcher` 的嵌套 |
+| 六 | 弹性训练：torchft | 副本组模型 · Lighthouse 的 quorum 规则（Rust） · Manager 的 `start_quorum` / allreduce / `should_commit` · 恢复 · DDP/HSDP 与 torchtitan · LocalSGD/DiLoCo |
+| 七 | 坏卡隔离与预检 | 从日志到排除列表 · `gpu_sniff_test` · NVRx 健康检查 |
+| 八 | straggler | 成因 · 计算时间 vs 等待时间 · Megatron StragglerDetector · NVRx attribution/straggler · what-if 论文的结论 |
+| 九 | SDC 与确定性 | 为什么危险 · 冗余与校验 · RerunStateMachine 的机制与三种模式 · `fault_injector` · 确定性 |
+| 十 | 本文小结 | 要点 · 源码位置 · train-ledger 的 `ledger/availability.py` 与 chaos/ |
 
 
 ## 二、故障率数学：从 MTBF 到有效训练时间

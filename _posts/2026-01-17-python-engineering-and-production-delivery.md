@@ -57,18 +57,18 @@ Java 开发者常有的一个错觉是"Python 简单，随便装装就能跑"。
 
 ### 3. 本文的章节安排
 
-```text
-第二章    pyproject.toml：项目元数据的单一入口   [project]、可选依赖与分组、scripts 入口、build-system、工具配置聚合、对照 Maven
-第三章    虚拟环境与解释器隔离                   为什么比 Java 更依赖隔离、venv 操作、隔离解决不了什么、conda vs venv
-第四章    依赖管理与可复现构建                   抽象依赖与锁定依赖、requirements.txt 的局限、工具选型、版本上界、供应链安全
-第五章    AI-Infra 的依赖难题                    +cu121 本地版本、index-url 与 extra-index-url、CUDA 兼容矩阵、锁文件跨平台失效、把 torch 摘出去
-第六章    代码质量工具链                         Ruff、渐进式引入与 noqa、pre-commit、与类型检查的分工、对照 Checkstyle/SpotBugs
-第七章    打包与分发                             wheel 与 sdist、纯 Python 包 vs 带扩展的包、类型信息随包分发、版本号与发布
-第八章    容器化：Python 服务的交付形态          分层与缓存、torch 装在哪一层、容器里为何仍用 venv、ASGI 部署、FastAPI + uvicorn
-第九章    串起来：一个可复现的项目骨架           目录结构、pyproject.toml、Dockerfile、Makefile、CI
-第十章    附：Java 与 Python 工程化工具链对照
-第十一章  本文小结与系列总结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | `pyproject.toml`：项目元数据的单一入口 | [project]、可选依赖与分组、scripts 入口、build-system、工具配置聚合、对照 Maven |
+| 三 | 虚拟环境与解释器隔离 | 为什么比 Java 更依赖隔离、venv 操作、隔离解决不了什么、conda vs venv |
+| 四 | 依赖管理与可复现构建 | 抽象依赖与锁定依赖、`requirements.txt` 的局限、工具选型、版本上界、供应链安全 |
+| 五 | AI-Infra 的依赖难题 | +cu121 本地版本、index-url 与 extra-index-url、CUDA 兼容矩阵、锁文件跨平台失效、把 torch 摘出去 |
+| 六 | 代码质量工具链 | Ruff、渐进式引入与 noqa、pre-commit、与类型检查的分工、对照 Checkstyle/SpotBugs |
+| 七 | 打包与分发 | wheel 与 sdist、纯 Python 包 vs 带扩展的包、类型信息随包分发、版本号与发布 |
+| 八 | 容器化：Python 服务的交付形态 | 分层与缓存、torch 装在哪一层、容器里为何仍用 venv、ASGI 部署、FastAPI + uvicorn |
+| 九 | 串起来：一个可复现的项目骨架 | 目录结构、`pyproject.toml`、Dockerfile、Makefile、CI |
+| 十 | 附：Java 与 Python 工程化工具链对照 |  |
+| 十一 | 本文小结与系列总结 |  |
 
 
 ## 二、pyproject.toml：项目元数据的单一入口

@@ -36,22 +36,22 @@ catalog: true
 
 ### 2. 本文的章节安排
 
-```text
-第二章   Tensor 的整体模型                逻辑视图与物理存储、核心字段、元素数量与占用空间
-第三章   Shape：Tensor 的逻辑形状          view / reshape / flatten、增删维度
-第四章   Stride：逻辑索引如何映射到内存     stride 的定义、二维与三维例子、view 为何可能
-第五章   Transpose、Permute 与 View        只改 metadata 的变换、转置后 view 为何失败
-第六章   Contiguous：连续布局与数据拷贝     contiguous 的定义、Kernel 为何关心它、其他 layout
-第七章   Storage、Storage Offset 与共享内存  Storage、offset、切片 view、view 的生命周期影响
-第八章   dtype：如何解释每个元素           FP16 与 BF16、dtype promotion、转换的拷贝成本
-第九章   Device：数据到底在哪里执行         .to() 的两个维度、H2D 搬运、device mismatch、Meta device
-第十章   View、Clone、Detach 与 In-place    四组操作的语义边界及其与 Autograd 的关系
-第十一章 Broadcasting                     expand 与 repeat、广播不等于复制、排查方式
-第十二章 从 Tensor 视角理解内存问题        数据 / 缓存 / 计算图内存、生命周期、成本模型
-第十三章 实现一个简化版 Tensor            用 Python 复现 stride、transpose 与 contiguous copy
-第十四章 Java 工程师应该如何理解 Tensor    Tensor 与 Java 数组的关键差异
-第十五章 本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | Tensor 的整体模型 | 逻辑视图与物理存储、核心字段、元素数量与占用空间 |
+| 三 | Shape：Tensor 的逻辑形状 | view / reshape / flatten、增删维度 |
+| 四 | Stride：逻辑索引如何映射到内存 | stride 的定义、二维与三维例子、view 为何可能 |
+| 五 | Transpose、Permute 与 View | 只改 metadata 的变换、转置后 view 为何失败 |
+| 六 | Contiguous：连续布局与数据拷贝 | contiguous 的定义、Kernel 为何关心它、其他 layout |
+| 七 | Storage、Storage Offset 与共享内存 | Storage、offset、切片 view、view 的生命周期影响 |
+| 八 | dtype：如何解释每个元素 | FP16 与 BF16、dtype promotion、转换的拷贝成本 |
+| 九 | Device：数据到底在哪里执行 | .to() 的两个维度、H2D 搬运、device mismatch、Meta device |
+| 十 | View、Clone、Detach 与 In-place | 四组操作的语义边界及其与 Autograd 的关系 |
+| 十一 | Broadcasting | expand 与 repeat、广播不等于复制、排查方式 |
+| 十二 | 从 Tensor 视角理解内存问题 | 数据 / 缓存 / 计算图内存、生命周期、成本模型 |
+| 十三 | 实现一个简化版 Tensor | 用 Python 复现 stride、transpose 与 contiguous copy |
+| 十四 | Java 工程师应该如何理解 Tensor | Tensor 与 Java 数组的关键差异 |
+| 十五 | 本文小结 |  |
 
 
 ## 二、Tensor 的整体模型

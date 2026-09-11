@@ -38,16 +38,16 @@ AI 负载里除 GEMM 与 attention 之外的绝大多数算子——激活函数
 
 ### 2. 本文的章节安排
 
-```text
-第二章  一个 warp 的内存请求发生了什么   32 字节 sector 与 128 字节 cache line、访问模式与效率表、AoS 与 SoA、写入与只读路径
-第三章  向量化访存                    为什么每线程 4 字节不够、float4 / __nv_bfloat162 / int4、对齐要求与尾部处理
-第四章  grid-stride loop 与占用率      grid 不必等于元素数、Little's law 与 memory-bound 为什么也需要多 warp、占用率的约束
-第五章  非连续 Tensor                 把线性 index 变成多维 offset、TensorIterator 在 host 侧做了什么
-第六章  读 ATen 的 elementwise 实现    入口与路径选择、launch_vectorized_kernel 与 can_vectorize_up_to、向量化与非向量化路径、AT_DISPATCH
-第七章  融合：90% 之后                三个 kernel 与一个 kernel、Inductor 融合的收益来源
-第八章  实践：把 BF16 add 推到 90%     理论下界、naive / 向量化 / 向量化 + grid-stride 三个版本、通用 2D stride 版本、load_inline 测试、读者应看到的量级
-第九章  本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 一个 warp 的内存请求发生了什么 | 32 字节 sector 与 128 字节 cache line、访问模式与效率表、AoS 与 SoA、写入与只读路径 |
+| 三 | 向量化访存 | 为什么每线程 4 字节不够、float4 / `__nv_bfloat162` / int4、对齐要求与尾部处理 |
+| 四 | grid-stride loop 与占用率 | grid 不必等于元素数、Little's law 与 memory-bound 为什么也需要多 warp、占用率的约束 |
+| 五 | 非连续 Tensor | 把线性 index 变成多维 offset、TensorIterator 在 host 侧做了什么 |
+| 六 | 读 ATen 的 elementwise 实现 | 入口与路径选择、`launch_vectorized_kernel` 与 `can_vectorize_up_to`、向量化与非向量化路径、`AT_DISPATCH` |
+| 七 | 融合：90% 之后 | 三个 kernel 与一个 kernel、Inductor 融合的收益来源 |
+| 八 | 实践：把 BF16 add 推到 90% | 理论下界、naive / 向量化 / 向量化 + grid-stride 三个版本、通用 2D stride 版本、`load_inline` 测试、读者应看到的量级 |
+| 九 | 本文小结 |  |
 
 
 ## 二、一个 warp 的内存请求发生了什么

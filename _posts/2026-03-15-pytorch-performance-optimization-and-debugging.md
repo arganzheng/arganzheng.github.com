@@ -139,23 +139,20 @@ flowchart TB
 
 ### 6. 本文的章节安排
 
-```text
-度量与工具地图：归类之前必须先测对
-  第二章   度量（1）：异步执行模型            正确计时的前提：Stream、同步是测量的边界
-  第三章   度量（2）：Benchmark 方法          怎么得到可信的数字：warmup、口径、正确性先于性能
-  第四章   度量（3）：Profiler 与 Nsight      怎么看出瓶颈属于哪一类：表格、时间线、nsys、ncu
-
-时间维度：五类瓶颈
-  第五章   时间维度（1）：CPU 侧              Python-bound 与 Launch-bound，六个处方
-  第六章   时间维度（2）：GPU 侧              Memory-bound 与 Compute-bound（含处方：融合、低精度、数据布局）
-  第七章   时间维度（3）：两侧之间            Sync-bound（含数据加载）
-
-  第八章   空间维度：显存                     构成、Caching Allocator、碎片、峰值、泄漏、时间换空间
-
-  第九章   完整案例：一个 Transformer block 的训练 step
-  第十章   Java 对照
-  第十一章 本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| | **度量与工具地图：归类之前必须先测对** | |
+| 二 | 度量（1）：异步执行模型 | 正确计时的前提：Stream、同步是测量的边界 |
+| 三 | 度量（2）：Benchmark 方法 | 怎么得到可信的数字：warmup、口径、正确性先于性能 |
+| 四 | 度量（3）：Profiler 与 Nsight | 怎么看出瓶颈属于哪一类：表格、时间线、nsys、ncu |
+| | **时间维度：五类瓶颈** | |
+| 五 | 时间维度（1）：CPU 侧 | Python-bound 与 Launch-bound，六个处方 |
+| 六 | 时间维度（2）：GPU 侧 | Memory-bound 与 Compute-bound（含处方：融合、低精度、数据布局） |
+| 七 | 时间维度（3）：两侧之间 | Sync-bound（含数据加载） |
+| 八 | 空间维度：显存 | 构成、Caching Allocator、碎片、峰值、泄漏、时间换空间 |
+| 九 | 完整案例 | 一个 Transformer block 的训练 step |
+| 十 | Java 对照 | |
+| 十一 | 本文小结 | |
 
 
 ## 二、度量（1）：异步执行模型——正确计时的前提

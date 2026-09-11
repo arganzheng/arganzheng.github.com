@@ -28,15 +28,15 @@ catalog: true
 
 ### 3. 本文的章节安排
 
-```text
-第二章  Triton 的编程模型            program 对应 CUDA block、四个原语、layout、tl.constexpr、num_warps / num_stages、autotune 与 heuristics
-第三章  三个 kernel 的 Triton 版本     BF16 elementwise add、按行 softmax、matmul：tl.dot 与 L2 swizzle
-第四章  编译器做了什么               编译流水线的六层、读 TTGIR、读 PTX
-第五章  生产中的 Triton kernel        torch.compile 生成的 kernel、vLLM 的 fused_moe_kernel 与 prefix-prefill attention
-第六章  编译器的边界                 Triton 做不了或做不好的、那 10% 在哪里、什么时候值得手写
-第七章  实践                        正确性对照、性能对照表模板、打印 TTGIR 与 PTX
-第八章  本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | Triton 的编程模型 | program 对应 CUDA block、四个原语、layout、`tl.constexpr`、`num_warps` / `num_stages`、autotune 与 heuristics |
+| 三 | 三个 kernel 的 Triton 版本 | BF16 elementwise add、按行 softmax、matmul：`tl.dot` 与 L2 swizzle |
+| 四 | 编译器做了什么 | 编译流水线的六层、读 TTGIR、读 PTX |
+| 五 | 生产中的 Triton kernel | `torch.compile` 生成的 kernel、vLLM 的 `fused_moe_kernel` 与 prefix-prefill attention |
+| 六 | 编译器的边界 | Triton 做不了或做不好的、那 10% 在哪里、什么时候值得手写 |
+| 七 | 实践 | 正确性对照、性能对照表模板、打印 TTGIR 与 PTX |
+| 八 | 本文小结 |  |
 
 
 ## 二、把"线程"拿掉之后：Triton 的编程模型

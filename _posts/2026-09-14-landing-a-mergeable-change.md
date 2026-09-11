@@ -83,22 +83,22 @@ AI 政策         AI_POLICY.md：不接受全自主 agent 的贡献；标注 AI 
 
 ### 4. 本文的章节安排
 
-```text
-二、最小 diff        一个 PR 只做一件事；PyTorch 的 2000 行硬上限与 ghstack；vLLM 的 500 行 RFC 线与顺序 PR
-三、测试             PyTorch 的 TestCase / run_tests / instantiate_device_type_tests；vLLM 的 pytest 与 AGENTS.md 四个问题
-四、benchmark        什么算"有数字"；PyTorch 的 benchmarks/ 与模板 checklist；vLLM 的 benchmarks/kernels/ 与 vllm bench
-五、本地 lint        .lintrunner.toml 的 61 个 linter 与 spin；.pre-commit-config.yaml 的 hook 清单与 pre-commit run
-六、描述与签名       三个 PyTorch 模板逐字段；vLLM 模板与标题前缀表；CLA vs DCO
-七、CI 矩阵          PyTorch 的 workflow 家族与 ciflow/*；vLLM 的 test_areas / source_file_dependencies / ci_config / /ci run / ready
-八、读 CI 日志       区分自己的失败与 main 的失败；HUD、gh pr checks；failures.md 与 ci-fetch-log.sh
-九、review 往返      两个项目的时间承诺原文；回应规则表
-十、合入             @pytorchbot merge 的变体与 merge_rules.yaml；release notes 标签；vLLM 的 ready 与 mergify
-十一、被拒           方向 / 时机 / 做法三类，各自怎么办
-十二、AI 辅助政策    AI_POLICY.md 与 AGENTS.md 逐条对照
-十三、回答核心问题   reviewer 的十分钟：diff / 描述 / 测试 / CI 各回答什么
-十四、贡献日志       PR 草稿模板；两份按项目模板填好的描述样例；review 往返记录表
-十五、小结           要点 · 对照表 · 文件位置表
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 最小 diff | 一个 PR 只做一件事；PyTorch 的 2000 行硬上限与 ghstack；vLLM 的 500 行 RFC 线与顺序 PR |
+| 三 | 测试 | PyTorch 的 TestCase / `run_tests` / `instantiate_device_type_tests`；vLLM 的 pytest 与 `AGENTS.md` 四个问题 |
+| 四 | benchmark | 什么算"有数字"；PyTorch 的 benchmarks/ 与模板 checklist；vLLM 的 benchmarks/kernels/ 与 vllm bench |
+| 五 | 本地 lint | .lintrunner.toml 的 61 个 linter 与 spin；.pre-commit-config.yaml 的 hook 清单与 pre-commit run |
+| 六 | 描述与签名 | 三个 PyTorch 模板逐字段；vLLM 模板与标题前缀表；CLA vs DCO |
+| 七 | CI 矩阵 | PyTorch 的 workflow 家族与 ciflow/*；vLLM 的 `test_areas` / `source_file_dependencies` / `ci_config` / /ci run / ready |
+| 八 | 读 CI 日志 | 区分自己的失败与 main 的失败；HUD、gh pr checks；`failures.md` 与 `ci-fetch-log.sh` |
+| 九 | review 往返 | 两个项目的时间承诺原文；回应规则表 |
+| 十 | 合入 | @pytorchbot merge 的变体与 `merge_rules.yaml`；release notes 标签；vLLM 的 ready 与 mergify |
+| 十一 | 被拒 | 方向 / 时机 / 做法三类，各自怎么办 |
+| 十二 | AI 辅助政策 | `AI_POLICY.md` 与 `AGENTS.md` 逐条对照 |
+| 十三 | 回答核心问题 | reviewer 的十分钟：diff / 描述 / 测试 / CI 各回答什么 |
+| 十四 | 贡献日志 | PR 草稿模板；两份按项目模板填好的描述样例；review 往返记录表 |
+| 十五 | 小结 | 要点 · 对照表 · 文件位置表 |
 
 
 ## 二、最小 diff：一个 PR 只做一件事

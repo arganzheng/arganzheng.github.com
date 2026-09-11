@@ -78,22 +78,18 @@ HAMi 不是第五层，而是**在时间片之上用软件补上显存与算力�
 
 ### 4. 本文的章节安排
 
-```text
-二、四个层次        每一层的机制、隔离强度、故障域、开销；为什么"不隔离"也是一个选项
-三、MIG             GI/CI 与几何约束；A100/H100 的 profile；改配置为什么要清空 GPU；
-                    K8s 接线：MIG Manager → mig.config 标签 → mig-parted → device plugin single/mixed；
-                    NCCL 与 MIG
-四、时间片与 MPS    device plugin 的 sharing 配置（完整 ConfigMap）；节点级生效与互斥；
-                    renameByDefault / failRequestsGreaterThanOne；MPS 控制守护进程做了什么
-五、HAMi            请求模型（gpumem / gpucores）与完整 Pod；libvgpu.so 拦截层；
-                    scheduler extender 与打分策略；与官方插件互斥；动态 MIG；HAMi-DRA 与 DRA 切分语义
-六、商业 vGPU       NVIDIA vGPU 在虚拟机场景的位置，为什么容器场景不是主流
-七、对引擎的影响    1/7 的 MIG 实例 ≠ 1/7 的吞吐；memory-bound 与 compute-bound 的差别；决策树
-八、核心问题        三方案对照表；哪种方案下一个 OOM 会拖垮另外两个
-九、代价与边界      每种机制引入的新问题；什么场景不该用
-十、实践            mini-platform/share/：MIG 配置、HAMi 两服务共卡、时间片 ConfigMap、压测与 OOM 演练
-十一、小结          要点、四栏表、源码位置、练手项目增量
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 四个层次 | 每一层的机制、隔离强度、故障域、开销；为什么"不隔离"也是一个选项 |
+| 三 | MIG | GI/CI 与几何约束；A100/H100 的 profile；改配置为什么要清空 GPU；K8s 接线：MIG Manager → `mig.config` 标签 → mig-parted → device plugin single/mixed；NCCL 与 MIG |
+| 四 | 时间片与 MPS | device plugin 的 sharing 配置（完整 ConfigMap）；节点级生效与互斥；renameByDefault / failRequestsGreaterThanOne；MPS 控制守护进程做了什么 |
+| 五 | HAMi | 请求模型（gpumem / gpucores）与完整 Pod；`libvgpu.so` 拦截层；scheduler extender 与打分策略；与官方插件互斥；动态 MIG；HAMi-DRA 与 DRA 切分语义 |
+| 六 | 商业 vGPU | NVIDIA vGPU 在虚拟机场景的位置，为什么容器场景不是主流 |
+| 七 | 对引擎的影响 | 1/7 的 MIG 实例 ≠ 1/7 的吞吐；memory-bound 与 compute-bound 的差别；决策树 |
+| 八 | 核心问题 | 三方案对照表；哪种方案下一个 OOM 会拖垮另外两个 |
+| 九 | 代价与边界 | 每种机制引入的新问题；什么场景不该用 |
+| 十 | 实践 | mini-platform/share/：MIG 配置、HAMi 两服务共卡、时间片 ConfigMap、压测与 OOM 演练 |
+| 十一 | 小结 | 要点、四栏表、源码位置、练手项目增量 |
 
 
 ## 二、共享的四个层次

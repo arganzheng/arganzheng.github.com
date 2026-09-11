@@ -80,15 +80,15 @@ $$N$$ 由第八章的 `ledger/model.py` 按每层 $$2h^2 + 2h\cdot h_{kv} + 3hf 
 
 ### 4. 本文的章节安排
 
-```text
-第二章  四种状态的生命周期     一个 step 的时间线；常驻与瞬态；峰值在哪一刻；三框架里每种状态的存放
-第三章  混合精度的字节账       为什么要 fp32 主参数；16 字节的推导；18 字节的来源；Megatron 的 18 与 6 + 12/d；三档模型表
-第四章  激活的字节账           sbh(34 + 5as/h) 逐项来源；FlashAttention 去掉 5as/h 的条件；三档模型表；Megatron 的 18 + 4f/h 与 10 + 24/t
-第五章  显存之外的开销         CUDA context、库 workspace、NCCL buffer、caching allocator 的 reserved 与碎片；80 GB 的预算表
-第六章  算力账                 6N 的来源；注意力的 s² 项与因果 mask；num_floating_point_operations() 对照；三档模型 FLOP/token 与 step 下限
-第七章  MFU 与 HFU             PaLM 的定义；重计算为什么抬高 HFU 不抬高 MFU；同一例子算两遍；参考水平；Megatron 的 TFLOP/s/GPU 日志
-第八章  小结                   要点、符号与公式速查、源码位置、train-ledger 的第一批文件
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 四种状态的生命周期 | 一个 step 的时间线；常驻与瞬态；峰值在哪一刻；三框架里每种状态的存放 |
+| 三 | 混合精度的字节账 | 为什么要 fp32 主参数；16 字节的推导；18 字节的来源；Megatron 的 18 与 6 + 12/d；三档模型表 |
+| 四 | 激活的字节账 | `sbh(34` + 5as/h) 逐项来源；FlashAttention 去掉 5as/h 的条件；三档模型表；Megatron 的 18 + 4f/h 与 10 + 24/t |
+| 五 | 显存之外的开销 | CUDA context、库 workspace、NCCL buffer、caching allocator 的 reserved 与碎片；80 GB 的预算表 |
+| 六 | 算力账 | 6N 的来源；注意力的 s² 项与因果 mask；`num_floating_point_operations()` 对照；三档模型 FLOP/token 与 step 下限 |
+| 七 | MFU 与 HFU | PaLM 的定义；重计算为什么抬高 HFU 不抬高 MFU；同一例子算两遍；参考水平；Megatron 的 TFLOP/s/GPU 日志 |
+| 八 | 小结 | 要点、符号与公式速查、源码位置、train-ledger 的第一批文件 |
 
 
 ## 二、四种状态与它们在一个 step 内的生命周期

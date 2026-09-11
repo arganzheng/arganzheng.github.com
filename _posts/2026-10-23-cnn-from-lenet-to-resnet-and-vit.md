@@ -26,15 +26,15 @@ catalog: true
 
 ### 2. 本文的章节安排
 
-```text
-第二章   卷积作为带约束的线性层     定义、参数量与 FLOPs 公式、等价的稀疏矩阵（实测 16×36 矩阵 144 个非零 9 个自由参数）、两个归纳偏置
-第三章   感受野、stride 与深度       感受野公式 1+2L、下采样、为什么必须深
-第四章   五个里程碑                  LeNet → AlexNet → VGG → GoogLeNet → ResNet；参数量与设计思想；ResNet-50 实测 25.6M / 8.2 GFLOPs；bottleneck 的算术
-第五章   ResNet 的实验与遗产         plain vs residual 在 20 / 56 层的实测；BN + 深 plain 网络的梯度爆炸；四样遗产
-第六章   从 CNN 到 ViT               归纳偏置 vs 数据量；ViT 的结构；patch embedding == 卷积（实测差 1e-6）；一张图多少 token；卷积在多模态里的残余
-第七章   实验                        代码与结果
-第八章   本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 卷积作为带约束的线性层 | 定义、参数量与 FLOPs 公式、等价的稀疏矩阵（实测 16×36 矩阵 144 个非零 9 个自由参数）、两个归纳偏置 |
+| 三 | 感受野、stride 与深度 | 感受野公式 1+2L、下采样、为什么必须深 |
+| 四 | 五个里程碑 | LeNet → AlexNet → VGG → GoogLeNet → ResNet；参数量与设计思想；ResNet-50 实测 25.6M / 8.2 GFLOPs；bottleneck 的算术 |
+| 五 | ResNet 的实验与遗产 | plain vs residual 在 20 / 56 层的实测；BN + 深 plain 网络的梯度爆炸；四样遗产 |
+| 六 | 从 CNN 到 ViT | 归纳偏置 vs 数据量；ViT 的结构；patch embedding == 卷积（实测差 1e-6）；一张图多少 token；卷积在多模态里的残余 |
+| 七 | 实验 | 代码与结果 |
+| 八 | 本文小结 |  |
 
 
 ## 二、卷积作为带约束的线性层

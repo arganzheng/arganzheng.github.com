@@ -51,20 +51,20 @@ Java 是全篇的参照系。Java 的世界里只有一种编译产物（`.class
 
 ### 2. 本文的章节安排
 
-```text
-第二章    四个阶段                      一个 .cpp 怎么经预处理、编译、汇编、链接变成机器码；加载是运行时的第五步
-第三章    翻译单元、声明与定义、头文件      为什么分 .h 和 .cpp；c10/core/Device.h 与 Device.cpp 的实例；改一个头文件为什么重编半个项目
-第四章    One Definition Rule            同一个名字只能有一个定义；inline、static、匿名命名空间；四种链接属性
-第五章    目标文件、库与符号               nm 看符号表；name mangling；静态库与动态库；符号可见性与工具箱
-第六章    动态链接与加载                  链接期与加载期的两次解析；LD_LIBRARY_PATH、RPATH/RUNPATH、$ORIGIN；dlopen
-第七章    命名空间                       c10::、at::、torch:: 的分工；一个命名空间可以横跨多个库
-第八章    PyTorch 的源码布局与库布局        c10/ -> aten/ -> torch/csrc/ 各编成什么；import torch 加载了什么；扩展链接到哪一个
-第九章    回到源码                       c10/CMakeLists.txt、caffe2/CMakeLists.txt、torch/CMakeLists.txt、stub.c、setup.py
-第十章    实践一                         手写 g++ 命令把一个 libtorch 程序链接到 PyTorch 的 .so，用 ldd 和 nm 观察
-第十一章  实践二                         mini-c10 的目录结构与第一个可链接的库
-第十二章  工程实践建议与常见错误            按阶段定位错误、头文件卫生、链接与部署、读源码的定位技巧
-第十三章  本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 四个阶段 | 一个 .cpp 怎么经预处理、编译、汇编、链接变成机器码；加载是运行时的第五步 |
+| 三 | 翻译单元、声明与定义、头文件 | 为什么分 .h 和 .cpp；`c10/core/Device.h` 与 `Device.cpp` 的实例；改一个头文件为什么重编半个项目 |
+| 四 | One Definition Rule | 同一个名字只能有一个定义；inline、static、匿名命名空间；四种链接属性 |
+| 五 | 目标文件、库与符号 | nm 看符号表；name mangling；静态库与动态库；符号可见性与工具箱 |
+| 六 | 动态链接与加载 | 链接期与加载期的两次解析；`LD_LIBRARY_PATH`、RPATH/RUNPATH、$ORIGIN；dlopen |
+| 七 | 命名空间 | c10::、at::、torch:: 的分工；一个命名空间可以横跨多个库 |
+| 八 | PyTorch 的源码布局与库布局 | c10/ -> aten/ -> torch/csrc/ 各编成什么；import torch 加载了什么；扩展链接到哪一个 |
+| 九 | 回到源码 | `c10/CMakeLists.txt`、`caffe2/CMakeLists.txt`、`torch/CMakeLists.txt`、`stub.c`、`setup.py` |
+| 十 | 实践一 | 手写 g++ 命令把一个 libtorch 程序链接到 PyTorch 的 .so，用 ldd 和 nm 观察 |
+| 十一 | 实践二 | mini-c10 的目录结构与第一个可链接的库 |
+| 十二 | 工程实践建议与常见错误 | 按阶段定位错误、头文件卫生、链接与部署、读源码的定位技巧 |
+| 十三 | 本文小结 |  |
 
 
 ## 二、四个阶段：一个 `.cpp` 是怎么变成机器码的

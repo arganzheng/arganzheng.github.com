@@ -62,20 +62,16 @@ KV 传输回到带宽的账，但和梯度 all_reduce 又不一样：它不是�
 
 ### 3. 本文的章节安排
 
-```text
-第二章  算一算：decode 阶段 TP all_reduce 每层多少字节、为什么是纯延迟、NCCL 在这个区间的固定开销有哪些、
-        30 µs 与 10 µs 的差在哪里
-第三章  看一看：custom all-reduce 的实现——CUDA IPC 共享缓冲区、Signal 与 flag 同步、one-shot 与 two-shot
-        kernel、启用条件、为什么不能用于训练
-第四章  后端选择链：GroupCoordinator 与 device communicator、CudaCommunicator.all_reduce 的精确顺序、
-        PyNccl 为什么绕开 ProcessGroupNCCL、对称内存与 NVLS 的适用区间
-第五章  CUDA Graph 与通信：all_reduce 被捕获需要满足什么、register_graph_buffers 在做什么
-第六章  算一算：PD 分离的 KV 传输——多少字节、什么时候传、传给谁、为什么不用 NCCL
-第七章  看一看：KVConnector 的 scheduler / worker 分工、NixlConnector 的注册、握手、READ 与通知、
-        NIXL 与 UCX、Mooncake Transfer Engine
-第八章  测一测与比一比：TP all_reduce 延迟异常与 KV 传输慢的排障检查项
-第九章  本文小结与 comm-probe 增量：tp_ar_bench.py 与 kv_xfer/
-```
+| 章 | 主题 |
+|---|---|
+| 二 | 算一算：decode 阶段 TP `all_reduce` 每层多少字节、为什么是纯延迟、NCCL 在这个区间的固定开销有哪些、30 µs 与 10 µs 的差在哪里 |
+| 三 | 看一看：custom all-reduce 的实现——CUDA IPC 共享缓冲区、Signal 与 flag 同步、one-shot 与 two-shot；kernel、启用条件、为什么不能用于训练 |
+| 四 | 后端选择链：GroupCoordinator 与 device communicator、`CudaCommunicator.all_reduce` 的精确顺序、PyNccl 为什么绕开 ProcessGroupNCCL、对称内存与 NVLS 的适用区间 |
+| 五 | CUDA Graph 与通信：`all_reduce` 被捕获需要满足什么、`register_graph_buffers` 在做什么 |
+| 六 | 算一算：PD 分离的 KV 传输——多少字节、什么时候传、传给谁、为什么不用 NCCL |
+| 七 | 看一看：KVConnector 的 scheduler / worker 分工、NixlConnector 的注册、握手、READ 与通知、NIXL 与 UCX、Mooncake Transfer Engine |
+| 八 | 测一测与比一比：TP `all_reduce` 延迟异常与 KV 传输慢的排障检查项 |
+| 九 | 本文小结与 comm-probe 增量：`tp_ar_bench.py` 与 `kv_xfer/` |
 
 
 ## 二、算一算：decode 阶段 TP all_reduce 的账

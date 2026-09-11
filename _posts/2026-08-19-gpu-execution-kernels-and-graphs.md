@@ -45,13 +45,13 @@ Decode 偏 memory-bound、Prefill 偏 compute-bound，但落到 GPU 上，浪费
 
 后面四章按上表的顺序，每章对付一种浪费：
 
-```text
-第二章  GPU 为什么在空转？        Kernel Launch Overhead 与 CUDA Graph 的捕获、重放
-第三章  数据为什么搬不动？        FlashAttention（Attention 后端路由、Tiling 与 Online Softmax）与 Kernel Fusion
-第四章  能不能少搬几个字节？      权重量化、FP8 推理与混合精度组合
-第五章  能不能少跑几轮模型？      投机解码的原理、vLLM 中的工程实现，以及 EAGLE / Medusa / MTP 等变体
-第六章  本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | GPU 为什么在空转？ | Kernel Launch Overhead 与 CUDA Graph 的捕获、重放 |
+| 三 | 数据为什么搬不动？ | FlashAttention（Attention 后端路由、Tiling 与 Online Softmax）与 Kernel Fusion |
+| 四 | 能不能少搬几个字节？ | 权重量化、FP8 推理与混合精度组合 |
+| 五 | 能不能少跑几轮模型？ | 投机解码的原理、vLLM 中的工程实现，以及 EAGLE / Medusa / MTP 等变体 |
+| 六 | 本文小结 |  |
 
 ## 二、GPU 为什么在空转？—— Kernel Launch 与 CUDA Graph
 

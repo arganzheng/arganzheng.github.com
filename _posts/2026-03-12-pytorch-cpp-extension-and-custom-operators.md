@@ -57,19 +57,19 @@ flowchart TB
     C --> C4 --> S --> X
 ```
 
-```text
-二    三步：定义、注册、实现
-三    两种接入方式：torch.library 与 TORCH_LIBRARY
-四    进入 C++ 之前：扩展的构建基础
-五    阶段一：Python 实现
-六    阶段二：C++ CPU 实现
-七    阶段三：CUDA 实现（含读懂 Kernel 所需的 CUDA 执行模型最小集）
-八    阶段四：Autograd 与 Meta
-九    测试与 Benchmark
-十    构建、ABI 与分发
-十一  Java 对照：JNI
-十二  本文小结
-```
+| 章 | 主题 |
+|---|---|
+| 二 | 三步：定义、注册、实现 |
+| 三 | 两种接入方式：`torch.library` 与 `TORCH_LIBRARY` |
+| 四 | 进入 C++ 之前：扩展的构建基础 |
+| 五 | 阶段一：Python 实现 |
+| 六 | 阶段二：C++ CPU 实现 |
+| 七 | 阶段三：CUDA 实现（含读懂 Kernel 所需的 CUDA 执行模型最小集） |
+| 八 | 阶段四：Autograd 与 Meta |
+| 九 | 测试与 Benchmark |
+| 十 | 构建、ABI 与分发 |
+| 十一 | Java 对照：JNI |
+| 十二 | 本文小结 |
 
 如果你已经熟悉 C++ 扩展的构建方式，可以跳过第四章；如果没有写过 C++ 扩展，第四章是后面所有代码能跑起来的前提。同样，没有 CUDA 编程经验的读者不必另找教程：第七章 §2 用一节讲清读懂本文和第八篇所需的几个 CUDA 概念。
 

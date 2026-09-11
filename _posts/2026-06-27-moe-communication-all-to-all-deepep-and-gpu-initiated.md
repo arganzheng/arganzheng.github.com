@@ -80,22 +80,17 @@ combine 的通信矩阵 = Cᵀ：rank3 要发回 1068 份，rank2 只发回 170 
 
 ### 3. 本文的章节安排
 
-```text
-第二章  算一算：dispatch 与 combine 的字节数、跨节点比例、步数；核心问题在 EP=64 上的数字；
-        prefill 与 decode 两种形态；EP 与 TP / DP 叠加时通信怎样相加
-第三章  NCCL 路径：ncclAlltoAll 在 2.28.9 里是什么、p2p 的调度与 proxy、PyTorch 的 all_to_all_single 与
-        input_split_sizes、为什么变长 split 要先交换 counts、为什么 decode 时不够用
-第四章  Megatron 的三种 token dispatcher：AllGather、AllToAll、Flex（DeepEP）各自的通信量与适用条件
-第五章  DeepEP 的 Buffer 与 normal kernel：对称显存布局、三步流程、intranode 的 channel 队列、
-        internode 的 RDMA 到同号 GPU 再 NVLink 转发、SM 数与 FP8 dispatch
-第六章  DeepEP 的 low-latency kernel 与 GPU 发起的通信：worst-case buffer、send / recv 两阶段与 hook、
-        NVSHMEM 的对称堆、IBGDA 让 warp 写 WQE 与 doorbell、与第三 / 四篇的对照表、NCCL 自己的 GIN
-第七章  对称内存的一般化：PyTorch 2.12 的 all_to_all_vdev 与 all_to_all_vdev_2d
-第八章  vLLM 的 all2all 后端：All2AllBackend 的选项、各 manager 的 dispatch / combine、EP 与 DP / TP 的组合、
-        与第七篇 custom all-reduce 的分工、EPLB
-第九章  测一测与比一比：专家热点如何体现为通信时间、DeepEP 的 SM 数与 Config、NVSHMEM 环境变量、检查清单
-第十章  本文小结与系列总结：要点、源码位置、comm-probe 的 moe_a2a_model.py 与 a2a_bench.py；八篇的回顾
-```
+| 章 | 主题 |
+|---|---|
+| 二 | 算一算：dispatch 与 combine 的字节数、跨节点比例、步数；核心问题在 EP=64 上的数字；prefill 与 decode 两种形态；EP 与 TP / DP 叠加时通信怎样相加 |
+| 三 | NCCL 路径：ncclAlltoAll 在 2.28.9 里是什么、p2p 的调度与 proxy、PyTorch 的 `all_to_all_single` 与；`input_split_sizes`、为什么变长 split 要先交换 counts、为什么 decode 时不够用 |
+| 四 | Megatron 的三种 token dispatcher：AllGather、AllToAll、Flex（DeepEP）各自的通信量与适用条件 |
+| 五 | DeepEP 的 Buffer 与 normal kernel：对称显存布局、三步流程、intranode 的 channel 队列、internode 的 RDMA 到同号 GPU 再 NVLink 转发、SM 数与 FP8 dispatch |
+| 六 | DeepEP 的 low-latency kernel 与 GPU 发起的通信：worst-case buffer、send / recv 两阶段与 hook、NVSHMEM 的对称堆、IBGDA 让 warp 写 WQE 与 doorbell、与第三 / 四篇的对照表、NCCL 自己的 GIN |
+| 七 | 对称内存的一般化：PyTorch 2.12 的 `all_to_all_vdev` 与 `all_to_all_vdev_2d` |
+| 八 | vLLM 的 all2all 后端：All2AllBackend 的选项、各 manager 的 dispatch / combine、EP 与 DP / TP 的组合、与第七篇 custom all-reduce 的分工、EPLB |
+| 九 | 测一测与比一比：专家热点如何体现为通信时间、DeepEP 的 SM 数与 Config、NVSHMEM 环境变量、检查清单 |
+| 十 | 本文小结与系列总结：要点、源码位置、comm-probe 的 `moe_a2a_model.py` 与 `a2a_bench.py`；八篇的回顾 |
 
 
 ## 二、算一算：dispatch 与 combine 的账

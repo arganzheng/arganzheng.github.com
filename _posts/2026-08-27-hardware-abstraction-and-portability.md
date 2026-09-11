@@ -29,17 +29,17 @@ vLLM 的答案不是在核心代码里堆积更多硬件分支，而是建立一
 
 ### 2. 本文的章节安排
 
-```text
-第二章  一条设计原则                  硬件适配不能污染 Serving 核心：反例与原则
-第三章  Platform                      硬件能力的统一来源；current_platform 如何出现
-第四章  Platform、Attention Backend 与 Kernel Backend   三条路径的真实关系；为什么 Attention 要单独做 Selector
-第五章  Out-of-Tree 插件架构           把新硬件放到主仓库之外
-第六章  昇腾适配需要解决哪些问题       平台识别、Worker 与设备生命周期、Attention Backend、KV Cache、算子、量化、通信
-第七章  OOT 适配的边界                不是“主仓库完全不用改”
-第八章  一次请求在异构硬件上的执行路径
-第九章  如何判断硬件适配是否真正做到了解耦   五条检查项
-第十章  本文小结                      Platform 是边界，不是万能胶
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 一条设计原则 | 硬件适配不能污染 Serving 核心：反例与原则 |
+| 三 | Platform | 硬件能力的统一来源；`current_platform` 如何出现 |
+| 四 | Platform、Attention Backend 与 Kernel Backend | 三条路径的真实关系；为什么 Attention 要单独做 Selector |
+| 五 | Out-of-Tree 插件架构 | 把新硬件放到主仓库之外 |
+| 六 | 昇腾适配需要解决哪些问题 | 平台识别、Worker 与设备生命周期、Attention Backend、KV Cache、算子、量化、通信 |
+| 七 | OOT 适配的边界 | 不是“主仓库完全不用改” |
+| 八 | 一次请求在异构硬件上的执行路径 |  |
+| 九 | 如何判断硬件适配是否真正做到了解耦 | 五条检查项 |
+| 十 | 本文小结 | Platform 是边界，不是万能胶 |
 
 ## 二、一条设计原则：硬件适配不能污染 Serving 核心
 

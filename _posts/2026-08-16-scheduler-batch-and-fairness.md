@@ -88,14 +88,14 @@ Scheduler 每一轮到底给每个 Request 多少计算额度？
 
 ### 2. 本文的章节安排
 
-```text
-第二章  Continuous Batching            Static Batching 的问题，Batch 为什么必须动态变化
-第三章  Chunked Prefill                长 Prompt 为什么也要分块，代价与 long_prefill_token_threshold
-第四章  Token Budget                   Request 是调度对象、Token 是调度资源；schedule() 的完整例子与核心源码
-第五章  Mixed Batch                    Prefill、Decode 与 Speculative 为什么可以共存；SchedulerOutput
-第六章  Admission Control 与 Preemption  KV Cache 不够时：准入、抢占、重算 vs 换出、LIFO 与 Watermark
-第七章  本文小结                       从“Batch 调度”到“资源调度”
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | Continuous Batching | Static Batching 的问题，Batch 为什么必须动态变化 |
+| 三 | Chunked Prefill | 长 Prompt 为什么也要分块，代价与 `long_prefill_token_threshold` |
+| 四 | Token Budget | Request 是调度对象、Token 是调度资源；`schedule()` 的完整例子与核心源码 |
+| 五 | Mixed Batch | Prefill、Decode 与 Speculative 为什么可以共存；SchedulerOutput |
+| 六 | Admission Control 与 Preemption | KV Cache 不够时：准入、抢占、重算 vs 换出、LIFO 与 Watermark |
+| 七 | 本文小结 | 从“Batch 调度”到“资源调度” |
 
 ## 二、Continuous Batching：为什么 Batch 必须动态变化？
 

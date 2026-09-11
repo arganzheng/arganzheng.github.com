@@ -35,12 +35,12 @@ PagedAttention 的核心思想，用一句话就能说完：
 
 ### 2. 本文的章节安排
 
-```text
-第二章  PagedAttention 的数学本质与源码实现   碎片灾难、页表思想的映射、核心数据结构关系
-第三章  KV Cache 的写入、读取与生命周期       从 Prefill 批量写入、Decode 逐 slot 追加到完成/抢占时归还
-第四章  KV Cache 还能更小吗                  Prefix Cache、GQA/MQA、MLA、KV 量化、Offloading 与 Swapping
-第五章  本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | PagedAttention 的数学本质与源码实现 | 碎片灾难、页表思想的映射、核心数据结构关系 |
+| 三 | KV Cache 的写入、读取与生命周期 | 从 Prefill 批量写入、Decode 逐 slot 追加到完成/抢占时归还 |
+| 四 | KV Cache 还能更小吗 | Prefix Cache、GQA/MQA、MLA、KV 量化、Offloading 与 Swapping |
+| 五 | 本文小结 |  |
 
 ## 二、PagedAttention 的数学本质与源码实现
 

@@ -80,20 +80,17 @@ catalog: true
 
 ### 4. 本文的章节安排
 
-```text
-二、为什么轮询是错的       KV 满与 prefix cache 的数值小例子；负载均衡器看不到什么；引擎给了什么
-三、GIE 的对象与数据路径    v1.6.0 的仓库分工；InferencePool 字段；HTTPRoute → InferencePool 的完整 YAML；
-                            ext_proc 协议（x-gateway-destination-endpoint 等）；网关实现与 conformance
-四、EPP 的调度框架          llm-d-router：请求控制流水线、filter / scorer / picker / profile handler 的实名清单、
-                            EndpointPickerConfig 与加权打分、近似 vs 精确前缀缓存、PD 分离的 profile 与 sidecar、EPP 的 HA
-五、协议与租户              OpenAI 协议作为路由键、body-based routing、协议归一；租户识别与信任边界；
-                            InferenceObjective 与 priority、fairness ID、flow control 的 priority band；配额规则表与策略 YAML
-六、token 记账              三种"配额"的量纲；预扣与结算；流式断开；usage 的可靠性；回答核心问题的规则表
-七、版本灰度与 LoRA         池间 HTTPRoute 权重；池内 InferenceModelRewrite；按 header / 租户定向与回滚；LoRA 的动态加载与亲和
-八、多集群与网关容量        InferencePoolImport 的状态；multicluster-* 插件；网关与 EPP 自身的容量
-九、代价与边界              四栏表；什么时候不该上这一层
-十、本文小结                要点、源码位置、mini-platform/gateway/ 增量与 ttft-compare.py
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 为什么轮询是错的 | KV 满与 prefix cache 的数值小例子；负载均衡器看不到什么；引擎给了什么 |
+| 三 | GIE 的对象与数据路径 | `v1.6.0` 的仓库分工；InferencePool 字段；HTTPRoute → InferencePool 的完整 YAML；`ext_proc` 协议（x-gateway-destination-endpoint 等）；网关实现与 conformance |
+| 四 | EPP 的调度框架 | llm-d-router：请求控制流水线、filter / scorer / picker / profile handler 的实名清单、EndpointPickerConfig 与加权打分、近似 vs 精确前缀缓存、PD 分离的 profile 与 sidecar、EPP 的 HA |
+| 五 | 协议与租户 | OpenAI 协议作为路由键、body-based routing、协议归一；租户识别与信任边界；InferenceObjective 与 priority、fairness ID、flow control 的 priority band；配额规则表与策略 YAML |
+| 六 | token 记账 | 三种"配额"的量纲；预扣与结算；流式断开；usage 的可靠性；回答核心问题的规则表 |
+| 七 | 版本灰度与 LoRA | 池间 HTTPRoute 权重；池内 InferenceModelRewrite；按 header / 租户定向与回滚；LoRA 的动态加载与亲和 |
+| 八 | 多集群与网关容量 | InferencePoolImport 的状态；multicluster-* 插件；网关与 EPP 自身的容量 |
+| 九 | 代价与边界 | 四栏表；什么时候不该上这一层 |
+| 十 | 本文小结 | 要点、源码位置、mini-platform/gateway/ 增量与 `ttft-compare.py` |
 
 
 ## 二、为什么轮询是错的

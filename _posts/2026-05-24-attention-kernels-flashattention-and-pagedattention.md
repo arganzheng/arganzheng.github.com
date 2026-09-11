@@ -26,17 +26,17 @@ catalog: true
 
 ### 3. 本文的章节安排
 
-```text
-第二章  先算账                       记号与两个需要重述的结论、标准实现物化 S 与 P 的 HBM 流量
-第三章  FlashAttention               分块、每个 tile 做什么、O(N²d²/M) 的 HBM 流量、FA 不省 FLOPs 甚至略多
-第四章  FlashAttention-2 与 -3        并行化与 warp 分工、Hopper only 的 FA3、反向传播的 recompute、源码结构
-第五章  推理的两种形态                prefill 由 GEMM 主导、decode 每 token 读全部 KV、GQA 在 kernel 层的含义
-第六章  PagedAttention               block table 间接寻址、vLLM 的 paged_attention_v1、v2 的 partition 就是 split-KV
-第七章  变长 batch、因果掩码与 sliding window   cu_seqlens 的 packed 布局、因果掩码在分块中的处理、sliding window
-第八章  Triton 版与 CUDA 版的结构对照   tutorial 06 的结构、完整 Triton FA 前向（因果 + GQA）、正确性与性能对照、triton_unified_attention、CUDA 核心循环骨架
-第九章  后端生态与 vLLM 的选择        FA2/3、FlashInfer、xFormers、cuDNN、Triton、SDPA 各自的位置与 vLLM 的选择逻辑
-第十章  本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 先算账 | 记号与两个需要重述的结论、标准实现物化 S 与 P 的 HBM 流量 |
+| 三 | FlashAttention | 分块、每个 tile 做什么、`O(N²d²/M)` 的 HBM 流量、FA 不省 FLOPs 甚至略多 |
+| 四 | FlashAttention-2 与 -3 | 并行化与 warp 分工、Hopper only 的 FA3、反向传播的 recompute、源码结构 |
+| 五 | 推理的两种形态 | prefill 由 GEMM 主导、decode 每 token 读全部 KV、GQA 在 kernel 层的含义 |
+| 六 | PagedAttention | block table 间接寻址、vLLM 的 `paged_attention_v1`、v2 的 partition 就是 split-KV |
+| 七 | 变长 batch、因果掩码与 sliding window | `cu_seqlens` 的 packed 布局、因果掩码在分块中的处理、sliding window |
+| 八 | Triton 版与 CUDA 版的结构对照 | tutorial 06 的结构、完整 Triton FA 前向（因果 + GQA）、正确性与性能对照、`triton_unified_attention`、CUDA 核心循环骨架 |
+| 九 | 后端生态与 vLLM 的选择 | FA2/3、FlashInfer、xFormers、cuDNN、Triton、SDPA 各自的位置与 vLLM 的选择逻辑 |
+| 十 | 本文小结 |  |
 
 
 ## 二、先算账：标准 attention 读写多少 HBM

@@ -74,17 +74,17 @@ commit 与 PR 的链接  正文含 Pull Request resolved: 与 Approved by:      
 
 ### 4. 本文的章节安排
 
-```text
-第二章  先画地图            两张目录表（含在检出上统计的文件数与行数）；两个项目自带的地图文件
-第三章  找到入口点          torch.logaddexp 从 Python 到 CUDA kernel 的追踪；vllm serve 从命令到引擎的追踪
-第四章  生成代码            torchgen 生成什么、放在哪、为什么"找不到定义"；.pyi.in；vLLM 的 _C 扩展
-第五章  构建一次            compile_commands.json 与 clangd；两个项目文档里的构建命令
-第六章  用测试当文档        PyTorch test/ 的组织与 TestCase/OpInfo；vLLM tests/ 的组织
-第七章  读历史              git log -S、blame -w -C；两个项目的 commit message 形态；RELEASE.md
-第八章  核心问题            两小时定位流程清单
-第九章  贡献日志            "项目地图"页的模板与两份填好的样例
-第十章  本文小结            要点、对照表、文件位置表
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 先画地图 | 两张目录表（含在检出上统计的文件数与行数）；两个项目自带的地图文件 |
+| 三 | 找到入口点 | `torch.logaddexp` 从 Python 到 CUDA kernel 的追踪；vllm serve 从命令到引擎的追踪 |
+| 四 | 生成代码 | torchgen 生成什么、放在哪、为什么"找不到定义"；.pyi.in；vLLM 的 _C 扩展 |
+| 五 | 构建一次 | `compile_commands.json` 与 clangd；两个项目文档里的构建命令 |
+| 六 | 用测试当文档 | PyTorch test/ 的组织与 TestCase/OpInfo；vLLM tests/ 的组织 |
+| 七 | 读历史 | git log -S、blame -w -C；两个项目的 commit message 形态；`RELEASE.md` |
+| 八 | 核心问题 | 两小时定位流程清单 |
+| 九 | 贡献日志 | "项目地图"页的模板与两份填好的样例 |
+| 十 | 本文小结 | 要点、对照表、文件位置表 |
 
 
 ## 二、先画地图

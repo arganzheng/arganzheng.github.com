@@ -28,17 +28,17 @@ $$m$$ 是 batch 大小。参数是 $$W_1 \in \mathbb{R}^{784 \times 256}, b_1 \i
 
 ### 2. 本文的章节安排
 
-```text
-第二章   链式法则与计算图          标量对向量与矩阵的导数、Jacobian、为什么反向传播只算 VJP 从不构造 Jacobian
-第三章   矩阵求导的形状规则        Y = XW + b 的三条梯度公式与它们的推导；ReLU 的反向
-第四章   两层网络逐层推导          从 loss 到 W_1 的每一步，每一步的形状
-第五章   反向为什么是前向的两倍    每个 Linear 反向做两个 GEMM；6ND 的推导；激活重算的 8ND
-第六章   激活为什么要存            dW 需要 X；激活显存与 batch、序列长度成正比；checkpointing 换掉它
-第七章   梯度检查                  有限差分、相对误差、为什么要 float64；两个训练前的 sanity check
-第八章   Autograd 做了什么         录带、每个算子的 backward、saved tensors、.grad 累加
-第九章   实验                      120 行 NumPy：梯度检查 1e-7、FLOPs 比 2.00、与 PyTorch 对齐、MNIST 97%
-第十章   本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 链式法则与计算图 | 标量对向量与矩阵的导数、Jacobian、为什么反向传播只算 VJP 从不构造 Jacobian |
+| 三 | 矩阵求导的形状规则 | Y = XW + b 的三条梯度公式与它们的推导；ReLU 的反向 |
+| 四 | 两层网络逐层推导 | 从 loss 到 `W_1` 的每一步，每一步的形状 |
+| 五 | 反向为什么是前向的两倍 | 每个 Linear 反向做两个 GEMM；6ND 的推导；激活重算的 8ND |
+| 六 | 激活为什么要存 | dW 需要 X；激活显存与 batch、序列长度成正比；checkpointing 换掉它 |
+| 七 | 梯度检查 | 有限差分、相对误差、为什么要 float64；两个训练前的 sanity check |
+| 八 | Autograd 做了什么 | 录带、每个算子的 backward、saved tensors、.grad 累加 |
+| 九 | 实验 | 120 行 NumPy：梯度检查 1e-7、FLOPs 比 2.00、与 PyTorch 对齐、MNIST 97% |
+| 十 | 本文小结 |  |
 
 
 ## 二、链式法则与计算图

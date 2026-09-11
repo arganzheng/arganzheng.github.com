@@ -45,17 +45,17 @@ catalog: true
 
 ### 3. 本文的章节安排
 
-```text
-第二章   从像素到 patch                patchify、ViT 的参数量与 FLOPs 公式、四个 encoder 的数字
-第三章   connector：谁决定 token 数     MLP / 2×2 merge 与 pixel-shuffle / resampler 三类，各自的 token 数公式
-第四章   image token 在 decoder 里      prefill FLOPs、KV cache、encoder 输出字节，三者的数量级对比
-第五章   另一条路线：cross-attention     Llama 3.2 Vision 的结构，它的 KV 为什么不随文本增长
-第六章   位置编码：从一维到三维          M-RoPE 把 head_dim 分给 (t, h, w)，ViT 内部的 2D RoPE
-第七章   视频与音频                     帧 × 每帧 token；Whisper encoder 的 30 秒 → 1500 个位置
-第八章   训练侧                         冻结 encoder 省什么、不省什么；图片解码是 CPU 的活
-第九章   实践                           llm_cost.py 的多模态支持与最终成本表
-第十章   本文小结与系列总结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 从像素到 patch | patchify、ViT 的参数量与 FLOPs 公式、四个 encoder 的数字 |
+| 三 | connector：谁决定 token 数 | MLP / 2×2 merge 与 pixel-shuffle / resampler 三类，各自的 token 数公式 |
+| 四 | image token 在 decoder 里 | prefill FLOPs、KV cache、encoder 输出字节，三者的数量级对比 |
+| 五 | 另一条路线：cross-attention | Llama 3.2 Vision 的结构，它的 KV 为什么不随文本增长 |
+| 六 | 位置编码：从一维到三维 | M-RoPE 把 `head_dim` 分给 (t, h, w)，ViT 内部的 2D RoPE |
+| 七 | 视频与音频 | 帧 × 每帧 token；Whisper encoder 的 30 秒 → 1500 个位置 |
+| 八 | 训练侧 | 冻结 encoder 省什么、不省什么；图片解码是 CPU 的活 |
+| 九 | 实践 | `llm_cost.py` 的多模态支持与最终成本表 |
+| 十 | 本文小结与系列总结 |  |
 
 
 ## 二、从像素到 patch：vision encoder 的账

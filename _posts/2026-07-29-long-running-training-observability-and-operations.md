@@ -122,16 +122,16 @@ DeepSpeed 这一列后文不再展开：它的计时与监控概念与 Megatron 
 
 ### 5. 本文的章节安排
 
-```text
-二、三层指标的采集      Megatron 的 Timers 与 training_log · torchtitan 的 MetricsProcessor 与结构化日志 · memory_stats · DCGM · TB/W&B 与 Prometheus 的分工 · 每 rank 可见性
-三、hang 排查           Flight Recorder：记什么 · 开关与默认值 · 从超时到 dump 的链路 · fr_trace 分析器 · 一次完整走查 · py-spy · TORCH_DISTRIBUTED_DEBUG · 常见成因
-四、性能回归的排查      step 时间慢慢变长的四个嫌疑 · profiler 时间线对比 · 少数 rank 上的 Nsight · 与七项拆解的衔接
-五、告警设计            page 与 record 的边界 · 规则表 · 抑制与合并 · 任务状态与告警的对应
-六、运维流程            开训检查清单 · 值班手册 · 复盘模板
-七、成本视角            GPU 小时的换算 · 用它排优先级
-八、本文小结            要点 · 源码位置 · train-ledger 的 dash/ 与 runbook.md · Flight Recorder hang 演练
-九、系列总结            读者手上有什么 · 四条线 · 系列目录
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 三层指标的采集 | Megatron 的 Timers 与 `training_log` · torchtitan 的 MetricsProcessor 与结构化日志 · `memory_stats` · DCGM · TB/W&B 与 Prometheus 的分工 · 每 rank 可见性 |
+| 三 | hang 排查 | Flight Recorder：记什么 · 开关与默认值 · 从超时到 dump 的链路 · `fr_trace` 分析器 · 一次完整走查 · py-spy · `TORCH_DISTRIBUTED_DEBUG` · 常见成因 |
+| 四 | 性能回归的排查 | step 时间慢慢变长的四个嫌疑 · profiler 时间线对比 · 少数 rank 上的 Nsight · 与七项拆解的衔接 |
+| 五 | 告警设计 | page 与 record 的边界 · 规则表 · 抑制与合并 · 任务状态与告警的对应 |
+| 六 | 运维流程 | 开训检查清单 · 值班手册 · 复盘模板 |
+| 七 | 成本视角 | GPU 小时的换算 · 用它排优先级 |
+| 八 | 本文小结 | 要点 · 源码位置 · train-ledger 的 dash/ 与 `runbook.md` · Flight Recorder hang 演练 |
+| 九 | 系列总结 | 读者手上有什么 · 四条线 · 系列目录 |
 
 
 ## 二、三层指标的采集

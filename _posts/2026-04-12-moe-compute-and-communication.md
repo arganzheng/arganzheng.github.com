@@ -22,17 +22,17 @@ catalog: true
 
 ### 2. 本文的章节安排
 
-```text
-第二章   从 dense FFN 到 MoE 层        dense FFN 的参数与算量、MoE 层的结构、一段参考实现、Mixtral 与 DeepSeek-V3 两种粒度
-第三章   参数量与激活参数量            Mixtral 8x7B、DeepSeek-V3 的总参数与激活参数；算量按激活参数算、显存按总参数算
-第四章   decode 的访存形态             期望激活专家数的推导、每步实际读取的参数量、三个数分开算、大规模 EP 的动机
-第五章   专家并行与 all-to-all         dispatch 与 combine、每 token 每专家的字节数、节点受限路由、EP 与 TP 的对比
-第六章   grouped GEMM 的形态           每专家平均行数、为什么 MoE 的 GEMM 天然低效
-第七章   负载均衡                      辅助损失、容量因子与 token drop、aux-loss-free、负载不均对 EP 意味着什么
-第八章   共享专家与 MTP                共享专家其实是 dense FFN；MTP 是内置的投机草稿
-第九章   实践                          llm_cost.py 的 MoE 支持
-第十章   本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 从 dense FFN 到 MoE 层 | dense FFN 的参数与算量、MoE 层的结构、一段参考实现、Mixtral 与 DeepSeek-V3 两种粒度 |
+| 三 | 参数量与激活参数量 | Mixtral 8x7B、DeepSeek-V3 的总参数与激活参数；算量按激活参数算、显存按总参数算 |
+| 四 | decode 的访存形态 | 期望激活专家数的推导、每步实际读取的参数量、三个数分开算、大规模 EP 的动机 |
+| 五 | 专家并行与 all-to-all | dispatch 与 combine、每 token 每专家的字节数、节点受限路由、EP 与 TP 的对比 |
+| 六 | grouped GEMM 的形态 | 每专家平均行数、为什么 MoE 的 GEMM 天然低效 |
+| 七 | 负载均衡 | 辅助损失、容量因子与 token drop、aux-loss-free、负载不均对 EP 意味着什么 |
+| 八 | 共享专家与 MTP | 共享专家其实是 dense FFN；MTP 是内置的投机草稿 |
+| 九 | 实践 | `llm_cost.py` 的 MoE 支持 |
+| 十 | 本文小结 |  |
 
 
 ## 二、从 dense FFN 到 MoE 层

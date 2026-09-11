@@ -79,22 +79,22 @@ struct C10_API NoGradGuard : public AutoGradMode {
 
 ### 2. 本文的章节安排
 
-```text
-第二章    线程、锁与条件变量               从 c10::ThreadPool 读起：std::thread、mutex 与锁守卫、condition_variable
-第三章    C++ 内存模型                    std::atomic、六种 memory order、release/acquire 与 happens-before；vLLM CPU 后端的共享内存握手
-第四章    intrusive_ptr 引用计数的内存序      为什么 relaxed 增、acq_rel 减；与 shared_ptr、Java 的对照
-第五章    thread_local                    存储类别而非类型；c10 里有哪些线程局部状态、为什么做成线程局部
-第六章    守卫模式                        AutoGradMode/NoGradGuard、InferenceMode、AutoDispatchBelowADInplaceOrView；守卫的分类
-第七章    回到源码：LocalDispatchKeySet.h      两个集合；零初始化 + XOR；TLS 变量与两个 RAII 守卫；非 RAII API
-第八章    回到源码：c10::DeviceGuard          DeviceGuardImplInterface 虚接口 + InlineDeviceGuard<T> 内联模板；CUDAStreamGuard
-第九章    回答核心问题                     torch.no_grad() 从 Python 到 TLS；为什么对其他线程不生效；ThreadLocalState
-第十章    at::parallel_for                接口层、决策层、OpenMP 与原生线程池两个执行层；线程数从哪里来
-第十一章  为什么 CUDA kernel launch 不用锁     stream 的顺序语义；当前设备与当前 stream 都是线程局部的
-第十二章  SIMD 简介                       at::vec::Vectorized<T>；inline namespace CPU_CAPABILITY
-第十三章  mini-c10                       原子引用计数、GradMode.h、Parallel.h；两个线程的 TLS 隔离演示
-第十四章  工程实践建议与常见错误
-第十五章  本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 线程、锁与条件变量 | 从 `c10::ThreadPool` 读起：`std::thread`、mutex 与锁守卫、`condition_variable` |
+| 三 | C++ 内存模型 | `std::atomic`、六种 memory order、release/acquire 与 happens-before；vLLM CPU 后端的共享内存握手 |
+| 四 | `intrusive_ptr` 引用计数的内存序 | 为什么 relaxed 增、`acq_rel` 减；与 `shared_ptr`、Java 的对照 |
+| 五 | `thread_local` | 存储类别而非类型；c10 里有哪些线程局部状态、为什么做成线程局部 |
+| 六 | 守卫模式 | AutoGradMode/NoGradGuard、InferenceMode、AutoDispatchBelowADInplaceOrView；守卫的分类 |
+| 七 | 回到源码：`LocalDispatchKeySet.h` | 两个集合；零初始化 + XOR；TLS 变量与两个 RAII 守卫；非 RAII API |
+| 八 | 回到源码：`c10::DeviceGuard` | DeviceGuardImplInterface 虚接口 + `InlineDeviceGuard<T>` 内联模板；CUDAStreamGuard |
+| 九 | 回答核心问题 | `torch.no_grad()` 从 Python 到 TLS；为什么对其他线程不生效；ThreadLocalState |
+| 十 | `at::parallel_for` | 接口层、决策层、OpenMP 与原生线程池两个执行层；线程数从哪里来 |
+| 十一 | 为什么 CUDA kernel launch 不用锁 | stream 的顺序语义；当前设备与当前 stream 都是线程局部的 |
+| 十二 | SIMD 简介 | `at::vec::Vectorized<T>`；inline namespace `CPU_CAPABILITY` |
+| 十三 | mini-c10 | 原子引用计数、`GradMode.h`、`Parallel.h`；两个线程的 TLS 隔离演示 |
+| 十四 | 工程实践建议与常见错误 |  |
+| 十五 | 本文小结 |  |
 
 
 ## 二、线程、锁与条件变量：从 `c10::ThreadPool` 读起

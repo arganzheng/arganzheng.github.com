@@ -25,12 +25,12 @@ vLLM V1 的整体架构遵循**控制面/数据面分离**的经典设计哲学�
 
 ### 2. 本文的章节安排
 
-```text
-第二章  静态系统拓扑          自顶向下：API Server 与 AsyncLLM、EngineCore、Scheduler 与 KVCacheManager、Worker 与 Executor
-第三章  一次请求的完整生命周期  从 HTTP 请求到 SSE [DONE] 的时序图
-第四章  数据流                Token 如何穿过整个 Serving 栈
-第五章  本文小结              模块分工，以及与第一篇“四问”的对应
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 静态系统拓扑 | 自顶向下：API Server 与 AsyncLLM、EngineCore、Scheduler 与 KVCacheManager、Worker 与 Executor |
+| 三 | 一次请求的完整生命周期 | 从 HTTP 请求到 SSE [DONE] 的时序图 |
+| 四 | 数据流 | Token 如何穿过整个 Serving 栈 |
+| 五 | 本文小结 | 模块分工，以及与第一篇“四问”的对应 |
 
 ## 二、静态系统拓扑（自顶向下）
 

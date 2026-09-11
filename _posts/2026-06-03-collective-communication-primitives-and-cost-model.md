@@ -69,17 +69,17 @@ busbw
 
 ### 3. 本文的章节安排
 
-```text
-第二章  集合通信原语        八个原语的语义、组合与对偶关系、每个原语每 rank 至少搬多少字节
-第三章  训练与推理的通信模式   DP / FSDP / TP / PP / MoE / 推理 TP / PD 分离各用哪个原语、多大、几个参与者
-第四章  α-β 模型            一条消息的 T = α + S/β；拐点 S* = αβ；模型忽略了什么
-第五章  ring all_reduce      reduce_scatter + all_gather 的完整推导、4 rank 逐步图、核心问题的两个数字
-第六章  tree all_reduce      log n 的延迟、朴素二叉树为什么只有一半带宽、double binary tree、Ring vs Tree 对照表
-第七章  algbw 与 busbw        nccl-tests 的两个带宽怎么算、各原语的系数、为什么只有 busbw 能和链路比
-第八章  分层与多级算法        节点内快、节点间慢：两级 all_reduce 的代价、为什么平坦 ring 跨节点吃亏
-第九章  消息大小的谱          几十 KB / 几十 MB / GB 三个量级各在曲线哪一段、各自的对策与检查项
-第十章  小结                 要点、公式速查、源码位置、comm-probe 的 cost_model.py
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 集合通信原语 | 八个原语的语义、组合与对偶关系、每个原语每 rank 至少搬多少字节 |
+| 三 | 训练与推理的通信模式 | DP / FSDP / TP / PP / MoE / 推理 TP / PD 分离各用哪个原语、多大、几个参与者 |
+| 四 | α-β 模型 | 一条消息的 T = α + S/β；拐点 S* = αβ；模型忽略了什么 |
+| 五 | ring `all_reduce` | `reduce_scatter` + `all_gather` 的完整推导、4 rank 逐步图、核心问题的两个数字 |
+| 六 | tree `all_reduce` | log n 的延迟、朴素二叉树为什么只有一半带宽、double binary tree、Ring vs Tree 对照表 |
+| 七 | algbw 与 busbw | nccl-tests 的两个带宽怎么算、各原语的系数、为什么只有 busbw 能和链路比 |
+| 八 | 分层与多级算法 | 节点内快、节点间慢：两级 `all_reduce` 的代价、为什么平坦 ring 跨节点吃亏 |
+| 九 | 消息大小的谱 | 几十 KB / 几十 MB / GB 三个量级各在曲线哪一段、各自的对策与检查项 |
+| 十 | 小结 | 要点、公式速查、源码位置、comm-probe 的 `cost_model.py` |
 
 
 ## 二、集合通信原语：语义、组合与下界

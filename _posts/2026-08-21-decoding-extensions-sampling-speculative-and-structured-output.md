@@ -68,13 +68,13 @@ ModelRunnerOutput → Scheduler.update_from_output()
 
 ### 4. 本文的章节安排
 
-```text
-第二章  采样与 logits processors      Sampler 的流水线、每请求参数的向量化、LogitsProcessor 接口与持久 batch、penalties 的真实代价
-第三章  投机解码的工程实现            Proposer 家族、调度器的预算与 KV 预留、model runner 的 K+1 位置、RejectionSampler、收益的量化与何时不该开
-第四章  结构化输出                    从 grammar 到 bitmask 的四个位置、后端抽象、异步编译与调度器的等待、与投机解码叠加、reasoning 跳过、代价
-第五章  三者叠加                      一步之内的执行顺序；留给多卡（08）与 PD 分离（12）的问题
-第六章  本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 采样与 logits processors | Sampler 的流水线、每请求参数的向量化、LogitsProcessor 接口与持久 batch、penalties 的真实代价 |
+| 三 | 投机解码的工程实现 | Proposer 家族、调度器的预算与 KV 预留、model runner 的 K+1 位置、RejectionSampler、收益的量化与何时不该开 |
+| 四 | 结构化输出 | 从 grammar 到 bitmask 的四个位置、后端抽象、异步编译与调度器的等待、与投机解码叠加、reasoning 跳过、代价 |
+| 五 | 三者叠加 | 一步之内的执行顺序；留给多卡（08）与 PD 分离（12）的问题 |
+| 六 | 本文小结 |  |
 
 ## 二、采样与 logits processors：让同一个 batch 里的每一行按自己的规矩走
 

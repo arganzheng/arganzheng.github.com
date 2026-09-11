@@ -79,17 +79,17 @@ CPU                      ▲ 全程不停：all_reduce 返回、wait() 返回都
 
 ### 4. 本文的章节安排
 
-```text
-二、c10d 的分层           init_process_group 做了什么；Store 与 rendezvous；ncclUniqueId 如何分发；new_group 与 ncclCommSplit
-三、对象模型              communicator 的懒创建与 deviceKey；NCCLComm 与非阻塞初始化；WorkNCCL 里的两个 event；内部 stream 从哪来
-四、stream 语义           collective() 逐步读；同步与异步两种模式；wait() 等的是谁；CPU 何时真的阻塞；回答核心问题
-五、tensor 生命周期        Caching Allocator 的跨 stream 危险；recordStream 与 stash 两种方案；不调 wait() 会怎样
-六、重叠                  重叠能省多少（α-β）；GPU 并发的硬件条件；重叠杀手清单；profiler 里怎么看；合并与 DDP bucket 的账
-七、函数式集合通信         AsyncCollectiveTensor 与 wait_tensor；WorkRegistry；torch.compile 如何重排通信
-八、错误处理与超时         watchdog 每 100 ms 做什么；超时后的四种处置；heartbeat monitor；timeout 参数到底约束什么
-九、对照                  Gloo、UCC、vLLM 的 PyNccl；对称内存与 NCCL 的关系
-十、小结                  要点、检查项、源码位置、comm-probe 的 overlap_bench.py
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | c10d 的分层 | `init_process_group` 做了什么；Store 与 rendezvous；ncclUniqueId 如何分发；`new_group` 与 ncclCommSplit |
+| 三 | 对象模型 | communicator 的懒创建与 deviceKey；NCCLComm 与非阻塞初始化；WorkNCCL 里的两个 event；内部 stream 从哪来 |
+| 四 | stream 语义 | `collective()` 逐步读；同步与异步两种模式；`wait()` 等的是谁；CPU 何时真的阻塞；回答核心问题 |
+| 五 | tensor 生命周期 | Caching Allocator 的跨 stream 危险；recordStream 与 stash 两种方案；不调 `wait()` 会怎样 |
+| 六 | 重叠 | 重叠能省多少（α-β）；GPU 并发的硬件条件；重叠杀手清单；profiler 里怎么看；合并与 DDP bucket 的账 |
+| 七 | 函数式集合通信 | AsyncCollectiveTensor 与 `wait_tensor`；WorkRegistry；`torch.compile` 如何重排通信 |
+| 八 | 错误处理与超时 | watchdog 每 100 ms 做什么；超时后的四种处置；heartbeat monitor；timeout 参数到底约束什么 |
+| 九 | 对照 | Gloo、UCC、vLLM 的 PyNccl；对称内存与 NCCL 的关系 |
+| 十 | 小结 | 要点、检查项、源码位置、comm-probe 的 `overlap_bench.py` |
 
 
 ## 二、c10d 的分层：Python → ProcessGroup → Backend → ProcessGroupNCCL

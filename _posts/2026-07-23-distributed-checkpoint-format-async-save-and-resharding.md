@@ -91,17 +91,17 @@ DeepSpeed 这一列后文只在第八章展开一节：它的 checkpoint 是"每
 
 ### 4. 本文的章节安排
 
-```text
-二、checkpoint 里有什么         六类内容各多少字节、缺了会怎样；三框架各自怎么组装 state_dict
-三、为什么不能写成一个文件      405B 的算术：rank-0 汇总的三个瓶颈；分片写的账；三种目录长什么样
-四、DCP 的对象模型              dcp.save 的四步；Planner / StorageWriter / Metadata 三组类；state_dict 一侧的 API；对象模型图
-五、重分片加载                  dcp.load 的流程；resharding.py 怎么算交集（带数字例子）；能与不能重分片的边界；回答"15 个节点"
-六、异步保存                    三段时间线；DefaultStager / StagingOptions；线程还是进程；staging 主机内存代价（数字）；隐藏成本
-七、Megatron 的 dist_checkpointing   ShardedTensor；serialization.save/load；strategies；分布式优化器的四种分片；CheckpointConfig 参数族
-八、DeepSpeed 与 torchtitan     CheckpointEngine 与 universal checkpoint；torchtitan CheckpointManager 怎么包 DCP
-九、多级存储与存多久一次        本地 NVMe → PFS；邻居恢复；Young 公式推导；代入 Llama 3；校验、保留、版本兼容
-十、本文小结                    要点 · 源码位置 · train-ledger 的 ckpt/ 与 ledger/checkpoint_interval.py
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | checkpoint 里有什么 | 六类内容各多少字节、缺了会怎样；三框架各自怎么组装 `state_dict` |
+| 三 | 为什么不能写成一个文件 | 405B 的算术：rank-0 汇总的三个瓶颈；分片写的账；三种目录长什么样 |
+| 四 | DCP 的对象模型 | `dcp.save` 的四步；Planner / StorageWriter / Metadata 三组类；`state_dict` 一侧的 API；对象模型图 |
+| 五 | 重分片加载 | `dcp.load` 的流程；`resharding.py` 怎么算交集（带数字例子）；能与不能重分片的边界；回答"15 个节点" |
+| 六 | 异步保存 | 三段时间线；DefaultStager / StagingOptions；线程还是进程；staging 主机内存代价（数字）；隐藏成本 |
+| 七 | Megatron 的 `dist_checkpointing` | ShardedTensor；`serialization.save/load`；strategies；分布式优化器的四种分片；CheckpointConfig 参数族 |
+| 八 | DeepSpeed 与 torchtitan | CheckpointEngine 与 universal checkpoint；torchtitan CheckpointManager 怎么包 DCP |
+| 九 | 多级存储与存多久一次 | 本地 NVMe → PFS；邻居恢复；Young 公式推导；代入 Llama 3；校验、保留、版本兼容 |
+| 十 | 本文小结 | 要点 · 源码位置 · train-ledger 的 ckpt/ 与 `ledger/checkpoint_interval.py` |
 
 
 ## 二、checkpoint 里有什么，为什么缺一样都不行

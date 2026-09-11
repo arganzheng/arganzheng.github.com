@@ -55,19 +55,19 @@ flowchart TB
 
 ### 3. 本文的章节安排
 
-```text
-第二章  理论：4096³ SGEMM 应该多快     FLOPs 与最小访存、目标：cuBLAS 在哪里
-第三章  v1：naive                    每线程一个输出的代码、访存量与算术强度、cache 为什么只能挽救到几个百分点
-第四章  v2：shared memory 分块        分块把算术强度变成可设计的参数、一线程一输出的分块代码、shared 带宽的天花板
-第五章  v3：寄存器分块               每线程算 TM×TN 个输出、寄存器压力与占用率、加载的向量化 / 转置 / bank conflict、代码、Roofline 位置
-第六章  v5：双缓冲与软件流水          寄存器预取、cp.async、cp.async 与 A 的转置、代码、Roofline 位置
-第七章  v6：边界处理                 M、N、K 不是 tile 整数倍时三个维度分别怎么处理
-第八章  tile 大小的三角关系与 wave quantization   tile 尺寸、寄存器、占用率的三角关系；grid 与 SM 数不整除的尾波
-第九章  Roofline 汇总与 CUDA Core 的极限   六版在 Roofline 上的位置、到 cuBLAS 的 70–80% 以后
-第十章  split-K、stream-K 与 GEMV     小 M×N、大 K 时 block 不够用；GEMV 是 GEMM 的 memory-bound 极限
-第十一章 实践：接到 PyTorch           load_inline 编译四个 kernel、与 torch.matmul 对照、TFLOPS 与占峰值百分比
-第十二章 本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 理论：4096³ SGEMM 应该多快 | FLOPs 与最小访存、目标：cuBLAS 在哪里 |
+| 三 | v1：naive | 每线程一个输出的代码、访存量与算术强度、cache 为什么只能挽救到几个百分点 |
+| 四 | v2：shared memory 分块 | 分块把算术强度变成可设计的参数、一线程一输出的分块代码、shared 带宽的天花板 |
+| 五 | v3：寄存器分块 | 每线程算 TM×TN 个输出、寄存器压力与占用率、加载的向量化 / 转置 / bank conflict、代码、Roofline 位置 |
+| 六 | v5：双缓冲与软件流水 | 寄存器预取、`cp.async`、`cp.async` 与 A 的转置、代码、Roofline 位置 |
+| 七 | v6：边界处理 | M、N、K 不是 tile 整数倍时三个维度分别怎么处理 |
+| 八 | tile 大小的三角关系与 wave quantization | tile 尺寸、寄存器、占用率的三角关系；grid 与 SM 数不整除的尾波 |
+| 九 | Roofline 汇总与 CUDA Core 的极限 | 六版在 Roofline 上的位置、到 cuBLAS 的 70–80% 以后 |
+| 十 | split-K、stream-K 与 GEMV | 小 M×N、大 K 时 block 不够用；GEMV 是 GEMM 的 memory-bound 极限 |
+| 十一 | 实践：接到 PyTorch | `load_inline` 编译四个 kernel、与 `torch.matmul` 对照、TFLOPS 与占峰值百分比 |
+| 十二 | 本文小结 |  |
 
 
 ## 二、理论：4096³ SGEMM 应该多快

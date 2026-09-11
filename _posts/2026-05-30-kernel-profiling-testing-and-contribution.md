@@ -28,19 +28,19 @@ catalog: true
 
 ### 3. 本文的章节安排
 
-```text
-第二章  先算理论                     profiler 的数字为什么本身不说明问题、decoder layer 各 kernel 的理论下界
-第三章  Nsight Systems               nsys 与 ncu 的分工、NVTX 标记 + nsys 找最耗时的 kernel、torch.profiler 与 nsys 的关系
-第四章  Nsight Compute               命令行、Speed of Light、Memory Workload、Warp State、Occupancy、Launch / Compute / Source Counters、一份典型报告
-第五章  从指标到优化方向              决策树、回答核心问题：occupancy 25%、long scoreboard 60%
-第六章  正确性测试                   参考实现与 tolerance、边界 shape 与非连续输入、vLLM tests/kernels 的组织、完整的 pytest 测试文件
-第七章  benchmark 方法               测什么怎么测、与 baseline 比与回归阈值、完整的 benchmark 脚本
-第八章  多架构                       编译期 __CUDA_ARCH__ 与 fatbin、运行期按 compute capability 选择
-第九章  接入 PyTorch                 TORCH_LIBRARY、fake kernel 与 opcheck
-第十章  接入 vLLM                    csrc 的组织与注册、Python 侧的后端选择
-第十一章 一个 kernel PR 的完整流程     先讨论再写、PR 里要有什么、review 关注什么、CI 的硬件矩阵
-第十二章 本文小结与系列总结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 先算理论 | profiler 的数字为什么本身不说明问题、decoder layer 各 kernel 的理论下界 |
+| 三 | Nsight Systems | nsys 与 ncu 的分工、NVTX 标记 + nsys 找最耗时的 kernel、`torch.profiler` 与 nsys 的关系 |
+| 四 | Nsight Compute | 命令行、Speed of Light、Memory Workload、Warp State、Occupancy、Launch / Compute / Source Counters、一份典型报告 |
+| 五 | 从指标到优化方向 | 决策树、回答核心问题：occupancy 25%、long scoreboard 60% |
+| 六 | 正确性测试 | 参考实现与 tolerance、边界 shape 与非连续输入、vLLM tests/kernels 的组织、完整的 pytest 测试文件 |
+| 七 | benchmark 方法 | 测什么怎么测、与 baseline 比与回归阈值、完整的 benchmark 脚本 |
+| 八 | 多架构 | 编译期 `__CUDA_ARCH__` 与 fatbin、运行期按 compute capability 选择 |
+| 九 | 接入 PyTorch | `TORCH_LIBRARY`、fake kernel 与 opcheck |
+| 十 | 接入 vLLM | csrc 的组织与注册、Python 侧的后端选择 |
+| 十一 | 一个 kernel PR 的完整流程 | 先讨论再写、PR 里要有什么、review 关注什么、CI 的硬件矩阵 |
+| 十二 | 本文小结与系列总结 |  |
 
 
 ## 二、先算理论：剖析之前要有一个参照数

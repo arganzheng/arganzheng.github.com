@@ -35,16 +35,16 @@ catalog: true
 
 ### 2. 本文的章节安排
 
-```text
-第二章  DP (Data Parallelism)          完整模型复制，最外层的吞吐倍增器
-第三章  TP (Tensor Parallelism)        层内矩阵按行/列切；Column/Row 配对、Transformer 中的应用、通信代价
-第四章  PP (Pipeline Parallelism)      按层切分；Prefill/Decode 的流动、流水线气泡、对 KV Cache 的影响
-第五章  EP (Expert Parallelism)        MoE 按 Expert 切；Router、All-to-All、Capacity Factor、通信与计算重叠、vLLM 实现
-第六章  CP (Context Parallelism)       按 token 序列切；Ring Attention、vLLM 中的 PCP/DCP
-第七章  混合并行策略汇总               按模型规模与场景的推荐组合与四条经验法则
-第八章  通信优化                       数据流向图谱、NCCL、计算与通信重叠、通信问题定位方法
-第九章  本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | DP (Data Parallelism) | 完整模型复制，最外层的吞吐倍增器 |
+| 三 | TP (Tensor Parallelism) | 层内矩阵按行/列切；Column/Row 配对、Transformer 中的应用、通信代价 |
+| 四 | PP (Pipeline Parallelism) | 按层切分；Prefill/Decode 的流动、流水线气泡、对 KV Cache 的影响 |
+| 五 | EP (Expert Parallelism) | MoE 按 Expert 切；Router、All-to-All、Capacity Factor、通信与计算重叠、vLLM 实现 |
+| 六 | CP (Context Parallelism) | 按 token 序列切；Ring Attention、vLLM 中的 PCP/DCP |
+| 七 | 混合并行策略汇总 | 按模型规模与场景的推荐组合与四条经验法则 |
+| 八 | 通信优化 | 数据流向图谱、NCCL、计算与通信重叠、通信问题定位方法 |
+| 九 | 本文小结 |  |
 
 ## 二、DP (Data Parallelism)
 

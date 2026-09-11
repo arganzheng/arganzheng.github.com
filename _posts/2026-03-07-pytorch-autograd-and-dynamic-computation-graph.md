@@ -56,19 +56,19 @@ optimizer.step()
 
 ### 2. 本文的章节安排
 
-```text
-第二章   从数学求导到自动求导                 梯度、链式法则、向量—雅可比积、为什么从标量 Loss 开始
-第三章   动态计算图                          计算图是什么、Eager 下如何动态创建、每次 forward 都是新图
-第四章   requires_grad、Leaf Tensor 与 grad_fn  三个核心属性各决定什么、与 Parameter 的关系
-第五章   backward()：反向传播与梯度累积        一次 backward 的过程、梯度累积、zero_grad、图的释放
-第六章   计算图中的保存值与生命周期            saved tensors、保存输出等于保存整张图、saved_tensors_hooks
-第七章   detach()、no_grad() 与 inference_mode()  三种梯度控制方式的区别及与 model.eval() 的组合
-第八章   自定义 autograd.Function              save_for_backward、多输入与不可导输入、工程边界
-第九章   实现一个 Mini-Autograd                Value 节点、加法与乘法、拓扑排序、backward
-第十章   Autograd 常见问题与排查方法           几类典型报错与梯度异常
-第十一章 Java 工程师如何理解 Autograd          回调、反向程序、显式状态管理的类比
-第十二章 本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 从数学求导到自动求导 | 梯度、链式法则、向量—雅可比积、为什么从标量 Loss 开始 |
+| 三 | 动态计算图 | 计算图是什么、Eager 下如何动态创建、每次 forward 都是新图 |
+| 四 | `requires_grad`、Leaf Tensor 与 `grad_fn` | 三个核心属性各决定什么、与 Parameter 的关系 |
+| 五 | `backward()`：反向传播与梯度累积 | 一次 backward 的过程、梯度累积、`zero_grad`、图的释放 |
+| 六 | 计算图中的保存值与生命周期 | saved tensors、保存输出等于保存整张图、`saved_tensors_hooks` |
+| 七 | `detach()`、`no_grad()` 与 `inference_mode()` | 三种梯度控制方式的区别及与 `model.eval()` 的组合 |
+| 八 | 自定义 `autograd.Function` | `save_for_backward`、多输入与不可导输入、工程边界 |
+| 九 | 实现一个 Mini-Autograd | Value 节点、加法与乘法、拓扑排序、backward |
+| 十 | Autograd 常见问题与排查方法 | 几类典型报错与梯度异常 |
+| 十一 | Java 工程师如何理解 Autograd | 回调、反向程序、显式状态管理的类比 |
+| 十二 | 本文小结 |  |
 
 
 ## 二、从数学求导到自动求导

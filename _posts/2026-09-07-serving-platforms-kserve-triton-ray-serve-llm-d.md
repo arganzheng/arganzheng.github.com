@@ -90,21 +90,17 @@ catalog: true
 
 ### 4. 本文的章节安排
 
-```text
-第二章  四种部署形态：单 Pod 单卡 / 单 Pod 多卡 / 多 Pod 一副本 / PD 分离，各用什么 K8s 对象；就绪的定义
-第三章  LeaderWorkerSet：group / leader / worker 模型，size、restartPolicy、rolloutStrategy、subGroupPolicy、
-        networkConfig 逐条；完整的多节点 vLLM YAML；DisaggregatedSet；scale 子资源
-第四章  KServe：InferenceService 三段式与 Knative / Standard 两种模式；LLMInferenceService 字段与完整示例；
-        控制器生成什么、llm-d 如何被嵌入；storage-initializer 与权重加载路径
-第五章  Triton 与 Ray Serve：model repository 与 config.pbtxt、dynamic batching、ensemble、vLLM backend；
-        Ray Serve 编程模型与 RayService
-第六章  llm-d v0.9.0：Router（proxy + EPP）、InferencePool、Model Server 三概念；交付物；well-lit paths；与 KServe 的关系
-第七章  扩缩容：为什么 CPU 无意义；HPA 自定义指标 vs KEDA ScaledObject（完整 YAML）；缩零与冷启动；
-        PD 独立扩缩；扩容时间分解表
-第八章  核心问题的数值推演：假设、反应式阈值倒推、headroom 的代价、cron + 指标兜底的组合
-第九章  代价与边界：引擎需求 → K8s 空缺 → 平台机制 → 代价 四栏表；什么场景不该用
-第十章  本文小结与 mini-platform/serve/ 增量
-```
+| 章 | 主题 |
+|---|---|
+| 二 | 四种部署形态：单 Pod 单卡 / 单 Pod 多卡 / 多 Pod 一副本 / PD 分离，各用什么 K8s 对象；就绪的定义 |
+| 三 | LeaderWorkerSet：group / leader / worker 模型，size、restartPolicy、rolloutStrategy、subGroupPolicy、networkConfig 逐条；完整的多节点 vLLM YAML；DisaggregatedSet；scale 子资源 |
+| 四 | KServe：InferenceService 三段式与 Knative / Standard 两种模式；LLMInferenceService 字段与完整示例；控制器生成什么、llm-d 如何被嵌入；storage-initializer 与权重加载路径 |
+| 五 | Triton 与 Ray Serve：model repository 与 `config.pbtxt`、dynamic batching、ensemble、vLLM backend；Ray Serve 编程模型与 RayService |
+| 六 | llm-d `v0.9.0`：Router（proxy + EPP）、InferencePool、Model Server 三概念；交付物；well-lit paths；与 KServe 的关系 |
+| 七 | 扩缩容：为什么 CPU 无意义；HPA 自定义指标 vs KEDA ScaledObject（完整 YAML）；缩零与冷启动；PD 独立扩缩；扩容时间分解表 |
+| 八 | 核心问题的数值推演：假设、反应式阈值倒推、headroom 的代价、cron + 指标兜底的组合 |
+| 九 | 代价与边界：引擎需求 → K8s 空缺 → 平台机制 → 代价 四栏表；什么场景不该用 |
+| 十 | 本文小结与 mini-platform/serve/ 增量 |
 
 
 ## 二、推理服务的四种部署形态

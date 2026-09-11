@@ -59,17 +59,17 @@ NCCL transport        P2P 没走 NVLink · GDR 没开 ·         NCCL_DEBUG=INFO
 
 ### 3. 本文的章节安排
 
-```text
-二、nccl-tests：怎么测          编译、参数、三种启动方式、输出每一列的含义、测量纪律
-三、带宽曲线的读法              两个平台与拐点 · 用 α-β 模型预测拐点 · 三条参考线 · 五种异常形状
-四、调优参数：按作用层分类      参数如何被读取 · 算法/协议 · 并行度 · 缓冲 · 路径 · 网络 · Socket · 特殊功能 · 该动/少动/不动
-五、日志：NCCL_DEBUG 的三层     级别 · 子系统 · 按 rank 分文件 · 一份 INFO 日志里要找的八行 · RAS
-六、hang 的分类与定位工具       六类 hang · py-spy/gdb/cuda-gdb · Flight Recorder 记录什么、怎么 dump、fr_trace.py 怎么对齐
-七、timeout 的语义              init_process_group(timeout=) 约束什么 · watchdog 的时钟 · 为什么 checkpoint 卡住会变成 NCCL timeout · 回答核心问题
-八、正确性问题                  浮点归约顺序 · 算法差异 · NaN 与 TORCH_NCCL_NAN_CHECK · 多 communicator/多 stream 竞争
-九、决策树                      慢 / hang / 错 三棵树的展开版，从现象到检查项到处理方式
-十、本文小结                    要点 · 检查项 · 源码位置 · comm-probe 的 sweep.sh 与 hang_lab/
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | nccl-tests：怎么测 | 编译、参数、三种启动方式、输出每一列的含义、测量纪律 |
+| 三 | 带宽曲线的读法 | 两个平台与拐点 · 用 α-β 模型预测拐点 · 三条参考线 · 五种异常形状 |
+| 四 | 调优参数：按作用层分类 | 参数如何被读取 · 算法/协议 · 并行度 · 缓冲 · 路径 · 网络 · Socket · 特殊功能 · 该动/少动/不动 |
+| 五 | 日志：`NCCL_DEBUG` 的三层 | 级别 · 子系统 · 按 rank 分文件 · 一份 INFO 日志里要找的八行 · RAS |
+| 六 | hang 的分类与定位工具 | 六类 hang · py-spy/gdb/cuda-gdb · Flight Recorder 记录什么、怎么 dump、`fr_trace.py` 怎么对齐 |
+| 七 | timeout 的语义 | init_process_group(timeout=) 约束什么 · watchdog 的时钟 · 为什么 checkpoint 卡住会变成 NCCL timeout · 回答核心问题 |
+| 八 | 正确性问题 | 浮点归约顺序 · 算法差异 · NaN 与 `TORCH_NCCL_NAN_CHECK` · 多 communicator/多 stream 竞争 |
+| 九 | 决策树 | 慢 / hang / 错 三棵树的展开版，从现象到检查项到处理方式 |
+| 十 | 本文小结 | 要点 · 检查项 · 源码位置 · comm-probe 的 `sweep.sh` 与 `hang_lab/` |
 
 
 ## 二、nccl-tests：怎么测

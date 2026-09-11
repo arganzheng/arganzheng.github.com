@@ -28,14 +28,14 @@ catalog: true
 
 ### 2. 本文的章节安排
 
-```text
-第二章   起点：decode 是 memory-bound 的   算术强度与 ridge point、一个时间模型
-第三章   量化：改变 W_bytes                 基本形式与粒度、W4A16 的收益区间、交叉点 B ≈ ridge/4、GPTQ/AWQ/SmoothQuant、FP8、W8A8、KV cache 量化
-第四章   投机解码：改变 m                   分布等式、期望接受数与加速比、验证 γ+1 个 token 何时免费、草稿从哪里来
-第五章   LoRA：改变训练时的 N               形式与参数量、训练状态 128 GB → 16.7 GB、额外 FLOPs 与 kernel 数、QLoRA
-第六章   实践                               脚本新增的三组函数、文本模型的成本表、BF16 与 INT4 的对照实验设计
-第七章   本文小结                          三种方法各改一个变量
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 起点：decode 是 memory-bound 的 | 算术强度与 ridge point、一个时间模型 |
+| 三 | 量化：改变 `W_bytes` | 基本形式与粒度、W4A16 的收益区间、交叉点 B ≈ ridge/4、GPTQ/AWQ/SmoothQuant、FP8、W8A8、KV cache 量化 |
+| 四 | 投机解码：改变 m | 分布等式、期望接受数与加速比、验证 γ+1 个 token 何时免费、草稿从哪里来 |
+| 五 | LoRA：改变训练时的 N | 形式与参数量、训练状态 128 GB → 16.7 GB、额外 FLOPs 与 kernel 数、QLoRA |
+| 六 | 实践 | 脚本新增的三组函数、文本模型的成本表、BF16 与 INT4 的对照实验设计 |
+| 七 | 本文小结 | 三种方法各改一个变量 |
 
 
 ## 二、起点：decode 是 memory-bound 的

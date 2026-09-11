@@ -75,18 +75,18 @@ PyTorch 有两千多个算子、每个算子有十几种 dtype、两个以上后
 
 ### 4. 本文的章节安排
 
-```text
-二    第一关：本地构建能跑            仓库地图 · 构建流程与 Codegen · 环境变量与构建类型 · 调试到 C++
-三    第二关：结果正确                五种 oracle · OpInfo · 设备与 dtype 泛化 · gradcheck 内部 · 确定性 · 编译器与分布式测试 · test/ 导读
-四    第三关：没有变慢                微基准与指令数 · TorchBench 与看板 · 噪声、阈值、归因
-五    第四关：审查、CI 与合入          CI 分层与目标确定 · flaky 的流程化处理 · 审批规则、MergeBot、回滚、lintrunner
-六    第五关：发布                    节奏与分支 · wheel 矩阵与 ABI · 平台支持窗口 · 治理
-七    第六关：用户升级不坏             接口面的稳定分级 · Python API 弃用 · Schema BC/FC · C++ 与稳定 ABI、PrivateUse1 · 序列化版本
-八    第七关：使用者如何跟随演进        版本策略 · 升级 playbook · 兼容矩阵 · 回退
-九    实践终点：把第六篇的 myops 走完这七关
-十    Java 对照
-十一  本文小结与系列总结：从 loss.backward() 一路追问到底
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 第一关：本地构建能跑 | 仓库地图 · 构建流程与 Codegen · 环境变量与构建类型 · 调试到 C++ |
+| 三 | 第二关：结果正确 | 五种 oracle · OpInfo · 设备与 dtype 泛化 · gradcheck 内部 · 确定性 · 编译器与分布式测试 · test/ 导读 |
+| 四 | 第三关：没有变慢 | 微基准与指令数 · TorchBench 与看板 · 噪声、阈值、归因 |
+| 五 | 第四关：审查、CI 与合入 | CI 分层与目标确定 · flaky 的流程化处理 · 审批规则、MergeBot、回滚、lintrunner |
+| 六 | 第五关：发布 | 节奏与分支 · wheel 矩阵与 ABI · 平台支持窗口 · 治理 |
+| 七 | 第六关：用户升级不坏 | 接口面的稳定分级 · Python API 弃用 · Schema BC/FC · C++ 与稳定 ABI、PrivateUse1 · 序列化版本 |
+| 八 | 第七关：使用者如何跟随演进 | 版本策略 · 升级 playbook · 兼容矩阵 · 回退 |
+| 九 | 实践终点：把第六篇的 myops 走完这七关 |  |
+| 十 | Java 对照 |  |
+| 十一 | 本文小结与系列总结：从 `loss.backward()` 一路追问到底 |  |
 
 
 ## 二、第一关：本地构建能跑

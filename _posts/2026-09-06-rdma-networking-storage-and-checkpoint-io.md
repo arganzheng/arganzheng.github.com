@@ -79,18 +79,18 @@ checkpoint：大块顺序写、突发           每 N 步一次，写完才继�
 
 ### 4. 本文的章节安排
 
-```text
-二、为什么 CNI overlay 不够          veth/overlay 与 /dev/infiniband + GPUDirect RDMA 的两条路径图
-三、第二张网卡：Multus 与 NAD        thick/thin · NetworkAttachmentDefinition 与 networks 注解 · host-device / macvlan / IPoIB 三种接入
-四、把 RDMA 设备给容器               shared device plugin 的配置与 Allocate · SR-IOV device plugin · 对照表 · netns shared/exclusive · IPC_LOCK
-五、Network Operator 与 GPU Operator NicClusterPolicy 字段 · driver.rdma · nvidia-peermem vs DMA-BUF · 部署顺序
-六、容器内验证与排障                 ibv_devinfo · rdma link · nccl-tests · NCCL_DEBUG=INFO 判读 · 常见坑表 · 核心问题的三层排查表
-七、存储：三类需求与方案定位         数据集 / checkpoint / 权重 × 并行文件系统 / 对象存储 / 缓存层 · CSI 挂载
-八、checkpoint I/O 的算术            70B 的状态有多大 · 聚合带宽 · 分片与异步如何降需求 · DCP 的 API
-九、推理侧的权重分发                 本地 NVMe 缓存 · 权重进镜像 · P2P · GPUDirect Storage 何时值得
-十、代价与边界                       每个机制引入的新问题与不该用的场景
-十一、本文小结                       要点 · 四栏表 · 源码/CRD 位置 · mini-platform 本篇增量
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 为什么 CNI overlay 不够 | veth/overlay 与 /dev/infiniband + GPUDirect RDMA 的两条路径图 |
+| 三 | 第二张网卡：Multus 与 NAD | thick/thin · NetworkAttachmentDefinition 与 networks 注解 · host-device / macvlan / IPoIB 三种接入 |
+| 四 | 把 RDMA 设备给容器 | shared device plugin 的配置与 Allocate · SR-IOV device plugin · 对照表 · netns shared/exclusive · `IPC_LOCK` |
+| 五 | Network Operator 与 GPU Operator | NicClusterPolicy 字段 · `driver.rdma` · nvidia-peermem vs DMA-BUF · 部署顺序 |
+| 六 | 容器内验证与排障 | `ibv_devinfo` · rdma link · nccl-tests · NCCL_DEBUG=INFO 判读 · 常见坑表 · 核心问题的三层排查表 |
+| 七 | 存储：三类需求与方案定位 | 数据集 / checkpoint / 权重 × 并行文件系统 / 对象存储 / 缓存层 · CSI 挂载 |
+| 八 | checkpoint I/O 的算术 | 70B 的状态有多大 · 聚合带宽 · 分片与异步如何降需求 · DCP 的 API |
+| 九 | 推理侧的权重分发 | 本地 NVMe 缓存 · 权重进镜像 · P2P · GPUDirect Storage 何时值得 |
+| 十 | 代价与边界 | 每个机制引入的新问题与不该用的场景 |
+| 十一 | 本文小结 | 要点 · 四栏表 · 源码/CRD 位置 · mini-platform 本篇增量 |
 
 
 ## 二、为什么 CNI overlay 不够

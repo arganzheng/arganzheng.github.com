@@ -26,17 +26,17 @@ catalog: true
 
 ### 3. 本文的章节安排
 
-```text
-第二章  低精度格式在 kernel 层的含义   位布局与动态范围、累加精度、CUDA 类型与转换指令、INT4 打包与 magic number 反量化
-第三章  Weight-only 量化 GEMM（W4A16）  INT4 tile → 寄存器解包 → mma fragment、Roofline 两侧的答案、Marlin、GPTQ / AWQ / Machete、目录导读
-第四章  FP8 GEMM（W8A8）与动态量化     字节与 FLOPs 同时减半、scale 的三种粒度与 epilogue、per-block scale、Ampere fallback、动态量化 kernel
-第五章  融合 kernel 的常见模式         融合为什么赢、bias + activation 与 SiLU-and-mul、residual + RMSNorm、RoPE、reshape_and_cache
-第六章  MoE 的 kernel 流水线          流水线、topk_softmax、moe_align_block_size、grouped GEMM 为什么效率低、目录导读
-第七章  采样 kernel                  top-k / top-p、拒绝采样
-第八章  数值验证                     tolerance 怎么定
-第九章  实践                        fused residual + RMSNorm、SiLU-and-mul、RoPE、教学版 INT4 GEMV、组装 decoder layer 前向、预期量级
-第十章  本文小结
-```
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 低精度格式在 kernel 层的含义 | 位布局与动态范围、累加精度、CUDA 类型与转换指令、INT4 打包与 magic number 反量化 |
+| 三 | Weight-only 量化 GEMM（W4A16） | INT4 tile → 寄存器解包 → mma fragment、Roofline 两侧的答案、Marlin、GPTQ / AWQ / Machete、目录导读 |
+| 四 | FP8 GEMM（W8A8）与动态量化 | 字节与 FLOPs 同时减半、scale 的三种粒度与 epilogue、per-block scale、Ampere fallback、动态量化 kernel |
+| 五 | 融合 kernel 的常见模式 | 融合为什么赢、bias + activation 与 SiLU-and-mul、residual + RMSNorm、RoPE、`reshape_and_cache` |
+| 六 | MoE 的 kernel 流水线 | 流水线、`topk_softmax`、`moe_align_block_size`、grouped GEMM 为什么效率低、目录导读 |
+| 七 | 采样 kernel | top-k / top-p、拒绝采样 |
+| 八 | 数值验证 | tolerance 怎么定 |
+| 九 | 实践 | fused residual + RMSNorm、SiLU-and-mul、RoPE、教学版 INT4 GEMV、组装 decoder layer 前向、预期量级 |
+| 十 | 本文小结 |  |
 
 
 ## 二、低精度格式在 kernel 层的含义
