@@ -718,6 +718,8 @@ async def fetch_all(urls: list[str]) -> list[str]:
 
 这里并不是创建了与请求数量相同的线程，而是由事件循环统一管理网络连接。当某个请求等待网络响应时，事件循环可以继续运行其他任务。
 
+写过 Node.js 的读者会觉得这段代码眼熟：`async def` / `await` / `gather` 几乎逐字对应 `async function` / `await` / `Promise.all`，而且执行模型也一样——**一个线程、一个事件循环、协作式让出**。这不是巧合：`async`/`await` 这套语法源自 C# 5（2012），JavaScript（ES2017）和 Python（3.5，2015）先后借用，背后的事件循环模型也同源。但有三处差别决定了 Python 代码不能照 JS 的直觉写。第一，JS 里事件循环是运行时自带、永远在跑的，任何一段 JS 代码天然就在循环里；Python 的事件循环是一个普通库对象，要 `asyncio.run()` 显式启动，同一个程序里还可以同时有线程池和进程池（第五章的组合模式正是靠这一点）。第二，JS 的 `Promise` 在创建的瞬间就开始执行；Python 调用 `async def` 函数得到的协程对象**什么都不做**，直到被 `await` 或交给 `create_task()`（4.3 节，也是最常见的 bug 来源）。第三，JS 的主线程只有这一种模型（`worker_threads` 是隔离的、只能靠消息传递的另一个循环），阻塞代码没有别的去处；Python 有共享内存的线程和多进程作为逃生口，`to_thread` / `run_in_executor`（4.9 节）就是把阻塞代码搬出循环的桥。
+
 但异步并不意味着所有代码都自动变快。下面的代码会阻塞整个事件循环：
 
 ```python
@@ -737,8 +739,6 @@ async def good_task() -> None:
     await asyncio.sleep(5)
     print("done")
 ```
-
-`asyncio.sleep()` 会主动交出执行权，而 `time.sleep()` 会占用当前线程，使同一事件循环中的其他任务全部停顿。
 
 `asyncio.sleep()` 会主动交出执行权，而 `time.sleep()` 会占用当前线程，使同一事件循环中的其他任务全部停顿。这是本章反复出现的主题：**协程模型把"何时让出"的责任从运行时转移给了代码作者**。线程模型下 `time.sleep()` 只影响自己那个线程，OS 会调度别的线程；协程模型下它冻结所有人。
 

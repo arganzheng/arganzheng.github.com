@@ -29,6 +29,8 @@ AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "log_sigmoid_cpu", [&] {
 
 第三个疑问：`[&]`。它捕获了什么？`output`、`buffer`、`input` 都是外层函数的局部变量，用引用捕获它们安全吗？内层的 `parallel_for` 又用了一次 `[&]`，那是多线程执行的，为什么不用担心？
 
+> 先给 lambda 一个够用的定义，第九章再展开。`[&](int64_t begin, int64_t end) { ... }` 是一个写在表达式位置上的匿名函数：圆括号里是参数，花括号里是函数体，最前面的方括号叫**捕获列表**，声明函数体可以使用外层的哪些局部变量、以何种方式使用——`[&]` 表示按引用使用（函数体里的 `output` 就是外层那个 `output`，不是拷贝），`[=]` 表示拷贝一份进去。第九章之前读到 `[&] { ... }`，把它读作"一段能看见外层局部变量的代码块，被当成参数传出去，由被调用方决定何时执行、执行几次"即可。Java 工程师可以先对应到 lambda / 匿名内部类，差别（能否修改外层变量、生命周期由谁负责）留到第九章。
+
 这些问题的答案在同一个机制上：C++ 模板。Java 泛型和 C++ 模板都写成 `<T>`，但实现机制相反——Java 在编译后擦除类型，运行时只有一份代码；C++ 为每组模板参数在编译期生成一份代码，运行时没有类型信息也不需要。这个差别决定了模板能做什么（可以按类型生成完全不同的机器码）、编译错误为什么那么长（错误发生在实例化链的深处）、以及 `AT_DISPATCH` 为什么必须存在（`dtype` 是运行期的值，kernel 需要编译期的类型，中间要有一座桥）。
 
 本文的核心问题是总纲里的这句：
@@ -52,7 +54,7 @@ AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "log_sigmoid_cpu", [&] {
 第六章    把分支移到编译期                   constexpr、if constexpr、static_assert、SFINAE 与 enable_if、C++20 concepts
 第七章    编译期分派与运行期分派              逐层展开 AT_DISPATCH_FLOATING_TYPES，回答核心问题；vLLM 的 dispatch_utils.h；Dispatch_v2.h
 第八章    轻量视图与容器                    c10::ArrayRef/IntArrayRef、std::optional、c10::SmallVector
-第九章    lambda                         闭包类型、捕获列表、泛型 lambda、作为模板参数、引用捕获的生命周期陷阱
+第九章    lambda                         闭包类型、捕获列表与 C++98 对照、初始化捕获、泛型 lambda、作为模板参数、引用捕获的生命周期陷阱
 第十章    回到源码                        重读 scale_shift_cpu 与 data_ptr<T> 的显式实例化
 第十一章  mini-c10                       ScalarType 映射、MINI_DISPATCH_FLOATING_TYPES、ArrayRef、第一个模板化 kernel，用 nm 观察多份 kernel
 第十二章  工程实践建议与常见错误
@@ -152,6 +154,8 @@ T* TensorBase::data_ptr() const {
 | 类型检查发生在 | 泛型定义处（有 `extends` 约束） | 实例化处（默认没有约束，第六章） |
 | 运行期能问 `T` 是什么吗 | 不能（已擦除） | 不需要问，`T` 已经编进代码 |
 
+对 AI-Infra 读者，C++ 这一侧有一个更熟悉的类比：`torch.compile` 对同一个 Python 函数，会按输入的 dtype、形状（guard）各编译一份专用的图，`f(float32 张量)` 和 `f(float64 张量)` 跑的是两份不同的生成代码。模板做的是同一件事，只是发生在编译期、由源码里显式或推导出的 `<T>` 触发，而 `torch.compile` 发生在运行期、由第一次见到的实参触发。两者的代价也同构：份数随参数组合增长（模板是编译时间与二进制体积，`torch.compile` 是 recompile 次数与缓存），这是第七章 `AT_DISPATCH` 只为有限几种 dtype 实例化、而不是对所有类型全开的原因。
+
 最后两行解释了 C++ 模板错误信息为什么巨长。Java 在泛型定义处就检查 `T` 满足 `extends Comparable<T>`，错在哪一行就报哪一行。C++ 模板默认对 `T` 没有任何约束，`add_kernel` 里的 `a[i] + b[i]` 是否合法要等到 `scalar_t` 确定之后才知道；如果你传了一个没有 `operator+` 的类型，错误发生在**实例化的深处**，编译器会把整条实例化链打印出来。本机做一个最小实验，用 `std::sort` 排序一个 `std::list`（`list` 的迭代器不支持随机访问）：
 
 ```cpp
@@ -180,9 +184,20 @@ note: in instantiation of function template specialization
 
 ### 5. `typename` 与 `template` 的消歧义
 
-模板里有两个关键字的用法是纯语法层面的，Java 没有对应物，但读源码时随处可见。
+模板里有两个关键字的用法是纯语法层面的，Java 没有对应物，但读源码时随处可见。两者的根源是同一件事：**编译器在读模板定义时还不知道 `T` 是什么**，但它必须把每一行都解析成确定的语法结构。凡是含有 `T` 的名字（`T::x`、`t.get`）都叫**依赖名**（dependent name），解析器对它一无所知，只能靠默认规则或作者的提示。
 
-**`typename`**：当一个名字依赖于模板参数、并且它是一个类型时，必须在前面写 `typename`，否则编译器把它当成值。`c10/util/SmallVector.h` 的构造函数：
+先看一个最小的例子：
+
+```cpp
+template <typename T>
+void f() {
+  T::x * p;   // 这一行是什么意思？
+}
+```
+
+如果将来有人拿 `struct A { using x = int; };` 实例化，`T::x` 是类型 `int`，这一行应该是"声明一个 `int*` 变量 `p`"；如果拿 `struct B { static int x; };` 实例化，`T::x` 是一个 `int` 值，这一行应该是"把 `B::x` 乘以 `p`"然后丢掉结果。同一行代码，两种完全不同的语法树，而编译器在解析 `f` 的定义时——还没有任何人调用 `f<A>` 或 `f<B>`——就必须选一种。C++ 的规则是：**依赖名默认当成值**。所以上面这行被解析成乘法，clang 报的错是 `use of undeclared identifier 'p'`：它在找一个叫 `p` 的变量来做乘数。要表达"声明指针"，必须写 `typename T::x* p;`。这就是 `typename` 的全部作用——不是给读者看的，是告诉解析器"这个依赖名是类型，请按类型解析后面的内容"。（如果写了 `typename` 却拿 `B` 去实例化，错误变成 `typename specifier refers to non-type member 'x' in 'B'`：这时编译器已经知道 `T` 了，才有能力检查你说的对不对。）
+
+带着这个例子读源码里的写法。`c10/util/SmallVector.h` 的构造函数：
 
 ```cpp
   template <
@@ -214,7 +229,16 @@ using ScalarTypeToCPPTypeT = typename ScalarTypeToCPPType<N>::type;
 
 ——这就是第七章 `scalar_t` 的最终来源。
 
-**`template`**：当一个依赖名是成员模板、并且后面紧跟 `<`，要写 `template` 告诉编译器 `<` 是模板参数列表而不是小于号。`c10/util/intrusive_ptr.h` 的移动赋值：
+**`template`** 是同一个问题的另一个形态：`<` 这个符号既是小于号又是模板参数列表的开头，解析器要在读到它时就决定是哪个。最小例子：
+
+```cpp
+template <typename T>
+void g(T t) {
+  t.get<int>(0);   // clang: use 'template' keyword to treat 'get' as a dependent template name
+}
+```
+
+`t.get` 依赖 `T`，解析器不知道 `get` 是不是成员模板，按默认规则把 `<` 当成小于号，于是这一行被读成 `(t.get < int) > (0)`——`int` 出现在比较表达式里非法，报错。写成 `t.template get<int>(0)` 就是告诉它"`get` 是模板，接下来的 `<` 是参数列表"。规则：当一个依赖名是成员模板、并且后面紧跟 `<`，要写 `template`。`c10/util/intrusive_ptr.h` 的移动赋值：
 
 ```cpp
   intrusive_ptr& operator=(intrusive_ptr&& rhs) & noexcept {
@@ -223,6 +247,8 @@ using ScalarTypeToCPPTypeT = typename ScalarTypeToCPPType<N>::type;
 ```
 
 `this->operator=` 是成员模板，显式给它模板参数时要写 `this->template operator= <...>`。`c10/util/flat_hash_map.h` 里的 `typename std::allocator_traits<A>::template rebind_alloc<...>` 是两个关键字连用的例子。日常写代码很少需要 `template` 消歧义，但读到时不要以为是什么高级用法，它只是给解析器的提示。
+
+Java 泛型没有这两个关键字，原因也在"编译器读到 `T` 时知道多少"：Java 的 `T` 有 bound（默认 `Object`），`T` 上能用的成员在声明时就确定了，`t.get()` 是不是方法、返回什么，编译器读泛型方法体时就知道，不需要作者提示。C++17 的 `T` 在模板定义时没有任何约束——它可以是任何类型——所以解析器只能靠默认规则加作者标注。C++20 concepts（6.5 节）部分补上了这一层，但 `typename` / `template` 的规则没有变。
 
 
 ## 三、推导：编译器怎么知道 `T` 是什么
@@ -262,11 +288,15 @@ void cpu_kernel(TensorIteratorBase& iter, func_t&& op, int64_t grain_size = at::
 
 推导只能从**实参**推，不能从返回值推。`TensorBase::data_ptr<T>()` 没有参数，`T` 只出现在返回类型里，编译器无从推导，所以调用时必须显式写 `x.data_ptr<float>()`。这是 `AT_DISPATCH` 那段代码里 `<scalar_t>` 无处不在的原因：`data_ptr<scalar_t>()`、`Vectorized<scalar_t>`、`static_cast<scalar_t>(alpha)`，每一处都是在把编译期的 `scalar_t` 显式喂给另一个模板。
 
-Java 也有类似情形：`Collections.<String>emptyList()` 是显式类型见证（type witness），但 Java 通常能从赋值目标推导，C++ 不能——C++ 的推导只看实参。
+为什么不能从返回值推？一个自然的反驳是：实参类型都知道了，C++ 又是强类型的，返回类型理应也是确定的。这在 `T` 出现在实参里时成立——推出 `T`，返回类型随之确定，`parallel_for` 就是这样。`data_ptr<T>()` 的问题是 `T` **只**出现在返回类型里，实参列表是空的，没有任何信息可推。那能不能从**赋值目标**推——`float* p = x.data_ptr();`，左边不是明明写着 `float*`？C++ 的回答是不：表达式的类型是**自底向上**确定的，编译器先算出 `x.data_ptr()` 的类型，再检查它能否转换成左边的 `float*`，类型信息不会从上下文向下流进一个子表达式。这个选择有它的道理：同一个调用可以出现在没有目标类型的位置——`auto p = x.data_ptr();`、`f(x.data_ptr())`（`f` 可能有多个重载）、`x.data_ptr() + 1`——如果允许从目标反推，这些位置要么无解，要么让推导和重载决议变成一个联立求解的问题。C++ 把规则定成"只看实参、单向、局部"，代价是像 `data_ptr<T>()` 这种 `T` 不在实参里的情况必须显式写出来。
+
+Java 在这里走得远一点：`List<String> l = Collections.emptyList();` 能从赋值目标推出 `T = String`（目标类型推断，Java 8 起还扩展到方法实参与 lambda）；推不出来时才用显式类型见证（type witness）`Collections.<String>emptyList()`。C++ 只有后一种。
 
 ### 3. `auto`、`decltype` 与 `std::declval`
 
 `auto` 让编译器从初始化表达式推导变量类型，规则和模板参数推导相同。总纲开篇的 `auto x_c = x.contiguous();`、`auto out = at::empty_like(x_c);` 都是 `at::Tensor`。它在两种场合几乎是必需的：类型名太长（迭代器、lambda）或者根本写不出来（lambda 的闭包类型没有名字，只能 `auto f = [&] {...};`）。
+
+Java 10 的 `var` 是它最接近的对应物：都要求有初始化表达式、都在编译期推导、运行期没有任何差别。两处差别要记住。第一，`auto` 按模板推导规则**剥掉顶层 `const` 和引用**：`const Tensor& t = ...; auto u = t;` 得到的 `u` 是一个新的 `Tensor`（第二篇讲过，这里是一次引用计数加一而不是数据拷贝，但对 `std::vector` 这类值语义容器就是深拷贝），要保留引用必须写 `auto&` 或 `const auto&`——这是 C++ 代码里 `for (const auto& x : xs)` 满天飞的原因；`var` 原样取初始化表达式的类型，Java 也没有"引用"这一层可剥。第二，`auto` 不限于局部变量：函数返回类型（3.4 节）、泛型 lambda 的参数（9.3 节）都可以写 `auto`，后者实际是在声明一个模板；`var` 只能用于局部变量。
 
 `decltype(expr)` 给出表达式的类型而不求值。它在泛型代码里用来"问"一个类型能做什么。`c10/util/StringUtil.h` 里检测一个类型能否被 `<<` 到 `ostream` 的写法：
 
@@ -1154,7 +1184,7 @@ vLLM 没有重新发明这套机制，而是直接复用 ATen 的 `AT_DISPATCH_S
 
 ### 8. `Dispatch_v2.h`：去掉 `_AND2`/`_AND3` 的算术
 
-旧宏族有一个问题：想在默认集合上追加 N 个 dtype，就要用 `AT_DISPATCH_FLOATING_TYPES_AND2`、`_AND3`、`_AND4`……名字里带着个数，组合爆炸。`aten/src/ATen/Dispatch_v2.h`（PyTorch 2.x 中的变化：V2 在 2.3 引入，与 V1 并存；v2.10.0 中它的骨架同样已挪到 `torch/headeronly/core/Dispatch_v2.h`）用一种新写法解决：
+旧宏族有一个问题：想在默认集合上追加 N 个 dtype，就要用 `AT_DISPATCH_FLOATING_TYPES_AND2`、`_AND3`、`_AND4`……名字里带着个数，组合爆炸。`aten/src/ATen/Dispatch_v2.h`（PyTorch 2.x 中的变化：V2 在 2.3 引入，与 V1 并存；v2.10.0 中它的骨架同样已挪到 `torch/headeronly/core/Dispatch_v2.h`）用一种新写法解决。下面这段是该头文件开头说明注释里给出的用法示例（"You now write:"），原文就写在注释块里，这里照抄，所以每行都带 `//`——它不是被注释掉的代码，而是文档：
 
 ```cpp
 //  AT_DISPATCH_V2(
@@ -1379,6 +1409,34 @@ Java 的 lambda 会被编译成 `invokedynamic` + 一个实现函数式接口的
 
 ### 2. 捕获列表：`[&]`、`[=]`、具名捕获
 
+上一节说 lambda "等价于"一个手写的类。这不只是解释模型——在 C++11 之前，那个类就是你必须亲手写的东西。想把 `out`、`in`、`alpha` 三个局部变量带进 `parallel_for` 的循环体，C++98 的写法是：
+
+```cpp
+// C++98：把要用的外层变量一个个存进成员，构造函数一个个传，循环体写在 operator() 里
+struct ScaleBody {
+  float* out; const float* in; float alpha;
+  ScaleBody(float* o, const float* i, float a) : out(o), in(i), alpha(a) {}
+  void operator()(long b, long e) const {
+    for (long i = b; i < e; ++i) out[i] = alpha * in[i];
+  }
+};
+
+void scale_98(float* out, const float* in, float alpha, long n) {
+  parallel_for(0, n, ScaleBody(out, in, alpha));
+}
+```
+
+```cpp
+// C++11：同一件事
+void scale_11(float* out, const float* in, float alpha, long n) {
+  parallel_for(0, n, [&](long b, long e) {
+    for (long i = b; i < e; ++i) out[i] = alpha * in[i];
+  });
+}
+```
+
+两段代码编译出来的东西是一样的：一个有三个成员的小结构体、一个 `operator()`，`parallel_for<ScaleBody>` 各实例化一份。差别全在源码层面，而且每一处都对应捕获列表的一个功能：`[&]` 替你**决定哪些变量要存**（用到了什么就存什么，不必手写成员列表和构造函数）、**决定以什么形式存**（`&` 是引用，`=` 是拷贝——C++98 版本里 `out`/`in` 存的是指针值、`alpha` 存的是拷贝，其实是混合捕获）、**把循环体写回它被使用的位置**（C++98 的 `ScaleBody` 必须定义在函数外面，循环体和调用点隔着几十行；kernel 里有十个这样的循环就要十个具名的类）。ATen 那种"一个函数里嵌三层 dispatch 和并行循环"的代码，在 C++98 里是不可能以可读的形式写出来的——这是 C++11 lambda 解决的问题，也是为什么 PyTorch 源码里 lambda 密度那么高。
+
 方括号里的内容决定 lambda 体里能用哪些外层变量，以及**怎么**用：
 
 | 写法 | 含义 | 生成的成员 |
@@ -1399,7 +1457,22 @@ Java 的 lambda 会被编译成 `invokedynamic` + 一个实现函数式接口的
   };
 ```
 
-（`NUM_OF_LETTERS` 是 `constexpr`，实际不需要捕获；`[=]` 在这里是"这个 lambda 不依赖任何外部引用"的声明。）3.4 节 `register_hook` 里的 `[fn=std::forward<T>(hook)]` 是初始化捕获：把用户的 hook **移动**进闭包成为成员，因为这个闭包要被存进 `std::function` 长期持有，按引用捕获会悬垂。
+（`NUM_OF_LETTERS` 是 `constexpr`，实际不需要捕获；`[=]` 在这里是"这个 lambda 不依赖任何外部引用"的声明。）
+
+表格最后一行的**初始化捕获**（init-capture，C++14）值得单独讲，因为它解决的问题在 `[&]` / `[=]` 之外。C++11 的捕获只有两种：拷贝一份，或者引用外面那份。有一类对象两种都不行——**只能移动、不能拷贝**的对象，`std::unique_ptr` 是代表，第二篇的 `Buffer`、线程句柄、文件描述符包装都是。假设要把一个 `unique_ptr<Buffer>` 交给一个稍后执行的任务：
+
+```cpp
+auto make_task(std::unique_ptr<Buffer> buf) {
+  // 错：call to implicitly-deleted copy constructor of 'unique_ptr<Buffer>'
+  return [=] { use(buf->n); };
+  // 错：引用的是形参 buf，make_task 返回后它已销毁（clang -Wall 会警告）
+  return [&] { use(buf->n); };
+  // 对：把 buf 移动进闭包，成员 b 归闭包所有
+  return [b = std::move(buf)] { use(b->n); };
+}
+```
+
+`[b = std::move(buf)]` 的语法是"闭包新增一个成员 `b`，用等号右边的表达式初始化它"——右边可以是任何表达式，不必是外层变量的名字，所以它同时提供了改名（`[n = size()]`）、预计算（`[len = end - begin]`）和移动三种能力。C++11 时代的变通办法是先把对象装进 `std::shared_ptr` 再 `[=]` 捕获（多一次堆分配和引用计数，语义也从独占变成了共享）或者用 `std::bind`；C++14 之后这些都不需要了。3.4 节 `register_hook` 里的 `[fn=std::forward<T>(hook)]` 就是这个用法：把用户的 hook **移动**进闭包成为成员，因为这个闭包要被存进 `std::function` 长期持有，按引用捕获会悬垂，按值捕获则要求 hook 可拷贝。凡是"lambda 要活得比当前作用域久、又要独占一份资源"的场合——线程池任务、异步回调、`std::thread` / `std::async` 的函数体——初始化捕获都是标准写法，读并发和网络库源码时会反复见到。
 
 Java 对照：Java lambda 只能捕获 effectively final 的局部变量，而且是按值捕获（对对象来说是拷贝引用）。Java 没有 `[&]`——你不能在 lambda 里给外层局部变量赋值。这条限制的原因正是生命周期：Java lambda 可能在外层方法返回后才执行，按引用捕获栈变量必然悬垂，所以语言直接禁止。C++ 允许 `[&]`，把判断"lambda 会不会活得比外层变量久"的责任交给程序员。
 
