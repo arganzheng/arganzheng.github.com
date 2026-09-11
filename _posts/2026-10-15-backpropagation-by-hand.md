@@ -7,8 +7,6 @@ tags: [AI, Deep Learning, LLM]
 catalog: true
 ---
 
-> 本文是[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)系列的第 1 篇（共 6 篇）。下一篇：[训练为什么不稳定：初始化、归一化与残差](/initialization-normalization-and-residual.html)
-
 `loss.backward()` 是训练代码里最短的一行，也是被理解得最少的一行。它做的事在 1986 年就已经写清楚了：沿着计算图反向应用链式法则。但只有自己推过一遍、写过一遍、用有限差分验证过一遍，才会真的知道三件后面每一篇都要用的事——**梯度的形状与被求导的量相同**、**反向的计算量是前向的两倍**、**前向的中间结果必须保留到反向**。第一件决定了怎么读任何一个梯度公式，第二件是训练 FLOPs 等于 $$6ND$$ 的来源，第三件是激活显存与激活重算的全部原因。
 
 本篇用一个两层 MLP（Linear → ReLU → Linear → softmax → 交叉熵）把这三件事推到底。选它是因为它足够小——每一步的形状能写在一行里——又足够完整：Transformer 里除了 attention 之外的每个部件（Linear、激活函数、norm、loss）的反向都是同一套规则。全篇的核心问题是：
@@ -319,6 +317,9 @@ epoch 15  train loss 0.0585  test acc 97.61%
 - 梯度检查用 **float64、中心差分、相对误差**，$$< 10^{-6}$$ 通过；训练前看初始 loss 是否接近 $$\ln C$$、能否过拟合一个小 batch。
 - Autograd 做的是录带、每个算子的 backward、saved tensors、`.grad` 累加；手写结果与它差 $$10^{-8}$$。
 - 下一篇把这个网络加深到 64 层，看梯度在层间传播时会发生什么。
+
+配套代码：[`deep-learning-foundations/01_backprop.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/01_backprop.py)——本文的全部数字由它跑出（梯度检查、FLOPs、与 autograd 对齐、15 个 epoch 的训练），`--quick` 一分钟内跑完；第九章的三个扩展可以直接在上面改。
+
 
 ## 下一篇
 

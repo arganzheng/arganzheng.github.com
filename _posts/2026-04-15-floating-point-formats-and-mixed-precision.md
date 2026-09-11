@@ -791,6 +791,8 @@ FP32 累加 k=4096 相对噪声     ~2^-24 · 64 = 4e-6 (可忽略)
 
 下一篇进入文本部分的最后一站：把权重换成 INT4 之后字节数怎么算、投机解码如何用一个小模型改变 decode 的算术强度、LoRA 的额外参数与 FLOPs 各占多少——三种"改变计算形态"的方法。
 
+配套代码：第九章的四段实验分别是 [`fp_formats.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/fp_formats.py)、[`bf16_update_swallowed.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/bf16_update_swallowed.py)、[`gemm_error_vs_k.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/gemm_error_vs_k.py) 与 [`llm_cost_06_dtype_state.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_06_dtype_state.py)。
+
 
 ## 下一篇
 

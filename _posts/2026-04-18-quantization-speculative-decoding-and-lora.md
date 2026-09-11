@@ -815,6 +815,8 @@ LoRA 额外 FLOPs（W_Q）               0.78%             0.39%             —
 
 到这里，文本 LLM 的成本模型已经完整：结构决定参数量、KV 与通信量，精度决定字节数，量化、投机解码与 LoRA 在不改结构的前提下改变计算形态。还剩一个前提没有动过——所有账都假设 token 来自 tokenizer。下一篇把输入换成图片：一张图先经过一个独立的 vision encoder，再变成几百到几千个 token 插进 prompt，它的算量花在哪里、这些 token 在 decoder 里的 KV 与文本 token 有没有区别，是本系列的最后一站。
 
+配套代码：[`transformer-and-llm/llm_cost_07_quant_specdec_lora.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_07_quant_specdec_lora.py)。
+
 
 ## 下一篇
 

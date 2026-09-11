@@ -7,8 +7,6 @@ tags: [AI, Deep Learning, LLM]
 catalog: true
 ---
 
-> 本文是[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)系列的第 2 篇（共 6 篇）。上一篇：[反向传播：手推一个两层网络](/backpropagation-by-hand.html)；下一篇：[优化器：从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)
-
 上一篇的两层网络怎么训都能训。把它加深到 64 层，同样的代码会出现四种结局：loss 停在 $$\ln 10$$ 一步不动；第三步变成 NaN；能动但慢得像没训；正常收敛。四种结局对应的网络只差三样东西——权重初始化的标准差、有没有归一化层、有没有残差连接——而这三样东西恰好是 1990 年代到 2016 年深度学习解决"深了就训不动"这个问题的三步。
 
 本篇把这三步各自推到公式、算到数字、在同一个 64 层网络上测出来。推导的主线只有一条：**信号的方差在层间怎么传播，梯度作为一串 Jacobian 的乘积怎么放大或缩小**。三种修法各自动了这条链上的哪一环，决定了它们能修什么、修不了什么。最后落到当前 LLM 的标准配置——Pre-Norm、RMSNorm、残差、初始化标准差 0.02、残差分支缩放——每一项在本篇都有它的来历与数字。全篇的核心问题是：
@@ -290,6 +288,9 @@ res-nonorm-scaled 要把学习率降到 0.001 才能训（300 步 loss 0.22）�
 - **Pre-Norm** 保住恒等通路，梯度各层同量级、能用大学习率；**Post-Norm** 顶层梯度是底层的 4 倍，需要 warmup、深了难训。LLM 选 Pre-Norm 加 final norm。
 - 规模化之后的补丁——warmup、裁剪、QK-norm、z-loss、$$\mu$$P、$$\beta_2 = 0.95$$——各针对一个具体的失稳来源；诊断看三条曲线：各层激活 RMS、各层梯度范数、更新量 / 参数比。
 - 下一篇讲有了稳定的梯度之后怎么用它更新参数：优化器、学习率、warmup 与裁剪的来历。
+
+配套代码：[`deep-learning-foundations/02_init_norm_residual.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/02_init_norm_residual.py)——七种接法的初始化统计与 300 步训练；`dlf/layers.py` 里是 LayerNorm / RMSNorm / Residual 的实现与 `make_deep_mlp`。
+
 
 ## 下一篇
 

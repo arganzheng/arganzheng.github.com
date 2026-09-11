@@ -7,8 +7,6 @@ tags: [AI, Deep Learning, LLM]
 catalog: true
 ---
 
-> 本文是[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)系列的第 5 篇（共 6 篇）。上一篇：[正则化与泛化：为什么参数比样本多却不过拟合](/regularization-and-generalization.html)；下一篇：[RNN：从 LSTM 到 attention 的诞生](/rnn-lstm-and-the-birth-of-attention.html)
-
 前四篇讲训练动力学，用的网络全是 MLP。这一篇和下一篇回看 Transformer 之前的两条结构史——卷积与循环——不是为了怀旧，而是因为 Transformer 的每个部件都有来历：残差连接、归一化、"堆同样的块"来自卷积这条线；attention 来自循环那条线。理解一个部件当初解决了什么问题，才知道它今天还在解决什么、什么时候可以拿掉。
 
 卷积网络的故事可以压缩成三句话：**卷积是一个被强约束的线性层**，约束带来的参数节省与归纳偏置让它在数据不多时远胜 MLP；**深度是为了感受野**，而深了就训不动，ResNet 用残差解决了它；**数据足够多时约束成了负担**，ViT 把图切成 patch、当成 token 送进标准 Transformer，只保留了卷积的一个影子——patch embedding 本身就是一个 stride 等于 kernel 的卷积。三句话各对应本篇的一个实验。全篇的核心问题是：
@@ -262,6 +260,9 @@ L=56 residual: init grad norm block1 2.2e+00 vs block56 7.6e-01 (ratio 2.9)   | 
 - **ViT**：数据足够多时卷积的先验成为负担；把图切成 $$(H/p)(W/p)$$ 个 patch、线性投影成 token、送进标准 encoder。**Patch embedding 就是 kernel = stride = $$p$$ 的卷积**（实测差 $$10^{-6}$$，590,592 个参数）。一张 224 图是 196 个 token，CLIP-336 是 576，原生分辨率 1024² 是 5476——这是多模态成本的起点。
 - 卷积退到了 patch embedding、语音前端、U-Net 与 ConvNeXt；懂到"带约束的线性层 + 会算账 + 认得出 patch embedding"即可。
 - 下一篇：另一条线——循环网络怎么处理序列、为什么记不住远处、attention 如何从它的瓶颈里被发明出来。
+
+配套代码：[`deep-learning-foundations/05_cnn.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/05_cnn.py)——`matrix` / `resnet` / `patch` / `deep` 四个子实验，`deep`（L=20 / 56 的 plain 与 residual）在 CPU 上约 10 分钟。
+
 
 ## 下一篇
 

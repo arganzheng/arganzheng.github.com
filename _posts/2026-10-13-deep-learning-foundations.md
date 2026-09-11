@@ -311,7 +311,8 @@ LLM 线：6ND · 激活重算 → RMSNorm · Pre-Norm · 0.02 → AdamW · warmu
 
 ### 版本与基线
 
-- 实验基线：第一至四篇用 MNIST 与 Fashion-MNIST 规模的数据（几万样本、几十万到几百万参数的 MLP），第五篇用 CIFAR-10，第六篇用合成的序列任务；所有数字在普通笔记本 CPU 上几分钟内可复现；
+- 实验基线：第一至五篇用 MNIST（几万样本、几十万到几百万参数的 MLP 与小卷积网络），第四篇的语言模型用 Python 标准库源码做字符级语料，第六篇用合成的序列任务；所有数字在普通笔记本 CPU 上几分钟到十几分钟内可复现；
+- 配套代码：每篇一个脚本，连同系列贯穿的迷你框架 `dlf/` 与作者机器上的运行输出，在 [ai-learning-labs/deep-learning-foundations](https://github.com/arganzheng/ai-learning-labs/tree/main/deep-learning-foundations)；
 - 算账时引用的真实网络：ResNet-50（25.6M 参数）、GPT-2（124M 到 1.5B，$$\sqrt{2L}$$ 初始化缩放）、Llama-3-8B（32 层、初始化标准差 0.02、AdamW $$\beta_2 = 0.95$$、weight decay 0.1、裁剪 1.0），超参数取自公开论文与技术报告；
 - 论文引用以第一作者与年份标注。
 

@@ -7,8 +7,6 @@ tags: [AI, Deep Learning, LLM]
 catalog: true
 ---
 
-> 本文是[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)系列的第 4 篇（共 6 篇）。上一篇：[优化器：从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)；下一篇：[CNN：从 LeNet 到 ResNet，再到 ViT](/cnn-from-lenet-to-resnet-and-vit.html)
-
 [L2 导读](/classical-machine-learning-in-the-llm-era.html)讲过经典机器学习的第一定律：模型容量超过数据量就会过拟合。一个 160 万参数的网络在 4000 个样本上训练，按这条定律应该背下每一个样本、在测试集上一败涂地。第九章的实验里它做到了前半句——训练错误率 0.0%——却没有做到后半句：测试错误率 14.5%，是所有宽度里**最好**的。而一个参数只有样本两倍的小网络，测试错误率 43%。
 
 这个现象——参数越多泛化越好，越过某个点之后——在 2017 年前后被系统地记录下来（Zhang 等 2017；Belkin 等 2019），它推翻的不是"过拟合"这个概念，而是"容量"这个度量。本篇讲三件事：为什么深网络在参数远多于样本时不过拟合（隐式正则化与 double descent）；显式正则化手段各自在做什么（dropout、weight decay、早停、label smoothing）；以及什么时候过拟合会回来——因为它一定会回来，SFT 训几个 epoch 之后模型开始逐字背答案，就是它。全篇的核心问题是：
@@ -272,6 +270,9 @@ Double descent 与正则化的完整表在第二、五章。小语言模型 2 �
 - 过拟合在 **SFT 与奖励模型**上回来：小语言模型实验里 2 万字符时第 16 个 epoch 起 held-out loss 回升、逐字记忆率升到 10%；20 万字符拐点在第 8 个 epoch；200 万字符 10 个 epoch 未到拐点。
 - 诊断：训练 / 验证 gap、held-out 拐点、**测试 loss 涨而准确率不变 = 过度自信**、记忆探针。
 - 下一篇回到结构史：卷积网络解决了什么、ResNet 留下了什么、ViT 怎么把图切成 token。
+
+配套代码：[`deep-learning-foundations/04_regularization.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/04_regularization.py)——`dd` / `reg` / `lm` 三个子实验，完整跑约 15 分钟，`--quick` 两分钟；字符级语料用的是 Python 自带的标准库源码，不需要下载。
+
 
 ## 下一篇
 

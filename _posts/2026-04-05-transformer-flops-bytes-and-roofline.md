@@ -854,6 +854,8 @@ prefill 8K @60% MFU         0.24–0.27 s     2.1–2.2 s       —
 
 > **DeepSeek-V3 的 MLA 如何把每 token 的 KV cache 从 3.81 MiB 压到 68.6 KiB，而 attention 的算量与 GQA 相比又变成了什么？**
 
+配套代码：[`transformer-and-llm/llm_cost_02_flops_roofline.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_02_flops_roofline.py)。
+
 
 ## 下一篇
 

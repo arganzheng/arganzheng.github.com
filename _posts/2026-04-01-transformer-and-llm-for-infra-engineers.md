@@ -385,6 +385,8 @@ batch 1 decode 时间下界   4.8 ms（单卡）     不能单卡           不�
 第八篇    Dosovitskiy 等 2020（ViT）· Liu 等 2023（LLaVA-1.5）· Qwen2-VL 与 Qwen2.5-VL 技术报告 · Alayrac 等 2022（Flamingo）· Llama 3.2 Vision 与 InternVL2 的 config.json
 ```
 
+`llm_cost.py` 的八版（每篇一版，各自独立可运行）与几篇文章里的独立实验（RoPE、最小 MoE 层、浮点格式）保存在 [ai-learning-labs/transformer-and-llm](https://github.com/arganzheng/ai-learning-labs/tree/main/transformer-and-llm)，附每个脚本的完整输出。
+
 
 ## 阅读路径建议
 

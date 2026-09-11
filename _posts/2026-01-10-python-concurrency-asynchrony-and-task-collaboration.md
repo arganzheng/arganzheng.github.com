@@ -2455,6 +2455,8 @@ Python 并发编程的难点，并不在于记住 `async def`、`await` 或线�
 2. **概念对得上，默认值经常对不上。** 队列默认无界、锁不可重入、信号量默认公平、`CancelledError` 是 `BaseException`——每一条单独看都是小事，叠在一起就是事故。
 3. **Python 在任务协作层反而更成熟。** `TaskGroup`、`ExceptionGroup`/`except*`、`asyncio.timeout()` 的取消作用域、异步生成器的天然背压，这几样在 Java 侧要么还在 preview，要么需要引入 Reactor 才有。别因为 GIL 就低估 asyncio 的表达能力。
 
+配套代码：线程池与进程池的 cancel / timeout / shutdown / `contextvars` / `BrokenProcessPool` 行为验证脚本在 [ai-learning-labs/python-for-ai-infra/03-concurrency](https://github.com/arganzheng/ai-learning-labs/tree/main/python-for-ai-infra/03-concurrency)。
+
 
 ## 下一篇
 

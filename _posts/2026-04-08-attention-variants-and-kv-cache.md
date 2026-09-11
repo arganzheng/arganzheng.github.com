@@ -766,6 +766,8 @@ MLA 的 K、V 之所以能压成 576 个数，前提是 RoPE 被单独拿了出�
 
 > **RoPE 的旋转频率如何决定模型"能看多远"？把 8K 训练的模型拉到 128K，哪些频率会失效，YaRN 与 Llama 3.1 的分段缩放各自修了什么？**
 
+配套代码：[`transformer-and-llm/llm_cost_03_attention_kv.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_03_attention_kv.py)。
+
 
 ## 下一篇
 

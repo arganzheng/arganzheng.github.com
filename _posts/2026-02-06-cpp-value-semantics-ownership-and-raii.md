@@ -2621,6 +2621,8 @@ y.defined()=0, w use_count=1
 
 下一篇进入模板：`AT_DISPATCH_FLOATING_TYPES` 里的 `scalar_t` 从哪里来，`data_ptr<scalar_t>()` 的 `<>` 为什么和 Java 泛型完全不是一回事，以及 `IntArrayRef`、`std::optional`、lambda 这些"轻量视图"类型如何与本篇的所有权规则配合。
 
+配套代码：本文的 14 个小例子（含故意编不过的 const 例子与故意 double free 的 `Buffer`）在 [ai-learning-labs/cpp-for-ai-infra/02-value-semantics-and-raii](https://github.com/arganzheng/ai-learning-labs/tree/main/cpp-for-ai-infra/02-value-semantics-and-raii)，mini-c10 的头文件与 `main.cpp` 在 [`cpp-for-ai-infra/minic10`](https://github.com/arganzheng/ai-learning-labs/tree/main/cpp-for-ai-infra/minic10)，`make run` 一键编译运行。
+
 
 ## 下一篇
 

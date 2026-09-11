@@ -421,6 +421,8 @@ Java 对照：Maven/Gradle 管理依赖、编译和测试一体化，C++ 里这�
 第八篇    c10/test/util/intrusive_ptr_test.cpp · tools/gdb/pytorch-gdb.py · .clang-tidy
 ```
 
+mini-c10 的代码与各篇的小例子在 [ai-learning-labs/cpp-for-ai-infra](https://github.com/arganzheng/ai-learning-labs/tree/main/cpp-for-ai-infra)（目前是第二篇的部分：`intrusive_ptr` / `Allocator` / `StorageImpl` / `TensorImpl` / `Tensor` 与 14 个值语义例子，`make run` 一键编译运行），后续各篇的文件会加到同一目录。
+
 
 ## 阅读路径建议
 

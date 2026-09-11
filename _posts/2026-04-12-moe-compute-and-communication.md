@@ -886,6 +886,8 @@ grouped GEMM 每专家行数
 
 > **一个数用多少位表示，决定了它能算多快、放多少，也决定了它在哪里会悄悄算错。**
 
+配套代码：[`transformer-and-llm/llm_cost_05_moe.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_05_moe.py)；第二章的最小 MoE 层在 [`moe_layer_minimal.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/moe_layer_minimal.py)。
+
 
 ## 下一篇
 

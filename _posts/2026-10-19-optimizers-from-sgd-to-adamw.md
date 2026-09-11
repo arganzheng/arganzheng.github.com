@@ -7,8 +7,6 @@ tags: [AI, Deep Learning, LLM]
 catalog: true
 ---
 
-> 本文是[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)系列的第 3 篇（共 6 篇）。上一篇：[训练为什么不稳定：初始化、归一化与残差](/initialization-normalization-and-residual.html)；下一篇：[正则化与泛化：为什么参数比样本多却不过拟合](/regularization-and-generalization.html)
-
 打开任何一份 LLM 技术报告的训练配置，会看到同一组数字：AdamW，$$\beta_1 = 0.9$$，$$\beta_2 = 0.95$$，weight decay 0.1，梯度裁剪 1.0，warmup 2000 步，cosine 衰减到峰值的 10%。这组数字从 GPT-3 到 Llama-3 几乎没变过，以至于很少有人再问它们是从哪来的。本篇把每一个数字拆开：它在公式里的位置、它解决的问题、改了会怎样、以及为什么优化器状态要占每参数 8 字节。
 
 主线从最简单的 SGD 开始，每加一个部件就问两个问题——**它改变了更新量的哪个性质**、**代价是什么**。Momentum 改变了方向的平滑度，Adam 改变了每个参数的步长尺度，weight decay 改变了参数范数的平衡点，warmup 与调度改变了步长随时间的形状，裁剪改变了步长的上界。每一项都用同一个网络测出来。全篇的核心问题是：
@@ -323,6 +321,9 @@ class Adam:
 - **裁剪**到全局范数 1.0 限制步长上界，SGD 下一个坏 batch 不裁剪 loss 跳 6 倍，裁剪后无感；Adam 下损伤小但可见；梯度范数曲线是第二重要的诊断曲线。
 - 混合精度 + AdamW 的 16 字节 / 参数里 12 字节是优化器的；8-bit Adam、Adafactor 各省多少；Muon 一类用更多曲率信息换步数。
 - 下一篇：有了能稳定训练的网络与优化器，为什么参数比样本多得多却不过拟合——以及什么时候会。
+
+配套代码：[`deep-learning-foundations/03_optimizers.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/03_optimizers.py)——六个实验各是一个子命令（`compare` / `bias` / `warmup` / `adamw` / `scaling` / `clip`）；优化器实现在 `dlf/optim.py`。
+
 
 ## 下一篇
 

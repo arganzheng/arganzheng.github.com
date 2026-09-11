@@ -839,6 +839,8 @@ attention = 权重 的交叉点      约 28.6K          约 53.8K          —
 
 DeepSeek-V3 的 attention FLOPs 按未吸收的朴素形式（128 头、q/k 192 维、v 128 维）计算，吸收后的形式访存更少但 FLOPs 更高，第三篇有讨论；它的 prefill 总量需要第五篇 MoE 的激活参数量才能完整给出。
 
+配套代码：[`transformer-and-llm/llm_cost_04_long_context.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_04_long_context.py)；RoPE 的 NumPy 实现与三种缩放的波长表在 [`rope_numpy.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/rope_numpy.py)。
+
 
 ## 下一篇
 

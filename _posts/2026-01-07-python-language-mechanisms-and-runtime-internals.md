@@ -1910,6 +1910,8 @@ Python 没有受检异常，所有异常都是 Java 意义上的 `RuntimeExcepti
 
 这是从"会写 Python"到"能读懂 Python 工程和 AI-Infra 框架"的第一步。后续六篇分别讨论类型系统、并发与异步、动态机制与插件架构、内存管理、测试与调试、工程化与交付，每一篇都会用到本文的某一组机制。
 
+配套代码：本文验证各个结论用的小脚本（`dis` 与 code object、import 系统、描述符优先级、生成器与上下文管理器、自定义 `MetaPathFinder`、装饰器顺序）在 [ai-learning-labs/python-for-ai-infra/01-language-mechanisms](https://github.com/arganzheng/ai-learning-labs/tree/main/python-for-ai-infra/01-language-mechanisms)，只依赖标准库。
+
 
 ## 下一篇
 

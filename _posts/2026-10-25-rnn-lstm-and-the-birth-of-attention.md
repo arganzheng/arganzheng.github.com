@@ -7,8 +7,6 @@ tags: [AI, Deep Learning, LLM]
 catalog: true
 ---
 
-> 本文是[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)系列的第 6 篇（共 6 篇）。上一篇：[CNN：从 LeNet 到 ResNet，再到 ViT](/cnn-from-lenet-to-resnet-and-vit.html)
-
 Attention 不是为 Transformer 发明的。2014 年它被加到一个循环神经网络的翻译模型上，目的很具体：encoder 把整句话压进一个固定长度的向量，句子长了向量装不下，翻译质量随句长下降——attention 让 decoder 每生成一个词都回头看 encoder 的全部隐状态，绕过这个瓶颈。三年后 Vaswani 等发现，有了 attention 之后循环本身可以不要了。
 
 所以理解 RNN 的意义在于理解 attention 解决了什么。本篇按这条线走：循环网络怎么处理序列，它的梯度在时间上怎么传播（[第二篇](/initialization-normalization-and-residual.html)的 Jacobian 连乘在时间维上的版本），为什么记不住 20 步之外的东西，LSTM 的门控为什么能记更远——以及那个门在数学上就是残差连接——然后是 seq2seq 的瓶颈、attention 的原始形式，最后是 RNN 的两个致命缺点与 Transformer 的回答。四个实验各对应一段。全篇的核心问题是：
@@ -292,3 +290,5 @@ for t in range(T, 0, -1):
 - [第五篇](/cnn-from-lenet-to-resnet-and-vit.html)与本篇回看两条结构史：卷积是带约束的线性层，ResNet 留下残差、归一化、堆同样的块与 pre-activation，ViT 把图切成 token；RNN 的门是时间上的残差，attention 从 seq2seq 的瓶颈里诞生，然后取代了发明它的循环。
 
 读到这里，Transformer 的每个部件都有了来历：残差与 Pre-Norm 来自第二篇与 ResNet，AdamW 与 warmup 来自第三篇，attention 来自本篇，patch embedding 来自上一篇，"堆 $$L$$ 层同样的块"来自两条线的交汇。[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)从这里接手——那个系列不再问"为什么这样设计"，而是问"这样设计每一步花多少钱"。两个系列合在一起，是[算法地图](/ai-algorithm-engineer-learning-roadmap.html)上 L3 与 L4 的全部基础。
+
+配套代码：[`deep-learning-foundations/06_rnn_attention.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/06_rnn_attention.py)——`bptt` / `memory` / `forget` / `seq2seq` / `timing` 五个子实验；`forget` 就是遗忘门偏置为 1 的那组对照。整个系列的代码与运行输出在 [ai-learning-labs/deep-learning-foundations](https://github.com/arganzheng/ai-learning-labs/tree/main/deep-learning-foundations)。
