@@ -371,6 +371,24 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
     them and they simply stop rendering. No new storage anywhere.
   - Orphans (`renderOrphans`) show the first 24 chars of the quote + author
     (title = full quote + section) under 「N 条划线评论对应的原文已修改」.
+  - **Figures** (`js/figures.js`, loaded before annotations.js): every `p > img`
+    becomes `figure.post-figure > img + figcaption.post-figcaption (.fig-no 「图 N」 +
+    .fig-title = alt) + div.fig-tools > button.code-copy.fig-feedback`; every
+    rendered `.mermaid` gets the same caption as its next sibling (title = Mermaid
+    front matter `title:` or a first-line `%% 图：…` comment) and a `.fig-tools`
+    strip inside that also holds code-copy's button (32 px targets, 6 px padded
+    dead zone whose click handler stops propagation so near-misses don't open the
+    zoom lightbox; `code-copy.js`'s duplicate check looks inside `.fig-tools` too —
+    moving its button out again would loop the two MutationObservers). The button
+    only *selects* the caption title (scrolling the caption to the viewport centre
+    first when it is off-screen, focusing it, flashing `.is-picked`) —
+    annotations.js' `selectionchange` shows the normal toolbar, so a picture's
+    passage is its caption text (stable while the alt is). `figcaption` is in
+    `BLOCK_SELECTOR` (panel goes right under it); a mark inside a caption sets
+    `.has-note` on it and CSS `:has()` outlines the figure. `feedback-brief.js`'s
+    `articleFromHtml` turns `img[alt]` into text so those quotes still anchor in
+    the static HTML. Writing rule: **alt is required and reads as a caption**;
+    「图 N」 alone is the fallback and re-numbers when a figure is inserted.
   - **Section-level 有用 / 没看懂** (`renderChapterBars`, `.sec-react` appended
     inside every article heading `h2`–`h6`, two `.sec-react-btn`s; `chapters` map): anonymous
     like passage reactions, no selection needed. Same worker route and table,

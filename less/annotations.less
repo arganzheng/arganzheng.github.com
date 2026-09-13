@@ -843,3 +843,48 @@
 	// headings wrap on phones: put the buttons on their own line, left-aligned
 	.post-container :is(h2, h3, h4, h5, h6) .sec-react { display: flex; margin: 8px 0 0; }
 }
+
+// ---- figures: caption + feedback handle on images / Mermaid diagrams (js/figures.js)
+.post-container {
+	figure.post-figure {
+		position: relative;
+		margin: 1.5em 0 1.6em;
+		text-align: center;
+		img { margin: 0 auto; }
+	}
+	.post-figcaption {
+		display: block;
+		margin: 8px auto 0;
+		max-width: 92%;
+		font-size: 13px;
+		line-height: 1.5;
+		color: @annot-muted;
+		text-align: center;
+		.fig-no { color: @annot-faint; margin-right: 6px; }
+		&.is-picked .fig-title, &.is-picked.is-untitled .fig-no { background: fade(#ffd54f, 45%); border-radius: 3px; }
+		&.has-note { color: #24292f; }
+	}
+	.mermaid + .post-figcaption { margin-top: -6px; margin-bottom: 1.4em; }
+	// a note on the caption outlines the picture it belongs to
+	.post-figure:has(> .post-figcaption.has-note) img,
+	.mermaid:has(+ .post-figcaption.has-note) { outline: 2px solid fade(@annot-line, 55%); outline-offset: 4px; border-radius: 4px; }
+	// corner strip: 32 px targets, 6 px dead-zone padding, faint plate on hover
+	.fig-tools {
+		position: absolute;
+		top: 2px;
+		right: 2px;
+		z-index: 1;
+		display: flex;
+		gap: 6px;
+		padding: 6px;
+		border-radius: 8px;
+		transition: background-color 0.15s;
+		.code-copy { position: static; width: 32px; height: 32px; }
+		&:hover { background: rgba(255, 255, 255, 0.85); }
+	}
+	.post-figure > .fig-tools { opacity: 0; transition: opacity 0.15s; }
+	.post-figure:hover > .fig-tools, .post-figure > .fig-tools:focus-within { opacity: 1; }
+}
+@media (max-width: 767px) {
+	.post-container .post-figure > .fig-tools { opacity: 1; }
+}

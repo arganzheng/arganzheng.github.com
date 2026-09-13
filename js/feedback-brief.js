@@ -81,6 +81,11 @@
     if (!box) return null;
     var junk = box.querySelectorAll('.comment, .footnotes, script, style, .series-toc, .series-nav, .series-context, .pager, .related-posts, .post-actions, .post-license');
     for (var i = 0; i < junk.length; i++) junk[i].parentNode.removeChild(junk[i]);
+    // js/figures.js turns each image's alt into a caption readers can underline; the
+    // static HTML has it only as an attribute, so surface it as text (Mermaid titles
+    // are already in the <code> source).
+    var imgs = box.querySelectorAll('img[alt]');
+    for (var k = 0; k < imgs.length; k++) { var alt = norm(imgs[k].getAttribute('alt')); if (alt) imgs[k].parentNode.replaceChild(doc.createTextNode(' ' + alt + ' '), imgs[k]); }
     var body = String(box.textContent || '').replace(/\s+/g, ' ');
     var heads = [], pos = 0, hs = box.querySelectorAll('h2, h3, h4, h5, h6');
     for (var j = 0; j < hs.length; j++) {

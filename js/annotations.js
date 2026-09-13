@@ -8,6 +8,9 @@
  *     D1; no login, one per browser in localStorage) — "raising a hand". A
  *     存疑 can carry one *reason* (有错误 / 没看懂 / 版本过时 / 缺例子 / 与前文矛盾)
  *     and every reaction records the chapter (nearest h2/h3) it sits in.
+ *   - Images and Mermaid diagrams get a caption and a corner button (js/figures.js)
+ *     that selects the caption's title — that text is the passage, so pictures
+ *     take 赞 / 存疑 / 评论 like any sentence; the figure gets `.has-note` outline.
  *   - Every heading (h2–h6) gets two tiny anonymous buttons, 「有用」 / 「没看懂」,
  *     for that section as a whole (same table, quote = '§ ' + heading) — no selection
  *     needed, which is what phones can actually do.
@@ -72,7 +75,7 @@
   var CONTEXT_CHARS = 32;
   var EXCLUDE_SELECTOR = '.comment, .pager, .related-posts, .footnotes, .reversefootnote, sup[id^="fnref"], a.footnote, ' +
     'script, style, noscript, svg, .katex, .mermaid, button, .anchorjs-link, .annotation-toolbar, .annotation-panel, .annotation-marker, .sec-react';
-  var BLOCK_SELECTOR = 'p, li, pre, blockquote, h1, h2, h3, h4, h5, h6, dd, dt, figure, .highlight, table';
+  var BLOCK_SELECTOR = 'p, li, pre, blockquote, h1, h2, h3, h4, h5, h6, dd, dt, figcaption, figure, .highlight, table';
   var GHOST = { login: 'ghost', url: 'https://github.com/ghost', avatarUrl: 'https://avatars.githubusercontent.com/u/10137?s=64&v=4' };
 
   var cfg = null;
@@ -391,6 +394,7 @@
     var markers = container.querySelectorAll('.annotation-marker');
     for (var i = 0; i < markers.length; i++) markers[i].parentNode.removeChild(markers[i]);
     unwrap('mark.annotation-hl');
+    Array.prototype.forEach.call(container.querySelectorAll('.post-figcaption.has-note'), function (c) { c.classList.remove('has-note'); });
     buildIndex();
 
     var orphans = [], items = [], anchoredHash = {};
@@ -421,6 +425,8 @@
       });
       if (doubt) mark.classList.add('has-doubt');
       if (commented && resolved) mark.classList.add('is-resolved'); // the author fixed every note here
+      // a note on a figure's caption (js/figures.js) outlines the whole figure
+      var cap = mark.closest('.post-figcaption'); if (cap) cap.classList.add('has-note');
     });
     insertMarkers();
     buildIndex();

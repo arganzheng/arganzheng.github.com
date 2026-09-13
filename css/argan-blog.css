@@ -4243,3 +4243,76 @@ li[id^="fn:"] {
   border-radius: 8px;
   vertical-align: 2px;
 }
+
+/* figures: caption + feedback handle on images / diagrams (js/figures.js) */
+.post-container figure.post-figure {
+  position: relative;
+  margin: 1.5em 0 1.6em;
+  text-align: center;
+}
+.post-container figure.post-figure img {
+  margin: 0 auto;
+}
+.post-container .post-figcaption {
+  display: block;
+  margin: 8px auto 0;
+  max-width: 92%;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #57606a;
+  text-align: center;
+}
+.post-container .post-figcaption .fig-no {
+  color: #8c959f;
+  margin-right: 6px;
+}
+.post-container .post-figcaption.is-picked .fig-title,
+.post-container .post-figcaption.is-picked.is-untitled .fig-no {
+  background: rgba(255, 213, 79, 0.45);
+  border-radius: 3px;
+}
+.post-container .post-figcaption.has-note {
+  color: #24292f;
+}
+.post-container .mermaid + .post-figcaption {
+  margin-top: -6px;
+  margin-bottom: 1.4em;
+}
+.post-container .post-figure:has(> .post-figcaption.has-note) img,
+.post-container .mermaid:has(+ .post-figcaption.has-note) {
+  outline: 2px solid rgba(214, 158, 0, 0.55);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+.post-container .fig-tools {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  z-index: 1;
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 8px;
+  transition: background-color 0.15s;
+}
+.post-container .fig-tools .code-copy {
+  position: static;
+  width: 32px;
+  height: 32px;
+}
+.post-container .fig-tools:hover {
+  background: rgba(255, 255, 255, 0.85);
+}
+.post-container .post-figure > .fig-tools {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.post-container .post-figure:hover > .fig-tools,
+.post-container .post-figure > .fig-tools:focus-within {
+  opacity: 1;
+}
+@media (max-width: 767px) {
+  .post-container .post-figure > .fig-tools {
+    opacity: 1;
+  }
+}
