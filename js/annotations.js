@@ -1042,7 +1042,9 @@
     if (opts.onCancel) host.querySelector('.ap-cancel').addEventListener('click', opts.onCancel);
     host.querySelector('.ap-login').addEventListener('click', function () { if (opts.beforeLogin) opts.beforeLogin(ta.value); login(); });
     var tabs = host.querySelectorAll('.ap-tabs button[data-tab]');
-    for (var i = 0; i < tabs.length; i++) tabs[i].addEventListener('click', function () { switchTab(host, this.getAttribute('data-tab')); });
+    // the preview shows the comment as it will be posted — with the quote header
+    // for a passage comment, so nobody wonders whether the quote is kept
+    for (var i = 0; i < tabs.length; i++) tabs[i].addEventListener('click', function () { switchTab(host, this.getAttribute('data-tab'), opts.fallbackText); });
     var fmts = host.querySelectorAll('.ap-format button');
     for (var f = 0; f < fmts.length; f++) fmts[f].addEventListener('click', function () { switchTab(host, 'write'); applyFormat(ta, this.getAttribute('data-format')); });
 
@@ -1149,23 +1151,27 @@
     ta.dispatchEvent(new Event('input'));
   }
 
-  function switchTab(host, tab) {
+  function switchTab(host, tab, fullBody) {
     var tabs = host.querySelectorAll('.ap-tabs button');
     for (var i = 0; i < tabs.length; i++) tabs[i].classList.toggle('is-active', tabs[i].getAttribute('data-tab') === tab);
     var ta = host.querySelector('.ap-text'), pv = host.querySelector('.ap-preview');
     ta.style.display = tab === 'write' ? '' : 'none';
     pv.style.display = tab === 'preview' ? 'block' : 'none';
-    if (tab === 'preview') renderPreview(pv, ta.value);
+    // the quote header is part of the post even before anything is written
+    if (tab === 'preview') renderPreview(pv, fullBody ? fullBody(ta.value) : ta.value, !ta.value.trim());
   }
 
-  function renderPreview(pv, md) {
+  function renderPreview(pv, md, noteEmpty) {
     if (!md.trim()) { pv.innerHTML = '<em class="ap-muted">没有内容可预览</em>'; return; }
     pv.innerHTML = '<em class="ap-muted">渲染中…</em>';
     var headers = { 'Content-Type': 'application/json', Accept: 'application/vnd.github+json' };
     if (token) headers.Authorization = 'Bearer ' + token;
     fetch(GITHUB_MARKDOWN, { method: 'POST', headers: headers, body: JSON.stringify({ text: md, mode: 'gfm' }) })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
-      .then(function (html) { pv.innerHTML = ''; pv.appendChild(sanitizeHtml(html)); InlinePopover.renderMathIfPresent(pv); })
+      .then(function (html) {
+        pv.innerHTML = ''; pv.appendChild(sanitizeHtml(html)); InlinePopover.renderMathIfPresent(pv);
+        if (noteEmpty) pv.insertAdjacentHTML('beforeend', '<p><em class="ap-muted">还没写评论内容——上面的引用是自动带上的原文，发表时会一起发出</em></p>');
+      })
       .catch(function () { pv.innerHTML = '<em class="ap-muted">预览暂不可用（GitHub API 无法访问）</em>'; });
   }
 
