@@ -3,9 +3,15 @@
  *
  * Interaction (code-review / WeChat-reading style, no hover popups):
  *   - Select text in the article -> floating toolbar: 「赞」 / 「存疑」 / 「评论」 /
- *     「复制」 / 「搜一搜」 / 「分享」.
+ *     「建议修改」 / 「复制」 / 「搜一搜」 / 「分享」.
  *   - 「赞」 / 「存疑」 are anonymous per-passage counters (worker /reactions,
- *     D1; no login, one per browser in localStorage) — "raising a hand".
+ *     D1; no login, one per browser in localStorage) — "raising a hand". A
+ *     存疑 can carry one *reason* (有错误 / 没看懂 / 版本过时 / 缺例子 / 与前文矛盾)
+ *     and every reaction records the chapter (nearest h2/h3) it sits in.
+ *   - 「建议修改」 is a passage comment pre-filled as 建议改为 / 理由 with the
+ *     Issue box ticked — a ready-to-apply patch for the author.
+ *   - 「已修正」: a note's Issue got closed, or the author 🎉'd it / replied
+ *     已修正 — the underline turns green, the note gets a check badge.
  *   - 「分享」 opens the article's share popover (js/share.js, window.BlogShare)
  *     for the passage link; completed shares are counted per passage (`share`
  *     in /reactions) and on the article.
@@ -241,8 +247,27 @@
     return {
       exact: t.slice(o.start, o.end),
       prefix: t.slice(Math.max(0, o.start - CONTEXT_CHARS), o.start),
-      suffix: t.slice(o.end, o.end + CONTEXT_CHARS)
+      suffix: t.slice(o.end, o.end + CONTEXT_CHARS),
+      section: sectionForOffsets(o)
     };
+  }
+
+  // Nearest h2/h3 above the passage — tells the author (and the AI revising the
+  // post) *which chapter* a reaction or comment is about. Stored with the
+  // reaction (worker `section`) and in the comment header (`位于「…」`).
+  var SECTION_MAX = 120;
+  function sectionForOffsets(o) {
+    var segs = segmentsFor(o.start, o.end);
+    if (!segs.length) return '';
+    var node = segs[0].node, heads = container.querySelectorAll('h2, h3'), best = null;
+    for (var i = 0; i < heads.length; i++) {
+      if (heads[i].compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) best = heads[i]; else break;
+    }
+    return best ? best.textContent.replace(/\s+/g, ' ').trim().slice(0, SECTION_MAX) : '';
+  }
+  function sectionForExact(exact) {
+    var r = anchor({ exact: exact });
+    return r ? sectionForOffsets(r) : '';
   }
 
   // ---------------------------------------------------------------- anchor
@@ -376,14 +401,15 @@
     });
     wrapPieces(items, 'annotation-hl').forEach(function (mark) {
       bindMark(mark);
-      var doubt = false;
+      var doubt = false, commented = false, resolved = true;
       mark.getAttribute('data-annotation-ids').split(' ').forEach(function (id) {
         var an = findAnnotation(id), r = null;
-        if (an) { an.marks.push(mark); r = reactions[annotHash(an.selector.exact)]; }
+        if (an) { an.marks.push(mark); r = reactions[annotHash(an.selector.exact)]; commented = true; if (!an.resolved) resolved = false; }
         else if (id.indexOf('r:') === 0 && reactions[id.slice(2)]) { r = reactions[id.slice(2)]; r.marks.push(mark); }
         if (r && r.doubt > 0) doubt = true;
       });
       if (doubt) mark.classList.add('has-doubt');
+      if (commented && resolved) mark.classList.add('is-resolved'); // the author fixed every note here
     });
     insertMarkers();
     buildIndex();
@@ -428,19 +454,26 @@
     return null;
   }
   function commentCount(p) { return p.list.reduce(function (n, a) { return n + (a.deleted ? 0 : 1) + (a.replies || []).length; }, 0); }
+  // A commented passage whose every note the author has marked fixed (see markResolved).
+  function passageResolved(p) {
+    var live = p.list.filter(function (a) { return !a.deleted; });
+    return live.length > 0 && live.every(function (a) { return a.resolved; });
+  }
 
-  // One marker per passage: 💬 comments · 👍 up · ❓ doubt (only the non-zero ones).
+  // One marker per passage: ✓ fixed · 💬 comments · 👍 up · ❓ doubt (only the non-zero ones).
   function markerHtml(p) {
     var r = p.reaction, n = commentCount(p);
-    return (n ? '<i class="fa fa-comment"></i><span class="annotation-marker-count">' + n + '</span>' : '') +
+    return (passageResolved(p) ? '<i class="fa fa-check-circle"></i>' : '') +
+      (n ? '<i class="fa fa-comment"></i><span class="annotation-marker-count">' + n + '</span>' : '') +
       (r && r.up ? '<i class="fa fa-thumbs-up"></i><span class="annotation-marker-count">' + r.up + '</span>' : '') +
       (r && r.doubt ? '<i class="fa fa-question-circle"></i><span class="annotation-marker-count">' + r.doubt + '</span>' : '');
   }
   function markerTitle(p) {
     var r = p.reaction, parts = [], n = commentCount(p);
+    if (passageResolved(p)) parts.push('作者已修正');
     if (n) parts.push(n + ' 条评论');
     if (r && r.up) parts.push(r.up + ' 人赞');
-    if (r && r.doubt) parts.push(r.doubt + ' 人存疑');
+    if (r && r.doubt) parts.push(r.doubt + ' 人存疑' + (reasonsSummary(r) ? '（' + reasonsSummary(r) + '）' : ''));
     if (r && r.share) parts.push(r.share + ' 次分享');
     return parts.join(' · ') + '，点击查看';
   }
@@ -448,7 +481,7 @@
     passages().forEach(function (p) {
       var last = p.marks[p.marks.length - 1];
       var marker = document.createElement('span');
-      marker.className = 'annotation-marker' + (p.reaction && p.reaction.doubt ? ' has-doubt' : '');
+      marker.className = 'annotation-marker' + (p.reaction && p.reaction.doubt ? ' has-doubt' : '') + (passageResolved(p) ? ' is-resolved' : '');
       marker.setAttribute('data-annotation-ids', p.ids.join(' '));
       marker.setAttribute('data-hash', p.hash);
       marker.setAttribute('title', markerTitle(p));
@@ -592,11 +625,18 @@
 
   // 赞 / 存疑 row of the thread panel (also re-rendered alone after a click).
   function reactBarHtml(p) {
-    var r = p.reaction || { up: 0, doubt: 0, share: 0 }, up = myReaction(p.hash, 'up'), doubt = myReaction(p.hash, 'doubt');
+    var r = p.reaction || { up: 0, doubt: 0, share: 0, reasons: {} }, up = myReaction(p.hash, 'up'), doubt = myReaction(p.hash, 'doubt');
+    var summary = reasonsSummary(r), mine = myReason(p.hash);
     return '<button type="button" class="ap-react-btn ap-react-up' + (up ? ' is-on' : '') + '" title="' + (up ? '取消赞' : '赞这段话（不用登录）') + '"><i class="fa ' + (up ? 'fa-thumbs-up' : 'fa-thumbs-o-up') + '"></i> 赞' + (r.up ? ' <b>' + r.up + '</b>' : '') + '</button>' +
-      '<button type="button" class="ap-react-btn ap-react-doubt' + (doubt ? ' is-on' : '') + '" title="' + (doubt ? '取消存疑' : '觉得这段话有问题？（不用登录）') + '"><i class="fa ' + (doubt ? 'fa-question-circle' : 'fa-question-circle-o') + '"></i> 存疑' + (r.doubt ? ' <b>' + r.doubt + '</b>' : '') + '</button>' +
+      '<button type="button" class="ap-react-btn ap-react-doubt' + (doubt ? ' is-on' : '') + '" title="' + escapeAttr((doubt ? '取消存疑' : '觉得这段话有问题？（不用登录）') + (summary ? '\n' + summary : '')) + '"><i class="fa ' + (doubt ? 'fa-question-circle' : 'fa-question-circle-o') + '"></i> 存疑' + (r.doubt ? ' <b>' + r.doubt + '</b>' : '') + '</button>' +
       '<button type="button" class="ap-react-btn ap-react-share" title="分享这段话（微博 / X / 微信 / 复制链接）" aria-haspopup="true" aria-expanded="false"><i class="fa fa-share-alt"></i> 分享' + (r.share ? ' <b>' + r.share + '</b>' : '') + '</button>' +
-      (doubt ? '<a href="#" class="ap-react-say">说说哪里不对 →</a>' : '');
+      (doubt ? '<a href="#" class="ap-react-say">说说哪里不对 →</a>' : '') +
+      // 存疑 alone is a 1-bit signal; one tap on *why* makes it actionable. Shown to
+      // the reader who raised the doubt; the counts are everyone's.
+      (doubt ? '<div class="ap-doubt-why"><span class="ap-doubt-why-label">哪里不对？</span>' + DOUBT_REASONS.map(function (d) {
+        var n = (r.reasons && r.reasons[d.key]) || 0;
+        return '<button type="button" class="ap-reason' + (mine === d.key ? ' is-on' : '') + '" data-reason="' + d.key + '">' + d.label + (n ? ' <b>' + n + '</b>' : '') + '</button>';
+      }).join('') + '</div>' : '');
   }
   function bindReactBar(host, p) {
     host.querySelector('.ap-react-up').addEventListener('click', function () { react(p.exact, 'up'); });
@@ -608,6 +648,8 @@
       var ta = panel.querySelector('.ap-text');
       if (ta) { ta.focus(); ta.scrollIntoView({ block: 'nearest' }); }
     });
+    var chips = host.querySelectorAll('.ap-reason');
+    for (var i = 0; i < chips.length; i++) chips[i].addEventListener('click', function () { setReason(p.exact, this.getAttribute('data-reason')); });
   }
 
   function renderThread(p) {
@@ -676,7 +718,7 @@
     var el = document.createElement('div');
     var mine = !c.deleted && viewer && c.author && viewer.login === c.author.login;
     if (c.deleted) onReply = null;
-    el.className = 'ap-comment' + (isReply ? ' is-reply' : '') + (c.issue ? ' has-issue' : '') + (c.deleted ? ' is-deleted' : '');
+    el.className = 'ap-comment' + (isReply ? ' is-reply' : '') + (c.issue ? ' has-issue' : '') + (c.deleted ? ' is-deleted' : '') + (c.resolved ? ' is-resolved' : '') + (c.suggest ? ' is-suggest' : '');
     el.setAttribute('data-comment-id', c.id);
     el.innerHTML =
       '<a class="ap-avatar" href="' + escapeAttr(c.author.url) + '" target="_blank" rel="noopener noreferrer"><img src="' + escapeAttr(c.author.avatarUrl) + '" alt=""></a>' +
@@ -685,7 +727,9 @@
           (c.owner && !c.deleted ? '<span class="ap-owner" title="博客作者">作者</span>' : '') +
           '<time datetime="' + escapeAttr(c.createdAt) + '" title="' + escapeAttr(new Date(c.createdAt).toLocaleString()) + '">' + relativeTime(c.createdAt) + '</time>' +
           (c.lastEditedAt ? '<span class="ap-edited" title="' + escapeAttr(new Date(c.lastEditedAt).toLocaleString()) + '">已编辑</span>' : '') +
-          (c.issue ? '<a class="ap-issue-badge" href="' + escapeAttr(c.issue.url) + '" target="_blank" rel="noopener noreferrer" title="已同时提交为 GitHub Issue"><i class="fa fa-flag"></i> Issue' + (c.issue.number ? ' #' + c.issue.number : '') + '</a>' : '') +
+          (c.suggest ? '<span class="ap-suggest-badge" title="读者提出的修改建议"><i class="fa fa-pencil-square-o"></i> 建议修改</span>' : '') +
+          (c.issue ? '<a class="ap-issue-badge" href="' + escapeAttr(c.issue.url) + '" target="_blank" rel="noopener noreferrer" title="' + (c.resolved ? '对应的 GitHub Issue 已关闭' : '已同时提交为 GitHub Issue') + '"><i class="fa fa-flag"></i> Issue' + (c.issue.number ? ' #' + c.issue.number : '') + '</a>' : '') +
+          (c.resolved ? '<span class="ap-resolved-badge" title="' + (c.issue ? 'Issue 已关闭：作者已处理' : '作者已修正原文') + '"><i class="fa fa-check-circle"></i> 已修正</span>' : '') +
           '<span class="ap-meta-actions">' +
             (c.deleted ? '' : voteHtml(c)) +
             (onReply ? '<button type="button" class="ap-reply-btn"><i class="fa fa-reply"></i> 回复</button>' : '') +
@@ -843,7 +887,7 @@
   function renderHotPassages() {
     var host = commentsHost.querySelector('.ac-hot');
     // score = passage 赞 + 2 × 存疑 + 2 × net comment votes + comments
-    var ranked = passages().map(function (p) {
+    var ranked = passages().filter(function (p) { return !passageResolved(p); }).map(function (p) {
       var votes = 0, n = commentCount(p), r = p.reaction || { up: 0, doubt: 0 };
       p.list.forEach(function (a) {
         votes += a.votes.up - a.votes.down;
@@ -1195,29 +1239,42 @@
     return best ? best.p : null;
   }
 
-  function openComposer(sel, offsets, anchorNode, draftText) {
+  // 「建议修改」 pre-fills this: the fixed shape (原文 in the quote header,
+  // 建议改为, 理由) is what an author — or the AI revising the post — can apply
+  // directly. parseBodyHeader recognises it back as `suggest`.
+  var SUGGEST_TEMPLATE = '**建议改为：**\n\n\n\n**理由：**\n\n';
+  var SUGGEST_CARET = '**建议改为：**\n\n'.length;
+
+  // `mode` = 'suggest' opens the editor with the template and 「同时提交 Issue」 ticked.
+  function openComposer(sel, offsets, anchorNode, draftText, mode) {
+    var suggest = mode === 'suggest';
+    if (suggest && !draftText) draftText = SUGGEST_TEMPLATE;
     var join = passageContaining(offsets);
     if (join) {
       // same passage -> one thread; the editor there defaults to a comment on the passage
       openThread(join.ids, join.marks[join.marks.length - 1]);
       var joinTa = panel && panel.querySelector('.ap-text');
-      if (joinTa) { if (draftText) joinTa.value = draftText; joinTa.focus(); joinTa.dispatchEvent(new Event('input')); }
+      if (joinTa) {
+        if (draftText) joinTa.value = draftText;
+        if (suggest) { var jb = panel.querySelector('.ap-issue input'); if (jb) jb.checked = true; joinTa.setSelectionRange(SUGGEST_CARET, SUGGEST_CARET); }
+        joinTa.focus(); joinTa.dispatchEvent(new Event('input'));
+      }
       return;
     }
-    panelState = { kind: 'editor', selector: sel, offsets: offsets };
+    panelState = { kind: 'editor', selector: sel, offsets: offsets, suggest: suggest };
     ensurePanel();
     panel.className = 'annotation-panel is-editor';
     panel.innerHTML =
       '<div class="ap-head">' +
         '<i class="fa fa-quote-left"></i><span class="ap-quote" title="' + escapeAttr(sel.exact) + '">' + escapeHtml(sel.exact) + '</span>' +
-        '<span class="ap-count">新评论</span>' +
+        '<span class="ap-count">' + (suggest ? '建议修改' : '新评论') + '</span>' +
         '<button type="button" class="ap-close" title="取消">×</button>' +
       '</div>' +
       '<div class="ap-editor"></div>';
     panel.querySelector('.ap-close').addEventListener('click', cancelComposer);
     var ta = renderEditor(panel.querySelector('.ap-editor'), {
-      placeholder: '写下你对这段文字的评论…',
-      submitLabel: '提交评论',
+      placeholder: suggest ? '写下你建议的改法和理由…' : '写下你对这段文字的评论…',
+      submitLabel: suggest ? '提交建议' : '提交评论',
       initialText: draftText || '',
       issueOption: true,
       onCancel: cancelComposer,
@@ -1226,9 +1283,11 @@
       fallbackText: function (text) { return buildCommentBody(sel, text); },
       onSubmit: function (text, extra) { return postAnnotation(sel, text, extra.issue); }
     });
+    if (suggest) { var box = panel.querySelector('.ap-issue input'); if (box) box.checked = true; }
     mountPanel(anchorNode);
     if (window.getSelection) window.getSelection().removeAllRanges();
     ta.focus();
+    if (suggest && ta.value === SUGGEST_TEMPLATE) ta.setSelectionRange(SUGGEST_CARET, SUGGEST_CARET);
     saveDraft(ta.value);
   }
 
@@ -1288,7 +1347,7 @@
     var snippet = sel ? sel.exact : text.trim().split('\n')[0].replace(/^[#>*\-\s]+/, '');
     if (snippet.length > 40) snippet = snippet.slice(0, 40) + '…';
     var body = sel
-      ? '> ' + escapeMarkdown(sel.exact) + '\n>\n> [§ 原文位置](' + threadLink(sel) + ')\n\n' + text.trim() + '\n'
+      ? '> ' + escapeMarkdown(sel.exact) + '\n>\n> [§ 原文位置](' + threadLink(sel) + ')' + sectionNote(sel) + '\n\n' + text.trim() + '\n'
       : text.trim() + '\n\n— 来自文章评论区：' + cfg.siteUrl + cfg.path + '#comments\n';
     return ensureToken().then(function (tk) {
       return api('/issues', {
@@ -1325,7 +1384,7 @@
   function saveDraft(text) {
     if (!panelState || panelState.kind !== 'editor') return;
     if (typeof text !== 'string') { var ta = panel && panel.querySelector('.ap-text'); text = ta ? ta.value : ''; }
-    try { sessionStorage.setItem(draftKey(), JSON.stringify({ selector: panelState.selector, text: text })); } catch (e) { /* ignore */ }
+    try { sessionStorage.setItem(draftKey(), JSON.stringify({ selector: panelState.selector, text: text, suggest: !!panelState.suggest })); } catch (e) { /* ignore */ }
   }
   function clearDraft() { try { sessionStorage.removeItem(draftKey()); } catch (e) { /* ignore */ } }
   function restoreDraft() {
@@ -1341,7 +1400,7 @@
     if (!segs.length) { clearDraft(); return false; }
     var last = segs[segs.length - 1].node;
     scrollIntoViewInstant(last.parentNode);
-    openComposer(draft.selector, range, last, draft.text);
+    openComposer(draft.selector, range, last, draft.text, draft.suggest ? 'suggest' : '');
     return true;
   }
 
@@ -1371,6 +1430,7 @@
       comments = d ? parseComments(d.comments || []) : [];
       loadError = null; loaded = true;
       syncViews();
+      loadIssueStates(); // 「已修正」 for notes filed with an Issue; re-syncs when it answers
       if (viewer) loadViewerReactions(); // the anonymous payload cannot know what *we* voted
       return annotations;
     }).catch(function (err) {
@@ -1385,6 +1445,7 @@
   // `comments` is the source of truth; the article highlights and the comment
   // section at the bottom are two views of it. Call after every mutation.
   function syncViews() {
+    markResolved();
     annotations = comments.filter(function (c) { return c.selector; });
     applyHighlights();
     renderCommentSection();
@@ -1419,10 +1480,50 @@
       replyCount: (c.replies && (c.replies.totalCount !== undefined ? c.replies.totalCount : c.replies.length)) || c.replyCount || 0,
       replies: replies,
       bodyHTML: c.deletedAt ? '' : (c.bodyHTML || ''),
-      selector: null, noteHTML: null, issue: null
+      selector: null, noteHTML: null, issue: null, suggest: false, resolved: false
     };
     if (!rec.deleted) parseBodyHeader(rec);
     return rec;
+  }
+
+  // 「已修正」: a note filed with an Issue is resolved when that Issue is closed
+  // (the author's `Fixes #N` commit does it); without an Issue the author says
+  // so — a 🎉 (HOORAY) on the note or a reply containing 已修正 / 已修复.
+  var RESOLVED_RE = /已修正|已修复|已更正|已改正|已订正|已采纳/;
+  var closedIssues = {};  // number -> true, from GitHub REST (see loadIssueStates)
+  function markResolved() {
+    comments.forEach(function (c) {
+      if (c.deleted) { c.resolved = false; return; }
+      if (c.issue && c.issue.number) { c.resolved = !!closedIssues[c.issue.number]; return; }
+      c.resolved = (c.votes && c.votes.hooray > 0) || c.replies.some(function (r) {
+        return r.owner && RESOLVED_RE.test(r.bodyHTML.replace(/<[^>]+>/g, ''));
+      });
+    });
+  }
+  // Issue state comes from GitHub's anonymous REST API (60 req/h: a post has a
+  // handful of issues at most; open ones are re-checked after 10 min, closed
+  // ones are trusted for a day).
+  var ISSUE_CACHE = 'issueState:';
+  function loadIssueStates() {
+    if (!cfg.repo) return Promise.resolve();
+    var now = Date.now(), want = [];
+    comments.forEach(function (c) {
+      if (!c.issue || !c.issue.number) return;
+      var cached = null;
+      try { cached = JSON.parse(localStorage.getItem(ISSUE_CACHE + cfg.repo + '#' + c.issue.number) || 'null'); } catch (e) { /* ignore */ }
+      if (cached && now - cached.t < (cached.closed ? 86400000 : 600000)) { if (cached.closed) closedIssues[c.issue.number] = true; return; }
+      want.push(c.issue.number);
+    });
+    return Promise.all(want.map(function (n) {
+      return fetch('https://api.github.com/repos/' + cfg.repo + '/issues/' + n, { headers: { Accept: 'application/vnd.github+json' } })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) {
+          if (!d || !d.state) return;
+          var closed = d.state === 'closed';
+          if (closed) closedIssues[n] = true;
+          try { localStorage.setItem(ISSUE_CACHE + cfg.repo + '#' + n, JSON.stringify({ closed: closed, t: now })); } catch (e) { /* ignore */ }
+        }).catch(function () { /* stays unresolved */ });
+    })).then(function () { if (want.length) syncViews(); });
   }
 
   // Fill rec.selector / noteHTML / issue from the comment's HTML (see file header).
@@ -1456,13 +1557,15 @@
     while (linkBlock.parentNode !== quote && linkBlock.parentNode !== root) linkBlock = linkBlock.parentNode;
     issueLink = linkBlock.querySelector('a[href*="/issues/"]');
     issueNo = issueLink && /\/issues\/(\d+)/.exec(issueLink.getAttribute('href'));
+    var sectionM = /位于「(.+?)」/.exec(linkBlock.textContent || '');
     linkBlock.parentNode.removeChild(linkBlock);
     var exact = quote.textContent.replace(/\s+/g, ' ').trim();
     if (!exact) return;
     root.removeChild(quote);
     rec.noteHTML = root.innerHTML;
-    rec.selector = { exact: exact, prefix: fragment.prefix, suffix: fragment.suffix };
+    rec.selector = { exact: exact, prefix: fragment.prefix, suffix: fragment.suffix, section: sectionM ? sectionM[1] : '' };
     rec.issue = issueLink ? { url: issueLink.getAttribute('href'), number: issueNo ? +issueNo[1] : 0 } : null;
+    rec.suggest = /^\s*<p>\s*<strong>\s*建议改为/.test(rec.noteHTML);
   }
 
   // giscus' adapter returns replies as a plain array; GitHub GraphQL as {nodes}.
@@ -1478,8 +1581,9 @@
   // { THUMBS_UP: { count, viewerHasReacted }, … }, GitHub GraphQL as
   // reactionGroups [{ content, viewerHasReacted, reactors { totalCount } }].
   function parseVotes(src) {
-    var v = { up: 0, down: 0, mine: null };
+    var v = { up: 0, down: 0, hooray: 0, mine: null };
     function take(content, n, mine) {
+      if (content === 'HOORAY') { v.hooray = n || 0; return; } // the author's 「已修正」 mark
       var dir = content === 'THUMBS_UP' ? 'up' : content === 'THUMBS_DOWN' ? 'down' : null;
       if (!dir) return;
       v[dir] = n || 0;
@@ -1527,8 +1631,11 @@
     return s.replace(/[\\`*_\[\]<>~|]/g, '\\$&').replace(/^[#>+\-]/, '\\$&').replace(/^(\d+)([.)])/, '$1\\$2');
   }
 
+  // ` · 位于「二、总览」` — the chapter, so the note is actionable without opening the page.
+  function sectionNote(sel) { return sel.section ? ' · 位于「' + escapeMarkdown(sel.section) + '」' : ''; }
+
   function buildCommentBody(sel, note, issue) {
-    var links = '[§ 原文位置](' + threadLink(sel) + ')' + (issue ? ' · [⚑ Issue #' + issue.number + '](' + issue.url + ')' : '');
+    var links = '[§ 原文位置](' + threadLink(sel) + ')' + (issue ? ' · [⚑ Issue #' + issue.number + '](' + issue.url + ')' : '') + sectionNote(sel);
     return '> ' + escapeMarkdown(sel.exact) + '\n>\n> <sub>' + links + '</sub>\n\n' + note.trim() + '\n';
   }
 
@@ -1589,6 +1696,7 @@
       '<button type="button" class="annotation-tb-doubt" title="觉得这段话有问题？存疑（不用登录）"><i class="fa fa-question-circle-o"></i> 存疑</button>' +
       '<span class="annotation-tb-sep"></span>' +
       '<button type="button" class="annotation-tb-comment"><i class="fa fa-comment-o"></i> 评论</button>' +
+      '<button type="button" class="annotation-tb-suggest" title="觉得这里该怎么写？给出你的改法（会同时提交 Issue 提醒作者）"><i class="fa fa-pencil-square-o"></i> 建议修改</button>' +
       '<button type="button" class="annotation-tb-copy" title="复制选中的文字"><i class="fa fa-copy"></i> 复制</button>' +
       '<button type="button" class="annotation-tb-search" title="用 Google 搜这段文字"><i class="fa fa-search"></i> 搜一搜</button>' +
       '<button type="button" class="annotation-tb-share" title="分享这段话：微博 / X / 微信 / 复制链接（打开后自动定位这段文字）" aria-haspopup="true" aria-expanded="false"><i class="fa fa-share-alt"></i> 分享</button>' +
@@ -1608,15 +1716,17 @@
         reactFromToolbar(exact, kind);
       });
     });
-    toolbar.querySelector('.annotation-tb-comment').addEventListener('click', function (e) {
-      e.stopPropagation();
-      var range = currentRange();
-      var offsets = range && rangeToOffsets(range);
-      if (!offsets) { hideToolbar(); return; }
-      var sel = selectorFromOffsets(offsets);
-      var endNode = range.endContainer;
-      hideToolbar();
-      openComposer(sel, offsets, endNode);
+    [['comment', ''], ['suggest', 'suggest']].forEach(function (pair) {
+      toolbar.querySelector('.annotation-tb-' + pair[0]).addEventListener('click', function (e) {
+        e.stopPropagation();
+        var range = currentRange();
+        var offsets = range && rangeToOffsets(range);
+        if (!offsets) { hideToolbar(); return; }
+        var sel = selectorFromOffsets(offsets);
+        var endNode = range.endContainer;
+        hideToolbar();
+        openComposer(sel, offsets, endNode, '', pair[1]);
+      });
     });
     toolbar.querySelector('.annotation-tb-copy').addEventListener('click', function (e) {
       e.stopPropagation();
@@ -1790,33 +1900,84 @@
   function myReaction(hash, kind) { try { return localStorage.getItem(reactKey(hash, kind)) === '1'; } catch (e) { return false; } }
   function rememberReaction(hash, kind, on) { try { if (on) localStorage.setItem(reactKey(hash, kind), '1'); else localStorage.removeItem(reactKey(hash, kind)); } catch (e) { /* ignore */ } }
 
+  // Why a reader doubts a passage — one tap, anonymous, one pick per browser
+  // (`react:<path>:<hash>:reason` = key). Keys match the worker's DOUBT_REASONS.
+  var DOUBT_REASONS = [
+    { key: 'wrong', label: '有错误' },
+    { key: 'unclear', label: '没看懂' },
+    { key: 'outdated', label: '版本过时' },
+    { key: 'example', label: '缺例子/图' },
+    { key: 'conflict', label: '与前文矛盾' }
+  ];
+  function reasonLabel(key) { for (var i = 0; i < DOUBT_REASONS.length; i++) if (DOUBT_REASONS[i].key === key) return DOUBT_REASONS[i].label; return key; }
+  function reasonsSummary(r) {
+    if (!r || !r.reasons) return '';
+    return DOUBT_REASONS.filter(function (d) { return r.reasons[d.key] > 0; })
+      .sort(function (a, b) { return r.reasons[b.key] - r.reasons[a.key]; })
+      .map(function (d) { return d.label + ' ' + r.reasons[d.key]; }).join(' · ');
+  }
+  function myReason(hash) { try { return localStorage.getItem(reactKey(hash, 'reason')) || ''; } catch (e) { return ''; } }
+  function rememberReason(hash, key) { try { if (key) localStorage.setItem(reactKey(hash, 'reason'), key); else localStorage.removeItem(reactKey(hash, 'reason')); } catch (e) { /* ignore */ } }
+
+  function newReaction(hash, quote) { return { hash: hash, quote: quote, section: '', up: 0, doubt: 0, share: 0, reasons: {}, range: null, marks: [] }; }
+  function takeCounts(r, d) { r.up = d.up || 0; r.doubt = d.doubt || 0; r.share = d.share || 0; r.reasons = d.reasons || {}; }
+
   function loadReactions() {
     return api('/reactions?path=' + encodeURIComponent(cfg.path)).then(function (data) {
       reactions = {};
       (data.items || []).forEach(function (it) {
-        if (it && /^[0-9a-f]{8}$/.test(it.hash)) reactions[it.hash] = { hash: it.hash, quote: it.quote || '', up: it.up || 0, doubt: it.doubt || 0, share: it.share || 0, range: null, marks: [] };
+        if (!it || !/^[0-9a-f]{8}$/.test(it.hash)) return;
+        var r = reactions[it.hash] = newReaction(it.hash, it.quote || '');
+        r.section = it.section || '';
+        takeCounts(r, it);
       });
       if (loaded) { applyHighlights(); if (commentsHost) renderHotPassages(); }
     }).catch(function (err) { console.warn('[annotations] reactions unavailable:', err.message); });
   }
 
   // Toggle my 赞 / 存疑 on the passage with this exact text. Optimistic; the
-  // underline / marker / open panel / ranking follow the new counts.
+  // underline / marker / open panel / ranking follow the new counts. Taking a
+  // 存疑 back also takes back the reason picked with it.
   function react(exact, kind) {
     var hash = annotHash(exact);
-    var r = reactions[hash] || (reactions[hash] = { hash: hash, quote: exact, up: 0, doubt: 0, share: 0, range: null, marks: [] });
+    var r = reactions[hash] || (reactions[hash] = newReaction(hash, exact));
     var on = !myReaction(hash, kind), before = r[kind];
     r[kind] = Math.max(0, r[kind] + (on ? 1 : -1));
     rememberReaction(hash, kind, on);
+    var prevReason = kind === 'doubt' && !on ? myReason(hash) : '';
+    if (prevReason) { rememberReason(hash, ''); if (r.reasons[prevReason] > 0) r.reasons[prevReason] -= 1; }
     refreshReactionViews(hash);
     if (reactLocalOnly) return Promise.resolve({ on: on, r: r });
-    return api('/reactions', { method: 'POST', body: { path: cfg.path, hash: hash, quote: exact, kind: kind, on: on } })
-      .then(function (d) { r.up = d.up || 0; r.doubt = d.doubt || 0; r.share = d.share || 0; refreshReactionViews(hash); return { on: on, r: r }; })
+    var body = { path: cfg.path, hash: hash, quote: exact, kind: kind, on: on, section: r.section || sectionForExact(exact) };
+    return api('/reactions', { method: 'POST', body: body })
+      .then(function (d) { takeCounts(r, d); refreshReactionViews(hash); return { on: on, r: r }; })
+      .then(function (res) {
+        // prev === reason: the worker un-counts the old pick without counting a new one
+        if (prevReason) return api('/reactions', { method: 'POST', body: { path: cfg.path, hash: hash, quote: exact, kind: 'reason', reason: prevReason, prev: prevReason } })
+          .then(function (d) { takeCounts(r, d); refreshReactionViews(hash); return res; }).catch(function () { return res; });
+        return res;
+      })
       .catch(function (err) {
         r[kind] = before; rememberReaction(hash, kind, !on); refreshReactionViews(hash);
         showToast('操作失败：' + err.message);
         return null;
       });
+  }
+
+  // Pick (or switch) my reason for doubting this passage; tapping the current one clears it.
+  function setReason(exact, key) {
+    var hash = annotHash(exact);
+    var r = reactions[hash] || (reactions[hash] = newReaction(hash, exact));
+    var prev = myReason(hash), next = prev === key ? '' : key;
+    if (prev && r.reasons[prev] > 0) r.reasons[prev] -= 1;
+    if (next) r.reasons[next] = (r.reasons[next] || 0) + 1;
+    rememberReason(hash, next);
+    refreshReactionViews(hash);
+    if (reactLocalOnly) return;
+    // clearing = prev === reason (un-count only), see the worker
+    api('/reactions', { method: 'POST', body: { path: cfg.path, hash: hash, quote: exact, kind: 'reason', reason: next || prev, prev: prev || undefined, section: r.section || sectionForExact(exact) } })
+      .then(function (d) { takeCounts(r, d); refreshReactionViews(hash); })
+      .catch(function (err) { rememberReason(hash, prev); showToast('操作失败：' + err.message); });
   }
 
   // 分享 a passage: the same popover as the article's 「分享」 (js/share.js,
@@ -1843,12 +2004,12 @@
   }
   function countPassageShare(exact) {
     var hash = annotHash(exact);
-    var r = reactions[hash] || (reactions[hash] = { hash: hash, quote: exact, up: 0, doubt: 0, share: 0, range: null, marks: [] });
+    var r = reactions[hash] || (reactions[hash] = newReaction(hash, exact));
     r.share = (r.share || 0) + 1;
     refreshReactionViews(hash);
     if (reactLocalOnly) return;
-    api('/reactions', { method: 'POST', body: { path: cfg.path, hash: hash, quote: exact, kind: 'share' } })
-      .then(function (d) { r.up = d.up || 0; r.doubt = d.doubt || 0; r.share = d.share || 0; refreshReactionViews(hash); if (typeof d.shares === 'number') document.dispatchEvent(new CustomEvent('blog:stats', { detail: { shares: d.shares } })); })
+    api('/reactions', { method: 'POST', body: { path: cfg.path, hash: hash, quote: exact, kind: 'share', section: r.section || sectionForExact(exact) } })
+      .then(function (d) { takeCounts(r, d); refreshReactionViews(hash); if (typeof d.shares === 'number') document.dispatchEvent(new CustomEvent('blog:stats', { detail: { shares: d.shares } })); })
       .catch(function () { /* keep the optimistic number */ });
   }
 
@@ -1953,13 +2114,17 @@
     if (!orphans.length) return;
     var box = document.createElement('p');
     box.className = 'annotation-orphans';
-    box.innerHTML = '<i class="fa fa-unlink"></i> ' + orphans.length + ' 条划线评论未能定位到原文（原文可能已修改）：';
+    // An anchor that no longer matches usually means the passage was rewritten —
+    // often *because of* the note. Show what it was about, not just who wrote it.
+    box.innerHTML = '<i class="fa fa-unlink"></i> ' + orphans.length + ' 条划线评论对应的原文已修改（评论仍在 GitHub 上）：';
     for (var i = 0; i < orphans.length; i++) {
+      var o = orphans[i], q = o.selector.exact;
       var a = document.createElement('a');
-      a.href = orphans[i].url; a.target = '_blank'; a.rel = 'noopener noreferrer';
-      a.textContent = '@' + orphans[i].author.login;
-      a.title = orphans[i].selector.exact;
+      a.href = o.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+      a.textContent = '「' + (q.length > 24 ? q.slice(0, 24) + '…' : q) + '」';
+      a.title = q + '\n— @' + o.author.login + (o.selector.section ? '，原位于「' + o.selector.section + '」' : '');
       box.appendChild(a);
+      box.appendChild(document.createTextNode(' @' + o.author.login));
       if (i < orphans.length - 1) box.appendChild(document.createTextNode('、'));
     }
     var hint = cfg.section.querySelector('.comment-hint');

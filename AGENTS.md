@@ -229,7 +229,7 @@ issue start with `<sub>[⚑ Issue #N](url)</sub>` (recognised by
 replies, `deletedAt` set) render as 「此评论已删除」 with their replies.
 
 Code-review / WeChat-reading style, no hover popups. Readers select text in
-`.post-container` → floating toolbar (`赞` / `存疑` / `评论` / `复制` / `搜一搜` / `分享`) → an **in-flow editor
+`.post-container` → floating toolbar (`赞` / `存疑` / `评论` / `建议修改` / `复制` / `搜一搜` / `分享`) → an **in-flow editor
 panel** is inserted right after the paragraph (取消 / 提交评论 bottom-right).
 The note is posted as a **normal comment** of the post's giscus Discussion:
 
@@ -290,7 +290,7 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
 - **Passage 赞 / 存疑** (`react`, `reactions` map, toolbar buttons
   `.annotation-tb-up/-doubt`, panel row `.ap-react`): anonymous counters, no
   login, like the article 「有用」. Worker `GET/POST /reactions` keeps
-  `passage_reactions(path, hash, quote, up, doubt, share)` in D1; `hash` =
+  `passage_reactions(path, hash, quote, up, doubt, share, reasons, section)` in D1; `hash` =
   `annotHash(exact)` (the `#annot-<hash>` id), `quote` lets `applyHighlights`
   anchor and underline a passage nobody commented on (mark ids `r:<hash>`,
   same `mark.annotation-hl`; `.has-doubt` = red dotted line). One reader's
@@ -316,6 +316,50 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
 - **Quote escaping gotcha**: `escapeMarkdown` must produce `1\.5px`, not
   `\1.5px` — a backslash before a digit is literal in GFM, the parsed quote
   gets an extra `\` and its hash no longer matches the `§ 原文位置` link.
+- **Feedback loop (存疑原因 / 章节 / 建议修改 / 已修正 / 修订简报)** — the
+  point is to turn reader signals into work an AI can execute:
+  - `DOUBT_REASONS` (`wrong|unclear|outdated|example|conflict`, labels in
+    both `annotations.js` and `dashboard.js`, whitelist in the worker): after
+    存疑 the panel's `.ap-react` gets a `.ap-doubt-why` chip row (`setReason`,
+    `POST /reactions kind:'reason' {reason, prev}`; `prev === reason` clears;
+    one pick per browser in `localStorage["react:<path>:<hash>:reason"]`;
+    un-doubting sends the clear too). Counts live in `passage_reactions.reasons`
+    (JSON) and show in the 存疑 button title / marker title / dashboard.
+  - `section` = nearest `h2/h3` above the passage (`sectionForOffsets`, set on
+    every selector by `selectorFromOffsets`, sent with every reaction POST,
+    stored once per row). Comment header gets ` · 位于「…」` (`sectionNote`,
+    parsed back by `parseBodyHeader` → `selector.section`); the Issue body too.
+  - `建议修改` (`.annotation-tb-suggest`) = `openComposer(..., mode 'suggest')`:
+    `SUGGEST_TEMPLATE` (`**建议改为：** / **理由：**`), caret after the first
+    heading, 「同时提交 Issue」 pre-ticked, draft keeps `suggest`.
+    `parseBodyHeader` sets `rec.suggest` when the note starts with
+    `<p><strong>建议改为` → blue `.ap-suggest-badge`.
+  - `resolved` (`markResolved`, run in `syncViews`): a note **with an Issue**
+    is resolved iff that Issue is closed (`loadIssueStates`: anonymous REST
+    `GET /repos/{repo}/issues/{n}` per distinct number, cached in
+    `localStorage["issueState:<repo>#<n>"]` — open 10 min, closed 1 day; only
+    source of truth for issue-backed notes). Without an Issue: an owner reply
+    matching `RESOLVED_RE` (已修正 / 已修复 / 已更正 / 已改正 / 已订正 / 已采纳) or a
+    🎉 `HOORAY` on the note (`parseVotes` now carries `hooray`). Effects:
+    `mark.is-resolved` (green solid line, beats `.has-doubt`),
+    `.annotation-marker.is-resolved` + ✓, `.ap-comment.is-resolved` +
+    `.ap-resolved-badge`, `renderHotPassages` skips `passageResolved(p)`.
+    Reaction-only passages have no GitHub object: editing the text orphans
+    them and they simply stop rendering. No new storage anywhere.
+  - Orphans (`renderOrphans`) show the first 24 chars of the quote + author
+    (title = full quote + section) under 「N 条划线评论对应的原文已修改」.
+  - **修订简报** lives only in `/admin/stats.html` (`#brief=/slug.html`, a
+    `<select>` of `window.DASH_POSTS` and a 「简报」 link per 文章榜 row — one
+    URL to remember, no CLI twin). `openBrief` pulls worker `GET /feedback?path=`
+    (D1: reactions + reasons + section, views, 有用, shares), the Discussion via
+    the worker's anonymous `/discussions?term=` relay (`parseNote` mirrors
+    `parseBodyHeader`), the repo's `划线评论` issues (REST, `state=all`, filtered
+    by `body` containing the path — gives 已修正) and the live article
+    (`loadArticle`: `.post-container` text + h2/h3 offsets) to tell whether each
+    quote still anchors (`sectionAt`). `buildBrief` orders passages by
+    `2×doubt + 0.5×up + Σ(1 + ▲ + 3×suggest)`, sections: 待处理 / 普通评论 /
+    其他 open Issue / 未定位（原文已改）/ 已修正 / 给 AI 的修订指令. Output is a
+    `<pre>` + 「复制 Markdown」. Links use `siteUrl` (local builds show localhost).
 - **最受关注的段落** (`renderHotPassages`, `.ac-hot` above the comment list):
   passages ranked by `赞 + 2 × 存疑 + 2 × net comment votes + comments`, shown
   only when there are 2+ scored passages, max 3; clicking scrolls to the

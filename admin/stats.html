@@ -35,6 +35,12 @@ noindex: true
     </table>
   </section>
 
+  <section class="dash-section" id="dash-brief">
+    <h3>修订简报 <small><select class="dash-brief-pick"><option value="">选一篇文章…</option></select></small></h3>
+    <p class="dash-hint">把一篇文章收到的存疑（含原因）、划线评论、修改建议、Issue 状态汇总成一份 Markdown，按关注度排好序，末尾附给 AI 的修订指令。文章榜每行的「简报」也到这里；链接形如 <code>#brief=/slug.html</code>。</p>
+    <div class="dash-brief-body"><p class="dash-muted">还没有选文章。</p></div>
+  </section>
+
   <section class="dash-section" id="dash-passages">
     <h3>读者划出来的句子 <small><a href="#" data-kind="doubt" class="is-active">存疑最多</a> · <a href="#" data-kind="up">点赞最多</a> · <a href="#" data-kind="share">分享最多</a></small></h3>
     <p class="dash-hint">读者选中一段话点「存疑」或「赞」（匿名，不用登录）。存疑多的句子最值得回头看一眼；点句子直达原文并展开讨论。</p>
@@ -59,5 +65,9 @@ window.DASH_TITLES = {
 {% endfor %}{% for p in site.pages %}{% if p.title %}  {{ p.url | jsonify }}: {{ p.title | jsonify }},
 {% endif %}{% endfor %}  "": ""
 };
+// posts only, newest first — the 修订简报 picker
+window.DASH_POSTS = [
+{% for p in site.posts %}  [{{ p.url | jsonify }}, {{ p.title | jsonify }}]{% unless forloop.last %},{% endunless %}
+{% endfor %}];
 </script>
 <script src="{{ '/js/dashboard.js' | prepend: site.baseurl }}?v={{ site.time | date: '%Y%m%d%H%M' }}"></script>

@@ -108,16 +108,27 @@ quote, kind: 'up'|'doubt', on: true|false}` toggles one reader's reaction (the
 browser remembers its own in `localStorage["react:<path>:<hash>"]`); `kind:
 'share'` is a plain +1 (no toggle) and also bumps the article's `shares` row
 (the response carries `shares`). `GET /reactions?path=` lists the post's
-passages with any count. The `share` column is added to existing tables by an
-`ALTER TABLE` on first use.
+passages with any count. The `share`, `reasons` and `section` columns are added
+to existing tables by `ALTER TABLE` on first use.
 
-## Dashboard reads (/stats/top, /views/daily, /reactions/top)
+**Why a passage is doubted** — `kind: 'reason'` with `reason` one of `wrong |
+unclear | outdated | example | conflict` (有错误 / 没看懂 / 版本过时 / 缺例子 /
+与前文矛盾) bumps that key in the row's `reasons` JSON object; pass `prev` to
+switch (un-counts the old pick) and `prev === reason` to clear. Every POST may
+carry `section` (nearest heading above the passage, ≤ 120 chars) which is stored
+once per row (`COALESCE`). Both come back in every reactions response.
+
+## Dashboard reads (/stats/top, /views/daily, /reactions/top, /feedback)
 
 `GET /stats/top?limit=100` joins views / votes / shares per post; `GET
 /views/daily?days=30` returns per-day totals (Beijing dates, from the
 `views_daily(path, day, count)` table that every `POST /views` also writes) plus
 the posts read most in the window; `GET /reactions/top?kind=doubt|up|share&limit=50`
 lists the most doubted / liked / shared passages. All public, cached 1–5 min.
+`GET /feedback?path=` returns everything D1 holds about one post — its
+`passage_reactions` rows (with `reasons` / `section`), views, 有用 and shares —
+for the dashboard's 修订简报 (the Discussion and Issues are fetched by the
+browser from GitHub). Not cached.
 
 ## List-page counters (GET /stats)
 

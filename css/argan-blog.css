@@ -3987,3 +3987,177 @@ li[id^="fn:"] {
     display: none;
   }
 }
+
+/* feedback loop: 存疑原因 / 已修正 / 建议修改 (less/annotations.less) */
+.post-container mark.annotation-hl.is-resolved,
+.post-container mark.annotation-hl.is-resolved.has-doubt {
+  border-bottom: 1.5px solid rgba(26, 127, 55, 0.7);
+}
+.post-container mark.annotation-hl.is-resolved:hover {
+  border-bottom-color: #1a7f37;
+  background-color: rgba(26, 127, 55, 0.07);
+}
+.post-container .annotation-marker.is-resolved,
+.post-container .annotation-marker.is-resolved.has-doubt {
+  color: #1a7f37;
+  background: #dafbe1;
+  border-color: #aceebb;
+}
+.post-container .annotation-marker.is-resolved:hover {
+  color: #fff;
+  background: #1a7f37;
+  border-color: #1a7f37;
+}
+.post-container .annotation-panel .ap-comment.is-resolved > .ap-comment-main > .ap-comment-body,
+.post-container .annotation-comments .ap-comment.is-resolved > .ap-comment-main > .ap-comment-body {
+  color: #57606a;
+}
+.post-container .annotation-panel .ap-resolved-badge,
+.post-container .annotation-comments .ap-resolved-badge,
+.post-container .annotation-panel .ap-suggest-badge,
+.post-container .annotation-comments .ap-suggest-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 7px;
+  font-size: 11.5px;
+  line-height: 18px;
+  border-radius: 9px;
+  white-space: nowrap;
+}
+.post-container .annotation-panel .ap-resolved-badge,
+.post-container .annotation-comments .ap-resolved-badge {
+  color: #1a7f37;
+  background: #dafbe1;
+  border: 1px solid #aceebb;
+}
+.post-container .annotation-panel .ap-suggest-badge,
+.post-container .annotation-comments .ap-suggest-badge {
+  color: #0550ae;
+  background: #ddf4ff;
+  border: 1px solid #b6e3ff;
+}
+.post-container .annotation-panel .ap-comment.is-resolved .ap-issue-badge,
+.post-container .annotation-comments .ap-comment.is-resolved .ap-issue-badge {
+  color: #57606a;
+  background: #f6f8fa;
+  border-color: #d0d7de;
+}
+.annotation-toolbar .annotation-tb-suggest:hover .fa {
+  color: #9ad1ff;
+}
+.annotation-panel .ap-react .ap-doubt-why {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: -2px;
+}
+.annotation-panel .ap-react .ap-doubt-why .ap-doubt-why-label {
+  font-size: 12.5px;
+  color: #d1242f;
+  margin-right: 2px;
+}
+.annotation-panel .ap-react .ap-doubt-why .ap-reason {
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid #d0d7de;
+  border-radius: 12px;
+  background: #fff;
+  color: #57606a;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+.annotation-panel .ap-react .ap-doubt-why .ap-reason b {
+  margin-left: 3px;
+  font-weight: 600;
+}
+.annotation-panel .ap-react .ap-doubt-why .ap-reason:hover {
+  color: #d1242f;
+  border-color: #f7c5c8;
+  background: #fff8f8;
+}
+.annotation-panel .ap-react .ap-doubt-why .ap-reason.is-on {
+  color: #fff;
+  background: #d1242f;
+  border-color: #d1242f;
+}
+@media (max-width: 767px) {
+  .annotation-toolbar .annotation-tb-suggest {
+    font-size: 0;
+  }
+  .annotation-toolbar .annotation-tb-suggest .fa {
+    font-size: 13px;
+    margin: 0;
+  }
+}
+
+/* dashboard 修订简报 (admin/stats.html) */
+.dash .dash-brief-link {
+  margin-left: 6px;
+  font-size: 12px;
+  color: #8c959f;
+  text-decoration: none;
+  border: 1px solid #d0d7de;
+  border-radius: 9px;
+  padding: 0 6px;
+  white-space: nowrap;
+}
+.dash .dash-brief-link:hover {
+  color: #0085a1;
+  border-color: #0085a1;
+}
+.dash .dash-brief-pick {
+  max-width: 420px;
+  font-size: 13px;
+  font-weight: normal;
+  padding: 2px 4px;
+  border: 1px solid #d0d7de;
+  border-radius: 4px;
+  background: #fff;
+  color: #24292f;
+}
+.dash .dash-brief-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+.dash .dash-brief-bar a {
+  text-decoration: none;
+}
+.dash .dash-brief-copy {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid #0085a1;
+  border-radius: 15px;
+  background: #0085a1;
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+.dash .dash-brief-copy:hover {
+  background: #006f86;
+}
+.dash .dash-brief-md {
+  max-height: 520px;
+  overflow: auto;
+  padding: 14px 16px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #f6f8fa;
+  border: 1px solid #eaeef2;
+  border-radius: 6px;
+}
+.post-container .annotation-panel .ap-comment.has-issue.is-resolved,
+.post-container .annotation-comments .ap-comment.has-issue.is-resolved {
+  box-shadow: inset 3px 0 0 rgba(26, 127, 55, 0.6);
+}

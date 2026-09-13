@@ -746,3 +746,62 @@
 		.annotation-tb-copy, .annotation-tb-search, .annotation-tb-share { font-size: 0; .fa { font-size: 13px; margin: 0; } }
 	}
 }
+
+// ---- feedback loop: 存疑原因 chips, 「已修正」, 「建议修改」 (js/annotations.js)
+@annot-fixed: #1a7f37;
+.post-container {
+	// every note on this passage is resolved: green solid line, the doubt red gives way
+	mark.annotation-hl.is-resolved,
+	mark.annotation-hl.is-resolved.has-doubt { border-bottom: 1.5px solid fade(@annot-fixed, 70%); }
+	mark.annotation-hl.is-resolved:hover { border-bottom-color: @annot-fixed; background-color: fade(@annot-fixed, 7%); }
+	.annotation-marker.is-resolved,
+	.annotation-marker.is-resolved.has-doubt { color: @annot-fixed; background: #dafbe1; border-color: #aceebb; }
+	.annotation-marker.is-resolved:hover { color: #fff; background: @annot-fixed; border-color: @annot-fixed; }
+	.annotation-panel, .annotation-comments {
+		.ap-comment.is-resolved > .ap-comment-main > .ap-comment-body { color: @annot-muted; }
+		.ap-resolved-badge, .ap-suggest-badge {
+			display: inline-flex;
+			align-items: center;
+			gap: 3px;
+			padding: 0 7px;
+			font-size: 11.5px;
+			line-height: 18px;
+			border-radius: 9px;
+			white-space: nowrap;
+		}
+		.ap-resolved-badge { color: @annot-fixed; background: #dafbe1; border: 1px solid #aceebb; }
+		.ap-suggest-badge { color: #0550ae; background: #ddf4ff; border: 1px solid #b6e3ff; }
+		.ap-comment.is-resolved .ap-issue-badge { color: @annot-muted; background: @annot-soft; border-color: @annot-border; }
+		.ap-comment.has-issue.is-resolved { box-shadow: inset 3px 0 0 fade(@annot-fixed, 60%); }
+	}
+}
+.annotation-toolbar .annotation-tb-suggest:hover .fa { color: #9ad1ff; }
+// the reason row sits under the 赞 / 存疑 / 分享 buttons, full width
+.annotation-panel .ap-react .ap-doubt-why {
+	flex-basis: 100%;
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-top: -2px;
+	.ap-doubt-why-label { font-size: 12.5px; color: @annot-doubt; margin-right: 2px; }
+	.ap-reason {
+		height: 24px;
+		padding: 0 9px;
+		border: 1px solid @annot-border;
+		border-radius: 12px;
+		background: #fff;
+		color: @annot-muted;
+		font-size: 12px;
+		line-height: 1;
+		cursor: pointer;
+		white-space: nowrap;
+		transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+		b { margin-left: 3px; font-weight: 600; }
+		&:hover { color: @annot-doubt; border-color: #f7c5c8; background: #fff8f8; }
+		&.is-on { color: #fff; background: @annot-doubt; border-color: @annot-doubt; }
+	}
+}
+@media (max-width: 767px) {
+	.annotation-toolbar .annotation-tb-suggest { font-size: 0; .fa { font-size: 13px; margin: 0; } }
+}
