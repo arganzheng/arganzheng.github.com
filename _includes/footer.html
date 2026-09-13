@@ -94,13 +94,9 @@
 </footer>
 
 {% assign v = site.time | date: '%Y%m%d%H%M' %}
-<!-- jQuery -->
-<script src="{{ "/js/jquery.min.js" | prepend: site.baseurl }}?v={{ v }}"></script>
-
-<!-- Bootstrap Core JavaScript -->
-<script src="{{ "/js/bootstrap.min.js" | prepend: site.baseurl }}?v={{ v }}"></script>
-
-<!-- Custom Theme JavaScript -->
+<!-- Theme behaviour (responsive tables / embeds, navbar on scroll, side catalog pin).
+     No jQuery / Bootstrap JS on this site any more: the navbar toggle is in nav.html,
+     everything else is plain DOM. Bootstrap 3 *CSS* stays. -->
 <script src="{{ "/js/argan-blog.min.js" | prepend: site.baseurl }}?v={{ v }}"></script>
 
 <!-- WeChat QR popover: toggle on icon click, close on any outside click -->
@@ -206,26 +202,9 @@
 -->
 
 
-<!-- jquery.tagcloud.js -->
+<!-- tag cloud colours: only /tags/ has #tag_cloud -->
 <script>
-    // only load tagcloud.js in tag.html
-    if($('#tag_cloud').length !== 0){
-        async('{{ "/js/jquery.tagcloud.js" | prepend: site.baseurl }}',function(){
-            $.fn.tagcloud.defaults = {
-                //size: {start: 1, end: 1, unit: 'em'},
-                color: {start: '#bbbbee', end: '#0085a1'},
-            };
-            $('#tag_cloud a').tagcloud();
-        })
-    }
-</script>
-
-<!--fastClick.js -->
-<script>
-    async("//cdnjs.cloudflare.com/ajax/libs/fastclick/1.0.6/fastclick.min.js", function(){
-        var $nav = document.querySelector("nav");
-        if($nav) FastClick.attach($nav);
-    })
+    if (document.getElementById('tag_cloud')) async('{{ "/js/tagcloud.js" | prepend: site.baseurl }}?v={{ v }}');
 </script>
 
 

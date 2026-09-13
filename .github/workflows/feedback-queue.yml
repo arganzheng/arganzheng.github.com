@@ -1,0 +1,47 @@
+# Weekly: aggregate reader feedback (存疑 + 原因, 划线评论, 建议修改, chapter
+# 有用/没看懂, Issue state) per post with js/feedback-brief.js — the same code
+# the dashboard's 修订简报 uses — and open / update / close one issue labelled
+# `待修订` per post whose brief scores >= threshold. See tools/feedback-queue.cjs.
+name: feedback queue
+
+on:
+  schedule:
+    - cron: '0 1 * * 1'   # Mondays 09:00 Beijing
+  workflow_dispatch:
+    inputs:
+      threshold:
+        description: 'brief score needed to open a 待修订 issue'
+        default: '3'
+      only:
+        description: 'one post only, e.g. /slug.html (optional)'
+        default: ''
+      dry_run:
+        description: 'print what would happen, write nothing'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+  discussions: read
+
+concurrency:
+  group: feedback-queue
+  cancel-in-progress: false
+
+jobs:
+  queue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-save --no-audit --no-fund linkedom@0.18.13
+      - run: node tools/feedback-queue.cjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          THRESHOLD: ${{ inputs.threshold || '3' }}
+          ONLY: ${{ inputs.only || '' }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}

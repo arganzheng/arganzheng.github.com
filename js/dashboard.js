@@ -7,9 +7,11 @@
  *   - 修订简报 (#brief=/slug.html): one post's 存疑 + 原因 + 章节 (worker
  *     /feedback), its Discussion (worker /discussions relay), its 划线评论 issues
  *     (REST, state) and whether each quote still anchors in the live page —
- *     as Markdown to copy into an AI session. Single entry: this page.
+ *     as Markdown to copy into an AI session. Single entry: this page. The
+ *     aggregation itself is js/feedback-brief.js, shared with the weekly
+ *     tools/feedback-queue.cjs Action that files 「待修订」 issues.
  *   - recent comments: GitHub GraphQL with the giscus login (same session key
- *     as annotations.js); open issues: GitHub REST, public.
+ *     as annotations.js); open issues (待修订 · 划线评论 · dead-links): GitHub REST, public.
  */
 (function () {
   'use strict';
@@ -21,6 +23,8 @@
   var siteUrl = root.getAttribute('data-site-url');
   var titles = window.DASH_TITLES || {};
   var SESSION_KEY = 'giscus-session';
+  var FB = window.FeedbackBrief; // js/feedback-brief.js, loaded before this file
+  var DOM = { parse: function (html) { return new DOMParser().parseFromString(html, 'text/html'); } };
 
   function h(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function ago(iso) {
@@ -119,10 +123,11 @@
       var rows = data.rows || [];
       if (!rows.length) { host.innerHTML = '<p class="dash-muted">还没有人' + ({ doubt: '存疑', up: '点赞', share: '分享' }[kind] || '点赞') + '。</p>'; return; }
       host.innerHTML = '<ol class="dash-quotes">' + rows.map(function (r) {
-        return '<li class="' + (kind === 'doubt' && r.doubt ? 'is-doubt' : '') + '"><a class="dash-quote" href="' + h(r.path) + '#annot-' + h(r.hash) + '">' + h(r.quote) + '</a>' +
-          '<div class="dash-quote-meta"><a href="' + h(r.path) + '">' + h(titleOf(r.path)) + '</a>' + (r.section ? ' <span class="dash-muted">› ' + h(r.section) + '</span>' : '') + ' · ' +
-          (r.doubt ? '<span class="is-doubt"><i class="fa fa-question-circle"></i> ' + r.doubt + (reasonsText(r.reasons) ? '（' + h(reasonsText(r.reasons)) + '）' : '') + '</span> ' : '') +
-          (r.up ? '<span><i class="fa fa-thumbs-up"></i> ' + r.up + '</span> ' : '') +
+        var ch = isChapter(r);
+        return '<li class="' + (kind === 'doubt' && r.doubt ? 'is-doubt' : '') + '">' + (ch ? '<span class="dash-tag">章节</span> ' : '') + '<a class="dash-quote" href="' + h(r.path) + (ch ? '' : '#annot-' + h(r.hash)) + '">' + h(ch ? r.quote.slice(FB.CHAPTER_PREFIX.length) : r.quote) + '</a>' +
+          '<div class="dash-quote-meta"><a href="' + h(r.path) + '">' + h(titleOf(r.path)) + '</a>' + (r.section && !ch ? ' <span class="dash-muted">› ' + h(r.section) + '</span>' : '') + ' · ' +
+          (r.doubt ? '<span class="is-doubt"><i class="fa fa-question-circle"></i> ' + r.doubt + (ch ? ' 没看懂' : '') + (reasonsText(r.reasons) ? '（' + h(reasonsText(r.reasons)) + '）' : '') + '</span> ' : '') +
+          (r.up ? '<span><i class="fa fa-thumbs-up"></i> ' + r.up + (ch ? ' 有用' : '') + '</span> ' : '') +
           (r.share ? '<span><i class="fa fa-share-alt"></i> ' + r.share + '</span> ' : '') +
           (r.updated_at ? '<span class="dash-muted">· ' + ago(r.updated_at) + '</span>' : '') + '</div></li>';
       }).join('') + '</ol>';
@@ -139,166 +144,15 @@
   // worker /feedback (存疑 + 原因 + 章节, D1), the post's Discussion via the
   // worker's anonymous /discussions relay, the repo's 划线评论 issues (REST,
   // state = 「已修正」), and the live page itself to tell which quotes still anchor.
-  var REASON_LABELS = { wrong: '有错误', unclear: '没看懂', outdated: '版本过时', example: '缺例子/图', conflict: '与前文矛盾' };
-  var RESOLVED_RE = /已修正|已修复|已更正|已改正|已订正|已采纳/;
   var briefBody = document.querySelector('#dash-brief .dash-brief-body');
   var briefPick = document.querySelector('#dash-brief .dash-brief-pick');
   (window.DASH_POSTS || []).forEach(function (p) { var o = document.createElement('option'); o.value = p[0]; o.textContent = p[1]; briefPick.appendChild(o); });
   briefPick.addEventListener('change', function () { if (briefPick.value) location.hash = 'brief=' + briefPick.value; });
 
-  function text(html) { var d = new DOMParser().parseFromString('<div>' + html + '</div>', 'text/html'); return (d.body.textContent || '').replace(/\s+/g, ' ').trim(); }
-  function reasonsText(reasons) {
-    return Object.keys(reasons || {}).filter(function (k) { return reasons[k] > 0; }).sort(function (a, b) { return reasons[b] - reasons[a]; })
-      .map(function (k) { return (REASON_LABELS[k] || k) + ' ' + reasons[k]; }).join(' · ');
-  }
-  // A comment of the discussion -> { quote, section, issueNo, note, suggest, author, votes, url, replies, resolvedByAuthor }
-  function parseNote(c) {
-    var doc = new DOMParser().parseFromString('<div>' + (c.bodyHTML || '') + '</div>', 'text/html'), root = doc.body.firstChild;
-    var out = { quote: '', section: '', issueNo: 0, suggest: false, author: c.author ? c.author.login : 'ghost', url: c.url, createdAt: c.createdAt,
-      votes: 0, hooray: 0, replies: (Array.isArray(c.replies) ? c.replies : (c.replies && c.replies.nodes) || []) };
-    var rx = c.reactions || {};
-    if (Array.isArray(c.reactionGroups)) c.reactionGroups.forEach(function (g) { rx[g.content] = { count: g.reactors ? g.reactors.totalCount : 0 }; });
-    out.votes = ((rx.THUMBS_UP || {}).count || 0) - ((rx.THUMBS_DOWN || {}).count || 0);
-    out.hooray = (rx.HOORAY || {}).count || 0;
-    var first = root.firstElementChild, issueLink;
-    if (first && first.tagName === 'BLOCKQUOTE' && first.querySelector('a[href*="#annot-"]')) {
-      var sub = first.querySelector('a[href*="#annot-"]').closest('p, sub') || first.querySelector('a[href*="#annot-"]');
-      while (sub.parentNode !== first) sub = sub.parentNode;
-      issueLink = sub.querySelector('a[href*="/issues/"]');
-      var sec = /位于「(.+?)」/.exec(sub.textContent || '');
-      out.section = sec ? sec[1] : '';
-      sub.parentNode.removeChild(sub);
-      out.quote = (first.textContent || '').replace(/\s+/g, ' ').trim();
-      root.removeChild(first);
-      out.suggest = /^\s*建议改为/.test(root.textContent || '');
-    } else if (first && first.tagName === 'P' && first.querySelector('sub a[href*="/issues/"]')) {
-      issueLink = first.querySelector('a[href*="/issues/"]'); root.removeChild(first);
-    }
-    if (issueLink) { var m = /\/issues\/(\d+)/.exec(issueLink.getAttribute('href')); out.issueNo = m ? +m[1] : 0; }
-    out.note = (root.textContent || '').replace(/\s+/g, ' ').trim();
-    out.resolvedByAuthor = out.hooray > 0 || out.replies.some(function (r) { return r.authorAssociation === 'OWNER' && RESOLVED_RE.test(text(r.bodyHTML || '')); });
-    return out;
-  }
-  // The article's normalised text and its h2/h3 offsets, from the live page.
+  function reasonsText(reasons) { return FB.reasonsText(reasons); }
+  function isChapter(r) { return (r.quote || '').indexOf(FB.CHAPTER_PREFIX) === 0; }
   function loadArticle(path) {
-    return fetch(path).then(function (r) { return r.text(); }).then(function (html) {
-      var doc = new DOMParser().parseFromString(html, 'text/html'), box = doc.querySelector('.post-container');
-      if (!box) return null;
-      Array.prototype.forEach.call(box.querySelectorAll('.comment, .footnotes, script, style, .series-toc, .pager, .related-posts'), function (n) { n.parentNode.removeChild(n); });
-      var body = (box.textContent || '').replace(/\s+/g, ' ');
-      var heads = [], pos = 0;
-      Array.prototype.forEach.call(box.querySelectorAll('h2, h3'), function (hd) {
-        var t = (hd.textContent || '').replace(/\s+/g, ' ').trim(); if (!t) return;
-        var at = body.indexOf(t, pos); if (at < 0) return;
-        heads.push({ at: at, title: t }); pos = at + t.length;
-      });
-      return { text: body, heads: heads, title: (doc.querySelector('.page-header .title, h1') || {}).textContent || titleOf(path) };
-    }).catch(function () { return null; });
-  }
-  function sectionAt(article, quote) {
-    if (!article) return { found: null, section: '' };
-    var at = article.text.indexOf(quote);
-    if (at < 0) return { found: false, section: '' };
-    var sec = '';
-    article.heads.forEach(function (hd) { if (hd.at <= at) sec = hd.title; });
-    return { found: true, section: sec };
-  }
-  function short(s, n) { s = s || ''; return s.length > n ? s.slice(0, n) + '…' : s; }
-
-  function buildBrief(path, fb, disc, issues, article) {
-    var title = (article && article.title.trim()) || titleOf(path), site = (siteUrl || location.origin).replace(/\/$/, '');
-    var issueByNo = {}; issues.forEach(function (is) { issueByNo[is.number] = is; });
-    var comments = ((disc && disc.comments) || []).filter(function (c) { return !c.deletedAt; }).map(parseNote);
-    var passages = {}, order = [];
-    function passage(quote) { var k = quote; if (!passages[k]) { passages[k] = { quote: quote, section: '', up: 0, doubt: 0, share: 0, reasons: {}, notes: [] }; order.push(passages[k]); } return passages[k]; }
-    (fb.reactions || []).forEach(function (r) { var p = passage(r.quote); p.up = r.up; p.doubt = r.doubt; p.share = r.share; p.reasons = r.reasons || {}; p.hash = r.hash; if (r.section) p.section = r.section; });
-    var plain = [];
-    comments.forEach(function (n) {
-      if (!n.quote) { plain.push(n); return; }
-      var p = passage(n.quote); p.notes.push(n); if (n.section && !p.section) p.section = n.section;
-    });
-    order.forEach(function (p) {
-      var loc = sectionAt(article, p.quote);
-      p.found = loc.found; if (loc.section) p.section = loc.section;
-      p.resolved = p.notes.length > 0 && p.notes.every(function (n) { return n.issueNo ? (issueByNo[n.issueNo] || {}).state === 'closed' : n.resolvedByAuthor; });
-      p.score = 2 * p.doubt + p.up * 0.5 + p.notes.reduce(function (s, n) { return s + 1 + Math.max(0, n.votes) + (n.suggest ? 3 : 0); }, 0);
-    });
-    var todo = order.filter(function (p) { return p.found !== false && !p.resolved; }).sort(function (a, b) { return b.score - a.score; });
-    var done = order.filter(function (p) { return p.found !== false && p.resolved; });
-    var lost = order.filter(function (p) { return p.found === false; });
-    var openIssues = issues.filter(function (is) { return is.state === 'open'; });
-    var L = [];
-    L.push('# 修订简报：《' + title + '》');
-    L.push('');
-    L.push('生成于 ' + new Date().toISOString().slice(0, 10) + ' · 阅读 ' + (fb.views || 0) + ' · 有用 ' + (fb.up || 0) + ' · 分享 ' + (fb.shares || 0) + ' · 评论 ' + comments.length + ' · Issue ' + openIssues.length + ' 开 / ' + (issues.length - openIssues.length) + ' 关');
-    L.push('');
-    L.push('文章：' + site + path + (disc && disc.url ? '  \n讨论：' + disc.url : ''));
-    L.push('');
-    function noteLines(p, indent) {
-      p.notes.sort(function (a, b) { return b.votes - a.votes; }).forEach(function (n) {
-        var is = n.issueNo ? issueByNo[n.issueNo] : null;
-        var tag = n.suggest ? '✎ 建议修改' : '💬';
-        var meta = ' @' + n.author + (n.votes ? '（▲' + n.votes + '）' : '') + (n.issueNo ? ' · Issue #' + n.issueNo + (is ? (is.state === 'closed' ? '（已关闭）' : '（open）') : '') : '');
-        L.push(indent + '- ' + tag + meta + '：' + short(n.note, 400) + '  ');
-        L.push(indent + '  ' + n.url);
-        n.replies.forEach(function (r) { L.push(indent + '  - ↳ @' + (r.author ? r.author.login : 'ghost') + (r.authorAssociation === 'OWNER' ? '（作者）' : '') + '：' + short(text(r.bodyHTML || ''), 200)); });
-      });
-    }
-    function passageBlock(p, i) {
-      var sig = [];
-      if (p.doubt) sig.push('存疑 ' + p.doubt + (reasonsText(p.reasons) ? '（' + reasonsText(p.reasons) + '）' : ''));
-      if (p.up) sig.push('赞 ' + p.up);
-      if (p.share) sig.push('分享 ' + p.share);
-      if (p.notes.length) sig.push(p.notes.length + ' 条评论');
-      L.push((i + 1) + '. ' + (p.section ? '【' + p.section + '】' : '') + '「' + p.quote + '」' + (p.hash ? '  \n   ' + site + path + '#annot-' + p.hash : ''));
-      if (sig.length) L.push('   - ' + sig.join(' · '));
-      noteLines(p, '   ');
-    }
-    L.push('## 待处理段落（按关注度排序）');
-    L.push('');
-    if (!todo.length) L.push('_没有待处理的段落。_');
-    todo.forEach(passageBlock);
-    L.push('');
-    if (plain.length) {
-      L.push('## 普通评论');
-      L.push('');
-      plain.sort(function (a, b) { return b.votes - a.votes; }).forEach(function (n) {
-        var is = n.issueNo ? issueByNo[n.issueNo] : null;
-        L.push('- @' + n.author + (n.votes ? '（▲' + n.votes + '）' : '') + (n.issueNo ? ' · Issue #' + n.issueNo + (is && is.state === 'closed' ? '（已关闭）' : '') : '') + '：' + short(n.note, 400) + '  \n  ' + n.url);
-        n.replies.forEach(function (r) { L.push('  - ↳ @' + (r.author ? r.author.login : 'ghost') + (r.authorAssociation === 'OWNER' ? '（作者）' : '') + '：' + short(text(r.bodyHTML || ''), 200)); });
-      });
-      L.push('');
-    }
-    var otherIssues = openIssues.filter(function (is) { return !comments.some(function (n) { return n.issueNo === is.number; }); });
-    if (otherIssues.length) {
-      L.push('## 其他 open Issue');
-      L.push('');
-      otherIssues.forEach(function (is) { L.push('- #' + is.number + ' ' + is.title + '  \n  ' + is.html_url); });
-      L.push('');
-    }
-    if (lost.length) {
-      L.push('## 未定位的划线（原文已改，很可能已处理）');
-      L.push('');
-      L.push('_这些引文在现在的正文里找不到了。确认已修好的，去 Discussion 回复「已修正」（有 Issue 的关掉 Issue），文章里会显示为绿色「已修正」。_');
-      L.push('');
-      lost.forEach(passageBlock);
-      L.push('');
-    }
-    if (done.length) {
-      L.push('## 已修正');
-      L.push('');
-      done.forEach(function (p) { L.push('- ' + (p.section ? '【' + p.section + '】' : '') + '「' + short(p.quote, 80) + '」 · ' + p.notes.length + ' 条评论'); });
-      L.push('');
-    }
-    L.push('## 给 AI 的修订指令');
-    L.push('');
-    L.push('以上是读者对《' + title + '》（`_posts/` 中 permalink 为 `' + path + '` 的文章）的反馈。请：');
-    L.push('');
-    L.push('1. 按「待处理段落」的顺序逐条核对：先判断读者说得对不对，对的改正文，不对的在讨论里回复说明理由；「建议修改」条目若采纳可直接应用其「建议改为」。');
-    L.push('2. 「没看懂」多的段落补解释或例子/图；「版本过时」的核对版本并按更新说明规则处理；「与前文矛盾」的检查两处是否需要一起改。');
-    L.push('3. 改动只针对反馈涉及的段落，保持文章结构和口吻；不要删除或改写没有反馈的部分。');
-    L.push('4. 修完后列出：每条反馈 → 做了什么 / 为什么不改；提交时在 commit message 里写 `Fixes #N` 关闭对应 Issue。');
-    return L.join('\n');
+    return fetch(path).then(function (r) { return r.text(); }).then(function (html) { return FB.articleFromHtml(DOM, html, titleOf(path)); }).catch(function () { return null; });
   }
 
   function openBrief(path) {
@@ -314,7 +168,7 @@
       loadArticle(path)
     ]).then(function (res) {
       var issues = res[2].filter(function (is) { return !is.pull_request && (is.body || '').indexOf(path) >= 0; });
-      var md = buildBrief(path, res[0], res[1], issues, res[3]);
+      var md = FB.buildBrief({ dom: DOM, path: path, title: titleOf(path), fb: res[0], disc: res[1], issues: issues, article: res[3], site: siteUrl || location.origin }).markdown;
       briefBody.innerHTML = '<div class="dash-brief-bar"><button type="button" class="dash-brief-copy"><i class="fa fa-clipboard"></i> 复制 Markdown</button> ' +
         '<a href="' + h(path) + '">打开文章</a>' + (res[1] && res[1].url ? ' · <a target="_blank" rel="noopener" href="' + h(res[1].url) + '">Discussion ↗</a>' : '') +
         (!res[3] ? ' <span class="dash-muted">（读不到文章正文，无法判断引文是否仍能定位）</span>' : '') + '</div>' +
@@ -335,10 +189,16 @@
   function loadIssues() {
     var host = document.querySelector('#dash-issues .dash-list');
     var base = 'https://api.github.com/repos/' + repo + '/issues?state=open&per_page=30&labels=';
-    Promise.all([fetch(base + encodeURIComponent('划线评论')), fetch(base + 'dead-links')].map(function (p) { return p.then(function (r) { return r.ok ? r.json() : []; }); }))
+    Promise.all([fetch(base + encodeURIComponent('待修订')), fetch(base + encodeURIComponent('划线评论')), fetch(base + 'dead-links')].map(function (p) { return p.then(function (r) { return r.ok ? r.json() : []; }); }))
       .then(function (res) {
-        var errata = res[0], links = res[1];
-        var html = '<h4>读者报的错 <span class="dash-count">' + errata.length + '</span> <a class="dash-more" target="_blank" rel="noopener" href="https://github.com/' + repo + '/issues?q=is%3Aissue+is%3Aopen+label%3A%E5%88%92%E7%BA%BF%E8%AF%84%E8%AE%BA">全部 ↗</a></h4>';
+        var queue = res[0], errata = res[1], links = res[2];
+        // 待修订: one issue per post, opened by the weekly feedback-queue Action; its body is the brief
+        var html = '<h4>待修订的文章 <span class="dash-count">' + queue.length + '</span> <a class="dash-more" target="_blank" rel="noopener" href="https://github.com/' + repo + '/issues?q=is%3Aissue+is%3Aopen+label%3A%E5%BE%85%E4%BF%AE%E8%AE%A2">全部 ↗</a></h4>';
+        html += queue.length ? '<ul>' + queue.map(function (is) {
+          var m = /<!-- feedback-queue: (\S+) -->/.exec(is.body || '');
+          return '<li><a target="_blank" rel="noopener" href="' + h(is.html_url) + '">#' + is.number + ' ' + h(is.title) + '</a>' + (m ? ' <a class="dash-brief-link" href="#brief=' + h(m[1]) + '">简报</a>' : '') + ' <span class="dash-muted">更新于 ' + ago(is.updated_at) + '</span></li>';
+        }).join('') + '</ul>' : '<p class="dash-muted">没有。每周一 Action 会把反馈够多的文章开成 Issue。</p>';
+        html += '<h4>读者报的错 <span class="dash-count">' + errata.length + '</span> <a class="dash-more" target="_blank" rel="noopener" href="https://github.com/' + repo + '/issues?q=is%3Aissue+is%3Aopen+label%3A%E5%88%92%E7%BA%BF%E8%AF%84%E8%AE%BA">全部 ↗</a></h4>';
         html += errata.length ? '<ul>' + errata.map(function (is) {
           return '<li><a target="_blank" rel="noopener" href="' + h(is.html_url) + '">#' + is.number + ' ' + h(is.title) + '</a> <span class="dash-muted">' + ago(is.created_at) + '</span></li>';
         }).join('') + '</ul>' : '<p class="dash-muted">没有待处理的勘误。</p>';

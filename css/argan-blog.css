@@ -4161,3 +4161,85 @@ li[id^="fn:"] {
 .post-container .annotation-comments .ap-comment.has-issue.is-resolved {
   box-shadow: inset 3px 0 0 rgba(26, 127, 55, 0.6);
 }
+
+/* section-level 有用 / 没看懂 buttons on every heading (js/annotations.js) */
+.post-container :is(h2, h3, h4, h5, h6) .sec-react {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 10px;
+  vertical-align: middle;
+  white-space: nowrap;
+  font-weight: normal;
+  line-height: 1;
+  user-select: none;
+}
+.post-container :is(h2, h3, h4, h5, h6) .sec-react .sec-react-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid #d0d7de;
+  border-radius: 11px;
+  background: #fff;
+  color: #8c959f;
+  font-size: 11.5px;
+  font-family: inherit;
+  line-height: 1;
+  letter-spacing: 0;
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+.post-container :is(h2, h3, h4, h5, h6) .sec-react .sec-react-btn .fa {
+  margin-right: 4px;
+  font-size: 12px;
+}
+.post-container :is(h2, h3, h4, h5, h6) .sec-react .sec-react-btn b {
+  margin-left: 3px;
+  font-weight: 600;
+}
+.post-container :is(h2, h3, h4, h5, h6) .sec-react .sec-react-btn b:empty {
+  display: none;
+}
+.post-container :is(h2, h3, h4, h5, h6) .sec-react .sec-react-btn:hover {
+  color: #0085a1;
+  border-color: #0085a1;
+  background: #f2f7f8;
+}
+.post-container :is(h2, h3, h4, h5, h6) .sec-react .sec-react-up.is-on {
+  color: #9a6700;
+  border-color: #e6c25a;
+  background: #fff8c5;
+}
+.post-container :is(h2, h3, h4, h5, h6) .sec-react .sec-react-up.is-on:hover {
+  background: #fff1a8;
+  border-color: #d4a72c;
+}
+.post-container :is(h2, h3, h4, h5, h6) .sec-react .sec-react-doubt.is-on {
+  color: #d1242f;
+  border-color: #f7c5c8;
+  background: #fff1f1;
+}
+.post-container :is(h2, h3, h4, h5, h6) .sec-react .sec-react-doubt.is-on:hover {
+  background: #ffe0e2;
+  border-color: #d1242f;
+}
+@media (max-width: 767px) {
+  .post-container :is(h2, h3, h4, h5, h6) .sec-react {
+    display: flex;
+    margin: 8px 0 0;
+  }
+}
+
+/* dashboard: 章节 tag on chapter-level rows */
+.dash .dash-tag {
+  display: inline-block;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 16px;
+  color: #57606a;
+  background: #f6f8fa;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  vertical-align: 2px;
+}

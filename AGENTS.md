@@ -67,6 +67,19 @@ Pages has `https_enforced` on.
 - `.github/workflows/links.yml` (Mondays, or manual): external links, never
   blocking; opens/updates an issue labelled `dead-links`. Set the repo
   variable `DEAD_LINKS_ISSUE` to an issue number to keep updating one issue.
+- `.github/workflows/feedback-queue.yml` (Mondays 09:00 Beijing, or manual with
+  `threshold` / `only` / `dry_run`): `tools/feedback-queue.cjs` builds every
+  post's 修订简报 with `js/feedback-brief.js` (the module the dashboard uses —
+  Node gets a DOM from `linkedom@0.18.13`, installed `--no-save` in the job)
+  from worker `GET /feedback` (all posts), GraphQL (the Comments category, every
+  discussion with comments — needs `discussions: read`), REST (`划线评论`
+  issues + open `待修订` ones) and the live pages, then opens / updates / closes
+  **one issue labelled `待修订` per post** (body = the brief, marker
+  `<!-- feedback-queue: /slug.html -->`; updated only when the brief changed
+  apart from the date; closed with a comment once the score drops under the
+  threshold, default 3). Coding agents pick the issue up as-is; `Fixes #N`
+  closes it. Local: `DRY_RUN=1 API=http://localhost:8788 GITHUB_TOKEN=$(gh auth
+  token) node tools/feedback-queue.cjs` (`ONLY=/slug.html` also prints the brief).
 
 ## Layout
 
@@ -131,6 +144,16 @@ Pages has `https_enforced` on.
   loading="lazy" decoding="async" src='` — every content image is lazy.
   `js/diagram-zoom.js` opens Mermaid diagrams *and* content images (>= 200 px
   natural width, not inside `<a>`) in the zoom/pan lightbox.
+- **No jQuery / Bootstrap JS.** `footer.html` loads only our own scripts;
+  `js/argan-blog.js` (→ `.min.js` via `node_modules/.bin/uglifyjs js/argan-blog.js
+  -c -m --comments '/^!/' -o js/argan-blog.min.js`) does the theme bits in plain
+  DOM (wrap tables in `.table-responsive` + `.table`, wrap YouTube/Vimeo
+  iframes, navbar hide-on-scroll-down `.is-fixed/.is-visible`, `.side-catalog.fixed`),
+  the mobile navbar toggle is inline in `nav.html`, `js/tagcloud.js` colours
+  `#tag_cloud a[rel]` on `/tags/` (loaded there only). FastClick and the
+  `data-toggle="tooltip"` pager attributes are dead. **Bootstrap 3 CSS stays**
+  (`css/bootstrap.min.css`; grid, navbar, tables, `.embed-responsive`,
+  `.visible-*/.hidden-*` are all in use) — don't swap in Bootstrap 5.
 - Local CSS/JS in `head.html` / `footer.html` carry `?v=<build time>` for
   cache busting (GitHub Pages serves `max-age=600`; the old `no-cache` meta
   tags were removed). Font Awesome 4.7 is a self-hosted **subset**:
@@ -348,18 +371,34 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
     them and they simply stop rendering. No new storage anywhere.
   - Orphans (`renderOrphans`) show the first 24 chars of the quote + author
     (title = full quote + section) under 「N 条划线评论对应的原文已修改」.
+  - **Section-level 有用 / 没看懂** (`renderChapterBars`, `.sec-react` appended
+    inside every article heading `h2`–`h6`, two `.sec-react-btn`s; `chapters` map): anonymous
+    like passage reactions, no selection needed. Same worker route and table,
+    `quote = '§ ' + heading` (`CHAPTER_PREFIX`), `section = heading`, `up` = 有用,
+    `doubt` = 没看懂; `loadReactions` splits `§ ` rows into `chapters` so they are
+    never anchored as passages. `.sec-react` is in `EXCLUDE_SELECTOR`, in
+    wechat-export's `REMOVE`, and `headingText()` strips it (and `.anchorjs-link`)
+    wherever a heading's text is read (`sectionForOffsets`). The dashboard tags
+    such rows 「章节」 and the brief has a 「章节热度」 table.
   - **修订简报** lives only in `/admin/stats.html` (`#brief=/slug.html`, a
     `<select>` of `window.DASH_POSTS` and a 「简报」 link per 文章榜 row — one
-    URL to remember, no CLI twin). `openBrief` pulls worker `GET /feedback?path=`
-    (D1: reactions + reasons + section, views, 有用, shares), the Discussion via
-    the worker's anonymous `/discussions?term=` relay (`parseNote` mirrors
-    `parseBodyHeader`), the repo's `划线评论` issues (REST, `state=all`, filtered
-    by `body` containing the path — gives 已修正) and the live article
-    (`loadArticle`: `.post-container` text + h2/h3 offsets) to tell whether each
-    quote still anchors (`sectionAt`). `buildBrief` orders passages by
-    `2×doubt + 0.5×up + Σ(1 + ▲ + 3×suggest)`, sections: 待处理 / 普通评论 /
-    其他 open Issue / 未定位（原文已改）/ 已修正 / 给 AI 的修订指令. Output is a
-    `<pre>` + 「复制 Markdown」. Links use `siteUrl` (local builds show localhost).
+    URL to remember, no CLI twin). The aggregation is **`js/feedback-brief.js`**
+    (UMD: `window.FeedbackBrief` in the browser, `require()` in Node — shared
+    with `tools/feedback-queue.cjs`, keep it I/O-free and DOM-agnostic: callers
+    pass `dom.parse(html) -> Document`): `parseNote` (mirrors `parseBodyHeader`),
+    `articleFromHtml` (`.post-container` text + h2/h3 offsets), `sectionAt`,
+    `analyze` → `{ todo, done, lost, plain, chapters, score… }`, `render` → Markdown.
+    `openBrief` fetches worker `GET /feedback?path=` (D1: reactions + reasons +
+    section + chapter rows, views, 有用, shares), the Discussion via the worker's
+    anonymous `/discussions?term=` relay, the repo's `划线评论` issues (REST,
+    `state=all`, filtered by `body` containing the path — gives 已修正) and the
+    live article. Passages are ordered by `2×doubt + 0.5×up + Σ(1 + ▲ + 3×suggest)`;
+    sections: 章节热度 / 待处理 / 普通评论 / 其他 open Issue / 未定位（原文已改）/
+    已修正 / 给 AI 的修订指令. `analysis.score` (todo + unresolved plain comments +
+    chapter 没看懂) is what the weekly Action thresholds on. Output is a `<pre>` +
+    「复制 Markdown」. Links use `siteUrl` (local builds show localhost). The
+    dashboard's 待处理 block lists open `待修订` issues first (with a 「简报」 link
+    parsed from the marker), then `划线评论`, then `dead-links`.
 - **最受关注的段落** (`renderHotPassages`, `.ac-hot` above the comment list):
   passages ranked by `赞 + 2 × 存疑 + 2 × net comment votes + comments`, shown
   only when there are 2+ scored passages, max 3; clicking scrolls to the
@@ -492,6 +531,21 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   Use it sparingly, list only the projects actually refreshed, and keep one
   version set per project per post — refreshing means re-verifying every claim
   about that project, never mixing two versions in one article.
+- Series 4 (`transformer-and-llm`) has 12 posts: 01–08 are the cost table,
+  09–12 (dated 2026-04-24 … 05-03) are the 预训练补篇 written for the
+  algorithm roadmap's L4 (tokenizer, scaling law, data pipeline, recipe). The
+  overview lists them as "训练变量 → 第九到十二篇"; post 08's closing section is
+  「前八篇总结」, post 12 carries the 补篇小结 + 系列总结. Keep math out of
+  `##`/`###` headings — the sidebar OUTLINE shows raw `\(…\)`.
+- Companion code lives in `../ai-learning-labs` (git repo, pushed by the
+  user). Its `.venv/` (Python 3.12 via `~/.local/bin/python3.12`, torch CPU,
+  numpy, tiktoken, tokenizers) is gitignored; recreate with
+  `python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt`.
+  Every script writes its full run to `<series>/expected/<script>.txt`; the
+  article quotes those numbers, so re-run and refresh `expected/` when a
+  script changes. SVG figures for posts are generated by
+  `transformer-and-llm/tools/gen_*_svg.py` into `img/in-post/` here; eyeball
+  them with `qlmanage -t -s 1480 -o /tmp <svg>` (renders to `/tmp/<name>.png`).
 - Cite source as path + function/class name, never line numbers.
 - Length is not a target; rigor and organisation are. Structure: (update note) →
   intro with the post's core question → `## 一、总览` (ending with 本文的章节安排)

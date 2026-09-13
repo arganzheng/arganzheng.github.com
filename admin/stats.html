@@ -37,7 +37,7 @@ noindex: true
 
   <section class="dash-section" id="dash-brief">
     <h3>修订简报 <small><select class="dash-brief-pick"><option value="">选一篇文章…</option></select></small></h3>
-    <p class="dash-hint">把一篇文章收到的存疑（含原因）、划线评论、修改建议、Issue 状态汇总成一份 Markdown，按关注度排好序，末尾附给 AI 的修订指令。文章榜每行的「简报」也到这里；链接形如 <code>#brief=/slug.html</code>。</p>
+    <p class="dash-hint">把一篇文章收到的存疑（含原因）、划线评论、修改建议、Issue 状态汇总成一份 Markdown，按关注度排好序，末尾附给 AI 的修订指令。文章榜每行的「简报」也到这里；链接形如 <code>#brief=/slug.html</code>。每周一 <code>feedback-queue</code> Action 也用同一套逻辑跑全站，反馈够多的文章自动开一个「待修订」Issue（见下方「待处理」）。</p>
     <div class="dash-brief-body"><p class="dash-muted">还没有选文章。</p></div>
   </section>
 
@@ -70,4 +70,5 @@ window.DASH_POSTS = [
 {% for p in site.posts %}  [{{ p.url | jsonify }}, {{ p.title | jsonify }}]{% unless forloop.last %},{% endunless %}
 {% endfor %}];
 </script>
+<script src="{{ '/js/feedback-brief.js' | prepend: site.baseurl }}?v={{ site.time | date: '%Y%m%d%H%M' }}"></script>
 <script src="{{ '/js/dashboard.js' | prepend: site.baseurl }}?v={{ site.time | date: '%Y%m%d%H%M' }}"></script>

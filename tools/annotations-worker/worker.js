@@ -23,6 +23,7 @@
  *   POST /reactions    { path, hash, quote, kind, on, section?, reason?, prev? } -> { up, doubt, share, reasons }
  *                                                 kind up | doubt (toggle) | share (+1) | reason (why 存疑)
  *   dashboard: GET /stats/top, /views/daily?days=30, /reactions/top?kind=doubt|up, /feedback?path= (修订简报)
+ *   GET /feedback (no path) -> { posts: { path: { reactions, views, up, shares } } }  every post, for the weekly 待修订 Action
  *
  * repo / category are fixed via wrangler.toml [vars]; the worker never accepts them from the request.
  *
@@ -428,12 +429,29 @@ async function reactionsTop(url, env, cors) {
 
 // Everything D1 knows about one post, for the dashboard's 修订简报 (the
 // Discussion comments and Issues are fetched by the browser from GitHub).
+// Without `path`: every post at once — { posts: { path: { reactions, views, up, shares } } } —
+// for the weekly tools/feedback-queue.cjs Action (one call instead of one per post).
 async function feedback(url, env, cors) {
   if (!env.DB) return json({ error: '未启用（worker 未绑定 D1）' }, 501, cors);
-  const path = url.searchParams.get('path');
-  if (typeof path !== 'string' || !VIEW_PATH.test(path) || path.includes('..')) return json({ error: '`path` must be a post URL' }, 400, cors);
   if (!viewsTableReady) viewsTableReady = env.DB.exec('CREATE TABLE IF NOT EXISTS views (path TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0, updated_at TEXT)');
   await Promise.all([viewsTableReady, ensureVotesTable(env), ensureSharesTable(env), ensureReactionsTable(env)]);
+  const path = url.searchParams.get('path');
+  if (path == null) {
+    const [r, v, vo, sh] = await Promise.all([
+      env.DB.prepare('SELECT path, hash, quote, section, up, doubt, share, reasons, updated_at FROM passage_reactions WHERE up > 0 OR doubt > 0 OR share > 0 ORDER BY path, doubt DESC, up DESC').all(),
+      env.DB.prepare('SELECT path, count FROM views').all(),
+      env.DB.prepare('SELECT path, up FROM votes').all(),
+      env.DB.prepare('SELECT path, count FROM shares').all(),
+    ]);
+    const posts = {};
+    const at = (p) => posts[p] || (posts[p] = { reactions: [], views: 0, up: 0, shares: 0 });
+    for (const row of r.results || []) { const { path: p, ...rest } = row; at(p).reactions.push(withReasons(rest)); }
+    for (const row of v.results || []) at(row.path).views = row.count;
+    for (const row of vo.results || []) at(row.path).up = row.up;
+    for (const row of sh.results || []) at(row.path).shares = row.count;
+    return json({ posts }, 200, { ...cors, 'Cache-Control': 'no-store' });
+  }
+  if (typeof path !== 'string' || !VIEW_PATH.test(path) || path.includes('..')) return json({ error: '`path` must be a post URL' }, 400, cors);
   const [r, v, vo, sh] = await Promise.all([
     env.DB.prepare('SELECT hash, quote, section, up, doubt, share, reasons, updated_at FROM passage_reactions WHERE path = ?1 AND (up > 0 OR doubt > 0 OR share > 0) ORDER BY doubt DESC, up DESC').bind(path).all(),
     env.DB.prepare('SELECT count FROM views WHERE path = ?1').bind(path).first(),

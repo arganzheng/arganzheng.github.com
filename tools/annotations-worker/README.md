@@ -118,6 +118,11 @@ switch (un-counts the old pick) and `prev === reason` to clear. Every POST may
 carry `section` (nearest heading above the passage, ≤ 120 chars) which is stored
 once per row (`COALESCE`). Both come back in every reactions response.
 
+**Chapter-level 有用 / 没看懂** reuse the same route and table: the browser
+posts `kind: 'up' | 'doubt'` with `quote = '§ ' + <heading text>` (h2–h6) and `section` =
+the heading. The `§ ` prefix is how readers of the table (dashboard, brief,
+`js/annotations.js`) tell a chapter row from a passage row.
+
 ## Dashboard reads (/stats/top, /views/daily, /reactions/top, /feedback)
 
 `GET /stats/top?limit=100` joins views / votes / shares per post; `GET
@@ -128,7 +133,10 @@ lists the most doubted / liked / shared passages. All public, cached 1–5 min.
 `GET /feedback?path=` returns everything D1 holds about one post — its
 `passage_reactions` rows (with `reasons` / `section`), views, 有用 and shares —
 for the dashboard's 修订简报 (the Discussion and Issues are fetched by the
-browser from GitHub). Not cached.
+browser from GitHub). Without `path` it returns every post at once —
+`{ posts: { "/slug.html": { reactions, views, up, shares } } }` — for the weekly
+`feedback-queue` GitHub Action (`tools/feedback-queue.cjs`), which sends
+`Origin: <site url>` to pass the CORS allow-list. Not cached.
 
 ## List-page counters (GET /stats)
 

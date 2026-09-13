@@ -1,84 +1,57 @@
 /*!
- * Clean Blog v1.0.0 (http://startbootstrap.com)
- * Copyright 2015 Start Bootstrap
- * Licensed under Apache 2.0 (https://github.com/IronSummitMedia/startbootstrap/blob/gh-pages/LICENSE)
+ * Clean Blog v1.0.0 (http://startbootstrap.com) — Copyright 2015 Start Bootstrap, Apache 2.0
+ * Hux Blog v1.6.0 — Copyright 2016 @huxpro, Apache 2.0
+ * Rewritten without jQuery (the blog loads no jQuery / Bootstrap JS any more).
  */
+(function () {
+  'use strict';
 
- /*!
- * Hux Blog v1.6.0 (http://startbootstrap.com)
- * Copyright 2016 @huxpro
- * Licensed under Apache 2.0 
- */
+  function ready(fn) { if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn); else fn(); }
+  function wrap(el, className) {
+    var box = document.createElement('div');
+    box.className = className;
+    el.parentNode.insertBefore(box, el);
+    box.appendChild(el);
+  }
 
-// Tooltip Init
-// Unuse by Hux since V1.6: Titles now display by default so there is no need for tooltip
-// $(function() {
-//     $("[data-toggle='tooltip']").tooltip();
-// });
+  ready(function () {
+    // responsive tables (Bootstrap CSS classes; the CSS is still Bootstrap 3)
+    Array.prototype.forEach.call(document.querySelectorAll('table'), function (t) {
+      if (!t.parentNode.classList.contains('table-responsive')) wrap(t, 'table-responsive');
+      t.classList.add('table');
+    });
 
+    // responsive embedded videos
+    Array.prototype.forEach.call(document.querySelectorAll('iframe[src*="youtube.com"], iframe[src*="vimeo.com"]'), function (f) {
+      if (!f.parentNode.classList.contains('embed-responsive')) wrap(f, 'embed-responsive embed-responsive-16by9');
+      f.classList.add('embed-responsive-item');
+    });
 
-// make all images responsive
-/* 
- * Unuse by Hux
- * actually only Portfolio-Pages can't use it and only post-img need it.
- * so I modify the _layout/post and CSS to make post-img responsive!
- */
-// $(function() {
-//  $("img").addClass("img-responsive");
-// });
-
-// responsive tables
-$(document).ready(function() {
-    $("table").wrap("<div class='table-responsive'></div>");
-    $("table").addClass("table");
-});
-
-// responsive embed videos
-$(document).ready(function() {
-    $('iframe[src*="youtube.com"]').wrap('<div class="embed-responsive embed-responsive-16by9"></div>');
-    $('iframe[src*="youtube.com"]').addClass('embed-responsive-item');
-    $('iframe[src*="vimeo.com"]').wrap('<div class="embed-responsive embed-responsive-16by9"></div>');
-    $('iframe[src*="vimeo.com"]').addClass('embed-responsive-item');
-});
-
-// Navigation Scripts to Show Header on Scroll-Up
-jQuery(document).ready(function($) {
+    // Navigation: hide the navbar on scroll-down, slide it back in on scroll-up
+    // (desktop only); pin the side catalog once the header has scrolled away.
     var MQL = 1170;
-
-    //primary navigation slide-in effect
-    if ($(window).width() > MQL) {
-        var headerHeight = $('.navbar-custom').height(),
-            bannerHeight  = $('.intro-header .container').height();     
-        $(window).on('scroll', {
-                previousTop: 0
-            },
-            function() {
-                var currentTop = $(window).scrollTop(),
-                    $catalog = $('.side-catalog');
-
-                //check if user is scrolling up by mouse or keyborad
-                if (currentTop < this.previousTop) {
-                    //if scrolling up...
-                    if (currentTop > 0 && $('.navbar-custom').hasClass('is-fixed')) {
-                        $('.navbar-custom').addClass('is-visible');
-                    } else {
-                        $('.navbar-custom').removeClass('is-visible is-fixed');
-                    }
-                } else {
-                    //if scrolling down...
-                    $('.navbar-custom').removeClass('is-visible');
-                    if (currentTop > headerHeight && !$('.navbar-custom').hasClass('is-fixed')) $('.navbar-custom').addClass('is-fixed');
-                }
-                this.previousTop = currentTop;
-
-
-                //adjust the appearance of side-catalog
-                $catalog.show()
-                if (currentTop > (bannerHeight + 41)) {
-                    $catalog.addClass('fixed')
-                } else {
-                    $catalog.removeClass('fixed')
-                }
-            });
-    }
-});
+    var nav = document.querySelector('.navbar-custom');
+    if (document.documentElement.clientWidth <= MQL) return;
+    var headerHeight = nav ? nav.offsetHeight : 0;
+    var banner = document.querySelector('.intro-header .container');
+    var bannerHeight = banner ? banner.offsetHeight : 0;
+    var previousTop = 0;
+    window.addEventListener('scroll', function () {
+      var currentTop = window.pageYOffset || document.documentElement.scrollTop || 0;
+      if (nav) {
+        if (currentTop < previousTop) {
+          // scrolling up
+          if (currentTop > 0 && nav.classList.contains('is-fixed')) nav.classList.add('is-visible');
+          else nav.classList.remove('is-visible', 'is-fixed');
+        } else {
+          // scrolling down
+          nav.classList.remove('is-visible');
+          if (currentTop > headerHeight && !nav.classList.contains('is-fixed')) nav.classList.add('is-fixed');
+        }
+      }
+      previousTop = currentTop;
+      var catalog = document.querySelector('.side-catalog');
+      if (catalog) catalog.classList.toggle('fixed', currentTop > bannerHeight + 41);
+    }, { passive: true });
+  });
+})();

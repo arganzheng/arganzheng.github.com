@@ -8,6 +8,9 @@
  *     D1; no login, one per browser in localStorage) — "raising a hand". A
  *     存疑 can carry one *reason* (有错误 / 没看懂 / 版本过时 / 缺例子 / 与前文矛盾)
  *     and every reaction records the chapter (nearest h2/h3) it sits in.
+ *   - Every heading (h2–h6) gets two tiny anonymous buttons, 「有用」 / 「没看懂」,
+ *     for that section as a whole (same table, quote = '§ ' + heading) — no selection
+ *     needed, which is what phones can actually do.
  *   - 「建议修改」 is a passage comment pre-filled as 建议改为 / 理由 with the
  *     Issue box ticked — a ready-to-apply patch for the author.
  *   - 「已修正」: a note's Issue got closed, or the author 🎉'd it / replied
@@ -68,7 +71,7 @@
   var SESSION_KEY = 'giscus-session';
   var CONTEXT_CHARS = 32;
   var EXCLUDE_SELECTOR = '.comment, .pager, .related-posts, .footnotes, .reversefootnote, sup[id^="fnref"], a.footnote, ' +
-    'script, style, noscript, svg, .katex, .mermaid, button, .anchorjs-link, .annotation-toolbar, .annotation-panel, .annotation-marker';
+    'script, style, noscript, svg, .katex, .mermaid, button, .anchorjs-link, .annotation-toolbar, .annotation-panel, .annotation-marker, .sec-react';
   var BLOCK_SELECTOR = 'p, li, pre, blockquote, h1, h2, h3, h4, h5, h6, dd, dt, figure, .highlight, table';
   var GHOST = { login: 'ghost', url: 'https://github.com/ghost', avatarUrl: 'https://avatars.githubusercontent.com/u/10137?s=64&v=4' };
 
@@ -78,6 +81,7 @@
   var comments = [];         // every top-level comment of the post's discussion (see parseComment)
   var annotations = [];      // the subset with a selector, anchored in the article
   var reactions = {};        // hash -> { hash, quote, up, doubt, range, marks }: anonymous passage 赞 / 存疑 (worker /reactions)
+  var chapters = {};         // heading text -> { hash, quote: '§ ' + text, up, doubt }: section-level 有用 / 没看懂 (same table)
   var discussion = null;     // { id, url, totalCommentCount, likes: { up, mine } }
   var pageViews = null;      // number once GET/POST /views answered; stays null when the worker has no counter
   var loaded = false;        // loadDiscussion() has answered (either way)
@@ -122,6 +126,7 @@
     loadViews();
     window.addEventListener('hashchange', focusFromHash);
     whenRichContentSettled(function () {
+      renderChapterBars();
       Promise.all([loadDiscussion(false), loadReactions()]).then(function () { if (!restoreDraft()) focusFromHash(); });
     });
   }
@@ -263,7 +268,13 @@
     for (var i = 0; i < heads.length; i++) {
       if (heads[i].compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) best = heads[i]; else break;
     }
-    return best ? best.textContent.replace(/\s+/g, ' ').trim().slice(0, SECTION_MAX) : '';
+    return best ? headingText(best).slice(0, SECTION_MAX) : '';
+  }
+  // A heading's own words — without the anchor link and the section 有用/没看懂 buttons we add to headings.
+  function headingText(h) {
+    var c = h.cloneNode(true), junk = c.querySelectorAll('.sec-react, .anchorjs-link');
+    for (var i = 0; i < junk.length; i++) junk[i].parentNode.removeChild(junk[i]);
+    return c.textContent.replace(/\s+/g, ' ').trim();
   }
   function sectionForExact(exact) {
     var r = anchor({ exact: exact });
@@ -1925,14 +1936,74 @@
   function loadReactions() {
     return api('/reactions?path=' + encodeURIComponent(cfg.path)).then(function (data) {
       reactions = {};
+      chapters = {};
       (data.items || []).forEach(function (it) {
         if (!it || !/^[0-9a-f]{8}$/.test(it.hash)) return;
+        if (it.quote && it.quote.indexOf(CHAPTER_PREFIX) === 0) { chapters[it.quote.slice(CHAPTER_PREFIX.length)] = { hash: it.hash, quote: it.quote, up: it.up || 0, doubt: it.doubt || 0 }; return; }
         var r = reactions[it.hash] = newReaction(it.hash, it.quote || '');
         r.section = it.section || '';
         takeCounts(r, it);
       });
+      renderChapterBars();
       if (loaded) { applyHighlights(); if (commentsHost) renderHotPassages(); }
     }).catch(function (err) { console.warn('[annotations] reactions unavailable:', err.message); });
+  }
+
+  // Section-level 有用 / 没看懂: two small buttons after every heading (h2–h6) of the article,
+  // anonymous, one tap, no text selection needed (phones!). Stored in the same
+  // passage_reactions table with quote = '§ ' + heading, so the dashboard and
+  // the 修订简报 can tell a chapter row from a passage row. Answers the question a
+  // passage never can: is this *whole chapter* too hard / too thin?
+  var CHAPTER_PREFIX = '§ ';
+  var CHAPTER_KINDS = [{ kind: 'up', label: '有用', title: '这一章对我有用' }, { kind: 'doubt', label: '没看懂', title: '这一章整体没看懂' }];
+  function chapterFor(title) {
+    var quote = CHAPTER_PREFIX + title;
+    return chapters[title] || (chapters[title] = { hash: annotHash(quote), quote: quote, up: 0, doubt: 0 });
+  }
+  function renderChapterBars() {
+    var heads = container.querySelectorAll('h2, h3, h4, h5, h6');
+    for (var i = 0; i < heads.length; i++) {
+      var h = heads[i];
+      if (h.closest(EXCLUDE_SELECTOR) || h.closest('.series-toc, .series-nav, .series-context')) continue;
+      var title = headingText(h);
+      if (!title) continue;
+      var bar = h.querySelector('.sec-react');
+      if (!bar) {
+        bar = document.createElement('span');
+        bar.className = 'sec-react';
+        bar.setAttribute('data-title', title);
+        bar.setAttribute('aria-label', '这一章：' + title);
+        CHAPTER_KINDS.forEach(function (k) {
+          var b = document.createElement('button');
+          b.type = 'button'; b.className = 'sec-react-btn sec-react-' + k.kind; b.setAttribute('data-kind', k.kind); b.title = k.title;
+          b.innerHTML = '<i class="fa ' + (k.kind === 'up' ? 'fa-thumbs-up' : 'fa-question-circle') + '"></i>' + k.label + '<b></b>';
+          b.addEventListener('click', onChapterClick);
+          bar.appendChild(b);
+        });
+        h.appendChild(bar);
+      }
+      paintChapterBar(bar, title);
+    }
+  }
+  function paintChapterBar(bar, title) {
+    var c = chapters[title], hash = c ? c.hash : annotHash(CHAPTER_PREFIX + title);
+    CHAPTER_KINDS.forEach(function (k) {
+      var b = bar.querySelector('.sec-react-' + k.kind), n = c ? c[k.kind] : 0;
+      b.classList.toggle('is-on', myReaction(hash, k.kind));
+      b.querySelector('b').textContent = n > 0 ? n : '';
+    });
+  }
+  function onChapterClick(e) {
+    e.preventDefault(); e.stopPropagation();
+    var btn = e.currentTarget, bar = btn.parentNode, title = bar.getAttribute('data-title'), kind = btn.getAttribute('data-kind');
+    var c = chapterFor(title), on = !myReaction(c.hash, kind), before = c[kind];
+    c[kind] = Math.max(0, c[kind] + (on ? 1 : -1));
+    rememberReaction(c.hash, kind, on);
+    paintChapterBar(bar, title);
+    if (reactLocalOnly) { showToast(on ? (kind === 'up' ? '已标记这一章有用' : '已标记这一章没看懂') : '已取消'); return; }
+    api('/reactions', { method: 'POST', body: { path: cfg.path, hash: c.hash, quote: c.quote, kind: kind, on: on, section: title } })
+      .then(function (d) { c.up = d.up || 0; c.doubt = d.doubt || 0; paintChapterBar(bar, title); showToast(on ? (kind === 'up' ? '已标记这一章有用' : '已标记这一章没看懂，谢谢——作者会回头补这一章') : '已取消'); })
+      .catch(function (err) { c[kind] = before; rememberReaction(c.hash, kind, !on); paintChapterBar(bar, title); showToast('操作失败：' + err.message); });
   }
 
   // Toggle my 赞 / 存疑 on the passage with this exact text. Optimistic; the

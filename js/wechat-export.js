@@ -54,7 +54,7 @@
   var INLINE_CODE = 'padding:2px 5px;border-radius:3px;background:rgba(27,31,35,0.06);color:#c7254e;font-family:' + MONO + ';font-size:14px;';
   var PRE_WRAP = 'margin:0 0 1.2em;padding:12px 14px;border-radius:6px;background:#f6f8fa;border:1px solid #e1e4e8;overflow-x:auto;';
   var PRE_CODE = 'display:block;white-space:pre;word-wrap:normal;font-family:' + MONO + ';font-size:13px;line-height:1.6;color:#24292f;-webkit-text-size-adjust:none;';
-  var REMOVE = '.series-nav, .series-context, .series-toc, .pager, .related-posts, .comment, .annotation-comments, .annotation-panel, .annotation-marker, .annotation-toolbar, .code-copy, .inline-popover-card, .post-share, .post-actions, .post-license, .catalog-toggle, script, style, noscript, .reversefootnote, .mermaidTooltip, hr[style*="hidden"]';
+  var REMOVE = '.series-nav, .series-context, .series-toc, .pager, .related-posts, .comment, .annotation-comments, .annotation-panel, .annotation-marker, .annotation-toolbar, .sec-react, .code-copy, .inline-popover-card, .post-share, .post-actions, .post-license, .catalog-toggle, script, style, noscript, .reversefootnote, .mermaidTooltip, hr[style*="hidden"]';
 
   function el(tag, style, html) {
     var e = document.createElement(tag);
