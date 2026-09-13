@@ -943,6 +943,7 @@
     { key: 'quote', icon: 'fa-quote-right', title: '引用 (> )' },
     { key: 'code', icon: 'fa-code', title: '行内代码 (`code`)' },
     { key: 'codeblock', icon: 'fa-file-code-o', title: '代码块 (```)' },
+    { key: 'table', icon: 'fa-table', title: '表格 (3×3)' },
     { key: 'link', icon: 'fa-link', title: '链接 [文字](url)' },
     { key: 'image', icon: 'fa-picture-o', title: '图片 ![说明](url)' },
     { key: 'ul', icon: 'fa-list-ul', title: '无序列表 (- )' },
@@ -1070,6 +1071,13 @@
       case 'ul': prefixLines(function () { return '- '; }); break;
       case 'ol': prefixLines(function (i) { return (i + 1) + '. '; }); break;
       case 'codeblock': block('```', '```', '代码'); break;
+      case 'table':
+        var before = (s > 0 && v.charAt(s - 1) !== '\n') ? '\n' : '';
+        var after = (e < v.length && v.charAt(e) !== '\n') ? '\n' : '';
+        var table = '| 标题 | 标题 | 标题 |\n| --- | --- | --- |\n| 内容 | 内容 | 内容 |\n| 内容 | 内容 | 内容 |';
+        ta.setRangeText(before + table + after, s, e, 'select');
+        ta.setSelectionRange(s + before.length + 2, s + before.length + 4);
+        break;
       case 'link':
         if (/^https?:\/\//.test(sel)) { ta.setRangeText('[链接文字](' + sel + ')', s, e, 'select'); ta.setSelectionRange(s + 1, s + 5); }
         else { var t = sel || '链接文字'; ta.setRangeText('[' + t + '](url)', s, e, 'select'); ta.setSelectionRange(s + t.length + 3, s + t.length + 6); }
