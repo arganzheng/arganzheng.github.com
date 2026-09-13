@@ -9,11 +9,14 @@
  * usual 赞 / 存疑 / 评论 / 建议修改 toolbar. The caption title is the passage:
  * stable as long as the alt stays, readable in the GitHub comment and the brief.
  *
- *   <p><img alt="…"></p>        ->  <figure class="post-figure"><img><figcaption class="post-figcaption">
- *                                     <span class="fig-no">图 N</span><span class="fig-title">…</span></figcaption>
- *                                     <div class="fig-tools"><button class="code-copy fig-feedback">…</button></div></figure>
- *   <div class="mermaid">…</div> ->  unchanged, + a .fig-tools strip inside holding code-copy's button and
- *                                     ours (32 px targets, padded dead zone), the <figcaption> as its next sibling
+ *   <p><img alt="…"></p>        ->  <figure class="post-figure"><span class="fig-media"><img>
+ *                                     <div class="fig-tools"><button class="code-copy fig-feedback">…</button></div></span>
+ *                                     <figcaption class="post-figcaption"><span class="fig-no">图 N</span><span class="fig-title">…</span></figcaption></figure>
+ *   <div class="mermaid">…</div> ->  its <svg> wrapped in the same .fig-media (sized to the svg's max-width) with a
+ *                                     .fig-tools strip holding code-copy's button and ours (32 px targets, padded
+ *                                     dead zone, on the picture's own corner), the <figcaption> as the next sibling
+ *   <pre> / .highlighter-rouge  ->  the same .fig-tools strip with the copy button and a handle that selects
+ *                                     the whole block (the toolbar then works as for any selection)
  *
  * Diagrams render asynchronously (rich-content.html), so they are picked up by
  * a MutationObserver; the number counts images and diagrams in document order
@@ -61,42 +64,67 @@
     return cap;
   }
 
-  function button(cap, besideCopy) {
+  // Select `target`'s text as if the reader had dragged over it; annotations.js
+  // listens to selectionchange and shows its toolbar (赞 / 存疑 / 评论 / 建议修改 /
+  // 复制 / 搜一搜 / 分享) at the selection. `focusEl` (a caption) is scrolled into
+  // view first — a tall picture puts its caption below the fold — focused and
+  // flashed, so the reader sees what got picked.
+  function pick(target, focusEl) {
+    if (focusEl) {
+      var r = focusEl.getBoundingClientRect(), vh = window.innerHeight || document.documentElement.clientHeight;
+      if (r.top < 90 || r.bottom > vh - 20) focusEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+    var range = document.createRange(); range.selectNodeContents(target);
+    var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    if (focusEl) {
+      focusEl.setAttribute('tabindex', '-1'); focusEl.focus({ preventScroll: true });
+      focusEl.classList.add('is-picked'); setTimeout(function () { focusEl.classList.remove('is-picked'); }, 1800);
+    }
+  }
+
+  function button(title, onClick) {
     var b = document.createElement('button');
     b.type = 'button';
     b.className = 'code-copy fig-feedback';
-    b.title = '对这张图评论 / 存疑（会选中图题，再从工具条里选）';
-    b.setAttribute('aria-label', '对这张图评论');
+    b.title = title;
+    b.setAttribute('aria-label', title);
     b.innerHTML = ICON;
-    b.addEventListener('click', function (e) {
-      e.preventDefault(); e.stopPropagation();
-      var target = cap.querySelector('.fig-title') || cap.querySelector('.fig-no');
-      // a tall picture puts its caption below the fold: bring it (and the toolbar
-      // annotations.js will hang over it) into view before selecting
-      var r = cap.getBoundingClientRect(), vh = window.innerHeight || document.documentElement.clientHeight;
-      if (r.top < 90 || r.bottom > vh - 20) cap.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      var range = document.createRange(); range.selectNodeContents(target);
-      var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
-      cap.setAttribute('tabindex', '-1'); cap.focus({ preventScroll: true });
-      cap.classList.add('is-picked'); setTimeout(function () { cap.classList.remove('is-picked'); }, 1800);
-      // annotations.js listens to selectionchange and shows its toolbar at the selection
-    });
+    b.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); onClick(); });
     return b;
+  }
+
+  var FIG_TITLE = '对这张图评论 / 存疑（会选中图题，再从工具条里选）';
+  function figureButton(cap) {
+    return button(FIG_TITLE, function () { pick(cap.querySelector('.fig-title') || cap.querySelector('.fig-no'), cap); });
   }
 
   // Corner strip that holds the buttons. Its padding is a dead zone: clicking a
   // few px off a button must not open the zoom lightbox (js/diagram-zoom.js
-  // listens for clicks on the whole figure).
-  function tools(host) {
-    var t = host.querySelector(':scope > .fig-tools');
+  // listens for clicks on the whole figure). `host` is the element code-copy.js
+  // appends its button to; `mount` (default host) is where the strip lives.
+  function tools(host, mount) {
+    var t = host.querySelector(':scope > .fig-tools, :scope > .fig-media > .fig-tools');
     if (!t) {
       t = document.createElement('div'); t.className = 'fig-tools';
       t.addEventListener('click', function (e) { e.stopPropagation(); });
-      host.appendChild(t);
+      (mount || host).appendChild(t);
     }
     // code-copy.js may add its button before or after us: keep it in the strip
     Array.prototype.forEach.call(host.querySelectorAll(':scope > .code-copy:not(.fig-feedback)'), function (c) { t.insertBefore(c, t.firstChild); });
     return t;
+  }
+
+  // Pictures are centred and usually narrower than the column, so a strip in the
+  // block's corner floats in blank space far from the picture (and hides on
+  // mouse-out). The inline-block wrapper shrink-wraps the picture: the strip sits
+  // on the picture's own top-right corner.
+  function media(el, width) {
+    var w = document.createElement('span');
+    w.className = 'fig-media';
+    if (width) w.style.width = width;
+    el.parentNode.insertBefore(w, el);
+    w.appendChild(el);
+    return w;
   }
 
   function decorateImages() {
@@ -110,19 +138,35 @@
       fig.appendChild(img);
       var cap = caption(figureNo(fig), norm(img.getAttribute('alt')));
       fig.appendChild(cap);
-      tools(fig).appendChild(button(cap, false));
+      tools(fig, media(img)).appendChild(figureButton(cap));
     });
   }
 
   function decorateDiagrams() {
     Array.prototype.forEach.call(container.querySelectorAll('.mermaid[data-mermaid-source]'), function (d) {
-      if (!d.querySelector('svg') && !d.classList.contains('mermaid-error')) return; // still rendering
-      var strip = tools(d);
+      var svg = d.querySelector(':scope > svg, :scope > .fig-media > svg');
+      if (!svg && !d.classList.contains('mermaid-error')) return; // still rendering
+      // Mermaid gives the svg width=100% + max-width=<natural>px; the wrapper takes that width
+      var strip = tools(d, svg ? (svg.parentNode.classList.contains('fig-media') ? svg.parentNode : media(svg, svg.style.maxWidth)) : null);
       if (strip.querySelector('.fig-feedback')) return;
       var cap = caption(figureNo(d), mermaidTitle(d.getAttribute('data-mermaid-source')));
       d.parentNode.insertBefore(cap, d.nextSibling);
       d.classList.add('code-copy-anchor');
-      strip.appendChild(button(cap, true));
+      strip.appendChild(figureButton(cap));
+    });
+  }
+
+  // Code blocks: the same handle selects the whole block — dragging across 40
+  // lines is what it saves; the toolbar then offers everything a selection does
+  // (a comment on the block, 存疑, 建议修改, copy, search, share).
+  var CODE_TITLE = '对这段代码评论 / 存疑（会选中整段代码，再从工具条里选）';
+  function decorateCode() {
+    Array.prototype.forEach.call(container.querySelectorAll('pre'), function (pre) {
+      if (pre.closest('.mermaid, .comment, .annotation-panel, .series-toc, .related-posts')) return;
+      var strip = tools(pre.closest('.highlighter-rouge') || pre);
+      if (strip.querySelector('.fig-feedback')) return;
+      var code = pre.querySelector('code') || pre;
+      strip.appendChild(button(CODE_TITLE, function () { pick(code); }));
     });
   }
 
@@ -131,6 +175,7 @@
     if (!container) return;
     decorateImages();
     decorateDiagrams();
+    decorateCode();
     if (window.MutationObserver) {
       new MutationObserver(function () { decorateDiagrams(); }).observe(container, { childList: true, subtree: true });
     }

@@ -1261,11 +1261,14 @@
   // directly. parseBodyHeader recognises it back as `suggest`.
   var SUGGEST_TEMPLATE = '**建议改为：**\n\n\n\n**理由：**\n\n';
   var SUGGEST_CARET = '**建议改为：**\n\n'.length;
+  var MODES = {
+    suggest: { template: SUGGEST_TEMPLATE, caret: SUGGEST_CARET, label: '建议修改', placeholder: '写下你建议的改法和理由…', submit: '提交建议' }
+  };
 
-  // `mode` = 'suggest' opens the editor with the template and 「同时提交 Issue」 ticked.
+  // `mode` = 'suggest' opens the editor with that template and 「同时提交 Issue」 ticked.
   function openComposer(sel, offsets, anchorNode, draftText, mode) {
-    var suggest = mode === 'suggest';
-    if (suggest && !draftText) draftText = SUGGEST_TEMPLATE;
+    var m = MODES[mode] || null;
+    if (m && !draftText) draftText = m.template;
     var join = passageContaining(offsets);
     if (join) {
       // same passage -> one thread; the editor there defaults to a comment on the passage
@@ -1273,25 +1276,25 @@
       var joinTa = panel && panel.querySelector('.ap-text');
       if (joinTa) {
         if (draftText) joinTa.value = draftText;
-        if (suggest) { var jb = panel.querySelector('.ap-issue input'); if (jb) jb.checked = true; joinTa.setSelectionRange(SUGGEST_CARET, SUGGEST_CARET); }
+        if (m) { var jb = panel.querySelector('.ap-issue input'); if (jb) jb.checked = true; joinTa.setSelectionRange(m.caret, m.caret); }
         joinTa.focus(); joinTa.dispatchEvent(new Event('input'));
       }
       return;
     }
-    panelState = { kind: 'editor', selector: sel, offsets: offsets, suggest: suggest };
+    panelState = { kind: 'editor', selector: sel, offsets: offsets, mode: m ? mode : '' };
     ensurePanel();
     panel.className = 'annotation-panel is-editor';
     panel.innerHTML =
       '<div class="ap-head">' +
         '<i class="fa fa-quote-left"></i><span class="ap-quote" title="' + escapeAttr(sel.exact) + '">' + escapeHtml(sel.exact) + '</span>' +
-        '<span class="ap-count">' + (suggest ? '建议修改' : '新评论') + '</span>' +
+        '<span class="ap-count">' + (m ? m.label : '新评论') + '</span>' +
         '<button type="button" class="ap-close" title="取消">×</button>' +
       '</div>' +
       '<div class="ap-editor"></div>';
     panel.querySelector('.ap-close').addEventListener('click', cancelComposer);
     var ta = renderEditor(panel.querySelector('.ap-editor'), {
-      placeholder: suggest ? '写下你建议的改法和理由…' : '写下你对这段文字的评论…',
-      submitLabel: suggest ? '提交建议' : '提交评论',
+      placeholder: m ? m.placeholder : '写下你对这段文字的评论…',
+      submitLabel: m ? m.submit : '提交评论',
       initialText: draftText || '',
       issueOption: true,
       onCancel: cancelComposer,
@@ -1300,13 +1303,14 @@
       fallbackText: function (text) { return buildCommentBody(sel, text); },
       onSubmit: function (text, extra) { return postAnnotation(sel, text, extra.issue); }
     });
-    if (suggest) { var box = panel.querySelector('.ap-issue input'); if (box) box.checked = true; }
+    if (m) { var box = panel.querySelector('.ap-issue input'); if (box) box.checked = true; }
     mountPanel(anchorNode);
     if (window.getSelection) window.getSelection().removeAllRanges();
     ta.focus();
-    if (suggest && ta.value === SUGGEST_TEMPLATE) ta.setSelectionRange(SUGGEST_CARET, SUGGEST_CARET);
+    if (m && ta.value === m.template) ta.setSelectionRange(m.caret, m.caret);
     saveDraft(ta.value);
   }
+
 
   function cancelComposer() { clearDraft(); closePanel(); }
 
@@ -1401,7 +1405,7 @@
   function saveDraft(text) {
     if (!panelState || panelState.kind !== 'editor') return;
     if (typeof text !== 'string') { var ta = panel && panel.querySelector('.ap-text'); text = ta ? ta.value : ''; }
-    try { sessionStorage.setItem(draftKey(), JSON.stringify({ selector: panelState.selector, text: text, suggest: !!panelState.suggest })); } catch (e) { /* ignore */ }
+    try { sessionStorage.setItem(draftKey(), JSON.stringify({ selector: panelState.selector, text: text, mode: panelState.mode || '' })); } catch (e) { /* ignore */ }
   }
   function clearDraft() { try { sessionStorage.removeItem(draftKey()); } catch (e) { /* ignore */ } }
   function restoreDraft() {
@@ -1417,7 +1421,7 @@
     if (!segs.length) { clearDraft(); return false; }
     var last = segs[segs.length - 1].node;
     scrollIntoViewInstant(last.parentNode);
-    openComposer(draft.selector, range, last, draft.text, draft.suggest ? 'suggest' : '');
+    openComposer(draft.selector, range, last, draft.text, draft.mode || (draft.suggest ? 'suggest' : ''));
     return true;
   }
 

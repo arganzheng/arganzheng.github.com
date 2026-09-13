@@ -4284,6 +4284,17 @@ li[id^="fn:"] {
   outline-offset: 4px;
   border-radius: 4px;
 }
+.post-container .fig-media {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: top;
+}
+.post-container .fig-media > img,
+.post-container .fig-media > svg {
+  display: block;
+  max-width: 100%;
+}
 .post-container .fig-tools {
   position: absolute;
   top: 2px;
@@ -4303,16 +4314,16 @@ li[id^="fn:"] {
 .post-container .fig-tools:hover {
   background: rgba(255, 255, 255, 0.85);
 }
-.post-container .post-figure > .fig-tools {
+.post-container .fig-media .fig-tools {
   opacity: 0;
   transition: opacity 0.15s;
 }
-.post-container .post-figure:hover > .fig-tools,
-.post-container .post-figure > .fig-tools:focus-within {
+.post-container .fig-media:hover .fig-tools,
+.post-container .fig-media .fig-tools:focus-within {
   opacity: 1;
 }
 @media (max-width: 767px) {
-  .post-container .post-figure > .fig-tools {
+  .post-container .fig-media .fig-tools {
     opacity: 1;
   }
 }

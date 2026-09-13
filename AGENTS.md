@@ -372,14 +372,26 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
   - Orphans (`renderOrphans`) show the first 24 chars of the quote + author
     (title = full quote + section) under 「N 条划线评论对应的原文已修改」.
   - **Figures** (`js/figures.js`, loaded before annotations.js): every `p > img`
-    becomes `figure.post-figure > img + figcaption.post-figcaption (.fig-no 「图 N」 +
-    .fig-title = alt) + div.fig-tools > button.code-copy.fig-feedback`; every
-    rendered `.mermaid` gets the same caption as its next sibling (title = Mermaid
-    front matter `title:` or a first-line `%% 图：…` comment) and a `.fig-tools`
-    strip inside that also holds code-copy's button (32 px targets, 6 px padded
-    dead zone whose click handler stops propagation so near-misses don't open the
-    zoom lightbox; `code-copy.js`'s duplicate check looks inside `.fig-tools` too —
-    moving its button out again would loop the two MutationObservers). The button
+    becomes `figure.post-figure > span.fig-media > (img + div.fig-tools >
+    button.code-copy.fig-feedback) + figcaption.post-figcaption (.fig-no 「图 N」 +
+    .fig-title = alt)`; every rendered `.mermaid` gets its `svg` wrapped in the same
+    `.fig-media` (inline-block, `width` = the svg's `max-width`, so it shrink-wraps
+    the drawing) with a `.fig-tools` strip that also holds code-copy's button, and
+    the caption as the `.mermaid`'s next sibling (title = Mermaid front matter
+    `title:` or a first-line `%% 图：…` comment). The strip must sit on the
+    **picture's own** top-right corner — anchored to the block it floated in blank
+    space hundreds of px right of a centred picture, which is why it was "hard to
+    hit". 32 px targets, 6 px padded dead zone whose click handler stops propagation
+    so near-misses don't open the zoom lightbox; hover-only on `.fig-media` (it
+    overlaps the drawing), always shown on phones. `code-copy.js`'s duplicate check
+    looks inside `.fig-tools` / `.fig-media` too — moving its button out again would
+    loop the two MutationObservers. Code blocks (`.highlighter-rouge` / `pre`) get the
+    same strip with the copy button and the same handle, which selects the whole
+    `<code>` (`pick(code)`) — nothing mode-specific: the normal toolbar then offers
+    赞 / 存疑 / 评论 / 建议修改 / 复制 / 搜一搜 / 分享 on the block, whose passage is
+    its full text (any edit orphans old notes, which is the intended signal). A
+    「跑不通？」 pill with a pre-filled 环境 / 报错 template was tried and dropped:
+    the block handle should be generic, like the figure one. The figure button
     only *selects* the caption title (scrolling the caption to the viewport centre
     first when it is off-screen, focusing it, flashing `.is-picked`) —
     annotations.js' `selectionchange` shows the normal toolbar, so a picture's

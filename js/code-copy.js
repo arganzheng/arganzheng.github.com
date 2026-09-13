@@ -38,7 +38,7 @@
 
     function addButton(anchor, getText) {
         // js/figures.js may have moved our button into its corner strip (.fig-tools)
-        if (anchor.querySelector(':scope > .code-copy, :scope > .fig-tools > .code-copy')) return;
+        if (anchor.querySelector(':scope > .code-copy, :scope > .fig-tools > .code-copy, :scope > .fig-media > .fig-tools > .code-copy')) return;
 
         var button = document.createElement('button');
         button.type = 'button';

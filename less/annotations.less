@@ -868,6 +868,14 @@
 	// a note on the caption outlines the picture it belongs to
 	.post-figure:has(> .post-figcaption.has-note) img,
 	.mermaid:has(+ .post-figcaption.has-note) { outline: 2px solid fade(@annot-line, 55%); outline-offset: 4px; border-radius: 4px; }
+	// the picture's own box (shrink-wrapped, centred by the parent's text-align) — the strip sits on *its* corner
+	.fig-media {
+		position: relative;
+		display: inline-block;
+		max-width: 100%;
+		vertical-align: top;
+		> img, > svg { display: block; max-width: 100%; }
+	}
 	// corner strip: 32 px targets, 6 px dead-zone padding, faint plate on hover
 	.fig-tools {
 		position: absolute;
@@ -882,9 +890,11 @@
 		.code-copy { position: static; width: 32px; height: 32px; }
 		&:hover { background: rgba(255, 255, 255, 0.85); }
 	}
-	.post-figure > .fig-tools { opacity: 0; transition: opacity 0.15s; }
-	.post-figure:hover > .fig-tools, .post-figure > .fig-tools:focus-within { opacity: 1; }
+	// on pictures and diagrams the strip overlaps the drawing, so it shows on hover (always on phones);
+	// code blocks have padding for it and keep it visible
+	.fig-media .fig-tools { opacity: 0; transition: opacity 0.15s; }
+	.fig-media:hover .fig-tools, .fig-media .fig-tools:focus-within { opacity: 1; }
 }
 @media (max-width: 767px) {
-	.post-container .post-figure > .fig-tools { opacity: 1; }
+	.post-container .fig-media .fig-tools { opacity: 1; }
 }
