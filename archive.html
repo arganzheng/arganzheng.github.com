@@ -168,7 +168,12 @@ permalink: /archive/
   {% assign timeline_rows = timeline_rows | append: row %}
 {% endfor %}
 {% for item in slide_pages %}
+  {% comment %}Pages (unlike posts) take no date from the filename: a deck without `date:` in its front matter would otherwise sort above everything with an empty year. Send it to the bottom under 未注明日期 instead.{% endcomment %}
+  {% if item.date %}
   {% capture row %}{{ item.date | date: "%Y%m%d%H%M%S" }}::{{ item.date | date: "%Y" }}::{{ item.date | date: "%Y-%m" }}::{{ item.date | date: "%B" }}::{{ item.date | date: "%Y/%m/%d" }}::slides::{{ item.url | prepend: site.baseurl }}::{{ item.title | replace: "::", "：" }}::{{ item.subtitle | default: "" | replace: "::", "：" }}###{% endcapture %}
+  {% else %}
+  {% capture row %}00000000000000::未注明日期::0000-00::（slides 缺少 date: 前置字段）::—::slides::{{ item.url | prepend: site.baseurl }}::{{ item.title | replace: "::", "：" }}::{{ item.subtitle | default: "" | replace: "::", "：" }}###{% endcapture %}
+  {% endif %}
   {% assign timeline_rows = timeline_rows | append: row %}
 {% endfor %}
 {% assign timeline = timeline_rows | split: "###" | sort | reverse %}

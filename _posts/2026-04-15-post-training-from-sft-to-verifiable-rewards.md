@@ -383,7 +383,7 @@ PPO / GRPO 的组件与显存账、rollout 与训练的算力配比、on-policy 
 
 - L4 的[《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)：参数量与训练状态的账（第一、六篇）、LoRA 的形态（第七篇）、SFT 的 lr 与 warmup 从哪来（第十二篇）；
 - L3 的[《深度学习基础》](/deep-learning-foundations.html)：交叉熵与 softmax 的梯度（第一篇）、AdamW 与学习率调度（第三篇）、过拟合与多 epoch（第四篇）；
-- L2 导读的逻辑回归、分类器的评估（准确率、置信区间）——奖励模型就是逻辑回归；
+- L2 经典机器学习系列的逻辑回归、分类器的评估（准确率、置信区间）——奖励模型就是逻辑回归；
 - 会用 `transformers` 加载模型与 tokenizer、写一个训练循环；用过或看过 `trl` 的任意一个 trainer 更好。
 
 不要求：学过强化学习（第三篇从策略梯度讲起）；有多卡。

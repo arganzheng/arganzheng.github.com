@@ -117,6 +117,13 @@ Pages has `https_enforced` on.
 - `_posts/` — blog posts, `layout: post`, permalink `/:title.html`
 - `slides/` — reveal.js decks, `layout: slides` (or set in front matter),
   URL `/slides/:name.html`, indexed by `slides.html` (`/slides/`)
+  Decks are pages, so Jekyll itself takes no date from their filename;
+  `_plugins/slides_date.rb` (`:site, :post_read` hook) fills `page.date` from a
+  `YYYY-MM-DD-` filename prefix when front matter has no `date:`, so decks
+  follow the post convention. `archive.html` still parks a deck with neither
+  under a 未注明日期 bucket at the bottom (it used to float to the top with an
+  empty year). Posts never need `date:` (only to order several posts on the
+  same day).
 - `_includes/rich-content.html` — Mermaid + KaTeX loaders, shared by
   `_includes/head.html` and `_layouts/slides.html`. Both renderers are lazy:
   they only fetch their bundle if the page actually contains a diagram/formula,
@@ -647,9 +654,13 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   Apr–May 2026); model refs go up to Qwen2.5-VL / Gemma 3 / BAGEL / gpt-oss.
 - Post dates encode the reading order of the three roadmaps and were re-dated
   on 2026-09-14 (permalinks are `/:title.html`, so dates are free to move):
-  01-01 《AI 全栈学习地图》(overview of the three, pinned) → 01-02 Infra 地图 →
-  01-03 算法地图 → 01-04 应用地图 → Infra 01/02/03 (Jan–Mar, shared 前置) →
-  算法 L0–L3 (03-20 … 03-29) → 04 Transformer 与 LLM (04-01 … 04-13, shared L4)
+  01-01 《AI 全栈学习地图》(overview of the three, pinned) → 01-02 算法地图 →
+  01-03 Infra 地图 → 01-04 应用地图 → 算法 L0 数学 (01-07 overview, 01-08 … 01-15,
+  series `math-for-ai`) → L1 工具箱 (01-16 overview, 01-17 … 01-21,
+  `algorithm-tooling`) → Infra 01 Python (01-22 … 01-29, shared: L1 深入篇) →
+  Infra 02 C++ (02-02 … 02-15) → Infra 03 PyTorch (02-16 … 02-26, shared: L1
+  深入篇) → L2 经典机器学习 (02-27 overview, 02-28 … 03-05, `classical-ml`) →
+  L3 (03-23 … 03-29) → 04 Transformer 与 LLM (04-01 … 04-13, shared L4)
   → 后训练 (04-15 … 04-23) → 横切 实验方法论 (04-24, one 导读) → L6
   高效推理与压缩 (04-25 overview, 04-26 … 05-01) → L7 多模态 (05-02 overview,
   05-03 … 05-09) → Infra 05–10 (GPU Kernel was moved from 05-06…05-30 to
@@ -658,7 +669,18 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   (08-26 overview, posts 08-27 … 09-03) → 10 平台 (09-04 … 09-12) → 11 开源贡献
   (09-13 … 09-17).
   Keep a series contiguous (daily posts are fine); do not interleave two maps'
-  series except at the shared 04 series. Roadmaps link forward to series published later —
+  series except at the shared 01 / 03 / 04 series. The three L0–L2 series were
+  expanded from three 导读 on 2026-09-14 after reader feedback (overviews keep
+  the old URLs `/math-for-ai-algorithm-engineers.html`,
+  `/tooling-for-ai-algorithm-engineers.html`,
+  `/classical-machine-learning-in-the-llm-era.html`); they target readers who
+  can program but have forgotten university maths — every concept is defined,
+  every claim gets a number from a real model, each post ends with 自测. L1 and
+  L2 posts have one CPU script each in `ai-learning-labs/algorithm-tooling/`
+  and `classical-ml/` (numbers in the posts come from `expected/`); L0 has
+  none. L1 does not teach Python itself — Infra 01 / 03 are its 深入篇. When
+  other posts cite these layers, write 「L0 数学系列第 N 篇」 etc., never
+  「L0 导读第 N 章」 (the 导读 chapters no longer exist). Roadmaps link forward to series published later —
   that is the established convention. Series 收尾篇 must NOT carry a
   hand-written 「系列目录」: the layout generates it from `series:`.
 - Cite source as path + function/class name, never line numbers.

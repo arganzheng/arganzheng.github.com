@@ -239,7 +239,7 @@ VLM 的训练不是一步到位的：先让 connector 学会对齐、再让 LLM 
 - [L3 第五篇](/cnn-from-lenet-to-resnet-and-vit.html)：ViT 的结构与 patch embedding。
 - [04 系列](/transformer-and-llm-for-infra-engineers.html)第一、三、八篇：Transformer 结构、KV cache、多模态成本。
 - [L5](/post-training-from-sft-to-verifiable-rewards.html)第一、二、四篇：SFT、偏好数据、DPO——第三篇的多模态对齐直接用它们。
-- [L0 数学导读](/math-for-ai-algorithm-engineers.html)的概率部分：第五篇的推导需要高斯分布的性质、条件概率、KL 与变分下界的基本形式。
+- [L0 数学系列](/math-for-ai-algorithm-engineers.html)的概率部分：第五篇的推导需要高斯分布的性质、条件概率、KL 与变分下界的基本形式。
 
 ### 版本与基线
 

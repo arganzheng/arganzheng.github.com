@@ -9,7 +9,7 @@ catalog: true
 
 ## 内容简介
 
-这是三张 AI 学习地图中的第二张（三张的总览与分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)）。第一张[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)面向为模型搭建训练与推理系统的工程师；这一张面向**做模型的人**——AI 算法工程师；[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)面向在模型之上做产品的 AI 应用工程师。三张地图各自独立，边界与重叠部分在每张地图的末尾说明。
+这是三张 AI 学习地图中的第一张（三张的总览与分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)）。这一张面向**造模型的人**——AI 算法工程师，也是从零开始的读者的入口：L0 数学、L1 工具箱、L2 经典机器学习三个系列假设读者没有 AI 基础。第二张[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)面向为模型搭建训练与推理系统的工程师，它的 01 Python、03 PyTorch、04 Transformer 三个系列与本地图共享；第三张[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)面向在模型之上做产品的 AI 应用工程师。三张地图各自独立，边界与重叠部分在每张地图的末尾说明。
 
 "算法工程师"这个词在大模型时代的含义已经变了。十年前它指的是会推导 SVM 对偶、会调 XGBoost 参数的人；今天它指的是能读懂一篇模型论文并复现它、能为一个基座模型设计后训练配方并把它评测清楚、能判断一个结构改动值不值得付出硬件代价的人。这张地图按今天的含义组织，但不跳过昨天的基础——因为奖励模型本质上是一个分类器，数据过滤靠的是小模型打分，评测方法论来自经典机器学习。
 
@@ -17,7 +17,7 @@ catalog: true
 
 > **一个模型从数据到上线经过哪些阶段？每个阶段需要掌握什么？按什么顺序学？**
 
-这张地图描述的是**知识结构**，它把知识组织成八层加一个横切，每层说明回答什么问题、包含哪些概念、为什么放在那个位置。已经写成文章的部分：L0–L2 各有一篇导读（学到什么深度、在哪里用到、怎么检验），L3 是一个六篇的系列，L4 引用[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)（八篇）——它是两张地图的交点——与本层专属的[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)（四篇）；L5 是[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)（八篇）；L6 是[《高效推理与压缩（算法侧）》](/efficient-inference-and-compression-for-llms.html)（六篇）；L7 是[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)（七篇）；横切的实验方法论是一篇[导读](/experimental-methodology-for-ai-algorithm-engineers.html)。文章目录在[本文末尾](#已有的文章与系列)。
+这张地图描述的是**知识结构**，它把知识组织成八层加一个横切，每层说明回答什么问题、包含哪些概念、为什么放在那个位置。已经写成文章的部分：L0 是[《算法工程师的数学》](/math-for-ai-algorithm-engineers.html)（八篇），L1 是[《算法工程师的工具箱》](/tooling-for-ai-algorithm-engineers.html)（五篇，Infra 地图的 01 Python 与 03 PyTorch 两个系列是它的深入篇、两张地图共享），L2 是[《LLM 时代的经典机器学习》](/classical-machine-learning-in-the-llm-era.html)（六篇），L3 是一个六篇的系列，L4 引用[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)（八篇）——它是两张地图的交点——与本层专属的[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)（四篇）；L5 是[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)（八篇）；L6 是[《高效推理与压缩（算法侧）》](/efficient-inference-and-compression-for-llms.html)（六篇）；L7 是[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)（七篇）；横切的实验方法论是一篇[导读](/experimental-methodology-for-ai-algorithm-engineers.html)。文章目录在[本文末尾](#已有的文章与系列)。
 
 | 需要什么 | 具体是什么 |
 |---|---|
@@ -78,13 +78,13 @@ benchmark · LLM-as-judge · Arena
 
 ### 第二张图：学习路径
 
-学习路径分八层加一个横切。前四层是基础（L0–L3），任何方向都要；L4 是核心；L5–L7 是三个可以并行的方向。层的顺序就是推荐的学习顺序。
+学习路径分八层加一个横切。前四层是基础（L0–L3），任何方向都要；L4 是核心；L5–L7 是三个可以并行的方向。层的顺序就是推荐的学习顺序，也是各系列的发布顺序：L0 → L1 →（01 Python、03 PyTorch 深入篇）→ L2 → L3 → L4 → L5 → L6 → L7。
 
 | 层 | 主题 | 回答的问题 | 文章 |
 |---|---|---|---|
-| L0 | 数学基础 | 公式里的每个符号是什么意思？loss 为什么这样写？ | [导读](/math-for-ai-algorithm-engineers.html) |
-| L1 | 编程与工具 | 怎么把一个想法变成一次能跑的实验？ | [导读](/tooling-for-ai-algorithm-engineers.html) |
-| L2 | 机器学习基础 | 什么是学习？怎么知道模型学会了而不是背下来了？ | [导读](/classical-machine-learning-in-the-llm-era.html) |
+| L0 | 数学基础 | 公式里的每个符号是什么意思？loss 为什么这样写？ | [系列（8 篇）](/math-for-ai-algorithm-engineers.html) |
+| L1 | 编程与工具 | 怎么把一个想法变成一次能跑的实验？ | [系列（5 篇）](/tooling-for-ai-algorithm-engineers.html) + 深入篇 [01 Python](/python-for-ai-infra.html)、[03 PyTorch](/deep-dive-into-pytorch.html)（共享） |
+| L2 | 机器学习基础 | 什么是学习？怎么知道模型学会了而不是背下来了？ | [系列（6 篇）](/classical-machine-learning-in-the-llm-era.html) |
 | L3 | 深度学习基础 | 梯度怎么流？为什么深了就难训？CNN 与 RNN 各解决了什么、留下了什么？ | [系列（6 篇）](/deep-learning-foundations.html) |
 | L4 | LLM 核心 | Transformer 为什么赢？tokenizer、scaling law 与预训练数据各决定了什么？ | [04 系列（8 篇，共享）](/transformer-and-llm-for-infra-engineers.html) + [预训练系列（4 篇）](/pretraining-from-tokenizer-to-training-recipe.html) |
 | L5 | 后训练 | 一个基座模型怎么变成一个能对话、会推理、符合偏好的模型？怎么证明它变好了？ | [系列（8 篇）](/post-training-from-sft-to-verifiable-rewards.html) |
@@ -112,7 +112,7 @@ benchmark · LLM-as-judge · Arena
 
 > **公式里的每个符号是什么意思？loss 为什么这样写？**
 
-导读：[《算法工程师的数学：读公式不卡壳的最小集》](/math-for-ai-algorithm-engineers.html)——四个分支各学到哪、在后面哪一层用到、八个公式自测。
+系列：[《算法工程师的数学：读公式不卡壳的最小集》](/math-for-ai-algorithm-engineers.html)（八篇）——形状与 FLOPs · 内积与范数 · 正交与 SVD · 概率入门 · MLE 到交叉熵 · 熵与 KL 到 DPO · 梯度与策略梯度 · 统计推断与 scaling law。面向从零开始的读者，每篇从定义讲起、代真实模型算出数字。
 
 目标不是学完数学系的课程，而是**读公式不卡壳、推导 loss 不出错**。四个分支各自在后面哪里用到，决定了该学到什么深度：
 
@@ -129,15 +129,15 @@ benchmark · LLM-as-judge · Arena
 
 > **怎么把一个想法变成一次能跑的实验？**
 
-导读：[《算法工程师的工具箱：从一个想法到一次能跑的实验》](/tooling-for-ai-algorithm-engineers.html)——六层工具各用到什么程度、显存的账、五件做出来的事。
+系列：[《算法工程师的工具箱：从一个想法到一次能跑的实验》](/tooling-for-ai-algorithm-engineers.html)（五篇）——科学计算栈 · PyTorch 使用层上下 · Hugging Face 生态 · GPU 直觉与实验管理，每篇配一个 CPU 可跑的脚本。Python 语言本身不在这里讲：Infra 地图的 [01 Python](/python-for-ai-infra.html) 与 [03 PyTorch](/deep-dive-into-pytorch.html) 两个系列是本层的**深入篇**，两张地图共享，紧接本系列发布。
 
 | 工具 | 掌握到什么程度 | 说明 |
 |---|---|---|
-| Python | 语法、面向对象、类型标注、装饰器、生成器、异常、多进程 / 多线程、asyncio 的基本用法 | 会写、会读别人的训练代码即可；语言机制与运行时内部（GIL、内存、C 扩展）属于 Infra 地图 01 |
+| Python | 语法、面向对象、类型标注、装饰器、生成器、异常、多进程 / 多线程、asyncio 的基本用法 | 会写、会读别人的训练代码即可；深入篇是 Infra 地图 [01 系列](/python-for-ai-infra.html)（两张地图共享） |
 | NumPy | ndarray、broadcasting、矩阵运算、轴与 reshape | PyTorch Tensor 的语义与它一致，先在 NumPy 上建立"形状直觉" |
 | Pandas / Polars | DataFrame、清洗、聚合、join | 数据工程与评测结果分析的日常工具 |
 | Matplotlib / Seaborn | 画 loss 曲线、分布、消融对比图 | 看曲线是判断训练是否正常的第一手段 |
-| PyTorch（使用层） | Tensor、Autograd、`nn.Module`、Dataset / DataLoader、Optimizer、AMP 混合精度、DDP / FSDP 的启用方式 | 会用、知道每个 API 在做什么；内部实现（Dispatcher、Autograd 引擎、分布式通信）属于 Infra 地图 03 |
+| PyTorch（使用层） | Tensor、Autograd、`nn.Module`、Dataset / DataLoader、Optimizer、AMP 混合精度、DDP / FSDP 的启用方式 | 会用、知道每个 API 在做什么；深入篇是 Infra 地图 [03 系列](/deep-dive-into-pytorch.html)（两张地图共享） |
 | Hugging Face 生态 | `transformers`、`datasets`、`tokenizers`、`peft`、`trl`、`accelerate` | 当前算法工作的事实标准工具链；读它们的源码是学后训练最快的路 |
 | GPU 直觉 | GPU 有算力与带宽两个上限、显存分几块（权重 / 激活 / 优化器状态 / KV）、为什么 batch 大才快、CUDA kernel 与 stream 是什么 | 能看懂 profiler 输出、能解释 OOM 的来源即可；写 kernel 属于 Infra 地图 05 |
 | 实验工具 | W&B / MLflow / TensorBoard 记录实验；Hydra / 配置文件管理超参数；git 管代码与配置 | 实验方法论（横切）的物质基础 |
@@ -146,7 +146,7 @@ benchmark · LLM-as-judge · Arena
 
 > **什么是学习？怎么知道模型学会了而不是背下来了？**
 
-导读：[《LLM 时代还要学经典机器学习吗：只讲它在哪里重现》](/classical-machine-learning-in-the-llm-era.html)——十三个经典概念在 LLM 上的重现、奖励模型 = 逻辑回归、MinHash 的概率。
+系列：[《LLM 时代的经典机器学习：只讲它在哪里重现》](/classical-machine-learning-in-the-llm-era.html)（六篇）——什么是学习 · 线性与逻辑回归 · 分类器一家 · 无监督 · MinHash 与 LSH · 评估，每篇用几十行 scikit-learn 跑出数字，对到 LLM 上的形态（benchmark 污染、reward hacking、奖励模型 = 逻辑回归、去重阈值、judge 偏差）。
 
 这一层在大模型时代常被跳过，但它提供的是**方法论**而不是具体模型。训练集 / 验证集 / 测试集的划分、过拟合与欠拟合、偏差-方差权衡、正则化、评估指标——这些概念在 LLM 上一个不少地重现：benchmark 污染就是测试集泄漏，奖励模型过拟合就是 reward hacking 的一种来源。
 
@@ -290,16 +290,17 @@ VLM 的成本结构——一张图等于多少 token、encoder 与 decoder 各�
 
 一个常见的误分类：把 PagedAttention、continuous batching、chunked prefill、PD 分离归入"推理算法"。它们不是算法，是推理引擎的调度与内存管理机制，模型不知道它们的存在，输出分布也不因它们改变。算法侧的推理优化只有 L6 列出的那些——改变模型或改变解码过程的方法。
 
-04 系列是两张地图共享的唯一系列，因为它讨论的对象——模型作为一个计算对象的成本——恰好是两类工程师对话的语言。
+三个系列两张地图共享：01 Python 与 03 PyTorch 是本地图 L1 工具箱的深入篇（算法侧讲"用"，它们讲"为什么这样工作"与"怎么改"）；04 讨论的对象——模型作为一个计算对象的成本——恰好是两类工程师对话的语言。
 
 
 ## 已有的文章与系列
 
 | 层 | 文章 / 系列 | 篇数 |
 |---|---|---|
-| L0 | [算法工程师的数学：读公式不卡壳的最小集](/math-for-ai-algorithm-engineers.html) | 1 |
-| L1 | [算法工程师的工具箱：从一个想法到一次能跑的实验](/tooling-for-ai-algorithm-engineers.html) | 1 |
-| L2 | [LLM 时代还要学经典机器学习吗：只讲它在哪里重现](/classical-machine-learning-in-the-llm-era.html) | 1 |
+| L0 | [算法工程师的数学：读公式不卡壳的最小集](/math-for-ai-algorithm-engineers.html) | 8 |
+| L1 | [算法工程师的工具箱：从一个想法到一次能跑的实验](/tooling-for-ai-algorithm-engineers.html) | 5 |
+| L1 深入 | [Python 在 AI-Infra](/python-for-ai-infra.html)、[PyTorch 深度实践](/deep-dive-into-pytorch.html)（与 Infra 地图共享） | 7 + 10 |
+| L2 | [LLM 时代的经典机器学习：只讲它在哪里重现](/classical-machine-learning-in-the-llm-era.html) | 6 |
 | L3 | [深度学习基础：从反向传播到残差](/deep-learning-foundations.html) | 6 |
 | L4 | [Transformer 与 LLM：结构、算量与数值](/transformer-and-llm-for-infra-engineers.html)（与 Infra 地图共享） | 8 |
 | L4 | [预训练：从 tokenizer 到训练配方](/pretraining-from-tokenizer-to-training-recipe.html) | 4 |
@@ -308,7 +309,7 @@ VLM 的成本结构——一张图等于多少 token、encoder 与 decoder 各�
 | L7 | [多模态：从视觉编码器到扩散模型](/multimodal-from-vision-encoders-to-diffusion.html) | 7 |
 | 横切 | [算法工程师的实验方法论：用有限的算力得出可信的结论](/experimental-methodology-for-ai-algorithm-engineers.html) | 1 |
 
-L0–L2 与横切写成导读而不是系列：这三层有成熟的教材与课程，导读只回答"学到什么深度、在哪里用到、怎么检验学会了"；横切是一套方法而不是一组知识，一篇长文即可。L3 起是原创系列。至此地图上的每一层都有了对应的文章。
+L0–L2 最初写成三篇导读，只回答"学到什么深度、在哪里用到、怎么检验学会了"；读者反馈对从零开始的人不够，于是展开成三个系列——每个概念从定义讲起、代真实模型算出数字、L1 / L2 配 CPU 可跑的脚本。横切是一套方法而不是一组知识，一篇长文即可。至此地图上的每一层都有了对应的系列。
 
 
 ## 按目标选择路径
@@ -319,7 +320,7 @@ L0–L2 与横切写成导读而不是系列：这三层有成熟的教材与课
 | 预训练与数据 | L0 → L1 → L2 → L3 → L4（重 scaling law 与数据工程）→ 横切 | 门槛最高，算力决定一切；小规模实验设计是核心能力 |
 | 多模态 | L3（CNN、ViT）→ L4 → L7 → L5（多模态后训练） | 理解线与生成线可以只走一条 |
 | 推理效率（算法侧） | L0 → L4 → L6 → Infra 地图 08 | 与 Infra 交界最深的方向，通常需要读两张地图 |
-| 后端工程师转算法 | L1（已有编程基础，补科学计算栈）→ L0 → L2 → L3 → L4 → 任选一个方向 | 数学是最大缺口，但按需补：先读 L4 遇到不懂的公式再回 L0 |
+| 后端工程师转算法 | L1（已有编程基础，补科学计算栈）→ L0 → L2 → L3 → L4 → 任选一个方向 | 数学是最大缺口，但按需补：先读 L4 遇到不懂的公式再回 L0；01 / 03 深入篇按需 |
 
 
 ## 边界与说明

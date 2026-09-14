@@ -225,7 +225,7 @@ PTQ 到 4 bit 是当前的舒适区；再往下（3 bit、2 bit、三值）或�
 
 - [04 系列](/transformer-and-llm-for-infra-engineers.html)第二、三、七篇：Roofline、KV cache 的账、量化与投机解码的基本形式。本系列在这三篇的结论上继续，不重复它们的推导。
 - [L5 第七篇](/knowledge-distillation-for-llms.html)（蒸馏）与[第八篇](/evaluating-llms-benchmarks-judges-and-contamination.html)（评测）：本系列的恢复手段与评测方法论都来自那里。
-- [L0 数学导读](/math-for-ai-algorithm-engineers.html)的信息论部分：KL、总变差距离在第二、四篇里是核心度量。
+- [L0 数学系列](/math-for-ai-algorithm-engineers.html)的信息论部分：KL、总变差距离在第二、四篇里是核心度量。
 
 ### 版本与基线
 

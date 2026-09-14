@@ -11,6 +11,8 @@ catalog: true
 
 《PyTorch 深度实践：从 Tensor 到深度学习运行时》是一组共十篇的系列文章，面向有后端工程经验、尤其是 Java 背景、准备进入 AI-Infra 方向的工程师，系统梳理 PyTorch 从 Python API 到 C++、CUDA、编译器、性能分析和分布式运行时的主要机制。
 
+它同时是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html) L1 工具箱的**深入篇**：算法侧的[《算法工程师的工具箱》](/tooling-for-ai-algorithm-engineers.html)讲 PyTorch 的"用"——五个对象、二十行训练循环、显存的账——本系列讲"改"：Dispatcher、Autograd 引擎、编译、分布式。两张地图共享本系列，算法方向的读者按需读。
+
 这个系列不是 PyTorch API 速查表，也不是机器学习算法教程，而是试图回答一个问题：
 
 > **PyTorch 如何把张量计算表达成可求导、可扩展、可优化、可分布式执行的深度学习系统？**

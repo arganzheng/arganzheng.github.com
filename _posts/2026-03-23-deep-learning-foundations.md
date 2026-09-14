@@ -39,7 +39,7 @@ Transformer 之后，"深度学习基础"常被当成历史课跳过。但打开
 
 ### 从"会调用"到"会诊断"
 
-L1 导读教的是二十行训练循环。写出它不难，难的是它跑起来之后 loss 不降、突然爆成 NaN、降到一半开始震荡——每种情况该看哪个数字、改哪个开关。这需要知道每个开关背后的公式：梯度范数曲线说明什么、学习率与 batch 的 scaling 规则从哪来、梯度裁剪剪的是什么。这个系列想给的就是这套诊断能力，而不是又一份 API 说明。
+L1 工具箱系列教的是二十行训练循环。写出它不难，难的是它跑起来之后 loss 不降、突然爆成 NaN、降到一半开始震荡——每种情况该看哪个数字、改哪个开关。这需要知道每个开关背后的公式：梯度范数曲线说明什么、学习率与 batch 的 scaling 规则从哪来、梯度裁剪剪的是什么。这个系列想给的就是这套诊断能力，而不是又一份 API 说明。
 
 ### 现有材料的断层
 
@@ -111,7 +111,7 @@ LLM 线：6ND · 激活重算 → RMSNorm · Pre-Norm · 0.02 → AdamW · warmu
 
 - 计算图与链式法则：标量对向量、向量对向量（Jacobian）、标量对矩阵的导数；反向传播就是从 loss 出发沿计算图反向逐节点乘 Jacobian；
 - 矩阵求导的形状规则：$$Y = XW$$ 时 $$\partial L / \partial W = X^T (\partial L / \partial Y)$$、$$\partial L / \partial X = (\partial L / \partial Y) W^T$$——记住"梯度与被求导的量形状相同"，两条公式可以直接推出来；
-- 逐层手推一个两层 MLP（Linear → ReLU → Linear → softmax → 交叉熵）的前向与反向，每一步写出形状；softmax + 交叉熵的梯度 $$p - y$$（L0 导读推过，这里放进完整网络）；
+- 逐层手推一个两层 MLP（Linear → ReLU → Linear → softmax → 交叉熵）的前向与反向，每一步写出形状；softmax + 交叉熵的梯度 $$p - y$$（L0 数学系列第七篇推过，这里放进完整网络）；
 - 反向为什么是前向的两倍：每个 Linear 层反向要做两个矩阵乘法（对输入的梯度、对权重的梯度），前向只做一个；由此得到训练 FLOPs $$\approx 6ND$$——04 系列第二篇引用的这个数字在这里推出来；
 - 激活为什么要存：反向计算 $$\partial L / \partial W$$ 需要前向时的输入 $$X$$，所以前向的中间结果必须保留到反向；激活显存与 batch、序列长度、层数成正比，与参数量无关；激活重算（gradient checkpointing）用一次额外前向换掉这份存储；
 - 用有限差分验证手推的梯度：梯度检查的方法与精度标准；
@@ -153,7 +153,7 @@ LLM 线：6ND · 激活重算 → RMSNorm · Pre-Norm · 0.02 → AdamW · warmu
 - Momentum：梯度的指数移动平均，在一致的方向上加速、在震荡的方向上抵消；Nesterov 的修正；
 - Adam：一阶矩 $$m$$ 与二阶矩 $$v$$，更新量 $$m / \sqrt{v}$$ 让每个参数有自己的有效学习率；偏差修正为什么必须；$$\beta_1 = 0.9$$、$$\beta_2 = 0.95$$（LLM 常用，而不是默认的 0.999）各自意味着多长的记忆窗；$$\epsilon$$ 的作用；
 - AdamW 与 $$L_2$$ 正则的区别：在 loss 里加 $$\frac{\lambda}{2}\|w\|^2$$ 会被 $$1/\sqrt{v}$$ 缩放，而 decoupled weight decay 直接对参数衰减；两者在 Adam 下不等价的推导；LLM 常用 $$\lambda = 0.1$$；
-- 优化器状态的账：Adam 每参数两个 fp32 状态 8 字节，加 fp32 主权重 4 字节，是 L1 导读"16 字节 / 参数"里的 12；8-bit Adam、Adafactor 等减状态的方法各省多少；
+- 优化器状态的账：Adam 每参数两个 fp32 状态 8 字节，加 fp32 主权重 4 字节，是 L1 工具箱系列第三篇"16 字节 / 参数"里的 12；8-bit Adam、Adafactor 等减状态的方法各省多少；
 - 学习率调度：warmup 为什么必须（$$v$$ 的估计在早期不可靠、更新量过大）、cosine 衰减、WSD（warmup-stable-decay）、衰减到峰值的 10% 还是 0；典型的峰值学习率量级（$$3 \times 10^{-4}$$ 级别的预训练、$$10^{-5}$$ 级别的 SFT）与它们和模型宽度的关系；
 - 梯度裁剪：按全局范数裁剪到 1.0 在做什么，为什么它是 loss spike 的第一道防线；梯度范数曲线怎么读；
 - 二阶方法与新优化器：Shampoo、Muon、SOPHIA 一类的动机（用更多曲率信息换更少步数），到知道它们存在、知道它们与 Adam 的差别在哪即可。
@@ -170,11 +170,11 @@ LLM 线：6ND · 激活重算 → RMSNorm · Pre-Norm · 0.02 → AdamW · warmu
 
 这一篇会覆盖：
 
-- 经典视角回顾（L2 导读）：容量、偏差 - 方差、过拟合；它在深网络上失效的地方——参数量早已超过样本量，按经典理论应该严重过拟合；
+- 经典视角回顾（L2 经典机器学习系列）：容量、偏差 - 方差、过拟合；它在深网络上失效的地方——参数量早已超过样本量，按经典理论应该严重过拟合；
 - double descent：测试误差随模型容量先降、再升、越过插值阈值后再降；隐式正则化——SGD 倾向找到平坦、低范数的解；
 - 显式正则化：weight decay（作为高斯先验、作为有效学习率的调节）；dropout（训练时随机置零、推理时按期望缩放，等价于集成大量子网络）；早停（等价于对训练轨迹的约束）；数据增强；label smoothing；
 - 为什么 LLM 预训练几乎不用 dropout：数据量远大于模型能记住的量、每个样本只见一次（一个 epoch），过拟合不是主要风险；weight decay 仍保留，主要作用变成控制参数范数与稍稍改善优化；
-- 什么时候过拟合回来：SFT 几千条数据训多个 epoch 后的逐字记忆；奖励模型的过拟合与 reward hacking（L2 导读）；多 epoch 预训练在数据受限时的收益递减（Muennighoff 等 2023：重复到 4 个 epoch 以内几乎无损，之后收益迅速下降）；
+- 什么时候过拟合回来：SFT 几千条数据训多个 epoch 后的逐字记忆；奖励模型的过拟合与 reward hacking（L2 经典机器学习系列）；多 epoch 预训练在数据受限时的收益递减（Muennighoff 等 2023：重复到 4 个 epoch 以内几乎无损，之后收益迅速下降）；
 - 泛化的诊断：训练 loss 与验证 loss 的差、验证 loss 何时开始回升、记忆检测（模型能否逐字复述训练样本）。
 
 核心问题是：
@@ -303,9 +303,9 @@ LLM 线：6ND · 激活重算 → RMSNorm · Pre-Norm · 0.02 → AdamW · warmu
 
 ### 前置要求
 
-- [L0 导读](/math-for-ai-algorithm-engineers.html)的四个分支：链式法则、Jacobian、期望与方差、范数与谱范数的概念；
-- [L1 导读](/tooling-for-ai-algorithm-engineers.html)的 NumPy 形状与广播，会写二十行 PyTorch 训练循环；
-- [L2 导读](/classical-machine-learning-in-the-llm-era.html)的过拟合、偏差 - 方差、正则化的概念。
+- [L0 数学系列](/math-for-ai-algorithm-engineers.html)的四个分支：链式法则、Jacobian、期望与方差、范数与谱范数的概念；
+- [L1 工具箱系列](/tooling-for-ai-algorithm-engineers.html)的 NumPy 形状与广播，会写二十行 PyTorch 训练循环；
+- [L2 经典机器学习系列](/classical-machine-learning-in-the-llm-era.html)的过拟合、偏差 - 方差、正则化的概念。
 
 不要求：了解任何具体的初始化、归一化、优化器方法；有 GPU。
 

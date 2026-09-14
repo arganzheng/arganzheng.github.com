@@ -39,6 +39,15 @@ contributing-to-ai-infra-open-source:
 rl-post-training-infra:
   name: RL 后训练基础设施：rollout 与训练如何共享一组 GPU
   overview: /rl-post-training-infrastructure.html
+math-for-ai:
+  name: 算法工程师的数学：读公式不卡壳的最小集
+  overview: /math-for-ai-algorithm-engineers.html
+algorithm-tooling:
+  name: 算法工程师的工具箱：从一个想法到一次能跑的实验
+  overview: /tooling-for-ai-algorithm-engineers.html
+classical-ml:
+  name: LLM 时代的经典机器学习：只讲它在哪里重现
+  overview: /classical-machine-learning-in-the-llm-era.html
 deep-learning-foundations:
   name: 深度学习基础：从反向传播到残差
   overview: /deep-learning-foundations.html

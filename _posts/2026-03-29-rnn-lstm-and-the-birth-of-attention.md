@@ -206,7 +206,7 @@ $$s_{k-1}$$ 是 decoder 的当前状态，$$e_{kj}$$ 是"生成第 $$k$$ 个词�
 
 ### 3. 与 softmax(QKᵀ)V 的对应
 
-把 Bahdanau 的式子换一套记号：$$s_{k-1}$$ 是 **query**，$$h_j^{enc}$$ 既是 **key**（用来打分）也是 **value**（用来加权求和），打分函数 $$v_a^T \tanh(W_a h_j + U_a s)$$ 是一个小 MLP（"additive attention"）。Luong 等 2015 把打分简化成点积 $$s^T h_j$$；Vaswani 等 2017 给 query、key、value 各配一个投影矩阵，打分用缩放点积 $$q^T k / \sqrt{d_k}$$（[L0 导读](/math-for-ai-algorithm-engineers.html)第三章解释了 $$\sqrt{d_k}$$），再把整件事写成矩阵形式：
+把 Bahdanau 的式子换一套记号：$$s_{k-1}$$ 是 **query**，$$h_j^{enc}$$ 既是 **key**（用来打分）也是 **value**（用来加权求和），打分函数 $$v_a^T \tanh(W_a h_j + U_a s)$$ 是一个小 MLP（"additive attention"）。Luong 等 2015 把打分简化成点积 $$s^T h_j$$；Vaswani 等 2017 给 query、key、value 各配一个投影矩阵，打分用缩放点积 $$q^T k / \sqrt{d_k}$$（[L0 数学系列第四篇](/probability-basics-language-model-as-conditional-distribution.html)解释了 $$\sqrt{d_k}$$），再把整件事写成矩阵形式：
 
 $$
 \text{Attention}(Q, K, V) = \text{softmax}\!\left(\frac{QK^T}{\sqrt{d_k}}\right) V

@@ -11,6 +11,8 @@ catalog: true
 
 《Python 在 AI-Infra：从语言机制到生产交付》是一组共七篇的系列文章，面向有后端工程经验（尤其是 Java 背景）、准备转向 AI-Infra 方向的工程师，系统梳理这个方向真正需要的 Python 能力：语言核心机制、类型系统与数据契约、并发与异步、反射与元编程、内存管理、测试与调试、以及工程化交付。
 
+它同时是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html) L1 工具箱的**深入篇**：算法侧的[《算法工程师的工具箱》](/tooling-for-ai-algorithm-engineers.html)只讲训练代码里用到的 Python 子集，把语言机制与运行时交给这里——两张地图共享本系列，算法方向的读者按需读。
+
 这个系列不是 Python 语法教程，也不是技巧集合，而是试图回答一个问题：
 
 > **在 AI-Infra 系统里，Python 并不承担最重的计算，那它到底承担什么？为此需要掌握它的哪些机制？**

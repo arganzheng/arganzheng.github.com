@@ -123,7 +123,7 @@ $$\epsilon$$（默认 $$10^{-8}$$）防止除零，也在 $$\sqrt{v} \ll \epsilo
 
 ### 4. 代价
 
-两个与参数同形状的状态，fp32 下 8 字节 / 参数。加上混合精度训练里的 fp32 主权重（04 系列第六篇）4 字节，就是 [L1 导读](/tooling-for-ai-algorithm-engineers.html)那张显存账里 16 字节的 12。Llama-3-8B：$$m$$ 与 $$v$$ 共 $$8.03 \times 10^9 \times 8 = 64$$ GB。第九章的小网络也一样：参数 795 KiB，Adam 状态 1590 KiB。
+两个与参数同形状的状态，fp32 下 8 字节 / 参数。加上混合精度训练里的 fp32 主权重（04 系列第六篇）4 字节，就是 [L1 工具箱系列](/tooling-for-ai-algorithm-engineers.html)那张显存账里 16 字节的 12。Llama-3-8B：$$m$$ 与 $$v$$ 共 $$8.03 \times 10^9 \times 8 = 64$$ GB。第九章的小网络也一样：参数 795 KiB，Adam 状态 1590 KiB。
 
 
 ## 五、AdamW 与 L2 正则的区别

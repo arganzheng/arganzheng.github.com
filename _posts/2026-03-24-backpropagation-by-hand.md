@@ -112,7 +112,7 @@ $$
 
 ### 3. softmax 与交叉熵
 
-$$L = -\frac{1}{m}\sum_i \log p_{i, y_i}, \; p_i = \text{softmax}(z_i)$$。[L0 导读第五章](/math-for-ai-algorithm-engineers.html)推过对单个样本 $$\partial L_i / \partial z_i = p_i - e_{y_i}$$（$$e_{y_i}$$ 是 one-hot）。对 batch 取平均后：
+$$L = -\frac{1}{m}\sum_i \log p_{i, y_i}, \; p_i = \text{softmax}(z_i)$$。[L0 数学系列第七篇](/derivatives-gradients-chain-rule-and-policy-gradient.html)推过对单个样本 $$\partial L_i / \partial z_i = p_i - e_{y_i}$$（$$e_{y_i}$$ 是 one-hot）。对 batch 取平均后：
 
 $$
 \frac{\partial L}{\partial Z} = \frac{1}{m}(P - Y_{\text{onehot}}) \in \mathbb{R}^{m \times 10}
@@ -173,7 +173,7 @@ $$\partial L / \partial X = G_H W_1^T$$ 在数学上存在，但 $$X$$ 是数据
 
 ### 2. 训练 FLOPs 等于 6ND
 
-对一个参数量为 $$N$$ 的网络，前向每个 token 约 $$2N$$ FLOPs（每个参数参与一次乘加——L0 导读第二章），反向 $$4N$$，一步训练合计 $$6N$$ FLOPs / token。训练 $$D$$ 个 token 就是 $$6ND$$——scaling law 论文与 [04 系列第二篇](/transformer-flops-bytes-and-roofline.html)用的这个数字，来源就是本章的"反向做两个 GEMM"。Llama-3-8B 训 15T token：$$6 \times 8 \times 10^9 \times 15 \times 10^{12} = 7.2 \times 10^{23}$$ FLOPs。
+对一个参数量为 $$N$$ 的网络，前向每个 token 约 $$2N$$ FLOPs（每个参数参与一次乘加——L0 数学系列第一篇），反向 $$4N$$，一步训练合计 $$6N$$ FLOPs / token。训练 $$D$$ 个 token 就是 $$6ND$$——scaling law 论文与 [04 系列第二篇](/transformer-flops-bytes-and-roofline.html)用的这个数字，来源就是本章的"反向做两个 GEMM"。Llama-3-8B 训 15T token：$$6 \times 8 \times 10^9 \times 15 \times 10^{12} = 7.2 \times 10^{23}$$ FLOPs。
 
 两点补充。第一，$$2N$$ 忽略了 attention 里 $$QK^T$$ 与 $$PV$$ 这两个与参数无关、与序列长度成正比的项，短序列下可忽略，长序列下不能（04 系列第二篇算了）。第二，如果用了激活重算（下一章），反向前要再做一次前向，总量变成 $$8N$$ / token——训练报告里"MFU 按 $$6ND$$ 算、HFU 按 $$8ND$$ 算"的区别就在这里。
 
@@ -193,7 +193,7 @@ $$\partial L / \partial X = G_H W_1^T$$ 在数学上存在，但 $$X$$ 是数据
 | $$A$$ | $$[128, 256]$$ fp32 | 128 KiB |
 | 合计 | | **552 KiB**（权重 795 KiB） |
 
-batch 换成 4096，激活变成 17.3 MiB，权重不变。序列模型里 $$m$$ 是 batch × 序列长度，所以长上下文训练的激活显存会远超权重——[L1 导读](/tooling-for-ai-algorithm-engineers.html)给过 Llama-3-8B 在 4096 长度下仅残差流一份就是 1 GiB / 序列的锚点，精确公式在 Infra 地图 07 系列第一篇。
+batch 换成 4096，激活变成 17.3 MiB，权重不变。序列模型里 $$m$$ 是 batch × 序列长度，所以长上下文训练的激活显存会远超权重——[L1 工具箱系列](/tooling-for-ai-algorithm-engineers.html)给过 Llama-3-8B 在 4096 长度下仅残差流一份就是 1 GiB / 序列的锚点，精确公式在 Infra 地图 07 系列第一篇。
 
 ### 2. 激活重算：用计算换存储
 
@@ -222,7 +222,7 @@ $$\epsilon$$ 有两头约束：太大截断误差大，太小舍入误差大—�
 
 ### 3. 两个训练前的 sanity check
 
-梯度对了，训练前还有两个几乎免费的检查。**初始 loss 应接近 $$\ln C$$**：10 类是 $$\ln 10 = 2.30$$，本文实验初始 2.46（Kaiming 初始化让 logits 方差略大于 1，比均匀分布稍差，正常）；远大于它说明初始化太大，远小于它说明数据泄漏或 loss 算错。LLM 上对应 $$\ln V \approx 11.8$$（L0 导读）。**能过拟合一个小 batch**：拿 16 个样本反复训，loss 应能降到接近 0；降不下去说明梯度没传到某处，或学习率不对。这两个检查在框架里同样适用。
+梯度对了，训练前还有两个几乎免费的检查。**初始 loss 应接近 $$\ln C$$**：10 类是 $$\ln 10 = 2.30$$，本文实验初始 2.46（Kaiming 初始化让 logits 方差略大于 1，比均匀分布稍差，正常）；远大于它说明初始化太大，远小于它说明数据泄漏或 loss 算错。LLM 上对应 $$\ln V \approx 11.8$$（L0 数学系列第五篇）。**能过拟合一个小 batch**：拿 16 个样本反复训，loss 应能降到接近 0；降不下去说明梯度没传到某处，或学习率不对。这两个检查在框架里同样适用。
 
 
 ## 八、Autograd 做了什么

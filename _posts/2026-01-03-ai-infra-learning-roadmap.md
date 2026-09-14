@@ -11,7 +11,7 @@ catalog: true
 
 这是一张给后端工程师——尤其是 Java、Go 等托管语言背景的工程师——转向 AI-Infra 方向的学习地图。它把这个方向需要的知识组织成十一个系列，说明每个系列解决什么问题、为什么放在那个位置、彼此之间如何依赖，以及按不同目标应该走哪条路径。
 
-它是三张 AI 学习地图中的第一张（三张的总览与分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)）：这一张面向**跑模型的人**（AI-Infra 工程师），[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)面向**造模型的人**，[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)面向**用模型的人**。三张地图有重叠的名词，分工在本文末尾的[《与算法工程师地图的关系》](#与算法工程师地图的关系)一节说明。
+它是三张 AI 学习地图中的第二张（三张的总览与分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)）：第一张[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)面向**造模型的人**，这一张面向**跑模型的人**（AI-Infra 工程师），第三张[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)面向**用模型的人**。本地图的 01 Python、03 PyTorch、04 Transformer 与 LLM 三个系列与算法地图共享。三张地图有重叠的名词，分工在本文末尾的[《与算法工程师地图的关系》](#与算法工程师地图的关系)一节说明。
 
 地图回答三个问题：
 
@@ -187,7 +187,7 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 > **在 AI-Infra 系统里，Python 并不承担最重的计算，那它到底承担什么？为此需要掌握它的哪些机制？**
 
-七篇：语言机制与运行时 → 类型系统与数据契约 → 并发与异步 → 动态机制与插件架构 → 内存管理 → 测试与调试 → 工程化与交付。前六篇解决"写对"，第七篇解决"交付"。
+七篇：语言机制与运行时 → 类型系统与数据契约 → 并发与异步 → 动态机制与插件架构 → 内存管理 → 测试与调试 → 工程化与交付。前六篇解决"写对"，第七篇解决"交付"。本系列与[算法地图](/ai-algorithm-engineer-learning-roadmap.html)共享：算法地图的 L1 工具箱只讲 Python 的用法，把语言机制与运行时交给这里——它是 L1 的**深入篇**，两张地图的第一个交点。
 
 #### 02 C++ 在 AI-Infra：从对象模型到算子扩展
 
@@ -203,7 +203,7 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 > **PyTorch 如何把张量计算表达成可求导、可扩展、可优化、可分布式执行的深度学习系统？**
 
-十篇：整体架构 → Tensor 与内存布局 → Autograd → Module 与训练系统 → Dispatcher 与算子系统 → C++ 扩展与自定义算子 → 编译执行与图优化 → 性能优化与调试 → 分布式 PyTorch → 工程体系。它是整张地图的枢纽：向下接 C++ 和 kernel，向上接训练框架和推理引擎，向旁接通信。
+十篇：整体架构 → Tensor 与内存布局 → Autograd → Module 与训练系统 → Dispatcher 与算子系统 → C++ 扩展与自定义算子 → 编译执行与图优化 → 性能优化与调试 → 分布式 PyTorch → 工程体系。它是整张地图的枢纽：向下接 C++ 和 kernel，向上接训练框架和推理引擎，向旁接通信。本系列同样与算法地图共享：算法地图 L1 讲 PyTorch 的"用"（五个对象、二十行训练循环、显存的账），本系列讲"改"（Dispatcher、Autograd 引擎、编译、分布式），是 L1 的第二个深入篇。
 
 #### 04 Transformer 与 LLM：结构、算量与数值
 
@@ -407,9 +407,9 @@ graph LR
 
 | # | 系列 | 层 | 篇数 |
 |---|---|---|---|
-| 01 | [Python 在 AI-Infra：从语言机制到生产交付](/python-for-ai-infra.html) | L1 | 7 |
+| 01 | [Python 在 AI-Infra：从语言机制到生产交付](/python-for-ai-infra.html)（与算法地图共享） | L1 | 7 |
 | 02 | [C++ 在 AI-Infra：从对象模型到算子扩展](/cpp-for-ai-infra.html) | L1 | 8 |
-| 03 | [PyTorch 深度实践：从 Tensor 到深度学习运行时](/deep-dive-into-pytorch.html) | L2 | 10 |
+| 03 | [PyTorch 深度实践：从 Tensor 到深度学习运行时](/deep-dive-into-pytorch.html)（与算法地图共享） | L2 | 10 |
 | 04 | [Transformer 与 LLM：结构、算量与数值](/transformer-and-llm-for-infra-engineers.html) | L2 | 8 |
 | 05 | [GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention](/gpu-kernel-engineering.html) | L2 | 10 |
 | 06 | [通信与互联：从 NCCL 到 RDMA](/communication-and-interconnect-for-ai-infra.html) | L3 | 8 |
