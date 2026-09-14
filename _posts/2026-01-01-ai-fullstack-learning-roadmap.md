@@ -8,8 +8,6 @@ pinned: true
 updated: 2026-09-14
 ---
 
-> **更新 @2026-09-14**：本文「分工的规则」与「现状与更新」两处的 harness 一词，按 OpenAI 2026-02-11 的[《Harness engineering: leveraging Codex in an agent-first world》](https://openai.com/index/harness-engineering/)取义——模型之外约束、告知、验证、纠正 agent 的整套系统（工具、上下文、权限、验证、沙箱、可观测），展开见[应用地图的「三个 harness 案例」](/ai-application-engineer-learning-roadmap.html#三个-harness-案例)；三张地图的分工本身不变。
-
 ## 内容简介
 
 这个博客的技术文章围绕三张学习地图组织：[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)、[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)、[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)。每张地图把一个方向的知识分层，说明每层回答什么问题、按什么顺序学、哪些已经写成了系列。本文是三张地图之上的一页总览，回答的是三张地图各自不回答的问题：

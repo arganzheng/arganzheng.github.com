@@ -7,8 +7,6 @@ catalog: true
 updated: 2026-09-10
 ---
 
-> **更新 @2026-09-10**：本文第四层「三个 harness 案例」一节与场景轴中 harness 一词的用法，按 OpenAI 2026-02-11 的[《Harness engineering: leveraging Codex in an agent-first world》](https://openai.com/index/harness-engineering/)刷新——harness 指模型之外约束、告知、验证、纠正 agent 的整套系统；其余框架与协议以写作时的状态为准。
-
 ## 内容简介
 
 这是三张 AI 学习地图中的第三张（三张的总览与分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)）。[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)面向**跑模型的人**，[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)面向**造模型的人**，这一张面向**用模型做产品的人**——AI 应用工程师。它假设读者有后端工程的基础（服务、数据库、API、部署），同时关心产品：什么场景值得做、用户怎么用、效果怎么衡量。
