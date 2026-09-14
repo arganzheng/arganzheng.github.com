@@ -139,3 +139,21 @@
 	a { color: @brand-primary; text-decoration: none; &:hover { text-decoration: underline; } }
 	.fa { margin-right: 4px; }
 }
+
+// ---- <details> blocks in posts: 核心问题的答案 / 自测答案 / 源码导航
+.post-container details {
+	margin: 12px 0 16px;
+	padding: 10px 14px;
+	border: 1px solid #e1e4e8;
+	border-left: 3px solid @brand-primary;
+	border-radius: 0 6px 6px 0;
+	background: #f6f8fa;
+	> summary {
+		cursor: pointer; font-weight: 600; color: #333; list-style: none; outline: none;
+		&::-webkit-details-marker { display: none; }
+		&::before { content: "\25B6"; display: inline-block; width: 1em; margin-right: 6px; font-size: 11px; color: @brand-primary; transition: transform .15s; }
+	}
+	&[open] > summary { margin-bottom: 8px; }
+	&[open] > summary::before { transform: rotate(90deg); }
+	> :last-child { margin-bottom: 0; }
+}

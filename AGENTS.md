@@ -686,7 +686,22 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
 - Cite source as path + function/class name, never line numbers.
 - Length is not a target; rigor and organisation are. Structure: (update note) →
   intro with the post's core question → `## 一、总览` (ending with 本文的章节安排)
-  → body (`##` Chinese numerals, `###` Arabic) → `## N、本文小结` → `## 下一篇`.
+  → body (`##` Chinese numerals, `###` Arabic) → `## N、本文小结` →
+  **folded 「核心问题的答案」** → `## N+1、自测` → `## 下一篇`.
+  - The bold core question in the intro must be answered at the end, inside
+    `<details markdown="1"><summary><b>核心问题的答案</b></summary> … </details>`
+    placed right after the 小结 bullets/table (answer each sub-question in order,
+    a short paragraph or a list). The post-training series already does this in
+    prose — the folded block is the same content.
+  - 自测: 3–5 questions per body post (overview posts have none), each with a
+    checkable answer (a number, a shape, a yes/no with one reason) — no open
+    questions. Every answer sits in its own
+    `<details markdown="1"><summary>答案</summary> … </details>` directly under
+    the question (a list item's continuation, indented 3 spaces), so the reader
+    can try first. `markdown="1"` is required for KaTeX / lists inside. Styles
+    for `details` live at the end of `less/extras.less` (hand-appended to both
+    CSS bundles). Roll-out order agreed 2026-09-14: algorithm-side posts first
+    (L0–L7 + 04), Infra series later.
 - Series are independent: no links to posts of other series.
 - `{%`/`{{` inside code (PTX asm, printf formats, regexes) must be wrapped in
   `{% raw %}` … `{% endraw %}` or the Liquid pass fails the build.

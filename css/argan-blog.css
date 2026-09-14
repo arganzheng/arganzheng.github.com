@@ -4430,3 +4430,12 @@ li[id^="fn:"] {
 .post-stats .ps b { color: inherit; font-size: inherit; font-weight: normal; font-style: normal; }
 .post-stats::before { content: "|"; color: inherit; }
 .intro-header .post-heading .meta .post-stats::before { color: inherit; }
+
+/* <details> blocks in posts: 核心问题的答案 / 自测答案 / 源码导航 (less/extras.less) */
+.post-container details { margin: 12px 0 16px; padding: 10px 14px; border: 1px solid #e1e4e8; border-left: 3px solid #0085A1; border-radius: 0 6px 6px 0; background: #f6f8fa; }
+.post-container details > summary { cursor: pointer; font-weight: 600; color: #333; list-style: none; outline: none; }
+.post-container details > summary::-webkit-details-marker { display: none; }
+.post-container details > summary::before { content: "\25B6"; display: inline-block; width: 1em; margin-right: 6px; font-size: 11px; color: #0085A1; transition: transform .15s; }
+.post-container details[open] > summary { margin-bottom: 8px; }
+.post-container details[open] > summary::before { transform: rotate(90deg); }
+.post-container details > :last-child { margin-bottom: 0; }
