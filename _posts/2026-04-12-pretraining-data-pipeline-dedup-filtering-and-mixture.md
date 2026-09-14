@@ -5,6 +5,7 @@ title: "预训练（03）：预训练数据工程：从 Common Crawl 到 15T tok
 subtitle: "Pretraining Data Engineering: From Common Crawl to 15T Tokens, the Arithmetic of Deduplication, Filtering and Mixing"
 tags: [Transformer, LLM, AI, Pretraining]
 catalog: true
+updated: 2026-09-14
 ---
 
 第二篇的结论是：算力固定时模型应该更小、数据应该更多，而且唯一 token 至少要有目标数据量的四分之一。Llama 3 的 15T、Qwen3 的 36T 不是从哪里"下载"来的——公开网页抽出正文后约有 240T token，其中能进训练集的只有百分之几，再经过模型打分留下的"高质量"部分不到 1%。从 240T 到 15T 之间是一条几十个步骤的管线：URL 过滤、正文抽取、语言识别、启发式规则、模型打分、三个粒度的去重、配比、多阶段课程、污染检测。
@@ -79,6 +80,7 @@ flowchart TB
 | 六 | 污染、消融与管线的账 | n-gram 污染检测；一次数据消融多少钱；抽取 / 去重 / tokenize 的 CPU 小时、存储、训练时的读带宽与加载器 |
 | 七 | 实践 | `minhash_lsh.py`、`quality_filters.py`、`llm_cost_11_data.py` |
 | 八 | 本文小结 | |
+| 九 | 自测 | 5 道题 |
 
 
 ## 二、原料：网页有多少
@@ -431,11 +433,60 @@ def lsh_candidates(sigs, b=14, r=8): # 签名切段作 key 分桶，同桶即候
 | 一次消融 | 1.8B × 350B token | 2700 H100 小时；差距常达 3–5 分 |
 | 管线成本 | 抽取 ≫ 去重 ≈ tokenize | 约 70 万 核·小时抽取；训练读带宽 9–46 MB/s |
 
-核心问题的答案：240T 里被丢掉的 94% 是导航栏、样板文字、SEO 垃圾、非英语、跨快照的重复抓取和近重复转载——由 URL 黑名单、语言识别、Gopher / C4 规则与 MinHash 判定，每一步都是可解释的阈值或一个概率公式；再往下的"高质量"子集由小分类器按大模型的标注打分，留下不到 2%。3.75T 的数学推理不是从哪里找来的，是**配比先定、来源后补**：公开数学语料的几千亿 token 跑 7 个多 epoch（有效 84%），加上从通用网页里用分类器一轮轮召回的推理密集文本（DeepSeekMath 的 8 倍放大），加上有校验的合成数据。数据工程的每个决定都能算账，而算不出来的部分——哪条规则、哪个阈值、哪种配比更好——只能靠小模型消融，一次 2700 GPU 小时，这是它与 scaling law 共用的方法论。
 
 对 Infra 的含义：数据管线是预训练里唯一的 CPU 大工程，成本按文档数而非 token 数增长，贵在最上游的抽取，去重贵在 shuffle 而非哈希；训练时的数据 I/O 只有几十 MB/s，加载器的难点是打包时的文档掩码、确定性与断点续训、按来源加权采样和中途切换配比，而不是吞吐；数据消融是预算里应当预留的一项（1–3% 的算力），它的回报常常大于任何结构改动。
 
 配套代码：[`transformer-and-llm/minhash_lsh.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/minhash_lsh.py)、[`quality_filters.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/quality_filters.py)、[`llm_cost_11_data.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_11_data.py)，全部纯标准库；运行输出在 `expected/`。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**被丢掉的 94% 是什么**：一条漏斗——正文抽取后的 240T 先过启发式规则（Gopher 的 7 条文档规则与重复度、C4 的行级规则，清掉导航、模板、乱码、色情等明显垃圾），再过 URL / 精确 / MinHash（14 × 8，阈值 0.72）/ 行级去重，到 15T 约 6%；再用模型打分——大模型标几十万篇教育价值分，小分类器跑全量——FineWeb-Edu 取 ≥ 3 分只留 8.7%、DCLM 取前 10%，到 1.3–5.4T（第三、四章）。判定标准是规则 + 分类器阈值 + 消融实验：一次 1.8B × 350B token 的消融 2700 H100 小时，差距常达 3–5 分（第六章）。**3.75T 数学推理从哪来**：公开数学语料只有几千亿，所以一是**分类器迭代召回**——DeepSeekMath 用种子数据训分类器、从 Common Crawl 里召回、再训再召回，四轮从 14.7B 到 120B；二是**重复**——25% × 15T ÷ 约 0.5T 的独立数据 ≈ 7.5 个 epoch，配比表里的百分比其实是 epoch 数；三是合成数据与退火阶段的高质量数据（第五章）。"15T"不是 15T 条不同的文本。
+
+</details>
+
+
+## 九、自测
+
+1. FineWeb 的 MinHash 用 $$b = 14$$、$$r = 8$$：候选阈值约多少？Jaccard 0.6 与 0.8 的一对各有多大概率成为候选？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$(1/14)^{1/8} \approx 0.72$$；$$1 - (1 - 0.6^8)^{14} \approx 21\%$$；$$1 - (1 - 0.8^8)^{14} \approx 92\%$$。
+
+   </details>
+
+2. "数学与推理占 25%"、总量 15T、独立数学数据约 0.5T：数学数据训了几个 epoch？这意味着什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$0.25 \times 15 / 0.5 = 7.5$$ 个 epoch；配比百分比背后是重复次数，按 Muennighoff 的公式 8 个 epoch 的有效数据约 80%，再往上收益递减。
+
+   </details>
+
+3. 用 8B 模型给 15T token 打分要多少 FLOPs？与训练本身比呢？两级做法怎么解决？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$2 \times 8 \times 10^9 \times 1.5 \times 10^{13} = 2.4 \times 10^{23}$$，是训练算力 $$7.2 \times 10^{23}$$ 的 1/3；两级：大模型标几十万篇（约 $$7 \times 10^{19}$$），小分类器（fastText / 线性）跑全量，几乎零成本。
+
+   </details>
+
+4. 为什么跨 Common Crawl 快照做全局去重反而效果更差？
+
+   <details markdown="1"><summary>答案</summary>
+
+   全局去重把多次出现的高质量内容（被多个网站转载的）当重复删掉，剩下的是只出现一次的长尾——质量反而下降；FineWeb 的结论是按快照内去重。重复是要控制分布，不是消灭。
+
+   </details>
+
+5. 一次数据配比的消融用 1.8B 模型训 350B token，多少 H100 小时？为什么消融要用这个规模而不是更小？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$6 \times 1.8 \times 10^9 \times 3.5 \times 10^{11} = 3.8 \times 10^{21}$$ FLOPs，40% MFU 约 2700 H100 小时；太小的模型看不出数据质量差别（结论不外推），这个规模差距常达 3–5 分、能分辨。
+
+   </details>
 
 
 ## 下一篇

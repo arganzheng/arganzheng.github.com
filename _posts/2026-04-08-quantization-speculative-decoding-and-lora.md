@@ -5,6 +5,7 @@ title: "Transformer 与 LLM（07）：量化、投机解码与 LoRA"
 subtitle: "Quantization, Speculative Decoding and LoRA: Three Ways to Reshape the Computation"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 前六篇把一个 Transformer 拆成了四组变量：参数量 $$N$$、每 token 的 FLOPs、每步要搬的字节数、每 token 的 KV cache。这些变量由结构决定——层数、hidden、GQA 的组数、专家数——一旦 `config.json` 定下来，它们就定下来了。
@@ -36,6 +37,7 @@ catalog: true
 | 五 | LoRA：改变训练时的 N | 形式与参数量、训练状态 128 GB → 16.7 GB、额外 FLOPs 与 kernel 数、QLoRA |
 | 六 | 实践 | 脚本新增的三组函数、文本模型的成本表、BF16 与 INT4 的对照实验设计 |
 | 七 | 本文小结 | 三种方法各改一个变量 |
+| 八 | 自测 | 5 道题 |
 
 
 ## 二、起点：decode 是 memory-bound 的
@@ -811,11 +813,60 @@ LoRA 训练权重侧显存                  16.7 GB           144 GB            
 LoRA 额外 FLOPs（W_Q）               0.78%             0.39%             —
 ```
 
-核心问题的答案：INT4 模型 decode 快、prefill 慢，投机解码 batch 1 有效、batch 64 无效，是同一条 Roofline 上的同一件事——**两种方法都在兑现 memory-bound 区间里空转的算力，一个用省下的字节换时间，一个用多算的 FLOPs 换 token；一旦 batch（或 prompt 长度）把工作点推过 ridge，算力不再空转，两者的收益就同时消失。** 而 LoRA 站在训练这一侧，它省的不是算力也不是带宽，是每参数 16 字节的状态。
 
 到这里，文本 LLM 的成本模型已经完整：结构决定参数量、KV 与通信量，精度决定字节数，量化、投机解码与 LoRA 在不改结构的前提下改变计算形态。本篇只算了它们的账；每种方法在最小化什么、输出分布改变了多少、草稿怎么训、KV 怎么压、剪枝怎么恢复，在算法地图的 L6 系列[《高效推理与压缩（算法侧）》](/efficient-inference-and-compression-for-llms.html)里展开。还剩一个前提没有动过——所有账都假设 token 来自 tokenizer。下一篇把输入换成图片：一张图先经过一个独立的 vision encoder，再变成几百到几千个 token 插进 prompt，它的算量花在哪里、这些 token 在 decoder 里的 KV 与文本 token 有没有区别，是本系列的最后一站。
 
 配套代码：[`transformer-and-llm/llm_cost_07_quant_specdec_lora.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_07_quant_specdec_lora.py)。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+INT4 模型 decode 快、prefill 慢，投机解码 batch 1 有效、batch 64 无效，是同一条 Roofline 上的同一件事——**两种方法都在兑现 memory-bound 区间里空转的算力，一个用省下的字节换时间，一个用多算的 FLOPs 换 token；一旦 batch（或 prompt 长度）把工作点推过 ridge，算力不再空转，两者的收益就同时消失。** 而 LoRA 站在训练这一侧，它省的不是算力也不是带宽，是每参数 16 字节的状态。
+
+</details>
+
+
+## 八、自测
+
+1. Llama-3-8B 量化到 INT4、group size 128（每组一个 FP16 scale 与一个 INT4 零点）：等效每权重多少位？权重多少字节？decode 下界从 4.8 ms 变成多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$4 + (16 + 4)/128 \approx 4.16$$，算上对齐约 4.25 bit；$$8.03 \times 10^9 \times 4.25 / 8 = 4.27$$ GB；$$4.27 / 3.35 \text{ TB/s} \approx 1.27$$ ms。
+
+   </details>
+
+2. W4A16 量化在 batch 多大时不再有收益？为什么 prefill 反而可能更慢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   权重 GEMM 的算术强度是 $$B$$ 乘 4（字节少 4 倍），过 ridge 的 batch 从 295 降到约 75；超过它算力成为瓶颈，字节省了也没用。prefill 本来就 compute-bound，还多了片上反量化的开销。
+
+   </details>
+
+3. 投机解码 $$\alpha = 0.8$$、$$\gamma = 4$$、$$c = 0.1$$：一轮期望产出几个 token？加速比多少？batch 多大时失效？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$E = (1 - 0.8^5)/(1 - 0.8) = 3.36$$；加速 $$3.36 / (4 \times 0.1 + 1) = 2.4\times$$；验证一次前向要算 $$\gamma + 1 = 5$$ 倍的 token，等效 batch 过 ridge 的点是 $$295 / 5 \approx 60$$，之后验证不再免费，加速降到 1 以下。
+
+   </details>
+
+4. 量化与投机解码为什么都是"同一条 Roofline"上的事？LoRA 为什么不是？
+
+   <details markdown="1"><summary>答案</summary>
+
+   两者都在兑现 memory-bound 区间里空转的算力：量化用省下的字节换时间，投机用多算的 FLOPs 换 token；工作点过了 ridge 算力不再空转，收益同时消失。LoRA 在训练侧，省的是每参数 16 字节的状态，不是算力也不是带宽。
+
+   </details>
+
+5. Llama-3-70B 加 $$r = 16$$ 的 LoRA（七个矩阵）：可训练参数多少、占比多少？训练权重侧显存多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   每层 $$16 \times \sum(\text{in} + \text{out})$$，80 层合计约 207M，占 0.29%；冻结 BF16 底座 141 GB + LoRA 状态 $$207\text{M} \times 16 = 3.3$$ GB，约 144 GB——仍要两张 80 GB 卡，QLoRA 把底座压到约 35 GB。
+
+   </details>
 
 
 ## 下一篇

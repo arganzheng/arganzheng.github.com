@@ -5,6 +5,7 @@ title: "预训练（04）：训练配方与稳定性：学习率、batch、调�
 subtitle: "Pretraining Recipes and Training Stability: Learning Rate, Batch Size, Schedules and Loss Spikes"
 tags: [Transformer, LLM, AI, Pretraining]
 catalog: true
+updated: 2026-09-14
 ---
 
 前三篇定了 tokenizer、模型多大、数据多少与怎么配。剩下的是**怎么训**：一张十几行的超参表——峰值学习率、warmup 步数、batch 大小与它的增长计划、调度曲线的形状、AdamW 的两个 β、weight decay、梯度裁剪阈值、初始化标准差——外加几个防止训练崩掉的开关。这张表决定了几千万 GPU 小时是训出一个模型还是训出一条发散的 loss 曲线。
@@ -54,6 +55,7 @@ DeepSeek-V3 的"零不可恢复 spike"来自这些开关的组合，加上 FP8 �
 | 七 | 监控 | 该看的七条曲线与它们的含义 |
 | 八 | 实践 | `training_recipe_lab.py`、`llm_cost_12_recipe.py` |
 | 九 | 本文小结与系列总结 | |
+| 十 | 自测 | 5 道题 |
 
 
 ## 二、目标函数
@@ -372,7 +374,6 @@ total = loss + z_loss * (log_z ** 2).mean()
 | 硬件故障 | 每 3 小时一次；$$T_{opt} = \sqrt{2\delta \cdot \text{MTBF}}$$ | 405B checkpoint 5.7 TB；每 4–5 分钟一次 → 有效时间 > 90% |
 | 长上下文阶段 | 分步扩，attention 占比 4% → 40% | 405B：800B token，6 步到 128K |
 
-核心问题的答案：峰值 lr 由宽度决定——$$\mu$$P 给出 $$\propto 1/d$$ 的缩放，经验律给出随算力缓慢下降的幂律，7B 到 405B 从 3e-4 降到 8e-5；DeepSeek-V3 的 2.2e-4 对应它 37B 激活参数的宽度而非 671B 的总参数。batch 由梯度噪声尺度决定，随 loss 下降而增大，所以配方里 batch 是一条 ramp 而不是一个数；3.2M 到 63M 的差距一半是硬件规模，一半是"几千张卡上每步至少要有这么多 token 才能并行"。DeepSeek-V3 的零 spike 不是运气：QK-norm 一类的 logit 约束、z-loss、裁剪、$$\beta_2 = 0.95$$、warmup，加上 FP8 的分块量化与高精度累加，每个开关对应一个可度量的机制——**稳定性在 2024 年后是一份可以逐项消融的配置，不再是训练大模型的玄学**。而真正决定一次训练有效时间的，是每三小时一次的硬件故障与 checkpoint 写多快。
 
 ### 2. 系列总结（四篇）
 
@@ -407,3 +408,53 @@ total = loss + z_loss * (log_z ** 2).mean()
 系列的边界仍在：kernel 怎么写、引擎怎么调度、并行怎么切、后训练（SFT、RLHF、蒸馏、评测）怎么做，各是另一个系列。回到总纲：[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)；成本表本身在[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)。
 
 配套代码：[`transformer-and-llm/training_recipe_lab.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/training_recipe_lab.py)（四个子实验，PyTorch CPU）、[`llm_cost_12_recipe.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_12_recipe.py)（配方的账）、[`tools/gen_schedule_svg.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/tools/gen_schedule_svg.py)（本文的图）。两个系列共十二版 `llm_cost.py` 与各篇实验的脚本、运行输出都在 [ai-learning-labs/transformer-and-llm](https://github.com/arganzheng/ai-learning-labs/tree/main/transformer-and-llm)。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**数字怎么定**：峰值学习率随宽度减小——$$\mu$$P 给 $$\propto 1/d$$、DeepSeek 的经验律 $$0.31 C^{-0.125}$$，7B 3e-4 → 70B 1.5e-4 → 405B 8e-5，GPT-3 175B 的 6e-5 在同一条线上；DeepSeek-V3 的 2.2e-4 高是因为 MoE 的激活参数只有 37B、且用了更大的 batch。batch 由临界 batch 定：梯度噪声尺度 $$\text{tr}(\Sigma)/\lvert G \rvert^2$$ 随训练增大，所以 ramp——405B 从 4M 到 8M 到 16M，V3 从 12.6M 到 63M；硬件下界是数据并行副本数 × 序列长度（第三章）。warmup 按步数定（总步数的 0.4–0.9%），weight decay 0.1 对应时间尺度 $$1/(\eta\lambda)$$ 约 7–13% 的训练（第三、四章）。**V3 开了哪些开关、各防什么**：FP8 分块量化 + 每 128 项提升到 FP32 累加（防低精度累加的噪声）；梯度裁剪 1.0（防单步过大）；$$\beta_2 = 0.95$$（让 $$v$$ 跟上尺度变化）；无辅助 loss 的负载均衡（防专家坍缩）；MTP 多 token 预测；对 attention logit 的控制——QK-norm 一类防 logit 随学习率涨到上万（实验：无 QK-norm 时 logit 到 12592、loss 2.23 → 2.75）；z-loss 防 $$\log Z$$ 漂移；加上每 4–5 分钟一次的 checkpoint 让 spike 回退便宜（第五章）。
+
+</details>
+
+
+## 十、自测
+
+1. 按 DeepSeek 的经验律 $$\eta = 0.31 C^{-0.125}$$，$$C = 10^{22}$$ 与 $$10^{25}$$ 的峰值学习率各约多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$0.31 \times 10^{-2.75} \approx 5.5 \times 10^{-4}$$；$$0.31 \times 10^{-3.125} \approx 2.3 \times 10^{-4}$$——算力涨 1000 倍学习率只降到 40%。
+
+   </details>
+
+2. batch 16M token、序列长 8192、数据并行 512 路：每个副本每步几条序列？为什么 batch 不能更小？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$16\text{M} / 8192 = 2048$$ 条，每副本 4 条；硬件下界是副本数 × 序列长 = 4M，再小就有副本空转。
+
+   </details>
+
+3. weight decay 0.1、学习率 $$3 \times 10^{-4}$$：参数"遗忘"的时间尺度是多少步？占 7B 模型 50 万步训练的多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$\tau = 1/(\eta\lambda) = 1/(3 \times 10^{-4} \times 0.1) = 33$$K 步，约 7%——weight decay 让参数只记住最近 7% 的梯度历史。
+
+   </details>
+
+4. QK-norm 在防什么？没有它会看到什么现象？
+
+   <details markdown="1"><summary>答案</summary>
+
+   attention logit $$q^T k / \sqrt{d}$$ 随训练涨到上万，softmax 饱和成 one-hot、梯度消失、loss 突然上升；实验里无 QK-norm 时 logit 到 12592、loss 从 2.23 恶化到 2.75，有则 logit 22、loss 2.45。
+
+   </details>
+
+5. 405B 的 checkpoint 5.7 TB、硬件故障每 3 小时一次，每 4–5 分钟存一次 checkpoint 划得来吗？用什么公式定间隔？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$T_{opt} = \sqrt{2\delta \cdot \text{MTBF}}$$（$$\delta$$ 是一次保存的开销）；异步保存让 $$\delta$$ 很小，间隔可以短到几分钟，故障平均只丢 2–3 分钟，有效训练时间 > 90%。
+
+   </details>

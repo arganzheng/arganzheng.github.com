@@ -5,6 +5,7 @@ title: "Transformer 与 LLM（05）：MoE 的路由、激活参数量与通信�
 subtitle: "Mixture of Experts: Routing, Active Parameters and Communication Patterns"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 前四篇讨论的都是 dense 模型：每个 token 经过每一层时，会用到这一层的全部权重。参数量、每 token 算量、每步 decode 的权重读取量，三者之间只差一个常数——参数量 $$N$$ 对应每 token $$2N$$ FLOPs，对应每步读 $$N \times \text{bytes/elem}$$ 字节。
@@ -33,6 +34,7 @@ catalog: true
 | 八 | 共享专家与 MTP | 共享专家其实是 dense FFN；MTP 是内置的投机草稿 |
 | 九 | 实践 | `llm_cost.py` 的 MoE 支持 |
 | 十 | 本文小结 |  |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、从 dense FFN 到 MoE 层
@@ -887,6 +889,56 @@ grouped GEMM 每专家行数
 > **一个数用多少位表示，决定了它能算多快、放多少，也决定了它在哪里会悄悄算错。**
 
 配套代码：[`transformer-and-llm/llm_cost_05_moe.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_05_moe.py)；第二章的最小 MoE 层在 [`moe_layer_minimal.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/moe_layer_minimal.py)。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**三个数分开**：参数量 671B 决定显存——FP8 下也是 671 GB，一台 8 卡 H100（640 GB）放不下，必须多机（第二章）；激活参数量 37B 决定每 token 的 FLOPs——74 GFLOPs，只有 dense 70B 的一半（第三章）；每步实际读取的参数量决定 decode 带宽——batch 为 1 时读 37B，但每个 token 各选 8 个专家，一个 batch 里被激活的专家数 $$E[1 - (1 - k/E)^B]$$ 在 $$B = 32$$ 时已经覆盖 434B 的权重，趋近 671B，所以 decode 读的字节几乎是 dense 70B 的 5 倍而算力用不满（第四章）。**难在哪**：显存逼着专家并行到多机，每层两次 all-to-all 把 token 送到专家所在的卡再送回来，通信量随专家并行度增长；专家负载不均让最忙的卡拖住所有卡；小 batch 下每个专家只分到几个 token，GEMM 碎成一堆小矩阵、MFU 极低（第五、六章）。dense 70B 一台机器 TP 就跑起来了，这些问题一个都没有。
+
+</details>
+
+
+## 十一、自测
+
+1. DeepSeek-V3：256 个路由专家 + 1 个共享专家，每 token 选 8 个，每个专家 $$d = 7168$$、$$d_{ff} = 2048$$、三个矩阵。一层 MoE 的参数量与每 token 的激活参数量各多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   每个专家 $$3 \times 7168 \times 2048 = 44$$M；257 个 11.3B（一层）；激活 9 个（8 路由 + 1 共享）396M。61 层里 58 层 MoE。
+
+   </details>
+
+2. batch 为 1、8、64 时，一层里期望被激活的路由专家数各约多少（256 个专家、每 token 选 8）？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$256 \times [1 - (1 - 8/256)^B]$$：$$B = 1$$ 是 8；$$B = 8$$ 是 $$256 \times (1 - 0.968^8) \approx 59$$；$$B = 64$$ 是 $$256 \times (1 - 0.968^{64}) \approx 224$$——中等 batch 就几乎读全部专家。
+
+   </details>
+
+3. MoE 一层为什么要两次 all-to-all？通信量与什么成正比？
+
+   <details markdown="1"><summary>答案</summary>
+
+   dispatch 把每个 token 的隐状态送到它选中的专家所在的卡，combine 把专家输出送回原卡加权求和；每 token 每层通信 $$2 \times k \times d \times$$ bytes（去与回），与 top-k、$$d$$、序列长度成正比，与专家参数量无关。
+
+   </details>
+
+4. 专家负载不均衡为什么会拖慢整个 step？DeepSeek-V3 用什么办法平衡而不影响 loss？
+
+   <details markdown="1"><summary>答案</summary>
+
+   同步执行下最忙的专家（卡）决定一层的时间，其他卡空等；V3 用无辅助 loss 的偏置调节——给过载专家的路由分数加负偏置，只影响选择不进梯度，避免辅助 loss 伤害主目标。
+
+   </details>
+
+5. 同样 74 GFLOPs/token，MoE 37B 激活与 dense 37B 在 decode 带宽上差在哪？
+
+   <details markdown="1"><summary>答案</summary>
+
+   dense 37B 每步读 37B 参数、与 batch 无关；MoE 每步读的参数随 batch 从 37B 涨到 671B——batch 稍大就读 5–18 倍的字节，memory-bound 的 decode 时间随之涨。
+
+   </details>
 
 
 ## 下一篇

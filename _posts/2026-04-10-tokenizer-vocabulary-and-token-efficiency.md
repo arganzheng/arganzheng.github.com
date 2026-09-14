@@ -5,6 +5,7 @@ title: "预训练（01）：分词与词表：BPE、词表大小与 token 效率
 subtitle: "Tokenizers and Vocabulary: BPE, Vocabulary Size and Token Efficiency"
 tags: [Transformer, LLM, AI, Pretraining]
 catalog: true
+updated: 2026-09-14
 ---
 
 [《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)把一个 LLM 的成本算成了 token 的函数：每个 token 多少 FLOPs、多少字节 KV、prefill 多长、decode 多久。"token 数"在所有公式里都是自变量——它从哪来，那八篇一直没有问。它来自 tokenizer。
@@ -64,6 +65,7 @@ Llama 3 自己的 tokenizer 需要授权下载，本文用 cl100k_base 近似它
 | 六 | 换词表 | 扩词表继续预训练、词表裁剪、tokenizer 移植、无 tokenizer 的字节模型 |
 | 七 | 实践 | 从零实现 BPE、真实 tokenizer 对比、`llm_cost.py` 第九版 |
 | 八 | 本文小结 | |
+| 九 | 自测 | 5 道题 |
 
 
 ## 二、从词到子词：为什么是 BPE
@@ -527,7 +529,6 @@ tokenizer 决定成本表的两端：
 | 每字符成本 | FLOPs/token ÷ 字符/token | 3.81 GFLOPs，比 32K 词表低 15%；KV 低 20% |
 | 跨 tokenizer 比 loss | $$\text{bits/byte} = \frac{L}{\ln 2} \cdot \frac{T}{B}$$ | 同等 bits/byte 下 Llama 3 每 token loss 应比 Llama 2 高 24% |
 
-核心问题的答案：Llama 3 扩词表让每个 token 贵 5.6%，但英文压缩率提高 24%，每个字符的 FLOPs 降 15%、KV 降 20%，prefill、decode、显存三项同时受益，训练侧同样的文本少 20% 的 token——所以是省钱的。同一句中文在 cl100k 与 DeepSeek-V3 下 token 数差 2.1 倍，不是因为词表大小（两者都在 100K–130K），而是因为词表由训练它的语料决定：中文在英文语料训出的词表里退回到 UTF-8 字节，一个字 1.5–3 个 token。**成本表的单位应当是字符而不是 token，tokenizer 是这一换算里的汇率；而这个汇率对每种语言不同。**
 
 几条对系统的含义：
 
@@ -537,6 +538,56 @@ tokenizer 决定成本表的两端：
 - 换 tokenizer 是少数对全部三个成本项同时有效、且零运行时开销的优化——代价是要从头预训练，或者付一段继续预训练的钱去扩词表。
 
 配套代码：[`transformer-and-llm/bpe_from_scratch.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/bpe_from_scratch.py)（从零实现、词表扫描）、[`tokenizer_compare.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/tokenizer_compare.py)（五个真实 tokenizer 的对比，需 `tiktoken` 与 `tokenizers`）、[`llm_cost_09_vocab.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_09_vocab.py)（词表的账）；运行输出在 `expected/`。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**为什么扩词表反而省钱**：词表从 32K 到 128K，embedding + lm_head 多 $$2 \times 96\text{K} \times 4096 = 0.79$$B 参数、lm_head 的 FLOPs 让每 token 贵 5.6%；但更大的词表让同一段文本切成更少的 token——英文压缩率从 3.17 字符/token 到 3.94，每字符成本 3.81 GFLOPs 比 32K 词表低 15%、KV 低 20%，训练同样多字符的数据、推理同样长的回答都更便宜（第三、四章）。成本要按字符算而不是按 token 算。**2.1 倍是什么**：同一句中文在两个 tokenizer 下 token 数差 2.1 倍，意味着 KV cache、prefill FLOPs、decode 步数、API 计费全部差 2.1 倍，上下文窗口"能装多少字"也差 2.1 倍——tokenizer 是成本表里最后一个外生变量，且跨 tokenizer 比 loss 必须换算成 bits/byte 才可比（第四章）。
+
+</details>
+
+
+## 九、自测
+
+1. Llama-3-8B 的 lm_head 每 token 多少 FLOPs、占总 FLOPs 多少？0.5B 的模型（$$d = 896$$、$$V = 152$$K）呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$2Vd = 2 \times 128256 \times 4096 = 1.05$$ GFLOPs，占 16 G 的 7%；0.5B：$$2 \times 152\text{K} \times 896 = 0.27$$ G，占约 1 GFLOPs 的 38%——小模型的词表开销失控。
+
+   </details>
+
+2. 训练时一个 8K 序列的 logits（FP32、$$V = 128$$K）占多少显存？为什么这是词表翻倍最先撞上的墙？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$8192 \times 128256 \times 4 = 3.9$$ GiB，每个序列；词表翻倍它翻倍，而且 softmax 前后要两份——所以要 vocab-parallel 或分块融合的交叉熵。
+
+   </details>
+
+3. 英文压缩率从 3.17 到 3.94 字符/token，同一篇 10 万字符的文章 token 数各多少？每字符 FLOPs 相差多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   31.5K vs 25.4K token，少 19%；每 token 贵 5.6%，每字符 $$1.056 / 1.243 = 0.85$$，低 15%。
+
+   </details>
+
+4. 两个 tokenizer 不同的模型，A 的 loss 是 2.0 nats/token、B 是 2.4 nats/token，能说 A 更好吗？还需要什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   不能。换算成 bits/byte：$$L / \ln 2 \times (T / B)$$，需要各自在同一段文本上的 token 数 $$T$$ 与字节数 $$B$$。B 的 tokenizer 更细（token 多）时每 token loss 低是自然的，反之亦然。
+
+   </details>
+
+5. "1 token ≈ 0.75 个英文词"对中文成立吗？对一个多语言 API 的计费意味着什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   不成立：中文视词表 0.4–1.5 字符/token，同一段意思的 token 数可能是英文的 1.5–3 倍；按 token 计费对不同语言的用户价格不同，上下文窗口对不同语言"有多长"也不同——预算要按语言分别估。
+
+   </details>
 
 
 ## 下一篇

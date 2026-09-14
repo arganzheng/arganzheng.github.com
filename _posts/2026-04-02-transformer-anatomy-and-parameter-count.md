@@ -5,6 +5,7 @@ title: "Transformer 与 LLM（01）：Transformer 解剖与参数量"
 subtitle: "Transformer Anatomy and Parameter Count: From config.json to 8.03B"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 做推理系统、训练基础设施或 kernel 的工程师，迟早会被问到这样的问题：这个模型有多少参数？一张 80 GB 的卡放得下吗？某个 GEMM 的 $$m, k, n$$ 是多少？为什么 Llama 的 FFN 中间维度是 14336 这样一个看起来不整的数？这些问题的答案全部藏在一个几十行的 `config.json` 里，不需要下载权重，也不需要运行代码。
@@ -34,6 +35,7 @@ catalog: true
 | 九 | shape 追踪 | `[batch, seq, hidden]` 到 GEMM 的 m、k、n；prefill 与 decode 的差别；TP 如何切 |
 | 十 | 实践 | `llm_cost.py` 第一版：从 `config.json` 算参数量 |
 | 十一 | 本文小结 |  |
+| 十二 | 自测 | 5 道题 |
 
 
 ## 二、decoder-only Transformer 的整体结构
@@ -1062,6 +1064,56 @@ BF16 权重字节数           16.06 GB          141.1 GB          1342 GB（FP8
 最后一行用到的关系是"每参数每 token 2 FLOPs，embedding 查表不计"，即 $$2 \times (8.03 - 0.53)\text{B} \approx 15.0$$ GFLOPs。这是下一篇的起点：有了每个矩阵的形状，就能算每个 GEMM 的 FLOPs 和要搬多少字节，把 prefill 与 decode 放到 Roofline 上，回答"一张 H100 跑 Llama-3-8B，decode 一个 token 最快多少毫秒"。
 
 配套代码：本章的脚本保存为 [`transformer-and-llm/llm_cost_01_params.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_01_params.py)，之后每篇一版，都在 [ai-learning-labs/transformer-and-llm](https://github.com/arganzheng/ai-learning-labs/tree/main/transformer-and-llm)。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**能。** 从 `config.json` 读七个数——$$L$$、$$d$$、$$d_{ff}$$、$$n_h$$、$$n_{kv}$$、$$d_{head}$$、$$V$$——代入 $$N = L[d(2d + 2d_{kv}) + 3 d \cdot d_{ff} + 2d] + 2Vd + d$$（$$d_{kv} = n_{kv} d_{head}$$；lm_head 与 embedding 不共享时是 $$2Vd$$），Llama-3-8B 算出 8,030,261,248、Llama-3-70B 算出 70,553,706,496，与 `safetensors` 的实际参数量精确一致（第七章）。**分配**：每层里 attention 四个矩阵 $$d(2d + 2d_{kv})$$、FFN 三个矩阵 $$3 d \cdot d_{ff}$$，SwiGLU 加宽后 FFN 占层内约 80%；embedding + lm_head 的 $$2Vd$$ 在 8B 上占 13%、70B 上占 3%——模型越大词表越不重要；RMSNorm 的 $$2d$$ 每层可忽略，bias 已经消失（第四、五、六章）。误差来源只有一个：漏算或多算 lm_head 是否 tied。
+
+</details>
+
+
+## 十二、自测
+
+1. Qwen2.5-7B：$$L = 28$$、$$d = 3584$$、$$d_{ff} = 18944$$、$$n_h = 28$$、$$n_{kv} = 4$$、$$d_{head} = 128$$、$$V = 152064$$，embedding 与 lm_head 不共享（attention 有 bias，可忽略）。参数量约多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   每层 attention：$$3584 \times (2 \times 3584 + 2 \times 512) = 29.4$$M；FFN：$$3 \times 3584 \times 18944 = 203.7$$M；一层约 233M，28 层 6.53B；词表 $$2 \times 152064 \times 3584 = 1.09$$B；合计约 7.6B（官方 7.61B）。
+
+   </details>
+
+2. Llama-3-8B 的 $$d_{ff} = 14336$$ 是怎么从 $$d = 4096$$ 来的？
+
+   <details markdown="1"><summary>答案</summary>
+
+   SwiGLU 有三个矩阵，为了与两矩阵 FFN 的 $$8d^2$$ 参数量持平取 $$\frac{2}{3} \times 4d = 10923$$，再乘 `ffn_dim_multiplier` 1.3 得 14200，向上对齐到 `multiple_of` 1024 的倍数得 14336。
+
+   </details>
+
+3. GQA 把 $$n_{kv}$$ 从 32 降到 8，Llama-3-8B 每层省了多少参数？占全模型多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$W_K, W_V$$ 从 $$4096 \times 4096$$ 各变成 $$4096 \times 1024$$，每层省 $$2 \times 4096 \times 3072 = 25.2$$M，32 层 805M，约 10%。省参数不是主要目的——主要目的是 KV cache 缩小 4 倍（第三篇）。
+
+   </details>
+
+4. 一个 0.5B 的小模型（$$d = 896$$、$$V = 151936$$、tied embedding）里词表参数占多少？为什么小模型常用 tied embedding？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$Vd = 136$$M，占 0.49B 的约 28%；不 tied 就是 272M、占一半以上——小模型里词表是大头，共享一份能省一半，且对效果影响小。
+
+   </details>
+
+5. prefill 一条 4096 token 的 prompt 与 decode 一个 batch 为 32 的步，各让 `nn.Linear` 做什么形状的 GEMM（以 $$W_Q$$ 为例）？
+
+   <details markdown="1"><summary>答案</summary>
+
+   prefill：$$m = 4096$$，$$[4096, 4096] \times [4096, 4096]$$；decode：$$m = B = 32$$，$$[32, 4096] \times [4096, 4096]$$。同一个矩阵，$$m$$ 差 128 倍——下一篇 Roofline 上两种完全不同的工作点。
+
+   </details>
 
 
 ## 下一篇

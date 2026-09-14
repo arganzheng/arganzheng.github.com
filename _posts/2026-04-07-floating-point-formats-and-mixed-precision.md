@@ -5,6 +5,7 @@ title: "Transformer 与 LLM（06）：浮点格式、数值稳定性与混合精
 subtitle: "Floating-Point Formats, Numerical Stability and Mixed Precision"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 前五篇算了大量的字节数：Llama-3-8B 的权重 16.06 GB、KV cache 每 token 128 KiB、decode 一步至少搬 16 GB。所有这些数字都默认"每个数占 2 字节"，也就是 BF16。这一篇把镜头再推近一层，从"每个数占几个字节"进入"这几个字节里到底存了什么"，回答一个在训练和推理系统里都绕不开的问题：
@@ -31,6 +32,7 @@ catalog: true
 | 八 | 推理中的数值 | attention logit 的增长与 QK-norm、RMSNorm 的 ε、两个 kernel 的数值差异、随机性与可复现 |
 | 九 | 实践 | 逐位构造各格式、模拟 BF16 权重更新被吃掉、GEMM 误差随 k 的增长、`llm_cost.py` 的 dtype 表 |
 | 十 | 本文小结 |  |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、浮点数的一般形式
@@ -792,6 +794,56 @@ FP32 累加 k=4096 相对噪声     ~2^-24 · 64 = 4e-6 (可忽略)
 下一篇进入文本部分的最后一站：把权重换成 INT4 之后字节数怎么算、投机解码如何用一个小模型改变 decode 的算术强度、LoRA 的额外参数与 FLOPs 各占多少——三种"改变计算形态"的方法。
 
 配套代码：第九章的四段实验分别是 [`fp_formats.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/fp_formats.py)、[`bf16_update_swallowed.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/bf16_update_swallowed.py)、[`gemm_error_vs_k.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/gemm_error_vs_k.py) 与 [`llm_cost_06_dtype_state.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_06_dtype_state.py)。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**为什么 BF16 成为默认**：BF16 用 3 位尾数换来与 FP32 相同的 8 位指数，动态范围一样，前向、反向的激活与梯度不会溢出或下溢，不需要 FP16 那套 loss scaling 与溢出检查；训练对相对精度 $$2^{-8}$$ 的噪声不敏感——梯度本来就是随机的（第三、四章）。**同时用在权重更新上会出什么问题**：每步的更新量 $$\Delta w / w$$ 在 $$10^{-4}$$ 到 $$10^{-3}$$ 量级，低于 BF16 的相对精度 $$2^{-8} \approx 0.004$$，$$w + \Delta w$$ 会被舍回 $$w$$——$$1.0 + 0.001 \to 1.0$$，参数根本不动，训练停滞；所以必须保留 FP32 master weights，在 FP32 上做更新再转回 BF16 副本参与计算（第五章）——这就是显存账里每参数 4 字节主权重的来源。同一个道理管着累加：点积累加必须在比输入高得多的精度里做，BF16 累加 4096 项有 25% 噪声，FP8 Tensor Core 约 14 位的累加精度迫使 DeepSeek-V3 每 128 项提升到 FP32（第六章）。
+
+</details>
+
+
+## 十一、自测
+
+1. FP32、BF16、FP16、FP8-E4M3 各有几位指数、几位尾数？相对精度（机器 epsilon）各约多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   FP32：8 / 23，$$2^{-24} \approx 6 \times 10^{-8}$$；BF16：8 / 7，$$2^{-8} \approx 0.004$$；FP16：5 / 10，$$2^{-11} \approx 5 \times 10^{-4}$$；E4M3：4 / 3，$$2^{-4} \approx 0.06$$。
+
+   </details>
+
+2. FP16 训练为什么需要 loss scaling？BF16 为什么不需要？
+
+   <details markdown="1"><summary>答案</summary>
+
+   FP16 最小正规数约 $$6 \times 10^{-5}$$，小梯度下溢成 0；乘一个大 scale 抬上去、更新前再除回来。BF16 指数位与 FP32 相同，范围到 $$10^{-38}$$，不会下溢。
+
+   </details>
+
+3. 学习率 $$10^{-4}$$、参数 $$w = 1.0$$、梯度 1.0，一步更新后 BF16 里的 $$w$$ 是多少？FP32 呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   BF16：$$1.0 - 0.0001$$ 在 1.0 附近的相邻可表示数是 $$1 - 2^{-8} = 0.996$$，0.9999 舍回 1.0，参数不变；FP32：0.9999，正确。
+
+   </details>
+
+4. 一个 $$k = 4096$$ 的点积，BF16 累加与 FP32 累加的相对误差各约多少量级？为什么 Tensor Core 内部用 FP32 累加？
+
+   <details markdown="1"><summary>答案</summary>
+
+   舍入误差随累加项数增长约 $$\varepsilon\sqrt{k}$$ 到 $$\varepsilon k$$：BF16 是 $$0.004 \times 64 = 25\%$$ 量级，FP32 是 $$10^{-5}$$ 量级。所以输入可以低精度、累加器必须高精度。
+
+   </details>
+
+5. 两个 kernel 算同一个 GEMM，结果相对差 $$10^{-3}$$（BF16 输入、$$k = 4096$$）——是 bug 还是噪声？差 $$10^{-1}$$ 呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   噪声：BF16 的 $$\varepsilon = 0.004$$，$$\varepsilon$$ 到 $$\varepsilon\sqrt{k} = 0.25$$ 之间都可能是求和顺序不同；$$10^{-1}$$ 在这个范围内也可能是噪声，要看是否有系统性符号或随输入规律变化——大几个数量级或有系统偏差才是 bug。
+
+   </details>
 
 
 ## 下一篇

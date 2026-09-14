@@ -5,6 +5,7 @@ title: "Transformer 与 LLM（03）：Attention 变体与 KV cache"
 subtitle: "Attention Variants and the KV Cache: Deriving MHA, GQA, MQA and MLA"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 上一篇把一次前向拆成了"权重项"和"上下文项"两部分：权重项每 token 每参数 2 FLOPs，与上下文长度无关；上下文项只来自 attention，随序列长度 $$s$$ 线性增长（decode）或平方增长（prefill）。这一篇专门讲 attention，因为它是 Transformer 里唯一成本随上下文增长的部分，也是过去几年结构改动最集中的地方。
@@ -35,6 +36,7 @@ MHA、MQA、GQA、MLA 四种结构，做的是同一件事的不同取舍：
 | 六 | KV cache 的工程变量 | 分页碎片率、prefix 共享、KV 量化、三个因子怎么叠加 |
 | 七 | 实践 | 给 `llm_cost.py` 加上 KV cache |
 | 八 | 本文小结 |  |
+| 九 | 自测 | 5 道题 |
 
 
 ## 二、为什么需要 KV cache
@@ -767,6 +769,56 @@ MLA 的 K、V 之所以能压成 576 个数，前提是 RoPE 被单独拿了出�
 > **RoPE 的旋转频率如何决定模型"能看多远"？把 8K 训练的模型拉到 128K，哪些频率会失效，YaRN 与 Llama 3.1 的分段缩放各自修了什么？**
 
 配套代码：[`transformer-and-llm/llm_cost_03_attention_kv.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_03_attention_kv.py)。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**怎么做到的**：KV cache 每 token 的字节数是 $$2 L n_{kv} d_{head} \times$$ bytes/elem，Llama-3-8B 是 $$2 \times 32 \times 8 \times 128 \times 2 = 128$$ KiB；DeepSeek-V3 的 MLA 不存 K、V，而是存一个 512 维的压缩 latent 加 64 维解耦 RoPE key，每 token 每层 576 个数、61 层、FP8 一字节，约 68.6 KiB——头数 128 与 KV 大小无关，因为 128 个头在 decode 时共享同一个 latent（第四章）。GQA 是另一条路：直接把 $$n_{kv}$$ 从 32 降到 8，KV 缩 4 倍（第三章）。**代价**：MLA 的 K、V 要从 latent 升维恢复，算量比 GQA 大——把升维矩阵吸收进 $$W_Q$$、$$W_O$$ 后 decode 等价于 128 头共享一个 576/512 维 KV 头的 MQA，attention 核心 FLOPs 约 3.4 倍，所以 prefill 走非吸收路径、decode 走吸收路径；RoPE 必须解耦成单独的 64 维是因为位置相关的旋转不能被吸进与位置无关的矩阵（第四章）。用算力换字节，在 memory-bound 的 decode 上划得来。
+
+</details>
+
+
+## 九、自测
+
+1. Llama-3-70B：$$L = 80$$、$$n_{kv} = 8$$、$$d_{head} = 128$$、BF16。每 token 的 KV cache 多少？一条 32K 上下文的请求多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$2 \times 80 \times 8 \times 128 \times 2 = 320$$ KiB；32K 时 $$320 \times 32768 = 10$$ GiB。
+
+   </details>
+
+2. 如果 Llama-3-8B 不用 GQA 而用 MHA（$$n_{kv} = 32$$），KV cache 每 token 多少？decode 时 attention 读 KV 的算术强度是多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   512 KiB，4 倍；强度从 $$g = 4$$ 掉到 1 FLOP/字节——每读一个 K/V 元素只用一次。
+
+   </details>
+
+3. 为什么 causal 模型可以缓存 K、V，而不用缓存 Q？不缓存的话每步的复杂度是多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   因果掩码下前面 token 的 K、V 不依赖后面的 token，算出来就不再变；Q 只有当前 token 的那一行、用一次就丢。不缓存则每步重算全部前缀，是一次 $$O(t^2)$$ 的 prefill，总生成 $$O(T^3)$$。
+
+   </details>
+
+4. MLA 里为什么 RoPE 要单独拆成 64 维、而不能直接对压缩后的 latent 做旋转？
+
+   <details markdown="1"><summary>答案</summary>
+
+   吸收技巧要把 $$W_{UK}$$ 吸进 $$W_Q$$，需要 $$q^T (W_{UK} c)$$ 里的矩阵与位置无关；RoPE 的旋转矩阵 $$R_m$$ 依赖位置，夹在中间就吸不进去。所以另开 64 维带 RoPE 的 key，与 512 维不带位置的 latent 拼接。
+
+   </details>
+
+5. 标准 attention 在 8K 序列、32 头下物化的 $$S = QK^T$$ 每层多大（BF16）？FlashAttention 靠什么不物化它？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$32 \times 8192^2 \times 2 = 4$$ GiB；分块计算加 online softmax（减最大值的重缩放），每块的 $$S$$ 只存在于 SRAM，HBM 流量降到 $$O(s^2 d^2 / M)$$。
+
+   </details>
 
 
 ## 下一篇

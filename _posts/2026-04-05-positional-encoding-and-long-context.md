@@ -5,6 +5,7 @@ title: "Transformer 与 LLM（04）：位置编码与长上下文"
 subtitle: "Positional Encoding and Long Context: RoPE Wavelengths, Extrapolation and Cost"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 前三篇把一个 Transformer 拆成了参数量、算量、访存量和 KV cache 四个数字。这些数字里有一个变量一直被当作常数处理：上下文长度 $$s$$。第二篇算 prefill 时取 $$s = 8192$$，第三篇算 KV cache 时取 $$s = 131072$$，但都没有回答两个问题：模型凭什么知道一个 token 在第几个位置？以及，一个模型能处理的上下文长度到底由什么决定？
@@ -39,6 +40,7 @@ catalog: true
 | 八 | 对 Infra 的影响汇总 |  |
 | 九 | 实践 | NumPy 实现 RoPE 并验证相对性、波长表与三种缩放、`llm_cost.py` 上下文长度扫描 |
 | 十 | 本文小结 |  |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、为什么需要位置编码
@@ -840,6 +842,56 @@ attention = 权重 的交叉点      约 28.6K          约 53.8K          —
 DeepSeek-V3 的 attention FLOPs 按未吸收的朴素形式（128 头、q/k 192 维、v 128 维）计算，吸收后的形式访存更少但 FLOPs 更高，第三篇有讨论；它的 prefill 总量需要第五篇 MoE 的激活参数量才能完整给出。
 
 配套代码：[`transformer-and-llm/llm_cost_04_long_context.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_04_long_context.py)；RoPE 的 NumPy 实现与三种缩放的波长表在 [`rope_numpy.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/rope_numpy.py)。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**为什么不能直接推 32K**：RoPE 把 $$d_{head} = 128$$ 维拆成 64 对，第 $$i$$ 对以 $$\theta_i = \text{base}^{-2i/d_{head}}$$ 旋转，波长 $$\lambda_i = 2\pi / \theta_i$$ 从 6.28 到 5.4 万（base 10000）；训练长度 8K 时 $$i \ge 50$$ 的 14 对低频维度还没转完一圈，推到 32K 这些维度出现训练时从未见过的相位，attention 分布崩掉——不是装不下，是没见过（第四、五章）。**base 改到 500000 解决了什么**：最低频波长拉到 256 万，128K 内的任何两个位置在数学上可区分，为长序列训练提供了可用的位置表示（Llama 3 的做法）。**没解决什么**："见过"只能靠在长序列上真的训练，改 base 不省这笔钱；高频维度不受影响；attention 的熵随长度增长、注意力被稀释的问题也不归它管；以及成本——128K 时 Llama-3-8B 每 token attention 68.7 GFLOPs 是权重项的 4.6 倍，prefill 6.5 PFLOP 约 11 秒，KV cache 16 GiB（第七、八章）。PI / NTK / YaRN 是在不重训的前提下把"没见过的相位"映射回见过的范围。
+
+</details>
+
+
+## 十一、自测
+
+1. RoPE base 10000、$$d_{head} = 128$$：第 0 对与第 63 对的波长各是多少？训练长度 8192 时有多少对没转完一圈？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$\lambda_0 = 2\pi \approx 6.28$$；$$\lambda_{63} = 2\pi \times 10000^{126/128} \approx 5.4$$ 万；波长大于 8192 的对：$$10000^{2i/128} > 1304$$，$$i \ge 50$$，共 14 对。
+
+   </details>
+
+2. 为什么 RoPE 用绝对位置实现却得到相对位置的性质？写出关键的一步。
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$q_m^T k_n = \text{Re}[\sum_i q_i \bar k_i e^{\mathrm{i}(m - n)\theta_i}]$$：两个旋转相乘，角度相减，只剩 $$m - n$$。所以 K 可以带着位置缓存，与 KV cache 天然兼容。
+
+   </details>
+
+3. PI（位置插值）把 8K 模型拉到 32K 做了什么？它的代价是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   把所有 $$\theta_i$$ 除以 factor 4，等价于把位置压缩 4 倍塞回训练范围；代价是高频维度也被压了 4 倍，相邻 token 的区分度下降，短文本能力受损——NTK-aware 与 YaRN 只插值低频、不动高频就是为了修它。
+
+   </details>
+
+4. Llama-3-8B、128K 上下文：每 token 的 attention FLOPs 与权重 FLOPs 各多少？attention = 权重的交叉点在哪？
+
+   <details markdown="1"><summary>答案</summary>
+
+   attention 68.7 GFLOPs、权重 15.0 GFLOPs（82% 是 attention）；交叉点约 28.6K token。
+
+   </details>
+
+5. 一个 128K 的请求在单卡 H100 上 prefill 要多久？这个数字对推理系统意味着什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   6.5 PFLOP / (989 T × 60% MFU) ≈ 11 s；这是 TTFT 下界，且这 11 秒里 GPU 被一个请求独占——chunked prefill 与序列并行就是为它设计的。
+
+   </details>
 
 
 ## 下一篇

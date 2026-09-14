@@ -5,6 +5,7 @@ title: "预训练（02）：Scaling law：从 Chinchilla 到\"过训练\"，算�
 subtitle: "Scaling Laws: From Chinchilla to Over-Training, Splitting Compute between Parameters and Data"
 tags: [Transformer, LLM, AI, Pretraining]
 catalog: true
+updated: 2026-09-14
 ---
 
 《Transformer 与 LLM》第二篇给出了训练一个模型的算力：$$C \approx 6ND$$，参数量乘 token 数再乘 6。这个公式把一次预训练的成本压成两个变量的乘积，但没有说**怎么分**——同样 $$10^{24}$$ FLOPs，是 100B 参数训 1.7T token，还是 10B 参数训 17T token？两者的 loss 差多少？训完之后哪个更便宜？
@@ -52,6 +53,7 @@ $$
 | 五 | 用小模型预测大模型 | IsoFLOP 与固定 $$D$$ 两种扫法、拟合的数值细节、超参数的 scaling、从 loss 到 benchmark、常见错误 |
 | 六 | 实践 | `scaling_law_fit.py`、`llm_cost_10_scaling.py` |
 | 七 | 本文小结 | |
+| 八 | 自测 | 5 道题 |
 
 
 ## 二、幂律：loss 是 N 与 D 的函数
@@ -465,11 +467,60 @@ def effective_tokens(unique, epochs)           # Muennighoff 的 D'
 | 数据重复 | $$D' = U + U R^*(1 - e^{-R/R^*})$$ | 4 epoch 值 93%，16 epoch 值 66%，上限 16 倍 |
 | 超参数 | $$\eta_{opt} \propto C^{-0.125}$$，$$B_{opt} \propto C^{0.33}$$ | 算力 ×10：lr −25%，batch ×2.1 |
 
-核心问题的答案：Chinchilla 的"最优"是**训练算力固定时 loss 最低**，它给出 $$D/N \approx 20$$；2024 年的"最优"是**训练加推理的总成本最低**，答案取决于预期服务多少 token，服务得越多，模型应该越小、数据越多。Llama-3 8B 的 15T token 在第一种意义下浪费了 0.054 nats，在第二种意义下——只要它服务的 token 超过训练 token 的几倍——就是正确的。而 IsoFLOP 曲线谷底极平这一事实（偏离的代价是 $$(\ln k)^2$$ 的二阶量），让这笔交易的代价小得可以接受。
 
 对 Infra 的含义有三条。训练侧，$$6ND$$ 与 MFU 直接给出 GPU 小时预算，本文的表是"一个 $$10^{24}$$ 的项目要多少卡多少天"的起点；过训练意味着数据管线（第三篇）要供应 $$D/N$$ 上千的 token 量，且唯一 token 数至少是目标的四分之一。推理侧，模型越小越省，这是 2024 年后 7–30B 级别模型质量跃升的原因，也是推理系统容量规划时"同一 loss 的模型正在变小"这一趋势的来源。方法侧，scaling law 是决定大项目配置的标准流程——用万分之一的算力扫一组小模型，拟合、外推、再验证——而它最常见的失败来自实验设计：学习率调度不匹配、tokenizer 不一致、超参数没随尺寸调、外推太远。
 
 配套代码：[`transformer-and-llm/scaling_law_fit.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/scaling_law_fit.py)（CPU 上训 7 个模型、拟合、外推，PyTorch）、[`llm_cost_10_scaling.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_10_scaling.py)（本文全部表格的数字，纯标准库）、[`tools/gen_scaling_svg.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/tools/gen_scaling_svg.py)（本文的图）；运行输出在 `expected/`。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**为什么放弃 0.05 是对的**：Chinchilla 的"最优"只最小化训练算力 $$C = 6ND$$ 下的 loss——同样 $$7.2 \times 10^{23}$$ FLOPs，最优是约 80B 参数训 1.5T token；Llama-3 8B 训 15T 是把 $$N$$ 缩 10 倍、$$D$$ 放 10 倍，loss 高 0.053 nats，但推理成本是 1/10（第四章）。把推理算进去，最优条件变成 $$\alpha A/N^\alpha = \beta B/D^\beta (1 + D_{inf}/3D)$$：一个要服务 100T token 的模型，最优点从 81B / 1.5T 移到 24B / 13.8T——小模型、多数据。0.05 nats 换十倍的推理成本与部署便利，对一个要被下载几亿次的模型是划算的。**"最优"两个含义**：2022 年（Chinchilla）指训练算力最优——固定 $$C$$ 让 loss 最低，$$D/N \approx 20$$；2024 年指全生命周期最优——训练 + 推理总成本，"过训练"成为常态，$$D/N$$ 到 100–2000（第三、四章）。两个词的公式差一项 $$D_{inf}/3D$$。
+
+</details>
+
+
+## 八、自测
+
+1. Llama-3 8B 训 15T token 的训练算力多少 FLOPs？按 Chinchilla 这笔算力该训多大的模型、多少数据？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$6 \times 8 \times 10^9 \times 1.5 \times 10^{13} = 7.2 \times 10^{23}$$；Chinchilla 最优约 72–80B 参数、1.3–1.5T token（$$D/N \approx 20$$）。
+
+   </details>
+
+2. $$L = E + A/N^\alpha + B/D^\beta$$，$$\alpha = 0.35$$、$$\beta = 0.37$$。固定算力翻 10 倍，可约 loss（$$L - E$$）变成原来的多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$L_{opt} - E \propto C^{-\alpha\beta/(\alpha+\beta)}$$，指数 $$0.35 \times 0.37 / 0.72 = 0.18$$；$$10^{-0.18} = 0.66$$。可约 loss 减半要算力 $$\times 49$$。
+
+   </details>
+
+3. 同样算力下把 $$N$$ 缩小 10 倍、$$D$$ 放大 10 倍，loss 高多少？推理成本降多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$\Delta L \propto (\ln 10)^2$$，实际约 +0.053 nats；推理每 token FLOPs 与字节都降 10 倍。
+
+   </details>
+
+4. Kaplan（2020）得出 $$N \propto C^{0.73}$$（模型优先），Chinchilla 得出 $$N \propto C^{0.5}$$（数据同步增长）。差异从哪来？
+
+   <details markdown="1"><summary>答案</summary>
+
+   Kaplan 用固定长度的学习率调度（小数据量的模型没充分衰减）、不数 embedding 参数、规模较小；修正后两者一致。
+
+   </details>
+
+5. 数据只有 1T token 但想按 Chinchilla 训一个 200B 模型（需要 4T），重复 4 个 epoch 的效果如何？16 个 epoch 呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   Muennighoff 等 2023 的公式 $$D' = U + U R^*(1 - e^{-R/R^*})$$：4 epoch 的有效数据约等于 93% 的新数据，几乎无损；16 epoch 只值 66%，收益递减，上限约 16 倍。
+
+   </details>
 
 
 ## 下一篇

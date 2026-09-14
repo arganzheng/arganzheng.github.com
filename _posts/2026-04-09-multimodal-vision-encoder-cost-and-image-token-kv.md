@@ -5,6 +5,7 @@ title: "Transformer 与 LLM（08）：多模态：vision encoder 的算量与 im
 subtitle: "Multimodal LLMs: The Cost of Vision Encoders and Image Tokens"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 前七篇讨论的模型只有一种输入：token id。它查一张 embedding 表得到向量，然后进入 decoder。这个前提决定了前面所有的账——参数量、FLOPs、KV cache——都只与 token 数有关，而 token 数由 tokenizer 决定。
@@ -56,6 +57,7 @@ catalog: true
 | 八 | 训练侧 | 冻结 encoder 省什么、不省什么；图片解码是 CPU 的活 |
 | 九 | 实践 | `llm_cost.py` 的多模态支持与最终成本表 |
 | 十 | 本文小结与系列总结 |  |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、从像素到 patch：vision encoder 的账
@@ -440,7 +442,6 @@ Llama-3.2 ViT-H/14     patches  6404 tokens  6404 encoder 18.47 TFLOP (attn 45%)
 | prefill FLOPs | $$2 N_{dec} \cdot n_{img}$$ | 193 TFLOP | 与同样长度的文本相同 |
 | image KV | $$n_{img} \cdot 2 L n_{kv} d_{head} \cdot 2$$ B | 428 MiB | 活到请求结束；是 encoder 输出的 $$2 L n_{kv} d_{head} / d_{model} = 20$$ 倍 |
 
-核心问题的答案：一张 1024² 的图在 Qwen2-VL 里是 1369 个 token；encoder 的 12 ms 和 21 MiB 输出是前置的一次性开销，而 1369 个 token 在 decoder 里的 prefill FLOPs 和 428 MiB 的 KV 与 1369 个文本 token 完全相同，且 KV 要活到请求结束。**"encoder 输出 21 MB"与"这张图占 400 MB 显存"同时成立，因为前者是 connector 的输出、后者是它在每一层留下的 K 和 V；两者之比是层数乘以 KV 头维度与模型维度之比。** cross-attention 注入用 0.5 B 参数把图片 KV 压到四分之一并让它不进序列，代价是 decoder 不再是标准结构。位置编码（M-RoPE）改变图片在位置空间里占的长度（边长而非面积），但不改变 KV 的账。
 
 ### 2. 系列总结（八篇）
 
@@ -496,6 +497,56 @@ MoE 多卡要传多少数据？                     → 每 token 每专家 7 + 
 本系列的边界也在这里：它只把模型当作一个**计算对象**，算它的参数、算量、字节数与通信量。FlashAttention 与量化 GEMM 的 kernel 怎么写、continuous batching 与 PagedAttention 怎么调度、encoder 在推理引擎里怎么单独预算与缓存、TP / PP / EP 怎么切分与同步——这些建立在本系列给出的数字之上，但各自是另一个系列的内容。而"这个模型是怎么训出来的"——tokenizer 与词表、算力怎么分给参数与数据、15T token 从哪来、超参表里的数字从哪来——是紧接着的[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)系列（四篇）的内容，用同样的方法算训练侧的账。
 
 配套代码：[`transformer-and-llm/llm_cost_08_multimodal.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_08_multimodal.py)（复用第七版的 `ModelConfig`）；本文各表的理论数字由 [`vlm_cost_numbers.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/vlm_cost_numbers.py) 算出。全系列八版脚本与运行输出在 [ai-learning-labs/transformer-and-llm](https://github.com/arganzheng/ai-learning-labs/tree/main/transformer-and-llm)。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**多少 token**：Qwen2-VL 每 $$14 \times 14$$ 像素一个 patch、2×2 merge 后每 $$28 \times 28$$ 一个 token，$$1024 \times 1024$$ 是 $$(1024/28)^2 \approx 1369$$ 个 token（第三章）。**代价花在哪**：encoder 一次性 11.8 TFLOP、compute-bound、与 batch 无关；connector 几乎不花；decoder 的 prefill 193 TFLOP 与同样长度的文本一样；真正长期占用的是 **image token 的 KV**——1369 个 token × 每 token 320 KiB（7B 规格）= 428 MiB，活到请求结束（第二、四章）。**两句话为什么同时成立**：encoder 输出是 $$n_{img} \times d_{model} \times 2$$ 字节 ≈ 21 MiB，prefill 之后就能释放；但这些 token 进入 decoder 后每层每个 KV 头都要存一份 K、V，$$2 L n_{kv} d_{head} / d_{model} \approx 20$$ 倍——"输出 10 MB"说的是 connector 之后、"占 400 MB"说的是 decoder 里的 KV，两个数字在流水线的不同位置（第四章）。对推理系统的含义：图片请求的 KV 需求由分辨率决定，方差远大于文本。
+
+</details>
+
+
+## 十一、自测
+
+1. Qwen2-VL 处理一张 $$1344 \times 896$$ 的文档图与一张 $$224 \times 224$$ 的缩略图，各多少 token？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$(1344/28) \times (896/28) = 48 \times 32 = 1536$$；$$(224/28)^2 = 64$$。相差 24 倍——同一个请求类型，KV 需求差 24 倍。
+
+   </details>
+
+2. LLaVA-1.5 用 CLIP-L/14-336 加 MLP connector（不压缩），一张图多少 token？换成 2×2 merge 呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$(336/14)^2 = 576$$；merge 后 144。
+
+   </details>
+
+3. encoder 输出 1369 个 token、$$d_{model} = 3584$$、BF16：多大？进入一个 $$L = 28$$、$$n_{kv} = 4$$、$$d_{head} = 128$$ 的 decoder 后 KV 多大？比值多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   输出 $$1369 \times 3584 \times 2 = 9.4$$ MiB；KV 每 token $$2 \times 28 \times 4 \times 128 \times 2 = 56$$ KiB，1369 个 75 MiB；比值 $$2 L n_{kv} d_{head} / d_{model} = 8$$。
+
+   </details>
+
+4. 为什么说 encoder 的算量是"一次性、compute-bound、与 batch 无关"，而 image token 的 KV 是"活到请求结束"？
+
+   <details markdown="1"><summary>答案</summary>
+
+   encoder 对一张图做一次前向就完成，1369 个 patch 一起过 ViT 是大 GEMM、算力饱和，之后输出可以丢；KV 则是 decoder 每生成一个 token 都要读一遍，直到请求结束才释放——占的是并发容量。
+
+   </details>
+
+5. cross-attention 注入（Llama 3.2 Vision）与序列注入（Qwen2-VL）在 KV 上的差别是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   序列注入的 image token 与文本同价，占序列长度与每层 KV；cross-attention 注入把图像特征放在旁路，只在插入的 cross-attn 层读它，不占主序列长度与自注意力的 KV，代价是那些层多一份 K、V 投影和参数。
+
+   </details>
 
 
 ## 下一篇

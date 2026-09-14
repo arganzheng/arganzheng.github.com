@@ -5,6 +5,7 @@ title: "Transformer 与 LLM（02）：前向的算量与访存量"
 subtitle: "FLOPs, Bytes and Roofline: Prefill versus Decode"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 上一篇把一个 decoder-only Transformer 拆到了能数出每一个参数的粒度。结论可以压缩成一个公式：
@@ -45,6 +46,7 @@ $$
 | 八 | 训练侧 | 每层激活值 `sbh(34` + 5as/h)、FlashAttention 与重算、MFU 与 HFU |
 | 九 | 实践 | `llm_cost.py` 增加 FLOPs、字节数与时间下界；与实测对照的方法 |
 | 十 | 本文小结 |  |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、算量：FLOPs 从哪里来
@@ -855,6 +857,56 @@ prefill 8K @60% MFU         0.24–0.27 s     2.1–2.2 s       —
 > **DeepSeek-V3 的 MLA 如何把每 token 的 KV cache 从 3.81 MiB 压到 68.6 KiB，而 attention 的算量与 GQA 相比又变成了什么？**
 
 配套代码：[`transformer-and-llm/llm_cost_02_flops_roofline.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_02_flops_roofline.py)。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**转折 batch 约 295**：decode 每步读一遍全部权重 16.06 GB，每个权重对每个 token 做 2 FLOPs，权重 GEMM 的算术强度恰好等于 batch 大小 $$B$$；H100 的 ridge 是 $$989 \times 10^{12} / 3.35 \times 10^{12} \approx 295$$ FLOP/字节，所以 $$B \approx 295$$ 时权重项从 memory-bound 变成 compute-bound（第五、七章）。**考虑 KV cache 之后达不到**：每个 token 的 KV 是 128 KiB，$$B = 295$$、上下文 8K 时 KV cache 要 295 GiB，一张 80 GB 的卡放不下；而且 KV 读取的算术强度只有 $$g = 4$$（GQA 组数）且与 $$B$$ 无关，$$B$$ 越大 KV 流量占比越高，总强度趋于约 18，永远到不了 295——单卡 Llama-3-8B 的 decode 在任何可行 batch 下都是 memory-bound，64 GB 预算下 $$B \times s \le 52$$ 万 token 是真正的约束（第七章）。这就是为什么推理系统的工作是"凑大 batch 但受 KV 显存限制"，以及为什么 KV 压缩（下一篇）有价值。
+
+</details>
+
+
+## 十一、自测
+
+1. Llama-3-8B 一个 token 的前向 FLOPs 约多少？其中 lm_head 占多少？训练一个 token 呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   约 $$2N = 16$$ GFLOPs（embedding 查表不算，lm_head 的 $$2Vd = 1.05$$ G 要算，约 7%）；训练 $$6N \approx 48$$ GFLOPs，激活重算下 $$8N$$。
+
+   </details>
+
+2. 8K 上下文时 attention 的上下文项（$$QK^T$$ 与 $$PV$$）每 token 每层多少 FLOPs？与权重项比呢？128K 呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   每层每 token $$4 d s = 4 \times 4096 \times 8192 = 134$$ MFLOPs，32 层 4.3 GFLOPs，是权重项 15 G 的 29%（占总 22%）；128K 时 68.7 G，是权重项的 4.6 倍——长上下文的算量由 attention 主导。
+
+   </details>
+
+3. 单卡 H100 上 Llama-3-8B BF16、batch 1 的 decode 时间下界是多少？由什么决定？
+
+   <details markdown="1"><summary>答案</summary>
+
+   读 16.06 GB 权重 / 3.35 TB/s $$\approx 4.8$$ ms，约 208 token/s；由显存带宽决定，与算力无关——算力时间只有 0.016 ms。
+
+   </details>
+
+4. batch 64、每条 4K 上下文的 decode 步，权重读多少字节、KV cache 读多少字节？总算术强度约多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   权重 16.06 GB；KV $$64 \times 4096 \times 128$$ KiB $$= 32$$ GiB——已经是权重的两倍；FLOPs 约 $$64 \times 16$$ G $$= 1$$ TFLOP，总字节 50 GB，强度约 20 FLOP/字节，远低于 295，memory-bound。
+
+   </details>
+
+5. 一个训练任务每卡 8200 token/s，模型 8B，H100 峰值 989 TFLOPS：MFU 是多少？这算好还是差？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$8200 \times 6 \times 8.03 \times 10^9 / 989 \times 10^{12} \approx 40\%$$；对千卡训练是好成绩，40–50% 是当前上限附近。
+
+   </details>
 
 
 ## 下一篇
