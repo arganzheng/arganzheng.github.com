@@ -5,6 +5,7 @@ title: "GPU Kernel 工程（06）：Tensor Core、CUTLASS 与 CuTe"
 subtitle: "Tensor Cores, CUTLASS and CuTe: Programming the Matrix Units"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 上一篇用 CUDA Core 把 GEMM 的分块结构讲透了。回顾一下那个结构，因为本篇要做的事情就是把它"接"到另一种计算单元上：
@@ -83,6 +84,7 @@ flowchart LR
 | 六 | CUTLASS 与 CuTe | 2.x 与 3.x、3.x 的分层、CuTe Layout、一个 CuTe 小程序、读一个 3.x GEMM 实例与一个 2.x 风格实例 |
 | 七 | PyTorch 与 vLLM 如何使用 Tensor Core | ATen matmul → cuBLAS / cuBLASLt；vLLM 用 CUTLASS 写 cuBLAS 不提供的 GEMM |
 | 八 | 本文小结 |  |
+| 九 | 自测 | 5 道题 |
 
 
 ## 二、Tensor Core 做什么
@@ -1302,6 +1304,56 @@ Hopper setmaxnreg 典型分配                   producer 40 / consumer 232 x 2�
 到这里，GEMM 这条线已经从 naive 走到了 Tensor Core 的手写实现和 CUTLASS 的组装方式。下一篇换一种完全不同的写法：Triton 把线程、fragment、ldmatrix、swizzle 全部藏进编译器，程序员只写 block 级的张量运算。它藏掉了什么、藏不掉什么，是下一篇的问题：
 
 > **Triton 的 matmul 比手写 CUDA 少 80% 的代码，性能只差 10%。那 10% 在哪里？什么场景下这 10% 值得手写？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+结构差在**计算单元与数据流**两处。CUDA Core 版：每线程持有一个 $$8 \times 8$$ 的累加器、从 shared 读进寄存器（任意布局）、逐元素 FMA；线程与数据的映射由程序员随意决定。Tensor Core 版：一条 `mma.sync` 让一个 warp 做一个 $$16 \times 8 \times 16$$ 的小矩阵乘加（4096 FLOP），操作数与累加器是 **fragment**——按硬件规定的布局分散在 32 个线程的寄存器里，哪个线程持有矩阵的哪几个元素是指令定义的，不是你定的（第三、四章）。**为什么必须关心 fragment 布局与 `ldmatrix`**：mma 对操作数布局有硬性要求，用普通 `LDS` 把数据凑成这个布局要几十条指令与大量 bank conflict；`ldmatrix` 是“按 fragment 布局装载”的专用指令，一次为整个 warp 从 shared 读 8 行 × 16 字节并分发到正确的线程——但它要求 shared 里的数据按它的访问模式 swizzle 存放，否则 bank conflict 把它拖慢（第五章）。**指令预算**是第二个原因：一条 mma 占 Tensor Core 8 个周期，其间只能发约 8 条其他指令，装载与地址计算必须极度精简——`cp.async`（Ampere）与 TMA（Hopper）存在的理由（第六章）。Hopper 再简化为 TMA → shared → `wgmma` 直接读 shared，寄存器只剩累加器，warp 分 producer / consumer 用 mbarrier 流水（第七章）；CUTLASS / CuTe 把上述每个决定变成模板参数与 Layout 代数（第八章）。
+
+</details>
+
+
+## 九、自测
+
+1. A100 每 SM 每周期 Tensor Core 做 1024 次 dense BF16 FMA、CUDA Core 做 64 次 FP32 FMA。BF16 峰值是 FP32 的几倍？ridge point 各多少（2 TB/s）？
+
+   <details markdown="1"><summary>答案</summary>
+
+   16 倍（312 vs 19.5 TFLOPS）；ridge FP32 约 10、BF16 156——同一个 128×128 tile（强度 32）在 FP32 下 compute-bound，在 BF16 下变成 memory-bound。
+
+   </details>
+
+2. `mma.sync.m16n8k16` 一条指令做多少 FLOP？累加器在哪里、按什么布局？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$2 \times 16 \times 8 \times 16 = 4096$$ FLOP；累加器在 32 个线程的寄存器里，每线程持有 $$16 \times 8 / 32 = 4$$ 个 FP32，位置由指令的 fragment 布局规定（线程 $$i$$ 持有第 $$i/4$$ 行与第 $$i/4 + 8$$ 行的两对元素）。
+
+   </details>
+
+3. 不用 `ldmatrix`、用普通 `LDS` 装 fragment 会付出什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   每个线程要算自己在 fragment 里的位置并逐元素读——十几条 LDS 加地址计算，且 32 个线程的地址模式散乱导致 bank conflict；在每条 mma 只允许约 8 条伴随指令的预算下直接把 Tensor Core 饿死。
+
+   </details>
+
+4. `ldmatrix` 要求 shared memory 怎么摆？为什么要 swizzle？
+
+   <details markdown="1"><summary>答案</summary>
+
+   它一次读 8 行、每行 16 字节；行主序存放时这 8 行的 16 字节段落在相同的 bank 组里（行 stride 是 128 B 的倍数），8-way conflict；把每行的 16 字节块按行号 XOR 打乱（swizzle），8 行落到不同 bank，一次读完。写入 shared 时按同一规则存。
+
+   </details>
+
+5. Hopper 的 `wgmma` + TMA 相比 Ampere 的 `mma.sync` + `cp.async` + `ldmatrix` 改了数据流的哪一段？warp specialization 是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `wgmma` 直接从 shared 读操作数（不再经 `ldmatrix` 进寄存器），TMA 用一条指令按张量描述把整个 tile 从全局搬进 shared（不占线程）；寄存器只剩累加器。producer warp 只发 TMA、consumer warp 只发 wgmma，靠 mbarrier 的 full / empty 屏障做流水。
+
+   </details>
 
 
 ## 下一篇

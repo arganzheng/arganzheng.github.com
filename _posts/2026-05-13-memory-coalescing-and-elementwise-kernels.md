@@ -5,6 +5,7 @@ title: "GPU Kernel 工程（03）：访存合并与 elementwise kernel"
 subtitle: "Memory Coalescing and Elementwise Kernels: Hitting the Bandwidth Ceiling"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 上一篇写出了第一个 kernel：一个 BF16 的 `y = x + b`，每个线程处理一个元素。它能跑、结果正确，但没有回答"它跑得够快吗"。这一篇就回答这个问题，并把答案推到极限。
@@ -48,6 +49,7 @@ AI 负载里除 GEMM 与 attention 之外的绝大多数算子——激活函数
 | 七 | 融合：90% 之后 | 三个 kernel 与一个 kernel、Inductor 融合的收益来源 |
 | 八 | 实践：把 BF16 add 推到 90% | 理论下界、naive / 向量化 / 向量化 + grid-stride 三个版本、通用 2D stride 版本、`load_inline` 测试、读者应看到的量级 |
 | 九 | 本文小结 |  |
+| 十 | 自测 | 5 道题 |
 
 
 ## 二、一个 warp 的内存请求发生了什么
@@ -1106,6 +1108,56 @@ unrolled 每线程 4 元素；legacy elementwise_kernel<128, 2 或 4> + OffsetCa
 ```
 
 下一篇进入需要线程之间协作的 kernel。softmax、LayerNorm、RMSNorm 都要对一行做归约，而归约的结果要被同一行的所有元素使用——这需要 shared memory、warp shuffle 与 `__syncthreads()`，也需要 online softmax 把三遍读变成一遍。它们的理论下界仍然是"读一遍写一遍"，但实现的自由度和陷阱都比 elementwise 多得多。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+先看那 10% 是不是能拿的：DRAM 可达带宽约为标称的 85–92%，90% 已经贴着物理上限，kernel 内部几乎没有余地（第二章）。真正的优化在两个方向。**一是确认没有隐藏的浪费**：合并访存是否 100%（warp 的 32 个地址落在最少的 32 B sector 里；AoS 布局、非 1 的最内维 stride、未对齐都会多付 sector）；是否向量化到 16 字节 / 线程（`float4` / `int4`，指令数降到 1/8）；在飞请求是否够——Little's law 要求 A100 约 1.2 MB 在飞、每 SM 至少约 22 个 warp 的 128-bit 加载（第三、四、五章）。ATen 的 `gpu_kernel` → `launch_vectorized_kernel` 已经把这些做了，所以它能到 90%（第七章）。**二是让 kernel 消失**：三个 elementwise 分开执行是每元素 16 B（各读各写），融合成一个是 8 B——这是 Inductor 融合全部收益的来源；90% 带宽之后，唯一的办法是减少总字节数，也就是把相邻的 elementwise 合进一个 kernel、或合进前后的 GEMM / reduction 的 epilogue（第八章）。
+
+</details>
+
+
+## 十、自测
+
+1. warp 内 32 个线程各读一个 `float`，地址连续且 128 字节对齐——需要几个 32 B sector？改成 stride 为 2 个 float 呢？起始地址偏移 4 字节呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   4 个 sector，100% 效率；stride 2 要 8 个 sector，只用了一半数据，50%；未对齐 128 B 跨 5 个 sector，多付 25%。
+
+   </details>
+
+2. AoS `struct {float x, y, z;} p[n]` 只读所有的 `x`，合并效率是多少？怎么修？
+
+   <details markdown="1"><summary>答案</summary>
+
+   stride 12 字节，每 32 B sector 只用 4 字节，效率约 1/3（12.5%–33%）；改成 SoA（三个独立数组）或一次把整个 struct 读进寄存器再选用。
+
+   </details>
+
+3. `float4` 加载要求什么对齐？一个 `n = 1000003` 的数组怎么处理尾部？
+
+   <details markdown="1"><summary>答案</summary>
+
+   16 字节对齐（指针地址是 16 的倍数，`cudaMalloc` 保证首地址，但 `x + 1` 这样的偏移不保证）；主循环按 4 个一组处理 1000000 个，最后 3 个用标量补，或让最后一个 block 走带边界检查的标量路径（ATen 的做法）。
+
+   </details>
+
+4. Little's law 怎么给出“A100 需要约 1.2 MB 在飞”？这对 memory-bound kernel 的占用率意味着什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   在飞字节 = 带宽 × 延迟 ≈ 2 TB/s × 600 ns ≈ 1.2 MB；除以 108 个 SM 每 SM 约 11 KB，每线程 16 B 加载时需要约 700 个线程 ≈ 22 个 warp 同时有请求在飞。memory-bound 同样需要足够的占用率或 ILP，否则带宽压不满。
+
+   </details>
+
+5. `y = relu(x) * 2 + b` 三个算子分开与融合后，每个元素各读写多少字节（BF16）？带宽利用率相同时快多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   分开：每个算子读 2 写 2，三个共 12 B（`+ b` 多读 2 B，共 14 B）；融合：读 x 2 B、读 b 2 B、写 2 B = 6 B。字节少一半以上，时间也少一半以上——这就是 90% 之后唯一的优化。
+
+   </details>
 
 
 ## 下一篇

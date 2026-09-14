@@ -5,6 +5,7 @@ title: "GPU Kernel 工程（02）：CUDA 编程模型与第一个 kernel"
 subtitle: "The CUDA Programming Model and Your First Kernel, Measured"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 上一篇建立了本系列的分析框架，用到的结论可以压缩成三个数字。GPU 的基本执行单位是 **warp**：32 个线程共用一个指令流，一条指令同时作用在 32 个数据上。以 A100 SXM 80GB 为默认分析对象（标称值）：HBM2e 带宽约 **2.0 TB/s**，BF16 Tensor Core 算力 312 TFLOPS，两者相除得到 Roofline 的拐点（ridge point）：
@@ -41,6 +42,7 @@ $$
 | 八 | warp 的执行方式 | 一条指令一个 mask、分支发散的代价、独立线程调度、active mask 与部分 warp |
 | 九 | 第一个 kernel 的测量 | 先算理论、L2 flush 为什么必要、完整 C++ 程序与 bench 脚手架、PyTorch 侧等价脚手架、结果应该落在哪里 |
 | 十 | 本文小结 | 要点回顾与速查表 |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、host、device 与 kernel
@@ -977,6 +979,56 @@ FLOPs                 0.27 GFLOP → 14 µs @ 19.5 TFLOPS   与访存差两个�
 可达带宽              标称的 85–92%（DRAM refresh、turnaround、协议开销）
 差距来源              可达带宽 > 每线程工作量太小 > launch/尾部 > SM 填充
 ```
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**跑出多少**：先算下界——$$n = 2^{28}$$ 个 float 的 `c = a + b` 读 2 写 1 共 3 GiB，A100 2.0 TB/s 下约 1.6 ms；五行 kernel 实测通常 1.7–2.0 ms，即理论带宽的 80–92%（第九章）。**没跑满的部分去了哪里**：DRAM 的物理开销（刷新、行切换、读写转向）让可达带宽只有标称的 85–92%，这一部分任何 kernel 都拿不到；launch 延迟与尾部——最后一波 block 填不满 132 个 SM；SM 填充不足——block 太小或每线程只搬 4 字节，在飞的请求不够多，带宽没被压满；以及计时本身——用 CPU 时钟量一个异步 launch 量到的是提交时间，必须用 event（第五、九章）。要接近 90% 以上：每线程搬 16 字节（`float4`）、grid-stride 摊薄固定开销、block 取 128–256——下一篇的内容。这个实验建立的习惯是：**先算下界、再测、差距逐项归因**。
+
+</details>
+
+
+## 十一、自测
+
+1. `n = 10^7`、block 256：grid 该取多少？漏掉 `if (i < n)` 会怎样？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$\lceil 10^7 / 256 \rceil = 39063$$ 个 block，共 10,000,128 个线程，比 $$n$$ 多 128 个；没有边界检查这 128 个线程越界读写，`compute-sanitizer` 报 out-of-bounds，或静默写坏相邻内存。
+
+   </details>
+
+2. 二维 block `(16, 16)` 里 `threadIdx.x` 与 `threadIdx.y` 哪个变化最快？一个 warp 覆盖多少行？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `x` 最快（线性化 `x + y * 16`），一个 warp 32 个线程跨 2 行（每行 16 个）；所以让 `x` 对应内存里连续的维度，warp 的访存才能合并。
+
+   </details>
+
+3. `kernel<<<grid, block>>>(...)` 返回后立刻用 `std::chrono` 计时，量到的是什么？正确做法？
+
+   <details markdown="1"><summary>答案</summary>
+
+   只量到 CPU 把 launch 放进 stream 的时间（几微秒），GPU 还没开始；用 `cudaEventRecord` 前后各一个 event、`cudaEventSynchronize` 后 `cudaEventElapsedTime`，或至少 `cudaDeviceSynchronize` 再读时钟。
+
+   </details>
+
+4. kernel 里越界写了一次，程序在几百行之后的 `cudaMemcpy` 报 “illegal memory access”——为什么在那里报？之后还能继续用这个 context 吗？
+
+   <details markdown="1"><summary>答案</summary>
+
+   CUDA 异步错误在下一次同步点才被报出；粘性错误让整个 context 不可恢复，之后所有调用都返回同一个错。调试用 `CUDA_LAUNCH_BLOCKING=1` 让每次 launch 同步以定位到真正的 kernel，或用 `compute-sanitizer`。
+
+   </details>
+
+5. `-arch=sm_80` 编出的二进制在 H100（sm_90）上能跑吗？`-arch=compute_80` 呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `sm_80` 生成 sm_80 的 SASS 加 compute_80 的 PTX；H100 是新的大版本，SASS 不兼容，驱动用 PTX JIT 编译后能跑（首次慢、用不上 Hopper 特性）；只有 `compute_80` 则只有 PTX，全靠 JIT。同一大版本内（sm_80 → sm_86）SASS 向前兼容。
+
+   </details>
 
 
 ## 下一篇

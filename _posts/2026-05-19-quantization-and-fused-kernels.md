@@ -5,6 +5,7 @@ title: "GPU Kernel 工程（09）：量化与融合 kernel——推理系统的�
 subtitle: "Quantized and Fused Kernels: The Rest of the Inference Stack"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 上一篇把 attention 讨论完了。一个 decoder layer 里除了 attention 和标准 GEMM，剩下的是一堆"小 kernel"：RMSNorm、RoPE、SiLU-mul、把 KV 写进分页 cache、把权重从 INT4 解开、把激活压成 FP8、MoE 的 token 重排、采样。它们单个都不复杂，但数量多、变化快，加起来占掉推理时间的一个可观比例——而且是 vLLM、SGLang 这些项目里 PR 最活跃的区域。
@@ -37,6 +38,7 @@ catalog: true
 | 八 | 数值验证 | tolerance 怎么定 |
 | 九 | 实践 | fused residual + RMSNorm、SiLU-and-mul、RoPE、教学版 INT4 GEMV、组装 decoder layer 前向、预期量级 |
 | 十 | 本文小结 |  |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、低精度格式在 kernel 层的含义
@@ -1407,6 +1409,56 @@ csrc/cache_kernels.cu（reshape_and_cache / _flash）· csrc/moe/ · csrc/sample
 ```
 
 到这里，decoder layer 的 kernel 全集已经凑齐：第三篇的 elementwise、第四篇的 norm 与 softmax、第五六篇的 GEMM、第八篇的 attention、本篇的 RoPE、SiLU-mul、fused norm、INT4 GEMV 与 KV 写入。它们能跑通一个 layer 的前向、能与 PyTorch eager 对照正确性。但"能跑"与"能进 vLLM 主线"之间还有一段距离：怎么用 Nsight Compute 确认离 Roofline 还有多远、怎么写 `opcheck` 通得过的测试、怎么用 `TORCH_LIBRARY` 注册成算子并让 `torch.compile` 认识它、怎么处理多架构编译。这是最后一篇的内容。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+INT4 weight-only GEMM（W4A16）改的只有一个变量：权重字节数减到 1/4，计算仍在 BF16 上做（片上反量化，`lop3` + `hfma2` 每元素约一条指令）。**decode**（$$M \le 64$$）：GEMM 的算术强度 $$= M$$ FLOP/byte（BF16 权重）远低于 ridge，时间 = 权重字节 / 带宽；字节减 4 倍时间就减 4 倍，实测 3 倍——剩下的是反量化指令与 scale 的开销，Marlin 用 repack、`cp.async` 流水、寄存器内反量化、striped partitioning 把这部分压到最小（第三、四章）。**prefill**（$$M$$ 几千）：强度已过 ridge，compute-bound，时间由 FLOPs 决定——权重字节省了没用，反而多了反量化的指令：每个权重元素在每个 tile 里都要反量化一次，且反量化后的 BF16 数据要走一遍普通的 Tensor Core 路径，等效于 BF16 GEMM 加一段额外的 ALU 工作，所以更慢（第四章）。Roofline 上：W4A16 把工作点沿横轴右移 4 倍（字节少、FLOPs 不变），只有原本在斜线上的点（decode）能因此上移，已经在屋顶上的点（prefill）不动甚至下沉。要让 prefill 也快，得用 W8A8 / FP8——激活也量化、用 FP8 Tensor Core 把算力屋顶抬高 2 倍，代价是激活量化的动态范围问题与 scale 的处理（第五章）。
+
+</details>
+
+
+## 十一、自测
+
+1. `0x6400 | q`（$$q$$ 是 4 位整数）为什么是 FP16 的 $$1024 + q$$？反量化怎么用它？
+
+   <details markdown="1"><summary>答案</summary>
+
+   FP16 的 0x6400 是 1024.0，指数位使得尾数的最低位权值恰为 1，低 4 位放 $$q$$ 就是 $$1024 + q$$；再减去 1024（`hsub2`）或与 scale 一起 `hfma2`，每个元素约一条指令，不需要整数到浮点的 `cvt`。权重要预先 repack 成 `lop3` 能一次取出的交错顺序。
+
+   </details>
+
+2. FP8 GEMM 的 per-tensor、per-channel、per-block（128×128）scale 各能放在哪里处理？为什么 per-block 必须进 K 循环？
+
+   <details markdown="1"><summary>答案</summary>
+
+   per-tensor / per-token / per-channel 的 scale 不依赖 $$k$$，可以在 epilogue 一次乘上（CUTLASS EVT）；per-block 的 scale 随 $$k$$ 分块变化，每个 K 块的部分积要先乘自己的 scale 再累加到 FP32——DeepSeek-V3 的 128 项提升累加就是这个。
+
+   </details>
+
+3. residual + RMSNorm 融合前后每元素读写多少字节（BF16）？SiLU-mul 呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   分开：residual add 读 4 写 2、RMSNorm 读 2 写 2 共 10 B；融合读 4 写 4（更新后的 residual 与归一化输出）共 8 B。SiLU-mul：读 gate 与 up 各 2、写 2 共 6 B，融合只省了 launch，字节已是下界。
+
+   </details>
+
+4. MoE 的 FFN 为什么比 dense 更靠 memory-bound 一侧？`moe_align_block_size` 在做什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$T$$ 个 token 各选 $$k$$ 个专家，每个专家平均只有 $$Tk / E$$ 行——grouped GEMM 里每个专家的有效 $$M$$ 很小，算术强度低；`moe_align_block_size` 按专家做计数排序并 padding 到 tile 大小的倍数，让 grouped GEMM 的每个 tile 只属于一个专家。
+
+   </details>
+
+5. 验证一个 INT4 量化 GEMM 的正确性，该与什么比？用什么容差？
+
+   <details markdown="1"><summary>答案</summary>
+
+   与“反量化后的权重做 BF16 / FP32 GEMM”的参考比，不与原始 FP16 权重的结果比（量化误差不是 kernel 错误）；BF16 GEMM 对 FP32 参考用 rtol 约 1.6e-2（$$\varepsilon\sqrt{k}$$ 量级）；FP8 per-tensor 要用带 outlier 的数据测。
+
+   </details>
 
 
 ## 下一篇

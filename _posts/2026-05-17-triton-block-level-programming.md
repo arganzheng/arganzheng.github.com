@@ -5,6 +5,7 @@ title: "GPU Kernel 工程（07）：Triton——块级编程与编译器的边�
 subtitle: "Triton: Block-Level Programming and Where the Compiler Stops"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 前六篇一直在 CUDA 的世界里：每个线程算什么、warp 怎么合并访存、shared memory 怎么分块、`mma.sync` 怎么喂 fragment。到了第六篇，一个能跑到 cuBLAS 七八成性能的 BF16 GEMM 已经是两三百行代码，而且每一行都有"为什么这样写"的理由——tile 尺寸、bank conflict 的 padding、`cp.async` 的 stage 数、寄存器分块的形状。
@@ -37,6 +38,7 @@ catalog: true
 | 六 | 编译器的边界 | Triton 做不了或做不好的、那 10% 在哪里、什么时候值得手写 |
 | 七 | 实践 | 正确性对照、性能对照表模板、打印 TTGIR 与 PTX |
 | 八 | 本文小结 |  |
+| 九 | 自测 | 5 道题 |
 
 
 ## 二、把"线程"拿掉之后：Triton 的编程模型
@@ -1126,6 +1128,56 @@ Triton 的边界
 ```
 
 下一篇进入 attention：FlashAttention 为什么把 $$O(N^2)$$ 的 HBM 流量降到 $$O(N^2 d^2 / M)$$，FlashAttention-2 与 3 在 warp 分工和 Hopper 特性上做了什么，PagedAttention 的 block table 如何改变 decode 的访存模式——以及第五章 §3 的 Triton 版为什么会在这些地方输给手写版本。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**那 10% 在哪里**：Triton 编译器在 TTGIR 层自动做了合并、向量化、多级 `cp.async` 流水、`ldmatrix`、swizzle、mma 选择——第三到六篇手工做的一切——所以 memory-bound 的 elementwise 与 softmax 与手写相当，matmul 到 cuBLAS 的 80–95%。差的部分是编译器暂时不做或做不好的：流水与 warp specialization 的精细控制（Hopper 的 producer / consumer 分工、TMA 描述符）、epilogue 的布局转换（累加器 fragment 到输出布局的 shuffle）、小 shape 的 tile 选择（自动调优的搜索空间里没有最优点）、指令级调度（LDS 与 mma 的交错）（第五、六章）。**什么场景值得手写**：生产热点的 GEMM 与 attention——一个 kernel 占总时间的 30% 以上时 10% 就是 3% 的端到端；需要特殊指令（`ldmatrix.trans`、`cvt` 的 magic number 反量化、`redux`）；需要压榨 Hopper（wgmma、TMA、集群）；需要跨 block 协作（持久 kernel、stream-K、全局信号量）。其余场景——融合的 elementwise、归约、自定义 loss、绝大多数实验性算子——Triton 的 20% 代码量与可维护性远比 10% 性能值钱（第七章）。
+
+</details>
+
+
+## 九、自测
+
+1. Triton 的 program 对应 CUDA 的什么？程序员不再写什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   一个 program = 一个 CUDA block；不再写线程索引、shared memory 分配、`__syncthreads()`、线程到元素的映射——这些由编译器按 layout 决定；只写块级张量操作（`tl.load` / `tl.dot` / `tl.store`）。
+
+   </details>
+
+2. `tl.arange(0, BLOCK)` 为什么要求 `BLOCK` 是 2 的幂？$$n = 1000$$、`BLOCK = 256` 的尾部怎么处理？
+
+   <details markdown="1"><summary>答案</summary>
+
+   编译器把块维度映射到 warp / 线程的 layout 时需要 2 的幂才能整齐切分；尾部用 `mask = offs < n` 传给 `tl.load(..., mask=mask, other=0)` 与 `tl.store(..., mask=mask)`，越界元素不读不写。
+
+   </details>
+
+3. `num_warps` 与 `num_stages` 各控制什么？对应手写 CUDA 里的哪个决定？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `num_warps` 是每个 program 的 warp 数（block 大小 = 32 × num_warps），对应 block 维度与占用率；`num_stages` 是软件流水的级数，对应 `cp.async` 多缓冲的 $$S$$ 与 shared 用量。这是 Triton 暴露的仅有两个调度旋钮。
+
+   </details>
+
+4. 读 Triton 的 TTGIR 时 `#blocked`、`#shared`、`#mma` 三种 layout 各表示什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `#blocked`：寄存器里的张量按线程 / warp 分块的映射（合并访存的来源）；`#shared`：shared memory 里的存放方式（含 swizzle）；`#mma`：Tensor Core fragment 布局。`convert_layout` 节点就是布局转换，epilogue 那 10% 常在这里。
+
+   </details>
+
+5. 一个 Triton matmul 在 $$M = N = K = 4096$$ 上到 cuBLAS 的 92%，在 $$M = 16, N = K = 4096$$（decode）上只有 60%——为什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   小 $$M$$ 下 tile 选择与 split-K 的启发式在自动调优空间里没有好点，block 数填不满 SM（wave quantization），且 GEMV 形态本来就 memory-bound、靠精细的加载调度；这正是 Marlin 一类手写 kernel 存在的场景。
+
+   </details>
 
 
 ## 下一篇

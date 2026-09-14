@@ -5,6 +5,7 @@ title: "GPU Kernel 工程（05）：GEMM——从 naive 到分块"
 subtitle: "GEMM from Naive to Tiled: Reaching the Compute Ceiling on CUDA Cores"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 前四篇讨论的 kernel——elementwise、reduction、softmax、LayerNorm——有一个共同点：它们都是 memory-bound 的。每个元素读进来、算一两次、写回去，算术强度远低于 ridge point，优化的全部目标是"把 HBM 带宽用满"。做到了带宽的 80–90%，这类 kernel 就到头了。
@@ -68,6 +69,7 @@ flowchart TB
 | 十 | split-K、stream-K 与 GEMV | 小 M×N、大 K 时 block 不够用；GEMV 是 GEMM 的 memory-bound 极限 |
 | 十一 | 实践：接到 PyTorch | `load_inline` 编译四个 kernel、与 `torch.matmul` 对照、TFLOPS 与占峰值百分比 |
 | 十二 | 本文小结 |  |
+| 十三 | 自测 | 5 道题 |
 
 
 ## 二、理论：4096³ SGEMM 应该多快
@@ -1185,6 +1187,56 @@ tile 参数（本文默认）：BM=BN=128, BK=8, TM=TN=8, 256 线程, 3 stage
   shared = 3 × 256 × 8 × 4 B = 24 KB/block
   grid = 32 × 32 = 1024 block → 4.74 wave（约 5% 量化损失）
 ```
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+4096³ FP32 GEMM：137.4 GFLOP，最少访存 192 MiB（三个矩阵各读写一次），算术强度 683 FLOP/byte，远超 A100 FP32 的 ridge 10——理论上 compute-bound、7.0 ms（第二章）。**naive**：每次 FMA 配两次全局读，逻辑读取 $$2 \cdot 4096^3 \times 4$$ B = 512 GiB，算术强度 0.25，在 Roofline 最左端；L1 / L2 挡掉了大部分 HBM 流量，但 343 GB 的 cache 请求、依赖链延迟与 3:1 的 load / FFMA 配比把它压在峰值的 1–3%（第三章）。**128×128 分块**：每个 tile 把 $$A$$、$$B$$ 的子块搬进 shared 复用，全局读取降到 $$MNK(1/BM + 1/BN)$$ = 4 GiB，算术强度 32，跨过 ridge 到了斜线右侧——但一线程算一个输出时每次 FMA 要两条 LDS，shared 带宽（每 SM 每周期 128 B）成了新的屋顶，实际只到 25%（第四章）。**寄存器分块**：每线程算 8×8 的外积，从 shared 读 16 个数做 64 次 FMA，对 shared 的算术强度从 0.25 升到 2 FLOP/byte，LDS 指令减少 8 倍——这一步把瓶颈从 shared 带宽推回算力，256 线程算一个 128×128 tile、约 128 个寄存器、25% 占用率，靠 ILP 而不是 TLP（第五章）。再加向量化 `LDS.128`、`cp.async` 多级流水、边界处理，到 FP32 峰值的 70–80%、cuBLAS 的 80–90%（第六至九章）。Tensor Core 把 ridge 从 10 推到 156，同样的 128×128 tile 在 BF16 下又回到斜线左边——下一篇（第十章）。
+
+</details>
+
+
+## 十三、自测
+
+1. $$M = N = K = 4096$$ FP32：FLOPs、最少访存字节、算术强度各是多少？在 A100 FP32（19.5 TFLOPS、2 TB/s）上理论时间由什么决定？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$2MNK = 137.4$$ GFLOP；$$3 \times 4096^2 \times 4 = 192$$ MiB；$$683$$ FLOP/byte ≫ ridge 10；时间 = 137.4 G / 19.5 T = 7.0 ms，由算力决定，HBM 只忙 0.1 ms。
+
+   </details>
+
+2. shared memory 分块 $$BM \times BN$$，全局读取总量的公式是什么？128×128 与 32×32 各是多少 GiB、算术强度多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$MNK(1/BM + 1/BN) \times 4$$ B；128×128：4 GiB、32 FLOP/byte（过 ridge）；32×32：16 GiB、8 FLOP/byte（不过 ridge）。tile 越大复用越多。
+
+   </details>
+
+3. 一线程一输出的 32×32 分块为什么被 shared 带宽卡在 25%？寄存器分块 8×8 怎么解的？
+
+   <details markdown="1"><summary>答案</summary>
+
+   每次 FMA 要从 shared 读 A、B 各一个数（2 条 LDS），对 shared 的算术强度 0.25 FLOP/byte，每 SM 每周期 128 B 的 shared 带宽只够 32 FLOP，即峰值（128 FMA / 周期）的 25%；8×8 外积读 16 个数做 64 次 FMA，强度 2，LDS 减少 8 倍。
+
+   </details>
+
+4. `cp.async` 相比“全局 → 寄存器 → shared”的两步搬运省了什么？多级流水的 shared 用量是多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   省寄存器（数据不经过寄存器文件）与指令数，让加载与计算真正异步重叠；$$S$$ 级流水的 shared 用量 $$S(BM + BN) \cdot BK \cdot 4$$ 字节，每个 tile 只需一次 `__syncthreads()`。
+
+   </details>
+
+5. decode 阶段 $$M = 1$$ 的 GEMV（BF16）算术强度是多少？为什么只有量化能加速它？
+
+   <details markdown="1"><summary>答案</summary>
+
+   每个权重读 2 字节做 2 FLOP，强度 1 FLOP/byte，远低于 ridge——时间 = 权重字节 / 带宽，与算力无关；分块、Tensor Core 都帮不上，只有减少权重字节数（INT4 / FP8）能缩短时间。
+
+   </details>
 
 
 ## 下一篇

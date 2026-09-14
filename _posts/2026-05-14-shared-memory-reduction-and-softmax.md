@@ -5,6 +5,7 @@ title: "GPU Kernel 工程（04）：共享内存与 reduction——softmax、Lay
 subtitle: "Shared Memory and Reductions: Softmax, LayerNorm and Online Softmax"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 上一篇的 elementwise kernel 有一个共同特征：每个线程只管自己的元素，线程之间不需要说话。把访存合并、向量化、grid-stride 做对，带宽就能推到 90% 以上。
@@ -40,6 +41,7 @@ catalog: true
 | 九 | 读源码 | vLLM `rms_norm_kernel`、PyTorch `SoftMax.cu`、PyTorch `Reduce.cuh` |
 | 十 | 实践：RMSNorm 与 online softmax | warp/block reduce 模板、RMSNorm kernel、online softmax kernel、对照测试与预期量级 |
 | 十一 | 本文小结 |  |
+| 十二 | 自测 | 5 道题 |
 
 
 ## 二、先算理论下界
@@ -1157,6 +1159,56 @@ RMSNorm / softmax，8192 行 × 4096 BF16：128 MiB → ≈ 67 µs
 reduction 是"先算一个整行的标量，再作用回每个元素"。下一篇的 GEMM 是另一种协作：每个输出元素需要一整行和一整列，shared memory 的角色从"汇总 32 个部分和"变成"暂存被 128 个线程重复读取的 tile"，bank conflict 和 padding/swizzle 会从本篇的一段话变成决定性能的主角。
 
 > **一个 4096×4096 的 BF16 GEMM 理论上只需要 0.44 ms（Tensor Core）或 7 ms（CUDA Core）。naive 实现为什么慢 50 倍？分块把访存量减少了多少？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**下界**：$$d = 4096$$ BF16、8192 行的 RMSNorm 读写各 64 MiB，A100 上约 67 µs，算术强度约 1 FLOP/byte，怎么写都是 memory-bound（第二章）。**naive 为什么慢 10 倍**：每行的均方要把 4096 个数加起来，一线程串行加或用原子加到同一地址会把并行度砍掉、把带宽晾着——归约的形态决定了实际访存模式与同步次数：交错寻址的树形归约 10 级、每级一次 `__syncthreads()` 与一轮 shared 读写，快的 warp 等慢的 warp，bank conflict 再串行化一部分（第三至六章）。**shared memory 解决哪部分**：block 内 32 个 warp 各自的部分和要汇总，shared 是 block 内线程交换数据的唯一场所——每个 warp 写一个数、一个 warp 读回 32 个数再归约，把跨 warp 的通信压到 32 个 float 与 1 次 sync（第七章）。**warp shuffle 解决哪部分**：warp 内 32 个 lane 的归约用 `__shfl_xor_sync` 在寄存器里 5 步完成，不碰 shared、不需要 sync，消灭最后 5 级同步（第八章）。两者叠加是“两级 warp shuffle”：sync 从 10 次到 1 次、shared 流量从 10 级树到 32 个 float。再进一步：$$d \le 1024$$ 时一行一个 warp、零 shared 零 sync；softmax 用 online 形式一遍拿到 $$(m, l)$$；fused residual + RMSNorm 把读 3 写 2 变成读 2 写 2（第九至十一章）。
+
+</details>
+
+
+## 十二、自测
+
+1. shared memory 32 个 bank、每 bank 4 字节。`tile[threadIdx.x][k]`（`tile` 是 `float[32][32]`）的一次 warp 读有几路 bank conflict？怎么消除？
+
+   <details markdown="1"><summary>答案</summary>
+
+   32 个线程读同一列、地址相差 128 字节，全部落在同一个 bank：32-way conflict，串行 32 次。padding 成 `float[32][33]` 让相邻行错开一个 bank，或 XOR swizzle 列索引。
+
+   </details>
+
+2. `__syncthreads()` 写在 `if (threadIdx.x < 16)` 里面会怎样？
+
+   <details markdown="1"><summary>答案</summary>
+
+   未定义行为——通常死锁或静默错误：栅栏要求 block 内所有线程都到达，另一半线程永远不会执行到它。必须放在所有线程都走的路径上。
+
+   </details>
+
+3. 用 `atomicAdd` 把 8192 行的每行和累加到一个 float 上，两个问题是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   同地址原子操作串行化，8192 个 block 排队；float 加法不满足结合律，累加顺序随调度变化，结果不可复现（bit 级不同）。跨 block 计数用原子可以，累加用两级归约。
+
+   </details>
+
+4. softmax 为什么要先减最大值？FP16 与 BF16 各在 $$x$$ 超过多少时 $$e^x$$ 溢出？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$e^x$$ 在 FP16（max 65504）$$x > 11.09$$ 溢出、BF16 / FP32（max $$3.4 \times 10^{38}$$）$$x > 88.7$$ 溢出；减最大值后指数 $$\le 0$$，最大项恰为 1，数学上因 softmax 平移不变结果不变。
+
+   </details>
+
+5. online softmax 维护的 $$(m, l)$$ 是什么？两个块的 $$(m_1, l_1)$$、$$(m_2, l_2)$$ 怎么合并？为什么这让 FlashAttention 成为可能？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$m$$ 是到目前为止的最大值、$$l$$ 是 $$\sum e^{x_i - m}$$；合并：$$m = \max(m_1, m_2)$$，$$l = l_1 e^{m_1 - m} + l_2 e^{m_2 - m}$$。合并满足结合律，所以可以分块、并行、任意顺序归约——attention 的 $$P V$$ 可以按 KV 块逐块累加并在最后一次性重缩放，不必物化整行 $$S$$。
+
+   </details>
 
 
 ## 下一篇

@@ -5,6 +5,7 @@ title: "GPU Kernel 工程（08）：Attention Kernel——FlashAttention 与 Pag
 subtitle: "Attention Kernels: FlashAttention and PagedAttention from Derivation to Code"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 前七篇分别处理了 GPU 的硬件结构与 Roofline、CUDA 执行模型、访存合并、shared memory 与 reduction（其中包括 online softmax）、GEMM 的分块、Tensor Core 与 CUTLASS、Triton。这一篇是它们的汇合点：attention 同时包含两个 GEMM（$$QK^T$$ 与 $$PV$$）、一个逐行的 reduction（softmax），以及推理时特有的内存访问模式（分页的 KV cache）。它是 Transformer 推理里最重要、也最难写好的 kernel。
@@ -37,6 +38,7 @@ catalog: true
 | 八 | Triton 版与 CUDA 版的结构对照 | tutorial 06 的结构、完整 Triton FA 前向（因果 + GQA）、正确性与性能对照、`triton_unified_attention`、CUDA 核心循环骨架 |
 | 九 | 后端生态与 vLLM 的选择 | FA2/3、FlashInfer、xFormers、cuDNN、Triton、SDPA 各自的位置与 vLLM 的选择逻辑 |
 | 十 | 本文小结 |  |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、先算账：标准 attention 读写多少 HBM
@@ -1072,6 +1074,56 @@ FLASH_ATTN（sm_90 用 FA3，其余 FA2；vllm-flash-attn 加 block_table）
 ```
 
 方法论上，这一篇再次验证了系列的主线：**先数字节、再数 FLOPs、放到 Roofline 上看瓶颈在哪，再决定优化方向**。FlashAttention 的每一代都对应瓶颈的一次转移——从 HBM 流量（FA1）到并行度与 warp 同步（FA2）再到 SFU 与 Tensor Core 的重叠（FA3）；decode 的瓶颈从来都是带宽，所以 PagedAttention、split-KV、GQA 打包做的都是同一件事：让 KV 只读一次、让足够多的 SM 同时读。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**标准 vs FlashAttention 的 HBM 流量**（$$N = 4096$$、$$d = 128$$、单 head BF16）：标准实现要物化 $$S = QK^T$$ 与 $$P = \text{softmax}(S)$$，两个 $$N^2$$ 矩阵各写一次读一次，至少 128 MiB，加上 $$Q, K, V, O$$ 共约 132 MiB；FLOPs $$4N^2 d = 8.6$$ GFLOP，算术强度约 62，在 A100 上 memory-bound（第二章）。FlashAttention 分块：$$Q$$ 读一次、$$O$$ 写一次各 1 MiB，$$K, V$$ 各被重读 $$N / B_r$$ 次（$$B_r = 128$$ 时 32 次），共约 66 MiB → 实际因 L2 更少；$$S$$、$$P$$ 只存在于 shared / 寄存器，靠 online softmax 的 $$(m, l)$$ 逐块累加、最后一次重缩放——流量降一个数量级，从 memory-bound 变成接近 compute-bound（第三章）。**decode 每 token 读多少 KV**：Llama-3-8B 每 token 128 KiB，上下文 $$s$$ 时每步读 $$128\ \text{KiB} \times s$$，每读一个 K/V 元素只做 $$g$$（GQA 组大小，4）次 FLOP，彻底 memory-bound（第五章）。**这决定了什么**：一步 decode 的时间下界 = （权重字节 + $$B \times s \times 128$$ KiB）/ 带宽——$$B \times s$$ 超过约 131k token 时 KV 的流量超过权重，此后 decode 时间随上下文线性涨、与模型大小无关；所以 decode attention kernel 的目标是带宽利用率（split-K 沿序列并行填满 SM），PagedAttention 的分页只改地址计算不改字节数，KV 量化与 GQA / MLA 才能减字节（第五、六章）。
+
+</details>
+
+
+## 十一、自测
+
+1. $$N = 8192$$、$$d = 128$$、32 个 head、BF16：标准 attention 每层物化的 $$S$$ 多大？FlashAttention 把它放在哪里？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$32 \times 8192^2 \times 2 = 4$$ GiB；FlashAttention 每次只算一个 $$B_r \times B_c$$（如 128×64）的块，放在 shared / 寄存器里，用完丢弃。
+
+   </details>
+
+2. FlashAttention 里 $$K, V$$ 被重读多少次？$$B_r$$ 由什么限制？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$N / B_r$$ 次（$$Q$$ 的每个行块各扫一遍全部 $$K, V$$）；$$B_r$$ 受 shared memory 与寄存器限制——$$B_r \times d$$ 的 $$Q$$ 块、累加器 $$O$$ 块与 $$K, V$$ 块都要放进片上，A100 上 128 是常见值。
+
+   </details>
+
+3. FlashAttention-2 相比 FA-1 改了什么让 Tensor Core 利用率从约 25–40% 到 50–70%？
+
+   <details markdown="1"><summary>答案</summary>
+
+   循环顺序换成外层 $$Q$$ 块、内层 $$K, V$$ 块（累加器留在寄存器，减少 shared 读写与重缩放次数）；warp 之间按 $$Q$$ 的行切分而不是按 $$K$$ 切（去掉 warp 间归约）；减少非 matmul 的 FLOPs（重缩放只在最后做）。
+
+   </details>
+
+4. decode 阶段 batch 32、每条 8K 上下文、Llama-3-8B：一步读多少 KV cache？与权重比？时间下界多少（H100 3.35 TB/s）？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$32 \times 8192 \times 128$$ KiB = 32 GiB，是权重 16 GB 的两倍；一步下界 (16 + 34) GB / 3.35 TB/s ≈ 15 ms——KV 已经是主要开销。
+
+   </details>
+
+5. PagedAttention 的分页 KV 改变了什么、没改变什么？decode kernel 为什么要沿序列 split-K？
+
+   <details markdown="1"><summary>答案</summary>
+
+   改变：KV 以固定大小的 block 存放、kernel 通过 block table 查物理地址，消灭了预分配连续显存的碎片；不变：读的字节数一样多，仍是 memory-bound。batch 小、head 少时 block 数填不满 SM，把每个序列的 KV 切成多段并行读再归约（split-K），才能压满带宽。
+
+   </details>
 
 
 ## 下一篇

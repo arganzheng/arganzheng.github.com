@@ -5,6 +5,7 @@ title: "GPU Kernel 工程（01）：GPU 为什么这样设计——硬件结构�
 subtitle: "Why GPUs Look the Way They Do: Architecture and the Roofline Model"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 这个系列要回答的问题是：**一个 kernel 为什么快、为什么慢，以及如何把它写到接近硬件极限**。要谈"极限"，先得知道极限在哪里。所以第一篇不写、也不运行任何完整的 kernel，只做一件事：把一块 GPU 拆开，看清它由什么组成、硬件如何把工作切成 warp 和 block 放到 SM 上、每个部分能以多快的速度搬数据和做乘加，然后把这些数字装进一个足够简单、又足够有用的模型——Roofline——用它回答：
@@ -33,6 +34,7 @@ catalog: true
 | 八 | 工具链地图 | nvcc、PTX/SASS、cuobjdump、nsys、ncu、compute-sanitizer 各看什么 |
 | 九 | 系统层与 kernel 层的边界 | 哪些瓶颈属于系统层；本系列只讨论时间线上的实心色块；一张诊断决策图 |
 | 十 | 本文小结 |  |
+| 十一 | 自测 | 5 道题 |
 
 本文不写 CUDA 代码。grid、block、thread 这些名字在代码里怎么写、怎么编号，是下一篇的内容；本文只在第三章末尾给出硬件层级与这些名字的对应图，作为两篇之间的桥。
 
@@ -812,6 +814,56 @@ GEMM 4096³ BF16            1.37e11      1.0e8        1365           compute-bou
 下一篇进入 CUDA 编程模型：第三章末尾那张对应图里的每个名字在代码里怎么写——`__global__`、`dim3`、内建变量、边界检查、block 与 grid 大小怎么选、二维 block 如何切成 warp——以及设备内存、stream、event、错误处理、nvcc 编译流程，然后写第一个 kernel、用 `cudaEvent` 正确计时，回答为什么一个看起来没问题的 vector add 只跑到带宽的一小部分：
 
 > **同样是 1 GiB 的 elementwise 加法，理论下界 1.61 ms 已经算出来了；第一个 naive kernel 会离它有多远，差距来自哪里？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+由 Roofline 给出：$$T = \max(F / P_{peak},\ B / BW)$$——一段计算至少要做 $$F$$ 次 FLOP、至少要在 HBM 上搬 $$B$$ 字节，两者各除以峰值算力与峰值带宽，取大的那个就是下界（第八章）。算术强度 $$I = F / B$$ 与 ridge $$= P_{peak} / BW$$ 比：低于 ridge 是 memory-bound（时间由字节数决定，目标是 85–90% 的带宽利用率），高于是 compute-bound（时间由 FLOPs 决定，但只有 tile 足够大、数据在 shared / L2 复用足够时才真的碰到算力顶）。A100 BF16 的 ridge 是 156、H100 是 295，每代硬件都右移，越来越多算子落到左边——elementwise（$$I = 1/6$$）、RMSNorm（$$\approx 1$$）、decode attention（$$\approx 4$$）全是 memory-bound，只有大 GEMM（4096³ 约 1365）在右边（第八、九章）。两条屋顶都没碰到是第三种情况：latency-bound——占用率或并行度不足，在飞的请求不够多，硬件在等（第九章）。之所以这样算得准，是因为 GPU 用零开销的 warp 切换而不是 OoO 隐藏延迟、所有驻留 warp 的状态都在寄存器文件里（occupancy 受寄存器限制）、访存按 warp 合并成 sector、内存层次每层的带宽差一个数量级（第二至七章）。
+
+</details>
+
+
+## 十一、自测
+
+1. A100 BF16 峰值 312 TFLOPS、HBM 2.0 TB/s：ridge point 是多少？一个 $$I = 40$$ FLOP/byte 的 kernel 在它上面是哪类？在 H100（989 T、3.35 TB/s）上呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   A100 ridge 156，40 < 156 是 memory-bound；H100 ridge 295，仍是 memory-bound且离屋顶更远——每代硬件 ridge 右移，同一个 kernel 更偏向带宽瓶颈。
+
+   </details>
+
+2. 一个 SM 有 256 KB 寄存器、最多 64 个驻留 warp。kernel 每线程用 128 个寄存器、block 256 线程，一个 SM 能驻留几个 block、几个 warp？占用率多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   每 block 寄存器 $$256 \times 128 \times 4$$ B = 128 KB，SM 放 2 个 block = 16 个 warp；占用率 $$16 / 64 = 25\%$$。寄存器是限制因素。
+
+   </details>
+
+3. warp 内 16 个线程走 `if`、16 个走 `else`，执行时间与无分歧比怎么变？
+
+   <details markdown="1"><summary>答案</summary>
+
+   两路串行执行、各用 mask 屏蔽一半 lane，时间约是无分歧的 2 倍（两段代码长度之和）；SIMT 下同一 warp 只能同时发一条指令。
+
+   </details>
+
+4. 寄存器、shared memory、L2、HBM 的访问延迟大约各多少周期？为什么说 shared 是“数据复用的场所”？
+
+   <details markdown="1"><summary>答案</summary>
+
+   约 0、20–30、200、400–800 周期；shared 每 SM 每周期 128 B，全卡合计比 HBM 带宽高一个数量级——把一块数据搬进 shared 后被 block 内多个线程反复读，是 GEMM 分块跨过 ridge 的机制。
+
+   </details>
+
+5. `ncu` 显示一个 kernel 的 Memory Throughput 30%、Compute Throughput 20%，它是哪类瓶颈？该看什么指标？
+
+   <details markdown="1"><summary>答案</summary>
+
+   两条屋顶都没碰到，latency-bound：看 achieved occupancy 与它的限制因素（寄存器 / shared / grid 大小），看 warp stall 原因（long scoreboard = 等全局访存、barrier = 等同步）；处方是提高占用率或每线程的 ILP。
+
+   </details>
 
 
 ## 下一篇
