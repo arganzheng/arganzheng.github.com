@@ -5,6 +5,7 @@ title: "C++ 在 AI-Infra（05）：宏、静态注册与代码生成"
 subtitle: "Macros, Static Registration and Code Generation"
 tags: [C++, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 vLLM 的 CPU 后端把所有自定义算子登记到 PyTorch 的代码在 `csrc/cpu/torch_bindings.cpp` 里，形状是这样的：
@@ -73,6 +74,7 @@ Java 仍是参照系。Java 没有预处理器，条件编译靠运行期 `if` �
 | 十二 | mini-c10 | `MINI_CHECK`、`MINI_API`、`MINI_LIBRARY/MINI_LIBRARY_IMPL`；算子文件自注册；四种链接方式验证 |
 | 十三 | 工程实践建议与常见错误 |  |
 | 十四 | 本文小结 |  |
+| 十五 | 自测 | 5 道题 |
 
 
 ## 二、预处理器：文本层面的另一种语言
@@ -2798,6 +2800,56 @@ endif()
 Java 工程师需要建立的三个新直觉：**"代码有没有"在编译前就决定了**（预处理和条件编译，看到的分支未必在你的二进制里）；**"登记"不需要有人调用**（静态对象构造函数由加载器执行，这是 `ServiceLoader` 做不到的无条件初始化）；**"登记"可能被链接器静默取消**（静态库丢弃未引用的目标文件，Java 里没有任何对应物）。第一个直觉让你读得懂 `#ifdef`，第二个让你读得懂 `TORCH_LIBRARY`，第三个让你在算子"消失"时知道去看链接命令而不是代码。
 
 第六篇进入并发：`with torch.no_grad():` 在 C++ 层做了什么，为什么它对其他线程不生效——`thread_local`、原子、守卫对象，以及本篇反复出现的"函数内静态是线程安全的"背后的机制。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**靠静态初始化**：`TORCH_LIBRARY(myops, m) { m.def("add(Tensor a, Tensor b) -> Tensor"); }` 展开成一个函数定义加一个**静态存储期对象** `static torch::detail::TorchLibraryInit TORCH_LIBRARY_static_init_myops(...)`，构造函数的参数是那个函数；`TORCH_LIBRARY_IMPL(myops, CPU, m)` 同理生成另一个。`.so` 被 `dlopen` 时，动态加载器在返回之前执行它的初始化段（`.init_array`），这些静态对象在此刻构造——构造函数调用 `Dispatcher::singleton().registerDef / registerImpl`，把 schema 与 kernel 登记进全局注册表。没有任何函数被显式调用，是加载器调的（第七、八章）。**为什么 `torch.ops.myops` 上就有了**：`torch.ops` 是一个按属性名惰性查询 Dispatcher 的 Python 对象（`_OpNamespace.__getattr__` → `torch._C._jit_get_operation`），访问 `torch.ops.myops.add` 时去注册表找 `myops::add`，找到就包成可调用对象。**三个配套机制**让这件事可靠：注册表容忍任意顺序（`impl` 可以先于 `def`，`OperatorEntry::schema_` 是 `optional`）、单例用函数内静态规避初始化顺序问题、静态库要 `--whole-archive` 否则没被引用的注册 `.o` 会被裁掉（第九、十、十一章）。
+
+</details>
+
+
+## 十五、自测
+
+1. `#define STR(x) #x` 然后 `STR(__LINE__)` 得到什么？要得到行号字符串该怎么写？
+
+   <details markdown="1"><summary>答案</summary>
+
+   得到字符串 `"__LINE__"`——参数紧挨 `#` 时不先展开。多套一层：`#define STR2(x) STR(x)`，`STR2(__LINE__)` 先展开 `__LINE__` 再字符串化。PyTorch 的 `C10_STRINGIZE` 就是两层。
+
+   </details>
+
+2. `TORCH_CHECK(cond, msg)` 为什么必须是宏而不能是函数？两个理由。
+
+   <details markdown="1"><summary>答案</summary>
+
+   要在调用点捕获 `__FILE__` / `__LINE__` / `__func__`（函数里拿到的是函数自己的位置）；要让 `msg` 表达式惰性求值——只有 `cond` 为假时才拼字符串，函数参数会先求值，热路径上代价不可接受。
+
+   </details>
+
+3. 两个 `.so` 里各有一个静态对象，A 的构造函数用到 B 里的全局变量——安全吗？函数内 `static` 怎么解决？
+
+   <details markdown="1"><summary>答案</summary>
+
+   不安全：跨翻译单元的静态初始化顺序未定义，B 可能还没构造。改为函数内 `static Registry& instance() { static Registry r; return r; }`，第一次调用时才构造、线程安全、按需有序——`Dispatcher::realSingleton()` 就是这样。
+
+   </details>
+
+4. X-macro 是什么？`AT_FORALL_SCALAR_TYPES(_)` 怎么让 `toString(ScalarType)` 不用手写每个 case？
+
+   <details markdown="1"><summary>答案</summary>
+
+   把“列表”做成一个接受宏参数的宏：`#define AT_FORALL_SCALAR_TYPES(_) _(uint8_t, Byte) _(int8_t, Char) ...`；使用者定义 `#define CASE(_, n) case ScalarType::n: return #n;` 再写 `AT_FORALL_SCALAR_TYPES(CASE)`，一张列表派生出 switch、类型映射、名字表，加类型只改一处。
+
+   </details>
+
+5. `-fvisibility=hidden` 下，扩展 `.so` 抛出的 `c10::Error` 想被 `libtorch_python` 捕获，需要什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `c10::Error` 的类定义必须导出（`class C10_API Error`），让两个 `.so` 看到同一个 typeinfo；否则 `catch (const c10::Error&)` 因 typeinfo 不同而匹配失败，异常穿到顶层 `terminate`。
+
+   </details>
 
 
 ## 下一篇

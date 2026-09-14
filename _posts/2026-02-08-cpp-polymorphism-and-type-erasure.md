@@ -5,7 +5,7 @@ title: "C++ 在 AI-Infra（04）：多态与类型擦除——运行时如何选
 subtitle: "Polymorphism and Type Erasure"
 tags: [C++, AI, AI-Infra]
 catalog: true
-updated: 2026-09-10
+updated: 2026-09-14
 ---
 
 在 Python 里写 `torch.add(a, b)`，如果 `a` 在 CPU 上就跑 CPU kernel，在 GPU 上就跑 CUDA kernel。这个"按参数选实现"的动作在 C++ 层叫 dispatch，做这件事的类叫 `c10::Dispatcher`。它的核心调用路径在 `aten/src/ATen/core/dispatch/Dispatcher.h` 里（本文引用的 PyTorch 源码以 v2.10.0 为准），删掉调试和 profiler 分支后只剩这几行：
@@ -90,6 +90,7 @@ Java 里"按运行时类型选实现"只有一种做法：接口加虚方法。C
 | 十 | mini-c10 | DispatchKey、IValue、KernelFunction、OperatorEntry、Dispatcher 与验证 |
 | 十一 | 工程实践建议与常见错误 |  |
 | 十二 | 本文小结 |  |
+| 十三 | 自测 | 5 道题 |
 
 
 ## 二、虚函数与 vtable：C++ 里"默认不虚"的多态
@@ -3028,6 +3029,56 @@ registered keys for add: CPU, Meta
 | JNI `ThrowNew` | 设置 pending exception 后返回 | `PyErr_SetString` + `return nullptr` | 概念直接对应 |
 
 下一篇进入宏和静态注册：`TORCH_LIBRARY_IMPL(aten, CPU, m)` 这一行怎么在 `main` 之前跑起来、把本篇的 `KernelFunction` 塞进 `OperatorEntry`，`TORCH_CHECK` 为什么必须是宏，以及 torchgen 生成的那些文件长什么样。mini-c10 的 `register_add_kernels()` 会被 `MINI_LIBRARY_IMPL` 取代。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**用什么机制调到 CPU kernel**：`OperatorHandle` 指向一个 `OperatorEntry`，它按 dispatch key 存着一张 `KernelFunction` 表；Dispatcher 从参数的 Tensor 算出 `DispatchKeySet`、取最高优先级的 key、查表拿到 `KernelFunction`。`KernelFunction` 是一个**手工类型擦除**的可调用对象：存一个 `OperatorKernel` 的 `intrusive_ptr` 加两个函数指针（unboxed 与 boxed 入口）；注册时模板把“具体签名的函数”包装成统一形态（`wrap_kernel_functor_unboxed`），调用时 `callUnboxed<Return, Args...>` 把函数指针 `reinterpret_cast` 回带签名的类型再调——不是虚函数，是函数指针 + 模板生成的适配器（第六、八、九章）。**为什么既有 boxed 又有 unboxed**：unboxed 保留 C++ 签名（`Tensor(const Tensor&, Scalar)`），零装箱、可内联，是 `at::add(x, 1)` 这类 C++ 直调与 Python 绑定的热路径；boxed 用 `Stack*`（一个 `IValue` 向量）作统一约定，参数全部装进 `IValue` 这个 tagged union，让 autograd、tracing、fallback、TorchScript 这些“不知道具体签名”的通用层能处理任意算子——像 Java 的 `Method.invoke(Object...)`。两套约定之间有自动的 boxing / unboxing 适配器，代价是每次转换的装箱开销（第十、十一章）。
+
+</details>
+
+
+## 十三、自测
+
+1. C++ 类的成员函数默认是虚的还是非虚的？`override` 省略了会怎样？
+
+   <details markdown="1"><summary>答案</summary>
+
+   默认非虚（Java 默认虚）；省略 `override` 编译仍通过，但签名写错时会静默变成一个新的非覆盖函数——基类的虚函数没被覆盖，运行期调不到你的实现。
+
+   </details>
+
+2. `IValue` 是什么？它与 Java 的 `Object` 差在哪？
+
+   <details markdown="1"><summary>答案</summary>
+
+   一个手工的 tagged union（16 字节：payload + tag），能装 Tensor、int、double、bool、List、Dict 等固定集合；不是所有类型的基类，类型集合封闭，`isTensor()` / `toTensor()` 取回。Java 的 `Object` 是开放的统一基类。
+
+   </details>
+
+3. 策略模式在 Java 里用接口、在 C++ 里可以用模板参数——各有什么代价与限制？
+
+   <details markdown="1"><summary>答案</summary>
+
+   接口：运行期虚调用，可以运行期换策略，JIT 可能内联但不保证；模板参数：编译期内联、零开销，但策略必须编译期确定、每种策略一份代码。kernel 内循环用模板，Dispatcher 这类运行期选择用类型擦除。
+
+   </details>
+
+4. `std::function`、`function_ref`、函数指针三者在“持有一个可调用对象”上差在哪？
+
+   <details markdown="1"><summary>答案</summary>
+
+   函数指针只能指向无捕获的函数；`std::function` 拥有可调用对象（可能堆分配捕获），可存储、可拷贝；`function_ref` 只借用（存指针 + 调用桩），零分配，不能存过被引用对象的生命期——适合传参不适合保存。
+
+   </details>
+
+5. autograd 对所有算子写一份通用逻辑（记录 `grad_fn`、包装输出），它走 boxed 还是 unboxed 约定？为什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   boxed：autograd 作为一个 dispatch key 上的 fallback / 通用 kernel，不知道每个算子的具体签名，只能操作 `Stack` 里的 `IValue` 序列；生成的每算子 `VariableType` kernel 则是 unboxed。boxed 存在的意义就是让这类通用层写一次即可。
+
+   </details>
 
 
 ## 下一篇

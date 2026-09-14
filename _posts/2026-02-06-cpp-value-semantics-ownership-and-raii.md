@@ -5,6 +5,7 @@ title: "C++ 在 AI-Infra（02）：值、引用与所有权——对象模型与
 subtitle: "Value Semantics, Ownership and RAII"
 tags: [C++, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 打开 `aten/src/ATen/core/TensorBase.h`，`at::Tensor` 的基类是这样定义的（类定义开头和结尾）：
@@ -83,6 +84,7 @@ at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta) {
 | 十一 | mini-c10：让第一个 Tensor 跑起来 | `intrusive_ptr`、Allocator、StorageImpl、TensorImpl、Tensor；用析构打印验证释放时序 |
 | 十二 | 工程实践建议与常见错误 |  |
 | 十三 | 本文小结 |  |
+| 十四 | 自测 | 5 道题 |
 
 
 ## 二、读本文需要的 C++ 语法最小集
@@ -2622,6 +2624,56 @@ y.defined()=0, w use_count=1
 下一篇进入模板：`AT_DISPATCH_FLOATING_TYPES` 里的 `scalar_t` 从哪里来，`data_ptr<scalar_t>()` 的 `<>` 为什么和 Java 泛型完全不是一回事，以及 `IntArrayRef`、`std::optional`、lambda 这些"轻量视图"类型如何与本篇的所有权规则配合。
 
 配套代码：本文的 14 个小例子（含故意编不过的 const 例子与故意 double free 的 `Buffer`）在 [ai-learning-labs/cpp-for-ai-infra/02-value-semantics-and-raii](https://github.com/arganzheng/ai-learning-labs/tree/main/cpp-for-ai-infra/02-value-semantics-and-raii)，mini-c10 的头文件与 `main.cpp` 在 [`cpp-for-ai-infra/minic10`](https://github.com/arganzheng/ai-learning-labs/tree/main/cpp-for-ai-infra/minic10)，`make run` 一键编译运行。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**`y` 与 `x` 的关系**：`at::Tensor` 是一个只含一个 `c10::intrusive_ptr<TensorImpl>` 的句柄类，`y = x` 是值拷贝——拷贝的是这个智能指针，`TensorImpl` 的引用计数从 1 变 2，两者指向同一个 `TensorImpl`、同一个 `Storage`、同一块数据；改 `y` 的数据 `x` 能看到，但 `y = other` 重新赋值只是让 `y` 指向别处、`x` 不受影响。这与 Java 的引用赋值“看起来一样”，机制却是显式的引用计数（第五、九章）。**什么时候数据真正被释放**：`TensorImpl` 的强计数归零时它析构，释放持有的 `Storage` 的 `intrusive_ptr`；`StorageImpl` 的计数归零时才调 `Allocator` 释放数据——所以一个 view（`x[0]`、`x.view(...)`）会有自己的 `TensorImpl` 但共享 `Storage`，只要任何一个 view 活着数据就活着；`weak_intrusive_ptr` 不阻止释放（第九、十章）。释放是确定性的——最后一个所有者离开作用域的那一刻——这就是 RAII：资源的生命期绑定到对象的生命期，异常路径也照样释放（第六、七章）。
+
+</details>
+
+
+## 十四、自测
+
+1. `void f(at::Tensor t)`、`void f(const at::Tensor& t)`、`void f(at::Tensor&& t)` 三种签名调用时各发生什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   按值：拷贝 `intrusive_ptr`，引用计数原子 +1 / −1；`const&`：不拷贝、只读，零开销——PyTorch 内部的默认；`&&`：只接右值，可以把参数“偷”走（移动，计数不变）。Java 只有“引用按值传”一种。
+
+   </details>
+
+2. `std::unique_ptr`、`std::shared_ptr`、`c10::intrusive_ptr` 的引用计数各放在哪？为什么 PyTorch 用 intrusive？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `unique_ptr` 没有计数（唯一所有者）；`shared_ptr` 的计数在单独分配的控制块里；`intrusive_ptr` 的计数在对象自身（继承 `intrusive_ptr_target`）。intrusive 少一次分配、指针只有一个机器字、能从裸指针安全地重新构造智能指针（`reclaim`）——跨 Python 边界传裸 `TensorImpl*` 时需要这个。
+
+   </details>
+
+3. RAII 比 `try / finally` 多覆盖了什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `finally` 只覆盖块作用域且要手写；RAII 把释放绑在析构上，成员变量、容器里的元素、函数返回、异常展开、提前 `return` 全部自动覆盖，且不能忘写。C++ 里锁（`lock_guard`）、文件、CUDA 事件、显存都这样管。
+
+   </details>
+
+4. `x.view(-1)` 与 `x.clone()` 各创建了什么、共享了什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `view` 新建一个 `TensorImpl`（自己的 sizes / strides / offset），共享同一个 `StorageImpl`（计数 +1）；`clone` 新建 `TensorImpl` 与新的 `StorageImpl`，数据复制一份。所以一个小 view 能让整个大 Storage 活着。
+
+   </details>
+
+5. 两个对象互相持有 `intrusive_ptr`，会怎样？用什么断环？
+
+   <details markdown="1"><summary>答案</summary>
+
+   计数永远不到 0，泄漏——C++ 没有 GC 处理环。一方改用 `weak_intrusive_ptr`，用时 `lock()` 拿到强引用（可能为空）；autograd 图里 `grad_fn` 与 `Tensor` 之间的反向引用就是这样处理的。
+
+   </details>
 
 
 ## 下一篇

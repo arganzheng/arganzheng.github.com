@@ -5,6 +5,7 @@ title: "C++ 在 AI-Infra（01）：从源码到二进制——编译模型与项
 subtitle: "Compilation Model and Project Layout"
 tags: [C++, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 `import torch` 背后，Python 解释器真正加载的第一个 C 语言文件只有 15 行。它是 `torch/csrc/stub.c`，全文如下：
@@ -65,6 +66,7 @@ Java 是全篇的参照系。Java 的世界里只有一种编译产物（`.class
 | 十一 | 实践二 | mini-c10 的目录结构与第一个可链接的库 |
 | 十二 | 工程实践建议与常见错误 | 按阶段定位错误、头文件卫生、链接与部署、读源码的定位技巧 |
 | 十三 | 本文小结 |  |
+| 十四 | 自测 | 5 道题 |
 
 
 ## 二、四个阶段：一个 `.cpp` 是怎么变成机器码的
@@ -2111,6 +2113,56 @@ mini-c10 现在只有一个函数，但它已经是一个"库"：有头文件和
 Java 工程师需要放弃的三个直觉：**"编译器能看到整个项目"**（不能，只能看到一个翻译单元，头文件是手写的接口）；**"找不到类是运行时异常"**（在 C++ 里它是构建失败或进程起不来，三个阶段都在业务代码运行之前）；**"一个包就是一个 jar"**（命名空间、目录、库是三个独立的维度，PyTorch 只是让它们大致对齐）。
 
 第二篇进入对象模型：`at::Tensor y = x;` 之后 `y` 和 `x` 是什么关系，数据什么时候被释放。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**加载了哪些 `.so`**：`import torch` 先由 `_load_global_deps()` 以 `RTLD_GLOBAL` `dlopen` `libtorch_global_deps.so`（把 CUDA runtime、cuDNN、NCCL 这些依赖的符号放进全局命名空间），再导入扩展模块 `torch/_C.*.so`，它的 `DT_NEEDED` 链上是 `libtorch_python.so` → `libtorch.so` → `libtorch_cpu.so` / `libtorch_cuda.so` → `libc10.so` / `libc10_cuda.so`（第九、十章）。**依赖关系**：`c10` 是最底层（Tensor 元数据、Device、Allocator、Dispatcher 核心），`torch_cpu` / `torch_cuda` 是算子与 kernel，`torch` 是把两者拼起来的空壳，`torch_python` 是 Python 绑定；每一层只导出标了 `C10_API` / `TORCH_API` 的符号，其余在 `-fvisibility=hidden` 下不可见（第七、八章）。**扩展链接到哪一个**：用 `torch.utils.cpp_extension` 构建的扩展链接 `libc10.so`、`libtorch.so`、`libtorch_cpu.so`（CUDA 扩展再加 `libc10_cuda.so`、`libtorch_cuda.so`）与 `libtorch_python.so`（用了 pybind11 / Python API 时），并用 `-Wl,-rpath,$ORIGIN/lib` 一类把搜索路径烧进去；符号在加载期由动态链接器解析，所以扩展的 ABI（`_GLIBCXX_USE_CXX11_ABI`、编译器版本）必须与这些库一致（第九、十一章）。
+
+</details>
+
+
+## 十四、自测
+
+1. `undefined reference to at::foo(...)`、`error: 'foo' was not declared in this scope`、`symbol lookup error: undefined symbol` 各出现在编译的哪个阶段？
+
+   <details markdown="1"><summary>答案</summary>
+
+   分别是链接期（找不到定义）、编译期（找不到声明——头文件没包含）、加载期（运行时动态链接器在 `.so` 依赖链里找不到符号，常见于 ABI 不匹配或库没导出）。四阶段加加载是第五步，每类错误只在一个阶段出现。
+
+   </details>
+
+2. 一个 `inline` 函数写在头文件里被十个 `.cpp` 包含，ODR 允许吗？一个普通函数呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `inline`（以及模板、类定义）允许多个翻译单元各一份定义，但必须完全相同，链接器任选一份；普通非 inline 函数多份定义是 ODR 违规，链接报 multiple definition。所以头文件放声明与 inline 小函数，`.cpp` 放定义。
+
+   </details>
+
+3. `extern "C"` 关掉了什么？`PyInit__C` 为什么必须用它？
+
+   <details markdown="1"><summary>答案</summary>
+
+   关掉 C++ 的名字修饰（namespace、参数类型编进符号名）与重载。CPython 用 `dlsym` 按字符串 `PyInit__C` 查符号，修饰后的名字查不到。
+
+   </details>
+
+4. `-fvisibility=hidden` 之后，一个类要跨 `.so` 使用需要做什么？只标函数不标类会怎样？
+
+   <details markdown="1"><summary>答案</summary>
+
+   在类声明上加 `class C10_API Foo`（展开为 `__attribute__((visibility("default")))`），成员函数、vtable、typeinfo 一起导出；只标函数不标类，`dynamic_cast`、异常捕获（typeinfo 不同）与虚调用会跨库失败。
+
+   </details>
+
+5. 静态库里一个只有静态注册、没被任何符号引用的 `.o` 会怎样？PyTorch 怎么处理？
+
+   <details markdown="1"><summary>答案</summary>
+
+   链接器裁掉它，注册消失——算子“不存在”。用 `--whole-archive`（PyTorch 的 `append_wholearchive_lib_if_found`）强制把整个 `.a` 拉进来，或改用动态库（`.so` 加载时全部静态初始化都执行）。
+
+   </details>
 
 
 ## 下一篇

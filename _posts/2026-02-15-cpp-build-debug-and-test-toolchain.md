@@ -5,6 +5,7 @@ title: "C++ 在 AI-Infra（08）：构建、调试与测试工具链"
 subtitle: "Build, Debug and Test Toolchain"
 tags: [C++, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 PyTorch 的 CI 测试脚本 `.ci/pytorch/test.sh` 里有一段很奇怪的代码。在 ASan 构建下，它先设置一堆环境变量，然后**故意让 Python 进程崩溃四次**：
@@ -84,6 +85,7 @@ Java 依然是参照系。Maven/Gradle 把依赖、编译、测试三件事一�
 | 十三 | mini-c10：补齐工程 | `CMakeLists.txt`、两个 gtest 文件、lldb 会话、.clang-format |
 | 十四 | 工程实践建议与常见错误 |  |
 | 十五 | 本文小结与系列总结 |  |
+| 十六 | 自测 | 5 道题 |
 
 
 ## 二、CMake 的目标模型
@@ -2980,3 +2982,53 @@ at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta) {
 **排障能力。** 编译错误：看是预处理、编译还是链接阶段（第一篇），模板错误从最内层的 `note:` 读（第三篇）。链接错误：`nm -DC` 看符号在不在、是否导出、修饰名是否一致（第一篇、第五篇）。段错误：`ulimit -c`、`bt`、找第一个自己代码的帧，`-O2` 看不到变量就 `DEBUG=1`（第八篇）。结果不对但不崩：ASan、UBSan、TSan（第八篇）。`import` 时 undefined symbol：ABI、编译器版本、CXX11 ABI 开关（第七篇）。算子注册了但找不到：`--whole-archive`、可见性（第五篇）。知道用什么工具、看哪里——这是排障能力。
 
 这三种能力合起来，就是从 Python 层走向 AI-Infra 执行平面所需要的那一段路。mini-c10 走到这里也完整了：一两千行 C++，`add` 和 `mul` 两个算子的 CPU 和 Meta 实现，能从 Python 调用，能被 lldb 调试，有测试，有 ASan 配置——再打开真实的 `c10/` 和 `aten/`，看到的应该是熟悉的结构。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+按顺序五样。**能编、能被 IDE 理解**：CMake + Ninja 增量构建（ccache / sccache 让重编几秒），`CMAKE_EXPORT_COMPILE_COMMANDS` 生成 `compile_commands.json` 让 clangd 与静态分析读懂项目（第二、三、四章）。**确认正确**：gtest 单元测试（`c10/test`、`aten/src/ATen/test`），加上 Python 侧的 `test/test_*.py` 对照 CPU 参考实现；调试用 gdb / lldb 加 `pytorch-gdb.py` 打印 Tensor，崩溃后用 core dump + `addr2line` 或 `TORCH_SHOW_CPP_STACKTRACES=1` 拿到 C++ 栈（第五、六、七章）。**没有内存错误**：ASan（越界、use-after-free、泄漏）、UBSan（有符号溢出、错位、空解引用）、TSan（数据竞争）各跑一遍——它们把未定义行为变成确定的报告，`USE_ASAN=1` 构建、CI 有专门的 sanitizer job；Debug 构建下 `-O0 -g` 的行为与 Release 可能不同，两种都要跑（第八、九章）。**不会在别的编译器上炸**：clang-format / clang-tidy / lintrunner 过格式与静态规则；版本矩阵——GCC 与 Clang、MSVC、几个 CUDA 版本、C++17 / 20 标准、两种 libstdc++ ABI——CI 矩阵替你跑，本地至少 GCC 与 Clang 各编一次，`cpp_extension.py` 的 `CUDA_GCC_VERSIONS` 是 CUDA 与 GCC 兼容性的权威表（第十、十一章）。**最后**：`-O` 与 `-g` 的取舍、可见性、目标架构（`CPU_CAPABILITY`、`TORCH_CUDA_ARCH_LIST`）决定产物在别人机器上能不能跑（第十二章）。
+
+</details>
+
+
+## 十六、自测
+
+1. 改了 `c10/core/Device.h` 里一个 inline 函数，Ninja 会重编什么？ccache 在这时能帮多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   所有直接或间接包含这个头的翻译单元——几乎整个 `torch_cpu`，几千个文件；ccache 按预处理后的内容哈希，头改了内容就变，命中率接近 0。这就是“头文件放少、`.cpp` 放多”与 pimpl 的构建理由。
+
+   </details>
+
+2. Release 下正常、`-O0 -g` 下崩溃（或反过来），最可能是什么？用哪个工具确定？
+
+   <details markdown="1"><summary>答案</summary>
+
+   未定义行为——未初始化变量、越界、悬垂引用在不同优化下表现不同；ASan / UBSan 构建一次，它会在第一次越界 / 使用悬垂内存处给出确定的栈，比在两种构建间猜快得多。
+
+   </details>
+
+3. Python 里调用 PyTorch 触发 C++ 崩溃（segfault），只看到 Python 栈，怎么拿到 C++ 栈？
+
+   <details markdown="1"><summary>答案</summary>
+
+   设 `TORCH_SHOW_CPP_STACKTRACES=1` 让 `c10::Error` 带 C++ 栈；对 segfault 用 `gdb --args python script.py` 运行到崩溃 `bt`，或开 core dump 后 `gdb python core` + `addr2line`；`pytorch-gdb.py` 的 `torch-tensor-repr` 能在 gdb 里打印 Tensor 内容。
+
+   </details>
+
+4. TSan 报告一个数据竞争在 `intrusive_ptr` 的引用计数上，是真 bug 吗？怎么判断？
+
+   <details markdown="1"><summary>答案</summary>
+
+   通常是假阳性或已知模式：relaxed 原子操作在 TSan 眼里可能被报告，PyTorch 的 CI 用 suppression 文件排除已审核的位置；真竞争的特征是非原子的普通读写。先看报告的两处访问是否都是 `std::atomic` 操作。
+
+   </details>
+
+5. 扩展在 `TORCH_CUDA_ARCH_LIST="9.0"` 下编译，装到 A100（8.0）上会怎样？怎么一次覆盖多种卡？
+
+   <details markdown="1"><summary>答案</summary>
+
+   运行时报 `no kernel image is available for execution on the device`——只有 sm_90 的 SASS；列表写 `"8.0;9.0"` 生成多份 SASS（fat binary），或加 `+PTX` 让驱动为未知架构 JIT 编译（首次运行慢）。
+
+   </details>

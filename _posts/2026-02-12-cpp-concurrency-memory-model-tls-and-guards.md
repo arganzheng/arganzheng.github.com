@@ -5,6 +5,7 @@ title: "C++ 在 AI-Infra（06）：并发、内存模型、TLS 与守卫"
 subtitle: "Concurrency, Memory Model, TLS and Guards"
 tags: [C++, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 `with torch.no_grad():` 大概是 PyTorch 用户最早学会的几个写法之一。它在 Python 侧是一个上下文管理器，`__enter__` 调 `torch.set_grad_enabled(False)`，`__exit__` 把旧值设回去。顺着 `torch._C._set_grad_enabled` 往下追，会落到 `torch/csrc/autograd/init.cpp` 里的这段 C++：
@@ -95,6 +96,7 @@ struct C10_API NoGradGuard : public AutoGradMode {
 | 十三 | mini-c10 | 原子引用计数、`GradMode.h`、`Parallel.h`；两个线程的 TLS 隔离演示 |
 | 十四 | 工程实践建议与常见错误 |  |
 | 十五 | 本文小结 |  |
+| 十六 | 自测 | 5 道题 |
 
 
 ## 二、线程、锁与条件变量：从 `c10::ThreadPool` 读起
@@ -2506,7 +2508,6 @@ out[12345] = 24690
 - **内存模型**：与 JMM 同源，但把 `volatile` 一档拆成六档。release 写与 acquire 读配对建立 happens-before；relaxed 只保证原子性。`intrusive_ptr` 的引用计数 +1 用 relaxed（不需要看到或发布任何数据），-1 用 acq_rel（每次减都可能是最后一次，必须同时扮演 release 和 acquire）。PyTorch 2.10 把强、弱计数合并进一个 64 位原子字段，但这个选择不变。
 - **`thread_local`**：语言级存储类别，每线程一份，不继承。c10 用它存 grad mode、dispatch key 集合、当前 CUDA stream 和设备、并行区域标志等所有"上下文"状态。零初始化的 POD 才能做成最快的 TLS，`LocalDispatchKeySet` 为此用了 XOR 编码。
 - **守卫**：RAII 从"管资源"推广到"管上下文"。三步骨架——保存旧值、设新值、析构恢复；删掉拷贝和移动；可作为成员组合。`NoGradGuard`、`InferenceMode`、`ExcludeDispatchKeyGuard`、`AutoDispatchBelowADInplaceOrView`、`DeviceGuard`、`CUDAStreamGuard`、`ThreadLocalStateGuard` 全是同一个模板。`DeviceGuard` 额外用"虚接口 + 内联模板"两层结构在不依赖 CUDA 的 `libc10` 里实现对 CUDA 设备的切换。
-- **核心问题的答案**：`torch.no_grad()` 通过 `torch._C._set_grad_enabled` → `c10::GradMode::set_enabled` 修改 `thread_local AutogradState autograd_state_tls` 的一个位；每个 autograd kernel 用 `GradMode::is_enabled()` 决定是否建图。它对其他线程不生效，因为 `thread_local` 每线程一份且不继承。PyTorch 在自己创建线程边界的地方（`at::launch`、autograd 引擎）用 `ThreadLocalState` 显式传播；`at::parallel_for` 出于性能刻意不传播，所以循环体里只能操作裸指针。
 - **`parallel_for`**：`Parallel.h` 定义接口，`Parallel-inl.h` 决定是否并行（元素数超过 `grain_size`、不在并行区域内、线程数大于 1），`ParallelOpenMP.h`/`ParallelNative.cpp` 提供 OpenMP 线程组或自有线程池两种执行层。线程数的优先级是 `torch.set_num_threads()` > `OMP_NUM_THREADS` > `MKL_NUM_THREADS` > 核数。
 - **CUDA launch 不用锁**：CUDA runtime 线程安全，同一 stream 上的工作按入队顺序执行；"当前设备"和"当前 stream"都是 TLS。锁只出现在进程级共享的数据结构上，如 caching allocator。
 - **SIMD**：`Vectorized<T>` 用模板全特化把各 ISA 的 intrinsics 包成统一类型，`inline namespace CPU_CAPABILITY` 让同一源码的多次编译产物不冲突，`cpu_kernel_vec` 把多线程分块和向量化叠在一起。
@@ -2514,6 +2515,56 @@ out[12345] = 24690
 mini-c10 这一篇把 `refcount_` 改成了 `std::atomic<size_t>`（与 c10 相同的 memory order），加了 `core/GradMode.h` 和 `std::thread` 版的 `Parallel.h`，并用两个线程演示了 `thread_local` 的隔离与 `parallel_for` 不传播 TLS 的事实。
 
 下一篇进入 C++ 与 Python 的边界：`PyObject`、GIL、pybind11 的类型转换，以及为什么 `py::gil_scoped_release` 是本篇讲的守卫模式在另一个运行时上的直接应用。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**C++ 层做了什么**：`torch.no_grad()` 的 `__enter__` 调 `torch._C._set_grad_enabled(False)` → `c10::GradMode::set_enabled(false)`，它修改的是一个 **`thread_local`** 变量 `autograd_state_tls`（`AutogradState`）里的 grad-mode 位；每个 autograd kernel 在决定是否记录 `grad_fn`、是否建图之前读 `GradMode::is_enabled()`；`__exit__` 把旧值写回。Python 层的 `no_grad` 与 C++ 层的 `NoGradGuard` 是同一个东西——RAII 守卫的三步骨架：保存旧值、设新值、析构（或 `__exit__`）恢复（第七、八章）。**为什么对其他线程不生效**：`thread_local` 是语言级存储类别，每个线程一份独立副本、新线程不继承创建者的值；主线程在 `no_grad` 里启动的 `DataLoader` worker 或 `ThreadPool` 任务读到的是自己线程的默认值 `True`。所以跨线程要显式传递上下文——`at::ThreadLocalState` 把 grad mode、dispatch key 集合、当前 stream 等 TLS 打包，`ThreadLocalStateGuard` 在工作线程里恢复；`parallel_for`、autograd 引擎的工作线程、`torch.jit.fork` 都这样做（第七、九章）。同一套 TLS 还管着 `InferenceMode`、`ExcludeDispatchKeyGuard`、`DeviceGuard`、`CUDAStreamGuard`——全是同一个守卫模板。
+
+</details>
+
+
+## 十六、自测
+
+1. `intrusive_ptr` 的引用计数 +1 用 `memory_order_relaxed`，−1 用 `acq_rel`，为什么不对称？
+
+   <details markdown="1"><summary>答案</summary>
+
+   +1 只需要原子性（拿到引用时对象必然已被别人持有，不需要发布或获取任何数据）；−1 每次都可能是最后一次——要 release（让之前对对象的写对析构可见）也要 acquire（看到其他线程的写），然后才能安全析构。
+
+   </details>
+
+2. `std::mutex` 与 Java 的 `synchronized` / `ReentrantLock` 在可重入性上差在哪？C++ 里锁怎么保证释放？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `std::mutex` 不可重入，同一线程再次 `lock` 是未定义行为（通常死锁）；可重入要 `std::recursive_mutex`。释放靠 RAII 守卫 `std::lock_guard` / `unique_lock`，作用域结束或异常展开时自动解锁。
+
+   </details>
+
+3. `condition_variable::wait` 为什么要传谓词、配 `unique_lock` 而不是 `lock_guard`？
+
+   <details markdown="1"><summary>答案</summary>
+
+   有虚假唤醒与多消费者竞争，必须在循环里重查条件（谓词版本内部就是 `while (!pred()) wait(lock)`）；`wait` 要在阻塞期间释放锁、唤醒后重新获取，需要能手动 lock / unlock 的 `unique_lock`。
+
+   </details>
+
+4. `torch.set_num_threads(4)`、`OMP_NUM_THREADS=8`、`MKL_NUM_THREADS=2` 同时存在，`parallel_for` 用几个线程？什么时候它根本不并行？
+
+   <details markdown="1"><summary>答案</summary>
+
+   4——优先级 `set_num_threads` > `OMP_NUM_THREADS` > `MKL_NUM_THREADS` > 核数。元素数不超过 `grain_size`、已在并行区域内、或线程数为 1 时直接串行执行。
+
+   </details>
+
+5. 多线程各自 launch CUDA kernel 需要加锁吗？“当前 stream”存在哪？
+
+   <details markdown="1"><summary>答案</summary>
+
+   不需要：CUDA runtime 线程安全，同一 stream 上的工作按入队顺序执行，不同线程默认各用自己 TLS 里的“当前 stream”与“当前设备”。锁只出现在进程级共享结构上，比如 caching allocator。
+
+   </details>
 
 
 ## 下一篇

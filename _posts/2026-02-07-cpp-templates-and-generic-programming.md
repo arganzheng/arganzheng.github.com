@@ -5,6 +5,7 @@ title: "C++ 在 AI-Infra（03）：模板与泛型编程"
 subtitle: "Templates and Generic Programming"
 tags: [C++, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 打开 `aten/src/ATen/native/cpu/Activation.cpp`，`log_sigmoid` 的 CPU kernel 里有这么一段（`log_sigmoid_cpu_kernel` 的 `else` 分支，删节）：
@@ -60,6 +61,7 @@ AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "log_sigmoid_cpu", [&] {
 | 十一 | mini-c10 | ScalarType 映射、`MINI_DISPATCH_FLOATING_TYPES`、ArrayRef、第一个模板化 kernel，用 nm 观察多份 kernel |
 | 十二 | 工程实践建议与常见错误 |  |
 | 十三 | 本文小结 |  |
+| 十四 | 自测 | 5 道题 |
 
 
 ## 二、模板是生成代码的配方
@@ -2221,6 +2223,56 @@ grep -n "fmul\|\tmul\tx8, x8, x9" mul.s
 | 类型见证 `Collections.<String>emptyList()` | 少用，通常能推导 | `data_ptr<float>()` 必须写 | C++ 不从返回值推导 |
 
 下一篇进入多态：`AT_DISPATCH` 解决了"按 dtype 选 kernel"，但"按设备（CPU/CUDA）选 kernel"是运行期的事，PyTorch 的 Dispatcher 用虚函数、函数指针、`std::function` 和手写类型擦除（`c10::KernelFunction`）把任意签名的 kernel 装进统一的表里。为什么 `TensorImpl` 有虚函数而 `Tensor` 没有，为什么 `KernelFunction` 同时有 boxed 和 unboxed 两条路径，`IValue` 和 Java 的 `Object` 有什么不同——这些是第四篇的内容。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**`scalar_t` 从哪里来**：`AT_DISPATCH_FLOATING_TYPES` 展开成一个对 `x.scalar_type()` 的 `switch`，每个 `case`（`kFloat`、`kDouble`）里写一句 `using scalar_t = c10::impl::ScalarTypeToCPPType<kFloat>::type;`（即 `float` / `double`），然后把传进来的 lambda 体原样粘贴在这个 `using` 之后——lambda 体里的 `scalar_t` 是这个 case 局部的类型别名，宏靠文本替换让同一段源码在不同 case 里指向不同类型（第八、九章）。**编译了几次**：这个 lambda 在源码里出现一次，但被粘贴进每个 `case`，等于写了 N 份（浮点两份；`AT_DISPATCH_ALL_TYPES_AND_HALF` 十几份），每份实例化出一套独立的机器码，运行时只执行匹配的那一个 `case`——这就是模板 / 泛型代码“编译期为每组参数生成一份”的代价与收益：没有装箱、没有虚调用、每种类型的循环都能向量化，换来编译时间与二进制体积（第二、三章）。与 Java 泛型的类型擦除（一份字节码、运行期 `Object`）正相反。
+
+</details>
+
+
+## 十四、自测
+
+1. `std::vector<int>` 与 `std::vector<float>` 在 C++ 里是几个类型、几份代码？Java 的 `List<Integer>` 与 `List<Float>` 呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   两个类型、两份实例化代码（元素紧密排列、无装箱）；Java 是同一个 `List` 类、一份字节码、元素装箱为 `Object`，类型信息编译后擦除。
+
+   </details>
+
+2. `template <int BLOCK_SIZE> __global__ void kernel(...)` 里 `BLOCK_SIZE` 是什么参数？为什么 kernel 要把它编进类型？
+
+   <details markdown="1"><summary>答案</summary>
+
+   非类型（值）模板参数，编译期常量；共享内存数组大小、循环展开次数、寄存器分配都要编译期知道它，运行时变量做不到——每个 tile 大小是一份独立的 kernel。Java 没有对应物。
+
+   </details>
+
+3. `c10::ArrayRef<int64_t>` 与 `std::vector<int64_t>` 传参各做什么？`ArrayRef` 的风险是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `vector` 按值传要拷贝整块数据，`const vector&` 只能接 vector；`ArrayRef` 是“指针 + 长度”的值类型，能从 `vector`、数组、`initializer_list` 统一构造、零拷贝——但它不延长被引用数据的生命期，存起来晚用就悬垂。
+
+   </details>
+
+4. 把一个 lambda 传给模板参数 `template <class F> void run(F f)` 与传给 `std::function<void()>`，代价差在哪？
+
+   <details markdown="1"><summary>答案</summary>
+
+   模板参数保留 lambda 的具体类型，调用可以内联、零开销；`std::function` 是类型擦除，可能堆分配捕获、通过间接调用执行，不能内联。PyTorch 内核路径用模板，边界与注册表用 `std::function` / `function_ref`。
+
+   </details>
+
+5. `x.data_ptr<float>()` 为什么必须写 `<float>`？如果 `x` 其实是 `double` 会怎样？
+
+   <details markdown="1"><summary>答案</summary>
+
+   C++ 不从返回值推导模板参数，必须显式给类型；`data_ptr<T>` 会检查 `scalar_type()` 与 `T` 是否匹配，不匹配抛 `TORCH_CHECK` 错误——这正是要在 `AT_DISPATCH` 的 `scalar_t` 分支里调用它的原因。
+
+   </details>
 
 
 ## 下一篇
