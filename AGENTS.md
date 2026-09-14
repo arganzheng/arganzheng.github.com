@@ -581,6 +581,13 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   are written 「《Transformer 与 LLM》第 N 篇」; their companion scripts stay
   in `ai-learning-labs/transformer-and-llm` (`llm_cost_09` … `_12`). Keep
   math out of `##`/`###` headings — the sidebar OUTLINE shows raw `\(…\)`.
+- **No bare `|` inside inline `$$…$$` in a paragraph** (`|A \cap B|`,
+  `\sum |w_i|`, `\mathbb{R}^{|\theta|}`): kramdown turns the whole paragraph
+  into a header-less one-row table and the formula is shredded (reader
+  reports #33 / #36, 2026-09-14; fixed in 5 posts). Write `\lvert … \rvert` /
+  `\lVert … \rVert` (escaped `\|` also survives). Audit:
+  `rg -l --multiline '<table>\s*<tbody>' _site --glob '*.html'` after a
+  build — the hits should only be old posts with intentional header-less tables.
 - Series 09 `rl-post-training-infra` (《RL 后训练基础设施：rollout 与训练如何共享
   一组 GPU》, overview `2026-08-26-rl-post-training-infrastructure.md`, Infra
   roadmap L4 alongside 07/08, promoted from 选修 on 2026-09-14) is complete: overview + 8 posts dated 2026-08-27 … 09-03 (written 09-14, all

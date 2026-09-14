@@ -4,13 +4,14 @@ title: "算法工程师的数学：读公式不卡壳的最小集"
 subtitle: "Mathematics for AI Algorithm Engineers: The Minimal Set to Read Papers and Derive Losses"
 tags: [AI, LLM, Math]
 catalog: true
+updated: 2026-09-14
 ---
 
 > 本文是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)第 L0 层（数学基础）的导读。它不是数学教程，而是一张"学到哪里为止、在哪里用到、怎么检验自己学会了"的清单。
 
 问算法工程师"需要多少数学"，得到的答案通常在两个极端之间摇摆：要么"不需要，调库就行"，要么"先把数学分析、矩阵论、测度论学完"。两个答案都不对。前者的问题是：读 DPO 论文卡在第一个公式、看到 loss 曲线不知道 1.8 是好是坏、把 A/B 差 1 个点当成结论；后者的问题是：学了两年还没有摸到模型。
 
-正确的答案是一个**最小集**：把后面所有层——深度学习、Transformer、后训练、压缩、多模态——要用到的数学列出来，只学这些，学到两个标准：**读公式不卡壳**（每个符号知道是什么、每个等号知道为什么成立），**推导 loss 不出错**（从建模假设出发，自己写出交叉熵、DPO、策略梯度的表达式）。本文按这个标准，把数学分成四个分支，每个分支只列后面用到的概念，每个概念说明它在哪一层、哪个公式里出现，并尽可能把它**算成一个数字**——因为算法工程师的数学最终要落到"这个决定花多少钱、这个差异是不是噪声"。
+正确的答案是一个**最小集**：把后面所有层——深度学习、Transformer、后训练、压缩、多模态——要用到的数学列出来，只学这些，学到两个标准：**读公式不卡壳**（每个符号知道是什么、每个等号知道为什么成立），**推导 loss 不出错**（从建模假设出发，自己写出交叉熵、DPO、策略梯度的表达式）。本文按这个标准，把数学分成四个分支，每个分支只列后面用到的概念，每个概念说明它在哪一层、哪个公式里出现，并尽可能把它**算成一个数字**——因为算法工程师的数学最终要落到"这个决定花多少钱、这个差异是不是噪声"。文中指向后面各层文章的链接都是**去向**——告诉你这个概念将在哪里用到、用到什么程度，不是前置阅读；按地图顺序学的读者读到这里时那些文章还没读，这是预期的。
 
 全篇的核心问题是：
 
@@ -34,45 +35,17 @@ catalog: true
 
 ### 2. 每个分支在后面哪里用到
 
-后面各层对四个分支的依赖是多对多的，一张图比表格看得清楚：
+后面各层对四个分支的依赖是多对多的，用一张矩阵看：行是后面的层，列是四个分支，格子里是那一层用到的概念（"—"表示基本不用）。
 
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 260}}}%%
-flowchart LR
-    LA["`**线性代数**
-形状 · 内积 · 范数 · SVD`"]
-    PR["`**概率与统计**
-条件分布 · MLE · 置信区间`"]
-    IT["`**信息论**
-熵 · 交叉熵 · KL`"]
-    CA["`**微积分与优化**
-链式法则 · 期望的梯度 · SGD`"]
-
-    L3["`**L3 深度学习**
-反向传播 · 初始化 · 优化器`"]
-    L4a["`**L4 Transformer**
-attention 的 GEMM · RoPE · 参数量`"]
-    L4b["`**L4 预训练**
-交叉熵 loss · scaling law 拟合`"]
-    L5a["`**L5 后训练**
-奖励模型 · DPO · PPO / GRPO · 蒸馏`"]
-    L5b["`**L5 评测**
-置信区间 · 显著性`"]
-    L6["`**L6 压缩**
-量化误差 · 投机解码接受率 · LoRA`"]
-    L7["`**L7 多模态**
-CLIP 对比学习 · 扩散的高斯噪声`"]
-
-    LA --> L3 & L4a & L6 & L7
-    PR --> L4b & L5a & L5b & L7
-    IT --> L4b & L5a & L6 & L7
-    CA --> L3 & L4b & L5a
-
-    classDef math fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
-    classDef layer fill:#eef4fb,stroke:#5b8dc9,stroke-width:1px,color:#222
-    class LA,PR,IT,CA math
-    class L3,L4a,L4b,L5a,L5b,L6,L7 layer
-```
+| 后面的层 | 线性代数 | 概率与统计 | 信息论 | 微积分与优化 |
+|---|---|---|---|---|
+| **L3 深度学习**：反向传播、初始化、优化器 | 形状规则、范数 | — | — | 链式法则、SGD |
+| **L4 Transformer**：attention 的 GEMM、RoPE、参数量 | 形状与 FLOPs、内积、旋转矩阵 | — | — | — |
+| **L4 预训练**：交叉熵 loss、scaling law 拟合 | — | 条件分布、MLE | 交叉熵、困惑度 | 期望的梯度、学习率 |
+| **L5 后训练**：奖励模型、DPO、PPO / GRPO、蒸馏 | — | Bradley-Terry、条件分布 | KL 及其方向、KL 约束下的最优策略 | 策略梯度 |
+| **L5 评测**：置信区间、显著性 | — | 统计推断 | — | — |
+| **L6 压缩**：量化误差、投机解码接受率、LoRA | 范数、SVD 与低秩 | — | 总变差距离 | — |
+| **L7 多模态**：CLIP 对比学习、扩散的高斯噪声 | 内积与余弦相似度 | 高斯分布 | 对比学习的交叉熵 | — |
 
 两个分支的去向值得先说明。**信息论**看起来最"理论"，却是后训练的主语言：SFT 的 loss 是交叉熵，RLHF 与 DPO 的约束是 KL，蒸馏的目标是 KL，投机解码的接受率是两个分布的总变差。**概率统计**里最容易被跳过的是统计推断那一半（置信区间、显著性），但它决定了 L5 评测的结论是否成立——没有它，"提升了 2 个点"只是一个没有含义的数字。
 
@@ -84,7 +57,7 @@ CLIP 对比学习 · 扩散的高斯噪声`"]
 | 三 | 概率与统计 | 语言模型是条件分布、MLE 到交叉熵、softmax 与温度、Bradley-Terry；算评测的置信区间 |
 | 四 | 信息论 | 熵与困惑度、交叉熵 = 熵 + KL、KL 的方向、KL 约束下的最优策略；推出 DPO |
 | 五 | 微积分与优化 | 链式法则与 softmax 梯度、期望的梯度与策略梯度、SGD 与学习率；Adam 留给 L3 |
-| 六 | 自测清单 | 八个公式，读懂算过关 |
+| 六 | 自测清单 | 八个公式：L0 的出口标准，每个标注用到的分支与本文对应的节 |
 | 七 | 怎么学 | 材料、顺序、按需回补的方法 |
 | 八 | 本文小结 |  |
 
@@ -97,7 +70,19 @@ CLIP 对比学习 · 扩散的高斯噪声`"]
 
 神经网络的绝大部分计算是矩阵乘法。$$A \in \mathbb{R}^{m \times k}$$ 乘 $$B \in \mathbb{R}^{k \times n}$$ 得 $$C \in \mathbb{R}^{m \times n}$$，内维 $$k$$ 必须相同，这是形状规则；每个输出元素是 $$k$$ 次乘加，共 $$m \cdot n \cdot k$$ 次乘加，即 $$2mnk$$ FLOPs，这是成本规则。两条规则加起来，就是读任何模型结构时的第一反应：**这一步的 $$m, k, n$$ 是多少**。
 
-代一个数字：Llama-3-8B 的 $$d = 4096$$，attention 的 $$W_Q \in \mathbb{R}^{4096 \times 4096}$$，一个 token 经过它是 $$[1, 4096] \times [4096, 4096]$$，$$2 \times 4096 \times 4096 \approx 33.5$$ MFLOPs；4096 个 token 的 prefill 就是 $$m = 4096$$，137 GFLOPs。[《Transformer 与 LLM》第二篇](/transformer-flops-bytes-and-roofline.html)把整个模型的账算完了，那篇的每一行都是这两条规则的应用。
+代一个数字。Llama-3-8B 的隐藏维度 $$d = 4096$$（`config.json` 里的 `hidden_size`），attention 里把输入投影成 query 的权重 $$W_Q$$ 是一个 $$4096 \times 4096$$ 的矩阵。一个 token 是一个长 4096 的行向量，经过 $$W_Q$$ 就是一次 $$[1, 4096] \times [4096, 4096]$$ 的矩阵乘；prefill 4096 个 token 时，输入摞成 $$[4096, 4096]$$，同一个 $$W_Q$$ 不变。把 $$m, k, n$$ 对上去，两条规则各走一遍：
+
+```text
+一个 token：   x [1 × 4096]   ×  W_Q [4096 × 4096]  →  q [1 × 4096]
+               m = 1             k = 4096, n = 4096
+               FLOPs = 2 m n k = 2 × 1 × 4096 × 4096 ≈ 33.5 M
+
+4096 个 token： X [4096 × 4096] ×  W_Q [4096 × 4096]  →  Q [4096 × 4096]
+               m = 4096          k = 4096, n = 4096
+               FLOPs = 2 × 4096 × 4096 × 4096 ≈ 137 G     ← m 大 4096 倍，FLOPs 也大 4096 倍
+```
+
+这里只要求会这两条规则；到了 L4，[《Transformer 与 LLM》第二篇](/transformer-flops-bytes-and-roofline.html)会用它们把整个模型的账算完，那篇的每一行都是这两条规则的应用。
 
 由此需要熟悉的相关概念：**转置**（$$(AB)^T = B^T A^T$$，PyTorch 里 `nn.Linear` 的权重存成 `[out, in]`，做的是 $$xW^T$$）；**张量**（多于两维的数组，$$[\text{batch}, \text{seq}, d]$$ 这样的形状；矩阵乘法只作用于最后两维，其余维度是批）；**广播**（形状不同的张量按规则对齐相加，NumPy 与 PyTorch 同一套规则）。这三样东西是 L1 里 NumPy 要建立的"形状直觉"的数学版。
 
@@ -105,13 +90,31 @@ CLIP 对比学习 · 扩散的高斯噪声`"]
 
 两个向量的内积 $$\langle a, b \rangle = a^T b = \sum_i a_i b_i$$ 是 attention score 的定义：$$q^T k$$ 越大，注意力越集中。$$L_2$$ 范数 $$\|a\|_2 = \sqrt{a^T a}$$ 是向量长度；把内积除以两个长度就是余弦相似度 $$\cos\theta = a^T b / (\|a\| \|b\|)$$，取值 $$[-1, 1]$$，与向量长度无关——embedding 检索、CLIP 的图文匹配用的都是它，因为想比的是"方向"而不是"大小"。
 
-范数还有另一个身份：**正则化项**。weight decay 在 loss 上加 $$\frac{\lambda}{2}\|W\|_F^2$$（Frobenius 范数，把矩阵拉直成向量的 $$L_2$$ 范数），$$L_1$$ 范数 $$\sum |w_i|$$ 产生稀疏解（Lasso）。量化误差也用范数度量：把 $$W$$ 量化成 $$\hat W$$，$$\|W - \hat W\|_F$$ 或 $$\|WX - \hat W X\|_F$$ 是 GPTQ 一类方法最小化的目标——后者说明量化不是逼近权重本身，而是逼近权重**作用在输入上的结果**。
+范数还有另一个身份：**正则化项**。weight decay 在 loss 上加 $$\frac{\lambda}{2}\|W\|_F^2$$（Frobenius 范数，把矩阵拉直成向量的 $$L_2$$ 范数），$$L_1$$ 范数 $$\sum \lvert w_i \rvert$$ 产生稀疏解（Lasso）。量化误差也用范数度量：把 $$W$$ 量化成 $$\hat W$$，$$\|W - \hat W\|_F$$ 或 $$\|WX - \hat W X\|_F$$ 是 GPTQ 一类方法最小化的目标——后者说明量化不是逼近权重本身，而是逼近权重**作用在输入上的结果**。
 
 ### 3. 特征值、SVD 与低秩
 
-矩阵的**秩**是它的列向量中线性无关的个数，也是它"真正携带的自由度"。任何 $$W \in \mathbb{R}^{m \times n}$$ 都能做奇异值分解 $$W = U \Sigma V^T$$：$$U, V$$ 是正交矩阵（列向量互相垂直、长度为 1），$$\Sigma$$ 是对角阵，对角线上是从大到小排列的奇异值 $$\sigma_1 \ge \sigma_2 \ge \dots$$。只保留前 $$r$$ 个奇异值，得到的 $$W_r = U_r \Sigma_r V_r^T$$ 是所有秩为 $$r$$ 的矩阵中离 $$W$$ 最近的一个（Eckart–Young 定理）——这是"低秩近似"的全部数学。
+矩阵的**秩**是它的列向量中线性无关的个数，也是它"真正携带的自由度"。任何 $$W \in \mathbb{R}^{m \times n}$$ 都能做奇异值分解 $$W = U \Sigma V^T$$：$$U, V$$ 是正交矩阵（列向量互相垂直、长度为 1），$$\Sigma$$ 是对角阵，对角线上是从大到小排列的奇异值 $$\sigma_1 \ge \sigma_2 \ge \dots$$。只保留前 $$r$$ 个奇异值，得到的 $$W_r = U_r \Sigma_r V_r^T$$ 是所有秩为 $$r$$ 的矩阵中离 $$W$$ 最近的一个（Eckart–Young 定理）——这是"低秩近似"的全部数学。画成形状（设 $$m \ge n$$）：
 
-LoRA 用的正是这个直觉：微调对权重的改动 $$\Delta W$$ 假设是低秩的，于是不存 $$\Delta W \in \mathbb{R}^{m \times n}$$，而存 $$B \in \mathbb{R}^{m \times r}$$ 与 $$A \in \mathbb{R}^{r \times n}$$，$$\Delta W = BA$$。参数量从 $$mn$$ 降到 $$r(m + n)$$。代数字：Llama-3-8B 的 $$W_Q$$ 是 $$4096 \times 4096 = 16.8$$M 参数，$$r = 16$$ 的 LoRA 是 $$16 \times (4096 + 4096) = 131$$K，只有 0.78%。对一层里全部七个线性层（Q、K、V、O、gate、up、down）都加 $$r = 16$$，一层是 1.31M，32 层共 41.9M，占 8.03B 的 0.52%。这就是"用半个百分点的参数微调一个模型"的算法。它管用的前提——$$\Delta W$$ 确实低秩——是一个经验假设，L5 讨论它何时成立、秩取多少。
+```text
+  W [m × n]   =    U [m × n]    ·   Σ [n × n]   ·   Vᵀ [n × n]
+
+  ┌─────────┐     ┌───────────┐   ┌─────────┐   ┌───────────┐
+  │         │     │ |  |    | │   │ σ₁      │   │ ── v₁ᵀ ── │
+  │    W    │  =  │ u₁ u₂ … uₙ│ · │   σ₂    │ · │ ── v₂ᵀ ── │
+  │         │     │ |  |    | │   │      ⋱  │   │     ⋮     │
+  └─────────┘     └───────────┘   └─────────┘   └───────────┘
+                  列互相垂直、长 1    降序的奇异值    行互相垂直、长 1
+
+  只留前 r 个奇异值（r ≪ n）：
+
+  W_r [m × n]  ≈   U_r [m × r]  ·  Σ_r [r × r]  ·  V_rᵀ [r × n]
+  参数量  m·n   →    m·r    +     r      +    r·n   ≈  r (m + n)
+```
+
+$$W$$ 的每一列都是 $$u_1, u_2, \dots$$ 的线性组合，系数由 $$\Sigma V^T$$ 给出；奇异值小的方向对 $$W$$ 贡献小，砍掉它们就是在"用 $$r$$ 个方向解释整个矩阵"。
+
+LoRA 用的正是这个直觉（$$B$$ 对应 $$U_r \Sigma_r$$、$$A$$ 对应 $$V_r^T$$，只是不再要求正交，直接当参数学）：微调对权重的改动 $$\Delta W$$ 假设是低秩的，于是不存 $$\Delta W \in \mathbb{R}^{m \times n}$$，而存 $$B \in \mathbb{R}^{m \times r}$$ 与 $$A \in \mathbb{R}^{r \times n}$$，$$\Delta W = BA$$。参数量从 $$mn$$ 降到 $$r(m + n)$$。代数字：Llama-3-8B 的 $$W_Q$$ 是 $$4096 \times 4096 = 16.8$$M 参数，$$r = 16$$ 的 LoRA 是 $$16 \times (4096 + 4096) = 131$$K，只有 0.78%。对一层里全部七个线性层（Q、K、V、O、gate、up、down）都加 $$r = 16$$，一层是 1.31M，32 层共 41.9M，占 8.03B 的 0.52%。这就是"用半个百分点的参数微调一个模型"的算法。它管用的前提——$$\Delta W$$ 确实低秩——是一个经验假设，L5 讨论它何时成立、秩取多少。
 
 特征值是 SVD 在方阵上的特例（对称矩阵 $$A = Q \Lambda Q^T$$）。用到它的地方：PCA（协方差矩阵的特征向量是方差最大的方向）、理解优化景观（Hessian 的特征值决定曲率，负特征值意味着鞍点）。两处都只需要概念，不需要手算。
 
@@ -119,7 +122,7 @@ LoRA 用的正是这个直觉：微调对权重的改动 $$\Delta W$$ 假设是�
 
 正交矩阵 $$R$$（$$R^T R = I$$）保持内积：$$(Ra)^T (Rb) = a^T b$$。二维旋转矩阵 $$R_\theta = \begin{pmatrix} \cos\theta & -\sin\theta \\ \sin\theta & \cos\theta \end{pmatrix}$$ 是最简单的正交矩阵，两次旋转相乘等于角度相加：$$R_\alpha R_\beta = R_{\alpha + \beta}$$，$$R_\alpha^T = R_{-\alpha}$$。
 
-RoPE 把 query 与 key 的每一对维度按位置 $$m$$ 旋转 $$m\theta$$，于是 $$(R_{m\theta} q)^T (R_{n\theta} k) = q^T R_{(n-m)\theta} k$$——内积只依赖相对位置 $$n - m$$。读懂这一行，[《Transformer 与 LLM》第四篇](/positional-encoding-and-long-context.html)的位置编码与长上下文外推就没有数学障碍了：外推方法（PI、NTK、YaRN）全是在改 $$\theta$$ 随维度的分布。把二维向量看成复数，旋转就是乘 $$e^{i m\theta}$$，这是 RoPE 论文的写法，两种记号等价。
+RoPE 把 query 与 key 的每一对维度按位置 $$m$$ 旋转 $$m\theta$$，于是 $$(R_{m\theta} q)^T (R_{n\theta} k) = q^T R_{(n-m)\theta} k$$——内积只依赖相对位置 $$n - m$$。读懂这一行，位置编码与长上下文外推就没有数学障碍了：外推方法（PI、NTK、YaRN）全是在改 $$\theta$$ 随维度的分布，L4 的[《Transformer 与 LLM》第四篇](/positional-encoding-and-long-context.html)会展开。把二维向量看成复数，旋转就是乘 $$e^{i m\theta}$$，这是 RoPE 论文的写法，两种记号等价。
 
 
 ## 三、概率与统计：语言模型是一个条件分布
@@ -241,7 +244,7 @@ $$
 
 **蒸馏**的目标是 $$D_{\mathrm{KL}}(p_{\text{teacher}} \| p_{\text{student}})$$ 逐 token 求和，student 学 teacher 的整个分布而不只是 argmax——软标签比硬标签多出的信息就是 teacher 分布里的"第二名、第三名是谁"。
 
-**投机解码**用小模型的分布 $$q$$ 起草、大模型的分布 $$p$$ 验证，一个草稿 token 被接受的概率是 $$\sum_x \min(p(x), q(x)) = 1 - \tfrac{1}{2}\sum_x |p(x) - q(x)|$$，即 1 减去总变差距离。两个分布越近接受率越高，而拒绝采样保证最终输出严格服从 $$p$$。[《Transformer 与 LLM》第七篇](/quantization-speculative-decoding-and-lora.html)从这一行推出加速比。
+**投机解码**用小模型的分布 $$q$$ 起草、大模型的分布 $$p$$ 验证，一个草稿 token 被接受的概率是 $$\sum_x \min(p(x), q(x)) = 1 - \tfrac{1}{2}\sum_x \lvert p(x) - q(x) \rvert$$，即 1 减去**总变差距离**（total variation distance，$$\mathrm{TV}(p, q) = \tfrac{1}{2}\sum_x \lvert p(x) - q(x) \rvert$$，等于两个分布对同一个事件给出的概率之差的最大值，取值 $$[0, 1]$$；它是比 KL 更"朴素"的分布距离，对称、有界）。两个分布越近接受率越高，而拒绝采样保证最终输出严格服从 $$p$$。[《Transformer 与 LLM》第七篇](/quantization-speculative-decoding-and-lora.html)从这一行推出加速比。
 
 **互信息** $$I(X; Y) = D_{\mathrm{KL}}(p(x, y) \| p(x) p(y))$$ 度量两个变量的相关程度，在对比学习（CLIP 的 InfoNCE 是互信息的下界）与表示学习理论里出现，知道定义即可。
 
@@ -252,7 +255,7 @@ $$
 
 ### 1. 导数、梯度、链式法则
 
-标量函数对向量的导数是**梯度** $$\nabla_\theta L \in \mathbb{R}^{|\theta|}$$，指向 $$L$$ 增长最快的方向；向量函数对向量的导数是 **Jacobian** 矩阵。复合函数 $$L = f(g(\theta))$$ 的导数是 $$\frac{\partial L}{\partial \theta} = \frac{\partial f}{\partial g} \frac{\partial g}{\partial \theta}$$，这是链式法则；反向传播就是从输出往输入方向逐层套用它，每层把上游传来的梯度乘上自己的局部 Jacobian。L3 会手推一个两层网络；这里只要求会一个最重要的局部导数。
+标量函数对向量的导数是**梯度** $$\nabla_\theta L \in \mathbb{R}^{\lvert \theta \rvert}$$，指向 $$L$$ 增长最快的方向；向量函数对向量的导数是 **Jacobian** 矩阵。复合函数 $$L = f(g(\theta))$$ 的导数是 $$\frac{\partial L}{\partial \theta} = \frac{\partial f}{\partial g} \frac{\partial g}{\partial \theta}$$，这是链式法则；反向传播就是从输出往输入方向逐层套用它，每层把上游传来的梯度乘上自己的局部 Jacobian。L3 会手推一个两层网络；这里只要求会一个最重要的局部导数。
 
 **softmax + 交叉熵的梯度。** 设 logits $$z$$，$$p = \text{softmax}(z)$$，真实标签 one-hot $$y$$，$$L = -\sum_j y_j \log p_j$$。对 $$z_j$$ 求导：
 
@@ -295,20 +298,20 @@ L4 的 scaling law 是数学在"算账"上最直接的应用。Chinchilla 拟合
 
 ## 六、自测清单：八个公式
 
-学完四个分支后，用后面各层的公式检验。标准是：每个符号知道是什么、每一步等号知道为什么、能说出它在算什么。
+这八个公式是 L0 的**出口标准**，不是本文的教学内容——本文是导读，只负责说清每个公式用到哪些概念、这些概念在本文哪一节有交代、该去哪份材料（第七章）把它学到能推的程度。所以第一次读到这里读不懂它们是正常的；正确的用法是**带着这张表去学**：卡在哪一个，看它右边两列，去补对应的分支，学完再回来。检验的标准是：每个符号知道是什么、每一步等号知道为什么、能说出它在算什么。
 
-| # | 公式 | 出处 | 用到的分支 |
+| # | 公式 | 出处 | 用到的分支（本文哪一节） |
 |---|---|---|---|
-| 1 | $$\mathcal{L} = -\frac{1}{T}\sum_t \log p_\theta(x_t \mid x_{<t})$$ | 预训练 / SFT 的 loss | 概率（MLE）· 信息论（交叉熵） |
-| 2 | $$\partial \mathcal{L} / \partial z = p - y$$ | softmax 与交叉熵的梯度 | 微积分（链式法则） |
-| 3 | $$\text{Attention}(Q, K, V) = \text{softmax}(QK^T / \sqrt{d_k})\, V$$ | Transformer | 线性代数（形状）· 概率（为什么除 $$\sqrt{d_k}$$） |
-| 4 | $$(R_{m\theta} q)^T (R_{n\theta} k) = q^T R_{(n-m)\theta} k$$ | RoPE | 线性代数（旋转矩阵） |
-| 5 | $$L(N, D) = E + A/N^\alpha + B/D^\beta$$，$$C \approx 6ND$$ | Chinchilla scaling law | 优化（约束极值）· 统计（拟合） |
-| 6 | $$-\log \sigma(\beta \log \frac{\pi_\theta(y_w)}{\pi_{\text{ref}}(y_w)} - \beta \log \frac{\pi_\theta(y_l)}{\pi_{\text{ref}}(y_l)})$$ | DPO | 概率（Bradley-Terry）· 信息论（KL 约束） |
-| 7 | $$\nabla_\theta J = \mathbb{E}_{\pi_\theta}[A(y)\, \nabla_\theta \log \pi_\theta(y)]$$ | 策略梯度 / PPO / GRPO | 微积分（期望的梯度） |
-| 8 | $$\alpha = \sum_x \min(p(x), q(x))$$ | 投机解码接受率 | 信息论（总变差） |
+| 1 | $$\mathcal{L} = -\frac{1}{T}\sum_t \log p_\theta(x_t \mid x_{<t})$$ | 预训练 / SFT 的 loss | 概率：链式法则、MLE（三.1–2）· 信息论：交叉熵（四.2） |
+| 2 | $$\partial \mathcal{L} / \partial z = p - y$$ | softmax 与交叉熵的梯度 | 概率：softmax（三.3）· 微积分：链式法则（五.1） |
+| 3 | $$\text{Attention}(Q, K, V) = \text{softmax}(QK^T / \sqrt{d_k})\, V$$ | Transformer | 线性代数：形状与内积（二.1–2）· 概率：为什么除 $$\sqrt{d_k}$$（三.4） |
+| 4 | $$(R_{m\theta} q)^T (R_{n\theta} k) = q^T R_{(n-m)\theta} k$$ | RoPE | 线性代数：正交与旋转矩阵（二.4） |
+| 5 | $$L(N, D) = E + A/N^\alpha + B/D^\beta$$，$$C \approx 6ND$$ | Chinchilla scaling law | 优化：约束极值（五.4）· 统计：拟合与不确定性（三.6） |
+| 6 | $$-\log \sigma(\beta \log \frac{\pi_\theta(y_w)}{\pi_{\text{ref}}(y_w)} - \beta \log \frac{\pi_\theta(y_l)}{\pi_{\text{ref}}(y_l)})$$ | DPO | 概率：Bradley-Terry（三.5）· 信息论：KL 方向与约束最优策略（四.3–4） |
+| 7 | $$\nabla_\theta J = \mathbb{E}_{\pi_\theta}[A(y)\, \nabla_\theta \log \pi_\theta(y)]$$ | 策略梯度 / PPO / GRPO | 微积分：期望的梯度（五.2） |
+| 8 | $$\alpha = \sum_x \min(p(x), q(x))$$ | 投机解码接受率 | 信息论：总变差距离（四.5） |
 
-八个都能读懂，L0 就够了，可以进入 L3；卡在哪一个，就回到对应分支补那一节。不需要"学完再走"——L4 的 04 系列与 L5 的论文本身就是最好的练习题。
+八个都能读懂，L0 就够了，可以进入 L3；卡在哪一个，就按右边那列回到对应分支——先看本文那一节知道要补什么，再用第七章的材料把它学会。不需要"学完再走"——L4 的 04 系列与 L5 的论文本身就是最好的练习题。
 
 
 ## 七、怎么学

@@ -212,7 +212,7 @@ $$
 \frac{\partial L}{\partial \theta_j} \approx \frac{L(\theta + \epsilon e_j) - L(\theta - \epsilon e_j)}{2\epsilon}
 $$
 
-的截断误差是 $$O(\epsilon^2)$$（单侧差分是 $$O(\epsilon)$$，所以用中心）。把它与解析梯度比，用**相对误差** $$|g_{\text{num}} - g_{\text{ana}}| / (|g_{\text{num}}| + |g_{\text{ana}}|)$$——绝对误差在梯度本身很小的元素上没有意义。
+的截断误差是 $$O(\epsilon^2)$$（单侧差分是 $$O(\epsilon)$$，所以用中心）。把它与解析梯度比，用**相对误差** $$\lvert g_{\text{num}} - g_{\text{ana}} \rvert / (\lvert g_{\text{num}} \rvert + \lvert g_{\text{ana}} \rvert)$$——绝对误差在梯度本身很小的元素上没有意义。
 
 ### 2. 为什么必须 float64
 
