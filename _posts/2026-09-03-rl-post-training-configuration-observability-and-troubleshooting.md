@@ -5,6 +5,7 @@ title: "RL 后训练基础设施（08）：配置、可观测与排障——从�
 subtitle: "Configuration, Observability and Troubleshooting for RL Post-Training Systems"
 tags: [RL, verl, vLLM, Observability, Distributed Training, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 凌晨两点，告警：reward 曲线从上升变成平台，步时间没变，日志里没有报错。这一步是训到第 400 步的 32B 推理模型 GRPO，128 张卡，`separate_async`。可能的原因至少四个：staleness 涨了（回答变长、同步没跟上）；训推不一致变大了（某个实例的 vLLM 在上一次弹性扩容后版本不同）；某个沙箱池挂了、它上面的任务 reward 全是零；上一次权重同步漏了一部分参数（一个实例的 `update_weights` 超时，版本号却推进了）。它们在 reward 曲线上长得一样。十分钟内区分它们，靠的不是这十分钟里的机智，是开训前采集了哪些信号——这是本系列最后一篇的主题。
@@ -58,6 +59,7 @@ RL 状态的 checkpoint 方案                                  恢复语义：�
 | 八 | 那十分钟：决策树 |
 | 九 | 引擎对平台的要求 |
 | 十 | 系列总结 |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、配置的推导顺序
@@ -430,3 +432,53 @@ gang scheduling   训练池 + rollout 池 + TransferQueue + agent loop worker �
 Infra 地图上与它相邻的下一块是**扩散模型的推理基础设施**——没有 KV cache、每步全量前向、视频是几万 token 的 3D attention × 几十步——那是另一张完全不同的账，计划作为选修短系列补在这个系列之后。
 
 **实践建议**：为你手上（或练手的 8 卡）RL 任务写一份"配置推导记录"——按第二章的六步，每步写下输入、输出与依据，末尾写下预期的全步 MFU 与三段时间；跑起来后把实测填在旁边。差得最多的那一项，就是这个任务最值得优化的地方，也是你对这张账理解最薄的地方。然后写值班手册：第一章那张表的四行，每行填上你面板里对应指标的名字与阈值。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+十分钟内归因，靠开训前就采集好的信号——每个嫌疑一个决定性指标。**staleness 涨了**：每个 mini-batch 的 staleness 分布（生成版本 vs 训练版本）与 `drop` / `wait` 比例；曲线变平台前 staleness 分布右移、被丢样本偏长 → 是它，检查 rollout 池是否变慢（长尾、KV 池、实例掉了）导致同步间隔内生成的样本变少。**训推不一致**：`rollout_probs_diff`（推理侧与训练侧 logprob 差）的均值与 P99——在同步形态下就开着作基线，跳升说明推理引擎版本、量化、MoE 路由出了变化；伴随 TIS / MIS 的截断 / 屏蔽比例上升。**沙箱池挂了、reward 全零**：按 reward 来源（规则 / 沙箱 / 生成式 RM）分开的 reward 分布与失败率、沙箱执行的成功 / 超时 / 错误计数、每个沙箱池的健康——reward 全零而 loss 正常、`response_length` 正常，是环境侧；步时间没变是因为 GPU 照常跑、只是 reward 没有信号。**权重同步漏了一部分参数**：同步后推理侧与训练侧的参数校验和（按 bucket 或按层的哈希、或抽样 tensor 的 `allclose`）、同步的桶数与字节数与预期是否一致、`rollout_probs_diff` 会持续偏大——漏同步的层让推理侧永远用旧参数（第五、六章）。**十分钟决策树**：先看 reward 按来源拆分 → 全零走环境路径；再看 `rollout_probs_diff` → 跳升走不一致 / 同步校验；再看 staleness 分布与淘汰比例 → 走异步配置；都正常才是算法问题（第八章）。前面的章：六步配置推导（模型 → 任务形态 → 卡数 → 三段时间 → 长尾 → 形态与配比）、全步 MFU 瀑布（把上限 13% 到实测的差逐项拆）、RL 状态的 checkpoint（策略 + 优化器 + 参考 + replay buffer + 版本号 + 沙箱状态）、确定性（seed、采样、kernel）、必采指标表与故障表（第二至七章）。
+
+</details>
+
+
+## 十一、自测
+
+1. reward 全零、loss 正常、步时间不变——最可能是什么？哪个指标一眼确认？
+
+   <details markdown="1"><summary>答案</summary>
+
+   reward 服务或沙箱池故障（超时全部返回 0）——GPU 照常生成与训练，只是奖励没有信号；看按来源拆分的 reward 分布与沙箱执行的成功 / 超时 / 错误计数，某个池的超时率 100% 即确认。
+
+   </details>
+
+2. `rollout_probs_diff` 为什么要在同步形态下就开着？它跳升的三种可能原因？
+
+   <details markdown="1"><summary>答案</summary>
+
+   它量的是训推不一致，同步形态下也存在（bf16 约 $$10^{-3}$$），有了基线才知道异步后的增量是 staleness 还是不一致；跳升：推理引擎升级 / 换 kernel、开了 FP8 或量化、MoE 路由翻转增多——或者权重同步漏了部分参数（持续偏大而非跳变）。
+
+   </details>
+
+3. RL 任务的 checkpoint 要比预训练多存什么？漏了会怎样？
+
+   <details markdown="1"><summary>答案</summary>
+
+   replay buffer 里的在飞样本与它们的生成版本、每个 rollout 实例的权重版本号、参考模型（若与初始不同）、沙箱 / 环境的任务进度与 seed、reward 服务的状态；漏了 buffer 与版本恢复后 staleness 语义错乱，漏了环境进度会重复或跳过任务。
+
+   </details>
+
+4. 全步 MFU 瀑布怎么做？上限 13% 到实测 8% 之间的差通常拆成哪几项？
+
+   <details markdown="1"><summary>答案</summary>
+
+   从理论上限出发逐项减：长尾（超出 $$T_{thr}$$ 的生成时间）、显存切换与权重同步、KV 池不足导致的波数增加、prefill 重算（KV 逐出）、训练侧的通信与气泡、等环境（Agent）、故障重试；每项用 `marked_timer` 的九个阶段时间与推理引擎指标算出来。
+
+   </details>
+
+5. 验证权重同步没漏参数，最便宜的做法是什么？为什么不能只看“同步成功”的日志？
+
+   <details markdown="1"><summary>答案</summary>
+
+   同步后对推理侧与训练侧按层或按桶算校验和（或抽几个 tensor `allclose`），对比桶数、字节数与预期；日志的“成功”只说传输完成，不说映射表是否覆盖了全部参数——新加的层（LoRA、MTP 头、embedding tied 与否）常被映射漏掉而没有任何报错。
+
+   </details>

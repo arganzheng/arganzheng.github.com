@@ -5,6 +5,7 @@ title: "RL 后训练基础设施（06）：Agentic rollout——多轮、工具�
 subtitle: "Agentic Rollout: Multi-Turn Trajectories, Tools, Sandboxes and Environment Services"
 tags: [RL, verl, Agent, vLLM, Kubernetes, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 前五篇的 rollout 是一件事：推理引擎批量生成。Agent 训练里它变成了一个分布式系统：模型生成一段，解析出工具调用，某个容器里跑一次测试（几十秒），结果追加进上下文，再生成——重复二十轮；同一时刻几千条这样的轨迹在跑，每条占着一个有状态的沙箱；reward 不是一个规则函数，是"测试通过了几个"。500 个代码任务 × $$G = 8$$ × 20 轮是 **8 万次容器执行**，每次 30 秒就是 **670 个 CPU·小时**——与模型侧这一步的十几个 GPU·小时按价格算是同一量级；要在 30 分钟内跑完，需要 **1300 到 1800 个并发沙箱**，取决于沙箱能否在两轮之间释放。
@@ -393,3 +394,53 @@ verl            AgentLoopBase.run · AgentLoopManagerTQ · LLMServerClient（粘
 下一篇：verl 源码导读——从一个 GRPO 配置追到每个 worker。
 
 **实践建议**：不需要 SWE-bench 规模。用 verl 的 `tool_agent_loop` 接一个最小的沙箱工具（一个容器池 + 一个 `execute` 跑 `python -c`），在 8 卡上用小模型跑几十步的多轮 RL；记三条曲线：每步的环境时间分布（各轨迹的墙钟直方图）、推理引擎的前缀缓存命中率（vLLM 日志里周期打印的 prefix cache hit rate，或 Prometheus 的 `vllm:prefix_cache_hits` / `vllm:prefix_cache_queries`）、GPU 的空闲比例（`rollouter/idle_ratio` 或 nvidia-smi 的采样）。然后把在飞轨迹数翻倍，看命中率掉多少、prefill 时间涨多少——那就是本篇第三章第 2 节的账在你的配置下的样子。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**环境账**：执行次数 $$B \times G \times \text{轮数} = 500 \times 8 \times 20 = 8$$ 万次容器执行；每次几十秒 × 核数，合计 667–1300 CPU·小时；要在 30 分钟内完成，沙箱并发 = 沙箱·秒 / 目标墙钟 ≈ 1300–1800 个——而且沙箱是有状态的（整条轨迹占着一个），所以并发数由在飞轨迹数决定；CPU 机器数常是 GPU 机器数的十倍、成本同量级——**沙箱并发是第三个配比变量**（第二、五章）。**GPU 这一侧**：32 张卡在这 30 分钟里 decode 只有约 500 秒——每轮生成几百 token、4000 条轨迹分批；prefill 160–1600 秒（常在 1000 以上）：一条 40K 的轨迹每轮要 prefill 全部历史，前缀缓存能把它从二次降到线性（十倍），但 **KV 驻留**决定命中率——几千条 40K 轨迹的 KV 是 KV 池的十倍以上，等环境的几十秒里被逐出，默认配置下 prefill 接近“没有缓存”的账，KV 卸载到主机内存 / 外部存储是主要出路；其余时间在**等环境**（第三、四章）。训练侧 15 EFLOP——八成 token 是环境返回的（`response_mask = 0`，不进 loss 但过前向反向）。**三段都重，外加一个 CPU 集群**。其他 Agent 特有的事：token 连续性（只拼接新增 token、不整体重编，轮边界按模型家族处理）；粘性路由是前缀缓存的前提也是负载不均的来源；低并发 + 长上下文让 decode 变成 KV 带宽受限、每卡 token/s 降 3–4 倍；沙箱隔离要求高于 CI（模型会刷 reward，沙箱边界就是 reward 边界）；服务化让现成 harness 直接接进训练；长尾来自环境方差 $$f > 0.8$$、同步形态不可用、部分 rollout 只能在轮边界、decoupled loss 接近必需（第六至九章）。
+
+</details>
+
+
+## 十、自测
+
+1. 500 任务 × $$G = 8$$ × 20 轮、每次执行 30 秒 × 4 核：多少次执行、多少 CPU·小时？30 分钟内完成要多少并发沙箱（无状态与有状态各算）？
+
+   <details markdown="1"><summary>答案</summary>
+
+   8 万次执行；$$80000 \times 30 \times 4 / 3600 \approx 2667$$ 核·小时（文中按核数不同给 667–1300）；无状态：$$80000 \times 30 / 1800 \approx 1333$$ 个；有状态（整条轨迹占一个）：在飞轨迹 4000 条 × 轨迹墙钟 / 30 分钟，常在 1300–1800。
+
+   </details>
+
+2. 一条 20 轮、最终 40K token 的轨迹，前缀缓存全命中与全重算的 prefill 各多少 token？实际由什么决定？
+
+   <details markdown="1"><summary>答案</summary>
+
+   全命中：只 prefill 每轮新增的部分，合计 ≈ 40K；全重算：每轮 prefill 全部历史 $$\sum$$ 平均上下文 ≈ 20 × 20K = 400K，10 倍；实际由 KV 驻留决定——在飞轨迹 × 平均上下文 × $$k_{kv}$$ 与 KV 池的比值 > 1 时按比例重 prefill。
+
+   </details>
+
+3. 为什么 Agent 训练里“低并发 + 长上下文”让 decode 每卡 token/s 降 3–4 倍？
+
+   <details markdown="1"><summary>答案</summary>
+
+   每步读的字节 = 权重 + 并发 × 上下文 × $$k_{kv}$$；上下文 40K 时 KV 项主导，而并发被 KV 池与等待环境的空档压低——每步时间被 KV 读取撑大、同时产出的 token 又少，吞吐降 3–4 倍。
+
+   </details>
+
+4. “沙箱边界就是 reward 边界”是什么意思？对隔离提出了什么高于 CI 的要求？
+
+   <details markdown="1"><summary>答案</summary>
+
+   reward 来自沙箱里的测试结果，模型能碰到的一切都可能被用来刷分——改测试文件、读隐藏答案、伪造输出；所以隐藏测试只读且不可见、网络隔离、文件系统与进程隔离、执行结果由沙箱外的判定器读取，任何一处漏就是 reward hacking 的入口。
+
+   </details>
+
+5. 为什么 Agent RL 里同步形态几乎不可用、decoupled loss 接近必需？
+
+   <details markdown="1"><summary>答案</summary>
+
+   长尾来自环境方差（超时、轮数、排队、重试），$$f > 0.8$$——同步形态下 GPU 大部分时间在等最慢的环境；异步后一条轨迹几十分钟、跨多个权重版本，部分 rollout 只能在轮边界（沙箱执行不可中断），staleness 大且分段，三份 logprob 的 decoupled 修正才能保住训练信号。
+
+   </details>

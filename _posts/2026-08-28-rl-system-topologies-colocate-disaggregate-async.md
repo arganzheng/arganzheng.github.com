@@ -5,6 +5,7 @@ title: "RL 后训练基础设施（02）：系统形态——共置、分离与�
 subtitle: "RL System Topologies: Colocated, Disaggregated and Asynchronous"
 tags: [RL, verl, vLLM, Ray, Distributed Training, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 上一篇算出的三段时间——生成 602 秒（其中长尾 196 秒）、前向 72 秒、训练 136 秒——是在"64 张卡先全部做生成、再全部做训练"的前提下算的。这只是三种可能之一。同样 64 张卡，也可以 46 张只做生成、18 张只做训练，两边同时跑；还可以更进一步，让训练不等生成、生成不等训练，各自按自己的节奏走。三种安排下，一步的墙钟分别是 **810 秒、约 750 秒、约 610 秒**，全步 MFU 分别是 **13%、14%、17%**——差别看起来不大，但那是因为上一篇的长尾假设（$$L_{max} / \bar L = 4$$）相当温和。把长尾放到推理模型训练里常见的程度，或者把 Agent 环境的等待加进来，第三种安排会比第一种快两到三倍，而 verl 的公开实验里正是这个数字。
@@ -500,3 +501,53 @@ separate_async  gen（取样等待，通常接近 0）┤ old_log_prob ┤ ref �
 下一篇：共置——训练器与推理引擎在同一组 GPU 上共存。
 
 **实践建议**：用上一篇的 `rl_ledger.py` 算出你的任务在全部卡上的 $$T_{thr}$$、$$T_{tail}$$、$$T_{train}$$，代进本篇第六章的三个公式，得到三种形态的墙钟与最优配比；再在 8 卡上分别用 `sync` 与 `colocate_async` 各跑 20 步，对比 `timing_s/gen` 与 reward 曲线——前者的差就是你的长尾，后者的差就是异步的代价。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+三种形态是同一张账上的三种交换。**共置**（64 卡先全部生成、再全部训练，中间显存换手）：墙钟 $$T_{gen} + T_{fwd} + T_{train} + T_{switch} + T_{sync}$$，每阶段用满全部卡，但生成的长尾期间训练器闲着——8B 推理场景约 810 秒、全步 MFU 13%（第二章）。**同步分离**（48 卡 rollout、16 卡训练，轮流）：比共置更差——任一时刻只有一个池在干活，$$T_{gen}(48) + T_{train}(16)$$ 两项都比用满 64 卡长；分离的价值只在**重叠**——一步流水让第 $$t$$ 步的生成与第 $$t-1$$ 步的训练并行，墙钟 $$\max(T_{thr} \cdot 64/48 + T_{tail}, T_{train} \cdot 64/16) + T_{sync}$$，代价是至少一步 off-policy（第三章）。**异步**（流式：rollout 池不停生成、训练池样本够了就训、权重按版本更新）：最优配比下墙钟 $$\approx T_{thr} + T_{train}$$——**异步 ≈ 共置 − 长尾**，拆掉同步墙的收益几乎全部来自长尾，吞吐部分并不变快；长尾占比 $$f$$ 从 10% 到 70%，异步 / 共置从 1.07× 到 2.5×，verl 公开的 2.35–2.67× 对应 7B、28K 上限、DAPO 的重尾场景（第四章）。**方差变大时谁先撑不住**：共置对长尾线性敏感、一步流水几乎同样敏感、异步不敏感——回答长度方差一大共置先撑不住，且卡越多共置的长尾浪费越大（64 → 128 卡几乎不提速）。配比按时间不按 FLOP（方向相反）且随回答变长而漂移，生产系统按 `idle_ratio` 动态调——弹性 rollout 实例或训练池兼职 rollout（verl `HybridEngineMode`）（第五、六章）。verl v1 的 `sync` / `colocate_async` / `separate_async` 共享控制流与 replay buffer，差别只在几个钩子（第七章）。
+
+</details>
+
+
+## 十一、自测
+
+1. 为什么“同步分离比共置更差”？给出一个数字直觉。
+
+   <details markdown="1"><summary>答案</summary>
+
+   共置：生成用 64 卡、训练用 64 卡，两段串行；同步分离 48 : 16：生成只用 48 卡（慢 1.33×）、训练只用 16 卡（慢 4×），仍然串行——任一时刻 16 或 48 张卡在等。分离只有在两段重叠时才有意义。
+
+   </details>
+
+2. 长尾占比 $$f = 50\%$$、$$T_{gen} = 600$$ s、$$T_{train} = 200$$ s：异步相对共置的加速约多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   异步收益 $$\approx 1 / (1 - f \cdot T_{gen} / (T_{gen} + T_{train})) = 1 / (1 - 0.5 \times 0.75) = 1.6\times$$——省掉的正是 300 s 的长尾。
+
+   </details>
+
+3. 异步形态的“最优配比”怎么定？为什么按时间不按 FLOP？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$n_r / n_t = T_{gen}^{(n)} / T_{train}^{(n)}$$（用满 $$n$$ 卡时两段的时间比，异步用 $$T_{thr}$$）；FLOP 上训练占一半、生成六分之一，时间上却是生成占四分之三——decode 的 MFU 只有个位数，按 FLOP 配会让 rollout 池严重不足。且回答变长时比例漂移，要动态调。
+
+   </details>
+
+4. HybridFlow 的“单控制器 + worker 组”怎么让三种形态共用一套代码？代价是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   算法数据流写在一个 driver 上，worker 组（actor、rollout、ref、critic）到资源池的映射决定形态——同一池是共置、不同池是分离、加缓冲与版本就是异步；代价是数据经过控制器（verl v1 用 TransferQueue 只传元数据）与每次调用的同步点（server 模式 rollout 绕开）。
+
+   </details>
+
+5. 回答长度方差从小变大，共置、一步流水、异步各怎么变？为什么卡越多共置越亏？
+
+   <details markdown="1"><summary>答案</summary>
+
+   共置墙钟随长尾线性增长（全部卡等最长的那条）；一步流水的 $$\max$$ 里生成项含 $$T_{tail}$$，几乎同样敏感；异步不敏感（长回答慢慢生成，训练器不等）。卡越多吞吐部分越短、长尾不变，长尾占比上升——64 → 128 卡几乎不提速。
+
+   </details>

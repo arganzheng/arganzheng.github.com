@@ -5,6 +5,7 @@ title: "RL 后训练基础设施（07）：verl 源码导读——从一个 GRPO
 subtitle: "Reading verl: From One GRPO Config to Every Worker"
 tags: [RL, verl, Ray, vLLM, FSDP, Source Code, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 前六篇每讲一个机制都给了 verl 里的落点：一个目录、一个类、一个函数名。这一篇把落点串成线。线的起点是一条命令——`python -m verl.trainer.main_ppo algorithm.adv_estimator=grpo trainer.nnodes=1 trainer.n_gpus_per_node=8 ...`——终点是 8 张卡上各自的进程在做什么、一个训练步的数据怎样在它们之间流动、一个 bf16 参数从优化器更新完成到推理引擎用它生成下一个 token 经过哪些函数。追完这条线，前六篇的"账"与"机制"就都有了代码的锚点；再看 slime 与 AReaL 在同一条线的哪几段做了不同的选择，就能分清哪些是这类系统的必然、哪些是 verl 的取舍。
@@ -533,3 +534,53 @@ reward          verl/workers/reward_manager/ · docs/advance/reward_loop.rst
 下一篇：配置、可观测与排障——从一张卡的比例到一条 hang 的排查。本篇之后系列的最后一篇。
 
 **实践建议**：在 8 卡上跑 `run_qwen3_4b_fsdp.sh`，`trainer.logger` 加上 `console`，把一步日志里的 `timing_s/*` 逐项对到本篇第七章的九个阶段；然后开 Ray dashboard 看 actor 列表——数一数有几类进程、各在哪张卡上，与第一章的进程地图对一遍；最后在 `ActorRolloutRefWorker.update_weights` 的每个 `log_gpu_memory_usage` 处把时间戳也打出来，得到你这个配置下第一章那十二步各自的秒数。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**十二步**：`train_batch` 更新本 rank 的分片 → `on_step_end` → `CheckpointEngineManager.update_weights`（naive 后端）→ `ActorRolloutRefWorker.update_weights` → 推理引擎 `wake_up(["weights"])`（只挂权重区）→ `get_per_tensor_param`（FSDP / Megatron 逐参数 all-gather 成 HF 名字与形状的张量流）→ `BucketedWeightSender`（512 MB 桶，CUDA IPC 句柄 + ZMQ 元数据）→ 同卡 vLLM 进程里的 `vLLMColocateWorkerExtension.update_weights_from_ipc`（打开句柄、取自己的 TP 分片、`load_weights`）→ 全部桶完成后 `wake_up(["kv_cache"])` → `reset_prefix_cache` → `resume` 调度 → 下一步 `generate` 的第一个 token。进程：driver（单控制器）、hybrid worker 进程（一个进程持有 actor / ref / rollout 多个角色对象，`create_colocated_worker_cls` 拼、`spawn` 拆句柄）、同卡的 vLLM 进程（`RolloutReplica` + `vLLMHttpServer` 包 `AsyncLLM`）；链路：进程内 all-gather 走 NCCL、跨进程走 CUDA IPC（共置）、非 naive 后端走 NCCL 双缓冲广播 / NIXL、Mooncake 环 / delta 稀疏 gather（第二至六章）。**前六篇落到代码**：`@register(dispatch_mode)` + `RayWorkerGroup._bind_worker_method` 是单控制器（第二篇）；`create_colocated_worker_cls` 是共置（第三篇）；checkpoint engine 的七步是权重同步（第四篇）；TransferQueue + `ReplayBuffer.sample` + `refill_fn` 是异步（第五篇）；`agent_loop_tq.py` 是 agent（第六篇）；`_step_once` 九个阶段各一个 `marked_timer`，算法全在 `core_algos.py`（第七章）。**slime 与 AReaL 的不同选择**：slime 赌“少一层抽象”——只绑 Megatron + SGLang、参数透传；AReaL 赌“异步是主线”——准入控制 + decoupled PPO 默认。三家趋同的（服务化推理引擎、HF 张量流做中间表示、replay buffer、agent 函数接口）是必然，不同的（抽象厚度、默认形态、控制点、修正默认、组合自由度）是取舍（第八章）。
+
+</details>
+
+
+## 十二、自测
+
+1. `@register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)` 挂在 worker 方法上做了什么？谁把它变成“组方法”？
+
+   <details markdown="1"><summary>答案</summary>
+
+   只给函数挂一个属性（分发模式、是否阻塞）；`RayWorkerGroup._bind_worker_method` 在 driver 侧遍历 worker 类，对带属性的方法生成“切分参数 → 发给各 worker → 收集结果”的组方法绑到 worker group 上——driver 调一次，所有 worker 各执行一份。
+
+   </details>
+
+2. 共置在代码里是怎么实现的？一个进程里 actor 与 rollout 怎么共存？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `create_colocated_worker_cls` 把多个 worker 类合成一个类，一个 Ray actor 进程里同时持有 actor / ref / rollout 的对象；`spawn` 把它拆成多个句柄让 driver 像分开的组一样调用；`ActorRolloutRefWorker` 三层（角色 / `TrainingWorker` / `BaseEngine`）里 RL 侧只调引擎的六七个方法。
+
+   </details>
+
+3. verl 的 rollout 为什么做成 `RolloutReplica` + HTTP server？与直接在 worker 里调 `LLM.generate` 比多了什么、换回什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   一个 replica 等价一条 `vllm serve`，`vLLMHttpServer` 是包着 `AsyncLLM` 的 Ray actor，`LLMServerClient` 做最空实例 + 粘性路由；多了一层进程与 HTTP，换回 agent loop 用 OpenAI 接口接现成 harness、异步形态下 rollout 与训练解耦、server 模式绕开控制器的同步点。
+
+   </details>
+
+4. non-naive checkpoint engine 的七步是什么？三种引擎形状各适合什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   abort（停调度）→ 建临时进程组 → send ∥ receive（双缓冲）→ finalize → 恢复调度器状态 → resume；NCCL 双缓冲广播适合固定集群同步形态；NIXL / Mooncake 环适合弹性、异构、跨机的分离形态；delta 稀疏 gather 适合大模型 / MoE 的增量同步。
+
+   </details>
+
+5. slime 与 AReaL 各赌了什么？三家“必然趋同”的四段是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   slime：少一层抽象——只支持 Megatron + SGLang，参数直接透传，代码薄；AReaL：异步是主线——准入端控制 staleness（`max_head_offpolicyness`）、decoupled PPO 默认。趋同：推理引擎服务化、HF 张量流做训推之间的中间表示、replay buffer 作为同步 / 异步的解耦点、agent 以函数 / loop 接口接入。
+
+   </details>

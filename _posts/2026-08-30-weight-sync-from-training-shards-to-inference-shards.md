@@ -5,6 +5,7 @@ title: "RL 后训练基础设施（04）：权重同步——从训练分片到�
 subtitle: "Weight Synchronization: From Training Shards to Inference Shards"
 tags: [RL, verl, vLLM, Megatron, NCCL, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 每一步训练结束，优化器改完了参数，推理引擎里的那份权重就旧了。把新权重送过去听起来是一次拷贝——8B 模型 16 GB，NVLink 一秒、InfiniBand 几秒。但两边的权重**不是同一个形状的东西**：训练器里它是 FSDP 按第 0 维切成 64 份的 DTensor，或者 Megatron 的 TP = 4 × PP = 2 × EP = 8 分片，QKV 三个矩阵融合成一个、专家堆叠成一个大张量、名字是 `decoder.layers.3.self_attention.linear_qkv.weight`；推理引擎里它是 vLLM 按 TP = 8 切的列、专家按 EP = 4 分组、可能是 FP8 加一组 128 × 128 的块缩放、名字是 `model.layers.3.self_attn.qkv_proj.weight`。所以"同步"是两件事：**布局**（怎样从一种切法映射到另一种）和**传输**（字节从哪张卡到哪张卡、走哪条链路）。前者决定要不要在中间过一遍"完整张量"、由谁过；后者决定秒数。
@@ -417,3 +418,53 @@ bucket          512 MB；峰值 2 bucket；次数 = 2N / bucket
 下一篇：异步与 off-policy——把同步的墙拆掉之后要补什么。
 
 **实践建议**：不依赖框架，用 100 行写一个最小的 FSDP2 → vLLM 同步：两个进程组（训练 2 卡、vLLM TP=2 两卡），训练侧 `state_dict()` 逐参数 `full_tensor()`、装 512 MB bucket、`dist.broadcast` 到 vLLM 的 rank，vLLM 侧 `collective_rpc("load_weights", ...)`；用 `torch.cuda.Event` 量三段（gather / 广播 / 加载）各自的时间，与本篇第五章的流水模型对一遍；然后把 bucket 改成 64 MB 与 2 GB 各跑一次，看曲线。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**几步映射**：权重同步是布局 + 传输两半。布局把 Megatron TP4 / PP2 / EP8 的分片翻译成 HF 名字与形状的张量流（Megatron-Bridge 做 mcore → HF：拆交错的 QKV、拆 gate / up、专家本地编号 → 全局编号、PP 的层号偏移），再由推理侧按 vLLM TP8 / EP4 的布局取自己那份并在线量化到 FP8（scale 是必须一起传的权重）；中间接口是 `(name, tensor)` 生成器，让 3 种训练后端 × 3 种推理后端共用一套传输（第二、三章）。**传多少字节**：671B FP8 是 $$N$$ 字节 ≈ 671 GB（bf16 传是 $$2N$$）；增量同步只传变化的参数——MoE 每步只有 0.02–0.05% 的参数变化，几百 MB（第六章）。**走哪条链路、几秒**：朴素路径“逐参数 all-gather → rank 0 广播”让全模型经过一张网卡且要在 rank 0 物化，235B 要四分多钟、671B 经 rank 0 60–80 秒——与网络快慢无关，瓶颈是“谁持有完整模型”；多源 / P2P（NIXL / Mooncake 的 RDMA 环、checkpoint-engine 经 CPU 的 P2P + 节点内广播）让每张网卡各发一份，$$T \approx 2N / \sum$$ 发送方网卡，1T 千卡约 20 秒、671B 约 12–20 秒；增量（`delta_sharded`：每 rank 对自己分片做 bit-exact diff、稀疏 gather、原地覆盖）几乎不随 $$N$$ 变，32B 到 235B 持平 12–15 秒，235B 上比全量快 21 倍（第四、五、六章）。**省多少**：省的不只是字节，是“没有人持有完整模型”。同步形态下占步时间 10% 以上就该上增量；异步形态下 $$T_{sync} / (kT_{mb} + T_{sync})$$ 决定 rollout 池的空转，同步越快 $$k$$ 能越小（第七章）。分桶 512 MB 让通信次数与峰值显存与模型大小无关，双缓冲让填 / 传 / 装重叠。
+
+</details>
+
+
+## 十一、自测
+
+1. Megatron 的 QKV 权重与 HF 的 `q_proj` / `k_proj` / `v_proj` 差在哪？Megatron-Bridge 做什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   Megatron 把 Q、K、V 按 head 交错拼成一个矩阵（每个 KV 组的 q 头、k、v 相邻，便于 TP 切分），HF 是三个独立矩阵；Bridge 按 head 拆开重排、gate / up 拆开、专家编号从本地转全局、PP 层号加偏移——输出 `(name, tensor)` 的 HF 张量流。
+
+   </details>
+
+2. “逐参数 all-gather → rank 0 广播”为什么与网络快慢无关地慢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   全模型的每个字节都要经过 rank 0：一张网卡发 $$2N$$ 字节（235B 是 470 GB / 8–10 GB/s 有效 ≈ 50 s 起）、且 rank 0 要物化完整模型（显存或主机内存）；其他 rank 的网卡闲着。换更快的网也只快一张卡。
+
+   </details>
+
+3. 分桶 512 MB、双缓冲各解决什么？为什么峰值显存与模型大小无关？
+
+   <details markdown="1"><summary>答案</summary>
+
+   分桶让每次传输的消息大小固定、次数 = $$2N$$ / 512 MB，NCCL / RDMA 效率稳定；双缓冲让“填桶（all-gather）/ 传桶 / 装桶（推理侧加载）”三步在两个桶上流水；任何时刻只有两个桶在飞，峰值 1 GB，与 $$N$$ 无关。
+
+   </details>
+
+4. 增量同步的前提是什么？dense 与 MoE 每步各变化多少？为什么 MoE 收益更大？
+
+   <details markdown="1"><summary>答案</summary>
+
+   每 rank 能对自己的分片做 bit-exact diff（保留上一版本的副本或哈希）、推理侧支持原地稀疏覆盖；dense 每步 1–3% 的参数值变化，MoE 只有 0.02–0.05%（每步只有被路由到的专家更新）——MoE 参数多、变化少，增量省得最多。
+
+   </details>
+
+5. 同步形态一步 10 分钟、同步 60 秒；异步形态 $$k = 2$$、$$T_{mb} = 2$$ 分钟、同步 60 秒：各浪费多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   同步：60 / 600 = 10%，正好是“该上增量”的阈值；异步：rollout 池空转 $$T_{sync} / (kT_{mb} + T_{sync}) = 60 / 300 = 20\%$$——同步越快 $$k$$ 能越小（staleness 越低）而不多付空转。
+
+   </details>

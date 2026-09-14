@@ -5,6 +5,7 @@ title: "RL 后训练基础设施（05）：异步与 off-policy——把同步�
 subtitle: "Asynchrony and Off-Policy: What You Owe After Tearing Down the Synchronization Wall"
 tags: [RL, verl, AReaL, GRPO, Distributed Training, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 第二篇的结论是异步把长尾吞掉、把一步的墙钟从 12 分钟压到 5 分钟。代价写得很轻："样本过期"。这一篇把这个代价展开——它其实是三个不同的东西，各有各的机制、各有各的信号，混在一起时 reward 曲线只会告诉你"变缓了"，不会告诉你为什么。
@@ -393,3 +394,53 @@ decoupled PPO    w = π_prox/π_behave（无梯度）× clip(π_θ/π_prox)；3 
 下一篇：Agentic rollout——多轮、工具、沙箱与环境服务。
 
 **实践建议**：在 8 卡上用 `colocate_async` 跑一个小模型的 GRPO，`max_off_policy_threshold` 取 1 / 2 / 4 / 8 各跑 50 步，每次记下 `training/rollout_probs_diff_mean`、`off_policy/evicted_samples_staleness/mean`、被 drop 的组数、被训练样本的平均长度与 reward 曲线；再把推理侧换成 FP8 重跑阈值 2 那一档，看 `probs_diff` 涨多少、reward 差多少——这两组数据放在一起，就是本篇第八章诊断表在你的配置下的基线。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+reward 曲线上三个原因不可分，事前记录的信号上可分。**staleness**（时间上的 off-policy）：样本生成时的策略版本比训练版本旧 $$s$$ 个版本，$$s \approx \lfloor(\text{生成用时} + \text{缓冲等待}) / T_{sync}\rfloor$$，与回答长度正相关——所以 `drop` 策略系统性地丢长回答；要记每个样本的生成版本与训练版本、每个 mini-batch 的 staleness 分布、`drop` / `wait` 的比例与被丢样本的长度分布。**训推不一致**（实现上的 off-policy，同步形态下也有）：推理引擎与训练器算出的 $$\log\pi$$ 不同——浮点顺序与 kernel（$$10^{-3}$$，无害）、采样实现、FP8（$$10^{-2}$$ 起）、MoE 路由翻转（单 token 可到 1 以上）；要记 `rollout_probs_diff`（推理侧与训练侧 logprob 的差）——**在同步形态下就开着作基线**，切异步后它变大才说明是这个原因。**缓冲淘汰**（筛选上的分布偏移）：drop / wait、DAPO 的全对全错过滤、失败样本丢弃、流式的完成顺序（先短后长）各有偏置方向且比例随训练变化；要记每类淘汰的比例、进入训练的样本长度 / reward 分布与生成侧的对比（第二、三、四、七章）。**斜率变缓的判读**：staleness 分布右移 + 被丢样本偏长 → 是 staleness，降 $$k$$ 或改 `wait` / 部分 rollout；`rollout_probs_diff` 跳升 → 是不一致，开 TIS / MIS 或路由回放；淘汰比例变化 + 训练样本分布偏移 → 是缓冲规则。修正的系统要求是 logprob 的份数：重算（2 份，修不一致不修 staleness）、不重算（2 份，修 staleness 不修不一致）、decoupled PPO（3 份 behave / prox / θ，两者都修，verl 用 CPU 快照切换实现）。公开消融 $$s \le 2$$–4 配修正基本无损（第五、六章）。
+
+</details>
+
+
+## 十一、自测
+
+1. staleness 为什么与回答长度正相关？这让 `drop` 策略产生什么偏置？
+
+   <details markdown="1"><summary>答案</summary>
+
+   长回答生成时间长，期间权重更新了更多次，$$s$$ 更大；`drop` 丢掉 $$s$$ 超阈值的样本就系统性地丢长回答——训练分布偏短，模型学会写短。`wait` 无偏但训练器要等；部分 rollout 让长回答跨版本续接、每段 $$s$$ 都小。
+
+   </details>
+
+2. 部分 rollout 付出什么代价？为什么 $$\pi_{old}$$ 必须用推理侧的 logprob？
+
+   <details markdown="1"><summary>答案</summary>
+
+   续接时对已生成的前缀重 prefill（一步 FLOP 的几个百分点，每次同步都付）；一条回答的不同段由不同版本生成，训练侧重算的 $$\pi_{old}$$ 只能是一个版本——分段的 behave 策略只有推理侧逐 token 记录的 logprob 才对。
+
+   </details>
+
+3. decoupled PPO 需要哪三份 logprob？各来自哪？重要性权重怎么写？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$\pi_{behave}$$（生成时的版本，推理侧记录）、$$\pi_{prox}$$（训练这个 mini-batch 开始时的版本，verl 用 CPU 快照切回算）、$$\pi_\theta$$（当前参数）；$$w = \pi_{prox} / \pi_{behave}$$（无梯度，修 staleness）× $$\text{clip}(\pi_\theta / \pi_{prox})$$（PPO 的信任域，修不一致与一步内的漂移）。
+
+   </details>
+
+4. `rollout_probs_diff` 在 dense bf16、FP8、MoE 上各是什么量级？哪一档必须修？
+
+   <details markdown="1"><summary>答案</summary>
+
+   dense bf16 约 $$10^{-3}$$（浮点顺序，无害）；FP8 $$10^{-2}$$ 起；MoE 路由翻转不连续、单 token 可超过 1——必须修：token 级 TIS（$$\min(w, 2)$$ 截断）或 MIS（越界屏蔽），MoE 另有路由回放（把推理侧的路由决定传给训练侧）。
+
+   </details>
+
+5. 流式异步里“先短后长的完成顺序”为什么本身是一种偏置？补发与预热管什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   同一批 prompt 的短回答先完成先进缓冲、先被训练，长回答后到——每个 mini-batch 的长度分布不是总体分布，且长回答的 $$s$$ 更大；补发（refill）保持缓冲里 prompt 的覆盖，预热（`num_warmup_batches`）让初始 staleness 不为零就开始训。
+
+   </details>

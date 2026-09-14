@@ -5,6 +5,7 @@ title: "RL 后训练基础设施（01）：负载画像——一步 RL 里发生
 subtitle: "Anatomy of an RL Step: Rollout, Reward and Train"
 tags: [RL, verl, vLLM, GRPO, Distributed Training, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 一个 8B 的策略模型做 GRPO：512 个 prompt、每个采 16 条回答、回答平均 8K token。这一步要生成 6700 万个 token，参考模型与旧策略要再各过一遍 7100 万个 token 的前向，训练要对同样多的 token 做前向加反向。合计 6.8×10¹⁸ FLOP，其中训练占一半、生成只占六分之一。但在 64 张 H100 上，生成要 600 秒、训练 135 秒——**按时间生成占四分之三**。整步下来，64 张卡的算力只用到了 13%。
@@ -533,3 +534,53 @@ decode 步   t_step = (权重副本 + c (P + L̄/2) k_kv) / (t · BW · η_bw)  
 > **同样 64 张卡、同样的 GRPO 配置，共置、分离与异步三种形态下，一步的墙钟时间与 GPU 利用率各是多少？回答长度的方差从小变大时，哪种形态先撑不住？**
 
 下一篇：系统形态——共置、分离与异步。配套代码：[`rl-post-training-infra/rl_ledger.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/rl-post-training-infra/rl_ledger.py)。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**一步生成多少**：$$B \times G \times \bar L = 512 \times 16 \times 8\text{K} = 6700$$ 万 token；KV 按 8B 的 GQA 每 token 128 KiB、每条序列 prompt + 回答约 10K，全部在飞的 KV 是几十 TiB——64 张 H100 的 KV 池只有几 TiB，所以 rollout 必须**分波**，单实例并发 $$c = \lfloor(0.9tM - \text{权重副本}) / ((P + \bar L/2) k_{kv})\rfloor$$，几百条一波、十几波（第三章）。**三段各多少 GPU·秒**：FLOP 账每 token 约 $$12N_a$$——生成 $$2N_a$$、三个前向（旧策略重算、参考、RM）各 $$2N_a$$、训练 $$6N_a$$，一步 6.8 EFLOP；但时间不按 FLOP 分：decode 每步把整块 HBM 读一遍约 36 ms、与模型和序列长度无关，长思维链下 decode MFU 只有个位数，生成还有长尾（$$L_{max} - \bar L$$ 步，602 秒里 196 秒是长尾）；结果 810 秒的一步里生成 74%、训练 17%、前向 9%（第四、五章）。**GPU 平均利用率的理论上限**：全步 MFU = $$\sum T_i \eta_i / \sum T_i$$，生成段 MFU 个位数拖累全局，8B 推理场景上限约 13%，对话场景（回答短）29%；回答越长越极端（第六章）。后面每一篇解决的就是实际值与这个上限的差：生成时训练器不闲着（共置 / 异步，第二、五篇）、砍长尾（第五篇）、提高 decode 带宽效率（推理引擎的事）——FLOP 一侧没有杠杆。账是动态的：回答长度随训练变长，配比不能一次定死（第七章）。
+
+</details>
+
+
+## 十一、自测
+
+1. GRPO 一步每个 token 约 $$12N_a$$ FLOP，拆成哪几项？PPO 多出的 $$8N_a$$ 是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   生成 $$2N_a$$（每个回答 token 一次前向）、旧策略 logprob 重算 $$2N_a$$、参考模型 $$2N_a$$、奖励模型 $$2N_a$$、策略训练 $$6N_a$$；PPO 再加价值模型的前向 $$2N_a$$ 与训练 $$6N_a$$。训练占一半、生成只占六分之一——但时间上生成占四分之三。
+
+   </details>
+
+2. decode 一步约 36 ms “与模型和序列长度无关”是怎么来的？
+
+   <details markdown="1"><summary>答案</summary>
+
+   KV 池填满后每步读的字节 ≈ 权重副本 + 全部 KV ≈ 0.9 × 显存，$$t_{step} \approx 0.9M / (BW \cdot \eta_{bw})$$ = 0.9 × 80 GB / (3.35 TB/s × 0.6) ≈ 36 ms——由显存大小与带宽决定；模型小就能塞更多并发，每步时间不变、吞吐变高。
+
+   </details>
+
+3. 8B、$$G = 16$$、$$\bar L = 8$$K、prompt 2K，一张 H100 上 vLLM 单实例能并发多少条？
+
+   <details markdown="1"><summary>答案</summary>
+
+   KV 池 ≈ 0.9 × 80 − 16（权重）≈ 56 GB；每条平均占 $$(2\text{K} + 4\text{K}) \times 128$$ KiB ≈ 768 MB；$$c \approx 73$$ 条。6700 万 token / 8K = 8192 条序列，64 卡 × 73 ≈ 4700 并发，约 2 波。
+
+   </details>
+
+4. 生成时间 602 秒里 196 秒是长尾，长尾是什么、由什么决定？为什么 64 → 128 卡几乎不提速？
+
+   <details markdown="1"><summary>答案</summary>
+
+   最后一批最长的回答（$$L_{max} - \bar L$$ 步）在几乎空的 GPU 上独自 decode，每步读权重却只产几个 token；由回答长度分布的尾部决定，与卡数无关——加卡只缩短吞吐部分（406 s），长尾 196 s 不动，所以收益递减。
+
+   </details>
+
+5. 同样的账换成对话场景（回答几百 token）与 Agent 场景（20 轮工具调用），三段的比例各怎么变？
+
+   <details markdown="1"><summary>答案</summary>
+
+   对话：decode 步数少、长尾短，生成占比降、全步 MFU 上限到 29%；Agent：八成 token 是环境返回的（不生成但要 prefill 与训练前向反向），长尾变成环境耗时，多一列 CPU·小时，KV 驻留问题让 prefill 从线性退回二次。
+
+   </details>
