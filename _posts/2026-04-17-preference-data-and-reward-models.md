@@ -5,6 +5,7 @@ title: "后训练（02）：偏好数据与奖励模型：Bradley-Terry、pairwi
 subtitle: "Preference Data and Reward Models: Bradley-Terry, Pairwise Loss and Reward Hacking"
 tags: [AI, LLM, Post-Training, RLHF]
 catalog: true
+updated: 2026-09-14
 ---
 
 SFT 之后的模型会按格式回答，但它只见过"好的回答长什么样"，没见过"两个回答哪个更好"。要让它继续变好，需要一个能对任意回答打分的东西——不是人（太慢、太贵，且 RL 每步要打几千个分），而是一个**模型**：输入 prompt 与回答，输出一个标量，越大越好。这个模型叫奖励模型（Reward Model，RM），它是 RLHF 三件套里的"奖励"，后面的 PPO、GRPO 直接用它，DPO 把它折进 loss 里，拒绝采样用它选数据，Arena 用它的数学给模型排名。
@@ -28,6 +29,30 @@ RM 的整条链是：**收集偏好 → 拟合 Bradley-Terry 模型 → 得到�
 | Bradley-Terry | $$P(y_w \succ y_l) = \sigma(r(y_w) - r(y_l))$$，loss $$-\log \sigma(r_w - r_l)$$ | 就是对"分差"做逻辑回归；奖励只定义到每个 prompt 的一个常数 |
 | RM 训练 | 基座去掉 lm_head 换标量头，从 SFT 模型初始化，训 1 个 epoch | 8B 规格、10 万对：约 10 GPU 小时；验证准确率 65–75% 就是上限 |
 | 失效 | 策略找到 RM 的漏洞：长度、格式、语气 | 用 best-of-N 在训 RL 之前探测；$$N = 16$$ 对应约 1.8 nats 的 KL |
+
+训练时一对偏好走两次同一个 RM，只比分差：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+flowchart TB
+    P["prompt x"] --> W["x + 更好的回答 y_w"]
+    P --> L["x + 较差的回答 y_l"]
+    W --> RM1["`**RM**
+基座去掉 lm_head，换标量头
+（两次前向共享同一组权重）`"]
+    L --> RM1
+    RM1 -- "r_w" --> D["分差 r_w − r_l"]
+    RM1 -- "r_l" --> D
+    D --> S["σ(r_w − r_l)
+= P(y_w ≻ y_l)"]
+    S --> LOSS["loss = −log σ(r_w − r_l)
+（就是逻辑回归）"]
+
+    classDef model fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
+    class RM1 model
+```
+
+loss 只依赖分差，所以奖励对每个 prompt 都可以整体加一个常数——第三章的平移不变性，也是 DPO 推导里 $$Z(x)$$ 能抵消的原因。
 
 70% 够用的原因：RM 的用途不是**判对错**而是**给梯度方向**。它对一对回答的判断错三成，但对一批回答的平均倾向是对的；RL 每步在几百个样本上取平均，噪声被平掉，系统性的偏差留下来——而系统性偏差正是 hacking 的来源。所以 RM 的问题从来不是"准不准"，是"偏在哪"。
 

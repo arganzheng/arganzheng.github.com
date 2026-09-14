@@ -5,6 +5,7 @@ title: "后训练（07）：蒸馏：logits 级、序列级与 on-policy"
 subtitle: "Knowledge Distillation for LLMs: Logit-Level, Sequence-Level and On-Policy"
 tags: [AI, LLM, Post-Training, Distillation]
 catalog: true
+updated: 2026-09-14
 ---
 
 前六篇的奖励有两种来源：人（经过 RM 或 DPO 的转译）与验证器。第三种来源是**另一个模型**——一个更大、更强、或已经训好的教师，它对每个 token 的概率分布、或它生成的序列，成为学生的训练信号。这就是蒸馏（Hinton 等 2015）。它在 LLM 上有三种形态：学生匹配教师的 logits（token 级）、学生在教师生成的文本上做 SFT（序列级）、学生自己生成、教师在学生的序列上逐 token 打分（on-policy）。三者学到的东西不同、漏掉的东西不同、成本相差几个数量级。
@@ -25,6 +26,41 @@ catalog: true
 | **logits 级** | 教师在**给定序列**每个位置的完整分布 $$p_T(\cdot \mid y_{<t})$$ | $$\sum_t \text{KL}(p_T \| p_S)$$ | 每个位置上"次优选项有多好"——暗知识；每 token 几 bit 到几十 bit 的信号 | 学生自己生成时的分布（序列来自教师或数据，不来自学生） | 同一 tokenizer；教师在线前向或存 top-k |
 | **序列级** | 教师**生成**的文本 | 交叉熵（就是 SFT） | 教师的输出模式：推理链的写法、格式、风格 | 教师的不确定性；每 token 只有 1 个硬标签 | 教师推理一遍；tokenizer 可以不同 |
 | **on-policy** | 教师在**学生自己采样的序列**上每个位置的分布 | $$\mathbb{E}_{y \sim p_S}\big[\sum_t D(p_T \| p_S)\big]$$ | 在学生会去的地方纠正学生——修暴露偏差 | 教师从未生成、学生也采不到的模式 | 同一 tokenizer；每步教师前向 |
+
+三种形态的差别只在两处：**序列是谁生成的**、**目标是硬标签还是教师的分布**：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 170}}}%%
+flowchart TB
+    %% 三个子图之间没有连线，dagre 按定义顺序从右到左排，所以按 右 → 左 定义
+    subgraph C["on-policy"]
+        CS["`学生**采样** y ~ p_S`"] --> CT["教师前向
+p_T(· | 前缀)"]
+        CS --> CS2["学生前向
+p_S(· | 前缀)"]
+        CT --> CK["D(p_T ‖ p_S)
+在学生会去的地方纠正"]
+        CS2 --> CK
+    end
+    subgraph B["序列级"]
+        BT["`教师**生成** y`"] --> BS["学生在 y 上 SFT
+交叉熵，硬标签"]
+    end
+    subgraph A["logits 级"]
+        A1["数据 / 教师的序列 y"] --> AT["教师前向
+p_T(· | 前缀)"]
+        A1 --> AS["学生前向
+p_S(· | 前缀)"]
+        AT --> AK["KL(p_T ‖ p_S)
+每位置完整分布"]
+        AS --> AK
+    end
+
+    classDef teacher fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef student fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
+    class AT,BT,CT teacher
+    class AS,BS,CS,CS2 student
+```
 
 **R1 选蒸馏而不是 RL**的原因是一个对照实验：在 Qwen2.5-32B-Base 上，用 R1 的 80 万条数据 SFT 得到 AIME 72.6，用与 R1-Zero 相同的大规模 RL 得到约 47。RL 靠探索——小模型在几千 token 的推理里碰到正确解的概率太低，探索找不到方向；蒸馏靠示范——大模型已经找到的推理模式，小模型能从文本里学会。成本上蒸馏也便宜一到两个数量级：教师生成 80 万条约几百 GPU 小时，学生 SFT 约一千 GPU 小时，而 32B 的推理 RL 是 $$10^{22}$$–$$10^{23}$$ FLOPs、几万 GPU 小时。
 

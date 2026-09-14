@@ -5,6 +5,7 @@ title: "后训练（03）：在线 RL：PPO、GRPO 与 RLHF 三件套"
 subtitle: "Online RL for LLMs: PPO, GRPO and the Policy–Reward–Reference Trio"
 tags: [AI, LLM, Post-Training, RLHF]
 catalog: true
+updated: 2026-09-14
 ---
 
 前两篇准备好了两样东西：一个会按格式回答的策略（SFT），一个能给回答打分的奖励（RM）。这一篇把它们接起来：让策略生成回答、让 RM 打分、用分数更新策略，循环。因为每一轮都从**当前**策略采样，这叫在线（on-policy）RL；因为奖励来自人类偏好的代理，整条流水线叫 RLHF。
@@ -36,6 +37,36 @@ $$
 | GRPO | 3 | 同 prompt 的组内均值与标准差 | $$G$$ | 2024 |
 | REINFORCE++ | 3 | 全局 batch 均值 + PPO 的 clip | 1 | 2025 |
 | DAPO / Dr. GRPO / GSPO | 3 | GRPO 的组内 baseline，各改一项 | $$G$$ | 2025 |
+
+一步在线 RL 里四个模型各站的位置——虚线框里的价值模型只有 PPO 有，GRPO 用同一 prompt 的 $$G$$ 条回答的组内均值代替它：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 210}}}%%
+flowchart TB
+    X["一批 prompt x"] --> POL["`**策略 π_θ**（推理引擎里的副本）
+rollout：每个 prompt 生成 1 条（PPO）或 G 条（GRPO）`"]
+    POL -- "回答 y" --> RM["`**奖励模型 r**
+每条回答一个标量`"]
+    POL -- "回答 y" --> REF["`**参考模型 π_ref**
+每 token 的 log π_ref`"]
+    POL -- "回答 y" --> V["`**价值模型 V**（仅 PPO）
+每 token 预测还能拿多少奖励`"]
+    RM --> SH["奖励整形
+r_T = RM 分，每 token −β·KL(π_θ ‖ π_ref)"]
+    REF --> SH
+    SH --> ADV{"优势 Â"}
+    V -- "GAE：逐 token" --> ADV
+    SH -. "GRPO：组内 (r_i − mean) / std，整条回答共享" .-> ADV
+    ADV --> UPD["`**更新策略 π_θ**（训练器里的副本）
+clip 目标 + KL 项，K 个 epoch`"]
+    UPD -- "新权重同步回推理引擎" --> POL
+
+    classDef model fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
+    classDef ppo fill:#fff7e0,stroke:#c98a00,stroke-width:2px,stroke-dasharray:5 3,color:#222
+    classDef sys fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class POL,RM,REF,UPD model
+    class V ppo
+```
 
 PPO 的四个模型里，价值模型是为了**降低策略梯度的方差**——它逐 token 预测"从这里开始还能拿多少奖励"，作为 baseline。GRPO 用同一 prompt 的 $$G$$ 个回答的平均分代替它：不需要第四个模型，代价是每个 prompt 要生成 $$G$$ 倍的 token。8B 规格下这是 250 GB 与 150 GB 训练显存的差别，也是"8 张卡起步"与"4 张卡能跑"的差别。
 

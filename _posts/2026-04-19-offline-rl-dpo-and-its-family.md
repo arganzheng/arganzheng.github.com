@@ -5,6 +5,7 @@ title: "后训练（04）：离线 RL：从 RLHF 目标推出 DPO 及其变体"
 subtitle: "Offline Preference Optimization: Deriving DPO from the RLHF Objective, and Its Family"
 tags: [AI, LLM, Post-Training, RLHF]
 catalog: true
+updated: 2026-09-14
 ---
 
 第三篇的方法都在做一件贵的事：每一步从当前策略采样、打分、再更新。采样要一个推理引擎，打分要一个奖励模型，更新要四个（或三个）模型在显存里。DPO（Direct Preference Optimization，Rafailov 等 2023）问的问题是：**同一个目标，能不能不采样、不打分，直接从一份现成的偏好数据推出一个 loss？**
@@ -33,6 +34,30 @@ $$
 $$
 \mathcal{L}_{DPO} = -\mathbb{E}_{(x, y_w, y_l)} \left[ \log \sigma\!\left( \beta \log \frac{\pi_\theta(y_w \mid x)}{\pi_{ref}(y_w \mid x)} - \beta \log \frac{\pi_\theta(y_l \mid x)}{\pi_{ref}(y_l \mid x)} \right) \right]
 $$
+
+推导只有四步，奖励模型在第三步消失：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+flowchart TB
+    A["`**RLHF 目标**（第三篇）
+max E[r(x,y)] − β·KL(π ‖ π_ref)`"] --> B["`**① 闭式解**
+π*(y|x) = π_ref(y|x)·exp(r/β) / Z(x)`"]
+    B --> C["`**② 反解奖励**
+r(x,y) = β·log(π*/π_ref) + β·log Z(x)`"]
+    C --> D["`**③ 代入 Bradley-Terry**（第二篇）
+P(y_w ≻ y_l) = σ(r_w − r_l)
+同一 prompt 的两项相减，β·log Z(x) 抵消`"]
+    D --> E["`**④ DPO loss**
+−log σ(β·log π_θ(y_w)/π_ref(y_w) − β·log π_θ(y_l)/π_ref(y_l))
+只剩策略与参考，r 不再出现`"]
+    RM["显式奖励模型 r"] -. "被 β·log(π_θ/π_ref) 替代" .-> E
+
+    classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:1px,color:#222
+    classDef gone fill:#f0f0f0,stroke:#888,stroke-dasharray:5 3,color:#666
+    class A,B,C,D,E step
+    class RM gone
+```
 
 **DPO 不是没有奖励，而是把奖励用策略与参考的对数比隐式表达了**：$$\hat r_\theta(x, y) = \beta \log \frac{\pi_\theta(y \mid x)}{\pi_{ref}(y \mid x)}$$。训练 DPO 就是在训练一个参数化为"策略 / 参考"的奖励模型，同时策略本身就是这个奖励下的最优策略。
 
