@@ -1,6 +1,6 @@
 @import "variables.less";
 
-// ---- action bar above the comments (_includes/post-actions.html, js/share.js): 有用 · 分享 · [复制为公众号格式]
+// ---- action bar above the comments (_includes/post-actions.html, js/share.js): 点赞 · 分享 · [复制为公众号格式]
 .post-actions {
 	position: relative;
 	display: flex;
@@ -61,66 +61,34 @@
 	}
 }
 .post-actions + .comment { margin-top: 18px; padding-top: 0; border-top: 0; }
-// ---- `.post-stats` badge strip (js/share.js paints it): 阅读 · 有用 · 评论 · 分享,
-// each an icon with a count pill (brand teal) sitting at its top-right corner. Same
-// markup in the post header meta and in list metas (index.html, life.html).
+// ---- `.post-stats` text strip (js/share.js paints it): 阅读 · 点赞 · 评论 · 分享.
+// The same plain-text markup is used in the post header meta and list metas.
 .post-stats {
 	display: inline-flex;
-	align-items: center;
+	align-items: baseline;
 	vertical-align: baseline;
-	gap: 0 14px;
+	gap: 0 12px;
 	margin-left: 10px;
 	white-space: nowrap;
 	&:empty { display: none; }
-	// the meta line's own separator, only when there is something to show
-	&::before { content: "|"; margin-right: 10px; }
-	.ps {
-		position: relative;
-		display: inline-flex;
-		align-items: flex-end;
-		font-weight: normal;
-		font-style: normal;
-		cursor: default;
-		.fa { font-size: 15px; line-height: 1; opacity: 0.85; }
-		b {
-			position: relative;
-			top: -7px;
-			margin-left: -3px;
-			min-width: 16px;
-			height: 15px;
-			padding: 0 5px;
-			border-radius: 8px;
-			background: @brand-primary;
-			color: #fff;
-			font-size: 10px;
-			font-weight: 600;
-			line-height: 15px;
-			text-align: center;
-			font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
-			letter-spacing: 0;
-			box-shadow: 0 0 0 1.5px #fff;
-		}
-		&.is-zero b { background: #c8ccd1; }
-	}
-	.ps-up .fa { color: #e0245e; opacity: 1; }
+	&::before { content: "|"; margin-right: 2px; color: inherit; }
+	.ps { display: inline-flex; align-items: baseline; font-size: inherit; font-weight: normal; font-style: normal; cursor: default; }
+	.ps-label { color: inherit; font-size: inherit; font-weight: normal; font-style: normal; }
+	b { margin-left: 3px; color: inherit; font-size: inherit; font-weight: normal; font-style: normal; }
+	&.is-zero b { background: transparent; }
 }
-// list "Posted by … | date" line: sit on the baseline of that text
-.post-preview .post-meta .post-stats { margin-left: 10px; .ps .fa { font-size: 14px; } }
-// life cards (white text on an image): inline like the Tech list, pale icons,
-// white pill so it reads on the photo; wraps as one unit if the card is narrow
+.post-preview .post-meta .post-stats { margin-left: 10px; }
 .life-card-meta .post-stats {
 	margin-left: 10px;
-	gap: 0 11px;
+	gap: 0 10px;
 	&::before { display: none; }
-	.ps .fa { color: rgba(255, 255, 255, 0.8); opacity: 1; }
-	.ps-up .fa { color: rgba(255, 255, 255, 0.8); }
-	.ps b { background: rgba(255, 255, 255, 0.92); color: #333; box-shadow: none; }
-	.ps.is-zero b { background: rgba(255, 255, 255, 0.55); }
+	.ps-label, b { color: inherit; }
+	.ps b, .ps.is-zero b { background: transparent; box-shadow: none; }
 }
-// hero header (header-post / keynote): white meta text over an image
+// hero header (header-post / keynote): inherit the header meta typography
 .intro-header .post-heading .meta .post-stats {
-	.ps .fa, .ps-up .fa { color: rgba(255, 255, 255, 0.85); opacity: 1; }
-	.ps b { box-shadow: none; }
+	.ps-label, b { color: inherit; }
+	&::before { color: inherit; }
 }
 
 // share menu (one element, appended to body)

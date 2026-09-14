@@ -565,7 +565,7 @@
 		border-bottom: 1px solid #eaeef2;
 		font-size: 13px;
 		color: @annot-muted;
-		// 「👍 有用 N」 — THUMBS_UP on the post's Discussion
+		// 「👍 点赞 N」 — THUMBS_UP on the post's Discussion
 		.ac-like {
 			display: inline-flex;
 			align-items: center;
@@ -747,7 +747,7 @@
 	}
 }
 
-// ---- feedback loop: 存疑原因 chips, 「已修正」, 「建议修改」 (js/annotations.js)
+// ---- feedback loop: 存疑原因 chips, 「已修正」 (js/annotations.js)
 @annot-fixed: #1a7f37;
 .post-container {
 	// every note on this passage is resolved: green solid line, the doubt red gives way
@@ -759,7 +759,7 @@
 	.annotation-marker.is-resolved:hover { color: #fff; background: @annot-fixed; border-color: @annot-fixed; }
 	.annotation-panel, .annotation-comments {
 		.ap-comment.is-resolved > .ap-comment-main > .ap-comment-body { color: @annot-muted; }
-		.ap-resolved-badge, .ap-suggest-badge {
+		.ap-resolved-badge {
 			display: inline-flex;
 			align-items: center;
 			gap: 3px;
@@ -770,12 +770,10 @@
 			white-space: nowrap;
 		}
 		.ap-resolved-badge { color: @annot-fixed; background: #dafbe1; border: 1px solid #aceebb; }
-		.ap-suggest-badge { color: #0550ae; background: #ddf4ff; border: 1px solid #b6e3ff; }
 		.ap-comment.is-resolved .ap-issue-badge { color: @annot-muted; background: @annot-soft; border-color: @annot-border; }
 		.ap-comment.has-issue.is-resolved { box-shadow: inset 3px 0 0 fade(@annot-fixed, 60%); }
 	}
 }
-.annotation-toolbar .annotation-tb-suggest:hover .fa { color: #9ad1ff; }
 // the reason row sits under the 赞 / 存疑 / 分享 buttons, full width
 .annotation-panel .ap-react .ap-doubt-why {
 	flex-basis: 100%;
@@ -803,10 +801,9 @@
 	}
 }
 @media (max-width: 767px) {
-	.annotation-toolbar .annotation-tb-suggest { font-size: 0; .fa { font-size: 13px; margin: 0; } }
 }
 
-// ---- section-level 有用 / 没看懂: two tiny buttons at the end of every heading (h2–h6) (js/annotations.js renderChapterBars)
+// ---- section-level 点赞 / 没看懂: two tiny buttons at the end of every heading (h2–h6) (js/annotations.js renderChapterBars)
 .post-container :is(h2, h3, h4, h5, h6) .sec-react {
 	display: inline-flex;
 	align-items: center;

@@ -14,13 +14,13 @@
  *
  * Inputs:
  *   fb       worker GET /feedback?path=  { reactions: [{hash, quote, section, up, doubt, share, reasons}], views, up, shares }
- *            rows whose quote starts with `§ ` are section-level 有用 / 没看懂 (quote = `§ ` + heading text, h2–h6)
+ *            rows whose quote starts with `§ ` are section-level 点赞 / 没看懂 (quote = `§ ` + heading text, h2–h6)
  *   disc     the post's Discussion { url, comments: [{ bodyHTML, author, url, createdAt, deletedAt, authorAssociation,
  *            reactions | reactionGroups, replies: [...] | { nodes } }] } (worker relay / giscus shape or GraphQL shape)
  *   issues   the repo's 划线评论 issues mentioning the post (REST shape: number, state, title, html_url, body)
  *   article  articleFromHtml(dom, html) — the live page: normalised text + heading offsets, or null
  *
- * `analysis.score` is what the queue thresholds on: 2×存疑 + 评论 + ▲ + 3×建议修改
+ * `analysis.score` is what the queue thresholds on: 2×存疑 + 评论 + ▲
  * over unresolved, still-anchored passages, + unresolved plain comments, +
  * chapter-level 没看懂.
  */
@@ -46,10 +46,10 @@
   }
   function textOf(dom, html) { return norm(fragment(dom, html).textContent); }
 
-  // A comment of the discussion -> { quote, section, issueNo, note, suggest, author, votes, url, replies, resolvedByAuthor }
+  // A comment of the discussion -> { quote, section, issueNo, note, author, votes, url, replies, resolvedByAuthor }
   function parseNote(dom, c) {
     var root = fragment(dom, c.bodyHTML);
-    var out = { quote: '', section: '', issueNo: 0, suggest: false, author: c.author ? c.author.login : 'ghost', url: c.url, createdAt: c.createdAt,
+    var out = { quote: '', section: '', issueNo: 0, author: c.author ? c.author.login : 'ghost', url: c.url, createdAt: c.createdAt,
       votes: 0, hooray: 0, replies: (Array.isArray(c.replies) ? c.replies : (c.replies && c.replies.nodes) || []) };
     var rx = c.reactions || {};
     if (Array.isArray(c.reactionGroups)) c.reactionGroups.forEach(function (g) { rx[g.content] = { count: g.reactors ? g.reactors.totalCount : 0 }; });
@@ -65,7 +65,6 @@
       sub.parentNode.removeChild(sub);
       out.quote = norm(first.textContent);
       root.removeChild(first);
-      out.suggest = /^\s*建议改为/.test(root.textContent || '');
     } else if (first && first.tagName === 'P' && first.querySelector('sub a[href*="/issues/"]')) {
       issueLink = first.querySelector('a[href*="/issues/"]'); root.removeChild(first);
     }
@@ -126,7 +125,7 @@
       var loc = sectionAt(article, p.quote);
       p.found = loc.found; if (loc.section) p.section = loc.section;
       p.resolved = p.notes.length > 0 && p.notes.every(issueResolved);
-      p.score = 2 * p.doubt + p.up * 0.5 + p.notes.reduce(function (s, n) { return s + 1 + Math.max(0, n.votes) + (n.suggest ? 3 : 0); }, 0);
+      p.score = 2 * p.doubt + p.up * 0.5 + p.notes.reduce(function (s, n) { return s + 1 + Math.max(0, n.votes); }, 0);
     });
     // keep the article's order for chapters when we know it, else by 没看懂
     if (article && chapters.length) {
@@ -166,7 +165,7 @@
       p.notes.slice().sort(function (x, y) { return y.votes - x.votes; }).forEach(function (n) {
         var is = n.issueNo ? issueByNo[n.issueNo] : null;
         var meta = ' @' + n.author + (n.votes ? '（▲' + n.votes + '）' : '') + (n.issueNo ? ' · Issue #' + n.issueNo + (is ? (is.state === 'closed' ? '（已关闭）' : '（open）') : '') : '');
-        L.push(indent + '- ' + (n.suggest ? '✎ 建议修改' : '💬') + meta + '：' + short(n.note, 400) + '  ');
+        L.push(indent + '- 💬' + meta + '：' + short(n.note, 400) + '  ');
         L.push(indent + '  ' + n.url);
         replyLines(n, indent + '  ');
       });
@@ -183,16 +182,16 @@
     }
     L.push('# 修订简报：《' + title + '》');
     L.push('');
-    L.push('生成于 ' + (opt.date || new Date().toISOString().slice(0, 10)) + ' · 阅读 ' + a.views + ' · 有用 ' + a.up + ' · 分享 ' + a.shares + ' · 评论 ' + a.comments.length + ' · Issue ' + a.openIssues.length + ' 开 / ' + (a.issues.length - a.openIssues.length) + ' 关');
+    L.push('生成于 ' + (opt.date || new Date().toISOString().slice(0, 10)) + ' · 阅读 ' + a.views + ' · 点赞 ' + a.up + ' · 分享 ' + a.shares + ' · 评论 ' + a.comments.length + ' · Issue ' + a.openIssues.length + ' 开 / ' + (a.issues.length - a.openIssues.length) + ' 关');
     L.push('');
     L.push('文章：' + site + path + (a.discUrl ? '  \n讨论：' + a.discUrl : ''));
     L.push('');
     if (a.chapters.length) {
       L.push('## 章节热度');
       L.push('');
-      L.push('_读者在各级标题旁点的「有用」/「没看懂」（缩进的是小节）。没看懂多的章节整体需要补解释或例子，有用多的保持现状。_');
+      L.push('_读者在各级标题旁点的「点赞」/「没看懂」（缩进的是小节）。没看懂多的章节整体需要补解释或例子，点赞多的保持现状。_');
       L.push('');
-      L.push('| 章节 | 有用 | 没看懂 |');
+      L.push('| 章节 | 点赞 | 没看懂 |');
       L.push('| --- | ---: | ---: |');
       a.chapters.forEach(function (c) { L.push('| ' + (c.level > 2 ? '　'.repeat(c.level - 2) + '└ ' : '') + c.title.replace(/\|/g, '\\|') + ' | ' + (c.up || '') + ' | ' + (c.doubt || '') + ' |'); });
       L.push('');
@@ -236,7 +235,7 @@
     L.push('');
     L.push('以上是读者对《' + title + '》（`_posts/` 中 permalink 为 `' + path + '` 的文章）的反馈。请：');
     L.push('');
-    L.push('1. 按「待处理段落」的顺序逐条核对：先判断读者说得对不对，对的改正文，不对的在讨论里回复说明理由；「建议修改」条目若采纳可直接应用其「建议改为」。');
+    L.push('1. 按「待处理段落」的顺序逐条核对：先判断读者说得对不对，对的改正文，不对的在讨论里回复说明理由。');
     L.push('2. 「没看懂」多的段落补解释或例子/图；「版本过时」的核对版本并按更新说明规则处理；「与前文矛盾」的检查两处是否需要一起改。「章节热度」里没看懂明显多的章，从整章的铺垫和例子入手，而不是只改一句。');
     L.push('3. 改动只针对反馈涉及的段落，保持文章结构和口吻；不要删除或改写没有反馈的部分。');
     L.push('4. 修完后列出：每条反馈 → 做了什么 / 为什么不改；提交时在 commit message 里写 `Fixes #N` 关闭对应 Issue' + (opt.queueIssue ? '（包括本 Issue #' + opt.queueIssue + '）' : '') + '。');

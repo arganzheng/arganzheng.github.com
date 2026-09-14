@@ -1,7 +1,7 @@
 /**
  * dashboard.js — the author's /admin/stats.html, all read-only:
  *   - 阅读趋势: worker /views/daily (per-day totals + the posts read most in the window)
- *   - 文章榜: worker /stats/top (views · 有用 · 分享 per post) + comment counts
+ *   - 文章榜: worker /stats/top (views · 点赞 · 分享 per post) + comment counts
  *     from /stats?paths= in chunks; sortable by clicking a header
  *   - 读者划出来的句子: worker /reactions/top?kind=doubt|up (passage 存疑 / 赞)
  *   - 修订简报 (#brief=/slug.html): one post's 存疑 + 原因 + 章节 (worker
@@ -127,7 +127,7 @@
         return '<li class="' + (kind === 'doubt' && r.doubt ? 'is-doubt' : '') + '">' + (ch ? '<span class="dash-tag">章节</span> ' : '') + '<a class="dash-quote" href="' + h(r.path) + (ch ? '' : '#annot-' + h(r.hash)) + '">' + h(ch ? r.quote.slice(FB.CHAPTER_PREFIX.length) : r.quote) + '</a>' +
           '<div class="dash-quote-meta"><a href="' + h(r.path) + '">' + h(titleOf(r.path)) + '</a>' + (r.section && !ch ? ' <span class="dash-muted">› ' + h(r.section) + '</span>' : '') + ' · ' +
           (r.doubt ? '<span class="is-doubt"><i class="fa fa-question-circle"></i> ' + r.doubt + (ch ? ' 没看懂' : '') + (reasonsText(r.reasons) ? '（' + h(reasonsText(r.reasons)) + '）' : '') + '</span> ' : '') +
-          (r.up ? '<span><i class="fa fa-thumbs-up"></i> ' + r.up + (ch ? ' 有用' : '') + '</span> ' : '') +
+          (r.up ? '<span><i class="fa fa-thumbs-up"></i> ' + r.up + (ch ? ' 点赞' : '') + '</span> ' : '') +
           (r.share ? '<span><i class="fa fa-share-alt"></i> ' + r.share + '</span> ' : '') +
           (r.updated_at ? '<span class="dash-muted">· ' + ago(r.updated_at) + '</span>' : '') + '</div></li>';
       }).join('') + '</ol>';

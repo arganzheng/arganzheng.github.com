@@ -6,7 +6,7 @@
  * <figcaption> — 「图 N」 + the image's alt / the diagram's `title:` (Mermaid
  * front matter) or first `%%` comment — and a small corner button (next to the
  * copy button on diagrams) that selects the caption's title, which pops the
- * usual 赞 / 存疑 / 评论 / 建议修改 toolbar. The caption title is the passage:
+ * usual 点赞 / 存疑 / 评论 toolbar. The caption title is the passage:
  * stable as long as the alt stays, readable in the GitHub comment and the brief.
  *
  *   <p><img alt="…"></p>        ->  <figure class="post-figure"><span class="fig-media"><img>
@@ -65,7 +65,7 @@
   }
 
   // Select `target`'s text as if the reader had dragged over it; annotations.js
-  // listens to selectionchange and shows its toolbar (赞 / 存疑 / 评论 / 建议修改 /
+  // listens to selectionchange and shows its toolbar (点赞 / 存疑 / 评论 /
   // 复制 / 搜一搜 / 分享) at the selection. `focusEl` (a caption) is scrolled into
   // view first — a tall picture puts its caption below the fold — focused and
   // flashed, so the reader sees what got picked.
@@ -190,7 +190,7 @@
 
   // Code blocks: the same handle selects the whole block — dragging across 40
   // lines is what it saves; the toolbar then offers everything a selection does
-  // (a comment on the block, 存疑, 建议修改, copy, search, share).
+  // (a comment on the block, 点赞, 存疑, copy, search, share).
   var CODE_TITLE = '对这段代码评论 / 存疑（会选中整段代码，再从工具条里选）';
   function decorateCode() {
     Array.prototype.forEach.call(container.querySelectorAll('pre'), function (pre) {

@@ -1,15 +1,15 @@
 /*!
  * share.js — the action bar above a post's comments (_includes/post-actions.html)
- * and the `.post-stats` badge strips (阅读 · 有用 · 评论 · 分享, icon + orange
- * count pill) in the post header meta and in every list entry's meta line.
- *   - 有用 (heart): anonymous per-post counter in the worker's D1 (POST /votes,
+ * and the `.post-stats` text strips (阅读 · 点赞 · 评论 · 分享) in the
+ * post header meta and in every list entry's meta line.
+ *   - 点赞 (heart): anonymous per-post counter in the worker's D1 (POST /votes,
  *     dir 'up' | null), one per browser (localStorage), no login.
  *   - 分享 popover: system share sheet (Web Share API), Weibo / X / LinkedIn
  *     intent links, WeChat QR (js/vendor/qrcode.min.js, loaded on first use),
  *     copy link. One popover element, re-anchored to whichever button opened it.
  *     Every completed share is one POST /shares.
  *   - stats: list pages get everything from one GET /stats?paths=…; on the post
- *     page 有用 / 分享 come from GET /votes and views / comment count arrive from
+ *     page 点赞 / 分享 come from GET /votes and views / comment count arrive from
  *     js/annotations.js as `blog:stats` events ({views} / {comments}).
  *   - author-only 「复制为公众号格式」 (lazy js/wechat-export.js).
  */
@@ -33,21 +33,21 @@
   function fmt(n) { return n >= 10000 ? (n / 10000).toFixed(1).replace(/\.0$/, '') + ' 万' : String(n); }
 
   // ------------------------------------------------------------------ paint
-  // A `.post-stats` strip: four icons, each with a count pill. Numbers arrive
+  // A `.post-stats` strip: four text labels with counts. Numbers arrive
   // piecemeal (votes / stats / annotations.js), so each strip keeps its own
   // partial state and is repainted with what is known so far.
   var STATS = [
-    { k: 'views', icon: 'fa-eye', label: '次阅读' },
-    { k: 'up', icon: 'fa-heart', label: '人觉得有用' },
-    { k: 'comments', icon: 'fa-comment-o', label: '条评论' },
-    { k: 'shares', icon: 'fa-share-alt', label: '次分享' }
+    { k: 'views', label: '阅读' },
+    { k: 'up', label: '点赞' },
+    { k: 'comments', label: '评论' },
+    { k: 'shares', label: '分享' }
   ];
   function paintStrip(el, patch) {
     var st = el._stats || (el._stats = {});
     Object.keys(patch).forEach(function (k) { if (patch[k] != null) st[k] = patch[k]; });
     el.innerHTML = STATS.filter(function (s) { return st[s.k] != null; }).map(function (s) {
       var n = st[s.k];
-      return '<span class="ps ps-' + s.k + (n ? '' : ' is-zero') + '" title="' + fmt(n) + ' ' + s.label + '"><i class="fa ' + s.icon + '"></i><b>' + fmt(n) + '</b></span>';
+      return '<span class="ps ps-' + s.k + (n ? '' : ' is-zero') + '" title="' + s.label + '"><span class="ps-label">' + s.label + '</span> <b>' + fmt(n) + '</b></span>';
     }).join('');
   }
   function paintStrips(path, patch) {
@@ -59,7 +59,7 @@
     bar.querySelector('.pa-like-n').textContent = st.up ? ' ' + fmt(st.up) : '';
     btn.classList.toggle('is-active', st.mine === 'up');
     btn.querySelector('.fa').className = 'fa ' + (st.mine === 'up' ? 'fa-heart' : 'fa-heart-o');
-    btn.title = st.mine === 'up' ? '取消' : '觉得这篇文章有用？点个心（不用登录）';
+    btn.title = st.mine === 'up' ? '取消点赞' : '给这篇文章点个赞（不用登录）';
     paintStrips(bar.getAttribute('data-path'), { up: st.up, shares: st.shares });
   }
 
@@ -174,7 +174,7 @@
     copyText: copyText
   };
 
-  // ------------------------------------------------------------- 有用
+  // ------------------------------------------------------------- 点赞
   // An anonymous counter kept by the worker (D1), like page views: no GitHub
   // login, one per browser remembered in localStorage. (Comment votes stay
   // GitHub reactions — those need an identity.)
@@ -214,7 +214,7 @@
       .then(function (d) { if (d && typeof d.shares === 'number') { st.shares = d.shares; render(bar, st); } })
       .catch(function () { /* keep the optimistic number */ });
   }
-  // Post page: one GET /votes for this article (有用 + 分享 counts).
+  // Post page: one GET /votes for this article (点赞 + 分享 counts).
   function loadVotes(bar) {
     var api = apiBase(bar), path = bar.getAttribute('data-path');
     if (!api) return;
@@ -223,7 +223,7 @@
       render(bar, bar._stats);
     }).catch(function () { bar._stats = { up: 0, shares: 0, mine: myVote(path) }; render(bar, bar._stats); });
   }
-  // List pages: one GET /stats for all the strips (views, 有用, comments, shares).
+  // List pages: one GET /stats for all the strips (views, 点赞, comments, shares).
   function loadStats(list) {
     var api = apiBase(list[0]);
     if (!api) return;

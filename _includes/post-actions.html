@@ -1,7 +1,7 @@
 {%- comment -%}
-  Action bar above the comments of a post: 「有用」 (anonymous heart, counted by
-  the worker's D1 — no login; the number also shows in the header meta as
-  「N 人觉得有用」), 分享 (popover with the platforms) and the author-only
+  Action bar above the comments of a post: 「点赞」 (anonymous heart, counted by
+  the worker's D1 — no login; the number also shows in the header meta), 分享
+  (popover with the platforms) and the author-only
   「复制为公众号格式」. Driven by js/share.js. Counters (views / comments /
   likes) live in the header meta line, not here.
 {%- endcomment -%}
@@ -12,7 +12,7 @@
      data-text="{{ page.subtitle | default: page.description | default: '' | escape }}"
      data-author="{{ site.github_username | strip }}"
      data-annotations-api="{{ site.annotations.api }}">
-  <button type="button" class="pa-item pa-like" title="觉得这篇文章有用？点个心（不用登录）"><i class="fa fa-heart-o"></i> 有用<b class="pa-like-n"></b></button>
+  <button type="button" class="pa-item pa-like" title="给这篇文章点个赞（不用登录）"><i class="fa fa-heart-o"></i> 点赞<b class="pa-like-n"></b></button>
   <button type="button" class="pa-item pa-share" title="分享" aria-haspopup="true" aria-expanded="false"><i class="fa fa-share-alt"></i> 分享</button>
   <button type="button" class="pa-item pa-export" title="复制为公众号 / 知乎可粘贴的格式（仅作者可见）" hidden><i class="fa fa-wechat"></i> 复制为公众号格式</button>
   <span class="pa-toast" aria-live="polite" hidden></span>

@@ -2,20 +2,18 @@
  * annotations.js — highlight comments ("划线评论") on blog posts.
  *
  * Interaction (code-review / WeChat-reading style, no hover popups):
- *   - Select text in the article -> floating toolbar: 「赞」 / 「存疑」 / 「评论」 /
- *     「建议修改」 / 「复制」 / 「搜一搜」 / 「分享」.
- *   - 「赞」 / 「存疑」 are anonymous per-passage counters (worker /reactions,
+ *   - Select text in the article -> floating toolbar: 「点赞」 / 「存疑」 / 「评论」 /
+ *     「复制」 / 「搜一搜」 / 「分享」.
+ *   - 「点赞」 / 「存疑」 are anonymous per-passage counters (worker /reactions,
  *     D1; no login, one per browser in localStorage) — "raising a hand". A
  *     存疑 can carry one *reason* (有错误 / 没看懂 / 版本过时 / 缺例子 / 与前文矛盾)
  *     and every reaction records the chapter (nearest h2/h3) it sits in.
  *   - Images and Mermaid diagrams get a caption and a corner button (js/figures.js)
  *     that selects the caption's title — that text is the passage, so pictures
- *     take 赞 / 存疑 / 评论 like any sentence; the figure gets `.has-note` outline.
- *   - Every heading (h2–h6) gets two tiny anonymous buttons, 「有用」 / 「没看懂」,
+ *     take 点赞 / 存疑 / 评论 like any sentence; the figure gets `.has-note` outline.
+ *   - Every heading (h2–h6) gets two tiny anonymous buttons, 「点赞」 / 「没看懂」,
  *     for that section as a whole (same table, quote = '§ ' + heading) — no selection
  *     needed, which is what phones can actually do.
- *   - 「建议修改」 is a passage comment pre-filled as 建议改为 / 理由 with the
- *     Issue box ticked — a ready-to-apply patch for the author.
  *   - 「已修正」: a note's Issue got closed, or the author 🎉'd it / replied
  *     已修正 — the underline turns green, the note gets a check badge.
  *   - 「分享」 opens the article's share popover (js/share.js, window.BlogShare)
@@ -84,7 +82,7 @@
   var comments = [];         // every top-level comment of the post's discussion (see parseComment)
   var annotations = [];      // the subset with a selector, anchored in the article
   var reactions = {};        // hash -> { hash, quote, up, doubt, range, marks }: anonymous passage 赞 / 存疑 (worker /reactions)
-  var chapters = {};         // heading text -> { hash, quote: '§ ' + text, up, doubt }: section-level 有用 / 没看懂 (same table)
+  var chapters = {};         // heading text -> { hash, quote: '§ ' + text, up, doubt }: section-level 点赞 / 没看懂 (same table)
   var discussion = null;     // { id, url, totalCommentCount, likes: { up, mine } }
   var pageViews = null;      // number once GET/POST /views answered; stays null when the worker has no counter
   var loaded = false;        // loadDiscussion() has answered (either way)
@@ -273,7 +271,7 @@
     }
     return best ? headingText(best).slice(0, SECTION_MAX) : '';
   }
-  // A heading's own words — without the anchor link and the section 有用/没看懂 buttons we add to headings.
+  // A heading's own words — without the anchor link and the section 点赞/没看懂 buttons we add to headings.
   function headingText(h) {
     var c = h.cloneNode(true), junk = c.querySelectorAll('.sec-react, .anchorjs-link');
     for (var i = 0; i < junk.length; i++) junk[i].parentNode.removeChild(junk[i]);
@@ -645,11 +643,11 @@
     if (!panel.parentNode) mountPanel(p.marks[p.marks.length - 1]);
   }
 
-  // 赞 / 存疑 row of the thread panel (also re-rendered alone after a click).
+  // 点赞 / 存疑 row of the thread panel (also re-rendered alone after a click).
   function reactBarHtml(p) {
     var r = p.reaction || { up: 0, doubt: 0, share: 0, reasons: {} }, up = myReaction(p.hash, 'up'), doubt = myReaction(p.hash, 'doubt');
     var summary = reasonsSummary(r), mine = myReason(p.hash);
-    return '<button type="button" class="ap-react-btn ap-react-up' + (up ? ' is-on' : '') + '" title="' + (up ? '取消赞' : '赞这段话（不用登录）') + '"><i class="fa ' + (up ? 'fa-thumbs-up' : 'fa-thumbs-o-up') + '"></i> 赞' + (r.up ? ' <b>' + r.up + '</b>' : '') + '</button>' +
+    return '<button type="button" class="ap-react-btn ap-react-up' + (up ? ' is-on' : '') + '" title="' + (up ? '取消点赞' : '点赞这段话（不用登录）') + '"><i class="fa ' + (up ? 'fa-thumbs-up' : 'fa-thumbs-o-up') + '"></i> 点赞' + (r.up ? ' <b>' + r.up + '</b>' : '') + '</button>' +
       '<button type="button" class="ap-react-btn ap-react-doubt' + (doubt ? ' is-on' : '') + '" title="' + escapeAttr((doubt ? '取消存疑' : '觉得这段话有问题？（不用登录）') + (summary ? '\n' + summary : '')) + '"><i class="fa ' + (doubt ? 'fa-question-circle' : 'fa-question-circle-o') + '"></i> 存疑' + (r.doubt ? ' <b>' + r.doubt + '</b>' : '') + '</button>' +
       '<button type="button" class="ap-react-btn ap-react-share" title="分享这段话（微博 / X / 微信 / 复制链接）" aria-haspopup="true" aria-expanded="false"><i class="fa fa-share-alt"></i> 分享' + (r.share ? ' <b>' + r.share + '</b>' : '') + '</button>' +
       (doubt ? '<a href="#" class="ap-react-say">说说哪里不对 →</a>' : '') +
@@ -740,7 +738,7 @@
     var el = document.createElement('div');
     var mine = !c.deleted && viewer && c.author && viewer.login === c.author.login;
     if (c.deleted) onReply = null;
-    el.className = 'ap-comment' + (isReply ? ' is-reply' : '') + (c.issue ? ' has-issue' : '') + (c.deleted ? ' is-deleted' : '') + (c.resolved ? ' is-resolved' : '') + (c.suggest ? ' is-suggest' : '');
+    el.className = 'ap-comment' + (isReply ? ' is-reply' : '') + (c.issue ? ' has-issue' : '') + (c.deleted ? ' is-deleted' : '') + (c.resolved ? ' is-resolved' : '');
     el.setAttribute('data-comment-id', c.id);
     el.innerHTML =
       '<a class="ap-avatar" href="' + escapeAttr(c.author.url) + '" target="_blank" rel="noopener noreferrer"><img src="' + escapeAttr(c.author.avatarUrl) + '" alt=""></a>' +
@@ -749,7 +747,6 @@
           (c.owner && !c.deleted ? '<span class="ap-owner" title="博客作者">作者</span>' : '') +
           '<time datetime="' + escapeAttr(c.createdAt) + '" title="' + escapeAttr(new Date(c.createdAt).toLocaleString()) + '">' + relativeTime(c.createdAt) + '</time>' +
           (c.lastEditedAt ? '<span class="ap-edited" title="' + escapeAttr(new Date(c.lastEditedAt).toLocaleString()) + '">已编辑</span>' : '') +
-          (c.suggest ? '<span class="ap-suggest-badge" title="读者提出的修改建议"><i class="fa fa-pencil-square-o"></i> 建议修改</span>' : '') +
           (c.issue ? '<a class="ap-issue-badge" href="' + escapeAttr(c.issue.url) + '" target="_blank" rel="noopener noreferrer" title="' + (c.resolved ? '对应的 GitHub Issue 已关闭' : '已同时提交为 GitHub Issue') + '"><i class="fa fa-flag"></i> Issue' + (c.issue.number ? ' #' + c.issue.number : '') + '</a>' : '') +
           (c.resolved ? '<span class="ap-resolved-badge" title="' + (c.issue ? 'Issue 已关闭：作者已处理' : '作者已修正原文') + '"><i class="fa fa-check-circle"></i> 已修正</span>' : '') +
           '<span class="ap-meta-actions">' +
@@ -1267,18 +1264,8 @@
     return best ? best.p : null;
   }
 
-  // 「建议修改」 pre-fills this: the fixed shape (原文 in the quote header,
-  // 建议改为, 理由) is what an author — or the AI revising the post — can apply
-  // directly. parseBodyHeader recognises it back as `suggest`.
-  var SUGGEST_TEMPLATE = '**建议改为：**\n\n\n\n**理由：**\n\n';
-  var SUGGEST_CARET = '**建议改为：**\n\n'.length;
-  var MODES = {
-    suggest: { template: SUGGEST_TEMPLATE, caret: SUGGEST_CARET, label: '建议修改', placeholder: '写下你建议的改法和理由…', submit: '提交建议' }
-  };
-
-  // `mode` = 'suggest' opens the editor with that template and 「同时提交 Issue」 ticked.
   function openComposer(sel, offsets, anchorNode, draftText, mode) {
-    var m = MODES[mode] || null;
+    var m = null;
     if (m && !draftText) draftText = m.template;
     var join = passageContaining(offsets);
     if (join) {
@@ -1287,7 +1274,6 @@
       var joinTa = panel && panel.querySelector('.ap-text');
       if (joinTa) {
         if (draftText) joinTa.value = draftText;
-        if (m) { var jb = panel.querySelector('.ap-issue input'); if (jb) jb.checked = true; joinTa.setSelectionRange(m.caret, m.caret); }
         joinTa.focus(); joinTa.dispatchEvent(new Event('input'));
       }
       return;
@@ -1432,7 +1418,7 @@
     if (!segs.length) { clearDraft(); return false; }
     var last = segs[segs.length - 1].node;
     scrollIntoViewInstant(last.parentNode);
-    openComposer(draft.selector, range, last, draft.text, draft.mode || (draft.suggest ? 'suggest' : ''));
+    openComposer(draft.selector, range, last, draft.text, '');
     return true;
   }
 
@@ -1512,7 +1498,7 @@
       replyCount: (c.replies && (c.replies.totalCount !== undefined ? c.replies.totalCount : c.replies.length)) || c.replyCount || 0,
       replies: replies,
       bodyHTML: c.deletedAt ? '' : (c.bodyHTML || ''),
-      selector: null, noteHTML: null, issue: null, suggest: false, resolved: false
+      selector: null, noteHTML: null, issue: null, resolved: false
     };
     if (!rec.deleted) parseBodyHeader(rec);
     return rec;
@@ -1597,7 +1583,6 @@
     rec.noteHTML = root.innerHTML;
     rec.selector = { exact: exact, prefix: fragment.prefix, suffix: fragment.suffix, section: sectionM ? sectionM[1] : '' };
     rec.issue = issueLink ? { url: issueLink.getAttribute('href'), number: issueNo ? +issueNo[1] : 0 } : null;
-    rec.suggest = /^\s*<p>\s*<strong>\s*建议改为/.test(rec.noteHTML);
   }
 
   // giscus' adapter returns replies as a plain array; GitHub GraphQL as {nodes}.
@@ -1724,11 +1709,10 @@
     toolbar = document.createElement('div');
     toolbar.className = 'annotation-toolbar';
     toolbar.innerHTML =
-      '<button type="button" class="annotation-tb-up" title="赞这段话（不用登录）"><i class="fa fa-thumbs-o-up"></i> 赞</button>' +
+      '<button type="button" class="annotation-tb-up" title="点赞这段话（不用登录）"><i class="fa fa-thumbs-o-up"></i> 点赞</button>' +
       '<button type="button" class="annotation-tb-doubt" title="觉得这段话有问题？存疑（不用登录）"><i class="fa fa-question-circle-o"></i> 存疑</button>' +
       '<span class="annotation-tb-sep"></span>' +
       '<button type="button" class="annotation-tb-comment"><i class="fa fa-comment-o"></i> 评论</button>' +
-      '<button type="button" class="annotation-tb-suggest" title="觉得这里该怎么写？给出你的改法（会同时提交 Issue 提醒作者）"><i class="fa fa-pencil-square-o"></i> 建议修改</button>' +
       '<button type="button" class="annotation-tb-copy" title="复制选中的文字"><i class="fa fa-copy"></i> 复制</button>' +
       '<button type="button" class="annotation-tb-search" title="用 Google 搜这段文字"><i class="fa fa-search"></i> 搜一搜</button>' +
       '<button type="button" class="annotation-tb-share" title="分享这段话：微博 / X / 微信 / 复制链接（打开后自动定位这段文字）" aria-haspopup="true" aria-expanded="false"><i class="fa fa-share-alt"></i> 分享</button>' +
@@ -1748,7 +1732,7 @@
         reactFromToolbar(exact, kind);
       });
     });
-    [['comment', ''], ['suggest', 'suggest']].forEach(function (pair) {
+    [['comment', '']].forEach(function (pair) {
       toolbar.querySelector('.annotation-tb-' + pair[0]).addEventListener('click', function (e) {
         e.stopPropagation();
         var range = currentRange();
@@ -1970,13 +1954,13 @@
     }).catch(function (err) { console.warn('[annotations] reactions unavailable:', err.message); });
   }
 
-  // Section-level 有用 / 没看懂: two small buttons after every heading (h2–h6) of the article,
+  // Section-level 点赞 / 没看懂: two small buttons after every heading (h2–h6) of the article,
   // anonymous, one tap, no text selection needed (phones!). Stored in the same
   // passage_reactions table with quote = '§ ' + heading, so the dashboard and
   // the 修订简报 can tell a chapter row from a passage row. Answers the question a
   // passage never can: is this *whole chapter* too hard / too thin?
   var CHAPTER_PREFIX = '§ ';
-  var CHAPTER_KINDS = [{ kind: 'up', label: '有用', title: '这一章对我有用' }, { kind: 'doubt', label: '没看懂', title: '这一章整体没看懂' }];
+  var CHAPTER_KINDS = [{ kind: 'up', label: '点赞', title: '给这一章点个赞' }, { kind: 'doubt', label: '没看懂', title: '这一章整体没看懂' }];
   function chapterFor(title) {
     var quote = CHAPTER_PREFIX + title;
     return chapters[title] || (chapters[title] = { hash: annotHash(quote), quote: quote, up: 0, doubt: 0 });
@@ -2021,13 +2005,13 @@
     c[kind] = Math.max(0, c[kind] + (on ? 1 : -1));
     rememberReaction(c.hash, kind, on);
     paintChapterBar(bar, title);
-    if (reactLocalOnly) { showToast(on ? (kind === 'up' ? '已标记这一章有用' : '已标记这一章没看懂') : '已取消'); return; }
+    if (reactLocalOnly) { showToast(on ? (kind === 'up' ? '已点赞这一章' : '已标记这一章没看懂') : '已取消'); return; }
     api('/reactions', { method: 'POST', body: { path: cfg.path, hash: c.hash, quote: c.quote, kind: kind, on: on, section: title } })
-      .then(function (d) { c.up = d.up || 0; c.doubt = d.doubt || 0; paintChapterBar(bar, title); showToast(on ? (kind === 'up' ? '已标记这一章有用' : '已标记这一章没看懂，谢谢——作者会回头补这一章') : '已取消'); })
+      .then(function (d) { c.up = d.up || 0; c.doubt = d.doubt || 0; paintChapterBar(bar, title); showToast(on ? (kind === 'up' ? '已点赞这一章' : '已标记这一章没看懂，谢谢——作者会回头补这一章') : '已取消'); })
       .catch(function (err) { c[kind] = before; rememberReaction(c.hash, kind, !on); paintChapterBar(bar, title); showToast('操作失败：' + err.message); });
   }
 
-  // Toggle my 赞 / 存疑 on the passage with this exact text. Optimistic; the
+  // Toggle my 点赞 / 存疑 on the passage with this exact text. Optimistic; the
   // underline / marker / open panel / ranking follow the new counts. Taking a
   // 存疑 back also takes back the reason picked with it.
   function react(exact, kind) {
@@ -2134,7 +2118,7 @@
     if (!p || !p.marks.length) { showToast(wasOn ? '已取消' : (kind === 'up' ? '已赞' : '已标记存疑')); return; }
     flashMarks(p.marks);
     if (kind === 'doubt' && !wasOn) openThread(p.ids, p.marks[p.marks.length - 1]);
-    else showToast(wasOn ? (kind === 'up' ? '已取消赞' : '已取消存疑') : '已赞这段话');
+    else showToast(wasOn ? (kind === 'up' ? '已取消点赞' : '已取消存疑') : '已点赞这段话');
   }
 
   // ----------------------------------------------------------- page views

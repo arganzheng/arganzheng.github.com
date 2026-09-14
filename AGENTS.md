@@ -93,7 +93,7 @@ Pages has `https_enforced` on.
   `<category>` (`tech` / `life`).
 - `/admin/stats.html` + `js/dashboard.js`: author dashboard — 阅读趋势
   (worker `GET /views/daily?days=`, per-day bars from `views_daily`, Beijing
-  dates), 文章榜 (`GET /stats/top`: views · 有用 · 有用率 · 分享 + comment counts
+  dates), 文章榜 (`GET /stats/top`: views · 点赞 · 点赞率 · 分享 + comment counts
   via `/stats?paths=` in chunks of 20; click a `th[data-sort]` to sort; TOP 10 by default, `.dash-toggle` expands), 读者划出
   来的句子 (`GET /reactions/top?kind=doubt|up`), recent comments via GraphQL
   with the giscus session (alias the `comments(last:3)` field — a response key
@@ -179,17 +179,16 @@ Pages has `https_enforced` on.
 - `js/annotations.js` — comments, reader highlight comments ("划线评论"), likes /
   votes and page views, see below.
 - `_includes/post-actions.html` + `js/share.js` (+ `less/share.less`) — action bar
-  「♥ 有用 N · 分享 · [复制为公众号格式]」 right above `comments.html` in all
-  three post layouts. **「有用」 is anonymous**: worker `GET/POST /votes` keeps
+  「♥ 点赞 N · 分享 · [复制为公众号格式]」 right above `comments.html` in all
+  three post layouts. **「点赞」 is anonymous**: worker `GET/POST /votes` keeps
   `votes(path, up, down)` in D1 (only `up` is used now — no downvote), the
   browser remembers its choice in `localStorage["vote:<path>"]` and sends the
   transition `{path, dir, prev}`; localhost never posts. No GitHub login (the
-  old discussion-THUMBS_UP 「有用」 is gone; comment votes stay reactions).
-  Counters are one `.post-stats` **badge strip** (`data-path`): 阅读 (eye) ·
-  有用 (heart) · 评论 · 分享 icons, each with a brand-teal count pill (`.ps > b`,
-  `.is-zero` greys a 0; the full wording is in `title`). `share.js` paints it
+  old discussion-THUMBS_UP 「点赞」 is gone; comment votes stay reactions).
+  Counters are one `.post-stats` **text strip** (`data-path`): 阅读 · 点赞 ·
+  评论 · 分享, each rendered as a text label followed by its count. `share.js` paints it
   (`paintStrip`, partial patches merged per element). On the post page the
-  strip sits in the header meta line (`post-meta.html`): 有用 + 分享 come from
+  strip sits in the header meta line (`post-meta.html`): 点赞 + 分享 come from
   `GET /votes`, views / comment count from `annotations.js`, which dispatches
   `blog:stats` (`{views}` / `{comments}`) from `renderLikeBar`. List pages
   (`index.html`, `life.html`) have **no buttons**, only the strip per post,
@@ -252,7 +251,7 @@ issue start with `<sub>[⚑ Issue #N](url)</sub>` (recognised by
 replies, `deletedAt` set) render as 「此评论已删除」 with their replies.
 
 Code-review / WeChat-reading style, no hover popups. Readers select text in
-`.post-container` → floating toolbar (`赞` / `存疑` / `评论` / `建议修改` / `复制` / `搜一搜` / `分享`) → an **in-flow editor
+`.post-container` → floating toolbar (`点赞` / `存疑` / `评论` / `复制` / `搜一搜` / `分享`) → an **in-flow editor
 panel** is inserted right after the paragraph (取消 / 提交评论 bottom-right).
 The note is posted as a **normal comment** of the post's giscus Discussion:
 
@@ -300,7 +299,7 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
   the article on reload — the confirm text says so. The thread re-renders
   once the viewer query returns so the buttons appear on first open.
 - **Comment votes** are plain GitHub reactions, no own storage (the article-level
-  「有用」 is the anonymous worker counter described above): each comment's ▲ score ▼
+  「点赞」 is the anonymous worker counter described above): each comment's ▲ score ▼
   (`.ap-vote`, in the meta row) is `THUMBS_UP` / `THUMBS_DOWN` on that
   comment (`toggleVote`, optimistic, switching sides removes the other
   reaction first; `addReaction` / `removeReaction`). `parseVotes` reads both
@@ -312,7 +311,7 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
   no downvote). Don't re-add the giscus iframe for reactions.
 - **Passage 赞 / 存疑** (`react`, `reactions` map, toolbar buttons
   `.annotation-tb-up/-doubt`, panel row `.ap-react`): anonymous counters, no
-  login, like the article 「有用」. Worker `GET/POST /reactions` keeps
+  login, like the article 「点赞」. Worker `GET/POST /reactions` keeps
   `passage_reactions(path, hash, quote, up, doubt, share, reasons, section)` in D1; `hash` =
   `annotHash(exact)` (the `#annot-<hash>` id), `quote` lets `applyHighlights`
   anchor and underline a passage nobody commented on (mark ids `r:<hash>`,
@@ -339,7 +338,7 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
 - **Quote escaping gotcha**: `escapeMarkdown` must produce `1\.5px`, not
   `\1.5px` — a backslash before a digit is literal in GFM, the parsed quote
   gets an extra `\` and its hash no longer matches the `§ 原文位置` link.
-- **Feedback loop (存疑原因 / 章节 / 建议修改 / 已修正 / 修订简报)** — the
+- **Feedback loop (存疑原因 / 章节 / 已修正 / 修订简报)** — the
   point is to turn reader signals into work an AI can execute:
   - `DOUBT_REASONS` (`wrong|unclear|outdated|example|conflict`, labels in
     both `annotations.js` and `dashboard.js`, whitelist in the worker): after
@@ -352,11 +351,9 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
     every selector by `selectorFromOffsets`, sent with every reaction POST,
     stored once per row). Comment header gets ` · 位于「…」` (`sectionNote`,
     parsed back by `parseBodyHeader` → `selector.section`); the Issue body too.
-  - `建议修改` (`.annotation-tb-suggest`) = `openComposer(..., mode 'suggest')`:
-    `SUGGEST_TEMPLATE` (`**建议改为：** / **理由：**`), caret after the first
-    heading, 「同时提交 Issue」 pre-ticked, draft keeps `suggest`.
-    `parseBodyHeader` sets `rec.suggest` when the note starts with
-    `<p><strong>建议改为` → blue `.ap-suggest-badge`.
+  - The former `建议修改` quick action has been removed; readers now use the
+    normal `评论` action when they want to explain a problem or propose a change.
+    Historical comments remain readable as ordinary comments.
   - `resolved` (`markResolved`, run in `syncViews`): a note **with an Issue**
     is resolved iff that Issue is closed (`loadIssueStates`: anonymous REST
     `GET /repos/{repo}/issues/{n}` per distinct number, cached in
@@ -388,7 +385,7 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
     loop the two MutationObservers. Code blocks (`.highlighter-rouge` / `pre`) get the
     same strip with the copy button and the same handle, which selects the whole
     `<code>` (`pick(code)`) — nothing mode-specific: the normal toolbar then offers
-    赞 / 存疑 / 评论 / 建议修改 / 复制 / 搜一搜 / 分享 on the block, whose passage is
+    点赞 / 存疑 / 评论 / 复制 / 搜一搜 / 分享 on the block, whose passage is
     its full text (any edit orphans old notes, which is the intended signal). A
     「跑不通？」 pill with a pre-filled 环境 / 报错 template was tried and dropped:
     the block handle should be generic, like the figure one. The figure button
@@ -412,10 +409,10 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
     the whole table. Explicit caption nodes and title paragraphs are included
     in `BLOCK_SELECTOR` so the feedback panel is mounted after the table rather
     than after the caption node.
-  - **Section-level 有用 / 没看懂** (`renderChapterBars`, `.sec-react` appended
+  - **Section-level 点赞 / 没看懂** (`renderChapterBars`, `.sec-react` appended
     inside every article heading `h2`–`h6`, two `.sec-react-btn`s; `chapters` map): anonymous
     like passage reactions, no selection needed. Same worker route and table,
-    `quote = '§ ' + heading` (`CHAPTER_PREFIX`), `section = heading`, `up` = 有用,
+    `quote = '§ ' + heading` (`CHAPTER_PREFIX`), `section = heading`, `up` = 点赞,
     `doubt` = 没看懂; `loadReactions` splits `§ ` rows into `chapters` so they are
     never anchored as passages. `.sec-react` is in `EXCLUDE_SELECTOR`, in
     wechat-export's `REMOVE`, and `headingText()` strips it (and `.anchorjs-link`)
@@ -430,7 +427,7 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
     `articleFromHtml` (`.post-container` text + h2/h3 offsets), `sectionAt`,
     `analyze` → `{ todo, done, lost, plain, chapters, score… }`, `render` → Markdown.
     `openBrief` fetches worker `GET /feedback?path=` (D1: reactions + reasons +
-    section + chapter rows, views, 有用, shares), the Discussion via the worker's
+    section + chapter rows, views, 点赞, shares), the Discussion via the worker's
     anonymous `/discussions?term=` relay, the repo's `划线评论` issues (REST,
     `state=all`, filtered by `body` containing the path — gives 已修正) and the
     live article. Passages are ordered by `2×doubt + 0.5×up + Σ(1 + ▲ + 3×suggest)`;
