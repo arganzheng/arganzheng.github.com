@@ -75,7 +75,7 @@
   var CONTEXT_CHARS = 32;
   var EXCLUDE_SELECTOR = '.comment, .pager, .related-posts, .footnotes, .reversefootnote, sup[id^="fnref"], a.footnote, ' +
     'script, style, noscript, svg, .katex, .mermaid, button, .anchorjs-link, .annotation-toolbar, .annotation-panel, .annotation-marker, .sec-react';
-  var BLOCK_SELECTOR = 'p, li, pre, blockquote, h1, h2, h3, h4, h5, h6, dd, dt, figcaption, figure, .highlight, table';
+  var BLOCK_SELECTOR = 'p, li, pre, blockquote, h1, h2, h3, h4, h5, h6, dd, dt, figcaption, figure, .table-caption, .highlight, table';
   var GHOST = { login: 'ghost', url: 'https://github.com/ghost', avatarUrl: 'https://avatars.githubusercontent.com/u/10137?s=64&v=4' };
 
   var cfg = null;
@@ -589,7 +589,12 @@
   function blockFor(node) {
     var el = node.nodeType === 1 ? node : node.parentNode;
     var cell = el.closest('td, th');
+    var caption = el.closest('.table-caption');
     var block = cell ? cell.closest('table') : el.closest(BLOCK_SELECTOR);
+    if (caption) {
+      var anchor = caption.nextElementSibling;
+      block = anchor && anchor.querySelector ? (anchor.querySelector('table') || anchor) : anchor;
+    }
     if (block && block.tagName === 'PRE' && block.parentNode.classList.contains('highlight')) block = block.parentNode;
     if (block && block.parentNode && block.parentNode.classList.contains('highlighter-rouge')) block = block.parentNode;
     return (block && container.contains(block) && block !== container) ? block : el;

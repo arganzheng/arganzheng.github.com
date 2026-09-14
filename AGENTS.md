@@ -401,6 +401,17 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
     `articleFromHtml` turns `img[alt]` into text so those quotes still anchor in
     the static HTML. Writing rule: **alt is required and reads as a caption**;
     「图 N」 alone is the fallback and re-numbers when a figure is inserted.
+  - **Tables** (`js/code-copy.js` + `js/figures.js`): every table in the article
+    body gets a copy button and a feedback handle, excluding comments, annotation
+    panels, series TOC, and related posts. The copy menu offers TSV, Markdown,
+    and HTML. A stable feedback passage comes from a native `<caption>` or a
+    paragraph immediately before the table matching `表：标题`, `表1：标题`,
+    `表: 标题`, or `表1: 标题` (spaces before the number are allowed); an
+    an explicit number is kept. Without a title, the handle selects the
+    `<thead>` row directly; only a table with no header falls back to selecting
+    the whole table. Explicit caption nodes and title paragraphs are included
+    in `BLOCK_SELECTOR` so the feedback panel is mounted after the table rather
+    than after the caption node.
   - **Section-level 有用 / 没看懂** (`renderChapterBars`, `.sec-react` appended
     inside every article heading `h2`–`h6`, two `.sec-react-btn`s; `chapters` map): anonymous
     like passage reactions, no selection needed. Same worker route and table,

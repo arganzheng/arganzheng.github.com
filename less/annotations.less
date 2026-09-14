@@ -898,3 +898,56 @@
 @media (max-width: 767px) {
 	.post-container .fig-media .fig-tools { opacity: 1; }
 }
+
+// ---- tables: caption, copy format menu, and feedback handle (js/code-copy.js + js/figures.js)
+.post-container {
+	.table-caption {
+		margin: 1.5em 0 6px;
+		font-size: 13px;
+		line-height: 1.5;
+		color: @annot-muted;
+		.table-no { color: @annot-faint; }
+	}
+	.table-tools-anchor {
+		position: relative;
+	}
+	.table-tools {
+		position: absolute;
+		top: 2px;
+		right: 2px;
+		z-index: 2;
+		display: flex;
+		gap: 6px;
+		padding: 6px;
+		border-radius: 8px;
+		background: rgba(255, 255, 255, 0.85);
+		.code-copy { position: static; width: 32px; height: 32px; }
+	}
+	.table-copy-menu {
+		position: absolute;
+		top: 46px;
+		right: 6px;
+		min-width: 150px;
+		padding: 4px;
+		background: #fff;
+		border: 1px solid #d1d9e0;
+		border-radius: 6px;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+		button {
+			display: block;
+			width: 100%;
+			padding: 6px 10px;
+			border: 0;
+			background: none;
+			color: #24292f;
+			font-size: 12px;
+			text-align: left;
+			white-space: nowrap;
+			cursor: pointer;
+			&:hover, &:focus { background: #f6f8fa; outline: 0; }
+		}
+	}
+}
+@media (max-width: 767px) {
+	.post-container .table-tools { opacity: 1; }
+}

@@ -156,6 +156,38 @@
     });
   }
 
+  function tableTitle(table) {
+    var caption = table.querySelector(':scope > caption');
+    if (caption) return { node: caption, explicit: true };
+    var anchor = table.parentNode.classList.contains('table-responsive') ? table.parentNode : table;
+    var previous = anchor.previousElementSibling;
+    var m = previous && /^表\s*(\d+)?\s*[:：]\s*(.+)$/.exec(norm(previous.textContent));
+    if (m) return { node: previous, explicit: true };
+    // Markdown tables normally render a <thead>. Select only that row as the
+    // stable fallback; a table without a header must use the whole table.
+    return { node: table.querySelector('thead > tr') || table, explicit: false };
+  }
+
+  function ensureTableTitle(table) {
+    var title = tableTitle(table);
+    if (title.explicit) title.node.classList.add('table-caption');
+    return title;
+  }
+
+  var TABLE_TITLE = '对这张表评论 / 存疑（会选中表格标题，再从工具条里选）';
+  function decorateTables() {
+    Array.prototype.forEach.call(container.querySelectorAll('table'), function (table) {
+      if (table.closest('.comment, .annotation-panel, .series-toc, .related-posts')) return;
+      var title = ensureTableTitle(table);
+      var anchor = table.parentNode.classList.contains('table-responsive') ? table.parentNode : table;
+      var tools = anchor.querySelector(':scope > .table-tools');
+      if (!tools || tools.querySelector('.table-feedback')) return;
+      var feedback = button(TABLE_TITLE, function () { pick(title.node, title.node); });
+      feedback.classList.add('table-feedback');
+      tools.appendChild(feedback);
+    });
+  }
+
   // Code blocks: the same handle selects the whole block — dragging across 40
   // lines is what it saves; the toolbar then offers everything a selection does
   // (a comment on the block, 存疑, 建议修改, copy, search, share).
@@ -176,6 +208,7 @@
     decorateImages();
     decorateDiagrams();
     decorateCode();
+    decorateTables();
     if (window.MutationObserver) {
       new MutationObserver(function () { decorateDiagrams(); }).observe(container, { childList: true, subtree: true });
     }
