@@ -18,7 +18,7 @@ updated: 2026-09-14
 
 | 地图 | 面向 | 一句话 | 层 | 已写成的系列 |
 |---|---|---|---|---|
-| [AI-Infra](/ai-infra-learning-roadmap.html) | **跑模型的人**：从后端工程师到 PyTorch / vLLM / NCCL 的贡献者 | 模型在硬件上怎么花钱、系统怎么实现 | 五层 + 横切 + 两个选修 | 十一个系列：十个写完，09 RL 后训练基础设施总纲已发、各篇在写 |
+| [AI-Infra](/ai-infra-learning-roadmap.html) | **跑模型的人**：从后端工程师到 PyTorch / vLLM / NCCL 的贡献者 | 模型在硬件上怎么花钱、系统怎么实现 | 五层 + 横切 + 两个选修 | 十一个系列 93 篇，全部写完 |
 | [AI 算法工程师](/ai-algorithm-engineer-learning-roadmap.html) | **造模型的人**：能复现论文、设计后训练配方、把模型评测清楚 | 为什么这样建模、效果如何、怎么证明 | 八层 + 横切 | 全部写完：三篇导读 + 五个系列 + 共享 04 系列 |
 | [AI 应用工程师](/ai-application-engineer-learning-roadmap.html) | **用模型做产品的人**：在非确定性组件之上做可靠产品 | 用什么、怎么组合、效果好不好 | 七层 + 横切 + 选修 | 地图已成，系列待写 |
 
@@ -158,7 +158,7 @@ flowchart LR
 
 | 地图 | 已写 | 待写 |
 |---|---|---|
-| AI-Infra | 十个系列共 85 篇：Python 7、C++ 8、PyTorch 10、Transformer 与 LLM 8、GPU kernel 10、通信 8、大规模训练 8、vLLM 14、平台 8、开源贡献 4；09 RL 后训练基础设施的[总纲](/rl-post-training-infrastructure.html) | RL 后训练基础设施 8 篇正文；两个选修（ML 编译器、扩散模型推理基础设施）暂以地图里的段落代替，后者计划作为短系列补上 |
+| AI-Infra | 十一个系列共 93 篇：Python 7、C++ 8、PyTorch 10、Transformer 与 LLM 8、GPU kernel 10、通信 8、大规模训练 8、vLLM 14、[RL 后训练基础设施](/rl-post-training-infrastructure.html) 8、平台 8、开源贡献 4 | 两个选修（ML 编译器、扩散模型推理基础设施）暂以地图里的段落代替，后者计划作为短系列补上 |
 | AI 算法工程师 | L0–L2 各一篇导读，L3 深度学习基础 6 篇，L4 共享 04 系列 + 预训练 4 篇，L5 后训练 8 篇，L6 高效推理与压缩 6 篇，L7 多模态 7 篇，横切实验方法论 1 篇 | — |
 | AI 应用工程师 | 地图本身（含场景轴与三个 harness 案例） | 全部系列 |
 

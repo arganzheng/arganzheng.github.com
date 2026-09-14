@@ -276,10 +276,10 @@ verl 的核心目录是本系列的源码阅读线。读完后你应该能在 `v
 
 ## 贯穿全系列的实践线
 
-系列的练手项目是**一套"RL 一步账本"工具与一个从 8 卡跑通、可外推到几百卡的 GRPO 训练配置**。几百卡的 RL 集群不是每个读者都能拿到的，但账是可以在 8 卡上验证、再用数学外推的。项目的每一部分对应一篇：
+系列的练手线是**一张能算到几百卡的账，和一个在 8 卡上能验证它的 GRPO 配置**。几百卡的 RL 集群不是每个读者都能拿到的，但账是可以在 8 卡上验证、再用数学外推的。各篇末尾的"实践"是给读者的动手建议，对应的是：
 
 ```text
-第一篇    RL 一步账本                 三段 FLOPs · 显存 · KV · 时间 · 利用率上限
+第一篇    RL 一步账本                 三段 FLOPs · 显存 · KV · 时间 · 利用率上限（配套脚本）
 第二篇    账本加系统形态              共置 / 分离 / 异步 · 配比 · 气泡与墙钟
 第三篇    8 卡共置 GRPO               切换耗时与显存归属对账 · sleep level 对比
 第四篇    最小的 FSDP2 → vLLM 权重同步 gather · 映射 · NCCL 广播 · collective_rpc · 各段耗时
@@ -289,7 +289,7 @@ verl 的核心目录是本系列的源码阅读线。读完后你应该能在 `v
 第八篇    面板、故障注入与值班手册     全步 MFU · 三类故障定位 · 配置推导记录
 ```
 
-到第八篇结束，读者手上有：一个能对任意模型、任务形态与 GPU 数给出三段时间、利用率上限与推荐系统形态的账本；一份在 8 卡上验证过、有外推依据的 GRPO 配置；一套包含权重同步、异步控制、环境调度、checkpoint 与告警的运行方案。脚本与运行输出放在 `ai-learning-labs` 的 `rl-post-training-infra/` 目录，随各篇发布。
+只有第一篇的账本有配套脚本（`ai-learning-labs` 的 `rl-post-training-infra/`），后面各篇把新引入的机制直接用公式与表格记进这张账，不再单独给脚本——它们要验证的东西（切换耗时、同步秒数、staleness 曲线）都要在真实 GPU 上量，纸面模型给出的是量之前该期待的数字。到第八篇结束，读者手上有：一套能对任意模型、任务形态与 GPU 数给出三段时间、利用率上限与推荐系统形态的算法；一份在 8 卡上验证过、有外推依据的 GRPO 配置；一套包含权重同步、异步控制、环境调度、checkpoint 与告警的运行方案。
 
 与它平行的源码阅读线：
 
@@ -393,16 +393,14 @@ verl 的核心目录是本系列的源码阅读线。读完后你应该能在 `v
 
 ## 章节目录
 
-各篇随发布补入链接（未加链接的尚未发布）：
-
 1. [负载画像：一步 RL 里发生什么——生成、打分、训练的算力、显存与时间账](/rl-step-anatomy-rollout-reward-train.html)
-2. 系统形态：共置、分离与异步——三种拓扑的利用率、气泡与正确性代价
-3. 共置：训练器与推理引擎在同一组 GPU 上共存——显存归属切换与它的代价
-4. 权重同步：从训练分片到推理分片——布局映射、传输方式、量化与增量同步
-5. 异步与 off-policy：staleness、部分 rollout、训推不一致与样本缓冲
-6. Agentic rollout：多轮、工具、沙箱集群与环境服务
-7. verl 源码导读：从一个 GRPO 配置追到每个 worker（附 slime 与 AReaL 的对照）
-8. 配置、可观测与排障：GPU 配比、全步 MFU、RL 状态的 checkpoint 与常见故障
+2. [系统形态：共置、分离与异步——三种拓扑的利用率、气泡与正确性代价](/rl-system-topologies-colocate-disaggregate-async.html)
+3. [共置：训练器与推理引擎在同一组 GPU 上共存——显存归属切换与它的代价](/colocated-trainer-and-rollout-engine-memory-handoff.html)
+4. [权重同步：从训练分片到推理分片——布局映射、传输方式、量化与增量同步](/weight-sync-from-training-shards-to-inference-shards.html)
+5. [异步与 off-policy：staleness、部分 rollout、训推不一致与样本缓冲](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)
+6. [Agentic rollout：多轮、工具、沙箱集群与环境服务](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html)
+7. [verl 源码导读：从一个 GRPO 配置追到每个 worker（附 slime 与 AReaL 的对照）](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html)
+8. [配置、可观测与排障：GPU 配比、全步 MFU、RL 状态的 checkpoint 与常见故障](/rl-post-training-configuration-observability-and-troubleshooting.html)
 
 
 ## 最终目标

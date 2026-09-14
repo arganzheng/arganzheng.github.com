@@ -583,10 +583,8 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   math out of `##`/`###` headings — the sidebar OUTLINE shows raw `\(…\)`.
 - Series 09 `rl-post-training-infra` (《RL 后训练基础设施：rollout 与训练如何共享
   一组 GPU》, overview `2026-08-26-rl-post-training-infrastructure.md`, Infra
-  roadmap L4 alongside 07/08, promoted from 选修 on 2026-09-14) has **only the
-  overview so far**; its 章节目录 is a plain list — link each post there as it
-  lands. Its 8 posts take 2026-08-27 … 09-03 (past dates are fine — they go
-  live on push); vLLM was compressed to daily (08-11 … 08-25 — it cannot start
+  roadmap L4 alongside 07/08, promoted from 选修 on 2026-09-14) is complete: overview + 8 posts dated 2026-08-27 … 09-03 (written 09-14, all
+  linked from the overview's 章节目录); vLLM was compressed to daily (08-11 … 08-25 — it cannot start
   earlier: its pin vLLM v0.27.1 is tagged 2026-08-11), 平台 and 开源贡献 were
   renumbered 10 / 11 and re-dated to 09-04 … 09-12 and 09-13 … 09-17 to keep
   publication order = reading order.
@@ -594,9 +592,13 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   only as 对照 in post 7. Planned next: a short 选修 series on diffusion-model
   inference infra (5 posts). Version baseline in the overview: verl v0.9.0, slime v0.3.0, OpenRLHF
   v0.11.0, AReaL paper/docs, vLLM v0.27.1, PyTorch 2.13.0, Megatron Core 0.18.0.
-  Companion scripts go in `ai-learning-labs/rl-post-training-infra/` (not
-  created yet). Overview posts that link to future-dated posts fail lychee
-  until those dates — build locally with `--future` to check.
+  Only post 1 has a companion script (`ai-learning-labs/rl-post-training-infra/rl_ledger.py`);
+  posts 2–8 deliberately have none — the author asked to stop writing
+  companion experiments (they cost time and thinned the articles); each post
+  ends with a prose 实践建议 instead. Sources were read from shallow clones of
+  verl v0.9.0 / vLLM v0.27.1 / slime v0.3.0 / AReaL; cite paths + function
+  names, never line numbers. Overview posts that link to future-dated posts
+  fail lychee until those dates — build locally with `--future` to check.
 - Companion code lives in `../ai-learning-labs` (git repo, pushed by the
   user). Its `.venv/` (Python 3.12 via `~/.local/bin/python3.12`, torch CPU,
   numpy, tiktoken, tokenizers) is gitignored; recreate with

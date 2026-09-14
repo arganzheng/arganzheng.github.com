@@ -415,7 +415,7 @@ graph LR
 | 06 | [通信与互联：从 NCCL 到 RDMA](/communication-and-interconnect-for-ai-infra.html) | L3 | 8 |
 | 07 | [大规模训练工程：从并行策略到容错恢复](/large-scale-training-from-parallelism-to-fault-tolerance.html) | L4 | 8 |
 | 08 | [大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术](/deep-dive-into-vllm.html) | L4 | 14 |
-| 09 | [RL 后训练基础设施：rollout 与训练如何共享一组 GPU](/rl-post-training-infrastructure.html) | L4 | 8（总纲已发，各篇陆续发布） |
+| 09 | [RL 后训练基础设施：rollout 与训练如何共享一组 GPU](/rl-post-training-infrastructure.html) | L4 | 8 |
 | 10 | [AI 平台工程：资源层与交付层](/ai-platform-engineering.html) | L5 | 8 |
 | 11 | [AI-Infra 开源贡献指南](/contributing-to-ai-infra-open-source.html) | 横切 | 4 |
 
