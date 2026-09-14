@@ -54,6 +54,7 @@ LLM 预训练在第二行：每个参数只"分到"两千个 token，模型远�
 | 八 | 诊断 | 三个信号：gap、held-out 拐点、记忆探针；loss 涨而准确率不变的含义 |
 | 九 | 实验 | 代码与完整结果 |
 | 十 | 本文小结 |  |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、经典视角与它失效的地方
@@ -283,6 +284,56 @@ Double descent 与正则化的完整表在第二、五章。小语言模型 2 �
 - 下一篇回到结构史：卷积网络解决了什么、ResNet 留下了什么、ViT 怎么把图切成 token。
 
 配套代码：[`deep-learning-foundations/04_regularization.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/04_regularization.py)——`dd` / `reg` / `lm` 三个子实验，完整跑约 15 分钟，`--quick` 两分钟；字符级语料用的是 Python 自带的标准库源码，不需要下载。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**为什么不过拟合**：过参数化时能拟合训练集的解有无数个，优化器（SGD / Adam 从小初始化出发）挑的是最小范数、平坦的、"先学简单的"那一个——隐式正则化；容量不是度量，同一个网络能背下随机标签（第四章）。实测宽度 2048（参数是样本的 407 倍）的测试 loss 反而最好——double descent 的第二次下降（第三章）。**什么时候会过拟合**：参数 / 数据比进入几百到上千的体制、且训练足够多个 epoch。小语言模型实验：2 万字符时第 16 个 epoch 起 held-out loss 回升、逐字记忆率升到 10%；20 万字符拐点在第 8 个 epoch；200 万字符 10 个 epoch 未到拐点（第七章）。LLM 预训练 $$N/D = 0.0005$$ 只训一个 epoch，不在这个体制里；SFT 与奖励模型在。**怎么提前看到**：held-out loss 的拐点、训练 / 验证 gap、测试 loss 涨而准确率不变（过度自信）、记忆探针——四条曲线，早停是最便宜的对策（第八章）。
+
+</details>
+
+
+## 十一、自测
+
+1. SFT 一个 8B 模型，1 万条指令约 500 万 token；预训练 Llama-3-8B 用 15T token。两者的参数 / 数据比各是多少、在哪个体制？
+
+   <details markdown="1"><summary>答案</summary>
+
+   SFT：$$8 \times 10^9 / 5 \times 10^6 = 1600$$，过参数化体制，会过拟合；预训练：$$8 \times 10^9 / 1.5 \times 10^{13} \approx 0.0005$$，数据主导，每个 token 只见一次，过拟合不是主要风险。
+
+   </details>
+
+2. double descent 曲线的尖峰出现在哪里？为什么在那里加数据可能让同一个模型变差？
+
+   <details markdown="1"><summary>答案</summary>
+
+   在插值阈值——模型刚好能把训练集（含噪声标签）拟合到零误差的容量处。加数据把阈值往右推，一个原本在阈值右侧（已进入第二次下降）的模型可能正好落到新的阈值上。
+
+   </details>
+
+3. dropout $$p = 0.5$$ 训练时把激活乘什么？推理时做什么？为什么 LLM 预训练不用它？
+
+   <details markdown="1"><summary>答案</summary>
+
+   训练时以 0.5 概率置零、剩下的乘 $$1/(1-p) = 2$$ 保持期望；推理时什么都不做。预训练在数据主导体制里容量是瓶颈，dropout 减少有效容量、拖慢收敛，而过拟合本来就不是风险。
+
+   </details>
+
+4. weight decay 对应什么先验？实验里它把测试 loss 的上升从多少压到多少？它改变了过拟合的终点还是速度？
+
+   <details markdown="1"><summary>答案</summary>
+
+   参数上的高斯先验（MAP 视角）；从 0.55 压到 0.42；改变了终点——它限制了参数范数，模型能背下的东西变少。相比之下 dropout 只拖慢速度、不改变终点。
+
+   </details>
+
+5. 验证集上 loss 在涨、准确率却不动——发生了什么？该看哪个探针确认？
+
+   <details markdown="1"><summary>答案</summary>
+
+   过度自信：模型对答对的题给出越来越极端的概率，错的题也越来越自信，交叉熵被少数极端错误拉高而 argmax 不变。看校准（预测概率 vs 实际正确率）与记忆探针（逐字复现训练样本的比例）。
+
+   </details>
 
 
 ## 下一篇

@@ -74,6 +74,7 @@ v ← β₂v + (1−β₂)g²
 | 八 | 优化器状态的账 | 16 字节 / 参数里的 12；8-bit Adam、Adafactor；二阶与新优化器 |
 | 九 | 实验 | 六组实验的代码与结果 |
 | 十 | 本文小结 |  |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、SGD 与它的噪声
@@ -369,6 +370,56 @@ class Adam:
 - 下一篇：有了能稳定训练的网络与优化器，为什么参数比样本多得多却不过拟合——以及什么时候会。
 
 配套代码：[`deep-learning-foundations/03_optimizers.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/03_optimizers.py)——六个实验各是一个子命令（`compare` / `bias` / `warmup` / `adamw` / `scaling` / `clip`）；优化器实现在 `dlf/optim.py`。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**两个矩**：$$m$$ 是梯度的指数移动平均（Momentum，平滑方向），$$v$$ 是梯度平方的指数移动平均（每个参数的尺度）；更新量 $$\hat m / \sqrt{\hat v}$$ 是量级约 1 的无量纲数，所以每个参数每步走约 $$\eta$$、与梯度大小无关——一个学习率适用于尺度相差几个量级的所有参数（第四章）。**AdamW ≠ Adam + $$L_2$$**：$$L_2$$ 的 $$\lambda\theta$$ 混进 $$g$$ 后被 $$1/\sqrt{v}$$ 缩放，梯度小的参数被过度衰减（实测 $$\lVert W_1 \rVert$$ 从 22.6 掉到 2.3，准确率 95.6% → 86.2%）；AdamW 把衰减放在矩之外，均匀作用于所有参数（第五章）。**warmup 几乎不能省**：偏差修正后 Adam 第一步的更新恰好是 $$\eta \cdot \text{sign}(g)$$——满步长——此时 $$v$$ 还没学到真实尺度，所有参数同时以最大步长乱跳；$$\eta = 10^{-2}$$ 无 warmup 时 loss 冲到 4.59、有则 1.26（第六章）。**batch 变大**：SGD 下梯度噪声方差 $$\propto 1/B$$，$$B$$ 乘 $$k$$ 则 $$\eta$$ 乘 $$k$$（线性 scaling），Adam 下近似 $$\sqrt{k}$$；在临界 batch 之内成立（实测到 512），之外发散（2048）——超过临界 batch 再加 batch 只是浪费样本（第二章）。
+
+</details>
+
+
+## 十一、自测
+
+1. Adam 的 $$\beta_1 = 0.9$$、$$\beta_2 = 0.999$$，第一步 $$t = 1$$ 时 $$\hat m_1$$ 与 $$\hat v_1$$ 各是多少？更新量是多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$m_1 = 0.1 g$$，$$\hat m_1 = m_1 / (1 - 0.9) = g$$；$$v_1 = 0.001 g^2$$，$$\hat v_1 = g^2$$；更新量 $$\eta \cdot g / \lvert g \rvert = \eta \cdot \text{sign}(g)$$——满步长，这就是要 warmup 的原因。
+
+   </details>
+
+2. Llama-3-8B 用 AdamW 训练，优化器状态占多少显存？换成 SGD + Momentum 呢？8-bit Adam 呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   AdamW 两个矩各 4 字节：$$8.03 \times 10^9 \times 8 = 64$$ GB；SGD + Momentum 一个矩 4 字节：32 GB；8-bit Adam 两个矩各 1 字节：16 GB。
+
+   </details>
+
+3. SGD 下 batch 从 256 加到 1024，学习率该怎么变？Adam 下呢？什么时候这条规则失效？
+
+   <details markdown="1"><summary>答案</summary>
+
+   SGD 线性 scaling：乘 4；Adam 近似平方根：乘 2。超过临界 batch（梯度噪声已经不是瓶颈）后失效，再加 batch 每步的进步不再随之增加，实测 2048 时发散。
+
+   </details>
+
+4. 同一个 $$\lambda$$，Adam + $$L_2$$ 与 AdamW 对一个梯度一直很小的参数（比如 embedding 里罕见 token 的行）各做了什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   Adam + $$L_2$$：$$\lambda\theta$$ 混进 $$g$$，被 $$1/\sqrt{v}$$ 放大（$$v$$ 小），这个参数被过度衰减、往零缩得很快；AdamW：衰减 $$\eta\lambda\theta$$ 独立于矩，与其他参数一样均匀地缩。
+
+   </details>
+
+5. cosine 与 WSD 两种调度各有什么优缺点？loss 曲线在衰减开始处突然下折是正常的吗？
+
+   <details markdown="1"><summary>答案</summary>
+
+   cosine 平滑、但必须预先知道总步数 $$T$$，中途延长要重排；WSD 恒定段可随时延长、从任意点分叉出一个衰减段就能得到可用模型。下折正常：恒定学习率下 loss 在噪声决定的水平上震荡，学习率一降噪声变小，loss 立刻掉——衰减阶段才是 loss 大幅下降的阶段。
+
+   </details>
 
 
 ## 下一篇

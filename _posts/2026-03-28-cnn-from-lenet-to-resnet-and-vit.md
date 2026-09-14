@@ -36,6 +36,7 @@ updated: 2026-09-14
 | 六 | 从 CNN 到 ViT | 归纳偏置 vs 数据量；ViT 的结构；patch embedding == 卷积（实测差 1e-6）；一张图多少 token；卷积在多模态里的残余 |
 | 七 | 实验 | 代码与结果 |
 | 八 | 本文小结 |  |
+| 九 | 自测 | 5 道题 |
 
 
 ## 二、卷积作为带约束的线性层
@@ -290,6 +291,56 @@ L=56 residual: init grad norm block1 2.2e+00 vs block56 7.6e-01 (ratio 2.9)   | 
 - 下一篇：另一条线——循环网络怎么处理序列、为什么记不住远处、attention 如何从它的瓶颈里被发明出来。
 
 配套代码：[`deep-learning-foundations/05_cnn.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/05_cnn.py)——`matrix` / `resnet` / `patch` / `deep` 四个子实验，`deep`（L=20 / 56 的 plain 与 residual）在 CPU 上约 10 分钟。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**一个 $$3 \times 3$$ 核相当于多大的全连接矩阵**：等价矩阵的行数是输出位置数、列数是输入位置数——$$6 \times 6$$ 图上是 $$16 \times 36$$，576 个元素里只有 144 个非零、且这 144 个只由 9 个自由参数生成（局部性 + 参数共享）；ResNet-50 一个卷积层的等价矩阵有 $$4 \times 10^{10}$$ 个元素（第二章）。所以卷积是带两条约束的线性层，参数量与图像大小无关、FLOPs 与之成正比。**残差是同一个东西**：ResNet 的 $$x + f(x)$$ 与 Transformer 每层的两个残差块都是把 Jacobian 变成 $$I + J$$；ResNet-v2 的 pre-activation 就是 Pre-Norm 的前身；本文复现退化问题——plain 网络 20 → 56 层训练 loss 从 0.13 恶化到 0.72，残差网络不变（第五章）。**ViT 可以不用卷积**：卷积的先验（局部、平移不变）在数据少时是优势、数据多时是限制；把图切成 $$(H/p)(W/p)$$ 个 patch 线性投影成 token 送进标准 encoder，二维结构只靠位置编码——而这个 patch embedding 本身就是 kernel = stride = $$p$$ 的卷积（实测差 $$10^{-6}$$），卷积没有消失，退到了第一层（第六章）。
+
+</details>
+
+
+## 九、自测
+
+1. $$3 \times 3$$ 卷积、输入 64 通道、输出 128 通道：参数量多少？在 $$56 \times 56$$ 的 feature map 上 FLOPs 多少？把图放大到 $$112 \times 112$$ 各怎么变？
+
+   <details markdown="1"><summary>答案</summary>
+
+   参数 $$3 \times 3 \times 64 \times 128 = 73{,}728$$（+128 偏置）；FLOPs $$\approx 2 \times 56 \times 56 \times 73{,}728 \approx 462$$ M；图放大 4 倍（面积），参数不变、FLOPs 变 4 倍。
+
+   </details>
+
+2. stride 为 1 的 $$3 \times 3$$ 卷积堆 10 层，感受野多大？中间插一个 stride 2 的下采样后再堆 10 层呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$1 + 2 \times 10 = 21$$；下采样后每层扩大的感受野在原图上翻倍：$$21 + 2 \times 10 \times 2 = 61$$。stride 与池化是让感受野快速覆盖全图的办法。
+
+   </details>
+
+3. ResNet-50 的 bottleneck 块（256 → 64 → 64 → 256）为什么比两个 $$3 \times 3$$ 的 256 → 256 少 17 倍参数？$$1 \times 1$$ 卷积在做什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   昂贵的 $$3 \times 3$$ 在 4 倍窄的通道上做：$$16\text{K} + 37\text{K} + 16\text{K} = 69$$K 对 $$1.18$$M。$$1 \times 1$$ 卷积没有空间感受野，是对每个位置独立做一次线性变换——与 Transformer 里逐 token 的 FFN 是同一种算子。
+
+   </details>
+
+4. ViT-B/16 处理一张 $$224 \times 224$$ 图是多少个 token？patch embedding 的参数量是多少？CLIP-336 呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$(224/16)^2 = 196$$ 个 token（+1 个 CLS）；patch embedding 是 $$3 \times 16 \times 16 \to 768$$ 的线性层：$$768 \times 768 + 768 = 590{,}592$$；336 分辨率、patch 14：$$(336/14)^2 = 576$$ 个 token。
+
+   </details>
+
+5. plain 网络从 20 层加到 56 层训练 loss 反而变差（0.13 → 0.72），这是过拟合吗？有 BN 的深 plain 网络梯度出了什么问题？
+
+   <details markdown="1"><summary>答案</summary>
+
+   不是——训练 loss 变差是优化失败（退化问题），过拟合是训练好、测试差。有 BN 的深 plain 网络梯度向输入方向爆炸：第 1 块的梯度范数是第 56 块的 2849 倍；残差把比值压到 3。
+
+   </details>
 
 
 ## 下一篇

@@ -5,6 +5,7 @@ title: "深度学习基础（01）：反向传播——手推一个两层网络"
 subtitle: "Backpropagation by Hand: Shapes, the 2x Rule and Why Activations Must Be Saved"
 tags: [AI, Deep Learning, LLM]
 catalog: true
+updated: 2026-09-14
 ---
 
 `loss.backward()` 是训练代码里最短的一行，也是被理解得最少的一行。它做的事在 1986 年就已经写清楚了：沿着计算图反向应用链式法则。但只有自己推过一遍、写过一遍、用有限差分验证过一遍，才会真的知道三件后面每一篇都要用的事——**梯度的形状与被求导的量相同**、**反向的计算量是前向的两倍**、**前向的中间结果必须保留到反向**。第一件决定了怎么读任何一个梯度公式，第二件是训练 FLOPs 等于 $$6ND$$ 的来源，第三件是激活显存与激活重算的全部原因。
@@ -39,6 +40,7 @@ $$m$$ 是 batch 大小。参数是 $$W_1 \in \mathbb{R}^{784 \times 256}, b_1 \i
 | 八 | Autograd 做了什么 | 录带、每个算子的 backward、saved tensors、.grad 累加 |
 | 九 | 实验 | 120 行 NumPy：梯度检查 1e-7、FLOPs 比 2.00、与 PyTorch 对齐、MNIST 97% |
 | 十 | 本文小结 |  |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、链式法则与计算图
@@ -319,6 +321,56 @@ epoch 15  train loss 0.0585  test acc 97.61%
 - 下一篇把这个网络加深到 64 层，看梯度在层间传播时会发生什么。
 
 配套代码：[`deep-learning-foundations/01_backprop.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/01_backprop.py)——本文的全部数字由它跑出（梯度检查、FLOPs、与 autograd 对齐、15 个 epoch 的训练），`--quick` 一分钟内跑完；第九章的三个扩展可以直接在上面改。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**能手推、能手写、能验证**：反向传播是沿计算图反向拓扑序对每个算子做一次 VJP（上游梯度 × 局部 Jacobian），Linear 的三条公式 $$\partial L/\partial W = X^T G$$、$$\partial L/\partial X = G W^T$$、$$\partial L/\partial b = \sum_i G_{i,:}$$ 可以从"梯度与被求导量同形"唯一重建，softmax + 交叉熵合并求导是 $$(P - Y)/m$$（第三、四章）；用 float64 的中心差分做梯度检查，相对误差 $$< 10^{-6}$$ 通过，本文实测与 autograd 差 $$10^{-8}$$（第七、八章）。**$$6ND$$**：前向每个参数用一次乘加（$$2N$$ / token），反向每个 Linear 做两个 GEMM——一个算 $$\partial L/\partial W$$、一个算 $$\partial L/\partial X$$——所以是前向的两倍（$$4N$$），合计 $$6N$$ / token，实测比值 2.00（第五章）。**激活为什么要存**：$$\partial L/\partial W = X^T G$$ 需要本层的输入 $$X$$，它是前向的中间结果，不存就得重算——这就是 gradient checkpointing 用 33% 额外计算换掉的东西（第六章）。
+
+</details>
+
+
+## 十一、自测
+
+1. 一个 Linear 层输入 $$X \in \mathbb{R}^{128 \times 784}$$、权重 $$W \in \mathbb{R}^{784 \times 256}$$，上游梯度 $$G = \partial L / \partial Y$$。$$\partial L / \partial W$$、$$\partial L / \partial X$$、$$\partial L / \partial b$$ 各是什么形状、怎么算？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$\partial L/\partial W = X^T G$$，形状 $$[784, 256]$$（与 $$W$$ 同形）；$$\partial L/\partial X = G W^T$$，形状 $$[128, 784]$$（与 $$X$$ 同形）；$$\partial L/\partial b = \sum_i G_{i,:}$$，形状 $$[256]$$。三条都能从"梯度与被求导的量同形"倒推出来。
+
+   </details>
+
+2. softmax + 交叉熵对 logits $$Z$$ 的梯度是什么？batch 大小 $$m$$ 在哪里？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$\partial L / \partial Z = (P - Y) / m$$：$$P$$ 是 softmax 输出、$$Y$$ 是 one-hot 标签；除以 $$m$$ 是因为 loss 对 batch 取了平均。
+
+   </details>
+
+3. 一个 7B 模型训练 1T token，前向、反向、合计各多少 FLOPs？开了 gradient checkpointing 呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   前向 $$2N D = 2 \times 7 \times 10^9 \times 10^{12} = 1.4 \times 10^{22}$$；反向是前向两倍 $$2.8 \times 10^{22}$$；合计 $$6ND = 4.2 \times 10^{22}$$。开 checkpointing 多一次前向，$$8ND = 5.6 \times 10^{22}$$，多 33%。
+
+   </details>
+
+4. 本文的两层网络在 batch 128 下激活占 552 KiB、权重 795 KiB。batch 换成 4096，两者各变成多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   激活与 batch 成正比：$$552 \times 32 = 17{,}664$$ KiB $$\approx 17.3$$ MiB；权重不变，仍是 795 KiB。激活可以远超权重，序列模型里更是如此。
+
+   </details>
+
+5. 梯度检查为什么必须用 float64、用中心差分、看相对误差而不是绝对误差？
+
+   <details markdown="1"><summary>答案</summary>
+
+   float32 只有 7 位有效数字，有限差分的截断误差与舍入误差加起来在 $$10^{-3}$$ 量级，分不清"对"与"错"；中心差分 $$(f(x+h) - f(x-h)) / 2h$$ 的误差是 $$O(h^2)$$，比单侧差分的 $$O(h)$$ 准；相对误差 $$\lvert a - b \rvert / (\lvert a \rvert + \lvert b \rvert)$$ 不受梯度绝对量级影响——梯度是 $$10^{-8}$$ 时绝对误差 $$10^{-9}$$ 已经是 10% 的错。
+
+   </details>
 
 
 ## 下一篇

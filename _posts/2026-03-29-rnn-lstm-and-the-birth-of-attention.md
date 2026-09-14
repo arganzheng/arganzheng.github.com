@@ -38,6 +38,7 @@ Attention 不是为 Transformer 发明的。2014 年它被加到一个循环神�
 | 七 | RNN 的两个致命缺点与 Transformer 的回答 | 串行 vs 并行（实测硬件利用率差 4.5 倍）、路径长度、`O(n²)` 的代价、RNN 的回声 |
 | 八 | 实验 | 代码与结果 |
 | 九 | 本文小结与系列总结 |  |
+| 十 | 自测 | 5 道题 |
 
 
 ## 二、循环网络
@@ -336,3 +337,53 @@ for t in range(T, 0, -1):
 读到这里，Transformer 的每个部件都有了来历：残差与 Pre-Norm 来自第二篇与 ResNet，AdamW 与 warmup 来自第三篇，attention 来自本篇，patch embedding 来自上一篇，"堆 $$L$$ 层同样的块"来自两条线的交汇。[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)从这里接手——那个系列不再问"为什么这样设计"，而是问"这样设计每一步花多少钱"。两个系列合在一起，是[算法地图](/ai-algorithm-engineer-learning-roadmap.html)上 L3 与 L4 的全部基础。
 
 配套代码：[`deep-learning-foundations/06_rnn_attention.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/06_rnn_attention.py)——`bptt` / `memory` / `forget` / `seq2seq` / `timing` 五个子实验；`forget` 就是遗忘门偏置为 1 的那组对照。整个系列的代码与运行输出在 [ai-learning-labs/deep-learning-foundations](https://github.com/arganzheng/ai-learning-labs/tree/main/deep-learning-foundations)。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**记不住 20 步之外**：BPTT 的梯度是 $$T - t$$ 个 $$\text{diag}(1 - h^2)\, W$$ 的乘积，标准初始化下 20 步外衰减到千分之四、60 步外 $$10^{-10}$$——不是状态装不下，是训练信号传不到（第三章，实测记忆长度约 10 步）。**遗忘门与残差**：LSTM 的 $$c_t = f_t \odot c_{t-1} + i_t \odot \tilde c_t$$ 是加法更新，Jacobian $$\partial c_t / \partial c_{t-1} = \text{diag}(f_t) + \dots$$，只要 $$f_t \approx 1$$ 就是一条接近恒等的通路——与 ResNet 的 $$I + J$$ 是同一件事，1997 年就有；所以遗忘门偏置要初始化为 1，把通路在初始时刻打开（第四章）。**attention 为什么被发明、又为什么取代 RNN**：seq2seq 把整句压进一个固定向量，16 个 token 的倒序任务整句准确率 0%；Bahdanau 让 decoder 每步对 encoder 全部状态加权求和，同一任务到 76%（第五、六章）——它解决的是瓶颈。之后人们发现 attention 本身就能建模序列，而 RNN 有两个 attention 没有的致命缺点：串行（同一 CPU 上 attention 的算力是它的 4.5 倍）与 $$O(n)$$ 的路径长度；Transformer 用 $$O(n^2)$$ 的算量与 KV cache 换掉了两者（第七章）。
+
+</details>
+
+
+## 十、自测
+
+1. 把一个 RNN 沿时间展开，它是一个几层的网络？与普通深网络最大的不同是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   深度为 $$T$$（序列长度）的网络，每层多吃一个输入 $$x_t$$；最大的不同是**每层权重相同**——第二篇里 Jacobian 连乘的问题以最纯粹的形式出现，一个因子偏离 1 就在所有层同时偏离。
+
+   </details>
+
+2. LSTM 隐藏维度 $$d = 256$$、输入维度也是 256：四组门的参数量合计多少？是 vanilla RNN 的几倍？
+
+   <details markdown="1"><summary>答案</summary>
+
+   每组 $$W \in \mathbb{R}^{256 \times 512}$$（拼接 $$[h, x]$$）加偏置：$$256 \times 512 + 256 = 131{,}328$$；四组 525K；vanilla RNN 只有一组，所以是 4 倍。GRU 三组。
+
+   </details>
+
+3. 遗忘门偏置初始化为 0 与初始化为 1，$$f_t$$ 初始各约多少？对梯度通路意味着什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$\sigma(0) = 0.5$$：细胞状态每步衰减一半，20 步后 $$10^{-6}$$，通路是关的；$$\sigma(1) \approx 0.73$$（配合输入接近 1 时更高）：通路基本打开。实验里 20 步与 40 步的任务从"学不会"变成"500 步学会"。
+
+   </details>
+
+4. 把 Bahdanau attention 的 $$s_{k-1}$$、$$h_j^{enc}$$、$$\alpha_{kj}$$、$$c_k$$ 分别对到 $$\text{softmax}(QK^T)V$$ 里的哪一项？Transformer 改了什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$s_{k-1}$$ 是 query，$$h_j^{enc}$$ 同时是 key 与 value，$$\alpha_{kj}$$ 是 softmax 后的权重，$$c_k$$ 是加权和 $$\sum_j \alpha_{kj} v_j$$。Transformer 把打分函数从加性的 $$v_a^T \tanh(\cdot)$$ 换成缩放点积、让序列对自己做 attention（self-attention）、然后去掉了循环。
+
+   </details>
+
+5. RNN 生成一个 token 的推理成本是 $$O(1)$$、Transformer 是 $$O(n)$$（读 KV cache）——Transformer 为什么还是赢了？
+
+   <details markdown="1"><summary>答案</summary>
+
+   训练时 RNN 是串行的（$$T$$ 步依赖），Transformer 全部位置并行，同样算力下能训的数据多几倍；任意两个位置之间的路径长度 RNN 是 $$O(n)$$、attention 是 1，长依赖直接可学。推理侧的 $$O(n)$$ 用 KV cache 与系统优化（04 系列）换回来；SSM / 线性 attention 在试图两头都要。
+
+   </details>

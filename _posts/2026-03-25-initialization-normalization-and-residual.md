@@ -69,6 +69,7 @@ flowchart LR
 | 八 | 诊断 | 看哪三条曲线、每种病的形状 |
 | 九 | 实验 | 64 层 MLP × 7 种配置：逐层激活方差、梯度范数、300 步训练结果 |
 | 十 | 本文小结 |  |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、方差的前向传播
@@ -318,6 +319,56 @@ res-nonorm-scaled 要把学习率降到 0.001 才能训（300 步 loss 0.22）�
 - 下一篇讲有了稳定的梯度之后怎么用它更新参数：优化器、学习率、warmup 与裁剪的来历。
 
 配套代码：[`deep-learning-foundations/02_init_norm_residual.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/02_init_norm_residual.py)——七种接法的初始化统计与 300 步训练；`dlf/layers.py` 里是 LayerNorm / RMSNorm / Residual 的实现与 `make_deep_mlp`。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**为什么训不动**：64 层的前向方差是 64 个因子的连乘、反向梯度是 64 个 Jacobian 的连乘，因子偏离 1 就指数放大或消失——初始化用错成 $$1/n_{in}$$ 时 64 层后信号是 $$2^{-32}$$，Jacobian 谱范数 0.9 时 128 层后梯度是 $$10^{-6}$$（第一、二、三章）。**三样各修哪一段**：初始化（Kaiming 的 $$2/n_{in}$$）只保证 $$t = 0$$ 时每个因子的期望为 1；归一化在每层之后把前向方差拉回 1、切断前向的连乘，但修不了反向——64 层无残差加 LN 仍几乎训不动；残差把 Jacobian 变成 $$I + J$$，给梯度一条恒等通路，各层梯度范数变均匀（第四、五章）。**缺一样会怎样**：缺初始化第一步就爆或消；缺归一化残差流方差每层翻倍（$$2^{64}$$）；缺残差梯度指数衰减。三样必须同用，Pre-Norm 是当前的摆法——顶层与底层梯度 0.12 到 0.15，Post-Norm 是 0.51 到 1.96（第六、九章）。
+
+</details>
+
+
+## 十一、自测
+
+1. 一个 Linear 层 $$y = Wx$$，$$W$$ 的元素独立、方差 $$\sigma_w^2$$，输入 $$n_{in}$$ 维、方差 1。输出的方差是多少？后面接 ReLU 呢？由此 Kaiming 初始化的 $$\sigma_w^2$$ 该取多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$\text{Var}(y) = n_{in} \sigma_w^2$$；ReLU 砍掉一半，变成 $$n_{in}\sigma_w^2 / 2$$；要让它等于 1，$$\sigma_w^2 = 2 / n_{in}$$。
+
+   </details>
+
+2. 每层 Jacobian 的谱范数是 0.95，无残差 100 层，loss 到第一层的梯度大约衰减到多少？加了残差呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$0.95^{100} \approx 0.006$$，衰减约 170 倍。加残差后每个因子是 $$I + J$$，乘积展开里有一项恒等 $$I$$，梯度不再指数衰减（量级接近 1）。
+
+   </details>
+
+3. LayerNorm、RMSNorm、BatchNorm 各沿哪个维度统计？为什么序列模型不用 BatchNorm？
+
+   <details markdown="1"><summary>答案</summary>
+
+   LayerNorm 与 RMSNorm 沿每个 token 自己的特征维（$$d$$）；BatchNorm 沿 batch 维对每个特征统计。序列模型里 batch 内序列长度不同、padding 位置多、推理时 batch 为 1，batch 统计量不稳定、训练与推理行为不一致。RMSNorm 比 LayerNorm 少了减均值与 $$\beta$$，效果不变。
+
+   </details>
+
+4. Pre-Norm 与 Post-Norm 的公式各是什么？为什么 Pre-Norm 的残差流方差随深度线性增长，而 LLM 仍然选它？
+
+   <details markdown="1"><summary>答案</summary>
+
+   Post-Norm：$$x_{l+1} = \text{Norm}(x_l + f(x_l))$$；Pre-Norm：$$x_{l+1} = x_l + f(\text{Norm}(x_l))$$。Pre-Norm 的残差流从头到尾不被归一化打断，每层加一个方差约为常数的分支，所以线性增长；但这条不被打断的恒等通路正是各层梯度同量级、能用大学习率的原因。副作用用最后的 final norm 处理。
+
+   </details>
+
+5. 训练时看到各层梯度范数从底层到顶层差 4 倍、loss 在前 100 步冲高——最可能是哪种结构、缺了什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   Post-Norm 的特征（顶层梯度大于底层，Xiong 等 2020）；缺 warmup——初期大梯度需要小学习率压住。换 Pre-Norm 或加 warmup。
+
+   </details>
 
 
 ## 下一篇
