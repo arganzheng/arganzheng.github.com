@@ -17,7 +17,7 @@ catalog: true
 
 > **一个模型从数据到上线经过哪些阶段？每个阶段需要掌握什么？按什么顺序学？**
 
-这张地图描述的是**知识结构**，它把知识组织成八层加一个横切，每层说明回答什么问题、包含哪些概念、为什么放在那个位置。已经写成文章的部分：L0–L2 各有一篇导读（学到什么深度、在哪里用到、怎么检验），L3 是一个六篇的系列，L4 引用[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)——它是两张地图的交点。文章目录在[本文末尾](#已有的文章与系列)。
+这张地图描述的是**知识结构**，它把知识组织成八层加一个横切，每层说明回答什么问题、包含哪些概念、为什么放在那个位置。已经写成文章的部分：L0–L2 各有一篇导读（学到什么深度、在哪里用到、怎么检验），L3 是一个六篇的系列，L4 引用[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)（十二篇，后四篇是面向本层的预训练补篇）——它是两张地图的交点；L5 是[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)（八篇）。文章目录在[本文末尾](#已有的文章与系列)。
 
 | 需要什么 | 具体是什么 |
 |---|---|
@@ -86,8 +86,8 @@ benchmark · LLM-as-judge · Arena
 | L1 | 编程与工具 | 怎么把一个想法变成一次能跑的实验？ | [导读](/tooling-for-ai-algorithm-engineers.html) |
 | L2 | 机器学习基础 | 什么是学习？怎么知道模型学会了而不是背下来了？ | [导读](/classical-machine-learning-in-the-llm-era.html) |
 | L3 | 深度学习基础 | 梯度怎么流？为什么深了就难训？CNN 与 RNN 各解决了什么、留下了什么？ | [系列（6 篇）](/deep-learning-foundations.html) |
-| L4 | LLM 核心 | Transformer 为什么赢？tokenizer、scaling law 与预训练数据各决定了什么？ | [04 系列（8 篇，共享）](/transformer-and-llm-for-infra-engineers.html) |
-| L5 | 后训练 | 一个基座模型怎么变成一个能对话、会推理、符合偏好的模型？怎么证明它变好了？ | 待写 |
+| L4 | LLM 核心 | Transformer 为什么赢？tokenizer、scaling law 与预训练数据各决定了什么？ | [04 系列（12 篇，共享；09–12 为预训练补篇）](/transformer-and-llm-for-infra-engineers.html) |
+| L5 | 后训练 | 一个基座模型怎么变成一个能对话、会推理、符合偏好的模型？怎么证明它变好了？ | [系列（8 篇）](/post-training-from-sft-to-verifiable-rewards.html) |
 | L6 | 高效推理与压缩（算法侧） | 不改硬件，怎么让同一个模型更快、更小、更便宜？ | 待写 |
 | L7 | 多模态 | 图片、视频、语音怎么进入语言模型？图像生成为什么是另一套数学？ | 待写 |
 | 横切 | 实验方法论 | 怎么用有限的算力得出可信的结论？ | 待写 |
@@ -181,15 +181,15 @@ benchmark · LLM-as-judge · Arena
 
 > **Transformer 为什么赢？tokenizer、scaling law 与预训练数据各决定了什么？**
 
-这一层是地图的中心，也是与 Infra 地图的交点。Transformer 的结构、attention 变体、位置编码、MoE、数值格式、量化与投机解码的**数学**，在[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)（八篇）里已经写完——那个系列从"每一步算多少、读多少、存多少"的角度讲结构，正是算法工程师判断"这个结构改动值不值"所需要的账。这里列出本层的全部内容，并标出哪些在那个系列里：
+这一层是地图的中心，也是与 Infra 地图的交点。Transformer 的结构、attention 变体、位置编码、MoE、数值格式、量化与投机解码的**数学**，在[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)的前八篇里已经写完——那个系列从"每一步算多少、读多少、存多少"的角度讲结构，正是算法工程师判断"这个结构改动值不值"所需要的账；它的第九到十二篇（**预训练补篇**）用同样的算账方法覆盖本层的另一半：tokenizer、scaling law、数据工程、训练配方。这里列出本层的全部内容，并标出各在那个系列的哪一篇：
 
 | 主题 | 概念 | 在 04 系列 |
 |---|---|---|
-| NLP 基础 | 分词：BPE / WordPiece / SentencePiece / byte-level BPE，词表大小的取舍，多语言与代码的分词；传统表示：one-hot、词袋、TF-IDF；n-gram 语言模型与困惑度；词向量：Word2Vec（CBOW / Skip-gram）、GloVe → 上下文相关表示（ELMo、BERT） | 词表大小对参数量与 token 效率的影响在第一篇 |
+| NLP 基础 | 分词：BPE / WordPiece / SentencePiece / byte-level BPE，词表大小的取舍，多语言与代码的分词；传统表示：one-hot、词袋、TF-IDF；n-gram 语言模型与困惑度；词向量：Word2Vec（CBOW / Skip-gram）、GloVe → 上下文相关表示（ELMo、BERT） | 第九篇：BPE / byte-level / 预分词、词表大小的账（2Vd、lm_head 占比、logits 显存）、压缩率与每字符成本、中文 / 代码 / 数字；n-gram、困惑度、词向量的一页史也在那里 |
 | Transformer 结构 | encoder / decoder / decoder-only 三种形态；self-attention 与 cross-attention；MHA → MQA → GQA → MLA；位置编码：绝对、相对、RoPE、ALiBi、长上下文外推（PI、YaRN、NTK）；FFN 与 SwiGLU；Add & Norm 与 Pre-Norm；MoE 的路由、专家粒度、负载均衡、共享专家；FlashAttention 作为 attention 的**精确等价实现**（不是新算法） | 第一、三、四、五篇 |
-| Scaling law | Kaplan 等 2020 与 Chinchilla（Hoffmann 等 2022）：loss 随参数量、数据量、算力的幂律；计算最优的 $$D / N \approx 20$$；数据受限时的多 epoch；推理成本纳入后的"过训练"（Llama 3 的 15T token）；用小模型外推大模型 | 第二篇给出 $$6ND$$ 与 FLOPs 的算法 |
-| 预训练 | 目标函数（next-token prediction、MTP）；数据工程：采集、清洗、去重（MinHash / 精确）、质量过滤（分类器、困惑度）、配比与多阶段课程、合成数据、退火阶段；训练配方：batch 与学习率的 scaling、warmup、WSD；训练稳定性的算法侧：loss spike 的归因、z-loss、QK-norm、初始化；长上下文的继续预训练 | 数值与混合精度在第六篇；工程侧（checkpoint、容错、MFU）属于 Infra 地图 07 |
-| 经典模型 | GPT-2 / GPT-3 / GPT-4 系列的公开信息；Llama 1–4；Qwen 2 / 2.5 / 3；Mistral 与 Mixtral；DeepSeek-V2 / V3 / R1；Kimi K2；Gemma。读技术报告时关注：结构选择、数据规模与配比、训练配方、评测方法 | 第一、三、五篇以 Llama-3 与 DeepSeek-V3 为基线 |
+| Scaling law | Kaplan 等 2020 与 Chinchilla（Hoffmann 等 2022）：loss 随参数量、数据量、算力的幂律；计算最优的 $$D / N \approx 20$$；数据受限时的多 epoch；推理成本纳入后的"过训练"（Llama 3 的 15T token）；用小模型外推大模型 | 第二篇给出 $$6ND$$；第十篇：Kaplan 与 Chinchilla 的幂律与分歧、最优 N/D 的推导、推理成本纳入后的过训练、数据受限的有效 token、用小模型外推的实验设计与常见错误 |
+| 预训练 | 目标函数（next-token prediction、MTP）；数据工程：采集、清洗、去重（MinHash / 精确）、质量过滤（分类器、困惑度）、配比与多阶段课程、合成数据、退火阶段；训练配方：batch 与学习率的 scaling、warmup、WSD；训练稳定性的算法侧：loss spike 的归因、z-loss、QK-norm、初始化；长上下文的继续预训练 | 第十一篇：漏斗（240T → 15T）、Gopher / C4 规则与模型打分、MinHash 的数学、配比 → epoch、退火与合成数据、污染检测；第十二篇：目标函数与 MTP、AdamW / batch / lr / warmup 的依据、cosine 与 WSD、稳定性的三个机制与六个开关、长上下文阶段；数值与混合精度在第六篇；工程侧（checkpoint、容错、MFU）属于 Infra 地图 07 |
+| 经典模型 | GPT-2 / GPT-3 / GPT-4 系列的公开信息；Llama 1–4；Qwen 2 / 2.5 / 3；Mistral 与 Mixtral；DeepSeek-V2 / V3 / R1；Kimi K2；Gemma。读技术报告时关注：结构选择、数据规模与配比、训练配方、评测方法 | 第一、三、五篇以 Llama-3 与 DeepSeek-V3 为基线；第九到十二篇以两者的技术报告为训练侧的对象，第十篇有十几个模型的 D/N 对照表 |
 
 读 04 系列时，算法工程师的收获与 Infra 工程师相反：Infra 工程师从中知道要优化什么，算法工程师从中知道自己的每个结构决定在硬件上花多少钱——GQA 的组数、MLA 的压缩维、专家的粒度、上下文长度，每一个都对应成本表上的一格。
 
@@ -197,13 +197,13 @@ benchmark · LLM-as-judge · Arena
 
 > **一个基座模型怎么变成一个能对话、会推理、符合偏好的模型？怎么证明它变好了？**
 
-这是当前算法工程师工作量最集中的一层，也是变化最快的一层。按流程分五段：
+这是当前算法工程师工作量最集中的一层，也是变化最快的一层。对应的系列是[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)（8 篇：SFT、偏好数据与奖励模型、在线 RL、离线 RL、推理模型与 RLVR、Agent 与工具调用的 RL、蒸馏、评测），以 RLHF 三件套（策略、奖励、参考）为组织轴。按流程分五段：
 
 | 段 | 概念 | 说明 |
 |---|---|---|
 | SFT | 指令数据的构造（人工、self-instruct、蒸馏自强模型）、多轮对话格式与 chat template、loss mask（只算回复部分）、packing；全量微调 vs 参数高效微调：LoRA、QLoRA、DoRA、Prefix-Tuning / P-Tuning、Adapter、OFT；灾难性遗忘与数据回放 | LoRA 的参数量与计算形态在 04 系列第七篇；多 LoRA 服务属于 Infra 地图 08 |
 | 偏好对齐 | 偏好数据（成对比较、打分、AI 反馈 RLAIF）；奖励模型：Bradley-Terry、pairwise loss、过拟合与 reward hacking；在线 RL：PPO（策略、价值、参考模型、KL 惩罚、GAE）、GRPO（组内相对优势，去掉价值模型）、RLOO、REINFORCE++；离线 / 直接偏好优化：DPO、IPO、KTO、ORPO、SimPO；拒绝采样 + SFT（Llama 2 / 3 的做法，与投机解码里的拒绝采样同名不同物） | 每种方法各改了 RLHF 三件套（策略、奖励、参考）中的哪一件，是理解这一族的钥匙 |
-| 推理模型 | 可验证奖励的强化学习（RLVR：数学答案、代码测试）；DeepSeek-R1 的 GRPO 配方与"aha moment"；长思维链、test-time compute scaling；过程奖励模型 PRM 与结果奖励 ORM；推理长度的控制 | 2025 年后训练的主线；RL 训练的 rollout 与训练如何共享 GPU 属于 Infra 地图的选修 |
+| 推理模型与 Agent | 可验证奖励的强化学习（RLVR：数学答案、代码测试）；DeepSeek-R1 的 GRPO 配方与"aha moment"；长思维链、test-time compute scaling；过程奖励模型 PRM 与结果奖励 ORM；推理长度的控制；多轮工具调用的 RL：环境、轨迹数据、工具输出的 mask、延后的奖励、异步 rollout | 2025 年后训练的主线；RL 训练的 rollout 与训练如何共享 GPU、异步 rollout 的实现属于 Infra 地图的选修 |
 | 蒸馏 | logits 级蒸馏（KL 到教师分布）、序列级 / 数据蒸馏（用教师生成 SFT 数据，R1 蒸馏小模型的做法）、on-policy 蒸馏；蒸馏与量化的组合 | 蒸馏是把大模型能力搬进小模型的主要手段，也是"线上回流"回边上的一站 |
 | 评测 | 通用 benchmark（MMLU、GSM8K、MATH、HumanEval、IFEval、MT-Bench 等）与它们各自测什么；LLM-as-judge 的偏差（位置、长度、自我偏好）；人类偏好 Arena；污染检测；能力分解与错误分析；评测集自建 | 评测是"回到数据或配方"那条回边的起点；不会评测就不知道改什么 |
 
@@ -295,9 +295,10 @@ VLM 的成本结构——一张图等于多少 token、encoder 与 decoder 各�
 | L1 | [算法工程师的工具箱：从一个想法到一次能跑的实验](/tooling-for-ai-algorithm-engineers.html) | 1 |
 | L2 | [LLM 时代还要学经典机器学习吗：只讲它在哪里重现](/classical-machine-learning-in-the-llm-era.html) | 1 |
 | L3 | [深度学习基础：从反向传播到残差](/deep-learning-foundations.html) | 6 |
-| L4 | [Transformer 与 LLM：结构、算量与数值](/transformer-and-llm-for-infra-engineers.html)（与 Infra 地图共享） | 8 |
+| L4 | [Transformer 与 LLM：结构、算量与数值](/transformer-and-llm-for-infra-engineers.html)（与 Infra 地图共享；09–12 为预训练补篇） | 12 |
+| L5 | [后训练：从 SFT 到可验证奖励](/post-training-from-sft-to-verifiable-rewards.html) | 8 |
 
-L0–L2 写成导读而不是系列：这三层有成熟的教材与课程，导读只回答"学到什么深度、在哪里用到、怎么检验学会了"。L3 起是原创系列。L4 的预训练部分（tokenizer、scaling law、数据工程、训练配方）、L5–L7 与横切待写。
+L0–L2 写成导读而不是系列：这三层有成熟的教材与课程，导读只回答"学到什么深度、在哪里用到、怎么检验学会了"。L3 起是原创系列。L6、L7 与横切待写。
 
 
 ## 按目标选择路径

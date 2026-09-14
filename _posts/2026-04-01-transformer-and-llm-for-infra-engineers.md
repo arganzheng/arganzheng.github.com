@@ -9,7 +9,7 @@ catalog: true
 
 ## 内容简介
 
-《Transformer 与 LLM：结构、算量与数值》是一组共八篇的系列文章，面向不训练模型、但要为模型搭建训练与推理系统的工程师，以及想知道自己的模型在硬件上"花多少钱"的算法工程师。它讲的是大语言模型的**成本结构**：每一层做多少次乘加、读多少字节、存多少状态，这些数字由哪些超参数决定，以及各种结构上和数值上的改动如何改变这些数字。
+《Transformer 与 LLM：结构、算量与数值》是一组共十二篇的系列文章，面向不训练模型、但要为模型搭建训练与推理系统的工程师，以及想知道自己的模型在硬件上"花多少钱"的算法工程师。前八篇讲大语言模型的**成本结构**：每一层做多少次乘加、读多少字节、存多少状态，这些数字由哪些超参数决定，以及各种结构上和数值上的改动如何改变这些数字。后四篇是**预训练补篇**：同一张成本表的训练侧——tokenizer 与词表、算力怎么分给参数与数据、15T token 从哪来、超参表里的数字从哪来。
 
 它回答的问题是：
 
@@ -33,9 +33,9 @@ vocab_size           128256
 - 每个 token 的 KV cache 占 128 KiB；如果它没有用 GQA，会是 512 KiB；
 - 在一张 H100 上，batch 为 1 的 decode 每步至少要 4.8 ms，因为要把 16 GB 权重从 HBM 读一遍；要让 Tensor Core 忙起来，batch 得接近三百。
 
-这些推导是本系列的全部内容。系列不由 API 驱动——不讲 `transformers` 库怎么用、不讲训练配方、不讲如何调 prompt；它由**推导**驱动：每一篇给出公式、代入公开模型的真实超参数、得到数字，再解释这个数字对系统设计意味着什么。
+这些推导是前八篇的全部内容。系列不由 API 驱动——不讲 `transformers` 库怎么用、不讲如何调 prompt；它由**推导**驱动：每一篇给出公式、代入公开模型的真实超参数、得到数字，再解释这个数字对系统设计意味着什么。后四篇把同样的方法用到训练侧：词表大小换压缩率、参数换数据、过滤的严格程度换 token 量、学习率与 batch 换稳定性——每个预训练决定都算一笔账。
 
-系列覆盖的范围可以用一句话概括——一个 LLM 的成本由四组变量决定，本系列逐一展开：
+系列覆盖的范围可以用一句话概括——一个 LLM 的成本由四组变量决定，多模态加第五组，训练侧加第六组，本系列逐一展开：
 
 ```text
 结构变量    层数 · hidden · FFN 宽度 · head 数 · KV 头数 · 专家数与 top-k       → 第一、三、五篇
@@ -43,9 +43,10 @@ vocab_size           128256
 数值变量    每个数占几个字节 · 在哪一步累加 · 误差怎么积累                       → 第六篇
 方法变量    量化格式 · 投机解码的草稿与接受率 · LoRA 的秩                      → 第七篇
 模态变量    图片分辨率 · patch 与 merge 大小 · encoder 深度 · 注入方式             → 第八篇
+训练变量    词表大小与压缩率 · N 与 D 的分配 · 数据的过滤与配比 · lr、batch、调度与稳定性开关   → 第九到十二篇
 ```
 
-读完之后，读者应该能把任何一个模型放进这四组变量里，算出它在任何一张 GPU 上的成本表。
+读完之后，读者应该能把任何一个模型放进前五组变量里，算出它在任何一张 GPU 上的成本表；再把它的训练报告放进第六组，算出这个模型是怎么、花多少训出来的。
 
 
 ## 为什么写这个系列？
@@ -105,7 +106,7 @@ BF16 为什么能训练而 FP16 需要 loss scaling？混合精度里的 FP32 ma
 
 ## 系列的整体主线
 
-八篇文章按"先建立成本模型，再看每一种结构和数值上的改动如何改变它，最后看输入不再是文本时账怎么变"的顺序推进：
+前八篇按"先建立成本模型，再看每一种结构和数值上的改动如何改变它，最后看输入不再是文本时账怎么变"的顺序推进：
 
 ```text
 第一篇：Transformer 解剖与参数量 —— 每个矩阵的形状，从 config.json 算出 8.03B
@@ -123,9 +124,18 @@ BF16 为什么能训练而 FP16 需要 loss scaling？混合精度里的 FP32 ma
 第七篇：量化、投机解码与 LoRA —— 三种改变计算形态的方法及其数学
         ↓
 第八篇：多模态 —— vision encoder 的算量、connector 决定的 token 数、image token 的 KV 代价
+        ↓
+——— 预训练补篇 ———
+第九篇：分词与词表 —— BPE、2Vd、压缩率与每字符成本
+        ↓
+第十篇：Scaling law —— Chinchilla 的 N/D 分配、推理成本纳入后的"过训练"
+        ↓
+第十一篇：预训练数据工程 —— 从 240T 到 15T 的漏斗、MinHash、配比 → epoch
+        ↓
+第十二篇：训练配方与稳定性 —— lr、batch、调度、loss spike 的三个机制与六个开关
 ```
 
-前两篇建立成本模型：一个 dense Transformer 在给定超参数下的参数量、FLOPs、字节数。第三到五篇是**结构**上的改动：分别改变 KV cache、上下文长度、参数与激活参数的比例。第六、七篇是**数值**上的改动：改变每个数占几个字节，以及绕过 decode 串行瓶颈的方法。第八篇是**输入**上的改动：token 不再来自 tokenizer，而来自一个独立的 encoder，token 数由图片分辨率决定。
+前两篇建立成本模型：一个 dense Transformer 在给定超参数下的参数量、FLOPs、字节数。第三到五篇是**结构**上的改动：分别改变 KV cache、上下文长度、参数与激活参数的比例。第六、七篇是**数值**上的改动：改变每个数占几个字节，以及绕过 decode 串行瓶颈的方法。第八篇是**输入**上的改动：token 不再来自 tokenizer，而来自一个独立的 encoder，token 数由图片分辨率决定。第九到十二篇是**训练**侧：前八篇把 token 数、参数量、数据量当作给定的输入，补篇讲它们各自是怎么定下来的——tokenizer 决定 token 数，scaling law 决定参数量与数据量的分配，数据管线决定有多少 token 可用、怎么配，训练配方决定用什么超参把它训出来、怎么不崩。
 
 三条交织的线索：
 
@@ -133,6 +143,7 @@ BF16 为什么能训练而 FP16 需要 loss scaling？混合精度里的 FP32 ma
 成本线：参数量 → FLOPs 与字节数 → KV cache → 长上下文的二次项 → 激活参数与通信量 → 字节/数 → 量化后的字节数
 硬件线：Roofline 与 ridge point → decode 的 memory-bound → 多卡的通信 → Tensor Core 的累加精度 → 低精度 GEMM 的收益区间
 模型线：Llama-3-8B / 70B（dense、GQA）→ DeepSeek-V3（MLA、MoE、FP8）→ Mixtral 8x7B（粗粒度 MoE）→ LLaVA-1.5 / Qwen2-VL / Llama-3.2-Vision（多模态）
+训练线：Llama 3 与 DeepSeek-V3 的技术报告贯穿后四篇——tokenizer 128K 与 129K、15T 与 14.8T token、lr 8e-5 与 2.2e-4、FineWeb 的公开管线作为数据侧的参照
 ```
 
 每一篇都用同样的方法：**写出公式，代入真实模型的超参数，算出数字，解释数字对系统意味着什么**。
@@ -343,9 +354,81 @@ $$
 实践：脚本增加 vision encoder 的参数与 FLOPs、image token 数、image token 在 decoder 中的三个字节数；成本表新增"一张 1024² 图片"一行，按三种注入方式对照。本篇最后给出全系列总结。
 
 
+### 9. 分词与词表：BPE、词表大小与 token 效率
+
+第九篇开启预训练补篇，从成本表里最后一个外生变量——token 数——从哪来讲起。tokenizer 同时决定成本表的两端：词表大小 $$V$$ 进参数量与 lm_head 的 FLOPs，压缩率决定一段文字要付多少个 token。
+
+这一篇会覆盖：
+
+- 词级与字符级两端各失败在哪；子词；n-gram 语言模型与困惑度、词向量到上下文相关表示的一页史，以及困惑度为什么依赖 tokenizer（跨 tokenizer 要换算到 bits/byte）；
+- BPE 算法（合并顺序就是词表）与经典玩具例子；byte-level 初始词表；预分词正则如何决定数字与空格的切法（GPT-2、cl100k 的 1–3 位数字、Qwen 的逐位）；WordPiece 与 Unigram；
+- 词表大小的账：$$2Vd$$ 参数（Llama-3-8B 1.05B、13.1%），lm_head 每 token $$2Vd$$ FLOPs（7.0%；Qwen2.5-0.5B 38%），decode 每步读 1.05 GB，训练时 logits $$\text{tokens} \times V \times 4$$ 字节（8K 序列 3.9 GiB，必须分块或融合）；
+- token 效率的账：五个真实 tokenizer 在英文 / 中文 / 代码 / 数字上的字符/token；Llama 2 → 3 的 3.17 → 3.94 让每字符 FLOPs 低 15%、KV 低 20%；词表翻倍压缩率近似对数增长，与 lm_head 的线性成本相交于"最优词表"；中文在 cl100k 与 DeepSeek-V3 下每字 1.46 对 0.69 个 token；
+- tokenizer 对模型行为的副作用：欠训练 token、数字切分与算术、多语言的价格差、特殊 token 与 chat template。
+
+核心问题是：
+
+> **Llama 3 把词表从 32K 扩到 128K，每个 token 贵了 5.6%，为什么反而是省钱的？同一句中文在两个 128K 量级的词表下 token 数差 2.1 倍，差在哪？**
+
+实践：从零实现 byte-level BPE 并扫词表大小；用 `tiktoken` / `tokenizers` 对比五个真实 tokenizer；`llm_cost.py` 加上词表这一列与"每字符成本"。
+
+### 10. Scaling law：从 Chinchilla 到"过训练"，算力怎么分给参数与数据
+
+第十篇回答 $$C = 6ND$$ 没有说的事：同样的算力怎么分给 $$N$$ 与 $$D$$。分法在 2020、2022、2024 各改了一次。
+
+这一篇会覆盖：
+
+- Kaplan 等 2020 的三条幂律与 $$N \propto C^{0.73}$$；Chinchilla 的参数化 $$L = E + A/N^\alpha + B/D^\beta$$ 与三种拟合方法；两者为什么不同（固定长度的 lr 调度、不数 embedding、规模）；常数的可靠性（Besiroglu 等 2024 的重拟合）；
+- 拉格朗日推导 $$N_{opt} \propto C^{0.5}$$ 与 $$D/N \approx 20$$；$$10^{21}$$ 到 $$10^{26}$$ FLOPs 的最优点表与 GPU 小时；十几个真实模型的 $$D/N$$（从 GPT-3 的 2 到 Qwen2.5-7B 的 2368）与它们离最优点的 loss 差；
+- Chinchilla 之后：推理成本 $$2N D_{inf}$$ 不在 $$6ND$$ 里；固定算力缩小模型 10 倍 loss 只高 0.053 而推理便宜 10 倍；推理感知的最优点随预期服务量移动（服务 100T token 时 24B / 13.8T 而非 81B / 1.5T）；数据重复的有效 token（4 epoch 值 93%）；MoE 的 $$N$$ 用哪个；
+- scaling law 作为实验方法：固定 $$D$$ 扫 $$N$$ 与 IsoFLOP 两种扫法、Llama 3 用万分之一算力定 405B、从 loss 到 benchmark 的两步法、常见错误。
+
+核心问题是：
+
+> **Llama-3 8B 用 15T token，是 Chinchilla 最优数据量的 10 倍，loss 高 0.05 nats。为什么放弃这 0.05 反而是正确的？"最优"在 2022 和 2024 各指什么？**
+
+实践：在 CPU 上训 7 个字符级小模型，拟合 $$L(N)$$ 并外推最大的那个（外推 1.317，实测 1.342）；`llm_cost.py` 加上 Chinchilla 计算器、推理感知最优点与有效 token。
+
+### 11. 预训练数据工程：从 Common Crawl 到 15T token，去重、过滤与配比的账
+
+第十一篇讲预训练里唯一不在 GPU 上跑的大工程：从 240T token 的网页正文到 15T 训练集之间的几十个步骤，每步留下多少、花多少、为什么。
+
+这一篇会覆盖：
+
+- 原料：Common Crawl 的规模、正文抽取（WARC + trafilatura 远好于 WET）、语言识别；漏斗刻度 240T → 15T（6%）→ 1.3–5.4T（模型打分后）；
+- 过滤的两层：Gopher 的文档级与重复度规则、C4 的行级规则（零成本，只清明显垃圾）；FineWeb-Edu 与 DCLM 的模型打分（大模型标几十万篇 → 小分类器跑全量）及其偏差；
+- 去重的四个粒度：URL、文档（MinHash 的 $$P[\min h(A) = \min h(B)] = J$$，LSH 的 $$1 - (1 - J^r)^b$$ 与阈值 0.72，灵敏度随文档长度变化）、行、子串；FineWeb"跨快照全局去重反而更差"的发现；
+- 配比换算成 epoch：$$w_i D / U_i$$——Llama 3 的 25% 数学推理意味着有限语料跑 7 个多 epoch；代理模型定权重（DoReMi、RegMix）；退火阶段换高质量数据，以及用退火评估一份新数据；合成数据的算术动机；
+- 污染检测（8-gram）；管线的 CPU 账（抽取 ≫ 去重 ≈ tokenize）；存储 60 TB 与训练时只有几十 MB/s 的读带宽。
+
+核心问题是：
+
+> **Common Crawl 有 240T token 的文本，为什么 Llama 3 只用了 15T？被丢掉的 94% 是什么、怎么判定的？15T 里 25% 的"数学与推理"从哪来？**
+
+实践：从零实现 MinHash + LSH 并验证 S 曲线；实现 Gopher / C4 规则并对典型网页判定；`llm_cost.py` 加上漏斗、CPU 小时、配比 → epoch。
+
+### 12. 训练配方与稳定性：学习率、batch、调度与 loss spike
+
+第十二篇讲那张十几行的超参表：每个数字从哪来、改了会怎样、训练为什么会崩以及怎么让它不崩。它不重推 L3 层的基础（方差传播、Adam、warmup），只把公开配方放到同一张表上比较，并把"不稳定"拆成三个可度量、可单独修的机制。
+
+这一篇会覆盖：
+
+- 目标函数：交叉熵的单位（nats、PPL、bits/byte）；MTP 的收益与它的 lm_head 成本；文档打包时掩不掩跨文档 attention（Llama 3 掩、DeepSeek 不掩）；
+- 优化器与超参：AdamW 的 $$\beta_2 = 0.95$$、解耦 weight decay 与它的排除项、$$\epsilon$$ 随规模；batch 由梯度噪声尺度决定并随训练增大（405B：4M → 8M → 16M）；峰值 lr 随宽度减小（7B 3e-4 → 405B 8e-5）、$$\mu$$P 与 DeepSeek 的经验律；warmup 占步数不到 1%；
+- 调度：cosine、WSD、DeepSeek-V3 的四段；为什么 cosine 中途的 loss 不可比（第十篇分歧的根源）；退火与换数据；
+- 稳定性：attention logit 增长（QK-norm、soft-cap、QK-Clip）、输出 logit 漂移（z-loss）、单步过大（裁剪、warmup、$$\beta_2$$）；六个开关与 2024–25 年的默认配置（OLMo 2、Gemma 3、Qwen3、Kimi K2）；spike 的处理流程与代价（405B 一次约 1 万 GPU 小时）；低精度如何放大每个开关的必要性；
+- 长上下文继续预训练（Llama 3 六步到 128K、DeepSeek-V3 两步）；该监控的六条曲线。
+
+核心问题是：
+
+> **Llama 3 405B 的峰值 lr 是 8e-5，DeepSeek-V3 是 2.2e-4；batch 分别是 16M 与 63M token。这些数字怎么定的？DeepSeek-V3 在 FP8 下训 14.8T token 没有一次不可恢复的 loss spike——它开了哪些开关，每个在防什么？**
+
+实践：CPU 上复现三种调度的对比、batch 与最优 lr 的关系、attention logit 随 lr 从 36 涨到 12592 与 QK-norm 把它压到 22、z-loss 对 $$\log Z$$ 的抑制；`llm_cost.py` 加上超参表、checkpoint 字节数与写带宽、spike 回滚的代价。本篇最后给出补篇小结与全系列总结。
+
+
 ## 贯穿全系列的实践线
 
-本系列的贯穿物是**一张成本表和一组生成它的推导脚本**。脚本从第一篇的参数量开始，每篇增加几列，到第八篇结束时可以为任何一个给出 `config.json` 的模型、任何一组硬件参数输出：
+本系列的贯穿物是**一张成本表和一组生成它的推导脚本**。脚本从第一篇的参数量开始，每篇增加几列，到第八篇结束时可以为任何一个给出 `config.json` 的模型、任何一组硬件参数输出（后四篇再加上训练侧的四列）：
 
 ```text
 第一篇    参数量                 逐层、逐矩阵；attention / FFN / embedding 的分布
@@ -356,6 +439,10 @@ $$
 第六篇    精度                   各格式的字节数与训练状态；误差随累加长度的增长
 第七篇    量化 · 投机 · LoRA      量化后字节数；期望加速比；LoRA 参数与状态
 第八篇    多模态                 ViT 参数与 FLOPs；image token 数；image token 的 prefill FLOPs 与 KV
+第九篇    词表                   2Vd 与 lm_head 占比；logits 显存；每字符成本
+第十篇    scaling law            Chinchilla 最优 N/D 与 GPU 小时；推理感知最优点；有效 token
+第十一篇  数据                   漏斗刻度；抽取 / 去重 / tokenize 的 CPU 小时；配比 → epoch
+第十二篇  配方                   超参表 → 步数与每步时间；checkpoint 字节与写带宽；spike 回滚代价
 ```
 
 三个模型贯穿前七篇：**Llama-3-8B** 与 **Llama-3-70B** 代表 dense + GQA 的主流结构，**DeepSeek-V3** 代表 MLA + 细粒度 MoE + FP8 的另一条路线；Mixtral 8x7B 在 MoE 一篇作为粗粒度专家的对照；第八篇加入 LLaVA-1.5、Qwen2-VL、Llama-3.2-Vision 三个多模态模型，把"一张图"作为一行放进同一张表。每篇算出的数字都会填进同一张表，读者在第八篇结束时手上有一张这些模型在 H100 上的完整成本对照。表的骨架大致如下（BF16，H100 SXM，数字为理论值）：
@@ -383,9 +470,13 @@ batch 1 decode 时间下界   4.8 ms（单卡）     不能单卡           不�
 第六篇    Micikevicius 等 2017（混合精度）· Micikevicius 等 2022（FP8 格式）· DeepSeek-V3 技术报告的 FP8 训练章节
 第七篇    Frantar 等 2022（GPTQ）· Lin 等 2023（AWQ）· Xiao 等 2022（SmoothQuant）· Leviathan 等 2023（投机解码）· Hu 等 2021（LoRA）
 第八篇    Dosovitskiy 等 2020（ViT）· Liu 等 2023（LLaVA-1.5）· Qwen2-VL 与 Qwen2.5-VL 技术报告 · Alayrac 等 2022（Flamingo）· Llama 3.2 Vision 与 InternVL2 的 config.json
+第九篇    Sennrich 等 2016（BPE）· Radford 等 2019（GPT-2 的 byte-level BPE）· Kudo 2018（Unigram）· Tao 等 2024（词表的 scaling law）· Llama 3 论文的 tokenizer 一节
+第十篇    Kaplan 等 2020 · Hoffmann 等 2022（Chinchilla）· Besiroglu 等 2024（重拟合）· Sardana & Frankle 2023（推理感知）· Muennighoff 等 2023（数据受限）· Llama 3 论文的 scaling law 一节
+第十一篇  Penedo 等 2024（FineWeb）· Li 等 2024（DCLM）· Rae 等 2021（Gopher 的过滤规则）· Lee 等 2021（去重）· Broder 1997（MinHash）· Llama 3 与 DeepSeek-V3 的数据章节
+第十二篇  McCandlish 等 2018（梯度噪声尺度）· Yang 等 2022（μP）· Wortsman 等 2023（小规模复现不稳定）· Chowdhery 等 2022（PaLM 的 z-loss 与 spike 处理）· OLMo 2 · Llama 3 / DeepSeek-V3 / Kimi K2 报告的训练配方
 ```
 
-`llm_cost.py` 的八版（每篇一版，各自独立可运行）与几篇文章里的独立实验（RoPE、最小 MoE 层、浮点格式）保存在 [ai-learning-labs/transformer-and-llm](https://github.com/arganzheng/ai-learning-labs/tree/main/transformer-and-llm)，附每个脚本的完整输出。
+`llm_cost.py` 的十二版（每篇一版，各自独立可运行）与各篇的独立实验（RoPE、最小 MoE 层、浮点格式、从零实现的 BPE 与 MinHash、CPU 上的 scaling law 拟合与训练配方实验）保存在 [ai-learning-labs/transformer-and-llm](https://github.com/arganzheng/ai-learning-labs/tree/main/transformer-and-llm)，附每个脚本的完整输出。
 
 
 ## 阅读路径建议
@@ -393,8 +484,10 @@ batch 1 decode 时间下界   4.8 ms（单卡）     不能单卡           不�
 ### 完整学习路径
 
 ```text
-1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
+1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12
 ```
+
+前八篇是成本表本身，后四篇是它的训练侧；只关心推理与部署的读者可以停在第八篇。
 
 ### 做推理系统，最关心显存与吞吐
 
@@ -431,17 +524,34 @@ GEMM 的 $$m, k, n$$、attention 的 head 数与 head dim、MoE grouped GEMM 的
 ### 排查数值问题
 
 ```text
-6 → 7
+6 → 7 → 12
 ```
 
-loss 变 NaN、量化后输出异常、两个 kernel 的结果对不上——第六篇给出数值丢失的位置和判断标准，第七篇给出各量化方法各自的误差来源。前五篇按需回查。
+loss 变 NaN、量化后输出异常、两个 kernel 的结果对不上——第六篇给出数值丢失的位置和判断标准，第七篇给出各量化方法各自的误差来源；训练中的 loss spike 在第十二篇（三个机制、六个开关、监控曲线）。前五篇按需回查。
+
+### 算法工程师，要做或要读懂一次预训练
+
+```text
+1 → 2 → 9 → 10 → 11 → 12
+```
+
+先有参数量与 $$6ND$$，再走预训练补篇：词表、算力分配、数据管线、配方。读技术报告时，第十篇的表告诉你它的 $$D/N$$ 落在哪个时代，第十二篇的表告诉你它的超参与同行差在哪。
+
+### 做训练基础设施，要为一次预训练做容量与 I/O 规划
+
+```text
+2 → 6 → 10 → 11 → 12
+```
+
+$$6ND$$ 与 MFU 给 GPU 小时（第十篇的表），数据侧的 CPU 小时与几十 MB/s 的读带宽（第十一篇），checkpoint 的 GB/s 写带宽与 spike 回滚的代价（第十二篇）。
 
 
 ## 本系列的边界
 
-本系列只讨论模型作为一个**计算对象**的结构与成本。以下内容与它紧邻，但不在范围内：
+前八篇只讨论模型作为一个**计算对象**的结构与成本，后四篇讨论它**怎么训出来**的账。以下内容与它们紧邻，但不在范围内：
 
-- **训练方法与算法**：预训练配方、数据配比、SFT、RLHF / DPO、评测。本系列只算训练要多少 FLOPs 和多少字节状态，不讲怎么把 loss 降下去。
+- **后训练**：SFT、RLHF / DPO、蒸馏、评测。预训练的配方、数据与 scaling law 在第九到十二篇；但把一个基座模型变成对话模型的方法不在本系列。
+- **深度学习基础的推导**：反向传播、初始化与归一化、优化器、正则化的公式。第十二篇直接使用它们的结论，推导在算法地图的 L3 系列。
 - **kernel 实现**：FlashAttention 的分块与 online softmax 如何写、量化 GEMM 如何反量化、MoE 的 permute 与 grouped GEMM 如何实现。本系列只推导它们的 IO 复杂度与收益区间，把实现当作黑盒。
 - **推理引擎的调度与内存管理**：continuous batching、PagedAttention 的 block 管理、prefix caching、PD 分离。本系列给出这些机制所依据的数字，不讲机制本身。
 - **分布式并行的实现**：TP / PP / EP / 序列并行如何切分与同步、集合通信的算法。本系列在 MoE 一篇讨论 EP 的通信**量**，不讨论通信**怎么做**。
@@ -471,6 +581,7 @@ loss 变 NaN、量化后输出异常、两个 kernel 的结果对不上——第
 - 模型：以 **Llama-3-8B / 70B**（Llama 3 与 3.1 结构相同，$$d = 4096 / 8192$$，32 / 80 层，GQA 8 个 KV 头，$$d_{head} = 128$$，vocab 128256）和 **DeepSeek-V3**（$$d = 7168$$，61 层，128 头，MLA 的 $$d_c = 512$$、$$d_h^R = 64$$，256 个路由专家 + 1 个共享专家取 top-8，专家 $$d_{ff} = 2048$$）为主要分析对象，超参数取自各自公开的 `config.json` 与技术报告；Mixtral 8x7B 在 MoE 一篇作为对照；多模态一篇以 **LLaVA-1.5-7B**（CLIP ViT-L/14-336）、**Qwen2-VL-7B / Qwen2.5-VL-7B**（32 层 d=1280 的 ViT，2×2 merge，M-RoPE）与 **Llama-3.2-11B-Vision**（cross-attention 注入）为分析对象，InternVL2-8B 作为 tile 方案的对照，超参数取自各自的 `config.json`；
 - 硬件：以 **H100 SXM** 为默认（80 GB HBM3，3.35 TB/s，BF16 dense 约 989 TFLOPS，FP8 dense 约 1979 TFLOPS），必要处标注 **A100**（80 GB，约 2 TB/s，BF16 约 312 TFLOPS）；这些是公开标称值，实测会因型号、频率与功耗设置有差异；
 - 文中所有 FLOPs 与字节数都是**理论下界**，用于建立数量级判断与相互比较，不是任何具体实现的实测值；实测与理论的差距本身就是本系列要教读者解释的东西；
+- 预训练补篇（第九到十二篇）以 **Llama 3**（405B：15.6T token、lr 8e-5、batch 4M → 16M；8B / 70B：15T token）与 **DeepSeek-V3**（14.8T token、lr 2.2e-4、batch 63M、FP8）的技术报告为主要对象，数据侧以 **FineWeb**（96 个 Common Crawl 快照、15T token）与 **DCLM** 的公开管线为参照；tokenizer 对比用可公开下载的 GPT-2、cl100k_base、o200k_base、Qwen2.5、DeepSeek-V3；Chinchilla 的常数用 Besiroglu 等 2024 的重拟合值；
 - 论文引用以第一作者与年份标注；方法本身比它们在某个框架中的实现稳定，正文只在必要处提及 vLLM、Megatron、Transformer Engine 等项目中的对应实现。
 
 
@@ -484,11 +595,15 @@ loss 变 NaN、量化后输出异常、两个 kernel 的结果对不上——第
 6. [浮点格式、数值稳定性与混合精度](/floating-point-formats-and-mixed-precision.html)
 7. [量化、投机解码与 LoRA：改变计算形态的三种方法](/quantization-speculative-decoding-and-lora.html)
 8. [多模态：vision encoder 的算量与 image token 的 KV 代价](/multimodal-vision-encoder-cost-and-image-token-kv.html)
+9. [分词与词表：BPE、词表大小与 token 效率](/tokenizer-vocabulary-and-token-efficiency.html)
+10. [Scaling law：从 Chinchilla 到"过训练"，算力怎么分给参数与数据](/scaling-laws-and-compute-optimal-training.html)
+11. [预训练数据工程：从 Common Crawl 到 15T token，去重、过滤与配比的账](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)
+12. [训练配方与稳定性：学习率、batch、调度与 loss spike](/pretraining-recipe-and-training-stability.html)
 
 
 ## 最终目标
 
-读完这套系列之后，拿到任何一个模型的 `config.json` 和一张 GPU 的规格表，读者应该能够在动手之前回答：
+读完这套系列之后，拿到任何一个模型的 `config.json`、它的技术报告和一张 GPU 的规格表，读者应该能够在动手之前回答：
 
 ```text
 它有多少参数，分布在哪里？                         → 第一篇：参数量公式
@@ -503,6 +618,10 @@ batch 开到多大才能把算力用起来？                    → 第二篇�
 投机解码值得开吗？加速上界是多少？                   → 第七篇：期望接受长度
 微调它需要多少显存？                               → 第六篇、第七篇：训练状态与 LoRA
 一张图等于多少 token？贵在哪一环？                  → 第八篇：patch 数、connector 压缩比与 image token 的 KV
+换一个 tokenizer 会怎样？                          → 第九篇：2Vd 与每字符成本
+给定算力，模型多大、数据多少？训完要服务多少？        → 第十篇：Chinchilla 与推理感知的最优点
+15T token 从哪来、丢掉的是什么、够不够？             → 第十一篇：漏斗、MinHash、配比 → epoch
+超参表里的每个数字从哪来？训练为什么会崩？           → 第十二篇：μP、梯度噪声尺度、三个机制与六个开关
 ```
 
 最终目标是三种能力：
@@ -510,5 +629,7 @@ batch 开到多大才能把算力用起来？                    → 第二篇�
 1. **推导能力**：面对一个新模型或新方法，不依赖 benchmark，先算出它的参数量、算量、访存量、显存和通信量的理论值；
 2. **判断能力**：用这些数字判断一个优化在什么区间有效、一个部署方案的瓶颈在哪一项、一个实测结果离理论下界差多远；
 3. **对话能力**：与算法工程师讨论结构选择、与 kernel 工程师讨论输入 shape、与平台工程师讨论资源需求时，用同一张成本表说话。
+
+后四篇再加一种：**读报告的能力**——打开一份预训练技术报告，能把它的 tokenizer、$$D/N$$、数据配比与超参表放到本系列的表里，看出它站在哪个时代、与同行差在哪、每个决定花了多少。
 
 这一层知识在架构图上没有位置，却是 AI-Infra 每一层优化的共同目标。

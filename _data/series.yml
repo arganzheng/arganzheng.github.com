@@ -36,3 +36,6 @@ contributing-to-ai-infra-open-source:
 deep-learning-foundations:
   name: 深度学习基础：从反向传播到残差
   overview: /deep-learning-foundations.html
+post-training:
+  name: 后训练：从 SFT 到可验证奖励
+  overview: /post-training-from-sft-to-verifiable-rewards.html

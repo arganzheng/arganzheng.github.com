@@ -426,7 +426,7 @@ Llama-3.2 ViT-H/14     patches  6404 tokens  6404 encoder 18.47 TFLOP (attn 45%)
 2. **image token 就是 token**：用同一模型对比"1369 个文本 token 的 prompt"与"一张 1024² 图片 + 几个字"的首 token 延迟与 `torch.cuda.max_memory_allocated()` 的增量。预期后者比前者多出的只有 encoder 的 12 ms 与 encoder 输出的 10 MiB；KV 增量相同。
 
 
-## 十、本文小结与系列总结
+## 十、本文小结与前八篇总结
 
 ### 1. 本文小结
 
@@ -442,9 +442,9 @@ Llama-3.2 ViT-H/14     patches  6404 tokens  6404 encoder 18.47 TFLOP (attn 45%)
 
 核心问题的答案：一张 1024² 的图在 Qwen2-VL 里是 1369 个 token；encoder 的 12 ms 和 21 MiB 输出是前置的一次性开销，而 1369 个 token 在 decoder 里的 prefill FLOPs 和 428 MiB 的 KV 与 1369 个文本 token 完全相同，且 KV 要活到请求结束。**"encoder 输出 21 MB"与"这张图占 400 MB 显存"同时成立，因为前者是 connector 的输出、后者是它在每一层留下的 K 和 V；两者之比是层数乘以 KV 头维度与模型维度之比。** cross-attention 注入用 0.5 B 参数把图片 KV 压到四分之一并让它不进序列，代价是 decoder 不再是标准结构。位置编码（M-RoPE）改变图片在位置空间里占的长度（边长而非面积），但不改变 KV 的账。
 
-### 2. 全系列总结
+### 2. 前八篇总结
 
-八篇文章，每篇留下几个公式和几个数字：
+前八篇把模型当作一个计算对象，每篇留下几个公式和几个数字：
 
 ```text
 第一篇  参数量        每层 attention d(d_q + 2d_kv + d_q)、FFN 3·d·d_ff；Llama-3-8B 218.1M/层 × 32 + 1.05B = 8.03B；
@@ -491,8 +491,13 @@ MoE 多卡要传多少数据？                     → 每 token 每专家 7 + 
 一张图等于多少 token？贵在哪？             → (H/28)² 或 576 或 1601×tile；encoder 一次性，KV 与同长文本相同且活到请求结束
 ```
 
-这三种能力——不看 benchmark 先算出理论值、用理论值判断优化的有效区间、用同一张表与算法、kernel、平台工程师对话——是本系列试图建立的全部内容。
+这三种能力——不看 benchmark 先算出理论值、用理论值判断优化的有效区间、用同一张表与算法、kernel、平台工程师对话——是前八篇试图建立的全部内容。
 
-本系列的边界也在这里：它只把模型当作一个**计算对象**，算它的参数、算量、字节数与通信量。FlashAttention 与量化 GEMM 的 kernel 怎么写、continuous batching 与 PagedAttention 怎么调度、encoder 在推理引擎里怎么单独预算与缓存、TP / PP / EP 怎么切分与同步、训练配方怎么定——这些都建立在本系列给出的数字之上，但各自是另一个系列的内容。回到总纲：[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)。
+前八篇的边界也在这里：它们只把模型当作一个**计算对象**，算它的参数、算量、字节数与通信量。FlashAttention 与量化 GEMM 的 kernel 怎么写、continuous batching 与 PagedAttention 怎么调度、encoder 在推理引擎里怎么单独预算与缓存、TP / PP / EP 怎么切分与同步——这些建立在本系列给出的数字之上，但各自是另一个系列的内容。而"这个模型是怎么训出来的"——tokenizer 与词表、算力怎么分给参数与数据、15T token 从哪来、超参表里的数字从哪来——是接下来四篇**预训练补篇**的内容，用同样的方法算训练侧的账。
 
 配套代码：[`transformer-and-llm/llm_cost_08_multimodal.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_08_multimodal.py)（复用第七版的 `ModelConfig`）；本文各表的理论数字由 [`vlm_cost_numbers.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/vlm_cost_numbers.py) 算出。全系列八版脚本与运行输出在 [ai-learning-labs/transformer-and-llm](https://github.com/arganzheng/ai-learning-labs/tree/main/transformer-and-llm)。
+
+
+## 下一篇
+
+[分词与词表：BPE、词表大小与 token 效率](/tokenizer-vocabulary-and-token-efficiency.html)
