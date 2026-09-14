@@ -1,6 +1,6 @@
 ---
 layout: post
-title: AI-Infra 学习地图：从后端工程师到基础设施贡献者
+title: AI-Infra 工程师学习地图：从后端工程师到基础设施贡献者
 subtitle: A Learning Roadmap for AI Infrastructure Engineers
 tags: [AI, AI-Infra, Roadmap]
 catalog: true
@@ -11,7 +11,7 @@ catalog: true
 
 这是一张给后端工程师——尤其是 Java、Go 等托管语言背景的工程师——转向 AI-Infra 方向的学习地图。它把这个方向需要的知识组织成十个系列，说明每个系列解决什么问题、为什么放在那个位置、彼此之间如何依赖，以及按不同目标应该走哪条路径。
 
-它是三张 AI 学习地图中的第一张：这一张面向**跑模型的人**（AI-Infra 工程师），[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)面向**造模型的人**，[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)面向**用模型的人**。三张地图有重叠的名词，分工在本文末尾的[《与算法工程师地图的关系》](#与算法工程师地图的关系)一节说明。
+它是三张 AI 学习地图中的第一张（三张的总览与分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)）：这一张面向**跑模型的人**（AI-Infra 工程师），[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)面向**造模型的人**，[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)面向**用模型的人**。三张地图有重叠的名词，分工在本文末尾的[《与算法工程师地图的关系》](#与算法工程师地图的关系)一节说明。
 
 地图回答三个问题：
 

@@ -562,7 +562,7 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   version set per project per post — refreshing means re-verifying every claim
   about that project, never mixing two versions in one article.
 - Series 4 (`transformer-and-llm`) has 12 posts: 01–08 are the cost table,
-  09–12 (dated 2026-04-24 … 05-03) are the 预训练补篇 written for the
+  09–12 (dated 2026-04-10 … 04-13) are the 预训练补篇 written for the
   algorithm roadmap's L4 (tokenizer, scaling law, data pipeline, recipe). The
   overview lists them as "训练变量 → 第九到十二篇"; post 08's closing section is
   「前八篇总结」, post 12 carries the 补篇小结 + 系列总结. Keep math out of
@@ -577,8 +577,8 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   `transformer-and-llm/tools/gen_*_svg.py` into `img/in-post/` here; eyeball
   them with `qlmanage -t -s 1480 -o /tmp <svg>` (renders to `/tmp/<name>.png`).
 - Series `post-training` (《后训练：从 SFT 到可验证奖励》, overview
-  `2026-10-28-post-training-from-sft-to-verifiable-rewards.md`, 8 posts dated
-  from 2026-10-30, algorithm roadmap L5): organised around the RLHF 三件套
+  `2026-04-15-post-training-from-sft-to-verifiable-rewards.md`, 8 posts dated
+  2026-04-16 … 04-23, algorithm roadmap L5): organised around the RLHF 三件套
   (策略 / 奖励 / 参考); post 3 = 在线 RL, post 4 = 离线 RL (DPO family), post 6 =
   Agent RL. Only post 1 has a run lab with measured numbers; posts 2–8 are
   推导 → 算账 → 公开配方 with a "动手" section giving a `trl` skeleton and the
@@ -594,6 +594,16 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   block-buffered when redirected — the `expected/*.txt` only appears at exit.
   Future-dated posts need `jekyll serve --future --port 4001 -d /tmp/_site4001`
   + `SITE=http://localhost:4001 node tools/check-render.cjs <slug>` to verify.
+- Post dates encode the reading order of the three roadmaps and were re-dated
+  on 2026-09-14 (permalinks are `/:title.html`, so dates are free to move):
+  01-01 《AI 全栈学习地图》(overview of the three, pinned) → 01-02 Infra 地图 →
+  01-03 算法地图 → 01-04 应用地图 → Infra 01/02/03 (Jan–Mar, shared 前置) →
+  算法 L0–L3 (03-20 … 03-29) → 04 Transformer 与 LLM (04-01 … 04-13, shared L4)
+  → 后训练 (04-15 … 04-23) → Infra 05–10 (05-06 … 09-15). Keep a series
+  contiguous (daily posts are fine); do not interleave two maps' series except
+  at the shared 04 series. Roadmaps link forward to series published later —
+  that is the established convention. Series 收尾篇 must NOT carry a
+  hand-written 「系列目录」: the layout generates it from `series:`.
 - Cite source as path + function/class name, never line numbers.
 - Length is not a target; rigor and organisation are. Structure: (update note) →
   intro with the post's core question → `## 一、总览` (ending with 本文的章节安排)
