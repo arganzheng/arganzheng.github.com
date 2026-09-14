@@ -5,6 +5,7 @@ title: "通信与互联（07）：推理侧的通信——custom all-reduce 与 
 subtitle: "Communication on the Inference Side: Custom All-Reduce and KV Cache Transfer"
 tags: [NCCL, RDMA, GPU, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 前六篇建立了一条完整的路径：第一篇的 α-β 模型给出任何一次通信的理论下界，第二、三篇给 α 和 β 填上 NVLink、PCIe、InfiniBand 与 RDMA 的真实数字，第四篇讲 NCCL 如何把这些硬件能力组织成一次 `ncclAllReduce`，第五篇讲 PyTorch 如何在 stream 上使用它，第六篇把这一切变成 nccl-tests 的曲线和一棵排障决策树。这些内容的默认场景是训练：消息几十 MB 到几 GB、参与者固定、通信可以和反向计算重叠。
@@ -1066,6 +1067,56 @@ print(f"efficiency:  {byts/secs/1e9/(nic_gbps/8)*100:.0f}% of NIC, {byts/secs/1e
 推理侧还剩一种通信没有讲：MoE 模型的专家并行。它和本篇的两个场景都不一样——既不是几十 KB 的节点内归约，也不是点对点的大块搬运，而是每层两次、目标由路由结果决定、跨节点、消息大小从 decode 的几 KB 到 prefill 的几 MB 的 all_to_all；NCCL 的 send/recv 经 proxy 线程逐条发起，在 decode 的上千条小消息面前付不起延迟的账，DeepEP 用 NVSHMEM 的 IBGDA 让 GPU 自己写网卡的工作队列。下一篇也是本系列的最后一篇，讨论它，并给出全系列的总结。
 
 > **一层 MoE 的 dispatch + combine，在 EP=64 跨 8 节点时，每个 token 要跨多少条链路、搬多少字节、走几步？为什么 NCCL 的 all_to_all 在 decode 时不够用，DeepEP 又是怎么把它做到几百微秒以内的？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**20 µs 省在哪**：128 KB 在 NVLink 上的传输时间 $$S/\beta < 1$$ µs，这次 all_reduce 的全部时间都是 $$\alpha$$。NCCL 的 15–30 µs 由固定开销构成：kernel launch 路径、Ring + LL 的 $$2(n-1) = 14$$ 步串行握手（每步约 0.6 µs）、经 channel buffer 中转的拷贝、以及不能捕获进 CUDA Graph 带来的每步 launch。vLLM 的 custom all-reduce 用 CUDA IPC 把 8 张卡的 buffer 互相映射进各自地址空间、用 `Signal` flag 做 barrier，一个 36 block 的 kernel：one-shot 版本每张卡直接读 7 个对端的完整数据在本地归约——2 次 barrier、2 步、无中转、无 channel、天然可捕获进 CUDA Graph；累加顺序固定所以 bit 级一致。省的就是 launch 路径、14 步 → 2 步、中转拷贝这三项（第三、四章）。**为什么不能用于训练梯度同步**：它是为“小消息、节点内、地址固定”专门设计的——消息上限约 8 MB（one-shot 每卡要读 $$(n-1)S$$，流量 $$O(nS)$$ 而 ring 是 $$O(S)$$，大消息带宽账立刻输给 NCCL）；只能节点内（依赖 IPC 映射对端显存）；buffer 地址必须预先 IPC 注册且固定（梯度桶每步地址不同、大小不同）；中间缓冲区容量有限；没有与计算重叠的 stream 编排、没有容错。训练的梯度桶 25 MiB、跨节点、每步变化，全部踩在它的限制上（第五章）。后端选择链、PyNccl、对称内存与 KV 传输是同一个思路的其他几段（第六至十章）。
+
+</details>
+
+
+## 十、自测
+
+1. 8 卡 TP、hidden 8192、batch 8 个 token 的 decode 一步，每层 all_reduce 的消息多大？一个 80 层的模型一步做几次？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$8 \times 8192 \times 2$$ B = 128 KB；每层 attention 与 MLP 各一次共 2 次，80 层 160 次——每次省 20 µs 就是每步省 3.2 ms。
+
+   </details>
+
+2. one-shot 与 two-shot custom all-reduce 各怎么做？vLLM 在什么消息大小上切换？
+
+   <details markdown="1"><summary>答案</summary>
+
+   one-shot：每卡读全部 $$n-1$$ 个对端的完整 buffer 在本地归约，2 次 barrier；two-shot：先 reduce-scatter 各归约 $$1/n$$ 再 all-gather，多一轮中间缓冲区读写但流量 $$O(S)$$。8 卡 256 KB 以下 one-shot，以上 two-shot，到上限（约 8 MB）交给 NCCL。
+
+   </details>
+
+3. custom all-reduce 为什么能捕获进 CUDA Graph 而 NCCL（经 ProcessGroupNCCL）不好捕获？捕获时 IPC 地址怎么处理？
+
+   <details markdown="1"><summary>答案</summary>
+
+   它是一个普通 kernel，输入地址固定；ProcessGroupNCCL 有 watchdog、event、stream 编排与 CPU 侧逻辑。捕获期间为每个中间 buffer 预留 `RankData` 槽位，捕获结束后 `register_graph_buffers` 交换 IPC 句柄把对端地址填进去。
+
+   </details>
+
+4. Llama-3-70B TP8、一个 4096 token 的请求做 PD 分离，KV 多大？每个 rank 传多少？400 Gb/s 网卡理论要多久？
+
+   <details markdown="1"><summary>答案</summary>
+
+   每 token 320 KB × 4096 = 1.25 GiB；TP8 每 rank 160 MiB；160 MiB / 50 GB/s ≈ 3.4 ms（理论），与 decode 一步同量级，所以要与计算重叠、按请求粒度传。
+
+   </details>
+
+5. KV 传输为什么不用 NCCL 而用 NIXL / UCX / Mooncake 一类单边 RDMA？
+
+   <details markdown="1"><summary>答案</summary>
+
+   点对点而非集合、对端动态（哪台 decode 机接这个请求运行时才知道）、无归约、要与计算解耦、要按请求隔离失败；NCCL 的 communicator 是静态成员集合、集合语义、失败即全体 abort。单边 RDMA READ / WRITE 天然匹配：decode 侧按请求 READ prefill 侧的 KV。
+
+   </details>
 
 
 ## 下一篇

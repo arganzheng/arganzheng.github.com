@@ -5,6 +5,7 @@ title: "通信与互联（02）：硬件互联——PCIe、NVLink、NVSwitch 与
 subtitle: "Hardware Interconnect: PCIe, NVLink, NVSwitch and Network Topology"
 tags: [NCCL, RDMA, GPU, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 上一篇把一次通信的时间写成 $$T = \alpha + S/\beta$$：α 是固定开销，β 是带宽，S 是字节数；ring all_reduce 在 n 个参与者上的时间是 $$T_{\text{ring}} = 2(n-1)\,\alpha + \frac{2(n-1)}{n}\cdot\frac{S}{\beta}$$。这个模型能算出"8 卡 1 GB 的 all_reduce 在 25 GB/s 的链路上大约 70 ms"，但它有两个空位：α 和 β 是多少，取决于数据走的是哪条链路。同一台机器上，两张 GPU 之间的 β 可能是 450 GB/s，也可能是 25 GB/s，也可能只有 10 GB/s，差 40 倍；α 可能是 2 微秒，也可能是 20 微秒。哪一个成立，由硬件拓扑决定。
@@ -978,6 +979,56 @@ if __name__ == "__main__":
 有了这张拓扑图和这份测量记录，第一篇的代价模型就有了真实的 α 和 β。下一篇进入节点间路径的软件层：网卡是如何被驱动的、数据怎样从显存直接进网卡，以及这条路径上 GPUDirect 的开关分别意味着几次拷贝。
 
 > **一段显存里的数据要发到另一台机器的显存，走 TCP、走 RDMA 不开 GPUDirect、走 RDMA 开 GPUDirect，分别经过几次拷贝、经过哪些 PCIe 链路？各自的带宽上限是多少？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**`NV12`**：GPU0 与 GPU1 之间有 12 条 NVLink 链路（A100 的全部 12 条，经 NVSwitch 任意两卡都是 12），单向约 300 GB/s，不经 PCIe、不经 CPU，节点内 $$\beta$$ 的上限。**`PIX`**：GPU0 与 NIC0 挂在同一个 PCIe switch 下，P2P 流量在 switch 内转发，一跳到达，带宽是 PCIe x16 单向（4.0 约 32 GB/s、可达 80–90%），GPUDirect RDMA 可用。**`SYS`**：GPU0 到 NIC4 要穿过 PCIe root complex 并跨 socket 走 UPI，带宽打折（NCCL 按 6–40 GB/s 估）、延迟高，且 P2P 可能不被支持——NCCL 默认 `NCCL_NET_GDR_LEVEL=PXB`，跨 root complex 的路径不开 GDR，数据要经主机内存中转（第二至五章）。**为什么选 NIC0**：NCCL 初始化时从 `/sys` 与 NVML 探测出这张 PCIe 树与 NVLink 图，为每个 GPU 计算到每张网卡的路径类型，取距离最近（类型最好）且带宽最大的——GPU0 → NIC0 是 `PIX`，一跳、全速、能开 GDR；→ NIC4 是 `SYS`，最差。8 卡配 8 网卡、每张 GPU 与自己的网卡同 switch 就是为了让每个 GPU 都有一条 `PIX` 路径，8 张网卡并行把节点间带宽用满；rail-optimized 组网再让同编号 GPU 的流量在同一台 leaf 下一跳完成（第六、八章）。`nvidia-smi topo -m` 的六个等级与 NCCL `topo.h` 的 `PATH_*` 一一对应。
+
+</details>
+
+
+## 十一、自测
+
+1. A100 NVLink 单向 300 GB/s、PCIe 4.0 x16 单向 32 GB/s、HDR 网卡 25 GB/s：节点内 8 卡 all_reduce 与跨节点各由什么限制？两者差多少倍？
+
+   <details markdown="1"><summary>答案</summary>
+
+   节点内由 NVLink（或 NVSwitch）限制，跨节点由网卡限制，且网卡还受它挂的 PCIe 链路限制；300 / 25 = 12 倍——整机 NVLink 交换容量约是网卡总带宽的 9 倍，是分层算法的物理依据。
+
+   </details>
+
+2. `nvidia-smi topo -m` 显示两张 GPU 是 `PIX`，但 P2P 带宽只有几 GB/s——首先怀疑什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   ACS（Access Control Services）：BIOS / IOMMU 把 PCIe switch 内的 P2P 强制重定向到 root complex 做安全检查，拓扑完美但路径变长；关 ACS 或用 `p2pBandwidthLatencyTest` 对比 P2P 开关确认。
+
+   </details>
+
+3. 为什么“8 卡配 8 张网卡”，而且网卡速率约为 GPU PCIe 链路的 78%？
+
+   <details markdown="1"><summary>答案</summary>
+
+   每张 GPU 一张同 switch 的网卡，才能 8 条 `PIX` 路径并行、节点间流量分到 8 张网卡；HDR 200 Gb/s 对 PCIe 4.0 x16、NDR 400 对 5.0、800G 对 6.0 都是约 78%——网卡不会比它挂的 PCIe 链路快，配更快的网卡被 PCIe 卡住（A100 + NDR 只跑到 32 GB/s）。
+
+   </details>
+
+4. RoCE v2 不配 PFC + ECN 会发生什么？IB 为什么不需要？
+
+   <details markdown="1"><summary>答案</summary>
+
+   交换机丢包后 RDMA 的可靠传输用 Go-Back-N 重传整段，带宽崩塌到几分之一；IB 有链路层信用流控天然无损。RoCE 跑在普通以太网上，必须用 PFC（暂停帧）+ ECN / DCQCN（拥塞标记与降速）造出无损。
+
+   </details>
+
+5. fat-tree 超额订阅 2:1 意味着什么？rail-optimized 组网怎么绕开它？
+
+   <details markdown="1"><summary>答案</summary>
+
+   跨 leaf 的上行带宽只有下行的一半，跨 leaf 的 $$\beta$$ 不再是常数、随负载变；rail-optimized 把所有节点的 GPU $$i$$ 接到同一台 leaf $$i$$，同编号 GPU 之间的流量一跳完成不上 spine，NCCL 用 PXN 经 NVLink 把跨 rail 流量先转到对应编号的 GPU 再发。
+
+   </details>
 
 
 ## 下一篇

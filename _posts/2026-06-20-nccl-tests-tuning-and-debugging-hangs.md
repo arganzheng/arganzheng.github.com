@@ -5,6 +5,7 @@ title: "通信与互联（06）：nccl-tests、调优与排障——从带宽曲
 subtitle: "nccl-tests, Tuning and Debugging Hangs: From Bandwidth Curves to Flight Recorder"
 tags: [NCCL, RDMA, GPU, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 前五篇建立了一条完整的因果链：第一篇的 α-β 模型给出一次集合通信的理论时间，第二、三篇给出链路能提供的 β 和 α，第四篇讲 NCCL 如何在探测到的拓扑上选 ring/tree、channel 数、算法与协议去逼近这个上限，第五篇讲 ProcessGroupNCCL 如何把 NCCL kernel 放到自己的 stream 上、watchdog 如何盯着每一个 `WorkNCCL`。这条链上每一环都可能出错，而错误的表现只有三种：**慢**、**卡**、**结果不对**。本篇的任务是把前五篇变成一套可操作的方法——面对这三种现象，先测什么、先看什么、先改什么。
@@ -70,6 +71,7 @@ NCCL transport        P2P 没走 NVLink · GDR 没开 ·         NCCL_DEBUG=INFO
 | 八 | 正确性问题 | 浮点归约顺序 · 算法差异 · NaN 与 `TORCH_NCCL_NAN_CHECK` · 多 communicator/多 stream 竞争 |
 | 九 | 决策树 | 慢 / hang / 错 三棵树的展开版，从现象到检查项到处理方式 |
 | 十 | 本文小结 | 要点 · 检查项 · 源码位置 · comm-probe 的 `sweep.sh` 与 `hang_lab/` |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、nccl-tests：怎么测
@@ -1172,6 +1174,56 @@ unpaired_sendrecv.py   集合通信条目到 seq 5 全部 FULLY_MATCHED；p2p �
 到这里，训练侧的通信从理论到测量到排障已经闭环。下一篇转向推理：decode 阶段每层一次几十 KB 的 TP all_reduce，纯延迟主导，NCCL 的固定开销成了主要成本；PD 分离的 KV 传输是点对点大块搬运，不需要归约也不需要 NCCL。两个场景都要用本篇的方法测、用第一篇的模型算，但答案会不一样。
 
 > **8 卡 TP 的 decode，每层一次 128 KB 的 all_reduce，NCCL 要 30 微秒，custom all-reduce 要 10 微秒。这 20 微秒省在哪里？为什么这个方法不能用在训练的梯度同步上？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**为什么等到 timeout 才暴露**：NCCL kernel 在 GPU 上自旋等对端数据、没有任何超时；CPU 早在 enqueue 时就返回了；唯一的计时器是 c10d watchdog 的 `opTimeout_`（默认 10 分钟、从 enqueue 起算）——所以现象是“所有 rank 都停在 all_reduce”并在 10 分钟后一起报 NCCL timeout，哪怕根因与 NCCL 无关（第六章）。**是谁的问题**：hang 分六类——参数不一致（形状 / dtype / op 不同）、集合通信次数不一致（某 rank 多走或少走一次）、send / recv 不配对、多个 communicator 交叉使用、某 rank 崩了或卡在别处（checkpoint、dataloader、`.item()`）、网络硬件。前四类的特征是**各 rank 最后一次操作不一致**，后两类一致（第七章）。**是哪一次 all_reduce**：Flight Recorder（`TORCH_NCCL_TRACE_BUFFER_SIZE`）记录每次集合通信的 seq、形状、dtype、调用栈与状态，timeout 时经 TCPStore 通知全体 dump，`fr_trace.py` 按 `collective_seq_id` 对齐各 rank 给出 MatchState 与 culprit rank——直接指出哪个 rank 在第几次操作上与别人不一致、形状差在哪（第八章）。**没有 FR 时**：`py-spy dump` 看每个 rank 的 Python 栈（卡在 all_reduce 还是卡在 checkpoint 写盘）→ gdb 看 C++ → cuda-gdb 看 kernel；`NCCL_DEBUG=INFO` 加 `SUBSYS=COLL` 数各 rank 的 opCount 是否一致（第九章）。第 3000 步而不是第 1 步，最常见是数据相关的不一致（某 rank 的 batch 触发了不同的分支或空 tensor）或硬件间歇故障。
+
+</details>
+
+
+## 十一、自测
+
+1. `mpirun -np 8 all_reduce_perf -b 8 -e 8G -f 2 -g 1 -w 5 -n 20 -c 0` 各参数什么意思？总 rank 数是多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   8 个进程、每进程 1 张 GPU（`-g 1`）→ 8 个 rank；从 8 B 到 8 GB 每次 ×2 扫描；预热 5 次、测 20 次；`-c 0` 关掉结果校验只测性能。总 rank = 进程 × `-t` × `-g`。
+
+   </details>
+
+2. nccl-tests 的曲线左端斜线、右端平台、拐点各由什么决定？8×H100 节点内的拐点与接近平台大约在哪？
+
+   <details markdown="1"><summary>答案</summary>
+
+   左端由 $$\alpha$$ 决定（直接看 time 列）、右端平台由 $$\beta$$ 决定、拐点 $$S_{knee} = n\alpha\beta$$、到 90% 平台约 $$9 S_{knee}$$；8×H100 节点内约 10 MB 拐点、约 90 MB 接近平台（典型值）。
+
+   </details>
+
+3. 8×H100 NVSwitch 机器 all_reduce 的 busbw 平台该在什么范围？测出 150 GB/s 该怀疑什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   350–480 GB/s（NVLS 可超单向 450）；150 太低——查是否落到了 SHM / PCIe 路径（`NCCL_DEBUG=INFO` 看 transport）、NVLink 有无 `inactive` 链路、channel 数被限、或 GPU 时钟 / 功耗被限。
+
+   </details>
+
+4. NCCL 参数的优先级顺序是什么？哪几个参数是“应设”、哪几个“几乎不动”？
+
+   <details markdown="1"><summary>答案</summary>
+
+   env > `NCCL_CONF_FILE` > `~/.nccl.conf` > `/etc/nccl.conf` > 默认，整数参数只读一次。应设：`IB_HCA`、`SOCKET_IFNAME`、RoCE 的 `GID_INDEX` / `TC`、`DEBUG` / `DEBUG_FILE`；对照用：`ALGO` / `PROTO`、`P2P` / `SHM` / `GDR`、`NCHANNELS`；几乎不动：`NTHREADS`、`BUFFSIZE`、`IB_TIMEOUT`。
+
+   </details>
+
+5. 一个 rank 在写 checkpoint 时卡了 15 分钟，最终日志报的是什么错？为什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   其他 rank 报 NCCL timeout（`opTimeout_` 10 分钟）——它们在下一次集合通信上等这个 rank，watchdog 到期直接退出；卡住的 rank 本身可能没有任何 NCCL 日志。timeout 约束的是 enqueue 到 end event 的墙钟，不区分原因，所以 NCCL timeout 常是别处 hang 的表现。
+
+   </details>
 
 
 ## 下一篇

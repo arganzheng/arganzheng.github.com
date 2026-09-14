@@ -5,6 +5,7 @@ title: "通信与互联（05）：PyTorch 的通信栈——ProcessGroupNCCL、s
 subtitle: "PyTorch's Communication Stack: ProcessGroupNCCL, Stream Semantics, and Compute-Communication Overlap"
 tags: [NCCL, RDMA, GPU, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 上一篇沿着 `ncclAllReduce` 走完了 NCCL 内部的全部路径：bootstrap、拓扑探测、ring/tree 搜索、transport 建连、调优表、enqueue、一个 kernel 里 nChannels 个 block 各跑一条环，跨机时由 proxy 线程替 GPU 驱动网卡。那一篇的结论可以压缩成一句话：**NCCL 是一个把集合通信编译成 CUDA kernel 的库，`ncclAllReduce(sendbuf, recvbuf, count, dtype, op, comm, stream)` 的最后一个参数决定了这个 kernel 排进哪条队列**。这一篇就从这最后一个参数开始。
@@ -1051,6 +1052,56 @@ torchrun --nproc_per_node=8 overlap_bench.py --killer sync
 到这里，comm-probe 有了检查框架层的工具：`cost_model.py` 说通信该多快、`topo_map.py` 说链路能多快、`nccl_log_reader.py` 说 NCCL 选了什么、`overlap_bench.py` 说框架有没有把通信藏起来。下一篇把这些工具和 nccl-tests 一起用到完整的测量与排障流程上：带宽曲线怎么读、哪个环境变量动哪一层、一个 64 卡任务在第 3000 步 hang 住时怎么在一小时内找到掉队的 rank。
 
 > **一个 64 卡训练任务在第 3000 步 hang 住，所有 rank 的日志都停在 all_reduce。是谁的问题、是哪一次 all_reduce、为什么会等到 timeout 才暴露？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+三个问题的答案都是“不一定”。**返回时通信开始了吗**：没有必然开始。`ProcessGroupNCCL::collective` 让内部的 NCCL stream 等待当前计算 stream 的 event，然后把 `ncclAllReduce` 的 kernel 排进 NCCL stream，记录 end event，返回 `WorkNCCL`——CPU 只是把工作入队；kernel 何时真的跑取决于计算 stream 上此前的工作何时完成以及 SM 是否有余量（第四、五章）。**`wait()` 返回时完成了吗**：也没有。`wait()` = 让**当前 stream** `cudaStreamWaitEvent` 那个 end event——它在 GPU 侧建立顺序：当前 stream 后续的 kernel 会等通信完成；CPU 不阻塞、立刻返回。只有 `TORCH_NCCL_BLOCKING_WAIT`、显式 timeout、`barrier` 或用户自己的 `synchronize` 才阻塞 CPU（第五、六章）。**期间修改 `t`**：在 `wait()` 之前在当前 stream 上读或写 `t` 是数据竞争——那些 kernel 与 NCCL kernel 在两条 stream 上并行，结果未定义；`wait()` 之后再碰是安全的。`del t` 反而安全：`WorkNCCL` 默认把 tensor stash 到 `TensorShelf`、`wait()` 后 unstash，不 wait 则 watchdog 转移 shelf，显存不会在 kernel 跑完前被释放（第七章）。这套 stream + event 的编排正是重叠的来源，也是它失效的来源：同 stream、`.item()`、`synchronize`、`cudaFree`、`wait()` 放太早都会把重叠杀掉（第八章）。
+
+</details>
+
+
+## 十一、自测
+
+1. `dist.all_reduce(t)`（同步模式）为什么 CPU 也不阻塞？正确性靠什么保证？
+
+   <details markdown="1"><summary>答案</summary>
+
+   同步模式把 NCCL kernel 直接排在**当前** stream 上、不返回 Work；CPU 立刻返回，后续在同一 stream 上的 kernel 自然排在它之后——靠 stream 顺序保证正确，没有任何 CPU 等待。
+
+   </details>
+
+2. `TCPStore` 在通信里承担什么？数据走它吗？
+
+   <details markdown="1"><summary>答案</summary>
+
+   只做控制面：rendezvous（大家找到彼此）、`ncclUniqueId` 分发（rank 0 set、其他 get）、Flight Recorder dump 与错误信号；数据全部走 NCCL 的 stream / 网络，Store 一个字节都不传。
+
+   </details>
+
+3. ProcessGroupNCCL 什么时候创建 NCCL communicator？`TORCH_NCCL_RANKS_PER_ROOT` 管什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   懒创建：构造函数不建，第一次在某个 deviceKey 上做集合通信时 `initNCCLComm`（所以第一次通信慢且可能在那里超时）；rank 数超过 `RANKS_PER_ROOT` 时用多个 root 分发 uniqueId，避免大规模初始化时 rank 0 成为瓶颈。
+
+   </details>
+
+4. 把几十个几 KB 的梯度各做一次 all_reduce，与用 `_coalescing_manager` 合成一次，时间差在哪？
+
+   <details markdown="1"><summary>答案</summary>
+
+   每次调用付一次 $$\alpha$$（launch、握手、步数）；合并后 `ncclGroupStart/End` 把它们变成一个 Work、一次 kernel、一个 event——把 $$\alpha$$ 主导变成 $$\beta$$ 主导。DDP 的梯度桶（25 MiB）就是这个思路的预设版本。
+
+   </details>
+
+5. profiler 里 NCCL kernel 与计算 kernel 在同一行、没有重叠——列出三个最可能的原因。
+
+   <details markdown="1"><summary>答案</summary>
+
+   用了同步模式（kernel 排在当前 stream）或 `async_op` 没开；两者之间有隐式同步（`.item()`、`cudaStreamSynchronize`、非 Async 的 `cudaMemcpy`、显存紧张导致的 `cudaFree`）；`wait()` 紧跟在 all_reduce 后面（放早了，让计算 stream 立刻等通信）。
+
+   </details>
 
 
 ## 下一篇

@@ -5,6 +5,7 @@ title: "通信与互联（08）：MoE 的通信——all-to-all、DeepEP 与 GPU
 subtitle: "Communication for MoE: All-to-All, DeepEP and GPU-Initiated Networking"
 tags: [NCCL, RDMA, GPU, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 前七篇处理的通信有一个共同点：参与者之间交换的字节数在调用之前就是确定的。all_reduce 的每个 rank 拿同样大小的 buffer，all_gather 的每个 rank 贡献同样大小的一片，KV 传输的 block 列表由 scheduler 事先算好。第一篇给 all_to_all 留了一句话——"$$n(n-1)$$ 条不同的流，无法从绕环一圈里得到好处，跨节点时会同时压满所有链路，是 MoE 训练最难对付的通信模式"——然后就再没有回来。本篇回到这里。
@@ -1098,3 +1099,53 @@ a2a_bench.py         all_to_all_single 等长 / 变长 / 两步 · 专家热点�
 3. **决策能力。** 为一个任务判断通信的理论上限、选择算法与传输路径、给平台提出拓扑与亲和的要求（每 GPU 一张网卡、GPU 与 NIC 同一 PCIe switch、同号 GPU 同一 rail、TP 不跨节点、EP 的节点数与 group routing 匹配、容器共享 IPC namespace、IBGDA 所需的驱动参数），并知道什么时候该自己写一个通信原语：消息小、节点内或对称 buffer 可达、地址固定、每步上百次、失败可整体重启——满足这些才值得，否则用 NCCL。
 
 通信层是单卡之外一切系统的底座，也是训练与推理两条路径唯一共享的一层。这个系列把它从 `dist.all_reduce(t)` 一行代码展开到 PCIe、NVLink、InfiniBand 上的每一段路，再收回到 vLLM 的两个 kernel、一次 RDMA READ、和 DeepEP 里一个 warp 写下的一条 WQE。展开是为了看清代价，收回是为了在正确的层上做决定。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**每个 token 跨多少、搬多少、走几步**：EP = 64 跨 8 节点（每节点 8 卡），均匀路由下一个 token 的 8 个专家有 $$1 - 1/8 = 87.5\%$$ 在其他节点；平坦 all_to_all 每 token 发 $$k = 8$$ 份拷贝，其中约 7 份走网卡；DeepSeek-V3 按节点去重（先 RDMA 到目标节点的同号 GPU、再 NVLink 转发）加 4 节点 group routing 把跨节点份数压到约 3.2 份。每份 = hidden 7168 × dtype + scale：FP8 dispatch 约 59 KB / token、BF16 combine 约 115 KB / token；一层两次（dispatch、combine 互为转置），每次是一轮 $$n - 1$$ 条并发流，$$T \approx \alpha + \max(B_{NIC}/\beta_{NIC}, B_{NVL}/\beta_{NVL})$$，变长 split 再多一次 counts 交换与 host 同步（第二至五章）。**为什么 NCCL 的 all_to_all 在 decode 不够用**：decode 每 token 的字节少、但条数多——EP 64 每层 dispatch + combine 是 $$2 \times 63 \times$$ 每卡的 send / recv 对，NCCL 把 all_to_all 展开成 $$n$$ 对 send / recv 由单个 CPU proxy 线程逐条发起，1024 条消息要在 173 µs 内发完约 6 条 / µs，proxy 给不了；变长还要先交换 counts + D2H 同步，不可捕获进 CUDA Graph（第六章）。**DeepEP 怎么做到几百微秒**：normal 模式用 NVSHMEM 对称堆 + IBGDA——kernel 里的 warp 直接写 WQE、更新 DBR、敲映射进 GPU 地址空间的网卡 doorbell，GPU 自己发起 RDMA，拿掉 proxy 的通知延迟与 CPU 软件路径；low-latency 模式预留 worst-case 接收槽位、计数随数据原子加、无 host 同步、可捕获，send / recv 两阶段并把 FP8 转换做进 kernel——理论 429 µs、README 实测 487 µs，其中 3/4 是字节、40–60 µs 是 $$\alpha$$（第七至九章）。NCCL 2.28 的 GIN 设备端 API 正在把同一能力搬进 NCCL（第十章）。
+
+</details>
+
+
+## 十一、自测
+
+1. hidden 7168、top-8、EP 64 跨 8 节点，均匀路由下平坦 all_to_all 每 token 走网卡的份数是多少？按节点去重后呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   平坦：$$k(1 - 1/N) = 8 \times 7/8 = 7$$ 份；去重：期望覆盖的其他节点数 $$N(1 - (1 - 1/N)^k)(1 - 1/N) = 8 \times (1 - 0.875^8) \times 0.875 \approx 4.6$$ 份；再加 4 节点 group routing 约 3.2 份。
+
+   </details>
+
+2. prefill 一层 MoE 通信 5.6–12.5 ms 而 decode 一层只有约 0.45 ms，为什么 decode 反而是难的？
+
+   <details markdown="1"><summary>答案</summary>
+
+   prefill 是带宽账，网卡是瓶颈，字节多但条数相对少、可以流水；decode 字节少、条数多、且在每步的关键路径上（一步 decode 总共只有几十 ms、几十层）——瓶颈是发起速率与 $$\alpha$$，CPU proxy 的软件路径成了上限。
+
+   </details>
+
+3. NCCL 的 `ncclAlltoAll`（2.28）内部怎么实现？变长 all_to_all 在 PyTorch 里为什么不能捕获进 CUDA Graph？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `taskAppend` 展开成 $$n$$ 对 send / recv 放进一个 group；变长（`all_to_all_single` 带 split sizes）要先 all_to_all 交换 counts、D2H 同步拿到大小再发数据——中间的 host 同步与动态大小让 Graph 捕获不可能。
+
+   </details>
+
+4. IBGDA 是什么？相比 proxy 拿掉了哪几项延迟、留下什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   GPU-initiated RDMA：kernel 里的 warp 直接构造 WQE 写入网卡队列、更新 doorbell record、写映射进 GPU 地址空间的网卡 doorbell 寄存器；拿掉 GPU → proxy 的通知延迟、proxy 的 CPU 软件路径与单线程串行化；留下网卡本身的硬件 $$\alpha$$（几微秒）。需要 `NVSHMEM_IB_ENABLE_IBGDA=1` 与支持的网卡。
+
+   </details>
+
+5. DeepEP low-latency 模式为什么能“无 host 同步、可捕获”？它付出了什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   为每个 rank 预留 worst-case 大小的接收槽位（每个源最多多少 token 事先定死），到达计数随数据一起原子累加，接收方轮询计数即可，不需要先交换 counts；代价是显存按最坏情况预留、`num_max_dispatch_tokens_per_rank` 限制了 batch 上限。
+
+   </details>

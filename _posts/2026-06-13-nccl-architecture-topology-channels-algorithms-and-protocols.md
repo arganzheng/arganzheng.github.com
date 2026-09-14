@@ -5,6 +5,7 @@ title: "通信与互联（04）：NCCL 架构——拓扑探测、channel、算�
 subtitle: "NCCL Architecture: Topology Detection, Channels, Algorithms and Protocols"
 tags: [NCCL, RDMA, GPU, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 前三篇把"硬件能做到什么"的上限摆出来了：[第一篇](/collective-communication-primitives-and-cost-model.html)给出 α-β 模型和 ring all_reduce 的 $$T_{\text{ring}} = 2(n-1)\,\alpha + \frac{2(n-1)}{n}\cdot\frac{S}{\beta}$$；[第二篇](/hardware-interconnect-pcie-nvlink-and-topology.html)给 α 和 β 填上数字——NVLink 每 GPU 双向合计 600/900 GB/s（A100/H100），PCIe 4.0 x16 单向约 32 GB/s，IB NDR 单向 50 GB/s——并用 `nvidia-smi topo -m` 的 `NV#`/`PIX`/`PXB`/`PHB`/`SYS` 描述任意两个设备之间的路径；[第三篇](/rdma-and-gpudirect.html)讲清了跨机时网卡如何绕过 CPU 和主机内存直接读写显存。这些都是"能力"。本篇讲的是 NCCL 如何把这些能力**组织**成一次集合通信：它怎么知道机器长什么样、怎么决定数据走哪条路、怎么把一个 all_reduce 切成多少条并行的流、用哪种算法和协议、以及 GPU 上的 kernel 与 CPU 上的线程如何配合把字节送上网卡。
@@ -1180,6 +1181,56 @@ if __name__ == '__main__':
 下一篇往上走一层：PyTorch 是如何使用 NCCL 的。本篇讲清了 `ncclAllReduce` 返回时 kernel 只是被放进了 stream，那么框架侧的"异步"、"重叠"、"wait"到底各自意味着什么？
 
 > **`work = dist.all_reduce(t, async_op=True)` 返回时，通信开始了吗？`work.wait()` 返回时，通信完成了吗？在此期间修改 `t` 会发生什么？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+决策在 `ncclCommInitRank` 里做完、与消息无关：探测拓扑（`/sys` 的 PCIe 树 + NVML 的 NVLink + net 插件的 NIC）→ 计算每对设备的路径类型与带宽 → 图搜索出 nChannels 条 ring / tree → 建 transport → 用调优模型 $$T = \text{lat} \times \text{latCount} + S / (1000 \times \text{bw})$$ 为每个（算法, 协议, 消息大小）算预计时间填成表；`ncclAllReduce` 只查表选最小的（第三至八章）。**三个决定**：NVSwitch 机器上 NVLS 可用——交换机内做归约，每卡 NVLink 流量约 $$2S/n$$ 而 ring 是 $$1.75S$$，延迟 25 µs 也不高，所以几百 KB 以上选 NVLS + Simple；有 NVLink 无 NVSwitch 时 NVLS 不可用但 LL128 可用（依赖 NVLink 的写序保证，120/128 字节有效、约 94% 效率），几 MB 以下 Ring + LL128 最快；纯 PCIe 上 LL128 被禁（PCIe 不保证写序），只剩 Simple（512 KiB slot + fence，带宽好、延迟高）与 LL（8 + 8 字节原子 store、50% 效率、延迟低）；跨 32 台机器时 ring 要 510 步、tree 只要 $$2 \times (7 + 5)$$ 步，延迟差一个数量级、带宽只差 30%，所以直到几百 MB 都选 Tree（第八章的调优表就是这么算的）。**强行 `NCCL_ALGO=Ring` 的代价**：单机 NVSwitch 上大消息慢约 2 倍（带宽账：ring 的 NVLink 流量是 NVLS 的近 4 倍）；32 节点上中小消息慢 4–7 倍（延迟账：步数）；只在大规模 + GB 级消息上 ring 才是对的。
+
+</details>
+
+
+## 十二、自测
+
+1. `ncclCommInitRank` 与 `ncclAllReduce` 各做什么？为什么第一次集合通信特别慢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   InitRank：bootstrap、拓扑探测、路径、图搜索、channel、调优表——所有与消息无关的决策；AllReduce：查表选算法协议、切 channel、启一个 kernel。2.28 默认 lazy connect，某个算法第一次被用到时才建 transport 连接，所以首次调用慢。
+
+   </details>
+
+2. LL、LL128、Simple 三种协议各怎么传数据、效率多少、各适合什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   LL：8 字节数据 + 8 字节 flag 一起原子 store，无 fence，50% 效率，延迟最低，小消息；LL128：128 字节里 120 字节数据，依赖 NVLink 的写序保证，约 94%，只在 NVLink 路径启用，中等消息；Simple：512 KiB slot + fence 同步，接近 100%，延迟高，大消息。
+
+   </details>
+
+3. NCCL 路径类型 `LOC < NVL < NVB < C2C < PIX < PXB < P2C < PXN < PHB < SYS` 里，`NCCL_P2P_LEVEL` 与 `NCCL_NET_GDR_LEVEL` 的默认边界在哪？意味着什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   都是 `PXB`——同一 root complex 下（经至多一级 PCIe switch）允许 GPU 直连 / GDR，跨 root complex（`PHB`）与跨 socket（`SYS`）不允许，数据改走主机内存（SHM / staging）。
+
+   </details>
+
+4. 一个 channel 是什么？nChannels 怎么定？消息小的时候 channel 数为什么会缩？
+
+   <details markdown="1"><summary>答案</summary>
+
+   一条 ring / tree + 每 peer 每方向的 buffer 与连接 + kernel 的一个 block + 一份 proxy 工作；由图搜索得到的条数 ×2、再被 `NCCL_MIN/MAX_NCHANNELS` 裁剪；小消息切成太多 channel 每个只剩几 KB，固定开销占比高，按消息大小缩到够用为止。
+
+   </details>
+
+5. proxy 线程是什么？为什么跨节点每步要经它、节点内 P2P 不用？它带来什么风险？
+
+   <details markdown="1"><summary>答案</summary>
+
+   GPU 不能 post RDMA 请求，NCCL 每个 comm 有一个 CPU proxy 线程按 head / tail 与 kernel 同步，替它 isend / irecv / test；节点内 NVLink P2P 由 kernel 直接读写对端显存。proxy 是单线程，被抢占（CPU 亲和不对、跨 NUMA、系统噪声）就抖动，kernel 自旋等它。
+
+   </details>
 
 
 ## 下一篇

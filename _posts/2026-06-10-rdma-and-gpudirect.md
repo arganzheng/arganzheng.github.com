@@ -5,6 +5,7 @@ title: "通信与互联（03）：RDMA 与 GPUDirect——绕过 CPU 和主机�
 subtitle: "RDMA and GPUDirect: Bypassing the CPU and Host Memory"
 tags: [NCCL, RDMA, GPU, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 上一篇给出了节点间链路的物理上限：一张 NDR InfiniBand 网卡 400 Gb/s，约 50 GB/s 单向；一张 HDR 200 Gb/s，约 25 GB/s。也给出了它挂在哪里：每张 GPU 配一张网卡，两者在同一个 PCIe switch 下（`nvidia-smi topo -m` 里的 `PIX` 或 `PXB`），走 PCIe 4.0 x16（单向约 32 GB/s）或 PCIe 5.0 x16（单向约 64 GB/s）。这些数字是链路的能力，不是软件能拿到的带宽。软件拿到多少，取决于数据从显存到网线之间经过了什么。
@@ -90,6 +91,7 @@ flowchart TB
 | 九 | GDRCopy 与 GPUDirect 家族 | CPU 直接读写显存映射；NCCL 用它做什么；GPUDirect P2P / Storage |
 | 十 | 测一测与比一比 | ibstat / `ibv_devinfo` / `show_gids` / rdma link / `ib_write_bw` --use_cuda；检查清单 |
 | 十一 | 本文小结 | 要点、排障检查项、源码位置、comm-probe 的 `rdma_write.c` |
+| 十二 | 自测 | 5 道题 |
 
 
 ## 二、为什么需要 RDMA
@@ -965,6 +967,56 @@ int main(int argc, char **argv) {
 下一篇进入 NCCL 本身。本篇讲清了网卡能做什么、一次 RDMA WRITE 怎么发出去；第四篇讲 NCCL 如何把 8 卡 × N 节点的 GPU、NVLink、PCIe、网卡组织成若干条 ring 和 tree，为每条建立 P2P / SHM / NET 传输，选算法、选协议、切 channel，让 proxy 线程替 GPU 驱动本篇的 `ncclIbIsend` / `ncclIbIrecv`：
 
 > **同一次 8 卡 all_reduce，NCCL 在 NVSwitch 机器上选了 NVLS + Simple，在没有 NVSwitch 的 NVLink 机器上选了 Ring + LL128，在纯 PCIe 机器上只剩 Simple / LL，跨 32 台机器时选了 Tree。它是根据什么做出这三个不同决定的？强行用 `NCCL_ALGO=Ring` 会付出什么？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**TCP**：GPU 显存 → `cudaMemcpy` 到主机内存（PCIe 一次）→ 内核协议栈拷到 socket buffer → 网卡 DMA 读主机内存（PCIe 一次）→ 网络 → 对端反过来再来一遍；每端 2 次拷贝、每字节访问主机内存约 4 次、每个 MSS 要 CPU 参与，400 Gb/s 需要 15–40 个核与超出内存带宽的流量——原理上跑不满，上限受 CPU 与内存带宽限制而非网卡（第二章）。**RDMA 不开 GPUDirect**：显存 → 主机 staging buffer（PCIe 一次）→ 网卡直接 DMA 读注册过的主机内存（PCIe 一次）→ 网络 → 对端主机 buffer → 显存；每端 1 次显式拷贝，数据面无系统调用、无 CPU 参与传输，但主机内存仍在路径上，两次 PCIe 传输加 5–10 µs 拷贝延迟，上限约网卡与 PCIe 中较小者再打折（第三、四章）。**RDMA + GPUDirect RDMA**：网卡经 PCIe P2P 直接读写 GPU 的 BAR1 映射的显存，0 次拷贝，数据在 PCIe switch 内一跳到网卡（要求 GPU 与网卡同 switch，`NCCL_NET_GDR_LEVEL` 默认 `PXB`）；上限 = min(网卡, PCIe x16)——H100 / PCIe 5.0 / NDR 是 50 GB/s，A100 / PCIe 4.0 / HDR 25 GB/s，A100 配 NDR 被 PCIe 4.0 卡在 32 GB/s（第五、七章）。三条路径用同一套 verbs 对象（PD、MR、QP、CQ），NCCL 用 RDMA WRITE + WITH_IMM 单边写、接收方经 FIFO 告知地址与 rkey（第六章）。
+
+</details>
+
+
+## 十二、自测
+
+1. RDMA 的三个承诺是什么？各解决 TCP 路径的哪个问题？
+
+   <details markdown="1"><summary>答案</summary>
+
+   kernel bypass（数据面无系统调用，解决每个 MSS 的 CPU 参与与上下文切换）、zero copy（网卡直接读写注册过的用户 buffer，解决协议栈的多次拷贝）、CPU offload（可靠传输、重传在网卡上做，解决 CPU 成为带宽瓶颈）。
+
+   </details>
+
+2. verbs 的 PD、MR、QP、CQ 各是什么？NCCL 用哪种 QP、数据面是哪三个调用？
+
+   <details markdown="1"><summary>答案</summary>
+
+   PD 保护域（隔离资源）、MR 注册过的内存区域（带 lkey / rkey）、QP 一对发送 / 接收队列（连接的端点）、CQ 完成队列；NCCL 只用 RC（可靠连接）QP；数据面是 `ibv_post_send` / `ibv_post_recv` / `ibv_poll_cq`。
+
+   </details>
+
+3. RDMA WRITE 与 SEND/RECV 差在哪？NCCL 为什么用 WRITE + WITH_IMM？
+
+   <details markdown="1"><summary>答案</summary>
+
+   WRITE 是单边：对端 CPU 不参与、但发送方要知道对端地址与 rkey；SEND/RECV 是双边：对端要先 post recv。NCCL 让接收方先把 buffer 地址与 rkey 经 FIFO 告知发送方，发送方直接 WRITE 数据、最后一个 WR 带立即数（大小）触发对端的完成事件——省掉对端的 recv 匹配与拷贝。
+
+   </details>
+
+4. 内存注册为什么慢？NCCL 怎么避免在数据面上注册？
+
+   <details markdown="1"><summary>答案</summary>
+
+   注册要 pin 页并写网卡的地址转换表（MTT），每页微秒级，GB 级 buffer 百毫秒级；NCCL 用 `ncclIbMrCache` 缓存已注册区域、用 `ncclCommRegister` 让用户预注册大 buffer——第一次集合通信特别慢通常就是注册在数据面上发生了。
+
+   </details>
+
+5. 日志出现 `GPU Direct RDMA Disabled for HCA 0 mlx5_0 (distance 4 > 3)`，该做什么、不该做什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   含义是 GPU 与网卡的 PCIe 路径类型超过了 `PXB`（跨 root complex），GDR 被关、数据走主机 staging。该做：检查 `nvidia-smi topo -mp` 的 GPU–NIC 亲和、进程是否绑到了对的 GPU / NIC、peermem 或 DMA-BUF 是否可用；不该做：直接设 `NCCL_NET_GDR_LEVEL=SYS`——先用 `ib_write_bw --use_cuda` 证明跨 root complex 的 P2P 路径真的能跑且带宽可接受。
+
+   </details>
 
 
 ## 下一篇

@@ -5,6 +5,7 @@ title: "通信与互联（01）：集合通信原语与代价模型——α-β �
 subtitle: "Collective Communication Primitives and the Alpha-Beta Cost Model: Deriving Ring All-Reduce"
 tags: [NCCL, RDMA, GPU, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 总纲把这个系列要回答的问题定为一句话：一次 all_reduce 从调用到完成，数据在 PCIe、NVLink、InfiniBand 上是怎么流动的，为什么有时候是带宽的问题、有时候是延迟的问题。要回答它，先得有一把尺子。没有尺子，nccl-tests 打出来的 `busbw 23.1 GB/s` 只是一个数字，profiler 里 `ncclDevKernel_AllReduce` 的 145 µs 也只是一个数字，你不知道它们是好是坏、离上限多远、差的那部分该去哪一层找。
@@ -998,6 +999,56 @@ all_gather     ring   n=8    S=   1G  T=    37651.0 us  lat=  0.2%  algbw=  28.5
 模型里的 α 和 β 目前都是量级估计。下一篇给它们填上真实的数字：一台 8 卡服务器内部有哪些链路、每条多快、GPU 到 GPU 和 GPU 到网卡的路径怎么选，以及为什么两张看起来一样的卡之间的带宽可以差一个量级。
 
 > **`nvidia-smi topo -m` 里 GPU0 到 GPU1 是 `NV12`、到 NIC0 是 `PIX`、到 NIC4 是 `SYS`。这三个词各自意味着什么带宽和什么路径？为什么 NCCL 会为 GPU0 选 NIC0 而不是 NIC4？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+用 α-β 模型算：ring all_reduce 的时间 $$T = 2(n-1)\alpha + \frac{2(n-1)}{n}\frac{S}{\beta}$$——$$n = 8$$、$$\beta = 25$$ GB/s、取 $$\alpha = 10$$ µs（IB 一跳的量级）。**1 GB**：带宽项 $$\frac{14}{8} \times 1\,\text{GB} / 25\,\text{GB/s} = 70$$ ms，延迟项 $$14 \times 10$$ µs = 0.14 ms，合计约 70 ms，延迟只占 0.2%——时间几乎全由 $$\beta$$ 决定，换更快的链路、多网卡、提高链路效率才有用（第五、六章）。**64 KB**：带宽项 $$\frac{14}{8} \times 64\,\text{KB} / 25\,\text{GB/s} = 4.5$$ µs，延迟项 140 µs，合计约 145 µs，带宽只占 3%——时间由 $$\alpha$$ 与步数决定，换快网卡无效，只有减少步数（tree 的 $$2\lceil\log_2 n\rceil$$ 步）、降低 $$\alpha$$（NVLink、LL 协议、不经 proxy）、把多次小通信合并成一次才有用（第七章）。**为什么分别敏感**：ring 的带宽项 $$\to 2S/\beta$$ 与 $$n$$ 无关，是大消息的最优；延迟项 $$2(n-1)\alpha$$ 随 $$n$$ 线性增长，小消息、大规模时它主导。两者相等的集体拐点 $$S^* = n\alpha\beta$$，8 卡 IB 约 2 MB——一个消息在拐点哪一侧，决定它算哪本账（第五章）。训练的梯度桶（25 MiB）与 FSDP 的层（几百 MB）在带宽侧，decode TP 的 all_reduce（几十到几百 KB）在延迟侧，这就是两类系统通信优化方向完全不同的原因（第三章）。
+
+</details>
+
+
+## 十一、自测
+
+1. all_reduce、all_gather、reduce_scatter、broadcast 每个 rank 至少要接收多少字节（总数据 $$S$$、$$n$$ 个 rank）？这一列在 nccl-tests 里对应什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   all_reduce $$\frac{2(n-1)}{n}S$$；all_gather 与 reduce_scatter $$\frac{n-1}{n}S$$；broadcast $$S$$。就是 busbw = algbw × 系数里的系数——让不同原语、不同 $$n$$ 的结果都能与链路单向带宽直接比。
+
+   </details>
+
+2. 单条链路 $$\alpha = 5$$ µs、$$\beta = 50$$ GB/s，一条消息多大时延迟与带宽各占一半？换成 $$\beta = 100$$ GB/s 呢？这说明什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$S^* = \alpha\beta = 250$$ KB；换快链路后 500 KB——链路越快拐点越大，更多消息落到延迟主导区，换快网卡对小消息无效。
+
+   </details>
+
+3. ring 与 double binary tree 在 8 卡上各走几步？带宽各是多少？32 节点呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   ring $$2(n-1) = 14$$ 步、带宽 $$2S/\beta$$；tree $$2\lceil\log_2 8\rceil = 6$$ 步，朴素二叉树带宽只有 ring 一半，double binary tree 两棵互补的树各走一半数据把带宽补回 $$2S/\beta$$。32 节点（256 卡）ring 510 步 vs tree 约 16 步——延迟差一个数量级。
+
+   </details>
+
+4. 4 节点各 8 卡、每节点 8 张网卡做 all_reduce，分层算法怎么走？节点间流量每张网卡是平坦 ring 的几分之一？
+
+   <details markdown="1"><summary>答案</summary>
+
+   节点内 reduce_scatter（NVLink）→ 每张卡拿自己那 1/8 与其他节点同号卡做节点间 all_reduce（$$S/8$$，8 张网卡并行）→ 节点内 all_gather。节点间每网卡只扛 $$S/8$$，平坦 ring 是每步 $$S/n$$ 但要走满全部 $$n$$ 步——算例快 4.7 倍。
+
+   </details>
+
+5. algbw 与 busbw 各回答什么问题？为什么只有 busbw 能与硬件标称值比？NVLS 下 busbw 超过链路带宽是错的吗？
+
+   <details markdown="1"><summary>答案</summary>
+
+   algbw = $$S/T$$，随 $$n$$ 变，回答“我的张量多久同步完”；busbw = algbw × 系数，链路跑满时等于链路单向带宽、与 $$n$$ 无关。NVLS 让交换机做归约、每卡只发送 $$S/n$$，实际链路流量低于 ring 的假设，按 ring 系数折算出的 busbw 自然超过链路带宽——不是错，是系数不适用。
+
+   </details>
 
 
 ## 下一篇
