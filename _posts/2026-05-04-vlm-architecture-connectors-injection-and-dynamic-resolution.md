@@ -5,6 +5,7 @@ title: "多模态（02）：VLM 的结构：connector、注入方式与动态分
 subtitle: "VLM Architecture: Connectors, Injection Methods and Dynamic Resolution"
 tags: [AI, Multimodal, VLM, Architecture]
 catalog: true
+updated: 2026-09-14
 ---
 
 编码器输出了几百个向量，它们要进入 LLM。这一步有三个设计决定：**connector**——用什么把编码器的 $$d_v$$ 维特征映射到 LLM 的 $$d$$ 维输入空间，顺便要不要压缩 token 数；**注入方式**——图片 token 是像文本一样进入 LLM 的输入序列（decoder-only 注入），还是通过额外的 cross-attention 层被 LLM "看"（cross-attention 注入）；**分辨率策略**——固定尺寸、切 tile、还是让编码器接受原生分辨率。三个决定合起来回答一个问题：一张图在 LLM 里占多少 token、保留了多少信息、花了多少算力。
@@ -34,6 +35,32 @@ catalog: true
 | Molmo（2024） | CLIP-L/14-336 | 2×2 pooling + MLP | 4× | decoder 序列 | tile（≤ 12） | 144 / tile |
 | Gemma 3（2025） | SigLIP-SO400M-896 | 平均池化 | 16× | decoder 序列 | 896 固定 + pan & scan | 256 |
 | Qwen2.5-VL（2025） | 675M ViT，窗口 attention | 2×2 merge + MLP | 4× | decoder 序列 | 原生动态 | 同 Qwen2-VL |
+
+表里每一行都是同一个三段结构上的三个决定——编码器、connector、注入方式——加一个分辨率策略：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+flowchart TB
+    IMG["图像
+固定分辨率 / tile / 原生动态"] --> ENC["`**① 视觉编码器**（ViT）
+每个 patch 一个特征
+N_patch × d_v`"]
+    ENC --> CON["`**② connector**
+MLP（不压缩）· 2×2 merge / pixel shuffle（4×）
+· resampler / Q-Former（固定 32–256 个 query）
+N_img × d_LLM`"]
+    CON -- "③ 注入方式 A：当作 token 拼进序列" --> SEQ["`**LLM decoder**
+[文本 token | N_img 个 image token | 文本 token]
+image token 与文本同价：同样的 attention、同样的 KV`"]
+    CON -. "③ 注入方式 B：cross-attention（Flamingo、Llama 3.2 Vision）" .-> XA["`**LLM decoder**
+文本序列不变，每隔几层插一层 cross-attention 去读图像特征
+图像不占序列长度与 KV`"]
+
+    classDef enc fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef llm fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
+    class ENC,CON enc
+    class SEQ,XA llm
+```
 
 三个趋势读得出来：（1）注入方式几乎全部收敛到 decoder 序列；（2）connector 从"固定 query 的 resampler"（Flamingo、BLIP-2、Qwen-VL）转向"MLP + 空间压缩"（2×2 merge / pixel shuffle / pooling）；（3）分辨率从固定转向 tile 或原生动态。
 

@@ -5,6 +5,7 @@ title: "多模态（06）：Latent diffusion、DiT 与文生图配方"
 subtitle: "Latent Diffusion, DiT and How Text-to-Image Models Are Built"
 tags: [AI, Multimodal, Diffusion, Text-to-Image, Video Generation]
 catalog: true
+updated: 2026-09-14
 ---
 
 上一篇的数学在 $$32^2$$ 的 CIFAR 上就能跑；要生成 $$1024^2$$ 的图，中间隔着三个工程决定。**在哪个空间做扩散**——像素空间的 $$1024 \times 1024 \times 3$$ 太大，Latent Diffusion 先用一个 VAE 把图压到 $$128 \times 128 \times 4$$（或 16 通道），扩散在 latent 上做，48 倍的压缩让训练与采样都进入可行区间。**用什么网络**——2022 年是 U-Net，2023 年 DiT 证明 Transformer 在扩散上同样遵循 scaling law，2024 年 SD3 与 FLUX 用 MMDiT 让文本与图像 token 在同一个 Transformer 里交互。**文本怎么进入**——CLIP 文本塔、T5-XXL、还是 LLM，决定了模型对 prompt 的理解深度。
@@ -30,6 +31,35 @@ catalog: true
 | FLUX.1 | 2024 | VAE f8, 16ch | MMDiT + 单流块 | 12B | CLIP-L + T5-XXL | rectified flow | 同 SD3 | 内部；dev / schnell 是 guidance / 步数蒸馏版 |
 | Imagen | 2022 | **像素空间**级联（64 → 256 → 1024） | U-Net ×3 | 2B + 超分 | T5-XXL | $$\epsilon$$ | cosine；动态阈值 | 内部 460M 对 |
 | DALL-E 3 | 2023 | latent | 未公开 | — | 未公开 | — | — | **recaption 95%**（技术报告的核心） |
+
+表里的每一列对应下面这条流水线上的一个部件——训练时图像先进 VAE 编码器变成 latent 再加噪，采样时从噪声 latent 出发、去噪几十步、最后过一次 VAE 解码器：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+flowchart TB
+    TXT["文本 prompt"] --> TE["`**文本编码器**
+CLIP 文本塔 / T5-XXL / LLM`"]
+    TE -- "条件 c" --> NET
+    IMG["训练图像 1024²"] -. "训练时" .-> VE["`**VAE 编码器**（f8）
+1024² × 3 → 128² × 4 或 16 通道
+（48× 更小）`"]
+    VE -. "加噪到 x_t" .-> NET
+    Z["噪声 latent x_T ~ N(0, I)
+128² × 16"] -- "采样时" --> NET["`**去噪网络**
+U-Net + cross-attn 或 DiT / MMDiT
+每步：预测 ε 或 v，配 CFG 两次前向
+× 20–50 步`"]
+    NET -- "x_0 latent" --> VD["`**VAE 解码器**
+一次前向重建像素细节`"]
+    VD --> OUT["图像 1024²"]
+
+    classDef text fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef vae fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef net fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
+    class TE text
+    class VE,VD vae
+    class NET net
+```
 
 三条趋势：latent 通道从 4 到 16；网络从 U-Net 到 DiT；预测目标从 $$\epsilon$$ 到 rectified flow；文本编码器从 CLIP 到 T5 / LLM；数据从原始 alt-text 到 recaption。
 

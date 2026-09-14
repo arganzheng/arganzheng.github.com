@@ -5,6 +5,7 @@ title: "多模态（07）：自回归图像生成与统一模型"
 subtitle: "Autoregressive Image Generation and Unified Understanding-Generation Models"
 tags: [AI, Multimodal, Image Generation, Unified Models]
 catalog: true
+updated: 2026-09-14
 ---
 
 两条线在这里交汇。理解线把图片编码成连续向量送进 LLM；生成线从噪声出发去噪。中间有一条被绕过的路：**把图片像文本一样离散化成 token，然后用 LLM 的方式——next-token prediction——生成它**。这条路在 2021 年的 DALL-E（第一代）与 VQGAN 上就走通了，之后被扩散模型的质量压过；2024 年因为两个原因回来：一是 LLM 的 scaling 与基础设施太成熟，"把一切变成 token 然后用同一个 Transformer"的诱惑太大；二是**统一模型**——一个模型既理解图片又生成图片——需要生成侧能与 LLM 共享结构，而扩散是另一套。
@@ -31,6 +32,31 @@ catalog: true
 | **VAR** | 2024 | 多尺度残差 VQ | **next-scale**（由粗到细） | Transformer 0.3–2B | $$256^2$$ / 680（10 个尺度） | FID 1.73；比栅格 AR 快 20×；scaling law |
 | Emu3 | 2024 | SBER-MoVQGAN | 栅格 AR | 8B，文本 + 图 + 视频统一 | $$512^2$$+ | 纯 next-token 的统一模型 |
 | Infinity | 2024 | 位级 LFQ（$$2^{32}$$ 等效码本） | next-scale | 2B | $$1024^2$$ | VAR 的文生图放大 |
+
+表里所有模型共用一条流水线，差别在 tokenizer 怎么把图变成离散 token、以及 Transformer 按什么顺序生成它们：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+flowchart TB
+    IMG["图像 256²"] -. "训练时" .-> ENC["`**VQ 编码器**（f16）
+256² × 3 → 16 × 16 个连续特征`"]
+    ENC -. "最近邻查码本" .-> TOK["`**离散 token 网格**
+16 × 16 = 256 个整数
+码本大小 8K–16K`"]
+    TOK -. "展平成序列，next-token 训练" .-> AR
+    TXT["文本 / 类别条件"] --> AR["`**Transformer**
+栅格 AR：逐 token 256 步
+MaskGIT：并行 mask 预测 8–12 步
+VAR：next-scale，由粗到细 10 步`"]
+    AR -- "生成的 256 个 token" --> LOOK["查码本 → 16 × 16 特征"]
+    LOOK --> DEC["`**VQ 解码器**`"]
+    DEC --> OUT["图像 256²"]
+
+    classDef vq fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef net fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
+    class ENC,DEC,TOK,LOOK vq
+    class AR net
+```
 
 ### 2. 统一模型的三条路线
 

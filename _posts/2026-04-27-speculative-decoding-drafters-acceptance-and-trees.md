@@ -5,6 +5,7 @@ title: "高效推理与压缩（02）：投机解码：草稿、接受率与树"
 subtitle: "Speculative Decoding: Drafters, Acceptance Rates and Draft Trees"
 tags: [AI, LLM, Inference, Speculative Decoding]
 catalog: true
+updated: 2026-09-14
 ---
 
 投机解码是本系列里唯一**不改变输出分布**的方法。[04 系列第七篇](/quantization-speculative-decoding-and-lora.html)已经完成了它的基础部分：拒绝采样保证输出严格等于目标分布的证明、期望接受长度 $$\frac{1 - \alpha^{\gamma+1}}{1 - \alpha}$$、以及 Roofline 决定的收益区间——验证 $$\gamma + 1$$ 个 token 几乎免费的条件是 $$B(\gamma + 1) \lesssim \text{ridge}$$，超过就亏本。那一篇把草稿方案列成了一张表（独立小模型、Medusa、EAGLE、n-gram、MTP），给了各自"通常报告"的接受率区间。
@@ -26,6 +27,30 @@ $$
 \mathbb{E}[\text{tokens}] = \frac{1 - \alpha^{\gamma+1}}{1 - \alpha}, \qquad
 \text{speedup} = \frac{\mathbb{E}[\text{tokens}]}{\gamma c + 1}
 $$
+
+一轮的动作——草稿连猜 $$\gamma$$ 个，目标模型一次前向把 $$\gamma + 1$$ 个位置的分布全算出来，从左到右逐个接受，第一个被拒的位置从修正分布里重采一个：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+flowchart TB
+    P["前缀 x_{1..n}"] --> D["`**草稿模型 q**
+自回归 γ 步，产出 x̃_1 … x̃_γ
+时间 γ·c`"]
+    D --> V["`**目标模型 p**
+一次前向，得到 γ+1 个位置的 p(·)
+时间 = 一步普通 decode`"]
+    V --> ACC{"逐位置：以 min(1, p/q) 接受"}
+    ACC -- "全部接受" --> OUT1["产出 γ 个草稿 + 1 个从 p 采的额外 token"]
+    ACC -- "第 k 个被拒" --> OUT2["产出前 k−1 个草稿
++ 1 个从 norm(max(0, p − q)) 重采的 token"]
+    OUT1 --> NEXT["接到前缀，下一轮"]
+    OUT2 --> NEXT
+
+    classDef draft fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef target fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
+    class D draft
+    class V target
+```
 
 （在 memory-bound 区间内，验证的时间等于一次普通 decode 步。）$$\alpha$$ 是单个位置的期望接受率，$$c$$ 是草稿一步相对于目标一步的时间。$$\alpha = 0.8$$、$$\gamma = 4$$、$$c = 0.1$$ 时加速 2.4 倍。这个公式假设各位置的接受独立同分布——实际上接受率随位置递减（后面的草稿 token 以前面的草稿为条件，错误累积），所以真实的接受长度低于公式，但公式的结构是对的。
 

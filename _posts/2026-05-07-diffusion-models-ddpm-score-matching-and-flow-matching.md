@@ -5,6 +5,7 @@ title: "多模态（05）：扩散模型：DDPM、score matching 与 flow matchi
 subtitle: "Diffusion Models: DDPM, Score Matching and Flow Matching Are One Thing"
 tags: [AI, Multimodal, Diffusion, Generative Models]
 catalog: true
+updated: 2026-09-14
 ---
 
 生成线的数学从这里开始。语言模型的生成是"下一个 token 的分类"——目标函数是交叉熵，采样是逐个 token；图像生成走了另一条路：从纯噪声出发，一步步去噪，几十步后得到一张图。这条路在 2020 年由 DDPM 确立、2021 年被 score-based SDE 统一、2023 年被 flow matching 简化，三种视角各有一套推导与记号，读起来像三个不同的东西——实际上它们训练的是同一个网络、只是**参数化不同**，而 SD3 与 FLUX 用的 flow matching 是其中最简洁的一种。
@@ -52,6 +53,19 @@ CFG 的 $$w = 7.5$$ 意味着采样的分布不是 $$p(x \mid c)$$，而是 $$p(
 ## 二、DDPM：去噪扩散概率模型
 
 ### 1. 前向过程
+
+两条链方向相反：前向是固定的、没有参数的加噪，反向是学出来的去噪，每一步都由同一个网络 $$\epsilon_\theta(x_t, t)$$ 完成：
+
+```text
+前向 q（固定，无参数）：逐步加高斯噪声，T 步后变成纯噪声
+   x_0 ──q(x_1|x_0)──► x_1 ──► x_2 ──► ... ──► x_{t−1} ──q(x_t|x_{t−1})──► x_t ──► ... ──► x_T ≈ N(0, I)
+  数据                                                                                        纯噪声
+   ▲                                                                                            │
+   │  闭式 q(x_t | x_0)：训练时任取一个 t，一步采出 x_t，不用跑整条链                                 │
+   │                                                                                            │
+   x_0 ◄── p_θ(x_0|x_1) ◄── x_1 ◄── ... ◄── x_{t−1} ◄──p_θ(x_{t−1}|x_t)──── x_t ◄── ... ◄────── x_T
+反向 p_θ（学习）：每一步用同一个网络 ε_θ(x_t, t) 预测噪声，减掉一点，T 步（或 DDIM 的几十步）回到数据
+```
 
 给数据 $$x_0 \sim q(x_0)$$，定义 $$T$$ 步的加噪链，每步加一点高斯噪声：
 
