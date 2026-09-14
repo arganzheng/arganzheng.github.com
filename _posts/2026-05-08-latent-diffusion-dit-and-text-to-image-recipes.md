@@ -85,6 +85,7 @@ U-Net + cross-attn 或 DiT / MMDiT
 | 九 | 扩散的后训练 | 偏好对齐（Diffusion-DPO）；奖励微调；与 LLM 后训练的对照 |
 | 十 | 动手（建议） | SD / SDXL / SD3 的 guidance 与步数扫描 |
 | 十一 | 本文小结 | |
+| 十二 | 自测 | 5 道题 |
 
 
 ## 二、Latent diffusion
@@ -333,7 +334,55 @@ $$
 | 视频 | 3D VAE（4× 时间、8× 空间）+ 时空 patch + 全 3D attention；5 s 720p ≈ 100K token | HunyuanVideo 13B ≈ 300 P，FLUX 的 100× |
 | 后训练 | 美学微调；Diffusion-DPO（ELBO 替代似然）；奖励微调；可验证奖励 + GRPO | 与 L5 平行，含 reward hacking |
 
-核心问题的答案：在 latent 空间做，是因为像素空间的扩散把大部分算力花在人眼不分辨的高频细节上，而 VAE 能用一次确定性的解码重建这些细节——扩散只需在 48 倍小的空间里学语义与结构，训练算力降一个量级；代价是 VAE 的瓶颈，SD3 用 16 通道放宽它。DiT 赢在 scaling：把 latent 切成 patch 用标准 Transformer 处理后，FID 随 GFLOPs 平滑下降、与参数怎么分配无关，工程师知道"加算力就变好"，而 U-Net 的多尺度结构没有这样的规律；MMDiT 进一步让文本 token 进入同一个 attention 与图像深度交互。一张 FLUX 图是 2.8 PFLOPs、一次 7B LLM 回答是 14 TFLOPs，相差 200 倍，时间却相近——因为扩散每步是 4096 个 token 的并行前向、compute-bound、MFU 高，LLM 每步是 1 个 token、memory-bound、MFU 1%；所以扩散没有 KV cache、不需要 continuous batching，它的加速手段是把 50 步蒸成 4 步。下一篇是两条线的交汇：把图像 token 化后用 LLM 的方式生成，以及理解与生成能不能用一个模型。
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+在 latent 空间做，是因为像素空间的扩散把大部分算力花在人眼不分辨的高频细节上，而 VAE 能用一次确定性的解码重建这些细节——扩散只需在 48 倍小的空间里学语义与结构，训练算力降一个量级；代价是 VAE 的瓶颈，SD3 用 16 通道放宽它。DiT 赢在 scaling：把 latent 切成 patch 用标准 Transformer 处理后，FID 随 GFLOPs 平滑下降、与参数怎么分配无关，工程师知道"加算力就变好"，而 U-Net 的多尺度结构没有这样的规律；MMDiT 进一步让文本 token 进入同一个 attention 与图像深度交互。一张 FLUX 图是 2.8 PFLOPs、一次 7B LLM 回答是 14 TFLOPs，相差 200 倍，时间却相近——因为扩散每步是 4096 个 token 的并行前向、compute-bound、MFU 高，LLM 每步是 1 个 token、memory-bound、MFU 1%；所以扩散没有 KV cache、不需要 continuous batching，它的加速手段是把 50 步蒸成 4 步。下一篇是两条线的交汇：把图像 token 化后用 LLM 的方式生成，以及理解与生成能不能用一个模型。
+
+</details>
+
+
+## 十二、自测
+
+1. VAE f8、4 通道：$$1024^2 \times 3$$ 的图变成多大的 latent？压缩了多少倍？SD3 改成 16 通道为什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$128^2 \times 4$$，压缩 48×；16 通道放宽 VAE 的信息瓶颈——小文字、精细纹理、手指这些 4 通道重建不出的东西扩散模型也生成不出；代价是要更大的扩散模型学更多通道。
+
+   </details>
+
+2. DiT 的 scaling 结论是什么？为什么说它是 LLM scaling law 的重现？
+
+   <details markdown="1"><summary>答案</summary>
+
+   FID 随 Transformer 的总 GFLOPs 平滑下降，与参数量、深度、宽度、patch 大小的具体分配无关；U-Net 没有这个规律。像 LLM 一样只看算力就能预测质量，是可以放大的结构。
+
+   </details>
+
+3. MMDiT 的“双流”是什么？比 U-Net 的 cross-attention 好在哪？
+
+   <details markdown="1"><summary>答案</summary>
+
+   文本 token 与图像 token 各用一套权重（双流），但在同一个 attention 里联合计算；文本与图像的交互在每一层、双向、对等，而 cross-attention 里文本只是图像的“旁路条件”。
+
+   </details>
+
+4. SD 1.5 一张 $$512^2$$ 图 50 步 CFG 与 7B LLM 生成 1000 token，FLOPs 与时间各怎么比？为什么形态相反？
+
+   <details markdown="1"><summary>答案</summary>
+
+   扩散约 80 TFLOPs、A100 2–3 秒；LLM 约 14 TFLOPs 却要 20–30 秒。扩散每步是一个几千 token 的大 batch 前向（compute-bound、MFU 高），LLM 每步只算 1 个 token（memory-bound、MFU 1%）。所以扩散的服务系统不需要 KV cache 与 continuous batching，需要的是步数蒸馏与算力。
+
+   </details>
+
+5. DALL-E 3 技术报告的核心改进是什么？它属于结构还是数据？
+
+   <details markdown="1"><summary>答案</summary>
+
+   recaption——用一个 captioner 给 95% 的训练图重写密集、准确的描述，让条件变强、模型学会遵循复杂 prompt；纯数据侧改进，推理时配 prompt 扩写。数据质量 > 结构是这一代文生图的共同结论。
+
+   </details>
 
 
 ## 下一篇

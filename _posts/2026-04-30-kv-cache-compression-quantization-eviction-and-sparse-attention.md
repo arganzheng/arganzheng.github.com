@@ -5,6 +5,7 @@ title: "高效推理与压缩（05）：KV cache 压缩：量化、驱逐与稀�
 subtitle: "KV Cache Compression: Quantization, Eviction and Sparse Attention"
 tags: [AI, LLM, Inference, KV Cache, Long Context]
 catalog: true
+updated: 2026-09-14
 ---
 
 [04 系列第三篇](/attention-variants-and-kv-cache.html)算过 KV cache 的账：Llama-3-70B 在 128K 上下文下每个请求的 KV 是 40 GB（GQA 之后），比权重的一半还多；decode 每步要把它全部读一遍，长上下文下 KV 读取超过权重读取成为 decode 的主要流量。结构级的解法——GQA 把 KV 头数除以 8、MLA 把每 token 的 KV 压到 576 维——在训练时就决定了，训好之后不能改。
@@ -57,6 +58,7 @@ KV 压缩是本系列里"退化最不均匀"的一类方法：摘要任务上驱
 | 八 | 成本 | 字节账；量化 / 驱逐的运行时开销；与投机解码、量化权重的叠加 |
 | 九 | 动手（建议） | needle 准确率随 KV 预算的曲线 |
 | 十 | 本文小结 | |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、KV 的数值结构
@@ -261,7 +263,55 @@ KV 量化与权重量化叠加：decode 的两项流量（权重、KV）都减�
 | 训练时稀疏 | NSA 三分支（压缩 / 选择 / 滑窗，门控）；MoBA 块路由（key 均值点积 top-k） | 精确（模型就这样训的）；需重训与 kernel；64K 下 KV 读取 ÷ 11 |
 | 账 | 70B 128K：40 GB → FP8 20 → INT4 12.5（元数据 25%）→ +SnapKV 3.1 | INT4 KV 实际 3.2×；MLA 结构级 8.8 GB |
 
-核心问题的答案：40 GB → 10 GB 的 4 倍，第一步永远是 FP8 KV（2 倍，全任务安全）；第二步看任务形态。问题未知、需要回看的任务（多轮 Agent、多跳、推理模型的长链、超长精确检索）只能靠量化再往下——INT4 KV（KIVI 式的 key per-channel / value per-token）在 32K 以内的多数任务上退化在 1 个点内，64K 以上的精确检索要测；不要驱逐，因为任何基于当前注意力的重要性打分都不知道未来的问题要什么，needle 在被读到时就是"不重要"的。问题已知、文档在前的 QA / 摘要可以用 SnapKV 在 prefill 后按问题选 25% 的 KV，通常无损，与 FP8 叠加拿到 8 倍。流式只依赖近期的场景用 StreamingLLM。如果长上下文是核心需求且有训练能力，正确的方向不是推理时压缩而是训练时稀疏（NSA / MoBA）或结构（MLA、滑窗交错、跨层共享）——它们是精确的，且把 KV 读取减少一个量级。
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+40 GB → 10 GB 的 4 倍，第一步永远是 FP8 KV（2 倍，全任务安全）；第二步看任务形态。问题未知、需要回看的任务（多轮 Agent、多跳、推理模型的长链、超长精确检索）只能靠量化再往下——INT4 KV（KIVI 式的 key per-channel / value per-token）在 32K 以内的多数任务上退化在 1 个点内，64K 以上的精确检索要测；不要驱逐，因为任何基于当前注意力的重要性打分都不知道未来的问题要什么，needle 在被读到时就是"不重要"的。问题已知、文档在前的 QA / 摘要可以用 SnapKV 在 prefill 后按问题选 25% 的 KV，通常无损，与 FP8 叠加拿到 8 倍。流式只依赖近期的场景用 StreamingLLM。如果长上下文是核心需求且有训练能力，正确的方向不是推理时压缩而是训练时稀疏（NSA / MoBA）或结构（MLA、滑窗交错、跨层共享）——它们是精确的，且把 KV 读取减少一个量级。
+
+</details>
+
+
+## 十一、自测
+
+1. key 与 value 的数值结构差在哪？这决定了各自该怎么量化？
+
+   <details markdown="1"><summary>答案</summary>
+
+   key 有固定通道的离群值（继承 hidden state 的通道级离群），value 没有；key 的误差被 softmax 指数放大、value 的误差被 attention 权重平均抑制。所以 key 沿通道分组（per-channel）、value 沿 token 分组（per-token）——KIVI 的做法。
+
+   </details>
+
+2. 为什么驱逐第一个 token（sink）会让模型崩掉？
+
+   <details markdown="1"><summary>答案</summary>
+
+   softmax 必须把多余的注意力质量放到某个地方，第一个 token 全序列可见、且 massive activation 让它的 key 与所有 query 点积都大，成了“垃圾桶”；驱逐它后多余质量被迫分给内容 token，attention 分布全乱。StreamingLLM 永远保留 sink。
+
+   </details>
+
+3. H2O 与 SnapKV 各按什么选留哪些 KV？各在什么任务上失败？
+
+   <details markdown="1"><summary>答案</summary>
+
+   H2O 按累计注意力 top-k + 最近窗口，偏向早期 token（累计时间长），needle 类任务失败；SnapKV 在 prefill 后用观察窗（问题）的 attention 选 top-k，问题已知的 QA 上留 25% 近无损，但多轮或长生成里问题会变、选错。
+
+   </details>
+
+4. 128K 上下文、70B 模型的 KV 40 GB：FP8 KV、KIVI 2 bit、SnapKV 留 25% 各压到多少？哪个最安全？
+
+   <details markdown="1"><summary>答案</summary>
+
+   FP8 20 GB（几乎无损，任何部署都该开）；2 bit 约 5–6 GB（含残差窗与 scale，靠分组粒度才从崩掉到 +0.1）；25% 驱逐 10 GB（只在问题已知的 QA 上安全）。安全性：8 bit > 4 bit > 驱逐。
+
+   </details>
+
+5. 训练时稀疏 attention（NSA、MoBA）与推理时驱逐（H2O）在原理上差在哪？
+
+   <details markdown="1"><summary>答案</summary>
+
+   训练时稀疏让模型学会“该看哪些块”并在训练中适应，稀疏模式是模型的一部分；推理时驱逐是在一个全 attention 模型上事后删 KV，模型没学过缺失，靠启发式猜哪些不重要——前者可以稠密训练同质量，后者总有失效场景。
+
+   </details>
 
 
 ## 下一篇

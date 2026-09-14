@@ -5,6 +5,7 @@ title: "多模态（04）：语音与全模态：音频编码器、codec 与全�
 subtitle: "Speech and Omni Models: Audio Encoders, Neural Codecs and Full-Duplex Dialogue"
 tags: [AI, Multimodal, Speech, Audio]
 catalog: true
+updated: 2026-09-14
 ---
 
 声音进入 LLM 的路与图片相似又不同。相似的是范式——一个编码器把音频变成向量序列，一个 connector 对齐到 LLM，然后像文本一样处理；Whisper 的 encoder 之于语音，就像 CLIP ViT 之于图片。不同的是**语音要双向**：VLM 几乎只做理解（看图说话），语音模型从一开始就要既听又说——语音助手要用语音回答。生成侧要求把 LLM 的输出变回波形，而波形是每秒 16000–48000 个采样点的连续信号，不能像文本一样逐 token 生成。
@@ -59,6 +60,7 @@ VLM 几乎全在第一行（理解用连续特征），因为它们不生成图�
 | 八 | 成本 | 音频 token 的账；全双工的算力 |
 | 九 | 动手（建议） | EnCodec 的码本层数 |
 | 十 | 本文小结 | |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、音频的表示与编码器
@@ -262,7 +264,55 @@ Moshi 的 160–200 ms 里：80 ms 分帧 + 一步 7B decode（约 40 ms，帧�
 | 时延四段 | 分帧 + 首 token + 解码 + 语义决策 | 半双工串联 1–3 s（VAD + ASR + LLM + TTS）；全双工一步 |
 | 成本 | 全双工持续 decode，每路约半张 H100，不能 batch 摊薄 | 半双工空闲时零成本 |
 
-核心问题的答案：语音比图片更需要离散 token，因为语音模型要**生成**——VLM 只需理解，连续特征进 LLM 就够；而把 LLM 的输出变回每秒上万个采样点的波形，唯一可行的方式是让 LLM 生成一个短的离散序列（codec token，每秒几十帧、每帧几个码），再用 codec 解码器还原波形。RVQ 用几个 1024 项的小码本得到 $$2^{80}$$ 的等效表示能力，且自然分层（第一码本内容、后面细节），这个层次直接决定了 VALL-E 的 AR + NAR 结构与 Moshi 的多流建模。全双工的时延由四段相加：codec 帧长（Mimi 80 ms）、模型一步的首 token 时间（7B 约 40 ms）、流式 codec 解码（几 ms）、以及模型判断"该说了"的语义决策——后者不是计算而是能力，全双工模型每一帧都在决策所以没有额外等待。半双工把 VAD、ASR、LLM、TTS 串联起来是 1–3 秒，全双工把它们合成一个模型的一步是 200 ms，代价是模型要持续运行、每路对话占半张卡。下一篇进入生成线的数学核心：扩散模型。
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+语音比图片更需要离散 token，因为语音模型要**生成**——VLM 只需理解，连续特征进 LLM 就够；而把 LLM 的输出变回每秒上万个采样点的波形，唯一可行的方式是让 LLM 生成一个短的离散序列（codec token，每秒几十帧、每帧几个码），再用 codec 解码器还原波形。RVQ 用几个 1024 项的小码本得到 $$2^{80}$$ 的等效表示能力，且自然分层（第一码本内容、后面细节），这个层次直接决定了 VALL-E 的 AR + NAR 结构与 Moshi 的多流建模。全双工的时延由四段相加：codec 帧长（Mimi 80 ms）、模型一步的首 token 时间（7B 约 40 ms）、流式 codec 解码（几 ms）、以及模型判断"该说了"的语义决策——后者不是计算而是能力，全双工模型每一帧都在决策所以没有额外等待。半双工把 VAD、ASR、LLM、TTS 串联起来是 1–3 秒，全双工把它们合成一个模型的一步是 200 ms，代价是模型要持续运行、每路对话占半张卡。下一篇进入生成线的数学核心：扩散模型。
+
+</details>
+
+
+## 十一、自测
+
+1. 16 kHz 一分钟语音在三层 token 下各多少个？文本呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   声学 token 几百 / 秒 → 约 3.6 万；语义 token 25–50 / 秒 → 约 3000；文本 2–4 / 秒 → 约 200。语音输入比同样内容的文本贵 15 倍以上。
+
+   </details>
+
+2. 为什么语音比图片更需要离散 token？只用连续特征能做什么、不能做什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   语音要双向——既要听也要说；连续特征（Whisper encoder → 投影）理解好但 LLM 无法“生成”连续特征去合成语音；离散 token 让生成侧也能用 next-token，代价是理解有损。混合方案两边各取。
+
+   </details>
+
+3. RVQ 用 8 个 1024 大小的码本，等效码本多大？为什么不用一个大码本？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$2^{10 \times 8} = 2^{80}$$ 等效码字；一个 $$2^{80}$$ 的码本无法存储与查找，RVQ 由粗到细逐级量化残差 $$r_i = r_{i-1} - e^{(i)}_{k_i}$$，每级只查 1024 个。quantizer dropout 还让同一模型支持多比特率。
+
+   </details>
+
+4. 让 LLM 直接生成语音 token 会伤文本能力，Qwen2.5-Omni 的 Thinker-Talker 怎么绕开？
+
+   <details markdown="1"><summary>答案</summary>
+
+   模态竞争：同一组参数同时学文本与语音 token 分布，互相拖累。Thinker 只生成文本（隐状态 + 文本流式输出），Talker 是独立的小模型，从 Thinker 的隐状态与文本流生成语音 token——文本能力不被语音训练触碰。
+
+   </details>
+
+5. 全双工对话的时延由哪几段决定？
+
+   <details markdown="1"><summary>答案</summary>
+
+   语音编码的帧率与 chunk（等多少毫秒才有一个 token）、LLM 首 token 延迟（TTFT）、语音 token 生成到可播放的最小块（codec 解码的帧长与 lookahead）、以及打断检测；每段都是几十到几百毫秒，叠起来决定“像不像人在对话”。
+
+   </details>
 
 
 ## 下一篇

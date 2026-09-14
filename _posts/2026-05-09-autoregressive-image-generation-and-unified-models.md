@@ -84,6 +84,7 @@ VAR：next-scale，由粗到细 10 步`"]
 | 七 | 成本 | AR 的 token 数与 decode 步数；与扩散的账 |
 | 八 | 动手（建议） | VQGAN 码本大小与重建；LlamaGen vs SD 的时间 |
 | 九 | 本文小结与系列总结 | 七篇的两条线；多模态的下一个形态 |
+| 十 | 自测 | 5 道题 |
 
 
 ## 二、图像 tokenizer
@@ -302,7 +303,6 @@ Chameleon 34B：4.4T token；BAGEL：数万亿 token 的交错数据、14B MoT�
 | 共享 | 部分共享：共享 attention / 上下文，分开 FFN；tokenizer 走向一套语义化 | BAGEL MoT |
 | 成本 | 栅格 AR 7B 4096 步 100 s（带宽）；VAR < 1 s；统一模型 ≈ LLM 预训练量级 | |
 
-核心问题的答案：AR 生成图像赢在与 LLM 完全共享结构、基础设施与 scaling 经验，以及"一切皆 token"带来的多模态统一——文本、图、视频在一个模型、一个 loss 里；扩散赢在质量（连续空间无 VQ 瓶颈、CFG 更有效、高分辨率成熟）、效率（20–50 步并行 vs 栅格 AR 的几千步串行——VAR 与 MaskGIT 用尺度与 mask 把 AR 拉回 10 步左右，但文生图上仍落后一档）与可控编辑的工具生态。理解与生成的表示目前**部分共享**：纯 VQ token 共享让理解妥协（Chameleon），完全解耦两侧都好但没有共享的视觉空间（Janus），共享 attention、分开 FFN 的混合结构（BAGEL）得到了互相促进与随规模涌现的编辑能力；tokenizer 层面正在从"理解一套、生成一套"走向一套语义化的表示。答案随规模在变，方向是收敛。
 
 ### 2. 系列总结：两条线与一个交汇点
 
@@ -313,3 +313,53 @@ Chameleon 34B：4.4T token；BAGEL：数万亿 token 的交错数据、14B MoT�
 多模态的下一个形态大概率是**统一的、原生的**：多模态不再是 LLM 训好之后对齐上去的，而是从预训练第一天就在（Gemma 3、Kimi-VL、BAGEL、GPT-4o 已经这样做了）；理解与生成共享上下文；语音与视觉共享时间轴。那时这个系列的七篇会合并成一个问题——一个 Transformer 怎么用一套表示处理世界的所有信号——但每一篇讲的部件与账仍在那里。
 
 回到总纲：[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)。算法工程师地图的全部系列至此写完，回到地图：[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+AR 生成图像赢在与 LLM 完全共享结构、基础设施与 scaling 经验，以及"一切皆 token"带来的多模态统一——文本、图、视频在一个模型、一个 loss 里；扩散赢在质量（连续空间无 VQ 瓶颈、CFG 更有效、高分辨率成熟）、效率（20–50 步并行 vs 栅格 AR 的几千步串行——VAR 与 MaskGIT 用尺度与 mask 把 AR 拉回 10 步左右，但文生图上仍落后一档）与可控编辑的工具生态。理解与生成的表示目前**部分共享**：纯 VQ token 共享让理解妥协（Chameleon），完全解耦两侧都好但没有共享的视觉空间（Janus），共享 attention、分开 FFN 的混合结构（BAGEL）得到了互相促进与随规模涌现的编辑能力；tokenizer 层面正在从"理解一套、生成一套"走向一套语义化的表示。答案随规模在变，方向是收敛。
+
+</details>
+
+
+## 十、自测
+
+1. VQ-VAE 的最近邻查码字不可导，梯度怎么传？码本怎么更新？
+
+   <details markdown="1"><summary>答案</summary>
+
+   STE：反向把解码器输入的梯度直接拷给编码器输出（$$z_e + \text{sg}(z_q - z_e)$$）；码本用 EMA 向被分配的编码器输出移动，加 commitment loss（$$\beta = 0.25$$）让编码器输出靠近码字。
+
+   </details>
+
+2. 码本坍缩是什么？三个常见对策各是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   大部分码字从未被选中、永远不更新（死码字），有效码本远小于名义大小；对策：k-means 初始化、周期性重置死码字、低维归一化投影后再查（LlamaGen 16384 码本利用率到 97%），或 FSQ / LFQ 这类隐式码本从根上没有坍缩。
+
+   </details>
+
+3. 栅格 AR 生成一张 $$256^2$$（f16）的图要多少步？MaskGIT 与 VAR 各怎么把它降到 10 步左右？
+
+   <details markdown="1"><summary>答案</summary>
+
+   256 步逐 token；MaskGIT 用双向 Transformer 并行预测被 mask 的 token、每步揭开一部分，8–12 步；VAR 按尺度由粗到细（next-scale），每个尺度内的 token 并行生成，10 个尺度 10 步。
+
+   </details>
+
+4. AR 与扩散各赢在哪？
+
+   <details markdown="1"><summary>答案</summary>
+
+   AR：与 LLM 同一套结构、训练目标、基础设施，天然支持理解与生成统一、可变长输出，scaling 规律清楚；扩散：连续空间无 tokenizer 信息损失，图像质量与细节更好，CFG 与采样加速成熟。
+
+   </details>
+
+5. 统一模型的三条路线各怎么处理“理解要语义、生成要细节”的张力？
+
+   <details markdown="1"><summary>答案</summary>
+
+   纯 token（Chameleon、Emu3）：理解与生成共用 VQ token，最统一但理解受 VQ 损失限制；双编码器（Janus）：理解用连续 SigLIP 特征、生成用 VQ token，两侧不妥协但表示不共享；语义化 tokenizer（UniTok、TokenFlow）：让离散 token 同时携带语义与细节，试图一份表示两用。
+
+   </details>

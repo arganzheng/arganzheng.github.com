@@ -48,6 +48,7 @@ CFG 的 $$w = 7.5$$ 意味着采样的分布不是 $$p(x \mid c)$$，而是 $$p(
 | 八 | 成本 | 训练与采样的 FLOPs；与 LLM 的对比 |
 | 九 | 动手（建议） | CIFAR-10 上的 DDPM vs flow matching |
 | 十 | 本文小结 | |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、DDPM：去噪扩散概率模型
@@ -358,7 +359,55 @@ CIFAR-10（$$32^2$$）上从零训两个小模型（同一个 U-Net，约 35M �
 | CFG | $$\tilde\epsilon = \epsilon_\emptyset + w(\epsilon_c - \epsilon_\emptyset)$$；采样 $$\propto p(x) p(c \mid x)^w$$ | 锐化 $$w$$ 次幂；过饱和 → 动态阈值 / rescale；区间 guidance；蒸馏去掉两倍成本 |
 | 成本 | 训练每样本一个 $$t$$；采样步数 × 2（CFG）× 前向；compute-bound、无 KV | SD 1.5 一张图 80 TFLOPs、3 秒 |
 
-核心问题的答案：DDPM、score matching、flow matching 学的是同一个对象——每个噪声水平下带噪数据分布的分数 $$\nabla_x \log p_t(x)$$——的三种线性参数化：DDPM 的噪声 $$\epsilon = -\sigma s$$（Tweedie 公式），flow matching 的速度 $$v = \epsilon - x_0$$ 也由 $$x_t$$ 与 $$\epsilon$$ 线性决定；三种训练损失换元后只差一个与噪声水平有关的权重，全部是加权的 ELBO；三者的采样都是解同一个概率流 ODE（或反向 SDE），DDIM 是它的一种离散化，flow matching 的直线路径让 ODE 轨迹更直、Euler 法少步就够。CFG 的 $$w = 7.5$$ 意味着采样分布不是 $$p(x \mid c)$$ 而是 $$\propto p(x)\, p(c \mid x)^{7.5}$$——把"这张图有多符合文本"这一项升到 7.5 次幂，分布被锐化到最典型地符合文本的模式上：一致性与保真度上升、多样性下降、像素溢出导致过饱和，需要动态阈值或 rescale 修正，且每步要两次前向（除非蒸馏掉）。下一篇讲怎么把这套数学变成 SD 与 FLUX：latent 空间、DiT、文本编码器与采样加速。
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+DDPM、score matching、flow matching 学的是同一个对象——每个噪声水平下带噪数据分布的分数 $$\nabla_x \log p_t(x)$$——的三种线性参数化：DDPM 的噪声 $$\epsilon = -\sigma s$$（Tweedie 公式），flow matching 的速度 $$v = \epsilon - x_0$$ 也由 $$x_t$$ 与 $$\epsilon$$ 线性决定；三种训练损失换元后只差一个与噪声水平有关的权重，全部是加权的 ELBO；三者的采样都是解同一个概率流 ODE（或反向 SDE），DDIM 是它的一种离散化，flow matching 的直线路径让 ODE 轨迹更直、Euler 法少步就够。CFG 的 $$w = 7.5$$ 意味着采样分布不是 $$p(x \mid c)$$ 而是 $$\propto p(x)\, p(c \mid x)^{7.5}$$——把"这张图有多符合文本"这一项升到 7.5 次幂，分布被锐化到最典型地符合文本的模式上：一致性与保真度上升、多样性下降、像素溢出导致过饱和，需要动态阈值或 rescale 修正，且每步要两次前向（除非蒸馏掉）。下一篇讲怎么把这套数学变成 SD 与 FLUX：latent 空间、DiT、文本编码器与采样加速。
+
+</details>
+
+
+## 十一、自测
+
+1. 前向过程 $$x_t = \sqrt{\bar\alpha_t} x_0 + \sqrt{1 - \bar\alpha_t}\, \epsilon$$ 为什么能一步采出 $$x_t$$？训练时它省了什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   每步加的都是独立高斯，独立高斯之和仍是高斯、方差相加，归纳得到闭式（L0 第四篇“独立和的方差相加”）；训练时任取一个 $$t$$ 直接采 $$x_t$$，不用跑 $$T = 1000$$ 步的链。
+
+   </details>
+
+2. 噪声预测 $$\epsilon_\theta$$、分数 $$s = \nabla \log p_t$$、flow matching 的速度 $$v$$ 三者怎么互相换算？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$\epsilon = -\sigma_t s$$（去噪分数匹配 = 噪声预测）；线性插值路径 $$x_t = (1 - t) x_0 + t\epsilon$$ 下 $$v = \epsilon - x_0$$，与 $$\epsilon$$、$$x_0$$ 线性相关。三个视角训的是同一个网络、不同的参数化。
+
+   </details>
+
+3. DDIM 为什么能从 1000 步跳到 50 步而 DDPM 不能？$$\eta = 0$$ 意味着什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   DDIM 是概率流 ODE 的离散化——确定性轨迹，可以用任意步长与高阶求解器（DPM-Solver 10–20 步）；DDPM 每步加随机噪声（SDE），步长大了误差累积。$$\eta = 0$$ 是完全确定性：同一个 $$x_T$$ 总生成同一张图。
+
+   </details>
+
+4. CFG $$w = 7.5$$ 在数学上做了什么？为什么不是 $$w = 1$$？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$\hat\epsilon = \epsilon(\varnothing) + w[\epsilon(c) - \epsilon(\varnothing)]$$，等价于从 $$p(x)\, p(c \mid x)^w$$ 采样——把条件似然的幂放大 $$w$$ 倍，让样本更“像 prompt”；$$w = 1$$ 是原始条件分布，多样但贴合度低；7.5 是贴合与多样、饱和之间的经验点。代价是每步两次前向。
+
+   </details>
+
+5. 为什么 $$L_{simple}$$（去掉 ELBO 的权重）反而效果更好？它隐式地加权了什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   ELBO 的权重让小噪声（大 $$t$$ 附近的精细步骤）占主导，而这些步骤对感知质量贡献小；去权重等价于对大噪声（决定结构）的步骤加权，样本质量提升——$$v$$ 预测与零终端 SNR 是同一条线上的修正。
+
+   </details>
 
 
 ## 下一篇

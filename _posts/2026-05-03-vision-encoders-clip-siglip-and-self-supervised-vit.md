@@ -48,6 +48,7 @@ VLM 用 CLIP / SigLIP 有三个原因。**对齐**：对比学习把图像特征
 | 九 | 选型对照 | CLIP-L、SigLIP-SO400M、InternViT-6B、DINOv2-L、AIMv2 的参数、分辨率、训练数据与在 VLM 里的表现 |
 | 十 | 动手（建议） | 盲点小测试 |
 | 十一 | 本文小结 | |
+| 十二 | 自测 | 5 道题 |
 
 
 ## 二、ViT 回顾：编码器输出的是什么
@@ -301,7 +302,55 @@ CLIP ViT 的位置编码是**可学习的绝对位置**，训练时固定 $$16 \
 | 分辨率 | patch 覆盖面积决定可读性；$$336^2$$ 大字、$$1024^2$$ 小字 | 位置编码插值 vs 2D RoPE；tile vs 原生 |
 | 取层 | CLIP 用倒数第二层 | 最后一层过度全局化 |
 
-核心问题的答案：VLM 用 CLIP / SigLIP 而不用 ImageNet ViT，因为对比学习把图像特征投到一个已经与文本对齐的语义空间——connector 只需一个小映射——并且覆盖了网上图文对里出现的一切概念，而分类模型只知道它的 1000 类。编码器看不到的是对比目标不需要它看到的东西：InfoNCE 只要求把配对的图文与 batch 里的其他对区分开，精确计数、空间关系、属性绑定、小字、细粒度差别在这个任务里几乎从不成为区分的关键，编码器没有动力保留它们，文本塔甚至退化成近似词袋。这些盲点通过三条路缓解：更高的分辨率（保留更多局部信息）、与 LLM 联合训练（让编码器为下游任务调整）、混入自监督编码器或在对比目标上叠加 caption / 自监督目标（SigLIP 2）。下一篇讲编码器输出的几百个向量怎么进入 LLM——connector、注入方式与分辨率策略的取舍。
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+VLM 用 CLIP / SigLIP 而不用 ImageNet ViT，因为对比学习把图像特征投到一个已经与文本对齐的语义空间——connector 只需一个小映射——并且覆盖了网上图文对里出现的一切概念，而分类模型只知道它的 1000 类。编码器看不到的是对比目标不需要它看到的东西：InfoNCE 只要求把配对的图文与 batch 里的其他对区分开，精确计数、空间关系、属性绑定、小字、细粒度差别在这个任务里几乎从不成为区分的关键，编码器没有动力保留它们，文本塔甚至退化成近似词袋。这些盲点通过三条路缓解：更高的分辨率（保留更多局部信息）、与 LLM 联合训练（让编码器为下游任务调整）、混入自监督编码器或在对比目标上叠加 caption / 自监督目标（SigLIP 2）。下一篇讲编码器输出的几百个向量怎么进入 LLM——connector、注入方式与分辨率策略的取舍。
+
+</details>
+
+
+## 十二、自测
+
+1. InfoNCE 的互信息下界是什么？CLIP 用 32K batch 对应多少 bit 的上限？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$I(X; Y) \ge \log B - \mathcal{L}_{InfoNCE}$$；$$\log_2 32768 = 15$$ bit（自然对数 10.4 nat）。batch 越大界越紧，能学到的互信息越多——大 batch 的理论原因。
+
+   </details>
+
+2. 可学习温度学到约 0.01（即乘 100），两张图余弦相似度差 0.05 意味着 logit 差多少？为什么要这么尖？
+
+   <details markdown="1"><summary>答案</summary>
+
+   差 5，softmax 后概率差 $$e^5 \approx 150$$ 倍；余弦在 $$[-1, 1]$$ 里正负样本只差零点几，不放大就分不开，softmax 太平梯度太小。
+
+   </details>
+
+3. SigLIP 把 softmax 换成 sigmoid 后，loss 对 batch 大小的依赖怎么变了？工程上省了什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   每对 $$(i, j)$$ 独立做二分类 $$-\log\sigma(z_{ij}(s_{ij} + b))$$，不需要对全 batch 归一化，对 batch 不敏感（32K 后饱和），且多卡训练不需要 all-gather 全部特征算分母。
+
+   </details>
+
+4. CLIP 训练的算力是多少？与训一个 LLM 比什么量级？
+
+   <details markdown="1"><summary>答案</summary>
+
+   4 亿对 × 32 epoch，约 $$6.4 \times 10^{21}$$ FLOPs——约等于一个 7B LLM 训 150B token；比预训练一个 LLM 小两个数量级，所以几乎所有 VLM 都直接拿现成的 CLIP / SigLIP。
+
+   </details>
+
+5. CLIP 编码器为什么数不清物体、分不清左右、读不好小字？DINOv2 补的是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   对比目标只保留“文本能描述且需要区分图文对”的信息，caption 很少精确计数、说左右、抄小字，且文本塔近似词袋；细粒度、空间、绑定信息被丢掉。DINOv2 自蒸馏学局部与几何结构（无语言），与 CLIP 拼接改善空间任务。
+
+   </details>
 
 
 ## 下一篇

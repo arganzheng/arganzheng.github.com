@@ -5,6 +5,7 @@ title: "多模态（03）：VLM 的训练：数据、阶段与评测"
 subtitle: "Training a VLM: Data, Stages, Evaluation and Hallucination"
 tags: [AI, Multimodal, VLM, Training, Evaluation]
 catalog: true
+updated: 2026-09-14
 ---
 
 前两篇定了结构：一个预训练的 ViT、一个 connector、一个预训练的 LLM。三个部分来自三个不同的训练过程，表示空间互不相同。VLM 的训练要做的是把它们**对齐**成一个模型——让 LLM 读懂编码器的输出、让编码器为 LLM 的任务调整、让整体学会按指令回答关于图片的问题、最后让它符合人的偏好。这件事不是一步做完的：每个阶段冻结哪些部分、用什么数据、多少数据、多大的学习率，各家的报告差别很大，且这些差别在 benchmark 上的影响比 connector 类型的影响大得多。
@@ -51,6 +52,7 @@ catalog: true
 | 八 | 成本 | 各阶段的算力账 |
 | 九 | 动手（建议） | 复现 LLaVA-1.5 两阶段 + POPE |
 | 十 | 本文小结 | |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、阶段 1：对齐
@@ -275,7 +277,55 @@ recaption 1000 万张图：每张图一次 VLM 推理（约 1K token 输入 + 30
 | 评测 | MMStar / MMMU-Pro 过滤盲答题；分辨率与帧数写明；统一 harness；文本回归 | 盲测 MMMU 可到 40+ |
 | 成本 | 阶段 2 主导；Qwen2-VL 1.4T token ≈ 一次 8B 预训练；recaption 与训练同量级 | 多数团队只做阶段 3 |
 
-核心问题的答案：先冻结 LLM 只训 connector，因为 connector 从随机初始化开始、输出是噪声，此时若 LLM 也在训，它降低 loss 的捷径是学会忽略视觉 token，同时噪声梯度损伤它的文本能力；冻结 LLM 让 connector 在固定的目标空间里学一个"翻译"，几十万条 caption 就够，之后再解冻 LLM 学"怎么用"。幻觉来自三处：训练数据里物体的共现统计与合成指令数据自带的幻觉让模型学会"补全一个统计上合理的场景"；编码器没保留的信息（小物体、计数、空间）只能靠语言先验补；解码时自回归的文本惯性压过对视觉 token 的注意力，长描述后半段幻觉翻倍。减少它对应三类手段：清洗与负样本、人写数据；高分辨率、解冻编码器、多编码器；片段级修正的 DPO、对比解码、以及混入 grounding 数据让每个描述都要"指得出来"。下一篇离开图片，讲声音怎么进入 LLM、以及为什么语音比图片更需要离散 token。
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+先冻结 LLM 只训 connector，因为 connector 从随机初始化开始、输出是噪声，此时若 LLM 也在训，它降低 loss 的捷径是学会忽略视觉 token，同时噪声梯度损伤它的文本能力；冻结 LLM 让 connector 在固定的目标空间里学一个"翻译"，几十万条 caption 就够，之后再解冻 LLM 学"怎么用"。幻觉来自三处：训练数据里物体的共现统计与合成指令数据自带的幻觉让模型学会"补全一个统计上合理的场景"；编码器没保留的信息（小物体、计数、空间）只能靠语言先验补；解码时自回归的文本惯性压过对视觉 token 的注意力，长描述后半段幻觉翻倍。减少它对应三类手段：清洗与负样本、人写数据；高分辨率、解冻编码器、多编码器；片段级修正的 DPO、对比解码、以及混入 grounding 数据让每个描述都要"指得出来"。下一篇离开图片，讲声音怎么进入 LLM、以及为什么语音比图片更需要离散 token。
+
+</details>
+
+
+## 十一、自测
+
+1. 第一阶段冻结 LLM 只训 connector，防的是什么？什么条件下可以跳过这一阶段？
+
+   <details markdown="1"><summary>答案</summary>
+
+   随机初始化的 connector 输出是噪声，梯度传进 LLM 会让它学会忽略视觉 token、并损伤文本能力；给新旧参数不同的学习率（connector 大、LLM 小）时单阶段也可以（Prismatic）。
+
+   </details>
+
+2. 视觉编码器什么时候冻结、什么时候解冻？解冻时学习率怎么配？
+
+   <details markdown="1"><summary>答案</summary>
+
+   数据少冻结（防过拟合、防破坏预训练特征）；数据多解冻以修正编码器的盲点（OCR、定位需要）；学习率比 connector 小 1–2 个量级并按层衰减（layer decay）。
+
+   </details>
+
+3. 多模态训练混入 10–50% 纯文本数据是为了什么？不混会怎样？
+
+   <details markdown="1"><summary>答案</summary>
+
+   保持文本能力——全解冻训多模态数据会让 MMLU / GSM8K 回退；训后必须回归测这两类。cross-attn 注入天然零退化，序列注入靠混文本。
+
+   </details>
+
+4. 多模态幻觉的三个来源各是什么？POPE 共现子集从 85 到 90 修的是哪一个？
+
+   <details markdown="1"><summary>答案</summary>
+
+   数据共现（训练里“桌子”常配“椅子”，模型看到桌子就说有椅子）与合成指令数据本身的幻觉；编码器信息缺失（看不到的东西只能猜）；解码的文本惯性（语言先验压过视觉证据）。POPE 共现子集提升修的是第一个——用片段级修正的 DPO（RLHF-V）1–2K 对即显著。
+
+   </details>
+
+5. MM1 的数据配比 caption / 交错 / 文本 = 45 / 45 / 10 各贡献什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   caption 对齐图文、给零样本能力；交错的图文文档（few-shot 形态）给上下文学习与多图能力；文本保持语言能力。少了交错数据 few-shot 大幅下降，少了 caption 零样本下降。
+
+   </details>
 
 
 ## 下一篇

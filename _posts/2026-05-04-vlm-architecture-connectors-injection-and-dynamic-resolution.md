@@ -83,6 +83,7 @@ Qwen2-VL 让 ViT 接受原生分辨率，是为了解决 tile 的三个问题：
 | 八 | 成本 | 回指 04-08 的账；三个决定各改了什么；训练侧的影响 |
 | 九 | 动手（建议） | 分辨率—token—精度的三角 |
 | 十 | 本文小结 | |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、connector：从编码器空间到 LLM 空间
@@ -271,7 +272,55 @@ VLM 训练的显存主要由 LLM 决定（与文本 SFT 相同），图片 token
 | 视频 | 帧率 × 每帧 token；时间合并 ×2；绝对时间 M-RoPE | 1 分钟 2 fps 256/帧 = 30K |
 | 任务敏感性 | 自然图不敏感；文档 / 图表 / 文字极敏感；空间受益原生 | 设计看目标负载 |
 
-核心问题的答案：LLaVA 的 MLP 对每个 patch 独立映射、不丢信息、保留空间结构、把"看哪里"交给 LLM 的 attention；BLIP-2 的 Q-Former 用 32 个与内容无关的 query 把整张图压成 32 个 token，装不下细节、丢了空间结构、且多了一个要单独训的模块——LLaVA-1.5 的实证让主流转向 MLP，2024 年的折中是 MLP + 2×2 merge，压缩 4 倍而无损。Qwen2-VL 让 ViT 接受原生分辨率，是因为 tile 方案切断跨块的物体与文字行、pad 与拉伸造成失真、小图也要占满一个 tile 的 token；原生分辨率让 token 数与像素数成正比、全图在一个 attention 里，用 2D RoPE 取代需要插值的绝对位置编码，代价是 ViT 的 $$O(N^2)$$ attention（Qwen2.5-VL 用窗口 attention 解决）与可变长度的 batch 工程。三个决定合起来是一次"信息 vs token"的交换，交换的合理位置取决于任务：自然图片对 token 数不敏感，文档与文字任务要每 $$28 \times 28$$ 像素一个 token。下一篇讲这个结构怎么训：阶段、数据、评测与幻觉。
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+LLaVA 的 MLP 对每个 patch 独立映射、不丢信息、保留空间结构、把"看哪里"交给 LLM 的 attention；BLIP-2 的 Q-Former 用 32 个与内容无关的 query 把整张图压成 32 个 token，装不下细节、丢了空间结构、且多了一个要单独训的模块——LLaVA-1.5 的实证让主流转向 MLP，2024 年的折中是 MLP + 2×2 merge，压缩 4 倍而无损。Qwen2-VL 让 ViT 接受原生分辨率，是因为 tile 方案切断跨块的物体与文字行、pad 与拉伸造成失真、小图也要占满一个 tile 的 token；原生分辨率让 token 数与像素数成正比、全图在一个 attention 里，用 2D RoPE 取代需要插值的绝对位置编码，代价是 ViT 的 $$O(N^2)$$ attention（Qwen2.5-VL 用窗口 attention 解决）与可变长度的 batch 工程。三个决定合起来是一次"信息 vs token"的交换，交换的合理位置取决于任务：自然图片对 token 数不敏感，文档与文字任务要每 $$28 \times 28$$ 像素一个 token。下一篇讲这个结构怎么训：阶段、数据、评测与幻觉。
+
+</details>
+
+
+## 十一、自测
+
+1. LLaVA-1.5（CLIP-L/14-336 + MLP）一张图多少 token？换 2×2 merge 呢？换 Q-Former（32 query）呢？各丢了什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   576；144（拼接四个相邻 patch，信息不丢、空间结构保留）；32（内容无关的固定 query，细节与空间结构丢失）。
+
+   </details>
+
+2. 为什么 Q-Former 在 2024 年后退出主流？它还剩什么用途？
+
+   <details markdown="1"><summary>答案</summary>
+
+   固定 $$K$$ 个 query 与内容无关，学的是“平均而言什么重要”，OCR、小物体、定位这类需要细节的任务上输给无损的 MLP（LLaVA-1.5 凭 MLP 超过 BLIP-2）；剩下用在视频（帧多必须压）与 cross-attention 注入。
+
+   </details>
+
+3. tile 方案（切 $$448^2$$ 块）处理一张 $$1344 \times 896$$ 的文档图会遇到哪三个问题？
+
+   <details markdown="1"><summary>答案</summary>
+
+   边界：tile 之间没有 attention，跨 tile 的一行文字被切断；失真：任意宽高比 resize / pad 到正方形；token 效率：小图也占满一个 tile 的 token，大图 tile 数与内容密度不匹配。
+
+   </details>
+
+4. Qwen2-VL 的原生动态分辨率要改 ViT 的哪两处？代价是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   位置编码换成 2D RoPE（任意 $$H \times W$$ 的 patch 网格），去掉固定分辨率的位置表；token 数 $$N = HW / 14^2$$ 随像素变化，需上下限。代价：ViT 的 attention 是 $$O(N^2)$$，大图很慢——Qwen2.5-VL 用窗口 attention 缓解。
+
+   </details>
+
+5. Llama 3.2 Vision 选 cross-attention 注入，得到了什么、付出了什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   文本能力严格不变（文本路径没有任何改动，图片不进序列、不占上下文与 KV）；付出 +20B 参数的 cross-attention 层、推理引擎需要特殊支持、图文交互不如序列注入深。
+
+   </details>
 
 
 ## 下一篇

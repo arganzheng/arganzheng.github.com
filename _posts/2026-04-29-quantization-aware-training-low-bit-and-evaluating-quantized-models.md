@@ -5,6 +5,7 @@ title: "高效推理与压缩（04）：量化感知训练、低比特与量化�
 subtitle: "Quantization-Aware Training, Extreme Low-Bit and How to Evaluate a Quantized Model"
 tags: [AI, LLM, Inference, Quantization, Evaluation]
 catalog: true
+updated: 2026-09-14
 ---
 
 上一篇的 PTQ 在 4 bit 权重上把困惑度损失压到 0.1–0.3，在 W8A8 上接近无损。再往下——3 bit、2 bit、三值权重，或者激活也到 4 bit、KV 也到 4 bit——逐层最小化输出误差的代理目标不够了：误差太大，后面的层"消化"不掉，最终 loss 的退化不再与逐层误差成比例。这时需要**训练参与**：让模型在知道自己会被量化的前提下学习，把量化误差学回去一部分。这是量化感知训练（QAT）。
@@ -49,6 +50,7 @@ QAT 的核心技术问题只有一个：量化的 round 函数梯度处处为零
 | 八 | 成本 | QAT 的算力账；假量化的开销 |
 | 九 | 动手（建议） | KL vs 困惑度 vs 任务退化的相关性 |
 | 十 | 本文小结 | |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、STE：让 round 有梯度
@@ -283,7 +285,55 @@ llama.cpp 社区（以及 Turboderp 的 exllama 评测）已经把 KL 作为量�
 | 协议 | 同引擎、同采样、多次采样、配对检验 | 1–2 点差异在单次噪声内 |
 | 成本 | QAT 几百到几千 GPU 小时 vs PTQ 几小时 | Llama 3.2 3B：QAT 比 PTQ 少掉一半 |
 
-核心问题的答案：困惑度只升 0.1 的 4-bit 模型，会在多步推理（GSM8K / MATH 掉 2–6 个点）、长上下文检索（32K 以上 needle 掉 10 个点以上）、低资源语言（退化是英文的 2–3 倍）与指令遵循细节上先掉——因为困惑度是所有 token 的平均，被容易的 token 稀释，而这些任务由少数关键 token 的 argmax 决定，量化误差恰好推翻的是 logits 差距小的那些位置。部署前发现它的办法：（1）在目标负载的文本上算量化模型对全精度模型的逐 token KL，看均值与 P99，看它集中在哪类 token 上；（2）跑一组覆盖推理、长上下文、代码、多语言、指令遵循的任务，而不只是困惑度 + MMLU；（3）协议一致、多次采样、配对检验。如果退化不可接受，出路是 QAT——末段几千步、以全精度的自己为教师，几百 GPU 小时换回一半的退化——或者换 W8A8 / FP8。
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+困惑度只升 0.1 的 4-bit 模型，会在多步推理（GSM8K / MATH 掉 2–6 个点）、长上下文检索（32K 以上 needle 掉 10 个点以上）、低资源语言（退化是英文的 2–3 倍）与指令遵循细节上先掉——因为困惑度是所有 token 的平均，被容易的 token 稀释，而这些任务由少数关键 token 的 argmax 决定，量化误差恰好推翻的是 logits 差距小的那些位置。部署前发现它的办法：（1）在目标负载的文本上算量化模型对全精度模型的逐 token KL，看均值与 P99，看它集中在哪类 token 上；（2）跑一组覆盖推理、长上下文、代码、多语言、指令遵循的任务，而不只是困惑度 + MMLU；（3）协议一致、多次采样、配对检验。如果退化不可接受，出路是 QAT——末段几千步、以全精度的自己为教师，几百 GPU 小时换回一半的退化——或者换 W8A8 / FP8。
+
+</details>
+
+
+## 十一、自测
+
+1. STE 在前向与反向各做什么？为什么“有偏但有效”？
+
+   <details markdown="1"><summary>答案</summary>
+
+   前向用量化值 $$Q(w)$$，反向把 $$\partial Q / \partial w$$ 当作 1 直接把梯度传给全精度主权重 $$w$$。梯度是对错误的函数算的（有偏），但可以看成量化噪声下的随机优化、多步累积后 $$w$$ 会“投票”跨过格点边界，实践上收敛。
+
+   </details>
+
+2. Llama-3-8B W4 量化：PPL +0.36、MMLU −1–2、GSM8K −3–6、needle −10 以上。为什么困惑度掩盖了这些？
+
+   <details markdown="1"><summary>答案</summary>
+
+   困惑度是全部 token 的平均，绝大多数 token 是容易预测的常见词，误差平均掉了；任务分数依赖少数关键 token（数字、推理转折、长距离检索）的多步组合，一处错全错。难题、长上下文、推理、指令细节先掉。
+
+   </details>
+
+3. 部署前不跑 benchmark，怎么快速判断一个量化模型“坏了多少”？
+
+   <details markdown="1"><summary>答案</summary>
+
+   在目标负载上算逐 token 的 $$\text{KL}(p_{fp16} \| p_{quant})$$：4 bit 正常在 0.01–0.05 nat，看 P99 比看均值更有信息——尾部 token 的 KL 大就是任务会掉的地方。不需要标注。
+
+   </details>
+
+4. QLoRA 的 NF4 是什么？训练 65B 进 48 GB 靠什么？推理时它的代价是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   NF4 用标准正态的 16 个分位点做非均匀格点、匹配权重分布；双重量化把 scale 再量化到 4.127 bit / 参数；65B × 0.52 字节 ≈ 34 GB 底座 + LoRA 状态进 48 GB。推理时每次矩阵乘都要查表反量化，比 INT4 的 kernel 慢。
+
+   </details>
+
+5. Gemma 3 / Llama 3.2 的“末段 QAT”做了什么？教师是谁？
+
+   <details markdown="1"><summary>答案</summary>
+
+   在最后 5–10% 的 token 或 SFT 阶段打开假量化训练，用全精度的自己做教师蒸馏（Gemma 3 约 5000 步），让权重适应量化格点；不需要从头训，代价是一小段训练。
+
+   </details>
 
 
 ## 下一篇

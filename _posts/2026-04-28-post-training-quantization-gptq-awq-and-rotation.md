@@ -5,6 +5,7 @@ title: "高效推理与压缩（03）：训练后量化：误差模型、GPTQ、
 subtitle: "Post-Training Quantization: Error Models, GPTQ, AWQ and Rotation"
 tags: [AI, LLM, Inference, Quantization]
 catalog: true
+updated: 2026-09-14
 ---
 
 量化是把权重（有时也把激活）从 16 bit 浮点变成 4 bit 或 8 bit 整数。[04 系列第七篇](/quantization-speculative-decoding-and-lora.html)从 Roofline 的角度讲了它的收益：decode 是 memory-bound 的，权重字节除以 4，每步时间除以接近 4——但只在 $$B \lesssim \text{ridge}/4$$ 的区间内；也介绍了 GPTQ 的更新公式、AWQ 的缩放形式、SmoothQuant 的迁移因子。那一篇回答的是"量化省多少"。
@@ -51,6 +52,7 @@ catalog: true
 | 十 | 成本 | 量化过程的时间；dequant 的运行时开销；元数据字节 |
 | 十一 | 动手（建议） | RTN / GPTQ / AWQ 的对照 |
 | 十二 | 本文小结 | |
+| 十三 | 自测 | 5 道题 |
 
 
 ## 二、误差模型
@@ -373,7 +375,55 @@ Llama-3.1-70B（70.6B 参数，其中 embedding + lm_head 2.1B）：
 | 敏感层 | 首尾层、out_proj / down_proj、lm_head、MoE 路由 | 混合精度：敏感层 6–8 bit |
 | 成本 | 量化 1–4 小时；W4A16 的 dequant 在 compute-bound 区间变慢 | 70B：141 → 40 GB，两卡变一卡 |
 
-核心问题的答案：4-bit 权重量化让 decode 快 2.5–3.5 倍（权重字节 ÷ 4，memory-bound），让 70B 从两张卡变成一张；但它在 prefill 与大 batch 上**更慢**——GEMM 仍是 BF16，dequant 是额外算力——高吞吐负载要用 W8A8 / FP8（字节 ÷ 2、算力 × 2、接近无损）或 W4A4（需要旋转与低比特 Tensor Core）。同样是 4 bit 有的崩掉，是因为量化误差 $$\Delta^2/12$$ 由 group 内的最大值决定，而 LLM 的权重有重尾、激活有固定通道的离群值：一个 $$15\sigma$$ 的权重让 group 内其他权重的误差与自身同量级；激活大的通道上同样的权重误差被放大几十倍。GPTQ 用 $$H^{-1}$$ 把误差补偿到相关的通道上，AWQ 放大显著通道的权重，两者把 W4A16 的困惑度损失压到 0.1–0.3；激活的离群值要靠 SmoothQuant 迁移、per-token 动态、或 Hadamard 旋转摊平——旋转让 W4A4 从崩掉变成可用。过训练的模型（Llama 3）比前代更难量化，因为每个权重的低位也被塞进了信息；对这些模型，下一篇的 QAT 是出路。
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+4-bit 权重量化让 decode 快 2.5–3.5 倍（权重字节 ÷ 4，memory-bound），让 70B 从两张卡变成一张；但它在 prefill 与大 batch 上**更慢**——GEMM 仍是 BF16，dequant 是额外算力——高吞吐负载要用 W8A8 / FP8（字节 ÷ 2、算力 × 2、接近无损）或 W4A4（需要旋转与低比特 Tensor Core）。同样是 4 bit 有的崩掉，是因为量化误差 $$\Delta^2/12$$ 由 group 内的最大值决定，而 LLM 的权重有重尾、激活有固定通道的离群值：一个 $$15\sigma$$ 的权重让 group 内其他权重的误差与自身同量级；激活大的通道上同样的权重误差被放大几十倍。GPTQ 用 $$H^{-1}$$ 把误差补偿到相关的通道上，AWQ 放大显著通道的权重，两者把 W4A16 的困惑度损失压到 0.1–0.3；激活的离群值要靠 SmoothQuant 迁移、per-token 动态、或 Hadamard 旋转摊平——旋转让 W4A4 从崩掉变成可用。过训练的模型（Llama 3）比前代更难量化，因为每个权重的低位也被塞进了信息；对这些模型，下一篇的 QAT 是出路。
+
+</details>
+
+
+## 十三、自测
+
+1. 均匀量化步长 $$\Delta$$ 的舍入误差方差是多少？从 8 bit 到 4 bit 误差方差变几倍？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$\Delta^2 / 12$$；少 4 bit 步长 ×16、方差 ×256。所以 INT8 几乎无感、INT4 必须靠 GPTQ / AWQ 一类补偿。
+
+   </details>
+
+2. 一个 group（128 个权重）里有一个 $$15\sigma$$ 的离群权重，INT4 的步长变成多少？其他 127 个权重怎么了？
+
+   <details markdown="1"><summary>答案</summary>
+
+   范围被拉到 $$\pm 15\sigma$$，16 个格点步长约 $$2\sigma$$——其余权重（绝大多数在 $$\pm 2\sigma$$ 内）只落在两三个格点上，几乎全被抹平。这是 RTN 到 4 bit 崩掉的机制。
+
+   </details>
+
+3. GPTQ 与 AWQ 各用什么信息补偿量化误差？两者能组合吗？
+
+   <details markdown="1"><summary>答案</summary>
+
+   GPTQ 用 Hessian $$H = \mathbb{E}[XX^T]$$ 的逆做 OBS 补偿——量化一列后把误差按通道相关性分摊到未量化的列；AWQ 用激活幅度 $$\text{mean}\lvert X_j \rvert^\alpha$$ 缩放显著通道，让它们在 group 内不再是最大值。一阶（AWQ）与二阶（GPTQ）可以叠加。
+
+   </details>
+
+4. 为什么激活量化比权重量化难？W8A8 与 W4A16 各在解决什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   激活有通道级离群（继承 LayerNorm 的 γ）与 massive activations（几个 token 上千倍大），动态范围极大；W4A16 只量权重、片上反量化，解决 decode 的带宽；W8A8 权重激活都量、用 INT8 / FP8 Tensor Core，同时提升 prefill 的算力上限。
+
+   </details>
+
+5. 旋转（QuaRot）为什么能让 W4A4 可行？$$XW = (XR)(R^T W)$$ 里 $$R$$ 要满足什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   Hadamard 旋转把一个通道上的 1000 摊到所有通道上约 17，离群值消失、分布接近高斯，4 bit 均匀格点够用；$$R$$ 要正交（$$R R^T = I$$）才能保证数学等价，且能折进相邻的线性层不增加推理成本。
+
+   </details>
 
 
 ## 下一篇
