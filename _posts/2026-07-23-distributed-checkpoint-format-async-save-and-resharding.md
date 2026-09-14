@@ -5,6 +5,7 @@ title: "大规模训练工程（05）：分布式 checkpoint——格式、异�
 subtitle: "Distributed Checkpoint: Format, Async Save and Resharding"
 tags: [PyTorch, Megatron, DeepSpeed, torchtitan, Checkpoint, Distributed Training, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 > **更新 @2026-09-06**：本文 torchtitan 部分基于 v0.3.0 刷新；其余源码引用仍以 PyTorch 2.13.0 / Megatron Core 0.18.0 / DeepSpeed 0.19.2 为准。
@@ -102,6 +103,7 @@ DeepSpeed 这一列后文只在第八章展开一节：它的 checkpoint 是"每
 | 八 | DeepSpeed 与 torchtitan | CheckpointEngine 与 universal checkpoint；torchtitan CheckpointManager 怎么包 DCP |
 | 九 | 多级存储与存多久一次 | 本地 NVMe → PFS；邻居恢复；Young 公式推导；代入 Llama 3；校验、保留、版本兼容 |
 | 十 | 本文小结 | 要点 · 源码位置 · train-ledger 的 ckpt/ 与 `ledger/checkpoint_interval.py` |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、checkpoint 里有什么，为什么缺一样都不行
@@ -1091,6 +1093,56 @@ if __name__ == "__main__":
 checkpoint 解决的是"状态怎么安全落盘、怎么灵活装回"。但 Young 公式里的 M 是给定的，δ 之外的 R——从故障发生到训练恢复的检测、重启、加载时间——本篇一直放在括号里。下一篇把它们拿出来：一千张卡平均几小时坏一张，每次从发现到恢复要多久，哪一段最该缩短。
 
 > **一千张卡平均每几小时坏一张。每次故障从发现到恢复训练要多久？其中检测、重启、加载 checkpoint、回退重算各占多少？把有效训练时间从 85% 提到 95%，最该缩短的是哪一段？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**同步写要停几分钟**：训练态 16 B / 参数、落盘 14（Megatron）或 12（FSDP2）B / 参数，405B 约 5.7 TB。rank-0 汇总写单文件撞三堵墙——主机内存放不下、单网卡 114 s、单写入者 19–95 分钟；分片写每卡约 350 MB（16K 卡），由并行文件系统的聚合带宽决定，秒级——但同步写期间训练停着，$$\delta$$ 十分钟量级时按 Young 公式 $$\tau_{opt} = \sqrt{2\delta M}$$、$$M \approx 3.1$$ h 会浪费 33% 的算力（第二、三、四章）。**异步写的代价**：$$\delta$$ 从写入时间变成 staging 时间（把状态拷到主机内存的时间），$$\delta = 2$$ s 时浪费降到 1.9%——异步不是优化是必需。代价是 staging 内存：每卡唯一字节 ×（1–2），8B 模型 8 卡每卡 12 GB、千卡反而轻；线程 staging 受 GIL 影响、进程 staging 要 `/dev/shm`；等 staging 完成的点要放在 `optimizer.step` 之前（第六、七章）。**15 个节点能不能直接加载**：能，前提是 checkpoint 格式与并行配置无关。DCP 的 `.metadata` 记每个张量的全局形状与每个块的全局坐标——磁盘上没有 rank / TP / PP；加载时每个本地块与磁盘块逐维算交集生成 `ReadItem`，零通信完成重分片。条件：同 FQN、同全局形状、块带全局坐标；PP 变了要展平 key；Megatron 分布式优化器需 `fully_reshardable`，DeepSpeed 需先 `ds_to_universal` 合并成全局再切（第五章）。多级存储（本地 NVMe + 邻居副本秒级、PFS 持久）、提交标记 + fsync + 加载验证是工程收尾（第八章）。
+
+</details>
+
+
+## 十一、自测
+
+1. 405B 模型 checkpoint 落盘多少字节？rank-0 单文件写与 16K 卡分片写各要多久（量级）？
+
+   <details markdown="1"><summary>答案</summary>
+
+   约 5.7 TB（14 B / 参数）；单文件：单网卡 114 s 起、单写入者 19–95 分钟、且主机内存放不下；分片：每卡 350 MB，PFS 聚合带宽下秒级。
+
+   </details>
+
+2. Young 公式 $$\tau_{opt} = \sqrt{2\delta M}$$ 里 $$\delta$$、$$M$$ 是什么？$$M = 3.1$$ h 时 $$\delta = 10$$ min 与 $$\delta = 2$$ s 的最小浪费各多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$\delta$$ 一次 checkpoint 的开销时间、$$M$$ 集群 MTBF；最小浪费 $$\sqrt{2\delta/M}$$：10 min → 33%，2 s → 1.9%。异步 checkpoint 就是把 $$\delta$$ 从分钟压到秒。
+
+   </details>
+
+3. DCP 的 `save` 四步是什么？`.metadata` 为什么最后写、里面有什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `local_step`（每 rank 列出自己要写的块）→ `reduce_scatter`（planner 全局去重、决定谁写什么）→ `write_data` → `all_reduce`（收集结果）；`.metadata` 记全局形状与每块的全局坐标，最后原子写入作为提交标记——没有它就是未完成的 checkpoint。
+
+   </details>
+
+4. TP 8 / PP 16 / DP 128 训的模型，用 TP 4 / PP 8 / DP 32 加载，DCP 要做什么通信？什么情况下做不到？
+
+   <details markdown="1"><summary>答案</summary>
+
+   零通信——每个 rank 读自己新分片与磁盘块的交集；做不到的情况：FQN 变了（PP 变时层编号偏移要展平 key）、全局形状变了、块没带全局坐标（DeepSpeed ZeRO 的文件绑 DP 度，要先 `ds_to_universal`）。
+
+   </details>
+
+5. 异步 checkpoint 的 staging 内存每卡多少？为什么“千卡反而轻”？
+
+   <details markdown="1"><summary>答案</summary>
+
+   每卡唯一字节 ×（1–2 倍）：8B / 8 卡每卡约 12 GB（每卡持有 1/8 的 96 GB 唯一状态）；千卡时同样的状态分到更多卡，每卡唯一字节更少——staging 压力随规模下降，而单文件写随规模上升。
+
+   </details>
 
 
 ## 下一篇

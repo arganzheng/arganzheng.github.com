@@ -5,6 +5,7 @@ title: "大规模训练工程（06）：容错与弹性——故障率数学、s
 subtitle: "Fault Tolerance and Elasticity: Failure Math, Stragglers, SDC and Elastic Training"
 tags: [PyTorch, Megatron, torchft, Fault Tolerance, Distributed Training, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 > **更新 @2026-09-06**：本文 torchft 部分基于 v0.2.0、torchtitan 部分基于 v0.3.0 刷新；其余源码引用仍以 PyTorch 2.13.0 / Megatron Core 0.18.0 / NVIDIA Resiliency Extension 0.6.0 为准。
@@ -115,6 +116,7 @@ Megatron 是这一章的主角：它和 NVRx 一起覆盖了检测、进程内�
 | 八 | straggler | 成因 · 计算时间 vs 等待时间 · Megatron StragglerDetector · NVRx attribution/straggler · what-if 论文的结论 |
 | 九 | SDC 与确定性 | 为什么危险 · 冗余与校验 · RerunStateMachine 的机制与三种模式 · `fault_injector` · 确定性 |
 | 十 | 本文小结 | 要点 · 源码位置 · train-ledger 的 `ledger/availability.py` 与 chaos/ |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、故障率数学：从 MTBF 到有效训练时间
@@ -1090,6 +1092,56 @@ NGPU=4 CUDA_VISIBLE_DEVICES=4,5,6,7 TORCHFT_LIGHTHOUSE=http://localhost:29510 MO
 到这里，硬件层面的长时问题——坏、慢、错——都有了检测与恢复的路径。但训练还可能在硬件一切正常的情况下失败：第 137,000 步 loss 从 2.1 跳到 4.8，没有任何 rank 报错、没有 straggler、梯度范数校验也没拦下什么。这是下一篇的问题：数值为什么会跑飞，哪些信号必须在事前记录，数据管线如何做到精确回放让"回退到 spike 前 100 步、跳过后面 200 个 batch"成为可能。
 
 > **第 137,000 步 loss 从 2.1 跳到 4.8。是数据、学习率、还是数值精度？要回答这个问题，需要哪些信号在事前就被记录下来，需要哪些状态能被精确回放？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**多久、各占多少**：一次故障的损失 = 检测 $$T_d$$ + 重启 $$T_r$$ + 加载 $$T_l$$ + 平均回退重算 $$\tau/2$$，有效时间 $$G = (1 - (T_d + T_r + T_l + \tau/2)/M) / (1 + \delta/\tau)$$。Llama 3 的数字：16K 卡 54 天 419 次意外中断，$$M \approx 3.1$$ h（单卡约 5 万小时），78% 硬件、58.7% GPU、1.4% 静默数据损坏（第二章）。默认配置下各段：检测靠超时——NCCL watchdog 10 分钟、HeartbeatMonitor 8 分钟；重启 2–5 分钟（进程 + CUDA + NCCL comm init + 数据集，NCCL comm 是千卡下最不可控的一项）；加载几十秒到几分钟；回退 $$\tau/2$$ 取决于 checkpoint 间隔（第三、五章）。**最该缩短哪一段**：按顺序——先 $$\delta$$（同步 checkpoint 改异步，让 $$\tau$$ 能缩到几分钟，16K 卡同步保存怎么选 $$\tau$$ 都亏 20% 以上，异步后到 87%）；再 $$T_d$$（把 hang 检测从 10 分钟压到 1 分钟：`TORCH_NCCL_ASYNC_ERROR_HANDLING=3` 把超时变显式错误、NVRx RankMonitor 心跳与 section 超时分钟级、inprocess soft_timeout 60 s——此时它是主导项）；再 $$T_r$$（进程重启改进程内重启：NVRx `inprocess.Wrapper` abort 通信 → finalize → health check → 重新分配 rank → 重进训练函数，进程不退出，热备节点顶上）；$$T_l$$ 最后。三步走完 16K 卡从 71% 到 94%；1024 卡三者差别小（第四至七章）。弹性是另一条路：torchft 把 DP 副本当独立失败单元，Lighthouse quorum + 按参与数归一的 all-reduce，坏一个副本其他继续（第八章）；隔离与预检把坏卡在开训前挑出来（第九章）。
+
+</details>
+
+
+## 十一、自测
+
+1. 单卡 MTBF 5 万小时，16K 卡集群平均多久坏一次？1024 卡呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$M = M_{gpu} / N$$：16K 卡约 3.1 h（Llama 3 实测 419 次 / 54 天）；1024 卡约 49 h——所以千卡以下容错的收益小，万卡是必需。
+
+   </details>
+
+2. 同步 checkpoint $$\delta = 10$$ min、$$M = 3.1$$ h，最优 $$\tau$$ 多少、有效时间多少？改异步 $$\delta = 2$$ s 后呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$\tau_{opt} = \sqrt{2 \times 10 \times 186} \approx 61$$ min，仅 checkpoint + 回退就浪费约 33%，加上检测重启到 71%；异步后 $$\tau_{opt} \approx 3.5$$ min、浪费 1.9%，有效时间到 87%，此时主导项变成 $$T_d$$。
+
+   </details>
+
+3. 三类故障——显式、隐式、静默——各怎么检测？隐式故障的默认检测时间是多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   显式（进程崩、CUDA 错误）秒级；隐式（hang）只能靠超时：NCCL watchdog 10 min、HeartbeatMonitor 8 min、NVRx section 分钟级、inprocess soft_timeout 60 s；静默（SDC，1.4%）靠校验——loss 异常、参数校验和、重算对比。
+
+   </details>
+
+4. `torchrun --max-restarts 3` 的重启流程是什么？为什么进程重启要 2–5 分钟？
+
+   <details markdown="1"><summary>答案</summary>
+
+   LocalElasticAgent 的 `_invoke_run` 循环：某 worker FAILED 且有剩余 restarts → 全部 worker 重启 → rendezvous（c10d TCPStore 或 etcd，min:max、last_call 30 s）→ 重新 init；耗时在进程启动 + CUDA context + NCCL comm init（千卡下最不可控）+ 数据集 / 模型构造。
+
+   </details>
+
+5. torchft 的“DP 副本为独立失败单元”意味着什么？quorum 怎么防止脑裂？`should_commit` 做什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   一个副本（一组 TP / PP 卡）挂了，其他副本继续训练，不需要全体重启；Lighthouse 收集心跳形成 quorum，要求超过半数副本参与并满足 `min_replicas`，避免两组各自以为自己是全体；`should_commit` 在副本内确认这一步的 all-reduce 没有错误、参与数一致才 `optimizer.step`，否则丢弃这一步。
+
+   </details>
 
 
 ## 下一篇

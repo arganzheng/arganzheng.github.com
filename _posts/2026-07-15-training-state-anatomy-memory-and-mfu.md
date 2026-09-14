@@ -5,6 +5,7 @@ title: "大规模训练工程（01）：训练任务的状态解剖——显存�
 subtitle: "Anatomy of Training State: Memory Accounting and MFU"
 tags: [Megatron, DeepSpeed, torchtitan, Distributed Training, MFU, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 一张 H100 有 80 GB 显存、标称 989 TFLOPS 的 bf16 算力。一个 70B 参数的模型，用 bf16 混合精度加 Adam 训练，参数、梯度和优化器状态加在一起是 1.13 TB——是那张卡的 14 倍。序列长 8192 时，它每一层的激活值还要 2.3 GB，80 层就是 180 GB。每个 token 的前向加反向要 4.5×10¹¹ 次浮点运算，一条 8192 token 的序列在一张卡上就算满了也要 3.7 秒。
@@ -1005,6 +1006,56 @@ $ python cli.py --model 70b --precision bf16-fp32grad
 几点说明。`ModelSpec.params` 按 Llama 结构（GQA、SwiGLU、RMSNorm、不共享的输入输出 embedding）计，与 Megatron `compute_weight_and_optimizer_memory()` 的结构公式是同一套算法的简化版（没有 MoE / MLA / MTP 分支）。`state_bytes()` 的 `precision` 字符串对应第三章的四种组合，`"bf16"` 是 16 字节，`"bf16-fp32grad"` 是 Megatron 默认的 18 字节。`activation_bytes_per_layer()` 用的是论文的 34 而不是 Megatron 的 $$18 + 4f/h$$——两者对 $$f = 4h$$ 相同，对 Llama 3 的 $$f = 3.5h$$ 差 6%，本系列统一用 34 以便与论文对照。`flops_per_token()` 的 `causal=True` 与 Megatron 一致；`recompute_factor()` 的 `"selective"` 只算注意力分数的重算，与 FlashAttention 内建的重算是同一项。这个脚本没有并行维度：它算的是"整个模型放在一张无限大的卡上"的账。下一篇给它加上 TP/PP/DP/CP/EP 与 ZeRO 级别，回答这 1.13 TB 怎么切、切了之后每 step 要搬多少字节。
 
 > **每种并行都在"复制"和"切分"之间做交换：复制多占显存，切分多花通信。给定一个模型和一个集群的拓扑，每个维度的通信量是多少、走哪条链路、和计算能不能重叠？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**参数与优化器状态**：bf16 混合精度 + Adam 每参数 16 字节（bf16 参数 2 + bf16 梯度 2 + fp32 主参数 4 + 两个矩 8），70B 是 1.13 TB——一张 80 GB 的卡连 1/14 都放不下，至少 15 张卡的显存只放状态（第二、三章）；Megatron 默认 fp32 累加梯度是 18 字节，分布式优化器下每卡 $$6 + 12/N_d$$。**一层的激活**：$$sbh(34 + 5as/h)$$，$$s = 8192$$、$$b = 1$$、$$h = 8192$$ 时 70B 每层 2.28 GB（用 FlashAttention 不物化 $$5as/h$$ 的分数矩阵；不用则乘 10 倍），80 层就是 182 GB，还有 logits 一条序列 6.3 GB——激活比状态更需要切开或重算（第四章）。**每 token 的 FLOP**：每参数每 token 6 FLOP（前向 2、dgrad 2、wgrad 2）加注意力分数每层 $$6sh$$（因果减半），70B、$$s = 8192$$ 是 449 GFLOP / token；一条 8192 的序列在一张 H100 上下限 3.72 s，4M token / step、1024 卡下限 1.86 s（第六章）。**放在一起**：80 GB 里真正能给张量的只有 68–74 GiB（CUDA context、NCCL、workspace、碎片各扣一块），989 TFLOPS 里千卡 dense 拿到 40% 以上就是好成绩（MFU = 观测 token/s × 模型 FLOP/token ÷ 卡数 × 峰值，不含重计算；HFU 含）——后面每一篇都在解决“状态放哪、激活放哪、通信怎么藏、故障怎么扛”，让这两个数字同时成立（第五、七章）。
+
+</details>
+
+
+## 九、自测
+
+1. 8B、70B、405B 三档模型 bf16 + Adam 的常驻训练状态各多少？分别至少要几张 80 GB 的 H100 才放得下状态本身？
+
+   <details markdown="1"><summary>答案</summary>
+
+   128 GB、1.13 TB、6.49 TB；按每卡约 70 GiB 可用：2、17、93 张——这还没算激活。405B 的 6.49 TB 也是它 checkpoint 的量级。
+
+   </details>
+
+2. fp32 主参数是冗余吗？去掉它会怎样？
+
+   <details markdown="1"><summary>答案</summary>
+
+   不是。每步更新 $$\Delta w / w$$ 在 $$10^{-5}$$ 量级，bf16 的相对精度只有 $$2^{-8} \approx 0.4\%$$，用 bf16 存主参数会把更新舍掉、参数不动（04 系列第六篇）；所以 4 字节主参数必须留，这是 16 字节里最不能省的一项。
+
+   </details>
+
+3. 激活公式 $$sbh(34 + 5as/h)$$ 里 34 与 $$5as/h$$ 各是什么？FlashAttention 拿掉哪一项？
+
+   <details markdown="1"><summary>答案</summary>
+
+   34 = 10（TP 切不开的部分：LayerNorm 输入等）+ 24（TP 切得开的：QKV、MLP 中间量等）字节 / 元素；$$5as/h$$ 是注意力分数矩阵 $$s \times s$$ 的贡献（softmax 输入输出、dropout mask），随序列长平方增长；FlashAttention 不物化它、反向重算，条件是用融合 kernel 且注意力 dropout 不落地。
+
+   </details>
+
+4. 观测 4.5 s / step，理论下限 1.86 s，MFU 多少？开全量重计算时 HFU 是多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   MFU = 1.86 / 4.5 = 41.3%；全量重计算多一次前向（FLOP ×4/3），HFU = 41.3% × 4/3 = 55.1%——HFU 好看但用户只关心 MFU，报告时要说清用的是哪个。
+
+   </details>
+
+5. `memory_allocated`、`memory_reserved`、`nvidia-smi` 看到的占用三个数字分别对应什么？80 GB 里为什么只有约 70 GiB 能给张量？
+
+   <details markdown="1"><summary>答案</summary>
+
+   分别是当前张量占用、caching allocator 从驱动拿到的总量（含缓存与碎片）、进程占用（再含 CUDA context、NCCL buffer、cuBLAS workspace）；context 0.5–1 GiB、NCCL 1–3 GiB、库 workspace、碎片 5–15%、安全边际，扣完约 68–74 GiB。
+
+   </details>
 
 
 ## 下一篇

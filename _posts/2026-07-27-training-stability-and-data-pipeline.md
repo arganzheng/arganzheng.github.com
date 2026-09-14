@@ -5,6 +5,7 @@ title: "大规模训练工程（07）：训练稳定性与数据管线——loss
 subtitle: Training Stability and the Data Pipeline
 tags: [Megatron, DeepSpeed, torchtitan, Distributed Training, Data Pipeline, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 > **更新 @2026-09-06**：本文 torchtitan 部分基于 v0.3.0 刷新；其余源码引用仍以 PyTorch 2.13.0 / Megatron Core 0.18.0 / DeepSpeed 0.19.2 为准。
@@ -99,6 +100,7 @@ loss scale          fp16：DynamicGradScaler（hysteresis/backoff）；    fp16�
 | 六 | 数据管线（上）：存储与索引 | 离线 vs 在线 · `.bin`/`.idx` 格式 · document/sample/shuffle 三索引与缓存 · 混合与多阶段 · 打包与 `cu_seqlens` · DeepSpeed 课程学习 |
 | 七 | 数据管线（下）：加载与恢复 | 流式读取 · 可恢复的三条要求 · Megatron / torchtitan / DeepSpeed 的恢复语义 · 数据等待与 MFU |
 | 八 | 本文小结 | 要点 · 源码位置 · train-ledger 的 signals/ 与 `data/replay_check.py` · 回答核心问题 |
+| 九 | 自测 | 5 道题 |
 
 
 ## 二、loss spike：现象与成因
@@ -919,6 +921,56 @@ def check(world_size, a="ids_uninterrupted", b="ids_resumed"):
 剩下的问题是运维的：这些信号怎么进面板、什么阈值该叫醒人、卡住了（不是跳了，是不动了）怎么查——
 
 > **凌晨三点告警：step 时间从 12 秒变成 40 秒，没有报错。十分钟内你要判断是 straggler、数据、通信、还是硬件降频。你需要的每一个信号，在开训前有没有采集？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**是哪一种**：先看 spike 的形态与前兆——loss 从 2.1 跳到 4.8 是大跳，看它是瞬时（下一步就回来：坏 batch 或 bf16 偶发）、可恢复（几百步爬回：学习率或优化器状态）还是发散（一路上去：logit 增长或精度链断裂）。五种成因各有信号：**学习率**——param norm 增速在事前变快；**bf16 数值**——无前兆、单步跳；**logit 增长**——max attention logit 单调升过约 100；**坏数据**——换 seed 回放同一 batch 可复现；**优化器状态**——grad norm 在低平台后放大（第二、三章）。所以回答“是什么”依赖**事前记录**：loss 的 avg 与 max、clip 前的 grad norm、param norm、LR、loss scale、skipped iters、num_zeros、max attention logit、consumed samples、data_loading%——每步记原始值、随 checkpoint 留档、按 rank 可查（第六章）。**需要哪些状态能精确回放**：定位到第 137,000 步的 batch，要求数据管线确定性——离线 tokenize 的 `.bin/.idx`、`GPTDataset` 三个索引由 seed 确定、`BlendedDataset` 的贪心混合确定性、恢复位置由 `consumed_train_samples` 整数决定（Megatron 可换 DP 恢复，torchtitan 的 `StatefulDataLoader` 按 dp_rank 存不可换）；加上足够密的 checkpoint（第七、八、九章）。**处理**：PaLM 的做法——回退约 100 步 + 跳过 200–500 个 batch（Megatron `--iterations-to-skip` → `dummy_train_step`，consumed 与 skipped 同步加），代价约 250–300 步 / 次、20 次不到 1%；预防靠全局范数裁剪、warmup、QK-LayerNorm、z-loss、weight decay 例外、精度纪律七项（第四、五章）。便宜的是处置，贵的是信号与基础设施。
+
+</details>
+
+
+## 九、自测
+
+1. loss 单步从 2.1 跳到 4.8，下一步回到 2.1——最可能是哪两种成因？怎么区分？
+
+   <details markdown="1"><summary>答案</summary>
+
+   坏 batch 或 bf16 偶发数值问题（两者都无前兆、瞬时）；区分：换 seed 或换 rank 回放同一 consumed_samples 位置的 batch——坏数据可复现，bf16 偶发不可复现。
+
+   </details>
+
+2. grad norm 曲线在一个低平台待了几千步然后开始放大、loss 随后变坏——指向哪种成因？为什么 warmup 与 $$\beta_2$$ 相关？
+
+   <details markdown="1"><summary>答案</summary>
+
+   优化器状态：Adam 的 $$v$$ 在低梯度期变得很小，梯度一变大更新量 $$m/\sqrt{v}$$ 被放大；$$\beta_2 = 0.95$$ 让 $$v$$ 更快跟上，warmup 让初期 $$v$$ 先学到尺度。
+
+   </details>
+
+3. max attention logit 单调升过 100 意味着什么？两个开关各在哪？
+
+   <details markdown="1"><summary>答案</summary>
+
+   softmax 趋向 one-hot、梯度消失、随后发散——logit 增长型不稳定；QK-LayerNorm（Megatron `qk_layernorm`）在 Q、K 上归一化，或 `qk_clip` 裁剪；z-loss 防的是输出层 $$\log Z$$ 漂移（Megatron 只对 MoE 路由有）。
+
+   </details>
+
+4. Megatron 的 `--iterations-to-skip` 做什么？consumed samples 为什么要同步加？
+
+   <details markdown="1"><summary>答案</summary>
+
+   对指定 step 执行 `dummy_train_step`——只推进数据迭代器与计数、不做前向反向；consumed 与 skipped 同步加是为了恢复时的数据位置与学习率调度仍然对得上，被跳过的 batch 不会在后面重新出现。
+
+   </details>
+
+5. Megatron 从 checkpoint 恢复时怎么定位数据位置？换了 DP 度还能对上吗？torchtitan 呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   Megatron：位置 = `consumed_train_samples` 一个整数，sampler 从该处开始数，与 DP 度无关，可换；torchtitan：`StatefulDataLoader` 存每个 dp_rank 的迭代器状态，DP 度变了状态对不上，不可换。
+
+   </details>
 
 
 ## 下一篇

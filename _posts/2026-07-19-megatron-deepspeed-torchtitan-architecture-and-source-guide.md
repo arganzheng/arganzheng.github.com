@@ -5,6 +5,7 @@ title: "大规模训练工程（03）：三个框架——Megatron-LM、DeepSpee
 subtitle: "Megatron-LM, DeepSpeed and torchtitan: Architecture and Source Guide"
 tags: [Megatron, DeepSpeed, torchtitan, Distributed Training, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 > **更新 @2026-09-06**：本文 torchtitan 部分基于 v0.3.0 刷新；其余源码引用仍以 PyTorch 2.13.0 / Megatron Core 0.18.0 / DeepSpeed 0.19.2 为准。
@@ -1203,6 +1204,56 @@ def compare_with_ledger(probe_json: str, model, cfg, precision="bf16", optimizer
 三份 probe 放在一起，第二篇那张五元组表的每一行都有了一个可以指认的 kernel 名和一个可以对照的字节数。下一篇把这些数字变成时间：给定模型与集群，如何推出 TP / PP / DP / micro-batch 的取值，以及跑出来的 MFU 缺的那几个点去了哪里。
 
 > **一个 70B dense 模型，1024 张 H100，序列长 8192，global batch 4M token。TP、PP、DP 各多少？micro-batch 多大？要不要重计算？预期 MFU 多少？跑出来只有 32%，缺的 10 个点去了哪里？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+追一个 bf16 参数的一生，三个框架就分开了。**Megatron**：bf16 参数**常驻完整**，是 `_ParamAndGradBuffer` 两段连续内存里的一个视图；梯度经 DDP hook 累加进 `main_grad`（默认 fp32），bucket 满了就 reduce-scatter；`DistributedOptimizer` 按字节区间把优化器状态与 fp32 主参数切成 $$1/N_d$$，每卡只更新自己那段，然后 all-gather 更新后的 bf16 参数回 buffer（与下一步前向重叠）——通信 RS + AG = $$2N$$，每参数 $$2 + 4 + 12/N_d$$ 字节；参数从不被释放。**DeepSpeed ZeRO-3**：bf16 参数**常驻 $$1/N_d$$ 碎片**（`ds_tensor`），前向到某个 module 时四个 hook 之一触发参数协调器 all-gather 完整参数（coalesced、按 trace 预取）、用完立即释放回碎片；反向再来一次；fp32 主参数是优化器里的扁平 fp32 分区——通信 AG + AG + RS = $$3N$$，每参数 $$(16 或 18)/N_d$$ 加临时层。**torchtitan（FSDP2）**：bf16 参数**不常驻**——模型在 meta 设备构造、`parallelize` 后 `to_empty`，`fully_shard` 让每层的参数成为 `Shard(0)` 的 fp32 DTensor 分片，前向前 unshard：把各卡分片 all-gather 进一个连续 buffer 并按 `MixedPrecisionPolicy` 转成 bf16 临时参数，反向后 reduce-scatter 梯度、free 临时参数；fp32 主参数**就是那个分片本身**——通信 $$3N$$（不 reshard 则 $$2N$$），每参数 $$16/N_d$$ 加临时层（第三至六章）。三种 all-gather 的表示不同（Stage 3 每参数 `ds_tensor` + coalesced、FSDP1 一层一个 `FlatParameter`、FSDP2 每参数 DTensor 拷进连续 buffer），通信量相同、可组合性质不同；进程组一个用 `RankGenerator` 填全局变量、一个委托 mpu、一个用 `DeviceMesh` 切视图；1F1B 一个是过程式三段循环、一个是 `_Action` 表解释执行（第七、八章）。趋势是分片成为数据的属性（DTensor / ShardingConfig）。
+
+</details>
+
+
+## 八、自测
+
+1. 三个框架里 fp32 主参数各在哪？每参数常驻字节各多少（$$N_d$$ 路数据并行）？
+
+   <details markdown="1"><summary>答案</summary>
+
+   Megatron：优化器私有的 $$1/N_d$$ 拷贝，$$2 + 4 + 12/N_d$$（默认 fp32 梯度）；DeepSpeed ZeRO-3：优化器的扁平 fp32 分区，$$(16 或 18)/N_d$$ 加临时层；torchtitan：fp32 分片本身就是主参数，$$16/N_d$$ 加临时的 bf16 unshard 参数。
+
+   </details>
+
+2. Megatron 的分布式优化器每 step 做哪两次通信？哪一次能重叠、与什么重叠？
+
+   <details markdown="1"><summary>答案</summary>
+
+   反向时 bucket 满了 reduce-scatter 梯度（与后续层的反向重叠）；`step` 后 all-gather 更新过的 bf16 参数回 buffer（与下一步的前向重叠）。合计 $$2N$$。
+
+   </details>
+
+3. DeepSpeed ZeRO-3 的“参数协调器”做什么？trace 预取解决了什么问题？
+
+   <details markdown="1"><summary>答案</summary>
+
+   在 module 的 pre-forward / pre-backward hook 里 all-gather 即将用到的参数、post hook 里释放；第一步记录 module 的执行顺序（trace），之后按顺序提前 all-gather 下一个 module 的参数——把通信藏在当前 module 的计算后面，否则每层都要停下等参数。
+
+   </details>
+
+4. FSDP1 的 `FlatParameter` 与 FSDP2 的每参数 DTensor 通信次数相同，差别在哪？
+
+   <details markdown="1"><summary>答案</summary>
+
+   表示：FSDP1 把一层拍平成一个大 Tensor，用户看不到原始参数（优化器、checkpoint、TP 组合都要特殊处理）；FSDP2 每个参数仍是独立的 DTensor（`Shard(0)`），能与 TP 的 DTensor、DCP、`torch.compile` 直接组合——通信量同，可组合性质变。
+
+   </details>
+
+5. torchtitan 里模型为什么先在 meta 设备上构造？`parallelize` 之后的 `to_empty` 做什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   meta 设备只有形状没有存储，405B 的模型也能瞬间“构造”出来而不占内存；`parallelize` 用 `distribute_tensor` / `fully_shard` 决定每个参数怎么切；`to_empty` 才在真实设备上按切好的分片形状分配内存，再 `init_weights`——避免先在单卡上物化完整模型。
+
+   </details>
 
 
 ## 下一篇

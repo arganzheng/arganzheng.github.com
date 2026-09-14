@@ -5,6 +5,7 @@ title: "大规模训练工程（02）：并行策略全景——每种并行切�
 subtitle: "A Map of Parallelism: Which State Does Each Strategy Shard"
 tags: [Megatron, DeepSpeed, torchtitan, Distributed Training, Parallelism, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 上一篇算出了一个数字：混合精度 + Adam 下，每个参数在训练时要占 16 字节。一个 70B 的模型光是参数、梯度和优化器状态就是 1.13 TB，还没算激活；405B 是 6.5 TB。任何一张 80 GB 的卡都放不下其中的零头。所以这些字节必须被切开放到很多卡上——**怎么切**，就是并行策略的全部内容。
@@ -989,6 +990,56 @@ llama3-70b: tp=1 cp=1 pp=1 dp=1024 ep=1 zero=3 sp=True mb=1 m=1 -> 1024 GPUs
 这个脚本给出的是**每卡显存与通信量**，还没有时间。把通信量换成时间需要链路带宽与重叠效率，把气泡率换成 MFU 需要 micro-batch 大小与重计算策略——这些是第四篇的内容。而在此之前，先要看清三个框架各自是怎么把本篇的每一行变成代码的。
 
 > **一个 bf16 参数在 Megatron-LM、DeepSpeed、torchtitan 里各自存在哪里、什么时候被 all-gather、什么时候被释放、它的 fp32 主副本在哪张卡上？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+把每种并行看成**状态的放置方案**：四种状态（参数、梯度、优化器状态、激活）各选复制还是切分，每个“切”对应一种通信、一个时机、一条链路。**DP 系**（同一参数的副本之间分工）：DP 什么都不切、每 step 通信 $$2N$$（梯度 all-reduce = reduce-scatter + all-gather），与卡数无关、可与反向重叠；ZeRO-1 切优化器状态、ZeRO-2 再切梯度，通信仍 $$2N$$；ZeRO-3 / FSDP 切参数，前向要 all-gather，通信 $$3N$$（不 reshard 回到 $$2N$$）——通信在 DP 组上，可放节点间，能重叠（第二、三章）。**模型并行系**（一份模型怎么切）：TP 列切 + 行切配对，每层前向 2 次反向 2 次 all-reduce、载荷是激活 $$sbh$$，在关键路径上不可重叠，所以锁在 NVLink 内、$$N_t \le 8$$；SP 把它拆成 all-gather + reduce-scatter 顺便切层边界激活；CP 切序列，attention 用 ring 传 KV，GQA 下 KV 小所以通信可重叠、可跨节点；PP 按层切，通信最小（层边界激活、点对点、可重叠），代价是气泡 $$\frac{p-1}{m}$$，1F1B 降激活、interleaved 降气泡、zero-bubble 用 $$W$$ 填缝；EP 切专家，每层 all-to-all、载荷 token × $$k$$ × $$h$$、$$N_e(N_e - 1)$$ 条流、在关键路径上（第四至八章）。**放哪一层**：通信不可重叠且量大的放最近（TP 节点内），可重叠的可以放远（DP、PP 节点间），组合顺序 TP → CP → PP → DP，物理 rank 排布把 PP 放最远（Megatron 默认 `tp-cp-ep-dp-pp`）。Llama 3 405B 的 TP 8 / PP 16 / DP 128 每 step：TP 220 GB 走 NVLink、DP 12.6 GB 走 IB、PP 1 GB 走 IB——三个数字就是这套规则的结果（第九章）。
+
+</details>
+
+
+## 九、自测
+
+1. DP、ZeRO-1、ZeRO-2、ZeRO-3 各切什么？每 step 的通信量各多少（以参数量 $$N$$ 计）？
+
+   <details markdown="1"><summary>答案</summary>
+
+   DP 不切，$$2N$$；ZeRO-1 切优化器状态，$$2N$$；ZeRO-2 再切梯度，$$2N$$（all-reduce 本来就是 RS + AG）；ZeRO-3 再切参数，$$3N$$（前向 AG $$N$$ + 反向 AG $$N$$ + RS $$N$$；省掉了优化器后的 AG）。显存分别是 16、$$4 + 12/N_d$$、$$2 + 14/N_d$$、$$16/N_d$$ 字节 / 参数。
+
+   </details>
+
+2. TP 为什么必须锁在节点内、$$N_t \le 8$$？SP 改变了什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   TP 的 all-reduce 在每层的关键路径上（下一层要等结果），不可与计算重叠，且载荷 $$sbh$$ 每层 4 次——只有 NVLink 的带宽与延迟扛得住；跨节点走 IB 每层几十 µs × 4 × 80 层就是几十 ms。SP 把 all-reduce 拆成 all-gather + reduce-scatter，通信量不变，但层边界的激活（LayerNorm、dropout）也被切成 $$1/N_t$$。
+
+   </details>
+
+3. PP $$p = 8$$、micro-batch 数 $$m = 16$$：气泡占理想时间的多少？interleaved $$v = 4$$ 呢？代价是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$\frac{p-1}{m} = 7/16 = 44\%$$（占总时间 $$7/23 = 30\%$$）；interleaved $$\frac{p-1}{vm} = 7/64 = 11\%$$；代价是 P2P 通信次数乘 $$v$$、每个 virtual stage 更小。
+
+   </details>
+
+4. Llama 3 405B 用 TP 8 / PP 16 / DP 128，每 step 三个维度的通信量各约多少、走哪条链路？为什么这样放？
+
+   <details markdown="1"><summary>答案</summary>
+
+   TP 约 220 GB 走 NVLink（不可重叠、量大、节点内）；DP 约 12.6 GB 走 IB（可与反向重叠）；PP 约 1 GB 走 IB（点对点、可重叠、最少）。规则：不可重叠且量大的放最近，可重叠的放远。
+
+   </details>
+
+5. 为什么长上下文用 CP 而不是把 TP 开更大？GQA 在这里起什么作用？
+
+   <details markdown="1"><summary>答案</summary>
+
+   TP 切的是隐藏维，序列长 $$s$$ 不变、每卡激活仍随 $$s$$ 增长，且 $$N_t \le 8$$ 已到顶；CP 切序列，每卡只有 $$s / N_c$$ 的激活。CP 的通信是传 KV（ring attention），GQA 让 KV 只有 Q 的 1/4–1/8，Llama 3 CP = 16 只多 47 GB 可重叠的 IB 通信。
+
+   </details>
 
 
 ## 下一篇

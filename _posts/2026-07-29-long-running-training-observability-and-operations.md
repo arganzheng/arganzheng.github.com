@@ -5,6 +5,7 @@ title: "大规模训练工程（08）：长时训练的可观测与运维——�
 subtitle: Observability and Operations for Long-Running Training
 tags: [PyTorch, Megatron, torchtitan, Observability, Distributed Training, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 > **更新 @2026-09-06**：本文 torchtitan 部分基于 v0.3.0 刷新；其余源码引用仍以 PyTorch 2.13.0 / Megatron Core 0.18.0 为准。
@@ -131,6 +132,7 @@ DeepSpeed 这一列后文不再展开：它的计时与监控概念与 Megatron 
 | 六 | 运维流程 | 开训检查清单 · 值班手册 · 复盘模板 |
 | 七 | 成本视角 | GPU 小时的换算 · 用它排优先级 |
 | 八 | 本文小结 | 要点 · 源码位置 · train-ledger 的 dash/ 与 `runbook.md` · Flight Recorder hang 演练 |
+| 九 | 自测 | 5 道题 |
 | 九 | 系列总结 | 读者手上有什么 · 四条线 |
 
 
@@ -1285,3 +1287,53 @@ if __name__ == "__main__":
 3. **运维能力**：为一个持续数周的任务设计 checkpoint、容错、监控与告警方案，把有效训练时间维持在 90% 以上——第五到八篇，以及本篇的清单、手册与复盘。
 
 训练引擎围绕状态组织，这是总纲的第一句话，也是全系列的方法：任何一个训练系统的问题，先问"哪种状态、多少字节、在哪张卡、什么时候动"，答案就在四条线的交点上。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+十分钟内判断，靠三层指标在开训前就采集好。**任务层**（一份）：loss、grad norm、lr、token/s、MFU、step 时间与抖动、“step 是否前进”——最后一项是 hang 唯一可靠的信号；**进程层**（每 rank 一份）：每 rank 各阶段时间（前向 / 反向 / 优化器 / 通信等待）、`memory_stats`、数据队列深度；**硬件层**（每卡一份）：温度、功耗、时钟、XID、ECC、行重映射、链路错误（DCGM）（第二章）。**四个嫌疑各一个决定性指标**：straggler——Megatron Timers 的 minmax 或 torchtitan 每 rank JSONL 里某个 rank 的阶段时间远长于其他（`StragglerDetector`）；数据——`data_loading(%)` 或 profiler 里 GPU 空隙与 `__next__` 重合；通信——通信等待时间上升而计算时间不变，配合 IB 计数器；硬件降频——DCGM 的 `SM_CLOCK` 掉、温度 / 功耗触顶、或 XID 事件（第四、七章）。另两个常见嫌疑：显存碎片（`inactive_split_bytes` / `num_alloc_retries` 上升、step 时间锯齿）与日志爆量（stdout 字节数）。**采集分工**：TB / W&B 按 step 看曲线；Prometheus 按时间与 rank 告警；训练进程写每 rank JSONL、sidecar 暴露，避免千个抓取目标；`torchrun --log-dir/--tee/--local-ranks-filter` 管每 rank 日志，加一张 rank → host / GPU 映射表（第三、五章）。**如果是 hang 而不是慢**：Flight Recorder（2.13 默认开）在 watchdog 超时时经 TCPStore 通知全体 dump，`torchfrtrace` 给出 missing ranks / culprit；FR 报 “No errors found” 就转硬件路径（dmesg XID、DCGM、IB 计数器）；`py-spy dump --native` 只读无副作用，多数 rank 停在 wait、少数停在别处——少数是嫌疑人（第六章）。两份 trace 用 `mfu_breakdown` 做差是性能回归的最后一招。
+
+</details>
+
+
+## 九、自测
+
+1. 为什么“step 是否前进”是 hang 唯一可靠的信号？loss 曲线不行吗？
+
+   <details markdown="1"><summary>答案</summary>
+
+   hang 时没有任何错误、没有新日志、GPU 利用率可能仍是 100%（kernel 自旋等通信）——所有指标都“停在最后一个值”而不是变坏；只有 step 计数不再增加是确定的。loss 曲线只是不更新，与“正常但慢”无法区分。
+
+   </details>
+
+2. step 时间 12 s → 40 s，先看哪四个指标排除四个嫌疑？
+
+   <details markdown="1"><summary>答案</summary>
+
+   straggler：各 rank 阶段时间的 minmax（某 rank 远慢）；数据：`data_loading(%)` 或 GPU 空隙 ∩ `__next__`；通信：通信等待时间上升、IB 计数器；降频：DCGM `SM_CLOCK` / 功耗 / 温度。再加碎片（`inactive_split_bytes`、`num_alloc_retries`）与日志量（stdout 字节数）。
+
+   </details>
+
+3. Megatron Timers 的 `max` / `minmax` / `all` 三种日志级别各给什么？为什么 minmax 是 straggler 的第一道探测？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `max`：各阶段所有 rank 的最大时间；`minmax`：最小与最大；`all`：每 rank 一行。最大与最小差距大就说明有 rank 拖后腿——一行数字、零成本，比每 rank trace 便宜得多。
+
+   </details>
+
+4. Flight Recorder 在 PyTorch 2.13 默认开了什么？还需要你做什么？它发现不了什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   默认 `TORCH_FR_BUFFER_SIZE=2000`、`TORCH_NCCL_DUMP_ON_TIMEOUT=true`、`ENABLE_MONITORING=true`；要做：把 `TORCH_FR_DUMP_TEMP_FILE` 指到可收集的路径、缓冲加到 2 万、`ASYNC_ERROR_HANDLING` 保持 3。它只看通信层面的不一致，硬件故障、数据 hang 表现为 “No errors found”。
+
+   </details>
+
+5. 千卡训练为什么不让 Prometheus 直接抓每个 rank？推荐的分工是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   一千个抓取目标 + 每个几百个指标，抓取本身成为负载且目标随重启变化；训练进程只写本地 JSONL（每 rank 一份），节点级 sidecar 汇总暴露一个 endpoint；Prometheus 按时间与 rank 告警，TB / W&B 按 step 看曲线，各管一头。
+
+   </details>

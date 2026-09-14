@@ -5,6 +5,7 @@ title: "大规模训练工程（04）：千卡配置实战——并行搭配、m
 subtitle: "Configuring a Thousand-GPU Job: Parallelism, Micro-batch, Recompute and MFU"
 tags: [Megatron, torchtitan, Distributed Training, MFU, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 > **更新 @2026-09-06**：本文 torchtitan 部分基于 v0.3.0 刷新；其余源码引用仍以 PyTorch 2.13.0 / Megatron Core 0.18.0 为准。
@@ -146,6 +147,7 @@ DeepSpeed 这一列后文不再展开：它的配置面是 JSON，概念与 Mega
 | 七 | 融合、低精度与编译 | TE FP8 · 融合 kernel · `torch.compile` per-block 与 FSDP2/TP 的兼容 · CUDA Graph |
 | 八 | 配置纪律 | 版本控制 · 前后基准 · 变更留痕 |
 | 九 | 本文小结 | 要点 · 源码位置 · train-ledger 的 sweep/ 与 `mfu_breakdown.py` · 外推到 1024 卡 |
+| 十 | 自测 | 5 道题 |
 
 
 ## 二、从规格推配置：70B / 1024 H100 的完整推导
@@ -854,6 +856,56 @@ for cfg in (ParallelConfig(tp=8, pp=4, dp=32, zero_stage=1, micro_batch=1, num_m
 配置能算出来、能跑满，只解决了"怎么配、怎么跑满"。接下来是"怎么跑一个月不倒"：第一件事是把这 1.27 TB 的状态安全地写到磁盘上，而且不能让 1024 张卡停下来等。
 
 > **一个 405B 模型、6 TB 状态的 checkpoint，同步写要停训练几分钟？异步写代价是什么？故障后剩 15 个节点而不是 16 个，能不能直接加载？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**推导顺序** TP → PP → DP → CP。TP 锁在 NVLink 域：TP 8、开 SP。PP 要放下 $$N/(t \cdot p)$$ 的参数与在途激活并压气泡：候选 A TP8 / PP4（$$v = 4$$）/ DP32，$$b = 1$$、$$m = 16$$，气泡 4.7%，每卡约 49 GB 不重计算；候选 B TP8 / PP2（$$v = 4$$）/ DP64，$$m = 8$$，约 62 GB。DP 用满剩下的卡；每卡 token 少（4096）时选 ZeRO-1 不选 FSDP——FSDP128 每 step 每卡约 175 GB 节点间通信、3.5 s，压不住。$$s = 8192 < 32$$K 不开 CP（第二、三章）。**micro-batch**：$$B = d \cdot b \cdot m$$，$$b$$ 小 GEMM 效率差、$$b$$ 大气泡大，通常 1 或 2；PP 下 $$m$$ 既是 micro-batch 数也是梯度累积步（第四章）。**重计算**：先确认放不下再开；全量 +33% FLOP 省 94% 激活，选择性在 FlashAttention 下几乎不省，“差一点”时按层重计算最经济——候选 A 不需要（第五章）。**预期 MFU**：理论 2.0 s / step，目标 42% ≈ 4.75 s ≈ 88 万 token/s（第六章）。**32% 缺的 10 个点**：七项拆解——气泡、未重叠的通信、重计算、数据等待、kernel 效率、CPU 发射、straggler——一份 trace 测前六项、多 rank 测第七项；经验分布：配置错误约 6 个点（重叠没开、bucket 太大、多余同步、SM 争抢、CPU 发得晚——先修）、硬件约 2 个点（降频、坏卡，隔离）、结构约 0.5（布局）、管线约 0.5（第七篇）（第七、八章）。FP8 只快 GEMM、step 时间降 20–25%；融合是无风险基线；compile 顺序 TP → AC → compile → FSDP；纪律：配置进 git、改一个变量、前后各 100 step 基准 + trace（第九、十章）。
+
+</details>
+
+
+## 十、自测
+
+1. 70B、1024 卡、TP8 / PP4 / DP32、global batch 4M token、$$s = 8192$$、$$b = 1$$：$$m$$ 是多少？气泡率多少（$$v = 4$$）？
+
+   <details markdown="1"><summary>答案</summary>
+
+   每 step 4M / 8192 = 512 条序列，DP32 每路 16 条，$$b = 1$$ 所以 $$m = 16$$；气泡 $$\frac{p-1}{vm} = 3/64 = 4.7\%$$。
+
+   </details>
+
+2. 同样 1024 卡为什么不用 FSDP128 代替 PP？数字说话。
+
+   <details markdown="1"><summary>答案</summary>
+
+   每卡每 step 只有 4096 个 token（4M / 1024），FSDP 每 step 每卡要 all-gather + reduce-scatter 约 $$3N/N_d \times N_d$$ = 175 GB 的节点间通信，约 3.5 s——比计算时间还长、无法藏在计算后面；PP 的通信只有层边界激活约 1 GB。每卡 token 少时选 ZeRO-1，不选 FSDP。
+
+   </details>
+
+3. 全量重计算、选择性重计算、按层重计算各省多少激活、多花多少 FLOP？什么时候该用哪个？
+
+   <details markdown="1"><summary>答案</summary>
+
+   全量：+33% FLOP，省 94% 激活；选择性（只重算注意力分数）：FlashAttention 下分数矩阵本来就不物化，几乎不省；按层 $$N$$：重算前 $$N$$ 层，线性可调，“差一点放不下”时最经济。原则：先确认放不下再开。
+
+   </details>
+
+4. DP 的通信重叠只在什么时候发生？TP 的重叠靠什么、前提是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   DP：梯度 bucket 的 reduce-scatter 与反向重叠、参数 all-gather 与下一前向重叠，且只在最后一个 micro-batch（之前的 micro-batch 只累积梯度不通信）；TP：分块流水（TE userbuffers / async TP）把 all-gather 或 reduce-scatter 与 GEMM 分块交错，前提是开 SP。
+
+   </details>
+
+5. FP8 训练让 step 时间降多少？为什么不是 2 倍？CUDA Graph 治什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   GEMM 快约 2 倍但 GEMM 只占 step 的一部分（attention、通信、逐元素、气泡不变），step 时间降 20–25%；CUDA Graph 只消除 CPU 发射开销，对 GPU 已经饱和的大模型训练收益小，对小 micro-batch / 小模型有效。
+
+   </details>
 
 
 ## 下一篇
