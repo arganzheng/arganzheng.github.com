@@ -5,6 +5,7 @@ title: "深度学习基础（06）：RNN——从 LSTM 到 attention 的诞生"
 subtitle: "RNN: Backpropagation Through Time, the LSTM Gate as a Residual Path, and How Attention Was Born from the seq2seq Bottleneck"
 tags: [AI, Deep Learning, LLM]
 catalog: true
+updated: 2026-09-14
 ---
 
 Attention 不是为 Transformer 发明的。2014 年它被加到一个循环神经网络的翻译模型上，目的很具体：encoder 把整句话压进一个固定长度的向量，句子长了向量装不下，翻译质量随句长下降——attention 让 decoder 每生成一个词都回头看 encoder 的全部隐状态，绕过这个瓶颈。三年后 Vaswani 等发现，有了 attention 之后循环本身可以不要了。
@@ -120,7 +121,35 @@ o_t &= \sigma(W_o [h_{t-1}, x_t] + b_o), \quad h_t &= o_t \odot \tanh(c_t) &&\te
 \end{aligned}
 $$
 
-四组权重（$$f, i, c, o$$），每组 $$d \times 2d$$，参数量是 vanilla RNN 的 4 倍。GRU（Cho 等 2014）合并成两个门、去掉独立的细胞状态，参数 3 倍，效果相近。
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 160}}}%%
+flowchart LR
+    CP["c_{t−1}"] --> MF(("⊙"))
+    F["f_t = σ(·)
+遗忘门"] --> MF
+    MF --> ADD(("+"))
+    I["i_t = σ(·)
+输入门"] --> MI(("⊙"))
+    CT["c̃_t = tanh(·)
+候选信息"] --> MI
+    MI --> ADD
+    ADD --> C["c_t"]
+    C --> TH["tanh"] --> MO(("⊙"))
+    O["o_t = σ(·)
+输出门"] --> MO
+    MO --> H["h_t"]
+    IN["[h_{t−1}, x_t]"] --> F
+    IN --> I
+    IN --> CT
+    IN --> O
+
+    classDef cell fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
+    classDef gate fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class CP,MF,ADD,C cell
+    class F,I,O,CT gate
+```
+
+黄色是细胞状态 $$c$$ 走的那条路：从 $$c_{t-1}$$ 到 $$c_t$$ 只经过一次逐元素乘（遗忘门）和一次加法，没有矩阵乘、没有 tanh——下一节说它为什么就是残差。四组权重（$$f, i, c, o$$），每组 $$d \times 2d$$，参数量是 vanilla RNN 的 4 倍。GRU（Cho 等 2014）合并成两个门、去掉独立的细胞状态，参数 3 倍，效果相近。
 
 ### 2. 细胞状态的更新式就是残差
 
@@ -175,6 +204,21 @@ e_{kj} = v_a^T \tanh(W_a h_j^{enc} + U_a s_{k-1}), \qquad
 \alpha_{kj} = \frac{\exp(e_{kj})}{\sum_{j'} \exp(e_{kj'})}, \qquad
 c_k = \sum_j \alpha_{kj}\, h_j^{enc}
 $$
+
+```text
+固定向量（Sutskever 2014）                        attention（Bahdanau 2014）
+
+x_1 → x_2 → x_3 → x_4                            x_1 → x_2 → x_3 → x_4
+ │     │     │     │                              │     │     │     │
+h_1 → h_2 → h_3 → h_4                            h_1   h_2   h_3   h_4    全部保留
+                   │                              ╲     ╲   ╱    ╱
+                   ▼  整句压成一个 d 维向量           α_k1  α_k2 α_k3 α_k4   每步算一组权重
+                  s_0 → s_1 → s_2 → s_3                ╲   │   ╱
+                   │     │     │     │                    c_k = Σ_j α_kj h_j
+                  y_1   y_2   y_3   y_4                     │
+                                                    s_{k-1} ─┴─→ s_k → y_k
+decoder 只能从 h_4 里挖信息                       decoder 每一步直接看到源句每个位置
+```
 
 $$s_{k-1}$$ 是 decoder 的当前状态，$$e_{kj}$$ 是"生成第 $$k$$ 个词时第 $$j$$ 个源词有多相关"的打分，softmax 变成权重，$$c_k$$ 送进 decoder 的下一步。瓶颈消失了：decoder 每一步能直接取到源句任何位置的信息，路径长度从 $$O(T)$$ 变成 1。
 

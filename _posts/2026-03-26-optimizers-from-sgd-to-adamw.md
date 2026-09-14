@@ -5,6 +5,7 @@ title: "深度学习基础（03）：优化器——从 SGD 到 AdamW 与学习�
 subtitle: "Optimizers: From SGD to AdamW, Warmup, Clipping and the Batch-Learning-Rate Scaling Rule"
 tags: [AI, Deep Learning, LLM]
 catalog: true
+updated: 2026-09-14
 ---
 
 打开任何一份 LLM 技术报告的训练配置，会看到同一组数字：AdamW，$$\beta_1 = 0.9$$，$$\beta_2 = 0.95$$，weight decay 0.1，梯度裁剪 1.0，warmup 2000 步，cosine 衰减到峰值的 10%。这组数字从 GPT-3 到 Llama-3 几乎没变过，以至于很少有人再问它们是从哪来的。本篇把每一个数字拆开：它在公式里的位置、它解决的问题、改了会怎样、以及为什么优化器状态要占每参数 8 字节。
@@ -27,6 +28,38 @@ catalog: true
 | Adam | $$\Delta\theta = -\eta\, \hat m / (\sqrt{\hat v} + \epsilon)$$ | 每个参数自己的步长尺度：更新量 $$\approx \eta$$ 而与梯度大小无关 | 每参数 8 字节状态；初期估计不准 | 四 |
 | Weight decay | $$\theta \leftarrow \theta - \eta\lambda\theta$$ | 参数范数的平衡点 | 与 $$L_2$$ 在 Adam 下不等价 | 五 |
 | 调度与裁剪 | $$\eta_t$$ 随 $$t$$ 变；$$g \leftarrow g \cdot \min(1, c / \|g\|)$$ | 步长随时间的形状；步长的上界 | 多几个超参数 | 六、七 |
+
+五个部件在一步 AdamW 更新里的位置——梯度进来，经过裁剪、两个矩、调度后的学习率，最后与一条**不经过任何矩**的 weight decay 支路相加：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 200}}}%%
+flowchart LR
+    G["梯度 g_t"] --> C["裁剪
+g ← g · min(1, c/‖g‖)"]
+    C --> M["`**一阶矩 m**
+m ← β₁m + (1−β₁)g
+（Momentum：方向）`"]
+    C --> V["`**二阶矩 v**
+v ← β₂v + (1−β₂)g²
+（每参数的尺度）`"]
+    M --> D["m̂ / (√v̂ + ε)
+量级 ≈ 1，与 g 大小无关"]
+    V --> D
+    D --> LR["× η_t
+（warmup / cosine / WSD）"]
+    TH["参数 θ"] --> WD["`**weight decay**
+η_t · λ · θ`"]
+    LR --> UPD(("−"))
+    WD --> UPD
+    UPD --> NEW["θ_new"]
+
+    classDef st fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
+    classDef sched fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class M,V st
+    class LR,WD sched
+```
+
+黄色是两份与参数同形的状态（每参数 8 字节，第八章的账）；weight decay 那条路直接从 $$\theta$$ 出发绕过了矩的归一化——这正是 AdamW 与"在 loss 里加 $$L_2$$"的区别（第五章），后者的 $$\lambda\theta$$ 会混进 $$g$$ 再被 $$\sqrt{v}$$ 除掉。
 
 ### 2. 本文的章节安排
 
@@ -182,6 +215,19 @@ $$\eta = 10^{-2}$$ 不加 warmup 时，前 100 步里 loss 冲到 4.59——高�
 **Cosine**：$$\eta_t = \eta_{min} + \frac{1}{2}(\eta_{max} - \eta_{min})(1 + \cos(\pi t / T))$$，平滑地从峰值降到 $$\eta_{min}$$，通常取峰值的 10%（Llama、GPT-3）而不是 0——降到 0 的最后一段几乎不学东西。缺点是必须预先知道总步数 $$T$$，中途想多训一会儿就要重新规划。
 
 **WSD**（warmup-stable-decay，Hu 等 2024 MiniCPM）：warmup 后在峰值**保持恒定**，最后 10–20% 的步数快速衰减。恒定阶段可以随时延长、从任意点分叉出一个衰减段得到一个可用的模型，对"训到什么时候停"不确定的预训练更灵活；实验表明最终 loss 与 cosine 相当或更好。Llama-3 之后的一些模型用它或它的变体。
+
+```text
+ η   cosine（要预先知道 T）                     η   WSD（恒定段可随时延长）
+峰值 ┤   ╭╮                                  峰值 ┤   ╭─────────────────────╮
+     │  ╱  ╲                                      │  ╱                       │
+     │ ╱    ╲                                     │ ╱                        │
+     │╱      ╲                                    │╱                         │
+     │        ╲                                   │                          │
+     │         ╲_                                 │                          │
+ 10% ┤           ╲___________                 10% ┤                          ╲
+   0 ┼──┬────────────────────────┬──► t         0 ┼──┬─────────────────────┬──┬──► t
+     warmup                      T                 warmup            衰减开始   T
+```
 
 两者共同的经验：**衰减阶段才是 loss 大幅下降的阶段**——恒定学习率下 loss 在一个由噪声决定的水平上震荡，学习率一降噪声就小，loss 立刻掉下去。看到 loss 曲线在衰减开始处有个明显的下折，是正常的。
 

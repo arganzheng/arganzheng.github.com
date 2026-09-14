@@ -5,6 +5,7 @@ title: "深度学习基础（02）：训练为什么不稳定——初始化、�
 subtitle: "Why Deep Training Is Unstable: Variance Propagation, Initialization, Normalization and Residual Connections"
 tags: [AI, Deep Learning, LLM]
 catalog: true
+updated: 2026-09-14
 ---
 
 上一篇的两层网络怎么训都能训。把它加深到 64 层，同样的代码会出现四种结局：loss 停在 $$\ln 10$$ 一步不动；第三步变成 NaN；能动但慢得像没训；正常收敛。四种结局对应的网络只差三样东西——权重初始化的标准差、有没有归一化层、有没有残差连接——而这三样东西恰好是 1990 年代到 2016 年深度学习解决"深了就训不动"这个问题的三步。
@@ -25,6 +26,33 @@ $$L$$ 层网络的前向是 $$L$$ 个函数的复合，反向是 $$L$$ 个 Jacob
 | 初始化（Xavier / Kaiming） | 让每个因子在初始时刻的期望为 1 | 初始时刻前向方差、反向方差不爆不消 | 训练开始后因子偏离 1；因子的随机波动累积 |
 | 归一化（BN / LN / RMSNorm） | 每层前向后强制把方差拉回 1 | 前向方差在整个训练过程中受控；对权重尺度不敏感 | 反向仍是连乘；64 层无残差的网络加了 LN 仍几乎训不动 |
 | 残差连接 | 把每层的 Jacobian 从 $$J$$ 变成 $$I + J$$ | 梯度有一条恒等通路，不再随深度指数衰减 | 残差流方差随深度增长——需要归一化或缩放配合 |
+
+三处修补各动在这条链的哪一环，画出来更清楚——初始化只管 $$t = 0$$ 时每个因子的大小，归一化在每层前向之后把方差拉回 1，残差把反向的每个因子从 $$J$$ 换成 $$I + J$$：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 220}}}%%
+flowchart LR
+    subgraph FWD["前向：方差的连乘  Var(h_L) = Var(x) · ∏ 因子"]
+        direction LR
+        X["x"] --> W1["W₁ ·"] --> N1["Norm"] --> W2["W₂ ·"] --> N2["Norm"] --> DOTS["…"] --> HL["h_L"]
+    end
+    subgraph BWD["反向：Jacobian 的连乘  ∂L/∂x = ∏ (I + J_l)"]
+        direction RL
+        GL["∂L/∂h_L"] --> J2["(I + J₂)"] --> J1["(I + J₁)"] --> GX["∂L/∂x"]
+    end
+    INIT["`**初始化**
+让 W_l 的因子在 t=0 时期望为 1`"] -.-> W1
+    INIT -.-> W2
+    NORM["`**归一化**
+每层之后把方差拉回 1`"] -.-> N1
+    NORM -.-> N2
+    RES["`**残差**
+每个因子多一项 I`"] -.-> J1
+    RES -.-> J2
+
+    classDef fix fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
+    class INIT,NORM,RES fix
+```
 
 三者是叠加的：当前的 LLM 三样都用，缺任何一样都会在某个深度上出问题。第九章的实验把七种组合放在同一个 64 层网络上，结果与这张表一一对应。
 
