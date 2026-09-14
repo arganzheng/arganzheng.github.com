@@ -778,8 +778,6 @@ inline at::Tensor PythonArgs::tensor(int i) {
 
 精确类型匹配时只是一次指针比较加一次 `intrusive_ptr` 拷贝。pybind11 的泛化机制（两轮 caster 尝试、`py::object` 中间对象）在这个热路径上开销明显。
 
-6. **历史。** `THP` 前缀是 "TorcH Python" 的缩写，这套 C API 绑定早于 pybind11 进入 PyTorch。
-
 `python_arg_parser.h` 文件头的注释描述了它的用法：
 
 ```cpp
@@ -807,6 +805,8 @@ inline at::Tensor PythonArgs::tensor(int i) {
 ```
 
 签名字符串在第一次调用时解析一次（`static` 局部变量），之后每次调用只做匹配。这些 `python_*.cpp` 由第五篇讲的 `torchgen` 从 `native_functions.yaml` 生成，所以每个 `torch.xxx` 函数的 Python 绑定都是"一个 `PythonArgParser` + 一个 `dispatch_xxx` + `THPVariable_Wrap`"这个三件套。
+
+**6. 历史：这套绑定比 pybind11 进入 PyTorch 更早。** 前面五条解释的是"为什么不换"，这一条解释"为什么一开始就是这样"。PyTorch 的前身 Torch7 是 Lua 项目，底层张量库是纯 C 的 `TH`（TorcH）、`THC`（CUDA 版）、`THNN`；2016 年做 Python 前端时，团队在 `TH` 之上用 Python C API 手写了一层绑定，按同一命名法叫 `THP`——**TorcH Python**。本文里到处出现的 `THPVariable`、`THPVariable_Wrap`、`THPVariable_Unpack`、`THPDtype`、`THPStorage`，以及 `HANDLE_TH_ERRORS` 里的 `TH`，都是这个前缀的遗留。pybind11 是 2017 年之后随着 JIT、分布式等新模块引入的，新代码用它，但 `Tensor` 的绑定已经承载了元类、双向持有、GC、参数解析这几件事（第 1–5 条），重写的风险和收益完全不成比例，所以两条路线一直并存到今天。`TH`/`THC` 这些 C 库本身在 1.x 后期已被迁进 `aten/src/ATen/native/` 并删除，只有 `THP` 这个前缀留在了 `torch/csrc/` 里。
 
 ### 3. `THPVariable_Wrap`：C++ → Python
 

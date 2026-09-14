@@ -1098,14 +1098,3 @@ a2a_bench.py         all_to_all_single 等长 / 变长 / 两步 · 专家热点�
 3. **决策能力。** 为一个任务判断通信的理论上限、选择算法与传输路径、给平台提出拓扑与亲和的要求（每 GPU 一张网卡、GPU 与 NIC 同一 PCIe switch、同号 GPU 同一 rail、TP 不跨节点、EP 的节点数与 group routing 匹配、容器共享 IPC namespace、IBGDA 所需的驱动参数），并知道什么时候该自己写一个通信原语：消息小、节点内或对称 buffer 可达、地址固定、每步上百次、失败可整体重启——满足这些才值得，否则用 NCCL。
 
 通信层是单卡之外一切系统的底座，也是训练与推理两条路径唯一共享的一层。这个系列把它从 `dist.all_reduce(t)` 一行代码展开到 PCIe、NVLink、InfiniBand 上的每一段路，再收回到 vLLM 的两个 kernel、一次 RDMA READ、和 DeepEP 里一个 warp 写下的一条 WQE。展开是为了看清代价，收回是为了在正确的层上做决定。
-
-### 5. 系列目录
-
-1. [集合通信原语与代价模型：α-β 模型与 ring all-reduce](/collective-communication-primitives-and-cost-model.html)
-2. [硬件互联：PCIe、NVLink、NVSwitch 与网络拓扑](/hardware-interconnect-pcie-nvlink-and-topology.html)
-3. [RDMA 与 GPUDirect：绕过 CPU 和主机内存的数据通路](/rdma-and-gpudirect.html)
-4. [NCCL 架构：拓扑探测、channel、算法与协议](/nccl-architecture-topology-channels-algorithms-and-protocols.html)
-5. [PyTorch 的通信栈：ProcessGroupNCCL、stream 语义与计算通信重叠](/pytorch-communication-stack-processgroupnccl-and-streams.html)
-6. [nccl-tests、调优与排障：从带宽曲线到 hang](/nccl-tests-tuning-and-debugging-hangs.html)
-7. [推理侧的通信：custom all-reduce 与 KV 传输](/inference-communication-custom-all-reduce-and-kv-transfer.html)
-8. [MoE 的通信：all-to-all、DeepEP 与 GPU 发起的通信](/moe-communication-all-to-all-deepep-and-gpu-initiated.html)

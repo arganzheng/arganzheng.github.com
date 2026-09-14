@@ -131,7 +131,7 @@ DeepSpeed 这一列后文不再展开：它的计时与监控概念与 Megatron 
 | 六 | 运维流程 | 开训检查清单 · 值班手册 · 复盘模板 |
 | 七 | 成本视角 | GPU 小时的换算 · 用它排优先级 |
 | 八 | 本文小结 | 要点 · 源码位置 · train-ledger 的 dash/ 与 `runbook.md` · Flight Recorder hang 演练 |
-| 九 | 系列总结 | 读者手上有什么 · 四条线 · 系列目录 |
+| 九 | 系列总结 | 读者手上有什么 · 四条线 |
 
 
 ## 二、三层指标的采集
@@ -1285,16 +1285,3 @@ if __name__ == "__main__":
 3. **运维能力**：为一个持续数周的任务设计 checkpoint、容错、监控与告警方案，把有效训练时间维持在 90% 以上——第五到八篇，以及本篇的清单、手册与复盘。
 
 训练引擎围绕状态组织，这是总纲的第一句话，也是全系列的方法：任何一个训练系统的问题，先问"哪种状态、多少字节、在哪张卡、什么时候动"，答案就在四条线的交点上。
-
-**系列目录**
-
-- 总纲：[大规模训练工程：从并行策略到容错恢复](/large-scale-training-from-parallelism-to-fault-tolerance.html)
-
-1. [训练任务的状态解剖：显存账与 MFU](/training-state-anatomy-memory-and-mfu.html)
-2. [并行策略全景：每种并行切的是哪种状态](/parallelism-strategies-which-state-to-shard.html)
-3. [三个框架：Megatron-LM、DeepSpeed 与 torchtitan 的架构对比与源码导读](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html)
-4. [千卡配置实战：并行搭配、micro-batch、激活重计算与 MFU 调优](/thousand-gpu-configuration-and-mfu-tuning.html)
-5. [分布式 checkpoint：格式、异步保存与重分片恢复](/distributed-checkpoint-format-async-save-and-resharding.html)
-6. [容错与弹性：故障率数学、straggler、SDC 与弹性训练](/fault-tolerance-and-elastic-training.html)
-7. [训练稳定性与数据管线：loss spike、梯度范数、数据混合与流式加载](/training-stability-and-data-pipeline.html)
-8. [长时训练的可观测与运维：从指标到 hang 排查](/long-running-training-observability-and-operations.html)

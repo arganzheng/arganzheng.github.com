@@ -1230,19 +1230,3 @@ loss.backward()
 **扩展能力**——需要一个新算子、一个新的融合、一种新的并行策略时，知道要写哪三步、要注册哪几个 Key、要过哪几种 oracle、要放进哪个 CI 矩阵，以及怎样让它在下一个 PyTorch 版本上还能用。
 
 这三种能力的共同基础是一张地图：**从 Python 用户代码，经过 Autograd、Dispatcher、Kernel、编译器、运行时，到硬件和集群，每一层的职责、边界和代价**。十篇文章画的就是这张图。图画完了，剩下的是在真实系统里反复走它。
-
-
-### 4. 系列目录
-
-- [总纲：从 Tensor 到深度学习运行时](/deep-dive-into-pytorch.html)
-
-1. [PyTorch 整体介绍](/pytorch-overall-introduction.html)
-2. [Tensor 与内存布局](/pytorch-tensor-and-memory-layout.html)
-3. [自动求导与动态计算图](/pytorch-autograd-and-dynamic-computation-graph.html)
-4. [`nn.Module` 与训练系统](/pytorch-module-and-training-system.html)
-5. [Dispatcher 与算子系统](/pytorch-dispatcher-and-operator-system.html)
-6. [C++ 扩展与自定义算子](/pytorch-cpp-extension-and-custom-operators.html)
-7. [编译执行与图优化](/pytorch-compilation-and-graph-optimization.html)
-8. [性能优化与调试](/pytorch-performance-optimization-and-debugging.html)
-9. [分布式 PyTorch](/pytorch-distributed-training.html)
-10. PyTorch 的工程体系：一次改动如何安全地到达用户（本文）
