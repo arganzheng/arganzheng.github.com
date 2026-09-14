@@ -190,7 +190,7 @@ $$
 把上面的部件按 Hugging Face `tokenizers` 库的组织方式排一下，一个 tokenizer 是四段可替换的流水线：
 
 ```mermaid
-flowchart LR
+flowchart TB
     T["原始文本"] --> N["Normalizer<br/>NFC/NFKC、小写、去重音<br/>（byte-level BPE 通常为空）"]
     N --> P["Pre-tokenizer<br/>正则切段 + 字节映射"]
     P --> M["Model<br/>BPE / WordPiece / Unigram<br/>在每段内切成 token"]

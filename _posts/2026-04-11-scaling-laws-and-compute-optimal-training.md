@@ -336,7 +336,7 @@ $$
 Scaling law 首先是一种实验方法：用几个便宜的点决定一个昂贵的点。整个流程是：
 
 ```mermaid
-flowchart LR
+flowchart TB
     S["选定数据、tokenizer、结构族<br/>（全程固定）"] --> W["扫一组小模型<br/>N 跨 2–3 个数量级"]
     W --> H["每个尺寸单独调超参<br/>或用 μP 迁移"]
     H --> F["拟合 L(N, D) 或 N_opt(C)<br/>Huber 损失、对数空间"]
