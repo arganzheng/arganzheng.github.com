@@ -39,3 +39,9 @@ deep-learning-foundations:
 post-training:
   name: 后训练：从 SFT 到可验证奖励
   overview: /post-training-from-sft-to-verifiable-rewards.html
+efficient-inference:
+  name: 高效推理与压缩（算法侧）：解码、投机、量化与 KV
+  overview: /efficient-inference-and-compression-for-llms.html
+multimodal:
+  name: 多模态：从视觉编码器到扩散模型
+  overview: /multimodal-from-vision-encoders-to-diffusion.html

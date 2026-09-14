@@ -605,14 +605,29 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   block-buffered when redirected — the `expected/*.txt` only appears at exit.
   Future-dated posts need `jekyll serve --future --port 4001 -d /tmp/_site4001`
   + `SITE=http://localhost:4001 node tools/check-render.cjs <slug>` to verify.
+- Series `efficient-inference` (《高效推理与压缩（算法侧）》, L6, 6 posts) and
+  `multimodal` (《多模态：从视觉编码器到扩散模型》, L7, 7 posts), plus the
+  横切 导读 `experimental-methodology-for-ai-algorithm-engineers`, complete the
+  algorithm roadmap (written 2026-09-14, no labs — same "动手（建议）" rule as
+  post-training 2–8; numbers come from papers / tech reports only). L6 builds
+  on 04-07 (量化 / 投机 / LoRA 的账) and 04-03/04-04 (KV) and must not re-derive
+  them; L7 builds on 04-08 (多模态成本) and L3-05 (ViT). Both series link to
+  04 / L5 posts by design — the "series are independent" rule below applies to
+  the Infra series, whereas algorithm-map series cite each other through the
+  map's layer structure. L6 post 6 and L7 post 7 carry the 系列总结 (no
+  hand-written 目录). Time anchors: nothing later than 2025 (posts are dated
+  Apr–May 2026); model refs go up to Qwen2.5-VL / Gemma 3 / BAGEL / gpt-oss.
 - Post dates encode the reading order of the three roadmaps and were re-dated
   on 2026-09-14 (permalinks are `/:title.html`, so dates are free to move):
   01-01 《AI 全栈学习地图》(overview of the three, pinned) → 01-02 Infra 地图 →
   01-03 算法地图 → 01-04 应用地图 → Infra 01/02/03 (Jan–Mar, shared 前置) →
   算法 L0–L3 (03-20 … 03-29) → 04 Transformer 与 LLM (04-01 … 04-13, shared L4)
-  → 后训练 (04-15 … 04-23) → Infra 05–10 (05-06 … 09-15). Keep a series
-  contiguous (daily posts are fine); do not interleave two maps' series except
-  at the shared 04 series. Roadmaps link forward to series published later —
+  → 后训练 (04-15 … 04-23) → 横切 实验方法论 (04-24, one 导读) → L6
+  高效推理与压缩 (04-25 overview, 04-26 … 05-01) → L7 多模态 (05-02 overview,
+  05-03 … 05-09) → Infra 05–10 (GPU Kernel was moved from 05-06…05-30 to
+  05-10 … 05-20 on 2026-09-14 to make room; 通信 starts 06-01 unchanged, … 09-15).
+  Keep a series contiguous (daily posts are fine); do not interleave two maps'
+  series except at the shared 04 series. Roadmaps link forward to series published later —
   that is the established convention. Series 收尾篇 must NOT carry a
   hand-written 「系列目录」: the layout generates it from `series:`.
 - Cite source as path + function/class name, never line numbers.

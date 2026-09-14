@@ -813,7 +813,7 @@ LoRA 额外 FLOPs（W_Q）               0.78%             0.39%             —
 
 核心问题的答案：INT4 模型 decode 快、prefill 慢，投机解码 batch 1 有效、batch 64 无效，是同一条 Roofline 上的同一件事——**两种方法都在兑现 memory-bound 区间里空转的算力，一个用省下的字节换时间，一个用多算的 FLOPs 换 token；一旦 batch（或 prompt 长度）把工作点推过 ridge，算力不再空转，两者的收益就同时消失。** 而 LoRA 站在训练这一侧，它省的不是算力也不是带宽，是每参数 16 字节的状态。
 
-到这里，文本 LLM 的成本模型已经完整：结构决定参数量、KV 与通信量，精度决定字节数，量化、投机解码与 LoRA 在不改结构的前提下改变计算形态。还剩一个前提没有动过——所有账都假设 token 来自 tokenizer。下一篇把输入换成图片：一张图先经过一个独立的 vision encoder，再变成几百到几千个 token 插进 prompt，它的算量花在哪里、这些 token 在 decoder 里的 KV 与文本 token 有没有区别，是本系列的最后一站。
+到这里，文本 LLM 的成本模型已经完整：结构决定参数量、KV 与通信量，精度决定字节数，量化、投机解码与 LoRA 在不改结构的前提下改变计算形态。本篇只算了它们的账；每种方法在最小化什么、输出分布改变了多少、草稿怎么训、KV 怎么压、剪枝怎么恢复，在算法地图的 L6 系列[《高效推理与压缩（算法侧）》](/efficient-inference-and-compression-for-llms.html)里展开。还剩一个前提没有动过——所有账都假设 token 来自 tokenizer。下一篇把输入换成图片：一张图先经过一个独立的 vision encoder，再变成几百到几千个 token 插进 prompt，它的算量花在哪里、这些 token 在 decoder 里的 KV 与文本 token 有没有区别，是本系列的最后一站。
 
 配套代码：[`transformer-and-llm/llm_cost_07_quant_specdec_lora.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_07_quant_specdec_lora.py)。
 

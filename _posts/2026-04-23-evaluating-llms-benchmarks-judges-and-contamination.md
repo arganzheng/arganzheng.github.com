@@ -381,6 +381,6 @@ flips = sum(judge(p, a, b) != swap(judge(p, b, a)) for p, a, b in pairs) / len(p
 
 三条线索走到终点：**推导线**从交叉熵到 Bradley-Terry、策略梯度、闭式解、规则奖励下的 GRPO、多轮的 mask、两种 KL、评测的统计——每个方法的目标函数都能写出来并解释每一项。**成本线**从 SFT 的几十 GPU 小时到 PPO 的四模型 288 GB、RLVR 的一步几亿 token、Agent RL 的几百 CPU 小时环境、蒸馏的十分之一——每个方法动手前能估出来。**配方线**从 InstructGPT 三步法到 Llama 3 的六轮、R1 的四阶段、Qwen3 的思考融合、K2 的合成环境——每个公开配方的每一步都能对到三件套上的一处改动。
 
-方法的名字还会增加。三件套的骨架、成本的算法、评测的纪律不会变。回到总纲：[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)。
+方法的名字还会增加。三件套的骨架、成本的算法、评测的纪律不会变。本篇的统计只是实验方法论的一角——怎么提一个可证伪的假设、怎么在小规模上得出能外推的结论、怎么控制随机性与记录复现，在算法地图的横切导读[《算法工程师的实验方法论》](/experimental-methodology-for-ai-algorithm-engineers.html)里。回到总纲：[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)。
 
 配套资料：第十一章的命令与代码可在 [ai-learning-labs/post-training](https://github.com/arganzheng/ai-learning-labs/tree/main/post-training) 第一篇的环境上运行（`lm_eval` 需另行安装）。

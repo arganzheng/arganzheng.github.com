@@ -17,7 +17,7 @@ catalog: true
 
 > **一个模型从数据到上线经过哪些阶段？每个阶段需要掌握什么？按什么顺序学？**
 
-这张地图描述的是**知识结构**，它把知识组织成八层加一个横切，每层说明回答什么问题、包含哪些概念、为什么放在那个位置。已经写成文章的部分：L0–L2 各有一篇导读（学到什么深度、在哪里用到、怎么检验），L3 是一个六篇的系列，L4 引用[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)（十二篇，后四篇是面向本层的预训练补篇）——它是两张地图的交点；L5 是[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)（八篇）。文章目录在[本文末尾](#已有的文章与系列)。
+这张地图描述的是**知识结构**，它把知识组织成八层加一个横切，每层说明回答什么问题、包含哪些概念、为什么放在那个位置。已经写成文章的部分：L0–L2 各有一篇导读（学到什么深度、在哪里用到、怎么检验），L3 是一个六篇的系列，L4 引用[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)（十二篇，后四篇是面向本层的预训练补篇）——它是两张地图的交点；L5 是[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)（八篇）；L6 是[《高效推理与压缩（算法侧）》](/efficient-inference-and-compression-for-llms.html)（六篇）；L7 是[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)（七篇）；横切的实验方法论是一篇[导读](/experimental-methodology-for-ai-algorithm-engineers.html)。文章目录在[本文末尾](#已有的文章与系列)。
 
 | 需要什么 | 具体是什么 |
 |---|---|
@@ -88,9 +88,9 @@ benchmark · LLM-as-judge · Arena
 | L3 | 深度学习基础 | 梯度怎么流？为什么深了就难训？CNN 与 RNN 各解决了什么、留下了什么？ | [系列（6 篇）](/deep-learning-foundations.html) |
 | L4 | LLM 核心 | Transformer 为什么赢？tokenizer、scaling law 与预训练数据各决定了什么？ | [04 系列（12 篇，共享；09–12 为预训练补篇）](/transformer-and-llm-for-infra-engineers.html) |
 | L5 | 后训练 | 一个基座模型怎么变成一个能对话、会推理、符合偏好的模型？怎么证明它变好了？ | [系列（8 篇）](/post-training-from-sft-to-verifiable-rewards.html) |
-| L6 | 高效推理与压缩（算法侧） | 不改硬件，怎么让同一个模型更快、更小、更便宜？ | 待写 |
-| L7 | 多模态 | 图片、视频、语音怎么进入语言模型？图像生成为什么是另一套数学？ | 待写 |
-| 横切 | 实验方法论 | 怎么用有限的算力得出可信的结论？ | 待写 |
+| L6 | 高效推理与压缩（算法侧） | 不改硬件，怎么让同一个模型更快、更小、更便宜？ | [系列（6 篇）](/efficient-inference-and-compression-for-llms.html) |
+| L7 | 多模态 | 图片、视频、语音怎么进入语言模型？图像生成为什么是另一套数学？ | [系列（7 篇）](/multimodal-from-vision-encoders-to-diffusion.html) |
+| 横切 | 实验方法论 | 怎么用有限的算力得出可信的结论？ | [导读](/experimental-methodology-for-ai-algorithm-engineers.html) |
 | 选修 | 系统内部 ｜ 应用层 | 推理引擎与训练框架怎么实现（→ Infra 地图）｜ Agent、RAG 怎么搭（→ 应用地图） | — |
 
 ### 两张图的叠加
@@ -213,19 +213,23 @@ benchmark · LLM-as-judge · Arena
 
 > **不改硬件，怎么让同一个模型更快、更小、更便宜？**
 
+系列：[《高效推理与压缩（算法侧）：解码、投机、量化与 KV》](/efficient-inference-and-compression-for-llms.html)（六篇）——解码策略与约束生成 · 投机解码 · 训练后量化 · QAT 与量化模型的评测 · KV cache 压缩 · 剪枝与小模型配方。每篇回答"输出分布变了多少、收益区间在哪、代价是什么"。
+
 推理优化分两半：**算法侧**改变模型或解码过程，**系统侧**改变调度与内存管理。这张地图只放前者；后者（PagedAttention、continuous batching、chunked prefill、PD 分离）是 Infra 地图 08 的主体，算法工程师只需知道它们存在、知道自己的模型结构对它们意味着什么（比如 MLA 让 KV 变小、MoE 让 batch 内的 GEMM 变碎）。
 
 | 主题 | 概念 | 在 04 系列 |
 |---|---|---|
-| 解码策略 | greedy、beam search、temperature、top-k / top-p / min-p、重复惩罚、结构化输出（约束解码）；采样对评测结果的影响 | — |
-| 投机解码 | 小模型起草、大模型验证、拒绝采样保证分布一致；期望接受长度；草稿来源：独立小模型、Medusa、EAGLE、MTP、n-gram | 第七篇给出数学与收益区间 |
-| 量化 | PTQ：GPTQ、AWQ、SmoothQuant、FP8、W4A16 vs W8A8；QAT；KV cache 量化；格式与工具：GGUF（llama.cpp）、bitsandbytes、AutoGPTQ / AutoAWQ——它们是**格式与实现**，不是新算法 | 第七篇给出原理与字节数；kernel 实现属于 Infra 地图 05 |
-| 结构级压缩 | 剪枝与结构化稀疏（2:4）、层裁剪与深度缩放、MLA 一类 KV 压缩结构、KV eviction（H2O、StreamingLLM） | 第三篇给出 KV 的账 |
-| 长上下文推理 | 位置外推方法的推理侧、稀疏 attention（NSA、MoBA）、上下文压缩 | 第四篇 |
+| 解码策略 | greedy、beam search、temperature、top-k / top-p / min-p、重复惩罚、结构化输出（约束解码）；采样对评测结果的影响 | L6 第一篇 |
+| 投机解码 | 小模型起草、大模型验证、拒绝采样保证分布一致；期望接受长度；草稿来源：独立小模型、Medusa、EAGLE、MTP、n-gram | 第七篇给出数学与收益区间；L6 第二篇讲草稿的训练与树 |
+| 量化 | PTQ：GPTQ、AWQ、SmoothQuant、旋转（QuaRot / SpinQuant）、FP8、W4A16 vs W8A8；QAT；KV cache 量化；格式与工具：GGUF（llama.cpp）、bitsandbytes、AutoGPTQ / AutoAWQ——它们是**格式与实现**，不是新算法 | 第七篇给出原理与字节数；L6 第三、四篇讲误差模型、QAT 与评测；kernel 实现属于 Infra 地图 05 |
+| 结构级压缩 | 剪枝与结构化稀疏（2:4）、层裁剪与深度缩放、MLA 一类 KV 压缩结构、KV eviction（H2O、StreamingLLM） | 第三篇给出 KV 的账；L6 第五、六篇 |
+| 长上下文推理 | 位置外推方法的推理侧、稀疏 attention（NSA、MoBA）、上下文压缩 | 第四篇；L6 第五篇 |
 
 ### L7 多模态
 
 > **图片、视频、语音怎么进入语言模型？图像生成为什么是另一套数学？**
+
+系列：[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)（七篇）——视觉编码器 · VLM 结构 · VLM 训练与评测 · 语音与全模态 · 扩散模型的数学 · Latent diffusion 与文生图配方 · 自回归图像生成与统一模型。
 
 多模态有两条几乎独立的线：**理解**（把其他模态送进 LLM）与**生成**（扩散模型）。前者是 LLM 的扩展，后者是另一套数学。
 
@@ -237,11 +241,13 @@ benchmark · LLM-as-judge · Arena
 | 生成 | 扩散模型 | 前向加噪与反向去噪、DDPM、DDIM 与采样加速、score matching 与 flow matching 的统一视角、classifier-free guidance；U-Net → DiT（扩散 Transformer）；VAE 与 latent diffusion；文本条件（CLIP / T5 文本编码器）；代表模型：Stable Diffusion 1.x / SDXL / SD3、FLUX；视频生成（Sora 一类，时空 patch） |
 | 生成 | 自回归生成与统一模型 | 图像 token 化（VQ-VAE）、自回归图像生成、理解与生成统一的模型 |
 
-VLM 的成本结构——一张图等于多少 token、encoder 与 decoder 各花多少、image token 的 KV——在 04 系列第八篇里算过。扩散模型的成本结构（无 KV cache、compute-bound、多步迭代）与 LLM 完全不同，两张地图都还没有为它单独写系列。
+VLM 的成本结构——一张图等于多少 token、encoder 与 decoder 各花多少、image token 的 KV——在 04 系列第八篇里算过；L7 系列讲这些成本背后的设计动机与训练配方。扩散模型的成本结构（无 KV cache、compute-bound、多步迭代）与 LLM 完全不同，L7 第六篇算了这笔账。
 
 ### 横切：实验方法论
 
 > **怎么用有限的算力得出可信的结论？**
+
+导读：[《算法工程师的实验方法论：用有限的算力得出可信的结论》](/experimental-methodology-for-ai-algorithm-engineers.html)——六步与六种错误、seed 方差与显著性、三个规模的外推规则、一份十七问的实验清单。
 
 这是算法工程师区别于"会调 API 的人"的核心能力，不属于任何一层，对每一层都适用：
 
@@ -297,8 +303,11 @@ VLM 的成本结构——一张图等于多少 token、encoder 与 decoder 各�
 | L3 | [深度学习基础：从反向传播到残差](/deep-learning-foundations.html) | 6 |
 | L4 | [Transformer 与 LLM：结构、算量与数值](/transformer-and-llm-for-infra-engineers.html)（与 Infra 地图共享；09–12 为预训练补篇） | 12 |
 | L5 | [后训练：从 SFT 到可验证奖励](/post-training-from-sft-to-verifiable-rewards.html) | 8 |
+| L6 | [高效推理与压缩（算法侧）：解码、投机、量化与 KV](/efficient-inference-and-compression-for-llms.html) | 6 |
+| L7 | [多模态：从视觉编码器到扩散模型](/multimodal-from-vision-encoders-to-diffusion.html) | 7 |
+| 横切 | [算法工程师的实验方法论：用有限的算力得出可信的结论](/experimental-methodology-for-ai-algorithm-engineers.html) | 1 |
 
-L0–L2 写成导读而不是系列：这三层有成熟的教材与课程，导读只回答"学到什么深度、在哪里用到、怎么检验学会了"。L3 起是原创系列。L6、L7 与横切待写。
+L0–L2 与横切写成导读而不是系列：这三层有成熟的教材与课程，导读只回答"学到什么深度、在哪里用到、怎么检验学会了"；横切是一套方法而不是一组知识，一篇长文即可。L3 起是原创系列。至此地图上的每一层都有了对应的文章。
 
 
 ## 按目标选择路径

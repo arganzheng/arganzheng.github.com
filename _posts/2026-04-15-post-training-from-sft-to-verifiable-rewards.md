@@ -370,8 +370,8 @@ PPO / GRPO 的组件与显存账、rollout 与训练的算力配比、on-policy 
 
 - **预训练**：tokenizer、scaling law、数据工程、训练配方与稳定性，在 L4 的[《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)第九到十二篇。本系列从一个训好的基座开始。
 - **RL 训练系统的实现**：rollout 引擎与训练器的共置、权重同步、显存切换、算力配比的工程（verl、OpenRLHF、slime 的内部）。属于 Infra 地图的选修。本系列只讲算法对系统的要求与成本量级。
-- **推理侧的算法优化**：解码策略、投机解码、量化、KV 压缩。属于 L6。本系列第五篇的 test-time compute 只讲"用推理算力换准确率"的曲线，不讲怎么让推理更快。
-- **多模态后训练**：视觉指令微调、多模态偏好数据。属于 L7。方法与本系列相同，数据与评测不同。
+- **推理侧的算法优化**：解码策略、投机解码、量化、KV 压缩。属于 L6，见[《高效推理与压缩（算法侧）》](/efficient-inference-and-compression-for-llms.html)。本系列第五篇的 test-time compute 只讲"用推理算力换准确率"的曲线，不讲怎么让推理更快。
+- **多模态后训练**：视觉指令微调、多模态偏好数据。属于 L7，见[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)第三篇。方法与本系列相同，数据与评测不同。
 - **安全与对齐的规范性问题**：什么算有害、拒答的边界、红队方法论。本系列只讲把任何一种偏好训进模型的技术，不讨论偏好本身应该是什么。
 - **Agent 框架与产品层**：编排框架、记忆、多 Agent 协作、prompt 设计。第六篇只讲怎么用 RL 把工具调用训进模型；在模型之上怎么搭 Agent 属于应用地图。
 - **强化学习理论**：MDP、贝尔曼方程、收敛性证明。本系列只推到策略梯度与 PPO 的目标函数，把 LLM 当作"只有最后一步有奖励的单步 bandit"处理。
