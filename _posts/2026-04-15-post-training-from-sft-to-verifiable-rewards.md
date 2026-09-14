@@ -75,7 +75,7 @@ PPO、GRPO、RLOO、REINFORCE++、DAPO、GSPO；DPO、IPO、KTO、ORPO、SimPO�
 
 ### Infra 工程师，想知道 RL 后训练在系统上要什么
 
-rollout 引擎与训练器共置、权重同步、生成与训练的算力配比——这些 Infra 地图里的"选修"负载，其算法需求在第三、五篇：为什么 RL 训练的大头是推理、为什么 GRPO 让 batch 里的序列长度方差极大、为什么 on-policy 与 off-policy 对权重同步的要求不同。
+rollout 引擎与训练器共置、权重同步、生成与训练的算力配比——这些 Infra 地图 09 [《RL 后训练基础设施》](/rl-post-training-infrastructure.html)讨论的负载，其算法需求在第三、五篇：为什么 RL 训练的大头是推理、为什么 GRPO 让 batch 里的序列长度方差极大、为什么 on-policy 与 off-policy 对权重同步的要求不同。
 
 
 ## 系列的整体主线
@@ -369,7 +369,7 @@ PPO / GRPO 的组件与显存账、rollout 与训练的算力配比、on-policy 
 ## 本系列的边界
 
 - **预训练**：tokenizer、scaling law、数据工程、训练配方与稳定性，在 L4 的[《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)第九到十二篇。本系列从一个训好的基座开始。
-- **RL 训练系统的实现**：rollout 引擎与训练器的共置、权重同步、显存切换、算力配比的工程（verl、OpenRLHF、slime 的内部）。属于 Infra 地图的选修。本系列只讲算法对系统的要求与成本量级。
+- **RL 训练系统的实现**：rollout 引擎与训练器的共置、权重同步、显存切换、算力配比的工程（verl、OpenRLHF、slime 的内部）。属于 Infra 地图 09 [《RL 后训练基础设施》](/rl-post-training-infrastructure.html)。本系列只讲算法对系统的要求与成本量级。
 - **推理侧的算法优化**：解码策略、投机解码、量化、KV 压缩。属于 L6，见[《高效推理与压缩（算法侧）》](/efficient-inference-and-compression-for-llms.html)。本系列第五篇的 test-time compute 只讲"用推理算力换准确率"的曲线，不讲怎么让推理更快。
 - **多模态后训练**：视觉指令微调、多模态偏好数据。属于 L7，见[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)第三篇。方法与本系列相同，数据与评测不同。
 - **安全与对齐的规范性问题**：什么算有害、拒答的边界、红队方法论。本系列只讲把任何一种偏好训进模型的技术，不讨论偏好本身应该是什么。

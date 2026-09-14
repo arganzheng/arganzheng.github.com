@@ -203,7 +203,7 @@ benchmark · LLM-as-judge · Arena
 |---|---|---|
 | SFT | 指令数据的构造（人工、self-instruct、蒸馏自强模型）、多轮对话格式与 chat template、loss mask（只算回复部分）、packing；全量微调 vs 参数高效微调：LoRA、QLoRA、DoRA、Prefix-Tuning / P-Tuning、Adapter、OFT；灾难性遗忘与数据回放 | LoRA 的参数量与计算形态在 04 系列第七篇；多 LoRA 服务属于 Infra 地图 08 |
 | 偏好对齐 | 偏好数据（成对比较、打分、AI 反馈 RLAIF）；奖励模型：Bradley-Terry、pairwise loss、过拟合与 reward hacking；在线 RL：PPO（策略、价值、参考模型、KL 惩罚、GAE）、GRPO（组内相对优势，去掉价值模型）、RLOO、REINFORCE++；离线 / 直接偏好优化：DPO、IPO、KTO、ORPO、SimPO；拒绝采样 + SFT（Llama 2 / 3 的做法，与投机解码里的拒绝采样同名不同物） | 每种方法各改了 RLHF 三件套（策略、奖励、参考）中的哪一件，是理解这一族的钥匙 |
-| 推理模型与 Agent | 可验证奖励的强化学习（RLVR：数学答案、代码测试）；DeepSeek-R1 的 GRPO 配方与"aha moment"；长思维链、test-time compute scaling；过程奖励模型 PRM 与结果奖励 ORM；推理长度的控制；多轮工具调用的 RL：环境、轨迹数据、工具输出的 mask、延后的奖励、异步 rollout | 2025 年后训练的主线；RL 训练的 rollout 与训练如何共享 GPU、异步 rollout 的实现属于 Infra 地图的选修 |
+| 推理模型与 Agent | 可验证奖励的强化学习（RLVR：数学答案、代码测试）；DeepSeek-R1 的 GRPO 配方与"aha moment"；长思维链、test-time compute scaling；过程奖励模型 PRM 与结果奖励 ORM；推理长度的控制；多轮工具调用的 RL：环境、轨迹数据、工具输出的 mask、延后的奖励、异步 rollout | 2025 年后训练的主线；RL 训练的 rollout 与训练如何共享 GPU、异步 rollout 的实现属于 Infra 地图 09 [《RL 后训练基础设施》](/rl-post-training-infrastructure.html) |
 | 蒸馏 | logits 级蒸馏（KL 到教师分布）、序列级 / 数据蒸馏（用教师生成 SFT 数据，R1 蒸馏小模型的做法）、on-policy 蒸馏；蒸馏与量化的组合 | 蒸馏是把大模型能力搬进小模型的主要手段，也是"线上回流"回边上的一站 |
 | 评测 | 通用 benchmark（MMLU、GSM8K、MATH、HumanEval、IFEval、MT-Bench 等）与它们各自测什么；LLM-as-judge 的偏差（位置、长度、自我偏好）；人类偏好 Arena；污染检测；能力分解与错误分析；评测集自建 | 评测是"回到数据或配方"那条回边的起点；不会评测就不知道改什么 |
 
@@ -285,7 +285,7 @@ VLM 的成本结构——一张图等于多少 token、encoder 与 decoder 各�
 | 混合精度 / FP8 | 用法、对训练稳定性的影响 | 格式、累加精度、数值丢失的位置 | 04 |
 | 分布式训练 | DDP / FSDP 的启用、并行度对配方的影响 | 并行策略、checkpoint、容错、MFU | 03 · 07 |
 | 推理系统机制 | 知道存在；自己的结构对它们意味着什么 | PagedAttention、continuous batching、chunked prefill、PD 分离 | 08 |
-| RL 后训练 | 算法：奖励、目标函数、配方 | rollout 引擎与训练器的共置、权重同步 | 选修 |
+| RL 后训练 | 算法：奖励、目标函数、配方 | rollout 引擎与训练器的共置 / 分离 / 异步、权重同步、环境调度 | 09 |
 | 数据管线 | 数据配比、质量、去重的**决策** | tokenization 离线化、流式加载、打包的**实现** | 07 |
 
 一个常见的误分类：把 PagedAttention、continuous batching、chunked prefill、PD 分离归入"推理算法"。它们不是算法，是推理引擎的调度与内存管理机制，模型不知道它们的存在，输出分布也不因它们改变。算法侧的推理优化只有 L6 列出的那些——改变模型或改变解码过程的方法。

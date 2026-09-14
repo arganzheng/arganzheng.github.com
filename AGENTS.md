@@ -546,12 +546,13 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   `../pytorch-v2.13.0`, `../Megatron-LM` (core_v0.18.0), `../DeepSpeed`
   (v0.19.2), `../torchtitan` (v0.3.0), `../torchft` (v0.2.0),
   `../nvidia-resiliency-ext` (v0.6.0); series 6 (MoE post) adds `../DeepEP`
-  (v1.2.1); series 8 uses `../vllm-v0.27.1`; series 9 and 10 use
-  `../vllm-v0.28.0` (series 9 only for CLI flags / metric names / OpenAI
+  (v1.2.1); series 8 uses `../vllm-v0.27.1`; series 10 (平台) and 11 (开源贡献) use
+  `../vllm-v0.28.0` (series 10 only for CLI flags / metric names / OpenAI
   protocol fields; its platform components are pinned to their Aug-2026
   releases, local checkouts `../kueue`, `../volcano`, `../kserve`, `../llm-d`,
-  `../llm-d-router`, `../gpu-operator` etc.); series 10 also uses
-  `../pytorch-v2.14.0`. Series 2 pins PyTorch v2.10.0 /
+  `../llm-d-router`, `../gpu-operator` etc.); series 11 also uses
+  `../pytorch-v2.14.0`. Series 9 (RL 后训练基础设施) will pin verl v0.9.0 and
+  reuse `../vllm-v0.27.1` / `../pytorch-v2.13.0` / `../Megatron-LM`. Series 2 pins PyTorch v2.10.0 /
   vLLM v0.15.0 and series 5 pins vLLM v0.20.0 but have no local worktree —
   add one (`git -C ../vllm worktree add ../vllm-v0.20.0 v0.20.0`) before
   re-verifying their source citations.
@@ -583,6 +584,22 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   are written 「《Transformer 与 LLM》第 N 篇」; their companion scripts stay
   in `ai-learning-labs/transformer-and-llm` (`llm_cost_09` … `_12`). Keep
   math out of `##`/`###` headings — the sidebar OUTLINE shows raw `\(…\)`.
+- Series 09 `rl-post-training-infra` (《RL 后训练基础设施：rollout 与训练如何共享
+  一组 GPU》, overview `2026-08-26-rl-post-training-infrastructure.md`, Infra
+  roadmap L4 alongside 07/08, promoted from 选修 on 2026-09-14) has **only the
+  overview so far**; its 章节目录 is a plain list — link each post there as it
+  lands. Its 8 posts take 2026-08-27 … 09-03 (past dates are fine — they go
+  live on push); vLLM was compressed to daily (08-11 … 08-25 — it cannot start
+  earlier: its pin vLLM v0.27.1 is tagged 2026-08-11), 平台 and 开源贡献 were
+  renumbered 10 / 11 and re-dated to 09-04 … 09-12 and 09-13 … 09-17 to keep
+  publication order = reading order.
+  verl is the single deep-dive framework (源码线 + 8 卡实践); slime / AReaL appear
+  only as 对照 in post 7. Planned next: a short 选修 series on diffusion-model
+  inference infra (5 posts). Version baseline in the overview: verl v0.9.0, slime v0.3.0, OpenRLHF
+  v0.11.0, AReaL paper/docs, vLLM v0.27.1, PyTorch 2.13.0, Megatron Core 0.18.0.
+  Companion scripts go in `ai-learning-labs/rl-post-training-infra/` (not
+  created yet). Overview posts that link to future-dated posts fail lychee
+  until those dates — build locally with `--future` to check.
 - Companion code lives in `../ai-learning-labs` (git repo, pushed by the
   user). Its `.venv/` (Python 3.12 via `~/.local/bin/python3.12`, torch CPU,
   numpy, tiktoken, tokenizers) is gitignored; recreate with
@@ -630,7 +647,10 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   → 后训练 (04-15 … 04-23) → 横切 实验方法论 (04-24, one 导读) → L6
   高效推理与压缩 (04-25 overview, 04-26 … 05-01) → L7 多模态 (05-02 overview,
   05-03 … 05-09) → Infra 05–10 (GPU Kernel was moved from 05-06…05-30 to
-  05-10 … 05-20 on 2026-09-14 to make room; 通信 starts 06-01 unchanged, … 09-15).
+  05-10 … 05-20 on 2026-09-14 to make room; 通信 starts 06-01 unchanged) → 07
+  大规模训练 (07-13 … 07-29) → 08 vLLM (08-11 … 08-25, daily) → 09 RL 后训练基础设施
+  (08-26 overview, posts 08-27 … 09-03) → 10 平台 (09-04 … 09-12) → 11 开源贡献
+  (09-13 … 09-17).
   Keep a series contiguous (daily posts are fine); do not interleave two maps'
   series except at the shared 04 series. Roadmaps link forward to series published later —
   that is the established convention. Series 收尾篇 must NOT carry a
