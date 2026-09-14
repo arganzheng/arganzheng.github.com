@@ -5,6 +5,7 @@ title: "PyTorch 深度实践（09）：分布式 PyTorch"
 subtitle: "Distributed Training in PyTorch: Collectives, DDP, FSDP, TP, PP, CP and EP"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 前八篇都在一张卡上。第八篇末尾算过一笔账：Adam 训练下每个参数的静态显存是 16 字节，7B 参数的模型仅参数、梯度和优化器状态就要 112 GB，激活值还没算。一张 80 GB 的卡放不下。即使放得下，第八篇案例里那个 38M 参数的小模型在单卡上跑到 2207 samples/s 之后，GPU 已经饱和——再要快，只能加卡。
@@ -105,6 +106,7 @@ M       流水线并行的 micro-batch 数
 | 十一 | 完整案例 | 把第八篇的 Transformer block 扩到 8 卡、再扩到 4 机 |
 | 十二 | Java 对照 | |
 | 十三 | 本文小结 | |
+| 十四 | 自测 | 5 道题 |
 
 
 ## 二、通信底座：进程、进程组与集合通信
@@ -1691,6 +1693,56 @@ DDP 全复制只分数据；ZeRO 三级逐个把优化器状态、梯度、参�
 到这里，PyTorch 的执行系统从单卡讲到了多机。剩下最后一个问题：这样一个横跨 Python、C++、CUDA、编译器和分布式运行时的框架，如何保证每次改动不破坏正确性和性能？
 
 > **一个复杂深度学习框架如何测试、构建和演进？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+把问题拆成**五类状态 × 一个决定**：数据、参数、梯度、优化器状态、激活值，每一类要么复制到每张卡、要么切分到多卡；每个决定对应一种集合通信原语与一个通信时机，所有决定加起来就是显存占用与通信量。**DDP**：数据分片、其余全复制，反向时按桶 all-reduce 梯度（`Reducer` 在梯度就绪时触发，与后续层的反向重叠）；前提是一张卡放得下整个模型（第三、四章）。**FSDP2**（`fully_shard`）：参数、梯度、优化器状态都按分片单元切开，前向到某层前 all-gather 参数、用完释放、反向 reduce-scatter 梯度——每卡只常驻 1/N 的状态，靠预取让通信与计算重叠（第五章）。**TP**：把一层内的大矩阵按列 / 行切到多卡（`ColwiseParallel` / `RowwiseParallel`），前向后向各一次 all-reduce 或 all-gather，用 `DTensor` 与 `DeviceMesh` 表达分片布局（第六、七章）。**PP**：按层切成 stage，micro-batch 流水，通信是点对点的激活传递；**CP**：把序列切开，attention 用 ring 传 KV（第八章）。底层：`ProcessGroupNCCL` 在独立的 NCCL stream 上发起异步通信、返回 `Work` 句柄，计算 stream 与通信 stream 之间用 event 同步——“重叠”就是让两条 stream 同时有活干（第二章）。`torchrun` 起进程，`torch.distributed.checkpoint` 保存分片状态（第九、十章）。
+
+</details>
+
+
+## 十四、自测
+
+1. DDP 在 8 卡上训 8B 模型（bf16 + AdamW），每卡显存大约多少？为什么放不下？
+
+   <details markdown="1"><summary>答案</summary>
+
+   每卡一份完整的参数、梯度、优化器状态：$$8.03 \times 10^9 \times 16 = 128$$ GB，再加激活——一张 80 GB 卡放不下。DDP 只切数据，其余四类全复制。
+
+   </details>
+
+2. FSDP 把参数切到 8 卡，前向到第 $$l$$ 层时做什么通信、用完后做什么？反向呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   前向：all-gather 第 $$l$$ 层的完整参数，算完释放（只留自己的 1/8 分片）；反向：再 all-gather 一次算梯度，然后 reduce-scatter 梯度让每卡只留自己分片的梯度，优化器只更新自己那 1/8。通信量约是 DDP 的 1.5 倍，换来显存 1/8。
+
+   </details>
+
+3. DDP 的梯度 all-reduce 为什么能与反向计算重叠？靠的是哪个机制？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `Reducer` 把参数按反向顺序分桶，一个桶内所有梯度就绪（autograd hook 触发）就立刻在 NCCL stream 上发起 all-reduce，此时 autograd 引擎还在算更早的层——两条 stream 并行；最后一个桶做完才 `step`。
+
+   </details>
+
+4. TP 把 `nn.Linear(4096, 14336)` 按列切到 4 卡，每卡的权重形状是什么？输出怎么拼？接下来的 `Linear(14336, 4096)` 该怎么切？
+
+   <details markdown="1"><summary>答案</summary>
+
+   每卡 `[4096, 3584]`，输出各是 `[B, 3584]`，不用拼——直接把后一个矩阵按行切成 `[3584, 4096]`，每卡算部分和，最后一次 all-reduce 得到完整输出。Megatron 的 MLP 就是 Colwise + Rowwise 配对，一层只通信一次。
+
+   </details>
+
+5. `dist.all_reduce(t)` 返回后立刻在计算 stream 上读 `t`，安全吗？异步版本呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   同步版本安全——ProcessGroupNCCL 在返回前让计算 stream 等待通信 stream 的 event；`async_op=True` 返回 `Work`，必须 `work.wait()` 后才能读，否则读到还没 reduce 完的数据（且 `wait()` 只是让当前 stream 等，不阻塞 CPU）。
+
+   </details>
 
 
 ## 下一篇

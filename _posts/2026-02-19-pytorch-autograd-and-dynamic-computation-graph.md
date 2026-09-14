@@ -5,6 +5,7 @@ title: "PyTorch 深度实践（03）：自动求导与动态计算图"
 subtitle: "Autograd and Dynamic Computation Graphs in PyTorch"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 上一篇介绍了 Tensor 的核心模型：它不是一组孤立的数字，而是由 Storage、Shape、Stride、Storage Offset、dtype、device 和 layout 共同描述的一种数据抽象。
@@ -69,6 +70,7 @@ optimizer.step()
 | 十 | Autograd 常见问题与排查方法 | 几类典型报错与梯度异常 |
 | 十一 | Java 工程师如何理解 Autograd | 回调、反向程序、显式状态管理的类比 |
 | 十二 | 本文小结 |  |
+| 十三 | 自测 | 5 道题 |
 
 
 ## 二、从数学求导到自动求导
@@ -1567,6 +1569,56 @@ loss 是否参与了目标参数的计算？
 下一篇将进入 Tensor 和 Autograd 之上的模型组织层：
 
 > **`nn.Module` 如何管理模型层次、Parameter、Buffer、state_dict，并把这些对象连接到训练循环？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+方向与幅度由 **loss 对每个参数的梯度**给出，Autograd 负责把它算出来。前向时每个需要梯度的算子调用先进 Autograd key 上的包装 kernel（Codegen 从 `derivatives.yaml` 生成的 `VariableType`），它创建一个 `Node`（`grad_fn`）、把反向需要的输入存成 `SavedVariable`、用 `next_edges` 指向输入的 `grad_fn`——图是**在前向执行中动态记录**的，每次前向一张新图，所以 Python 控制流随便写（第二至五章）。`loss.backward()` 把 1 放进根节点，引擎按依赖计数做反向拓扑排序、用 ready queue 与按设备的工作线程执行每个 `Node` 的 `apply`——每个节点算的是 VJP（上游梯度 × 局部 Jacobian，从不物化 Jacobian），叶子的梯度累加到 `.grad`（第六、七章）。“幅度”里的细节：梯度累加所以要 `zero_grad`；`SavedVariable` 带 version counter，被 in-place 改过的保存值在反向时报错；`no_grad` / `inference_mode` 是 TLS 开关，让包装 kernel 不建图；自定义 `autograd.Function` 让你自己写 VJP；`gradcheck` 用 float64 有限差分验证它（第八至十一章）。把这一切放回训练循环：优化器拿 `.grad` 决定每个参数走多远。
+
+</details>
+
+
+## 十三、自测
+
+1. `y = x * 2; z = y.sum()` 之后 `z.grad_fn`、`y.grad_fn`、`x.grad_fn` 各是什么？`x.is_leaf` 呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `z.grad_fn` 是 `SumBackward0`，`y.grad_fn` 是 `MulBackward0`，`x.grad_fn` 是 `None`（叶子，用户创建、`requires_grad=True`），`x.is_leaf == True`；`z.grad_fn.next_functions` 指向 `y.grad_fn`，再指向 `x` 的 `AccumulateGrad`。
+
+   </details>
+
+2. 为什么反向传播从不显式构造 Jacobian？每个 `Node.apply` 算的是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   一个 `[B, 4096] → [B, 4096]` 层的 Jacobian 每个样本是 $$4096^2$$ 个数；`apply` 算的是 VJP——上游梯度向量乘局部 Jacobian，每种算子有自己的高效公式（`derivatives.yaml` 里那一行），只需要与输入同形的输出。
+
+   </details>
+
+3. `a = x.exp(); a.add_(1); a.sum().backward()` 为什么报错？错误来自哪个机制？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `exp` 的反向需要它的输出 `a`（$$\partial e^x / \partial x = e^x$$），`SavedVariable` 保存了 `a` 并记下 version；`add_` 原地修改让 version +1，反向时检查不一致报 “modified by an inplace operation”。
+
+   </details>
+
+4. `torch.no_grad()` 与 `torch.inference_mode()` 差在哪？推理评测该用哪个？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `no_grad` 只是不记录 `grad_fn`，产生的 Tensor 仍是普通 Tensor、可以之后参与求导；`inference_mode` 更进一步：不维护 version counter、不分配 AutogradMeta，产出的 Tensor 不能再进入 autograd，更快更省。纯推理用 `inference_mode`。
+
+   </details>
+
+5. 自定义 `autograd.Function` 的 `forward` 里用 `ctx.save_for_backward(x)` 与直接 `ctx.x = x` 差在哪？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `save_for_backward` 走 `SavedVariable`：参与 version 检查、能被 `saved_tensors_hooks` 打包 / 卸载到 CPU、不制造循环引用；`ctx.x = x` 是普通属性，绕过全部机制，可能悬垂或泄漏（输出保存自己时形成环）。
+
+   </details>
 
 
 ## 下一篇

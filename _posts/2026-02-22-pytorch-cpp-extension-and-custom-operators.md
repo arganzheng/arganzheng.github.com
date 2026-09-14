@@ -5,6 +5,7 @@ title: "PyTorch 深度实践（06）：C++ 扩展与自定义算子"
 subtitle: "C++ Extensions and Custom Operators in PyTorch"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 上一篇把算子系统拆成两个维度：开发者在构建时**定义 → 注册 → 实现**，用户在运行时**入口 → 分发 → 执行**，两者通过 Operator Table 交汇。那一篇站在使用者的角度观察原生算子 `add`。
@@ -70,6 +71,7 @@ flowchart TB
 | 十 | 构建、ABI 与分发 |
 | 十一 | Java 对照：JNI |
 | 十二 | 本文小结 |
+| 十三 | 自测 | 5 道题 |
 
 如果你已经熟悉 C++ 扩展的构建方式，可以跳过第四章；如果没有写过 C++ 扩展，第四章是后面所有代码能跑起来的前提。同样，没有 CUDA 编程经验的读者不必另找教程：第七章 §2 用一节讲清读懂本文和第八篇所需的几个 CUDA 概念。
 
@@ -1425,6 +1427,56 @@ flowchart TB
 下一篇进入编译器：
 
 > **当算子已经是 PyTorch 眼中的一个整体节点后，`torch.compile` 如何捕获包含它的 Python 程序，并把多个算子融合成更少的 Kernel？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+本文的核心问题是**自己写一个算子并把它接进算子系统，要做哪几件事、怎么验证它是对的**。答案是三步、两种接入方式、四个阶段。**三步**：定义 Schema（`scale_shift(Tensor x, float alpha, float beta) -> Tensor`，与 `native_functions.yaml` 同一种语言）→ 注册到 DispatchKey（CPU / CUDA / Autograd / Meta 各一份）→ 编写实现（第二、三、四章）。**两种接入**：Python 的 `torch.library.define / impl / register_autograd / register_fake`，C++ 的 `TORCH_LIBRARY / TORCH_LIBRARY_IMPL`（第二篇的静态注册），两者写进同一张 Operator Table，`torch.ops.myops.scale_shift` 按名字取回（第五章）。**四个阶段**逐步落地：纯 Python 实现跑通 → C++ CPU 实现（`AT_DISPATCH` 展开 dtype、TensorIterator 或手写循环、`cpp_extension.load` 即时编译）→ CUDA 实现（`CUDAGuard`、当前 stream、`gpu_kernel` 或手写 launch、`C10_CUDA_KERNEL_LAUNCH_CHECK`）→ Autograd（写 backward 并 `register_autograd`）与 Meta（`register_fake` 给 `torch.compile` 与 shape 推断用）（第六至十章）。**验证**：`torch.library.opcheck` 对 Schema、Autograd、FakeTensor、别名信息做一致性检查，加 `gradcheck` 与对照 CPU 参考实现——这就是原生算子在 yaml + Codegen 里自动获得的东西，自定义算子要自己补齐（第十一章）。
+
+</details>
+
+
+## 十三、自测
+
+1. 自定义算子只注册了 CPU 与 CUDA 实现，没有 `register_fake`，`torch.compile` 会怎样？
+
+   <details markdown="1"><summary>答案</summary>
+
+   Dynamo / AOTAutograd 用 FakeTensor 推断输出形状时找不到 Meta 实现，要么 graph break 退回 eager，要么报错 “no fake impl”；`register_fake` 提供一个只算形状与 dtype、不碰数据的实现。
+
+   </details>
+
+2. CUDA 实现里为什么要 `c10::cuda::CUDAGuard guard(x.device())` 与 `at::cuda::getCurrentCUDAStream()`？漏掉会怎样？
+
+   <details markdown="1"><summary>答案</summary>
+
+   输入可能在非 0 号卡上，kernel launch 用的是 TLS 里的“当前设备”，不切换就 launch 到错误的卡（非法地址）；不用当前 stream 则与 PyTorch 其他算子不在同一队列，失去顺序保证与重叠，可能读到还没算完的数据。
+
+   </details>
+
+3. `AT_DISPATCH_FLOATING_TYPES_AND_HALF` 与只写 `float` 版本差在哪？用户传 `bfloat16` 会怎样？
+
+   <details markdown="1"><summary>答案</summary>
+
+   宏为 float / double / half 各实例化一份 kernel 并按 `scalar_type()` 分发；只写 float 时 `data_ptr<float>()` 对其他 dtype 报错。bf16 不在这个宏的列表里，会落到 default 分支报 “not implemented for BFloat16”——要用 `..._AND2(kHalf, kBFloat16, ...)`。
+
+   </details>
+
+4. `torch.library.opcheck(op, args)` 检查哪几件事？
+
+   <details markdown="1"><summary>答案</summary>
+
+   Schema 与实际行为一致（别名、可变性）；Autograd 注册正确（与有限差分对照）；FakeTensor / Meta 实现与真实实现的形状、dtype 一致；`torch.compile` 下 AOTAutograd 能处理。它把原生算子靠 Codegen 保证的东西变成对自定义算子的测试。
+
+   </details>
+
+5. `cpp_extension.load(name, sources)` 与 `setup.py` + `CUDAExtension` 构建的扩展，各适合什么阶段？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `load` 即时编译进缓存目录、改代码重跑即可，适合开发；`setup.py` 产出 wheel、可分发、可控 ABI 与架构列表，适合交付。两者最终都是一个 `.so` 里的 `TORCH_LIBRARY` 静态注册。
+
+   </details>
 
 
 ## 下一篇

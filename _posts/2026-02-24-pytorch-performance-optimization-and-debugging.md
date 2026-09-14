@@ -5,6 +5,7 @@ title: "PyTorch 深度实践（08）：性能优化与调试"
 subtitle: "Performance Optimization and Debugging in PyTorch"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 前面七篇建立了 PyTorch 的执行模型：Tensor 如何存储（第二篇），Autograd 如何记录反向（第三篇），算子如何分发到 Kernel（第五篇），编译器如何把多个算子融合成更少的 Kernel（第七篇）。每一篇都在某处留下一句"性能问题第八篇讨论"。
@@ -153,6 +154,7 @@ flowchart TB
 | 九 | 完整案例 | 一个 Transformer block 的训练 step |
 | 十 | Java 对照 | |
 | 十一 | 本文小结 | |
+| 十二 | 自测 | 5 道题 |
 
 
 ## 二、度量（1）：异步执行模型——正确计时的前提
@@ -1435,6 +1437,56 @@ warmup 后再测，报告中位数与分布
 到这里，单卡上的 PyTorch 已经讲完：Tensor、Autograd、Module、算子、扩展、编译、性能。第八章算过，7B 模型仅静态显存就要 112 GB，单卡放不下。下一篇进入多卡：
 
 > **当一张卡放不下模型或跑不完数据时，PyTorch 如何把计算和状态切分到多个设备，并让通信与计算重叠？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**判断慢**：先量而不是猜——用 `torch.utils.benchmark.Timer` 处理预热、`cuda.synchronize` 与统计，与一个理论下界比（模型的 FLOPs / 峰值算力、字节数 / 带宽，04 系列的 Roofline）；离下界几倍才叫慢（第二、三章）。**定位为什么慢**：回答“时间花在哪一层”，用 `torch.profiler` 的时间线与表格把症状归到六类——GPU 空闲、CPU 忙、kernel 多而小是 **launch-bound**（融合、CUDA Graphs、fused 优化器）；CPU 时间不在算子上是 **Python-bound**（`with_stack` 找到、向量化或 compile）；GPU 忙且逐元素算子占比高是 **memory-bound**（融合、bf16、布局）；GPU 忙且 GEMM 占比高是 **compute-bound**（Tensor Core、减算量）；时间线两侧交替空洞是 **sync-bound**（`.item()`、`nonzero`、数据依赖 shape，用 `set_sync_debug_mode` 抓）；GPU 大段空白、CPU 停在 DataLoader 是**数据加载**（第五、六、七章）。显存问题另一张表：`reserved ≫ allocated` 是碎片（`expandable_segments`）、`allocated` 单调涨是泄漏（memory snapshot 找持有 `grad_fn` 的引用）、平均不高但 OOM 是峰值（第四章）。原则：先分层再动手，改完再量，与 Benchmark 对比，否则不知道是否真的快了。
+
+</details>
+
+
+## 十二、自测
+
+1. 不加 `torch.cuda.synchronize()` 用 `time.time()` 量一个 GPU 算子，量到的是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   只量到 CPU 把 kernel 提交进 stream 的时间（微秒级），GPU 还没算完；必须同步后再读时间，或用 CUDA Event。`torch.utils.benchmark.Timer` 自动处理这件事以及预热与多次重复。
+
+   </details>
+
+2. Profiler 时间线上 GPU 大部分时间空闲、CPU 一直忙、每个 kernel 只有几十微秒——是哪类瓶颈？三个处方？
+
+   <details markdown="1"><summary>答案</summary>
+
+   launch-bound：每个 kernel 太小，CPU 提交的速度跟不上 GPU 执行；增大 batch（让每个 kernel 更大）、算子融合 / `torch.compile`（减少 kernel 数）、CUDA Graphs（一次提交整段）；优化器用 `fused=True` / `foreach`。
+
+   </details>
+
+3. `memory_reserved()` 40 GB 但 `memory_allocated()` 只有 20 GB 且报 OOM，发生了什么？开哪个开关？
+
+   <details markdown="1"><summary>答案</summary>
+
+   碎片化：caching allocator 缓存的块被切成不连续的小段，新的大请求放不进任何一段；`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` 让段可增长，或让每步的 shape 稳定。
+
+   </details>
+
+4. 训练时 GPU 时间线每隔一段就有对称的空洞、`nvidia-smi` 利用率上下跳——最可能是什么？怎么抓到源头？
+
+   <details markdown="1"><summary>答案</summary>
+
+   sync-bound：循环里有 `.item()`、`print(loss)`、`tensor.tolist()` 或依赖数据的 shape（`nonzero`、`masked_select`）强制 CPU 等 GPU；`torch.cuda.set_sync_debug_mode("warn")` 在每次隐式同步处打印栈。
+
+   </details>
+
+5. 逐元素算子（`add`、`gelu`、`layernorm`）在 profiler 里占了 40% 的 GPU 时间，能靠换更快的 GPU 解决吗？
+
+   <details markdown="1"><summary>答案</summary>
+
+   收益有限——它们是 memory-bound，时间由字节数 / 带宽决定；处方是融合（`torch.compile` 把相邻逐元素算子合进一个 kernel）、用 bf16 减半字节、或算法级融合（FlashAttention 不物化中间矩阵）。
+
+   </details>
 
 
 ## 下一篇

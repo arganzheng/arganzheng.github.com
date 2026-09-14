@@ -5,6 +5,7 @@ title: "PyTorch 深度实践（01）：PyTorch 整体介绍"
 subtitle: "PyTorch Overall Introduction" 
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 PyTorch 经常被介绍成一个“深度学习框架”，也经常被使用成一个 Python 库：导入 `torch`，创建 Tensor，定义 `nn.Module`，然后训练模型。
@@ -69,6 +70,7 @@ CPU / CUDA / Meta Kernel
 | 七 | 第三张地图：代码视角 | 源码目录与库的四层分层、与系列篇章的对照 |
 | 八 | PyTorch 工程中最重要的几个边界 | Python/C++、通用/后端、灵活/可分析、可移植/特化 |
 | 九 | 本文小结 |  |
+| 十 | 自测 | 5 道题 |
 
 
 ## 二、PyTorch 到底是什么？
@@ -998,6 +1000,56 @@ torch/（Python）→ torch/csrc/（绑定、Autograd 引擎、c10d）→ aten/s
 - 可移植性与性能特化：通用实现易维护，设备特化更快但更贵。
 
 读后面各篇时遇到的大多数设计取舍，都可以归到这四个边界之一。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+靠一条分层的运行时链路，每一层各解决一件事。Python 里表达的 `y = model(x)` 先落到 **Tensor**——数据 + 形状 + 布局 + dtype + 设备 + 生命周期的组合，Python 对象只是 C++ `TensorImpl` 的句柄（第二篇）；每个算子调用进入 **Dispatcher**，它按 Tensor 的 DispatchKeySet 选实现路径：Autograd key 上的包装先记录 `grad_fn` 建图（**自动求导**，第三篇），再落到 CPU / CUDA / 第三方后端的 kernel（**跨设备**，第五篇）——同一套算子抽象、不同后端实现，新硬件通过 PrivateUse1 与 device plugin 接入；**编译优化**是把这条逐算子分发的路径换掉：Dynamo 在字节码层捕获整图、AOTAutograd 拆前后向、Inductor 生成融合 kernel，Eager 编程模型不变（第七篇）；**分布式**把五类状态（数据、参数、梯度、优化器状态、激活）各做复制或分片的决定，用集合通信原语在 stream 上与计算重叠（第九篇）。四种能力之所以能叠加，是因为它们都建立在同一个算子系统之上：Autograd、autocast、Functionalize、编译捕获都是 dispatch key，分布式的 DTensor 也是 Tensor 子类。本篇给出这张分层图与四组张力（Python vs C++、通用抽象 vs 后端实现、灵活性 vs 可分析性、可移植 vs 特化），后面九篇逐层展开。
+
+</details>
+
+
+## 十、自测
+
+1. PyTorch 的源码目录 `torch/`、`torch/csrc/`、`aten/`、`c10/` 各放什么？依赖方向如何？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `c10`：最底层，Tensor 元数据、Device、Allocator、Dispatcher 核心；`aten`：算子与 kernel 实现（`ATen/native`）；`torch/csrc`：Autograd 引擎、Python 绑定、分布式 C++ 部分；`torch/`：Python API。依赖自下而上：`c10` ← `aten` ← `torch/csrc` ← `torch/`，反向不允许。
+
+   </details>
+
+2. “Autograd 是一个 DispatchKey”这句话意味着什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   自动求导不是一层独立系统，而是注册在 Autograd key 上的包装 kernel：Dispatcher 先调它（记录 `grad_fn`、保存反向需要的 Tensor），它再重新分发到后端 key 执行真实计算；autocast、Functionalize、Python 子类的拦截都用同一机制叠加。
+
+   </details>
+
+3. Eager 与 `torch.compile` 执行同一段模型代码，执行路径差在哪一步？编程模型变了吗？
+
+   <details markdown="1"><summary>答案</summary>
+
+   Eager：每个算子调用各自走一遍 Python → Dispatcher → kernel；compile：Dynamo 在字节码层捕获一段程序成图，Inductor 生成融合 kernel，运行时一次调用替代几百次分发。编程模型不变——还是同一份 Python 代码，只是执行方式从逐算子切换到整图。
+
+   </details>
+
+4. 一个新硬件厂商要让 `x.to("npu")` 工作，需要在 PyTorch 的哪几层接入？
+
+   <details markdown="1"><summary>答案</summary>
+
+   注册一个设备类型（PrivateUse1 或树内 key）与 `DeviceGuardImpl`；实现 Allocator；在该 DispatchKey 上注册算子 kernel（可用 fallback 兜底）；提供 `torch.npu` 模块与 stream / event 等运行时 API。算子抽象与 Autograd 不用改——这是“通用抽象 vs 后端实现”那组张力的设计结果。
+
+   </details>
+
+5. “动态 Python 与编译器之间的桥不是无条件成立的”，什么情况下桥会断？
+
+   <details markdown="1"><summary>答案</summary>
+
+   依赖 Tensor **值**的控制流（`if x.sum() > 0`）、不支持的 Python 特性、副作用（打印、全局状态）会触发 graph break；依赖元数据（shape、dtype）的分支可以特化并记 guard。桥成立的条件是程序对编译器可分析。
+
+   </details>
 
 
 ## 下一篇

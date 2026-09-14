@@ -5,6 +5,7 @@ title: "PyTorch 深度实践（10）：PyTorch 的工程体系——一次改动
 subtitle: "The Engineering System of PyTorch: How a Change Travels Safely from Commit to Production"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 前九篇讲的是 PyTorch **是什么、怎么运行**：Tensor 怎么存、Autograd 怎么记、算子怎么分发、Kernel 怎么写、编译器怎么融合、性能怎么测、多卡怎么通信。每一篇都在描述一个已经存在、并且正确运行的系统。
@@ -87,6 +88,7 @@ PyTorch 有两千多个算子、每个算子有十几种 dtype、两个以上后
 | 九 | 实践终点：把第六篇的 myops 走完这七关 |  |
 | 十 | Java 对照 |  |
 | 十一 | 本文小结与系列总结：从 `loss.backward()` 一路追问到底 |  |
+| 十二 | 自测 | 5 道题 |
 
 
 ## 二、第一关：本地构建能跑
@@ -1230,3 +1232,53 @@ loss.backward()
 **扩展能力**——需要一个新算子、一个新的融合、一种新的并行策略时，知道要写哪三步、要注册哪几个 Key、要过哪几种 oracle、要放进哪个 CI 矩阵，以及怎样让它在下一个 PyTorch 版本上还能用。
 
 这三种能力的共同基础是一张地图：**从 Python 用户代码，经过 Autograd、Dispatcher、Kernel、编译器、运行时，到硬件和集群，每一层的职责、边界和代价**。十篇文章画的就是这张图。图画完了，剩下的是在真实系统里反复走它。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+一次改动要过七道关。**本地构建能跑**：仓库按 `torch/` → `torch/csrc/` → `aten/` → `c10/` 分层，Codegen 是构建的一步，改 Schema 比改实现代价高得多（第二章）。**结果正确**：五种 oracle 定义“对”（参考实现、数学性质、跨设备一致、gradcheck、历史行为），OpInfo 用“一处声明、万处生成”化解设备 × dtype × 布局的组合爆炸（第三章）。**没有变慢**：微基准与指令数守 CPU 侧开销，TorchBench 与编译器看板守端到端；噪声、阈值与归因是三个难题（第四章）。**审查、CI 与合入**：CI 分层（lint → 快速 → 完整 → 周期性）与目标确定让几十万测试在有限时间内跑完，flaky 靠隔离与重试流程而不是靠人，审批规则与回滚由机器执行（第五、六章）。**发布**：固定节奏与 release 分支，wheel 矩阵的每个维度（Python、CUDA、平台、ABI）都是 ABI 的一部分，平台支持是滑动窗口（第七章）。**用户升级不坏**：接口面按稳定程度分级——Python API 有弃用周期，算子 Schema 有自动化 BC / FC 检查，C++ API 无保证但有稳定子集，序列化有版本机制（第八章）。**使用者跟随演进**：pin 什么、跟多紧，把弃用警告变成 CI 错误，升级 playbook 与版本化兼容矩阵，用 nightly / RC 提前暴露问题（第九章）。每道关守住一类事故；这套体系是 PyTorch 能每天合入上百个 PR 而用户不断的原因。
+
+</details>
+
+
+## 十二、自测
+
+1. 改一个算子的 Schema（比如给 `add` 加一个参数）比改它的 CPU 实现多经过哪些环节？
+
+   <details markdown="1"><summary>答案</summary>
+
+   Codegen 重跑（C++ 入口、Python 绑定、注册代码全部重新生成，几乎整个 `aten` 重编）；BC / FC 检查（旧 TorchScript 模型、旧 Schema 的序列化文件还能不能加载）；`derivatives.yaml` 与 OpInfo 的同步更新；文档。改实现只重编一个 `.cpp` 并跑相关测试。
+
+   </details>
+
+2. OpInfo 解决的是什么组合爆炸？一个算子加进 OpInfo 后自动获得哪些测试？
+
+   <details markdown="1"><summary>答案</summary>
+
+   算子 × 设备（CPU / CUDA）× dtype（十几种）× 布局 × 前向 / 反向 × compile —— 手写不可能；一处声明采样输入与支持的 dtype，自动获得数值对照参考实现、`gradcheck`、别名与 out 变体一致性、FakeTensor、`torch.compile` 等几十组测试。
+
+   </details>
+
+3. 一个测试在 CI 上 5% 概率失败，正确的处理流程是什么？为什么不是“让作者重跑到过”？
+
+   <details markdown="1"><summary>答案</summary>
+
+   自动检测 flaky 后标记并隔离（disable issue），不阻塞他人合入，同时开单让 owner 修；重跑到过让噩梦扩散——几十万测试里 5% 的 flaky 会让每个 PR 都红，且掩盖真回归。
+
+   </details>
+
+4. PyTorch 的 wheel 矩阵有哪几个维度？为什么每个维度都是 ABI 的一部分？
+
+   <details markdown="1"><summary>答案</summary>
+
+   Python 版本、CUDA 版本（含 ROCm / CPU）、操作系统 / 架构、libstdc++ ABI 标签；任一维度不同，`.so` 的符号或对象布局就不同，加载或调用会崩——所以扩展必须与对应的 wheel 一致编译。
+
+   </details>
+
+5. 作为 PyTorch 的使用者（比如推理引擎），版本该 pin 到什么粒度？弃用警告该怎么处理？
+
+   <details markdown="1"><summary>答案</summary>
+
+   pin 到 minor（如 `torch==2.5.*`）并版本化一张兼容矩阵；把 `DeprecationWarning` 在 CI 里变成错误（`-W error::DeprecationWarning`）以便在弃用周期内修，而不是在删除时崩；用 nightly / RC 跑一组冒烟测试提前发现破坏。
+
+   </details>

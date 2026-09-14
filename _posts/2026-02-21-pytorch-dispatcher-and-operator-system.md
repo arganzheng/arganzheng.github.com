@@ -5,6 +5,7 @@ title: "PyTorch 深度实践（05）：Dispatcher 与算子系统"
 subtitle: "The Dispatcher and Operator System in PyTorch"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 上一篇讨论了 `nn.Module` 与训练系统：Module 如何组织子模块、Parameter 和 Buffer，Optimizer 如何更新参数，DataLoader 如何把数据送入训练循环。
@@ -801,6 +802,56 @@ native_functions.yaml 找到 Schema 与 dispatch 字段
 下一篇进入开发态的实践：
 
 > **如何用 C++ 和 CUDA 编写一个自定义算子，完成定义、注册、实现三步，并正确处理 Tensor、dtype、device、stride、Autograd 和 ABI？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+Dispatcher 解决“在当前运行时上下文中为一个抽象算子选择正确的实现路径”。开发态：`native_functions.yaml` 定义每个算子的 Schema 与 `dispatch` 字段（哪个 key 用哪个函数），实现写在 `ATen/native/`，Codegen（`torchgen`）生成注册代码、C++ 入口 `at::add` 与 Python 绑定，全部登记进 Operator Table——每个算子一个 `OperatorEntry`，按 DispatchKey 存 `KernelFunction`（第二至五章）。运行态：`torch.add(x, y)` → Python 绑定解析参数 → `at::add` → `Dispatcher::call` 从参数 Tensor 的 `DispatchKeySet`（加上 TLS 里 include / exclude 的 key）取最高优先级的 key 查表——Autograd 先命中，它记录 `grad_fn` 后把自己排除再重新分发，落到 CPU / CUDA 的 kernel；autocast、Functionalize、Python 子类拦截都是这条链上的一个 key（第六至九章）。这样“一个算子调用”实际经过一串按优先级排列的层，每层做完自己的事再交给下一层——Operator Table 是开发态与运行态的交汇点；TensorIterator 是实现逐元素 / 归约算子的通用模式，不是必经之路（第十章）。
+
+</details>
+
+
+## 十二、自测
+
+1. `native_functions.yaml` 里一个算子写了 `dispatch: CPU: add_cpu, CUDA: add_cuda`，没写 Autograd——反向从哪来？
+
+   <details markdown="1"><summary>答案</summary>
+
+   从 `derivatives.yaml`：Codegen 据此生成 `VariableType` 里的包装 kernel 注册到 Autograd key；没有导数条目的算子在 Autograd key 上落到默认的“不可导 / 报错”fallback。Schema、后端实现、导数公式是三处声明。
+
+   </details>
+
+2. 一个 Tensor 同时带 CUDA 与 AutogradCUDA 两个 key，开了 autocast，调用时 Dispatcher 依次命中哪些 key？
+
+   <details markdown="1"><summary>答案</summary>
+
+   按优先级：AutocastCUDA（转换 dtype 后重新分发）→ AutogradCUDA（记录 `grad_fn`，排除自己重新分发）→ CUDA（真实 kernel）。每层用 `ExcludeDispatchKeyGuard` 把自己从后续分发里去掉。
+
+   </details>
+
+3. `torch.add` 与 `at::add` 与 `at::native::add` 三个名字各是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `torch.add` 是 Python 绑定入口；`at::add` 是 Codegen 生成的 C++ 入口，调 Dispatcher；`at::native::add`（实际是 `add_cpu` 等）是被注册到表里的实现主体。开发者写第三个，用户调第一个。
+
+   </details>
+
+4. 为什么说 TensorIterator “不是必经之路”？它替代了什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   它是实现逐元素与归约算子的通用框架——处理广播、类型提升、内存布局、多线程 / 向量化分块，让 `add`、`mul`、`sum` 只写一个标量 lambda；矩阵乘、卷积、attention 这些不走它，直接调 cuBLAS / cuDNN / 自定义 kernel。
+
+   </details>
+
+5. `torch.ops.aten.add.Tensor` 这个名字里 `add` 与 `Tensor` 各是什么？为什么有 `add.Scalar`、`add.out`？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `add` 是算子名，`Tensor` 是 overload 名——同名不同 Schema（`Tensor + Tensor`、`Tensor + Scalar`、写入 `out=` 的版本）各是一个独立的 `OperatorEntry`；Python 层的 `torch.add` 按参数类型选 overload。
+
+   </details>
 
 
 ## 下一篇

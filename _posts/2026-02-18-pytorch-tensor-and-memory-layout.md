@@ -5,6 +5,7 @@ title: "PyTorch 深度实践（02）：Tensor 与内存布局"
 subtitle: "Tensor Abstraction and Memory Layout in PyTorch"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 上一篇从整体上介绍了 PyTorch：它不是只有 Python API 的库，而是连接模型代码、Tensor 编程模型、算子运行时、设备后端、Kernel 和硬件的一套计算平台。
@@ -52,6 +53,7 @@ catalog: true
 | 十三 | 实现一个简化版 Tensor | 用 Python 复现 stride、transpose 与 contiguous copy |
 | 十四 | Java 工程师应该如何理解 Tensor | Tensor 与 Java 数组的关键差异 |
 | 十五 | 本文小结 |  |
+| 十六 | 自测 | 5 道题 |
 
 
 ## 二、Tensor 的整体模型
@@ -1709,6 +1711,56 @@ flowchart TB
 下一篇将进入 Tensor 之上的梯度系统：
 
 > **Autograd 如何把一次次 Tensor 运算连接成动态计算图，并在 backward 阶段沿图传播梯度？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+Tensor 是**六样东西的组合**，不是一块数据：数据（`StorageImpl` 里的字节缓冲区，可被多个 Tensor 共享）、形状（`sizes`）、布局（`strides` + `storage_offset`，决定逻辑下标怎么映射到物理位置，也决定 contiguous 与否）、类型（`dtype`）、设备（`device`）与生命周期（`TensorImpl` 与 `StorageImpl` 各自的 `intrusive_ptr` 引用计数）。Python 的 `torch.Tensor` 是一个句柄，指向 C++ 的 `TensorImpl`；`TensorImpl` 持有 `Storage`。由此每个 Tensor 操作都能用七个问题分类：是否创建新 Storage、是否复制数据、是否改 device / dtype、是否改 stride 与 contiguous、是否与别人共享数据、是否延长某块内存的生命周期、是否影响 Autograd 与后续 kernel——`view` / `transpose` / `permute` 只改元数据、共享 Storage；`contiguous()` 与 `.to()` 在需要时才复制；`clone()` 总是复制；一个小 view 会让整块 Storage 活着（第三至九章）。读源码的落点：`c10/core/TensorImpl.h`、`StorageImpl.h`、`aten/src/ATen/native/TensorShape.cpp`。
+
+</details>
+
+
+## 十六、自测
+
+1. 形状 `[2, 3, 4]` 的连续 Tensor，strides 是什么？`x.transpose(0, 2)` 之后 shape 与 strides 是什么、连续吗？
+
+   <details markdown="1"><summary>答案</summary>
+
+   strides `(12, 4, 1)`（行主序，元素单位）；转置后 shape `[4, 3, 2]`、strides `(1, 4, 12)`，不连续——没复制数据，只交换了元数据。
+
+   </details>
+
+2. `x.view(-1)`、`x.reshape(-1)`、`x.flatten()` 在 `x` 不连续时各做什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `view` 报错（要求元素在内存中按新形状连续可解释）；`reshape` 在能 view 时 view、否则复制一份连续的再 view；`flatten` 等同 `reshape`。所以 `reshape` 的返回值是否共享内存不确定，写代码时要意识到。
+
+   </details>
+
+3. `x[0]`（第一行）与 `x[:, 0]`（第一列）各创建了什么？两者哪个连续？
+
+   <details markdown="1"><summary>答案</summary>
+
+   都是 view：新 `TensorImpl`、共享 `Storage`；`x[0]` 是 `storage_offset = 0`、strides 去掉第一维，连续；`x[:, 0]` 的 stride 是原第一维的 stride，不连续。两者都让整个 `x` 的 Storage 活着。
+
+   </details>
+
+4. `x.to("cuda")`、`x.to(torch.float16)`、`x.to(x.device)` 各复制吗？返回的是新 Tensor 还是自己？
+
+   <details markdown="1"><summary>答案</summary>
+
+   跨设备与改 dtype 都要复制（新 Storage）；`to` 到相同 device 与 dtype 时直接返回 `self`（同一个对象），除非传 `copy=True`。所以 `.to()` 的“是否新对象”依赖运行时条件。
+
+   </details>
+
+5. 一个 10 GB 的 Tensor 取了 `y = x[0, 0]`（单元素 view）后 `del x`，显存释放了吗？怎么真正释放？
+
+   <details markdown="1"><summary>答案</summary>
+
+   没有——`y` 的 `TensorImpl` 持有同一个 `StorageImpl`，10 GB 活着；`y = x[0, 0].clone()`（或 `.item()` 取标量）再 `del x` 才释放。这是“是否延长某块内存的生命周期”那一问。
+
+   </details>
 
 
 ## 下一篇

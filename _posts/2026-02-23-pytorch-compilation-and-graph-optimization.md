@@ -5,6 +5,7 @@ title: "PyTorch 深度实践（07）：编译执行与图优化"
 subtitle: "Compilation and Graph Optimization in PyTorch"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 前两篇讨论的是**单个算子**：第五篇解释一次 `torch.add` 调用如何经过入口、分发、执行；第六篇把一个自定义算子接入了同样的路径。无论原生还是自定义，每个算子都是独立走完这条路的。
@@ -186,6 +187,7 @@ torch.compile(f, backend="aot_eager")
 | 七 | 串起来：f 的四次调用——运行时的每条分支 |  |
 | 八 | Java 对照 |  |
 | 九 | 本文小结 |  |
+| 十 | 自测 | 5 道题 |
 
 
 ## 二、IR：FX Graph
@@ -1232,6 +1234,56 @@ torch._dynamo.explain               有几张图，为什么断
 最后一步是下一篇的起点：
 
 > **编译之后到底快了多少，快在哪里——省下的是 Python 开销、分发开销、Kernel launch，还是访存？如何用 Profiler 和 Benchmark 给出可复现的答案？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+核心问题是**`torch.compile` 怎么在保留 Eager 编程模型的前提下，把逐算子分发切换成整图优化**。三段流水线。**前端 Dynamo**：在 CPython 的字节码层做符号求值——不是运行代码，而是解释每条字节码、把 Tensor 操作记进 FX Graph、把依赖元数据（shape、dtype、`requires_grad`）的分支特化并记成 Guard、把依赖 Tensor 值或不支持的操作切成 graph break；输出 FX Graph + Guard + 改写后的字节码（第二、三章）。**中端 AOTAutograd**：拿 torch 级的图，用 FakeTensor 跑一遍前向、追踪 autograd 得到反向图，把算子下降到 ATen 级词汇（`torch.ops.aten.*`）并做 functionalize（去掉 in-place），包成一个 `autograd.Function`（第四、五章）。**后端 Inductor**：把 ATen 图变成循环级 IR，做融合（逐元素算子合进相邻的 GEMM / reduction）、内存规划，生成 Triton（GPU）或 C++（CPU）源码并编译成 kernel，`call()` 一次跑完（第六、七章）。运行时：每次调用先检查 Guard，通过就执行编译产物，失败就重编译（有上限）；Eager 代码一行不改。观察手段：`TORCH_LOGS="graph_code,aot_graphs,output_code"` 分别看三段的输出（第八章）。快在哪：省掉 Python 与分发开销、减少 kernel launch、融合减少访存——下一篇量它。
+
+</details>
+
+
+## 十、自测
+
+1. `symbolic_trace`（torch.fx）与 Dynamo 都产出 FX Graph，遇到 `if x.sum() > 0:` 各怎么办？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `symbolic_trace` 用 Proxy 在 Python 对象层追踪，对 Proxy 做 `bool()` 直接报错；Dynamo 在字节码层符号求值，这个分支依赖 Tensor **值**，切一个 graph break：分支前一张图、分支后一张图，中间回到 Python 执行。
+
+   </details>
+
+2. Guard 是什么？“Guard 失败”与“graph break”差在哪？
+
+   <details markdown="1"><summary>答案</summary>
+
+   Guard 是捕获时记下的假设（输入 shape、dtype、Python 常量、全局变量的值），每次调用先检查；失败就重编译一张新图（`recompile_limit` 次后退回 eager）。graph break 是捕获时的边界，决定图有多大；Guard 失败是调用时的失效，决定是否重编。
+
+   </details>
+
+3. `torch.compile` 后第一次调用慢几十秒、之后每次换一个 batch size 又慢一次——原因是什么？怎么办？
+
+   <details markdown="1"><summary>答案</summary>
+
+   静态 shape 下每个新 shape 是一次 Guard 失败 + 重编译；用 `dynamic=True` 或 `mark_dynamic` 让 shape 成为符号（SymInt），一张图覆盖多种大小，代价是少一些特化优化。
+
+   </details>
+
+4. Inductor 的“融合”省的是什么？举一个 `x.relu() * 2 + b` 的例子。
+
+   <details markdown="1"><summary>答案</summary>
+
+   省 HBM 访存与 kernel launch：Eager 是三个 kernel、每个把整个 Tensor 读一遍写一遍；Inductor 生成一个 Triton kernel，每个元素读一次、算完写一次——memory-bound 算子的时间由字节数决定，融合直接砍掉 2/3。
+
+   </details>
+
+5. “后端”与 `backend=` 参数指的是同一个东西吗？`backend="eager"` 做什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   不是：编译器术语的后端指 Inductor 这一段；`torch.compile(backend=...)` 指 Dynamo 之后的一切（含 AOTAutograd）。`backend="eager"` 只做 Dynamo 捕获然后原样执行图，用来隔离“是捕获的问题还是编译的问题”。
+
+   </details>
 
 
 ## 下一篇

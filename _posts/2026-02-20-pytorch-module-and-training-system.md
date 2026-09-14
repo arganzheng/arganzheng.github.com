@@ -5,6 +5,7 @@ title: "PyTorch 深度实践（04）：nn.Module 与训练系统"
 subtitle: "nn.Module and Training Systems in PyTorch"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 上一篇讨论了 Autograd：Tensor 运算如何形成动态计算图，`backward()` 如何沿图传播梯度，以及梯度状态和计算图生命周期之间有什么关系。
@@ -67,6 +68,7 @@ Parameter 更新
 | 十三 | Checkpoint 与可恢复训练 | 保存什么、何时保存、resume 不只是加载权重 |
 | 十四 | Java 工程师如何理解 `nn.Module` | 组件树、Parameter、`state_dict`、DataLoader 的类比 |
 | 十五 | 本文小结 |  |
+| 十六 | 自测 | 5 道题 |
 
 
 ## 二、从模型对象到训练系统
@@ -1994,6 +1996,56 @@ checkpoint 是否保存了完整状态？
 下一篇将进入 PyTorch 的算子运行时：
 
 > **同一个 `add` 算子为什么能够运行在 CPU、CUDA、Autograd 和 Meta 等不同后端上？Dispatcher 又是如何选择具体实现的？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+靠 `nn.Module` 的**注册机制**：`__setattr__` 拦截赋值，把 `Parameter` 进 `_parameters`、子 Module 进 `_modules`、`register_buffer` 进 `_buffers`——只有被登记的对象才参与 `parameters()` 遍历、`state_dict()` 保存、`.to()` 的 `_apply` 递归迁移与 `train()` / `eval()` 生命周期；Python list 里的 Module 不会被登记，要用 `ModuleList`（第二、三、四章）。**状态**由 `state_dict` 统一表示为“限定名 → Tensor”的有序字典，`load_state_dict` 按名字对齐（`strict` 控制缺失与多余），优化器有自己的 `state_dict`（param groups + 每参数状态），两者一起就是 checkpoint；`torch.save` 是 pickle，`weights_only=True` 用受限 unpickler 防任意代码执行（第五、六、十章）。**数据管线**由 `Dataset`（取一条）、`Sampler`（出索引）、`DataLoader`（worker 进程、`collate`、`pin_memory` 线程、预取）组成，与模型解耦（第七章）。**训练循环**把它们串起来：前向 → loss → `backward` → `optimizer.step` → `zero_grad`，autocast 作为一个 DispatchKey 在算子层转换 dtype、`GradScaler` 处理 fp16 的缩放，hooks（forward / backward / state_dict）是扩展点（第八、九、十一章）。可扩展性来自“一切都是 Module、一切状态都在 `state_dict` 里”这两条约定。
+
+</details>
+
+
+## 十六、自测
+
+1. `self.layers = [nn.Linear(4, 4) for _ in range(3)]` 会有什么问题？`parameters()` 能看到它们吗？
+
+   <details markdown="1"><summary>答案</summary>
+
+   看不到——list 不是 Module，`__setattr__` 不登记，参数不进优化器、不进 `state_dict`、`.to("cuda")` 也不迁移；要用 `nn.ModuleList`（或 `nn.Sequential`）。
+
+   </details>
+
+2. `register_buffer("running_mean", t)` 与 `self.running_mean = t`（普通 Tensor 属性）差在哪？
+
+   <details markdown="1"><summary>答案</summary>
+
+   buffer 进 `state_dict`（能保存 / 加载）、随 `.to()` 迁移、随 `train()`/`eval()` 无关但可被 hook 访问；普通属性都不会，换设备后停在 CPU 上、checkpoint 里也没有。`persistent=False` 的 buffer 迁移但不保存。
+
+   </details>
+
+3. `load_state_dict(sd, strict=False)` 会隐藏什么错误？什么时候该用？
+
+   <details markdown="1"><summary>答案</summary>
+
+   缺失的键（模型里有、文件里没有的参数保持随机初始化）与多余的键都只记录不报错——最常见的“加载了 checkpoint 但效果像没训过”的来源；只在刻意加载部分权重（换了分类头）时用，并检查返回的 `missing_keys` / `unexpected_keys`。
+
+   </details>
+
+4. `torch.load(path)` 默认为什么不安全？`weights_only=True` 做了什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `torch.save` 用 pickle，任意 Python 对象（含 `__reduce__` 里的代码）都能被反序列化执行——加载不可信文件等于执行任意代码；`weights_only=True` 用受限 unpickler 只允许 Tensor、基本容器等白名单类型。
+
+   </details>
+
+5. `DataLoader(num_workers=4)` 的 4 个 worker 是线程还是进程？`pin_memory=True` 在哪个线程做、为什么能加速？
+
+   <details markdown="1"><summary>答案</summary>
+
+   进程（绕开 GIL 做 Python 预处理，每个 epoch 重新启动除非 `persistent_workers`）；pin 在主进程的一个专用线程里把 batch 拷到页锁定内存，之后 `to("cuda", non_blocking=True)` 才能真正异步 DMA，与计算重叠。
+
+   </details>
 
 
 ## 下一篇
