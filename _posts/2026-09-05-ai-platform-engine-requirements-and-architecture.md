@@ -5,6 +5,7 @@ title: "AI 平台工程（01）：引擎的需求清单与平台的整体架构"
 subtitle: "What Engines Demand from the Platform, and the Platform's Two Layers"
 tags: [Kubernetes, GPU, MLOps, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 一个刚装好的 Kubernetes 集群，三台 worker 每台插着一张 GPU。提交一个只有十几行的 Pod，`resources.limits` 里写 `nvidia.com/gpu: 1`，它一直 Pending。`kubectl describe pod` 的 Events 里只有一行：`0/4 nodes are available: 3 Insufficient nvidia.com/gpu`。三张卡明明在那里，`nvidia-smi` 在宿主机上能看到，调度器却说"不够"。
@@ -836,6 +837,56 @@ kubectl get nodes -o custom-columns='NAME:.metadata.name,GPU:.status.allocatable
 ```bash
 kubectl delete -f probes/pending-gpu-pod.yaml
 ```
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**训练任务（4 节点 32 卡）**的需求表约 15 条：整数个 GPU 且每进程一张；32 个 Pod 要么同时起、要么都不起（gang）——`torchrun` 的 rendezvous 等不齐就超时重建、活锁；节点间 RDMA 高带宽低延迟且拓扑相近；组级重启（任一进程失败其余全部卡住，`SimpleElasticAgent._invoke_run()` 的策略是整组重启，节点消失时“任务失败还是补节点”由平台决定）；队列与配额、抢占策略；周期性突发顺序写（checkpoint 1 TB 级 1 分钟内）与持续小块随机读（数据集）。原生 Kubernetes 完全满足的只有 1 条——kube-scheduler 逐 Pod 决策，`noderesources/fit.go` 的 `Fits()` 只把 `nvidia.com/gpu` 当整数比较，device plugin 的 `ListAndWatch` / `Allocate` 只能上报计数，没有 Pod 组、没有设备属性、没有队列、RDMA 设备不被识别（第二、五章）。**推理服务（TP=2、副本数动态）**：多 Pod 一副本或单 Pod 多卡的副本抽象；显存是硬约束不能超卖；扩容以分钟计、主项是权重加载，所以要按引擎内部指标提前扩（`vllm:num_requests_waiting`、`vllm:kv_cache_usage_perc`、TTFT、ITL）；按副本状态与 model 字段路由、租户配额、缩到零；原生满足 2 条，缺失集中在扩缩容信号与路由（第三、五章）。**两者的冲突与共同点**：独占 vs 共享、拓扑 vs 弹性、批处理 vs 长驻；共同点是都要“多 Pod 一个单位”、GPU 要有属性、成本落到 GPU 时间——唯一共同的空缺是“GPU 是不透明整数”（第四章）。**空缺分三种**：缺插件（GPU / RDMA 设备）、缺概念（Pod 组、设备属性、队列配额、多 Pod 副本）、缺信号（引擎指标驱动的扩缩容、路由、成本）。平台由此分两层——资源层把裸节点变成能跑的 Pod，交付层把 Pod 变成有 SLA 与账单的服务，分界线是“Pod 能跑了”；训练只走资源层，推理两层都走（第六章）。每叠一层的代价是版本契约、对象模型翻倍、信号延迟——单团队固定负载、只有小模型固定副本、或能接受托管黑盒时不该上这一层（第八章）。
+
+</details>
+
+
+## 十一、自测
+
+1. 32 卡训练任务在原生 kube-scheduler 下最典型的失败形态是什么？为什么应用层重试解决不了？
+
+   <details markdown="1"><summary>答案</summary>
+
+   凑不齐 32 卡时已起的 Pod 空转等 rendezvous、超时后重建、再等——活锁；两个大任务各占一半互相卡死。因为决定“要么全起要么都不起”只能在调度 / 准入层做，Pod 已经起了再重试只是重复占卡。
+
+   </details>
+
+2. `torchrun` 给每个进程注入哪四个环境变量？agent 发现一个 worker 失败时默认做什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `MASTER_ADDR` / `MASTER_PORT` / `WORLD_SIZE` / `RANK`（加 `LOCAL_RANK`）；`SimpleElasticAgent._invoke_run()` 让整组 worker 重启（任一失败其余在集合通信上卡住，单独重启一个没用）；agent 本身或节点消失则交给平台决定是任务失败还是补节点。
+
+   </details>
+
+3. 推理副本的扩容为什么“以分钟计、主项是权重加载”？这对扩缩容指标意味着什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   调度 + 拉镜像 + 从对象存储加载几十 GB 权重 + 引擎初始化（profile、CUDA graph 捕获），8 分钟量级；所以不能等 GPU 利用率高了再扩——要用引擎内部的领先指标（`num_requests_waiting`、`kv_cache_usage_perc`、TTFT）并提前触发。
+
+   </details>
+
+4. device plugin 的 `ListAndWatch` / `Allocate` 只能做什么？导致哪三个局限？
+
+   <details markdown="1"><summary>答案</summary>
+
+   上报设备 ID 列表与健康、按 kubelet 分配的 ID 注入设备；局限：只计数不带属性（型号、显存、拓扑）、不能表达跨 Pod 的共享、节点内 NVLink 偏好只是建议（`GetPreferredAllocation`）。
+
+   </details>
+
+5. 平台的“资源层”与“交付层”分界线在哪？训练与推理各走哪层？什么情况下不该自建平台？
+
+   <details markdown="1"><summary>答案</summary>
+
+   分界线是“Pod 能跑了”：资源层管设备、调度、切分、网络存储；交付层管 Serving、网关、可观测与账单。训练只走资源层，推理两层都走。单团队固定负载、只有小模型固定副本、或能接受托管黑盒时，多叠一层的版本契约与信号延迟不值。
+
+   </details>
 
 
 ## 下一篇

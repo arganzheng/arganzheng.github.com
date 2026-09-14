@@ -5,6 +5,7 @@ title: "AI 平台工程（04）：GPU 共享与切分——MIG、时间片、MPS
 subtitle: "Sharing and Partitioning GPUs: MIG, Time-Slicing, MPS and HAMi"
 tags: [Kubernetes, GPU, MIG, HAMi, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 月底看账单，推理平台上一张 80 GB 的 H100 每小时几美元，一个月跑满是四位数。再看 DCGM 的曲线：这张卡上唯一的服务是一个 7B 模型的 vLLM 副本，`DCGM_FI_DEV_FB_USED` 常年 22 GB 左右，`DCGM_FI_PROF_SM_ACTIVE` 白天峰值不到 30%，夜里几乎是零。也就是说，这张卡四分之三的显存和七成以上的算力在付费但没有产出。集群里这样的卡有几十张：每个团队的每个小模型都要"一张卡"，因为 `nvidia.com/gpu: 1` 是 device plugin 唯一听得懂的请求。
@@ -1022,6 +1023,56 @@ share/
 跑完三种方案后，读者手上有三组 TTFT / TPOT / 吞吐分位数与三次 OOM 演练的结果，可以直接填进第八章的对照表。下一篇离开单卡，进入多机：训练任务的速度上限由节点间网络决定，能否长期运行由 checkpoint 能否按时写完决定。
 
 > **一个 8 节点 64 卡的训练任务，`nccl-tests` 在容器里测出的 all_reduce 带宽只有裸机的三分之一。从 Pod 的网络配置、device plugin 的资源分配、NCCL 的环境变量三个层面，各自可能出了什么问题？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+三种方案是同一个技巧（device plugin 把一张卡复制成 N 个逻辑设备）的三种底座。**MIG `3g.20gb × 2`**：硬件分区——独立的 SM、L2、显存与带宽，每个 GI 是一张独立的小卡；隔离性最好，故障域是 GI，一个服务 OOM 或 Xid 只影响自己；总吞吐份额由瓶颈决定——decode（memory-bound）看显存 slice 比例 1/2，prefill 看计算 slice 3/7；但 A100 只有 7 个计算 slice、8 个显存 slice，`3g.20gb × 2` 用尽显存 slice 且浪费一个计算 slice，**只能放两个服务**，第三个没地方；改几何要清空 GPU，MIG 实例间无 P2P / IPC，NCCL 不可用（第三、四章）。**HAMi 按显存切三份**：在时间片之上用 `libvgpu.so` 拦截 CUDA 驱动 API，提供按 MB 的显存配额（`nvidia.com/gpumem`）与算力节流（`nvidia.com/gpucores`）；请求超过配额的 `cudaMalloc` 在越界容器内失败——OOM 被限制在自己，但不切带宽、不切 L2，延迟随邻居波动；故障域仍是整卡——一个 Xid 三个全挂；总吞吐通常比 MIG 高（没有 slice 的硬边界与浪费）（第六章）。**时间片开三个副本**：驱动级轮转、无任何隔离——显存是先到先得，一个服务 OOM 时 `cudaMalloc` 失败的可能是任何一个，且 context 切换有开销；一个服务的 OOM 会拖垮另外两个（第五章）。**决策**：训练不切；有 SLA 的推理在 MIG 卡上用 MIG、需要弹性用 HAMi；同模型相同副本可用 MPS（软显存上限 + SM 比例均分，`EXCLUSIVE_PROCESS`）；开发环境用时间片；一个节点池一种策略（第八章）。vLLM 的 `--gpu-memory-utilization` 在 MIG 与 HAMi 下自动按配额算，时间片与 MPS 下要手动调。
+
+</details>
+
+
+## 十二、自测
+
+1. A100 的 MIG 有几个计算 slice、几个显存 slice？`3g.20gb × 2` 用了多少、浪费什么？能再放一个 `1g.5gb` 吗？
+
+   <details markdown="1"><summary>答案</summary>
+
+   7 个计算 slice、8 个显存 slice；两个 `3g.20gb` 用 6 个计算 + 8 个显存 slice——显存 slice 用尽、浪费 1 个计算 slice；不能，没有显存 slice 剩下。
+
+   </details>
+
+2. 同一张卡上三种共享方式下，一个服务 OOM 各影响谁？一个 Xid 硬件错误各影响谁？
+
+   <details markdown="1"><summary>答案</summary>
+
+   时间片：OOM 可能让任何一个服务的 `cudaMalloc` 失败，三个都受影响；HAMi：OOM 限制在越界容器内，Xid 仍是整卡三个全挂；MIG：OOM 与 Xid 都隔离在自己的 GI 内。
+
+   </details>
+
+3. MIG `3g.20gb` 跑 decode 与 prefill 各能拿到整卡的几分之几？为什么不一样？
+
+   <details markdown="1"><summary>答案</summary>
+
+   decode memory-bound 看显存 slice：4/8 = 1/2 的带宽；prefill compute-bound 看计算 slice：3/7 的算力。MIG 按两种 slice 独立切分，工作负载的瓶颈决定它感受到的份额。
+
+   </details>
+
+4. `migStrategy: single` 与 `mixed` 各怎么上报资源？各要求什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `single`：所有 MIG 实例都上报为 `nvidia.com/gpu`，要求全节点几何一致（Pod 拿到哪个都一样）；`mixed`：每种 profile 一个资源名 `nvidia.com/mig-3g.20gb`，允许一个节点混几种几何，Pod 按 profile 申请。
+
+   </details>
+
+5. MPS 与时间片在 K8s 里怎么配？两者为什么互斥、只能节点级生效？
+
+   <details markdown="1"><summary>答案</summary>
+
+   device plugin 的 `sharing.mps` / `sharing.timeSlicing`，`replicas ≥ 2`、`renameByDefault` 加 `.shared` 后缀、`failRequestsGreaterThanOne` 拒绝多副本请求；MPS 要 `mps-control-daemon` 把 GPU 设为 `EXCLUSIVE_PROCESS` 并按 `1/replicas` 下发 pinned memory limit，与时间片的默认模式冲突；配置是节点级、对全部设备统一复制。
+
+   </details>
 
 
 ## 下一篇

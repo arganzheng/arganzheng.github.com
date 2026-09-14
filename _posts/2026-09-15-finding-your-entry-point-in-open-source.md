@@ -5,6 +5,7 @@ title: "AI-Infra 开源贡献指南（02）：找到切入点——从 issue、R
 subtitle: "Finding Your Entry Point: Issues, RFCs, Roadmaps, CI Failures and Regressions"
 tags: [Open Source, PyTorch, vLLM, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 一个很典型的第一次贡献是这样开始的：打开 PyTorch 的 issue 列表，按 `good first issue` 过滤，看到 #191394 "[Elastic] FileStore rendezvous leaks the mkstemp file descriptor"——`_create_file_store()` 调了 `tempfile.mkstemp()` 却没有关掉返回的文件描述符。问题描述清楚、附了代码链接、改动显然只有几行。花一个晚上搭好环境、复现、修掉、补一个回归测试，第二天开 PR。然后发现，截至 2026-09-07 查询，这个 issue 下已经挂着 **5 个 open 的 PR**（#194259、#194623、#195137、#195711、#196096），最早的一个 8 月 20 日就开了；issue 评论区里还有同一个账号在同一天用同一段模板留了三次"I'd like to take this one"。你的是第六个。
@@ -78,6 +79,7 @@ catalog: true
 | 八 | 先讨论与查重 | 两个项目的明文规则；三条命令；认领留言的写法与反例；"一周后会不会被关"的预测器 |
 | 九 | 贡献日志 | 切入点清单模板；PyTorch 三个候选、vLLM 三个候选（2026-09-07 实查）；选定一个 |
 | 十 | 本文小结 | 要点 · 对照表 · 文件位置 |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、标签：maintainer 表达"我们想要什么"的主渠道
@@ -822,6 +824,56 @@ CI 失败       vLLM：Project 20 看板 · failures.md 的六节操作手册 ·
 下一篇进入"做出一个能被合入的改动"：选定的切入点如何变成最小 diff、带什么测试、性能改动附什么数字、按两个项目的模板写 PR 描述、本地 lint 与 CI 矩阵、review 往返与 merge 机制。它的核心问题：
 
 > **reviewer 打开你的 PR，只有十分钟。这十分钟里他要确认什么？你的 diff、描述、测试、CI 状态分别替他回答了哪个问题？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**maintainer 最想要的**：他们已经决定要做、写清了要什么、自己没时间做的事——PyTorch 里是带 `actionable` 状态标签、或 maintainer 评论里写了 “I'd review a PR that ...” 的 issue；vLLM 里是 `help wanted` 加分步骤正文的 issue、Job Board 上的四类链接、已接受但没人实现的 RFC；另外两类稳定的需求是 CI 失败（vLLM 的 Project 20 看板 + `failures.md` 六节操作手册；PyTorch 的 HUD + bot 自动开的 `DISABLED` issue，200 个 open、修好自动重新启用）与性能回归（vLLM `700-performance-discussion.yml`、PyTorch `module: regression` 156 个）（第二、六、七章）。**一周内不被关的预测器**：标签状态（PyTorch 的状态链 needs reproduction → needs research → needs design → actionable，只有最后一档该动手）；maintainer 最后一条评论（是“欢迎 PR”还是“需要先讨论”）；同一 issue 下已有的 open PR 数（有人在做就别重复）；规模与 RFC 门槛（vLLM > 500 行架构改动无 RFC 不 review；PyTorch 大改动走 pytorch/rfcs 仓库、模板九章、draft → commenting → 主仓 issue）；硬件（你没有的 GPU 上的 bug 修不了）；项目政策（vLLM 6 个 open PR 上限、stale bot）（第三、四、五章）。标签怎么读：PyTorch 682 个分五层前缀 + 状态标签，`labeler.yml` 按路径、`label_to_label.yml` 按标签推导；vLLM 63 个平铺，`mergify.yml` 按路径 / 标题打 PR 标签、`issue_autolabel.yml` 按关键词打 issue 标签——注意 `600-new-model.yml` 的 “new model” 与实际标签 `new-model` 不一致，按标题前缀搜（第三章）。选题的原则：从 maintainer 已表达的需求出发，比自己想一个“好主意”被接受的概率高一个量级。
+
+</details>
+
+
+## 十一、自测
+
+1. PyTorch issue 的状态标签链是什么？哪一档才该动手写 PR？
+
+   <details markdown="1"><summary>答案</summary>
+
+   needs reproduction → needs research → needs design → actionable；只有 `actionable`（或 maintainer 明确说 “I'd review a PR that ...”）才该动手，前三档动手的 PR 大概率因方向未定被关。
+
+   </details>
+
+2. vLLM 的 issue 标签是谁打的？想找“新模型支持”的需求为什么不能只搜 `new model` 标签？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `issue_autolabel.yml` 按关键词自动打，`mergify.yml` 按路径 / 标题给 PR 打；`600-new-model.yml` 模板写的是 “new model” 而实际标签是 `new-model`，两者不一致——按 issue 标题前缀 `[New Model]:` 搜更可靠。
+
+   </details>
+
+3. vLLM 与 PyTorch 各在什么规模的改动上要求先写 RFC？RFC 流程各是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   vLLM：> 500 行的架构改动，无 RFC 不 review，模板 `750-RFC.yml` 的 Motivation / Proposed Change / Feedback Period（至少一周）/ CC List；PyTorch：大改动去 pytorch/rfcs 仓库，模板九章 + Resolution，draft → commenting → 主仓 issue。已接受未实现的 RFC 是现成的入口。
+
+   </details>
+
+4. CI 失败作为入口在两个项目里各怎么找？为什么它是“maintainer 一定想要”的？
+
+   <details markdown="1"><summary>答案</summary>
+
+   vLLM：Project 20 看板 + `failures.md` 六节操作手册 + `450-ci-failure.yml` + `ci-fetch-log.sh` / `rerun-test.sh`；PyTorch：HUD + bot 自动开的 `DISABLED test_xxx` issue（`skipped` + `module: flaky-tests`），修好即自动重新启用。红的 CI 阻塞所有人，修好的 PR 几乎不会被拒。
+
+   </details>
+
+5. 选了一个 issue 后，五分钟内做哪几项检查判断它一周后还活着？
+
+   <details markdown="1"><summary>答案</summary>
+
+   标签是否 actionable / help wanted；maintainer 最后一条评论的态度与时间；是否已有 open PR 链接到它；改动规模是否触发 RFC 门槛；需要的硬件自己有没有；项目的 stale 与 open PR 上限政策。
+
+   </details>
 
 
 ## 下一篇

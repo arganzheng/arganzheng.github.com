@@ -5,6 +5,7 @@ title: "AI 平台工程（06）：Serving 平台——从 InferenceService 到 l
 subtitle: "Serving Platforms: KServe, Triton, Ray Serve, LeaderWorkerSet and llm-d"
 tags: [Kubernetes, GPU, KServe, llm-d, vLLM, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 一个常见的事故是这样的：某个 70B 模型的推理服务用 Deployment 部署了 2 个副本，每个副本 TP=4 占一台 4 卡机器，HPA 按 CPU 利用率 70% 扩容。晚高峰到来，用户侧 TTFT 从 1 秒涨到 20 秒，`kubectl get hpa` 却显示 CPU 只有 12%——vLLM 的 CPU 几乎全在等 GPU，KV cache 早已占满、几百个请求在引擎内部的等待队列里排队，而 K8s 对此一无所知。值班同学手动把副本改成 6，新 Pod 调度、拉镜像、从对象存储拉 140 GB 权重、加载到显存、做 CUDA graph 捕获，8 分钟后第一个新副本才开始接流量，此时高峰已经过去一半。第二天有人把副本常驻改成 6，于是 16 张 H100 在白天的 20 个小时里几乎空转。
@@ -1172,6 +1173,56 @@ if __name__ == "__main__":
 ```
 
 预期看到的形态（定性，取决于你的 C 与 r）：`conc` 线性上升的同时，`waiting` 在 `running` 阈值触发前应该保持 0；`spec` 跳变的那一行就是 KEDA/HPA 的决策时刻，之后 `cur` 立刻跟上（Pod 已创建）而 `ready` 要过几分钟才增加——两者之间的差就是第七章表格里五段之和，脚本末尾按每次扩容打印这个差。若把 `running` 触发器去掉只留 `waiting`，会看到 `waiting` 先涨、`p50_s` 随之抬升、`spec` 才变——这是滞后指标的形状。把 cron 触发器的 `start` 设在脚本开始前 12 分钟再跑一次，`spec` 应在爬升开始前就到 6，`waiting` 全程为 0，而 `ready` 的 6 在爬升开始时已经就位。把三次的 `ready` 曲线与 `p50_s` 曲线叠在一起，就是第八章推演的实测版。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**指标选什么**：不选 GPU 利用率——decode 时它常年 90% 以上却不代表满载；选引擎内部的领先指标：`vllm:num_requests_waiting`（排队数，最灵敏）、`vllm:kv_cache_usage_perc`（KV 池占用，容量的直接度量）、TTFT / ITL 的 P95（SLO 本身）。这些经 Prometheus 由 KEDA 或 HPA 的 external metrics 驱动 LeaderWorkerSet（TP=4 多 Pod 一副本用 LWS，`scale` 子资源只看 leader）或 KServe 的 `LLMInferenceService`（`scaling.wva`）（第二、三、六章）。**阈值定多少**：按容量倒推——一个副本在 SLO 内能承载的并发（KV 池 / 每请求平均 KV）是 100%，KV 占用到 70–80% 或 waiting > 0 持续 30 秒就扩，留出 8 分钟的就绪时间内负载还会涨的余量；缩容阈值要远低于扩容阈值（比如 KV < 30% 持续 15 分钟）并配 `stabilizationWindow`，否则在 8 分钟的就绪延迟里来回抖动（第四章）。**提前多久触发**：8 分钟就绪意味着纯反应式一定迟到——晚高峰是可预测的，用定时（KEDA cron scaler）在高峰前 10–15 分钟把 minReplicas 从 2 抬到 6，指标驱动只负责处理预测之外的部分；再把 8 分钟本身压短：权重用 `pvc://` 直挂或 `oci://` modelcar / image volume、`LocalModelCache` 预热到节点本地盘，省掉从对象存储拉几十 GB 那一段（第五、七章）。**不浪费 16 张卡**：高峰过后按缩容阈值回到 2 副本；如果日夜负载差很大，考虑 PD 分离（`DisaggregatedSet` 两个 role 各自扩缩）或让低峰的卡给训练 / 批处理任务（第八章）。Triton 与 Ray Serve 是同位替代：Triton 的 model repository + `config.pbtxt`（dynamic batching、ensemble、vLLM backend）适合多模型多框架，Ray Serve 自带调度器、放到 K8s 上是两层调度（第九章）。
+
+</details>
+
+
+## 十一、自测
+
+1. TP=4 的一个副本在 K8s 里用什么对象表达？为什么 Deployment 不够？
+
+   <details markdown="1"><summary>答案</summary>
+
+   LeaderWorkerSet：一个 group = leader + 3 个 worker Pod，`size = 4`，注入 `LWS_LEADER_ADDRESS` / `LWS_GROUP_SIZE` / `LWS_WORKER_INDEX`，`RecreateGroupOnPodRestart` 让一个 Pod 挂了整组重建；Deployment 的副本是单 Pod、互不相知，表达不了“4 个 Pod 是一个副本”。
+
+   </details>
+
+2. 为什么 GPU 利用率不能做推理扩缩容的指标？该用哪三个？
+
+   <details markdown="1"><summary>答案</summary>
+
+   decode memory-bound，一个请求就能让利用率到 90%，与容量无关；用 `vllm:num_requests_waiting`（排队）、`vllm:kv_cache_usage_perc`（容量）、TTFT / ITL P95（SLO）。
+
+   </details>
+
+3. 就绪 8 分钟的副本，扩容阈值与缩容阈值为什么要拉开？拉开不够时还要什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   就绪期间负载继续涨，扩容要提前（KV 70% 就扩）；缩容如果阈值接近扩容阈值，新副本刚就绪负载就落回去、被缩掉、再涨再扩——抖动 8 分钟一周期；缩容阈值远低（KV < 30%）并加 `stabilizationWindow`（15 分钟）与最小副本数。
+
+   </details>
+
+4. 把 8 分钟的就绪时间压短，权重加载有哪四种路径？各省什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `pvc://` 直挂（不拉、直接读 PFS）；`s3://` / `hf://` 经 storage-initializer init 容器（默认，最慢）；`oci://` modelcar 或 image volume（权重打进镜像层、节点镜像缓存复用）；`LocalModelCache` 预热到节点本地盘（第二次起秒级）。
+
+   </details>
+
+5. KServe `InferenceService` 与 `LLMInferenceService` 差在哪？后者控制器生成什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   前者是通用的 predictor / transformer / explainer 模型服务；后者是 LLM 专用：`model.uri`、`parallelism`、`prefill`（PD）、`router{gateway, route, scheduler}`、`scaling.wva`，控制器按形状生成 Deployment 或 LWS + InferencePool + EPP + HTTPRoute，把网关与调度器一起拉起来。
+
+   </details>
 
 
 ## 下一篇

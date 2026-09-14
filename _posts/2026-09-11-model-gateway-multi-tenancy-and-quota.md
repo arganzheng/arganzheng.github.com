@@ -5,6 +5,7 @@ title: "AI 平台工程（07）：模型网关与多租户——路由、配额�
 subtitle: "The Model Gateway: KV-Aware Routing, Multi-Tenancy, Quotas and Canaries"
 tags: [Kubernetes, GPU, Gateway API, llm-d, Multi-Tenancy, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 上一篇结束时，一个 70B 模型的 4 个副本已经跑在集群里，KEDA 会按 `vllm:num_requests_waiting` 把它扩到 6 个。把它们暴露出去最省事的做法是一个 `Service` 加一个 Ingress：`kube-proxy` 在 4 个 Pod 之间轮询，客户端拿到一个 URL，`POST /v1/chat/completions`，完事。这套东西跑起来没有任何报错，但第一周的监控会出现一个反直觉的图形：4 个副本的 `vllm:kv_cache_usage_perc` 长期不齐——一个在 95% 上下抖、两个在 60%、一个 30%；TTFT 的 p50 在 400 ms，p99 却到了 6 s；而 `nvidia-smi` 看总算力只用了一半。请求没有多到需要扩容，但排队真实地发生了，发生在那个 95% 的副本上，因为轮询不看它满不满。
@@ -91,6 +92,7 @@ catalog: true
 | 八 | 多集群与网关容量 | InferencePoolImport 的状态；multicluster-* 插件；网关与 EPP 自身的容量 |
 | 九 | 代价与边界 | 四栏表；什么时候不该上这一层 |
 | 十 | 本文小结 | 要点、源码位置、mini-platform/gateway/ 增量与 `ttft-compare.py` |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、为什么轮询是错的
@@ -1189,6 +1191,56 @@ python3 mini-platform/gateway/ttft-compare.py \
 到这里 mini-platform 有了一个能按模型路由、按副本状态选目标、按租户限额和排队的入口。它记下的每一个 token 数、每一次 429、每一个 `cached_tokens`，都是下一篇要变成账单和看板的原料。下一篇的核心问题：
 
 > **一个 64 卡集群上月账单 X 元，DCGM 显示平均分配率 85%、平均 `SM_ACTIVE` 35%。这 50 个百分点的差距分别来自哪里——排队等 gang、训练的通信等待、推理的低峰空转、开发环境的长期占用？每一项对应本系列哪一篇的机制？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**配额指什么**：网关层面是请求数（RPM）、token 数（TPM，输入输出分开）与并发数三种，按租户 × 模型配置——不是 GPU 时间，因为网关看不见 GPU；GPU 时间是平台层用 DCGM 与 pod label 事后归因的账（下一篇）。A 的配额是 B 的三倍指的是这三个数的比例（第七章）。**打满时按什么规则**：分两层。外层（API 网关 / 认证）按 API key / JWT 识别租户，剥掉客户端伪造的 `x-llm-d-*` 头，注入 `fairness-id` 与 `objective`，对每租户每模型做 RPM / TPM / 并发限流——超配额的直接 429（带 `x-llm-d-request-dropped-reason`），不进队列；内层（GIE 的 EPP，endpoint picker）对通过限流的请求做流控与路由：`InferenceObjective` 给 priority，flow control 按 priority **严格优先**、同 priority 内按 `fairness-id` round-robin 公平——注意 llm-d-router v0.10 没有按权重（3 : 1）的公平，A 的“三倍”只能靠外层配额体现，内层只有优先级与轮转（第五、六、七章）。**排在哪个副本上**：EPP 的流水线 parse → 模型名重写 → priority → fairness → Admit → screener → data producer → 每 profile 的 filter → 加权打分 → picker：`prefix-cache-affinity-filter` / `prefix-cache-scorer`（同一会话的请求去 KV 已在的副本——64 会话 × 8K 的例子里 TTFT 从 0.5 s 级降到几十 ms）、`queue-scorer`（waiting 数）、`kv-cache-utilization-scorer`（KV 占用）、`lora-affinity-scorer`、`token-load-scorer`，`max-score-picker` 选最高分；前缀信息两种来源——`approx-prefix-cache-producer`（EPP 自己记账、猜）与 `precise-prefix-cache-producer`（vLLM `--kv-events-config` 经 ZMQ 推事件、准）（第三、四章）。数据路径：Gateway → HTTPRoute（按 header 匹配模型名）→ InferencePool → ext_proc → EPP → `x-gateway-destination-endpoint` → Pod；PD 分离时两个 profile、两个 header（第二章）。轮询为什么不够：它不看 KV 满不满、不看缓存在哪。
+
+</details>
+
+
+## 十一、自测
+
+1. 网关的“配额”能是 GPU 时间吗？三种能配的配额各防什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   不能——网关看不见 GPU，GPU 时间是事后按 pod label 归因的账；RPM 防请求洪水，TPM（输入 / 输出分开）防长 prompt / 长输出吃光容量，并发数防单租户占满 KV 池。
+
+   </details>
+
+2. 同一会话的第 2 个请求被轮询到另一个副本会发生什么？前缀亲和怎么解决、两种前缀信息来源差在哪？
+
+   <details markdown="1"><summary>答案</summary>
+
+   KV 不在那个副本上，整个 8K 前缀重 prefill，TTFT 从几十 ms 到 0.5 s 级；`prefix-cache-affinity-filter` / `scorer` 把请求送到前缀已缓存的副本。`approx` 由 EPP 记录自己路由过的前缀哈希（猜，副本淘汰了它不知道）；`precise` 由 vLLM 经 ZMQ 推 KV 事件（准，多一条数据通路）。
+
+   </details>
+
+3. GIE 的请求数据路径经过哪几个对象？EPP 用什么告诉网关选了哪个 Pod？
+
+   <details markdown="1"><summary>答案</summary>
+
+   Gateway → HTTPRoute（header 匹配模型名）→ InferencePool（selector 选 Pod、`endpointPickerRef` 指向 EPP）→ Envoy ext_proc 调 EPP → EPP 在响应头写 `x-gateway-destination-endpoint`（PD 时再加 `x-prefiller-host-port`）→ 网关按它转发。
+
+   </details>
+
+4. llm-d-router 的流控里“严格优先 + 同优先级 round-robin”意味着 A : B = 3 : 1 的配额怎么落地？
+
+   <details markdown="1"><summary>答案</summary>
+
+   内层没有加权公平，只能靠外层：A 的 RPM / TPM / 并发配额设为 B 的三倍，超出的请求在外层 429；内层对通过的请求按 `InferenceObjective` 的 priority 分级、同级按 `fairness-id` 轮转——想让 A 在饱和时也多拿，只能给 A 更高 priority（那就是严格优先，不是 3 : 1）。
+
+   </details>
+
+5. `failureMode: FailClose` 对 InferencePool 意味着什么？EPP 挂了会怎样？反过来呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   EPP 不可用时网关拒绝请求（安全但不可用）；`FailOpen` 则退回网关自己的负载均衡（可用但丢掉亲和、配额与 PD 路由）。生产上多模型共享池通常 FailClose，单模型简单场景可 FailOpen。
+
+   </details>
 
 
 ## 下一篇

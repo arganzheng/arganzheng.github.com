@@ -5,6 +5,7 @@ title: "AI-Infra 开源贡献指南（01）：读懂一个百万行的代码库"
 subtitle: "Reading a Million-Line Codebase: Maps, Entry Points, Symbols, Tests and History"
 tags: [Open Source, PyTorch, vLLM, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 一位工程师在 GitHub 上看到 PyTorch 的一个 issue：`torch.logaddexp` 在 complex128 上 CPU 与 CUDA 的结果不一致。他会写 CUDA，觉得这是个好的第一个 PR。克隆仓库，`rg logaddexp` 一下，两百多个匹配；打开 `torch/__init__.py` 想找 `def logaddexp`，没有；点 IDE 的"跳转到定义"，跳到一个 `.pyi` 文件里的类型签名就断了；再往下找 C++ 实现，发现 `aten/src/ATen/native/BinaryOps.cpp` 里只有一行宏 `CREATE_BINARY_TORCH_IMPL_FUNC(logaddexp_out, logaddexp_stub)`，而 clangd 对整个 `aten/` 目录报"找不到头文件 `ATen/ops/logaddexp_native.h`"——这个文件在仓库里确实不存在。两个小时过去，他还没有找到那个要改的 kernel 在哪个文件。
@@ -85,6 +86,7 @@ commit 与 PR 的链接  正文含 Pull Request resolved: 与 Approved by:      
 | 八 | 核心问题 | 两小时定位流程清单 |
 | 九 | 贡献日志 | "项目地图"页的模板与两份填好的样例 |
 | 十 | 本文小结 | 要点、对照表、文件位置表 |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、先画地图
@@ -926,6 +928,56 @@ vLLM 案例：想知道 `vllm serve` 启动时"engine core 还在初始化、API
 | vllm `vllm/_custom_ops.py`、`vllm/platforms/cuda.py` | `torch.ops._C.rms_norm` 包装；`import vllm._C_stable_libtorch` |
 | vllm `csrc/libtorch_stable/torch_bindings.cpp`、`ops.h`、`layernorm_kernels.cu`；`csrc/cpu/layernorm.cpp` | `STABLE_TORCH_LIBRARY_FRAGMENT(_C, ops)`、`ops.def("rms_norm(...)")`；`rms_norm` 声明与 CUDA/CPU 实现 |
 | vllm `tests/v1/engine/test_startup_watch_processes.py` | #43417 的配套测试 |
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+能，靠**有目标地检索而不是阅读**——一张两小时流程清单：**提取符号**（报错里的类名、函数名、字符串字面量、`torch.ops.xxx` 名）→ **画地图**（PyTorch 的 `c10/` → `aten/` → `torch/csrc/` → `torch/`，`CONTRIBUTING.md` 的 Codebase structure 一节；vLLM 的 `csrc/` → `vllm/`，目录表要自己补）→ **`rg` 精确搜**（字符串字面量优先，能一步到定义处）→ **找登记表**（PyTorch 的 `native_functions.yaml` 把算子 `dispatch:` 到 C++ 函数、再经 `DEFINE_DISPATCH` 桩到 `cpu/` / `cuda/` kernel，`torch.<op>` 经 `torch/_C._VariableFunctions` 进 C++；vLLM 的 `pyproject.toml` `[project.scripts]` 入口、`ModelRegistry`、`torch_bindings.cpp`）→ **沿链追**到底、只读路径上的东西 → **识别生成代码**（`torchgen` 生成的 `ATen/ops/*.h`、`autograd/generated/`、`_C/*.pyi` 在源码树里“找不到定义”——回 yaml、`.pyi.in`，或构建后用 clangd；vLLM 的 `torch.ops._C.<op>` 回 `torch_bindings.cpp`）→ **读测试**（PyTorch `test/` 176 个 `test_*.py` + OpInfo；vLLM `tests/` 40 个子目录与 `vllm/` 对应——测试是规格）→ **读历史**（`git log -S`、`git blame -w -C`；PyTorch 的 commit 正文含 PR 描述与 `Fixes #`，vLLM 的“为什么”要 `gh pr view`）→ **记入地图**。构建是为了工具链（`compile_commands.json`、clangd）不是为了改代码，可选、放最后：PyTorch `pip install -e . --no-build-isolation`（`USE_CUDA=0` 裁剪）或 `tools/nightly.py`，vLLM `VLLM_USE_PRECOMPILED=1`（第二至十章）。四种典型失败——从头读、随便读、被生成代码卡住、只读代码不读测试与历史——都是把阅读当成线性活动。用这张清单走引言的案例，四十分钟得出“已在 v2.11.0 修复”的结论。
+
+</details>
+
+
+## 十一、自测
+
+1. 报错 `RuntimeError: expected scalar type Float but found Half` 在 PyTorch 里怎么两步定位到抛出点？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `rg "expected scalar type"` 精确搜字符串字面量（在 `c10/` 或 `aten/` 的 `TORCH_CHECK` 里），找到抛错的函数；再看调用栈上的算子名，用 `native_functions.yaml` 的 `dispatch:` 找到它的 CPU / CUDA 实现文件。
+
+   </details>
+
+2. `torch.add` 的 Python 函数体在源码树里为什么找不到？该去哪找？
+
+   <details markdown="1"><summary>答案</summary>
+
+   它是 Codegen 生成的绑定：`torch/__init__.py` 的 `from torch._C._VariableFunctions import *`，`_VariableFunctions` 由 `torchgen` 从 `native_functions.yaml` 生成 C++ 绑定，`torch/_C/_VariableFunctions.pyi` 也是生成的；要看签名去 yaml，要看实现去 `dispatch:` 指向的 `at::native::add`。
+
+   </details>
+
+3. vLLM 里 `torch.ops._C.rms_norm` 的定义在哪？为什么 `rg "def rms_norm"` 找不到？
+
+   <details markdown="1"><summary>答案</summary>
+
+   它由 `_C_stable_libtorch.abi3.so` 在加载时用 `TORCH_LIBRARY` 注册——Python 里没有 `def`；去 `csrc/torch_bindings.cpp` 找 `ops.def("rms_norm(...)")` 与 `ops.impl("rms_norm", torch::kCUDA, &rms_norm)`，再到 `csrc/layernorm_kernels.cu`。
+
+   </details>
+
+4. “测试是规格”在 PyTorch 里具体指什么？想知道一个算子对哪些 dtype / 设备有定义，看哪个文件？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `test/` 里的测试定义了行为的边界与预期；`torch/testing/_internal/common_methods_invocations.py` 的 OpInfo 条目列出每个算子支持的 dtype、设备、采样输入与跳过的组合——比文档准。
+
+   </details>
+
+5. PyTorch 与 vLLM 的 commit 正文差在哪？要知道一处改动的“为什么”各怎么查？
+
+   <details markdown="1"><summary>答案</summary>
+
+   PyTorch 的 commit 正文含完整 PR 描述、`Fixes #N`、`Pull Request resolved:`、`Approved by:`——`git log` / `git show` 就够；vLLM 的 commit 只有标题 `(#N)` 与 `Signed-off-by` trailer，要 `gh pr view N` 看描述与讨论。
+
+   </details>
 
 
 ## 下一篇

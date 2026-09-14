@@ -5,6 +5,7 @@ title: "AI-Infra 开源贡献指南（03）：做出一个能被合入的改动"
 subtitle: "Landing a Mergeable Change: Diff, Tests, Benchmarks, PR, CI and Review"
 tags: [Open Source, PyTorch, vLLM, CI, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 一个 PR 在 vLLM 里开了十天。作者修了一个真实的 bug，本地测试全绿，描述写了两屏，还顺手把同一目录下三个文件的 import 排了序。十天里发生的事是：DCO check 红了（有一个 commit 忘了 `-s`）；`pre-commit` 没跑（新贡献者的 PR 默认不跑，需要 `verified` 或 `ready` 标签）；Buildkite 一个任务也没起（`/ci run` 要有写权限的 reviewer 来敲）；mergify 打上了 `needs-rebase`（main 已经往前走了两百个 commit）；标题没有 `[Bugfix]` 前缀，没人被分派。reviewer 最终打开它时，看到的是一个 diff 里混着无关的 import 重排、描述里找不到"怎么测的"、CI 一片灰色的 PR。他留了一句"could you split the unrelated changes out and add a test plan?"，然后去看下一个。
@@ -1166,6 +1167,56 @@ GitHub 标签（截至 2026-09 查询）：PyTorch 存在 `actionable`、`skip-p
 下一篇把前三篇讲的所有环节放到两个已经合入的真实 PR 上：PyTorch 一个、vLLM 一个，从 issue 到进入哪个版本，逐段读 diff、逐条读 review，看这些规则在真实的往返里长什么样。
 
 > **两个都是"小"PR，却各花了作者一到几周。这些时间花在哪里了？哪些是可以省的，哪些是这个项目的正常成本？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+reviewer 十分钟要确认四件事，PR 的四个部分各回答一个。**diff 回答“改了什么、是不是只改了这一件事”**：一个 PR 一件事、最小 diff——PyTorch `pr-sanity-check.sh` 2000 行硬上限、大改动用 ghstack 叠成一串小 PR；vLLM > 500 行架构改动要 RFC、顺序开 PR、6 个 open PR 上限；lint 干净（PyTorch `.lintrunner.toml` 61 个 linter，`lintrunner -a`；vLLM `.pre-commit-config.yaml` 的 ruff / typos / clang-format / mypy / signoff）让 reviewer 不用看格式（第二、五章）。**描述回答“为什么改、怎么验证的”**：PyTorch 三模板——`Fixes #N`（无 issue 可能被自动关）/ Summary（过长视为 spam）/ Checklist / BC-breaking?；vLLM 的 Purpose / Test Plan / Test Result 加标题前缀 `[Bugfix]` `[Kernel]` `[Core]` 等；benchmark 要有基线、对比、硬件、shape、命令、不利 case（第三、四、六章）。**测试回答“怎么证明对、以后怎么防回归”**：PyTorch 用 `TestCase` / `run_tests` / `@parametrize` / `instantiate_device_type_tests`（`TEST_HAS_MAIN` linter 强制入口）；vLLM 用 pytest，`AGENTS.md` 的四个问题（模块为何 / I/O 契约 / 防什么失败 / 最便宜的层级）+ 五条规则，kernel 用 `torch.library.opcheck`，模型改动跑 `tests/evals` 或 `vllm bench`（第三章）。**CI 状态回答“没有把别的东西弄坏”**：PyTorch 148 个 workflow，PR 自动跑 `pull` + `Lint`，`trunk` / `periodic` / `slow` / `inductor` 靠 `ciflow/*` 标签触发；vLLM 35 个 test_area 按 `source_file_dependencies` 触发，PR 默认只跑 pre-commit，需要 maintainer 打 `ready` 或 `/ci run`（授权链：写权限 → 受信名单 → 作者且非 draft 且有 approval）；红了先看 main 是否也红（HUD “CI failure tips”、vLLM CI Failures Dashboard）（第七、八章）。签名是门票：PyTorch 的 EasyCLA、vLLM 的 DCO（`git commit -s`，每个 commit）（第六章）。做到这四样，reviewer 的十分钟花在判断设计上而不是找信息上。
+
+</details>
+
+
+## 十六、自测
+
+1. PyTorch PR 超过 2000 行会怎样？大改动的正确做法是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `pr-sanity-check.sh` 直接失败，不进 review；用 ghstack 把改动叠成一串互相依赖的小 PR，每个独立可 review、按顺序合入。
+
+   </details>
+
+2. vLLM 的 PR 默认跑哪些 CI？完整测试怎么触发、谁能触发？
+
+   <details markdown="1"><summary>答案</summary>
+
+   默认只跑 pre-commit（lint）；完整的 35 个 test_area 按 `source_file_dependencies` 触发，需要 maintainer 打 `ready` 标签、或 4 个以上 approval、或 `/ci run` 命令——授权链：有写权限 → 在受信名单 → 是作者且 PR 非 draft 且有 ready / approval。
+
+   </details>
+
+3. vLLM `AGENTS.md` 给测试的四个问题是什么？kernel 改动的测试用什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   这个模块为什么存在 / 它的输入输出契约是什么 / 测试要防的是哪种失败 / 在最便宜的层级测；kernel 用 `torch.library.opcheck`（schema、autograd、fake、别名一致性）加与参考实现的数值对照，性能用 `benchmarks/kernels/` 的脚本。
+
+   </details>
+
+4. PR 的 CI 红了，第一步做什么？两个项目各去哪看？
+
+   <details markdown="1"><summary>答案</summary>
+
+   先看 main 分支同一个 job 是否也红（是就不是你的问题，注明并等修复或 rebase）；PyTorch 看 HUD 与 “CI failure tips” / “Which commit is used in CI?”，`gh pr checks`；vLLM 看 CI Failures Dashboard、`failures.md`、`ci-fetch-log.sh` 拉日志、`rerun-test.sh` 本地复现。
+
+   </details>
+
+5. PyTorch 的 EasyCLA 与 vLLM 的 DCO 各要求什么？忘了会怎样？
+
+   <details markdown="1"><summary>答案</summary>
+
+   EasyCLA：作者签一次 CLA，是 `merge_rules` 里的 mandatory check，没签 PR 不能合；DCO：每个 commit 带 `Signed-off-by`（`git commit -s`），`signoff-commit` pre-commit 钩子本地拦、mergify 在 PR 上评论 DCO 失败——补救要 `git rebase --signoff` 后 force push。
+
+   </details>
 
 
 ## 下一篇

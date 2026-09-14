@@ -5,6 +5,7 @@ title: "AI 平台工程（02）：容器里的 GPU——驱动、CUDA、device p
 subtitle: "GPUs in Containers: Driver, CUDA, Device Plugin, DRA and Images"
 tags: [Kubernetes, GPU, CUDA, DRA, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 上一篇结束在一个 Pending 的 Pod 上：`resources.limits` 里写了 `nvidia.com/gpu: 1`，`kubectl describe` 里是 `0/3 nodes are available: 3 Insufficient nvidia.com/gpu`。原因很直接——没有任何组件告诉 kubelet 这台机器上有 GPU。但把 device plugin 装上、Pod 调度成功之后，故障并没有结束，只是换了地方：Pod `Running`，`torch.cuda.is_available()` 返回 `False`，日志里一行 `CUDA driver version is insufficient for CUDA runtime version`；或者容器根本起不来，`kubectl describe` 里是 `nvidia-container-cli: requirement error: unsatisfied condition: cuda>=13.1`；或者一切正常，直到某个 kernel 启动时报 `the provided PTX was compiled with an unsupported toolchain`。
@@ -79,6 +80,7 @@ catalog: true
 | 七 | 镜像 | nvidia/cuda 的 base / runtime / devel；PyTorch / vLLM 镜像的层；多阶段构建；拉取时间的算术；预热与 P2P 分发 |
 | 八 | 代价与边界 | 四栏表；每个机制引入的新问题；什么场景不该用 |
 | 九 | 本文小结 | 要点、源码与 CRD 位置、mini-platform/gpu/ 增量 |
+| 十 | 自测 | 5 道题 |
 
 
 ## 二、四层栈与三条兼容规则
@@ -985,6 +987,56 @@ C. 驱动 570 + 数据中心 GPU + 570 在 CUDA 13.0 forward-compat 支持的分
 到这里，集群上的 Pod 能看见 GPU、能读懂版本报错、能按属性选卡。但它们仍然是一个一个被调度的。下一篇处理的是当一个训练任务需要 32 个 Pod **同时**拿到 GPU 时，默认调度器为什么会把集群带进死锁，以及 Volcano、Kueue 和 Slurm 各自怎样让一组 Pod 要么全部拿到、要么全部等待：
 
 > **两个团队各有 16 卡的配额，A 团队提交了一个 32 卡的任务，B 团队的卡空着。在 Volcano、Kueue 和 Slurm 里，这个任务分别会怎样？借用、抢占、等待三种行为各自的配置是什么？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+四层栈：内核驱动与用户态驱动库在**宿主机**（同版本），CUDA Runtime 与库在**容器**里随镜像或 wheel——`nvidia-smi` 显示的 CUDA Version 是驱动支持的上限（第 2 层），`torch.version.cuda` 是 Toolkit 版本（第 3 层），两者不同是常态；注入边界由 Container Toolkit 执行（第二、三章）。**三条兼容规则**：向后兼容——新驱动跑旧 Toolkit，无条件；minor version compatibility——同一大版本内旧驱动跑新 Toolkit（基线 11.x ≥ 450.80.02、12.x ≥ 525.60.13、13.x ≥ 580.65.06），但 PTX JIT 与新驱动 API 除外；forward compatibility——跨大版本要装 cuda-compat 包，仅数据中心 GPU 与受支持的驱动分支，容器里靠 Toolkit 的 cuda-compat-mode 生效（第四章）。**答案**：驱动 580（原生 13.0）+ 镜像 CUDA 13.1 的 PyTorch：同大版本、驱动 ≥ 580.65.06，规则二适用，常规调用能跑；代码里那一处调用 13.1 新增的驱动 API 会返回 `cudaErrorCallRequiresNewerDriver`（36）——只有那一处。驱动 570（原生 12.8）+ 13.x：跨大版本，规则二不适用，只有数据中心 GPU 装 cuda-compat 包（规则三）才能跑，否则容器启动就报 `unsatisfied condition: cuda>=13.1` 或运行时 `cudaErrorInsufficientDriver`（35）（第五章）。Kubernetes 侧：Container Toolkit 的 legacy hook 读 `NVIDIA_VISIBLE_DEVICES` / `NVIDIA_REQUIRE_CUDA` 或 CDI 声明注入设备；device plugin 按 NVML 上报 `nvidia.com/gpu`、`Allocate` 按策略返回 envvar / CDI；GPU Operator 用 `ClusterPolicy` 装驱动、Toolkit、plugin、GFD（打 `gpu.product` / `cuda.driver.major` 标签）、DCGM（第六至八章）。
+
+</details>
+
+
+## 十、自测
+
+1. `nvidia-smi` 显示 CUDA Version 13.0，`torch.version.cuda` 显示 12.4——矛盾吗？各是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   不矛盾：前者是宿主机驱动支持的 CUDA 上限（第 2 层），后者是容器里 PyTorch 编译用的 Toolkit 版本（第 3 层）；新驱动跑旧 Toolkit 是规则一，无条件成立。
+
+   </details>
+
+2. 驱动 535（原生 12.2）跑 CUDA 12.6 编译的 PyTorch 能跑吗？跑 CUDA 13.0 的呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   12.6：同大版本、535 ≥ 525.60.13，minor version compatibility 成立，能跑（用到 12.6 新驱动 API 或需要 PTX JIT 的地方除外）；13.0：跨大版本，只有数据中心 GPU + cuda-compat-13 包才能，消费级卡直接 35 错误。
+
+   </details>
+
+3. Container Toolkit 的 legacy 模式与 CDI 模式各怎么把 GPU 注入容器？为什么在往 CDI 迁？
+
+   <details markdown="1"><summary>答案</summary>
+
+   legacy：runc 的 prestart hook 调 `nvidia-container-cli configure`，读 `NVIDIA_VISIBLE_DEVICES` 等环境变量挂设备与驱动库；CDI：`nvidia-ctk cdi generate` 预先生成 `nvidia.com/gpu=<idx>` 的设备声明（JSON），容器运行时原生按声明注入，不需要 hook、不依赖 NVIDIA 专有逻辑、可审计——v1.20 默认 auto → jit-cdi。
+
+   </details>
+
+4. device plugin `migStrategy` 之外，`Allocate` 的 `deviceListStrategy` 有哪几种？各返回什么给容器？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `envvar`（设 `NVIDIA_VISIBLE_DEVICES`，靠 Toolkit hook 注入）、`volume-mounts`（挂 `/var/run/nvidia-container-devices/<id>` 文件）、`cdi-annotations`（Pod 注解里写 CDI 设备名）、`cdi-cri`（直接经 CRI 的 CDIDevices 字段）——后两种走 CDI 路径。
+
+   </details>
+
+5. 节点标签 `nvidia.com/gpu.product=A100-SXM4-80GB`、`nvidia.com/cuda.driver.major=580` 是谁打的？三个来源各负责什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   NFD 打 `pci-10de.present=true`（发现有 NVIDIA PCI 设备）；GPU Operator 据此打 `gpu.present` 与 `gpu.deploy.*`（控制各组件在哪些节点部署）；GFD（GPU Feature Discovery）用 NVML 打 `gpu.product` / `gpu.memory` / `cuda.driver.major` 等属性标签——调度用 nodeSelector 才有属性可选。
+
+   </details>
 
 
 ## 下一篇

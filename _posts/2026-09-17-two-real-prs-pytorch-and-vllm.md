@@ -5,6 +5,7 @@ title: "AI-Infra 开源贡献指南（04）：两个真实 PR 的完整走读—
 subtitle: "Two Real Pull Requests, End to End: One in PyTorch, One in vLLM"
 tags: [Open Source, PyTorch, vLLM, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 前三篇讲的都是规则：目录怎么读、标签怎么看、PR 怎么写、CI 怎么跑。规则读完之后最常见的一种失败是——它们在脑子里是分开的。一个贡献者知道 vLLM 要在描述里写 Purpose / Test Plan / Test Result，知道 PyTorch 要用 `@pytorchbot merge`，知道 CI 红了要先看是不是 main 本来就红；但真正开一个 PR 的时候，他不知道这些规则在**一个真实的时间线上**是怎么排列的：哪一步会卡多久、reviewer 的第一条评论通常是关于什么、"改了再提"到底要往返几次、合入之后什么时候才算进了版本。规则是静态的，一次贡献是动态的，中间缺一段实录。
@@ -93,6 +94,7 @@ review            @IvanYashchuk 3 条行内 + 1 条总评；@johannesz-codes 1 �
 | 七 | 映射回前三篇 | 每个环节对应的小节 |
 | 八 | 贡献日志：复盘模板 | 按走读格式重述自己的 PR |
 | 九 | 本文小结 | 要点 · 对照表 · 文件位置 |
+| 十 | 自测 | 5 道题 |
 | 十 | 系列总结 | 三种能力 |
 
 
@@ -745,3 +747,53 @@ GitHub（09-07 查）  pytorch/pytorch#185344 · #181999                        
 3. **交付能力**：以目标项目的规范完成一个改动——diff、测试、数据、描述、CI、review——并把它合入上游——第三篇的规则，本篇用两张时间线量出了每条规则的成本：数据是正常成本，等待大半可省，review 意见的价值在于它引出的验证而不是改动的行数。
 
 这套能力不属于任何一层，却决定了每一层的技术能力最终能否转化为对项目的实际贡献。两个 PR 的作者都不是在写最难的代码；他们做对的是在正确的地方放正确的东西，然后在正确的时间推进。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+两个 PR 按七个阶段（起点 · 阅读 · diff · 测试与数据 · CI · review · 合入之后）逐条对照，时间花在完全不同的地方。**PyTorch 的 PR**：issue 由 maintainer 开、长期贡献者接，起点清楚；代码改动小，但作者用 27 天采了 3792 个数据点做 benchmark 与验证——PR 挂出后 5 天合入，4 小时内收到 3 条注释类意见，几乎没有等待。时间在**数据**上，这是这个项目的**正常成本**：性能相关的改动没有 before / after 表与多 shape 覆盖不会被合。**vLLM 的 PR**：issue 曾被部分修复过一次又被 stale bot 关闭，作者重开；PR 挂出后 **47 天无 review、作者没有 ping**；期间社区成员划出边界开了配套 PR。时间在**等待**上，而且大半**可以省**——第 8 天就该 ping（`@` 对应模块的 maintainer 或在 Slack 问）、提交前用 `rg` 找到边界测试确认没有重复工作、查一下是否已有人在做。两条经验：注释与描述里的数字要与代码对齐、署名放描述不放代码（PyTorch 的规矩）；第 8 天 ping、提交前 `rg` 边界测试、查重要重复做。**合入的痕迹**两家不同：PyTorch 由 pytorchbot 关闭 PR 并推 commit，要查 `label:Merged` 而不是 `is:merged`，commit 含 `Pull Request resolved:` / `Approved by:`；vLLM 是 GitHub 原生 merged，commit 标题带 `(#N)`。标签：PyTorch 作者能自己打 `module:` 与 `ciflow/`，bot 打 `open source`；vLLM 由 mergify 按标题打、`ready` 只有 maintainer 能打。签名：EasyCLA vs DCO 每个 commit（第二至八章）。所以“小 PR 花几周”不奇怪，问题是花在哪：花在数据是项目要求，花在等待是自己没推。
+
+</details>
+
+
+## 十、自测
+
+1. 在 PyTorch 仓库怎么找已合入的 PR？为什么 `gh pr list --state merged` 不对？
+
+   <details markdown="1"><summary>答案</summary>
+
+   PyTorch 的合入由 pytorchbot 完成：关闭 PR、把 commit 推到 main，PR 状态是 closed 不是 merged；要 `gh pr list --state closed --search "label:Merged"`，或在 commit 里找 `Pull Request resolved:` / `Approved by:`。
+
+   </details>
+
+2. PyTorch 那个 PR 的 27 天花在什么上？为什么说这是“正常成本”而不是可省的？
+
+   <details markdown="1"><summary>答案</summary>
+
+   采 3792 个 benchmark 数据点覆盖多 shape / dtype / 设备，证明改动在所有情形下不回归；性能相关改动没有这份数据不会被 review 通过，这是项目对正确性与性能的硬要求。
+
+   </details>
+
+3. vLLM 那个 PR 的 47 天里作者本可以做什么？三条具体动作。
+
+   <details markdown="1"><summary>答案</summary>
+
+   第 8 天左右 `@` 对应模块的 maintainer 或在 Slack 的模块频道问一句；提交前 `rg` 找边界测试与相关 issue，确认没有人在做同一件事（后来社区成员开了配套 PR 说明边界本可以先划清）；把 PR 拆小、标题前缀打对让 mergify 正确打标签进入 maintainer 的视野。
+
+   </details>
+
+4. “注释与描述的数字对齐、署名放描述不放代码”各指什么坑？
+
+   <details markdown="1"><summary>答案</summary>
+
+   PR 描述里说“快 15%”、代码注释里写“快 20%”会被 reviewer 质疑数据真实性；PyTorch 不接受在代码注释里写作者名或 AI 工具署名，署名（含 AI 辅助声明）放 PR 描述。
+
+   </details>
+
+5. 同一个人在两个项目各提一个小 PR，预期时间线怎么估？哪些环节是项目成本、哪些是自己可控的？
+
+   <details markdown="1"><summary>答案</summary>
+
+   PyTorch：起点清楚时几天到一周合入，成本在测试数据与 CI 覆盖（项目要求）；vLLM：取决于能否进入 maintainer 视野，无 ping 可能几周无人看（可控），完整 CI 要 maintainer 打 ready（半可控）；两边都要过 lint / 签名（可控，几分钟）。
+
+   </details>

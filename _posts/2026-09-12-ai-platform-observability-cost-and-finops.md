@@ -5,6 +5,7 @@ title: "AI 平台工程（08）：可观测、成本与 FinOps"
 subtitle: "Observability, Cost and FinOps: from DCGM to the Token Bill"
 tags: [Kubernetes, GPU, Observability, FinOps, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 月初，财务把上个月的 GPU 账单转给平台组：64 张 H100，按云上的小时价折下来是一个七位数。附带一个问题：这些钱花得值不值？平台组打开 Grafana，能给出的数字是两个——DCGM 报的平均"GPU 利用率"78%，节点上 `nvidia.com/gpu` 的平均分配率 85%。看起来不错。但换一个指标，`DCGM_FI_PROF_SM_ACTIVE` 的集群平均只有 35%。三个数字之间差了几十个百分点，而没有一张看板能说清这几十个点分别去了哪里、归哪个团队、对应前七篇里的哪个机制。
@@ -91,6 +92,7 @@ flowchart TB
 | 十 | 核心问题 | 50 个百分点的分解表 · 每项对应哪一篇 |
 | 十一 | 代价与边界 | 采集开销 · 基数 · 归因的误差 · 成本模型的假设 |
 | 十二 | 本文小结 | 要点 · 四栏表 · 源码位置 · 练手项目 obs/ 与 cost/ |
+| 十三 | 自测 | 5 道题 |
 | 十三 | 系列总结 | 读者手上有什么 · 三条线 · 三种能力 |
 
 
@@ -1049,3 +1051,53 @@ if __name__ == "__main__":
 3. **运营能力**：建立从 DCGM 到网关的四层指标，把分配率与有效利用率的差距分解到具体原因，按团队 / 队列 / 租户分摊成本，算出每百万 token 的成本，并用它驱动配额、切分与扩缩容参数的按月调整——本篇，以及它回指的每一篇。
 
 平台的每一个设计决定都是被引擎的某个需求推出来的，这是总纲的第一句话，也是全系列的方法：面对集群上的任何异常——Pending、变慢、超时、账单超支——先问"引擎在这一层要什么、K8s 为什么给不了、平台用什么给的、代价是什么"，答案就在三条线的交点上。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+50 个百分点分三层拆。**分配率 85% → 100% 的 15 个点**（卡没分出去）：排队等 gang——32 卡任务凑不齐时空闲的碎片卡（Kueue / Volcano 的 pending 时间与 `ClusterQueue` 的 usage）；MIG 几何浪费的 slice；节点维护、故障隔离的卡；开发环境的“预留但没起 Pod”的配额。**分配率里的 `SM_ACTIVE` 35% → 85% 的 50 个点**（卡分出去了但没干活）——按 pod label 把 DCGM 的 `SM_ACTIVE` / `SM_OCCUPANCY` 归到任务类型：训练任务的通信等待与气泡（第七篇 07 系列：MFU 40% 意味着 SM 忙 40–50%，其余是 all-reduce 等待、PP 气泡、数据加载——`SM_ACTIVE` 长期 40–50% 是训练的正常值，不是浪费；低于它才是 straggler 或配置问题）；推理服务的低峰空转（副本数按高峰配、夜间 KV 占用 10% 但卡一直分着——第六篇的缩容阈值与 minReplicas）；decode 本身 memory-bound（`SM_ACTIVE` 高但 `SM_OCCUPANCY` 低，正常）；开发环境 / notebook 的长期占用（分配率 100%、`SM_ACTIVE` 接近 0，最典型的浪费，用 HAMi / 时间片池 + 空闲回收——第四篇）。**账怎么算**：dcgm-exporter 开 `enablePodLabels` / `enablePodUID`，OpenCost 按 pod_uid 聚合 GPU 时间乘单价，分到 namespace / team label；训练按任务、推理按模型 / 租户（经网关的 token 计量对齐）、开发按人；分配率与 `SM_ACTIVE` 两条线各画一张，前者是调度问题（第三篇）、后者是负载问题（第六、七篇）；每类浪费对应一个机制与一个 owner（第二至七章）。FinOps 的三步：可见（每张卡每小时归到谁）→ 归因（浪费属于哪类）→ 激励（按分配计费让人释放、按 `SM_ACTIVE` 报告让人优化）。
+
+</details>
+
+
+## 十三、自测
+
+1. 分配率 85% 与 `SM_ACTIVE` 35% 各量什么？训练任务 `SM_ACTIVE` 45% 算浪费吗？
+
+   <details markdown="1"><summary>答案</summary>
+
+   分配率：卡被 Pod 申请的比例（调度层）；`SM_ACTIVE`：SM 有 warp 在执行的时间比例（负载层）。训练 MFU 40% 对应 SM 忙 40–50%，其余是通信等待与气泡——45% 是千卡训练的正常值，不是浪费；低于 30% 才要查 straggler 或配置。
+
+   </details>
+
+2. 开发环境 / notebook 占用的特征是什么？用哪两个指标一眼识别？怎么治？
+
+   <details markdown="1"><summary>答案</summary>
+
+   分配率 100%、`SM_ACTIVE` 接近 0、持续数天；治：放进 HAMi / 时间片共享池、空闲超时自动回收、按分配时间计费。
+
+   </details>
+
+3. dcgm-exporter 要开哪两个开关 OpenCost 才能按任务分账？`SM_ACTIVE` 默认为什么看不到？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `kubernetes.enablePodLabels` 与 `enablePodUID`（OpenCost 按 pod_uid 聚合）；`SM_ACTIVE` / `SM_OCCUPANCY` 是 `PROF_*` 系指标，默认 counters CSV 里注释掉了，要在 `customMetrics` 里放出来（且必须给完整表）。
+
+   </details>
+
+4. 推理服务夜间 KV 占用 10%、`SM_ACTIVE` 20%，但 6 张卡一直分着——这类浪费归哪篇的机制？改什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   第六篇的扩缩容：缩容阈值与 `minReplicas` 定得太保守、或没有配缩容；改：KV < 30% 持续 15 分钟缩到 2 副本，或用定时 scaler 按日夜曲线设 minReplicas，或 PD 分离让 decode 池单独缩。
+
+   </details>
+
+5. FinOps 的“可见 → 归因 → 激励”三步各需要什么数据？为什么只报总账单没用？
+
+   <details markdown="1"><summary>答案</summary>
+
+   可见：每张卡每小时归到 namespace / team / model（pod label + DCGM）；归因：每笔 GPU 时间属于哪类浪费（排队、通信、空转、开发占用）；激励：按分配时间计费（让人释放）、按 `SM_ACTIVE` 出报告（让人优化）。总账单分不到人、分不到原因，没人能行动。
+
+   </details>

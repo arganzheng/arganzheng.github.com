@@ -5,6 +5,7 @@ title: "AI 平台工程（03）：AI 任务调度——gang scheduling、队列�
 subtitle: "Scheduling AI Jobs: Gang Scheduling, Queues, Quotas and Topology Awareness"
 tags: [Kubernetes, GPU, Kueue, Volcano, Scheduling, AI, AI-Infra]
 catalog: true
+updated: 2026-09-14
 ---
 
 周一早上，集群里有 40 张空闲的 GPU。算法团队提交了一个 4 节点 32 卡的预训练任务，`kubectl get pods` 显示 30 个 Pod `Running`、2 个 `Pending`。`describe` 那两个 Pending 的 Pod，事件是 `0/12 nodes are available: 12 Insufficient nvidia.com/gpu`——剩下的 8 张卡分散在四台机器上，每台两张，而这个任务的每个 Pod 要 8 张。30 个已经起来的 Pod 在 `torchrun` 的 rendezvous 里等那两个永远不会来的同伴，占着 30 张卡什么也不算。另一个团队的 8 卡任务也在 Pending：它要的 8 张卡本来在，现在被这 30 个 Pod 中的某几个占了一部分。集群分配率 95%，有效利用率接近零，而且没有任何一方会自己退让。
@@ -1212,6 +1213,56 @@ mini-platform/sched/
 下一篇回到单张卡内部：一个任务拿到了整张 80 GB 的卡却只用 20 GB，剩下的怎么给别人？
 
 > **同一张 A100 上跑三个小模型的推理服务，用 MIG、用 HAMi 按显存切、用时间片开三个副本——三种方案在隔离性、总吞吐、故障影响范围上各自怎样？哪种方案下一个服务的 OOM 会拖垮另外两个？**
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**Volcano**：Job → PodGroup（`minMember` = 32）→ Queue；A 队列 `deserved` 16 卡、`capability` 可设 32；每个调度周期 `allocate` 在 Statement 上模拟全部 task、`JobReady` 才 Commit——32 卡凑不齐一个 Pod 都不起（gang）；B 队列空闲时 A 可以**借用**到 `capability`（capacity 插件按 `guarantee ≤ deserved ≤ capability` 解释），任务起来；B 提交任务时 `reclaim` action 把超出 `deserved` 的部分**回收**（`reclaimable` 默认 true），gang 插件禁止把 A 的 Job 抢到 `minMember` 以下，所以 A 的 32 卡任务会被整个回收（gangreclaim）；A 队列 `capability` = 16 则任务永远 Pending（等待）（第三、四章）。**Kueue**：不换调度器，webhook 把 Pod 置 `suspend=true`；Workload（podSets 共 32 卡）→ LocalQueue → ClusterQueue（A 的 `nominalQuota` 16）；A、B 在同一 cohort 时 A 可以**借用** B 的空闲配额，上限由 A 的 `borrowingLimit` 与 B 的 `lendingLimit` 决定——配了就 admitted、unsuspend，没配就 Pending；B 提交任务时按抢占三开关处理：`reclaimWithinCohort` 让 B 收回被借的配额（A 的 Workload 被整个驱逐、回队列），`withinClusterQueue` 管同队列内按优先级抢占，`borrowWithinCohort` 管借用者能否抢占；`waitForPodsReady` 在时间维度做 all-or-nothing（第五章）。哲学差别：Volcano 在 Pod 之后做节点级 gang，Kueue 在 Pod 之前做配额级 gang，TAS 让 Kueue 也做节点级放置。**Slurm**：分区与账户的 `GrpTRES` 限制 A 为 16 卡，`sbatch --gres=gpu:32` 直接 Pending（`AssocGrpGRES`）；要借用需要 QOS 的 `GrpTRES` 放宽或 preemptable QOS——Slurm 的 gang 与拓扑（`--switches`）是原生的，借用是显式配置。**抢占的代价**：$$N_{gpu} \times$$（距上次 checkpoint 时间 + 重启时间），以整任务为单位，grace period 要覆盖一次 checkpoint（第六、七章）。拓扑感知（Kueue Topology / Volcano HyperNode）依赖正确的节点标签，没有标签等于零。
+
+</details>
+
+
+## 十四、自测
+
+1. 为什么 gang 调度必须在调度器 / 准入层做，应用层重试无效？K8s 原生有雏形吗？
+
+   <details markdown="1"><summary>答案</summary>
+
+   逐 Pod 决策下，已起的 Pod 占着卡等同伴，重试只是反复占卡、释放、再占，两个大任务互相卡成活锁；只有在“一组 Pod 要么 ≥ minMember 同时调度要么都不”的层面决策才能避免。K8s v1.37 的 Workload-Aware Scheduling（`scheduling.k8s.io/v1beta1 PodGroup`）是原生雏形。
+
+   </details>
+
+2. Volcano Queue 的 `guarantee` / `deserved` / `capability` 各是什么？B 队列的任务来了，A 借的卡怎么被收回？
+
+   <details markdown="1"><summary>答案</summary>
+
+   保底（永不被回收）/ 应得份额（可借出可收回）/ 上限；`reclaim` action 在每个 Session 里把超出 `deserved` 的借用部分回收给有需求的队列，gang 插件保证不把 Job 抢到 `minMember` 以下——所以是整个 Job 被 reclaim。
+
+   </details>
+
+3. Kueue 的 cohort 借用由哪三个字段控制？三个抢占开关各管什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `nominalQuota`（自己的份额）、`borrowingLimit`（最多借多少）、`lendingLimit`（最多借出多少）；`withinClusterQueue`（同队列按优先级抢）、`reclaimWithinCohort`（收回被借出的配额）、`borrowWithinCohort`（借用者是否可以为借用而抢占别人）。
+
+   </details>
+
+4. “Volcano 在 Pod 之后做节点级 gang，Kueue 在 Pod 之前做配额级 gang”是什么意思？各自的盲区？
+
+   <details markdown="1"><summary>答案</summary>
+
+   Volcano 替换调度器，看到 Pod 后在节点资源上模拟整组能否放下；Kueue 不换调度器，在 Pod 进入调度前按配额决定是否放行（unsuspend）。Volcano 的盲区是配额与多集群，Kueue 的盲区是节点级放置（配额够但节点凑不齐）——TAS（拓扑感知调度）补这一块。
+
+   </details>
+
+5. 抢占一个 64 卡、每 30 分钟存一次 checkpoint、重启 5 分钟的任务，平均浪费多少 GPU 小时？grace period 该怎么定？
+
+   <details markdown="1"><summary>答案</summary>
+
+   平均距上次 checkpoint 15 分钟 + 重启 5 分钟 = 20 分钟 × 64 卡 ≈ 21 GPU 小时；grace period 至少覆盖一次 checkpoint 的时间（让任务收到 SIGTERM 后存盘），否则浪费翻倍。
+
+   </details>
 
 
 ## 下一篇
