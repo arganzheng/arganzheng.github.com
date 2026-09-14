@@ -5,6 +5,7 @@ title: "算法工程师的数学（07）：导数、梯度与链式法则——s
 subtitle: "Derivatives, Gradients and the Chain Rule: The Softmax Gradient and the Policy Gradient"
 tags: [AI, LLM, Math]
 catalog: true
+updated: 2026-09-14
 ---
 
 前两篇给了目标：交叉熵、KL、DPO 的 loss。这一篇讲**怎么让参数朝着目标变好**——求导，然后往导数的反方向走一小步。全部工具只有三件：导数（一个数变一点，函数变多少）、梯度（很多个数一起变时的导数）、链式法则（复合函数的导数是局部导数的乘积）。用它们推两个后面反复出现的结果：softmax + 交叉熵的梯度是 $$p - y$$（简洁到令人怀疑），以及目标是期望时的梯度——策略梯度，RL 的全部算法都建立在它上面。最后讲用梯度更新参数的最简单方法与学习率。
@@ -39,8 +40,8 @@ Jacobian ∂y/∂x      向量对向量：每个输出对每个输入        矩
 | 五 | 期望的梯度：策略梯度 | 为什么不能直接求、log-derivative trick、REINFORCE、baseline 与优势、PPO / GRPO 各改哪一步 |
 | 六 | 梯度下降与学习率 | 更新规则、随机梯度的噪声、学习率与 warmup、凸与鞍点 |
 | 七 | 拉格朗日乘子 | 带约束的极值：上一篇闭式解与下一篇 Chinchilla 用的工具 |
-| 八 | 自测 | 五道题 |
-| 九 | 本文小结 | |
+| 八 | 本文小结 | |
+| 九 | 自测 | 五道题 |
 
 
 ## 二、导数、偏导与梯度
@@ -287,18 +288,7 @@ $$
 一个例子：在 $$x + y = 10$$ 下最大化 $$xy$$。$$\mathcal{L} = xy - \lambda(x + y - 10)$$，$$\partial_x: y = \lambda$$，$$\partial_y: x = \lambda$$，所以 $$x = y = 5$$。下一篇用它在"算力 $$C = 6ND$$ 固定"下最小化 loss $$L(N, D)$$，得到 Chinchilla 的 $$D/N \approx 20$$；上一篇的 $$\pi^* \propto \pi_{\text{ref}} e^{r/\beta}$$ 也是它在约束 $$\sum_y \pi(y) = 1$$ 下解出来的。
 
 
-## 八、自测
-
-1. $$L(\theta) = (\theta_1 - 2)^2 + 4\theta_2^2$$，梯度是什么？在 $$(0, 1)$$ 处梯度下降一步（$$\eta = 0.1$$）后到哪？
-2. $$L = \log\sigma(w x)$$（$$w, x$$ 标量），用链式法则求 $$\frac{dL}{dw}$$（提示：$$\sigma' = \sigma(1 - \sigma)$$，$$\frac{d}{du}\log u = 1/u$$）。
-3. 三个 token 的分类，logits 给出 $$p = (0.7, 0.2, 0.1)$$，真实标签是第 2 个：loss 对 logits 的梯度是什么？哪个分量最大？
-4. 一组 GRPO 采样的 4 条回答奖励是 $$(1, 0, 0, 1)$$，优势各是多少（减均值、除标准差）？如果 4 条全是 1 呢？
-5. 为什么策略梯度里给奖励减一个常数不改变期望？用一句话说出用到的等式。
-
-答案要点：（1）$$(2(\theta_1 - 2), 8\theta_2)$$；在 $$(0, 1)$$ 处是 $$(-4, 8)$$，一步后 $$(0.4, 0.2)$$。（2）$$\frac{1}{\sigma(wx)} \cdot \sigma(wx)(1 - \sigma(wx)) \cdot x = (1 - \sigma(wx))\, x$$。（3）$$p - y = (0.7, -0.8, 0.1)$$；第 2 个分量绝对值最大——真实 token 被"拉高"最多。（4）均值 0.5、标准差 0.5，优势 $$(1, -1, -1, 1)$$；全是 1 时均值 1、标准差 0，优势全为 0（除零要加 $$\epsilon$$）——这一组没有信号，GRPO 会跳过它，这是"太易或太难的题不提供梯度"的来源。（5）$$\mathbb{E}_{y \sim \pi_\theta}[\nabla_\theta \log \pi_\theta(y)] = \nabla_\theta \sum_y \pi_\theta(y) = \nabla_\theta 1 = 0$$。
-
-
-## 九、本文小结
+## 八、本文小结
 
 - **导数**是斜率；**梯度**是所有偏导排成的向量，**与参数同形**，指向增长最快的方向；沿 $$-\nabla L$$ 走降得最快。
 - **链式法则**：复合函数的导数是局部导数的乘积；向量情形是 Jacobian 的矩阵乘法（用形状规则检查）；**反向传播**是从 loss 往输入逐层套用它，工程上直接算"上游梯度 × Jacobian"而不构造 Jacobian。
@@ -306,5 +296,55 @@ $$
 - **策略梯度**：期望里的分布依赖参数，用 $$\nabla\pi = \pi\nabla\log\pi$$ 把它变回期望，$$\nabla J = \mathbb{E}[R(y)\nabla\log\pi_\theta(y)]$$——按奖励加权的最大似然；减 **baseline** 得到**优势**，期望不变（$$\mathbb{E}[\nabla\log\pi] = 0$$）、方差降低；PPO 用价值网络估 baseline 并裁剪，GRPO 用组内均值当 baseline、去掉价值网络。
 - **梯度下降** $$\theta \leftarrow \theta - \eta\nabla L$$；随机梯度的噪声方差 $$\propto 1/B$$，决定学习率上限；warmup 与衰减；非凸 loss 有鞍点，随机性足以逃离。
 - **拉格朗日乘子**解带约束的极值：$$\mathcal{L} = f - \lambda(g - c)$$，是上一篇闭式解与下一篇 Chinchilla 的工具。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**一层的梯度**：链式法则说复合函数的导数是局部导数的乘积，向量情形是 Jacobian 的矩阵乘（形状规则检查）；反向传播就是从 loss 往输入逐层套用它（第三章）。最重要的一个局部导数是 softmax + 交叉熵：$$\partial L / \partial z = p - y$$，两步推出，有界、预测越准越小（第四章）。**期望的梯度**：$$J = \mathbb{E}_{y \sim \pi_\theta}[R(y)]$$ 里分布本身依赖参数，用 $$\nabla \pi = \pi \nabla \log \pi$$ 把梯度写回期望，得到策略梯度 $$\mathbb{E}[R(y) \nabla \log \pi_\theta(y)]$$——按奖励加权的最大似然；减一个 baseline 期望不变、方差降低，PPO 用价值网络估它、GRPO 用组内均值（第五章）。
+
+</details>
+
+
+## 九、自测
+
+1. $$L(\theta) = (\theta_1 - 2)^2 + 4\theta_2^2$$，梯度是什么？在 $$(0, 1)$$ 处梯度下降一步（$$\eta = 0.1$$）后到哪？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$(2(\theta_1 - 2), 8\theta_2)$$；在 $$(0, 1)$$ 处是 $$(-4, 8)$$，一步后 $$(0.4, 0.2)$$。
+
+   </details>
+
+2. $$L = \log\sigma(w x)$$（$$w, x$$ 标量），用链式法则求 $$\frac{dL}{dw}$$（提示：$$\sigma' = \sigma(1 - \sigma)$$，$$\frac{d}{du}\log u = 1/u$$）。
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$\frac{1}{\sigma(wx)} \cdot \sigma(wx)(1 - \sigma(wx)) \cdot x = (1 - \sigma(wx))\, x$$。
+
+   </details>
+
+3. 三个 token 的分类，logits 给出 $$p = (0.7, 0.2, 0.1)$$，真实标签是第 2 个：loss 对 logits 的梯度是什么？哪个分量最大？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$p - y = (0.7, -0.8, 0.1)$$；第 2 个分量绝对值最大——真实 token 被"拉高"最多。
+
+   </details>
+
+4. 一组 GRPO 采样的 4 条回答奖励是 $$(1, 0, 0, 1)$$，优势各是多少（减均值、除标准差）？如果 4 条全是 1 呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   均值 0.5、标准差 0.5，优势 $$(1, -1, -1, 1)$$；全是 1 时均值 1、标准差 0，优势全为 0（除零要加 $$\epsilon$$）——这一组没有信号，GRPO 会跳过它，这是"太易或太难的题不提供梯度"的来源。
+
+   </details>
+
+5. 为什么策略梯度里给奖励减一个常数不改变期望？用一句话说出用到的等式。
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$\mathbb{E}_{y \sim \pi_\theta}[\nabla_\theta \log \pi_\theta(y)] = \nabla_\theta \sum_y \pi_\theta(y) = \nabla_\theta 1 = 0$$。
+
+   </details>
 
 最后一篇讲统计推断与拟合：怎么判断评测上差 3 个点是不是噪声，以及 scaling law 的曲线是怎么从一组实验点拟出来的。

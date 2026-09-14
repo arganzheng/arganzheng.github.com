@@ -36,8 +36,8 @@ ridge     989e12 / 3.35e12 ≈ 295 FLOP / 字节       每搬一个字节做多�
 | 四 | 显存的四块 | 训练与推理各是哪块大；KV cache；OOM 归因 |
 | 五 | kernel、stream 与 profiler | 三个概念；读一张 profiler 表 |
 | 六 | 实验管理 | 最小记录的七项；工具各管哪项；随机性 |
-| 七 | 自测 | 五道题 |
-| 八 | 系列总结 | |
+| 七 | 系列总结 | |
+| 八 | 自测 | 五道题 |
 
 配套脚本：[`05_profiler_and_record.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/algorithm-tooling/05_profiler_and_record.py)。
 
@@ -213,18 +213,7 @@ seed 1:      3.378334 → 与 seed 0 差 0.1404，这就是'单个数字不算�
 这一章是横切"实验方法论"的物质基础——方法论讲"怎么设计实验才能得出可信的结论"，这里讲"用什么工具把实验记下来"。工具很便宜（W&B 一行 `wandb.init`、Hydra 一个装饰器），贵的是习惯：**每次实验先想"三个月后我怎么复现它"**。
 
 
-## 七、自测
-
-1. 一张卡带宽 2 TB/s、算力 500 TFLOPS：ridge 是多少？一个 70B bf16 模型 batch 1 decode 的时间下限？
-2. 把 8B 模型量化到 int4（0.5 字节 / 参数），batch 1 decode 的下限变成多少？为什么量化对推理有效而对训练用处不大？
-3. Llama-3-8B 一个 32K 上下文的 KV cache 多大？如果 $$n_{kv}$$ 是 32 而不是 8 呢？
-4. profiler 表里 `aten::copy_` 占了 40%，最可能的原因是什么？
-5. 两次"同样配置"的实验结果差 0.5 个点，在下结论之前要先排除什么？
-
-答案要点：（1）250 FLOP/字节；$$140\ \text{GB} / 2\ \text{TB/s} = 70$$ ms。（2）$$4.0\ \text{GB} / 3.35 = 1.2$$ ms；训练是 compute-bound，读权重的字节不是瓶颈，且反向需要高精度的梯度。（3）$$131\ \text{KB} \times 32768 = 4.3$$ GB；$$n_{kv} = 32$$ 时 17 GB——比权重还大，这就是 GQA 的理由。（4）大量非连续张量的 `contiguous()` / dtype 转换 / device 拷贝——形状变换或 `.to()` 太多。（5）seed（跑几个 seed 看方差）、数据版本、环境（库版本、非确定 kernel）——七项里有没有哪一项其实不同。
-
-
-## 八、系列总结
+## 七、系列总结
 
 这是《算法工程师的工具箱》的最后一篇。五篇走完，一次实验要经过的每一层都有了对应的工具与数字：
 
@@ -248,3 +237,53 @@ GPU 与管理   ridge 295 · decode 4.8 ms / token memory-bound、batch 大才�
 总纲里那五件事——写 attention、写训练循环、算显存、组装 SFT、读 profiler 并记录——现在每一件都有一个跑过的脚本。工具的检验是做，不是读：把五个脚本改一改（换模型大小、换 batch、换 seed），看数字怎么变，L1 就够了。
 
 接下来两个系列是本层的**深入篇**，两张地图共享：Infra 地图的 [01 Python](/python-for-ai-infra.html)（语言机制与运行时——本系列假设你会用 Python，它讲 Python 为什么这样工作）与 [03 PyTorch](/deep-dive-into-pytorch.html)（Dispatcher、Autograd 引擎、编译、分布式——本系列讲"用"，它讲"改"）。算法方向的读者按需读，然后进 L2 经典机器学习。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**能解释**：GPU 有算力与带宽两个上限，比值 ridge $$\approx 295$$ FLOP/字节（H100）。decode 每生成一个 token 要读全部权重、每个权重只做 2 次运算，算术强度 1，远低于 ridge——memory-bound，batch = 1 时 16 GB 权重 / 3.35 TB/s $$\approx 4.8$$ ms 是下限，模型多聪明都快不过它；batch 加大到 128 时间几乎不变、吞吐涨 128 倍，这就是"batch 大才快"（第二、三章）。训练与 prefill 是 compute-bound，慢通常是 MFU 低——通信、数据加载、小算子、等待。OOM 从四块显存里找：权重、梯度与优化器状态、激活、KV cache（第四章）。**能复现**：记七项——代码版本、配置、数据版本、环境、seed、硬件、结果——放进一次 `log()`，三个月后按它重跑（第六章）。
+
+</details>
+
+
+## 八、自测
+
+1. 一张卡带宽 2 TB/s、算力 500 TFLOPS：ridge 是多少？一个 70B bf16 模型 batch 1 decode 的时间下限？
+
+   <details markdown="1"><summary>答案</summary>
+
+   250 FLOP/字节；$$140\ \text{GB} / 2\ \text{TB/s} = 70$$ ms。
+
+   </details>
+
+2. 把 8B 模型量化到 int4（0.5 字节 / 参数），batch 1 decode 的下限变成多少？为什么量化对推理有效而对训练用处不大？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$4.0\ \text{GB} / 3.35 = 1.2$$ ms；训练是 compute-bound，读权重的字节不是瓶颈，且反向需要高精度的梯度。
+
+   </details>
+
+3. Llama-3-8B 一个 32K 上下文的 KV cache 多大？如果 $$n_{kv}$$ 是 32 而不是 8 呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$131\ \text{KB} \times 32768 = 4.3$$ GB；$$n_{kv} = 32$$ 时 17 GB——比权重还大，这就是 GQA 的理由。
+
+   </details>
+
+4. profiler 表里 `aten::copy_` 占了 40%，最可能的原因是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   大量非连续张量的 `contiguous()` / dtype 转换 / device 拷贝——形状变换或 `.to()` 太多。
+
+   </details>
+
+5. 两次"同样配置"的实验结果差 0.5 个点，在下结论之前要先排除什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   seed（跑几个 seed 看方差）、数据版本、环境（库版本、非确定 kernel）——七项里有没有哪一项其实不同。
+
+   </details>

@@ -66,8 +66,8 @@ zero_grad()：清零`"]
 | 五 | Dataset、DataLoader 与 Optimizer | 取数、组 batch；`step` / `zero_grad`；调度器 |
 | 六 | 二十行训练循环 | 逐行解释：每一行对应 L0 / L3 的哪个概念 |
 | 七 | 训一个小 Transformer | 84 万参数、CPU 一分钟、PPL 从 128 到 9.6 |
-| 八 | 自测 | 五道题 |
-| 九 | 本文小结 | |
+| 八 | 本文小结 | |
+| 九 | 自测 | 五道题 |
 
 配套脚本：[`02_train_loop.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/algorithm-tooling/02_train_loop.py) 与模型定义 [`tinygpt.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/algorithm-tooling/tinygpt.py)。
 
@@ -267,18 +267,7 @@ step  999  loss 2.022  lr 3.00e-05  grad_norm 0.31   53.6s
 脚本里 `autocast` 只在 CUDA 上启用。作者机器上开着 bf16 autocast 在 CPU 训，一步 1.4 秒；关掉是 0.05 秒——**慢 30 倍**。原因是 CPU 没有 bf16 的硬件路径，PyTorch 用软件模拟。混合精度的收益完全来自硬件（GPU 的 Tensor Core），没有硬件时它只是开销。第三篇讲它在 GPU 上为什么快、省多少显存。
 
 
-## 八、自测
-
-1. 连续调两次 `loss.backward()`（中间重新前向）而不 `zero_grad`，`.grad` 里是什么？这在什么场景下是有意为之？
-2. 为什么评测时要 `torch.no_grad()`？不加会怎样？
-3. 一个 `nn.Module` 的 `__init__` 里写 `self.layers = [nn.Linear(8, 8) for _ in range(3)]`，`model.parameters()` 会包含它们吗？该怎么写？
-4. `cross_entropy(logits.view(-1, V).float(), labels.view(-1), ignore_index=-100)`：三个细节各在做什么？
-5. 训练循环的第一步 loss 是 12.3，模型词表 32000，可能出了什么问题？
-
-答案要点：（1）两次梯度的和；梯度累积——用小 batch 模拟大 batch。（2）不建图省显存与时间；不加则每步保存中间量、显存持续增长直到 OOM。（3）不会，Python list 不注册；用 `nn.ModuleList`。（4）`view(-1, V)` 展平成二维；`.float()` 在 fp32 上算 softmax；`ignore_index=-100` 是 loss mask。（5）$$\ln 32000 = 10.4$$，12.3 明显偏高——初始 logits 太大，检查输出层初始化。
-
-
-## 九、本文小结
+## 八、本文小结
 
 - PyTorch 使用层是**五个对象**：Tensor（ndarray + device + dtype + requires_grad）、Autograd、`nn.Module`、`Dataset` / `DataLoader`、`Optimizer`。上一篇的形状规则在 Tensor 上原样成立。
 - **Autograd 三件事**：前向记图；`backward()` 把梯度**累加**到 `.grad`（所以要 `zero_grad`，也因此梯度累积不需要额外代码）；`no_grad` 下不建图（推理评测必加）。默认反向后释放图，每次前向建新图。
@@ -286,5 +275,55 @@ step  999  loss 2.022  lr 3.00e-05  grad_norm 0.31   53.6s
 - **`DataLoader`** 负责打乱、组 batch、`collate_fn`、多进程预取；**`Optimizer.step()`** 用 `.grad` 更新，调度器管学习率（warmup + cosine）。
 - **二十行训练循环**的每一行都对应一个概念：`autocast` 是混合精度、`.float()` 是 softmax 的数值、`ignore_index=-100` 是 SFT 的 loss mask、`clip_grad_norm_` 是梯度裁剪、`set_to_none=True` 省一次显存写、`.item()` 会同步别每步做。`Trainer` 做的是同一件事加日志 / checkpoint / 分布式。
 - 84 万参数的字符级 Transformer，CPU 一分钟：第一步 loss 5.07 ≈ $$\ln 128$$，PPL 128 → 9.6。CPU 上开 bf16 autocast 慢 30 倍——混合精度的收益全来自硬件。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**能。** 五个对象各站一个位置：`Dataset` / `DataLoader` 取数组 batch，`nn.Module` 前向算 logits，`cross_entropy` 算 loss，Autograd 反向把梯度累加到 `.grad`，`Optimizer.step()` 更新参数（第一章的环）。二十行里每一行都对应一个概念：`autocast` 是混合精度、`.float()` 是 softmax 的数值、`ignore_index=-100` 是 SFT 的 loss mask、`clip_grad_norm_` 是梯度裁剪、`zero_grad(set_to_none=True)` 是 Autograd 的累加语义、`.item()` 每 10 步一次是避免同步（第六章）。84 万参数的字符级 Transformer 在 CPU 上一分钟从 PPL 128 到 9.6，第一步 loss 5.07 $$\approx \ln 128$$ 是 L0 第五篇那个检查（第七章）。
+
+</details>
+
+
+## 九、自测
+
+1. 连续调两次 `loss.backward()`（中间重新前向）而不 `zero_grad`，`.grad` 里是什么？这在什么场景下是有意为之？
+
+   <details markdown="1"><summary>答案</summary>
+
+   两次梯度的和；梯度累积——用小 batch 模拟大 batch。
+
+   </details>
+
+2. 为什么评测时要 `torch.no_grad()`？不加会怎样？
+
+   <details markdown="1"><summary>答案</summary>
+
+   不建图省显存与时间；不加则每步保存中间量、显存持续增长直到 OOM。
+
+   </details>
+
+3. 一个 `nn.Module` 的 `__init__` 里写 `self.layers = [nn.Linear(8, 8) for _ in range(3)]`，`model.parameters()` 会包含它们吗？该怎么写？
+
+   <details markdown="1"><summary>答案</summary>
+
+   不会，Python list 不注册；用 `nn.ModuleList`。
+
+   </details>
+
+4. `cross_entropy(logits.view(-1, V).float(), labels.view(-1), ignore_index=-100)`：三个细节各在做什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `view(-1, V)` 展平成二维；`.float()` 在 fp32 上算 softmax；`ignore_index=-100` 是 loss mask。
+
+   </details>
+
+5. 训练循环的第一步 loss 是 12.3，模型词表 32000，可能出了什么问题？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$\ln 32000 = 10.4$$，12.3 明显偏高——初始 logits 太大，检查输出层初始化。
+
+   </details>
 
 下一篇讲这个训练循环要多少资源：混合精度在 GPU 上为什么快、显存的账（每参数 16 字节）、激活与 checkpointing、以及多卡怎么启用。

@@ -5,6 +5,7 @@ title: "算法工程师的数学（06）：熵、交叉熵与 KL——从困惑�
 subtitle: "Entropy, Cross-Entropy and KL Divergence: From Perplexity to the DPO Loss"
 tags: [AI, LLM, Math]
 catalog: true
+updated: 2026-09-14
 ---
 
 信息论在这张地图上看起来最"理论"，却是后训练的主语言：SFT 的 loss 是交叉熵，RLHF 与 DPO 的约束项是 KL，蒸馏的目标是 KL，投机解码的接受率是两个分布的总变差。它们全部建立在三个量上——**熵、交叉熵、KL 散度**——以及一条把三者连起来的等式。这一篇从定义讲起，讲清 KL 的两个方向为什么行为完全不同，然后走完一条完整的推导链：从"最大化奖励且不偏离参考模型"的目标，推出它的闭式最优解，再推出 DPO 的 loss。
@@ -36,8 +37,8 @@ KL       D(p‖q)   = Σ p log (p/q)       用 q 代替 p 多付的码长      R
 | 五 | Bradley-Terry | 偏好如何变成概率；奖励模型的 loss 是逻辑回归 |
 | 六 | 从 KL 约束的最优策略到 DPO | 闭式解、反解奖励、代入、$$Z(x)$$ 抵消 |
 | 七 | 其他两处 | 总变差与投机解码的接受率；互信息与对比学习 |
-| 八 | 自测 | 五道题 |
-| 九 | 本文小结 | |
+| 八 | 本文小结 | |
+| 九 | 自测 | 五道题 |
 
 
 ## 二、熵与困惑度
@@ -260,18 +261,7 @@ $$
 **互信息** $$I(X; Y) = D_{\mathrm{KL}}\big(p(x, y) \,\Vert\, p(x)\,p(y)\big)$$ 度量两个变量的相关程度：联合分布离"独立时的分布"有多远，独立时为 0。CLIP 的对比学习 loss（InfoNCE）是互信息的一个下界——最大化它就是让配对的图文比不配对的更"相关"。L7 多模态系列讲；这里知道定义即可。
 
 
-## 八、自测
-
-1. $$p = (0.8, 0.2)$$ 的熵是多少 nat？换成 bit？
-2. 训练 loss 从 2.3 降到 2.0，PPL 从多少降到多少？
-3. $$p = (1, 0)$$（one-hot），$$q = (0.7, 0.3)$$：$$H(p)$$、$$H(p, q)$$、$$D_{\mathrm{KL}}(p \Vert q)$$ 各是多少？$$D_{\mathrm{KL}}(q \Vert p)$$ 呢？
-4. RLHF 里把 $$\beta$$ 从 0.1 改到 0.01，策略会更贴近还是更远离参考模型？多样性会怎么变？
-5. DPO 的 loss 里为什么会出现 $$\pi_{\text{ref}}$$？如果把它去掉（令 $$\pi_{\text{ref}}$$ 为均匀分布），loss 变成什么？
-
-答案要点：（1）$$-(0.8\ln 0.8 + 0.2\ln 0.2) = 0.179 + 0.322 = 0.500$$ nat $$= 0.72$$ bit。（2）$$e^{2.3} = 9.97 \to e^{2.0} = 7.39$$。（3）$$0$$、$$-\ln 0.7 = 0.357$$、$$0.357$$；$$D(q \Vert p) = 0.7\ln(0.7/1) + 0.3\ln(0.3/0) = \infty$$——$$q$$ 在 $$p$$ 为零的地方有概率，reverse 方向惩罚无穷。（4）更远离（KL 拉力变弱）；多样性下降更多、reward hacking 风险更高。（5）它来自 KL 约束的闭式解 $$\pi^* \propto \pi_{\text{ref}} e^{r/\beta}$$；去掉后 $$\log(\pi_\theta / \pi_{\text{ref}})$$ 变成 $$\log \pi_\theta$$ 加常数，loss 变成 $$-\log\sigma(\beta[\log\pi_\theta(y_w) - \log\pi_\theta(y_l)])$$——只比较策略自己给两个回答的对数概率，没有了"不偏离"的约束。
-
-
-## 九、本文小结
+## 八、本文小结
 
 - **熵** $$H(p) = -\sum p\log p$$ 是不确定程度，均匀分布最大（$$\log V$$）、确定性分布为 0；**困惑度** $$= e^{\text{loss}}$$，loss 1.8 ↔ PPL 6.05 ↔ 2.6 bit/token。
 - **交叉熵 = 熵 + KL**：$$H(p, q) = H(p) + D_{\mathrm{KL}}(p \Vert q)$$；KL 非负、不对称。训练时 $$p$$ 是 one-hot 所以交叉熵 $$= -\log q(x_t)$$（与 MLE 同一件事）；蒸馏时 $$p$$ 是软分布，最小化交叉熵与最小化 KL 等价；loss 降不到数据的熵以下（Chinchilla 的 $$E = 1.69$$）。
@@ -279,5 +269,55 @@ $$
 - **Bradley-Terry**：$$P(y_w \succ y_l) = \sigma(r_w - r_l)$$，分差过 sigmoid；奖励模型的 loss $$-\log\sigma(r_w - r_l)$$ 是逻辑回归。
 - **DPO 推导链**：KL 约束目标的闭式解 $$\pi^* \propto \pi_{\text{ref}}\, e^{r/\beta}$$ → 反解 $$r = \beta\log(\pi^*/\pi_{\text{ref}}) + \beta\log Z$$ → 代入 Bradley-Terry，$$Z(x)$$ 抵消 → $$-\log\sigma(\beta\log\frac{\pi_\theta(y_w)}{\pi_{\text{ref}}(y_w)} - \beta\log\frac{\pi_\theta(y_l)}{\pi_{\text{ref}}(y_l)})$$。没有一步超出最小集。
 - **总变差** $$\frac{1}{2}\sum\lvert p - q \rvert$$ 对称有界；投机解码的接受率 $$= 1 - \mathrm{TV}$$。**互信息**是联合分布与独立分布的 KL，对比学习最大化它的下界。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**分清**：熵 $$H(p)$$ 是分布自身的不确定度；交叉熵 $$H(p, q)$$ 是用 $$q$$ 编码 $$p$$ 的平均代价；KL 是两者之差 $$H(p, q) - H(p)$$，非负、不对称（第二、三章）。训练最小化交叉熵，因为熵是数据的常数——loss 降不到它以下。**推出 DPO**：KL 约束下的最优策略有闭式解 $$\pi^* \propto \pi_{\text{ref}}\, e^{r/\beta}$$（拉格朗日乘子），反解出 $$r = \beta\log(\pi^*/\pi_{\text{ref}}) + \beta\log Z$$，代入 Bradley-Terry 的 $$\sigma(r_w - r_l)$$，同一 prompt 的 $$\log Z$$ 抵消，得到只含策略与参考的 loss（第五章）。四步没有一步超出本系列的最小集。
+
+</details>
+
+
+## 九、自测
+
+1. $$p = (0.8, 0.2)$$ 的熵是多少 nat？换成 bit？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$-(0.8\ln 0.8 + 0.2\ln 0.2) = 0.179 + 0.322 = 0.500$$ nat $$= 0.72$$ bit。
+
+   </details>
+
+2. 训练 loss 从 2.3 降到 2.0，PPL 从多少降到多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$e^{2.3} = 9.97 \to e^{2.0} = 7.39$$。
+
+   </details>
+
+3. $$p = (1, 0)$$（one-hot），$$q = (0.7, 0.3)$$：$$H(p)$$、$$H(p, q)$$、$$D_{\mathrm{KL}}(p \Vert q)$$ 各是多少？$$D_{\mathrm{KL}}(q \Vert p)$$ 呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$0$$、$$-\ln 0.7 = 0.357$$、$$0.357$$；$$D(q \Vert p) = 0.7\ln(0.7/1) + 0.3\ln(0.3/0) = \infty$$——$$q$$ 在 $$p$$ 为零的地方有概率，reverse 方向惩罚无穷。
+
+   </details>
+
+4. RLHF 里把 $$\beta$$ 从 0.1 改到 0.01，策略会更贴近还是更远离参考模型？多样性会怎么变？
+
+   <details markdown="1"><summary>答案</summary>
+
+   更远离（KL 拉力变弱）；多样性下降更多、reward hacking 风险更高。
+
+   </details>
+
+5. DPO 的 loss 里为什么会出现 $$\pi_{\text{ref}}$$？如果把它去掉（令 $$\pi_{\text{ref}}$$ 为均匀分布），loss 变成什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   它来自 KL 约束的闭式解 $$\pi^* \propto \pi_{\text{ref}} e^{r/\beta}$$；去掉后 $$\log(\pi_\theta / \pi_{\text{ref}})$$ 变成 $$\log \pi_\theta$$ 加常数，loss 变成 $$-\log\sigma(\beta[\log\pi_\theta(y_w) - \log\pi_\theta(y_l)])$$——只比较策略自己给两个回答的对数概率，没有了"不偏离"的约束。
+
+   </details>
 
 下一篇进入微积分与优化：有了目标怎么求导（链式法则、softmax 的梯度 $$p - y$$）、目标是期望时怎么求导（策略梯度）、以及用梯度更新参数的最简单方法。

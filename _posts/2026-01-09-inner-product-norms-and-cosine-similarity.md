@@ -5,6 +5,7 @@ title: "算法工程师的数学（02）：内积、范数与余弦相似度"
 subtitle: "Inner Product, Norms and Cosine Similarity: One Language for Attention, Retrieval, Regularization and Quantization Error"
 tags: [AI, LLM, Math]
 catalog: true
+updated: 2026-09-14
 ---
 
 上一篇说一个 token 是一个向量。这一篇回答一个自然的问题：**两个向量怎么比较？**"这个 token 该看那个 token 多少"（attention）、"这段文本和查询有多相关"（检索）、"这两张图和这两句话配不配"（CLIP）、"量化后的权重离原来差多远"（压缩）、"参数是不是太大了"（正则化）——五个看起来不同的问题，用的是同一套只有三个词的语言：**内积、范数、余弦相似度**。
@@ -38,8 +39,8 @@ catalog: true
 | 四 | 余弦相似度 | 只比方向；embedding 检索与 CLIP 为什么用它；点积检索与余弦的关系 |
 | 五 | 范数作为正则化项 | weight decay 的 $$\frac{\lambda}{2}\lVert W \rVert_F^2$$；$$L_1$$ 为什么稀疏 |
 | 六 | 范数作为误差度量 | 量化误差；GPTQ 为什么最小化 $$\lVert WX - \hat W X \rVert_F$$ 而不是 $$\lVert W - \hat W \rVert_F$$ |
-| 七 | 自测 | 五道题 |
-| 八 | 本文小结 | |
+| 七 | 本文小结 | |
+| 八 | 自测 | 五道题 |
 
 
 ## 二、内积
@@ -220,23 +221,62 @@ $$
 读论文时看到 $$\lVert \cdot \rVert$$，先判断它是哪个身份。
 
 
-## 七、自测
-
-1. $$a = (1, 0, -1)$$，$$b = (2, 2, 2)$$：内积是多少？两者的夹角是多少度？
-2. $$(3, -4)$$ 的 $$L_1$$、$$L_2$$、$$L_\infty$$ 范数各是多少？
-3. attention 里 $$Q, K \in \mathbb{R}^{2048 \times 128}$$，$$QK^T$$ 是什么形状、多少 FLOPs？把 $$q$$ 全部放大两倍，score 怎么变？余弦相似度怎么变？
-4. 库里有 100 万条 1024 维、已归一化的 embedding，一次查询的余弦检索是一次什么形状的矩阵乘法，多少 FLOPs？
-5. 为什么"把每个权重四舍五入到最近的格点"不是最小化 $$\lVert WX - \hat W X \rVert_F$$ 的最优解？举一个 $$X$$ 的例子说明。
-
-答案要点：（1）$$1 \cdot 2 + 0 + (-1) \cdot 2 = 0$$；垂直，90°。（2）7、5、4。（3）$$[2048, 2048]$$，$$2 \times 2048 \times 2048 \times 128 \approx 1.07$$ G；score 放大两倍；余弦不变。（4）$$[1, 1024] \times [1024, 10^6]$$，约 $$2 \times 10^9$$ FLOPs。（5）若 $$X$$ 的第 1 维恒为 100、第 2 维恒为 0.01，则 $$W$$ 第 1 列的误差被放大 100 倍、第 2 列几乎不影响输出；最优解应该把第 1 列量得更准（哪怕第 2 列量得更差），逐元素四舍五入做不到这种取舍。
-
-
-## 八、本文小结
+## 七、本文小结
 
 - **内积** $$\langle a, b \rangle = \sum_i a_i b_i = \lVert a \rVert \lVert b \rVert \cos\theta$$：矩阵乘法的最小情形，同时含方向与大小；attention 的 score $$QK^T$$ 是一张内积表。
 - **范数**：$$L_2$$ 是长度、$$L_1$$ 是绝对值之和、Frobenius 是矩阵拉直后的 $$L_2$$；除以长度叫归一化，只留方向。
 - **余弦相似度** $$= \langle a, b \rangle / (\lVert a \rVert \lVert b \rVert) = \hat a^T \hat b$$：只比方向；embedding 检索与 CLIP 用它，归一化后退化为内积；高维里随机向量的余弦在 $$\pm 1/\sqrt{d}$$ 量级，0.3 已经是明显相关。
 - 范数作**正则化项**：weight decay 是 $$\frac{\lambda}{2}\lVert W \rVert_F^2$$，导数 $$\lambda W$$ 每步把参数往零缩；$$L_1$$ 因为零点附近惩罚不变小而产生稀疏。
 - 范数作**误差度量**：量化误差不该看 $$\lVert W - \hat W \rVert_F$$ 而该看 $$\lVert WX - \hat W X \rVert_F$$——逼近的是权重作用在输入上的结果，输入的二阶统计量 $$XX^T$$ 给每个权重不同的重要性。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+三种：**内积**同时含方向与大小，**范数**只量大小，**余弦相似度**只比方向（内积除以两个长度）。attention 用内积是因为 $$QK^T$$ 就是一张内积表——矩阵乘法一次算完，而且 query 的长度本身携带"这个 token 想看多少"的信息；检索用余弦是因为库里向量长度不一、只关心方向，归一化之后余弦退化为内积，仍是一次矩阵乘（第四章）；量化误差用 Frobenius 范数是因为要度量整个矩阵（拉直后的 $$L_2$$），而且该量的是 $$\lVert WX - \hat W X \rVert_F$$——权重作用在输入上的结果——而不是权重本身的差（第六章）。
+
+</details>
+
+
+## 八、自测
+
+1. $$a = (1, 0, -1)$$，$$b = (2, 2, 2)$$：内积是多少？两者的夹角是多少度？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$1 \cdot 2 + 0 + (-1) \cdot 2 = 0$$；垂直，90°。
+
+   </details>
+
+2. $$(3, -4)$$ 的 $$L_1$$、$$L_2$$、$$L_\infty$$ 范数各是多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   7、5、4。
+
+   </details>
+
+3. attention 里 $$Q, K \in \mathbb{R}^{2048 \times 128}$$，$$QK^T$$ 是什么形状、多少 FLOPs？把 $$q$$ 全部放大两倍，score 怎么变？余弦相似度怎么变？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$[2048, 2048]$$，$$2 \times 2048 \times 2048 \times 128 \approx 1.07$$ G；score 放大两倍；余弦不变。
+
+   </details>
+
+4. 库里有 100 万条 1024 维、已归一化的 embedding，一次查询的余弦检索是一次什么形状的矩阵乘法，多少 FLOPs？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$[1, 1024] \times [1024, 10^6]$$，约 $$2 \times 10^9$$ FLOPs。
+
+   </details>
+
+5. 为什么"把每个权重四舍五入到最近的格点"不是最小化 $$\lVert WX - \hat W X \rVert_F$$ 的最优解？举一个 $$X$$ 的例子说明。
+
+   <details markdown="1"><summary>答案</summary>
+
+   若 $$X$$ 的第 1 维恒为 100、第 2 维恒为 0.01，则 $$W$$ 第 1 列的误差被放大 100 倍、第 2 列几乎不影响输出；最优解应该把第 1 列量得更准（哪怕第 2 列量得更差），逐元素四舍五入做不到这种取舍。
+
+   </details>
 
 下一篇讲矩阵的两种"好性质"：正交（保持内积——RoPE 为什么能编码相对位置）与低秩（少数方向解释全部——LoRA 为什么能用半个百分点的参数微调）。

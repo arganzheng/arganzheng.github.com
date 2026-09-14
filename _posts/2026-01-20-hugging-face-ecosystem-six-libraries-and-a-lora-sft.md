@@ -5,6 +5,7 @@ title: "算法工程师的工具箱（04）：Hugging Face 生态——六个库
 subtitle: "The Hugging Face Ecosystem: Six Libraries, a Six-Line LoRA SFT, and Why Reading the Source Is the Fastest Way to Learn"
 tags: [AI, LLM, PyTorch, Python]
 catalog: true
+updated: 2026-09-14
 ---
 
 前两篇的训练循环训的是自己写的小模型。真实工作里模型不是自己写的——是从 Hugging Face Hub 下载的 Llama、Qwen、DeepSeek；数据也不是随机切窗口——是 Hub 上的数据集经过 chat template、loss mask、packing；训练器也不是二十行——是 `trl` 的 `SFTTrainer` / `DPOTrainer` / `GRPOTrainer`。Hugging Face 的六个库把这条路铺好了，六行代码能组装一次 LoRA SFT。这一篇讲六个库各管什么、六行背后发生了什么、以及一个比任何教程都重要的习惯：**卡住的时候直接读源码**。
@@ -63,8 +64,8 @@ DDP / FSDP / DeepSpeed 配置`"]
 | 四 | 六行组装一次 LoRA SFT | 代码；背后的每件事在第二篇二十行里的位置 |
 | 五 | 在 0.5B 模型上跑通 | chat template、loss mask 比例、LoRA 参数量、20 步的 loss |
 | 六 | 为什么读源码是最快的路 | 六个入口与它们的长度；从 `compute_loss` 往下追 |
-| 七 | 自测 | 五道题 |
-| 八 | 本文小结 | |
+| 七 | 本文小结 | |
+| 八 | 自测 | 五道题 |
 
 配套脚本：[`04_hf_lora_sft.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/algorithm-tooling/04_hf_lora_sft.py)（需要下载 Qwen2.5-0.5B，约 1 GB）。
 
@@ -209,23 +210,62 @@ Hugging Face 的库是当前算法工作的事实标准，也是**最好的教�
 方法很简单：**遇到一个后训练概念，先读它在 `trl` 里的实现，再读论文。** 库的版本变化快，函数名会变（本文写作时的接口未必与你读到时一致），但找到入口的方法不变——从 Trainer 的 `compute_loss` 往下追，或者在编辑器里对着一个 API 名按"跳转到定义"。读到一个看不懂的公式，回 L0 对应的篇；读到一个看不懂的形状操作，回本系列第一篇。
 
 
-## 七、自测
-
-1. 一个模型的 `config.json` 里 `hidden_size: 4096, intermediate_size: 14336, num_hidden_layers: 32, num_attention_heads: 32, num_key_value_heads: 8, vocab_size: 128256, tie_word_embeddings: false`——参数量大约多少？
-2. 为什么推理时必须用与训练相同的 chat template？
-3. `LoraConfig(r=16, lora_alpha=32)` 里 `lora_alpha` 在做什么？改成 16 有什么效果？
-4. 一个 batch 的 labels 里 85% 是 −100，说明什么？真实 SFT 数据会怎样？
-5. 想知道 `SFTTrainer` 到底怎么给 prompt 部分打 −100，去读哪个文件的哪一部分？
-
-答案要点：（1）就是 Llama-3-8B，8.03B（L0 第一篇的表）。（2）模型学到的"该在哪开始回答"编码在特殊 token 的排列里，换模板它不知道边界。（3）LoRA 输出的缩放 $$\alpha / r$$：32 / 16 = 2 倍；改成 16 就是 1 倍，等价于把学习率对 LoRA 的作用减半。（4）回复很短、prompt 与 padding 占大头，有效训练 token 少；真实数据回复长，比例反过来。（5）`trl/trainer/sft_trainer.py` 的数据处理 / collator 部分，搜 `completion_only_loss` 或 `-100`。
-
-
-## 八、本文小结
+## 七、本文小结
 
 - **Hub 上的三个文件**：`config.json`（结构超参数，能算出参数量）、`tokenizer.json`（词表、特殊 token、chat template）、`*.safetensors`（`state_dict` 的磁盘格式，可部分加载、不能执行代码）。
 - **六个库**各管一段：`transformers` 给模型与 tokenizer、`datasets` 给数据（Arrow）、`tokenizers` 训与编码词表、`peft` 挂 LoRA、`trl` 给后训练的 Trainer、`accelerate` 给多卡启动；对应第二篇的五个对象。
 - **六行组装 LoRA SFT**，背后的每件事——chat template、loss mask（−100）、packing、LoRA 挂载、只更新 $$A, B$$、bf16 / 裁剪 / 调度——都在二十行训练循环里有位置。
 - 0.5B 上跑通：七个线性层挂 LoRA、可训练 1.78%、训练状态 141 MB；一个 batch 85% 的 token 被 mask；20 步 loss 5.3 → 1.7，答案学会了但没学会停——**结束符要进 loss 且见够多次**。
 - **读源码是最快的路**：`modeling_llama.py`、`dpo_loss`、`grpo_trainer.py`、`peft` 的 `Linear.forward`、`LogitsProcessor`；从 `compute_loss` 往下追。库的接口会变，方法不变。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**能跑起来**：六个库各管一段——`transformers` 模型与 tokenizer、`datasets` 数据、`peft` 挂 LoRA、`trl` 的 `SFTTrainer`、`accelerate` 多卡、`tokenizers` 词表——六行组装，0.5 B 上 20 步从 loss 5.3 到 1.7（第四、五章）；背后的每件事（chat template、loss mask、packing、只更新 $$A, B$$）都在上一篇的二十行循环里有位置。**卡住能读源码**：从 `Trainer.compute_loss` 往下追——模型结构在 `modeling_llama.py`，LoRA 的前向在 `peft` 的 `Linear.forward`，loss 在 `trl` 各 Trainer 的 `compute_loss` / `dpo_loss`，采样在 `LogitsProcessor`（第六章）。实测的一个教训：答案学会了但没学会停，是因为结束符没进 loss——这类问题只有读源码才能定位。
+
+</details>
+
+
+## 八、自测
+
+1. 一个模型的 `config.json` 里 `hidden_size: 4096, intermediate_size: 14336, num_hidden_layers: 32, num_attention_heads: 32, num_key_value_heads: 8, vocab_size: 128256, tie_word_embeddings: false`——参数量大约多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   就是 Llama-3-8B，8.03B（L0 第一篇的表）。
+
+   </details>
+
+2. 为什么推理时必须用与训练相同的 chat template？
+
+   <details markdown="1"><summary>答案</summary>
+
+   模型学到的"该在哪开始回答"编码在特殊 token 的排列里，换模板它不知道边界。
+
+   </details>
+
+3. `LoraConfig(r=16, lora_alpha=32)` 里 `lora_alpha` 在做什么？改成 16 有什么效果？
+
+   <details markdown="1"><summary>答案</summary>
+
+   LoRA 输出的缩放 $$\alpha / r$$：32 / 16 = 2 倍；改成 16 就是 1 倍，等价于把学习率对 LoRA 的作用减半。
+
+   </details>
+
+4. 一个 batch 的 labels 里 85% 是 −100，说明什么？真实 SFT 数据会怎样？
+
+   <details markdown="1"><summary>答案</summary>
+
+   回复很短、prompt 与 padding 占大头，有效训练 token 少；真实数据回复长，比例反过来。
+
+   </details>
+
+5. 想知道 `SFTTrainer` 到底怎么给 prompt 部分打 −100，去读哪个文件的哪一部分？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `trl/trainer/sft_trainer.py` 的数据处理 / collator 部分，搜 `completion_only_loss` 或 `-100`。
+
+   </details>
 
 下一篇是本系列最后一篇：GPU 的两个上限与四块显存（为什么 decode 快不起来、为什么 batch 大才快）、读 profiler、以及让三个月前的实验能复现的最小记录。

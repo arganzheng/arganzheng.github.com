@@ -36,8 +36,8 @@ updated: 2026-09-14
 | 五 | 低秩近似 | Eckart–Young、参数量 $$r(m + n)$$、什么样的矩阵近似得好 |
 | 六 | LoRA | $$\Delta W = BA$$、Llama-3-8B 的数字、推理时怎么用、假设何时成立 |
 | 七 | 特征值 | SVD 在对称方阵上的特例；PCA 与 Hessian——只到概念 |
-| 八 | 自测 | 五道题 |
-| 九 | 本文小结 | |
+| 八 | 本文小结 | |
+| 九 | 自测 | 五道题 |
 
 
 ## 二、正交矩阵
@@ -287,18 +287,7 @@ $$Q$$ 正交，$$\Lambda$$ 对角，对角线上是**特征值** $$\lambda_i$$�
 两处都只需要概念：知道"对称矩阵的特征向量是一组互相垂直的方向、特征值是各方向的拉伸倍数"即可，不需要手算。
 
 
-## 八、自测
-
-1. 验证 $$R_\theta^T R_\theta = I$$（把两个 $$2 \times 2$$ 矩阵乘出来）。
-2. RoPE 里，若把所有位置整体加 100（$$m \to m + 100$$，$$n \to n + 100$$），attention score 变不变？为什么？
-3. $$W = \begin{pmatrix} 2 & 2 \\ 2 & 2 \end{pmatrix}$$ 的秩是多少？它的非零奇异值是多少？（提示：$$W = (1, 1)^T (2, 2)$$，$$\sigma_1 = \lVert (1,1) \rVert \cdot \lVert (2, 2) \rVert$$。）
-4. 一个 $$8192 \times 8192$$ 的矩阵，$$r = 64$$ 的 LoRA 占它多少比例？$$r = 8$$ 呢？
-5. 为什么 LoRA 初始化时要让 $$B = 0$$ 而不是 $$A = 0$$、或者两个都随机？
-
-答案要点：（1）两列长 1、互相垂直。（2）不变，$$n - m$$ 不变。（3）秩 1；$$\sigma_1 = \sqrt{2} \times 2\sqrt{2} = 4$$。（4）$$64 \times 16384 / 8192^2 = 1.56\%$$；$$0.20\%$$。（5）要让初始 $$\Delta W = BA = 0$$ 使模型行为不变，同时要让梯度能流：$$B = 0, A$$ 随机时，对 $$B$$ 的梯度 $$\propto A \ne 0$$，第一步就能更新；若 $$A = 0$$ 且 $$B = 0$$，两者的梯度都是零，永远动不了；两个都随机则初始 $$\Delta W \ne 0$$，一开始就破坏了预训练模型。
-
-
-## 九、本文小结
+## 八、本文小结
 
 - **正交矩阵** $$R^T R = I$$：列互相垂直、长 1；保持内积、长度与夹角；逆等于转置。
 - **旋转** $$R_\theta$$ 是最简单的正交矩阵：$$R_\alpha R_\beta = R_{\alpha+\beta}$$，$$R_\alpha^T = R_{-\alpha}$$。**RoPE** 把位置 $$m$$ 的 query 转 $$m\theta$$、位置 $$n$$ 的 key 转 $$n\theta$$，内积 $$= q^T R_{(n-m)\theta} k$$ 只依赖相对位置；128 维拆成 64 对、各用不同角速度 $$\theta_i = \text{base}^{-2i/d}$$；长上下文外推全是在改这组 $$\theta_i$$。
@@ -306,5 +295,55 @@ $$Q$$ 正交，$$\Lambda$$ 对角，对角线上是**特征值** $$\lambda_i$$�
 - **低秩近似**：截断 SVD 是最好的（Eckart–Young），误差是扔掉的奇异值；参数量 $$mn \to r(m + n)$$。
 - **LoRA** 假设微调的 $$\Delta W$$ 低秩，存 $$BA$$ 两个瘦矩阵；Llama-3-8B 上 $$r = 16$$ 是 41.9M 参数、占 0.52%；可合并或多 LoRA 共享基座；"低秩"是经验假设，注入大量新知识时不成立。
 - **特征值**是 SVD 在对称方阵上的特例；PCA 的主方向、Hessian 的曲率——只需概念。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**RoPE**：把位置 $$m$$ 的 query 旋转 $$m\theta$$、位置 $$n$$ 的 key 旋转 $$n\theta$$，旋转矩阵正交且 $$R_\alpha^T R_\beta = R_{\beta - \alpha}$$，所以内积 $$= q^T R_{(n-m)\theta} k$$ 只依赖相对位置 $$n - m$$（第三章）。**LoRA**：$$r = 16$$ 时每个矩阵加 $$r(\text{in} + \text{out})$$ 个参数，一层七个矩阵 1.31 M、32 层 41.9 M，占 8.03 B 的 0.52%（第六章）。够用的理由是 SVD 给的：如果微调的改动 $$\Delta W$$ 低秩，那么截断到 $$r$$ 个奇异方向就是最优近似（Eckart–Young，第五章），而"低秩"是经验假设——教格式、风格时成立，灌大量新知识时不成立。
+
+</details>
+
+
+## 九、自测
+
+1. 验证 $$R_\theta^T R_\theta = I$$（把两个 $$2 \times 2$$ 矩阵乘出来）。
+
+   <details markdown="1"><summary>答案</summary>
+
+   两列长 1、互相垂直。
+
+   </details>
+
+2. RoPE 里，若把所有位置整体加 100（$$m \to m + 100$$，$$n \to n + 100$$），attention score 变不变？为什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   不变，$$n - m$$ 不变。
+
+   </details>
+
+3. $$W = \begin{pmatrix} 2 & 2 \\ 2 & 2 \end{pmatrix}$$ 的秩是多少？它的非零奇异值是多少？（提示：$$W = (1, 1)^T (2, 2)$$，$$\sigma_1 = \lVert (1,1) \rVert \cdot \lVert (2, 2) \rVert$$。）
+
+   <details markdown="1"><summary>答案</summary>
+
+   秩 1；$$\sigma_1 = \sqrt{2} \times 2\sqrt{2} = 4$$。
+
+   </details>
+
+4. 一个 $$8192 \times 8192$$ 的矩阵，$$r = 64$$ 的 LoRA 占它多少比例？$$r = 8$$ 呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$64 \times 16384 / 8192^2 = 1.56\%$$；$$0.20\%$$。
+
+   </details>
+
+5. 为什么 LoRA 初始化时要让 $$B = 0$$ 而不是 $$A = 0$$、或者两个都随机？
+
+   <details markdown="1"><summary>答案</summary>
+
+   要让初始 $$\Delta W = BA = 0$$ 使模型行为不变，同时要让梯度能流：$$B = 0, A$$ 随机时，对 $$B$$ 的梯度 $$\propto A \ne 0$$，第一步就能更新；若 $$A = 0$$ 且 $$B = 0$$，两者的梯度都是零，永远动不了；两个都随机则初始 $$\Delta W \ne 0$$，一开始就破坏了预训练模型。
+
+   </details>
 
 线性代数到此为止。下一篇换一种语言：概率——把"语言模型"这个对象定义清楚，它是一个条件分布。

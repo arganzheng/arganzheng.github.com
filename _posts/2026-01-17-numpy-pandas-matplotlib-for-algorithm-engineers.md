@@ -5,6 +5,7 @@ title: "算法工程师的工具箱（01）：科学计算栈——NumPy 的形�
 subtitle: "The Scientific Python Stack: Shapes and Broadcasting in NumPy, Error Analysis in Pandas, Reading Curves in Matplotlib"
 tags: [AI, LLM, PyTorch, Python]
 catalog: true
+updated: 2026-09-14
 ---
 
 算法工作里的代码，十行里有八行在跟**形状**打交道：这个张量是 `[batch, seq, hidden]` 还是 `[seq, batch, hidden]`、softmax 沿哪一维、mask 怎么加到 score 上、多头 attention 的 reshape 与 transpose 是什么顺序。PyTorch 的 Tensor 语义与 NumPy 的 ndarray 一致，所以形状直觉先在 NumPy 上建立——它没有 GPU、没有自动求导、没有任何干扰，只有形状。本篇用 NumPy 把 L0 讲过的 attention 从公式写成代码并与 PyTorch 对数值；然后讲另外两件天天要做的事：用 Pandas 分析评测结果，用 Matplotlib 看训练曲线。
@@ -34,8 +35,8 @@ Matplotlib  折线 · 多曲线 · 对数坐标 · 阴影带                    
 | 五 | 手写 causal attention | 30 行 NumPy，与 `F.scaled_dot_product_attention` 对数值 |
 | 六 | Pandas：评测的错误分析 | `groupby` 看各类别、`merge` + `query` 找退化的题、顺手算置信区间 |
 | 七 | Matplotlib：看曲线 | 对数 x 轴、多 seed 阴影带、双对数 |
-| 八 | 自测 | 五道题 |
-| 九 | 本文小结 | |
+| 八 | 本文小结 | |
+| 九 | 自测 | 五道题 |
 
 配套脚本：[`01_numpy_pandas_matplotlib.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/algorithm-tooling/01_numpy_pandas_matplotlib.py)，文中的数字都来自它。
 
@@ -319,18 +320,7 @@ ax.fill_between(steps, mean - std, mean + std, alpha=0.3)
 scaling law 的图横纵轴都是对数刻度（`ax.set_xscale("log"); ax.set_yscale("log")`），因为幂律在双对数下是直线（L0 第八篇）。看到这种图先读斜率。
 
 
-## 八、自测
-
-1. `x.shape == (32, 128, 4096)`：`x[0, :, 0]`、`x[:, 0]`、`x[..., :1]` 各是什么形状？
-2. `(32, 128, 4096) + (128, 1)` 能广播吗？结果是什么形状？`+ (128,)` 呢？
-3. 写出 `O = P V`（`P: [B, h, T, T]`，`V: [B, h, T, d_h]`）的 einsum，输出形状是什么？
-4. 沿错误的轴做 softmax 为什么不报错？怎么防？
-5. 评测结果里新模型比 baseline 总分高 2 个点，但你想知道"是不是同样的题"：用哪两个 Pandas 操作？
-
-答案要点：（1）`(128,)`、`(32, 4096)`、`(32, 128, 1)`。（2）能，右对齐 `4096` 对 `1`、`128` 对 `128`，结果 `(32, 128, 4096)`——每个 token 加自己的一个标量；`(128,)` 对 `4096` 不相等且不是 1，报错。（3）`"bhts,bhsd->bhtd"`，`[B, h, T, d_h]`。（4）结果形状与输入相同，NumPy 无法知道你的意图；关键处 `assert` 形状、对一个小例子手算验证。（5）`merge`（按题号对齐）+ `query`（筛 "correct and not correct_base" 与反过来）。
-
-
-## 九、本文小结
+## 八、本文小结
 
 - **ndarray** = 内存 + 形状 + dtype；`nbytes` 是显存账的起点。整数索引消灭一维、切片保留一维。
 - **轴**：所有"沿哪个维度"是一个概念，那一维在结果里消失，`keepdims=True` 留下一个 1 供广播。softmax 沿词表维、LayerNorm 沿 hidden 维、attention 沿 key 维——写错轴不报错。
@@ -340,5 +330,55 @@ scaling law 的图横纵轴都是对数刻度（`ax.set_xscale("log"); ax.set_ys
 - 30 行 NumPy 的 causal attention 与 PyTorch 对到 $$2.65 \times 10^{-7}$$——"与参考实现对数值到浮点精度"是验证手写算子的标准方法。
 - **Pandas** 三个操作：`groupby` 看各类别、`merge` 对齐 baseline、`query` 找退化的题；顺手一行算 `ci95`，读表要带着置信区间。
 - **Matplotlib** 两个习惯：对数 x 轴看训练早期；多 seed 画均值与 `fill_between` 阴影带。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**能写 einsum**：把公式里每个张量的下标写出来，只出现在左边的字母被求和、两边都有的被保留、右边的顺序就是输出形状——$$\text{softmax}(QK^T)V$$ 是 `"bhtd,bhsd->bhts"` 与 `"bhts,bhsd->bhtd"` 两行（第四章），30 行 NumPy 与 PyTorch 对到 $$10^{-7}$$。**能算错误率、找退化的题**：`groupby` 按类别算准确率并带上 `ci95`，`merge` 按题号对齐 baseline，`query` 筛出"baseline 对、新模型错"的题（第六章）。**看 loss 曲线知道看哪里**：x 轴用对数看训练早期，多 seed 画均值与阴影带，一条曲线高出阴影带才算差别（第七章）。
+
+</details>
+
+
+## 九、自测
+
+1. `x.shape == (32, 128, 4096)`：`x[0, :, 0]`、`x[:, 0]`、`x[..., :1]` 各是什么形状？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `(128,)`、`(32, 4096)`、`(32, 128, 1)`。
+
+   </details>
+
+2. `(32, 128, 4096) + (128, 1)` 能广播吗？结果是什么形状？`+ (128,)` 呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   能，右对齐 `4096` 对 `1`、`128` 对 `128`，结果 `(32, 128, 4096)`——每个 token 加自己的一个标量；`(128,)` 对 `4096` 不相等且不是 1，报错。
+
+   </details>
+
+3. 写出 `O = P V`（`P: [B, h, T, T]`，`V: [B, h, T, d_h]`）的 einsum，输出形状是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `"bhts,bhsd->bhtd"`，`[B, h, T, d_h]`。
+
+   </details>
+
+4. 沿错误的轴做 softmax 为什么不报错？怎么防？
+
+   <details markdown="1"><summary>答案</summary>
+
+   结果形状与输入相同，NumPy 无法知道你的意图；关键处 `assert` 形状、对一个小例子手算验证。
+
+   </details>
+
+5. 评测结果里新模型比 baseline 总分高 2 个点，但你想知道"是不是同样的题"：用哪两个 Pandas 操作？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `merge`（按题号对齐）+ `query`（筛 "correct and not correct_base" 与反过来）。
+
+   </details>
 
 下一篇把形状直觉搬到 PyTorch 上：五个核心对象、二十行训练循环、Autograd 要知道的三件事，训一个字符级小 Transformer。

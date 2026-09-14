@@ -5,6 +5,7 @@ title: "算法工程师的工具箱（03）：PyTorch 使用层（下）——�
 subtitle: "PyTorch in Use, Part 2: Mixed Precision, the Memory Ledger and Turning On Multi-GPU"
 tags: [AI, LLM, PyTorch, Python]
 catalog: true
+updated: 2026-09-14
 ---
 
 上一篇的二十行训练循环写出来之后，第一个撞上的问题几乎总是 `CUDA out of memory`。这一篇把"跑得动跑不动"从试出来变成算出来：训练时每个参数在显存里有几份东西、各多少字节；激活为什么与参数量无关却可能是大头；混合精度省的是哪一块；LoRA 为什么能把 128 GB 变成 17 GB；一张卡放不下时 DDP 与 FSDP 各做了什么。这是 L5 里"全量还是 LoRA、几张卡"这个决策的第一道约束，先于任何效果上的考虑。
@@ -36,8 +37,8 @@ QLoRA                  4-bit 基座 4.4 GB + 0.67 GB ≈ 5.1 GB                 
 | 五 | OOM 归因 | 先问落在哪一块 |
 | 六 | 多卡启用即可 | DDP、FSDP、`torchrun`；更大的并行属于预训练规模 |
 | 七 | 算的与量的 | `max_memory_allocated` 对账 |
-| 八 | 自测 | 五道题 |
-| 九 | 本文小结 | |
+| 八 | 本文小结 | |
+| 九 | 自测 | 五道题 |
 
 配套脚本：[`03_memory_ledger.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/algorithm-tooling/03_memory_ledger.py)。
 
@@ -205,18 +206,7 @@ torch.int8       1000×1000 = 1.0 MB  (element_size 1)
 `x.numel() * x.element_size()` 就是任何张量的字节数，整篇的账都是它的加法。
 
 
-## 八、自测
-
-1. 一个 70B 模型全量微调（bf16 + AdamW）要多少显存？8 张 80 GB 卡够不够？
-2. 同一个 70B 模型 $$r = 64$$ 的 LoRA（假设可训练 1.3%）要多少？
-3. 为什么 `autocast` 下参数仍是 fp32？如果把参数也存成 bf16 直接更新会怎样？
-4. 序列长度从 4K 加到 32K，激活变多少倍？attention 里 $$[T, T]$$ 的 score（如果显式存）变多少倍？
-5. 8 卡 DDP 训一个 8B LoRA 与 8 卡 FSDP 全量微调 8B，每张卡的显存各约多少？
-
-答案要点：（1）$$70 \times 16 = 1120$$ GB；8 卡共 640 GB 不够，要 16 卡以上 + FSDP。（2）冻结 140 GB + $$0.013 \times 70\text{B} \times 16 = 14.6$$ GB ≈ 155 GB，两张卡。（3）bf16 尾数 7 位，$$10^{-5}$$ 量级的更新加到 1 附近的权重上被吞掉，训练停滞；所以主权重与优化器状态用 fp32。（4）激活线性，8 倍；score 平方，64 倍——这是长上下文要 FlashAttention（不显式存 score）的原因。（5）DDP：每卡一份完整的 16.7 GB + 激活；FSDP：128.5 / 8 = 16 GB + 激活——两者相近，但后者是全量微调。
-
-
-## 九、本文小结
+## 八、本文小结
 
 - **混合精度**：`autocast` 让矩阵乘在 bf16 上跑、reduction 留 fp32，**不改变参数存储精度**；主权重与优化器状态留 fp32 是因为 bf16 尾数太短会吞掉小更新。bf16 与 fp32 同指数位不需要 loss scaling，fp16 需要 `GradScaler`。CPU 没有 bf16 硬件，开了反而慢。
 - **显存的账**：每个可训练参数 **16 字节**（2 + 2 + 4 + 4 + 4）。Llama-3-8B 全量 128.5 GB、LoRA 16.7 GB、QLoRA 约 5 GB——"全量还是 LoRA"的第一道约束是有几张卡，先于效果。推理只有一份权重，是训练的 1/8。
@@ -224,5 +214,55 @@ torch.int8       1000×1000 = 1.0 MB  (element_size 1)
 - **OOM 先问落在哪一块**：加载就爆是权重、第一步 backward 爆是状态、序列变长爆是激活、生成时爆是忘了 `no_grad` 或 KV cache。
 - **多卡启用即可**：DDP 每卡一份完整模型、all-reduce 梯度（前提是放得进一张卡）；FSDP 把参数 / 梯度 / 状态切到各卡、按层 all-gather（8 卡上 128.5 GB → 每卡 16 GB）。张量 / 流水 / 专家并行属于预训练规模。
 - **算的与量的**：`numel() × element_size()` 是任何张量的字节数；跑前算、跑后 `max_memory_allocated()` 对账，误差 30% 内算会算。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**算得出**：每个可训练参数 16 字节（bf16 权重 2 + bf16 梯度 2 + fp32 主权重 4 + AdamW 两个矩 8），Llama-3-8B 全量 $$8.03 \text{B} \times 16 = 128.5$$ GB，一张 80 GB 的卡放不下；LoRA 冻结基座只留一份 bf16 权重 16.1 GB，41.9 M 可训练参数的 16 字节只有 0.67 GB，合计 16.7 GB——一张卡放得下（第三章）。这还没算激活：与参数量无关、与 $$B \times T \times$$ 层数 $$\times d$$ 成正比，$$T = 4096$$ 时 $$B = 1$$ 约 16.5 GiB，用 gradient checkpointing 换掉（第四章）。**OOM 看哪一块**：加载就爆是权重，第一步 backward 爆是梯度与优化器状态，序列变长爆是激活，生成时爆是忘了 `no_grad` 或 KV cache（第五章）。
+
+</details>
+
+
+## 九、自测
+
+1. 一个 70B 模型全量微调（bf16 + AdamW）要多少显存？8 张 80 GB 卡够不够？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$70 \times 16 = 1120$$ GB；8 卡共 640 GB 不够，要 16 卡以上 + FSDP。
+
+   </details>
+
+2. 同一个 70B 模型 $$r = 64$$ 的 LoRA（假设可训练 1.3%）要多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   冻结 140 GB + $$0.013 \times 70\text{B} \times 16 = 14.6$$ GB ≈ 155 GB，两张卡。
+
+   </details>
+
+3. 为什么 `autocast` 下参数仍是 fp32？如果把参数也存成 bf16 直接更新会怎样？
+
+   <details markdown="1"><summary>答案</summary>
+
+   bf16 尾数 7 位，$$10^{-5}$$ 量级的更新加到 1 附近的权重上被吞掉，训练停滞；所以主权重与优化器状态用 fp32。
+
+   </details>
+
+4. 序列长度从 4K 加到 32K，激活变多少倍？attention 里 $$[T, T]$$ 的 score（如果显式存）变多少倍？
+
+   <details markdown="1"><summary>答案</summary>
+
+   激活线性，8 倍；score 平方，64 倍——这是长上下文要 FlashAttention（不显式存 score）的原因。
+
+   </details>
+
+5. 8 卡 DDP 训一个 8B LoRA 与 8 卡 FSDP 全量微调 8B，每张卡的显存各约多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   DDP：每卡一份完整的 16.7 GB + 激活；FSDP：128.5 / 8 = 16 GB + 激活——两者相近，但后者是全量微调。
+
+   </details>
 
 下一篇进入 Hugging Face 生态：六个库各管什么、六行组装一次 LoRA SFT、Hub 上的三个文件、以及为什么读源码是学后训练最快的路。
