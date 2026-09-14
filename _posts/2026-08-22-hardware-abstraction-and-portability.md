@@ -4,6 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（11）：硬件解耦：如何不让芯片差异污染 Serving 核心？
 tags: [AI, AI-Infra, 大模型推理]
 catalog: true
+updated: 2026-09-14
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -1134,6 +1135,56 @@ Serving 核心保持稳定
 | Attention 分派点 | `vllm/v1/attention/selector.py` |
 
 </details>
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+让芯片差异停在最底层，靠**多层边界**：Serving Core（Scheduler、KVCacheManager、请求生命周期）只依赖抽象能力；抽象契约（`Platform` 接口、Attention Backend 接口、通信组件接口、Worker 接口）定义能力而不定义实现；平台实现（CUDA / ROCm / TPU / XPU / 各 out-of-tree 插件）各自满足契约；再往下是硬件运行时与 Kernel（第二、三章）。三句话：**Serving 核心依赖抽象能力而不依赖具体芯片**——调度器问“这个平台一块 KV 多少字节、支持哪种 attention backend、能不能 CUDA Graph”，不问“是不是 NVIDIA”；**Platform 是硬件能力中心但不是所有底层组件的唯一父类**——Attention Backend、Kernel、通信组件、Worker 从 Platform 获取能力或被它派发（`get_attn_backend_cls`、`get_device_communicator_cls`、`get_worker_cls`），但各自有独立的接口与实现树（第四、五、六章）；**Out-of-Tree 让硬件适配独立演进，前提是主仓库提供稳定的扩展契约**——插件经 entry point 注册 Platform，vLLM 启动时发现并加载，硬件厂商不用改主仓库（第七、八章）。硬件差异应该按“芯片差异 → 运行时差异 → Kernel 差异”逐层被吸收，到 Serving Core 时只剩能力的有无与参数（第九章）。做不到时的症状：`if is_cuda()` 散落在调度器与 KV 管理里——那是边界漏了。
+
+</details>
+
+
+## 十一、自测
+
+1. `Platform` 接口大致回答哪几类问题？举四个方法。
+
+   <details markdown="1"><summary>答案</summary>
+
+   设备与内存（`get_device_name`、`get_device_total_memory`、`empty_cache`）、能力选择（`get_attn_backend_cls`、`get_device_communicator_cls`、`get_worker_cls`）、配置校正（`check_and_update_config`：不支持的选项在启动时改掉）、运行时细节（`inference_mode`、seed、`is_pin_memory_available`）。
+
+   </details>
+
+2. Attention Backend 为什么不是 Platform 的子类，而是被 Platform“派发”？
+
+   <details markdown="1"><summary>答案</summary>
+
+   一个平台可以有多个 backend（CUDA 上 FlashAttention / FlashInfer / Triton / MLA 各一个），backend 的接口（元数据构建、prefill / decode 的 forward、支持的 head dim 与 dtype）与平台无关；Platform 只负责按条件选一个类，实现树独立——否则每个 backend 都要继承平台、组合爆炸。
+
+   </details>
+
+3. 一个新硬件厂商想让 vLLM 跑在自己的芯片上，最少要提供什么？要改 vLLM 主仓库吗？
+
+   <details markdown="1"><summary>答案</summary>
+
+   一个 `Platform` 子类（设备信息、能力选择、配置校正）、一个 Worker / ModelRunner（或复用通用的）、至少一个 Attention Backend、一个 device communicator、以及算子（自定义 kernel 或退回 PyTorch 实现）；经 entry point（`vllm.platform_plugins`）注册即可，不改主仓库。
+
+   </details>
+
+4. 如果调度器代码里出现 `if current_platform.is_cuda(): ...`，说明什么问题？该怎么改？
+
+   <details markdown="1"><summary>答案</summary>
+
+   芯片差异漏进了 Serving Core；应把差异下沉——让 Platform 暴露一个能力（如“是否支持 xxx”、“KV 块字节数”），调度器只读能力值，或在 `check_and_update_config` 里提前把配置改成该平台支持的形态。
+
+   </details>
+
+5. “Out-of-Tree 的前提是主仓库提供稳定的扩展契约”——契约不稳定会发生什么？vLLM 怎么缓解？
+
+   <details markdown="1"><summary>答案</summary>
+
+   每次主仓库改接口，所有插件同时坏、厂商被迫跟版本；缓解：把接口收敛到少数抽象基类并版本化、为插件提供通用的 Worker / ModelRunner 与 PyTorch fallback 算子减少必须实现的面、CI 里跑插件的冒烟测试。
+
+   </details>
 
 
 ## 下一篇

@@ -4,6 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（05）：KV Cache：LLM Serving 的第一号内存问题
 tags: [AI, AI-Infra, 大模型推理]
 catalog: true
+updated: 2026-09-14
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -41,6 +42,7 @@ PagedAttention 的核心思想，用一句话就能说完：
 | 三 | KV Cache 的写入、读取与生命周期 | 从 Prefill 批量写入、Decode 逐 slot 追加到完成/抢占时归还 |
 | 四 | KV Cache 还能更小吗 | Prefix Cache、GQA/MQA、MLA、KV 量化、Offloading 与 Swapping |
 | 五 | 本文小结 |  |
+| 六 | 自测 | 5 道题 |
 
 ## 二、PagedAttention 的数学本质与源码实现
 
@@ -544,6 +546,56 @@ vLLM V1 当前主要使用 **Recomputation** 策略（`_preempt_request()` 中�
 - 让 KV Cache 更小有三个正交层面：系统管理层（PagedAttention、Prefix Cache）解决"怎么管才不浪费"，模型架构层（MQA / GQA / MLA）解决"本来要存多少"，数值层（FP8 / INT8 量化）解决"每个元素占几个字节"。
 - Prefix Cache 依靠链式哈希与 `ref_cnt` 让多个请求共享同一份物理块；在例子里 2000 token 的 system prompt 对应 125 个整块，第二个请求全部命中，只需 prefill 用户那 50 个 token。
 - 显存不够时有 Recomputation、Swapping、量化后 Offload 三种策略；vLLM V1 目前主要用重算，因为在 Prefix Cache 存在时重算的实际代价远低于理论最坏情况。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**显存被“不确定性”浪费**：请求到达时不知道它会生成 300 还是 20K 个 token，按最坏情况预留连续显存，100 个请求把卡占满而有效数据不到三成——内部碎片（第二章）。**PagedAttention** 把每个请求的 KV 切成固定大小（`block_size`，如 16 token）的块，用多少申请多少、块之间不要求相邻——操作系统分页在推理系统里的重现；vLLM 的 `KVCacheManager` 管每个请求的块列表、`BlockPool` 管空闲块与引用计数、`KVCacheBlock` 是块、Block Table 是逻辑块到物理块的映射，attention kernel 经它查地址（第三、四章）。**一次请求的 KV 生命周期**：Prefill 批量写入 → Decode 每步追加一个 slot、块满了再申请 → 完成或被抢占时归还（第五章）。**Prefix Cache**：块只有写满才进缓存，用链式哈希（前一块的哈希 + 本块 token）做键、`ref_cnt` 让多个请求共享同一物理块——2000 token 的 system prompt 是 125 个整块，第二个请求全部命中，只需 prefill 用户那 50 个 token；复用粒度是块不是 token（第六章）。**让 KV 更小的三个正交层面**：系统管理层（分页、prefix cache）解决怎么管才不浪费；模型架构层（MQA / GQA / MLA）解决本来要存多少；数值层（FP8 / INT8）解决每个元素几个字节（第七章）。**显存不够时**：Recomputation、Swapping、量化后 Offload——V1 主要用重算（第八章）。
+
+</details>
+
+
+## 六、自测
+
+1. `block_size = 16`、Llama-3-70B TP8：一个块多大？一个 2050 token 的请求要几个块、最后一块浪费多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   每卡每 token 320 KB / 8 = 40 KB，一块 640 KB；$$\lceil 2050 / 16 \rceil = 129$$ 块，最后一块只用 2 个 slot、浪费 14 / 16——分页后碎片上限是一块，不是整个最大长度。
+
+   </details>
+
+2. Prefix Cache 的键为什么是“链式哈希”而不是本块 token 的哈希？
+
+   <details markdown="1"><summary>答案</summary>
+
+   同样的 16 个 token 在不同前缀之后的 K、V 不同（attention 依赖全部前文），只有“前缀完全相同”的块才能复用；链式哈希 = hash(前一块哈希, 本块 token)，天然编码了整个前缀。`extra_keys` 还要带 LoRA 名与多模态哈希。
+
+   </details>
+
+3. 2000 token 的 system prompt + 50 token 用户问题，第二个请求命中多少块、还要 prefill 多少 token？为什么不是 2000 全省？
+
+   <details markdown="1"><summary>答案</summary>
+
+   125 个整块（2000 / 16）全部命中，还要 prefill 50 个 token——但如果 system prompt 是 2005 个 token，最后 5 个落在未满的块里不进缓存，那 5 个也要重算。复用粒度是块。
+
+   </details>
+
+4. `ref_cnt` 在 Prefix Cache 里做什么？一个被两个请求共享的块什么时候真正释放？
+
+   <details markdown="1"><summary>答案</summary>
+
+   记录有多少请求正引用该物理块；请求完成时 `ref_cnt -= 1`，为 0 时块进空闲队列尾部（仍保留哈希、可再被命中，LRU 淘汰时才真正失去内容）。所以共享块在两个请求都完成后才可能被复用。
+
+   </details>
+
+5. 让 KV Cache 变小的三个层面各是什么？把 Llama-3-70B 从 MHA（64 头）换成 GQA（8 头）、再 FP8，每 token 从多少到多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   系统层（分页、prefix cache：管得不浪费）、架构层（GQA / MLA：本来要存多少）、数值层（量化：每元素几字节）；MHA 64 头 BF16 每 token 2.56 MB → GQA 8 头 320 KB → FP8 160 KB，缩 16 倍。
+
+   </details>
 
 
 ## 下一篇

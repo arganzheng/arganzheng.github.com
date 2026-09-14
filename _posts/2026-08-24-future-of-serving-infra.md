@@ -4,6 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（13）：Serving Infra 的下一站：从模型执行器到分布式智能操作系统
 tags: [AI, AI-Infra, 大模型推理]
 catalog: true
+updated: 2026-09-14
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -1046,6 +1047,56 @@ vLLM 解决了高性能模型执行中的许多关键问题，但它代表的更
 而是：**如何让计算、状态和调度协同工作，使整个智能系统能够在复杂环境中持续、低成本、可恢复地完成任务？**
 
 这就是 Serving Infra 的下一站。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**会，而且已经在发生**。LLM Serving 正在完成四个转变：手工配置 → 自动执行计划（并行度、batch、量化、PD 比例由系统按 workload 与 SLO 推导）；本地缓存 → 分布式状态平面（KV 与 prefix cache 跨实例可发现、可迁移，不再是每个引擎的私有池）；单体推理 → 多阶段分布式执行（PD 分离、encoder 池、投机 draft 池、多模型级联）；GPU 利用率 → Goodput、SLO 与成本的联合优化（第二至五章）。未来的系统要同时管理可编排的计算、可迁移的状态、可恢复的请求、异构的资源与动态生成的执行计划——这已经是一个分布式操作系统的职责范围，而不是一个模型执行器（第六章）。**vLLM 的位置**：它是这个系统里的**执行引擎层**——一台机器（或一组 TP 卡）上把请求变成 token 的那一层，管本地调度、本地 KV、本地硬件抽象；它正在通过 `KVConnector`、PD 分离、外部路由接口、对称内存与 NIXL 集成把边界向外推，但集群级的路由、状态平面、执行计划由 llm-d、Dynamo、Mooncake 一类上层系统承担。类比操作系统：vLLM 是内核里的调度器与内存管理器，上层系统是集群的资源管理器；两层的契约（KV 传输、能力发现、指标）是当前最活跃的演进点（第七至十章）。判断一个“未来方向”是否成立，最后都撞回 KV Cache 这堵墙——它是唯一随时间增长的状态，任何跨实例的设计都要先回答它放哪、怎么搬（第十一章）。
+
+</details>
+
+
+## 十二、自测
+
+1. “手工配置 → 自动执行计划”具体指哪些配置？为什么它们不能靠人在启动时定死？
+
+   <details markdown="1"><summary>答案</summary>
+
+   TP / PP / DP 度、PD 池比例、batch 与 token budget、量化方案、投机解码开关与 K、KV 预算；workload（prompt 长度分布、到达率、SLO）随时间变化，启动时的最优在一小时后可能不是最优——要按观测到的指标动态调整。
+
+   </details>
+
+2. “分布式状态平面”与今天每个 vLLM 实例自己的 prefix cache 差在哪？要解决什么新问题？
+
+   <details markdown="1"><summary>答案</summary>
+
+   今天两个实例的缓存互不可见，同一个 system prompt 在每个副本各算一次；状态平面让 KV 块跨实例可发现（目录）、可传输（RDMA）、可放到更慢的层（CPU / SSD）——新问题是目录一致性、传输成本与重算成本的权衡、块的生命周期与所有权。
+
+   </details>
+
+3. “多阶段分布式执行”有哪些阶段可以拆出去？各为什么值得拆？
+
+   <details markdown="1"><summary>答案</summary>
+
+   Prefill 与 Decode（workload 不同）、多模态 encoder（compute-bound、与 decoder 资源需求不同，可独立成池）、投机 draft 模型（可用便宜的卡）、多模型级联（小模型先答、大模型兜底）；拆的共同理由是各阶段的最优硬件与配置不同。
+
+   </details>
+
+4. 为什么“GPU 利用率”作为优化目标在 Serving 里会误导？该换成什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   利用率 100% 的 decode 可能 MFU 只有 5%，且排队很久的请求也在“利用”GPU；应优化 Goodput（SLO 内完成的 token）与每 token 成本，把延迟约束放进目标函数。
+
+   </details>
+
+5. 按操作系统的类比，vLLM 对应什么、llm-d / Dynamo 一类对应什么？两层之间的契约是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   vLLM 是单机内核里的调度器 + 内存管理器（请求 = 进程、KV 块 = 页）；上层是集群资源管理器（路由、状态平面、执行计划）；契约是 KV 传输接口（KVConnector / NIXL）、能力与容量的发现接口、统一的指标与事件。
+
+   </details>
 
 
 ## 下一篇

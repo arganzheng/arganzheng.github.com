@@ -4,6 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（03）：鸟瞰 vLLM：一个请求如何穿过整个推理系统？
 tags: [AI, AI-Infra, 大模型推理]
 catalog: true
+updated: 2026-09-14
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -31,6 +32,7 @@ vLLM V1 的整体架构遵循**控制面/数据面分离**的经典设计哲学�
 | 三 | 一次请求的完整生命周期 | 从 HTTP 请求到 SSE [DONE] 的时序图 |
 | 四 | 数据流 | Token 如何穿过整个 Serving 栈 |
 | 五 | 本文小结 | 模块分工，以及与第一篇“四问”的对应 |
+| 六 | 自测 | 5 道题 |
 
 ## 二、静态系统拓扑（自顶向下）
 
@@ -432,6 +434,56 @@ sequenceDiagram
 | 一轮 batch 在 GPU 上怎么跑 | `vllm/v1/worker/gpu_model_runner.py` → `GPUModelRunner.execute_model()` / `sample_tokens()` |
 
 </details>
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+一个请求从 HTTP 进来到 token 出去经过一条固定的链：**入口**（`api_server` 的 OpenAI 兼容路由）→ `AsyncLLM`（异步生命周期、流式响应）→ `InputProcessor`（tokenize、构造 `EngineCoreRequest`）→ 经 `EngineCoreClient` 跨进程送进 **EngineCore**（第二、三章）。EngineCore 的 `step()` 是驱动循环：**Scheduler 决策**——这一轮哪些请求跑、每个推进多少 token（把 waiting 里的请求按 KV 与 token budget 准入、给 running 的每个分配 slot），产出 `SchedulerOutput`；**Executor 分发**——把 `SchedulerOutput` 送到一个或多个 Worker（TP / PP 时是多个进程）；**ModelRunner 执行**——按输出准备 `InputBatch`、调 attention backend 与模型前向、采样，产出 `ModelRunnerOutput`（每个请求的新 token）；EngineCore 再把结果交回 Scheduler 更新请求状态（追加 token、完成、抢占），并把 `EngineCoreOutputs` 送回前端 detokenize、流式返回（第四章）。**传递的是什么**：Scheduler 与 ModelRunner 之间传的不是 tensor 而是**元数据**——每个请求这一轮的 token 数、block table、slot mapping、采样参数；Worker 之间传的是激活（TP 的 all-reduce、PP 的 P2P）；前后端之间传的是 token id。四问对上模块：谁执行 → Scheduler；状态放哪 → KVCacheManager / BlockPool；算得快 → ModelRunner / Attention Backend；扩出去 → Executor / Worker（第五章）。
+
+</details>
+
+
+## 六、自测
+
+1. vLLM V1 里 `AsyncLLM` 与 `EngineCore` 为什么分成两个进程？中间传什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   把 tokenize / detokenize、HTTP、流式响应这些 CPU 密集且抖动大的工作从引擎循环里摘出去，让 `EngineCore.step()` 稳定地驱动 GPU；中间经 ZMQ 传 `EngineCoreRequest`（token id + 采样参数）与 `EngineCoreOutputs`（新 token id），不传 tensor。
+
+   </details>
+
+2. `SchedulerOutput` 里有什么、没有什么？为什么 ModelRunner 能只凭它构造这一步的输入？
+
+   <details markdown="1"><summary>答案</summary>
+
+   有：每个被调度请求的 id、这一轮的新 token 数、已计算 token 数、block table、采样参数变化、被抢占 / 完成的请求；没有：任何 tensor。ModelRunner 维护持久的 `InputBatch`，凭这些元数据更新位置与 slot mapping、从 KV 块里读，不需要 Scheduler 传数据。
+
+   </details>
+
+3. 一个请求的状态机有哪几个主要状态？从 WAITING 到 RUNNING 要过哪些检查？
+
+   <details markdown="1"><summary>答案</summary>
+
+   WAITING → RUNNING → FINISHED（或被抢占回 WAITING / PREEMPTED；结构化输出有 WAITING_FOR_STRUCTURED_OUTPUT_GRAMMAR）；准入要 KV 块够（`KVCacheManager.allocate_slots`）、token budget 够、`max_num_seqs` 未满、（有 LoRA 时）`max_loras` 未满。
+
+   </details>
+
+4. TP=8 时 Executor 把一步分发给 8 个 Worker，谁做采样？logits 在哪？
+
+   <details markdown="1"><summary>答案</summary>
+
+   8 个 Worker 各算自己那 1/8 的权重，激活经 all-reduce 汇合；lm_head 的输出（logits）在所有 rank 都完整（或 gather 到 rank 0），采样在 rank 0（driver）做，其他 rank 的结果丢弃——所以采样相关的 CPU 工作只在一个进程上。
+
+   </details>
+
+5. 前端 detokenize 为什么放在 `AsyncLLM` 而不是 EngineCore？流式输出时“一个 token 一次返回”有什么坑？
+
+   <details markdown="1"><summary>答案</summary>
+
+   detokenize 是纯 CPU 且要维护每请求的字符串状态，放引擎里会拖慢 step；坑：BPE 的 token 边界与 UTF-8 字符边界不对齐，一个多字节字符可能跨两个 token，`IncrementalDetokenizer` 要缓存到能安全输出的完整字符再发。
+
+   </details>
 
 
 ## 下一篇

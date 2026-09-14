@@ -4,6 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（14）：回到源码：一次请求在 vLLM 内部的真实旅程
 tags: [AI, AI-Infra, 大模型推理]
 catalog: true
+updated: 2026-09-14
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -36,6 +37,7 @@ catalog: true
 | 六 | 从请求到 GPU Kernel 的完整调用链 | 十个环节与三道边界 |
 | 七 | 附录：各环节耗时量级 | Llama-2-7B / A100 单卡口径下的耗时表与 batch 摊薄效应 |
 | 八 | 本文小结与系列总结 | 同一个请求的五笔账、四问的答案、三句话 |
+| 九 | 自测 | 5 道题 |
 
 ## 二、控制面与数据面的分离
 
@@ -608,3 +610,53 @@ sequenceDiagram
 ## 回到总纲
 
 本篇是系列的最后一篇。完整目录见[《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》总纲](/deep-dive-into-vllm.html)。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+把第一篇那个请求（Llama-3-70B、8×H100、2000 token prompt、300 token 输出）从源码里走一遍，每个概念都落到一个对象、一次状态变化、一条调用链。**入口**：`api_server` 的 chat 路由 → `AsyncLLM.generate` → `InputProcessor.process_inputs` 产出 `EngineCoreRequest` → `AsyncMPClient` 经 ZMQ 送进 EngineCore 进程。**调度**：`EngineCore.step` → `Scheduler.schedule`：请求从 `waiting` 取出，`KVCacheManager.get_computed_blocks` 查 prefix cache、`allocate_slots` 分块（`BlockPool` 出块、`ref_cnt`、block table 追加），token budget 决定这一轮 prefill 多少，产出 `SchedulerOutput`。**执行**：`Executor.execute_model` 广播到 8 个 Worker → `GPUModelRunner.execute_model`：`_update_states` 按 `SchedulerOutput` 增删移动 `InputBatch` 的行、`_prepare_inputs` 算 positions / slot_mapping / attention metadata（block table 在这里进 kernel 参数）、按 batch 形态选 CUDA Graph 或 eager、模型前向（每层 `Attention.forward` 经 backend 调 FlashAttention / FlashInfer，`RowParallelLinear` 末尾 all-reduce）、`Sampler` 在 rank 0 采样，产出 `ModelRunnerOutput`。**更新**：`Scheduler.update_from_output` 追加 token、检查停止条件、完成的请求 `free` 块（`ref_cnt` 减、块进空闲队列尾）；`EngineCoreOutputs` 回前端 `OutputProcessor` 增量 detokenize、流式返回（第二至七章）。**五个视角五笔账**：时间（prefill 92 ms vs decode 3000 ms）、显存（734 MB KV vs 17.5 GB 权重 / 卡）、通信（每步 160 次 all-reduce）、CPU（每步的调度与元数据准备）、请求（一个请求经过的状态与对象）。三句话收尾：KV Cache 是一切约束的源头；调度的单位是 token 不是 request；文中的性能数字只是量级示意——vLLM 是一套围绕「动态请求 + KV 状态 + GPU 资源」构建的推理操作系统（第八章）。
+
+</details>
+
+
+## 九、自测
+
+1. 从 `Scheduler.schedule()` 到 KV 块被分配，经过哪几个对象与方法？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `Scheduler.schedule` → `KVCacheManager.get_computed_blocks`（查 prefix cache 命中的块）→ `KVCacheManager.allocate_slots`（算需要几个新块）→ `BlockPool.get_new_blocks`（从空闲队列取、可能先驱逐带哈希的旧块）→ 追加到请求的 block table；结果写进 `SchedulerOutput.new_block_ids`。
+
+   </details>
+
+2. `GPUModelRunner._update_states` 做什么？为什么它是 `InputBatch` 持久化的关键？
+
+   <details markdown="1"><summary>答案</summary>
+
+   按 `SchedulerOutput` 把完成 / 抢占的请求从 `InputBatch` 移除（尾部行填补空位）、新请求加入、更新每个请求的 `num_computed_tokens` 与 block table；`InputBatch` 跨步保留，所以每步只做增量更新而不是重建，LogitsProcessor 的状态也随之同步。
+
+   </details>
+
+3. block table 是怎么进到 attention kernel 的？decode 时 kernel 用它做什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `_prepare_inputs` 把每个请求的物理块号写进 `block_table` 张量、算出 `slot_mapping`（新 token 写到哪个 slot）、`seq_lens`，打包成 attention metadata；decode kernel 对每个请求按 block table 查 KV 块地址，逐块读 K、V 做 attention，新 K、V 按 slot_mapping 写入。
+
+   </details>
+
+4. 一个请求完成时 `Scheduler` 与 `KVCacheManager` 各做什么？块立刻能被别的请求用吗？
+
+   <details markdown="1"><summary>答案</summary>
+
+   Scheduler 把请求移出 running、标记 finished、生成输出；`KVCacheManager.free` 把请求的块 `ref_cnt -= 1`，为 0 的块进空闲队列**尾部**并保留哈希——能被新请求作为空闲块取用，也可能先被 prefix cache 命中复用；共享块要等所有引用者完成。
+
+   </details>
+
+5. 同一个请求的“五笔账”各是什么？为什么说没有一个数字能单独说明问题？
+
+   <details markdown="1"><summary>答案</summary>
+
+   时间账（prefill 92 ms / decode 3000 ms）、显存账（KV 734 MB vs 权重 17.5 GB / 卡）、通信账（每步 160 次 all-reduce）、CPU 账（调度与元数据准备）、请求账（状态迁移与对象）。优化一笔常动另一笔——大 batch 省时间账但涨显存账、投机解码省轮次但涨每步时间——合起来才是系统。
+
+   </details>

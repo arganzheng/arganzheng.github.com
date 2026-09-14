@@ -4,6 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（09）：模型适配：如何跟上变化极快的模型世界？
 tags: [AI, AI-Infra, 大模型推理]
 catalog: true
+updated: 2026-09-14
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -2548,6 +2549,56 @@ DeepSeek 对 vLLM 的影响，可以概括为三次协议扩展：
 | MLA 封装 | `vllm/model_executor/layers/mla.py` |
 
 </details>
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+在**三层**里按变化的性质吸收：模型层（结构、权重、配置）、运行时层（调度、KV Cache、并行）、算子层（Kernel、量化、通信）。原则是让变化停在尽可能高、尽可能窄的层。**结构层面的变化**（新的 attention 变体、激活函数、归一化位置、MoE 路由）用模型层的组合式实现吸收——vLLM 的每个模型文件用共享的 `LinearBase` 子类（Column / Row / QKV 并行线性层）、`Attention` 层、`FusedMoE` 拼装，权重加载经 `WeightLoader` 把 HF 的 checkpoint 命名映射到分片布局；新模型 = 一个新文件 + 注册到 `ModelRegistry`，运行时与算子层不动（第二、三章）。**状态表示的变化**（MLA 的压缩 KV、滑窗 attention 的有限 KV、Mamba 一类的 SSM 状态、混合模型）触及运行时层——KV 的形状与生命周期变了，`KVCacheSpec` 让每层声明自己的 cache 形态（full / sliding window / MLA / mamba），`KVCacheManager` 按 spec 分组管理不同类型的块；这是最贵的适配，因为调度与显存账都受影响（第四章）。**执行方式的变化**（新量化格式、新 attention kernel、新硬件）落在算子层——量化经 `QuantizationConfig` + 每种方法的 `LinearMethod` 替换线性层的前向；attention 经 backend 抽象选 kernel；硬件经 Platform（下一篇）（第五章）。判断一个模型创新落在哪层的方法：问它改了“算什么”（模型层）、“状态长什么样”（运行时层）还是“怎么算”（算子层）。成熟引擎的竞争力：清晰的适配边界、把变化隔离在合适层次、新模型的接入成本可预期、性能路径不被通用性拖累（第六章）。
+
+</details>
+
+
+## 九、自测
+
+1. vLLM 接入一个结构与 Llama 相同、只是权重命名不同的新模型，要改哪一层？大致做什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   只改模型层：新建（或复用）模型文件，在 `load_weights` 里把 HF checkpoint 的参数名映射到 vLLM 的分片线性层（`qkv_proj` 由 q / k / v 拼接、`gate_up_proj` 由 gate / up 拼接），注册到 `ModelRegistry`；调度、KV、kernel 全部复用。
+
+   </details>
+
+2. DeepSeek-V3 的 MLA 为什么不能只在模型层适配？触及了运行时层的什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   MLA 的 KV 不是 K、V 两个张量而是一个 512 维 latent + 64 维 RoPE key，每 token 每层的 cache 形状、字节数、attention kernel 读取方式都变了——`KVCacheSpec`（MLA 类型）、块大小换算、专用的 MLA attention backend、prefill 与 decode 走不同路径（吸收 / 非吸收）都要改。
+
+   </details>
+
+3. `KVCacheSpec` 解决什么问题？滑窗 attention 与 full attention 混合的模型（如 Gemma 2）怎么管 KV？
+
+   <details markdown="1"><summary>答案</summary>
+
+   让每层声明自己需要的 cache 形态（类型、块大小、每 token 字节），`KVCacheManager` 按 spec 分组、各组独立分配；滑窗层只保留最近 $$W$$ 个 token 的块（超出的可释放），full 层保留全部——两组块池、两套引用计数，请求的 block table 按组各一份。
+
+   </details>
+
+4. 新量化格式（比如一种新的 W4A8）接入 vLLM 要碰哪一层？为什么不用改调度器？
+
+   <details markdown="1"><summary>答案</summary>
+
+   算子层：实现一个 `QuantizationConfig` 子类与对应的 `LinearMethod`（权重创建、加载、`apply` 调 kernel），注册到量化方法表；线性层的前向被替换，输入输出形状不变，调度器与 KV 管理看不到差别（KV 量化除外，那要动 cache dtype）。
+
+   </details>
+
+5. “让所有模型使用同一个实现”与“建立清晰的适配边界”差在哪？为什么后者才是成熟引擎的标志？
+
+   <details markdown="1"><summary>答案</summary>
+
+   前者把每个模型的特例塞进通用代码，条件分支越来越多、性能路径被拖累、改一处影响所有模型；后者按变化类型分层，每类变化有固定的扩展点（模型文件、KVCacheSpec、LinearMethod、attention backend、Platform），新模型的接入成本可预期、热路径保持专用。
+
+   </details>
 
 
 ## 下一篇

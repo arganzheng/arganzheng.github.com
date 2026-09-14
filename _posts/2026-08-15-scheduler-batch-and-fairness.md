@@ -4,6 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（04）：Scheduler：GPU 这一轮到底给谁用？
 tags: [AI, AI-Infra, 大模型推理]
 catalog: true
+updated: 2026-09-14
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -1914,6 +1915,56 @@ Speculative Decode
 | **执行层 InputBatch 构造**    | `ModelRunner`，见后续执行层章节                                     |
 
 </details>
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**这一轮给谁用**：vLLM 的 Scheduler 没有“prefill 阶段”与“decode 阶段”，只有“这一轮给这个请求推进多少 token”——调度的单位是 token 不是 request。每一步先服务 running 队列（每个请求至少推进 1 个 token，KV 不够就按 LIFO 抢占最晚来的请求、释放它的块），再从 waiting 队列按 FCFS（或优先级）准入新请求，直到 token budget（`max_num_batched_tokens`）、`max_num_seqs` 或 KV 块用尽（第二、三章）。**每个推进多少**：decode 请求 1 个；新请求的 prefill 在 chunked prefill 下可以只推进 budget 剩余的部分——一个 8K 的 prompt 被切成几轮，每轮与其他请求的 decode 混在同一个 batch（第四章）。这就是 Continuous Batching + Chunked Prefill 的全部：batch 每步重组、长 prefill 不独占 GPU、decode 的 TPOT 稳定。**公平与抢占**：FCFS 保证先来先服务，优先级调度可以插队；KV 不够时抢占——V1 主要用重算（丢块、回 waiting、之后重新 prefill，prefix cache 让重算便宜）而不是 swap；token budget 是把吞吐与延迟连起来的旋钮——大 budget 吞吐高、TTFT 低但 TPOT 抖，小 budget 反之（第五、六章）。与传统“固定 batch → 执行 → 完成”相比，vLLM 是“每步从 running + waiting 里重新装一个 token 级的 batch”。
+
+</details>
+
+
+## 八、自测
+
+1. `max_num_batched_tokens = 8192`、`max_num_seqs = 256`：running 里有 200 个 decode 请求，waiting 里一个 6000 token 的新请求——这一步怎么调？
+
+   <details markdown="1"><summary>答案</summary>
+
+   200 个 decode 各 1 个 token 用掉 200；剩余 7992 给新请求做 chunked prefill 的第一段（6000 全部放得下）；下一步它再进 1 个 decode token。若 budget 只剩 4000，则只 prefill 前 4000，下一步再 2000。
+
+   </details>
+
+2. KV 块用尽时 vLLM 抢占谁、怎么抢？为什么 V1 选重算不选 swap？
+
+   <details markdown="1"><summary>答案</summary>
+
+   从 running 队列尾部（最晚来的）抢占，释放它全部块、状态回 WAITING，`num_computed_tokens` 清零；重算的代价在 prefix cache 存在时远低于理论最坏（前缀块大多还在缓存里），而 swap 到 CPU 要 PCIe 拷贝且管理复杂。
+
+   </details>
+
+3. 为什么说“调度单位是 token 不是 request”？这句话把哪四种技巧统一了？
+
+   <details markdown="1"><summary>答案</summary>
+
+   Scheduler 对每个请求只决定“这一轮推进多少 token”，prefill 与 decode 只是取值不同（N 个 vs 1 个）；Continuous Batching（每步重组）、Chunked Prefill（prefill 分几轮）、投机解码（decode 每轮 1+K 个）、混合批次（同一 batch 里两者共存）都是这个模型的不同取值。
+
+   </details>
+
+4. token budget 调大、调小各对 TTFT、TPOT、吞吐有什么影响？
+
+   <details markdown="1"><summary>答案</summary>
+
+   调大：新请求的 prefill 一次做完，TTFT 低、吞吐高，但同批 decode 请求这一步等更久，TPOT 抖；调小：TPOT 平稳，长 prompt 要多轮才算完，TTFT 变长。它是延迟与吞吐之间的旋钮，按 SLO 定。
+
+   </details>
+
+5. FCFS 下一个 20K token 的请求会怎么影响后面的短请求？优先级调度解决了什么、没解决什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   它先到就先占 KV 与 budget，后面的短请求排队（TTFT 高）；优先级让高优先级请求插到 waiting 队首甚至抢占低优先级 running 请求，解决“谁先”，但不改变“长请求占 KV 久”这个事实——公平性最终受 KV 容量限制。
+
+   </details>
 
 
 ## 下一篇

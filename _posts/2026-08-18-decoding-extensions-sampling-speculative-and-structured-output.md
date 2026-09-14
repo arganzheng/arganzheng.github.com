@@ -4,6 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（07）：解码的扩展：采样、投机解码与结构化输出
 tags: [AI, AI-Infra, 大模型推理]
 catalog: true
+updated: 2026-09-14
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -75,6 +76,7 @@ ModelRunnerOutput → Scheduler.update_from_output()
 | 四 | 结构化输出 | 从 grammar 到 bitmask 的四个位置、后端抽象、异步编译与调度器的等待、与投机解码叠加、reasoning 跳过、代价 |
 | 五 | 三者叠加 | 一步之内的执行顺序；留给多卡（08）与 PD 分离（12）的问题 |
 | 六 | 本文小结 |  |
+| 七 | 自测 | 5 道题 |
 
 ## 二、采样与 logits processors：让同一个 batch 里的每一行按自己的规矩走
 
@@ -773,6 +775,56 @@ Scheduler.update_from_output()
 - 收益的临界点可以算：H100 上一步约 300 个 token 是 memory-bound 与 compute-bound 的分界，`batch × (1+K)` 超过它验证就不再免费。例子里 batch=1、接受长度 2.5 时约 2.1×；batch=128 时每步慢 1.9 倍、吞吐反降。`SpecDecodingStats` 的按位置接受率是调 K 的依据。
 - 结构化输出分布在四个位置：前端选后端、`grammar_init()` 异步编译（请求进 `WAITING_FOR_STRUCTURED_OUTPUT_GRAMMAR`）、每步 CPU 填 bitmask 并与 forward 重叠、GPU 上一个 kernel 打 `-inf`、步后 `accept_tokens()` 推进 FSM。与投机叠加时 draft 先经 `validate_tokens()` 过滤，bitmask 每个位置一行，FSM 每步推进 K 次再 `rollback()`。它的成本几乎全在 CPU 与 TTFT 上。
 - 三者叠加的顺序：掩码最先、然后是 bonus 行的完整 Sampler 与 target 行的投机版处理器、拒绝采样、紧接着 draft 下一步；调度器在步后回滚与推进 FSM。draft 模型的 TP 绑定、logits 只在 rank 0、EAGLE 需要 P 侧的 hidden state——这些是留给多卡与 PD 分离的问题。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+三种扩展改的是“从 logits 到 token”这一步的三个不同东西：**采样参数**改分布本身（temperature / top-p / penalties）、**投机解码**改每步决定的位置数（1 → 1 + K）、**结构化输出**改分布的支撑集（把不合法 token 置 −∞）。它们都不只改 Sampler，因为 vLLM 的 batch 是持久的、每步的 token 数是调度出来的、KV 是预分配的（第二章）。**采样**：`Sampler` 按“是否改变 argmax”组织流水线让 greedy 与随机走同一向量化路径；`LogitsProcessor.update_state(BatchUpdate)` 的形态是因为 `InputBatch` 持久、处理器状态要跟着请求增删移动；真正有成本的是 penalties（每步两张 $$[B, V+1]$$ int64 直方图 + 历史输出上传）与 per-request seed（逐请求循环）（第三章）。**投机解码**：三个角色加两处约束——Proposer 出 draft；调度器把 $$1 + K$$ 算进 token budget、用 `num_lookahead_tokens` 预留 KV、步后用 `num_computed_tokens -= num_rejected` 回滚；`RejectionSampler` 在 $$[\text{num\_reqs} + \sum \text{drafts}, V]$$ 的 logits 上验证；CUDA Graph 的形状按 $$1 + K$$ 捕获。花的是每步 $$(1+K)$$ 倍的验证 token，换的是一步多个 token——H100 上一步约 300 个 token 是 memory / compute-bound 的分界，`batch × (1+K)` 超过它验证不再免费：batch 1、接受长度 2.5 时约 2.1×，batch 128 时每步慢 1.9 倍、吞吐反降（第四章）。**结构化输出**：分布在四处——前端选后端、`grammar_init()` 异步编译（请求进 `WAITING_FOR_STRUCTURED_OUTPUT_GRAMMAR`）、每步 CPU 填 bitmask 与 forward 重叠、GPU 一个 kernel 打 −∞、步后 `accept_tokens()` 推进 FSM；成本几乎全在 CPU；与投机叠加时 draft 先过 `validate_tokens()`、FSM 每步推进 K 次再 `rollback()`（第五章）。
+
+</details>
+
+
+## 七、自测
+
+1. `LogitsProcessor` 的接口为什么是 `update_state(BatchUpdate)` 而不是简单的 `__call__(logits)`？
+
+   <details markdown="1"><summary>答案</summary>
+
+   vLLM V1 的 `InputBatch` 是持久的——请求在 batch 里的行会随增删而移动、被别的请求填补；处理器维护的每请求状态（penalty 直方图、grammar 位置）必须同步这些增删移动，否则状态与行对不上。所以每步先 `update_state`，再对整批向量化处理。
+
+   </details>
+
+2. penalties（repetition / presence / frequency）为什么是“真正有成本的”采样参数？
+
+   <details markdown="1"><summary>答案</summary>
+
+   要维护每请求全部历史输出的 token 直方图——每步两张 `[B, V+1]` 的 int64 张量（V = 128K 时 batch 128 就是 260 MB）加上历史输出的上传；其他参数（temperature、top-p）只是对 logits 做一次向量运算，淹没在 forward 里。
+
+   </details>
+
+3. 投机解码 K = 4 时调度器要改哪三处？为什么 KV 要预留 lookahead？
+
+   <details markdown="1"><summary>答案</summary>
+
+   token budget 按每请求 $$1 + K$$ 计；KV 用 `num_lookahead_tokens` 预留 K 个 slot（draft token 的 KV 在验证时就要写入，被拒的再回滚）；步后 `num_computed_tokens -= num_rejected` 让下一步从正确位置继续。
+
+   </details>
+
+4. H100 上一步约 300 个 token 是分界：batch 64、K = 4 时投机解码还有收益吗？batch 1 呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   64 × 5 = 320 > 300，验证步已经 compute-bound，每步时间随 token 数线性涨，接受长度带来的收益被抵消甚至为负（文中 batch 128 每步慢 1.9 倍）；batch 1 时 5 个 token 远在 memory-bound 区、验证几乎免费，接受长度 2.5 约 2.1×。
+
+   </details>
+
+5. 结构化输出的成本在哪一侧？与投机解码叠加时 FSM 怎么处理？
+
+   <details markdown="1"><summary>答案</summary>
+
+   几乎全在 CPU：grammar 编译（异步，请求在专门状态等待）、每步填 bitmask（与 forward 重叠）、步后推进 FSM；GPU 只有一个打 −∞ 的 kernel。叠加时 draft token 先过 `validate_tokens()` 过滤非法的，bitmask 每个候选位置一行，FSM 推进 K 次后按实际接受数 `rollback()`。
+
+   </details>
 
 
 ## 下一篇

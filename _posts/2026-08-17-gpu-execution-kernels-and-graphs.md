@@ -4,6 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（06）：GPU 执行：如何让每个 Token 算得更快？
 tags: [AI, AI-Infra, 大模型推理]
 catalog: true
+updated: 2026-09-14
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -52,6 +53,7 @@ Decode 偏 memory-bound、Prefill 偏 compute-bound，但落到 GPU 上，浪费
 | 四 | 能不能少搬几个字节？ | 权重量化、FP8 推理与混合精度组合 |
 | 五 | 能不能少跑几轮模型？ | 投机解码的原理、vLLM 中的工程实现，以及 EAGLE / Medusa / MTP 等变体 |
 | 六 | 本文小结 |  |
+| 七 | 自测 | 5 道题 |
 
 ## 二、GPU 为什么在空转？—— Kernel Launch 与 CUDA Graph
 
@@ -971,6 +973,56 @@ Model-native Speculation
 - FlashAttention 与 Kernel Fusion 优化的是同一个量——HBM 流量 = 搬运次数 × 每次搬运的数据量——前者是注意力内部的"算子内融合"（Tiling + Online Softmax，N×N 矩阵不落 HBM），后者是推理链路上的"算子间融合"；vLLM 通过 Attention Backend Selector 按硬件与 workload 路由到不同实现。
 - 低精度推理让每次搬运的数据本身变小，与减少搬运次数正交、可叠加；权重量化直接减半 decode 的权重读取带宽，FP8 / INT4 还能用上 Tensor Core 的特殊指令。
 - 投机解码用闲置算力换延迟：Draft 猜多个 token、Target 一次验证，拒绝采样保证分布与原生自回归一致；EAGLE、Medusa、MTP 是"外挂程度"逐步降低的变体。它在高并发、高利用率场景下可能出现负收益，需要结合接受率、Draft 成本与 Batch Size 实测。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+落到 GPU 上，浪费只有四种形态，对应四类手段。**等 CPU 发指令**（launch-bound）：一步 decode 有几百到上千次 kernel 提交，当单个 kernel 的 GPU 时间短于 CPU 提交它的时间，GPU 追上 CPU、队列被抽干、出现气泡；CUDA Graph 把整步捕获成一张图一次重放，代价是图内形状必须固定——按 batch 大小分桶捕获、padding 到桶、对 attention 用可变长的 kernel 参数（第三章）。**等 HBM 送数据**（memory-bound）：decode 每步读全部权重与 KV，例子里 Llama-3-70B TP8 一步权重读取下界约 5.3 ms、实测约 10 ms；手段是算子融合（残差 + RMSNorm、SiLU-mul、RoPE + cache 写入合成一个 kernel，减少中间结果的读写）与 attention backend 的选择（FlashAttention / FlashInfer 的 decode kernel 沿序列 split 填满 SM）（第四章）。**搬的每个数太胖**：量化——权重 INT4 / FP8 让读取字节减 2–4 倍，KV FP8 减半；对 memory-bound 的 decode 直接换成时间（第五章）。**轮次本身太多**：投机解码一步验证多个 token，把几步合成一步（下一篇）。账本：Prefill 2050 token 约 92 ms 只占 3%，300 步 decode 约 3000 ms 占 97%——所以绝大多数优化针对 Decode；`torch.compile` 与 piecewise 编译负责把模型里非 attention 的部分融合并纳入 CUDA Graph（第六章）。
+
+</details>
+
+
+## 七、自测
+
+1. Llama-3-70B TP8、BF16：一步 decode 每卡读多少权重？H100 上时间下界多少？实测约 10 ms 的另一半去哪了？
+
+   <details markdown="1"><summary>答案</summary>
+
+   70B × 2 B / 8 ≈ 17.5 GB，/ 3.35 TB/s ≈ 5.3 ms；另一半是 KV 读取（随 batch × 上下文增长）、每层两次 all-reduce 的 $$\alpha$$（80 层 × 2 × 十几 µs ≈ 2–3 ms）、kernel launch 气泡与小算子。
+
+   </details>
+
+2. CUDA Graph 为什么要“按 batch 形态捕获”？一步里哪部分不能进图、vLLM 怎么处理？
+
+   <details markdown="1"><summary>答案</summary>
+
+   图里的 kernel 参数（包括 tensor 形状与地址）固定，batch 大小变了就要另一张图，所以按 1、2、4、8…分桶捕获、运行时 padding 到最近的桶；attention 的序列长度每步变，用固定形状的元数据 buffer（block table、seq_lens 填满 padding）或 piecewise 编译把 attention 留在图外。
+
+   </details>
+
+3. “当单个 kernel 的 GPU 时间 < CPU 提交时间时出现气泡”——一个 5 µs 的 kernel 与 10 µs 的 launch 开销，1000 个 kernel 的一步 GPU 忙多少、闲多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   GPU 只忙 5 ms、CPU 要 10 ms 才能提交完，GPU 一半时间在等——launch-bound；CUDA Graph 把 1000 次提交变 1 次，步时间回到约 5 ms。
+
+   </details>
+
+4. residual add + RMSNorm 融合、RoPE + reshape_and_cache 融合各省了什么？为什么对 prefill 收益小？
+
+   <details markdown="1"><summary>答案</summary>
+
+   省中间结果在 HBM 的一写一读（每元素几个字节）与几次 launch；prefill 是 compute-bound、逐元素算子占比小，融合省的字节在总时间里不显；decode 里逐元素算子与 launch 占比大，收益明显。
+
+   </details>
+
+5. `torch.compile` 在 vLLM 里编译什么、不编译什么？piecewise 是什么意思？
+
+   <details markdown="1"><summary>答案</summary>
+
+   编译模型里 attention 之外的部分（线性层、norm、激活、RoPE）做融合并生成可进 CUDA Graph 的代码；attention 因为形状动态、调用自定义 kernel 而被切成图的边界——模型被切成 attention 之间的若干段（piece）各自编译与捕获。
+
+   </details>
 
 
 ## 下一篇

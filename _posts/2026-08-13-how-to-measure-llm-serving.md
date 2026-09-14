@@ -4,6 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（02）：如何衡量一个 LLM Serving 系统？
 tags: [AI, AI-Infra, 大模型推理]
 catalog: true
+updated: 2026-09-14
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -31,6 +32,7 @@ LLM Serving 的性能不能只看单一指标：延迟、吞吐、效率与服�
 | 三 | 指标常见误区与优化方向 | 六个常见误区、指标与优化方向的对应表、分析顺序 |
 | 四 | 在 vLLM 里怎么测 | `vllm bench` 的四个子命令与五条口径细节 |
 | 五 | 本文小结 |  |
+| 六 | 自测 | 5 道题 |
 
 ## 二、LLM Serving 指标总览
 
@@ -267,6 +269,56 @@ LLM Serving 的指标体系可以归纳为：
 > 吞吐衡量系统处理了多少工作；  
 > 延迟衡量用户等待了多久；  
 > Goodput 衡量系统在满足 SLO 的前提下完成了多少有效工作。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**用哪些指标**分四组：延迟——TTFT（首 token）、TPOT / ITL（每 token 间隔）、E2E；吞吐——tokens/s、requests/s、以及在 SLO 下完成的有效吞吐 Goodput；效率——MFU、GPU 利用率、显存利用率、每 token 成本；质量——P50 / P95 / P99 与 SLO 达标率。三者的关系：吞吐衡量系统做了多少工作，延迟衡量用户等了多久，Goodput 衡量在满足 SLO 前提下做了多少有效工作——只报吞吐或只报平均延迟都会误导（第二、三章）。**异常时怎么定位**：TTFT 高而 TPOT 正常 → 排队或 Prefill（看队列长度与 waiting 数、prefill 的 token 预算、是否有长 prompt 独占）；TPOT 高 → Decode（batch 太大、KV 读取量大、被 chunked prefill 混批拖慢、通信）；两者都高且随负载恶化 → 资源饱和（KV 显存不足触发抢占与重算、GPU 已满）；P99 远高于 P50 → 尾延迟来自长请求、抢占或 straggler。**对应的优化方向**：排队 → 扩容或准入控制；Prefill → chunked prefill、prefix cache、PD 分离；Decode → 调 batch / token budget、KV 量化、投机解码、CUDA Graph；资源 → 更多 KV 显存（量化、GQA / MLA 模型）、更早抢占策略（第四章）。测法上：用固定的请求分布与到达率压测、报分位数而不是均值、区分冷热缓存。
+
+</details>
+
+
+## 六、自测
+
+1. TTFT、TPOT、ITL、E2E 各量什么？一个 2000 token prompt、300 token 输出、TTFT 0.3 s、TPOT 30 ms 的请求 E2E 是多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   TTFT 首 token 延迟（含排队 + prefill）；TPOT 每输出 token 的平均间隔；ITL 逐 token 的间隔分布；E2E 端到端。E2E ≈ 0.3 + 299 × 0.03 ≈ 9.3 s——decode 占 97%。
+
+   </details>
+
+2. 吞吐 5000 tokens/s 但 P99 TTFT 8 s，这个系统好不好？该看什么指标？
+
+   <details markdown="1"><summary>答案</summary>
+
+   不一定好——吞吐高可能是因为 batch 很大、请求排队很久；看 Goodput：SLO（比如 TTFT < 1 s、TPOT < 50 ms）下完成的 tokens/s，超过 SLO 的部分不算。
+
+   </details>
+
+3. TTFT 突然升高、TPOT 不变，最可能在哪一段？先看什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   排队或 Prefill：看 waiting 队列长度、running 数是否达到上限（`max_num_seqs`）、KV 是否满（抢占次数）、有没有超长 prompt 占满 token budget。TPOT 不变说明 decode 本身没受影响。
+
+   </details>
+
+4. GPU 利用率 95% 但 MFU 只有 5%，矛盾吗？说明什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   不矛盾：利用率只说 SM 上有 kernel 在跑，不说算力用了多少；decode 是 memory-bound，SM 大部分时间在等 HBM，MFU 天然只有几个百分点。看 decode 该看带宽利用率与每步时间对下界的比值。
+
+   </details>
+
+5. 压测一个 serving 系统时为什么要固定输入输出长度分布、控制到达率、区分冷热 prefix cache？
+
+   <details markdown="1"><summary>答案</summary>
+
+   三者任一变化都会让结果不可比：长 prompt 抬 TTFT、长输出抬 KV 占用，到达率决定排队，prefix cache 命中让 prefill 几乎免费；报告要带上这三个条件，且报分位数不报均值。
+
+   </details>
 
 
 ## 下一篇

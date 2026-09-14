@@ -4,6 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（12）：PD 分离：从资源混部走向计算解耦
 tags: [AI, AI-Infra, 大模型推理]
 catalog: true
+updated: 2026-09-14
 ---
 
 > **版本说明**：实现分析以 vLLM v0.27.1（tag `6e448d0`）为准，重点走读 **NIXL pull + 示例 Proxy** 的交接路径。通用架构、其他 Connector 的选择和系统设计建议会分别说明，不把一种实现视为 PD 分离的唯一路径。文中算例均为注明假设的理论估算，不是本地 GPU 或网络实测。
@@ -1092,6 +1093,57 @@ D 接续：就绪后参与本地调度，持续生成并增长 KV
 没有高速网络环境时，可以先读 `kv_connector/v1/example_connector.py` 和 `examples/disaggregated/example_connector/` 的共享文件示例，理解引擎如何接入外部状态，再去读 NIXL；不要把示例文件传输的性能视为生产方案。
 
 本文从“把两个阶段拆开”出发，最后落到请求、计算资源与状态生命周期的共同管理。下一篇继续讨论：当这些边界不断外推，Serving Infra 会如何从一个模型执行器演进为更完整的系统。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+本篇的核心问题是**为什么要把 Prefill 与 Decode 拆到不同实例、拆开之后计算、状态、系统三件事各怎么办**。**计算怎么拆**：共置时一个长 prefill 会干扰同批 decode 的 TPOT，两者对 batch 大小、并行度、容量的最优配置也不同；分开后 P 池用大 batch / 高 TP 追吞吐与 TTFT，D 池用小 TP / 大并发追 TPOT，各自独立扩缩——代价是权重与容量不再共享、资源可能碎片化、多出一次状态交接（第二章）。**状态怎么交接**：P 算完的 KV 要搬到 D——例子里 Llama-3-70B 一个 4096 token 请求 1.25 GiB、TP8 每 rank 160 MiB、400 Gb/s 约 3.4 ms（理论）。vLLM 用 `KVConnector` 契约：scheduler 侧决定哪些块要传、worker 侧注册内存、握手、传输、轮询完成；走读的 NIXL pull 路径是 D 侧分配好块后从 P 侧 RDMA READ；两个关键时序——“匹配不等于就绪”（D 收到请求不代表 KV 已到）与“计算结束不等于块可回收”（P 算完要等传输确认才能释放源块）（第三、四章）。**系统怎么协同**：外围 Proxy / Router 选 P / D 组合、检查容量与兼容性（TP 布局、量化格式、block size），考虑缓存亲和（prefix 在哪个 P 上）、网络容量、背压与恢复；两侧的 Scheduler 与 KV 管理仍是局部自治的，PD 不是把它们换成一个分布式组件，而是在保留局部自治的同时新增跨实例契约（第五章）。容易混淆的三对：PD 共置 / 分离说的是阶段是否共享实例资源域，单机 / 跨节点说的是物理位置；局部 Scheduler 决定本实例下一步算什么，外部 Router 决定请求去哪；两个本地 KV 池不会自动变成一个共享池。
+
+</details>
+
+
+## 七、自测
+
+1. 共置模式下一个 8K prompt 的 prefill 对同批 decode 请求造成什么？chunked prefill 缓解了什么、没缓解什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   这一步 GPU 被 prefill 占满，所有 decode 请求的这个 token 间隔（TPOT）暴涨；chunked prefill 把它切成几轮减小抖动幅度，但每轮仍与 decode 争资源、prefill 的 TTFT 变长——PD 分离把干扰彻底拿掉，代价是交接。
+
+   </details>
+
+2. P 与 D 的最优配置各偏向什么？为什么共置时只能取折中？
+
+   <details markdown="1"><summary>答案</summary>
+
+   P：compute-bound，大 batch、高 TP（权重读一次服务很多 token）、追 TTFT 与吞吐；D：memory-bound，小 TP / 多副本、大并发、大 KV 池、追 TPOT。共置时 TP 度、batch、KV 预算只能有一套，对哪一侧都不是最优。
+
+   </details>
+
+3. Llama-3-70B TP8、4096 token 请求 PD 分离，每 rank 传多少 KV？400 Gb/s 网卡理论多久？与一步 decode 比？
+
+   <details markdown="1"><summary>答案</summary>
+
+   1.25 GiB / 8 = 160 MiB / rank；160 MiB / 50 GB/s ≈ 3.4 ms；与一步 decode（约 10 ms）同量级，所以传输必须与计算重叠、不能阻塞 D 的调度循环。
+
+   </details>
+
+4. “匹配不等于就绪”、“计算结束不等于块可回收”各防什么错误？
+
+   <details markdown="1"><summary>答案</summary>
+
+   前者：D 侧调度器看到请求已分配块就开始 decode，但 KV 还在传——读到垃圾；要等传输完成通知才把请求放进 running。后者：P 侧请求 finished 就释放源块，D 还没读完——RDMA READ 到已被复用的块；要等 D 的完成确认再释放。
+
+   </details>
+
+5. 外部 Router 选 P / D 组合时要检查哪些兼容性与容量？为什么“各组件局部高效不保证端到端 SLO”？
+
+   <details markdown="1"><summary>答案</summary>
+
+   兼容性：TP 布局与 KV head 映射、量化 / dtype、block size、模型版本；容量：P 的 token budget 与队列、D 的空闲 KV 块、网络带宽；缓存亲和（prefix 已在哪个 P）。局部最优可能让 P 全忙而 D 空闲、或传输拥塞、或重试与扩缩容互相放大——SLO 要在池级联合看。
+
+   </details>
+
 
 ## 下一篇
 

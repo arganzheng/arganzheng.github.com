@@ -4,6 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（01）：为什么 LLM Serving 比传统 DL 推理难？
 tags: [AI, AI-Infra, 大模型推理]
 catalog: true
+updated: 2026-09-14
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -44,6 +45,7 @@ LLM Serving 则完全不同。一个请求可能携带几十个，也可能携�
 | 六 | 阅读地图 | 后续内容围绕的四个核心问题与两个横切约束 |
 | 七 | 一个贯穿全文的例子 | Llama-3-70B / 8×H100 / 2050+300 token 的基础算账 |
 | 八 | 本文小结 |  |
+| 九 | 自测 | 5 道题 |
 
 ## 二、范式转移：服务对象从“一次计算”变成“持续生成过程”
 
@@ -357,6 +359,56 @@ Prefill 更偏向计算密集型，Decode 更偏向访存密集型。
 - 扩大 Batch 提升吞吐，但会抬高单请求延迟、尾延迟和 KV Cache 压力；目标不是最大 Batch，而是在 SLO 约束下选择合适的执行规模。
 - 归纳为三个根本变化：从静态计算到动态执行、从无状态推理到带状态推理、从单一 Workload 到 Prefill/Decode 混合 Workload。
 - 后续各篇围绕四个核心问题展开——这一轮谁执行、状态放哪、如何算得更快、如何扩展——外加模型与硬件两个横切约束；并反复回到同一个 Llama-3-70B / 8×H100 的请求算账（每 token 320 KB KV，全请求约 734 MB）。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**不能沿用**，因为服务对象变了：传统 DL 推理是一次前向、一次返回——输入形状已知、计算量确定、无状态、请求之间互不相干；LLM 推理是一个持续进行的自回归过程——输入长度、输出长度、服务时长在到达时都未知，Prefill 产生的 KV Cache 要跨几百个 Decode step 保留并逐步增长（第二、三章）。**难在三个变化**：从静态计算到动态执行——每一步的 batch 组成都在变，系统必须持续决定“这一轮谁跑、跑多少”；从无状态到带状态——KV Cache 是唯一随时间无限增长的状态，Llama-3-70B 每 token 320 KB、一个 2K prompt + 300 输出的请求约 734 MB，它决定并发上限、上下文上限与抢占时机；从单一 workload 到 Prefill / Decode 混合——Prefill 一次处理 N 个 token、compute-bound，Decode 每步 1 个 token 却要读全部历史 KV、memory-bound，两者竞争同一组 GPU（第四、五章）。这三个变化直接生出后面每一篇的机制：Continuous Batching、Token Budget、Chunked Prefill、PagedAttention、Prefix Cache、抢占、PD 分离。目标也变了：不是最大 batch，而是在 SLO 约束下选执行规模——扩大 batch 提吞吐但抬高单请求延迟、尾延迟与 KV 压力（第六章）。
+
+</details>
+
+
+## 九、自测
+
+1. Llama-3-70B（80 层、8 个 KV head、head dim 128、BF16）每 token 的 KV 多大？一个 2000 token prompt + 300 token 输出的请求峰值 KV 多大？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$2 \times 80 \times 8 \times 128 \times 2$$ B = 320 KB / token；2300 × 320 KB ≈ 734 MB。一张 80 GB 的 H100 扣掉权重（TP8 每卡 17.5 GB）后大约能放几十个这样的请求。
+
+   </details>
+
+2. Prefill 与 Decode 各是什么瓶颈？为什么两者“竞争同一组 GPU”是问题？
+
+   <details markdown="1"><summary>答案</summary>
+
+   Prefill 一次算 N 个 token、算术强度高、compute-bound；Decode 每步 1 个 token 读全部权重与 KV、memory-bound。混在一个 batch 里，一个长 prefill 会拖住同批所有 decode 请求的这一步（TPOT 抖动），分开又浪费资源——Chunked Prefill 与 PD 分离都是对这个矛盾的处理。
+
+   </details>
+
+3. 传统推理服务的“一次前向、一次返回”模型隐含了哪三个假设？LLM 各打破了哪个？
+
+   <details markdown="1"><summary>答案</summary>
+
+   输入形状与计算量已知（LLM 的输出长度未知）；请求无状态（LLM 有随步增长的 KV）；请求之间独立且同质（LLM 的 prefill 与 decode 是两种 workload 且要动态组 batch）。
+
+   </details>
+
+4. 把 batch 从 8 加到 64，吞吐、单请求延迟、尾延迟、KV 压力各怎么变？为什么“最大 batch”不是目标？
+
+   <details markdown="1"><summary>答案</summary>
+
+   吞吐上升（decode memory-bound，读一次权重服务更多 token）；每步时间略增所以 TPOT 变长；长请求拖住短请求、尾延迟恶化；KV 占用线性增长可能触发抢占。目标是在 TTFT / TPOT 的 SLO 下选 batch，超过 SLO 的吞吐不算有效工作（Goodput）。
+
+   </details>
+
+5. 后续各篇围绕的四个核心问题是什么？各对应 vLLM 的哪个模块？
+
+   <details markdown="1"><summary>答案</summary>
+
+   这一轮谁执行、执行多少（Scheduler）；状态放哪、怎么复用（KVCacheManager / BlockPool）；怎么算得更快（ModelRunner / Attention Backend / Kernel）；怎么扩出去（Executor / Worker / 集合通信）。加模型与硬件两个横切约束。
+
+   </details>
 
 
 ## 下一篇

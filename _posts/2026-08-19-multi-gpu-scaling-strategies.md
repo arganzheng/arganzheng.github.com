@@ -4,6 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（08）：Multi-GPU：一张卡不够时如何扩展？
 tags: [AI, AI-Infra, 大模型推理]
 catalog: true
+updated: 2026-09-14
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -45,6 +46,7 @@ catalog: true
 | 七 | 混合并行策略汇总 | 按模型规模与场景的推荐组合与四条经验法则 |
 | 八 | 通信优化 | 数据流向图谱、NCCL、计算与通信重叠、通信问题定位方法 |
 | 九 | 本文小结 |  |
+| 十 | 自测 | 5 道题 |
 
 ## 二、DP (Data Parallelism)
 
@@ -2776,6 +2778,56 @@ NCCL_DEBUG_SUBSYS=INIT,GRAPH,NET
 - CP 用与 FlashAttention 同源的 Online Softmax 在 GPU 之间做"分块算 + 在线累加"，适合 64K～1M token 的超长上下文，序列较短或带宽不足时收益会被通信抵消。
 - 通信优化不能只看链路峰值带宽，要看数据走哪条物理链路、是否在关键路径、消息大小、是否引入全局同步、能否与计算重叠、拓扑是否与并行策略匹配；NCCL 是默认底座，`CustomAllreduce` 针对小张量场景。
 - 定位通信问题的顺序是：确认物理拓扑 → 确认 NCCL 识别结果 → 用 NCCL Tests 区分通信库问题与应用问题 → 按消息规模区分延迟问题与带宽问题；目标是降低通信在完整推理路径中的可见时间，而不是让某次 All-Reduce 的基准数字最大。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**怎么切**由问题决定：单层放不下用 **TP**（层内按行 / 列切，Column / Row 配对，每层一次 all-reduce）；单层放得下但整个模型太大用 **PP**（按层切成 stage，边界传激活）；MoE 专家太多用 **EP**（按专家切，Router → all-to-all dispatch → 本地专家 → all-to-all combine）；上下文太长用 **CP**（按序列切，用 online softmax 在卡间分块算、在线累加）；装得下但要更多吞吐用 **DP**（整体复制，永远在最外层）。TP / PP / EP / CP 解决“装不下”，DP 解决“想要更多”（第二章）。**KV 状态跟着切法走**：TP 下每卡持有全部 token 的 $$1/N_t$$ 个 KV head（GQA 8 头 TP8 每卡 1 头）；PP 下 KV 随层分到不同 stage；CP 下按 token 段分；DP 下各副本独立的 KV 池——所以 DP 副本之间的 prefix cache 不共享（第三、四章）。**代价**：TP 的 all-reduce 每层都在关键路径上、通信最频繁，必须放在 NVLink 内；PP 只在 stage 边界通信、能容忍高延迟、适合跨机，但有流水线气泡且要足够多的并发请求填满；EP 的瓶颈是 all-to-all 通信量、负载不均与小批次 grouped GEMM 效率（Token 重排、通信计算重叠、热门专家复制）；CP 在序列短或带宽不足时收益被通信抵消（第五、六章）。**通信优化**不看链路峰值而看：数据走哪条物理链路、是否在关键路径、消息多大、是否引入全局同步、能否与计算重叠、拓扑是否匹配；NCCL 是底座，小张量用 `CustomAllreduce`；定位顺序：物理拓扑 → NCCL 识别结果 → nccl-tests 区分库与应用 → 按消息大小分延迟 / 带宽问题（第七章）。
+
+</details>
+
+
+## 十、自测
+
+1. Llama-3-70B 在 8×H100 上 TP8 与 PP8 各每卡多少权重、多少通信？KV 各怎么分？
+
+   <details markdown="1"><summary>答案</summary>
+
+   权重都是每卡 17.5 GB；TP8 每层一次 all-reduce（decode 每步 160 次、每次 batch × 8192 × 2 B）走 NVLink；PP8 每 stage 10 层、边界传一次激活、每步 7 次 P2P。KV：TP 每卡持全部 token 的 1 个 KV head；PP 每卡持自己 10 层的全部 KV。
+
+   </details>
+
+2. DP=2 × TP=4 与 TP=8 都用 8 张卡，各适合什么？prefix cache 有什么差别？
+
+   <details markdown="1"><summary>答案</summary>
+
+   TP8 每卡权重更小、能放更多 KV、单请求 decode 更快（读权重快）但每层通信更多；DP2×TP4 两个独立引擎、吞吐随请求数线性、通信更少，但权重复制两份、每副本 KV 池更小且两个副本的 prefix cache 互不可见（同一个 system prompt 两边各算一次）。
+
+   </details>
+
+3. EP 一层的执行流程是什么？三个主要瓶颈与对应优化？
+
+   <details markdown="1"><summary>答案</summary>
+
+   Router 打分 → all-to-all dispatch（token 送到专家所在卡）→ 本地专家 grouped GEMM → all-to-all combine 回原卡加权求和。瓶颈：all-to-all 通信量（拓扑感知、与计算重叠）、负载不均（热门专家复制、容量因子）、小批次 GEMM 效率（token 重排让每专家连续、grouped GEMM）。
+
+   </details>
+
+4. CP 靠什么把 attention 切到多卡上还算对？什么时候不值？
+
+   <details markdown="1"><summary>答案</summary>
+
+   online softmax 的合并律：每卡算自己那段 KV 对全部 Q 的部分结果 $$(m, l, O)$$，卡间传 KV 或部分结果后按 $$m$$ 重缩放合并——与 FlashAttention 分块同源；序列短（< 64K）时 attention 占比小、传 KV 的通信盖过收益。
+
+   </details>
+
+5. TP 跨两台机器（TP16）为什么几乎总是错的？PP 跨机为什么可以？
+
+   <details markdown="1"><summary>答案</summary>
+
+   TP 每层的 all-reduce 在关键路径上、不可重叠、每步 160 次，走 IB 每次几十 µs 就是每步多几 ms，且激活载荷不小；PP 只在 stage 边界传一次激活、可以与下一 micro-batch 的计算重叠、容忍高延迟。
+
+   </details>
 
 
 ## 下一篇

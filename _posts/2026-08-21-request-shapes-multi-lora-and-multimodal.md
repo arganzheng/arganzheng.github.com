@@ -4,6 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（10）：请求形态的扩展：multi-LoRA 与多模态
 tags: [AI, AI-Infra, 大模型推理]
 catalog: true
+updated: 2026-09-14
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -63,6 +64,7 @@ catalog: true
 | 三 | 多模态 | 输入处理流水线与 processor 缓存；占位符与 embedding 合并；encoder 的独立执行与预算；EncoderCacheManager；多模态 prefix cache；显存账；视频与音频 |
 | 四 | 叠加与向后 | LoRA + 多模态；留给硬件抽象（11）与 PD 分离（12）的问题；两个扩展的开销对照 |
 | 五 | 本文小结 |  |
+| 六 | 自测 | 5 道题 |
 
 ## 二、multi-LoRA：同一个 batch，每一行乘不同的权重
 
@@ -536,6 +538,56 @@ CPU 侧还有 processor cache 的 `4 GiB × (api_server_count + dp_size)`。
 - encoder 是 decoder forward 之前的一次独立计算，有自己的预算（`encoder_compute_budget`、`encoder_cache_size`，都等于 `max_num_batched_tokens`，单位是 embedding 数）；一张图必须整体编码，预算不够就把 `num_new_tokens` 截到图之前——这是 Token Budget 模型的第一个例外。`EncoderCacheManager` 只记账，输出在图 prefill 完后即可释放，驻留只有几步。
 - 显存上，一张图真正贵的是它的 KV（≈ 20× encoder 输出、活全程），encoder 输出本身小且短命；encoder 激活峰值靠 `profile_run()` 实测扣除。视频用 `is_embed` 掩码支持剪枝，音频的 encoder-decoder 结构让 chunked prefill 与 prefix cache 双双失效。
 - 两者都给后两篇留下问题：Triton kernel 与 ViT 注意力后端如何跨硬件；encoder 放 P 侧还是独立成池（`ECTransferConfig` 已是骨架）、两个池的 adapter 集合如何一致。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+单模型 serving 隐含三个假设：batch 内所有 token 乘同一份权重、输入 embedding 是查表、相同 token 前缀有相同 KV。**multi-LoRA 打破第一条**：每个请求要乘自己的 $$\Delta W = BA$$。vLLM 用一个 kernel 处理全部 adapter——Triton 的 `lora_shrink` / `lora_expand` 用 grid 的第三维遍历 adapter、用排序后的 token 索引 gather 各自的行、`lora_id == -1` 的 program 早退；adapter 权重按槽位静态堆在 GPU 上（`lora_a_stacked [max_loras, 1, r, in]`），大小由 `max_loras × max_lora_rank` 买断——8 个 rank-16 槽位约 1.44 GB / 卡，等于 15 个请求的 KV；`LoRAModelManager` 两层 LRU（CPU / GPU）换入换出，激活是逐层 H2D 拷贝；`max_loras` 成了调度器的新准入约束，CUDA Graph 按有无 LoRA 各录一套。代价：每个 LoRA 层每步多两次 launch 与一块 fp32 缓冲，FLOPs 只多 0.2%（第二、三章）。**多模态打破第二条**：image token 的 embedding 不是查表而是 encoder 算出来的。复用 HF processor 预处理、`PlaceholderRange` 记占位符、`MultiModalHasher` 对原始输入哈希驱动两级缓存（processor cache、encoder cache）；embedding 阶段用 `is_mm_embed` 掩码把 encoder 输出就地散射进序列，chunk 边界可以切在一张图中间；encoder 是 decoder forward 之前的一次独立计算，有自己的预算（`encoder_compute_budget` / `encoder_cache_size`），一张图必须整体编码——Token Budget 的第一个例外（第四、五章）。**两者都打破第三条**：同样的 token 前缀在不同 LoRA 下或不同图片下 KV 不同，所以 `hash_block_tokens()` 的 `extra_keys` 里同时有 `lora_name` 与 `(mm_hash, 块内偏移)`。显存上一张图真正贵的是它的 KV（约 20 倍于 encoder 输出、活全程），encoder 输出小且短命（第六章）。
+
+</details>
+
+
+## 六、自测
+
+1. `max_loras = 8`、`max_lora_rank = 16`、Llama-3-70B TP8 全部线性层挂 LoRA：每卡的 LoRA 槽位占多少显存？与实际加载几个 adapter 有关吗？
+
+   <details markdown="1"><summary>答案</summary>
+
+   约 1.44 GB / 卡（文中数字），等于 15 个请求的 KV；无关——槽位按 `max_loras × max_lora_rank` 静态分配，加载 1 个还是 8 个都占这么多。
+
+   </details>
+
+2. 一个 batch 里 3 个请求用 adapter A、5 个用 B、2 个不用，`lora_shrink` kernel 怎么处理？
+
+   <details markdown="1"><summary>答案</summary>
+
+   token 按 adapter id 排序、记下每段的起止；grid 第三维遍历 adapter（A、B），每个 program 用索引 gather 自己那几行做 $$x A^T$$；`lora_id == -1` 的 2 个请求所在 program 直接返回。一次 launch 处理全部 adapter，不按 adapter 循环。
+
+   </details>
+
+3. 第一个用到新 adapter 的请求会让整个 batch 慢一下，为什么？`max_loras` 为什么成了调度约束？
+
+   <details markdown="1"><summary>答案</summary>
+
+   adapter 要从 CPU LRU 换入 GPU 槽位——逐层 H2D 拷贝几十到几百 MB，在这一步的关键路径上；GPU 槽位只有 `max_loras` 个，需要第 9 个 adapter 的 waiting 请求会被跳过（冷门 adapter 可能饿死），直到有槽位释放。
+
+   </details>
+
+4. 一张图的 encoder 输出、它的 image token 在 decoder 里的 KV，哪个大、哪个活得久？chunked prefill 能把图切在中间吗？
+
+   <details markdown="1"><summary>答案</summary>
+
+   KV 约是 encoder 输出的 20 倍（每层每 KV head 都存一份）且活到请求结束；encoder 输出在图 prefill 完后即可释放。能——embedding 阶段用 `is_mm_embed` 掩码按位置散射，但 encoder 必须整图一次算完（`encoder_compute_budget` 不够就把 `num_new_tokens` 截到图之前）。
+
+   </details>
+
+5. Prefix Cache 的 `extra_keys` 为什么要带 `lora_name` 与 `(mm_hash, 块内偏移)`？漏掉会怎样？
+
+   <details markdown="1"><summary>答案</summary>
+
+   同样的 token 前缀在不同 LoRA 下经过不同的权重、KV 不同；同一个 `<image>` 占位 token 在不同图片下 KV 不同——漏掉就会把别的请求的 KV 块当成自己的复用，输出错误且难以察觉。
+
+   </details>
 
 
 ## 下一篇
