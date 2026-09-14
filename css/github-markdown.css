@@ -113,7 +113,10 @@
   margin-top: 0;
   margin-bottom: 16px;
   border: 0;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  /* Keep Latin characters monospaced, while giving CJK glyphs a readable
+     sans-serif fallback instead of the often-too-thin default CJK mono font. */
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Microsoft JhengHei", monospace;
+  font-weight: 450;
 }
 .post-container pre code {
   display: inline;
