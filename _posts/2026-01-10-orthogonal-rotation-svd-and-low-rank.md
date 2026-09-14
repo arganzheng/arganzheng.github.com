@@ -5,6 +5,7 @@ title: "算法工程师的数学（03）：正交与旋转、特征值与 SVD—
 subtitle: "Orthogonal Matrices, Rotations, Eigenvalues and SVD: Why RoPE Encodes Relative Position and Why LoRA Works"
 tags: [AI, LLM, Math]
 catalog: true
+updated: 2026-09-14
 ---
 
 前两篇把矩阵当作"一堆数"，讨论它的形状、成本和向量之间的比较。这一篇看矩阵的两种**结构**：一种是**正交**——矩阵只旋转、不拉伸，内积在它作用下不变；另一种是**低秩**——一个巨大的矩阵其实只由少数几个方向撑起来。前者解释了现代 LLM 的位置编码 RoPE 为什么只用一个旋转就让 attention 只依赖相对位置；后者解释了 LoRA 为什么能用半个百分点的参数微调一个 8B 模型。
@@ -208,7 +209,28 @@ $$
 \Delta W = BA, \qquad B \in \mathbb{R}^{m \times r},\; A \in \mathbb{R}^{r \times n},\; r \ll m, n
 $$
 
-前向变成 $$y = xW + x(BA) = xW + (xA^T)B^T$$（按行向量约定）。$$W$$ 冻结不动，只训 $$A, B$$。$$r$$ 叫 LoRA 的秩，常取 8、16、64。
+前向变成 $$y = xW + x(BA) = xW + (xB)A$$（按行向量约定，$$x \in \mathbb{R}^{1 \times m}$$）。$$W$$ 冻结不动，只训 $$A, B$$。$$r$$ 叫 LoRA 的秩，常取 8、16、64。
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 220}}}%%
+flowchart LR
+    X["x  [1 × m]"] --> W["`**W**  [m × n]
+冻结，不算梯度`"]
+    X --> B["`**B**  [m × r]
+训练，初始为 0`"]
+    B -- "xB  [1 × r]" --> A["`**A**  [r × n]
+训练，随机初始化`"]
+    W -- "xW  [1 × n]" --> ADD(("+"))
+    A -- "xBA  [1 × n]" --> ADD
+    ADD --> Y["y  [1 × n]"]
+
+    classDef frozen fill:#f0f0f0,stroke:#888,color:#222
+    classDef train fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
+    class W frozen
+    class A,B train
+```
+
+灰色的 $$W$$ 是原模型的权重，训练时只读不写；黄色的 $$A, B$$ 是新增的两个瘦矩阵，全部可训练参数都在这里。输入 $$x$$ 走两条路再相加——上一篇第四章的结合律说过，永远先算瘦的 $$xB$$，不要把 $$BA$$ 乘成一个 $$m \times n$$ 的大矩阵。
 
 它与 SVD 的关系：$$B$$ 对应 $$U_r \Sigma_r$$、$$A$$ 对应 $$V_r^T$$——只是不再要求正交，直接当参数学。初始化时 $$B = 0$$（所以一开始 $$\Delta W = 0$$，模型行为不变），$$A$$ 随机。
 

@@ -5,6 +5,7 @@ title: "算法工程师的工具箱（02）：PyTorch 使用层（上）——�
 subtitle: "PyTorch in Use, Part 1: Five Objects and a Twenty-Line Training Loop"
 tags: [AI, LLM, PyTorch, Python]
 catalog: true
+updated: 2026-09-14
 ---
 
 PyTorch 的使用层只有五个对象：`Tensor`（数据与形状）、Autograd（自动求导）、`nn.Module`（参数的容器与前向逻辑）、`Dataset` / `DataLoader`（取数与组 batch）、`Optimizer`（用梯度更新参数）。把它们拼起来就是一个训练循环，二十行。所有高层封装——`transformers` 的 `Trainer`、`trl` 的各个 Trainer、Lightning——做的都是这二十行加上日志、checkpoint、分布式。能写出这二十行、并解释每一行为什么在那里，PyTorch 的使用层就过关了；遇到高层封装行为不符合预期时，也是回到这二十行想。
@@ -25,6 +26,35 @@ nn.Module       参数的容器（parameters / state_dict）+ 前向逻辑（for
 Dataset/Loader  __getitem__ 取一条 · DataLoader 组 batch、打乱、多进程预取
 Optimizer       step() 用 .grad 更新参数 · zero_grad() 清零 · 学习率调度器
 ```
+
+五个对象在一步训练里各站一个位置，数据沿着一个环流动——第六章的二十行代码就是把这个环写出来：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+flowchart TB
+    DS["`**Dataset**
+__getitem__ 取一条`"] --> DL["`**DataLoader**
+组 batch · 打乱 · 预取`"]
+    DL -- "batch（Tensor）" --> M["`**nn.Module**
+forward：参数 × 输入`"]
+    M -- "logits" --> L["loss = cross_entropy(logits, labels)"]
+    L -- "backward()" --> AG["`**Autograd**
+沿前向记下的图反向
+把梯度累加到每个参数的 .grad`"]
+    AG -- ".grad" --> OPT["`**Optimizer**
+step()：用 .grad 更新参数
+zero_grad()：清零`"]
+    OPT -- "新参数" --> M
+
+    classDef data fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef model fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
+    classDef grad fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class DS,DL data
+    class M,L model
+    class AG,OPT grad
+```
+
+绿色是数据怎么进来，黄色是前向算出 loss，蓝色是梯度怎么回去再改参数。Tensor 没有单独画：环上流动的每一样东西——batch、logits、loss、.grad、参数——都是 Tensor。
 
 ### 2. 本文的章节安排
 
