@@ -857,7 +857,8 @@ $$
 ### 4. 独立扩缩容与背压：为什么局部扩容可能加剧拥塞
 
 ```mermaid
-flowchart LR
+%%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+flowchart TB
     A[P 扩容，提高 KV 产出] --> B[网络或 D 消费能力不足]
     B --> C[交接排队，源块保留时间增长]
     C --> D[P 空闲块减少，D 接收预留增加]

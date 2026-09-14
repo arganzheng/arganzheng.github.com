@@ -1845,7 +1845,7 @@ class TORCH_API TensorBase {
 ### 2. 持有链全图
 
 ```mermaid
-flowchart LR
+flowchart TB
     T["at::Tensor<br/>(值类型，8 字节)"] -->|"intrusive_ptr&lt;TensorImpl&gt; impl_<br/>强引用，可多对一"| TI["TensorImpl<br/>(堆，引用计数)"]
     TI -->|"Storage storage_<br/>(值类型，8 字节)"| S["Storage"]
     S -->|"intrusive_ptr&lt;StorageImpl&gt; storage_impl_<br/>强引用，可多对一"| SI["StorageImpl<br/>(堆，引用计数)"]

@@ -691,8 +691,8 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   - The bold core question in the intro must be answered at the end, inside
     `<details markdown="1"><summary><b>核心问题的答案</b></summary> … </details>`
     placed right after the 小结 bullets/table (answer each sub-question in order,
-    a short paragraph or a list). The post-training series already does this in
-    prose — the folded block is the same content.
+    a short paragraph or a list). All 142 body posts of the algorithm and Infra
+    series (as of 2026-09) carry it; new posts must too.
   - 自测: 3–5 questions per body post (overview posts have none), each with a
     checkable answer (a number, a shape, a yes/no with one reason) — no open
     questions. Every answer sits in its own
