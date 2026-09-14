@@ -5,6 +5,7 @@ title: "后训练（01）：SFT：指令数据、chat template、loss mask 与�
 subtitle: "Supervised Fine-Tuning: Instruction Data, Chat Templates, Loss Masking and Parameter-Efficient Fine-Tuning"
 tags: [AI, LLM, Post-Training, RLHF]
 catalog: true
+updated: 2026-09-14
 ---
 
 预训练结束时的模型是一个续写器：给它一段文字，它给出最可能的下一段文字。问它"法国的首都是哪里"，它可能回答"巴黎"，也可能续写成一道选择题的另外三个选项，或者一篇关于欧洲首都的文章。它有知识，没有**格式**——不知道什么时候该停、谁在说话、什么算"回答"。
@@ -47,6 +48,7 @@ SFT 的目标函数与预训练完全相同——对目标 token 的交叉熵—
 | 七 | 成本与配方 | 一次 SFT 的 GPU 小时与数据成本；七个公开配方的 SFT 对照；推理 SFT 的"少即是多" |
 | 八 | 实践 | `01_sft.py` 的五个实验 |
 | 九 | 本文小结 | |
+| 十 | 自测 | 5 道题 |
 
 
 ## 二、数据：从哪来、要多少
@@ -400,11 +402,60 @@ model = get_peft_model(model, peft_cfg)
 | 遗忘 | 普通文本 loss 的变化；四种对策 | 全量 1e-5 +0.02；全量 1e-4 +0.62（且回复 loss 变差）；LoRA 1e-4 +0.01 |
 | 成本 | $$6ND$$ | 8B、2B token：67 GPU 小时；成本在数据，数据成本正变成推理 FLOPs |
 
-核心问题的答案：loss 算不算 prompt 决定梯度花在"学回答"还是"学提问"上——prompt 占大头（长文档任务）时必须 mask，prompt 只有一两句话时差别可忽略、甚至不 mask 略好，本篇实验里两者只差 0.006；packing 不掩跨样本 attention 在 SFT 里比预训练更伤，因为样本短；LoRA 的秩远不如"加不加 FFN"重要，$$r = 16$$ 全部线性层就接近全量，而且忘得更少；epoch 数不该由验证 loss 决定——InstructGPT 的验证 loss 1 个 epoch 就过拟合、人评却涨到 16 个。至于会不会忘：训完之前看 lr 与更新的秩（$$10^{-4}$$ 的全量比 $$10^{-5}$$ 忘得多得多，LoRA 最少），训完之后用一份无关的普通文本算 loss——本篇的实验里这三种配置的差别是 +0.02、+0.62、+0.01。
 
 SFT 训出的模型会按格式回答，但"好回答"与"坏回答"它分不出来——它只见过标注好的正例。下一篇造出能分好坏的东西：偏好数据与奖励模型。
 
 配套代码：[`post-training/01_sft.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/post-training/01_sft.py)、[`ptlab.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/post-training/ptlab.py)；运行输出在 `expected/01_sft.txt`。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+loss 算不算 prompt 决定梯度花在"学回答"还是"学提问"上——prompt 占大头（长文档任务）时必须 mask，prompt 只有一两句话时差别可忽略、甚至不 mask 略好，本篇实验里两者只差 0.006；packing 不掩跨样本 attention 在 SFT 里比预训练更伤，因为样本短；LoRA 的秩远不如"加不加 FFN"重要，$$r = 16$$ 全部线性层就接近全量，而且忘得更少；epoch 数不该由验证 loss 决定——InstructGPT 的验证 loss 1 个 epoch 就过拟合、人评却涨到 16 个。至于会不会忘：训完之前看 lr 与更新的秩（$$10^{-4}$$ 的全量比 $$10^{-5}$$ 忘得多得多，LoRA 最少），训完之后用一份无关的普通文本算 loss——本篇的实验里这三种配置的差别是 +0.02、+0.62、+0.01。
+
+</details>
+
+
+## 十、自测
+
+1. 一段 4 轮对话用 ChatML 模板编码后 44 个 token、其中 9 个是特殊 token。只对 assistant 的回复算 loss，大约多少比例的 token 参与了梯度？如果不 mask 呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   只有 assistant 内容的 token（约 20 个左右）参与，一半以下；不 mask 则 44 个全算，模型在花一半梯度学“怎么提问”。prompt 很短时两者 loss 差别可忽略（80 步：2.3924 vs 2.3869），prompt 长时差别大。
+
+   </details>
+
+2. 随机组 batch 时有效 token 只有 45–56%，剩下是什么？packing 到 100% 之后为什么还要加掩码？
+
+   <details markdown="1"><summary>答案</summary>
+
+   剩下是 padding——batch 里最长的样本决定长度，其他样本补零。packing 把多条样本首尾相接填满序列，但不加 causal 掩码的话后一条样本的 token 会 attend 到前一条的内容，跨样本泄漏。
+
+   </details>
+
+3. 8B 模型全量 SFT 与 $$r = 16$$、全部线性层的 LoRA SFT，训练状态各多少？验证 loss 差多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   全量 16 字节 / 参数，128 GB；LoRA 可训练 1.78%，状态约全量的 1/7（十几 GB），每步快 20%；验证 loss 差 0.001——这个规模的 SFT 上 LoRA 几乎无损。
+
+   </details>
+
+4. LoRA 训练时新加的特殊 token（比如工具调用标签）为什么学不会？怎么修？
+
+   <details markdown="1"><summary>答案</summary>
+
+   LoRA 默认不更新 embedding 与 lm_head，新 token 的向量停在随机初始化上；`modules_to_save` 把 embedding / lm_head 加进可训练集合，或者复用基座预留的未用 token。
+
+   </details>
+
+5. SFT 训 5 个 epoch 与 1 个 epoch，哪个更容易“忘掉预训练学到的东西”？训完之前怎么看到？
+
+   <details markdown="1"><summary>答案</summary>
+
+   5 个 epoch——1 万条指令对 8B 模型是极度过参数化体制（L3 第四篇），多 epoch 会背下数据、推开预训练分布。看 held-out 的通用 loss（不是 SFT 验证 loss）随 epoch 的变化，以及几个通用 benchmark 的早期抽检；拐点出现就停。
+
+   </details>
 
 
 ## 下一篇

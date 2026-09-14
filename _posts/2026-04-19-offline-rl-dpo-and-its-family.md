@@ -91,6 +91,7 @@ P(y_w ≻ y_l) = σ(r_w − r_l)
 | 九 | 公开配方 | Zephyr、Tülu 2 / 3、Llama 3、Qwen2.5、Nemotron |
 | 十 | 动手 | `DPOTrainer` 的骨架与该看的曲线 |
 | 十一 | 本文小结 | |
+| 十二 | 自测 | 5 道题 |
 
 
 ## 二、推导
@@ -361,11 +362,60 @@ trainer.train()
 | DPO vs PPO | PPO 上限略高（探索），DPO 性价比高；推理 / 代码用在线 | RM 质量与数据 > 算法 |
 | 成本 | $$8N$$/token；10 万对 8B 约 9 GPU 小时 | 参考可预计算；LoRA 下参考免费 |
 
-核心问题的答案：DPO 不是不需要奖励模型，而是把奖励模型**参数化为策略与参考的对数比**——$$\hat r = \beta \log(\pi_\theta / \pi_{ref})$$ 就是它的 RM，只是与策略共享参数、且训完即弃。这个隐式奖励在偏好数据覆盖的地方与显式 RM 等价，在数据之外没有任何约束——所以它失效的地方是分布外：似然同降（概率流向数据里没有的序列）、过优化（走出数据范围后隐式奖励任意）、长度（拉开对数比最容易的方向）。同一份偏好数据，DPO 与 PPO 的差别在**能不能探索**：PPO 从当前策略采样，能发现参考策略下概率很低但奖励高的回答（推理、代码），DPO 只能在给定的对上拉开差距——所以对话对齐两者接近，推理任务 PPO / GRPO 明显占优。修 DPO 的办法都是往在线走一步：迭代、在线 DPO、拒绝采样——on-policy 数据比任何 loss 变体都重要。
 
 到此，用**学出来的**奖励改策略的两条路都讲完了。下一篇换奖励的来源：不学，直接验——规则奖励下的 RL 如何训出长思维链。
 
 配套资料：本篇没有配套实验；第十章的骨架可在 [ai-learning-labs/post-training](https://github.com/arganzheng/ai-learning-labs/tree/main/post-training) 第一篇的环境上用 LoRA 在单卡运行。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+DPO 不是不需要奖励模型，而是把奖励模型**参数化为策略与参考的对数比**——$$\hat r = \beta \log(\pi_\theta / \pi_{ref})$$ 就是它的 RM，只是与策略共享参数、且训完即弃。这个隐式奖励在偏好数据覆盖的地方与显式 RM 等价，在数据之外没有任何约束——所以它失效的地方是分布外：似然同降（概率流向数据里没有的序列）、过优化（走出数据范围后隐式奖励任意）、长度（拉开对数比最容易的方向）。同一份偏好数据，DPO 与 PPO 的差别在**能不能探索**：PPO 从当前策略采样，能发现参考策略下概率很低但奖励高的回答（推理、代码），DPO 只能在给定的对上拉开差距——所以对话对齐两者接近，推理任务 PPO / GRPO 明显占优。修 DPO 的办法都是往在线走一步：迭代、在线 DPO、拒绝采样——on-policy 数据比任何 loss 变体都重要。
+
+</details>
+
+
+## 十二、自测
+
+1. DPO 的隐式奖励是什么？给它加一个只依赖 prompt 的常数，loss 变不变？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$\hat r_\theta(x, y) = \beta \log \frac{\pi_\theta(y \mid x)}{\pi_{ref}(y \mid x)}$$；不变——loss 只看同一 prompt 下两个回答的分差，常数抵消（$$Z(x)$$ 就是这样消掉的）。
+
+   </details>
+
+2. DPO 训练中 chosen 与 rejected 的对数概率同时下降，loss 却在降——发生了什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   loss 只要求两者的差拉开，不要求 chosen 的概率上升；概率质量流向了数据里没有的序列（分布外）。这是隐式奖励只在数据分布上受约束的直接表现；RPO 加一项 chosen 的 NLL 就是防它。
+
+   </details>
+
+3. 同一份 10 万对偏好数据，8B 模型跑一轮 DPO 与一轮 PPO，GPU 小时各是什么量级？为什么差这么多？
+
+   <details markdown="1"><summary>答案</summary>
+
+   DPO 约 10 GPU 小时（每对两次前向反向 $$\approx 8N$$ / token，参考的对数概率可预计算）；PPO 数百到上千——每步要采样、打分、四个模型，且要很多步。
+
+   </details>
+
+4. ORPO / SimPO 去掉了参考模型，用什么代替它约束策略？代价是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   用长度归一化的对数概率本身当奖励（SimPO）或加一个 odds ratio 项（ORPO），不再相对参考；省一个模型的显存与前向，但失去“离参考多远”的锚，更依赖数据与早停。
+
+   </details>
+
+5. Llama 3 的后训练做了六轮“拒绝采样 + SFT + DPO”，每一轮为什么要重新采样？这在 DPO 与 PPO 之间的哪个位置？
+
+   <details markdown="1"><summary>答案</summary>
+
+   偏好数据要来自当前策略（on-policy）——用旧策略的数据训新策略，DPO 的隐式奖励在新策略会去的地方没有约束；迭代 DPO 是半在线：每轮采样一次、离线训一轮，介于纯离线 DPO 与每步采样的 PPO 之间。
+
+   </details>
 
 
 ## 下一篇

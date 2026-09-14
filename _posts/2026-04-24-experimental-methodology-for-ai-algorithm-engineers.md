@@ -4,6 +4,7 @@ title: "算法工程师的实验方法论：用有限的算力得出可信的结
 subtitle: "Experimental Methodology for AI Algorithm Engineers: Credible Conclusions on a Finite Compute Budget"
 tags: [AI, LLM, Machine Learning, Methodology]
 catalog: true
+updated: 2026-09-14
 ---
 
 > 本文是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)"横切：实验方法论"一层的导读。它不属于任何一层，对每一层都适用；放在 L5 之后，是因为它要用到的例子——scaling law 的外推（[04 系列第十篇](/scaling-laws-and-compute-optimal-training.html)）、评测的置信区间（[后训练第八篇](/evaluating-llms-benchmarks-judges-and-contamination.html)）、loss spike 的归因（[04 系列第十二篇](/pretraining-recipe-and-training-stability.html)）——到这里都已经讲过了。
@@ -53,6 +54,7 @@ catalog: true
 | 八 | 一份实验清单 | 跑之前、跑的时候、跑完之后各问什么 |
 | 九 | 怎么学 | 材料与顺序 |
 | 十 | 本文小结 | |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、提假设：把"我觉得会好"变成一个可以被证伪的陈述
@@ -441,6 +443,55 @@ lr 是最需要用曲线而不是最终指标判断的超参，因为 lr 的影�
 | 读论文与复现 | 三问：改了什么、和谁比、用什么评；先 baseline 再方法；四种怀疑：协议、挑选、污染、规模 | 论文收益在自己场景通常兑现 1/3–1/2 |
 | 看曲线 | loss · 梯度范数 · lr · 评测四条；梯度范数比 loss 先报警；按数据源分 loss；写下终止判据 | lr 扫描用 5–10% 步数早期截断 |
 
-核心问题的答案：一个"A 比 B 好 1.5 个点"的结论要过五关。第一关，1.5 是不是事先预期的主指标上的变化，而不是七个指标里挑出来的一个；第二关，这类实验的 seed 方差是多少，1.5 是不是超过了 2σ（多数微调任务上 σ 约 0.5–1.5，1.5 个点在边缘）；第三关，如果 A 是从多个候选里选出来的，有没有用独立的 seed 或数据验证过；第四关，A 与 B 的评测协议是否完全相同、baseline 是否调好；第五关，这个结论在什么规模上得出，要用在什么规模上，效应的方向与幅度在几个规模上一致吗。五关都过，它是一个可信的结论；过了三关，它是一个值得进一步验证的线索；一关都没过，它是一个数字。
 
 回到地图：[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+一个"A 比 B 好 1.5 个点"的结论要过五关。第一关，1.5 是不是事先预期的主指标上的变化，而不是七个指标里挑出来的一个；第二关，这类实验的 seed 方差是多少，1.5 是不是超过了 2σ（多数微调任务上 σ 约 0.5–1.5，1.5 个点在边缘）；第三关，如果 A 是从多个候选里选出来的，有没有用独立的 seed 或数据验证过；第四关，A 与 B 的评测协议是否完全相同、baseline 是否调好；第五关，这个结论在什么规模上得出，要用在什么规模上，效应的方向与幅度在几个规模上一致吗。五关都过，它是一个可信的结论；过了三关，它是一个值得进一步验证的线索；一关都没过，它是一个数字。
+
+</details>
+
+
+## 十一、自测
+
+1. 单个 seed 的 GSM8K 分数标准误约 1.35%。要以 2σ 分辨 1 个点的差异，每边需要几个 seed？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$n \ge (2\sigma / \delta)^2 = (2 \times 1.35 / 1)^2 \approx 7.3$$，每边 8 个 seed；分辨 3 个点只需 1 个。先量噪声再决定实验规模。
+
+   </details>
+
+2. “在 20 个候选配置里挑出验证集最好的那个，它比 baseline 高 1.5 点”——这个 1.5 可信吗？该怎么补？
+
+   <details markdown="1"><summary>答案</summary>
+
+   不可信：20 个里挑最大值有选择偏差（L2 第一篇：偏乐观约 0.25 个标准差以上）。用一份独立的验证样本重测被选中的配置，或者把筛选 / 对照 / 验证的算力分开（约 15 / 35 / 50）。
+
+   </details>
+
+3. 小规模实验得到“方法 X 在 125M 上涨 3 点、350M 上涨 1.5 点、1B 上涨 0.5 点”，能外推到 7B 吗？
+
+   <details markdown="1"><summary>答案</summary>
+
+   趋势是“幅度随规模递减”，属于三类结论里的第二类，外推到 7B 很可能接近 0 甚至翻转；三个规模看的是趋势不是数值，方向稳定的结论才能外推。
+
+   </details>
+
+4. 一次训练的 loss 曲线正常、梯度范数曲线在 loss 变坏前 200 步开始抬升——该做什么？为什么梯度范数先报警？
+
+   <details markdown="1"><summary>答案</summary>
+
+   立即降 lr 或回退 checkpoint、检查数据（那一段 batch）；梯度范数直接反映更新的大小，loss 是更新的累积结果、滞后几百步——所以它是第二重要的曲线。
+
+   </details>
+
+5. 复现一篇论文，baseline 跑出来比论文报的低 2 个点。先怀疑什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   先怀疑协议（few-shot、温度、抽取、max_tokens、harness 版本），其次是自己环境的 seed 方差；都排除后再考虑论文的挑选、污染、规模。复现误差落在 seed 方差内才算复现成功——先复现 baseline 再复现方法。
+
+   </details>

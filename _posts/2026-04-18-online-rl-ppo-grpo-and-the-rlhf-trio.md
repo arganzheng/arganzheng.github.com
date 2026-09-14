@@ -89,6 +89,7 @@ PPO 的四个模型里，价值模型是为了**降低策略梯度的方差**—
 | 八 | 公开配方 | InstructGPT、Llama 2、DeepSeekMath / R1、Tülu 3、DAPO、Qwen3、Kimi K2 |
 | 九 | 动手 | `GRPOTrainer` 的骨架与该看的曲线 |
 | 十 | 本文小结 | |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、目标函数
@@ -465,11 +466,60 @@ trainer.train()
 | 显存 | 状态 + KV cache | 4096 条 × 1300 token = 680 GiB KV |
 | 同步 | 每步把策略权重送进推理引擎 | 8B 16 GB；一步异步几乎无损 |
 
-核心问题的答案：PPO 要四个模型，因为它选择了 token 级的 MDP 视角——要一个价值网络把终末奖励分摊回每个 token 作 baseline，加上算 KL 的参考与打分的 RM；四个里两个要训，显存的主体是它们的 16 字节/参数。GRPO 用同一 prompt 的 $$G$$ 条回答的均值与标准差代替价值网络——baseline 只要不依赖当前样本就无偏，组内均值恰好满足，还顺带做了按 prompt 的归一化；代价是每个 prompt 生成 $$G$$ 倍的 token、优势降到序列级、以及两个归一化各带一个偏差（Dr. GRPO 与 DAPO 修的就是它们）。一步 GRPO 的 FLOPs 里训练占一半、生成只占六分之一，但生成是 memory-bound 的 decode 且有长尾，墙钟时间反而占一半以上——RL 后训练的系统问题本质上是训练循环里的推理引擎问题。
 
 这一篇的方法全部从当前策略采样。下一篇不采样：从一份固定的偏好数据直接推出 loss——DPO 及其一族。
 
 配套资料：本篇没有配套实验；第九章的骨架可在 [ai-learning-labs/post-training](https://github.com/arganzheng/ai-learning-labs/tree/main/post-training) 第一篇的环境上配一张 16–24 GB 的 GPU 运行。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+PPO 要四个模型，因为它选择了 token 级的 MDP 视角——要一个价值网络把终末奖励分摊回每个 token 作 baseline，加上算 KL 的参考与打分的 RM；四个里两个要训，显存的主体是它们的 16 字节/参数。GRPO 用同一 prompt 的 $$G$$ 条回答的均值与标准差代替价值网络——baseline 只要不依赖当前样本就无偏，组内均值恰好满足，还顺带做了按 prompt 的归一化；代价是每个 prompt 生成 $$G$$ 倍的 token、优势降到序列级、以及两个归一化各带一个偏差（Dr. GRPO 与 DAPO 修的就是它们）。一步 GRPO 的 FLOPs 里训练占一半、生成只占六分之一，但生成是 memory-bound 的 decode 且有长尾，墙钟时间反而占一半以上——RL 后训练的系统问题本质上是训练循环里的推理引擎问题。
+
+</details>
+
+
+## 十一、自测
+
+1. PPO 的四个模型各是什么、各在一步里做什么？哪几个要反向？
+
+   <details markdown="1"><summary>答案</summary>
+
+   策略（生成 + 反向）、参考（前向算 log π_ref 给 KL）、奖励模型（前向打分）、价值模型（前向估 baseline + 反向训自己）。要反向的是策略与价值两个；8B 规格四模型训练状态约 288 GB。
+
+   </details>
+
+2. GRPO 一组 $$G = 8$$ 条回答的奖励是 $$(1, 1, 1, 1, 1, 1, 1, 1)$$，优势各是多少？这一步这个 prompt 贡献了什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   均值 1、标准差 0，优势全为 0（或除零保护后为 0）——全对（或全错）的组对梯度没有贡献。DAPO 的动态采样就是把这类组过滤掉、补采到 batch 满。
+
+   </details>
+
+3. 一步 GRPO：$$B = 512$$ 个 prompt、$$G = 8$$、平均长度 1000 token。生成了多少 token？FLOPs 大约是每 token 的几倍 $$N$$？训练与生成各占多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$512 \times 8 \times 1000 = 410$$ 万 token；约 $$12N$$ / token——策略前向反向 $$6N$$、参考 $$2N$$、RM $$2N$$、生成 $$2N$$；训练约一半，三个前向各六分之一。时间上生成常占 50–80%，因为 decode 的 MFU 只有 10–25%。
+
+   </details>
+
+4. 为什么 baseline 可以任意选而不改变策略梯度的期望？什么样的 baseline 不行？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$\mathbb{E}_{y \sim \pi}[\nabla \log \pi(y)] = \nabla \sum_y \pi(y) = \nabla 1 = 0$$，所以减去任何不依赖 $$y$$ 的量期望不变；依赖当前样本 $$y$$ 的 baseline（比如用自己的奖励）会引入偏差。GRPO 的组内均值包含了自己那一项，Dr. GRPO 指出了这个小偏差。
+
+   </details>
+
+5. PPO 的 clip $$\epsilon = 0.2$$ 在限制什么？为什么 GRPO 一族里 DAPO 要把上界改成 0.28（clip-higher）？
+
+   <details markdown="1"><summary>答案</summary>
+
+   限制重要性比 $$\rho = \pi_\theta / \pi_{old}$$ 离 1 的距离，防止一步走太远（信任域的廉价版）。对称的 clip 让低概率 token 的概率很难涨上去（$$\rho$$ 到 1.2 就被截），探索受限、熵坍缩；抬高上界让好的低概率 token 能被更快提升。
+
+   </details>
 
 
 ## 下一篇

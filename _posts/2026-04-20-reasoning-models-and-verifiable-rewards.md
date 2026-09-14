@@ -5,6 +5,7 @@ title: "后训练（05）：推理模型与可验证奖励：R1 的配方、PRM 
 subtitle: "Reasoning Models and Verifiable Rewards: The R1 Recipe, Process Reward Models and Test-Time Compute"
 tags: [AI, LLM, Post-Training, RLHF, Reasoning]
 catalog: true
+updated: 2026-09-14
 ---
 
 前三篇的奖励都是**学出来的**：人标偏好，训一个 RM，或把 RM 折进 DPO 的 loss。学出来的奖励是人类判断的代理，代理就有 Goodhart——第二篇算过它的过优化曲线，第三篇用 KL 项管理它，第四篇发现 DPO 也逃不掉。2025 年推理模型的突破，从三件套的角度看只改了一格：**奖励不再学，直接验**。数学题比答案，代码跑测试，格式查标签。验证器是确定的，策略骗不了它（只要验证器本身没漏洞），于是 KL 项可以拿掉、RM 可以不训、策略可以被推到学出来的奖励永远不敢推的地方——回答从几百 token 长到几万 token，中间出现反思、回溯、验算。
@@ -43,6 +44,7 @@ catalog: true
 | 八 | 蒸馏预告与公开配方 | R1 蒸馏的对照实验；R1、Qwen3、Kimi、gpt-oss、开源复现 |
 | 九 | 动手 | `GRPOTrainer` + 规则奖励函数；该看的曲线 |
 | 十 | 本文小结 | |
+| 十一 | 自测 | 5 道题 |
 
 
 ## 二、可验证奖励
@@ -309,11 +311,60 @@ GSM8K 的答案是整数，等价判断简单；MATH 要做符号归一（`math-
 | test-time compute | 多数投票 / BoN / 搜索 / 更长思维链；对数增长；难题上不如预训练 | cons@64：64 倍费用换 16 点 |
 | 小模型 | 蒸馏 > 直接 RL | Qwen-32B：72.6 vs 47 |
 
-核心问题的答案：规则奖励能训出长思维链，因为它不可 hack——策略涨分的唯一办法是真的答对，KL 可以撤掉，探索可以走到几千上万 token；它对长度中立，回答变长是"更长的推理更常答对"被选择出来的结果；而基座里已有推理的种子，RL 放大它。学出来的 RM 在策略走到那么远之前就先被找到漏洞。R1 的四阶段各修一个问题：冷启动修可读性与语言，推理 RL 把能力推到顶并压混语，用 RL 产出的 80 万条重新 SFT 基座把推理与通用合到一个模型，全场景 RL 补偏好对齐。rollout 的 token 数比对话模型多 8 到 64 倍，KV cache 从 GiB 到 TiB 只能分波生成，单条几万步的 decode 让一步的墙钟由最长的回答决定——推理模型的 RL 训练在系统上是一个长序列生成问题。
 
 规则奖励到此覆盖了单轮的推理。下一篇把它推到多轮：模型的动作里出现真实的工具调用，奖励延后到整条轨迹结束。
 
 配套资料：本篇没有配套实验；第九章的骨架可在 [ai-learning-labs/post-training](https://github.com/arganzheng/ai-learning-labs/tree/main/post-training) 第一篇的环境上配一张 16–24 GB 的 GPU 运行。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+规则奖励能训出长思维链，因为它不可 hack——策略涨分的唯一办法是真的答对，KL 可以撤掉，探索可以走到几千上万 token；它对长度中立，回答变长是"更长的推理更常答对"被选择出来的结果；而基座里已有推理的种子，RL 放大它。学出来的 RM 在策略走到那么远之前就先被找到漏洞。R1 的四阶段各修一个问题：冷启动修可读性与语言，推理 RL 把能力推到顶并压混语，用 RL 产出的 80 万条重新 SFT 基座把推理与通用合到一个模型，全场景 RL 补偏好对齐。rollout 的 token 数比对话模型多 8 到 64 倍，KV cache 从 GiB 到 TiB 只能分波生成，单条几万步的 decode 让一步的墙钟由最长的回答决定——推理模型的 RL 训练在系统上是一个长序列生成问题。
+
+</details>
+
+
+## 十一、自测
+
+1. 规则奖励下为什么可以把 KL 系数 $$\beta$$ 设为 0？RM 奖励下为什么不行？
+
+   <details markdown="1"><summary>答案</summary>
+
+   规则奖励不可 hack（答对才有分），策略离参考再远也不会“骗到分”，KL 没有存在的必要；RM 奖励可 hack，KL 是防止策略走到 RM 失效区域的唯一约束。
+
+   </details>
+
+2. R1-Zero 在 AIME 上 pass@1 从 15.6 到 71.0，cons@64 到 86.7。RL 是“创造”了能力还是“放大”了能力？用 pass@k 怎么判断？
+
+   <details markdown="1"><summary>答案</summary>
+
+   主要是放大：比较基座与 RL 后模型的 pass@k 曲线，RL 大幅提高 pass@1，但 $$k$$ 到几百时基座追上甚至超过——正确解本来就在基座的分布里，RL 把它的概率提上来。基座决定天花板的大部分。
+
+   </details>
+
+3. 一步推理 RL：$$B = 512$$、$$G = 16$$、平均长度 16K token。rollout 多少 token？与对话模型（长度 1K）比多多少？KV cache 峰值什么量级？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$512 \times 16 \times 16000 = 1.3$$ 亿 token，是对话模型（400 万）的 30 多倍；KV 按 8B 规格 128 KiB / token 算，同时在飞的序列几到几十 TiB——必须分批、异步、部分 rollout。
+
+   </details>
+
+4. R1 的四个阶段各在修什么？为什么第三阶段要回到基座重新 SFT 而不是在 RL 后的模型上继续？
+
+   <details markdown="1"><summary>答案</summary>
+
+   冷启动 SFT 修可读性与格式；推理 RL（+ 语言一致性奖励）涨推理；80 万条数据回基座重 SFT 是为了把推理能力与非推理能力（写作、问答）合到一个干净的起点上，避免 RL 模型的语言混杂与偏窄；全场景 RL 最后对齐偏好与安全。
+
+   </details>
+
+5. PRM 在 PRM800K 上比 ORM 好（78.2 vs 72.4 @ N = 1860），R1 为什么不用 PRM？
+
+   <details markdown="1"><summary>答案</summary>
+
+   步骤难定义（什么算一步）、步骤标注贵且难自动化、PRM 作为奖励容易被 hack（策略学会写“看起来对”的步骤）；规则奖励 + 长思维链自己学会了检查，PRM 的收益不够抵这些代价。
+
+   </details>
 
 
 ## 下一篇

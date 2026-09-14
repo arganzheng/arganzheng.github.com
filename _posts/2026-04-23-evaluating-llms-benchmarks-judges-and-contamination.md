@@ -5,6 +5,7 @@ title: "后训练（08）：评测：benchmark、LLM-as-judge、Arena 与污染"
 subtitle: "Evaluating LLMs: Benchmarks, LLM-as-Judge, Arenas and Contamination"
 tags: [AI, LLM, Post-Training, Evaluation]
 catalog: true
+updated: 2026-09-14
 ---
 
 前七篇每一篇的结尾都有一句"变好了"：SFT 之后会按格式回答，RL 之后奖励涨了，蒸馏之后小模型接近教师。每一句背后都有一个度量，而度量比方法更容易出错——分数涨了 2 个点，可能是能力提升，可能是换了 few-shot 数，可能是测试题在训练集里，也可能只是 1000 道题上的随机波动（±3 个点）。评测是后训练流水线里唯一贯穿全程的部件，也是"回到数据或配方"那条回边的起点：不会评测，就不知道下一步改什么。
@@ -51,6 +52,7 @@ judge 的 80% 胜率：Zheng 等 2023 测出 GPT-4 作 judge 时对更长回答�
 | 十 | 报告的诚实性 | 一张清单 |
 | 十一 | 动手 | `lm-evaluation-harness` 的协议对照；judge 偏差的测量 |
 | 十二 | 本文小结与系列总结 | |
+| 十三 | 自测 | 5 道题 |
 
 
 ## 二、benchmark：各测什么
@@ -362,7 +364,6 @@ flips = sum(judge(p, a, b) != swap(judge(p, b, a)) for p, a, b in pairs) / len(p
 | 错误分析 | 切分 + 分类 + 读一百条 | 格式与截断先剔除 |
 | 自建 | 真实流量采样；500–1000 题；rubric；judge 校准；版本化；保密 | |
 
-核心问题的答案：MMLU 涨 2 个点，先确认协议完全相同（同一 harness、配置、抽取），再看它是否超出置信区间（14K 题上 2 个点在边缘，任何子集上都不显著），再用同分布的新题或改写题复测看涨幅是否保持——三关都过才是能力，否则是协议或污染。GPT-4 judge 的 80% 胜率，要用长度控制的 win rate 重算：对成对结果拟合"胜负 ~ 模型 + 长度差"的逻辑回归，报长度差为零时的胜率——很多模型的胜率会变 5–15 个点、排名重排；此外还要交换顺序消位置偏差、换一个不同家族的 judge 消自我偏好。剩下的那部分，才是评委真的觉得好。
 
 ### 2. 系列总结：三件套的最终一张表
 
@@ -384,3 +385,53 @@ flips = sum(judge(p, a, b) != swap(judge(p, b, a)) for p, a, b in pairs) / len(p
 方法的名字还会增加。三件套的骨架、成本的算法、评测的纪律不会变。本篇的统计只是实验方法论的一角——怎么提一个可证伪的假设、怎么在小规模上得出能外推的结论、怎么控制随机性与记录复现，在算法地图的横切导读[《算法工程师的实验方法论》](/experimental-methodology-for-ai-algorithm-engineers.html)里。回到总纲：[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)。
 
 配套资料：第十一章的命令与代码可在 [ai-learning-labs/post-training](https://github.com/arganzheng/ai-learning-labs/tree/main/post-training) 第一篇的环境上运行（`lm_eval` 需另行安装）。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+MMLU 涨 2 个点，先确认协议完全相同（同一 harness、配置、抽取），再看它是否超出置信区间（14K 题上 2 个点在边缘，任何子集上都不显著），再用同分布的新题或改写题复测看涨幅是否保持——三关都过才是能力，否则是协议或污染。GPT-4 judge 的 80% 胜率，要用长度控制的 win rate 重算：对成对结果拟合"胜负 ~ 模型 + 长度差"的逻辑回归，报长度差为零时的胜率——很多模型的胜率会变 5–15 个点、排名重排；此外还要交换顺序消位置偏差、换一个不同家族的 judge 消自我偏好。剩下的那部分，才是评委真的觉得好。
+
+</details>
+
+
+## 十三、自测
+
+1. MMLU 约 14000 题、准确率 70%：95% 置信区间是多少？AIME 30 题、准确率 50% 呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   MMLU：$$1.96 \sqrt{0.7 \times 0.3 / 14000} \approx 0.8$$ 个点；AIME：$$1.96 \sqrt{0.25 / 30} \approx 18$$ 个点——AIME 上差 10 个点分不出两个模型。
+
+   </details>
+
+2. pass@k 为什么不能用“采 $$k$$ 次看有没有对的”直接估？无偏估计是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   直接估方差大且有偏（$$k$$ 次里恰好的运气）。采 $$n \ge k$$ 次、其中 $$c$$ 次对，无偏估计 $$1 - \binom{n - c}{k} / \binom{n}{k}$$；报告时要说明 $$n$$。
+
+   </details>
+
+3. GPT-4 judge 给出 80% 胜率，做了长度控制之后可能剩多少？长度控制怎么做？
+
+   <details markdown="1"><summary>答案</summary>
+
+   常见掉到 60–70%：judge 偏好长回答，被评模型如果更啰嗦就白拿分。长度控制用逻辑回归把胜率建模为“模型 + 长度差”两项，报去掉长度项后的胜率（AlpacaEval 2 LC，与 Arena 相关从 0.94 到 0.98）。
+
+   </details>
+
+4. 两个模型在同一套 1000 题上 A 对 B 错 60 题、A 错 B 对 40 题。用什么检验？显著吗？
+
+   <details markdown="1"><summary>答案</summary>
+
+   McNemar 配对检验，只看分歧的 100 题：期望 50 : 50，$$z = (60 - 40) / \sqrt{100} = 2.0$$，$$p \approx 0.046$$，勉强显著；配对比独立比较两个准确率灵敏得多。
+
+   </details>
+
+5. MMLU 涨 2 个点，按什么顺序排除“协议变化”与“污染”？
+
+   <details markdown="1"><summary>答案</summary>
+
+   先固定协议（同一 harness、few-shot 数、CoT、温度、抽取规则）重跑 baseline；再看涨幅是否超出置信区间（±0.8）；再做污染检测——n-gram 重叠、在污染子集与干净子集上分别算分（污染子集常高 10–30 点）、用一个改写版或私有集重测；三关都过才是能力提升。
+
+   </details>

@@ -5,6 +5,7 @@ title: "后训练（06）：Agent 与工具调用的 RL：多轮环境、轨迹�
 subtitle: "Agentic RL: Multi-Turn Environments, Trajectory Data and Delayed Rewards"
 tags: [AI, LLM, Post-Training, RLHF, Agent]
 catalog: true
+updated: 2026-09-14
 ---
 
 第五篇的模型一次生成到底：读 prompt，想几千 token，给答案，验证器打分。真实的任务不长这样。修一个 GitHub issue 要读文件、改代码、跑测试、看报错、再改；回答一个需要查资料的问题要搜索、读结果、再搜索；操作一个系统要发命令、看输出、决定下一步。模型的一段输出之后是**环境的**输出，模型再基于它继续——几轮到几十轮之后，任务才有结果，奖励才能算。
@@ -54,6 +55,7 @@ catalog: true
 | 九 | 评测预告 | τ-bench、BFCL、SWE-bench Verified、GAIA、Terminal-Bench 各测什么 |
 | 十 | 动手 | 最小的多轮 rollout 与 mask |
 | 十一 | 本文小结 | |
+| 十二 | 自测 | 5 道题 |
 
 
 ## 二、问题设定
@@ -418,11 +420,60 @@ def rollout(policy, tok, task, max_turns=6):
 | 系统 | agent loop；环境延迟秒到分钟、方差极大 → **异步必需**；按轮的 off-policy 修正 | $$k$$ = 1–4 步落后几乎无损 |
 | 一步的账 | 500 任务 × 8：环境约 320 CPU·小时，模型约 7 GPU·小时 | 沙箱集群是工程主体 |
 
-核心问题的答案：多轮 Agent RL 与单轮 RLVR 差在一行公式——策略的对数概率从一段生成变成 $$T$$ 段生成之和，环境的转移概率不含参数所以策略梯度原样成立；差在一处 mask——环境返回的 token 在上下文里却不是策略的输出，必须从 loss 里去掉，否则模型学会编造工具结果；差在一段系统——rollout 从一个推理引擎的批量生成变成几千个沙箱各自运行、耗时从秒到几十分钟的循环，同步等待让 GPU 大部分时间在等最慢的那条轨迹，异步 rollout 与按轮的 off-policy 修正成为必需。瓶颈在环境是因为一笔账：一条轨迹要真的跑过沙箱，每次测试几十秒到几分钟，一步 rollout 的环境时间以几百 CPU·小时计，而模型的生成与训练只要几个 GPU·小时；轨迹数据同理——每一条都是跑出来的，不是生成出来的。
 
 到此，用奖励改策略的全部形态讲完了：学出来的奖励（二、三、四篇）、验证出来的奖励（五、六篇）。下一篇讲奖励的第三种来源——另一个模型的分布：蒸馏。
 
 配套资料：本篇没有配套实验；第十章的骨架可在 [ai-learning-labs/post-training](https://github.com/arganzheng/ai-learning-labs/tree/main/post-training) 第一篇的环境上配一张 16–24 GB 的 GPU 运行。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+多轮 Agent RL 与单轮 RLVR 差在一行公式——策略的对数概率从一段生成变成 $$T$$ 段生成之和，环境的转移概率不含参数所以策略梯度原样成立；差在一处 mask——环境返回的 token 在上下文里却不是策略的输出，必须从 loss 里去掉，否则模型学会编造工具结果；差在一段系统——rollout 从一个推理引擎的批量生成变成几千个沙箱各自运行、耗时从秒到几十分钟的循环，同步等待让 GPU 大部分时间在等最慢的那条轨迹，异步 rollout 与按轮的 off-policy 修正成为必需。瓶颈在环境是因为一笔账：一条轨迹要真的跑过沙箱，每次测试几十秒到几分钟，一步 rollout 的环境时间以几百 CPU·小时计，而模型的生成与训练只要几个 GPU·小时；轨迹数据同理——每一条都是跑出来的，不是生成出来的。
+
+</details>
+
+
+## 十二、自测
+
+1. 多轮 Agent 的一条轨迹 $$\tau = (s_1, a_1, o_1, s_2, a_2, \dots)$$，策略梯度里 $$\log \pi_\theta(\tau)$$ 展开成什么？环境转移为什么不出现？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$\sum_t \log \pi_\theta(a_t \mid s_t)$$——只有模型生成的段落；工具返回 $$o_t$$ 由环境决定、不含 $$\theta$$，对 $$\theta$$ 求导是 0，所以策略梯度定理原样成立。
+
+   </details>
+
+2. 训练时不 mask 工具返回的 token 会学到什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   模型把工具输出当成自己该生成的东西，学会“编造”工具返回（幻觉出一个像样的搜索结果或测试输出），推理时不等真实工具就往下写。
+
+   </details>
+
+3. 一条 20 轮的轨迹 48K token，其中约八成是环境返回。每个“有效”（模型生成的）token 的训练成本是单轮 RLVR 的几倍？前缀缓存修了哪一半？
+
+   <details markdown="1"><summary>答案</summary>
+
+   约 5 倍——48K 的前向反向只有约 10K 是模型自己的 token，其余是上下文；不带前缀缓存时每轮 prefill 整个历史，成本随轮数平方增长，前缀缓存把 prefill 降到线性，但训练的反向仍要过全部上下文。
+
+   </details>
+
+4. 为什么说 Agent 训练的瓶颈常常是环境而不是模型？举出成本结构上的原因。
+
+   <details markdown="1"><summary>答案</summary>
+
+   每条轨迹都要真跑：代码沙箱起容器、跑测试几秒到几分钟，检索要调外部服务，GUI 要渲染；一步 RL 几千条轨迹的环境时间远超 GPU 时间，且环境要隔离、可复位、可并发——这些是系统工程，不是模型问题。
+
+   </details>
+
+5. 多轮 RL 里 reward hacking 有哪些单轮没有的形态？
+
+   <details markdown="1"><summary>答案</summary>
+
+   改测试用例让它通过、硬编码期望输出、讨好模拟用户让它给高分、反复调用工具刷部分分；根源是奖励来自可被动作影响的环境状态，防御是把验证放在策略碰不到的地方（隐藏测试、只读的判定器）。
+
+   </details>
 
 
 ## 下一篇
