@@ -405,19 +405,21 @@ graph LR
 
 ## 系列总览
 
-| # | 系列 | 层 | 篇数 |
-|---|---|---|---|
-| 01 | [Python 在 AI-Infra：从语言机制到生产交付](/python-for-ai-infra.html)（与算法地图共享） | L1 | 7 |
-| 02 | [C++ 在 AI-Infra：从对象模型到算子扩展](/cpp-for-ai-infra.html) | L1 | 8 |
-| 03 | [PyTorch 深度实践：从 Tensor 到深度学习运行时](/deep-dive-into-pytorch.html)（与算法地图共享） | L2 | 10 |
-| 04 | [Transformer 与 LLM：结构、算量与数值](/transformer-and-llm-for-infra-engineers.html) | L2 | 8 |
-| 05 | [GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention](/gpu-kernel-engineering.html) | L2 | 10 |
-| 06 | [通信与互联：从 NCCL 到 RDMA](/communication-and-interconnect-for-ai-infra.html) | L3 | 8 |
-| 07 | [大规模训练工程：从并行策略到容错恢复](/large-scale-training-from-parallelism-to-fault-tolerance.html) | L4 | 8 |
-| 08 | [大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术](/deep-dive-into-vllm.html) | L4 | 14 |
-| 09 | [RL 后训练基础设施：rollout 与训练如何共享一组 GPU](/rl-post-training-infrastructure.html) | L4 | 8 |
-| 10 | [AI 平台工程：资源层与交付层](/ai-platform-engineering.html) | L5 | 8 |
-| 11 | [AI-Infra 开源贡献指南](/contributing-to-ai-infra-open-source.html) | 横切 | 4 |
+| # | 系列 | 层 | 篇数 | 时长 |
+|---|---|---|---|---|
+| 01 | [Python 在 AI-Infra：从语言机制到生产交付](/python-for-ai-infra.html)（与算法地图共享） | L1 | 7 | 14h |
+| 02 | [C++ 在 AI-Infra：从对象模型到算子扩展](/cpp-for-ai-infra.html) | L1 | 8 | 33h |
+| 03 | [PyTorch 深度实践：从 Tensor 到深度学习运行时](/deep-dive-into-pytorch.html)（与算法地图共享） | L2 | 10 | 15h |
+| 04 | [Transformer 与 LLM：结构、算量与数值](/transformer-and-llm-for-infra-engineers.html)（与算法地图共享） | L2 | 8 | 11h |
+| 05 | [GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention](/gpu-kernel-engineering.html) | L2 | 10 | 21h |
+| 06 | [通信与互联：从 NCCL 到 RDMA](/communication-and-interconnect-for-ai-infra.html) | L3 | 8 | 20h |
+| 07 | [大规模训练工程：从并行策略到容错恢复](/large-scale-training-from-parallelism-to-fault-tolerance.html) | L4 | 8 | 22h |
+| 08 | [大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术](/deep-dive-into-vllm.html) | L4 | 14 | 17h |
+| 09 | [RL 后训练基础设施：rollout 与训练如何共享一组 GPU](/rl-post-training-infrastructure.html) | L4 | 8 | 8h |
+| 10 | [AI 平台工程：资源层与交付层](/ai-platform-engineering.html) | L5 | 8 | 21h |
+| 11 | [AI-Infra 开源贡献指南](/contributing-to-ai-infra-open-source.html) | 横切 | 4 | 9h |
+
+时长按每分钟 450 字估算通读一遍的量（含代码），合计约 190 小时。这是给贡献者的深度；只想建立系统视角的读者，每个总纲都有一节「第一遍怎么读」，挑出必读的篇与章。
 
 ### 配套代码
 

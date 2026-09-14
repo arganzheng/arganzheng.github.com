@@ -17,7 +17,7 @@ catalog: true
 
 > **一个模型从数据到上线经过哪些阶段？每个阶段需要掌握什么？按什么顺序学？**
 
-这张地图描述的是**知识结构**，它把知识组织成八层加一个横切，每层说明回答什么问题、包含哪些概念、为什么放在那个位置。已经写成文章的部分：L0 是[《算法工程师的数学》](/math-for-ai-algorithm-engineers.html)（八篇），L1 是[《算法工程师的工具箱》](/tooling-for-ai-algorithm-engineers.html)（五篇，Infra 地图的 01 Python 与 03 PyTorch 两个系列是它的深入篇、两张地图共享），L2 是[《LLM 时代的经典机器学习》](/classical-machine-learning-in-the-llm-era.html)（六篇），L3 是[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)（六篇），L4 引用[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)（八篇）——它是两张地图的交点——与本层专属的[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)（四篇）；L5 是[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)（八篇）；L6 是[《高效推理与压缩（算法侧）》](/efficient-inference-and-compression-for-llms.html)（六篇）；L7 是[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)（七篇）；横切的实验方法论是一篇[导读](/experimental-methodology-for-ai-algorithm-engineers.html)。文章目录在[本文末尾](#已有的文章与系列)。
+这张地图描述的是**知识结构**：八层加一个横切，每层说明回答什么问题、包含哪些概念、为什么放在那个位置。每一层都已有对应的系列（共 45 篇、约 30 小时，另与 Infra 地图共享 01 / 03 / 04 三个系列），目录与配套代码在[本文末尾](#已有的文章与系列)。
 
 | 需要什么 | 具体是什么 |
 |---|---|
@@ -78,20 +78,61 @@ benchmark · LLM-as-judge · Arena
 
 ### 第二张图：学习路径
 
-学习路径分八层加一个横切。前四层是基础（L0–L3），任何方向都要；L4 是核心；L5–L7 是三个可以并行的方向。层的顺序就是推荐的学习顺序，也是各系列的发布顺序：L0 → L1 →（01 Python、03 PyTorch 深入篇）→ L2 → L3 → L4 → L5 → L6 → L7。
+学习路径分八层加一个横切。前四层是基础（L0–L3），任何方向都要；L4 是核心；L5–L7 是三个可以并行的方向。层的顺序就是推荐的学习顺序，也是各系列的发布顺序：
 
-| 层 | 主题 | 回答的问题 | 文章 |
-|---|---|---|---|
-| L0 | 数学基础 | 公式里的每个符号是什么意思？loss 为什么这样写？ | [系列（8 篇）](/math-for-ai-algorithm-engineers.html) |
-| L1 | 编程与工具 | 怎么把一个想法变成一次能跑的实验？ | [系列（5 篇）](/tooling-for-ai-algorithm-engineers.html) + 深入篇 [01 Python](/python-for-ai-infra.html)、[03 PyTorch](/deep-dive-into-pytorch.html)（共享） |
-| L2 | 机器学习基础 | 什么是学习？怎么知道模型学会了而不是背下来了？ | [系列（6 篇）](/classical-machine-learning-in-the-llm-era.html) |
-| L3 | 深度学习基础 | 梯度怎么流？为什么深了就难训？CNN 与 RNN 各解决了什么、留下了什么？ | [系列（6 篇）](/deep-learning-foundations.html) |
-| L4 | LLM 核心 | Transformer 为什么赢？tokenizer、scaling law 与预训练数据各决定了什么？ | [04 系列（8 篇，共享）](/transformer-and-llm-for-infra-engineers.html) + [预训练系列（4 篇）](/pretraining-from-tokenizer-to-training-recipe.html) |
-| L5 | 后训练 | 一个基座模型怎么变成一个能对话、会推理、符合偏好的模型？怎么证明它变好了？ | [系列（8 篇）](/post-training-from-sft-to-verifiable-rewards.html) |
-| L6 | 高效推理与压缩（算法侧） | 不改硬件，怎么让同一个模型更快、更小、更便宜？ | [系列（6 篇）](/efficient-inference-and-compression-for-llms.html) |
-| L7 | 多模态 | 图片、视频、语音怎么进入语言模型？图像生成为什么是另一套数学？ | [系列（7 篇）](/multimodal-from-vision-encoders-to-diffusion.html) |
-| 横切 | 实验方法论 | 怎么用有限的算力得出可信的结论？ | [导读](/experimental-methodology-for-ai-algorithm-engineers.html) |
-| 选修 | 系统内部 ｜ 应用层 | 推理引擎与训练框架怎么实现（→ Infra 地图）｜ Agent、RAG 怎么搭（→ 应用地图） | — |
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+flowchart TB
+    L0["`**L0 数学**
+8 篇 ≈ 3h`"]
+    L1["`**L1 工具箱**
+5 篇 ≈ 2h`"]
+    D["`**深入篇（共享，可略读）**
+01 Python 7 篇 ≈ 14h
+03 PyTorch 10 篇 ≈ 15h`"]
+    L2["`**L2 经典机器学习**
+6 篇 ≈ 2h`"]
+    L3["`**L3 深度学习基础**
+6 篇 ≈ 3h`"]
+    L4["`**L4 LLM 核心**
+04 系列 8 篇 ≈ 11h（共享）
+预训练 4 篇 ≈ 4h`"]
+    L5["`**L5 后训练**
+8 篇 ≈ 6h`"]
+    L6["`**L6 高效推理与压缩**
+6 篇 ≈ 4h`"]
+    L7["`**L7 多模态**
+7 篇 ≈ 5h`"]
+    X["`**横切：实验方法论**
+1 篇 ≈ 1h，任何阶段`"]
+    L0 --> L1 --> L2 --> L3 --> L4 --> L5
+    L1 -. 深入 .-> D
+    L4 --> L6
+    L4 --> L7
+    L5 -.-> L7
+
+    classDef algo fill:#fff7e0,stroke:#c98a00,stroke-width:1px,color:#222
+    classDef shared fill:#f3eefc,stroke:#8a6bd1,stroke-width:1px,color:#222
+    classDef cross fill:#f7f7f7,stroke:#999,stroke-width:1px,color:#222
+    class L0,L1,L2,L3,L5,L6,L7 algo
+    class D,L4 shared
+    class X cross
+```
+
+时长按每分钟 450 字估算通读一遍的量，不含动手。紫色的两处与 Infra 地图共享：深入篇讲 Python 与 PyTorch 的机制与实现，第一遍读各总纲的「第一遍怎么读」即可；04 系列是两张地图的交点，算法读者必读。
+
+| 层 | 主题 | 回答的问题 | 文章 | 时长 |
+|---|---|---|---|---|
+| L0 | 数学基础 | 公式里的每个符号是什么意思？loss 为什么这样写？ | [系列（8 篇）](/math-for-ai-algorithm-engineers.html) | 3h |
+| L1 | 编程与工具 | 怎么把一个想法变成一次能跑的实验？ | [系列（5 篇）](/tooling-for-ai-algorithm-engineers.html) + 深入篇 [01 Python](/python-for-ai-infra.html)、[03 PyTorch](/deep-dive-into-pytorch.html)（共享） | 2h（+ 14h + 15h） |
+| L2 | 机器学习基础 | 什么是学习？怎么知道模型学会了而不是背下来了？ | [系列（6 篇）](/classical-machine-learning-in-the-llm-era.html) | 2h |
+| L3 | 深度学习基础 | 梯度怎么流？为什么深了就难训？CNN 与 RNN 各解决了什么、留下了什么？ | [系列（6 篇）](/deep-learning-foundations.html) | 3h |
+| L4 | LLM 核心 | Transformer 为什么赢？tokenizer、scaling law 与预训练数据各决定了什么？ | [04 系列（8 篇，共享）](/transformer-and-llm-for-infra-engineers.html) + [预训练系列（4 篇）](/pretraining-from-tokenizer-to-training-recipe.html) | 11h + 4h |
+| L5 | 后训练 | 一个基座模型怎么变成一个能对话、会推理、符合偏好的模型？怎么证明它变好了？ | [系列（8 篇）](/post-training-from-sft-to-verifiable-rewards.html) | 6h |
+| L6 | 高效推理与压缩（算法侧） | 不改硬件，怎么让同一个模型更快、更小、更便宜？ | [系列（6 篇）](/efficient-inference-and-compression-for-llms.html) | 4h |
+| L7 | 多模态 | 图片、视频、语音怎么进入语言模型？图像生成为什么是另一套数学？ | [系列（7 篇）](/multimodal-from-vision-encoders-to-diffusion.html) | 5h |
+| 横切 | 实验方法论 | 怎么用有限的算力得出可信的结论？ | [导读](/experimental-methodology-for-ai-algorithm-engineers.html) | 1h |
+| 选修 | 系统内部 ｜ 应用层 | 推理引擎与训练框架怎么实现（→ Infra 地图）｜ Agent、RAG 怎么搭（→ 应用地图） | — | — |
 
 ### 两张图的叠加
 

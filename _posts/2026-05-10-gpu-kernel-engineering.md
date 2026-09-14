@@ -404,6 +404,14 @@ Triton 让写一个融合 kernel 的成本从几百行 CUDA 变成几十行 Pyth
 
 ## 阅读路径建议
 
+### 第一遍怎么读（全栈 / 新手读者）
+
+```text
+1 → 2 → 8（只读第二、三章：算账与 FlashAttention）
+```
+
+约 6 小时。第一篇建立 Roofline 与硬件直觉，第二篇知道一个 kernel 长什么样、怎么被 PyTorch 调到，第八篇看 FlashAttention 为什么快——三样足够读懂推理引擎与训练框架里"这里慢是因为 kernel"的说法。其余七篇在要写或要改 kernel 时读。
+
 ### 完整学习路径
 
 ```text
