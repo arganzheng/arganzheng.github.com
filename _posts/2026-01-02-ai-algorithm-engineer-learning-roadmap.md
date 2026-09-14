@@ -17,7 +17,7 @@ catalog: true
 
 > **一个模型从数据到上线经过哪些阶段？每个阶段需要掌握什么？按什么顺序学？**
 
-这张地图描述的是**知识结构**，它把知识组织成八层加一个横切，每层说明回答什么问题、包含哪些概念、为什么放在那个位置。已经写成文章的部分：L0 是[《算法工程师的数学》](/math-for-ai-algorithm-engineers.html)（八篇），L1 是[《算法工程师的工具箱》](/tooling-for-ai-algorithm-engineers.html)（五篇，Infra 地图的 01 Python 与 03 PyTorch 两个系列是它的深入篇、两张地图共享），L2 是[《LLM 时代的经典机器学习》](/classical-machine-learning-in-the-llm-era.html)（六篇），L3 是一个六篇的系列，L4 引用[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)（八篇）——它是两张地图的交点——与本层专属的[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)（四篇）；L5 是[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)（八篇）；L6 是[《高效推理与压缩（算法侧）》](/efficient-inference-and-compression-for-llms.html)（六篇）；L7 是[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)（七篇）；横切的实验方法论是一篇[导读](/experimental-methodology-for-ai-algorithm-engineers.html)。文章目录在[本文末尾](#已有的文章与系列)。
+这张地图描述的是**知识结构**，它把知识组织成八层加一个横切，每层说明回答什么问题、包含哪些概念、为什么放在那个位置。已经写成文章的部分：L0 是[《算法工程师的数学》](/math-for-ai-algorithm-engineers.html)（八篇），L1 是[《算法工程师的工具箱》](/tooling-for-ai-algorithm-engineers.html)（五篇，Infra 地图的 01 Python 与 03 PyTorch 两个系列是它的深入篇、两张地图共享），L2 是[《LLM 时代的经典机器学习》](/classical-machine-learning-in-the-llm-era.html)（六篇），L3 是[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)（六篇），L4 引用[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)（八篇）——它是两张地图的交点——与本层专属的[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)（四篇）；L5 是[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)（八篇）；L6 是[《高效推理与压缩（算法侧）》](/efficient-inference-and-compression-for-llms.html)（六篇）；L7 是[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)（七篇）；横切的实验方法论是一篇[导读](/experimental-methodology-for-ai-algorithm-engineers.html)。文章目录在[本文末尾](#已有的文章与系列)。
 
 | 需要什么 | 具体是什么 |
 |---|---|
@@ -33,7 +33,7 @@ catalog: true
 
 ## 两张图：模型生命周期与学习路径
 
-与 Infra 地图一样，理解这个领域需要两张图：一张描述**模型怎么被造出来**，一张描述**人怎么学会造它**。两者的顺序不同。
+理解这个领域需要两张图（三张地图都这样组织）：一张描述**模型怎么被造出来**，一张描述**人怎么学会造它**。两者的顺序不同。
 
 ### 第一张图：模型生命周期视图
 
@@ -116,12 +116,12 @@ benchmark · LLM-as-judge · Arena
 
 目标不是学完数学系的课程，而是**读公式不卡壳、推导 loss 不出错**。四个分支各自在后面哪里用到，决定了该学到什么深度：
 
-| 分支 | 概念 | 在哪里用到 |
-|---|---|---|
-| 线性代数 | 矩阵乘法与形状规则、向量空间与内积、范数（L1 / L2 / Frobenius）与余弦相似度、特征值与 SVD、张量 | 一切；SVD 是 LoRA 的初始化与低秩直觉；范数是权重衰减与量化误差；余弦相似度是 embedding 检索 |
-| 概率与统计 | 随机变量、条件概率、贝叶斯公式、联合与边缘分布、伯努利 / 二项 / 高斯 / 均匀分布、最大似然 MLE 与最大后验 MAP、置信区间、概率图模型的基本记号 | 语言模型就是 $$p(x_t \mid x_{<t})$$；交叉熵是 MLE；DPO 的推导从 Bradley-Terry 模型开始；评测要给置信区间 |
-| 信息论 | 熵、交叉熵、KL 散度、互信息 | 训练 loss 是交叉熵；RLHF 与 DPO 的约束项是 KL；蒸馏的目标是 KL；投机解码的接受率是分布之差 |
-| 微积分与优化 | 导数、偏导、梯度、链式法则、Jacobian；凸性、梯度下降、随机梯度下降、学习率、鞍点 | 反向传播是链式法则；优化器（L3）建立在 SGD 之上；策略梯度定理需要对期望求导 |
+| 分支 | 概念 | 在哪里用到 | 在哪一篇 |
+|---|---|---|---|
+| 线性代数 | 矩阵乘法与形状规则、向量空间与内积、范数（L1 / L2 / Frobenius）与余弦相似度、特征值与 SVD、张量 | 一切；SVD 是 LoRA 的初始化与低秩直觉；范数是权重衰减与量化误差；余弦相似度是 embedding 检索 | [第一](/vectors-matrices-shapes-and-flops.html)、[二](/inner-product-norms-and-cosine-similarity.html)、[三篇](/orthogonal-rotation-svd-and-low-rank.html) |
+| 概率与统计 | 随机变量、条件概率、贝叶斯公式、联合与边缘分布、伯努利 / 二项 / 高斯 / 均匀分布、最大似然 MLE 与最大后验 MAP、置信区间、概率图模型的基本记号 | 语言模型就是 $$p(x_t \mid x_{<t})$$；交叉熵是 MLE；DPO 的推导从 Bradley-Terry 模型开始；评测要给置信区间 | [第四](/probability-basics-language-model-as-conditional-distribution.html)、[五](/from-maximum-likelihood-to-cross-entropy.html)、[八篇](/statistical-inference-and-fitting-scaling-laws.html) |
+| 信息论 | 熵、交叉熵、KL 散度、互信息 | 训练 loss 是交叉熵；RLHF 与 DPO 的约束项是 KL；蒸馏的目标是 KL；投机解码的接受率是分布之差 | [第六篇](/entropy-cross-entropy-and-kl-to-dpo.html) |
+| 微积分与优化 | 导数、偏导、梯度、链式法则、Jacobian；凸性、梯度下降、随机梯度下降、学习率、鞍点 | 反向传播是链式法则；优化器（L3）建立在 SGD 之上；策略梯度定理需要对期望求导 | [第七篇](/derivatives-gradients-chain-rule-and-policy-gradient.html) |
 
 优化算法里的 Momentum、Adam / AdamW 放在 L3 深度学习里讲，因为它们的设计动机（梯度噪声、稀疏梯度、权重衰减与 L2 的区别）要到训练神经网络时才看得见。
 
@@ -131,16 +131,16 @@ benchmark · LLM-as-judge · Arena
 
 系列：[《算法工程师的工具箱：从一个想法到一次能跑的实验》](/tooling-for-ai-algorithm-engineers.html)（五篇）——科学计算栈 · PyTorch 使用层上下 · Hugging Face 生态 · GPU 直觉与实验管理，每篇配一个 CPU 可跑的脚本。Python 语言本身不在这里讲：Infra 地图的 [01 Python](/python-for-ai-infra.html) 与 [03 PyTorch](/deep-dive-into-pytorch.html) 两个系列是本层的**深入篇**，两张地图共享，紧接本系列发布。
 
-| 工具 | 掌握到什么程度 | 说明 |
-|---|---|---|
-| Python | 语法、面向对象、类型标注、装饰器、生成器、异常、多进程 / 多线程、asyncio 的基本用法 | 会写、会读别人的训练代码即可；深入篇是 Infra 地图 [01 系列](/python-for-ai-infra.html)（两张地图共享） |
-| NumPy | ndarray、broadcasting、矩阵运算、轴与 reshape | PyTorch Tensor 的语义与它一致，先在 NumPy 上建立"形状直觉" |
-| Pandas / Polars | DataFrame、清洗、聚合、join | 数据工程与评测结果分析的日常工具 |
-| Matplotlib / Seaborn | 画 loss 曲线、分布、消融对比图 | 看曲线是判断训练是否正常的第一手段 |
-| PyTorch（使用层） | Tensor、Autograd、`nn.Module`、Dataset / DataLoader、Optimizer、AMP 混合精度、DDP / FSDP 的启用方式 | 会用、知道每个 API 在做什么；深入篇是 Infra 地图 [03 系列](/deep-dive-into-pytorch.html)（两张地图共享） |
-| Hugging Face 生态 | `transformers`、`datasets`、`tokenizers`、`peft`、`trl`、`accelerate` | 当前算法工作的事实标准工具链；读它们的源码是学后训练最快的路 |
-| GPU 直觉 | GPU 有算力与带宽两个上限、显存分几块（权重 / 激活 / 优化器状态 / KV）、为什么 batch 大才快、CUDA kernel 与 stream 是什么 | 能看懂 profiler 输出、能解释 OOM 的来源即可；写 kernel 属于 Infra 地图 05 |
-| 实验工具 | W&B / MLflow / TensorBoard 记录实验；Hydra / 配置文件管理超参数；git 管代码与配置 | 实验方法论（横切）的物质基础 |
+| 工具 | 掌握到什么程度 | 说明 | 在哪一篇 |
+|---|---|---|---|
+| Python | 语法、面向对象、类型标注、装饰器、生成器、异常、多进程 / 多线程、asyncio 的基本用法 | 会写、会读别人的训练代码即可 | 本系列不讲；深入篇是 Infra 地图 [01 系列](/python-for-ai-infra.html)（两张地图共享） |
+| NumPy | ndarray、broadcasting、矩阵运算、轴与 reshape | PyTorch Tensor 的语义与它一致，先在 NumPy 上建立"形状直觉" | [第一篇](/numpy-pandas-matplotlib-for-algorithm-engineers.html) |
+| Pandas / Polars | DataFrame、清洗、聚合、join | 数据工程与评测结果分析的日常工具 | 第一篇 |
+| Matplotlib / Seaborn | 画 loss 曲线、分布、消融对比图 | 看曲线是判断训练是否正常的第一手段 | 第一篇 |
+| PyTorch（使用层） | Tensor、Autograd、`nn.Module`、Dataset / DataLoader、Optimizer、AMP 混合精度、DDP / FSDP 的启用方式 | 会用、知道每个 API 在做什么；深入篇是 Infra 地图 [03 系列](/deep-dive-into-pytorch.html)（两张地图共享） | [第二](/pytorch-in-use-five-objects-and-a-training-loop.html)、[三篇](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html) |
+| Hugging Face 生态 | `transformers`、`datasets`、`tokenizers`、`peft`、`trl`、`accelerate` | 当前算法工作的事实标准工具链；读它们的源码是学后训练最快的路 | [第四篇](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html) |
+| GPU 直觉 | GPU 有算力与带宽两个上限、显存分几块（权重 / 激活 / 优化器状态 / KV）、为什么 batch 大才快、CUDA kernel 与 stream 是什么 | 能看懂 profiler 输出、能解释 OOM 的来源即可；写 kernel 属于 Infra 地图 05 | [第五篇](/gpu-intuition-and-experiment-management.html) |
+| 实验工具 | W&B / MLflow / TensorBoard 记录实验；Hydra / 配置文件管理超参数；git 管代码与配置 | 实验方法论（横切）的物质基础 | 第五篇 |
 
 ### L2 机器学习基础
 
@@ -150,14 +150,14 @@ benchmark · LLM-as-judge · Arena
 
 这一层在大模型时代常被跳过，但它提供的是**方法论**而不是具体模型。训练集 / 验证集 / 测试集的划分、过拟合与欠拟合、偏差-方差权衡、正则化、评估指标——这些概念在 LLM 上一个不少地重现：benchmark 污染就是测试集泄漏，奖励模型过拟合就是 reward hacking 的一种来源。
 
-| 主题 | 概念 | LLM 时代为什么还需要 |
-|---|---|---|
-| 基础概念 | 训练 / 验证 / 测试集、过拟合与欠拟合、偏差-方差、正则化、标准化 | 所有评测与配方决策的方法论来源 |
-| 监督学习 | 线性回归、Ridge / Lasso、逻辑回归、朴素贝叶斯、SVM、KNN、决策树、随机森林、梯度提升、XGBoost / LightGBM | 逻辑回归是奖励模型与 DPO 的数学骨架；梯度提升树仍是表格数据与数据质量打分的首选 |
-| 无监督学习 | K-Means、DBSCAN、PCA、embedding 聚类 | 数据去重与多样性分析、embedding 空间的可视化 |
-| 特征工程 | 特征选择与抽取、缩放、编码 | 在深度学习里被"表示学习"取代，但数据工程里的质量特征仍靠它 |
-| 评估 | 分类：Accuracy、Precision / Recall、F1、AUC；回归：MSE、RMSE、MAE；交叉验证、统计显著性 | 评测集怎么划、怎么给置信区间、A/B 差异是否显著 |
-| 工具 | scikit-learn | 快速训练一个数据过滤器、一个质量分类器 |
+| 主题 | 概念 | LLM 时代为什么还需要 | 在哪一篇 |
+|---|---|---|---|
+| 基础概念 | 训练 / 验证 / 测试集、过拟合与欠拟合、偏差-方差、正则化、标准化 | 所有评测与配方决策的方法论来源 | [第一篇](/what-is-learning-splits-generalization-and-bias-variance.html) |
+| 监督学习 | 线性回归、Ridge / Lasso、逻辑回归、朴素贝叶斯、SVM、KNN、决策树、随机森林、梯度提升、XGBoost / LightGBM | 逻辑回归是奖励模型与 DPO 的数学骨架；梯度提升树仍是表格数据与数据质量打分的首选 | [第二](/linear-and-logistic-regression-the-skeleton-of-reward-models.html)、[三篇](/a-family-of-classifiers-from-naive-bayes-to-gradient-boosting.html) |
+| 无监督学习 | K-Means、DBSCAN、PCA、embedding 聚类；MinHash / LSH 去重 | 数据去重与多样性分析、embedding 空间的可视化 | [第四](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html)、[五篇](/deduplication-minhash-and-lsh-probabilities.html) |
+| 特征工程 | 特征选择与抽取、缩放、编码 | 在深度学习里被"表示学习"取代，但数据工程里的质量特征仍靠它 | 第二、三篇顺带 |
+| 评估 | 分类：Accuracy、Precision / Recall、F1、AUC；回归：MSE、RMSE、MAE；交叉验证、统计显著性 | 评测集怎么划、怎么给置信区间、A/B 差异是否显著 | [第六篇](/evaluation-from-confusion-matrix-to-judge-agreement.html) |
+| 工具 | scikit-learn | 快速训练一个数据过滤器、一个质量分类器 | 每篇 |
 
 学到"能解释每个概念、能用 scikit-learn 跑通一个分类任务"即可，不需要手推 SVM 对偶。
 
@@ -167,15 +167,15 @@ benchmark · LLM-as-judge · Arena
 
 系列：[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)（六篇）——反向传播 · 初始化 / 归一化 / 残差 · 优化器 · 正则化与泛化 · CNN 到 ViT · RNN 到 attention。每篇推导 + 算账 + 一个 CPU 上能跑的实验。
 
-| 主题 | 概念 | 说明 |
-|---|---|---|
-| 基本单元 | 感知机、MLP、激活函数（ReLU、GELU、SiLU / Swish）、前向传播、反向传播 | 反向传播要能手推一个两层网络；这是理解一切训练现象的前提 |
-| 正则化与归一化 | Dropout、weight decay、BatchNorm、LayerNorm、RMSNorm、Pre-Norm 与 Post-Norm | LayerNorm / RMSNorm 与 Pre-Norm 是 Transformer 的标准件；BatchNorm 为什么在序列模型里不好用 |
-| 优化器 | SGD、Momentum、Adam / AdamW、学习率调度（warmup、cosine、WSD）、梯度裁剪、梯度累积 | AdamW 的两个矩是每参数 8 字节状态的来源；warmup 是训练稳定性的第一道防线 |
-| 初始化与稳定性 | Xavier / Kaiming 初始化、梯度消失与爆炸、残差连接 | 残差连接是"深了也能训"的答案，Transformer 的每一层都靠它 |
-| CNN | 卷积、池化、感受野、feature map；LeNet → AlexNet → VGG → ResNet | 学到 ResNet 为止：残差是关键遗产；ViT 把卷积换成了 patch embedding，但 CNN 的直觉仍在多模态里有用 |
-| RNN | 序列建模、长距离依赖、梯度在时间上的消失；RNN → LSTM → GRU；seq2seq 与 attention 的起源 | 理解 RNN 的失败才理解 attention 为什么赢：并行性与长依赖 |
-| 训练实践 | 混合精度（AMP）的用法、显存的四个去向、checkpoint 的保存与恢复、多卡 DDP 的启用 | 会用即可；原理与大规模实现属于 Infra 地图 03、07 |
+| 主题 | 概念 | 说明 | 在哪一篇 |
+|---|---|---|---|
+| 基本单元 | 感知机、MLP、激活函数（ReLU、GELU、SiLU / Swish）、前向传播、反向传播 | 反向传播要能手推一个两层网络；这是理解一切训练现象的前提 | [第一篇](/backpropagation-by-hand.html) |
+| 正则化与归一化 | Dropout、weight decay、BatchNorm、LayerNorm、RMSNorm、Pre-Norm 与 Post-Norm | LayerNorm / RMSNorm 与 Pre-Norm 是 Transformer 的标准件；BatchNorm 为什么在序列模型里不好用 | [第二](/initialization-normalization-and-residual.html)、[四篇](/regularization-and-generalization.html) |
+| 优化器 | SGD、Momentum、Adam / AdamW、学习率调度（warmup、cosine、WSD）、梯度裁剪、梯度累积 | AdamW 的两个矩是每参数 8 字节状态的来源；warmup 是训练稳定性的第一道防线 | [第三篇](/optimizers-from-sgd-to-adamw.html) |
+| 初始化与稳定性 | Xavier / Kaiming 初始化、梯度消失与爆炸、残差连接 | 残差连接是"深了也能训"的答案，Transformer 的每一层都靠它 | 第二篇 |
+| CNN | 卷积、池化、感受野、feature map；LeNet → AlexNet → VGG → ResNet | 学到 ResNet 为止：残差是关键遗产；ViT 把卷积换成了 patch embedding，但 CNN 的直觉仍在多模态里有用 | [第五篇](/cnn-from-lenet-to-resnet-and-vit.html) |
+| RNN | 序列建模、长距离依赖、梯度在时间上的消失；RNN → LSTM → GRU；seq2seq 与 attention 的起源 | 理解 RNN 的失败才理解 attention 为什么赢：并行性与长依赖 | [第六篇](/rnn-lstm-and-the-birth-of-attention.html) |
+| 训练实践 | 混合精度（AMP）的用法、显存的四个去向、checkpoint 的保存与恢复、多卡 DDP 的启用 | 用法在 L1 工具箱[第三篇](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html)已讲；本层只关心它们对训练稳定性的影响；原理与大规模实现属于 Infra 地图 03、07 | L1 第三篇 |
 
 ### L4 LLM 核心
 
@@ -217,13 +217,13 @@ benchmark · LLM-as-judge · Arena
 
 推理优化分两半：**算法侧**改变模型或解码过程，**系统侧**改变调度与内存管理。这张地图只放前者；后者（PagedAttention、continuous batching、chunked prefill、PD 分离）是 Infra 地图 08 的主体，算法工程师只需知道它们存在、知道自己的模型结构对它们意味着什么（比如 MLA 让 KV 变小、MoE 让 batch 内的 GEMM 变碎）。
 
-| 主题 | 概念 | 在 04 系列 |
+| 主题 | 概念 | 在哪一篇 |
 |---|---|---|
 | 解码策略 | greedy、beam search、temperature、top-k / top-p / min-p、重复惩罚、结构化输出（约束解码）；采样对评测结果的影响 | L6 第一篇 |
-| 投机解码 | 小模型起草、大模型验证、拒绝采样保证分布一致；期望接受长度；草稿来源：独立小模型、Medusa、EAGLE、MTP、n-gram | 第七篇给出数学与收益区间；L6 第二篇讲草稿的训练与树 |
-| 量化 | PTQ：GPTQ、AWQ、SmoothQuant、旋转（QuaRot / SpinQuant）、FP8、W4A16 vs W8A8；QAT；KV cache 量化；格式与工具：GGUF（llama.cpp）、bitsandbytes、AutoGPTQ / AutoAWQ——它们是**格式与实现**，不是新算法 | 第七篇给出原理与字节数；L6 第三、四篇讲误差模型、QAT 与评测；kernel 实现属于 Infra 地图 05 |
-| 结构级压缩 | 剪枝与结构化稀疏（2:4）、层裁剪与深度缩放、MLA 一类 KV 压缩结构、KV eviction（H2O、StreamingLLM） | 第三篇给出 KV 的账；L6 第五、六篇 |
-| 长上下文推理 | 位置外推方法的推理侧、稀疏 attention（NSA、MoBA）、上下文压缩 | 第四篇；L6 第五篇 |
+| 投机解码 | 小模型起草、大模型验证、拒绝采样保证分布一致；期望接受长度；草稿来源：独立小模型、Medusa、EAGLE、MTP、n-gram | 04 第七篇给出数学与收益区间；L6 第二篇讲草稿的训练与树 |
+| 量化 | PTQ：GPTQ、AWQ、SmoothQuant、旋转（QuaRot / SpinQuant）、FP8、W4A16 vs W8A8；QAT；KV cache 量化；格式与工具：GGUF（llama.cpp）、bitsandbytes、AutoGPTQ / AutoAWQ——它们是**格式与实现**，不是新算法 | 04 第七篇给出原理与字节数；L6 第三、四篇讲误差模型、QAT 与评测；kernel 实现属于 Infra 地图 05 |
+| 结构级压缩 | 剪枝与结构化稀疏（2:4）、层裁剪与深度缩放、MLA 一类 KV 压缩结构、KV eviction（H2O、StreamingLLM） | 04 第三篇给出 KV 的账；L6 第五、六篇 |
+| 长上下文推理 | 位置外推方法的推理侧、稀疏 attention（NSA、MoBA）、上下文压缩 | 04 第四篇；L6 第五篇 |
 
 ### L7 多模态
 
@@ -287,6 +287,7 @@ VLM 的成本结构——一张图等于多少 token、encoder 与 decoder 各�
 | 推理系统机制 | 知道存在；自己的结构对它们意味着什么 | PagedAttention、continuous batching、chunked prefill、PD 分离 | 08 |
 | RL 后训练 | 算法：奖励、目标函数、配方 | rollout 引擎与训练器的共置 / 分离 / 异步、权重同步、环境调度 | 09 |
 | 数据管线 | 数据配比、质量、去重的**决策** | tokenization 离线化、流式加载、打包的**实现** | 07 |
+| 多模态 | VLM 架构选择、对齐训练、扩散模型 | encoder 的调度与缓存、image token 的 KV、请求形态 | 04 · 08 |
 
 一个常见的误分类：把 PagedAttention、continuous batching、chunked prefill、PD 分离归入"推理算法"。它们不是算法，是推理引擎的调度与内存管理机制，模型不知道它们的存在，输出分布也不因它们改变。算法侧的推理优化只有 L6 列出的那些——改变模型或改变解码过程的方法。
 
@@ -311,6 +312,21 @@ VLM 的成本结构——一张图等于多少 token、encoder 与 decoder 各�
 
 L0–L2 最初写成三篇导读，只回答"学到什么深度、在哪里用到、怎么检验学会了"；读者反馈对从零开始的人不够，于是展开成三个系列——每个概念从定义讲起、代真实模型算出数字、L1 / L2 配 CPU 可跑的脚本。横切是一套方法而不是一组知识，一篇长文即可。至此地图上的每一层都有了对应的系列。
 
+### 配套代码
+
+文中引用的数字与输出由 [ai-learning-labs](https://github.com/arganzheng/ai-learning-labs) 里的脚本跑出来，按系列 key 分目录，文章末尾的"配套代码"链接指向对应目录。本地图上有代码的系列：
+
+| 层 | 目录 | 需要 |
+|---|---|---|
+| L1 | `algorithm-tooling/` | numpy、torch（CPU）、pandas、matplotlib；HF 一篇需 transformers / peft / trl 与 Qwen2.5-0.5B |
+| L1 深入 | `python-for-ai-infra/` | Python 3.10+ 标准库 |
+| L2 | `classical-ml/` | numpy、scikit-learn、matplotlib |
+| L3 | `deep-learning-foundations/` | NumPy；CNN / RNN 两篇需 PyTorch（CPU） |
+| L4 | `transformer-and-llm/` | 04 系列的成本表与预训练系列的实验；纯 Python 为主 |
+| L5 | `post-training/` | PyTorch + transformers / trl / peft；MPS 或 CUDA |
+
+L0 的推导用纸笔即可，L6、L7 与横切暂无配套代码。
+
 
 ## 按目标选择路径
 
@@ -320,7 +336,7 @@ L0–L2 最初写成三篇导读，只回答"学到什么深度、在哪里用�
 | 预训练与数据 | L0 → L1 → L2 → L3 → L4（重 scaling law 与数据工程）→ 横切 | 门槛最高，算力决定一切；小规模实验设计是核心能力 |
 | 多模态 | L3（CNN、ViT）→ L4 → L7 → L5（多模态后训练） | 理解线与生成线可以只走一条 |
 | 推理效率（算法侧） | L0 → L4 → L6 → Infra 地图 08 | 与 Infra 交界最深的方向，通常需要读两张地图 |
-| 后端工程师转算法 | L1（已有编程基础，补科学计算栈）→ L0 → L2 → L3 → L4 → 任选一个方向 | 数学是最大缺口，但按需补：先读 L4 遇到不懂的公式再回 L0；01 / 03 深入篇按需 |
+| 后端工程师转算法 | L1 第一篇（已有编程基础，补科学计算栈）→ L0 → L1 其余四篇 → L2 → L3 → L4 → 任选一个方向 | 数学是最大缺口，但按需补：L1 第二篇起的训练循环要用到 L0 第五篇的交叉熵、第七篇的梯度，所以 L0 插在 L1 中间；01 / 03 深入篇按需 |
 
 
 ## 边界与说明
