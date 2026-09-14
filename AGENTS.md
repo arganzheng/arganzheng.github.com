@@ -572,12 +572,17 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   Use it sparingly, list only the projects actually refreshed, and keep one
   version set per project per post — refreshing means re-verifying every claim
   about that project, never mixing two versions in one article.
-- Series 4 (`transformer-and-llm`) has 12 posts: 01–08 are the cost table,
-  09–12 (dated 2026-04-10 … 04-13) are the 预训练补篇 written for the
-  algorithm roadmap's L4 (tokenizer, scaling law, data pipeline, recipe). The
-  overview lists them as "训练变量 → 第九到十二篇"; post 08's closing section is
-  「前八篇总结」, post 12 carries the 补篇小结 + 系列总结. Keep math out of
-  `##`/`###` headings — the sidebar OUTLINE shows raw `\(…\)`.
+- Series 4 (`transformer-and-llm`) has 8 posts (the cost table, dated
+  2026-04-02 … 04-09); post 08 closes with 「系列总结（八篇）」. The former
+  posts 09–12 (预训练补篇) were split out on reader request (discussion #24)
+  into their own series `pretraining` (《预训练：从 tokenizer 到训练配方》,
+  overview `2026-04-09-pretraining-from-tokenizer-to-training-recipe.md`,
+  posts 01–04 dated 2026-04-10 … 04-13, algorithm roadmap L4 only, not
+  shared with the Infra roadmap). Slugs/URLs did not change, only titles and
+  `series:`. Cross-references inside the pretraining posts to the cost table
+  are written 「《Transformer 与 LLM》第 N 篇」; their companion scripts stay
+  in `ai-learning-labs/transformer-and-llm` (`llm_cost_09` … `_12`). Keep
+  math out of `##`/`###` headings — the sidebar OUTLINE shows raw `\(…\)`.
 - Companion code lives in `../ai-learning-labs` (git repo, pushed by the
   user). Its `.venv/` (Python 3.12 via `~/.local/bin/python3.12`, torch CPU,
   numpy, tiktoken, tokenizers) is gitignored; recreate with

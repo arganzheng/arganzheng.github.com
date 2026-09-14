@@ -1,9 +1,9 @@
 ---
 layout: post
-series: transformer-and-llm
-title: "Transformer 与 LLM（12）：训练配方与稳定性：学习率、batch、调度与 loss spike"
+series: pretraining
+title: "预训练（04）：训练配方与稳定性：学习率、batch、调度与 loss spike"
 subtitle: "Pretraining Recipes and Training Stability: Learning Rate, Batch Size, Schedules and Loss Spikes"
-tags: [Transformer, LLM, AI, AI-Infra]
+tags: [Transformer, LLM, AI, Pretraining]
 catalog: true
 ---
 
@@ -36,7 +36,7 @@ catalog: true
 | 输出 logit 漂移 | $$\lvert \log Z \rvert$$（lm_head 的 logsumexp） | 归一化常数自由漂移，logits 整体变大，低精度下溢出 | z-loss $$10^{-4} \log^2 Z$$ |
 | 单步更新过大 | 梯度范数、参数范数 | 一个坏 batch 或 Adam 二阶矩的瞬时失配让一步走得太远 | 梯度裁剪；warmup；较小的 $$\beta_2$$；回滚并跳过 batch |
 
-DeepSeek-V3 的"零不可恢复 spike"来自这些开关的组合，加上 FP8 训练里的分块量化与高精度累加（第六篇）；Kimi K2 在 15.5T token 上零 spike 靠的是 QK-Clip。**稳定性在 2024 年后从"运气"变成了"配置"**。
+DeepSeek-V3 的"零不可恢复 spike"来自这些开关的组合，加上 FP8 训练里的分块量化与高精度累加（《Transformer 与 LLM》第六篇）；Kimi K2 在 15.5T token 上零 spike 靠的是 QK-Clip。**稳定性在 2024 年后从"运气"变成了"配置"**。
 
 ### 2. 本文的路线
 
@@ -53,7 +53,7 @@ DeepSeek-V3 的"零不可恢复 spike"来自这些开关的组合，加上 FP8 �
 | 六 | 长上下文继续预训练 | Llama 3 的六步与 DeepSeek-V3 的两步；attention 占比与并行 |
 | 七 | 监控 | 该看的七条曲线与它们的含义 |
 | 八 | 实践 | `training_recipe_lab.py`、`llm_cost_12_recipe.py` |
-| 九 | 本文小结、补篇小结与系列总结 | |
+| 九 | 本文小结与系列总结 | |
 
 
 ## 二、目标函数
@@ -66,7 +66,7 @@ $$
 \mathcal{L} = -\frac{1}{T} \sum_{t=1}^{T} \log p_\theta(x_t \mid x_{<t})
 $$
 
-单位是 nats/token（用自然对数）。三种等价写法在报告里都会出现：困惑度 $$\text{PPL} = e^{\mathcal{L}}$$；bits/token $$= \mathcal{L} / \ln 2$$；bits/byte $$= \mathcal{L} / \ln 2 \times (\text{tokens} / \text{bytes})$$——最后一个才能跨 tokenizer 比较（第九篇）。Chinchilla 曲线上的 1.9–2.0 nats 对应 PPL 约 7，对英文约 0.7 bits/byte。
+单位是 nats/token（用自然对数）。三种等价写法在报告里都会出现：困惑度 $$\text{PPL} = e^{\mathcal{L}}$$；bits/token $$= \mathcal{L} / \ln 2$$；bits/byte $$= \mathcal{L} / \ln 2 \times (\text{tokens} / \text{bytes})$$——最后一个才能跨 tokenizer 比较（第一篇）。Chinchilla 曲线上的 1.9–2.0 nats 对应 PPL 约 7，对英文约 0.7 bits/byte。
 
 它对 logits $$z$$ 的梯度是全篇稳定性讨论的起点：
 
@@ -74,7 +74,7 @@ $$
 \frac{\partial \ell_t}{\partial z_j} = p_j - \mathbb{1}[j = x_t]
 $$
 
-目标 token 的 logit 被拉高 $$1 - p_{x_t}$$，其余全部被压低 $$p_j$$。两个后果在后面反复出现：从未作为目标出现过的 token 只受"压低"（第九篇的欠训练 token）；logits 整体加一个常数不改变 $$p$$，所以这个方向上没有梯度、$$\log Z$$ 可以自由漂移（第五章的 z-loss）。
+目标 token 的 logit 被拉高 $$1 - p_{x_t}$$，其余全部被压低 $$p_j$$。两个后果在后面反复出现：从未作为目标出现过的 token 只受"压低"（第一篇的欠训练 token）；logits 整体加一个常数不改变 $$p$$，所以这个方向上没有梯度、$$\log Z$$ 可以自由漂移（第五章的 z-loss）。
 
 平均的分母也是一个决定。按 token 平均（上式）时，一个 batch 里长文档的 token 与短文档的 token 权重相同；按序列平均再按 batch 平均时，短文档的每个 token 权重更大。预训练一律按 token 平均——打包后的序列长度固定，两者相同；后训练里两者不同，后训练系列第一篇会回到这个问题。
 
@@ -86,7 +86,7 @@ $$
 \mathcal{L} = \mathcal{L}_{main} + \lambda \, \mathcal{L}_{MTP},\qquad \lambda = 0.3 \ (\text{前 10T token}),\ 0.1 \ (\text{之后})
 $$
 
-它的收益有两面：训练时作为辅助目标改善主目标的表现（DeepSeek 的消融显示多数 benchmark 提升）；推理时这个头可以当投机解码的草稿（第七篇，接受率约 85–90%，decode 加速约 1.8 倍）。成本是一个额外的层加一个额外的 lm_head 前向——lm_head 是最贵的单个矩阵（第九篇），所以 MTP 头的 FLOPs 不可忽略——DeepSeek-V3 上一个块约占 1/61，额外的 lm_head 约占每 token FLOPs 的 2.5%，合计约 4%。MTP 模块在推理时可以直接丢掉，不改变主模型。
+它的收益有两面：训练时作为辅助目标改善主目标的表现（DeepSeek 的消融显示多数 benchmark 提升）；推理时这个头可以当投机解码的草稿（《Transformer 与 LLM》第七篇，接受率约 85–90%，decode 加速约 1.8 倍）。成本是一个额外的层加一个额外的 lm_head 前向——lm_head 是最贵的单个矩阵（第一篇），所以 MTP 头的 FLOPs 不可忽略——DeepSeek-V3 上一个块约占 1/61，额外的 lm_head 约占每 token FLOPs 的 2.5%，合计约 4%。MTP 模块在推理时可以直接丢掉，不改变主模型。
 
 ### 3. 代码的 FIM
 
@@ -94,7 +94,7 @@ $$
 
 ### 4. 文档打包与跨文档 attention
 
-训练序列是固定长度（4K、8K）的，文档长短不一，标准做法是把文档首尾相接打包进序列，用 `<eos>` 分隔（第十一篇第六章）。问题是 attention 会跨过 `<eos>` 看到上一篇无关文档。两种处理：Llama 3 用**文档级掩码**，每个 token 只能 attend 到同一文档内的位置（论文称对短序列影响不大，但对长上下文阶段重要——否则模型会学到"很远的位置是无关的"这一在长文档上错误的先验）；DeepSeek-V3 **不掩**，让模型自己学会忽略前一篇。前者需要 attention kernel 支持可变长度的块对角掩码（FlashAttention 的 varlen 接口），后者更简单、GEMM 更规整。这是一个"算法上更干净"与"系统上更快"之间的取舍，两种选择都训出了好模型。掩码还有一个副作用：块对角掩码下 attention 的有效长度是文档长度而非序列长度，平均文档 1000 token 时 8K 序列的 attention FLOPs 只有满掩码的八分之一——第十篇的 $$M = 72Ld^2 + 12Lds$$ 里第二项要按文档长度算。
+训练序列是固定长度（4K、8K）的，文档长短不一，标准做法是把文档首尾相接打包进序列，用 `<eos>` 分隔（第三篇第六章）。问题是 attention 会跨过 `<eos>` 看到上一篇无关文档。两种处理：Llama 3 用**文档级掩码**，每个 token 只能 attend 到同一文档内的位置（论文称对短序列影响不大，但对长上下文阶段重要——否则模型会学到"很远的位置是无关的"这一在长文档上错误的先验）；DeepSeek-V3 **不掩**，让模型自己学会忽略前一篇。前者需要 attention kernel 支持可变长度的块对角掩码（FlashAttention 的 varlen 接口），后者更简单、GEMM 更规整。这是一个"算法上更干净"与"系统上更快"之间的取舍，两种选择都训出了好模型。掩码还有一个副作用：块对角掩码下 attention 的有效长度是文档长度而非序列长度，平均文档 1000 token 时 8K 序列的 attention FLOPs 只有满掩码的八分之一——第二篇的 $$M = 72Ld^2 + 12Lds$$ 里第二项要按文档长度算。
 
 
 ## 三、优化器与超参
@@ -119,7 +119,7 @@ Kimi K2 是显著的例外：用 **Muon**（Jordan 等 2024）替代 AdamW。Muo
 
 ### 2. batch：梯度噪声尺度与 ramp
 
-batch 以 token 计（第二篇：GEMM 的 $$m$$ 维是 batch × seq）。太小，每步的梯度噪声大、单卡利用率低；太大，同样的 token 数下更新次数少。McCandlish 等 2018 的**梯度噪声尺度**给出临界 batch：
+batch 以 token 计（《Transformer 与 LLM》第二篇：GEMM 的 $$m$$ 维是 batch × seq）。太小，每步的梯度噪声大、单卡利用率低；太大，同样的 token 数下更新次数少。McCandlish 等 2018 的**梯度噪声尺度**给出临界 batch：
 
 $$
 B_{crit} \approx \frac{\text{tr}(\Sigma)}{\lvert G \rvert^2}
@@ -137,7 +137,7 @@ $$B \ll B_{noise}$$ 时每翻倍 batch 步数几乎减半（完美并行）、�
 
 Llama 3 405B 从 4M token（序列 4K）开始，252M token 后到 8M（序列 8K），2.87T 后到 16M；DeepSeek-V3 在前 469B token 里从 3072 条序列线性增到 15360 条（12.6M → 63M token）。ramp 的另一个作用是**训练早期用小 batch 多走步**——loss 下降最快的阶段每一步都值钱。
 
-batch 还有一个来自硬件的**下界**。16 384 张卡训 405B，TP 8 × PP 16 = 128 张卡放一份模型，于是有 128 个数据并行副本；每个副本每步至少处理一条 8K 序列（实际为了流水线效率要几条），batch 的下界就是 $$128 \times 8\text{K} = 1$$M token，实际 16M 对应每副本 16 条序列。DeepSeek-V3 的 63M 在 2048 张卡上是每卡 7.5 条 4K 序列，配它的 MoE 专家并行（每个专家要有足够的 token 才不闲着，第五篇）。**核心问题里 3.2M 到 63M 的差距，一半是梯度噪声尺度，一半是"几千张卡上每步至少要有这么多 token 才能并行"**。
+batch 还有一个来自硬件的**下界**。16 384 张卡训 405B，TP 8 × PP 16 = 128 张卡放一份模型，于是有 128 个数据并行副本；每个副本每步至少处理一条 8K 序列（实际为了流水线效率要几条），batch 的下界就是 $$128 \times 8\text{K} = 1$$M token，实际 16M 对应每副本 16 条序列。DeepSeek-V3 的 63M 在 2048 张卡上是每卡 7.5 条 4K 序列，配它的 MoE 专家并行（每个专家要有足够的 token 才不闲着，《Transformer 与 LLM》第五篇）。**核心问题里 3.2M 到 63M 的差距，一半是梯度噪声尺度，一半是"几千张卡上每步至少要有这么多 token 才能并行"**。
 
 配套实验（`batch_lr` 子实验）在同样 token 总量下扫 batch × lr：batch 越大最优 lr 越大，且同样 token 数下大 batch 的最好 loss 更差（8 → 64 时 1.83 → 2.28）——每个 token 的更新次数少了，这个玩具模型的 $$B_{noise}$$ 很小。lr 随 batch 怎么变？SGD 是线性（batch 翻倍 lr 翻倍），Adam 的理论与实验（Malladi 等 2022）都指向**平方根**——batch 翻倍 lr 乘 $$\sqrt 2$$，实验里 4 种 batch 的最优 lr 大致符合。
 
@@ -205,17 +205,17 @@ cosine 的公式是 $$\eta_t = \eta_{min} + \frac{1}{2}(\eta_{max} - \eta_{min})
 
 ### 2. 衰减段的形状与长度
 
-WSD 的衰减段有两个自由度。**长度**：Hägele 等 2024 的系统比较发现 10–20% 的总步数足够，再长收益很小；MiniCPM 用 10%，OLMo 2 用约 15%。**形状**：线性衰减到 0 与 cosine 差不多，$$1 - \sqrt{t / T_{decay}}$$（先快后慢）略好——它在衰减初期快速降低 lr、让 loss 迅速"收"下来，后期慢慢磨。同一篇论文的另一个结论对 Infra 更实用：**随机权重平均**（SWA，把常数段最后若干个 checkpoint 的权重平均）能拿到与衰减相近的一大部分收益而完全不需要额外训练——常数段的 checkpoint 平均相当于隐式的 lr 衰减。OLMo 2 的 model souping（第十一篇）是同一现象的另一种用法。
+WSD 的衰减段有两个自由度。**长度**：Hägele 等 2024 的系统比较发现 10–20% 的总步数足够，再长收益很小；MiniCPM 用 10%，OLMo 2 用约 15%。**形状**：线性衰减到 0 与 cosine 差不多，$$1 - \sqrt{t / T_{decay}}$$（先快后慢）略好——它在衰减初期快速降低 lr、让 loss 迅速"收"下来，后期慢慢磨。同一篇论文的另一个结论对 Infra 更实用：**随机权重平均**（SWA，把常数段最后若干个 checkpoint 的权重平均）能拿到与衰减相近的一大部分收益而完全不需要额外训练——常数段的 checkpoint 平均相当于隐式的 lr 衰减。OLMo 2 的 model souping（第三篇）是同一现象的另一种用法。
 
 ### 3. 为什么中途的 loss 不可比
 
-这是第十篇 Kaplan 与 Chinchilla 分歧的根源，值得再说一次。cosine 调度下，训到 50% 的 checkpoint 的 lr 仍是峰值的 55%，它的 loss 里包含"还没退火"的成分——同样的 token 数如果单独跑一个完整的 cosine，loss 会低得多。所以 cosine 下的中途 checkpoint **不能**用来画 $$L(D)$$ 曲线、不能用来比较数据配比、不能作为"训一半的模型"发布。WSD 解决了这三件事：常数段的任何 checkpoint 拿出来衰减 10–20% 就是一个完整训练的等价物。MiniCPM 报告 WSD 的终点不差于 cosine，且用这个性质在同一次训练里得到了多个 $$D$$ 的 scaling law 数据点；Hägele 等把它做成了"一次训练画一条 scaling 曲线"的标准方法，把第十篇的实验成本降了一个数量级。
+这是第二篇 Kaplan 与 Chinchilla 分歧的根源，值得再说一次。cosine 调度下，训到 50% 的 checkpoint 的 lr 仍是峰值的 55%，它的 loss 里包含"还没退火"的成分——同样的 token 数如果单独跑一个完整的 cosine，loss 会低得多。所以 cosine 下的中途 checkpoint **不能**用来画 $$L(D)$$ 曲线、不能用来比较数据配比、不能作为"训一半的模型"发布。WSD 解决了这三件事：常数段的任何 checkpoint 拿出来衰减 10–20% 就是一个完整训练的等价物。MiniCPM 报告 WSD 的终点不差于 cosine，且用这个性质在同一次训练里得到了多个 $$D$$ 的 scaling law 数据点；Hägele 等把它做成了"一次训练画一条 scaling 曲线"的标准方法，把第二篇的实验成本降了一个数量级。
 
 配套实验（`schedule` 子实验，1500 步）：cosine 终点 1.578，WSD 1.464，常数 1.536；WSD 在前 80% 与常数完全同一条轨迹，最后 20% 的衰减把它拉到三者最低。常数比 cosine 好是这个玩具设置的特例（步数少、lr 偏低，cosine 大部分时间 lr 太小）——真实规模下两者终点接近；但 WSD 的衰减段带来的骤降是普遍现象。
 
 ### 4. 退火与数据
 
-衰减段是换数据配比的时机（第十一篇第五章）：Llama 3 在最后 40B token 退火数学与代码，MiniCPM 在 WSD 的衰减段混入高质量与指令数据，DeepSeek-V3 的最后两段常数 lr 对应它的后期数据。原理上，lr 小的时候模型对数据的"记忆"更精细而"遗忘"更少，高质量数据放在这里效率最高；反过来，退火段之前的常数段可以承受更"脏"的数据。第十一篇说退火段 loss 的骤降"一半来自 lr、一半来自数据"，两者在配方里是同一个决定。
+衰减段是换数据配比的时机（第三篇第五章）：Llama 3 在最后 40B token 退火数学与代码，MiniCPM 在 WSD 的衰减段混入高质量与指令数据，DeepSeek-V3 的最后两段常数 lr 对应它的后期数据。原理上，lr 小的时候模型对数据的"记忆"更精细而"遗忘"更少，高质量数据放在这里效率最高；反过来，退火段之前的常数段可以承受更"脏"的数据。第三篇说退火段 loss 的骤降"一半来自 lr、一半来自数据"，两者在配方里是同一个决定。
 
 
 ## 五、稳定性
@@ -285,13 +285,13 @@ $$
 T_{opt} \approx \sqrt{2\, \delta\, \text{MTBF}}
 $$
 
-$$\delta$$ 是写一次 checkpoint 的时间。405B 的完整训练状态是 14 字节/参数（BF16 权重 2 + FP32 主权重 4 + Adam 两个状态 8）= 5.7 TB；Llama 3 的存储系统峰值 7 TB/s、持续 2 TB/s，$$\delta$$ 约 3 秒（16K 张卡并行写，每卡只写自己那一片）；MTBF 3.1 小时。代入：$$T_{opt} = \sqrt{2 \times 3 \times 11160} \approx 260$$ 秒——**每四五分钟一次**。每次故障平均丢一半间隔（2 分钟）加重启（Llama 3 把它压到几分钟），一天 7.8 次故障合计不到一小时，有效训练时间 90% 以上——与论文报告的一致。如果只能每小时写一次（`llm_cost_12_recipe.py` 的默认假设，平均写带宽 1.6 GB/s），每次故障平均丢 30 分钟，一天丢 4 小时，有效时间掉到 80% 左右。**checkpoint 带宽直接换训练效率**，这是训练集群里存储系统的设计目标，而数据读带宽只有 9 MB/s（第十一篇）。
+$$\delta$$ 是写一次 checkpoint 的时间。405B 的完整训练状态是 14 字节/参数（BF16 权重 2 + FP32 主权重 4 + Adam 两个状态 8）= 5.7 TB；Llama 3 的存储系统峰值 7 TB/s、持续 2 TB/s，$$\delta$$ 约 3 秒（16K 张卡并行写，每卡只写自己那一片）；MTBF 3.1 小时。代入：$$T_{opt} = \sqrt{2 \times 3 \times 11160} \approx 260$$ 秒——**每四五分钟一次**。每次故障平均丢一半间隔（2 分钟）加重启（Llama 3 把它压到几分钟），一天 7.8 次故障合计不到一小时，有效训练时间 90% 以上——与论文报告的一致。如果只能每小时写一次（`llm_cost_12_recipe.py` 的默认假设，平均写带宽 1.6 GB/s），每次故障平均丢 30 分钟，一天丢 4 小时，有效时间掉到 80% 左右。**checkpoint 带宽直接换训练效率**，这是训练集群里存储系统的设计目标，而数据读带宽只有 9 MB/s（第三篇）。
 
 写 checkpoint 时训练要停（否则参数在变），$$\delta$$ 是纯开销；异步 checkpoint（先拷到主机内存再后台写盘）把停顿压到拷贝的时间。此外还有一类"不报错的故障"：静默数据损坏（SDC）让某张卡算出错误的数值而不崩溃，表现为一次没有任何数据原因的 loss 尖峰——Llama 3 与 OLMo 都报告过。区分它与真正的 spike 的办法是回退重跑同一批数据：spike 会复现（参数状态相同），SDC 不会。
 
 ### 6. 低精度与稳定性
 
-FP8 训练（DeepSeek-V3）把稳定性的门槛提高了：E4M3 的最大值 448，attention logit 到几百就出界，激活里的离群值让 per-tensor 缩放失效。DeepSeek-V3 的对策在第六篇讲过——激活按 $$1 \times 128$$、权重按 $$128 \times 128$$ 分块量化，累加每 128 个元素提升到 FP32，且 embedding、lm_head、norm、attention 的 softmax 与 MoE 路由保持高精度。这些让 FP8 下的 14.8T token 没有出现不可恢复的 spike。低精度不是稳定性的敌人，但它把上面每个开关的必要性都放大了一档：BF16 训练里 logit 到 1000 只是"学得差"，FP8 里是溢出成 inf。
+FP8 训练（DeepSeek-V3）把稳定性的门槛提高了：E4M3 的最大值 448，attention logit 到几百就出界，激活里的离群值让 per-tensor 缩放失效。DeepSeek-V3 的对策在《Transformer 与 LLM》第六篇讲过——激活按 $$1 \times 128$$、权重按 $$128 \times 128$$ 分块量化，累加每 128 个元素提升到 FP32，且 embedding、lm_head、norm、attention 的 softmax 与 MoE 路由保持高精度。这些让 FP8 下的 14.8T token 没有出现不可恢复的 spike。低精度不是稳定性的敌人，但它把上面每个开关的必要性都放大了一档：BF16 训练里 logit 到 1000 只是"学得差"，FP8 里是溢出成 inf。
 
 
 ## 六、长上下文继续预训练
@@ -303,13 +303,13 @@ FP8 训练（DeepSeek-V3）把稳定性的门槛提高了：E4M3 的最大值 44
 | 起点 → 终点 | 8K → 128K | 4K → 32K → 128K |
 | 分几步 | 6 步 | 2 步，每步 1000 步训练 |
 | token 量 | 800B（占 15.6T 的 5%） | 2 × 1000 步（batch 1920 / 480 条序列） |
-| 位置编码 | RoPE base 500K，分段缩放 | YaRN（第四篇） |
+| 位置编码 | RoPE base 500K，分段缩放 | YaRN（《Transformer 与 LLM》第四篇） |
 | 进入下一步的标准 | 短上下文评测完全恢复，且 needle-in-a-haystack 满分 | — |
 | lr | 延续主阶段末尾 | 7.3e-6 |
 
-"分步"的原因是 RoPE 外推（第四篇）：每一步只把上下文扩 2–4 倍，让模型在"略超训练长度"的区间适应，比一次跳到 128K 稳定。数据换成长文档为主（书、长网页、代码仓库），且要保留一部分短数据防止短上下文能力退化——Llama 3 的"短评测完全恢复"就是这个门槛。
+"分步"的原因是 RoPE 外推（《Transformer 与 LLM》第四篇）：每一步只把上下文扩 2–4 倍，让模型在"略超训练长度"的区间适应，比一次跳到 128K 稳定。数据换成长文档为主（书、长网页、代码仓库），且要保留一部分短数据防止短上下文能力退化——Llama 3 的"短评测完全恢复"就是这个门槛。
 
-按 FLOPs 算这个阶段比 5% 多：405B 在 128K 上 attention 占每 token FLOPs 的 40%（8K 时 4%，第十篇的 $$s / 6d$$），所以 800B token 的长上下文阶段约相当于主阶段 8% 的算力。系统上它需要**序列并行 / context parallel**——一条 128K 序列的激活（第二篇：每层 $$s \times d \times$$ 若干字节）单卡放不下，要把序列切到多张卡上，attention 通过 ring 或 all-to-all 交换 K、V。这是长上下文阶段与主阶段在 Infra 上最大的不同，也是它被放在最后、只跑 5% token 的第二个原因。
+按 FLOPs 算这个阶段比 5% 多：405B 在 128K 上 attention 占每 token FLOPs 的 40%（8K 时 4%，第二篇的 $$s / 6d$$），所以 800B token 的长上下文阶段约相当于主阶段 8% 的算力。系统上它需要**序列并行 / context parallel**——一条 128K 序列的激活（《Transformer 与 LLM》第二篇：每层 $$s \times d \times$$ 若干字节）单卡放不下，要把序列切到多张卡上，attention 通过 ring 或 all-to-all 交换 K、V。这是长上下文阶段与主阶段在 Infra 上最大的不同，也是它被放在最后、只跑 5% token 的第二个原因。
 
 
 ## 七、监控：该看的七条曲线
@@ -317,7 +317,7 @@ FP8 训练（DeepSeek-V3）把稳定性的门槛提高了：E4M3 的最大值 44
 | 曲线 | 正常形态 | 异常与含义 |
 |---|---|---|
 | 训练 loss | 平滑下降，对数坐标下近似直线 | 尖峰：spike；平台：lr 太小或数据重复；周期性波动：数据顺序有结构 |
-| loss 与 scaling 预测的差 | 在预测曲线 ±0.01 内 | 持续偏高：数据管线或数值问题（第十篇第五章） |
+| loss 与 scaling 预测的差 | 在预测曲线 ±0.01 内 | 持续偏高：数据管线或数值问题（第二篇第五章） |
 | 梯度范数 | warmup 后下降，然后缓慢平稳 | 持续上升：预警，通常先于 loss spike；突然的尖峰：坏 batch 或 SDC |
 | 参数范数 | 缓慢增长后被 weight decay 平衡 | 持续增长：wd 太小或没作用在该组参数上 |
 | 最大 attention logit / 注意力熵 | logit $$O(10)$$；熵平稳 | logit 涨到 100+ 或熵骤降：logit 增长，QK-norm 缺失或失效 |
@@ -331,7 +331,7 @@ FP8 训练（DeepSeek-V3）把稳定性的门槛提高了：E4M3 的最大值 44
 
 ### 1. `training_recipe_lab.py`：四个子实验
 
-PyTorch CPU，复用第十篇的语料与训练循环，attention 自己写（为了加 QK-norm 与读出最大 logit）：
+PyTorch CPU，复用第二篇的语料与训练循环，attention 自己写（为了加 QK-norm 与读出最大 logit）：
 
 ```python
 class Attention(nn.Module):
@@ -355,7 +355,7 @@ total = loss + z_loss * (log_z ** 2).mean()
 纯标准库：五个公开配方的超参表与推出的步数、每步时间；DeepSeek 的 lr / batch 经验律在六个算力点上的值与真实配方的对照；四个模型的 checkpoint 字节数与每小时一次的写带宽；PaLM 式回滚在 405B 规格上的 GPU 小时；长上下文阶段 attention 的 FLOPs 占比。`RECIPES` 列表可以加新模型。`tools/gen_schedule_svg.py` 画本文的图。
 
 
-## 九、本文小结、补篇小结与系列总结
+## 九、本文小结与系列总结
 
 ### 1. 本文小结
 
@@ -374,36 +374,36 @@ total = loss + z_loss * (log_z ** 2).mean()
 
 核心问题的答案：峰值 lr 由宽度决定——$$\mu$$P 给出 $$\propto 1/d$$ 的缩放，经验律给出随算力缓慢下降的幂律，7B 到 405B 从 3e-4 降到 8e-5；DeepSeek-V3 的 2.2e-4 对应它 37B 激活参数的宽度而非 671B 的总参数。batch 由梯度噪声尺度决定，随 loss 下降而增大，所以配方里 batch 是一条 ramp 而不是一个数；3.2M 到 63M 的差距一半是硬件规模，一半是"几千张卡上每步至少要有这么多 token 才能并行"。DeepSeek-V3 的零 spike 不是运气：QK-norm 一类的 logit 约束、z-loss、裁剪、$$\beta_2 = 0.95$$、warmup，加上 FP8 的分块量化与高精度累加，每个开关对应一个可度量的机制——**稳定性在 2024 年后是一份可以逐项消融的配置，不再是训练大模型的玄学**。而真正决定一次训练有效时间的，是每三小时一次的硬件故障与 checkpoint 写多快。
 
-### 2. 预训练补篇小结（第九到十二篇）
+### 2. 系列总结（四篇）
 
-四篇补篇把成本表从"模型作为计算对象"扩展到"模型怎么训出来"，每篇留下几个数字：
+四篇把[《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)的成本表从"模型作为计算对象"扩展到"模型怎么训出来"，每篇留下几个数字：
 
 ```text
-第九篇   tokenizer    词表参数 2Vd（Llama-3-8B 1.05B，13%）；lm_head 占 FLOPs 7%（0.5B 模型 38%）
+第一篇   tokenizer    词表参数 2Vd（Llama-3-8B 1.05B，13%）；lm_head 占 FLOPs 7%（0.5B 模型 38%）
                       3.17 → 3.94 字符/token：每字符便宜 15%、KV 少 20%；中文在不同词表下差 2.1 倍
-第十篇   scaling law  L = E + A/N^α + B/D^β；D/N ≈ 20；固定 C 缩小 10 倍：loss +0.053、推理 1/10
+第二篇   scaling law  L = E + A/N^α + B/D^β；D/N ≈ 20；固定 C 缩小 10 倍：loss +0.053、推理 1/10
                       服务 100T token 时最优 24B / 13.8T 而非 81B / 1.5T；4 epoch 值 93%
-第十一篇 数据         240T → 15T（6%）→ 1.3–5.4T；MinHash 14×8 阈值 0.72；全局去重反而更差
+第三篇 数据         240T → 15T（6%）→ 1.3–5.4T；MinHash 14×8 阈值 0.72；全局去重反而更差
                       25% 数学推理 = 7.5 epoch；抽取 70 万核·小时；训练读带宽 9–46 MB/s
-第十二篇 配方         lr 3e-4 → 8e-5 随宽度；batch 4M → 63M；warmup < 1%；WSD ≥ cosine
+第四篇 配方         lr 3e-4 → 8e-5 随宽度；batch 4M → 63M；warmup < 1%；WSD ≥ cosine
                       QK-norm：logit 12592 → 22；spike 一次约 1 万 GPU 小时；故障每 3 小时一次
 ```
 
-贯穿四篇的是同一个视角：**预训练的每个决定都能算账**——词表大小换压缩率、参数换数据、过滤的严格程度换 token 量、lr 与 batch 换稳定性——而算不出来的那部分（哪个阈值、哪种配比、哪组超参更好）都靠同一种方法：用小模型的消融外推，这是第十篇的 scaling law 作为方法论的全部内容。
+贯穿四篇的是同一个视角：**预训练的每个决定都能算账**——词表大小换压缩率、参数换数据、过滤的严格程度换 token 量、lr 与 batch 换稳定性——而算不出来的那部分（哪个阈值、哪种配比、哪组超参更好）都靠同一种方法：用小模型的消融外推，这是第二篇的 scaling law 作为方法论的全部内容。
 
-### 3. 系列总结（十二篇）
+### 3. 两个系列合起来
 
-前八篇回答"这个模型每一步算多少、读多少、存多少"，给 Infra 工程师一张可以从 `config.json` 算出的成本表；后四篇回答"这个模型是怎么训出来的、每个训练决定花多少"，给算法工程师同一张表的训练侧。两部分共用的东西是**推导、代入真实模型、解释数字**这套方法，以及 Llama 3 与 DeepSeek-V3 这两个贯穿全系列的对象。
+《Transformer 与 LLM》的八篇回答"这个模型每一步算多少、读多少、存多少"，给 Infra 工程师一张可以从 `config.json` 算出的成本表；本系列的四篇回答"这个模型是怎么训出来的、每个训练决定花多少"，给算法工程师同一张表的训练侧。两个系列共用的东西是**推导、代入真实模型、解释数字**这套方法，以及 Llama 3 与 DeepSeek-V3 这两个贯穿始终的对象。
 
-第八篇末尾的能力清单在这里加四行：
+《Transformer 与 LLM》第八篇末尾的能力清单在这里加四行：
 
 ```text
-换一个 tokenizer 会怎样？                       → 第九篇：2Vd 与每字符成本
-给定算力，模型多大、数据多少？训完要服务多少？     → 第十篇：Chinchilla 与推理感知的最优点
-15T token 从哪来、丢掉的是什么、够不够？          → 第十一篇：漏斗、MinHash、配比 → epoch
-超参表里的每个数字从哪来？训练为什么会崩？        → 第十二篇：μP、梯度噪声尺度、三个机制与六个开关
+换一个 tokenizer 会怎样？                       → 第一篇：2Vd 与每字符成本
+给定算力，模型多大、数据多少？训完要服务多少？     → 第二篇：Chinchilla 与推理感知的最优点
+15T token 从哪来、丢掉的是什么、够不够？          → 第三篇：漏斗、MinHash、配比 → epoch
+超参表里的每个数字从哪来？训练为什么会崩？        → 第四篇：μP、梯度噪声尺度、三个机制与六个开关
 ```
 
-系列的边界仍在：kernel 怎么写、引擎怎么调度、并行怎么切、后训练（SFT、RLHF、蒸馏、评测）怎么做，各是另一个系列。回到总纲：[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)。
+系列的边界仍在：kernel 怎么写、引擎怎么调度、并行怎么切、后训练（SFT、RLHF、蒸馏、评测）怎么做，各是另一个系列。回到总纲：[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)；成本表本身在[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)。
 
-配套代码：[`transformer-and-llm/training_recipe_lab.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/training_recipe_lab.py)（四个子实验，PyTorch CPU）、[`llm_cost_12_recipe.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_12_recipe.py)（配方的账）、[`tools/gen_schedule_svg.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/tools/gen_schedule_svg.py)（本文的图）。全系列十二篇的脚本与运行输出在 [ai-learning-labs/transformer-and-llm](https://github.com/arganzheng/ai-learning-labs/tree/main/transformer-and-llm)。
+配套代码：[`transformer-and-llm/training_recipe_lab.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/training_recipe_lab.py)（四个子实验，PyTorch CPU）、[`llm_cost_12_recipe.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_12_recipe.py)（配方的账）、[`tools/gen_schedule_svg.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/tools/gen_schedule_svg.py)（本文的图）。两个系列共十二版 `llm_cost.py` 与各篇实验的脚本、运行输出都在 [ai-learning-labs/transformer-and-llm](https://github.com/arganzheng/ai-learning-labs/tree/main/transformer-and-llm)。

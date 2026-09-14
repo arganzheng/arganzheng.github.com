@@ -15,6 +15,9 @@ deep-dive-into-pytorch:
 transformer-and-llm:
   name: Transformer 与 LLM：结构、算量与数值
   overview: /transformer-and-llm-for-infra-engineers.html
+pretraining:
+  name: 预训练：从 tokenizer 到训练配方
+  overview: /pretraining-from-tokenizer-to-training-recipe.html
 gpu-kernel-engineering:
   name: GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention
   overview: /gpu-kernel-engineering.html

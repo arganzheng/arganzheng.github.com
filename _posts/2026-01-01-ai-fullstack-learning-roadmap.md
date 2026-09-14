@@ -5,8 +5,10 @@ subtitle: One System, Three Roles — an Overview of the Three AI Learning Roadm
 tags: [AI, AI-Infra, LLM, Agent, Roadmap]
 catalog: true
 pinned: true
+updated: 2026-09-14
 ---
 
+> **更新 @2026-09-14**：本文「分工的规则」与「现状与更新」两处的 harness 一词，按 OpenAI 2026-02-11 的[《Harness engineering: leveraging Codex in an agent-first world》](https://openai.com/index/harness-engineering/)取义——模型之外约束、告知、验证、纠正 agent 的整套系统（工具、上下文、权限、验证、沙箱、可观测），展开见[应用地图的「三个 harness 案例」](/ai-application-engineer-learning-roadmap.html#三个-harness-案例)；三张地图的分工本身不变。
 
 ## 内容简介
 
@@ -19,7 +21,7 @@ pinned: true
 | 地图 | 面向 | 一句话 | 层 | 已写成的系列 |
 |---|---|---|---|---|
 | [AI-Infra](/ai-infra-learning-roadmap.html) | **跑模型的人**：从后端工程师到 PyTorch / vLLM / NCCL 的贡献者 | 模型在硬件上怎么花钱、系统怎么实现 | 五层 + 横切 + 三个选修 | 十个系列，全部写完 |
-| [AI 算法工程师](/ai-algorithm-engineer-learning-roadmap.html) | **造模型的人**：能复现论文、设计后训练配方、把模型评测清楚 | 为什么这样建模、效果如何、怎么证明 | 八层 + 横切 | 全部写完：三篇导读 + 四个系列 + 共享 04 系列 |
+| [AI 算法工程师](/ai-algorithm-engineer-learning-roadmap.html) | **造模型的人**：能复现论文、设计后训练配方、把模型评测清楚 | 为什么这样建模、效果如何、怎么证明 | 八层 + 横切 | 全部写完：三篇导读 + 五个系列 + 共享 04 系列 |
 | [AI 应用工程师](/ai-application-engineer-learning-roadmap.html) | **用模型做产品的人**：在非确定性组件之上做可靠产品 | 用什么、怎么组合、效果好不好 | 七层 + 横切 + 选修 | 地图已成，系列待写 |
 
 
@@ -91,7 +93,7 @@ flowchart LR
 | 推理 | 改变模型或解码过程的方法：量化选哪种、投机解码的草稿模型、KV 压缩 | 引擎机制：PagedAttention、continuous batching、PD 分离——模型不知道它们存在 | 一次调用：延迟形态（TTFT / TPOT）、流式、缓存前缀、成本 |
 | 微调 | 配方：SFT 数据、LoRA 的秩与目标矩阵、DPO 的 β | 账：LoRA 的参数与状态、多 LoRA 服务的 kernel 与调度 | 决策：何时需要微调而不是 prompt / RAG，数据怎么准备，效果怎么评 |
 | 评测 | 模型能力：benchmark 协议、LLM-as-judge 的偏差、污染、`pass@k` | 性能：吞吐、延迟、MFU、有效利用率 | 应用效果：任务完成率、faithfulness、在线指标、回归 |
-| Agent | 能力的训练：工具调用数据、多轮 RL、轨迹 | RL 后训练的 rollout 基础设施：环境与训练器的共置、权重同步 | 编排：工具、循环、状态、权限、人在环、harness |
+| Agent | 能力的训练：工具调用数据、多轮 RL、轨迹 | RL 后训练的 rollout 基础设施：环境与训练器的共置、权重同步 | 编排：工具、循环、状态、权限、人在环、[harness](/ai-application-engineer-learning-roadmap.html#三个-harness-案例) |
 | 成本 | 按训练算力的账：$$6ND$$、GPU 小时、数据配比换成 epoch | 按 GPU 小时的账：分配率、使用率、每百万 token 的成本 | 按 token 的账：预算、缓存、路由到便宜的模型 |
 | 数据 | 决策：配比、质量过滤、去重的阈值、合成数据 | 实现：tokenization 离线化、流式加载、打包、checkpoint I/O | 回流：trace、用户反馈、bad case 怎么变成下一轮数据 |
 | 安全 | 对齐与拒答训练 | 平台层的隔离、多租户与审计 | prompt injection、工具权限、PII |
@@ -100,7 +102,7 @@ flowchart LR
 
 ### 一个共享的系列
 
-三张地图只有一个系列是共享的：[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)（Infra 地图的 04、算法地图的 L4）。它讨论的对象是"模型作为一个计算对象的成本"——参数量、FLOPs、字节数、KV、通信量——恰好是算法工程师与 Infra 工程师对话的语言：前者从中知道自己的每个结构决定在硬件上花多少钱，后者从中知道要优化什么。它的后四篇（tokenizer、scaling law、数据工程、训练配方）是面向算法侧的预训练补篇，Infra 读者可以跳过。应用工程师读它的 KV cache 与多模态两篇，能理解长上下文与图片为什么贵。
+三张地图只有一个系列是共享的：[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)（Infra 地图的 04、算法地图的 L4）。它讨论的对象是"模型作为一个计算对象的成本"——参数量、FLOPs、字节数、KV、通信量——恰好是算法工程师与 Infra 工程师对话的语言：前者从中知道自己的每个结构决定在硬件上花多少钱，后者从中知道要优化什么。它只讨论成本表本身；这张表的训练侧——tokenizer、scaling law、数据工程、训练配方——是紧接着它发布的算法地图系列[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)，不共享：Infra 读者不需要读，算法读者读完 04 接着读。应用工程师读 04 的 KV cache 与多模态两篇，能理解长上下文与图片为什么贵。
 
 ### 一个常见的误分类
 
@@ -131,7 +133,7 @@ flowchart LR
 
 1. **前置**：Infra 01 Python、02 C++（可略）、03 PyTorch——两张地图共用的工具。
 2. **算法基础**：算法地图 L0–L3——数学、工具箱、经典机器学习、深度学习基础六篇。
-3. **共享的核心**：04 系列 12 篇——Transformer 的结构与成本，两张地图在这里会合。
+3. **共享的核心**：04 系列 8 篇——Transformer 的结构与成本，两张地图在这里会合；算法方向接着读预训练 4 篇。
 4. **造模型**：算法地图 L5 后训练八篇——SFT、偏好、在线与离线 RL、推理模型、Agent RL、蒸馏、评测。
 5. **跑模型**：Infra 地图 05–09——kernel、通信、训练引擎、推理引擎、平台；再加 10 开源贡献。
 6. **用模型**：应用地图 L1–L7——组件观、上下文、检索、Agent、评测、运营、产品。
@@ -158,8 +160,8 @@ flowchart LR
 
 | 地图 | 已写 | 待写 |
 |---|---|---|
-| AI-Infra | 十个系列共 89 篇：Python 7、C++ 8、PyTorch 10、Transformer 与 LLM 12、GPU kernel 10、通信 8、大规模训练 8、vLLM 14、平台 8、开源贡献 4 | 三个选修（ML 编译器、RL 后训练基础设施、扩散模型推理基础设施）暂以地图里的段落代替 |
-| AI 算法工程师 | L0–L2 各一篇导读，L3 深度学习基础 6 篇，L4 共享 04 系列，L5 后训练 8 篇，L6 高效推理与压缩 6 篇，L7 多模态 7 篇，横切实验方法论 1 篇 | — |
+| AI-Infra | 十个系列共 85 篇：Python 7、C++ 8、PyTorch 10、Transformer 与 LLM 8、GPU kernel 10、通信 8、大规模训练 8、vLLM 14、平台 8、开源贡献 4 | 三个选修（ML 编译器、RL 后训练基础设施、扩散模型推理基础设施）暂以地图里的段落代替 |
+| AI 算法工程师 | L0–L2 各一篇导读，L3 深度学习基础 6 篇，L4 共享 04 系列 + 预训练 4 篇，L5 后训练 8 篇，L6 高效推理与压缩 6 篇，L7 多模态 7 篇，横切实验方法论 1 篇 | — |
 | AI 应用工程师 | 地图本身（含场景轴与三个 harness 案例） | 全部系列 |
 
 三张地图会随文章的增加更新"已有的文章与系列"一节，也会随领域变化更新层的内容——算法地图的"版本与时效"一节说了这件事：2023 年的主线是 SFT + PPO，2024 年是 DPO 一族，2025 年是可验证奖励的 RL，地图列出的是当前的主线并会随之更新，不变的是结构。

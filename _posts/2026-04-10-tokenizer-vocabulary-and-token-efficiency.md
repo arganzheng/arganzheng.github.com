@@ -1,15 +1,15 @@
 ---
 layout: post
-series: transformer-and-llm
-title: "Transformer 与 LLM（09）：分词与词表：BPE、词表大小与 token 效率"
+series: pretraining
+title: "预训练（01）：分词与词表：BPE、词表大小与 token 效率"
 subtitle: "Tokenizers and Vocabulary: BPE, Vocabulary Size and Token Efficiency"
-tags: [Transformer, LLM, AI, AI-Infra]
+tags: [Transformer, LLM, AI, Pretraining]
 catalog: true
 ---
 
-前八篇把一个 LLM 的成本算成了 token 的函数：每个 token 多少 FLOPs、多少字节 KV、prefill 多长、decode 多久。"token 数"在所有公式里都是自变量——它从哪来，前八篇一直没有问。它来自 tokenizer。
+[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)把一个 LLM 的成本算成了 token 的函数：每个 token 多少 FLOPs、多少字节 KV、prefill 多长、decode 多久。"token 数"在所有公式里都是自变量——它从哪来，那八篇一直没有问。它来自 tokenizer。
 
-从第九篇起是系列的**预训练补篇**：对象从"模型作为一个计算对象的结构"转到"这个模型是怎么训出来的"——分词与词表、scaling law、数据工程、训练配方。方法不变：写出公式，代入真实模型的数字，解释数字对系统意味着什么。tokenizer 是这四篇的第一篇，因为它同时决定成本表的两端：词表大小 $$V$$ 直接进参数量与 lm_head 的 FLOPs，压缩率决定一段文字要付多少个 token 的钱。
+本系列是那张成本表的**训练侧**：对象从"模型作为一个计算对象的结构"转到"这个模型是怎么训出来的"——分词与词表、scaling law、数据工程、训练配方。方法不变：写出公式，代入真实模型的数字，解释数字对系统意味着什么。tokenizer 是四篇的第一篇，因为它同时决定成本表的两端：词表大小 $$V$$ 直接进参数量与 lm_head 的 FLOPs，压缩率决定一段文字要付多少个 token 的钱。
 
 本篇要回答的核心问题是：
 
@@ -73,11 +73,11 @@ Llama 3 自己的 tokenizer 需要授权下载，本文用 cl100k_base 近似它
 模型的输入必须是一串来自有限集合的 id。这个集合怎么定，有两个极端：
 
 - **词级**：每个单词一个 id。英文常用词几十万，加上变形、专名、拼写错误、其他语言，词表无上限；训练中没见过的词（OOV）只能映射到一个 `<unk>`，信息全丢。而且 $$V$$ 是 embedding 参数的一个因子，百万级的词表在 $$d = 4096$$ 下是 4B 参数——比 Llama-3-8B 的一半还多。
-- **字符级**（或字节级）：$$V = 256$$，永远没有 OOV。但一段英文平均每个字符一个 token，序列长度是词级的四五倍：attention 的二次项、KV cache 的一次项、生成时的 decode 步数全部按比例上升。第二篇算过 Llama-3-8B 在 128K 上下文下 attention 项已超过权重项；序列长 4 倍，同样的文本量 attention 算量长 16 倍。
+- **字符级**（或字节级）：$$V = 256$$，永远没有 OOV。但一段英文平均每个字符一个 token，序列长度是词级的四五倍：attention 的二次项、KV cache 的一次项、生成时的 decode 步数全部按比例上升。《Transformer 与 LLM》第二篇算过 Llama-3-8B 在 128K 上下文下 attention 项已超过权重项；序列长 4 倍，同样的文本量 attention 算量长 16 倍。
 
 **子词**（subword）是中间解：常见词整个是一个 token，罕见词拆成几段有意义的碎片，任何字符串都能表示，词表大小可以自己定。BPE 是得到子词词表最常用的算法。
 
-用一个数字看两端的差距。第二篇的 prefill 账：Llama-3-8B 处理 $$s$$ 个 token 的权重项是 $$2Ns$$，attention 项是 $$4 d L s^2 = 4 \times 4096 \times 32 \times s^2$$。一段 100 万字符的英文，词级切分约 20 万 token，字节级 100 万 token：
+用一个数字看两端的差距。《Transformer 与 LLM》第二篇的 prefill 账：Llama-3-8B 处理 $$s$$ 个 token 的权重项是 $$2Ns$$，attention 项是 $$4 d L s^2 = 4 \times 4096 \times 32 \times s^2$$。一段 100 万字符的英文，词级切分约 20 万 token，字节级 100 万 token：
 
 | 切分 | token 数 | 权重项 | attention 项 | 合计 |
 |---|---|---|---|---|
@@ -93,7 +93,7 @@ tokenizer 之前的 NLP 用另一套方法表示文本，其中三个概念在�
 
 - **n-gram 语言模型与困惑度**：用前 $$n-1$$ 个词预测下一个词的计数模型，是 next-token prediction 的祖先。它的评价指标**困惑度**（perplexity）$$\text{PPL} = \exp(\text{平均每 token 的交叉熵})$$，今天仍是预训练 loss 的另一种写法：loss 2.0 nats 对应 PPL 7.4。注意困惑度依赖 tokenizer——同一段文字切成更多 token，每个 token 更好预测，PPL 更低，但这不代表模型更好。跨 tokenizer 比较要换算到**每字节**，第四章第 3 节专门讲这件事。
 - **词向量**：Word2Vec（Mikolov 等 2013，CBOW 与 Skip-gram）与 GloVe（Pennington 等 2014）把每个词映射到一个几百维的向量，相近的词向量相近。LLM 的 embedding 表就是这个思想的直接后代，区别是它与模型一起训练、以子词而非词为单位，且不再是静态的——同一个 token 经过几层 attention 之后的表示随上下文变化，这是 ELMo（Peters 等 2018）与 BERT（Devlin 等 2018）确立的"上下文相关表示"。
-- **one-hot、词袋、TF-IDF**：稀疏的、词序无关的文本表示，今天在 LLM 里没有位置，但在检索（BM25）与数据过滤（第十一篇的分类器）里还活着。
+- **one-hot、词袋、TF-IDF**：稀疏的、词序无关的文本表示，今天在 LLM 里没有位置，但在检索（BM25）与数据过滤（第三篇的分类器）里还活着。
 
 ### 3. BPE 算法
 
@@ -206,7 +206,7 @@ flowchart LR
 
 ### 1. 参数：2Vd，tied 与 untied
 
-词表进入模型的地方有两个：输入端的 embedding 表 $$V \times d$$，输出端的 lm_head $$d \times V$$。两者不共享（untied）时词表参数是 $$2Vd$$，共享（tied）时是 $$Vd$$。第一篇的参数量公式里这一项写成 $$2 V d$$；代入六个模型（`llm_cost_09_vocab.py` 的输出）：
+词表进入模型的地方有两个：输入端的 embedding 表 $$V \times d$$，输出端的 lm_head $$d \times V$$。两者不共享（untied）时词表参数是 $$2Vd$$，共享（tied）时是 $$Vd$$。《Transformer 与 LLM》第一篇的参数量公式里这一项写成 $$2 V d$$；代入六个模型（`llm_cost_09_vocab.py` 的输出）：
 
 | 模型 | $$V$$ | $$d$$ | 总参数 | 词表参数 | 占比 | lm_head FLOPs/token | 占 FLOPs | lm_head 字节（BF16） |
 |---|---|---|---|---|---|---|---|---|
@@ -236,13 +236,13 @@ Llama 2 到 Llama 3 的 7B/8B 规格，骨架几乎一样（都是 32 层、$$d 
 
 embedding 是查表，不算 FLOPs；lm_head 是每个 token 一次 $$[1, d] \times [d, V]$$ 的矩阵乘，$$2Vd$$ FLOPs。Llama-3-8B 每 token 1.05 GFLOPs，占 15.0 GFLOPs 的 7%；这是一层 Transformer 的两倍多（每层 $$2 \times 218\text{M} = 0.44$$ GFLOPs）——**lm_head 是模型里最贵的单个矩阵**。
 
-在小模型里它的占比失控：Qwen2.5-0.5B 的 lm_head 占每 token FLOPs 的 38%，Gemma-2-2B 占 29%。这两个模型都 tie 了 embedding，参数上只算一份，但 FLOPs 上 lm_head 一分不少。小模型选大词表，是为了和同系列的大模型共用 tokenizer（数据只需 tokenize 一次、蒸馏时 logits 可对齐——第十篇与后训练系列会用到），代价是三分之一的算力花在输出层。
+在小模型里它的占比失控：Qwen2.5-0.5B 的 lm_head 占每 token FLOPs 的 38%，Gemma-2-2B 占 29%。这两个模型都 tie 了 embedding，参数上只算一份，但 FLOPs 上 lm_head 一分不少。小模型选大词表，是为了和同系列的大模型共用 tokenizer（数据只需 tokenize 一次、蒸馏时 logits 可对齐——第二篇与后训练系列会用到），代价是三分之一的算力花在输出层。
 
-训练时这一项更重。反向传播对 lm_head 要算两个梯度（对权重、对输入），第二篇的"训练 = 3 × 前向"对它同样成立：Llama-3-8B 每 token 训练 FLOPs 约 $$6N = 48$$ GFLOPs，其中 lm_head 贡献 $$6 \times 0.525\text{B} = 3.15$$ GFLOPs，仍是 7%。但 15T token 乘下来，Llama-3-8B 全部预训练里有约 $$4.7 \times 10^{22}$$ FLOPs 花在输出层——按 H100 40% MFU 算约 33 000 GPU·小时。
+训练时这一项更重。反向传播对 lm_head 要算两个梯度（对权重、对输入），《Transformer 与 LLM》第二篇的"训练 = 3 × 前向"对它同样成立：Llama-3-8B 每 token 训练 FLOPs 约 $$6N = 48$$ GFLOPs，其中 lm_head 贡献 $$6 \times 0.525\text{B} = 3.15$$ GFLOPs，仍是 7%。但 15T token 乘下来，Llama-3-8B 全部预训练里有约 $$4.7 \times 10^{22}$$ FLOPs 花在输出层——按 H100 40% MFU 算约 33 000 GPU·小时。
 
 ### 4. 字节：decode 每步读一遍 lm_head，训练时 logits 要放得下
 
-decode 是 memory-bound 的（第二篇），每步读一遍全部权重，lm_head 也在其中：Llama-3-8B 的 1.05 GB 占 16.06 GB 的 6.5%，H100 上 0.31 ms。词表从 32K 到 256K 时这一项从 0.08 ms 到 0.63 ms——不致命，但它是权重里唯一随 $$V$$ 线性增长的部分。embedding 的读取则可以忽略：每 token 只 gather 一行 $$d$$ 个数，是随机访存但总量极小。
+decode 是 memory-bound 的（《Transformer 与 LLM》第二篇），每步读一遍全部权重，lm_head 也在其中：Llama-3-8B 的 1.05 GB 占 16.06 GB 的 6.5%，H100 上 0.31 ms。词表从 32K 到 256K 时这一项从 0.08 ms 到 0.63 ms——不致命，但它是权重里唯一随 $$V$$ 线性增长的部分。embedding 的读取则可以忽略：每 token 只 gather 一行 $$d$$ 个数，是随机访存但总量极小。
 
 更大的问题在训练侧。交叉熵要在 FP32 下算 softmax，logits 张量是 $$\text{tokens} \times V \times 4$$ 字节：一条 8K 的序列在 128K 词表下是 3.9 GiB，Llama 3 405B 训练时 16K 序列的 logits 是 7.8 GiB **每条序列**——比模型任何一层的激活值都大（一层的主要激活是 $$\text{tokens} \times d \times 2$$ 字节，$$d = 16384$$ 时 16K 序列只 0.5 GiB）。而且 logits 在反向时还要留一份梯度，同样大小。
 
@@ -277,7 +277,7 @@ $$
 
 ### 5. 训练状态：词表参数按 16 字节算
 
-第七篇算 LoRA 时用过训练状态的账：混合精度 + Adam 下每个参数 BF16 权重 2 B + FP32 主权重 4 B + Adam 一阶、二阶矩各 4 B + BF16 梯度 2 B = **16 字节**。词表参数也在其中：Llama-3-8B 的 1.05B 词表参数是 16.8 GB 训练状态，比 lm_head 权重本身（1.05 GB）大一个数量级；Llama-3-70B 的 2.1B 是 33.6 GB。这部分状态在 TP 里沿 $$V$$ 切、在 ZeRO 里按参数切，不构成单卡瓶颈，但它提醒一件事：**扩词表的成本在训练时是 16 倍于推理时**——Llama 3 从 32K 到 128K 多出的 0.79B 参数，训练时是 12.6 GB 的状态。
+《Transformer 与 LLM》第七篇算 LoRA 时用过训练状态的账：混合精度 + Adam 下每个参数 BF16 权重 2 B + FP32 主权重 4 B + Adam 一阶、二阶矩各 4 B + BF16 梯度 2 B = **16 字节**。词表参数也在其中：Llama-3-8B 的 1.05B 词表参数是 16.8 GB 训练状态，比 lm_head 权重本身（1.05 GB）大一个数量级；Llama-3-70B 的 2.1B 是 33.6 GB。这部分状态在 TP 里沿 $$V$$ 切、在 ZeRO 里按参数切，不构成单卡瓶颈，但它提醒一件事：**扩词表的成本在训练时是 16 倍于推理时**——Llama 3 从 32K 到 128K 多出的 0.79B 参数，训练时是 12.6 GB 的状态。
 
 另有一个更细的问题：embedding 的梯度是**稀疏**的——一个 batch 里没出现的 token，它的 embedding 行梯度为零。但 Adam 的状态是稠密的，$$m$$、$$v$$ 每步都要按全表更新（衰减），所以 embedding 的优化器开销与它的更新频率无关。这也是为什么有的框架给 embedding 单独用 SparseAdam 或不同的权重衰减：一个 15T token 的训练里，一个只出现过一万次的罕见 token，它的 embedding 行接受了一万次有效梯度和几百万次纯衰减。
 
@@ -317,7 +317,7 @@ Llama 3 论文给出它的 tokenizer 在英文上把压缩率从 Llama 2 的 3.1
 
 每个 token 贵 5.6%，每段英文的 token 少 20%，净效果每字符便宜 15%。KV 的收益更大（20%），因为 KV/token 不随 $$V$$ 变。对推理系统这意味着：同样的显存放下多 25% 的上下文字符、同样的 prompt 少 20% 的 prefill 时间、生成同一段回答少 20% 的 decode 步——**tokenizer 的改进是少数对 prefill、decode、KV 三项同时有效的优化**，而且是零运行时开销的。
 
-从训练侧看同一件事：Llama 3 报告 15T token 的预训练。如果换回 32K 词表，同样的文本量要 $$15 \times 3.94 / 3.17 = 18.6$$T token，每 token 少 5.6% 的 FLOPs 也追不回 24% 的 token 数——训练算力多 17%。第十篇的 scaling law 里 $$D$$ 是 token 数，但**决定模型见过多少信息的是字符数**；tokenizer 的压缩率是 $$D$$ 与"数据量"之间的汇率。
+从训练侧看同一件事：Llama 3 报告 15T token 的预训练。如果换回 32K 词表，同样的文本量要 $$15 \times 3.94 / 3.17 = 18.6$$T token，每 token 少 5.6% 的 FLOPs 也追不回 24% 的 token 数——训练算力多 17%。第二篇的 scaling law 里 $$D$$ 是 token 数，但**决定模型见过多少信息的是字符数**；tokenizer 的压缩率是 $$D$$ 与"数据量"之间的汇率。
 
 ### 3. 跨 tokenizer 怎么比 loss
 
@@ -329,7 +329,7 @@ $$
 
 即每 token 的 loss 乘上 token/字节，再换到以 2 为底。Llama 2 的 tokenizer 每 token 3.17 字符（英文约 1 字节/字符），Llama 3 是 3.94：若两个模型的 bits/byte 相同，Llama 3 的每 token loss 应比 Llama 2 **高** $$3.94 / 3.17 = 1.24$$ 倍。看到 Llama 3 的训练曲线收在比 Llama 2 更高的 loss 值，不说明它更差——它每个 token 装了更多的字符，每个 token 更难预测。
 
-反过来这也解释了一个常见的错误结论"大词表让 loss 变高"或"中文 loss 比英文高"：一个汉字在 Qwen 词表下约 0.8 个 token、信息量约 10 bits，每 token 的 loss 天然高于每 token 装 5 个英文字母的英文。第十篇画 scaling law 曲线时默认所有模型共用一个 tokenizer，正是为了避开这个换算；比较不同 tokenizer 的模型只能用 bits/byte 或下游任务。
+反过来这也解释了一个常见的错误结论"大词表让 loss 变高"或"中文 loss 比英文高"：一个汉字在 Qwen 词表下约 0.8 个 token、信息量约 10 bits，每 token 的 loss 天然高于每 token 装 5 个英文字母的英文。第二篇画 scaling law 曲线时默认所有模型共用一个 tokenizer，正是为了避开这个换算；比较不同 tokenizer 的模型只能用 bits/byte 或下游任务。
 
 ### 4. 词表大小的边际收益递减
 
@@ -416,7 +416,7 @@ Land & Bartolo 2024 给出了系统的检测方法，思路是看**输出侧**�
 
 第四章的中文数字换个角度看：**同一个 API 按 token 计费，同样一段内容，中文用户付的钱可以是英文用户的两倍以上**。cl100k 下中文 1.11 字符/token 对英文 5.44；按信息量折算——一个英文单词约相当于 1.5–2 个汉字——中文每"词"约 2.6 个 token，英文约 1.05 个，差 2.4 倍。Petrov 等 2023 在 17 个 tokenizer 上比较了同一段平行语料的 token 数，最大差距**超过 15 倍**（缅甸文、阿姆哈拉文等在英文为主的词表下每个字符 4–6 个 token）；Ahia 等 2023 把它换算成 API 价格，同样的内容低资源语言用户付的钱可以是英文的十倍以上。这既是公平性问题也是容量问题——"平均每请求 N 个 token"的假设在多语言流量下不成立；同样的上下文窗口对不同语言"长度"不同（第四章第 6 节）；同样的 max_tokens 限制在不同语言下截断的位置不同。
 
-对做模型的人这也是一个训练问题：预训练语料里中文占 10%，但如果 tokenizer 对中文的压缩率只有英文的一半，那么按 token 数算中文占了 20% 的训练步、按信息量算却只有 10%——**语料配比要按什么单位算**（第十一篇）与 tokenizer 直接相关。
+对做模型的人这也是一个训练问题：预训练语料里中文占 10%，但如果 tokenizer 对中文的压缩率只有英文的一半，那么按 token 数算中文占了 20% 的训练步、按信息量算却只有 10%——**语料配比要按什么单位算**（第三篇）与 tokenizer 直接相关。
 
 ### 4. token 边界偏差与 token healing
 
@@ -439,7 +439,7 @@ BPE 是贪心的，一段文字的切法依赖它后面跟着什么。`http://` 
 
 - **新 embedding 怎么初始化**。随机初始化的新行会让模型在见到新 token 时输出乱码，且要很多数据才能追上。常见做法是把新 token 按旧词表切成碎片，取碎片 embedding 的**均值**作初始值——一个由 `分 + 词` 合成的新 token，初始向量是两个字的平均。lm_head 的新行同样处理。
 - **要多少数据**。新 token 的 embedding 每出现一次才更新一次。按 Zipf 估计，词表末尾的 token 在语料中的频率约 $$1/(V \ln V)$$，$$V = 50\text{K}$$ 时约 $$2 \times 10^{-6}$$；要让它累积 1 万次有效更新，需要约 50 亿 token 的目标语言语料——Chinese-LLaMA 用了 200 亿。数据不足时新 token 就是第五章的欠训练 token。
-- **旧能力怎么保**。继续预训练用的语料如果全是目标语言，英文能力会退化（第十二篇会讲课程与回放）。Chinese-LLaMA 的做法是先只训 embedding 与 lm_head、再放开 LoRA、最后全量。
+- **旧能力怎么保**。继续预训练用的语料如果全是目标语言，英文能力会退化（第四篇会讲课程与回放）。Chinese-LLaMA 的做法是先只训 embedding 与 lm_head、再放开 LoRA、最后全量。
 
 一个反面的账：扩词表让每个 token 贵了（$$V$$ 从 32K 到 50K，7B 模型每 token +2%），如果目标语言在流量里只占一小部分，这 2% 是所有请求都要付的税。所以商业模型倾向于一开始就用大的多语言词表，而不是事后扩。
 
@@ -457,7 +457,7 @@ BPE 是贪心的，一段文字的切法依赖它后面跟着什么。`http://` 
 
 之后的字节级工作都在解决"怎么把序列压回去"。MegaByte（Yu 等 2023）把字节按固定长度分块，一个大模型处理块级表示、一个小模型在块内逐字节生成。**Byte Latent Transformer**（Pagnoni 等 2024，Meta）把固定分块换成**动态分块**：用一个小的字节级语言模型算每个位置的下一字节熵，熵高的地方（新词开头、不可预测处）切一个 patch 边界，熵低的地方（词的后半、常见搭配）延长 patch——平均 patch 长度可以调到 6–8 个字节，比 BPE 的 4–5 字符/token 还长。主模型在 patch 上运行，参数量与 FLOPs 都不再与词表挂钩（没有 $$2Vd$$），局部编解码器负责字节与 patch 的转换。论文报告在同等训练 FLOPs 下能追平 Llama 3 的 BPE 模型，并且在噪声输入、字符级任务与低资源语言上更好。
 
-它还没有成为主流，原因是工程栈：推理框架、KV cache、投机解码、结构化输出全部围绕"token"设计，patch 长度可变让 batch 调度复杂；而 BPE 的问题虽多，都已经有了补丁。但它指出了一个方向：**tokenizer 本质上是一个不学习的、固定的压缩器**，用学习的压缩器替代它是自然的一步。第十篇讨论 scaling law 时会看到，"每 FLOP 学到多少"的比较里 tokenizer 是一个被固定住的变量，而它未必应该被固定。
+它还没有成为主流，原因是工程栈：推理框架、KV cache、投机解码、结构化输出全部围绕"token"设计，patch 长度可变让 batch 调度复杂；而 BPE 的问题虽多，都已经有了补丁。但它指出了一个方向：**tokenizer 本质上是一个不学习的、固定的压缩器**，用学习的压缩器替代它是自然的一步。第二篇讨论 scaling law 时会看到，"每 FLOP 学到多少"的比较里 tokenizer 是一个被固定住的变量，而它未必应该被固定。
 
 
 ## 七、实践：三个脚本

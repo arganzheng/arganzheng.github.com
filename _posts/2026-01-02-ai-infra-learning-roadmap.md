@@ -208,7 +208,7 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 > **Infra 工程师不训练模型，但必须知道自己在优化什么：这个模型的每一步算多少、读多少、存多少？**
 
-十二篇。前八篇：Transformer 前向的逐层算量与访存量；Attention 变体（MHA / GQA / MQA / MLA）与 KV cache 大小的推导；位置编码与长上下文；MoE 的路由与通信形态；浮点格式（FP32 / TF32 / BF16 / FP16 / FP8 / INT8 / INT4）、数值稳定性与混合精度为什么能工作；量化算法（GPTQ / AWQ / SmoothQuant / FP8）的原理与代价；投机解码的数学；LoRA 等参数高效方法的计算形态；多模态：vision encoder 的算量、connector 决定的 image token 数、image token 在 decoder 里与文本同价的 KV。后四篇是面向算法地图的预训练补篇（tokenizer 与词表、scaling law、数据工程、训练配方与稳定性）——Infra 工程师读它们能理解 $$6ND$$ 的 $$N$$、$$D$$ 从哪来、数据管线的 CPU 与 I/O 形态、以及 loss spike 在系统侧的代价，但它们不是本地图的主线。
+八篇：Transformer 前向的逐层算量与访存量；Attention 变体（MHA / GQA / MQA / MLA）与 KV cache 大小的推导；位置编码与长上下文；MoE 的路由与通信形态；浮点格式（FP32 / TF32 / BF16 / FP16 / FP8 / INT8 / INT4）、数值稳定性与混合精度为什么能工作；量化算法（GPTQ / AWQ / SmoothQuant / FP8）的原理与代价；投机解码的数学；LoRA 等参数高效方法的计算形态；多模态：vision encoder 的算量、connector 决定的 image token 数、image token 在 decoder 里与文本同价的 KV。这张成本表的训练侧——tokenizer 与词表、scaling law、数据工程、训练配方与稳定性——是算法地图的[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)（四篇）；Infra 工程师读它能理解 $$6ND$$ 的 $$N$$、$$D$$ 从哪来、数据管线的 CPU 与 I/O 形态、以及 loss spike 在系统侧的代价，但它不在本地图的主线上。
 
 这一篇由**推导**驱动而不是由 API 驱动。它同时服务两类读者：Infra 工程师借它理解优化对象，算法工程师借它理解自己的模型在硬件上的成本。
 
@@ -400,7 +400,7 @@ graph LR
 | 01 | [Python 在 AI-Infra：从语言机制到生产交付](/python-for-ai-infra.html) | L1 | 7 |
 | 02 | [C++ 在 AI-Infra：从对象模型到算子扩展](/cpp-for-ai-infra.html) | L1 | 8 |
 | 03 | [PyTorch 深度实践：从 Tensor 到深度学习运行时](/deep-dive-into-pytorch.html) | L2 | 10 |
-| 04 | [Transformer 与 LLM：结构、算量与数值](/transformer-and-llm-for-infra-engineers.html)（09–12 为算法地图侧的预训练补篇） | L2 | 12 |
+| 04 | [Transformer 与 LLM：结构、算量与数值](/transformer-and-llm-for-infra-engineers.html) | L2 | 8 |
 | 05 | [GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention](/gpu-kernel-engineering.html) | L2 | 10 |
 | 06 | [通信与互联：从 NCCL 到 RDMA](/communication-and-interconnect-for-ai-infra.html) | L3 | 8 |
 | 07 | [大规模训练工程：从并行策略到容错恢复](/large-scale-training-from-parallelism-to-fault-tolerance.html) | L4 | 8 |
