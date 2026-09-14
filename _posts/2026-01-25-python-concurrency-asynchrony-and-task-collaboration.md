@@ -5,6 +5,7 @@ title: Python 在 AI-Infra（03）：并发、异步与任务协作
 subtitle: Python Concurrency, Asynchrony, and Task Collaboration in AI Systems
 tags: [Python]
 catalog: true
+updated: 2026-09-14
 ---
 
 在 AI-Infra 系统中，Python 往往并不直接承担最重的数值计算。真正消耗算力的部分，通常由 CUDA、C++、通信库或专用推理引擎完成。
@@ -2442,6 +2443,56 @@ Python 并发编程的难点，并不在于记住 `async def`、`await` 或线�
 3. **Python 在任务协作层反而更成熟。** `TaskGroup`、`ExceptionGroup`/`except*`、`asyncio.timeout()` 的取消作用域、异步生成器的天然背压，这几样在 Java 侧要么还在 preview，要么需要引入 Reactor 才有。别因为 GIL 就低估 asyncio 的表达能力。
 
 配套代码：线程池与进程池的 cancel / timeout / shutdown / `contextvars` / `BrokenProcessPool` 行为验证脚本在 [ai-learning-labs/python-for-ai-infra/03-concurrency](https://github.com/arganzheng/ai-learning-labs/tree/main/python-for-ai-infra/03-concurrency)。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**瓶颈在哪决定用什么**：阻塞 I/O 与外部服务用线程或 asyncio（等待时释放 GIL / 让出事件循环）；纯 Python CPU 计算用进程（绕开 GIL，代价是序列化）；GPU 计算本身由 C 扩展在释放 GIL 后驱动，线程即可并行推动（第二、三、四章）。**任务怎么协作**：大量 I/O 任务用 asyncio 单线程 M:N 调度；任务之间用队列解耦；用 `TaskGroup` 让任务有归属、异常以 `ExceptionGroup` 传播；超时与取消（`asyncio.timeout()`、`CancelledError` 是 `BaseException`）管理生命周期；AI-Infra 里三种模型常一起用——事件循环接请求、线程池跑阻塞调用、进程池做 CPU 预处理（第五章）。**下游跟不上时怎么稳定**：背压——有界队列让生产者在 `put` 处等待，异步生成器天然有背压；超时让等太久的请求退出而不是堆积；批处理把并发请求凑成 batch 送 GPU，让吞吐随并发上升而不是延迟无限增长（第五、六章）。第七章的决策树把这些选择排成一张图。
+
+</details>
+
+
+## 九、自测
+
+1. GIL 之下多线程对哪类任务有效、哪类无效？为什么调 `torch` 的算子时多线程仍能并行？
+
+   <details markdown="1"><summary>答案</summary>
+
+   对阻塞 I/O 有效（等待时释放 GIL），对纯 Python CPU 计算无效；C 扩展在进入长时间计算前主动释放 GIL（`Py_BEGIN_ALLOW_THREADS`），torch 的算子与 CUDA 调用都这样做，所以多线程能并行推动 GPU。
+
+   </details>
+
+2. `asyncio.Queue()` 与 `threading.Lock()` 的默认行为各埋了什么坑？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `Queue` 默认**无界**，生产快于消费时内存无限增长——要设 `maxsize` 形成背压；`threading.Lock` **不可重入**，同一线程二次 `acquire` 死锁——需要可重入用 `RLock`。
+
+   </details>
+
+3. `CancelledError` 为什么是 `BaseException` 而不是 `Exception`？`except Exception:` 的代码会出什么问题？
+
+   <details markdown="1"><summary>答案</summary>
+
+   为了不被普通的 `except Exception` 吞掉——取消必须传播到任务顶层。写了 `except Exception: log; continue` 的循环会把取消当成普通错误吃掉，任务永远停不下来；`asyncio.timeout()` 也依赖它。
+
+   </details>
+
+4. 下游 GPU 推理速度跟不上上游请求，用什么机制让系统稳定？三个层次各是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   背压：有界队列让生产者在 `put` 处等待；超时与取消让等太久的请求退出而不是堆积；批处理（凑 batch 再发 GPU）让吞吐随并发上升。异步生成器天然有背压——消费者不 `next`，生产者就不动。
+
+   </details>
+
+5. `TaskGroup` 比手动 `gather` 多解决了什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   结构化并发：任务归属明确（组退出时全部结束），一个子任务异常时其他子任务被取消、异常以 `ExceptionGroup` 上抛（`except*` 处理）；`gather` 默认一个失败其他继续跑、异常只报第一个。
+
+   </details>
 
 
 ## 下一篇

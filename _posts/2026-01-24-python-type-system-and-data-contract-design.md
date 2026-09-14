@@ -5,6 +5,7 @@ title: Python 在 AI-Infra（02）：类型系统与数据契约设计
 subtitle: Python Type System and Data Contract Design
 tags: [Python]
 catalog: true
+updated: 2026-09-14
 ---
 
 Python 是动态类型语言，但这不意味着"无类型"。自 Python 3.5 引入 `typing` 模块以来，类型注解已经从"可选装饰"演变为大型项目的工程标配。PyTorch、vLLM、FastAPI 等 AI Infra 项目大量依赖类型系统的高级特性。
@@ -95,6 +96,7 @@ Java 把前两件事合为一体：类型写在源码里，编译器既是提供
 | 六 | 工程落地：数据契约设计 | dataclass、Pydantic、序列化与 Schema、BaseSettings、选型指南 |
 | 七 | 附录 | Java 与 Python 的类型系统/数据契约对照、决策树、typing 速查表 |
 | 八 | 本文小结 |  |
+| 九 | 自测 | 5 道题 |
 
 
 ## 二、类型信息提供层（上）：类型表达
@@ -3250,6 +3252,56 @@ vLLM 的源码就是这个模式：API 层（`entrypoints/openai/protocol.py`）
 3. **热路径要干净**，内部传递用 `@dataclass`，不要在每 token 的循环里反复做运行时检查。
 
 再遇到 AI Infra 源码中的类型注解，就不会觉得是天书了。关键不是一次记住所有工具，而是理解每个工具解决的问题——在真实代码中遇到时能查到、能读懂、能用对。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**从哪里来**：开发者写在函数签名与类属性上的注解，解释器只把它存进 `__annotations__`，不检查也不转换；第三方库通过 stub（`.pyi`）与 `py.typed` 标记把类型信息随包分发（第二、四章）。**被谁消费**：人（作为文档）、IDE、静态检查器 mypy / pyright（在不运行的前提下推断与报错），以及运行时主动读注解的库——`dataclasses` 据此生成 `__init__`，Pydantic 据此生成校验器，FastAPI 据此解析请求（第三、五、六章）。**怎么落成数据契约**：在系统边界（配置文件、HTTP 请求、外部输入）用 Pydantic 模型把“类型 + 约束”变成可执行的解析与校验，错误在启动或入口处暴露；内部热路径用 `@dataclass` 传递、不做运行时检查（第七章）。这条链路在 Python 里是拆开的，每一环都可以只用一部分——所以要自己决定在哪里投入：注解要写、边界要校验、热路径要干净。
+
+</details>
+
+
+## 九、自测
+
+1. Python 的类型注解在运行时默认做什么？谁在消费它？
+
+   <details markdown="1"><summary>答案</summary>
+
+   什么都不做——解释器只把注解存进 `__annotations__`，不检查、不转换。消费者是人（文档）、静态检查器（mypy / pyright）、以及运行时库（Pydantic、dataclasses、FastAPI）主动读取注解。
+
+   </details>
+
+2. `@dataclass` 与 Pydantic `BaseModel` 各该用在什么位置？为什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `dataclass` 用于内部热路径：零运行时校验、开销只是属性访问；Pydantic 用于系统边界（配置、请求、外部输入）：解析 + 校验 + 错误信息，让错误在启动时或入口处暴露。每 token 的循环里做 Pydantic 校验是常见的性能事故。
+
+   </details>
+
+3. `Optional[Tensor]`、`Tensor | None`、`Union[Tensor, None]` 有区别吗？mypy 会怎么对待一个没标注的函数？
+
+   <details markdown="1"><summary>答案</summary>
+
+   语义相同，`X | None` 是 3.10+ 的写法。没标注的函数 mypy 默认不检查函数体（参数视为 `Any`），`--check-untyped-defs` 或 `strict` 才检查——所以“过了 mypy”不等于“被检查过”。
+
+   </details>
+
+4. `Protocol` 与 `ABC` 各表达什么样的接口？推理引擎的后端抽象更适合哪个？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `ABC` 是名义子类型（必须显式继承），`Protocol` 是结构子类型（有这些方法就算实现）。第三方后端不必依赖你的基类时 `Protocol` 更松；需要强制注册、共享默认实现时 `ABC`。两者 mypy 都能检查。
+
+   </details>
+
+5. 为什么“注解要写，哪怕暂时不上 mypy”？
+
+   <details markdown="1"><summary>答案</summary>
+
+   注解首先是给人读的接口文档，其次是让 IDE 能补全与跳转，再次是让将来上 mypy 时不必回头补；而边界上的 Pydantic 校验直接依赖注解生成。不写注解的代价在读别人代码时才显现。
+
+   </details>
 
 
 ## 下一篇

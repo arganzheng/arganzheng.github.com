@@ -5,6 +5,7 @@ title: Python 在 AI-Infra（06）：单元测试、问题定位与调试实践
 subtitle: Python Unit Testing, Troubleshooting, and Debugging
 tags: [Python]
 catalog: true
+updated: 2026-09-14
 ---
 
 在 AI-Infra 系统中，代码的正确性往往不能只靠阅读来判断。
@@ -56,6 +57,7 @@ catalog: true
 | 十五 | 调试决策树 | 按症状选工具的速查表 |
 | 十六 | 附：Java 与 Python 测试调试工具对照 |  |
 | 十七 | 本文小结 |  |
+| 十八 | 自测 | 5 道题 |
 
 
 ## 二、用 pytest 编写单元测试
@@ -1206,6 +1208,56 @@ graph TD
 ```
 
 这样更符合本系列的定位：从 Python 语言和工具出发，解决 AI-Infra 工程中的实际问题。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**验证行为**：`pytest` 的参数化、异常与边界测试，`fixture` 管理资源，`Mock` / `AsyncMock` / `monkeypatch` 隔离外部依赖（模型、GPU、网络），`pytest-asyncio` 测协程、超时与取消，`pytest-cov` 看分支是否被覆盖——测试要能在没有 GPU 的 CI 上跑，就必须把设备相关的部分隔到边界后面（第二至七章）。**出问题从哪里下手**，按现象选工具：异步时序错乱 → 用 `pytest-asyncio` 复现、`asyncio` debug 模式看未 await 的协程与慢回调；Mock 用错 → `AsyncMock` 与 `Mock` 的差别、`patch` 的作用域与目标路径；动态调用找不到实现 → `inspect` 看签名、`__wrapped__`、注册表内容与模块身份；内存增长 → `tracemalloc` 快照对比（Python 对象）、`memray`（原生）、`memory_summary()`（设备）；进程卡死 → `faulthandler` 预埋信号 dump 全部线程栈，或 `py-spy dump`；慢 → `cProfile` 看 Python 热点、`torch.profiler` 看 GPU 是否在等 CPU（第八至十六章）。贯穿的两条：`logging` 带上任务 / 请求上下文，`raise ... from e` 保留异常链——没有这两样，上面的工具拿到的都是残缺的现场。
+
+</details>
+
+
+## 十八、自测
+
+1. 测试一个 `async def` 的请求处理函数“5 秒内会超时并抛 `TimeoutError`”，要用哪几样东西？真等 5 秒吗？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `pytest-asyncio` 跑协程、`AsyncMock` 替换下游调用让它挂起、`asyncio.timeout()` 或被测代码自己的超时；不真等——把超时参数注入成 0.01 秒，或用假时钟（`freezegun` / 自定义 loop 时间）。
+
+   </details>
+
+2. `Mock` 与 `AsyncMock` 用错会发生什么？`monkeypatch` 与 `patch` 的作用域差别是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   用 `Mock` 替换 `async def`，`await mock()` 会报 `TypeError: object Mock can't be used in 'await' expression`；`AsyncMock` 返回可 await 的协程。`monkeypatch`（pytest fixture）在测试结束自动还原；`unittest.mock.patch` 要用上下文管理器或装饰器控制范围，裸 `patch().start()` 忘 `stop` 会泄漏到其他测试。
+
+   </details>
+
+3. 进程卡死没有任何日志，第一步用什么拿到所有线程的栈？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `faulthandler.dump_traceback_later()` 提前注册或 `faulthandler.register(signal.SIGUSR1)`，卡死时发信号把每个线程的 Python 栈打到 stderr；没有预埋的话用 `py-spy dump --pid`。原生栈用 `gdb -p` + `py-bt`。
+
+   </details>
+
+4. `except Exception as e: raise RuntimeError("load failed")` 丢了什么？怎么写？
+
+   <details markdown="1"><summary>答案</summary>
+
+   丢了原始 traceback 与异常链。写 `raise RuntimeError("load failed") from e`（显式链，`__cause__`），或直接裸 `raise` 重抛；`from None` 才是刻意切断链。
+
+   </details>
+
+5. `cProfile` 显示热点在 Python 层某函数占 60%，但 GPU 利用率只有 30%——下一步该做什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   cProfile 只看 Python 主线程 CPU 时间，看不到 GPU 与其他线程；先用 `torch.profiler` / Nsight 看时间线上 GPU 是否在等 CPU（kernel launch 稀疏），若是则那 60% 就是真瓶颈（Python 开销让 GPU 饿着），否则优化它对端到端无益。
+
+   </details>
 
 
 ## 下一篇

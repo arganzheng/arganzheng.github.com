@@ -5,6 +5,7 @@ title: Python 在 AI-Infra（07）：项目工程化与生产交付
 subtitle: Python Project Engineering and Production Delivery
 tags: [Python]
 catalog: true
+updated: 2026-09-14
 ---
 
 前面几篇讨论的都是"代码本身"：语言机制、类型与数据契约、并发、元编程、内存、测试与调试。这一篇讨论一件不同的事——**怎么把这些代码变成一个可以交付的东西**。
@@ -69,6 +70,7 @@ Java 开发者常有的一个错觉是"Python 简单，随便装装就能跑"。
 | 九 | 串起来：一个可复现的项目骨架 | 目录结构、`pyproject.toml`、Dockerfile、Makefile、CI |
 | 十 | 附：Java 与 Python 工程化工具链对照 |  |
 | 十一 | 本文小结与系列总结 |  |
+| 十二 | 自测 | 5 道题 |
 
 
 ## 二、pyproject.toml：项目元数据的单一入口
@@ -1689,3 +1691,53 @@ jobs:
 前六篇解决"写对"，第七篇解决"交付"。AI-Infra 工程里这两件事的权重是相当的——一个跑得再好但只能在作者机器上复现的服务，工程价值接近于零。
 
 最后提醒一点：**这一篇是全系列最容易过期的。** uv 仍在快速演进，PyTorch 的 CUDA 索引和版本矩阵每个大版本都在变，PEP 735 这类标准也还在落地过程中。文中的版本号和命令请以官方文档为准；但**分层的思路、抽象依赖与锁定依赖的分工、把平台相关的重依赖交给基础镜像**这些判断，应该会比具体工具活得更久。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**依赖**：`pyproject.toml` 里声明抽象依赖（兼容范围），锁文件（`uv.lock`）固定这次装的每个版本与 hash，CI 用 `uv sync --frozen` 强制锁文件与声明一致——两者不能互相替代（第二、三章）。**环境**：每个项目一个虚拟环境，Python 没有 classpath 隔离，全局 site-packages 就是事故现场；torch 与 CUDA 这类平台相关的大件交给固定 tag 的基础镜像，同时解决体积、构建缓存、跨平台锁文件三个问题，tag 绝不能是 `latest`（第四、七章）。**质量**：Python 没有编译器把关，`ruff check` + `ruff format` + `mypy src/` 进 CI 门禁就是编译器的替代品，`pytest` 与覆盖率是第二道门（第五、六章）。**制品**：src 布局 + `pyproject.toml` 构建 wheel，纯 Python 一个 wheel、带 C 扩展按平台各一个；版本号从 git tag 派生（第六章）。**镜像**：多阶段构建——基础镜像层（CUDA + torch，几乎不变）、依赖层（锁文件变才重建）、代码层（每次变）——按变化频率分层让构建缓存命中、镜像可复现（第七章）。
+
+</details>
+
+
+## 十二、自测
+
+1. `pyproject.toml` 里写 `torch>=2.4` 与锁文件里写 `torch==2.5.1`，各表达什么？只留一个行不行？
+
+   <details markdown="1"><summary>答案</summary>
+
+   前者是抽象依赖——库对外声明的兼容范围；后者是这次安装的精确解。只留前者每次装的版本不同、不可复现；只留后者无法作为库被别人依赖、无法表达兼容范围。两者都要，CI 用 `--frozen` 校验一致。
+
+   </details>
+
+2. 为什么建议把 torch 与 CUDA 放进固定 tag 的基础镜像而不是锁文件？代价是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   torch 的 wheel 几 GB、按 CUDA 版本与平台分发（锁文件里跨平台解析困难），放进镜像层可以被所有构建复用、不重复下载；代价是可复现性的责任从锁文件转到镜像 tag——tag 必须固定（不能 `latest`），且要记录镜像 digest。
+
+   </details>
+
+3. “本地测试全过、pip install 之后 import 报错”最常见的原因是什么？哪种项目布局能在本地就暴露它？
+
+   <details markdown="1"><summary>答案</summary>
+
+   flat 布局下测试导入的是源码树（当前目录在 `sys.path`），而安装产物漏了某个子包或数据文件；src 布局把源码放在 `src/pkg/`，测试必须依赖已安装的包（`pip install -e .`），漏打包在本地就报错。
+
+   </details>
+
+4. Docker 多阶段构建里三层各放什么、各在什么时候重建？
+
+   <details markdown="1"><summary>答案</summary>
+
+   基础层：CUDA 运行时 + torch，几乎不变；依赖层：`uv sync --frozen` 装锁文件里的其他依赖，锁文件变才重建；代码层：`COPY src/`，每次提交重建。顺序错了（先 COPY 代码再装依赖）每次提交都重装全部依赖。
+
+   </details>
+
+5. Java 项目里“编译不过就交付不了”，Python 项目里对应的门禁是什么？至少要哪几项？
+
+   <details markdown="1"><summary>答案</summary>
+
+   CI 里的静态检查与测试：`ruff check`（lint）、`ruff format --check`、`mypy src/`（类型）、`pytest`（含覆盖率阈值）、`uv lock --check`（锁文件一致）；任何一项失败就不产出制品。
+
+   </details>

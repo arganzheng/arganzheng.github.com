@@ -5,6 +5,7 @@ title: Python 在 AI-Infra（05）：内存管理与优化
 subtitle: Python Memory Management and Optimization
 tags: [Python]
 catalog: true
+updated: 2026-09-14
 ---
 
 在 AI-Infra 系统中，Python 通常不是执行密集计算的主体。模型推理、张量运算和部分数据处理，往往由 C、C++、CUDA 或其他原生运行时完成。
@@ -59,6 +60,7 @@ Python 更多承担以下职责：
 | 十三 | 内存优化检查清单 | 对象、复制、数据、生命周期、运行时五个层面 |
 | 十四 | 附：Java 与 Python 内存管理对照 |  |
 | 十五 | 本文小结 |  |
+| 十六 | 自测 | 5 道题 |
 
 ## 二、为什么 AI-Infra 需要理解 Python 内存
 
@@ -1366,6 +1368,57 @@ Python 名称与对象
 ```
 
 当 Python 专注于组织和管理，而连续数据、底层缓冲区和设备资源由合适的原生运行时负责时，系统才能在保持工程灵活性的同时，避免不必要的内存开销。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**由 Python 管理的**：对象头、容器、字符串、闭包、异常与 traceback、`Tensor` 的 Python 包装——引用计数为零立即释放，循环引用等分代 GC；小对象经 pymalloc 的 arena，释放后不一定还给操作系统（第二、三、四章）。**在原生缓冲区或设备上的**：`Tensor` 的数据在 `Storage` 里，CPU 侧由 allocator、GPU 侧由 CUDA caching allocator 管——`nvidia-smi` 看到的是 reserved，`memory_allocated()` 才是在用的；NumPy、Arrow、PyTorch 的缓冲区都不在 Python 堆上，`tracemalloc` 看不见（第五、六章）。**创建副本或延长生命周期的操作**：`clone()`、`contiguous()`（不连续时）、`.tolist()`、`np.array(x)` 复制；切片、`view`、`numpy()` 共享且让整块缓冲区活着；闭包捕获、`except ... as e` 持有的 traceback 帧、全局缓存、`lru_cache`、日志 handler 都会延长生命周期（第七至十章）。**持续增长时怎么定位**：先分层——RSS 涨而 `tracemalloc` 不涨是原生或碎片，`memory_reserved` 涨是 CUDA 缓存或碎片；再用 `tracemalloc` 快照对比、`objgraph` 找引用链、`memray` 看原生分配、`memory_summary()` 看设备（第十一至十四章）。
+
+</details>
+
+
+## 十六、自测
+
+1. 一个 `torch.Tensor` 对象的内存分成哪几块、各由谁管理？
+
+   <details markdown="1"><summary>答案</summary>
+
+   Python 对象头与 `Tensor` 包装（几百字节，Python 引用计数管）；`TensorImpl` / `Storage` 等 C++ 对象（`intrusive_ptr` 管）；真正的数据缓冲区（CPU 上 allocator、GPU 上 CUDA caching allocator 管）。`del tensor` 只减引用计数，数据是否释放取决于是否还有其他 view / storage 引用。
+
+   </details>
+
+2. `x[::2]`、`x.view(-1)`、`x.numpy()`、`x.clone()`、`x.contiguous()` 哪些创建副本？
+
+   <details markdown="1"><summary>答案</summary>
+
+   前三个不复制（共享 storage，`numpy()` 共享 CPU 内存）；`clone()` 总是复制；`contiguous()` 只在不连续时复制。共享意味着一个小切片会让整个大缓冲区活着。
+
+   </details>
+
+3. 引用计数已经能立即回收，为什么还需要分代 GC？什么对象会拖到 GC 才释放？
+
+   <details markdown="1"><summary>答案</summary>
+
+   引用计数处理不了循环引用（a→b→a）；带 `__del__`、互相引用的对象、闭包捕获 self 的回调、异常对象持有的 traceback 帧（`except Exception as e` 后 `e` 持有整条栈上的局部变量）都要等 GC；GC 触发按分配计数，不按内存大小。
+
+   </details>
+
+4. `nvidia-smi` 显示显存 60 GB 但 `torch.cuda.memory_allocated()` 只有 30 GB，另外 30 GB 是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   CUDA caching allocator 缓存的、已从驱动申请但当前空闲的块（`memory_reserved` − `memory_allocated`），加上 CUDA context 本身几百 MB；不是泄漏，`empty_cache()` 可归还但会让下次分配变慢。碎片化会让 reserved 远大于 allocated。
+
+   </details>
+
+5. 服务 RSS 持续增长，怎么判断是 Python 对象、原生缓冲区还是设备内存？各用什么工具？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `tracemalloc` 快照对比看 Python 对象分配点；RSS 涨而 tracemalloc 不涨 → 原生（pymalloc arena 碎片、C 扩展、glibc malloc），用 `jemalloc` / `malloc_trim` 或 `memray`；设备内存看 `memory_summary()` 与 `nvidia-smi`。先分层再找源。
+
+   </details>
+
 
 ## 下一篇
 

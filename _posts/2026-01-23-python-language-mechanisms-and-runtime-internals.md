@@ -5,7 +5,7 @@ title: Python 在 AI-Infra（01）：语言机制与运行时原理
 subtitle: Python Language Mechanisms and Runtime Internals
 tags: [Python]
 catalog: true
-updated: 2026-09-10
+updated: 2026-09-14
 ---
 
 Python 常被认为是一门"简单易学"的语言。但在深度学习框架、推理服务和分布式训练系统里，真正需要掌握的不是语法，而是语法背后的运行时模型。下面这些在 AI-Infra 代码里随处可见的写法，每一行都依赖一个可以被替换、被拦截、被扩展的机制：
@@ -120,6 +120,7 @@ import 语句 ──finder/loader──► 模块对象 ──执行顶层代码
 | 十 | 异常处理与失败传播 | 层级、错误边界、异常链、记录并重抛 |
 | 十一 | 一个推理组件的完整运行时追踪 | 按导入、创建、调用、流式、异常五个阶段追踪 `Runner`，并归纳工程建议 |
 | 十二 | 本文小结 | 开头七行代码的答案 |
+| 十三 | 自测 | 5 道题 |
 
 示例输出基于 CPython 3.12，PyTorch 源码以 2.9.0 为准。
 
@@ -1911,6 +1912,56 @@ Python 没有受检异常，所有异常都是 Java 意义上的 `RuntimeExcepti
 这是从"会写 Python"到"能读懂 Python 工程和 AI-Infra 框架"的第一步。后续六篇分别讨论类型系统、并发与异步、动态机制与插件架构、内存管理、测试与调试、工程化与交付，每一篇都会用到本文的某一组机制。
 
 配套代码：本文验证各个结论用的小脚本（`dis` 与 code object、import 系统、描述符优先级、生成器与上下文管理器、自定义 `MetaPathFinder`、装饰器顺序）在 [ai-learning-labs/python-for-ai-infra/01-language-mechanisms](https://github.com/arganzheng/ai-learning-labs/tree/main/python-for-ai-infra/01-language-mechanisms)，只依赖标准库。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+按这段代码的四个阶段回答。**被加载**：`import` 是运行时动作——`PathFinder` 沿 `sys.path` 找到模块，`.py` 编译成字节码执行顶层代码，`.so` 由 `ExtensionFileLoader` `dlopen` 并调 `PyInit_*`；顶层代码执行的副作用（装饰器注册、类创建）就在这一步发生，所以“注册表为什么是空的”几乎总是导入问题（第二、四章）。**创建对象**：`Runner(model)` 走 `type.__call__` → `__new__` → `__init__`；之后每次 `obj.attr` 按“数据描述符 → 实例 `__dict__` → 类 MRO 上的非数据描述符 / 类属性 → `__getattr__`”查找，`nn.Module` 的 `__setattr__` / `__getattr__` 就插在这条链上（第五、六章）。**执行任务**：`model(x)` 查类型上的 `__call__` 经过 hooks 再到 `forward`；`for` 用迭代协议，生成器是在 `yield` 处挂起的帧；装饰器在定义时执行一次、返回一个替代对象（第六、七、八章）。**释放资源**：`with` 展开为 `__enter__` / `__exit__`，异常沿帧链向外传播，途经每个 `__exit__` 与 `finally`，这就是上下文管理器能恢复线程局部状态的原因；对象在引用计数归零时立即释放，循环引用等 GC（第九、十章）。第十一章把这四步在一个推理组件上从头追了一遍。
+
+</details>
+
+
+## 十三、自测
+
+1. `import torch` 为什么能把几百 MB 的 C++ 库加载进来并完成算子注册？涉及导入系统的哪两个组件？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `PathFinder` 在 `sys.path` 上找到 `torch/_C.*.so`，`ExtensionFileLoader` 用 `dlopen` 加载它并调用 `PyInit__C`；`.so` 只是导入系统里一种普通的 loader 处理的模块。算子注册是 `torch/__init__.py` 及子模块顶层代码执行的副作用——`import` 是运行时动作。
+
+   </details>
+
+2. `model(x)` 与 `model.forward(x)` 为什么不等价？
+
+   <details markdown="1"><summary>答案</summary>
+
+   调用语法查的是**类型**上的 `__call__`：`nn.Module.__call__` → `_wrapped_call_impl` → pre-hooks → `forward` → hooks。直接调 `forward` 绕过全部 hook（包括 `register_forward_hook` 注册的），行为可能不同。
+
+   </details>
+
+3. 写了 `@register("cuda")` 装饰器的后端在注册表里找不到，两个最常见的原因是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   装饰器在**定义时**执行一次：（1）它所在的模块从未被导入，注册没发生；（2）同一模块被以两个名字导入（如 `pkg.mod` 与 `mod`，`sys.path[0]` 差异导致），注册发生了两次或落到另一份模块对象里。
+
+   </details>
+
+4. `self.linear = nn.Linear(4, 4)` 之后 `self.linear` 为什么不在 `self.__dict__` 里却能访问？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `Module.__setattr__` 拦截赋值，把子模块写进 `_modules` 字典而不是实例 `__dict__`；读取时属性查找在类与实例字典都找不到，落到 `__getattr__`，它从 `_modules` / `_parameters` / `_buffers` 取回。
+
+   </details>
+
+5. `for batch in loader` 里 `for` 对 `loader` 做了什么？为什么每个 epoch 能重新迭代？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `for` 先调用 `loader.__iter__()` 得到一个**新的**迭代器对象，再反复调它的 `__next__` 直到 `StopIteration`；`DataLoader.__iter__` 每次都返回新迭代器（含新的 worker 进程），所以下一个 epoch 从头开始。
+
+   </details>
 
 
 ## 下一篇

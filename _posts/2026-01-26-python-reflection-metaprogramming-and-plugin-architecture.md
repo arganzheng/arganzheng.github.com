@@ -5,6 +5,7 @@ title: Python 在 AI-Infra（04）：Python的动态机制及工程实践
 subtitle: Python Dynamic Mechanisms and Practice
 tags: [Python]
 catalog: true
+updated: 2026-09-14
 ---
 
 在传统业务系统中，Python 的动态特性常常被视为一种“方便开发”的语言能力：可以通过字符串获取属性，可以在运行时导入模块，也可以用装饰器包装函数。
@@ -39,6 +40,7 @@ catalog: true
 | 十 | 工程决策指南：权衡灵活性与可维护性 | 热路径开销实测、调试与静态分析代价、安全边界、故障隔离、可观测性 |
 | 十一 | 附：Java 与 Python 动态机制对照 | 机制层与架构层的逐项对照 |
 | 十二 | 本文小结 |  |
+| 十三 | 自测 | 5 道题 |
 
 
 ## 二、AI-Infra 为什么需要动态机制
@@ -2244,6 +2246,56 @@ def dump_registry(registry: dict[str, type]) -> list[dict[str, str]]:
 - 路由分发与插件化解决的是同一个问题——名字到实现的映射——但它在热路径上，因此要把 `inspect.signature()` 等反射操作压缩到路由编译期，运行时只做查表。
 - 动态机制的账单分三类：性能（热路径开销）、可维护性（栈追踪晦涩、静态分析与 IDE 失效）和安全（任意导入、任意属性访问、任意表达式执行）。用户输入可以决定"选哪个名字"，但不能决定"名字长什么样"；插件错误要有失败分级和故障隔离，动态系统必须能被审计。
 - 与 Java 对照：机制层 Python 更直接，架构层两边高度相似——架构模式与语言无关，真正因语言而异的只是底下那层机制。
+
+<details markdown="1">
+<summary><b>核心问题的答案</b></summary>
+
+**运行时访问与操作已有结构**是反射：`getattr` / `setattr` / `hasattr`、`inspect.signature` / `getmembers`、`__dict__` 与 `__class__`、`importlib` 按名字加载模块（第二、三章）。**在定义、创建、执行过程中介入**是元编程，按侵入性递增：装饰器（定义时替换函数 / 类）、描述符（拦截属性访问）、`__init_subclass__`（子类定义时被调用）、元类（改变类的创建方式）；能用上一层就不下沉（第四至七章）。**应用到插件与路由**：插件系统 = 注册表（名字 → 实现）+ 发现（显式导入 / 包扫描 / 入口点）+ 契约校验（启动时验证接口）+ 正式边界（身份、接口、配置、生命周期）；路由分发解决同一个“名字到实现”的问题但在热路径上，所以把 `inspect.signature` 一类反射压缩到启动的编译期、运行时只查表（第八至十章）。贯穿的原则：动态机制只在启动时“选择”，热路径必须静态；用户输入能决定“选哪个名字”，不能决定“名字长什么样”（第十一章）。
+
+</details>
+
+
+## 十三、自测
+
+1. “在类定义时自动把子类登记到注册表”，用元类、`__init_subclass__`、类装饰器三种做法哪个最合适？为什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `__init_subclass__`：在基类里写一个方法即可，子类无需任何声明，不改变类的类型（元类会）、不需要每个子类都加装饰器；元类只在必须改变类的**创建方式**时才用。侵入性顺序：显式注册 → 装饰器 → 描述符 → `__init_subclass__` → 元类，只有上一层做不到才下沉。
+
+   </details>
+
+2. 插件系统的“发现”有哪三种机制？各在什么场景合适？
+
+   <details markdown="1"><summary>答案</summary>
+
+   显式导入（可控、可审计，插件少时最好）；包扫描（`pkgutil.walk_packages`，同一代码库内的插件）；入口点（`importlib.metadata.entry_points`，第三方 pip 包提供的插件，vLLM 的 platform plugin 用它）。
+
+   </details>
+
+3. 为什么 `inspect.signature()` 不能放在请求路由的热路径上？该放在哪？
+
+   <details markdown="1"><summary>答案</summary>
+
+   它每次调用都要解析函数对象、构造 `Signature` / `Parameter`，微秒到十微秒级，每请求乘上去就是可观开销且不可预测；应在启动的“路由编译期”解析一次、预绑定参数，运行时只做字典查表。原则：动态机制负责启动时“选择”，不负责运行时“执行”。
+
+   </details>
+
+4. 用户输入可以决定什么、不能决定什么？举一个越界的例子。
+
+   <details markdown="1"><summary>答案</summary>
+
+   可以决定“选哪个名字”（在已注册的白名单里查表），不能决定“名字长什么样”——不能拿用户字串去 `importlib.import_module`、`getattr(obj, name)` 或 `eval`。例：`backend = request.args["backend"]; import_module(f"backends.{backend}")` 允许导入任意模块。
+
+   </details>
+
+5. 描述符协议的三个方法是什么？`@property` 与 `nn.Parameter` 的登记各用到了它的哪部分？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `__get__` / `__set__` / `__delete__`；`property` 是一个数据描述符（`__get__` + `__set__`）；`nn.Module` 登记参数不用描述符，而是 `__setattr__` 拦截——两者都是“属性访问被拦截”，一个在描述符层、一个在实例层。
+
+   </details>
 
 
 ## 下一篇
