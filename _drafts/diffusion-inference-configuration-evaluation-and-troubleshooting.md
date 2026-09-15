@@ -82,11 +82,11 @@ schnell / Turbo / DMD 蒸馏版
 
 | 步 | 输入 | 做什么 | 输出 |
 |---|---|---|---|
-| ① 算账 | 模型规格、形状、步数、CFG、GPU | `diffusion_ledger.py`；对照 xDiT / SGLang 的公开实测校准 $\eta$ | 三段权重与峰值是否放得下；单卡每步 ms、总秒；attention 占比（决定第④步的重点） |
+| ① 算账 | 模型规格、形状、步数、CFG、GPU | `diffusion_ledger.py`；对照 xDiT / SGLang 的公开实测校准 $$\eta$$ | 三段权重与峰值是否放得下；单卡每步 ms、总秒；attention 占比（决定第④步的重点） |
 | ② 无损单卡 | ① 的结果 | 放不下 → 三段 offload / 视频逐层 offload；VAE tiling；FA3；`torch.compile` 或 breakable CUDA graph；`--warmup-resolutions` 列出全部服务形状 | **基线**：固定 20 个 prompt × seed 的图、每步 ms、峰值显存 |
 | ③ 有损 I | 基线 | FP8 线性层（Hopper）；SageAttention；对基线测 PSNR / SSIM / LPIPS | 门限 PSNR > 35 dB 通过则采用 |
 | ④ 有损 II | ③ 的结果、质量预算 | 图像：跨步缓存阈值扫描；视频：稀疏 attention 后端 + 缓存；每档测 PSNR 分布 p10 与人工 A/B 通过率 | 质量预算内最大加速的档位；**蒸馏模型跳过缓存** |
-| ⑤ 多卡 | 延迟 SLO、互联 | NVLink：USP $p$ 与 CFG 2 × USP $p/2$ 实测；PCIe / 以太网：Ulysses × PipeFusion；装不下：TP / FSDP；视频加 VAE patch 并行 | 并行度与每步 ms；SP 度整除 head 数与 $N$ |
+| ⑤ 多卡 | 延迟 SLO、互联 | NVLink：USP $$p$$ 与 CFG 2 × USP $$p/2$$ 实测；PCIe / 以太网：Ulysses × PipeFusion；装不下：TP / FSDP；视频加 VAE patch 并行 | 并行度与每步 ms；SP 度整除 head 数与 $$N$$ |
 | ⑥ 少步 | 允许换模型 | schnell / Turbo / DMD 版；重做 ②③（缓存与 PipeFusion 失效、CUDA graph 变必需、VAE 占比升） | 新基线 |
 | ⑦ serving | QPS、SLO、形状分布 | 按形状分池；每池实例数 = QPS × GPU·秒 × 余量；三段是否分离（视频分 VAE）；同步 / job API；LoRA 策略 | 部署拓扑 |
 | ⑧ 面板 | — | 第七章的指标与告警；质量抽检 | 值班手册 |
@@ -112,7 +112,7 @@ schnell / Turbo / DMD 蒸馏版
 | **排除 warmup** | 第一次请求含编译（1–3 分钟）、CUDA graph 捕获、cuDNN 自动调优、allocator 增长 | 先跑 2–3 个同形状请求再计时；SGLang 的 `--warmup-mode request`，看日志里 "(with warmup excluded)" |
 | **步级计时** | 端到端里混着文本编码、VAE、IO；优化多数作用在步上 | `torch.cuda.Event` 夹每步的 transformer forward；报"每步 ms"与"总秒"两个数 |
 | **三段分开** | 少步模型上 VAE 占 15%，优化对象不同 | 分别计时 text / denoise / decode（vLLM-Omni 的 `--log-stats` 与 pipeline profiler、SGLang 的 `--perf-dump-path` 都给分段） |
-| **同一形状** | 不同分辨率的 $N$ 不同，不可比 | 固定 $H, W, F, T, g$、prompt 长度（T5 pad 到 512 时无关；不 pad 的模型有关） |
+| **同一形状** | 不同分辨率的 $$N$$ 不同，不可比 | 固定 $$H, W, F, T, g$$、prompt 长度（T5 pad 到 512 时无关；不 pad 的模型有关） |
 | **ABBA 交替** | GPU 频率、温度、其他进程的漂移 | 基线 / 候选 / 候选 / 基线交替各 ≥ 3 次，取中位数 |
 | **吞吐与延迟分开报** | batch 与 SP 对两者的影响相反 | 吞吐用并发压测（张/s/卡），延迟用单请求 p50 / p99 |
 | **同一后端** | `--backend diffusers` 回退时的数字不代表原生性能 | 确认日志没有 "Falling back to diffusers" |
@@ -161,7 +161,7 @@ FID 比较两组图的 Inception 特征分布，对**单张图的细节变化**�
 | 采样噪声的生成器 | 若在不同设备 / 不同 batch 位置生成，噪声不同 | 用 CPU generator 或固定设备；`n > 1` 时每张独立 seed |
 | 非确定性算子 | atomics 的累加顺序（某些 scatter / 反向）；推理里少见 | `torch.use_deterministic_algorithms(True)` 检查 |
 | **`torch.compile` / CUDA graph** | 融合改变浮点顺序：SSIM 0.98 级，不 bit-exact | 接受；A/B 时以 compile 后为基线 |
-| **并行度** | SP 的 all-to-all / reduce 顺序、TP 的 all-reduce 顺序随 $p$ 变 | 同 $p$ 内确定；换 $p$ 后重建基线 |
+| **并行度** | SP 的 all-to-all / reduce 顺序、TP 的 all-reduce 顺序随 $$p$$ 变 | 同 $$p$$ 内确定；换 $$p$$ 后重建基线 |
 | **跨步缓存** | 阈值决策对输入敏感；SP 下若决策不一致则各卡不同 | 决策全局一致；固定阈值下同输入同决策 |
 | **动态批** | batch 里的位置影响某些 kernel 的分块 | 通常 bit-exact；不放心就单请求验证 |
 | 量化的动态 scale | per-token 的激活 scale 随 batch 内容变 | FP8 下同 batch 组成才 bit-exact |
@@ -179,7 +179,7 @@ FID 比较两组图的 Inception 特征分布，对**单张图的细节变化**�
 | 4 | **CFG 模型开缓存后饱和 / 发灰** | 条件 / 无条件分支共用缓存状态 | 单独跑 CFG 关闭对比 | 按 CFG 上下文分状态（第三篇） |
 | 5 | **视频闪烁** | 稀疏 attention 的静态窗口截掉运动；缓存在帧间决策不一致；3D VAE 时间分块接缝 | 逐帧 PSNR 曲线的周期性凹陷（分块接缝周期 = chunk 长度）vs 随机凹陷（缓存 / 稀疏） | 换在线稀疏（SVG）或降稀疏度；VAE 分块加重叠；缓存整段一致决策 |
 | 6 | **p99 抬升、p50 不变**：开 compile 后出现 | 重编译风暴——用户请求了未 warmup 的分辨率 / 帧数 / prompt 长度组合 | 日志里 recompile 次数；请求形状的分布 | 限制服务形状 + `--warmup-resolutions` 全列；或 `dynamic=True`；按形状分池 |
-| 7 | **SP 启动报错或 hang** | SP 度不整除 head 数（Ulysses）或 $N$（padding 路径 bug）；跨步缓存各卡决策不一致；某 rank 走了不同分支 | `nccl` 超时的 rank；各 rank 的缓存决策日志 | 合法的度数；决策 all-reduce；`NCCL_DEBUG=INFO` 定位缺席的 collective |
+| 7 | **SP 启动报错或 hang** | SP 度不整除 head 数（Ulysses）或 $$N$$（padding 路径 bug）；跨步缓存各卡决策不一致；某 rank 走了不同分支 | `nccl` 超时的 rank；各 rank 的缓存决策日志 | 合法的度数；决策 all-reduce；`NCCL_DEBUG=INFO` 定位缺席的 collective |
 | 8 | **LoRA 未生效 / 效果过强** | 权重名映射失败静默跳过；scale 传错（0 或 2）；量化路径不支持 LoRA（GGUF） | 加载日志的 "unexpected / missing keys"；请求里的 scale | 修映射；SVDQuant 用 Nunchaku 的 LoRA 路径；GGUF 与 LoRA 互斥（SGLang 会在启动时拒绝） |
 | 9 | **长 prompt 被截断**：后半段描述不生效 | T5 / CLIP 的 token 上限（77 / 256 / 512） | tokenizer 的截断警告 | 用 T5 / LLM 编码器的模型；prompt 改写压缩 |
 | 10 | **吞吐随并发不增、GPU-Util 100%** | 正常：compute-bound 下 batch 不提吞吐（第七篇）——不是故障 | 单请求 MFU 已 > 0.5 | 加实例（DP）；换少步模型；不要调 batch |
@@ -227,13 +227,13 @@ $$
 
 | 篇 | 改账上的什么 | FLUX 1024² 的数字 | Wan 720p 81f 的数字 |
 |---|---|---|---|
-| 01 负载画像 | 建账：三段、$N$、$2P_\text{tok}N + 4LN^2d$、roofline | 74 T / 步、2.1 P、eager 6.7 s、attention 20% | 6.5 P / 步、650 P、24 min、attention 72% |
-| 02 单卡 | $\eta$：0.31 → 0.5+；Tensor Core 峰值；权重字节 | compile 4.3 s、FP8 ~2.9 s、INT4 在 4090 上 3× | FA3 / Sage 主项：24 → 10 min |
-| 03 跨步缓存 | $T \to T_\text{full} + T_\text{hit}\epsilon$ | 1.5–2× | 2–4× |
-| 04 视频与稀疏 | attention 项的系数 $s^{-1}$；Amdahl | 无关（20%） | 稀疏 80% → 2×；叠加到 6.6 min |
-| 05 多卡 | $p \cdot e(p)$，通信换墙钟；PipeFusion 的 $1/L$ 通信 | 4 卡 2.63×；以太网用 PipeFusion | 8 卡 USP 必需 → 40 s |
-| 06 少步与自回归 | $T$ 与 $g$ 直接改；缓存 / PipeFusion / CFG 并行失效；KV cache 回归 | schnell 0.8 s；缓存零收益 | FastWan 3 步；Self-Forcing 实时、chunk KV 0.86 GB |
-| 07 serving | 卡数 = QPS × GPU·秒；batch 不参与；时长可预测；三段分离；job API | 100 QPS：670 → 80 张卡 | $0.22–1 / 段；异步 job |
+| 01 负载画像 | 建账：三段、$$N$$、$$2P_\text{tok}N + 4LN^2d$$、roofline | 74 T / 步、2.1 P、eager 6.7 s、attention 20% | 6.5 P / 步、650 P、24 min、attention 72% |
+| 02 单卡 | $$\eta$$：0.31 → 0.5+；Tensor Core 峰值；权重字节 | compile 4.3 s、FP8 ~2.9 s、INT4 在 4090 上 3× | FA3 / Sage 主项：24 → 10 min |
+| 03 跨步缓存 | $$T \to T_\text{full} + T_\text{hit}\epsilon$$ | 1.5–2× | 2–4× |
+| 04 视频与稀疏 | attention 项的系数 $$s^{-1}$$；Amdahl | 无关（20%） | 稀疏 80% → 2×；叠加到 6.6 min |
+| 05 多卡 | $$p \cdot e(p)$$，通信换墙钟；PipeFusion 的 $$1/L$$ 通信 | 4 卡 2.63×；以太网用 PipeFusion | 8 卡 USP 必需 → 40 s |
+| 06 少步与自回归 | $$T$$ 与 $$g$$ 直接改；缓存 / PipeFusion / CFG 并行失效；KV cache 回归 | schnell 0.8 s；缓存零收益 | FastWan 3 步；Self-Forcing 实时、chunk KV 0.86 GB |
+| 07 serving | 卡数 = QPS × GPU·秒；batch 不参与；时长可预测；三段分离；job API | 100 QPS：670 → 80 张卡 | \$0.22–1 / 段；异步 job |
 | 08 引擎 | 机制在三个引擎的位置与取向 | SGLang：serving 结构；vLLM-Omni：stage；xDiT：并行包装 | |
 | 09 配置与运维 | 推导顺序、评测、确定性、故障、面板 | | |
 
@@ -279,14 +279,14 @@ $$
 
    <details markdown="1">
    <summary>答案</summary>
-   straggler：rank 3 的卡降频 / 温度高 / 有其他进程；SP 切分不均（$N$ 不整除 $p$，rank 3 多拿了 padding 或多一块）；rank 3 的 NCCL 链路（NVLink 拓扑上离得远、或落到 PCIe）；缓存决策不一致导致 rank 3 走了全算路径而其他 rank 复用（若决策未全局同步——这会更严重地表现为 hang 或错图）。先看 `nvidia-smi` 的频率与进程、再看 profiler 里该 rank 的 NCCL 等待时间。详见[第六章](#六常见故障)、[第七章](#七可观测)。
+   straggler：rank 3 的卡降频 / 温度高 / 有其他进程；SP 切分不均（$$N$$ 不整除 $$p$$，rank 3 多拿了 padding 或多一块）；rank 3 的 NCCL 链路（NVLink 拓扑上离得远、或落到 PCIe）；缓存决策不一致导致 rank 3 走了全算路径而其他 rank 复用（若决策未全局同步——这会更严重地表现为 hang 或错图）。先看 `nvidia-smi` 的频率与进程、再看 profiler 里该 rank 的 NCCL 等待时间。详见[第六章](#六常见故障)、[第七章](#七可观测)。
    </details>
 
 4. 给定：Qwen-Image（20B，CFG，50 步），4×H100，SLO p99 5 s，允许有损但 PSNR ≥ 33 dB。按推导顺序给出配置与预期。
 
    <details markdown="1">
    <summary>答案</summary>
-   ① 账：单卡 52.5 GiB 放得下，eager 每步 352 ms × 50 = 17.6 s（$\eta$ 0.45）。② compile（或 BCG，Qwen-Image 60 层小算子多）+ FA3 → 约 12 s。③ FP8 → 约 9 s，PSNR ~36 通过。④ 缓存扫描：阈值到 PSNR 33 dB 处约 1.5× → 6 s。⑤ 仍超 SLO：4 卡 CFG 2 × Ulysses 2 vs Ulysses 4 实测，约 2.6× → 2.3 s，达到。⑦ 卡数 = QPS × 9 GPU·秒（多卡不减 GPU·秒）。若允许 ⑥ 换蒸馏版则单卡可达 SLO、改 DP。详见[第二章](#二配置推导)。
+   ① 账：单卡 52.5 GiB 放得下，eager 每步 352 ms × 50 = 17.6 s（$$\eta$$ 0.45）。② compile（或 BCG，Qwen-Image 60 层小算子多）+ FA3 → 约 12 s。③ FP8 → 约 9 s，PSNR ~36 通过。④ 缓存扫描：阈值到 PSNR 33 dB 处约 1.5× → 6 s。⑤ 仍超 SLO：4 卡 CFG 2 × Ulysses 2 vs Ulysses 4 实测，约 2.6× → 2.3 s，达到。⑦ 卡数 = QPS × 9 GPU·秒（多卡不减 GPU·秒）。若允许 ⑥ 换蒸馏版则单卡可达 SLO、改 DP。详见[第二章](#二配置推导)。
    </details>
 
 5. 上线前的三次故障注入各验证什么？
@@ -300,4 +300,4 @@ $$
 
 [^q1]: 每步 ms（按形状分位）与由账算出的 MFU、三段各自的 ms、缓存命中率与命中步位置直方图、队列深度与估算等待、每卡峰值显存（含 VAE 解码尖峰）、每步 NCCL 时间占比与 rank 间每步时间差、重编译次数、API 的 p50 / p99 与错误率、job 积压；以及一条性能面板看不出的：定期对固定 prompt × seed 生成并与基线比 PSNR 的质量抽检。告警线：每步 +20%、命中率 ±30%、等待 > SLO/2、显存 > 90%、抽检 PSNR 低于门限 3 dB、重编译 > 0、rank 差 > 10%。详见[第七章](#七可观测)。
 
-[^q2]: ① 用 `diffusion_ledger.py` 算三段 FLOPs / 显存 / 时间，判断放不放得下、离 SLO 多远、attention 占比；② 无损单卡：offload / VAE tiling → FA3 → compile 或 BCG → warmup 全部服务形状，建立固定 seed 的基线；③ 有损 I：FP8、SageAttention，门限 PSNR > 35 dB；④ 有损 II：缓存阈值扫描（视频加稀疏 attention），取质量预算内最大档，蒸馏模型跳过；⑤ 延迟仍不够：多卡——NVLink 上 USP（CFG 模型比较 CFG 2 × USP $p/2$），PCIe / 以太网加 PipeFusion，装不下用 TP / FSDP，视频加 VAE patch 并行；⑥ 可换模型则用少步版并重做 ②③；⑦ serving：按形状分池，实例数 = QPS × GPU·秒 × 余量，视频分 VAE 与异步 job；⑧ 面板与告警。原则：无损先于有损、切卡先于换模型、卡数由 GPU·秒决定。详见[第二章](#二配置推导)。
+[^q2]: ① 用 `diffusion_ledger.py` 算三段 FLOPs / 显存 / 时间，判断放不放得下、离 SLO 多远、attention 占比；② 无损单卡：offload / VAE tiling → FA3 → compile 或 BCG → warmup 全部服务形状，建立固定 seed 的基线；③ 有损 I：FP8、SageAttention，门限 PSNR > 35 dB；④ 有损 II：缓存阈值扫描（视频加稀疏 attention），取质量预算内最大档，蒸馏模型跳过；⑤ 延迟仍不够：多卡——NVLink 上 USP（CFG 模型比较 CFG 2 × USP $$p/2$$），PCIe / 以太网加 PipeFusion，装不下用 TP / FSDP，视频加 VAE patch 并行；⑥ 可换模型则用少步版并重做 ②③；⑦ serving：按形状分池，实例数 = QPS × GPU·秒 × 余量，视频分 VAE 与异步 job；⑧ 面板与告警。原则：无损先于有损、切卡先于换模型、卡数由 GPU·秒决定。详见[第二章](#二配置推导)。

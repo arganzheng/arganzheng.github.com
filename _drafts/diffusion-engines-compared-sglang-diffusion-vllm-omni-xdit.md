@@ -35,6 +35,12 @@ Req · 动态批处理准入 · warmup"] --> SG5["GPUWorker × num_gpus
 stages：text_encoding → latent_preparation → denoising → decoding"] --> SG7["runtime/models/ 原生 DiT
 runtime/layers/：USPAttention · fused ops · cache"]
     end
+    classDef sg fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class SG1 sg
+```
+
+```mermaid
+flowchart TB
     subgraph VO["vLLM-Omni（vllm_omni.diffusion）"]
         direction TB
         VO1["vllm serve MODEL --omni
@@ -47,6 +53,12 @@ RequestScheduler / StepScheduler（sched/）"] --> VO5["MultiprocExecutor → Wo
 （worker/diffusion_model_runner.py）"] --> VO7["models/flux/pipeline_flux.py + flux_transformer.py
 attention/ · distributed/ · cache/ · offloader/"]
     end
+    classDef vo fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class VO1 vo
+```
+
+```mermaid
+flowchart TB
     subgraph XD["xDiT（xfuser）"]
         direction TB
         XD1["torchrun --nproc_per_node=N
@@ -60,13 +72,8 @@ attention/ · distributed/ · cache/ · offloader/"]
 USP：core/long_ctx_attention/"] --> XD7["diffusers 的 transformer 原样执行
 每个 rank 一份"]
     end
-
-    classDef sg fill:#eef6ff,stroke:#5b8fd6,color:#222
-    classDef vo fill:#eefaf0,stroke:#4d9a5c,color:#222
     classDef xd fill:#fff7e0,stroke:#c98a00,color:#222
-    class SG1,SG2,SG3,SG4,SG5,SG6,SG7 sg
-    class VO1,VO2,VO3,VO4,VO5,VO6,VO7 vo
-    class XD1,XD2,XD3,XD4,XD5,XD6,XD7 xd
+    class XD1 xd
 ```
 
 | 维度 | SGLang Diffusion | vLLM-Omni | xDiT |

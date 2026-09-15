@@ -603,8 +603,7 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   renumbered 10 / 11 and re-dated to 09-04 … 09-12 and 09-13 … 09-17 to keep
   publication order = reading order.
   verl is the single deep-dive framework (源码线 + 8 卡实践); slime / AReaL appear
-  only as 对照 in post 7. Planned next: a short 选修 series on diffusion-model
-  inference infra (5 posts). Version baseline in the overview: verl v0.9.0, slime v0.3.0, OpenRLHF
+  only as 对照 in post 7. Version baseline in the overview: verl v0.9.0, slime v0.3.0, OpenRLHF
   v0.11.0, AReaL paper/docs, vLLM v0.27.1, PyTorch 2.13.0, Megatron Core 0.18.0.
   Only post 1 has a companion script (`ai-learning-labs/rl-post-training-infra/rl_ledger.py`);
   posts 2–8 deliberately have none — the author asked to stop writing
@@ -613,6 +612,41 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   verl v0.9.0 / vLLM v0.27.1 / slime v0.3.0 / AReaL; cite paths + function
   names, never line numbers. Overview posts that link to future-dated posts
   fail lychee until those dates — build locally with `--future` to check.
+- Series `diffusion-inference-infra` (《扩散模型推理基础设施：从一次去噪到一个生成服务》,
+  Infra roadmap 选修, to be numbered 12) is **written but unpublished**: overview
+  `_drafts/diffusion-model-inference-infrastructure.md` + 9 body posts in
+  `_drafts/` (slugs `diffusion-inference-workload-anatomy-and-cost-ledger`,
+  `single-gpu-diffusion-execution-attention-compile-quantization-offload`,
+  `timestep-redundancy-caching-and-step-skipping`,
+  `video-diffusion-long-sequence-attention-and-sparsity`,
+  `multi-gpu-diffusion-parallelism-usp-cfg-pipefusion`,
+  `few-step-and-autoregressive-video-generation-systems`,
+  `diffusion-serving-shapes-batching-disaggregation-and-cost`,
+  `diffusion-engines-compared-sglang-diffusion-vllm-omni-xdit`,
+  `diffusion-inference-configuration-evaluation-and-troubleshooting`), written
+  2026-09-15. Drafts carry a provisional `date: 2026-09-18 … 09-27` in front
+  matter **only to order the series nav** (drafts have no filename date);
+  preview with `jekyll build --drafts --future -d /tmp/_site_drafts` + a static
+  server on :4001 + `SITE=http://localhost:4001 node tools/check-render.cjs`.
+  No single deep-dive framework (author's choice): mechanisms first, each post
+  ends with an 「实现对照」 table over SGLang Diffusion v0.5.19
+  (`../sglang-v0.5.19/python/sglang/multimodal_gen/`), vLLM-Omni v0.28.0
+  (`../vllm-omni-v0.28.0/vllm_omni/diffusion/`), xDiT main 2026-09-11 `3611f6b`
+  (`../xDiT/xfuser/`, no tags) and diffusers v0.40.0 (`../diffusers-v0.40.0`);
+  post 8 walks one request through all three. Only post 1 has a lab
+  (`ai-learning-labs/diffusion-inference-infra/diffusion_ledger.py`, stdlib);
+  FLOPs use `P_tok` (parameters a token actually passes: FLUX 6.45B of 11.9B),
+  MFU 0.45 default (xDiT measured eager 0.31 / compile 0.49). Inline math must
+  be `$$…$$` (kramdown turns it into `\(…\)`; single `$` is literal — the
+  first draft of this series had 660 of them). Literal prices are `\$2.5`.
+  **Publish checklist** (when the author picks dates): remove `date:`, `git mv`
+  each draft to `_posts/YYYY-MM-DD-<slug>.md` (overview first, daily, after
+  09-17 or wherever the timeline is re-cut); Infra roadmap: 学习路径 table 选修
+  row → 12 + link, rewrite the 「选修：扩散模型推理基础设施」 paragraph as a
+  series intro, add a row to 系列总览 (+ 时长) and 配套代码, add 12 to the
+  多模态 row of 「与算法工程师地图的关系」; full-stack roadmap: 现状 table,
+  「两个选修」 wording, counts (93 → 102 posts) and hours; algorithm roadmap L7
+  paragraph: point the 扩散成本 sentence at Infra 12; this timeline paragraph.
 - Companion code lives in `../ai-learning-labs` (git repo, pushed by the
   user). Its `.venv/` (Python 3.12 via `~/.local/bin/python3.12`, torch CPU,
   numpy, tiktoken, tokenizers) is gitignored; recreate with

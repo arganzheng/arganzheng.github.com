@@ -8,7 +8,7 @@ catalog: true
 date: 2026-09-20
 ---
 
-上一篇算出 FLUX.1-dev 一步 74 TFLOPs、eager 下 MFU 只有 0.31。这一篇讨论**不改变这 74 TFLOPs**（或改变得可控）的全部单卡手段：让同样的 FLOPs 跑得更快（换 attention 后端、编译、量化到 FP8 / INT4 用更快的 Tensor Core），以及让 31.5 GiB 的权重装进 24 GB 的卡（三段的 offload、逐层 offload、VAE 分块）。它们在账上改的是 $\eta$ 与字节，不是 FLOPs 的公式。
+上一篇算出 FLUX.1-dev 一步 74 TFLOPs、eager 下 MFU 只有 0.31。这一篇讨论**不改变这 74 TFLOPs**（或改变得可控）的全部单卡手段：让同样的 FLOPs 跑得更快（换 attention 后端、编译、量化到 FP8 / INT4 用更快的 Tensor Core），以及让 31.5 GiB 的权重装进 24 GB 的卡（三段的 offload、逐层 offload、VAE 分块）。它们在账上改的是 $$\eta$$ 与字节，不是 FLOPs 的公式。
 
 单卡优化的顺序有讲究：先做**无损**的（后端、编译、offload、VAE 分块——输出与基线 bit-exact 或只有浮点漂移），再做**有损**的（FP8、INT4、8-bit attention——输出可见地变了，需要质量预算）。三个引擎的文档都把 flag 分成这两栏，本文也按这个顺序。
 
@@ -21,26 +21,37 @@ date: 2026-09-20
 ### 1. 先说答案：六种手段，各改账上的哪一项
 
 ```mermaid
-flowchart TB
-    subgraph LEDGER["第一篇的账：t_step = g · FLOPs_fwd / (峰值 · η)；显存 = 权重 + 激活 + VAE 峰值"]
+flowchart LR
+    subgraph OPT["六种手段"]
+        direction TB
+        A["attention 后端
+FA2 → FA3 / SageAttention"]
+        C["torch.compile / CUDA graph
+小算子融合、launch 摊平"]
+        F["融合 kernel
+adaLN · QK-norm+RoPE · GELU epilogue"]
+        Q["量化 FP8 / INT4
+用 2× / 4× 吞吐的 Tensor Core"]
+        O["offload
+三段轮流在卡上 · 逐层预取"]
+        T["VAE tiling / slicing"]
+    end
+    subgraph LEDGER["改账上的哪一项
+t_step = g · FLOPs_fwd / (峰值 · η)
+显存 = 权重 + 激活 + VAE 峰值"]
         direction TB
         ETA["η（MFU）"]
         PEAK["峰值（Tensor Core 类型）"]
         W["权重字节"]
         VAEM["VAE 解码峰值"]
     end
-    A["attention 后端
-FA2 → FA3 / SageAttention"] --> ETA
-    C["torch.compile / CUDA graph
-小算子融合、launch 摊平"] --> ETA
-    F["融合 kernel
-adaLN · QK-norm+RoPE · GELU epilogue"] --> ETA
-    Q["量化 FP8 / INT4
-用 2× / 4× 吞吐的 Tensor Core"] --> PEAK
+    A --> ETA
+    C --> ETA
+    F --> ETA
+    Q --> PEAK
     Q --> W
-    O["offload
-三段轮流在卡上 · 逐层预取"] --> W
-    T["VAE tiling / slicing"] --> VAEM
+    O --> W
+    T --> VAEM
 
     classDef lossless fill:#eefaf0,stroke:#4d9a5c,color:#222
     classDef lossy fill:#fff0f0,stroke:#c0504d,color:#222
@@ -70,7 +81,7 @@ FLUX.1-dev 1024² 28 步，从 eager 基线出发逐项叠加（H100 与 4090 �
 | 章 | 主题 | 内容 |
 |---|---|---|
 | 二 | 三段的 offload | 三段不必同时在卡；模型级 / 顺序 / 分组 offload；DiT 逐层预取与它的两面；文本编码器放哪 |
-| 三 | attention 后端 | FA2 / FA3 / SDPA / xformers 在 $N = 4608$ 上的差别；SageAttention 的 8-bit Q·K 为什么扩散能容忍 |
+| 三 | attention 后端 | FA2 / FA3 / SDPA / xformers 在 $$N = 4608$$ 上的差别；SageAttention 的 8-bit Q·K 为什么扩散能容忍 |
 | 四 | 编译与 CUDA graph | eager 的时间去哪了；`torch.compile` 的收益与代价；动态分辨率；breakable CUDA graph |
 | 五 | 量化 | FP8 W8A8；SVDQuant / Nunchaku 的 W4A4；NVFP4；为什么图像对 W4 更敏感、怎么评 |
 | 六 | 融合 kernel | adaLN、QK-norm + RoPE、GELU epilogue、packed QKV——引擎的"fast path" |
@@ -101,14 +112,11 @@ flowchart TB
     end
     subgraph G["分组级：enable_group_offload() / --dit-layerwise-offload"]
         direction LR
-        G1["按 block 分组
-下一组在另一条 stream 上预取
-与当前组的计算重叠"]
+        G1["按 block 分组，下一组在另一条 stream 上预取、与当前组的计算重叠
+显存 = 两组；搬运隐藏在计算后面（如果计算够长）"]
     end
     M -. "显存 = max(三段) = DiT 22.5 GiB；每次生成搬 31 GiB" .-> S
     S -. "显存 = 一层；每步搬 22 GiB 权重，PCIe 25 GB/s → 每步 +0.9 s" .-> G
-    G -. "显存 = 两组；搬运隐藏在计算后面（如果计算够长）" .-> END[" "]
-    style END fill:none,stroke:none
 ```
 
 | 粒度 | 显存 | 每次生成的 H2D 字节 | 时间代价 | 适用 |
@@ -121,7 +129,7 @@ flowchart TB
 
 ### 2. 文本编码器放哪
 
-文本编码器是三段里最适合搬走的：只跑一次、几十毫秒、输出只有 $512 \times 4096 \times 2$ 字节 = 4 MiB。三种放法：
+文本编码器是三段里最适合搬走的：只跑一次、几十毫秒、输出只有 $$512 \times 4096 \times 2$$ 字节 = 4 MiB。三种放法：
 
 - **CPU offload**（`--text-encoder-cpu-offload`）：用时搬到 GPU（T5-XXL 9 GiB，0.4 s），算完搬回。SGLang 对显存 < 30 GB 的卡自动开启；
 - **留在 CPU 上算**：T5-XXL 512 token 在 CPU 上几秒，比搬运还慢，一般不做；
@@ -132,13 +140,13 @@ flowchart TB
 
 ### 3. 24 GB 卡上的 FLUX
 
-把上面的合起来，一张 4090 跑 FLUX.1-dev bf16 的路径：文本编码器 CPU offload（或算完释放）→ DiT 常驻 22.2 GiB + 激活 0.3 GiB = 22.5 GiB（24 GB 卡剩 1.5 GB 给 CUDA context 与碎片，**很紧**，2048² 就溢）→ VAE 在 DiT 释放后加载、tiling 解码。每次生成多搬 31 GiB 权重、约 1.3 s，28 步在 4090（165 TFLOPS）上按 $\eta = 0.45$ 是 28 s，加起来 30 s 量级。要快，就得进第五章：INT4 之后 DiT 6.5 GiB 常驻、三段全部放得下、不再搬运。
+把上面的合起来，一张 4090 跑 FLUX.1-dev bf16 的路径：文本编码器 CPU offload（或算完释放）→ DiT 常驻 22.2 GiB + 激活 0.3 GiB = 22.5 GiB（24 GB 卡剩 1.5 GB 给 CUDA context 与碎片，**很紧**，2048² 就溢）→ VAE 在 DiT 释放后加载、tiling 解码。每次生成多搬 31 GiB 权重、约 1.3 s，28 步在 4090（165 TFLOPS）上按 $$\eta = 0.45$$ 是 28 s，加起来 30 s 量级。要快，就得进第五章：INT4 之后 DiT 6.5 GiB 常驻、三段全部放得下、不再搬运。
 
 ## 三、attention 后端
 
-### 1. 在 $N = 4608$ 上 FA2 / FA3 / SDPA 的差别
+### 1. 在 $$N = 4608$$ 上 FA2 / FA3 / SDPA 的差别
 
-DiT 的 attention 是标准的双向 self-attention（无因果 mask），$N = 4608$、$h = 24$、$d_h = 128$。所有引擎默认走 FlashAttention 一族，差别在版本：
+DiT 的 attention 是标准的双向 self-attention（无因果 mask），$$N = 4608$$、$$h = 24$$、$$d_h = 128$$。所有引擎默认走 FlashAttention 一族，差别在版本：
 
 | 后端 | 实现 | H100 上 FLUX 一层 attention 的效率 | 备注 |
 |---|---|---|---|
@@ -152,7 +160,7 @@ DiT 的 attention 是标准的双向 self-attention（无因果 mask），$N = 4
 
 ### 2. SageAttention：为什么扩散能容忍 8-bit 的 Q·K
 
-SageAttention 把 $Q$、$K$ 按 block 平滑后量化到 INT8，用 INT8 Tensor Core 算 $QK^\top$（Ada / Hopper 上 INT8 吞吐是 bf16 的 2×），softmax 后的 $P$ 与 $V$ 用 FP16 / FP8 累加。它的误差在 LLM 上会累积到 logits、改变采样的 token；在扩散上却几乎不可见——两个原因：
+SageAttention 把 $$Q$$、$$K$$ 按 block 平滑后量化到 INT8，用 INT8 Tensor Core 算 $$QK^\top$$（Ada / Hopper 上 INT8 吞吐是 bf16 的 2×），softmax 后的 $$P$$ 与 $$V$$ 用 FP16 / FP8 累加。它的误差在 LLM 上会累积到 logits、改变采样的 token；在扩散上却几乎不可见——两个原因：
 
 - **每一步的误差被后续步的去噪吸收**：扩散的每步是在预测"当前 latent 里的噪声"，一步的小误差相当于多加了一点噪声，下一步会把它当作噪声去掉。这是扩散模型对近似计算（低精度 attention、跨步缓存、稀疏 attention）普遍鲁棒的根源，也是第三、四篇的前提；
 - **输出是像素而不是离散 token**：LLM 的一个 logit 错位就换了一个词，图像的一个像素值偏 1/255 不可见。
@@ -163,7 +171,7 @@ SageAttention 把 $Q$、$K$ 按 block 平滑后量化到 INT8，用 INT8 Tensor 
 
 ### 1. eager 的时间去哪了
 
-FLUX 一层的算子：adaLN 调制（从条件向量算出 scale / shift / gate，6 个 $[1, d]$ 向量）、LayerNorm、调制乘加、QKV 投影（GEMM）、QK RMSNorm、RoPE、attention、输出投影（GEMM）、gate 乘、残差加、LayerNorm、调制、MLP 上投影（GEMM）、GELU、MLP 下投影（GEMM）、gate 乘、残差加——**四个 GEMM 加一个 attention，周围十几个逐元素 / 归一化算子**。eager 下每个算子一次 kernel launch（5–10 μs 的 CPU 开销）、各自读写一遍 $[4608, 3072]$ 的 bf16 张量（27 MiB，8 μs @ 3.35 TB/s）。57 层 × 15 个算子 = 855 次 launch，每步 5–10 ms 的纯开销，加上这些算子本身 memory-bound 的读写：这就是 eager 的 MFU 停在 0.31 而 GEMM 本身能到 0.7 的原因。
+FLUX 一层的算子：adaLN 调制（从条件向量算出 scale / shift / gate，6 个 $$[1, d]$$ 向量）、LayerNorm、调制乘加、QKV 投影（GEMM）、QK RMSNorm、RoPE、attention、输出投影（GEMM）、gate 乘、残差加、LayerNorm、调制、MLP 上投影（GEMM）、GELU、MLP 下投影（GEMM）、gate 乘、残差加——**四个 GEMM 加一个 attention，周围十几个逐元素 / 归一化算子**。eager 下每个算子一次 kernel launch（5–10 μs 的 CPU 开销）、各自读写一遍 $$[4608, 3072]$$ 的 bf16 张量（27 MiB，8 μs @ 3.35 TB/s）。57 层 × 15 个算子 = 855 次 launch，每步 5–10 ms 的纯开销，加上这些算子本身 memory-bound 的读写：这就是 eager 的 MFU 停在 0.31 而 GEMM 本身能到 0.7 的原因。
 
 ### 2. `torch.compile`
 
@@ -173,7 +181,7 @@ FLUX 一层的算子：adaLN 调制（从条件向量算出 scale / shift / gate
 
 | 性质 | 对编译的意义 |
 |---|---|
-| 形状固定：$N$、$d$ 在一次生成里不变 | 一次编译、28 步复用；无 LLM decode 那种每步 $N$ 变化的重编译 |
+| 形状固定：$$N$$、$$d$$ 在一次生成里不变 | 一次编译、28 步复用；无 LLM decode 那种每步 $$N$$ 变化的重编译 |
 | 每步相同：同一个图 28 次 | 编译成本被 28 步摊平；服务里被所有请求摊平 |
 | 无数据依赖的控制流 | 整个 DiT 前向可以捕获成一张图 |
 
@@ -241,7 +249,7 @@ Q(X̂) · Q(R)（INT4 Tensor Core）"]
     class Q4 lo
 ```
 
-低秩分支的 FLOPs 是 $2 N d r \times 2$，$r = 32$ 时不到主 GEMM 的 2%；但它多读写一遍激活——**Nunchaku** 推理引擎把低秩分支的 kernel 融进 INT4 GEMM 的 kernel（共享输入的读取、把低秩输出直接加进累加器），才把这 2% 的 FLOPs 变成 2% 的时间而不是 20%。结果：FLUX.1-dev 显存 3.6× 缩减（22 → 6.5 GiB），16 GB 的笔记本 4090 上比 NF4 W4A16（只量化权重、算时反量化成 bf16）快 3×，比"bf16 + CPU offload"快 8.7×；LoRA 可以直接挂在低秩分支旁而不必重新量化。Blackwell 上有 NVFP4 版本。**Hopper 没有 INT4 Tensor Core**，所以 SVDQuant 在 H100 上没有加速（SGLang 文档：Ampere / Ada / Blackwell only）——这是 4-bit 量化在消费卡上比在数据中心卡上更有价值的硬件原因。
+低秩分支的 FLOPs 是 $$2 N d r \times 2$$，$$r = 32$$ 时不到主 GEMM 的 2%；但它多读写一遍激活——**Nunchaku** 推理引擎把低秩分支的 kernel 融进 INT4 GEMM 的 kernel（共享输入的读取、把低秩输出直接加进累加器），才把这 2% 的 FLOPs 变成 2% 的时间而不是 20%。结果：FLUX.1-dev 显存 3.6× 缩减（22 → 6.5 GiB），16 GB 的笔记本 4090 上比 NF4 W4A16（只量化权重、算时反量化成 bf16）快 3×，比"bf16 + CPU offload"快 8.7×；LoRA 可以直接挂在低秩分支旁而不必重新量化。Blackwell 上有 NVFP4 版本。**Hopper 没有 INT4 Tensor Core**，所以 SVDQuant 在 H100 上没有加速（SGLang 文档：Ampere / Ada / Blackwell only）——这是 4-bit 量化在消费卡上比在数据中心卡上更有价值的硬件原因。
 
 ### 4. 图像为什么对 W4 更敏感、怎么评
 
@@ -261,10 +269,10 @@ LLM 的 W4（GPTQ / AWQ）几乎无损，扩散的 W4 却要 SVDQuant 这样的�
 
 | 模式 | 做什么 | 为什么值得手写 | 在哪 |
 |---|---|---|---|
-| **adaLN 调制融合** | LayerNorm + scale + shift（+ gate）一个 kernel | 每层两次，读写 $[N, d]$ 三遍变一遍 | SGLang `runtime/layers/fused_scale_shift_gate.py`；vLLM-Omni 的 batched TP AdaLN |
-| **QK-norm + RoPE** | Q / K 的 RMSNorm 与旋转位置编码一个 kernel | 每层一次，$[N, h, d_h]$ 的两遍读写变一遍 | SGLang（FLUX / LTX-2 的 fused QK norm）|
-| **packed QKV** | 三个投影合成一个 $[d, 3d]$ 的 GEMM | GEMM 越大效率越高；也方便量化与 all-to-all | 三者都有；SGLang 注：NVFP4 路径下看到分开的 `to_q/k/v` 说明量化没生效 |
-| **GELU / gate epilogue** | 激活函数进 GEMM 的 epilogue（cuBLASLt） | 省一遍 $[N, 4d]$ 的读写 | SGLang `--quality high` 的 Wan FFN 路径 |
+| **adaLN 调制融合** | LayerNorm + scale + shift（+ gate）一个 kernel | 每层两次，读写 $$[N, d]$$ 三遍变一遍 | SGLang `runtime/layers/fused_scale_shift_gate.py`；vLLM-Omni 的 batched TP AdaLN |
+| **QK-norm + RoPE** | Q / K 的 RMSNorm 与旋转位置编码一个 kernel | 每层一次，$$[N, h, d_h]$$ 的两遍读写变一遍 | SGLang（FLUX / LTX-2 的 fused QK norm）|
+| **packed QKV** | 三个投影合成一个 $$[d, 3d]$$ 的 GEMM | GEMM 越大效率越高；也方便量化与 all-to-all | 三者都有；SGLang 注：NVFP4 路径下看到分开的 `to_q/k/v` 说明量化没生效 |
+| **GELU / gate epilogue** | 激活函数进 GEMM 的 epilogue（cuBLASLt） | 省一遍 $$[N, 4d]$$ 的读写 | SGLang `--quality high` 的 Wan FFN 路径 |
 | **GroupNorm + SiLU**（VAE） | 解码器残差块里的归一化 + 激活 | VAE 是 memory-bound，省读写就是省时间 | SGLang 的 VAE fast path |
 
 这些各自 1–5% 的收益，叠起来是 eager → 最优之间"编译之外的那一半"。SGLang 把有些 fast path 标为**近似**（`--quality high`：bit-exact 的 `lossless` 是默认），因为融合改变了累加顺序或用了低精度中间值——它们的 SSIM 门限是图像 0.95 / 28 dB、视频 0.92 / 24 dB。
@@ -277,7 +285,7 @@ LLM 的 W4（GPTQ / AWQ）几乎无损，扩散的 W4 却要 SVDQuant 这样的�
 
 ### 2. tiling 与 slicing
 
-- **Tiling**（`vae.enable_tiling()`）：把 latent 切成重叠的空间 tile（如 $64 \times 64$ latent → $512 \times 512$ 像素）逐个解码，重叠区域线性混合掩盖接缝；峰值降为一个 tile 的量（1024² 切 4 块 → 0.5 GiB），时间略增（重叠部分重算）；
+- **Tiling**（`vae.enable_tiling()`）：把 latent 切成重叠的空间 tile（如 $$64 \times 64$$ latent → $$512 \times 512$$ 像素）逐个解码，重叠区域线性混合掩盖接缝；峰值降为一个 tile 的量（1024² 切 4 块 → 0.5 GiB），时间略增（重叠部分重算）；
 - **Slicing**（`enable_slicing()`）：batch 里的多张图逐张解码——只对 batch > 1 有用；
 - **视频的时间分块**：3D VAE 的因果卷积让解码器可以按 latent 帧的 chunk 顺序解码（Wan 的 VAE 内建：每次解一个 latent 帧、缓存前面几帧的特征作为因果上下文），峰值从 107 GiB 降到一帧的量（1.3 GiB）；空间上再 tiling。HunyuanVideo 的 VAE 同样有 `enable_tiling` 的时空版本；接缝（尤其时间上的闪烁）是第九篇的故障之一；
 - **多卡**：xDiT 的 Parallel VAE 与 vLLM-Omni 的 `--vae-patch-parallel-size`——第五篇。
@@ -375,7 +383,7 @@ SVDQuant INT4（消费卡）· 跨步缓存（第三篇）· 稀疏 attention（
 
 ### 下一篇
 
-单卡把 $\eta$ 从 0.31 推到 0.5 以上之后，下一个大项是账上的 $T$：28 步里有多少步的网络输出与上一步几乎相同、可以不算？第三篇讨论跨步冗余——TeaCache、First-Block Cache、Cache-DiT 一族的缓存与跳步，它们把"$T$"换成"$T_\text{full} + T_\text{hit} \cdot \epsilon$"。
+单卡把 $$\eta$$ 从 0.31 推到 0.5 以上之后，下一个大项是账上的 $$T$$：28 步里有多少步的网络输出与上一步几乎相同、可以不算？第三篇讨论跨步冗余——TeaCache、First-Block Cache、Cache-DiT 一族的缓存与跳步，它们把"$$T$$"换成"$$T_\text{full} + T_\text{hit} \cdot \epsilon$$"。
 
 ## 十、自测
 
@@ -397,14 +405,14 @@ SVDQuant INT4（消费卡）· 跨步缓存（第三篇）· 稀疏 attention（
 
    <details markdown="1">
    <summary>答案</summary>
-   Hopper 没有 INT4 Tensor Core（有 FP8 / INT8），W4A4 在 H100 上只能反量化后用 bf16 / FP8 算，省显存不省时间；Ada / Ampere / Blackwell 有 INT4（或 NVFP4）Tensor Core，吞吐 4×。低秩分支 $X L_1 L_2$（秩 32）FLOPs 不到 2%，但单独跑要多读写一遍激活 $[N, d]$——在 memory-bound 的小 kernel 上这是 20% 的时间；Nunchaku 把它融进 INT4 GEMM（共享输入读取、直接加进累加器）才让它只占 2%。详见[第五章](#五量化换更快的-tensor-core)。
+   Hopper 没有 INT4 Tensor Core（有 FP8 / INT8），W4A4 在 H100 上只能反量化后用 bf16 / FP8 算，省显存不省时间；Ada / Ampere / Blackwell 有 INT4（或 NVFP4）Tensor Core，吞吐 4×。低秩分支 $$X L_1 L_2$$（秩 32）FLOPs 不到 2%，但单独跑要多读写一遍激活 $$[N, d]$$——在 memory-bound 的小 kernel 上这是 20% 的时间；Nunchaku 把它融进 INT4 GEMM（共享输入读取、直接加进累加器）才让它只占 2%。详见[第五章](#五量化换更快的-tensor-core)。
    </details>
 
 4. 一个 FLUX 服务允许用户任选分辩率，开了 `torch.compile` 之后 p99 延迟反而恶化。最可能的原因是什么？两种对策？
 
    <details markdown="1">
    <summary>答案</summary>
-   每个新的 $(H, W)$ 组合都是新形状，触发重编译（FLUX 一次 1–3 分钟），分辩率组合多时不断重编译。对策：只允许一组预定义分辩率并在启动时预编译（`--warmup-resolutions`）；或 `dynamic=True` 用符号形状（GEMM 调优变弱）。第九篇称之为"重编译风暴"。详见[第四章](#四编译与-cuda-graph)。
+   每个新的 $$(H, W)$$ 组合都是新形状，触发重编译（FLUX 一次 1–3 分钟），分辩率组合多时不断重编译。对策：只允许一组预定义分辩率并在启动时预编译（`--warmup-resolutions`）；或 `dynamic=True` 用符号形状（GEMM 调优变弱）。第九篇称之为"重编译风暴"。详见[第四章](#四编译与-cuda-graph)。
    </details>
 
 5. SageAttention 把 Q·K 量化到 INT8，LLM 上会改变生成的 token，扩散上却几乎不可见。两个原因？它仍然被列为"有损"，最先坏的是什么？

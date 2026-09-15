@@ -121,13 +121,13 @@ PD 分离         不适用；但有另一种分离——文本编码器 / DiT /
 这一篇会讨论：
 
 - 三段流水线：文本编码器（T5-XXL / CLIP / LLM，一次前向、几百 token、几十毫秒）→ 去噪网络（DiT，对整张 latent 一次完整前向 × 步数 × CFG 分支）→ VAE 解码（卷积，一次、算力小但显存峰值大）；
-- token 数公式：$N = \frac{H}{f\,p} \cdot \frac{W}{f\,p} \cdot \frac{F}{f_t\,p_t}$，FLUX 的 1024² 是 4096 个图像 token 加 512 个进联合 attention 的文本 token；Wan 的 720p 81 帧是 75,600 个；
-- 每步 FLOPs = 线性项 $2 P_\text{tok} N$ + attention 项 $4 L N^2 d$（$P_\text{tok}$ 是一个 token 真正经过的参数量，FLUX 的 6.45B 而不是 11.9B）：FLUX 上 attention 占 20%，Wan 上占 72%——**图像模型是 GEMM 负载，视频模型是 attention 负载**；
-- 显存：权重（FLUX 12B bf16 22 GiB + T5 9 GiB）+ 激活（FlashAttention 下随 $N$ 线性，几百 MiB 到十几 GiB）+ VAE 解码的峰值（720p 81 帧不分块要上百 GiB）——**没有 KV cache**；
+- token 数公式：$$N = \frac{H}{f\,p} \cdot \frac{W}{f\,p} \cdot \frac{F}{f_t\,p_t}$$，FLUX 的 1024² 是 4096 个图像 token 加 512 个进联合 attention 的文本 token；Wan 的 720p 81 帧是 75,600 个；
+- 每步 FLOPs = 线性项 $$2 P_\text{tok} N$$ + attention 项 $$4 L N^2 d$$（$$P_\text{tok}$$ 是一个 token 真正经过的参数量，FLUX 的 6.45B 而不是 11.9B）：FLUX 上 attention 占 20%，Wan 上占 72%——**图像模型是 GEMM 负载，视频模型是 attention 负载**；
+- 显存：权重（FLUX 12B bf16 22 GiB + T5 9 GiB）+ 激活（FlashAttention 下随 $$N$$ 线性，几百 MiB 到十几 GiB）+ VAE 解码的峰值（720p 81 帧不分块要上百 GiB）——**没有 KV cache**；
 - roofline：一次 DiT 前向的算术强度是几千到几十万 FLOP/字节，H100 的拐点是 295——单请求就在算力屋顶上，与 LLM decode 的每 token 读一遍权重（强度 ≈ 2）相反；
 - 时间模型：每步 = FLOPs / (峰值 × MFU)，FLUX 28 步在 H100 上 eager 6.7 s、编译后 4.3 s（xDiT 实测，MFU 0.31 / 0.49），Wan 14B 50 步单卡二十几分钟；
 - 与 LLM 的对照表：FLOPs 高 2–5 个量级、时间相近或更长、瓶颈在算力、batch 无益；
-- 四个放大器：分辨率（$N \propto$ 像素，attention $\propto N^2$）、帧数、步数、CFG。
+- 四个放大器：分辨率（$$N \propto$$ 像素，attention $$\propto N^2$$）、帧数、步数、CFG。
 
 核心问题是：
 
@@ -161,9 +161,9 @@ PD 分离         不适用；但有另一种分离——文本编码器 / DiT /
 
 这一篇会覆盖：
 
-- 为什么相似：采样是沿一条平滑的概率流 ODE 轨迹走，相邻步的输入 $x_t$ 与输出差别小；差别随 $t$ 不均匀——开头几步（决定构图）与结尾几步（决定细节）变化大、中间平缓；
-- 谱系：DeepCache（U-Net 时代，复用跳连的高层特征）→ FORA / Δ-DiT（均匀间隔跳步）→ **TeaCache**（用时间步 embedding 调制后的输入的相对 L1 差预测输出差，多项式重标、累积、过阈值才全算）→ **First-Block Cache**（算第一个 block、看它的残差变了多少，没变就复用整个上一步的输出）→ **Cache-DiT** 的 DBCache（前 $F_n$ 个 block 全算、后面的按残差差决定）与 TaylorSeer（用泰勒展开外推而不是复用）→ MagCache（幅度比）→ AdaCache（逐层）；
-- 命中率 → 加速比：$\text{speedup} = T / (T_\text{full} + T_\text{hit} \cdot \epsilon)$，FLUX 28 步阈值 0.4 命中约一半、端到端 1.5–2×；视频上到 4.4×（TeaCache 在 Open-Sora-Plan）；
+- 为什么相似：采样是沿一条平滑的概率流 ODE 轨迹走，相邻步的输入 $$x_t$$ 与输出差别小；差别随 $$t$$ 不均匀——开头几步（决定构图）与结尾几步（决定细节）变化大、中间平缓；
+- 谱系：DeepCache（U-Net 时代，复用跳连的高层特征）→ FORA / Δ-DiT（均匀间隔跳步）→ **TeaCache**（用时间步 embedding 调制后的输入的相对 L1 差预测输出差，多项式重标、累积、过阈值才全算）→ **First-Block Cache**（算第一个 block、看它的残差变了多少，没变就复用整个上一步的输出）→ **Cache-DiT** 的 DBCache（前 $$F_n$$ 个 block 全算、后面的按残差差决定）与 TaylorSeer（用泰勒展开外推而不是复用）→ MagCache（幅度比）→ AdaCache（逐层）；
+- 命中率 → 加速比：$$\text{speedup} = T / (T_\text{full} + T_\text{hit} \cdot \epsilon)$$，FLUX 28 步阈值 0.4 命中约一半、端到端 1.5–2×；视频上到 4.4×（TeaCache 在 Open-Sora-Plan）；
 - 质量代价与评测：VBench 掉 0.07%、对原图的 PSNR 30 dB 上下；伪影的形态（闪烁、细节丢失）与阈值扫描曲线；
 - 交互：与 CFG（条件 / 无条件分支各自的缓存状态）、与序列并行（各卡的跳步决策必须一致——用同一个标量）、与 layerwise offload（跳过的层不用搬）、与**少步蒸馏互斥**（4 步之间没有冗余可利用）；首末步总是全算；
 - 实现：全部是 hook——diffusers 的 `CacheMixin` / `HookRegistry`，vLLM-Omni 的 `CachedTransformer` 与 TeaCache / MagCache / Cache-DiT 后端，SGLang 的 `runtime/cache/` 与 Cache-DiT 集成，xDiT 的 `cache_manager`。
@@ -176,16 +176,16 @@ PD 分离         不适用；但有另一种分离——文本编码器 / DiT /
 
 ### 4. 视频：长序列 attention 的账与稀疏化
 
-第四篇讨论把"图像"换成"视频"后账的质变：**当 $N$ 从 4K 到 100K，$4 L N^2 d$ 超过 $2 P N$，负载从 GEMM 变成 attention，怎么办？**
+第四篇讨论把"图像"换成"视频"后账的质变：**当 $$N$$ 从 4K 到 100K，$$4 L N^2 d$$ 超过 $$2 P N$$，负载从 GEMM 变成 attention，怎么办？**
 
 这一篇会覆盖：
 
 - 视频 token 账：3D VAE 时间 4× 空间 8×、patch 1×2×2，Wan 720p 81 帧 75,600 token、HunyuanVideo 129 帧 119K；attention 占比 38%（17 帧）→ 72%（81 帧）→ 80%（129 帧）；单卡 50 步二十几分钟；
-- 全 3D attention vs 时空分解：为什么 2024 年后主流回到全 attention（时间一致性），代价就是这个 $N^2$；
-- 稀疏化：**Sparse VideoGen**（在线 profiling 把 head 分成 spatial / temporal 两类、各用一种稀疏掩码，2.3×）→ SVG2（语义置换 + 动态 kernel）→ **Radial Attention**（静态 $O(n \log n)$ 掩码：注意力随时空距离能量衰减，窗口随时间距离减半；1.9×，配 LoRA 微调可把长度扩到 4×）→ **Sliding Tile Attention**（FastVideo，按 tile 滑窗）；与 block-sparse FlashAttention kernel 的关系——稀疏只有落到 kernel 的 block 粒度上才换回时间；
+- 全 3D attention vs 时空分解：为什么 2024 年后主流回到全 attention（时间一致性），代价就是这个 $$N^2$$；
+- 稀疏化：**Sparse VideoGen**（在线 profiling 把 head 分成 spatial / temporal 两类、各用一种稀疏掩码，2.3×）→ SVG2（语义置换 + 动态 kernel）→ **Radial Attention**（静态 $$O(n \log n)$$ 掩码：注意力随时空距离能量衰减，窗口随时间距离减半；1.9×，配 LoRA 微调可把长度扩到 4×）→ **Sliding Tile Attention**（FastVideo，按 tile 滑窗）；与 block-sparse FlashAttention kernel 的关系——稀疏只有落到 kernel 的 block 粒度上才换回时间；
 - 8-bit attention（SageAttention）在视频上的收益比图像大——因为 attention 占比大；
 - 训练无关（SVG、STA）与需微调（Radial 的 LoRA）的分界；长度外推；
-- 显存：激活随 $N$ 线性到十几 GiB、3D VAE 解码的峰值上百 GiB 必须分块；
+- 显存：激活随 $$N$$ 线性到十几 GiB、3D VAE 解码的峰值上百 GiB 必须分块；
 - 叠加表：Wan 14B 720p 81 帧 50 步，在"稀疏 attention + 跨步缓存 + 多卡"各自与叠加下的时间（Amdahl：attention 稀疏 80% 时端到端最多 2.2×）。
 
 核心问题是：
@@ -200,8 +200,8 @@ PD 分离         不适用；但有另一种分离——文本编码器 / DiT /
 
 这一篇会覆盖：
 
-- 为什么不是 TP：TP 每层两次 all-reduce、通信量 $\propto N \cdot d$，序列长时通信超过计算；且它解决的是"权重放不下"，扩散模型多数放得下；
-- 三类并行：**图间**——data parallel（多请求）与 **CFG 并行**（条件 / 无条件两个分支放两组卡，恒为 2，通信只有每步末的一次小张量交换）；**图内**——序列并行：Ulysses（all-to-all 切 head）、Ring（P2P 切序列、与 FlashAttention 融合）、**USP**（两者组合，节点内 Ulysses、跨节点 Ring）；**层间**——**PipeFusion**（把 latent 切成 $M$ 个 patch、网络切成 $N$ 段流水线，用上一步的 stale activation 做 KV 让流水线不等——利用的正是第三篇的时间冗余；通信量最小，适合 PCIe / 以太网）与 DistriFusion（patch 并行 + 异步 all-gather 的 stale activation）；
+- 为什么不是 TP：TP 每层两次 all-reduce、通信量 $$\propto N \cdot d$$，序列长时通信超过计算；且它解决的是"权重放不下"，扩散模型多数放得下；
+- 三类并行：**图间**——data parallel（多请求）与 **CFG 并行**（条件 / 无条件两个分支放两组卡，恒为 2，通信只有每步末的一次小张量交换）；**图内**——序列并行：Ulysses（all-to-all 切 head）、Ring（P2P 切序列、与 FlashAttention 融合）、**USP**（两者组合，节点内 Ulysses、跨节点 Ring）；**层间**——**PipeFusion**（把 latent 切成 $$M$$ 个 patch、网络切成 $$N$$ 段流水线，用上一步的 stale activation 做 KV 让流水线不等——利用的正是第三篇的时间冗余；通信量最小，适合 PCIe / 以太网）与 DistriFusion（patch 并行 + 异步 all-gather 的 stale activation）；
 - Parallel VAE：把解码器的输入 latent 切 patch 分卡、卷积边界用 halo 交换——解决 VAE 解码的显存峰值；
 - 通信量公式与硬件：NVLink 节点内 USP 最优（xDiT：FLUX 4×H100 compile 后 1.63 s，2.6×）；PCIe / 以太网上 PipeFusion（两台 8×L40 用 ulysses 4 × pipefusion 4）；
 - 混合并行的乘积 = GPU 数；CFG 2 × USP 4 vs USP 8 该怎么比（vLLM-Omni 的 8 卡候选矩阵）；
@@ -244,7 +244,7 @@ PD 分离         不适用；但有另一种分离——文本编码器 / DiT /
 - 与 LLM serving 的对照表：无 KV、无 decode、时长确定、静态 batch 可行、抢占只在步边界有意义；
 - 批处理的反直觉：compute-bound 下 batch 2 ≈ 2× 时间，吞吐几乎不变（视频永远 batch 1）；只有小模型 / 少步 / 小分辨率下 GEMM 不饱和时 batch 有收益；SGLang 的动态批处理（合并形状与参数兼容的请求）与 vLLM-Omni 的 step 级调度器；
 - 调度：时长可预测 → 最短作业优先、按分辨率 / 步数分池、SLO 排队；抢占的价值与代价；
-- **三段分离**：文本编码器（小、一次、可以 CPU 或独立）、DiT（主体）、VAE 解码（显存峰值、可以独立 stage 或 Parallel VAE）——vLLM-Omni 的 stage-based 部署与 OmniConnector、SGLang 的 disaggregation；SwiftDiffusion 把 ControlNet 做成独立服务、LoRA 用 bounded async loading（前 $k$ 步不加 LoRA、边算边加载）；
+- **三段分离**：文本编码器（小、一次、可以 CPU 或独立）、DiT（主体）、VAE 解码（显存峰值、可以独立 stage 或 Parallel VAE）——vLLM-Omni 的 stage-based 部署与 OmniConnector、SGLang 的 disaggregation；SwiftDiffusion 把 ControlNet 做成独立服务、LoRA 用 bounded async loading（前 $$k$$ 步不加 LoRA、边算边加载）；
 - 多 LoRA 服务：merge 与 unmerged 的代价、按请求切换、Nunchaku 的 4-bit + LoRA；模型级联（DiffServe：先小模型、判别器不过关再上大模型）；
 - 异步任务 API：`/v1/images/generations` 同步返回 vs `/v1/videos` 创建 job + 轮询 + 对象存储，进度与中间预览；
 - 成本：每张图 GPU·秒 → 价格（FLUX 1024² 在 H100 上 4–6 s ≈ 几美分；视频几分钟）；扩缩容（队列长度、冷启动 = 加载几十 GiB 权重）；对 10 平台的要求。
@@ -343,7 +343,7 @@ xDiT（main 2026-09）  xfuser/：core/{distributed,long_ctx_attention,cache_man
 1 → 2 → 3 → 7 → 9
 ```
 
-图像模型的 $N$ 只有几千，attention 占比小、单卡放得下，优化以单卡（第二篇）与跨步缓存（第三篇）为主，多卡只在延迟 SLO 逼迫时用。
+图像模型的 $$N$$ 只有几千，attention 占比小、单卡放得下，优化以单卡（第二篇）与跨步缓存（第三篇）为主，多卡只在延迟 SLO 逼迫时用。
 
 ### 做视频生成
 
@@ -374,7 +374,7 @@ xDiT（main 2026-09）  xfuser/：core/{distributed,long_ctx_attention,cache_man
 
 本系列只讨论扩散模型（含 flow matching 模型，系统上无区别）**推理**的系统。以下内容与它紧邻，但不在范围内：
 
-- **扩散模型的数学、结构与训练**：DDPM / score matching / flow matching、DiT 与 MMDiT、VAE 的设计、文生图与视频的配方、步数蒸馏的方法。它们是算法地图 L7 的[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)第五至七篇；本系列只使用"一步是一次对 $N$ 个 token 的前向、有没有 CFG、蒸馏到几步"这些结论。
+- **扩散模型的数学、结构与训练**：DDPM / score matching / flow matching、DiT 与 MMDiT、VAE 的设计、文生图与视频的配方、步数蒸馏的方法。它们是算法地图 L7 的[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)第五至七篇；本系列只使用"一步是一次对 $$N$$ 个 token 的前向、有没有 CFG、蒸馏到几步"这些结论。
 - **LLM 推理系统**：KV cache、连续批处理、PagedAttention、投机解码、PD 分离。它们在[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)；本系列在每个对应位置说明"扩散为什么不同"，不重讲 LLM 侧。
 - **多模态理解模型**（把图片送进 LLM）的推理：vision encoder 的调度、image token 的 KV、请求形态。它们在[《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)第八篇与 08 系列第十一篇；生成模型与它们除了"都有一个 vision 部件"之外没有共同的系统问题。
 - **kernel 的实现**：FlashAttention、SageAttention、block-sparse attention、量化 GEMM 的内部。它们在[《GPU Kernel 工程》](/gpu-kernel-engineering.html)；本系列只用它们的接口与加速比。
@@ -388,7 +388,7 @@ xDiT（main 2026-09）  xfuser/：core/{distributed,long_ctx_attention,cache_man
 ### 前置要求
 
 - 理解 LLM 推理引擎的基本机制：prefill 与 decode 的形态差别、KV cache 的字节数、连续批处理、TP 部署、roofline 与 MFU（[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)前五篇的内容；本系列每处对照都会先复述所需的最小集）；
-- 知道 Transformer 一层的 FLOPs 从哪来（$2 P N$ 与 $4 N^2 d$，[《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)第二篇）；
+- 知道 Transformer 一层的 FLOPs 从哪来（$$2 P N$$ 与 $$4 N^2 d$$，[《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)第二篇）；
 - 知道扩散模型在做什么：从噪声 latent 出发、网络预测噪声或速度、几十步去噪、VAE 解码、CFG 是两次前向（算法地图 L7 第五、六篇的内容；本系列第一篇会用一节复述所需的最小集，不涉及数学）；
 - 会用 diffusers 跑一个文生图 pipeline、读 Python 源码、用 profiler 看时间线；
 - 一张 24 GB 以上的 GPU 用于实践；多卡与视频的内容以计算外推与公开数据为主。

@@ -56,20 +56,20 @@ M 个 8 卡 SP 组"]
 
 100 QPS 的 FLUX.1-dev 1024² 服务（H100）：
 
-| 配置 | 每卡吞吐 | 需要的 H100 | 每张图 GPU·秒 | 每张图成本（H100 按 $2.5 / 小时） |
+| 配置 | 每卡吞吐 | 需要的 H100 | 每张图 GPU·秒 | 每张图成本（H100 按 \$2.5 / 小时） |
 |---|---|---|---|---|
-| bf16 eager | 0.15 张/s（6.7 s） | 670 | 6.7 | $0.0047 |
-| + compile + FA3 | 0.26（3.9 s） | 390 | 3.9 | $0.0027 |
-| + FP8 | 0.34（2.9 s） | 290 | 2.9 | $0.0020 |
-| + TeaCache 0.4 | 0.6（1.65 s） | 170 | 1.65 | $0.0011 |
-| 换 FLUX.1-schnell 4 步 | 1.25（0.8 s） | 80 | 0.8 | $0.0006 |
-| 4 卡 SP（延迟 1.6 s，吞吐不变） | 0.26 张/s/卡 | 390 | 3.9 | $0.0027 |
+| bf16 eager | 0.15 张/s（6.7 s） | 670 | 6.7 | \$0.0047 |
+| + compile + FA3 | 0.26（3.9 s） | 390 | 3.9 | \$0.0027 |
+| + FP8 | 0.34（2.9 s） | 290 | 2.9 | \$0.0020 |
+| + TeaCache 0.4 | 0.6（1.65 s） | 170 | 1.65 | \$0.0011 |
+| 换 FLUX.1-schnell 4 步 | 1.25（0.8 s） | 80 | 0.8 | \$0.0006 |
+| 4 卡 SP（延迟 1.6 s，吞吐不变） | 0.26 张/s/卡 | 390 | 3.9 | \$0.0027 |
 
 三个结论：
 
 - **卡数由吞吐决定、吞吐由单卡时间决定、batch 不参与**：需要的卡数 = QPS × 单张 GPU·秒。前六篇的每一项优化直接按比例减少卡数；多卡 SP 不减少卡数（只减延迟）。
 - **成本按 GPU·秒计，与 LLM 的按 token 计不同**：一张图的 GPU·秒在收到请求时就能算出（分辨率、步数、CFG、模型），所以可以**事前定价、事前拒绝**——LLM 只能事后按 token 数结算。
-- **视频是另一个量级**：Wan 14B 720p 5 秒在 8 卡 SP 加全部优化后约 40 s，320 GPU·秒、$0.22；不优化单卡 24 分钟、$1。商业视频 API 的定价（每秒视频 $0.1–0.5）就是这张账的反映。
+- **视频是另一个量级**：Wan 14B 720p 5 秒在 8 卡 SP 加全部优化后约 40 s，320 GPU·秒、\$0.22；不优化单卡 24 分钟、\$1。商业视频 API 的定价（每秒视频 \$0.1–0.5）就是这张账的反映。
 
 ### 2. 本文的章节安排
 
@@ -94,7 +94,7 @@ M 个 8 卡 SP 组"]
 | 形态 | 输入 | 比 T2I 多的段 | 时长 | 例 |
 |---|---|---|---|---|
 | **T2I** 文生图 | prompt、size、steps、cfg、seed | — | 秒级 | FLUX、Qwen-Image |
-| **I2I / 编辑** | + 参考图 / 原图 + 掩码 | 一次 **VAE 编码**（参考图 → latent）；参考 token 进 DiT 序列（$N$ 变大：Qwen-Image-Edit、FLUX Kontext 把参考图的 token 与目标图拼在一起，$N$ 翻倍、attention 四倍） | 秒级，比 T2I 长 1.5–3× | Qwen-Image-Edit、FLUX.2 |
+| **I2I / 编辑** | + 参考图 / 原图 + 掩码 | 一次 **VAE 编码**（参考图 → latent）；参考 token 进 DiT 序列（$$N$$ 变大：Qwen-Image-Edit、FLUX Kontext 把参考图的 token 与目标图拼在一起，$$N$$ 翻倍、attention 四倍） | 秒级，比 T2I 长 1.5–3× | Qwen-Image-Edit、FLUX.2 |
 | **T2V** 文生视频 | + frames、fps | — | 分钟级 | Wan、HunyuanVideo |
 | **I2V** 图生视频 | + 首帧图 | VAE 编码首帧；首帧 latent 作为条件拼进序列 | 分钟级 | Wan-I2V、LTX-2 |
 | **+ 附件** | + LoRA id / ControlNet 条件图 / IP-Adapter 参考图 | LoRA：线性层多一个低秩分支（或 merge）；ControlNet：多一个网络的前向（U-Net 时代约 +50%，DiT 时代的 ControlNet 是几个 block 的副本 +15–30%）；IP-Adapter：多一个图像编码器一次前向 | +0–50% | 风格 / 姿态 / 参考 |
@@ -106,7 +106,7 @@ $$
 t \approx t_\text{txt} + g \cdot T \cdot \frac{\text{FLOPs}_\text{fwd}(H, W, F)}{\text{峰值} \cdot \eta} \cdot \frac{1}{\text{speedup}_\text{cache}} + t_\text{VAE}(H, W, F)
 $$
 
-每一项在请求参数里：$H, W, F$ → $N$ → FLOPs；$T$、$g$ 是参数；$\eta$ 与 speedup 是这个实例的常数（可从历史请求校准）。**一个请求的 GPU·秒在排队之前就知道**——LLM serving 做不到这一点（不知道会生成几个 token），它是扩散调度与计费的基础。跨步缓存（TeaCache / FBCache）的命中率让时长有 ±20% 的不确定；MagCache 的离线曲线则完全确定（第三篇）。
+每一项在请求参数里：$$H, W, F$$ → $$N$$ → FLOPs；$$T$$、$$g$$ 是参数；$$\eta$$ 与 speedup 是这个实例的常数（可从历史请求校准）。**一个请求的 GPU·秒在排队之前就知道**——LLM serving 做不到这一点（不知道会生成几个 token），它是扩散调度与计费的基础。跨步缓存（TeaCache / FBCache）的命中率让时长有 ±20% 的不确定；MagCache 的离线曲线则完全确定（第三篇）。
 
 ### 3. 与 LLM 请求的对照
 
@@ -117,7 +117,7 @@ $$
 | 中间输出 | 逐 token 流式 | 无（或每步一张模糊预览） |
 | 请求间的共享 | 前缀 KV | prompt embedding（4 MiB）；同 prompt 多 seed 共享文本编码 |
 | 状态 | KV cache 随生成增长 | 无（自回归视频除外） |
-| 抢占 | 任意 token 边界，KV 要换出 | 步边界，只需保存 latent（$N \times c p^2$，FLUX 0.6 MB） |
+| 抢占 | 任意 token 边界，KV 要换出 | 步边界，只需保存 latent（$$N \times c p^2$$，FLUX 0.6 MB） |
 | 失败重试 | 从头或从 KV 恢复 | 从任意步的 latent 恢复（确定性 seed 下 bit-exact） |
 
 最后两行是扩散独有的便利：**一个请求的全部状态就是当前的 latent**——0.6 MB，任何一步都可以 checkpoint、迁移到另一张卡继续、或抢占后恢复。
@@ -126,7 +126,7 @@ $$
 
 ### 1. 为什么几乎不提吞吐
 
-第一篇：FLUX 1024² 单请求的 GEMM 已经在算力屋顶上，batch 2 的每步时间 ≈ 2× 单请求，吞吐不变。更精确地说，batch 的收益 $= \frac{\text{MFU}(b)}{\text{MFU}(1)}$，当 MFU(1) 已经 0.5 以上时上限不到 2×、实际 1.0–1.2×。视频更极端：单请求激活 14 GiB，batch 2 就溢出，永远 batch 1。
+第一篇：FLUX 1024² 单请求的 GEMM 已经在算力屋顶上，batch 2 的每步时间 ≈ 2× 单请求，吞吐不变。更精确地说，batch 的收益 $$= \frac{\text{MFU}(b)}{\text{MFU}(1)}$$，当 MFU(1) 已经 0.5 以上时上限不到 2×、实际 1.0–1.2×。视频更极端：单请求激活 14 GiB，batch 2 就溢出，永远 batch 1。
 
 ### 2. 何时有用
 
@@ -147,7 +147,7 @@ $$
 |---|---|---|---|
 | **按形状分池** | 1024² / 768×1344 / 视频各一组实例 | 每池编译一次形状、无重编译；batch 兼容；容量可按形状规划 | 池间负载不均时要重分配实例（冷启动） |
 | **最短作业优先（SJF）** | 队列按估算的 GPU·秒排序 | 平均等待最小；小图不被大图堵 | 大图饥饿——加老化（等待时间加权） |
-| **SLO 准入** | 估算 $t_\text{排队} + t_\text{执行}$ 超过 SLO 就拒绝 / 降级（减步数、换 schnell、开缓存） | p99 可控 | 需要准确的时长模型 |
+| **SLO 准入** | 估算 $$t_\text{排队} + t_\text{执行}$$ 超过 SLO 就拒绝 / 降级（减步数、换 schnell、开缓存） | p99 可控 | 需要准确的时长模型 |
 | **预付费 / 配额** | 按估算 GPU·秒扣配额 | 事前计费 | — |
 
 这些在 LLM serving 里都做不好（不知道时长），在扩散上都是直接的。
@@ -167,7 +167,7 @@ $$
 | 段 | 算力 | 显存 | 时间 | 频次 | 适合 |
 |---|---|---|---|---|---|
 | 文本编码器 | 小（5 T） | 9–14 GiB 权重 | 20–70 ms | 每请求一次；同 prompt 可缓存 | 独立小实例 / CPU / 与 DiT 同卡但 offload |
-| DiT | 大（2 P） | 22–38 GiB 权重 + 激活 | 秒到分钟 | 每请求 $T$ 次 | 主体；SP 组 |
+| DiT | 大（2 P） | 22–38 GiB 权重 + 激活 | 秒到分钟 | 每请求 $$T$$ 次 | 主体；SP 组 |
 | VAE 解码 | 小（5 T） | **2–8 GiB 峰值**（视频百 GiB） | 100 ms（视频秒级） | 每请求一次 | 独立实例 / Parallel VAE / 与 DiT 同卡但 tiling |
 
 同卡部署时 DiT 的 22 GiB 权重旁边要留 VAE 的 8 GiB 峰值（2048²），文本编码器的 9 GiB 要 offload；分离后 DiT 卡只放 DiT，密度更高。
@@ -175,25 +175,23 @@ $$
 ### 2. 两种分离
 
 ```mermaid
-flowchart LR
+flowchart TB
     subgraph MONO["单体：一个进程三段"]
         direction TB
-        M["文本编码器 → DiT × T → VAE
-显存 = 三段之和（或 offload）
-每请求串行"]
+        M["文本编码器 → DiT × T → VAE 解码
+显存 = 三段之和（或 offload）；每请求串行"]
     end
-    subgraph DIS["分离：三个 stage"]
+    subgraph DIS["分离：三个 stage（vLLM-Omni 的 stage 0 / N；SGLang disaggregation 的 encoder / denoiser / decoder 角色）"]
         direction LR
         E["encoder stage
-（小卡 / CPU / 共享）
+小卡 / CPU / 多实例共享
 输出 embedding 4 MiB"] -- "IPC / RDMA / 网络" --> D["denoiser stage
-DiT SP 组
-输出 latent 0.6 MB"] -- "→" --> V["decoder stage
-（Parallel VAE / 独立卡）
+DiT 的 SP 组
+输出 latent 0.6 MB"] -- "IPC / RDMA / 网络" --> V["decoder stage
+Parallel VAE / 独立卡
 输出像素"]
     end
-    MONO -. "vLLM-Omni：vllm serve --omni，stage 0 = API + orchestrator，stage N = worker，可跨进程 / 卡 / 机
-SGLang：--disaggregation 的 encoder / denoiser / decoder 角色 + transport" .-> DIS
+    MONO -. "三段的显存与频次形态不同 → 各自扩缩" .-> DIS
 
     classDef s fill:#eefaf0,stroke:#4d9a5c,color:#222
     class E,V s
@@ -214,15 +212,15 @@ SGLang：--disaggregation 的 encoder / denoiser / decoder 角色 + transport" .
 
 | 方式 | 做法 | 切换成本 | 每步开销 | 适合 |
 |---|---|---|---|---|
-| **merge** | $W' = W + BA$ 合并进权重 | 合并 / 卸载各一次全权重的读写（FLUX 22 GiB，几百 ms） | 0 | 一个实例长期服务一个 LoRA |
-| **unmerged** | 每个线性层多算 $x B A$ | 加载 $BA$（几十到几百 MB） | 低秩分支的 GEMM（rank 32：约 +2–5%） | 按请求切换 |
+| **merge** | $$W' = W + BA$$ 合并进权重 | 合并 / 卸载各一次全权重的读写（FLUX 22 GiB，几百 ms） | 0 | 一个实例长期服务一个 LoRA |
+| **unmerged** | 每个线性层多算 $$x B A$$ | 加载 $$BA$$（几十到几百 MB） | 低秩分支的 GEMM（rank 32：约 +2–5%） | 按请求切换 |
 | **多 LoRA batch** | batch 里不同请求用不同 LoRA，按请求索引选 adapter（LLM 的 S-LoRA / Punica 思路） | — | 分组 GEMM 的开销 | 高并发多 LoRA |
 
-扩散上多 LoRA batch 的价值比 LLM 小（batch 本来就不提吞吐），所以 vLLM-Omni 的兼容键要求**一个 batch 一个 LoRA**、SGLang 同样按 LoRA id 分批。切换的瓶颈是**加载**：从磁盘 / 网络读几百 MB 的 adapter。SwiftDiffusion（Li 等 2024）的 **bounded async loading**：观察到去噪的前几步对 LoRA 不敏感（前几步在定构图，LoRA 影响的是风格与细节），所以**前 $k$ 步先用基座模型跑、同时异步加载 LoRA**，加载完再挂上，$k \le 4$ 时质量不变——把加载完全藏在生成里。Nunchaku 让 LoRA 直接挂在 SVDQuant 的低秩分支旁而不必重新量化。
+扩散上多 LoRA batch 的价值比 LLM 小（batch 本来就不提吞吐），所以 vLLM-Omni 的兼容键要求**一个 batch 一个 LoRA**、SGLang 同样按 LoRA id 分批。切换的瓶颈是**加载**：从磁盘 / 网络读几百 MB 的 adapter。SwiftDiffusion（Li 等 2024）的 **bounded async loading**：观察到去噪的前几步对 LoRA 不敏感（前几步在定构图，LoRA 影响的是风格与细节），所以**前 $$k$$ 步先用基座模型跑、同时异步加载 LoRA**，加载完再挂上，$$k \le 4$$ 时质量不变——把加载完全藏在生成里。Nunchaku 让 LoRA 直接挂在 SVDQuant 的低秩分支旁而不必重新量化。
 
 ### 2. ControlNet-as-a-Service
 
-ControlNet 是一个与基座部分同构的网络（U-Net 时代是 encoder 的副本，DiT 时代是几个 block 的副本），输入条件图（边缘 / 深度 / 姿态），输出加到基座的中间特征上；每步一次前向，+15–50% 的算力，且每种条件一个 ControlNet（几 GB）。SwiftDiffusion 把它**从基座进程里拆出来作为独立服务**：ControlNet 在自己的 GPU 上跑、结果传给基座（每步传中间特征）、常用的 ControlNet 常驻显存、多个基座实例共享同一个 ControlNet 实例、ControlNet 与基座**并行**跑（它只依赖 $x_t$，不依赖基座本步的输出）。报告 SDXL 服务延迟降 7.8×（含 LoRA 与 latent 并行）、吞吐 1.6×。这是"分离"思想的另一个应用：**按组件的复用度与负载分离**。
+ControlNet 是一个与基座部分同构的网络（U-Net 时代是 encoder 的副本，DiT 时代是几个 block 的副本），输入条件图（边缘 / 深度 / 姿态），输出加到基座的中间特征上；每步一次前向，+15–50% 的算力，且每种条件一个 ControlNet（几 GB）。SwiftDiffusion 把它**从基座进程里拆出来作为独立服务**：ControlNet 在自己的 GPU 上跑、结果传给基座（每步传中间特征）、常用的 ControlNet 常驻显存、多个基座实例共享同一个 ControlNet 实例、ControlNet 与基座**并行**跑（它只依赖 $$x_t$$，不依赖基座本步的输出）。报告 SDXL 服务延迟降 7.8×（含 LoRA 与 latent 并行）、吞吐 1.6×。这是"分离"思想的另一个应用：**按组件的复用度与负载分离**。
 
 ### 3. IP-Adapter 与参考图
 
@@ -272,7 +270,7 @@ sequenceDiagram
 
 ### 1. GPU·秒定价
 
-每张图的成本 = GPU·秒 × 卡的每秒价格。FLUX 1024² 在 H100（$2.5 / 小时 = $0.0007 / 秒）：eager 6.7 s $0.0047、优化后 1.65 s $0.0011、schnell 0.8 s $0.0006；商业 API 对 FLUX.1-dev 级别的定价在 $0.02–0.03 / 张——毛利空间来自优化程度。视频：Wan 14B 720p 5 秒，8 卡 40 s = 320 GPU·秒 = $0.22；不优化 $1；商业定价 $0.1–0.5 / 秒视频。**前六篇的每一项优化直接是毛利**，这与 LLM serving 的"每百万 token 成本"是同一件事，只是这里的单位是可以事前算出的 GPU·秒。
+每张图的成本 = GPU·秒 × 卡的每秒价格。FLUX 1024² 在 H100（\$2.5 / 小时 = \$0.0007 / 秒）：eager 6.7 s \$0.0047、优化后 1.65 s \$0.0011、schnell 0.8 s \$0.0006；商业 API 对 FLUX.1-dev 级别的定价在 \$0.02–0.03 / 张——毛利空间来自优化程度。视频：Wan 14B 720p 5 秒，8 卡 40 s = 320 GPU·秒 = \$0.22；不优化 \$1；商业定价 \$0.1–0.5 / 秒视频。**前六篇的每一项优化直接是毛利**，这与 LLM serving 的"每百万 token 成本"是同一件事，只是这里的单位是可以事前算出的 GPU·秒。
 
 ### 2. 冷启动与扩缩
 
@@ -307,15 +305,15 @@ sequenceDiagram
 | 项 | 规则 | 数字 |
 |---|---|---|
 | 卡数 | QPS × 单张 GPU·秒；batch 不参与；SP 只减延迟 | FLUX 100 QPS：eager 670 张 → 优化后 170 → schnell 80 |
-| 时长 | 收到请求即确定（$H, W, F, T, g$，实例的 $\eta$）；缓存 ±20% | LLM 不可预测 |
+| 时长 | 收到请求即确定（$$H, W, F, T, g$$，实例的 $$\eta$$）；缓存 ±20% | LLM 不可预测 |
 | 批处理 | compute-bound 下不提吞吐；小模型 × 低分辨率有效；同构静态整批 | 兼容键：形状、CFG、quality、LoRA id |
 | 调度 | 分池、SJF + 老化、SLO 准入、事前配额；抢占在步边界（状态 = latent 0.6 MB） | 生产多用分池而非抢占 |
 | 三段分离 | 文本编码器小且一次、DiT 重、VAE 峰值大；视频几乎总分 VAE；全模态必分 | stage 间传 4 MiB / 0.6 MB |
-| LoRA | merge / unmerged / 多 LoRA；瓶颈是加载；bounded async loading 前 $k \le 4$ 步不挂 | rank 32 +2–5% |
+| LoRA | merge / unmerged / 多 LoRA；瓶颈是加载；bounded async loading 前 $$k \le 4$$ 步不挂 | rank 32 +2–5% |
 | ControlNet | 独立服务、常驻、共享、与基座并行 | SwiftDiffusion 7.8× 延迟 |
 | 级联 | 小模型先试、判别器决定是否升级；按负载调阈值 | DiffServe SLO 违约 −19–70% |
 | API | 图像同步 `/v1/images/generations`；视频异步 `/v1/videos` job + 轮询 + 对象存储；会话流式 | 状态可 checkpoint |
-| 成本 | GPU·秒 × 单价，事前可算 | FLUX $0.0006–0.005 / 张；Wan 720p 5 s $0.22–1 |
+| 成本 | GPU·秒 × 单价，事前可算 | FLUX \$0.0006–0.005 / 张；Wan 720p 5 s \$0.22–1 |
 | 冷启动 | 权重 30–50 GB + 编译 1–3 min → 分钟级，提前扩 | 编译缓存持久化 |
 
 ### 下一篇
@@ -328,7 +326,7 @@ sequenceDiagram
 
    <details markdown="1">
    <summary>答案</summary>
-   卡数 = QPS × 单张 GPU·秒，减半即单张 GPU·秒减半。（1）FP8 线性层（第二篇）：改 $\eta$ 与 Tensor Core 峰值，3.9 → 2.9 s，不够；再叠 TeaCache 0.4（第三篇）：改有效步数 $T_\text{full}$，→ 1.65 s，够。（2）换 FLUX.1-schnell（第六篇）：改 $T$，0.8 s，够但风格 / 多样性变。（3）SP 多卡**不行**：只减延迟不减 GPU·秒。详见[第一章](#一总览)。
+   卡数 = QPS × 单张 GPU·秒，减半即单张 GPU·秒减半。（1）FP8 线性层（第二篇）：改 $$\eta$$ 与 Tensor Core 峰值，3.9 → 2.9 s，不够；再叠 TeaCache 0.4（第三篇）：改有效步数 $$T_\text{full}$$，→ 1.65 s，够。（2）换 FLUX.1-schnell（第六篇）：改 $$T$$，0.8 s，够但风格 / 多样性变。（3）SP 多卡**不行**：只减延迟不减 GPU·秒。详见[第一章](#一总览)。
    </details>
 
 2. 为什么 vLLM-Omni 的批处理兼容键要求同一个 batch 的请求 LoRA id 与 scale 相同？在 LLM serving 里多 LoRA batch 是常规做法，为什么扩散上不值得？
@@ -342,14 +340,14 @@ sequenceDiagram
 
    <details markdown="1">
    <summary>答案</summary>
-   当前 latent（$N \times c p^2$，FLUX 1024² 为 $4608 \times 64 \times 2$ 字节 ≈ 0.6 MB）与步号、seed；同配置下恢复是 bit-exact 的。仍不常用是因为被抢占的长任务（视频）占的 SP 组要整组让出、恢复时缓存（文本 K/V、自回归 KV）与编译状态要重建、实现复杂；分池（长短任务隔离到不同实例组）用队列就能保证短任务延迟，且时长可预测让分池的容量规划可行。详见[第二章](#二请求形态)、[第四章](#四调度)。
+   当前 latent（$$N \times c p^2$$，FLUX 1024² 为 $$4608 \times 64 \times 2$$ 字节 ≈ 0.6 MB）与步号、seed；同配置下恢复是 bit-exact 的。仍不常用是因为被抢占的长任务（视频）占的 SP 组要整组让出、恢复时缓存（文本 K/V、自回归 KV）与编译状态要重建、实现复杂；分池（长短任务隔离到不同实例组）用队列就能保证短任务延迟，且时长可预测让分池的容量规划可行。详见[第二章](#二请求形态)、[第四章](#四调度)。
    </details>
 
-4. SwiftDiffusion 的 bounded async loading 为什么能在前 $k$ 步不挂 LoRA 而不改变输出质量？$k$ 的上限来自什么？
+4. SwiftDiffusion 的 bounded async loading 为什么能在前 $$k$$ 步不挂 LoRA 而不改变输出质量？$$k$$ 的上限来自什么？
 
    <details markdown="1">
    <summary>答案</summary>
-   去噪的前几步在决定低频的构图（第三篇：开头步变化大、决定"画什么放哪"），LoRA 影响的是风格与细节，主要作用在中后段；前 $k$ 步用基座模型跑、同时异步加载 LoRA，$k \le 4$ 时最终图与全程挂 LoRA 几乎相同。$k$ 的上限来自 LoRA 开始显著改变中间 latent 的那一步——再晚挂，风格就来不及施加。详见[第六章](#六附件loracontrolnetip-adapter)。
+   去噪的前几步在决定低频的构图（第三篇：开头步变化大、决定"画什么放哪"），LoRA 影响的是风格与细节，主要作用在中后段；前 $$k$$ 步用基座模型跑、同时异步加载 LoRA，$$k \le 4$$ 时最终图与全程挂 LoRA 几乎相同。$$k$$ 的上限来自 LoRA 开始显著改变中间 latent 的那一步——再晚挂，风格就来不及施加。详见[第六章](#六附件loracontrolnetip-adapter)。
    </details>
 
 5. 视频服务为什么必须做成异步 job？列出它比同步图像 API 多出的三个系统组件。
@@ -363,7 +361,7 @@ sequenceDiagram
 
 [三个引擎的对照导读：同一张图的请求在 SGLang Diffusion、vLLM-Omni 与 xDiT 里各走过什么](/diffusion-engines-compared-sglang-diffusion-vllm-omni-xdit.html)
 
-[^q0]: 卡数 = QPS × 单张 GPU·秒（batch 不提吞吐，SP 不减 GPU·秒）。FLUX.1-dev 1024² 28 步在 H100 上：bf16 eager 6.7 s → 670 张；compile + FA3 3.9 s → 390；+ FP8 2.9 s → 290；+ TeaCache 0.4 约 1.65 s → 170；换 FLUX.1-schnell 4 步 0.8 s → 80。每张成本（$2.5 / 小时）从 $0.0047 到 $0.0006。详见[第一章](#一总览)、[第九章](#九成本扩缩与平台)。
+[^q0]: 卡数 = QPS × 单张 GPU·秒（batch 不提吞吐，SP 不减 GPU·秒）。FLUX.1-dev 1024² 28 步在 H100 上：bf16 eager 6.7 s → 670 张；compile + FA3 3.9 s → 390；+ FP8 2.9 s → 290；+ TeaCache 0.4 约 1.65 s → 170；换 FLUX.1-schnell 4 步 0.8 s → 80。每张成本（\$2.5 / 小时）从 \$0.0047 到 \$0.0006。详见[第一章](#一总览)、[第九章](#九成本扩缩与平台)。
 
 [^q1]: batch：FLUX 1024² 单请求已在算力屋顶，batch 2 ≈ 2× 时间、吞吐不变，没用；只在小模型 × 低分辩率（SD3-Turbo 512²）或同 prompt 多张 / CFG 两分支 / 摊固定开销时有用；能合批的请求必须形状、CFG、quality、LoRA 全同。p99：时长在收到请求时可算，所以按形状分池（无重编译、容量可规划）、队列按估算 GPU·秒排序加老化、SLO 准入（预计等待 + 执行超过 SLO 就拒绝或降级到更少步 / schnell）、提前扩容（冷启动分钟级）；抢占只在步边界、多数系统用分池代替。详见[第三章](#三批处理)、[第四章](#四调度)。
 

@@ -5,7 +5,7 @@ title: "多模态（06）：Latent diffusion、DiT 与文生图配方"
 subtitle: "Latent Diffusion, DiT and How Text-to-Image Models Are Built"
 tags: [AI, Multimodal, Diffusion, Text-to-Image, Video Generation]
 catalog: true
-updated: 2026-09-14
+updated: 2026-09-15
 ---
 
 上一篇的数学在 $$32^2$$ 的 CIFAR 上就能跑；要生成 $$1024^2$$ 的图，中间隔着三个工程决定。**在哪个空间做扩散**——像素空间的 $$1024 \times 1024 \times 3$$ 太大，Latent Diffusion 先用一个 VAE 把图压到 $$128 \times 128 \times 4$$（或 16 通道），扩散在 latent 上做，48 倍的压缩让训练与采样都进入可行区间。**用什么网络**——2022 年是 U-Net，2023 年 DiT 证明 Transformer 在扩散上同样遵循 scaling law，2024 年 SD3 与 FLUX 用 MMDiT 让文本与图像 token 在同一个 Transformer 里交互。**文本怎么进入**——CLIP 文本塔、T5-XXL、还是 LLM，决定了模型对 prompt 的理解深度。
@@ -270,7 +270,7 @@ Sora 的技术报告（OpenAI 2024）的核心表述："patch 是视频的 token
 
 ### 4. 成本
 
-HunyuanVideo 13B 生成 5 秒 720p：token 数约 $$(129/4) \times (720/16) \times (1280/16) \approx 32 \times 45 \times 80 = 115K$$ 个（patch 2 后），50 步，每步 $$2 \times 13B \times 115K \approx 3$$ PFLOPs 加 attention 的 $$O(N^2)$$ 项（$$115K^2 \times d$$ 量级，与线性项相当），总计约 300–400 PFLOPs——是 FLUX 一张图的 100 倍以上，H100 上几分钟到十几分钟（多卡序列并行）。视频生成是当前算力最密集的生成任务，也是步数蒸馏（CausVid、Self-Forcing 一类的自回归 + 蒸馏）最迫切的领域。
+HunyuanVideo 13B 生成 5 秒 720p：token 数约 $$(129/4) \times (720/16) \times (1280/16) \approx 32 \times 45 \times 80 = 115K$$ 个（patch 2 后），50 步，每步线性项 $$2 \times 6.8B \times 119K \approx 1.6$$ PFLOPs（每个 token 只经过双流块的一条流与单流块，约 6.8B 参数，而不是全部 13B），attention 项 $$4 L N^2 d = 4 \times 60 \times 119K^2 \times 3072 \approx 10.5$$ PFLOPs——是线性项的 6 倍多，一步约 12 PFLOPs，50 步总计约 600 PFLOPs——是 FLUX 一张图的 300 倍，单卡 H100 二十多分钟，实际都在多卡序列并行上跑。视频生成是 attention 主导的负载，这笔账的系统含义在 Infra 地图的扩散模型推理系列里展开。视频生成是当前算力最密集的生成任务，也是步数蒸馏（CausVid、Self-Forcing 一类的自回归 + 蒸馏）最迫切的领域。
 
 ## 九、扩散的后训练
 
@@ -320,7 +320,7 @@ $$
 | 求解器 | DPM-Solver / UniPC 10–20 步 | 不重训的极限 |
 | 步数蒸馏 | progressive → consistency（LCM 4 步）→ 对抗（Turbo 1–4 步）→ DMD2（1 步） | 上限是教师；多样性降；FID 不够评 |
 | 成本 | SD 1.5 80 T / 3 s；FLUX 2.8 P / 12 s；7B LLM 1000 token 14 T / 25 s | 扩散 compute-bound、无 KV、静态 batch |
-| 视频 | 3D VAE（4× 时间、8× 空间）+ 时空 patch + 全 3D attention；5 s 720p ≈ 100K token | HunyuanVideo 13B ≈ 300 P，FLUX 的 100× |
+| 视频 | 3D VAE（4× 时间、8× 空间）+ 时空 patch + 全 3D attention；5 s 720p ≈ 100K token | HunyuanVideo 13B ≈ 600 P（attention 占八成以上），FLUX 的 300× |
 | 后训练 | 美学微调；Diffusion-DPO（ELBO 替代似然）；奖励微调；可验证奖励 + GRPO | 与 L5 平行，含 reward hacking |
 
 ## 十二、自测
