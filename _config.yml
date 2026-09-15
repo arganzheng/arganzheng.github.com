@@ -97,7 +97,7 @@ related_posts_threshold: 3
 # ba_track_id: [your track id]
 
 # Google Analytics
-ga_track_id: 'UA-97908667-1'            # Format: UA-xxxxxx-xx
+ga_track_id: 'G-W0JQEX8FSP'             # GA4 measurement id (Format: G-xxxxxxxxxx)
 
 
 
