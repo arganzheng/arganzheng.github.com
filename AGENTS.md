@@ -182,6 +182,13 @@ Pages has `https_enforced` on.
   affiliate links (`a.vglnk`) into article text.
 - `js/annotations.js` — comments, reader highlight comments ("划线评论"), likes /
   votes and page views, see below.
+- `js/article-editor.js` — author-only Markdown source editor on ordinary `post`
+  pages. It reads/updates `_posts/*.md` through the annotations Worker; it never
+  converts rendered HTML back to Markdown. The Worker verifies the GitHub viewer
+  against `AUTHOR_LOGIN` and uses a GitHub App Contents permission to commit to
+  `master` with a blob-SHA conflict check. The App needs Contents: Read and write
+  in addition to the Issues permission used by `/issues`. See
+  `tools/annotations-worker/README.md`.
 - `_includes/post-actions.html` + `js/share.js` (+ `less/share.less`) — action bar
   「♥ 点赞 N · 分享 · [复制为公众号格式]」 right above `comments.html` in all
   three post layouts. **「点赞」 is anonymous**: worker `GET/POST /votes` keeps

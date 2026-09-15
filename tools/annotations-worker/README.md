@@ -1,7 +1,8 @@
 # blog-annotations worker
 
 Cloudflare Worker that relays the giscus API for `js/annotations.js` (the post
-comment section and the highlight comments) and keeps the page-view counter.
+comment section and the highlight comments), keeps the page-view counter, and
+provides an author-only Markdown source editor for ordinary posts.
 See `worker.js` header for the routes. Likes and votes need nothing here: they
 are GitHub reactions written by the browser with the reader's token.
 
@@ -38,7 +39,7 @@ this is a one-off setup:
 
 1. GitHub → Settings → Developer settings → GitHub Apps → New GitHub App:
    any name (issues will appear as `<name>[bot]`), homepage = the blog,
-   webhook **inactive**, repository permission **Issues: Read and write**
+   webhook **inactive**, repository permission **Issues: Read and write** and **Contents: Read and write**
    only, "Where can this app be installed" = only this account.
 2. On the App page: note the **App ID**; **Generate a private key** — a
    `*.private-key.pem` downloads (PKCS#1, `BEGIN RSA PRIVATE KEY`; the worker
@@ -59,6 +60,12 @@ Without the key the route answers 501 and the client simply reports that the
 feature is off. The worker only accepts the request when the
 `Authorization: Bearer <reader token>` header resolves via `GET /user`, i.e.
 from readers signed in through giscus.
+
+## Author article editor (GET/PUT /article)
+
+The ordinary `post` layout shows the author-only Markdown editor after the author signs in through giscus. `GET /article?path=_posts/YYYY-MM-DD-slug.md` reads the source from `master`; `PUT /article` updates it with the current blob `sha`. The worker verifies that the GitHub user is `AUTHOR_LOGIN` before using the GitHub App installation token, so no repository token reaches the browser.
+
+The GitHub App must have **Contents: Read and write** in addition to the existing Issues permission. After changing the App permission, update/reinstall it on the repository and redeploy the Worker. The editor commits directly to `master`; the SHA check rejects stale edits instead of overwriting a newer commit.
 
 ## Optional: page views (GET/POST /views)
 
