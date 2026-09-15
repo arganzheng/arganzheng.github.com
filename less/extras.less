@@ -158,6 +158,31 @@
 	> :last-child { margin-bottom: 0; }
 }
 
+// ---- .code-tabs: one snippet in several languages, switched by js/code-tabs.js
+.post-container .code-tabs {
+	margin: 0 0 16px;
+	.code-tabs-bar {
+		display: flex; gap: 2px; margin: 0; padding: 0 4px;
+		border: 1px solid #e1e4e8; border-bottom: 0; border-radius: 6px 6px 0 0; background: #f6f8fa;
+	}
+	.code-tab {
+		padding: 6px 14px; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px;
+		background: transparent; color: #57606a; font-size: 13px; font-weight: 600; line-height: 1.4; cursor: pointer;
+		&:hover { color: #24292f; }
+		&.is-active { color: @brand-primary; border-bottom-color: @brand-primary; }
+	}
+	&.code-tabs-ready > .highlighter-rouge { margin-top: 0; margin-bottom: 0; }
+	&.code-tabs-ready > .highlighter-rouge:not(.is-active) { display: none; }
+	// no JS: stack the panels, each labelled with its language
+	&:not(.code-tabs-ready) > .highlighter-rouge::before {
+		display: block; margin-bottom: 4px; color: #57606a; font-size: 12px; font-weight: 600; content: "Code";
+	}
+	&:not(.code-tabs-ready) > .language-python::before { content: "Python"; }
+	&:not(.code-tabs-ready) > .language-java::before { content: "Java"; }
+	&:not(.code-tabs-ready) > .language-cpp::before { content: "C++"; }
+}
+
+
 // ---- footnote list at the end of a post: divider + label; posts whose
 // footnotes answer the opening questions ([^q1] → id fn:q1) get a Q&A label
 .post-container .footnotes {

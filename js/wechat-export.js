@@ -253,6 +253,18 @@
       a.replaceWith(span, supNum(n));
     });
 
+    // .code-tabs (js/code-tabs.js): no tabs in WeChat — drop the bar, show every
+    // panel with its language as a small heading.
+    root.querySelectorAll('.code-tabs').forEach(function (group) {
+      group.querySelectorAll('.code-tabs-bar').forEach(function (bar) { bar.remove(); });
+      group.querySelectorAll(':scope > .highlighter-rouge').forEach(function (panel) {
+        panel.hidden = false;
+        var tab = panel.getAttribute('data-lang') || 'code';
+        var label = { python: 'Python', java: 'Java', cpp: 'C++' }[tab] || tab;
+        panel.parentNode.insertBefore(el('p', 'margin:0 0 4px;color:#57606a;font-size:13px;font-weight:600;', label), panel);
+      });
+    });
+
     // Code blocks: Rouge's div.highlighter-rouge > div.highlight > pre > code.
     root.querySelectorAll('div.highlighter-rouge, pre').forEach(function (block) {
       if (!block.parentNode || block.closest('section[data-code]')) return;

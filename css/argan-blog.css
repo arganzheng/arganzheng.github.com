@@ -4445,3 +4445,61 @@ li[id^="fn:"] {
 .post-container .footnotes ol { padding-left: 1.6em; }
 .post-container .footnotes li { margin-bottom: 8px; }
 .post-container .footnotes li:target { background: rgba(0, 133, 161, 0.08); border-radius: 4px; }
+
+/* .code-tabs — grouped code blocks switched by js/code-tabs.js (source: less/extras.less) */
+.post-container .code-tabs {
+  margin: 0 0 16px;
+}
+.post-container .code-tabs .code-tabs-bar {
+  display: flex;
+  gap: 2px;
+  margin: 0;
+  padding: 0 4px;
+  border: 1px solid #e1e4e8;
+  border-bottom: 0;
+  border-radius: 6px 6px 0 0;
+  background: #f6f8fa;
+}
+.post-container .code-tabs .code-tab {
+  padding: 6px 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: transparent;
+  color: #57606a;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.post-container .code-tabs .code-tab:hover {
+  color: #24292f;
+}
+.post-container .code-tabs .code-tab.is-active {
+  color: #0085a1;
+  border-bottom-color: #0085a1;
+}
+.post-container .code-tabs.code-tabs-ready > .highlighter-rouge {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.post-container .code-tabs.code-tabs-ready > .highlighter-rouge:not(.is-active) {
+  display: none;
+}
+.post-container .code-tabs:not(.code-tabs-ready) > .highlighter-rouge::before {
+  display: block;
+  margin-bottom: 4px;
+  color: #57606a;
+  font-size: 12px;
+  font-weight: 600;
+  content: "Code";
+}
+.post-container .code-tabs:not(.code-tabs-ready) > .language-python::before {
+  content: "Python";
+}
+.post-container .code-tabs:not(.code-tabs-ready) > .language-java::before {
+  content: "Java";
+}
+.post-container .code-tabs:not(.code-tabs-ready) > .language-cpp::before {
+  content: "C++";
+}
