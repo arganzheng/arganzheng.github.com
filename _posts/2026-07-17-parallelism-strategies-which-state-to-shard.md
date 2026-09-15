@@ -16,10 +16,9 @@ updated: 2026-09-14
 
 本篇的核心问题：
 
-> **每种并行都在"复制"和"切分"之间做交换：复制多占显存，切分多花通信。给定一个模型和一个集群的拓扑（节点内 NVLink、节点间 InfiniBand），每个维度的通信量是多少、走哪条链路、和计算能不能重叠？这决定了它该放在几维并行的哪一层。**
+> **每种并行都在"复制"和"切分"之间做交换：复制多占显存，切分多花通信。给定一个模型和一个集群的拓扑（节点内 NVLink、节点间 InfiniBand），每个维度的通信量是多少、走哪条链路、和计算能不能重叠？[^q0] 这决定了它该放在几维并行的哪一层。**
 
 本篇不碰任何一个框架的进程组代码（那是下一篇），只在每一节末尾指出 PyTorch 2.13.0 与 Megatron Core 0.18.0 里对应实现的位置，方便读者按图索骥。通信原语（all-reduce、all-gather、reduce-scatter、all-to-all、send/recv）只用它们的**语义和每卡通信量**，耗时当作由链路带宽决定的黑盒。
-
 
 ## 一、总览
 
@@ -97,7 +96,6 @@ EP              4 × 路由 token × 层数 × m                    all-to-all  
 | 六 | 专家并行 | 专家的状态形态；all-to-all 通信量；负载不均的双重代价；EP 与 DP/TP 的组合 |
 | 七 | 组合与实例 | 五元组大表；组合顺序 TP → CP → PP → DP 及原因；Llama 3 405B 代入；原语对应表；三框架对照 |
 | 八 | 小结 | 要点、源码位置、train-ledger 的 `ledger/parallel.py` |
-
 
 ## 二、数据并行与 ZeRO：切优化器状态、梯度、参数
 
@@ -201,7 +199,6 @@ ZeRO-3 的 $$3N$$ 通信全在 DP 组上；当 $$N_d$$ 跨越几十个节点时�
 
 它的取舍很直接：把大头 $$3N$$ 挪到快链路上，跨节点只剩 $$2N/N_s$$，代价是显存只省 $$N_s$$ 倍。70B 用 $$N_s = 8$$ 每卡要 141 GB，放不下；$$N_s = 64$$ 才是 17.6 GB。所以 HSDP 的 $$N_s$$ 是"刚好放得下"的最小值，不是越小越好。FSDP2 里 HSDP 由传入的 2D `DeviceMesh` 决定：`fully_shard(module, mesh=mesh_2d)` 时参数 placement 为 `(Replicate(), Shard(0))`，`_fsdp_common.py` 的 `HSDPMeshInfo` 同时持有 shard 与 replicate 两个进程组；`_fsdp_api.py` 的 `DataParallelMeshDims` 则允许在一个更高维的 SPMD mesh 上指定哪些维是 shard、哪些是 replicate。
 
-
 ## 三、张量并行与序列并行
 
 ### 1. 列切与行切的配对
@@ -275,7 +272,6 @@ PyTorch 2.13.0 用 DTensor 表达 TP：`torch/distributed/tensor/parallel/style.
 
 Megatron Core 0.18.0 则是手写的：`megatron/core/tensor_parallel/layers.py` 的 `ColumnParallelLinear`（`gather_output` 控制是否在输出处 all-gather）与 `RowParallelLinear`（`input_is_parallel` 表示输入已按列分布）；`mappings.py` 里每种通信是一个 `autograd.Function`——`_CopyToModelParallelRegion`（前向恒等、反向 all-reduce）、`_ReduceFromModelParallelRegion`（前向 all-reduce、反向恒等）这一对是无 SP 的 TP；`_GatherFromSequenceParallelRegion` 与 `_ReduceScatterToSequenceParallelRegion` 这一对是有 SP 的 TP。共轭关系在类名里就写明了。
 
-
 ## 四、上下文并行
 
 ### 1. 为什么 TP/SP 还不够
@@ -345,7 +341,6 @@ N_c 上限              无                                     ≤ 头数（GQA
 GQA 是分水岭。MHA 下 $$h_{kv} = h$$，Ring 每层 $$12sbh$$ 对 Ulysses 的 $$16sbh/N_c$$，$$N_c = 8$$ 时 Ring 多搬 6 倍；GQA 下 $$h_{kv}$$ 只有 $$h$$ 的 $$1/8$$ 到 $$1/16$$（Llama 3 405B：128 个头、8 个 K/V 头，$$h_{kv} = h/16$$），Ring 的通信量随之缩到 $$0.75\,sbh$$，反而比 Ulysses 少了；同时 Ulysses 的 $$N_c$$ 上限被压到 8 个 K/V 头再除以 $$N_t$$——TP = 8 时它只剩 1。所以 GQA + TP 的大模型上 Ring 是唯一可行的选择，Llama 3 用的正是它。放进五元组：CP **切激活（含注意力）；Ring 每层 $$\approx 12sbh_{kv}$$，Ulysses $$\approx 16sbh/N_c$$；可跨节点；Ring 可重叠、Ulysses 不可；长序列必需**。
 
 PyTorch 2.13.0 里 CP 是实验 API：`torch/distributed/tensor/experimental/_context_parallel/_attention.py` 的 `context_parallel()` 上下文管理器把 SDPA 替换为 ring 版本（`_templated_ring_attention()`），K/V 块的传递方式有两种 `_RingRotater`——`_AllToAllRotater`（逐步点对点交换）与 `_AllGatherRotater`（一次 all-gather 全部 K/V，换通信量换步数），由 `set_rotate_method()` 选择；因果负载均衡在 `_load_balancer.py` 的 `_HeadTailLoadBalancer`。Megatron 的 CP 在 Transformer Engine 的注意力内核里实现，`parallel_state.py` 单独维护 CP 进程组，梯度归约用 `get_data_parallel_group(with_context_parallel=True)`——这一点第七章组合时会用到：**CP 的各卡持有同一份参数的副本，梯度要在 DP × CP 上归约**。
-
 
 ## 五、流水线并行
 
@@ -422,7 +417,6 @@ PP 的通信量是所有维度里最小的：每个 micro-batch 在每个 stage 
 
 PyTorch 2.13.0 的 `torch/distributed/pipelining/schedules.py` 把调度做成了可枚举的类：单 stage 每卡的 `ScheduleGPipe` 与 `Schedule1F1B`（基类 `PipelineScheduleSingle`）；多 stage 每卡的 `ScheduleInterleaved1F1B`、`ScheduleLoopedBFS`、`ScheduleInterleavedZeroBubble`（论文的 ZB-H1 / ZB1P）、`ScheduleZBVZeroBubble`（ZB-V，要求每卡恰好两个 stage）、`ScheduleDualPipeV`（基类 `PipelineScheduleMulti`，运行时是 `_PipelineScheduleRuntime`，它把调度表达成一张按时间步排列的动作表——前向、反向输入、反向权重、send、recv——逐步执行）；`get_schedule_class()` 按名字取类。每个 stage 是 `stage.py` 的 `PipelineStage`，负责 send/recv 与形状推断。Megatron 0.18.0 的 `megatron/core/pipeline_parallel/schedules.py` 是过程式写法：`forward_backward_pipelining_without_interleaving()` 是 1F1B，`forward_backward_pipelining_with_interleaving()` 是 interleaved 1F1B，`get_forward_backward_func()` 按 PP 与 VP 大小选择其一；点对点在 `p2p_communication.py`。两种写法的对照是下一篇的内容。
 
-
 ## 六、专家并行
 
 ### 1. MoE 的状态形态
@@ -464,7 +458,6 @@ EP 的进程组与 DP 组是**同一批卡的不同用法**：一个 EP 组的 $
 ```
 
 ZeRO 对两组参数分别按各自的 DP 组分片：专家参数在 2 卡的组里切，非专家参数在 8 卡的组里切——这是本篇 `ledger/parallel.py` 里 MoE 那几行除法的来源。Megatron 0.18.0 的 `parallel_state.py` 里 EP 是 rank 排布 `"tp-cp-ep-dp-pp"` 中的一维，`megatron/core/transformer/moe/token_dispatcher.py` 里 `MoEAlltoAllTokenDispatcher` 是本节描述的 all-to-all 实现，`MoEAllGatherTokenDispatcher` 是 $$N_e$$ 很小时的替代（all-gather 全部 token、各卡挑自己专家的）。EP 与 TP 的组合（专家再做 TP）在 Megatron 里也支持，但如第 1 节所说通常不划算，多数 MoE 配置让专家层的 TP 为 1。
-
 
 ## 七、组合：多维并行与 Llama 3 405B
 
@@ -626,7 +619,6 @@ send / recv      一对一                                  S                PP 
 ```
 
 一个记法：**all-reduce 给复制的状态用，all-gather / reduce-scatter 给分片的状态用，all-to-all 给按路由或按维度转置的激活用，send/recv 给流水和环用**。看到一个训练任务的通信 profile 里各原语的占比，就能反推它的并行配置。
-
 
 ## 八、本文小结
 
@@ -991,14 +983,6 @@ llama3-70b: tp=1 cp=1 pp=1 dp=1024 ep=1 zero=3 sp=True mb=1 m=1 -> 1024 GPUs
 
 > **一个 bf16 参数在 Megatron-LM、DeepSpeed、torchtitan 里各自存在哪里、什么时候被 all-gather、什么时候被释放、它的 fp32 主副本在哪张卡上？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-把每种并行看成**状态的放置方案**：四种状态（参数、梯度、优化器状态、激活）各选复制还是切分，每个“切”对应一种通信、一个时机、一条链路。**DP 系**（同一参数的副本之间分工）：DP 什么都不切、每 step 通信 $$2N$$（梯度 all-reduce = reduce-scatter + all-gather），与卡数无关、可与反向重叠；ZeRO-1 切优化器状态、ZeRO-2 再切梯度，通信仍 $$2N$$；ZeRO-3 / FSDP 切参数，前向要 all-gather，通信 $$3N$$（不 reshard 回到 $$2N$$）——通信在 DP 组上，可放节点间，能重叠（第二、三章）。**模型并行系**（一份模型怎么切）：TP 列切 + 行切配对，每层前向 2 次反向 2 次 all-reduce、载荷是激活 $$sbh$$，在关键路径上不可重叠，所以锁在 NVLink 内、$$N_t \le 8$$；SP 把它拆成 all-gather + reduce-scatter 顺便切层边界激活；CP 切序列，attention 用 ring 传 KV，GQA 下 KV 小所以通信可重叠、可跨节点；PP 按层切，通信最小（层边界激活、点对点、可重叠），代价是气泡 $$\frac{p-1}{m}$$，1F1B 降激活、interleaved 降气泡、zero-bubble 用 $$W$$ 填缝；EP 切专家，每层 all-to-all、载荷 token × $$k$$ × $$h$$、$$N_e(N_e - 1)$$ 条流、在关键路径上（第四至八章）。**放哪一层**：通信不可重叠且量大的放最近（TP 节点内），可重叠的可以放远（DP、PP 节点间），组合顺序 TP → CP → PP → DP，物理 rank 排布把 PP 放最远（Megatron 默认 `tp-cp-ep-dp-pp`）。Llama 3 405B 的 TP 8 / PP 16 / DP 128 每 step：TP 220 GB 走 NVLink、DP 12.6 GB 走 IB、PP 1 GB 走 IB——三个数字就是这套规则的结果（第九章）。
-
-</details>
-
-
 ## 九、自测
 
 1. DP、ZeRO-1、ZeRO-2、ZeRO-3 各切什么？每 step 的通信量各多少（以参数量 $$N$$ 计）？
@@ -1041,7 +1025,8 @@ llama3-70b: tp=1 cp=1 pp=1 dp=1024 ep=1 zero=3 sp=True mb=1 m=1 -> 1024 GPUs
 
    </details>
 
-
 ## 下一篇
 
 [三个框架：Megatron-LM、DeepSpeed 与 torchtitan 的架构对比与源码导读](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html)
+
+[^q0]: 把每种并行看成**状态的放置方案**：四种状态（参数、梯度、优化器状态、激活）各选复制还是切分，每个「切」对应一种通信、一个时机、一条链路。**DP 系**：DP 什么都不切、每 step 通信 $$2N$$（梯度 all-reduce），与卡数无关、可与反向重叠；ZeRO-1 切优化器状态、ZeRO-2 再切梯度，通信仍 $$2N$$；ZeRO-3 / FSDP 切参数，前向要 all-gather，通信 $$3N$$——在 DP 组上，可放节点间，能重叠（[第二章](#二数据并行与-zero切优化器状态梯度参数)）。**模型并行系**：TP 列切 + 行切配对，每层前向 2 次反向 2 次 all-reduce、载荷是激活 $$sbh$$，在关键路径上不可重叠，所以锁在 NVLink 内、$$N_t \le 8$$；SP 把它拆成 all-gather + reduce-scatter（[第三章](#三张量并行与序列并行)）；CP 切序列，attention 用 ring 传 KV，GQA 下 KV 小所以可重叠、可跨节点（[第四章](#四上下文并行)）；PP 按层切，通信最小（层边界激活、点对点、可重叠），代价是气泡 $$\frac{p-1}{m}$$（[第五章](#五流水线并行)）；EP 切专家，每层 all-to-all、在关键路径上（[第六章](#六专家并行)）。**放哪一层**：通信不可重叠且量大的放最近（TP 节点内），可重叠的可以放远（DP、PP 节点间），组合顺序 TP → CP → PP → DP。Llama 3 405B 的 TP 8 / PP 16 / DP 128 每 step：TP 220 GB 走 NVLink、DP 12.6 GB 走 IB、PP 1 GB 走 IB（[第七章](#七组合多维并行与-llama-3-405b)）。

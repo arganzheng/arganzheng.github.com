@@ -18,10 +18,9 @@ updated: 2026-09-14
 
 本篇要回答总纲提出的核心问题：
 
-> **第 137,000 步 loss 从 2.1 跳到 4.8。是数据、学习率、还是数值精度？要回答这个问题，需要哪些信号在事前就被记录下来，需要哪些状态能被精确回放？**
+> **第 137,000 步 loss 从 2.1 跳到 4.8。是数据、学习率、还是数值精度？[^q0] 要回答这个问题，需要哪些信号在事前就被记录下来，需要哪些状态能被精确回放？[^q1]**
 
 依照系列惯例：本篇不讨论学习率、batch size、数据配比的算法依据，只讨论它们的**工程**处理——什么信号该记、什么阈值该报、回退多远、跳过多少、数据怎么存怎么读怎么恢复。源码以 Megatron Core 0.18.0、DeepSpeed 0.19.2、PyTorch 2.13.0 为准，torchtitan 依更新声明以 v0.3.0 为准。
-
 
 ## 一、总览
 
@@ -101,7 +100,6 @@ loss scale          fp16：DynamicGradScaler（hysteresis/backoff）；    fp16�
 | 七 | 数据管线（下）：加载与恢复 | 流式读取 · 可恢复的三条要求 · Megatron / torchtitan / DeepSpeed 的恢复语义 · 数据等待与 MFU |
 | 八 | 本文小结 | 要点 · 源码位置 · train-ledger 的 signals/ 与 `data/replay_check.py` · 回答核心问题 |
 | 九 | 自测 | 5 道题 |
-
 
 ## 二、loss spike：现象与成因
 
@@ -205,7 +203,6 @@ flowchart TB
 
 归因不是为了写报告，而是决定下一步：LR 与 logit 成因要改配置（并可能回退到更早的 checkpoint 重训一段）；坏数据与优化器状态成因用回退 + 跳过；bf16 成因通常不处理，但要检查精度链有没有被误配。
 
-
 ## 三、预防
 
 预防的目标是把每一步更新的方差压在一个阈值之下，让上面五种成因中的任何一种都不足以把参数推出稳定区。六种手段按"必开"到"按需"排列。先用一张表把"每种手段对准第二章的哪个成因、付什么代价、三框架里的开关在哪"对齐，各节再展开实现细节：
@@ -276,7 +273,6 @@ weight decay 对 1-D 参数（LayerNorm 的 gain、bias）与 embedding 的作�
 
 bf16 训练没有这一项；fp16 训练必须有。fp16 的指数只有 5 位，梯度容易下溢成零，所以把 loss 乘一个大数（scale）再反向，更新前再除回来。scale 太大会上溢成 inf，太小则下溢——动态调整：Megatron `megatron/core/optimizer/grad_scaler.py` 的 `DynamicGradScaler(initial_scale, min_scale, growth_factor, backoff_factor, growth_interval, hysteresis)`，连续 `hysteresis` 次发现 inf/NaN 就把 scale 乘 `backoff_factor`，连续 `growth_interval` 步正常就乘 `growth_factor`；`--initial-loss-scale` 默认 $$2^{32}$$。发现 inf 的那一步**整步跳过**（`MixedPrecisionOptimizer.step()` 在 `prepare_grads()` 返回 `found_inf_flag` 时直接 `return False, None, None`，`train_step()` 记 `skipped_iter = 1`）。DeepSpeed 同理：`stage_1_and_2.py` 的 `has_overflow()` → `engine.py` 里 `self.skipped_steps += 1`，`skipped_steps` 进 checkpoint。**loss scale 与 skipped iterations 因此都是信号**：scale 持续下降说明梯度里的 inf 越来越多，是发散的前兆；skipped iterations 突然增加同理。
 
-
 ## 四、处理：回退与跳过
 
 ### 1. PaLM 的做法
@@ -329,7 +325,6 @@ torchtitan 与 DeepSpeed 没有等价的内建开关。torchtitan 的 `trainer.p
 6  留档          spike 步、成因判断、回退点、跳过范围、样本 id 反查结果 → 复盘表；若是坏数据，把特征加进过滤规则
 ```
 
-
 ## 五、必须记录的信号
 
 ### 1. 清单
@@ -368,7 +363,6 @@ step time / data_loading(%)        第四篇的 MFU 账                         
 - **记原始值**。clip 前的 grad norm、unscale 后的真实梯度量级、按 token 加权的 loss。
 - **随 checkpoint 一起留档**。spike 归因要对照"spike 前 100 步的信号"与"那 100 步用了哪些样本"，后者要靠 consumed samples 与数据索引反查，所以信号文件里每一行都要有 step 与 consumed samples 两列。
 - **按 rank 可查**。至少 `global_max_loss` 这类聚合要保留是哪个 rank 贡献的极值；第八篇会讲 per-rank 可见性的全套。
-
 
 ## 六、数据管线（上）：存储与索引
 
@@ -550,7 +544,6 @@ torchtitan 用另一种编码：`HuggingFaceTextDataset` 输出 `positions`，�
 
 `deepspeed_io()` 在 `curriculum_learning_enabled()` 时把这些配置传给 `DeepSpeedDataLoader`；否则 DeepSpeed 的数据加载就是普通的 `torch.utils.data.DataLoader` 加 `DistributedSampler`（eval 路径）或用户传入的 sampler——**普通路径下 DeepSpeed 不保存任何数据位置**，恢复后从哪里继续是用户的责任。
 
-
 ## 七、数据管线（下）：加载与恢复
 
 ### 1. 流式读取
@@ -645,7 +638,6 @@ CPU                                  worker 进程 100%，或被 NCCL proxy / �
 torchtitan 的 `batch_generator()` 用 `time.perf_counter()` 包住 `next(data_iterator)`，累计到 `MetricsProcessor.data_loading_times`，`log()` 时算出 `data_loading(s)` 与 `data_loading(%)`——这是三个框架里唯一开箱即用的"数据等待"指标。Megatron 没有直接的等价物，但 `--timing-log-level` 提高后 `batch-generator` 计时器（`get_batch()` 外层）给出同样的信息；profiler 是通用手段。
 
 出现等待时的处置顺序，按代价从低到高：`pin_memory=True`（Megatron 的 `build_pretraining_data_loader()` 固定开着；torchtitan `ParallelAwareDataloader.Config.pin_memory` 默认 False）；`num_workers` 从 2 加到 4–8（Megatron `--num-workers` 默认 2；torchtitan 默认 0，即主进程加载）；`prefetch_factor` 加深（torchtitan 默认 None → 2）；对象存储的 `bin_chunk_nbytes` 与并发；最后是把在线 tokenize 改成离线。一个粗算：一张 H100 上 Llama 3 8B、$$s = 8192$$、$$b = 1$$，一个 micro-batch 的前向反向约 0.3–0.4 s；DataLoader 只要能在这段时间里从任何地方读出 8192 个 token（int32 下 32 KB）就够了——本地 mmap 是微秒级，对象存储的一次范围请求是几十毫秒级，都远小于预算。**数据等待几乎从不是带宽问题，而是并发与调度问题**：worker 太少、在线 tokenize 太慢、worker 与 NCCL proxy 线程争同一批核（第六篇 straggler 成因之一）。
-
 
 ## 八、本文小结
 
@@ -922,14 +914,6 @@ def check(world_size, a="ids_uninterrupted", b="ids_resumed"):
 
 > **凌晨三点告警：step 时间从 12 秒变成 40 秒，没有报错。十分钟内你要判断是 straggler、数据、通信、还是硬件降频。你需要的每一个信号，在开训前有没有采集？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**是哪一种**：先看 spike 的形态与前兆——loss 从 2.1 跳到 4.8 是大跳，看它是瞬时（下一步就回来：坏 batch 或 bf16 偶发）、可恢复（几百步爬回：学习率或优化器状态）还是发散（一路上去：logit 增长或精度链断裂）。五种成因各有信号：**学习率**——param norm 增速在事前变快；**bf16 数值**——无前兆、单步跳；**logit 增长**——max attention logit 单调升过约 100；**坏数据**——换 seed 回放同一 batch 可复现；**优化器状态**——grad norm 在低平台后放大（第二、三章）。所以回答“是什么”依赖**事前记录**：loss 的 avg 与 max、clip 前的 grad norm、param norm、LR、loss scale、skipped iters、num_zeros、max attention logit、consumed samples、data_loading%——每步记原始值、随 checkpoint 留档、按 rank 可查（第六章）。**需要哪些状态能精确回放**：定位到第 137,000 步的 batch，要求数据管线确定性——离线 tokenize 的 `.bin/.idx`、`GPTDataset` 三个索引由 seed 确定、`BlendedDataset` 的贪心混合确定性、恢复位置由 `consumed_train_samples` 整数决定（Megatron 可换 DP 恢复，torchtitan 的 `StatefulDataLoader` 按 dp_rank 存不可换）；加上足够密的 checkpoint（第七、八、九章）。**处理**：PaLM 的做法——回退约 100 步 + 跳过 200–500 个 batch（Megatron `--iterations-to-skip` → `dummy_train_step`，consumed 与 skipped 同步加），代价约 250–300 步 / 次、20 次不到 1%；预防靠全局范数裁剪、warmup、QK-LayerNorm、z-loss、weight decay 例外、精度纪律七项（第四、五章）。便宜的是处置，贵的是信号与基础设施。
-
-</details>
-
-
 ## 九、自测
 
 1. loss 单步从 2.1 跳到 4.8，下一步回到 2.1——最可能是哪两种成因？怎么区分？
@@ -972,7 +956,9 @@ def check(world_size, a="ids_uninterrupted", b="ids_resumed"):
 
    </details>
 
-
 ## 下一篇
 
 [长时训练的可观测与运维：从指标到 hang 排查](/long-running-training-observability-and-operations.html)
+
+[^q0]: 先看 spike 的形态与前兆：瞬时（下一步就回来：坏 batch 或 bf16 偶发）、可恢复（几百步爬回：学习率或优化器状态）还是发散（一路上去：logit 增长或精度链断裂）。五种成因各有信号：**学习率**——param norm 增速在事前变快；**bf16 数值**——无前兆、单步跳；**logit 增长**——max attention logit 单调升过约 100；**坏数据**——换 seed 回放同一 batch 可复现；**优化器状态**——grad norm 在低平台后放大。处理：PaLM 的做法——回退约 100 步 + 跳过 200–500 个 batch（Megatron `--iterations-to-skip`），代价约 250–300 步 / 次；预防靠全局范数裁剪、warmup、QK-LayerNorm、z-loss、weight decay 例外、精度纪律。详见[第二](#二loss-spike现象与成因)至[四章](#四处理回退与跳过)。
+[^q1]: **事前记录**：loss 的 avg 与 max、clip 前的 grad norm、param norm、LR、loss scale、skipped iters、num_zeros、max attention logit、consumed samples、data_loading%——每步记原始值、随 checkpoint 留档、按 rank 可查（[第五章](#五必须记录的信号)）。**精确回放**：要定位到第 137,000 步的 batch，数据管线必须确定性——离线 tokenize 的 `.bin/.idx`、`GPTDataset` 三个索引由 seed 确定、`BlendedDataset` 的贪心混合确定性、恢复位置由 `consumed_train_samples` 整数决定（Megatron 可换 DP 恢复，torchtitan 的 `StatefulDataLoader` 按 dp_rank 存不可换）；加上足够密的 checkpoint（[第六章](#六数据管线上存储与索引)、[第七章](#七数据管线下加载与恢复)）。便宜的是处置，贵的是信号与基础设施。

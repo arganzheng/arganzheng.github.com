@@ -12,7 +12,7 @@ updated: 2026-09-14
 
 上一篇的全景图里已经出现了一个关键事实：KV Cache 不再是一整块连续显存，而是按 Block 动态分配和回收的资源（PagedAttention），不同请求因此可以灵活共享 GPU 显存——它的管理细节留到第五篇。有了"显存可以按块调配"这个前提，一个更直接的问题就浮上来了：
 
-> **GPU 这一轮到底给谁用？每个请求这一轮应该推进多少？**
+> **GPU 这一轮到底给谁用？[^q0] 每个请求这一轮应该推进多少？[^q1]**
 
 这正是 Scheduler 要解决的问题。
 
@@ -232,7 +232,6 @@ Iter 6:        [B] [D] [E]      ← C 完成
 
 > **每一次迭代，都重新决定 GPU 这一轮应该服务哪些 Request。**
 
-
 ## 三、Chunked Prefill：为什么一个 Request 也不能一次吃完？
 
 Continuous Batching 解决了：
@@ -440,7 +439,6 @@ Chunk 5 → 2
 而接下来真正需要回答的问题是：
 
 > **Scheduler 每一轮到底有多少工作额度可以分配？又应该如何在不同 Request 之间分配？**
-
 
 ## 四、Token Budget：Scheduler 每一轮到底怎么分配？
 
@@ -1754,7 +1752,6 @@ required_blocks = (
 
 这种资源震荡。
 
-
 ## 七、本文小结：Scheduler：从“Batch 调度”到“资源调度”
 
 到这里，可以把 vLLM Scheduler 的整个设计串起来。
@@ -1916,14 +1913,6 @@ Speculative Decode
 
 </details>
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**这一轮给谁用**：vLLM 的 Scheduler 没有“prefill 阶段”与“decode 阶段”，只有“这一轮给这个请求推进多少 token”——调度的单位是 token 不是 request。每一步先服务 running 队列（每个请求至少推进 1 个 token，KV 不够就按 LIFO 抢占最晚来的请求、释放它的块），再从 waiting 队列按 FCFS（或优先级）准入新请求，直到 token budget（`max_num_batched_tokens`）、`max_num_seqs` 或 KV 块用尽（第二、三章）。**每个推进多少**：decode 请求 1 个；新请求的 prefill 在 chunked prefill 下可以只推进 budget 剩余的部分——一个 8K 的 prompt 被切成几轮，每轮与其他请求的 decode 混在同一个 batch（第四章）。这就是 Continuous Batching + Chunked Prefill 的全部：batch 每步重组、长 prefill 不独占 GPU、decode 的 TPOT 稳定。**公平与抢占**：FCFS 保证先来先服务，优先级调度可以插队；KV 不够时抢占——V1 主要用重算（丢块、回 waiting、之后重新 prefill，prefix cache 让重算便宜）而不是 swap；token budget 是把吞吐与延迟连起来的旋钮——大 budget 吞吐高、TTFT 低但 TPOT 抖，小 budget 反之（第五、六章）。与传统“固定 batch → 执行 → 完成”相比，vLLM 是“每步从 running + waiting 里重新装一个 token 级的 batch”。
-
-</details>
-
-
 ## 八、自测
 
 1. `max_num_batched_tokens = 8192`、`max_num_seqs = 256`：running 里有 200 个 decode 请求，waiting 里一个 6000 token 的新请求——这一步怎么调？
@@ -1966,7 +1955,9 @@ Speculative Decode
 
    </details>
 
-
 ## 下一篇
 
 [KV Cache：LLM Serving 的第一号内存问题](/kv-cache-memory-core.html)
+
+[^q0]: vLLM 的 Scheduler 没有「prefill 阶段」与「decode 阶段」，调度的单位是 token 不是 request。每一步先服务 running 队列（每个请求至少推进 1 个 token，KV 不够就按 LIFO 抢占最晚来的请求、释放它的块），再从 waiting 队列按 FCFS（或优先级）准入新请求，直到 token budget（`max_num_batched_tokens`）、`max_num_seqs` 或 KV 块用尽。与传统「固定 batch → 执行 → 完成」相比，这是「每步从 running + waiting 里重新装一个 token 级的 batch」。详见[第二章](#二continuous-batching为什么-batch-必须动态变化)、[第六章](#六admission-control-与-preemptionkv-cache-不够怎么办)。
+[^q1]: decode 请求 1 个；新请求的 prefill 在 chunked prefill 下可以只推进 budget 剩余的部分——一个 8K 的 prompt 被切成几轮，每轮与其他请求的 decode 混在同一个 batch，长 prefill 不独占 GPU、decode 的 TPOT 稳定。token budget 是把吞吐与延迟连起来的旋钮——大 budget 吞吐高、TTFT 低但 TPOT 抖，小 budget 反之。详见[第三](#三chunked-prefill为什么一个-request-也不能一次吃完)至[五章](#五mixed-batch为什么-prefilldecode-与-speculative-可以共存)。

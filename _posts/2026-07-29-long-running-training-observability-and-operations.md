@@ -20,10 +20,9 @@ updated: 2026-09-14
 
 本篇要回答总纲提出的核心问题：
 
-> **凌晨三点告警：step 时间从 12 秒变成 40 秒，没有报错。十分钟内你要判断是 straggler、数据、通信、还是硬件降频。你需要的每一个信号，在开训前有没有采集？**
+> **凌晨三点告警：step 时间从 12 秒变成 40 秒，没有报错。十分钟内你要判断是 straggler、数据、通信、还是硬件降频。你需要的每一个信号，在开训前有没有采集？[^q0]**
 
 源码以 PyTorch 2.13.0、Megatron Core 0.18.0 为准，torchtitan 依更新声明以 v0.3.0 为准。文中 DCGM 指标名以 dcgm-exporter 的默认字段表为准，随版本略有增减；GPU 单价是标注为假设的数字，不是任何供应商的报价。本篇不引用其他系列的文章，集合通信只用语义。
-
 
 ## 一、总览
 
@@ -134,7 +133,6 @@ DeepSpeed 这一列后文不再展开：它的计时与监控概念与 Megatron 
 | 八 | 本文小结 | 要点 · 源码位置 · train-ledger 的 dash/ 与 `runbook.md` · Flight Recorder hang 演练 |
 | 九 | 自测 | 5 道题 |
 | 九 | 系列总结 | 读者手上有什么 · 四条线 |
-
 
 ## 二、三层指标的采集
 
@@ -276,7 +274,6 @@ flowchart TB
 - **rank 到物理位置的映射**。`RANK` → `hostname` + `LOCAL_RANK` → GPU UUID → 机架/交换机端口。straggler 定位到 rank 之后要能落到一张具体的卡，这张映射表在开训时生成（各 rank 打印 `socket.gethostname()`、`torch.cuda.current_device()` 与 `nvidia-smi -L` 的 UUID），存进 run 的元数据里。
 
 聚合与抽样的原则：任务层聚合（一个数），进程层全采但只在异常时看（Prometheus 的 `topk(5, step_time_seconds)` 一类查询），硬件层全采全看（它是告警源）。日志则反过来：全部留存、按 rank 抽样看。
-
 
 ## 三、hang 排查：Flight Recorder
 
@@ -573,7 +570,6 @@ flowchart TB
 
 蓝色是**代码问题**（8 卡复现即可修），红色是**环境问题**（处置是隔离与重启，白天再找根因）。
 
-
 ## 四、性能回归的排查
 
 ### 1. step 时间慢慢变长的四个嫌疑
@@ -662,7 +658,6 @@ flowchart TB
   class A1,A2 hw;
   class A3,A4,A5,A6,A7 sw;
 ```
-
 
 ## 五、告警设计
 
@@ -762,7 +757,6 @@ flowchart TB
 ```
 
 红色是会 page 的状态，蓝色是自动迁移（不需要人），黄色是必须有人决定的。从图上能直接读出三件事。第一，**为什么 `TrainingRestarting` 要抑制 `StepStalled`**：停滞是重启的前一个状态，重启期间 step 当然不前进，再报一次是重复。第二，**XID 有两条出边**：任务还在跑时主动排除节点走蓝色的自动路径，等它拖成 hang 再处理就多付一次 dump 与 Watchdog 超时——这就是第 1 节把 XID 归为 page 的原因。第三，**从"恢复"出去的三条边就是升级条件**：回到正常是默认；30 分钟内再停滞说明根因没除，进黄色人工状态；连续 K 次失败说明自动恢复已经不工作，直接停——继续让 launcher 拉起只会反复消耗回退重算的时间。值班手册（第六章第 2 节）里每个症状的"升级"一行，就是这张图上对应节点的出边。
-
 
 ## 六、运维流程
 
@@ -903,7 +897,6 @@ Flight Recorder 路径与演练         半天                        不直接�
 ```
 
 数字是假设下的估算，比例是可靠的：**可观测与运维的投入回收期以天计**，而它们常常是训练团队最后才做的事。
-
 
 ## 八、本文小结
 
@@ -1253,7 +1246,6 @@ if __name__ == "__main__":
 
 到这里，train-ledger 的八个增量合在一起（随文给出、由读者自行保存成对应文件，不是一个已发布的软件包）：`ledger/` 算显存、算力、通信量与可用性；`runs/` 与 `sweep/` 在 8 卡上验证并外推；`ckpt/` 与 `chaos/` 演练保存、恢复与故障；`signals/` 记录数值信号；`dash/` 与 `runbook.md` 把它们变成一个能值班的系统。
 
-
 ## 九、系列总结
 
 八篇文章从一张卡上的四种状态出发，走到一千张卡跑一个月的运维手册。回头看，读者手上应当有三样东西。
@@ -1287,14 +1279,6 @@ if __name__ == "__main__":
 3. **运维能力**：为一个持续数周的任务设计 checkpoint、容错、监控与告警方案，把有效训练时间维持在 90% 以上——第五到八篇，以及本篇的清单、手册与复盘。
 
 训练引擎围绕状态组织，这是总纲的第一句话，也是全系列的方法：任何一个训练系统的问题，先问"哪种状态、多少字节、在哪张卡、什么时候动"，答案就在四条线的交点上。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-十分钟内判断，靠三层指标在开训前就采集好。**任务层**（一份）：loss、grad norm、lr、token/s、MFU、step 时间与抖动、“step 是否前进”——最后一项是 hang 唯一可靠的信号；**进程层**（每 rank 一份）：每 rank 各阶段时间（前向 / 反向 / 优化器 / 通信等待）、`memory_stats`、数据队列深度；**硬件层**（每卡一份）：温度、功耗、时钟、XID、ECC、行重映射、链路错误（DCGM）（第二章）。**四个嫌疑各一个决定性指标**：straggler——Megatron Timers 的 minmax 或 torchtitan 每 rank JSONL 里某个 rank 的阶段时间远长于其他（`StragglerDetector`）；数据——`data_loading(%)` 或 profiler 里 GPU 空隙与 `__next__` 重合；通信——通信等待时间上升而计算时间不变，配合 IB 计数器；硬件降频——DCGM 的 `SM_CLOCK` 掉、温度 / 功耗触顶、或 XID 事件（第四、七章）。另两个常见嫌疑：显存碎片（`inactive_split_bytes` / `num_alloc_retries` 上升、step 时间锯齿）与日志爆量（stdout 字节数）。**采集分工**：TB / W&B 按 step 看曲线；Prometheus 按时间与 rank 告警；训练进程写每 rank JSONL、sidecar 暴露，避免千个抓取目标；`torchrun --log-dir/--tee/--local-ranks-filter` 管每 rank 日志，加一张 rank → host / GPU 映射表（第三、五章）。**如果是 hang 而不是慢**：Flight Recorder（2.13 默认开）在 watchdog 超时时经 TCPStore 通知全体 dump，`torchfrtrace` 给出 missing ranks / culprit；FR 报 “No errors found” 就转硬件路径（dmesg XID、DCGM、IB 计数器）；`py-spy dump --native` 只读无副作用，多数 rank 停在 wait、少数停在别处——少数是嫌疑人（第六章）。两份 trace 用 `mfu_breakdown` 做差是性能回归的最后一招。
-
-</details>
-
 
 ## 九、自测
 
@@ -1337,3 +1321,5 @@ if __name__ == "__main__":
    一千个抓取目标 + 每个几百个指标，抓取本身成为负载且目标随重启变化；训练进程只写本地 JSONL（每 rank 一份），节点级 sidecar 汇总暴露一个 endpoint；Prometheus 按时间与 rank 告警，TB / W&B 按 step 看曲线，各管一头。
 
    </details>
+
+[^q0]: 靠三层指标在开训前就采集好。**任务层**：loss、grad norm、lr、token/s、MFU、step 时间与抖动、「step 是否前进」——最后一项是 hang 唯一可靠的信号；**进程层**（每 rank）：各阶段时间（前向 / 反向 / 优化器 / 通信等待）、`memory_stats`、数据队列深度；**硬件层**（每卡）：温度、功耗、时钟、XID、ECC、链路错误（DCGM）（[第二章](#二三层指标的采集)）。**四个嫌疑各一个决定性指标**：straggler——Megatron Timers 的 minmax 或每 rank JSONL 里某个 rank 的阶段时间远长于其他；数据——`data_loading(%)` 或 profiler 里 GPU 空隙与 `__next__` 重合；通信——通信等待时间上升而计算时间不变，配合 IB 计数器；硬件降频——DCGM 的 `SM_CLOCK` 掉、温度 / 功耗触顶、或 XID 事件（[第四章](#四性能回归的排查)）。另两个常见嫌疑：显存碎片（`num_alloc_retries` 上升、step 时间锯齿）与日志爆量。如果是 hang 而不是慢：Flight Recorder → `torchfrtrace` 给出 culprit；FR 报无错就转硬件路径（[第三章](#三hang-排查flight-recorder)）。采集分工与告警设计见[第五章](#五告警设计)、[第六章](#六运维流程)。

@@ -12,7 +12,7 @@ updated: 2026-09-14
 
 前面几篇解决的是"这一轮算哪些 token"（Scheduler）和"它们的状态放在哪里"（KV Cache）。这一篇的问题是：
 
-> **这些已经确定要算的 token，怎么算得更快？**
+> **这些已经确定要算的 token，怎么算得更快？[^q0]**
 
 ## 一、总览：四种浪费与一笔账
 
@@ -573,7 +573,6 @@ FP8 推理的优势：
 
 最后一句必须说在前面：**质量损失一定要用 eval benchmark 实测**（HumanEval、MMLU 等），不能靠"≈ 基准"这三个字就上生产。
 
-
 ## 五、能不能少跑几轮模型？—— 投机解码
 
 前面三节都在优化"一轮怎么跑得更快"。这一节换个思路：**能不能让一轮多产出几个 token，从而少跑几轮？**
@@ -964,7 +963,6 @@ Model-native Speculation
 
 </details>
 
-
 ## 六、本文小结
 
 - 落到 GPU 上，浪费只有四种形态：等 CPU 发指令、等 HBM 送数据、搬的每个数太胖、轮次本身太多；本篇的四类手段分别对应它们。
@@ -973,14 +971,6 @@ Model-native Speculation
 - FlashAttention 与 Kernel Fusion 优化的是同一个量——HBM 流量 = 搬运次数 × 每次搬运的数据量——前者是注意力内部的"算子内融合"（Tiling + Online Softmax，N×N 矩阵不落 HBM），后者是推理链路上的"算子间融合"；vLLM 通过 Attention Backend Selector 按硬件与 workload 路由到不同实现。
 - 低精度推理让每次搬运的数据本身变小，与减少搬运次数正交、可叠加；权重量化直接减半 decode 的权重读取带宽，FP8 / INT4 还能用上 Tensor Core 的特殊指令。
 - 投机解码用闲置算力换延迟：Draft 猜多个 token、Target 一次验证，拒绝采样保证分布与原生自回归一致；EAGLE、Medusa、MTP 是"外挂程度"逐步降低的变体。它在高并发、高利用率场景下可能出现负收益，需要结合接受率、Draft 成本与 Batch Size 实测。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-落到 GPU 上，浪费只有四种形态，对应四类手段。**等 CPU 发指令**（launch-bound）：一步 decode 有几百到上千次 kernel 提交，当单个 kernel 的 GPU 时间短于 CPU 提交它的时间，GPU 追上 CPU、队列被抽干、出现气泡；CUDA Graph 把整步捕获成一张图一次重放，代价是图内形状必须固定——按 batch 大小分桶捕获、padding 到桶、对 attention 用可变长的 kernel 参数（第三章）。**等 HBM 送数据**（memory-bound）：decode 每步读全部权重与 KV，例子里 Llama-3-70B TP8 一步权重读取下界约 5.3 ms、实测约 10 ms；手段是算子融合（残差 + RMSNorm、SiLU-mul、RoPE + cache 写入合成一个 kernel，减少中间结果的读写）与 attention backend 的选择（FlashAttention / FlashInfer 的 decode kernel 沿序列 split 填满 SM）（第四章）。**搬的每个数太胖**：量化——权重 INT4 / FP8 让读取字节减 2–4 倍，KV FP8 减半；对 memory-bound 的 decode 直接换成时间（第五章）。**轮次本身太多**：投机解码一步验证多个 token，把几步合成一步（下一篇）。账本：Prefill 2050 token 约 92 ms 只占 3%，300 步 decode 约 3000 ms 占 97%——所以绝大多数优化针对 Decode；`torch.compile` 与 piecewise 编译负责把模型里非 attention 的部分融合并纳入 CUDA Graph（第六章）。
-
-</details>
-
 
 ## 七、自测
 
@@ -1024,7 +1014,8 @@ Model-native Speculation
 
    </details>
 
-
 ## 下一篇
 
 [解码的扩展：采样、投机解码与结构化输出](/decoding-extensions-sampling-speculative-and-structured-output.html)
+
+[^q0]: 浪费只有四种形态，对应四类手段。**等 CPU 发指令**（launch-bound）：一步 decode 有几百到上千次 kernel 提交，单个 kernel 的 GPU 时间短于 CPU 提交它的时间时 GPU 出现气泡；CUDA Graph 把整步捕获成一张图一次重放，代价是图内形状必须固定——按 batch 大小分桶捕获、padding 到桶（[第二章](#二gpu-为什么在空转-kernel-launch-与-cuda-graph)）。**等 HBM 送数据**（memory-bound）：decode 每步读全部权重与 KV，Llama-3-70B TP8 一步权重读取下界约 5.3 ms、实测约 10 ms；手段是算子融合（残差 + RMSNorm、SiLU-mul、RoPE + cache 写入合成一个 kernel）与 attention backend 的选择（[第三章](#三数据为什么搬不动-压缩-hbm-流量)）。**搬的每个数太胖**：量化——权重 INT4 / FP8 让读取字节减 2–4 倍，KV FP8 减半，对 memory-bound 的 decode 直接换成时间（[第四章](#四能不能少搬几个字节-低精度推理)）。**轮次本身太多**：投机解码一步验证多个 token（[第五章](#五能不能少跑几轮模型-投机解码)）。账本：Prefill 2050 token 约 92 ms 只占 3%，300 步 decode 约 3000 ms 占 97%——所以绝大多数优化针对 Decode。

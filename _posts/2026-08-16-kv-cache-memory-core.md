@@ -26,7 +26,7 @@ PagedAttention 的核心思想，用一句话就能说完：
 
 本篇的核心问题是：
 
-> **这些请求已经计算过的历史状态（KV Cache），应该放在哪里、如何复用、何时释放，才能不让"不确定性"吃掉显存？**
+> **这些请求已经计算过的历史状态（KV Cache），应该放在哪里、如何复用、何时释放，才能不让"不确定性"吃掉显存？[^q0]**
 
 ## 一、总览：从分页管理到瘦身
 
@@ -212,7 +212,6 @@ T2 里有个容易忽略的细节：`KVCacheManager.free()` 是把请求的块**
 
 这个布局也揭示了 Scheduler 为什么不能按请求类型硬分类。一轮迭代中一个请求可能同时覆盖 computed（prefix cache 命中）、new（需要新计算）和 lookahead（spec decode 预留），不同请求在这个轴上的位置各不相同。token 预算模型统一处理这些区间，而不是按"prefill 请求"和"decode 请求"分开。
 
-
 ## 三、KV Cache 的写入、读取与生命周期
 
 上一章讲的是「块从哪来」，这一章讲「块怎么被用完再还回去」——一次请求从 Prefill 批量写入，到 Decode 逐 slot 追加，最后在完成或被抢占时归还，构成 KV Cache 的完整生命周期。
@@ -310,7 +309,6 @@ for each query position:
 | ⑥b | 或者 Req D 要新块，`get_new_blocks()` 弹到它 | 0 → **1** | `_maybe_evict_cached_block()` 摘掉 hash，缓存被驱逐 |
 
 也就是说 `ref_cnt` 只回答"有几个请求正在用"，块是否可复用由 hash 是否还在决定；两者独立，这是第四章 Prefix Cache 一节的前提。
-
 
 ## 四、KV Cache 还能更小吗：复用、压缩与分层存储
 
@@ -537,7 +535,6 @@ vLLM V1 当前主要使用 **Recomputation** 策略（`_preempt_request()` 中�
 
 </details>
 
-
 ## 五、本文小结
 
 - 显存不是被模型吃掉的，是被"不确定性"浪费掉的：请求的最终长度在到达时未知，按最坏情况预留连续显存会造成大量内部碎片。
@@ -546,14 +543,6 @@ vLLM V1 当前主要使用 **Recomputation** 策略（`_preempt_request()` 中�
 - 让 KV Cache 更小有三个正交层面：系统管理层（PagedAttention、Prefix Cache）解决"怎么管才不浪费"，模型架构层（MQA / GQA / MLA）解决"本来要存多少"，数值层（FP8 / INT8 量化）解决"每个元素占几个字节"。
 - Prefix Cache 依靠链式哈希与 `ref_cnt` 让多个请求共享同一份物理块；在例子里 2000 token 的 system prompt 对应 125 个整块，第二个请求全部命中，只需 prefill 用户那 50 个 token。
 - 显存不够时有 Recomputation、Swapping、量化后 Offload 三种策略；vLLM V1 目前主要用重算，因为在 Prefix Cache 存在时重算的实际代价远低于理论最坏情况。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**显存被“不确定性”浪费**：请求到达时不知道它会生成 300 还是 20K 个 token，按最坏情况预留连续显存，100 个请求把卡占满而有效数据不到三成——内部碎片（第二章）。**PagedAttention** 把每个请求的 KV 切成固定大小（`block_size`，如 16 token）的块，用多少申请多少、块之间不要求相邻——操作系统分页在推理系统里的重现；vLLM 的 `KVCacheManager` 管每个请求的块列表、`BlockPool` 管空闲块与引用计数、`KVCacheBlock` 是块、Block Table 是逻辑块到物理块的映射，attention kernel 经它查地址（第三、四章）。**一次请求的 KV 生命周期**：Prefill 批量写入 → Decode 每步追加一个 slot、块满了再申请 → 完成或被抢占时归还（第五章）。**Prefix Cache**：块只有写满才进缓存，用链式哈希（前一块的哈希 + 本块 token）做键、`ref_cnt` 让多个请求共享同一物理块——2000 token 的 system prompt 是 125 个整块，第二个请求全部命中，只需 prefill 用户那 50 个 token；复用粒度是块不是 token（第六章）。**让 KV 更小的三个正交层面**：系统管理层（分页、prefix cache）解决怎么管才不浪费；模型架构层（MQA / GQA / MLA）解决本来要存多少；数值层（FP8 / INT8）解决每个元素几个字节（第七章）。**显存不够时**：Recomputation、Swapping、量化后 Offload——V1 主要用重算（第八章）。
-
-</details>
-
 
 ## 六、自测
 
@@ -597,7 +586,8 @@ vLLM V1 当前主要使用 **Recomputation** 策略（`_preempt_request()` 中�
 
    </details>
 
-
 ## 下一篇
 
 [GPU 执行：如何让每个 Token 算得更快？](/gpu-execution-kernels-and-graphs.html)
+
+[^q0]: **放在哪里**：按块放。请求到达时不知道它会生成 300 还是 20K 个 token，按最坏情况预留连续显存会让有效数据不到三成；PagedAttention 把每个请求的 KV 切成固定大小（`block_size`，如 16 token）的块，用多少申请多少、块之间不要求相邻——`KVCacheManager` 管每个请求的块列表、`BlockPool` 管空闲块与引用计数、Block Table 是逻辑块到物理块的映射，attention kernel 经它查地址（[第二章](#二pagedattention-的数学本质与源码实现)）。**如何复用**：Prefix Cache——块只有写满才进缓存，用链式哈希（前一块的哈希 + 本块 token）做键、`ref_cnt` 让多个请求共享同一物理块；2000 token 的 system prompt 是 125 个整块，第二个请求全部命中，复用粒度是块不是 token（[第四章](#四kv-cache-还能更小吗复用压缩与分层存储)）。**何时释放**：Prefill 批量写入 → Decode 每步追加一个 slot、块满了再申请 → 完成或被抢占时归还；`ref_cnt` 为零的块进空闲队列尾、仍可被后来者命中（[第三章](#三kv-cache-的写入读取与生命周期)）。让 KV 更小的三个正交层面：系统管理层（分页、prefix cache）、模型架构层（MQA / GQA / MLA）、数值层（FP8 / INT8）；显存不够时 V1 主要用重算而不是 swap（[第四章](#四kv-cache-还能更小吗复用压缩与分层存储)）。

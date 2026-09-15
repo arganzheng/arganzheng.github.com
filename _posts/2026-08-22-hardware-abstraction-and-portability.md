@@ -18,7 +18,7 @@ updated: 2026-09-14
 
 这就带来一个更棘手的问题：
 
-> **如何让同一套 Serving 逻辑运行在不同芯片上，同时避免芯片差异渗透到 Scheduler、KV Cache 和请求生命周期管理之中？**
+> **如何让同一套 Serving 逻辑运行在不同芯片上，同时避免芯片差异渗透到 Scheduler、KV Cache 和请求生命周期管理之中？[^q0]**
 
 vLLM 的答案不是在核心代码里堆积更多硬件分支，而是建立一套平台抽象、后端选择和插件扩展机制，把硬件差异尽可能隔离在系统边界之外。
 
@@ -162,7 +162,6 @@ graph TD
 
 这些问题应该由平台层回答。
 
-
 ## 三、Platform：硬件能力的统一来源
 
 在 vLLM 中，`Platform` 可以理解为硬件适配的“能力中心”。
@@ -245,7 +244,6 @@ from vllm.platforms import current_platform
 需要注意的是，实际初始化路径会随着 vLLM 版本、插件机制和部署方式变化。对于博客来说，更准确的表述是：
 
 > **`current_platform` 是运行时平台选择机制的统一出口。它背后可能来自内置平台，也可能来自通过插件机制注册的 Out-of-Tree 平台。**
-
 
 ## 四、Platform、Attention Backend 与 Kernel Backend 的真实关系
 
@@ -522,7 +520,6 @@ Attention 之所以被单独抽象出来，不只是因为它名字特殊，而�
 
 两者都属于硬件适配，但解决的问题不同。
 
-
 ## 五、Out-of-Tree 插件架构：把新硬件放到主仓库之外
 
 如果每接入一种硬件，都必须修改 vLLM 主仓库，那么硬件生态很容易受到两个问题限制：
@@ -582,7 +579,6 @@ if device == "npu":
 添加到几个文件里。
 
 一个真正可用的昇腾后端，通常需要完成以下工作。
-
 
 ## 六、昇腾适配需要解决哪些问题？
 
@@ -973,7 +969,6 @@ OOT 能否做到真正独立，取决于主仓库是否已经提供足够稳定�
 
 一个成熟的 OOT 插件，实际上是一个独立的适配层和发行生态。
 
-
 ## 八、一次请求在异构硬件上的执行路径
 
 把前面的模块组合起来，可以得到一个更完整的请求执行路径：
@@ -1009,7 +1004,6 @@ sequenceDiagram
 这就是硬件解耦真正想要达到的效果：
 
 > **上层流程保持稳定，底层实现可以替换。**
-
 
 ## 九、如何判断硬件适配是否真正做到了解耦？
 
@@ -1085,7 +1079,6 @@ KV Cache 正确
 
 能在 NPU 上返回结果，只能说明适配链路打通了；能在真实模型、真实 batch 和真实上下文长度下稳定达到目标吞吐，才算完成了工程适配。
 
-
 ## 十、本文小结：Platform 是边界，不是万能胶
 
 这一章最重要的结论可以概括为三句话。
@@ -1136,14 +1129,6 @@ Serving 核心保持稳定
 
 </details>
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-让芯片差异停在最底层，靠**多层边界**：Serving Core（Scheduler、KVCacheManager、请求生命周期）只依赖抽象能力；抽象契约（`Platform` 接口、Attention Backend 接口、通信组件接口、Worker 接口）定义能力而不定义实现；平台实现（CUDA / ROCm / TPU / XPU / 各 out-of-tree 插件）各自满足契约；再往下是硬件运行时与 Kernel（第二、三章）。三句话：**Serving 核心依赖抽象能力而不依赖具体芯片**——调度器问“这个平台一块 KV 多少字节、支持哪种 attention backend、能不能 CUDA Graph”，不问“是不是 NVIDIA”；**Platform 是硬件能力中心但不是所有底层组件的唯一父类**——Attention Backend、Kernel、通信组件、Worker 从 Platform 获取能力或被它派发（`get_attn_backend_cls`、`get_device_communicator_cls`、`get_worker_cls`），但各自有独立的接口与实现树（第四、五、六章）；**Out-of-Tree 让硬件适配独立演进，前提是主仓库提供稳定的扩展契约**——插件经 entry point 注册 Platform，vLLM 启动时发现并加载，硬件厂商不用改主仓库（第七、八章）。硬件差异应该按“芯片差异 → 运行时差异 → Kernel 差异”逐层被吸收，到 Serving Core 时只剩能力的有无与参数（第九章）。做不到时的症状：`if is_cuda()` 散落在调度器与 KV 管理里——那是边界漏了。
-
-</details>
-
-
 ## 十一、自测
 
 1. `Platform` 接口大致回答哪几类问题？举四个方法。
@@ -1186,7 +1171,8 @@ Serving 核心保持稳定
 
    </details>
 
-
 ## 下一篇
 
 [PD 分离：从资源混部走向计算解耦](/prefill-decode-disaggregation.html)
+
+[^q0]: 让芯片差异停在最底层，靠多层边界：Serving Core（Scheduler、KVCacheManager、请求生命周期）只依赖抽象能力；抽象契约（`Platform` 接口、Attention Backend 接口、通信组件接口、Worker 接口）定义能力而不定义实现；平台实现（CUDA / ROCm / TPU / XPU / out-of-tree 插件）各自满足契约。三句话：**Serving 核心依赖抽象能力而不依赖具体芯片**——调度器问「一块 KV 多少字节、支持哪种 backend、能不能 CUDA Graph」，不问「是不是 NVIDIA」（[第二章](#二一条设计原则硬件适配不能污染-serving-核心)）；**Platform 是硬件能力中心但不是所有底层组件的唯一父类**——Attention Backend、Kernel、通信组件、Worker 从它获取能力或被它派发（`get_attn_backend_cls`、`get_device_communicator_cls`、`get_worker_cls`），各自有独立的接口与实现树（[第三章](#三platform硬件能力的统一来源)、[第四章](#四platformattention-backend-与-kernel-backend-的真实关系)）；**Out-of-Tree 让硬件适配独立演进**，插件经 entry point 注册 Platform，前提是主仓库提供稳定的扩展契约（[第五](#五out-of-tree-插件架构把新硬件放到主仓库之外)至[七章](#七oot-适配的边界不是主仓库完全不用改)）。做不到时的症状：`if is_cuda()` 散落在调度器与 KV 管理里——那是边界漏了（[第九章](#九如何判断硬件适配是否真正做到了解耦)）。

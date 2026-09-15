@@ -18,10 +18,9 @@ Llama 3 论文（Dubey et al. 2024，*The Llama 3 Herd of Models*）第 3.3.4 �
 
 本篇要回答总纲提出的核心问题：
 
-> **一千张卡平均每几小时坏一张。每次故障从发现到恢复训练要多久？其中检测、重启、加载 checkpoint、回退重算各占多少？把有效训练时间从 85% 提到 95%，最该缩短的是哪一段？**
+> **一千张卡平均每几小时坏一张。每次故障从发现到恢复训练要多久？[^q0] 其中检测、重启、加载 checkpoint、回退重算各占多少？[^q1] 把有效训练时间从 85% 提到 95%，最该缩短的是哪一段？[^q2]**
 
 依照系列惯例：论文数字注明出处；本篇的时间数字（检测多少秒、重启多少分钟）是**量级估计**，用来演示公式的用法，不是任何一台集群的实测；`ledger/availability.py` 的输出是模型计算结果。源码以 PyTorch 2.13.0、Megatron Core 0.18.0、NVIDIA Resiliency Extension（下文简称 NVRx）0.6.0 为准，torchft 与 torchtitan 依更新声明分别以 v0.2.0 与 v0.3.0 为准。通信原语仍当黑盒，只用语义。
-
 
 ## 一、总览
 
@@ -118,7 +117,6 @@ Megatron 是这一章的主角：它和 NVRx 一起覆盖了检测、进程内�
 | 十 | 本文小结 | 要点 · 源码位置 · train-ledger 的 `ledger/availability.py` 与 chaos/ |
 | 十一 | 自测 | 5 道题 |
 
-
 ## 二、故障率数学：从 MTBF 到有效训练时间
 
 ### 1. 集群 MTBF
@@ -198,7 +196,6 @@ C  异步 δ=10s；T_d=60s（心跳）；           31 min    98.9%   回退 0.5
 
 所以"85% 提到 95%"的答案是：**如果还在同步保存，先改异步；如果已经异步，缩短 hang 的检测时间，然后缩短重启时间**。本篇第三到五章按这个顺序展开三段的机制。
 
-
 ## 三、三类故障与检测手段矩阵
 
 ### 1. 显式、隐式、静默
@@ -259,7 +256,6 @@ NCCL watchdog 只能盯集合通信。一个 rank 在 Python 里死循环、在�
 Megatron 的集成在 `megatron/training/ft_integration.py`（`--enable-ft-package`，训练必须用 `ft_launcher` 启动）。它用 section 模式：`setup()` 打开 `"setup"` 区段；`on_training_step_start()` / `on_training_step_end()` 在若干 warmup step 之后把每个训练 step 包进 `"step"` 区段；`on_checkpointing_start()` / `on_checkpointing_end()` 把保存（含异步保存的 finalize）包进 `"checkpointing"` 区段；不在任何区段里的时间归 `rank_out_of_section_timeout`。`--calc-ft-timeouts` 打开后，`_maybe_update_timeouts()` 在每次 checkpoint 后和训练结束时按观测值更新三个区段的超时并存进 FT 状态文件。文件头的示例命令给出了一组典型值：`setup:600,step:180,checkpointing:420`，out-of-section 300 秒——也就是 **step 卡住 3 分钟就杀**，比 NCCL watchdog 的 10 分钟快三倍多，这就是第二章场景 B 到 C 里 T_d 那一段的来源。`maybe_setup_simulated_fault()` 还能按参数在某个 rank 上模拟一次故障（随机 rank 在若干秒后杀自己或 hang），用于演练。
 
 step 时间告警是同一件事的应用层版本：每个 rank 记录 step 的计算时间与集合通信等待时间（第八章第 2 节），超过阈值上报；它不杀进程，但能在 straggler 阶段就发出信号，比等到超时早得多。
-
 
 ## 四、重启：torchrun、elastic agent 与 rendezvous
 
@@ -345,7 +341,6 @@ init_process_group + 各并行组的 NCCL communicator   20 s–数分钟      �
 
 千卡下最不可控的是 NCCL communicator 初始化：进程组越多、成员越多越慢，且任何一个 rank 慢都拖住所有人。这一项加上进程和 CUDA 的固定开销，是"进程重启至少几分钟"的来源，也是下一章的动机。
 
-
 ## 五、进程内重启
 
 ### 1. 为什么进程重启慢、以及能不能不重启进程
@@ -428,7 +423,6 @@ flowchart TB
 省掉的是进程、CUDA、import、数据集的固定开销；留下的是 NCCL communicator 重建和 checkpoint 加载（`T_l`，若用 NVRx `checkpointing/local` 的本地 checkpoint 或内存副本，也是秒级）。所以 T_r 从"2–5 分钟"变成"十几秒到一分钟"，T_d 从 NCCL 的 10 分钟变成 `soft_timeout` 的 60 秒——第二章场景 C 的两个数字都来自这里。
 
 代价有三：训练代码必须可重入（Megatron 为此改了全局状态的生命周期）；必须有热备 rank 才能保持 world size（否则 DP 度变化、global batch 的切法变化，Megatron 不支持运行时改并行度）；abort 后 GPU 上可能残留异常状态，`CudaHealthCheck` 与 NVRx 自动追加的 GPU/NVLink 检查是防线，但一张真坏的卡会让它所在节点整体被剔除。
-
 
 ## 六、弹性训练：torchft 的副本组模型
 
@@ -578,7 +572,6 @@ torchft 不是免费的：每步一次 quorum RPC（快速路径下几毫秒，�
 | 覆盖不了的 | — | 健康 rank < `min_world_size` → 交外层 ft_launcher | 副本内部（TP/PP/FSDP）故障：整组退出，再靠前两种重启 |
 | 框架支持 | 三框架皆可 | Megatron `--inprocess-restart` | torchft 原生 DDP；torchtitan `experiments/torchft/`（HSDP） |
 
-
 ## 七、坏卡隔离与开训前自检
 
 ### 1. 从故障日志到排除列表
@@ -594,7 +587,6 @@ Llama 3 的"3 次人工介入"背后是自动化的坏卡处理：一张卡坏�
 NVRx 的 `shared_utils/health_check.py` 提供 `GPUHealthCheck`（NVML：ECC、Xid、温度、功耗状态）、`NVLHealthCheck`（NVLink 状态）、`NicHealthCheck` 与 `NicLinkStateHealthCheck`（网卡 link_downed 计数与链路状态）、`DistributedStorageHealthCheck`（存储可写）以及组合它们的 `NodeHealthCheck`。它们在两处被用：`ft_launcher` 在启动和重启前跑（`FaultToleranceConfig` 的 `enable_nic_healthcheck` 默认 True、`enable_nic_monitor` 训练中周期监视 link_down）；`inprocess.Wrapper` 重启前自动链上 GPU 与 NVLink 检查。预检发现的坏卡在开训前就被排除，不进入 $$1/M$$。
 
 第八篇的开训检查清单会把这些与 NCCL 带宽测试、小规模 dry-run、checkpoint 恢复演练放在一起。
-
 
 ## 八、straggler：没有故障但有人拖慢所有人
 
@@ -656,7 +648,6 @@ Lin et al.（OSDI 2025，*Understanding Stragglers in Large Model Training Using
 - **时空模式**：硬件型 straggler 在空间上集中（同一节点）、时间上持续；负载型 straggler 空间上分散、时间上阵发。
 
 这改变了处置顺序：看到 straggler 先看它是不是每步换 rank——是的话去查数据 packing 与 PP 布局（第四、七篇），不是的话再查硬件（本章第 3、4 节的检测器加 `gpu_sniff_test`）。把 straggler 全部归因于"坏卡"并隔离节点，会浪费好节点而不解决问题。
-
 
 ## 九、SDC 与确定性
 
@@ -743,7 +734,6 @@ flowchart TB
 - **数据层**：数据顺序与 RNG 状态可从 checkpoint 精确恢复（第五篇存了、第七篇讨论数据加载器的有状态恢复）。
 
 确定性的代价是性能：FlashAttention 的反向、某些 scatter/index op、融合 kernel 的确定性版本都更慢，`NCCL_ALGO` 固定后通信也可能变慢。生产训练通常不开全局确定性，而是保证**控制流确定 + 数据顺序确定 + 校验带 tolerance**——这正是 `RerunStateMachine` 文档里那两条假设的工程含义。
-
 
 ## 十、本文小结
 
@@ -1093,14 +1083,6 @@ NGPU=4 CUDA_VISIBLE_DEVICES=4,5,6,7 TORCHFT_LIGHTHOUSE=http://localhost:29510 MO
 
 > **第 137,000 步 loss 从 2.1 跳到 4.8。是数据、学习率、还是数值精度？要回答这个问题，需要哪些信号在事前就被记录下来，需要哪些状态能被精确回放？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**多久、各占多少**：一次故障的损失 = 检测 $$T_d$$ + 重启 $$T_r$$ + 加载 $$T_l$$ + 平均回退重算 $$\tau/2$$，有效时间 $$G = (1 - (T_d + T_r + T_l + \tau/2)/M) / (1 + \delta/\tau)$$。Llama 3 的数字：16K 卡 54 天 419 次意外中断，$$M \approx 3.1$$ h（单卡约 5 万小时），78% 硬件、58.7% GPU、1.4% 静默数据损坏（第二章）。默认配置下各段：检测靠超时——NCCL watchdog 10 分钟、HeartbeatMonitor 8 分钟；重启 2–5 分钟（进程 + CUDA + NCCL comm init + 数据集，NCCL comm 是千卡下最不可控的一项）；加载几十秒到几分钟；回退 $$\tau/2$$ 取决于 checkpoint 间隔（第三、五章）。**最该缩短哪一段**：按顺序——先 $$\delta$$（同步 checkpoint 改异步，让 $$\tau$$ 能缩到几分钟，16K 卡同步保存怎么选 $$\tau$$ 都亏 20% 以上，异步后到 87%）；再 $$T_d$$（把 hang 检测从 10 分钟压到 1 分钟：`TORCH_NCCL_ASYNC_ERROR_HANDLING=3` 把超时变显式错误、NVRx RankMonitor 心跳与 section 超时分钟级、inprocess soft_timeout 60 s——此时它是主导项）；再 $$T_r$$（进程重启改进程内重启：NVRx `inprocess.Wrapper` abort 通信 → finalize → health check → 重新分配 rank → 重进训练函数，进程不退出，热备节点顶上）；$$T_l$$ 最后。三步走完 16K 卡从 71% 到 94%；1024 卡三者差别小（第四至七章）。弹性是另一条路：torchft 把 DP 副本当独立失败单元，Lighthouse quorum + 按参与数归一的 all-reduce，坏一个副本其他继续（第八章）；隔离与预检把坏卡在开训前挑出来（第九章）。
-
-</details>
-
-
 ## 十一、自测
 
 1. 单卡 MTBF 5 万小时，16K 卡集群平均多久坏一次？1024 卡呢？
@@ -1143,7 +1125,10 @@ NGPU=4 CUDA_VISIBLE_DEVICES=4,5,6,7 TORCHFT_LIGHTHOUSE=http://localhost:29510 MO
 
    </details>
 
-
 ## 下一篇
 
 [训练稳定性与数据管线：loss spike、梯度范数、数据混合与流式加载](/training-stability-and-data-pipeline.html)
+
+[^q0]: 一次故障的损失 = 检测 $$T_d$$ + 重启 $$T_r$$ + 加载 $$T_l$$ + 平均回退重算 $$\tau/2$$，有效时间 $$G = (1 - (T_d + T_r + T_l + \tau/2)/M) / (1 + \delta/\tau)$$。Llama 3 的数字：16K 卡 54 天 419 次意外中断，$$M \approx 3.1$$ h（单卡约 5 万小时），78% 硬件、58.7% GPU。默认配置下一次故障到恢复是**十几到几十分钟**。详见[第二章](#二故障率数学从-mtbf-到有效训练时间)。
+[^q1]: 默认配置：检测靠超时——NCCL watchdog 10 分钟、HeartbeatMonitor 8 分钟，是最大的一段；重启 2–5 分钟（进程 + CUDA + NCCL comm init + 数据集，NCCL comm 是千卡下最不可控的一项）；加载几十秒到几分钟；回退 $$\tau/2$$ 取决于 checkpoint 间隔，同步 checkpoint 下 $$\tau$$ 往往是小时级、这一段最长。详见[第三章](#三三类故障与检测手段矩阵)、[第四章](#四重启torchrunelastic-agent-与-rendezvous)。
+[^q2]: 按顺序：先 $$\delta$$——同步 checkpoint 改异步，让 $$\tau$$ 能缩到几分钟（16K 卡同步保存怎么选 $$\tau$$ 都亏 20% 以上，异步后到 87%）；再 $$T_d$$——把 hang 检测从 10 分钟压到 1 分钟（`TORCH_NCCL_ASYNC_ERROR_HANDLING=3`、NVRx RankMonitor 心跳、inprocess `soft_timeout` 60 s），此时它是主导项；再 $$T_r$$——进程重启改进程内重启（NVRx `inprocess.Wrapper`：abort 通信 → finalize → health check → 重新分配 rank → 重进训练函数，热备节点顶上）；$$T_l$$ 最后。三步走完 16K 卡从 71% 到 94%。弹性是另一条路：torchft 把 DP 副本当独立失败单元，坏一个其他继续。详见[第四](#四重启torchrunelastic-agent-与-rendezvous)至[六章](#六弹性训练torchft-的副本组模型)。

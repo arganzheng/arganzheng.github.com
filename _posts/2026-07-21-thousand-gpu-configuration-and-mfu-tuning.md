@@ -18,10 +18,9 @@ updated: 2026-09-14
 
 本篇要回答总纲提出的核心问题：
 
-> **一个 70B dense 模型，1024 张 H100（128 节点 × 8 卡），序列长 8192，global batch 4M token。TP、PP、DP 各多少？micro-batch 多大？要不要重计算？预期 MFU 多少？跑出来只有 32%，缺的 10 个点去了哪里？**
+> **一个 70B dense 模型，1024 张 H100（128 节点 × 8 卡），序列长 8192，global batch 4M token。TP、PP、DP 各多少？[^q0] micro-batch 多大？[^q1] 要不要重计算？[^q2] 预期 MFU 多少？[^q3] 跑出来只有 32%，缺的 10 个点去了哪里？[^q4]**
 
 依照系列惯例：硬件数字一律取公开标称值（H100 SXM bf16 dense 989 TFLOPS、HBM 80 GB、NVLink 单向 450 GB/s、每 GPU 一张 400 Gb/s 网卡即 50 GB/s）；推导出的显存与时间是账本数字；第六章那张"32% 是怎么来的"的表是**构造的示例**，用来演示拆解方法，不是任何一台集群的实测。源码以 Megatron Core 0.18.0、PyTorch 2.13.0 为准，torchtitan 依更新声明以 v0.3.0 为准。
-
 
 ## 一、总览
 
@@ -149,7 +148,6 @@ DeepSpeed 这一列后文不再展开：它的配置面是 JSON，概念与 Mega
 | 九 | 本文小结 | 要点 · 源码位置 · train-ledger 的 sweep/ 与 `mfu_breakdown.py` · 外推到 1024 卡 |
 | 十 | 自测 | 5 道题 |
 
-
 ## 二、从规格推配置：70B / 1024 H100 的完整推导
 
 ### 1. 输入
@@ -270,7 +268,6 @@ straggler                   健康集群 < 2%                                   
 
 这张预算表的作用不是给出精确数字，而是给出**每一项的正常范围**——第六章拿实测去对照它，超出范围的那几项就是要改的。Llama 3 论文在 8K–16K 张 H100 上报告 38–43%，Megatron-LM 论文在 A100 上报告 52%；1024 卡 70B dense 做到 42% 是合理目标，做不到 35% 说明有明确的问题。
 
-
 ## 三、global batch、micro-batch 与梯度累积
 
 ### 1. 三个量的关系
@@ -300,7 +297,6 @@ $$b$$ 大的问题是**激活与气泡**。激活随 $$b$$ 线性增长（候选
 ### 3. batch 渐增
 
 训练配方常要求前期用小 global batch。Megatron 的 `--rampup-batch-size <start> <increment> <samples>`（`megatron/training/config/training_config.py` 的 `rampup_batch_size` 字段，0.18.0 已标记 deprecated 并指向 `step_batch_size_schedule`）让 $$B$$ 按 sample 数线性增长，$$m$$ 随之变化——意味着渐增期的气泡率比稳态高，MFU 曲线前段偏低是正常的，不要在渐增期做基准对比。
-
 
 ## 四、激活重计算与 offload
 
@@ -357,7 +353,6 @@ torchtitan v0.3.0 的 `torchtitan/distributed/activation_checkpoint.py` 在这�
 
 本篇的 70B 配置不需要 offload；它的位置是长序列（$$s \ge 64\text{K}$$）或单机微调这类显存极端受限的场景。
 
-
 ## 五、通信与计算的重叠
 
 ### 1. DP 梯度 reduce 与反向的重叠
@@ -406,7 +401,6 @@ CPU 侧发射慢，通信虽异步但发得晚        每个 step 几千个小 k
 ```
 
 第三条值得多说一句：GPU 上通信与计算"并行"的前提是两种 kernel 同时驻留在 SM 上。NCCL kernel 每个 channel 占一个 block，几十个 channel 就是几十个 SM；H100 有 132 个 SM，计算 kernel 若是按满 SM 设计的 GEMM，两者只能轮流。这是本系列不展开的 NCCL 侧细节，但它是"重叠没发生"最难查的一种：时间线上两类 kernel 看起来是并行发起的，实际是串行执行的，只有看每个 kernel 的实际时长是否比单独跑时变长才能确认。
-
 
 ## 六、MFU 损失的七项拆解
 
@@ -507,7 +501,6 @@ GPU 计算 stream 上有空隙、CPU 线程在忙、又不在 DataLoader 里—�
 
 "折成 MFU 点"按 $$\Delta_i / 1.45 \times 10$$ 分摊。这张表说明的方法论比数字重要：七项里有四项（2、3、5、6）是**配置错误**，靠读一遍启动脚本就能修，加起来 6 个点；一项（7）是**硬件问题**，profiler 只能指出它存在、修它要靠第六篇的手段；一项（1）是**结构问题**，要改 pipeline 布局；一项（4）是**管线问题**，归第七篇。先修配置错误，再查硬件，最后才碰结构——这是从 32% 回到 42% 的顺序。
 
-
 ## 七、融合、低精度与 torch.compile
 
 本章只讨论三样东西**对 MFU 的影响和使用约束**，不讨论它们的实现。
@@ -536,7 +529,6 @@ Megatron 没有等价的 per-block compile；它的路径是 TE 的融合 kernel
 
 CUDA Graph 只解决第 7 项（CPU 发射开销），对 kernel 效率和通信没有帮助。约束是形状固定、区间内不能有 CPU-GPU 同步（`.item()`、动态形状、数据依赖的分支）、PP 下目前不支持（torchtitan 的 `disable_cuda_graphs` 文档明确说明）。它与 `torch.compile` 独立（`mode="reduce-overhead"` 是编译器自己的图捕获），可以叠加。
 
-
 ## 八、配置纪律
 
 一个千卡任务要跑几周，配置会被改几十次——加一个重叠开关、换一个 bucket 大小、开 FP8、调 checkpoint 间隔。不留痕的话，三周后 MFU 从 42% 掉到 38% 时没有人能说清是哪一次改动造成的。三条纪律：
@@ -546,7 +538,6 @@ CUDA Graph 只解决第 7 项（CPU 发射开销），对 kernel 效率和通信
 **每次改动前后各跑一段基准**。基准是同一份数据、同一个 seed、至少 100 个稳态 step（跳过 warmup 和 batch 渐增期），记录 step 时间的中位数与 p95、token/s、MFU、`max_memory_allocated`、loss 曲线，加一份 profiler trace 存档。只改一个变量。MFU 变化小于 1 个点视为噪声——千卡任务的 step 时间本身有 1–2% 的抖动。
 
 **变更留痕**。一张表：日期、改了什么、为什么、前后基准的数字、trace 文件的位置、谁批准的。第八篇的值班手册会引用这张表；第六篇的故障复盘也会。
-
 
 ## 九、本文小结
 
@@ -857,14 +848,6 @@ for cfg in (ParallelConfig(tp=8, pp=4, dp=32, zero_stage=1, micro_batch=1, num_m
 
 > **一个 405B 模型、6 TB 状态的 checkpoint，同步写要停训练几分钟？异步写代价是什么？故障后剩 15 个节点而不是 16 个，能不能直接加载？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**推导顺序** TP → PP → DP → CP。TP 锁在 NVLink 域：TP 8、开 SP。PP 要放下 $$N/(t \cdot p)$$ 的参数与在途激活并压气泡：候选 A TP8 / PP4（$$v = 4$$）/ DP32，$$b = 1$$、$$m = 16$$，气泡 4.7%，每卡约 49 GB 不重计算；候选 B TP8 / PP2（$$v = 4$$）/ DP64，$$m = 8$$，约 62 GB。DP 用满剩下的卡；每卡 token 少（4096）时选 ZeRO-1 不选 FSDP——FSDP128 每 step 每卡约 175 GB 节点间通信、3.5 s，压不住。$$s = 8192 < 32$$K 不开 CP（第二、三章）。**micro-batch**：$$B = d \cdot b \cdot m$$，$$b$$ 小 GEMM 效率差、$$b$$ 大气泡大，通常 1 或 2；PP 下 $$m$$ 既是 micro-batch 数也是梯度累积步（第四章）。**重计算**：先确认放不下再开；全量 +33% FLOP 省 94% 激活，选择性在 FlashAttention 下几乎不省，“差一点”时按层重计算最经济——候选 A 不需要（第五章）。**预期 MFU**：理论 2.0 s / step，目标 42% ≈ 4.75 s ≈ 88 万 token/s（第六章）。**32% 缺的 10 个点**：七项拆解——气泡、未重叠的通信、重计算、数据等待、kernel 效率、CPU 发射、straggler——一份 trace 测前六项、多 rank 测第七项；经验分布：配置错误约 6 个点（重叠没开、bucket 太大、多余同步、SM 争抢、CPU 发得晚——先修）、硬件约 2 个点（降频、坏卡，隔离）、结构约 0.5（布局）、管线约 0.5（第七篇）（第七、八章）。FP8 只快 GEMM、step 时间降 20–25%；融合是无风险基线；compile 顺序 TP → AC → compile → FSDP；纪律：配置进 git、改一个变量、前后各 100 step 基准 + trace（第九、十章）。
-
-</details>
-
-
 ## 十、自测
 
 1. 70B、1024 卡、TP8 / PP4 / DP32、global batch 4M token、$$s = 8192$$、$$b = 1$$：$$m$$ 是多少？气泡率多少（$$v = 4$$）？
@@ -907,7 +890,12 @@ for cfg in (ParallelConfig(tp=8, pp=4, dp=32, zero_stage=1, micro_batch=1, num_m
 
    </details>
 
-
 ## 下一篇
 
 [分布式 checkpoint：格式、异步保存与重分片恢复](/distributed-checkpoint-format-async-save-and-resharding.html)
+
+[^q0]: 推导顺序 TP → PP → DP → CP。TP 锁在 NVLink 域：**TP 8**、开 SP。PP 要放下 $$N/(t \cdot p)$$ 的参数与在途激活并压气泡：候选 A **TP8 / PP4**（$$v = 4$$）**/ DP32**，$$m = 16$$，气泡 4.7%，每卡约 49 GB 不重计算；候选 B TP8 / PP2 / DP64 约 62 GB。DP 用满剩下的卡，每卡 token 少（4096）时选 ZeRO-1 不选 FSDP——FSDP128 每 step 每卡约 175 GB 节点间通信，压不住。$$s = 8192 < 32$$K 不开 CP。详见[第二章](#二从规格推配置70b--1024-h100-的完整推导)。
+[^q1]: $$B = d \cdot b \cdot m$$：$$b$$ 小 GEMM 效率差、$$b$$ 大气泡大，通常 **1 或 2**；候选 A 是 $$b = 1$$、$$m = 16$$。PP 下 $$m$$ 既是 micro-batch 数也是梯度累积步。详见[第三章](#三global-batchmicro-batch-与梯度累积)。
+[^q2]: 先确认放不下再开。全量重计算 +33% FLOP 省 94% 激活；选择性重计算在 FlashAttention 下几乎不省；「差一点」时按层重计算最经济。候选 A 每卡 49 GB 放得下，**不需要**。详见[第四章](#四激活重计算与-offload)。
+[^q3]: 理论 2.0 s / step；目标 **42%** ≈ 4.75 s / step ≈ 88 万 token/s。详见[第六章](#六mfu-损失的七项拆解)。
+[^q4]: 按七项拆解——气泡、未重叠的通信、重计算、数据等待、kernel 效率、CPU 发射、straggler——一份 trace 测前六项、多 rank 测第七项。经验分布：配置错误约 6 个点（重叠没开、bucket 太大、多余同步、SM 争抢、CPU 发得晚——先修）、硬件约 2 个点（降频、坏卡，隔离）、结构约 0.5、管线约 0.5。FP8 只快 GEMM、step 时间降 20–25%；融合是无风险基线；compile 顺序 TP → AC → compile → FSDP；纪律：配置进 git、改一个变量、前后各 100 step 基准 + trace。详见[第五](#五通信与计算的重叠)至[八章](#八配置纪律)。

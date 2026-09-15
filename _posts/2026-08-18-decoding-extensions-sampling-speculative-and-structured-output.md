@@ -16,7 +16,7 @@ updated: 2026-09-14
 
 所以本篇的核心问题是：
 
-> **同样是"下一个 token"，为什么加上 top-p、加上 draft 模型、加上 JSON schema 之后，调度器、KV 管理和 model runner 都得改？每一种扩展花掉什么、换回什么？**
+> **同样是"下一个 token"，为什么加上 top-p、加上 draft 模型、加上 JSON schema 之后，调度器、KV 管理和 model runner 都得改？[^q0] 每一种扩展花掉什么、换回什么？[^q1]**
 
 ## 一、总览：三种扩展，同一个落点
 
@@ -765,7 +765,6 @@ Scheduler.update_from_output()
 
 </details>
 
-
 ## 六、本文小结
 
 - 采样、投机解码、结构化输出是对"从 logits 到 token"这最后一步的三种扩展：分别改**分布本身**、**每步决定的位置数**、**分布的支撑集**。它们都不只改 Sampler——投机解码牵动调度预算、KV 预留与 CUDA graph 的形状，结构化输出牵动请求状态机与每步的 CPU 工作，连 penalties 也要求每步维护并上传历史输出。
@@ -775,14 +774,6 @@ Scheduler.update_from_output()
 - 收益的临界点可以算：H100 上一步约 300 个 token 是 memory-bound 与 compute-bound 的分界，`batch × (1+K)` 超过它验证就不再免费。例子里 batch=1、接受长度 2.5 时约 2.1×；batch=128 时每步慢 1.9 倍、吞吐反降。`SpecDecodingStats` 的按位置接受率是调 K 的依据。
 - 结构化输出分布在四个位置：前端选后端、`grammar_init()` 异步编译（请求进 `WAITING_FOR_STRUCTURED_OUTPUT_GRAMMAR`）、每步 CPU 填 bitmask 并与 forward 重叠、GPU 上一个 kernel 打 `-inf`、步后 `accept_tokens()` 推进 FSM。与投机叠加时 draft 先经 `validate_tokens()` 过滤，bitmask 每个位置一行，FSM 每步推进 K 次再 `rollback()`。它的成本几乎全在 CPU 与 TTFT 上。
 - 三者叠加的顺序：掩码最先、然后是 bonus 行的完整 Sampler 与 target 行的投机版处理器、拒绝采样、紧接着 draft 下一步；调度器在步后回滚与推进 FSM。draft 模型的 TP 绑定、logits 只在 rank 0、EAGLE 需要 P 侧的 hidden state——这些是留给多卡与 PD 分离的问题。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-三种扩展改的是“从 logits 到 token”这一步的三个不同东西：**采样参数**改分布本身（temperature / top-p / penalties）、**投机解码**改每步决定的位置数（1 → 1 + K）、**结构化输出**改分布的支撑集（把不合法 token 置 −∞）。它们都不只改 Sampler，因为 vLLM 的 batch 是持久的、每步的 token 数是调度出来的、KV 是预分配的（第二章）。**采样**：`Sampler` 按“是否改变 argmax”组织流水线让 greedy 与随机走同一向量化路径；`LogitsProcessor.update_state(BatchUpdate)` 的形态是因为 `InputBatch` 持久、处理器状态要跟着请求增删移动；真正有成本的是 penalties（每步两张 $$[B, V+1]$$ int64 直方图 + 历史输出上传）与 per-request seed（逐请求循环）（第三章）。**投机解码**：三个角色加两处约束——Proposer 出 draft；调度器把 $$1 + K$$ 算进 token budget、用 `num_lookahead_tokens` 预留 KV、步后用 `num_computed_tokens -= num_rejected` 回滚；`RejectionSampler` 在 $$[\text{num\_reqs} + \sum \text{drafts}, V]$$ 的 logits 上验证；CUDA Graph 的形状按 $$1 + K$$ 捕获。花的是每步 $$(1+K)$$ 倍的验证 token，换的是一步多个 token——H100 上一步约 300 个 token 是 memory / compute-bound 的分界，`batch × (1+K)` 超过它验证不再免费：batch 1、接受长度 2.5 时约 2.1×，batch 128 时每步慢 1.9 倍、吞吐反降（第四章）。**结构化输出**：分布在四处——前端选后端、`grammar_init()` 异步编译（请求进 `WAITING_FOR_STRUCTURED_OUTPUT_GRAMMAR`）、每步 CPU 填 bitmask 与 forward 重叠、GPU 一个 kernel 打 −∞、步后 `accept_tokens()` 推进 FSM；成本几乎全在 CPU；与投机叠加时 draft 先过 `validate_tokens()`、FSM 每步推进 K 次再 `rollback()`（第五章）。
-
-</details>
-
 
 ## 七、自测
 
@@ -826,7 +817,9 @@ Scheduler.update_from_output()
 
    </details>
 
-
 ## 下一篇
 
 [Multi-GPU：一张卡不够时如何扩展？](/multi-gpu-scaling-strategies.html)
+
+[^q0]: 三种扩展改的是「从 logits 到 token」这一步的三个不同东西：采样参数改分布本身、投机解码改每步决定的位置数（1 → 1 + K）、结构化输出改分布的支撑集（把不合法 token 置 −∞）。它们都不只改 Sampler，因为 vLLM 的 batch 是持久的（`InputBatch` 的行随请求增删移动，处理器状态要跟着动）、每步的 token 数是调度出来的（1 + K 要算进 token budget、KV 要预留、拒绝后要回滚 `num_computed_tokens`）、KV 是预分配的、CUDA Graph 的形状是捕获好的。详见[第二章](#二采样与-logits-processors让同一个-batch-里的每一行按自己的规矩走)。
+[^q1]: **采样**：greedy 与随机走同一向量化路径几乎免费；真正有成本的是 penalties（每步两张 $$[B, V+1]$$ int64 直方图 + 历史输出上传）与 per-request seed（逐请求循环）（[第二章](#二采样与-logits-processors让同一个-batch-里的每一行按自己的规矩走)）。**投机解码**：花的是每步 $$(1+K)$$ 倍的验证 token 与 draft 的开销，换的是一步多个 token——H100 上一步约 300 个 token 是 memory / compute-bound 的分界，`batch × (1+K)` 超过它验证不再免费：batch 1、接受长度 2.5 时约 2.1×，batch 128 时每步慢 1.9 倍、吞吐反降（[第三章](#三投机解码把一步一个-token改成一步一串候选)）。**结构化输出**：`grammar_init()` 异步编译（请求进 `WAITING_FOR_STRUCTURED_OUTPUT_GRAMMAR`）、每步 CPU 填 bitmask 与 forward 重叠、GPU 一个 kernel 打 −∞、步后 `accept_tokens()` 推进 FSM——成本几乎全在 CPU；与投机叠加时 draft 先过 `validate_tokens()`、FSM 每步推进 K 次再 `rollback()`（[第四章](#四结构化输出把-grammar-变成每步一张掩码)、[第五章](#五三者叠加执行顺序以及留给后面两篇的问题)）。

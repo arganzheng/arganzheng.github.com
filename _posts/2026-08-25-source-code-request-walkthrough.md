@@ -18,7 +18,7 @@ updated: 2026-09-14
 
 本篇的核心问题是：
 
-> **前面讲过的每个概念——调度、KV 分块、Attention 分派、多卡通信——在 vLLM 源码里对应哪个对象、哪次状态变化、哪条调用链？**
+> **前面讲过的每个概念——调度、KV 分块、Attention 分派、多卡通信——在 vLLM 源码里对应哪个对象、哪次状态变化、哪条调用链？[^q0]**
 
 ## 一、总览：把抽象还原成工程事实
 
@@ -104,7 +104,6 @@ vLLM 的 C++/CUDA 扩展通过 PyTorch 的 Custom Op 机制注册（位于 `csrc
 | `attention_backend()` | | FlashAttention（C++ lib）或 Triton kernel（`.py`） | | Tensor Cores |
 | `fused_moe()` | | `csrc/libtorch_stable/moe/`（CUDA）或 Triton experts（`.py`） | | Tensor Cores |
 | `torch.matmul()` | | cuBLAS GEMM | | Tensor Cores |
-
 
 ## 三、四个域：给源码里的每个对象定位
 
@@ -299,7 +298,6 @@ class RequestStatus(enum.IntEnum):
 
 这里可以和第一篇的结论对上了：Prefill / Decode 的区分在**性能分析**层面依然成立（第一篇「Prefill 与 Decode」一章），但在 **Scheduler 的实现**层面它们被统一到"本轮给这个请求推进多少 token"这一个模型里——这正是第四篇反复强调的那句话在源码里的样子。
 
-
 ## 五、翻译层：SchedulerOutput 如何变成 GPU 张量
 
 第四篇的调度决策和第六篇的 GPU 执行之间，隔着一层谁都没细讲的翻译：调度器交出来的是"哪个请求本轮推进多少 token"，而 kernel 要的是"这个 token 的 KV 写到哪个 slot、这个请求能读哪些块"。做这件翻译的是 `ModelRunner.prepare_inputs()`。
@@ -409,7 +407,6 @@ sequenceDiagram
 - **同步点只有一个，且被推到最后。** `_bookkeeping_sync()` 里的 `_to_list()` 用 `transfer_event.synchronize()` 等采样结果落到 CPU；它用 CUDA event 而不是 `tolist()` 直接触发的全 stream 同步，是为了不阻塞其他 stream 上的拷贝（比如 KV 传输）。在这个点之前，GPU 上排着的是 forward + 采样整条队列，CPU 等的时间就是 GPU 真正的计算时间。
 - **为什么拆成两次调用。** `execute_model()` 返回后、`sample_tokens()` 之前，EngineCore 有一个窗口可以做需要上一步结果的事（结构化输出的 grammar bitmask），而 GPU 此刻正在跑 forward——把 CPU 侧这段工作塞进 GPU 的空当。
 - **async scheduling 把最后那个同步点也拿掉了。** 采样结果留在 GPU，`AsyncGPUModelRunnerOutput` 在另一条 copy stream 上做 D2H，Scheduler 用占位 token 先调度下一步，等结果到达再修正。这就是第二章"流水线化"在源码里更激进的形态。
-
 
 ## 六、从请求到 GPU Kernel 的完整调用链
 
@@ -530,8 +527,6 @@ sequenceDiagram
 
 这张树回答了一个链式图回答不了的问题：**每个进程里"常驻"的是什么。** 进程 A 常驻的是每个请求一个的 `generate()` 协程和一个全局 `output_handler()` 协程；进程 B 常驻的是三个线程，其中主线程的栈底永远是 `run_busy_loop() → step()`；进程 C 常驻的是 `worker_busy_loop()`，它从共享内存里取出方法名和参数、反射调用 `Worker` 上的同名方法、把返回值塞回响应队列——`execute_model` 和 `sample_tokens` 对它来说只是两个字符串。三段栈都是"死循环 + 一次调用"的形状，请求本身不在任何一个栈上，它只是三条消息队列里流过的数据。
 
-
-
 ## 七、附录：各环节耗时量级
 
 **测试口径**（不写清口径的耗时表没有意义）：Llama-2-7B、FP16、A100 80GB 单卡（HBM 带宽约 2.0 TB/s）、TP=1、prompt 512 tokens、无 prefix cache 命中、CUDA Graph 开启。**换任何一个条件，下面的数字都会变。**
@@ -565,8 +560,6 @@ sequenceDiagram
 这正是第一篇那条吞吐-延迟权衡曲线的微观解释，也是 Continuous Batching 全部收益的来源：**在 memory-bound 区间，增大 batch 几乎是免费的吞吐。** 直到 batch 大到让 KV Cache 读取或计算本身成为新瓶颈为止——那时曲线才会掉头。
 
 顺带澄清一个常见误解：**ITL 不等于 `TPOT × batch`。** 稳态下 ITL 约等于 TPOT；它真正的意义在于反映**波动**——当一个长 prompt 的 chunked prefill 插进来、或者发生抢占时，个别 token 的间隔会出现尖峰。所以优化 ITL 靠的是稳定调度，不是缩小 batch。
-
-
 
 ## 八、本文小结与系列总结
 
@@ -606,18 +599,9 @@ sequenceDiagram
 它调度任务、管理内存、抽象硬件、隔离故障——操作系统做的事，它都在做，只不过管的不是进程和物理内存页，而是请求和 KV 块。理解了这个类比，你就不只是理解了 vLLM，而是拿到了看懂下一个 Serving 系统的钥匙。
  
 
-
 ## 回到总纲
 
 本篇是系列的最后一篇。完整目录见[《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》总纲](/deep-dive-into-vllm.html)。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-把第一篇那个请求（Llama-3-70B、8×H100、2000 token prompt、300 token 输出）从源码里走一遍，每个概念都落到一个对象、一次状态变化、一条调用链。**入口**：`api_server` 的 chat 路由 → `AsyncLLM.generate` → `InputProcessor.process_inputs` 产出 `EngineCoreRequest` → `AsyncMPClient` 经 ZMQ 送进 EngineCore 进程。**调度**：`EngineCore.step` → `Scheduler.schedule`：请求从 `waiting` 取出，`KVCacheManager.get_computed_blocks` 查 prefix cache、`allocate_slots` 分块（`BlockPool` 出块、`ref_cnt`、block table 追加），token budget 决定这一轮 prefill 多少，产出 `SchedulerOutput`。**执行**：`Executor.execute_model` 广播到 8 个 Worker → `GPUModelRunner.execute_model`：`_update_states` 按 `SchedulerOutput` 增删移动 `InputBatch` 的行、`_prepare_inputs` 算 positions / slot_mapping / attention metadata（block table 在这里进 kernel 参数）、按 batch 形态选 CUDA Graph 或 eager、模型前向（每层 `Attention.forward` 经 backend 调 FlashAttention / FlashInfer，`RowParallelLinear` 末尾 all-reduce）、`Sampler` 在 rank 0 采样，产出 `ModelRunnerOutput`。**更新**：`Scheduler.update_from_output` 追加 token、检查停止条件、完成的请求 `free` 块（`ref_cnt` 减、块进空闲队列尾）；`EngineCoreOutputs` 回前端 `OutputProcessor` 增量 detokenize、流式返回（第二至七章）。**五个视角五笔账**：时间（prefill 92 ms vs decode 3000 ms）、显存（734 MB KV vs 17.5 GB 权重 / 卡）、通信（每步 160 次 all-reduce）、CPU（每步的调度与元数据准备）、请求（一个请求经过的状态与对象）。三句话收尾：KV Cache 是一切约束的源头；调度的单位是 token 不是 request；文中的性能数字只是量级示意——vLLM 是一套围绕「动态请求 + KV 状态 + GPU 资源」构建的推理操作系统（第八章）。
-
-</details>
-
 
 ## 九、自测
 
@@ -660,3 +644,5 @@ sequenceDiagram
    时间账（prefill 92 ms / decode 3000 ms）、显存账（KV 734 MB vs 权重 17.5 GB / 卡）、通信账（每步 160 次 all-reduce）、CPU 账（调度与元数据准备）、请求账（状态迁移与对象）。优化一笔常动另一笔——大 batch 省时间账但涨显存账、投机解码省轮次但涨每步时间——合起来才是系统。
 
    </details>
+
+[^q0]: **入口**：`api_server` 的 chat 路由 → `AsyncLLM.generate` → `InputProcessor.process_inputs` 产出 `EngineCoreRequest` → `AsyncMPClient` 经 ZMQ 送进 EngineCore 进程（控制面与数据面分离，[第二章](#二控制面与数据面的分离)）。**调度**：`EngineCore.step` → `Scheduler.schedule`：请求从 `waiting` 取出，`KVCacheManager.get_computed_blocks` 查 prefix cache、`allocate_slots` 分块（`BlockPool` 出块、`ref_cnt`、block table 追加），token budget 决定这一轮 prefill 多少，产出 `SchedulerOutput`（[第三章](#三四个域给源码里的每个对象定位)、[第四章](#四请求状态机系统如何决定下一步做什么)）。**执行**：`Executor.execute_model` 广播到 8 个 Worker → `GPUModelRunner.execute_model`：`_update_states` 按 `SchedulerOutput` 增删移动 `InputBatch` 的行、`_prepare_inputs` 算 positions / slot_mapping / attention metadata（block table 在这里进 kernel 参数）、按 batch 形态选 CUDA Graph 或 eager、模型前向（每层 `Attention.forward` 经 backend 调 FlashAttention / FlashInfer，`RowParallelLinear` 末尾 all-reduce）、`Sampler` 采样，产出 `ModelRunnerOutput`（[第五章](#五翻译层scheduleroutput-如何变成-gpu-张量)、[第六章](#六从请求到-gpu-kernel-的完整调用链)）。**更新**：`Scheduler.update_from_output` 追加 token、检查停止条件、完成的请求 `free` 块；`EngineCoreOutputs` 回前端 `OutputProcessor` 增量 detokenize、流式返回。五个视角五笔账（时间、显存、通信、CPU、请求）见[第七章](#七附录各环节耗时量级)。

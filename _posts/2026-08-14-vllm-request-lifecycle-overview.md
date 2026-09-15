@@ -14,7 +14,7 @@ updated: 2026-09-14
 
 本篇的核心问题是：
 
-> **一个请求如何穿过 vLLM 的整个推理系统——哪个模块负责决策、哪个模块负责执行，它们之间传递的到底是什么？**
+> **一个请求如何穿过 vLLM 的整个推理系统——哪个模块负责决策、哪个模块负责执行，它们之间传递的到底是什么？[^q0]**
 
 ## 一、总览：静态拓扑、动态生命周期与数据流
 
@@ -208,7 +208,6 @@ flowchart TB
 - **B ↔ C 走共享内存 `MessageQueue`**（`vllm/distributed/device_communicators/shm_broadcast.py`）。`SchedulerOutput` 经 `rpc_broadcast_mq` 一次广播给所有 Worker（TP 各 rank 需要同一份调度结果），而 `ModelRunnerOutput` 默认只由 `output_rank` 那一个 Worker 经自己的 `worker_response_mq` 回传，避免 N 份重复结果。
 - 进程 B 内部又分三个线程：输入线程负责反序列化、输出线程负责序列化，主线程只跑 `schedule → execute → update_from_output` 这个 busy loop。这样序列化开销不会插进调度循环的关键路径。`UniProcExecutor` 时进程 C 退化为进程 B 内的一个对象，B ↔ C 边界消失，但 A ↔ B 依旧存在（`InprocClient` 除外）。
 
-
 ## 三、一次请求的完整生命周期
 
 ```mermaid
@@ -399,7 +398,6 @@ sequenceDiagram
 
 表里有两条规律。第一，**状态只在 B 和 C 各有一份**：`Request` 是权威，`CachedRequestState` 是靠每步增量同步的镜像；所有跨进程的载荷（`EngineCoreRequest`、`SchedulerOutput`、`ModelRunnerOutput`、`EngineCoreOutputs`）都是无状态的一次性消息，读完即弃，也因此可以随意序列化、走任何 IPC 通道。第二，**文本只在进程 A 出现**：从 `EngineCoreRequest` 到 `EngineCoreOutputs` 全程都是 token ids，进程 B、C 完全不需要 tokenizer。
 
-
 ## 五、本文小结
 
 这一章主要要关注的是模块之间的分工：
@@ -434,14 +432,6 @@ sequenceDiagram
 | 一轮 batch 在 GPU 上怎么跑 | `vllm/v1/worker/gpu_model_runner.py` → `GPUModelRunner.execute_model()` / `sample_tokens()` |
 
 </details>
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-一个请求从 HTTP 进来到 token 出去经过一条固定的链：**入口**（`api_server` 的 OpenAI 兼容路由）→ `AsyncLLM`（异步生命周期、流式响应）→ `InputProcessor`（tokenize、构造 `EngineCoreRequest`）→ 经 `EngineCoreClient` 跨进程送进 **EngineCore**（第二、三章）。EngineCore 的 `step()` 是驱动循环：**Scheduler 决策**——这一轮哪些请求跑、每个推进多少 token（把 waiting 里的请求按 KV 与 token budget 准入、给 running 的每个分配 slot），产出 `SchedulerOutput`；**Executor 分发**——把 `SchedulerOutput` 送到一个或多个 Worker（TP / PP 时是多个进程）；**ModelRunner 执行**——按输出准备 `InputBatch`、调 attention backend 与模型前向、采样，产出 `ModelRunnerOutput`（每个请求的新 token）；EngineCore 再把结果交回 Scheduler 更新请求状态（追加 token、完成、抢占），并把 `EngineCoreOutputs` 送回前端 detokenize、流式返回（第四章）。**传递的是什么**：Scheduler 与 ModelRunner 之间传的不是 tensor 而是**元数据**——每个请求这一轮的 token 数、block table、slot mapping、采样参数；Worker 之间传的是激活（TP 的 all-reduce、PP 的 P2P）；前后端之间传的是 token id。四问对上模块：谁执行 → Scheduler；状态放哪 → KVCacheManager / BlockPool；算得快 → ModelRunner / Attention Backend；扩出去 → Executor / Worker（第五章）。
-
-</details>
-
 
 ## 六、自测
 
@@ -485,7 +475,8 @@ sequenceDiagram
 
    </details>
 
-
 ## 下一篇
 
 [Scheduler：GPU 这一轮到底给谁用？](/scheduler-batch-and-fairness.html)
+
+[^q0]: 链路是固定的：**入口**（`api_server` 的 OpenAI 兼容路由）→ `AsyncLLM` → `InputProcessor`（tokenize、构造 `EngineCoreRequest`）→ 经 `EngineCoreClient` 跨进程送进 **EngineCore**。EngineCore 的 `step()` 是驱动循环：**Scheduler 决策**——这一轮哪些请求跑、每个推进多少 token，产出 `SchedulerOutput`；**Executor 分发**到一个或多个 Worker；**ModelRunner 执行**——准备 `InputBatch`、调 attention backend 与模型前向、采样，产出 `ModelRunnerOutput`；EngineCore 把结果交回 Scheduler 更新请求状态，并把 `EngineCoreOutputs` 送回前端 detokenize、流式返回。**传递的是什么**：Scheduler 与 ModelRunner 之间传的不是 tensor 而是元数据——每个请求这一轮的 token 数、block table、slot mapping、采样参数；Worker 之间传的是激活（TP 的 all-reduce、PP 的 P2P）；前后端之间传的是 token id。详见[第二](#二静态系统拓扑自顶向下)至[四章](#四数据流token-如何穿过整个-serving-栈)。

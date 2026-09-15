@@ -18,10 +18,9 @@ Llama 3 论文（Dubey et al. 2024）给了一组值得反复引用的数字：1
 
 本篇要回答总纲提出的核心问题：
 
-> **一个 405B 模型、6 TB 状态的 checkpoint，同步写要停训练几分钟？异步写代价是什么？故障后剩 15 个节点而不是 16 个，能不能直接加载？**
+> **一个 405B 模型、6 TB 状态的 checkpoint，同步写要停训练几分钟？[^q0] 异步写代价是什么？[^q1] 故障后剩 15 个节点而不是 16 个，能不能直接加载？[^q2]**
 
 依照系列惯例：带宽一律取公开标称值（每 GPU 一张 400 Gb/s 网卡即 50 GB/s、PCIe 5.0 x16 单向约 64 GB/s），并行文件系统的聚合带宽随集群而异，正文中给出的是量级与算法而不是某台集群的实测。源码以 PyTorch 2.13.0、Megatron Core 0.18.0、DeepSpeed 0.19.2 为准，torchtitan 依更新声明以 v0.3.0 为准。
-
 
 ## 一、总览
 
@@ -105,7 +104,6 @@ DeepSpeed 这一列后文只在第八章展开一节：它的 checkpoint 是"每
 | 十 | 本文小结 | 要点 · 源码位置 · train-ledger 的 ckpt/ 与 `ledger/checkpoint_interval.py` |
 | 十一 | 自测 | 5 道题 |
 
-
 ## 二、checkpoint 里有什么，为什么缺一样都不行
 
 ### 1. 六类内容
@@ -152,7 +150,6 @@ DeepSpeed 的 `DeepSpeedEngine.save_checkpoint()`（`deepspeed/runtime/engine.py
 
 结论：优化器状态在磁盘上必须表达成"参数 X 的 m 的第几块"，而不是"rank 7 的 optimizer 的第 12 个状态"。这一转换做对了，重分片才有可能。
 
-
 ## 三、为什么不能写成一个文件：405B 的算术
 
 ### 1. 6 TB 是怎么来的
@@ -197,7 +194,6 @@ __N_0.distcp                                                   调度器状态�
 ```
 
 DCP 的 `__{rank}_{n}.distcp` 文件名里 `n` 是该 rank 的第几个写线程（`FileSystemWriter(thread_count=k)` 时每 rank 产出 k 个文件）。Megatron 的 `torch_dist` 格式**就是** DCP 的目录再加两个文件；这是两者互通的物理基础，第七章展开。DeepSpeed 的文件名把 `mp_rank`（TP×PP 位置）和 `zero_pp_rank`（DP 位置）编进去了——文件与并行布局一一对应，这正是它换布局要先转换的原因。
-
 
 ## 四、DCP 的对象模型
 
@@ -341,7 +337,6 @@ class AppState(Stateful):
              _async_executor.py：_AsyncCheckpointExecutor → _ThreadBasedAsyncCheckpointExecutor / _ProcessBasedAsyncCheckpointExecutor
 ```
 
-
 ## 五、重分片加载
 
 ### 1. `dcp.load` 的流程
@@ -422,7 +417,6 @@ DeepSpeed 的 ZeRO checkpoint 不满足上面的条件——它的 `zero_pp_rank
 分两层看。**checkpoint 层**：可以。FSDP 从 16 变 15，每个参数的 DTensor 分片从 16 块变 15 块，`create_read_items_for_chunk_list()` 为每个新块算出与旧块的交集——大多数新块跨两个旧块，各发两个读请求；优化器状态跟随参数，同样处理；`train_state`、`lr_scheduler` 是标量，任何 rank 都能读。**训练层**：global batch 是 $$d \times b \times m$$，DP 从 16 变 15 时要么 $$m$$ 或 $$b$$ 跟着变（Megatron 会因 global batch 不能被 $$d \times b$$ 整除而报错），要么接受 global batch 变成原来的 15/16 并相应改 lr。torchtitan 从 `TrainingConfig.global_batch_size` 与 `local_batch_size` 重算 `gradient_accumulation_steps`：原来 global batch 512 条序列 = $$16 \times 4 \times 8$$，DP 变 15 后 $$512 / (15 \times 4)$$ 不整除，同样报错。所以答案是：**DCP 层面直接加载没有问题，需要人为决定的是训练配方在 15/16 规模下怎么办**——这是第六篇弹性训练（torchft 的副本组模型允许 DP 副本数动态变化）的起点。
 
 数据加载器是另一个坑：`StatefulDataLoader` 的状态按 DP rank 存，16 份状态装到 15 个 rank 里没有自然的映射。Megatron 的 dataloader 状态文件也是按 DP rank 分的。实践中的做法是记录**全局已消费的 sample 数**，重启时用它重建每个 rank 的起点，而不是恢复每个 rank 的私有迭代器状态——第七篇讲。
-
 
 ## 六、异步保存
 
@@ -515,7 +509,6 @@ sequenceDiagram
 
 δ 是训练真正停下来等的时间：同步 staging 时是整段拷贝，异步 staging 时只剩 `optimizer.step()` 前等拷贝尾巴的那一小段；后台写入越长，越有可能在最后一行把下一次保存挡住。
 
-
 ## 七、Megatron 的 dist_checkpointing
 
 ### 1. ShardedTensor：Megatron 的"全局坐标"
@@ -604,7 +597,6 @@ no_load_optim / no_load_rng / finetune                 部分加载
 
 `megatron/training/checkpointing.py` 的 `save_checkpoint()` 是把这些串起来的地方：`generate_state_dict()` 组 dict → 按 `ckpt_format` 选路径（`torch_dist` 走 `dist_checkpointing.save()`，可传 `async_sharded_save=True` 得到 `AsyncRequest`）→ `--async-save` 时 `schedule_async_save()`，finalize 回调里写 `latest_checkpointed_iteration.txt`（`get_checkpoint_tracker_filename()`）——这个文件是 Megatron 的"提交标记"，晚于全部数据文件写，加载时 `read_metadata()` 读它决定加载哪个 iteration。`load_checkpoint()` 先 `_load_base_checkpoint()` 按 `_get_checkpoint_format()` 判断目录格式（`auto_detect_ckpt_format`），`torch_dist` 时先加载 `common.pt` 拿 `args`、再 `generate_state_dict()` 造出带 `ShardedTensor` 的"空"模板（`is_loading=True`）、交给 `dist_checkpointing.load()` 填充。`fix_query_key_value_ordering()` 处理 `checkpoint_version` < 2.0 的 QKV 布局——这是版本兼容在代码里的形状。
 
-
 ## 八、DeepSpeed 与 torchtitan
 
 ### 1. DeepSpeed：CheckpointEngine 与 universal checkpoint
@@ -643,7 +635,6 @@ torchtitan v0.3.0 把 checkpoint 放在 `torchtitan/components/checkpointer/`：
 - **训练循环里的位置**：`Trainer.train_step()` 在 `clip_grad_norm_()` 之后、`optimizers.step()` 之前调 `checkpointer.maybe_wait_for_staging()`；`train()` 主循环每步之后调 `checkpointer.save(self.step, last_step=...)`。第六章第 5 节讲过为什么放这里。
 - **`ModelWrapper` 的 storage 稳定性**：`state_dict()` 返回缓存的 dict，值与参数共享 storage；由 hook 产出的新张量（如把融合参数拆开的 hook）用 `copy_` 刷进旧缓冲而不是替换——为的是让 `StateDictStager` 的按 storage 缓存命中，pinned 缓冲跨保存复用。
 - **`_load()`**：`_find_load_step()` 扫描 `step-*` 目录取最大；`_states_to_load(model_only)` 决定装哪些 key（`exclude_from_loading` 可排除 `dataloader` 等）；`dcp_load()` 调 `dcp.load(states, checkpoint_id)`，`initial_load_in_hf` 时用 `HuggingFaceStorageReader` 加 `sd_adapter.from_hf()`。
-
 
 ## 九、多级存储与存多久一次
 
@@ -713,7 +704,6 @@ Llama 3 论文的 54 天、419 次意外中断给出 $$M \approx 54 \times 24 / 
 **保留**。每 3.5 分钟 5.7 TB 不能全留。常见策略是三层：最近 k 个（torchtitan 的 `keep_latest_k`，后台线程删）；每 N 小时留一个（供 loss spike 回退——第七篇 PaLM 的做法要回退到 spike 前约 100 步）；里程碑永久保留（每 1000 亿 token 之类）。Megatron 的 `cleanup_old_non_persistent_checkpoint()` 只管一级本地 checkpoint 的清理（`leave_ckpt_num`），二级由外部脚本管。删除本身要异步——`_async_delete_checkpoint_impl()`、torchtitan 的 `purge_thread` 都是为此。
 
 **版本兼容**。三个层次：格式版本（DCP `Metadata.version` "1.0.0"、`_version.py` 里对 2.3 以前展平方式的兼容判断；Megatron `metadata.json` 的 `sharded_backend` 与 `sharded_backend_version`）、内容版本（Megatron `checkpoint_version` 3.0，`fix_query_key_value_ordering()` 兼容 < 2.0 的 QKV 交错布局）、框架版本（`args` 存进 checkpoint，`check_checkpoint_args()` 比对）。实践原则是：checkpoint 目录里必须能找到写它的框架 commit 与配置；升级框架前先用新版本加载旧 checkpoint 跑 10 步比对 loss。`DefaultLoadPlanner(allow_partial_load=True)` 与 Megatron 的 `dist_ckpt_strictness=log_unexpected` 是处理"新版本多了一个 buffer"这类小差异的开关。
-
 
 ## 十、本文小结
 
@@ -1094,14 +1084,6 @@ checkpoint 解决的是"状态怎么安全落盘、怎么灵活装回"。但 You
 
 > **一千张卡平均每几小时坏一张。每次故障从发现到恢复训练要多久？其中检测、重启、加载 checkpoint、回退重算各占多少？把有效训练时间从 85% 提到 95%，最该缩短的是哪一段？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**同步写要停几分钟**：训练态 16 B / 参数、落盘 14（Megatron）或 12（FSDP2）B / 参数，405B 约 5.7 TB。rank-0 汇总写单文件撞三堵墙——主机内存放不下、单网卡 114 s、单写入者 19–95 分钟；分片写每卡约 350 MB（16K 卡），由并行文件系统的聚合带宽决定，秒级——但同步写期间训练停着，$$\delta$$ 十分钟量级时按 Young 公式 $$\tau_{opt} = \sqrt{2\delta M}$$、$$M \approx 3.1$$ h 会浪费 33% 的算力（第二、三、四章）。**异步写的代价**：$$\delta$$ 从写入时间变成 staging 时间（把状态拷到主机内存的时间），$$\delta = 2$$ s 时浪费降到 1.9%——异步不是优化是必需。代价是 staging 内存：每卡唯一字节 ×（1–2），8B 模型 8 卡每卡 12 GB、千卡反而轻；线程 staging 受 GIL 影响、进程 staging 要 `/dev/shm`；等 staging 完成的点要放在 `optimizer.step` 之前（第六、七章）。**15 个节点能不能直接加载**：能，前提是 checkpoint 格式与并行配置无关。DCP 的 `.metadata` 记每个张量的全局形状与每个块的全局坐标——磁盘上没有 rank / TP / PP；加载时每个本地块与磁盘块逐维算交集生成 `ReadItem`，零通信完成重分片。条件：同 FQN、同全局形状、块带全局坐标；PP 变了要展平 key；Megatron 分布式优化器需 `fully_reshardable`，DeepSpeed 需先 `ds_to_universal` 合并成全局再切（第五章）。多级存储（本地 NVMe + 邻居副本秒级、PFS 持久）、提交标记 + fsync + 加载验证是工程收尾（第八章）。
-
-</details>
-
-
 ## 十一、自测
 
 1. 405B 模型 checkpoint 落盘多少字节？rank-0 单文件写与 16K 卡分片写各要多久（量级）？
@@ -1144,7 +1126,10 @@ checkpoint 解决的是"状态怎么安全落盘、怎么灵活装回"。但 You
 
    </details>
 
-
 ## 下一篇
 
 [容错与弹性：故障率数学、straggler、SDC 与弹性训练](/fault-tolerance-and-elastic-training.html)
+
+[^q0]: 训练态 16 B / 参数、落盘 14（Megatron）或 12（FSDP2）B / 参数，405B 约 5.7 TB。rank-0 汇总写单文件撞三堵墙——主机内存放不下、单网卡 114 s、单写入者 **19–95 分钟**；分片写每卡约 350 MB（16K 卡），由并行文件系统的聚合带宽决定，秒级——但同步写期间训练停着，$$\delta$$ 十分钟量级时按 Young 公式 $$\tau_{opt} = \sqrt{2\delta M}$$、$$M \approx 3.1$$ h 会浪费 33% 的算力。详见[第二章](#二checkpoint-里有什么为什么缺一样都不行)、[第三章](#三为什么不能写成一个文件405b-的算术)。
+[^q1]: $$\delta$$ 从写入时间变成 staging 时间（把状态拷到主机内存的时间），$$\delta = 2$$ s 时浪费降到 1.9%——异步不是优化是必需。代价是 staging 内存：每卡唯一字节 ×（1–2），8B 模型 8 卡每卡 12 GB、千卡反而轻；线程 staging 受 GIL 影响、进程 staging 要 `/dev/shm`；等 staging 完成的点要放在 `optimizer.step` 之前，否则写出去的是被改过的状态。详见[第六章](#六异步保存)。
+[^q2]: **能**，前提是 checkpoint 格式与并行配置无关。DCP 的 `.metadata` 记每个张量的全局形状与每个块的全局坐标——磁盘上没有 rank / TP / PP；加载时每个本地块与磁盘块逐维算交集生成 `ReadItem`，零通信完成重分片。条件：同 FQN、同全局形状、块带全局坐标；PP 变了要展平 key；Megatron 分布式优化器需 `fully_reshardable`，DeepSpeed 需先 `ds_to_universal` 合并成全局再切。详见[第四章](#四dcp-的对象模型)、[第五章](#五重分片加载)、[第七章](#七megatron-的-dist_checkpointing)、[第八章](#八deepspeed-与-torchtitan)。

@@ -16,12 +16,11 @@ updated: 2026-09-14
 
 读框架源码最容易迷失在目录里：Megatron Core 0.18.0 的 `megatron/core/` 下有二十多个子目录、几十个顶层文件，DeepSpeed 的 `runtime/zero/stage3.py` 一个文件三千行，torchtitan v0.3.0 又刚刚把整套配置系统从 TOML 换成了 Python。本篇不打算逐个目录介绍，而是用一条线把三个框架串起来读：
 
-> **一个 bf16 参数在这三个框架里各自存在哪里、什么时候被 all-gather、什么时候被释放、它的 fp32 主副本在哪张卡上？把这条链追清楚，三个框架的架构差异就全部显现了。**
+> **一个 bf16 参数在这三个框架里各自存在哪里、什么时候被 all-gather、什么时候被释放、它的 fp32 主副本在哪张卡上？[^q0] 把这条链追清楚，三个框架的架构差异就全部显现了。**
 
 沿着这条线，每个框架要回答同样四件事：**进程组怎么组织**（谁和谁通信）、**状态放在哪**（参数、梯度、优化器状态的实际容器）、**训练循环怎么写**（一个 step 里这些容器按什么顺序被读写）、**取舍是什么**。最后把三份答案并排：同一个"前向前把分片参数 all-gather 回来"的动作在 DeepSpeed Stage 3、FSDP1、FSDP2 里的三种实现，同一个 1F1B 调度在 Megatron 与 `torch.distributed.pipelining` 里的两种写法。
 
 依照系列惯例，通信原语只用语义和通信量；所有源码引用给出路径与函数名，Megatron Core 以 core_v0.18.0、DeepSpeed 以 v0.19.2、PyTorch 以 v2.13.0 为准，torchtitan 以 v0.3.0 为准（见文首更新声明）。
-
 
 ## 一、总览
 
@@ -124,7 +123,6 @@ PyTorch 2.13.0        torch/distributed/
 | 六 | 对照阅读 | 三条时序并排；前向前 all-gather 的三种实现（Stage 3 / FSDP1 / FSDP2）；1F1B 的两种写法；取舍表 |
 | 七 | 小结 | 要点、源码位置、train-ledger 的 runs/ 与 `probe_memory.py` |
 
-
 ## 二、进程组：谁和谁通信
 
 并行策略落到代码里的第一件事是进程组：每张卡属于哪一个 TP 组、哪一个 DP 组、哪一个 PP 组。三个框架用三种方式回答，但产出物相同——一组 `ProcessGroup`，每个集合通信调用时指定其一。
@@ -207,7 +205,6 @@ gloo 孪生            每组一个                                 —         
 ```
 
 三者都把 TP 放在最内、PP 放在最外，都把 CP 视为"切数据、复制参数"的维度并入梯度归约组（Megatron 的 `dp-cp`、torchtitan 的 `loss` 与 FSDP 的 `dp_shard×cp`）。差别是历史层次：Megatron 是全局单例正在向对象化过渡，DeepSpeed 把模型并行的进程组交给外部，torchtitan 从一开始就是 mesh。
-
 
 ## 三、Megatron-LM：按模型结构切
 
@@ -396,7 +393,6 @@ sequenceDiagram
 `megatron/core/distributed/fsdp/` 是 0.18.0 里 Megatron 自己的 FSDP 实现，`--use-megatron-fsdp` 打开。`fsdp/src/megatron_fsdp/fully_shard.py` 的 `ShardingStrategy` 枚举把四级写得很直白：`NO_SHARD`、`OPTIM`（ZeRO-1）、`OPTIM_GRADS`（ZeRO-2）、`OPTIM_GRADS_PARAMS`（ZeRO-3），由 `--data-parallel-sharding-strategy` 选；`megatron_fsdp.py` 的 `MegatronFSDP` 是模块包装类，`mcore_fsdp_adapter.py` 的 `FullyShardedDataParallel` 把它接进 Megatron 的 `_BaseDataParallel` 接口，与 `DistributedDataParallel` 平级。它保留了 Megatron 的 buffer 思路（`fsdp/src/megatron_fsdp/param_and_grad_buffer.py`）但把参数也切了，并且用 DTensor 表达分片（`uneven_dtensor.py`），checkpoint 格式 `--ckpt-format fsdp_dtensor`。`DistributedOptimizer.step_with_ready_grads()` 里有一个 `use_megatron_fsdp` 分支，调用 `model_chunk.start_param_sync()` 提前 all-gather 主参数。
 
 另一条路径 `--use-torch-fsdp2`（`distributed/torch_fully_sharded_data_parallel.py`）直接用 PyTorch 的 `fully_shard`，但 `arguments.py` 里列了一串不兼容项：不支持 PP、EP、分布式优化器、梯度累积融合。两条路径合起来说明一件事：Megatron 长期"只做 ZeRO-1，其余靠 TP/PP"的立场在松动——当模型能用 FSDP 放下时，FSDP 比 PP 少一个气泡问题、比 TP 少一个 NVLink 约束，Megatron 也需要这个选项。这与 torchtitan 从 FSDP2 出发是同一个方向的两端。
-
 
 ## 四、DeepSpeed：按优化器状态切
 
@@ -601,7 +597,6 @@ for step in ...:
 
 JSON 配置是 DeepSpeed 易用性的来源，也是它的代价所在。`runtime/zero/config.py` 的 `DeepSpeedZeroConfig` 有四十多个字段，其中 Stage 3 的六个阈值（`stage3_prefetch_bucket_size`、`stage3_param_persistence_threshold`、`stage3_max_live_parameters`、`stage3_max_reuse_distance`、`sub_group_size`、`reduce_bucket_size`）共同决定显存峰值与通信重叠程度，但它们之间的关系不在任何一个地方被算出来——用户要靠经验或 `see_memory_usage` 的日志调。而且配置里有大量隐式耦合：`train_batch_size`、`train_micro_batch_size_per_gpu`、`gradient_accumulation_steps` 三者给两个推第三个；`bf16.enabled` 与 `fp16.enabled` 互斥；`zero_optimization.offload_optimizer` 只在 Stage 1–3 有效但 Stage 1/2 与 3 的行为不同。JSON 无法表达这些约束，只能在 `DeepSpeedConfig` 的校验里报错。
 
-
 ## 五、torchtitan：用原生原语组合
 
 ### 1. 目录地图
@@ -779,7 +774,6 @@ metrics_processor.log(step, global_avg_loss, global_max_loss, grad_norm, ...)   
 
 与 Megatron 的 `train_step()` 对照：没有 `zero_grad_buffer`（FSDP 自己管梯度 buffer）、没有 `no_sync`（FSDP2 用 `set_requires_gradient_sync()` 控制，torchtitan 默认每个梯度累积步都 reduce-scatter——因为 reduce-scatter 的结果就是分片梯度，累积直接在分片上做，不像 DDP 那样"最后一步才通信"能省什么）、没有单独的 `finalize_model_grads`（DTensor 的 `Partial` placement 让 TP 组内复制参数的梯度归约由 redistribute 自动完成）。整个循环里看不到任何一次显式的集合通信调用，除了 `dist_sum_tensor` 与 `clip_grad_norm_` 里的范数归约——所有参数相关的通信都藏在 FSDP 的 hook 和 DTensor 的 redistribute 里。这是"可读"的来源，也是"看不见"的来源：要知道通信发生在哪里，得读 `_fully_shard/`，而不是 torchtitan。
 
-
 ## 六、对照阅读
 
 ### 1. 三条时序并排
@@ -889,7 +883,6 @@ checkpoint        dist_checkpointing（ShardedTensor）+ torch_dist / fsdp_dtens
 ```
 
 三者对同一格子的选择差异，多数可以从"从哪种状态出发"解释。Megatron 从模型结构出发，所以要求模型用它的层写、并行的每一步都手写、能做到最紧的重叠；DeepSpeed 从优化器状态出发，所以只需要接管优化器和 hook、对模型零侵入、但"参数不在"成为常态；torchtitan 从参数的表示出发，所以一切并行都是 placement 的变换、代码最少、但依赖 PyTorch 侧的实现是否到位。Megatron 引入 FSDP、DeepSpeed 引入 DeviceMesh、torchtitan 引入 `ShardingConfig`——三者都在向"分片是数据的属性而不是框架的秘密"靠拢。
-
 
 ## 七、本文小结
 
@@ -1205,14 +1198,6 @@ def compare_with_ledger(probe_json: str, model, cfg, precision="bf16", optimizer
 
 > **一个 70B dense 模型，1024 张 H100，序列长 8192，global batch 4M token。TP、PP、DP 各多少？micro-batch 多大？要不要重计算？预期 MFU 多少？跑出来只有 32%，缺的 10 个点去了哪里？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-追一个 bf16 参数的一生，三个框架就分开了。**Megatron**：bf16 参数**常驻完整**，是 `_ParamAndGradBuffer` 两段连续内存里的一个视图；梯度经 DDP hook 累加进 `main_grad`（默认 fp32），bucket 满了就 reduce-scatter；`DistributedOptimizer` 按字节区间把优化器状态与 fp32 主参数切成 $$1/N_d$$，每卡只更新自己那段，然后 all-gather 更新后的 bf16 参数回 buffer（与下一步前向重叠）——通信 RS + AG = $$2N$$，每参数 $$2 + 4 + 12/N_d$$ 字节；参数从不被释放。**DeepSpeed ZeRO-3**：bf16 参数**常驻 $$1/N_d$$ 碎片**（`ds_tensor`），前向到某个 module 时四个 hook 之一触发参数协调器 all-gather 完整参数（coalesced、按 trace 预取）、用完立即释放回碎片；反向再来一次；fp32 主参数是优化器里的扁平 fp32 分区——通信 AG + AG + RS = $$3N$$，每参数 $$(16 或 18)/N_d$$ 加临时层。**torchtitan（FSDP2）**：bf16 参数**不常驻**——模型在 meta 设备构造、`parallelize` 后 `to_empty`，`fully_shard` 让每层的参数成为 `Shard(0)` 的 fp32 DTensor 分片，前向前 unshard：把各卡分片 all-gather 进一个连续 buffer 并按 `MixedPrecisionPolicy` 转成 bf16 临时参数，反向后 reduce-scatter 梯度、free 临时参数；fp32 主参数**就是那个分片本身**——通信 $$3N$$（不 reshard 则 $$2N$$），每参数 $$16/N_d$$ 加临时层（第三至六章）。三种 all-gather 的表示不同（Stage 3 每参数 `ds_tensor` + coalesced、FSDP1 一层一个 `FlatParameter`、FSDP2 每参数 DTensor 拷进连续 buffer），通信量相同、可组合性质不同；进程组一个用 `RankGenerator` 填全局变量、一个委托 mpu、一个用 `DeviceMesh` 切视图；1F1B 一个是过程式三段循环、一个是 `_Action` 表解释执行（第七、八章）。趋势是分片成为数据的属性（DTensor / ShardingConfig）。
-
-</details>
-
-
 ## 八、自测
 
 1. 三个框架里 fp32 主参数各在哪？每参数常驻字节各多少（$$N_d$$ 路数据并行）？
@@ -1255,7 +1240,8 @@ def compare_with_ledger(probe_json: str, model, cfg, precision="bf16", optimizer
 
    </details>
 
-
 ## 下一篇
 
 [千卡配置实战：并行搭配、micro-batch、激活重计算与 MFU 调优](/thousand-gpu-configuration-and-mfu-tuning.html)
+
+[^q0]: **Megatron**：bf16 参数常驻完整，是 `_ParamAndGradBuffer` 连续内存里的一个视图，从不被释放；梯度经 DDP hook 累加进 `main_grad`（默认 fp32），bucket 满了就 reduce-scatter；`DistributedOptimizer` 按字节区间把优化器状态与 fp32 主参数切成 $$1/N_d$$——主副本在按字节区间分到的那张卡上，每卡只更新自己那段，然后 all-gather 更新后的 bf16 参数回 buffer（[第三章](#三megatron-lm按模型结构切)）。**DeepSpeed ZeRO-3**：bf16 参数常驻 $$1/N_d$$ 碎片（`ds_tensor`），前向到某个 module 时 hook 触发参数协调器 all-gather 完整参数（按 trace 预取）、用完立即释放回碎片，反向再来一次；fp32 主参数是优化器里的扁平 fp32 分区（[第四章](#四deepspeed按优化器状态切)）。**torchtitan（FSDP2）**：bf16 参数不常驻——`fully_shard` 让每层参数成为 `Shard(0)` 的 fp32 DTensor 分片，前向前 unshard：all-gather 进连续 buffer 并按 `MixedPrecisionPolicy` 转成 bf16 临时参数，反向后 reduce-scatter 梯度、free 临时参数；fp32 主参数就是那个分片本身（[第五章](#五torchtitan用原生原语组合)）。三者通信量相同（$$2N$$ 或 $$3N$$）、表示与可组合性不同；进程组一个用 `RankGenerator` 填全局变量、一个委托 mpu、一个用 `DeviceMesh` 切视图（[第二章](#二进程组谁和谁通信)、[第六章](#六对照阅读)）。
