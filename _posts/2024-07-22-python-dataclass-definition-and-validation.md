@@ -1,6 +1,6 @@
 ---
 layout: post
-title: Python中如何定义POJO
+title: Python 中如何定义数据类并做校验：从 __init__、dataclass 到 Pydantic
 tags: [Python]
 catalog: true
 ---

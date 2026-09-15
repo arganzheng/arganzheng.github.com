@@ -1,6 +1,6 @@
 ---
 layout: post
-title: sed实战 
+title: sed实战
 tags: [linux, shell]
 catalog: true
 ---

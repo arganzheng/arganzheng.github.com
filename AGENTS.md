@@ -13,9 +13,6 @@ jekyll build            # or bundle exec jekyll build -> _site/
 jekyll serve            # or bundle exec jekyll serve -> http://localhost:4000
 ```
 
-The pre-existing `Conflict: ... the-productive-programmer-on-windows.html`
-warning is harmless.
-
 `Gruntfile.js` compiles `less/ -> css/argan-blog{,.min}.css` and minifies
 `js/hux-blog.js`. Edit the `.less`/`.js` sources, not the generated CSS:
 
