@@ -14,8 +14,7 @@ updated: 2026-09-14
 
 本篇要回答的核心问题是：
 
-> **DDPM、score matching、flow matching 为什么是同一件事？CFG 的 $$w = 7.5$$ 在数学上意味着什么？**
-
+> **DDPM、score matching、flow matching 为什么是同一件事？[^q0] CFG 的 $$w = 7.5$$ 在数学上意味着什么？[^q1]**
 
 ## 一、总览：三种视角、一个网络
 
@@ -49,7 +48,6 @@ CFG 的 $$w = 7.5$$ 意味着采样的分布不是 $$p(x \mid c)$$，而是 $$p(
 | 九 | 动手（建议） | CIFAR-10 上的 DDPM vs flow matching |
 | 十 | 本文小结 | |
 | 十一 | 自测 | 5 道题 |
-
 
 ## 二、DDPM：去噪扩散概率模型
 
@@ -144,7 +142,6 @@ $$
 
 网络可以预测 $$\epsilon$$、预测 $$x_0$$、或预测 $$v$$（velocity，Salimans & Ho 2022：$$v = \sqrt{\bar\alpha_t}\, \epsilon - \sqrt{1 - \bar\alpha_t}\, x_0$$）。三者线性相关，知道其一与 $$x_t$$ 就能算另外两个：$$x_0 = (x_t - \sqrt{1 - \bar\alpha_t}\, \epsilon) / \sqrt{\bar\alpha_t}$$。差别在数值行为：预测 $$\epsilon$$ 在 $$t \to T$$（几乎纯噪声）时容易——$$x_t \approx \epsilon$$——但在 $$t \to 0$$ 时从 $$\epsilon$$ 恢复 $$x_0$$ 要除以接近零的 $$\sqrt{1 - \bar\alpha_t}$$，误差放大；预测 $$x_0$$ 相反。$$v$$-prediction 在两端都稳定，是 SDXL 精炼模型、Imagen Video 等的选择，且在**零终端 SNR** 的调度下（第六章）是必需的——那时 $$t = T$$ 处 $$x_T$$ 完全是噪声，预测 $$\epsilon$$ 就是输出输入本身、网络学不到东西。
 
-
 ## 三、DDIM 与确定性采样
 
 ### 1. 非马尔可夫的前向过程
@@ -164,7 +161,6 @@ $$\sigma_t = \eta \sqrt{\tilde\beta_t}$$。$$\eta = 1$$ 回到 DDPM（随机）�
 ### 3. 确定性的意义
 
 $$\eta = 0$$ 的 DDIM 定义了一个从噪声到数据的**确定性映射**——它是一个 ODE 的离散化（第四章第四节）。确定性带来：可以对 $$x_T$$ 做插值得到语义上平滑的图像插值；可以把一张图**编码**回噪声（反向跑 ODE）再编辑；以及采样的步数可以用更好的 ODE 求解器（DPM-Solver、UniPC）进一步减少到 10–15 步。
-
 
 ## 四、score matching：分数的视角
 
@@ -224,7 +220,6 @@ $$
 
 至此三种视角汇合了两种：DDPM 的噪声预测 = 分数的负 $$\sigma$$ 倍；DDPM 的采样 = 反向 SDE 的离散化；DDIM = 概率流 ODE 的离散化。
 
-
 ## 五、flow matching：直线的视角
 
 ### 1. 从 ODE 直接出发
@@ -259,7 +254,6 @@ $$
 
 另一个实用的好处：直线路径下 $$t$$ 的语义直接——$$t = 0.5$$ 就是"一半数据一半噪声"——调度设计更直观（第六章）。
 
-
 ## 六、噪声调度与时间步采样
 
 ### 1. 调度决定"什么噪声水平被学得多"
@@ -278,7 +272,6 @@ flow matching 的 $$t \sim U[0, 1]$$ 让所有噪声水平等权。SD3 发现**�
 ### 3. 分辨率与调度的耦合
 
 同一个噪声水平在不同分辨率下的"破坏程度"不同：$$1024^2$$ 的图加 $$\sigma = 1$$ 的噪声，相邻像素平均后噪声被抵消一部分，图的低频结构仍清晰；$$256^2$$ 的图加同样的噪声几乎看不出内容。所以高分辨率需要**更多噪声**才能达到同样的破坏。SD3 的做法：把时间步按分辨率**平移**（shift），$$t_{new} = \frac{\alpha t}{1 + (\alpha - 1) t}$$，$$\alpha = \sqrt{m / n}$$（$$m$$、$$n$$ 是两个分辨率的 token 数），$$1024^2$$ 相比 $$256^2$$ 平移 $$\alpha = 3$$。FLUX 沿用（并在采样时也做动态平移）。Simple Diffusion（Hoogeboom 等 2023）更早提出了同样的调度缩放。这是从 $$256^2$$ 到 $$1024^2$$ 直接训练（不用超分级联）成为可能的原因之一。
-
 
 ## 七、classifier-free guidance
 
@@ -317,7 +310,6 @@ $$
 
 SD 1.x / 2.x：7.5；SDXL：5–7；SD3：3.5–7（rectified flow 下需要的 $$w$$ 更小）；FLUX.1-dev（蒸馏）：3.5；Imagen：动态阈值下可到 10+。$$w$$ 与模型、调度、是否蒸馏耦合，不可跨模型比较——与 L6 第一篇的温度同理。
 
-
 ## 八、成本
 
 ### 1. 训练
@@ -327,7 +319,6 @@ SD 1.x / 2.x：7.5；SDXL：5–7；SD3：3.5–7（rectified flow 下需要的 
 ### 2. 采样
 
 一张图 = 步数 × 每步前向（CFG 下 ×2）。SD 1.5：50 步 × 2 × 0.8 = 80 TFLOPs，A100 上约 2–3 秒；SDXL（2.6B U-Net，$$128^2$$ latent）：约 5 倍。与 LLM 对比：生成 1000 个 token 的 7B LLM 是 $$2 \times 7B \times 1000 = 14$$ TFLOPs 的算力但 memory-bound、约 20–30 秒；一张 SD 图是它的 5 倍 FLOPs 却只要 3 秒——扩散模型的每步是一次大 batch 的 GEMM（整张图的所有 patch 并行），**compute-bound、没有 KV cache、没有自回归的串行**。这是扩散模型服务与 LLM 服务形态不同的根源，下一篇展开。
-
 
 ## 九、动手（建议）
 
@@ -339,7 +330,6 @@ CIFAR-10（$$32^2$$）上从零训两个小模型（同一个 U-Net，约 35M �
 - 加一个条件版本（类别标签，条件 dropout 10%），扫 $$w \in \{1, 2, 4, 8\}$$，看 FID 与 Inception Score（或按类的多样性）的权衡；对 $$w = 8$$ 看像素值的分布是否溢出。
 
 该看的：DDIM 50 步是否接近 DDPM 1000 步；flow matching 10 步与 DDIM 10 步的 FID 差（预期 flow matching 更好——直线）；logit-normal 是否优于均匀；$$w$$ 增大时 FID 先降后升、多样性单调降。不引用任何未跑过的数字。
-
 
 ## 十、本文小结
 
@@ -358,14 +348,6 @@ CIFAR-10（$$32^2$$）上从零训两个小模型（同一个 U-Net，约 35M �
 | 调度 | cosine；零终端 SNR；logit-normal 采 $$t$$；分辨率平移 $$\alpha = \sqrt{m/n}$$ | 高分辨率需更多噪声 |
 | CFG | $$\tilde\epsilon = \epsilon_\emptyset + w(\epsilon_c - \epsilon_\emptyset)$$；采样 $$\propto p(x) p(c \mid x)^w$$ | 锐化 $$w$$ 次幂；过饱和 → 动态阈值 / rescale；区间 guidance；蒸馏去掉两倍成本 |
 | 成本 | 训练每样本一个 $$t$$；采样步数 × 2（CFG）× 前向；compute-bound、无 KV | SD 1.5 一张图 80 TFLOPs、3 秒 |
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-DDPM、score matching、flow matching 学的是同一个对象——每个噪声水平下带噪数据分布的分数 $$\nabla_x \log p_t(x)$$——的三种线性参数化：DDPM 的噪声 $$\epsilon = -\sigma s$$（Tweedie 公式），flow matching 的速度 $$v = \epsilon - x_0$$ 也由 $$x_t$$ 与 $$\epsilon$$ 线性决定；三种训练损失换元后只差一个与噪声水平有关的权重，全部是加权的 ELBO；三者的采样都是解同一个概率流 ODE（或反向 SDE），DDIM 是它的一种离散化，flow matching 的直线路径让 ODE 轨迹更直、Euler 法少步就够。CFG 的 $$w = 7.5$$ 意味着采样分布不是 $$p(x \mid c)$$ 而是 $$\propto p(x)\, p(c \mid x)^{7.5}$$——把"这张图有多符合文本"这一项升到 7.5 次幂，分布被锐化到最典型地符合文本的模式上：一致性与保真度上升、多样性下降、像素溢出导致过饱和，需要动态阈值或 rescale 修正，且每步要两次前向（除非蒸馏掉）。下一篇讲怎么把这套数学变成 SD 与 FLUX：latent 空间、DiT、文本编码器与采样加速。
-
-</details>
-
 
 ## 十一、自测
 
@@ -409,7 +391,9 @@ DDPM、score matching、flow matching 学的是同一个对象——每个噪声
 
    </details>
 
-
 ## 下一篇
 
 [Latent diffusion、DiT 与文生图配方](/latent-diffusion-dit-and-text-to-image-recipes.html)
+
+[^q0]: 三者学的是同一个对象——每个噪声水平下带噪数据分布的分数 $$\nabla_x \log p_t(x)$$——的三种线性参数化：DDPM 的噪声 $$\epsilon = -\sigma s$$（Tweedie 公式），flow matching 的速度 $$v = \epsilon - x_0$$ 也由 $$x_t$$ 与 $$\epsilon$$ 线性决定；三种训练损失换元后只差一个与噪声水平有关的权重，全部是加权的 ELBO；三者的采样都是解同一个概率流 ODE（或反向 SDE），DDIM 是它的一种离散化，flow matching 的直线路径让 ODE 轨迹更直、Euler 法少步就够。详见[第二](#二ddpm去噪扩散概率模型)至[五章](#五flow-matching直线的视角)。
+[^q1]: 采样分布不是 $$p(x \mid c)$$ 而是 $$\propto p(x)\, p(c \mid x)^{7.5}$$——把「这张图有多符合文本」这一项升到 7.5 次幂，分布被锐化到最典型地符合文本的模式上：一致性与保真度上升、多样性下降、像素溢出导致过饱和，需要动态阈值或 rescale 修正，且每步要两次前向（除非蒸馏掉）。详见[第七章](#七classifier-free-guidance)。

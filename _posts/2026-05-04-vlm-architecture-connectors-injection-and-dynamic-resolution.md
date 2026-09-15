@@ -14,8 +14,7 @@ updated: 2026-09-14
 
 本篇要回答的核心问题是：
 
-> **LLaVA 的一个 MLP 与 BLIP-2 的 Q-Former 相差什么？为什么 Qwen2-VL 要让 ViT 接受原生分辨率？**
-
+> **LLaVA 的一个 MLP 与 BLIP-2 的 Q-Former 相差什么？[^q0] 为什么 Qwen2-VL 要让 ViT 接受原生分辨率？[^q1]**
 
 ## 一、总览：三个决定、一张地图
 
@@ -85,7 +84,6 @@ Qwen2-VL 让 ViT 接受原生分辨率，是为了解决 tile 的三个问题：
 | 十 | 本文小结 | |
 | 十一 | 自测 | 5 道题 |
 
-
 ## 二、connector：从编码器空间到 LLM 空间
 
 ### 1. MLP projector
@@ -120,7 +118,6 @@ LLaVA-1.5 之后的实证（Cambrian-1 的系统对照、MM1 的消融）一致�
 
 MM1（McKinzie 等 2024）的消融：connector 的类型（MLP / 池化 / C-Abstractor）对最终效果的影响**远小于**分辨率与 token 数的影响。connector 只要不丢信息、不引入瓶颈就够了；真正决定效果的是进 LLM 的 token 承载了多少信息（分辨率）与 LLM 有多少 token 可以看（token 数）。这是本篇后半的主题。
 
-
 ## 三、注入方式
 
 ### 1. decoder 序列注入
@@ -141,7 +138,6 @@ Llama 3.2 Vision 是 2024 年唯一的主流 cross-attention 模型，它的选�
 
 一个中间形态值得知道：**序列注入 + 图片 token 不产生 loss、用双向 attention**。PaliGemma 让图片 token 之间用双向 attention（prefix 部分非因果），文本部分因果——图片内部的 patch 本来就没有先后顺序，双向让每个 patch token 看到全图。这不改变注入方式，只改 mask。
 
-
 ## 四、固定分辨率与 tile
 
 ### 1. 固定分辨率
@@ -159,7 +155,6 @@ LLaVA-NeXT（2024）：把图按预设的网格（$$1 \times 2$$、$$2 \times 2$
 AnyRes 的网格候选是超参数：LLaVA-NeXT 用 $$\{1 \times 1, 1 \times 2, 2 \times 1, 2 \times 2, 1 \times 3, 3 \times 1\}$$（≤ 4 tile）；InternVL 用 1 到 40 个 tile 的所有宽高比组合。选择规则：找与原图宽高比最近的网格，把图 resize 到该网格的总尺寸（可能有轻微拉伸）。token 预算随 tile 数线性增长，一张 $$4000 \times 3000$$ 的文档照片在 InternVL 里可能用掉 25 个 tile = 6400 token。
 
 tile 方案的优点是编码器**完全不变**（每个 tile 是标准的 $$336^2$$ 或 $$448^2$$ 输入，位置编码不需要插值），可以直接用任何现成的 CLIP / SigLIP。这是它在 2024 年流行的工程原因。
-
 
 ## 五、原生动态分辨率
 
@@ -188,7 +183,6 @@ ViT 的 attention 是 $$O(N^2 d)$$。$$N = 5120$$ 个 patch（$$1280 \times 4$$�
 
 SigLIP 2 的 NaFlex 变体让预训练的编码器本身支持原生宽高比与可变分辨率（训练时就用多种分辨率与宽高比，位置编码按实际网格插值）——让"原生动态"不再需要自己从头训 ViT。2025 年新发布的 VLM（Kimi-VL 的 MoonViT、InternVL 3 的部分配置）越来越多走原生动态路线；tile 方案因为工程简单仍广泛存在。
 
-
 ## 六、视频与多图
 
 ### 1. 视频：帧的采样与合并
@@ -208,7 +202,6 @@ Qwen2.5-VL 用**绝对时间**的 M-RoPE（时间维的位置 id 与真实秒数
 ### 3. 多图与交错
 
 decoder 序列注入下多图是自然的：每张图的 token 出现在它在文本里的位置，`<image>` 占位符被替换。挑战在**token 预算的分配**——十张图各 1000 token 就是 10K；InternVL、Qwen2-VL 对多图场景自动降低每张图的分辨率上限。交错图文（网页、论文、漫画）的训练数据（MMC4、OBELICS）让模型学会图与它附近文本的对应。
-
 
 ## 七、信息 vs token 的交换
 
@@ -231,7 +224,6 @@ decoder 序列注入下多图是自然的：每张图的 token 出现在它在�
 
 另一个看法：一个 LLM token 该对应多少像素？LLaVA-1.5：$$336^2 / 576 = 196$$ 像素/token（$$14 \times 14$$）；Qwen2-VL：$$28 \times 28 = 784$$；Gemma 3：$$896^2 / 256 = 3136$$（$$56 \times 56$$）。经验上 $$28 \times 28$$（一个汉字或两三个英文字母的大小）是文字任务的甜点；$$56 \times 56$$ 对自然图片够、对文字勉强；$$14 \times 14$$ 浪费——相邻 patch 的信息高度冗余，2×2 merge 几乎无损正是因此。
 
-
 ## 八、成本
 
 ### 1. 三个决定各改了什么
@@ -246,7 +238,6 @@ decoder 序列注入下多图是自然的：每张图的 token 出现在它在�
 
 VLM 训练的显存主要由 LLM 决定（与文本 SFT 相同），图片 token 增加序列长度——2880 token 的图 + 500 token 的文本 = 3.4K 的序列，激活内存是纯文本 SFT 的 6–7 倍。编码器是否解冻决定它的优化器状态是否存在（675M 参数 × 16 字节 = 10.8 GB）。数据加载是另一个瓶颈：图片解码与 resize 是 CPU 密集的（04-08 第八章），高分辨率下每个样本几十毫秒，需要足够的 dataloader worker 或预处理。
 
-
 ## 九、动手（建议）
 
 一张 24 GB 的卡，两组对照：
@@ -255,7 +246,6 @@ VLM 训练的显存主要由 LLM 决定（与文本 SFT 相同），图片 token
 - **connector 与 tile**：LLaVA-1.5-7B（固定 336）与 LLaVA-NeXT-7B（AnyRes）在同样的 DocVQA 子集上比；用 `lmms-eval` 统一协议。
 
 该看的：DocVQA 随 token 预算的曲线是否陡而 MMBench 是否平；token 数与 prefill 时间的线性关系；LLaVA-NeXT 相比 LLaVA-1.5 在 DocVQA 上的提升是否远大于在 MMBench 上的。再挑几张跨 tile 边界有文字行的图，比较 AnyRes 与原生动态的输出。不引用任何未跑过的数字。
-
 
 ## 十、本文小结
 
@@ -271,14 +261,6 @@ VLM 训练的显存主要由 LLM 决定（与文本 SFT 相同），图片 token
 | 原生动态 | 2D RoPE、$$N = HW/14^2$$、2×2 merge、M-RoPE、上下限 | token ∝ 像素；文档任务最好；ViT attention $$O(N^2)$$ → 窗口化 |
 | 视频 | 帧率 × 每帧 token；时间合并 ×2；绝对时间 M-RoPE | 1 分钟 2 fps 256/帧 = 30K |
 | 任务敏感性 | 自然图不敏感；文档 / 图表 / 文字极敏感；空间受益原生 | 设计看目标负载 |
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-LLaVA 的 MLP 对每个 patch 独立映射、不丢信息、保留空间结构、把"看哪里"交给 LLM 的 attention；BLIP-2 的 Q-Former 用 32 个与内容无关的 query 把整张图压成 32 个 token，装不下细节、丢了空间结构、且多了一个要单独训的模块——LLaVA-1.5 的实证让主流转向 MLP，2024 年的折中是 MLP + 2×2 merge，压缩 4 倍而无损。Qwen2-VL 让 ViT 接受原生分辨率，是因为 tile 方案切断跨块的物体与文字行、pad 与拉伸造成失真、小图也要占满一个 tile 的 token；原生分辨率让 token 数与像素数成正比、全图在一个 attention 里，用 2D RoPE 取代需要插值的绝对位置编码，代价是 ViT 的 $$O(N^2)$$ attention（Qwen2.5-VL 用窗口 attention 解决）与可变长度的 batch 工程。三个决定合起来是一次"信息 vs token"的交换，交换的合理位置取决于任务：自然图片对 token 数不敏感，文档与文字任务要每 $$28 \times 28$$ 像素一个 token。下一篇讲这个结构怎么训：阶段、数据、评测与幻觉。
-
-</details>
-
 
 ## 十一、自测
 
@@ -322,7 +304,9 @@ LLaVA 的 MLP 对每个 patch 独立映射、不丢信息、保留空间结构�
 
    </details>
 
-
 ## 下一篇
 
 [VLM 的训练：数据、阶段与评测](/vlm-training-recipe-data-stages-and-evaluation.html)
+
+[^q0]: LLaVA 的 MLP 对每个 patch 独立映射、不丢信息、保留空间结构、把「看哪里」交给 LLM 的 attention；BLIP-2 的 Q-Former 用 32 个与内容无关的 query 把整张图压成 32 个 token，装不下细节、丢了空间结构、且多了一个要单独训的模块——LLaVA-1.5 的实证让主流转向 MLP，2024 年的折中是 MLP + 2×2 merge，压缩 4 倍而无损。详见[第二章](#二connector从编码器空间到-llm-空间)、[第三章](#三注入方式)。
+[^q1]: 因为 tile 方案切断跨块的物体与文字行、pad 与拉伸造成失真、小图也要占满一个 tile 的 token；原生分辨率让 token 数与像素数成正比、全图在一个 attention 里，用 2D RoPE 取代需要插值的绝对位置编码，代价是 ViT 的 $$O(N^2)$$ attention（Qwen2.5-VL 用窗口 attention 解决）与可变长度的 batch 工程。三个决定合起来是一次「信息 vs token」的交换：自然图片对 token 数不敏感，文档与文字任务要每 $$28 \times 28$$ 像素一个 token。详见[第四章](#四固定分辨率与-tile)、[第五章](#五原生动态分辨率)、[第七章](#七信息-vs-token-的交换)。

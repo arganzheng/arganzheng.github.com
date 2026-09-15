@@ -14,8 +14,7 @@ updated: 2026-09-14
 
 本篇要回答的核心问题是：
 
-> **为什么在 latent 空间做？DiT 相比 U-Net 赢在哪？一张图的生成成本与一次 LLM 推理怎么比？**
-
+> **为什么在 latent 空间做？[^q0] DiT 相比 U-Net 赢在哪？[^q1] 一张图的生成成本与一次 LLM 推理怎么比？[^q2]**
 
 ## 一、总览：从数学到模型的三步
 
@@ -87,7 +86,6 @@ U-Net + cross-attn 或 DiT / MMDiT
 | 十一 | 本文小结 | |
 | 十二 | 自测 | 5 道题 |
 
-
 ## 二、Latent diffusion
 
 ### 1. 像素空间的代价
@@ -115,7 +113,6 @@ $$f = 8$$、$$c = 4$$：$$512^2 \times 3 = 786K$$ 个数 → $$64^2 \times 4 = 1
 ### 4. VAE 的瓶颈与另一条路
 
 VAE 决定了扩散模型能生成什么的**上限**——扩散只能生成 VAE 能解码的东西。VAE 的问题：（1）重建的细节缺失（上述）；（2）latent 空间的语义结构差——相邻的 latent 值可能解码出很不同的像素，让扩散模型的任务变难；（3）编码器与扩散模型分开训，latent 不是为扩散优化的。REPA（Yu 等 2024）发现让 DiT 的中间表示对齐一个预训练视觉编码器（DINOv2）的特征，训练快 17 倍——说明 latent 空间的语义结构对扩散的学习效率影响很大。2025 年的方向之一是让 VAE 的 latent 更"语义化"（VA-VAE 用视觉基础模型对齐 latent），或者干脆把 latent 换成视觉编码器的特征。
-
 
 ## 三、从 U-Net 到 DiT
 
@@ -153,7 +150,6 @@ SD3（Esser 等 2024）的 MMDiT 让文本与图像 token 在**同一个 self-at
 
 FLUX.1（Black Forest Labs 2024）在 MMDiT 双流块之后接了若干**单流块**（文本与图像 token 共享权重，用 parallel attention + MLP 的结构），12B 参数，是 2024 年开源文生图的最强模型。它还把位置编码换成 2D RoPE（与 Qwen2-VL 的 ViT 同理），支持任意分辨率与宽高比。
 
-
 ## 四、文本编码器
 
 ### 1. 三种选择
@@ -173,7 +169,6 @@ DALL-E 3 的技术报告（Betker 等 2023）几乎只讲了一件事：训练�
 
 recaption 的作用机制：扩散模型学的是 $$p(x \mid c)$$，如果 $$c$$ 与 $$x$$ 的关系弱（alt-text），模型学到的条件很弱、多样性很大但不可控；密集 caption 让 $$c$$ 几乎决定 $$x$$ 的每个方面，模型学到强条件。副作用：训练 caption 的风格（长、详细）与用户 prompt 的风格（短）不匹配——DALL-E 3 用 GPT-4 在推理时把用户 prompt **扩写**成训练风格的详细描述（"prompt upsampling"），这是它 prompt following 好的另一半原因。这与 [第三篇](/vlm-training-recipe-data-stages-and-evaluation.html) VLM 训练里 recaption 的作用完全对应。
 
-
 ## 五、配方细节
 
 ### 1. 多尺寸与多宽高比
@@ -191,7 +186,6 @@ LAION-5B 经过：CLIP 图文相似度阈值（去掉不匹配的）、美学分
 ### 4. 分辨率平移与两阶段
 
 上一篇第六章讲了时间步随分辨率的平移。实践中还有**两阶段分辨率**：先在 $$256^2$$ 预训练（便宜、学语义），再在 $$1024^2$$ 微调（学细节）；SD3 与 FLUX 都这样做。高分辨率阶段的数据量可以少一个量级。
-
 
 ## 六、采样加速
 
@@ -214,7 +208,6 @@ FLUX.1-schnell 是 FLUX.1 经过（未公开细节的）对抗蒸馏的 1–4 �
 ### 3. 蒸馏的代价
 
 蒸馏模型的质量上限是教师；1 步模型的多样性与细节通常低于教师的多步；蒸馏本身要几千到几万 GPU 小时（比预训练便宜一到两个量级）；蒸馏后的模型对 guidance scale 与负 prompt 的响应变了（guidance 已经烤进去了）。以及一个与 [L6](/efficient-inference-and-compression-for-llms.html) 平行的教训：**蒸馏的评测要用人类偏好或 GenEval 一类的组合评测，FID 不够**——FID 对 1 步模型的模式坍缩不敏感。
-
 
 ## 七、成本结构
 
@@ -252,7 +245,6 @@ FLUX.1-schnell 是 FLUX.1 经过（未公开细节的）对抗蒸馏的 1–4 �
 
 这是 Infra 地图的范畴，这里只说明：扩散模型的"推理优化"与 [L6](/efficient-inference-and-compression-for-llms.html) 讲的 LLM 推理优化几乎没有重叠——L6 的六篇里只有量化的部分适用。
 
-
 ## 八、视频生成
 
 ### 1. 时空 patch
@@ -280,7 +272,6 @@ Sora 的技术报告（OpenAI 2024）的核心表述："patch 是视频的 token
 
 HunyuanVideo 13B 生成 5 秒 720p：token 数约 $$(129/4) \times (720/16) \times (1280/16) \approx 32 \times 45 \times 80 = 115K$$ 个（patch 2 后），50 步，每步 $$2 \times 13B \times 115K \approx 3$$ PFLOPs 加 attention 的 $$O(N^2)$$ 项（$$115K^2 \times d$$ 量级，与线性项相当），总计约 300–400 PFLOPs——是 FLUX 一张图的 100 倍以上，H100 上几分钟到十几分钟（多卡序列并行）。视频生成是当前算力最密集的生成任务，也是步数蒸馏（CausVid、Self-Forcing 一类的自回归 + 蒸馏）最迫切的领域。
 
-
 ## 九、扩散的后训练
 
 ### 1. 与 LLM 后训练的对应
@@ -304,7 +295,6 @@ $$
 
 即"让模型相对参考模型在好图上的去噪误差降得比在差图上多"。它继承了 DPO 的全部性质（L5 第四篇），包括似然同降与过优化。
 
-
 ## 十、动手（建议）
 
 用 `diffusers`，一张 24 GB 卡：
@@ -315,7 +305,6 @@ $$
 - **成本**：记录 FLUX.1-dev 28 步与一个 7B LLM 生成 1000 token 的墙钟时间与（用 profiler 估的）FLOPs。
 
 该看的：$$w$$ 增大时一致性升、多样性降、$$w = 12$$ 出现过饱和；SD3 在 $$w = 4$$ 已好而 SD 1.5 需要 7.5；步数 20 与 50 的差别是否可见；蒸馏模型多样性是否更低；16ch VAE 的文字重建是否明显好；FLUX 的 FLOPs 是 LLM 的两个量级而时间相近。不引用任何未跑过的数字。
-
 
 ## 十一、本文小结
 
@@ -333,14 +322,6 @@ $$
 | 成本 | SD 1.5 80 T / 3 s；FLUX 2.8 P / 12 s；7B LLM 1000 token 14 T / 25 s | 扩散 compute-bound、无 KV、静态 batch |
 | 视频 | 3D VAE（4× 时间、8× 空间）+ 时空 patch + 全 3D attention；5 s 720p ≈ 100K token | HunyuanVideo 13B ≈ 300 P，FLUX 的 100× |
 | 后训练 | 美学微调；Diffusion-DPO（ELBO 替代似然）；奖励微调；可验证奖励 + GRPO | 与 L5 平行，含 reward hacking |
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-在 latent 空间做，是因为像素空间的扩散把大部分算力花在人眼不分辨的高频细节上，而 VAE 能用一次确定性的解码重建这些细节——扩散只需在 48 倍小的空间里学语义与结构，训练算力降一个量级；代价是 VAE 的瓶颈，SD3 用 16 通道放宽它。DiT 赢在 scaling：把 latent 切成 patch 用标准 Transformer 处理后，FID 随 GFLOPs 平滑下降、与参数怎么分配无关，工程师知道"加算力就变好"，而 U-Net 的多尺度结构没有这样的规律；MMDiT 进一步让文本 token 进入同一个 attention 与图像深度交互。一张 FLUX 图是 2.8 PFLOPs、一次 7B LLM 回答是 14 TFLOPs，相差 200 倍，时间却相近——因为扩散每步是 4096 个 token 的并行前向、compute-bound、MFU 高，LLM 每步是 1 个 token、memory-bound、MFU 1%；所以扩散没有 KV cache、不需要 continuous batching，它的加速手段是把 50 步蒸成 4 步。下一篇是两条线的交汇：把图像 token 化后用 LLM 的方式生成，以及理解与生成能不能用一个模型。
-
-</details>
-
 
 ## 十二、自测
 
@@ -384,7 +365,10 @@ $$
 
    </details>
 
-
 ## 下一篇
 
 [自回归图像生成与统一模型](/autoregressive-image-generation-and-unified-models.html)
+
+[^q0]: 因为像素空间的扩散把大部分算力花在人眼不分辨的高频细节上，而 VAE 能用一次确定性的解码重建这些细节——扩散只需在 48 倍小的空间里学语义与结构，训练算力降一个量级；代价是 VAE 的瓶颈，SD3 用 16 通道放宽它。详见[第二章](#二latent-diffusion)。
+[^q1]: 赢在 **scaling**：把 latent 切成 patch 用标准 Transformer 处理后，FID 随 GFLOPs 平滑下降、与参数怎么分配无关，工程师知道「加算力就变好」，而 U-Net 的多尺度结构没有这样的规律；MMDiT 进一步让文本 token 进入同一个 attention 与图像深度交互。详见[第三章](#三从-u-net-到-dit)。
+[^q2]: 一张 FLUX 图是 2.8 PFLOPs、一次 7B LLM 回答是 14 TFLOPs，相差 200 倍，时间却相近——因为扩散每步是 4096 个 token 的并行前向、compute-bound、MFU 高，LLM 每步是 1 个 token、memory-bound、MFU 1%；所以扩散没有 KV cache、不需要 continuous batching，它的加速手段是把 50 步蒸成 4 步。详见[第六章](#六采样加速)、[第七章](#七成本结构)。

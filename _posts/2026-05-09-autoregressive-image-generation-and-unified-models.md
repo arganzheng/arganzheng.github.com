@@ -14,8 +14,7 @@ updated: 2026-09-14
 
 本篇要回答的核心问题是：
 
-> **AR 生成图像与扩散各赢在哪？理解与生成的表示能不能共享？**
-
+> **AR 生成图像与扩散各赢在哪？[^q0] 理解与生成的表示能不能共享？[^q1]**
 
 ## 一、总览：三个问题、三条路线
 
@@ -86,7 +85,6 @@ VAR：next-scale，由粗到细 10 步`"]
 | 九 | 本文小结与系列总结 | 七篇的两条线；多模态的下一个形态 |
 | 十 | 自测 | 5 道题 |
 
-
 ## 二、图像 tokenizer
 
 ### 1. VQ-VAE
@@ -133,7 +131,6 @@ VQ-VAE 的重建模糊——MSE 损失对高频不敏感。VQGAN（Esser 等 202
 
 tokenizer 有两个客户：重建（解码器要从 token 还原图）与生成（AR 模型要预测 token）。两者要求相反：重建希望 token 携带尽可能多的低层细节（大码本、小 $$f$$）；生成希望 token **可预测**——语义化、冗余少、序列短。一个重建 PSNR 极高的 tokenizer 可能让 AR 模型学得很差（token 之间的统计规律太"像素化"）。这个张力是 2024–2025 年 tokenizer 研究的核心：**语义化 tokenizer**（VILA-U、TokenFlow、UniTok、以及 REPA 在扩散侧的对应）用预训练视觉编码器（CLIP / DINOv2）的特征蒸馏或对齐 VQ 的表示，让 token 既能重建又有语义——这也是统一模型（第六章）的关键部件。
 
-
 ## 三、栅格自回归
 
 ### 1. 从 DALL-E 到 LlamaGen
@@ -157,7 +154,6 @@ $$
 ### 4. scaling
 
 LlamaGen 与 VAR 都报告了 AR 图像生成的 scaling law——测试 loss（token 的交叉熵）随参数与算力幂律下降，且 FID 随之改善。这是 AR 路线的核心卖点：**LLM 的 scaling 经验直接可用**，而扩散模型的 scaling（DiT）虽然也存在，但训练效率与 LLM 生态的距离更远。
-
 
 ## 四、打破栅格：并行与多尺度
 
@@ -187,7 +183,6 @@ $$
 
 Li 等 2024（MAR，"Autoregressive Image Generation without Vector Quantization"）问：AR 一定要离散 token 吗？他们让 Transformer 在 VAE 的**连续** latent 上做 AR，每个位置的输出不是 softmax 分类而是一个小的**扩散头**（MLP，几十步去噪）建模该位置的连续分布——AR 决定顺序与条件，扩散建模每个 token 的分布。它绕开了 VQ 的一切问题（码本、信息损失），ImageNet FID 1.55。这是 AR 与扩散的第一种混合：AR 在 token 间、扩散在 token 内。
 
-
 ## 五、AR 与扩散：各赢在哪
 
 ### 1. 一张对照表
@@ -210,7 +205,6 @@ Li 等 2024（MAR，"Autoregressive Image Generation without Vector Quantization
 在 ImageNet 类别条件生成这个 benchmark 上，AR 路线（VAR、MAR）已经与扩散平手或领先。在**文生图**上扩散仍领先——一部分是投入差距（SD3 / FLUX 的数据与算力远超任何开源 AR 文生图模型），一部分是结构性的：扩散在连续空间里建模、没有 VQ 的信息瓶颈；CFG 在噪声空间的外推比在 logits 空间的更有效；高分辨率的 latent 扩散成熟。AR 的优势在**统一**与 **scaling 基础设施**——这两点在"一个模型做所有事"的目标下压倒了单项质量的差距，是 Chameleon / Emu3 / Janus 走 AR 的原因。
 
 2025 年出现的判断是：**图像生成的最优形式可能是混合的**——AR（或 LLM）负责理解、规划、文本与条件，扩散负责把连续的图像分布画出来（Transfusion、BAGEL 的路线，也可能是 GPT-4o 原生图像生成的路线）。
-
 
 ## 六、统一模型
 
@@ -248,7 +242,6 @@ MetaQuery（2025）走了一条更轻的路：冻结一个 VLM，用一组可学
 
 回到核心问题后半。证据：（1）纯 token 共享（Chameleon）让理解妥协；（2）解耦（Janus）两侧都好但没有共享的视觉空间；（3）混合（BAGEL）用共享的 attention + 分开的 FFN 得到了互相促进；（4）语义化 tokenizer（UniTok、TokenFlow）让一个离散 tokenizer 同时在理解与生成 benchmark 上接近专用方案，说明"一个表示两用"在 tokenizer 层面正在实现。答案是**部分共享**：共享上下文与 attention（让理解与生成互相看到），保留模态特化的表示与 FFN；tokenizer 层面正在从"两套"走向"一套语义化的"。这个问题的最终答案可能在更大规模上才显现——BAGEL 的涌现曲线暗示了这一点。
 
-
 ## 七、成本
 
 ### 1. AR 的 decode
@@ -271,7 +264,6 @@ $$1024^2$$ 图、$$f = 16$$：4096 个 token，栅格 AR 是 4096 步 decode，�
 
 Chameleon 34B：4.4T token；BAGEL：数万亿 token 的交错数据、14B MoT——都是 LLM 预训练量级的算力。统一模型的成本是"训一个 LLM"而不是"训一个文生图模型"，这也是它们只出现在大团队的原因。
 
-
 ## 八、动手（建议）
 
 一张 24 GB 的卡：
@@ -281,7 +273,6 @@ Chameleon 34B：4.4T token；BAGEL：数万亿 token 的交错数据、14B MoT�
 - **统一模型**：Janus-Pro-7B 或 BAGEL（需 24 GB + offload）：同一张图先问理解问题再要求编辑，看编辑是否保持了理解到的内容；与"Qwen2.5-VL 理解 + FLUX 重绘"的两模型流水线比。
 
 该看的：f8 的重建远好于 f16 但 token 4 倍；码本利用率是否远低于 100%（旧 VQ）而低维归一化 VQ / FSQ 接近 100%；LlamaGen 无 CFG 的 FID 是否是有 CFG 的数倍；VAR 是否比 LlamaGen 快 20 倍且 FID 更好；统一模型的编辑是否比流水线更忠实于原图。不引用任何未跑过的数字。
-
 
 ## 九、本文小结与系列总结
 
@@ -313,14 +304,6 @@ Chameleon 34B：4.4T token；BAGEL：数万亿 token 的交错数据、14B MoT�
 多模态的下一个形态大概率是**统一的、原生的**：多模态不再是 LLM 训好之后对齐上去的，而是从预训练第一天就在（Gemma 3、Kimi-VL、BAGEL、GPT-4o 已经这样做了）；理解与生成共享上下文；语音与视觉共享时间轴。那时这个系列的七篇会合并成一个问题——一个 Transformer 怎么用一套表示处理世界的所有信号——但每一篇讲的部件与账仍在那里。
 
 回到总纲：[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)。算法工程师地图的全部系列至此写完，回到地图：[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-AR 生成图像赢在与 LLM 完全共享结构、基础设施与 scaling 经验，以及"一切皆 token"带来的多模态统一——文本、图、视频在一个模型、一个 loss 里；扩散赢在质量（连续空间无 VQ 瓶颈、CFG 更有效、高分辨率成熟）、效率（20–50 步并行 vs 栅格 AR 的几千步串行——VAR 与 MaskGIT 用尺度与 mask 把 AR 拉回 10 步左右，但文生图上仍落后一档）与可控编辑的工具生态。理解与生成的表示目前**部分共享**：纯 VQ token 共享让理解妥协（Chameleon），完全解耦两侧都好但没有共享的视觉空间（Janus），共享 attention、分开 FFN 的混合结构（BAGEL）得到了互相促进与随规模涌现的编辑能力；tokenizer 层面正在从"理解一套、生成一套"走向一套语义化的表示。答案随规模在变，方向是收敛。
-
-</details>
-
 
 ## 十、自测
 
@@ -363,3 +346,6 @@ AR 生成图像赢在与 LLM 完全共享结构、基础设施与 scaling 经验
    纯 token（Chameleon、Emu3）：理解与生成共用 VQ token，最统一但理解受 VQ 损失限制；双编码器（Janus）：理解用连续 SigLIP 特征、生成用 VQ token，两侧不妥协但表示不共享；语义化 tokenizer（UniTok、TokenFlow）：让离散 token 同时携带语义与细节，试图一份表示两用。
 
    </details>
+
+[^q0]: AR 赢在与 LLM 完全共享结构、基础设施与 scaling 经验，以及「一切皆 token」带来的多模态统一——文本、图、视频在一个模型、一个 loss 里；扩散赢在质量（连续空间无 VQ 瓶颈、CFG 更有效、高分辨率成熟）、效率（20–50 步并行 vs 栅格 AR 的几千步串行——VAR 与 MaskGIT 用尺度与 mask 把 AR 拉回 10 步左右，但文生图上仍落后一档）与可控编辑的工具生态。详见[第三](#三栅格自回归)至[五章](#五ar-与扩散各赢在哪)。
+[^q1]: 目前**部分共享**：纯 VQ token 共享让理解妥协（Chameleon），完全解耦两侧都好但没有共享的视觉空间（Janus），共享 attention、分开 FFN 的混合结构（BAGEL）得到了互相促进与随规模涌现的编辑能力；tokenizer 层面正在从「理解一套、生成一套」走向一套语义化的表示。答案随规模在变，方向是收敛。详见[第二章](#二图像-tokenizer)、[第六章](#六统一模型)。

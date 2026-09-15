@@ -14,8 +14,7 @@ updated: 2026-09-14
 
 本篇要回答的核心问题是：
 
-> **一个 4-bit 量化模型比 16-bit 慢在哪、快在哪？为什么同样是 4 bit，有的模型几乎无损、有的崩掉？**
-
+> **一个 4-bit 量化模型比 16-bit 慢在哪、快在哪？[^q0] 为什么同样是 4 bit，有的模型几乎无损、有的崩掉？[^q1]**
 
 ## 一、总览：五种方法在最小化什么
 
@@ -53,7 +52,6 @@ updated: 2026-09-14
 | 十一 | 动手（建议） | RTN / GPTQ / AWQ 的对照 |
 | 十二 | 本文小结 | |
 | 十三 | 自测 | 5 道题 |
-
 
 ## 二、误差模型
 
@@ -105,7 +103,6 @@ $$
 
 训好的模型在极小点附近，一阶项约为零，剩下二阶项——loss 的 Hessian 决定哪些方向的扰动贵。整个模型的 Hessian 不可计算，所有方法都退到**逐层**的代理：让每层的输出尽量不变（第三节的 $$\lVert EX \rVert^2$$），这等价于假设 loss 对每层输出的 Hessian 是单位阵。这个代理在多数层上够用，在敏感层上不够——这是逐层 PTQ 的极限，也是 QAT（下一篇）存在的理由。
 
-
 ## 三、RTN 为什么到 4 bit 就不够
 
 ### 1. 权重的分布
@@ -130,7 +127,6 @@ $$g = 128$$ 是 GPTQ / AWQ 的默认：元数据开销 4%，误差已经比 per-
 ### 3. RTN 还剩什么用
 
 RTN 在 INT8 per-channel 下几乎无损、零成本，是 W8A16 与 FP8 的默认；在 INT4 per-group 下作为 baseline——任何方法都应该比它好，比它好多少是方法的价值。它也是 QAT 的起点（下一篇）。
-
 
 ## 四、GPTQ：补偿输出误差
 
@@ -176,7 +172,6 @@ $$H = 2XX^\top$$ 从校准数据估计。128 条 × 2048 token = 262K 个 token 
 - **过拟合**。GPTQ 是在校准集上最小化输出误差，校准集太小或太单一时会过拟合它——校准集上困惑度好，别处差。128 条是经验上的下限，256–512 更稳；多样性比数量重要。
 - **阻尼**。$$H$$ 可能接近奇异（某些通道方差极小），求逆不稳定；GPTQ 加 $$\lambda I$$ 阻尼（$$\lambda = 0.01 \times \text{mean}(\text{diag}(H))$$）。
 
-
 ## 五、AWQ：保护显著通道
 
 ### 1. 观察
@@ -200,7 +195,6 @@ $$
 两者优化同一个目标（层输出误差），路径不同：GPTQ 用二阶信息（$$H$$）对每个权重做补偿，是逐元素的精细调整；AWQ 用一阶信息（激活幅度）对每列做一个缩放，是粗粒度的、但对分布偏移更鲁棒（不会过拟合校准集——它只用了每通道一个统计量）。实证上两者的困惑度相近（AWQ 论文在 Llama 上略优，其他报告互有胜负）；AWQ 在**指令微调模型与多模态模型**上更稳定（GPTQ 的 Hessian 在对话数据上的估计噪声大）。
 
 两者可以组合：先 AWQ 缩放，再 GPTQ 量化缩放后的权重——`llm-compressor` 与 `auto-round` 一类工具支持。收益通常不大（0.02–0.05 困惑度），因为两者吸收的是同一部分误差。
-
 
 ## 六、激活量化与离群值
 
@@ -226,7 +220,6 @@ $$
 INT8 W8A8 在 SmoothQuant + per-token 动态下对多数模型接近无损（困惑度 +0.01–0.05），GEMM 在 INT8 Tensor Core 上算力翻倍。FP8（E4M3）更宽容：浮点的相对精度让它对离群值不敏感（1000 与 1 都能以 ~6% 的相对误差表示），不需要 SmoothQuant，per-tensor 静态 scale 通常就够——这是 FP8 成为 H100 上默认推理格式的原因（[04 系列第六篇](/floating-point-formats-and-mixed-precision.html)讲了格式本身）。FP8 的代价是 3 位尾数的相对精度（6.25%）对小值的**绝对**误差比 INT8 大——但 LLM 对相对误差更敏感，所以 FP8 胜出。
 
 对高吞吐负载（大 batch，compute-bound），W8A8 / FP8 是正确的选择：字节减半、算力翻倍、精度几乎无损。W4A16 在这里没有算力收益（GEMM 还是 BF16），只省字节，而字节在 compute-bound 区间不是瓶颈。
-
 
 ## 七、旋转：把离群值摊平
 
@@ -263,7 +256,6 @@ Hadamard 是一个固定的、"平均"的旋转；对特定模型可能有更好
 
 代价：（1）两处在线 Hadamard 的运行时开销（几个百分点）；（2）需要专门的 kernel 支持（在线 Hadamard 与 GEMM 的融合、INT4 GEMM）；（3）权重被旋转后不再是原来的权重——可解释性、与 LoRA adapter 的兼容性（adapter 也要旋转）都受影响。
 
-
 ## 八、格式
 
 ### 1. 整数与浮点的低比特格式
@@ -288,7 +280,6 @@ MXFP4 / NVFP4 的"块 + 块 scale"结构就是本文第三章的 per-group，只
 
 llama.cpp 的 GGUF 格式有自己的一族：Q4_0（简单 per-32 block）、Q4_K_M（super-block 256 = 8 × 32，block scale 与 min 各 6 bit，super-block 一个 FP16 scale；"M" 表示 attention 的 V 与 MLP 的 down 用更高的 Q6_K）、Q5_K、Q6_K、以及 IQ 系列（importance-aware，用类似 GPTQ 的重要性矩阵 + 非均匀码本）。它们是**格式与实现**，底层的算法是本文讲的 per-group RTN 加上部分 GPTQ 式的重要性加权。选 Q4_K_M 还是 Q5_K_M 是精度—字节的权衡：4.85 bit/权重 vs 5.7，困惑度差约 0.05–0.1。
 
-
 ## 九、校准与敏感层
 
 ### 1. 校准集
@@ -309,7 +300,6 @@ llama.cpp 的 GGUF 格式有自己的一族：Q4_0（简单 per-32 block）、Q4
 ### 3. 混合精度
 
 按敏感度给不同层不同的 bit（敏感层 8 bit 或 6 bit，其余 4 bit）。平均 bit 略增（4.3–4.5），精度显著改善。GGUF 的 "M" 后缀、`llm-compressor` 的 `ignore` 列表、SpQR 的"1% 敏感权重保持高精度"都是这个思路。它的局限是 kernel 复杂度（同一模型内多种格式的 GEMM）与"平均 bit"作为比较基准的模糊性。
-
 
 ## 十、成本
 
@@ -345,7 +335,6 @@ Llama-3.1-70B（70.6B 参数，其中 embedding + lm_head 2.1B）：
 
 0.52 字节/权重 = 4.156 bit / 8。这就是 4-bit 量化在部署上的意义：**70B 从两张卡变成一张卡**，且留出 KV 空间——单卡不需要张量并行的通信，端到端延迟再降一截。
 
-
 ## 十一、动手（建议）
 
 一张 24 GB 的卡上用 `llm-compressor`（或 `auto-gptq` / `autoawq`）对 Llama-3.1-8B-Instruct 做四组量化，vLLM 加载，`lm-eval` 评测：
@@ -358,7 +347,6 @@ Llama-3.1-70B（70.6B 参数，其中 embedding + lm_head 2.1B）：
 该看的：RTN 与 GPTQ / AWQ 的困惑度差；哪个 benchmark 先掉、掉多少（预期：长上下文与 GSM8K 比 MMLU 敏感）；g32 比 g128 多恢复多少；W4A16 在 batch 64 与 prefill 上是否比 BF16 慢；KL 与各 benchmark 退化的相关性。
 
 不引用任何未跑过的数字。
-
 
 ## 十二、本文小结
 
@@ -374,14 +362,6 @@ Llama-3.1-70B（70.6B 参数，其中 embedding + lm_head 2.1B）：
 | 格式 | INT4 / FP4 / NF4；MXFP4（32 块 E8M0）/ NVFP4（16 块 E4M3）；GGUF k-quants | 非均匀格点匹配高斯；微缩放 = 小 group |
 | 敏感层 | 首尾层、out_proj / down_proj、lm_head、MoE 路由 | 混合精度：敏感层 6–8 bit |
 | 成本 | 量化 1–4 小时；W4A16 的 dequant 在 compute-bound 区间变慢 | 70B：141 → 40 GB，两卡变一卡 |
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-4-bit 权重量化让 decode 快 2.5–3.5 倍（权重字节 ÷ 4，memory-bound），让 70B 从两张卡变成一张；但它在 prefill 与大 batch 上**更慢**——GEMM 仍是 BF16，dequant 是额外算力——高吞吐负载要用 W8A8 / FP8（字节 ÷ 2、算力 × 2、接近无损）或 W4A4（需要旋转与低比特 Tensor Core）。同样是 4 bit 有的崩掉，是因为量化误差 $$\Delta^2/12$$ 由 group 内的最大值决定，而 LLM 的权重有重尾、激活有固定通道的离群值：一个 $$15\sigma$$ 的权重让 group 内其他权重的误差与自身同量级；激活大的通道上同样的权重误差被放大几十倍。GPTQ 用 $$H^{-1}$$ 把误差补偿到相关的通道上，AWQ 放大显著通道的权重，两者把 W4A16 的困惑度损失压到 0.1–0.3；激活的离群值要靠 SmoothQuant 迁移、per-token 动态、或 Hadamard 旋转摊平——旋转让 W4A4 从崩掉变成可用。过训练的模型（Llama 3）比前代更难量化，因为每个权重的低位也被塞进了信息；对这些模型，下一篇的 QAT 是出路。
-
-</details>
-
 
 ## 十三、自测
 
@@ -425,7 +405,9 @@ Llama-3.1-70B（70.6B 参数，其中 embedding + lm_head 2.1B）：
 
    </details>
 
-
 ## 下一篇
 
 [量化感知训练、低比特与量化模型的评测](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html)
+
+[^q0]: **快在 decode**：权重字节 ÷ 4，memory-bound 的 decode 快 2.5–3.5 倍，70B 从两张卡变成一张。**慢在 prefill 与大 batch**：GEMM 仍是 BF16，dequant 是额外算力——高吞吐负载要用 W8A8 / FP8（字节 ÷ 2、算力 × 2、接近无损）或 W4A4（需要旋转与低比特 Tensor Core）。详见[第八章](#八格式)、[第十章](#十成本)。
+[^q1]: 量化误差 $$\Delta^2/12$$ 由 group 内的最大值决定，而 LLM 的权重有重尾、激活有固定通道的离群值：一个 $$15\sigma$$ 的权重让 group 内其他权重的误差与自身同量级；激活大的通道上同样的权重误差被放大几十倍。GPTQ 用 $$H^{-1}$$ 把误差补偿到相关的通道上，AWQ 放大显著通道的权重，两者把 W4A16 的困惑度损失压到 0.1–0.3；激活的离群值要靠 SmoothQuant 迁移、per-token 动态、或 Hadamard 旋转摊平——旋转让 W4A4 从崩掉变成可用。过训练的模型（Llama 3）比前代更难量化，因为每个权重的低位也被塞进了信息；对这些模型，下一篇的 QAT 是出路。详见[第二](#二误差模型)至[七章](#七旋转把离群值摊平)。
