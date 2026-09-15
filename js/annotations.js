@@ -285,8 +285,9 @@
   function sectionForOffsets(o) {
     var segs = segmentsFor(o.start, o.end);
     if (!segs.length) return '';
-    var node = segs[0].node, heads = container.querySelectorAll('h2, h3'), best = null;
+    var node = segs[0].node, owner = node.parentElement && node.parentElement.closest('h2, h3'), heads = container.querySelectorAll('h2, h3'), best = owner || null;
     for (var i = 0; i < heads.length; i++) {
+      if (heads[i] === owner) break;
       if (heads[i].compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) best = heads[i]; else break;
     }
     return best ? headingText(best).slice(0, SECTION_MAX) : '';
@@ -327,7 +328,15 @@
     if (hits.length) {
       var best = hits[0], bestScore = -1;
       for (var i = 0; i < hits.length; i++) {
-        var sc = contextScore(text, hits[i], hits[i] + exact.length, sel);
+        var hitEnd = hits[i] + exact.length;
+        var sc = contextScore(text, hits[i], hitEnd, sel);
+        var hitSegs = segmentsFor(hits[i], hitEnd);
+        var hitHeading = hitSegs.length && hitSegs[0].node.parentElement && hitSegs[0].node.parentElement.closest('h2, h3, h4, h5, h6');
+        // Older links only carried the hash, so short repeated quotes lost
+        // their prefix/suffix context. Prefer the heading occurrence for such
+        // legacy comments; new links persist the context in :~:text below.
+        if (!sel.prefix && !sel.suffix && hitHeading) sc += 100;
+        if (sel.section && hitHeading && headingText(hitHeading) === sel.section) sc += 100;
         if (sc > bestScore) { bestScore = sc; best = hits[i]; }
       }
       return { start: best, end: best + exact.length, fuzzy: false };
@@ -1647,7 +1656,7 @@
 
   // Escape only what URL / Markdown-link syntax needs; CJK stays readable.
   function encodeFragmentPart(s) {
-    return s.replace(/[\s%&#()"'<>\[\]\\^`{}|]/g, function (c) {
+    return s.replace(/[\s%,&#()"'<>\[\]\\^`{}|]/g, function (c) {
       return '%' + ('0' + c.charCodeAt(0).toString(16).toUpperCase()).slice(-2);
     });
   }
@@ -1659,7 +1668,14 @@
     return ('0000000' + h.toString(16)).slice(-8);
   }
 
-  function threadLink(sel) { return cfg.siteUrl + cfg.path + '#annot-' + annotHash(sel.exact); }
+  function textFragment(sel) {
+    var parts = [];
+    if (sel.prefix) parts.push(encodeFragmentPart(sel.prefix) + '-');
+    parts.push(encodeFragmentPart(sel.exact));
+    if (sel.suffix) parts.push('-' + encodeFragmentPart(sel.suffix));
+    return ':~:text=' + parts.join(',');
+  }
+  function threadLink(sel) { return cfg.siteUrl + cfg.path + '#annot-' + annotHash(sel.exact) + textFragment(sel); }
   function shareLink(sel) { return cfg.siteUrl + cfg.path + '#hl=' + encodeFragmentPart(sel.exact); }
 
   function escapeMarkdown(s) {
