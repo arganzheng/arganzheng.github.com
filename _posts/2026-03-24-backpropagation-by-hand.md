@@ -12,8 +12,7 @@ updated: 2026-09-14
 
 本篇用一个两层 MLP（Linear → ReLU → Linear → softmax → 交叉熵）把这三件事推到底。选它是因为它足够小——每一步的形状能写在一行里——又足够完整：Transformer 里除了 attention 之外的每个部件（Linear、激活函数、norm、loss）的反向都是同一套规则。全篇的核心问题是：
 
-> **不用框架，能不能手推并手写一个两层网络的反向传播，用有限差分验证到 $$10^{-6}$$ 以内？能不能由此说出为什么训练 FLOPs 是 $$6ND$$、为什么激活要存？**
-
+> **不用框架，能不能手推并手写一个两层网络的反向传播，用有限差分验证到 $$10^{-6}$$ 以内？[^q0] 能不能由此说出为什么训练 FLOPs 是 $$6ND$$、为什么激活要存？[^q1]**
 
 ## 一、总览：从链式法则到三条结论
 
@@ -41,7 +40,6 @@ $$m$$ 是 batch 大小。参数是 $$W_1 \in \mathbb{R}^{784 \times 256}, b_1 \i
 | 九 | 实验 | 120 行 NumPy：梯度检查 1e-7、FLOPs 比 2.00、与 PyTorch 对齐、MNIST 97% |
 | 十 | 本文小结 |  |
 | 十一 | 自测 | 5 道题 |
-
 
 ## 二、链式法则与计算图
 
@@ -78,7 +76,6 @@ $$
 上面的公式里 Jacobian 只以"乘一个向量"的形式出现：$$J^T v$$，叫 **vector-Jacobian product（VJP）**。反向传播每一步算的是 VJP，从不把 $$J$$ 本身写出来。原因是尺寸：本文第一层 Linear 在 batch 128 下，输入 $$X \in \mathbb{R}^{128 \times 784}$$、输出 $$H \in \mathbb{R}^{128 \times 256}$$，把它们拉直后 Jacobian 是 $$(128 \times 256) \times (128 \times 784) = 32768 \times 100352$$，约 $$3.3 \times 10^9$$ 个元素，fp32 下 **13 GB**——一个 20 万参数的小网络的一层。而 VJP $$J^T v$$ 的结果只有 $$X$$ 那么大（100352 个数，392 KiB），并且对 Linear 这类结构化的层，它可以直接写成一个矩阵乘法，下一章推。
 
 所以"反向传播"这个词精确的含义是：**按计算图的反向拓扑序，对每个算子算一次 VJP**。每个算子的 VJP 有自己的闭式公式，框架里每个 `Function` 的 `backward` 就是那条公式。
-
 
 ## 三、矩阵求导的形状规则
 
@@ -122,7 +119,6 @@ $$
 
 这里 softmax 与交叉熵**合在一起**求导，中间不经过 $$\partial L / \partial P$$。分开算在数学上等价，但数值上更差（$$1/p$$ 在 $$p \to 0$$ 时溢出），计算上也多一步。框架里 `F.cross_entropy` 是一个融合算子，正是为此。
 
-
 ## 四、两层网络逐层推导
 
 把三章的规则串起来。前向五步、反向五步，每一步标出形状（$$m = 128$$）：
@@ -156,7 +152,6 @@ $$
 
 $$\partial L / \partial X = G_H W_1^T$$ 在数学上存在，但 $$X$$ 是数据不是参数，不需要它的梯度，框架会跳过这一步。任何深度的 MLP 都是把反向 3–5 重复若干次；Transformer 的 FFN 子层就是一个两层 MLP，attention 子层多几个矩阵乘和一个 softmax，规则不变。
 
-
 ## 五、反向为什么是前向的两倍
 
 ### 1. 每个 Linear 反向做两个 GEMM
@@ -178,7 +173,6 @@ $$\partial L / \partial X = G_H W_1^T$$ 在数学上存在，但 $$X$$ 是数据
 对一个参数量为 $$N$$ 的网络，前向每个 token 约 $$2N$$ FLOPs（每个参数参与一次乘加——L0 数学系列第一篇），反向 $$4N$$，一步训练合计 $$6N$$ FLOPs / token。训练 $$D$$ 个 token 就是 $$6ND$$——scaling law 论文与 [04 系列第二篇](/transformer-flops-bytes-and-roofline.html)用的这个数字，来源就是本章的"反向做两个 GEMM"。Llama-3-8B 训 15T token：$$6 \times 8 \times 10^9 \times 15 \times 10^{12} = 7.2 \times 10^{23}$$ FLOPs。
 
 两点补充。第一，$$2N$$ 忽略了 attention 里 $$QK^T$$ 与 $$PV$$ 这两个与参数无关、与序列长度成正比的项，短序列下可忽略，长序列下不能（04 系列第二篇算了）。第二，如果用了激活重算（下一章），反向前要再做一次前向，总量变成 $$8N$$ / token——训练报告里"MFU 按 $$6ND$$ 算、HFU 按 $$8ND$$ 算"的区别就在这里。
-
 
 ## 六、激活为什么要存
 
@@ -203,7 +197,6 @@ batch 换成 4096，激活变成 17.3 MiB，权重不变。序列模型里 $$m$$
 
 FlashAttention 做的是同一件事的算子级版本：不保存 $$[\text{seq}, \text{seq}]$$ 的 attention 矩阵，反向时分块重算——04 系列第三篇讲它的 IO 复杂度。
 
-
 ## 七、梯度检查
 
 ### 1. 有限差分
@@ -226,7 +219,6 @@ $$\epsilon$$ 有两头约束：太大截断误差大，太小舍入误差大—�
 
 梯度对了，训练前还有两个几乎免费的检查。**初始 loss 应接近 $$\ln C$$**：10 类是 $$\ln 10 = 2.30$$，本文实验初始 2.46（Kaiming 初始化让 logits 方差略大于 1，比均匀分布稍差，正常）；远大于它说明初始化太大，远小于它说明数据泄漏或 loss 算错。LLM 上对应 $$\ln V \approx 11.8$$（L0 数学系列第五篇）。**能过拟合一个小 batch**：拿 16 个样本反复训，loss 应能降到接近 0；降不下去说明梯度没传到某处，或学习率不对。这两个检查在框架里同样适用。
 
-
 ## 八、Autograd 做了什么
 
 本文手写的东西，框架用四个机制自动化了：
@@ -241,7 +233,6 @@ $$\epsilon$$ 有两头约束：太大截断误差大，太小舍入误差大—�
 `torch.no_grad()` 关掉录带（推理与评测时省激活显存）；`.detach()` 把一个张量从图上摘下来（RL 里对 old logprobs 常用）；`torch.utils.checkpoint` 就是第六章的激活重算。第九章的实验把手写梯度与 PyTorch autograd 的结果对了一遍，差在 $$10^{-8}$$ 量级——两边算的是同一组公式，差异只是浮点求和顺序。
 
 Autograd 引擎的实现——图怎么存、多线程怎么调度、hook 在哪里——属于 Infra 地图 [03 系列第三篇](/pytorch-autograd-and-dynamic-computation-graph.html)。算法工程师到这一层就够：知道它记了什么、存了什么、什么时候释放。
-
 
 ## 九、实验
 
@@ -309,7 +300,6 @@ epoch 15  train loss 0.0585  test acc 97.61%
 - 加一层，看 FLOPs 比值仍是 2、激活线性增长；
 - 把梯度检查改在 float32 上做，观察相对误差跳到 $$10^{-2}$$ 量级——第七章的论证。
 
-
 ## 十、本文小结
 
 - 反向传播 = 按计算图反向拓扑序对每个算子算一次 **VJP** $$J^T v$$；从不构造 Jacobian（本文第一层的 Jacobian 有 13 GB）。
@@ -321,14 +311,6 @@ epoch 15  train loss 0.0585  test acc 97.61%
 - 下一篇把这个网络加深到 64 层，看梯度在层间传播时会发生什么。
 
 配套代码：[`deep-learning-foundations/01_backprop.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/01_backprop.py)——本文的全部数字由它跑出（梯度检查、FLOPs、与 autograd 对齐、15 个 epoch 的训练），`--quick` 一分钟内跑完；第九章的三个扩展可以直接在上面改。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**能手推、能手写、能验证**：反向传播是沿计算图反向拓扑序对每个算子做一次 VJP（上游梯度 × 局部 Jacobian），Linear 的三条公式 $$\partial L/\partial W = X^T G$$、$$\partial L/\partial X = G W^T$$、$$\partial L/\partial b = \sum_i G_{i,:}$$ 可以从"梯度与被求导量同形"唯一重建，softmax + 交叉熵合并求导是 $$(P - Y)/m$$（第三、四章）；用 float64 的中心差分做梯度检查，相对误差 $$< 10^{-6}$$ 通过，本文实测与 autograd 差 $$10^{-8}$$（第七、八章）。**$$6ND$$**：前向每个参数用一次乘加（$$2N$$ / token），反向每个 Linear 做两个 GEMM——一个算 $$\partial L/\partial W$$、一个算 $$\partial L/\partial X$$——所以是前向的两倍（$$4N$$），合计 $$6N$$ / token，实测比值 2.00（第五章）。**激活为什么要存**：$$\partial L/\partial W = X^T G$$ 需要本层的输入 $$X$$，它是前向的中间结果，不存就得重算——这就是 gradient checkpointing 用 33% 额外计算换掉的东西（第六章）。
-
-</details>
-
 
 ## 十一、自测
 
@@ -372,7 +354,9 @@ epoch 15  train loss 0.0585  test acc 97.61%
 
    </details>
 
-
 ## 下一篇
 
 [训练为什么不稳定：初始化、归一化与残差](/initialization-normalization-and-residual.html)
+
+[^q0]: 能。反向传播是沿计算图反向拓扑序对每个算子做一次 VJP（上游梯度 × 局部 Jacobian）；Linear 的三条公式 $$\partial L/\partial W = X^T G$$、$$\partial L/\partial X = G W^T$$、$$\partial L/\partial b = \sum_i G_{i,:}$$ 可以从「梯度与被求导量同形」唯一重建，softmax + 交叉熵合并求导是 $$(P - Y)/m$$（[第三章](#三矩阵求导的形状规则)、[第四章](#四两层网络逐层推导)）。用 float64 的中心差分做梯度检查，相对误差 $$< 10^{-6}$$ 通过，本文实测与 autograd 差 $$10^{-8}$$（[第七章](#七梯度检查)、[第八章](#八autograd-做了什么)）。
+[^q1]: **$$6ND$$**：前向每个参数用一次乘加（$$2N$$ / token），反向每个 Linear 做两个 GEMM——一个算 $$\partial L/\partial W$$、一个算 $$\partial L/\partial X$$——所以是前向的两倍（$$4N$$），合计 $$6N$$ / token，实测比值 2.00（[第五章](#五反向为什么是前向的两倍)）。**激活要存**：$$\partial L/\partial W = X^T G$$ 需要本层的输入 $$X$$，它是前向的中间结果，不存就得重算——这就是 gradient checkpointing 用 33% 额外计算换掉的东西（[第六章](#六激活为什么要存)）。

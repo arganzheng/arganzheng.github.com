@@ -14,8 +14,7 @@ updated: 2026-09-14
 
 本篇要回答的核心问题是：
 
-> **Llama 3 把词表从 Llama 2 的 32K 扩到 128K，参数多了 0.79B、每个 token 贵了 5.6%，为什么反而是省钱的？同一句中文在 Llama 3 和 DeepSeek-V3 的 tokenizer 下相差 2.1 倍的 token 数——这个差距在成本表上是什么？**
-
+> **Llama 3 把词表从 Llama 2 的 32K 扩到 128K，参数多了 0.79B、每个 token 贵了 5.6%，为什么反而是省钱的？[^q0] 同一句中文在 Llama 3 和 DeepSeek-V3 的 tokenizer 下相差 2.1 倍的 token 数——这个差距在成本表上是什么？[^q1]**
 
 ## 一、总览：成本表里最后一个外生变量
 
@@ -66,7 +65,6 @@ Llama 3 自己的 tokenizer 需要授权下载，本文用 cl100k_base 近似它
 | 七 | 实践 | 从零实现 BPE、真实 tokenizer 对比、`llm_cost.py` 第九版 |
 | 八 | 本文小结 | |
 | 九 | 自测 | 5 道题 |
-
 
 ## 二、从词到子词：为什么是 BPE
 
@@ -203,7 +201,6 @@ flowchart TB
 
 黄色两段决定压缩率与词表内容；第一段决定"同一个字符串的不同 Unicode 写法算不算一个 token"（全角 `Ａ` 与半角 `A`、组合重音与预组合字符），第四段决定第五章的特殊 token 与后训练的 chat template 怎么进入序列。`tokenizer.json` 里就是这四个键。
 
-
 ## 三、词表大小的账
 
 ### 1. 参数：2Vd，tied 与 untied
@@ -286,7 +283,6 @@ $$
 ### 6. 采样：每步对 V 个 logits 做 softmax 与排序
 
 推理侧还有一项与 $$V$$ 成正比、常被忽略的成本：**采样**。每一步 decode，每条序列要对 $$V$$ 个 logits 做温度缩放、softmax、top-k 或 top-p 截断再采样。top-p 需要排序（或至少部分排序），$$O(V \log V)$$；128K 个 FP32 的排序在 GPU 上是微秒级，但 batch 256 就是 256 次，加上 repetition penalty、logit bias、grammar 约束（结构化输出要对 $$V$$ 个 token 逐个判断是否合法）等每个 token 的处理，采样器在高并发下可以占到 decode 步时间的 5–10%。vLLM 把采样器写成一个独立的融合 kernel，SGLang 的约束解码把语法状态编译成对词表的位掩码——都是为了把这一步压到与 $$V$$ 无关的量级。这是词表大小在推理路径上除 lm_head 之外的第二个落点。
-
 
 ## 四、token 效率的账
 
@@ -397,7 +393,6 @@ GPT-2 的切法对算术是灾难：`1000` 和 `1001` 可能被切成完全不�
 
 同一个"128K"对中文用户可能只有英文用户的五分之一到三分之一。RAG 系统的 chunk 预算、长文档摘要的分段策略、agent 的上下文管理，如果按"一个 token 约等于 0.75 个英文词"的经验规则设计，在非英文流量上会系统性地超预算。
 
-
 ## 五、tokenizer 与模型行为
 
 ### 1. 词表是训练语料的化石
@@ -432,7 +427,6 @@ BPE 是贪心的，一段文字的切法依赖它后面跟着什么。`http://` 
 
 特殊 token 与普通 token 的另一个区别是**它们不能从文本里切出来**：用户输入里若出现字面的 `<|eot_id|>` 字符串，tokenizer 默认把它当普通文本切成几个碎片，而不是那一个控制 id——否则用户就能在输入里伪造"助手回合结束"。这个开关在 HF 里叫 `split_special_tokens`，在推理服务器里对应"是否信任输入中的特殊 token"；把它设错是一类真实的注入漏洞。后训练系列的第一篇会回到特殊 token 与模板的细节。
 
-
 ## 六、换词表：扩展、裁剪、移植与不用 tokenizer
 
 ### 1. 扩词表继续预训练
@@ -460,7 +454,6 @@ BPE 是贪心的，一段文字的切法依赖它后面跟着什么。`http://` 
 之后的字节级工作都在解决"怎么把序列压回去"。MegaByte（Yu 等 2023）把字节按固定长度分块，一个大模型处理块级表示、一个小模型在块内逐字节生成。**Byte Latent Transformer**（Pagnoni 等 2024，Meta）把固定分块换成**动态分块**：用一个小的字节级语言模型算每个位置的下一字节熵，熵高的地方（新词开头、不可预测处）切一个 patch 边界，熵低的地方（词的后半、常见搭配）延长 patch——平均 patch 长度可以调到 6–8 个字节，比 BPE 的 4–5 字符/token 还长。主模型在 patch 上运行，参数量与 FLOPs 都不再与词表挂钩（没有 $$2Vd$$），局部编解码器负责字节与 patch 的转换。论文报告在同等训练 FLOPs 下能追平 Llama 3 的 BPE 模型，并且在噪声输入、字符级任务与低资源语言上更好。
 
 它还没有成为主流，原因是工程栈：推理框架、KV cache、投机解码、结构化输出全部围绕"token"设计，patch 长度可变让 batch 调度复杂；而 BPE 的问题虽多，都已经有了补丁。但它指出了一个方向：**tokenizer 本质上是一个不学习的、固定的压缩器**，用学习的压缩器替代它是自然的一步。第二篇讨论 scaling law 时会看到，"每 FLOP 学到多少"的比较里 tokenizer 是一个被固定住的变量，而它未必应该被固定。
-
 
 ## 七、实践：三个脚本
 
@@ -514,7 +507,6 @@ def per_char_cost(cfg, chars_per_token):   # FLOPs/字符、KV/字符
 
 输出第三章的两张表和第四章的每字符成本。`per_char_cost` 是这一版最重要的一个函数：它把成本表的单位从 token 换成字符，让不同 tokenizer 的模型可以直接比价。`ModelConfig` 新增了 `tie_embeddings` 字段，`param_count` 据此决定词表项是 $$Vd$$ 还是 $$2Vd$$。
 
-
 ## 八、本文小结
 
 tokenizer 决定成本表的两端：
@@ -538,14 +530,6 @@ tokenizer 决定成本表的两端：
 - 换 tokenizer 是少数对全部三个成本项同时有效、且零运行时开销的优化——代价是要从头预训练，或者付一段继续预训练的钱去扩词表。
 
 配套代码：[`transformer-and-llm/bpe_from_scratch.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/bpe_from_scratch.py)（从零实现、词表扫描）、[`tokenizer_compare.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/tokenizer_compare.py)（五个真实 tokenizer 的对比，需 `tiktoken` 与 `tokenizers`）、[`llm_cost_09_vocab.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_09_vocab.py)（词表的账）；运行输出在 `expected/`。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**为什么扩词表反而省钱**：词表从 32K 到 128K，embedding + lm_head 多 $$2 \times 96\text{K} \times 4096 = 0.79$$B 参数、lm_head 的 FLOPs 让每 token 贵 5.6%；但更大的词表让同一段文本切成更少的 token——英文压缩率从 3.17 字符/token 到 3.94，每字符成本 3.81 GFLOPs 比 32K 词表低 15%、KV 低 20%，训练同样多字符的数据、推理同样长的回答都更便宜（第三、四章）。成本要按字符算而不是按 token 算。**2.1 倍是什么**：同一句中文在两个 tokenizer 下 token 数差 2.1 倍，意味着 KV cache、prefill FLOPs、decode 步数、API 计费全部差 2.1 倍，上下文窗口"能装多少字"也差 2.1 倍——tokenizer 是成本表里最后一个外生变量，且跨 tokenizer 比 loss 必须换算成 bits/byte 才可比（第四章）。
-
-</details>
-
 
 ## 九、自测
 
@@ -589,7 +573,9 @@ tokenizer 决定成本表的两端：
 
    </details>
 
-
 ## 下一篇
 
 [Scaling law：从 Chinchilla 到"过训练"，算力怎么分给参数与数据](/scaling-laws-and-compute-optimal-training.html)
+
+[^q0]: 因为成本要按字符算而不是按 token 算。词表从 32K 到 128K，embedding + lm_head 多 $$2 \times 96\text{K} \times 4096 = 0.79$$B 参数、lm_head 的 FLOPs 让每 token 贵 5.6%；但更大的词表让同一段文本切成更少的 token——英文压缩率从 3.17 字符/token 到 3.94，每字符成本 3.81 GFLOPs 比 32K 词表低 15%、KV 低 20%，训练同样多字符的数据、推理同样长的回答都更便宜。详见[第三章](#三词表大小的账)、[第四章](#四token-效率的账)。
+[^q1]: 意味着 KV cache、prefill FLOPs、decode 步数、API 计费全部差 2.1 倍，上下文窗口「能装多少字」也差 2.1 倍——tokenizer 是成本表里最后一个外生变量；且跨 tokenizer 比 loss 必须换算成 bits/byte 才可比。详见[第四章](#四token-效率的账)。

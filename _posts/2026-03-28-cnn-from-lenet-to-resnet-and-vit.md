@@ -12,8 +12,7 @@ updated: 2026-09-14
 
 卷积网络的故事可以压缩成三句话：**卷积是一个被强约束的线性层**，约束带来的参数节省与归纳偏置让它在数据不多时远胜 MLP；**深度是为了感受野**，而深了就训不动，ResNet 用残差解决了它；**数据足够多时约束成了负担**，ViT 把图切成 patch、当成 token 送进标准 Transformer，只保留了卷积的一个影子——patch embedding 本身就是一个 stride 等于 kernel 的卷积。三句话各对应本篇的一个实验。全篇的核心问题是：
 
-> **一个 3×3 卷积核相当于多大的全连接矩阵？ResNet 的残差与 Transformer 的残差是同一个东西吗？ViT 为什么可以不用卷积？**
-
+> **一个 3×3 卷积核相当于多大的全连接矩阵？[^q0] ResNet 的残差与 Transformer 的残差是同一个东西吗？[^q1] ViT 为什么可以不用卷积？[^q2]**
 
 ## 一、总览：三个阶段
 
@@ -37,7 +36,6 @@ updated: 2026-09-14
 | 七 | 实验 | 代码与结果 |
 | 八 | 本文小结 |  |
 | 九 | 自测 | 5 道题 |
-
 
 ## 二、卷积作为带约束的线性层
 
@@ -78,7 +76,6 @@ row 0 of M (reshaped 6x6):          ← 输出位置 (0,0) 对输入的权重
 
 上一篇第五章说显式正则化是"把模型拉向某种简单解的先验"。卷积的两条约束是最强的一种：不是拉向、而是**只允许**满足局部性与平移等变性的解。在图像上这个先验几乎总是对的（一只猫在左上角和右下角是同一只猫），所以数据不多时 CNN 远胜 MLP。但它也是一个上限——长距离的关系（图像两端的两个物体）要靠堆很多层才能看到（第三章），而数据足够多时模型本可以自己学出比"局部 + 平移"更好的先验（第六章）。
 
-
 ## 三、感受野、stride 与深度
 
 ### 1. 感受野
@@ -103,7 +100,6 @@ stride 为 $$s$$ 的卷积（或池化）把特征图缩小 $$s$$ 倍，之后�
 ### 3. 深了就训不动
 
 感受野要求深，深了就遇到[第二篇](/initialization-normalization-and-residual.html)的全部问题：方差衰减或爆炸、梯度连乘。2014 年的 VGG 到 19 层就停了，不是不想更深，是更深训不动。BatchNorm（2015 年初）解决了前向的一半；同年底 ResNet 用残差解决了反向的一半，一口气到 152 层。第五章的实验在 56 层上复现这个转折。
-
 
 ## 四、五个里程碑
 
@@ -157,7 +153,6 @@ x [256, H, W] ──┬──────────────┐            
 
 三层比两层少 17 倍参数，因为昂贵的 $$3 \times 3$$ 在 4 倍窄的通道上做。$$1 \times 1$$ 卷积没有空间感受野，它就是**对每个位置独立做一次线性变换**——与 Transformer 里对每个 token 独立做的 FFN 是同一种算子。Transformer 的 FFN 是反过来的 bottleneck（$$d \to 4d \to d$$，先升后降），但"用逐位置的线性层做通道混合、用另一种算子做位置混合"这个分工是共同的：CNN 用 $$3 \times 3$$ 混合空间位置，Transformer 用 attention 混合序列位置。
 
-
 ## 五、ResNet 的实验与遗产
 
 ### 1. 退化问题
@@ -189,7 +184,6 @@ ResNet 留给 Transformer 的不只是残差：
 | 堆同样的块 | 一个块的设计定好，重复 $$N$$ 次，只改深度与宽度 | 一层的设计定好，重复 $$L$$ 次；scaling 只动 $$L$$、$$d$$、$$d_{ff}$$ |
 
 第三条最少被提到、也最有意思：Transformer 的 Pre-Norm 在 ResNet 这条线上已经被发现过一次。
-
 
 ## 六、从 CNN 到 ViT
 
@@ -244,7 +238,6 @@ token 数 $$= (H / p) \times (W / p)$$，由分辨率与 patch 大小决定，�
 
 对算法工程师，卷积今天要懂到的程度是：知道它是带约束的线性层、会算参数与 FLOPs、知道 patch embedding 是它、能读懂 encoder 前端的几层。设计新的 CNN 骨干不再是主流工作。
 
-
 ## 七、实验
 
 ### 1. 代码
@@ -279,7 +272,6 @@ L=56 residual: init grad norm block1 2.2e+00 vs block56 7.6e-01 (ratio 2.9)   | 
 - 用 `conv_as_matrix` 构造 stride 2 或 padding 的卷积矩阵，看稀疏模式怎么变；
 - 把 ViT 的 patch 从 16 改到 8，token 数变 4 倍，用 04 系列第二篇的公式算 attention 的 FLOPs 变了多少倍。
 
-
 ## 八、本文小结
 
 - **卷积是带两条约束的线性层**：局部性（矩阵稀疏）与参数共享（各行是同一核的平移）。$$3 \times 3$$ 核在 $$6 \times 6$$ 图上是一个 $$16 \times 36$$ 矩阵、144 个非零、9 个自由参数；ResNet-50 一个卷积层的等价全连接矩阵有 $$4 \times 10^{10}$$ 个元素。参数量与图像大小无关，FLOPs 与之成正比（ResNet-50：25.6M 参数、8.2 GFLOPs、每个参数用 320 次）。
@@ -291,14 +283,6 @@ L=56 residual: init grad norm block1 2.2e+00 vs block56 7.6e-01 (ratio 2.9)   | 
 - 下一篇：另一条线——循环网络怎么处理序列、为什么记不住远处、attention 如何从它的瓶颈里被发明出来。
 
 配套代码：[`deep-learning-foundations/05_cnn.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/05_cnn.py)——`matrix` / `resnet` / `patch` / `deep` 四个子实验，`deep`（L=20 / 56 的 plain 与 residual）在 CPU 上约 10 分钟。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**一个 $$3 \times 3$$ 核相当于多大的全连接矩阵**：等价矩阵的行数是输出位置数、列数是输入位置数——$$6 \times 6$$ 图上是 $$16 \times 36$$，576 个元素里只有 144 个非零、且这 144 个只由 9 个自由参数生成（局部性 + 参数共享）；ResNet-50 一个卷积层的等价矩阵有 $$4 \times 10^{10}$$ 个元素（第二章）。所以卷积是带两条约束的线性层，参数量与图像大小无关、FLOPs 与之成正比。**残差是同一个东西**：ResNet 的 $$x + f(x)$$ 与 Transformer 每层的两个残差块都是把 Jacobian 变成 $$I + J$$；ResNet-v2 的 pre-activation 就是 Pre-Norm 的前身；本文复现退化问题——plain 网络 20 → 56 层训练 loss 从 0.13 恶化到 0.72，残差网络不变（第五章）。**ViT 可以不用卷积**：卷积的先验（局部、平移不变）在数据少时是优势、数据多时是限制；把图切成 $$(H/p)(W/p)$$ 个 patch 线性投影成 token 送进标准 encoder，二维结构只靠位置编码——而这个 patch embedding 本身就是 kernel = stride = $$p$$ 的卷积（实测差 $$10^{-6}$$），卷积没有消失，退到了第一层（第六章）。
-
-</details>
-
 
 ## 九、自测
 
@@ -342,7 +326,10 @@ L=56 residual: init grad norm block1 2.2e+00 vs block56 7.6e-01 (ratio 2.9)   | 
 
    </details>
 
-
 ## 下一篇
 
 [RNN：从 LSTM 到 attention 的诞生](/rnn-lstm-and-the-birth-of-attention.html)
+
+[^q0]: 等价矩阵的行数是输出位置数、列数是输入位置数——$$6 \times 6$$ 图上是 $$16 \times 36$$，576 个元素里只有 144 个非零、且这 144 个只由 9 个自由参数生成（局部性 + 参数共享）；ResNet-50 一个卷积层的等价矩阵有 $$4 \times 10^{10}$$ 个元素。所以卷积是带两条约束的线性层，参数量与图像大小无关、FLOPs 与之成正比。详见[第二章](#二卷积作为带约束的线性层)。
+[^q1]: 是。ResNet 的 $$x + f(x)$$ 与 Transformer 每层的两个残差块都是把 Jacobian 变成 $$I + J$$；ResNet-v2 的 pre-activation 就是 Pre-Norm 的前身。本文复现退化问题——plain 网络 20 → 56 层训练 loss 从 0.13 恶化到 0.72，残差网络不变。详见[第五章](#五resnet-的实验与遗产)。
+[^q2]: 卷积的先验（局部、平移不变）在数据少时是优势、数据多时是限制；把图切成 $$(H/p)(W/p)$$ 个 patch 线性投影成 token 送进标准 encoder，二维结构只靠位置编码——而这个 patch embedding 本身就是 kernel = stride = $$p$$ 的卷积（实测差 $$10^{-6}$$），卷积没有消失，退到了第一层。详见[第六章](#六从-cnn-到-vit)。

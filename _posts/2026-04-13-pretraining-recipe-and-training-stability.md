@@ -14,8 +14,7 @@ updated: 2026-09-14
 
 本篇要回答的核心问题是：
 
-> **Llama 3 405B 的峰值学习率是 8e-5，DeepSeek-V3 是 2.2e-4，GPT-3 是 6e-5；batch 分别是 16M、63M、3.2M token。这些数字怎么定的？DeepSeek-V3 在 FP8 下训了 14.8T token"没有一次不可恢复的 loss spike"——它开了哪些开关，每个开关在防什么？**
-
+> **Llama 3 405B 的峰值学习率是 8e-5，DeepSeek-V3 是 2.2e-4，GPT-3 是 6e-5；batch 分别是 16M、63M、3.2M token。这些数字怎么定的？[^q0] DeepSeek-V3 在 FP8 下训了 14.8T token"没有一次不可恢复的 loss spike"——它开了哪些开关，每个开关在防什么？[^q1]**
 
 ## 一、总览：一张超参表与三个机制
 
@@ -57,7 +56,6 @@ DeepSeek-V3 的"零不可恢复 spike"来自这些开关的组合，加上 FP8 �
 | 九 | 本文小结与系列总结 | |
 | 十 | 自测 | 5 道题 |
 
-
 ## 二、目标函数
 
 ### 1. 交叉熵与它的单位
@@ -97,7 +95,6 @@ $$
 ### 4. 文档打包与跨文档 attention
 
 训练序列是固定长度（4K、8K）的，文档长短不一，标准做法是把文档首尾相接打包进序列，用 `<eos>` 分隔（第三篇第六章）。问题是 attention 会跨过 `<eos>` 看到上一篇无关文档。两种处理：Llama 3 用**文档级掩码**，每个 token 只能 attend 到同一文档内的位置（论文称对短序列影响不大，但对长上下文阶段重要——否则模型会学到"很远的位置是无关的"这一在长文档上错误的先验）；DeepSeek-V3 **不掩**，让模型自己学会忽略前一篇。前者需要 attention kernel 支持可变长度的块对角掩码（FlashAttention 的 varlen 接口），后者更简单、GEMM 更规整。这是一个"算法上更干净"与"系统上更快"之间的取舍，两种选择都训出了好模型。掩码还有一个副作用：块对角掩码下 attention 的有效长度是文档长度而非序列长度，平均文档 1000 token 时 8K 序列的 attention FLOPs 只有满掩码的八分之一——第二篇的 $$M = 72Ld^2 + 12Lds$$ 里第二项要按文档长度算。
-
 
 ## 三、优化器与超参
 
@@ -192,7 +189,6 @@ $$\eta = 3 \times 10^{-4}$$、$$\lambda = 0.1$$ 时 $$\tau = 33\text{K}$$ 步—
 
 lr 从 0 线性升到峰值。Adam 的二阶矩 $$v$$ 在前几十步还是几个样本的平均，估计很差，直接用峰值 lr 的更新方向是噪声——这是 warmup 的必要性（L3 第三篇）。公开配方的 warmup 占总步数不到 1%：Llama 3 405B 8000 / 975K = 0.8%，Llama 2 2000 / 500K = 0.4%，DeepSeek-V3 2000 / 235K = 0.9%。它以步数而不是 token 数定，因为它服务的是优化器状态而不是数据。warmup 的第二个作用是让第五章的三个机制在训练最脆弱的阶段（初始化附近，attention 还没学会分散、logit 范数还小但梯度大）不被大 lr 触发；OLMo 与 Wortsman 的消融都显示更长的 warmup 能容忍更大的峰值 lr。
 
-
 ## 四、调度
 
 ### 1. 三种形状
@@ -218,7 +214,6 @@ WSD 的衰减段有两个自由度。**长度**：Hägele 等 2024 的系统比�
 ### 4. 退火与数据
 
 衰减段是换数据配比的时机（第三篇第五章）：Llama 3 在最后 40B token 退火数学与代码，MiniCPM 在 WSD 的衰减段混入高质量与指令数据，DeepSeek-V3 的最后两段常数 lr 对应它的后期数据。原理上，lr 小的时候模型对数据的"记忆"更精细而"遗忘"更少，高质量数据放在这里效率最高；反过来，退火段之前的常数段可以承受更"脏"的数据。第三篇说退火段 loss 的骤降"一半来自 lr、一半来自数据"，两者在配方里是同一个决定。
-
 
 ## 五、稳定性
 
@@ -295,7 +290,6 @@ $$\delta$$ 是写一次 checkpoint 的时间。405B 的完整训练状态是 14 
 
 FP8 训练（DeepSeek-V3）把稳定性的门槛提高了：E4M3 的最大值 448，attention logit 到几百就出界，激活里的离群值让 per-tensor 缩放失效。DeepSeek-V3 的对策在《Transformer 与 LLM》第六篇讲过——激活按 $$1 \times 128$$、权重按 $$128 \times 128$$ 分块量化，累加每 128 个元素提升到 FP32，且 embedding、lm_head、norm、attention 的 softmax 与 MoE 路由保持高精度。这些让 FP8 下的 14.8T token 没有出现不可恢复的 spike。低精度不是稳定性的敌人，但它把上面每个开关的必要性都放大了一档：BF16 训练里 logit 到 1000 只是"学得差"，FP8 里是溢出成 inf。
 
-
 ## 六、长上下文继续预训练
 
 主阶段用 4K–8K 序列（长序列的 attention 二次项让主阶段用长序列不划算），上下文长度靠一个附加阶段扩展：
@@ -313,7 +307,6 @@ FP8 训练（DeepSeek-V3）把稳定性的门槛提高了：E4M3 的最大值 44
 
 按 FLOPs 算这个阶段比 5% 多：405B 在 128K 上 attention 占每 token FLOPs 的 40%（8K 时 4%，第二篇的 $$s / 6d$$），所以 800B token 的长上下文阶段约相当于主阶段 8% 的算力。系统上它需要**序列并行 / context parallel**——一条 128K 序列的激活（《Transformer 与 LLM》第二篇：每层 $$s \times d \times$$ 若干字节）单卡放不下，要把序列切到多张卡上，attention 通过 ring 或 all-to-all 交换 K、V。这是长上下文阶段与主阶段在 Infra 上最大的不同，也是它被放在最后、只跑 5% token 的第二个原因。
 
-
 ## 七、监控：该看的七条曲线
 
 | 曲线 | 正常形态 | 异常与含义 |
@@ -327,7 +320,6 @@ FP8 训练（DeepSeek-V3）把稳定性的门槛提高了：E4M3 的最大值 44
 | 各领域验证 loss | 同步下降 | 某领域不降：配比或数据问题；某领域突然下降：可能污染 |
 
 前三条每步都有；后四条要额外记录，成本可忽略。经验规律是**梯度范数先于 loss 报警**——spike 前几百步梯度范数常已开始爬升；注意力熵再早一些。把这些量按层、按 head 记录（而不只是全局最大值），能直接指出是哪一层出的问题——QK-Clip 就是把这种监控做成了自动干预。
-
 
 ## 八、实践：两个脚本
 
@@ -355,7 +347,6 @@ total = loss + z_loss * (log_z ** 2).mean()
 ### 2. `llm_cost_12_recipe.py`：配方的账
 
 纯标准库：五个公开配方的超参表与推出的步数、每步时间；DeepSeek 的 lr / batch 经验律在六个算力点上的值与真实配方的对照；四个模型的 checkpoint 字节数与每小时一次的写带宽；PaLM 式回滚在 405B 规格上的 GPU 小时；长上下文阶段 attention 的 FLOPs 占比。`RECIPES` 列表可以加新模型。`tools/gen_schedule_svg.py` 画本文的图。
-
 
 ## 九、本文小结与系列总结
 
@@ -409,14 +400,6 @@ total = loss + z_loss * (log_z ** 2).mean()
 
 配套代码：[`transformer-and-llm/training_recipe_lab.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/training_recipe_lab.py)（四个子实验，PyTorch CPU）、[`llm_cost_12_recipe.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_12_recipe.py)（配方的账）、[`tools/gen_schedule_svg.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/tools/gen_schedule_svg.py)（本文的图）。两个系列共十二版 `llm_cost.py` 与各篇实验的脚本、运行输出都在 [ai-learning-labs/transformer-and-llm](https://github.com/arganzheng/ai-learning-labs/tree/main/transformer-and-llm)。
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**数字怎么定**：峰值学习率随宽度减小——$$\mu$$P 给 $$\propto 1/d$$、DeepSeek 的经验律 $$0.31 C^{-0.125}$$，7B 3e-4 → 70B 1.5e-4 → 405B 8e-5，GPT-3 175B 的 6e-5 在同一条线上；DeepSeek-V3 的 2.2e-4 高是因为 MoE 的激活参数只有 37B、且用了更大的 batch。batch 由临界 batch 定：梯度噪声尺度 $$\text{tr}(\Sigma)/\lvert G \rvert^2$$ 随训练增大，所以 ramp——405B 从 4M 到 8M 到 16M，V3 从 12.6M 到 63M；硬件下界是数据并行副本数 × 序列长度（第三章）。warmup 按步数定（总步数的 0.4–0.9%），weight decay 0.1 对应时间尺度 $$1/(\eta\lambda)$$ 约 7–13% 的训练（第三、四章）。**V3 开了哪些开关、各防什么**：FP8 分块量化 + 每 128 项提升到 FP32 累加（防低精度累加的噪声）；梯度裁剪 1.0（防单步过大）；$$\beta_2 = 0.95$$（让 $$v$$ 跟上尺度变化）；无辅助 loss 的负载均衡（防专家坍缩）；MTP 多 token 预测；对 attention logit 的控制——QK-norm 一类防 logit 随学习率涨到上万（实验：无 QK-norm 时 logit 到 12592、loss 2.23 → 2.75）；z-loss 防 $$\log Z$$ 漂移；加上每 4–5 分钟一次的 checkpoint 让 spike 回退便宜（第五章）。
-
-</details>
-
-
 ## 十、自测
 
 1. 按 DeepSeek 的经验律 $$\eta = 0.31 C^{-0.125}$$，$$C = 10^{22}$$ 与 $$10^{25}$$ 的峰值学习率各约多少？
@@ -458,3 +441,6 @@ total = loss + z_loss * (log_z ** 2).mean()
    $$T_{opt} = \sqrt{2\delta \cdot \text{MTBF}}$$（$$\delta$$ 是一次保存的开销）；异步保存让 $$\delta$$ 很小，间隔可以短到几分钟，故障平均只丢 2–3 分钟，有效训练时间 > 90%。
 
    </details>
+
+[^q0]: 峰值学习率随宽度减小——$$\mu$$P 给 $$\propto 1/d$$、DeepSeek 的经验律 $$0.31 C^{-0.125}$$，7B 3e-4 → 70B 1.5e-4 → 405B 8e-5，GPT-3 175B 的 6e-5 在同一条线上；DeepSeek-V3 的 2.2e-4 高是因为 MoE 的激活参数只有 37B、且用了更大的 batch。batch 由临界 batch 定：梯度噪声尺度 $$\text{tr}(\Sigma)/\lvert G \rvert^2$$ 随训练增大，所以 ramp——405B 从 4M 到 8M 到 16M，V3 从 12.6M 到 63M；硬件下界是数据并行副本数 × 序列长度。warmup 按步数定（总步数的 0.4–0.9%），weight decay 0.1 对应时间尺度 $$1/(\eta\lambda)$$ 约 7–13% 的训练。详见[第三章](#三优化器与超参)、[第四章](#四调度)。
+[^q1]: FP8 分块量化 + 每 128 项提升到 FP32 累加（防低精度累加的噪声）；梯度裁剪 1.0（防单步过大）；$$\beta_2 = 0.95$$（让 $$v$$ 跟上尺度变化）；无辅助 loss 的负载均衡（防专家坍缩）；对 attention logit 的控制——QK-norm 一类防 logit 随学习率涨到上万（实验：无 QK-norm 时 logit 到 12592、loss 2.23 → 2.75）；z-loss 防 $$\log Z$$ 漂移；加上每 4–5 分钟一次的 checkpoint 让 spike 回退便宜。详见[第五章](#五稳定性)、[第七章](#七监控该看的七条曲线)。

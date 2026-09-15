@@ -14,8 +14,7 @@ Scaling law 回答的就是这个问题。它是过去五年里预训练最重�
 
 本篇要回答的核心问题是：
 
-> **Llama-3 8B 用 15T token 训练，是 Chinchilla 最优数据量的 10 倍，loss 比同算力的最优模型（约 80B 参数、1.5T token）高 0.05 nats。为什么放弃这 0.05 反而是正确的？"最优"这个词在 2022 和 2024 各指什么？**
-
+> **Llama-3 8B 用 15T token 训练，是 Chinchilla 最优数据量的 10 倍，loss 比同算力的最优模型（约 80B 参数、1.5T token）高 0.05 nats。为什么放弃这 0.05 反而是正确的？[^q0] "最优"这个词在 2022 和 2024 各指什么？[^q1]**
 
 ## 一、总览：三个时代的同一条公式
 
@@ -54,7 +53,6 @@ $$
 | 六 | 实践 | `scaling_law_fit.py`、`llm_cost_10_scaling.py` |
 | 七 | 本文小结 | |
 | 八 | 自测 | 5 道题 |
-
 
 ## 二、幂律：loss 是 N 与 D 的函数
 
@@ -128,7 +126,6 @@ Besiroglu 2024 重拟合        N_opt = 72.2B   D_opt = 1.33T   D/N = 18   N ∝
 注意 $$\alpha$$ 几乎没变，变的是 $$\beta$$（0.28 → 0.37）与 $$B$$（411 → 2085）：数据项的形状被原文拟错了，而 $$D/N$$ 恰好由 $$\alpha$$ 与 $$\beta$$ 的比值决定（第三章）。一个被引用了两年的常数表，最优分配差了 5 倍，是这个领域"数字要自己验"的最好例子。
 
 两点提醒。第一，scaling law 的**指数**比**常数**可靠：$$\alpha \approx \beta \approx 0.35$$、$$N \propto C^{0.5}$$ 在多个独立复现里稳定，而 $$E$$、$$A$$、$$B$$ 依赖 tokenizer、数据、模型结构，换一个就要重新拟合。第二，所有这些常数只对"标准 dense Transformer + 该实验室的数据"成立，loss 的绝对值不能跨 tokenizer 比较（第一篇第四章第 3 节：同一段文字切成不同数量的 token，每 token 的 loss 不同；比较只能换算到 bits/byte）。
-
 
 ## 三、算力怎么分：Chinchilla 最优
 
@@ -219,7 +216,6 @@ $$
 同一列反过来看 2020–2021：GPT-3 与 Gopher 偏向大模型的代价（+0.016、+0.021）也不大——U 形曲线在两侧都平。Chinchilla 相对 Gopher 的收益不是 loss 降了多少，而是**同样 loss 的模型小了 4 倍**，推理便宜 4 倍；这已经是 2024 年逻辑的雏形。
 
 DeepSeek-V3 与 Kimi K2 的算力不到 Llama 3.1 405B 的十分之一，预测 loss 差 0.06。这解释了 2024 年之后 MoE 成为旗舰模型默认结构的经济学：同样的 loss 用五分之一的算力，或者同样的算力多训好几倍的 token。
-
 
 ## 四、Chinchilla 之后：为什么都在"过训练"
 
@@ -328,7 +324,6 @@ $$
 
 第一项是权重项（每层 $$12 d^2$$ 个参数 × 6），第二项是 attention 项。两者的比是 $$s / 6d$$：Llama-3-8B（$$d = 4096$$）在 $$s = 8192$$ 时 attention 项是权重项的 33%，$$s = 4096$$ 时 17%，$$s = 128\text{K}$$ 时 5.3 倍。**用 $$6ND$$ 算长上下文训练的算力会严重偏低**；而且这部分 FLOPs 不带来"参数"意义上的容量，把它算进 $$N$$ 会让拟合失真。这是为什么长上下文扩展通常放在预训练最后一小段（第四篇）：用 8K 训完绝大部分 token，最后几百 B token 换到 128K——否则 attention 项会吃掉一半以上的预算。同一篇论文的另一个发现放在第五章：超参数也应随 $$C$$ 按幂律走。
 
-
 ## 五、用小模型预测大模型
 
 ### 1. 实验设计：两种扫法
@@ -396,7 +391,6 @@ loss 是可预测的，benchmark 准确率不一定：它随规模的变化常�
 | 用 $$6ND$$ 算长上下文的算力 | 低估 $$s / 6d$$ 倍 | 用 $$M = 72 L d^2 + 12 L d s$$ |
 | 验证集与训练分布不同 | 拟合出的 $$E$$ 是验证集的熵，和训练目标不一致 | 用训练分布的留出集拟 scaling，下游集另测 |
 
-
 ## 六、实践：两个脚本
 
 ### 1. `scaling_law_fit.py`：在 CPU 上拟一条幂律
@@ -452,7 +446,6 @@ def effective_tokens(unique, epochs)           # Muennighoff 的 D'
 
 输出第三章的两张表、第四章的三张表，以及两组 Chinchilla 常数与 Kaplan 规则的对比。改 `RUNS` 列表可以把新模型放进对照表；`compute_optimal(C, consts=HOFFMANN)` 换成原文的常数看最优点怎么动——是体会"常数不可靠"最快的方法。
 
-
 ## 七、本文小结
 
 | 项 | 公式 / 规则 | 数字 |
@@ -471,14 +464,6 @@ def effective_tokens(unique, epochs)           # Muennighoff 的 D'
 对 Infra 的含义有三条。训练侧，$$6ND$$ 与 MFU 直接给出 GPU 小时预算，本文的表是"一个 $$10^{24}$$ 的项目要多少卡多少天"的起点；过训练意味着数据管线（第三篇）要供应 $$D/N$$ 上千的 token 量，且唯一 token 数至少是目标的四分之一。推理侧，模型越小越省，这是 2024 年后 7–30B 级别模型质量跃升的原因，也是推理系统容量规划时"同一 loss 的模型正在变小"这一趋势的来源。方法侧，scaling law 是决定大项目配置的标准流程——用万分之一的算力扫一组小模型，拟合、外推、再验证——而它最常见的失败来自实验设计：学习率调度不匹配、tokenizer 不一致、超参数没随尺寸调、外推太远。
 
 配套代码：[`transformer-and-llm/scaling_law_fit.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/scaling_law_fit.py)（CPU 上训 7 个模型、拟合、外推，PyTorch）、[`llm_cost_10_scaling.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_10_scaling.py)（本文全部表格的数字，纯标准库）、[`tools/gen_scaling_svg.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/tools/gen_scaling_svg.py)（本文的图）；运行输出在 `expected/`。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**为什么放弃 0.05 是对的**：Chinchilla 的"最优"只最小化训练算力 $$C = 6ND$$ 下的 loss——同样 $$7.2 \times 10^{23}$$ FLOPs，最优是约 80B 参数训 1.5T token；Llama-3 8B 训 15T 是把 $$N$$ 缩 10 倍、$$D$$ 放 10 倍，loss 高 0.053 nats，但推理成本是 1/10（第四章）。把推理算进去，最优条件变成 $$\alpha A/N^\alpha = \beta B/D^\beta (1 + D_{inf}/3D)$$：一个要服务 100T token 的模型，最优点从 81B / 1.5T 移到 24B / 13.8T——小模型、多数据。0.05 nats 换十倍的推理成本与部署便利，对一个要被下载几亿次的模型是划算的。**"最优"两个含义**：2022 年（Chinchilla）指训练算力最优——固定 $$C$$ 让 loss 最低，$$D/N \approx 20$$；2024 年指全生命周期最优——训练 + 推理总成本，"过训练"成为常态，$$D/N$$ 到 100–2000（第三、四章）。两个词的公式差一项 $$D_{inf}/3D$$。
-
-</details>
-
 
 ## 八、自测
 
@@ -522,7 +507,9 @@ def effective_tokens(unique, epochs)           # Muennighoff 的 D'
 
    </details>
 
-
 ## 下一篇
 
 [预训练数据工程：从 Common Crawl 到 15T token，去重、过滤与配比的账](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)
+
+[^q0]: Chinchilla 的「最优」只最小化训练算力 $$C = 6ND$$ 下的 loss——同样 $$7.2 \times 10^{23}$$ FLOPs，最优是约 80B 参数训 1.5T token；Llama-3 8B 训 15T 是把 $$N$$ 缩 10 倍、$$D$$ 放 10 倍，loss 高 0.053 nats，但推理成本是 1/10。把推理算进去，最优条件变成 $$\alpha A/N^\alpha = \beta B/D^\beta (1 + D_{inf}/3D)$$：一个要服务 100T token 的模型，最优点从 81B / 1.5T 移到 24B / 13.8T——小模型、多数据。0.05 nats 换十倍的推理成本与部署便利，对一个要被下载几亿次的模型是划算的。详见[第三章](#三算力怎么分chinchilla-最优)、[第四章](#四chinchilla-之后为什么都在过训练)。
+[^q1]: 2022 年（Chinchilla）指**训练算力最优**——固定 $$C$$ 让 loss 最低，$$D/N \approx 20$$；2024 年指**全生命周期最优**——训练 + 推理总成本，「过训练」成为常态，$$D/N$$ 到 100–2000。两个词的公式差一项 $$D_{inf}/3D$$。详见[第三章](#三算力怎么分chinchilla-最优)、[第四章](#四chinchilla-之后为什么都在过训练)。

@@ -12,8 +12,7 @@ Attention 不是为 Transformer 发明的。2014 年它被加到一个循环神�
 
 所以理解 RNN 的意义在于理解 attention 解决了什么。本篇按这条线走：循环网络怎么处理序列，它的梯度在时间上怎么传播（[第二篇](/initialization-normalization-and-residual.html)的 Jacobian 连乘在时间维上的版本），为什么记不住 20 步之外的东西，LSTM 的门控为什么能记更远——以及那个门在数学上就是残差连接——然后是 seq2seq 的瓶颈、attention 的原始形式，最后是 RNN 的两个致命缺点与 Transformer 的回答。四个实验各对应一段。全篇的核心问题是：
 
-> **RNN 为什么记不住 20 步之外的东西？LSTM 的遗忘门与残差连接是什么关系？attention 最初是为了解决什么问题被发明的，它又为什么最终取代了发明它的 RNN？**
-
+> **RNN 为什么记不住 20 步之外的东西？[^q0] LSTM 的遗忘门与残差连接是什么关系？[^q1] attention 最初是为了解决什么问题被发明的，它又为什么最终取代了发明它的 RNN？[^q2]**
 
 ## 一、总览：一条线的四个节点
 
@@ -40,7 +39,6 @@ Attention 不是为 Transformer 发明的。2014 年它被加到一个循环神�
 | 九 | 本文小结与系列总结 |  |
 | 十 | 自测 | 5 道题 |
 
-
 ## 二、循环网络
 
 ### 1. 状态更新式
@@ -65,7 +63,6 @@ h_0 ──W──▶ h_1 ──W──▶ h_2 ──W──▶ ... ──W──
 ```
 
 这个视角把前五篇的一切都带了进来：它是一个深度为 $$T$$ 的网络，$$T$$ 常常是几百上千——比任何 CNN 都深，而且**每层的权重相同**，第二篇里"Jacobian 连乘"的问题在这里以最纯粹的形式出现。
-
 
 ## 三、时间上的反向传播
 
@@ -104,7 +101,6 @@ $$T - t$$ 个 Jacobian 的乘积，每个是"tanh 的导数（在 $$(0, 1]$$ 之
 | 80 | 10% | 10.6% |
 
 RNN 在 10 步就失败了。LSTM 好一点，但默认初始化下也止于 10 步——直到把遗忘门的偏置初始化为 1（下一章解释为什么），20 步与 40 步都在 500 步之内学会，80 步在 6000 步内仍学不会。
-
 
 ## 四、LSTM 与 GRU
 
@@ -172,7 +168,6 @@ $$
 
 LSTM 把可用的记忆长度从 10 步推到几十步、精心调过的模型能到几百步，但两个问题它没有解决：梯度沿 $$c$$ 的路径长度仍然是 $$O(T)$$，$$f_t$$ 的连乘只是衰减得慢了；每一步仍然依赖上一步，$$T$$ 步就是 $$T$$ 次串行计算。第七章回到这两点。
 
-
 ## 五、seq2seq 与它的瓶颈
 
 ### 1. Encoder-decoder
@@ -192,7 +187,6 @@ Cho 等 2014 与 Bahdanau 等 2014 都报告了同一个现象：翻译质量随
 | 32 | 43.5% | 0.0% |
 
 16 个 token 就一句都对不了。64 维的向量装不下 16 个 20 类的 token（信息量 $$16 \times \log_2 20 \approx 69$$ bit，理论上 64 个 float 装得下，但网络学不出这种编码）。
-
 
 ## 六、attention 的诞生
 
@@ -259,7 +253,6 @@ $$
 
 这就是 Transformer 的 attention。它与 2014 年的版本只差记号与打分函数；变的是**用法**：Bahdanau 的 attention 是 decoder 看 encoder（cross-attention），Transformer 让序列里的每个位置看同一序列的所有位置（self-attention），并且发现有了它，循环可以整个去掉。
 
-
 ## 七、RNN 的两个致命缺点与 Transformer 的回答
 
 ### 1. 串行
@@ -284,7 +277,6 @@ Attention 的 FLOPs 是 $$O(T^2 d)$$，RNN 是 $$O(T d^2)$$；$$T > d$$ 之后 a
 ### 4. RNN 的回声
 
 RNN 的推理成本是 $$O(1)$$ / token、状态大小固定——这两点 Transformer 没有。状态空间模型（S4、Mamba）、线性 attention、RWKV 一类工作试图找回它们：训练时像 attention 一样并行，推理时像 RNN 一样只维护一个固定大小的状态。它们在权衡的是"固定状态装不下长历史"（第五章的瓶颈以新形式回来）与"$$O(T)$$ 的 KV cache"。当前主流仍是 Transformer，混合结构（大部分层线性、少数层完整 attention）在一些模型里开始出现。知道它们在权衡什么，就够了。
-
 
 ## 八、实验
 
@@ -312,7 +304,6 @@ for t in range(T, 0, -1):
 - 给记忆任务加一个"$$T$$ 步之间有干扰 token 要忽略"的变体，看 LSTM 的门是否学会关闭输入门；
 - 把 seq2seq 的 attention 打分从 additive 换成点积，对比收敛速度——这是 Luong 2015 做的事。
 
-
 ## 九、本文小结与系列总结
 
 ### 1. 本文小结
@@ -337,14 +328,6 @@ for t in range(T, 0, -1):
 读到这里，Transformer 的每个部件都有了来历：残差与 Pre-Norm 来自第二篇与 ResNet，AdamW 与 warmup 来自第三篇，attention 来自本篇，patch embedding 来自上一篇，"堆 $$L$$ 层同样的块"来自两条线的交汇。[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)从这里接手——那个系列不再问"为什么这样设计"，而是问"这样设计每一步花多少钱"。两个系列合在一起，是[算法地图](/ai-algorithm-engineer-learning-roadmap.html)上 L3 与 L4 的全部基础。
 
 配套代码：[`deep-learning-foundations/06_rnn_attention.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/06_rnn_attention.py)——`bptt` / `memory` / `forget` / `seq2seq` / `timing` 五个子实验；`forget` 就是遗忘门偏置为 1 的那组对照。整个系列的代码与运行输出在 [ai-learning-labs/deep-learning-foundations](https://github.com/arganzheng/ai-learning-labs/tree/main/deep-learning-foundations)。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**记不住 20 步之外**：BPTT 的梯度是 $$T - t$$ 个 $$\text{diag}(1 - h^2)\, W$$ 的乘积，标准初始化下 20 步外衰减到千分之四、60 步外 $$10^{-10}$$——不是状态装不下，是训练信号传不到（第三章，实测记忆长度约 10 步）。**遗忘门与残差**：LSTM 的 $$c_t = f_t \odot c_{t-1} + i_t \odot \tilde c_t$$ 是加法更新，Jacobian $$\partial c_t / \partial c_{t-1} = \text{diag}(f_t) + \dots$$，只要 $$f_t \approx 1$$ 就是一条接近恒等的通路——与 ResNet 的 $$I + J$$ 是同一件事，1997 年就有；所以遗忘门偏置要初始化为 1，把通路在初始时刻打开（第四章）。**attention 为什么被发明、又为什么取代 RNN**：seq2seq 把整句压进一个固定向量，16 个 token 的倒序任务整句准确率 0%；Bahdanau 让 decoder 每步对 encoder 全部状态加权求和，同一任务到 76%（第五、六章）——它解决的是瓶颈。之后人们发现 attention 本身就能建模序列，而 RNN 有两个 attention 没有的致命缺点：串行（同一 CPU 上 attention 的算力是它的 4.5 倍）与 $$O(n)$$ 的路径长度；Transformer 用 $$O(n^2)$$ 的算量与 KV cache 换掉了两者（第七章）。
-
-</details>
-
 
 ## 十、自测
 
@@ -387,3 +370,7 @@ for t in range(T, 0, -1):
    训练时 RNN 是串行的（$$T$$ 步依赖），Transformer 全部位置并行，同样算力下能训的数据多几倍；任意两个位置之间的路径长度 RNN 是 $$O(n)$$、attention 是 1，长依赖直接可学。推理侧的 $$O(n)$$ 用 KV cache 与系统优化（04 系列）换回来；SSM / 线性 attention 在试图两头都要。
 
    </details>
+
+[^q0]: BPTT 的梯度是 $$T - t$$ 个 $$\text{diag}(1 - h^2)\, W$$ 的乘积，标准初始化下 20 步外衰减到千分之四、60 步外 $$10^{-10}$$——不是状态装不下，是训练信号传不到（实测记忆长度约 10 步）。详见[第三章](#三时间上的反向传播)。
+[^q1]: 同一件事。LSTM 的 $$c_t = f_t \odot c_{t-1} + i_t \odot \tilde c_t$$ 是加法更新，Jacobian $$\partial c_t / \partial c_{t-1} = \text{diag}(f_t) + \dots$$，只要 $$f_t \approx 1$$ 就是一条接近恒等的通路——与 ResNet 的 $$I + J$$ 同构，1997 年就有；所以遗忘门偏置要初始化为 1，把通路在初始时刻打开。详见[第四章](#四lstm-与-gru)。
+[^q2]: 为了解决 seq2seq 的瓶颈：整句压进一个固定向量，16 个 token 的倒序任务整句准确率 0%；Bahdanau 让 decoder 每步对 encoder 全部状态加权求和，同一任务到 76%（[第五章](#五seq2seq-与它的瓶颈)、[第六章](#六attention-的诞生)）。之后人们发现 attention 本身就能建模序列，而 RNN 有两个 attention 没有的致命缺点：串行（同一 CPU 上 attention 的算力是它的 4.5 倍）与 $$O(n)$$ 的路径长度；Transformer 用 $$O(n^2)$$ 的算量与 KV cache 换掉了两者（[第七章](#七rnn-的两个致命缺点与-transformer-的回答)）。
