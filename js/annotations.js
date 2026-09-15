@@ -858,7 +858,8 @@
   }
 
   function deleteComment(el, c, isReply, parent) {
-    var n = !isReply && c.replies && c.replies.length;
+    var replies = c.replies || [];
+    var n = !isReply && replies.length;
     // GitHub soft-deletes a comment that has replies: the replies stay and the
     // comment shows as 「此评论已删除」 (same as on GitHub). A highlighted passage
     // loses its anchor with the quote header, so it disappears from the article.
@@ -871,7 +872,7 @@
       if (isReply) {
         parent.replies = parent.replies.filter(function (r) { return r.id !== c.id; });
         parent.replyCount = parent.replies.length;
-      } else if (c.replies.length) {
+      } else if (replies.length) {
         c.deleted = true; c.bodyHTML = ''; c.selector = null; c.noteHTML = null; c.issue = null;
         if (panelState) panelState.ids = panelState.ids.filter(function (id) { return id !== c.id; });
       } else {
