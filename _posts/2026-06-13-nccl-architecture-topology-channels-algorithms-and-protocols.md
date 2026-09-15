@@ -16,12 +16,11 @@ NCCL 对大多数使用者是一个黑盒：`ncclCommInitRank` 之后它就"能�
 
 本篇要回答总纲提出的核心问题：
 
-> **同一次 8 卡 all_reduce，NCCL 在 NVSwitch 机器上选了 NVLS + Simple，在没有 NVSwitch 的 NVLink 机器上选了 Ring + LL128，在纯 PCIe 机器上只剩 Simple / LL，跨 32 台机器时选了 Tree。它是根据什么做出这三个不同决定的？强行用 `NCCL_ALGO=Ring` 会付出什么？**
+> **同一次 8 卡 all_reduce，NCCL 在 NVSwitch 机器上选了 NVLS + Simple，在没有 NVSwitch 的 NVLink 机器上选了 Ring + LL128，在纯 PCIe 机器上只剩 Simple / LL，跨 32 台机器时选了 Tree。它是根据什么做出这三个不同决定的？[^q0] 强行用 `NCCL_ALGO=Ring` 会付出什么？[^q1]**
 
 读完本篇你应该能拿着一份 `NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=INIT,GRAPH,TUNING` 的日志，说出每一行是初始化的哪一步打出来的、NCCL 在这台机器上看到了什么拓扑、搜出了几条什么样的 ring、为这次调用选了哪个算法和协议、为什么。本篇的 comm-probe 增量 `nccl_log_reader.py` 就是把这件事自动化。
 
 依照系列惯例，本文的性能数字要么来自源码里的模型常数（`src/graph/tuning.cc`、`src/graph/topo.h`），要么是可推导的理论值或"通常能达到"的区间，全部**非实测**。源码路径以 NCCL 2.28.9（2025-11 发布）为准；2.29 起 `src/transport/net_ib.cc` 拆成了目录，更新的版本可能继续调整目录结构，阅读时以你手上的版本对照。
-
 
 ## 一、总览：一次 ncclAllReduce 的两段路径
 
@@ -82,7 +81,6 @@ $$
 | 十 | 读日志 | INFO 日志的格式与逐行解读；改拓扑文件观察决策变化；排障检查清单 |
 | 十一 | 小结 | 要点、检查项、源码位置、comm-probe 增量 `nccl_log_reader.py` |
 
-
 ## 二、初始化：uniqueId 与 bootstrap
 
 ### 1. ncclGetUniqueId 里装的是什么
@@ -116,7 +114,6 @@ bootstrap 还提供 `bootstrapSend/Recv`（点对点，按需建 socket）和 `b
 第一次和第二次之间是本地计算：拓扑探测、路径、图搜索。第二次 AllGather 交换每个 rank 搜出来的图信息（每种算法的 `nChannels`、`bwIntra/bwInter`、`typeIntra/typeInter`、`crossNic`）和 `ncclTopoRanks`（我在节点内 ring 里的 prev/next、tree 的 parent/child）。收齐后所有 rank 对每种图取**最小 channel 数、最小带宽、最大路径类型**——保证所有 rank 的调优模型一致，否则不同 rank 可能选出不同的算法，那就是 hang。然后 `ncclTopoPostset` 把各节点的局部图拼成全局 ring 和 tree。
 
 整个初始化的最后是 `ncclTopoTuneModel`、`devCommSetup`（把 channel、peer 连接信息拷到设备内存）和一次节点内 barrier。
-
 
 ## 三、拓扑探测：从 /sys 和 NVML 到 XML 树
 
@@ -195,7 +192,6 @@ LOC_BW = 5000       自己到自己
 
 和第二篇的标称值比：A100 NVLink 单向标称 300 GB/s，NCCL 用 240；PCIe 4.0 x16 单向标称 32 GB/s，NCCL 用 24。NCCL 有意用"通常能达到"的数，因为这些数只用来**排序和比较**（走哪条路、搜几条 ring），不用来做绝对预测。日志里 `=== System : maxBw 240.0 totalBw 240.0 ===` 打的就是这套数。
 
-
 ## 四、路径计算：path type 与带宽
 
 ### 1. BFS 与 path type 的合成规则
@@ -232,7 +228,6 @@ remPath->type = std::max(path->type, type);                           // 整条�
 ### 4. PXN：借邻居的 NIC
 
 `ncclTopoComputePaths` 最后一段处理 PXN（PCI × NVLink）：如果 GPU g 到 NIC n 的路径不好（比如要过 CPU），但同节点另一张 GPU p 到 n 是 PXB 以内且 g 到 p 有 NVLink，就把 g→n 的路径改成 g→p→n，类型 `PXN`。数据先经 NVLink 到 p 的显存，再由 p 的 proxy 发到 n。这让 rail-optimized 网络（第二篇）上每个 GPU 都能用"自己 rail"的 NIC，也让多个 GPU 的流量在一张 NIC 上聚合。`NCCL_PXN_DISABLE=1` 关掉。日志里的表现是 `via NET/IB/0(1)/GDRDMA`——括号里的 1 是中转 rank——以及 `Connected all rings, use ring PXN 1 GDR 1`。
-
 
 ## 五、图搜索：在拓扑上找 ring 与 tree
 
@@ -399,7 +394,6 @@ ncclGetDtree(nNodes = 8)
 
 这个文件可以改了再用 `NCCL_GRAPH_FILE` 喂回去（`ncclTopoCompute` 开头就检查它），跳过搜索。`nchannels`、`speedintra/speedinter`、`typeintra/typeinter` 会直接进调优模型——第十章会用它做实验。
 
-
 ## 六、transport 与 channel
 
 ### 1. 四种 transport 与选择顺序
@@ -469,7 +463,6 @@ send/recv 的连接则一直是按需的：`ncclSend/ncclRecv` 第一次碰到�
 **延迟的账**：每个 channel 是一个 block，多一个 block 就多一份 shared memory 加载、多一份 `head/tail` 握手、多占一个 SM（与计算 kernel 抢）；跨机时每个 channel 是一份独立的 proxy 工作、一组独立的 QP。消息小到每 channel 分不到几十 KB 时，切分本身的固定开销超过并行收益。所以 `topoGetAlgoInfo` 按大小缩 channel。`NCCL_MIN_NCHANNELS` 抬高下限的常见后果是小消息延迟变差、以及 SM 占用增加打断计算通信重叠（第五篇）。
 
 一个可操作的判断：如果 nccl-tests 曲线大消息端上不去而拓扑正确，看日志里 `coll channels` 是不是被 `NCCL_MAX_NCHANNELS` 或 `maxCTAs` 压低了；如果小消息延迟异常高，看 `channel{Lo..Hi}` 是不是被 `NCCL_MIN_NCHANNELS` 撑大了。
-
 
 ## 七、算法与协议
 
@@ -595,7 +588,6 @@ flowchart TB
 ```
 
 所以"NCCL 为什么不用 LL128"的答案几乎总是路径类型：日志里 `type PIX/PIX` 或 `type PHB/…` 就是原因。
-
 
 ## 八、调优模型：NCCL 如何估算时间
 
@@ -753,7 +745,6 @@ ncclResult_t (*finalize)(void* context);
 ```
 
 `init` 拿到的 `constants` 就是上面那张 `ncclTunerConstantsDefaults`，插件可以改它（比如把某个 `hwLatencies` 改成你实测的）；`getCollInfo` 拿到 NCCL 已经算好的 `collCostTable[algo][proto]`（就是 `ncclTopoGetAlgoTime` 的输出），可以改任何一格、或直接把不想要的置为 `NCCL_ALGO_PROTO_IGNORE`，还可以返回 `nChannels`。`ext-tuner/example/` 是一个读 CSV 配置的完整实现，`nccl_tuner.conf` 的每一行是 `collective_type,min_bytes,max_bytes,algorithm,protocol,channels,nNodes,nRanks,numPipeOps,regBuff`——按消息大小区间指定算法协议。它比环境变量精细得多，也是第六篇调优时"先测出曲线、再把交叉点写进配置"的落地方式。
-
 
 ## 九、执行期：enqueue、kernel 与 proxy
 
@@ -917,7 +908,6 @@ GPU 侧的等待全部是自旋（`waitPeer`），proxy 侧的等待是 `test` �
 
 第六篇 hang 分类里"send/recv 没有配对"就是第 3 条；第五篇会看到 PyTorch 的 `batch_isend_irecv` 和 `_coalescing_manager` 就是为了把这些调用包进一个 group。
 
-
 ## 十、看一看与测一测：读一份 INFO 日志
 
 ### 1. 日志格式
@@ -1020,7 +1010,6 @@ hostA:12345:12345 [0] NCCL INFO AllReduce: 65536 Bytes -> Algo Tree proto LL cha
 9  AllReduce: N Bytes -> Algo … proto … channel{Lo..Hi}：与调优表算出来的最小值一致？  不一致 → 有 tuner 插件或 NCCL_ALGO/PROTO 在生效
 10 [Proxy Progress] Device d CPU core c：这个核是否被绑给了别的忙进程？  是 → NCCL_PROXY_CPUSET 或调度器亲和
 ```
-
 
 ## 十一、本文小结
 
@@ -1182,14 +1171,6 @@ if __name__ == '__main__':
 
 > **`work = dist.all_reduce(t, async_op=True)` 返回时，通信开始了吗？`work.wait()` 返回时，通信完成了吗？在此期间修改 `t` 会发生什么？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-决策在 `ncclCommInitRank` 里做完、与消息无关：探测拓扑（`/sys` 的 PCIe 树 + NVML 的 NVLink + net 插件的 NIC）→ 计算每对设备的路径类型与带宽 → 图搜索出 nChannels 条 ring / tree → 建 transport → 用调优模型 $$T = \text{lat} \times \text{latCount} + S / (1000 \times \text{bw})$$ 为每个（算法, 协议, 消息大小）算预计时间填成表；`ncclAllReduce` 只查表选最小的（第三至八章）。**三个决定**：NVSwitch 机器上 NVLS 可用——交换机内做归约，每卡 NVLink 流量约 $$2S/n$$ 而 ring 是 $$1.75S$$，延迟 25 µs 也不高，所以几百 KB 以上选 NVLS + Simple；有 NVLink 无 NVSwitch 时 NVLS 不可用但 LL128 可用（依赖 NVLink 的写序保证，120/128 字节有效、约 94% 效率），几 MB 以下 Ring + LL128 最快；纯 PCIe 上 LL128 被禁（PCIe 不保证写序），只剩 Simple（512 KiB slot + fence，带宽好、延迟高）与 LL（8 + 8 字节原子 store、50% 效率、延迟低）；跨 32 台机器时 ring 要 510 步、tree 只要 $$2 \times (7 + 5)$$ 步，延迟差一个数量级、带宽只差 30%，所以直到几百 MB 都选 Tree（第八章的调优表就是这么算的）。**强行 `NCCL_ALGO=Ring` 的代价**：单机 NVSwitch 上大消息慢约 2 倍（带宽账：ring 的 NVLink 流量是 NVLS 的近 4 倍）；32 节点上中小消息慢 4–7 倍（延迟账：步数）；只在大规模 + GB 级消息上 ring 才是对的。
-
-</details>
-
-
 ## 十二、自测
 
 1. `ncclCommInitRank` 与 `ncclAllReduce` 各做什么？为什么第一次集合通信特别慢？
@@ -1232,7 +1213,9 @@ if __name__ == '__main__':
 
    </details>
 
-
 ## 下一篇
 
 [PyTorch 的通信栈：ProcessGroupNCCL、stream 语义与计算通信重叠](/pytorch-communication-stack-processgroupnccl-and-streams.html)
+
+[^q0]: 决策在 `ncclCommInitRank` 里做完、与单次消息无关：探测拓扑（`/sys` 的 PCIe 树 + NVML 的 NVLink + net 插件的 NIC）→ 计算每对设备的路径类型与带宽 → 图搜索出 nChannels 条 ring / tree → 建 transport → 用调优模型 $$T = \text{lat} \times \text{latCount} + S / (1000 \times \text{bw})$$ 为每个（算法, 协议, 消息大小）算预计时间填成表；`ncclAllReduce` 只查表选最小的（[第三](#三拓扑探测从-sys-和-nvml-到-xml-树)至[八章](#八调优模型nccl-如何估算时间)）。三个决定的账：NVSwitch 机器上 NVLS 可用——交换机内做归约，每卡 NVLink 流量约 $$2S/n$$ 而 ring 是 $$1.75S$$，所以几百 KB 以上选 NVLS + Simple；有 NVLink 无 NVSwitch 时 LL128 可用（依赖 NVLink 的写序保证，约 94% 效率），几 MB 以下 Ring + LL128 最快；纯 PCIe 上 LL128 被禁（PCIe 不保证写序），只剩 Simple（带宽好、延迟高）与 LL（50% 效率、延迟低）；跨 32 台机器时 ring 要 510 步、tree 只要 $$2 \times (7 + 5)$$ 步，延迟差一个数量级、带宽只差 30%，所以直到几百 MB 都选 Tree（[第七章](#七算法与协议)、[第八章](#八调优模型nccl-如何估算时间)）。
+[^q1]: 单机 NVSwitch 上大消息慢约 2 倍（带宽账：ring 的 NVLink 流量是 NVLS 的近 4 倍）；32 节点上中小消息慢 4–7 倍（延迟账：步数）；只在大规模 + GB 级消息上 ring 才是对的。详见[第七章](#七算法与协议)、[第八章](#八调优模型nccl-如何估算时间)。

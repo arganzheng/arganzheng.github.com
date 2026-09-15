@@ -16,12 +16,11 @@ updated: 2026-09-14
 
 本篇的核心问题就是把这两本账各算一遍：
 
-> **8 张卡做一次 1 GB 的 all_reduce，链路单向 25 GB/s，ring 算法理论上要多久？改成 64 KB 呢？这两个数字为什么分别对带宽和延迟敏感？**
+> **8 张卡做一次 1 GB 的 all_reduce，链路单向 25 GB/s，ring 算法理论上要多久？[^q0] 改成 64 KB 呢？[^q1] 这两个数字为什么分别对带宽和延迟敏感？[^q2]**
 
 回答它需要的全部材料是：ring all_reduce 走 $$2(n-1)$$ 步、每个 rank 收发 $$\frac{2(n-1)}{n}S$$ 字节，以及一个 α 的量级。有了这三样，答案是两行算术；没有它们，答案只能靠测。本篇的目标是让读者在没有机器的情况下也能写出这两行算术，并且知道实测值应该落在哪个范围、超出范围时该怀疑哪一层。
 
 依照系列惯例，本篇的性能数字全部是**理论下界或典型量级**，不是实测。链路带宽用公开标称值（InfiniBand HDR 单向 25 GB/s、NDR 单向 50 GB/s；NVLink 与 PCIe 的数字下一篇展开），每步延迟 α 用数量级估计（InfiniBand 上一步 5–20 µs、NVLink 上几 µs），文中会反复标注"典型量级、非实测"。第六篇会用 nccl-tests 把这些数字换成你手上机器的真实值。
-
 
 ## 一、总览：三个变量、两本账、一条曲线
 
@@ -81,7 +80,6 @@ busbw
 | 八 | 分层与多级算法 | 节点内快、节点间慢：两级 `all_reduce` 的代价、为什么平坦 ring 跨节点吃亏 |
 | 九 | 消息大小的谱 | 几十 KB / 几十 MB / GB 三个量级各在曲线哪一段、各自的对策与检查项 |
 | 十 | 小结 | 要点、公式速查、源码位置、comm-probe 的 `cost_model.py` |
-
 
 ## 二、集合通信原语：语义、组合与下界
 
@@ -177,7 +175,6 @@ all_to_all        (n-1)/n · S                → S；但是 n-1 个不同的目
 
 注意 all_to_all 的一行：字节数下界与 all_gather 相同，但流量模式完全不同——all_gather 的每一块要发给所有人，可以走环流水化；all_to_all 的每一块只发给一个特定的人，$$n$$ 个 rank 之间是 $$n(n-1)$$ 条不同的流。这意味着它无法从"绕环一圈"里得到好处，而在跨节点时会同时压满所有链路，是 MoE 训练最难对付的通信模式。
 
-
 ## 三、训练与推理需要哪些原语
 
 ### 1. 训练：五种并行的通信模式
@@ -231,7 +228,6 @@ MoE / EP  all_to_all（token）        tokens × top-k × hidden × 2 B 分散�
 ```
 
 三个量级、三种账。第九章会把每一段的对策列出来：延迟主导的段合并消息或换算法与协议，带宽主导的段看链路与算法效率，拐点区两本账都要算。
-
 
 ## 四、α-β 模型
 
@@ -300,7 +296,6 @@ T_{\text{coll}} = (\text{步数}) \cdot \alpha + \frac{\text{每 rank 收发的�
 $$
 
 这里隐含了一个假设：每一步所有 rank 同时在收发，链路是全双工的，所以时间由单个 rank 单方向的字节数决定。步数是延迟账，字节数是带宽账。接下来两章分别对 ring 和 tree 数这两个量。
-
 
 ## 五、ring all_reduce 的推导
 
@@ -467,7 +462,6 @@ $$
 
 反过来，拐点也是一个实用的诊断量：从 nccl-tests 曲线上读出拐点位置，除以 $$n\beta$$，就反推出这台机器上一步的 α。
 
-
 ## 六、tree all_reduce 与 double binary tree
 
 ### 1. 二叉树的延迟：2 log₂ n
@@ -578,7 +572,6 @@ if (a == NCCL_ALGO_TREE && coll == ncclFuncAllReduce) busBw = std::min(busBw*.92
 
 ring all_reduce 走 $$2(n-1)$$ 步、reduce_scatter 与 all_gather 走 $$n-1$$ 步，与第五章一致；tree 的带宽乘 0.92 的经验系数，延迟按"节点内链 + 节点间树"算——后一条是第八章分层算法的内容。NCCL 用这套 α-β 模型给每个候选算法打分、选最快的那个，`NCCL_ALGO` / `NCCL_PROTO` 环境变量（在 `tuning.cc` 与 `src/enqueue.cc` 里以 `ncclGetEnv("NCCL_ALGO")` 读取）可以覆盖这个选择。第四篇会把这张调优表整个读一遍。
 
-
 ## 七、algbw 与 busbw
 
 ### 1. 两个定义与 nccl-tests 的源码
@@ -671,7 +664,6 @@ algbw 一列随 $$n$$ 从 25 掉到 10，busbw 一列在 25 附近不动。（10
 
 这四条是本篇给第六篇"比一比"的检查项，它们不需要机器，只需要模型。
 
-
 ## 八、分层与多级算法
 
 ### 1. 两个 β、两个 α
@@ -749,7 +741,6 @@ $$
 
 分层不是免费的。它假设"同一位置的卡"之间有独立的网卡（每 GPU 一张 NIC，这是第二篇讲的 rail-optimized 设计的原因），假设节点内的链路确实比节点间快得多（PCIe 机器上 $$\beta_i$$ 可能只有 $$\beta_e$$ 的一两倍，分层的收益就小），也假设 $$p$$ 张网卡能同时跑满（NIC 与 GPU 的 PCIe 亲和不对时不能，第二、三篇）。另外，节点内两段各自要付 $$(p-1)\alpha_i$$，小消息时这一项不可忽略：64 KB 的 all_reduce 在两级算法下是 $$14 \times 3 + 6 \times 10 = 102$$ µs，仍是纯延迟主导，分层帮不了它——它需要的是更少的步数（tree）、更低的 α（协议、custom kernel）或者干脆不做这么小的通信（合并）。
 
-
 ## 九、把消息大小的谱放到曲线上
 
 ### 1. 三个量级、三种账
@@ -801,7 +792,6 @@ $$
 6. **模型不适用的情形**：all_to_all（流量模式不同）、有 straggler（所有 rank 等最慢的）、通信与计算重叠时被抢了 SM——这些在 profiler 里表现为通信时间远大于模型值且方差大。
 
 前两步不需要机器，是本篇能给的；后四步每一步都指向后面某一篇。
-
 
 ## 十、本文小结
 
@@ -1000,14 +990,6 @@ all_gather     ring   n=8    S=   1G  T=    37651.0 us  lat=  0.2%  algbw=  28.5
 
 > **`nvidia-smi topo -m` 里 GPU0 到 GPU1 是 `NV12`、到 NIC0 是 `PIX`、到 NIC4 是 `SYS`。这三个词各自意味着什么带宽和什么路径？为什么 NCCL 会为 GPU0 选 NIC0 而不是 NIC4？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-用 α-β 模型算：ring all_reduce 的时间 $$T = 2(n-1)\alpha + \frac{2(n-1)}{n}\frac{S}{\beta}$$——$$n = 8$$、$$\beta = 25$$ GB/s、取 $$\alpha = 10$$ µs（IB 一跳的量级）。**1 GB**：带宽项 $$\frac{14}{8} \times 1\,\text{GB} / 25\,\text{GB/s} = 70$$ ms，延迟项 $$14 \times 10$$ µs = 0.14 ms，合计约 70 ms，延迟只占 0.2%——时间几乎全由 $$\beta$$ 决定，换更快的链路、多网卡、提高链路效率才有用（第五、六章）。**64 KB**：带宽项 $$\frac{14}{8} \times 64\,\text{KB} / 25\,\text{GB/s} = 4.5$$ µs，延迟项 140 µs，合计约 145 µs，带宽只占 3%——时间由 $$\alpha$$ 与步数决定，换快网卡无效，只有减少步数（tree 的 $$2\lceil\log_2 n\rceil$$ 步）、降低 $$\alpha$$（NVLink、LL 协议、不经 proxy）、把多次小通信合并成一次才有用（第七章）。**为什么分别敏感**：ring 的带宽项 $$\to 2S/\beta$$ 与 $$n$$ 无关，是大消息的最优；延迟项 $$2(n-1)\alpha$$ 随 $$n$$ 线性增长，小消息、大规模时它主导。两者相等的集体拐点 $$S^* = n\alpha\beta$$，8 卡 IB 约 2 MB——一个消息在拐点哪一侧，决定它算哪本账（第五章）。训练的梯度桶（25 MiB）与 FSDP 的层（几百 MB）在带宽侧，decode TP 的 all_reduce（几十到几百 KB）在延迟侧，这就是两类系统通信优化方向完全不同的原因（第三章）。
-
-</details>
-
-
 ## 十一、自测
 
 1. all_reduce、all_gather、reduce_scatter、broadcast 每个 rank 至少要接收多少字节（总数据 $$S$$、$$n$$ 个 rank）？这一列在 nccl-tests 里对应什么？
@@ -1050,7 +1032,10 @@ all_gather     ring   n=8    S=   1G  T=    37651.0 us  lat=  0.2%  algbw=  28.5
 
    </details>
 
-
 ## 下一篇
 
 [硬件互联：PCIe、NVLink、NVSwitch 与网络拓扑](/hardware-interconnect-pcie-nvlink-and-topology.html)
+
+[^q0]: 用 α-β 模型：ring all_reduce 的时间 $$T = 2(n-1)\alpha + \frac{2(n-1)}{n}\frac{S}{\beta}$$。$$n = 8$$、$$\beta = 25$$ GB/s、取 $$\alpha = 10$$ µs：带宽项 $$\frac{14}{8} \times 1\,\text{GB} / 25\,\text{GB/s} = 70$$ ms，延迟项 $$14 \times 10$$ µs = 0.14 ms，合计约 **70 ms**，延迟只占 0.2%。详见[第四章](#四α-β-模型)、[第五章](#五ring-all_reduce-的推导)。
+[^q1]: 带宽项 $$\frac{14}{8} \times 64\,\text{KB} / 25\,\text{GB/s} = 4.5$$ µs，延迟项 140 µs，合计约 **145 µs**，带宽只占 3%。详见[第五章](#五ring-all_reduce-的推导)。
+[^q2]: ring 的带宽项 $$\to 2S/\beta$$ 与 $$n$$ 无关，是大消息的最优；延迟项 $$2(n-1)\alpha$$ 随 $$n$$ 线性增长，小消息、大规模时它主导。两者相等的拐点 $$S^* = n\alpha\beta$$，8 卡 IB 约 2 MB——一个消息在拐点哪一侧，决定它算哪本账：1 GB 在带宽侧，换更快的链路、多网卡才有用；64 KB 在延迟侧，换快网卡无效，只有减少步数（tree 的 $$2\lceil\log_2 n\rceil$$ 步）、降低 $$\alpha$$（NVLink、LL 协议）、把多次小通信合并成一次才有用。训练的梯度桶（25 MiB）在带宽侧，decode TP 的 all_reduce（几十到几百 KB）在延迟侧，这就是两类系统通信优化方向完全不同的原因。详见[第五章](#五ring-all_reduce-的推导)、[第六章](#六tree-all_reduce-与-double-binary-tree)、[第九章](#九把消息大小的谱放到曲线上)。

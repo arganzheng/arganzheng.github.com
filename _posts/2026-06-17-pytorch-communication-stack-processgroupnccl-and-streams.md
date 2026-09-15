@@ -16,12 +16,11 @@ updated: 2026-09-14
 
 总纲给本篇的核心问题是：
 
-> **`work = dist.all_reduce(t, async_op=True)` 返回时，通信开始了吗？`work.wait()` 返回时，通信完成了吗？在此期间修改 `t` 会发生什么？**
+> **`work = dist.all_reduce(t, async_op=True)` 返回时，通信开始了吗？[^q0] `work.wait()` 返回时，通信完成了吗？[^q1] 在此期间修改 `t` 会发生什么？[^q2]**
 
 三个问题的标准答案都是"不一定"，但"不一定"不是可操作的答案。本篇要用 stream 与 event 把它们换成精确的陈述：哪条 stream 上排了什么、哪个 event 被谁等待、CPU 在哪一行真的停下来。
 
 依照系列惯例，本文的性能数字要么是可推导的理论值（标称带宽、α-β 模型），要么是"通常能达到"的区间，均标注"非实测"；带宽数字每次出现都区分"单向"与"双向合计"。源码以 PyTorch 2.12（v2.12.0，2026-05-11 发布）为准，NCCL 以 2.28.9 为准，vLLM 的对照部分以 v0.23.0 为准；c10d 这一层在 2.x 各版本之间改动不小（内部 stream 的使用条件、tensor 生命周期方案、错误处理默认值都变过），文中会在相应处标注"以你手上的版本为准"。
-
 
 ## 一、总览：从 `dist.all_reduce` 到 `ncclAllReduce` 的四层
 
@@ -92,7 +91,6 @@ CPU                      ▲ 全程不停：all_reduce 返回、wait() 返回都
 | 九 | 对照 | Gloo、UCC、vLLM 的 PyNccl；对称内存与 NCCL 的关系 |
 | 十 | 小结 | 要点、检查项、源码位置、comm-probe 的 `overlap_bench.py` |
 
-
 ## 二、c10d 的分层：Python → ProcessGroup → Backend → ProcessGroupNCCL
 
 ### 1. `init_process_group` 做了什么
@@ -148,7 +146,6 @@ if (rank_ == 0 || (isSingleP2POp && p2pRank == 0)) {
 ### 4. `new_group` 与 `ncclCommSplit`
 
 `dist.new_group(ranks)` 为子集 rank 创建新的 `ProcessGroup`，底层是一个新的 `ProcessGroupNCCL`，共享同一个 store 但用不同的 `PrefixStore` 前缀。新组的 communicator 同样是懒创建。`ProcessGroupNCCL::Options` 里的 `split_from` 与 `split_color` 提供了另一条路：如果父组已经有 communicator（`eagerConnectSingleDevice` 之后），`initNCCLComm` 会调 `NCCLComm::split` → `ncclCommSplit(parent, color, rank, &newcomm, &config)`，复用父 communicator 已建好的拓扑与连接，省掉一次完整 bootstrap。`ncclCommSplit` 是集合调用，所有父组成员都得参与（不在子组的传 `NCCL_SPLIT_NOCOLOR`），所以它只用于集合通信的组，P2P 的 communicator 不走这条路。
-
 
 ## 三、ProcessGroupNCCL 的对象模型
 
@@ -289,7 +286,6 @@ flowchart TB
 ```
 
 每个 `ProcessGroupNCCL` 实例不只是一个 communicator：它带着自己的 stream、event、`workMetaList_` 和两条边线程。一个进程里开多个 NCCL 组（流水线并行 + TP + DP 是常见配置），`pt_nccl_watchdg` / `pt_nccl_heartbt` 线程就各有多条，这在 `py-spy dump` 的线程列表里会很直观。
-
 
 ## 四、stream 语义：一次 all_reduce 的 stream/event 之舞
 
@@ -460,7 +456,6 @@ dist.barrier()                      isBarrierOp_ 且未完成 → currentStream.
 
 一句话：`async_op=True` 之后、`wait()` 之前，`t` 属于 NCCL stream，当前 stream 不得碰它——既不能写，也不能读。
 
-
 ## 五、输入 tensor 的生命周期与 Caching Allocator
 
 ### 1. 跨 stream 的危险
@@ -526,7 +521,6 @@ NCCL stream        (等 event)─────[ncclAllReduce 读写 t]─endEvent
 ```
 
 第 4 条容易被忽略：`syncStream` record 的是**当前 stream** 的 event，如果 `t` 是在另一条 stream 上刚算出来的、当前 stream 上什么都没发生，NCCL stream 等到的 event 立刻触发，kernel 可能在 `t` 算完之前就开始读它。
-
 
 ## 六、`async_op=True` 与计算通信重叠
 
@@ -631,7 +625,6 @@ cm.wait()                        # 退出 with 时才真正调 group.allreduce_c
 | `all_reduce_coalesced` / `_coalescing_manager` | 1 次（`ncclGroupStart/End` 合成一个 plan） | 1 份 | N 块不连续，NCCL 逐块处理 | 2(n−1)α | 共享一次握手，但每块仍各自切分 |
 | DDP bucket（flatten 后一次 `all_reduce`） | 1 次 | 1 份 | 1 块连续（多一次 flatten 拷贝） | 2(n−1)α | 一块大 buffer 切满所有 channel |
 
-
 ## 七、函数式集合通信与 `torch.compile`
 
 ### 1. 为什么需要另一套 API
@@ -670,7 +663,6 @@ eager 模式下返回的是 `AsyncCollectiveTensor`，一个 tensor 子类，带
 图里有了 `all_reduce` 与 `wait_tensor` 两个节点，编译器就能做两件手工很难做对的事：把 `all_reduce` 尽量**提前**（输入一就绪就发），把 `wait_tensor` 尽量**推后**（用到结果前一刻才等），中间填入无依赖的计算。Inductor 的相关配置在 `torch/_inductor/config.py`：`reorder_for_compute_comm_overlap`（默认 `False`）与 `reorder_for_compute_comm_overlap_passes`，注释给出的推荐组合是 `reorder_communication_preserving_peak_memory` → `sink_waits_iterative` → `reorder_communication_preserving_peak_memory`。"preserving peak memory" 说明了重排的约束：通信提前意味着输出 buffer 提前分配、输入 buffer 延后释放，重叠窗口越大峰值显存越高，这与第五章 stash 方案的取舍是同一件事。
 
 这一节的要点是：函数式集合通信没有改变 NCCL 层的任何东西——stream、event、`WorkNCCL` 全部照旧——它改变的是"谁来决定 wait 的位置"。
-
 
 ## 八、错误处理与超时：watchdog 与 heartbeat monitor
 
@@ -820,7 +812,6 @@ TORCH_NCCL_NONBLOCKING_TIMEOUT              1800 (秒)       非阻塞初始化 
 
 第 6 篇的 Flight Recorder 一节会展开 `TORCH_NCCL_TRACE_BUFFER_SIZE` 与 `TORCH_NCCL_DUMP_ON_TIMEOUT` 的用法。
 
-
 ## 九、对照：Gloo、UCC、PyNccl 与对称内存
 
 ### 1. Gloo：CPU 线程池，没有 stream
@@ -850,7 +841,6 @@ vLLM v0.23.0 的 `vllm/distributed/device_communicators/pynccl_wrapper.py` 用 `
 它与 NCCL 的关系是**互补而非替代**。NCCL 的 all_reduce 是一个通用 kernel：握手、按 channel 切分、ring/tree 多步、协议 flag，对几十 KB 的消息这些固定开销就是全部时间（第 1 篇的 α）。one-shot all_reduce 是一步：每张卡直接读所有 peer 的输入、本地求和、写自己的输出，没有多步、没有 proxy、没有 channel 调度，延迟接近一次 NVLink 往返加一次 barrier。它只在节点内、NVLink 全互联、消息小到"多读几倍数据比多走几步更便宜"时占优；two-shot（先 reduce_scatter 再 all_gather）把数据量降到与 ring 相同，适合稍大的消息；multimem 版本用 NVLS 硬件在 NVSwitch 上归约，进一步省掉 SM 上的求和。`set_backend("NCCL")` 则让对称内存的分配走 NCCL 的 window 注册接口（`NCCLSymmetricMemory.cu` 里的 `ncclMemAlloc` + `ncclCommWindowRegister(..., NCCL_WIN_COLL_SYMMETRIC)`；`nccl_dev_cap.hpp` 规定 `NCCL_VERSION_CODE >= NCCL_VERSION(2, 27, 0)` 才定义 `NCCL_HAS_SYMMEM_SUPPORT`，2.28 起再加 `NCCL_HAS_SYMMEM_DEVICE_SUPPORT`），把 NCCL 自己的设备端能力暴露出来。
 
 第 7 篇会拿 vLLM 的 custom all-reduce、对称内存、NCCL 三者在 decode 阶段的延迟做对照。本篇要建立的直觉是：**它们都在打 α 的账**，而 NCCL 的 α 里，ProcessGroupNCCL 那一层（Python 调用、`Work` 构造、event record、watchdog 入队）通常只占几微秒，大部分在 NCCL kernel 内部。
-
 
 ## 十、本文小结
 
@@ -1053,14 +1043,6 @@ torchrun --nproc_per_node=8 overlap_bench.py --killer sync
 
 > **一个 64 卡训练任务在第 3000 步 hang 住，所有 rank 的日志都停在 all_reduce。是谁的问题、是哪一次 all_reduce、为什么会等到 timeout 才暴露？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-三个问题的答案都是“不一定”。**返回时通信开始了吗**：没有必然开始。`ProcessGroupNCCL::collective` 让内部的 NCCL stream 等待当前计算 stream 的 event，然后把 `ncclAllReduce` 的 kernel 排进 NCCL stream，记录 end event，返回 `WorkNCCL`——CPU 只是把工作入队；kernel 何时真的跑取决于计算 stream 上此前的工作何时完成以及 SM 是否有余量（第四、五章）。**`wait()` 返回时完成了吗**：也没有。`wait()` = 让**当前 stream** `cudaStreamWaitEvent` 那个 end event——它在 GPU 侧建立顺序：当前 stream 后续的 kernel 会等通信完成；CPU 不阻塞、立刻返回。只有 `TORCH_NCCL_BLOCKING_WAIT`、显式 timeout、`barrier` 或用户自己的 `synchronize` 才阻塞 CPU（第五、六章）。**期间修改 `t`**：在 `wait()` 之前在当前 stream 上读或写 `t` 是数据竞争——那些 kernel 与 NCCL kernel 在两条 stream 上并行，结果未定义；`wait()` 之后再碰是安全的。`del t` 反而安全：`WorkNCCL` 默认把 tensor stash 到 `TensorShelf`、`wait()` 后 unstash，不 wait 则 watchdog 转移 shelf，显存不会在 kernel 跑完前被释放（第七章）。这套 stream + event 的编排正是重叠的来源，也是它失效的来源：同 stream、`.item()`、`synchronize`、`cudaFree`、`wait()` 放太早都会把重叠杀掉（第八章）。
-
-</details>
-
-
 ## 十一、自测
 
 1. `dist.all_reduce(t)`（同步模式）为什么 CPU 也不阻塞？正确性靠什么保证？
@@ -1103,7 +1085,10 @@ torchrun --nproc_per_node=8 overlap_bench.py --killer sync
 
    </details>
 
-
 ## 下一篇
 
 [nccl-tests、调优与排障：从带宽曲线到 hang](/nccl-tests-tuning-and-debugging-hangs.html)
+
+[^q0]: 不一定。`ProcessGroupNCCL::collective` 让内部的 NCCL stream 等待当前计算 stream 的 event，把 `ncclAllReduce` 的 kernel 排进 NCCL stream，记录 end event，返回 `WorkNCCL`——CPU 只是把工作入队；kernel 何时真的跑取决于计算 stream 上此前的工作何时完成以及 SM 是否有余量。详见[第三章](#三processgroupnccl-的对象模型)、[第四章](#四stream-语义一次-all_reduce-的-streamevent-之舞)。
+[^q1]: 也不一定。`wait()` = 让**当前 stream** `cudaStreamWaitEvent` 那个 end event——它在 GPU 侧建立顺序：当前 stream 后续的 kernel 会等通信完成；CPU 不阻塞、立刻返回。只有 `TORCH_NCCL_BLOCKING_WAIT`、显式 timeout、`barrier` 或用户自己的 `synchronize` 才阻塞 CPU。详见[第四章](#四stream-语义一次-all_reduce-的-streamevent-之舞)、[第六章](#六async_optrue-与计算通信重叠)。
+[^q2]: 在 `wait()` 之前在当前 stream 上读或写 `t` 是数据竞争——那些 kernel 与 NCCL kernel 在两条 stream 上并行，结果未定义；`wait()` 之后再碰是安全的。`del t` 反而安全：`WorkNCCL` 默认把 tensor stash 到 `TensorShelf`、`wait()` 后 unstash，不 wait 则 watchdog 转移 shelf，显存不会在 kernel 跑完前被释放。这套 stream + event 编排正是重叠的来源，也是它失效的来源：同 stream、`.item()`、`synchronize`、`cudaFree`、`wait()` 放太早都会把重叠杀掉。详见[第五章](#五输入-tensor-的生命周期与-caching-allocator)、[第六章](#六async_optrue-与计算通信重叠)。

@@ -12,8 +12,7 @@ updated: 2026-09-14
 
 总纲给这一篇提的核心问题是：
 
-> **一个序列长度 4k、head dim 128 的 attention，标准实现和 FlashAttention 分别读写多少 HBM？decode 阶段每生成一个 token 要读多少 KV cache，这决定了什么？**
-
+> **一个序列长度 4k、head dim 128 的 attention，标准实现和 FlashAttention 分别读写多少 HBM？[^q0] decode 阶段每生成一个 token 要读多少 KV cache，这决定了什么？[^q1]**
 
 ## 一、总览
 
@@ -39,7 +38,6 @@ updated: 2026-09-14
 | 九 | 后端生态与 vLLM 的选择 | FA2/3、FlashInfer、xFormers、cuDNN、Triton、SDPA 各自的位置与 vLLM 的选择逻辑 |
 | 十 | 本文小结 |  |
 | 十一 | 自测 | 5 道题 |
-
 
 ## 二、先算账：标准 attention 读写多少 HBM
 
@@ -120,7 +118,6 @@ flowchart LR
 ```
 
 红色是 HBM 上的张量：左边 N² 大小的 S、P 各进出 HBM 两次（128 MiB），右边只剩 Q、K、V、O 四个 N·d 大小的张量。
-
 
 ## 三、FlashAttention：分块 + online softmax + 不物化 S
 
@@ -227,7 +224,6 @@ FlashAttention 的 FLOPs 比标准实现**略多**：每个 tile 多了 $$B_r \t
 
 还有一件容易被忽略的事：$$N^2$$ 次 exp。Tensor Core 极快而 SFU（special function unit，做 exp、rsqrt 等）很慢。A100 每 SM 每周期能做 1024 次 dense BF16 FMA（Tensor Core），但 SFU 只有 16 次/周期。每个 $$S$$ 元素对应 $$4d = 512$$ FLOP = 256 次 FMA，用 Tensor Core 需要 $$256/1024 = 0.25$$ 周期；1 次 exp 需要 $$1/16 \approx 0.06$$ 周期——**exp 占到了 matmul 时间的 1/4**。H100 上 Tensor Core 快了 3 倍多而 SFU 没有同比例提升（Shah 等 2024 给的数字是约 989 TFLOPS matmul 对约 3.9 TFLOPS 特殊函数），这个比例进一步恶化到接近 1:2。所以从 FlashAttention-2 起，"减少非矩阵运算"和"让 exp 与 matmul 重叠"成了主要优化方向，而不是继续省 HBM 流量。
 
-
 ## 四、FlashAttention-2 与 FlashAttention-3
 
 ### 1. FlashAttention-2（Dao 2023）：并行化与 warp 分工
@@ -308,7 +304,6 @@ FlashAttention-2 的 CUDA 源码大致位于仓库的 `csrc/flash_attn/src/` 目
 6. 收尾：$$O / l$$，写 $$O$$ 与 $$L$$。
 
 后面第七节的 CUDA 骨架就是这个结构的浓缩。
-
 
 ## 五、推理的两种形态：prefill 与 decode
 
@@ -391,7 +386,6 @@ GQA 让 $$g$$ 个 query head 共享一个 KV head，在参数与 KV cache 层面
 ```
 
 做法是把共享同一 KV head 的 $$g$$ 个 query head 放进同一个 thread block（或同一个 tile）。对 decode，$$g$$ 个 $$1 \times d$$ 的 query 恰好可以 pack 成一个 $$g \times d$$ 的矩阵，作为 mma 的 M 维——原本 $$M = 1$$ 的 GEMV 变成 $$M = g$$ 的 GEMM，$$K_j$$ 载入一次被 $$g$$ 行复用，算术强度乘 $$g$$。vLLM 的 Triton unified attention 正是这么做的：`BLOCK_M = 16`（或 `num_queries_per_kv` 向上取到 2 的幂）、`BLOCK_Q = BLOCK_M // num_queries_per_kv`——一个 tile 的 16 行由 `BLOCK_Q` 个 token 位置 × $$g$$ 个 query head 拼成。对 prefill，FA2 里 GQA 的处理是 grid 仍按 query head 展开、kernel 内部用 `h_k = h_q / g` 映射到 KV head，K/V 的复用交给 L2；FA3 与 FlashInfer 则会显式把同一 KV head 的 query head 打包进同一 tile。
-
 
 ## 六、PagedAttention：分页 KV cache 的 kernel 侧
 
@@ -560,7 +554,6 @@ for (int i = threadIdx.x; i < HEAD_SIZE; i += NUM_THREADS) {
 
 顺带一句版本事实：在 v0.20.0 的 CUDA 路径上，V1 引擎的 attention 已经交给 FlashAttention、FlashInfer 或 Triton 后端；这套 `paged_attention_v1/v2` 主要还在 ROCm 等路径（`rocm_aiter_fa.py`）里使用。但它是理解"分页 KV 如何被 kernel 访问"最直接的教材。
 
-
 ## 七、变长 batch、因果掩码与 sliding window
 
 ### 1. cu_seqlens：无 padding 的 packed 布局
@@ -610,7 +603,6 @@ kernel 里一个 block 拿到序列编号 $$b$$ 后，用 `cu_seqlens[b]` 和 `c
 sliding window（Mistral 等模型用，窗口 $$W$$）让第 $$i$$ 行只看 $$[i - W + 1, i]$$。分块上就是**同时裁掉左边的块**：只遍历与 $$[i_{\min} - W + 1, i_{\max}]$$ 相交的 KV 块（$$i_{\min}, i_{\max}$$ 是本 $$Q$$ 块的行范围），块内再逐元素 mask 掉 $$j < i - W + 1$$ 的部分。vLLM 的 `compute_tile_loop_bounds` 里 `tile_start = max(0, first_allowed_key // TILE_SIZE)`、`tile_end = (last_allowed_key // TILE_SIZE) + 1` 就是这个裁剪；FA2 的 `window_size=(left, right)` 参数在 `n_block_min` 上做同样的事。上下文远长于 $$W$$ 时，每个 $$Q$$ 块只做 $$W / B_c$$ 次 tile 迭代，attention 成本从 $$O(N^2)$$ 降为 $$O(NW)$$。
 
 一个细节：window 裁剪后，一行的某个 tile 可能整行被 mask（全 $$-\infty$$），此时 $$m_{\text{new}}$$ 若仍是 $$-\infty$$ 会让 $$e^{S - m_{\text{new}}}$$ 变成 NaN。vLLM 的 `softmax_step` 里 `m_j = tl.where(m_j > -inf, m_j, 0.0)` 就是防这个。后面自己写的 kernel通过保证"每行访问的第一个 tile 至少有一个合法列"来规避，但在窗口场景下必须显式处理。
-
 
 ## 八、Triton 版 FlashAttention 与 CUDA 版的结构对照
 
@@ -967,7 +959,6 @@ __device__ void attn_1rowblock_warp(/* ... */) {
 
 标出几个复用点：(a) $$Q$$ 的 A fragment 全程常驻寄存器，这是 "外循环遍历 Q 块" 的直接后果；(b) 步骤 (4) 的 C→A fragment 复用是 FA2 能在寄存器内完成 $$S \to P \to PV$$ 的关键——`m16n8k16` 的累加器布局中每线程持有第 `lane/4` 行与第 `lane/4 + 8` 行的两对相邻元素，与 A 操作数布局中每线程持有的位置重合，只差一次 FP32→BF16 的 pack；(c) 行归约只需 `shfl_xor` 1 和 2 两步，因为 mma 布局里一行的 8 列分布在同一 quad 的 4 个 lane 上（"split Q" 让归约不出 warp）；(d) $$V$$ 需要转置载入（`ldmatrix.trans`），因为 $$PV$$ 的 B 操作数要求 k-major——这就是 FA3 在 FP8 下需要显式重排 $$V$$ 布局的原因（FP8 的 `ldmatrix` 没有对应的转置形式）。
 
-
 ## 九、后端生态与 vLLM 的选择
 
 到 2026 年 5 月，生产环境里的 attention kernel 主要来自以下几家：
@@ -1024,7 +1015,6 @@ flowchart TB
 
 vLLM v0.20.0 的选择逻辑在 `vllm/platforms/cuda.py`：用户可用 `--attention-backend`（或环境变量 `VLLM_ATTENTION_BACKEND`）显式指定；不指定时按设备能力给出优先级列表，逐个调用各后端类的 `validate_configuration` 检查 dtype、head size、block size、KV cache 量化等约束，取第一个通过的。sm_80/sm_90 上的默认顺序是 FLASH_ATTN → FLASHINFER → TRITON_ATTN → FLEX_ATTENTION；Blackwell（compute capability 10.x）上把 FLASHINFER 提到最前。FLASH_ATTN 后端内部再由 `fa_utils.get_flash_attn_version` 决定 FA 版本：sm_90 优先 FA3，其余用 FA2（ALiBi 等 FA3 不支持的特性会回退到 FA2）。
 
-
 ## 十、本文小结
 
 本篇把前七篇的工具用在了一个 kernel 上。回到核心问题：
@@ -1075,14 +1065,6 @@ FLASH_ATTN（sm_90 用 FA3，其余 FA2；vllm-flash-attn 加 block_table）
 
 方法论上，这一篇再次验证了系列的主线：**先数字节、再数 FLOPs、放到 Roofline 上看瓶颈在哪，再决定优化方向**。FlashAttention 的每一代都对应瓶颈的一次转移——从 HBM 流量（FA1）到并行度与 warp 同步（FA2）再到 SFU 与 Tensor Core 的重叠（FA3）；decode 的瓶颈从来都是带宽，所以 PagedAttention、split-KV、GQA 打包做的都是同一件事：让 KV 只读一次、让足够多的 SM 同时读。
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**标准 vs FlashAttention 的 HBM 流量**（$$N = 4096$$、$$d = 128$$、单 head BF16）：标准实现要物化 $$S = QK^T$$ 与 $$P = \text{softmax}(S)$$，两个 $$N^2$$ 矩阵各写一次读一次，至少 128 MiB，加上 $$Q, K, V, O$$ 共约 132 MiB；FLOPs $$4N^2 d = 8.6$$ GFLOP，算术强度约 62，在 A100 上 memory-bound（第二章）。FlashAttention 分块：$$Q$$ 读一次、$$O$$ 写一次各 1 MiB，$$K, V$$ 各被重读 $$N / B_r$$ 次（$$B_r = 128$$ 时 32 次），共约 66 MiB → 实际因 L2 更少；$$S$$、$$P$$ 只存在于 shared / 寄存器，靠 online softmax 的 $$(m, l)$$ 逐块累加、最后一次重缩放——流量降一个数量级，从 memory-bound 变成接近 compute-bound（第三章）。**decode 每 token 读多少 KV**：Llama-3-8B 每 token 128 KiB，上下文 $$s$$ 时每步读 $$128\ \text{KiB} \times s$$，每读一个 K/V 元素只做 $$g$$（GQA 组大小，4）次 FLOP，彻底 memory-bound（第五章）。**这决定了什么**：一步 decode 的时间下界 = （权重字节 + $$B \times s \times 128$$ KiB）/ 带宽——$$B \times s$$ 超过约 131k token 时 KV 的流量超过权重，此后 decode 时间随上下文线性涨、与模型大小无关；所以 decode attention kernel 的目标是带宽利用率（split-K 沿序列并行填满 SM），PagedAttention 的分页只改地址计算不改字节数，KV 量化与 GQA / MLA 才能减字节（第五、六章）。
-
-</details>
-
-
 ## 十一、自测
 
 1. $$N = 8192$$、$$d = 128$$、32 个 head、BF16：标准 attention 每层物化的 $$S$$ 多大？FlashAttention 把它放在哪里？
@@ -1125,7 +1107,9 @@ FLASH_ATTN（sm_90 用 FA3，其余 FA2；vllm-flash-attn 加 block_table）
 
    </details>
 
-
 ## 下一篇
 
 [量化与融合 kernel](/quantization-and-fused-kernels.html)
+
+[^q0]: $$N = 4096$$、$$d = 128$$、单 head BF16：标准实现要物化 $$S = QK^T$$ 与 $$P = \text{softmax}(S)$$，两个 $$N^2$$ 矩阵各写一次读一次，至少 128 MiB，加上 $$Q, K, V, O$$ 共约 **132 MiB**；FLOPs $$4N^2 d = 8.6$$ GFLOP，算术强度约 62，在 A100 上 memory-bound。FlashAttention 分块：$$Q$$ 读一次、$$O$$ 写一次各 1 MiB，$$K, V$$ 各被重读 $$N / B_r$$ 次（$$B_r = 128$$ 时 32 次），共约 **66 MiB**、实际因 L2 更少；$$S$$、$$P$$ 只存在于 shared / 寄存器，靠 online softmax 的 $$(m, l)$$ 逐块累加、最后一次重缩放——从 memory-bound 变成接近 compute-bound。详见[第二章](#二先算账标准-attention-读写多少-hbm)、[第三章](#三flashattention分块--online-softmax--不物化-s)。
+[^q1]: Llama-3-8B 每 token 的 KV 是 128 KiB，上下文 $$s$$ 时每步读 $$128\ \text{KiB} \times s$$，每读一个 K/V 元素只做 $$g$$（GQA 组大小，4）次 FLOP，彻底 memory-bound。这决定了：一步 decode 的时间下界 =（权重字节 + $$B \times s \times 128$$ KiB）/ 带宽——$$B \times s$$ 超过约 131k token 时 KV 流量超过权重，此后 decode 时间随上下文线性涨、与模型大小无关；所以 decode attention kernel 的目标是带宽利用率（split-K 沿序列并行填满 SM），PagedAttention 的分页只改地址计算不改字节数，KV 量化与 GQA / MLA 才能减字节。详见[第五章](#五推理的两种形态prefill-与-decode)、[第六章](#六pagedattention分页-kv-cache-的-kernel-侧)。

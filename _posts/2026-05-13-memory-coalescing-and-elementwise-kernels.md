@@ -28,8 +28,7 @@ AI 负载里除 GEMM 与 attention 之外的绝大多数算子——激活函数
 
 总纲给这一篇的核心问题是：
 
-> **一个 elementwise kernel 跑出了 90% 带宽，还有什么可优化的？**
-
+> **一个 elementwise kernel 跑出了 90% 带宽，还有什么可优化的？[^q0]**
 
 ## 一、总览
 
@@ -50,7 +49,6 @@ AI 负载里除 GEMM 与 attention 之外的绝大多数算子——激活函数
 | 八 | 实践：把 BF16 add 推到 90% | 理论下界、naive / 向量化 / 向量化 + grid-stride 三个版本、通用 2D stride 版本、`load_inline` 测试、读者应看到的量级 |
 | 九 | 本文小结 |  |
 | 十 | 自测 | 5 道题 |
-
 
 ## 二、一个 warp 的内存请求发生了什么
 
@@ -160,7 +158,6 @@ SoA  x[], y[], z[]            内存： x0 x1 x2 x3 … x31 | … （y、z 在�
 
 对只读数据，从 Volta 起 L1 与纹理缓存已经合并为同一块存储，用 `const T* __restrict__` 修饰的指针，编译器会生成 `ld.global.nc`（non-coherent，等价于 `__ldg`）加载，允许数据在 L1 中缓存且不必与其他 SM 的写入保持一致性。对 elementwise kernel 来说数据只读一次、L1 命中率为零，这条路径的收益不在缓存，而在于编译器得到"没有别名"的保证后可以自由重排加载与存储——把三条加载都提前发出、再统一计算和写回，这正是第四章要讨论的 ILP。
 
-
 ## 三、向量化访存
 
 ### 1. 为什么每线程 4 字节不够
@@ -240,7 +237,6 @@ n = 8·n_vec + tail    例：n = 21 → n_vec = 2，tail = 5
 ```
 
 `float4` 对 FP32 是 4 个元素/线程；`__nv_bfloat162` × 4 是 8 个元素/线程；INT8 用 `int4` 是 16 个元素/线程。**每线程处理 4–8 个元素**是 elementwise kernel 最常见的配置，ATen 的默认也在这个范围。
-
 
 ## 四、grid-stride loop 与占用率
 
@@ -331,7 +327,6 @@ block 大小本身对 elementwise kernel 影响不大，128 到 512 都常见。
 
 至此，把 elementwise kernel 写到带宽极限的三件事已经齐了：**合并（连续对齐）、向量化（16 B/线程）、足够的在飞请求（占用率 + ILP）**。第八章把它们落成代码，先解决另一个绕不开的问题——tensor 不连续怎么办。
 
-
 ## 五、非连续 Tensor：stride 与 broadcast
 
 ### 1. 把线性 index 变成多维 offset
@@ -372,7 +367,6 @@ x 转置 view，stride (1, 3)           off_x = 1·1 + 2·3 = 7        相邻线
 ### 2. TensorIterator 在 host 侧做了什么
 
 PyTorch 的 elementwise 算子并不直接把 sizes/strides 传给 kernel，而是先经过 `TensorIterator`。它在 host 侧完成：形状广播、dtype 推断与类型提升、把可以合并的维度合并（例如 `[m, d]` 两维连续就当作一维 `[m·d]`）、按 stride 重排维度让最内维是访问最密的、判断所有操作数是否连续并检查 32 位索引是否够用——然后把一个"已经整理好的迭代空间"交给 CUDA 端。这样 kernel 只需要处理"连续一维"和"带 OffsetCalculator 的一般情况"两种形态。本文不展开它，只需要知道下一章读到的 `iter.is_contiguous()`、`iter.strides(i)` 这些信息就来自这里。
-
 
 ## 六、读 ATen 的 elementwise 实现
 
@@ -668,7 +662,6 @@ AT_DISPATCH_FLOATING_TYPES_AND2(
 
 `opmath_type<scalar_t>` 对 Half/BFloat16 给出 `float`，对 float/double 给出自身——这正是"低精度存储、float 计算"约定的框架级实现。
 
-
 ## 七、融合：90% 之后
 
 ### 1. 三个 kernel 与一个 kernel
@@ -731,7 +724,6 @@ flowchart TB
 融合并非没有代价。融合后的 kernel 寄存器更多、模板实例更多，Inductor 需要为每一种算子组合生成并编译一个新 kernel；对手写 kernel 而言，每个融合模式都是一份要维护、要测试的代码。所以融合的优先级应该由 profile 决定：先看时间线上哪些 elementwise kernel 相邻且合计占比高，再决定融合哪一段。第十篇会回到这个方法论。
 
 这条边界也是本系列后面篇章的组织逻辑：reduction、GEMM、attention 之所以值得单独写 kernel，是因为它们的上限不再是"读一遍写一遍"，而有更多结构可以利用。
-
 
 ## 八、实践：把 BF16 add 推到 90%
 
@@ -1065,7 +1057,6 @@ strided, x.t()        远低于 10%              最内维 stride 4096，每元�
 
 这些因素合起来就是那道 90% 的墙。在它面前，继续调 block 大小、展开因子、grid 倍数，收益都在噪声范围内。此时应该做的事在第七章已经说过：融合，或者少做。
 
-
 ## 九、本文小结
 
 这一篇围绕一个理论下界（BF16 `add`：6 B/元素，$$n = 2^{28}$$ 时 0.81 ms）讨论了 elementwise kernel 的全部工程要点：
@@ -1109,14 +1100,6 @@ unrolled 每线程 4 元素；legacy elementwise_kernel<128, 2 或 4> + OffsetCa
 
 下一篇进入需要线程之间协作的 kernel。softmax、LayerNorm、RMSNorm 都要对一行做归约，而归约的结果要被同一行的所有元素使用——这需要 shared memory、warp shuffle 与 `__syncthreads()`，也需要 online softmax 把三遍读变成一遍。它们的理论下界仍然是"读一遍写一遍"，但实现的自由度和陷阱都比 elementwise 多得多。
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-先看那 10% 是不是能拿的：DRAM 可达带宽约为标称的 85–92%，90% 已经贴着物理上限，kernel 内部几乎没有余地（第二章）。真正的优化在两个方向。**一是确认没有隐藏的浪费**：合并访存是否 100%（warp 的 32 个地址落在最少的 32 B sector 里；AoS 布局、非 1 的最内维 stride、未对齐都会多付 sector）；是否向量化到 16 字节 / 线程（`float4` / `int4`，指令数降到 1/8）；在飞请求是否够——Little's law 要求 A100 约 1.2 MB 在飞、每 SM 至少约 22 个 warp 的 128-bit 加载（第三、四、五章）。ATen 的 `gpu_kernel` → `launch_vectorized_kernel` 已经把这些做了，所以它能到 90%（第七章）。**二是让 kernel 消失**：三个 elementwise 分开执行是每元素 16 B（各读各写），融合成一个是 8 B——这是 Inductor 融合全部收益的来源；90% 带宽之后，唯一的办法是减少总字节数，也就是把相邻的 elementwise 合进一个 kernel、或合进前后的 GEMM / reduction 的 epilogue（第八章）。
-
-</details>
-
-
 ## 十、自测
 
 1. warp 内 32 个线程各读一个 `float`，地址连续且 128 字节对齐——需要几个 32 B sector？改成 stride 为 2 个 float 呢？起始地址偏移 4 字节呢？
@@ -1159,7 +1142,8 @@ unrolled 每线程 4 元素；legacy elementwise_kernel<128, 2 或 4> + OffsetCa
 
    </details>
 
-
 ## 下一篇
 
 [共享内存与 reduction：softmax、LayerNorm 与 online softmax](/shared-memory-reduction-and-softmax.html)
+
+[^q0]: 先看那 10% 能不能拿：DRAM 可达带宽约为标称的 85–92%，90% 已经贴着物理上限，kernel 内部几乎没有余地（[第二章](#二一个-warp-的内存请求发生了什么)）。真正的优化在两个方向。**一是确认没有隐藏的浪费**：合并访存是否 100%（warp 的 32 个地址落在最少的 32 B sector 里；AoS 布局、非 1 的最内维 stride、未对齐都会多付 sector）；是否向量化到 16 字节 / 线程；在飞请求是否够——Little's law 要求 A100 约 1.2 MB 在飞（[第二](#二一个-warp-的内存请求发生了什么)至[五章](#五非连续-tensorstride-与-broadcast)）。ATen 的 `gpu_kernel` → `launch_vectorized_kernel` 已经把这些做了，所以它能到 90%（[第六章](#六读-aten-的-elementwise-实现)）。**二是让 kernel 消失**：三个 elementwise 分开执行是每元素 16 B，融合成一个是 8 B——90% 带宽之后唯一的办法是减少总字节数，把相邻的 elementwise 合进一个 kernel、或合进前后 GEMM / reduction 的 epilogue，这是 Inductor 融合全部收益的来源（[第七章](#七融合90-之后)）。

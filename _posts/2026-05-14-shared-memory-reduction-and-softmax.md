@@ -14,8 +14,7 @@ updated: 2026-09-14
 
 总纲给这一篇的核心问题是：
 
-> **一个 4096 维的 RMSNorm，读一次写一次，理论上是 memory-bound 的。为什么 naive 实现能慢 10 倍？shared memory 和 warp shuffle 各解决了哪部分？**
-
+> **一个 4096 维的 RMSNorm，读一次写一次，理论上是 memory-bound 的。为什么 naive 实现能慢 10 倍？[^q0] shared memory 和 warp shuffle 各解决了哪部分？[^q1]**
 
 ## 一、总览
 
@@ -42,7 +41,6 @@ updated: 2026-09-14
 | 十 | 实践：RMSNorm 与 online softmax | warp/block reduce 模板、RMSNorm kernel、online softmax kernel、对照测试与预期量级 |
 | 十一 | 本文小结 |  |
 | 十二 | 自测 | 5 道题 |
-
 
 ## 二、先算理论下界
 
@@ -92,7 +90,6 @@ $$
 - **shared memory bank conflict 或 `__syncthreads()` 太多**。用了 shared memory 但访问模式让 32 个线程撞到同一个 bank，或者 reduction 树的每一级都做一次 block 级同步——每次同步都让 block 里所有 warp 停下来等最慢的那个。
 
 这四个问题的解法分别是：让所有线程并行累加、用树形归约替代原子加、把两个阶段融合进一个 kernel、用 warp shuffle 替代 shared memory 归约的最后五级。下面从 shared memory 开始。
-
 
 ## 三、shared memory：block 内的公共草稿纸
 
@@ -290,7 +287,6 @@ XOR 是一个置换：对固定的 `r`，`c → c ^ r` 把 0..31 一一映射到
 
 reduction 本身很少碰到 bank conflict，因为它的访问模式是连续的。但 Harris 那篇经典幻灯片里的"交错寻址"版本正好是一个 stride 为 2 的幂的例子，下一章会看到。
 
-
 ## 四、reduction 的六个版本
 
 任务：一个 block 把 $$n$$ 个 float 加成一个数。这是 RMSNorm 的平方和、softmax 的指数和、LayerNorm 的均值的共同内核。下面六个版本对应 Harris（2007，"Optimizing Parallel Reduction in CUDA"）的思路，但用现代原语（`__shfl_*_sync`）重写。每一版都说清楚它去掉了什么。
@@ -482,7 +478,6 @@ v6    warp shfl × 2        1 (或 2)    32 float          几乎全部 shared �
 
 回到总纲的问题：**shared memory 解决的是"block 内 32 个 warp 的部分和怎么汇总"**——它是唯一能让不同 warp 交换数据的地方；**warp shuffle 消灭的是最后 5 级同步**——32 个 lane 之内的交换不需要栅栏也不需要 shared memory。两者组合成 v6，就是今天所有生产 kernel（PyTorch、vLLM、CUB）里 block reduction 的形状。
 
-
 ## 五、warp 级原语与原子操作
 
 ### 1. `__shfl_*_sync` 家族
@@ -529,7 +524,6 @@ __device__ float warp_sum_cg(float v) {
 
 因此规则是：**block 内用树形归约，不用原子；跨 block 汇总少量值（比如每个 block 一个部分和、总共几百个 block）可以用原子，争用低、非确定性可控；热点地址（成千上万个线程加同一个位置）坚决避免**。替代方案是两阶段：每 block 把部分和写到 `partial[blockIdx.x]`，再 launch 一个小 kernel 归约这几百个值；或者用"最后到达的 block 负责收尾"的 semaphore 模式——PyTorch `Reduce.cuh` 的 `global_reduce` 就是这样，第九章会看到。
 
-
 ## 六、一行一个 block，还是一行一个 warp
 
 RMSNorm、softmax、LayerNorm 都是**按行归约**：输入是 $$[R, d]$$，每行独立算一个（或两个）标量再作用回该行。这时有两种基本的线程组织：
@@ -560,7 +554,6 @@ grid = R 个 block                                          grid = R / warps_per
 grid 大小则由行数决定：$$R = \text{batch} \times \text{seq}$$。prefill 时 $$R$$ 是几千到几万，足以填满 108 个 SM；decode 时 $$R = \text{batch}$$，可能只有几十行——这时 block-per-row 只有几十个 block，GPU 大部分 SM 空闲，kernel 是 latency-bound 的，vLLM 的 `rms_norm` 在 `num_tokens < 256` 时把 block 放大到 1024 线程就是为了在行少时让每行的加载并行度更高。
 
 一个补充：**warp-per-row 时行的边界处理更简单**。行是按 warp 分配的，`row >= R` 的判断对整个 warp 一致，可以直接 `return`，不会破坏后面的 shuffle（shuffle 的 mask 是整 warp）。block-per-row 时 block 内不会有"越界行"，越界的是元素，用"贡献 0"处理。
-
 
 ## 七、softmax：safe、三遍、两遍、online
 
@@ -622,7 +615,6 @@ $$
 
 在 attention 里，softmax 的输出 $$P = \text{softmax}(QK^T / \sqrt{d})$$ 不是终点，而是要接着乘 $$V$$。FlashAttention（Dao 等 2022）把 online softmax 再推一步：不仅 $$l$$ 可以在 max 变化时用 $$e^{m - m_{\text{new}}}$$ 修正，累加中的输出 $$O = \sum_j e^{x_j - m} v_j$$ 也可以用同一个因子修正。于是 $$K$$、$$V$$ 按块流过 shared memory，每个块更新 $$(m, l, O)$$ 三元组，$$S$$ 和 $$P$$ 永远不需要完整地写出来——这是第八篇的主题，那里会给出完整推导；本篇只需要记住：**FlashAttention 的数学核心就是上面那两行 $$(m, l)$$ 的递推与合并公式**。
 
-
 ## 八、LayerNorm 与 RMSNorm
 
 ### 1. RMSNorm：均方在 FP32 累加
@@ -673,7 +665,6 @@ x = rmsnorm(h) * gamma    # 下一层的输入
 ```
 
 分开实现是两个 kernel：residual add 读 2 写 1（读 h、attn_out，写 h），RMSNorm 读 1 写 1（读 h，写 x），共**读 3 写 2**，每元素 10 字节。融合成一个 kernel：读 h 和 attn_out，相加后就地写回 h（residual 流需要保留更新后的值供下一层用），同时累加平方和，第二遍用 rstd 缩放写出 x——**读 2 写 2**，每元素 8 字节，省 20%，还少一次 launch。vLLM 的 `fused_add_rms_norm` 就是这个 kernel，接口上 `input` 被就地改写为 norm 输出、`residual` 被就地改写为相加结果，下面读它的源码。
-
 
 ## 九、读源码
 
@@ -876,7 +867,6 @@ flowchart TB
 ```
 
 读这三处源码可以看到同一个模式的三种规模：softmax 的 warp 版本是"一级"（只有 shuffle），block 版本和 vLLM 的 RMSNorm 是"两级"（shuffle + shared），`Reduce.cuh` 是"三级"（shuffle + shared + global semaphore）。
-
 
 ## 十、实践：RMSNorm 与 online softmax
 
@@ -1114,7 +1104,6 @@ BF16 的默认容差 rtol = 1.6e-2 对应约 2 个 BF16 ulp（BF16 尾数 8 位�
 
 作为参照，`torch.nn.functional.rms_norm` 和 vLLM 的 `rms_norm` 在同样形状上也处于同一区间——这个 kernel 没有太多花样，做对访存和归约之后，所有人写出来的都差不多。
 
-
 ## 十一、本文小结
 
 这一篇从 memory-bound 的 elementwise 走到了需要线程协作的 reduction。回顾要点：
@@ -1160,14 +1149,6 @@ reduction 是"先算一个整行的标量，再作用回每个元素"。下一�
 
 > **一个 4096×4096 的 BF16 GEMM 理论上只需要 0.44 ms（Tensor Core）或 7 ms（CUDA Core）。naive 实现为什么慢 50 倍？分块把访存量减少了多少？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**下界**：$$d = 4096$$ BF16、8192 行的 RMSNorm 读写各 64 MiB，A100 上约 67 µs，算术强度约 1 FLOP/byte，怎么写都是 memory-bound（第二章）。**naive 为什么慢 10 倍**：每行的均方要把 4096 个数加起来，一线程串行加或用原子加到同一地址会把并行度砍掉、把带宽晾着——归约的形态决定了实际访存模式与同步次数：交错寻址的树形归约 10 级、每级一次 `__syncthreads()` 与一轮 shared 读写，快的 warp 等慢的 warp，bank conflict 再串行化一部分（第三至六章）。**shared memory 解决哪部分**：block 内 32 个 warp 各自的部分和要汇总，shared 是 block 内线程交换数据的唯一场所——每个 warp 写一个数、一个 warp 读回 32 个数再归约，把跨 warp 的通信压到 32 个 float 与 1 次 sync（第七章）。**warp shuffle 解决哪部分**：warp 内 32 个 lane 的归约用 `__shfl_xor_sync` 在寄存器里 5 步完成，不碰 shared、不需要 sync，消灭最后 5 级同步（第八章）。两者叠加是“两级 warp shuffle”：sync 从 10 次到 1 次、shared 流量从 10 级树到 32 个 float。再进一步：$$d \le 1024$$ 时一行一个 warp、零 shared 零 sync；softmax 用 online 形式一遍拿到 $$(m, l)$$；fused residual + RMSNorm 把读 3 写 2 变成读 2 写 2（第九至十一章）。
-
-</details>
-
-
 ## 十二、自测
 
 1. shared memory 32 个 bank、每 bank 4 字节。`tile[threadIdx.x][k]`（`tile` 是 `float[32][32]`）的一次 warp 读有几路 bank conflict？怎么消除？
@@ -1210,7 +1191,9 @@ reduction 是"先算一个整行的标量，再作用回每个元素"。下一�
 
    </details>
 
-
 ## 下一篇
 
 [GEMM：从 naive 到分块](/gemm-from-naive-to-tiled.html)
+
+[^q0]: 下界：$$d = 4096$$ BF16、8192 行的 RMSNorm 读写各 64 MiB，A100 上约 67 µs，算术强度约 1 FLOP/byte，怎么写都是 memory-bound（[第二章](#二先算理论下界)）。naive 慢在**归约的形态**而不是字节数：每行的均方要把 4096 个数加起来，一线程串行加、或用原子加到同一地址，把并行度砍掉、把带宽晾着；交错寻址的树形归约要 10 级、每级一次 `__syncthreads()` 与一轮 shared 读写，快的 warp 等慢的 warp，bank conflict 再串行化一部分（[第三章](#三shared-memoryblock-内的公共草稿纸)、[第四章](#四reduction-的六个版本)）。
+[^q1]: **shared memory** 解决跨 warp 的汇总：block 内 32 个 warp 各自的部分和要合并，shared 是 block 内线程交换数据的唯一场所——每个 warp 写一个数、一个 warp 读回 32 个数再归约，把跨 warp 的通信压到 32 个 float 与 1 次 sync（[第三章](#三shared-memoryblock-内的公共草稿纸)）。**warp shuffle** 解决 warp 内的归约：32 个 lane 用 `__shfl_xor_sync` 在寄存器里 5 步完成，不碰 shared、不需要 sync（[第五章](#五warp-级原语与原子操作)）。两者叠加是「两级 warp shuffle」：sync 从 10 次到 1 次。再进一步：$$d \le 1024$$ 时一行一个 warp、零 shared 零 sync（[第六章](#六一行一个-block还是一行一个-warp)）；softmax 用 online 形式一遍拿到 $$(m, l)$$（[第七章](#七softmaxsafe三遍两遍online)）；fused residual + RMSNorm 把读 3 写 2 变成读 2 写 2（[第八章](#八layernorm-与-rmsnorm)）。

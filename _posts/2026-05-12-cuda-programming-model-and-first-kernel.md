@@ -18,8 +18,7 @@ $$
 
 这一篇写这个 kernel。上一篇从硬件一侧讲了 SM、warp 和 block，并在末尾给出了硬件层级与 grid / block / thread 的对应图；本篇从这些名字出发，把 CUDA 编程模型讲清楚：代码在哪里运行、线程如何组织和编号、内存在哪里、什么时候真正开始执行、错误什么时候报出来、编译器把源码变成了什么。这些是后面八篇每一段代码都依赖的基础。然后回答总纲提出的核心问题：
 
-> **vector add 的 kernel 只有五行，它跑出了理论带宽的多少？没跑满的部分去了哪里？**
-
+> **vector add 的 kernel 只有五行，它跑出了理论带宽的多少？[^q0] 没跑满的部分去了哪里？[^q1]**
 
 ## 一、总览
 
@@ -43,7 +42,6 @@ $$
 | 九 | 第一个 kernel 的测量 | 先算理论、L2 flush 为什么必要、完整 C++ 程序与 bench 脚手架、PyTorch 侧等价脚手架、结果应该落在哪里 |
 | 十 | 本文小结 | 要点回顾与速查表 |
 | 十一 | 自测 | 5 道题 |
-
 
 ## 二、host、device 与 kernel
 
@@ -113,7 +111,6 @@ vector_add_f32<<<grid, block>>>(d_a, d_b, d_c, n);
 ```
 
 `<<<grid, block, sharedMemBytes, stream>>>` 四个参数里后两个可省略。`grid` 是要启动多少个 block，`block` 是每个 block 多少线程。这两个数怎么定，是下一节的内容。
-
 
 ## 三、线程层级：grid、block、thread
 
@@ -244,7 +241,6 @@ block (8, 8)       linear = x + 8y → 64 线程 = 2 个 warp，每个 warp 覆�
 
 同一个 block 内的线程可以通过 shared memory 通信、用 `__syncthreads()` 同步；不同 block 之间没有这两种手段（除了原子操作与 Hopper 的 cluster）。block 一旦开始执行就不会迁移到别的 SM，且 SM 会等到 block 内所有 warp 结束才释放它占的资源。
 
-
 ## 四、设备内存与数据搬运
 
 ### 1. `cudaMalloc`、`cudaMemcpy`、`cudaFree`
@@ -268,7 +264,6 @@ CUDA_CHECK(cudaFree(d_a));
 PyTorch 的每个 CUDA Tensor 的 Storage 背后并不是一次 `cudaMalloc`。原因一句话：**`cudaMalloc` 和 `cudaFree` 慢（微秒到毫秒级），并且 `cudaFree` 隐含一次设备同步**——它要等 GPU 上所有正在运行的工作结束，才能安全地回收这块内存。一个训练步里有成千次 Tensor 的创建与销毁，每次都同步会把 CPU-GPU 流水彻底打断。
 
 所以 PyTorch 用 **Caching Allocator**（`c10/cuda/CUDACachingAllocator.cpp`，v2.10.0）：向驱动申请大块显存后自己切分和复用，Tensor 释放时只是把块还回缓存池而不调 `cudaFree`。这也是为什么 `del` 一个 Tensor 后 `nvidia-smi` 显示的显存占用不会下降。本系列不展开分配器的机制；kernel 开发者需要知道的只是：从 PyTorch 拿到的 `data_ptr()` 是分配器切出来的一段地址，它的对齐通常是 512 字节（分配器的最小粒度），可以放心用于向量化访存。
-
 
 ## 五、stream、event 与异步语义
 
@@ -382,7 +377,6 @@ event 还可以用于 stream 之间建立依赖（`cudaStreamWaitEvent`），本
 
 PyTorch 里 `.item()`、`.cpu()`、打印一个 CUDA Tensor 都隐含这种同步；这也是 `torch.cuda.set_sync_debug_mode` 存在的原因。kernel 开发者的原则：**只在 benchmark 与调试代码里同步，正式路径里让 stream 自己排序。**
 
-
 ## 六、错误处理
 
 ### 1. 同步错误与异步错误
@@ -438,7 +432,6 @@ launch 之后的习惯写法是 `CUDA_CHECK(cudaGetLastError());`。PyTorch 里�
 ### 3. `compute-sanitizer`
 
 一句话：`compute-sanitizer ./vector_add` 会在 kernel 里每次越界访问、未初始化读、竞争条件（`--tool racecheck`）处精确报出线程坐标与源码行（需要 `-lineinfo`）。它比"等到下一次同步点看到一个 illegal address"快一个数量级，写新 kernel 时先过一遍是划算的。
-
 
 ## 七、编译：nvcc 做了什么
 
@@ -546,7 +539,6 @@ ptxas info    : Used 16 registers, 380 bytes cmem[0]
 nvcc -O3 -arch=sm_80 -lineinfo --ptxas-options=-v -o vector_add vector_add.cu
 ```
 
-
 ## 八、warp 的执行方式
 
 ### 1. 一条指令、32 个线程、一个 mask
@@ -621,7 +613,6 @@ if (i < n) { v = __shfl_down_sync(mask, v, 1); }
 `__activemask()` 返回"此刻哪些 lane 恰好活跃"，看起来像是 mask 的现成答案，但它**不是**同步点：独立线程调度下，两个本应一起到达的 lane 可能一先一后，`__activemask()` 只报告先到的那些。用 `__ballot_sync` 在一个明确的会合点算 mask 才是正确做法。
 
 对本篇的 vector add 这一切都用不上——它没有线程间通信。但第四篇的 warp shuffle reduction 会立刻用到。
-
 
 ## 九、第一个 kernel 的测量
 
@@ -917,7 +908,6 @@ if __name__ == "__main__":
 
 回到核心问题：**vector add 的五行 kernel 跑出了理论带宽的 80–90%，没跑满的部分主要是 DRAM 本身的物理开销（不可消除）、加上每线程一个元素造成的访存并发不足（下一篇消除）。** 一个只有五行的 kernel 能到这个水平，是因为它的访存模式恰好是理想的：warp 内 32 个线程读 32 个相邻的 float，正好是 128 字节一条 cache line。下一篇会说明这个"恰好"背后的规则，以及打破它的代价。
 
-
 ## 十、本文小结
 
 ### 1. 要点回顾
@@ -980,14 +970,6 @@ FLOPs                 0.27 GFLOP → 14 µs @ 19.5 TFLOPS   与访存差两个�
 差距来源              可达带宽 > 每线程工作量太小 > launch/尾部 > SM 填充
 ```
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**跑出多少**：先算下界——$$n = 2^{28}$$ 个 float 的 `c = a + b` 读 2 写 1 共 3 GiB，A100 2.0 TB/s 下约 1.6 ms；五行 kernel 实测通常 1.7–2.0 ms，即理论带宽的 80–92%（第九章）。**没跑满的部分去了哪里**：DRAM 的物理开销（刷新、行切换、读写转向）让可达带宽只有标称的 85–92%，这一部分任何 kernel 都拿不到；launch 延迟与尾部——最后一波 block 填不满 132 个 SM；SM 填充不足——block 太小或每线程只搬 4 字节，在飞的请求不够多，带宽没被压满；以及计时本身——用 CPU 时钟量一个异步 launch 量到的是提交时间，必须用 event（第五、九章）。要接近 90% 以上：每线程搬 16 字节（`float4`）、grid-stride 摊薄固定开销、block 取 128–256——下一篇的内容。这个实验建立的习惯是：**先算下界、再测、差距逐项归因**。
-
-</details>
-
-
 ## 十一、自测
 
 1. `n = 10^7`、block 256：grid 该取多少？漏掉 `if (i < n)` 会怎样？
@@ -1030,7 +1012,9 @@ FLOPs                 0.27 GFLOP → 14 µs @ 19.5 TFLOPS   与访存差两个�
 
    </details>
 
-
 ## 下一篇
 
 [访存合并与 elementwise kernel](/memory-coalescing-and-elementwise-kernels.html)
+
+[^q0]: 先算下界：$$n = 2^{28}$$ 个 float 的 `c = a + b` 读 2 写 1 共 3 GiB，A100 2.0 TB/s 下约 1.6 ms；五行 kernel 实测通常 1.7–2.0 ms，即理论带宽的 **80–92%**。详见[第九章](#九第一个-kernel-的测量)。
+[^q1]: 四处：DRAM 的物理开销（刷新、行切换、读写转向）让可达带宽只有标称的 85–92%，任何 kernel 都拿不到这部分；launch 延迟与尾部——最后一波 block 填不满 132 个 SM；SM 填充不足——每线程只搬 4 字节，在飞的请求不够多；以及计时本身——用 CPU 时钟量一个异步 launch 量到的是提交时间，必须用 event。要接近 90% 以上：每线程搬 16 字节（`float4`）、grid-stride 摊薄固定开销、block 取 128–256，下一篇的内容。详见[第五章](#五streamevent-与异步语义)、[第九章](#九第一个-kernel-的测量)。

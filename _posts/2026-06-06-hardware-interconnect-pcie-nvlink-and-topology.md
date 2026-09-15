@@ -16,12 +16,11 @@ updated: 2026-09-14
 
 总纲给本篇的核心问题是：
 
-> **`nvidia-smi topo -m` 里 GPU0 到 GPU1 是 `NV12`、到 NIC0 是 `PIX`、到 NIC4 是 `SYS`。这三个词各自意味着什么带宽和什么路径？为什么 NCCL 会为 GPU0 选 NIC0 而不是 NIC4？**
+> **`nvidia-smi topo -m` 里 GPU0 到 GPU1 是 `NV12`、到 NIC0 是 `PIX`、到 NIC4 是 `SYS`。这三个词各自意味着什么带宽和什么路径？[^q0] 为什么 NCCL 会为 GPU0 选 NIC0 而不是 NIC4？[^q1]**
 
 回答它需要三块知识：PCIe 树的结构（root complex、switch、P2P 事务，第二章）、NVLink / NVSwitch 的带宽（第三章）、网卡与 NUMA 的归属（第四、六章）。第五章把它们汇总成读矩阵的方法并正面回答这个问题。之后第七章讲主机内存在路径上的位置，第八章从单机扩到集群（fat-tree、rail），第九章讲用哪些工具把每段链路的实际带宽测出来，填回代价模型。
 
 依照系列惯例，本文的性能数字有三种口径：**理论值**（由 lane 数、编码、频率算出）、**标称值**（厂商公开的规格）、**"通常能达到"的区间**（社区与文档中反复出现的经验范围）。本文没有实测数据；读者在自己机器上用第九章的工具测出的数字应当落在给出的区间里，落不进去就是排障的起点。所有带宽数字都会注明"单向"还是"双向合计"，这两者相差一倍，混用是这一层最常见的错误。
-
 
 ## 一、总览：一条路径上的三种速度
 
@@ -92,7 +91,6 @@ updated: 2026-09-14
 | 八 | 集群拓扑 | fat-tree 与超额订阅；rail-optimized；对调度的意义 |
 | 九 | 测一测 | nvbandwidth、p2pBandwidthLatencyTest、`ib_write_bw` 各测哪一段；数字该长什么样 |
 | 十 | 小结 | 要点、检查项、源码位置、comm-probe 的 `topo_map.py` |
-
 
 ## 二、PCIe：lane、代际、root complex 与 P2P
 
@@ -225,7 +223,6 @@ NCCLCHECK(ncclTopoConnectNodes(node, parent, LINK_PCI, width*speed/80.0));
 
 `width*speed/80` 对 PCIe 3.0 x16 是 $$16 \times 60 / 80 = 12$$ GB/s，4.0 x16 是 24 GB/s，5.0 x16 是 48 GB/s——恰好是理论值 16/32/64 的 75%。`src/graph/topo.h` 里也定义了 `#define PCI_BW 12.0  // PCI Gen3 x16` 作为默认值。这告诉我们两件事：NCCL 假设 PCIe 能达到理论值的四分之三；它对 PCIe 的估算只用来**比较路径**和**搜索 ring/tree**（第四篇），不是性能承诺。同一个文件里跨 CPU 的互联带宽按 CPU 型号取常量：`BDW_QPI_BW 6.0`、`SKL_QPI_BW 10.0`、`SRP_QPI_BW 22.0`、`ERP_QPI_BW 40.0`（Intel 各代）、`AMD_BW 16.0`、`ARM_BW 6.0`——这就是第一章表里"跨 socket 路径 NCCL 按 6–40 GB/s 估算"的来源。
 
-
 ## 三、NVLink 与 NVSwitch
 
 ### 1. 每代 NVLink 的链路数与带宽
@@ -318,7 +315,6 @@ NVSwitch 把这变成了交换网络。每张 GPU 的所有链路全部接到 NV
 
 `ncclTopoNVLinkBw(cudaCompCap)` 按算力版本选其中一个，`src/graph/topo.cc` 的 `ncclTopoAddNvLinks` 用 `count * nvlBw` 作为两张 GPU（或 GPU 与 NVSwitch）之间 NVLink 边的带宽。A100（SM80）12 条 × 20 = 240 GB/s，是理论单向 300 GB/s 的 80%；H100（SM90）18 × 20.6 ≈ 371 GB/s，是 450 的 82%；Blackwell（SM100）18 × 40.1 ≈ 722 GB/s，是 900 的 80%。这组"打 8 折"的数就是 NCCL 认为 NVLink 上**能达到**的带宽，也是第九章用 nvbandwidth 测出来的数字应该接近的水平。
 
-
 ## 四、网卡与网络：InfiniBand、RoCE 与 8 卡 8 网卡
 
 ### 1. InfiniBand 的代际与端口速率
@@ -372,7 +368,6 @@ RoCE v2（RDMA over Converged Ethernet）把 IB 的传输层原封不动地封�
 ### 4. 网卡在延迟账上的位置
 
 网卡路径的 α 也比 NVLink 大。一次 RDMA WRITE 从发起到对端可见，经过：发送方 GPU 数据在显存里就位 → CPU proxy 线程往网卡的发送队列写 Work Request（用户态，几百纳秒）→ 网卡 DMA 从显存读数据（PCIe 一次往返，约 1 µs）→ 网络传输与交换机转发（每跳几百纳秒，两层 fat-tree 三跳）→ 对端网卡 DMA 写入显存 → 完成通知回到 proxy 线程。端到端 1.5–3 µs（非实测，`ib_write_lat` 在两台直连机器上通常给出 1–2 µs 的数字）。而 NVLink 一跳不到 1 µs 且无 CPU 参与。跨节点 ring 每一步的 α 因此至少多几微秒，加上 proxy 线程的轮询周期和调度抖动，实际每步 5–10 µs 是常见的量级。64 KB 的 all_reduce 在 8 卡 NVLink 上可能 15–20 µs 完成，在 2 机 16 卡 IB 上通常要 50–100 µs——这两个数的差别几乎全是 α，与带宽无关。
-
 
 ## 五、读拓扑：`nvidia-smi topo -m`、`lspci -tv` 与 `topo -mp`
 
@@ -515,7 +510,6 @@ NCCL 内部对路径的分类与 `nvidia-smi` 几乎一一对应，定义在 `sr
 
 这两个变量在第四篇和第六篇还会出现；这里只需记住：**它们的取值就是 `nvidia-smi topo -m` 里的等级词，默认边界是 `PXB`，即"不跨 CPU"**。
 
-
 ## 六、NUMA 与亲和
 
 ### 1. socket、内存节点与 PCIe 设备的归属
@@ -579,7 +573,6 @@ proxy 线程的亲和另有一个入口：`src/proxy.cc` 里 `ncclGetEnv("NCCL_P
 
 排障时看 `NCCL_DEBUG=INFO` 里的这两行（`Affinity for GPU` 与 `[Proxy Service] ... CPU core`），对照 `nvidia-smi topo -m` 的 CPU Affinity 列，三者一致才算亲和正确。
 
-
 ## 七、主机内存在路径上的位置
 
 ### 1. pinned memory：DMA 的前提
@@ -619,7 +612,6 @@ flowchart TB
 绕过主机内存的两个机制是 GPUDirect P2P（节点内 NVLink 或 PCIe 直接访问对端显存）和 GPUDirect RDMA（网卡直接 DMA 显存），它们的共同条件是**路径不经过 CPU 的 root complex 或至少不跨 socket**。带宽账：绕过后节点内走 NVLink 是几百 GB/s 对经主机内存的十几到几十 GB/s；节点间 GDR 让网卡直读显存，PCIe 一次通过，可以跑满 50 GB/s 的 NDR，不绕过时受 PCIe 双次传输和内存带宽限制，通常只能到网卡速率的一半到三分之二（非实测，量级）。延迟账：每多一次经主机内存的拷贝多 5–10 µs（DMA 启动 + 完成通知 + proxy 线程调度），对几十 KB 的小消息这就是总时间的翻倍。
 
 对第三章的一个补充：NVLink 路径上没有任何主机内存参与，这也是它 α 小的原因之一。
-
 
 ## 八、集群级拓扑：fat-tree 与 rail-optimized
 
@@ -697,7 +689,6 @@ NCCL 对此有明确的配合。当一个 GPU 需要发给的目标 GPU 不在�
 - **一个任务的节点尽量在同一组 leaf 下**（rail-optimized 网络里即同一组 rail switch），跨 pod 或跨 spine 组的分配让 β 打折且不稳定；Slurm 的拓扑感知调度（`topology.conf`）和 Kubernetes 的拓扑亲和就是为此。
 - **一个任务尽量整机分配（8 卡）**，而不是 4 卡 + 4 卡拼在两台机器上。半台机器意味着节点内 NVLink 只有一半参与，节点间流量翻倍，而且与另一个任务共享同一台机器的网卡与 PCIe。
 - **GPU–NIC 映射必须一致**：rail-optimized 依赖"每台机器的 GPU i 用 NIC i、NIC i 接 leaf i"，一台机器的网卡插错了 PCIe 槽位（NIC4 挂到了 GPU0 的 switch 下）或者线接错了 leaf，这台机器上的所有 rail 流量都要绕 spine，表现为多机 nccl-tests 里它参与的任务总是慢一点——第九章的工具能把它抓出来。
-
 
 ## 九、测一测：每段链路的实际带宽
 
@@ -792,7 +783,6 @@ GDR 路径          = 网卡速率          接近网卡速率        topo -m �
 ```
 
 这张表填上你自己机器的第三列，就是这台机器的"物理上限档案"。之后任何 nccl-tests 或训练里的通信数字，都先与它比，再谈算法和参数。
-
 
 ## 十、本文小结
 
@@ -980,14 +970,6 @@ if __name__ == "__main__":
 
 > **一段显存里的数据要发到另一台机器的显存，走 TCP、走 RDMA 不开 GPUDirect、走 RDMA 开 GPUDirect，分别经过几次拷贝、经过哪些 PCIe 链路？各自的带宽上限是多少？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**`NV12`**：GPU0 与 GPU1 之间有 12 条 NVLink 链路（A100 的全部 12 条，经 NVSwitch 任意两卡都是 12），单向约 300 GB/s，不经 PCIe、不经 CPU，节点内 $$\beta$$ 的上限。**`PIX`**：GPU0 与 NIC0 挂在同一个 PCIe switch 下，P2P 流量在 switch 内转发，一跳到达，带宽是 PCIe x16 单向（4.0 约 32 GB/s、可达 80–90%），GPUDirect RDMA 可用。**`SYS`**：GPU0 到 NIC4 要穿过 PCIe root complex 并跨 socket 走 UPI，带宽打折（NCCL 按 6–40 GB/s 估）、延迟高，且 P2P 可能不被支持——NCCL 默认 `NCCL_NET_GDR_LEVEL=PXB`，跨 root complex 的路径不开 GDR，数据要经主机内存中转（第二至五章）。**为什么选 NIC0**：NCCL 初始化时从 `/sys` 与 NVML 探测出这张 PCIe 树与 NVLink 图，为每个 GPU 计算到每张网卡的路径类型，取距离最近（类型最好）且带宽最大的——GPU0 → NIC0 是 `PIX`，一跳、全速、能开 GDR；→ NIC4 是 `SYS`，最差。8 卡配 8 网卡、每张 GPU 与自己的网卡同 switch 就是为了让每个 GPU 都有一条 `PIX` 路径，8 张网卡并行把节点间带宽用满；rail-optimized 组网再让同编号 GPU 的流量在同一台 leaf 下一跳完成（第六、八章）。`nvidia-smi topo -m` 的六个等级与 NCCL `topo.h` 的 `PATH_*` 一一对应。
-
-</details>
-
-
 ## 十一、自测
 
 1. A100 NVLink 单向 300 GB/s、PCIe 4.0 x16 单向 32 GB/s、HDR 网卡 25 GB/s：节点内 8 卡 all_reduce 与跨节点各由什么限制？两者差多少倍？
@@ -1030,7 +1012,9 @@ if __name__ == "__main__":
 
    </details>
 
-
 ## 下一篇
 
 [RDMA 与 GPUDirect：绕过 CPU 和主机内存的数据通路](/rdma-and-gpudirect.html)
+
+[^q0]: **`NV12`**：GPU0 与 GPU1 之间有 12 条 NVLink 链路（A100 经 NVSwitch 任意两卡都是 12），单向约 300 GB/s，不经 PCIe、不经 CPU，节点内 $$\beta$$ 的上限（[第三章](#三nvlink-与-nvswitch)）。**`PIX`**：GPU0 与 NIC0 挂在同一个 PCIe switch 下，P2P 流量在 switch 内转发、一跳到达，带宽是 PCIe x16 单向（4.0 约 32 GB/s，可达 80–90%），GPUDirect RDMA 可用（[第二章](#二pcielane代际root-complex-与-p2p)）。**`SYS`**：GPU0 到 NIC4 要穿过 PCIe root complex 并跨 socket 走 UPI，带宽打折（NCCL 按 6–40 GB/s 估）、延迟高，且 P2P 可能不被支持——NCCL 默认 `NCCL_NET_GDR_LEVEL=PXB`，跨 root complex 的路径不开 GDR，数据要经主机内存中转（[第五](#五读拓扑nvidia-smi-topo--mlspci--tv-与-topo--mp)至[七章](#七主机内存在路径上的位置)）。
+[^q1]: NCCL 初始化时从 `/sys` 与 NVML 探测出这张 PCIe 树与 NVLink 图，为每个 GPU 计算到每张网卡的路径类型，取距离最近（类型最好）且带宽最大的——GPU0 → NIC0 是 `PIX`，一跳、全速、能开 GDR；→ NIC4 是 `SYS`，最差。8 卡配 8 网卡、每张 GPU 与自己的网卡同 switch 就是为了让每个 GPU 都有一条 `PIX` 路径，8 张网卡并行把节点间带宽用满；rail-optimized 组网再让同编号 GPU 的流量在同一台 leaf 下一跳完成。详见[第四章](#四网卡与网络infinibandroce-与-8-卡-8-网卡)、[第八章](#八集群级拓扑fat-tree-与-rail-optimized)。

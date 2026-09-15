@@ -14,8 +14,7 @@ GEMM 是这个系列的转折点。一个 4096×4096×4096 的矩阵乘法有 13
 
 这一篇要回答总纲提出的问题：
 
-> **一个 4096³ 的 FP32 GEMM，naive 实现要读多少字节？128×128 分块后要读多少？寄存器分块再压多少？每一步的算术强度是多少，对应 Roofline 上的哪个位置？**
-
+> **一个 4096³ 的 FP32 GEMM，naive 实现要读多少字节？[^q0] 128×128 分块后要读多少？[^q1] 寄存器分块再压多少？[^q2] 每一步的算术强度是多少，对应 Roofline 上的哪个位置？[^q3]**
 
 ## 一、总览
 
@@ -70,7 +69,6 @@ flowchart TB
 | 十一 | 实践：接到 PyTorch | `load_inline` 编译四个 kernel、与 `torch.matmul` 对照、TFLOPS 与占峰值百分比 |
 | 十二 | 本文小结 |  |
 | 十三 | 自测 | 5 道题 |
-
 
 ## 二、理论：4096³ SGEMM 应该多快
 
@@ -151,7 +149,6 @@ void gemm_internal_cublas<float>(CUDABLAS_GEMM_ARGTYPES(float)) {
 
 有了 7.0 ms 的理论时间和 cuBLAS 的位置，下面六版 kernel 每一版都可以问同一个问题：它离 7.0 ms 差多少，差在哪。
 
-
 ## 三、v1：naive——每线程一个输出
 
 ### 1. 代码
@@ -231,7 +228,6 @@ $$
 L1 的命中率并不高（$$B$$ 是 64 MiB 的流式访问，一个 SM 上的 block 之间没有同步，读同一个 $$k$$ 行的时机对不上），大量请求会落到 L2。A100 的 L2 带宽约为 HBM 的两三倍（数量级），就算全部命中 L2，343 GB 也要几十毫秒，已经是理论时间的 5–10 倍。再叠加两个因素：每条 FFMA 前面有两条依赖它的 load，每个线程只有一条累加链、没有指令级并行，延迟只能靠 warp 数量掩盖；而指令流里 FFMA 只占大约四分之一，其余是 load 和地址计算。三个因素叠在一起，v1 通常只能达到 FP32 峰值的 1–3%，即 200–700 ms 量级。
 
 这一版的教训不是"cache 没用"，而是：**cache 只能减少 HBM 流量，减不掉指令数和 L1/L2 的请求数**。要让 FMA 单元忙起来，必须让每个操作数被读进来之后**在寄存器或 shared memory 里被复用很多次**。这就是分块。
-
 
 ## 四、v2：shared memory 分块
 
@@ -360,7 +356,6 @@ $$
 再加上指令发射（每 3 条指令只有 1 条是 FFMA，每个 warp 调度器每周期只发一条）和两次同步的开销，v2 通常落在 FP32 峰值的 10–20%。它把 HBM 流量从 512 GiB 砍到 16 GiB，性能却只提高了几倍——瓶颈已经从 L2 挪到了 shared memory 和指令发射，Roofline 的"内存"轴要换成 shared memory 带宽重新画一次。
 
 结论是清楚的：**必须让每次从 shared 读进来的数在寄存器里被复用多次**。这又是同一个原理——把"最内层缓存"从 shared memory 再下移一层到寄存器。
-
 
 ## 五、v3：寄存器分块（含 v4 的加载优化）
 
@@ -621,7 +616,6 @@ sgemm_v3_regtile(int M, int N, int K,
 
 对 HBM：32 FLOP/byte，跨过 ridge，compute-bound。对 shared：2 FLOP/byte，shared 带宽有 4 倍以上余量。指令流：FFMA 占 90% 以上。占用率 25%，靠 ILP 而不是 TLP 掩盖延迟。剩下最明显的浪费是：每个 tile 的加载与计算是串行的——加载时 FMA 单元空转，计算时加载单元空转，中间还有两次 `__syncthreads()`。这类实现通常能到 FP32 峰值的 40–60%（没有 float4 与转置时）到 55–70%（有了本节的加载优化）。把加载藏到计算后面，是 v5。
 
-
 ## 六、v5：双缓冲与软件流水
 
 ### 1. Ampere 之前的写法：寄存器预取
@@ -834,7 +828,6 @@ sgemm_v5_cp_async(int M, int N, int K,
 
 v5 相对 v3 没有改变任何算术强度——对 HBM 仍是 32 FLOP/byte，对 shared 仍是 2 FLOP/byte。它改变的是**时间轴上的重叠**：加载不再占用 FMA 单元的空档，同步从每 tile 两次降到一次。这类实现通常能到 FP32 峰值的 70–80%，也就是 cuBLAS SGEMM 的 80–90%。再往上，就要动更精细的东西了（第八节）。
 
-
 ## 七、v6：边界处理
 
 前面五版都假设 $$M$$、$$N$$、$$K$$ 是 tile 的整数倍。真实形状不是这样：Llama-3-8B 的 $$d_{ff} = 14336 = 112 \times 128$$ 还好，但 batch·seq 那一维几乎从来不是 128 的倍数，$$K$$ 也未必是 $$BK$$ 的倍数。三个维度分别处理，本质上都是把矩阵"虚拟地"补齐到 tile 的整数倍：
@@ -865,7 +858,6 @@ v5 相对 v3 没有改变任何算术强度——对 HBM 仍是 32 FLOP/byte，�
 **host 侧 padding** 是另一种选择：把矩阵 pad 到 tile 的整数倍，kernel 不带任何边界分支。它多出一次拷贝和额外显存，但 kernel 更快也更简单，量化 GEMM 里常见（权重可以离线 pad 一次）。
 
 边界处理对性能的影响主要是两点：一是边界 block 里的谓词分支让 warp 部分空转，对 4096 这种大形状影响很小（只有最后一行/列的 block 受影响），对小形状影响大；二是模板化——CUTLASS 的做法是为"整除"和"不整除"分别实例化 kernel，前者完全没有边界检查。本文的四个 kernel 为了篇幅只给整除版本，第十篇会在测试框架里覆盖非整除形状。
-
 
 ## 八、tile 大小的三角关系与 wave quantization
 
@@ -918,7 +910,6 @@ $$
 
 前 4 波满载，第 5 波只有 $$0.74 \times 216 = 160$$ 个 block，SM 有 26% 在空转。如果每个 block 的时间相同，整体效率是 $$4.74 / 5 = 94.8\%$$，损失 5%。这叫 wave quantization（波次量化）。缓解办法有：换一个让 block 数接近 216 整数倍的 tile 尺寸（比如 128×256 → 512 个 block，每 SM 1 个 → 4.74 波，没有改善；256×128 同理；64×128 → 2048 个 block，每 SM 3 个 → 324 并发 → 6.3 波，第 7 波 32%，效率 90%——更差），或者用第九节的 stream-K 把最后一波的工作按 $$K$$ 拆碎分给所有 SM。cuBLAS 的启发式选择 kernel 时就在权衡这些，这也是为什么同一个 GEMM 换一组形状，cuBLAS 的效率会在 85% 与 95% 之间跳动。
 
-
 ## 九、Roofline 汇总与 CUDA Core 的极限
 
 ### 1. 六版在 Roofline 上的位置
@@ -952,7 +943,6 @@ v5 与 cuBLAS 之间还有 10–20 个百分点，分散在几个地方：
 值得强调的是：这些优化每一项只值 2–5 个百分点，而且互相牵制——更大的 warp tile 要更多寄存器，swizzle 增加地址计算。**在 CUDA Core 上把 SGEMM 从 80% 推到 95% 的工程量，比从 3% 推到 80% 还大**，这也是为什么绝大多数场景直接用 cuBLAS 或 CUTLASS 而不是手写。
 
 而真正的量级差距不在这里。同一块 A100，BF16 Tensor Core 的峰值是 312 TFLOPS，是 FP32 CUDA Core 的 16 倍；一条 `mma.sync.m16n8k16` 让一个 warp 一条指令做 2048 次乘加，而 FFMA 一条只做 32 次。本文建立的每一层结构——block tile、warp tile、shared 布局、流水线——原样保留，只是最内层的 $$TM \times TN$$ 外积换成了 Tensor Core 指令，并且因为算力高了 16 倍，ridge point 也从 10 跳到 156 FLOP/byte，128×128 的 tile 在 BF16 下只有 32 FLOP/byte，**又回到了斜线下面**。这就是下一篇要解决的问题。
-
 
 ## 十、split-K、stream-K 与 GEMV
 
@@ -999,7 +989,6 @@ I_{\text{GEMV}} = \frac{2NK}{4NK + 4K + 4N} \approx \frac{2}{4} = 0.5\ \text{FLO
 $$
 
 这比 FP32 的 ridge 10 低 20 倍、比 BF16 的 ridge 156 低 150 倍，是彻头彻尾的 memory-bound。分块、寄存器复用在这里都无济于事——每个权重只用一次，没有可复用的东西；能做的只是把 $$B$$ 以满带宽读一遍：$$N = K = 4096$$ BF16 时 32 MiB，A100 上 17 µs。这是 decode 阶段每一层每一个 Linear 的下界，也是为什么 decode 的延迟由权重字节数决定、与 FLOPs 几乎无关。当 $$M = \text{batch}$$ 从 1 涨到 $$b$$，权重仍只读一次，FLOPs 却涨 $$b$$ 倍，算术强度线性增长，直到 $$b$$ 达到 ridge point（BF16 约 156）才重新变成 compute-bound。第九篇的量化 GEMM 就是在这个前提下工作的：INT4 权重把 $$B$$ 的字节数压到 1/4，直接把 GEMV 的下界降到 1/4。
-
 
 ## 十一、实践：接到 PyTorch，验证与测算
 
@@ -1154,7 +1143,6 @@ report("v5", lambda: ext.sgemm_v5(A, B))
 
 对 L2 flush 多说一句：4096³ 的 GEMM 输入 128 MiB 超过 40 MB 的 L2，flush 与否差别不大；但形状小的时候（比如 1024³，输入 8 MiB）不 flush 会让 $$A$$、$$B$$ 全程驻留 L2，测出来的是一个偏乐观的数字。
 
-
 ## 十二、本文小结
 
 这一篇把 GEMM 从 memory-bound 一路推到 compute-bound，每一步都先算数、再写码：
@@ -1187,14 +1175,6 @@ tile 参数（本文默认）：BM=BN=128, BK=8, TM=TN=8, 256 线程, 3 stage
   shared = 3 × 256 × 8 × 4 B = 24 KB/block
   grid = 32 × 32 = 1024 block → 4.74 wave（约 5% 量化损失）
 ```
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-4096³ FP32 GEMM：137.4 GFLOP，最少访存 192 MiB（三个矩阵各读写一次），算术强度 683 FLOP/byte，远超 A100 FP32 的 ridge 10——理论上 compute-bound、7.0 ms（第二章）。**naive**：每次 FMA 配两次全局读，逻辑读取 $$2 \cdot 4096^3 \times 4$$ B = 512 GiB，算术强度 0.25，在 Roofline 最左端；L1 / L2 挡掉了大部分 HBM 流量，但 343 GB 的 cache 请求、依赖链延迟与 3:1 的 load / FFMA 配比把它压在峰值的 1–3%（第三章）。**128×128 分块**：每个 tile 把 $$A$$、$$B$$ 的子块搬进 shared 复用，全局读取降到 $$MNK(1/BM + 1/BN)$$ = 4 GiB，算术强度 32，跨过 ridge 到了斜线右侧——但一线程算一个输出时每次 FMA 要两条 LDS，shared 带宽（每 SM 每周期 128 B）成了新的屋顶，实际只到 25%（第四章）。**寄存器分块**：每线程算 8×8 的外积，从 shared 读 16 个数做 64 次 FMA，对 shared 的算术强度从 0.25 升到 2 FLOP/byte，LDS 指令减少 8 倍——这一步把瓶颈从 shared 带宽推回算力，256 线程算一个 128×128 tile、约 128 个寄存器、25% 占用率，靠 ILP 而不是 TLP（第五章）。再加向量化 `LDS.128`、`cp.async` 多级流水、边界处理，到 FP32 峰值的 70–80%、cuBLAS 的 80–90%（第六至九章）。Tensor Core 把 ridge 从 10 推到 156，同样的 128×128 tile 在 BF16 下又回到斜线左边——下一篇（第十章）。
-
-</details>
-
 
 ## 十三、自测
 
@@ -1238,7 +1218,11 @@ tile 参数（本文默认）：BM=BN=128, BK=8, TM=TN=8, 256 线程, 3 stage
 
    </details>
 
-
 ## 下一篇
 
 [Tensor Core、CUTLASS 与 CuTe](/tensor-cores-cutlass-and-cute.html)
+
+[^q0]: 每次 FMA 配两次全局读，逻辑读取 $$2 \cdot 4096^3 \times 4$$ B = **512 GiB**（而三个矩阵各读写一次的最少访存只有 192 MiB）。L1 / L2 挡掉了大部分 HBM 流量，但 343 GB 的 cache 请求、依赖链延迟与 3:1 的 load / FFMA 配比把它压在峰值的 1–3%。详见[第二章](#二理论4096-sgemm-应该多快)、[第三章](#三v1naive每线程一个输出)。
+[^q1]: 每个 tile 把 $$A$$、$$B$$ 的子块搬进 shared 复用，全局读取降到 $$MNK(1/BM + 1/BN) \times 4$$ B = **4 GiB**，比 naive 少 128 倍。但一线程算一个输出时每次 FMA 要两条 LDS，shared 带宽（每 SM 每周期 128 B）成了新的屋顶，实际只到峰值的 25%。详见[第四章](#四v2shared-memory-分块)。
+[^q2]: 寄存器分块不再减少全局读取，减的是 **shared 读取**：每线程算 8×8 的外积，从 shared 读 16 个数做 64 次 FMA，LDS 指令减少 8 倍，把瓶颈从 shared 带宽推回算力——256 线程算一个 128×128 tile、约 128 个寄存器、25% 占用率，靠 ILP 而不是 TLP。再加向量化 `LDS.128`、`cp.async` 双缓冲、边界处理，到 FP32 峰值的 70–80%、cuBLAS 的 80–90%。详见[第五](#五v3寄存器分块含-v4-的加载优化)至[七章](#七v6边界处理)。
+[^q3]: 对 HBM：naive 0.25 FLOP/byte，在 Roofline 最左端；128×128 分块 32，跨过 A100 FP32 的 ridge 10 到了斜线右侧；理论最少访存时 683。对 shared：一线程一输出是 0.25，8×8 寄存器分块是 2——分块之后瓶颈换成了 shared 带宽这条第二屋顶，寄存器分块才让它回到算力屋顶。Tensor Core 把 ridge 从 10 推到 156，同样的 tile 在 BF16 下又回到斜线左边——下一篇。详见[第九章](#九roofline-汇总与-cuda-core-的极限)。

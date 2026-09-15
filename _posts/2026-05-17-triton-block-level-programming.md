@@ -14,8 +14,7 @@ updated: 2026-09-14
 
 总纲对这一篇提出的核心问题是：
 
-> **Triton 的 matmul 比手写 CUDA 少 80% 的代码，性能只差 10%。那 10% 在哪里？什么场景下这 10% 值得手写？**
-
+> **Triton 的 matmul 比手写 CUDA 少 80% 的代码，性能只差 10%。那 10% 在哪里？[^q0] 什么场景下这 10% 值得手写？[^q1]**
 
 ## 一、总览
 
@@ -39,7 +38,6 @@ updated: 2026-09-14
 | 七 | 实践 | 正确性对照、性能对照表模板、打印 TTGIR 与 PTX |
 | 八 | 本文小结 |  |
 | 九 | 自测 | 5 道题 |
-
 
 ## 二、把"线程"拿掉之后：Triton 的编程模型
 
@@ -242,7 +240,6 @@ def softmax_kernel(x_ptr, out_ptr, stride, N, BLOCK_N: tl.constexpr): ...
 ```
 
 两者可以叠加：先 heuristics 定死某些 constexpr（如 `EVEN_K = K % BLOCK_K == 0`，用来在编译期去掉 K 方向的 mask），再 autotune 搜索其余的。
-
 
 ## 三、三个 kernel 的 Triton 版本
 
@@ -500,7 +497,6 @@ autotune 列表里的五个 config 看起来只是几组数字，但每一组都
 
 **代码约 60 行（不含 autotune 配置）vs CUDA 版约 200–300 行；性能通常达 cuBLAS 的 80–95%，视 shape**——大而规整的形状（4096³）接近上限，小 M（decode 阶段的 $$M = 16$$）或奇怪的 K 会落到下限甚至更低。
 
-
 ## 四、编译器做了什么：从 Python 到 cubin
 
 Triton matmul 能接近 cuBLAS，是因为编译器自动做了第五、六篇手工做的事。要理解"那 10% 在哪里"，先要看清编译器做了哪些、在哪一层做的。
@@ -668,7 +664,6 @@ flowchart TB
 - 文件头的 `.maxntid 128, 1, 1` 是 `num_warps × 32`，`.reqntid` 类似；`ptxas` 的信息（寄存器数、spill）可通过 `compiled.n_regs`、`compiled.n_spills` 读到，或加 `--verbose` 让 ptxas 打印。
 
 Hopper 上的对应物：`wgmma.mma_async.sync.aligned.m64n128k16.f32.bf16.bf16`、`cp.async.bulk.tensor`（TMA）、`mbarrier` 系列指令。
-
 
 ## 五、生产中的 Triton kernel
 
@@ -867,7 +862,6 @@ def _fwd_kernel(Q, K, V, K_cache, V_cache, B_Loc, sm_scale, ..., Out, ...,
 - **paged KV cache 的间接寻址**：`B_Loc` 是 block table，`bn` 是物理块号，`off_k` 由 `bn` 与块内偏移拼出。与 `fused_moe_kernel` 一样，这是 Triton 能写、cuBLAS/标准库不能写的"不规整"访存；
 - **`num_stages=1`**：launch 处显式传了 `num_stages=1`（文件顶部的注释也记录了原因）。attention 的内循环有数据依赖（`m_i`、`l_i` 跨迭代传递）、有间接寻址、有两个 `tl.dot`，Triton 的 pipeline pass 对它的收益有限甚至为负，所以关掉。这与 FlashAttention-2/3 手工设计的流水（K 与 V 的加载交错、softmax 与 `mma` 重叠）形成鲜明对比——那正是第六章要讨论的"10%"。
 
-
 ## 六、编译器的边界：那 10% 在哪里
 
 ### 1. Triton 做不了或做不好的
@@ -936,7 +930,6 @@ flowchart TB
 - **非 2 的幂形状且无法 pad**、**需要跨 block 协作的算法**（比如某些 all-reduce 融合）。
 
 其余情况——elementwise、normalization、softmax、非热点的 GEMM 变体（grouped、带奇怪 epilogue 的）、需要快速迭代的研究性 kernel、要同时支持 NVIDIA 与 AMD 的 kernel——Triton 是更好的选择：30–60 行代码、性能通常在手写的 90% 以上、不用管 fragment 布局。**判断标准不是"Triton 能不能写"，而是"这 10% 值多少钱、需要什么指令"**。
-
 
 ## 七、实践：正确性、性能表与中间表示
 
@@ -1074,7 +1067,6 @@ grep "cp.async.wait_group" triton_dump/*/matmul_kernel.ptx | sort | uniq -c
 
 期望看到的：`#blocked` 里 `sizePerThread` 含 8（BF16 的 128 bit 向量化）；`#shared` 带 swizzle 参数；`#mma`（或 `#nvidia_mma`）`versionMajor = 2`（Ampere）；PTX 里 `mma.sync.m16n8k16` 与 `cp.async.cg.shared.global` 大量出现，`cp.async.wait_group` 的数字为 `num_stages - 2`；`n_spills` 为 0。如果 `sizePerThread` 是 1 或 `mma.sync` 计数为 0，回到第四章 §3 逐项排查。
 
-
 ## 八、本文小结
 
 这一篇把前六篇手工做的事交给了编译器，然后打开编译器看它做了什么、没做什么。
@@ -1129,14 +1121,6 @@ Triton 的边界
 
 下一篇进入 attention：FlashAttention 为什么把 $$O(N^2)$$ 的 HBM 流量降到 $$O(N^2 d^2 / M)$$，FlashAttention-2 与 3 在 warp 分工和 Hopper 特性上做了什么，PagedAttention 的 block table 如何改变 decode 的访存模式——以及第五章 §3 的 Triton 版为什么会在这些地方输给手写版本。
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**那 10% 在哪里**：Triton 编译器在 TTGIR 层自动做了合并、向量化、多级 `cp.async` 流水、`ldmatrix`、swizzle、mma 选择——第三到六篇手工做的一切——所以 memory-bound 的 elementwise 与 softmax 与手写相当，matmul 到 cuBLAS 的 80–95%。差的部分是编译器暂时不做或做不好的：流水与 warp specialization 的精细控制（Hopper 的 producer / consumer 分工、TMA 描述符）、epilogue 的布局转换（累加器 fragment 到输出布局的 shuffle）、小 shape 的 tile 选择（自动调优的搜索空间里没有最优点）、指令级调度（LDS 与 mma 的交错）（第五、六章）。**什么场景值得手写**：生产热点的 GEMM 与 attention——一个 kernel 占总时间的 30% 以上时 10% 就是 3% 的端到端；需要特殊指令（`ldmatrix.trans`、`cvt` 的 magic number 反量化、`redux`）；需要压榨 Hopper（wgmma、TMA、集群）；需要跨 block 协作（持久 kernel、stream-K、全局信号量）。其余场景——融合的 elementwise、归约、自定义 loss、绝大多数实验性算子——Triton 的 20% 代码量与可维护性远比 10% 性能值钱（第七章）。
-
-</details>
-
-
 ## 九、自测
 
 1. Triton 的 program 对应 CUDA 的什么？程序员不再写什么？
@@ -1179,7 +1163,9 @@ Triton 的边界
 
    </details>
 
-
 ## 下一篇
 
 [Attention Kernel：FlashAttention 与 PagedAttention](/attention-kernels-flashattention-and-pagedattention.html)
+
+[^q0]: Triton 编译器在 TTGIR 层自动做了合并、向量化、多级 `cp.async` 流水、`ldmatrix`、swizzle、mma 选择——前几篇手工做的一切——所以 memory-bound 的 elementwise 与 softmax 与手写相当，matmul 到 cuBLAS 的 80–95%。差的部分是编译器暂时不做或做不好的：流水与 warp specialization 的精细控制（Hopper 的 producer / consumer 分工、TMA 描述符）、epilogue 的布局转换、小 shape 的 tile 选择（自动调优的搜索空间里没有最优点）、指令级调度（LDS 与 mma 的交错）。详见[第四章](#四编译器做了什么从-python-到-cubin)、[第六章](#六编译器的边界那-10-在哪里)。
+[^q1]: 生产热点的 GEMM 与 attention——一个 kernel 占总时间 30% 以上时 10% 就是 3% 的端到端；需要特殊指令（`ldmatrix.trans`、magic number 反量化、`redux`）；需要压榨 Hopper（wgmma、TMA、集群）；需要跨 block 协作（持久 kernel、stream-K、全局信号量）。其余场景——融合的 elementwise、归约、自定义 loss、绝大多数实验性算子——Triton 的 20% 代码量与可维护性远比 10% 性能值钱。详见[第五章](#五生产中的-triton-kernel)、[第六章](#六编译器的边界那-10-在哪里)。

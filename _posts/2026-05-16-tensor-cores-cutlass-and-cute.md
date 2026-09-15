@@ -21,8 +21,7 @@ updated: 2026-09-14
 
 这一篇要回答总纲的核心问题：
 
-> **同样是 128×128 的分块，用 CUDA Core 和用 Tensor Core 写出来的 kernel 结构差在哪里？为什么 Tensor Core 版本必须关心 fragment 布局和 `ldmatrix`？**
-
+> **同样是 128×128 的分块，用 CUDA Core 和用 Tensor Core 写出来的 kernel 结构差在哪里？[^q0] 为什么 Tensor Core 版本必须关心 fragment 布局和 `ldmatrix`？[^q1]**
 
 ## 一、总览
 
@@ -85,7 +84,6 @@ flowchart LR
 | 七 | PyTorch 与 vLLM 如何使用 Tensor Core | ATen matmul → cuBLAS / cuBLASLt；vLLM 用 CUTLASS 写 cuBLAS 不提供的 GEMM |
 | 八 | 本文小结 |  |
 | 九 | 自测 | 5 道题 |
-
 
 ## 二、Tensor Core 做什么
 
@@ -206,7 +204,6 @@ wgmma.wait_group.sync.aligned 0;
 ```
 
 三代接口的对照放在文末小结表中。本篇实践用 `mma.sync`，因为它是 Ampere 上唯一能拿到接近峰值性能的手段，也是理解 fragment 布局这个核心概念的最佳入口。
-
 
 ## 三、fragment 布局与 ldmatrix
 
@@ -426,7 +423,6 @@ $$
 因为 `cp.async`（16 字节一次）和 `ldmatrix`（16 字节一行）都以 16 字节 chunk 为粒度访问 shared memory，swizzle 只需要在 chunk 级别做 XOR，chunk 内的 8 个元素保持连续。这也是为什么 padding 这种 CUDA Core 时代的办法在这里不好用：padding 会破坏 16 字节对齐或者浪费 shared memory；XOR swizzle 两者都不影响。
 
 Hopper 的 TMA 硬件支持 32B / 64B / 128B 三种 swizzle 模式，`wgmma` 的 descriptor 也带 swizzle 字段——硬件做地址置换，程序员只需要在两边声明同一种模式。Ampere 上没有这个便利，swizzle 要在 `cp.async` 目标地址和 `ldmatrix` 源地址两处手工算出来，但公式是同一个。
-
 
 ## 四、实践：Ampere BF16 GEMM
 
@@ -752,7 +748,6 @@ print(f"ours {flops / ms / 1e9:.0f} GFLOPS, cuBLAS {flops / ms_ref / 1e9:.0f} GF
 
 如果读者想再往上推，优先级依次是：换 $$64 \times 64$$ warp tile（block tile 128×256 或 256×128）、开 4–5 stage 的动态 shared memory、把 `ldmatrix` 与 `mma` 做软件流水（在做第 $$ks$$ 步 mma 的同时发出第 $$ks+1$$ 步的 ldmatrix，即"寄存器双缓冲"）。这三项加起来通常能把差距压到 5–10% 以内，也就是 CUTLASS 2.x 的水平。
 
-
 ## 五、Hopper：TMA、wgmma 与 warp specialization
 
 以下内容需要 sm_90（H100），本机无法运行，以指令语义和 kernel 结构为主。H100 BF16 Tensor Core 标称约 989 TFLOPS，是 A100 的 3.2 倍，但 shared memory 带宽（每 SM 每周期 128 字节）没有同比增长，SM 数只从 108 增至 132。这意味着 Ampere 那套"每个线程发 `cp.async`、每个 warp 发 `ldmatrix` 再发 `mma`"的结构在 Hopper 上无法喂饱 Tensor Core：**指令发射带宽和 shared memory 带宽都不够**。Hopper 的三项新机制都是针对这一点。
@@ -886,7 +881,6 @@ if (warpgroup == producer) {
 ```
 
 vLLM 的 FP8 GEMM 配置里两种都出现，下一章会看到。
-
 
 ## 六、CUTLASS 与 CuTe
 
@@ -1158,7 +1152,6 @@ STD_TORCH_CHECK(c.stride(0) % 16 == 0 && b.stride(1) % 16 == 0);  // 16 Byte Ali
 
 A 行主序、B 列主序（即 $$N \times K$$ 行主序）、16 字节对齐——与本篇 kernel 的 "TN" 约定和 `cp.async`/`ldmatrix` 的 16 字节要求完全相同。
 
-
 ## 七、PyTorch 与 vLLM 如何使用 Tensor Core
 
 ### 1. ATen `matmul` → cuBLAS / cuBLASLt
@@ -1233,7 +1226,6 @@ cuBLAS 覆盖了标准 dtype 的标准 GEMM，但推理系统需要的很多 GEM
 
 第九篇讨论量化时会回到这些 kernel 的 epilogue 细节；第七篇会看到 Triton 版本的 fused MoE GEMM 如何用完全不同的方式（编译器自动选择 mma 布局与流水）达到相近的效果。
 
-
 ## 八、本文小结
 
 回到核心问题：同样是 $$128 \times 128$$ 的分块，Tensor Core 版本与 CUDA Core 版本的结构差异在于：
@@ -1305,14 +1297,6 @@ Hopper setmaxnreg 典型分配                   producer 40 / consumer 232 x 2�
 
 > **Triton 的 matmul 比手写 CUDA 少 80% 的代码，性能只差 10%。那 10% 在哪里？什么场景下这 10% 值得手写？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-结构差在**计算单元与数据流**两处。CUDA Core 版：每线程持有一个 $$8 \times 8$$ 的累加器、从 shared 读进寄存器（任意布局）、逐元素 FMA；线程与数据的映射由程序员随意决定。Tensor Core 版：一条 `mma.sync` 让一个 warp 做一个 $$16 \times 8 \times 16$$ 的小矩阵乘加（4096 FLOP），操作数与累加器是 **fragment**——按硬件规定的布局分散在 32 个线程的寄存器里，哪个线程持有矩阵的哪几个元素是指令定义的，不是你定的（第三、四章）。**为什么必须关心 fragment 布局与 `ldmatrix`**：mma 对操作数布局有硬性要求，用普通 `LDS` 把数据凑成这个布局要几十条指令与大量 bank conflict；`ldmatrix` 是“按 fragment 布局装载”的专用指令，一次为整个 warp 从 shared 读 8 行 × 16 字节并分发到正确的线程——但它要求 shared 里的数据按它的访问模式 swizzle 存放，否则 bank conflict 把它拖慢（第五章）。**指令预算**是第二个原因：一条 mma 占 Tensor Core 8 个周期，其间只能发约 8 条其他指令，装载与地址计算必须极度精简——`cp.async`（Ampere）与 TMA（Hopper）存在的理由（第六章）。Hopper 再简化为 TMA → shared → `wgmma` 直接读 shared，寄存器只剩累加器，warp 分 producer / consumer 用 mbarrier 流水（第七章）；CUTLASS / CuTe 把上述每个决定变成模板参数与 Layout 代数（第八章）。
-
-</details>
-
-
 ## 九、自测
 
 1. A100 每 SM 每周期 Tensor Core 做 1024 次 dense BF16 FMA、CUDA Core 做 64 次 FP32 FMA。BF16 峰值是 FP32 的几倍？ridge point 各多少（2 TB/s）？
@@ -1355,7 +1339,9 @@ Hopper setmaxnreg 典型分配                   producer 40 / consumer 232 x 2�
 
    </details>
 
-
 ## 下一篇
 
 [Triton：块级编程与编译器的边界](/triton-block-level-programming.html)
+
+[^q0]: 差在**计算单元与数据流**两处。CUDA Core 版：每线程持有一个 $$8 \times 8$$ 的累加器、从 shared 读进寄存器（任意布局）、逐元素 FMA，线程与数据的映射由程序员随意决定。Tensor Core 版：一条 `mma.sync` 让一个 warp 做一个 $$16 \times 8 \times 16$$ 的小矩阵乘加（4096 FLOP），操作数与累加器是 **fragment**——按硬件规定的布局分散在 32 个线程的寄存器里，哪个线程持有矩阵的哪几个元素是指令定义的。Hopper 再简化为 TMA → shared → `wgmma` 直接读 shared，寄存器只剩累加器，warp 分 producer / consumer 用 mbarrier 流水。详见[第二章](#二tensor-core-做什么)、[第四章](#四实践ampere-bf16-gemm)、[第五章](#五hoppertmawgmma-与-warp-specialization)。
+[^q1]: 两个原因。mma 对操作数布局有硬性要求，用普通 `LDS` 把数据凑成这个布局要几十条指令与大量 bank conflict；`ldmatrix` 是「按 fragment 布局装载」的专用指令，一次为整个 warp 从 shared 读 8 行 × 16 字节并分发到正确的线程——但要求 shared 里的数据按它的访问模式 swizzle 存放。其次是**指令预算**：一条 mma 占 Tensor Core 8 个周期，其间只能发约 8 条其他指令，装载与地址计算必须极度精简——这也是 `cp.async`（Ampere）与 TMA（Hopper）存在的理由。CUTLASS / CuTe 把上述每个决定变成模板参数与 Layout 代数。详见[第三章](#三fragment-布局与-ldmatrix)、[第六章](#六cutlass-与-cute)。

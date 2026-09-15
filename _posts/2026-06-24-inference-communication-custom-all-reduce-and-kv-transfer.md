@@ -16,12 +16,11 @@ vLLM 对这两个场景给出了两套完全不同的答案。对前者，它绕
 
 本篇要回答总纲提出的核心问题：
 
-> **8 卡 TP 的 decode，每层一次 128 KB 的 all_reduce，NCCL 要 30 微秒，custom all-reduce 要 10 微秒。这 20 微秒省在哪里？为什么这个方法不能用在训练的梯度同步上？**
+> **8 卡 TP 的 decode，每层一次 128 KB 的 all_reduce，NCCL 要 30 微秒，custom all-reduce 要 10 微秒。这 20 微秒省在哪里？[^q0] 为什么这个方法不能用在训练的梯度同步上？[^q1]**
 
 以及第二个同等重要的问题：KV cache 该用什么传、能传多快、为什么不是 NCCL。
 
 本文的源码以 **vLLM v0.23.0（2026-06-14 发布）** 为准，NCCL 以 2.28.9 为准，PyTorch 以 2.12 为准，nccl-tests 以 2.18.3 为准。vLLM 的通信后端迭代很快，all_reduce 后端的选择顺序、阈值表、NIXL connector 的接口在几个月内都可能变化，正文提到的文件与函数名请以你手上的版本核对。文中所有性能数字都是理论下界、公开标称值或 NCCL 自己调优表里的模型常数，明确标注"非实测"；总纲核心问题里的 30 µs 与 10 µs 是量级示意，不是某台机器的测量结果。
-
 
 ## 一、总览：两种相反的通信需求
 
@@ -73,7 +72,6 @@ KV 传输回到带宽的账，但和梯度 all_reduce 又不一样：它不是�
 | 七 | 看一看：KVConnector 的 scheduler / worker 分工、NixlConnector 的注册、握手、READ 与通知、NIXL 与 UCX、Mooncake Transfer Engine |
 | 八 | 测一测与比一比：TP `all_reduce` 延迟异常与 KV 传输慢的排障检查项 |
 | 九 | 本文小结与 comm-probe 增量：`tp_ar_bench.py` 与 `kv_xfer/` |
-
 
 ## 二、算一算：decode 阶段 TP all_reduce 的账
 
@@ -157,7 +155,6 @@ CUDA Graph                    可捕获，但 launch 路径与 comm 状态有约
 第一项是 host 侧的启动成本；第二项是最大的一块，14 步串行同步换成 2 次 barrier；第三项是访存模式，custom all-reduce 没有中间 buffer，每个线程读 8 个地址各 16 字节就完成了归约。第四项在 vLLM 里是决定性的：decode 阶段几乎全部在 CUDA Graph 里回放，所有 host 侧启动成本都在捕获时付掉，回放时只剩 GPU 上的步数，这时 NCCL 的 14 步和 custom AR 的 2 步之差就是全部差距。
 
 这 20 µs 里没有"带宽"这一项。这是核心问题的第一半答案；第二半——为什么不能用到训练上——放到第三章看完实现之后回答。
-
 
 ## 三、看一看：custom all-reduce 的实现
 
@@ -390,7 +387,6 @@ ParallelConfig.disable_custom_all_reduce     vllm/config/parallel.py；CLI --dis
 
 一句话：custom all-reduce 是把 NCCL 在 P2P transport + LL 协议 + 单 channel 下的行为，去掉所有为大消息、多节点、通用性付出的固定开销之后剩下的最小实现。它赢在减法，减掉的恰好是训练需要的。
 
-
 ## 四、后端选择链与 PyNccl
 
 ### 1. GroupCoordinator 与 device communicator
@@ -530,7 +526,6 @@ H100（9.0）上 4/6/8 卡用 `multimem_all_reduce_`（NVSwitch 归约），2 �
 
 TP 跨节点那一行值得单独说：一旦 TP 组跨了节点，每层两次 all_reduce 都要经过 NIC 与 proxy 线程，延迟从十几微秒跳到几十微秒，160 次就是几毫秒到十几毫秒——这是"TP 不要跨节点、跨节点用 PP"这条经验的通信层根据。
 
-
 ## 五、CUDA Graph 与通信
 
 ### 1. 捕获 all_reduce 的条件
@@ -593,7 +588,6 @@ flowchart TB
 `parallel_state.py` 的 `GroupCoordinator.graph_capture` 把这些串起来：创建（或接收）一条捕获用的 stream，取出 `device_communicator.ca_comm`，进入 `ca_comm.capture()`，让调用者在 `torch.cuda.graph(...)` 里跑前向；退出时触发上面的注册。`CustomAllreduce.custom_all_reduce` 在 `_IS_CAPTURING` 为真且 `torch.cuda.is_current_stream_capturing()` 为真时走 `all_reduce(input, registered=True)`（不拷贝、直接用输入地址）；`_IS_CAPTURING` 为真但当前 stream 没在捕获（warmup 阶段）时只返回 `torch.empty_like(input)` 模拟分配模式，让 Caching Allocator 的地址序列与正式捕获一致。
 
 PyNccl 的 `ncclAllReduce` 被捕获时，NCCL 内部的启动路径分成 `ncclLaunchKernelBefore_NoUncapturedCuda` / `ncclLaunchKernel` / `ncclLaunchKernelAfter_NoCuda` 几段（`src/enqueue.cc`，函数名本身就标出了哪些段不能有未被捕获的 CUDA 调用），kernel 与它的参数进入 graph，回放时 NCCL 的 host 侧不再参与——这时 NCCL 剩下的成本就只有 GPU 上的步数，第二章的对比表里"CUDA Graph 消除 launch 成本、不消除步数"就是这个意思。
-
 
 ## 六、算一算：PD 分离的 KV 传输
 
@@ -713,7 +707,6 @@ else:
 - **失败隔离。** 一个 NCCL communicator 里任何一个 rank 出错，整个 communicator 要 abort；PD 部署里一个 prefill 实例挂掉不应该影响 decode 实例正在服务的其他请求。单边 RDMA 的 QP 是两两独立的，一条连接的失败只影响相关的请求，NixlConnector 里有 `_handle_failed_transfer`、`kv_load_failure_policy`（`recompute` 或 `fail`）这类按请求处理失败的逻辑。
 
 所以 KV 传输层的"自然原语"是：内存注册（一次性，把 KV block 池注册成 MR）、单边 READ/WRITE（带地址列表的批量提交）、完成通知（notification，让对端知道可以释放 block）。NIXL、UCX、Mooncake Transfer Engine 提供的都是这三样。
-
 
 ## 七、看一看：KVConnector 与传输层
 
@@ -846,7 +839,6 @@ NIXL 的 READ 和 Mooncake 的 WRITE 是单边 RDMA 的两个方向，第三篇�
 | 失败范围 | 整个 communicator abort | 单请求（`_handle_failed_transfer`、`kv_load_failure_policy`） | 单请求 | 单请求 |
 | 依赖 | NCCL | GPUDirect RDMA（`nvidia-peermem` / DMA-BUF）或节点内 `cuda_ipc` | Mooncake Transfer Engine + RDMA | 不依赖 GDR，受 PCIe 带宽限制 |
 
-
 ## 八、测一测与比一比：推理侧的排障
 
 ### 1. TP all_reduce：先看走了哪个后端
@@ -903,7 +895,6 @@ KV 传输的症状是 decode 侧 TTFT 高、`vllm:nixl_xfer_time_seconds` 直方
 - **容器与 IPC。** custom AR 的 `cudaIpcOpenMemHandle` 与 UCX 的 `cuda_ipc` 都要求进程在同一个 IPC namespace；容器化部署要 `--ipc=host` 或共享 IPC namespace，否则 P2P 检测失败、UCX 节点内退化到 `cuda_copy`。
 - **`CUDA_VISIBLE_DEVICES` 与物理 id。** `CustomAllreduce.__init__` 先按 `CUDA_VISIBLE_DEVICES` 把本 rank 的设备号换算成物理 id 并在 group 内 `all_gather`，再把物理 id 列表交给 `is_fully_connected` 查 NVML；P2P 缓存文件名带 `CUDA_VISIBLE_DEVICES`。不同实例用不同的可见设备集合时缓存互不干扰，但改了设备映射要删缓存。
 - **多张网卡与 NCCL 的关系。** 同一台机器上 TP 的 PyNccl 兜底（跨节点时）与 KV 传输的 UCX 共用网卡，`NCCL_IB_HCA` 与 `UCX_NET_DEVICES` 要一致地按 GPU 亲和分配。
-
 
 ## 九、本文小结
 
@@ -1068,14 +1059,6 @@ print(f"efficiency:  {byts/secs/1e9/(nic_gbps/8)*100:.0f}% of NIC, {byts/secs/1e
 
 > **一层 MoE 的 dispatch + combine，在 EP=64 跨 8 节点时，每个 token 要跨多少条链路、搬多少字节、走几步？为什么 NCCL 的 all_to_all 在 decode 时不够用，DeepEP 又是怎么把它做到几百微秒以内的？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**20 µs 省在哪**：128 KB 在 NVLink 上的传输时间 $$S/\beta < 1$$ µs，这次 all_reduce 的全部时间都是 $$\alpha$$。NCCL 的 15–30 µs 由固定开销构成：kernel launch 路径、Ring + LL 的 $$2(n-1) = 14$$ 步串行握手（每步约 0.6 µs）、经 channel buffer 中转的拷贝、以及不能捕获进 CUDA Graph 带来的每步 launch。vLLM 的 custom all-reduce 用 CUDA IPC 把 8 张卡的 buffer 互相映射进各自地址空间、用 `Signal` flag 做 barrier，一个 36 block 的 kernel：one-shot 版本每张卡直接读 7 个对端的完整数据在本地归约——2 次 barrier、2 步、无中转、无 channel、天然可捕获进 CUDA Graph；累加顺序固定所以 bit 级一致。省的就是 launch 路径、14 步 → 2 步、中转拷贝这三项（第三、四章）。**为什么不能用于训练梯度同步**：它是为“小消息、节点内、地址固定”专门设计的——消息上限约 8 MB（one-shot 每卡要读 $$(n-1)S$$，流量 $$O(nS)$$ 而 ring 是 $$O(S)$$，大消息带宽账立刻输给 NCCL）；只能节点内（依赖 IPC 映射对端显存）；buffer 地址必须预先 IPC 注册且固定（梯度桶每步地址不同、大小不同）；中间缓冲区容量有限；没有与计算重叠的 stream 编排、没有容错。训练的梯度桶 25 MiB、跨节点、每步变化，全部踩在它的限制上（第五章）。后端选择链、PyNccl、对称内存与 KV 传输是同一个思路的其他几段（第六至十章）。
-
-</details>
-
-
 ## 十、自测
 
 1. 8 卡 TP、hidden 8192、batch 8 个 token 的 decode 一步，每层 all_reduce 的消息多大？一个 80 层的模型一步做几次？
@@ -1118,7 +1101,9 @@ print(f"efficiency:  {byts/secs/1e9/(nic_gbps/8)*100:.0f}% of NIC, {byts/secs/1e
 
    </details>
 
-
 ## 下一篇
 
 [MoE 的通信：all-to-all、DeepEP 与 GPU 发起的通信](/moe-communication-all-to-all-deepep-and-gpu-initiated.html)
+
+[^q0]: 128 KB 在 NVLink 上的传输时间 $$S/\beta < 1$$ µs，这次 all_reduce 的全部时间都是 $$\alpha$$。NCCL 的 15–30 µs 由固定开销构成：kernel launch 路径、Ring + LL 的 $$2(n-1) = 14$$ 步串行握手（每步约 0.6 µs）、经 channel buffer 中转的拷贝、以及不能捕获进 CUDA Graph 带来的每步 launch。vLLM 的 custom all-reduce 用 CUDA IPC 把 8 张卡的 buffer 互相映射进各自地址空间、用 `Signal` flag 做 barrier，one-shot 版本每张卡直接读 7 个对端的完整数据在本地归约——2 次 barrier、2 步、无中转、天然可捕获进 CUDA Graph；累加顺序固定所以 bit 级一致。省的就是 launch 路径、14 步 → 2 步、中转拷贝这三项。详见[第二章](#二算一算decode-阶段-tp-all_reduce-的账)、[第三章](#三看一看custom-all-reduce-的实现)、[第五章](#五cuda-graph-与通信)。
+[^q1]: 它是为「小消息、节点内、地址固定」专门设计的：消息上限约 8 MB（one-shot 每卡要读 $$(n-1)S$$，流量 $$O(nS)$$ 而 ring 是 $$O(S)$$，大消息带宽账立刻输给 NCCL）；只能节点内（依赖 IPC 映射对端显存）；buffer 地址必须预先 IPC 注册且固定（梯度桶每步地址、大小都不同）；没有与计算重叠的 stream 编排、没有容错。训练的梯度桶 25 MiB、跨节点、每步变化，全部踩在它的限制上。详见[第三章](#三看一看custom-all-reduce-的实现)、[第四章](#四后端选择链与-pynccl)。

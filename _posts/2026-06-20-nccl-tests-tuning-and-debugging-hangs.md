@@ -16,10 +16,9 @@ updated: 2026-09-14
 
 本篇要回答总纲提出的核心问题：
 
-> **一个 64 卡训练任务在第 3000 步 hang 住，所有 rank 的日志都停在 all_reduce。是谁的问题、是哪一次 all_reduce、为什么会等到 timeout 才暴露？**
+> **一个 64 卡训练任务在第 3000 步 hang 住，所有 rank 的日志都停在 all_reduce。是谁的问题、是哪一次 all_reduce、为什么会等到 timeout 才暴露？[^q0]**
 
 依照系列惯例，本文的性能数字要么是可推导的理论值，要么是公开标称值，要么是"通常能达到"的区间，全部明确标注为非实测；曲线形状是典型形状，不是某台机器的测量结果。源码以 NCCL 2.28.9、nccl-tests 2.18.3 与 PyTorch 2.12（v2.12.0）为准；`TORCH_NCCL_*` 环境变量的默认值随版本变过，正文只标注 PyTorch 2.12 源码里的默认值，读者以自己手上的版本为准。
-
 
 ## 一、总览：从现象到层级的排障框架
 
@@ -72,7 +71,6 @@ NCCL transport        P2P 没走 NVLink · GDR 没开 ·         NCCL_DEBUG=INFO
 | 九 | 决策树 | 慢 / hang / 错 三棵树的展开版，从现象到检查项到处理方式 |
 | 十 | 本文小结 | 要点 · 检查项 · 源码位置 · comm-probe 的 `sweep.sh` 与 `hang_lab/` |
 | 十一 | 自测 | 5 道题 |
-
 
 ## 二、nccl-tests：怎么测
 
@@ -192,7 +190,6 @@ busbw 是唯一能与硬件带宽直接比较的数字，理由第一篇讲过�
 - **固定并记录环境**：NCCL 版本、`NCCL_*` 环境变量、驱动、固件、`nvidia-smi topo -m` 的输出与结果一起存档，否则三个月后无法解释两条曲线为什么不同；
 - **加 `-T`**：多机测试加 `-T 600`，网络有问题时得到一个错误而不是一个永远不退出的进程。
 
-
 ## 三、带宽曲线的读法
 
 ### 1. 横轴、纵轴、两个平台与拐点
@@ -305,7 +302,6 @@ nccl-tests 给出的是"这台机器、这个 NCCL、这个消息大小"的上�
 曲线抖动、in-place 与 out-of-place 差很多  其他任务干扰；GPU 降频；buffer 未对齐         nvidia-smi -q -d CLOCK；-u 参数是否设置
 ```
 
-
 ## 四、调优参数：按作用层分类
 
 ### 1. 参数怎么被读取
@@ -412,7 +408,6 @@ NCCL_PROTO="LL,Simple;allreduce:^LL"    全局 LL+Simple，但 all_reduce 不用
 
 一条总原则：**每个改动都要用 nccl-tests 的前后两条曲线证明**，并且要看整条曲线而不是一个点。把 `NCCL_ALGO=Ring` 写进生产配置的团队，通常是三年前在某台机器上的某个消息大小上看到过 5% 的提升。
 
-
 ## 五、日志：NCCL_DEBUG 的三层
 
 ### 1. 级别
@@ -507,7 +502,6 @@ Communicators
 ```
 
 `src/ras/client_support.cc` 为每个 communicator 汇总各 rank 的 `collOpCounts`（按原语类型计数的集合通信次数）并比较，不一致时标记 `MISMATCH`，有 rank 没响应时标记 `INCOMPLETE`，并把与多数不同的少数 rank 作为 outlier 列出。这与下一章的 Flight Recorder 在原理上相同——**比较各 rank 的操作计数找掉队者**——但它不依赖 PyTorch，对 nccl-tests、vLLM 的 PyNccl、自写的 NCCL 程序都有效，而且是实时查询而不是 timeout 后 dump。它给不出 Python 栈和 tensor 形状，所以在 PyTorch 训练里两者是互补的。
-
 
 ## 六、hang 的分类与定位工具
 
@@ -730,7 +724,6 @@ Flight Recorder 之前的机制，仍然可用。开启后（`ProcessGroupNCCL.c
 
 类 E 的两个子类在这些工具下的签名不同："崩了"的 rank 没有 dump 文件（`fr_trace.py` 加 `--allow-incomplete-ranks`），答案在它的 stderr 与 dmesg 里，`TORCH_NCCL_PROPAGATE_ERROR=1` 可让 watchdog 把错误经 TCPStore 广播给同 PG 的其他 rank 提前退出；"活着但卡在别处"的 rank 有 dump，但比别人**少一条**且最后一条是 `completed`，其他 rank 的最后一条是 `started`——这是"卡在通信之外"的签名，下一章用它解释 checkpoint 卡住为什么变成 NCCL timeout。
 
-
 ## 七、timeout 的语义
 
 ### 1. `init_process_group(timeout=)` 约束什么
@@ -793,7 +786,6 @@ t = 15 min       rank 5 从 torch.save 回来，发现对端已退出，报错�
 
 "第 3000 步"这个信息本身也有用：如果 hang 稳定出现在同一步，几乎肯定是代码路径（第 3000 步做了 checkpoint / eval / 学习率调整 / 数据集切换）而不是网络；如果每次 hang 的步数不同，优先怀疑环境。
 
-
 ## 八、正确性问题
 
 ### 1. 浮点归约顺序：同一份数据、不同的和
@@ -841,7 +833,6 @@ grep -H "Out of bounds" check.*.log     # 全部应为 "0 OK"
 ```
 
 `-o all -d all` 让每个算子与每种类型的组合都跑一遍。它不能发现框架层的竞争，但能排除 NCCL 与硬件层的数据错误（坏的 NVLink 链路、PCIe 的 relaxed ordering 问题、GDR 缓存一致性问题都曾以 `#wrong` 非零的形式被发现）。
-
 
 ## 九、决策树
 
@@ -934,7 +925,6 @@ hang（watchdog 报 timeout，或没有 watchdog 时进程不动）
 ```
 
 超过一小时还没有定位到层，通常是因为跳过了第 0–10 分钟的收集直接开始猜。
-
 
 ## 十、本文小结
 
@@ -1175,14 +1165,6 @@ unpaired_sendrecv.py   集合通信条目到 seq 5 全部 FULLY_MATCHED；p2p �
 
 > **8 卡 TP 的 decode，每层一次 128 KB 的 all_reduce，NCCL 要 30 微秒，custom all-reduce 要 10 微秒。这 20 微秒省在哪里？为什么这个方法不能用在训练的梯度同步上？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**为什么等到 timeout 才暴露**：NCCL kernel 在 GPU 上自旋等对端数据、没有任何超时；CPU 早在 enqueue 时就返回了；唯一的计时器是 c10d watchdog 的 `opTimeout_`（默认 10 分钟、从 enqueue 起算）——所以现象是“所有 rank 都停在 all_reduce”并在 10 分钟后一起报 NCCL timeout，哪怕根因与 NCCL 无关（第六章）。**是谁的问题**：hang 分六类——参数不一致（形状 / dtype / op 不同）、集合通信次数不一致（某 rank 多走或少走一次）、send / recv 不配对、多个 communicator 交叉使用、某 rank 崩了或卡在别处（checkpoint、dataloader、`.item()`）、网络硬件。前四类的特征是**各 rank 最后一次操作不一致**，后两类一致（第七章）。**是哪一次 all_reduce**：Flight Recorder（`TORCH_NCCL_TRACE_BUFFER_SIZE`）记录每次集合通信的 seq、形状、dtype、调用栈与状态，timeout 时经 TCPStore 通知全体 dump，`fr_trace.py` 按 `collective_seq_id` 对齐各 rank 给出 MatchState 与 culprit rank——直接指出哪个 rank 在第几次操作上与别人不一致、形状差在哪（第八章）。**没有 FR 时**：`py-spy dump` 看每个 rank 的 Python 栈（卡在 all_reduce 还是卡在 checkpoint 写盘）→ gdb 看 C++ → cuda-gdb 看 kernel；`NCCL_DEBUG=INFO` 加 `SUBSYS=COLL` 数各 rank 的 opCount 是否一致（第九章）。第 3000 步而不是第 1 步，最常见是数据相关的不一致（某 rank 的 batch 触发了不同的分支或空 tensor）或硬件间歇故障。
-
-</details>
-
-
 ## 十一、自测
 
 1. `mpirun -np 8 all_reduce_perf -b 8 -e 8G -f 2 -g 1 -w 5 -n 20 -c 0` 各参数什么意思？总 rank 数是多少？
@@ -1225,7 +1207,8 @@ unpaired_sendrecv.py   集合通信条目到 seq 5 全部 FULLY_MATCHED；p2p �
 
    </details>
 
-
 ## 下一篇
 
 [推理侧的通信：custom all-reduce 与 KV 传输](/inference-communication-custom-all-reduce-and-kv-transfer.html)
+
+[^q0]: **为什么等到 timeout 才暴露**：NCCL kernel 在 GPU 上自旋等对端数据、没有任何超时；CPU 早在 enqueue 时就返回了；唯一的计时器是 c10d watchdog 的 `opTimeout_`（默认 10 分钟、从 enqueue 起算）——所以现象是所有 rank 都停在 all_reduce 并在 10 分钟后一起报 NCCL timeout，哪怕根因与 NCCL 无关（[第七章](#七timeout-的语义)）。**是谁的问题**：hang 分六类——参数不一致、集合通信次数不一致、send / recv 不配对、多个 communicator 交叉使用、某 rank 崩了或卡在别处（checkpoint、dataloader、`.item()`）、网络硬件。前四类的特征是各 rank 最后一次操作不一致，后两类一致（[第六章](#六hang-的分类与定位工具)）。**是哪一次**：Flight Recorder（`TORCH_NCCL_TRACE_BUFFER_SIZE`）记录每次集合通信的 seq、形状、dtype、调用栈与状态，timeout 时全体 dump，`fr_trace.py` 按 `collective_seq_id` 对齐各 rank 给出 culprit rank——直接指出哪个 rank 在第几次操作上与别人不一致。没有 FR 时：`py-spy dump` 看每个 rank 的 Python 栈 → gdb 看 C++ → cuda-gdb 看 kernel；`NCCL_DEBUG=INFO` 加 `SUBSYS=COLL` 数各 rank 的 opCount（[第五章](#五日志nccl_debug-的三层)、[第六章](#六hang-的分类与定位工具)、[第九章](#九决策树)）。第 3000 步而不是第 1 步，最常见是数据相关的不一致（某 rank 的 batch 触发了不同分支或空 tensor）或硬件间歇故障。

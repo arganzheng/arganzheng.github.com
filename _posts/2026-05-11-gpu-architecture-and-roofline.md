@@ -10,10 +10,9 @@ updated: 2026-09-14
 
 这个系列要回答的问题是：**一个 kernel 为什么快、为什么慢，以及如何把它写到接近硬件极限**。要谈"极限"，先得知道极限在哪里。所以第一篇不写、也不运行任何完整的 kernel，只做一件事：把一块 GPU 拆开，看清它由什么组成、硬件如何把工作切成 warp 和 block 放到 SM 上、每个部分能以多快的速度搬数据和做乘加，然后把这些数字装进一个足够简单、又足够有用的模型——Roofline——用它回答：
 
-> **在一块给定的 GPU 上，一段计算理论上最快能多快？**
+> **在一块给定的 GPU 上，一段计算理论上最快能多快？[^q0]**
 
 有了这个答案，后面每一篇的工作就有了明确的目标：elementwise kernel 的目标是把 HBM 带宽吃满；GEMM 的目标是把 Tensor Core 吃满；attention 的目标是先搞清楚自己属于哪一类。没有这个答案，"我把 kernel 优化了 3 倍"是一句没有意义的话——3 倍之后可能仍然离屋顶差 10 倍，也可能已经无路可走。
-
 
 ## 一、总览
 
@@ -37,7 +36,6 @@ updated: 2026-09-14
 | 十一 | 自测 | 5 道题 |
 
 本文不写 CUDA 代码。grid、block、thread 这些名字在代码里怎么写、怎么编号，是下一篇的内容；本文只在第三章末尾给出硬件层级与这些名字的对应图，作为两篇之间的桥。
-
 
 ## 二、两种设计目标：延迟与吞吐
 
@@ -140,7 +138,6 @@ $$
 这就是 A100 标称的 FP32 算力。H100 把每个 SM 的 FP32 单元翻倍到 128 个，SM 数增加到 132，主频提高到约 1.98 GHz，得到约 67 TFLOPS。这些数字后面 Roofline 里都会用到。
 
 到这里我们知道了芯片上有什么。下一章看硬件如何把工作切开、放到这 108 个 SM 上。
-
 
 ## 三、硬件怎么组织工作：warp、block 与 SM
 
@@ -248,7 +245,6 @@ flowchart TB
 
 有了这幅画面，下一章看 SM 是怎么把一堆 warp 跑起来、遇到分歧和访存延迟时又是怎么处理的。
 
-
 ## 四、SM、warp 与 SIMT 的硬件实现
 
 ### 1. 分歧怎么执行：两条路径串行
@@ -349,7 +345,6 @@ $$
 
 Tensor Core 有两个约束决定了后面几篇的很多设计：第一，它只做矩阵乘加，softmax、归一化、激活函数这些仍然要走 CUDA Core 和 SFU；第二，它的操作数要按照特定的 **fragment 布局**分散在 warp 的 32 个线程的寄存器里，数据从 shared memory 搬进寄存器时必须按这个布局排好——这是 `ldmatrix`、CUTLASS 的 `Layout`、Hopper 的 TMA 存在的原因。第六篇专门讨论。
 
-
 ## 五、内存层次：容量、带宽、延迟
 
 ### 1. 一张图、一张表
@@ -420,7 +415,6 @@ H100 对应的数字：shared/L1 每 SM 256 KB（shared 最大 228 KB），L2 50
 - attention 分块：FlashAttention 的 HBM 流量与片上能放下的 K、V 块大小成反比——shared memory 越大、每次装进来的 K/V 越多，对 K/V 的重复读取次数就越少。H100 的 228 KB 相比 A100 的 164 KB，允许更大的 tile，这是同一个 kernel 在 Hopper 上换一组 tile 参数就能更快的原因之一。
 
 所以读一个 kernel 的源码时，看到 `BLOCK_M = 128`、`BLOCK_N = 64`、`NUM_STAGES = 3` 之类的常数，应该能把它们换算回 shared memory 字节数和寄存器数，再对照这张表判断为什么是这些值。
-
 
 ## 六、Roofline 模型
 
@@ -632,7 +626,6 @@ GEMM 4096^3 BF16                  1.37e+11  1.01e+08 1.37e+03       440.5       
 
 后面每一篇都会先用这个函数（或者它的手算版本）给出理论下界，再写 kernel，再解释差距。
 
-
 ## 七、硬件代际
 
 本系列以 Ampere（A100，`sm_80`）为基线，代码默认 `-arch=sm_80`，Hopper 特性随文标注。读源码时会遇到四代架构的名字，各自引入了什么：
@@ -669,7 +662,6 @@ FlashAttention-3、CUTLASS 3.x 的 Hopper GEMM、DeepGEMM 都建立在 TMA + wgm
 **Blackwell（B200，2024/2025，`sm_100`）**。第五代 Tensor Core，新增 FP4、FP6 精度；Tensor Core 指令再次改写为 `tcgen05` 系列，引入独立于寄存器和 shared memory 的 Tensor Memory（TMEM）存放累加器，MMA 由单个线程发起、以 CTA pair 为单位执行；双 die 封装，HBM3e 带宽约 8 TB/s。它的编程模型与 Hopper 差异很大，本系列只在提到多架构适配时点到为止，不展开。
 
 四代的共同趋势可以用 Roofline 的语言概括：算力屋顶每代抬高 2–3 倍，带宽屋顶每代抬高不到 2 倍，ridge point 持续右移；硬件用越来越多的**异步**机制（cp.async → TMA、mma.sync → wgmma → tcgen05）让搬数据和算矩阵重叠，因为只有重叠才能同时接近两条屋顶。
-
 
 ## 八、工具链地图
 
@@ -713,7 +705,6 @@ compute-sanitizer      内存与竞争检查                            越界�
 ```
 
 看 `-Xptxas -v` 的输出是第二篇写完第一个 kernel 后要做的第一件事，`ncu` 是第十篇的主角。
-
 
 ## 九、系统层与 kernel 层的边界
 
@@ -762,7 +753,6 @@ flowchart TD
 ```
 
 一句话：**先算字节数和 FLOPs，得到理论时间；再测；差距如果在带宽或算力利用率上，按对应的手段优化；如果两个利用率都低，先解决 latency**。
-
 
 ## 十、本文小结
 
@@ -815,14 +805,6 @@ GEMM 4096³ BF16            1.37e11      1.0e8        1365           compute-bou
 
 > **同样是 1 GiB 的 elementwise 加法，理论下界 1.61 ms 已经算出来了；第一个 naive kernel 会离它有多远，差距来自哪里？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-由 Roofline 给出：$$T = \max(F / P_{peak},\ B / BW)$$——一段计算至少要做 $$F$$ 次 FLOP、至少要在 HBM 上搬 $$B$$ 字节，两者各除以峰值算力与峰值带宽，取大的那个就是下界（第八章）。算术强度 $$I = F / B$$ 与 ridge $$= P_{peak} / BW$$ 比：低于 ridge 是 memory-bound（时间由字节数决定，目标是 85–90% 的带宽利用率），高于是 compute-bound（时间由 FLOPs 决定，但只有 tile 足够大、数据在 shared / L2 复用足够时才真的碰到算力顶）。A100 BF16 的 ridge 是 156、H100 是 295，每代硬件都右移，越来越多算子落到左边——elementwise（$$I = 1/6$$）、RMSNorm（$$\approx 1$$）、decode attention（$$\approx 4$$）全是 memory-bound，只有大 GEMM（4096³ 约 1365）在右边（第八、九章）。两条屋顶都没碰到是第三种情况：latency-bound——占用率或并行度不足，在飞的请求不够多，硬件在等（第九章）。之所以这样算得准，是因为 GPU 用零开销的 warp 切换而不是 OoO 隐藏延迟、所有驻留 warp 的状态都在寄存器文件里（occupancy 受寄存器限制）、访存按 warp 合并成 sector、内存层次每层的带宽差一个数量级（第二至七章）。
-
-</details>
-
-
 ## 十一、自测
 
 1. A100 BF16 峰值 312 TFLOPS、HBM 2.0 TB/s：ridge point 是多少？一个 $$I = 40$$ FLOP/byte 的 kernel 在它上面是哪类？在 H100（989 T、3.35 TB/s）上呢？
@@ -865,7 +847,8 @@ GEMM 4096³ BF16            1.37e11      1.0e8        1365           compute-bou
 
    </details>
 
-
 ## 下一篇
 
 [CUDA 编程模型与第一个 kernel](/cuda-programming-model-and-first-kernel.html)
+
+[^q0]: 由 Roofline 给出：$$T = \max(F / P_{peak},\ B / BW)$$——一段计算至少要做 $$F$$ 次 FLOP、至少要在 HBM 上搬 $$B$$ 字节，两者各除以峰值算力与峰值带宽，取大的那个就是下界。算术强度 $$I = F / B$$ 与 ridge $$= P_{peak} / BW$$ 比：低于 ridge 是 memory-bound（时间由字节数决定，目标是 85–90% 的带宽利用率），高于是 compute-bound（只有 tile 足够大、数据在 shared / L2 复用足够时才真的碰到算力顶）。A100 BF16 的 ridge 是 156、H100 是 295，每代硬件都右移——elementwise（$$I = 1/6$$）、RMSNorm（≈1）、decode attention（≈4）全是 memory-bound，只有大 GEMM（4096³ 约 1365）在右边。两条屋顶都没碰到是第三种情况：latency-bound，在飞的请求不够多，硬件在等。之所以这样算得准，是因为 GPU 用零开销的 warp 切换而不是乱序执行隐藏延迟、访存按 warp 合并成 sector、内存层次每层带宽差一个数量级。详见[第五章](#五内存层次容量带宽延迟)、[第六章](#六roofline-模型)，硬件基础在[第二](#二两种设计目标延迟与吞吐)至[四章](#四smwarp-与-simt-的硬件实现)。

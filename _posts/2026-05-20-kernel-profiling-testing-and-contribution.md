@@ -14,8 +14,7 @@ updated: 2026-09-14
 
 总纲给这一篇的核心问题是：
 
-> **Nsight Compute 报告 achieved occupancy 25%、long scoreboard stall 60%。这个 kernel 应该改什么？**
-
+> **Nsight Compute 报告 achieved occupancy 25%、long scoreboard stall 60%。这个 kernel 应该改什么？[^q0]**
 
 ## 一、总览
 
@@ -43,7 +42,6 @@ updated: 2026-09-14
 | 十一 | 一个 kernel PR 的完整流程 | 先讨论再写、PR 里要有什么、review 关注什么、CI 的硬件矩阵 |
 | 十二 | 本文小结与系列总结 |  |
 | 十三 | 自测 | 5 道题 |
-
 
 ## 二、先算理论：剖析之前要有一个参照数
 
@@ -81,7 +79,6 @@ down GEMM              224 + 112 + 64 MiB                2·8192·14336·4096 �
 GEMM 的理论时间按 312 TFLOPS 算，memory-bound kernel 按 2.0 TB/s 算，attention 的 FLOPs 已经乘了因果掩码的 1/2。这张表有两个用途：一是给后面每一个 profiler 数字一个参照——RMSNorm 实测 180 µs 就是 74% 的带宽利用率，可以接受；实测 400 µs 就一定有问题；二是告诉我们 profiler 应该先看谁：如果 GEMM 与 attention 各自达到峰值的 70% 以上，整层的时间就由它们主导，memory-bound kernel 加起来不到 1 ms，融合它们的收益上限就是这 1 ms 的一部分。
 
 decode 阶段（$$M = 1$$ 或几十）这张表会完全翻转：所有 GEMM 的算术强度都变成 $$M$$ 量级，全部 memory-bound，时间由读权重决定，整层理论时间约为权重字节 / 带宽。那时 profiler 要回答的问题变成"GEMV 类 kernel 的带宽利用率是多少"以及"kernel 之间的空隙有多大"。同一个 layer、两种形状、两套完全不同的瓶颈，这是 Nsight Systems 与 Nsight Compute 分工的起点。
-
 
 ## 三、Nsight Systems：先看 kernel 之间
 
@@ -194,7 +191,6 @@ GPU  ▌norm▌GEMV▌RoPE▌attn▌o_proj▌norm▌gate/up▌SiLU▌down▌
 ### 3. torch.profiler 与 nsys 的关系
 
 `torch.profiler.profile(activities=[CPU, CUDA])` 底层用的是同一套 CUPTI 接口，它能给出每个 kernel 的时间与调用它的 Python 栈（`with_stack=True`），导出的 Chrome trace 可以在 Perfetto 里看时间线。它的优点是不需要额外工具、能把 kernel 和 PyTorch 算子对应起来；缺点是采样 CPU 侧的开销比 nsys 大、看不到 CUDA API 之外的系统事件（线程调度、页错误、NCCL 内部）。工作流上：日常用 `torch.profiler` 看"哪个算子慢"，怀疑 CPU 或系统层问题时换 nsys，确认是某个 kernel 内部的问题后换 ncu。三者的粒度从粗到细，开销从小到大。
-
 
 ## 四、Nsight Compute：看 kernel 内部
 
@@ -391,7 +387,6 @@ Launch Statistics
 
 对比一个**有问题**的版本的典型形态：同样的 kernel，如果每线程只做 2 字节标量加载、且一个 block 只有 128 线程、每 SM 驻留 block 数被 shared memory 限制在 3——报告会变成 SOL Memory 35–50%、SOL Compute 10–15%（两者都低：latency-bound）、Sectors/Req 2（合并了但每个请求只搬 64 B，LSU 指令数是向量化版本的 8 倍，LG throttle 上升）、theoretical occupancy 19%、achieved 15%、long scoreboard 70% 以上。这两份报告的 stall 分布几乎一样，结论完全相反——判断依据是 SOL 与 occupancy，而不是 stall 本身。这就是第五章决策树的起点。
 
-
 ## 五、从指标到优化方向
 
 ### 1. 决策树
@@ -479,7 +474,6 @@ flowchart TB
 **第四步：改完回到第一步。** 目标不是把 long scoreboard 压到零（memory-bound kernel 永远在等内存），而是让 SOL Memory 或 SOL Compute 之一升到 80% 以上。
 
 所以这个问题的答案是：**先查 SOL 排除"已经到头"的情况；再查 occupancy 的限制因素，按寄存器 / shared / grid 分别处理；同时不论哪种情况都加 ILP；改一轮再测。** 单独回答"提高 occupancy"是错的——它可能撞上寄存器 spill，也可能在 SOL 已满时什么都改不了。
-
 
 ## 六、正确性测试
 
@@ -693,7 +687,6 @@ def test_rms_norm_opcheck(rows, d, layout):
 
 运行 `pytest -v test_rms_norm.py`。参数化后第一个测试有 $$4 \times 5 \times 4 = 80$$ 个用例，每个几毫秒；加上边界、dtype 拒绝、大元素数与 opcheck，一分钟以内。这份文件覆盖了第 2 小节清单里除"多架构"之外的所有项——多架构靠在不同机器上跑同一份文件。
 
-
 ## 七、benchmark 方法
 
 ### 1. 测什么、怎么测
@@ -842,7 +835,6 @@ print(m.median * 1e6, "us; iqr", m.iqr * 1e6)
 
 它不做 L2 flush，适合测"热"路径；`Compare` 类可以把多个 `Measurement` 排成表。
 
-
 ## 八、多架构
 
 ### 1. 编译期：`__CUDA_ARCH__` 与 fatbin
@@ -921,7 +913,6 @@ flowchart TB
 ```
 
 纯 CUDA 侧对应 `cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, dev)`。Python 侧是 `torch.cuda.get_device_capability()` 返回 `(major, minor)`，vLLM 封装成 `current_platform.has_device_capability(80)`。两个原则：**Hopper-only 路径必须有 fallback**——要么回到 sm_80 实现，要么明确报错并在 Python 侧提前选择别的后端，不能让用户在 A100 上看到一个 `no kernel image is available` 的运行时错误；**运行时分派的粒度放在 host 函数一级**，不要在 kernel 内部用 `if (cc >= 90)` 分支——kernel 内部用 `__CUDA_ARCH__` 在编译期决定，两个 SASS 各自最优。
-
 
 ## 九、接入 PyTorch：TORCH_LIBRARY、fake kernel 与 opcheck
 
@@ -1129,7 +1120,6 @@ docstring 建议"用一组有代表性的输入多次调用 opcheck"——不同
 
 验证 `torch.compile` 不 graph break 有三种方法，示例里用了两种：`torch._dynamo.explain(f)(*args)` 返回 `graph_break_count` 与 `break_reasons`；`torch.compile(f, fullgraph=True)` 在有任何 break 时直接抛异常；第三种是环境变量 `TORCH_LOGS="graph_breaks"` 运行，日志里列出每个 break 的位置与原因。如果 fake kernel 没注册，Dynamo 会报 "missing fake kernel" 类的错误并 break——这是最常见的接入失败原因。
 
-
 ## 十、接入 vLLM
 
 ### 1. csrc 的组织与注册
@@ -1221,7 +1211,6 @@ kernel 注册进 `torch.ops._C` 只是让它可调用；决定"什么时候调�
 
 接入一个新 kernel 的完整路径是：`csrc/xxx.cu` 实现 → `csrc/ops.h` 声明 → `torch_bindings.cpp` 注册 → `CMakeLists.txt` 加源文件与架构 → `_custom_ops.py` 包装（返回新 tensor 的加 fake）→ 对应层或方法类里加选择分支 → `tests/kernels/` 加测试 → `benchmarks/kernels/` 加 benchmark。
 
-
 ## 十一、一个 kernel PR 的完整流程
 
 从想法到合入，一条 kernel PR 要过的关卡按顺序排出来是这样的（每一步的"产出物"就是下一步的输入）：
@@ -1286,7 +1275,6 @@ vLLM 的贡献指南还有两条硬要求：commit 必须带 `Signed-off-by:`（
 ### 4. CI 的硬件矩阵
 
 vLLM 的 CI 跑在 Buildkite 上，`.buildkite/test_areas/kernels.yaml` 把 `tests/kernels/` 拆成若干 step，每个 step 声明 `source_file_dependencies`（只有相关文件改动时才触发）与可选的 `device:`（默认队列跑在较小的 GPU 上，需要特定架构的 step 指定 `h100`、`b200` 等）；改动 `csrc/` 或 `CMakeLists.txt` 会触发全量测试（`ci_config.yaml` 的 `run_all_patterns`）。PyTorch 的 CI 用 GitHub Actions，PR 默认只跑一小部分，通过打 `ciflow/trunk`、`ciflow/inductor`、`ciflow/h100` 这类 label 触发更多矩阵。两个项目的共同点是：**多架构测试是 CI 的一部分而不是贡献者的自觉**——但 CI 的 GPU 时间昂贵，PR 描述里先给出自己在多架构上测过的证据，能显著加快 review。
-
 
 ## 十二、本文小结与系列总结
 
@@ -1389,14 +1377,6 @@ kernel PR 清单：
 
 最后说明边界。本系列自始至终只讨论**单个 kernel 内部**：它如何映射到硬件、如何访存、如何计算、如何测量、如何交付。紧挨着它的几层不在范围内：框架运行时（Dispatcher 如何选到这个 kernel、Autograd 如何调用反向、Caching Allocator 如何给它分显存、Inductor 如何决定融合哪些算子）在《PyTorch 深度实践》系列；推理引擎的调度与内存管理（continuous batching、KV cache 分页、prefix caching、PD 分离、CUDA graph 的使用）属于引擎层的系列；多卡通信（NCCL、集合通信与计算的重叠、通信 kernel 本身）属于分布式的系列。这些层决定了 kernel 之外的时间花在哪里，nsys 的时间线是它们与本系列的接口：当时间线显示瓶颈在 kernel 之间而不是之内时，读者要去的是那些系列；当瓶颈确认在某个 kernel 之内时，这十篇给出了从理论下界到合入 PR 的完整路径。系列总纲与章节目录见[《GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention》](/gpu-kernel-engineering.html)。
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-先别急着改——按顺序判断。**第一步看 SOL**（speed of light）：如果 Memory 或 Compute Throughput 已经接近 90%，25% 占用率与 60% 的 long scoreboard stall 是无害的表象——kernel 已经在屋顶上（GEMM 就常是低占用率 + 高 ILP），什么都不用改。**两者都低**才是 latency-bound，stall 原因才有诊断价值：long scoreboard = warp 在等全局 / local 访存返回，60% 说明大部分时间硬件没有可发射的指令（第三、四章）。**第二步看占用率的限制因素**：ncu 的 Occupancy 节会告诉你是寄存器（每线程用太多）、shared memory（每 block 用太多）还是 grid 太小（block 数不够填满 SM）——各有对应的改法：`__launch_bounds__` / 减少活跃变量、缩小 tile 或用动态 shared、增大 grid 或 grid-stride（第五章）。**第三步不论如何加 ILP**：占用率提不上去时，让每个线程同时有更多独立的访存在飞——一次读 `float4`、循环展开、把依赖链拆开、软件预取；memory-bound 的 kernel 靠“在飞字节数”而不是线程数压满带宽（第三篇的 Little's law）。**第四步改完重测**，与理论下界比（先算字节数与 FLOPs），benchmark 用 warmup、L2 flush、event 计时、中位数，看带宽利用率那一列是否上去了（第六、七章）。剩下的章讲怎么把它做成产品：正确性测试、多架构、接入 PyTorch / vLLM、PR（第八至十一章）。
-
-</details>
-
-
 ## 十三、自测
 
 1. `nsys` 与 `ncu` 各回答什么问题？该先用哪个？
@@ -1438,3 +1418,5 @@ kernel PR 清单：
    `csrc/` 放 kernel、`csrc/ops.h` 声明、`torch_bindings.cpp` 注册 schema、`CMakeLists.txt` 加源文件与架构、`vllm/_custom_ops.py` 包装、在对应层 / 方法类里加选择逻辑；PR 要有 before / after 性能表（多 GPU）、测试命令、精度评测、AI 辅助声明，pre-commit 通过，最好先在 issue / RFC 里讨论过。
 
    </details>
+
+[^q0]: 先别急着改，按顺序判断。**第一步看 SOL**（speed of light）：如果 Memory 或 Compute Throughput 已经接近 90%，25% 占用率与 60% 的 long scoreboard stall 是无害的表象——kernel 已经在屋顶上（GEMM 就常是低占用率 + 高 ILP），什么都不用改。两者都低才是 latency-bound，stall 原因才有诊断价值：long scoreboard = warp 在等全局 / local 访存返回（[第四章](#四nsight-compute看-kernel-内部)）。**第二步看占用率的限制因素**：ncu 的 Occupancy 节会告诉你是寄存器、shared memory 还是 grid 太小——各有对应的改法：`__launch_bounds__` / 减少活跃变量、缩小 tile 或用动态 shared、增大 grid 或 grid-stride（[第五章](#五从指标到优化方向)）。**第三步不论如何加 ILP**：占用率提不上去时，让每个线程同时有更多独立的访存在飞——`float4`、循环展开、拆依赖链、软件预取；memory-bound 的 kernel 靠「在飞字节数」而不是线程数压满带宽。**第四步改完重测**，与理论下界比，benchmark 用 warmup、L2 flush、event 计时、中位数（[第二章](#二先算理论剖析之前要有一个参照数)、[第七章](#七benchmark-方法)）。

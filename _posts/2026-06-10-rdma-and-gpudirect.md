@@ -16,10 +16,9 @@ TCP/IP 的路径上有内核协议栈、至少两次内存拷贝和一个必须�
 
 本篇要回答总纲提出的核心问题：
 
-> **一段显存里的数据要发到另一台机器的显存，走 TCP、走 RDMA 不开 GPUDirect、走 RDMA 开 GPUDirect，分别经过几次拷贝、经过哪些 PCIe 链路？各自的带宽上限是多少？**
+> **一段显存里的数据要发到另一台机器的显存，走 TCP、走 RDMA 不开 GPUDirect、走 RDMA 开 GPUDirect，分别经过几次拷贝、经过哪些 PCIe 链路？[^q0] 各自的带宽上限是多少？[^q1]**
 
 依照系列惯例，本文的性能数字要么是标称值与可推导的理论上限，要么以"通常能达到"的区间给出，非实测。带宽数字每次出现都标注"单向"或"双向合计"。源码以 NCCL 2.28.9 的 `src/transport/net_ib.cc`、`src/misc/ibvwrap.cc`、`src/misc/gdrwrap.cc` 为准（2.29 起 `net_ib.cc` 拆成了 `src/transport/net_ib/` 目录，路径以你手上的版本为准）。
-
 
 ## 一、总览：三条路径与两本账
 
@@ -93,7 +92,6 @@ flowchart TB
 | 十一 | 本文小结 | 要点、排障检查项、源码位置、comm-probe 的 `rdma_write.c` |
 | 十二 | 自测 | 5 道题 |
 
-
 ## 二、为什么需要 RDMA
 
 ### 1. TCP 发送一段显存的完整路径
@@ -150,7 +148,6 @@ RDMA 通过三个设计把上面每一项成本移走：
 - **路径 C 要求 GPU 和网卡在同一 PCIe switch 下**。跨 root complex 时 DMA 要穿过 CPU 的 PCIe 控制器和 socket 间互联（UPI / Infinity Fabric），带宽可能只有几 GB/s，有的平台干脆不支持 P2P 事务，NCCL 会因为 `NCCL_NET_GDR_LEVEL` 默认值而拒绝开 GDR（第八章）。
 
 后面的章节按"怎么用（三、四、五章）→ 怎么配（六章）→ 代价在哪（七章）→ GPU 怎么接进来（八、九章）→ 怎么测（十章）"展开。
-
 
 ## 三、verbs 编程模型
 
@@ -217,7 +214,6 @@ ibv_poll_cq(cq, n, wc_array)            从 CQ 取出最多 n 个 ibv_wc，非�
 - **不 signaled 的 send 也占队列**。Send Queue 里的 WR 直到某个它之后的 signaled WR 完成被 poll 出来才算释放。全部用 unsignaled 会把队列填满且永远清不掉。`net_ib.cc` 的 `ncclIbPostFifo` 里那段长注释讲的就是这个坑：它周期性地给 FIFO 写请求加 `IBV_SEND_SIGNALED`，保证队列会被排空。
 
 轮询是纯用户态自旋，没有系统调用；也可以 `ibv_req_notify_cq` + `ibv_get_cq_event` 走中断等待，延迟高几微秒但不烧 CPU。NCCL 的 proxy 线程用自旋轮询（`ncclIbTest` 里的 `wrap_ibv_poll_cq(cq, 4, wcs, &wrDone)`），这是它需要一个专用核的原因，也是"proxy 线程被抢占导致通信慢"的根源——第四篇再讲。
-
 
 ## 四、单边与双边操作
 
@@ -314,7 +310,6 @@ sequenceDiagram
 
 在两本账上：一次数据传输的延迟是"FIFO 写（一次 RDMA WRITE，约 1–2 µs）+ 数据写 + 完成"，比纯 SEND/RECV 多一个 α，但 NCCL 的 FIFO 是流水化的——接收方总是提前 post 好多个 slot，稳态下 FIFO 写不在关键路径上。带宽上，每次数据传输额外的开销只有 64 字节的 FIFO 元素和一个 0 字节的 IMM，可以忽略。
 
-
 ## 五、连接建立
 
 ### 1. QP 状态机
@@ -389,7 +384,6 @@ NCCL 选择前者：`ncclIbConnect` 里 `ncclSocketInit` + `ncclSocketConnect` �
 
 `NCCL_IB_ADAPTIVE_ROUTING`（默认 -2 表示自动：IB 链路层开、RoCE 关）决定 `comm->ar`，进而决定是否把大消息拆成"RDMA_WRITE + 0 字节 WITH_IMM"两个 WR——上一章讲过原因：AR 下乱序到达，立即数必须单独在最后发。`NCCL_IB_AR_THRESHOLD` 默认 8192 字节，小于它的消息不拆。
 
-
 ## 六、InfiniBand 与 RoCE v2
 
 ### 1. 同一套 verbs，两种链路
@@ -451,7 +445,6 @@ InfiniBand 的链路层信用机制保证不丢：接收方按 buffer 空间发�
 这些都是网络侧配置，NCCL 唯一能影响的是**流量分类**：`NCCL_IB_TC`（`ncclParamIbTc`，默认 -1，在 `ncclIbRtrQp` 里填到 `grh.traffic_class`）决定 RoCE 包的 DSCP 值（TC 的高 6 位），交换机按它映射到优先级队列；`NCCL_IB_SL`（`ncclParamIbSl`）对应 IB 的 Service Level。集群网络为 RoCE 配置的无损优先级如果对应 DSCP 26（TC = 104），NCCL 必须设 `NCCL_IB_TC=104` 才能落到无损队列——否则流量走有损队列，表现为多机带宽随规模急剧下降、日志里偶发 status 12。`NCCL_IB_FIFO_TC` 可以给控制面的 FIFO 写单独指定一个 TC（比如更高优先级），避免控制消息排在大数据后面。
 
 带宽的账上，配置正确的 RoCE v2 与同速率 IB 的大消息带宽相近（都能到线速的 90% 以上）；延迟的账上，RoCE 通常多 1–2 µs（以太网交换机的转发延迟与 UDP 封装），而且在拥塞下抖动更大。这是"IB 更省心、RoCE 更便宜但需要网络团队"这条经验的技术内容。
-
 
 ## 七、内存注册的代价与 MR cache
 
@@ -515,7 +508,6 @@ NCCL 2.19 起提供 `ncclCommRegister(comm, buff, size, &handle)` / `ncclCommDer
 实现是两级：`ncclRegister` 维护 communicator 级的 `ncclRegCache`（结构与 `ncclIbMrCache` 几乎相同：按地址排序、区间包含即命中、引用计数），真正到网络层的注册发生在第一次使用时，由 `src/transport/net.cc` 的 `ncclNetLocalRegisterBuffer` / `ncclNetGraphRegisterBuffer` 通过 proxy 调用网络插件的 `regMrDmaBuf`（DMA-BUF 可用时）或 `regMr`（回退到 peermem）。开关是 `NCCL_LOCAL_REGISTER`（默认 1）与 `NCCL_GRAPH_REGISTER`（CUDA Graph 捕获时自动注册，默认 1）。PyTorch 侧对应 `TORCH_NCCL_USE_TENSOR_REGISTER_ALLOCATOR_HOOK` 之类的机制把 Caching Allocator 分出的大块自动注册——第五篇再讲。
 
 延迟的账提醒一句：注册是同步的、慢的，`ncclCommRegister` 应该在训练循环之前调用；在第一次集合通信时才触发的注册会让那一次通信明显变慢，profiler 里会看到一个孤立的长通信。
-
 
 ## 八、GPUDirect RDMA
 
@@ -637,7 +629,6 @@ sequenceDiagram
 
 NCCL 在 GPU 找不到近的网卡时有一个补救：PXN（PCI × NVLink），让数据先经 NVLink 到一张离网卡近的 GPU，再由它做 GDR。`ncclTopoCheckGdr` 里 `distance == PATH_PXN` 那段就是用中转 GPU 的距离来判断。第四篇讲 channel 与 transport 时会回到 PXN。
 
-
 ## 九、GDRCopy 与 GPUDirect 家族
 
 ### 1. GDRCopy：CPU 直接读写显存
@@ -676,7 +667,6 @@ GPUDirect Async         GPU 自己触发网卡   GPU 写网卡门铃            
 ```
 
 GPUDirect P2P 与 RDMA 的底层机制是同一个：PCIe 事务直达 GPU 的 BAR1（NVLink 是 NVIDIA 私有链路，另有一套地址翻译）。GDRCopy 也是 BAR1 映射的应用。理解了"显存可以映射到 PCIe 地址空间、任何设备都能对它发事务"这一件事，整个家族就清楚了。
-
 
 ## 十、测一测与比一比：诊断工具
 
@@ -748,7 +738,6 @@ lspci -vv -s <NIC bdf> | grep -E "LnkSta|LnkCap"   # 网卡实际协商的 PCIe 
 ```
 
 这 9 条中前 5 条不需要 NCCL，用系统工具和 perftest 就能做；这也是它们应该先做的原因——NCCL 之上的一切问题，都以"RDMA 层本身能跑到线速"为前提。
-
 
 ## 十一、本文小结
 
@@ -968,14 +957,6 @@ int main(int argc, char **argv) {
 
 > **同一次 8 卡 all_reduce，NCCL 在 NVSwitch 机器上选了 NVLS + Simple，在没有 NVSwitch 的 NVLink 机器上选了 Ring + LL128，在纯 PCIe 机器上只剩 Simple / LL，跨 32 台机器时选了 Tree。它是根据什么做出这三个不同决定的？强行用 `NCCL_ALGO=Ring` 会付出什么？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**TCP**：GPU 显存 → `cudaMemcpy` 到主机内存（PCIe 一次）→ 内核协议栈拷到 socket buffer → 网卡 DMA 读主机内存（PCIe 一次）→ 网络 → 对端反过来再来一遍；每端 2 次拷贝、每字节访问主机内存约 4 次、每个 MSS 要 CPU 参与，400 Gb/s 需要 15–40 个核与超出内存带宽的流量——原理上跑不满，上限受 CPU 与内存带宽限制而非网卡（第二章）。**RDMA 不开 GPUDirect**：显存 → 主机 staging buffer（PCIe 一次）→ 网卡直接 DMA 读注册过的主机内存（PCIe 一次）→ 网络 → 对端主机 buffer → 显存；每端 1 次显式拷贝，数据面无系统调用、无 CPU 参与传输，但主机内存仍在路径上，两次 PCIe 传输加 5–10 µs 拷贝延迟，上限约网卡与 PCIe 中较小者再打折（第三、四章）。**RDMA + GPUDirect RDMA**：网卡经 PCIe P2P 直接读写 GPU 的 BAR1 映射的显存，0 次拷贝，数据在 PCIe switch 内一跳到网卡（要求 GPU 与网卡同 switch，`NCCL_NET_GDR_LEVEL` 默认 `PXB`）；上限 = min(网卡, PCIe x16)——H100 / PCIe 5.0 / NDR 是 50 GB/s，A100 / PCIe 4.0 / HDR 25 GB/s，A100 配 NDR 被 PCIe 4.0 卡在 32 GB/s（第五、七章）。三条路径用同一套 verbs 对象（PD、MR、QP、CQ），NCCL 用 RDMA WRITE + WITH_IMM 单边写、接收方经 FIFO 告知地址与 rkey（第六章）。
-
-</details>
-
-
 ## 十二、自测
 
 1. RDMA 的三个承诺是什么？各解决 TCP 路径的哪个问题？
@@ -1018,7 +999,9 @@ int main(int argc, char **argv) {
 
    </details>
 
-
 ## 下一篇
 
 [NCCL 架构：拓扑探测、channel、算法与协议](/nccl-architecture-topology-channels-algorithms-and-protocols.html)
+
+[^q0]: **TCP**：每端 2 次拷贝（PCIe D2H/H2D + CPU memcpy），主机内存每字节访问 4 次；GPU x16 一次 + NIC x16 一次，都上行到 root complex；每个 MSS 要 CPU 参与。**RDMA 不开 GDR**：每端 1 次拷贝（到 pinned staging），主机内存每字节访问 2 次，PCIe 链路同上；数据面无系统调用，CPU 只在每个消息 post / poll。**RDMA + GPUDirect**：0 次拷贝，主机内存不在数据面上，GPU x16 与 NIC x16 各一次、在 PCIe switch 内转发，不到 root complex。详见[第二章](#二为什么需要-rdma)的三路径对照表与[第八章](#八gpudirect-rdma)。
+[^q1]: TCP 单流受单核限制，通常几十 Gb/s，8 卡 8 网卡也很难接近 8 × 50 GB/s。RDMA 无 GDR 约 min(NIC 50 GB/s, PCIe 5.0 64 GB/s, 主机内存) ≈ 50 GB/s，但 A100 / PCIe 4.0 上 D2H 与 NIC DMA 共享主机内存，实际不到 25 GB/s，8 卡合计的主机内存流量 800 GB/s 会顶到两 socket 的内存带宽。RDMA + GDR 是 min(NIC, PCIe) = 50 GB/s（A100 / HDR：25 GB/s），8 卡 400 GB/s、主机内存流量 0；延迟 1–2 µs（IB）/ 2–4 µs（RoCE），TCP 是 15–50 µs。详见[第二章](#二为什么需要-rdma)、[第八章](#八gpudirect-rdma)。
