@@ -13,22 +13,37 @@ jekyll build            # or bundle exec jekyll build -> _site/
 jekyll serve            # or bundle exec jekyll serve -> http://localhost:4000
 ```
 
-`Gruntfile.js` compiles `less/ -> css/argan-blog{,.min}.css` and minifies
-`js/hux-blog.js`. Edit the `.less`/`.js` sources, not the generated CSS:
+### CSS and JS are build output — edit `less/` and `js/*.js`, then rebuild
 
 ```bash
-npm install && npx grunt        # or `npx grunt watch`
+npm install          # less 4 + clean-css-cli + uglify-js (devDependencies)
+npm run css          # less/argan-blog.less -> css/argan-blog.css + css/argan-blog.min.css
+npm run js           # js/*.js (post-page scripts) -> js/blog.min.js (+ .map)
+npm run build        # both
+npm run check        # tools/check.sh — everything CI checks, locally (see below)
+npm run hooks        # once per clone: git config core.hooksPath .githooks (pre-push = npm run check)
+npm run serve        # jekyll serve --future on http://localhost:4000
 ```
 
-**WARNING — CSS drift:** `npx grunt` currently fails (grunt-cli is not
-installed and the Gruntfile expects a non-existent `less/argan-blog.less`;
-the real entry point is `less/blog.less`). More importantly,
-`css/argan-blog{,.min}.css` contain ~485 lines of hand-appended rules
-(from `.page-header .title` onwards) that are NOT in the `.less` sources,
-so a full recompile destroys them. To change styles, edit the `.less`
-source for reference, then append the corresponding compiled CSS to the
-END of both `css/argan-blog.css` and `css/argan-blog.min.css` by hand
-(compile a fragment with `node_modules/.bin/lessc` if helpful).
+`less/argan-blog.less` is the single entry point; its `@import` order is the
+cascade order (`blog` → `theme-overrides` → `inline-popups` → `comments` →
+`extras` → `series` → `annotations` → `share` → `dashboard`). Every rule has a
+Less source now — `theme-overrides.less` (page header, [TOC], outline panel,
+wide-screen grid, post-layout navbar, diagram zoom, code copy) and
+`dashboard.less` (`/admin/stats.html`) are the former hand-appended CSS,
+kept as plain CSS. **Never edit `css/argan-blog*.css` or `js/blog.min.js` by
+hand**: `tools/check.sh` (and so the pre-push hook) fails if they are not
+byte-identical to what the sources produce (`npm run css -- --check`,
+`npm run js -- --check`). `tools/css-compare.py a.css b.css` is a
+cascade-aware semantic diff (final value per selector/property, plus
+order-sensitive pairs) — use it when you touch the import order or migrate
+rules, instead of eyeballing a textual diff.
+
+History, for when an old commit looks odd: until 2026-09-15 the two CSS
+files were hand-maintained and had drifted from each other *and* from Less
+(e.g. the 2026-09-14 「字体优化」 body font stack / `font-weight: 450` reached
+`argan-blog.css` but never the served `.min.css`); the Less-built bundle is
+what has shipped since.
 
 **Verifying a style/JS change means checking `_site/`, not the source.** The
 browser (local `jekyll serve` and the user's eyes) reads `_site/css/*.css`;
@@ -39,6 +54,17 @@ Before reporting a CSS change as done: run `jekyll build`, confirm it printed
 `done in …`, then `grep` the changed selector in `_site/css/argan-blog.min.css`
 (or `curl` it from the local server). Never conclude from `lessc` compiling or
 from the source file alone.
+
+### `tools/check.sh` (= `npm run check` = the pre-push hook)
+
+Mirrors `.github/workflows/check.yml` so a bad push is caught locally
+(~20 s): `tools/liquid-scan.py` (unescaped `{{` / `{%` inside fenced code in
+any post / draft / slide), `css/` and `js/blog.min.js` up to date with their
+sources, `jekyll build --future --strict_front_matter` printed `done in`,
+`tools/fa-subset.py --check`, lychee offline over `_site` (skipped when lychee
+is not installed, or `SKIP_LINKS=1`), `git diff --check`. Bypass once with
+`git push --no-verify`. `tools/check-render.cjs` (headless Chrome) is not part
+of it — run it by hand for posts with diagrams.
 
 ## Deploy
 
@@ -69,8 +95,12 @@ Pages has `https_enforced` on.
   document is verbatim", silently checking nothing after it. Never write a
   literal `<pre>` in inline script comments.
 - Images: `img/in-post/` is WebP (`tools/webp-images.py` converted the old
-  png/jpg in bulk and rewrote references; run it again for new large images,
+  png/jpg/bmp in bulk and rewrote references; run it again for new large images,
   `--apply` to write). Site-level `img/*.jpg` stay JPEG (og:image targets).
+  It sniffs the real format (a `.png` that is really a
+  JPEG gets JPEG quality; 32-bit BMPs go through `sips` because `cwebp`
+  rejects them). Screenshots wider than ~1600 px are worth an extra
+  `cwebp -resize 1600 0` — the article column is 750 px. Site-level `img/*.jpg` stay JPEG (og:image targets).
 - `.github/workflows/links.yml` (Mondays, or manual): external links, never
   blocking; opens/updates an issue labelled `dead-links`. Set the repo
   variable `DEAD_LINKS_ISSUE` to an issue number to keep updating one issue.
@@ -107,13 +137,12 @@ Pages has `https_enforced` on.
   named `comments` twice is a GraphQL validation error and looked like a login
   failure), open issues via REST. `sitemap: false`, `noindex: true`
   (`head.html` emits the robots meta for `page.noindex`). Its styles are
-  hand-appended to the CSS files (`.dash*`), there is no Less source.
+  `less/dashboard.less` (`.dash*`).
 - `index.html`: posts with `pinned: true` lead page 1 (badge `.post-pin`) and
   are skipped in the paginated flow. Sidebar (`_layouts/page.html`): HOT TAGS
   threshold is `site.featured-condition-size`; RECOMMEND renders
   `site.recommends` (`title`/`href`/`desc`) as external links. Styles for these
-  live in `less/extras.less` (inserted before the series block in both CSS
-  bundles, same hand-compile procedure).
+  live in `less/extras.less`.
 - Post layouts: `post` (default, text header), `header-post` (hero image;
   front matter `header-img`, `header-bg-css`, `header-mask`,
   `header-img-credit(-href)`), `keynote` (header is an `iframe` of a slide
@@ -158,13 +187,18 @@ Pages has `https_enforced` on.
   loading="lazy" decoding="async" src='` — every content image is lazy.
   `js/diagram-zoom.js` opens Mermaid diagrams *and* content images (>= 200 px
   natural width, not inside `<a>`) in the zoom/pan lightbox.
-- **No jQuery / Bootstrap JS.** `footer.html` loads only our own scripts;
-  `js/argan-blog.js` (→ `.min.js` via `node_modules/.bin/uglifyjs js/argan-blog.js
-  -c -m --comments '/^!/' -o js/argan-blog.min.js`) does the theme bits in plain
+- **No jQuery / Bootstrap JS.** `footer.html` loads one bundle,
+  `js/blog.min.js` (`npm run js` = `tools/build-js.sh`, uglify-js; the source
+  list and order live in that script — `figures.js` must precede
+  `annotations.js`). In it: `js/argan-blog.js` does the theme bits in plain
   DOM (wrap tables in `.table-responsive` + `.table`, wrap YouTube/Vimeo
   iframes, navbar hide-on-scroll-down `.is-fixed/.is-visible`, `.side-catalog.fixed`),
-  the mobile navbar toggle is inline in `nav.html`, `js/tagcloud.js` colours
-  `#tag_cloud a[rel]` on `/tags/` (loaded there only). FastClick and the
+  then toc, diagram-zoom, code-copy, code-tabs, figures, code-tokens,
+  inline-popups, vendor/approx-string-match, annotations, share. Still
+  separate: `js/search.js` (head, every page), `js/tagcloud.js` (`/tags/`
+  only, colours `#tag_cloud a[rel]`), `js/wechat-export.js` (lazy, author
+  only), `js/dashboard.js` + `js/feedback-brief.js` (`/admin/`). The mobile
+  navbar toggle is inline in `nav.html`. FastClick and the
   `data-toggle="tooltip"` pager attributes are dead. **Bootstrap 3 CSS stays**
   (`css/bootstrap.min.css`; grid, navbar, tables, `.embed-responsive`,
   `.visible-*/.hidden-*` are all in use) — don't swap in Bootstrap 5.
@@ -683,7 +717,7 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   panels labelled from `language-xxx`; the choice is page-wide and persisted
   in `localStorage["code-tab-lang"]`; groups lacking the preferred language
   show their first panel; no-JS stacks the panels with a language label
-  (`less/extras.less` `.code-tabs`, hand-appended to both CSS files);
+  (`less/extras.less` `.code-tabs`);
   `wechat-export.js` flattens groups into labelled blocks. Highlight
   comments anchored in a hidden panel simply stay hidden until that tab is
   chosen — no special handling.
@@ -776,8 +810,7 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
     hover card, click only jumps to the bottom (Q&A is meant to be read after
     the article; hover cards are for explanatory footnotes) — and
     `.footnotes:has(li[id^="fn:q"])::before` labels the list 「文首问题的答案」
-    instead of 「脚注」 (styles at the end of `less/extras.less`, hand-appended to
-    both CSS bundles). The former folded 「核心问题的答案」 `<details>` block after
+    instead of 「脚注」 (styles at the end of `less/extras.less`). The former folded 「核心问题的答案」 `<details>` block after
     小结 is gone (2026-09); do not add it to new posts. All 142 body posts of the
     algorithm and Infra series carry the footnotes.
   - 自测: 3–5 questions per body post (overview posts have none), each with a
@@ -786,8 +819,7 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
     `<details markdown="1"><summary>答案</summary> … </details>` directly under
     the question (a list item's continuation, indented 3 spaces), so the reader
     can try first. `markdown="1"` is required for KaTeX / lists inside. Styles
-    for `details` live at the end of `less/extras.less` (hand-appended to both
-    CSS bundles).
+    for `details` live at the end of `less/extras.less`.
 - Series are independent: no links to posts of other series.
 - `{%`/`{{` inside code (PTX asm, printf formats, regexes, **Java / C++ nested
   array initializers like `int[][] DIRS = {{1, 0}, {-1, 0}}`**, Go/Jinja
