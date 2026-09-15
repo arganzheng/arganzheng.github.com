@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Installed via `npm run hooks` (git config core.hooksPath .githooks).
+# Skip once with: git push --no-verify
+exec tools/check.sh

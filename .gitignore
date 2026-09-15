@@ -9,3 +9,4 @@ npm-debug.log
 */*/.DS_Store
 *.sh
 .wrangler
+!tools/*.sh
