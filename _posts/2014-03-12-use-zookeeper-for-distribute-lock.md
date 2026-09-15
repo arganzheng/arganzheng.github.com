@@ -17,7 +17,7 @@ ZooKeeper抽象出来的节点结构是一个和unix文件系统类似的小型�
 
 基于以上机制，利用节点名称唯一性机制的共享锁算法流程如图所示： 
 
-![利用节点名称的唯一性来实现共享锁](/img/in-post/zk-for-distribute-lock-1.bmp)
+![利用节点名称的唯一性来实现共享锁](/img/in-post/zk-for-distribute-lock-1.webp)
 
 
 该共享锁实现很符合我们通常多个线程去竞争锁的概念，利用节点名称唯一性的做法简明、可靠。
