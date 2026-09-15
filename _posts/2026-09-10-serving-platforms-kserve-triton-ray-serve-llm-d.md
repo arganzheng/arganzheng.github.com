@@ -16,10 +16,9 @@ updated: 2026-09-14
 
 本篇要回答总纲提出的核心问题：
 
-> **一个 TP=4 的 70B 模型服务，晚高峰要从 2 副本扩到 6 副本，每个副本从调度到能接流量要 8 分钟。扩缩容指标选什么、阈值定多少、提前多久触发，才能在高峰到来前就绪而不在平时浪费 16 张卡？**
+> **一个 TP=4 的 70B 模型服务，晚高峰要从 2 副本扩到 6 副本，每个副本从调度到能接流量要 8 分钟。扩缩容指标选什么、阈值定多少、提前多久触发，才能在高峰到来前就绪而不在平时浪费 16 张卡？[^q0]**
 
 本文的 CRD 与源码以 **LeaderWorkerSet v0.10.0、KServe v0.20.0、llm-d v0.9.0（EPP 来自 llm-d-router v0.10.0）、Triton Inference Server v2.72.0、KubeRay v1.7.0、KEDA v2.20.2** 为准，Gateway API Inference Extension 以 v1.6.0 为准；被服务的引擎是 vLLM v0.28.0，只使用它的启动参数、指标名与 OpenAI 兼容接口。文中出现的硬件与时间数字是量级估算，标注"非实测"；核心问题里的"8 分钟"是题设。
-
 
 ## 一、总览
 
@@ -103,7 +102,6 @@ updated: 2026-09-14
 | 九 | 代价与边界：引擎需求 → K8s 空缺 → 平台机制 → 代价 四栏表；什么场景不该用 |
 | 十 | 本文小结与 mini-platform/serve/ 增量 |
 
-
 ## 二、推理服务的四种部署形态
 
 ### 1. 一个副本是什么
@@ -124,7 +122,6 @@ updated: 2026-09-14
 ### 3. 就绪的定义
 
 四种形态共用同一个就绪判据：引擎的 HTTP 端点返回 200。vLLM 的 `/health` 在引擎初始化完成后返回；KServe 的 `kserve-vllmserver` runtime（`config/runtimes/kserve-vllmserver.yaml`）用 `/v1/models` 做探针，注释说明它"只在模型注册后返回 200"，并给了 `startupProbe` 60 × 30 s 的宽限——大模型加载要以半小时为上限来配探针，否则 kubelet 会在权重还没读完时杀掉容器，进入一个永远起不来的循环。多 Pod 副本只探 leader（API server 只在 leader 上），worker 的健康由 LWS 的组重启策略兜底。
-
 
 ## 三、LeaderWorkerSet：多 Pod 一副本
 
@@ -341,7 +338,6 @@ llm-d v0.9.0 的 PD 分离与 wide-EP 路径都提供了 DisaggregatedSet 版本
 ### 5. 扩缩容接口
 
 `LeaderWorkerSet` 类型上的 kubebuilder 标记声明了 scale 子资源：`specpath=.spec.replicas, statuspath=.status.replicas, selectorpath=.status.hpaPodSelector`。`replicas` 字段的注释解释了设计：HPA 通过 `hpaPodSelector` 只看到 **leader Pod**，"所以实际上 HPA 看的是 leader 的指标；leader 可以聚合组内指标并作为一个汇总的自定义指标暴露"。对 vLLM 这正好：指标端点在 leader 的 API server 上，`vllm:num_requests_waiting` 天然是整个副本的数字。缩容时删除 leader 与它的 worker StatefulSet，整组一起消失。
-
 
 ## 四、KServe：InferenceService 与 LLMInferenceService
 
@@ -573,7 +569,6 @@ flowchart TB
 
 `LLMInferenceServiceSpec.storageInitializer.enabled: false` 关掉注入，用于权重已经由别的机制放好的场景。KServe 还有一组 `LocalModelCache` / `LocalModelNodeGroup` / `LocalModelNode` CRD（`pkg/apis/serving/v1alpha1/local_model_cache_types.go`，`sourceModelUri`、`modelSize`、`nodeGroups`），把模型预先拉到一组节点的本地盘上，Pod 调度到这些节点时直接用——这是把"拉权重"从扩容路径上移走的平台级做法。
 
-
 ## 五、Triton 与 Ray Serve：另两种组织方式
 
 ### 1. Triton：model repository 与 config.pbtxt
@@ -657,7 +652,6 @@ KubeRay 的 `RayService`（`ray.io/v1`，`kuberay ray-operator/apis/ray/v1/rayse
 
 RayService 适合的场景：Python 逻辑重、多阶段、需要在阶段之间传大对象（Ray 的对象存储在进程间零拷贝）、团队已经用 Ray 做数据处理与训练。不适合：只是一个 vLLM 进程加扩缩容——Ray 的 head、GCS、dashboard 是额外的运维面，升级要整集群切换。
 
-
 ## 六、llm-d v0.9.0
 
 ### 1. 三个核心概念
@@ -729,7 +723,6 @@ Workloads                  Agentic Serving；Multimodal；RL rollout；Batch Ser
 ### 4. 与 KServe 的关系
 
 `artifacts.md` 的提示直接说明了分工："llm-d 遵循模块化部署模式，允许逐步采用功能。寻求单一 CRD 驱动部署模式的用户应考虑 KServe 的 LLMInferenceService。" 反过来看第四章：KServe 的 `LLMInferenceService` 生成的 EPP 镜像是 `llm-d-router-endpoint-picker`，模型服务器镜像默认是 `llm-d-cuda`，PD 分离的注释写 "inspired by the llm-d architecture"。两者的关系是：**llm-d 定义架构与组件（Router/EPP、InferencePool 的用法、模型服务器的标签与参数约定、well-lit paths），KServe 把这套架构包成一个 CRD 加一组可继承的 config**。用 llm-d 原生方式，你直接改 Helm values 与 Kustomize overlay，每个组件都看得见；用 KServe，你写一个 spec，控制器替你生成 Deployment / LWS、InferencePool、EPP、HTTPRoute 并维持一致。前者适合要精细控制路由插件与引擎参数的团队，后者适合要给多个团队提供自助入口的平台。
-
 
 ## 七、扩缩容
 
@@ -914,7 +907,6 @@ prefill 与 decode 的饱和信号不同：prefill 是算力受限，合适的�
 
 五段加起来正是题设的 8 分钟量级。前三段是平台能优化的（本系列前几篇的内容），后两段是引擎的。**扩缩容策略的所有"提前多久"都是这个总时间加上信号链路的延迟**：Prometheus 抓取间隔（15–30 秒）+ KEDA `pollingInterval`（15 秒）+ HPA 同步周期（15 秒），约 1 分钟。
 
-
 ## 八、核心问题的数值推演
 
 ### 1. 假设
@@ -1003,7 +995,6 @@ cron 19:48  19:48 cron 抬到 6, 19:57 就绪 (比 D > 128 的 20:04 早 7 分)
 
 这个推演里最不该被跳过的一步是**测出 C 与 r**：C 来自对单副本的压测（第八篇的 goodput 与饱和点），r 来自历史流量曲线。没有这两个数，任何阈值都是猜的。
 
-
 ## 九、代价与边界
 
 ### 1. 引擎需求 → K8s 空缺 → 平台机制 → 代价
@@ -1027,7 +1018,6 @@ cron 19:48  19:48 cron 抬到 6, 19:57 就绪 (比 D > 128 的 20:04 早 7 分)
 - **Triton 只为了跑一个 vLLM**：多一层协议翻译和一个 Python backend，没有收益。
 - **llm-d 的原生方式 vs KServe**：团队要调 EPP 插件链、试不同引擎参数，用 llm-d 原生的 Helm values + Kustomize；要给十几个团队一个自助的 CRD，用 KServe。两者同时上是重复的。
 - **PD 分离**：短输入短输出（200 ISL / 200 OSL）的流量不会受益，反而多付 KV 传输和两组副本的固定成本；llm-d 的 PD guide 明确把它限定在中大模型、长输入、稀疏 MoE。
-
 
 ## 十、本文小结
 
@@ -1174,14 +1164,6 @@ if __name__ == "__main__":
 
 预期看到的形态（定性，取决于你的 C 与 r）：`conc` 线性上升的同时，`waiting` 在 `running` 阈值触发前应该保持 0；`spec` 跳变的那一行就是 KEDA/HPA 的决策时刻，之后 `cur` 立刻跟上（Pod 已创建）而 `ready` 要过几分钟才增加——两者之间的差就是第七章表格里五段之和，脚本末尾按每次扩容打印这个差。若把 `running` 触发器去掉只留 `waiting`，会看到 `waiting` 先涨、`p50_s` 随之抬升、`spec` 才变——这是滞后指标的形状。把 cron 触发器的 `start` 设在脚本开始前 12 分钟再跑一次，`spec` 应在爬升开始前就到 6，`waiting` 全程为 0，而 `ready` 的 6 在爬升开始时已经就位。把三次的 `ready` 曲线与 `p50_s` 曲线叠在一起，就是第八章推演的实测版。
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**指标选什么**：不选 GPU 利用率——decode 时它常年 90% 以上却不代表满载；选引擎内部的领先指标：`vllm:num_requests_waiting`（排队数，最灵敏）、`vllm:kv_cache_usage_perc`（KV 池占用，容量的直接度量）、TTFT / ITL 的 P95（SLO 本身）。这些经 Prometheus 由 KEDA 或 HPA 的 external metrics 驱动 LeaderWorkerSet（TP=4 多 Pod 一副本用 LWS，`scale` 子资源只看 leader）或 KServe 的 `LLMInferenceService`（`scaling.wva`）（第二、三、六章）。**阈值定多少**：按容量倒推——一个副本在 SLO 内能承载的并发（KV 池 / 每请求平均 KV）是 100%，KV 占用到 70–80% 或 waiting > 0 持续 30 秒就扩，留出 8 分钟的就绪时间内负载还会涨的余量；缩容阈值要远低于扩容阈值（比如 KV < 30% 持续 15 分钟）并配 `stabilizationWindow`，否则在 8 分钟的就绪延迟里来回抖动（第四章）。**提前多久触发**：8 分钟就绪意味着纯反应式一定迟到——晚高峰是可预测的，用定时（KEDA cron scaler）在高峰前 10–15 分钟把 minReplicas 从 2 抬到 6，指标驱动只负责处理预测之外的部分；再把 8 分钟本身压短：权重用 `pvc://` 直挂或 `oci://` modelcar / image volume、`LocalModelCache` 预热到节点本地盘，省掉从对象存储拉几十 GB 那一段（第五、七章）。**不浪费 16 张卡**：高峰过后按缩容阈值回到 2 副本；如果日夜负载差很大，考虑 PD 分离（`DisaggregatedSet` 两个 role 各自扩缩）或让低峰的卡给训练 / 批处理任务（第八章）。Triton 与 Ray Serve 是同位替代：Triton 的 model repository + `config.pbtxt`（dynamic batching、ensemble、vLLM backend）适合多模型多框架，Ray Serve 自带调度器、放到 K8s 上是两层调度（第九章）。
-
-</details>
-
-
 ## 十一、自测
 
 1. TP=4 的一个副本在 K8s 里用什么对象表达？为什么 Deployment 不够？
@@ -1224,7 +1206,8 @@ if __name__ == "__main__":
 
    </details>
 
-
 ## 下一篇
 
 副本有了形态、会扩会缩之后，请求进入平台的第一站还没解决：Service 的轮询会把请求送到 KV cache 已满的副本上，同一前缀的请求分散到不同副本浪费 prefix cache，多个租户共用一组副本时没有配额与优先级。下一篇进入第七篇 [模型网关与多租户：路由、配额与灰度](/model-gateway-multi-tenancy-and-quota.html)：Gateway API Inference Extension 的 `InferencePool` 与来自 llm-d-router 的 Endpoint Picker、OpenAI 协议归一、按 token 的配额与计费、版本灰度与 LoRA 路由，以及"配额到底指什么"这个核心问题。
+
+[^q0]: **指标**：不选 GPU 利用率（decode 时常年 90% 以上却不代表满载），选引擎内部的领先指标：`vllm:num_requests_waiting`（排队数，最灵敏）、`vllm:kv_cache_usage_perc`（容量的直接度量）、TTFT / ITL 的 P95（SLO 本身）；经 Prometheus 由 KEDA 或 HPA 的 external metrics 驱动 LeaderWorkerSet（TP=4 多 Pod 一副本用 LWS，`scale` 子资源只看 leader）或 KServe 的 `LLMInferenceService`（[第三章](#三leaderworkerset多-pod-一副本)、[第四章](#四kserveinferenceservice-与-llminferenceservice)、[第七章](#七扩缩容)）。**阈值**：按容量倒推——一个副本在 SLO 内能承载的并发（KV 池 / 每请求平均 KV）是 100%，KV 占用到 70–80% 或 waiting > 0 持续 30 秒就扩，缩容用更长的 `stabilizationWindow`，否则在 8 分钟的就绪延迟里来回抖动。**提前多久**：8 分钟就绪意味着纯反应式一定迟到——晚高峰可预测，用定时（KEDA cron scaler）在高峰前 10–15 分钟把 minReplicas 从 2 抬到 6，指标驱动只负责预测之外的部分；再把 8 分钟本身压短：权重用 `pvc://` 直挂或 `oci://` modelcar、`LocalModelCache` 预热到节点本地盘。**不浪费 16 张卡**：高峰过后按缩容阈值回到 2 副本；日夜负载差很大时考虑 PD 分离两个 role 各自扩缩、或让低峰的卡给训练 / 批处理任务。详见[第七章](#七扩缩容)、[第八章](#八核心问题的数值推演)。

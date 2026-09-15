@@ -16,12 +16,11 @@ updated: 2026-09-14
 
 本篇要回答总纲提出的核心问题：
 
-> **两个团队各有 16 卡的配额，A 团队提交了一个 32 卡的任务，B 团队的卡空着。在 Volcano、Kueue 和 Slurm 里，这个任务分别会怎样？借用、抢占、等待三种行为各自的配置是什么？**
+> **两个团队各有 16 卡的配额，A 团队提交了一个 32 卡的任务，B 团队的卡空着。在 Volcano、Kueue 和 Slurm 里，这个任务分别会怎样？[^q0] 借用、抢占、等待三种行为各自的配置是什么？[^q1]**
 
 读完本篇你应该能做三件事：面对一个 Pending 的训练任务，说出它卡在哪一层（配额没准入、gang 没凑齐、拓扑约束不满足、还是节点碎片）；为一个多团队 GPU 集群选出 Volcano 或 Kueue 并写出配额定义；把一个 `torchrun` 任务用 Kubeflow Trainer 的 `TrainJob` 表达出来并接到队列上。
 
 源码与 API 以下列版本为准：Volcano v1.15.2（`scheduling.volcano.sh/v1beta1`、`batch.volcano.sh/v1alpha1`、`topology.volcano.sh/v1alpha1`）、Kueue v0.19.2（`kueue.x-k8s.io/v1beta2`）、Kubeflow Trainer v2.3.0（`trainer.kubeflow.org/v1alpha1`）、KubeRay v1.7.0（`ray.io/v1`）、Slinky slurm-operator v1.2.2（`slinky.slurm.net/v1beta1`，仅对照）、Kubernetes v1.37.0。引用格式为"仓库 路径 的 类型/字段/函数"，不给行号。
-
 
 ## 一、总览：从一个 Pod 到一组 Pod
 
@@ -99,7 +98,6 @@ Kueue 不碰 Pod 的节点选择，它只决定"这个任务现在能不能开�
 | 十二 | 实践 | mini-platform/sched/：Kueue 两队列 cohort、TrainJob、Volcano Job、从 suspended 到 admitted |
 | 十三 | 小结 | 要点、源码位置、练手项目增量 |
 
-
 ## 二、为什么逐 Pod 调度会死锁
 
 ### 1. 一条时间线
@@ -159,7 +157,6 @@ gang scheduling 的定义只有一句：**一组 Pod 要么全部（或至少 `m
 一个自然的想法是：让应用自己重试——起不齐就退出，Job 重建，总有一次能凑齐。开头的时间线已经说明这条路走不通：重试只是把死锁变成活锁，占着资源等的时间没有减少，反而多了反复拉镜像、反复初始化的开销。更根本的原因是**调度器是唯一同时看到所有待调度 Pod 和所有节点空闲资源的地方**。应用只能看到自己；任何在应用层做的"等一等再重试"都不知道该等多久、也不知道自己是否应该先退让。
 
 另一个想法是在 admission 层做：Pod 创建之前先检查"集群剩余资源够不够整个任务"，够了才放行。这正是 Kueue 的思路，它能防止"配额上放不下"的任务进入集群。但它防不住"配额上够、节点上因为碎片放不下"的情况——这在第四章会展开，也是 Kueue 后来加 Topology-Aware Scheduling 和 `waitForPodsReady` 的原因。
-
 
 ## 三、Volcano：一个更懂批处理的调度器
 
@@ -323,7 +320,6 @@ guarantee    保底。这部分资源即使队列空着也不借出去，永远�
 
 其他常用 plugin 一句话：`priority` 按 `PriorityClass` 排 Job 和 task；`drf` 按 dominant resource fairness 排 Job（多资源维度下的公平）；`binpack` 给节点打分时偏好"已经装得比较满"的节点，参数 `binpack.weight`、`binpack.resources`（`volcano pkg/scheduler/plugins/binpack/binpack.go`）——对 GPU 集群非常重要，它减少了第二章那种"每台机器剩两张卡"的碎片；`predicates` 和 `nodeorder` 复用 kube-scheduler 的 Filter / Score 逻辑；`sla` 给等待过久的 Job 加权；`numaaware` 处理 NUMA 拓扑；`network-topology-aware` 是第六章的主角。
 
-
 ## 四、Kueue：调度器之前的配额闸门
 
 ### 1. 设计前提
@@ -435,7 +431,6 @@ Kueue 内置的检查器是 `kueue.x-k8s.io/provisioning-request`（`kueue apis/
 
 Kueue 准入是按配额做的加法，不保证 kube-scheduler 真能把每个 Pod 放下——碎片、taint、别的非 Kueue 管理的 Pod 都可能让某个 Pod Pending。`Configuration.WaitForPodsReady`（`configuration_types.go`）是补救：`timeout` 内 Workload 的 Pod 没有全部 Ready，就驱逐它、按 `requeuingStrategy` 退避重排，`blockAdmission: true` 时还会阻止其他 Workload 在此期间准入（避免它们也去抢碎片）。这是一个"时间维度上的 all-or-nothing"：Kueue 不能阻止部分启动，但能保证它不持续。真正阻止部分启动要靠 TAS——第六章。
 
-
 ## 五、两种哲学的对比
 
 ### 1. 对比表
@@ -467,7 +462,6 @@ gang 的保证       强：allocate 在快照上模拟全部 task，JobReady 才
 **能不能一起用？**机制上不冲突：Kueue 管准入（`suspend`），Volcano 管调度（`schedulerName: volcano`），一个在 Pod 之前一个在 Pod 之后。但两边各有一套配额，重复定义会互相打架（Kueue 准入了、Volcano 的 Queue 又把它挡住），实际部署里很少同时启用，两个项目的文档也都没有把对方作为推荐组合。更常见的组合是 Kueue + kube-scheduler（+ TAS 补拓扑），或 Volcano 单独。
 
 **Kubeflow Trainer 两边都支持**，第八章讲：`TrainingRuntime.spec.podGroupPolicy.volcano` 生成 Volcano PodGroup；`kueue.x-k8s.io/queue-name` 标签让 Kueue 接管。这让选型可以推迟到平台层，训练任务的定义不用改。
-
 
 ## 六、拓扑感知调度
 
@@ -563,7 +557,6 @@ Volcano 用一个专门的 CRD 描述网络拓扑：`topology.volcano.sh/v1alpha
 
 没有正确的标签，拓扑感知等于没有；标签打错（两台不同 rack 的机器标了同一个值）比没有更糟——调度器会自信地把任务放到一个"假"域里。
 
-
 ## 七、抢占、优先级与 checkpoint
 
 ### 1. 抢占的代价模型
@@ -602,7 +595,6 @@ Volcano   生产 Queue guarantee = deserved（不借出）；实验 Queue guaran
           actions 加 reclaim（跨队列回收）；是否加 preempt / gangpreempt 视是否接受任务级抢占
 两边      terminationGracePeriodSeconds ≥ 一次 checkpoint 写入时间 + 余量；训练脚本处理 SIGTERM
 ```
-
 
 ## 八、训练任务的 K8s 表达：Kubeflow Trainer
 
@@ -658,7 +650,6 @@ Kueue 侧只需要 TrainJob 带 `kueue.x-k8s.io/queue-name` 标签，并在 Kueu
 
 `torch.go` 顶部的 TODO 写着 "Add support for PyTorch elastic when JobSet supports Elastic Jobs"——v2.3.0 的 TrainJob 是固定 `numNodes`，`PET_NNODES` 是一个数不是范围，`minMember` 等于全部成员。弹性训练（`--nnodes=2:4`、`--max-restarts`）在这一版还表达不出来。故障恢复靠 JobSet 的 failure policy 和 `batch/v1` Job 的 `backoffLimit` 重建 Pod，checkpoint 的保存与恢复是训练脚本的事。
 
-
 ## 九、对照：Slurm 与 Ray
 
 ### 1. Slurm 早就做完了什么
@@ -704,7 +695,6 @@ KubeRay 负责 Ray 集群本身（`kuberay ray-operator/apis/ray/v1/`）：`RayC
 
 KubeRay 和本篇两条路线的接口：`--batch-scheduler` 启动参数（`kuberay ray-operator/main.go`）支持 `volcano`、`yunikorn`、`kai-scheduler`，`volcano` 模式下 `kuberay ray-operator/controllers/ray/batchscheduler/volcano/volcano_scheduler.go` 为 RayCluster / RayJob 创建 PodGroup（`minMember` 为 head + 所有 worker group 的 `MinReplicas`，RayJob 的 submitter Pod 故意不算进去以免死锁），队列用 `volcano.sh/queue-name` 标签。Kueue 侧 `ray.io/rayjob` / `ray.io/raycluster` / `ray.io/rayservice` 是 Kueue 的内置 integration，靠 `RayJobSpec.Suspend` / `RayClusterSpec.Suspend` 工作——`ray-operator/controllers/ray/utils/validation.go` 里注明了 Kueue 对 RayJob 的限制（比如带 autoscaling 的 RayJob 不能被 suspend）。`ManagedBy` 字段接受 `kueue.x-k8s.io/multikueue`，交给 Kueue 的多集群调度。
 
-
 ## 十、回答核心问题：借用、抢占、等待
 
 两个团队 A、B，各 16 卡配额，集群共 32 卡。A 提交一个 32 卡任务 J，此时 B 空闲。J 的三种可能结局——借到 B 的 16 卡跑起来（借用）、等 B 有任务时被收回（抢占/回收）、或一直等到 A 自己有 32 卡（等待，即永远不跑）——在三个系统里分别由什么配置决定：
@@ -738,7 +728,6 @@ KubeRay 和本篇两条路线的接口：`--batch-scheduler` 启动参数（`kub
 
 一个更具体的建议：如果 A 团队的 32 卡任务是常态而不是偶然，"两个 16 卡队列"本身就是错的配额设计。Kueue 里应该让 A、B 各 `nominalQuota: 16` 但 cohort 层持有另一份共享配额，或者用 fair sharing 让借用按份额自动平衡；Volcano 里应该给 A `deserved: 16, guarantee: 8` 而给 B `guarantee: 16`，明确"谁的任务可以被挤"。配额系统能表达的远不止硬上限，把它当硬上限用是最常见的浪费来源。
 
-
 ## 十一、代价与边界
 
 ### 1. 机制线上的这一段
@@ -771,7 +760,6 @@ torchrun 需要稳定的 rendezvous   Pod IP 不稳定                          
 **抢占与 checkpoint 的耦合。** 平台开启抢占之后，训练脚本必须处理 SIGTERM、checkpoint 间隔必须适配、`terminationGracePeriodSeconds` 必须够长——这三件事分属训练代码、训练配置和平台配置三个地方，任何一个没跟上，抢占就从"提高集群利用率"变成"浪费 GPU 时"。
 
 **这一层不该做的事。** 调度器不负责 GPU 的切分（第四篇）、不负责 RDMA 网卡的分配（第五篇，那是 device plugin 和 Multus 的事，调度器只看资源计数）、不负责推理服务的扩缩容（第六篇，那是 HPA/KEDA）。把这些塞进调度器插件是常见的过度设计。
-
 
 ## 十二、实践：mini-platform/sched/
 
@@ -1112,7 +1100,6 @@ Running
 
 也可以不用 vcjob，让 Trainer 的 runtime 生成 Volcano PodGroup：复制 `torch-distributed` 为一个新的 ClusterTrainingRuntime，加上 `spec.podGroupPolicy.volcano: {}`、在 `spec.template.metadata.annotations` 写 `scheduling.volcano.sh/queue-name: team-a`、在 Pod 模板写 `schedulerName: volcano`，TrainJob 本身不用改——第八章第 3 节讲的就是这条路。
 
-
 ## 十三、本文小结
 
 ### 1. 要点回顾
@@ -1214,14 +1201,6 @@ mini-platform/sched/
 
 > **同一张 A100 上跑三个小模型的推理服务，用 MIG、用 HAMi 按显存切、用时间片开三个副本——三种方案在隔离性、总吞吐、故障影响范围上各自怎样？哪种方案下一个服务的 OOM 会拖垮另外两个？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**Volcano**：Job → PodGroup（`minMember` = 32）→ Queue；A 队列 `deserved` 16 卡、`capability` 可设 32；每个调度周期 `allocate` 在 Statement 上模拟全部 task、`JobReady` 才 Commit——32 卡凑不齐一个 Pod 都不起（gang）；B 队列空闲时 A 可以**借用**到 `capability`（capacity 插件按 `guarantee ≤ deserved ≤ capability` 解释），任务起来；B 提交任务时 `reclaim` action 把超出 `deserved` 的部分**回收**（`reclaimable` 默认 true），gang 插件禁止把 A 的 Job 抢到 `minMember` 以下，所以 A 的 32 卡任务会被整个回收（gangreclaim）；A 队列 `capability` = 16 则任务永远 Pending（等待）（第三、四章）。**Kueue**：不换调度器，webhook 把 Pod 置 `suspend=true`；Workload（podSets 共 32 卡）→ LocalQueue → ClusterQueue（A 的 `nominalQuota` 16）；A、B 在同一 cohort 时 A 可以**借用** B 的空闲配额，上限由 A 的 `borrowingLimit` 与 B 的 `lendingLimit` 决定——配了就 admitted、unsuspend，没配就 Pending；B 提交任务时按抢占三开关处理：`reclaimWithinCohort` 让 B 收回被借的配额（A 的 Workload 被整个驱逐、回队列），`withinClusterQueue` 管同队列内按优先级抢占，`borrowWithinCohort` 管借用者能否抢占；`waitForPodsReady` 在时间维度做 all-or-nothing（第五章）。哲学差别：Volcano 在 Pod 之后做节点级 gang，Kueue 在 Pod 之前做配额级 gang，TAS 让 Kueue 也做节点级放置。**Slurm**：分区与账户的 `GrpTRES` 限制 A 为 16 卡，`sbatch --gres=gpu:32` 直接 Pending（`AssocGrpGRES`）；要借用需要 QOS 的 `GrpTRES` 放宽或 preemptable QOS——Slurm 的 gang 与拓扑（`--switches`）是原生的，借用是显式配置。**抢占的代价**：$$N_{gpu} \times$$（距上次 checkpoint 时间 + 重启时间），以整任务为单位，grace period 要覆盖一次 checkpoint（第六、七章）。拓扑感知（Kueue Topology / Volcano HyperNode）依赖正确的节点标签，没有标签等于零。
-
-</details>
-
-
 ## 十四、自测
 
 1. 为什么 gang 调度必须在调度器 / 准入层做，应用层重试无效？K8s 原生有雏形吗？
@@ -1264,7 +1243,9 @@ mini-platform/sched/
 
    </details>
 
-
 ## 下一篇
 
 [GPU 共享与切分：MIG、时间片、MPS 与 HAMi](/gpu-sharing-and-partitioning-mig-mps-hami.html)
+
+[^q0]: **Volcano**：Job → PodGroup（`minMember` = 32）→ Queue；A 队列 `deserved` 16 卡、`capability` 可设 32；每个调度周期 `allocate` 在 Statement 上模拟全部 task、`JobReady` 才 Commit——32 卡凑不齐一个 Pod 都不起；B 空闲时 A 可以借用到 `capability`，任务起来；B 提交任务时 `reclaim` 把超出 `deserved` 的部分回收，gang 插件禁止把 A 抢到 `minMember` 以下，所以 A 的 32 卡任务会被整个回收；`capability` = 16 则永远 Pending（[第三章](#三volcano一个更懂批处理的调度器)）。**Kueue**：不换调度器，webhook 把 Pod 置 `suspend=true`；Workload → LocalQueue → ClusterQueue（A 的 `nominalQuota` 16）；A、B 在同一 cohort 时 A 可以借用 B 的空闲配额，上限由 A 的 `borrowingLimit` 与 B 的 `lendingLimit` 决定——配了就 admitted、unsuspend，没配就 Pending；B 提交任务时 `reclaimWithinCohort` 让 B 收回被借的配额（A 的 Workload 被整个驱逐、回队列）（[第四章](#四kueue调度器之前的配额闸门)）。**Slurm**：账户的 `GrpTRES` 限制 A 为 16 卡，`sbatch --gres=gpu:32` 直接 Pending（`AssocGrpGRES`）；借用需要 QOS 的 `GrpTRES` 放宽或 preemptable QOS（[第九章](#九对照slurm-与-ray)）。哲学差别：Volcano 在 Pod 之后做节点级 gang，Kueue 在 Pod 之前做配额级 gang（[第五章](#五两种哲学的对比)）。
+[^q1]: **借用**：Volcano 是 Queue 的 `capability` > `deserved`（capacity 插件按 `guarantee ≤ deserved ≤ capability` 解释）；Kueue 是同一 cohort + `borrowingLimit` / `lendingLimit`；Slurm 是 QOS 的 `GrpTRES` 或 preemptable QOS。**抢占 / 回收**：Volcano 的 `reclaim` action + `reclaimable`；Kueue 的三开关 `reclaimWithinCohort`（收回被借）、`withinClusterQueue`（同队列按优先级）、`borrowWithinCohort`（借用者能否抢占）；代价是 $$N_{gpu} \times$$（距上次 checkpoint 时间 + 重启时间），以整任务为单位，grace period 要覆盖一次 checkpoint。**等待**：Volcano `capability` = `deserved`；Kueue 不配 cohort 或 `borrowingLimit: 0`，`waitForPodsReady` 在时间维度做 all-or-nothing。详见[第七章](#七抢占优先级与-checkpoint)、[第十章](#十回答核心问题借用抢占等待)。

@@ -14,12 +14,11 @@ updated: 2026-09-14
 
 两个 PR 都不大：PyTorch 的那个改了一个文件、加了 104 行；vLLM 的那个改了六个文件、加 109 行删 16 行。但一个从 issue 到合入用了一个月、PR 本身开了五天；另一个 PR 开了五十天，其中四十七天没有一条 review。这就是本篇要回答的核心问题：
 
-> **两个都是"小"PR，却各花了作者一到几周。这些时间花在哪里了？哪些是可以省的，哪些是这个项目的正常成本？**
+> **两个都是"小"PR，却各花了作者一到几周。这些时间花在哪里了？[^q0] 哪些是可以省的，哪些是这个项目的正常成本？[^q1]**
 
 答案要靠时间线算出来，而不是靠感觉。本篇会为两个 PR 各画一张由真实时间戳（`createdAt`、每条评论的 `created_at`、`mergedAt`）构成的时间线表，把时间分解到"等待"、"往返"、"CI"、"作者自己的工作"四类里，再逐项判断可省不可省。最后一章是全系列的总结：把两个走读里出现的每一个环节映射回前三篇的对应小节。
 
 版本与数据基线：源码路径以 PyTorch v2.14.0、vLLM v0.28.0 检出为准；两个 PR 的 GitHub 数据（描述、评论、标签、检查状态、时间戳）均为 **截至 2026-09-07 用 `gh` 查询**的结果，时间统一为 UTC。本文不引用其他系列的文章，不展开两个改动背后的技术原理——LU 分解的后端选择与 KV cache 的块分配只解释到"读懂这个 diff"所需的程度。
-
 
 ## 一、总览
 
@@ -97,7 +96,6 @@ review            @IvanYashchuk 3 条行内 + 1 条总评；@johannesz-codes 1 �
 | 十 | 自测 | 5 道题 |
 | 十 | 系列总结 | 三种能力 |
 
-
 ## 二、选择两个 PR
 
 ### 1. 选取标准
@@ -153,7 +151,6 @@ vLLM 侧看了四个候选。#47165（把不可处理的图片 URL 从 500 改�
 
 - **PyTorch #185344 没有新增测试**。它改的是性能启发式（在两个都正确的后端之间选择），正确性由既有的 `test/test_linalg.py` 中 `test_linalg_lu_family` 等用例覆盖，PR 用 3792 个采样点的命中率表代替了测试。在 2026 年 3 月到 9 月合入的、满足其余全部条件的 PyTorch CUDA PR 里，没有一个同时具备 `Fixes #`、ghstack、benchmark 数字、review 导致修改、新增测试——第二章第 3 节里的 #188110 有测试但没有 issue。这里放宽"有测试"。
 - **两个 PR 都没有 RFC**。两个都是 issue 驱动的修复；本系列讨论的 RFC 流程（`pytorch/rfcs`、vLLM 的 `750-RFC.yml`）适用于大改动，几十到几百行的 PR 本来就不该走 RFC，这一点与标准不冲突，但要说明。
-
 
 ## 三、走读一：PyTorch #185344
 
@@ -312,7 +309,6 @@ gh api repos/pytorch/pytorch/compare/v2.13.0...230db5d50ab7181876abd9a5ac5c4aca7
 
 follow-up 与 revert：`gh pr list --repo pytorch/pytorch --state all --search "185344 in:body,title"` 只返回它自己，没有 revert、没有引用它的后续 PR。`git log 230db5d50ab7..v2.14.0 -- aten/src/ATen/native/cuda/linalg/BatchLinearAlgebra.cpp` 有两个 ROCm 相关 commit（#185557、#188720）碰过这个文件，但 `get_lu_factor_solver_backend` 在 v2.14.0 检出里与合入时逐行一致。作者自己留下的 `FIXME: this heuristic is likely incorrect for ROCM.` 也还在。
 
-
 ## 四、走读二：vLLM #47272
 
 ### 1. 起点
@@ -454,7 +450,6 @@ gh pr list --repo vllm-project/vllm --state all --search "47272 in:body,title" \
 
 返回三个：#52530（@malaiwah，请求侧，08-20 关闭，关闭留言 "Closing in favor of the maintainer-requested path. #47272 has merged as `76fb6d21…`"）；#48724（@ricky-chaoju，07-15 开出，"[Bugfix][Core] Reserve the null block in auto-fit max_model_len"，body 里写 "This is not a duplicate of #47272: that PR fixes the explicit `max_model_len` validation and its diff keeps `check_memory = available_memory`…"——这在 7 月 15 日是对的，8 月 18 日之后就不成立了；截至 09-07 仍 open，mergify 在 08-20 给它打了冲突提示）；#51156（spec decode 相关，只是提及）。没有 revert。#48724 是一个值得记住的反例：它在开出时确实不重复，但原 PR 在 review 中吸收了它的范围，而它没有跟进——查重不是一次性的动作。
 
-
 ## 五、两个走读的对照表
 
 ```text
@@ -482,7 +477,6 @@ AI 政策         AI_POLICY.md；描述保留 "Authored with Claude."，        
                 mandatory_checks_name（Linear Algebra：EasyCLA · Lint · pull）
 进入版本        v2.13.0（合入 32 天后打 tag，37 天后 release）              不在 v0.28.0；只在 rc 标签中；正式版本待 v0.29.0
 ```
-
 
 ## 六、核心问题：时间去了哪里
 
@@ -561,7 +555,6 @@ review 往返轮数        1 轮（3 条意见 + 1 条 TODO）   1 轮（1 条�
 
 结论很直接：**小 PR 的时间不在写代码上**。PyTorch 那个的时间在数据上，这是这类改动的本体成本；vLLM 那个的时间在等待上，其中大半是可以用一句 ping 缩短的。两个项目的 review 承诺（PyTorch "4 个工作日"、vLLM "2–3 天给状态、7 天可 ping"）在这两个样本里一个远快于承诺（3 小时 42 分）、一个远慢于承诺（47 天）——承诺是平均值，个案要靠自己推进。
 
-
 ## 七、映射回前三篇
 
 两个走读里出现的每一个环节，都能在前三篇找到对应的方法与文件：
@@ -592,7 +585,6 @@ Dr. CI 的 "New Failures" 与退出码 127                 第三篇 · 读 CI �
 @pytorchbot merge → merge -i；merge_rules.yaml       第三篇 · merge 机制                                      三.6
 ready 标签 → /ci run → 合入；mergify needs-rebase    第三篇 · merge 机制                                      四.5 · 四.6
 ```
-
 
 ## 八、贡献日志：复盘模板
 
@@ -648,7 +640,6 @@ ready 标签 → /ci run → 合入；mergify needs-rebase    第三篇 · merge
 ```
 
 两个走读填出来的"下次省什么"作为示例：PyTorch #185344——提交前用 PR 描述里的数字校对一遍代码注释；把与维护无关的署名句只留在描述里。vLLM #47272——第 8 天 ping 一次，只请求一两位与文件路径匹配的 reviewer；提交前 `rg` 一遍 `tests/` 里踩在新边界上的配置；PR 开出后每隔两周重跑一次查重命令，看有没有相邻 PR 出现。
-
 
 ## 九、本文小结
 
@@ -714,7 +705,6 @@ GitHub（09-07 查）  pytorch/pytorch#185344 · #181999                        
                     vllm-project/vllm#47272 · #35541 · #41069 · #52530 · #48724  PR · issue · 前置修复 · 两个相邻 PR
 ```
 
-
 ## 十、系列总结
 
 四篇文章从"面对一个百万行的开源项目，如何找到切入点、做出一个能被合入的改动"这个问题出发，到两个真实 PR 的时间线结束。回头看，读者手上应当有三样东西。
@@ -747,14 +737,6 @@ GitHub（09-07 查）  pytorch/pytorch#185344 · #181999                        
 3. **交付能力**：以目标项目的规范完成一个改动——diff、测试、数据、描述、CI、review——并把它合入上游——第三篇的规则，本篇用两张时间线量出了每条规则的成本：数据是正常成本，等待大半可省，review 意见的价值在于它引出的验证而不是改动的行数。
 
 这套能力不属于任何一层，却决定了每一层的技术能力最终能否转化为对项目的实际贡献。两个 PR 的作者都不是在写最难的代码；他们做对的是在正确的地方放正确的东西，然后在正确的时间推进。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-两个 PR 按七个阶段（起点 · 阅读 · diff · 测试与数据 · CI · review · 合入之后）逐条对照，时间花在完全不同的地方。**PyTorch 的 PR**：issue 由 maintainer 开、长期贡献者接，起点清楚；代码改动小，但作者用 27 天采了 3792 个数据点做 benchmark 与验证——PR 挂出后 5 天合入，4 小时内收到 3 条注释类意见，几乎没有等待。时间在**数据**上，这是这个项目的**正常成本**：性能相关的改动没有 before / after 表与多 shape 覆盖不会被合。**vLLM 的 PR**：issue 曾被部分修复过一次又被 stale bot 关闭，作者重开；PR 挂出后 **47 天无 review、作者没有 ping**；期间社区成员划出边界开了配套 PR。时间在**等待**上，而且大半**可以省**——第 8 天就该 ping（`@` 对应模块的 maintainer 或在 Slack 问）、提交前用 `rg` 找到边界测试确认没有重复工作、查一下是否已有人在做。两条经验：注释与描述里的数字要与代码对齐、署名放描述不放代码（PyTorch 的规矩）；第 8 天 ping、提交前 `rg` 边界测试、查重要重复做。**合入的痕迹**两家不同：PyTorch 由 pytorchbot 关闭 PR 并推 commit，要查 `label:Merged` 而不是 `is:merged`，commit 含 `Pull Request resolved:` / `Approved by:`；vLLM 是 GitHub 原生 merged，commit 标题带 `(#N)`。标签：PyTorch 作者能自己打 `module:` 与 `ciflow/`，bot 打 `open source`；vLLM 由 mergify 按标题打、`ready` 只有 maintainer 能打。签名：EasyCLA vs DCO 每个 commit（第二至八章）。所以“小 PR 花几周”不奇怪，问题是花在哪：花在数据是项目要求，花在等待是自己没推。
-
-</details>
-
 
 ## 十、自测
 
@@ -797,3 +779,6 @@ GitHub（09-07 查）  pytorch/pytorch#185344 · #181999                        
    PyTorch：起点清楚时几天到一周合入，成本在测试数据与 CI 覆盖（项目要求）；vLLM：取决于能否进入 maintainer 视野，无 ping 可能几周无人看（可控），完整 CI 要 maintainer 打 ready（半可控）；两边都要过 lint / 签名（可控，几分钟）。
 
    </details>
+
+[^q0]: 花在完全不同的地方。**PyTorch 的 PR**：issue 由 maintainer 开、长期贡献者接，起点清楚；代码改动小，但作者用 27 天采了 3792 个数据点做 benchmark 与验证——PR 挂出后 5 天合入，4 小时内收到 3 条注释类意见，几乎没有等待。时间在**数据**上（[第三章](#三走读一pytorch-185344)）。**vLLM 的 PR**：issue 曾被部分修复过一次又被 stale bot 关闭，作者重开；PR 挂出后 47 天无 review、作者没有 ping；期间社区成员划出边界开了配套 PR。时间在**等待**上（[第四章](#四走读二vllm-47272)）。对照表见[第五章](#五两个走读的对照表)，时间拆解见[第六章](#六核心问题时间去了哪里)。
+[^q1]: **正常成本**：PyTorch 那 27 天的数据——性能相关的改动没有 before / after 表与多 shape 覆盖不会被合，这是项目要求。**可以省的**：vLLM 那 47 天里的大半——第 8 天就该 ping（`@` 对应模块的 maintainer 或在 Slack 问）、提交前用 `rg` 找到边界测试确认没有重复工作、查一下是否已有人在做。两条经验：注释与描述里的数字要与代码对齐、署名放描述不放代码（PyTorch 的规矩）。合入的痕迹两家不同：PyTorch 由 pytorchbot 关闭 PR 并推 commit，要查 `label:Merged` 而不是 `is:merged`；vLLM 是 GitHub 原生 merged。所以「小 PR 花几周」不奇怪，问题是花在哪：花在数据是项目要求，花在等待是自己没推。详见[第六章](#六核心问题时间去了哪里)、[第七章](#七映射回前三篇)。

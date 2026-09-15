@@ -14,10 +14,9 @@ updated: 2026-09-14
 
 本篇的核心问题：
 
-> **凌晨两点告警：reward 曲线从上升变成平台，步时间没变，没有报错。十分钟内你要判断是 staleness 涨了、是训推不一致、是某个沙箱池挂了导致 reward 全为零、还是权重同步漏了一部分参数。你需要的每一个信号，在开训前有没有采集？**
+> **凌晨两点告警：reward 曲线从上升变成平台，步时间没变，没有报错。十分钟内你要判断是 staleness 涨了、是训推不一致、是某个沙箱池挂了导致 reward 全为零、还是权重同步漏了一部分参数。你需要的每一个信号，在开训前有没有采集？[^q0]**
 
 版本：verl v0.9.0（`docs/advance/determinism.md`、`rl_insight.md`、`grafana_prometheus.md`、`checkpoint.rst`；`trainer/ppo/metric_utils.py`）、vLLM v0.27.1。数字沿用前七篇的场景。
-
 
 ## 一、总览
 
@@ -60,7 +59,6 @@ RL 状态的 checkpoint 方案                                  恢复语义：�
 | 九 | 引擎对平台的要求 |
 | 十 | 系列总结 |
 | 十一 | 自测 | 5 道题 |
-
 
 ## 二、配置的推导顺序
 
@@ -147,7 +145,6 @@ batch           按 token 打包（dynamic bsz）；mini-batch 数 = B / mini_bs
 
 两边的 TP / EP 不同是权重同步布局映射的来源（第四篇）；两边都要 EP 的 MoE 是最复杂的组合。
 
-
 ## 三、全步 MFU
 
 ### 1. 定义
@@ -179,7 +176,6 @@ verl 的 `perf/throughput`（token / 秒 / GPU）与 `perf/time_per_step` 是它
 - **只算训练池**：`separate_async` 下如果分母漏了 rollout 卡，MFU 会翻倍地好看。
 - **只算有梯度的 token**：Agent RL 里八成 token 是环境的，它们的前向 + 反向 FLOP 是真实消耗（分子里要算），但"有效训练 token"只有两成——两个数字都要报。
 - **忽略验证与保存**：`test_freq` 每 5 步一次的验证是一次完整的 rollout（在 rollout 池上，异步下会挤占生成）；`save_freq` 每 20 步一次的 checkpoint 32B 是 525 GB 的写入、几十秒到几分钟——它们进墙钟，不进分子。
-
 
 ## 四、RL 状态的 checkpoint
 
@@ -222,7 +218,6 @@ separate_async   同上 + standalone 实例重新拉起、首次全量同步（o
 Agent            同上 + 沙箱：在飞轨迹的容器已回收，重发从头开始；tool.release 要在 abort 路径上也被调（否则泄漏，第七章）
 ```
 
-
 ## 五、确定性
 
 ### 1. 为什么 RL 对随机性敏感
@@ -261,7 +256,6 @@ trainer.use_v1: false     # 必须：v1 按完成顺序收样本，跨运行不�
 ### 4. 部分确定性
 
 生产上退一步也有价值：固定采样种子 + 确定性训练算法（不管完成顺序）不能 bitwise 对齐，但能让两次运行的差异缩到"只来自 batch 组成"——足以区分"配置的作用"与"运气"的大部分情形。`rollout_probs_diff` 在确定性开启时应接近纯精度差（$$10^{-3}$$），它同时是训推不一致的基线（第五篇）。
-
 
 ## 六、可观测
 
@@ -314,7 +308,6 @@ verl 0.9 的两条现成路径：`trainer.logger` 加 `rl_insight` 并设 `RL_IN
 - **`log_gpu_memory_usage`** 打开（`VERL_LOGGING_LEVEL=DEBUG`）：切换路径上每个点的显存。
 - **Ray timeline**（`ray_kwargs.timeline_json_file`）与 torch profiler（`global_profiler.steps`）：一步的时间线对到函数——第七篇的实践建议。
 
-
 ## 七、常见故障
 
 ### 1. 故障表
@@ -350,7 +343,6 @@ verl 0.9 的两条现成路径：`trainer.logger` 加 `rl_insight` 并设 `RL_IN
 
 前三步都是看面板，各两分钟；第四步才要登机器。这个顺序反过来（先 py-spy）是最常见的浪费时间的方式。
 
-
 ## 八、那十分钟
 
 ```text
@@ -368,7 +360,6 @@ verl 0.9 的两条现成路径：`trainer.logger` 加 `rl_insight` 并设 `RL_IN
 ```
 
 "都不是"这一枝很重要：**系统侧能给算法侧的最大帮助，是在十分钟内证明"不是系统的问题"**——四项信号正常的截图，比任何猜测都有价值。
-
 
 ## 九、引擎对平台的要求
 
@@ -390,7 +381,6 @@ gang scheduling   训练池 + rollout 池 + TransferQueue + agent loop worker �
 ```
 
 一句话：**RL 任务是平台上第一种"训练 + 服务 + 批处理"三合一的工作负载**，调度器要么把它当三个任务加一层编排（Ray 在做的事），要么把"异质 gang"做成一等公民。
-
 
 ## 十、系列总结
 
@@ -433,14 +423,6 @@ Infra 地图上与它相邻的下一块是**扩散模型的推理基础设施**�
 
 **实践建议**：为你手上（或练手的 8 卡）RL 任务写一份"配置推导记录"——按第二章的六步，每步写下输入、输出与依据，末尾写下预期的全步 MFU 与三段时间；跑起来后把实测填在旁边。差得最多的那一项，就是这个任务最值得优化的地方，也是你对这张账理解最薄的地方。然后写值班手册：第一章那张表的四行，每行填上你面板里对应指标的名字与阈值。
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-十分钟内归因，靠开训前就采集好的信号——每个嫌疑一个决定性指标。**staleness 涨了**：每个 mini-batch 的 staleness 分布（生成版本 vs 训练版本）与 `drop` / `wait` 比例；曲线变平台前 staleness 分布右移、被丢样本偏长 → 是它，检查 rollout 池是否变慢（长尾、KV 池、实例掉了）导致同步间隔内生成的样本变少。**训推不一致**：`rollout_probs_diff`（推理侧与训练侧 logprob 差）的均值与 P99——在同步形态下就开着作基线，跳升说明推理引擎版本、量化、MoE 路由出了变化；伴随 TIS / MIS 的截断 / 屏蔽比例上升。**沙箱池挂了、reward 全零**：按 reward 来源（规则 / 沙箱 / 生成式 RM）分开的 reward 分布与失败率、沙箱执行的成功 / 超时 / 错误计数、每个沙箱池的健康——reward 全零而 loss 正常、`response_length` 正常，是环境侧；步时间没变是因为 GPU 照常跑、只是 reward 没有信号。**权重同步漏了一部分参数**：同步后推理侧与训练侧的参数校验和（按 bucket 或按层的哈希、或抽样 tensor 的 `allclose`）、同步的桶数与字节数与预期是否一致、`rollout_probs_diff` 会持续偏大——漏同步的层让推理侧永远用旧参数（第五、六章）。**十分钟决策树**：先看 reward 按来源拆分 → 全零走环境路径；再看 `rollout_probs_diff` → 跳升走不一致 / 同步校验；再看 staleness 分布与淘汰比例 → 走异步配置；都正常才是算法问题（第八章）。前面的章：六步配置推导（模型 → 任务形态 → 卡数 → 三段时间 → 长尾 → 形态与配比）、全步 MFU 瀑布（把上限 13% 到实测的差逐项拆）、RL 状态的 checkpoint（策略 + 优化器 + 参考 + replay buffer + 版本号 + 沙箱状态）、确定性（seed、采样、kernel）、必采指标表与故障表（第二至七章）。
-
-</details>
-
-
 ## 十一、自测
 
 1. reward 全零、loss 正常、步时间不变——最可能是什么？哪个指标一眼确认？
@@ -482,3 +464,5 @@ Infra 地图上与它相邻的下一块是**扩散模型的推理基础设施**�
    同步后对推理侧与训练侧按层或按桶算校验和（或抽几个 tensor `allclose`），对比桶数、字节数与预期；日志的“成功”只说传输完成，不说映射表是否覆盖了全部参数——新加的层（LoRA、MTP 头、embedding tied 与否）常被映射漏掉而没有任何报错。
 
    </details>
+
+[^q0]: 靠开训前就采集好的信号，每个嫌疑一个决定性指标。**staleness 涨了**：每个 mini-batch 的 staleness 分布与 `drop` / `wait` 比例——分布右移、被丢样本偏长 → 是它，检查 rollout 池是否变慢。**训推不一致**：`rollout_probs_diff` 的均值与 P99——在同步形态下就开着作基线，跳升说明推理引擎版本、量化、MoE 路由出了变化。**沙箱池挂了**：按 reward 来源（规则 / 沙箱 / 生成式 RM）分开的 reward 分布与失败率、沙箱执行的成功 / 超时 / 错误计数——reward 全零而 loss 正常、`response_length` 正常，是环境侧；步时间没变是因为 GPU 照常跑。**权重同步漏了**：同步后推理侧与训练侧的参数校验和（按 bucket 或按层的哈希）、同步的桶数与字节数是否与预期一致，`rollout_probs_diff` 会持续偏大。**十分钟决策树**：先看 reward 按来源拆分 → 全零走环境路径；再看 `rollout_probs_diff` → 跳升走不一致 / 同步校验；再看 staleness 分布与淘汰比例 → 走异步配置；都正常才是算法问题。详见[第六章](#六可观测)、[第七章](#七常见故障)、[第八章](#八那十分钟)。

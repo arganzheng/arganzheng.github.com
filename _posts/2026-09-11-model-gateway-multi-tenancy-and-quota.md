@@ -16,10 +16,9 @@ updated: 2026-09-14
 
 这三周的问题都发生在引擎之外、Serving 平台之上：**请求进入平台后的第一站**。传统 API 网关在这里做的是路由、鉴权、限流、灰度；模型网关要做同样的四件事，但每一件都被 LLM 请求的特性改写了——路由要看副本的 KV cache 状态而不只是健康检查，限流要按 token 而不是按请求，灰度要和缓存亲和共存，鉴权之后还要把租户身份变成排队优先级。本篇的核心问题是总纲给出的那一个：
 
-> **两个租户共用一个 70B 模型的 4 个副本，A 租户的配额是 B 的三倍。当两者同时打满时，网关应该按什么规则决定哪个请求排队、排在哪个副本上？"配额"在这里指的是 GPU 时间、token 数还是请求数？**
+> **两个租户共用一个 70B 模型的 4 个副本，A 租户的配额是 B 的三倍。当两者同时打满时，网关应该按什么规则决定哪个请求排队、排在哪个副本上？[^q0] "配额"在这里指的是 GPU 时间、token 数还是请求数？[^q1]**
 
 版本锚点：Gateway API Inference Extension（下称 GIE）v1.6.0（`inference.networking.k8s.io/v1`、`inference.networking.x-k8s.io/v1alpha1`）；llm-d-router v0.10.0（`llm-d.ai/v1alpha2`、`llm-d.ai/v1alpha1` 的 `EndpointPickerConfig`）；llm-d v0.9.0 的 guides；vLLM v0.28.0 只用它的 OpenAI 协议字段、启动参数与指标名；KServe v0.20.0 的 `LLMInferenceService` 只做对照。全部发布于本文日期之前。一个必须先说明的事实：**GIE 在 v1.6.0 已经不再包含 Endpoint Picker 的实现**——它的仓库里只剩 `InferencePool` API（`api/v1`）、实验性的 `InferencePoolImport`（`apix/v1alpha1`）、一个只做轮询的轻量参考实现 `pkg/lwepp` 和 conformance 套件；调度插件、`InferenceObjective`、`InferenceModelRewrite` 都在 llm-d 社区的 `llm-d-router` 仓库里。本篇据此分工：**池的定义看 GIE，选副本的逻辑看 llm-d-router**。
-
 
 ## 一、总览
 
@@ -94,7 +93,6 @@ updated: 2026-09-14
 | 十 | 本文小结 | 要点、源码位置、mini-platform/gateway/ 增量与 `ttft-compare.py` |
 | 十一 | 自测 | 5 道题 |
 
-
 ## 二、为什么轮询是错的
 
 ### 1. 一个数值小例子
@@ -116,7 +114,6 @@ updated: 2026-09-14
 ### 3. 引擎给了什么：model server protocol
 
 GIE 在 `docs/proposals/003-model-server-protocol/README.md` 里把 EPP 对引擎的要求写成了一份协议（状态 "Partially implemented"）：引擎 MUST 实现 OpenAI 的 Completions 与 Chat API；MUST 在 Prometheus 端点上暴露 `TotalQueuedRequests`、`TotalRunningRequests`、`KVCacheUtilization` 三个 gauge（vLLM 对应 `vllm:num_requests_waiting`、`vllm:num_requests_running`、`vllm:kv_cache_usage_perc`，表里同时列了 Triton TensorRT-LLM、trtllm-serve、SGLang 的对应名）；可选的 `BlockSize` 与 `NumGPUBlocks`（`vllm:cache_config_info` 的 `block_size` / `num_gpu_blocks` 标签）供前缀缓存打分估算容量；支持动态 LoRA 的引擎 MUST 暴露 `vllm:lora_requests_info`，带 `max_lora`、`running_lora_adapters`、`waiting_lora_adapters` 三个标签。这份协议是"引擎开发者的接口清单"在网关这一层的具体形态：**一个引擎只要给出这几个指标和 OpenAI 接口，就能被 EPP 正确路由**。
-
 
 ## 三、Gateway API Inference Extension：InferencePool 与 ext_proc 数据路径
 
@@ -269,7 +266,6 @@ v1.6.0 的 `site-src/implementations/gateways.md` 列出的 conformant 实现是
 llm-d 还提供一个 **Standalone 模式**（`docs/architecture/core/router/proxy.md`）：Envoy 作为 sidecar 与 EPP 跑在同一个 Pod 里，ext_proc 走 localhost，不需要 `Gateway` / `HTTPRoute` 与网关控制器。适合批处理、RL rollout、还在用 Ingress 的集群；生产多租户场景仍应走 Gateway 模式，因为灰度、TLS、多集群都依赖 Gateway API 的对象。
 
 KServe v0.20.0 的对照：`pkg/apis/serving/v1alpha1/llm_inference_service_types.go` 的 `LLMInferenceServiceSpec.Router` 有 `Route.HTTP`（内嵌 `gwapiv1.HTTPRouteSpec`）、`Gateway.Refs` 和 `Scheduler`（`Pool.Spec` 内嵌 GIE 的 `InferencePoolSpec`、`Config.Inline` / `Config.Ref` 放 `EndpointPickerConfig`、`Template` 是 EPP 的 PodSpec、`Replicas`）——它把本章的 `InferencePool` + `HTTPRoute` + EPP Deployment 三样东西折叠进一个 CR，生成的对象与本章手写的一致。
-
 
 ## 四、EPP：llm-d-router 的调度框架
 
@@ -525,7 +521,6 @@ sequenceDiagram
 
 EPP 是有状态的：近似前缀索引、在途负载、flow control 的队列都在进程内存里。`docs/operations.md` 的 "Scaling Modes" 说得很清楚：**Active-Passive**（leader election，`--ha-enable-leader-election`，只有 leader 的 readiness 通过）加副本不加吞吐；**Active-Active** 吞吐近线性（2 副本 2.0x、4 副本 3.5x），但每个副本只看到自己处理过的请求，近似前缀路由的命中率显著下降，flow control 的公平与优先级也只在每个副本的流量份额内生效。精确前缀索引是 HA 安全的（每个副本各自订阅事件收敛到同一视图），`guides/precise-prefix-cache-routing` 却仍要求 `replicas: 1`，因为 `token-load-scorer` 的在途 token 记账是每进程的。结论：**当前版本的 EPP 应按"一个池一个活跃 EPP"来规划**，把它的容量作为池的容量上限之一（第八章）。
 
-
 ## 五、协议与租户：OpenAI 协议、模型名与身份
 
 ### 1. OpenAI 协议作为路由键
@@ -691,7 +686,6 @@ spec:
 
 一个常被忽略的点：这些限制是**每租户每模型**的，而不是每租户总量的。两个模型的池是两组 GPU，一个租户在 7B 池上的用量不应吃掉它在 70B 池上的额度；反过来，总量配额（一个租户一个月花多少钱）是 FinOps 的事，下一篇讨论。
 
-
 ## 六、token 记账：预扣、结算与流式
 
 ### 1. 三种"配额"的量纲
@@ -772,7 +766,6 @@ EPP 在响应路径上记的是指标而不是账单：`HandleResponseBody` 从 
 | 断开怎么算 | 认证层 + EPP | 排队中断开退全部预扣；生成中断开按已生成结算（`continuous_usage_stats` 或 chunk 数）；`usage` 靠网关强制 `include_usage` | 见 6.3 |
 
 如果要在**空间上**隔离两个租户（B 的突发不能影响 A 的 TTFT，哪怕 A 有余量），那就不是配额问题而是**两个池**：A 独占 3 个副本的池、B 用 1 个副本的池，各自一条 `HTTPRoute` 按租户头匹配。代价是 A 空闲时 B 用不上那 3 个副本——这正是总纲取舍线里"隔离 vs 利用率"在网关层的形态。
-
 
 ## 七、版本灰度与 LoRA 路由
 
@@ -890,7 +883,6 @@ vLLM v0.28.0 的 LoRA 有两条加载路径：启动时 `--enable-lora --max-lor
 
 网关这一层的两件事：**池的选择**由 IPP 的 `adapters` 列表把 adapter 名映射到基础模型的池（5.1）；**副本的选择**由 `lora-affinity-scorer` 按 `vllm:lora_requests_info` 的 `running_lora_adapters` / `waiting_lora_adapters` / `max_lora` 打分：已加载 1.0、未加载但有空位 0.8、正在等待加载 0.6、满了 0.0。它的 README 承认这个算法"highly biased towards vLLM's current dynamic LoRA implementation"。一个几十个 adapter 的多租户微调场景里，权重设置的直觉是：`lora-affinity-scorer` 的权重要高于负载类 scorer，因为换入一个 adapter 的代价（从磁盘读几百 MB、占显存）通常大于多排几个请求的代价；但也不能压过 `prefix-cache-scorer`，因为 adapter 亲和与前缀亲和往往指向同一个副本（同一租户的请求既用同一 adapter 又共享 system prompt），冲突时前缀命中省的是 prefill 时间，更直接。
 
-
 ## 八、多集群与网关自身的容量
 
 ### 1. `InferencePoolImport`：状态以检出为准
@@ -923,7 +915,6 @@ LLM 流量对网关的压力与普通 API 不同：连接**长**（一个流式�
 
 网关层的高可用与普通 Gateway 一样（多副本 + LB），但要注意两点：`HTTPRoute.timeouts.request` 要关掉或设到分钟级，否则长流被网关切断；网关滚动升级时在途的流式连接会断，客户端要能重试，账单要按 6.3 的规则处理。
 
-
 ## 九、代价与边界
 
 ### 1. 引擎需求 → K8s 空缺 → 平台机制 → 代价
@@ -949,7 +940,6 @@ LLM 流量对网关的压力与普通 API 不同：连接**长**（一个流式�
 - **EPP 的状态模型不能接受单活**：近似前缀路由 + Active-Active 会显著降低命中率；要 HA 就要精确前缀索引且不用进程内状态的 scorer，或接受 Active-Passive。
 
 一条一般性的边界：本篇所有机制都建立在**引擎按 model server protocol 暴露指标和 OpenAI 接口**这个前提上。一个不给 `KVCacheUtilization` 的引擎，EPP 只能按队列长度选；一个不实现 `usage` 的引擎，token 计费只剩 chunk 计数。引擎开发者的接口清单在第二章 3 节，它不长。
-
 
 ## 十、本文小结
 
@@ -1192,14 +1182,6 @@ python3 mini-platform/gateway/ttft-compare.py \
 
 > **一个 64 卡集群上月账单 X 元，DCGM 显示平均分配率 85%、平均 `SM_ACTIVE` 35%。这 50 个百分点的差距分别来自哪里——排队等 gang、训练的通信等待、推理的低峰空转、开发环境的长期占用？每一项对应本系列哪一篇的机制？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**配额指什么**：网关层面是请求数（RPM）、token 数（TPM，输入输出分开）与并发数三种，按租户 × 模型配置——不是 GPU 时间，因为网关看不见 GPU；GPU 时间是平台层用 DCGM 与 pod label 事后归因的账（下一篇）。A 的配额是 B 的三倍指的是这三个数的比例（第七章）。**打满时按什么规则**：分两层。外层（API 网关 / 认证）按 API key / JWT 识别租户，剥掉客户端伪造的 `x-llm-d-*` 头，注入 `fairness-id` 与 `objective`，对每租户每模型做 RPM / TPM / 并发限流——超配额的直接 429（带 `x-llm-d-request-dropped-reason`），不进队列；内层（GIE 的 EPP，endpoint picker）对通过限流的请求做流控与路由：`InferenceObjective` 给 priority，flow control 按 priority **严格优先**、同 priority 内按 `fairness-id` round-robin 公平——注意 llm-d-router v0.10 没有按权重（3 : 1）的公平，A 的“三倍”只能靠外层配额体现，内层只有优先级与轮转（第五、六、七章）。**排在哪个副本上**：EPP 的流水线 parse → 模型名重写 → priority → fairness → Admit → screener → data producer → 每 profile 的 filter → 加权打分 → picker：`prefix-cache-affinity-filter` / `prefix-cache-scorer`（同一会话的请求去 KV 已在的副本——64 会话 × 8K 的例子里 TTFT 从 0.5 s 级降到几十 ms）、`queue-scorer`（waiting 数）、`kv-cache-utilization-scorer`（KV 占用）、`lora-affinity-scorer`、`token-load-scorer`，`max-score-picker` 选最高分；前缀信息两种来源——`approx-prefix-cache-producer`（EPP 自己记账、猜）与 `precise-prefix-cache-producer`（vLLM `--kv-events-config` 经 ZMQ 推事件、准）（第三、四章）。数据路径：Gateway → HTTPRoute（按 header 匹配模型名）→ InferencePool → ext_proc → EPP → `x-gateway-destination-endpoint` → Pod；PD 分离时两个 profile、两个 header（第二章）。轮询为什么不够：它不看 KV 满不满、不看缓存在哪。
-
-</details>
-
-
 ## 十一、自测
 
 1. 网关的“配额”能是 GPU 时间吗？三种能配的配额各防什么？
@@ -1242,7 +1224,9 @@ python3 mini-platform/gateway/ttft-compare.py \
 
    </details>
 
-
 ## 下一篇
 
 [可观测、成本与 FinOps](/ai-platform-observability-cost-and-finops.html)
+
+[^q0]: 分两层。**外层**（API 网关 / 认证）按 API key / JWT 识别租户，剥掉客户端伪造的 `x-llm-d-*` 头，注入 `fairness-id` 与 `objective`，对每租户每模型做 RPM / TPM / 并发限流——超配额的直接 429，不进队列；A 的「三倍」只能靠这一层的配额体现。**内层**（GIE 的 EPP，endpoint picker）对通过限流的请求做流控与路由：`InferenceObjective` 给 priority，flow control 按 priority 严格优先、同 priority 内按 `fairness-id` round-robin——llm-d-router v0.10 没有按权重（3 : 1）的公平。**排在哪个副本**：EPP 的流水线 parse → 模型名重写 → priority → fairness → Admit → filter → 加权打分 → picker：`prefix-cache-scorer`（同一会话去 KV 已在的副本——64 会话 × 8K 的例子里 TTFT 从 0.5 s 级降到几十 ms）、`queue-scorer`、`kv-cache-utilization-scorer`、`lora-affinity-scorer`，`max-score-picker` 选最高分。轮询为什么不够：它不看 KV 满不满、不看缓存在哪。详见[第二](#二为什么轮询是错的)至[五章](#五协议与租户openai-协议模型名与身份)。
+[^q1]: 网关层面是**请求数**（RPM）、**token 数**（TPM，输入输出分开）与**并发数**三种，按租户 × 模型配置——不是 GPU 时间，因为网关看不见 GPU；GPU 时间是平台层用 DCGM 与 pod label 事后归因的账（下一篇）。token 记账要预扣（按 `max_tokens` 或估计）、结算（按实际用量）、流式时随 chunk 更新。详见[第五章](#五协议与租户openai-协议模型名与身份)、[第六章](#六token-记账预扣结算与流式)。

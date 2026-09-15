@@ -16,10 +16,9 @@ updated: 2026-09-14
 
 本篇的核心问题：
 
-> **训练器是 Megatron TP=4、PP=2、EP=8 的 671B MoE，推理引擎是 vLLM TP=8、EP=4 的 FP8 副本，两边在不同机器。一次同步要做哪几步映射、传多少字节、走哪条链路、至少几秒？增量同步能省多少？**
+> **训练器是 Megatron TP=4、PP=2、EP=8 的 671B MoE，推理引擎是 vLLM TP=8、EP=4 的 FP8 副本，两边在不同机器。一次同步要做哪几步映射、传多少字节、走哪条链路、至少几秒？[^q0] 增量同步能省多少？[^q1]**
 
 版本：verl v0.9.0（`verl/checkpoint_engine/`、`verl/workers/rollout/vllm_rollout/`、`docs/advance/delta_weight_sync.md`）、vLLM v0.27.1、Megatron Core 0.18 与 Megatron-Bridge。带宽按 H100 节点：NVLink 450 GB/s 单向、每卡一张 400 Gb/s ConnectX-7（50 GB/s）、PCIe pinned 25 GB/s。
-
 
 ## 一、总览
 
@@ -76,7 +75,6 @@ verl 里         Megatron-Bridge / mbridge、FSDP 的 get_per_tensor_param   che
 | 九 | 正确性 | 同步中的生成、权重之外的权重、版本 |
 | 十 | 小结 | 要点、速查表、下一篇 |
 
-
 ## 二、布局之一：名字与形状
 
 ### 1. 三套命名
@@ -124,7 +122,6 @@ verl 0.9 的 release note 里有一项"Megatron-Bridge param mappings covering T
 
 **共享专家与 dense 层**：DeepSeek-V3 前 3 层是 dense MLP、每层有 1 个共享专家，这些走注意力 / dense 层的 TP 路径。同一个模型里两条路径并存，映射表要分别覆盖。
 
-
 ## 三、布局之二：从分片到完整再到分片
 
 ### 1. 为什么中间要过一遍"完整"
@@ -167,7 +164,6 @@ EP 一侧：专家本地完整，导出只需改名重排；expert TP > 1 时再
 - **rank 0 物化**：即使逐参数流式，rank 0 上要有 bucket、完整张量、all-gather 的中间缓冲，大 MoE 的单个专家堆叠张量可能就是几 GB。
 
 verl 的 `delta_weight_sync.md` 给了直接的测量：Qwen3-235B-A22B（VeOmni EP8 × FSDP8，8 + 2 节点）全量 NCCL 广播 **246–266 秒**，其中绝大部分不是线上传输，是"全模型物化"这项与网络无关的固定开销。这就是"谁持有完整张量"比"链路多快"更重要的原因。
-
 
 ## 四、传输方式
 
@@ -215,7 +211,6 @@ MoonshotAI 的 **checkpoint-engine**（Kimi K2 的权重同步组件，verl 的 
 
 最古老的路径：训练器存一个 checkpoint（safetensors）到共享存储，推理引擎重新加载。字节数 2N 写一遍、每个实例读一遍；对象存储 / 并行文件系统的带宽通常几 GB/s 到几十 GB/s，8B 一两分钟、几百 B 十几分钟。它慢，但**完全解耦**：推理实例可以在任何地方、任何时间加载；没有进程组、没有 RDMA 要求；顺带就是 checkpoint。适合同步频率低的场景（几十步一次的评测实例、离线蒸馏的 teacher），不适合每步同步。slime 的 `update_weights_from_disk` 与 verl 的 `load_format: safetensors` 都保留了这条路。
 
-
 ## 五、分桶与流水
 
 ### 1. 为什么分桶
@@ -241,7 +236,6 @@ MoonshotAI 的 **checkpoint-engine**（Kimi K2 的权重同步组件，verl 的 
 
 大 bucket 通信次数少、每次带宽利用高，但峰值显存大、流水的粒度粗（第一个 bucket 填满前传输不能开始）；小 bucket 反之。512 MB 是个平衡：IB 上 512 MB 的一次传输约 10 ms 量级，固定开销可忽略；峰值两个 bucket 1 GB，对训练卡与推理卡都不算负担。0.9 的 "NCCL broadcast bucket sizing" 修的是 bucket 与张量边界的对齐问题：一个张量不能跨 bucket（否则接收侧要拼），所以 bucket 的实际填充率低于 100%，小 bucket 下浪费更多。
 
-
 ## 六、量化传输
 
 ### 1. 推理侧是 FP8 时
@@ -263,7 +257,6 @@ verl 0.9 为 DeepSeek-V4 做的 "FP8/MXFP4 weight transfer" 是前者：训练�
 ### 3. LoRA：只传 adapter
 
 LoRA 训练时 base 权重不变，每步变的只有 adapter（rank 64 的 LoRA 在 8B 上约 170 MB）。verl 的 `merge=False` 路径只导出 adapter 张量，推理引擎当 LoRA 加载（vLLM 的 `add_lora` / SGLang 的 LoRA 路径），第一步先同步一次 base（`base_sync_done`），之后每步几十到几百 MB——**传输字节降两个量级**，同步几乎免费；代价是推理侧带 LoRA 的 decode 比合并后的慢 10–20%。`merge=True` 则每步把 adapter 合进 base 再导出完整权重，传输 2N，推理侧无 LoRA 开销。同步频率高（异步、$$k$$ 小）时前者划算。
-
 
 ## 七、增量同步：`delta_sharded`
 
@@ -316,7 +309,6 @@ Qwen3-235B-A22B（EP8 × FSDP8，8 + 2 节点，TP16）  11.4–14.9 s      246�
 
 增量同步与 decoupled PPO 有一个巧合的协同：后者本来就要保留上一步的权重（第五篇），diff 可以直接对着它做、省掉专用快照。
 
-
 ## 八、一次同步多少秒
 
 ### 1. 四个场景
@@ -347,7 +339,6 @@ $$T_{mb}$$ 是一个 mini-batch 的训练时间。$$k$$ 大同步少、staleness
 ### 3. 与显存切换的对比
 
 第三篇算过共置的显存切换是每步几秒、< 2%；本篇的跨机同步在大模型上是几十秒、10% 以上。**分离形态用跨机同步换掉了共置的显存切换，大模型上前者更贵**——这是第二篇决策表里"MoE 要分离异步 + 增量 / 量化同步"那一行的原因：分离是为了并行配置与长尾，而它带来的同步开销必须靠增量与重叠压回去。
-
 
 ## 九、正确性
 
@@ -381,7 +372,6 @@ KV cache 与 prefix cache    内容由旧权重算出                          �
 ### 3. 版本
 
 推理引擎要知道自己在用哪个版本的权重——异步形态下样本要带"由第几步的权重生成"的标签（第五篇的 staleness 就按它算），部分 rollout 下一条序列的不同段来自不同版本。verl 在 `update_weights` 末尾 `set_global_steps(global_steps)`，agent loop 把它记进每条轨迹。**同步是版本号唯一的推进点**：同步失败一半（某个实例没收到）而版本号推进了，比同步慢得多危险。
-
 
 ## 十、本文小结
 
@@ -418,14 +408,6 @@ bucket          512 MB；峰值 2 bucket；次数 = 2N / bucket
 下一篇：异步与 off-policy——把同步的墙拆掉之后要补什么。
 
 **实践建议**：不依赖框架，用 100 行写一个最小的 FSDP2 → vLLM 同步：两个进程组（训练 2 卡、vLLM TP=2 两卡），训练侧 `state_dict()` 逐参数 `full_tensor()`、装 512 MB bucket、`dist.broadcast` 到 vLLM 的 rank，vLLM 侧 `collective_rpc("load_weights", ...)`；用 `torch.cuda.Event` 量三段（gather / 广播 / 加载）各自的时间，与本篇第五章的流水模型对一遍；然后把 bucket 改成 64 MB 与 2 GB 各跑一次，看曲线。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**几步映射**：权重同步是布局 + 传输两半。布局把 Megatron TP4 / PP2 / EP8 的分片翻译成 HF 名字与形状的张量流（Megatron-Bridge 做 mcore → HF：拆交错的 QKV、拆 gate / up、专家本地编号 → 全局编号、PP 的层号偏移），再由推理侧按 vLLM TP8 / EP4 的布局取自己那份并在线量化到 FP8（scale 是必须一起传的权重）；中间接口是 `(name, tensor)` 生成器，让 3 种训练后端 × 3 种推理后端共用一套传输（第二、三章）。**传多少字节**：671B FP8 是 $$N$$ 字节 ≈ 671 GB（bf16 传是 $$2N$$）；增量同步只传变化的参数——MoE 每步只有 0.02–0.05% 的参数变化，几百 MB（第六章）。**走哪条链路、几秒**：朴素路径“逐参数 all-gather → rank 0 广播”让全模型经过一张网卡且要在 rank 0 物化，235B 要四分多钟、671B 经 rank 0 60–80 秒——与网络快慢无关，瓶颈是“谁持有完整模型”；多源 / P2P（NIXL / Mooncake 的 RDMA 环、checkpoint-engine 经 CPU 的 P2P + 节点内广播）让每张网卡各发一份，$$T \approx 2N / \sum$$ 发送方网卡，1T 千卡约 20 秒、671B 约 12–20 秒；增量（`delta_sharded`：每 rank 对自己分片做 bit-exact diff、稀疏 gather、原地覆盖）几乎不随 $$N$$ 变，32B 到 235B 持平 12–15 秒，235B 上比全量快 21 倍（第四、五、六章）。**省多少**：省的不只是字节，是“没有人持有完整模型”。同步形态下占步时间 10% 以上就该上增量；异步形态下 $$T_{sync} / (kT_{mb} + T_{sync})$$ 决定 rollout 池的空转，同步越快 $$k$$ 能越小（第七章）。分桶 512 MB 让通信次数与峰值显存与模型大小无关，双缓冲让填 / 传 / 装重叠。
-
-</details>
-
 
 ## 十一、自测
 
@@ -468,3 +450,6 @@ bucket          512 MB；峰值 2 bucket；次数 = 2N / bucket
    同步：60 / 600 = 10%，正好是“该上增量”的阈值；异步：rollout 池空转 $$T_{sync} / (kT_{mb} + T_{sync}) = 60 / 300 = 20\%$$——同步越快 $$k$$ 能越小（staleness 越低）而不多付空转。
 
    </details>
+
+[^q0]: **映射**是布局 + 传输两半：布局把 Megatron TP4 / PP2 / EP8 的分片翻译成 HF 名字与形状的张量流（拆交错的 QKV、拆 gate / up、专家本地编号 → 全局编号、PP 的层号偏移），再由推理侧按 vLLM TP8 / EP4 的布局取自己那份并在线量化到 FP8（scale 是必须一起传的权重）；中间接口是 `(name, tensor)` 生成器，让 3 种训练后端 × 3 种推理后端共用一套传输（[第二章](#二布局之一名字与形状)、[第三章](#三布局之二从分片到完整再到分片)、[第六章](#六量化传输)）。**字节**：671B FP8 是 $$N$$ 字节 ≈ 671 GB（bf16 传是 $$2N$$）。**链路与时间**：朴素路径「逐参数 all-gather → rank 0 广播」让全模型经过一张网卡且要在 rank 0 物化，671B 经 rank 0 60–80 秒——瓶颈是「谁持有完整模型」而非网络快慢；多源 / P2P（NIXL / Mooncake 的 RDMA 环、checkpoint-engine 经 CPU 的 P2P + 节点内广播）让每张网卡各发一份，$$T \approx 2N / \sum$$ 发送方网卡，671B 约 **12–20 秒**；分桶 512 MB 让通信次数与峰值显存与模型大小无关，双缓冲让填 / 传 / 装重叠（[第四章](#四传输方式)、[第五章](#五分桶与流水)、[第八章](#八一次同步多少秒)）。
+[^q1]: MoE 每步只有 0.02–0.05% 的参数变化，增量只传几百 MB；`delta_sharded` 每 rank 对自己分片做 bit-exact diff、稀疏 gather、原地覆盖，几乎不随 $$N$$ 变——32B 到 235B 持平 12–15 秒，235B 上比全量快 21 倍。省的不只是字节，是「没有人持有完整模型」。同步形态下同步占步时间 10% 以上就该上增量；异步形态下 $$T_{sync} / (kT_{mb} + T_{sync})$$ 决定 rollout 池的空转。详见[第七章](#七增量同步delta_sharded)、[第八章](#八一次同步多少秒)。

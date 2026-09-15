@@ -14,10 +14,9 @@ verl v0.9.0 的代码量不小（`verl/` 下十几万行），这一篇只走一
 
 本篇的核心问题：
 
-> **一个 bf16 参数从优化器更新完成，到推理引擎用它生成下一个 token，在 verl 里经过哪些函数、哪些进程、哪条链路？把这条链追清楚，前六篇的机制就全部落到了代码上；再问 slime 和 AReaL 在这条链的哪一段做了不同的选择，就知道哪些是必然、哪些是取舍。**
+> **一个 bf16 参数从优化器更新完成，到推理引擎用它生成下一个 token，在 verl 里经过哪些函数、哪些进程、哪条链路？[^q0] 把这条链追清楚，前六篇的机制就全部落到了代码上；再问 slime 和 AReaL 在这条链的哪一段做了不同的选择，就知道哪些是必然、哪些是取舍。**
 
 版本：verl v0.9.0（tag `483b8a0`，2026-08-14）；对照 slime v0.3.0、AReaL 当前主分支与论文。
-
 
 ## 一、总览
 
@@ -96,7 +95,6 @@ flowchart TB
 | 十 | 对照：slime 与 AReaL 在哪里分道 | — |
 | 十一 | 小结 | — |
 
-
 ## 二、入口：从配置到 trainer
 
 ### 1. 一条命令
@@ -138,7 +136,6 @@ main_ppo.main(config)
 ### 3. `PPOTrainer.__init__` 与 `init()`
 
 `trainer_base.py` 的 `PPOTrainer` 是 ABC，三个子类只覆盖钩子。构造时决定几个布尔量：`use_reference_policy`（有 KL 就要 ref）、`use_critic`（GRPO 为 False）、`use_teacher_policy`（蒸馏）；`_build_replay_buffer()` 按模式选 `ReplayBuffer`（sync）或 `ReplayBufferAsync`。`init()` → `_setup()` 是全部基础设施的构造点，第三、四、六章逐段读它。
-
 
 ## 三、单控制器：`RayWorkerGroup` 与 `@register`
 
@@ -185,7 +182,6 @@ class ActorRolloutRefWorker(Worker):
 
 分发的代价是数据经 driver：`DataProto` 的切分与拼接在 driver 内存里做，一步几百 MB 到几 GB。v1 用 TransferQueue 绕开——组方法收发的是 `KVBatchMeta`（键 + 标签），worker 自己按键从存储单元取张量（第九章）。第二个绕开的地方是 rollout：生成不是组方法调用，是 agent loop 对 HTTP 服务的请求（第六章）。
 
-
 ## 四、资源池与共置：worker 怎样落到卡上
 
 ### 1. `ResourcePoolManager`
@@ -223,7 +219,6 @@ for resource_pool, class_dict in self.resource_pool_to_cls.items():
 
 `WorkerDict` 在一个进程里持有 `{"actor_rollout_ref": ActorRolloutRefWorker(...), "critic": TrainingWorker(...)}`，方法名加前缀（`actor_rollout_ref_update_actor`）；`spawn` 生成的每个虚拟组把前缀去掉、重新绑定，控制器看到的仍是 `self.actor_rollout_wg.update_actor(...)` 与 `self.critic_wg.update_critic(...)`——**同一批进程、两个句柄**。这就是"共置"在代码里的形状：不是两个进程共享一张卡，是一个进程里两个对象轮流用显存。PPO 的 critic 与 actor 在同一进程里，第一篇算的"两套 16N"就在同一个 CUDA context 里。
 
-
 ## 五、hybrid worker：`ActorRolloutRefWorker` 与 model engine
 
 ### 1. 三层
@@ -259,7 +254,6 @@ execute_checkpoint_engine(method)  DP_COMPUTE                   转发给 checkp
 ### 4. 引擎的边界
 
 `verl/workers/engine/base.py` 的 `BaseEngine` 是训练后端的接口：`initialize / forward_backward_step / optimizer_step / to / get_per_tensor_param / save_checkpoint / load_checkpoint`。FSDP 与 Megatron 的实现各在自己目录（`engine/fsdp/transformer_impl.py`、`engine/megatron/transformer_impl.py`）。**本系列把训练器当黑盒**的边界就在这里：RL 侧只调这几个方法。换 Megatron 只是 `actor.strategy=megatron` 加 `megatron_config`，worker 与 trainer 不变；`get_per_tensor_param` 里 Megatron-Bridge 的映射（第四篇）藏在 `MegatronEngine` 内。
-
 
 ## 六、rollout server：实例、负载均衡、sleep / wake
 
@@ -302,7 +296,6 @@ PPOTrainerSync.on_step_end → CheckpointEngineManager.update_weights(global_ste
 ```
 
 第三篇讲的每个动作都在这条链上：`_sleep_hybrid` 选 level、`_get_wake_up_tags` 默认 `["kv_cache", "weights"]` 但 `update_weights` 里分两次各传一个、`clear_kv_cache` 顺带清 mm / encoder cache。
-
 
 ## 七、一步的数据流：`_step_once` 的九个阶段
 
@@ -353,7 +346,6 @@ worker 侧的 `train_batch` 在 `TrainingWorker` 里；loss 函数 `verl/trainer
 
 v1 里 `batch` 是 `KVBatchMeta`：`partition_id`（"train" / "val"）、`keys`（`{uid}_{session}_{index}` 列表）、`tags`（每条的元数据）。张量在 TransferQueue 的存储单元里；worker 收到 `KVBatchMeta` 后按键 `tq.kv_batch_get(...)` 取自己那份、算完 `kv_batch_put` 新列（`log_probs`、`ref_log_prob`、`advantages`）。driver 上只有 `_compute_advantage` 会真的取张量（reward 与 mask 这几列，小），算 GRPO 的组内归一化后写回。第二篇说的"控制器只拿元数据"就是这个。
 
-
 ## 八、权重同步：checkpoint engine 的三条路
 
 ### 1. 选路
@@ -395,7 +387,6 @@ DeltaCheckpointEngine（delta_checkpoint_engine.py + delta_sync/）
 
 `update_weights(global_steps)` 一路把 `global_steps` 带到最后：`vLLMRollout.update_weights` 末尾 `server_handle.set_global_steps.remote(global_steps)`，server 记下；agent loop 从 server 的响应里拿到版本、写进 `AgentLoopOutput` 的元数据 → TransferQueue 的 tag → `ReplayBuffer` 算 staleness（第五篇）。
 
-
 ## 九、样本通路与异步
 
 ### 1. TransferQueue
@@ -426,7 +417,6 @@ ReplayBufferAsync 覆盖：_stale_terminal_keys（drop）· _has_enough_samples�
 ### 4. 异步 checkpoint 恢复
 
 `_save_checkpoint` 存训练状态（引擎的 `save_checkpoint`）、dataloader 位置、`global_steps`；异步模式下 TransferQueue 里已完成但未训练的样本与在飞的 prompt 不进 checkpoint。`_load_checkpoint` 后 `fit()` 开头调 `_reissue_inflight_prompts()`：把上次 pending / running 状态的 prompt 重新提交（用恢复后的权重重新生成），已 finished 的保留——第八篇 RL 状态 checkpoint 的具体形状。
-
 
 ## 十、对照：slime 与 AReaL 在哪里分道
 
@@ -496,7 +486,6 @@ OpenRLHF（2023–2024）是最早把 Ray + vLLM 用于 RLHF 的开源实现：a
 
 **三家不同**的段落是取舍：抽象层的厚度（verl 厚、slime 薄）、默认形态（verl 同步、AReaL 异步）、staleness 控制点（消费端 vs 准入端）、算法修正是否默认（opt-in vs 内建）、后端组合的自由度（任意 vs 绑定）。选框架就是选这几个取舍，而不是选"哪个更快"——三家在各自的默认场景上都报告了接近的吞吐。
 
-
 ## 十一、本文小结
 
 ### 1. 要点回顾
@@ -534,14 +523,6 @@ reward          verl/workers/reward_manager/ · docs/advance/reward_loop.rst
 下一篇：配置、可观测与排障——从一张卡的比例到一条 hang 的排查。本篇之后系列的最后一篇。
 
 **实践建议**：在 8 卡上跑 `run_qwen3_4b_fsdp.sh`，`trainer.logger` 加上 `console`，把一步日志里的 `timing_s/*` 逐项对到本篇第七章的九个阶段；然后开 Ray dashboard 看 actor 列表——数一数有几类进程、各在哪张卡上，与第一章的进程地图对一遍；最后在 `ActorRolloutRefWorker.update_weights` 的每个 `log_gpu_memory_usage` 处把时间戳也打出来，得到你这个配置下第一章那十二步各自的秒数。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**十二步**：`train_batch` 更新本 rank 的分片 → `on_step_end` → `CheckpointEngineManager.update_weights`（naive 后端）→ `ActorRolloutRefWorker.update_weights` → 推理引擎 `wake_up(["weights"])`（只挂权重区）→ `get_per_tensor_param`（FSDP / Megatron 逐参数 all-gather 成 HF 名字与形状的张量流）→ `BucketedWeightSender`（512 MB 桶，CUDA IPC 句柄 + ZMQ 元数据）→ 同卡 vLLM 进程里的 `vLLMColocateWorkerExtension.update_weights_from_ipc`（打开句柄、取自己的 TP 分片、`load_weights`）→ 全部桶完成后 `wake_up(["kv_cache"])` → `reset_prefix_cache` → `resume` 调度 → 下一步 `generate` 的第一个 token。进程：driver（单控制器）、hybrid worker 进程（一个进程持有 actor / ref / rollout 多个角色对象，`create_colocated_worker_cls` 拼、`spawn` 拆句柄）、同卡的 vLLM 进程（`RolloutReplica` + `vLLMHttpServer` 包 `AsyncLLM`）；链路：进程内 all-gather 走 NCCL、跨进程走 CUDA IPC（共置）、非 naive 后端走 NCCL 双缓冲广播 / NIXL、Mooncake 环 / delta 稀疏 gather（第二至六章）。**前六篇落到代码**：`@register(dispatch_mode)` + `RayWorkerGroup._bind_worker_method` 是单控制器（第二篇）；`create_colocated_worker_cls` 是共置（第三篇）；checkpoint engine 的七步是权重同步（第四篇）；TransferQueue + `ReplayBuffer.sample` + `refill_fn` 是异步（第五篇）；`agent_loop_tq.py` 是 agent（第六篇）；`_step_once` 九个阶段各一个 `marked_timer`，算法全在 `core_algos.py`（第七章）。**slime 与 AReaL 的不同选择**：slime 赌“少一层抽象”——只绑 Megatron + SGLang、参数透传；AReaL 赌“异步是主线”——准入控制 + decoupled PPO 默认。三家趋同的（服务化推理引擎、HF 张量流做中间表示、replay buffer、agent 函数接口）是必然，不同的（抽象厚度、默认形态、控制点、修正默认、组合自由度）是取舍（第八章）。
-
-</details>
-
 
 ## 十二、自测
 
@@ -584,3 +565,5 @@ reward          verl/workers/reward_manager/ · docs/advance/reward_loop.rst
    slime：少一层抽象——只支持 Megatron + SGLang，参数直接透传，代码薄；AReaL：异步是主线——准入端控制 staleness（`max_head_offpolicyness`）、decoupled PPO 默认。趋同：推理引擎服务化、HF 张量流做训推之间的中间表示、replay buffer 作为同步 / 异步的解耦点、agent 以函数 / loop 接口接入。
 
    </details>
+
+[^q0]: 十二步：`train_batch` 更新本 rank 的分片 → `on_step_end` → `CheckpointEngineManager.update_weights`（naive 后端）→ `ActorRolloutRefWorker.update_weights` → 推理引擎 `wake_up(["weights"])`（只挂权重区）→ `get_per_tensor_param`（FSDP / Megatron 逐参数 all-gather 成 HF 名字与形状的张量流）→ `BucketedWeightSender`（512 MB 桶，CUDA IPC 句柄 + ZMQ 元数据）→ 同卡 vLLM 进程里的 `vLLMColocateWorkerExtension.update_weights_from_ipc`（打开句柄、取自己的 TP 分片、`load_weights`）→ 全部桶完成后 `wake_up(["kv_cache"])` → `reset_prefix_cache` → `resume` 调度 → 下一步 `generate` 的第一个 token。**进程**：driver（单控制器）、hybrid worker 进程（一个进程持有 actor / ref / rollout 多个角色对象，`create_colocated_worker_cls` 拼、`spawn` 拆句柄）、同卡的 vLLM 进程（`RolloutReplica` + `vLLMHttpServer` 包 `AsyncLLM`）。**链路**：进程内 all-gather 走 NCCL、跨进程走 CUDA IPC（共置）、非 naive 后端走 NCCL 双缓冲广播 / NIXL、Mooncake 环 / delta 稀疏 gather。详见[第三](#三单控制器rayworkergroup-与-register)至[六章](#六rollout-server实例负载均衡sleep--wake)、[第八章](#八权重同步checkpoint-engine-的三条路)。

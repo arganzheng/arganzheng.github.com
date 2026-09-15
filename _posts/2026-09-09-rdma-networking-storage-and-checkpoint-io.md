@@ -16,10 +16,9 @@ updated: 2026-09-14
 
 本篇讲这两条"喂饱 GPU"的管道在 Kubernetes 上怎么铺：网络这一半是让 RDMA 设备和 GPUDirect RDMA 在容器里可用、可验证；存储这一半是按三类负载（数据集、checkpoint、权重）选方案，并把 checkpoint I/O 的带宽需求算清楚。本篇要回答总纲提出的核心问题：
 
-> **一个 8 节点 64 卡的训练任务，`nccl-tests` 在容器里测出的 all_reduce 带宽只有裸机的三分之一。从 Pod 的网络配置、device plugin 的资源分配、NCCL 的环境变量三个层面，各自可能出了什么问题？**
+> **一个 8 节点 64 卡的训练任务，`nccl-tests` 在容器里测出的 all_reduce 带宽只有裸机的三分之一。从 Pod 的网络配置、device plugin 的资源分配、NCCL 的环境变量三个层面，各自可能出了什么问题？[^q0]**
 
 依照系列惯例，本篇不解释 NCCL 为什么选某条路径、不讲 RDMA verbs 与 IB/RoCE 的协议差别，只讨论如何让 NCCL 在容器里能选到 RDMA 这条路、如何从日志确认它选了。源码与 CRD 以 Multus CNI v4.3.0、k8s-rdma-shared-dev-plugin v1.5.4、NVIDIA Network Operator v26.7.0、NVIDIA GPU Operator v26.7.0 为准；NCCL 2.28.9 与 nccl-tests 2.18.3 只用到环境变量名、日志行与命令行；PyTorch v2.13.0 只用到 `torch.distributed.checkpoint` 的公开 API。存储产品（Lustre、Storage Scale、WEKA、BeeGFS、JuiceFS、Alluxio、Fluid、GPUDirect Storage）按公开文档描述定位，本篇不给任何实测数字。
-
 
 ## 一、总览
 
@@ -94,7 +93,6 @@ checkpoint：大块顺序写、突发           每 N 步一次，写完才继�
 | 十一 | 本文小结 | 要点 · 四栏表 · 源码/CRD 位置 · mini-platform 本篇增量 |
 | 十二 | 自测 | 5 道题 |
 
-
 ## 二、为什么 CNI overlay 不够
 
 ### 1. 默认路径：veth + overlay
@@ -139,7 +137,6 @@ NCCL 日志        "Using network Socket"                       "Using network I
 ```
 
 第三章到第五章就是把右边那一列一项项铺出来。
-
 
 ## 三、第二张网卡：Multus 与 NetworkAttachmentDefinition
 
@@ -260,7 +257,6 @@ metadata:
 
 多张网卡（每 GPU 一张的 8 卡节点）写成 `rdma-net-0,rdma-net-1,...` 或 JSON 数组并指定 `interface` 名，Pod 里就会出现 `net1`…`net8`。
 
-
 ## 四、把 RDMA 设备给容器
 
 ### 1. RDMA shared device plugin：一个 HCA 给很多 Pod
@@ -340,7 +336,6 @@ rdma system set netns exclusive  # RDMA 设备只属于一个 netns，需显式 
 ### 5. 容器还需要什么：`IPC_LOCK` 与 memlock
 
 RDMA 注册内存需要把页锁定，容器默认的 `RLIMIT_MEMLOCK` 通常很小。所有官方示例（rdma-shared-dev-plugin `example/test-hca-pod.yaml`、Network Operator `example/rdma-gpu-test-pod1.yml`）都给容器加了 `securityContext.capabilities.add: ["IPC_LOCK"]`。少了它，`ibv_reg_mr` 会在注册大块内存时失败，NCCL 的表现是初始化时报 `Call to ibv_reg_mr failed with error …`（`src/misc/ibvwrap.cc` 的 `IBV_PTR_CHECK_ERRNO`）或直接回落。这是第六章排查清单里最容易漏的一项。
-
 
 ## 五、Network Operator 与 GPU Operator 的配合
 
@@ -494,7 +489,6 @@ NCCL 如何探测        ibGdrSupportInitOnce 查 /sys/module/nvidia_peermem/  n
 ```
 
 对平台来说两者是可替换的：只要 NCCL 日志里出现 `via NET/IB/N/GDRDMA` 就说明 GPUDirect RDMA 生效了；`paths.cc` 的 `GPU Direct RDMA Disabled for GPU … (distance N > M)` 则说明模块在但拓扑距离超过了 `NCCL_NET_GDR_LEVEL`。
-
 
 ## 六、容器内验证与排障
 
@@ -676,7 +670,6 @@ NCCL 的环境变量       NCCL_IB_HCA 名字错或排除反了                 
 
 "三分之一"这个数字本身也有信息量：如果是 socket 回落，通常比三分之一还差得多（而且 CPU 打满）；如果是三分之一到一半，更像是 IB 通了但没有 GDRDMA（数据多经一次 host 内存），或者 8 张网卡只用上了 2～3 张（selector 只选了部分、或 NCCL_IB_HCA 写漏了）。先看 `Using network` 那一行，再数 `NET/IB : Using` 列出的设备，两个信息就能把范围缩到一层。
 
-
 ## 七、存储：三类需求与方案定位
 
 ### 1. 三类负载，三种 I/O 画像
@@ -784,7 +777,6 @@ flowchart TB
 
 - **FUSE 客户端跑在哪**。JuiceFS/Alluxio 的 CSI 通常在节点上以 DaemonSet 或 per-PVC 的 mount Pod 运行 FUSE 进程；它的 CPU/内存是平台开销，而且升级 CSI 或 mount Pod 重启期间，用着这个卷的训练 Pod 的 I/O 可能中断（各产品的平滑升级能力以其文档为准）。
 - **缓存盘的容量与驱逐**。节点本地 NVMe 做缓存时，一个节点上跑几个任务、每个任务的数据集多大、缓存驱逐策略是什么，决定命中率；缓存目录用 `hostPath` 还是 `local` PV 也影响 Pod 的可迁移性。
-
 
 ## 八、checkpoint I/O 的算术
 
@@ -980,7 +972,6 @@ if __name__ == "__main__":
 
 用它能回答三个问题：这个 PVC 的聚合写吞吐是多少（同步模式的 `agg`）；异步模式下训练实际被阻塞多久（`stage`）；线程数（`--threads`，即 `FileSystemWriter.thread_count`）和每 rank 数据量怎样影响这两个数字。把 `--gb-per-rank` 设成真实任务每 rank 的状态大小、`--nnodes` 设成真实节点数，得到的就是这个集群上这个任务的 checkpoint 时间下界。
 
-
 ## 九、推理侧的权重分发
 
 ### 1. 问题：扩容时间被 I/O 主导
@@ -1003,7 +994,6 @@ GPUDirect Storage    存储 → 显存的 DMA 路径（nvidia-fs 驱动，GPU Op
 ```
 
 选择顺序通常是：先用缓存层 + 本地 NVMe（覆盖大多数场景），并发扩容规模大了加 P2P，只有模型固定且节点多才考虑权重进镜像。GDS 解决的是另一个瓶颈——当 NVMe 已经很快而 host 内存拷贝与 CPU 成为限制时，它把存储读直接送进显存；对"从对象存储拉权重"这类受网络限制的场景没有帮助。GDS 是否值得用，看 `nvidia-smi` 和 `top`：如果加载权重时 CPU 打满而 NVMe 还有余量，才是它的场景。
-
 
 ## 十、代价与边界
 
@@ -1040,7 +1030,6 @@ GPUDirect Storage             文件系统与驱动支持面窄；实验性     
 
 - **RDMA 流量绕过 K8s 的网络模型**。NetworkPolicy、Service mesh、eBPF 数据面对 verbs 流量一无所知。安全与审计要在 IB 分区（pkey，Network Operator 的 `ibKubernetes`）、RoCE 的 VLAN、或 SR-IOV + exclusive netns 这一层做，不能指望 K8s 原生对象。
 - **存储选型不是 K8s 的问题**。CSI 只是接口；带宽、并发、元数据这些属性全在存储系统本身。平台能做的是把三类负载分开、把需求算清楚（第八章）、把缓存放对地方，而不是靠一个 StorageClass 解决所有问题。
-
 
 ## 十一、本文小结
 
@@ -1180,14 +1169,6 @@ mini-platform/
 
 > **一个 TP=4 的 70B 模型服务，晚高峰要从 2 副本扩到 6 副本，每个副本从调度到能接流量要 8 分钟。扩缩容指标选什么、阈值定多少、提前多久触发，才能在高峰到来前就绪而不在平时浪费 16 张卡？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-带宽只有裸机三分之一，几乎一定是 NCCL 回落到了 Socket 或 GDR 没开——缺任何一项都不报错，只是日志里 `NET/IB : No device found.` → `Using network Socket`。三个层面各查。**Pod 网络**：默认 CNI 只给 Pod 一张 veth 走 overlay，数据经主机内存与内核协议栈；RDMA 需要第二张网卡——Multus 当元插件、`NetworkAttachmentDefinition` 装 CNI 配置、Pod 注解 `k8s.v1.cni.cncf.io/networks` 引用；接入方式 host-device（整卡 / VF 独占）、macvlan（RoCE 共享）、ipoib（IB 共享）；漏了注解、NAD 没关联 device plugin 的 `resourceName`、或 RDMA 侧没有 IP 做握手，NCCL 就找不到 IB 设备（第二、三章）。**device plugin 分配**：`/dev/infiniband` 的 uverbs / umad / rdma_cm 设备要进容器——rdma-shared-dev-plugin 按 `configList[].selectors` 把一组网卡上报为 `rdma/<name>` 资源、`Allocate` 挂整组设备（要求 `rdma system set netns shared`，无 GPU 亲和），或 SR-IOV plugin 一 VF 一 Pod（`isRdma`、exclusive netns）；Pod 要 `IPC_LOCK` capability 否则注册显存失败；显存注册需要 peermem 或 DMA-BUF 在宿主机可用（第四章）。**NCCL 环境变量**：`NCCL_IB_HCA` 是否把网卡排除了、`NCCL_SOCKET_IFNAME` 是否指到 RDMA 侧的接口做 bootstrap、`NCCL_IB_GID_INDEX` / `NCCL_IB_TC`（RoCE 要选对 v2 GID 与无损 TC）、`NCCL_NET_GDR_LEVEL`（GPU 与网卡 PCIe 路径超过 `PXB` 时 GDR 被关、走主机 staging——容器里 GPU 与 NIC 的分配没有亲和时常见）、`NCCL_IB_DISABLE` 没被误设（第五章）。诊断顺序：`NCCL_DEBUG=INFO` 看 `Using network` 与每条连接是否 `/GDRDMA` → 容器里 `ibstat` / `ibv_devinfo` 看设备 → `ib_write_bw --use_cuda` 在两个 Pod 间测裸带宽 → 才到 nccl-tests。存储与 checkpoint I/O 是同一篇的另一半：并行文件系统 / 对象存储的聚合带宽、每卡分片写、本地 NVMe 缓存（第六至八章）。
-
-</details>
-
-
 ## 十二、自测
 
 1. NCCL 日志出现 `NET/IB : No device found.` 然后 `Using network Socket`，容器里 `ls /dev/infiniband` 是空的——问题在哪一层？
@@ -1230,7 +1211,8 @@ mini-platform/
 
    </details>
 
-
 ## 下一篇
 
 [Serving 平台：从 InferenceService 到 llm-d](/serving-platforms-kserve-triton-ray-serve-llm-d.html)
+
+[^q0]: 带宽只有裸机三分之一，几乎一定是 NCCL 回落到了 Socket 或 GDR 没开——缺任何一项都不报错，只是日志里 `NET/IB : No device found.` → `Using network Socket`。**Pod 网络**：默认 CNI 只给 Pod 一张 veth 走 overlay；RDMA 需要第二张网卡——Multus 当元插件、`NetworkAttachmentDefinition` 装 CNI 配置、Pod 注解 `k8s.v1.cni.cncf.io/networks` 引用（host-device / macvlan / ipoib）；漏了注解、NAD 没关联 device plugin 的 `resourceName`、或 RDMA 侧没有 IP 做握手，NCCL 就找不到 IB 设备（[第二章](#二为什么-cni-overlay-不够)、[第三章](#三第二张网卡multus-与-networkattachmentdefinition)）。**device plugin 分配**：`/dev/infiniband` 的 uverbs / umad / rdma_cm 设备要进容器——rdma-shared-dev-plugin 按 `configList[].selectors` 上报 `rdma/<name>` 资源（要求 `rdma system set netns shared`，无 GPU 亲和），或 SR-IOV plugin 一 VF 一 Pod；Pod 要 `IPC_LOCK` capability 否则注册显存失败；显存注册需要 peermem 或 DMA-BUF 在宿主机可用（[第四章](#四把-rdma-设备给容器)）。**NCCL 环境变量**：`NCCL_IB_HCA` 是否把网卡排除了、`NCCL_SOCKET_IFNAME` 是否指到 RDMA 侧接口、`NCCL_IB_GID_INDEX` / `NCCL_IB_TC`（RoCE 要选对 v2 GID 与无损 TC）、`NCCL_NET_GDR_LEVEL`（GPU 与网卡 PCIe 路径超过 `PXB` 时 GDR 被关——容器里 GPU 与 NIC 的分配没有亲和时常见）、`NCCL_IB_DISABLE` 没被误设（[第六章](#六容器内验证与排障)）。诊断顺序：`NCCL_DEBUG=INFO` 看 `Using network` 与是否 `/GDRDMA` → 容器里 `ibstat` / `ibv_devinfo` → `ib_write_bw --use_cuda` 在两个 Pod 间测裸带宽 → 才到 nccl-tests。

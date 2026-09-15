@@ -16,10 +16,9 @@ updated: 2026-09-14
 
 本篇的核心问题：
 
-> **一个 32B 模型在 8 卡共置。每步开始生成前要把 16 字节/参数的训练状态搬走、把 KV 池建起来，训练前再反过来。每个动作搬多少字节、走哪条链路、要几秒？步时间 5 分钟时这是 2% 还是 20%？**
+> **一个 32B 模型在 8 卡共置。每步开始生成前要把 16 字节/参数的训练状态搬走、把 KV 池建起来，训练前再反过来。每个动作搬多少字节、走哪条链路、要几秒？[^q0] 步时间 5 分钟时这是 2% 还是 20%？[^q1]**
 
 版本：vLLM v0.27.1（`vllm/device_allocator/cumem.py`、`vllm/v1/worker/gpu_worker.py`）、verl v0.9.0（`verl/workers/engine_workers.py`、`verl/workers/rollout/vllm_rollout/`）、PyTorch 2.13 的 FSDP2。硬件按 H100 SXM：80 GB HBM3、NVLink 节点内 450 GB/s 单向、PCIe Gen5 x16 到 CPU 的实测 pinned 拷贝按 25 GB/s 算（标称 64 GB/s）。
-
 
 ## 一、总览
 
@@ -78,7 +77,6 @@ vLLM 的 sleep mode 做的关键一步，是让"丢弃再重建"**不改变虚�
 | 八 | 适用边界 | 模型多大、回答多长、卡多少时该换分离 |
 | 九 | 小结 | 要点、速查表、下一篇 |
 
-
 ## 二、显存归属的账
 
 ### 1. 一张卡上的两套东西
@@ -123,7 +121,6 @@ gpu_memory_utilization    KV 池        并发 c      decode 步      每卡 tok
 ```
 
 从 0.5 到 0.85，生成时间差 22%——**比切换的秒数大一个量级**。这是共置形态最该调的一个参数，调的前提是训练侧确实 offload 干净、并且给常驻部分留够余量（一般 8–10 GB）。
-
 
 ## 三、推理引擎的让渡：vLLM 的 sleep mode
 
@@ -177,7 +174,6 @@ def wake_up(self, tags):
 ### 4. SGLang：`torch_memory_saver`
 
 SGLang 走同一条路，实现方式不同：`torch_memory_saver` 是一个 `LD_PRELOAD` 库，在 `with memory_saver.region(tag=...)` 上下文内**拦截 `cudaMalloc`**，底下同样换成 `cuMemCreate + cuMemMap`；`pause(tag)` / `resume(tag)` 对应 vLLM 的 sleep / wake_up。verl 的 SGLang 路径调用 `release_memory_occupation()` / `resume_memory_occupation(tags=["weights"] | ["kv_cache"])`，slime 也是这两个接口（`slime/ray/rollout.py` 的 `offload()` / `onload(tags)`）。机制层面两者一致：**按标签分区、物理页摘挂、虚拟地址不动**，这是两个推理引擎为 RL 共置提供的核心接口。
-
 
 ## 四、训练器的让渡：FSDP 与 Megatron 的 offload
 
@@ -237,7 +233,6 @@ Megatron 的训练状态按 TP / PP / DP 切分，分布式优化器（`use_dist
 ```
 
 第 4–6 步的顺序决定峰值：先挂权重区域再同步、同步完再 offload 训练器的 bf16 参数、最后才挂 KV 池——KV 池是最大的一块，必须等其他都让出来。这正是 verl `ActorRolloutRefWorker.update_weights()` 的顺序（第五章）。
-
 
 ## 五、一次切换的时间线：verl 的 hybrid worker
 
@@ -323,7 +318,6 @@ DeepSeek-V3 规格，256 卡        47 GB × 2        3.8 s       650 s         
 
 **没有一行超过 2%**。切换的搬运时间在任何合理配置下都不是瓶颈；把它压到 0 也换不回多少墙钟。共置的代价在下一章。
 
-
 ## 六、隐性代价
 
 ### 1. KV 池的上限
@@ -372,7 +366,6 @@ pinned 内存              主机内存、NUMA                   32B/8 卡 520 G
 
 **排在最前面的是 KV 池上限**，它不是切换的代价，是"两方常驻的东西加起来"的代价。
 
-
 ## 七、共置下的权重同步
 
 ### 1. 进程内的路径
@@ -400,7 +393,6 @@ for name, param in get_per_tensor_param():
 ### 3. 共置下同步的代价
 
 8B 场景全模型 16 GB，all-gather + IPC 约 0.3 秒；32B 约 1 秒；DeepSeek-V3 规格 1.34 TB bf16 要几十秒——这时 all-gather 本身成了瓶颈（每卡接收 1.3 TB 的 31/32），MoE 的专家权重要先按 EP 布局 gather 再重切，第四篇专门讨论。共置的"同步在卡内"这个优点，在几百 B 的 MoE 上打了折扣。
-
 
 ## 八、适用边界
 
@@ -433,7 +425,6 @@ DeepSeek-V3   256+      FP8 训练 + EP             0.7                       �
 5. 卡数到 128 以上——共置的长尾浪费按卡数放大，分离的配比与跨机同步开销不随卡数变。
 
 分离不是免费的：它要跨机同步权重（第四篇）、要定配比（上一篇）、要接受至少一步的 off-policy（第五篇）。但它把本篇的全部问题——显存归属、KV 池上限、两个 allocator、pinned 内存——**一次性消掉**：推理引擎独占自己的卡，KV 池开到 0.9，CUDA graph 常驻无所谓，训练器的 offload 只为放下自己。
-
 
 ## 九、本文小结
 
@@ -470,14 +461,6 @@ pinned 内存        n_卡 × 每卡 offload 字节；32B/8 卡 520 GB
 下一篇：权重同步——从训练分片到推理分片。
 
 **实践建议**：在 8 卡上用 verl 的 `sync` 模式跑一个 7B–32B 的 GRPO，打开 `VERL_LOGGING_LEVEL=DEBUG` 看 `log_gpu_memory_usage` 在 "Before resume weights / After update_weights / After resume kv_cache" 三个点的输出，与第二章的账对一遍；然后把 `gpu_memory_utilization` 从 0.5 逐档提到 OOM 的边界，记录每档的 `timing_s/gen`——这条曲线就是你这个配置下共置的真实代价。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**搬多少、走哪、几秒**：32B / 8 卡，训练时每卡持有 $$16N/8 = 64$$ GB 的训练状态加参考模型；生成时要放推理权重副本（TP8 每卡 8 GB）+ KV 池。两侧合计 120 GB 以上，必须换手。训练 → 生成：训练状态 offload 到 CPU pinned 内存（$$16N/n$$，若优化器状态也 offload；否则只搬参数 $$2N/n$$）+ 参考模型 $$2N/n$$，走 PCIe 约 25 GB/s，32B / 8 卡约 6.5 秒（其中 4 秒是优化器状态往返）；生成 → 训练反向同量。步时间 5 分钟时这是约 2%——**切换不是共置的真实代价**（第二、三、四章）。**让渡的三种做法**：搬到 CPU（FSDP / Megatron offload、vLLM sleep level 1 的权重）、丢弃再重建（vLLM level 2 的权重——新权重反正要来、KV 池）、不动（CUDA graph 池、NCCL 缓冲、CUDA context）；vLLM 的 `CuMemAllocator` 用 CUDA 虚拟内存 API 摘掉物理页但**保留虚拟地址**，所以 CUDA graph、模型对象、KV 块表都不用重建，按 `weights` / `kv_cache` 标签分区让两者能分开唤醒——verl 的顺序是先挂权重 → 同步 → offload 训练器参数 → 最后挂 KV 池 → reset prefix cache（第五、六章）。**真实代价**是常驻部分挤掉的 KV 池：`gpu_memory_utilization` 0.5 让 8B 的生成时间多四分之一（745 → 610 秒是 0.5 → 0.85 的差）；训练侧 offload 干净、CUDA graph 只捕获小 batch 时可以开到 0.8–0.85——共置最值得调的旋钮（第七章）。其余隐性代价：prefix cache 每步重置、两个 allocator 的保留段冲突、pinned 主机内存（32B / 8 卡 520 GB）（第八章）。边界：$$16N/n \le 70$$ GB 且 pinned 内存够、长尾占比 < 0.4，卡数上百后该分离。
-
-</details>
-
 
 ## 十、自测
 
@@ -520,3 +503,6 @@ pinned 内存        n_卡 × 每卡 offload 字节；32B/8 卡 520 GB
    训练状态放得下：$$16N/n \le 70$$ GB 且 pinned 主机内存够（32B / 8 卡要 520 GB）；两侧并行配置能在同一组卡上共存；长尾占比 < 0.4（否则训练器等长尾的浪费太大）；卡数上百后长尾浪费按卡数放大——该转分离 / 异步。
 
    </details>
+
+[^q0]: 32B / 8 卡：训练时每卡持有 $$16N/8 = 64$$ GB 的训练状态加参考模型；生成时要放推理权重副本（TP8 每卡 8 GB）+ KV 池，两侧合计 120 GB 以上，必须换手。训练 → 生成：训练状态 offload 到 CPU pinned 内存（$$16N/n$$，若优化器状态也 offload；否则只搬参数 $$2N/n$$）+ 参考模型 $$2N/n$$，走 PCIe 约 25 GB/s，约 **6.5 秒**（其中 4 秒是优化器状态往返）；生成 → 训练反向同量。让渡的三种做法：搬到 CPU（FSDP / Megatron offload、vLLM sleep level 1 的权重）、丢弃再重建（level 2 的权重、KV 池）、不动（CUDA graph 池、NCCL 缓冲）；vLLM 的 `CuMemAllocator` 摘掉物理页但保留虚拟地址，所以 CUDA graph、模型对象、KV 块表都不用重建。详见[第二](#二显存归属的账)至[五章](#五一次切换的时间线verl-的-hybrid-worker)。
+[^q1]: 约 **2%**——切换不是共置的真实代价。真实代价是常驻部分挤掉的 KV 池：`gpu_memory_utilization` 0.5 让 8B 的生成时间多四分之一（745 → 610 秒是 0.5 → 0.85 的差）；训练侧 offload 干净、CUDA graph 只捕获小 batch 时可以开到 0.8–0.85，是共置最值得调的旋钮。其余隐性代价：prefix cache 每步重置、两个 allocator 的保留段冲突。详见[第六章](#六隐性代价)、[第八章](#八适用边界)。

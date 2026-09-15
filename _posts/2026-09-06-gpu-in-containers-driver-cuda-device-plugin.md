@@ -16,10 +16,9 @@ updated: 2026-09-14
 
 本篇要回答总纲提出的核心问题：
 
-> **宿主机驱动 580（原生 CUDA 13.0）、镜像里 CUDA 13.1 编译的 PyTorch、代码里调用了 CUDA 13.1 新增的 API——这个组合能跑吗？如果宿主机驱动是 570（原生 CUDA 12.8）呢？答案取决于三条兼容规则中的哪一条适用。**
+> **宿主机驱动 580（原生 CUDA 13.0）、镜像里 CUDA 13.1 编译的 PyTorch、代码里调用了 CUDA 13.1 新增的 API——这个组合能跑吗？[^q0] 如果宿主机驱动是 570（原生 CUDA 12.8）呢？[^q1] 答案取决于三条兼容规则中的哪一条适用。**
 
 源码与 CRD 以 Kubernetes v1.37.0（device plugin API `staging/src/k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1`、DRA API `staging/src/k8s.io/api/resource/v1`）、NVIDIA k8s-device-plugin v0.20.0、NVIDIA Container Toolkit v1.20.0、NVIDIA GPU Operator v26.7.0 为准。CUDA 与驱动的版本基线、前向兼容支持的 GPU 与驱动分支，以 NVIDIA CUDA 兼容性文档为准，本文只给规则和查法，不写成实测。
-
 
 ## 一、总览：四层栈、一个计数器和一个属性系统
 
@@ -81,7 +80,6 @@ updated: 2026-09-14
 | 八 | 代价与边界 | 四栏表；每个机制引入的新问题；什么场景不该用 |
 | 九 | 本文小结 | 要点、源码与 CRD 位置、mini-platform/gpu/ 增量 |
 | 十 | 自测 | 5 道题 |
-
 
 ## 二、四层栈与三条兼容规则
 
@@ -200,7 +198,6 @@ flowchart TB
 
 第三行不是假设的边角情况，而是 2026 年最常见的坑：PyTorch 从 2.11 起 PyPI 默认 wheel 切到 CUDA 13.0，驱动停在 5xx 且 < 580 的集群（570、550、535 都一样）只要 `pip install torch` 就直接落到规则三——不是数据中心 GPU、或镜像里没有 `cuda-compat-13-x`，就是上面那两个报错。第九章练手项目的 `mismatch/Dockerfile` 就用这个组合复现两种报错。
 
-
 ## 三、Container Toolkit：把驱动注入容器
 
 Container Toolkit 是"注入边界"的执行者。它以 NVIDIA Container Toolkit v1.20.0 为准，包含四个可执行文件（`cmd/`）：`nvidia-container-runtime`（OCI runtime 包装器）、`nvidia-container-runtime-hook`（prestart hook）、`nvidia-cdi-hook`（CDI spec 里引用的 hook）、`nvidia-ctk`（命令行工具，含 `cdi generate`、`runtime configure`）。配置文件是 `/etc/nvidia-container-runtime/config.toml`，结构定义在 `api/config/v1/config.go` 的 `Config`。
@@ -285,7 +282,6 @@ Toolkit 自身也能消费 CDI：`nvidia-container-runtime.mode = "cdi"` 时，`
 | 与 DRA 的关系 | DRA 不用它 | DRA 的 `NodePrepareResources` 返回的就是 CDI 设备名（第六章第 3 节） |
 
 GPU Operator v26.7.0 的 `cdi.enabled` 默认 `true`（`api/nvidia/v1/clusterpolicy_types.go` 的 `CDIConfigSpec.Enabled`），它把 Toolkit 配成 CDI 模式、把 device plugin 的 `deviceListStrategy` 配成 CDI 注解。方向很清楚：hook 是过去，CDI 是现在和 DRA 的基础。
-
 
 ## 四、device plugin：让 kubelet 数得清 GPU
 
@@ -394,7 +390,6 @@ device plugin 模型在 2018 年定型，它的边界今天看得很清楚：
 
 这三条正是 DRA 的设计目标（第六章）。在 DRA 普及之前，K8s 生态用 GFD 标签、Volcano / Kueue 的调度扩展、HAMi 的 API 拦截各自绕过一条，后面几篇会逐一遇到。
 
-
 ## 五、GPU Operator：ClusterPolicy 驱动的一套组件
 
 ### 1. 组件与 ClusterPolicy 字段
@@ -482,7 +477,6 @@ flowchart TB
 ### 4. Helm 安装与 values
 
 GPU Operator 用 Helm 安装，chart 的 `values.yaml`（`deployments/gpu-operator/values.yaml`）顶层键与 `ClusterPolicySpec` 一一对应，`clusterPolicy.deployCR: true`（默认）时由 `templates/clusterpolicy.yaml` 渲染出 `ClusterPolicy`。练手项目的最小 values 与安装命令见第九章第 3 节。三个节点级前提在装之前就要确认：容器运行时是 containerd 或 CRI-O（Operator 自动探测，`operator.defaultRuntime` 字段已废弃）；节点内核有对应的驱动容器镜像（或改 `driver.enabled: false` 自装驱动）；没有其他 device plugin 在同一节点上报 `nvidia.com/gpu`（HAMi、云厂商自带插件都会冲突，第四篇再谈）。
-
 
 ## 六、DRA：从计数到属性
 
@@ -623,7 +617,6 @@ Kubernetes v1.37.0 的 `CHANGELOG/CHANGELOG-1.37.md` 给出的 DRA 状态：核�
 
 NVIDIA 的 DRA driver（`k8s-dra-driver-gpu`）在 GPU Operator v26.7.0 里的位置：仓库 `README.md` 的 Roadmap 写着"Integrate NVIDIA's DRA Driver for GPUs as a managed component"；`api/nvidia/v1alpha1/gpucluster_types.go` 定义了一个新的 `GPUCluster` CRD（`nvidia.com/v1alpha1`），其 `spec.draDriver`（`DRADriverSpec`）配置 DRA driver 的镜像、`featureGates`、`gpus.kubeletPlugin` 与 `computeDomains`（多节点 NVLink 的 compute domain）；`deployments/gpu-operator/values.yaml` 的 `gpuCluster.deployCR` 默认 `false`、注释标明"experimental"，且与 `clusterPolicy.deployCR` 互斥；`draDriver.version` 默认 `v0.5.0`；`manifests/state-dra-driver/` 会创建 `gpu.nvidia.com`、`mig.nvidia.com` 与 compute-domain 三类 DeviceClass；节点标签多了 `nvidia.com/gpu.deploy.dra-driver`。结论：**device plugin 路径是 v26.7.0 的默认与生产路径，DRA 路径是同一 Operator 内的实验性替代**，两者不能同时启用。生产集群今天用 device plugin + GFD 标签，在测试集群上用 `GPUCluster` 验证 DRA，是合理的节奏。
 
-
 ## 七、镜像：分层、体积与拉取时间
 
 ### 1. `nvidia/cuda` 的三种变体
@@ -693,7 +686,6 @@ devel 到 base 通常能去掉 5 GB 以上；`--no-cache-dir` 与清理 apt 列�
 
 镜像的 `imagePullPolicy` 也值得一提：`Always` 会在每次 Pod 创建时向 registry 校验 digest，即使本地有缓存；用 digest 引用（`image@sha256:…`）并设 `IfNotPresent`，既可复现又不多请求。
 
-
 ## 八、代价与边界
 
 ### 1. 引擎需求 → K8s 空缺 → 平台机制 → 代价
@@ -723,7 +715,6 @@ devel 到 base 通常能去掉 5 GB 以上；`--no-cache-dir` 与清理 apt 列�
 - **今天的生产训练集群**：不要把 DRA 作为唯一路径。NVIDIA DRA driver 在 GPU Operator v26.7.0 中是实验性；Kueue、Volcano 对 DRA claim 的配额与 gang 语义支持程度以第三篇对应版本为准。用 device plugin + GFD 标签 + 调度器扩展，DRA 在测试集群上跟进。
 - **消费级 GPU（开发机、边缘）**：forward compat 不可用，跨大版本的 CUDA 镜像只能靠升驱动。选镜像时以节点驱动为上限，而不是反过来。
 - **要求秒级冷启动的推理场景**：任何镜像方案都不够，问题要从镜像转到"节点常驻 + 权重预加载"（第六篇）。
-
 
 ## 九、本文小结
 
@@ -988,14 +979,6 @@ C. 驱动 570 + 数据中心 GPU + 570 在 CUDA 13.0 forward-compat 支持的分
 
 > **两个团队各有 16 卡的配额，A 团队提交了一个 32 卡的任务，B 团队的卡空着。在 Volcano、Kueue 和 Slurm 里，这个任务分别会怎样？借用、抢占、等待三种行为各自的配置是什么？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-四层栈：内核驱动与用户态驱动库在**宿主机**（同版本），CUDA Runtime 与库在**容器**里随镜像或 wheel——`nvidia-smi` 显示的 CUDA Version 是驱动支持的上限（第 2 层），`torch.version.cuda` 是 Toolkit 版本（第 3 层），两者不同是常态；注入边界由 Container Toolkit 执行（第二、三章）。**三条兼容规则**：向后兼容——新驱动跑旧 Toolkit，无条件；minor version compatibility——同一大版本内旧驱动跑新 Toolkit（基线 11.x ≥ 450.80.02、12.x ≥ 525.60.13、13.x ≥ 580.65.06），但 PTX JIT 与新驱动 API 除外；forward compatibility——跨大版本要装 cuda-compat 包，仅数据中心 GPU 与受支持的驱动分支，容器里靠 Toolkit 的 cuda-compat-mode 生效（第四章）。**答案**：驱动 580（原生 13.0）+ 镜像 CUDA 13.1 的 PyTorch：同大版本、驱动 ≥ 580.65.06，规则二适用，常规调用能跑；代码里那一处调用 13.1 新增的驱动 API 会返回 `cudaErrorCallRequiresNewerDriver`（36）——只有那一处。驱动 570（原生 12.8）+ 13.x：跨大版本，规则二不适用，只有数据中心 GPU 装 cuda-compat 包（规则三）才能跑，否则容器启动就报 `unsatisfied condition: cuda>=13.1` 或运行时 `cudaErrorInsufficientDriver`（35）（第五章）。Kubernetes 侧：Container Toolkit 的 legacy hook 读 `NVIDIA_VISIBLE_DEVICES` / `NVIDIA_REQUIRE_CUDA` 或 CDI 声明注入设备；device plugin 按 NVML 上报 `nvidia.com/gpu`、`Allocate` 按策略返回 envvar / CDI；GPU Operator 用 `ClusterPolicy` 装驱动、Toolkit、plugin、GFD（打 `gpu.product` / `cuda.driver.major` 标签）、DCGM（第六至八章）。
-
-</details>
-
-
 ## 十、自测
 
 1. `nvidia-smi` 显示 CUDA Version 13.0，`torch.version.cuda` 显示 12.4——矛盾吗？各是什么？
@@ -1038,7 +1021,9 @@ C. 驱动 570 + 数据中心 GPU + 570 在 CUDA 13.0 forward-compat 支持的分
 
    </details>
 
-
 ## 下一篇
 
 [AI 任务调度：gang scheduling、队列与拓扑感知](/ai-job-scheduling-gang-queue-topology.html)
+
+[^q0]: **能跑，除了那一处新 API**。四层栈：内核驱动与用户态驱动库在宿主机，CUDA Runtime 与库在容器里随 wheel——`nvidia-smi` 显示的 CUDA Version 是驱动支持的上限，`torch.version.cuda` 是 Toolkit 版本，两者不同是常态。驱动 580（原生 13.0）+ 镜像 CUDA 13.1：同大版本、驱动 ≥ 580.65.06，**minor version compatibility** 适用，常规调用能跑；代码里那一处调用 13.1 新增的驱动 API 会返回 `cudaErrorCallRequiresNewerDriver`（36）——只有那一处。详见[第二章](#二四层栈与三条兼容规则)。
+[^q1]: 跨大版本，minor version compatibility 不适用；只有数据中心 GPU 且驱动分支受支持时，装 cuda-compat 包走 **forward compatibility**（容器里靠 Container Toolkit 的 cuda-compat-mode 生效）才能跑，否则容器启动就报 `unsatisfied condition: cuda>=13.1` 或运行时 `cudaErrorInsufficientDriver`（35）。Kubernetes 侧：Container Toolkit 读 `NVIDIA_VISIBLE_DEVICES` / `NVIDIA_REQUIRE_CUDA` 或 CDI 注入设备；device plugin 按 NVML 上报 `nvidia.com/gpu`；GPU Operator 用 `ClusterPolicy` 装驱动、Toolkit、plugin、GFD（打 `cuda.driver.major` 标签）。详见[第二章](#二四层栈与三条兼容规则)、[第三章](#三container-toolkit把驱动注入容器)、[第五章](#五gpu-operatorclusterpolicy-驱动的一套组件)。

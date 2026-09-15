@@ -16,10 +16,9 @@ updated: 2026-09-14
 
 本篇的核心问题：
 
-> **从同步换成 $$k \le 2$$ 的异步，一步的墙钟从 12 分钟降到 5 分钟，但 reward 曲线的斜率变缓了。是 staleness、是训推不一致、还是缓冲区淘汰规则？要区分这三个原因，需要事前记录哪些信号？**
+> **从同步换成 $$k \le 2$$ 的异步，一步的墙钟从 12 分钟降到 5 分钟，但 reward 曲线的斜率变缓了。是 staleness、是训推不一致、还是缓冲区淘汰规则？[^q0] 要区分这三个原因，需要事前记录哪些信号？[^q1]**
 
 版本：verl v0.9.0（`verl/trainer/ppo/v1/replay_buffer.py`、`trainer_separate_async.py`、`docs/algo/rollout_corr.md`、`docs/advance/fully_async.md`）、AReaL（Fu 等 2025，arXiv 2505.24298，及当前文档）。算法层面只讨论"系统要为修正提供什么"，不评价各修正对效果的优劣——那是[《后训练》](/post-training-from-sft-to-verifiable-rewards.html)系列的事。
-
 
 ## 一、总览
 
@@ -65,7 +64,6 @@ staleness     样本由 k 步前的权重生成，ρ 偏离 1；        每条�
 | 八 | 信号与诊断 | 回答核心问题：一张诊断表 |
 | 九 | verl 与 AReaL 的实现 | 落点；准入控制 vs 消费淘汰的分歧 |
 | 十 | 小结 | 要点、速查表、下一篇 |
-
 
 ## 二、staleness
 
@@ -121,7 +119,6 @@ verl 里     ReplayBuffer 在 prompt 的 tag 里存 global_steps；sample() 返�
 
 版本号的来源是第四篇末尾的 `set_global_steps`——权重同步成功后推理实例记下版本，agent loop 把它写进每条轨迹的元数据。**版本号错一步，所有 staleness 统计都错一步**。
 
-
 ## 三、部分 rollout
 
 ### 1. 机制
@@ -143,7 +140,6 @@ Kimi k1.5 的报告（Kimi Team 2025）最早把它写清楚：每一轮 rollout
 ### 4. 代价三：中断本身
 
 `abort` 是推理引擎侧的操作：调度器把在飞请求标记取消、释放它们的 KV 块、返回已生成的 token。vLLM 的 `pause_scheduler(mode="abort")` 与 SGLang 的 `abort_request` 都是毫秒级。但 agent loop 一侧要能接住"请求被中断、返回了部分结果"——对单轮生成只是拼接后重提；对多轮 Agent 轨迹（第六篇），中断发生在工具调用中间时，工具的状态（沙箱里的文件、数据库连接）要保持到续接——**多轮场景下部分 rollout 的边界只能在轮与轮之间**，一轮之内的生成要么完成要么整轮重来。
-
 
 ## 四、算法修正的系统要求
 
@@ -173,7 +169,6 @@ decoupled（3 份 logprob）                  推理侧 + 快照前向    2N + �
 ```
 
 注意"重算"在部分 rollout 下是**错**的（第三章第 3 节），所以异步系统默认不重算，然后用第五章的方法处理不一致。verl 的 `rollout_correction.bypass_mode=true` 是"两份 logprob"模式、`false` 是"三份"模式；文档里写明 `bypass_mode=False` + 部分 rollout 时的实现"近似 AReaL 的 decoupled PPO"。
-
 
 ## 五、训推不一致
 
@@ -210,7 +205,6 @@ MoE 路由                       top-k 在 bf16 下的并列翻转 → 选中不
 
 路由翻转让"逐 token 的比值"失去意义——两边走了不同的专家，比值不是 $$\pi_\theta / \pi_{old}$$ 而是两个不同函数的比。缓解的方向有三：**路由回放**（router replay：推理时记录每个 token 选中的专家，训练时强制走同样的专家——verl 0.9 的 CI 里有 "router-replay" 的测试项）；**推理侧确定性**（消掉并列翻转的随机部分，第八篇）；**屏蔽**（MIS 把翻转的 token 去掉，代价是丢 1–5% 的 token）。这也是第一篇 MoE 场景表里那行"MoE 的 decode 效率问题在别处"的另一半：MoE 在 RL 里的麻烦不只是 all-to-all，还有这层路由不一致。
 
-
 ## 六、样本缓冲
 
 ### 1. 结构
@@ -245,7 +239,6 @@ DAPO 过滤             组内配置的 reward 指标全同（全对 / 全错）
 
 同步形态下一步的 batch 是固定的 $$B \times G$$ 条；异步下取满 $$B$$ 个终态组就走，但组的**token 数**差别很大（都是短回答的组 vs 都打满 $$L_{max}$$ 的组）。训练侧按 token 数打包 micro-batch（verl 的 `use_dynamic_bsz`、`ppo_max_token_len_per_gpu`），一个 mini-batch 的训练时间随 token 数波动——这让"同步间隔 $$T_{sync}$$"本身也是波动的，反过来影响 staleness 的分布。`_balance_batch` 在 DP rank 之间按序列长度均衡，避免一个 rank 拿到全部长回答。
 
-
 ## 七、异步下的权重同步
 
 ### 1. 频率
@@ -272,7 +265,6 @@ k      同步间隔（32B，T_mb = 60 s）   典型 staleness（8K 回答）   r
 ### 3. 实例间的版本混合
 
 滚动更新或部分实例更新失败时，同一时刻不同实例持有不同版本——样本的 staleness 不再只由时间决定，还由"落在哪个实例上"决定。verl 的动态资源调度（第二篇）里 hybrid 实例激活时要先同步权重，就是为了不让它们带着旧版本加入。**每个实例的当前版本**应该是一个可观测量（`set_global_steps` 落在每个 server 上），第八篇的排障表里"权重同步漏了一部分"就是从这里看出来的。
-
 
 ## 八、信号与诊断
 
@@ -323,7 +315,6 @@ reward 斜率缓、训练样本平均长度比生成短 30%          drop 偏置
 
 这些在 verl v1 里大部分有现成指标；缺的（被淘汰组的长度分布、每实例版本）要自己加，都不难——难的是**开训前想到要加**。
 
-
 ## 九、verl 与 AReaL 的实现
 
 ### 1. verl 的落点
@@ -357,7 +348,6 @@ AReaL 从第一天就是异步的（论文标题里的 "Large-Scale Asynchronous
 ### 3. slime 与 meituan 实现的位置
 
 slime 的 `train_async.py` 与 `fully_async_rollout.py` 是"一步流水 + 流式"的形态，staleness 控制较简单（依赖 SGLang 的 `abort` 与 Data Buffer 的批边界）；meituan 的 `verl/experimental/fully_async_policy/` 是 verl v1 `separate_async` 的前身，它的 `staleness_threshold`（比例）与 `partial_rollout` 开关、`trigger_parameter_sync_step` 在 v1 里对应为 `max_off_policy_threshold`（版本数）、内置部分 rollout、`parameter_sync_step`。读那份文档的实验数字时对上参数名即可。
-
 
 ## 十、本文小结
 
@@ -394,14 +384,6 @@ decoupled PPO    w = π_prox/π_behave（无梯度）× clip(π_θ/π_prox)；3 
 下一篇：Agentic rollout——多轮、工具、沙箱与环境服务。
 
 **实践建议**：在 8 卡上用 `colocate_async` 跑一个小模型的 GRPO，`max_off_policy_threshold` 取 1 / 2 / 4 / 8 各跑 50 步，每次记下 `training/rollout_probs_diff_mean`、`off_policy/evicted_samples_staleness/mean`、被 drop 的组数、被训练样本的平均长度与 reward 曲线；再把推理侧换成 FP8 重跑阈值 2 那一档，看 `probs_diff` 涨多少、reward 差多少——这两组数据放在一起，就是本篇第八章诊断表在你的配置下的基线。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-reward 曲线上三个原因不可分，事前记录的信号上可分。**staleness**（时间上的 off-policy）：样本生成时的策略版本比训练版本旧 $$s$$ 个版本，$$s \approx \lfloor(\text{生成用时} + \text{缓冲等待}) / T_{sync}\rfloor$$，与回答长度正相关——所以 `drop` 策略系统性地丢长回答；要记每个样本的生成版本与训练版本、每个 mini-batch 的 staleness 分布、`drop` / `wait` 的比例与被丢样本的长度分布。**训推不一致**（实现上的 off-policy，同步形态下也有）：推理引擎与训练器算出的 $$\log\pi$$ 不同——浮点顺序与 kernel（$$10^{-3}$$，无害）、采样实现、FP8（$$10^{-2}$$ 起）、MoE 路由翻转（单 token 可到 1 以上）；要记 `rollout_probs_diff`（推理侧与训练侧 logprob 的差）——**在同步形态下就开着作基线**，切异步后它变大才说明是这个原因。**缓冲淘汰**（筛选上的分布偏移）：drop / wait、DAPO 的全对全错过滤、失败样本丢弃、流式的完成顺序（先短后长）各有偏置方向且比例随训练变化；要记每类淘汰的比例、进入训练的样本长度 / reward 分布与生成侧的对比（第二、三、四、七章）。**斜率变缓的判读**：staleness 分布右移 + 被丢样本偏长 → 是 staleness，降 $$k$$ 或改 `wait` / 部分 rollout；`rollout_probs_diff` 跳升 → 是不一致，开 TIS / MIS 或路由回放；淘汰比例变化 + 训练样本分布偏移 → 是缓冲规则。修正的系统要求是 logprob 的份数：重算（2 份，修不一致不修 staleness）、不重算（2 份，修 staleness 不修不一致）、decoupled PPO（3 份 behave / prox / θ，两者都修，verl 用 CPU 快照切换实现）。公开消融 $$s \le 2$$–4 配修正基本无损（第五、六章）。
-
-</details>
-
 
 ## 十一、自测
 
@@ -444,3 +426,6 @@ reward 曲线上三个原因不可分，事前记录的信号上可分。**stale
    同一批 prompt 的短回答先完成先进缓冲、先被训练，长回答后到——每个 mini-batch 的长度分布不是总体分布，且长回答的 $$s$$ 更大；补发（refill）保持缓冲里 prompt 的覆盖，预热（`num_warmup_batches`）让初始 staleness 不为零就开始训。
 
    </details>
+
+[^q0]: reward 曲线上三个原因不可分，事前记录的信号上可分——判读规则：staleness 分布右移 + 被丢样本偏长 → 是 **staleness**，降 $$k$$ 或改 `wait` / 部分 rollout；`rollout_probs_diff` 跳升 → 是**训推不一致**，开 TIS / MIS 或路由回放；淘汰比例变化 + 训练样本分布偏移 → 是**缓冲规则**。修正的系统要求是 logprob 的份数：重算（2 份，修不一致不修 staleness）、不重算（2 份，修 staleness 不修不一致）、decoupled PPO（3 份 behave / prox / θ，两者都修，verl 用 CPU 快照切换实现）。公开消融 $$s \le 2$$–4 配修正基本无损。详见[第二章](#二staleness)、[第四章](#四算法修正的系统要求)、[第五章](#五训推不一致)、[第八章](#八信号与诊断)。
+[^q1]: **staleness**：每个样本的生成版本与训练版本、每个 mini-batch 的 staleness 分布、`drop` / `wait` 的比例与被丢样本的长度分布——$$s \approx \lfloor(\text{生成用时} + \text{缓冲等待}) / T_{sync}\rfloor$$ 与回答长度正相关，所以 `drop` 系统性地丢长回答。**训推不一致**：`rollout_probs_diff`（推理侧与训练侧 logprob 的差）——在同步形态下就开着作基线，切异步后它变大才说明是这个原因；来源有浮点顺序（$$10^{-3}$$，无害）、FP8（$$10^{-2}$$ 起）、MoE 路由翻转（单 token 可到 1 以上）。**缓冲淘汰**：每类淘汰（drop / wait、全对全错过滤、失败丢弃、流式完成顺序）的比例、进入训练的样本长度 / reward 分布与生成侧的对比。详见[第二章](#二staleness)、[第五章](#五训推不一致)、[第六章](#六样本缓冲)、[第八章](#八信号与诊断)。

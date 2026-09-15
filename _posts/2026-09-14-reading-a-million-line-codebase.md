@@ -18,8 +18,7 @@ updated: 2026-09-14
 
 本篇的核心问题：
 
-> **给你一个从未见过的百万行仓库和一个报错信息，两小时之内你能把它定位到一个文件的一个函数吗？靠什么？**
-
+> **给你一个从未见过的百万行仓库和一个报错信息，两小时之内你能把它定位到一个文件的一个函数吗？[^q0] 靠什么？[^q1]**
 
 ## 一、总览
 
@@ -88,7 +87,6 @@ commit 与 PR 的链接  正文含 Pull Request resolved: 与 Approved by:      
 | 十 | 本文小结 | 要点、对照表、文件位置表 |
 | 十一 | 自测 | 5 道题 |
 
-
 ## 二、先画地图
 
 ### 1. PyTorch 的目录
@@ -134,7 +132,6 @@ vLLM 的分层比 PyTorch 简单：**`csrc/`（kernel）→ `vllm/`（一切其�
 `docs/source/community/` 下的 `contribution_guide.md` 在 v2.14.0 中开头就标注 "This page has been deprecated"，指向 GitHub wiki 上的 "The Ultimate Guide to PyTorch Contributions"；同目录的 `governance.md` 与 `persons_of_interest.md` 仍然有效，后者列出每个模块的维护者，是找 reviewer 时的参考。
 
 **vLLM**：没有一份目录职责表。`vllm docs/contributing/README.md` 讲的是流程（Job Board、Developing、Linting、Testing、Issues、Pull Requests & Code Reviews），不讲目录。仓库根目录的 `CONTRIBUTING.md` 只有一句话，指向 docs.vllm.ai 上的 contributing 页面——也就是 `docs/contributing/README.md` 渲染后的版本。目录级的知识分散在 `docs/design/` 与 `docs/contributing/model/`（加模型时该改哪些文件）里。所以读 vLLM 的第一步是自己补一张目录表——上面那张就是。
-
 
 ## 三、找到入口点
 
@@ -279,7 +276,6 @@ vllm serve  →  pyproject.toml [project.scripts]
 
 两个项目的入口结构差别很大，但追踪方法一样：**找到那个"登记表"**。PyTorch 的登记表是 `native_functions.yaml`，vLLM 的登记表是 `pyproject.toml` 的 `[project.scripts]`（命令）与 `csrc/libtorch_stable/torch_bindings.cpp`（kernel）。每个大项目都有这样的登记表——它们是把"名字"映射到"实现"的地方，找到它就找到了所有入口。
 
-
 ## 四、生成代码与"找不到定义"
 
 ### 1. torchgen 生成什么
@@ -334,7 +330,6 @@ vllm/model_executor/layers/<layer>.py  →  vllm/_custom_ops.py  def <name>()：
                                        →  csrc/libtorch_stable/torch_bindings.cpp  ops.def("<name>(...)") / ops.impl(...)
                                        →  csrc/libtorch_stable/<kernel>.cu  或  csrc/cpu/<kernel>.cpp
 ```
-
 
 ## 五、构建一次
 
@@ -419,7 +414,6 @@ cmake --build --preset release --target install   # 编译并把 _C_stable_libto
 compile_commands   pip install -e 生成（需 ninja）                    cmake --preset 生成于 cmake-build-release/（preset 需打开导出）
 统一入口           spin（develop / clean / lint / regenerate-*）         无；uv + pre-commit
 ```
-
 
 ## 六、用测试当文档
 
@@ -513,7 +507,6 @@ tests/basic_correctness/、tests/compile/、tests/multimodal/、tests/tool_use/�
 找一个改动对应的测试目录的规则很简单：`vllm/v1/engine/` 的改动看 `tests/v1/engine/`，`csrc/` 的 kernel 看 `tests/kernels/`，`vllm/entrypoints/openai/` 看 `tests/entrypoints/openai/`。第七章那个 vLLM commit 改了 `vllm/entrypoints/cli/serve.py` 与 `vllm/v1/engine/utils.py`，配套测试加在 `tests/v1/engine/test_startup_watch_processes.py`。
 
 vLLM 没有 PyTorch 那样厚的测试框架层，`tests/conftest.py` 与各子目录的 `conftest.py` 提供 fixture（模型加载、`VllmRunner`、`HfRunner` 等）。`AGENTS.md` 的 "Tests" 一节对新测试提了四个问题（模块做什么、I/O 契约、防的是什么失败、最便宜的层级）和几条原则（复用已有文件、一个测试一个行为、不在 `tests/` 里放一次性 kernel benchmark），第三篇展开。
-
 
 ## 七、读历史
 
@@ -674,7 +667,6 @@ cherry-pick          有明确流程与 tracker issue，@pytorchbot cherry-pick 
 patch 版本           optional，日程表列出                          new models 与紧急修复
 ```
 
-
 ## 八、核心问题：两小时定位流程
 
 回到本篇的核心问题：**给你一个从未见过的百万行仓库和一个报错信息，两小时之内你能把它定位到一个文件的一个函数吗？靠什么？**答案是靠一套固定的流程，而不是靠对这个项目的熟悉。下面是这套流程，每步给出时间预算与两个项目的具体做法。
@@ -717,7 +709,6 @@ patch 版本           optional，日程表列出                          new m
 引言里的 PyTorch 案例：报错信息是 "Inconsistent torch.logaddexp results on complex128 between CPU and CUDA"。符号 `logaddexp`，层次判断是算子 → `aten/`；yaml 条目 → `dispatch: CPU, CUDA, MPS, XPU: logaddexp_out` → `BinaryOps.cpp` 的宏 → `rg -l logaddexp aten/src/ATen/native/cuda` → `LogAddExpKernel.cu`。测试在 `test/test_binary_ufuncs.py` 的 `_test_logaddexp`，OpInfo 在 `common_methods_invocations.py`。历史：`git log -- aten/src/ATen/native/cuda/LogAddExpKernel.cu` 显示 2025-11-17 的 #163509 已经修了这个问题（`Fixes #158429`）。**结论：这个 issue 已经被修，在 v2.11.0 里。**四十分钟内得到"不用做"的结论，这本身就是流程的价值——它避免了引言那位工程师白做一周。
 
 vLLM 案例：想知道 `vllm serve` 启动时"engine core 还在初始化、API server 进程已退出"会发生什么。符号 `api_server_count`、`launch_core_engines`；`rg -n 'launch_core_engines' vllm/` 命中 `vllm/v1/engine/utils.py` 与 `vllm/entrypoints/cli/serve.py`；`git log -- vllm/entrypoints/cli/serve.py` 第二条是 2026-08-06 的 #43417 "Watch frontend processes during engine startup"，`gh pr view 43417` 的 Purpose 精确描述了这个场景，测试在 `tests/v1/engine/test_startup_watch_processes.py`。**结论：v0.28.0 已包含这个行为，测试文件就是它的规格。**
-
 
 ## 九、贡献日志：项目地图
 
@@ -866,7 +857,6 @@ vLLM 案例：想知道 `vllm serve` 启动时"engine core 还在初始化、API
 
 两份样例里所有路径与命令都是本文前面各章核对过的。读者填自己的那份时，第一条符号路径应该是自己遇到的那个问题——不必是本文的例子。
 
-
 ## 十、本文小结
 
 ### 1. 要点回顾
@@ -929,14 +919,6 @@ vLLM 案例：想知道 `vllm serve` 启动时"engine core 还在初始化、API
 | vllm `csrc/libtorch_stable/torch_bindings.cpp`、`ops.h`、`layernorm_kernels.cu`；`csrc/cpu/layernorm.cpp` | `STABLE_TORCH_LIBRARY_FRAGMENT(_C, ops)`、`ops.def("rms_norm(...)")`；`rms_norm` 声明与 CUDA/CPU 实现 |
 | vllm `tests/v1/engine/test_startup_watch_processes.py` | #43417 的配套测试 |
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-能，靠**有目标地检索而不是阅读**——一张两小时流程清单：**提取符号**（报错里的类名、函数名、字符串字面量、`torch.ops.xxx` 名）→ **画地图**（PyTorch 的 `c10/` → `aten/` → `torch/csrc/` → `torch/`，`CONTRIBUTING.md` 的 Codebase structure 一节；vLLM 的 `csrc/` → `vllm/`，目录表要自己补）→ **`rg` 精确搜**（字符串字面量优先，能一步到定义处）→ **找登记表**（PyTorch 的 `native_functions.yaml` 把算子 `dispatch:` 到 C++ 函数、再经 `DEFINE_DISPATCH` 桩到 `cpu/` / `cuda/` kernel，`torch.<op>` 经 `torch/_C._VariableFunctions` 进 C++；vLLM 的 `pyproject.toml` `[project.scripts]` 入口、`ModelRegistry`、`torch_bindings.cpp`）→ **沿链追**到底、只读路径上的东西 → **识别生成代码**（`torchgen` 生成的 `ATen/ops/*.h`、`autograd/generated/`、`_C/*.pyi` 在源码树里“找不到定义”——回 yaml、`.pyi.in`，或构建后用 clangd；vLLM 的 `torch.ops._C.<op>` 回 `torch_bindings.cpp`）→ **读测试**（PyTorch `test/` 176 个 `test_*.py` + OpInfo；vLLM `tests/` 40 个子目录与 `vllm/` 对应——测试是规格）→ **读历史**（`git log -S`、`git blame -w -C`；PyTorch 的 commit 正文含 PR 描述与 `Fixes #`，vLLM 的“为什么”要 `gh pr view`）→ **记入地图**。构建是为了工具链（`compile_commands.json`、clangd）不是为了改代码，可选、放最后：PyTorch `pip install -e . --no-build-isolation`（`USE_CUDA=0` 裁剪）或 `tools/nightly.py`，vLLM `VLLM_USE_PRECOMPILED=1`（第二至十章）。四种典型失败——从头读、随便读、被生成代码卡住、只读代码不读测试与历史——都是把阅读当成线性活动。用这张清单走引言的案例，四十分钟得出“已在 v2.11.0 修复”的结论。
-
-</details>
-
-
 ## 十一、自测
 
 1. 报错 `RuntimeError: expected scalar type Float but found Half` 在 PyTorch 里怎么两步定位到抛出点？
@@ -979,7 +961,9 @@ vLLM 案例：想知道 `vllm serve` 启动时"engine core 还在初始化、API
 
    </details>
 
-
 ## 下一篇
 
 [找到切入点：从 issue、RFC 到性能回归](/finding-your-entry-point-in-open-source.html)。本篇解决的是"给一个问题，能不能找到代码"；下一篇解决的是"该找哪个问题"——大多数失败的贡献不是做错了，而是选错了。它会读两个项目的标签体系（PyTorch `.github/labeler.yml` 与 `actionable`；vLLM `good first issue`、`new-model`、`rfc-required` 与 Job Board）、RFC 模板、CI 失败看板与性能回归模板，用 `gh` 实时抓一组真实 issue 做切入点清单，并回答：一个项目每天新增几十个 issue、几十个 PR，maintainer 最希望有人来做的是哪一类工作？你怎么判断自己选的题不会在一周后被关闭？
+
+[^q0]: **能**。用引言的案例走一遍两小时流程，四十分钟得出「已在 v2.11.0 修复」的结论。四种典型失败——从头读、随便读、被生成代码卡住、只读代码不读测试与历史——都是把阅读当成线性活动。详见[第八章](#八核心问题两小时定位流程)。
+[^q1]: 靠**有目标地检索而不是阅读**，一张流程清单：提取符号（报错里的类名、函数名、字符串字面量、`torch.ops.xxx` 名）→ 画地图（PyTorch 的 `c10/` → `aten/` → `torch/csrc/` → `torch/`；vLLM 的 `csrc/` → `vllm/`）（[第二章](#二先画地图)）→ `rg` 精确搜（字符串字面量优先）→ 找登记表（PyTorch 的 `native_functions.yaml` 把算子 `dispatch:` 到 C++ 函数；vLLM 的 `pyproject.toml` 入口、`ModelRegistry`、`torch_bindings.cpp`）（[第三章](#三找到入口点)）→ 沿链追到底、只读路径上的东西 → 识别生成代码（`torchgen` 生成的 `ATen/ops/*.h`、`autograd/generated/`、`_C/*.pyi` 在源码树里「找不到定义」——回 yaml、`.pyi.in`，或构建后用 clangd）（[第四章](#四生成代码与找不到定义)、[第五章](#五构建一次)）→ 读测试（测试是规格）（[第六章](#六用测试当文档)）→ 读历史（`git log -S`、`git blame -w -C`；PyTorch 的 commit 正文含 PR 描述，vLLM 的「为什么」要 `gh pr view`）（[第七章](#七读历史)）→ 记入地图（[第九章](#九贡献日志项目地图)）。构建是为了工具链不是为了改代码，可选、放最后。

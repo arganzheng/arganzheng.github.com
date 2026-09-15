@@ -16,10 +16,9 @@ updated: 2026-09-14
 
 这三种失败的共同点是：**改动本身可能都是对的，错在选题**。选了别人已经在做的、选了需要先讨论却直接动手的、选了项目已经明确说不要的。选题这一步没有任何技术难度，却决定了后面所有工作的命运。本篇的核心问题是总纲给出的那一个：
 
-> **一个项目每天新增几十个 issue、几十个 PR。maintainer 最希望有人来做的是哪一类工作？你怎么判断自己选的题不会在一周后被关闭？**
+> **一个项目每天新增几十个 issue、几十个 PR。maintainer 最希望有人来做的是哪一类工作？[^q0] 你怎么判断自己选的题不会在一周后被关闭？[^q1]**
 
 版本锚点：PyTorch v2.14.0（2026-09-02 发布）与 vLLM v0.28.0（2026-08-26 发布）的源码树；GitHub 上的标签、issue、PR 状态用 `gh` CLI 于 **2026-09-07** 查询，文中一律标注。issue 和 PR 是活的，到本文发布时其中一些很可能已经关闭或合入——这恰恰是本篇要教的东西：切入点必须在动手前的那一刻重新核对。
-
 
 ## 一、总览
 
@@ -80,7 +79,6 @@ updated: 2026-09-14
 | 九 | 贡献日志 | 切入点清单模板；PyTorch 三个候选、vLLM 三个候选（2026-09-07 实查）；选定一个 |
 | 十 | 本文小结 | 要点 · 对照表 · 文件位置 |
 | 十一 | 自测 | 5 道题 |
-
 
 ## 二、标签：maintainer 表达"我们想要什么"的主渠道
 
@@ -325,7 +323,6 @@ bot-triaged                    模块标签是 bot 打的，准确度打折
 
 再读评论：@malfet 2026-08-24 留了两条，"It would be good to have a generic test for it ... rather than write an MPS-specific test"，"Will accept a PR that adds a non-MPS specific test to validate for it (or enable the existing test for MPS platform)"。这就是 maintainer 把"我要什么"写得最清楚的形态——不仅说了要做，还说了怎么做才收。当天有人开了 PR #194396（MPS 专用测试）被关闭，改开 #194631（设备通用测试，`allow_mps=True, allow_xpu=True`）保持 open。**读标签 + 读 maintainer 的最后一条评论**，五分钟内就能判断这个 issue 还有没有位置、位置在哪。
 
-
 ## 三、RFC 与 roadmap：大改动从哪里开始
 
 ### 1. PyTorch：pytorch/rfcs 仓库与三步流程
@@ -412,7 +409,6 @@ PyTorch 的对应物是标题带 `Tracking:` 或 `[Tracker]` 的 issue，以及 
 
 一个常见误判：把"我写了很多代码"当成"需要 RFC"的唯一标准。判断标准其实是**有没有需要 maintainer 拍板的设计决策**——一个 800 行的纯 kernel 优化（不算入 500 行）可以不走 RFC，一个 200 行但引入了新配置项和新公开接口的改动应该走。
 
-
 ## 四、CI 失败：低风险、高感谢度的切入点
 
 ### 1. vLLM：Dashboard、failures.md 与 [CI Failure] 模板
@@ -474,7 +470,6 @@ PyTorch 的 CI 状态看板是 HUD（`hud.pytorch.org`）。`CONTRIBUTING.md` �
 
 修 flaky test 之所以"高感谢度"，是因为它直接减少 maintainer 每天 triage 的噪音，而且不需要任何设计讨论。它之所以"低风险"，是因为改动范围被测试函数本身框死了。它唯一的门槛是耐心——复现一个 4 次成功 4 次失败的测试可能要跑几十遍。
 
-
 ## 五、性能回归：带数字的报告本身就是贡献
 
 ### 1. vLLM：700-performance-discussion.yml 与 benchmarks/
@@ -523,7 +518,6 @@ PyTorch 的回归还有第二条路：**release 周期内的 cherry-pick**。`RE
 ```
 
 有了这五样，报告就是可以直接 `git bisect` 的。如果你还有时间，bisect 出引入回归的 PR 并在报告里 ping 作者——这时候修复往往由原作者一两天内完成，你的贡献是报告本身。
-
 
 ## 六、文档、类型与"不欢迎单个 typo"
 
@@ -581,7 +575,6 @@ PyTorch #183036 "Adadelta uses SGD in its examples"（2026-05-09，`module: docs
 
 maintainer 那句话就是"成体系"的具体含义：不是把 Adadelta 页面上的 `SGD` 换成 `Adadelta`（那是 typo 级），而是修示例的**生成方式**，让所有 optimizer 页面都不再出现这个问题。这个 issue 到查询时仍 open、仍 `actionable`、没有 open PR——是本篇第九章 PyTorch 候选清单里的一个。
 
-
 ## 七、不起眼但有价值的工作
 
 ### 1. 补测试
@@ -628,7 +621,6 @@ vLLM #50128 "[Performance] Measure Transformers backend startup time vs native"�
 它明确说"测出来没差别也算完成"。评论区的走向也很典型：2026-08-18 两位贡献者分别在 RTX 3050（4 GB）上做了测量并 profile，定位到 `RMSNormFuser.fuse()` 和 AOT 缓存两处；同日 maintainer 说"Thank you both for the investigation"，自己开 PR #52766 处理棘手的 `RMSNormFuser`，把 AOT 缓存留给贡献者（PR #53295，2026-08-21 open）。**一块 4 GB 的笔记本显卡完成了一个 `help wanted` issue 的第一步**——测量、profile、写清楚。
 
 这一类工作的共同点是：产出不是 diff，而是**信息**——一个确认的复现、一组数字、一个 bisect 结果、一份"哪些切片还没人覆盖"的盘点。它们不会出现在 release note 里，但它们是 maintainer 最缺的东西，而且几乎不可能撞车。
-
 
 ## 八、先讨论再动手，以及查重
 
@@ -710,7 +702,6 @@ general FlashInfer compatibility/wrapper layer, while `vllm.model_executor.layer
 
 减分项里任何一个"硬"的（`needs research`、≥3 个 PR、>500 行无 RFC、单个 typo）都足以让 PR 一周内被关。加分项里最强的两个是 **`actionable` + maintainer 写明了要什么**——这时候你的 PR 不是在申请 review，而是在交付一个已经被下单的东西。
 
-
 ## 九、贡献日志：切入点清单
 
 ### 1. 模板
@@ -763,7 +754,6 @@ general FlashInfer compatibility/wrapper layer, while `vllm.model_executor.layer
 清单上六个候选，两个"放弃"是因为撞车（P3、V3），一个"放弃"是因为已被按要求做完（P2），两个"备选"分别因为已基本完成（V1）和门槛高需先确认方向（V2）。选定 **P1 #183036**。下一步不是写代码，而是一条留言：说明已核对无 open PR、理解 @janeyx99 要的是"不让其他 optimizer 出同样问题"的修法、给出打算怎么改示例的生成方式、问一句这个方向是否可以。得到回应（或 4 个工作日无回应后按 `CONTRIBUTING.md` "Merging your Change" 一节的建议 ping 一次）再进入下一篇。
 
 这张清单还说明了一件事：在 2026 年的 PyTorch 和 vLLM，**`good first issue` 是竞争最激烈的池子**，因为它是每个新人和每个 agent 的第一个过滤条件。真正空着的位置在 `actionable` + `module: docs`、`needs reproduction`、`skipped`、`help wanted` 里那些需要读代码或需要测量的任务——它们要多花一两个小时理解，回报是没人和你抢。
-
 
 ## 十、本文小结
 
@@ -825,14 +815,6 @@ CI 失败       vLLM：Project 20 看板 · failures.md 的六节操作手册 ·
 
 > **reviewer 打开你的 PR，只有十分钟。这十分钟里他要确认什么？你的 diff、描述、测试、CI 状态分别替他回答了哪个问题？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**maintainer 最想要的**：他们已经决定要做、写清了要什么、自己没时间做的事——PyTorch 里是带 `actionable` 状态标签、或 maintainer 评论里写了 “I'd review a PR that ...” 的 issue；vLLM 里是 `help wanted` 加分步骤正文的 issue、Job Board 上的四类链接、已接受但没人实现的 RFC；另外两类稳定的需求是 CI 失败（vLLM 的 Project 20 看板 + `failures.md` 六节操作手册；PyTorch 的 HUD + bot 自动开的 `DISABLED` issue，200 个 open、修好自动重新启用）与性能回归（vLLM `700-performance-discussion.yml`、PyTorch `module: regression` 156 个）（第二、六、七章）。**一周内不被关的预测器**：标签状态（PyTorch 的状态链 needs reproduction → needs research → needs design → actionable，只有最后一档该动手）；maintainer 最后一条评论（是“欢迎 PR”还是“需要先讨论”）；同一 issue 下已有的 open PR 数（有人在做就别重复）；规模与 RFC 门槛（vLLM > 500 行架构改动无 RFC 不 review；PyTorch 大改动走 pytorch/rfcs 仓库、模板九章、draft → commenting → 主仓 issue）；硬件（你没有的 GPU 上的 bug 修不了）；项目政策（vLLM 6 个 open PR 上限、stale bot）（第三、四、五章）。标签怎么读：PyTorch 682 个分五层前缀 + 状态标签，`labeler.yml` 按路径、`label_to_label.yml` 按标签推导；vLLM 63 个平铺，`mergify.yml` 按路径 / 标题打 PR 标签、`issue_autolabel.yml` 按关键词打 issue 标签——注意 `600-new-model.yml` 的 “new model” 与实际标签 `new-model` 不一致，按标题前缀搜（第三章）。选题的原则：从 maintainer 已表达的需求出发，比自己想一个“好主意”被接受的概率高一个量级。
-
-</details>
-
-
 ## 十一、自测
 
 1. PyTorch issue 的状态标签链是什么？哪一档才该动手写 PR？
@@ -875,7 +857,9 @@ CI 失败       vLLM：Project 20 看板 · failures.md 的六节操作手册 ·
 
    </details>
 
-
 ## 下一篇
 
 [做出一个能被合入的改动](/landing-a-mergeable-change.html)
+
+[^q0]: 他们已经决定要做、写清了要什么、自己没时间做的事——PyTorch 里是带 `actionable` 状态标签、或 maintainer 评论里写了 “I'd review a PR that ...” 的 issue；vLLM 里是 `help wanted` 加分步骤正文的 issue、Job Board 上的四类链接、已接受但没人实现的 RFC（[第二章](#二标签maintainer-表达我们想要什么的主渠道)、[第三章](#三rfc-与-roadmap大改动从哪里开始)）。另外两类稳定的需求：CI 失败（vLLM 的 Project 20 看板 + `failures.md` 操作手册；PyTorch 的 HUD + bot 自动开的 `DISABLED` issue，修好自动重新启用）（[第四章](#四ci-失败低风险高感谢度的切入点)）与性能回归（带数字的报告本身就是贡献）（[第五章](#五性能回归带数字的报告本身就是贡献)）。不受欢迎的：单个 typo、纯格式改动（[第六章](#六文档类型与不欢迎单个-typo)）。
+[^q1]: 看几个预测器：**标签状态**——PyTorch 的状态链 needs reproduction → needs research → needs design → actionable，只有最后一档该动手；**maintainer 最后一条评论**是「欢迎 PR」还是「需要先讨论」；**同一 issue 下已有的 open PR 数**（有人在做就别重复）；**规模与 RFC 门槛**（vLLM > 500 行架构改动无 RFC 不 review；PyTorch 大改动走 pytorch/rfcs 仓库）；**硬件**（你没有的 GPU 上的 bug 修不了）；**项目政策**（vLLM 6 个 open PR 上限、stale bot）。标签怎么读：PyTorch 682 个分五层前缀 + 状态标签；vLLM 63 个平铺，`mergify.yml` 按路径 / 标题打 PR 标签、`issue_autolabel.yml` 按关键词打 issue 标签。原则：从 maintainer 已表达的需求出发，比自己想一个「好主意」被接受的概率高一个量级。详见[第二章](#二标签maintainer-表达我们想要什么的主渠道)、[第三章](#三rfc-与-roadmap大改动从哪里开始)、[第八章](#八先讨论再动手以及查重)。

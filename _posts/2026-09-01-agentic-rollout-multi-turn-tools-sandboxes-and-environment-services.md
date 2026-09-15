@@ -16,10 +16,9 @@ GPU 这一侧在这 30 分钟里做了什么，是这篇更想回答的问题。
 
 本篇的核心问题：
 
-> **500 个代码任务 × $$G = 8$$ × 20 轮，每轮跑一次几十秒的测试。一步 rollout 要多少次容器执行、多少 CPU·小时、并发多少个沙箱才能在 30 分钟内完成？GPU 这一侧在这 30 分钟里做了什么？**
+> **500 个代码任务 × $$G = 8$$ × 20 轮，每轮跑一次几十秒的测试。一步 rollout 要多少次容器执行、多少 CPU·小时、并发多少个沙箱才能在 30 分钟内完成？[^q0] GPU 这一侧在这 30 分钟里做了什么？[^q1]**
 
 版本：verl v0.9.0（`verl/experimental/agent_loop/`、`verl/trainer/ppo/v1/agent_loop_tq.py`、`docs/advance/agent_loop.rst`、`reward_loop.rst`、uni-agent）、vLLM v0.27.1 的前缀缓存与 OpenAI 兼容接口。算法侧（Agent RL 的 mask、奖励、轨迹级优势）在[《后训练》第六篇](/agentic-rl-tool-use-environments-and-trajectories.html)，本篇只用它的结论：轨迹是样本，环境 token 不进 loss。
-
 
 ## 一、总览
 
@@ -76,7 +75,6 @@ reward = 规则 / RM                             reward = 测试结果 / 环境�
 | 八 | verl 的实现 | AgentLoop、LLMServerClient、RewardLoop、uni-agent |
 | 九 | 小结 | 要点、速查表、下一篇 |
 
-
 ## 二、agent loop 的结构
 
 ### 1. 一条轨迹
@@ -107,7 +105,6 @@ reward：最后一次测试通过的比例 / 是否全部通过 → 0 或 1（�
 verl 的实现形状（`docs/advance/agent_loop.rst`）：`AgentLoopManager` 把一个 batch 的 prompt 切成块发给若干 `AgentLoopWorker`（Ray actor，CPU 进程）；每个 worker 为每条轨迹起一个 `AgentLoopBase.run()` **协程**，协程里 `await llm_client.generate(...)`、`await tool.execute(...)`，几千条轨迹是几千个协程在几十个 worker 进程上并发。用户只实现 `run()`——"给一个 prompt，怎样跑到底"——工具、环境、反思、多 agent 全是它内部的事；框架负责 LLM 服务的负载均衡与样本的收集。
 
 这个结构决定了 agent loop worker 是 CPU 侧的**协调者**而不是执行者：它不跑测试，它调沙箱服务；它不做推理，它调 LLM 服务。它的瓶颈是协程数与 Python 的异步调度——几千条轨迹、每条每轮几次 await，单个 worker 进程扛几百条是常见上限，所以 `num_workers` 要按并发轨迹数配。
-
 
 ## 三、推理引擎侧
 
@@ -154,7 +151,6 @@ KV 卸载到 CPU / 外部存储               等待期间 KV 搬到主机内存
 
 - **token in / token out**（`generate(prompt_ids, sampling_params)`）：agent loop 自己维护 token 序列，拼接、mask、logprob 全在 loop 侧，训练所需的一切都精确——verl 内置的 tool agent loop 走这条路。
 - **OpenAI 兼容的 chat completion**：接受 messages、返回文本。它的意义是**接入现成的 agent 框架**——Claude Code、mini-SWE-agent、OpenHands 一类 harness 只会说 OpenAI / Anthropic 的协议，不会给你 token id。代价是 token 连续性（第二章第 2 节）要由服务侧重建：网关记录每次请求实际用的 token 序列与 logprob，事后拼成训练样本。verl 的 uni-agent gateway 做的正是这层。
-
 
 ## 四、沙箱集群
 
@@ -204,7 +200,6 @@ SWE-bench 类（完整测试套件） 1–10 min      20–50        10 : 1     
 
 每个任务（SWE-bench 的每个 issue）有自己的仓库、依赖、Python 版本——**镜像是按任务的**，几千个任务几千个镜像、每个几 GB。每步 rollout 要在几十台机器上各起几十个容器，镜像分发是启动时间的大头：预热（把本步会用到的镜像提前拉到节点）、分层共享（基础层复用）、镜像仓库的带宽（几十台机器同时拉 5 GB 是几百 GB 的流量）。热池只能对"通用镜像"预起，任务专属的镜像只能预拉。SWE-bench 规模的训练里，**镜像管理是沙箱平台的主要工程量**，不是容器运行时。
 
-
 ## 五、环境与 reward 的服务化
 
 ### 1. 为什么是服务
@@ -239,7 +234,6 @@ slime 的 `slime/agent` 模块、AReaL 的 `RolloutWorkflow`（`arun_episode`）
 verl 的 **Reward Loop**（`RewardLoopManager` + 若干 `RewardWorker`）把三种做成同一个接口：轨迹完成 → 分块发给 reward worker 并行算 → 结果写回样本。生成式 RM 的推理实例由 `reward.reward_model.enable_resource_pool` 决定是独立池还是共置——`separate_async` 模式**要求独立池**，因为 standalone rollout 实例从不暂停、没有空闲显存给 RM 用（第二篇 `PPOTrainerSeparateAsync.__init__` 里的断言）。
 
 生成式 RM 是第四个 GPU 负载：它也是 decode（评判要生成理由）或 prefill（打分只要一次前向），也有自己的权重（可能是另一个模型，不需要同步；也可能就是策略自己——self-reward，那就要同步）。规模上它常与 rollout 同量级（每条轨迹评一次、输入是整条轨迹 40K token），在 GPU 配比里要单独算一列。
-
 
 ## 六、长尾与调度
 
@@ -278,7 +272,6 @@ $$f$$（长尾占比）在这里轻易到 0.8 以上：一步里 95% 的轨迹 1
 ### 4. 调度的两个目标
 
 agent loop 的调度器同时要满足：**沙箱利用率**（不让容器闲着等模型）与 **GPU 利用率**（不让推理引擎闲着等环境）。两者的自然节律相反（一条轨迹在两侧交替），靠**多路并发**填平——在飞轨迹数是沙箱数的 1.3 倍左右（一条在生成时另 0.3 条在等）、是 GPU 并发能力的 4 倍左右。这个比例随任务的"环境 : 模型"墙钟比（第四章第 3 节的表）变，也随训练变（模型变强、轮数变少、测试更快通过）。
-
 
 ## 七、环境账与 GPU 账
 
@@ -322,7 +315,6 @@ $$\frac{\text{rollout 卡数}}{\text{训练卡数}} = \frac{T_{gen+prefill}}{T_{
 
 前者在 Agent RL 里比单轮 RL 更接近 1 : 1（prefill 与训练 token 都涨了），后者是新增的、且最容易随训练漂移（轮数与测试时长都在变）。
 
-
 ## 八、verl 的实现
 
 ### 1. 落点
@@ -359,7 +351,6 @@ trainer._add_batch_to_generate → AgentLoopManagerTQ 取 prompt → AgentLoopWo
 
 VLM 的 Agent（GUI 操作、网页浏览）在这条路上多两样：环境返回的是**图像**（截图），进上下文前要过 vision encoder（推理引擎的 `reset_mm_cache` / `reset_encoder_cache` 在权重同步后也要清）；图像 token 多（一张截图几百到上千 token），上下文涨得更快、KV 驻留更差。系统形态不变，账更重。
 
-
 ## 九、本文小结
 
 ### 1. 要点回顾
@@ -394,14 +385,6 @@ verl            AgentLoopBase.run · AgentLoopManagerTQ · LLMServerClient（粘
 下一篇：verl 源码导读——从一个 GRPO 配置追到每个 worker。
 
 **实践建议**：不需要 SWE-bench 规模。用 verl 的 `tool_agent_loop` 接一个最小的沙箱工具（一个容器池 + 一个 `execute` 跑 `python -c`），在 8 卡上用小模型跑几十步的多轮 RL；记三条曲线：每步的环境时间分布（各轨迹的墙钟直方图）、推理引擎的前缀缓存命中率（vLLM 日志里周期打印的 prefix cache hit rate，或 Prometheus 的 `vllm:prefix_cache_hits` / `vllm:prefix_cache_queries`）、GPU 的空闲比例（`rollouter/idle_ratio` 或 nvidia-smi 的采样）。然后把在飞轨迹数翻倍，看命中率掉多少、prefill 时间涨多少——那就是本篇第三章第 2 节的账在你的配置下的样子。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**环境账**：执行次数 $$B \times G \times \text{轮数} = 500 \times 8 \times 20 = 8$$ 万次容器执行；每次几十秒 × 核数，合计 667–1300 CPU·小时；要在 30 分钟内完成，沙箱并发 = 沙箱·秒 / 目标墙钟 ≈ 1300–1800 个——而且沙箱是有状态的（整条轨迹占着一个），所以并发数由在飞轨迹数决定；CPU 机器数常是 GPU 机器数的十倍、成本同量级——**沙箱并发是第三个配比变量**（第二、五章）。**GPU 这一侧**：32 张卡在这 30 分钟里 decode 只有约 500 秒——每轮生成几百 token、4000 条轨迹分批；prefill 160–1600 秒（常在 1000 以上）：一条 40K 的轨迹每轮要 prefill 全部历史，前缀缓存能把它从二次降到线性（十倍），但 **KV 驻留**决定命中率——几千条 40K 轨迹的 KV 是 KV 池的十倍以上，等环境的几十秒里被逐出，默认配置下 prefill 接近“没有缓存”的账，KV 卸载到主机内存 / 外部存储是主要出路；其余时间在**等环境**（第三、四章）。训练侧 15 EFLOP——八成 token 是环境返回的（`response_mask = 0`，不进 loss 但过前向反向）。**三段都重，外加一个 CPU 集群**。其他 Agent 特有的事：token 连续性（只拼接新增 token、不整体重编，轮边界按模型家族处理）；粘性路由是前缀缓存的前提也是负载不均的来源；低并发 + 长上下文让 decode 变成 KV 带宽受限、每卡 token/s 降 3–4 倍；沙箱隔离要求高于 CI（模型会刷 reward，沙箱边界就是 reward 边界）；服务化让现成 harness 直接接进训练；长尾来自环境方差 $$f > 0.8$$、同步形态不可用、部分 rollout 只能在轮边界、decoupled loss 接近必需（第六至九章）。
-
-</details>
-
 
 ## 十、自测
 
@@ -444,3 +427,6 @@ verl            AgentLoopBase.run · AgentLoopManagerTQ · LLMServerClient（粘
    长尾来自环境方差（超时、轮数、排队、重试），$$f > 0.8$$——同步形态下 GPU 大部分时间在等最慢的环境；异步后一条轨迹几十分钟、跨多个权重版本，部分 rollout 只能在轮边界（沙箱执行不可中断），staleness 大且分段，三份 logprob 的 decoupled 修正才能保住训练信号。
 
    </details>
+
+[^q0]: 执行次数 $$B \times G \times \text{轮数} = 500 \times 8 \times 20 = 8$$ **万次**容器执行；每次几十秒 × 核数，合计 **667–1300 CPU·小时**；要在 30 分钟内完成，沙箱并发 = 沙箱·秒 / 目标墙钟 ≈ **1300–1800 个**——而且沙箱是有状态的（整条轨迹占着一个），并发数由在飞轨迹数决定；CPU 机器数常是 GPU 机器数的十倍、成本同量级——沙箱并发是第三个配比变量。详见[第四章](#四沙箱集群)、[第七章](#七环境账与-gpu-账)。
+[^q1]: 32 张卡在这 30 分钟里 decode 只有约 500 秒（每轮生成几百 token、4000 条轨迹分批）；prefill 160–1600 秒（常在 1000 以上）：一条 40K 的轨迹每轮要 prefill 全部历史，前缀缓存能把它从二次降到线性，但 **KV 驻留**决定命中率——几千条 40K 轨迹的 KV 是 KV 池的十倍以上，等环境的几十秒里被逐出，默认配置下 prefill 接近「没有缓存」的账，KV 卸载到主机内存 / 外部存储是主要出路；其余时间在**等环境**。训练侧 15 EFLOP——八成 token 是环境返回的（`response_mask = 0`，不进 loss 但过前向反向）。详见[第三章](#三推理引擎侧)、[第六章](#六长尾与调度)、[第七章](#七环境账与-gpu-账)。

@@ -16,10 +16,9 @@ updated: 2026-09-14
 
 本篇的核心问题：
 
-> **一个 4 节点 32 卡的训练任务和一个 TP=2、副本数动态变化的推理服务，各自对平台提出的需求列成一张表，哪几条是原生 Kubernetes 满足不了的？**
+> **一个 4 节点 32 卡的训练任务和一个 TP=2、副本数动态变化的推理服务，各自对平台提出的需求列成一张表，哪几条是原生 Kubernetes 满足不了的？[^q0]**
 
 全文的版本锚点：Kubernetes v1.37.0；引擎侧只引用 PyTorch 2.13.0 的 `torchrun` 环境变量与 rendezvous 语义、vLLM v0.28.0 的指标名与启动参数，不进入任何引擎内部实现。平台组件的版本随全景图逐一标注，全部发布于本文日期之前。
-
 
 ## 一、总览
 
@@ -104,7 +103,6 @@ Service 轮询 + HPA 看 CPU      副本状态在引擎内部；请求长短差�
 | 八 | 全系列术语表 | gang、cohort、ResourceFlavor、MIG profile、InferencePool、EPP、TTFT/TPOT、goodput、分配率与使用率 |
 | 九 | 代价与边界 | 四栏表；每叠一层的代价；本系列的边界；托管服务替你做了什么 |
 | 十 | 小结 | 要点、源码与 CRD 位置、mini-platform 的第一批文件 |
-
 
 ## 二、训练任务的形态与需求
 
@@ -204,7 +202,6 @@ flowchart TB
 
 这个生命周期对平台的含义是：**排队是正常状态**，需要队列、配额和公平性；**运行中被打断的代价可量化**——上次 checkpoint 之后的所有算力白费——所以抢占策略要知道这个代价；**结束后资源整体归还**，适合按任务而非按时间切片记账。
 
-
 ## 三、推理服务的形态与需求
 
 ### 1. 一个副本的三种形态
@@ -302,7 +299,6 @@ vllm:request_queue_time_seconds    请求在队列里等了多久
 
 它对平台的含义：**没有"结束"**，成本是持续的，空闲副本的费用与忙时一样；**扩缩是常态**，每一次扩容都是一次几分钟的冷启动；**升级是有状态的**——一个副本在处理流式请求时被终止，用户看到的是回复中断，所以替换副本要等在途请求完成。
 
-
 ## 四、两组矛盾的需求
 
 ### 1. 对照表
@@ -342,7 +338,6 @@ vllm:request_queue_time_seconds    请求在队列里等了多久
 - **两者的成本都要落到 GPU 时间上**。训练按任务算、推理按 token 算，最后都要分摊到"哪张卡在哪段时间归谁"。可观测与成本的底层是同一份数据。
 
 这也是为什么本系列把两者放在同一个平台里讨论：资源层的大部分机制对两者通用，差别集中在调度策略与交付层。
-
 
 ## 五、原生 Kubernetes 的假设与空缺
 
@@ -412,7 +407,6 @@ CNI 给每个 Pod 一张 veth 网卡，接到 overlay 或 underlay 网络。NCCL
 ```
 
 第一类装上就好，第二类要改用新的对象来表达工作负载，第三类要把引擎与平台之间的信息通道建起来。后面七篇大致按这个难度递进。
-
 
 ## 六、平台的两层拆分
 
@@ -529,7 +523,6 @@ Serving   LeaderWorkerSet v0.10.0                      缺概念：多 Pod 一�
 
 两者的定位可以用一句话概括：Slurm 替代的是第三篇的调度层（并且顺带替代了任务表达），Ray 替代的是第三篇的调度层加第六篇的 Serving 层（但都在自己的边界内）。本系列以 Kubernetes 生态为主线，两者只在第三篇与第六篇作对照。
 
-
 ## 七、核心问题：两张需求表
 
 ### 1. 4 节点 32 卡的训练任务
@@ -602,7 +595,6 @@ GPU 是不透明整数：无属性、无拓扑、不可分   1、2、3         1
 
 反过来看，原生满足的部分也不少：Pod 的资源请求语法、headless Service 的稳定 DNS、Indexed Job 的序号、readinessProbe、PVC 抽象、HTTPRoute 的权重分流。平台组件几乎都建立在这些原生能力之上而非绕开它们——Kueue 用的是 Job 的 `suspend` 字段，LeaderWorkerSet 生成的是 StatefulSet，InferencePool 挂在 HTTPRoute 下面。**扩展而非替换**是这一层生态的共同选择，它的代价在第九章。
 
-
 ## 八、全系列术语表
 
 后续七篇会反复使用下面这些词，各篇的总览会复述用到的部分：
@@ -632,7 +624,6 @@ goodput                 单位时间内满足 SLO（TTFT 与 TPOT 都在阈值�
 分配率 / 使用率           分配率：被 Pod 请求占用的 GPU 比例；使用率：DCGM_FI_PROF_SM_ACTIVE 这类真实负载；差距是平台改进空间  第八篇
 DCGM_FI_DEV_GPU_UTIL     "有 kernel 在跑"的时间比例，不是算力利用率；与 SM_ACTIVE 的区别是第八篇的起点                  第八篇
 ```
-
 
 ## 九、代价与边界
 
@@ -696,7 +687,6 @@ checkpoint 突发写            PVC 无带宽语义               PFS / 对象�
 - **数据平台、实验管理、应用层**：数据怎么来、模型怎么评、RAG 与 Agent 怎么写，都在本系列之外。
 
 边界的另一侧是硬件：本系列以 **Kubernetes 上的 NVIDIA GPU** 为主线；AMD 有对应的 device plugin 与 Operator，机制高度对应，在第二、四篇提及差异；其他加速器不在范围内。
-
 
 ## 十、本文小结
 
@@ -838,14 +828,6 @@ kubectl get nodes -o custom-columns='NAME:.metadata.name,GPU:.status.allocatable
 kubectl delete -f probes/pending-gpu-pod.yaml
 ```
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**训练任务（4 节点 32 卡）**的需求表约 15 条：整数个 GPU 且每进程一张；32 个 Pod 要么同时起、要么都不起（gang）——`torchrun` 的 rendezvous 等不齐就超时重建、活锁；节点间 RDMA 高带宽低延迟且拓扑相近；组级重启（任一进程失败其余全部卡住，`SimpleElasticAgent._invoke_run()` 的策略是整组重启，节点消失时“任务失败还是补节点”由平台决定）；队列与配额、抢占策略；周期性突发顺序写（checkpoint 1 TB 级 1 分钟内）与持续小块随机读（数据集）。原生 Kubernetes 完全满足的只有 1 条——kube-scheduler 逐 Pod 决策，`noderesources/fit.go` 的 `Fits()` 只把 `nvidia.com/gpu` 当整数比较，device plugin 的 `ListAndWatch` / `Allocate` 只能上报计数，没有 Pod 组、没有设备属性、没有队列、RDMA 设备不被识别（第二、五章）。**推理服务（TP=2、副本数动态）**：多 Pod 一副本或单 Pod 多卡的副本抽象；显存是硬约束不能超卖；扩容以分钟计、主项是权重加载，所以要按引擎内部指标提前扩（`vllm:num_requests_waiting`、`vllm:kv_cache_usage_perc`、TTFT、ITL）；按副本状态与 model 字段路由、租户配额、缩到零；原生满足 2 条，缺失集中在扩缩容信号与路由（第三、五章）。**两者的冲突与共同点**：独占 vs 共享、拓扑 vs 弹性、批处理 vs 长驻；共同点是都要“多 Pod 一个单位”、GPU 要有属性、成本落到 GPU 时间——唯一共同的空缺是“GPU 是不透明整数”（第四章）。**空缺分三种**：缺插件（GPU / RDMA 设备）、缺概念（Pod 组、设备属性、队列配额、多 Pod 副本）、缺信号（引擎指标驱动的扩缩容、路由、成本）。平台由此分两层——资源层把裸节点变成能跑的 Pod，交付层把 Pod 变成有 SLA 与账单的服务，分界线是“Pod 能跑了”；训练只走资源层，推理两层都走（第六章）。每叠一层的代价是版本契约、对象模型翻倍、信号延迟——单团队固定负载、只有小模型固定副本、或能接受托管黑盒时不该上这一层（第八章）。
-
-</details>
-
-
 ## 十一、自测
 
 1. 32 卡训练任务在原生 kube-scheduler 下最典型的失败形态是什么？为什么应用层重试解决不了？
@@ -888,7 +870,8 @@ kubectl delete -f probes/pending-gpu-pod.yaml
 
    </details>
 
-
 ## 下一篇
 
 [容器里的 GPU：驱动、CUDA、device plugin 与镜像](/gpu-in-containers-driver-cuda-device-plugin.html)。本篇的 `Insufficient nvidia.com/gpu` 是从调度器视角看到的空缺；下一篇从节点视角把它填上：内核驱动、用户态库、CUDA Runtime 与容器运行时四层的版本契约，Container Toolkit 与 CDI 如何把设备注入容器，device plugin 的 `ListAndWatch` / `Allocate` 如何把 GPU 变成 `allocatable` 里的一个整数，GPU Operator 的 `ClusterPolicy` 如何把这一切装到每个节点，以及 DRA 用 `ResourceClaim` 与 CEL 表达式如何让这个整数重新有属性。核心问题：宿主机驱动 535、镜像里 CUDA 12.4 的 PyTorch、代码调用了 CUDA 12.4 新增的 API，这个组合能跑吗？
+
+[^q0]: **训练任务（4 节点 32 卡）**约 15 条需求：整数个 GPU 且每进程一张；32 个 Pod 要么同时起、要么都不起（gang）——`torchrun` 的 rendezvous 等不齐就超时重建、活锁；节点间 RDMA 且拓扑相近；组级重启；队列与配额、抢占策略；周期性突发顺序写（checkpoint）与持续小块随机读。原生 Kubernetes 完全满足的只有 1 条——kube-scheduler 逐 Pod 决策，`Fits()` 只把 `nvidia.com/gpu` 当整数比较，device plugin 只能上报计数，没有 Pod 组、没有设备属性、没有队列、RDMA 设备不被识别（[第二章](#二训练任务的形态与需求)、[第五章](#五原生-kubernetes-的假设与空缺)）。**推理服务（TP=2、副本数动态）**：多 Pod 一副本的副本抽象；显存是硬约束不能超卖；扩容以分钟计、要按引擎内部指标提前扩（`vllm:num_requests_waiting`、`vllm:kv_cache_usage_perc`、TTFT、ITL）；按副本状态与 model 字段路由、租户配额、缩到零；原生满足 2 条，缺失集中在扩缩容信号与路由（[第三章](#三推理服务的形态与需求)）。**空缺分三种**：缺插件（GPU / RDMA 设备）、缺概念（Pod 组、设备属性、队列配额、多 Pod 副本）、缺信号（引擎指标驱动的扩缩容、路由、成本）；唯一共同的空缺是「GPU 是不透明整数」。平台由此分两层——资源层把裸节点变成能跑的 Pod，交付层把 Pod 变成有 SLA 与账单的服务；训练只走资源层，推理两层都走（[第四章](#四两组矛盾的需求)、[第六章](#六平台的两层拆分)、[第七章](#七核心问题两张需求表)）。

@@ -16,12 +16,11 @@ updated: 2026-09-14
 
 贯穿全篇的只有一个视角。总纲提出的核心问题是：
 
-> **reviewer 打开你的 PR，只有十分钟。这十分钟里他要确认什么？你的 diff、描述、测试、CI 状态分别替他回答了哪个问题？**
+> **reviewer 打开你的 PR，只有十分钟。这十分钟里他要确认什么？[^q0] 你的 diff、描述、测试、CI 状态分别替他回答了哪个问题？[^q1]**
 
 每一条规则都可以还原成这个问题的一个侧面：最小 diff 是让他十分钟读得完；测试是替他回答"这个改动对不对"；benchmark 是替他回答"值不值"；描述是替他回答"为什么这样改、有没有别的改法"；绿色的 CI 是替他回答"会不会弄坏别的东西"。规则会变，这个视角不变。
 
 版本锚点：PyTorch **v2.14.0**、vLLM **v0.28.0**，引用的文件路径、章节标题、字段名、命令均以这两个检出为准，格式为"仓库 路径 的 字段/章节"。GitHub 上的动态信息（标签是否存在）用 `gh` 查询，注明"截至 2026-09 查询"。本篇不展开任何一层的技术原理，也不重复 git 与 GitHub 的基本操作。
-
 
 ## 一、总览
 
@@ -101,7 +100,6 @@ AI 政策         AI_POLICY.md：不接受全自主 agent 的贡献；标注 AI 
 | 十四 | 贡献日志 | PR 草稿模板；两份按项目模板填好的描述样例；review 往返记录表 |
 | 十五 | 小结 | 要点 · 对照表 · 文件位置表 |
 
-
 ## 二、最小 diff：一个 PR 只做一件事
 
 ### 1. 什么叫"一件事"
@@ -158,7 +156,6 @@ vLLM 没有 ghstack。拆分大改动的做法是**顺序开 PR**：先开第 1 
 - **不动无关文件**：提交前用 `git diff --stat` 看一眼文件清单，每个文件都要能用 PR 的那句话解释；
 - **不改公共接口除非必要**：vLLM 有 `docs/contributing/deprecation_policy.md`，PyTorch 的 PR 模板有 "BC-breaking?" 一栏，任何接口变化都会引来额外的审查；
 - **把"顺手发现的问题"变成 issue 或另一个 PR**：而不是塞进当前 PR。这本身也是一个低成本的贡献。
-
 
 ## 三、测试：改动必须带测试
 
@@ -225,7 +222,6 @@ kernel 改动还有一条专门的要求。"Adding or Changing Kernels" 一节�
 
 vLLM 的 `docs/contributing/README.md` "Testing" 一节直接承认没有 GPU 时很多测试跑不起来："not all unit tests pass when run on CPU platforms … rely on the continuous integration system to run the tests for now"——但下面第七章会讲，vLLM 的 CI 不会自动为你跑。这两条加在一起意味着：没有 GPU 的 vLLM 贡献者，测试验证依赖 reviewer 替你触发 CI，PR 周期会更长，选题时就要考虑。PyTorch 这边 CPU 上能跑的测试多得多，`instantiate_device_type_tests` 生成的 `_cpu` 版本至少能在本地验证逻辑；CUDA 版本交给 `pull` 里的 CUDA job。
 
-
 ## 四、benchmark：性能改动必须带数字
 
 ### 1. 什么算"有数字"
@@ -288,7 +284,6 @@ Command: python benchmarks/kernels/benchmark_rmsnorm.py --dtype bfloat16
 ```
 
 第二行那种"几乎没变"的 case 一定要保留——它告诉 reviewer 你测过小 shape，而且没有变慢。
-
 
 ## 五、本地 lint：CI 的第一道门
 
@@ -379,7 +374,6 @@ CI 何时跑       每个 PR 自动                                   需要 ver
 
 最后一行是 vLLM 新贡献者最容易被绊倒的地方，下面第七章展开。
 
-
 ## 六、PR 描述与签名
 
 ### 1. 描述是 reviewer 的第一屏
@@ -459,7 +453,6 @@ PyTorch 对标题没有前缀要求，但合入时要求 PR 有一个 `release n
 ```
 
 vLLM 的 "DCO and Signed-off-by" 一节原文："Commits must include a `Signed-off-by:` header which certifies agreement with the terms of the DCO. Using `-s` with `git commit` will automatically add this header."，并给了 PyCharm 与 VSCode（`git.alwaysSignOff`）的自动签名设置。`Signed-off-by` 的名字和邮箱必须与 commit 的作者一致，否则 DCO check 仍会失败——这是用公司邮箱配置 git 但用个人账号推送的人常踩的坑。
-
 
 ## 七、CI 矩阵：什么会跑、什么不会
 
@@ -593,7 +586,6 @@ push 后自动重跑     是                                                    
 日志                GitHub Actions 日志 + HUD                                  Buildkite 公开日志；.buildkite/scripts/ci-fetch-log.sh
 ```
 
-
 ## 八、读 CI 日志：这是我的问题吗
 
 ### 1. 先回答一个问题
@@ -645,7 +637,6 @@ job 根本没跑（灰色 / skipped）                  不是失败            
 lint / pre-commit 红                           一定是我的问题                     本地 spin fixlint / pre-commit run -a，修完再推
 DCO / EasyCLA 红                               一定是我的问题                     vLLM：补签名并 force-push；PyTorch：按机器人链接签 CLA
 ```
-
 
 ## 九、review 往返
 
@@ -705,7 +696,6 @@ review 意见分几类，每类的正确回应不同。原则只有一条：**�
 - **每一条 comment 都要有回复**，哪怕只是 "Done"；GitHub 的 "Resolve conversation" 按钮由作者点（vLLM）或 reviewer 点（PyTorch 习惯不一，跟随 reviewer）；
 - **处理完后主动 ping**："@reviewer addressed all comments, PTAL"——vLLM 的文档明确写了 "ping the reviewer to re-review the PR"；
 - **争辩要有依据**：数字、已有 issue、上游约束。没有依据就照做。
-
 
 ## 十、合入
 
@@ -806,7 +796,6 @@ vLLM 的合入是人做的：有写权限的 maintainer approve 之后打 `ready
 全局暂停      ci: sev + merge blocking issue                              无自动机制
 ```
 
-
 ## 十一、被拒之后
 
 ### 1. 三类拒绝
@@ -832,7 +821,6 @@ vLLM 的合入是人做的：有写权限的 maintainer approve 之后打 `ready
 ### 3. 放弃也是一种结果
 
 一个被明确拒绝方向的 PR 继续改下去，结果几乎总是更糟。正确的做法是在 PR 里留一句 "Understood, closing this. Filed #NNNN to track the underlying issue."，然后把学到的东西记进贡献日志：这个模块的 maintainer 是谁、他们在意什么、哪类改动他们不接。这份信息对下一个 PR 的价值，往往比这个 PR 本身高。
-
 
 ## 十二、AI 辅助贡献的项目政策
 
@@ -899,7 +887,6 @@ issue 里的方案      新功能 issue 里 NEVER 放 AI 生成的解法        
 
 两边的共同点比差别多：AI 可以写代码，但**提交的人要读懂每一行、要能为每一行辩护、要在描述里说明**。差别在于 PyTorch 更强调"不要用 AI 生成的文字污染讨论"（针对 issue 和 review 回复），vLLM 更强调"不要用 AI 生成琐碎 PR 淹没队列"（针对 PR 数量）——分别对应两个项目最痛的地方。
 
-
 ## 十三、回答核心问题：reviewer 的十分钟
 
 reviewer 打开 PR 的十分钟里，脑子里依次出现的问题大致是固定的。下表把每个问题对应到 PR 的哪一部分应该替他回答、两个项目分别用什么机制保证这一部分存在：
@@ -919,7 +906,6 @@ reviewer 打开 PR 的十分钟里，脑子里依次出现的问题大致是固�
 反过来读这张表，就是一份提交前的自检：每一行都有对应的东西吗？如果"怎么证明它对"这一行是空的，reviewer 会在第 6 分钟停下来写 "how did you test this?"，然后你的 PR 回到队列末尾——下一次被打开可能是几天后。十分钟的预算里，任何一个空格都会让整个 PR 等一轮。
 
 两个项目对这十分钟的分配略有不同。PyTorch 把更多信息放在**结构化元数据**里（标签、`Fixes #`、merge_rules 匹配的 approver），reviewer 打开前很多问题已经被机器回答了；vLLM 把更多信息放在**描述正文**里（Purpose / Test Plan / Test Result），reviewer 要读文字，所以描述写得好坏影响更大。
-
 
 ## 十四、贡献日志：PR 草稿与往返记录
 
@@ -1073,7 +1059,6 @@ commit      末尾 Co-authored-by: <agent> 与 Signed-off-by: 两行 trailer
 
 "类型"一栏只有三种：改（照做）、争（有依据地维持）、问（澄清）。如果一个 PR 的记录里"争"占了多数，通常说明选题或方向阶段就有问题，而不是实现问题。
 
-
 ## 十五、本文小结
 
 ### 1. 要点回顾
@@ -1168,14 +1153,6 @@ GitHub 标签（截至 2026-09 查询）：PyTorch 存在 `actionable`、`skip-p
 
 > **两个都是"小"PR，却各花了作者一到几周。这些时间花在哪里了？哪些是可以省的，哪些是这个项目的正常成本？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-reviewer 十分钟要确认四件事，PR 的四个部分各回答一个。**diff 回答“改了什么、是不是只改了这一件事”**：一个 PR 一件事、最小 diff——PyTorch `pr-sanity-check.sh` 2000 行硬上限、大改动用 ghstack 叠成一串小 PR；vLLM > 500 行架构改动要 RFC、顺序开 PR、6 个 open PR 上限；lint 干净（PyTorch `.lintrunner.toml` 61 个 linter，`lintrunner -a`；vLLM `.pre-commit-config.yaml` 的 ruff / typos / clang-format / mypy / signoff）让 reviewer 不用看格式（第二、五章）。**描述回答“为什么改、怎么验证的”**：PyTorch 三模板——`Fixes #N`（无 issue 可能被自动关）/ Summary（过长视为 spam）/ Checklist / BC-breaking?；vLLM 的 Purpose / Test Plan / Test Result 加标题前缀 `[Bugfix]` `[Kernel]` `[Core]` 等；benchmark 要有基线、对比、硬件、shape、命令、不利 case（第三、四、六章）。**测试回答“怎么证明对、以后怎么防回归”**：PyTorch 用 `TestCase` / `run_tests` / `@parametrize` / `instantiate_device_type_tests`（`TEST_HAS_MAIN` linter 强制入口）；vLLM 用 pytest，`AGENTS.md` 的四个问题（模块为何 / I/O 契约 / 防什么失败 / 最便宜的层级）+ 五条规则，kernel 用 `torch.library.opcheck`，模型改动跑 `tests/evals` 或 `vllm bench`（第三章）。**CI 状态回答“没有把别的东西弄坏”**：PyTorch 148 个 workflow，PR 自动跑 `pull` + `Lint`，`trunk` / `periodic` / `slow` / `inductor` 靠 `ciflow/*` 标签触发；vLLM 35 个 test_area 按 `source_file_dependencies` 触发，PR 默认只跑 pre-commit，需要 maintainer 打 `ready` 或 `/ci run`（授权链：写权限 → 受信名单 → 作者且非 draft 且有 approval）；红了先看 main 是否也红（HUD “CI failure tips”、vLLM CI Failures Dashboard）（第七、八章）。签名是门票：PyTorch 的 EasyCLA、vLLM 的 DCO（`git commit -s`，每个 commit）（第六章）。做到这四样，reviewer 的十分钟花在判断设计上而不是找信息上。
-
-</details>
-
-
 ## 十六、自测
 
 1. PyTorch PR 超过 2000 行会怎样？大改动的正确做法是什么？
@@ -1218,7 +1195,9 @@ reviewer 十分钟要确认四件事，PR 的四个部分各回答一个。**dif
 
    </details>
 
-
 ## 下一篇
 
 [两个真实 PR 的完整走读：PyTorch 与 vLLM](/two-real-prs-pytorch-and-vllm.html)
+
+[^q0]: 四件事：改了什么、是不是只改了这一件事；为什么改、怎么验证的；怎么证明对、以后怎么防回归；有没有把别的东西弄坏。PR 的四个部分各替他回答一个（下一条），做到了，reviewer 的十分钟花在判断设计上而不是找信息上。签名是门票：PyTorch 的 EasyCLA、vLLM 的 DCO（`git commit -s`，每个 commit）。详见[第十三章](#十三回答核心问题reviewer-的十分钟)。
+[^q1]: **diff 回答「改了什么、是不是只改了这一件事」**：一个 PR 一件事、最小 diff——PyTorch `pr-sanity-check.sh` 2000 行硬上限、大改动用 ghstack 叠成一串小 PR；vLLM > 500 行架构改动要 RFC、6 个 open PR 上限；lint 干净（PyTorch `lintrunner -a`；vLLM `.pre-commit-config.yaml`）让 reviewer 不用看格式（[第二章](#二最小-diff一个-pr-只做一件事)、[第五章](#五本地-lintci-的第一道门)）。**描述回答「为什么改、怎么验证的」**：PyTorch 的 `Fixes #N` / Summary / Checklist / BC-breaking?；vLLM 的 Purpose / Test Plan / Test Result 加标题前缀 `[Bugfix]` `[Kernel]` `[Core]`；benchmark 要有基线、对比、硬件、shape、命令、不利 case（[第四章](#四benchmark性能改动必须带数字)、[第六章](#六pr-描述与签名)）。**测试回答「怎么证明对、以后怎么防回归」**：PyTorch 用 `TestCase` / `@parametrize` / `instantiate_device_type_tests`；vLLM 用 pytest，`AGENTS.md` 的四个问题 + 五条规则，kernel 用 `torch.library.opcheck`（[第三章](#三测试改动必须带测试)）。**CI 状态回答「没有把别的东西弄坏」**：PyTorch PR 自动跑 `pull` + `Lint`，`trunk` / `periodic` / `slow` 靠 `ciflow/*` 标签触发；vLLM PR 默认只跑 pre-commit，需要 maintainer 打 `ready` 或 `/ci run`；红了先看 main 是否也红（[第七章](#七ci-矩阵什么会跑什么不会)、[第八章](#八读-ci-日志这是我的问题吗)）。

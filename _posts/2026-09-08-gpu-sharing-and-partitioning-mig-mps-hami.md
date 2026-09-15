@@ -12,14 +12,13 @@ updated: 2026-09-14
 
 于是有人把两个服务塞到同一张卡上——直接在 Pod 里不声明 GPU、用 `hostPath` 挂上 `/dev/nvidia*`。省了一半的钱，也带来了新的事故：一个服务的请求突增、KV cache 把显存吃到 79 GB，另一个服务在 `cudaMalloc` 上抛出 OOM 崩掉；两个服务的进程在同一张卡上轮转，尾延迟从 80 ms 涨到 300 ms，而且没人能说清楚哪个服务该为这 220 ms 负责。
 
-这就是本篇的问题：**一张 GPU 怎样才能安全地给多个工作负载用？**"安全"有三个含义——显存隔离（一个进程的 OOM 不影响另一个）、算力隔离（一个进程的高负载不拖慢另一个）、故障隔离（一个进程触发的 GPU 错误不带倒另一个）。不同的共享机制在这三条上做到的程度完全不同，价格也不同：从"什么都不做"到 MIG 的硬件分区，隔离越强，灵活性和总利用率就越低。
+这就是本篇的问题：**一张 GPU 怎样才能安全地给多个工作负载用？[^q0]**"安全"有三个含义——显存隔离（一个进程的 OOM 不影响另一个）、算力隔离（一个进程的高负载不拖慢另一个）、故障隔离（一个进程触发的 GPU 错误不带倒另一个）。不同的共享机制在这三条上做到的程度完全不同，价格也不同：从"什么都不做"到 MIG 的硬件分区，隔离越强，灵活性和总利用率就越低。
 
 NVIDIA 与开源社区给出了四层答案：不隔离的裸共享、驱动层的时间片、CUDA MPS 的进程合并、MIG 的硬件分区；在 K8s 上，前三层通过 NVIDIA device plugin 的 `sharing` 配置或 HAMi 这类第三方方案暴露成可请求的资源，MIG 通过 GPU Operator 的 MIG Manager 与 device plugin 的 `migStrategy` 接入。本篇逐一拆开这四层的机制、它们在 K8s 里的接线方式、对推理引擎吞吐的影响，最后回答总纲给本篇的核心问题：
 
-> **同一张 A100 上跑三个小模型的推理服务，用 MIG `3g.20gb` + `3g.20gb`、用 HAMi 按显存切三份、用时间片开三个副本——三种方案在隔离性、总吞吐、故障影响范围上各自怎样？哪种方案下一个服务的 OOM 会拖垮另外两个？**
+> **同一张 A100 上跑三个小模型的推理服务，用 MIG `3g.20gb` + `3g.20gb`、用 HAMi 按显存切三份、用时间片开三个副本——三种方案在隔离性、总吞吐、故障影响范围上各自怎样？[^q1] 哪种方案下一个服务的 OOM 会拖垮另外两个？[^q2]**
 
 本篇源码与配置以 NVIDIA k8s-device-plugin v0.20.0、NVIDIA GPU Operator v26.7.0、HAMi v2.10.0、Kubernetes v1.37.0 为准。MIG 的几何约束、MPS 的语义、NCCL 对 MIG 的支持等硬件与驱动层事实，来自 NVIDIA 的 MIG 用户指南与 MPS 文档，正文中标为"以 NVIDIA 文档为准"，不写成实测。
-
 
 ## 一、总览：隔离与利用率的四档取舍
 
@@ -91,7 +90,6 @@ HAMi 不是第五层，而是**在时间片之上用软件补上显存与算力�
 | 九 | 代价与边界 | 每种机制引入的新问题；什么场景不该用 |
 | 十 | 实践 | mini-platform/share/：MIG 配置、HAMi 两服务共卡、时间片 ConfigMap、压测与 OOM 演练 |
 | 十一 | 小结 | 要点、四栏表、源码位置、练手项目增量 |
-
 
 ## 二、共享的四个层次
 
@@ -209,7 +207,6 @@ MIG 的代价来自"硬"：分区几何是固定的枚举（第三章），改�
 
 "与其他机制"一列有两个细节值得记住：device plugin 的 README 明确"Time-slicing and MPS are mutually exclusive"、"Sharing with MPS is currently not supported on devices with MIG enabled"；而时间片可以叠在 MIG 设备上——README 列出 A100 上可时间片化的资源包括 `nvidia.com/mig-1g.5gb` 等。第八章回答核心问题时会用到这一点。
 
-
 ## 三、MIG：硬件分区与 K8s 的接线
 
 ### 1. 几何：slice、profile 与合法组合
@@ -317,7 +314,6 @@ device plugin 侧（`k8s-device-plugin v0.20.0`）把 GI 变成 K8s 资源的逻
 NVIDIA MIG 用户指南写明 MIG 实例之间**不支持 GPU 到 GPU 的 P2P**（无论 PCIe 还是 NVLink），也不支持跨 GI 的 CUDA IPC；因此 NCCL 不能在同一张卡的多个 GI 之间、也不能跨卡的 GI 之间建立通信。结论是：一个 MIG 实例只能承载单进程的工作负载——单 GI 内的多 CI 也不例外。数据并行、张量并行、流水并行都依赖 NCCL，所以训练任务不会用 MIG；即使一个实验只需要 5 GB 显存，它要么拿整卡，要么单进程跑在一个 GI 里而放弃分布式。
 
 这也解释了为什么 MIG 节点池与训练节点池必须分开：一张开了 MIG 的卡从 NCCL 的视角是"不存在"的，混在训练池里只会让 gang scheduling 凑不齐卡。
-
 
 ## 四、时间片与 MPS：device plugin 的 `sharing` 配置
 
@@ -444,7 +440,6 @@ data:
 - "the only supported resource available for MPS are `nvidia.com/gpu` resources and only with full GPUs"。
 
 MPS 比时间片多出的是显存上限与 SM 比例；比 HAMi 少的是粒度（只能 1/N 均分）与灵活性（节点级、需要独占计算模式、开关要清空 GPU）。它在 K8s 上的位置比较尴尬：要隔离就直接上 MIG，要弹性就用 HAMi。它最适合的场景是**同一模型的多个相同副本**共卡——例如一张 H100 上跑四个 7B 服务副本，每个副本的显存与算力需求一样，均分正好。
-
 
 ## 五、HAMi：软件层的显存与算力配额
 
@@ -592,13 +587,11 @@ HAMi 的 CHANGELOG 记录 v2.8.0 "Support DRA (Dynamic Resource Allocation) via 
 
 两者都还是 beta 或更早，NVIDIA 官方 DRA driver 与 HAMi-DRA 对它们的支持程度以各自当前版本的文档为准。方向是明确的：切分与共享正在从 device plugin 的"复制 N 份"技巧，迁移到 DRA 的结构化参数上；但 2026 年 9 月的生产集群仍以本篇前四章的机制为主。
 
-
 ## 六、商业 vGPU：虚拟机场景的对照
 
 NVIDIA vGPU（历史上的 GRID，含面向计算的 vCS/vComputeServer 许可）在 hypervisor 层把一张物理 GPU 切成若干虚拟 GPU 分给虚拟机：每个 vGPU 有固定的显存配额（按 profile，如 A100 的 `A100-10C`），算力按时间片或 MIG 后端调度；需要宿主机安装 vGPU Manager 驱动、虚拟机内安装 guest 驱动，并购买许可。它解决的是**虚拟机之间**的 GPU 共享——VDI、云厂商的 GPU 实例、多租户强隔离场景。
 
 容器场景下它不是主流，原因有三：容器与宿主机共享内核与驱动，不存在 hypervisor 这一层来做切分；vGPU 的时间片后端在隔离上并不比 MIG 强、在灵活性上不如 HAMi；许可成本与运维复杂度都高于开源方案。GPU Operator 对它的支持面向 KubeVirt 这类"K8s 上跑虚拟机"的场景：`ClusterPolicy.spec.sandboxWorkloads`（`SandboxWorkloadsSpec`）、`spec.vgpuManager`（`VGPUManagerSpec`），节点标签 `nvidia.com/gpu.workload.config` 取 `container` / `vm-passthrough` / `vm-vgpu`（`controllers/state_manager.go`）；device plugin 侧的 GFD 会在虚拟机内打出 `nvidia.com/vgpu.present`、`nvidia.com/vgpu.host-driver-version` 标签（README "Catalog of Labels"）。如果平台的租户边界是虚拟机而不是命名空间，vGPU 是那一层的答案；本系列的主线是容器，不再展开。
-
 
 ## 七、切分对引擎的影响与决策树
 
@@ -651,7 +644,6 @@ HAMi 与 MPS 的情况不同：它们不切带宽与 L2，`gpucores: 40` 的容�
 
 一条横切的原则：**共享节点池与独占节点池分开**。时间片和 MPS 是节点级配置，MIG 是节点池级规划，HAMi 的 device plugin 与官方插件互斥——这三个事实都指向同一个结论：一台节点只能有一种共享策略，把策略绑在节点池标签上，让调度器（上一篇的 Kueue `ResourceFlavor` 或 Volcano 队列）按池分派。
 
-
 ## 八、回答核心问题：三个小模型与一张 A100
 
 题设：一张 A100 40 GB，三个小模型的推理服务（假定每个 7B 级、FP16 权重约 14 GB、单服务显存需求 15–18 GB 含 KV cache），三种方案。
@@ -670,7 +662,6 @@ HAMi 与 MPS 的情况不同：它们不切带宽与 L2，`gpucores: 40` 的容�
 对核心问题的直接回答：**时间片方案下一个服务的 OOM 会拖垮另外两个**——它没有显存隔离，一个服务把显存分完，另两个的下一次 `cudaMalloc` 就失败；HAMi 下 OOM 被限制在越界的容器内，但 Xid 级的 GPU 错误仍是整卡故障域；MIG 下无论 OOM 还是 Xid 都限制在单个 GI 内。
 
 题设本身也暴露了一个几何陷阱：`3g.20gb + 3g.20gb` 装不下三个服务。如果三个服务确实都要跑而又要 MIG 的隔离，现实的做法是把其中两个对延迟要求低的服务放到同一个 `3g.20gb` 上再叠时间片（`sharing.timeSlicing.resources[].name: nvidia.com/mig-3g.20gb, replicas: 2`）——这两个之间没有显存隔离，但与第三个服务之间有；或者换 80 GB 卡用 `3g.40gb × 2 + 1g.10gb` 之类的混合几何。
-
 
 ## 九、代价与边界
 
@@ -708,7 +699,6 @@ HAMi 与 MPS 的情况不同：它们不切带宽与 L2，`gpucores: 40` 的容�
 - **共享策略是节点级的**：时间片 / MPS 的 ConfigMap、MIG 的几何、HAMi 的 device plugin 都以节点为单位生效。一个节点池一种策略，用标签与调度器的 flavor / 队列把负载分到对应的池。
 - **利用率的收益上限由负载的互补性决定**。两个都在高峰打满算力的服务共卡，任何机制都只是让它们各拿一半；共享的收益来自负载的时间错峰与资源维度互补（一个吃显存不吃算力，一个反之）。平台在决定切分之前，应先用第八篇的 `SM_ACTIVE` 与 `FB_USED` 曲线确认这种互补确实存在。
 - **切分让成本分摊与容量规划复杂化**：账单要按 GI、按 `gpumem` 而不是按卡算，队列配额要按 profile 或按显存 MB 设——这些都要在第三篇的 Kueue / Volcano 配置与第八篇的成本模型里同步改。
-
 
 ## 十、实践：`mini-platform/share/`
 
@@ -949,7 +939,6 @@ echo "== phase 4: A after drill";             bench "$A" a-after 16
 
 把 `results/{mig,hami,ts}/*.json` 里的 `p99_ttft_ms`、`p99_tpot_ms`、`output_throughput` 三列并排，就是第八章那张表的实测版本。
 
-
 ## 十一、本文小结
 
 ### 1. 要点回顾
@@ -1024,14 +1013,6 @@ share/
 
 > **一个 8 节点 64 卡的训练任务，`nccl-tests` 在容器里测出的 all_reduce 带宽只有裸机的三分之一。从 Pod 的网络配置、device plugin 的资源分配、NCCL 的环境变量三个层面，各自可能出了什么问题？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-三种方案是同一个技巧（device plugin 把一张卡复制成 N 个逻辑设备）的三种底座。**MIG `3g.20gb × 2`**：硬件分区——独立的 SM、L2、显存与带宽，每个 GI 是一张独立的小卡；隔离性最好，故障域是 GI，一个服务 OOM 或 Xid 只影响自己；总吞吐份额由瓶颈决定——decode（memory-bound）看显存 slice 比例 1/2，prefill 看计算 slice 3/7；但 A100 只有 7 个计算 slice、8 个显存 slice，`3g.20gb × 2` 用尽显存 slice 且浪费一个计算 slice，**只能放两个服务**，第三个没地方；改几何要清空 GPU，MIG 实例间无 P2P / IPC，NCCL 不可用（第三、四章）。**HAMi 按显存切三份**：在时间片之上用 `libvgpu.so` 拦截 CUDA 驱动 API，提供按 MB 的显存配额（`nvidia.com/gpumem`）与算力节流（`nvidia.com/gpucores`）；请求超过配额的 `cudaMalloc` 在越界容器内失败——OOM 被限制在自己，但不切带宽、不切 L2，延迟随邻居波动；故障域仍是整卡——一个 Xid 三个全挂；总吞吐通常比 MIG 高（没有 slice 的硬边界与浪费）（第六章）。**时间片开三个副本**：驱动级轮转、无任何隔离——显存是先到先得，一个服务 OOM 时 `cudaMalloc` 失败的可能是任何一个，且 context 切换有开销；一个服务的 OOM 会拖垮另外两个（第五章）。**决策**：训练不切；有 SLA 的推理在 MIG 卡上用 MIG、需要弹性用 HAMi；同模型相同副本可用 MPS（软显存上限 + SM 比例均分，`EXCLUSIVE_PROCESS`）；开发环境用时间片；一个节点池一种策略（第八章）。vLLM 的 `--gpu-memory-utilization` 在 MIG 与 HAMi 下自动按配额算，时间片与 MPS 下要手动调。
-
-</details>
-
-
 ## 十二、自测
 
 1. A100 的 MIG 有几个计算 slice、几个显存 slice？`3g.20gb × 2` 用了多少、浪费什么？能再放一个 `1g.5gb` 吗？
@@ -1074,7 +1055,10 @@ share/
 
    </details>
 
-
 ## 下一篇
 
 [网络与存储：RDMA 进容器、并行文件系统与 checkpoint I/O](/rdma-networking-storage-and-checkpoint-io.html)
+
+[^q0]: 靠隔离与利用率之间的四档取舍，都是同一个技巧（device plugin 把一张卡复制成 N 个逻辑设备）的不同底座：**时间片**（驱动级轮转，无隔离）→ **MPS**（软显存上限 + SM 比例均分，同模型相同副本）→ **HAMi**（`libvgpu.so` 拦截 CUDA 驱动 API，按 MB 的显存配额与算力节流）→ **MIG**（硬件分区：独立的 SM、L2、显存与带宽）。「安全」的程度取决于显存是否有硬边界、故障域是整卡还是分区、带宽与 L2 是否被切。决策：训练不切；有 SLA 的推理在 MIG 卡上用 MIG、需要弹性用 HAMi；开发环境用时间片；一个节点池一种策略。详见[第二章](#二共享的四个层次)、[第七章](#七切分对引擎的影响与决策树)。
+[^q1]: **MIG `3g.20gb × 2`**：隔离性最好，故障域是 GI，一个服务 OOM 或 Xid 只影响自己；总吞吐份额由瓶颈决定——decode 看显存 slice 比例 1/2，prefill 看计算 slice 3/7；但 A100 只有 7 个计算 slice、8 个显存 slice，`3g.20gb × 2` 用尽显存 slice 且浪费一个计算 slice，**只能放两个服务**，第三个没地方；改几何要清空 GPU，MIG 实例间无 P2P（[第三章](#三mig硬件分区与-k8s-的接线)）。**HAMi 按显存切三份**：超过配额的 `cudaMalloc` 在越界容器内失败，OOM 被限制在自己；但不切带宽、不切 L2，延迟随邻居波动；故障域仍是整卡——一个 Xid 三个全挂；总吞吐通常比 MIG 高（[第五章](#五hami软件层的显存与算力配额)）。**时间片三个副本**：无任何隔离，显存先到先得，context 切换有开销（[第四章](#四时间片与-mpsdevice-plugin-的-sharing-配置)）。vLLM 的 `--gpu-memory-utilization` 在 MIG 与 HAMi 下自动按配额算，时间片与 MPS 下要手动调。详见[第八章](#八回答核心问题三个小模型与一张-a100)。
+[^q2]: **时间片**：显存是先到先得、没有配额，一个服务 OOM 时 `cudaMalloc` 失败的可能是任何一个——一个服务的 OOM 会拖垮另外两个。MPS 有软显存上限但一个进程的 fatal 错误会带倒整个 MPS server 下的所有客户端；HAMi 把 OOM 限制在越界容器内；MIG 连 Xid 都隔离。详见[第四章](#四时间片与-mpsdevice-plugin-的-sharing-配置)、[第八章](#八回答核心问题三个小模型与一张-a100)。
