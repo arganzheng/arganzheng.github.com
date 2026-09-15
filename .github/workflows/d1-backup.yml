@@ -1,0 +1,70 @@
+# Weekly dump of the annotations-worker D1 database (views, views_daily, votes,
+# shares, passage_reactions — years of anonymous counters that exist nowhere
+# else). Stored as a workflow artifact (collaborators only, 90-day rolling
+# window), not committed: the repo is public.
+#
+# Needs two repository secrets:
+#   CLOUDFLARE_ACCOUNT_ID  — `wrangler whoami`
+#   CLOUDFLARE_API_TOKEN   — dash.cloudflare.com > My Profile > API Tokens >
+#                            Create Token > custom: Account · D1 · Edit
+#                            (export is a write-ish endpoint; Read is not enough)
+#
+# Restore (into a fresh or the same database; the dump has CREATE TABLE + INSERTs):
+#   gh run download <run-id> -n d1-blog-views-<date>
+#   cd tools/annotations-worker && wrangler d1 execute blog-views --remote --file blog-views.sql
+name: d1 backup
+
+on:
+  schedule:
+    - cron: '30 1 * * 0'   # Sundays 09:30 Beijing
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d1-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: tools/annotations-worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Export
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 d1 export blog-views --remote --output blog-views.sql
+          echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+          echo "## D1 backup" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          ls -la blog-views.sql | awk '{print $5 " bytes"}' >> "$GITHUB_STEP_SUMMARY"
+          for t in views views_daily votes shares passage_reactions; do
+            printf '%-18s %s rows\n' "$t" "$(grep -c "INSERT INTO \"$t\"" blog-views.sql || true)" >> "$GITHUB_STEP_SUMMARY"
+          done
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+        id: export
+
+      - name: Sanity check
+        run: |
+          set -euo pipefail
+          grep -q 'CREATE TABLE.*views' blog-views.sql
+          [ "$(grep -c INSERT blog-views.sql)" -gt 100 ] || { echo "suspiciously small dump"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: d1-blog-views-${{ steps.export.outputs.date }}
+          path: tools/annotations-worker/blog-views.sql
+          retention-days: 90
+          if-no-files-found: error

@@ -101,6 +101,12 @@ Pages has `https_enforced` on.
   JPEG gets JPEG quality; 32-bit BMPs go through `sips` because `cwebp`
   rejects them). Screenshots wider than ~1600 px are worth an extra
   `cwebp -resize 1600 0` — the article column is 750 px. Site-level `img/*.jpg` stay JPEG (og:image targets).
+- `.github/workflows/d1-backup.yml` (Sundays, or manual): `wrangler d1 export`
+  of the worker's `blog-views` database (views, views_daily, votes, shares,
+  passage_reactions) as a 90-day workflow artifact — the only copy of those
+  counters. Needs secrets `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN`
+  (Account · D1 · Edit). Restore: `wrangler d1 execute blog-views --remote
+  --file blog-views.sql` (the dump has `CREATE TABLE` + `INSERT`s).
 - `.github/workflows/links.yml` (Mondays, or manual): external links, never
   blocking; opens/updates an issue labelled `dead-links`. Set the repo
   variable `DEAD_LINKS_ISSUE` to an issue number to keep updating one issue.
@@ -164,7 +170,9 @@ Pages has `https_enforced` on.
   `_includes/head.html` and `_layouts/slides.html`. Both renderers are lazy:
   they only fetch their bundle if the page actually contains a diagram/formula,
   and they only look inside `.post-container` and `.reveal .slides`.
-- `_includes/analytics.html` — GA + Baidu Tongji, shared by `footer.html` and
+- `_includes/analytics.html` — GA4 gtag (`ga_track_id: G-…`; the old
+  `analytics.js` + `UA-` id only kept working through Google's UA→GA4
+  "connected site tag" forwarding) + Baidu Tongji, shared by `footer.html` and
   `_layouts/slides.html`
 - `_includes/seo.html` — Open Graph / Twitter Card / JSON-LD (`BlogPosting` for
   the three post layouts, `WebSite` elsewhere), included from `head.html`.
