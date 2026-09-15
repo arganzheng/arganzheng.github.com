@@ -2,6 +2,7 @@
 title: tomcat监控
 layout: post
 catalog: true
+tags: [tomcat, Observability, JVM]
 ---
 
 

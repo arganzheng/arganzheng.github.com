@@ -2,6 +2,7 @@
 layout: post
 title: ifttt模式语言——sed和awk深入学习
 catalog: true
+tags: [shell, linux]
 ---
 
 

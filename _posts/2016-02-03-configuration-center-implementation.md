@@ -2,6 +2,7 @@
 title: 如何实现一个配置中心
 layout: post
 catalog: true
+tags: [架构, 分布式, zookeeper]
 ---
 
 

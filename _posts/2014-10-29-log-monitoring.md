@@ -2,6 +2,7 @@
 title: 日志监控系统
 layout: post
 catalog: true
+tags: [Observability, 架构]
 ---
 
 

@@ -2,6 +2,7 @@
 title: DynamoDB学习笔记
 layout: post
 catalog: true
+tags: [database, 存储]
 ---
 
 

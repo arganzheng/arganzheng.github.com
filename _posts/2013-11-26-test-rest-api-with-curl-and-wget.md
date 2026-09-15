@@ -2,6 +2,7 @@
 layout: post
 title: 使用curl和wget模拟REST请求
 catalog: true
+tags: [HTTP, shell]
 ---
 
 

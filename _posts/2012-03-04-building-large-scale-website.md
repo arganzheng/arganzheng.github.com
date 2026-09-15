@@ -2,6 +2,7 @@
 layout: post
 title: 构建可伸缩的大型网站
 catalog: true
+tags: [架构, 高并发, 分布式]
 ---
 
 [TOC]

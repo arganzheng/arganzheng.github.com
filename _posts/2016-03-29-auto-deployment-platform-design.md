@@ -2,6 +2,7 @@
 title: 自动化部署平台设计
 layout: post
 catalog: true
+tags: [运维, 架构]
 ---
 
 

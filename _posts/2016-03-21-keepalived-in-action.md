@@ -2,6 +2,7 @@
 title: keepalived实战
 layout: post
 catalog: true
+tags: [高可用, 运维, linux]
 ---
 
 

@@ -2,6 +2,7 @@
 title: 如何让一个Quartz实例不执行任务
 layout: post
 catalog: true
+tags: [quartz, Java]
 ---
 
 

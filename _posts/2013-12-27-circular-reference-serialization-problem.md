@@ -2,6 +2,7 @@
 title: 循环引用序列化问题
 layout: post
 catalog: true
+tags: [Java, 序列化]
 ---
 	
 

@@ -2,6 +2,7 @@
 title: 服务器编程模型
 layout: post
 catalog: true
+tags: [网络编程, 高并发]
 ---
 
 1. 多进程模型

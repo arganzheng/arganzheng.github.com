@@ -2,6 +2,7 @@
 title: 海量服务之——灰度发布
 layout: post
 catalog: true
+tags: [架构, 高可用, 运维]
 ---
 
 

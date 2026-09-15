@@ -2,6 +2,7 @@
 title: 分布式系统常用思想和技术总结
 layout: post
 catalog: true
+tags: [分布式, 架构, Distributed]
 ---
 
 

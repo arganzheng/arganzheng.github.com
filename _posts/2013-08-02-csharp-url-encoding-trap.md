@@ -2,6 +2,7 @@
 layout: post
 title: C# Url Encoding的一些问题
 catalog: true
+tags: [编码, HTTP]
 ---
 
 

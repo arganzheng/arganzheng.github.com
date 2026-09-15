@@ -2,6 +2,7 @@
 layout: post
 title: 关于接口设计的一些思考
 catalog: true
+tags: [架构, 设计模式]
 ---
 
 ### 引子

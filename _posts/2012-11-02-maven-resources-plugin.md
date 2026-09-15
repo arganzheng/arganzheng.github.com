@@ -2,6 +2,7 @@
 title: maven的resources插件
 layout: post
 catalog: true
+tags: [maven, Java]
 ---
 
 

@@ -2,6 +2,7 @@
 title: 实时消息系统设计与实现
 layout: post
 catalog: true
+tags: [架构, 网络编程, 消息队列]
 ---
 
 

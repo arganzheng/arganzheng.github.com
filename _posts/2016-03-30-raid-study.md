@@ -2,6 +2,7 @@
 title: RAID学习
 layout: post
 catalog: true
+tags: [存储, 运维]
 ---
 
 

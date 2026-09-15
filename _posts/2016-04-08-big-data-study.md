@@ -2,6 +2,7 @@
 title: 大数据平台学习笔记
 layout: post
 catalog: true
+tags: [hadoop, spark, 大数据]
 ---
 
 

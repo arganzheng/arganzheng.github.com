@@ -3,6 +3,7 @@ title: 安装RabbitMQ
 layout: post
 catalog: true
 published: false
+tags: [消息队列, 运维]
 ---
 
 

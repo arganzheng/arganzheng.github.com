@@ -2,6 +2,7 @@
 layout: post
 title: 如何在远程Linux机器上执行Shell命令
 catalog: true
+tags: [shell, linux, 运维]
 ---
 
 

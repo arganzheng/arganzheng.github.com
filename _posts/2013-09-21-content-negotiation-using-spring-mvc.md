@@ -2,6 +2,7 @@
 layout: post
 title: content negotiation using spring mvc
 catalog: true
+tags: [spring, Web, HTTP]
 ---
 
 

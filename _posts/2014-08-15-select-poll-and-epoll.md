@@ -2,6 +2,7 @@
 title: select、poll和epoll简介
 layout: post
 catalog: true
+tags: [网络编程, linux]
 ---
 
 说明：本篇文章是网上各种资料杂烩而成。如有雷同，纯属自然。

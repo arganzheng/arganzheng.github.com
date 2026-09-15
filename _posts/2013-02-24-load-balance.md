@@ -2,6 +2,7 @@
 layout: post
 title: 负载均衡
 catalog: true
+tags: [架构, 高可用, nginx]
 ---
 
 

@@ -2,6 +2,7 @@
 title: Quartz工作机制
 layout: post
 catalog: true
+tags: [quartz, Java]
 ---
 
 使用了几年Quartz，其实还是停留在使用的层面，最近想做一个自动化监控报警的，想了解一下Quartz是怎样定时触发job的。于是深入了解了一下代码。

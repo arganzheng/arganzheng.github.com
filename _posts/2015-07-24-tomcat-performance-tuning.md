@@ -1,7 +1,7 @@
 ---
 title: Tomcat调优
 layout: post
-tags: [Tomcat, Java, 性能优化]
+tags: [tomcat, Java, 性能优化]
 catalog: true
 ---
 

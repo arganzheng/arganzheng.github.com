@@ -2,6 +2,7 @@
 title: 服务端监控方案
 layout: post
 catalog: true
+tags: [Observability, 架构]
 ---
 
 

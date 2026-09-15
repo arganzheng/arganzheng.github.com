@@ -2,6 +2,7 @@
 title: Metric监控系统
 layout: post
 catalog: true
+tags: [Observability, 架构]
 ---
 
 背景

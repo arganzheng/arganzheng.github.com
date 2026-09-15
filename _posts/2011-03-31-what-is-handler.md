@@ -2,6 +2,7 @@
 layout: post
 title: 关于文件描述符和句柄
 catalog: true
+tags: [linux, 网络编程]
 ---
 
 2011-03-31 星期四 晴朗

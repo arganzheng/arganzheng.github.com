@@ -2,6 +2,7 @@
 title: 配置文件串串SHOW
 layout: post
 catalog: true
+tags: [Java, spring, Web]
 ---
 2009--18 星期四 热
  

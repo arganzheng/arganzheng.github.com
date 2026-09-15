@@ -2,6 +2,7 @@
 title: 分布式文件系统选型和预研
 layout: post
 catalog: true
+tags: [存储, 分布式]
 ---
 
 背景

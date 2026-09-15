@@ -2,6 +2,7 @@
 title: JS跨域问题及解决方案
 layout: post
 catalog: true
+tags: [JavaScript, Web, HTTP]
 ---
 
 

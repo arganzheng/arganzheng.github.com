@@ -1,7 +1,7 @@
 ---
 title: JVM类加载器与ClassNotFoundException和NoClassDefFoundError
 layout: post
-tags: [jvm, classloader]
+tags: [JVM, classloader]
 catelog: true
 ---
 

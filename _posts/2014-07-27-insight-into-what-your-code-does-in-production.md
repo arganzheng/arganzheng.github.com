@@ -2,6 +2,7 @@
 title: 如何监控线上应用的运行状态
 layout: post
 catalog: true
+tags: [Observability, Java, JVM]
 ---
 
 

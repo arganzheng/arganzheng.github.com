@@ -2,6 +2,7 @@
 layout: post
 title: Rest Response and Exception
 catalog: true
+tags: [spring, Web, HTTP]
 ---
 
 

@@ -2,6 +2,7 @@
 title: MIME和编码学习笔记
 layout: post
 catalog: true
+tags: [编码, HTTP]
 ---
 
 

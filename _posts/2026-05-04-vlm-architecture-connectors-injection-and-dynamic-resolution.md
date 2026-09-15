@@ -3,7 +3,7 @@ layout: post
 series: multimodal
 title: "多模态（02）：VLM 的结构：connector、注入方式与动态分辨率"
 subtitle: "VLM Architecture: Connectors, Injection Methods and Dynamic Resolution"
-tags: [AI, Multimodal, VLM, Architecture]
+tags: [AI, Multimodal, VLM, architecture]
 catalog: true
 updated: 2026-09-14
 ---
