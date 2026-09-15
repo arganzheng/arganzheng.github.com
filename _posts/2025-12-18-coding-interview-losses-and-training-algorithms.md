@@ -71,7 +71,7 @@ def focal_loss(logits, targets, gamma=2.0):
     return (-(1 - p) ** gamma * lp).mean()                       # 容易的样本（p 大）权重小
 ```
 
-BCE 直接 `log(sigmoid(z))` 在 $$z \ll 0$$ 时下溢；恒等式 $$-\log \sigma(z) = \max(z, 0) - zy + \log(1 + e^{-|z|})$$ 全程稳定。
+BCE 直接 `log(sigmoid(z))` 在 $$z \ll 0$$ 时下溢；恒等式 $$-\log \sigma(z) = \max(z, 0) - zy + \log(1 + e^{-\lvert z \rvert})$$ 全程稳定。
 
 ## 三、对比学习：InfoNCE
 
@@ -302,7 +302,7 @@ class LoRALinear:
 
    <details markdown="1">
    <summary>答案</summary>
-   $$m_1 = (1 - \beta_1) g$$，$$\hat{m}_1 = g$$；$$v_1 = (1 - \beta_2) g^2$$，$$\hat{v}_1 = g^2$$；更新 $$= \eta \cdot g / (|g| + \epsilon) \approx \eta \cdot \text{sign}(g)$$。第一步 Adam 每个参数都移动约 $$\eta$$（与梯度大小无关，只看符号）；SGD 移动 $$\eta g$$。这是 Adam 需要 warmup 的直观原因：初期它对所有参数一视同仁地迈满步。详见[第五章第 1 节](#1-adamw)。
+   $$m_1 = (1 - \beta_1) g$$，$$\hat{m}_1 = g$$；$$v_1 = (1 - \beta_2) g^2$$，$$\hat{v}_1 = g^2$$；更新 $$= \eta \cdot g / (\lvert g \rvert + \epsilon) \approx \eta \cdot \text{sign}(g)$$。第一步 Adam 每个参数都移动约 $$\eta$$（与梯度大小无关，只看符号）；SGD 移动 $$\eta g$$。这是 Adam 需要 warmup 的直观原因：初期它对所有参数一视同仁地迈满步。详见[第五章第 1 节](#1-adamw)。
    </details>
 
 4. `clip_grad_norm` 的 `max_norm = 1.0`，两个参数的梯度分别是 `[3, 4]` 和 `[0]`。裁剪后各是多少？如果改成按值裁剪到 $$[-1, 1]$$ 呢？

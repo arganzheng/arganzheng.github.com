@@ -651,6 +651,37 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   mtime) and preview with `jekyll build --drafts --future -d /tmp/_site_drafts`
   + a static server + `SITE=… node tools/check-render.cjs`; remove `date:` on
   publish.
+- Series `coding-interview` (《面试手撕代码：从 LeetCode 中等题到 Transformer 组件》,
+  overview `2025-12-01-coding-interview.md`, **not part of any roadmap** —
+  the author wanted it kept out of the full-stack map; only the overview's
+  last paragraph points to the maps) is complete: overview + 19 posts dated
+  **2025-12-02 … 12-20**, i.e. before the roadmaps, so the 2026 timeline is
+  untouched (written 2026-09-15). 01–13 are LeetCode-medium pattern posts
+  (每篇：识别信号 → 模板 → 3–5 主讲题逐题推演 → 变式追问 → 两种语言的坑 →
+  题单 → 自测; DP 11/12 marked 可选), 14–19 are AI-role 手撕 (attention,
+  Transformer block + backprop, tokenizer + decoding, losses + training
+  algorithms, classical ML + metrics, Infra concurrency/systems). Main
+  problems were picked by scoring 高频 / 模板代表性 / follow-up 空间 (table in
+  `ai-learning-labs/coding-interview/README.md`); problem statements are
+  paraphrased, never copied. Every algorithm snippet is Python **and** Java
+  in one `<div class="code-tabs" markdown="1">` (Infra post: Python + C++);
+  the code is copied verbatim from the labs, which all have tests
+  (`python/` unittest, `java/` `make test` with `-ea`, `ai/*.py --check`
+  against torch, `infra/` `make run`). Version rule for a 2025-12 date:
+  Python 3.12 / Java 21 syntax / NumPy 2 / PyTorch 2.5 only; the overview
+  and posts 14–19 link forward to 2026 series and therefore carry
+  `updated: 2026-09-15`. Mermaid: fan-outs (one node → 4+ children) get
+  squeezed at 755 px — write DFS traces as vertical chains, and use
+  `flowchart LR` only for a tree whose leaves should stack vertically.
+- `code-tabs` (added for that series, `js/code-tabs.js` loaded after
+  `code-copy.js`): direct `.highlighter-rouge` children of `.code-tabs` become
+  panels labelled from `language-xxx`; the choice is page-wide and persisted
+  in `localStorage["code-tab-lang"]`; groups lacking the preferred language
+  show their first panel; no-JS stacks the panels with a language label
+  (`less/extras.less` `.code-tabs`, hand-appended to both CSS files);
+  `wechat-export.js` flattens groups into labelled blocks. Highlight
+  comments anchored in a hidden panel simply stay hidden until that tab is
+  chosen — no special handling.
 - Companion code lives in `../ai-learning-labs` (git repo, pushed by the
   user). Its `.venv/` (Python 3.12 via `~/.local/bin/python3.12`, torch CPU,
   numpy, tiktoken, tokenizers) is gitignored; recreate with
