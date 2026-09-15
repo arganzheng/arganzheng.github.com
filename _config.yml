@@ -130,15 +130,33 @@ license:
   note: 在保留原文作者、署名以及完整原文链接（%url%）的前提下，欢迎各种形式的转载、翻译或商业引用。
 
 recommends:
+  - title: 动手学深度学习
+    href: https://zh.d2l.ai/
+    desc: 李沐主讲的可运行深度学习教材，从数学、模型到 PyTorch 实现
+  - title: Datawhale · 大模型基础
+    href: https://github.com/datawhalechina/so-large-lm
+    desc: 从 Transformer、预训练到大模型原理的中文开源教程
+  - title: Full Stack Deep Learning
+    href: https://fullstackdeeplearning.com/
+    desc: 从问题定义、训练、部署到监控，学习如何把 AI 做成完整系统
+  - title: Chip Huyen
+    href: https://huyenchip.com/blog/
+    desc: AI Engineering 与 LLM 应用落地的系统性文章
+  - title: Datawhale · 开源大模型食用指南
+    href: https://github.com/datawhalechina/self-llm
+    desc: 开源模型部署、微调、推理和本地应用实践
+  - title: Hugging Face Learn
+    href: https://huggingface.co/learn
+    desc: 连接模型原理、开源生态和实际应用的系统课程
+  - title: Eugene Yan
+    href: https://eugeneyan.com/
+    desc: 机器学习系统、推荐系统与 LLM 应用的工程实践
   - title: 美团技术团队
     href: https://tech.meituan.com/
     desc: 国内少有的持续高质量的一线工程实践，尤其是分布式与搜索推荐
   - title: Jay Alammar
     href: https://jalammar.github.io/
     desc: 用图讲透 Transformer / LLM 的第一人，The Illustrated 系列
-  - title: Eugene Yan
-    href: https://eugeneyan.com/
-    desc: 机器学习系统与 LLM 应用落地的长文，工程视角
   - title: deeplearning.ai
     href: https://www.deeplearning.ai/
     desc: 吴恩达的课程与 The Batch 周报，跟进 AI 进展的低成本方式
