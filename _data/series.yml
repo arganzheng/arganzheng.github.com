@@ -63,3 +63,6 @@ multimodal:
 diffusion-inference-infra:
   name: 扩散模型推理基础设施：从一次去噪到一个生成服务
   overview: /diffusion-model-inference-infrastructure.html
+coding-interview:
+  name: 面试手撕代码：从 LeetCode 中等题到 Transformer 组件
+  overview: /coding-interview.html
