@@ -228,6 +228,26 @@
     return end > start ? { start: start, end: end } : null;
   }
 
+  // Chromium can report a selection whose boundary is the heading element
+  // itself (rather than its text node) after the heading's feedback buttons are
+  // appended. In that case comparePoint() may not intersect any indexed text
+  // node even though the user selected visible heading text. Fall back to the
+  // normalized selected text so heading comments follow the same path as body
+  // comments instead of opening an editor that cannot be submitted.
+  function selectionOffsets(range) {
+    // Rebuild immediately before converting a user selection. Heading controls,
+    // Mermaid, and comment highlights can all change the text-node tree after
+    // the last article-wide index was created.
+    buildIndex();
+    var offsets = rangeToOffsets(range);
+    if (offsets) return offsets;
+    var exact = (range.toString() || '').replace(/\s+/g, ' ').trim();
+    if (!exact) return null;
+    if (!index) buildIndex();
+    var start = index.text.indexOf(exact);
+    return start === -1 ? null : { start: start, end: start + exact.length };
+  }
+
   function firstIndexAtOrAfter(entry, k) {
     for (var i = k; i < entry.charIdx.length; i++) if (entry.charIdx[i] !== -1) return entry.charIdx[i];
     var pos = index.nodes.indexOf(entry);
@@ -1722,7 +1742,7 @@
       toolbar.querySelector('.annotation-tb-' + kind).addEventListener('click', function (e) {
         e.stopPropagation();
         var range = currentRange();
-        var offsets = range && rangeToOffsets(range);
+        var offsets = range && selectionOffsets(range);
         hideToolbar();
         if (!offsets) return;
         // inside an underlined passage -> react on that passage, not on a new sub-range
@@ -1736,7 +1756,7 @@
       toolbar.querySelector('.annotation-tb-' + pair[0]).addEventListener('click', function (e) {
         e.stopPropagation();
         var range = currentRange();
-        var offsets = range && rangeToOffsets(range);
+        var offsets = range && selectionOffsets(range);
         if (!offsets) { hideToolbar(); return; }
         var sel = selectorFromOffsets(offsets);
         var endNode = range.endContainer;
@@ -1762,7 +1782,7 @@
     toolbar.querySelector('.annotation-tb-share').addEventListener('click', function (e) {
       e.stopPropagation();
       var range = currentRange();
-      var offsets = range && rangeToOffsets(range);
+      var offsets = range && selectionOffsets(range);
       if (!offsets) return;
       // inside an underlined passage -> share that passage (its thread link)
       var p = passageContaining(offsets);
