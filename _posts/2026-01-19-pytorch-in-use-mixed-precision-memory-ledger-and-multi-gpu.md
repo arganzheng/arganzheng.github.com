@@ -12,8 +12,7 @@ updated: 2026-09-14
 
 全篇的核心问题是：
 
-> **能不能算出一个 8B 模型全量微调要多少显存、为什么 LoRA 能放进一张卡？OOM 的时候知道看哪一块？**
-
+> **能不能算出一个 8B 模型全量微调要多少显存、为什么 LoRA 能放进一张卡？[^q0] OOM 的时候知道看哪一块？[^q1]**
 
 ## 一、总览
 
@@ -42,7 +41,6 @@ QLoRA                  4-bit 基座 4.4 GB + 0.67 GB ≈ 5.1 GB                 
 
 配套脚本：[`03_memory_ledger.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/algorithm-tooling/03_memory_ledger.py)。
 
-
 ## 二、混合精度
 
 ### 1. `autocast` 做了什么
@@ -70,7 +68,6 @@ autocast 下: Linear 输出 torch.bfloat16, .float() 后 softmax torch.float32; 
 ### 3. CPU 上没有
 
 上一篇末尾的陷阱：CPU 没有 bf16 的硬件路径，`autocast` 在 CPU 上反而慢 30 倍。混合精度的全部收益来自 GPU 的 Tensor Core 对 bf16 矩阵乘的专门支持。
-
 
 ## 三、显存的账
 
@@ -113,7 +110,6 @@ QLoRA (4-bit 基座 ≈ 0.5 B/参数 + 常数)    4.4 GB        0.67 GB       5.
 
 推理时没有梯度、没有优化器状态、不需要 fp32 主权重——只有一份权重：bf16 2 字节 / 参数（8B 模型 16 GB），量化后 1 或 0.5 字节。所以同一个模型，训练的显存是推理的 8 倍。
 
-
 ## 四、激活：第五块
 
 ### 1. 与什么成正比
@@ -143,7 +139,6 @@ model.gradient_checkpointing_enable()          # Hugging Face 模型一行开启
 
 长序列微调几乎总是开着它。
 
-
 ## 五、OOM 归因
 
 一个 `CUDA out of memory`，先问它落在哪一块：
@@ -158,7 +153,6 @@ model.gradient_checkpointing_enable()          # Hugging Face 模型一行开启
 | 显存"够"却 OOM，报错里 reserved 远大于 allocated | 碎片 | `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`；`empty_cache` |
 
 这张表加上第三章的账，能解释绝大多数 OOM。第五篇把"显存的四块"（权重、梯度与状态、激活、KV cache）放到推理场景里再讲一遍。
-
 
 ## 六、多卡启用即可
 
@@ -190,7 +184,6 @@ model = FullyShardedDataParallel(model, ...)   # 或 accelerate / trl 的配置�
 
 张量并行、流水线并行、专家并行——把**单层**切到多卡、把**不同层**放到不同卡、把 MoE 的专家分到不同卡——是预训练规模（几百到几千卡）才需要的，由 Megatron、DeepSpeed、torchtitan 一类框架提供。算法工程师知道它们各切什么、对 batch 与学习率有什么影响即可。DDP / FSDP 的通信内部（bucket、overlap、`ProcessGroupNCCL`）在 Infra 03 系列第九篇与 06 系列；并行策略的选择在 07 系列第二篇。
 
-
 ## 七、算的与量的
 
 账要对得上实测才算会算。PyTorch 提供 `torch.cuda.max_memory_allocated()`（峰值分配）与 `memory_reserved()`（向驱动申请的总量，含碎片）。做法：跑之前按本篇算出预期值，跑一步之后读峰值，误差在 30% 以内算对账成功。
@@ -205,7 +198,6 @@ torch.int8       1000×1000 = 1.0 MB  (element_size 1)
 
 `x.numel() * x.element_size()` 就是任何张量的字节数，整篇的账都是它的加法。
 
-
 ## 八、本文小结
 
 - **混合精度**：`autocast` 让矩阵乘在 bf16 上跑、reduction 留 fp32，**不改变参数存储精度**；主权重与优化器状态留 fp32 是因为 bf16 尾数太短会吞掉小更新。bf16 与 fp32 同指数位不需要 loss scaling，fp16 需要 `GradScaler`。CPU 没有 bf16 硬件，开了反而慢。
@@ -214,14 +206,6 @@ torch.int8       1000×1000 = 1.0 MB  (element_size 1)
 - **OOM 先问落在哪一块**：加载就爆是权重、第一步 backward 爆是状态、序列变长爆是激活、生成时爆是忘了 `no_grad` 或 KV cache。
 - **多卡启用即可**：DDP 每卡一份完整模型、all-reduce 梯度（前提是放得进一张卡）；FSDP 把参数 / 梯度 / 状态切到各卡、按层 all-gather（8 卡上 128.5 GB → 每卡 16 GB）。张量 / 流水 / 专家并行属于预训练规模。
 - **算的与量的**：`numel() × element_size()` 是任何张量的字节数；跑前算、跑后 `max_memory_allocated()` 对账，误差 30% 内算会算。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**算得出**：每个可训练参数 16 字节（bf16 权重 2 + bf16 梯度 2 + fp32 主权重 4 + AdamW 两个矩 8），Llama-3-8B 全量 $$8.03 \text{B} \times 16 = 128.5$$ GB，一张 80 GB 的卡放不下；LoRA 冻结基座只留一份 bf16 权重 16.1 GB，41.9 M 可训练参数的 16 字节只有 0.67 GB，合计 16.7 GB——一张卡放得下（第三章）。这还没算激活：与参数量无关、与 $$B \times T \times$$ 层数 $$\times d$$ 成正比，$$T = 4096$$ 时 $$B = 1$$ 约 16.5 GiB，用 gradient checkpointing 换掉（第四章）。**OOM 看哪一块**：加载就爆是权重，第一步 backward 爆是梯度与优化器状态，序列变长爆是激活，生成时爆是忘了 `no_grad` 或 KV cache（第五章）。
-
-</details>
-
 
 ## 九、自测
 
@@ -266,3 +250,6 @@ torch.int8       1000×1000 = 1.0 MB  (element_size 1)
    </details>
 
 下一篇进入 Hugging Face 生态：六个库各管什么、六行组装一次 LoRA SFT、Hub 上的三个文件、以及为什么读源码是学后训练最快的路。
+
+[^q0]: 算得出。每个可训练参数 16 字节（bf16 权重 2 + bf16 梯度 2 + fp32 主权重 4 + AdamW 两个矩 8），Llama-3-8B 全量 $$8.03 \text{B} \times 16 = 128.5$$ GB，一张 80 GB 的卡放不下；LoRA 冻结基座只留一份 bf16 权重 16.1 GB，41.9 M 可训练参数的 16 字节只有 0.67 GB，合计 16.7 GB——一张卡放得下。这还没算激活：与参数量无关、与 $$B \times T \times$$ 层数 $$\times d$$ 成正比，$$T = 4096$$ 时 $$B = 1$$ 约 16.5 GiB，用 gradient checkpointing 换掉。详见[第三章](#三显存的账)、[第四章](#四激活第五块)。
+[^q1]: 按爆的时机归因：加载就爆是权重，第一步 backward 爆是梯度与优化器状态，序列变长爆是激活，生成时爆是忘了 `no_grad` 或 KV cache。详见[第五章](#五oom-归因)。

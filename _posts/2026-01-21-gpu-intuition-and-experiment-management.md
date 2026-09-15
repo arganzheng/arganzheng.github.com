@@ -12,8 +12,7 @@ updated: 2026-09-14
 
 全篇的核心问题是：
 
-> **不写 kernel，能不能解释一次训练为什么慢、一次推理为什么快不起来、一个 OOM 从哪里来？三个月后能不能复现今天这次实验？**
-
+> **不写 kernel，能不能解释一次训练为什么慢、一次推理为什么快不起来、一个 OOM 从哪里来？[^q0] 三个月后能不能复现今天这次实验？[^q1]**
 
 ## 一、总览
 
@@ -40,7 +39,6 @@ ridge     989e12 / 3.35e12 ≈ 295 FLOP / 字节       每搬一个字节做多�
 | 八 | 自测 | 五道题 |
 
 配套脚本：[`05_profiler_and_record.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/algorithm-tooling/05_profiler_and_record.py)。
-
 
 ## 二、两个上限
 
@@ -81,7 +79,6 @@ $$
 
 一个操作的算术强度决定它落在横轴的哪个位置；落在斜线段上的是 memory-bound，往右挪（提高强度）性能线性上升；落到水平段上的是 compute-bound，再挪也不会更快。L4《Transformer 与 LLM》第二篇把整个模型逐层放到这张图上；Infra 05 系列第一篇从硬件侧讲同一件事。算法工程师需要的是用它判断：**我改的这个结构把瓶颈往哪边推了**。
 
-
 ## 三、decode 与 prefill
 
 ### 1. decode 是 memory-bound
@@ -116,7 +113,6 @@ prefill 把 prompt 的 4096 个 token 一起过模型：$$2 \times 8.03 \times 1
 - 上下文变长：attention 的 $$QK^T$$ 与 $$T^2$$ 成正比，KV cache 与 $$T$$ 成正比（下一章）；
 - 量化到 4 bit：decode 读的字节降到 1/4，memory-bound 的时间也降到 1/4——这是量化对推理有效的根本原因（L6）。
 
-
 ## 四、显存的四块
 
 ### 1. 表
@@ -133,7 +129,6 @@ prefill 把 prompt 的 4096 个 token 一起过模型：$$2 \times 8.03 \times 1
 ### 2. OOM 归因
 
 一个 OOM，先问它落在哪一块——上一篇的表加上这里的 KV cache：参数量没变、batch 没变、序列变长了 → 激活（训练）或 KV cache（推理）；换了优化器 → 状态；加了 LoRA 还是 OOM → 不是参数的问题，看激活；生成时 OOM → 忘了 `no_grad`，或并发太高。这张表能解释绝大多数 OOM。
-
 
 ## 五、kernel、stream 与 profiler
 
@@ -174,7 +169,6 @@ aten::native_layer_norm_backward                    2.85%      1.519ms          
 
 会读它意味着能回答"这一步 300 ms 花在哪"——是 attention、是 FFN 的 GEMM、是数据加载等 GPU 空转（表里 GPU 时间加起来远小于墙钟时间）、还是几千个小算子的 launch 开销。到这里为止；怎么让那个算子快起来，是 Infra 05 系列的事。
 
-
 ## 六、实验管理
 
 ### 1. 最小记录的七项
@@ -212,7 +206,6 @@ seed 1:      3.378334 → 与 seed 0 差 0.1404，这就是'单个数字不算�
 
 这一章是横切"实验方法论"的物质基础——方法论讲"怎么设计实验才能得出可信的结论"，这里讲"用什么工具把实验记下来"。工具很便宜（W&B 一行 `wandb.init`、Hydra 一个装饰器），贵的是习惯：**每次实验先想"三个月后我怎么复现它"**。
 
-
 ## 七、系列总结
 
 这是《算法工程师的工具箱》的最后一篇。五篇走完，一次实验要经过的每一层都有了对应的工具与数字：
@@ -237,14 +230,6 @@ GPU 与管理   ridge 295 · decode 4.8 ms / token memory-bound、batch 大才�
 总纲里那五件事——写 attention、写训练循环、算显存、组装 SFT、读 profiler 并记录——现在每一件都有一个跑过的脚本。工具的检验是做，不是读：把五个脚本改一改（换模型大小、换 batch、换 seed），看数字怎么变，L1 就够了。
 
 接下来两个系列是本层的**深入篇**，两张地图共享：Infra 地图的 [01 Python](/python-for-ai-infra.html)（语言机制与运行时——本系列假设你会用 Python，它讲 Python 为什么这样工作）与 [03 PyTorch](/deep-dive-into-pytorch.html)（Dispatcher、Autograd 引擎、编译、分布式——本系列讲"用"，它讲"改"）。算法方向的读者按需读，然后进 L2 经典机器学习。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**能解释**：GPU 有算力与带宽两个上限，比值 ridge $$\approx 295$$ FLOP/字节（H100）。decode 每生成一个 token 要读全部权重、每个权重只做 2 次运算，算术强度 1，远低于 ridge——memory-bound，batch = 1 时 16 GB 权重 / 3.35 TB/s $$\approx 4.8$$ ms 是下限，模型多聪明都快不过它；batch 加大到 128 时间几乎不变、吞吐涨 128 倍，这就是"batch 大才快"（第二、三章）。训练与 prefill 是 compute-bound，慢通常是 MFU 低——通信、数据加载、小算子、等待。OOM 从四块显存里找：权重、梯度与优化器状态、激活、KV cache（第四章）。**能复现**：记七项——代码版本、配置、数据版本、环境、seed、硬件、结果——放进一次 `log()`，三个月后按它重跑（第六章）。
-
-</details>
-
 
 ## 八、自测
 
@@ -287,3 +272,6 @@ GPU 与管理   ridge 295 · decode 4.8 ms / token memory-bound、batch 大才�
    seed（跑几个 seed 看方差）、数据版本、环境（库版本、非确定 kernel）——七项里有没有哪一项其实不同。
 
    </details>
+
+[^q0]: 能。GPU 有算力与带宽两个上限，比值 ridge $$\approx 295$$ FLOP/字节（H100）。decode 每生成一个 token 要读全部权重、每个权重只做 2 次运算，算术强度约 1，远低于 ridge——memory-bound，batch = 1 时 16 GB 权重 / 3.35 TB/s $$\approx 4.8$$ ms 是下限；batch 加大到 128 时间几乎不变、吞吐涨 128 倍，这就是「batch 大才快」。训练与 prefill 是 compute-bound，慢通常是 MFU 低——通信、数据加载、小算子、等待。OOM 从四块显存里找：权重、梯度与优化器状态、激活、KV cache。详见[第二](#二两个上限)至[四章](#四显存的四块)。
+[^q1]: 能，记七项——代码版本、配置、数据版本、环境、seed、硬件、结果——放进一次 `log()`，三个月后按它重跑。详见[第六章](#六实验管理)。

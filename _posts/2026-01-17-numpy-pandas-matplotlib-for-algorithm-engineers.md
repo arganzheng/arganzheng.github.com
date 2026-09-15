@@ -12,8 +12,7 @@ updated: 2026-09-14
 
 全篇的核心问题是：
 
-> **看到一个 attention 的公式，能不能写出对应的 `einsum`？拿到评测结果，能不能按类别算出错误率、找出退化的题？看到一条 loss 曲线，知道该看哪里？**
-
+> **看到一个 attention 的公式，能不能写出对应的 `einsum`？[^q0] 拿到评测结果，能不能按类别算出错误率、找出退化的题？[^q1] 看到一条 loss 曲线，知道该看哪里？[^q2]**
 
 ## 一、总览
 
@@ -39,7 +38,6 @@ Matplotlib  折线 · 多曲线 · 对数坐标 · 阴影带                    
 | 九 | 自测 | 五道题 |
 
 配套脚本：[`01_numpy_pandas_matplotlib.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/algorithm-tooling/01_numpy_pandas_matplotlib.py)，文中的数字都来自它。
-
 
 ## 二、ndarray 与轴
 
@@ -90,7 +88,6 @@ attention 沿 key 维    score [B, h, T_q, T_k]  axis=-1   每个 query 对所�
 ```
 
 写错轴的 softmax 不报错——沿 batch 维做 softmax 得到的仍是一个形状正确的数组，只是数值全错。这是形状 bug 的第一种：**能跑、形状对、数值错**。
-
 
 ## 三、广播
 
@@ -147,7 +144,6 @@ b = np.arange(3)[:, None] # (3, 1)
 
 代码不报错，结果的形状看起来也"合理"，只有下游某个地方 loss 突然不对时才发现。防御的办法只有一个习惯：**关键步骤 `assert x.shape == (...)`**，尤其是 loss 前的 logits 与 labels。
 
-
 ## 四、reshape、transpose 与 einsum
 
 ### 1. 多头 attention 的形状变换
@@ -188,7 +184,6 @@ O = P V               "bts,bsd->btd"        attention 权重 P 加权求和 V，
 ```
 
 读论文里的张量公式时，先在脑子里写出 einsum 的下标，是检验自己是否真的看懂了形状的办法。
-
 
 ## 五、手写 causal attention
 
@@ -239,7 +234,6 @@ $$2.65 \times 10^{-7}$$ 是 float32 的舍入误差量级——两个实现一�
 
 这 30 行是 PyTorch 里 `F.scaled_dot_product_attention` 做的事的数学版；真实实现（FlashAttention）不会显式构造 $$[T, T]$$ 的 $$S$$——那是 Infra 05 系列的内容。
 
-
 ## 六、Pandas：评测的错误分析
 
 ### 1. 场景
@@ -286,7 +280,6 @@ summary["ci95"] = 1.96 * np.sqrt(summary["acc_new"] * (1 - summary["acc_new"]) /
 
 Polars 是 Pandas 的替代品，API 风格接近、在千万行以上快很多；两者选一个熟练即可。
 
-
 ## 七、Matplotlib：看曲线
 
 ### 1. 需要的很少
@@ -319,7 +312,6 @@ ax.fill_between(steps, mean - std, mean + std, alpha=0.3)
 
 scaling law 的图横纵轴都是对数刻度（`ax.set_xscale("log"); ax.set_yscale("log")`），因为幂律在双对数下是直线（L0 第八篇）。看到这种图先读斜率。
 
-
 ## 八、本文小结
 
 - **ndarray** = 内存 + 形状 + dtype；`nbytes` 是显存账的起点。整数索引消灭一维、切片保留一维。
@@ -330,14 +322,6 @@ scaling law 的图横纵轴都是对数刻度（`ax.set_xscale("log"); ax.set_ys
 - 30 行 NumPy 的 causal attention 与 PyTorch 对到 $$2.65 \times 10^{-7}$$——"与参考实现对数值到浮点精度"是验证手写算子的标准方法。
 - **Pandas** 三个操作：`groupby` 看各类别、`merge` 对齐 baseline、`query` 找退化的题；顺手一行算 `ci95`，读表要带着置信区间。
 - **Matplotlib** 两个习惯：对数 x 轴看训练早期；多 seed 画均值与 `fill_between` 阴影带。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**能写 einsum**：把公式里每个张量的下标写出来，只出现在左边的字母被求和、两边都有的被保留、右边的顺序就是输出形状——$$\text{softmax}(QK^T)V$$ 是 `"bhtd,bhsd->bhts"` 与 `"bhts,bhsd->bhtd"` 两行（第四章），30 行 NumPy 与 PyTorch 对到 $$10^{-7}$$。**能算错误率、找退化的题**：`groupby` 按类别算准确率并带上 `ci95`，`merge` 按题号对齐 baseline，`query` 筛出"baseline 对、新模型错"的题（第六章）。**看 loss 曲线知道看哪里**：x 轴用对数看训练早期，多 seed 画均值与阴影带，一条曲线高出阴影带才算差别（第七章）。
-
-</details>
-
 
 ## 九、自测
 
@@ -382,3 +366,7 @@ scaling law 的图横纵轴都是对数刻度（`ax.set_xscale("log"); ax.set_ys
    </details>
 
 下一篇把形状直觉搬到 PyTorch 上：五个核心对象、二十行训练循环、Autograd 要知道的三件事，训一个字符级小 Transformer。
+
+[^q0]: 能。把公式里每个张量的下标写出来：只出现在左边的字母被求和、两边都有的被保留、右边的顺序就是输出形状——$$\text{softmax}(QK^T)V$$ 是 `"bhtd,bhsd->bhts"` 与 `"bhts,bhsd->bhtd"` 两行；30 行 NumPy 与 PyTorch 对到 $$10^{-7}$$。详见[第四章](#四reshapetranspose-与-einsum)、[第五章](#五手写-causal-attention)。
+[^q1]: 能。`groupby` 按类别算准确率并带上 `ci95`，`merge` 按题号对齐 baseline，`query` 筛出「baseline 对、新模型错」的题。详见[第六章](#六pandas评测的错误分析)。
+[^q2]: x 轴用对数看训练早期；多 seed 画均值与阴影带，一条曲线高出阴影带才算差别；看 train / val 是否分叉判断过拟合。详见[第七章](#七matplotlib看曲线)。

@@ -12,8 +12,7 @@ updated: 2026-09-14
 
 全篇的核心问题是：
 
-> **能不能用 `peft` + `trl` 在一小时内跑起一个 LoRA SFT？卡住的时候能不能直接读源码找到原因？**
-
+> **能不能用 `peft` + `trl` 在一小时内跑起一个 LoRA SFT？[^q0] 卡住的时候能不能直接读源码找到原因？[^q1]**
 
 ## 一、总览
 
@@ -69,7 +68,6 @@ DDP / FSDP / DeepSpeed 配置`"]
 
 配套脚本：[`04_hf_lora_sft.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/algorithm-tooling/04_hf_lora_sft.py)（需要下载 Qwen2.5-0.5B，约 1 GB）。
 
-
 ## 二、Hub 上的三个文件
 
 拿到一个模型的 Hub 页面，先看三个文件：
@@ -93,7 +91,6 @@ DDP / FSDP / DeepSpeed 配置`"]
 
 模型卡（README）里的评测数字，读的时候带着 L0 第八篇的置信区间。
 
-
 ## 三、六个库各管什么
 
 | 库 | 负责 | 要会的 |
@@ -110,7 +107,6 @@ DDP / FSDP / DeepSpeed 配置`"]
 ### `generate` 的采样参数
 
 `model.generate(..., do_sample=True, temperature=0.7, top_p=0.9, max_new_tokens=256)` 里的每个参数都是 L0 第五篇第七章的东西：温度、top-p、greedy（`do_sample=False`）。实现上每个都是一个 `LogitsProcessor`——对 logits 做一次变换再采样——第六章给源码入口。
-
 
 ## 四、六行组装一次 LoRA SFT
 
@@ -139,7 +135,6 @@ trainer.train()
 | bf16、梯度裁剪、学习率调度、日志、checkpoint | `SFTConfig` 的字段 | `autocast`、`clip_grad_norm_`、`sched`、`log` |
 
 `LoraConfig` 的四个参数：`r` 是秩（L0 第三篇）；`lora_alpha` 是缩放，实际加到输出上的是 $$\frac{\alpha}{r} BA x$$，常取 $$\alpha = 2r$$；`target_modules="all-linear"` 把七个线性层都挂上（也可以只挂 `q_proj, v_proj`）；`lora_dropout` 是 LoRA 分支上的 dropout。
-
 
 ## 五、在 0.5B 模型上跑通
 
@@ -193,7 +188,6 @@ merge_and_unload 后参数量 494 M（LoRA 已合回基座，推理零开销）
 
 $$W' = W + \frac{\alpha}{r} BA$$，L0 第三篇的"合并"用法。
 
-
 ## 六、为什么读源码是最快的路
 
 Hugging Face 的库是当前算法工作的事实标准，也是**最好的教材**——比论文更准确（论文写的是想法，代码写的是实际做法），比教程更完整。几个值得直接读的入口：
@@ -209,7 +203,6 @@ Hugging Face 的库是当前算法工作的事实标准，也是**最好的教�
 
 方法很简单：**遇到一个后训练概念，先读它在 `trl` 里的实现，再读论文。** 库的版本变化快，函数名会变（本文写作时的接口未必与你读到时一致），但找到入口的方法不变——从 Trainer 的 `compute_loss` 往下追，或者在编辑器里对着一个 API 名按"跳转到定义"。读到一个看不懂的公式，回 L0 对应的篇；读到一个看不懂的形状操作，回本系列第一篇。
 
-
 ## 七、本文小结
 
 - **Hub 上的三个文件**：`config.json`（结构超参数，能算出参数量）、`tokenizer.json`（词表、特殊 token、chat template）、`*.safetensors`（`state_dict` 的磁盘格式，可部分加载、不能执行代码）。
@@ -217,14 +210,6 @@ Hugging Face 的库是当前算法工作的事实标准，也是**最好的教�
 - **六行组装 LoRA SFT**，背后的每件事——chat template、loss mask（−100）、packing、LoRA 挂载、只更新 $$A, B$$、bf16 / 裁剪 / 调度——都在二十行训练循环里有位置。
 - 0.5B 上跑通：七个线性层挂 LoRA、可训练 1.78%、训练状态 141 MB；一个 batch 85% 的 token 被 mask；20 步 loss 5.3 → 1.7，答案学会了但没学会停——**结束符要进 loss 且见够多次**。
 - **读源码是最快的路**：`modeling_llama.py`、`dpo_loss`、`grpo_trainer.py`、`peft` 的 `Linear.forward`、`LogitsProcessor`；从 `compute_loss` 往下追。库的接口会变，方法不变。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**能跑起来**：六个库各管一段——`transformers` 模型与 tokenizer、`datasets` 数据、`peft` 挂 LoRA、`trl` 的 `SFTTrainer`、`accelerate` 多卡、`tokenizers` 词表——六行组装，0.5 B 上 20 步从 loss 5.3 到 1.7（第四、五章）；背后的每件事（chat template、loss mask、packing、只更新 $$A, B$$）都在上一篇的二十行循环里有位置。**卡住能读源码**：从 `Trainer.compute_loss` 往下追——模型结构在 `modeling_llama.py`，LoRA 的前向在 `peft` 的 `Linear.forward`，loss 在 `trl` 各 Trainer 的 `compute_loss` / `dpo_loss`，采样在 `LogitsProcessor`（第六章）。实测的一个教训：答案学会了但没学会停，是因为结束符没进 loss——这类问题只有读源码才能定位。
-
-</details>
-
 
 ## 八、自测
 
@@ -269,3 +254,6 @@ Hugging Face 的库是当前算法工作的事实标准，也是**最好的教�
    </details>
 
 下一篇是本系列最后一篇：GPU 的两个上限与四块显存（为什么 decode 快不起来、为什么 batch 大才快）、读 profiler、以及让三个月前的实验能复现的最小记录。
+
+[^q0]: 能。六个库各管一段——`transformers` 模型与 tokenizer、`datasets` 数据、`peft` 挂 LoRA、`trl` 的 `SFTTrainer`、`accelerate` 多卡、`tokenizers` 词表——六行组装，0.5 B 上 20 步从 loss 5.3 到 1.7；背后的每件事（chat template、loss mask、packing、只更新 $$A, B$$）都在上一篇的二十行循环里有位置。详见[第三](#三六个库各管什么)至[五章](#五在-05b-模型上跑通)。
+[^q1]: 能。从 `Trainer.compute_loss` 往下追——模型结构在 `modeling_llama.py`，LoRA 的前向在 `peft` 的 `Linear.forward`，loss 在 `trl` 各 Trainer 的 `compute_loss` / `dpo_loss`，采样在 `LogitsProcessor`。实测的一个教训：答案学会了但没学会停，是因为结束符没进 loss——这类问题只有读源码才能定位。详见[第六章](#六为什么读源码是最快的路)。

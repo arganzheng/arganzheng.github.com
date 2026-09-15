@@ -12,8 +12,7 @@ PyTorch 的使用层只有五个对象：`Tensor`（数据与形状）、Autogra
 
 本篇写出它，并用它训一个字符级小 Transformer。全篇的核心问题是：
 
-> **不用 `Trainer`，能不能从零写一个训练循环、在小数据集上训一个小 Transformer、并解释每一行为什么在那里？**
-
+> **不用 `Trainer`，能不能从零写一个训练循环、在小数据集上训一个小 Transformer、并解释每一行为什么在那里？[^q0]**
 
 ## 一、总览
 
@@ -71,7 +70,6 @@ zero_grad()：清零`"]
 
 配套脚本：[`02_train_loop.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/algorithm-tooling/02_train_loop.py) 与模型定义 [`tinygpt.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/algorithm-tooling/tinygpt.py)。
 
-
 ## 二、Tensor
 
 ### 1. 从 ndarray 到 Tensor
@@ -94,7 +92,6 @@ x.requires_grad   # 要不要对它求导：参数 True，数据 False
 带下划线的方法是**原地**（in-place）操作：`x.add_(1)` 改 `x` 自己，`x.add(1)` 返回新 Tensor。原地操作省显存但可能破坏 Autograd 需要保存的中间量，训练代码里一般只对不需要求导的东西用（比如 `opt.zero_grad()` 内部的清零）。
 
 `loss.item()` 把一个单元素 Tensor 变成 Python 数字——**它会等 GPU 算完**（同步），日志里每步都 `.item()` 会拖慢训练，所以第六章的循环每 10 步才 log 一次。
-
 
 ## 三、Autograd
 
@@ -120,7 +117,6 @@ loss.backward()                 # 报错：图已释放。要再算得重新前�
 ```
 
 链式法则（L0 第七篇）：$$\partial L / \partial w = 2(wx - 1) \cdot x = 20$$，与 `w.grad` 一致。第二次 `backward` 报错是因为默认反向后释放图以省显存——每次前向建一张新图，这就是"动态图"的含义。Autograd 引擎怎么实现、每个算子的 backward 函数在哪，属于 Infra 03 系列第三篇。
-
 
 ## 四、nn.Module
 
@@ -159,7 +155,6 @@ model.to("cuda")                # 所有参数搬到 GPU
 
 Module 可以嵌套。脚本里的小 Transformer 是三层嵌套：`TinyGPT` 包含 `nn.ModuleList` 的若干 `Block`，每个 `Block` 包含 `LayerNorm`、`Linear`、一个 `nn.Sequential` 的 MLP。`parameters()` 会递归收集全部。L4 的 `modeling_llama.py` 是同样的结构放大版：`LlamaModel` → `LlamaDecoderLayer` → `LlamaAttention` / `LlamaMLP`。
 
-
 ## 五、Dataset、DataLoader 与 Optimizer
 
 ### 1. 取数与组 batch
@@ -188,7 +183,6 @@ opt.zero_grad(set_to_none=True)
 ```
 
 `Optimizer` 拿着 `model.parameters()`，`step()` 时读每个的 `.grad` 做更新（L0 第七篇：$$\theta \leftarrow \theta - \eta \nabla L$$；AdamW 多了两个矩，L3 第三篇讲）。`weight_decay=0.1` 是 L0 第二篇的正则化项。调度器控制学习率随步数怎么变：warmup 再 cosine 衰减是 LLM 训练的标配（L0 第七篇第六章）。
-
 
 ## 六、二十行训练循环
 
@@ -233,7 +227,6 @@ for step, batch in enumerate(loader):
 
 `transformers.Trainer`、`trl.SFTTrainer` 做的是同样的事：`compute_loss` 是第 9–10 行，`training_step` 是第 11–13 行，外面包上日志、评估、checkpoint、混合精度与分布式的配置。它们的行为不符合预期时——loss 不降、显存爆、学习率不对——回到这二十行想"它在我这张表的哪一行做了不同的事"，然后去读它的源码（第四篇给入口）。
 
-
 ## 七、训一个小 Transformer
 
 ### 1. 设定
@@ -266,7 +259,6 @@ step  999  loss 2.022  lr 3.00e-05  grad_norm 0.31   53.6s
 
 脚本里 `autocast` 只在 CUDA 上启用。作者机器上开着 bf16 autocast 在 CPU 训，一步 1.4 秒；关掉是 0.05 秒——**慢 30 倍**。原因是 CPU 没有 bf16 的硬件路径，PyTorch 用软件模拟。混合精度的收益完全来自硬件（GPU 的 Tensor Core），没有硬件时它只是开销。第三篇讲它在 GPU 上为什么快、省多少显存。
 
-
 ## 八、本文小结
 
 - PyTorch 使用层是**五个对象**：Tensor（ndarray + device + dtype + requires_grad）、Autograd、`nn.Module`、`Dataset` / `DataLoader`、`Optimizer`。上一篇的形状规则在 Tensor 上原样成立。
@@ -275,14 +267,6 @@ step  999  loss 2.022  lr 3.00e-05  grad_norm 0.31   53.6s
 - **`DataLoader`** 负责打乱、组 batch、`collate_fn`、多进程预取；**`Optimizer.step()`** 用 `.grad` 更新，调度器管学习率（warmup + cosine）。
 - **二十行训练循环**的每一行都对应一个概念：`autocast` 是混合精度、`.float()` 是 softmax 的数值、`ignore_index=-100` 是 SFT 的 loss mask、`clip_grad_norm_` 是梯度裁剪、`set_to_none=True` 省一次显存写、`.item()` 会同步别每步做。`Trainer` 做的是同一件事加日志 / checkpoint / 分布式。
 - 84 万参数的字符级 Transformer，CPU 一分钟：第一步 loss 5.07 ≈ $$\ln 128$$，PPL 128 → 9.6。CPU 上开 bf16 autocast 慢 30 倍——混合精度的收益全来自硬件。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**能。** 五个对象各站一个位置：`Dataset` / `DataLoader` 取数组 batch，`nn.Module` 前向算 logits，`cross_entropy` 算 loss，Autograd 反向把梯度累加到 `.grad`，`Optimizer.step()` 更新参数（第一章的环）。二十行里每一行都对应一个概念：`autocast` 是混合精度、`.float()` 是 softmax 的数值、`ignore_index=-100` 是 SFT 的 loss mask、`clip_grad_norm_` 是梯度裁剪、`zero_grad(set_to_none=True)` 是 Autograd 的累加语义、`.item()` 每 10 步一次是避免同步（第六章）。84 万参数的字符级 Transformer 在 CPU 上一分钟从 PPL 128 到 9.6，第一步 loss 5.07 $$\approx \ln 128$$ 是 L0 第五篇那个检查（第七章）。
-
-</details>
-
 
 ## 九、自测
 
@@ -327,3 +311,5 @@ step  999  loss 2.022  lr 3.00e-05  grad_norm 0.31   53.6s
    </details>
 
 下一篇讲这个训练循环要多少资源：混合精度在 GPU 上为什么快、显存的账（每参数 16 字节）、激活与 checkpointing、以及多卡怎么启用。
+
+[^q0]: **能**。五个对象各站一个位置：`Dataset` / `DataLoader` 取数组 batch，`nn.Module` 前向算 logits，`cross_entropy` 算 loss，Autograd 反向把梯度累加到 `.grad`，`Optimizer.step()` 更新参数（[第一章](#一总览)的环，[第二](#二tensor)至[五章](#五datasetdataloader-与-optimizer)逐个展开）。二十行里每一行都对应一个概念：`autocast` 是混合精度、`.float()` 是 softmax 的数值、`ignore_index=-100` 是 SFT 的 loss mask、`clip_grad_norm_` 是梯度裁剪、`zero_grad(set_to_none=True)` 是 Autograd 的累加语义、`.item()` 每 10 步一次是避免同步（[第六章](#六二十行训练循环)）。84 万参数的字符级 Transformer 在 CPU 上一分钟从 PPL 128 到 9.6，第一步 loss 5.07 $$\approx \ln 128$$ 是 L0 第五篇那个检查（[第七章](#七训一个小-transformer)）。
