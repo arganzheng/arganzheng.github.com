@@ -1,7 +1,7 @@
 ---
 layout: post
 series: algorithm-tooling
-title: "算法工程师的工具箱（01）：科学计算栈——NumPy 的形状直觉、Pandas 的错误分析、Matplotlib 的曲线"
+title: "算法工程师的工具箱（02）：科学计算栈——NumPy 的形状直觉、Pandas 的错误分析、Matplotlib 的曲线"
 subtitle: "The Scientific Python Stack: Shapes and Broadcasting in NumPy, Error Analysis in Pandas, Reading Curves in Matplotlib"
 tags: [AI, LLM, PyTorch, Python]
 catalog: true
@@ -54,7 +54,7 @@ x.dtype      # float32：每个元素 4 字节
 x.nbytes     # 32 × 128 × 4096 × 4 = 67,108,864 字节 = 64 MiB
 ```
 
-看到一个数组先看这三样。`nbytes` 是第三篇显存账的起点：同样的形状，`float32` 4 字节、`bfloat16` 2 字节、`int8` 1 字节。
+看到一个数组先看这三样。`nbytes` 是第四篇显存账的起点：同样的形状，`float32` 4 字节、`bfloat16` 2 字节、`int8` 1 字节。
 
 ### 2. 索引与切片
 

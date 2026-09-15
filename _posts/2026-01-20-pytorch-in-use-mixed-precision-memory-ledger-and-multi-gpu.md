@@ -1,7 +1,7 @@
 ---
 layout: post
 series: algorithm-tooling
-title: "算法工程师的工具箱（03）：PyTorch 使用层（下）——混合精度、显存的账与多卡启用"
+title: "算法工程师的工具箱（04）：PyTorch 使用层（下）——混合精度、显存的账与多卡启用"
 subtitle: "PyTorch in Use, Part 2: Mixed Precision, the Memory Ledger and Turning On Multi-GPU"
 tags: [AI, LLM, PyTorch, Python]
 catalog: true
@@ -185,10 +185,10 @@ model.gradient_checkpointing_enable()          # Hugging Face 模型一行开启
 | 加了优化器、第一步 `backward` 后 OOM | 梯度 + 优化器状态（14 字节 / 可训练参数） | LoRA 减可训练参数；FSDP 切状态；8-bit 优化器 |
 | 参数没变、batch 没变、序列变长了就 OOM | 激活 | gradient checkpointing；减 batch；缩短序列 |
 | 加了 LoRA 还是 OOM | 不是参数的问题——看激活 | 同上 |
-| 评测 / 生成时 OOM | 忘了 `no_grad`；或 KV cache（第五篇） | 加 `no_grad`；减并发 |
+| 评测 / 生成时 OOM | 忘了 `no_grad`；或 KV cache（第六篇） | 加 `no_grad`；减并发 |
 | 显存"够"却 OOM，报错里 reserved 远大于 allocated | 碎片 | `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`；`empty_cache` |
 
-这张表加上第三章的账，能解释绝大多数 OOM。第五篇把"显存的四块"（权重、梯度与状态、激活、KV cache）放到推理场景里再讲一遍。
+这张表加上第三章的账，能解释绝大多数 OOM。第六篇把"显存的四块"（权重、梯度与状态、激活、KV cache）放到推理场景里再讲一遍。
 
 ## 六、多卡启用即可
 

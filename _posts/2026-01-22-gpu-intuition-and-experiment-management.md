@@ -1,7 +1,7 @@
 ---
 layout: post
 series: algorithm-tooling
-title: "算法工程师的工具箱（05）：GPU 直觉与实验管理——两个上限、四块显存、能复现"
+title: "算法工程师的工具箱（06）：GPU 直觉与实验管理——两个上限、四块显存、能复现"
 subtitle: "GPU Intuition and Experiment Management: Two Ceilings, Four Memory Buckets, and Reproducibility"
 tags: [AI, LLM, PyTorch, Python]
 catalog: true
@@ -136,7 +136,7 @@ prefill 把 prompt 的 4096 个 token 一起过模型：$$2 \times 8.03 \times 1
 
 - **kernel** 是 GPU 上执行的一个函数——一次矩阵乘、一次 softmax、一次逐元素加。PyTorch 的每个算子对应一个或几个 kernel。
 - **kernel launch 有固定开销**（几微秒）。一个大矩阵乘几毫秒，launch 开销可忽略；一个 $$[32, 128]$$ 的逐元素加几微秒，launch 开销与计算本身相当。所以**小算子多了 GPU 会空转**——这是 `torch.compile` 与 CUDA Graph 做算子融合的动机，也是小模型、小 batch 时 GPU 利用率低的原因。
-- **stream** 是 kernel 的执行队列。CPU 把 kernel 扔进队列就继续往下走（异步），GPU 在后面慢慢执行。所以 **`time.time()` 测出来的不是 GPU 时间**——要 `torch.cuda.synchronize()` 等 GPU 做完再计时，或者用 profiler。`loss.item()` 会隐式同步（第二篇），这也是它拖慢训练的原因。
+- **stream** 是 kernel 的执行队列。CPU 把 kernel 扔进队列就继续往下走（异步），GPU 在后面慢慢执行。所以 **`time.time()` 测出来的不是 GPU 时间**——要 `torch.cuda.synchronize()` 等 GPU 做完再计时，或者用 profiler。`loss.item()` 会隐式同步（第三篇），这也是它拖慢训练的原因。
 
 ### 2. 读一张 profiler 表
 
@@ -146,7 +146,7 @@ with torch.profiler.profile(activities=[ProfilerActivity.CPU, ProfilerActivity.C
 print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
 ```
 
-输出每个算子的时间、调用次数、显存变化。脚本在 CPU 上对第二篇的小 Transformer 跑了一步（没有 GPU 就看 CPU 时间，读法相同）：
+输出每个算子的时间、调用次数、显存变化。脚本在 CPU 上对第三篇的小 Transformer 跑了一步（没有 GPU 就看 CPU 时间，读法相同）：
 
 ```text
 模型 0.84 M 参数, batch 32 × seq 128; 一步 44 ms（CPU）
@@ -187,7 +187,7 @@ run id · commit · 配置文件 · 数据版本 · seed · 环境 · 指标
 | 数据版本 | 数据文件的 hash 或 `datasets` 的 revision | 数据变了就是另一个实验 |
 | 环境 | `pip freeze` / 锁文件、CUDA 与驱动版本、容器镜像 | 随 run 记录 |
 | 随机性 | `seed` 参数 + `torch.manual_seed` 等 | 多 seed 报均值与方差；知道有些 kernel 本身不确定 |
-| 产物 | checkpoint、评测输出、生成样本 | 命名含 run id；评测输出保存到能做第一篇那种错误分析的粒度 |
+| 产物 | checkpoint、评测输出、生成样本 | 命名含 run id；评测输出保存到能做第二篇那种错误分析的粒度 |
 
 这一行齐了，"复现三个月前的结果"就是重跑一条命令。少了任何一项，那次实验的结论都只是"当时好像是这样"。
 

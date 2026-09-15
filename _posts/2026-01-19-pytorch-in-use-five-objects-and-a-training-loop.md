@@ -1,7 +1,7 @@
 ---
 layout: post
 series: algorithm-tooling
-title: "算法工程师的工具箱（02）：PyTorch 使用层（上）——五个对象与二十行训练循环"
+title: "算法工程师的工具箱（03）：PyTorch 使用层（上）——五个对象与二十行训练循环"
 subtitle: "PyTorch in Use, Part 1: Five Objects and a Twenty-Line Training Loop"
 tags: [AI, LLM, PyTorch, Python]
 catalog: true
@@ -84,7 +84,7 @@ x.requires_grad   # 要不要对它求导：参数 True，数据 False
 ```
 
 - **`device`**：数据在 CPU 内存还是 GPU 显存。两个 Tensor 运算必须在同一个 device 上，`RuntimeError: Expected all tensors to be on the same device` 是最常见的报错之一；`x.to("cuda")`、`model.to("cuda")` 搬过去。
-- **`dtype`**：训练用 `float32` 或 `bfloat16`，推理还可能 `int8`；`x.float()`、`x.to(torch.bfloat16)` 转换。第三篇讲 dtype 与显存、混合精度的关系。
+- **`dtype`**：训练用 `float32` 或 `bfloat16`，推理还可能 `int8`；`x.float()`、`x.to(torch.bfloat16)` 转换。第四篇讲 dtype 与显存、混合精度的关系。
 - **`requires_grad`**：Autograd 只跟踪它为 True 的 Tensor 及其下游。模型参数默认 True，输入数据默认 False。
 
 ### 2. 原地操作与 `.item()`
@@ -149,7 +149,7 @@ model.train(); model.eval()     # 切换 dropout / BatchNorm 的行为
 model.to("cuda")                # 所有参数搬到 GPU
 ```
 
-`state_dict` 是"参数名 → Tensor"的字典，checkpoint 就是它；Hugging Face 的 `safetensors` 文件存的也是它（第四篇）。
+`state_dict` 是"参数名 → Tensor"的字典，checkpoint 就是它；Hugging Face 的 `safetensors` 文件存的也是它（第五篇）。
 
 ### 3. 组合
 
@@ -170,7 +170,7 @@ for batch in loader: ...
 
 `Dataset` 只定义"第 $$i$$ 条是什么"；`DataLoader` 负责打乱、按 `batch_size` 取、用 `collate_fn` 把一个 list 的样本拼成一个 batch 的 Tensor（padding 到同长等）、用 `num_workers` 个子进程预取。子进程各自是一个 Python 进程，不共享内存——这是"多进程"的用法（总纲前置清单里的一项）。
 
-脚本里的语料是一个长字符串，随机切窗口，用一个 `get_batch` 函数代替 `Dataset` + `DataLoader`；真实项目里用后者，`datasets` 库（第四篇）返回的对象可以直接喂 `DataLoader`。
+脚本里的语料是一个长字符串，随机切窗口，用一个 `get_batch` 函数代替 `Dataset` + `DataLoader`；真实项目里用后者，`datasets` 库（第五篇）返回的对象可以直接喂 `DataLoader`。
 
 ### 2. Optimizer 与调度器
 
@@ -212,7 +212,7 @@ for step, batch in enumerate(loader):
 | 行 | 做什么 | 对应的概念 |
 |---|---|---|
 | `.to("cuda")` | 模型与数据搬到 GPU；`non_blocking=True` 让拷贝与计算重叠 | Tensor 的 device |
-| `torch.autocast(..., bfloat16)` | 矩阵乘在 bf16 上跑、reduction 留 fp32 | 混合精度，第三篇；数值格式在 L4 第六篇 |
+| `torch.autocast(..., bfloat16)` | 矩阵乘在 bf16 上跑、reduction 留 fp32 | 混合精度，第四篇；数值格式在 L4 第六篇 |
 | `logits.view(-1, V)` | `[B, T, V]` 展平成 `[B·T, V]`：`cross_entropy` 要二维输入 | 上一篇的 reshape |
 | `.float()` | 在 fp32 上算 softmax + log，避免 bf16 下溢出 / 精度损失 | L0 第五篇：softmax 的数值 |
 | `ignore_index=-100` | labels 里为 −100 的位置不算 loss | **SFT 的 loss mask**（L0 第五篇第四章）；prompt 与 padding 标成 −100 |
@@ -227,7 +227,7 @@ for step, batch in enumerate(loader):
 
 ### 3. 与 `Trainer` 的关系
 
-`transformers.Trainer`、`trl.SFTTrainer` 做的是同样的事：`compute_loss` 是第 9–10 行，`training_step` 是第 11–13 行，外面包上日志、评估、checkpoint、混合精度与分布式的配置。它们的行为不符合预期时——loss 不降、显存爆、学习率不对——回到这二十行想"它在我这张表的哪一行做了不同的事"，然后去读它的源码（第四篇给入口）。
+`transformers.Trainer`、`trl.SFTTrainer` 做的是同样的事：`compute_loss` 是第 9–10 行，`training_step` 是第 11–13 行，外面包上日志、评估、checkpoint、混合精度与分布式的配置。它们的行为不符合预期时——loss 不降、显存爆、学习率不对——回到这二十行想"它在我这张表的哪一行做了不同的事"，然后去读它的源码（第五篇给入口）。
 
 ## 七、训一个小 Transformer
 
@@ -259,7 +259,7 @@ step  999  loss 2.022  lr 3.00e-05  grad_norm 0.31   53.6s
 
 ### 3. 一个 CPU 上的陷阱
 
-脚本里 `autocast` 只在 CUDA 上启用。作者机器上开着 bf16 autocast 在 CPU 训，一步 1.4 秒；关掉是 0.05 秒——**慢 30 倍**。原因是 CPU 没有 bf16 的硬件路径，PyTorch 用软件模拟。混合精度的收益完全来自硬件（GPU 的 Tensor Core），没有硬件时它只是开销。第三篇讲它在 GPU 上为什么快、省多少显存。
+脚本里 `autocast` 只在 CUDA 上启用。作者机器上开着 bf16 autocast 在 CPU 训，一步 1.4 秒；关掉是 0.05 秒——**慢 30 倍**。原因是 CPU 没有 bf16 的硬件路径，PyTorch 用软件模拟。混合精度的收益完全来自硬件（GPU 的 Tensor Core），没有硬件时它只是开销。第四篇讲它在 GPU 上为什么快、省多少显存。
 
 ## 八、本文小结
 

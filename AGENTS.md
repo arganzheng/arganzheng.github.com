@@ -656,8 +656,9 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   on 2026-09-14 (permalinks are `/:title.html`, so dates are free to move):
   01-01 《AI 全栈学习地图》(overview of the three, pinned) → 01-02 算法地图 →
   01-03 Infra 地图 → 01-04 应用地图 → 算法 L0 数学 (01-07 overview, 01-08 … 01-15,
-  series `math-for-ai`) → L1 工具箱 (01-16 overview, 01-17 … 01-21,
-  `algorithm-tooling`) → Infra 01 Python (01-22 … 01-29, shared: L1 深入篇) →
+  series `math-for-ai`) → L1 工具箱 (01-16 overview, 01-17 … 01-22,
+  `algorithm-tooling`; 01-17 Python 使用层 was added 2026-09-15 and everything
+  up to 01-30 shifted a day) → Infra 01 Python (01-23 … 01-30, shared: L1 深入篇) →
   Infra 02 C++ (02-02 … 02-15) → Infra 03 PyTorch (02-16 … 02-26, shared: L1
   深入篇) → L2 经典机器学习 (02-27 overview, 02-28 … 03-05, `classical-ml`) →
   L3 (03-23 … 03-29) → 04 Transformer 与 LLM (04-01 … 04-13, shared L4)

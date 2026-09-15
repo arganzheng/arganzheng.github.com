@@ -1,7 +1,7 @@
 ---
 layout: post
 series: algorithm-tooling
-title: "算法工程师的工具箱（04）：Hugging Face 生态——六个库与一次 LoRA SFT 的组装"
+title: "算法工程师的工具箱（05）：Hugging Face 生态——六个库与一次 LoRA SFT 的组装"
 subtitle: "The Hugging Face Ecosystem: Six Libraries, a Six-Line LoRA SFT, and Why Reading the Source Is the Fastest Way to Learn"
 tags: [AI, LLM, PyTorch, Python]
 catalog: true
@@ -60,7 +60,7 @@ DDP / FSDP / DeepSpeed 配置`"]
 |---|---|---|
 | 二 | Hub 上的三个文件 | `config.json`、`tokenizer.json`、`*.safetensors`；从 config 算参数量 |
 | 三 | 六个库各管什么 | `transformers`、`datasets`、`tokenizers`、`peft`、`trl`、`accelerate` |
-| 四 | 六行组装一次 LoRA SFT | 代码；背后的每件事在第二篇二十行里的位置 |
+| 四 | 六行组装一次 LoRA SFT | 代码；背后的每件事在第三篇二十行里的位置 |
 | 五 | 在 0.5B 模型上跑通 | chat template、loss mask 比例、LoRA 参数量、20 步的 loss |
 | 六 | 为什么读源码是最快的路 | 六个入口与它们的长度；从 `compute_loss` 往下追 |
 | 七 | 本文小结 | |
@@ -87,7 +87,7 @@ DDP / FSDP / DeepSpeed 配置`"]
 
 ### 3. `*.safetensors`：权重
 
-`state_dict`（第二篇）的磁盘格式：参数名 → 张量，按名字分片成几个文件，带一个 `index.json` 索引。`safetensors` 格式的好处是**不用加载全部就能读某一层**（内存映射），且不像 `pickle` 那样能执行任意代码。
+`state_dict`（第三篇）的磁盘格式：参数名 → 张量，按名字分片成几个文件，带一个 `index.json` 索引。`safetensors` 格式的好处是**不用加载全部就能读某一层**（内存映射），且不像 `pickle` 那样能执行任意代码。
 
 模型卡（README）里的评测数字，读的时候带着 L0 第八篇的置信区间。
 
@@ -102,7 +102,7 @@ DDP / FSDP / DeepSpeed 配置`"]
 | `trl` | 后训练的各个 Trainer | `SFTTrainer`（自动处理 chat template、packing、loss mask）、`DPOTrainer`、`GRPOTrainer`、`RewardTrainer` |
 | `accelerate` | 把单卡脚本变多卡，统一 DDP / FSDP / DeepSpeed 的启动 | `accelerate config` 生成配置；`accelerate launch train.py` |
 
-它们的分工对应第二篇的五个对象：`transformers` 给 `nn.Module`（模型）与 tokenizer，`datasets` 给 `Dataset`，`peft` 改 `nn.Module`（在线性层旁边挂 LoRA），`trl` 给训练循环，`accelerate` 给第三篇的多卡启动。
+它们的分工对应第三篇的五个对象：`transformers` 给 `nn.Module`（模型）与 tokenizer，`datasets` 给 `Dataset`，`peft` 改 `nn.Module`（在线性层旁边挂 LoRA），`trl` 给训练循环，`accelerate` 给第四篇的多卡启动。
 
 ### `generate` 的采样参数
 
@@ -123,7 +123,7 @@ trainer.train()
 
 ### 2. 背后发生的事
 
-六行背后每一件事都在第二篇的二十行里有对应位置：
+六行背后每一件事都在第三篇的二十行里有对应位置：
 
 | 发生的事 | 谁做的 | 对应二十行里的 |
 |---|---|---|
@@ -160,7 +160,7 @@ Qwen 的模板自动加了一段默认 system prompt；每一轮用 `<|im_start|
 挂了 LoRA 的线性层: ['down_proj', 'gate_proj', 'k_proj', 'o_proj', 'q_proj', 'up_proj', 'v_proj']
 ```
 
-七个线性层——与 L0 第三篇表里的七个一一对应。0.5B 模型上 $$r = 16$$ 是 1.78%（比 8B 的 0.52% 高，因为小模型 $$d$$ 小、$$r(m + n) / mn$$ 更大）。第三篇的账：训练状态只有 141 MB，冻结权重 2 GB（fp32）——这个模型在 CPU 上都能微调。
+七个线性层——与 L0 第三篇表里的七个一一对应。0.5B 模型上 $$r = 16$$ 是 1.78%（比 8B 的 0.52% 高，因为小模型 $$d$$ 小、$$r(m + n) / mn$$ 更大）。第四篇的账：训练状态只有 141 MB，冻结权重 2 GB（fp32）——这个模型在 CPU 上都能微调。
 
 ### 3. loss mask 的比例
 
@@ -194,7 +194,7 @@ Hugging Face 的库是当前算法工作的事实标准，也是**最好的教�
 
 | 想学 | 读 | 大约多长 |
 |---|---|---|
-| Llama 的结构 | `transformers/models/llama/modeling_llama.py`：`LlamaAttention`、`LlamaMLP`、`LlamaDecoderLayer`、`apply_rotary_pos_emb` | 核心几百行；每个类都是第二篇的 `nn.Module` |
+| Llama 的结构 | `transformers/models/llama/modeling_llama.py`：`LlamaAttention`、`LlamaMLP`、`LlamaDecoderLayer`、`apply_rotary_pos_emb` | 核心几百行；每个类都是第三篇的 `nn.Module` |
 | DPO 的 loss 到底怎么算 | `trl/trainer/dpo_trainer.py` 里 `dpo_loss`：把 L0 第六篇推出的公式变成十几行代码，还能看到 IPO、hinge 等变体各改了哪一行 | 几十行 |
 | GRPO 的优势怎么算、KL 怎么加 | `trl/trainer/grpo_trainer.py`：L0 第七篇的 $$(R - \text{mean}) / \text{std}$$ 与裁剪 | 几百行 |
 | LoRA 怎么挂上去 | `peft/tuners/lora/layer.py`：`Linear.forward` 里 `result += lora_B(lora_A(dropout(x))) * scaling` | 一行核心——L0 第三篇的 $$BAx$$ |
@@ -206,7 +206,7 @@ Hugging Face 的库是当前算法工作的事实标准，也是**最好的教�
 ## 七、本文小结
 
 - **Hub 上的三个文件**：`config.json`（结构超参数，能算出参数量）、`tokenizer.json`（词表、特殊 token、chat template）、`*.safetensors`（`state_dict` 的磁盘格式，可部分加载、不能执行代码）。
-- **六个库**各管一段：`transformers` 给模型与 tokenizer、`datasets` 给数据（Arrow）、`tokenizers` 训与编码词表、`peft` 挂 LoRA、`trl` 给后训练的 Trainer、`accelerate` 给多卡启动；对应第二篇的五个对象。
+- **六个库**各管一段：`transformers` 给模型与 tokenizer、`datasets` 给数据（Arrow）、`tokenizers` 训与编码词表、`peft` 挂 LoRA、`trl` 给后训练的 Trainer、`accelerate` 给多卡启动；对应第三篇的五个对象。
 - **六行组装 LoRA SFT**，背后的每件事——chat template、loss mask（−100）、packing、LoRA 挂载、只更新 $$A, B$$、bf16 / 裁剪 / 调度——都在二十行训练循环里有位置。
 - 0.5B 上跑通：七个线性层挂 LoRA、可训练 1.78%、训练状态 141 MB；一个 batch 85% 的 token 被 mask；20 步 loss 5.3 → 1.7，答案学会了但没学会停——**结束符要进 loss 且见够多次**。
 - **读源码是最快的路**：`modeling_llama.py`、`dpo_loss`、`grpo_trainer.py`、`peft` 的 `Linear.forward`、`LogitsProcessor`；从 `compute_loss` 往下追。库的接口会变，方法不变。

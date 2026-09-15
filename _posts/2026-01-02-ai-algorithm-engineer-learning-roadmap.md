@@ -17,7 +17,7 @@ catalog: true
 
 > **一个模型从数据到上线经过哪些阶段？每个阶段需要掌握什么？按什么顺序学？**
 
-这张地图描述的是**知识结构**：八层加一个横切，每层说明回答什么问题、包含哪些概念、为什么放在那个位置。每一层都已有对应的系列（共 51 篇、约 30 小时，另与 Infra 地图共享 01 / 03 / 04 三个系列），目录与配套代码在[本文末尾](#已有的文章与系列)。
+这张地图描述的是**知识结构**：八层加一个横切，每层说明回答什么问题、包含哪些概念、为什么放在那个位置。每一层都已有对应的系列（共 52 篇、约 31 小时，另与 Infra 地图共享 01 / 03 / 04 三个系列），目录与配套代码在[本文末尾](#已有的文章与系列)。
 
 | 需要什么 | 具体是什么 |
 |---|---|
@@ -88,7 +88,7 @@ flowchart TB
     L0["`**L0 数学**
 8 篇 ≈ 3h`"]
     L1["`**L1 工具箱**
-5 篇 ≈ 2h`"]
+6 篇 ≈ 2.5h`"]
     D["`**深入篇（共享，可略读）**
 01 Python 7 篇 ≈ 14h
 03 PyTorch 10 篇 ≈ 15h`"]
@@ -172,18 +172,18 @@ flowchart TB
 
 > **怎么把一个想法变成一次能跑的实验？**
 
-系列：[《算法工程师的工具箱：从一个想法到一次能跑的实验》](/tooling-for-ai-algorithm-engineers.html)（五篇）——科学计算栈 · PyTorch 使用层上下 · Hugging Face 生态 · GPU 直觉与实验管理，每篇配一个 CPU 可跑的脚本。Python 语言本身不在这里讲：Infra 地图的 [01 Python](/python-for-ai-infra.html) 与 [03 PyTorch](/deep-dive-into-pytorch.html) 两个系列是本层的**深入篇**，两张地图共享，紧接本系列发布。
+系列：[《算法工程师的工具箱：从一个想法到一次能跑的实验》](/tooling-for-ai-algorithm-engineers.html)（六篇）——Python 使用层 · 科学计算栈 · PyTorch 使用层上下 · Hugging Face 生态 · GPU 直觉与实验管理，每篇配一个 CPU 可跑的脚本，讲的都是"用法"。Infra 地图的 [01 Python](/python-for-ai-infra.html) 与 [03 PyTorch](/deep-dive-into-pytorch.html) 两个系列是本层的**深入篇**（机制与实现），两张地图共享，紧接本系列发布。
 
 | 工具 | 掌握到什么程度 | 说明 | 在哪一篇 |
 |---|---|---|---|
-| Python | 语法、面向对象、类型标注、装饰器、生成器、异常、多进程 / 多线程、asyncio 的基本用法 | 会写、会读别人的训练代码即可 | 本系列不讲；深入篇是 Infra 地图 [01 系列](/python-for-ai-infra.html)（两张地图共享） |
-| NumPy | ndarray、broadcasting、矩阵运算、轴与 reshape | PyTorch Tensor 的语义与它一致，先在 NumPy 上建立"形状直觉" | [第一篇](/numpy-pandas-matplotlib-for-algorithm-engineers.html) |
-| Pandas / Polars | DataFrame、清洗、聚合、join | 数据工程与评测结果分析的日常工具 | 第一篇 |
-| Matplotlib / Seaborn | 画 loss 曲线、分布、消融对比图 | 看曲线是判断训练是否正常的第一手段 | 第一篇 |
-| PyTorch（使用层） | Tensor、Autograd、`nn.Module`、Dataset / DataLoader、Optimizer、AMP 混合精度、DDP / FSDP 的启用方式 | 会用、知道每个 API 在做什么；深入篇是 Infra 地图 [03 系列](/deep-dive-into-pytorch.html)（两张地图共享） | [第二](/pytorch-in-use-five-objects-and-a-training-loop.html)、[三篇](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html) |
-| Hugging Face 生态 | `transformers`、`datasets`、`tokenizers`、`peft`、`trl`、`accelerate` | 当前算法工作的事实标准工具链；读它们的源码是学后训练最快的路 | [第四篇](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html) |
-| GPU 直觉 | GPU 有算力与带宽两个上限、显存分几块（权重 / 激活 / 优化器状态 / KV）、为什么 batch 大才快、CUDA kernel 与 stream 是什么 | 能看懂 profiler 输出、能解释 OOM 的来源即可；写 kernel 属于 Infra 地图 05 | [第五篇](/gpu-intuition-and-experiment-management.html) |
-| 实验工具 | W&B / MLflow / TensorBoard 记录实验；Hydra / 配置文件管理超参数；git 管代码与配置 | 实验方法论（横切）的物质基础 | 第五篇 |
+| Python（使用层） | 训练代码里的协议方法（`__getitem__`、`__call__`）、生成器、装饰器、上下文管理器、`**kwargs`、`dataclass`、多进程与 GIL、读 traceback | 会读别人的训练代码、能流式过一遍语料、能把实验写成脚本即可；机制在深入篇 Infra 地图 [01 系列](/python-for-ai-infra.html)（两张地图共享） | [第一篇](/python-in-use-for-algorithm-engineers.html) |
+| NumPy | ndarray、broadcasting、矩阵运算、轴与 reshape | PyTorch Tensor 的语义与它一致，先在 NumPy 上建立"形状直觉" | [第二篇](/numpy-pandas-matplotlib-for-algorithm-engineers.html) |
+| Pandas / Polars | DataFrame、清洗、聚合、join | 数据工程与评测结果分析的日常工具 | 第二篇 |
+| Matplotlib / Seaborn | 画 loss 曲线、分布、消融对比图 | 看曲线是判断训练是否正常的第一手段 | 第二篇 |
+| PyTorch（使用层） | Tensor、Autograd、`nn.Module`、Dataset / DataLoader、Optimizer、AMP 混合精度、DDP / FSDP 的启用方式 | 会用、知道每个 API 在做什么；深入篇是 Infra 地图 [03 系列](/deep-dive-into-pytorch.html)（两张地图共享） | [第三](/pytorch-in-use-five-objects-and-a-training-loop.html)、[四篇](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html) |
+| Hugging Face 生态 | `transformers`、`datasets`、`tokenizers`、`peft`、`trl`、`accelerate` | 当前算法工作的事实标准工具链；读它们的源码是学后训练最快的路 | [第五篇](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html) |
+| GPU 直觉 | GPU 有算力与带宽两个上限、显存分几块（权重 / 激活 / 优化器状态 / KV）、为什么 batch 大才快、CUDA kernel 与 stream 是什么 | 能看懂 profiler 输出、能解释 OOM 的来源即可；写 kernel 属于 Infra 地图 05 | [第六篇](/gpu-intuition-and-experiment-management.html) |
+| 实验工具 | W&B / MLflow / TensorBoard 记录实验；Hydra / 配置文件管理超参数；git 管代码与配置 | 实验方法论（横切）的物质基础 | 第六篇 |
 
 ### L2 机器学习基础
 
@@ -218,7 +218,7 @@ flowchart TB
 | 初始化与稳定性 | Xavier / Kaiming 初始化、梯度消失与爆炸、残差连接 | 残差连接是"深了也能训"的答案，Transformer 的每一层都靠它 | 第二篇 |
 | CNN | 卷积、池化、感受野（receptive field：一个输出位置能看到输入的多大范围）、feature map；LeNet → AlexNet → VGG → ResNet | 学到 ResNet 为止：残差是关键遗产；ViT 把卷积换成了 patch embedding，但 CNN 的直觉仍在多模态里有用 | [第五篇](/cnn-from-lenet-to-resnet-and-vit.html) |
 | RNN | 序列建模、长距离依赖、梯度在时间上的消失；RNN → LSTM → GRU；seq2seq 与 attention 的起源 | 理解 RNN 的失败才理解 attention 为什么赢：并行性与长依赖 | [第六篇](/rnn-lstm-and-the-birth-of-attention.html) |
-| 训练实践 | 混合精度（AMP）的用法、显存的四个去向、checkpoint 的保存与恢复、多卡 DDP 的启用 | 用法在 L1 工具箱[第三篇](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html)已讲；本层只关心它们对训练稳定性的影响；原理与大规模实现属于 Infra 地图 03、07 | L1 第三篇 |
+| 训练实践 | 混合精度（AMP）的用法、显存的四个去向、checkpoint 的保存与恢复、多卡 DDP 的启用 | 用法在 L1 工具箱[第四篇](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html)已讲；本层只关心它们对训练稳定性的影响；原理与大规模实现属于 Infra 地图 03、07 | L1 第三篇 |
 
 ### L4 LLM 核心
 
@@ -379,7 +379,7 @@ L0 的推导用纸笔即可，L6、L7 与横切暂无配套代码。
 | 预训练与数据 | L0 → L1 → L2 → L3 → L4（重 scaling law 与数据工程）→ 横切 | 门槛最高，算力决定一切；小规模实验设计是核心能力 |
 | 多模态 | L3（CNN、ViT）→ L4 → L7 → L5（多模态后训练） | 理解线与生成线可以只走一条 |
 | 推理效率（算法侧） | L0 → L4 → L6 → Infra 地图 08 | 与 Infra 交界最深的方向，通常需要读两张地图 |
-| 后端工程师转算法 | L1 第一篇（已有编程基础，补科学计算栈）→ L0 → L1 其余四篇 → L2 → L3 → L4 → 任选一个方向 | 数学是最大缺口，但按需补：L1 第二篇起的训练循环要用到 L0 第五篇的交叉熵、第七篇的梯度，所以 L0 插在 L1 中间；01 / 03 深入篇按需 |
+| 后端工程师转算法 | L1 第一、二篇（已有编程基础，第一篇的语法对照表快速翻过，重点补科学计算栈）→ L0 → L1 其余四篇 → L2 → L3 → L4 → 任选一个方向 | 数学是最大缺口，但按需补：L1 第三篇起的训练循环要用到 L0 第五篇的交叉熵、第七篇的梯度，所以 L0 插在 L1 中间；01 / 03 深入篇按需 |
 
 
 ## 边界与说明
