@@ -2240,6 +2240,48 @@ li[id^="fn:"] {
 .post-container .code-tabs:not(.code-tabs-ready) > .language-cpp::before {
   content: "C++";
 }
+.post-container .heading-anchor {
+  margin-left: 0.35em;
+  font-size: 0.8em;
+  font-weight: 400;
+  line-height: 1;
+  color: #8c959f;
+  text-decoration: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.post-container .heading-anchor::before {
+  content: "#";
+}
+.post-container .heading-anchor.copied::before {
+  content: "已复制";
+  font-size: 0.7em;
+  color: #2da44e;
+}
+.post-container .heading-anchor:hover,
+.post-container .heading-anchor:focus {
+  color: #0085a1;
+  text-decoration: none;
+  opacity: 1;
+}
+.post-container h1:hover .heading-anchor,
+.post-container h2:hover .heading-anchor,
+.post-container h3:hover .heading-anchor,
+.post-container h4:hover .heading-anchor,
+.post-container h5:hover .heading-anchor,
+.post-container h6:hover .heading-anchor {
+  opacity: 1;
+}
+@media (hover: none) {
+  .post-container .heading-anchor {
+    opacity: 0.4;
+  }
+}
+@media print {
+  .post-container .heading-anchor {
+    display: none;
+  }
+}
 .post-container .footnotes {
   margin-top: 40px;
   padding-top: 14px;

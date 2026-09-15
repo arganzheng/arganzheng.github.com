@@ -35,6 +35,8 @@
         document.body.removeChild(area);
         return ok ? Promise.resolve() : Promise.reject(new Error('copy failed'));
     }
+    // Shared with js/toc.js (heading anchors) so every copy button behaves alike.
+    window.BlogCopy = copy;
 
     function addButton(anchor, getText) {
         // js/figures.js may have moved our button into its corner strip (.fig-tools)

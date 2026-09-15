@@ -182,6 +182,21 @@
 	&:not(.code-tabs-ready) > .language-cpp::before { content: "C++"; }
 }
 
+// ---- hover `#` anchor on every heading (js/toc.js addAnchors); glyph is CSS
+// so the heading text stays untouched. Always faintly visible on touch screens.
+.post-container {
+	.heading-anchor {
+		margin-left: 0.35em; font-size: 0.8em; font-weight: 400; line-height: 1;
+		color: #8c959f; text-decoration: none; opacity: 0; transition: opacity 0.15s;
+		&::before { content: "#"; }
+		&.copied::before { content: "已复制"; font-size: 0.7em; color: #2da44e; }
+		&:hover, &:focus { color: #0085a1; text-decoration: none; opacity: 1; }
+	}
+	h1, h2, h3, h4, h5, h6 { &:hover .heading-anchor { opacity: 1; } }
+	@media (hover: none) { .heading-anchor { opacity: 0.4; } }
+	@media print { .heading-anchor { display: none; } }
+}
+
 // ---- footnote list at the end of a post: divider + label; posts whose
 // footnotes answer the opening questions ([^q1] → id fn:q1) get a Q&A label
 .post-container .footnotes {

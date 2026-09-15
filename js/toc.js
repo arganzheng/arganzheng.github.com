@@ -8,7 +8,8 @@
  *                the entry of the section being read highlighted (scroll spy).
  *
  * Heading ids come from kramdown (auto_ids); we only slug them ourselves when
- * an id is missing.
+ * an id is missing. Every heading also gets a hover `#` anchor (copies the
+ * section URL), whether or not the page has a TOC.
  */
 (function () {
     'use strict';
@@ -62,6 +63,37 @@
             headings.push({ level: parseInt(node.tagName.charAt(1), 10), text: text, node: node });
         }
         return headings;
+    }
+
+    /*
+     * GitHub-style `#` link at the end of every heading, shown on hover.
+     * Click copies the section URL and scrolls (with the navbar offset).
+     * The anchor has no text of its own (the glyph is CSS) so the heading's
+     * textContent — which the highlight comments anchor to — is unchanged.
+     */
+    function addAnchors(headings) {
+        headings.forEach(function (heading) {
+            var node = heading.node;
+            if (node.querySelector('.heading-anchor')) return;
+            var link = document.createElement('a');
+            link.className = 'heading-anchor';
+            link.href = '#' + node.id;
+            link.title = '复制本节链接';
+            link.setAttribute('aria-label', '本节链接');
+            link.addEventListener('click', function (e) {
+                if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+                e.preventDefault();
+                if (history.replaceState) history.replaceState(null, '', '#' + node.id);
+                scrollToHeading(node);
+                var copy = window.BlogCopy || (navigator.clipboard && navigator.clipboard.writeText.bind(navigator.clipboard));
+                if (!copy) return;
+                copy(location.href.split('#')[0] + '#' + node.id).then(function () {
+                    link.classList.add('copied');
+                    window.setTimeout(function () { link.classList.remove('copied'); }, 1500);
+                }, function () {});
+            });
+            node.appendChild(link);
+        });
     }
 
     function clampOutlineDepth(headings) {
@@ -311,11 +343,14 @@
         var container = document.querySelector('.post-container') || document.querySelector('article');
         if (!container) return;
 
+        var all = collectHeadings(container);
+        addAnchors(all);
+
         var markers = findMarkers(container);
         var panel = document.querySelector('.side-catalog');
         if (!markers.length && !panel) return;
 
-        var headings = clampOutlineDepth(collectHeadings(container));
+        var headings = clampOutlineDepth(all);
         markers.forEach(function (marker) {
             if (!headings.length) {
                 marker.parentNode.removeChild(marker);
