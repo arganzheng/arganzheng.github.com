@@ -160,3 +160,12 @@ recommends:
   - title: deeplearning.ai
     href: https://www.deeplearning.ai/
     desc: 吴恩达的课程与 The Batch 周报，跟进 AI 进展的低成本方式
+  - title: 宝玉的分享
+    href: https://baoyu.io/
+    desc: Claude Code、Codex 与 Agentic Engineering 的中文实践与思考
+  - title: Simon Willison
+    href: https://simonwillison.net/
+    desc: Agentic Engineering、Coding Agent、工具调用与 LLM 应用安全
+  - title: Lilian Weng
+    href: https://lilianweng.github.io/
+    desc: LLM Agent、AI 系统与应用研究的深度文章
