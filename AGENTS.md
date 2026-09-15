@@ -687,12 +687,24 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
 - Length is not a target; rigor and organisation are. Structure: (update note) →
   intro with the post's core question → `## 一、总览` (ending with 本文的章节安排)
   → body (`##` Chinese numerals, `###` Arabic) → `## N、本文小结` →
-  **folded 「核心问题的答案」** → `## N+1、自测` → `## 下一篇`.
-  - The bold core question in the intro must be answered at the end, inside
-    `<details markdown="1"><summary><b>核心问题的答案</b></summary> … </details>`
-    placed right after the 小结 bullets/table (answer each sub-question in order,
-    a short paragraph or a list). All 142 body posts of the algorithm and Infra
-    series (as of 2026-09) carry it; new posts must too.
+  `## N+1、自测` → `## 下一篇` → `[^qN]:` footnote definitions.
+  - **Opening questions are answered in footnotes** (`[^q0]`, `[^q1]`, …, in
+    reading order). Every question in the intro gets its own marker — the bold
+    core question is split at each 「？」 (marker right after the 「？」, inside
+    the `**…**`), and each 「为什么……？」 bullet gets one at line end. The
+    definitions go after 「下一篇」 (kramdown renders them at the very end
+    anyway): a checkable answer of one to several sentences, numbers included,
+    ending with 「详见[第 N 章](#anchor)」 links to the chapters that carry the
+    detail (anchor = the `<h2 id>` kramdown generates; check `_site`). A post
+    with a chapter titled 「回答核心问题」 must match that chapter's numbers.
+    The `q` prefix matters: `js/inline-popups.js` skips `fn:q…` footnotes — no
+    hover card, click only jumps to the bottom (Q&A is meant to be read after
+    the article; hover cards are for explanatory footnotes) — and
+    `.footnotes:has(li[id^="fn:q"])::before` labels the list 「文首问题的答案」
+    instead of 「脚注」 (styles at the end of `less/extras.less`, hand-appended to
+    both CSS bundles). The former folded 「核心问题的答案」 `<details>` block after
+    小结 is gone (2026-09); do not add it to new posts. All 142 body posts of the
+    algorithm and Infra series carry the footnotes.
   - 自测: 3–5 questions per body post (overview posts have none), each with a
     checkable answer (a number, a shape, a yes/no with one reason) — no open
     questions. Every answer sits in its own
@@ -700,8 +712,7 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
     the question (a list item's continuation, indented 3 spaces), so the reader
     can try first. `markdown="1"` is required for KaTeX / lists inside. Styles
     for `details` live at the end of `less/extras.less` (hand-appended to both
-    CSS bundles). Roll-out order agreed 2026-09-14: algorithm-side posts first
-    (L0–L7 + 04), Infra series later.
+    CSS bundles).
 - Series are independent: no links to posts of other series.
 - `{%`/`{{` inside code (PTX asm, printf formats, regexes) must be wrapped in
   `{% raw %}` … `{% endraw %}` or the Liquid pass fails the build.
