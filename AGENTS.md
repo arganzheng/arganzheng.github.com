@@ -30,6 +30,16 @@ source for reference, then append the corresponding compiled CSS to the
 END of both `css/argan-blog.css` and `css/argan-blog.min.css` by hand
 (compile a fragment with `node_modules/.bin/lessc` if helpful).
 
+**Verifying a style/JS change means checking `_site/`, not the source.** The
+browser (local `jekyll serve` and the user's eyes) reads `_site/css/*.css`;
+that copy is only refreshed by a *successful* `jekyll build`. If the build
+aborts (typically a `Liquid Exception` from an unrelated draft post), `_site`
+silently keeps the previous output and the edit looks like it "didn't work".
+Before reporting a CSS change as done: run `jekyll build`, confirm it printed
+`done in …`, then `grep` the changed selector in `_site/css/argan-blog.min.css`
+(or `curl` it from the local server). Never conclude from `lessc` compiling or
+from the source file alone.
+
 ## Deploy
 
 `.github/workflows/deploy.yml` builds with the Gemfile's Jekyll (4.4) and
@@ -182,16 +192,12 @@ Pages has `https_enforced` on.
   affiliate links (`a.vglnk`) into article text.
 - `js/annotations.js` — comments, reader highlight comments ("划线评论"), likes /
   votes and page views, see below.
-- `js/article-editor.js` — author-only Markdown source editor on ordinary `post`
-  pages. It reads/updates `_posts/*.md` through the annotations Worker; it never
-  converts rendered HTML back to Markdown. The Worker verifies the GitHub viewer
-  against `AUTHOR_LOGIN` and uses a GitHub App Contents permission to commit to
-  `master` with a blob-SHA conflict check. The App needs Contents: Read and write
-  in addition to the Issues permission used by `/issues`. See
-  `tools/annotations-worker/README.md`.
 - `_includes/post-actions.html` + `js/share.js` (+ `less/share.less`) — action bar
-  「♥ 点赞 N · 分享 · [复制为公众号格式]」 right above `comments.html` in all
-  three post layouts. **「点赞」 is anonymous**: worker `GET/POST /votes` keeps
+  「♥ 点赞 N · 分享 · [复制为公众号格式] · [编辑文章]」 right above
+  `comments.html` (the GitHub edit link appears only for the author on the
+  post-like layouts that include this bar). `slides.html` has its own direct
+  「编辑幻灯片」 link because it has no comments/action bar. **「点赞」 is
+  anonymous**: worker `GET/POST /votes` keeps
   `votes(path, up, down)` in D1 (only `up` is used now — no downvote), the
   browser remembers its choice in `localStorage["vote:<path>"]` and sends the
   transition `{path, dir, prev}`; localhost never posts. No GitHub login (the
@@ -747,8 +753,13 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
     for `details` live at the end of `less/extras.less` (hand-appended to both
     CSS bundles).
 - Series are independent: no links to posts of other series.
-- `{%`/`{{` inside code (PTX asm, printf formats, regexes) must be wrapped in
-  `{% raw %}` … `{% endraw %}` or the Liquid pass fails the build.
+- `{%`/`{{` inside code (PTX asm, printf formats, regexes, **Java / C++ nested
+  array initializers like `int[][] DIRS = {{1, 0}, {-1, 0}}`**, Go/Jinja
+  templates) must be wrapped in `{% raw %}` … `{% endraw %}` or the Liquid pass
+  fails the build. Inside a `<div class="code-tabs" markdown="1">` put the
+  `raw` pair around the offending fenced block only (`raw` cannot nest). Since
+  one bad post aborts the *whole* build, grep new posts for `{{` before
+  building: `rg -n '\{\{|\{%' _posts/<new>.md`.
 - **图文并茂，一图胜千言.** Posts must not be walls of text. Whenever a
   concept is about *structure, flow, layout, or state over time* (architecture,
   execution hierarchy, memory layout, timelines, decision trees, algorithm

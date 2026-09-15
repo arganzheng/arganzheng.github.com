@@ -264,13 +264,20 @@
     loadStats(strips);
   }
 
-  // ------------------------------------------------- author: WeChat export
+  // ------------------------------------------------- author: export / edit
   var exportBtn = document.querySelector('.post-actions .pa-export');
-  if (exportBtn) {
-    var bar = exportBtn.closest('.post-actions'), author = bar.getAttribute('data-author') || '';
-    var onViewer = function (v) { exportBtn.hidden = !(v && author && v.login === author); };
+  var editBtn = document.querySelector('.post-actions .pa-edit');
+  if (exportBtn || editBtn) {
+    var authorBtn = exportBtn || editBtn;
+    var bar = authorBtn.closest('.post-actions'), author = bar.getAttribute('data-author') || '';
+    var onViewer = function (v) {
+      var allowed = !(v && author && v.login === author);
+      if (exportBtn) exportBtn.hidden = allowed;
+      if (editBtn) editBtn.hidden = allowed;
+    };
     document.addEventListener('blog:viewer', function (e) { onViewer(e.detail); });
     if (window.BlogAnnotations && window.BlogAnnotations.viewer) onViewer(window.BlogAnnotations.viewer());
+    if (!exportBtn) return;
     exportBtn.addEventListener('click', function () {
       exportBtn.disabled = true;
       var d = dataOf(bar);

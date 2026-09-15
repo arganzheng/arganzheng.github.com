@@ -12,8 +12,6 @@
  *   POST /token        { session }             -> { token }   (giscus /api/oauth/token)
  *   POST /discussions  { input }               -> { id }      (giscus /api/discussions, Authorization passthrough)
  *   POST /issues       { title, body }         -> { number, url }  (optional, see below)
- *   GET  /article?path=_posts/YYYY-MM-DD-slug.md -> { path, sha, content } (author only)
- *   PUT  /article       { path, sha, content } -> { path, sha, commit } (author only)
  *   GET  /views?path=/slug.html                -> { views }       (optional, needs the D1 binding)
  *   POST /views        { path }                -> { views }       increments, then returns the count
  *   GET  /views/top?limit=50[&order=recent]   -> { rows: [{ path, views, updated_at }] }  for the author's dashboard
@@ -42,9 +40,8 @@
  * giscus GitHub App, whose only permission is Discussions: read & write, so it
  * cannot open issues. The worker therefore verifies the reader (GET /user with
  * their token) and files the issue itself *as our own GitHub App* (Issues: read
- * & write on this repo), crediting the reader in the body. The author editor
- * also uses the App's Contents: read/write permission. App auth never expires:
- * the worker signs a 10-minute RS256 JWT with the App's private key
+ * & write on this repo), crediting the reader in the body. App auth never
+ * expires: the worker signs a 10-minute RS256 JWT with the App's private key
  * (GITHUB_APP_PRIVATE_KEY secret, PEM — PKCS#1 as downloaded from GitHub or
  * PKCS#8 both work) and trades it for a 1-hour installation token, cached in
  * the isolate. Needs GITHUB_APP_ID (var) and the App installed on the repo.
@@ -71,7 +68,6 @@ export default {
       if (request.method === 'POST' && url.pathname === '/token') return await relay(`${GISCUS}/oauth/token`, request, cors);
       if (request.method === 'POST' && url.pathname === '/discussions') return await createDiscussion(request, env, cors);
       if (request.method === 'POST' && url.pathname === '/issues') return await createIssue(request, env, cors);
-      if (url.pathname === '/article' && (request.method === 'GET' || request.method === 'PUT')) return await article(request, url, env, cors);
       if (url.pathname === '/views' && (request.method === 'GET' || request.method === 'POST')) return await views(request, url, env, cors);
       if (url.pathname === '/views/top' && request.method === 'GET') return await viewsTop(url, env, cors);
       if (url.pathname === '/views/daily' && request.method === 'GET') return await viewsDaily(url, env, cors);
@@ -225,77 +221,6 @@ async function createIssue(request, env, cors) {
   const data = await r.json();
   if (!r.ok) return json({ error: data.message || `create issue: HTTP ${r.status}` }, r.status === 403 ? 502 : r.status, cors);
   return json({ number: data.number, url: data.html_url }, 201, { ...cors, 'Cache-Control': 'no-store' });
-}
-
-// ---- author article source (GET/PUT /article) ------------------------------
-const ARTICLE_PATH = /^_posts\/\d{4}-\d{2}-\d{2}-[A-Za-z0-9._-]+\.md$/;
-const ARTICLE_MAX = 2 * 1024 * 1024;
-
-async function article(request, url, env, cors) {
-  if (!env.GITHUB_APP_PRIVATE_KEY || !env.GITHUB_APP_ID) return json({ error: '文章编辑未启用（Worker 未配置 GitHub App）' }, 501, cors);
-  const user = await authorUser(request, env, cors);
-  if (user instanceof Response) return user;
-
-  const input = request.method === 'GET' ? { path: url.searchParams.get('path') } : await request.json().catch(() => ({}));
-  const path = input && input.path;
-  if (typeof path !== 'string' || !ARTICLE_PATH.test(path)) return json({ error: '只允许编辑 _posts/ 下的普通 Markdown 文章' }, 400, cors);
-
-  const endpoint = `${GITHUB}/repos/${env.REPO}/contents/${encodeURI(path)}`;
-  const appHeaders = githubHeaders(await installationToken(env));
-  if (request.method === 'GET') {
-    const r = await fetch(`${endpoint}?ref=master`, { headers: appHeaders });
-    const data = await r.json();
-    if (!r.ok) return json({ error: data.message || `读取文章失败：HTTP ${r.status}` }, r.status === 404 ? 404 : 502, cors);
-    if (data.type !== 'file' || typeof data.content !== 'string') return json({ error: '文章源码格式异常' }, 502, cors);
-    const content = decodeBase64(data.content);
-    if (content.length > ARTICLE_MAX) return json({ error: '文章源码超过编辑器限制' }, 413, cors);
-    return json({ path, sha: data.sha, content }, 200, { ...cors, 'Cache-Control': 'no-store' });
-  }
-
-  const content = input && input.content;
-  const sha = input && input.sha;
-  if (typeof content !== 'string' || typeof sha !== 'string' || !sha) return json({ error: '`content` 与当前 `sha` 均为必填项' }, 400, cors);
-  if (content.length > ARTICLE_MAX) return json({ error: '文章源码超过编辑器限制' }, 413, cors);
-  const r = await fetch(endpoint, {
-    method: 'PUT',
-    headers: appHeaders,
-    body: JSON.stringify({
-      message: `文章编辑：${path.replace(/^_posts\/\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '')}`,
-      content: encodeBase64(content),
-      sha,
-      branch: 'master',
-    }),
-  });
-  const data = await r.json();
-  if (!r.ok) {
-    const conflict = r.status === 409 || r.status === 422;
-    return json({ error: conflict ? '文章源码已被其他提交更新，请重新加载后再保存' : (data.message || `保存文章失败：HTTP ${r.status}`), conflict }, conflict ? 409 : 502, cors);
-  }
-  return json({ path, sha: data.content && data.content.sha, commit: data.commit && data.commit.html_url }, 200, { ...cors, 'Cache-Control': 'no-store' });
-}
-
-async function authorUser(request, env, cors) {
-  const auth = request.headers.get('Authorization') || '';
-  const userToken = auth.replace(/^Bearer\s+/i, '');
-  if (!userToken) return json({ error: '需要登录 GitHub' }, 401, cors);
-  const who = await fetch(`${GITHUB}/user`, { headers: githubHeaders(userToken) });
-  if (who.status === 401) return json({ error: '登录已过期，请重新登录 GitHub' }, 401, cors);
-  if (!who.ok) return json({ error: `GitHub /user: HTTP ${who.status}` }, 502, cors);
-  const user = await who.json();
-  if (!env.AUTHOR_LOGIN || user.login !== env.AUTHOR_LOGIN) return json({ error: '只有博客作者可以编辑文章' }, 403, cors);
-  return user;
-}
-
-function decodeBase64(value) {
-  const binary = atob(value.replace(/\s/g, ''));
-  return new TextDecoder().decode(Uint8Array.from(binary, (c) => c.charCodeAt(0)));
-}
-
-function encodeBase64(value) {
-  const bytes = new TextEncoder().encode(value);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(binary);
 }
 
 // ---- page views (D1) -------------------------------------------------------
@@ -628,7 +553,7 @@ async function installationToken(env) {
   const tr = await fetch(`${GITHUB}/app/installations/${installationId}/access_tokens`, {
     method: 'POST',
     headers: appHeaders,
-    body: JSON.stringify({ permissions: { issues: 'write', contents: 'write' } }),
+    body: JSON.stringify({ permissions: { issues: 'write' } }),
   });
   const data = await tr.json();
   if (!tr.ok) throw new Error(`installation token: ${data.message || tr.status}`);
