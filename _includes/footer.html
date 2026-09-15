@@ -94,10 +94,21 @@
 </footer>
 
 {% assign v = site.time | date: '%Y%m%d%H%M' %}
-<!-- Theme behaviour (responsive tables / embeds, navbar on scroll, side catalog pin).
-     No jQuery / Bootstrap JS on this site any more: the navbar toggle is in nav.html,
-     everything else is plain DOM. Bootstrap 3 *CSS* stays. -->
-<script src="{{ "/js/argan-blog.min.js" | prepend: site.baseurl }}?v={{ v }}"></script>
+<!-- One bundle (tools/build-js.sh -> js/blog.min.js, `npm run js`), in this order:
+     argan-blog.js   theme behaviour: responsive tables / embeds, navbar on scroll, side catalog pin
+                     (no jQuery / Bootstrap JS on this site any more: the navbar toggle is in nav.html,
+                     everything else is plain DOM; Bootstrap 3 *CSS* stays)
+     toc.js          Markdown [TOC] + floating side catalog
+     diagram-zoom.js click-to-zoom for Mermaid diagrams and images
+     code-copy.js    copy button on code blocks, diagrams and tables
+     code-tabs.js    Python / Java … tabs on grouped code blocks (.code-tabs)
+     figures.js      captions + feedback handle on images and diagrams (before annotations.js: the caption is what gets underlined)
+     code-tokens.js  member-access colouring that rouge cannot express
+     inline-popups.js inline popups, popup footnotes, external link styling
+     vendor/approx-string-match.js
+     annotations.js  comments & highlight comments (划线评论), rendered from the post's GitHub Discussion
+     share.js        action bar, share menu, .post-stats strip -->
+<script src="{{ "/js/blog.min.js" | prepend: site.baseurl }}?v={{ v }}"></script>
 
 <!-- WeChat QR popover: toggle on icon click, close on any outside click -->
 <script>
@@ -111,31 +122,6 @@
     });
 </script>
 
-<!-- Markdown [TOC] support -->
-<script src="{{ "/js/toc.js" | prepend: site.baseurl }}?v={{ v }}"></script>
-
-<!-- Click-to-zoom for Mermaid diagrams -->
-<script src="{{ "/js/diagram-zoom.js" | prepend: site.baseurl }}?v={{ v }}"></script>
-
-<!-- Copy button on code blocks and diagrams -->
-<script src="{{ "/js/code-copy.js" | prepend: site.baseurl }}?v={{ v }}"></script>
-
-<!-- Python / Java … tabs on grouped code blocks (.code-tabs) -->
-<script src="{{ "/js/code-tabs.js" | prepend: site.baseurl }}?v={{ v }}"></script>
-
-<!-- Captions + feedback handle on images and diagrams (before annotations.js: the caption is what gets underlined) -->
-<script src="{{ "/js/figures.js" | prepend: site.baseurl }}?v={{ v }}"></script>
-
-<!-- Member-access colouring that rouge cannot express -->
-<script src="{{ "/js/code-tokens.js" | prepend: site.baseurl }}?v={{ v }}"></script>
-
-<!-- Inline popups, popup footnotes, and external link styling -->
-<script src="{{ "/js/inline-popups.js" | prepend: site.baseurl }}?v={{ v }}"></script>
-
-<!-- Comments & highlight comments (划线评论): rendered from the post's GitHub Discussion -->
-<script src="{{ "/js/vendor/approx-string-match.js" | prepend: site.baseurl }}?v={{ v }}"></script>
-<script src="{{ "/js/annotations.js" | prepend: site.baseurl }}?v={{ v }}"></script>
-<script src="{{ "/js/share.js" | prepend: site.baseurl }}?v={{ v }}"></script>
 <script>
 // GitHub star count in the footer (anonymous REST, 60 req/h is plenty; cached a day per browser).
 (function () {
