@@ -16,14 +16,22 @@ FENCE = re.compile(r'^\s*(```|~~~)')
 LIQUID = re.compile(r'\{\{|\{%')
 RAW_OPEN, RAW_CLOSE = re.compile(r'\{%-?\s*raw\s*-?%\}'), re.compile(r'\{%-?\s*endraw\s*-?%\}')
 
+INLINE_CODE = re.compile(r'`[^`\n]*`')
+RAW_SPAN = re.compile(r'\{%-?\s*raw\s*-?%\}.*?\{%-?\s*endraw\s*-?%\}', re.S)
+
 def scan(path):
     hits, in_fence, in_raw = [], False, False
     for n, line in enumerate(open(path, encoding='utf-8'), 1):
-        if RAW_OPEN.search(line): in_raw = True
-        if RAW_CLOSE.search(line): in_raw = False; continue
+        if RAW_OPEN.search(line) and not RAW_CLOSE.search(line): in_raw = True
+        if RAW_CLOSE.search(line) and not RAW_OPEN.search(line): in_raw = False; continue
         if FENCE.match(line): in_fence = not in_fence; continue
-        if in_fence and not in_raw and LIQUID.search(line):
-            hits.append((n, line.rstrip()[:100]))
+        if in_raw: continue
+        if in_fence:
+            if LIQUID.search(line): hits.append((n, line.rstrip()[:100]))
+        else:
+            # inline `code` spans: `{{` inside backticks is just as fatal as in a fence
+            for code in INLINE_CODE.findall(RAW_SPAN.sub('', line)):
+                if LIQUID.search(code): hits.append((n, code[:100])); break
     return hits
 
 files = sys.argv[1:] or sorted(glob.glob(os.path.join(ROOT, '_posts/*.md')) + glob.glob(os.path.join(ROOT, '_drafts/*.md')) + glob.glob(os.path.join(ROOT, 'slides/*.md')))

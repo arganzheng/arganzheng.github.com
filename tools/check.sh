@@ -8,12 +8,13 @@
 # Installed as the git pre-push hook by `npm run hooks` (core.hooksPath=.githooks).
 #
 # 1. Liquid-looking {{ / {% inside code blocks not wrapped in {% raw %}
-#    (one such draft aborts the whole build, and _site silently stays stale)
+#    (one such draft aborts the whole build, and _site silently stays stale under jekyll serve)
 # 2. css/argan-blog{,.min}.css are exactly what less/ compiles to (npm run css)
 # 3. js/blog.min.js is exactly what js/*.js bundle to (npm run js)
-# 4. jekyll build --future --strict_front_matter (must print "done in")
+# 4. jekyll build --future --unpublished --strict_front_matter -> _site-check (must print "done in";
+#    unpublished too, so a hidden post cannot park a Liquid error that bites when it is published)
 # 5. Font Awesome subset covers every icon in use
-# 6. lychee offline: every internal link / image / #fragment in _site resolves
+# 6. lychee offline: every internal link / image / #fragment in _site-check resolves
 # 7. git diff --check (whitespace errors)
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -32,10 +33,10 @@ tools/build-css.sh --check >/dev/null 2>&1 && ok "css/argan-blog{,.min}.css matc
 step "js/blog.min.js is built from js/*.js"
 tools/build-js.sh --check >/dev/null 2>&1 && ok "js/blog.min.js matches its sources" || bad "js/blog.min.js is stale — run: npm run js"
 
-step "jekyll build --future --strict_front_matter"
-out=$(jekyll build --future --strict_front_matter 2>&1)
+step "jekyll build --future --unpublished --strict_front_matter"
+out=$(jekyll build --future --unpublished --strict_front_matter -d _site-check 2>&1)
 if printf '%s' "$out" | grep -q 'done in'; then ok "$(printf '%s' "$out" | grep -o 'done in .*')"
-else printf '%s\n' "$out" | tail -20; bad "jekyll build did not finish — _site is stale"; fi
+else printf '%s\n' "$out" | tail -20; bad "jekyll build did not finish"; fi
 
 step "Font Awesome subset"
 python3 tools/fa-subset.py --check >/dev/null 2>&1 && ok "subset covers every icon" || bad "icons missing from subset — run tools/fa-subset.py"
@@ -44,7 +45,7 @@ step "Internal links (lychee --offline)"
 if [ "${SKIP_LINKS:-}" = 1 ]; then echo "skipped (SKIP_LINKS=1)"
 elif ! command -v lychee >/dev/null; then echo "skipped (brew install lychee)"
 else
-  lout=$(lychee --offline --root-dir "$PWD/_site" --include-fragments --exclude '/tags/?#' --exclude-path _site/slides --no-progress '_site/**/*.html' 2>&1)
+  lout=$(lychee --offline --root-dir "$PWD/_site-check" --include-fragments --exclude '/tags/?#' --exclude-path _site-check/slides --no-progress '_site-check/**/*.html' 2>&1)
   if [ $? -eq 0 ]; then ok "$(printf '%s' "$lout" | grep -E '^[0-9]+ Total' || echo 'all internal links resolve')"
   else printf '%s\n' "$lout" | grep -vE '^\s*$' | tail -30; bad "broken internal links"; fi
 fi

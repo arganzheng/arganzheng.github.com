@@ -58,11 +58,15 @@ from the source file alone.
 ### `tools/check.sh` (= `npm run check` = the pre-push hook)
 
 Mirrors `.github/workflows/check.yml` so a bad push is caught locally
-(~20 s): `tools/liquid-scan.py` (unescaped `{{` / `{%` inside fenced code in
-any post / draft / slide), `css/` and `js/blog.min.js` up to date with their
-sources, `jekyll build --future --strict_front_matter` printed `done in`,
-`tools/fa-subset.py --check`, lychee offline over `_site` (skipped when lychee
-is not installed, or `SKIP_LINKS=1`), `git diff --check`. Bypass once with
+(~20 s): `tools/liquid-scan.py` (unescaped `{{` / `{%` inside fenced *or
+inline* code in any post / draft / slide — inline backticks bite exactly the
+same way), `css/` and `js/blog.min.js` up to date with their sources,
+`jekyll build --future --unpublished --strict_front_matter -d _site-check`
+printed `done in` (unpublished too, so a `published: false` post cannot park
+a Liquid error or a dead anchor that surfaces the day it is published;
+`_site-check/` is gitignored and leaves the `jekyll serve` `_site/` alone),
+`tools/fa-subset.py --check`, lychee offline over `_site-check` (skipped when
+lychee is not installed, or `SKIP_LINKS=1`), `git diff --check`. Bypass once with
 `git push --no-verify`. `tools/check-render.cjs` (headless Chrome) is not part
 of it — run it by hand for posts with diagrams.
 

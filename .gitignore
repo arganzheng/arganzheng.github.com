@@ -10,3 +10,4 @@ npm-debug.log
 *.sh
 .wrangler
 !tools/*.sh
+_site-check
