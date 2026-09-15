@@ -80,18 +80,42 @@ catalog: true
 
 ## 系列的整体主线
 
-五篇按"一次实验从数据到结论"的顺序推进：
+五篇按"一次实验从数据到结论"的顺序推进——左列是实验的一步，右列是那一步用到的工具与讲它的篇：
 
-```text
-第一篇：科学计算栈 —— NumPy 的形状与广播（写一个 attention），Pandas 做错误分析，Matplotlib 看曲线
-        ↓
-第二篇：PyTorch 使用层（上）—— 五个对象，二十行训练循环，Autograd 的三件事，训一个小 Transformer
-        ↓
-第三篇：PyTorch 使用层（下）—— 混合精度，显存的账（16 字节 / 参数），激活与 checkpointing，DDP / FSDP 启用
-        ↓
-第四篇：Hugging Face 生态 —— 六个库各管什么，六行 LoRA SFT，Hub 三个文件，为什么读源码是最快的路
-        ↓
-第五篇：GPU 直觉与实验管理 —— 两个上限，四块显存，读 profiler，让三个月前的结果能复现
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 320}}}%%
+flowchart TB
+    S1["`**准备数据、写出模型的数学**
+形状与广播 · 手写一个 attention`"]
+    S2["`**把模型训起来**
+五个对象 · 二十行训练循环 · 训一个小 Transformer`"]
+    S3["`**算它要多少资源**
+混合精度 · 16 字节 / 参数 · 激活 · DDP / FSDP`"]
+    S4["`**换成真实的模型与数据**
+六个库 · 六行 LoRA SFT · Hub 上的三个文件`"]
+    S5["`**判断快慢、留下记录**
+算力与带宽两个上限 · 四块显存 · profiler · 可复现`"]
+    S6["`**看结果、下结论**
+Pandas 错误分析 · Matplotlib 多 seed 曲线`"]
+    S1 --> S2 --> S3 --> S4 --> S5 --> S6
+    S6 -. "改数据或配方，再来一轮" .-> S1
+
+    T1["第一篇：科学计算栈<br/>NumPy · Pandas · Matplotlib"]
+    T2["第二篇：PyTorch 使用层（上）"]
+    T3["第三篇：PyTorch 使用层（下）"]
+    T4["第四篇：Hugging Face 生态"]
+    T5["第五篇：GPU 直觉与实验管理"]
+    T1 --- S1
+    T2 --- S2
+    T3 --- S3
+    T4 --- S4
+    T5 --- S5
+    T1 --- S6
+
+    classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
+    classDef post fill:#f4f8ff,stroke:#5b8def,stroke-width:1px,color:#222
+    class S1,S2,S3,S4,S5,S6 step
+    class T1,T2,T3,T4,T5 post
 ```
 
 前三篇是**框架**：先在 NumPy 上建立形状直觉，再把它搬到 PyTorch 上写训练循环，再算这个循环要多少资源。第四篇是**生态**：真实的模型与数据从哪来、微调怎么组装。第五篇是**硬件与管理**：为什么快为什么慢、怎么让实验可追溯。

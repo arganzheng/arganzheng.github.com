@@ -205,6 +205,8 @@ for step, batch in enumerate(loader):
     if step % 10 == 0: log({"loss": loss.item(), "lr": sched.get_last_lr()[0]})
 ```
 
+它比教程里常见的循环长。教程的最小版只有五行——前向、算 loss、`backward`、`step`、`zero_grad`——那是[第一章](#一总览)那个环的骨架，能跑 MNIST。多出来的四样是 LLM 训练的标配，少一样迟早出事：`autocast`（不开，显存与速度差一倍多）、`.float()` 与 `ignore_index`（不加，softmax 在 bf16 上丢精度、prompt 也被当成学习目标）、`clip_grad_norm_`（不裁，某一步的坏梯度让 loss 冲上去回不来）、学习率调度（不 warmup，前几步就可能发散）。所以**这二十行是正常的、也是够用的**：真实训练代码只会在它外面再包日志、评估、checkpoint 与分布式，不会在里面再多什么——那层外壳就是下面第 3 小节的 `Trainer`。
+
 ### 2. 逐行解释
 
 | 行 | 做什么 | 对应的概念 |

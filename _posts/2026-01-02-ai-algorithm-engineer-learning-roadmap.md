@@ -17,7 +17,7 @@ catalog: true
 
 > **一个模型从数据到上线经过哪些阶段？每个阶段需要掌握什么？按什么顺序学？**
 
-这张地图描述的是**知识结构**：八层加一个横切，每层说明回答什么问题、包含哪些概念、为什么放在那个位置。每一层都已有对应的系列（共 45 篇、约 30 小时，另与 Infra 地图共享 01 / 03 / 04 三个系列），目录与配套代码在[本文末尾](#已有的文章与系列)。
+这张地图描述的是**知识结构**：八层加一个横切，每层说明回答什么问题、包含哪些概念、为什么放在那个位置。每一层都已有对应的系列（共 51 篇、约 30 小时，另与 Infra 地图共享 01 / 03 / 04 三个系列），目录与配套代码在[本文末尾](#已有的文章与系列)。
 
 | 需要什么 | 具体是什么 |
 |---|---|
@@ -73,6 +73,8 @@ benchmark · LLM-as-judge · Arena
 ```
 
 两个回边是这张图的重点：**评测不达标回到数据或配方**，是算法工程师日常工作的主循环；**线上数据回流到数据工程**，是模型迭代的外循环。一个只会"跑一次训练"的人不是算法工程师；算法工程师的能力体现在这两个循环里——知道评测结果差在哪一类能力、该改数据还是改配方、改了之后怎么用最小的实验验证。
+
+图上只有最后一格标成了 Infra 的范围，但**每一格都站在 Infra 之上**：数据工程要有集群与存储跑去重和过滤，预训练与 RL 要有并行训练框架、通信与容错，评测与 SFT 要有推理引擎批量出结果——这些没有画进去，是为了让图只回答"算法工程师在每个阶段做什么决定"这一个问题。边界的规则是：算法工程师**决定**在哪个阶段做什么（配比、配方、奖励、指标），Infra 工程师让这个决定**在给定的硬件预算内跑得快、跑得稳**；两者在哪些具体问题上交接，见文末[「与 AI-Infra 地图的关系」](#与-ai-infra-地图的关系)一节的对照表。
 
 这张图是生产流程，不是学习顺序。按它从"数据工程"开始学，第一天就要面对"什么数据对模型好"这个整个领域最难的问题。
 
@@ -214,7 +216,7 @@ flowchart TB
 | 正则化与归一化 | Dropout、weight decay、BatchNorm、LayerNorm、RMSNorm、Pre-Norm 与 Post-Norm | LayerNorm / RMSNorm 与 Pre-Norm 是 Transformer 的标准件；BatchNorm 为什么在序列模型里不好用 | [第二](/initialization-normalization-and-residual.html)、[四篇](/regularization-and-generalization.html) |
 | 优化器 | SGD、Momentum、Adam / AdamW、学习率调度（warmup、cosine、WSD）、梯度裁剪、梯度累积 | AdamW 的两个矩是每参数 8 字节状态的来源；warmup 是训练稳定性的第一道防线 | [第三篇](/optimizers-from-sgd-to-adamw.html) |
 | 初始化与稳定性 | Xavier / Kaiming 初始化、梯度消失与爆炸、残差连接 | 残差连接是"深了也能训"的答案，Transformer 的每一层都靠它 | 第二篇 |
-| CNN | 卷积、池化、感受野、feature map；LeNet → AlexNet → VGG → ResNet | 学到 ResNet 为止：残差是关键遗产；ViT 把卷积换成了 patch embedding，但 CNN 的直觉仍在多模态里有用 | [第五篇](/cnn-from-lenet-to-resnet-and-vit.html) |
+| CNN | 卷积、池化、感受野（receptive field：一个输出位置能看到输入的多大范围）、feature map；LeNet → AlexNet → VGG → ResNet | 学到 ResNet 为止：残差是关键遗产；ViT 把卷积换成了 patch embedding，但 CNN 的直觉仍在多模态里有用 | [第五篇](/cnn-from-lenet-to-resnet-and-vit.html) |
 | RNN | 序列建模、长距离依赖、梯度在时间上的消失；RNN → LSTM → GRU；seq2seq 与 attention 的起源 | 理解 RNN 的失败才理解 attention 为什么赢：并行性与长依赖 | [第六篇](/rnn-lstm-and-the-birth-of-attention.html) |
 | 训练实践 | 混合精度（AMP）的用法、显存的四个去向、checkpoint 的保存与恢复、多卡 DDP 的启用 | 用法在 L1 工具箱[第三篇](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html)已讲；本层只关心它们对训练稳定性的影响；原理与大规模实现属于 Infra 地图 03、07 | L1 第三篇 |
 

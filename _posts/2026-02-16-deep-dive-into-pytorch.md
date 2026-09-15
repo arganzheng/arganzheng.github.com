@@ -114,29 +114,6 @@ CPU / CUDA / Meta Kernel
     → 编译执行 → 性能工程 → 分布式运行时 → 工程治理
 ```
 
-### Java 的知识可以成为脚手架，但不能成为边界
-
-Java 背景会帮助理解很多工程概念：
-
-- `nn.Module` 可以类比为具有层级管理能力的对象容器；
-- `state_dict` 可以类比为结构化的状态快照；
-- DataLoader 的 worker 可以类比为生产者—消费者系统；
-- Process Group 可以类比分布式通信域；
-- Dispatcher 可以帮助联想到运行时分发；
-- PyTorch 的测试、构建和兼容性问题与大型 Java 框架同样重要。
-
-但也必须明确类比的边界：
-
-- Tensor 不是 `List<List<Float>>`；
-- Autograd 不是普通事件回调；
-- DDP 不是 RPC 或负载均衡；
-- `torch.compile()` 不是简单的 `javac`；
-- CUDA Stream 不是 Java Executor；
-- checkpoint 不是普通的 Java 对象序列化。
-
-本系列会使用 Java 作为参照系，但最终目标是建立 PyTorch 自己的运行时模型。
-
-
 ## 适合哪些读者？
 
 ### 从后端转向 AI-Infra 的工程师
