@@ -5,7 +5,6 @@ title: "扩散模型推理基础设施（09）：配置、评测与排障——�
 subtitle: "Configuration, Evaluation and Troubleshooting for Diffusion Inference (with Series Summary)"
 tags: [Diffusion, Inference, Benchmarking, Evaluation, Troubleshooting, AI, AI-Infra]
 catalog: true
-date: 2026-09-27
 ---
 
 前八篇给出了机制与它们在账上的位置。最后一篇把它们变成两件日常工作：**上线前**——给定模型、分辨率、步数、GPU 与 SLO，按什么顺序推出配置，怎样证明每一项优化的性能收益是真的、质量代价是可接受的；**上线后**——看什么指标，p99 抬升、图片出伪影、半夜 OOM 各先查什么。

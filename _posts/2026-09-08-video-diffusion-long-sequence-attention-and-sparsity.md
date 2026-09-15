@@ -5,7 +5,6 @@ title: "扩散模型推理基础设施（04）：视频——长序列 attention
 subtitle: "Video Diffusion: The Long-Sequence Attention Bill and How Sparsity Pays It"
 tags: [Diffusion, Video Generation, DiT, Attention, Sparse Attention, AI, AI-Infra]
 catalog: true
-date: 2026-09-22
 ---
 
 第一篇的账里有一个翻转：FLUX 一步 74 TFLOPs 里 attention 占 20%，Wan2.1-14B 生成 5 秒 720p 的一步 6.5 PFLOPs 里 attention 占 72%，HunyuanVideo 129 帧占 87%。同样是 DiT，图像模型是 GEMM 负载，视频模型是 attention 负载——因为 $$N$$ 从 4 千变成了 7 万到 12 万，$$4 L N^2 d$$ 压过了 $$2 P_\text{tok} N$$。前两篇的手段在视频上仍然有效但不够：编译与量化只改线性项那 28%，跨步缓存跳的是整步；要动 attention 这 72%，需要另一类冗余——**token 与 token 之间的冗余**：一个 token 对绝大多数其他 token 的注意力接近零，尤其是空间上远、时间上远的那些。

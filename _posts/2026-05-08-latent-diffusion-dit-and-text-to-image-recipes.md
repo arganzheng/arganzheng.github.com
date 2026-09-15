@@ -270,7 +270,7 @@ Sora 的技术报告（OpenAI 2024）的核心表述："patch 是视频的 token
 
 ### 4. 成本
 
-HunyuanVideo 13B 生成 5 秒 720p：token 数约 $$(129/4) \times (720/16) \times (1280/16) \approx 32 \times 45 \times 80 = 115K$$ 个（patch 2 后），50 步，每步线性项 $$2 \times 6.8B \times 119K \approx 1.6$$ PFLOPs（每个 token 只经过双流块的一条流与单流块，约 6.8B 参数，而不是全部 13B），attention 项 $$4 L N^2 d = 4 \times 60 \times 119K^2 \times 3072 \approx 10.5$$ PFLOPs——是线性项的 6 倍多，一步约 12 PFLOPs，50 步总计约 600 PFLOPs——是 FLUX 一张图的 300 倍，单卡 H100 二十多分钟，实际都在多卡序列并行上跑。视频生成是 attention 主导的负载，这笔账的系统含义在 Infra 地图的扩散模型推理系列里展开。视频生成是当前算力最密集的生成任务，也是步数蒸馏（CausVid、Self-Forcing 一类的自回归 + 蒸馏）最迫切的领域。
+HunyuanVideo 13B 生成 5 秒 720p：token 数约 $$(129/4) \times (720/16) \times (1280/16) \approx 32 \times 45 \times 80 = 115K$$ 个（patch 2 后），50 步，每步线性项 $$2 \times 6.8B \times 119K \approx 1.6$$ PFLOPs（每个 token 只经过双流块的一条流与单流块，约 6.8B 参数，而不是全部 13B），attention 项 $$4 L N^2 d = 4 \times 60 \times 119K^2 \times 3072 \approx 10.5$$ PFLOPs——是线性项的 6 倍多，一步约 12 PFLOPs，50 步总计约 600 PFLOPs——是 FLUX 一张图的 300 倍，单卡 H100 二十多分钟，实际都在多卡序列并行上跑。视频生成是 attention 主导的负载，这笔账的系统含义在 Infra 地图的 10[《扩散模型推理基础设施》](/diffusion-model-inference-infrastructure.html)里展开。视频生成是当前算力最密集的生成任务，也是步数蒸馏（CausVid、Self-Forcing 一类的自回归 + 蒸馏）最迫切的领域。
 
 ## 九、扩散的后训练
 

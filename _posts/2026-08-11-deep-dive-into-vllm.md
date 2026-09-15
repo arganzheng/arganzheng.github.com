@@ -390,4 +390,6 @@ PD 分离并不是简单地把两个阶段部署到不同机器上。它重新�
 14. [回到源码：一次请求在 vLLM 内部的真实旅程](/source-code-request-walkthrough.html)
 
 
+本系列讲的是 memory-bound 的 LLM serving；图像与视频生成模型的推理是另一半——单请求就 compute-bound、没有 KV cache、batch 几乎不提吞吐、请求时长可预测，几乎每一个系统答案都相反。那一半在 Infra 地图的 10[《扩散模型推理基础设施：从一次去噪到一个生成服务》](/diffusion-model-inference-infrastructure.html)。
+
 > **版本说明：**本系列基于 vLLM v0.27.1（tag `6e448d0`，2026-08-11）源码分析。文中路径、类名和函数名均以该版本为准；由于 vLLM 迭代较快，阅读时请结合实际版本进行对照。

@@ -5,7 +5,6 @@ title: "扩散模型推理基础设施（06）：少步与自回归——把步�
 subtitle: "Few-Step and Autoregressive Generation: When the Step Count Becomes a System Parameter"
 tags: [Diffusion, Distillation, Video Generation, Autoregressive, KV Cache, Real-time, AI, AI-Infra]
 catalog: true
-date: 2026-09-24
 ---
 
 前五篇都在一个前提下做交换：28 步、50 步，每步一次完整前向。步数 $$T$$ 是第一篇账上最大的可调乘数，但前五篇没有动它——因为它不是系统能改的，是算法侧的：换更好的采样器（50 → 20 步）、步数蒸馏（→ 4 步、1 步）、guidance 蒸馏（去掉 CFG 的 ×2）。这一篇不讨论这些方法怎么做（在算法地图 L7 第六篇），只讨论**它们做成之后系统怎么变**：当 FLUX.1-dev 的 28 步变成 FLUX.1-schnell 的 4 步、一张图从 4.3 s 变成 0.7 s，前五篇的结论哪些失效、哪些不变、哪些新问题出现。

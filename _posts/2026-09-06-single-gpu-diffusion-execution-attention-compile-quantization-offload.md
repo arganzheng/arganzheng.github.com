@@ -5,7 +5,6 @@ title: "扩散模型推理基础设施（02）：单卡执行——attention 后
 subtitle: "Single-GPU Execution: Attention Backends, Compilation, FP8 / INT4 and Offloading"
 tags: [Diffusion, DiT, Inference, torch.compile, FlashAttention, Quantization, SVDQuant, AI, AI-Infra]
 catalog: true
-date: 2026-09-20
 ---
 
 上一篇算出 FLUX.1-dev 一步 74 TFLOPs、eager 下 MFU 只有 0.31。这一篇讨论**不改变这 74 TFLOPs**（或改变得可控）的全部单卡手段：让同样的 FLOPs 跑得更快（换 attention 后端、编译、量化到 FP8 / INT4 用更快的 Tensor Core），以及让 31.5 GiB 的权重装进 24 GB 的卡（三段的 offload、逐层 offload、VAE 分块）。它们在账上改的是 $$\eta$$ 与字节，不是 FLOPs 的公式。
@@ -357,7 +356,7 @@ SVDQuant INT4（消费卡）· 跨步缓存（第三篇）· 稀疏 attention（
 | attention 后端 | `model.set_attention_backend("flash" / "_flash_3_hub" / "sage")`（`models/attention_dispatch.py`） | `--attention-backend fa / torch_sdpa / sage_attn / sage_attn_3 / …`；`runtime/layers/attention/selector.py` | `diffusion/attention/selector.py`、`attention/backends/` | `xfuser/core/distributed/attention_backend.py` |
 | 编译 | `torch.compile(pipe.transformer)` | `--enable-torch-compile`；`--warmup-resolutions` | `--compile` / `diffusion/compile.py` | `--use_torch_compile`（`xfuser/compile/`） |
 | CUDA graph | — | `--enable-breakable-cuda-graph`（`runtime/breakable_cuda_graph/`） | CUDA graph in `worker/` | — |
-| FP8 | `torchao` / `PipelineQuantizationConfig` | ModelOpt checkpoint：`--transformer-path` | `diffusion/quantization/`（含 `hsdp_fp8.py`） | `fp8_comms.py`（通信侧） |
+| FP8 | `torchao` / `PipelineQuantizationConfig` | ModelOpt checkpoint：`--transformer-path` | `diffusion/quantization/`（含 `hsdp_fp8.py`） | `layers/fp8_linear.py` |
 | INT4 / NVFP4 | Nunchaku 插件 | `--enable-svdquant --transformer-weights-path`；`flux_2_nvfp4.py` | ModelOpt NVFP4 | `fp4_quantize.py` |
 | VAE 分块 | `vae.enable_tiling()` / `enable_slicing()` | `--vae-config.*`；`runtime/pipelines_core/stages/` | `distributed/vae_patch_parallel.py`、`--vae-use-tiling` | Parallel VAE（第五篇） |
 | 融合 fast path | — | `runtime/layers/fused_scale_shift_gate.py`、`--quality high` | batched TP AdaLN 等 | — |

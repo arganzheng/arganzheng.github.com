@@ -5,7 +5,6 @@ title: "扩散模型推理基础设施（01）：负载画像——一次生成�
 subtitle: "Workload Anatomy: FLOPs, Bytes and Seconds of One Diffusion Generation"
 tags: [Diffusion, DiT, Video Generation, Inference, Roofline, AI, AI-Infra]
 catalog: true
-date: 2026-09-19
 ---
 
 一张 1024² 的图从 prompt 到像素，在 GPU 上是三段完全不同的计算：文本编码器跑一次，几百个 token、几十毫秒；去噪网络对整张 latent 做一次完整前向，重复几十步，占掉 97% 以上的时间；VAE 解码器跑一次，算力不多但显存峰值可能比前两段加起来还大。这三段各花多少 FLOP、多少字节、多少秒，是本系列后面八篇每一项优化的坐标系——不算清这张账，就不知道 TeaCache 省的是哪一项、序列并行切的是哪一项、蒸馏到 4 步改的是哪一个乘数。

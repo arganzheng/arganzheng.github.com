@@ -5,12 +5,11 @@ title: "扩散模型推理基础设施（08）：三个引擎的对照导读—�
 subtitle: "Three Engines Compared: One Request Through SGLang Diffusion, vLLM-Omni and xDiT"
 tags: [Diffusion, SGLang, vLLM, xDiT, diffusers, Source Code, AI, AI-Infra]
 catalog: true
-date: 2026-09-26
 ---
 
 前七篇每篇末尾有一张对照表，指向三个引擎里实现同一机制的文件与类。这一篇把这些点连成线：一个"生成一张 FLUX 1024² 的图"的请求，在 SGLang Diffusion、vLLM-Omni 与 xDiT 里各自从哪里进来、经过哪些进程、哪些类、哪些函数，到哪里出去。三条线走完，三个引擎的取向就清楚了：**SGLang Diffusion 把扩散塞进了 LLM serving 的结构**（scheduler、worker、kernel 栈、warmup、CUDA graph 都复用），**vLLM-Omni 为全模态模型设计了 stage 流水线**（一个请求可以经过 LLM → DiT → TTS，扩散是其中一种 stage），**xDiT 只做并行**（把 diffusers 的 pipeline 包一层、换掉 attention、建好并行组，没有服务层）。而 **diffusers** 是三者共同的底座——模型定义、调度器、pipeline 的接口都从它来，三个引擎要么直接复用它的 pipeline、要么按它的接口重写"原生"版本。
 
-本文只讨论**结构**——每个组件在哪、谁调谁；每个机制的原理在前七篇。版本：diffusers v0.40.0、SGLang v0.5.19（`sglang.multimodal_gen`）、vLLM-Omni v0.28.0（`vllm_omni.diffusion`）、xDiT 2026-09-11 的 main（`xfuser`）。引用只到目录与类 / 函数名，不引行号。
+本文只讨论**结构**——每个组件在哪、谁调谁；每个机制的原理在前七篇。版本：diffusers v0.40.0、SGLang v0.5.19（`sglang.multimodal_gen`）、vLLM-Omni v0.28.0（`vllm_omni.diffusion`）、xDiT 2026-09-02 的主线 commit `07572e7`（`xfuser`）。引用只到目录与类 / 函数名，不引行号。
 
 本篇要回答的核心问题是：
 
@@ -257,7 +256,7 @@ xDiT 的核心设计是**包装 diffusers**：模型定义、pipeline 流程、�
 | **跨步缓存** | `runtime/cache/teacache.py`、`cache_dit_integration.py`、`spectrum.py` | `cache/base.py`（`CacheBackend`、`CachedTransformer`）、`teacache/`、`magcache/`、`cachedit/`、`selector.py` | `core/cache_manager/`、`model_executor/cache/adapters/` | |
 | **offload** | `managers/memory_managers/`：`component_residency*.py`、`layerwise_offload*.py`、`host_memory_budget.py` | `offloader/`：`sequential_backend.py`、`layerwise_backend.py`、`distributed_layerwise_backend.py`、`module_residency.py` | 沿用 diffusers | |
 | **编译 / CUDA graph** | `--enable-torch-compile`；`breakable_cuda_graph/runner.py` | `compile.py`；worker 内 CUDA graph | `xfuser/compile/` | |
-| **量化** | `layers/quantization/`；`--enable-svdquant`；ModelOpt checkpoint；GGUF（`loader/gguf_weights.py`） | `quantization/`（含 `hsdp_fp8.py`）；`--quantization` | `layers/fp8_linear.py`、`mxfp4_linear.py`；`core/distributed/fp4_quantize.py`、`fp8_comms.py` | |
+| **量化** | `layers/quantization/`；`--enable-svdquant`；ModelOpt checkpoint；GGUF（`loader/gguf_weights.py`） | `quantization/`（含 `hsdp_fp8.py`）；`--quantization` | `layers/fp8_linear.py`、`mxfp4_linear.py`；`core/distributed/fp4_quantize.py` | |
 | **LoRA** | `pipelines_core/lora/`、`layers/lora/` | `lora/manager.py`、`loader.py`、`layers/` | diffusers 的 `load_lora_weights` | |
 | **VAE** | `stages/decoding.py`；`--vae-config`；parallel decode | `distributed/vae_patch_parallel.py`、`distributed/autoencoders/`；`--vae-use-tiling` | `xFuserVAEWrapper`（Parallel VAE） | |
 | **warmup** | `server_warmup.py`、`warmup_request_builder.py`；`--warmup-mode`、`--warmup-resolutions` | — | `prepare_run` | |

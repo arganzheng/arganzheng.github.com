@@ -284,7 +284,7 @@ flowchart TB
 | 生成 | 扩散模型 | 前向加噪与反向去噪、DDPM、DDIM 与采样加速、score matching 与 flow matching 的统一视角、classifier-free guidance；U-Net → DiT（扩散 Transformer）；VAE 与 latent diffusion；文本条件（CLIP / T5 文本编码器）；代表模型：Stable Diffusion 1.x / SDXL / SD3、FLUX；视频生成（Sora 一类，时空 patch） |
 | 生成 | 自回归生成与统一模型 | 图像 token 化（VQ-VAE）、自回归图像生成、理解与生成统一的模型 |
 
-VLM 的成本结构——一张图等于多少 token、encoder 与 decoder 各花多少、image token 的 KV——在 04 系列第八篇里算过；L7 系列讲这些成本背后的设计动机与训练配方。扩散模型的成本结构（无 KV cache、compute-bound、多步迭代）与 LLM 完全不同，L7 第六篇算了这笔账。
+VLM 的成本结构——一张图等于多少 token、encoder 与 decoder 各花多少、image token 的 KV——在 04 系列第八篇里算过；L7 系列讲这些成本背后的设计动机与训练配方。扩散模型的成本结构（无 KV cache、compute-bound、多步迭代）与 LLM 完全不同，L7 第六篇算了这笔账；它的推理系统——序列并行、跨步缓存、稀疏 attention、生成服务——在 Infra 地图的 10[《扩散模型推理基础设施》](/diffusion-model-inference-infrastructure.html)。
 
 ### 横切：实验方法论
 
@@ -330,7 +330,7 @@ VLM 的成本结构——一张图等于多少 token、encoder 与 decoder 各�
 | 推理系统机制 | 知道存在；自己的结构对它们意味着什么 | PagedAttention、continuous batching、chunked prefill、PD 分离 | 08 |
 | RL 后训练 | 算法：奖励、目标函数、配方 | rollout 引擎与训练器的共置 / 分离 / 异步、权重同步、环境调度 | 09 |
 | 数据管线 | 数据配比、质量、去重的**决策** | tokenization 离线化、流式加载、打包的**实现** | 07 |
-| 多模态 | VLM 架构选择、对齐训练、扩散模型 | encoder 的调度与缓存、image token 的 KV、请求形态 | 04 · 08 |
+| 多模态 | VLM 架构选择、对齐训练、扩散模型的数学与配方 | 理解模型：encoder 的调度与缓存、image token 的 KV、请求形态；生成模型：compute-bound 的推理、序列并行、跨步缓存、生成服务 | 04 · 08 · 10 |
 
 一个常见的误分类：把 PagedAttention、continuous batching、chunked prefill、PD 分离归入"推理算法"。它们不是算法，是推理引擎的调度与内存管理机制，模型不知道它们的存在，输出分布也不因它们改变。算法侧的推理优化只有 L6 列出的那些——改变模型或改变解码过程的方法。
 

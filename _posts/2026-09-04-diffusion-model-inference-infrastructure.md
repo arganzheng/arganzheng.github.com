@@ -4,7 +4,6 @@ title: 扩散模型推理基础设施：图像与视频生成的 serving（总�
 subtitle: "Diffusion Model Inference Infrastructure: Serving Image and Video Generation"
 tags: [Diffusion, DiT, Video Generation, Inference, SGLang, vLLM, xDiT, AI, AI-Infra]
 catalog: true
-date: 2026-09-18
 ---
 
 
@@ -45,9 +44,9 @@ PD 分离         不适用；但有另一种分离——文本编码器 / DiT /
 
 同时它有一套 LLM serving 没有的东西：相邻步之间的**时间冗余**（TeaCache 一族）、几十步的**步数**本身作为可蒸馏的乘数、把 latent 切成 patch 的**空间并行**、以及视频里让 attention 占到七成算力的**十万级序列**。这些需要另一套分析方法，本系列就是这套方法。
 
-### 为什么仍然是选修
+### 为什么进主线
 
-不做生成的 Infra 工程师可能永远碰不到它，而 RL 后训练几乎人人会碰到——这是 09 从选修升入主线、本系列留在选修的原因。但选修不等于浅：它是当前少有的一类"读者可以从零开始、系统尚未定型"的 Infra 方向，三个引擎都在快速迭代，机制层却已经稳定（并行方法、缓存方法、量化方法在 2024–2025 年基本收敛），正是适合写机制、少写实现的时候。
+地图最初把它列为选修，理由是"不做生成的 Infra 工程师可能永远碰不到它"。这个理由到 2026 年不再成立：SGLang 与 vLLM 两个 LLM serving 主项目都把扩散 / 全模态并入了自己的框架，图像与视频生成已经是与 LLM 并列的一类 serving 负载；而只读 08 的人会以为 KV cache、连续批处理、张量并行就是"推理系统"——本系列是推理主线的另一半，与 09 当年从选修升入主线是同一类判断。它也是当前少有的一类"系统尚未定型"的 Infra 方向：三个引擎都在快速迭代，机制层却已经稳定（并行方法、缓存方法、量化方法在 2024–2025 年基本收敛），正是适合写机制、少写实现的时候。
 
 ### 现有材料的断层
 
@@ -247,7 +246,7 @@ PD 分离         不适用；但有另一种分离——文本编码器 / DiT /
 - **三段分离**：文本编码器（小、一次、可以 CPU 或独立）、DiT（主体）、VAE 解码（显存峰值、可以独立 stage 或 Parallel VAE）——vLLM-Omni 的 stage-based 部署与 OmniConnector、SGLang 的 disaggregation；SwiftDiffusion 把 ControlNet 做成独立服务、LoRA 用 bounded async loading（前 $$k$$ 步不加 LoRA、边算边加载）；
 - 多 LoRA 服务：merge 与 unmerged 的代价、按请求切换、Nunchaku 的 4-bit + LoRA；模型级联（DiffServe：先小模型、判别器不过关再上大模型）；
 - 异步任务 API：`/v1/images/generations` 同步返回 vs `/v1/videos` 创建 job + 轮询 + 对象存储，进度与中间预览；
-- 成本：每张图 GPU·秒 → 价格（FLUX 1024² 在 H100 上 4–6 s ≈ 几美分；视频几分钟）；扩缩容（队列长度、冷启动 = 加载几十 GiB 权重）；对 10 平台的要求。
+- 成本：每张图 GPU·秒 → 价格（FLUX 1024² 在 H100 上 4–6 s ≈ 几美分；视频几分钟）；扩缩容（队列长度、冷启动 = 加载几十 GiB 权重）；对 11 平台的要求。
 
 核心问题是：
 
@@ -317,7 +316,7 @@ PD 分离         不适用；但有另一种分离——文本编码器 / DiT /
 diffusers v0.40.0     src/diffusers/pipelines/ · models/transformers/ · hooks/（CacheMixin、group offload）
 SGLang v0.5.19        python/sglang/multimodal_gen/：runtime/{pipelines,pipelines_core,distributed,layers/attention,cache,managers,entrypoints,realtime}
 vLLM-Omni v0.28.0     vllm_omni/diffusion/：{diffusion_engine.py,sched,worker,distributed,attention,cache,offloader,diffusion_kv,lora}
-xDiT（main 2026-09）  xfuser/：core/{distributed,long_ctx_attention,cache_manager} · model_executor/{pipelines,layers,cache} · parallel.py
+xDiT（2026-09-02 主线）  xfuser/：core/{distributed,long_ctx_attention,cache_manager} · model_executor/{pipelines,layers,cache} · parallel.py
 ```
 
 
@@ -404,7 +403,7 @@ xDiT（main 2026-09）  xfuser/：core/{distributed,long_ctx_attention,cache_man
 - **diffusers v0.40.0**（2026-08-20）：模型定义、pipeline、调度器与 hook 接口的底座；
 - **SGLang v0.5.19**（2026-09-03）的 `sglang.multimodal_gen`（SGLang Diffusion）：原生 pipeline、USP / CFG 并行、Cache-DiT / TeaCache、动态批处理、breakable CUDA graph、disaggregation、realtime 会话；
 - **vLLM-Omni v0.28.0**（2026-08-31）的 `vllm_omni.diffusion`：stage 分离的部署、TP / USP / Ring / CFG 并行、HSDP、VAE patch 并行、TeaCache / MagCache / Cache-DiT 后端、diffusion KV；
-- **xDiT**（`xfuser`，无版本 tag，以 2026-09-11 的 main 分支 `3611f6b` 为准）：USP、PipeFusion、CFG 并行、Parallel VAE 的参考实现；
+- **xDiT**（`xfuser`，无版本 tag，以 2026-09-02 的主线 commit `07572e7` 为准）：USP、PipeFusion、CFG 并行、Parallel VAE 的参考实现；
 - 论文以其 arXiv 版本为准：xDiT / PipeFusion / USP、DistriFusion、TeaCache、SVDQuant、Sparse VideoGen 1 / 2、Radial Attention、CausVid、Self-Forcing、StreamDiffusion、SwiftDiffusion、DiffServe；
 - 硬件以 **H100 SXM**（80 GB HBM3，BF16 dense 约 989 TFLOPS，3.35 TB/s）为默认分析对象，**RTX 4090**（24 GB，165 TFLOPS）作单卡 / 实时算例；模型以 **FLUX.1-dev**（12B）、**SD3-medium**（2B）、**Qwen-Image**（20B）为图像算例，**Wan2.1-14B**、**HunyuanVideo**（13B）为视频算例；给出的实测数字均注明来源（xDiT 与 SGLang Diffusion 的 benchmark 页、各论文），会因版本与集群而异。
 

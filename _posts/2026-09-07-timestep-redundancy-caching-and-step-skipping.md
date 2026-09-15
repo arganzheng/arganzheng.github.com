@@ -5,7 +5,6 @@ title: "扩散模型推理基础设施（03）：跨步冗余——TeaCache、Fi
 subtitle: "Temporal Redundancy Across Denoising Steps: TeaCache, First-Block Cache and Friends"
 tags: [Diffusion, DiT, Inference, TeaCache, Cache-DiT, AI, AI-Infra]
 catalog: true
-date: 2026-09-21
 ---
 
 第一篇的账里有一个乘数 $$T$$——28 步、50 步——每一步都是对整张 latent 的一次完整前向。第二篇把每步的 $$\eta$$ 推高；这一篇问的是：**这 28 步真的都要算吗？** 扩散采样沿一条平滑的轨迹走，相邻两步网络的输出常常只差百分之几；如果能在算之前就知道"这一步的输出和上一步差不多"，就可以直接拿上一步的结果，把一步的 74 TFLOPs 变成几乎为零。这是扩散推理特有的第一类冗余——**时间冗余**（temporal redundancy，这里的"时间"指去噪步而不是视频帧），LLM decode 里没有对应物：每个新 token 都是新的，没有"和上一步差不多"可言。

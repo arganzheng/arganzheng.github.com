@@ -5,7 +5,6 @@ title: "扩散模型推理基础设施（05）：多卡并行——序列并行�
 subtitle: "Multi-GPU Diffusion Inference: Sequence Parallelism, CFG Parallelism and PipeFusion"
 tags: [Diffusion, DiT, Inference, Sequence Parallelism, xDiT, PipeFusion, NCCL, AI, AI-Infra]
 catalog: true
-date: 2026-09-23
 ---
 
 LLM serving 用多卡有两个理由：权重放不下（70B 的 140 GB 要切到几张卡上）、每步读权重的时间要切短（memory-bound，TP 让每张卡只读 1/p）。扩散推理的多卡理由不同：FLUX 的 22 GiB 一张卡放得下；单请求已经 compute-bound，多卡的目标是**把一个请求的 FLOPs 分到 p 张卡上、让墙钟缩短 p 倍**——而视频再加一个：14 GiB 的激活与几分钟的单卡时间让单卡本身不可接受。目标不同，切法就不同。
