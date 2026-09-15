@@ -12,7 +12,7 @@ PyTorch 经常被介绍成一个“深度学习框架”，也经常被使用成
 
 这种理解对于开始使用 PyTorch 已经足够，但对于训练平台、推理引擎、算子开发和 AI-Infra 来说还不够。真正需要理解的是：
 
-> **PyTorch 如何把 Python 中表达的张量计算，转化为可以自动求导、跨设备执行、编译优化和分布式协作的运行时系统？**
+> **PyTorch 如何把 Python 中表达的张量计算，转化为可以自动求导、跨设备执行、编译优化和分布式协作的运行时系统？[^q0]**
 
 一行看起来很普通的代码：
 
@@ -40,13 +40,13 @@ CPU / CUDA / Meta Kernel
 
 如果这条链路只停留在“PyTorch 会自动处理”，那么遇到下面的问题时就只能依赖试错：
 
-- 为什么同一个算子既能运行在 CPU，也能运行在 CUDA 上？
-- 为什么某些 Tensor 操作会产生拷贝，另一些操作只是创建 view？
-- 为什么 `model(x)` 不等于简单调用 `model.forward(x)`？
-- 为什么模型在 eager mode 下运行正常，`torch.compile()` 后却出现 graph break？
-- 为什么 GPU 利用率很低，却找不到明显的 Python 瓶颈？
-- 为什么增加 GPU 数量后，训练速度没有线性提升？
-- 为什么一个看似简单的 C++ 扩展会遇到 ABI、stride、dtype 或生命周期问题？
+- 为什么同一个算子既能运行在 CPU，也能运行在 CUDA 上？[^q1]
+- 为什么某些 Tensor 操作会产生拷贝，另一些操作只是创建 view？[^q2]
+- 为什么 `model(x)` 不等于简单调用 `model.forward(x)`？[^q3]
+- 为什么模型在 eager mode 下运行正常，`torch.compile()` 后却出现 graph break？[^q4]
+- 为什么 GPU 利用率很低，却找不到明显的 Python 瓶颈？[^q5]
+- 为什么增加 GPU 数量后，训练速度没有线性提升？[^q6]
+- 为什么一个看似简单的 C++ 扩展会遇到 ABI、stride、dtype 或生命周期问题？[^q7]
 
 ## 一、总览：一张全局地图
 
@@ -71,7 +71,6 @@ CPU / CUDA / Meta Kernel
 | 八 | PyTorch 工程中最重要的几个边界 | Python/C++、通用/后端、灵活/可分析、可移植/特化 |
 | 九 | 本文小结 |  |
 | 十 | 自测 | 5 道题 |
-
 
 ## 二、PyTorch 到底是什么？
 
@@ -196,7 +195,6 @@ Autograd
 
 这些边界会在后面的静态分层图和动态执行路径中逐一展开。
 
-
 ## 三、PyTorch 与其他深度学习框架
 
 框架比较不能简单归结为“谁更好”。更有意义的比较是：它们如何表达计算、如何执行程序，以及如何把程序交给编译器和硬件。
@@ -243,7 +241,6 @@ PyTorch 的核心编程特色，是 Eager-first，同时逐步具备 Compiler-re
 Eager Mode       → 灵活、可调试、适合探索
 Compiled Mode    → 可分析、可融合、适合稳定执行
 ```
-
 
 ## 四、PyTorch 的架构演进
 
@@ -531,7 +528,6 @@ z = x + y
 - 设备间通信。
 
 但性能问题不一定发生在最底层。上层的 Python 调度、Tensor 布局、数据搬运和同步，都可能成为瓶颈。
-
 
 ## 六、第二张地图：动态视角——一次算子调用发生了什么？
 
@@ -846,7 +842,6 @@ c10/                 结果 Tensor 的 TensorImpl 与 StorageImpl 在此构造�
 
 **本系列有意不覆盖的部分**：TorchScript / `torch.jit`（维护模式）；量化、稀疏 Tensor、复数等专门的 Tensor 子系统；`torch.func`（`vmap`、函数式变换）；MPS、XPU 等非 CUDA 后端的实现细节；`torch.export` 与 AOTInductor 只在第七篇作为编译栈的另一个出口简要提及。模型 Serving、请求调度和 KV Cache 属于推理系统层，不在本系列范围。
 
-
 ## 八、PyTorch 工程中最重要的几个边界
 
 前面三张地图描述的是"系统由什么组成、代码怎么流动、东西在哪"。读源码和做取舍时，更常遇到的是四个反复出现的边界。先用一张表汇总，再逐个展开：
@@ -953,7 +948,6 @@ flowchart TB
 - 哪些优化只适合特定 shape；
 - 哪些设备差异应该通过 Dispatcher 隔离。
 
-
 ## 九、本文小结
 
 ### 1. 一个定位
@@ -1001,14 +995,6 @@ torch/（Python）→ torch/csrc/（绑定、Autograd 引擎、c10d）→ aten/s
 
 读后面各篇时遇到的大多数设计取舍，都可以归到这四个边界之一。
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-靠一条分层的运行时链路，每一层各解决一件事。Python 里表达的 `y = model(x)` 先落到 **Tensor**——数据 + 形状 + 布局 + dtype + 设备 + 生命周期的组合，Python 对象只是 C++ `TensorImpl` 的句柄（第二篇）；每个算子调用进入 **Dispatcher**，它按 Tensor 的 DispatchKeySet 选实现路径：Autograd key 上的包装先记录 `grad_fn` 建图（**自动求导**，第三篇），再落到 CPU / CUDA / 第三方后端的 kernel（**跨设备**，第五篇）——同一套算子抽象、不同后端实现，新硬件通过 PrivateUse1 与 device plugin 接入；**编译优化**是把这条逐算子分发的路径换掉：Dynamo 在字节码层捕获整图、AOTAutograd 拆前后向、Inductor 生成融合 kernel，Eager 编程模型不变（第七篇）；**分布式**把五类状态（数据、参数、梯度、优化器状态、激活）各做复制或分片的决定，用集合通信原语在 stream 上与计算重叠（第九篇）。四种能力之所以能叠加，是因为它们都建立在同一个算子系统之上：Autograd、autocast、Functionalize、编译捕获都是 dispatch key，分布式的 DTensor 也是 Tensor 子类。本篇给出这张分层图与四组张力（Python vs C++、通用抽象 vs 后端实现、灵活性 vs 可分析性、可移植 vs 特化），后面九篇逐层展开。
-
-</details>
-
-
 ## 十、自测
 
 1. PyTorch 的源码目录 `torch/`、`torch/csrc/`、`aten/`、`c10/` 各放什么？依赖方向如何？
@@ -1051,7 +1037,15 @@ torch/（Python）→ torch/csrc/（绑定、Autograd 引擎、c10d）→ aten/s
 
    </details>
 
-
 ## 下一篇
 
 [Tensor 与内存布局](/pytorch-tensor-and-memory-layout.html)
+
+[^q0]: 靠一条分层的运行时链路，每层各解决一件事：Python 里的 `y = model(x)` 先落到 **Tensor**（数据 + 形状 + 布局 + dtype + 设备 + 生命周期，Python 对象只是 C++ `TensorImpl` 的句柄）；每个算子调用进入 **Dispatcher**，按 Tensor 的 DispatchKeySet 选实现路径——Autograd key 上的包装先记录 `grad_fn` 建图（自动求导），再落到 CPU / CUDA / 第三方后端的 kernel（跨设备）；**编译**是把这条逐算子分发的路径整体换掉（Dynamo 捕获整图、AOTAutograd 拆前后向、Inductor 生成融合 kernel）；**分布式**对五类状态各做复制或分片的决定，用集合通信在 stream 上与计算重叠。四种能力能叠加，是因为都建立在同一个算子系统之上。详见[第五章](#五第一张地图静态视角pytorch-的逻辑分层)、[第六章](#六第二张地图动态视角一次算子调用发生了什么)；本系列第二至九篇逐层展开。
+[^q1]: 因为算子的「定义」与「实现」是分开的：`native_functions.yaml` 定义一个抽象算子，CPU 与 CUDA 各注册一份 kernel 到不同的 DispatchKey；调用时 Dispatcher 从输入 Tensor 的 device 算出 key、查表选实现。新硬件通过 PrivateUse1 与 device plugin 接入同一张表。详见[第五章](#五第一张地图静态视角pytorch-的逻辑分层)、[第六章](#六第二张地图动态视角一次算子调用发生了什么)，展开在第五篇。
+[^q2]: Tensor 是「元数据 + 共享的 Storage」：`view` / `transpose` / 切片只创建新的 `TensorImpl`（改 sizes / strides / offset），与原 Tensor 共用 Storage；`contiguous()`、`.to()` 跨设备或改 dtype、`clone()` 才分配新 Storage 并复制。详见[第五章](#五第一张地图静态视角pytorch-的逻辑分层)，展开在第二篇。
+[^q3]: `model(x)` 调的是 `nn.Module.__call__`，它在 `forward` 前后执行 forward pre-hooks / forward hooks、处理 backward hooks 的注册，并做一些状态检查；直接调 `forward` 绕过了这一层，hooks 不触发。详见[第五章](#五第一张地图静态视角pytorch-的逻辑分层)，展开在第四篇。
+[^q4]: Dynamo 在字节码层符号求值，只能把「能用 Tensor 元数据决定」的代码编进图；依赖 Tensor 具体值的分支（`if x.sum() > 0`）、不支持的 Python 特性、`.item()` 这类强制同步的调用都会切开图（graph break），前后各编一段、中间回到 eager。eager 下这些代码毫无问题，所以只有编译时才暴露。详见[第六章](#六第二张地图动态视角一次算子调用发生了什么)、[第八章](#八pytorch-工程中最重要的几个边界)，展开在第七篇。
+[^q5]: GPU 是异步执行的：CPU 只负责发 kernel，如果每个 kernel 很小、发得又慢（launch-bound）或 CPU 在等 `.item()` / `nonzero` 这类同步点（sync-bound），GPU 大部分时间在空等——但 Python profiler 看到的每个函数都不慢。要用 `torch.profiler` 看时间线上 CPU 与 GPU 两侧谁在空闲。详见[第六章](#六第二张地图动态视角一次算子调用发生了什么)，展开在第八篇。
+[^q6]: 多卡多了通信：DDP 每步 all-reduce 梯度、FSDP 每层 all-gather 参数与 reduce-scatter 梯度，这些通信只有与计算重叠才不占额外时间；再加上数据加载、每卡 batch 变小导致 GEMM 效率下降、慢卡拖住 collective，加速比自然低于卡数。详见[第八章](#八pytorch-工程中最重要的几个边界)，展开在第九篇。
+[^q7]: 因为扩展跨过了[第八章](#八pytorch-工程中最重要的几个边界)说的几条边界：Python / C++ 之间的 ABI 与引用计数、Tensor 的逻辑形状与物理布局（stride）、dtype 的类型提升、以及谁持有内存多久（生命周期）。原生算子由 Codegen 与 Dispatcher 统一处理这些，自定义算子要自己补齐。展开在第六篇。

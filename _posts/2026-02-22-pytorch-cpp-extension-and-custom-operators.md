@@ -10,7 +10,7 @@ updated: 2026-09-14
 
 上一篇把算子系统拆成两个维度：开发者在构建时**定义 → 注册 → 实现**，用户在运行时**入口 → 分发 → 执行**，两者通过 Operator Table 交汇。那一篇站在使用者的角度观察原生算子 `add`。
 
-这一篇换到开发者的位置：**自己写一个算子，把它接入 PyTorch 的算子系统**。
+这一篇换到开发者的位置：**自己写一个算子，把它接入 PyTorch 的算子系统**[^q0] 。
 
 这是从“阅读框架”走向“扩展框架”的关键一步。AI-Infra 工作中大量的实际需求都落在这里：一个融合 Kernel、一个新硬件的后端适配、一个推理引擎的定制算子，最终都要经过同样的路径。
 
@@ -21,7 +21,6 @@ scale_shift(x, alpha, beta) = alpha * x + beta
 ```
 
 它简单到不会分散注意力，又足够涉及 Tensor 元数据、dtype、device、Autograd 和构建系统的全部问题。通过这个实际例子，我们可以了解到一个算子是怎么正确完成定义、注册与实现，并能通过 Autograd、Meta、测试和构建检验的完整过程。
-
 
 ## 一、总览：三个概念与本文主线
 
@@ -74,7 +73,6 @@ flowchart TB
 | 十三 | 自测 | 5 道题 |
 
 如果你已经熟悉 C++ 扩展的构建方式，可以跳过第四章；如果没有写过 C++ 扩展，第四章是后面所有代码能跑起来的前提。同样，没有 CUDA 编程经验的读者不必另找教程：第七章 §2 用一节讲清读懂本文和第八篇所需的几个 CUDA 概念。
-
 
 ## 二、三步：定义、注册、实现
 
@@ -203,7 +201,6 @@ flowchart LR
 ```
 
 定义决定了实现必须长什么样；注册把实现与定义在某个 Key 下绑定；用户调用时，Dispatcher 从表里取出实现。三步缺一不可，顺序也不能乱——没有定义就不能注册，注册的函数签名必须匹配定义。
-
 
 ## 三、两种接入方式：`torch.library` 与 `TORCH_LIBRARY`
 
@@ -358,7 +355,6 @@ Python 侧 register_autograd 注册反向（Python 写反向更方便）
 | 为新硬件后端适配一批算子 | C++ `TORCH_LIBRARY_IMPL(aten, PrivateUse1, m)`，给原生算子填新 Key 的槽位 |
 
 最后一行值得注意：新后端适配不需要重新定义 `aten::add`，只需要给它的 Operator Table 行填上新 Key 的槽位。这正是“定义与实现解耦”在硬件适配上的价值。
-
 
 ## 四、进入 C++ 之前：扩展的构建基础
 
@@ -652,7 +648,6 @@ print(torch.ops.myops.scale_shift(x, 2.0, 1.0))
 
 第一次遇到这些错误时很难判断问题在哪一层。原则是：**编译期错误看头文件和类型；链接期错误看 ABI 和库版本；加载期错误看注册；运行期 `NotImplementedError` 看 DispatchKey 槽位。**
 
-
 ## 五、阶段一：Python 实现，建立契约
 
 从这一章开始进入四阶段实践。每个阶段都完成一次完整的三步，实现所在的层次逐步下沉。
@@ -693,7 +688,6 @@ torch.testing.assert_close(y, 2.0 * x + 1.0)
 ```
 
 阶段一结束时我们有了一条 Schema 和一个对所有后端可用的 Python 实现。接下来把实现下沉到 C++，并切换到第三章的“C++ 定义 + Python 补 Autograd/Fake”组合——因此从第六章起，Schema 改由 C++ 的 `TORCH_LIBRARY` 定义，上面的 `custom_op` 版本不再使用。
-
 
 ## 六、阶段二：C++ CPU 实现
 
@@ -866,7 +860,6 @@ NotImplementedError: Could not run 'myops::scale_shift' with arguments from the 
 ```
 
 这是第二章第 2 节讲的空槽位。下一阶段填它。
-
 
 ## 七、阶段三：CUDA 实现
 
@@ -1043,7 +1036,6 @@ load(name="myops", sources=["scale_shift.cpp", "scale_shift_cuda.cu"], verbose=T
 
 现在 Operator Table 中 `myops::scale_shift` 有了 CPU 和 CUDA 两个槽位。同一个 Python 调用，输入在哪个设备，就走哪条实现——这正是第五篇运行态分发的全部意义。
 
-
 ## 八、阶段四：Autograd 与 Meta
 
 ### 1. 现在还缺什么
@@ -1185,7 +1177,6 @@ flowchart TB
 
 这一行现在与原生算子 `add` 的结构相同，用户调用时的分发过程也相同。四个阶段中，用户代码 `torch.ops.myops.scale_shift(x, 2.0, 1.0)` 一行都没有改变。
 
-
 ## 九、测试与 Benchmark
 
 ### 1. 至少要测什么
@@ -1252,7 +1243,6 @@ print(t_native.timeit(100))
 
 如果自定义算子没有比原生组合更快，它的价值只剩“可被 compile 视为整体”和“可自定义反向”，需要重新评估是否值得维护一份 C++/CUDA 代码。
 
-
 ## 十、构建、ABI 与分发
 
 第四章解决的是“在我的机器上编译起来”；这一章解决“交给别人也能用”。
@@ -1307,7 +1297,6 @@ if not torch.__version__.startswith(_BUILT_AGAINST):
     raise ImportError(f"myops was built against torch {_BUILT_AGAINST}, got {torch.__version__}")
 ```
 
-
 ## 十一、Java 工程师如何理解 C++ 扩展
 
 ### 1. 与 JNI 的相似之处
@@ -1334,7 +1323,6 @@ PyTorch 扩展     Schema 定义算子 → C++/CUDA 实现 → import → TORCH_
 ### 3. pybind11 vs `TORCH_LIBRARY`
 
 第四章第 5 节的两种暴露方式，用 Java 类比：`PYBIND11_MODULE` 像 JNI，直接暴露函数；`TORCH_LIBRARY` 像实现框架的 SPI 接口——你提供的是某个契约在某个 Key 下的实现，框架决定何时调用它。
-
 
 ## 十二、本文小结
 
@@ -1428,14 +1416,6 @@ flowchart TB
 
 > **当算子已经是 PyTorch 眼中的一个整体节点后，`torch.compile` 如何捕获包含它的 Python 程序，并把多个算子融合成更少的 Kernel？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-本文的核心问题是**自己写一个算子并把它接进算子系统，要做哪几件事、怎么验证它是对的**。答案是三步、两种接入方式、四个阶段。**三步**：定义 Schema（`scale_shift(Tensor x, float alpha, float beta) -> Tensor`，与 `native_functions.yaml` 同一种语言）→ 注册到 DispatchKey（CPU / CUDA / Autograd / Meta 各一份）→ 编写实现（第二、三、四章）。**两种接入**：Python 的 `torch.library.define / impl / register_autograd / register_fake`，C++ 的 `TORCH_LIBRARY / TORCH_LIBRARY_IMPL`（第二篇的静态注册），两者写进同一张 Operator Table，`torch.ops.myops.scale_shift` 按名字取回（第五章）。**四个阶段**逐步落地：纯 Python 实现跑通 → C++ CPU 实现（`AT_DISPATCH` 展开 dtype、TensorIterator 或手写循环、`cpp_extension.load` 即时编译）→ CUDA 实现（`CUDAGuard`、当前 stream、`gpu_kernel` 或手写 launch、`C10_CUDA_KERNEL_LAUNCH_CHECK`）→ Autograd（写 backward 并 `register_autograd`）与 Meta（`register_fake` 给 `torch.compile` 与 shape 推断用）（第六至十章）。**验证**：`torch.library.opcheck` 对 Schema、Autograd、FakeTensor、别名信息做一致性检查，加 `gradcheck` 与对照 CPU 参考实现——这就是原生算子在 yaml + Codegen 里自动获得的东西，自定义算子要自己补齐（第十一章）。
-
-</details>
-
-
 ## 十三、自测
 
 1. 自定义算子只注册了 CPU 与 CUDA 实现，没有 `register_fake`，`torch.compile` 会怎样？
@@ -1478,7 +1458,8 @@ flowchart TB
 
    </details>
 
-
 ## 下一篇
 
 [编译执行与图优化](/pytorch-compilation-and-graph-optimization.html)
+
+[^q0]: 三步、两种接入、四个阶段。**三步**：定义 Schema（`scale_shift(Tensor x, float alpha, float beta) -> Tensor`，与 `native_functions.yaml` 同一种语言）→ 注册到 DispatchKey（CPU / CUDA / Autograd / Meta 各一份）→ 编写实现（[第二章](#二三步定义注册实现)）。**两种接入**：Python 的 `torch.library.define / impl / register_autograd / register_fake`，C++ 的 `TORCH_LIBRARY / TORCH_LIBRARY_IMPL`，两者写进同一张 Operator Table，`torch.ops.myops.scale_shift` 按名字取回（[第三章](#三两种接入方式torchlibrary-与-torch_library)）。**四个阶段**逐步落地：纯 Python 实现建立契约 → C++ CPU 实现（`AT_DISPATCH` 展开 dtype、`cpp_extension.load` 即时编译）→ CUDA 实现（`CUDAGuard`、当前 stream、launch 检查）→ Autograd 与 Meta（`register_fake` 给 `torch.compile` 与 shape 推断用）（[第五](#五阶段一python-实现建立契约)至[八章](#八阶段四autograd-与-meta)）。**验证**：`torch.library.opcheck` 对 Schema、Autograd、FakeTensor、别名信息做一致性检查，加 `gradcheck` 与对照 CPU 参考实现——原生算子靠 yaml + Codegen 自动获得的东西，自定义算子要自己补齐（[第九章](#九测试与-benchmark)、[第十章](#十构建abi-与分发)）。

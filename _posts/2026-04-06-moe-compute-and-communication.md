@@ -12,8 +12,7 @@ updated: 2026-09-14
 
 混合专家（Mixture of Experts，MoE）把这三个数拆开了。DeepSeek-V3 的技术报告里写着"总参数 671B，每 token 激活 37B"，从算量看它比 Llama-3-70B 便宜一半，但实际部署时它需要几十张 GPU 组成的专家并行集群，而 70B 一台 8 卡机器就能跑得很好。本篇要回答的核心问题是：
 
-> **DeepSeek-V3 每 token 只算 37B 参数，为什么部署它比部署一个 dense 70B 难得多？把"参数量"、"激活参数量"、"每步实际读取的参数量"三个数分开算。**
-
+> **DeepSeek-V3 每 token 只算 37B 参数，为什么部署它比部署一个 dense 70B 难得多？[^q0] 把"参数量"、"激活参数量"、"每步实际读取的参数量"三个数分开算。**
 
 ## 一、总览：把三个"参数量"分开算
 
@@ -35,7 +34,6 @@ updated: 2026-09-14
 | 九 | 实践 | `llm_cost.py` 的 MoE 支持 |
 | 十 | 本文小结 |  |
 | 十一 | 自测 | 5 道题 |
-
 
 ## 二、从 dense FFN 到 MoE 层
 
@@ -184,7 +182,6 @@ $$\binom{8}{2} = 28, \qquad \binom{256}{8} \approx 4.1 \times 10^{14}$$
 
 系统上的代价从同一张表就能看出来：DeepSeek-V3 一层有 257 个矩阵组要管理，每个专家的 GEMM 只有 $$7168 \times 2048$$，比 Mixtral 的 $$4096 \times 14336$$ 窄得多；每个 token 要和 8 个专家通信而不是 2 个。后面几章的所有麻烦——访存、all-to-all、GEMM 效率、负载均衡——都在细粒度设计下被放大。
 
-
 ## 三、参数量与激活参数量
 
 ### 1. Mixtral 8x7B
@@ -271,7 +268,6 @@ Mixtral 也有同样的问题，只是数量级小：BF16 权重 93.4 GB，单�
 
 到这里，核心问题的前两个数已经有了：参数量 671B，激活参数量 37B。第三个数——每步实际读取的参数量——需要看 decode 时 batch 里的 token 是怎样分布在专家上的。
 
-
 ## 四、decode 的访存形态：稀疏在访存上不成立
 
 ### 1. 期望激活专家数的推导
@@ -355,7 +351,6 @@ EP 规模    每卡每层路由专家数    每卡路由专家权重    每卡�
 （EP320 一行按 DeepSeek-V3 报告的 decode 配置：256 个路由专家加 64 个热门专家的冗余副本，共 320 份，每卡 1 份。）
 
 EP16 是让 FP8 权重放得下的最小规模，但每卡只剩 22 GB 给 KV cache 与激活；EP32 之后剩余显存才宽裕起来。EP 让每卡的权重读取量从"随 batch 趋近 671B"回到几十 GB，让 HBM 装得下权重之外还留出 KV cache 的空间。代价是原本在一张卡内部完成的"按专家分组"，变成了跨卡通信。
-
 
 ## 五、专家并行与 all-to-all
 
@@ -522,7 +517,6 @@ DeepSeek-V3 的 $$d = 7168$$、BF16、$$n = 8$$：每 token 每层 $$2 \times 7/
 
 粗略的判据：**专家少、每个专家宽（Mixtral），TP 划算，通信量小且 GEMM 形状好；专家多、每个专家窄（DeepSeek-V3），TP 切出来的矩阵太瘦，必须用 EP，接受 all-to-all 的代价。** 实际部署常常两者混用：attention 部分 TP 或数据并行，专家部分 EP。
 
-
 ## 六、grouped GEMM 的形态
 
 ### 1. 每专家平均行数
@@ -553,7 +547,6 @@ Tensor Core GEMM kernel 以 tile 为单位计算，典型的 tile 是 128 × 128
 grouped GEMM 是对这个问题的工程回答：把 $$E$$ 个不同形状（行数各异）、共享 K 与 N 维的小 GEMM 打包成一个 kernel launch，让 GPU 的 SM 在专家之间做负载分配，避免 256 次 launch 的开销和 SM 空闲。CUTLASS 的 grouped GEMM、vLLM 的 fused MoE Triton kernel、Megatron 的 grouped GEMM 后端都是这个思路。它解决了 launch 开销与 SM 利用率问题，但没有改变每个专家 M 小这一事实：decode 阶段的 MoE 层，本质上还是在为每个专家读一遍 $$[7168, 2048]$$ 的权重然后只乘 1–4 行——第四章算过的"访存量按激活专家数"，正是这里的直接体现。
 
 第一篇的参数量、第二篇的 FLOPs 在 MoE 上都成立；不成立的是第二篇 Roofline 分析中"batch $$B$$ 时权重 GEMM 算术强度约为 $$B$$ FLOP/byte"这条：MoE 层里每个专家的算术强度是 $$Tk/E$$ 而不是 $$T$$，比 dense 低 $$E/k = 32$$ 倍（DeepSeek-V3）。要让专家 GEMM 越过 H100 的 ridge point（约 295 FLOP/byte，BF16），需要每专家至少 300 行左右，即 $$T \geq 300 \times 32 \approx 9600$$ 个 token 同时在一层——这在 prefill 可以做到，在 decode 只有靠 EP 把大量并发请求的 token 汇聚到同一个专家上。DeepSeek-V3 用 EP320 做 decode，320 卡上的所有请求在每个专家上汇聚，是让专家 GEMM 有足够 M 的另一个理由。
-
 
 ## 七、负载均衡
 
@@ -634,7 +627,6 @@ GEMM 阶段其余 3 张卡 1 格后算完（....），要等 rank2 算完才能�
 
 结果是这一层的耗时约为均衡时的 2 倍，全层的算力利用率降到约 50%。58 层里只要几层出现热点，整体吞吐就明显下降。这就是为什么 DeepSeek-V3 的部署方案里有"冗余专家"（把热门专家复制到多张卡上）与周期性根据负载统计重排专家的机制——EP 下负载均衡不再只是训练时的建模问题，而是推理时的调度问题。
 
-
 ## 八、共享专家与 MTP
 
 ### 1. 共享专家其实是 dense FFN
@@ -646,7 +638,6 @@ DeepSeek-V3 每个 MoE 层有 1 个共享专家，$$d_{ff} = 2048$$，不经过 
 ### 2. MTP：内置的投机草稿
 
 DeepSeek-V3 在主模型之外训练了一个多 token 预测（Multi-Token Prediction，MTP）模块，用第 $$t$$ 个位置的 hidden state 额外预测第 $$t+2$$ 个 token。推理时这个模块可以直接当作投机解码的草稿模型：主模型一步产生一个 token，MTP 头顺带猜出下一个，再由主模型验证。报告中的接受率在 85%–90%，相当于每步 decode 平均产出接近 1.8 个 token。投机解码的期望加速与接受率的关系，第七篇会展开。
-
 
 ## 九、实践：llm_cost.py 的 MoE 支持
 
@@ -847,7 +838,6 @@ if __name__ == "__main__":
 
 第六篇会在这个脚本上加 dtype 字节表与训练状态显存，第七篇加量化、投机解码与 LoRA。
 
-
 ## 十、本文小结
 
 MoE 把 dense 模型里绑在一起的三个数拆开了：
@@ -889,14 +879,6 @@ grouped GEMM 每专家行数
 > **一个数用多少位表示，决定了它能算多快、放多少，也决定了它在哪里会悄悄算错。**
 
 配套代码：[`transformer-and-llm/llm_cost_05_moe.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_05_moe.py)；第二章的最小 MoE 层在 [`moe_layer_minimal.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/moe_layer_minimal.py)。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**三个数分开**：参数量 671B 决定显存——FP8 下也是 671 GB，一台 8 卡 H100（640 GB）放不下，必须多机（第二章）；激活参数量 37B 决定每 token 的 FLOPs——74 GFLOPs，只有 dense 70B 的一半（第三章）；每步实际读取的参数量决定 decode 带宽——batch 为 1 时读 37B，但每个 token 各选 8 个专家，一个 batch 里被激活的专家数 $$E[1 - (1 - k/E)^B]$$ 在 $$B = 32$$ 时已经覆盖 434B 的权重，趋近 671B，所以 decode 读的字节几乎是 dense 70B 的 5 倍而算力用不满（第四章）。**难在哪**：显存逼着专家并行到多机，每层两次 all-to-all 把 token 送到专家所在的卡再送回来，通信量随专家并行度增长；专家负载不均让最忙的卡拖住所有卡；小 batch 下每个专家只分到几个 token，GEMM 碎成一堆小矩阵、MFU 极低（第五、六章）。dense 70B 一台机器 TP 就跑起来了，这些问题一个都没有。
-
-</details>
-
 
 ## 十一、自测
 
@@ -940,7 +922,8 @@ grouped GEMM 每专家行数
 
    </details>
 
-
 ## 下一篇
 
 [浮点格式、数值稳定性与混合精度](/floating-point-formats-and-mixed-precision.html)
+
+[^q0]: 把三个「参数量」分开算：**总参数量** 671B 决定显存——FP8 下也是 671 GB，一台 8 卡 H100（640 GB）放不下，必须多机（[第三章](#三参数量与激活参数量)）；**激活参数量** 37B 决定每 token 的 FLOPs——74 GFLOPs，只有 dense 70B 的一半；**每步实际读取的参数量**决定 decode 带宽——batch 为 1 时读 37B，但每个 token 各选 8 个专家，一个 batch 里被激活的专家数 $$E[1 - (1 - k/E)^B]$$ 在 $$B = 32$$ 时已覆盖 434B 的权重，趋近 671B，所以 decode 读的字节几乎是 dense 70B 的 5 倍而算力用不满（[第四章](#四decode-的访存形态稀疏在访存上不成立)）。**难在哪**：显存逼着专家并行到多机，每层两次 all-to-all 把 token 送到专家所在的卡再送回来（[第五章](#五专家并行与-all-to-all)）；小 batch 下每个专家只分到几个 token，GEMM 碎成一堆小矩阵、MFU 极低（[第六章](#六grouped-gemm-的形态)）；专家负载不均让最忙的卡拖住所有卡（[第七章](#七负载均衡)）。dense 70B 一台机器 TP 就跑起来了，这些问题一个都没有。

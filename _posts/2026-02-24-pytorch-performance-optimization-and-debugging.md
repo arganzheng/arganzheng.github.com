@@ -12,7 +12,7 @@ updated: 2026-09-14
 
 这一篇兑现这些承诺。它围绕一个问题展开：
 
-> **如何判断一个 PyTorch 程序慢，以及如何定位它为什么慢？**
+> **如何判断一个 PyTorch 程序慢，以及如何定位它为什么慢？[^q0]**
 
 这个问题比"如何让它变快"更基础。AI-Infra 工作中大量的性能优化失败，不是因为不知道优化手段，而是因为**没有正确地测量**，或者**对着错误的瓶颈用力**：GPU 利用率只有 30% 时去优化 Kernel，显存碎片导致 OOM 时去减 batch，Python 开销占主导时去换更快的 cuBLAS 版本。
 
@@ -21,7 +21,6 @@ updated: 2026-09-14
 > **性能优化的第一步不是修改代码，而是回答"时间花在哪一层"。答错这个问题，之后所有努力都在错误的地方。**
 
 本文的数字（延迟、带宽、利用率）除明确标注的硬件规格外均为示意，用于说明数量级和比例关系；具体值随硬件、驱动、PyTorch 版本变化。测量方法和分析框架比数字本身持久。
-
 
 ## 一、总览：一次 step 的时间去哪了
 
@@ -156,7 +155,6 @@ flowchart TB
 | 十一 | 本文小结 | |
 | 十二 | 自测 | 5 道题 |
 
-
 ## 二、度量（1）：异步执行模型——正确计时的前提
 
 ### 1. 为什么 `time.time()` 会骗你
@@ -247,7 +245,6 @@ sequenceDiagram
 
 哪些操作会隐式同步、代价何时显现，是第七章 Sync-bound 的内容。这一章只需记住：**测量必须同步，且只在测量边界同步**。
 
-
 ## 三、度量（2）：Benchmark 方法——怎么得到可信的数字
 
 ### 1. 用 `torch.utils.benchmark`
@@ -331,7 +328,6 @@ def check(fn_new, fn_ref, *inputs, rtol=1e-3, atol=1e-3):
 - 注意 GPU 时钟：连续高负载会触发降频，长 Benchmark 的后半段可能比前半段慢；
 - `torch.backends.cudnn.benchmark = True` 会让 cuDNN 为每个新 shape 试跑多个算法——对固定 shape 有益，对动态 shape 有害，且首次调用极慢；
 - 一次只改一个变量。
-
 
 ## 四、度量（3）：Profiler 与 Nsight——怎么看出瓶颈属于哪一类
 
@@ -450,7 +446,6 @@ ncu --set full --kernel-name regex:triton_poi_fused_add_relu -c 1 python demo.py
 | GPU 泳道密集，矩阵乘占 CUDA 时间大头 | `mm`、`bmm`、`conv` 占比高 | Compute-bound | 六 |
 | 两条泳道周期性交替空洞 | `cudaStreamSynchronize`、`cudaMemcpy` 频繁出现 | Sync-bound | 七 |
 | GPU 泳道大段空白，CPU 停在数据加载 | `DataLoader.__next__` 耗时长 | Sync-bound 的特例：数据加载 | 七 |
-
 
 ## 五、时间维度（1）：CPU 侧——Python-bound 与 Launch-bound
 
@@ -595,7 +590,6 @@ CUDA Graphs         → 约束最多，收益在前几条做完后才明显
 ### 11. 何时停止
 
 当 Profiler 显示 GPU 利用率超过 90%、`cudaLaunchKernel` 占 CPU 时间不到 10%，CPU 侧不再是瓶颈。此时继续融合、继续减 launch 已无收益，瓶颈转移到 GPU 侧——进入下一章。
-
 
 ## 六、时间维度（2）：GPU 侧——Memory-bound 与 Compute-bound
 
@@ -764,7 +758,6 @@ Occupancy 低的 Kernel 即使 AI 合适也达不到 Roofline，因为访存延�
 
 当矩阵乘 Kernel 的 Tensor Core 利用率接近峰值、逐元素算子已融合到不能再融合、Nsight Compute 显示主要 Kernel 的 DRAM 或 SM Throughput 接近 100%——GPU 侧到了硬件上限。剩下的路只有减少计算量本身（模型结构、序列长度、稀疏化），或增加硬件（第九篇）。
 
-
 ## 七、时间维度（3）：两侧之间——Sync-bound
 
 前两章各自假设另一侧不是问题。Sync-bound 是两侧**互相等待**：CPU 等 GPU 排空，然后 GPU 等 CPU 重新填队列。时间线上的形态是两条泳道**交替出现空洞**。
@@ -908,7 +901,6 @@ torch.cuda.set_sync_debug_mode("warn")     # 每次隐式同步打印警告和 P
 ```
 
 判断方法：单独 Benchmark `DataLoader` 的迭代速度（不带模型），与训练 step 时间对比。如果加载一个 batch 的时间接近或超过训练一个 batch 的时间，数据加载就是瓶颈——此时优化模型毫无意义。
-
 
 ## 八、空间维度：显存
 
@@ -1109,7 +1101,6 @@ CPU offload             把优化器状态或部分参数放到内存（第九�
 
 诊断手段是操作系统级的（`free`、`/proc/<pid>/status`、`psutil`），PyTorch 没有对应 `memory_allocated` 的 API——因为 CPU Tensor 用的是系统分配器，没有 Caching Allocator 那一层。
 
-
 ## 九、一个完整案例：Transformer block 的训练 step
 
 把前面的工具和模型串起来，走一遍第一章 §5 的流程。数字为示意，比例关系反映真实规律。
@@ -1300,7 +1291,6 @@ checkpoint 后加大 batch 的吞吐（1882）反而低于不 checkpoint 的 bat
 
 不同模型的具体数字不同，但顺序几乎总是这样。跳过第一步直接做第二步，是性能优化中最常见的浪费。
 
-
 ## 十、Java 工程师如何理解 PyTorch 性能分析
 
 ### 1. 异步与测量：`CompletableFuture`
@@ -1360,7 +1350,6 @@ JMH 解决的问题与 `torch.utils.benchmark` 完全对应：
 Java 工程师默认用 `double`，把 `float` 当作节省内存的特例。PyTorch 反过来：fp32 是基线，还要继续往下降到 bf16。原因是 GPU 的算力和带宽对精度极其敏感——Tensor Core 在 bf16 上的算力是 fp32 的 16 倍。这不是"够用就行"的取舍，而是 Roofline 直接推出的结论。
 
 但 Java 工程师熟悉的浮点陷阱（`0.1 + 0.2 != 0.3`、大数吃小数、累加误差）在 bf16 下会被放大百倍。第六章 §6 的规则——归约用高精度、主参数用 fp32、避免相近数相减——都是这些陷阱的对策。
-
 
 ## 十一、本文小结
 
@@ -1438,14 +1427,6 @@ warmup 后再测，报告中位数与分布
 
 > **当一张卡放不下模型或跑不完数据时，PyTorch 如何把计算和状态切分到多个设备，并让通信与计算重叠？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**判断慢**：先量而不是猜——用 `torch.utils.benchmark.Timer` 处理预热、`cuda.synchronize` 与统计，与一个理论下界比（模型的 FLOPs / 峰值算力、字节数 / 带宽，04 系列的 Roofline）；离下界几倍才叫慢（第二、三章）。**定位为什么慢**：回答“时间花在哪一层”，用 `torch.profiler` 的时间线与表格把症状归到六类——GPU 空闲、CPU 忙、kernel 多而小是 **launch-bound**（融合、CUDA Graphs、fused 优化器）；CPU 时间不在算子上是 **Python-bound**（`with_stack` 找到、向量化或 compile）；GPU 忙且逐元素算子占比高是 **memory-bound**（融合、bf16、布局）；GPU 忙且 GEMM 占比高是 **compute-bound**（Tensor Core、减算量）；时间线两侧交替空洞是 **sync-bound**（`.item()`、`nonzero`、数据依赖 shape，用 `set_sync_debug_mode` 抓）；GPU 大段空白、CPU 停在 DataLoader 是**数据加载**（第五、六、七章）。显存问题另一张表：`reserved ≫ allocated` 是碎片（`expandable_segments`）、`allocated` 单调涨是泄漏（memory snapshot 找持有 `grad_fn` 的引用）、平均不高但 OOM 是峰值（第四章）。原则：先分层再动手，改完再量，与 Benchmark 对比，否则不知道是否真的快了。
-
-</details>
-
-
 ## 十二、自测
 
 1. 不加 `torch.cuda.synchronize()` 用 `time.time()` 量一个 GPU 算子，量到的是什么？
@@ -1488,7 +1469,8 @@ warmup 后再测，报告中位数与分布
 
    </details>
 
-
 ## 下一篇
 
 [分布式 PyTorch](/pytorch-distributed-training.html)
+
+[^q0]: **判断慢**：先量而不是猜——用 `torch.utils.benchmark.Timer` 处理预热、同步与统计，与一个理论下界比（FLOPs / 峰值算力、字节数 / 带宽），离下界几倍才叫慢（[第二章](#二度量1异步执行模型正确计时的前提)、[第三章](#三度量2benchmark-方法怎么得到可信的数字)）。**定位为什么慢**：用 `torch.profiler` 的时间线把症状归到六类——GPU 空闲、CPU 忙、kernel 多而小是 **launch-bound**（融合、CUDA Graphs）；CPU 时间不在算子上是 **Python-bound**（`with_stack` 找到、向量化或 compile）；GPU 忙且逐元素算子占比高是 **memory-bound**（融合、bf16、布局）；GPU 忙且 GEMM 占比高是 **compute-bound**（Tensor Core、减算量）；时间线两侧交替空洞是 **sync-bound**（`.item()`、`nonzero`，用 `set_sync_debug_mode` 抓）；GPU 大段空白、CPU 停在 DataLoader 是数据加载（[第四](#四度量3profiler-与-nsight怎么看出瓶颈属于哪一类)至[七章](#七时间维度3两侧之间sync-bound)）。显存另一张表：`reserved ≫ allocated` 是碎片、`allocated` 单调涨是泄漏（memory snapshot 找持有 `grad_fn` 的引用）、平均不高但 OOM 是峰值（[第八章](#八空间维度显存)）。原则：先分层再动手，改完再量。[第九章](#九一个完整案例transformer-block-的训练-step)在一个 Transformer block 上完整走一遍。

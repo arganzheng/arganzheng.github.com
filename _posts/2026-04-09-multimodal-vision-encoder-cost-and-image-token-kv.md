@@ -14,8 +14,7 @@ updated: 2026-09-14
 
 本篇要回答的核心问题是：
 
-> **一张 1024×1024 的图片，在 Qwen2-VL 里等于多少个 token？它的代价花在 encoder、connector 还是 decoder 的 KV 上？为什么"encoder 输出只有 10 MB"而"这张图占的显存有 400 MB"两句话可以同时成立？**
-
+> **一张 1024×1024 的图片，在 Qwen2-VL 里等于多少个 token？[^q0] 它的代价花在 encoder、connector 还是 decoder 的 KV 上？[^q1] 为什么"encoder 输出只有 10 MB"而"这张图占的显存有 400 MB"两句话可以同时成立？[^q2]**
 
 ## 一、总览：三笔账与一个结论
 
@@ -58,7 +57,6 @@ updated: 2026-09-14
 | 九 | 实践 | `llm_cost.py` 的多模态支持与最终成本表 |
 | 十 | 本文小结与系列总结 |  |
 | 十一 | 自测 | 5 道题 |
-
 
 ## 二、从像素到 patch：vision encoder 的账
 
@@ -116,7 +114,6 @@ $$\text{FLOPs}_{vit} = 2 N_{vit} \cdot n_p + 4 L_{vit}\, n_p^2\, d_{vit}$$
 
 固定分辨率简单但浪费：一张 4K 截图缩到 336² 什么字都看不清。tile 方案让 encoder 每次只处理固定形状（对 kernel 和 batch 友好），代价是 tile 之间没有 attention。原生动态分辨率最灵活，但 $$n_p$$ 可以相差三个数量级，encoder 的 FLOPs 与后面 decoder 的账都随之剧烈变化——系统必须按图片尺寸而不是"图片张数"来预算。
 
-
 ## 三、connector：谁决定 image token 数
 
 ### 1. 三类 connector
@@ -157,7 +154,6 @@ InternVL 的 pixel-shuffle 在数学上与 2×2 merge 相同（把 $$2 \times 2 
 | Llama-3.2 Vision | 1601（1 tile） | 4 × 1601 = 6404 | 6404 |
 
 同一张 1024² 的图，从 576 到 6404，差 11 倍。这个数决定了下一章的全部内容。
-
 
 ## 四、image token 在 decoder 里：真正的账
 
@@ -203,7 +199,6 @@ image token 让 prefill 变长，而 prefill 是 compute-bound 的（第二篇�
 
 多图请求（或多轮对话里累积的图）按 token 数线性叠加：Qwen2-VL 里 4 张 1024² 的图是 5476 个 image token，KV 在 70B 规格下 1.7 GiB。这比大多数文本对话的上下文都长。对推理系统而言，多模态请求的 KV 需求方差远大于纯文本请求——纯文本的 prompt 长度分布相对集中，而一个 VLM 服务会同时收到 144 token 的缩略图和 16384 token 的 4K 截图。
 
-
 ## 五、另一条路线：cross-attention 注入
 
 ### 1. 图片特征不进 decoder 序列
@@ -231,7 +226,6 @@ Llama-3.2-11B-Vision 的 `config.json` 给出的结构：
 
 cross-attention 用**参数**换**序列长度**：多了 0.5 B 参数，换来 decoder 序列不被图片撑长、图片 KV 减到四分之一。代价是 decoder 不再是"标准的 Llama"——推理引擎要为它单独实现 cross-attention 的 KV 管理（图片 KV 的形状与文本 KV 不同，不能放进同一套分页），训练框架也要处理两种 attention 的并行切分。这是它在开源社区里不如 decoder-only 注入流行的工程原因；Llama 4 已经改回 early fusion。
 
-
 ## 六、位置编码：从一维到三维
 
 ### 1. 问题
@@ -256,7 +250,6 @@ Qwen2-VL 的 M-RoPE（Multimodal RoPE）把 $$d_{head} = 128$$ 的 64 对旋转�
 ### 3. ViT 内部的 2D RoPE
 
 encoder 自己也要位置编码。CLIP ViT 用的是可学习的绝对位置 embedding，固定 577 个位置，这也是它只能处理固定分辨率的原因之一（换分辨率要插值位置表）。Qwen2-VL 的 ViT 改用 2D RoPE：$$d_{head}$$ 的一半用 patch 的行号旋转、一半用列号旋转，位置与分辨率无关，这是原生动态分辨率的前提。
-
 
 ## 七、视频与音频
 
@@ -289,7 +282,6 @@ $$n_{audio} = \frac{T_{sec}}{30} \times 1500 = 50\ \text{token / 秒}$$
 
 所有模态最终都归结为同一个数——进入 decoder 的 token 数。**decoder 不知道也不关心 token 从哪里来**，它的 prefill FLOPs 和 KV 只看这个数。encoder 的差异只影响前置的一次性计算。
 
-
 ## 八、训练侧的账
 
 ### 1. 冻结 encoder 省的是状态，不是激活
@@ -311,7 +303,6 @@ $$n_{audio} = \frac{T_{sec}}{30} \times 1500 = 50\ \text{token / 秒}$$
 ### 3. 图片解码是 CPU 的活
 
 一张 1024² 的 JPEG 解码加 resize 加归一化，在一个 CPU 核上是毫秒级；encoder 在 H100 上处理它也是十毫秒级。文本预训练里数据加载几乎不占 CPU，多模态训练里每张卡每秒要喂几十到几百张图，8 卡机器的 CPU 很容易先于 GPU 饱和。数据管线的形态从"读 token id"变成"解码图片"，这是训练基础设施在多模态上遇到的第一个实际瓶颈，解法（预处理离线化、GPU 解码 nvJPEG、DALI）都是在把这一步搬离 CPU。
-
 
 ## 九、实践：llm_cost.py 的多模态支持
 
@@ -427,7 +418,6 @@ Llama-3.2 ViT-H/14     patches  6404 tokens  6404 encoder 18.47 TFLOP (attn 45%)
 1. **encoder 时间与 batch 无关**：用 `transformers` 加载 Qwen2-VL-7B，只跑 `visual` 子模块，输入 1 张与 8 张 1024² 图片，测时间。预期接近线性（compute-bound），与 decode 那种"8 个请求几乎不比 1 个慢"形成对照。
 2. **image token 就是 token**：用同一模型对比"1369 个文本 token 的 prompt"与"一张 1024² 图片 + 几个字"的首 token 延迟与 `torch.cuda.max_memory_allocated()` 的增量。预期后者比前者多出的只有 encoder 的 12 ms 与 encoder 输出的 10 MiB；KV 增量相同。
 
-
 ## 十、本文小结与系列总结
 
 ### 1. 本文小结
@@ -498,14 +488,6 @@ MoE 多卡要传多少数据？                     → 每 token 每专家 7 + 
 
 配套代码：[`transformer-and-llm/llm_cost_08_multimodal.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_08_multimodal.py)（复用第七版的 `ModelConfig`）；本文各表的理论数字由 [`vlm_cost_numbers.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/vlm_cost_numbers.py) 算出。全系列八版脚本与运行输出在 [ai-learning-labs/transformer-and-llm](https://github.com/arganzheng/ai-learning-labs/tree/main/transformer-and-llm)。
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**多少 token**：Qwen2-VL 每 $$14 \times 14$$ 像素一个 patch、2×2 merge 后每 $$28 \times 28$$ 一个 token，$$1024 \times 1024$$ 是 $$(1024/28)^2 \approx 1369$$ 个 token（第三章）。**代价花在哪**：encoder 一次性 11.8 TFLOP、compute-bound、与 batch 无关；connector 几乎不花；decoder 的 prefill 193 TFLOP 与同样长度的文本一样；真正长期占用的是 **image token 的 KV**——1369 个 token × 每 token 320 KiB（7B 规格）= 428 MiB，活到请求结束（第二、四章）。**两句话为什么同时成立**：encoder 输出是 $$n_{img} \times d_{model} \times 2$$ 字节 ≈ 21 MiB，prefill 之后就能释放；但这些 token 进入 decoder 后每层每个 KV 头都要存一份 K、V，$$2 L n_{kv} d_{head} / d_{model} \approx 20$$ 倍——"输出 10 MB"说的是 connector 之后、"占 400 MB"说的是 decoder 里的 KV，两个数字在流水线的不同位置（第四章）。对推理系统的含义：图片请求的 KV 需求由分辨率决定，方差远大于文本。
-
-</details>
-
-
 ## 十一、自测
 
 1. Qwen2-VL 处理一张 $$1344 \times 896$$ 的文档图与一张 $$224 \times 224$$ 的缩略图，各多少 token？
@@ -548,7 +530,10 @@ MoE 多卡要传多少数据？                     → 每 token 每专家 7 + 
 
    </details>
 
-
 ## 下一篇
 
 本系列到此为止。紧接着的系列[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)用同样的方法算这张成本表的训练侧，第一篇是[分词与词表：BPE、词表大小与 token 效率](/tokenizer-vocabulary-and-token-efficiency.html)。
+
+[^q0]: 约 **1369** 个：Qwen2-VL 每 $$14 \times 14$$ 像素一个 patch、2×2 merge 后每 $$28 \times 28$$ 像素一个 token，$$(1024/28)^2 \approx 1369$$。token 数由 connector 的合并比例与图片分辨率决定，与文本长度无关。详见[第二章](#二从像素到-patchvision-encoder-的账)、[第三章](#三connector谁决定-image-token-数)。
+[^q1]: encoder 一次性 11.8 TFLOP、compute-bound、与 batch 无关；connector 几乎不花；decoder 的 prefill 193 TFLOP 与同样长度的文本一样；真正长期占用的是 **image token 在 decoder 里的 KV**——1369 个 token × 每 token 320 KiB（7B 规格）≈ 428 MiB，活到请求结束。详见[第二章](#二从像素到-patchvision-encoder-的账)、[第四章](#四image-token-在-decoder-里真正的账)。
+[^q2]: 两个数在流水线的不同位置。encoder / connector 的输出是 $$n_{img} \times d_{model} \times 2$$ 字节 ≈ 21 MiB，prefill 之后就能释放；这些 token 进入 decoder 后每层每个 KV 头都要存一份 K、V，放大 $$2 L n_{kv} d_{head} / d_{model} \approx 20$$ 倍。对推理系统的含义：图片请求的 KV 需求由分辨率决定，方差远大于文本。详见[第四章](#四image-token-在-decoder-里真正的账)。

@@ -16,12 +16,11 @@ updated: 2026-09-14
 z = x + y
 ```
 
-到底是谁决定了这个操作对应哪个算子、`x` 和 `y` 位于哪个设备、当前是否需要 Autograd、最终应该调用哪个 Kernel？
+到底是谁决定了这个操作对应哪个算子、`x` 和 `y` 位于哪个设备、当前是否需要 Autograd、最终应该调用哪个 Kernel？[^q0]
 
 这些问题属于 PyTorch 的**算子系统（Operator System）**。本文不会一开始分析复杂的 Attention，而是选择最简单的 `add` 算子，从两个视角把算子系统拆开：**算子开发者在构建时做了什么**，以及**算子使用者在调用时发生了什么**。
 
 > **Dispatcher 解决的不是“调用哪个 Python 函数”，而是“在当前运行时上下文中，如何为一个抽象算子选择正确的实现路径”。**
-
 
 ## 一、总览：两个维度与一张注册表
 
@@ -95,7 +94,6 @@ flowchart LR
 | 九 | 串起来：add 的完整路径，开发者做了什么 / 用户调用时发生了什么 |  |
 | 十 | Java 对照 |  |
 | 十一 | 小结 |  |
-
 
 ## 二、开发态（1）：定义算子
 
@@ -219,7 +217,6 @@ Schema 中的 alias 标注（如 `Tensor(a!)`）是 Autograd 版本检查、编�
 
 定义完成后，开发者还需要告诉 Dispatcher：在哪个 Key 下，用哪个函数实现这个 Schema。这是下一步：注册。
 
-
 ## 三、开发态（2）：注册实现到 DispatchKey
 
 ### 1. DispatchKey：实现被挂在哪个槽位上
@@ -303,7 +300,6 @@ NotImplementedError: Could not run 'myops::scale' with arguments from the 'CUDA'
 
 或者落到该 Key 的 fallback（例如某些后端配置的 CPU fallback）。这是自定义算子和新后端适配中最常见的一类错误，根因在开发态的注册，而不在运行态的调用。
 
-
 ## 四、开发态（3）：编写实现
 
 ### 1. 实现入口：被注册的那个函数
@@ -383,7 +379,6 @@ Meta 实现不计算数值，只推断输出元数据。它服务于大模型结
 
 到这里，开发者的三步——定义、注册、实现——已经完整。把三步粘在一起的样板代码从哪里来？这是横向机制 Codegen。
 
-
 ## 五、开发态横向机制：Codegen
 
 ### 1. 为什么需要代码生成？
@@ -426,7 +421,6 @@ Codegen 减少了重复，但增加了源码阅读成本：调用栈中很多函
 
 以上是开发态。接下来切换视角：用户调用 `torch.add(x, y)` 时，运行时发生了什么。
 
-
 ## 六、运行态（1）：入口
 
 ### 1. 三种 Python 写法，同一个算子
@@ -460,7 +454,6 @@ at::add(x, y)              入口：调用 Dispatcher
     ↓ Dispatcher
 at::native::add(x, y)      实现：被 Dispatcher 调用
 ```
-
 
 ## 七、运行态（2）：分发
 
@@ -569,7 +562,6 @@ sequenceDiagram
 
 概念上它是一张表的查找，但真实系统还要处理多个 Key 的合并与优先级、包装 Key 的再次分发、fallback、boxed/unboxed 调用约定、Python 级自定义分发。它是一个**多维、可多次的运行时分发系统**。
 
-
 ## 八、运行态（3）：执行
 
 Dispatcher 选中后端实现后，第四章的五种实现模式在运行态各自表现为：
@@ -628,7 +620,6 @@ Meta 实现只推断输出元数据并构造一个无数据的 Tensor。不进�
 ### 5. 结果 Tensor 的构造
 
 无论哪种模式，执行结束时都要产出一个元数据正确的结果 Tensor：shape、stride、dtype、device、Storage；如果经过了 Autograd 包装，还带有 `grad_fn`。第二篇和第三篇建立的 Tensor 与 Autograd 模型，在这里汇合。
-
 
 ## 九、串起来：`add` 的完整路径
 
@@ -698,7 +689,6 @@ flowchart LR
 
 > **开发者定义契约、注册实现、编写 Kernel，Codegen 粘合；用户从入口进入，Dispatcher 查表选路，选中的实现执行。Operator Table 是两者的交汇点。**
 
-
 ## 十、Java 工程师如何理解 Dispatcher
 
 ### 1. 最贴切的类比：注册表模式
@@ -728,7 +718,6 @@ Compiler     → 可能在调用前后重写计算路径（第七篇）
 ```
 
 Dispatcher 本身的开销只是执行路径的一部分。第八篇会用 Profiler 区分 Python 开销、分发开销、Kernel 开销和同步开销。
-
 
 ## 十一、本文小结
 
@@ -803,14 +792,6 @@ native_functions.yaml 找到 Schema 与 dispatch 字段
 
 > **如何用 C++ 和 CUDA 编写一个自定义算子，完成定义、注册、实现三步，并正确处理 Tensor、dtype、device、stride、Autograd 和 ABI？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-Dispatcher 解决“在当前运行时上下文中为一个抽象算子选择正确的实现路径”。开发态：`native_functions.yaml` 定义每个算子的 Schema 与 `dispatch` 字段（哪个 key 用哪个函数），实现写在 `ATen/native/`，Codegen（`torchgen`）生成注册代码、C++ 入口 `at::add` 与 Python 绑定，全部登记进 Operator Table——每个算子一个 `OperatorEntry`，按 DispatchKey 存 `KernelFunction`（第二至五章）。运行态：`torch.add(x, y)` → Python 绑定解析参数 → `at::add` → `Dispatcher::call` 从参数 Tensor 的 `DispatchKeySet`（加上 TLS 里 include / exclude 的 key）取最高优先级的 key 查表——Autograd 先命中，它记录 `grad_fn` 后把自己排除再重新分发，落到 CPU / CUDA 的 kernel；autocast、Functionalize、Python 子类拦截都是这条链上的一个 key（第六至九章）。这样“一个算子调用”实际经过一串按优先级排列的层，每层做完自己的事再交给下一层——Operator Table 是开发态与运行态的交汇点；TensorIterator 是实现逐元素 / 归约算子的通用模式，不是必经之路（第十章）。
-
-</details>
-
-
 ## 十二、自测
 
 1. `native_functions.yaml` 里一个算子写了 `dispatch: CPU: add_cpu, CUDA: add_cuda`，没写 Autograd——反向从哪来？
@@ -853,7 +834,8 @@ Dispatcher 解决“在当前运行时上下文中为一个抽象算子选择正
 
    </details>
 
-
 ## 下一篇
 
 [C++ 扩展与自定义算子](/pytorch-cpp-extension-and-custom-operators.html)
+
+[^q0]: 是 **Dispatcher**，依据一张按算子组织的注册表（Operator Table）。开发态：`native_functions.yaml` 定义算子的 Schema 与 `dispatch` 字段，实现写在 `ATen/native/`，Codegen 生成注册代码、C++ 入口与 Python 绑定，全部登进 Operator Table——每个算子一个 `OperatorEntry`，按 DispatchKey 存 `KernelFunction`（[第二](#二开发态1定义算子)至[五章](#五开发态横向机制codegen)）。运行态：`torch.add(x, y)` → Python 绑定解析参数 → `at::add` → `Dispatcher::call` 从参数 Tensor 的 `DispatchKeySet`（设备、是否需要梯度）加上 TLS 里的 include / exclude 取最高优先级的 key 查表——Autograd 先命中，记录 `grad_fn` 后把自己排除再重新分发，落到 CPU / CUDA 的 kernel；autocast、Functionalize、Python 子类拦截都是这条链上的一个 key（[第六](#六运行态1入口)至[九章](#九串起来add-的完整路径)）。所以一次算子调用实际经过一串按优先级排列的层，每层做完自己的事再交给下一层。

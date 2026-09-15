@@ -41,8 +41,7 @@ Parameter 更新
 
 本文要回答的不是“如何调用 `nn.Linear`”，而是：
 
-> **PyTorch 如何把模型结构、参数状态、数据管线和训练循环组织成一个可以保存、迁移、复用和扩展的系统？**
-
+> **PyTorch 如何把模型结构、参数状态、数据管线和训练循环组织成一个可以保存、迁移、复用和扩展的系统？[^q0]**
 
 ## 一、总览：从模型对象到训练系统
 
@@ -69,7 +68,6 @@ Parameter 更新
 | 十四 | Java 工程师如何理解 `nn.Module` | 组件树、Parameter、`state_dict`、DataLoader 的类比 |
 | 十五 | 本文小结 |  |
 | 十六 | 自测 | 5 道题 |
-
 
 ## 二、从模型对象到训练系统
 
@@ -302,7 +300,6 @@ flowchart TB
 
 后续所有训练行为，都建立在 Module 能够找到并管理这些对象的前提上。
 
-
 ## 三、`nn.Module` 与模块注册
 
 ### 1. 为什么需要注册？
@@ -492,7 +489,6 @@ model = nn.Sequential(
 
 则通常应该使用自定义 Module，而不是强行塞进 Sequential。
 
-
 ## 四、Parameter、Buffer 与模型状态
 
 ### 1. Parameter 是什么？
@@ -617,7 +613,6 @@ class GoodModule(nn.Module):
         super().__init__()
         self.register_buffer("scale", torch.ones(10))
 ```
-
 
 ## 五、`state_dict`：模型状态的结构化快照
 
@@ -767,7 +762,6 @@ state_dict
 
 这种设计使得权重状态和模型代码相对解耦，也使得模型结构变更时必须显式处理兼容性。
 
-
 ## 六、训练、评估与推理状态
 
 ### 1. `train()` 与 `eval()`
@@ -868,7 +862,6 @@ def evaluate(
 - 输入设备迁移；
 - loss 转 Python 标量；
 - 按样本数量汇总指标。
-
 
 ## 七、Optimizer 与参数更新
 
@@ -1029,7 +1022,6 @@ optimizer.state_dict()
 ```
 
 这也是大模型训练中 Optimizer state 可能成为显存主要消耗者的原因之一：Adam 训练下每个参数要占 16 字节（参数、梯度、两个动量），第八篇会算这笔账。多卡训练时 Optimizer state 是最先被切分到各卡上的状态——第九篇的 ZeRO 与 FSDP 从这里开始。
-
 
 ## 八、Dataset、Sampler 与 DataLoader
 
@@ -1297,7 +1289,6 @@ GPU
 
 但 DataLoader 不是简单的 Java `ExecutorService`：它还涉及 Python 进程、Tensor 共享、pinned memory 和设备搬运。
 
-
 ## 九、CPU-GPU 数据传输与训练流水线
 
 ### 1. 模型和数据必须位于兼容设备
@@ -1409,7 +1400,6 @@ for batch in loader:
 ```python
 value = loss.detach().item()
 ```
-
 
 ## 十、完整训练循环
 
@@ -1541,7 +1531,6 @@ with torch.inference_mode():
     ...
 ```
 
-
 ## 十一、混合精度训练入门
 
 ### 1. 为什么使用混合精度？
@@ -1643,7 +1632,6 @@ BF16 的指数范围接近 FP32，很多训练场景不需要和 FP16 完全相�
 
 应使用正确性测试和 Benchmark 验证，而不是只看代码中出现了 `autocast`。本节只介绍混合精度作为训练 API 的用法；它为什么能加速（Tensor Core 与访存量减半）、什么时候加速不明显、如何用 Benchmark 确认收益，第八篇作为一条性能处方展开。
 
-
 ## 十二、Hooks 与模型观测
 
 ### 1. Hook 能做什么？
@@ -1709,7 +1697,6 @@ model.forward(inputs)
 ```
 
 这与第一篇对 PyTorch 调用路径的介绍相互呼应。
-
 
 ## 十三、Checkpoint 与可恢复训练
 
@@ -1829,7 +1816,6 @@ flowchart TB
 - 重试计数；
 - 外部依赖版本。
 
-
 ## 十四、Java 工程师如何理解 `nn.Module`
 
 ### 1. Module 更像带状态协议的组件树
@@ -1886,7 +1872,6 @@ DataLoader 可以类比生产者—消费者，但它还额外包含：
 - 训练 step 的背压。
 
 所以调优 DataLoader 不能只看线程池大小，还要看数据格式、CPU、内存、总线和 GPU 消费速度。
-
 
 ## 十五、本文小结
 
@@ -1997,14 +1982,6 @@ checkpoint 是否保存了完整状态？
 
 > **同一个 `add` 算子为什么能够运行在 CPU、CUDA、Autograd 和 Meta 等不同后端上？Dispatcher 又是如何选择具体实现的？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-靠 `nn.Module` 的**注册机制**：`__setattr__` 拦截赋值，把 `Parameter` 进 `_parameters`、子 Module 进 `_modules`、`register_buffer` 进 `_buffers`——只有被登记的对象才参与 `parameters()` 遍历、`state_dict()` 保存、`.to()` 的 `_apply` 递归迁移与 `train()` / `eval()` 生命周期；Python list 里的 Module 不会被登记，要用 `ModuleList`（第二、三、四章）。**状态**由 `state_dict` 统一表示为“限定名 → Tensor”的有序字典，`load_state_dict` 按名字对齐（`strict` 控制缺失与多余），优化器有自己的 `state_dict`（param groups + 每参数状态），两者一起就是 checkpoint；`torch.save` 是 pickle，`weights_only=True` 用受限 unpickler 防任意代码执行（第五、六、十章）。**数据管线**由 `Dataset`（取一条）、`Sampler`（出索引）、`DataLoader`（worker 进程、`collate`、`pin_memory` 线程、预取）组成，与模型解耦（第七章）。**训练循环**把它们串起来：前向 → loss → `backward` → `optimizer.step` → `zero_grad`，autocast 作为一个 DispatchKey 在算子层转换 dtype、`GradScaler` 处理 fp16 的缩放，hooks（forward / backward / state_dict）是扩展点（第八、九、十一章）。可扩展性来自“一切都是 Module、一切状态都在 `state_dict` 里”这两条约定。
-
-</details>
-
-
 ## 十六、自测
 
 1. `self.layers = [nn.Linear(4, 4) for _ in range(3)]` 会有什么问题？`parameters()` 能看到它们吗？
@@ -2047,7 +2024,8 @@ checkpoint 是否保存了完整状态？
 
    </details>
 
-
 ## 下一篇
 
 [Dispatcher 与算子系统](/pytorch-dispatcher-and-operator-system.html)
+
+[^q0]: 靠 `nn.Module` 的**注册机制**：`__setattr__` 拦截赋值，把 `Parameter` 登进 `_parameters`、子 Module 登进 `_modules`、`register_buffer` 登进 `_buffers`——只有被登记的对象才参与 `parameters()` 遍历、`state_dict()` 保存、`.to()` 的递归迁移与 `train()` / `eval()` 切换；Python list 里的 Module 不会被登记，要用 `ModuleList`（[第三章](#三nnmodule-与模块注册)、[第四章](#四parameterbuffer-与模型状态)）。**状态**由 `state_dict` 统一表示为「限定名 → Tensor」的有序字典，`load_state_dict` 按名字对齐，优化器有自己的 `state_dict`，两者一起就是 checkpoint；`torch.save` 是 pickle，`weights_only=True` 防任意代码执行（[第五章](#五state_dict模型状态的结构化快照)、[第十三章](#十三checkpoint-与可恢复训练)）。**数据管线**由 `Dataset`（取一条）、`Sampler`（出索引）、`DataLoader`（worker 进程、`collate`、`pin_memory`、预取）组成，与模型解耦（[第八章](#八datasetsampler-与-dataloader)、[第九章](#九cpu-gpu-数据传输与训练流水线)）。**训练循环**把它们串起来：前向 → loss → `backward` → `optimizer.step` → `zero_grad`，autocast 在算子层转换 dtype、`GradScaler` 处理 fp16 缩放，hooks 是观测与扩展点（[第七章](#七optimizer-与参数更新)、[第十章](#十完整训练循环)至[十二章](#十二hooks-与模型观测)）。可扩展性来自「一切都是 Module、一切状态都在 `state_dict` 里」这两条约定。

@@ -16,8 +16,7 @@ MHA、MQA、GQA、MLA 四种结构，做的是同一件事的不同取舍：
 
 顺着这条线，本篇要回答总纲里提出的问题：
 
-> **DeepSeek-V3 有 128 个 attention head、61 层，KV cache 却比 32 头 32 层的 Llama-3-8B 小。这是怎么做到的？代价是什么？**
-
+> **DeepSeek-V3 有 128 个 attention head、61 层，KV cache 却比 32 头 32 层的 Llama-3-8B 小。这是怎么做到的？[^q0] 代价是什么？[^q1]**
 
 ## 一、总览：四种 attention、一把尺子
 
@@ -37,7 +36,6 @@ MHA、MQA、GQA、MLA 四种结构，做的是同一件事的不同取舍：
 | 七 | 实践 | 给 `llm_cost.py` 加上 KV cache |
 | 八 | 本文小结 |  |
 | 九 | 自测 | 5 道题 |
-
 
 ## 二、为什么需要 KV cache
 
@@ -121,7 +119,6 @@ $$
 每步读 64 GiB 的 KV，是权重 16 GB 的 4 倍。3.35 TB/s 下仅 KV 读取就要约 20 ms，此时权重读取的 4.8 ms 已经不是主项。这就是为什么 batch 放大以后 decode 的瓶颈从"读权重"转到"读 KV"，也是为什么 KV cache 的每 token 字节数直接决定了一台机器能服务多少并发、每步能跑多快。
 
 后面所有变体，都是围着这个公式里的 $$n_{kv} \cdot d_{head}$$ 这一项做减法。
-
 
 ## 三、MQA 与 GQA：直接减少 KV head
 
@@ -212,7 +209,6 @@ KV head   kv0     kv0     kv1     kv1         kv7     kv7
 ```
 
 此时每卡的 KV cache 不再随 TP 缩小，总的 KV 显存变成 $$\text{TP} / n_{kv}$$ 倍。这是为什么 8 个 KV 头的模型在 8 卡以上的 TP 收益递减，也是 Megatron 与 vLLM 里 `num_kv_heads` 与 TP 度之间要满足整除或复制关系的原因。MLA 只有一个（latent）KV 头，任何 TP 度下都必须整份复制——DeepSeek 自己的推理方案因此在 attention 部分不用 TP 而用 DP（每卡处理不同的请求），这个选择直接来自本节的算术。
-
 
 ## 四、MLA：把 K、V 压成一个 latent
 
@@ -477,7 +473,6 @@ prefill 是 compute-bound，多 400 TFLOP 就是多 0.4 秒以上（按 989 TFLO
 3. **工程复杂度**：head dim 576 不是标准 FlashAttention 的常规尺寸，需要专用 kernel（FlashMLA、FlashInfer 的 MLA 后端）；prefill 与 decode 的 cache 布局要能同时服务两条路径；KV 量化时 nope 与 rope 两段的数值范围不同，通常要分开处理；
 4. **不能从 MHA checkpoint 直接转换**：GQA 可以从 MHA 均值池化 uptrain 得到，MLA 的投影结构不同，需要从头训（或专门的转换方法）。
 
-
 ## 五、attention 的中间结果与 FlashAttention 的 IO 复杂度
 
 前三章讲的是 KV cache——decode 的问题。prefill 阶段 attention 还有另一个显存问题：$$S = QK^\top$$ 这个 $$s \times s$$ 的中间矩阵。
@@ -545,7 +540,6 @@ sliding window：每行最多 w 个 ■ → O(s·w)，cache 只需保留最近 w
 
 sliding window attention（Mistral 7B 用 4096 的窗口）进一步只让位置 $$t$$ attend 到 $$[t - w, t]$$。attention 的 FLOPs 变成 $$O(s w)$$——对 $$s$$ 线性；KV cache 也不再随上下文增长，每层每序列最多 $$w$$ 个 token：Mistral 7B（结构与 Llama-3-8B 同为 32 层、8 个 KV 头、$$d_{head} = 128$$）的 KV cache 上限是 $$128 \text{ KiB} \times 4096 = 512$$ MiB，无论上下文多长。代价是超出窗口的信息只能通过多层堆叠间接传递（$$L$$ 层理论感受野 $$L \cdot w$$），长距离检索能力有损，所以后来的模型多是滑窗层与全局层交替（如 Gemma 2、Llama 4 的部分层）。
 
-
 ## 六、KV cache 的工程变量
 
 公式 $$\text{bytes/token} = 2 L n_{kv} d_{head} \cdot \text{bytes/elem}$$ 给的是每 token 的下界。推理引擎实际占用与之的差别来自三件事。
@@ -575,7 +569,6 @@ $$
 $$
 
 结构（GQA 的 $$n_{kv}$$、MLA 的 $$d_c + d_h^R$$）决定分母里的元素个数，量化决定 bytes/elem，分页决定碎片率，prefix 共享决定复用倍数。四个乘子彼此独立，可以同时用：一个 MLA + FP8 KV + 分页 + prefix 缓存的服务栈，相对 MHA + BF16 + 预分配的朴素实现，KV 容量的差距可以有两到三个数量级。这四个因子里只有第一个必须在训练前决定，其余三个都是推理侧的选择——这也是为什么 KV cache 是推理系统里优化空间最大的一块。
-
 
 ## 七、实践：给 llm_cost.py 加上 KV cache
 
@@ -734,7 +727,6 @@ DeepSeek-V3      16    671GB    4231    2115     528     132
 
 下一篇会给 `kv_bytes` 加上上下文长度扫描，把 RoPE 外推与 KV 显存放在同一张图里看。
 
-
 ## 八、本文小结
 
 本篇从 KV cache 公式出发推了四种 attention 结构：
@@ -769,14 +761,6 @@ MLA 的 K、V 之所以能压成 576 个数，前提是 RoPE 被单独拿了出�
 > **RoPE 的旋转频率如何决定模型"能看多远"？把 8K 训练的模型拉到 128K，哪些频率会失效，YaRN 与 Llama 3.1 的分段缩放各自修了什么？**
 
 配套代码：[`transformer-and-llm/llm_cost_03_attention_kv.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_03_attention_kv.py)。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**怎么做到的**：KV cache 每 token 的字节数是 $$2 L n_{kv} d_{head} \times$$ bytes/elem，Llama-3-8B 是 $$2 \times 32 \times 8 \times 128 \times 2 = 128$$ KiB；DeepSeek-V3 的 MLA 不存 K、V，而是存一个 512 维的压缩 latent 加 64 维解耦 RoPE key，每 token 每层 576 个数、61 层、FP8 一字节，约 68.6 KiB——头数 128 与 KV 大小无关，因为 128 个头在 decode 时共享同一个 latent（第四章）。GQA 是另一条路：直接把 $$n_{kv}$$ 从 32 降到 8，KV 缩 4 倍（第三章）。**代价**：MLA 的 K、V 要从 latent 升维恢复，算量比 GQA 大——把升维矩阵吸收进 $$W_Q$$、$$W_O$$ 后 decode 等价于 128 头共享一个 576/512 维 KV 头的 MQA，attention 核心 FLOPs 约 3.4 倍，所以 prefill 走非吸收路径、decode 走吸收路径；RoPE 必须解耦成单独的 64 维是因为位置相关的旋转不能被吸进与位置无关的矩阵（第四章）。用算力换字节，在 memory-bound 的 decode 上划得来。
-
-</details>
-
 
 ## 九、自测
 
@@ -820,7 +804,9 @@ MLA 的 K、V 之所以能压成 576 个数，前提是 RoPE 被单独拿了出�
 
    </details>
 
-
 ## 下一篇
 
 [位置编码与长上下文](/positional-encoding-and-long-context.html)
+
+[^q0]: KV cache 每 token 的字节数是 $$2 L n_{kv} d_{head} \times$$ bytes/elem，与 head 总数 $$n_h$$ 无关。Llama-3-8B 是 $$2 \times 32 \times 8 \times 128 \times 2 = 128$$ KiB；DeepSeek-V3 的 MLA 不存 K、V，而是存一个 512 维的压缩 latent 加 64 维解耦 RoPE key，每 token 每层 576 个数、61 层、FP8 一字节，约 68.6 KiB——128 个头在 decode 时共享同一个 latent。GQA 是另一条路：把 $$n_{kv}$$ 从 32 降到 8，KV 缩 4 倍。详见[第三章](#三mqa-与-gqa直接减少-kv-head)、[第四章](#四mla把-kv-压成一个-latent)。
+[^q1]: MLA 的 K、V 要从 latent 升维恢复，算量比 GQA 大：把升维矩阵吸收进 $$W_Q$$、$$W_O$$ 后 decode 等价于 128 头共享一个 576/512 维 KV 头的 MQA，attention 核心 FLOPs 约 3.4 倍，所以 prefill 走非吸收路径、decode 走吸收路径；RoPE 必须解耦成单独的 64 维，因为位置相关的旋转不能被吸进与位置无关的矩阵。用算力换字节，在 memory-bound 的 decode 上划得来。详见[第四章](#四mla把-kv-压成一个-latent)。

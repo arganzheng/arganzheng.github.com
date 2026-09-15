@@ -22,14 +22,13 @@ def f(x, weight, bias):
 compiled_f = torch.compile(f)
 ```
 
-`torch.compile` 到底做了什么？它不是把 Python 翻译成 CUDA——这个说法既不准确，也会让人对它的能力和边界产生错误预期。更准确的描述是：**它尝试从 Python 程序中捕获可分析的 Tensor 计算部分，把它表示成图，经过若干次变换后生成更少、更大的 Kernel，并用一组运行时检查决定这份编译产物何时可以复用。**
+`torch.compile` 到底做了什么？[^q0] 它不是把 Python 翻译成 CUDA——这个说法既不准确，也会让人对它的能力和边界产生错误预期。更准确的描述是：**它尝试从 Python 程序中捕获可分析的 Tensor 计算部分，把它表示成图，经过若干次变换后生成更少、更大的 Kernel，并用一组运行时检查决定这份编译产物何时可以复用。**
 
 本文用上面这个刻意简单的函数贯穿全文。它由两部分组成：一段直线的矩阵计算（三个算子、两个中间结果、一个前向一个反向），足以让编译器的每一段都有事可做；一个依赖输入 shape 的 Python 分支，足以暴露"从 Python 程序中捕获图"这件事的全部难点。
 
 > **`torch.compile` 解决的不是"让 Python 变快"，而是"在保留 Eager 编程模型的前提下，把一段 Tensor 程序的执行方式从逐算子分发切换到整图优化"。**
 
 本文示例输出基于 PyTorch 2.x 删减整理，用于说明结构；具体节点名、Kernel 名和日志格式随小版本变化，属于大纲中约定的"版本敏感的实现"，阅读时以对应版本为准。
-
 
 ## 一、总览：一个编译器、一种中间表示、一层运行时
 
@@ -189,7 +188,6 @@ torch.compile(f, backend="aot_eager")
 | 九 | 本文小结 |  |
 | 十 | 自测 | 5 道题 |
 
-
 ## 二、IR：FX Graph
 
 ### 1. Graph、Node、GraphModule
@@ -295,7 +293,6 @@ gm.recompile()       # 重新生成 forward 的 Python 代码
 - **不是唯一的追踪器**。`symbolic_trace` 是它自带的追踪器，但编译栈用 Dynamo。
 
 现在进入编译器的前端：谁来生产这张图。
-
 
 ## 三、前端：TorchDynamo 捕获
 
@@ -430,7 +427,6 @@ y = compiled_f(x, weight, bias)   # 第一次调用：捕获 → 编译 → 执�
 
 Dynamo 的图只有前向，并且是 torch 级的；`if` 已经被特化掉，后面两段看到的是一张直线图。它不知道反向长什么样，也不区分 `torch.relu` 和 `torch.nn.functional.relu`。把它变成后端可用的东西，是中端的工作。
 
-
 ## 四、中端：AOTAutograd 变换
 
 前端产出的图是 torch 级、只有前向、可能含有 in-place 操作。后端想要的是 ATen 级、前向反向齐全、没有副作用的图。中端负责这之间的全部变换：**IR 进，IR 出**，不接触 Python 源码，也不接触硬件。
@@ -554,7 +550,6 @@ def forward(self, primals_1, primals_2, relu, tangents_1):
 两张图编译后，AOTAutograd 把它们包进一个 `torch.autograd.Function`（第三篇讨论过的自定义 Function）：前向调用编译后的前向图，反向调用编译后的反向图。
 
 于是从 Eager Autograd 引擎的角度看，**整个编译区域是一个 `grad_fn` 节点**。用户调用 `loss.backward()` 时，引擎回溯到这个节点，调用它的反向——里面是编译好的 Kernel。编译区域外的算子仍由 Eager Autograd 正常处理。这就是编译与 Eager 能混合工作的机制。
-
 
 ## 五、后端：TorchInductor 代码生成
 
@@ -759,7 +754,6 @@ Fused    读 N + bias，写 N                                合计约 2N 次访
 
 到这里，前端、中端、后端已经走完：一段 Python 变成了两个 Kernel。接下来的问题是：这份编译结果什么时候能用，什么时候不能用。
 
-
 ## 六、运行时：编译何时发生、到哪停止、何时复用
 
 前三章描述的是编译器流水线**运行一次**做什么。这一章切换到第一章 §4 的第二个维度：**每次调用** `compiled_f(...)` 时，运行时控制层如何决定要不要运行流水线、运行到哪、结果放哪。
@@ -926,7 +920,6 @@ Dynamic Shape    符号约束满足 → 复用              约束不满足 → 
 缓存             key 命中 → 跳过生成与编译         key 不命中 → 冷编译并写入
 ```
 
-
 ## 七、串起来：`f` 的四次调用
 
 两个维度在这一章合到一起。四次调用覆盖了运行时控制层的每条分支：**冷编译**（没有产物，运行整条流水线）、**命中**（Guard 通过，直接执行）、**失效后放宽假设重编译**（shape 变了，但仍走同一分支）、**失效后换分支重编译**（走到了另一条 Python 分支）。编译器流水线只在第一、三、四次里出现。
@@ -1079,7 +1072,6 @@ flowchart TB
 
 更早的 TorchScript（`torch.jit.trace` / `torch.jit.script`）是 1.x 时代的图捕获方案，用一套独立的 IR 和解释器。它已不再是主要发展方向，本系列不展开。
 
-
 ## 八、Java 工程师如何理解 `torch.compile`
 
 ### 1. 最贴切的类比：HotSpot JIT
@@ -1116,7 +1108,6 @@ GraalVM Truffle 框架通过**部分求值**（partial evaluation）把解释器
 ### 4. 两级编译器
 
 HotSpot 的 C2 直接生成机器码。Inductor 不生成机器码，它生成 Triton 源码，再由 Triton 编译器（内部基于 MLIR 和 LLVM 这两个通用编译器基础设施）生成 NVIDIA GPU 的汇编 PTX。这更像一个编译器把另一种高级语言作为目标，再交给第二个编译器——类似早期把 C 作为目标语言的编译器。理解这一点有助于定位问题：生成代码不对是 Inductor 的问题，生成代码对但 Kernel 慢可能是 Triton 编译或调优的问题。
-
 
 ## 九、本文小结
 
@@ -1235,14 +1226,6 @@ torch._dynamo.explain               有几张图，为什么断
 
 > **编译之后到底快了多少，快在哪里——省下的是 Python 开销、分发开销、Kernel launch，还是访存？如何用 Profiler 和 Benchmark 给出可复现的答案？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-核心问题是**`torch.compile` 怎么在保留 Eager 编程模型的前提下，把逐算子分发切换成整图优化**。三段流水线。**前端 Dynamo**：在 CPython 的字节码层做符号求值——不是运行代码，而是解释每条字节码、把 Tensor 操作记进 FX Graph、把依赖元数据（shape、dtype、`requires_grad`）的分支特化并记成 Guard、把依赖 Tensor 值或不支持的操作切成 graph break；输出 FX Graph + Guard + 改写后的字节码（第二、三章）。**中端 AOTAutograd**：拿 torch 级的图，用 FakeTensor 跑一遍前向、追踪 autograd 得到反向图，把算子下降到 ATen 级词汇（`torch.ops.aten.*`）并做 functionalize（去掉 in-place），包成一个 `autograd.Function`（第四、五章）。**后端 Inductor**：把 ATen 图变成循环级 IR，做融合（逐元素算子合进相邻的 GEMM / reduction）、内存规划，生成 Triton（GPU）或 C++（CPU）源码并编译成 kernel，`call()` 一次跑完（第六、七章）。运行时：每次调用先检查 Guard，通过就执行编译产物，失败就重编译（有上限）；Eager 代码一行不改。观察手段：`TORCH_LOGS="graph_code,aot_graphs,output_code"` 分别看三段的输出（第八章）。快在哪：省掉 Python 与分发开销、减少 kernel launch、融合减少访存——下一篇量它。
-
-</details>
-
-
 ## 十、自测
 
 1. `symbolic_trace`（torch.fx）与 Dynamo 都产出 FX Graph，遇到 `if x.sum() > 0:` 各怎么办？
@@ -1285,7 +1268,8 @@ torch._dynamo.explain               有几张图，为什么断
 
    </details>
 
-
 ## 下一篇
 
 [性能优化与调试](/pytorch-performance-optimization-and-debugging.html)
+
+[^q0]: 三段流水线。**前端 Dynamo**：在 CPython 字节码层做符号求值——不运行代码，而是解释每条字节码、把 Tensor 操作记进 FX Graph、把依赖元数据（shape、dtype、`requires_grad`）的分支特化并记成 Guard、把依赖 Tensor 值或不支持的操作切成 graph break；输出 FX Graph + Guard + 改写后的字节码（[第二章](#二irfx-graph)、[第三章](#三前端torchdynamo-捕获)）。**中端 AOTAutograd**：用 FakeTensor 跑一遍前向、追踪 autograd 得到反向图，把算子下降到 ATen 级词汇并做 functionalize（去掉 in-place），包成一个 `autograd.Function`（[第四章](#四中端aotautograd-变换)）。**后端 Inductor**：把 ATen 图变成循环级 IR，做融合与内存规划，生成 Triton（GPU）或 C++（CPU）源码编译成 kernel（[第五章](#五后端torchinductor-代码生成)）。**运行时**：每次调用先检查 Guard，通过就执行编译产物，失败就重编译（有上限）；Eager 代码一行不改（[第六章](#六运行时编译何时发生到哪停止何时复用)、[第七章](#七串起来f-的四次调用)）。快在哪：省掉 Python 与分发开销、减少 kernel launch、融合减少访存。观察手段：`TORCH_LOGS="graph_code,aot_graphs,output_code"`。

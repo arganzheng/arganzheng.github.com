@@ -18,8 +18,7 @@ updated: 2026-09-14
 
 三者有一个共同点：收益都不是无条件的。同一个 INT4 模型，decode 快 3 倍，prefill 反而更慢；同一套投机解码，batch 1 时加速 2 倍，batch 64 时没有收益。本篇要回答的核心问题是：
 
-> **这两个看似矛盾的现象，为什么背后是同一条 Roofline？**
-
+> **这两个看似矛盾的现象，为什么背后是同一条 Roofline？[^q0]**
 
 ## 一、总览：同一条 Roofline 上的三种方法
 
@@ -38,7 +37,6 @@ updated: 2026-09-14
 | 六 | 实践 | 脚本新增的三组函数、文本模型的成本表、BF16 与 INT4 的对照实验设计 |
 | 七 | 本文小结 | 三种方法各改一个变量 |
 | 八 | 自测 | 5 道题 |
-
 
 ## 二、起点：decode 是 memory-bound 的
 
@@ -76,7 +74,6 @@ $$
 两者相等在 $$m \approx 316$$，与 ridge 295 同一量级（差别来自 16.06 GB 包含了 embedding 而 15.0 GFLOPs 不含）。这个模型忽略了 KV cache 读取、activations 与 kernel 效率，是**理论下界**，不是任何实现的实测。
 
 这三个数字——**算术强度 ≈ B、ridge ≈ 295、8B 模型 decode 下界 4.8 ms（约 208 token/s 单请求上限）**——是本篇全部推导的基础。量化改的是 $$W_{\text{bytes}}$$，投机解码改的是 $$m$$，LoRA 改的是训练时的 $$N$$。
-
 
 ## 三、量化：改变 W_bytes
 
@@ -334,7 +331,6 @@ Llama-3-8B：$$2 \times 32 \times 8 \times 128 \times 2 = 128$$ KiB。把 K、V 
 
 它的意义要和权重一起看。上下文 8K、batch 64 时，Llama-3-8B 每步 decode 要读 $$128 \ \text{KiB} \times 8192 \times 64 = 64$$ GiB 的 KV cache，是权重 16 GB 的四倍。这个区间里，**KV cache 量化对 decode 时间的影响大于权重量化**：权重 INT4 省 12 GB，KV FP8 省 32 GiB。attention 部分的读取在 FP8 KV 下同样减半（attention 与权重 GEMM 不同，读的是 activations 而非权重，但 memory-bound 的性质相同）。vLLM 的 `kv_cache_dtype=fp8` 对应的就是这一项。
 
-
 ## 四、投机解码：改变 m
 
 ### 1. 问题：一次前向只产出一个 token
@@ -505,7 +501,6 @@ DeepSeek-V3 MTP             训练时联合训练的一个额外 block         1
 
 所有这些方案共享同一条约束：它们提升的是 $$\alpha$$ 或降低 $$c$$，但都改不了 $$B \lesssim \text{ridge}/(\gamma + 1)$$ 这个收益区间。
 
-
 ## 五、LoRA：改变训练时的 N
 
 ### 1. 形式与参数量
@@ -605,7 +600,6 @@ LoRA 的 16.7 GB 里 16.06 GB 是冻结的 BF16 底座。QLoRA（Dettmers 等 20
 - **paged optimizer**：用 CUDA 统一内存把优化器状态在显存尖峰时换页到 CPU，避免长序列梯度检查点时的 OOM。
 
 8B 底座：$$8.03\text{B} \times 4.13 / 8 \approx 4.1$$ GB，保留部分层高精度后**约 4.5 GB**；加 LoRA 状态 0.67 GB，权重侧不到 5.2 GB，一张 24 GB 的消费级卡可以微调 8B 模型（激活值决定能开多长的序列）。代价是每次前向和反向都要反量化整份权重，每步时间明显长于 BF16 LoRA——又是第三章的结论：量化省字节，反量化加算量，训练是 compute-bound 的，所以 QLoRA 是**用时间换显存**。
-
 
 ## 六、实践：完成文本模型的成本表
 
@@ -780,7 +774,6 @@ DeepSeek-V3 的投机一行按其技术报告的 MTP 接受率转述；LoRA 一�
 
 若再加投机解码（vLLM 的 `speculative_config`，用 n-gram 或一个小草稿模型），预期 batch 1 下 ITL 明显下降，batch 64 下不变或上升，与第四章表格一致。**任何实测与下界的差距都应该能归因到本文模型忽略的某一项**——这比数字本身重要。
 
-
 ## 七、本文小结
 
 三种方法各改一个变量：
@@ -817,14 +810,6 @@ LoRA 额外 FLOPs（W_Q）               0.78%             0.39%             —
 到这里，文本 LLM 的成本模型已经完整：结构决定参数量、KV 与通信量，精度决定字节数，量化、投机解码与 LoRA 在不改结构的前提下改变计算形态。本篇只算了它们的账；每种方法在最小化什么、输出分布改变了多少、草稿怎么训、KV 怎么压、剪枝怎么恢复，在算法地图的 L6 系列[《高效推理与压缩（算法侧）》](/efficient-inference-and-compression-for-llms.html)里展开。还剩一个前提没有动过——所有账都假设 token 来自 tokenizer。下一篇把输入换成图片：一张图先经过一个独立的 vision encoder，再变成几百到几千个 token 插进 prompt，它的算量花在哪里、这些 token 在 decoder 里的 KV 与文本 token 有没有区别，是本系列的最后一站。
 
 配套代码：[`transformer-and-llm/llm_cost_07_quant_specdec_lora.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_07_quant_specdec_lora.py)。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-INT4 模型 decode 快、prefill 慢，投机解码 batch 1 有效、batch 64 无效，是同一条 Roofline 上的同一件事——**两种方法都在兑现 memory-bound 区间里空转的算力，一个用省下的字节换时间，一个用多算的 FLOPs 换 token；一旦 batch（或 prompt 长度）把工作点推过 ridge，算力不再空转，两者的收益就同时消失。** 而 LoRA 站在训练这一侧，它省的不是算力也不是带宽，是每参数 16 字节的状态。
-
-</details>
-
 
 ## 八、自测
 
@@ -868,7 +853,8 @@ INT4 模型 decode 快、prefill 慢，投机解码 batch 1 有效、batch 64 �
 
    </details>
 
-
 ## 下一篇
 
 [多模态：vision encoder 的算量与 image token 的 KV 代价](/multimodal-vision-encoder-cost-and-image-token-kv.html)
+
+[^q0]: INT4 模型 decode 快、prefill 慢，投机解码 batch 1 有效、batch 64 无效，是同一条 Roofline 上的同一件事：decode 是 memory-bound 的，算力在空转——量化用省下的字节换时间（改变 $$W_{bytes}$$），投机解码用多算的 FLOPs 换 token（改变每步的 $$m$$）；一旦 batch 或 prompt 长度把工作点推过 ridge，算力不再空转，两者的收益就同时消失，量化的反量化开销与投机的验证开销反而成了负担。LoRA 站在训练这一侧，它省的不是算力也不是带宽，是每参数 16 字节的优化器状态。详见[第二](#二起点decode-是-memory-bound-的)至[五章](#五lora改变训练时的-n)。
