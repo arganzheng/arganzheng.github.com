@@ -14,8 +14,7 @@ Python 是动态类型语言，但这不意味着"无类型"。自 Python 3.5 �
 
 本文围绕的核心问题是：
 
-> **Python 的类型信息从哪里来、被谁消费，又如何在系统边界上落成可执行的数据契约？**
-
+> **Python 的类型信息从哪里来、被谁消费，又如何在系统边界上落成可执行的数据契约？[^q0]**
 
 ## 一、总览：类型系统的两层架构与数据契约
 
@@ -97,7 +96,6 @@ Java 把前两件事合为一体：类型写在源码里，编译器既是提供
 | 七 | 附录 | Java 与 Python 的类型系统/数据契约对照、决策树、typing 速查表 |
 | 八 | 本文小结 |  |
 | 九 | 自测 | 5 道题 |
-
 
 ## 二、类型信息提供层（上）：类型表达
 
@@ -1900,7 +1898,6 @@ class RelationshipProperty:
 
 `TYPE_CHECKING` 在 vLLM 源码中出现超过 200 次，在 PyTorch 中出现超过 500 次。它是大型 Python 项目管理模块依赖的标准手段。
 
-
 ## 三、类型信息提供层（下）：类型载体与分发
 
 类型注解要对库的使用者生效，不仅需要写在源码中，还需要以类型检查器能够发现和读取的形式随库分发。
@@ -2055,8 +2052,6 @@ mypackage = ["py.typed", "*.pyi"]
 这一步很容易漏——`py.typed` 在源码目录里存在，但如果没配 `package-data`，构建 wheel 时不会被打进去，下游依然看不到类型信息。
 
 > `pyproject.toml` 的完整配置、wheel 与 sdist 的区别、带 C/CUDA 扩展的包如何构建与发布，见[《Python 项目工程化与生产交付》](/python-engineering-and-production-delivery.html)的"打包与分发"一章。
-
-
 
 ## 四、类型信息消费层（上）：静态分析与推理
 
@@ -2290,7 +2285,6 @@ reveal_type(identity(42))
 ```
 
 如果项目同时使用 mypy 和 pyright，偶尔需要同时满足两者的要求。遇到冲突时，优先修正代码而不是加 `# type: ignore`。
-
 
 ## 五、类型信息消费层（下）：动态消费——运行时如何读取类型注解
 
@@ -2591,7 +2585,6 @@ def forward(self, x: torch.Tensor) -> torch.Tensor:  # GPU 推理瓶颈
 def __init__(self, config: ModelConfig) -> None:  # 只调用一次
     ...
 ```
-
 
 ## 六、工程落地：数据契约设计
 
@@ -3130,7 +3123,6 @@ vLLM 的源码就是这个模式：API 层（`entrypoints/openai/protocol.py`）
 
 > 顺带一提，`attrs` 是比 `@dataclass` 更早、功能更全的第三方库，但在 AI-Infra 生态中已基本被"标准库 `@dataclass` + Pydantic"的组合取代，新项目一般不需要引入。
 
-
 ## 七、附录
 
 
@@ -3236,7 +3228,6 @@ vLLM 的源码就是这个模式：API 层（`entrypoints/openai/protocol.py`）
 
 > 频次说明：基于 PyTorch、vLLM、FastAPI、Pydantic、httpx、SQLAlchemy 等主流项目源码中的实际出现情况估算。★★★★★ 表示几乎每个模块都会用到，★☆☆☆☆ 表示仅在特定场景出现。
 
-
 ## 八、本文小结
 
 回头看正文各章，Python 的类型系统其实是一条链路：**注解把类型意图写下来，存根和 `py.typed` 把它分发出去，mypy 和 Pydantic 在两端各自消费它，最后落到数据契约上变成可执行的约束。**
@@ -3252,14 +3243,6 @@ vLLM 的源码就是这个模式：API 层（`entrypoints/openai/protocol.py`）
 3. **热路径要干净**，内部传递用 `@dataclass`，不要在每 token 的循环里反复做运行时检查。
 
 再遇到 AI Infra 源码中的类型注解，就不会觉得是天书了。关键不是一次记住所有工具，而是理解每个工具解决的问题——在真实代码中遇到时能查到、能读懂、能用对。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**从哪里来**：开发者写在函数签名与类属性上的注解，解释器只把它存进 `__annotations__`，不检查也不转换；第三方库通过 stub（`.pyi`）与 `py.typed` 标记把类型信息随包分发（第二、四章）。**被谁消费**：人（作为文档）、IDE、静态检查器 mypy / pyright（在不运行的前提下推断与报错），以及运行时主动读注解的库——`dataclasses` 据此生成 `__init__`，Pydantic 据此生成校验器，FastAPI 据此解析请求（第三、五、六章）。**怎么落成数据契约**：在系统边界（配置文件、HTTP 请求、外部输入）用 Pydantic 模型把“类型 + 约束”变成可执行的解析与校验，错误在启动或入口处暴露；内部热路径用 `@dataclass` 传递、不做运行时检查（第七章）。这条链路在 Python 里是拆开的，每一环都可以只用一部分——所以要自己决定在哪里投入：注解要写、边界要校验、热路径要干净。
-
-</details>
-
 
 ## 九、自测
 
@@ -3303,7 +3286,8 @@ vLLM 的源码就是这个模式：API 层（`entrypoints/openai/protocol.py`）
 
    </details>
 
-
 ## 下一篇
 
 [并发、异步与任务协作](/python-concurrency-asynchrony-and-task-collaboration.html)
+
+[^q0]: **从哪里来**：开发者写在函数签名与类属性上的注解，解释器只把它存进 `__annotations__`，不检查也不转换；第三方库通过 stub（`.pyi`）与 `py.typed` 标记把类型信息随包分发（[第二章](#二类型信息提供层上类型表达)、[第三章](#三类型信息提供层下类型载体与分发)）。**被谁消费**：人（当文档读）、IDE、静态检查器 mypy / pyright（不运行代码就推断与报错），以及运行时主动读注解的库——`dataclasses` 据此生成 `__init__`，Pydantic 据此生成校验器，FastAPI 据此解析请求（[第四章](#四类型信息消费层上静态分析与推理)、[第五章](#五类型信息消费层下动态消费运行时如何读取类型注解)）。**怎么落成数据契约**：在系统边界（配置文件、HTTP 请求、外部输入）用 Pydantic 模型把「类型 + 约束」变成可执行的解析与校验，错误在启动或入口处暴露；内部热路径用 `@dataclass` 传递、不做运行时检查（[第六章](#六工程落地数据契约设计)）。这条链路在 Python 里是拆开的，每一环都可以只用一部分，所以要自己决定在哪里投入：注解要写、边界要校验、热路径要干净。

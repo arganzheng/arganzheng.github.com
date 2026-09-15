@@ -30,10 +30,10 @@ PyMODINIT_FUNC PyInit__C(void)
 
 这个文件看起来简单到不需要解释，但对一个 Java 工程师来说，几乎每一行都有陌生的东西：
 
-- `extern PyObject* initModule(void);`——这只是一个声明，函数体在哪里？编译器怎么知道去哪儿找？
-- 为什么 `PyInit__C` 要先声明一次再定义一次？`visibility("default")` 是什么，不写会怎样？
-- `#ifndef _WIN32`、`#ifdef __cplusplus`——这是代码还是配置？
-- 这个文件编出来是什么？它怎么和 `torch/csrc/Module.cpp` 里那个真正的 `initModule()` 接上？
+- `extern PyObject* initModule(void);`——这只是一个声明，函数体在哪里？编译器怎么知道去哪儿找？[^q0]
+- 为什么 `PyInit__C` 要先声明一次再定义一次？`visibility("default")` 是什么，不写会怎样？[^q1]
+- `#ifndef _WIN32`、`#ifdef __cplusplus`——这是代码还是配置？[^q2]
+- 这个文件编出来是什么？它怎么和 `torch/csrc/Module.cpp` 里那个真正的 `initModule()` 接上？[^q3]
 
 如果打开 `torch/csrc/Module.cpp` 找到 `initModule` 的定义，会发现它前面还有一行 `extern "C" TORCH_PYTHON_API PyObject* initModule();`——`TORCH_PYTHON_API` 又是什么？
 
@@ -41,8 +41,7 @@ PyMODINIT_FUNC PyInit__C(void)
 
 本文要回答的核心问题是：
 
-> **`import torch` 时加载了哪些 `.so`？它们之间是什么依赖关系？我写的扩展链接到哪一个？**
-
+> **`import torch` 时加载了哪些 `.so`？[^q4] 它们之间是什么依赖关系？[^q5] 我写的扩展链接到哪一个？[^q6]**
 
 ## 一、总览
 
@@ -67,7 +66,6 @@ Java 是全篇的参照系。Java 的世界里只有一种编译产物（`.class
 | 十二 | 工程实践建议与常见错误 | 按阶段定位错误、头文件卫生、链接与部署、读源码的定位技巧 |
 | 十三 | 本文小结 |  |
 | 十四 | 自测 | 5 道题 |
-
 
 ## 二、四个阶段：一个 `.cpp` 是怎么变成机器码的
 
@@ -224,7 +222,6 @@ multiple definition of `helper()'          # 不止一个人定义了
 | 汇编 | 汇编 → `.o` | 无（`.class` 已是最终产物） | |
 | 链接 | 多个 `.o`/库 → 可执行文件或 `.so` | 无直接对应 | Java 把这一步推迟到运行时由 JVM 做 |
 | 加载 | `ld.so` 加载 `.so` | 类加载器加载 `.class` | 最接近的类比，但 C++ 加载时要解析的符号在链接期已确定 |
-
 
 ## 三、翻译单元、声明与定义、头文件
 
@@ -443,7 +440,6 @@ extern int counter;   // 声明（别处有定义）
 
 头文件里放变量时必须写 `extern`，否则每个包含者都定义一份，链接时 multiple definition。PyTorch 源码里全局变量很少直接暴露，多半用函数包装（如 `c10::DeviceTypeName(...)`），或者用 `thread_local`（第六篇）。
 
-
 ## 四、One Definition Rule：同一个名字只能有一个定义
 
 ### 1. 规则本身
@@ -628,7 +624,6 @@ REGISTER_DISPATCH(div_true_stub, &div_true_kernel)
 | `static`、匿名命名空间 | 内部链接 | 互不相干 | `.cpp` 里的私有辅助 |
 | `extern` 声明 | 声明而非定义 | 不算定义 | 头文件里引用别处的变量 |
 
-
 ## 五、目标文件、库与符号
 
 ### 1. 用 `nm` 看目标文件里的符号表
@@ -812,7 +807,6 @@ macOS 对应：`nm`、`c++filt` 一样；`otool -L` 代替 `ldd`；`otool -l` �
 | `NoSuchMethodError` | `undefined symbol: _ZN...`（加载期） | 都是"类找到了但方法不对" | C++ 的通常是 ABI 不匹配（第七篇） |
 | `public`/包私有 | `visibility("default")`/`hidden` | 都是"对外暴露什么" | Java 是编译期检查，反射可绕；C++ 的 hidden 符号在 `.so` 里没有名字，无法绕过 |
 
-
 ## 六、动态链接与加载
 
 ### 1. 链接期与加载期的两次解析
@@ -990,7 +984,6 @@ else:
 3. **谁在查找**。Java 里每个类加载器有自己的查找逻辑，可以写自定义加载器从网络、数据库加载。`ld.so` 只认文件系统路径。
 4. **符号解析在哪个阶段完成**。这是总纲强调的差别：C++ 的"找不到符号"错误出现在**编译期**（头文件里没声明）、**链接期**（没有 `.o`/库提供定义）和**加载期**（`.so` 找不到或版本不对），这三个阶段都在程序的业务逻辑开始运行之前。Java 的 `ClassNotFoundException` 可以在程序跑了三天之后第一次走到某条路径时才冒出来。C++ 用构建时的严格换来了运行时的确定。
 
-
 ## 七、命名空间：`c10::`、`at::`、`torch::` 的分工
 
 ### 1. 命名空间的语法
@@ -1120,7 +1113,6 @@ versa.
 ```
 
 （这段话是老的：如今 `torch/csrc/` 里也有大量 Python 无关代码，但"Python 相关依赖 Python 无关，反之不成立"这条原则没变。）
-
 
 ## 八、PyTorch 的源码布局与库布局
 
@@ -1332,7 +1324,6 @@ find_package(Torch REQUIRED)
 ### 5. `torch/headeronly/`：一个新的层
 
 PyTorch 2.x 中的变化：2.8 之后源码树里多了 `torch/headeronly/`，它在 CMake 里是一个 `INTERFACE` 库（`torch/headeronly/CMakeLists.txt`：`add_library(headeronly INTERFACE ${HEADERONLY_HEADERS})`），没有任何 `.cpp`，不产生 `.so`。`c10` 链接它（`c10/CMakeLists.txt`：`target_link_libraries(c10 PUBLIC headeronly)`）只是为了继承头文件路径。`torch/headeronly/README.md` 解释了目的：让 `ScalarType`、`Half`、`BFloat16`、`STD_TORCH_CHECK` 这些不依赖 `libtorch` 的工具可以被扩展在**不链接任何 PyTorch 库**的前提下使用，配合 `torch/csrc/stable/` 的稳定 ABI，让一个扩展二进制能跨多个 PyTorch 版本工作。这是 PyTorch 对本文所讨论的"链接"问题的最新回应。
-
 
 ## 九、回到源码
 
@@ -1657,7 +1648,6 @@ if BUILD_PYTHON_ONLY:
 
 vLLM 的 `setup.py` 走的是同一条路的下游：它定义一个 `cmake_build_ext` 命令类，在 `build_extensions` 里调 `cmake` 配置和构建 `CMakeLists.txt`（8.4 节看过的 `find_package(Torch)` 那个），把产物 `_C.abi3.so`、`_moe_C.abi3.so` 等拷进 `vllm/` 包目录。它对 PyTorch 的依赖完全通过 `torch.utils.cmake_prefix_path` 解析，所以 vLLM 的 wheel 必须和特定 PyTorch 版本配对——`.so` 里 `DT_NEEDED` 的 `libtorch_cpu.so` 只是名字，而里面符号的修饰名和结构体布局是编译时那个 PyTorch 版本的（第七篇 ABI）。
 
-
 ## 十、实践一：手写 `g++` 命令链接一个 libtorch 程序
 
 这一节要在一台装了 PyTorch（Linux，pip 安装的 CPU 或 CUDA wheel）的机器上做。本机没有 libtorch，下面的命令是按 v2.10.0 源码树里的头文件路径和库名写的，输出标注为"预期"。
@@ -1813,7 +1803,6 @@ nm -DC $TORCH_DIR/lib/libc10.so | grep 'c10::Device::str'
 | `-std=c++17` | `CMAKE_CXX_STANDARD 17`；`TorchConfig.cmake` 也给导入目标 `torch` 设了 `CXX_STANDARD 17` |
 
 第八篇会系统讲 CMake。这里的目的是让读者知道：**CMake 生成的最终命令和手写的没有本质区别，出了链接问题可以把 `ninja -v` 打出的命令拿出来单独跑。**
-
 
 ## 十一、实践二：mini-c10 的目录结构与第一个可链接的库
 
@@ -2042,7 +2031,6 @@ cmake --build build
 
 mini-c10 现在只有一个函数，但它已经是一个"库"：有头文件和实现的分离，有导出和不导出的符号，有一个链接它的可执行文件。接下来的问题是往里放东西——第二篇要放的是 `intrusive_ptr`、`TensorImpl`、`StorageImpl` 和 `Tensor` 句柄，那时候"对象放在哪里、活多久、谁负责释放"就成了主题。
 
-
 ## 十二、工程实践建议与常见错误
 
 ### 1. 按阶段定位错误
@@ -2083,7 +2071,6 @@ mini-c10 现在只有一个函数，但它已经是一个"库"：有头文件和
 - `aten/src/ATen/templates/` 是 torchgen 的模板，`ATen/core/TensorBody.h`、`ATen/Functions.h`、`ATen/ops/*.h` 这些在源码树里找不到的头文件由它们生成到 build 目录（第五篇）。
 - 找一个函数的定义：先在同名 `.h` 的同目录找同名 `.cpp`；找不到，看 `native_functions.yaml` 的 `dispatch:` 字段（`at::empty_like` → `aten/src/ATen/native/TensorFactories.cpp` 的 `empty_like`）。
 
-
 ## 十三、本文小结
 
 回到开头的问题。
@@ -2113,14 +2100,6 @@ mini-c10 现在只有一个函数，但它已经是一个"库"：有头文件和
 Java 工程师需要放弃的三个直觉：**"编译器能看到整个项目"**（不能，只能看到一个翻译单元，头文件是手写的接口）；**"找不到类是运行时异常"**（在 C++ 里它是构建失败或进程起不来，三个阶段都在业务代码运行之前）；**"一个包就是一个 jar"**（命名空间、目录、库是三个独立的维度，PyTorch 只是让它们大致对齐）。
 
 第二篇进入对象模型：`at::Tensor y = x;` 之后 `y` 和 `x` 是什么关系，数据什么时候被释放。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**加载了哪些 `.so`**：`import torch` 先由 `_load_global_deps()` 以 `RTLD_GLOBAL` `dlopen` `libtorch_global_deps.so`（把 CUDA runtime、cuDNN、NCCL 这些依赖的符号放进全局命名空间），再导入扩展模块 `torch/_C.*.so`，它的 `DT_NEEDED` 链上是 `libtorch_python.so` → `libtorch.so` → `libtorch_cpu.so` / `libtorch_cuda.so` → `libc10.so` / `libc10_cuda.so`（第九、十章）。**依赖关系**：`c10` 是最底层（Tensor 元数据、Device、Allocator、Dispatcher 核心），`torch_cpu` / `torch_cuda` 是算子与 kernel，`torch` 是把两者拼起来的空壳，`torch_python` 是 Python 绑定；每一层只导出标了 `C10_API` / `TORCH_API` 的符号，其余在 `-fvisibility=hidden` 下不可见（第七、八章）。**扩展链接到哪一个**：用 `torch.utils.cpp_extension` 构建的扩展链接 `libc10.so`、`libtorch.so`、`libtorch_cpu.so`（CUDA 扩展再加 `libc10_cuda.so`、`libtorch_cuda.so`）与 `libtorch_python.so`（用了 pybind11 / Python API 时），并用 `-Wl,-rpath,$ORIGIN/lib` 一类把搜索路径烧进去；符号在加载期由动态链接器解析，所以扩展的 ABI（`_GLIBCXX_USE_CXX11_ABI`、编译器版本）必须与这些库一致（第九、十一章）。
-
-</details>
-
 
 ## 十四、自测
 
@@ -2164,7 +2143,14 @@ Java 工程师需要放弃的三个直觉：**"编译器能看到整个项目"**
 
    </details>
 
-
 ## 下一篇
 
 [值、引用与所有权：对象模型与 RAII](/cpp-value-semantics-ownership-and-raii.html)
+
+[^q0]: 函数体在另一个翻译单元（`torch/csrc/Module.cpp`）里。编译器不需要知道它在哪：编译阶段只要看到声明就能生成一条「调用未定义符号 `initModule`」的记录，把这个符号解析成地址是**链接器**的事——它在所有目标文件和库里找唯一一个定义。详见[第三章](#三翻译单元声明与定义头文件)、[第五章](#五目标文件库与符号)。
+[^q1]: 先声明是为了给它加属性（`extern "C"`、可见性），定义时就不用重复写。`visibility("default")` 表示这个符号要**导出**到动态符号表；PyTorch 全局用 `-fvisibility=hidden` 编译，不写的话 `PyInit__C` 会被藏起来，Python 的 `dlopen` 之后 `dlsym` 找不到入口，`import torch._C` 直接失败。详见[第五章](#五目标文件库与符号)、[第六章](#六动态链接与加载)。
+[^q2]: 都不是——是**预处理器指令**，在编译之前按文本处理：`#ifdef __cplusplus` 让同一个头文件被 C 与 C++ 编译器都能读，`#ifndef _WIN32` 按平台裁掉不适用的代码。它们决定「哪些行会被编译器看到」，属于构建配置在源码里的投影。详见[第二章](#二四个阶段一个-cpp-是怎么变成机器码的)。
+[^q3]: 这个文件编成一个目标文件，再链接成扩展模块 `torch/_C.cpython-*.so`——一个只含很薄的入口的动态库。它对 `initModule` 的引用在链接时解析到 `libtorch_python.so`（`Module.cpp` 编进了那里），加载时由动态链接器沿 `DT_NEEDED` 把两者接上。详见[第五章](#五目标文件库与符号)、[第六章](#六动态链接与加载)、[第九章](#九回到源码)。
+[^q4]: `import torch` 先由 `_load_global_deps()` 以 `RTLD_GLOBAL` `dlopen` `libtorch_global_deps.so`（把 CUDA runtime、cuDNN、NCCL 的符号放进全局命名空间），再导入扩展模块 `torch/_C.*.so`，它的 `DT_NEEDED` 链上是 `libtorch_python.so` → `libtorch.so` → `libtorch_cpu.so` / `libtorch_cuda.so` → `libc10.so` / `libc10_cuda.so`。详见[第八章](#八pytorch-的源码布局与库布局)、[第九章](#九回到源码)。
+[^q5]: `c10` 是最底层（Tensor 元数据、Device、Allocator、Dispatcher 核心），`torch_cpu` / `torch_cuda` 是算子与 kernel，`torch` 是把两者拼起来的空壳，`torch_python` 是 Python 绑定；每一层只导出标了 `C10_API` / `TORCH_API` 的符号，其余在 `-fvisibility=hidden` 下不可见。详见[第七章](#七命名空间c10attorch-的分工)、[第八章](#八pytorch-的源码布局与库布局)。
+[^q6]: 用 `torch.utils.cpp_extension` 构建的扩展链接 `libc10.so`、`libtorch.so`、`libtorch_cpu.so`（CUDA 扩展再加 `libc10_cuda.so`、`libtorch_cuda.so`），用了 pybind11 / Python API 时再加 `libtorch_python.so`，并用 `-Wl,-rpath` 把搜索路径烧进去。符号在加载期由动态链接器解析，所以扩展的 ABI（`_GLIBCXX_USE_CXX11_ABI`、编译器版本）必须与这些库一致。详见[第九章](#九回到源码)、[第十章](#十实践一手写-g-命令链接一个-libtorch-程序)。

@@ -58,17 +58,16 @@ static PyObject * THPVariable_contiguous(PyObject* self, PyObject* args, PyObjec
 
 对一个 Java 工程师来说，这两段代码里陌生的不是 C++ 语法，而是两个运行时之间的边界规则：
 
-- `PyObject_HEAD` 是什么？一个 C++ 对象 `at::Tensor` 怎么"嵌"进了一个 Python 对象里？
-- `THPVariable_Wrap` 返回裸的 `PyObject*`，谁负责释放它？`THPVariable_Unpack` 返回 `const at::Tensor&`，这个引用能活多久？
-- `pybind11::gil_scoped_release` 放掉了 GIL，之后 `self.contiguous()` 还在用 `self`——那不是一个 Python 对象里的东西吗，为什么可以碰？
-- 同一个文件里，既有 `pybind11::` 又有裸的 `PyObject*`、`Py_INCREF`。PyTorch 到底用 pybind11 还是用 Python C API？为什么 `Tensor` 不像其他类型那样用 `py::class_` 绑定？
-- `HANDLE_TH_ERRORS` / `END_HANDLE_TH_ERRORS` 把函数体包起来，C++ 的异常怎么变成 Python 的异常？
-- 写了一个自定义算子的 `.so`，`import` 时报 `undefined symbol: _ZN3c105ErrorC2E...__cxx11...`——符号明明在 `libc10.so` 里，为什么找不到？
+- `PyObject_HEAD` 是什么？一个 C++ 对象 `at::Tensor` 怎么"嵌"进了一个 Python 对象里？[^q0]
+- `THPVariable_Wrap` 返回裸的 `PyObject*`，谁负责释放它？`THPVariable_Unpack` 返回 `const at::Tensor&`，这个引用能活多久？[^q1]
+- `pybind11::gil_scoped_release` 放掉了 GIL，之后 `self.contiguous()` 还在用 `self`——那不是一个 Python 对象里的东西吗，为什么可以碰？[^q2]
+- 同一个文件里，既有 `pybind11::` 又有裸的 `PyObject*`、`Py_INCREF`。PyTorch 到底用 pybind11 还是用 Python C API？为什么 `Tensor` 不像其他类型那样用 `py::class_` 绑定？[^q3]
+- `HANDLE_TH_ERRORS` / `END_HANDLE_TH_ERRORS` 把函数体包起来，C++ 的异常怎么变成 Python 的异常？[^q4]
+- 写了一个自定义算子的 `.so`，`import` 时报 `undefined symbol: _ZN3c105ErrorC2E...__cxx11...`——符号明明在 `libc10.so` 里，为什么找不到？[^q5]
 
 这些问题都发生在 Python 和 C++ 两个运行时的交界处。本文的核心问题是总纲里的这一句：
 
-> **一个 `at::Tensor` 从 Python 传到 C++ 又返回 Python，经过了几次类型转换、几次引用计数变化？中间 GIL 状态是什么？**
-
+> **一个 `at::Tensor` 从 Python 传到 C++ 又返回 Python，经过了几次类型转换、几次引用计数变化？[^q6] 中间 GIL 状态是什么？[^q7]**
 
 ## 一、总览
 
@@ -94,7 +93,6 @@ static PyObject * THPVariable_contiguous(PyObject* self, PyObject* args, PyObjec
 | 十三 | 工程实践建议与常见错误 |  |
 | 十四 | 本文小结 |  |
 | 十五 | 自测 | 5 道题 |
-
 
 ## 二、Python C API 基础：`PyObject`、引用计数、GIL、`PyObject_Call`
 
@@ -312,7 +310,6 @@ static struct PyGetSetDef THPVariable_properties[] = {
 这是 C API 绑定一个属性的全部代价：一个 C 函数 + 表里一行。pybind11 的 `def_property_readonly` 最终生成的也是同样的东西，只是由模板代劳。
 
 Java 对照：JNI 没有"在 C 里定义 Java 类"这回事——类只能在 Java 侧定义，native 方法只是实现。CPython 允许扩展在 C 里从零定义一个类型，这给了 PyTorch 完全控制 `torch.Tensor` 内存布局和生命周期的能力，也是第五章"为什么不用 pybind11"的前提。
-
 
 ## 三、pybind11 的工作方式：模板生成胶水代码
 
@@ -569,7 +566,6 @@ PyTorch 的异常是 `c10::Error` 及其子类（`c10::IndexError`、`c10::Value
 
 Java 对照：JNI 里 C++ 异常**不能**穿过 native 边界（穿过就是未定义行为，通常直接 crash），必须手工 `catch` 后调用 `env->ThrowNew(cls, msg)`，然后正常返回；Java 异常也不会自动传到 C++，要用 `ExceptionCheck/ExceptionOccurred` 轮询。pybind11 和 PyTorch 在两个方向上都做了自动化：C++ → Python 靠翻译器，Python → C++ 靠 `python_error`/`error_already_set`。
 
-
 ## 四、GIL 的释放与获取：`gil_scoped_release` / `gil_scoped_acquire`
 
 ### 1. 两个守卫的实现
@@ -731,7 +727,6 @@ void ConcretePyInterpreterVTable::incref(PyObject* pyobj) const {
 最经典的一种：线程 A 持有一个 C++ `std::mutex` 然后去 `gil_scoped_acquire`；线程 B 持有 GIL 然后去锁同一个 `mutex`。两把锁的获取顺序不一致就是死锁。通用的解法和任何多锁问题一样：固定顺序。对 Python 扩展来说自然的顺序是把 GIL 当作最外层的锁——需要同时持有 GIL 和某个 C++ 锁时先拿 GIL；已经持有 C++ 锁却需要回 Python 时，先放锁再拿 GIL。`c10/core/impl/PyInterpreter.h` 开头的 Note 提到了正是这个风险："acquiring the GIL could lead to deadlocks if someone is blocking on you while holding the GIL"——`TensorImpl` 的析构可能在任何线程、持有任何锁的情况下发生，而它要 `Py_DECREF`，这就是为什么 4.3 节的 `decref` 要格外小心。
 
 Java 对照：JVM 没有 GIL，但 JNI 有 `MonitorEnter/MonitorExit`，与 `synchronized` 是同一把锁；C++ 侧持有 `std::mutex` 再 `MonitorEnter` 一个被 Java 线程持有的监视器，死锁模式完全相同。区别在于 Python 里这个问题更常见，因为 GIL 是**所有** Python 操作共用的一把锁，任何 `py::object` 析构都可能要它。
-
 
 ## 五、PyTorch 如何绑定 `Tensor`：`THPVariable` 直接用 C API，为什么
 
@@ -1082,7 +1077,6 @@ bool TensorImpl::try_incref_pyobject() const noexcept {
 
 PyTorch 2.x 中的变化：早期 2.x 版本里 `PyObjectSlot` 的 `PyInterpreter*` 标签是为 torchdeploy 的多解释器准备的，还有一个 `owns_pyobj` 位藏在指针的最低位里；v2.10.0 的 `pyobj_interpreter_` 字段还在，但正如注释所说"now always the global interpreter"，只剩一个解释器；`owns_pyobj` 位已经没有了，"谁拥有谁"的信息移到了 `intrusive_ptr_target` 的 `combined_refcount_` 里（第六章）。
 
-
 ## 六、Python 对象与 C++ 对象的双向持有：`pyobj_slot`、`kHasPyObject` 与循环引用
 
 ### 1. 问题：两个引用计数，谁持有谁
@@ -1254,7 +1248,6 @@ static int THPVariable_traverse(PyObject* self, visitproc visit, void* arg) {
 以及一个诚实的告诫：为了性能不会遍历整个 autograd 图，所以"用户可以制造出无法回收的环"（issue 7343）。这类环的表现是显存不释放，第二篇 10.10 节排查清单里"autograd 保存"那一项的深层原因之一就在这里。
 
 Java 对照：JVM 的 GC 是全局可达性分析，跨 JNI 的引用只要注册成 global ref 就是根，不存在"C++ 对象持有 Java 对象导致的不可收集环"——代价是 C++ 侧持有 Java 对象**永远**阻止它被回收，需要显式删除。CPython 的引用计数 + 环检测则要求 C++ 侧配合报告；报告得对就能回收环，报告错就出 bug。两边的取舍不同，但"C++ 持有的托管对象要专门处理"这一点相同。
-
 
 ## 七、回到源码：`torch/csrc/utils/pybind.h` 里的 caster
 
@@ -1428,7 +1421,6 @@ struct type_caster<c10::DispatchKey>
 `c10::DispatchKey` 用 `py::enum_` 绑定过（`torch._C.DispatchKey`），所以默认的 `type_caster_base` 能处理枚举实例。这个特化在它之上加了"也接受字符串"：`base::load` 失败就把 `str` 解析成枚举值存进 `tmp`，`value = &tmp`（`type_caster_base` 的 `value` 是 `void*`，指向 C++ 对象）。这是一个"继承默认行为再扩展"的 caster 写法，本文 mini-c10 一节会照着它写一个 `Tensor` 的 caster。
 
 `c10::Scalar`、`c10::SymInt` 等的 caster 也在这个文件里，模式相同，只是 `load` 里要区分 Python 的 `int`/`float`/`bool`/`complex` 和 `torch.SymInt`。
-
 
 ## 八、回答核心问题：一次 `torch.ops.myops.op(t)` 的完整路径
 
@@ -1620,7 +1612,6 @@ flowchart TD
 这条路径和 `torch.add(t, 1)` 这类原生算子的路径（`PythonArgParser` → `dispatch_add` → `THPVariable_Wrap`）在结构上完全一样，只是原生算子不经过 `IValue`，用 `PythonArgs::tensor(i)` 直接把 `PyObject*` 变成 `at::Tensor` 再走 unboxed 调用——少两次转换，这是 5.2 节说的性能理由之一。
 
 Java 对照：一次 JNI 调用 `nativeScale(tensorObj, 2.0)`：`jobject` 进来是 local ref（borrowed 性质，方法返回自动失效）；要在 C++ 里存下来得 `NewGlobalRef`；C++ 对象要还回 Java 得 `NewObject` 或者往一个 `long` 字段里写指针。没有 GIL，但如果 C++ 侧要长时间运行，也要注意不要在持有 Java 监视器时阻塞。转换次数类似，只是 JNI 里每一步都是显式函数调用，pybind11 把它们藏进了模板。
-
 
 ## 九、`TORCH_LIBRARY` 还是 pybind11：vLLM 的选择，以及 libtorch stable ABI 的现状
 
@@ -1874,7 +1865,6 @@ STABLE_TORCH_LIBRARY_IMPL(libtorch_agnostic_2_9, CUDA, m) {
 
 PyTorch 2.x 中的变化：`torch/csrc/stable/` 和 `torch/headeronly/` 是 2.9 前后才出现的目录，`STABLE_TORCH_LIBRARY`、`TORCH_BOX`、`TORCH_TARGET_VERSION` 在更早的 2.x 版本里都不存在。读 2.9 之前的扩展代码只会看到 `TORCH_LIBRARY` 这一条路。
 
-
 ## 十、ABI：name mangling、`_GLIBCXX_USE_CXX11_ABI`、`GLIBCXX_3.4.x` 与 manylinux
 
 前面所有内容都建立在一个前提上：扩展 `.so` 里对 `THPVariable_Wrap`、`c10::Error::Error`、`at::empty` 的调用，在加载时能找到 `libtorch_python.so`/`libc10.so`/`libtorch_cpu.so` 里对应的符号，而且**双方对这些符号背后的类型布局、调用约定的理解一致**。这就是 ABI（Application Binary Interface）。Java 工程师习惯了 JVM 提供的统一字节码——一个 `.class` 在任何 JVM 上都能加载。C++ 没有这种东西：ABI 由编译器、标准库、编译选项三者共同决定，任何一个不一致都可能导致加载失败或更糟的静默错误。
@@ -2008,7 +1998,6 @@ Java 对照：这三层在 JVM 世界分别对应"class 文件版本号"（`majo
 ### 6. MSVC 与 Windows
 
 Windows 上 MSVC 用另一套 name mangling（`?Error@c10@@QEAA@...`），libstdc++ 的双 ABI 问题不存在，但有自己的对应物：不同 Visual Studio 大版本的 C++ 运行库（`msvcp140.dll` 系列）和 Debug/Release 运行库（`/MD` vs `/MDd`）之间不能混用。`cpp_extension.py` 里 `MINIMUM_MSVC_VERSION = (19, 0, 24215)` 就是这个约束的体现。本系列不以 Windows 为目标平台，只提到这里。
-
 
 ## 十一、扩展与 PyTorch 之间的 ABI 契约：`torch.utils.cpp_extension` 检查了什么
 
@@ -2165,7 +2154,6 @@ def _check_cuda_version(compiler_name: str, compiler_version: TorchVersion) -> N
 | `-std=c++17`（或更高） | `cpp_extension` 自动加 | 头文件编译错误 |
 
 其中"同一个 PyTorch 版本"是最容易被忽视、后果也最隐蔽的一条。9.3 节的 stable ABI 正是为了把这一条从"必须"变成"≥ 某个最低版本即可"。
-
 
 ## 十二、mini-c10：`python/minic10_python.cpp` 与一次 ABI 事故复现
 
@@ -2528,7 +2516,6 @@ c10::Error::Error(char const*, mylib::string const&)
 - 定位方法相同：`c++filt` 反修饰报错里的符号，看参数类型里有没有 `__cxx11`；再用 `nm -D libc10.so | grep <函数名> | c++filt` 看库导出的是哪一种；`python -c "import torch; print(torch._C._GLIBCXX_USE_CXX11_ABI)"` 看 PyTorch 是哪一种（v2.10.0 上恒为 `True`）。
 - 更隐蔽的变种：如果不匹配的类型**不出现在任何函数签名里**（比如只是某个结构体的成员），符号完全一致，链接和加载都成功，但两边对同一块内存的布局理解不同——运行时读到垃圾或段错误。这种情况没有任何工具会报错，只能靠"三个 ABI 全部一致"这条纪律预防。上面 `mystring.h` 里两个版本的 `struct string` 大小不同，就是在模拟这一点。
 
-
 ## 十三、工程实践建议与常见错误
 
 **引用计数**
@@ -2574,7 +2561,6 @@ c10::Error::Error(char const*, mylib::string const&)
 24. C++ 异常可以在 pybind11 边界上自动翻译，但**不能**穿过 C API 风格的函数（`THPVariable_xxx`）——那些函数要用 `HANDLE_TH_ERRORS` 包住；也不能穿过 `extern "C"` 回调、析构函数、`noexcept` 函数。
 25. Java 只有一个 ABI（字节码版本号）；C++ 扩展有三个（CPython、标准库、PyTorch），每个都能让 `import` 失败。
 
-
 ## 十四、本文小结
 
 本文围绕 Python 与 C++ 两个运行时的边界，把 PyTorch 把 `Tensor` 暴露给 Python 的机制拆开了一遍。要点：
@@ -2610,14 +2596,6 @@ Java 对照集中列一次：
 | 稳定 C 层 | JNI 本身就是稳定 C 接口 | `torch/csrc/stable/c/shim.h`、CPython limited API | C++ 需要额外造一层才有 |
 
 下一篇是工程闭环：这些 `.so` 怎么用 CMake 可靠地编出来、`import` 崩了怎么用 gdb/lldb 从 Python 进程一路断到 C++ kernel、怎么用 sanitizer 抓本篇提到的那些 use-after-free 和引用计数错误、怎么给 mini-c10 补上 gtest。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-以 `y = my_ext.f(x)` 为例。**Python → C++**：`x` 是一个 `THPVariable`（`PyObject` 头 + 一个 `at::Tensor` 成员）；参数解析拿到 `PyObject*`（借用引用，不加计数），`THPVariable_Unpack` 返回其中 `at::Tensor` 的 `const&`——**零次类型转换、零次 Python 引用计数变化**；如果 C++ 函数按值接 `at::Tensor`，拷贝一次 `intrusive_ptr`，`TensorImpl` 计数 +1（这是 C++ 侧的计数，不是 Python 的）。pybind11 的 `type_caster<at::Tensor>` 做的也是这件事。**C++ 计算**：长时间计算前 `py::gil_scoped_release` 释放 GIL（否则其他 Python 线程全停），返回前重新获取；CUDA launch 本身不要 GIL。**C++ → Python**：`THPVariable_Wrap(tensor)` 先查 `TensorImpl` 是否已有对应的 `PyObject`（`pyobj_slot`）——有就 `Py_INCREF` 返回同一个对象，没有就新建一个 `THPVariable`（Python 引用计数 1）并把 `at::Tensor` 移进去（C++ 计数不变或 +1）。所以一次往返：类型转换 0 到 1 次（包装 / 解包），Python 引用计数变化 0 到 1 次，C++ `TensorImpl` 计数变化 0 到 2 次，GIL 在进入与返回时持有、中间可释放（第五、六、八章）。**ABI**：这一切成立的前提是扩展与 `libtorch_python` 用同一个 CPython 版本、同一套 libstdc++ ABI（`_GLIBCXX_USE_CXX11_ABI`）与同一版 `at::Tensor` 布局；`torch/csrc/stable/c/shim.h` 与 CPython limited API 是为了在这三层上各造一个稳定的 C 接口（第十至十二章）。
-
-</details>
-
 
 ## 十五、自测
 
@@ -2661,7 +2639,15 @@ Java 对照集中列一次：
 
    </details>
 
-
 ## 下一篇
 
 [构建、调试与测试工具链](/cpp-build-debug-and-test-toolchain.html)
+
+[^q0]: `PyObject_HEAD` 是每个 Python 对象开头的两个字段：引用计数 `ob_refcnt` 和类型指针 `ob_type`。`THPVariable` 是一个以 `PyObject_HEAD` 开头、后面跟一个 `at::Tensor` 成员的 C 结构体——Python 解释器只看头部，把它当普通对象计数与分发；C++ 代码则拿整个结构体，读后面的 `at::Tensor`。「嵌」就是结构体内存布局上的前缀兼容。详见[第二章](#二python-c-api-基础pyobject引用计数gilpyobject_call)、[第五章](#五pytorch-如何绑定-tensorthpvariable-直接用-c-api为什么)。
+[^q1]: `THPVariable_Wrap` 返回的是一个**新引用**（计数已 +1），调用者负责在用完后 `Py_DECREF`，或立即交给 `py::object` / `THPObjectPtr` 这类 RAII 包装；忘了就泄漏。`THPVariable_Unpack` 返回的引用指向 `THPVariable` 结构体里的成员，它活到那个 Python 对象被释放为止——所以只要调用期间持有该 `PyObject` 的引用（参数通常是借用引用，调用者保证存活）就安全，跨越调用保存下来就不安全。详见[第二章](#二python-c-api-基础pyobject引用计数gilpyobject_call)、[第五章](#五pytorch-如何绑定-tensorthpvariable-直接用-c-api为什么)。
+[^q2]: GIL 保护的是 Python 解释器的状态（对象计数、字典、字节码执行），不是 C++ 内存。`self` 那个 `at::Tensor` 是 C++ 对象，只要有人持有它的引用计数它就活着；`self.contiguous()` 完全在 C++ 里跑，不碰 `PyObject`。规则是：放掉 GIL 之后不能碰任何 `PyObject*`、不能 `Py_INCREF/DECREF`，但可以随便用已经取出来的 C++ 值。详见[第四章](#四gil-的释放与获取gil_scoped_release--gil_scoped_acquire)。
+[^q3]: 两者都用：普通类型（`Device`、`dtype`、大部分函数）走 pybind11 省事；`Tensor` 用手写 C API，因为它需要 pybind11 给不了的东西——`PyObject` 与 `TensorImpl` 的双向持有（`pyobj_slot`）、可被子类化的 Python 类型、与 GC 协作的循环引用处理，以及每次调用几十纳秒级的开销控制。详见[第三章](#三pybind11-的工作方式模板生成胶水代码)、[第五章](#五pytorch-如何绑定-tensorthpvariable-直接用-c-api为什么)、[第六章](#六python-对象与-c-对象的双向持有pyobj_slotkhaspyobject-与循环引用)。
+[^q4]: 这对宏展开成一个 `try { ... } catch (...)`：捕获 `c10::Error`、`std::exception` 等 C++ 异常，按类型调用 `PyErr_SetString` 之类的 C API 设置 Python 异常对象与消息（保留 C++ 栈信息在 `TORCH_SHOW_CPP_STACKTRACES=1` 时），然后返回 `nullptr` 让解释器知道出错了。C++ 异常绝不能穿过 C API 边界——那是未定义行为。详见[第七章](#七回到源码torchcsrcutilspybindh-里的-caster)、[第八章](#八回答核心问题一次-torchopsmyopsopt-的完整路径)。
+[^q5]: 符号名里的 `__cxx11` 表示你的扩展是用新 libstdc++ ABI（`_GLIBCXX_USE_CXX11_ABI=1`）编译的，而这份 `libc10.so` 是用旧 ABI 编的（或反之）：`std::string` 在两种 ABI 下是不同类型，mangled 名不同，动态链接器按名字找当然找不到。解法是让扩展与 torch 的 ABI 标志一致——`torch.utils.cpp_extension` 会自动传 `torch._C._GLIBCXX_USE_CXX11_ABI`。详见[第十章](#十abiname-mangling_glibcxx_use_cxx11_abiglibcxx_34x-与-manylinux)、[第十一章](#十一扩展与-pytorch-之间的-abi-契约torchutilscpp_extension-检查了什么)。
+[^q6]: 以 `torch.ops.myops.op(t)` 为例：输入 `t` 经 3 次类型转换（`PyObject*` → `at::Tensor`（`THPVariable_Unpack`）→ `IValue` 压栈 → boxed kernel 里解包成 `const at::Tensor&`），输出 2 次（`at::Tensor` → `IValue` → `PyObject*`（`THPVariable_Wrap`））——全是句柄级操作，没有一步拷贝数据。输入的 `TensorImpl` C++ 计数 1 → 2（进栈）→ 1（出栈）；它的 Python 计数在用户看来不变，但 1 → 2 / 2 → 1 的钩子引起一次 `Py_INCREF` 与一次 `Py_DECREF`。原生算子 `torch.add` 不经过 `IValue`，少两次转换。详见[第六章](#六python-对象与-c-对象的双向持有pyobj_slotkhaspyobject-与循环引用)、[第八章](#八回答核心问题一次-torchopsmyopsopt-的完整路径)。
+[^q7]: 参数解析与结果转换时持有 GIL（要碰 `PyObject`）；kernel 执行期间由 `gil_scoped_release` 释放，返回前重新持有。特殊的一处：出栈时 C++ 计数 2 → 1 触发的 `decref_pyobject` 发生在无 GIL 区间，它内部用 `gil_scoped_acquire` 短暂拿回 GIL 做 `Py_DECREF` 再放掉。详见[第四章](#四gil-的释放与获取gil_scoped_release--gil_scoped_acquire)、[第八章](#八回答核心问题一次-torchopsmyopsopt-的完整路径)。

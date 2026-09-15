@@ -60,17 +60,16 @@ struct C10_API NoGradGuard : public AutoGradMode {
 
 对一个 Java 工程师来说，这几段代码里有好几处"看得懂每个词，但不知道为什么这么写"的地方：
 
-- `thread_local` 是什么存储类别？它和 Java 的 `ThreadLocal<T>` 是一回事吗？为什么一个全局开关要做成线程局部的？
-- 注释里特意写了 "thread local (!)"，感叹号在提醒什么？
-- `NoGradGuard` 只有构造函数和析构函数，没有任何"业务方法"，它存在的意义是什么？为什么它删掉了拷贝和移动？
-- 同一个 `c10/` 目录里，`intrusive_ptr` 的引用计数用 `std::atomic<uint64_t>`，增加时用 `memory_order_relaxed`，减少时用 `memory_order_acq_rel`——这两个词是什么意思？为什么不一样？
-- `at::parallel_for` 的线程从哪里来？它的注释说 "does NOT copy thread local states"，这和 `no_grad` 有什么关系？
-- CUDA kernel 的 launch 代码里看不到任何锁，多线程同时 launch 为什么是安全的？
+- `thread_local` 是什么存储类别？它和 Java 的 `ThreadLocal<T>` 是一回事吗？为什么一个全局开关要做成线程局部的？[^q0]
+- 注释里特意写了 "thread local (!)"，感叹号在提醒什么？[^q1]
+- `NoGradGuard` 只有构造函数和析构函数，没有任何"业务方法"，它存在的意义是什么？为什么它删掉了拷贝和移动？[^q2]
+- 同一个 `c10/` 目录里，`intrusive_ptr` 的引用计数用 `std::atomic<uint64_t>`，增加时用 `memory_order_relaxed`，减少时用 `memory_order_acq_rel`——这两个词是什么意思？为什么不一样？[^q3]
+- `at::parallel_for` 的线程从哪里来？它的注释说 "does NOT copy thread local states"，这和 `no_grad` 有什么关系？[^q4]
+- CUDA kernel 的 launch 代码里看不到任何锁，多线程同时 launch 为什么是安全的？[^q5]
 
 这些问题的共同背景是 C++ 的并发模型：线程、内存序、线程局部存储，以及 PyTorch 在它们之上搭出的"守卫"（guard）模式。本文的核心问题是：
 
-> **`with torch.no_grad():` 在 C++ 层做了什么？为什么它对其他线程不生效？**
-
+> **`with torch.no_grad():` 在 C++ 层做了什么？[^q6] 为什么它对其他线程不生效？[^q7]**
 
 ## 一、总览
 
@@ -97,7 +96,6 @@ struct C10_API NoGradGuard : public AutoGradMode {
 | 十四 | 工程实践建议与常见错误 |  |
 | 十五 | 本文小结 |  |
 | 十六 | 自测 | 5 道题 |
-
 
 ## 二、线程、锁与条件变量：从 `c10::ThreadPool` 读起
 
@@ -302,7 +300,6 @@ class Queue {
 
 它与 `c10::ThreadPool::main_loop` 是同一个骨架。
 
-
 ## 三、C++ 内存模型：`std::atomic`、六种 memory order 与 happens-before
 
 锁解决的是"互斥"，但 PyTorch 里大量热路径（引用计数、`running_` 标志、全局注册表的读）不用锁而用原子操作。理解原子操作需要理解 C++ 内存模型，而这恰好是 Java 工程师最有优势的地方：**JMM 和 C++11 内存模型出自同一批人（Hans Boehm、Doug Lea 等）的同一套思想，happens-before、synchronizes-with 这些词在两边含义一致**。差别在于 C++ 把 Java 只有一档的 `volatile` 拆成了六档，让程序员可以选择比 `volatile` 更弱、更便宜的语义。
@@ -407,7 +404,6 @@ struct ThreadSHMContext {
 生产者写完数据后 `commit_ready_stamp()` 用 **release** 写戳，消费者 `get_ready_stamp()` 用 **acquire** 读戳——正是 3.3 节的模式：戳可见时，戳之前写入的数据也一定可见。x86 分支用 `volatile` 加显式 `_mm_mfence()`，是把硬件强序当作前提的老写法；AArch64 分支则依赖 C++ 内存模型。这个对照说明了为什么标准化的 memory order 值得学：它让同一段代码在不同硬件上有同样的正确性保证，而不需要为每个平台手写 fence。
 
 `static_assert(std::atomic<char>::is_always_lock_free)` 也值得注意：`std::atomic<T>` 对某些 `T` 可能用内部锁实现（比如没有对应宽度原子指令的平台），这行断言在编译期排除这种情况。`c10/util/intrusive_ptr.h` 里对 `std::atomic<uint64_t>` 也有类似的 `static_assert(sizeof(std::atomic<uint64_t>) == 8)`，同一个目的。
-
 
 ## 四、为什么 `intrusive_ptr` 的引用计数 relaxed 增、acq_rel 减
 
@@ -582,7 +578,6 @@ Java 没有引用计数（GC 负责），但 `AtomicInteger.incrementAndGet()` �
 
 刚 `new` 出来的对象没有任何其他线程能看到，所以初始化计数用 relaxed `store` 即可——在 x86 上就是一条普通 `mov`。注释里连汇编差异都写清楚了，这种"每条原子指令都要有理由"的态度，是读 c10 代码时应该带着的。
 
-
 ## 五、`thread_local`：语言机制，以及 c10 里有哪些线程局部状态
 
 ### 1. `thread_local` 是存储类别，不是类型
@@ -747,7 +742,6 @@ thread_local PODLocalDispatchKeySet raw_local_dispatch_key_set;
 ```
 
 TLS 变量如果需要动态初始化（调构造函数），编译器要在每次访问处插入"是否已初始化"的检查；零初始化的 POD 则可以直接放在 TLS 段里，访问就是一条访存。为了让"默认包含 `BackendSelect` 和 `ADInplaceOrView`"这个非零默认值仍然能以零初始化存储，PyTorch 用了一个 XOR 技巧：存储的是"与默认值的差异"。第七章回到源码时会看到 `included()` 和 `set_included()` 如何实现这个 XOR。
-
 
 ## 六、守卫模式：RAII 管理的不只是资源，还有"上下文"
 
@@ -921,7 +915,6 @@ you finish the current op.
 
 它们的共同骨架就是 6.1 节那三步。读 PyTorch 源码时看到任何以 `Guard` 结尾、没有业务方法、删掉了拷贝移动的类型，都可以按这个模板理解。
 
-
 ## 七、回到源码：`c10/core/impl/LocalDispatchKeySet.h`
 
 这个文件是 PyTorch 里最典型的"TLS + 守卫"组合，也是 `InferenceMode`、`AutoDispatchBelow*`、`ThreadLocalState` 的公共基础。逐段读一遍。
@@ -1075,7 +1068,6 @@ C10_API void tls_set_dispatch_key_included(DispatchKey x, bool desired_state);
 ```
 
 这段注释回答了一个实际问题：Python 的 `with` 块的 `__enter__` 和 `__exit__` 是两次独立的 C++ 调用，中间 C++ 栈已经完全展开，没有任何 C++ 局部变量能活到 `__exit__`。所以 **Python 上下文管理器在 C++ 侧只能用非 RAII 的 set/get 函数**，由 Python 侧的 `__exit__` 负责恢复。这也正是 `torch.no_grad()` 走的路：`torch._C._set_grad_enabled` 是一个非 RAII 的 setter，`prev` 值保存在 Python 对象的 `self.prev` 里。C++ 内部代码则用 `NoGradGuard`。两条路修改的是同一个 TLS。
-
 
 ## 八、回到源码：`c10::DeviceGuard` 的两层设计
 
@@ -1370,7 +1362,6 @@ class InlineStreamGuard : private InlineDeviceGuard<T> {
 
 构造顺序是：先切设备（基类构造），再记录旧 stream，再切 stream。析构顺序自动相反：派生类析构先恢复 stream，然后基类析构恢复设备。C++ 保证基类在派生类之前构造、之后析构，守卫的嵌套对称性由语言直接提供。私有继承在这里表达的是"用基类实现自己，但不对外暴露基类接口"——Java 没有私有继承，最接近的是组合。
 
-
 ## 九、回答核心问题：`torch.no_grad()` 的完整链路与 `ThreadLocalState`
 
 ### 1. 从 Python 到 TLS
@@ -1525,7 +1516,6 @@ autograd 引擎也是这样。`torch/csrc/autograd/engine.cpp` 里工作线程�
 `GraphTask` 在 `backward()` 被调用的线程上保存一份 `ThreadLocalState`，设备工作线程执行节点时装上它——这样 backward 里的算子看到的 dispatch key 集合、Python 模式等，与调用 `backward()` 时一致。注释里说 grad mode 是例外，因为 backward 是否要建二阶图由 `create_graph` 参数决定，`GraphTask` 构造时会显式 `thread_locals_.set_grad_mode(grad_mode)`。
 
 所以对"为什么对其他线程不生效"的完整回答是：**默认不生效，因为 `thread_local` 不会继承；但 PyTorch 在自己创建线程边界的地方（`at::launch`、autograd 引擎、JIT fork）用 `ThreadLocalState` 显式传播；而 `at::parallel_for` 特意不传播**——下一节解释为什么。
-
 
 ## 十、`at::parallel_for`：OpenMP、grain size 与线程数
 
@@ -1837,7 +1827,6 @@ int intraop_default_num_threads() {
 
 回到第九章留下的问题。`parallel_for` 的工作线程（无论是 OpenMP 线程组还是原生线程池）都是长期存活的线程，它们的 TLS 保持各自的初始值：grad mode 为 true，dispatch key 集合为默认。如果在 `no_grad` 块里调一个 CPU 算子，算子内部的 `parallel_for` 循环体在工作线程上执行——**工作线程的 `GradMode::is_enabled()` 是 true**。这没有关系，因为循环体只做算术，不读 TLS；autograd 的判断在调用 `parallel_for` 之前就在主线程上做完了。但如果有人在循环体里调 `at::add`（违反了那条 Warning），行为就会和主线程不一致。第十三章的 mini-c10 会把这个现象直接演示出来。
 
-
 ## 十一、为什么 CUDA kernel launch 不用锁
 
 一个典型的 CUDA kernel launch 站点（`aten/src/ATen/native/cuda/Embedding.cu`，`embedding_dense_backward_cuda` 的一部分）：
@@ -1916,7 +1905,6 @@ flowchart LR
 `at::empty(..., kCUDA)` 会走到这里。分配器维护的空闲块列表、按 stream 归属的块记录等是所有线程共享的数据结构，必须加锁。所以准确的说法是：**kernel launch 本身不用锁，因为 CUDA runtime 已经做了；但 launch 之前的显存分配、以及 PyTorch 侧任何共享数据结构的修改，还是锁保护的**。读 CUDA 算子代码时可以用这条线把"需要担心并发的部分"和"不需要的部分"分开。
 
 Java 对照：这个模型和 Java 里"每个线程自己的 `ExecutorService` 队列，任务之间用 `CompletableFuture` 链接依赖"类似，只是队列在 GPU 上，"当前队列"存在 TLS 里。
-
 
 ## 十二、SIMD 简介：`at::vec::Vectorized<T>`
 
@@ -2110,7 +2098,6 @@ void add_clamp_kernel(
 ```
 
 `cpu_kernel_vec` 接受两个 lambda：标量版处理向量宽度对不齐的尾部，向量版处理主体。写 kernel 的人只描述"一个元素怎么算"和"一个向量怎么算"，切块、并行（内部调 `at::parallel_for`）、尾部处理都由 `aten/src/ATen/native/cpu/Loops.h` 完成。这一层把本篇讲的多线程（`parallel_for`）和 SIMD（`Vectorized`）叠在了一起：外层多线程分块，内层每个线程用向量指令处理自己的块。
-
 
 ## 十三、mini-c10：原子引用计数、`GradMode.h`、`Parallel.h`
 
@@ -2453,7 +2440,6 @@ out[12345] = 24690
 
 如果要把 9.3 节的 `ThreadLocalState` 模式也搬进 mini-c10，只需要在 `parallel_for` 里给每个 worker 的 lambda 加上：先在调用线程上 `const bool grad = GradMode::is_enabled();`，在 worker 里 `AutoGradMode g(grad);`。ATen 没有这么做，是出于第十章说的性能考虑。
 
-
 ## 十四、工程实践建议与常见错误
 
 ### 1. 关于内存序
@@ -2499,7 +2485,6 @@ out[12345] = 24690
 | `AtomicInteger` 的操作都是最强语义 | `std::atomic` 默认 seq_cst，但可以显式选 relaxed/acquire/release |
 | 忘记 `finally` 里的 `remove()`/`unlock()` 是常见 bug | RAII 守卫让"退出时恢复"由析构函数保证，包括异常路径 |
 
-
 ## 十五、本文小结
 
 本篇从 `with torch.no_grad():` 出发，把 C++ 并发模型的几个部件和 PyTorch 在其上搭出的模式串了一遍：
@@ -2515,14 +2500,6 @@ out[12345] = 24690
 mini-c10 这一篇把 `refcount_` 改成了 `std::atomic<size_t>`（与 c10 相同的 memory order），加了 `core/GradMode.h` 和 `std::thread` 版的 `Parallel.h`，并用两个线程演示了 `thread_local` 的隔离与 `parallel_for` 不传播 TLS 的事实。
 
 下一篇进入 C++ 与 Python 的边界：`PyObject`、GIL、pybind11 的类型转换，以及为什么 `py::gil_scoped_release` 是本篇讲的守卫模式在另一个运行时上的直接应用。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**C++ 层做了什么**：`torch.no_grad()` 的 `__enter__` 调 `torch._C._set_grad_enabled(False)` → `c10::GradMode::set_enabled(false)`，它修改的是一个 **`thread_local`** 变量 `autograd_state_tls`（`AutogradState`）里的 grad-mode 位；每个 autograd kernel 在决定是否记录 `grad_fn`、是否建图之前读 `GradMode::is_enabled()`；`__exit__` 把旧值写回。Python 层的 `no_grad` 与 C++ 层的 `NoGradGuard` 是同一个东西——RAII 守卫的三步骨架：保存旧值、设新值、析构（或 `__exit__`）恢复（第七、八章）。**为什么对其他线程不生效**：`thread_local` 是语言级存储类别，每个线程一份独立副本、新线程不继承创建者的值；主线程在 `no_grad` 里启动的 `DataLoader` worker 或 `ThreadPool` 任务读到的是自己线程的默认值 `True`。所以跨线程要显式传递上下文——`at::ThreadLocalState` 把 grad mode、dispatch key 集合、当前 stream 等 TLS 打包，`ThreadLocalStateGuard` 在工作线程里恢复；`parallel_for`、autograd 引擎的工作线程、`torch.jit.fork` 都这样做（第七、九章）。同一套 TLS 还管着 `InferenceMode`、`ExcludeDispatchKeyGuard`、`DeviceGuard`、`CUDAStreamGuard`——全是同一个守卫模板。
-
-</details>
-
 
 ## 十六、自测
 
@@ -2566,7 +2543,15 @@ mini-c10 这一篇把 `refcount_` 改成了 `std::atomic<size_t>`（与 c10 相�
 
    </details>
 
-
 ## 下一篇
 
 [与 Python 之间：pybind11、Python C API 与 ABI](/cpp-pybind11-python-c-api-and-abi.html)
+
+[^q0]: `thread_local` 是 C++ 的一种**存储类别**（与 `static`、自动变量并列）：每个线程有一份独立副本，线程创建时初始化、退出时销毁，访问它不需要任何锁。与 Java 的 `ThreadLocal<T>` 目的相同，但它是语言机制而不是库——没有 `Map` 查找、没有 `remove()` 的泄漏问题。全局开关做成线程局部，是为了让一个线程的 `no_grad` 不影响并发跑的其他线程（比如 DataLoader worker）。详见[第五章](#五thread_local语言机制以及-c10-里有哪些线程局部状态)。
+[^q1]: 提醒读者：这个「全局」状态其实是每线程一份，新线程**不继承**创建者的值。在主线程里 `no_grad` 之后启动的工作线程读到的仍是默认值 `True`，跨线程必须显式传递——这正是 `at::ThreadLocalState` 存在的原因。详见[第五章](#五thread_local语言机制以及-c10-里有哪些线程局部状态)、[第九章](#九回答核心问题torchno_grad-的完整链路与-threadlocalstate)。
+[^q2]: 它是一个**守卫**（guard）：RAII 管理的不是资源而是「上下文」。构造函数保存旧值并设新值，析构函数恢复旧值，作用域结束（包括异常路径）自动生效；业务逻辑全在这两处，所以不需要其他方法。删掉拷贝与移动是因为一旦有两份副本，谁在析构时恢复、恢复成什么值就说不清了——守卫必须与作用域一一对应。详见[第六章](#六守卫模式raii-管理的不只是资源还有上下文)。
+[^q3]: memory order 规定一次原子操作对其他线程可见性的强弱：`relaxed` 只保证原子性、不建立任何顺序；`acq_rel` 让这次操作之前的写对之后拿到它的线程可见（happens-before）。计数 +1 时对象已经被持有、别人不可能在此刻释放它，所以用最便宜的 `relaxed`；−1 到零的那一次要保证所有线程对该对象的写都在析构之前完成，所以要 `acq_rel`。详见[第三章](#三c-内存模型stdatomic六种-memory-order-与-happens-before)、[第四章](#四为什么-intrusive_ptr-的引用计数-relaxed-增acq_rel-减)。
+[^q4]: 来自 OpenMP 的线程池（或 c10 自己的 `ThreadPool`），按 grain size 把区间切给多个线程。它们是长期存在的工作线程，不会带着调用者的 TLS，所以 `no_grad` 里发起的 `parallel_for` 在工作线程上看不到 grad mode 已关闭——PyTorch 在进入 kernel 前用 `ThreadLocalState` 打包、在工作线程里用 `ThreadLocalStateGuard` 恢复。详见[第九章](#九回答核心问题torchno_grad-的完整链路与-threadlocalstate)、[第十章](#十atparallel_foropenmpgrain-size-与线程数)。
+[^q5]: launch 本身是把一条命令排进某个 CUDA stream 的队列，CUDA runtime 对 context 与 stream 的操作内部是线程安全的；而「当前 stream」「当前 device」都是 c10 里的 `thread_local` 状态，每线程一份，不共享就不需要锁。真正的排序由 stream 语义与 event 保证，不靠主机侧的互斥。详见[第十一章](#十一为什么-cuda-kernel-launch-不用锁)。
+[^q6]: `__enter__` 调 `torch._C._set_grad_enabled(False)` → `c10::GradMode::set_enabled(false)`，改的是一个 `thread_local` 变量 `autograd_state_tls`（`AutogradState`）里的 grad-mode 位；每个 autograd kernel 在决定是否记录 `grad_fn`、是否建图之前读 `GradMode::is_enabled()`；`__exit__` 把旧值写回。Python 层的 `no_grad` 与 C++ 层的 `NoGradGuard` 是同一个东西：保存旧值、设新值、退出时恢复。详见[第七章](#七回到源码c10coreimpllocaldispatchkeyseth)、[第九章](#九回答核心问题torchno_grad-的完整链路与-threadlocalstate)。
+[^q7]: 因为 `thread_local` 每线程一份、新线程不继承创建者的值：主线程在 `no_grad` 里启动的 `DataLoader` worker 或线程池任务读到的是自己线程的默认值 `True`。要跨线程生效就得显式传递——`at::ThreadLocalState` 把 grad mode、dispatch key 集合、当前 stream 等 TLS 打包，`ThreadLocalStateGuard` 在工作线程里恢复；`parallel_for`、autograd 引擎的工作线程、`torch.jit.fork` 都这样做。详见[第九章](#九回答核心问题torchno_grad-的完整链路与-threadlocalstate)。

@@ -48,18 +48,17 @@ static PyObject* THPModule_crashIfCsrcASAN(PyObject* module, PyObject* arg) {
 
 对一个 Java 工程师来说，这段脚本里几乎每一行都需要解释：
 
-- 为什么要 `LD_PRELOAD` 一个 `libclang_rt.asan-x86_64.so`？为什么是 `clang --print-file-name` 算出来的路径？
-- `ASAN_OPTIONS` 里 `detect_leaks=0` 是什么意思，为什么 PyTorch 要关掉泄漏检测？
+- 为什么要 `LD_PRELOAD` 一个 `libclang_rt.asan-x86_64.so`？为什么是 `clang --print-file-name` 算出来的路径？[^q0]
+- `ASAN_OPTIONS` 里 `detect_leaks=0` 是什么意思，为什么 PyTorch 要关掉泄漏检测？[^q1]
 - `TORCH_USE_RTLD_GLOBAL=1` 和 UBSan 有什么关系？（脚本注释解释了：不这样做会有多份 `libtorch` 的类型信息，UBSan 的 vptr 检查会误报。）
-- 越界写一个字节，为什么在普通构建下**不会崩**，非要 ASan 才能抓到？为什么 CI 要先确认"确实会崩"再跑测试？
-- `NOLINTNEXTLINE(...)` 注释是给谁看的？`cppcoreguidelines-avoid-c-arrays` 是什么？
+- 越界写一个字节，为什么在普通构建下**不会崩**，非要 ASan 才能抓到？为什么 CI 要先确认"确实会崩"再跑测试？[^q2]
+- `NOLINTNEXTLINE(...)` 注释是给谁看的？`cppcoreguidelines-avoid-c-arrays` 是什么？[^q3]
 
 在 Java 里，越界写会抛 `ArrayIndexOutOfBoundsException`，这是 JVM 保证的；用不用 IDE 调试、开不开优化都不影响程序语义；构建、依赖、测试由 Maven 或 Gradle 一站式管。C++ 没有这些保证：越界写是未定义行为，默认什么都不会发生（直到别的地方莫名其妙地坏了）；`-O2` 编译出来的程序在调试器里看不到局部变量；构建系统（CMake）、编译器（gcc/clang/nvcc）、测试框架（gtest）、格式化和静态检查（clang-format/clang-tidy）、动态检查（sanitizers）是五套独立的工具，每套都要单独学。
 
 前七篇讲的是语言机制。这一篇讲**工程闭环**：怎么把代码可靠地编出来、出问题时怎么看进去、怎么防止它再坏。核心问题是：
 
-> **一个 C++ 改动，从写完到确认正确、没有内存错误、不会在别的编译器上炸，需要跑哪些东西？**
-
+> **一个 C++ 改动，从写完到确认正确、没有内存错误、不会在别的编译器上炸，需要跑哪些东西？[^q4]**
 
 ## 一、总览
 
@@ -86,7 +85,6 @@ Java 依然是参照系。Maven/Gradle 把依赖、编译、测试三件事一�
 | 十四 | 工程实践建议与常见错误 |  |
 | 十五 | 本文小结与系列总结 |  |
 | 十六 | 自测 | 5 道题 |
-
 
 ## 二、CMake 的目标模型
 
@@ -404,7 +402,6 @@ vLLM 的 `setup.py` 只是这些 CMake 的驱动器：它计算并发数、选 c
 
 最容易误导的类比是"`find_package(Torch)` = 声明一个 Maven 依赖"。Maven 依赖是一个坐标，Maven 负责让它出现；`find_package` 只是**找**，找的是别人已经装好的东西，装在哪里、版本对不对、ABI 是否匹配，全部是你的责任。vLLM 用"问 Python"的手法把这个责任转嫁给了 pip。
 
-
 ## 三、构建速度：Ninja、ccache/sccache 与增量构建
 
 ### 1. 为什么 PyTorch 全量构建要一小时
@@ -597,7 +594,6 @@ if(DEFINED USE_CUSTOM_DEBINFO)
 把这些合起来：一台 32 核机器上，`USE_CUDA=0 BUILD_TEST=0 USE_DISTRIBUTED=0` 加 ccache 的 CPU-only Debug 构建，干净构建二三十分钟，之后改一个 `.cpp` 到 `import torch` 能用，一般在一两分钟以内——瓶颈是链接。改一个被广泛 include 的头文件（比如 `c10/core/TensorImpl.h`）则回到十几分钟，因为第一篇说过的原因：所有 include 它的翻译单元都要重编。这是 C++ 工程里"改头文件要三思"的真实成本。
 
 Java 对照：`javac` 的增量编译粒度是类，改一个类的实现（不改签名）只重编这个类；Gradle 还能做到 ABI 感知的增量（改了方法体但没改签名，下游不重编）。C++ 的粒度是翻译单元，而且没有 ABI 感知——头文件里改一个注释，所有 include 它的 `.cpp` 全部重编（ccache 会在预处理后发现内容没变而命中，这是它最有价值的场景之一）。
-
 
 ## 四、编译选项：优化级别、调试信息、警告与目标架构
 
@@ -800,7 +796,6 @@ PyTorch 的解决方案是**运行时分派**（第六篇 12.3 节提过 `inline
 
 JVM 的字节码只有一种，JIT 在运行时针对当前 CPU 生成机器码——`-march` 的问题在 Java 里根本不存在；`-O` 级别的选择也不存在，JIT 自己决定优化什么；调试器在任何优化级别下都能看到所有局部变量，因为 JVM 保留了完整的元数据并能在断点处去优化（deoptimization）。C++ 把这三个决策全部前移到编译期，代价就是：**你必须在"跑得快"和"看得清"之间选一个，而且选完了才编，编完就改不了**。Debug 构建不是可选项，是调试 C++ 的必需品——除非你愿意读汇编。
 
-
 ## 五、`compile_commands.json` 与 clangd
 
 ### 1. IDE 为什么读不懂 C++ 项目
@@ -841,7 +836,6 @@ PyTorch 的 `CONTRIBUTING.md` 有一节 "Code completion and IDE support" 专门
 ### 3. 与 lint 的关系
 
 `compile_commands.json` 不只是给 IDE 用。clang-tidy 需要它才能分析代码（第十章，`.lintrunner.toml` 里 clang-tidy 的命令带 `--build_dir=./build`，就是去那里找编译数据库）；include-what-you-use、clang 的静态分析器、各种代码索引工具（Sourcegraph、Kythe）都以它为输入。它是 C++ 生态里"让工具理解项目"的通用接口——Java 世界里这个角色由 `pom.xml` 兼任，C++ 世界里它是 CMake 的一个副产品。
-
 
 ## 六、gdb / lldb：从 Python 进程断到 C++ kernel
 
@@ -1043,7 +1037,6 @@ Breakpoint 1: where = demo_o2`minic10::(anonymous namespace)::add_cpu(minic10::T
 
 同一份源码，同一个调试器，唯一的差别是 `-O0` 还是 `-O2`。这就是总纲那句"JVM 的调试器无需关心优化级别，C++ 在 `-O2` 下变量可能被优化掉、栈帧可能被内联，Debug 构建是必需的"的具体含义。折中方案是 `-Og`（PyTorch 在 aarch64 GCC 的 Debug 构建里用它，为了绕开一个编译器内部错误）或者 3.4 节的"只给几个文件加 `-g` 并去掉优化"。
 
-
 ## 七、段错误、栈溢出、use-after-free 的排查路径
 
 ### 1. 三种崩溃在 Java 里是什么
@@ -1175,7 +1168,6 @@ flowchart TD
     G -->|没抓到| I[TSan 查数据竞争<br/>gdb watch 观察点<br/>compute-sanitizer 查 GPU]
     C -->|栈是几千帧重复| J[栈溢出: 看递归或栈上大数组]
 ```
-
 
 ## 八、Sanitizers：让未定义行为变成确定的报告
 
@@ -1395,7 +1387,6 @@ fi
 
 ASan 不是"有空再跑"的东西。第二篇到第七篇讲的每一个所有权、生命周期、引用计数、GIL 边界的问题，最终都以 ASan 报告的形式被发现——如果你跑了的话。
 
-
 ## 九、gtest：C++ 测试的组织方式
 
 ### 1. gtest 的形状
@@ -1547,7 +1538,6 @@ Java 对照：JUnit 一统天下，没有"两层测试用两种语言"的问题�
 6. CI 的 `test_libtorch` 会跑所有 `build/bin/` 下的测试二进制。
 
 Python 测试的路径短得多：写 `test/test_foo.py`，`python test/test_foo.py -k test_name`，完。两条路径的成本差异是 9.3 节那条判断标准的经济学基础。
-
 
 ## 十、clang-format、clang-tidy 与 PyTorch 的 lint 规则
 
@@ -1808,7 +1798,6 @@ command = [
 
 Java 对照：Checkstyle 的 XML 配置对应 `.clang-format` + grep 规则；ErrorProne/SpotBugs 对应 clang-tidy。差别是集成度：Java 的这些工具挂在 Maven/Gradle 的生命周期里，`mvn verify` 一并跑；C++ 这边 lintrunner 是 PyTorch 自己写的胶水，vLLM 用的是 pre-commit（`.pre-commit-config.yaml` 里挂 `mirrors-clang-format`），每个项目各有各的。
 
-
 ## 十一、工具链版本矩阵
 
 ### 1. 三个版本轴
@@ -1881,7 +1870,6 @@ linux-jammy-aarch64-py3.10            # linux-aarch64.yml，镜像是 gcc13
 | 编 PyTorch 时 "FindCUDA says CUDA version is X but the CUDA headers say the version is Y" | PATH 上的 nvcc 和 `CUDA_HOME` 指向不同的 CUDA | `which nvcc`、`echo $CUDA_HOME` |
 
 Java 对照：Java 的版本轴只有一个——JDK 版本，而且 `javac --release 17` 能在新 JDK 上精确产出老版本字节码，`.class` 文件在任何 JVM 上语义一致。C++ 的三个轴（标准、编译器、CUDA）加上第七篇的第四个轴（标准库 ABI），每个都影响二进制的兼容性，而且没有 `--release` 这样的开关能屏蔽差异。这是"在我机器上能跑"在 C++ 里格外不成立的根本原因，也是 Docker 镜像在 AI-Infra 项目里如此普遍的原因——vLLM 的 `docker/Dockerfile` 就是把这整个矩阵钉死的方式。
-
 
 ## 十二、回到源码
 
@@ -2259,7 +2247,6 @@ lldb 版 `tools/lldb/pytorch_lldb.py` 用的是 lldb 的"类型摘要提供器"�
 遇到一条不认识的检查，`clang-tidy --list-checks -checks='*' \| grep <name>` 确认它存在，然后到 LLVM 文档（`clang.llvm.org/extra/clang-tidy/checks/`）读它的说明——每条都有"为什么这是问题"和"怎么修"的示例。与 Java 的 ErrorProne 文档是同一种东西。
 
 这三个文件合在一起回答了一个问题：**PyTorch 用什么手段保证几百万行 C++ 的质量？** 答案是三层：`intrusive_ptr_test.cpp` 这样的单元测试锁定语言层面的契约；`pytorch-gdb.py` 这样的工具让人能在出问题时看进去；`.clang-tidy` 这样的静态规则在代码进仓库前拦住已知的模式。第八章的 sanitizer 是第四层——运行时的动态检查。
-
 
 ## 十三、mini-c10：补齐工程
 
@@ -2837,7 +2824,6 @@ UseTab: Never
 
 到这里 mini-c10 有了完整的工程闭环：`cmake` 配置，`ninja` 构建，`ctest` 跑测试，`-DUSE_ASAN=ON` 跑内存检查，`compile_commands.json` 给 clangd，`.clang-format` 管格式，lldb 能断到 kernel。它和 PyTorch 的差距只是规模——每一个环节都对应着 PyTorch 源码树里的一个文件。
 
-
 ## 十四、工程实践建议与常见错误
 
 ### 1. 一个 C++ 改动的检查清单
@@ -2900,7 +2886,6 @@ UseTab: Never
 | 警告是编译器输出的噪音 | `-Werror` 下警告是构建失败，而且不同编译器版本的警告集不同 |
 | JUnit 一种测试框架 | C++ 层 gtest，Python 层 pytest，测试跟着接口所在的层走 |
 | Checkstyle/ErrorProne 挂在构建生命周期里 | clang-format/clang-tidy 是独立工具，每个项目自己写胶水（lintrunner、pre-commit） |
-
 
 ## 十五、本文小结与系列总结
 
@@ -2983,14 +2968,6 @@ at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta) {
 
 这三种能力合起来，就是从 Python 层走向 AI-Infra 执行平面所需要的那一段路。mini-c10 走到这里也完整了：一两千行 C++，`add` 和 `mul` 两个算子的 CPU 和 Meta 实现，能从 Python 调用，能被 lldb 调试，有测试，有 ASan 配置——再打开真实的 `c10/` 和 `aten/`，看到的应该是熟悉的结构。
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-按顺序五样。**能编、能被 IDE 理解**：CMake + Ninja 增量构建（ccache / sccache 让重编几秒），`CMAKE_EXPORT_COMPILE_COMMANDS` 生成 `compile_commands.json` 让 clangd 与静态分析读懂项目（第二、三、四章）。**确认正确**：gtest 单元测试（`c10/test`、`aten/src/ATen/test`），加上 Python 侧的 `test/test_*.py` 对照 CPU 参考实现；调试用 gdb / lldb 加 `pytorch-gdb.py` 打印 Tensor，崩溃后用 core dump + `addr2line` 或 `TORCH_SHOW_CPP_STACKTRACES=1` 拿到 C++ 栈（第五、六、七章）。**没有内存错误**：ASan（越界、use-after-free、泄漏）、UBSan（有符号溢出、错位、空解引用）、TSan（数据竞争）各跑一遍——它们把未定义行为变成确定的报告，`USE_ASAN=1` 构建、CI 有专门的 sanitizer job；Debug 构建下 `-O0 -g` 的行为与 Release 可能不同，两种都要跑（第八、九章）。**不会在别的编译器上炸**：clang-format / clang-tidy / lintrunner 过格式与静态规则；版本矩阵——GCC 与 Clang、MSVC、几个 CUDA 版本、C++17 / 20 标准、两种 libstdc++ ABI——CI 矩阵替你跑，本地至少 GCC 与 Clang 各编一次，`cpp_extension.py` 的 `CUDA_GCC_VERSIONS` 是 CUDA 与 GCC 兼容性的权威表（第十、十一章）。**最后**：`-O` 与 `-g` 的取舍、可见性、目标架构（`CPU_CAPABILITY`、`TORCH_CUDA_ARCH_LIST`）决定产物在别人机器上能不能跑（第十二章）。
-
-</details>
-
-
 ## 十六、自测
 
 1. 改了 `c10/core/Device.h` 里一个 inline 函数，Ninja 会重编什么？ccache 在这时能帮多少？
@@ -3032,3 +3009,9 @@ at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta) {
    运行时报 `no kernel image is available for execution on the device`——只有 sm_90 的 SASS；列表写 `"8.0;9.0"` 生成多份 SASS（fat binary），或加 `+PTX` 让驱动为未知架构 JIT 编译（首次运行慢）。
 
    </details>
+
+[^q0]: ASan 需要在程序**最早**加载的位置接管 `malloc` / `free` 并初始化影子内存；Python 解释器本身没用 ASan 编，所以只能用 `LD_PRELOAD` 把 ASan 运行时抢在所有库之前加载，之后 `import torch` 加载的带 ASan 的 `.so` 才能工作。运行时库的路径随 clang 版本和安装位置变化，`clang --print-file-name=libclang_rt.asan-x86_64.so` 让编译器自己报出它配套的那一份，避免版本不匹配。详见[第八章](#八sanitizers让未定义行为变成确定的报告)。
+[^q1]: 关掉 LeakSanitizer（ASan 内置的泄漏检测）。CPython 解释器和很多 C 扩展在退出时故意不释放全局对象、interned 字符串、模块缓存，LSan 会把它们全报成泄漏，噪音淹没真正的问题；PyTorch 的 sanitizer job 只想抓越界与 use-after-free。详见[第八章](#八sanitizers让未定义行为变成确定的报告)。
+[^q2]: 越界一个字节是**未定义行为**，不是「必然崩」：多数情况下它落在同一个 `malloc` 块的对齐填充里或邻居对象上，程序继续跑、只是数据悄悄错了。ASan 在每个分配周围放「红区」并用影子内存检查每次访问，才能把它变成确定的报告。CI 先跑一个已知会崩的程序，是为了确认 ASan 确实生效（`LD_PRELOAD` 路径对、编译标志对）——否则整套测试通过毫无意义。详见[第七章](#七段错误栈溢出use-after-free-的排查路径)、[第八章](#八sanitizers让未定义行为变成确定的报告)。
+[^q3]: 给 clang-tidy 看的：告诉它下一行不要报某条检查。`cppcoreguidelines-avoid-c-arrays` 是 C++ Core Guidelines 的一条规则（用 `std::array` / `std::vector` 代替 C 数组），PyTorch 用 lintrunner 跑 clang-tidy，某些与 C API 交互的地方必须用 C 数组，就用注释压掉。详见[第十章](#十clang-formatclang-tidy-与-pytorch-的-lint-规则)。
+[^q4]: 按顺序五样。**能编、能被 IDE 理解**：CMake + Ninja 增量构建（ccache / sccache 让重编几秒），`compile_commands.json` 让 clangd 与静态分析读懂项目（[第二](#二cmake-的目标模型)至[五章](#五compile_commandsjson-与-clangd)）。**确认正确**：gtest 单元测试加 Python 侧 `test/test_*.py` 对照 CPU 参考实现；调试用 gdb / lldb 加 `pytorch-gdb.py`，崩溃后用 core dump 或 `TORCH_SHOW_CPP_STACKTRACES=1` 拿到 C++ 栈（[第六章](#六gdb--lldb从-python-进程断到-c-kernel)、[第七章](#七段错误栈溢出use-after-free-的排查路径)、[第九章](#九gtestc-测试的组织方式)）。**没有内存错误**：ASan、UBSan、TSan 各跑一遍，Debug 与 Release 两种构建都跑（[第八章](#八sanitizers让未定义行为变成确定的报告)）。**不会在别的编译器上炸**：clang-format / clang-tidy / lintrunner 过格式与静态规则；GCC 与 Clang、MSVC、几个 CUDA 版本、两种 libstdc++ ABI 由 CI 矩阵替你跑，本地至少 GCC 与 Clang 各编一次，`cpp_extension.py` 的 `CUDA_GCC_VERSIONS` 是 CUDA 与 GCC 兼容性的权威表（[第十章](#十clang-formatclang-tidy-与-pytorch-的-lint-规则)、[第十一章](#十一工具链版本矩阵)）。**最后**：`-O` 与 `-g` 的取舍、可见性、目标架构（`TORCH_CUDA_ARCH_LIST`）决定产物在别人机器上能不能跑（[第四章](#四编译选项优化级别调试信息警告与目标架构)）。

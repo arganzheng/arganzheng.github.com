@@ -24,8 +24,7 @@ except Exception: log; raise       异常是否重抛，决定 Worker 是否退�
 
 本文不试图覆盖 Python 的全部特性，只回答一个问题：
 
-> **一段 AI-Infra 代码从被加载、创建对象、执行任务到释放资源，Python 运行时究竟做了什么？**
-
+> **一段 AI-Infra 代码从被加载、创建对象、执行任务到释放资源，Python 运行时究竟做了什么？[^q0]**
 
 ## 一、总览
 
@@ -123,7 +122,6 @@ import 语句 ──finder/loader──► 模块对象 ──执行顶层代码
 | 十三 | 自测 | 5 道题 |
 
 示例输出基于 CPython 3.12，PyTorch 源码以 2.9.0 为准。
-
 
 ## 二、执行模型：源码如何变成正在运行的代码
 
@@ -315,7 +313,6 @@ Java 程序员对上面大部分内容并不陌生：Java 的对象变量同样�
 
 最重要的一条是第一行：Python 名称没有类型，类型信息全在对象上。这也是为什么本系列第二篇要单独讨论类型系统——Python 把"提供类型信息"和"消费类型信息"拆成了两层。
 
-
 ## 三、作用域与闭包：名称在哪里被解析
 
 第二章说函数对象携带 `__globals__`，帧里存放局部变量。那么函数体里写下一个名称时，Python 在哪里找它？答案是**编译期就决定了**——这是理解闭包、`nonlocal` 和"循环里的 lambda 全都返回同一个值"的钥匙。
@@ -446,7 +443,6 @@ fns.append(lambda i=i: i)                    # [0, 1, 2]
 Java 的 lambda 和匿名内部类也能捕获外层变量，但捕获的变量必须是 **effectively final**——编译器直接禁止 §4 那种"捕获一个会变的循环变量"的写法，也就不存在延迟绑定问题。注意 final 约束的是**引用**不能重新赋值，引用指向的对象本身照样可以修改：lambda 里不能写 `count++`，但可以 `counter.incrementAndGet()` 或 `holder[0]++`。所以 Java 无法像 §3 那样用 `nonlocal` 直接重绑一个外层局部变量，而是要把可变状态装进一个对象——数组、`AtomicInteger` 或对象字段——再捕获这个对象的引用。
 
 两种设计的根本差异：Java 捕获的是**值**（拷贝进 lambda 对象），Python 捕获的是**变量**（共享 cell）。读 Python 代码时要时刻记得这点：闭包看到的是变量的当前值，不是创建时的快照。
-
 
 ## 四、模块与导入系统：代码如何被加载
 
@@ -833,7 +829,6 @@ Java 程序员最需要注意的差异不在语法，而在语义：
 
 Java 中"加载类"这件事由类加载器在**使用时**惰性完成，代码不会因为写了一行 `import` 就去执行什么；Python 的 `import` 则是一个会产生副作用的动作，且顺序由代码书写顺序决定。§6 的注册机制、§7 的循环导入，在 Java 里几乎没有对应的问题——反过来，Java 的类加载器隔离、`ClassNotFoundException` vs `NoClassDefFoundError` 那些问题，在 Python 里对应的是 `sys.path`、`sys.modules` 和 §4 的启动方式差异。
 
-
 ## 五、类与对象模型：对象如何被创建和查找
 
 模块被导入、顶层代码执行时，`class Runner:` 语句创建了一个类对象。接下来 `Runner(model)` 创建实例，`runner.model`、`runner.stream` 读取属性。这一章回答的核心问题只有一个：**`obj.attr` 到底做了什么**。方法绑定、`property`、`classmethod`、`__getattr__`、`nn.Module` 把子模块藏在 `_modules` 里却能用 `self.linear` 访问——全部是这一个算法的不同分支。
@@ -1218,7 +1213,6 @@ class InferenceRunner:
 
 **与 Java 的对照**：Java 单继承加接口，接口的 default 方法能提供一部分 Mixin 的效果，但没有 MRO——两个接口的同名 default 方法冲突时必须在实现类里显式选择，不存在"沿链自动接力"的 `super()`。Java 的 `super.method()` 永远指向直接父类，是静态的；Python 的 `super()` 是动态的，取决于实例的 MRO。这一点是 Java 程序员读 Python 多继承代码时最容易误判的地方。
 
-
 ## 六、对象协议：语法背后的特殊方法
 
 第五章解释了 `obj.attr`。但 `runner(batch)`、`for x in loader`、`batch[0]`、`if tensor:`、`with ctx:` 这些**不是**属性访问的语法，Python 也是交给对象自己决定的——通过一组以双下划线命名的特殊方法。这一章讨论其中最常见的几个；`with` 和 `yield` 分别留给第八、九章。
@@ -1336,7 +1330,6 @@ print(User.__hash__)     # None
 Java 的做法是**接口**：想被 `for-each` 遍历就实现 `Iterable<T>`，想能 `try-with-resources` 就实现 `AutoCloseable`，`equals`/`hashCode` 契约与 Python 完全一致（`HashMap` 同样依赖它）。Python 的特殊方法是**协议**：不需要声明实现了什么，只要方法存在、签名对得上，语法就生效。
 
 差异带来两点后果：Python 里"这个对象能不能 `for`"无法从类型声明得知，只能看有没有 `__iter__`（第二篇的 `Protocol` 就是为了给这类协议补上静态描述）；Java 没有对应 `__call__` 的机制，"可调用对象"要么是函数式接口的实例、要么是显式的 `.apply()`/`.call()`，`model(x)` 这种写法不存在，`nn.Module` 那种"在调用路径上插 hook"只能靠动态代理或 AOP 实现。
-
 
 ## 七、装饰器：用闭包和描述符改写调用路径
 
@@ -1492,7 +1485,6 @@ Java 的注解（`@Transactional`、`@Retryable`）只是**元数据**，本身�
 
 后果是双向的：Python 装饰器透明得多——`grep` 就能找到它做了什么，调试时能直接进 `wrapper`；但它也没有 Java 代理的"边界"——Spring 的自调用不经过代理是常见坑，Python 里则是 §6 的描述符顺序和 §7 的同步/异步区分。两边共同的原则是：被包装的调用路径必须能被开发者看到。
 
-
 ## 八、生成器与惰性执行
 
 第二章说函数调用创建一个帧，返回时销毁它。生成器打破了这个规则：`yield` 让帧**挂起**而不销毁，下次 `next()` 时从原地恢复。第一章的 `Runner.stream` 用它实现流式输出。
@@ -1589,7 +1581,6 @@ del r                     #   close file   —— 引用计数归零时，生成
 
 Java 的 `Iterator`/`Stream` 也是惰性的，但它们是**对象**，"暂停"靠的是对象字段记录状态，每一步的状态机要自己写；Python 的生成器把状态机交给帧，一个 `yield` 就完成了。Java 没有对应 `yield` 的语言机制（Loom 的 `Continuation` 是内部 API），流式响应通常靠回调或 `Flow.Publisher`。另一方面，Java 的 `Stream` 有明确的"终止操作"边界，而 Python 的生成器随时可能被半途丢弃，所以 §4 的清理问题在 Java 中要少得多。
 
-
 ## 九、上下文管理器：把资源生命周期交给协议
 
 第八章的结论是"资源的释放时机不能靠猜"。`with` 语句就是为此设计的：把"进入/退出"两个动作绑定到一个代码块上，无论块内是正常结束、`return`、还是抛异常，退出动作都执行。第一章的 `InferenceContext` 和 `torch.inference_mode()` 都是这个协议。
@@ -1668,7 +1659,6 @@ def resource():
 ### 5. 与 Java 的对照
 
 Java 7 的 try-with-resources 是同一个思路：实现 `AutoCloseable`，`close()` 在块结束时自动调用。差异有三点：Java 只有"退出"钩子，没有 `__enter__` 的返回值和 `__exit__` 的异常参数，因此**不能抑制异常**，也不能根据异常类型做不同清理；Java 的资源必须是一个对象，Python 的 `@contextmanager` 让任何一段"前置/后置"逻辑都能变成上下文管理器；Java 生态里几乎没有 §3 那种"临时切换全局状态"的惯用法，这是 Python 科学计算生态特有的模式。
-
 
 ## 十、异常处理与失败传播
 
@@ -1759,7 +1749,6 @@ except Exception as exc:
 ### 6. 与 Java 的对照
 
 Python 没有受检异常，所有异常都是 Java 意义上的 `RuntimeException`；方法签名不声明会抛什么，这是文档和类型注解（第二篇）的职责。`raise ... from exc` 对应 Java 的 `new RuntimeException(msg, cause)`，`__cause__` 对应 `getCause()`。裸 `raise` 对应 `throw;`——Java 里 `throw e;` 不会改变 `e` 的栈信息（栈在构造时固定），而 Python 的 traceback 是在传播过程中逐帧累加的，所以 §5 的差别在 Java 里不存在。`finally` 语义一致；`else` 子句是 Python 独有的。
-
 
 ## 十一、一个推理组件的完整运行时追踪
 
@@ -1858,7 +1847,6 @@ Python 没有受检异常，所有异常都是 Java 意义上的 `RuntimeExcepti
 - **给重要对象一个好的 `__repr__`**。日志里 `Request(id='r-1', batch_size=32, device='cuda:0')` 比五个字段各打一行更容易排查。
 - **不确定就做实验**。`dis`、`inspect`、`sys.modules`、`__mro__`、`__closure__`、`gi_frame` 都是现成的观察工具。本文的所有输出都是这样得到的，而不是凭记忆写的。
 
-
 ## 十二、本文小结
 
 本文沿着"一段代码的生命周期"讨论了 Python 运行时的九组机制。它们不是并列的特性清单，而是层层依赖的：
@@ -1913,14 +1901,6 @@ Python 没有受检异常，所有异常都是 Java 意义上的 `RuntimeExcepti
 
 配套代码：本文验证各个结论用的小脚本（`dis` 与 code object、import 系统、描述符优先级、生成器与上下文管理器、自定义 `MetaPathFinder`、装饰器顺序）在 [ai-learning-labs/python-for-ai-infra/01-language-mechanisms](https://github.com/arganzheng/ai-learning-labs/tree/main/python-for-ai-infra/01-language-mechanisms)，只依赖标准库。
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-按这段代码的四个阶段回答。**被加载**：`import` 是运行时动作——`PathFinder` 沿 `sys.path` 找到模块，`.py` 编译成字节码执行顶层代码，`.so` 由 `ExtensionFileLoader` `dlopen` 并调 `PyInit_*`；顶层代码执行的副作用（装饰器注册、类创建）就在这一步发生，所以“注册表为什么是空的”几乎总是导入问题（第二、四章）。**创建对象**：`Runner(model)` 走 `type.__call__` → `__new__` → `__init__`；之后每次 `obj.attr` 按“数据描述符 → 实例 `__dict__` → 类 MRO 上的非数据描述符 / 类属性 → `__getattr__`”查找，`nn.Module` 的 `__setattr__` / `__getattr__` 就插在这条链上（第五、六章）。**执行任务**：`model(x)` 查类型上的 `__call__` 经过 hooks 再到 `forward`；`for` 用迭代协议，生成器是在 `yield` 处挂起的帧；装饰器在定义时执行一次、返回一个替代对象（第六、七、八章）。**释放资源**：`with` 展开为 `__enter__` / `__exit__`，异常沿帧链向外传播，途经每个 `__exit__` 与 `finally`，这就是上下文管理器能恢复线程局部状态的原因；对象在引用计数归零时立即释放，循环引用等 GC（第九、十章）。第十一章把这四步在一个推理组件上从头追了一遍。
-
-</details>
-
-
 ## 十三、自测
 
 1. `import torch` 为什么能把几百 MB 的 C++ 库加载进来并完成算子注册？涉及导入系统的哪两个组件？
@@ -1963,7 +1943,8 @@ Python 没有受检异常，所有异常都是 Java 意义上的 `RuntimeExcepti
 
    </details>
 
-
 ## 下一篇
 
 [类型系统与数据契约设计](/python-type-system-and-data-contract-design.html)
+
+[^q0]: 分四个阶段看。**被加载**：`import` 是运行时动作——`PathFinder` 沿 `sys.path` 找到模块，`.py` 编译成字节码后执行顶层代码，`.so` 由 `ExtensionFileLoader` `dlopen` 并调用 `PyInit_*`；装饰器注册、类创建这些副作用就发生在这一步，所以「注册表为什么是空的」几乎总是导入问题（[第二章](#二执行模型源码如何变成正在运行的代码)、[第四章](#四模块与导入系统代码如何被加载)）。**创建对象**：`Runner(model)` 走 `type.__call__` → `__new__` → `__init__`，之后每次 `obj.attr` 按「数据描述符 → 实例 `__dict__` → 类 MRO 上的非数据描述符 / 类属性 → `__getattr__`」查找，`nn.Module` 的 `__setattr__` / `__getattr__` 就插在这条链上（[第五章](#五类与对象模型对象如何被创建和查找)、[第六章](#六对象协议语法背后的特殊方法)）。**执行任务**：`model(x)` 查类型上的 `__call__`，经过 hooks 再到 `forward`；`for` 用迭代协议，生成器是挂起在 `yield` 处的帧；装饰器在定义时执行一次、返回一个替代对象（[第六](#六对象协议语法背后的特殊方法)至[八章](#八生成器与惰性执行)）。**释放资源**：`with` 展开为 `__enter__` / `__exit__`，异常沿帧链向外传播、途经每个 `__exit__` 与 `finally`；对象在引用计数归零时立即释放，循环引用交给 GC（[第九章](#九上下文管理器把资源生命周期交给协议)、[第十章](#十异常处理与失败传播)）。[第十一章](#十一一个推理组件的完整运行时追踪)把这四步在一个推理组件上从头追了一遍。

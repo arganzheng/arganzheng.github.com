@@ -48,8 +48,7 @@ REGISTER_EXTENSION(TORCH_EXTENSION_NAME)
 
 本文要回答的核心问题是：
 
-> **一个 `.so` 被 `import` 后，里面的算子怎么就出现在 `torch.ops.myops` 下了？没有任何函数被显式调用。**
-
+> **一个 `.so` 被 `import` 后，里面的算子怎么就出现在 `torch.ops.myops` 下了？[^q0] 没有任何函数被显式调用。**
 
 ## 一、总览
 
@@ -75,7 +74,6 @@ Java 仍是参照系。Java 没有预处理器，条件编译靠运行期 `if` �
 | 十三 | 工程实践建议与常见错误 |  |
 | 十四 | 本文小结 |  |
 | 十五 | 自测 | 5 道题 |
-
 
 ## 二、预处理器：文本层面的另一种语言
 
@@ -218,7 +216,6 @@ Java 语言规范没有预处理器，这是刻意的设计决定。Java 用别�
 
 要建立的直觉：**Java 里"代码有没有"是运行期的事，C++ 里经过预处理，"代码有没有"在编译前就决定了**。看一个 PyTorch 源文件时，`#ifdef` 包住的两个分支只有一个会进入你正在读的那个二进制；想知道是哪一个，要看构建配置，不是看代码。
 
-
 ## 三、宏的三种用途
 
 大型 C++ 项目里宏的用法看起来五花八门，归类只有三种。分清用途，读的时候就知道该往哪个方向理解。
@@ -324,7 +321,6 @@ Java 里 `enum` 自带 `name()`、`values()`，这类重复根本不需要写。
 ### 4. 用途的边界：什么时候不该用宏
 
 PyTorch 的代码风格对宏的态度是"能不用就不用"。判断标准就是上面三条：不是为了条件编译、不是为了消除模板做不到的重复、不需要调用点信息或惰性求值，就应该是函数、`constexpr` 变量或模板。`c10/util/Exception.h` 里的 `C10_BUILD_ERROR` 是宏（要位置），`c10::str()` 是函数模板（不要位置）；`C10_LIKELY` 是宏（替换文本是编译器内建，要包一层参数），`c10::guts::if_constexpr` 是模板。读源码时看到一个全大写名字，先问"它属于三种用途的哪一种"，答案通常一眼可见。
-
 
 ## 四、`TORCH_CHECK`：把一个宏完整展开一遍
 
@@ -520,7 +516,6 @@ Exception raised from scale_shift_cpu at /path/to/ext.cpp:12 (most recent call f
 
 前三条函数都做不到（C++20 的 `std::source_location` 能解决第二条，但 PyTorch 基线是 C++17，且解决不了另外两条）。Java 的 `Objects.requireNonNull(x, "msg")` 对应的是第一种调用形式；`Preconditions.checkArgument(cond, "x = %s", x)` 之所以用格式串而不是拼接，就是为了避开"参数总是先求值"的问题，但它仍然要装箱 `x`。C++ 用宏把这几件事全部推到编译期解决。
 
-
 ## 五、静态初始化与静态注册模式
 
 ### 1. 三种存储期
@@ -712,7 +707,6 @@ Java 实现"实现类自己登记进系统"有两条路：
 3. Java 的元数据（`META-INF/services`）和代码是分开的两份东西，可能不同步；C++ 的注册就在实现文件里，天然同步。
 
 一句话：**Java 用运行时反射换来了灵活和可诊断；C++ 用编译期/加载期确定性换来了零运行时成本，代价是失败模式更隐蔽。**
-
 
 ## 六、`TORCH_LIBRARY(myops, m)` 展开成什么
 
@@ -1012,7 +1006,6 @@ class ScaleShiftCpu {
 
 但有一个决定性差别：**Java 的类只在第一次被主动使用时才初始化**（JLS 12.4.1），如果没有任何代码引用 `ScaleShiftCpu`，这个 `static {}` 永远不会跑——所以 Java 才需要 `ServiceLoader` 或扫描来"主动使用"它。C++ 的静态存储期对象在库加载时**无条件**初始化，不需要有人引用它。这正是 `TORCH_LIBRARY` 能工作的原因，也是下一节和第八章两类问题的根源：无条件初始化意味着初始化顺序不受控（第七章），"库加载时"意味着如果整个目标文件没被放进库，就什么都不会发生（第八章）。
 
-
 ## 七、静态初始化顺序问题及其规避
 
 ### 1. 问题
@@ -1113,7 +1106,6 @@ C10_EXPORT Dispatcher& Dispatcher::realSingleton() {
 3. **注册表不在退出时析构**（`new` 不 `delete`，或者用 `c10::Registry` 那种模式），或者用 RAII 句柄保证析构顺序正确（`Library::registrars_`）。
 
 `Registry.h` 的 `Register` 方法里那句注释——不用 `TORCH_CHECK_EQ` 因为它依赖 glog，而 glog 在静态初始化阶段不一定初始化了——就是第 1 条的一个具体案例。
-
 
 ## 八、符号可见性：注册为什么会"消失"
 
@@ -1324,7 +1316,6 @@ ldd my_ext.so | grep torch_cpu
 
 小写 `t` 和 `b`：内部链接的函数和数据。它们不导出，但在。
 
-
 ## 九、平台与编译器宏
 
 这一节把散落在前面各节的"条件编译"用途集中起来，看 PyTorch/vLLM 靠哪几个宏判断"我现在在哪个平台、被哪个编译器编、编的是哪段代码"。
@@ -1456,7 +1447,6 @@ bfloat16 的硬件转换指令从 Ampere（800）开始才有；给更老的架�
 ### 5. Java 对照：一份字节码 vs 多份二进制
 
 Java 的口号是 "write once, run anywhere"：一份 `.class`，任何平台的 JVM 都能跑，平台差异藏在 JVM 里。C++ 的现实是：同一份源码，在每个（编译器 × 操作系统 × CPU 架构 × GPU 架构 × 构建选项）组合下都是一个不同的二进制，差异由预处理器在编译前就切开了。所以 PyTorch 的 wheel 有 `cu126`/`cu128`/`cpu`/`rocm` 好几个变体，vLLM 的 CI 矩阵有几十个格子——不是没有能力统一，是这些差异在语言层面就没有被抽象掉。宏是这种现实的直接反映，读源码时它们提醒你："你看到的这段代码，只在某个组合下存在。"
-
 
 ## 十、代码生成：`torchgen` 与 `native_functions.yaml`
 
@@ -1818,7 +1808,6 @@ Java 对照：注解处理器（APT）是同一位置的技术——编译期读
 - **`structured: True` 的条目走另一条路**：它们的 kernel 分成 `meta`（算形状）和 `impl`（算数据）两个函数，由 `gen_structured` 生成不同形态的包装类。`add.Tensor` 就是 structured，还带 `ufunc_inner_loop`，比 `bincount` 复杂得多；读懂 unstructured 之后再看它。
 - **生成代码里的 `__FILE__`/`__LINE__`** 指向生成文件（`RegisterCPU.cpp:1234`），报错时按这个位置读生成文件就能找到对应的 yaml 条目。
 
-
 ## 十一、回到源码
 
 前面几节已经读了 `c10/util/Exception.h`、`torch/headeronly/macros/Macros.h`、`torch/headeronly/macros/Export.h`、`torch/library.h`、`c10/util/Registry.h`。这一节再读三处，把它们放到"一个扩展从加载到可用"这条线上。
@@ -1929,7 +1918,6 @@ CUDA 后端的 `csrc/torch_bindings.cpp`（8.4 节看过）是同一个骨架的
 `C10_ERASE`（`C10_ALWAYS_INLINE C10_ATTR_VISIBILITY_HIDDEN`）是个有意思的组合：标在一个函数上表示"总是内联，且不导出"——保证它不会作为独立符号出现在 `.so` 里，第一篇 ODR 讨论的"inline 函数在多个 DSO 之间的版本不一致"问题对它就不存在了。
 
 `HIDDEN_NAMESPACE_BEGIN(torch, stable, detail)` 是 8.4 节看到 `torch/csrc/stable/library.h` 用的：把整个命名空间声明为 hidden 可见性（`namespace torch __attribute__((visibility("hidden"))) { ... }`），让稳定 ABI 层的实现细节不会从任何 `.so` 泄漏出去。
-
 
 ## 十二、mini-c10：让算子文件自己注册
 
@@ -2721,7 +2709,6 @@ endif()
 
 本篇的注册表没有加锁：静态初始化阶段由加载器串行执行，`registerOps` 之类的读操作也只在 `main` 里单线程调用。真实的 `c10::Dispatcher` 用一把 `std::mutex` 保护注册路径（`torch.library` 允许运行时从任意线程注册），`c10::Registry::Register` 也是（5.2 节的 `std::lock_guard<std::mutex> lock(register_mutex_)`）。第六篇讲 `std::mutex`、原子和 `thread_local`，会把 mini-c10 的 `refcount_` 改成原子；本篇用到的"函数内静态的初始化是线程安全的"也属于那一篇的内容。
 
-
 ## 十三、工程实践建议与常见错误
 
 ### 1. 写宏
@@ -2770,7 +2757,6 @@ endif()
 - 找注册点：`grep -rn "TORCH_LIBRARY_IMPL(aten, CUDA" build/aten/src/ATen/` 找生成的；`grep -rn "TORCH_LIBRARY" torch/csrc/ aten/src/ATen/native/` 找手写的。
 - 找生成物：源码树里没有的 `ATen/ops/*.h`、`ATen/Functions.h`、`RegisterCPU.cpp`，去 `aten/src/ATen/templates/` 看模板，去 pip 安装的 `torch/include/ATen/` 看生成好的头文件。
 
-
 ## 十四、本文小结
 
 回到开头的问题。
@@ -2800,14 +2786,6 @@ endif()
 Java 工程师需要建立的三个新直觉：**"代码有没有"在编译前就决定了**（预处理和条件编译，看到的分支未必在你的二进制里）；**"登记"不需要有人调用**（静态对象构造函数由加载器执行，这是 `ServiceLoader` 做不到的无条件初始化）；**"登记"可能被链接器静默取消**（静态库丢弃未引用的目标文件，Java 里没有任何对应物）。第一个直觉让你读得懂 `#ifdef`，第二个让你读得懂 `TORCH_LIBRARY`，第三个让你在算子"消失"时知道去看链接命令而不是代码。
 
 第六篇进入并发：`with torch.no_grad():` 在 C++ 层做了什么，为什么它对其他线程不生效——`thread_local`、原子、守卫对象，以及本篇反复出现的"函数内静态是线程安全的"背后的机制。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**靠静态初始化**：`TORCH_LIBRARY(myops, m) { m.def("add(Tensor a, Tensor b) -> Tensor"); }` 展开成一个函数定义加一个**静态存储期对象** `static torch::detail::TorchLibraryInit TORCH_LIBRARY_static_init_myops(...)`，构造函数的参数是那个函数；`TORCH_LIBRARY_IMPL(myops, CPU, m)` 同理生成另一个。`.so` 被 `dlopen` 时，动态加载器在返回之前执行它的初始化段（`.init_array`），这些静态对象在此刻构造——构造函数调用 `Dispatcher::singleton().registerDef / registerImpl`，把 schema 与 kernel 登记进全局注册表。没有任何函数被显式调用，是加载器调的（第七、八章）。**为什么 `torch.ops.myops` 上就有了**：`torch.ops` 是一个按属性名惰性查询 Dispatcher 的 Python 对象（`_OpNamespace.__getattr__` → `torch._C._jit_get_operation`），访问 `torch.ops.myops.add` 时去注册表找 `myops::add`，找到就包成可调用对象。**三个配套机制**让这件事可靠：注册表容忍任意顺序（`impl` 可以先于 `def`，`OperatorEntry::schema_` 是 `optional`）、单例用函数内静态规避初始化顺序问题、静态库要 `--whole-archive` 否则没被引用的注册 `.o` 会被裁掉（第九、十、十一章）。
-
-</details>
-
 
 ## 十五、自测
 
@@ -2851,7 +2829,8 @@ Java 工程师需要建立的三个新直觉：**"代码有没有"在编译前�
 
    </details>
 
-
 ## 下一篇
 
 [并发、内存模型、TLS 与守卫](/cpp-concurrency-memory-model-tls-and-guards.html)
+
+[^q0]: 靠**静态初始化**。`TORCH_LIBRARY(myops, m) { ... }` 展开成一个函数定义加一个静态存储期对象 `static torch::detail::TorchLibraryInit TORCH_LIBRARY_static_init_myops(...)`，构造函数的参数就是那个函数；`TORCH_LIBRARY_IMPL` 同理。`.so` 被 `dlopen` 时，动态加载器在返回之前执行它的初始化段（`.init_array`），这些静态对象在此刻构造，构造函数调用 `Dispatcher::singleton().registerDef / registerImpl` 把 schema 与 kernel 登记进全局注册表——没有任何函数被显式调用，是加载器调的（[第五章](#五静态初始化与静态注册模式)、[第六章](#六torch_librarymyops-m-展开成什么)）。`torch.ops` 是一个按属性名惰性查询 Dispatcher 的 Python 对象（`_OpNamespace.__getattr__` → `torch._C._jit_get_operation`），访问 `torch.ops.myops.add` 时去注册表找 `myops::add`，找到就包成可调用对象（[第十一章](#十一回到源码)）。让这件事可靠的三个配套机制：注册表容忍任意顺序（`impl` 可以先于 `def`）、单例用函数内静态规避初始化顺序问题、静态库要 `--whole-archive` 否则没被引用的注册 `.o` 会被裁掉（[第七章](#七静态初始化顺序问题及其规避)、[第八章](#八符号可见性注册为什么会消失)）。

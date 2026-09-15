@@ -25,8 +25,7 @@ updated: 2026-09-14
 
 因此，理解 Python 并发，不能停留在"如何创建线程"或"如何使用 `async`"的层面。更重要的是回答三个工程问题：
 
-> **当前瓶颈是 CPU、GPU、网络还是外部服务？任务之间应该如何协作？当下游处理速度跟不上上游输入速度时，系统如何保持稳定？**
-
+> **当前瓶颈是 CPU、GPU、网络还是外部服务？[^q0] 任务之间应该如何协作？[^q1] 当下游处理速度跟不上上游输入速度时，系统如何保持稳定？[^q2]**
 
 ## 一、总览
 
@@ -488,7 +487,6 @@ try (var pool = Executors.newVirtualThreadPerTaskExecutor()) {
 
 换句话说，**Python 的 `threading` 永远对应 Java 的平台线程**；Java 21 之后 M:N 调度的那一层（虚拟线程），Python 里对应的是 asyncio 的协程而不是任何线程 API。1.4 节讨论 GIL 释放与虚拟线程 unmount 的类比时已经指出了这一点。取消语义上，Java 平台线程好于 Python 线程（有 `interrupt()`），但仍是协作式的，纯计算循环里同样打不断。
 
-
 ## 三、进程：绕开 GIL 的代价
 
 如果任务主要执行 Python 层面的 CPU 计算——文本切分、图像解码、特征预处理、数据清洗、大量 JSON 或协议解析——线程帮不上忙（1.4 节），要用进程。每个进程有独立的解释器和独立的 GIL，是 Python 里唯一能让纯 Python 代码用满多核的手段。
@@ -674,7 +672,6 @@ Java 只有在需要**故障隔离**或**独立 JVM 参数**时才拆进程（`P
 | 取消 | `interrupt()`，协作式 | 不能取消，只能 `kill` |
 
 如果确实需要"共享堆"的效果，Python 侧最接近的是 `multiprocessing.shared_memory`，但生命周期要自己管，不像 JVM 有 GC 兜底。Java 里唯一相似的体验是**跨 JVM 的分布式任务**（Spark executor、Flink TaskManager）：序列化成本、每个节点一份状态、节点崩溃重放——Python 单机多进程的所有工程问题，Java 工程师在分布式系统里都见过，只是尺度不同。
-
 
 ## 四、asyncio：单线程内的 M:N 调度
 
@@ -2444,14 +2441,6 @@ Python 并发编程的难点，并不在于记住 `async def`、`await` 或线�
 
 配套代码：线程池与进程池的 cancel / timeout / shutdown / `contextvars` / `BrokenProcessPool` 行为验证脚本在 [ai-learning-labs/python-for-ai-infra/03-concurrency](https://github.com/arganzheng/ai-learning-labs/tree/main/python-for-ai-infra/03-concurrency)。
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**瓶颈在哪决定用什么**：阻塞 I/O 与外部服务用线程或 asyncio（等待时释放 GIL / 让出事件循环）；纯 Python CPU 计算用进程（绕开 GIL，代价是序列化）；GPU 计算本身由 C 扩展在释放 GIL 后驱动，线程即可并行推动（第二、三、四章）。**任务怎么协作**：大量 I/O 任务用 asyncio 单线程 M:N 调度；任务之间用队列解耦；用 `TaskGroup` 让任务有归属、异常以 `ExceptionGroup` 传播；超时与取消（`asyncio.timeout()`、`CancelledError` 是 `BaseException`）管理生命周期；AI-Infra 里三种模型常一起用——事件循环接请求、线程池跑阻塞调用、进程池做 CPU 预处理（第五章）。**下游跟不上时怎么稳定**：背压——有界队列让生产者在 `put` 处等待，异步生成器天然有背压；超时让等太久的请求退出而不是堆积；批处理把并发请求凑成 batch 送 GPU，让吞吐随并发上升而不是延迟无限增长（第五、六章）。第七章的决策树把这些选择排成一张图。
-
-</details>
-
-
 ## 九、自测
 
 1. GIL 之下多线程对哪类任务有效、哪类无效？为什么调 `torch` 的算子时多线程仍能并行？
@@ -2494,7 +2483,10 @@ Python 并发编程的难点，并不在于记住 `async def`、`await` 或线�
 
    </details>
 
-
 ## 下一篇
 
 [Python 的动态机制及工程实践](/python-reflection-metaprogramming-and-plugin-architecture.html)
+
+[^q0]: 瓶颈在哪决定用什么：阻塞 I/O 与外部服务用线程或 asyncio（等待时释放 GIL / 让出事件循环）；纯 Python 的 CPU 计算用进程（绕开 GIL，代价是序列化）；GPU 计算由 C 扩展在释放 GIL 后驱动，线程就能并行推动。判断办法是先测：CPU 满而 GPU 闲是 Python 侧瓶颈，GPU 满是算力瓶颈，两者都闲多半在等网络或外部服务。详见[第二](#二线程java-工程师最熟悉的模型)至[四章](#四asyncio单线程内的-mn-调度)与[第七章](#七一个实用的并发决策树)的决策树。
+[^q1]: 大量 I/O 任务用 asyncio 的单线程 M:N 调度；任务之间用队列解耦；用 `TaskGroup` 让任务有归属、异常以 `ExceptionGroup` 传播；超时与取消（`asyncio.timeout()`，`CancelledError` 是 `BaseException`）管理生命周期。AI-Infra 里三种模型常一起用：事件循环接请求、线程池跑阻塞调用、进程池做 CPU 预处理。详见[第四章](#四asyncio单线程内的-mn-调度)、[第五章](#五ai-infra-组合模式三种模型一起用)。
+[^q2]: 靠背压：有界队列让生产者在 `put` 处等待，异步生成器天然有背压；超时让等太久的请求退出而不是堆积；批处理把并发请求凑成 batch 送 GPU，让吞吐随并发上升、而不是让延迟无限增长。无界队列 + 无超时是最常见的「内存慢慢涨、延迟慢慢长」的来源。详见[第五章](#五ai-infra-组合模式三种模型一起用)、[第六章](#六常见错误与改进方式)。

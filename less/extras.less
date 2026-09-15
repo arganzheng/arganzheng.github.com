@@ -157,3 +157,15 @@
 	&[open] > summary::before { transform: rotate(90deg); }
 	> :last-child { margin-bottom: 0; }
 }
+
+// ---- footnote list at the end of a post: divider + label; posts whose
+// footnotes answer the opening questions ([^q1] → id fn:q1) get a Q&A label
+.post-container .footnotes {
+	margin-top: 40px; padding-top: 14px; border-top: 1px solid #e1e4e8;
+	font-size: 15px; color: #444;
+	&::before { content: "脚注"; display: block; font-weight: 700; color: #333; margin-bottom: 8px; }
+	&:has(li[id^="fn:q"])::before { content: "文首问题的答案"; }
+	ol { padding-left: 1.6em; }
+	li { margin-bottom: 8px; }
+	li:target { background: rgba(0, 133, 161, 0.08); border-radius: 4px; }
+}

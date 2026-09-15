@@ -35,8 +35,7 @@ Java 开发者常有的一个错觉是"Python 简单，随便装装就能跑"。
 
 这些问题都不是语言问题，而是**交付问题**。本文的核心问题就是：
 
-> **怎么把一个 AI-Infra Python 项目变成可以复现、可以交付的东西——依赖怎么声明和锁定、环境怎么隔离、质量怎么把关、制品怎么打包、镜像怎么分层？**
-
+> **怎么把一个 AI-Infra Python 项目变成可以复现、可以交付的东西——依赖怎么声明和锁定、环境怎么隔离、质量怎么把关、制品怎么打包、镜像怎么分层？[^q0]**
 
 ## 一、总览
 
@@ -71,7 +70,6 @@ Java 开发者常有的一个错觉是"Python 简单，随便装装就能跑"。
 | 十 | 附：Java 与 Python 工程化工具链对照 |  |
 | 十一 | 本文小结与系列总结 |  |
 | 十二 | 自测 | 5 道题 |
-
 
 ## 二、pyproject.toml：项目元数据的单一入口
 
@@ -238,7 +236,6 @@ markers = ["slow: marks tests as slow"]
 
 最后一行值得多说一句：PyPI 没有 groupId 这样的命名空间，包名是全局先到先得的扁平空间。这直接导致了**名称抢注**和**typosquatting**（把 `reqeusts` 注册成恶意包）这类供应链风险。所以企业项目应该：固定依赖版本、使用锁文件与 hash 校验、定期扫描漏洞——这些在第四章展开。
 
-
 ## 三、虚拟环境与解释器隔离
 
 ### 1. 为什么 Python 比 Java 更依赖环境隔离
@@ -371,7 +368,6 @@ pyenv local 3.11.10
 一个常见的坑是 **conda 和 pip 混用**：在 conda 环境里 `pip install` 会绕过 conda 的依赖解析，conda 不知道 pip 装了什么，后续 `conda install` 可能覆盖掉 pip 装的文件，导致环境损坏。如果必须混用，原则是：**先 conda 装完所有能装的，最后再用 pip 装剩下的，之后不再动 conda**。
 
 **本文后续统一采用 venv + uv 的方案**，因为容器化交付是 AI-Infra 服务的主流形态，系统级依赖交给基础镜像更清晰。
-
 
 ## 四、依赖管理与可复现构建
 
@@ -547,7 +543,6 @@ default = true
 ```
 
 对应 Java：相当于 Maven 的 `<mirrors>` + `<repositories>` 加上 `settings.xml` 里的仓库优先级——但 Maven 有 groupId 命名空间，天然不容易被同名包混淆，Python 这里的风险更高。
-
 
 ## 五、AI-Infra 的依赖难题
 
@@ -760,7 +755,6 @@ FROM nvcr.io/nvidia/pytorch:latest
 
 对应 Java：类似把一个巨大的、平台相关的 native 依赖从 `pom.xml` 移到基础镜像里预装，`pom.xml` 里标 `<scope>provided</scope>`。区别是 Java 极少遇到几 GB 级别的 native 依赖，所以这个模式在 Java 生态里并不常见。
 
-
 ## 六、代码质量工具链
 
 Java 的静态检查有编译器兜底：类型错误、未使用的导入、不可达代码，`javac` 直接拒绝编译。Checkstyle 和 SpotBugs 是在此之上加规范和缺陷模式检查。
@@ -966,7 +960,6 @@ pytest                 # 行为
 
 这也是为什么本系列反复强调工程规范：**Python 给了你更大的自由度，代价是纪律必须自己建立**。团队应该在项目层面统一：Python 版本、格式化工具与配置、import 规则、类型注解覆盖要求、异常处理规范、日志规范、目录结构、测试覆盖率门槛。这些一旦写进 `pyproject.toml` 和 CI，就从"口头约定"变成了"机器强制"。
 
-
 ## 七、打包与分发
 
 如果你的项目是一个服务，通常直接做成容器镜像交付（第八章），不需要发布到 PyPI。但只要你要**给别人用**——发布内部库、贡献开源项目、或者让另一个团队 `pip install` 你的包——就需要理解打包。
@@ -1158,7 +1151,6 @@ twine upload dist/*                      # 正式发布
 - **用 Trusted Publishing 而不是 API token**。GitHub Actions 可以通过 OIDC 直接向 PyPI 认证，不需要在仓库里存长期 token，避免密钥泄露风险。
 
 对应 Java：`twine upload` 相当于 `mvn deploy`，TestPyPI 相当于 snapshot 仓库。但有个重要区别——Maven 的 SNAPSHOT 版本可以反复覆盖，PyPI 的正式版本**永久不可变**，这个约束比 Maven 严格得多。
-
 
 ## 八、容器化：Python 服务的交付形态
 
@@ -1382,7 +1374,6 @@ async def create_completion(request: CompletionRequest):
 **其四，与类型系统的协同。** FastAPI 直接消费 Pydantic 模型做校验和 OpenAPI 生成，这正是[篇二](/python-type-system-and-data-contract-design.html)第六章讲的数据契约在服务边界上的落地。
 
 需要说明的是，这个结论**只针对模型服务层**。如果你要做的是带管理后台、用户体系、复杂数据模型的平台类系统（比如训练任务管理平台），Django 依然是合理选择——它的 admin 和 ORM 能省掉大量工作。选型取决于负载特征，不存在普遍更优的框架。
-
 
 ## 九、串起来：一个可复现的项目骨架
 
@@ -1621,7 +1612,6 @@ jobs:
 | 类型错误上线才发现 | `mypy src/` 进 CI 门禁 |
 | 代码风格各写各的 | Ruff + pre-commit + `make check` |
 
-
 ## 十、附：Java 与 Python 工程化工具链对照
 
 | 关注点 | Java | Python | 关键差异 |
@@ -1652,7 +1642,6 @@ jobs:
 1. **Java 的工程化由框架和编译器强制，Python 的工程化靠团队纪律。** Maven 强制你声明依赖，编译器强制你类型正确，Spring 强制你按它的方式组织代码。Python 每一项都是可选的——这带来灵活性，也意味着一个没立规矩的 Python 项目会迅速腐化。
 
 2. **Python 的交付物不自包含。** jar 里有字节码，随便哪台装了 JVM 的机器都能跑。wheel 里没有解释器、没有系统库、可能还绑定了特定平台和 CUDA 版本。所以 Python 服务的交付必然落到容器上。
-
 
 ## 十一、本文小结与系列总结
 
@@ -1691,14 +1680,6 @@ jobs:
 前六篇解决"写对"，第七篇解决"交付"。AI-Infra 工程里这两件事的权重是相当的——一个跑得再好但只能在作者机器上复现的服务，工程价值接近于零。
 
 最后提醒一点：**这一篇是全系列最容易过期的。** uv 仍在快速演进，PyTorch 的 CUDA 索引和版本矩阵每个大版本都在变，PEP 735 这类标准也还在落地过程中。文中的版本号和命令请以官方文档为准；但**分层的思路、抽象依赖与锁定依赖的分工、把平台相关的重依赖交给基础镜像**这些判断，应该会比具体工具活得更久。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**依赖**：`pyproject.toml` 里声明抽象依赖（兼容范围），锁文件（`uv.lock`）固定这次装的每个版本与 hash，CI 用 `uv sync --frozen` 强制锁文件与声明一致——两者不能互相替代（第二、三章）。**环境**：每个项目一个虚拟环境，Python 没有 classpath 隔离，全局 site-packages 就是事故现场；torch 与 CUDA 这类平台相关的大件交给固定 tag 的基础镜像，同时解决体积、构建缓存、跨平台锁文件三个问题，tag 绝不能是 `latest`（第四、七章）。**质量**：Python 没有编译器把关，`ruff check` + `ruff format` + `mypy src/` 进 CI 门禁就是编译器的替代品，`pytest` 与覆盖率是第二道门（第五、六章）。**制品**：src 布局 + `pyproject.toml` 构建 wheel，纯 Python 一个 wheel、带 C 扩展按平台各一个；版本号从 git tag 派生（第六章）。**镜像**：多阶段构建——基础镜像层（CUDA + torch，几乎不变）、依赖层（锁文件变才重建）、代码层（每次变）——按变化频率分层让构建缓存命中、镜像可复现（第七章）。
-
-</details>
-
 
 ## 十二、自测
 
@@ -1741,3 +1722,5 @@ jobs:
    CI 里的静态检查与测试：`ruff check`（lint）、`ruff format --check`、`mypy src/`（类型）、`pytest`（含覆盖率阈值）、`uv lock --check`（锁文件一致）；任何一项失败就不产出制品。
 
    </details>
+
+[^q0]: **依赖**：`pyproject.toml` 里声明抽象依赖（兼容范围），锁文件（`uv.lock`）固定这次装的每个版本与 hash，CI 用 `uv sync --frozen` 强制锁文件与声明一致——两者不能互相替代（[第二章](#二pyprojecttoml项目元数据的单一入口)、[第四章](#四依赖管理与可复现构建)）。**环境**：每个项目一个虚拟环境，Python 没有 classpath 隔离，全局 site-packages 就是事故现场；torch 与 CUDA 这类平台相关的大件交给固定 tag 的基础镜像，tag 绝不能是 `latest`（[第三章](#三虚拟环境与解释器隔离)、[第五章](#五ai-infra-的依赖难题)）。**质量**：Python 没有编译器把关，`ruff check` + `ruff format` + `mypy src/` 进 CI 门禁就是编译器的替代品，`pytest` 与覆盖率是第二道门（[第六章](#六代码质量工具链)）。**制品**：src 布局 + `pyproject.toml` 构建 wheel，纯 Python 一个 wheel、带 C 扩展按平台各一个，版本号从 git tag 派生（[第七章](#七打包与分发)）。**镜像**：多阶段构建——基础镜像层（CUDA + torch，几乎不变）、依赖层（锁文件变才重建）、代码层（每次变）——按变化频率分层让构建缓存命中、镜像可复现（[第八章](#八容器化python-服务的交付形态)）。[第九章](#九串起来一个可复现的项目骨架)把这些串成一个项目骨架。

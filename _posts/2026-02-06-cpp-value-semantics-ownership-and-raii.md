@@ -45,10 +45,9 @@ at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta) {
 
 这是全系列最重要的一篇。Java 里所有对象都在堆上、变量都是引用、生命周期由 GC 决定；C++ 这三点都不同，而且是理解后面所有内容——模板、多态、注册、并发、与 Python 交互——的前提。本文的核心问题是总纲里的这句话：
 
-> **`at::Tensor y = x;` 之后 `y` 和 `x` 是什么关系？什么时候数据真正被释放？**
+> **`at::Tensor y = x;` 之后 `y` 和 `x` 是什么关系？[^q0] 什么时候数据真正被释放？[^q1]**
 
 读完本文，上面 `TensorBase` 的每一行都应该能读懂；第十章会逐行回头对照。
-
 
 ## 一、总览
 
@@ -85,7 +84,6 @@ at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta) {
 | 十二 | 工程实践建议与常见错误 |  |
 | 十三 | 本文小结 |  |
 | 十四 | 自测 | 5 道题 |
-
 
 ## 二、读本文需要的 C++ 语法最小集
 
@@ -222,7 +220,6 @@ class intrusive_ptr { T* target_; /* ... */ };  // 类体里可以用 T 声明�
 - **`std::string` / `std::vector`**：与 Java 的 `String`/`ArrayList` 对应的标准库类型，但它们是**值类型**——这正是第三章要讲的第一件事。
 
 有了这些，就可以进入正文了。
-
 
 ## 三、对象在哪里：栈、堆与值语义
 
@@ -395,7 +392,6 @@ dtor      a
 | 类的字段 | 引用，对象另在堆上 | 对象本身嵌在外层对象里 |
 
 理解这张表之后再看 `at::Tensor y = x;`，会产生一个正确的担心：这是不是拷贝了整个 tensor？答案是"拷贝了整个 `Tensor` 对象，但 `Tensor` 对象只有一个指针那么大"。`Tensor` 是一个刻意设计成**值语义外壳、引用语义内核**的类型：拷贝它很便宜，拷贝之后两个 `Tensor` 共享同一个 `TensorImpl`。这种设计叫句柄（handle）——`Tensor` 对象本身只是一个"把手"，真正的东西在它指向的地方。第十章会完整拆开。
-
 
 ## 四、引用与指针：`T&`、`const T&`、`T*`
 
@@ -623,7 +619,6 @@ warning: reference to stack memory associated with local variable 'local' return
 
 这一章的要点：引用是零开销的别名，`const T&` 是只读输入的默认传参方式；`const` 的五个位置各有含义，其中 `const` 成员函数决定了一个类型能不能在 `const T&` 上使用；`Tensor` 的 `const` 是浅的；裸指针表达非拥有和可空；引用不延长寿命，悬垂是 C++ 特有的风险。
 
-
 ## 五、六大特殊成员函数与 Rule of Zero/Five
 
 ### 1. 编译器会替你写的六个函数
@@ -795,7 +790,6 @@ struct C10_API TensorImpl : public c10::intrusive_ptr_target {
 **Rule of Five**：如果你不得不手写其中任何一个（通常是析构函数，因为要释放资源），那么六个都要考虑（默认构造除外，所以是 Five）。上面的 `Buffer` 就是。原因有两层：第一，一旦你手写了析构，说明这个类直接管理资源，编译器生成的逐成员拷贝几乎肯定是错的（double free）；第二，一旦你手写了析构或拷贝，编译器就**不会再生成移动构造和移动赋值**，本来能移动的地方都会退化成拷贝——这一点第六章会看到性能后果。
 
 `c10::intrusive_ptr` 就是 Rule of Five 的教科书例子：它直接管理一个裸指针和它指向对象里的引用计数，六个函数全部手写。它的完整实现放在第九章，那时第六章的移动语义已经具备。这里先记住结论：**手写析构 ⇒ 六个都要想一遍**。
-
 
 ## 六、右值引用、`std::move` 与按值返回
 
@@ -1026,7 +1020,6 @@ Bad copy
 
 **不要 move 之后再用**。6.4 节 `TensorImpl` 构造函数的例子已经说明了。特别隐蔽的是在循环里 move 一个循环外的变量——第二次迭代时它已经空了。
 
-
 ## 七、RAII：把资源绑定到对象的生命周期
 
 ### 1. 确定性析构是 C++ 最重要的语言特性
@@ -1137,7 +1130,6 @@ delete target                          (intrusive_ptr 内部，第九章)
 ### 4. 异常安全是 RAII 的副产品
 
 Java 用 `finally` 保证清理；C++ 用 RAII。差别是：`finally` 要在每个需要清理的地方写一遍，RAII 写在类型里一次，所有使用点自动获得。PyTorch 的算子实现几乎不写 `try`/`catch`（`TORCH_CHECK` 失败直接抛），却不会泄漏——因为所有中间 `Tensor`、所有 guard 都是 RAII 对象，栈展开时自动清理。7.1 节的 `Guard` 例子就是这个道理的最小版本。
-
 
 ## 八、标准智能指针：`unique_ptr`、`shared_ptr`、`weak_ptr`
 
@@ -1324,7 +1316,6 @@ Java 有 `WeakReference`，语义相近：不阻止 GC 回收，`get()` 可能�
 ```
 
 PyTorch 的选择：`TensorImpl` 用 `unique_ptr` 持有 `AutogradMeta`（独占）；`Tensor` 用 `intrusive_ptr` 持有 `TensorImpl`（共享，但要比 `shared_ptr` 便宜）；`StorageImpl` 用裸指针持有 `Allocator`（不拥有）。
-
 
 ## 九、`c10::intrusive_ptr`：PyTorch 为什么自己造一个
 
@@ -1803,7 +1794,6 @@ struct TORCH_API AutogradMeta : public c10::AutogradMetaInterface {
 
 `[weak_self](...) { ... }` 是 lambda（匿名函数），方括号里是它捕获的变量，第三篇详细讲；这里只需看到捕获的是 `weak_self` 而不是 `self`。
 
-
 ## 十、回到源码：从 `Tensor` 到显存的完整持有链
 
 前面九章的机制在这一章全部汇合。先兑现开头的承诺，把那段 `TensorBase` 逐行重读一遍；再沿着 `Tensor` → 显存这条链，把每一段对应到源码；最后回答核心问题。
@@ -2201,7 +2191,6 @@ Java 对照：`Tensor y = x;` 在效果上最接近 Java 的引用赋值（两�
 
 最后提一下两个为了**省掉引用计数**而存在的工具类型。`c10::MaybeOwned<Tensor>` 表示"可能拥有、可能只是借用"，4.5 节的 `expect_contiguous()` 用它：已经连续时借用 `*this`（不加计数），不连续时拥有新建的 tensor。它通过 `TensorBase` 一个 protected 的构造函数创建一个 +0 引用计数的 `Tensor`，并在析构时用 `unsafeReleaseTensorImpl()` "泄漏"它，从而抵消——这正是 9.7 节 `release()`/`reclaim()` 那对操作在库内部的用法。`c10::ExclusivelyOwned<Tensor>` 表示"我确定我是唯一的持有者"，析构时可以跳过原子减直接 `delete`。读到它们时，只需要知道它们是 `Tensor` 的"零成本借用视图"和"确定独占视图"，不用深究实现。
 
-
 ## 十一、mini-c10：让第一个 Tensor 跑起来
 
 按系列约定，本篇实现 `minic10/util/intrusive_ptr.h`（9.2 节已经写好）、`minic10/core/Allocator.h`、`minic10/core/StorageImpl.h`、`minic10/core/TensorImpl.h`、`minic10/core/Tensor.h`。所有文件用 `clang++ -std=c++17 -Wall -Wextra` 编译验证过。命名空间 `minic10`。
@@ -2539,7 +2528,6 @@ y.defined()=0, w use_count=1
 
 第三篇会在这个骨架上加 `ScalarType` 到 C++ 类型的映射和 `MINI_DISPATCH_FLOATING_TYPES`，实现第一个 `add` kernel；第四篇加 `DispatchKey` 分发；第六篇把 `refcount_` 改成原子的。
 
-
 ## 十二、工程实践建议与常见错误
 
 结合前面的机制，读写 PyTorch/vLLM 风格 C++ 时最常遇到的所有权问题和建议：
@@ -2587,7 +2575,6 @@ y.defined()=0, w use_count=1
 21. 拷贝一个"看起来很大"的对象（`Tensor`）可能很便宜，拷贝一个"看起来很小"的对象（`std::vector<int64_t>`）可能很贵——要看它是句柄还是值。
 22. 读一个类时先问"它是值还是实体"：特殊成员函数 `= default`（或没写）的是值，`= delete` 的是实体。
 
-
 ## 十三、本文小结
 
 本文围绕 C++ 的对象模型，把 PyTorch `Tensor` 的持有链从上到下拆开了一遍。要点：
@@ -2624,14 +2611,6 @@ y.defined()=0, w use_count=1
 下一篇进入模板：`AT_DISPATCH_FLOATING_TYPES` 里的 `scalar_t` 从哪里来，`data_ptr<scalar_t>()` 的 `<>` 为什么和 Java 泛型完全不是一回事，以及 `IntArrayRef`、`std::optional`、lambda 这些"轻量视图"类型如何与本篇的所有权规则配合。
 
 配套代码：本文的 14 个小例子（含故意编不过的 const 例子与故意 double free 的 `Buffer`）在 [ai-learning-labs/cpp-for-ai-infra/02-value-semantics-and-raii](https://github.com/arganzheng/ai-learning-labs/tree/main/cpp-for-ai-infra/02-value-semantics-and-raii)，mini-c10 的头文件与 `main.cpp` 在 [`cpp-for-ai-infra/minic10`](https://github.com/arganzheng/ai-learning-labs/tree/main/cpp-for-ai-infra/minic10)，`make run` 一键编译运行。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**`y` 与 `x` 的关系**：`at::Tensor` 是一个只含一个 `c10::intrusive_ptr<TensorImpl>` 的句柄类，`y = x` 是值拷贝——拷贝的是这个智能指针，`TensorImpl` 的引用计数从 1 变 2，两者指向同一个 `TensorImpl`、同一个 `Storage`、同一块数据；改 `y` 的数据 `x` 能看到，但 `y = other` 重新赋值只是让 `y` 指向别处、`x` 不受影响。这与 Java 的引用赋值“看起来一样”，机制却是显式的引用计数（第五、九章）。**什么时候数据真正被释放**：`TensorImpl` 的强计数归零时它析构，释放持有的 `Storage` 的 `intrusive_ptr`；`StorageImpl` 的计数归零时才调 `Allocator` 释放数据——所以一个 view（`x[0]`、`x.view(...)`）会有自己的 `TensorImpl` 但共享 `Storage`，只要任何一个 view 活着数据就活着；`weak_intrusive_ptr` 不阻止释放（第九、十章）。释放是确定性的——最后一个所有者离开作用域的那一刻——这就是 RAII：资源的生命期绑定到对象的生命期，异常路径也照样释放（第六、七章）。
-
-</details>
-
 
 ## 十四、自测
 
@@ -2675,7 +2654,9 @@ y.defined()=0, w use_count=1
 
    </details>
 
-
 ## 下一篇
 
 [模板与泛型编程](/cpp-templates-and-generic-programming.html)
+
+[^q0]: `at::Tensor` 是一个只含一个 `c10::intrusive_ptr<TensorImpl>` 的句柄类，`y = x` 是值拷贝——拷贝的是这个智能指针，`TensorImpl` 的引用计数从 1 变 2，两者指向同一个 `TensorImpl`、同一个 `Storage`、同一块数据：改 `y` 的数据 `x` 能看到，但 `y = other` 重新赋值只是让 `y` 指向别处、`x` 不受影响。这与 Java 的引用赋值「看起来一样」，机制却是显式的引用计数。详见[第五章](#五六大特殊成员函数与-rule-of-zerofive)、[第九章](#九c10intrusive_ptrpytorch-为什么自己造一个)。
+[^q1]: `TensorImpl` 的强计数归零时它析构，释放持有的 `Storage` 的 `intrusive_ptr`；`StorageImpl` 的计数归零时才调 `Allocator` 释放数据。所以一个 view（`x[0]`、`x.view(...)`）有自己的 `TensorImpl` 但共享 `Storage`，只要任何一个 view 活着数据就活着；`weak_intrusive_ptr` 不阻止释放。释放是确定性的——最后一个所有者离开作用域的那一刻，异常路径也照样释放，这就是 RAII。详见[第七章](#七raii把资源绑定到对象的生命周期)、[第九章](#九c10intrusive_ptrpytorch-为什么自己造一个)、[第十章](#十回到源码从-tensor-到显存的完整持有链)。

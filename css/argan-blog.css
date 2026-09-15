@@ -4439,3 +4439,9 @@ li[id^="fn:"] {
 .post-container details[open] > summary { margin-bottom: 8px; }
 .post-container details[open] > summary::before { transform: rotate(90deg); }
 .post-container details > :last-child { margin-bottom: 0; }
+.post-container .footnotes { margin-top: 40px; padding-top: 14px; border-top: 1px solid #e1e4e8; font-size: 15px; color: #444; }
+.post-container .footnotes::before { content: "脚注"; display: block; font-weight: 700; color: #333; margin-bottom: 8px; }
+.post-container .footnotes:has(li[id^="fn:q"])::before { content: "文首问题的答案"; }
+.post-container .footnotes ol { padding-left: 1.6em; }
+.post-container .footnotes li { margin-bottom: 8px; }
+.post-container .footnotes li:target { background: rgba(0, 133, 161, 0.08); border-radius: 4px; }

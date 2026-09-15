@@ -36,8 +36,7 @@ AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "log_sigmoid_cpu", [&] {
 
 本文的核心问题是总纲里的这句：
 
-> **`AT_DISPATCH_FLOATING_TYPES(x.scalar_type(), "name", [&] { ... scalar_t ... })` 里的 `scalar_t` 从哪里来？这个 lambda 被编译了几次？**
-
+> **`AT_DISPATCH_FLOATING_TYPES(x.scalar_type(), "name", [&] { ... scalar_t ... })` 里的 `scalar_t` 从哪里来？[^q0] 这个 lambda 被编译了几次？[^q1]**
 
 ## 一、总览
 
@@ -62,7 +61,6 @@ AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "log_sigmoid_cpu", [&] {
 | 十二 | 工程实践建议与常见错误 |  |
 | 十三 | 本文小结 |  |
 | 十四 | 自测 | 5 道题 |
-
 
 ## 二、模板是生成代码的配方
 
@@ -251,7 +249,6 @@ void g(T t) {
 `this->operator=` 是成员模板，显式给它模板参数时要写 `this->template operator= <...>`。`c10/util/flat_hash_map.h` 里的 `typename std::allocator_traits<A>::template rebind_alloc<...>` 是两个关键字连用的例子。日常写代码很少需要 `template` 消歧义，但读到时不要以为是什么高级用法，它只是给解析器的提示。
 
 Java 泛型没有这两个关键字，原因也在"编译器读到 `T` 时知道多少"：Java 的 `T` 有 bound（默认 `Object`），`T` 上能用的成员在声明时就确定了，`t.get()` 是不是方法、返回什么，编译器读泛型方法体时就知道，不需要作者提示。C++17 的 `T` 在模板定义时没有任何约束——它可以是任何类型——所以解析器只能靠默认规则加作者标注。C++20 concepts（6.5 节）部分补上了这一层，但 `typename` / `template` 的规则没有变。
-
 
 ## 三、推导：编译器怎么知道 `T` 是什么
 
@@ -575,7 +572,6 @@ __global__ void act_and_mul_kernel(
 
 `ACT_FN` 是函数指针（`silu_kernel<scalar_t>`、`gelu_kernel<scalar_t>` 等），`act_first` 是 `bool`；`silu_and_mul` 用 `LAUNCH_ACTIVATION_GATE_KERNEL(vllm::silu_kernel, true)` 实例化，`mul_and_silu` 传 `false`。`compute` 里的三目 `act_first ? ... : ...` 条件是编译期常量，编译器会把没选中的一侧整个删掉——也可以写成 `if constexpr (act_first)`，第六章讨论。
 
-
 ## 五、特化与变参模板
 
 ### 1. 全特化：为某组参数单独给一份实现
@@ -793,7 +789,6 @@ inline C10_API const char* torchCheckMsgImpl(
 变参模板加两个非模板重载：零个用户参数用默认消息，一个 `const char*` 直接返回，其他情况才走 `c10::str`。这又是 5.3 节"用重载代替偏特化"的应用。
 
 最后区分一下两种"三个点"：`AT_DISPATCH_FLOATING_TYPES(TYPE, NAME, ...)` 里的 `...` 和 `__VA_ARGS__` 是**预处理器**的变参宏，做的是文本替换，与类型无关（第五篇展开）；`template <class... Args>` 是**模板**的参数包，编译器知道每个参数的类型。`AT_DISPATCH` 用的是前者，所以 lambda 里的逗号会把它切碎——这是 7.4 节 `AT_WRAP` 存在的原因。
-
 
 ## 六、把分支移到编译期
 
@@ -1386,7 +1381,6 @@ Tensor empty_cpu(IntArrayRef size, std::optional<ScalarType> dtype_opt, ...)
 
 `IntArrayRef` 借用调用方的 shape，`std::optional` 按值传可选标量，函数内部算出的新 shape 放在 `DimVector` 里，最后写进 `TensorImpl` 的 `SizesAndStrides`。整条链没有一次堆分配（shape 不超过 5 维时），也没有一次不必要的拷贝。
 
-
 ## 九、lambda：捕获、泛型 lambda、作为模板参数与生命周期
 
 ### 1. lambda 是一个匿名类的对象
@@ -1624,7 +1618,6 @@ at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta) {
 - `return out;`：第二篇的按值返回。
 
 整个函数编译后：一个 `scale_shift_cpu` 符号，里面一个 `switch`，两条路径各含一份内联了循环体的 `parallel_for` 实例。运行时执行一次 `switch`，之后热循环里没有任何 dtype 相关的分支。
-
 
 ## 十一、mini-c10：`ScalarType` 映射、`MINI_DISPATCH_FLOATING_TYPES` 与第一个模板化 kernel
 
@@ -2143,7 +2136,6 @@ grep -n "fmul\|\tmul\tx8, x8, x9" mul.s
 
 第四篇会在这两个 kernel 之上加 `DispatchKey` 和类型擦除的 `KernelFunction`，让 `minic10::add(a, b)` 经过一个 Dispatcher 而不是直接调用；第五篇让 `add.cpp`、`mul.cpp` 自己把 kernel 注册进去。
 
-
 ## 十二、工程实践建议与常见错误
 
 **模板基本功**
@@ -2185,7 +2177,6 @@ grep -n "fmul\|\tmul\tx8, x8, x9" mul.s
 23. 模板参数在运行期不存在，也就没有 `instanceof T` 这种事；要按类型分支，用 `if constexpr (std::is_same_v<T, X>)` 在编译期分。
 24. C++ lambda 可以按引用捕获并修改外层变量；换来的代价是你要自己保证它不会活得比外层变量久。
 
-
 ## 十三、本文小结
 
 本文围绕"一份代码如何服务多种类型"，把 C++ 模板的核心机制和它们在 PyTorch/vLLM 里的用法对应起来。要点：
@@ -2223,14 +2214,6 @@ grep -n "fmul\|\tmul\tx8, x8, x9" mul.s
 | 类型见证 `Collections.<String>emptyList()` | 少用，通常能推导 | `data_ptr<float>()` 必须写 | C++ 不从返回值推导 |
 
 下一篇进入多态：`AT_DISPATCH` 解决了"按 dtype 选 kernel"，但"按设备（CPU/CUDA）选 kernel"是运行期的事，PyTorch 的 Dispatcher 用虚函数、函数指针、`std::function` 和手写类型擦除（`c10::KernelFunction`）把任意签名的 kernel 装进统一的表里。为什么 `TensorImpl` 有虚函数而 `Tensor` 没有，为什么 `KernelFunction` 同时有 boxed 和 unboxed 两条路径，`IValue` 和 Java 的 `Object` 有什么不同——这些是第四篇的内容。
-
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-**`scalar_t` 从哪里来**：`AT_DISPATCH_FLOATING_TYPES` 展开成一个对 `x.scalar_type()` 的 `switch`，每个 `case`（`kFloat`、`kDouble`）里写一句 `using scalar_t = c10::impl::ScalarTypeToCPPType<kFloat>::type;`（即 `float` / `double`），然后把传进来的 lambda 体原样粘贴在这个 `using` 之后——lambda 体里的 `scalar_t` 是这个 case 局部的类型别名，宏靠文本替换让同一段源码在不同 case 里指向不同类型（第八、九章）。**编译了几次**：这个 lambda 在源码里出现一次，但被粘贴进每个 `case`，等于写了 N 份（浮点两份；`AT_DISPATCH_ALL_TYPES_AND_HALF` 十几份），每份实例化出一套独立的机器码，运行时只执行匹配的那一个 `case`——这就是模板 / 泛型代码“编译期为每组参数生成一份”的代价与收益：没有装箱、没有虚调用、每种类型的循环都能向量化，换来编译时间与二进制体积（第二、三章）。与 Java 泛型的类型擦除（一份字节码、运行期 `Object`）正相反。
-
-</details>
-
 
 ## 十四、自测
 
@@ -2274,8 +2257,9 @@ grep -n "fmul\|\tmul\tx8, x8, x9" mul.s
 
    </details>
 
-
 ## 下一篇
 
 [多态与类型擦除：运行时如何选择实现](/cpp-polymorphism-and-type-erasure.html)
 
+[^q0]: `AT_DISPATCH_FLOATING_TYPES` 展开成一个对 `x.scalar_type()` 的 `switch`，每个 `case`（`kFloat`、`kDouble`）里写一句 `using scalar_t = c10::impl::ScalarTypeToCPPType<kFloat>::type;`（即 `float` / `double`），然后把传进来的 lambda 体原样粘贴在这个 `using` 之后——lambda 体里的 `scalar_t` 是这个 case 局部的类型别名，宏靠文本替换让同一段源码在不同 case 里指向不同类型。详见[第七章](#七编译期分派与运行期分派逐层展开-at_dispatch_floating_types)。
+[^q1]: 源码里写了一次，但被粘贴进每个 `case`，等于写了 N 份（浮点两份，`AT_DISPATCH_ALL_TYPES_AND_HALF` 十几份），每份实例化出一套独立的机器码，运行时只执行匹配的那个 `case`。这就是模板「编译期为每组参数生成一份」的代价与收益：没有装箱、没有虚调用、每种类型的循环都能向量化，换来编译时间与二进制体积——与 Java 泛型的类型擦除正相反。详见[第二章](#二模板是生成代码的配方)、[第七章](#七编译期分派与运行期分派逐层展开-at_dispatch_floating_types)、[第九章](#九lambda捕获泛型-lambda作为模板参数与生命周期)。

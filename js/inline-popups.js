@@ -363,6 +363,22 @@
           if (!hash) return;
 
           var targetTrigger = sup || a;
+
+          // Q&A footnotes ([^q1] … → id "fn:q1") answer the questions a post
+          // opens with; they are meant to be read after the article, so no
+          // popup — click only smooth-jumps to the bottom like a plain footnote.
+          if (/^fn:q\d+$/.test(hash)) {
+            targetTrigger.addEventListener('click', function (e) {
+              var targetLi = document.getElementById(hash);
+              if (targetLi) {
+                e.preventDefault();
+                history.pushState(null, null, '#' + hash);
+                scrollToTargetWithOffset(targetLi);
+              }
+            });
+            return;
+          }
+
           targetTrigger.classList.add('has-popup-footnote');
 
           targetTrigger.addEventListener('mouseenter', function () {

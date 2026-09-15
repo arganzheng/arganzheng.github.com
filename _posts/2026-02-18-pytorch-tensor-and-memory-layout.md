@@ -12,18 +12,18 @@ updated: 2026-09-14
 
 这一次进入这张地图的核心数据抽象：
 
-> **Tensor 到底是什么？**
+> **Tensor 到底是什么？**[^q0]
 
 初学 PyTorch 时，Tensor 很容易被理解成“支持 GPU 的 NumPy 数组”。这个理解可以帮助开始使用，但不足以解释真实工程中的许多现象：
 
-- 为什么 `transpose()` 通常不会复制数据？
-- 为什么 `view()` 有时成功，有时会报错？
-- 为什么 `reshape()` 有时是零拷贝，有时会产生一份新数据？
-- 为什么一个 Tensor 的 `shape` 相同，性能却可能完全不同？
-- 为什么把模型移动到 GPU 后，输入数据还需要单独移动？
-- 为什么 `float16` 不只是把每个数字占用的字节数减半？
-- 为什么一个看似普通的 in-place 操作会和 Autograd 冲突？
-- 为什么数据已经“释放”了，GPU 显存仍然显示被占用？
+- 为什么 `transpose()` 通常不会复制数据？[^q1]
+- 为什么 `view()` 有时成功，有时会报错？[^q2]
+- 为什么 `reshape()` 有时是零拷贝，有时会产生一份新数据？[^q3]
+- 为什么一个 Tensor 的 `shape` 相同，性能却可能完全不同？[^q4]
+- 为什么把模型移动到 GPU 后，输入数据还需要单独移动？[^q5]
+- 为什么 `float16` 不只是把每个数字占用的字节数减半？[^q6]
+- 为什么一个看似普通的 in-place 操作会和 Autograd 冲突？[^q7]
+- 为什么数据已经“释放”了，GPU 显存仍然显示被占用？[^q8]
 
 这些问题背后都指向同一个事实：
 
@@ -1712,14 +1712,6 @@ flowchart TB
 
 > **Autograd 如何把一次次 Tensor 运算连接成动态计算图，并在 backward 阶段沿图传播梯度？**
 
-<details markdown="1">
-<summary><b>核心问题的答案</b></summary>
-
-Tensor 是**六样东西的组合**，不是一块数据：数据（`StorageImpl` 里的字节缓冲区，可被多个 Tensor 共享）、形状（`sizes`）、布局（`strides` + `storage_offset`，决定逻辑下标怎么映射到物理位置，也决定 contiguous 与否）、类型（`dtype`）、设备（`device`）与生命周期（`TensorImpl` 与 `StorageImpl` 各自的 `intrusive_ptr` 引用计数）。Python 的 `torch.Tensor` 是一个句柄，指向 C++ 的 `TensorImpl`；`TensorImpl` 持有 `Storage`。由此每个 Tensor 操作都能用七个问题分类：是否创建新 Storage、是否复制数据、是否改 device / dtype、是否改 stride 与 contiguous、是否与别人共享数据、是否延长某块内存的生命周期、是否影响 Autograd 与后续 kernel——`view` / `transpose` / `permute` 只改元数据、共享 Storage；`contiguous()` 与 `.to()` 在需要时才复制；`clone()` 总是复制；一个小 view 会让整块 Storage 活着（第三至九章）。读源码的落点：`c10/core/TensorImpl.h`、`StorageImpl.h`、`aten/src/ATen/native/TensorShape.cpp`。
-
-</details>
-
-
 ## 十六、自测
 
 1. 形状 `[2, 3, 4]` 的连续 Tensor，strides 是什么？`x.transpose(0, 2)` 之后 shape 与 strides 是什么、连续吗？
@@ -1766,3 +1758,13 @@ Tensor 是**六样东西的组合**，不是一块数据：数据（`StorageImpl
 ## 下一篇
 
 [自动求导与动态计算图](/pytorch-autograd-and-dynamic-computation-graph.html)
+
+[^q0]: Tensor 是六样东西的组合：数据（`StorageImpl` 里的字节缓冲区，可被多个 Tensor 共享）、形状（`sizes`）、布局（`strides` + `storage_offset`）、类型（`dtype`）、设备（`device`）与生命周期（`TensorImpl` / `StorageImpl` 的引用计数）。Python 的 `torch.Tensor` 是句柄，指向 C++ 的 `TensorImpl`，后者持有 `Storage`。详见[第二章](#二tensor-的整体模型)。
+[^q1]: `transpose()` 只交换两维的 `size` 与 `stride`，产生一个新的 `TensorImpl`，与原 Tensor 共享同一个 `Storage`；数据一个字节都没动，代价是结果不再连续。详见[第五章](#五transposepermute-与-view)。
+[^q2]: `view()` 要求新形状能用一组 stride 在**现有内存排列**上直接解释出来（不复制）；对连续 Tensor 总能做到，对 `transpose` 之后这类不连续 Tensor 往往做不到，于是报错。详见[第五章](#五transposepermute-与-view)。
+[^q3]: `reshape()` = "能 `view` 就 `view`，不能就先 `contiguous()` 复制一份再 `view`"，所以它的返回值是否与原 Tensor 共享内存取决于输入是否连续。详见[第五章](#五transposepermute-与-view)与[第六章](#六contiguous连续布局与数据拷贝)。
+[^q4]: `shape` 只是逻辑形状，性能由 stride（是否连续、内存访问模式）、`dtype`（字节数与能否走 Tensor Core）和 `device` 决定；同一 shape 的连续与非连续 Tensor 会走不同的 kernel 路径。详见[第四章](#四stride逻辑索引如何映射到内存)与[第六章](#六contiguous连续布局与数据拷贝)。
+[^q5]: `device` 是每个 Tensor 自己的属性，`model.to("cuda")` 只搬模块注册的参数与 buffer；输入是另一个 Tensor，没人替它搬，算子要求所有输入在同一设备上。详见[第九章](#九device数据到底在哪里执行)。
+[^q6]: `dtype` 决定每个元素的解释方式：位宽只是其一，还有能表示的范围与精度（fp16 最大 65504、bf16 尾数只有 7 位）、混合运算时的类型提升规则，以及能选到哪些 kernel。详见[第八章](#八dtype如何解释每个元素)。
+[^q7]: Autograd 在前向时会保存某些中间 Tensor 供反向使用，in-place 操作改写了这些被保存的数据，PyTorch 用版本计数器检测到后报错。原则：只在明确数据依赖时才用 in-place。详见[第十章](#十viewclonedetach-与-in-place)。
+[^q8]: 两个原因：某个小 view 仍持有同一个 `Storage`，整块数据就活着；`del` 之后释放的块也只是回到 CUDA caching allocator 的缓存（`memory_reserved` 不降），`empty_cache()` 才归还驱动。详见[第十二章](#十二从-tensor-视角理解内存问题)。
