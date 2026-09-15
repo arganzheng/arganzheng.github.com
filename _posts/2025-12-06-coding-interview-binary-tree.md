@@ -61,6 +61,7 @@ def dfs(node):
 ```
 ```java
 static int best;
+
 static int dfs(TreeNode node) {
     if (node == null) return 0;
     int l = dfs(node.left), r = dfs(node.right);
@@ -117,7 +118,10 @@ while cur or stack:
 Deque<TreeNode> stack = new ArrayDeque<>();
 TreeNode cur = root;
 while (cur != null || !stack.isEmpty()) {
-    while (cur != null) { stack.push(cur); cur = cur.left; }
+    while (cur != null) {
+        stack.push(cur);
+        cur = cur.left;
+    }
     cur = stack.pop();
     visit(cur);
     cur = cur.right;
@@ -252,12 +256,14 @@ def build_tree(preorder, inorder):
 ```
 ```java
 static int preIdx;
+
 static TreeNode buildTree(int[] preorder, int[] inorder) {
     Map<Integer, Integer> pos = new HashMap<>();
     for (int i = 0; i < inorder.length; i++) pos.put(inorder[i], i);
     preIdx = 0;
     return rec(preorder, pos, 0, inorder.length);
 }
+
 private static TreeNode rec(int[] pre, Map<Integer, Integer> pos, int lo, int hi) {
     if (lo >= hi) return null;
     TreeNode n = new TreeNode(pre[preIdx++]);
@@ -304,7 +310,13 @@ def max_path_sum(root):
 ```
 ```java
 static int best;
-static int maxPathSum(TreeNode root) { best = Integer.MIN_VALUE; gain(root); return best; }
+
+static int maxPathSum(TreeNode root) {
+    best = Integer.MIN_VALUE;
+    gain(root);
+    return best;
+}
+
 private static int gain(TreeNode n) {
     if (n == null) return 0;
     int l = Math.max(gain(n.left), 0), r = Math.max(gain(n.right), 0);
@@ -336,8 +348,11 @@ def is_valid_bst(root):
     return check(root, float("-inf"), float("inf"))
 ```
 ```java
-static boolean isValidBST(TreeNode r) { return check(r, Long.MIN_VALUE, Long.MAX_VALUE); }
-private static boolean check(TreeNode n, long lo, long hi) {      // long：节点值可能是 Integer 极值
+static boolean isValidBST(TreeNode r) {
+    return check(r, Long.MIN_VALUE, Long.MAX_VALUE);
+}
+
+private static boolean check(TreeNode n, long lo, long hi) { // long：节点值可能是 Integer 极值
     if (n == null) return true;
     if (n.val <= lo || n.val >= hi) return false;
     return check(n.left, lo, n.val) && check(n.right, n.val, hi);
@@ -387,19 +402,27 @@ static String serialize(TreeNode root) {
     ser(root, sb);
     return sb.substring(0, sb.length() - 1);
 }
+
 private static void ser(TreeNode n, StringBuilder sb) {
-    if (n == null) { sb.append("#,"); return; }
+    if (n == null) {
+        sb.append("#,");
+        return;
+    }
     sb.append(n.val).append(',');
-    ser(n.left, sb); ser(n.right, sb);
+    ser(n.left, sb);
+    ser(n.right, sb);
 }
+
 static TreeNode deserialize(String data) {
     return des(new ArrayDeque<>(Arrays.asList(data.split(","))));
 }
+
 private static TreeNode des(Deque<String> toks) {
     String t = toks.poll();
     if (t.equals("#")) return null;
     TreeNode n = new TreeNode(Integer.parseInt(t));
-    n.left = des(toks); n.right = des(toks);
+    n.left = des(toks);
+    n.right = des(toks);
     return n;
 }
 ```
@@ -440,6 +463,7 @@ static int pathSumIII(TreeNode root, int target) {
     count.put(0L, 1);
     return dfs(root, 0L, target, count);
 }
+
 private static int dfs(TreeNode n, long pre, int target, Map<Long, Integer> count) {
     if (n == null) return 0;
     pre += n.val;

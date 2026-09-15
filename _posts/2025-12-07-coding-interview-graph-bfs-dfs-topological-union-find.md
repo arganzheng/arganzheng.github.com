@@ -79,7 +79,11 @@ while (!q.isEmpty()) {
     for (int n = q.size(); n > 0; n--) {
         int[] u = q.poll();
         if (isTarget(u)) return steps;
-        for (int[] v : neighbors(u)) if (!visited[v[0]][v[1]]) { visited[v[0]][v[1]] = true; q.add(v); }
+        for (int[] v : neighbors(u))
+            if (!visited[v[0]][v[1]]) {
+                visited[v[0]][v[1]] = true;
+                q.add(v);
+            }
     }
     steps++;
 }
@@ -107,14 +111,26 @@ while q:
 # len(order) < n 说明有环
 ```
 ```java
-List<List<Integer>> graph = ...; int[] indeg = new int[n];
-for (int[] e : edges) { graph.get(e[1]).add(e[0]); indeg[e[0]]++; }
+List<List<Integer>> graph = ...; // 邻接表
+int[] indeg = new int[n];
+for (int[] e : edges) {
+    graph.get(e[1]).add(e[0]);
+    indeg[e[0]]++;
+}
+
 Deque<Integer> q = new ArrayDeque<>();
-for (int i = 0; i < n; i++) if (indeg[i] == 0) q.add(i);
-int[] order = new int[n]; int k = 0;
+for (int i = 0; i < n; i++) {
+    if (indeg[i] == 0) q.add(i);
+}
+
+int[] order = new int[n];
+int k = 0;
 while (!q.isEmpty()) {
-    int u = q.poll(); order[k++] = u;
-    for (int v : graph.get(u)) if (--indeg[v] == 0) q.add(v);
+    int u = q.poll();
+    order[k++] = u;
+    for (int v : graph.get(u)) {
+        if (--indeg[v] == 0) q.add(v);
+    }
 }
 // k < n 说明有环
 ```
@@ -149,20 +165,38 @@ class UnionFind:
 ```
 ```java
 static class UnionFind {
-    int[] parent, size; int count;
+    int[] parent, size;
+    int count;
+
     UnionFind(int n) {
-        parent = new int[n]; size = new int[n]; count = n;
-        for (int i = 0; i < n; i++) { parent[i] = i; size[i] = 1; }
+        parent = new int[n];
+        size = new int[n];
+        count = n;
+        for (int i = 0; i < n; i++) {
+            parent[i] = i;
+            size[i] = 1;
+        }
     }
+
     int find(int x) {
-        while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; }
+        while (parent[x] != x) {
+            parent[x] = parent[parent[x]];
+            x = parent[x];
+        }
         return x;
     }
+
     boolean union(int a, int b) {
         int ra = find(a), rb = find(b);
         if (ra == rb) return false;
-        if (size[ra] < size[rb]) { int t = ra; ra = rb; rb = t; }
-        parent[rb] = ra; size[ra] += size[rb]; count--;
+        if (size[ra] < size[rb]) {
+            int t = ra;
+            ra = rb;
+            rb = t;
+        }
+        parent[rb] = ra;
+        size[ra] += size[rb];
+        count--;
         return true;
     }
 }
@@ -185,13 +219,20 @@ while heap:
             heapq.heappush(heap, (d + w, v))     # 不删旧条目，靠上面的判断跳过
 ```
 ```java
-int[] dist = new int[n]; Arrays.fill(dist, Integer.MAX_VALUE); dist[src] = 0;
+int[] dist = new int[n];
+Arrays.fill(dist, Integer.MAX_VALUE);
+dist[src] = 0;
 PriorityQueue<int[]> pq = new PriorityQueue<>((a, b) -> Integer.compare(a[0], b[0]));
-pq.offer(new int[]{0, src});
+pq.offer(new int[] {0, src});
 while (!pq.isEmpty()) {
-    int[] cur = pq.poll(); int d = cur[0], u = cur[1];
+    int[] cur = pq.poll();
+    int d = cur[0], u = cur[1];
     if (d > dist[u]) continue;
-    for (int[] e : graph.get(u)) if (d + e[1] < dist[e[0]]) { dist[e[0]] = d + e[1]; pq.offer(new int[]{dist[e[0]], e[0]}); }
+    for (int[] e : graph.get(u))
+        if (d + e[1] < dist[e[0]]) {
+            dist[e[0]] = d + e[1];
+            pq.offer(new int[] {dist[e[0]], e[0]});
+        }
 }
 ```
 </div>
@@ -229,7 +270,10 @@ static int numIslands(char[][] g) {
     int count = 0;
     for (int i = 0; i < g.length; i++)
         for (int j = 0; j < g[0].length; j++)
-            if (g[i][j] == '1') { count++; sink(g, i, j); }
+            if (g[i][j] == '1') {
+                count++;
+                sink(g, i, j);
+            }
     return count;
 }
 ```
@@ -282,7 +326,7 @@ static int orangesRotting(int[][] g) {
     Deque<int[]> q = new ArrayDeque<>();
     for (int i = 0; i < m; i++)
         for (int j = 0; j < n; j++) {
-            if (g[i][j] == 2) q.add(new int[]{i, j});
+            if (g[i][j] == 2) q.add(new int[] {i, j});
             else if (g[i][j] == 1) fresh++;
         }
     while (!q.isEmpty() && fresh > 0) {
@@ -290,7 +334,11 @@ static int orangesRotting(int[][] g) {
             int[] c = q.poll();
             for (int[] d : DIRS) {
                 int x = c[0] + d[0], y = c[1] + d[1];
-                if (x >= 0 && y >= 0 && x < m && y < n && g[x][y] == 1) { g[x][y] = 2; fresh--; q.add(new int[]{x, y}); }
+                if (x >= 0 && y >= 0 && x < m && y < n && g[x][y] == 1) {
+                    g[x][y] = 2;
+                    fresh--;
+                    q.add(new int[] {x, y});
+                }
             }
         }
         minutes++;
@@ -344,7 +392,10 @@ static int[] findOrder(int numCourses, int[][] prerequisites) {
     List<List<Integer>> graph = new ArrayList<>();
     for (int i = 0; i < numCourses; i++) graph.add(new ArrayList<>());
     int[] indeg = new int[numCourses];
-    for (int[] p : prerequisites) { graph.get(p[1]).add(p[0]); indeg[p[0]]++; }
+    for (int[] p : prerequisites) {
+        graph.get(p[1]).add(p[0]);
+        indeg[p[0]]++;
+    }
     Deque<Integer> q = new ArrayDeque<>();
     for (int i = 0; i < numCourses; i++) if (indeg[i] == 0) q.add(i);
     int[] order = new int[numCourses];
@@ -388,9 +439,11 @@ static boolean canFinishDfs(int n, int[][] pre) {
     for (int i = 0; i < n; i++) if (color[i] == 0 && !dfs(g, color, i)) return false;
     return true;
 }
+
 private static boolean dfs(List<List<Integer>> g, int[] color, int u) {
     color[u] = 1;
-    for (int v : g.get(u)) if (color[v] == 1 || (color[v] == 0 && !dfs(g, color, v))) return false;
+    for (int v : g.get(u))
+        if (color[v] == 1 || (color[v] == 0 && !dfs(g, color, v))) return false;
     color[u] = 2;
     return true;
 }
@@ -447,7 +500,11 @@ static int ladderLength(String begin, String end, List<String> wordList) {
     Set<String> front = new HashSet<>(List.of(begin)), back = new HashSet<>(List.of(end));
     int steps = 1;
     while (!front.isEmpty() && !back.isEmpty()) {
-        if (front.size() > back.size()) { Set<String> t = front; front = back; back = t; }
+        if (front.size() > back.size()) {
+            Set<String> t = front;
+            front = back;
+            back = t;
+        }
         Set<String> next = new HashSet<>();
         for (String w : front) {
             char[] cs = w.toCharArray();
@@ -549,23 +606,29 @@ def network_delay_time(times, n, k):
 static int networkDelayTime(int[][] times, int n, int k) {
     List<List<int[]>> graph = new ArrayList<>();
     for (int i = 0; i <= n; i++) graph.add(new ArrayList<>());
-    for (int[] t : times) graph.get(t[0]).add(new int[]{t[1], t[2]});
+    for (int[] t : times) graph.get(t[0]).add(new int[] {t[1], t[2]});
     int[] dist = new int[n + 1];
     Arrays.fill(dist, Integer.MAX_VALUE);
     dist[k] = 0;
     PriorityQueue<int[]> pq = new PriorityQueue<>((a, b) -> Integer.compare(a[0], b[0]));
-    pq.offer(new int[]{0, k});
+    pq.offer(new int[] {0, k});
     while (!pq.isEmpty()) {
         int[] cur = pq.poll();
         int d = cur[0], u = cur[1];
         if (d > dist[u]) continue;
         for (int[] e : graph.get(u)) {
             int nd = d + e[1];
-            if (nd < dist[e[0]]) { dist[e[0]] = nd; pq.offer(new int[]{nd, e[0]}); }
+            if (nd < dist[e[0]]) {
+                dist[e[0]] = nd;
+                pq.offer(new int[] {nd, e[0]});
+            }
         }
     }
     int best = 0;
-    for (int i = 1; i <= n; i++) { if (dist[i] == Integer.MAX_VALUE) return -1; best = Math.max(best, dist[i]); }
+    for (int i = 1; i <= n; i++) {
+        if (dist[i] == Integer.MAX_VALUE) return -1;
+        best = Math.max(best, dist[i]);
+    }
     return best;
 }
 ```

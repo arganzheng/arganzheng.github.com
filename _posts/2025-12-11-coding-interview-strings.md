@@ -48,8 +48,11 @@ for i in range(len(s)):
 ```
 ```java
 static int[] expand(String s, int l, int r) {
-    while (l >= 0 && r < s.length() && s.charAt(l) == s.charAt(r)) { l--; r++; }
-    return new int[]{l + 1, r - 1};
+    while (l >= 0 && r < s.length() && s.charAt(l) == s.charAt(r)) {
+        l--;
+        r++;
+    }
+    return new int[] {l + 1, r - 1};
 }
 ```
 </div>
@@ -100,7 +103,10 @@ int[] res = new int[m + n];
 for (int i = m - 1; i >= 0; i--)
     for (int j = n - 1; j >= 0; j--)
         res[i + j + 1] += (a.charAt(i) - '0') * (b.charAt(j) - '0');
-for (int k = m + n - 1; k > 0; k--) { res[k - 1] += res[k] / 10; res[k] %= 10; }
+for (int k = m + n - 1; k > 0; k--) {
+    res[k - 1] += res[k] / 10;
+    res[k] %= 10;
+}
 ```
 </div>
 
@@ -141,8 +147,11 @@ def longest_palindrome(s):
 static String longestPalindrome(String s) {
     int bestL = 0, bestR = 0;
     for (int i = 0; i < s.length(); i++) {
-        for (int[] lr : new int[][]{expand(s, i, i), expand(s, i, i + 1)}) {
-            if (lr[1] - lr[0] > bestR - bestL) { bestL = lr[0]; bestR = lr[1]; }
+        for (int[] lr : new int[][] {expand(s, i, i), expand(s, i, i + 1)}) {
+            if (lr[1] - lr[0] > bestR - bestL) {
+                bestL = lr[0];
+                bestR = lr[1];
+            }
         }
     }
     return s.substring(bestL, bestR + 1);
@@ -182,9 +191,17 @@ static String manacher(String s) {
     int center = 0, right = 0, bestLen = 0, bestCenter = 0;
     for (int i = 0; i < n; i++) {
         if (i < right) p[i] = Math.min(right - i, p[2 * center - i]);
-        while (i - p[i] - 1 >= 0 && i + p[i] + 1 < n && t.charAt(i - p[i] - 1) == t.charAt(i + p[i] + 1)) p[i]++;
-        if (i + p[i] > right) { center = i; right = i + p[i]; }
-        if (p[i] > bestLen) { bestLen = p[i]; bestCenter = i; }
+        while (i - p[i] - 1 >= 0
+                && i + p[i] + 1 < n
+                && t.charAt(i - p[i] - 1) == t.charAt(i + p[i] + 1)) p[i]++;
+        if (i + p[i] > right) {
+            center = i;
+            right = i + p[i];
+        }
+        if (p[i] > bestLen) {
+            bestLen = p[i];
+            bestCenter = i;
+        }
     }
     int start = (bestCenter - bestLen) / 2;
     return s.substring(start, start + bestLen);
@@ -275,11 +292,12 @@ def my_atoi(s):
 static int myAtoi(String s) {
     int i = 0, n = s.length(), sign = 1, num = 0;
     while (i < n && s.charAt(i) == ' ') i++;
-    if (i < n && (s.charAt(i) == '+' || s.charAt(i) == '-')) sign = s.charAt(i++) == '-' ? -1 : 1;
+    if (i < n && (s.charAt(i) == '+' || s.charAt(i) == '-'))
+        sign = s.charAt(i++) == '-' ? -1 : 1;
     while (i < n && Character.isDigit(s.charAt(i))) {
         int d = s.charAt(i++) - '0';
-        if (num > (Integer.MAX_VALUE - d) / 10)  // 乘 10 之前判断
-            return sign == 1 ? Integer.MAX_VALUE : Integer.MIN_VALUE;
+        if (num > (Integer.MAX_VALUE - d) / 10) // 乘 10 之前判断
+        return sign == 1 ? Integer.MAX_VALUE : Integer.MIN_VALUE;
         num = num * 10 + d;
     }
     return sign * num;
@@ -327,7 +345,10 @@ static String multiply(String a, String b) {
     for (int i = m - 1; i >= 0; i--)
         for (int j = n - 1; j >= 0; j--)
             res[i + j + 1] += (a.charAt(i) - '0') * (b.charAt(j) - '0');
-    for (int k = m + n - 1; k > 0; k--) { res[k - 1] += res[k] / 10; res[k] %= 10; }
+    for (int k = m + n - 1; k > 0; k--) {
+        res[k - 1] += res[k] / 10;
+        res[k] %= 10;
+    }
     StringBuilder sb = new StringBuilder();
     for (int d : res) if (!(sb.length() == 0 && d == 0)) sb.append(d);
     return sb.toString();
@@ -360,7 +381,7 @@ def largest_number(nums):
 ```java
 static String largestNumber(int[] nums) {
     String[] strs = Arrays.stream(nums).mapToObj(String::valueOf).toArray(String[]::new);
-    Arrays.sort(strs, (x, y) -> (y + x).compareTo(x + y));   // 降序：y+x 大的排前
+    Arrays.sort(strs, (x, y) -> (y + x).compareTo(x + y)); // 降序：y+x 大的排前
     if (strs[0].equals("0")) return "0";
     return String.join("", strs);
 }

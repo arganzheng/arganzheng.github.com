@@ -47,7 +47,10 @@ return heap[0]
 PriorityQueue<Integer> pq = new PriorityQueue<>();
 for (int x : nums) {
     if (pq.size() < k) pq.offer(x);
-    else if (x > pq.peek()) { pq.poll(); pq.offer(x); }
+    else if (x > pq.peek()) {
+        pq.poll();
+        pq.offer(x);
+    }
 }
 return pq.peek();
 ```
@@ -73,7 +76,7 @@ List<int[]> out = new ArrayList<>();
 for (int[] iv : intervals) {
     if (!out.isEmpty() && iv[0] <= out.get(out.size() - 1)[1])
         out.get(out.size() - 1)[1] = Math.max(out.get(out.size() - 1)[1], iv[1]);
-    else out.add(new int[]{iv[0], iv[1]});
+    else out.add(new int[] {iv[0], iv[1]});
 }
 ```
 </div>
@@ -173,10 +176,12 @@ static int[] topKFrequent(int[] nums, int k) {
     for (int x : nums) count.merge(x, 1, Integer::sum);
     List<List<Integer>> buckets = new ArrayList<>();
     for (int i = 0; i <= nums.length; i++) buckets.add(new ArrayList<>());
-    for (Map.Entry<Integer, Integer> e : count.entrySet()) buckets.get(e.getValue()).add(e.getKey());
+    for (Map.Entry<Integer, Integer> e : count.entrySet())
+        buckets.get(e.getValue()).add(e.getKey());
     int[] out = new int[k];
     int idx = 0;
-    for (int c = nums.length; c > 0 && idx < k; c--) for (int x : buckets.get(c)) if (idx < k) out[idx++] = x;
+    for (int c = nums.length; c > 0 && idx < k; c--)
+        for (int x : buckets.get(c)) if (idx < k) out[idx++] = x;
     return out;
 }
 ```
@@ -220,13 +225,16 @@ class MedianFinder:
 ```
 ```java
 static class MedianFinder {
-    private final PriorityQueue<Integer> small = new PriorityQueue<>(Collections.reverseOrder());
+    private final PriorityQueue<Integer> small =
+            new PriorityQueue<>(Collections.reverseOrder());
     private final PriorityQueue<Integer> large = new PriorityQueue<>();
+
     void addNum(int num) {
         small.offer(num);
         large.offer(small.poll());
         if (large.size() > small.size()) small.offer(large.poll());
     }
+
     double findMedian() {
         return small.size() > large.size() ? small.peek() : (small.peek() + large.peek()) / 2.0;
     }
@@ -261,7 +269,7 @@ static int[][] mergeIntervals(int[][] intervals) {
     for (int[] iv : intervals) {
         if (!out.isEmpty() && iv[0] <= out.get(out.size() - 1)[1])
             out.get(out.size() - 1)[1] = Math.max(out.get(out.size() - 1)[1], iv[1]);
-        else out.add(new int[]{iv[0], iv[1]});
+        else out.add(new int[] {iv[0], iv[1]});
     }
     return out.toArray(new int[0][]);
 }
@@ -343,7 +351,10 @@ static int jump(int[] nums) {
     int steps = 0, end = 0, farthest = 0;
     for (int i = 0; i < nums.length - 1; i++) {
         farthest = Math.max(farthest, i + nums[i]);
-        if (i == end) { steps++; end = farthest; }
+        if (i == end) {
+            steps++;
+            end = farthest;
+        }
     }
     return steps;
 }

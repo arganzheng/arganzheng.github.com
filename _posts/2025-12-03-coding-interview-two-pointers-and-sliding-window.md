@@ -75,9 +75,15 @@ while lo < hi:
 int lo = 0, hi = a.length - 1;
 while (lo < hi) {
     int v = f(a[lo], a[hi]);
-    if (v == target) { ... lo++; hi--; }
-    else if (v < target) lo++;
-    else hi--;
+    if (v == target) {
+        // ... 记录答案
+        lo++;
+        hi--;
+    } else if (v < target) {
+        lo++;
+    } else {
+        hi--;
+    }
 }
 ```
 </div>
@@ -95,7 +101,12 @@ for fast in range(len(a)):
 ```java
 int slow = 0;
 for (int fast = 0; fast < a.length; fast++) {
-    if (keep(a[fast])) { int t = a[slow]; a[slow] = a[fast]; a[fast] = t; slow++; }
+    if (keep(a[fast])) {
+        int t = a[slow];
+        a[slow] = a[fast];
+        a[fast] = t;
+        slow++;
+    }
 }
 ```
 </div>
@@ -198,7 +209,10 @@ static String minWindow(String s, String t) {
         if (need[s.charAt(right)]-- > 0) missing--;
         if (missing == 0) {
             while (need[s.charAt(left)] < 0) need[s.charAt(left++)]++;
-            if (right - left < bestR - bestL) { bestL = left; bestR = right; }
+            if (right - left < bestR - bestL) {
+                bestL = left;
+                bestR = right;
+            }
             need[s.charAt(left++)]++;
             missing++;
         }
@@ -304,7 +318,8 @@ static List<List<Integer>> threeSum(int[] nums) {
             else if (s > 0) hi--;
             else {
                 out.add(Arrays.asList(nums[i], nums[lo], nums[hi]));
-                lo++; hi--;
+                lo++;
+                hi--;
                 while (lo < hi && nums[lo] == nums[lo - 1]) lo++;
                 while (lo < hi && nums[hi] == nums[hi + 1]) hi--;
             }
@@ -393,7 +408,8 @@ static int maxArea(int[] h) {
     int lo = 0, hi = h.length - 1, best = 0;
     while (lo < hi) {
         best = Math.max(best, Math.min(h[lo], h[hi]) * (hi - lo));
-        if (h[lo] < h[hi]) lo++; else hi--;
+        if (h[lo] < h[hi]) lo++;
+        else hi--;
     }
     return best;
 }

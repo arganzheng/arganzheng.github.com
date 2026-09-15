@@ -667,7 +667,12 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   in one `<div class="code-tabs" markdown="1">` (Infra post: Python + C++);
   the code is copied verbatim from the labs, which all have tests
   (`python/` unittest, `java/` `make test` with `-ea`, `ai/*.py --check`
-  against torch, `infra/` `make run`). Version rule for a 2025-12 date:
+  against torch, `infra/` `make run`). Java is formatted with
+  google-java-format `--aosp` (4-space indent, one statement per line,
+  blank line between members) — both the labs files and every `java`
+  fence in the posts (wrap a fence in `class __W { … }`, format, unwrap,
+  dedent 4; a fence containing `...` pseudo-code is hand-formatted the same
+  way). Never write `{ a; b; }` one-liners. Version rule for a 2025-12 date:
   Python 3.12 / Java 21 syntax / NumPy 2 / PyTorch 2.5 only; the overview
   and posts 14–19 link forward to 2026 series and therefore carry
   `updated: 2026-09-15`. Mermaid: fan-outs (one node → 4+ children) get

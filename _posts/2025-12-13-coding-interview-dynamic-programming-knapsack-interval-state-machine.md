@@ -75,7 +75,8 @@ for length in range(2, n + 1):                   # 先算短区间
 for (int len = 2; len <= n; len++)
     for (int i = 0; i + len - 1 < n; i++) {
         int j = i + len - 1;
-        for (int k = i; k < j; k++) f[i][j] = best(f[i][j], f[i][k] + f[k + 1][j] + cost(i, k, j));
+        for (int k = i; k < j; k++)
+            f[i][j] = best(f[i][j], f[i][k] + f[k + 1][j] + cost(i, k, j));
     }
 ```
 </div>
@@ -93,7 +94,11 @@ return free
 ```
 ```java
 int hold = Integer.MIN_VALUE / 2, free = 0;
-for (int p : prices) { int nh = Math.max(hold, free - p), nf = Math.max(free, hold + p); hold = nh; free = nf; }
+for (int p : prices) {
+    int nh = Math.max(hold, free - p), nf = Math.max(free, hold + p);
+    hold = nh;
+    free = nf;
+}
 return free;
 ```
 </div>
@@ -278,7 +283,7 @@ static int maxProfitK(int k, int[] prices) {
         return s;
     }
     int[] hold = new int[k + 1], free = new int[k + 1];
-    Arrays.fill(hold, Integer.MIN_VALUE / 2);   // /2：防止 + p 溢出
+    Arrays.fill(hold, Integer.MIN_VALUE / 2); // /2：防止 + p 溢出
     for (int p : prices)
         for (int j = k; j >= 1; j--) {
             free[j] = Math.max(free[j], hold[j] + p);
@@ -325,11 +330,15 @@ def rob_tree(root):
     return max(dfs(root))
 ```
 ```java
-static int robTree(TreeNode root) { int[] r = dfs(root); return Math.max(r[0], r[1]); }
+static int robTree(TreeNode root) {
+    int[] r = dfs(root);
+    return Math.max(r[0], r[1]);
+}
+
 private static int[] dfs(TreeNode n) {
-    if (n == null) return new int[]{0, 0};
+    if (n == null) return new int[] {0, 0};
     int[] l = dfs(n.left), r = dfs(n.right);
-    return new int[]{n.val + l[1] + r[1], Math.max(l[0], l[1]) + Math.max(r[0], r[1])};
+    return new int[] {n.val + l[1] + r[1], Math.max(l[0], l[1]) + Math.max(r[0], r[1])};
 }
 ```
 </div>
@@ -359,14 +368,15 @@ def is_match_regex(s, p):
     return f(0, 0)
 ```
 ```java
-static boolean isMatchRegex(String s, String p) {     // 自底向上：f[i][j] = s[i:] 与 p[j:] 匹配
+static boolean isMatchRegex(String s, String p) { // 自底向上：f[i][j] = s[i:] 与 p[j:] 匹配
     int m = s.length(), n = p.length();
     boolean[][] f = new boolean[m + 1][n + 1];
     f[m][n] = true;
     for (int i = m; i >= 0; i--)
         for (int j = n - 1; j >= 0; j--) {
             boolean first = i < m && (p.charAt(j) == s.charAt(i) || p.charAt(j) == '.');
-            if (j + 1 < n && p.charAt(j + 1) == '*') f[i][j] = f[i][j + 2] || (first && f[i + 1][j]);
+            if (j + 1 < n && p.charAt(j + 1) == '*')
+                f[i][j] = f[i][j + 2] || (first && f[i + 1][j]);
             else f[i][j] = first && f[i + 1][j + 1];
         }
     return f[0][0];

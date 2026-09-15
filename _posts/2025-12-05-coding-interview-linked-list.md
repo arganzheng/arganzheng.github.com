@@ -43,9 +43,17 @@ return dummy.next                        # 头可能已经变了，从哑节点�
 ```
 ```java
 static class ListNode {
-    int val; ListNode next;
-    ListNode(int v) { val = v; }
-    ListNode(int v, ListNode n) { val = v; next = n; }
+    int val;
+    ListNode next;
+
+    ListNode(int v) {
+        val = v;
+    }
+
+    ListNode(int v, ListNode n) {
+        val = v;
+        next = n;
+    }
 }
 
 ListNode dummy = new ListNode(0, head);
@@ -313,10 +321,14 @@ def detect_cycle(head):
 static ListNode detectCycle(ListNode head) {
     ListNode slow = head, fast = head;
     while (fast != null && fast.next != null) {
-        slow = slow.next; fast = fast.next.next;
+        slow = slow.next;
+        fast = fast.next.next;
         if (slow == fast) {
             ListNode p = head;
-            while (p != slow) { p = p.next; slow = slow.next; }
+            while (p != slow) {
+                p = p.next;
+                slow = slow.next;
+            }
             return p;
         }
     }
@@ -354,7 +366,8 @@ static ListNode mergeKLists(ListNode[] lists) {
     ListNode dummy = new ListNode(0), tail = dummy;
     while (!pq.isEmpty()) {
         ListNode n = pq.poll();
-        tail.next = n; tail = n;
+        tail.next = n;
+        tail = n;
         if (n.next != null) pq.offer(n.next);
     }
     return dummy.next;
@@ -387,7 +400,10 @@ def sort_list(head):
 static ListNode sortList(ListNode head) {
     if (head == null || head.next == null) return head;
     ListNode slow = head, fast = head.next;
-    while (fast != null && fast.next != null) { slow = slow.next; fast = fast.next.next; }
+    while (fast != null && fast.next != null) {
+        slow = slow.next;
+        fast = fast.next.next;
+    }
     ListNode mid = slow.next;
     slow.next = null;
     return mergeTwoLists(sortList(head), sortList(mid));

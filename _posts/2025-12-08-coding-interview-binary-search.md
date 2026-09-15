@@ -53,14 +53,20 @@ def upper_bound(a, x):                           # 第一个 > x
 ```java
 static int firstTrue(int lo, int hi, IntPredicate pred) {
     while (lo < hi) {
-        int mid = lo + (hi - lo) / 2;            // 不写 (lo + hi) / 2：int 会溢出
-        if (pred.test(mid)) hi = mid; else lo = mid + 1;
+        int mid = lo + (hi - lo) / 2; // 不写 (lo + hi) / 2：int 会溢出
+        if (pred.test(mid)) hi = mid;
+        else lo = mid + 1;
     }
     return lo;
 }
 
-static int lowerBound(int[] a, int x) { return firstTrue(0, a.length, i -> a[i] >= x); }
-static int upperBound(int[] a, int x) { return firstTrue(0, a.length, i -> a[i] > x); }
+static int lowerBound(int[] a, int x) {
+    return firstTrue(0, a.length, i -> a[i] >= x);
+}
+
+static int upperBound(int[] a, int x) {
+    return firstTrue(0, a.length, i -> a[i] > x);
+}
 ```
 </div>
 
@@ -100,8 +106,8 @@ def search_range(nums, target):
 ```java
 static int[] searchRange(int[] nums, int target) {
     int lo = lowerBound(nums, target);
-    if (lo == nums.length || nums[lo] != target) return new int[]{-1, -1};
-    return new int[]{lo, upperBound(nums, target) - 1};
+    if (lo == nums.length || nums[lo] != target) return new int[] {-1, -1};
+    return new int[] {lo, upperBound(nums, target) - 1};
 }
 ```
 </div>
@@ -149,9 +155,11 @@ static int searchRotated(int[] nums, int target) {
         int mid = lo + (hi - lo) / 2;
         if (nums[mid] == target) return mid;
         if (nums[lo] <= nums[mid]) {
-            if (nums[lo] <= target && target < nums[mid]) hi = mid - 1; else lo = mid + 1;
+            if (nums[lo] <= target && target < nums[mid]) hi = mid - 1;
+            else lo = mid + 1;
         } else {
-            if (nums[mid] < target && target <= nums[hi]) lo = mid + 1; else hi = mid - 1;
+            if (nums[mid] < target && target <= nums[hi]) lo = mid + 1;
+            else hi = mid - 1;
         }
     }
     return -1;
@@ -211,11 +219,14 @@ def min_eating_speed(piles, h):
 ```java
 static int minEatingSpeed(int[] piles, int h) {
     int max = Arrays.stream(piles).max().getAsInt();
-    return firstTrue(1, max + 1, k -> {
-        long hours = 0;                          // 求和可能溢出 int
-        for (int p : piles) hours += (p + k - 1) / k;
-        return hours <= h;
-    });
+    return firstTrue(
+            1,
+            max + 1,
+            k -> {
+                long hours = 0; // 求和可能溢出 int
+                for (int p : piles) hours += (p + k - 1) / k;
+                return hours <= h;
+            });
 }
 ```
 </div>
@@ -246,12 +257,24 @@ def split_array(nums, k):
 ```java
 static int splitArray(int[] nums, int k) {
     int max = 0, sum = 0;
-    for (int w : nums) { max = Math.max(max, w); sum += w; }
-    return firstTrue(max, sum + 1, cap -> {
-        int used = 1, cur = 0;
-        for (int w : nums) { if (cur + w > cap) { used++; cur = 0; } cur += w; }
-        return used <= k;
-    });
+    for (int w : nums) {
+        max = Math.max(max, w);
+        sum += w;
+    }
+    return firstTrue(
+            max,
+            sum + 1,
+            cap -> {
+                int used = 1, cur = 0;
+                for (int w : nums) {
+                    if (cur + w > cap) {
+                        used++;
+                        cur = 0;
+                    }
+                    cur += w;
+                }
+                return used <= k;
+            });
 }
 ```
 </div>
@@ -294,11 +317,19 @@ def kth_smallest_matrix(matrix, k):
 ```java
 static int kthSmallestMatrix(int[][] matrix, int k) {
     int n = matrix.length;
-    return firstTrue(matrix[0][0], matrix[n - 1][n - 1] + 1, x -> {
-        int i = n - 1, j = 0, c = 0;
-        while (i >= 0 && j < n) { if (matrix[i][j] <= x) { c += i + 1; j++; } else i--; }
-        return c >= k;
-    });
+    return firstTrue(
+            matrix[0][0],
+            matrix[n - 1][n - 1] + 1,
+            x -> {
+                int i = n - 1, j = 0, c = 0;
+                while (i >= 0 && j < n) {
+                    if (matrix[i][j] <= x) {
+                        c += i + 1;
+                        j++;
+                    } else i--;
+                }
+                return c >= k;
+            });
 }
 ```
 </div>
@@ -350,13 +381,16 @@ static double findMedianSortedArrays(int[] a, int[] b) {
     int m = a.length, n = b.length, half = (m + n + 1) / 2, lo = 0, hi = m;
     while (lo <= hi) {
         int i = lo + (hi - lo) / 2, j = half - i;
-        int aLeft = i > 0 ? a[i - 1] : Integer.MIN_VALUE, aRight = i < m ? a[i] : Integer.MAX_VALUE;
-        int bLeft = j > 0 ? b[j - 1] : Integer.MIN_VALUE, bRight = j < n ? b[j] : Integer.MAX_VALUE;
+        int aLeft = i > 0 ? a[i - 1] : Integer.MIN_VALUE,
+                aRight = i < m ? a[i] : Integer.MAX_VALUE;
+        int bLeft = j > 0 ? b[j - 1] : Integer.MIN_VALUE,
+                bRight = j < n ? b[j] : Integer.MAX_VALUE;
         if (aLeft <= bRight && bLeft <= aRight) {
             if ((m + n) % 2 == 1) return Math.max(aLeft, bLeft);
             return (Math.max(aLeft, bLeft) + (double) Math.min(aRight, bRight)) / 2;
         }
-        if (aLeft > bRight) hi = i - 1; else lo = i + 1;
+        if (aLeft > bRight) hi = i - 1;
+        else lo = i + 1;
     }
     throw new IllegalArgumentException("inputs not sorted");
 }

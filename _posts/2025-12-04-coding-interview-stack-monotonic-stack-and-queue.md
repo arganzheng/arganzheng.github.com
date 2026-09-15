@@ -107,7 +107,7 @@ def is_valid(s):
 static boolean isValid(String s) {
     Deque<Character> stack = new ArrayDeque<>();
     for (char c : s.toCharArray()) {
-        if (c == '(') stack.push(')');          // 直接压"期望的右括号"，省一张映射表
+        if (c == '(') stack.push(')'); // 直接压"期望的右括号"，省一张映射表
         else if (c == '[') stack.push(']');
         else if (c == '{') stack.push('}');
         else if (stack.isEmpty() || stack.pop() != c) return false;
@@ -162,8 +162,12 @@ static String decodeString(String s) {
     int num = 0;
     for (char c : s.toCharArray()) {
         if (Character.isDigit(c)) num = num * 10 + (c - '0');
-        else if (c == '[') { counts.push(num); prefixes.push(cur); cur = new StringBuilder(); num = 0; }
-        else if (c == ']') {
+        else if (c == '[') {
+            counts.push(num);
+            prefixes.push(cur);
+            cur = new StringBuilder();
+            num = 0;
+        } else if (c == ']') {
             StringBuilder prev = prefixes.pop();
             int k = counts.pop();
             for (int i = 0; i < k; i++) prev.append(cur);
@@ -219,9 +223,10 @@ static int calculate(String s) {
                 case '+' -> stack.push(num);
                 case '-' -> stack.push(-num);
                 case '*' -> stack.push(stack.pop() * num);
-                default -> stack.push(stack.pop() / num);   // Java 的 / 本来就向零取整
+                default -> stack.push(stack.pop() / num); // Java 的 / 本来就向零取整
             }
-            num = 0; op = c;
+            num = 0;
+            op = c;
         }
     }
     int sum = 0;

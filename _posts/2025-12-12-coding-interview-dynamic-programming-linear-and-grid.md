@@ -116,7 +116,11 @@ static int lengthOfLIS(int[] nums) {
     int size = 0;
     for (int x : nums) {
         int lo = 0, hi = size;
-        while (lo < hi) { int mid = (lo + hi) >>> 1; if (tails[mid] < x) lo = mid + 1; else hi = mid; }
+        while (lo < hi) {
+            int mid = (lo + hi) >>> 1;
+            if (tails[mid] < x) lo = mid + 1;
+            else hi = mid;
+        }
         tails[lo] = x;
         if (lo == size) size++;
     }
@@ -153,7 +157,10 @@ def max_product(nums):
 ```java
 static int maxSubArray(int[] nums) {
     int best = nums[0], cur = nums[0];
-    for (int i = 1; i < nums.length; i++) { cur = Math.max(nums[i], cur + nums[i]); best = Math.max(best, cur); }
+    for (int i = 1; i < nums.length; i++) {
+        cur = Math.max(nums[i], cur + nums[i]);
+        best = Math.max(best, cur);
+    }
     return best;
 }
 
@@ -163,7 +170,8 @@ static int maxProduct(int[] nums) {
         int x = nums[i];
         int mx = Math.max(x, Math.max(curMax * x, curMin * x));
         int mn = Math.min(x, Math.min(curMax * x, curMin * x));
-        curMax = mx; curMin = mn;
+        curMax = mx;
+        curMin = mn;
         best = Math.max(best, curMax);
     }
     return best;
@@ -207,7 +215,10 @@ static int longestCommonSubsequence(String a, String b) {
     int[][] f = new int[m + 1][n + 1];
     for (int i = 1; i <= m; i++)
         for (int j = 1; j <= n; j++)
-            f[i][j] = a.charAt(i - 1) == b.charAt(j - 1) ? f[i - 1][j - 1] + 1 : Math.max(f[i - 1][j], f[i][j - 1]);
+            f[i][j] =
+                    a.charAt(i - 1) == b.charAt(j - 1)
+                            ? f[i - 1][j - 1] + 1
+                            : Math.max(f[i - 1][j], f[i][j - 1]);
     return f[m][n];
 }
 ```
@@ -268,8 +279,10 @@ static int minDistance(String a, String b) {
     for (int j = 0; j <= n; j++) f[0][j] = j;
     for (int i = 1; i <= m; i++)
         for (int j = 1; j <= n; j++)
-            f[i][j] = a.charAt(i - 1) == b.charAt(j - 1) ? f[i - 1][j - 1]
-                    : 1 + Math.min(f[i - 1][j - 1], Math.min(f[i - 1][j], f[i][j - 1]));
+            f[i][j] =
+                    a.charAt(i - 1) == b.charAt(j - 1)
+                            ? f[i - 1][j - 1]
+                            : 1 + Math.min(f[i - 1][j - 1], Math.min(f[i - 1][j], f[i][j - 1]));
     return f[m][n];
 }
 ```
@@ -338,7 +351,10 @@ static boolean wordBreak(String s, List<String> wordDict) {
     f[0] = true;
     for (int i = 1; i <= s.length(); i++)
         for (int j = 0; j < i; j++)
-            if (f[j] && words.contains(s.substring(j, i))) { f[i] = true; break; }
+            if (f[j] && words.contains(s.substring(j, i))) {
+                f[i] = true;
+                break;
+            }
     return f[s.length()];
 }
 ```
