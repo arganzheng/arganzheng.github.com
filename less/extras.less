@@ -230,18 +230,20 @@
 		&.tag-weight-d { font-size: 13px; }
 	}
 }
-// post header (_layouts/post.html): cloud look, but one colour and one size
+// post header (_layouts/post.html): the cloud's hover look as the resting state
+// (tinted chip, one colour, one size); hover deepens the tint and lifts.
 .page-header .post-tags {
 	margin-top: 8px;
 	display: flex; flex-wrap: wrap; gap: 4px 6px;
 	a {
 		display: inline-block;
-		font-size: 13px; line-height: 1.4; padding: 2px 5px; border-radius: 4px;
-		color: #57606a; text-decoration: none !important;
+		font-size: 13px; line-height: 1.4; padding: 2px 8px; border-radius: 4px;
+		color: @brand-primary; background-color: fade(@brand-primary, 10%);
+		text-decoration: none !important;
 		transition: all 0.2s ease;
 		&:hover, &:active, &:focus {
-			color: @brand-primary;
-			background-color: fade(@brand-primary, 10%);
+			color: darken(@brand-primary, 8%);
+			background-color: fade(@brand-primary, 20%);
 			transform: translateY(-1px);
 		}
 	}

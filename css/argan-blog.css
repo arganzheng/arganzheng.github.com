@@ -2268,17 +2268,18 @@ li[id^="fn:"] {
   display: inline-block;
   font-size: 13px;
   line-height: 1.4;
-  padding: 2px 5px;
+  padding: 2px 8px;
   border-radius: 4px;
-  color: #57606a;
+  color: #00788f;
+  background-color: rgba(0, 120, 143, 0.1);
   text-decoration: none !important;
   transition: all 0.2s ease;
 }
 .page-header .post-tags a:hover,
 .page-header .post-tags a:active,
 .page-header .post-tags a:focus {
-  color: #00788f;
-  background-color: rgba(0, 120, 143, 0.1);
+  color: #005666;
+  background-color: rgba(0, 120, 143, 0.2);
   transform: translateY(-1px);
 }
 .post-container .heading-anchor {
