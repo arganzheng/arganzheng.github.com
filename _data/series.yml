@@ -69,3 +69,6 @@ coding-interview:
 model-as-component:
   name: 模型作为组件：契约、失效模式与选型
   overview: /model-as-a-component.html
+context-engineering:
+  name: Prompt 与上下文工程：模型这一步该看到什么
+  overview: /prompt-and-context-engineering.html
