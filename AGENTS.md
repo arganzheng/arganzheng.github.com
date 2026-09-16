@@ -912,13 +912,42 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   tokenizer +30 %, sampling params → 400) / Haiku 4.5; Gemini 3.8 Flash
   (09-02), Interactions API GA 06, `outputs → steps` 05-26 / 06-08; DeepSeek
   V4.1 Flash (09-10, MIT), V4-Pro routed to it from 09-14, peak/off-peak
-  pricing. Planned series 02–07: `context-engineering`,
-  `retrieval-and-knowledge`, `agent-and-harness` (must compare OpenAI Codex /
-  Agents API, DeepSeek Harness `dsh` (08-13, "everything is a plugin",
-  Cordis), Claude Code, OpenHarness at source level), `evals-and-observability`,
-  `production-and-operations`, `product-and-experience`; add each to
-  `_data/series.yml`, the map table and the 全栈 map's three 「系列待写」 spots
-  as it lands.
+  pricing. All seven application series landed 2026-09-16 (dates run daily,
+  overview → body → recap on the last body day at 20:00):
+  02 `context-engineering` 10-05 … 10-11 (6 body: 七层解剖、模式 vs 措辞、
+  结构化输出与约束解码、预算与卸载 / 清理 / 压缩、prompt caching 与排列、
+  prompt 当代码管 + AGENTS.md / SKILL.md + 上下文 vs 检索);
+  03 `retrieval-and-knowledge` 10-12 … 10-19 (7 body: 进上下文还是进权重、
+  三类检索 + coding agent 的 grep / 索引分歧、解析与分块、索引 / 混合 / rerank、
+  流水线到 agentic、SQL / 本体 / GraphRAG、评测与运营);
+  04 `agent-and-harness` 10-20 … 10-29 (9 body: 最小循环、MCP 2026-07-28 +
+  tool search + PTC、运行时与会话日志、上下文与子 agent、权限 / 沙箱 / 安全边界、
+  **源码级对照 Codex `codex-rs` / DeepSeek Harness `dsh` / Claude Code /
+  OpenHarness (Python)** — twelve-dimension table + three delivery forms、多 agent
+  与 A2A、memory 与 human-in-the-loop、可靠性与轨迹评测). Source facts come
+  from shallow clones at `/Users/argan/Code/codex` (2026-09-16) and
+  `/Users/argan/Code/deepseek-harness` (2026-09-15); cite crate / package /
+  module names, never line numbers; DeepSeek Harness is "developer preview,
+  compatibility-breaking changes expected". Both clones ship their own
+  AGENTS.md — do not `cd` into them from a blog shell or their rules leak in;
+  05 `evals-and-observability` 10-30 … 11-06 (7 body: 评测集、judge 校准
+  (2026 studies: kappa deflation 33–41 pp, style bias dominant, mid-tier +
+  debias beats frontier 15× cheaper)、指标矩阵、门禁 / 静默升级 / 在线、trace +
+  OTel GenAI semconv (all Development, moved to `semantic-conventions-genai`
+  2026-06)、录制回放 / 决策点 / 失败分类 / 反馈绑定、运行时与物理世界仿真);
+  06 `production-and-operations` 11-07 … 11-14 (7 body: 网关、成本、延迟、安全
+  (EchoLeak CVE-2025-32711, Cursor MCPoison / CurXecute / DuneSlide, MCP
+  description poisoning 2026-06-30, OWASP LLM Top 10 2025)、治理与合规 (EU AI
+  Act: Digital Omnibus Reg. 2026/1744 in force 2026-07-27, GPAI enforceable
+  2026-08-02, Annex III → 2027-12-02, Annex I → 2028-08-02; 中国标识办法
+  2025-09-01)、发布工程、飞轮与物理世界 OTA);
+  07 `product-and-experience` 11-15 … 11-20 (5 body: 场景选择 (jagged frontier
+  758-consultant study, Klarna / IBM / Duolingo reversals)、形态与后台 agent、
+  信任校准、呈现与非对话形态、指标与回流). The 应用地图 has a per-layer
+  「这一层已写成系列…」 pointer under each L1–L7 heading plus the 已有的文章与系列
+  table; the 全栈 map's three former 「系列待写」 spots say 七层齐. Body posts
+  run 10–16k chars (tables and worked examples, no padding); the user asked for
+  everything to be written first and reviewed together afterwards.
 - **Every series ends with a 「系列总结与通关自测」 post** (added 2026-09-16
   for all 21 series): `_posts/<last-post-date>-<series-key>-series-recap-and-self-test.md`,
   `date: <same day> 20:00:00` so it sorts after the last body post without
