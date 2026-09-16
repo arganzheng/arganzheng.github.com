@@ -36,7 +36,7 @@ Attention 不是为 Transformer 发明的。2014 年它被加到一个循环神�
 | 六 | attention 的诞生 | Bahdanau 的公式、对齐矩阵、它与 softmax(QK^T)V 的对应 |
 | 七 | RNN 的两个致命缺点与 Transformer 的回答 | 串行 vs 并行（实测硬件利用率差 4.5 倍）、路径长度、`O(n²)` 的代价、RNN 的回声 |
 | 八 | 实验 | 代码与结果 |
-| 九 | 本文小结与系列总结 |  |
+| 九 | 本文小结 | |
 | 十 | 自测 | 5 道题 |
 
 ## 二、循环网络
@@ -304,9 +304,7 @@ for t in range(T, 0, -1):
 - 给记忆任务加一个"$$T$$ 步之间有干扰 token 要忽略"的变体，看 LSTM 的门是否学会关闭输入门；
 - 把 seq2seq 的 attention 打分从 additive 换成点积，对比收敛速度——这是 Luong 2015 做的事。
 
-## 九、本文小结与系列总结
-
-### 1. 本文小结
+## 九、本文小结
 
 - RNN 用一个固定维度的状态与一组共享参数处理变长序列；展开后是深度为 $$T$$、**每层权重相同**的网络。
 - BPTT 的梯度是 $$T - t$$ 个 $$\text{diag}(1 - h^2) W$$ 的乘积；标准初始化下 20 步外衰减到千分之四、60 步外 $$10^{-10}$$。RNN 记不住 10 步外的东西（实测），不是装不下，是训练信号传不到。梯度裁剪最初为 RNN 的爆炸而发明。
@@ -314,20 +312,6 @@ for t in range(T, 0, -1):
 - seq2seq 把整句压进一个固定向量，16 个 token 的倒序任务整句准确率 0%。Bahdanau attention 让 decoder 每步对 encoder 全部状态加权求和，同一任务到 76%；对齐矩阵自己学出反对角线。
 - Bahdanau 的 $$s$$、$$h_j$$、加权和，就是 query、key / value、$$\text{softmax}(QK^T)V$$；Transformer 换了打分函数与用法（self-attention），然后去掉了循环。
 - RNN 的两个致命缺点：串行（实测同一 CPU 上 attention 达到的算力是它的 4.5 倍）与 $$O(n)$$ 的路径长度。Transformer 用 $$O(n^2)$$ 的算量与 KV cache 换掉了两者——04 系列全在算这笔账。SSM / 线性 attention 在找回 RNN 的 $$O(1)$$ 推理成本。
-
-### 2. 系列总结
-
-六篇文章讲了一件事：**训练一个深网络时会发生什么**。
-
-- [第一篇](/backpropagation-by-hand.html)建立了梯度：反向传播是沿计算图的 VJP，梯度与参数同形状，反向是前向的两倍（$$6ND$$），激活必须存到反向。
-- [第二篇](/initialization-normalization-and-residual.html)讲梯度为什么会坏：前向方差与反向 Jacobian 的连乘；初始化修初始时刻，归一化修前向，残差修反向；Pre-Norm 是当前的答案。
-- [第三篇](/optimizers-from-sgd-to-adamw.html)讲怎么用梯度：Adam 让每个参数步长 $$\approx \eta$$，因此需要 warmup；AdamW 与 $$L_2$$ 不等价；batch 与学习率的 scaling 有临界点；裁剪限制步长上界。
-- [第四篇](/regularization-and-generalization.html)讲什么时候停：参数 / 数据比决定体制；过参数化时优化器挑平坦解、double descent；预训练不用 dropout 只训一个 epoch，SFT 与奖励模型会过拟合。
-- [第五篇](/cnn-from-lenet-to-resnet-and-vit.html)与本篇回看两条结构史：卷积是带约束的线性层，ResNet 留下残差、归一化、堆同样的块与 pre-activation，ViT 把图切成 token；RNN 的门是时间上的残差，attention 从 seq2seq 的瓶颈里诞生，然后取代了发明它的循环。
-
-读到这里，Transformer 的每个部件都有了来历：残差与 Pre-Norm 来自第二篇与 ResNet，AdamW 与 warmup 来自第三篇，attention 来自本篇，patch embedding 来自上一篇，"堆 $$L$$ 层同样的块"来自两条线的交汇。[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)从这里接手——那个系列不再问"为什么这样设计"，而是问"这样设计每一步花多少钱"。两个系列合在一起，是[算法地图](/ai-algorithm-engineer-learning-roadmap.html)上 L3 与 L4 的全部基础。
-
-配套代码：[`deep-learning-foundations/06_rnn_attention.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/06_rnn_attention.py)——`bptt` / `memory` / `forget` / `seq2seq` / `timing` 五个子实验；`forget` 就是遗忘门偏置为 1 的那组对照。整个系列的代码与运行输出在 [ai-learning-labs/deep-learning-foundations](https://github.com/arganzheng/ai-learning-labs/tree/main/deep-learning-foundations)。
 
 ## 十、自测
 

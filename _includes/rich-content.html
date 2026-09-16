@@ -62,7 +62,7 @@
       var s = document.createElement('script');
       s.type = 'text/javascript';
       s.async = true;
-      s.src = '//cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js';
+      s.src = 'https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js';
       s.onload = function () {
         if (typeof mermaid === 'undefined') return;
         mermaid.initialize({
@@ -135,7 +135,7 @@
      safe from the Markdown parser, so those are the delimiters we scan. -->
 <script type="text/javascript">
   (function () {
-    var KATEX = '//cdn.jsdelivr.net/npm/katex@0.16.11/dist/';
+    var KATEX = 'https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/';
 
     // Only prose counts: shell posts are full of `sed 's/\[//'` and
     // `Foo$$Lambda$613`, and those must not pull in the KaTeX bundle.

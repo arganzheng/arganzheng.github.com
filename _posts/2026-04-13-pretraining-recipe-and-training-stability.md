@@ -53,7 +53,7 @@ DeepSeek-V3 的"零不可恢复 spike"来自这些开关的组合，加上 FP8 �
 | 六 | 长上下文继续预训练 | Llama 3 的六步与 DeepSeek-V3 的两步；attention 占比与并行 |
 | 七 | 监控 | 该看的七条曲线与它们的含义 |
 | 八 | 实践 | `training_recipe_lab.py`、`llm_cost_12_recipe.py` |
-| 九 | 本文小结与系列总结 | |
+| 九 | 本文小结 | |
 | 十 | 自测 | 5 道题 |
 
 ## 二、目标函数
@@ -348,9 +348,7 @@ total = loss + z_loss * (log_z ** 2).mean()
 
 纯标准库：五个公开配方的超参表与推出的步数、每步时间；DeepSeek 的 lr / batch 经验律在六个算力点上的值与真实配方的对照；四个模型的 checkpoint 字节数与每小时一次的写带宽；PaLM 式回滚在 405B 规格上的 GPU 小时；长上下文阶段 attention 的 FLOPs 占比。`RECIPES` 列表可以加新模型。`tools/gen_schedule_svg.py` 画本文的图。
 
-## 九、本文小结与系列总结
-
-### 1. 本文小结
+## 九、本文小结
 
 | 项 | 规则 / 公式 | 数字 |
 |---|---|---|
@@ -364,39 +362,6 @@ total = loss + z_loss * (log_z ** 2).mean()
 | spike 代价 | 回退 100 步 + 跳 200–500 batch | 405B：8 千–1.6 万 GPU 小时 |
 | 硬件故障 | 每 3 小时一次；$$T_{opt} = \sqrt{2\delta \cdot \text{MTBF}}$$ | 405B checkpoint 5.7 TB；每 4–5 分钟一次 → 有效时间 > 90% |
 | 长上下文阶段 | 分步扩，attention 占比 4% → 40% | 405B：800B token，6 步到 128K |
-
-
-### 2. 系列总结（四篇）
-
-四篇把[《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)的成本表从"模型作为计算对象"扩展到"模型怎么训出来"，每篇留下几个数字：
-
-```text
-第一篇   tokenizer    词表参数 2Vd（Llama-3-8B 1.05B，13%）；lm_head 占 FLOPs 7%（0.5B 模型 38%）
-                      3.17 → 3.94 字符/token：每字符便宜 15%、KV 少 20%；中文在不同词表下差 2.1 倍
-第二篇   scaling law  L = E + A/N^α + B/D^β；D/N ≈ 20；固定 C 缩小 10 倍：loss +0.053、推理 1/10
-                      服务 100T token 时最优 24B / 13.8T 而非 81B / 1.5T；4 epoch 值 93%
-第三篇 数据         240T → 15T（6%）→ 1.3–5.4T；MinHash 14×8 阈值 0.72；全局去重反而更差
-                      25% 数学推理 = 7.5 epoch；抽取 70 万核·小时；训练读带宽 9–46 MB/s
-第四篇 配方         lr 3e-4 → 8e-5 随宽度；batch 4M → 63M；warmup < 1%；WSD ≥ cosine
-                      QK-norm：logit 12592 → 22；spike 一次约 1 万 GPU 小时；故障每 3 小时一次
-```
-
-贯穿四篇的是同一个视角：**预训练的每个决定都能算账**——词表大小换压缩率、参数换数据、过滤的严格程度换 token 量、lr 与 batch 换稳定性——而算不出来的那部分（哪个阈值、哪种配比、哪组超参更好）都靠同一种方法：用小模型的消融外推，这是第二篇的 scaling law 作为方法论的全部内容。
-
-### 3. 两个系列合起来
-
-《Transformer 与 LLM》的八篇回答"这个模型每一步算多少、读多少、存多少"，给 Infra 工程师一张可以从 `config.json` 算出的成本表；本系列的四篇回答"这个模型是怎么训出来的、每个训练决定花多少"，给算法工程师同一张表的训练侧。两个系列共用的东西是**推导、代入真实模型、解释数字**这套方法，以及 Llama 3 与 DeepSeek-V3 这两个贯穿始终的对象。
-
-《Transformer 与 LLM》第八篇末尾的能力清单在这里加四行：
-
-```text
-换一个 tokenizer 会怎样？                       → 第一篇：2Vd 与每字符成本
-给定算力，模型多大、数据多少？训完要服务多少？     → 第二篇：Chinchilla 与推理感知的最优点
-15T token 从哪来、丢掉的是什么、够不够？          → 第三篇：漏斗、MinHash、配比 → epoch
-超参表里的每个数字从哪来？训练为什么会崩？        → 第四篇：μP、梯度噪声尺度、三个机制与六个开关
-```
-
-系列的边界仍在：kernel 怎么写、引擎怎么调度、并行怎么切、后训练（SFT、RLHF、蒸馏、评测）怎么做，各是另一个系列。回到总纲：[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)；成本表本身在[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)。
 
 配套代码：[`transformer-and-llm/training_recipe_lab.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/training_recipe_lab.py)（四个子实验，PyTorch CPU）、[`llm_cost_12_recipe.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_12_recipe.py)（配方的账）、[`tools/gen_schedule_svg.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/tools/gen_schedule_svg.py)（本文的图）。两个系列共十二版 `llm_cost.py` 与各篇实验的脚本、运行输出都在 [ai-learning-labs/transformer-and-llm](https://github.com/arganzheng/ai-learning-labs/tree/main/transformer-and-llm)。
 

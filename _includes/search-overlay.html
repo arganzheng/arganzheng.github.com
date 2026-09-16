@@ -133,8 +133,10 @@
     }
 </style>
 
-<script src="{{ '/js/search.js' | prepend: site.baseurl }}?v={{ site.time | date: '%Y%m%d%H%M' }}"></script>
+<script defer src="{{ '/js/search.js' | prepend: site.baseurl }}?v={{ site.time | date: '%Y%m%d%H%M' }}"></script>
 <script>
+    // search.js is deferred (it only matters once the overlay opens), so anything that
+    // calls BLOG_SEARCH synchronously here must wait for DOMContentLoaded.
     (function () {
         var overlay = document.getElementById('search-overlay');
         var input = document.getElementById('search-overlay-input');
@@ -145,6 +147,7 @@
             overlay.classList.add('search-active');
             document.body.style.overflow = 'hidden';
             if (!initialized) {
+                if (!window.BLOG_SEARCH) { document.addEventListener('DOMContentLoaded', openOverlay, { once: true }); return; }
                 initialized = true;
                 window.BLOG_SEARCH.init({
                     inputId: 'search-overlay-input',
@@ -183,7 +186,7 @@
 
         // Direct visits to /search/ (e.g. /search/?q=xxx) auto-open the overlay.
         if (window.location.pathname.replace(/\/+$/, '/') === '{{ '/search/' | prepend: site.baseurl }}') {
-            openOverlay();
+            document.addEventListener('DOMContentLoaded', openOverlay);
         }
     })();
 </script>

@@ -181,6 +181,9 @@ VLM 的训练不是一步到位的：先让 connector 学会对齐、再让 LLM 
 
 **要回答的问题**：AR 生成图像与扩散各赢在哪？理解与生成的表示能不能共享？
 
+### 8. 系列总结与通关自测
+
+最后一篇不讲新内容：把七篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是七篇能不能连起来用；读完正文再做。
 
 ## 贯穿全系列的实践线
 
@@ -259,6 +262,7 @@ VLM 的训练不是一步到位的：先让 connector 学会对齐、再让 LLM 
 5. [扩散模型：DDPM、score matching 与 flow matching](/diffusion-models-ddpm-score-matching-and-flow-matching.html)
 6. [Latent diffusion、DiT 与文生图配方](/latent-diffusion-dit-and-text-to-image-recipes.html)
 7. [自回归图像生成与统一模型](/autoregressive-image-generation-and-unified-models.html)
+8. [系列总结与通关自测](/multimodal-series-recap-and-self-test.html)
 
 
 ## 最终目标

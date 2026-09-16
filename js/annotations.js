@@ -72,7 +72,7 @@
   var SESSION_KEY = 'giscus-session';
   var CONTEXT_CHARS = 32;
   var EXCLUDE_SELECTOR = '.comment, .pager, .related-posts, .footnotes, .reversefootnote, sup[id^="fnref"], a.footnote, ' +
-    'script, style, noscript, svg, .katex, .mermaid, button, .anchorjs-link, .annotation-toolbar, .annotation-panel, .annotation-marker, .sec-react';
+    'script, style, noscript, svg, .katex, .mermaid, button, .heading-anchor, .annotation-toolbar, .annotation-panel, .annotation-marker, .sec-react';
   var BLOCK_SELECTOR = 'p, li, pre, blockquote, h1, h2, h3, h4, h5, h6, dd, dt, figcaption, figure, .table-caption, .highlight, table';
   var GHOST = { login: 'ghost', url: 'https://github.com/ghost', avatarUrl: 'https://avatars.githubusercontent.com/u/10137?s=64&v=4' };
 
@@ -294,7 +294,7 @@
   }
   // A heading's own words — without the anchor link and the section 点赞/没看懂 buttons we add to headings.
   function headingText(h) {
-    var c = h.cloneNode(true), junk = c.querySelectorAll('.sec-react, .anchorjs-link');
+    var c = h.cloneNode(true), junk = c.querySelectorAll('.sec-react, .heading-anchor');
     for (var i = 0; i < junk.length; i++) junk[i].parentNode.removeChild(junk[i]);
     return c.textContent.replace(/\s+/g, ' ').trim();
   }

@@ -218,6 +218,9 @@ LLM 线：benchmark 污染 → reward hacking → 奖励模型 → 质量过滤�
 
 > **过滤器"准确率 95%"是什么意思？judge 与人类"一致率 80%"够不够？"20 个 benchmark 领先 12 个"算不算？**
 
+### 7. 系列总结与通关自测
+
+最后一篇不讲新内容：把六篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是六篇能不能连起来用；读完正文再做。
 
 ## 贯穿全系列的实践线
 
@@ -314,6 +317,7 @@ LLM 线：benchmark 污染 → reward hacking → 奖励模型 → 质量过滤�
 4. [无监督：K-Means、PCA 与 embedding 聚类](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html)
 5. [去重：MinHash 与 LSH 的概率](/deduplication-minhash-and-lsh-probabilities.html)
 6. [评估：从混淆矩阵到 judge 的一致性](/evaluation-from-confusion-matrix-to-judge-agreement.html)
+7. [系列总结与通关自测](/classical-ml-series-recap-and-self-test.html)
 
 
 ## 怎么学

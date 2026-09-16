@@ -82,7 +82,7 @@ VAR：next-scale，由粗到细 10 步`"]
 | 六 | 统一模型 | 三条路线的结构、训练与结果；Chameleon 的稳定性问题；Janus 的解耦；Transfusion / BAGEL 的混合；GPT-4o 原生图像生成的启示 |
 | 七 | 成本 | AR 的 token 数与 decode 步数；与扩散的账 |
 | 八 | 动手（建议） | VQGAN 码本大小与重建；LlamaGen vs SD 的时间 |
-| 九 | 本文小结与系列总结 | 七篇的两条线；多模态的下一个形态 |
+| 九 | 本文小结 | |
 | 十 | 自测 | 5 道题 |
 
 ## 二、图像 tokenizer
@@ -274,9 +274,7 @@ Chameleon 34B：4.4T token；BAGEL：数万亿 token 的交错数据、14B MoT�
 
 该看的：f8 的重建远好于 f16 但 token 4 倍；码本利用率是否远低于 100%（旧 VQ）而低维归一化 VQ / FSQ 接近 100%；LlamaGen 无 CFG 的 FID 是否是有 CFG 的数倍；VAR 是否比 LlamaGen 快 20 倍且 FID 更好；统一模型的编辑是否比流水线更忠实于原图。不引用任何未跑过的数字。
 
-## 九、本文小结与系列总结
-
-### 1. 本文小结
+## 九、本文小结
 
 | 项 | 规则 | 备注 |
 |---|---|---|
@@ -293,17 +291,6 @@ Chameleon 34B：4.4T token；BAGEL：数万亿 token 的交错数据、14B MoT�
 | 统一三路线 | 纯 token（Chameleon，理解妥协、不稳定）；双编码器（Janus，两侧好、不共享）；AR + 扩散（Transfusion、BAGEL，生成最好、涌现） | GPT-4o 确认方向 |
 | 共享 | 部分共享：共享 attention / 上下文，分开 FFN；tokenizer 走向一套语义化 | BAGEL MoT |
 | 成本 | 栅格 AR 7B 4096 步 100 s（带宽）；VAR < 1 s；统一模型 ≈ LLM 预训练量级 | |
-
-
-### 2. 系列总结：两条线与一个交汇点
-
-七篇走完了两条线。**理解线**（一到四）：编码器学到什么由它的训练目标决定——对比学习保留"文本能描述且需要区分"的信息，留下计数、空间、文字的盲点；connector 是一次信息与 token 的交换，MLP + 2×2 merge 是 2024 年的答案，原生分辨率解决了 tile 的边界与效率；训练分阶段是因为新旧参数不能同时同速地学，数据决定能力的形状，幻觉来自数据共现、编码器缺失与解码惯性三处；语音因为要生成而必须离散化，RVQ 的层次决定了语音生成的形态，全双工把串联的四段时延压成一个模型的一步。**生成线**（五到六）：DDPM、score、flow 是同一个分数的三种参数化，差别只在噪声水平的权重与路径的形状，直线路径让步数少；CFG 是对条件的 $$w$$ 次幂锐化；latent 让扩散只做语义，DiT 让扩散有了 scaling law，MMDiT 让文本深度参与；扩散是 compute-bound 的多步并行，与 LLM 的 memory-bound 串行是两种形态，它的加速是步数蒸馏。**交汇**（七）：离散 token 让图像进入 LLM 的生成范式，VAR 用尺度顺序修正了栅格的缺陷，统一模型在纯 token、双编码器、混合三条路线上探索理解与生成的共享，当前的答案是部分共享、方向收敛。
-
-三条线索的终点：**推导线**——InfoNCE 的互信息下界、RVQ 的残差分解、ELBO 到噪声预测、Tweedie 公式、条件流匹配的等价性、CFG 的贝叶斯分解、VQ 的 STE；**成本线**——每个 token 对应多少像素、每个阶段多少算力、一张图多少 FLOPs 与 LLM 的对比、视频的百倍、栅格 AR 的串行代价；**配方线**——LLaVA 到 Qwen2.5-VL、Whisper 到 Moshi、SD 1.5 到 FLUX、VQGAN 到 BAGEL。
-
-多模态的下一个形态大概率是**统一的、原生的**：多模态不再是 LLM 训好之后对齐上去的，而是从预训练第一天就在（Gemma 3、Kimi-VL、BAGEL、GPT-4o 已经这样做了）；理解与生成共享上下文；语音与视觉共享时间轴。那时这个系列的七篇会合并成一个问题——一个 Transformer 怎么用一套表示处理世界的所有信号——但每一篇讲的部件与账仍在那里。
-
-回到总纲：[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)。算法工程师地图的全部系列至此写完，回到地图：[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)。
 
 ## 十、自测
 

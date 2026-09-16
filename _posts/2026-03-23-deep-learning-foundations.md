@@ -222,6 +222,9 @@ LLM 线：6ND · 激活重算 → RMSNorm · Pre-Norm · 0.02 → AdamW · warmu
 
 实验：用 NumPy 实现一个 RNN 与 LSTM，在"记住第一个 token 并在 $$T$$ 步后输出"的任务上扫 $$T$$，画出两者能记住的最长距离；实现 Bahdanau attention 并可视化对齐矩阵；测量 RNN 与 self-attention 在同一序列长度下的前向时间随长度的变化。
 
+### 7. 系列总结与通关自测
+
+最后一篇不讲新内容：把六篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是六篇能不能连起来用；读完正文再做。
 
 ## 贯穿全系列的实践线
 
@@ -325,6 +328,7 @@ LLM 线：6ND · 激活重算 → RMSNorm · Pre-Norm · 0.02 → AdamW · warmu
 4. [正则化与泛化：为什么参数比样本多却不过拟合](/regularization-and-generalization.html)
 5. [CNN：从 LeNet 到 ResNet，再到 ViT](/cnn-from-lenet-to-resnet-and-vit.html)
 6. [RNN：从 LSTM 到 attention 的诞生](/rnn-lstm-and-the-birth-of-attention.html)
+7. [系列总结与通关自测](/deep-learning-foundations-series-recap-and-self-test.html)
 
 
 ## 最终目标

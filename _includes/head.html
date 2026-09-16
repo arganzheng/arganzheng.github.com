@@ -28,11 +28,15 @@
     <link rel="stylesheet" href="{{ "/css/argan-blog.min.css" | prepend: site.baseurl }}?v={{ v }}"> 
     <link rel="stylesheet" href="{{ "/css/github-markdown.css" | prepend: site.baseurl }}?v={{ v }}">
 
-    <!-- Pygments Github CSS -->
-    <link rel="stylesheet" href="{{ "/css/syntax.css" | prepend: site.baseurl }}?v={{ v }}">
-
-    <!-- Font Awesome 4.7 subset (tools/fa-subset.py: only the icons the site uses) -->
-    <link rel="stylesheet" href="{{ "/css/font-awesome.min.css" | prepend: site.baseurl }}">
+    <!-- Pygments Github CSS + Font Awesome 4.7 subset (tools/fa-subset.py): colours and icon glyphs only,
+         no layout, so they load off the critical path (media=print until loaded); github-markdown.css
+         above sets body typography and must stay blocking or the text would reflow. -->
+    <link rel="stylesheet" href="{{ "/css/syntax.css" | prepend: site.baseurl }}?v={{ v }}" media="print" onload="this.media='all'">
+    <link rel="stylesheet" href="{{ "/css/font-awesome.min.css" | prepend: site.baseurl }}" media="print" onload="this.media='all'">
+    <noscript>
+        <link rel="stylesheet" href="{{ "/css/syntax.css" | prepend: site.baseurl }}?v={{ v }}">
+        <link rel="stylesheet" href="{{ "/css/font-awesome.min.css" | prepend: site.baseurl }}">
+    </noscript>
 
     <!-- Cloudflare Web Analytics -->
     <script type='module' src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "6310e1a3865b43c790d99880c67977e9"}'></script>

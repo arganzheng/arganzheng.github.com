@@ -199,7 +199,18 @@ Pages has `https_enforced` on.
   heading's textContent — what highlight comments anchor to — is unchanged);
   click copies the section URL via `window.BlogCopy` (exported by
   `js/code-copy.js`, same focus/secure-context fallback) and scrolls with the
-  navbar offset. Removed from the WeChat export.
+  navbar offset. Removed from the WeChat export. This replaced the theme's
+  AnchorJS (cdnjs, `anchorjs: true` in `_config.yml`) — for a week both ran
+  and every heading had two `#`s; do not bring AnchorJS back.
+- `<head>` load order (`_includes/head.html`): `bootstrap`, `argan-blog`,
+  `github-markdown` are blocking (they set layout / body typography);
+  `syntax.css` and the Font Awesome subset are colours and glyphs only and load
+  via `media="print" onload="this.media='all'"` (+ `<noscript>` fallback).
+  `js/search.js` is `defer` — `search-overlay.html` waits for
+  `DOMContentLoaded` before touching `BLOG_SEARCH`. CDN URLs are explicit
+  `https://` (protocol-relative ones showed up as mixed content in local
+  audits). `/tags/` lists ~1400 entries: keep its per-entry markup lean and
+  free of HTML comments (it used to be 1.2 MB).
 - `_posts/` — blog posts, `layout: post`, permalink `/:title.html`
 - `slides/` — reveal.js decks, `layout: slides` (or set in front matter),
   URL `/slides/:name.html`, indexed by `slides.html` (`/slides/`)
@@ -517,7 +528,7 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
     `quote = '§ ' + heading` (`CHAPTER_PREFIX`), `section = heading`, `up` = 点赞,
     `doubt` = 没看懂; `loadReactions` splits `§ ` rows into `chapters` so they are
     never anchored as passages. `.sec-react` is in `EXCLUDE_SELECTOR`, in
-    wechat-export's `REMOVE`, and `headingText()` strips it (and `.anchorjs-link`)
+    wechat-export's `REMOVE`, and `headingText()` strips it (and `.heading-anchor`)
     wherever a heading's text is read (`sectionForOffsets`). The dashboard tags
     such rows 「章节」 and the brief has a 「章节热度」 table.
   - **修订简报** lives only in `/admin/stats.html` (`#brief=/slug.html`, a

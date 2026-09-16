@@ -35,8 +35,7 @@ ridge     989e12 / 3.35e12 ≈ 295 FLOP / 字节       每搬一个字节做多�
 | 四 | 显存的四块 | 训练与推理各是哪块大；KV cache；OOM 归因 |
 | 五 | kernel、stream 与 profiler | 三个概念；读一张 profiler 表 |
 | 六 | 实验管理 | 最小记录的七项；工具各管哪项；随机性 |
-| 七 | 系列总结 | |
-| 八 | 自测 | 五道题 |
+| 七 | 自测 | 五道题 |
 
 配套脚本：[`05_profiler_and_record.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/algorithm-tooling/05_profiler_and_record.py)。
 
@@ -206,32 +205,7 @@ seed 1:      3.378334 → 与 seed 0 差 0.1404，这就是'单个数字不算�
 
 这一章是横切"实验方法论"的物质基础——方法论讲"怎么设计实验才能得出可信的结论"，这里讲"用什么工具把实验记下来"。工具很便宜（W&B 一行 `wandb.init`、Hydra 一个装饰器），贵的是习惯：**每次实验先想"三个月后我怎么复现它"**。
 
-## 七、系列总结
-
-这是《算法工程师的工具箱》的最后一篇。五篇走完，一次实验要经过的每一层都有了对应的工具与数字：
-
-```text
-科学计算栈   轴与广播三条规则 · reshape 不动数据 / transpose 不连续 · einsum 读公式
-             30 行 NumPy attention 对到 2.65e-7 · groupby / merge / query · 对数 x 轴 · 多 seed 阴影带
-
-PyTorch 上   五个对象 · Autograd 三件事（记图 · 累加 · no_grad）· nn.Module 两个方法
-             二十行训练循环每一行对应一个概念 · 84 万参数一分钟 PPL 128 → 9.6 · CPU 上 bf16 慢 30 倍
-
-PyTorch 下   autocast 不改参数精度、主权重 fp32 · 16 字节 / 参数 · 128.5 / 16.7 / 5.1 GB
-             激活与参数量无关、可以比状态还大 · checkpointing 30% 换 · OOM 先问哪一块 · DDP 一份完整 / FSDP 切开
-
-HF 生态      三个文件 · 六个库 · 六行 SFT 背后的六件事 · 85% 的 token 被 mask · 结束符要进 loss
-             读源码：modeling_llama · dpo_loss · Linear.forward 一行 · LogitsProcessor
-
-GPU 与管理   ridge 295 · decode 4.8 ms / token memory-bound、batch 大才快 · prefill / 训练 compute-bound · MFU
-             KV cache 131 KB / token · profiler：GEMM 与 attention 应占大头、反向 2× 前向 · 七项记录 · seed 差 0.14
-```
-
-总纲里那五件事——写 attention、写训练循环、算显存、组装 SFT、读 profiler 并记录——现在每一件都有一个跑过的脚本。工具的检验是做，不是读：把五个脚本改一改（换模型大小、换 batch、换 seed），看数字怎么变，L1 就够了。
-
-接下来两个系列是本层的**深入篇**，两张地图共享：Infra 地图的 [01 Python](/python-for-ai-infra.html)（语言机制与运行时——本系列假设你会用 Python，它讲 Python 为什么这样工作）与 [03 PyTorch](/deep-dive-into-pytorch.html)（Dispatcher、Autograd 引擎、编译、分布式——本系列讲"用"，它讲"改"）。算法方向的读者按需读，然后进 L2 经典机器学习。
-
-## 八、自测
+## 七、自测
 
 1. 一张卡带宽 2 TB/s、算力 500 TFLOPS：ridge 是多少？一个 70B bf16 模型 batch 1 decode 的时间下限？
 

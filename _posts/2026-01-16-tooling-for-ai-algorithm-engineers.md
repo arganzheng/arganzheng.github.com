@@ -242,6 +242,9 @@ Pandas 错误分析 · Matplotlib 多 seed 曲线`"]
 
 > **不写 kernel，能不能解释一次训练为什么慢、一次推理为什么快不起来、一个 OOM 从哪里来？三个月后能不能复现今天这次实验？**
 
+### 7. 系列总结与通关自测
+
+最后一篇不讲新内容：把六篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是六篇能不能连起来用；读完正文再做。
 
 ## 贯穿全系列的实践线
 
@@ -344,6 +347,7 @@ Pandas 错误分析 · Matplotlib 多 seed 曲线`"]
 4. [PyTorch 使用层（下）：混合精度、显存的账与多卡启用](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html)
 5. [Hugging Face 生态：六个库与一次 LoRA SFT 的组装](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)
 6. [GPU 直觉与实验管理：两个上限、四块显存、能复现](/gpu-intuition-and-experiment-management.html)
+7. [系列总结与通关自测](/algorithm-tooling-series-recap-and-self-test.html)
 
 
 ## 怎么学

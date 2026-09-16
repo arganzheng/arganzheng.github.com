@@ -170,6 +170,9 @@ PTQ 到 4 bit 是当前的舒适区；再往下（3 bit、2 bit、三值）或�
 
 **要回答的问题**：剪掉 25% 的层，困惑度只升 0.3，为什么下游任务掉一半？蒸馏能恢复多少？
 
+### 7. 系列总结与通关自测
+
+最后一篇不讲新内容：把六篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是六篇能不能连起来用；读完正文再做。
 
 ## 贯穿全系列的实践线
 
@@ -242,6 +245,7 @@ PTQ 到 4 bit 是当前的舒适区；再往下（3 bit、2 bit、三值）或�
 4. [量化感知训练、低比特与量化模型的评测](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html)
 5. [KV cache 压缩：量化、驱逐与稀疏 attention](/kv-cache-compression-quantization-eviction-and-sparse-attention.html)
 6. [剪枝、深度缩放与小模型配方](/pruning-depth-scaling-and-small-model-recipes.html)
+7. [系列总结与通关自测](/efficient-inference-series-recap-and-self-test.html)
 
 
 ## 最终目标

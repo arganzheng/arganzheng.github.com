@@ -285,6 +285,9 @@ rollout 引擎与训练器共置、权重同步、生成与训练的算力配比
 
 动手（建议）：用 `lm-evaluation-harness` 在同一模型上跑 GSM8K 的三种协议（0-shot / 8-shot / CoT）看分差；用 1.5B 模型当 judge 对第四篇的 DPO 与 GRPO 输出做成对比较，交换顺序测位置偏差，按长度分桶测长度偏差；对 100 道 GSM8K 题算置信区间。
 
+### 9. 系列总结与通关自测
+
+最后一篇不讲新内容：把八篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是八篇能不能连起来用；读完正文再做。
 
 ## 贯穿全系列的实践线
 
@@ -406,6 +409,7 @@ PPO / GRPO 的组件与显存账、rollout 与训练的算力配比、on-policy 
 6. [Agent 与工具调用的 RL：多轮环境、轨迹数据与延后的奖励](/agentic-rl-tool-use-environments-and-trajectories.html)
 7. [蒸馏：logits 级、序列级与 on-policy](/knowledge-distillation-for-llms.html)
 8. [评测：benchmark、LLM-as-judge、Arena 与污染](/evaluating-llms-benchmarks-judges-and-contamination.html)
+9. [系列总结与通关自测](/post-training-series-recap-and-self-test.html)
 
 
 ## 最终目标

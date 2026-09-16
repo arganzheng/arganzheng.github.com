@@ -144,8 +144,11 @@ tokenizer 在 NLP 教材里、scaling law 在几篇论文里、数据工程在 F
 
 > **Llama 3 405B 的峰值 lr 是 8e-5，DeepSeek-V3 是 2.2e-4；batch 分别是 16M 与 63M token。这些数字怎么定的？DeepSeek-V3 在 FP8 下训 14.8T token 没有一次不可恢复的 loss spike——它开了哪些开关，每个在防什么？**
 
-实践：CPU 上复现三种调度的对比、batch 与最优 lr 的关系、attention logit 随 lr 从 36 涨到 12592 与 QK-norm 把它压到 22、z-loss 对 $$\log Z$$ 的抑制；`llm_cost.py` 加上超参表、checkpoint 字节数与写带宽、spike 回滚的代价。本篇最后给出系列总结。
+实践：CPU 上复现三种调度的对比、batch 与最优 lr 的关系、attention logit 随 lr 从 36 涨到 12592 与 QK-norm 把它压到 22、z-loss 对 $$\log Z$$ 的抑制；`llm_cost.py` 加上超参表、checkpoint 字节数与写带宽、spike 回滚的代价。
 
+### 5. 系列总结与通关自测
+
+最后一篇不讲新内容：把四篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是四篇能不能连起来用；读完正文再做。
 
 ## 贯穿全系列的实践线
 
@@ -242,6 +245,7 @@ loss spike 的三个机制、六个开关、该监控的曲线都在第四篇；
 2. [Scaling law：从 Chinchilla 到"过训练"，算力怎么分给参数与数据](/scaling-laws-and-compute-optimal-training.html)
 3. [预训练数据工程：从 Common Crawl 到 15T token，去重、过滤与配比的账](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)
 4. [训练配方与稳定性：学习率、batch、调度与 loss spike](/pretraining-recipe-and-training-stability.html)
+5. [系列总结与通关自测](/pretraining-series-recap-and-self-test.html)
 
 
 ## 最终目标

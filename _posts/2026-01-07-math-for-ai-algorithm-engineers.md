@@ -261,6 +261,9 @@ LLM 线：attention 的 GEMM → 余弦检索 → RoPE / LoRA → next-token 预
 
 > **HumanEval 上差 3 个点算不算提升？scaling law 的曲线是怎么拟出来的？**
 
+### 9. 系列总结与通关自测
+
+最后一篇不讲新内容：把八篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是八篇能不能连起来用；读完正文再做。
 
 ## 阅读路径建议
 
@@ -339,6 +342,7 @@ LLM 线：attention 的 GEMM → 余弦检索 → RoPE / LoRA → next-token 预
 6. [熵、交叉熵与 KL：从困惑度到 DPO](/entropy-cross-entropy-and-kl-to-dpo.html)
 7. [导数、梯度与链式法则：softmax 的梯度与策略梯度](/derivatives-gradients-chain-rule-and-policy-gradient.html)
 8. [统计推断与拟合：评测的置信区间与 scaling law](/statistical-inference-and-fitting-scaling-laws.html)
+9. [系列总结与通关自测](/math-for-ai-series-recap-and-self-test.html)
 
 
 ## 自测：八个公式
