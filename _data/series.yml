@@ -78,3 +78,6 @@ retrieval-and-knowledge:
 agent-and-harness:
   name: 工具、Agent 与 harness：模型怎么从回答变成做事
   overview: /tools-agents-and-harness.html
+evals-and-observability:
+  name: 评测、可观测与可追溯：怎么知道改了之后更好了
+  overview: /evaluation-observability-and-traceability.html
