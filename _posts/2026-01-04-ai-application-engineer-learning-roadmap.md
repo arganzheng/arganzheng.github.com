@@ -157,6 +157,8 @@ prompt injection · 权限 · PII · 审计`"]
 
 > **模型这一步该看到什么？怎么让输出可解析、可稳定？**
 
+这一层已写成系列[《Prompt 与上下文工程：模型这一步该看到什么》](/prompt-and-context-engineering.html)（六篇）：上下文的七层解剖、prompt 的模式 vs 措辞、结构化输出与约束解码、预算与卸载 / 清理 / 压缩、prompt caching 与排列、prompt 当代码管（含 AGENTS.md / SKILL.md 与上下文 vs 检索的决策）。
+
 "prompt 工程"这个词已经不够用：生产系统里模型每一步看到的东西，是 system prompt、对话历史、检索结果、工具返回、记忆片段拼成的一个**上下文**，它的组装、预算与压缩是一门工程。
 
 | 主题 | 概念 | 说明 |
@@ -171,6 +173,8 @@ prompt injection · 权限 · PII · 审计`"]
 ### L3 检索与知识接入
 
 > **私域知识怎么进入模型？grep、向量、结构化三类检索各适合什么？何时该微调？**
+
+这一层已写成系列[《检索与知识接入：私域知识怎么进入模型》](/retrieval-and-knowledge-access.html)（七篇）：进上下文还是进权重、三类检索与 coding agent 的 grep / 索引分歧、解析与分块、索引 / 混合 / rerank、流水线到 agentic、SQL / 本体 / GraphRAG、检索评测与运营。
 
 通用模型不知道你的业务。把私域知识送进模型有两条路：**放进上下文**（检索、工具查询）或**放进权重**（微调、继续预训练）。这一层先回答哪条路，再讲检索本身。
 
@@ -221,6 +225,8 @@ coding agent 几乎只用第一类（grep + 读文件）而不用向量库，这
 ### L4 工具、Agent 与运行时
 
 > **模型怎么从"回答"变成"做事"？agent 运行时与传统服务、模型 serving 有什么不同？人怎么从环内退到环上、环外？**
+
+这一层已写成系列[《工具、Agent 与 harness：模型怎么从回答变成做事》](/tools-agents-and-harness.html)（九篇）：最小循环、MCP 2026-07-28 与 tool search / PTC、运行时与会话日志、上下文管理与子 agent、权限 / 沙箱 / 安全边界、Codex / DeepSeek Harness / Claude Code / OpenHarness 的源码级对照、多 agent 与 A2A、memory 与 human-in-the-loop、可靠性与轨迹评测。
 
 Agent 是当前变化最快、也最容易被过度设计的一层。它的核心机制并不复杂——一个循环：模型看上下文、决定调用什么工具、执行、把结果放回上下文、再决定。复杂的是把这个循环做**可靠**：
 
@@ -345,6 +351,8 @@ agent 能自主跑多久，不是模型能力单独决定的，是一组工程�
 
 > **怎么知道改了之后更好了？非确定性的系统怎么调试、怎么复现一次失败？**
 
+这一层已写成系列[《评测、可观测与可追溯：怎么知道改了之后更好了》](/evaluation-observability-and-traceability.html)（七篇）：评测集、judge 的偏差与校准、指标矩阵、门禁与静默升级与在线评测、trace 与 OpenTelemetry GenAI 约定、录制回放 / 决策点日志 / 失败分类 / 反馈绑定、运行时 guardrails 与物理世界的仿真。
+
 evals 之于 AI 应用，如同单元测试之于软件——区别是 AI 应用没有 evals 连"能跑"都不能确认。这是应用工程师与"会调 API 的人"的分水岭。
 
 | 主题 | 概念 | 说明 |
@@ -404,6 +412,8 @@ evals 之于 AI 应用，如同单元测试之于软件——区别是 AI 应用
 
 > **成本、延迟、安全、发布、回滚，以及数据怎么回流？**
 
+这一层已写成系列[《生产化与运营：让 AI 应用可靠、可控、可持续地跑》](/production-and-operations-for-ai-applications.html)（七篇）：模型网关、成本工程、延迟工程、安全（EchoLeak / Cursor CVE / MCP 投毒的链路与五层防御）、治理与合规（审计链、保留、EU AI Act 与内容标识）、发布工程（开关、钉版本、runbook、SLO）、数据飞轮与物理世界的 OTA。
+
 | 主题 | 概念 | 说明 |
 |---|---|---|
 | 模型接入 | 通过模型网关接多供应商（统一 API、路由、fallback、配额、计费）；应用侧使用网关，网关的**建设**属于 Infra 地图 11 | 不要在每个应用里各写一遍供应商适配 |
@@ -433,6 +443,8 @@ evals 之于 AI 应用，如同单元测试之于软件——区别是 AI 应用
 ### L7 产品与体验
 
 > **什么场景值得做？人和模型怎么分工？不确定性怎么呈现？**
+
+这一层已写成系列[《产品与体验：把不确定的能力做成可信的产品》](/ai-product-and-experience.html)（五篇）：场景选择与锯齿状边界、copilot / agent / 自动化与后台 agent 的兴起、人机分工与信任校准、不确定性的呈现与非对话形态、产品指标与回流。
 
 | 主题 | 概念 | 说明 |
 |---|---|---|
@@ -500,7 +512,7 @@ evals 之于 AI 应用，如同单元测试之于软件——区别是 AI 应用
 | L4 | [工具、Agent 与 harness：模型怎么从回答变成做事](/tools-agents-and-harness.html) | 9 | 3.5h |
 | L5 | [评测、可观测与可追溯：怎么知道改了之后更好了](/evaluation-observability-and-traceability.html) | 7 | 2h |
 | L6 | [生产化与运营：让 AI 应用可靠、可控、可持续地跑](/production-and-operations-for-ai-applications.html) | 7 | 2.5h |
-| L7 | 产品与体验 | 待写 | |
+| L7 | [产品与体验：把不确定的能力做成可信的产品](/ai-product-and-experience.html) | 5 | 1.5h |
 
 时长按每分钟 450 字估算通读一遍的量。篇数与时长只计正文；每个系列末尾另有一篇「系列总结与通关自测」（逐篇回顾 + 判断计算 / 跨篇综合 / 面试题三段自测），读完正文再做。
 
