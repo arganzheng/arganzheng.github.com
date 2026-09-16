@@ -46,9 +46,9 @@
 }
 .post-container .related {
 	li { margin-bottom: 4px; }
-	.related-date { color: #aaa; }
+	.related-date { color: #6a6a6a; }
 	// the tags this recommendation rests on, so the reader sees *why*
-	.related-why { margin-left: 8px; color: #8c959f; font-size: 12px; white-space: nowrap; }
+	.related-why { margin-left: 8px; color: #59636e; font-size: 12px; white-space: nowrap; }
 }
 
 // ---- category badge on the home list (index.html, `category: life`)
@@ -104,11 +104,11 @@
 .dash {
 	font-size: 14px;
 	.dash-section { margin-bottom: 36px; }
-	h3 { font-size: 18px; margin: 0 0 6px; small { font-size: 13px; font-weight: normal; margin-left: 8px; a { color: #8c959f; text-decoration: none; &.is-active { color: #24292f; font-weight: 600; } } } }
+	h3 { font-size: 18px; margin: 0 0 6px; small { font-size: 13px; font-weight: normal; margin-left: 8px; a { color: #59636e; text-decoration: none; &.is-active { color: #24292f; font-weight: 600; } } } }
 	h4 { font-size: 14px; margin: 14px 0 6px; }
-	.dash-hint, .dash-muted { color: #8c959f; font-size: 12.5px; }
+	.dash-hint, .dash-muted { color: #59636e; font-size: 12.5px; }
 	.dash-count { display: inline-block; min-width: 18px; padding: 0 6px; font-size: 12px; line-height: 18px; text-align: center; color: #fff; background: #cf222e; border-radius: 9px; }
-	.dash-more { margin-left: 6px; font-size: 12px; color: #8c959f; text-decoration: none; }
+	.dash-more { margin-left: 6px; font-size: 12px; color: #59636e; text-decoration: none; }
 	.dash-table { width: 100%; border-collapse: collapse; th, td { padding: 5px 8px; border-bottom: 1px solid #eaeef2; text-align: left; } th { font-size: 12px; color: #57606a; } .num { text-align: right; font-variant-numeric: tabular-nums; } }
 	ul { padding-left: 1.2em; margin: 0; li { margin: 3px 0; } }
 	.dash-thread { padding: 10px 0; border-bottom: 1px solid #eaeef2; }
@@ -134,7 +134,7 @@
 	.recommends {
 		li { margin-bottom: 14px; }
 		a { font-size: 15px; font-weight: 600; color: #333 !important; &:hover { color: @brand-primary !important; } }
-		.recommend-desc { font-size: 12.5px; font-weight: 300; line-height: 1.5; color: #8a8a8a; }
+		.recommend-desc { font-size: 12.5px; font-weight: 300; line-height: 1.5; color: #6a6a6a; }
 	}
 }
 
@@ -211,12 +211,12 @@
 			background-color: fade(@brand-primary, 10%);
 			transform: translateY(-1px);
 		}
-		sup { font-size: 10px; font-weight: normal; margin-left: 3px; opacity: 0.65; line-height: 1; vertical-align: baseline; position: relative; top: -0.4em; }
+		sup { font-size: 10px; font-weight: normal; margin-left: 3px; line-height: 1; vertical-align: baseline; position: relative; top: -0.4em; }
 		&.tag-weight-s { font-size: 21px; font-weight: 700; color: #006b82 !important; }
 		&.tag-weight-a { font-size: 18px; font-weight: 600; color: @brand-primary !important; }
 		&.tag-weight-b { font-size: 15.5px; font-weight: 500; color: #3b6677 !important; }
 		&.tag-weight-c { font-size: 14px; font-weight: 400; color: #57606a !important; }
-		&.tag-weight-d { font-size: 12.5px; font-weight: 400; color: #8c959f !important; }
+		&.tag-weight-d { font-size: 12.5px; font-weight: 400; color: #59636e !important; }
 	}
 }
 // /tags/ has the whole vocabulary (~270, half used once): a bit more air, one step larger
@@ -236,7 +236,7 @@
 .post-container {
 	.heading-anchor {
 		margin-left: 0.35em; font-size: 0.8em; font-weight: 400; line-height: 1;
-		color: #8c959f; text-decoration: none; opacity: 0; transition: opacity 0.15s;
+		color: #59636e; text-decoration: none; opacity: 0; transition: opacity 0.15s;
 		&::before { content: "#"; }
 		&.copied::before { content: "已复制"; font-size: 0.7em; color: #2da44e; }
 		&:hover, &:focus { color: #0085a1; text-decoration: none; opacity: 1; }
@@ -257,3 +257,10 @@
 	li { margin-bottom: 8px; }
 	li:target { background: rgba(0, 133, 161, 0.08); border-radius: 4px; }
 }
+
+// ---- contrast (Lighthouse / WCAG AA, >= 4.5:1 for body-size text on white).
+// Bootstrap's .text-muted is #777 (4.48:1 — just under); the post header meta and
+// the footer copyright use it. Links sitting inside grey text need a non-colour
+// cue as well, so they are underlined there.
+.text-muted { color: #6a6a6a; }
+.post-preview .post-meta a, footer .copyright a, .post-container .footnotes a { text-decoration: underline; text-underline-offset: 2px; }

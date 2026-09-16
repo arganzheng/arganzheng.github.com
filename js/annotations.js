@@ -770,7 +770,7 @@
     el.className = 'ap-comment' + (isReply ? ' is-reply' : '') + (c.issue ? ' has-issue' : '') + (c.deleted ? ' is-deleted' : '') + (c.resolved ? ' is-resolved' : '');
     el.setAttribute('data-comment-id', c.id);
     el.innerHTML =
-      '<a class="ap-avatar" href="' + escapeAttr(c.author.url) + '" target="_blank" rel="noopener noreferrer"><img src="' + escapeAttr(c.author.avatarUrl) + '" alt=""></a>' +
+      '<a class="ap-avatar" href="' + escapeAttr(c.author.url) + '" target="_blank" rel="noopener noreferrer" aria-label="' + escapeAttr(c.author.login) + '"><img src="' + escapeAttr(c.author.avatarUrl) + '" alt=""></a>' +
       '<div class="ap-comment-main">' +
         '<div class="ap-comment-meta"><a href="' + escapeAttr(c.author.url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(c.author.login) + '</a>' +
           (c.owner && !c.deleted ? '<span class="ap-owner" title="博客作者">作者</span>' : '') +

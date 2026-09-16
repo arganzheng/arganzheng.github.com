@@ -61,7 +61,7 @@ layout: default
                         <ul class="list-inline">
                             {% if site.RSS %}
                             <li>
-                                <a href="{{ "/feed.xml" | prepend: site.baseurl }}">
+                                <a href="{{ "/feed.xml" | prepend: site.baseurl }}" aria-label="RSS 订阅">
                                     <span class="fa-stack fa-lg">
                                         <i class="fa fa-circle fa-stack-2x"></i>
                                         <i class="fa fa-rss fa-stack-1x fa-inverse"></i>
@@ -72,7 +72,7 @@ layout: default
 
                             {% if site.wechat_qrcode %}
                             <li class="wechat-popover-wrapper">
-                                <a href="javascript:void(0)" title="微信公众号">
+                                <a href="#" role="button" aria-label="微信公众号二维码" title="微信公众号">
                                     <span class="fa-stack fa-lg">
                                         <i class="fa fa-circle fa-stack-2x"></i>
                                         <i class="fa fa-weixin fa-stack-1x fa-inverse"></i>
@@ -87,7 +87,7 @@ layout: default
 
                             {% if site.github_username %}
                             <li>
-                                <a target="_blank" href="https://github.com/{{ site.github_username }}">
+                                <a target="_blank" href="https://github.com/{{ site.github_username }}" aria-label="GitHub">
                                     <span class="fa-stack fa-lg">
                                         <i class="fa fa-circle fa-stack-2x"></i>
                                         <i class="fa fa-github fa-stack-1x fa-inverse"></i>
@@ -98,7 +98,7 @@ layout: default
 
 							{% if site.zhihu_username %}
                             <li>
-                                <a target="_blank" href="https://www.zhihu.com/people/{{ site.zhihu_username }}">
+                                <a target="_blank" href="https://www.zhihu.com/people/{{ site.zhihu_username }}" aria-label="知乎">
                                     <span class="fa-stack fa-lg">
                                         <i class="fa fa-circle fa-stack-2x"></i>
                                         <i class="fa  fa-stack-1x fa-inverse">知</i>
@@ -109,7 +109,7 @@ layout: default
 
                             {% if site.facebook_username %}
                             <li>
-                                <a target="_blank" href="https://www.facebook.com/{{ site.facebook_username }}">
+                                <a target="_blank" href="https://www.facebook.com/{{ site.facebook_username }}" aria-label="Facebook">
                                     <span class="fa-stack fa-lg">
                                         <i class="fa fa-circle fa-stack-2x"></i>
                                         <i class="fa fa-facebook fa-stack-1x fa-inverse"></i>
@@ -120,7 +120,7 @@ layout: default
 
 							{% if site.twitter_username %}
                             <li>
-                                <a href="https://twitter.com/{{ site.twitter_username }}">
+                                <a href="https://twitter.com/{{ site.twitter_username }}" aria-label="Twitter">
                                     <span class="fa-stack fa-lg">
                                         <i class="fa fa-circle fa-stack-2x"></i>
                                         <i class="fa fa-twitter fa-stack-1x fa-inverse"></i>
@@ -131,7 +131,7 @@ layout: default
 
                             {% if site.linkedin_username %}
                             <li>
-                                <a target="_blank" href="https://www.linkedin.com/in/{{ site.linkedin_username }}">
+                                <a target="_blank" href="https://www.linkedin.com/in/{{ site.linkedin_username }}" aria-label="LinkedIn">
                                     <span class="fa-stack fa-lg">
                                         <i class="fa fa-circle fa-stack-2x"></i>
                                         <i class="fa fa-linkedin fa-stack-1x fa-inverse"></i>

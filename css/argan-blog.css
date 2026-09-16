@@ -14,11 +14,11 @@
   font-size: 14px;
 }
 .sidebar-container h5 {
-  color: #808080;
+  color: #6a6a6a;
   padding-bottom: 1em;
 }
 .sidebar-container h5 a {
-  color: #808080 !important;
+  color: #6a6a6a !important;
   text-decoration: none;
 }
 .sidebar-container a {
@@ -76,7 +76,7 @@
   margin: 5px 0 0;
   font-size: 12px;
   line-height: 1.4;
-  color: #808080;
+  color: #6a6a6a;
 }
 .wechat-popover-wrapper.active .wechat-qrcode {
   display: block;
@@ -210,7 +210,7 @@ article {
   overflow-x: hidden;
 }
 blockquote {
-  color: #808080;
+  color: #6a6a6a;
   font-style: italic;
   font-size: 0.95em;
   margin: 20px 0 20px;
@@ -348,7 +348,7 @@ pre code {
   width: 100%;
 }
 .post-container .pager li > a > span {
-  color: #808080;
+  color: #6a6a6a;
   font-weight: normal;
   letter-spacing: 0.5px;
 }
@@ -535,7 +535,7 @@ pre code {
 }
 .intro-header {
   background: no-repeat center center;
-  background-color: #808080;
+  background-color: #6a6a6a;
   background-attachment: scroll;
   -webkit-background-size: cover;
   -moz-background-size: cover;
@@ -663,7 +663,7 @@ pre code {
 }
 .post-preview > .post-meta {
   font-family: 'Lora', 'Times New Roman', serif;
-  color: #808080;
+  color: #6a6a6a;
   font-size: 16px;
   font-style: italic;
   margin-top: 0;
@@ -693,7 +693,7 @@ pre code {
 .post-content-preview {
   font-size: 13px;
   font-style: italic;
-  color: #a3a3a3;
+  color: #6e6e6e;
 }
 .post-content-preview:hover {
   color: #0085A1;
@@ -854,7 +854,7 @@ form .row:first-child .floating-label-form-group {
 .pager .disabled > a:hover,
 .pager .disabled > a:focus,
 .pager .disabled > span {
-  color: #808080;
+  color: #6a6a6a;
   background-color: #404040;
   cursor: not-allowed;
 }
@@ -1517,7 +1517,7 @@ div.side-catalog .catalog-body li.filtered-out {
 div.side-catalog .catalog-empty {
   display: none;
   margin: 4px 0 0;
-  color: #8c959f;
+  color: #59636e;
   font-size: 13px;
 }
 /* While filtering, the reading-position highlight would be misleading. */
@@ -1775,10 +1775,10 @@ li[id^="fn:"] {
   margin: 0 0 18px;
   font-size: 13px;
   line-height: 1.7;
-  color: #808080;
+  color: #6a6a6a;
 }
 .comment .comment-hint a {
-  color: #808080;
+  color: #6a6a6a;
   text-decoration: underline;
 }
 .comment .comment-hint a:hover,
@@ -1847,11 +1847,11 @@ li[id^="fn:"] {
   margin-bottom: 4px;
 }
 .post-container .related .related-date {
-  color: #aaa;
+  color: #6a6a6a;
 }
 .post-container .related .related-why {
   margin-left: 8px;
-  color: #8c959f;
+  color: #59636e;
   font-size: 12px;
   white-space: nowrap;
 }
@@ -1942,7 +1942,7 @@ li[id^="fn:"] {
   margin-left: 8px;
 }
 .dash h3 small a {
-  color: #8c959f;
+  color: #59636e;
   text-decoration: none;
 }
 .dash h3 small a.is-active {
@@ -1955,7 +1955,7 @@ li[id^="fn:"] {
 }
 .dash .dash-hint,
 .dash .dash-muted {
-  color: #8c959f;
+  color: #59636e;
   font-size: 12.5px;
 }
 .dash .dash-count {
@@ -1972,7 +1972,7 @@ li[id^="fn:"] {
 .dash .dash-more {
   margin-left: 6px;
   font-size: 12px;
-  color: #8c959f;
+  color: #59636e;
   text-decoration: none;
 }
 .dash .dash-table {
@@ -2062,7 +2062,7 @@ li[id^="fn:"] {
   font-size: 12.5px;
   font-weight: 300;
   line-height: 1.5;
-  color: #8a8a8a;
+  color: #6a6a6a;
 }
 .post-license {
   margin: 40px 0 0;
@@ -2207,7 +2207,6 @@ li[id^="fn:"] {
   font-size: 10px;
   font-weight: normal;
   margin-left: 3px;
-  opacity: 0.65;
   line-height: 1;
   vertical-align: baseline;
   position: relative;
@@ -2236,7 +2235,7 @@ li[id^="fn:"] {
 .tag-cloud a.tag-weight-d {
   font-size: 12.5px;
   font-weight: 400;
-  color: #8c959f !important;
+  color: #59636e !important;
 }
 #tag_cloud.tag-cloud {
   margin: 20px 0 30px;
@@ -2262,7 +2261,7 @@ li[id^="fn:"] {
   font-size: 0.8em;
   font-weight: 400;
   line-height: 1;
-  color: #8c959f;
+  color: #59636e;
   text-decoration: none;
   opacity: 0;
   transition: opacity 0.15s;
@@ -2325,6 +2324,15 @@ li[id^="fn:"] {
 .post-container .footnotes li:target {
   background: rgba(0, 133, 161, 0.08);
   border-radius: 4px;
+}
+.text-muted {
+  color: #6a6a6a;
+}
+.post-preview .post-meta a,
+footer .copyright a,
+.post-container .footnotes a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 .post-container blockquote.series-nav {
   font-size: 15px;
@@ -2549,7 +2557,7 @@ li[id^="fn:"] {
 .post-container .annotation-panel .ap-head .ap-count,
 .post-container .annotation-comments .ap-head .ap-count {
   flex: none;
-  color: #8c959f;
+  color: #59636e;
   font-size: 12px;
   white-space: nowrap;
   margin-top: 1px;
@@ -2562,7 +2570,7 @@ li[id^="fn:"] {
   height: 26px;
   border: 0;
   background: transparent;
-  color: #8c959f;
+  color: #59636e;
   font-size: 18px;
   line-height: 26px;
   cursor: pointer;
@@ -2641,7 +2649,7 @@ li[id^="fn:"] {
   gap: 8px;
   margin-bottom: 2px;
   font-size: 12.5px;
-  color: #8c959f;
+  color: #59636e;
 }
 .post-container .annotation-panel .ap-comment-meta > a:first-child,
 .post-container .annotation-comments .ap-comment-meta > a:first-child {
@@ -2676,7 +2684,7 @@ li[id^="fn:"] {
   border: 0;
   background: none;
   font-size: 12px;
-  color: #8c959f;
+  color: #59636e;
   cursor: pointer;
   white-space: nowrap;
 }
@@ -2694,7 +2702,7 @@ li[id^="fn:"] {
 }
 .post-container .annotation-panel .ap-comment-meta .ap-github,
 .post-container .annotation-comments .ap-comment-meta .ap-github {
-  color: #8c959f;
+  color: #59636e;
 }
 .post-container .annotation-panel .ap-comment-meta .ap-github:hover,
 .post-container .annotation-comments .ap-comment-meta .ap-github:hover {
@@ -3209,7 +3217,7 @@ li[id^="fn:"] {
 }
 .post-container .annotation-panel .ap-muted,
 .post-container .annotation-comments .ap-muted {
-  color: #8c959f;
+  color: #59636e;
   font-style: normal;
 }
 .post-container .annotation-panel .ap-buttons,
@@ -3223,7 +3231,7 @@ li[id^="fn:"] {
 .post-container .annotation-panel .ap-buttons .ap-hint,
 .post-container .annotation-comments .ap-buttons .ap-hint {
   font-size: 12px;
-  color: #8c959f;
+  color: #59636e;
   margin-right: 4px;
 }
 .post-container .annotation-panel .ap-buttons .ap-issue,
@@ -3299,7 +3307,7 @@ li[id^="fn:"] {
 .post-container .annotation-panel .ap-edited,
 .post-container .annotation-comments .ap-edited {
   font-size: 11.5px;
-  color: #8c959f;
+  color: #59636e;
 }
 .post-container .annotation-panel .ap-comment.is-deleted .ap-comment-body,
 .post-container .annotation-comments .ap-comment.is-deleted .ap-comment-body {
@@ -3312,7 +3320,7 @@ li[id^="fn:"] {
   border: 0;
   background: none;
   font-size: 11.5px;
-  color: #8c959f;
+  color: #59636e;
   cursor: pointer;
 }
 .post-container .annotation-panel .ap-logout:hover,
@@ -3363,7 +3371,7 @@ li[id^="fn:"] {
   color: #1a7f37;
 }
 .post-container .annotation-comments .ac-head .ac-views {
-  color: #8c959f;
+  color: #59636e;
 }
 .post-container .annotation-comments .ac-head .ac-views .fa {
   margin-right: 2px;
@@ -3378,7 +3386,7 @@ li[id^="fn:"] {
 }
 .post-container .annotation-comments .ac-head .ac-github {
   margin-left: auto;
-  color: #8c959f;
+  color: #59636e;
   text-decoration: none;
 }
 .post-container .annotation-comments .ac-head .ac-github:hover {
@@ -3387,7 +3395,7 @@ li[id^="fn:"] {
 .post-container .annotation-comments .ac-empty {
   margin: 14px 0;
   font-size: 13.5px;
-  color: #8c959f;
+  color: #59636e;
 }
 .post-container .annotation-comments .ac-hot {
   margin: 14px 0 4px;
@@ -3434,7 +3442,7 @@ li[id^="fn:"] {
 .post-container .annotation-comments .ac-hot .ac-hot-meta {
   flex: 0 0 auto;
   font-size: 12px;
-  color: #8c959f;
+  color: #59636e;
   white-space: nowrap;
 }
 .post-container .annotation-comments .ac-hot .ac-hot-meta .fa {
@@ -3486,7 +3494,7 @@ li[id^="fn:"] {
 .comment .annotation-orphans {
   margin: -8px 0 16px;
   font-size: 12.5px;
-  color: #8c959f;
+  color: #59636e;
 }
 .comment .annotation-orphans .fa {
   margin-right: 4px;
@@ -3783,7 +3791,7 @@ li[id^="fn:"] {
   border: 1px solid #d0d7de;
   border-radius: 11px;
   background: #fff;
-  color: #8c959f;
+  color: #59636e;
   font-size: 11.5px;
   font-family: inherit;
   line-height: 1;
@@ -3849,7 +3857,7 @@ li[id^="fn:"] {
   text-align: center;
 }
 .post-container .post-figcaption .fig-no {
-  color: #8c959f;
+  color: #59636e;
   margin-right: 6px;
 }
 .post-container .post-figcaption.is-picked .fig-title,
@@ -3920,7 +3928,7 @@ li[id^="fn:"] {
   color: #57606a;
 }
 .post-container .table-caption .table-no {
-  color: #8c959f;
+  color: #59636e;
 }
 .post-container .table-tools-anchor {
   position: relative;
@@ -3985,7 +3993,7 @@ li[id^="fn:"] {
   border-top: 1px solid #eee;
   border-bottom: 1px solid #eee;
   font-size: 14px;
-  color: #808080;
+  color: #6a6a6a;
 }
 .post-actions .pa-item {
   display: inline-flex;
@@ -4185,7 +4193,7 @@ li[id^="fn:"] {
   margin-right: 8px;
   font-size: 16px;
   text-align: center;
-  color: #808080;
+  color: #6a6a6a;
 }
 .pa-share-pop .pa-sp-item:hover,
 .pa-share-pop .pa-sp-item:focus {
@@ -4219,7 +4227,7 @@ li[id^="fn:"] {
   margin-top: 6px;
   font-size: 12px;
   line-height: 1.4;
-  color: #808080;
+  color: #6a6a6a;
 }
 @media (max-width: 767px) {
   .post-stats {
@@ -4282,7 +4290,7 @@ li[id^="fn:"] {
   display: flex;
   justify-content: space-between;
   font-size: 11px;
-  color: #8c959f;
+  color: #59636e;
 }
 .dash .dash-trend-top {
   margin-top: 10px;
@@ -4301,7 +4309,7 @@ li[id^="fn:"] {
   text-decoration: none;
 }
 .dash .dash-sort-hint {
-  color: #8c959f;
+  color: #59636e;
   font-weight: normal;
 }
 .dash .dash-table th.is-sortable {
@@ -4374,7 +4382,7 @@ li[id^="fn:"] {
 .dash .dash-brief-link {
   margin-left: 6px;
   font-size: 12px;
-  color: #8c959f;
+  color: #59636e;
   text-decoration: none;
   border: 1px solid #d0d7de;
   border-radius: 9px;
