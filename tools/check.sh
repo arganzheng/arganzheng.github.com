@@ -34,7 +34,7 @@ step "js/blog.min.js is built from js/*.js"
 tools/build-js.sh --check >/dev/null 2>&1 && ok "js/blog.min.js matches its sources" || bad "js/blog.min.js is stale — run: npm run js"
 
 step "jekyll build --future --unpublished --strict_front_matter"
-out=$(jekyll build --future --unpublished --strict_front_matter -d _site-check 2>&1)
+out=$(bundle exec jekyll build --future --unpublished --strict_front_matter -d _site-check 2>&1)  # bundle exec: bare `jekyll` activates the newest installed gems, not Gemfile.lock
 if printf '%s' "$out" | grep -q 'done in'; then ok "$(printf '%s' "$out" | grep -o 'done in .*')"
 else printf '%s\n' "$out" | tail -20; bad "jekyll build did not finish"; fi
 

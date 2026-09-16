@@ -58,7 +58,7 @@
     var btn = bar.querySelector('.pa-like');
     bar.querySelector('.pa-like-n').textContent = st.up ? ' ' + fmt(st.up) : '';
     btn.classList.toggle('is-active', st.mine === 'up');
-    btn.querySelector('.fa').className = 'fa ' + (st.mine === 'up' ? 'fa-heart' : 'fa-heart-o');
+    btn.querySelector('.fa').className = 'fa ' + (st.mine === 'up' ? 'fa-heart' : 'fa-regular fa-heart');
     btn.title = st.mine === 'up' ? '取消点赞' : '给这篇文章点个赞（不用登录）';
     paintStrips(bar.getAttribute('data-path'), { up: st.up, shares: st.shares });
   }
@@ -97,10 +97,10 @@
     pop.setAttribute('role', 'menu');
     pop.innerHTML =
       (navigator.share ? '<button type="button" class="pa-sp-item" data-k="native"><i class="fa fa-share-alt"></i>系统分享…</button>' : '') +
-      '<a class="pa-sp-item" data-k="weibo" target="_blank" rel="noopener noreferrer"><i class="fa fa-weibo"></i>微博</a>' +
-      '<a class="pa-sp-item" data-k="x" target="_blank" rel="noopener noreferrer"><i class="fa fa-twitter"></i>X</a>' +
-      '<a class="pa-sp-item" data-k="linkedin" target="_blank" rel="noopener noreferrer"><i class="fa fa-linkedin"></i>LinkedIn</a>' +
-      '<button type="button" class="pa-sp-item" data-k="wechat"><i class="fa fa-weixin"></i>微信扫一扫</button>' +
+      '<a class="pa-sp-item" data-k="weibo" target="_blank" rel="noopener noreferrer"><i class="fa fa-brands fa-weibo"></i>微博</a>' +
+      '<a class="pa-sp-item" data-k="x" target="_blank" rel="noopener noreferrer"><i class="fa fa-brands fa-twitter"></i>X</a>' +
+      '<a class="pa-sp-item" data-k="linkedin" target="_blank" rel="noopener noreferrer"><i class="fa fa-brands fa-linkedin"></i>LinkedIn</a>' +
+      '<button type="button" class="pa-sp-item" data-k="wechat"><i class="fa fa-brands fa-weixin"></i>微信扫一扫</button>' +
       '<button type="button" class="pa-sp-item" data-k="copy"><i class="fa fa-link"></i>复制链接</button>' +
       '<div class="pa-sp-qr" hidden><span class="pa-sp-qr-img"></span><span class="pa-sp-qr-hint">微信扫一扫，分享给朋友或朋友圈</span></div>';
     document.body.appendChild(pop);

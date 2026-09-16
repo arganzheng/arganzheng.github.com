@@ -1537,8 +1537,9 @@ div.side-catalog.filtering .catalog-body li.active > a {
 }
 .post-container a.external-link::after {
   content: "\f08e";
-  /* FontAwesome fa-external-link */
-  font-family: FontAwesome;
+  /* Font Awesome fa-arrow-up-right-from-square (solid) */
+  font-family: "Font Awesome 7 Free";
+  font-weight: 900;
   font-size: 0.72em;
   margin-left: 2px;
   vertical-align: super;
@@ -1562,8 +1563,9 @@ div.side-catalog.filtering .catalog-body li.active > a {
 }
 .post-container .inline-tip::after {
   content: "\f059";
-  /* FontAwesome fa-question-circle */
-  font-family: FontAwesome;
+  /* Font Awesome fa-circle-question (solid) */
+  font-family: "Font Awesome 7 Free";
+  font-weight: 900;
   font-size: 0.72em;
   margin-left: 2px;
   vertical-align: super;

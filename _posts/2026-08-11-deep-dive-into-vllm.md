@@ -327,6 +327,10 @@ PD 分离并不是简单地把两个阶段部署到不同机器上。它重新�
 
 沿着这条线阅读，vLLM 不再只是一个“推理框架”，而会呈现为一个持续协调**请求、Token、状态、计算、显存和通信**的动态系统。
 
+### 15. 系列总结与通关自测
+
+最后一篇不讲新内容：把十四篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是十四篇能不能连起来用；读完正文再做。
+
 ## 阅读路径建议
 
 ### 第一遍怎么读（全栈 / 新手读者）
@@ -388,6 +392,7 @@ PD 分离并不是简单地把两个阶段部署到不同机器上。它重新�
 12. [PD 分离：从资源混部走向计算解耦](/prefill-decode-disaggregation.html)
 13. [Serving Infra 的下一站：从模型执行器到分布式智能操作系统](/future-of-serving-infra.html)
 14. [回到源码：一次请求在 vLLM 内部的真实旅程](/source-code-request-walkthrough.html)
+15. [系列总结与通关自测](/deep-dive-into-vllm-series-recap-and-self-test.html)
 
 
 本系列讲的是 memory-bound 的 LLM serving；图像与视频生成模型的推理是另一半——单请求就 compute-bound、没有 KV cache、batch 几乎不提吞吐、请求时长可预测，几乎每一个系统答案都相反。那一半在 Infra 地图的 10[《扩散模型推理基础设施：从一次去噪到一个生成服务》](/diffusion-model-inference-infrastructure.html)。

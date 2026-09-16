@@ -271,8 +271,11 @@ verl 的核心目录是本系列的源码阅读线。读完后你应该能在 `v
 
 > **凌晨两点告警：reward 曲线从上升变成平台，步时间没变，没有报错。十分钟内你要判断是 staleness 涨了、是训推不一致、是某个沙箱池挂了导致 reward 全为零、还是权重同步漏了一部分参数。你需要的每一个信号，在开训前有没有采集？**
 
-实践：为练手项目搭起完整的指标面板；人为制造三类故障（拖慢一个推理实例、关掉一半沙箱、跳过一个 bucket 的权重同步）并用面板定位；写出这个任务的配置推导记录与值班手册。本篇最后给出全系列总结。
+实践：为练手项目搭起完整的指标面板；人为制造三类故障（拖慢一个推理实例、关掉一半沙箱、跳过一个 bucket 的权重同步）并用面板定位；写出这个任务的配置推导记录与值班手册。
 
+### 9. 系列总结与通关自测
+
+最后一篇不讲新内容：把八篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是八篇能不能连起来用；读完正文再做。
 
 ## 贯穿全系列的实践线
 
@@ -409,6 +412,7 @@ verl 的核心目录是本系列的源码阅读线。读完后你应该能在 `v
 6. [Agentic rollout：多轮、工具、沙箱集群与环境服务](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html)
 7. [verl 源码导读：从一个 GRPO 配置追到每个 worker（附 slime 与 AReaL 的对照）](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html)
 8. [配置、可观测与排障：GPU 配比、全步 MFU、RL 状态的 checkpoint 与常见故障](/rl-post-training-configuration-observability-and-troubleshooting.html)
+9. [系列总结与通关自测](/rl-post-training-infra-series-recap-and-self-test.html)
 
 
 ## 最终目标

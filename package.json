@@ -10,7 +10,7 @@
     },
     "bugs": "https://github.com/arganzheng/arganzheng.github.com/issues",
     "scripts": {
-        "serve": "jekyll serve --future --host localhost --port 4000",
+        "serve": "bundle exec jekyll serve --future --host localhost --port 4000",
         "css": "tools/build-css.sh",
         "js": "tools/build-js.sh",
         "build": "tools/build-css.sh && tools/build-js.sh",
@@ -19,6 +19,7 @@
         "hooks": "git config core.hooksPath .githooks"
     },
     "devDependencies": {
+        "@fortawesome/fontawesome-free": "^7.3.1",
         "clean-css-cli": "5.6.3",
         "less": "4.9.1",
         "uglify-js": "3.19.3"

@@ -72,8 +72,7 @@ schnell / Turbo / DMD 蒸馏版
 | 五 | 确定性 | 从哪里丢：seed、算子、并行度、编译、缓存、批 |
 | 六 | 常见故障 | 十类：信号、原因、排查路径 |
 | 七 | 可观测 | 面板上放什么、哪些告警 |
-| 八 | 系列总结 | 九篇的账与一张总表 |
-| 九 | 自测 | 5 道题 |
+| 八 | 自测 | 5 道题 |
 
 ## 二、配置推导
 
@@ -214,51 +213,7 @@ FID 比较两组图的 Inception 特征分布，对**单张图的细节变化**�
 
 上线前对练手服务做三次：（1）把缓存阈值调到质量门限之外，看质量抽检是否报警；（2）发一批非预定义分辨率，看重编译告警与 p99；（3）关掉 VAE tiling 发 2048²，看显存告警与 OOM 处理（请求失败而不是实例崩）。三次都能在面板上十分钟内定位，值班手册才算写完。
 
-## 八、系列总结
-
-### 1. 九篇的账
-
-全系列围绕第一篇的一张账：
-
-$$
-t = t_\text{txt} + \underbrace{g}_{06} \cdot \underbrace{T_\text{eff}}_{03,\,06} \cdot \frac{\overbrace{2 P_\text{tok} N}^{02} + \overbrace{4 L N^2 d \cdot s^{-1}}^{04}}{\text{峰值} \cdot \underbrace{\eta}_{02} \cdot \underbrace{p \cdot e(p)}_{05}} + t_\text{VAE}, \qquad \text{卡数} = \text{QPS} \times \text{GPU·秒} \ (07)
-$$
-
-| 篇 | 改账上的什么 | FLUX 1024² 的数字 | Wan 720p 81f 的数字 |
-|---|---|---|---|
-| 01 负载画像 | 建账：三段、$$N$$、$$2P_\text{tok}N + 4LN^2d$$、roofline | 74 T / 步、2.1 P、eager 6.7 s、attention 20% | 6.5 P / 步、650 P、24 min、attention 72% |
-| 02 单卡 | $$\eta$$：0.31 → 0.5+；Tensor Core 峰值；权重字节 | compile 4.3 s、FP8 ~2.9 s、INT4 在 4090 上 3× | FA3 / Sage 主项：24 → 10 min |
-| 03 跨步缓存 | $$T \to T_\text{full} + T_\text{hit}\epsilon$$ | 1.5–2× | 2–4× |
-| 04 视频与稀疏 | attention 项的系数 $$s^{-1}$$；Amdahl | 无关（20%） | 稀疏 80% → 2×；叠加到 6.6 min |
-| 05 多卡 | $$p \cdot e(p)$$，通信换墙钟；PipeFusion 的 $$1/L$$ 通信 | 4 卡 2.63×；以太网用 PipeFusion | 8 卡 USP 必需 → 40 s |
-| 06 少步与自回归 | $$T$$ 与 $$g$$ 直接改；缓存 / PipeFusion / CFG 并行失效；KV cache 回归 | schnell 0.8 s；缓存零收益 | FastWan 3 步；Self-Forcing 实时、chunk KV 0.86 GB |
-| 07 serving | 卡数 = QPS × GPU·秒；batch 不参与；时长可预测；三段分离；job API | 100 QPS：670 → 80 张卡 | \$0.22–1 / 段；异步 job |
-| 08 引擎 | 机制在三个引擎的位置与取向 | SGLang：serving 结构；vLLM-Omni：stage；xDiT：并行包装 | |
-| 09 配置与运维 | 推导顺序、评测、确定性、故障、面板 | | |
-
-### 2. 与 LLM serving 的对照（全系列）
-
-| | LLM serving（08 系列） | 扩散推理（本系列） |
-|---|---|---|
-| 瓶颈 | 带宽（decode） | 算力 |
-| 单请求 | memory-bound，MFU 1% | compute-bound，MFU 30–50% |
-| 跨步状态 | KV cache | 无（自回归视频除外） |
-| batch | 提吞吐的主要手段 | 几乎无用 |
-| 时长 | 不可预测 | 可预测 |
-| 冗余 | 前缀共享 | 时间冗余（跨步）、空间冗余（稀疏 attention） |
-| 多卡 | TP 切带宽 | SP 切 FLOPs；CFG 并行；PipeFusion |
-| 加速的算法侧 | 投机解码 | 步数蒸馏（更大：7–25×） |
-| 分离 | PD | 三段（编码器 / DiT / VAE） |
-| 有损优化 | 量化（困惑度） | 量化、缓存、稀疏、少步（PSNR / 偏好 / 人工） |
-| 收敛点 | — | 自回归视频：KV、流式、会话——向 LLM 形态回归 |
-
-### 3. 三种能力
-
-读完九篇，面对一个生成模型的推理任务应当能：**算账**——给定模型、形状、步数、硬件，算出三段的 FLOPs / 显存 / 时间，判断瓶颈，预估每类优化能换回多少；**选型与配置**——为服务选引擎、定并行度、决定开哪些加速与它们的质量预算，并说出每个选择在账上的依据；**运维**——设计评测、确定性、监控与告警，让每张图的成本与质量都可解释。
-
-这是 AI-Infra 推理主线的另一半。同一套 kernel、同一套并行组的写法、同两个 serving 框架，因为负载从 memory-bound 换成了 compute-bound，几乎每一个系统答案都换了——而当视频走向自回归，答案又开始换回来。
-
-## 九、自测
+## 八、自测
 
 1. FLUX 服务的质量抽检 PSNR 从 36 dB 掉到 31 dB，性能面板一切正常，没有改过配置。列出三个可能原因与各自的第一个检查。
 
