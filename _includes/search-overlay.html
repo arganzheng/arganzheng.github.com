@@ -1,5 +1,6 @@
 <!-- Fullscreen search overlay, interaction modeled after huangxuan.me.
-     Search logic lives in js/search.js (BLOG_SEARCH) and is untouched. -->
+     Search logic lives in js/search.js (BLOG_SEARCH); the index it reads
+     is generated under /search/ by _plugins/search_index.rb. -->
 <div class="search-overlay" id="search-overlay">
     <div class="search-overlay-close-container">
         <span class="search-overlay-close" title="关闭 (Esc)">&times;</span>
@@ -117,6 +118,11 @@
         line-height: 1.8;
         font-size: 14px;
     }
+    .search-overlay-results .search-more {
+        margin: 16px 0;
+        text-align: center;
+        font-size: 14px;
+    }
     .search-overlay-results mark {
         background: #ffef95;
         color: inherit;
@@ -153,8 +159,7 @@
                     inputId: 'search-overlay-input',
                     statsId: 'search-overlay-stats',
                     resultsId: 'search-overlay-results',
-                    dataUrl: '{{ '/search.json' | prepend: site.baseurl }}',
-                    contentUrl: '{{ '/search-content.ndjson' | prepend: site.baseurl }}',
+                    baseUrl: '{{ '/search' | prepend: site.baseurl }}',
                     version: '{{ site.time | date: '%Y%m%d%H%M' }}'
                 });
             }

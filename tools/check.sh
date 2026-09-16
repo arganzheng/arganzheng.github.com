@@ -13,9 +13,10 @@
 # 3. js/blog.min.js is exactly what js/*.js bundle to (npm run js)
 # 4. jekyll build --future --unpublished --strict_front_matter -> _site-check (must print "done in";
 #    unpublished too, so a hidden post cannot park a Liquid error that bites when it is published)
-# 5. Font Awesome subset covers every icon in use
-# 6. lychee offline: every internal link / image / #fragment in _site-check resolves
-# 7. git diff --check (whitespace errors)
+# 5. search index under _site-check/search/ is complete (meta = docs, 256 buckets)
+# 6. Font Awesome subset covers every icon in use
+# 7. lychee offline: every internal link / image / #fragment in _site-check resolves
+# 8. git diff --check (whitespace errors)
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
@@ -37,6 +38,12 @@ step "jekyll build --future --unpublished --strict_front_matter"
 out=$(bundle exec jekyll build --future --unpublished --strict_front_matter -d _site-check 2>&1)  # bundle exec: bare `jekyll` activates the newest installed gems, not Gemfile.lock
 if printf '%s' "$out" | grep -q 'done in'; then ok "$(printf '%s' "$out" | grep -o 'done in .*')"
 else printf '%s\n' "$out" | tail -20; bad "jekyll build did not finish"; fi
+
+step "Search index (_plugins/search_index.rb)"
+posts=$(python3 -c 'import json;print(len(json.load(open("_site-check/search/meta.json"))))' 2>/dev/null || echo 0)
+docs=$(ls _site-check/search/doc 2>/dev/null | wc -l | tr -d ' ')
+if [ "$posts" -gt 0 ] && [ "$posts" = "$docs" ] && [ "$(ls _site-check/search/idx 2>/dev/null | wc -l | tr -d ' ')" = 256 ]; then ok "$posts posts, 256 buckets"
+else bad "search index incomplete: meta=$posts docs=$docs"; fi
 
 step "Font Awesome subset"
 python3 tools/fa-subset.py --check >/dev/null 2>&1 && ok "subset covers every icon" || bad "icons missing from subset — run tools/fa-subset.py"
