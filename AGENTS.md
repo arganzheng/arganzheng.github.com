@@ -145,7 +145,11 @@ Pages has `https_enforced` on.
   来的句子 (`GET /reactions/top?kind=doubt|up`), recent comments via GraphQL
   with the giscus session (alias the `comments(last:3)` field — a response key
   named `comments` twice is a GraphQL validation error and looked like a login
-  failure), open issues via REST. `sitemap: false`, `noindex: true`
+  failure), open issues via REST, and 值得翻新的老文章 (`GET /stats/top?limit=500`
+  joined with `window.DASH_META` — per-post `[date, updated, source path,
+  category]` emitted at build time; tech posts whose `updated`/date is >= 3
+  years old, ranked by views × log(age), with 简报 + GitHub 编辑 links; a post
+  leaves the list once `updated:` is set). `sitemap: false`, `noindex: true`
   (`head.html` emits the robots meta for `page.noindex`). Its styles are
   `less/dashboard.less` (`.dash*`).
 - `index.html`: posts with `pinned: true` lead page 1 (badge `.post-pin`) and
@@ -169,6 +173,18 @@ Pages has `https_enforced` on.
   `related_posts_threshold` share a tag. Each entry carries `shared_tags`
   (rarest first) and the include prints up to three as the reason. This is
   why every post needs tags — an untagged post is never recommended.
+- `_includes/post-stale.html` (all three post layouts, first thing in the
+  post column): 「本文写于 / 最后更新于 N 年前，部分内容可能已经过时」 when
+  `updated` (else `date`) is >= 3 full years before `site.time` — the daily
+  deploy keeps the number current. Skipped for `category: life` and for
+  `stale: false`. Styled `.post-stale` in `less/extras.less`; stripped from
+  the WeChat export.
+- `tools/audit.py` (= `npm run audit`): the *soft* content report `check.sh`
+  does not block on — untagged posts, single-use / case-variant tags, missing
+  subtitle, duplicate titles, stale drafts, non-WebP or > 300 KB content
+  images, bare `http://` links, and posts with a substantive edit (>= 20 lines
+  in a commit touching < 10 posts, i.e. not a mechanical sweep) in the last
+  30 days without a matching `updated:`. Read-only; `--limit`, `--days`.
 - Heading anchors: `js/toc.js` appends an empty `a.heading-anchor` to every
   heading in `.post-container` (glyph via CSS in `less/extras.less`, so the
   heading's textContent — what highlight comments anchor to — is unchanged);
