@@ -9,7 +9,9 @@
  *     (REST, state) and whether each quote still anchors in the live page —
  *     as Markdown to copy into an AI session. Single entry: this page. The
  *     aggregation itself is js/feedback-brief.js, shared with the weekly
- *     tools/feedback-queue.cjs Action that files 「待修订」 issues.
+ *     tools/feedback-queue.cjs Action that files 「待修订」 issues. Above the
+ *     picker, 待修订的文章 lists every post with an unresolved signal (worker
+ *     /feedback for all posts + open 划线评论 / 待修订 issues), FB.analyze-scored.
  *   - recent comments: GitHub GraphQL with the giscus login (same session key
  *     as annotations.js); open issues (待修订 · 划线评论 · dead-links): GitHub REST, public.
  */
@@ -210,18 +212,67 @@
   window.addEventListener('hashchange', briefFromHash);
   briefFromHash();
 
+  // open issues by label, public REST, fetched once and shared by 待修订的文章 and 待处理
+  var openIssuesCache = {};
+  function openIssues(label) {
+    if (!openIssuesCache[label]) openIssuesCache[label] = fetch('https://api.github.com/repos/' + repo + '/issues?state=open&per_page=30&labels=' + encodeURIComponent(label))
+      .then(function (r) { return r.ok ? r.json() : []; }).then(function (list) { return list.filter(function (is) { return !is.pull_request; }); }).catch(function () { return []; });
+    return openIssuesCache[label];
+  }
+  function queueIssuePath(is) { var m = /<!-- feedback-queue: (\S+) -->/.exec(is.body || ''); return m ? m[1] : ''; }
+
+  // ---- 待修订的文章: every post with an unresolved reader signal — 存疑 / 章节没看懂
+  // (worker /feedback, all posts in one call), open 划线评论 issues, an open 待修订
+  // issue — scored the way feedback-queue does (FB.analyze), so the list is the
+  // brief picker for posts that actually need one. Discussion comments are not
+  // fetched here (one relay call per post); the full brief has them.
+  var QUEUE_TOP = 15;
+  function loadBriefQueue() {
+    var host = document.querySelector('#dash-brief .dash-brief-queue');
+    if (!host) return;
+    Promise.all([getJson(api + '/feedback').then(function (d) { return d.posts || {}; }), openIssues('划线评论'), openIssues('待修订')]).then(function (res) {
+      var posts = res[0], errata = res[1], queued = {};
+      res[2].forEach(function (is) { var p = queueIssuePath(is); if (p) queued[p] = is; });
+      var paths = Object.keys(posts);
+      Object.keys(queued).forEach(function (p) { if (paths.indexOf(p) < 0) paths.push(p); });
+      var rows = [];
+      paths.forEach(function (path) {
+        var issues = errata.filter(function (is) { return (is.body || '').indexOf(path) >= 0; });
+        var a = FB.analyze({ dom: DOM, path: path, fb: posts[path] || {}, disc: null, issues: issues, article: null });
+        var doubt = 0, reasons = {};
+        a.passages.forEach(function (p) { doubt += p.doubt; Object.keys(p.reasons || {}).forEach(function (k) { reasons[k] = (reasons[k] || 0) + p.reasons[k]; }); });
+        var chapterDoubt = a.chapters.reduce(function (s, c) { return s + c.doubt; }, 0);
+        if (!doubt && !chapterDoubt && !issues.length && !queued[path]) return;
+        rows.push({ path: path, doubt: doubt, reasons: reasons, chapterDoubt: chapterDoubt, issues: issues, queued: queued[path], views: a.views, score: a.score + issues.length + (queued[path] ? 1 : 0) });
+      });
+      rows.sort(function (a, b) { return b.score - a.score || b.views - a.views; });
+      if (!rows.length) { host.innerHTML = '<p class="dash-muted">目前没有带着未处理反馈的文章。</p>'; return; }
+      host.innerHTML = '<h4>待修订的文章 <span class="dash-count">' + rows.length + '</span> <small class="dash-muted">读者标了存疑 / 没看懂、报了错、或已开「待修订」Issue，按反馈量排</small></h4>' +
+        '<ol class="dash-top dash-queue">' + rows.slice(0, QUEUE_TOP).map(function (r) {
+          var m = meta[r.path], bits = [];
+          if (r.doubt) bits.push('<span class="is-doubt"><i class="fa fa-question-circle"></i> 存疑 ' + r.doubt + (reasonsText(r.reasons) ? '（' + h(reasonsText(r.reasons)) + '）' : '') + '</span>');
+          if (r.chapterDoubt) bits.push('<span class="is-doubt">章节没看懂 ' + r.chapterDoubt + '</span>');
+          if (r.issues.length) bits.push('报错 ' + r.issues.map(function (is) { return '<a target="_blank" rel="noopener" href="' + h(is.html_url) + '">#' + is.number + '</a>'; }).join(' '));
+          if (r.queued) bits.push('<a target="_blank" rel="noopener" href="' + h(r.queued.html_url) + '">待修订 #' + r.queued.number + '</a>');
+          if (r.views) bits.push('阅读 ' + fmt(r.views));
+          return '<li><a href="' + h(r.path) + '">' + h(titleOf(r.path)) + '</a> <span class="dash-muted">' + bits.join(' · ') + '</span> ' +
+            '<a class="dash-brief-link" href="#brief=' + h(r.path) + '" title="这篇文章的修订简报">简报</a>' + (m ? ' <a class="dash-brief-link" href="' + h(srcBase + m[2]) + '" target="_blank" rel="noopener" title="在 GitHub 编辑源文件">编辑</a>' : '') + '</li>';
+        }).join('') + '</ol>' + (rows.length > QUEUE_TOP ? '<p class="dash-muted">共 ' + rows.length + ' 篇，只列前 ' + QUEUE_TOP + '。</p>' : '');
+    }).catch(function (err) { host.innerHTML = '<p class="dash-muted">加载失败：' + h(err.message) + '</p>'; });
+  }
+  loadBriefQueue();
+
   // ---- issues (public REST)
   function loadIssues() {
     var host = document.querySelector('#dash-issues .dash-list');
-    var base = 'https://api.github.com/repos/' + repo + '/issues?state=open&per_page=30&labels=';
-    Promise.all([fetch(base + encodeURIComponent('待修订')), fetch(base + encodeURIComponent('划线评论')), fetch(base + 'dead-links')].map(function (p) { return p.then(function (r) { return r.ok ? r.json() : []; }); }))
+    Promise.all([openIssues('待修订'), openIssues('划线评论'), openIssues('dead-links')])
       .then(function (res) {
         var queue = res[0], errata = res[1], links = res[2];
         // 待修订: one issue per post, opened by the weekly feedback-queue Action; its body is the brief
         var html = '<h4>待修订的文章 <span class="dash-count">' + queue.length + '</span> <a class="dash-more" target="_blank" rel="noopener" href="https://github.com/' + repo + '/issues?q=is%3Aissue+is%3Aopen+label%3A%E5%BE%85%E4%BF%AE%E8%AE%A2">全部 ↗</a></h4>';
         html += queue.length ? '<ul>' + queue.map(function (is) {
-          var m = /<!-- feedback-queue: (\S+) -->/.exec(is.body || '');
-          return '<li><a target="_blank" rel="noopener" href="' + h(is.html_url) + '">#' + is.number + ' ' + h(is.title) + '</a>' + (m ? ' <a class="dash-brief-link" href="#brief=' + h(m[1]) + '">简报</a>' : '') + ' <span class="dash-muted">更新于 ' + ago(is.updated_at) + '</span></li>';
+          var qp = queueIssuePath(is);
+          return '<li><a target="_blank" rel="noopener" href="' + h(is.html_url) + '">#' + is.number + ' ' + h(is.title) + '</a>' + (qp ? ' <a class="dash-brief-link" href="#brief=' + h(qp) + '">简报</a>' : '') + ' <span class="dash-muted">更新于 ' + ago(is.updated_at) + '</span></li>';
         }).join('') + '</ul>' : '<p class="dash-muted">没有。每周一 Action 会把反馈够多的文章开成 Issue。</p>';
         html += '<h4>读者报的错 <span class="dash-count">' + errata.length + '</span> <a class="dash-more" target="_blank" rel="noopener" href="https://github.com/' + repo + '/issues?q=is%3Aissue+is%3Aopen+label%3A%E5%88%92%E7%BA%BF%E8%AF%84%E8%AE%BA">全部 ↗</a></h4>';
         html += errata.length ? '<ul>' + errata.map(function (is) {

@@ -149,7 +149,12 @@ Pages has `https_enforced` on.
   joined with `window.DASH_META` — per-post `[date, updated, source path,
   category]` emitted at build time; tech posts whose `updated`/date is >= 3
   years old, ranked by views × log(age), with 简报 + GitHub 编辑 links; a post
-  leaves the list once `updated:` is set). `sitemap: false`, `noindex: true`
+  leaves the list once `updated:` is set), and 待修订的文章 above the 修订简报
+  picker (worker `GET /feedback` with no path = every post's D1 rows in one
+  call, joined with the open `划线评论` / `待修订` issues; a post is listed when
+  it has 存疑 / 章节没看懂 / an open issue, ranked by `FeedbackBrief.analyze`
+  score — Discussion comments are not fetched for the list, only for the
+  brief itself). `sitemap: false`, `noindex: true`
   (`head.html` emits the robots meta for `page.noindex`). Its styles are
   `less/dashboard.less` (`.dash*`).
 - `index.html`: posts with `pinned: true` lead page 1 (badge `.post-pin`) and

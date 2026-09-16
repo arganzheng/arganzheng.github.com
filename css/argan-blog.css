@@ -4385,6 +4385,22 @@ li[id^="fn:"] {
   color: #0085a1;
   border-color: #0085a1;
 }
+.dash .dash-brief-queue {
+  margin-bottom: 16px;
+}
+.dash .dash-brief-queue h4 {
+  margin-top: 0;
+}
+.dash .dash-brief-queue h4 small {
+  font-weight: normal;
+  margin-left: 6px;
+}
+.dash .dash-queue {
+  columns: 1;
+}
+.dash .dash-queue .is-doubt {
+  color: #d1242f;
+}
 .dash .dash-brief-pick {
   max-width: 420px;
   font-size: 13px;
