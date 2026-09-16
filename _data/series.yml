@@ -72,3 +72,6 @@ model-as-component:
 context-engineering:
   name: Prompt 与上下文工程：模型这一步该看到什么
   overview: /prompt-and-context-engineering.html
+retrieval-and-knowledge:
+  name: 检索与知识接入：私域知识怎么进入模型
+  overview: /retrieval-and-knowledge-access.html
