@@ -497,7 +497,7 @@ evals 之于 AI 应用，如同单元测试之于软件——区别是 AI 应用
 | L1 | [模型作为组件：契约、失效模式与选型](/model-as-a-component.html) | 6 | 3.5h |
 | L2 | [Prompt 与上下文工程：模型这一步该看到什么](/prompt-and-context-engineering.html) | 6 | 2.5h |
 | L3 | [检索与知识接入：私域知识怎么进入模型](/retrieval-and-knowledge-access.html) | 7 | 2.5h |
-| L4 | 工具、Agent 与 harness | 待写 | |
+| L4 | [工具、Agent 与 harness：模型怎么从回答变成做事](/tools-agents-and-harness.html) | 9 | 3.5h |
 | L5 | 评测、可观测与可追溯 | 待写 | |
 | L6 | 生产化与运营 | 待写 | |
 | L7 | 产品与体验 | 待写 | |
