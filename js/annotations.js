@@ -676,8 +676,8 @@
   function reactBarHtml(p) {
     var r = p.reaction || { up: 0, doubt: 0, share: 0, reasons: {} }, up = myReaction(p.hash, 'up'), doubt = myReaction(p.hash, 'doubt');
     var summary = reasonsSummary(r), mine = myReason(p.hash);
-    return '<button type="button" class="ap-react-btn ap-react-up' + (up ? ' is-on' : '') + '" title="' + (up ? '取消点赞' : '点赞这段话（不用登录）') + '"><i class="fa ' + (up ? 'fa-thumbs-up' : 'fa-thumbs-o-up') + '"></i> 点赞' + (r.up ? ' <b>' + r.up + '</b>' : '') + '</button>' +
-      '<button type="button" class="ap-react-btn ap-react-doubt' + (doubt ? ' is-on' : '') + '" title="' + escapeAttr((doubt ? '取消存疑' : '觉得这段话有问题？（不用登录）') + (summary ? '\n' + summary : '')) + '"><i class="fa ' + (doubt ? 'fa-question-circle' : 'fa-question-circle-o') + '"></i> 存疑' + (r.doubt ? ' <b>' + r.doubt + '</b>' : '') + '</button>' +
+    return '<button type="button" class="ap-react-btn ap-react-up' + (up ? ' is-on' : '') + '" title="' + (up ? '取消点赞' : '点赞这段话（不用登录）') + '"><i class="fa ' + (up ? 'fa-thumbs-up' : 'fa-regular fa-thumbs-up') + '"></i> 点赞' + (r.up ? ' <b>' + r.up + '</b>' : '') + '</button>' +
+      '<button type="button" class="ap-react-btn ap-react-doubt' + (doubt ? ' is-on' : '') + '" title="' + escapeAttr((doubt ? '取消存疑' : '觉得这段话有问题？（不用登录）') + (summary ? '\n' + summary : '')) + '"><i class="fa ' + (doubt ? 'fa-question-circle' : 'fa-regular fa-circle-question') + '"></i> 存疑' + (r.doubt ? ' <b>' + r.doubt + '</b>' : '') + '</button>' +
       '<button type="button" class="ap-react-btn ap-react-share" title="分享这段话（微博 / X / 微信 / 复制链接）" aria-haspopup="true" aria-expanded="false"><i class="fa fa-share-alt"></i> 分享' + (r.share ? ' <b>' + r.share + '</b>' : '') + '</button>' +
       (doubt ? '<a href="#" class="ap-react-say">说说哪里不对 →</a>' : '') +
       // 存疑 alone is a 1-bit signal; one tap on *why* makes it actionable. Shown to
@@ -782,8 +782,8 @@
             (c.deleted ? '' : voteHtml(c)) +
             (onReply ? '<button type="button" class="ap-reply-btn"><i class="fa fa-reply"></i> 回复</button>' : '') +
             (mine ? '<button type="button" class="ap-edit-btn" title="编辑"><i class="fa fa-pencil"></i> 编辑</button>' +
-                    '<button type="button" class="ap-delete-btn" title="删除"><i class="fa fa-trash-o"></i> 删除</button>' : '') +
-            '<a class="ap-github" href="' + escapeAttr(c.url) + '" target="_blank" rel="noopener noreferrer" title="在 GitHub 上查看 / 编辑"><i class="fa fa-github"></i></a>' +
+                    '<button type="button" class="ap-delete-btn" title="删除"><i class="fa fa-regular fa-trash-can"></i> 删除</button>' : '') +
+            '<a class="ap-github" href="' + escapeAttr(c.url) + '" target="_blank" rel="noopener noreferrer" title="在 GitHub 上查看 / 编辑"><i class="fa fa-brands fa-github"></i></a>' +
           '</span>' +
         '</div>' +
         '<div class="ap-comment-body"></div>' +
@@ -978,8 +978,8 @@
     var total = comments.reduce(function (n, c) { return n + (c.deleted ? 0 : 1) + c.replies.length; }, 0);
     head.innerHTML =
       '<span class="ac-count">' + (loadError ? '<i class="fa fa-exclamation-circle"></i> 评论加载失败：' + escapeHtml(loadError.message)
-        : !loaded ? '正在加载评论…' : '<i class="fa fa-comment-o"></i> ' + total + ' 条评论') + '</span>' +
-      (discussion && discussion.url ? '<a class="ac-github" href="' + escapeAttr(discussion.url) + '" target="_blank" rel="noopener noreferrer" title="这个讨论串在 GitHub Discussions 上"><i class="fa fa-github"></i> GitHub</a>' : '');
+        : !loaded ? '正在加载评论…' : '<i class="fa fa-regular fa-comment"></i> ' + total + ' 条评论') + '</span>' +
+      (discussion && discussion.url ? '<a class="ac-github" href="' + escapeAttr(discussion.url) + '" target="_blank" rel="noopener noreferrer" title="这个讨论串在 GitHub Discussions 上"><i class="fa fa-brands fa-github"></i> GitHub</a>' : '');
     // Header meta badges (`.post-stats`) are painted by js/share.js; hand it
     // what we know (views once the worker answered, comment count once loaded).
     var stats = {};
@@ -1035,10 +1035,10 @@
     { key: 'heading', icon: 'fa-header', title: '标题 (### )' },
     { key: 'quote', icon: 'fa-quote-right', title: '引用 (> )' },
     { key: 'code', icon: 'fa-code', title: '行内代码 (`code`)' },
-    { key: 'codeblock', icon: 'fa-file-code-o', title: '代码块 (```)' },
+    { key: 'codeblock', icon: 'fa-regular fa-file-code', title: '代码块 (```)' },
     { key: 'table', icon: 'fa-table', title: '表格 (3×3)' },
     { key: 'link', icon: 'fa-link', title: '链接 [文字](url)' },
-    { key: 'image', icon: 'fa-picture-o', title: '图片 ![说明](url)' },
+    { key: 'image', icon: 'fa-regular fa-image', title: '图片 ![说明](url)' },
     { key: 'ul', icon: 'fa-list-ul', title: '无序列表 (- )' },
     { key: 'ol', icon: 'fa-list-ol', title: '有序列表 (1. )' }
   ];
@@ -1061,7 +1061,7 @@
           '<span class="ap-hint">Markdown · ⌘/Ctrl+Enter 提交</span>' +
           (opts.issueOption && cfg.issues ? '<label class="ap-issue" title="除评论外，再以你的名义在 GitHub 仓库创建一个 Issue，提醒作者这里可能有问题"><input type="checkbox"><i class="fa fa-flag"></i> 同时提交 Issue</label>' : '') +
           (opts.onCancel ? '<button type="button" class="ap-cancel">取消</button>' : '') +
-          '<button type="button" class="ap-login"><i class="fa fa-github"></i> 使用 GitHub 登录</button>' +
+          '<button type="button" class="ap-login"><i class="fa fa-brands fa-github"></i> 使用 GitHub 登录</button>' +
           '<button type="button" class="ap-submit" disabled><i class="fa fa-paper-plane"></i> <span class="ap-submit-label">' + escapeHtml(opts.submitLabel) + '</span></button>' +
         '</span>' +
       '</div>';
@@ -1746,10 +1746,10 @@
     toolbar = document.createElement('div');
     toolbar.className = 'annotation-toolbar';
     toolbar.innerHTML =
-      '<button type="button" class="annotation-tb-up" title="点赞这段话（不用登录）"><i class="fa fa-thumbs-o-up"></i> 点赞</button>' +
-      '<button type="button" class="annotation-tb-doubt" title="觉得这段话有问题？存疑（不用登录）"><i class="fa fa-question-circle-o"></i> 存疑</button>' +
+      '<button type="button" class="annotation-tb-up" title="点赞这段话（不用登录）"><i class="fa fa-regular fa-thumbs-up"></i> 点赞</button>' +
+      '<button type="button" class="annotation-tb-doubt" title="觉得这段话有问题？存疑（不用登录）"><i class="fa fa-regular fa-circle-question"></i> 存疑</button>' +
       '<span class="annotation-tb-sep"></span>' +
-      '<button type="button" class="annotation-tb-comment"><i class="fa fa-comment-o"></i> 评论</button>' +
+      '<button type="button" class="annotation-tb-comment"><i class="fa fa-regular fa-comment"></i> 评论</button>' +
       '<button type="button" class="annotation-tb-copy" title="复制选中的文字"><i class="fa fa-copy"></i> 复制</button>' +
       '<button type="button" class="annotation-tb-search" title="用 Google 搜这段文字"><i class="fa fa-search"></i> 搜一搜</button>' +
       '<button type="button" class="annotation-tb-share" title="分享这段话：微博 / X / 微信 / 复制链接（打开后自动定位这段文字）" aria-haspopup="true" aria-expanded="false"><i class="fa fa-share-alt"></i> 分享</button>' +

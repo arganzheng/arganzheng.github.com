@@ -216,10 +216,13 @@ PyTorch 的源码树有几百万行，`test/` 目录下有两百多个条目；v
 
 > **两个都是"小"PR，却各花了作者一到几周。这些时间花在哪里了？哪些是可以省的，哪些是这个项目的正常成本？**
 
-本篇最后给出全系列总结：把两个走读里出现的每一个环节，映射回前三篇的对应小节。
+
 
 实践：按同样的走读格式，复盘自己在第三篇提交的那个 PR——无论它最终合入了还是没有。
 
+### 5. 系列总结与通关自测
+
+最后一篇不讲新内容：把四篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是四篇能不能连起来用；读完正文再做。
 
 ## 贯穿全系列的实践线
 
@@ -336,6 +339,7 @@ NCCL、Megatron-LM、FlashAttention、Triton、SGLang 等项目在正文中只�
 2. [找到切入点：从 issue、RFC 到性能回归](/finding-your-entry-point-in-open-source.html)
 3. [做出一个能被合入的改动](/landing-a-mergeable-change.html)
 4. [两个真实 PR 的完整走读：PyTorch 与 vLLM](/two-real-prs-pytorch-and-vllm.html)
+5. [系列总结与通关自测](/contributing-to-ai-infra-open-source-series-recap-and-self-test.html)
 
 
 ## 最终目标

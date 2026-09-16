@@ -32,10 +32,10 @@
          no layout, so they load off the critical path (media=print until loaded); github-markdown.css
          above sets body typography and must stay blocking or the text would reflow. -->
     <link rel="stylesheet" href="{{ "/css/syntax.css" | prepend: site.baseurl }}?v={{ v }}" media="print" onload="this.media='all'">
-    <link rel="stylesheet" href="{{ "/css/font-awesome.min.css" | prepend: site.baseurl }}" media="print" onload="this.media='all'">
+    <link rel="stylesheet" href="{{ "/css/font-awesome.min.css" | prepend: site.baseurl }}?v={{ v }}" media="print" onload="this.media='all'">
     <noscript>
         <link rel="stylesheet" href="{{ "/css/syntax.css" | prepend: site.baseurl }}?v={{ v }}">
-        <link rel="stylesheet" href="{{ "/css/font-awesome.min.css" | prepend: site.baseurl }}">
+        <link rel="stylesheet" href="{{ "/css/font-awesome.min.css" | prepend: site.baseurl }}?v={{ v }}">
     </noscript>
 
     <!-- Cloudflare Web Analytics -->
