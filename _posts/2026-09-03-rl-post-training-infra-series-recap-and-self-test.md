@@ -5,7 +5,7 @@ title: "RL 后训练基础设施（09）：系列总结与通关自测"
 subtitle: "RL Post-Training Infrastructure: Series Recap and Final Self-Test"
 tags: [RL, verl, vLLM, Megatron, Distributed Training, AI, AI-Infra]
 catalog: true
-date: 2026-09-03 20:00:00 +0800
+date: 2026-09-03 20:00:00
 ---
 
 八篇正文回答了一个问题：**一个 RL 后训练任务同时是一个推理服务和一个训练任务，这两样东西怎样共享一组 GPU，而不让任何一方在等另一方**。第一篇把一步 RL 拆成三个作业加两次同步、算清 FLOP / 字节 / 秒三本账；第二篇把共置、分离、异步三种形态放在同一张账上比较；第三到第六篇各解决形态带来的一个问题——共置要切显存、任何形态都要同步权重、异步要补 off-policy 的修正、Agent 要调度环境；第七篇把每个机制落到 verl 的函数与进程上，第八篇把前七篇变成配置推导、指标面板与故障表。八篇反复回到同一个场景算账：Llama-3-8B、$$B = 512$$、$$G = 16$$、$$\bar L = 8\text{K}$$、64 × H100，一步 810 秒、全步 MFU 13%。

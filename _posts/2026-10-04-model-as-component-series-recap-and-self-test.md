@@ -5,7 +5,7 @@ title: "模型作为组件（07）：系列总结与通关自测"
 subtitle: "The Model as a Component: Series Recap and Final Self-Test"
 tags: [AI, LLM, AI-Application, API, Agent]
 catalog: true
-date: 2026-10-04 20:00:00 +0800
+date: 2026-10-04 20:00:00
 ---
 
 六篇正文回答了一个问题：**把大模型当作系统里的一个组件，它的规格书是什么**。第一篇写它的失效模式，第二、三篇写它的接口（含推理模型的新维度），第四篇算它的账，第五篇讲怎么在几十个候选里选，第六篇讲调用它的客户端要处理什么。六篇合起来，是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)第一层的全部内容——**组件观**：模型是一个非确定性、会编造、按 token 计费、有上下文上限、供应商会换掉的组件，后面六层的每一种工程手段都是对它某一条性质的应对。

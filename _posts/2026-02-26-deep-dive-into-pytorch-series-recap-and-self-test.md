@@ -5,7 +5,7 @@ title: "PyTorch 深度实践（11）：系列总结与通关自测"
 subtitle: "Deep Dive into PyTorch: Series Recap and Final Self-Test"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
-date: 2026-02-26 20:00:00 +0800
+date: 2026-02-26 20:00:00
 ---
 
 十篇正文回答了一个问题：**PyTorch 如何把 Python 里写下的张量计算，变成可求导、可扩展、可优化、可分布式执行的运行时系统**。第一篇画全局地图，第二到四篇讲编程模型（Tensor、Autograd、`nn.Module` 与训练系统），第五、六篇讲算子运行时（Dispatcher 与自定义算子），第七篇讲编译，第八篇讲性能，第九篇讲多卡，第十篇讲这个系统靠什么一直正确、一直可用。十篇合起来，是从 `loss.backward()` 一路追问到硬件与集群的一张图。

@@ -5,7 +5,7 @@ title: "大规模训练工程（09）：系列总结与通关自测"
 subtitle: "Large-Scale Training Engineering: Series Recap and Final Self-Test"
 tags: [Megatron, DeepSpeed, Distributed Training, AI, AI-Infra]
 catalog: true
-date: 2026-07-29 20:00:00 +0800
+date: 2026-07-29 20:00:00
 ---
 
 八篇正文回答了一个问题：**一个千卡训练任务，怎么配、怎么跑满、怎么跑一个月不倒**。前四篇是静态与稳态——第一篇算一张卡上四种状态的字节数与 FLOP，第二篇把每种并行写成"切哪种状态、付哪种通信"，第三篇追一个 bf16 参数在 Megatron-LM、DeepSpeed、torchtitan 里的一生，第四篇从模型与集群规格推出 70B / 1024 卡的配置并拆解 MFU 损失；后四篇是长时——第五篇把状态写到磁盘并允许换布局读回，第六篇算故障之后每一秒去了哪里，第七篇让数值不跑飞、数据可回放，第八篇把任务当作服务来运维。八篇合起来，是[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)总纲里"训练引擎这一层"的全部。

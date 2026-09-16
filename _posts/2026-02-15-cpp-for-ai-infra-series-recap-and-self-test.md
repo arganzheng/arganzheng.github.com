@@ -5,7 +5,7 @@ title: "C++ 在 AI-Infra（09）：系列总结与通关自测"
 subtitle: "C++ for AI-Infra: Series Recap and Final Self-Test"
 tags: [C++, AI, AI-Infra]
 catalog: true
-date: 2026-02-15 20:00:00 +0800
+date: 2026-02-15 20:00:00
 ---
 
 八篇正文回答了一个问题：**PyTorch 和 vLLM 的 C++ 源码里，这段代码为什么这样写**。第一篇讲一个 `.cpp` 怎么变成 `.so`、`import torch` 拉起哪几个库；第二篇讲 `at::Tensor` 为什么是一个 8 字节的句柄、数据什么时候释放；第三篇讲 `AT_DISPATCH` 里的 `scalar_t` 从哪里来；第四篇讲 Dispatcher 用什么机制调到 kernel；第五篇讲算子怎么在没有任何显式调用的情况下登记进 `torch.ops`；第六篇讲 `no_grad` 为什么对其他线程不生效；第七篇讲一个 Tensor 跨过 Python/C++ 边界经过了什么；第八篇讲一个改动从写完到能提 PR 要跑哪些东西。八篇合起来，是[总纲](/cpp-for-ai-infra.html)开篇那段 `scale_shift_cpu` 的逐行注解。

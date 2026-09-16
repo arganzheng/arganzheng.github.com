@@ -5,7 +5,7 @@ title: "扩散模型推理基础设施（10）：系列总结与通关自测"
 subtitle: "Diffusion Model Inference Infrastructure: Series Recap and Final Self-Test"
 tags: [Diffusion, DiT, Video Generation, Inference, SGLang, vLLM, xDiT, AI, AI-Infra]
 catalog: true
-date: 2026-09-13 20:00:00 +0800
+date: 2026-09-13 20:00:00
 ---
 
 九篇正文回答了一个问题：**图像与视频生成这种 compute-bound 的负载，推理系统该长什么样，为什么 vLLM 的那一套在它身上大半用不上**。第一篇算清一次生成三段的 FLOPs、字节与秒，第二篇在单卡上换 MFU，第三篇利用相邻步的冗余改有效步数，第四篇算视频的 $$N^2$$ 与稀疏化，第五篇用通信换墙钟，第六篇看步数被蒸馏掉之后系统怎样变、KV cache 怎样回来，第七篇把这些放进一个服务，第八篇走一遍三个引擎，第九篇变成配置、评测与排障。九篇合起来，是[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)那条推理主线的另一半。

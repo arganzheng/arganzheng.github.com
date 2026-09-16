@@ -5,7 +5,7 @@ title: "预训练（05）：系列总结与通关自测"
 subtitle: "Pretraining: Series Recap and Final Self-Test"
 tags: [Transformer, LLM, AI, Pretraining]
 catalog: true
-date: 2026-04-13 20:00:00 +0800
+date: 2026-04-13 20:00:00
 ---
 
 四篇正文回答了一个问题：**一个基座模型是怎么训出来的，每个训练决定花多少**。第一篇算 tokenizer 与词表，第二篇算算力怎么分给参数与数据，第三篇算 15T token 从哪来、丢掉的是什么，第四篇算超参表里每个数字的来历与训练为什么会崩。四篇合起来，是[《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)那张成本表的训练侧。

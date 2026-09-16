@@ -5,7 +5,7 @@ title: "后训练（09）：系列总结与通关自测"
 subtitle: "Post-Training: Series Recap and Final Self-Test"
 tags: [AI, LLM, Post-Training, RLHF]
 catalog: true
-date: 2026-04-23 20:00:00 +0800
+date: 2026-04-23 20:00:00
 ---
 
 八篇正文回答了一个问题：**一个只会续写的基座模型，经过哪几步变成能回答、能拒绝、能一步步推导、能调工具的模型——每一步的目标函数是什么、要几个模型在显存里、生成多少 token、怎么证明它真的变好了**。第一篇用 SFT 教格式，第二篇把人的判断造成一个可微的奖励，第三、四篇是用奖励改策略的在线与离线两种解法，第五篇把奖励换成验证器，第六篇把验证器推到多轮环境，第七篇把奖励换成教师的分布，第八篇是贯穿全程的度量。八篇合起来是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)的第 L5 层。

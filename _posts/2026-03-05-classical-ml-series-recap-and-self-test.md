@@ -5,7 +5,7 @@ title: "LLM 时代的经典机器学习（07）：系列总结与通关自测"
 subtitle: "Classical Machine Learning in the LLM Era: Series Recap and Final Self-Test"
 tags: [AI, LLM, Machine Learning]
 catalog: true
-date: 2026-03-05 20:00:00 +0800
+date: 2026-03-05 20:00:00
 ---
 
 六篇正文回答了一个问题：**LLM 工作里的哪些问题其实是经典机器学习的老问题，它们的经典解法在 LLM 上还成立吗**。第一篇讲什么是学习与泛化，第二篇讲线性回归与逻辑回归并指出奖励模型就是后者，第三篇把六个分类器放在同一份数据上比并算清数据过滤为什么用小模型，第四篇讲聚类与降维，第五篇把 MinHash 与 LSH 的概率算清楚，第六篇讲评估——一切结论是否成立的最后一道关。六篇合起来对应[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)的 L2 层，也是总纲那张"重现表"的逐行展开。

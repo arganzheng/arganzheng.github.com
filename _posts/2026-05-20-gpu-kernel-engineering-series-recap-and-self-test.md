@@ -5,7 +5,7 @@ title: "GPU Kernel 工程（11）：系列总结与通关自测"
 subtitle: "GPU Kernel Engineering: Series Recap and Final Self-Test"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
-date: 2026-05-20 20:00:00 +0800
+date: 2026-05-20 20:00:00
 ---
 
 十篇正文回答了一个问题：**一个 kernel 为什么快、为什么慢，以及如何把它写到接近硬件极限**。第一篇把 GPU 拆开并建立 Roofline，第二篇写出第一个 kernel 并学会测量，第三、四篇把 memory-bound 的 elementwise 与 reduction 推到带宽墙，第五、六篇把 GEMM 从 naive 推到 Tensor Core，第七篇用 Triton 看编译器接管了哪一层，第八、九篇把这些工具用到 attention、量化与融合 kernel 上组装出一个 decoder layer，第十篇讲怎么剖析、测试、接入框架并合入一个 PR。
