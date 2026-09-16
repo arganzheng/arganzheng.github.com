@@ -921,8 +921,14 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   as it lands.
 - **Every series ends with a 「系列总结与通关自测」 post** (added 2026-09-16
   for all 21 series): `_posts/<last-post-date>-<series-key>-series-recap-and-self-test.md`,
-  `date: <same day> 20:00:00` so it sorts after the last body post without
-  moving the timeline, title `系列名（NN）：系列总结与通关自测` with NN = body
+  `date: <same day> 20:00:00 +0800` so it sorts after the last body post without
+  moving the timeline. **The `+0800` is required**: YAML reads a bare
+  `2026-10-04 20:00:00` as UTC, so Jekyll rendered it as 10-05 04:00 Beijing —
+  4 h *after* the next series' overview (filename date = 00:00 local), which
+  parked every recap inside the following series (fixed 2026-09-16). Any
+  front-matter `date:` with a time needs an explicit offset; and when the next
+  overview shares the day with the previous series' last post (pretraining
+  overview on 04-09), give the overview `22:00:00 +0800`. Title `系列名（NN）：系列总结与通关自测` with NN = body
   posts + 1, tags copied from the overview. Fixed structure: intro with three
   `[^q0–2]` questions → `## 一、总览` (one table 篇 | 问题 | 一句话结论 | 必记
   + 章节安排) → `## 二、逐篇回顾` (per post: 核心问题 / 结论 / 必记 / 常见误解)

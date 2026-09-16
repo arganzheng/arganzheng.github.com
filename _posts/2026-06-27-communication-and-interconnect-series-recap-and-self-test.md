@@ -5,7 +5,7 @@ title: "通信与互联（09）：系列总结与通关自测"
 subtitle: "Communication and Interconnect: Series Recap and Final Self-Test"
 tags: [NCCL, RDMA, GPU, AI, AI-Infra]
 catalog: true
-date: 2026-06-27 20:00:00
+date: 2026-06-27 20:00:00 +0800
 ---
 
 八篇正文回答了一个问题：**一次 all_reduce 从调用到完成，数据在 PCIe、NVLink、InfiniBand 上是怎么流动的，为什么有时候是带宽的问题、有时候是延迟的问题**。第一篇造尺子（α-β 模型与 ring 的推导），第二、三篇给尺子填上真实刻度（链路带宽、拓扑等级、RDMA 的三条路径），第四篇讲 NCCL 如何在这些刻度上做决定，第五篇讲 PyTorch 如何使用 NCCL 而不浪费它，第六篇把前五篇变成一条曲线和一棵决策树，第七、八篇把同一套方法用到推理的 decode TP、PD 分离和 MoE 的 all_to_all 上——那里 NCCL 不再是答案，绕开它的三种办法各自付了什么代价。

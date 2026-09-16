@@ -5,7 +5,7 @@ title: "多模态（08）：系列总结与通关自测"
 subtitle: "Multimodal Models: Series Recap and Final Self-Test"
 tags: [AI, LLM, Multimodal, Diffusion]
 catalog: true
-date: 2026-05-09 20:00:00
+date: 2026-05-09 20:00:00 +0800
 ---
 
 七篇正文回答了两个问题：**图片、视频、语音怎么进入一个语言模型，以及图像与视频的生成为什么是另一套数学**。前四篇是理解线——编码器学到什么、几百个向量怎么进 LLM、训练分几个阶段、声音为什么必须离散化；第五、六篇是生成线——去噪为什么等于学分布、怎么把这套数学变成 SD / FLUX；第七篇是交汇——图像能不能像文本一样 token 化后自回归地生成，理解与生成能不能用一个模型。

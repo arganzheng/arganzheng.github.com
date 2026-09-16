@@ -5,7 +5,7 @@ title: "AI 平台工程（09）：系列总结与通关自测"
 subtitle: "AI Platform Engineering: Series Recap and Final Self-Test"
 tags: [Kubernetes, MLOps, GPU, AI, AI-Infra]
 catalog: true
-date: 2026-09-22 20:00:00
+date: 2026-09-22 20:00:00 +0800
 ---
 
 八篇正文回答了一个问题：**一个 GPU 集群如何被切分、调度和喂饱，一个训好的模型如何变成一个可运维的服务**。第一篇从一个 Pending 的 GPU Pod 出发列出引擎对平台的需求清单；第二到五篇是资源层——容器里的 GPU、一组 Pod 的调度、一张卡的切分、第二张网卡与 checkpoint 的带宽；第六到八篇是交付层——副本的形态与扩缩容、请求的路由与配额、从 DCGM 到账单的反馈回路。

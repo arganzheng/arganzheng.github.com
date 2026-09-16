@@ -5,7 +5,7 @@ title: "高效推理与压缩（07）：系列总结与通关自测"
 subtitle: "Efficient Inference and Model Compression: Series Recap and Final Self-Test"
 tags: [AI, LLM, Inference, Quantization]
 catalog: true
-date: 2026-05-01 20:00:00
+date: 2026-05-01 20:00:00 +0800
 ---
 
 六篇正文回答了一个问题：**不改硬件、不改推理引擎，怎么让同一个模型更快、更小、更便宜——以及每种办法让模型的输出改变了多少**。第一篇讲从分布里怎么取一个 token，第二篇讲唯一不改变分布的加速（投机解码），第三、四篇讲权重与激活的低比特表示（PTQ 与 QAT），第五篇讲训好之后还能对 KV 做什么，第六篇讲删掉一部分参数之后怎么恢复、以及一个 70B 怎么变成一个能用的 8B。六篇合起来，是[《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)那条成本公式的算法侧。

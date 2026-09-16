@@ -5,7 +5,7 @@ title: "算法工程师的数学（09）：系列总结与通关自测"
 subtitle: "Mathematics for AI Algorithm Engineers: Series Recap and Final Self-Test"
 tags: [AI, LLM, Math]
 catalog: true
-date: 2026-01-15 20:00:00
+date: 2026-01-15 20:00:00 +0800
 ---
 
 八篇正文回答了一个问题：**拿到一篇 LLM 论文能不能读懂它的每一个公式，给一个建模假设能不能推出它的训练 loss，给一个评测结果能不能判断差异是真的还是噪声**。前三篇是线性代数（形状与成本、向量的比较、正交与低秩），第四、五篇是概率（语言模型是一个条件分布、从最大似然推出交叉熵），第六篇是信息论（熵、交叉熵、KL 到 DPO），第七篇是微积分与优化（链式法则、$$p - y$$、策略梯度），第八篇是统计推断（置信区间与 scaling law 的拟合）。八篇合起来，是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)的 L0 层——后面每一层的公式都建在这一小块数学上。

@@ -5,7 +5,7 @@ title: "算法工程师的工具箱（07）：系列总结与通关自测"
 subtitle: "Tooling for AI Algorithm Engineers: Series Recap and Final Self-Test"
 tags: [AI, LLM, PyTorch, Python]
 catalog: true
-date: 2026-01-22 20:00:00
+date: 2026-01-22 20:00:00 +0800
 ---
 
 六篇正文回答了一个问题：**把一个想法变成一次能跑、能复现、能与 baseline 对比的实验，要经过哪些工具、每个工具用到什么程度**。第一篇讲训练代码里那一小撮 Python 语法与流式过语料，第二篇在 NumPy 上建立形状直觉并用 Pandas、Matplotlib 看结果，第三篇写出二十行训练循环，第四篇算这个循环要多少显存，第五篇用 Hugging Face 的六个库组装一次真实的 LoRA SFT，第六篇解释为什么快为什么慢、怎么让实验三个月后还能复现。六篇合起来，是[《算法工程师的工具箱》总纲](/tooling-for-ai-algorithm-engineers.html)里 L1 那一层的全部：会到能做实验为止，越过那条线就进 Infra 地图。

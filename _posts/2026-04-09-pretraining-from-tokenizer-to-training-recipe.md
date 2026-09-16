@@ -3,6 +3,7 @@ layout: post
 title: 预训练：从 tokenizer 到训练配方（总纲）
 subtitle: "Pretraining: Tokenizers, Scaling Laws, Data Pipelines and Training Recipes"
 tags: [Transformer, LLM, AI, Pretraining]
+date: 2026-04-09 22:00:00 +0800
 catalog: true
 ---
 

@@ -5,7 +5,7 @@ title: "面试手撕代码（20）：系列总结与通关自测"
 subtitle: "Coding Interviews: Series Recap and Final Self-Test"
 tags: [Interview, Algorithms, Data Structures, LeetCode, Python, Java, AI]
 catalog: true
-date: 2025-12-20 20:00:00
+date: 2025-12-20 20:00:00 +0800
 ---
 
 十九篇正文回答了一个问题：**面试官给一道没见过的中等题、四十分钟，怎样在前五分钟认出它属于哪一类、用哪个模板、复杂度是多少，然后把时间用来写对代码、想清边界、接住追问**。前十三篇按解题模式而不是数据结构的名字组织 LeetCode 中等题——哈希、双指针、单调栈、链表、树、图、二分、堆与贪心、回溯、字符串、两篇 DP、设计题，每篇一个可以默写的骨架、三到七道主讲题、一张两种语言的坑表；后六篇是 AI 岗特有的"手撕模型组件"——attention、Transformer block 与反向传播、tokenizer 与解码、损失与训练算法、经典 ML 与指标、Infra 岗的并发与系统，每个组件从零写出来并与 PyTorch 参考实现对拍。

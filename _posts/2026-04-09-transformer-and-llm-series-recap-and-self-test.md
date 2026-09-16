@@ -5,7 +5,7 @@ title: "Transformer 与 LLM（09）：系列总结与通关自测"
 subtitle: "Transformers and LLMs for Infrastructure Engineers: Series Recap and Final Self-Test"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
-date: 2026-04-09 20:00:00
+date: 2026-04-09 20:00:00 +0800
 ---
 
 八篇正文回答了一个问题：**把一个 LLM 当作计算对象，它的每一步算多少、读多少、存多少、传多少**。前两篇从 `config.json` 算出参数量、FLOPs 与字节数，建立 Roofline 上的成本模型；第三到五篇看三种结构改动（GQA / MLA、RoPE 与长上下文、MoE）各改了成本表的哪一格；第六、七篇看数值与方法（浮点格式、量化、投机解码、LoRA）如何改变每个数占几个字节、每步产出几个 token；第八篇把输入换成图片，看 token 数不再由 tokenizer 决定时账怎么变。八篇合起来，是[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)那张成本表的推理侧与结构侧。

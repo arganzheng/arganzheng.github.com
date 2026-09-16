@@ -5,7 +5,7 @@ title: "AI-Infra 开源贡献指南（05）：系列总结与通关自测"
 subtitle: "Contributing to AI-Infra Open Source: Series Recap and Final Self-Test"
 tags: [Open Source, PyTorch, vLLM, AI, AI-Infra]
 catalog: true
-date: 2026-09-27 20:00:00
+date: 2026-09-27 20:00:00 +0800
 ---
 
 四篇正文回答了一个问题：**面对一个百万行的开源项目，如何找到切入点、做出一个能被合入的改动**。第一篇讲怎么读——从符号、报错、issue 出发有目标地检索；第二篇讲怎么选——maintainer 已经写出了"我们想要什么"，选题是去读它们再查一次重；第三篇讲怎么交——每条规则都还原成"reviewer 的十分钟"的一个侧面；第四篇把前三篇放到两个真实 PR 的时间线上，量出时间花在哪里。样本始终是 PyTorch v2.14.0 与 vLLM v0.28.0，GitHub 上的动态信息截至 2026-09 用 `gh` 查询。
