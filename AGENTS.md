@@ -3,7 +3,9 @@
 ## Build / preview
 
 Jekyll 4.4.1 is installed against Homebrew's Ruby.
-Homebrew Ruby and Gem paths are configured in `~/.zshrc`:
+Homebrew Ruby (4.0) and Gem paths are configured in `~/.zshrc`; CI uses the same `ruby-version: '4.0'`.
+Jekyll 4.4.1 pins `liquid ~> 4`, `rouge < 5`, `json ~> 2.6` — `bundle outdated` will keep listing those three until Jekyll 5.
+
 `/opt/homebrew/opt/ruby/bin:/opt/homebrew/lib/ruby/gems/4.0.0/bin`
 
 A `Gemfile` is also present at repo root:
@@ -228,7 +230,9 @@ Pages has `https_enforced` on.
   under a 未注明日期 bucket at the bottom (it used to float to the top with an
   empty year). Posts never need `date:` (only to order several posts on the
   same day).
-- `_includes/rich-content.html` — Mermaid + KaTeX loaders, shared by
+- `_includes/rich-content.html` — Mermaid (11.17.2) + KaTeX (0.18.7, only the
+  public `.katex` / `.katex-display` classes are referenced from our code, so
+  0.18's internal class prefixing did not matter) loaders, shared by
   `_includes/head.html` and `_layouts/slides.html`. Both renderers are lazy:
   they only fetch their bundle if the page actually contains a diagram/formula,
   and they only look inside `.post-container` and `.reveal .slides`.
@@ -273,26 +277,15 @@ Pages has `https_enforced` on.
   `.visible-*/.hidden-*` are all in use) — don't swap in Bootstrap 5.
 - Local CSS/JS in `head.html` / `footer.html` carry `?v=<build time>` for
   cache busting (GitHub Pages serves `max-age=600`; the old `no-cache` meta
-  tags were removed). Font Awesome **7** (Free) is a self-hosted **subset**:
+  tags were removed). Font Awesome 4.7 is a self-hosted **subset**:
   `tools/fa-subset.py` scans templates/js/posts/less for `fa-*` classes and
-  `content:"\fXXX"` glyphs, resolves them against the metadata in
-  `node_modules/@fortawesome/fontawesome-free` (devDependency) and writes
-  `css/font-awesome.min.css` (FA core rules + only our icons, ~28 KB) +
-  `fonts/fa-{solid-900,regular-400,brands-400}.woff2` (~24 KB together).
-  Markup: `fa fa-<name>` = solid, `fa fa-regular fa-<name>` = outline (the
-  old `-o` icons), `fa fa-brands fa-<name>` = brands (github, weixin,
-  weibo, linkedin, twitter, creative-commons…); keep `fa` on every icon —
-  the theme's `.fa` selectors and `querySelector('.fa')` depend on it. FA 7
-  gives icons a fixed 1.25em width; the subset CSS resets that to `auto`
-  (FA 4 behaviour), `fa-fw` opts back in. FA 5/6 alias names FA still ships
-  (`fa-search`, `fa-share-alt`, `fa-question-circle`…) work; the FA 4 `-o`
-  names and `fa-wechat` do not — the script names the replacement (from FA's
-  `shims.yml`). ~150 common icons are always included (`ALWAYS`, FA 7 names,
-  both styles where the icon has them); `--check` (check.sh / CI, no
-  node_modules needed) fails with the missing names — then run the script
-  (`npm install` + `pip install fonttools brotli`). In CSS, glyphs are
-  `font-family: "Font Awesome 7 Free"; font-weight: 900` (see
-  `less/inline-popups.less`). `sw.js` is disabled via `service-worker: false`.
+  `content:"\fXXX"` glyphs and writes `css/font-awesome.min.css` +
+  `fonts/fontawesome-webfont.woff2` (~20 KB, vs 77 KB full) from the full
+  copies in `tools/fa/`. ~150 common icons are always included (`ALWAYS` in
+  the script) so new posts rarely need anything; CI runs `--check` and fails
+  with the missing icon names if they do — then run the script (needs
+  `pip install fonttools brotli`). `sw.js` is disabled via
+  `service-worker: false`.
 - `_includes/comments.html` — comment section (GitHub Discussions), used by
   `_layouts/post.html`, `header-post.html` and `keynote.html`. It is an empty
   `section.comment > .annotation-comments` shell with data attributes; the
@@ -877,11 +870,11 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   `date: <same day> 20:00:00` so it sorts after the last body post without
   moving the timeline, title `系列名（NN）：系列总结与通关自测` with NN = body
   posts + 1, tags copied from the overview. Fixed structure: intro with three
-  `[^q0-2]` questions → `## 一、总览` (one table 篇 | 问题 | 一句话结论 | 必记
+  `[^q0–2]` questions → `## 一、总览` (one table 篇 | 问题 | 一句话结论 | 必记
   + 章节安排) → `## 二、逐篇回顾` (per post: 核心问题 / 结论 / 必记 / 常见误解)
   → `## 三、贯穿全系列的几条线` (+ concept table; at most one Mermaid, only for
   real dependencies between quantities) → `## 四、常见误区` table →
-  `## 五、通关自测` (A 判断与计算 10 · B 跨篇综合 5 · C 面试题 6-8 with 答案要点 /
+  `## 五、通关自测` (A 判断与计算 10 · B 跨篇综合 5 · C 面试题 6–8 with 答案要点 /
   追问方向 / 好答案与一般答案的区别 · D 掌握判据) → `## 六、下一步` (links only
   to other series' *overviews* and the maps) → footnotes. No 本文小结, no
   下一篇, no lab. Every number must come from the series' own posts. The old
@@ -952,7 +945,7 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
     the prose *and* the diagram together; only skip when the concept is out
     of scope for that post or the diagram adds nothing.
   - Structure / flow / timelines / decisions → ```` ```mermaid ```` (rendered by
-    `_includes/rich-content.html`, Mermaid 10.9.1: `~~~` invisible links to force
+    `_includes/rich-content.html`, Mermaid 11.17.2 (was 10.9.1 until 2026-09-16; all 144 diagram posts re-checked with `tools/check-render.cjs`): `~~~` invisible links to force
     row/column order, `classDef` colours, `<br/>` in quoted labels; horizontal
     layouts shrink to unreadable size at 755 px width, so favour `flowchart TB`
     and split overly tall graphs).
@@ -984,7 +977,7 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
     that path moves, edit the `require` at the top of the script. Hand-drawn SVGs still need an eyeball pass for
     label collisions: `curl -s -X PUT "localhost:9222/json/new?http://localhost:4000/img/in-post/<name>.svg"`
     then `~/.claude/skills/browser/scripts/screenshot.cjs` and view the PNG.
-  - Mermaid 10.9.1 pitfalls seen so far: reserved words as node IDs (`end`,
+  - Mermaid pitfalls seen so far (10.x and 11.x alike): reserved words as node IDs (`end`,
     `call`, `click`, `style`, `class`, `default`, `o`, `x`) break parsing;
     always quote labels and write literal `[`/`]`/`{`/`}` as `#91;`/`#93;`/
     `#123;`/`#125;`; one message per line in `sequenceDiagram`, no `;` inside.
