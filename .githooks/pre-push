@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
 # Installed via `npm run hooks` (git config core.hooksPath .githooks).
 # Skip once with: git push --no-verify
+# GUI Git clients (IDE push buttons) run hooks with a bare PATH that lacks
+# Homebrew, so `bundle` / `lychee` / `node` / `rg` are not found and the check
+# fails even though it passes in a terminal. Put Homebrew first, same as ~/.zshrc.
+export PATH="/opt/homebrew/opt/ruby/bin:/opt/homebrew/lib/ruby/gems/4.0.0/bin:/opt/homebrew/bin:$PATH"
 exec tools/check.sh
