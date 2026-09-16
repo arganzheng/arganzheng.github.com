@@ -1,0 +1,22 @@
+{%- comment -%}
+  「本文写于 N 年前」 notice at the top of old tech posts. Age is measured from
+  `updated:` when present, else from the post date, against the build time
+  (the daily deploy keeps it current). Shown from 3 full years on; essays
+  (`category: life`) never get it — they do not go stale. A post can opt out
+  with `stale: false` (e.g. evergreen references).
+{%- endcomment -%}
+{%- unless page.category == 'life' or page.stale == false -%}
+  {%- assign ref = page.updated | default: page.date -%}
+  {%- assign ref_seconds = ref | date: '%s' | plus: 0 -%}
+  {%- assign now_seconds = site.time | date: '%s' | plus: 0 -%}
+  {%- assign years = now_seconds | minus: ref_seconds | divided_by: 31557600 -%}
+  {%- if years >= 3 -%}
+<div class="post-stale" role="note">
+  {%- if page.updated -%}
+  本文最后更新于 {{ years }} 年前（{{ page.updated | date: "%Y 年 %-m 月" }}），部分内容可能已经过时。
+  {%- else -%}
+  本文写于 {{ years }} 年前（{{ page.date | date: "%Y 年 %-m 月" }}），部分内容可能已经过时。
+  {%- endif -%}
+</div>
+  {%- endif -%}
+{%- endunless -%}

@@ -1915,6 +1915,16 @@ li[id^="fn:"] {
 .post-container .related-posts {
   margin-top: 48px;
 }
+.post-container .post-stale {
+  margin: 0 0 24px;
+  padding: 8px 14px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #6a5a1e;
+  background: #fff8e1;
+  border-left: 4px solid #e6b800;
+  border-radius: 0 4px 4px 0;
+}
 .post-container .related li {
   margin-bottom: 4px;
 }
