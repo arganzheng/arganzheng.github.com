@@ -8,11 +8,13 @@ layout: default
             <p class="h1 title">{{ page.title }}</p>
             {% if page.subtitle %}<p class="h3 subtitle">{{ page.subtitle }}</p> {% endif %}
             <small class="text-muted">{% include post-meta.html %}</small>
-            <div>
+            {% if page.tags and page.tags != empty %}
+            <div class="post-tags">
                 {% for tag in page.tags %}
-                <a href="{{ site.baseurl }}/tags/#{{ tag }}" title="{{ tag }}"><span class="label label-primary">{{ tag }}<span></a>
+                <a href="{{ site.baseurl }}/tags/#{{ tag | replace: ' ', '%20' }}" title="{{ tag }}">{{ tag }}</a>
                 {% endfor %}
             </div>
+            {% endif %}
         </div>
     </div>
 </div>

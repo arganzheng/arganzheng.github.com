@@ -2258,6 +2258,29 @@ li[id^="fn:"] {
 #tag_cloud.tag-cloud a.tag-weight-d {
   font-size: 13px;
 }
+.page-header .post-tags {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+}
+.page-header .post-tags a {
+  display: inline-block;
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 2px 5px;
+  border-radius: 4px;
+  color: #57606a;
+  text-decoration: none !important;
+  transition: all 0.2s ease;
+}
+.page-header .post-tags a:hover,
+.page-header .post-tags a:active,
+.page-header .post-tags a:focus {
+  color: #00788f;
+  background-color: rgba(0, 120, 143, 0.1);
+  transform: translateY(-1px);
+}
 .post-container .heading-anchor {
   margin-left: 0.35em;
   font-size: 0.8em;

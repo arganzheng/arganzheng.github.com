@@ -230,6 +230,22 @@
 		&.tag-weight-d { font-size: 13px; }
 	}
 }
+// post header (_layouts/post.html): cloud look, but one colour and one size
+.page-header .post-tags {
+	margin-top: 8px;
+	display: flex; flex-wrap: wrap; gap: 4px 6px;
+	a {
+		display: inline-block;
+		font-size: 13px; line-height: 1.4; padding: 2px 5px; border-radius: 4px;
+		color: #57606a; text-decoration: none !important;
+		transition: all 0.2s ease;
+		&:hover, &:active, &:focus {
+			color: @brand-primary;
+			background-color: fade(@brand-primary, 10%);
+			transform: translateY(-1px);
+		}
+	}
+}
 
 // ---- hover `#` anchor on every heading (js/toc.js addAnchors); glyph is CSS
 // so the heading text stays untouched. Always faintly visible on touch screens.
