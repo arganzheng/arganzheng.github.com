@@ -35,6 +35,12 @@ noindex: true
     </table>
   </section>
 
+  <section class="dash-section" id="dash-refresh">
+    <h3>值得翻新的老文章 <small class="dash-muted">阅读多 × 年头久 × 没更新过</small></h3>
+    <p class="dash-hint">写于（或最后更新于）三年以上、仍在被读的文章，按「阅读 × log(年龄)」排序——读者还在来，内容却可能过时了。改完在 front matter 写上 <code>updated:</code>，它就从这里消失，文章顶部的「本文写于 N 年前」提示也会重算。</p>
+    <div class="dash-list"><p class="dash-muted">加载中…</p></div>
+  </section>
+
   <section class="dash-section" id="dash-brief">
     <h3>修订简报 <small><select class="dash-brief-pick"><option value="">选一篇文章…</option></select></small></h3>
     <p class="dash-hint">把一篇文章收到的存疑（含原因）、划线评论、修改建议、Issue 状态汇总成一份 Markdown，按关注度排好序，末尾附给 AI 的修订指令。文章榜每行的「简报」也到这里；链接形如 <code>#brief=/slug.html</code>。每周一 <code>feedback-queue</code> Action 也用同一套逻辑跑全站，反馈够多的文章自动开一个「待修订」Issue（见下方「待处理」）。</p>
@@ -64,6 +70,11 @@ window.DASH_TITLES = {
 {% for p in site.posts %}  {{ p.url | jsonify }}: {{ p.title | jsonify }},
 {% endfor %}{% for p in site.pages %}{% if p.title %}  {{ p.url | jsonify }}: {{ p.title | jsonify }},
 {% endif %}{% endfor %}  "": ""
+};
+// per-post front matter the 值得翻新 list needs (date / updated / source path)
+window.DASH_META = {
+{% for p in site.posts %}  {{ p.url | jsonify }}: [{{ p.date | date: "%Y-%m-%d" | jsonify }}, {% if p.updated %}{{ p.updated | date: "%Y-%m-%d" | jsonify }}{% else %}null{% endif %}, {{ p.path | jsonify }}, {{ p.category | default: "" | jsonify }}],
+{% endfor %}  "": null
 };
 // posts only, newest first — the 修订简报 picker
 window.DASH_POSTS = [

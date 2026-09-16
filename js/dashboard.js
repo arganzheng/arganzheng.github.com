@@ -110,6 +110,31 @@
       });
     }).catch(function (err) { tbody.innerHTML = '<tr><td colspan="8" class="dash-muted">加载失败：' + h(err.message) + '</td></tr>'; });
   }
+  // ---- 值得翻新的老文章: views × log(age) for tech posts whose date / updated is >= 3 years old
+  var meta = window.DASH_META || {}, REFRESH_YEARS = 3, REFRESH_TOP = 15;
+  var srcBase = 'https://github.com/' + repo + '/edit/master/';
+  function loadRefresh() {
+    var host = document.querySelector('#dash-refresh .dash-list');
+    if (!host) return;
+    getJson(api + '/stats/top?limit=500').then(function (data) {
+      var now = Date.now(), rows = [];
+      (data.rows || []).forEach(function (r) {
+        var m = meta[r.path];
+        if (!m || m[3] === 'life' || !r.views) return;
+        var ref = m[1] || m[0], years = (now - new Date(ref).getTime()) / 31557600000;
+        if (years < REFRESH_YEARS) return;
+        rows.push({ path: r.path, views: r.views, up: r.up || 0, years: years, ref: ref, updated: !!m[1], src: m[2], score: r.views * Math.log(1 + years) });
+      });
+      rows.sort(function (a, b) { return b.score - a.score; });
+      if (!rows.length) { host.innerHTML = '<p class="dash-muted">没有三年以上还在被读的文章。</p>'; return; }
+      host.innerHTML = '<ol class="dash-top dash-refresh">' + rows.slice(0, REFRESH_TOP).map(function (r) {
+        return '<li><a href="' + h(r.path) + '">' + h(titleOf(r.path)) + '</a> <span class="dash-muted">' + (r.updated ? '更新于' : '写于') + ' ' + h(r.ref.slice(0, 7)) + ' · ' + Math.floor(r.years) + ' 年 · 阅读 ' + fmt(r.views) + (r.up ? ' · 有用 ' + r.up : '') + '</span> ' +
+          '<a class="dash-brief-link" href="#brief=' + h(r.path) + '" title="这篇文章的修订简报">简报</a> <a class="dash-brief-link" href="' + h(srcBase + r.src) + '" target="_blank" rel="noopener" title="在 GitHub 编辑源文件">编辑</a></li>';
+      }).join('') + '</ol>' + (rows.length > REFRESH_TOP ? '<p class="dash-muted">共 ' + rows.length + ' 篇符合条件，只列前 ' + REFRESH_TOP + '。</p>' : '');
+    }).catch(function (err) { host.innerHTML = '<p class="dash-muted">加载失败：' + h(err.message) + '</p>'; });
+  }
+  loadRefresh();
+
   var sortHeads = document.querySelectorAll('#dash-posts th[data-sort]');
   Array.prototype.forEach.call(sortHeads, function (th) {
     th.addEventListener('click', function () { activate(sortHeads, th); postSort = th.getAttribute('data-sort'); renderPosts(); });
