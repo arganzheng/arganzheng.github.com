@@ -90,7 +90,7 @@ combine 的通信矩阵 = Cᵀ：rank3 要发回 1068 份，rank2 只发回 170 
 | 七 | 对称内存的一般化：PyTorch 2.12 的 `all_to_all_vdev` 与 `all_to_all_vdev_2d` |
 | 八 | vLLM 的 all2all 后端：All2AllBackend 的选项、各 manager 的 dispatch / combine、EP 与 DP / TP 的组合、与第七篇 custom all-reduce 的分工、EPLB |
 | 九 | 测一测与比一比：专家热点如何体现为通信时间、DeepEP 的 SM 数与 Config、NVSHMEM 环境变量、检查清单 |
-| 十 | 本文小结与系列总结：要点、源码位置、comm-probe 的 `moe_a2a_model.py` 与 `a2a_bench.py`；八篇的回顾 |
+| 十 | 本文小结：要点、源码位置、comm-probe 的 `moe_a2a_model.py` 与 `a2a_bench.py` |
 
 ## 二、算一算：dispatch 与 combine 的账
 
@@ -778,7 +778,7 @@ NCCL（走 all_to_all_single 时）
 - 两块 LL buffer 被第三个结果占用（文档："cannot hold more than 2 low-latency kernels' result tensors"）
 ```
 
-## 十、本文小结与系列总结
+## 十、本文小结
 
 ### 1. 要点回顾
 
@@ -1041,54 +1041,6 @@ if __name__ == "__main__":
 读法：`equal_us` 与 `v_only_us` 在同一字节数下应接近（NCCL 内部都是 send/recv 任务），`v_2step_us − v_only_us` 就是 counts 交换加 host 同步的代价，把它填进 `moe_a2a_model.py --alpha-sync`；`algbw` 一列在 4096 token 时应接近节点内 NVLink（单机）或网卡（多机）的量级，差得远先查第六篇的清单；`--skew 0.3` 之后所有列都会变慢——虽然只有 rank 0 多收，但 all_to_all 要等它。8 卡单机跑不出跨节点的部分，两机 16 卡才能看到网卡成为瓶颈；`torchrun` 的用法同第六篇。它没有 DeepEP 的对照，因为 DeepEP 自带 `tests/test_intranode.py`、`test_internode.py`、`test_low_latency.py`，README 建议直接用它们做调优——在同一台机器上跑一遍，`v_2step_us` 与 `test_low_latency.py` 的数字之差就是本篇第三、六章讲的全部内容的实测版。
 
 到这里，八篇文章各自给出的示例代码合起来就是 comm-probe 的全部（它们随文给出、由读者自行保存成对应文件，不是一个已发布的软件包）：`cost_model.py` 算理论值，`topo_map.py` 画拓扑并记录链路实测，`rdma_write.c` 验证 GDR 路径，`nccl_log_reader.py` 读 NCCL 的决策，`overlap_bench.py` 检查框架侧的重叠，`sweep.sh` 与 `hang_lab/` 跑 nccl-tests 曲线与 hang 剧本，`tp_ar_bench.py` 与 `kv_xfer/` 验收推理侧的两个后端，`moe_a2a_model.py` 与 `a2a_bench.py` 给 MoE 的 all_to_all 算账并测出 NCCL 路径的代价。
-
-### 4. 系列总结
-
-八篇文章走了一条从抽象到物理再回到软件的路：
-
-```text
-第一篇  代价模型        T = α + S/β；ring 的 2(n-1)α + (2(n-1)/n)·S/β；algbw 与 busbw；消息大小的谱
-第二篇  硬件互联        PCIe 各代单向带宽、NVLink 每 GPU 双向合计 600 / 900 GB/s / 1.8 TB/s、IB HDR / NDR；
-                        nvidia-smi topo 的六个等级；NUMA 与亲和；每 GPU 一张网卡的理由
-第三篇  RDMA 与 GDR     verbs：PD / MR / QP / CQ / WR；单边 WRITE / READ 与双边 SEND / RECV；GPUDirect RDMA 的
-                        PCIe 拓扑条件；注册的代价；ib_write_bw --use_cuda
-第四篇  NCCL 架构       bootstrap → 拓扑探测 → 图搜索 → transport → 调优表 → enqueue → kernel → proxy；
-                        Ring / Tree / NVLS；Simple / LL / LL128；channel
-第五篇  PyTorch 通信栈   ProcessGroupNCCL 的 stream 与 event 语义、Work 与 wait 的含义、recordStream、重叠的条件、
-                        watchdog 与 timeout、对称内存
-第六篇  测量与排障       nccl-tests 曲线的读法、调优参数的层次、hang 的分类、Flight Recorder、决策树
-第七篇  推理侧          decode TP all_reduce 的纯延迟账与 custom all-reduce；后端选择链与 PyNccl；CUDA Graph；
-                        KV 传输的带宽账与 NIXL / UCX / Mooncake 的单边 RDMA
-第八篇  MoE 的通信      all_to_all 的字节与跨节点比例、变长 split 的两步；Megatron 三种 dispatcher；DeepEP 的对称 buffer、
-                        NVLink 转发与 low-latency kernel；IBGDA 让 GPU 自己写 WQE 与 doorbell；all_to_all_vdev；vLLM 的 all2all 后端
-```
-
-贯穿始终的是**两种账**。带宽的账看链路速率、算法的带宽效率（ring 的 $$\frac{2(n-1)}{n}$$、tree 的一半、NVLS 的一步、all_to_all 按节点去重后网卡上的份数）、协议开销（LL 的 50%、LL128 的 94%、FP8 dispatch 省的一半）；延迟的账看步数、握手次数、kernel 启动、proxy 的响应，到了第八篇还要加上一项**发起速率**——上千条小消息由谁、以多大的并发度提交。每一处取舍两本账的答案都相反：更多 channel 提高带宽却增加小消息延迟，Tree 降低延迟却在某些拓扑上损失带宽，custom all-reduce 把步数从 14 压到 2 却放弃了大消息的带宽与跨节点的能力，KV 传输用单边 RDMA 跑满网卡却放弃了 NCCL 的集合语义，DeepEP 的 low-latency kernel 用 worst-case 的显存和 GPU 发起的 RDMA 换掉 counts 交换与 proxy、却只适合几百 token 以内的 decode。分清一次通信在算哪本账，是判断"该换算法、该换硬件、还是什么都不用换"的前提；本系列的每一篇都在各自的层上把两本账各算了一遍。
-
-方法是同一个四段法：**算一算**用代价模型给出理论上限，**看一看**读源码、日志、拓扑文件弄清这一层怎么做决定，**测一测**用 nvbandwidth、ib_write_bw、nccl-tests、profiler 测出实际数字，**比一比**解释差距并落成检查清单。它的产物是 comm-probe：
-
-```text
-cost_model.py        α-β 模型 · ring / tree 预测 · algbw 与 busbw 换算                       第一篇
-topo_map.py          解析 nvidia-smi topo / lspci / NUMA · 画拓扑图 · 记录 nvbandwidth 与 ib_write_bw   第二篇
-rdma_write.c         libibverbs 最小 RDMA WRITE · 显存版（GPUDirect RDMA）· 与 ib_write_bw 对照      第三篇
-nccl_log_reader.py   解析 NCCL_DEBUG=INFO 日志 · 提取 ring / tree / channel / 算法协议决策 · 与预测比对  第四篇
-overlap_bench.py     计算与通信重叠的 micro-benchmark · profiler trace 检查 · 重叠失效的复现集        第五篇
-sweep.sh · hang_lab/ nccl-tests 扫描与画图 · 三种 hang 的复现与定位剧本 · 排障决策树                第六篇
-tp_ar_bench.py       vLLM 各 all_reduce 后端延迟对照 · eager / CUDA Graph / PyNccl · 与 nccl-tests 对照  第七篇
-kv_xfer/             两实例 PD 分离 · NixlConnector · 从 /metrics 取 NIXL 带宽 · 与 ib_write_bw 对照      第七篇
-moe_a2a_model.py     all_to_all 的 α-β 模型 · 网卡 vs NVLink · 节点去重 · 与 DeepEP README 对照反推 α     第八篇
-a2a_bench.py         all_to_all_single 等长 / 变长 / 两步 · 专家热点的 --skew · 与 alltoall_perf 对照        第八篇
-```
-
-拿到一台新机器，按顺序跑一遍：先画拓扑，再测每段链路，再跑 nccl-tests 与理论对照，再检查框架侧的重叠与后端选择，MoE 模型再算一遍 all_to_all 的账并确认 IBGDA 生效。之后每一次"通信慢了"或"通信卡了"，都能用它把问题定位到某一层。
-
-总纲承诺的三种能力，现在可以逐条对照：
-
-1. **阅读能力。** NCCL 的主路径（`init.cc` → `graph/` → `transport/` → `enqueue.cc` → `device/`）与它的设备端 API 雏形（`nccl_device/`）、PyTorch c10d 的 `ProcessGroupNCCL` 与对称内存、vLLM 的 `CudaCommunicator` 后端链、`KVConnector` 的 scheduler / worker 分工与 `All2AllManager`、Megatron 的三种 token dispatcher、DeepEP 从 `Buffer` 到 `ibgda_device.cuh` 的三层——每个设计决定背后都能指出硬件原因：为什么 LL 协议要 8 字节搭 8 字节、为什么 ProcessGroupNCCL 要有内部 stream 与 watchdog、为什么 custom all-reduce 只用 36 个 block 且只能在 NVLink 全互联的节点内用、为什么 KV 传输要用单边 RDMA 而不是 NCCL、为什么 DeepEP 要把跨节点的 token 先发到同号 GPU 再 NVLink 转发、为什么 decode 的 all_to_all 必须由 GPU 自己发起。
-2. **诊断能力。** 面对一次慢的或卡住的通信：先算理论值（第一、八篇），再看数据走了哪条链路（第二、三篇），再看 NCCL 或 vLLM 选了什么（第四、七、八篇的日志与配置），再看框架侧有没有浪费（第五篇），再用 nccl-tests、Flight Recorder 与 DeepEP 的等待时间统计把差距或 hang 定位到具体的一层或具体的一个 rank（第六、八篇）——而不是靠试环境变量。
-3. **决策能力。** 为一个任务判断通信的理论上限、选择算法与传输路径、给平台提出拓扑与亲和的要求（每 GPU 一张网卡、GPU 与 NIC 同一 PCIe switch、同号 GPU 同一 rail、TP 不跨节点、EP 的节点数与 group routing 匹配、容器共享 IPC namespace、IBGDA 所需的驱动参数），并知道什么时候该自己写一个通信原语：消息小、节点内或对称 buffer 可达、地址固定、每步上百次、失败可整体重启——满足这些才值得，否则用 NCCL。
-
-通信层是单卡之外一切系统的底座，也是训练与推理两条路径唯一共享的一层。这个系列把它从 `dist.all_reduce(t)` 一行代码展开到 PCIe、NVLink、InfiniBand 上的每一段路，再收回到 vLLM 的两个 kernel、一次 RDMA READ、和 DeepEP 里一个 warp 写下的一条 WQE。展开是为了看清代价，收回是为了在正确的层上做决定。
 
 ## 十一、自测
 

@@ -83,7 +83,7 @@ Java 依然是参照系。Maven/Gradle 把依赖、编译、测试三件事一�
 | 十二 | 回到源码 | `intrusive_ptr_test.cpp`、`tools/gdb/pytorch-gdb.py`、.clang-tidy |
 | 十三 | mini-c10：补齐工程 | `CMakeLists.txt`、两个 gtest 文件、lldb 会话、.clang-format |
 | 十四 | 工程实践建议与常见错误 |  |
-| 十五 | 本文小结与系列总结 |  |
+| 十五 | 本文小结 | |
 | 十六 | 自测 | 5 道题 |
 
 ## 二、CMake 的目标模型
@@ -2887,9 +2887,7 @@ UseTab: Never
 | JUnit 一种测试框架 | C++ 层 gtest，Python 层 pytest，测试跟着接口所在的层走 |
 | Checkstyle/ErrorProne 挂在构建生命周期里 | clang-format/clang-tidy 是独立工具，每个项目自己写胶水（lintrunner、pre-commit） |
 
-## 十五、本文小结与系列总结
-
-### 1. 本文小结
+## 十五、本文小结
 
 回到核心问题：**一个 C++ 改动，从写完到确认正确、没有内存错误、不会在别的编译器上炸，需要跑哪些东西？**
 
@@ -2911,62 +2909,6 @@ UseTab: Never
 | 版本矩阵 | 编译器、CUDA、C++ 标准、ABI 的兼容约束 | `CMakeLists.txt` 的版本检查、`cpp_extension.py` 的 `CUDA_GCC_VERSIONS` |
 
 Java 工程师需要接受的是：这些不是一个工具的十个功能，而是十个独立演化、各有配置文件、需要分别学的工具。PyTorch 的 `CONTRIBUTING.md`、`setup.py` 开头的注释、`.lintrunner.toml` 是把它们粘起来的胶水，也是读懂一个大型 C++ 项目"怎么工作"的最好入口。
-
-
-### 2. 系列总结
-
-八篇之后，回到总纲开篇那段代码。它是 PyTorch C++ 扩展教程里最普通的一段，但对没写过 C++ 的读者，每一行都藏着一个机制：
-
-```cpp
-at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta) {
-  TORCH_CHECK(x.is_floating_point(), "expected floating point tensor");
-  auto x_c = x.contiguous();
-  auto out = at::empty_like(x_c);
-  AT_DISPATCH_FLOATING_TYPES(x_c.scalar_type(), "scale_shift_cpu", [&] {
-    const scalar_t* in = x_c.data_ptr<scalar_t>();
-    scalar_t* o = out.data_ptr<scalar_t>();
-    at::parallel_for(0, x_c.numel(), 4096, [&](int64_t begin, int64_t end) {
-      for (int64_t i = begin; i < end; ++i)
-        o[i] = static_cast<scalar_t>(alpha) * in[i] + static_cast<scalar_t>(beta);
-    });
-  });
-  return out;
-}
-```
-
-**`const at::Tensor& x` 为什么这样传？**（第二篇）C++ 的变量默认是值，传 `at::Tensor` 按值会拷贝一个句柄——拷贝一个 `intrusive_ptr<TensorImpl>`，引用计数原子加一再减一，不拷数据但也不是免费的。`const T&` 是"借来看看"：没有拷贝、不能修改、调用方保证在函数返回前对象活着。`double alpha` 按值传是因为它就是 8 个字节，传引用反而多一次间接寻址。这是 C++ 传参的三条规则之一，Java 里没有这个选择——所有对象都是引用，所有基本类型都是值。
-
-**`TORCH_CHECK` 为什么是宏？**（第五篇）函数拿不到调用点的 `__FILE__`、`__LINE__` 和条件表达式的文本；宏可以把 `x.is_floating_point()` 这几个字原样塞进错误消息，让 Python 侧看到的 `RuntimeError` 里有 "Expected x.is_floating_point() to be true"。它抛的 `c10::Error` 经过第四篇讲的异常翻译变成 Python 异常；本篇讲的 `TORCH_SHOW_CPP_STACKTRACES=1` 能让它附上 C++ 栈；`.clang-tidy` 里的 `hicpp-exception-baseclass` 则保证凡是 `throw` 出去的都派生自 `std::exception`——`c10::Error` 正是。
-
-**`x.contiguous()` 返回的对象要拷贝数据吗？**（第二篇）如果 `x` 已经连续，返回的是 `x` 自己的另一个句柄——引用计数加一，数据零拷贝；如果不连续，才分配新内存并搬数据。返回值是 `at::Tensor` 按值返回，靠移动语义或 RVO，同样不涉及数据拷贝。`auto x_c` 推导出的是 `at::Tensor`，一个 8 字节的句柄。第二篇 mini-c10 的打印实验证明了这条链上每一步的引用计数变化。
-
-**`at::empty_like(x_c)` 做了什么？**（第二篇、第五篇）它是 torchgen 从 `native_functions.yaml` 生成的入口，经 Dispatcher 分到 CPU 实现，最终是 `make_intrusive<StorageImpl>`（此时 `malloc`，通过 `Allocator`）→ `make_intrusive<TensorImpl>` → 包成 `Tensor` 返回。`out` 析构时这条链反向执行，最后一步由 `DataPtr` 的删除器决定是 `free` 还是 `cudaFree` 还是放回缓存池。本篇 8.2 节 ASan 报告里"分配栈"和"释放栈"显示的正是这条链。
-
-**`AT_DISPATCH_FLOATING_TYPES` 如何把运行期 dtype 变成编译期类型？**（第三篇）它展开成一个 `switch (x_c.scalar_type())`，每个 `case` 里 `using scalar_t = float;`（或 `double`）然后调用那个 lambda。lambda 是泛型的——`scalar_t` 在它体内是个类型别名，`switch` 的每个分支给它不同的定义，于是 lambda 被**实例化两次**，编成两份机器码。本篇 6.5 节 `nm` 的输出里 `'lambda'()` 和 `'lambda0'()` 两个符号就是这两份。运行期只有一个 `switch` 的开销，之后的循环体是针对具体类型优化过的代码。Java 的泛型做不到这一点——`List<Float>` 和 `List<Double>` 是同一份字节码。
-
-**`[&]` 捕获了什么，安全吗？**（第三篇）按引用捕获外层所有被用到的变量：`x_c`、`out`、`alpha`、`beta`。安全的前提是 lambda 在这些变量的生命周期内被调用完——`AT_DISPATCH` 立即调用它，`parallel_for` 也在返回前 join 所有线程，所以 `[&]` 是对的。如果这个 lambda 被存起来异步执行（比如扔进线程池后函数返回），`[&]` 就是悬垂引用，要改成 `[=]` 或显式按值捕获句柄（拷贝 `Tensor` 句柄很便宜，正是第二篇讲的设计意图）。这是 C++ 没有 GC 兜底的又一处：Java 的 lambda 捕获的是引用，对象活多久由 GC 管。
-
-**`data_ptr<scalar_t>()` 的 `<>` 是泛型吗？**（第三篇）是函数模板的显式实例化：`data_ptr<float>()` 和 `data_ptr<double>()` 是两个不同的函数，各自 `static_cast` 到对应的指针类型。Java 泛型不能 `T[] arr = (T[]) ptr`，因为运行时没有 `T`；C++ 模板在编译期就知道 `T`，所以可以。返回的裸指针是"借用"——它不持有 `Storage`，`x_c` 析构后它就悬垂了。本篇 8.2 节的 use-after-free 就是这个模式出错时的样子。
-
-**`at::parallel_for` 的线程从哪里来？**（第六篇）默认构建下来自 OpenMP 的线程池，`#pragma omp parallel` 让调用线程也当一个 worker；`4096` 是 grain size，元素数不够就不并行。工作线程不继承调用线程的 `thread_local` 状态（`GradMode`、`InferenceMode`、当前设备），这是第六篇用两个线程演示的"TLS 不传播"。`[&](int64_t begin, int64_t end)` 这个内层 lambda 同样按引用捕获，同样安全，因为 `parallel_for` 返回前所有 worker 都完成了。
-
-**这个函数怎么变成 `torch.ops` 下的算子？**（第五篇）`TORCH_LIBRARY(myops, m) { m.def("scale_shift(Tensor x, float alpha, float beta) -> Tensor"); }` 和 `TORCH_LIBRARY_IMPL(myops, CPU, m) { m.impl("scale_shift", scale_shift_cpu); }` 各展开成一个静态对象，它们的构造函数在 `.so` 被 `dlopen` 时运行，把 schema 和函数指针（经过第四篇讲的 `KernelFunction` 类型擦除）登记进全局的 Dispatcher。没有任何代码显式调用它们——这是 C++ 版的 `ServiceLoader`，代价是链接方式会影响它是否生效（静态库要 `--whole-archive`），本篇 13.3 节的第一个测试就是验证这一点的。
-
-**Python 调用它时经过了什么？**（第七篇）`torch.ops.myops.scale_shift(t, 2.0, 1.0)` → Python 侧的 `OpOverload.__call__` → C++ 侧的 `torch::jit` 参数解析，把 `PyObject*` 转成 `at::Tensor`（`THPVariable_Unpack`：从 Python 对象里取出它持有的 C++ `Tensor` 句柄，引用计数加一）、`float` 转成 `double` → Dispatcher 按 `t` 的 DispatchKeySet 选到 CPU 实现 → 调用 `scale_shift_cpu` → 返回的 `at::Tensor` 被 `THPVariable_Wrap` 包成新的 Python 对象。全程持有 GIL——除非实现里显式 `py::gil_scoped_release`。本篇 12.2 节 `torch::gdb::tensor_repr` 里的 `PyGILState_Ensure` + `THPVariable_Wrap` + `PyObject_Repr` 是同一组 API 的另一次使用。
-
-**它编译成哪个 `.so`，链接到哪些库？**（第一篇、第八篇）作为扩展，它编成一个独立的 `myops.so`（Python 模块），链接 `libtorch.so`（进而 `libtorch_cpu.so`、`libc10.so`）——`TorchConfig.cmake` 提供的 `torch` 目标一行搞定，或者 `torch.utils.cpp_extension` 替你拼命令行。编译选项必须和 PyTorch 一致：`-std=c++17`（PyTorch 2.10 的 `TorchConfig.cmake` 和 `cpp_extension.py` 都会替你设上）、同一个 gcc 大版本、同一个 libstdc++ ABI（第七篇），否则 `import` 时 undefined symbol。`-fvisibility=hidden` 下要保证 `PyInit_myops` 是可见的。构建完，Debug 版本能在 gdb 里断到 `scale_shift_cpu`，ASan 版本能验证 `in`/`o` 两个裸指针没有越界，`-Wall -Wextra` 没有新警告，clang-tidy 没有报告，CI 在 gcc 和 clang 上都编过——这个改动才算完成。
-
-十行代码，八篇文章。把它们串起来看，每一篇讨论的都是同一件事的不同侧面：**C++ 把 Java 交给运行时的决定——对象放在哪里、活多久、类型是什么、调哪个实现、线程状态怎么传、怎么与另一个运行时对话、编成什么——全部前移到了编译期和链接期，由程序员显式做出。** 这带来了性能和确定性，也带来了本系列讨论的全部复杂性。
-
-回到总纲承诺的三种能力：
-
-**阅读能力。** 打开 `c10/core/TensorImpl.h`，你知道 `intrusive_ptr_target` 基类意味着什么（第二篇）、`C10_API` 在做什么（第五篇）、`virtual ~TensorImpl()` 为什么必须虚（第四篇）、`std::atomic<size_t> combined_refcount_` 用什么内存序（第六篇）。打开 `aten/src/ATen/core/dispatch/Dispatcher.h`，你能认出 `KernelFunction` 的类型擦除（第四篇）、`call<Return, Args...>` 的变参模板（第三篇）、`TORCH_LIBRARY` 把东西登记进来的路径（第五篇）。打开 `torch/csrc/autograd/python_variable.cpp`，你知道 `THPVariable` 为什么不用 pybind11、`Py_INCREF` 和 `intrusive_ptr` 的引用计数怎么交织（第七篇）。打开 vLLM 的 `csrc/torch_bindings.cpp`，你能读懂 `TORCH_LIBRARY_EXPAND(CONCAT(TORCH_EXTENSION_NAME, _custom_ar), custom_ar)` 里的宏拼接（第五篇）、`csrc/core/registration.h` 里 `REGISTER_EXTENSION` 手写 `PyInit_*` 而不用 pybind11 与 Python 稳定 ABI 的关系（第七篇）、它的 `CMakeLists.txt` 怎么找到 libtorch（第八篇）。识别模式、理解意图——这是阅读能力。
-
-**修改能力。** 写一个新算子时，你会用 `const Tensor&` 传参、按值返回（第二篇）；用 `AT_DISPATCH` 而不是手写 `switch`（第三篇）；用 `TORCH_CHECK` 而不是 `throw`、用 `TORCH_LIBRARY_IMPL` 注册（第五篇）；在 `parallel_for` 的 lambda 里不碰 TLS 状态（第六篇）；释放 GIL 前不碰任何 `PyObject`（第七篇）；然后跑 gtest、ASan、clang-tidy，确认在 gcc 和 clang 上都干净（第八篇）。写出符合项目风格、通过 review、不引入内存错误和 ABI 问题的代码——这是修改能力。
-
-**排障能力。** 编译错误：看是预处理、编译还是链接阶段（第一篇），模板错误从最内层的 `note:` 读（第三篇）。链接错误：`nm -DC` 看符号在不在、是否导出、修饰名是否一致（第一篇、第五篇）。段错误：`ulimit -c`、`bt`、找第一个自己代码的帧，`-O2` 看不到变量就 `DEBUG=1`（第八篇）。结果不对但不崩：ASan、UBSan、TSan（第八篇）。`import` 时 undefined symbol：ABI、编译器版本、CXX11 ABI 开关（第七篇）。算子注册了但找不到：`--whole-archive`、可见性（第五篇）。知道用什么工具、看哪里——这是排障能力。
-
-这三种能力合起来，就是从 Python 层走向 AI-Infra 执行平面所需要的那一段路。mini-c10 走到这里也完整了：一两千行 C++，`add` 和 `mul` 两个算子的 CPU 和 Meta 实现，能从 Python 调用，能被 lldb 调试，有测试，有 ASan 配置——再打开真实的 `c10/` 和 `aten/`，看到的应该是熟悉的结构。
 
 ## 十六、自测
 

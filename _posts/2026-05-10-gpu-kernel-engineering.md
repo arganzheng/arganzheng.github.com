@@ -367,8 +367,11 @@ Triton 让写一个融合 kernel 的成本从几百行 CUDA 变成几十行 Pyth
 
 > **Nsight Compute 报告 achieved occupancy 25%、long scoreboard stall 60%。这个 kernel 应该改什么？**
 
-实践：用 Nsight Compute 剖析第九篇组装的 decoder layer 里的每个 kernel，找出离 Roofline 最远的一个并优化；给它写完整的测试和 benchmark；用 `TORCH_LIBRARY` 注册并通过 `opcheck`。本篇最后给出全系列总结。
+实践：用 Nsight Compute 剖析第九篇组装的 decoder layer 里的每个 kernel，找出离 Roofline 最远的一个并优化；给它写完整的测试和 benchmark；用 `TORCH_LIBRARY` 注册并通过 `opcheck`。
 
+### 11. 系列总结与通关自测
+
+最后一篇不讲新内容：把十篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是十篇能不能连起来用；读完正文再做。
 
 ## 贯穿全系列的实践线
 
@@ -499,6 +502,7 @@ Triton 让写一个融合 kernel 的成本从几百行 CUDA 变成几十行 Pyth
 8. [Attention Kernel：FlashAttention 与 PagedAttention](/attention-kernels-flashattention-and-pagedattention.html)
 9. [量化与融合 kernel：推理系统的其余部分](/quantization-and-fused-kernels.html)
 10. [剖析、测试与贡献：把 kernel 做成产品](/kernel-profiling-testing-and-contribution.html)
+11. [系列总结与通关自测](/gpu-kernel-engineering-series-recap-and-self-test.html)
 
 
 ## 最终目标

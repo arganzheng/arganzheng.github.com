@@ -684,8 +684,10 @@ def f(x, weight, bias):
 
 实践终点是把第六篇的 `scale_shift` 算子（`myops` 项目）重新拿出来，让它走完这七关：复用 PyTorch 的测试基础设施、建立 Benchmark 基线与回归阈值、搭 CI 矩阵、守住 Schema 契约并完成一次向后兼容的演进、发布制品，最后站到使用者一侧看如何跟随 PyTorch 升级。
 
-本篇最后给出全系列总结：回到总纲的那段代码和那串追问，逐一作答，并标出每个答案来自哪一篇。
 
+### 11. 系列总结与通关自测
+
+最后一篇不讲新内容：把十篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是十篇能不能连起来用；读完正文再做。
 
 ## 贯穿全系列的实践线
 
@@ -877,6 +879,7 @@ PyTorch 的以下部分变化较快：
 8. [性能优化与调试](/pytorch-performance-optimization-and-debugging.html)
 9. [分布式 PyTorch](/pytorch-distributed-training.html)
 10. [PyTorch 的工程体系：一次改动如何安全地到达用户](/pytorch-engineering-system.html)
+11. [系列总结与通关自测](/deep-dive-into-pytorch-series-recap-and-self-test.html)
 
 
 ## 最终目标

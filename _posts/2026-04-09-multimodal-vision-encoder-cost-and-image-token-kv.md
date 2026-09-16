@@ -55,7 +55,7 @@ updated: 2026-09-14
 | 七 | 视频与音频 | 帧 × 每帧 token；Whisper encoder 的 30 秒 → 1500 个位置 |
 | 八 | 训练侧 | 冻结 encoder 省什么、不省什么；图片解码是 CPU 的活 |
 | 九 | 实践 | `llm_cost.py` 的多模态支持与最终成本表 |
-| 十 | 本文小结与系列总结 |  |
+| 十 | 本文小结 | |
 | 十一 | 自测 | 5 道题 |
 
 ## 二、从像素到 patch：vision encoder 的账
@@ -418,9 +418,7 @@ Llama-3.2 ViT-H/14     patches  6404 tokens  6404 encoder 18.47 TFLOP (attn 45%)
 1. **encoder 时间与 batch 无关**：用 `transformers` 加载 Qwen2-VL-7B，只跑 `visual` 子模块，输入 1 张与 8 张 1024² 图片，测时间。预期接近线性（compute-bound），与 decode 那种"8 个请求几乎不比 1 个慢"形成对照。
 2. **image token 就是 token**：用同一模型对比"1369 个文本 token 的 prompt"与"一张 1024² 图片 + 几个字"的首 token 延迟与 `torch.cuda.max_memory_allocated()` 的增量。预期后者比前者多出的只有 encoder 的 12 ms 与 encoder 输出的 10 MiB；KV 增量相同。
 
-## 十、本文小结与系列总结
-
-### 1. 本文小结
+## 十、本文小结
 
 三笔账与它们的量级（Qwen2-VL 风格、1024² 图片、70B 规格 decoder）：
 
@@ -431,62 +429,6 @@ Llama-3.2 ViT-H/14     patches  6404 tokens  6404 encoder 18.47 TFLOP (attn 45%)
 | encoder 输出 | $$n_{img} \cdot d_{model} \cdot 2$$ B | 21 MiB | prefill 后即可释放 |
 | prefill FLOPs | $$2 N_{dec} \cdot n_{img}$$ | 193 TFLOP | 与同样长度的文本相同 |
 | image KV | $$n_{img} \cdot 2 L n_{kv} d_{head} \cdot 2$$ B | 428 MiB | 活到请求结束；是 encoder 输出的 $$2 L n_{kv} d_{head} / d_{model} = 20$$ 倍 |
-
-
-### 2. 系列总结（八篇）
-
-八篇把模型当作一个计算对象，每篇留下几个公式和几个数字：
-
-```text
-第一篇  参数量        每层 attention d(d_q + 2d_kv + d_q)、FFN 3·d·d_ff；Llama-3-8B 218.1M/层 × 32 + 1.05B = 8.03B；
-                      70B 70.55B；DeepSeek-V3 671B（每 token 激活 37B）；Mixtral 46.7B（激活 12.9B）
-第二篇  FLOPs·字节    GEMM 2mkn；每参数每 token 2 FLOPs；8B 每 token 15 GFLOPs；prefill 8K 约 158 TFLOP；
-                      decode 算术强度 ≈ B；H100 ridge 295；decode 下界 16.06 GB / 3.35 TB/s = 4.8 ms
-第三篇  KV cache      2·L·n_kv·d_head·bytes；8B GQA 128 KiB/token（MHA 512 KiB）；70B 320 KiB；
-                      MLA (512+64)×2×61 = 68.6 KiB，压缩 57×；一张 H100 放 8B 后约 50 万 token 的 KV
-第四篇  长上下文      RoPE 波长 2π·base^(2i/d)；base 500000 最低频 ~250 万；attention 二次项 4ds/层；
-                      8B 128K prefill 权重 2.0 PFLOP + attention 4.5 PFLOP；128K KV 16 GiB
-第五篇  MoE           期望激活专家 E·[1−(1−k/E)^B]：DeepSeek-V3 B=32 → 163，B=128 → 252；
-                      dispatch 7 KiB + combine 14 KiB 每 token 每专家；grouped GEMM 每专家 128 行
-第六篇  数值          BF16 1/8/7 ε=2^-7；FP16 max 65504，softmax 溢出 x > 11.09；E4M3 max 448；
-                      混合精度 + Adam 16 B/参数，8B 训练状态 128 GB；FP8 每 128 元素提升 FP32 累加
-第七篇  量化·投机·LoRA INT4 g128 4.25 bit，70B 37.5 GB 单卡；W4A16 decode 4.8 → 1.27 ms，转折 B ≈ ridge/4；
-                      投机 E = (1−α^(γ+1))/(1−α) = 3.36，加速 2.4×，转折 B ≈ ridge/(γ+1)；
-                      LoRA r=16 41.9M（0.52%），训练状态 128 GB → 16.7 GB
-第八篇  多模态        ViT 12·L·d²，0.3–0.8 B；image token = (H/28)²（÷4 merge）；1024² → 1369；
-                      encoder 11.8 TFLOP 一次性；image KV = 文本 KV，70B 规格 428 MiB，是 encoder 输出的 20 倍
-```
-
-贯穿这些数字的是**四组变量**的成本模型：
-
-$$
-\text{参数量 } N \ \to\ \text{FLOPs/token} \approx 2N,\ \text{权重字节} = N \cdot \text{bytes/param},\ \text{KV cache/token} = 2 L n_{kv} d_{head} \cdot \text{bytes/elem}
-$$
-
-再加一张卡的两个上限（算力 $$F$$、带宽 $$BW$$）和一个比值（ridge $$= F / BW$$）。结构（GQA、MLA、MoE、RoPE）决定前三组变量的值；精度（BF16、FP8、INT4）决定 bytes；工作点（batch、序列长度、prefill 还是 decode）决定落在 Roofline 的哪一侧；多模态不引入新变量，只是让 token 数由分辨率而非 tokenizer 决定，并在前面加一段一次性的 encoder 计算。每一篇都是在这个模型里填一格。
-
-回到总纲的"最终目标"——拿到一个 `config.json` 和一张 GPU 的规格表，现在能回答：
-
-```text
-它有多少参数，分布在哪里？                 → 逐矩阵公式代入 config；8B 里 87% 在 FFN+attention、13% 在 embedding/lm_head
-一张卡放得下吗？剩多少显存？               → N × bytes/param；BF16 8B 占 16 GB，70B 需 INT4 才能单卡；剩余给 KV cache
-每 token 多少 FLOPs？各阶段瓶颈？          → 2N；prefill compute-bound，decode memory-bound，分界是 ridge
-batch 开到多大才能用满算力？               → B ≈ ridge ≈ 295（H100 BF16），FP8 下 591；W4A16 后是 ridge/4
-支持多长上下文？代价在哪？                 → KV cache 线性项 + attention 二次项；RoPE 的波长决定外推
-attention 变体让 kernel 长什么样？          → GQA 的 4/8 个 query 头共享一个 KV 头；MLA 的吸收让 KV 变成 576 维
-MoE 多卡要传多少数据？                     → 每 token 每专家 7 + 14 KiB，乘期望激活专家数
-用什么精度？哪一步会出数值问题？            → BF16 前向、FP32 累加与主权重；softmax 与 RMSNorm 的溢出/下溢点
-量化能快多少？在哪个阶段？                 → 字节数之比，只在 decode 且 B ≲ ridge/k 时兑现；W8A8 才对 prefill 有效
-投机解码值得开吗？上界多少？               → (1−α^(γ+1))/(1−α) 除以 (γc+1)，只在 B ≲ ridge/(γ+1) 时成立
-微调需要多少显存？                         → 全量 16 B/参数；LoRA 为 2 B/参数 + 可忽略；激活值另算，随序列长度线性
-一张图等于多少 token？贵在哪？             → (H/28)² 或 576 或 1601×tile；encoder 一次性，KV 与同长文本相同且活到请求结束
-```
-
-这三种能力——不看 benchmark 先算出理论值、用理论值判断优化的有效区间、用同一张表与算法、kernel、平台工程师对话——是本系列试图建立的全部内容。
-
-本系列的边界也在这里：它只把模型当作一个**计算对象**，算它的参数、算量、字节数与通信量。FlashAttention 与量化 GEMM 的 kernel 怎么写、continuous batching 与 PagedAttention 怎么调度、encoder 在推理引擎里怎么单独预算与缓存、TP / PP / EP 怎么切分与同步——这些建立在本系列给出的数字之上，但各自是另一个系列的内容。而"这个模型是怎么训出来的"——tokenizer 与词表、算力怎么分给参数与数据、15T token 从哪来、超参表里的数字从哪来——是紧接着的[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)系列（四篇）的内容，用同样的方法算训练侧的账。
-
-配套代码：[`transformer-and-llm/llm_cost_08_multimodal.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_08_multimodal.py)（复用第七版的 `ModelConfig`）；本文各表的理论数字由 [`vlm_cost_numbers.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/vlm_cost_numbers.py) 算出。全系列八版脚本与运行输出在 [ai-learning-labs/transformer-and-llm](https://github.com/arganzheng/ai-learning-labs/tree/main/transformer-and-llm)。
 
 ## 十一、自测
 
