@@ -3,7 +3,9 @@
 ## Build / preview
 
 Jekyll 4.4.1 is installed against Homebrew's Ruby.
-Homebrew Ruby and Gem paths are configured in `~/.zshrc`:
+Homebrew Ruby (4.0) and Gem paths are configured in `~/.zshrc`; CI uses the same `ruby-version: '4.0'`.
+Jekyll 4.4.1 pins `liquid ~> 4`, `rouge < 5`, `json ~> 2.6` — `bundle outdated` will keep listing those three until Jekyll 5.
+
 `/opt/homebrew/opt/ruby/bin:/opt/homebrew/lib/ruby/gems/4.0.0/bin`
 
 A `Gemfile` is also present at repo root:
@@ -228,7 +230,9 @@ Pages has `https_enforced` on.
   under a 未注明日期 bucket at the bottom (it used to float to the top with an
   empty year). Posts never need `date:` (only to order several posts on the
   same day).
-- `_includes/rich-content.html` — Mermaid + KaTeX loaders, shared by
+- `_includes/rich-content.html` — Mermaid (11.17.2) + KaTeX (0.18.7, only the
+  public `.katex` / `.katex-display` classes are referenced from our code, so
+  0.18's internal class prefixing did not matter) loaders, shared by
   `_includes/head.html` and `_layouts/slides.html`. Both renderers are lazy:
   they only fetch their bundle if the page actually contains a diagram/formula,
   and they only look inside `.post-container` and `.reveal .slides`.
@@ -861,6 +865,24 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   「L0 导读第 N 章」 (the 导读 chapters no longer exist). Roadmaps link forward to series published later —
   that is the established convention. Series 收尾篇 must NOT carry a
   hand-written 「系列目录」: the layout generates it from `series:`.
+- **Every series ends with a 「系列总结与通关自测」 post** (added 2026-09-16
+  for all 21 series): `_posts/<last-post-date>-<series-key>-series-recap-and-self-test.md`,
+  `date: <same day> 20:00:00` so it sorts after the last body post without
+  moving the timeline, title `系列名（NN）：系列总结与通关自测` with NN = body
+  posts + 1, tags copied from the overview. Fixed structure: intro with three
+  `[^q0–2]` questions → `## 一、总览` (one table 篇 | 问题 | 一句话结论 | 必记
+  + 章节安排) → `## 二、逐篇回顾` (per post: 核心问题 / 结论 / 必记 / 常见误解)
+  → `## 三、贯穿全系列的几条线` (+ concept table; at most one Mermaid, only for
+  real dependencies between quantities) → `## 四、常见误区` table →
+  `## 五、通关自测` (A 判断与计算 10 · B 跨篇综合 5 · C 面试题 6–8 with 答案要点 /
+  追问方向 / 好答案与一般答案的区别 · D 掌握判据) → `## 六、下一步` (links only
+  to other series' *overviews* and the maps) → footnotes. No 本文小结, no
+  下一篇, no lab. Every number must come from the series' own posts. The old
+  「系列总结」 sections in the last body posts were removed (本文小结 kept,
+  chapter numbers / 章节安排 rows renumbered); overviews got a 分章导读
+  subsection and a 章节目录 row; the maps' 篇数 / 时长 count body posts only and
+  say so. Adding a body post to a series later means renumbering the recap's
+  NN and adding a row to its tables.
 - Cite source as path + function/class name, never line numbers.
 - Length is not a target; rigor and organisation are. Structure: (update note) →
   intro with the post's core question → `## 一、总览` (ending with 本文的章节安排)
@@ -923,7 +945,7 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
     the prose *and* the diagram together; only skip when the concept is out
     of scope for that post or the diagram adds nothing.
   - Structure / flow / timelines / decisions → ```` ```mermaid ```` (rendered by
-    `_includes/rich-content.html`, Mermaid 10.9.1: `~~~` invisible links to force
+    `_includes/rich-content.html`, Mermaid 11.17.2 (was 10.9.1 until 2026-09-16; all 144 diagram posts re-checked with `tools/check-render.cjs`): `~~~` invisible links to force
     row/column order, `classDef` colours, `<br/>` in quoted labels; horizontal
     layouts shrink to unreadable size at 755 px width, so favour `flowchart TB`
     and split overly tall graphs).
@@ -955,7 +977,7 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
     that path moves, edit the `require` at the top of the script. Hand-drawn SVGs still need an eyeball pass for
     label collisions: `curl -s -X PUT "localhost:9222/json/new?http://localhost:4000/img/in-post/<name>.svg"`
     then `~/.claude/skills/browser/scripts/screenshot.cjs` and view the PNG.
-  - Mermaid 10.9.1 pitfalls seen so far: reserved words as node IDs (`end`,
+  - Mermaid pitfalls seen so far (10.x and 11.x alike): reserved words as node IDs (`end`,
     `call`, `click`, `style`, `class`, `default`, `o`, `x`) break parsing;
     always quote labels and write literal `[`/`]`/`{`/`}` as `#91;`/`#93;`/
     `#123;`/`#125;`; one message per line in `sequenceDiagram`, no `;` inside.
