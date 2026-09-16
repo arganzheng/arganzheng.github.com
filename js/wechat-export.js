@@ -19,7 +19,7 @@
 (function () {
   'use strict';
 
-  var ACCENT = '#0085a1';
+  var ACCENT = '#00788f';
   var FONT = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif';
   var MONO = 'Menlo, Consolas, "Courier New", monospace';
 

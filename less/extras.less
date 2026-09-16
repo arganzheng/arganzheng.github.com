@@ -113,7 +113,7 @@
 	ul { padding-left: 1.2em; margin: 0; li { margin: 3px 0; } }
 	.dash-thread { padding: 10px 0; border-bottom: 1px solid #eaeef2; }
 	.dash-thread-head { margin-bottom: 4px; a { font-weight: 600; text-decoration: none; } }
-	.dash-comment { padding: 3px 0 3px 12px; border-left: 2px solid #eaeef2; a { color: #57606a; text-decoration: none; &:hover { color: #0085a1; } } }
+	.dash-comment { padding: 3px 0 3px 12px; border-left: 2px solid #eaeef2; a { color: #57606a; text-decoration: none; &:hover { color: #00788f; } } }
 }
 
 // ---- sidebar readability: the theme's @gray-l (#bfbfbf) text is too faint,
@@ -239,7 +239,7 @@
 		color: #59636e; text-decoration: none; opacity: 0; transition: opacity 0.15s;
 		&::before { content: "#"; }
 		&.copied::before { content: "已复制"; font-size: 0.7em; color: #2da44e; }
-		&:hover, &:focus { color: #0085a1; text-decoration: none; opacity: 1; }
+		&:hover, &:focus { color: #00788f; text-decoration: none; opacity: 1; }
 	}
 	h1, h2, h3, h4, h5, h6 { &:hover .heading-anchor { opacity: 1; } }
 	@media (hover: none) { .heading-anchor { opacity: 0.4; } }
@@ -255,7 +255,7 @@
 	&:has(li[id^="fn:q"])::before { content: "文首问题的答案"; }
 	ol { padding-left: 1.6em; }
 	li { margin-bottom: 8px; }
-	li:target { background: rgba(0, 133, 161, 0.08); border-radius: 4px; }
+	li:target { background: rgba(0, 120, 143, 0.08); border-radius: 4px; }
 }
 
 // ---- contrast (Lighthouse / WCAG AA, >= 4.5:1 for body-size text on white).

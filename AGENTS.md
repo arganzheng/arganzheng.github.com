@@ -211,6 +211,13 @@ Pages has `https_enforced` on.
   `https://` (protocol-relative ones showed up as mixed content in local
   audits). `/tags/` lists ~1400 entries: keep its per-entry markup lean and
   free of HTML comments (it used to be 1.2 MB).
+- Colours: the brand teal is `@brand-primary: #00788f` (was `#0085a1`, 4.31:1
+  on white — just under WCAG AA 4.5; the same hex is repeated as a literal in
+  `less/dashboard.less`, `less/theme-overrides.less`, `archive.html`,
+  `slides.html`, `_layouts/slides.html`, `_includes/search-overlay.html`,
+  `js/wechat-export.js`, so grep before changing it again). Muted text is
+  `#6a6a6a` (`@gray`, `.text-muted`) / `#59636e` (GitHub-style, `@annot-faint`);
+  nothing lighter on white — Lighthouse contrast is at 0 failures.
 - `_posts/` — blog posts, `layout: post`, permalink `/:title.html`
 - `slides/` — reveal.js decks, `layout: slides` (or set in front matter),
   URL `/slides/:name.html`, indexed by `slides.html` (`/slides/`)
