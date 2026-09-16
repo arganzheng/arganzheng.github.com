@@ -92,7 +92,6 @@ flowchart TB
 | 十一 | 代价与边界 | 采集开销 · 基数 · 归因的误差 · 成本模型的假设 |
 | 十二 | 本文小结 | 要点 · 四栏表 · 源码位置 · 练手项目 obs/ 与 cost/ |
 | 十三 | 自测 | 5 道题 |
-| 十三 | 系列总结 | 读者手上有什么 · 三条线 · 三种能力 |
 
 ## 二、四层指标：从 DCGM 到网关
 
@@ -1012,32 +1011,6 @@ if __name__ == "__main__":
 脚本的四步对应第七、八章的模型：按 `UUID + pod` 积分得到每段分配的 GPU 小时（按分配计费）；按卡型与 MIG profile 取单价；用 `SM_ACTIVE` 的积分算每团队的"忙的 GPU 小时"与闲置比例；用 `vllm:generation_tokens_total` 的增量算每模型的每百万 token 成本，再用 EPP 的 `fairness_id` 把模型成本按 token 占比分到租户。跑在前几篇的集群上，结果的形状（不给假测量，读者代入自己的数字）应当是：训练团队 GPU 小时多、U 在 40%–60%；推理服务 U 随负载变化大，压测时段每百万 token 成本比空闲时段低一个数量级；`unlabeled` 一行如果不为零，说明有 GPU Pod 没打 `team` label——这是准入策略（ValidatingAdmissionPolicy 或网关的 webhook）该拦下的。
 
 到这里，`mini-platform/` 的八个增量合在一起（随文给出、由读者自行保存成对应文件，不是一个已发布的软件包）：`cluster/` 与 `probes/` 是裸集群与第一个 Pending 的 GPU Pod；`gpu/` 装上 GPU Operator 与 DRA；`sched/` 用 Kueue 与 Volcano 跑通两队列 cohort 下的 DDP；`share/` 在一张卡上放两个服务并验证隔离；`net/` 与 `storage/` 把 RDMA 与 checkpoint 存储接进容器；`serve/` 与 `gateway/` 把 vLLM 变成有扩缩容、有路由、有配额的服务；`obs/` 与 `cost/` 让全部这些有一张看板和一份账单。
-
-## 十三、系列总结
-
-八篇文章从一个 Pending 的 GPU Pod 出发，走到一份按团队与租户分摊的账单。回头看，读者手上应当有三样东西。
-
-**一个最小平台**。`mini-platform/` 的每个目录都是一个生产环境在用的组件的最小配置：GPU Operator 的 `ClusterPolicy` 与 DRA 的 `DeviceClass` / `ResourceClaim`（第二篇），Kueue 的 `ResourceFlavor` / `ClusterQueue` / `LocalQueue` 与 Kubeflow Trainer 的 `TrainJob`（第三篇），MIG 的 `mig.config` 与 HAMi 的 `gpumem` / `gpucores`（第四篇），Multus 的 `NetworkAttachmentDefinition` 与 RDMA device plugin、JuiceFS CSI 与 DCP 写吞吐（第五篇），LeaderWorkerSet 与 `LLMInferenceService`、KEDA 的 `ScaledObject`（第六篇），`InferencePool` 与 Endpoint Picker、两租户的 TPM 配额（第七篇），DCGM 的 Pod 映射、三个数字的 recording rules 与 `allocate.py`（本篇）。它离生产差的是规模与高可用，不是机制。
-
-**一张机制表**。每篇一张"引擎需求 → K8s 空缺 → 平台机制 → 代价"四栏表，八张合起来就是这一层的全景：K8s 的哪条假设被 AI 负载违背了、哪个组件填了这个洞、填洞的代价是什么。接手一个别人搭的平台时，把它的组件清单对到这八张表上，就知道它填了哪些洞、没填哪些、每个选择付了什么代价。
-
-**一组数字**。分配率、使用率、有效利用率，每百万 token 成本，每团队的 GPU 小时与闲置比例，每队列的配额使用率与排队时间。它们把前七篇的每一个取舍变成可以度量的东西，也把"平台好不好"从一个印象变成一张分解表。
-
-三条贯穿全系列的线，各自的终点：
-
-| 线 | 主线 | 逐篇的落点 | 第八篇的终点 |
-|---|---|---|---|
-| 引擎线 | 训练框架的进程组与 checkpoint → 推理引擎的显存与请求队列 → 两者对平台接口的要求 | 第一篇列出需求清单 → 第三篇的 gang 与第五篇的 RDMA / checkpoint I/O 满足训练 → 第四、六、七篇的切分 / 扩缩容 / 路由满足推理 | 引擎的指标（`vllm:*` · 约定的 `train_*`）成为平台决策的输入，平台反过来对引擎提出"暴露哪些指标"的需求 |
-| 机制线 | device plugin → 调度器扩展 → 切分与隔离 → 第二张网卡 → CRD 与 Operator → 网关扩展 → 指标管线 | 第二篇 device plugin / DRA → 第三篇 Kueue / Volcano → 第四篇 MIG / HAMi → 第五篇 Multus / RDMA plugin / CSI → 第六篇 LWS / KServe / KEDA → 第七篇 InferencePool / EPP | DCGM 映射 · recording rules · 成本分摊；每一层都在填 K8s 原生假设的一个洞，每篇一张四栏表 |
-| 取舍线 | 隔离 vs 利用率 → 排队 vs 碎片 → 拓扑 vs 等待时间 → 冷启动 vs 常驻成本 → 精确计费 vs 开销 | 第四篇的 MIG / 时间片 → 第三篇的 gang / 配额 / cohort → 第三、五篇的 TAS 与 RDMA → 第六篇的缩零与扩容时间 | 每个取舍都对应三个数字里的一段差距，成本把它们换成同一个单位，FinOps 回路按月重做这些取舍 |
-
-总纲提出的三种能力，现在可以逐条对照：
-
-1. **设计能力**：面对一组训练与推理负载，按第一篇的需求清单选调度器（Kueue 还是 Volcano，第三篇）、切分策略（MIG / HAMi / 时间片，第四篇）、网络与存储（RDMA 接入方式与存储三类需求，第五篇）、Serving 形态（单 Pod / LWS / PD 分离，第六篇）与网关（InferencePool + EPP，第七篇），并用每篇的四栏表说清每个选择的代价——第一到七篇。
-2. **排障能力**：Pod 看不到 GPU 查第二篇的四层栈；任务 Pending 查第三篇的 gang / 配额 / 拓扑；共卡互相影响查第四篇的隔离层次；多机变慢查第五篇的 RDMA 路径；扩容慢查第六篇的时间分解；请求排在满的副本上查第七篇的路由；每一条都从本篇的四层指标进入——第二到八篇。
-3. **运营能力**：建立从 DCGM 到网关的四层指标，把分配率与有效利用率的差距分解到具体原因，按团队 / 队列 / 租户分摊成本，算出每百万 token 的成本，并用它驱动配额、切分与扩缩容参数的按月调整——本篇，以及它回指的每一篇。
-
-平台的每一个设计决定都是被引擎的某个需求推出来的，这是总纲的第一句话，也是全系列的方法：面对集群上的任何异常——Pending、变慢、超时、账单超支——先问"引擎在这一层要什么、K8s 为什么给不了、平台用什么给的、代价是什么"，答案就在三条线的交点上。
 
 ## 十三、自测
 

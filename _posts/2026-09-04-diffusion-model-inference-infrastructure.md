@@ -99,7 +99,7 @@ PD 分离         不适用；但有另一种分离——文本编码器 / DiT /
 第八篇：三个引擎的对照导读 —— 同一张图的请求在 SGLang Diffusion、vLLM-Omni、xDiT 里各走过什么
         ↓  进程模型 · pipeline 抽象 · 并行组 · attention 后端 · 缓存 hook · 调度器 · API 层 · 分歧点
 第九篇：配置、评测与排障 —— 从一张卡的推导到一条伪影的排查
-           配置推导顺序 · 性能与质量的评测方法 · 确定性 · 常见故障 · 系列总结
+           配置推导顺序 · 性能与质量的评测方法 · 确定性 · 常见故障
 ```
 
 三条交织的线索：
@@ -285,7 +285,6 @@ PD 分离         不适用；但有另一种分离——文本编码器 / DiT /
 - 确定性：seed、确定性算子、并行度是否改变结果（SP 的 reduce 顺序）、编译 / CUDA graph 的漂移（SSIM 0.98 而非 bit-exact）；
 - 常见故障：VAE 解码 OOM、FP8 的 NaN 与色偏、缓存阈值的伪影与闪烁、动态分辨率的重编译风暴、SP 度数不整除 token 数、LoRA 未生效或 scale 错、T5 长 prompt 截断、3D VAE 时间分块的接缝；每类的信号与排查路径；
 - 可观测：每步耗时、缓存命中率、队列深度、GPU 利用率高不等于有效（eager 的小 kernel 也能把利用率打满）；
-- 系列总结。
 
 核心问题是：
 
@@ -293,6 +292,9 @@ PD 分离         不适用；但有另一种分离——文本编码器 / DiT /
 
 实践建议：为练手服务搭一个面板（每步耗时、三段时间、缓存命中率、队列、显存峰值），人为制造三类故障（换一个更激进的缓存阈值、发一批非常规分辨率、关掉 VAE tiling）并用面板定位。
 
+### 10. 系列总结与通关自测
+
+最后一篇不讲新内容：把九篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是九篇能不能连起来用；读完正文再做。
 
 ## 贯穿全系列的实践线
 
@@ -420,7 +422,8 @@ xDiT（2026-09-02 主线）  xfuser/：core/{distributed,long_ctx_attention,cach
 6. [少步与自回归：把步数变成系统参数——蒸馏后哪些优化失效、KV cache 的回归、实时流式](/few-step-and-autoregressive-video-generation-systems.html)
 7. [serving 形态：请求形态、批处理、三段分离、LoRA / ControlNet、异步任务 API 与成本](/diffusion-serving-shapes-batching-disaggregation-and-cost.html)
 8. [三个引擎的对照导读：同一张图的请求在 SGLang Diffusion、vLLM-Omni 与 xDiT 里各走过什么](/diffusion-engines-compared-sglang-diffusion-vllm-omni-xdit.html)
-9. [配置、评测与排障：从一张卡的推导到一条伪影的排查（附系列总结）](/diffusion-inference-configuration-evaluation-and-troubleshooting.html)
+9. [配置、评测与排障：从一张卡的推导到一条伪影的排查](/diffusion-inference-configuration-evaluation-and-troubleshooting.html)
+10. [系列总结与通关自测](/diffusion-inference-infra-series-recap-and-self-test.html)
 
 
 ## 最终目标

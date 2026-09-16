@@ -305,8 +305,11 @@ K8s 的空缺      原生 Kubernetes 为什么满足不了
 
 > **一个 64 卡集群上月账单 X 元，DCGM 显示平均分配率 85%、平均 `SM_ACTIVE` 35%。这 50 个百分点的差距分别来自哪里——排队等 gang、训练的通信等待、推理的低峰空转、开发环境的长期占用？每一项对应本系列哪一篇的机制？**
 
-实践：为集群部署 DCGM Exporter + Prometheus + Grafana，做一张同时显示分配率、`SM_ACTIVE`、任务队列长度和推理 TTFT 的看板；用 label 给前几篇部署的任务和服务分摊成本，算出每百万 token 的成本。本篇最后给出全系列总结。
+实践：为集群部署 DCGM Exporter + Prometheus + Grafana，做一张同时显示分配率、`SM_ACTIVE`、任务队列长度和推理 TTFT 的看板；用 label 给前几篇部署的任务和服务分摊成本，算出每百万 token 的成本。
 
+### 9. 系列总结与通关自测
+
+最后一篇不讲新内容：把八篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是八篇能不能连起来用；读完正文再做。
 
 ## 贯穿全系列的实践线
 
@@ -445,6 +448,7 @@ K8s 的空缺      原生 Kubernetes 为什么满足不了
 6. [Serving 平台：从 InferenceService 到 llm-d](/serving-platforms-kserve-triton-ray-serve-llm-d.html)
 7. [模型网关与多租户：路由、配额与灰度](/model-gateway-multi-tenancy-and-quota.html)
 8. [可观测、成本与 FinOps](/ai-platform-observability-cost-and-finops.html)
+9. [系列总结与通关自测](/ai-platform-engineering-series-recap-and-self-test.html)
 
 
 ## 最终目标
