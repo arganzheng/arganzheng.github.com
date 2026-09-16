@@ -66,3 +66,6 @@ diffusion-inference-infra:
 coding-interview:
   name: 面试手撕代码：从 LeetCode 中等题到 Transformer 组件
   overview: /coding-interview.html
+model-as-component:
+  name: 模型作为组件：契约、失效模式与选型
+  overview: /model-as-a-component.html
