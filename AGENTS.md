@@ -160,6 +160,21 @@ Pages has `https_enforced` on.
   as the others — catalog, pager, related, comments; demo post
   `keynote-layout-demo`). `redirect_from:` works
   (jekyll-redirect-from). `tools/new-post.py` scaffolds a post/draft.
+- Related posts (`_includes/related-posts.html`, "YOU MIGHT ALSO LIKE") come
+  from `_plugins/related_posts.rb` (`:site, :post_read`), which fills
+  `post.data['related']`: shared tags weighted by rarity (IDF), normalised by
+  both posts' tag counts; own-series members excluded (they have the pager +
+  series TOC), max one post per other series, same category only, ties to the
+  newer post, topped up with newest same-category posts when fewer than
+  `related_posts_threshold` share a tag. Each entry carries `shared_tags`
+  (rarest first) and the include prints up to three as the reason. This is
+  why every post needs tags — an untagged post is never recommended.
+- Heading anchors: `js/toc.js` appends an empty `a.heading-anchor` to every
+  heading in `.post-container` (glyph via CSS in `less/extras.less`, so the
+  heading's textContent — what highlight comments anchor to — is unchanged);
+  click copies the section URL via `window.BlogCopy` (exported by
+  `js/code-copy.js`, same focus/secure-context fallback) and scrolls with the
+  navbar offset. Removed from the WeChat export.
 - `_posts/` — blog posts, `layout: post`, permalink `/:title.html`
 - `slides/` — reveal.js decks, `layout: slides` (or set in front matter),
   URL `/slides/:name.html`, indexed by `slides.html` (`/slides/`)

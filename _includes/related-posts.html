@@ -1,46 +1,21 @@
+{%- comment -%}
+  page.related is precomputed by _plugins/related_posts.rb (tag-rarity scored,
+  own series excluded, one post per other series). Each entry: title, url,
+  date, shared_tags (most specific first; empty for recency top-ups).
+{%- endcomment -%}
+{%- if page.related and page.related.size > 0 -%}
 <div class="related">
   <p class="h3">YOU MIGHT ALSO LIKE</p>
   <ul class="list-unstyled">
-    {% assign post_count = 0 %}
-    {% assign THRESHOLD = site.related_posts_threshold %}
-    {% for post in site.posts %}
-      {% if post_count == THRESHOLD %}
-        {% break %}
-      {% endif %}
-      {% for tag in post.tags %}
-        {% if page.tags contains tag and page.title != post.title %}
-          <li>
-            <small style="color: #aaa">{{ post.date | date_to_string }}</small>&nbsp;&raquo;&nbsp;
-            <a href="{{ post.url | prepend: site.url }}">{{ post.title }}</a>
-          </li>
-          {% assign post_count = post_count | plus: 1 %}
-          {% break %}
-        {% endif %}
-      {% endfor %}
-    {% endfor %}
-
-    {% assign posts_left = THRESHOLD | minus: post_count %}
-    {% unless posts_left == 0 %}
-      {% for post in site.posts %}
-        {% if posts_left == 0 %}
-          {% break %}
-        {% endif %}
-
-        {% assign already_related = false %}
-        {% for tag in post.tags %}
-          {% if page.tags contains tag %}
-            {% assign already_related = true %}
-            {% break %}
-          {% endif %}
-        {% endfor %}
-        {% if already_related == false and page.title != post.title %}
-          {% assign posts_left = posts_left | minus: 1 %}
-          <li>
-            <small style="color: #aaa">{{ post.date | date_to_string }}</small>&nbsp;&raquo;&nbsp;
-            <a href="{{ post.url | prepend: site.url }}">{{ post.title }}</a>
-          </li>
-        {% endif %}
-      {% endfor %}
-    {% endunless %}
+    {%- for r in page.related %}
+    <li>
+      <small class="related-date">{{ r.date | date_to_string }}</small>&nbsp;&raquo;&nbsp;
+      <a href="{{ r.url | relative_url }}">{{ r.title }}</a>
+      {%- if r.shared_tags.size > 0 %}
+      <small class="related-why">{{ r.shared_tags | slice: 0, 3 | join: " · " }}</small>
+      {%- endif %}
+    </li>
+    {%- endfor %}
   </ul>
 </div>
+{%- endif -%}

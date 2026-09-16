@@ -1915,6 +1915,18 @@ li[id^="fn:"] {
 .post-container .related-posts {
   margin-top: 48px;
 }
+.post-container .related li {
+  margin-bottom: 4px;
+}
+.post-container .related .related-date {
+  color: #aaa;
+}
+.post-container .related .related-why {
+  margin-left: 8px;
+  color: #8c959f;
+  font-size: 12px;
+  white-space: nowrap;
+}
 .post-preview .post-cat {
   display: inline-block;
   vertical-align: 4px;
