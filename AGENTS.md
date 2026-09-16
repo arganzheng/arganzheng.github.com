@@ -154,7 +154,11 @@ Pages has `https_enforced` on.
   `less/dashboard.less` (`.dash*`).
 - `index.html`: posts with `pinned: true` lead page 1 (badge `.post-pin`) and
   are skipped in the paginated flow. Sidebar (`_layouts/page.html`): HOT TAGS
-  threshold is `site.featured-condition-size`; RECOMMEND renders
+  is `_includes/tag-cloud.html` (`min=site.featured-condition-size`); `/tags/`
+  renders the same include with `min=0` (`id="tag_cloud"`, one size step
+  larger). Weight tiers `tag-weight-s/a/b/c/d` by post count, styled
+  `.tag-cloud` in `less/extras.less` — pure CSS, the old `tagcloud.js` colour
+  interpolation is gone. RECOMMEND renders
   `site.recommends` (`title`/`href`/`desc`) as external links. Styles for these
   live in `less/extras.less`.
 - Post layouts: `post` (default, text header), `header-post` (hero image;
@@ -238,8 +242,7 @@ Pages has `https_enforced` on.
   iframes, navbar hide-on-scroll-down `.is-fixed/.is-visible`, `.side-catalog.fixed`),
   then toc, diagram-zoom, code-copy, code-tabs, figures, code-tokens,
   inline-popups, vendor/approx-string-match, annotations, share. Still
-  separate: `js/search.js` (head, every page), `js/tagcloud.js` (`/tags/`
-  only, colours `#tag_cloud a[rel]`), `js/wechat-export.js` (lazy, author
+  separate: `js/search.js` (head, every page), `js/wechat-export.js` (lazy, author
   only), `js/dashboard.js` + `js/feedback-brief.js` (`/admin/`). The mobile
   navbar toggle is inline in `nav.html`. FastClick and the
   `data-toggle="tooltip"` pager attributes are dead. **Bootstrap 3 CSS stays**

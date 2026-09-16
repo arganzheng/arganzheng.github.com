@@ -35,65 +35,6 @@
 .sidebar-container .tags a:active {
   border-color: #0085A1;
 }
-.sidebar-container #tags {
-  margin-bottom: 10px;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 6px;
-}
-.sidebar-container #tags a {
-  display: inline-flex;
-  align-items: baseline;
-  text-decoration: none !important;
-  padding: 2px 5px;
-  border-radius: 4px;
-  line-height: 1.4;
-  transition: all 0.2s ease;
-}
-.sidebar-container #tags a:hover,
-.sidebar-container #tags a:active,
-.sidebar-container #tags a:focus {
-  text-decoration: none !important;
-  color: #0085A1 !important;
-  background-color: rgba(0, 133, 161, 0.1);
-  transform: translateY(-1px);
-}
-.sidebar-container #tags a sup {
-  font-size: 10px;
-  font-weight: normal;
-  margin-left: 3px;
-  opacity: 0.65;
-  line-height: 1;
-  vertical-align: baseline;
-  position: relative;
-  top: -0.4em;
-}
-.sidebar-container #tags a.tag-weight-s {
-  font-size: 21px;
-  font-weight: 700;
-  color: #006b82 !important;
-}
-.sidebar-container #tags a.tag-weight-a {
-  font-size: 18px;
-  font-weight: 600;
-  color: #0085A1 !important;
-}
-.sidebar-container #tags a.tag-weight-b {
-  font-size: 15.5px;
-  font-weight: 500;
-  color: #3b6677 !important;
-}
-.sidebar-container #tags a.tag-weight-c {
-  font-size: 14px;
-  font-weight: 400;
-  color: #57606a !important;
-}
-.sidebar-container #tags a.tag-weight-d {
-  font-size: 12.5px;
-  font-weight: 400;
-  color: #8c959f !important;
-}
 .sidebar-container .short-about img {
   width: 80%;
   display: block;
@@ -973,29 +914,6 @@ img::-moz-selection {
 @media only screen and (min-width: 768px) {
   #tag-heading {
     padding: 55px 0;
-  }
-}
-#tag_cloud {
-  margin: 20px 0 15px 0;
-}
-#tag_cloud a,
-#tag_cloud .tag {
-  font-size: 14px;
-  border: none;
-  line-height: 28px;
-  margin: 0 2px;
-  margin-bottom: 8px;
-  background: #D6D6D6;
-}
-#tag_cloud a:hover,
-#tag_cloud .tag:hover,
-#tag_cloud a:active,
-#tag_cloud .tag:active {
-  background-color: #0085a1 !important;
-}
-@media only screen and (min-width: 768px) {
-  #tag_cloud {
-    margin-bottom: 25px;
   }
 }
 .tag-comments {
@@ -2125,8 +2043,7 @@ li[id^="fn:"] {
 .sidebar-container .short-about p {
   color: #555;
 }
-.sidebar-container .tags a,
-.sidebar-container #tags a {
+.sidebar-container .tags a {
   color: #555 !important;
   border-color: #ccc;
 }
@@ -2261,6 +2178,84 @@ li[id^="fn:"] {
 }
 .post-container .code-tabs:not(.code-tabs-ready) > .language-cpp::before {
   content: "C++";
+}
+.tag-cloud {
+  margin-bottom: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 6px;
+}
+.tag-cloud a {
+  display: inline-flex;
+  align-items: baseline;
+  text-decoration: none !important;
+  padding: 2px 5px;
+  border-radius: 4px;
+  line-height: 1.4;
+  transition: all 0.2s ease;
+}
+.tag-cloud a:hover,
+.tag-cloud a:active,
+.tag-cloud a:focus {
+  text-decoration: none !important;
+  color: #0085A1 !important;
+  background-color: rgba(0, 133, 161, 0.1);
+  transform: translateY(-1px);
+}
+.tag-cloud a sup {
+  font-size: 10px;
+  font-weight: normal;
+  margin-left: 3px;
+  opacity: 0.65;
+  line-height: 1;
+  vertical-align: baseline;
+  position: relative;
+  top: -0.4em;
+}
+.tag-cloud a.tag-weight-s {
+  font-size: 21px;
+  font-weight: 700;
+  color: #006b82 !important;
+}
+.tag-cloud a.tag-weight-a {
+  font-size: 18px;
+  font-weight: 600;
+  color: #0085A1 !important;
+}
+.tag-cloud a.tag-weight-b {
+  font-size: 15.5px;
+  font-weight: 500;
+  color: #3b6677 !important;
+}
+.tag-cloud a.tag-weight-c {
+  font-size: 14px;
+  font-weight: 400;
+  color: #57606a !important;
+}
+.tag-cloud a.tag-weight-d {
+  font-size: 12.5px;
+  font-weight: 400;
+  color: #8c959f !important;
+}
+#tag_cloud.tag-cloud {
+  margin: 20px 0 30px;
+  gap: 6px 10px;
+}
+#tag_cloud.tag-cloud a.tag-weight-s {
+  font-size: 24px;
+}
+#tag_cloud.tag-cloud a.tag-weight-a {
+  font-size: 20px;
+}
+#tag_cloud.tag-cloud a.tag-weight-b {
+  font-size: 17px;
+}
+#tag_cloud.tag-cloud a.tag-weight-c {
+  font-size: 15px;
+}
+#tag_cloud.tag-cloud a.tag-weight-d {
+  font-size: 13px;
 }
 .post-container .heading-anchor {
   margin-left: 0.35em;

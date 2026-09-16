@@ -1,0 +1,17 @@
+{%- comment -%}
+  Weighted tag cloud, shared by the sidebar (HOT TAGS) and /tags/.
+    include.min   show tags used by MORE than this many posts (0 = all)
+    include.id    optional id for the wrapper
+  Tiers by post count: s >= 40, a >= 20, b >= 10, c >= 6, d = rest
+  (styles: .tag-cloud in less/extras.less). Order is site.tags' own (alphabetical).
+{%- endcomment -%}
+{%- assign min = include.min | default: 0 -%}
+<div class="tag-cloud"{% if include.id %} id="{{ include.id }}"{% endif %}>
+  {%- for tag in site.tags -%}
+    {%- assign n = tag[1] | size -%}
+    {%- if n > min -%}
+      {%- if n >= 40 %}{% assign w = 's' %}{% elsif n >= 20 %}{% assign w = 'a' %}{% elsif n >= 10 %}{% assign w = 'b' %}{% elsif n >= 6 %}{% assign w = 'c' %}{% else %}{% assign w = 'd' %}{% endif %}
+  <a href="{{ '/tags/' | prepend: site.baseurl }}#{{ tag[0] | replace: ' ', '%20' }}" class="tag-weight-{{ w }}" title="{{ tag[0] }}：{{ n }} 篇"><span>{{ tag[0] }}</span><sup>{{ n }}</sup></a>
+    {%- endif -%}
+  {%- endfor %}
+</div>

@@ -148,25 +148,7 @@ layout: default
                 <section>
                     <hr class="hidden-sm hidden-xs">
                     <h5><a href="{{'/tags/' | prepend: site.baseurl }}">HOT TAGS</a></h5>
-                    <div id="tags">
-                      {% for tag in site.tags %}
-                      {% assign tag_size = tag[1] | size %}
-                      {% if tag_size > site.featured-condition-size %}
-                        {% if tag_size >= 40 %}
-                          {% assign weight_class = "tag-weight-s" %}
-                        {% elsif tag_size >= 20 %}
-                          {% assign weight_class = "tag-weight-a" %}
-                        {% elsif tag_size >= 10 %}
-                          {% assign weight_class = "tag-weight-b" %}
-                        {% elsif tag_size >= 6 %}
-                          {% assign weight_class = "tag-weight-c" %}
-                        {% else %}
-                          {% assign weight_class = "tag-weight-d" %}
-                        {% endif %}
-                      <a href="{{ '/tags/' | prepend: site.baseurl }}#{{ tag[0] | replace:' ','%20' }}" class="{{ weight_class }}"><span>{{ tag[0] }}</span><sup>{{ tag[1].size }}</sup></a>
-                      {% endif %}
-                      {% endfor %}
-                    </div> 
+                    {% include tag-cloud.html id="tags" min=site.featured-condition-size %}
                 </section>
                 {% endif %}
 
