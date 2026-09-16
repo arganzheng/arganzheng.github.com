@@ -227,6 +227,9 @@ Java 工程师在这里会遇到最大的落差：
 
 核心结论是：**Python 把 Java 里由框架和编译器强制的事情，交还给了你。** 这份自由度是 Python 在 AI 领域胜出的原因之一，但也意味着一个没有工程纪律的 Python 项目会腐化得更快。
 
+### 8. 系列总结与通关自测
+
+最后一篇不讲新内容：把七篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是七篇能不能连起来用；读完正文再做。
 
 ## 阅读路径建议
 
@@ -254,6 +257,7 @@ Java 工程师在这里会遇到最大的落差：
 5. [内存管理与优化](/python-memory-management-and-optimization.html)
 6. [单元测试、问题定位与调试实践](/python-unit-testing-troubleshooting-and-debugging.html)
 7. [项目工程化与生产交付](/python-engineering-and-production-delivery.html)
+8. [系列总结与通关自测](/python-for-ai-infra-series-recap-and-self-test.html)
 
 
 ## 前置要求与说明

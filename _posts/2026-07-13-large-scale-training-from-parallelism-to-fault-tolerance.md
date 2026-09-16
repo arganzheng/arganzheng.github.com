@@ -297,8 +297,11 @@ torchtitan     用 PyTorch 原生原语组合：DTensor、FSDP2、TP、PP、CP �
 
 > **凌晨三点告警：step 时间从 12 秒变成 40 秒，没有报错。十分钟内你要判断是 straggler、数据、通信、还是硬件降频。你需要的每一个信号，在开训前有没有采集？**
 
-实践：为练手项目搭起完整的指标面板与告警规则；用 Flight Recorder 排查一次人为制造的 hang；写出这个项目的值班手册。本篇最后给出全系列总结。
+实践：为练手项目搭起完整的指标面板与告警规则；用 Flight Recorder 排查一次人为制造的 hang；写出这个项目的值班手册。
 
+### 9. 系列总结与通关自测
+
+最后一篇不讲新内容：把八篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是八篇能不能连起来用；读完正文再做。
 
 ## 贯穿全系列的实践线
 
@@ -440,6 +443,7 @@ torchtitan     用 PyTorch 原生原语组合：DTensor、FSDP2、TP、PP、CP �
 6. [容错与弹性：故障率数学、straggler、SDC 与弹性训练](/fault-tolerance-and-elastic-training.html)
 7. [训练稳定性与数据管线：loss spike、梯度范数、数据混合与流式加载](/training-stability-and-data-pipeline.html)
 8. [长时训练的可观测与运维：从指标到 hang 排查](/long-running-training-observability-and-operations.html)
+9. [系列总结与通关自测](/large-scale-training-series-recap-and-self-test.html)
 
 
 ## 最终目标

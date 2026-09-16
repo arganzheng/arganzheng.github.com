@@ -40,7 +40,7 @@ updated: 2026-09-14
 | 九 | 接入 PyTorch | `TORCH_LIBRARY`、fake kernel 与 opcheck |
 | 十 | 接入 vLLM | csrc 的组织与注册、Python 侧的后端选择 |
 | 十一 | 一个 kernel PR 的完整流程 | 先讨论再写、PR 里要有什么、review 关注什么、CI 的硬件矩阵 |
-| 十二 | 本文小结与系列总结 |  |
+| 十二 | 本文小结 | |
 | 十三 | 自测 | 5 道题 |
 
 ## 二、先算理论：剖析之前要有一个参照数
@@ -1276,9 +1276,7 @@ vLLM 的贡献指南还有两条硬要求：commit 必须带 `Signed-off-by:`（
 
 vLLM 的 CI 跑在 Buildkite 上，`.buildkite/test_areas/kernels.yaml` 把 `tests/kernels/` 拆成若干 step，每个 step 声明 `source_file_dependencies`（只有相关文件改动时才触发）与可选的 `device:`（默认队列跑在较小的 GPU 上，需要特定架构的 step 指定 `h100`、`b200` 等）；改动 `csrc/` 或 `CMakeLists.txt` 会触发全量测试（`ci_config.yaml` 的 `run_all_patterns`）。PyTorch 的 CI 用 GitHub Actions，PR 默认只跑一小部分，通过打 `ciflow/trunk`、`ciflow/inductor`、`ciflow/h100` 这类 label 触发更多矩阵。两个项目的共同点是：**多架构测试是 CI 的一部分而不是贡献者的自觉**——但 CI 的 GPU 时间昂贵，PR 描述里先给出自己在多架构上测过的证据，能显著加快 review。
 
-## 十二、本文小结与系列总结
-
-### 1. 本文小结
+## 十二、本文小结
 
 这一篇把"能跑"的 kernel 变成"能合入"的 kernel 需要的工程逐项过了一遍：
 
@@ -1342,40 +1340,6 @@ kernel PR 清单：
 [ ] pre-commit 全部通过；CMakeLists 架构列表与 cuda_archs_loose_intersection 配对
 [ ] 编译时间与二进制体积可接受；没有重复已有 kernel
 ```
-
-
-### 2. 全系列总结
-
-十篇文章各自建立了一项能力：
-
-```text
-第一篇    硬件结构与 Roofline        知道 GPU 有什么、每样资源多快；把任何 kernel 放到 Roofline 图上
-第二篇    CUDA 编程模型             把线程/block/grid 映射到 SM/warp；写第一个 kernel 与 benchmark 脚手架
-第三篇    访存合并与 elementwise     32 字节 sector、128 字节 cache line、向量化；memory-bound kernel 达到 80–90% 带宽
-第四篇    shared memory 与 reduction warp shuffle、bank、__syncthreads 的代价；RMSNorm、softmax、online softmax
-第五篇    GEMM 从 naive 到分块      tiling 如何把算术强度从 <1 提到 >100；寄存器分块；到 cuBLAS 的 70–80%
-第六篇    Tensor Core、CUTLASS、CuTe mma.sync 与 wgmma、fragment 布局、cp.async/TMA 流水；BF16 GEMM 到 cuBLAS 的 80%+
-第七篇    Triton                     块级抽象让编译器接管合并、shared、流水；知道它能做到哪一层、不能做到哪一层
-第八篇    FlashAttention 与 Paged    online softmax 融合进 GEMM 消掉 N² 物化；分页 KV 的间接寻址
-第九篇    量化与融合                 INT4/FP8 的反量化位置、fused norm/RoPE/SiLU-mul；组装成 decoder layer
-第十篇    剖析、测试、贡献           ncu 决策树；tolerance 与边界；do_bench；TORCH_LIBRARY + opcheck；PR 流程
-```
-
-贯穿它们的是一条方法论：**先算理论上应该多快（字节数、FLOPs、Roofline），再测，再解释差距，再缩小差距。** 每一篇的每个 kernel 都从一个理论下界开始——RMSNorm 一行 16 KiB、GEMM 4096³ 是 0.44 ms、attention 的 HBM 流量是 $$O(N^2 d^2 / M)$$——然后才讨论实现。这个顺序不是写作上的偏好，而是工程上唯一可靠的路径：没有下界，"快了 3 倍"无法判断是做完了还是刚开始；有了下界，"离下界还差 40%"就是一个能用 profiler 分解、能用决策树处理的问题。
-
-对照总纲"最终目标"列出的问题，现在每一条都有了对应的工具：
-
-- **它读写多少字节、做多少 FLOP？** —— 按第一篇的方法手算：elementwise 每元素几个字节、GEMM $$2MNK$$、attention $$4N^2 d$$；算出算术强度，与 ridge point（A100 BF16 156、H100 295）比，定下 memory-bound 还是 compute-bound。
-- **它理论上最快多少？实际多少？** —— 下界 = 字节数 / 带宽 或 FLOPs / 算力；实际用第二篇的 `bench` 或 `do_bench` 测中位数；两者相除就是带宽/算力利用率，memory-bound 的好 kernel 在 80–90%，GEMM 在 70–90%。
-- **差距来自哪里？** —— 本篇的 ncu：SOL 分类、Memory Workload 看访存模式、Warp State 看 stall、Occupancy 看驻留、Source Counters 定位到行。
-- **访存模式对不对？** —— 第三篇的合并与向量化、第四篇的 bank conflict，在 ncu 里对应 Sectors/Req 与 bank conflict 计数。
-- **线程协作方式对不对？** —— 第四篇的 shuffle 与 shared 归约、第五篇的 tile 加载分工，在 ncu 里对应 barrier 与 MIO/short scoreboard stall。
-- **用上 Tensor Core 了吗？用对了吗？** —— 第六篇的 mma/wgmma、fragment 布局与 ldmatrix，在 ncu 里对应 Tensor pipe 利用率与 FMA/ALU/XU 的占比。
-- **用 Triton 写会怎样？** —— 第七篇：编译器接管合并、shared、软件流水与大部分 Tensor Core 指令选择；控制不了的是 fragment 级布局、warp specialization 与新硬件特性的时间差。
-- **它在别的架构上会怎样？** —— 本篇第八章：`__CUDA_ARCH__`、fatbin、运行时分派与 fallback。
-- **怎么证明它是对的、没变慢？** —— 本篇第六、七章：参考实现与 tolerance、边界与非连续、opcheck；warmup、L2 flush、中位数、回归阈值。
-
-最后说明边界。本系列自始至终只讨论**单个 kernel 内部**：它如何映射到硬件、如何访存、如何计算、如何测量、如何交付。紧挨着它的几层不在范围内：框架运行时（Dispatcher 如何选到这个 kernel、Autograd 如何调用反向、Caching Allocator 如何给它分显存、Inductor 如何决定融合哪些算子）在《PyTorch 深度实践》系列；推理引擎的调度与内存管理（continuous batching、KV cache 分页、prefix caching、PD 分离、CUDA graph 的使用）属于引擎层的系列；多卡通信（NCCL、集合通信与计算的重叠、通信 kernel 本身）属于分布式的系列。这些层决定了 kernel 之外的时间花在哪里，nsys 的时间线是它们与本系列的接口：当时间线显示瓶颈在 kernel 之间而不是之内时，读者要去的是那些系列；当瓶颈确认在某个 kernel 之内时，这十篇给出了从理论下界到合入 PR 的完整路径。系列总纲与章节目录见[《GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention》](/gpu-kernel-engineering.html)。
 
 ## 十三、自测
 

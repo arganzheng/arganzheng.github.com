@@ -120,7 +120,7 @@ NCCL 的 `src/`、PyTorch 的 `torch/csrc/distributed/c10d/`、vLLM 的 `vllm/di
 排障线：nvidia-smi topo → ibstat / ib_write_bw → NCCL_DEBUG → Flight Recorder → 决策树
 ```
 
-前三篇建立"硬件能做到什么"的上限，第四篇讲 NCCL 如何逼近这个上限，第五篇讲框架如何使用 NCCL 而不浪费它，第六篇把前五篇变成可操作的测量与排障方法，第七篇把这套方法用到推理的两个特殊场景上，第八篇用到 MoE 的 all_to_all 上——它是训练与推理共有、也是最重的一种通信——并给出全系列总结。
+前三篇建立"硬件能做到什么"的上限，第四篇讲 NCCL 如何逼近这个上限，第五篇讲框架如何使用 NCCL 而不浪费它，第六篇把前五篇变成可操作的测量与排障方法，第七篇把这套方法用到推理的两个特殊场景上，第八篇用到 MoE 的 all_to_all 上——它是训练与推理共有、也是最重的一种通信；第九篇是系列总结与通关自测。
 
 每一篇都有同样的四段结构：
 
@@ -344,8 +344,11 @@ hang  所有 rank 停在同一处 → 网络或某个 rank 崩溃：看 dmesg ·
 
 > **一层 MoE 的 dispatch + combine，在 EP=64 跨 8 节点时，每个 token 要跨多少条链路、搬多少字节、走几步？为什么 NCCL 的 all_to_all 在 decode 时不够用，DeepEP 又是怎么把它做到几百微秒以内的？**
 
-实践：把第一篇的代价模型扩展到 all_to_all（`moe_a2a_model.py`），输出 EP=8 / 16 / 64 在 prefill 与 decode 下网卡与 NVLink 各自的理论时间、按节点去重值多少，并与 DeepEP README 的官方数字对照反推 α；再用 `torch.distributed.all_to_all_single` 写一个最小 benchmark（`a2a_bench.py`），测出等长、变长、以及 counts 交换加同步的两步路径各多少微秒。本篇最后给出全系列总结。
+实践：把第一篇的代价模型扩展到 all_to_all（`moe_a2a_model.py`），输出 EP=8 / 16 / 64 在 prefill 与 decode 下网卡与 NVLink 各自的理论时间、按节点去重值多少，并与 DeepEP README 的官方数字对照反推 α；再用 `torch.distributed.all_to_all_single` 写一个最小 benchmark（`a2a_bench.py`），测出等长、变长、以及 counts 交换加同步的两步路径各多少微秒。
 
+### 9. 系列总结与通关自测
+
+最后一篇不讲新内容：把八篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是八篇能不能连起来用；读完正文再做。
 
 ## 贯穿全系列的实践线
 
@@ -488,6 +491,7 @@ hang  所有 rank 停在同一处 → 网络或某个 rank 崩溃：看 dmesg ·
 6. [nccl-tests、调优与排障：从带宽曲线到 hang](/nccl-tests-tuning-and-debugging-hangs.html)
 7. [推理侧的通信：custom all-reduce 与 KV 传输](/inference-communication-custom-all-reduce-and-kv-transfer.html)
 8. [MoE 的通信：all-to-all、DeepEP 与 GPU 发起的通信](/moe-communication-all-to-all-deepep-and-gpu-initiated.html)
+9. [系列总结与通关自测](/communication-and-interconnect-series-recap-and-self-test.html)
 
 
 ## 最终目标

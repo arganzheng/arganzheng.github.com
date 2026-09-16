@@ -388,8 +388,11 @@ Java 对照：JNI 是同一位置的技术——`jobject` 对应 `PyObject*`，�
 
 Java 对照：Maven/Gradle 管理依赖、编译和测试一体化，C++ 里这三件事由 CMake、编译器和测试框架分别负责，而且依赖管理没有标准答案。JVM 的调试器无需关心优化级别，C++ 在 `-O2` 下变量可能被优化掉、栈帧可能被内联，Debug 构建是必需的。
 
-实践：mini-c10 补齐 CMake 工程、gtest 测试、ASan 配置，用 gdb 从 Python 端一路断到 C++ kernel。本篇最后给出全系列总结，把八篇讲过的机制映射回开篇那段 `scale_shift_cpu` 代码，逐行作答。
+实践：mini-c10 补齐 CMake 工程、gtest 测试、ASan 配置，用 gdb 从 Python 端一路断到 C++ kernel。
 
+### 9. 系列总结与通关自测
+
+最后一篇不讲新内容：把八篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是八篇能不能连起来用；读完正文再做。
 
 ## 贯穿全系列的实践线：mini-c10
 
@@ -522,6 +525,7 @@ CUDA kernel 大量依赖模板参数化和 RAII 管理设备资源；第六篇�
 6. [并发、内存模型、TLS 与守卫](/cpp-concurrency-memory-model-tls-and-guards.html)
 7. [与 Python 之间：pybind11、Python C API 与 ABI](/cpp-pybind11-python-c-api-and-abi.html)
 8. [构建、调试与测试工具链](/cpp-build-debug-and-test-toolchain.html)
+9. [系列总结与通关自测](/cpp-for-ai-infra-series-recap-and-self-test.html)
 
 
 ## 最终目标

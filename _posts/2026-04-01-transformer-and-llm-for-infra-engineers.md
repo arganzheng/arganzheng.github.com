@@ -340,8 +340,11 @@ $$
 
 > **一张 1024×1024 的图片在 Qwen2-VL 里等于多少个 token？为什么"encoder 输出只有 21 MB"与"这张图占 400 MB 显存"两句话同时成立？**
 
-实践：脚本增加 vision encoder 的参数与 FLOPs、image token 数、image token 在 decoder 中的三个字节数；成本表新增"一张 1024² 图片"一行，按三种注入方式对照。本篇最后给出全系列总结。
+实践：脚本增加 vision encoder 的参数与 FLOPs、image token 数、image token 在 decoder 中的三个字节数；成本表新增"一张 1024² 图片"一行，按三种注入方式对照。
 
+### 9. 系列总结与通关自测
+
+最后一篇不讲新内容：把八篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是八篇能不能连起来用；读完正文再做。
 
 ## 贯穿全系列的实践线
 
@@ -504,6 +507,7 @@ loss 变 NaN、量化后输出异常、两个 kernel 的结果对不上——第
 6. [浮点格式、数值稳定性与混合精度](/floating-point-formats-and-mixed-precision.html)
 7. [量化、投机解码与 LoRA：改变计算形态的三种方法](/quantization-speculative-decoding-and-lora.html)
 8. [多模态：vision encoder 的算量与 image token 的 KV 代价](/multimodal-vision-encoder-cost-and-image-token-kv.html)
+9. [系列总结与通关自测](/transformer-and-llm-series-recap-and-self-test.html)
 
 
 ## 最终目标

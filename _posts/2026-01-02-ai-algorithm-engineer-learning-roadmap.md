@@ -342,7 +342,7 @@ VLM 的成本结构——一张图等于多少 token、encoder 与 decoder 各�
 | 层 | 文章 / 系列 | 篇数 |
 |---|---|---|
 | L0 | [算法工程师的数学：读公式不卡壳的最小集](/math-for-ai-algorithm-engineers.html) | 8 |
-| L1 | [算法工程师的工具箱：从一个想法到一次能跑的实验](/tooling-for-ai-algorithm-engineers.html) | 5 |
+| L1 | [算法工程师的工具箱：从一个想法到一次能跑的实验](/tooling-for-ai-algorithm-engineers.html) | 6 |
 | L1 深入 | [Python 在 AI-Infra](/python-for-ai-infra.html)、[PyTorch 深度实践](/deep-dive-into-pytorch.html)（与 Infra 地图共享） | 7 + 10 |
 | L2 | [LLM 时代的经典机器学习：只讲它在哪里重现](/classical-machine-learning-in-the-llm-era.html) | 6 |
 | L3 | [深度学习基础：从反向传播到残差](/deep-learning-foundations.html) | 6 |
@@ -353,7 +353,7 @@ VLM 的成本结构——一张图等于多少 token、encoder 与 decoder 各�
 | L7 | [多模态：从视觉编码器到扩散模型](/multimodal-from-vision-encoders-to-diffusion.html) | 7 |
 | 横切 | [算法工程师的实验方法论：用有限的算力得出可信的结论](/experimental-methodology-for-ai-algorithm-engineers.html) | 1 |
 
-L0–L2 最初写成三篇导读，只回答"学到什么深度、在哪里用到、怎么检验学会了"；读者反馈对从零开始的人不够，于是展开成三个系列——每个概念从定义讲起、代真实模型算出数字、L1 / L2 配 CPU 可跑的脚本。横切是一套方法而不是一组知识，一篇长文即可。至此地图上的每一层都有了对应的系列。
+L0–L2 最初写成三篇导读，只回答"学到什么深度、在哪里用到、怎么检验学会了"；读者反馈对从零开始的人不够，于是展开成三个系列——每个概念从定义讲起、代真实模型算出数字、L1 / L2 配 CPU 可跑的脚本。横切是一套方法而不是一组知识，一篇长文即可。至此地图上的每一层都有了对应的系列。篇数只计正文；每个系列末尾另有一篇「系列总结与通关自测」（逐篇回顾 + 判断计算 / 跨篇综合 / 面试题三段自测），读完正文再做。
 
 ### 配套代码
 

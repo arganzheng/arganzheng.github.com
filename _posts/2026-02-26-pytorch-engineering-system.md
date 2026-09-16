@@ -86,7 +86,7 @@ PyTorch 有两千多个算子、每个算子有十几种 dtype、两个以上后
 | 八 | 第七关：使用者如何跟随演进 | 版本策略 · 升级 playbook · 兼容矩阵 · 回退 |
 | 九 | 实践终点：把第六篇的 myops 走完这七关 |  |
 | 十 | Java 对照 |  |
-| 十一 | 本文小结与系列总结：从 `loss.backward()` 一路追问到底 |  |
+| 十一 | 本文小结 |  |
 | 十二 | 自测 | 5 道题 |
 
 ## 二、第一关：本地构建能跑
@@ -1157,9 +1157,7 @@ Java 的 `readObject` 里按 `serialVersionUID` 迁移旧字段，与 `_load_fro
 
 `pull` / `trunk` / `periodic` 的分层对应 Java 项目的 PR check / merge queue / nightly；目标确定对应 Gradle 的按改动选择测试。flaky 测试的机器人自动禁用 + 定期重跑 + 自动恢复，是 Java 团队通常靠人做的事情被流程化——规模逼出来的。
 
-## 十一、本文小结与系列总结：从 `loss.backward()` 一路追问到底
-
-### 1. 本文小结
+## 十一、本文小结
 
 一次改动从提交到被用户安全地用上，要过七个关卡；本文按关卡的顺序把 PyTorch 的工程体系走了一遍：
 
@@ -1172,55 +1170,6 @@ Java 的 `readObject` 里按 `serialVersionUID` 迁移旧字段，与 `_load_fro
 - **使用者跟随演进**：pin 什么、跟多紧，把弃用警告变成 CI 错误，升级 playbook 与版本化的兼容矩阵，用 nightly / RC 提前暴露问题。
 
 第六篇的 `myops` 走完这七关的实践表明：一个树外扩展只要复用 PyTorch 的测试基础设施、把契约与实现分离、把性能基线入库，就能以很低的成本获得同样的保障。
-
-### 2. 系列总结：逐一回答总览篇的追问
-
-总览篇给了一段代码和一串追问，说读完系列应该能回答。现在逐一回答，每个答案标出它来自哪一篇。
-
-```python
-output = model(inputs)
-loss = criterion(output, targets)
-loss.backward()
-```
-
-**Tensor 如何表示输入？**（第二篇）
-`inputs` 是一个 `Tensor`，本质是 TensorImpl 元数据（shape、stride、offset、dtype、device）指向一块 Storage。视图操作只改元数据不拷贝数据；stride 决定内存访问模式，进而决定 Kernel 的访存效率（第八篇 memory-bound 的根源之一）。
-
-**Module 如何组织模型？**（第四篇）
-`model` 是 `nn.Module` 树，参数和 buffer 按名字注册，`state_dict` 是它的可序列化投影（本篇 §七.5 的 `_version` 就挂在上面）。`model(inputs)` 经过 `__call__` 的 hook 链进入 `forward`。混合精度、优化器、数据加载围绕这个树组织。
-
-**Autograd 如何构建计算图？**（第三篇）
-前向中每个算子在 Autograd Key 上被包装：记录一个 `grad_fn` 节点，保存反向需要的 Tensor，把节点接到输入的 `grad_fn` 上。`loss.backward()` 从 `loss.grad_fn` 出发按拓扑序执行反向节点，把梯度累积到叶子的 `.grad`——DDP 的 Reducer（第九篇）就挂在这个累积点上；`gradcheck`（本篇）用有限差分验证每个反向节点。
-
-**Dispatcher 如何选择算子？**（第五篇）
-`torch.add(a, b)` 经 Python 绑定进入 Operator Table 中 `aten::add` 的条目，由输入 Tensor 的 DispatchKeySet 决定先走 Autograd 包装再走后端实现。原生算子的注册代码由 Codegen 从 `native_functions.yaml` 生成（本篇 §二.2 讲了它何时运行）；自定义算子手写同样的三步（第六篇）。
-
-**Kernel 在 CPU 或 GPU 上如何执行？**（第六篇）
-后端实现用 TensorIterator 处理 stride、`AT_DISPATCH` 处理 dtype、CUDAGuard 处理设备，把 Kernel 提交到当前 Stream 后立即返回。CPU 和 GPU 是两条异步时间线（第八篇）；扩展与 PyTorch 之间是 ABI 边界（本篇 §六.2）。
-
-**Compiler 如何对计算进行变换？**（第七篇）
-`torch.compile` 用 Dynamo 从字节码捕获 FX Graph 并生成 Guard，AOTAutograd 把它变成 ATen 级的前向和反向图并做分解，Inductor 融合算子生成 Triton / C++。它的正确性 oracle 是 eager（本篇 §三.6），性能由三大基准套件每晚守护（本篇 §四.2）。
-
-**Profiler 如何告诉我们瓶颈在哪里？**（第八篇）
-时间维度上五类瓶颈（Python / Launch / Memory / Compute / Sync-bound），空间维度上显存的构成、碎片、峰值与泄漏；工具地图从 `benchmark.Timer` 到 Nsight Compute。所有优化先测再改，一次只改一件事——本篇第四章把这个纪律变成持续的守门。
-
-**Distributed Runtime 如何让多卡协同？**（第九篇）
-对五类状态各做复制或分片的决定，每个决定对应一种集合通信和一个时机。DDP 复制并 all_reduce 梯度，FSDP 分片并 all_gather / reduce_scatter，TP 切层内、PP 切层间、CP 切序列、EP 切 expert。通信是异步 Kernel，重叠要求重排依赖。
-
-**Tests、Build 和 CI 如何保证系统可持续演进？**（本篇）
-一次改动要过七关：本地构建、正确（五种 oracle、OpInfo 化解组合爆炸、gradcheck 守住反向）、不慢（微基准与整模型看板）、合入（CI 分层、机器化的审批与回滚）、发布（release 分支与 wheel 矩阵）、不坏用户（弃用周期、Schema BC/FC、`state_dict` 版本、PrivateUse1）、以及使用者自己的跟随策略。
-
-### 3. 三种能力
-
-总览篇说系列的目标是三种能力。现在可以具体地说它们指什么：
-
-**阅读能力**——拿到 PyTorch 或任何训练 / 推理框架的源码，知道从 `torch/` 到 `torch/csrc/` 到 `native_functions.yaml` 到 `aten/native/` 到 `c10/` 的路径，知道一个算子的 Schema、注册、实现、反向、Meta 分别在哪里，知道 `torch.compile` 的三段在哪个目录。
-
-**诊断能力**——面对一个错误、一次 OOM、一条平坦的 GPU 利用率曲线、一个 hang 住的分布式作业，知道先测什么、用哪个工具、在两条时间线或五类状态的哪个位置找原因。
-
-**扩展能力**——需要一个新算子、一个新的融合、一种新的并行策略时，知道要写哪三步、要注册哪几个 Key、要过哪几种 oracle、要放进哪个 CI 矩阵，以及怎样让它在下一个 PyTorch 版本上还能用。
-
-这三种能力的共同基础是一张地图：**从 Python 用户代码，经过 Autograd、Dispatcher、Kernel、编译器、运行时，到硬件和集群，每一层的职责、边界和代价**。十篇文章画的就是这张图。图画完了，剩下的是在真实系统里反复走它。
 
 ## 十二、自测
 
