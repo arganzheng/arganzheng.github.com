@@ -173,6 +173,7 @@ flowchart TB
 | 17 | [手撕损失函数与训练算法](/coding-interview-losses-and-training-algorithms.html) | 交叉熵 / KL / label smoothing、InfoNCE、DPO、PPO clipped objective 与 GAE、GRPO 组内优势、AdamW 一步、cosine + warmup、梯度裁剪、LoRA 层 |
 | 18 | [手撕经典 ML 与评测指标](/coding-interview-classical-ml-and-metrics.html) | k-means、逻辑回归、KNN、PCA、AUC 的 $$O(n \log n)$$ 算法、P / R / F1、NDCG；conv2d via im2col、max pooling、IoU / NMS |
 | 19 | [Infra 岗手撕：并发与系统](/coding-interview-infra-concurrency-and-systems.html) | 线程安全 LRU、生产者–消费者与线程池、内存池、分块矩阵乘（C++）、ring allreduce 模拟、paged KV block 分配器、token bucket 限流 |
+| 20 | [系列总结与通关自测](/coding-interview-series-recap-and-self-test.html) | 十九篇的模式总表与逐篇回顾、贯穿全系列的几条线、常见误区；三段式通关自测——十道模式判断与计算、五道组合两种模式的题、八道真手撕面试题（思路要点 + 关键代码 + 追问方向），答案折叠；读完正文再做 |
 
 
 ## 阅读路径
