@@ -81,3 +81,6 @@ agent-and-harness:
 evals-and-observability:
   name: 评测、可观测与可追溯：怎么知道改了之后更好了
   overview: /evaluation-observability-and-traceability.html
+production-and-operations:
+  name: 生产化与运营：让 AI 应用可靠、可控、可持续地跑
+  overview: /production-and-operations-for-ai-applications.html
