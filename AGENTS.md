@@ -70,7 +70,11 @@ a Liquid error or a dead anchor that surfaces the day it is published;
 `tools/fa-subset.py --check`, lychee offline over `_site-check` (skipped when
 lychee is not installed, or `SKIP_LINKS=1`), `git diff --check`. Bypass once with
 `git push --no-verify`. `tools/check-render.cjs` (headless Chrome) is not part
-of it — run it by hand for posts with diagrams.
+of it — run it by hand for posts with diagrams. `.githooks/pre-push` prepends
+Homebrew's ruby / gems / bin to `PATH` before calling `check.sh`: GUI Git
+clients (the IDE's push button) run hooks with a bare PATH, so `bundle`,
+`lychee`, `node`, `rg` were not found and every push from the IDE failed
+while the terminal passed (2026-09-16).
 
 ## Deploy
 
