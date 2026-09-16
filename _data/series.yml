@@ -84,3 +84,6 @@ evals-and-observability:
 production-and-operations:
   name: 生产化与运营：让 AI 应用可靠、可控、可持续地跑
   overview: /production-and-operations-for-ai-applications.html
+product-and-experience:
+  name: 产品与体验：把不确定的能力做成可信的产品
+  overview: /ai-product-and-experience.html
