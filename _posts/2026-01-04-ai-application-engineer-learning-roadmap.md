@@ -499,7 +499,7 @@ evals 之于 AI 应用，如同单元测试之于软件——区别是 AI 应用
 | L3 | [检索与知识接入：私域知识怎么进入模型](/retrieval-and-knowledge-access.html) | 7 | 2.5h |
 | L4 | [工具、Agent 与 harness：模型怎么从回答变成做事](/tools-agents-and-harness.html) | 9 | 3.5h |
 | L5 | [评测、可观测与可追溯：怎么知道改了之后更好了](/evaluation-observability-and-traceability.html) | 7 | 2h |
-| L6 | 生产化与运营 | 待写 | |
+| L6 | [生产化与运营：让 AI 应用可靠、可控、可持续地跑](/production-and-operations-for-ai-applications.html) | 7 | 2.5h |
 | L7 | 产品与体验 | 待写 | |
 
 时长按每分钟 450 字估算通读一遍的量。篇数与时长只计正文；每个系列末尾另有一篇「系列总结与通关自测」（逐篇回顾 + 判断计算 / 跨篇综合 / 面试题三段自测），读完正文再做。
