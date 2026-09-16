@@ -1708,11 +1708,27 @@
   function currentRange() {
     var sel = window.getSelection();
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
-    var range = sel.getRangeAt(0);
+    var range = sel.getRangeAt(0).cloneRange();
     if (!container.contains(range.commonAncestorContainer)) return null;
-    if (isExcluded(range.startContainer) || isExcluded(range.endContainer)) return null;
+    // A drag across a formula usually ends *inside* the KaTeX spans; snap
+    // that boundary to the edge of the excluded element instead of bailing.
+    var ex = excludedAncestor(range.startContainer);
+    if (ex) range.setStartAfter(ex);
+    ex = excludedAncestor(range.endContainer);
+    if (ex) range.setEndBefore(ex);
+    if (range.collapsed || !container.contains(range.commonAncestorContainer)) return null;
     if (range.toString().trim().length < 2) return null;
     return range;
+  }
+
+  function excludedAncestor(node) {
+    var el = node.nodeType === 1 ? node : node.parentNode;
+    var hit = el && el.closest && el.closest(EXCLUDE_SELECTOR);
+    if (!hit || !container.contains(hit)) return null;
+    // Outermost excluded ancestor inside the article (e.g. `.katex`, not a span within it).
+    var top = hit, p = hit.parentElement;
+    while (p && container.contains(p) && p !== container) { if (p.matches(EXCLUDE_SELECTOR)) top = p; p = p.parentElement; }
+    return top;
   }
 
   function updateToolbar() {
