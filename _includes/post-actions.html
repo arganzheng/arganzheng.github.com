@@ -12,9 +12,9 @@
      data-text="{{ page.subtitle | default: page.description | default: '' | escape }}"
      data-author="{{ site.github_username | strip }}"
      data-annotations-api="{{ site.annotations.api }}">
-  <button type="button" class="pa-item pa-like" title="给这篇文章点个赞（不用登录）"><i class="fa fa-heart-o"></i> 点赞<b class="pa-like-n"></b></button>
+  <button type="button" class="pa-item pa-like" title="给这篇文章点个赞（不用登录）"><i class="fa fa-regular fa-heart"></i> 点赞<b class="pa-like-n"></b></button>
   <button type="button" class="pa-item pa-share" title="分享" aria-haspopup="true" aria-expanded="false"><i class="fa fa-share-alt"></i> 分享</button>
-  <button type="button" class="pa-item pa-export" title="复制为公众号 / 知乎可粘贴的格式（仅作者可见）" hidden><i class="fa fa-wechat"></i> 复制为公众号格式</button>
-  {% if site.giscus.repo %}<a class="pa-item pa-edit" href="https://github.com/{{ site.giscus.repo }}/edit/master/{{ page.path }}" target="_blank" rel="noopener noreferrer" title="在 GitHub 编辑文章" hidden><i class="fa fa-github"></i> 在 GitHub 编辑</a>{% endif %}
+  <button type="button" class="pa-item pa-export" title="复制为公众号 / 知乎可粘贴的格式（仅作者可见）" hidden><i class="fa fa-brands fa-weixin"></i> 复制为公众号格式</button>
+  {% if site.giscus.repo %}<a class="pa-item pa-edit" href="https://github.com/{{ site.giscus.repo }}/edit/master/{{ page.path }}" target="_blank" rel="noopener noreferrer" title="在 GitHub 编辑文章" hidden><i class="fa fa-brands fa-github"></i> 在 GitHub 编辑</a>{% endif %}
   <span class="pa-toast" aria-live="polite" hidden></span>
 </div>

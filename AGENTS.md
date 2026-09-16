@@ -273,15 +273,26 @@ Pages has `https_enforced` on.
   `.visible-*/.hidden-*` are all in use) — don't swap in Bootstrap 5.
 - Local CSS/JS in `head.html` / `footer.html` carry `?v=<build time>` for
   cache busting (GitHub Pages serves `max-age=600`; the old `no-cache` meta
-  tags were removed). Font Awesome 4.7 is a self-hosted **subset**:
+  tags were removed). Font Awesome **7** (Free) is a self-hosted **subset**:
   `tools/fa-subset.py` scans templates/js/posts/less for `fa-*` classes and
-  `content:"\fXXX"` glyphs and writes `css/font-awesome.min.css` +
-  `fonts/fontawesome-webfont.woff2` (~20 KB, vs 77 KB full) from the full
-  copies in `tools/fa/`. ~150 common icons are always included (`ALWAYS` in
-  the script) so new posts rarely need anything; CI runs `--check` and fails
-  with the missing icon names if they do — then run the script (needs
-  `pip install fonttools brotli`). `sw.js` is disabled via
-  `service-worker: false`.
+  `content:"\fXXX"` glyphs, resolves them against the metadata in
+  `node_modules/@fortawesome/fontawesome-free` (devDependency) and writes
+  `css/font-awesome.min.css` (FA core rules + only our icons, ~28 KB) +
+  `fonts/fa-{solid-900,regular-400,brands-400}.woff2` (~24 KB together).
+  Markup: `fa fa-<name>` = solid, `fa fa-regular fa-<name>` = outline (the
+  old `-o` icons), `fa fa-brands fa-<name>` = brands (github, weixin,
+  weibo, linkedin, twitter, creative-commons…); keep `fa` on every icon —
+  the theme's `.fa` selectors and `querySelector('.fa')` depend on it. FA 7
+  gives icons a fixed 1.25em width; the subset CSS resets that to `auto`
+  (FA 4 behaviour), `fa-fw` opts back in. FA 5/6 alias names FA still ships
+  (`fa-search`, `fa-share-alt`, `fa-question-circle`…) work; the FA 4 `-o`
+  names and `fa-wechat` do not — the script names the replacement (from FA's
+  `shims.yml`). ~150 common icons are always included (`ALWAYS`, FA 7 names,
+  both styles where the icon has them); `--check` (check.sh / CI, no
+  node_modules needed) fails with the missing names — then run the script
+  (`npm install` + `pip install fonttools brotli`). In CSS, glyphs are
+  `font-family: "Font Awesome 7 Free"; font-weight: 900` (see
+  `less/inline-popups.less`). `sw.js` is disabled via `service-worker: false`.
 - `_includes/comments.html` — comment section (GitHub Discussions), used by
   `_layouts/post.html`, `header-post.html` and `keynote.html`. It is an empty
   `section.comment > .annotation-comments` shell with data attributes; the

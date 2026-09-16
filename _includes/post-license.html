@@ -8,6 +8,6 @@
 {%- assign post_url = site.url | append: site.baseurl | append: page.url -%}
 {%- assign post_link = '<a href="' | append: post_url | append: '">' | append: post_url | append: '</a>' -%}
 <div class="post-license">
-  <p><i class="fa fa-creative-commons"></i>本文由 <a href="{{ '/about/' | prepend: site.baseurl }}">{{ page.author | default: site.github_username | strip }}</a> 创作，采用 <a href="{{ lic.url }}" target="_blank" rel="license noopener noreferrer">{{ lic.name }}</a> 许可协议。{% if lic.note %}{{ lic.note | replace: '%url%', post_link }}{% else %}转载请注明出处：{{ post_link }}{% endif %}</p>
+  <p><i class="fa fa-brands fa-creative-commons"></i>本文由 <a href="{{ '/about/' | prepend: site.baseurl }}">{{ page.author | default: site.github_username | strip }}</a> 创作，采用 <a href="{{ lic.url }}" target="_blank" rel="license noopener noreferrer">{{ lic.name }}</a> 许可协议。{% if lic.note %}{{ lic.note | replace: '%url%', post_link }}{% else %}转载请注明出处：{{ post_link }}{% endif %}</p>
 </div>
 {%- endif %}
