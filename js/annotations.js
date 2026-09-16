@@ -751,7 +751,7 @@
       issueOption: true,
       onCancel: closePanel,
       onSubmit: function (text, extra) {
-        return replyTo ? postReply(replyTo.annotation, text) : postAnnotation(selector, text, extra.issue);
+        return replyTo ? postReply(replyTo.annotation, text).then(closePanel) : postAnnotation(selector, text, extra.issue);
       },
       fallbackText: function (text) { return replyTo ? text : buildCommentBody(selector, text); }
     });
@@ -1358,10 +1358,9 @@
       clearDraft();
       closePanel();
       syncViews();
-      if (a.marks.length) {
-        flashMarks(a.marks);
-        openThread(groupIdsFor(a), a.marks[a.marks.length - 1]);
-      }
+      // The panel stays closed after posting: the flashing highlight + toast
+      // confirm it; the thread is one click on the marker away.
+      if (a.marks.length) flashMarks(a.marks);
       flashComment(a.id);
       showToast(issue ? '评论已发表，Issue #' + issue.number + ' 已创建' : '评论已发表');
     });
