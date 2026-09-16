@@ -200,6 +200,22 @@ Pages has `https_enforced` on.
   images, bare `http://` links, and posts with a substantive edit (>= 20 lines
   in a commit touching < 10 posts, i.e. not a mechanical sweep) in the last
   30 days without a matching `updated:`. Read-only; `--limit`, `--days`.
+- Site search (`_includes/search-overlay.html` + `js/search.js`, index from
+  `_plugins/search_index.rb` at `:site, :post_render`): `/search/meta.json`
+  (one `[url, title, date, tags]` per post, 68 KB), `/search/idx/<0..255>.json`
+  (inverted index, key → id deltas, ~8 KB gzipped each) and
+  `/search/doc/<slug>.txt` (plain text per post). Keys: ASCII words
+  `[a-z0-9_]+` (whole-word, = JS `\b`), `~part` for the `_`-separated parts of
+  identifiers, every CJK char and every CJK bigram. The client ANDs a term's
+  keys, fetches only those buckets, ranks by title hits (+20 whole query, +6
+  per term; ties → newer), then fetches the text of the 10 posts it shows for
+  snippet / highlight and re-checks the real match there (3+ char CJK terms
+  and punctuated ASCII are bigram/word approximations, shown as 「约 N 篇」).
+  Result set / order / snippets were verified identical to the old
+  all-in-memory search over 27 zh/en queries. `bucketOf` in JS and
+  `SearchIndex.bucket_of` in Ruby must stay in sync. **Pagefind was tried and
+  rejected** (2026-09-16): word-based segmentation is wrong for CJK substring
+  search (参数服务器 → 148 hits via 参数 + 服务器; 一致性哈希 missed 6 of 7).
 - Heading anchors: `js/toc.js` appends an empty `a.heading-anchor` to every
   heading in `.post-container` (glyph via CSS in `less/extras.less`, so the
   heading's textContent — what highlight comments anchor to — is unchanged);
@@ -869,6 +885,40 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   「L0 导读第 N 章」 (the 导读 chapters no longer exist). Roadmaps link forward to series published later —
   that is the established convention. Series 收尾篇 must NOT carry a
   hand-written 「系列目录」: the layout generates it from `series:`.
+- **Application-roadmap series** (started 2026-09-16; the map
+  `2026-01-04-ai-application-engineer-learning-roadmap.md` lists them in
+  「已有的文章与系列」, one series per layer L1 → L7, dates continue after the
+  Infra series: 09-28 onwards, contiguous, no interleaving). Rules that differ
+  from the Infra series: **no labs** — every body post ends with a prose
+  「实践建议」 section before 本文小结 (the author asked for practicality and
+  real industry cases instead); numbers come from vendor docs / pricing pages,
+  papers, court records and news reports, each dated. Version rule applies to
+  API fields, model names and prices: cite only what was public before the
+  post's date and label prices 「2026 年 9 月价目页」. Literal prices in prose
+  are `\$10 / \$50` (escaped, outside math); formulas stay in `$$…$$`. Cross
+  links between application series and other series are allowed via
+  *overviews and maps only*. Series 01 `model-as-component`
+  (《模型作为组件：契约、失效模式与选型》, overview
+  `2026-09-28-model-as-a-component.md`, posts 09-29 … 10-04, recap
+  `2026-10-04-model-as-component-series-recap-and-self-test.md`) is the
+  template: intro with `[^q0–3]`, `## 一、总览` (table + one Mermaid where the
+  structure is real: where failure modes enter a request, the tool-call
+  sequence, a reasoning turn, the latency timeline, the client checkpoints),
+  body chapters each with 机制 / 证据 / 检测 / 应对所在的层, `## 实践建议`,
+  本文小结, 自测 (5), 下一篇, footnotes. Baseline facts used there (Sept 2026):
+  OpenAI GPT-6 Astra (09-03) / GPT-5.6 Sol · Terra · Luna (07-09), Responses
+  API recommended, Assistants API closed 08-26, Agents API beta 09-10;
+  Anthropic Fable 5.1 (09-01) / Opus 5 (07-24) / Sonnet 5 (06-30, new
+  tokenizer +30 %, sampling params → 400) / Haiku 4.5; Gemini 3.8 Flash
+  (09-02), Interactions API GA 06, `outputs → steps` 05-26 / 06-08; DeepSeek
+  V4.1 Flash (09-10, MIT), V4-Pro routed to it from 09-14, peak/off-peak
+  pricing. Planned series 02–07: `context-engineering`,
+  `retrieval-and-knowledge`, `agent-and-harness` (must compare OpenAI Codex /
+  Agents API, DeepSeek Harness `dsh` (08-13, "everything is a plugin",
+  Cordis), Claude Code, OpenHarness at source level), `evals-and-observability`,
+  `production-and-operations`, `product-and-experience`; add each to
+  `_data/series.yml`, the map table and the 全栈 map's three 「系列待写」 spots
+  as it lands.
 - **Every series ends with a 「系列总结与通关自测」 post** (added 2026-09-16
   for all 21 series): `_posts/<last-post-date>-<series-key>-series-recap-and-self-test.md`,
   `date: <same day> 20:00:00` so it sorts after the last body post without
