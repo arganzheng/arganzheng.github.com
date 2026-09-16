@@ -73,9 +73,18 @@ Anthropic 的实现把 schema 注入为一段额外的 system 文本，实测约
 {
   "type": "object",
   "properties": {
-    "evidence":   { "type": "array", "items": { "type": "string" }, "description": "支持判断的原文片段" },
-    "reasoning":  { "type": "string", "description": "从证据到结论的推理，两到三句" },
-    "category":   { "type": "string", "enum": ["refund", "exchange", "inquiry", "cannot_classify"] },
+    "evidence": {
+      "type": "array", "items": { "type": "string" },
+      "description": "支持判断的原文片段"
+    },
+    "reasoning": {
+      "type": "string",
+      "description": "从证据到结论的推理，两到三句"
+    },
+    "category": {
+      "type": "string",
+      "enum": ["refund", "exchange", "inquiry", "cannot_classify"]
+    },
     "confidence": { "type": "number", "description": "0 到 1" }
   },
   "required": ["evidence", "reasoning", "category", "confidence"],
