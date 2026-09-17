@@ -1060,10 +1060,19 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
     that is used before its own post explains it (name the post in the tip).
     Keep the parenthesis when it is part of the argument (a number, a formula
     step), not a definition. Tips must not contain `"` or, inside a table
-    cell, `|` (use `∣` U+2223 for absolute values). Tips are for *terms*
-    only: an analogy or an explanation that is more than a definition
-    (「dropout 和混沌工程是同一件事」, 「张量在内存里是一维数组 + stride」) is
-    body text, not a tip (author's call, 2026-09-17).
+    cell, `|` (use `∣` U+2223 for absolute values).
+  - **When to use an inline tip — the one test (author, 2026-09-17): is the
+    concept the *subject* of this passage, or a *bystander*?** A tip is for a
+    term that merely appears in the context of what is being explained — the
+    reader may not know it, but this passage is not about it (总变差距离 while
+    explaining KL; 感受野 while listing CNN topics on the map). If the passage
+    *is* explaining the concept — its definition, an analogy for it, why it
+    works — that goes in body text, never a tip, however short it is: the
+    tensor-as-flat-buffer paragraph in L0 一, the dropout / chaos-engineering
+    comparison in L3 四 are body text because those sections are about
+    tensors and dropout. Corollary: the same term is a tip in one post and
+    body text in the post that owns it; and answers to a post's own core
+    questions are `[^qN]` footnotes (jump, no popup), not tips.
   - **Key derivations get the loop next to the formula** (2026-09-17, from a
     reader-perspective review): a `∑` is an inner `for`; `2mnk`, `∂L/∂W = XᵀG`
     (why the transpose: `dW[r][j] += X[i][r]*G[i][j]` sums over the shared
