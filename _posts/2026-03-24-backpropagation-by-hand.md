@@ -5,7 +5,7 @@ title: "深度学习基础（01）：反向传播——手推一个两层网络"
 subtitle: "Backpropagation by Hand: Shapes, the 2x Rule and Why Activations Must Be Saved"
 tags: [AI, Deep Learning, LLM]
 catalog: true
-updated: 2026-09-14
+updated: 2026-09-17
 ---
 
 `loss.backward()` 是训练代码里最短的一行，也是被理解得最少的一行。它做的事在 1986 年就已经写清楚了：沿着计算图反向应用链式法则。但只有自己推过一遍、写过一遍、用有限差分验证过一遍，才会真的知道三件后面每一篇都要用的事——**梯度的形状与被求导的量相同**、**反向的计算量是前向的两倍**、**前向的中间结果必须保留到反向**。第一件决定了怎么读任何一个梯度公式，第二件是训练 FLOPs 等于 $$6ND$$ 的来源，第三件是激活显存与激活重算的全部原因。
@@ -96,6 +96,26 @@ $$
 $$
 
 对 $$X_{ir}$$ 同理：$$\partial L / \partial X_{ir} = \sum_j G_{ij} W_{rj} = (G W^T)_{ir}$$。对 $$b_j$$：每一行都加了 $$b_j$$，所以 $$\partial L / \partial b_j = \sum_i G_{ij}$$。
+
+**循环写法。** 转置是从哪来的，把 $$\sum$$ 写成循环最清楚。前向里 `W[r][j]` 被 batch 里每个样本 `i` 用了一次；反向就把这 $$m$$ 次的影响加起来：
+
+```python
+for i in range(m):                        # 前向
+    for j in range(n):
+        for r in range(k):
+            Y[i][j] += X[i][r] * W[r][j]
+
+for r in range(k):                        # 反向：dW 与 W 同形，逐个元素问"谁用过我"
+    for j in range(n):
+        for i in range(m):                # 对 i 求和
+            dW[r][j] += X[i][r] * G[i][j]  # X 的第 r 列 · G 的第 j 列
+
+for j in range(n):                        # b_j 加在每一行上，同样对 i 求和
+    for i in range(m):
+        db[j] += G[i][j]
+```
+
+`dW[r][j]` 用的是 `X` 的**第 r 列**——按列取就是转置，所以是 $$X^T G$$；`db[j]` 只对 $$i$$ 求和，所以是按列求和。三条公式就是这三个循环。
 
 **形状记忆法。** 三条公式不必背，用形状就能重建：$$\partial L / \partial W$$ 必须是 $$k \times n$$，手头有 $$X$$（$$m \times k$$）和 $$G$$（$$m \times n$$），唯一能凑出 $$k \times n$$ 的乘法是 $$X^T G$$；$$\partial L / \partial X$$ 必须是 $$m \times k$$，手头有 $$G$$（$$m \times n$$）和 $$W$$（$$k \times n$$），唯一的凑法是 $$G W^T$$。**梯度的形状与被求导的量相同**这一条约束，加上"只能用手头的量做矩阵乘"，几乎总能唯一确定公式。读论文里任何一个梯度表达式时先做这个形状检查，能抓住大部分笔误。
 

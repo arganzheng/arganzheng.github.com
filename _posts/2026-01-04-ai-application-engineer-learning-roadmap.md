@@ -4,7 +4,7 @@ title: AI 应用工程师学习地图：在非确定性组件之上做可靠产�
 subtitle: A Learning Roadmap for AI Application Engineers
 tags: [AI, LLM, Agent, Roadmap]
 catalog: true
-updated: 2026-09-16
+updated: 2026-09-17
 ---
 
 ## 内容简介
@@ -29,7 +29,7 @@ updated: 2026-09-16
 | 一层运营 | 成本、延迟、安全、发布与回滚、数据飞轮 |
 | 一种产品观 | 什么场景值得做、人和模型怎么分工、不确定性怎么呈现给用户 |
 
-与前两张地图不同，这一层几乎没有 PyTorch 那样的事实标准框架。稳定的是**协议与模式**——OpenAI 兼容的模型 API、MCP、ReAct 循环、RAG 管线、evals；框架（LangChain / LangGraph、LlamaIndex、Dify、各家 Agent SDK）迭代很快。地图以协议与模式为主线，框架只作为抓手或代表点名。
+与前两张地图不同，这一层几乎没有 PyTorch 那样的事实标准框架。稳定的是**协议与模式**——OpenAI 兼容的模型 API、MCP、ReAct 循环、RAG 管线、evals；框架（LangChain / LangGraph、LlamaIndex、Dify、各家 Agent SDK）迭代很快。地图以协议与模式为主线，框架只作为抓手或代表点名。七层各对应一个系列，共 47 篇正文、约 18 小时，目录在[本文末尾](#已有的文章与系列)；这张地图上的一切——调 API、写 prompt、搭 RAG、跑 agent 循环、做评测——都在一台笔记本加一个 API key 上完成，不需要 GPU。
 
 
 ## 两张图：架构视图与学习路径

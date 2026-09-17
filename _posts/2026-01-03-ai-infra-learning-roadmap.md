@@ -4,6 +4,7 @@ title: AI-Infra 工程师学习地图：从后端工程师到基础设施贡献�
 subtitle: A Learning Roadmap for AI Infrastructure Engineers
 tags: [AI, AI-Infra, Roadmap]
 catalog: true
+updated: 2026-09-17
 ---
 
 
@@ -445,6 +446,8 @@ graph LR
 | 10 | `diffusion-inference-infra/` | 第一篇的账本（三段 FLOPs / 显存 / 时间、五个模型预设），纯 Python |
 
 03、05–08、11、12 以源码走读为主，示例直接给出命令与输出，暂无单独目录。
+
+**哪些需要硬件，哪些不需要**：01、02、03、04 与两本账本（09、10 第一篇）在笔记本上就能跑——Python、C++ 编译器、CPU 版 PyTorch 足够，03 的 Dispatcher 与 Autograd 走读也可以在 CPU 上打断点单步跟。05 GPU Kernel 与 06 通信必须有 NVIDIA 卡（Mac 的 MPS 不能跑 CUDA，FlashAttention、NCCL 也没有 Mac 实现），按小时租一张卡足以完成 05 的全部实验；07 大规模训练与 09 的 verl 实验要多卡，文中给的是源码走读与可以对照日志验算的账本。08 vLLM 在 CPU 上能装能跑（`VLLM_TARGET_DEVICE=cpu`），足够走读调度与 KV 管理的代码路径，但性能数字要在卡上看。没有卡不妨碍读完这张地图——所有"千卡""H100"的数字都是算出来的，读者可以用同一套公式验算。
 
 
 

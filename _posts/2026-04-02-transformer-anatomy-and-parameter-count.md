@@ -5,7 +5,7 @@ title: "Transformer 与 LLM（01）：Transformer 解剖与参数量"
 subtitle: "Transformer Anatomy and Parameter Count: From config.json to 8.03B"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-09-17
 ---
 
 做推理系统、训练基础设施或 kernel 的工程师，迟早会被问到这样的问题：这个模型有多少参数？一张 80 GB 的卡放得下吗？某个 GEMM 的 $$m, k, n$$ 是多少？为什么 Llama 的 FFN 中间维度是 14336 这样一个看起来不整的数？这些问题的答案全部藏在一个几十行的 `config.json` 里，不需要下载权重，也不需要运行代码。
@@ -176,6 +176,20 @@ Q = x W_Q, \quad K = x W_K, \quad V = x W_V
 $$
 
 然后按 head 切开，每个 head 独立算 $$\text{softmax}(Q_i K_i^\top / \sqrt{d_{head}}) V_i$$，把 $$n_h$$ 个 head 的结果拼起来，再过一个输出投影 $$W_O$$ 回到 $$d$$ 维。
+
+把一个 head 的这条公式拆成循环，形状就不用记了——它只是"每个 token 对每个 token 打一个分，按分加权求和 V"：
+
+```python
+# 一个 head：q, k, v 形状 [s, d_head]，out 形状 [s, d_head]
+for i in range(s):                              # 第 i 个 token 在看
+    for j in range(s):                          # 看第 j 个 token
+        score[i][j] = dot(q[i], k[j]) / sqrt(d_head)   # d_head 次乘加：QKᵀ 的一个元素
+    w = softmax(score[i])                       # 这一行归一化，s 个权重加起来是 1
+    for j in range(s):
+        out[i] += w[j] * v[j]                   # 加权求和：softmax(·)V 的第 i 行
+```
+
+两层 `for i / for j` 就是 $$Q K^\top$$ 的 $$[s, d_{head}] \times [d_{head}, s] \to [s, s]$$，这也是 attention 的计算与 KV cache 大小都与 $$s^2$$、$$s$$ 相关的来源；causal mask 就是把 `j > i` 的分数设为 $$-\infty$$，让第 `i` 个 token 只看得到它前面的。$$n_h$$ 个 head 各自跑一遍这个循环、互不通信，所以可以并行。
 
 这里有三个超参数：`num_attention_heads`（$$n_h$$）、`num_key_value_heads`（$$n_{kv}$$）、`head_dim`（$$d_{head}$$）。它们的关系是：
 

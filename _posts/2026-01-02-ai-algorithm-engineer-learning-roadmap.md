@@ -4,6 +4,7 @@ title: AI 算法工程师学习地图：从数学基础到大模型训练
 subtitle: A Learning Roadmap for AI Algorithm Engineers in the LLM Era
 tags: [AI, LLM, Roadmap]
 catalog: true
+updated: 2026-09-17
 ---
 
 
@@ -126,7 +127,7 @@ flowchart TB
 | 层 | 主题 | 回答的问题 | 文章 | 时长 |
 |---|---|---|---|---|
 | L0 | 数学基础 | 公式里的每个符号是什么意思？loss 为什么这样写？ | [系列（8 篇）](/math-for-ai-algorithm-engineers.html) | 3h |
-| L1 | 编程与工具 | 怎么把一个想法变成一次能跑的实验？ | [系列（5 篇）](/tooling-for-ai-algorithm-engineers.html) + 深入篇 [01 Python](/python-for-ai-infra.html)、[03 PyTorch](/deep-dive-into-pytorch.html)（共享） | 2h（+ 14h + 15h） |
+| L1 | 编程与工具 | 怎么把一个想法变成一次能跑的实验？ | [系列（6 篇）](/tooling-for-ai-algorithm-engineers.html) + 深入篇 [01 Python](/python-for-ai-infra.html)、[03 PyTorch](/deep-dive-into-pytorch.html)（共享） | 2h（+ 14h + 15h） |
 | L2 | 机器学习基础 | 什么是学习？怎么知道模型学会了而不是背下来了？ | [系列（6 篇）](/classical-machine-learning-in-the-llm-era.html) | 2h |
 | L3 | 深度学习基础 | 梯度怎么流？为什么深了就难训？CNN 与 RNN 各解决了什么、留下了什么？ | [系列（6 篇）](/deep-learning-foundations.html) | 3h |
 | L4 | LLM 核心 | Transformer 为什么赢？tokenizer、scaling law 与预训练数据各决定了什么？ | [04 系列（8 篇，共享）](/transformer-and-llm-for-infra-engineers.html) + [预训练系列（4 篇）](/pretraining-from-tokenizer-to-training-recipe.html) | 11h + 4h |
@@ -370,6 +371,8 @@ L0–L2 最初写成三篇导读，只回答"学到什么深度、在哪里用�
 
 L0 的推导用纸笔即可，L6、L7 与横切暂无配套代码。
 
+**这张地图上的代码不需要 GPU。** 上表除 L5 之外的全部脚本在笔记本的 CPU 上就能跑完（`make test` 一遍几分钟），L5 的 LoRA SFT 用 Qwen2.5-0.5B，Mac 的 MPS 或一张消费级显卡即可；只有 L4 预训练系列里"真的训一个模型"的部分需要多卡，文中把那部分写成了账本而不是实验。文章里的"千卡""H100 显存"是在算账，不是运行要求。在 IDE 里打断点、看每一步张量的形状与数值，比读十遍公式更快——反向传播、两层网络、小型 Transformer 前向、LoRA 都是可以单步跟的规模。
+
 
 ## 按目标选择路径
 
@@ -379,7 +382,7 @@ L0 的推导用纸笔即可，L6、L7 与横切暂无配套代码。
 | 预训练与数据 | L0 → L1 → L2 → L3 → L4（重 scaling law 与数据工程）→ 横切 | 门槛最高，算力决定一切；小规模实验设计是核心能力 |
 | 多模态 | L3（CNN、ViT）→ L4 → L7 → L5（多模态后训练） | 理解线与生成线可以只走一条 |
 | 推理效率（算法侧） | L0 → L4 → L6 → Infra 地图 08 | 与 Infra 交界最深的方向，通常需要读两张地图 |
-| 后端工程师转算法 | L1 第一、二篇（已有编程基础，第一篇的语法对照表快速翻过，重点补科学计算栈）→ L0 → L1 其余四篇 → L2 → L3 → L4 → 任选一个方向 | 数学是最大缺口，但按需补：L1 第三篇起的训练循环要用到 L0 第五篇的交叉熵、第七篇的梯度，所以 L0 插在 L1 中间；01 / 03 深入篇按需 |
+| 后端工程师转算法 | L1 第一、二篇（已有编程基础，第一篇讲训练代码里的 Python 协议、过一遍即可，重点补第二篇的科学计算栈）→ L0 → L1 其余四篇 → L2 → L3 → L4 → 任选一个方向 | 数学是最大缺口，但按需补：L1 第三篇起的训练循环要用到 L0 第五篇的交叉熵、第七篇的梯度，所以 L0 插在 L1 中间；01 / 03 深入篇按需 |
 
 
 ## 边界与说明

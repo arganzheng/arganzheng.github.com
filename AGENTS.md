@@ -1060,7 +1060,25 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
     that is used before its own post explains it (name the post in the tip).
     Keep the parenthesis when it is part of the argument (a number, a formula
     step), not a definition. Tips must not contain `"` or, inside a table
-    cell, `|` (use `∣` U+2223 for absolute values).
+    cell, `|` (use `∣` U+2223 for absolute values). Tips are for *terms*
+    only: an analogy or an explanation that is more than a definition
+    (「dropout 和混沌工程是同一件事」, 「张量在内存里是一维数组 + stride」) is
+    body text, not a tip (author's call, 2026-09-17).
+  - **Key derivations get the loop next to the formula** (2026-09-17, from a
+    reader-perspective review): a `∑` is an inner `for`; `2mnk`, `∂L/∂W = XᵀG`
+    (why the transpose: `dW[r][j] += X[i][r]*G[i][j]` sums over the shared
+    index `i`, i.e. reads a *column* of X), `softmax(QKᵀ)V` are written as
+    3–8 lines of plain Python loops in L0 一 / 七, L3 一, 04 一. Do this for
+    new derivations whose formula hides an index being summed over. Java
+    analogies are used only when they are exact (tensor = flat buffer +
+    strides, broadcasting = stride 0, backprop = error attribution down the
+    call stack, dropout = chaos engineering); gradient descent ≠ PID / rate
+    limiter and weight decay ≠ pool eviction — do not add those.
+  - **Hardware honesty paragraph**: each map's 配套代码 section (and the labs
+    README) states what runs on a laptop CPU / MPS and what truly needs an
+    NVIDIA card (05 CUDA, 06 NCCL) or many cards (07, 09 verl). "千卡 / H100"
+    figures in posts are accounting, not requirements — say so where it
+    matters instead of a generic "no GPU needed" reassurance.
   - Anything neither handles well (log-axis plots, precise geometry, dense
     grids) → generate an SVG/PNG into `img/in-post/<post-slug>-<name>.{svg,png}`
     and embed with `![alt](/img/in-post/...)`.
