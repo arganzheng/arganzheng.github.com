@@ -5,7 +5,7 @@ title: "算法工程师的数学（02）：内积、范数与余弦相似度"
 subtitle: "Inner Product, Norms and Cosine Similarity: One Language for Attention, Retrieval, Regularization and Quantization Error"
 tags: [AI, LLM, Math]
 catalog: true
-updated: 2026-09-14
+updated: 2026-09-17
 ---
 
 上一篇说一个 token 是一个向量。这一篇回答一个自然的问题：**两个向量怎么比较？[^q0]**"这个 token 该看那个 token 多少"（attention）、"这段文本和查询有多相关"（检索）、"这两张图和这两句话配不配"（CLIP）、"量化后的权重离原来差多远"（压缩）、"参数是不是太大了"（正则化）——五个看起来不同的问题，用的是同一套只有三个词的语言：**内积、范数、余弦相似度**。
@@ -205,12 +205,11 @@ $$
 
 到这里，"范数"在三个地方出现，身份不同：
 
-```text
-身份            公式                            在哪里
-长度 / 归一化    ‖a‖₂，â = a / ‖a‖               余弦相似度、QK-norm、LayerNorm / RMSNorm 的分母
-正则化项         (λ/2) ‖W‖_F²，‖w‖₁              weight decay、Lasso
-误差度量         ‖W − Ŵ‖_F，‖WX − ŴX‖_F          量化误差、低秩近似误差（下一篇）
-```
+| 身份 | 公式 | 在哪里 |
+|---|---|---|
+| 长度 / 归一化 | $$\lVert a \rVert_2$$，$$\hat a = a / \lVert a \rVert$$ | 余弦相似度、QK-norm、LayerNorm / RMSNorm 的分母 |
+| 正则化项 | $$\frac{\lambda}{2} \lVert W \rVert_F^2$$，$$\lVert w \rVert_1$$ | weight decay、Lasso |
+| 误差度量 | $$\lVert W - \hat W \rVert_F$$，$$\lVert WX - \hat W X \rVert_F$$ | 量化误差、低秩近似误差（下一篇） |
 
 读论文时看到 $$\lVert \cdot \rVert$$，先判断它是哪个身份。
 

@@ -1042,6 +1042,25 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   - Cell-exact layouts (byte/sector maps, bank mappings, reduction trees,
     thread→address tables) → monospace ASCII in a fenced `text` block; exact
     alignment matters more than styling here and Mermaid renders them badly.
+  - **A fenced `text` block whose lines are space-aligned columns is a table
+    — write a Markdown table.** (Reader feedback 2026-09-15/16: 「行列式格式
+    固定的 text block 直接用表格表示更清晰」.) That covers concept ↔ post
+    outlines, name / formula / where-used lists, numeric lookups
+    (loss ↔ PPL, V ↔ ln V), parameter-count / FLOPs sums, reading paths,
+    shape ↔ meaning legends. Keep `text` only for things a table cannot hold:
+    box-drawing diagrams, cell-exact memory/thread maps, terminal output,
+    multi-line calculations. Numeric columns right-aligned (`---:`); formulas
+    in cells as `$$…$$` with `\lVert \rVert` / `\Vert` / `\mid` — a bare `|`
+    inside a cell ends the cell. Boxes drawn with `┌─┐│` that are really a
+    *figure* (e.g. the matmul row-i × column-j picture) belong in an SVG
+    under `img/in-post/`, not ASCII.
+  - **Parenthetical glosses of a term become inline tips**, not inline
+    parentheses: write `[总变差距离](# "tip: total variation distance，…")`
+    instead of `总变差距离（total variation distance：…）`. Same for a term
+    that is used before its own post explains it (name the post in the tip).
+    Keep the parenthesis when it is part of the argument (a number, a formula
+    step), not a definition. Tips must not contain `"` or, inside a table
+    cell, `|` (use `∣` U+2223 for absolute values).
   - Anything neither handles well (log-axis plots, precise geometry, dense
     grids) → generate an SVG/PNG into `img/in-post/<post-slug>-<name>.{svg,png}`
     and embed with `![alt](/img/in-post/...)`.

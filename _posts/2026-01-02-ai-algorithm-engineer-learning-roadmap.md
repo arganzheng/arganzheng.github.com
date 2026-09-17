@@ -216,7 +216,7 @@ flowchart TB
 | 正则化与归一化 | Dropout、weight decay、BatchNorm、LayerNorm、RMSNorm、Pre-Norm 与 Post-Norm | LayerNorm / RMSNorm 与 Pre-Norm 是 Transformer 的标准件；BatchNorm 为什么在序列模型里不好用 | [第二](/initialization-normalization-and-residual.html)、[四篇](/regularization-and-generalization.html) |
 | 优化器 | SGD、Momentum、Adam / AdamW、学习率调度（warmup、cosine、WSD）、梯度裁剪、梯度累积 | AdamW 的两个矩是每参数 8 字节状态的来源；warmup 是训练稳定性的第一道防线 | [第三篇](/optimizers-from-sgd-to-adamw.html) |
 | 初始化与稳定性 | Xavier / Kaiming 初始化、梯度消失与爆炸、残差连接 | 残差连接是"深了也能训"的答案，Transformer 的每一层都靠它 | 第二篇 |
-| CNN | 卷积、池化、感受野（receptive field：一个输出位置能看到输入的多大范围）、feature map；LeNet → AlexNet → VGG → ResNet | 学到 ResNet 为止：残差是关键遗产；ViT 把卷积换成了 patch embedding，但 CNN 的直觉仍在多模态里有用 | [第五篇](/cnn-from-lenet-to-resnet-and-vit.html) |
+| CNN | 卷积、池化、[感受野](# "tip: receptive field：一个输出位置能看到输入的多大范围。叠 n 层 3×3 卷积后是 (2n + 1)×(2n + 1)，池化与步幅会成倍放大它。")、feature map；LeNet → AlexNet → VGG → ResNet | 学到 ResNet 为止：残差是关键遗产；ViT 把卷积换成了 patch embedding，但 CNN 的直觉仍在多模态里有用 | [第五篇](/cnn-from-lenet-to-resnet-and-vit.html) |
 | RNN | 序列建模、长距离依赖、梯度在时间上的消失；RNN → LSTM → GRU；seq2seq 与 attention 的起源 | 理解 RNN 的失败才理解 attention 为什么赢：并行性与长依赖 | [第六篇](/rnn-lstm-and-the-birth-of-attention.html) |
 | 训练实践 | 混合精度（AMP）的用法、显存的四个去向、checkpoint 的保存与恢复、多卡 DDP 的启用 | 用法在 L1 工具箱[第四篇](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html)已讲；本层只关心它们对训练稳定性的影响；原理与大规模实现属于 Infra 地图 03、07 | L1 第三篇 |
 

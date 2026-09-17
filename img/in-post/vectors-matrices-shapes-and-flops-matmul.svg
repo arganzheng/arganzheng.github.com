@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="740" height="320" viewBox="0 0 740 320" font-family="-apple-system, 'Helvetica Neue', Arial, sans-serif" font-size="14">
+  <rect width="740" height="320" fill="#ffffff"/>
+  <!-- A [m × k]: 200 wide (k), 140 tall (m), vertically centred on B (y 50..250 → centre 150). Row i highlighted. -->
+  <text x="130" y="24" text-anchor="middle" fill="#333" font-weight="600">A  [m × k]</text>
+  <text x="130" y="72" text-anchor="middle" fill="#999" font-size="12">k</text>
+  <text x="18" y="155" text-anchor="middle" fill="#999" font-size="12">m</text>
+  <rect x="30" y="80" width="200" height="140" fill="#f7f7f7" stroke="#333" stroke-width="1.2"/>
+  <rect x="30" y="140" width="200" height="22" fill="#00788f" fill-opacity="0.22"/>
+  <line x1="30" y1="140" x2="230" y2="140" stroke="#00788f" stroke-width="1.2"/>
+  <line x1="30" y1="162" x2="230" y2="162" stroke="#00788f" stroke-width="1.2"/>
+  <text x="130" y="156" text-anchor="middle" fill="#00788f" font-weight="600">第 i 行</text>
+  <text x="130" y="245" text-anchor="middle" fill="#555" font-size="13">第 i 行有 k 个数</text>
+
+  <text x="255" y="157" text-anchor="middle" fill="#333" font-size="22">×</text>
+
+  <!-- B [k × n]: 140 wide (n), 200 tall (k). Column j highlighted. -->
+  <text x="350" y="24" text-anchor="middle" fill="#333" font-weight="600">B  [k × n]</text>
+  <text x="350" y="42" text-anchor="middle" fill="#999" font-size="12">n</text>
+  <rect x="280" y="50" width="140" height="200" fill="#f7f7f7" stroke="#333" stroke-width="1.2"/>
+  <rect x="320" y="50" width="22" height="200" fill="#00788f" fill-opacity="0.22"/>
+  <line x1="320" y1="50" x2="320" y2="250" stroke="#00788f" stroke-width="1.2"/>
+  <line x1="342" y1="50" x2="342" y2="250" stroke="#00788f" stroke-width="1.2"/>
+  <text x="331" y="150" text-anchor="middle" fill="#00788f" font-weight="600" transform="rotate(-90 331 150)">第 j 列</text>
+  <text x="350" y="272" text-anchor="middle" fill="#555" font-size="13">第 j 列有 k 个数</text>
+
+  <text x="445" y="157" text-anchor="middle" fill="#333" font-size="22">=</text>
+
+  <!-- C [m × n]: 140 wide (n), 140 tall (m). Cell (i, j) highlighted. -->
+  <text x="540" y="24" text-anchor="middle" fill="#333" font-weight="600">C  [m × n]</text>
+  <text x="540" y="72" text-anchor="middle" fill="#999" font-size="12">n</text>
+  <rect x="470" y="80" width="140" height="140" fill="#f7f7f7" stroke="#333" stroke-width="1.2"/>
+  <rect x="470" y="140" width="140" height="22" fill="#00788f" fill-opacity="0.08"/>
+  <rect x="510" y="80" width="22" height="140" fill="#00788f" fill-opacity="0.08"/>
+  <rect x="510" y="140" width="22" height="22" fill="#00788f" fill-opacity="0.55" stroke="#00788f" stroke-width="1.2"/>
+  <text x="521" y="156" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="600">C</text>
+  <text x="540" y="245" text-anchor="middle" fill="#555" font-size="13">k 次乘法 + (k−1) 次加法</text>
+
+  <!-- callout for C_ij -->
+  <line x1="532" y1="151" x2="625" y2="151" stroke="#00788f" stroke-width="1" stroke-dasharray="3 3"/>
+  <text x="632" y="138" fill="#00788f" font-weight="600">C<tspan baseline-shift="sub" font-size="11">ij</tspan></text>
+  <text x="632" y="158" fill="#555" font-size="13">第 i 行、第 j 列</text>
+  <text x="632" y="176" fill="#555" font-size="13">= 行 i · 列 j</text>
+
+  <!-- footer -->
+  <text x="370" y="305" text-anchor="middle" fill="#333" font-size="13">A 的第 i 行与 B 的第 j 列对应位置相乘再加起来，得到 C 的一个元素；C 共有 m × n 个元素</text>
+</svg>

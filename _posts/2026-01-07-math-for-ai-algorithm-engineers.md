@@ -4,6 +4,7 @@ title: "算法工程师的数学：读公式不卡壳的最小集（总纲）"
 subtitle: "Mathematics for AI Algorithm Engineers: The Minimal Set to Read Papers and Derive Losses"
 tags: [AI, LLM, Math]
 catalog: true
+updated: 2026-09-17
 ---
 
 
@@ -21,22 +22,18 @@ catalog: true
 
 举一个例子说明这个系列的取法。"矩阵乘法"是每本线性代数教材的第一章；本系列第一篇要把它变成三件可用的事：（一）**形状规则**——$$[m, k] \times [k, n] \to [m, n]$$，内维必须相同，这是读任何模型结构图时的第一反应；（二）**成本规则**——每个输出元素 $$k$$ 次乘加，一共 $$2mnk$$ 次浮点运算；（三）**代一个数字**——Llama-3-8B 的隐藏维度 4096，一个 token 经过一个 $$4096 \times 4096$$ 的权重矩阵是 33.5 MFLOPs，4096 个 token 是 137 GFLOPs。会了这三件事，L4 里"训练一个模型要多少算力"整本账都只是它的重复应用。
 
-系列覆盖的范围可以概括为四个分支、八个"出口"：
+系列覆盖的范围可以概括为四个分支（统计推断单列）、八个"出口"：
 
-```text
-线性代数     形状与 FLOPs · 内积 / 范数 / 余弦 · 正交 / 旋转 / SVD / 低秩          → 第一、二、三篇
-概率与统计   条件分布与贝叶斯 · 最大似然 → 交叉熵 · softmax 与采样                 → 第四、五篇
-信息论       熵 / 困惑度 · 交叉熵 = 熵 + KL · KL 的方向 · KL 约束下的最优策略 → DPO   → 第六篇
-微积分与优化 链式法则 · softmax 的梯度 · 期望的梯度 → 策略梯度 · SGD 与学习率        → 第七篇
-统计推断     置信区间 · 显著性 · 最小二乘拟合 · scaling law                        → 第八篇
-```
+| 分支 | 概念 | 篇 |
+|---|---|---|
+| 线性代数 | 形状与 FLOPs · 内积 / 范数 / 余弦 · 正交 / 旋转 / SVD / 低秩 | 一、二、三 |
+| 概率 | 条件分布与贝叶斯 · 最大似然 → 交叉熵 · softmax 与采样 | 四、五 |
+| 信息论 | 熵 / 困惑度 · 交叉熵 = 熵 + KL · KL 的方向 · KL 约束下的最优策略 → DPO | 六 |
+| 微积分与优化 | 链式法则 · softmax 的梯度 · 期望的梯度 → 策略梯度 · SGD 与学习率 | 七 |
+| 统计推断 | 置信区间 · 显著性 · 最小二乘拟合 · scaling law | 八 |
 
 
 ## 为什么写这个系列？
-
-### 这一层原来是一篇导读，读者说看不懂
-
-这个系列的前身是一篇导读，只回答"学到什么深度、在哪里用到、怎么检验学会了"，假设读者去教材里把内容学会。上线后读者的反馈很直接：矩阵、SVD、总变差这些词没有图、没有从零的解释，"根本不足以支撑读者读懂那八个公式"。反馈是对的——导读的形式要求读者已经会，而这张地图的入口读者恰恰是不会的人。于是把它展开成系列：每个概念从定义讲起，每个公式每个符号都交代，每篇有图、有真实模型的数字、有自测。
 
 ### 数学只有在被用到时才记得住
 
@@ -75,33 +72,74 @@ catalog: true
 
 八篇按"先会算形状与成本，再会把模型看成分布，再会度量分布之间的差，再会对目标求导，最后会判断实验结果"的顺序推进：
 
-```text
-第一篇：向量、矩阵与形状 —— 形状规则、2mnk、张量与广播；一个 token 过一层要算多少
-        ↓
-第二篇：内积、范数与余弦相似度 —— attention score、embedding 检索、正则化项、量化误差
-        ↓
-第三篇：正交与旋转、特征值与 SVD —— RoPE 为什么编码相对位置；低秩近似与 LoRA 的参数量
-        ↓
-第四篇：概率入门 —— 语言模型是一个条件分布；贝叶斯；常见分布；为什么除以 √d_k
-        ↓
-第五篇：从最大似然到交叉熵 —— 第一个要会推的 loss；softmax、温度与采样
-        ↓
-第六篇：熵、交叉熵与 KL —— 困惑度；KL 的方向；从 KL 约束的最优策略推出 DPO
-        ↓
-第七篇：导数、梯度与链式法则 —— softmax 的梯度 p − y；期望的梯度与策略梯度；SGD
-        ↓
-第八篇：统计推断与拟合 —— 评测的置信区间与显著性；最小二乘；scaling law 的算例
-```
+| 篇 | 主题 | 内容 |
+|---|---|---|
+| 一 | 向量、矩阵与形状 | 形状规则、$$2mnk$$、张量与广播；一个 token 过一层要算多少 |
+| 二 | 内积、范数与余弦相似度 | attention score、embedding 检索、正则化项、量化误差 |
+| 三 | 正交与旋转、特征值与 SVD | RoPE 为什么编码相对位置；低秩近似与 LoRA 的参数量 |
+| 四 | 概率入门 | 语言模型是一个条件分布；贝叶斯；常见分布；为什么除以 $$\sqrt{d_k}$$ |
+| 五 | 从最大似然到交叉熵 | 第一个要会推的 loss；softmax、温度与采样 |
+| 六 | 熵、交叉熵与 KL | 困惑度；KL 的方向；从 KL 约束的最优策略推出 DPO |
+| 七 | 导数、梯度与链式法则 | softmax 的梯度 $$p - y$$；期望的梯度与策略梯度；SGD |
+| 八 | 统计推断与拟合 | 评测的置信区间与显著性；最小二乘；scaling law 的算例 |
 
 前三篇是**线性代数**：模型的每一层都是矩阵乘法，所有关于形状、成本、相似度、低秩的直觉都从这里来。第四、五篇是**概率**：把"语言模型"这个对象定义清楚——它是一个条件分布——然后从这个定义推出训练目标。第六篇是**信息论**：度量两个分布之间的差，后训练的全部约束项都是它。第七篇是**微积分与优化**：有了目标怎么求导、怎么更新。第八篇是**统计推断**：怎么判断一个结果不是噪声。
 
-三条交织的线索：
+把这段话画出来：五个分支各占一列，每篇落在自己的分支里；箭头是**推导上的依赖**——箭头尾端的结论被箭头头端用作前提——不是阅读顺序。八篇按编号读没有问题；但如果只想弄懂某一个公式，沿箭头往回找就是它的最小前置。
 
-```text
-推导线：形状规则 → 内积与范数 → SVD 与低秩 → 条件分布 → MLE → 交叉熵 = 熵 + KL → KL 约束最优策略 → DPO → 链式法则 → 策略梯度
-数字线：33.5 MFLOPs / token · LoRA 0.52% · ln V = 11.8 · PPL 6.05 · Chinchilla D/N ≈ 20 · HumanEval ±6.1%
-LLM 线：attention 的 GEMM → 余弦检索 → RoPE / LoRA → next-token 预测 → SFT loss → RLHF 的 KL 项 → GRPO 的优势 → 评测的显著性
+```mermaid
+flowchart TB
+  subgraph LA["线性代数"]
+    direction TB
+    P1["一 · 形状规则与 2mnk"]
+    P2["二 · 内积、范数、余弦"]
+    P3["三 · 正交 / 旋转 / SVD"]
+    P1 --> P2 --> P3
+  end
+  subgraph PR["概率"]
+    direction TB
+    P4["四 · 条件分布"]
+    P5["五 · MLE → 交叉熵、softmax"]
+    P4 --> P5
+  end
+  subgraph IT["信息论"]
+    P6["六 · 熵 / KL → DPO"]
+  end
+  subgraph CA["微积分与优化"]
+    P7["七 · 链式法则 → 策略梯度"]
+  end
+  subgraph ST["统计推断"]
+    P8["八 · 置信区间、拟合"]
+  end
+  P2 -- "内积的方差 → 为什么除以 √d_k" --> P4
+  P5 -- "负对数似然是交叉熵的特例" --> P6
+  P5 -- "softmax 的梯度 p − y" --> P7
+  P6 -- "KL 项进入 RL 目标" --> P7
+  P4 -- "二项分布 → 标准误" --> P8
+  classDef la fill:#e8f1f8,stroke:#5b8db8
+  classDef pr fill:#fdf1e0,stroke:#d1913c
+  classDef it fill:#eaf5e6,stroke:#6aa84f
+  classDef ca fill:#f4e8f7,stroke:#9b59b6
+  classDef st fill:#f2f2f2,stroke:#888
+  class P1,P2,P3 la
+  class P4,P5 pr
+  class P6 it
+  class P7 ca
+  class P8 st
 ```
+
+三条交织的线索——每篇推出什么、算出哪个数字、对应 LLM 里的什么——按篇列出来。**推导线**里每一项都是在那一篇里从上一项推出来的：形状规则给出矩阵乘法怎么算，内积是它的单个元素；条件分布定义了语言模型，MLE 是"选让数据概率最大的参数"，取负对数、除以 token 数就是交叉熵；交叉熵 = 熵 + KL 是一个恒等式（第六篇从三个量的定义两行展开得到）；KL 约束下的最优策略有闭式解，反解奖励代回偏好模型就是 DPO。表里的每一个箭头与等号，在对应篇里都有完整的推导，这里只列结果。
+
+| 篇 | 推导线（这一篇推出的结论） | 数字线（代真实模型算出的数） | LLM 线（它在模型里是什么） |
+|---|---|---|---|
+| 一 | 形状规则 $$[m,k] \times [k,n] \to [m,n]$$、成本规则 $$2mnk$$ | 33.5 MFLOPs / token（Llama-3-8B 的一个 $$4096 \times 4096$$） | attention 与 MLP 的 GEMM |
+| 二 | 内积、范数、余弦 = 内积 ÷ 两个长度 | $$\lVert W - \hat W \rVert_F$$ 不是量化该最小化的量 | attention score、embedding 检索 |
+| 三 | 旋转矩阵正交 → RoPE 只依赖相对位置；截断 SVD 是最优低秩近似 | LoRA $$r = 16$$：41.9 M 参数、0.52% | RoPE、LoRA |
+| 四 | 链式法则分解联合概率 → 语言模型是条件分布；独立和的方差相加 → 除以 $$\sqrt{d_k}$$ | $$D$$ 个分量的内积方差是 $$D\sigma^2$$ | next-token 预测、attention 的缩放 |
+| 五 | MLE → 取负对数、除以 $$T$$ → 交叉熵 loss | 初始 loss $$= \ln V = 11.8$$ | SFT / 预训练的 loss、温度与采样 |
+| 六 | 交叉熵 = 熵 + KL（恒等式）；KL 约束最优策略闭式解 → 反解奖励 → DPO | PPL $$= e^{1.8} = 6.05$$ | RLHF 的 KL 项、DPO、蒸馏 |
+| 七 | 链式法则 → softmax 梯度 $$p - y$$；log-derivative trick → 策略梯度；减 baseline 不改期望 | — | 反向传播、REINFORCE / PPO / GRPO 的优势 |
+| 八 | 中心极限定理 → 标准误 → 置信区间；幂律取对数是直线 → 最小二乘 | HumanEval ±6.1%；Chinchilla $$D/N \approx 20$$ | 评测的显著性、scaling law |
 
 每一篇都用同样的方法：**从定义讲起，推到公式，代入真实模型算出数字，指出它在后面哪一层、哪个公式里出现，篇末自测**。
 
@@ -117,10 +155,10 @@ LLM 线：attention 的 GEMM → 余弦检索 → RoPE / LoRA → next-token 预
 | **L4 预训练**：交叉熵 loss、scaling law 拟合 | — | 条件分布、MLE | 交叉熵、困惑度 | 期望的梯度、学习率 |
 | **L5 后训练**：奖励模型、DPO、PPO / GRPO、蒸馏 | — | Bradley-Terry、条件分布 | KL 及其方向、KL 约束下的最优策略 | 策略梯度 |
 | **L5 评测**：置信区间、显著性 | — | 统计推断 | — | — |
-| **L6 压缩**：量化误差、投机解码接受率、LoRA | 范数、SVD 与低秩 | — | 总变差距离 | — |
+| **L6 压缩**：量化误差、投机解码接受率、LoRA | 范数、SVD 与低秩 | — | [总变差距离](# "tip: total variation distance，两个分布 p、q 之间的距离：TV(p, q) = ½ Σ ∣p(x) − q(x)∣，取值 0 到 1，等于 1 − Σ min(p, q)。投机解码里草稿模型的 token 被接受的概率恰好是 1 − TV。第六篇讲。") | — |
 | **L7 多模态**：CLIP 对比学习、扩散的高斯噪声 | 内积与余弦相似度 | 高斯分布 | 对比学习的交叉熵 | — |
 
-两个分支的去向值得先说明。**信息论**看起来最"理论"，却是后训练的主语言：SFT 的 loss 是交叉熵，RLHF 与 DPO 的约束是 KL，蒸馏的目标是 KL，投机解码的接受率是两个分布的总变差。**概率统计**里最容易被跳过的是统计推断那一半（置信区间、显著性），但它决定了 L5 评测的结论是否成立——没有它，"提升了 2 个点"只是一个没有含义的数字。
+两个分支的去向值得先说明。**信息论**看起来最"理论"，却是后训练的主语言：SFT 的 loss 是交叉熵，RLHF 与 DPO 的约束是 KL，蒸馏的目标是 KL，投机解码的接受率是两个分布的[总变差](# "tip: 总变差距离（total variation distance）：TV(p, q) = ½ Σ ∣p(x) − q(x)∣，两个分布最多能差多少概率质量，取值 0 到 1。投机解码的接受率 = 1 − TV(目标分布, 草稿分布)。第六篇讲。")。**概率统计**里最容易被跳过的是统计推断那一半（置信区间、显著性），但它决定了 L5 评测的结论是否成立——没有它，"提升了 2 个点"只是一个没有含义的数字。
 
 
 ## 章节结构与分章导读
@@ -267,41 +305,13 @@ LLM 线：attention 的 GEMM → 余弦检索 → RoPE / LoRA → next-token 预
 
 ## 阅读路径建议
 
-### 完整学习路径
-
-```text
-1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
-```
-
-### 只为进入 L1 / L2 / L3 做准备
-
-```text
-1 → 2 → 4 → 5 → 7
-```
-
-形状与成本、内积、条件分布、交叉熵、链式法则是后面三层每篇都要用的；第三篇在读 RoPE / LoRA 时补，第六篇在做后训练时补，第八篇在做评测时补。
-
-### 做后训练，读不懂 DPO / GRPO 的公式
-
-```text
-4 → 5 → 6 → 7
-```
-
-按顺序走完，DPO 的 loss 与 GRPO 的优势都能自己推出来。
-
-### 做评测，不知道差异是不是噪声
-
-```text
-4 → 8
-```
-
-### 后端工程师转算法，想先看"数学在 AI 里长什么样"
-
-```text
-1 → 4 → 5 → 6
-```
-
-四篇读完，L4 后训练系列的论文可以直接开读，遇到不懂的公式再回到对应篇。
+| 你的情况 | 顺序 | 说明 |
+|---|---|---|
+| 完整学习 | 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 | 按编号读，每篇一到两小时 |
+| 只为进入 L1 / L2 / L3 做准备 | 1 → 2 → 4 → 5 → 7 | 形状与成本、内积、条件分布、交叉熵、链式法则是后面三层每篇都要用的；第三篇在读 RoPE / LoRA 时补，第六篇在做后训练时补，第八篇在做评测时补 |
+| 做后训练，读不懂 DPO / GRPO 的公式 | 4 → 5 → 6 → 7 | 按顺序走完，DPO 的 loss 与 GRPO 的优势都能自己推出来 |
+| 做评测，不知道差异是不是噪声 | 4 → 8 | 第四篇的二项分布是第八篇标准误的来源 |
+| 后端工程师转算法，想先看"数学在 AI 里长什么样" | 1 → 4 → 5 → 6 | 四篇读完，L5 后训练系列的论文可以直接开读，遇到不懂的公式再回到对应篇 |
 
 
 ## 本系列的边界
@@ -389,18 +399,18 @@ LLM 线：attention 的 GEMM → 余弦检索 → RoPE / LoRA → next-token 预
 
 ## 最终目标
 
-读完这套系列之后，面对一篇 LLM 论文或一份实验结果，读者应该能够回答：
+读完这套系列之后，面对一篇 LLM 论文或一份实验结果，读者应该能够回答下面这些问题。每个问题的答案压成一两句放在脚注里（读完系列再点开核对；每条答案末尾指向讲它的那一篇）：
 
-```text
-这个矩阵乘法的输出是什么形状、要算多少？                     → 第一篇
-attention score 为什么是内积？检索为什么用余弦？              → 第二篇
-RoPE 为什么编码相对位置？LoRA 的 r = 16 加了多少参数？         → 第三篇
-"语言模型是条件分布"决定了哪些事？为什么除以 √d_k？            → 第四篇
-训练日志里的 loss 是什么？开始时应该是多少？                  → 第五篇
-PPL 6 是什么意思？RLHF 的 KL 项为什么让模型变"保守"？DPO 从哪来？ → 第六篇
-GRPO 的优势为什么减均值？学习率太大会怎样？                   → 第七篇
-HumanEval 差 3 个点算不算提升？D/N ≈ 20 是怎么算出来的？       → 第八篇
-```
+| 问题 | 篇 |
+|---|---|
+| 这个矩阵乘法的输出是什么形状、要算多少？[^g1] | [一](/vectors-matrices-shapes-and-flops.html) |
+| attention score 为什么是内积？检索为什么用余弦？[^g2] | [二](/inner-product-norms-and-cosine-similarity.html) |
+| RoPE 为什么编码相对位置？[^g3] LoRA 的 $$r = 16$$ 加了多少参数？[^g4] | [三](/orthogonal-rotation-svd-and-low-rank.html) |
+| "语言模型是条件分布"决定了哪些事？[^g5] 为什么除以 $$\sqrt{d_k}$$？[^g6] | [四](/probability-basics-language-model-as-conditional-distribution.html) |
+| 训练日志里的 loss 是什么？开始时应该是多少？[^g7] | [五](/from-maximum-likelihood-to-cross-entropy.html) |
+| PPL 6 是什么意思？[^g8] RLHF 的 KL 项为什么让模型变"保守"？[^g9] DPO 从哪来？[^g10] | [六](/entropy-cross-entropy-and-kl-to-dpo.html) |
+| GRPO 的优势为什么减均值？[^g11] 学习率太大会怎样？[^g12] | [七](/derivatives-gradients-chain-rule-and-policy-gradient.html) |
+| HumanEval 差 3 个点算不算提升？[^g13] $$D/N \approx 20$$ 是怎么算出来的？[^g14] | [八](/statistical-inference-and-fitting-scaling-laws.html) |
 
 最终目标是三种能力：
 
@@ -409,3 +419,18 @@ HumanEval 差 3 个点算不算提升？D/N ≈ 20 是怎么算出来的？     
 3. **算数字**：把公式代到真实模型与真实 benchmark 上，回答"花多少钱、是不是噪声"。
 
 这一层是整张地图的地基。它不难，但没有它，后面每一层的公式都只能靠背。
+
+[^g1]: 形状规则：$$[m, k] \times [k, n] \to [m, n]$$，内维必须相同，批维度括起来只看最后两维；成本规则：$$2mnk$$ FLOPs——每个输出元素 $$k$$ 次乘加。一个 token 过 Llama-3-8B 的一个 $$4096 \times 4096$$ 矩阵是 $$2 \times 4096^2 \approx 33.5$$ MFLOPs；过整个模型约 $$2N$$。[第一篇](/vectors-matrices-shapes-and-flops.html)。
+[^g2]: 内积同时含方向与大小、且 $$QK^T$$ 一次矩阵乘就算出所有 token 对的内积，query 的长度本身还携带"这个 token 想看多少"的信息；检索库里的向量长度不一、只关心方向，所以用余弦（内积除以两个长度）——向量都归一化之后余弦退化为内积，仍是一次矩阵乘。[第二篇](/inner-product-norms-and-cosine-similarity.html)。
+[^g3]: 把位置 $$m$$ 的 query 旋转 $$m\theta$$、位置 $$n$$ 的 key 旋转 $$n\theta$$；旋转矩阵正交且 $$R_\alpha^T R_\beta = R_{\beta - \alpha}$$，所以 $$(R_{m\theta} q)^T (R_{n\theta} k) = q^T R_{(n - m)\theta} k$$ 只依赖相对位置 $$n - m$$。[第三篇](/orthogonal-rotation-svd-and-low-rank.html)。
+[^g4]: 每个矩阵加 $$r(\text{in} + \text{out})$$ 个参数（$$\Delta W = BA$$ 两个瘦矩阵）。Llama-3-8B 一层七个矩阵 1.31 M、32 层 **41.9 M**，占 8.03 B 的 **0.52%**。[第三篇](/orthogonal-rotation-svd-and-low-rank.html)。
+[^g5]: 训练目标是让每个位置给真实下一个 token 的概率最大（MLE → 交叉熵）；生成只能逐 token 采样、每步以上一步为条件（所以有 KV cache）；换温度 / top-p 就是换分布，评测必须固定采样设置；RL 里的策略 $$\pi(y \mid x)$$ 就是这个条件分布，整条回答的概率是逐 token 概率的乘积。[第四篇](/probability-basics-language-model-as-conditional-distribution.html)。
+[^g6]: $$q$$、$$k$$ 各分量独立、方差 $$\sigma^2$$ 时，$$D = d_k$$ 个分量的内积 $$q^T k$$ 方差是 $$d_k \sigma^2$$（独立和的方差相加）；除以 $$\sqrt{d_k}$$ 把方差拉回 $$\sigma^2$$，softmax 才不会一开始就饱和成 one-hot。[第四篇](/probability-basics-language-model-as-conditional-distribution.html)。
+[^g7]: 每 token 的负对数似然 $$-\frac{1}{T}\sum_t \log p_\theta(x_t \mid x_{<t})$$，单位 nat，从 MLE 取负对数、除以 token 数三步得到。开始时模型近似均匀，loss $$\approx \ln V$$——Llama-3 的词表 128256 给 **11.8**；远大于它是初始化太大，远小于它是数据泄漏或算错。[第五篇](/from-maximum-likelihood-to-cross-entropy.html)。
+[^g8]: PPL $$= e^{\text{loss}}$$：loss 1.8 nat 对应 PPL $$e^{1.8} = 6.05$$，含义是模型平均每步在约 6 个等可能的候选里犹豫。[第六篇](/entropy-cross-entropy-and-kl-to-dpo.html)。
+[^g9]: RLHF 的约束项 $$\text{KL}(\pi \,\Vert\, \pi_{\text{ref}})$$ 期望在 $$\pi$$ 上取，是 **reverse** 方向（mode-seeking）：策略可以放弃参考模型的部分模式（惩罚小），但不能去参考模型认为不可能的地方（惩罚巨大）——所以分布收窄、多样性下降。[第六篇](/entropy-cross-entropy-and-kl-to-dpo.html)。
+[^g10]: 四步：KL 约束下的最优策略有闭式解 $$\pi^* \propto \pi_{\text{ref}}\, e^{r/\beta}$$；反解出 $$r = \beta \log(\pi^*/\pi_{\text{ref}}) + \beta \log Z$$；代入 Bradley-Terry 的 $$\sigma(r_w - r_l)$$；同一 prompt 的 $$\log Z$$ 抵消，剩下只含策略与参考模型的 loss——就是 DPO。[第六篇](/entropy-cross-entropy-and-kl-to-dpo.html)。
+[^g11]: 策略梯度 $$\mathbb{E}[R(y)\nabla \log \pi_\theta(y)]$$ 里减去一个与 $$y$$ 无关的 baseline，期望不变（$$\mathbb{E}[\nabla \log \pi] = 0$$）、方差降低；GRPO 用同一 prompt 的组内均值当 baseline，减均值后的 $$R - \bar R$$ 就是优势。[第七篇](/derivatives-gradients-chain-rule-and-policy-gradient.html)。
+[^g12]: 每步跨过谷底，loss 震荡或发散（爆成 NaN）；太小则几乎不动。随机梯度的噪声方差 $$\propto 1/B$$ 决定学习率上限，所以训练初期要 warmup。[第七篇](/derivatives-gradients-chain-rule-and-policy-gradient.html)。
+[^g13]: 分辨不出。HumanEval 只有 164 题：准确率 80% 时标准误 $$\sqrt{0.8 \times 0.2 / 164} \approx 3.1$$ 个点，95% 区间约 **±6.1 个点**（50% 时 ±7.7）——3 个点在噪声里。正确做法是同一批题的配对比较，它比独立比较灵敏得多。[第八篇](/statistical-inference-and-fitting-scaling-laws.html)。
+[^g14]: 固定算力 $$C = 6ND$$，对 $$L(N, D) = E + A/N^\alpha + B/D^\beta$$ 用拉格朗日乘子求极值，$$N^*$$、$$D^*$$ 都随 $$C$$ 的约 0.5 次幂增长，比值由 $$A, B, \alpha, \beta$$ 决定，Chinchilla 拟出来约 20（70B 对应 1.4T token）；拟合常数有标准误，20 是一个区间不是常数。[第八篇](/statistical-inference-and-fitting-scaling-laws.html)。
