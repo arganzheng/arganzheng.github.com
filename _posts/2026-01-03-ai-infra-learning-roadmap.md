@@ -263,7 +263,7 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 九篇。一次生成的三段（文本编码器、DiT × 步数 × CFG、VAE 解码）的 FLOPs、显存与时间账，以及为什么单请求就是 compute-bound；单卡的 attention 后端、编译、FP8 / INT4（SVDQuant）、offload 与 VAE 分块；相邻去噪步的时间冗余（TeaCache、First-Block Cache、Cache-DiT 一族）；视频的十万级 token 让 attention 占到七成之后的稀疏化（Sparse VideoGen、Radial Attention、STA）；多卡为什么用序列并行、CFG 并行与 PipeFusion 而不是张量并行；步数蒸馏与自回归视频（CausVid、Self-Forcing）之后哪些优化失效、KV cache 怎样回归；生成服务的请求形态、批处理为什么几乎不提吞吐、三段分离、LoRA / ControlNet 与异步任务 API；SGLang Diffusion、vLLM-Omni、xDiT 三个引擎的对照导读；配置推导、有损优化的质量评测与排障。
 
-它是推理主线的**另一半**：08 讲 memory-bound 的 serving，10 讲 compute-bound 的 serving，几乎每一个系统答案都相反。它曾在本图作为选修，理由是"读者面窄"；到 2026 年这个理由不再成立——SGLang 与 vLLM 两个 LLM serving 主项目都把扩散 / 全模态纳入了自己的框架，图像与视频生成已经是与 LLM 并列的一类 serving 负载。模型本身（扩散的数学、DiT、文生图与视频配方、步数蒸馏的方法）属于算法地图 L7 的[《多模态》](/multimodal-from-vision-encoders-to-diffusion.html)系列第五至七篇。
+它是推理主线的**另一半**：08 讲 memory-bound 的 serving，10 讲 compute-bound 的 serving，几乎每一个系统答案都相反。它曾在本图作为选修，理由是"读者面窄"；到 2026 年这个理由不再成立——SGLang 与 vLLM 两个 LLM serving 主项目都把扩散 / 全模态纳入了自己的框架，图像与视频生成已经是与 LLM 并列的一类 serving 负载。模型本身（扩散的数学、DiT、文生图与视频配方、步数蒸馏的方法）属于算法地图 L7 的[《多模态》](/multimodal-from-vision-encoders-to-diffusion.html)系列第六至九篇。
 
 ### L5 平台
 

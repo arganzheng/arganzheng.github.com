@@ -9,7 +9,7 @@ catalog: true
 
 ## 内容简介
 
-《多模态：从视觉编码器到扩散模型》是一组共七篇的系列文章，对应[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)的第 L7 层。它面向已经理解 Transformer 与 LLM（L4）、做过后训练（L5）的读者，回答两个问题：**图片、视频、语音怎么进入一个语言模型**，以及**图像与视频的生成为什么是另一套数学**。
+《多模态：从视觉编码器到扩散模型》是一组共九篇正文加一篇总结的系列文章，对应[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)的第 L7 层。它面向已经理解 Transformer 与 LLM（L4）、做过后训练（L5）的读者，回答两个问题：**图片、视频、语音怎么进入一个语言模型**，以及**图像与视频的生成为什么是另一套数学**。
 
 "多模态"下面有两条几乎独立的线。**理解线**把其他模态编码成 token 送进 LLM：一个视觉编码器（ViT）把图片变成几百个向量，一个 connector 把它们对齐到 LLM 的输入空间，LLM 像处理文本一样处理它们——这条线是 LLM 的扩展，用的是 L4、L5 的全部方法，新增的是编码器、connector 与对齐训练。**生成线**从噪声出发逐步去噪得到图片：扩散模型有自己的目标函数（去噪 / score matching / flow matching）、自己的结构（U-Net → DiT）、自己的采样过程（几十步迭代）与成本结构（无 KV cache、compute-bound）——这条线与 LLM 共享 Transformer 与 scaling 的经验，但数学是新的。两条线在 2025 年开始交汇：自回归图像生成用 LLM 的方式生成图像 token；统一模型让一个 Transformer 既理解又生成。
 
@@ -18,10 +18,14 @@ catalog: true
 | 一 | 视觉编码器：CLIP、SigLIP 与自监督 ViT | 理解 | 一张图变成的几百个向量里有什么？对比学习为什么能学出"语义" |
 | 二 | VLM 的结构：connector、注入方式与动态分辨率 | 理解 | 图片 token 怎么进入 LLM？三类 connector 与两种注入各自的取舍；分辨率怎么处理 |
 | 三 | VLM 的训练：数据、阶段与评测 | 理解 | 先训什么后训什么、每阶段冻结谁；数据从哪来；多模态幻觉从哪来 |
-| 四 | 语音与全模态：音频编码器、codec 与全双工 | 理解 → 生成 | 声音怎么 token 化？语音理解与语音生成的两条路；全模态的时延 |
-| 五 | 扩散模型：DDPM、score matching 与 flow matching | 生成 | 去噪为什么等于学分布？三种视角为什么是同一件事；guidance 在做什么 |
-| 六 | Latent diffusion、DiT 与文生图配方 | 生成 | 为什么在 latent 空间做；U-Net 到 DiT；SD / FLUX 的配方；采样加速；视频 |
-| 七 | 自回归图像生成与统一模型 | 交汇 | 图像怎么 token 化；AR 生成 vs 扩散；理解与生成能不能用一个模型 |
+| 四 | 语音（上）：从波形到 token——mel 谱、Whisper 与神经 codec | 理解 → 生成 | 一秒声音在模型眼里是什么？声音怎么变成离散 token（RVQ） |
+| 五 | 语音（下）：语音理解、语音生成与全双工 | 理解 → 生成 | 怎么听、怎么说；LLM 直接说为什么伤文本能力；全双工的时延 |
+| 六 | 扩散模型（上）：DDPM——加噪、去噪与「预测噪声」 | 生成 | 去噪为什么等于学会生成？变分下界怎么变成一行 MSE；DDIM 为什么能跳步 |
+| 七 | 扩散模型（下）：score matching、flow matching 与 CFG | 生成 | 三种视角为什么是同一件事；轨迹为什么弯、怎么拉直；guidance 在做什么 |
+| 八 | Latent diffusion、DiT 与文生图配方 | 生成 | 为什么在 latent 空间做；U-Net 到 DiT；SD / FLUX 的配方；采样加速；视频 |
+| 九 | 自回归图像生成与统一模型 | 交汇 | 图像怎么 token 化；AR 生成 vs 扩散；理解与生成能不能用一个模型 |
+
+每一篇都按"小白能看懂"的标准写：每个机制先给一个能在纸上算的小例子、一张图、再给公式，核心代码贴在文中并附真实输出——CLIP 的对比学习、VLM 的 connector、mel 谱、RVQ、DDPM 的加噪去噪、flow matching、CFG、latent diffusion、VQ 与自回归生成，全部在 CPU 上用几十行代码的 toy 跑通过一遍（配套代码见"实践线"）。
 
 读完这个系列，读者应该能够：读懂一个 VLM 的技术报告（编码器选什么、connector 怎么设计、分辨率策略、训练阶段、数据配比、评测），并判断它的每个选择在成本与效果上的取舍；读懂一个文生图模型的技术报告（噪声调度、预测目标、结构、guidance、采样步数），并理解它与 LLM 在训练与推理上的根本不同；知道两条线在哪里交汇、统一模型当前的三种路线各是什么。
 
@@ -44,7 +48,7 @@ VLM 的 LLM 部分与文本模型完全一样，后训练方法（SFT、DPO、RL
 
 ### 两条线在交汇
 
-自回归图像生成（把图像 token 化后用 LLM 的方式生成）与统一模型（一个 Transformer 既理解图片又生成图片）是 2024–2025 年的活跃方向：Chameleon、Emu3、Janus、Transfusion、BAGEL、以及 GPT-4o 的原生图像生成。它们要回答的问题是"理解与生成能不能共享同一套表示"，而这个问题的答案决定了多模态模型的下一个形态。系列的最后一篇把两条线合起来讨论。
+自回归图像生成（把图像 token 化后用 LLM 的方式生成）与统一模型（一个 Transformer 既理解图片又生成图片）是 2024–2025 年的活跃方向：Chameleon、Emu3、Janus、Transfusion、BAGEL、以及 GPT-4o 的原生图像生成。它们要回答的问题是"理解与生成能不能共享同一套表示"，而这个问题的答案决定了多模态模型的下一个形态。系列的第九篇把两条线合起来讨论。
 
 ### 现有材料的断层
 
@@ -55,7 +59,7 @@ VLM 的材料多是各家的技术报告（各说各的选择，没有横向比�
 
 ### 读完 L4、L5，准备做多模态的算法学习者
 
-主要读者。按顺序读；理解线（一到四）与生成线（五到六）可以只走一条，第七篇需要两条都读过。
+主要读者。按顺序读；理解线（一到五）与生成线（六到八）可以只走一条，第九篇需要两条都读过。
 
 ### 已经在做 VLM、但对编码器与训练阶段的选择缺乏系统认识的工程师
 
@@ -63,11 +67,11 @@ VLM 的材料多是各家的技术报告（各说各的选择，没有横向比�
 
 ### 做文生图 / 视频生成的工程师
 
-第五、六篇：从 DDPM 到 flow matching 的推导链、CFG 的含义、DiT 与 latent 空间、SD3 / FLUX 的配方、采样加速、视频的时空 patch。第七篇的自回归生成作为对照。
+第六到八篇：从 DDPM 到 flow matching 的推导链、CFG 的含义、DiT 与 latent 空间、SD3 / FLUX 的配方、采样加速、视频的时空 patch。第九篇的自回归生成作为对照。
 
 ### Infra 工程师
 
-[04 系列第八篇](/multimodal-vision-encoder-cost-and-image-token-kv.html)已经算过多模态的成本；本系列第二篇讲这些成本背后的设计动机，第六篇讲扩散模型完全不同的成本结构（无 KV、compute-bound、多步）——它决定了扩散模型的服务系统与 LLM 的服务系统为什么长得不一样。
+[04 系列第八篇](/multimodal-vision-encoder-cost-and-image-token-kv.html)已经算过多模态的成本；本系列第二篇讲这些成本背后的设计动机，第八篇讲扩散模型完全不同的成本结构（无 KV、compute-bound、多步）——它决定了扩散模型的服务系统与 LLM 的服务系统为什么长得不一样。
 
 
 ## 系列的整体主线
@@ -87,39 +91,43 @@ connector · 注入方式
 动态分辨率 · 视频`"]
         TRAIN["`**三 · VLM 训练**
 阶段 · 数据 · 评测 · 幻觉`"]
-        AUDIO["`**四 · 语音与全模态**
-音频编码器 · codec
-语音 LLM · 全双工`"]
-        ENC --> ARCH --> TRAIN --> AUDIO
+        AUDIO["`**四 · 语音（上）**
+mel 谱 · Whisper
+codec · RVQ`"]
+        AUDIO2["`**五 · 语音（下）**
+语音理解 · TTS
+全模态 · 全双工`"]
+        ENC --> ARCH --> TRAIN --> AUDIO --> AUDIO2
     end
     subgraph G["生成线：从噪声到图片"]
         direction TB
-        DIFF["`**五 · 扩散模型**
-DDPM · score · flow matching
-CFG`"]
-        LDM["`**六 · Latent diffusion 与 DiT**
+        DIFF["`**六 · 扩散（上）**
+DDPM · ELBO → MSE · DDIM`"]
+        DIFF2["`**七 · 扩散（下）**
+score · flow matching · CFG`"]
+        LDM["`**八 · Latent diffusion 与 DiT**
 VAE · DiT · 文生图配方
 采样加速 · 视频`"]
-        DIFF --> LDM
+        DIFF --> DIFF2 --> LDM
     end
-    UNI["`**七 · 自回归生成与统一模型**
+    UNI["`**九 · 自回归生成与统一模型**
 VQ · AR 图像生成
 理解 + 生成的三种路线`"]
-    AUDIO --> UNI
+    AUDIO2 --> UNI
     LDM --> UNI
 
     classDef und fill:#e8f4ff,stroke:#2e6da4,stroke-width:2px,color:#222
     classDef gen fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
     classDef uni fill:#eaf7ea,stroke:#1e8449,stroke-width:2px,color:#222
-    class ENC,ARCH,TRAIN,AUDIO und
-    class DIFF,LDM gen
+    class ENC,ARCH,TRAIN,AUDIO,AUDIO2 und
+    class DIFF,DIFF2,LDM gen
     class UNI uni
 ```
 
-贯穿七篇的三条线索：
+贯穿九篇的三条线索：
 
-- **推导线**：InfoNCE 与对比学习为什么学出语义（第一篇）；connector 的信息瓶颈（第二篇）；codec 的 RVQ（第四篇）；ELBO → 去噪目标、score matching 与 flow matching 的统一、CFG 的贝叶斯推导（第五篇）；VQ-VAE 的离散瓶颈（第七篇）。
-- **成本线**：编码器的 FLOPs 与 token 数（回指 04-08）；训练阶段各自的算力；扩散模型每张图的 FLOPs 与 LLM 的对比（第六篇）；AR 图像生成的 token 数与 KV。
+- **推导线**：InfoNCE 与对比学习为什么学出语义（第一篇）；connector 的信息瓶颈（第二篇）；codec 的 RVQ（第四篇）；ELBO → 去噪目标（第六篇）；score matching 与 flow matching 的统一、CFG 的贝叶斯推导（第七篇）；VQ-VAE 的离散瓶颈（第九篇）。
+- **成本线**：编码器的 FLOPs 与 token 数（回指 04-08）；训练阶段各自的算力；语音 token 与全双工的持续成本（第五篇）；扩散模型每张图的 FLOPs 与 LLM 的对比（第八篇）；AR 图像生成的 token 数与 KV。
 - **配方线**：LLaVA → Qwen2.5-VL → InternVL 3 的演化；Whisper → Qwen2.5-Omni；SD 1.x → SDXL → SD3 → FLUX；Chameleon → Janus → BAGEL。每一处设计选择在公开报告里的对照。
 
 
@@ -149,58 +157,75 @@ VLM 的训练不是一步到位的：先让 connector 学会对齐、再让 LLM 
 
 **要回答的问题**：为什么先冻结 LLM 只训 connector？多模态幻觉从哪来、怎么减少？
 
-### 4. 语音与全模态：音频编码器、codec 与全双工
+### 4. 语音（上）：从波形到 token——mel 谱、Whisper 与神经 codec
 
-声音进入 LLM 有两条路：连续的音频特征（像图片一样经编码器与 connector）或离散的语音 token（像文本一样）。前者适合理解，后者同时适合理解与生成。全模态模型要同时处理文本、图、音，且要实时。
+声音进入 LLM 有两条路：连续的音频特征（像图片一样经编码器与 connector）或离散的语音 token（像文本一样）。这一篇讲表示：声音在计算机里是什么、怎么变成模型能读的形式、怎么变成离散 token。
 
-**核心内容**：声学特征（mel 谱）与 Whisper 的 encoder-decoder（回指 04-08 的 1500 个位置）；CTC 与 attention 解码的对比；语音理解的两条路——音频编码器 + connector + LLM（Qwen-Audio、SALMONN）与离散 token；神经 codec——SoundStream / EnCodec 的结构、残差向量量化（RVQ）的推导与它为什么能用几个码本表示高保真音频、语义 token 与声学 token 的分层；语音生成——TTS 的 token 化路线（VALL-E：AR 生成第一层 codec token + NAR 生成其余层）与流匹配路线；语音 LLM 的对话形态；全模态模型（Qwen2.5-Omni 的 Thinker-Talker、GPT-4o 一类）的结构——为什么把"想"与"说"分开、TMRoPE 对齐音视频的时间轴；全双工——边听边说的时延账、打断的处理。
+**核心内容**：波形（16 kHz 一秒 16000 个数）；分帧、FFT、mel 滤波器——用 40 行 NumPy 从一段合成语音算出 log-mel 谱并画出来；Whisper 的 encoder-decoder（回指 04-08 的 1500 个位置）；CTC 与 attention 解码的对比；自监督（HuBERT、w2v-BERT）与语义 token；神经 codec——SoundStream / EnCodec 的结构、向量量化就是 K-Means、残差向量量化（RVQ）的推导与一个 2 维手算例子、2000 个向量上 8 级 RVQ 每级误差约减半的实验、训练 RVQ 的四个技巧、语义 token 与声学 token 的分层。
 
-**要回答的问题**：语音为什么比图片更需要离散 token？全双工的时延由什么决定？
+**要回答的问题**：一秒钟的声音在模型眼里是什么？语音为什么比图片更需要离散 token，RVQ 怎么用几个小码本表示高保真音频？
 
-### 5. 扩散模型：DDPM、score matching 与 flow matching
+### 5. 语音（下）：语音理解、语音生成与全双工
 
-生成线的数学核心。三种视角——去噪、score、流——在 2020–2023 年分别被提出，最终被证明是同一件事的三种参数化。
+有了两种表示，这一篇讲怎么用：听、说、边听边说。
 
-**核心内容**：前向加噪的闭式解 $$x_t = \sqrt{\bar\alpha_t} x_0 + \sqrt{1 - \bar\alpha_t}\, \epsilon$$；反向过程的变分下界，与它怎么化简为"预测噪声"的 MSE（DDPM，Ho 等 2020）——完整的推导链；三种预测目标（$$\epsilon$$、$$x_0$$、$$v$$）的等价与各自的数值行为；DDIM——为什么去噪可以是确定性的、它对应的 ODE、步数从 1000 到 50；score matching 的视角——去噪等价于估计 $$\nabla_x \log p_t(x)$$（Tweedie 公式）、SDE / ODE 的统一（Song 等 2021）；flow matching / rectified flow——从 $$x_0$$ 到噪声的直线插值、速度场的回归目标、为什么直线路径让采样步数更少（SD3、FLUX 用的正是它）；噪声调度（linear、cosine、logit-normal 采样时间步）与它对不同分辨率的影响；classifier-free guidance——从贝叶斯分解推出 $$\tilde\epsilon = \epsilon_\emptyset + w(\epsilon_c - \epsilon_\emptyset)$$、guidance scale 在做什么、为什么它提高保真度降低多样性、条件 dropout 的训练技巧。
+**核心内容**：语音理解——音频编码器 + connector + LLM（Qwen2-Audio，VLM 的翻版）与离散 token 路线，音频的 token 预算；语音生成——TTS 的三条路（VALL-E 的 AR 第一码本 + NAR 其余，直接来自 RVQ 的层次；语义→声学两级；F5-TTS 的流匹配）；LLM 直接说与**模态竞争**（Moshi 的内心独白、Qwen2.5-Omni 的 Thinker-Talker，一张三种做法的结构图）；全模态（TMRoPE 对齐音视频时间轴）；全双工——半双工与全双工的时间线对比图、Moshi 的多流与 RQ-Transformer、时延的四段账；评测与成本。
+
+**要回答的问题**：让 LLM 直接生成语音 token 会伤它的文本能力，怎么办？全双工的时延由什么决定？
+
+### 6. 扩散模型（上）：DDPM——加噪、去噪与「预测噪声」
+
+生成线的数学核心，从最容易从零看懂的 DDPM 视角开始。全篇用一个二维的 toy（两个月牙形的点云）把每一步跑出来看。
+
+**核心内容**：前向加噪的一步定义、两步合并的推导（两个数验算）与闭式解 $$x_t = \sqrt{\bar\alpha_t} x_0 + \sqrt{1 - \bar\alpha_t}\, \epsilon$$；toy 上 $$t = 0 \ldots 999$$ 的点云与"1000 步 vs 一步"的数值验算；反向过程——为什么真实的反向算不出、给定 $$x_0$$ 的算得出，后验均值代一组数字（每步只挪 0.6%）；变分下界是什么、逐项读、两个高斯的 KL、化简成噪声预测、$$L_{simple}$$；训练算法四行代码与 toy 的损失曲线（按 $$t$$ 分桶看哪里学到了数据）；采样公式与代码，toy 上从噪声到两个月牙的六帧；三种预测目标；DDIM——非马尔可夫前向、确定性更新、跳步（toy 上 1000 / 50 / 20 / 10 / 5 步）。
+
+**要回答的问题**："扩散模型学的是去噪"——去掉噪声为什么等于学会了生成？训练目标从一个复杂的变分下界怎么变成了一行 MSE？DDIM 为什么能 1000 步跳到 50 步？
+
+### 7. 扩散模型（下）：score matching、flow matching 与 classifier-free guidance
+
+另外两种看同一件事的方式，以及所有文生图模型都依赖的两个技术。
+
+**核心内容**：分数——把上篇训好的模型画成箭头图；Tweedie 公式（toy 验算）；去噪分数匹配等价于噪声预测；SDE 与概率流 ODE；flow matching——直线路径、速度场、toy 上从零训一个；与 DDPM 的换算；轨迹为什么弯（随机配对，toy 直线度 0.49）、reflow 怎么拉直（1.00，一步采样）；1 / 2 / 5 / 20 步下 DDIM vs flow matching vs reflow 的对比图；噪声调度（linear、cosine、零终端 SNR、logit-normal、分辨率平移）；classifier-free guidance——条件 dropout、从贝叶斯到 $$\tilde\epsilon = \epsilon_\emptyset + w(\epsilon_c - \epsilon_\emptyset)$$、toy 上 $$w = 0 / 1 / 2 / 4 / 8$$ 的样本图、它在采样什么分布、副作用与修正。
 
 **要回答的问题**：DDPM、score matching、flow matching 为什么是同一件事？CFG 的 $$w = 7.5$$ 在数学上意味着什么？
 
-### 6. Latent diffusion、DiT 与文生图配方
+### 8. Latent diffusion、DiT 与文生图配方
 
 从数学到一个能用的文生图模型：在哪个空间做扩散、用什么网络、文本怎么注入、怎么采样快。
 
-**核心内容**：像素空间扩散的成本与 latent diffusion 的解法——VAE 把 $$1024^2 \times 3$$ 压到 $$128^2 \times 4$$（或 16 通道），扩散在 latent 上做，48 倍的压缩；VAE 的训练（重建 + KL + 感知 + 对抗）与它的瓶颈（细节、文字）；U-Net（SD 1.x / SDXL）→ DiT（Peebles & Xie 2023：把 latent patch 化送进 Transformer，adaLN 注入时间步与条件）→ MMDiT（SD3：文本与图像 token 在同一个 Transformer 里双流交互）；文本编码器的选择（CLIP 文本塔、T5-XXL、LLM）与它对 prompt 理解的影响；配方对照——SD 1.5 / SDXL / SD3 / FLUX.1 / Imagen / DALL-E 3 的参数量、latent 通道数、预测目标、调度、文本编码器、训练数据与 recaption；扩散模型的成本结构——一张 $$1024^2$$ 图 = 一个 4096 token 的序列前向 × 步数、无 KV cache、compute-bound——与 LLM 的对比，以及它对服务系统的含义；采样加速——步数蒸馏（progressive distillation）、一致性模型（consistency models / LCM）、对抗蒸馏（SDXL-Turbo / ADD）、rectified flow 的直线优势——从 50 步到 1–4 步；视频生成——时空 patch（Sora 的"patch 是视频的 token"）、3D VAE、DiT 的时空 attention、Wan / HunyuanVideo / CogVideoX 的配方；扩散的后训练一瞥（DPO for diffusion、奖励微调）。
+**核心内容**：像素空间扩散的成本与 latent diffusion 的解法（一张账：像素 vs latent 的数的个数与 DiT 序列长度）；用 PCA 当"VAE"、在 16 维 latent 里跑上篇的 DDPM、生成手写数字（toy）；VAE 把 $$1024^2 \times 3$$ 压到 $$128^2 \times 4$$（或 16 通道），扩散在 latent 上做，48 倍的压缩；VAE 的训练（重建 + KL + 感知 + 对抗）与它的瓶颈（细节、文字）；U-Net（SD 1.x / SDXL）→ DiT（Peebles & Xie 2023：把 latent patch 化送进 Transformer，adaLN 注入时间步与条件）→ MMDiT（SD3：文本与图像 token 在同一个 Transformer 里双流交互）；文本编码器的选择（CLIP 文本塔、T5-XXL、LLM）与它对 prompt 理解的影响；配方对照——SD 1.5 / SDXL / SD3 / FLUX.1 / Imagen / DALL-E 3 的参数量、latent 通道数、预测目标、调度、文本编码器、训练数据与 recaption；扩散模型的成本结构——一张 $$1024^2$$ 图 = 一个 4096 token 的序列前向 × 步数、无 KV cache、compute-bound——与 LLM 的对比，以及它对服务系统的含义；采样加速——步数蒸馏（progressive distillation）、一致性模型（consistency models / LCM）、对抗蒸馏（SDXL-Turbo / ADD）、rectified flow 的直线优势——从 50 步到 1–4 步；视频生成——时空 patch（Sora 的"patch 是视频的 token"）、3D VAE、DiT 的时空 attention、Wan / HunyuanVideo / CogVideoX 的配方；扩散的后训练一瞥（DPO for diffusion、奖励微调）。
 
 **要回答的问题**：为什么在 latent 空间做？DiT 相比 U-Net 赢在哪？一张图的生成成本与一次 LLM 推理怎么比？
 
-### 7. 自回归图像生成与统一模型
+### 9. 自回归图像生成与统一模型
 
 两条线的交汇。图片能不能像文本一样被 token 化、然后自回归地生成？理解与生成能不能用一个模型？
 
-**核心内容**：VQ-VAE / VQGAN——把图片编码成离散 token 网格的推导（最近邻码本、commitment loss、STE 传梯度）、码本坍缩与对策（EMA 更新、码本重置、FSQ / LFQ 的无码本量化）、重建质量与 token 数的权衡；AR 图像生成——Parti、LlamaGen 用 LLM 结构逐 token 生成图像 token 的效果与成本（一张 $$256^2$$ 图 256–1024 个 token，与扩散的对比），栅格顺序的问题；VAR（next-scale prediction）——从粗到细逐尺度生成，把顺序问题变成尺度问题，效果与速度都超过栅格 AR；MaskGIT 一类的并行解码；统一模型的三条路线——纯 token（Chameleon、Emu3：一个词表同时有文本与图像 token，一个 Transformer 全做）、双编码器（Janus：理解用 SigLIP 特征、生成用 VQ token，共享 LLM）、AR + 扩散混合（Transfusion、BAGEL：文本用 AR、图像用扩散 loss，同一个 Transformer）——各自的取舍、公开结果与 GPT-4o 原生图像生成的启示；两条线的成本对照；系列总结。
+**核心内容**：用 K-Means 码本把手写数字变成 16 个 token、再用一个计数版的 next-token 模型生成数字（toy）；VQ-VAE / VQGAN——把图片编码成离散 token 网格的推导（最近邻码本、commitment loss、STE 传梯度）、码本坍缩与对策（EMA 更新、码本重置、FSQ / LFQ 的无码本量化）、重建质量与 token 数的权衡；AR 图像生成——Parti、LlamaGen 用 LLM 结构逐 token 生成图像 token 的效果与成本（一张 $$256^2$$ 图 256–1024 个 token，与扩散的对比），栅格顺序的问题；VAR（next-scale prediction）——从粗到细逐尺度生成，把顺序问题变成尺度问题，效果与速度都超过栅格 AR；MaskGIT 一类的并行解码；统一模型的三条路线——纯 token（Chameleon、Emu3：一个词表同时有文本与图像 token，一个 Transformer 全做）、双编码器（Janus：理解用 SigLIP 特征、生成用 VQ token，共享 LLM）、AR + 扩散混合（Transfusion、BAGEL：文本用 AR、图像用扩散 loss，同一个 Transformer）——各自的取舍、公开结果与 GPT-4o 原生图像生成的启示；两条线的成本对照；系列总结。
 
 **要回答的问题**：AR 生成图像与扩散各赢在哪？理解与生成的表示能不能共享？
 
-### 8. 系列总结与通关自测
+### 10. 系列总结与通关自测
 
-最后一篇不讲新内容：把七篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是七篇能不能连起来用；读完正文再做。
+最后一篇不讲新内容：把九篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是九篇能不能连起来用；读完正文再做。
 
 ## 贯穿全系列的实践线
 
-这个系列**没有配套实验**（与 L5 二到八篇、L6 同一约定）。每篇有一节"动手（建议）"，给出用现成工具（`transformers`、`open_clip`、`diffusers`、`lmms-eval`）复现该篇核心现象的骨架与该看的指标，不引用未跑过的数字。
+每篇正文都有一组**能在 CPU 上几秒到一分钟跑完的 toy 实验**，文中的核心代码、数字与图全部由它们产生，放在 [`ai-learning-labs/multimodal/`](https://github.com/arganzheng/ai-learning-labs/tree/main/multimodal)（NumPy / scikit-learn / PyTorch CPU，不下载任何模型）：
 
-建议的动手顺序（一张 24 GB 的 GPU）：
-
-| 篇 | 动手 | 看什么 |
+| 篇 | 脚本 | 跑通什么 |
 |---|---|---|
-| 一 | 用 `open_clip` 比较 CLIP ViT-L 与 SigLIP 在计数 / 空间关系 / 文字识别小测试上的零样本表现 | 编码器的盲点 |
-| 二 | 用 LLaVA-1.5 与 Qwen2.5-VL-3B 在 DocVQA 子集上比不同分辨率设置的准确率与 token 数 | 分辨率—token—精度的三角 |
-| 三 | 复现 LLaVA-1.5 的两阶段训练（558K 对齐 + 665K 指令，7B 在 24 GB 上用 LoRA），做 POPE 幻觉评测 | 阶段与幻觉 |
-| 四 | 用 EnCodec 编码 / 解码一段语音，改变码本层数，听并测 MOS 代理指标 | RVQ 的分层 |
-| 五 | 在 CIFAR-10 上从零训一个小 DDPM 与一个 flow matching 模型（几小时），比不同步数下的 FID | 三种视角、步数与直线路径 |
-| 六 | 用 `diffusers` 跑 SD 1.5 / SDXL / SD3-medium，扫 guidance scale 与步数，测每张图的时间 | CFG 的效果与成本结构 |
-| 七 | 用 VQGAN 编解码图片，改变码本大小，看重建；用 LlamaGen 生成并与 SD 比时间 | 离散瓶颈与 AR 的成本 |
+| 一 | `01_vision_encoders_and_contrastive.py` | 8×8 图切 16 个 patch；3×3 相似度矩阵手算 InfoNCE；30 行 PyTorch 训一个 toy CLIP；温度；sigmoid 损失 |
+| 二 | `02_connectors_and_resolution.py` | MLP / 2×2 merge / 池化 / resampler 四种 connector 的形状与信息损失；三种分辨率策略的 token 数 |
+| 三 | `03_vlm_training_toys.py` | 冻结 LLM vs 一起训 vs 两阶段（文本能力保住了没）；共现偏差 → 幻觉的两特征模型 |
+| 四 | `04_audio_mel_and_rvq.py` | 波形 → log-mel 谱（手写 STFT 与 mel 滤波器）；VQ 与 8 级 RVQ |
+| 五 | `05_duplex_timeline.py` | 半双工 vs 全双工的时间线示意图 |
+| 六 | `06_ddpm_toy.py` | 二维两个月牙上从零训 DDPM：加噪、闭式验算、训练、1000 步采样、DDIM 跳步 |
+| 七 | `07_flow_score_cfg_toy.py` | 分数场箭头图；flow matching 与 reflow；1 / 2 / 5 / 20 步对比；CFG 扫 $$w$$ |
+| 八 | `08_latent_diffusion_toy.py` | PCA 当 VAE，在 16 维 latent 里跑 DDPM 生成手写数字 |
+| 九 | `09_vq_tokenizer_and_ar_toy.py` | K-Means 码本把数字变成 16 个 token；FSQ；计数版 next-token 模型生成数字 |
 
+真实模型上的复现（需要一张 24 GB 的 GPU）在每篇的"动手（建议）"一节：用现成工具（`transformers`、`open_clip`、`diffusers`、`lmms-eval`、`encodec`）复现该篇核心现象的骨架与该看的指标，不引用未跑过的数字。
 
 ## 前置要求与说明
 
@@ -209,7 +234,8 @@ VLM 的训练不是一步到位的：先让 connector 学会对齐、再让 LLM 
 - [L3 第五篇](/cnn-from-lenet-to-resnet-and-vit.html)：ViT 的结构与 patch embedding。
 - [04 系列](/transformer-and-llm-for-infra-engineers.html)第一、三、八篇：Transformer 结构、KV cache、多模态成本。
 - [L5](/post-training-from-sft-to-verifiable-rewards.html)第一、二、四篇：SFT、偏好数据、DPO——第三篇的多模态对齐直接用它们。
-- [L0 数学系列](/math-for-ai-algorithm-engineers.html)的概率部分：第五篇的推导需要高斯分布的性质、条件概率、KL 与变分下界的基本形式。
+- [L2 经典机器学习](/classical-machine-learning-in-the-llm-era.html)：K-Means（第四、九篇的码本就是它）、PCA（第八篇的 toy VAE）、逻辑回归与 softmax（第一篇的对比损失）。
+- 概率的基本概念（高斯分布、条件概率、期望）：第六、七篇会在用到的地方原地解释，[L0 数学系列](/math-for-ai-algorithm-engineers.html)是更系统的补充。
 
 ### 版本与基线
 
@@ -225,11 +251,13 @@ VLM 的训练不是一步到位的：先让 connector 学会对齐、再让 LLM 
 1. [视觉编码器：CLIP、SigLIP 与自监督 ViT](/vision-encoders-clip-siglip-and-self-supervised-vit.html)
 2. [VLM 的结构：connector、注入方式与动态分辨率](/vlm-architecture-connectors-injection-and-dynamic-resolution.html)
 3. [VLM 的训练：数据、阶段与评测](/vlm-training-recipe-data-stages-and-evaluation.html)
-4. [语音与全模态：音频编码器、codec 与全双工](/speech-and-omni-models-audio-encoders-codecs-and-duplex.html)
-5. [扩散模型：DDPM、score matching 与 flow matching](/diffusion-models-ddpm-score-matching-and-flow-matching.html)
-6. [Latent diffusion、DiT 与文生图配方](/latent-diffusion-dit-and-text-to-image-recipes.html)
-7. [自回归图像生成与统一模型](/autoregressive-image-generation-and-unified-models.html)
-8. [系列总结与通关自测](/multimodal-series-recap-and-self-test.html)
+4. [语音（上）：从波形到 token——mel 谱、Whisper 与神经 codec](/speech-and-omni-models-audio-encoders-codecs-and-duplex.html)
+5. [语音（下）：语音理解、语音生成与全双工](/speech-understanding-generation-and-full-duplex.html)
+6. [扩散模型（上）：DDPM——加噪、去噪与「预测噪声」](/diffusion-models-ddpm-score-matching-and-flow-matching.html)
+7. [扩散模型（下）：score matching、flow matching 与 classifier-free guidance](/score-matching-flow-matching-and-classifier-free-guidance.html)
+8. [Latent diffusion、DiT 与文生图配方](/latent-diffusion-dit-and-text-to-image-recipes.html)
+9. [自回归图像生成与统一模型](/autoregressive-image-generation-and-unified-models.html)
+10. [系列总结与通关自测](/multimodal-series-recap-and-self-test.html)
 
 
 ## 最终目标
@@ -242,9 +270,11 @@ VLM 的训练不是一步到位的：先让 connector 学会对齐、再让 LLM 
 | 一张图占多少 token 是合适的？用 MLP 还是压缩？固定分辨率还是动态？ | 第二篇 · 04-08 |
 | 训练分几个阶段、每阶段冻结谁、用什么数据？怎么防止文本能力退化？ | 第三篇 |
 | 模型描述了图里没有的东西，问题在数据、编码器还是解码？ | 第三篇 |
-| 语音要不要离散化？全双工的时延瓶颈在哪？ | 第四篇 |
-| 这个文生图模型用的是 $$\epsilon$$ 预测还是 flow matching？guidance 该设多少？ | 第五篇 |
-| 生成一张图的成本与一次 LLM 推理怎么比？步数怎么从 50 降到 4？ | 第六篇 |
-| 要一个既能看图又能画图的模型，选纯 token、双编码器还是 AR + 扩散？ | 第七篇 |
+| 语音要不要离散化？codec 的比特率与码本层数怎么选？ | 第四篇 |
+| 语音助手要不要让 LLM 直接说？全双工的时延瓶颈在哪？ | 第五篇 |
+| 这个扩散模型的调度、预测目标、采样步数是什么意思？ | 第六篇 |
+| 它用的是 $$\epsilon$$ 预测还是 flow matching？guidance 该设多少？ | 第七篇 |
+| 生成一张图的成本与一次 LLM 推理怎么比？步数怎么从 50 降到 4？ | 第八篇 |
+| 要一个既能看图又能画图的模型，选纯 token、双编码器还是 AR + 扩散？ | 第九篇 |
 
 多模态的模型每年都在换结构。不变的是两条线的数学、"一张图值多少 token"这个账、以及"模型看到了什么、没看到什么"这个问题。
