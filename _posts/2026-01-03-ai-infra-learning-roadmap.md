@@ -390,7 +390,7 @@ graph LR
 ### 不在地图上的内容
 
 - **算法与训练方法**：预训练配方、数据配比、SFT、RLHF / DPO / GRPO、评测、多模态的对齐训练、扩散模型的数学与配方。这些属于[算法工程师的地图](/ai-algorithm-engineer-learning-roadmap.html)；04 是两条路径的交点，10 只讲扩散模型的推理系统。
-- **经典机器学习与前 Transformer 时代的深度学习**：scikit-learn 一族、XGBoost、CNN / RNN 的模型谱系。AI-Infra 的负载以 Transformer 为主，CNN 时代的推理基础设施（TensorRT、Triton Inference Server）只在 11 作为 serving 平台出现。残差连接、LayerNorm 这些 Transformer 借用的部件，04 在需要处直接给出；想系统补的话，算法地图的 [L2 经典机器学习](/classical-machine-learning-in-the-llm-era.html)与 [L3 深度学习基础](/deep-learning-foundations.html)两个系列各六篇。
+- **经典机器学习与前 Transformer 时代的深度学习**：scikit-learn 一族、XGBoost、CNN / RNN 的模型谱系。AI-Infra 的负载以 Transformer 为主，CNN 时代的推理基础设施（TensorRT、Triton Inference Server）只在 11 作为 serving 平台出现。残差连接、LayerNorm 这些 Transformer 借用的部件，04 在需要处直接给出；想系统补的话，算法地图的 [L2 经典机器学习](/classical-machine-learning-in-the-llm-era.html)与 [L3 深度学习基础](/deep-learning-foundations.html)两个系列分别为十篇与六篇。
 - **NLP 基础与 tokenizer**：分词算法（BPE / SentencePiece）、词向量、n-gram。tokenizer 在本图中只以它对系统的影响出现：词表大小决定 embedding 与 lm_head 的参数量（04 第一篇）、tokenize / detokenize 在推理引擎里留在 CPU 侧的进程（08 第三篇）、离线 tokenization 与 `.bin / .idx` 索引（07 第七篇）。算法侧的完整讲法在预训练系列[第一篇](/tokenizer-vocabulary-and-token-efficiency.html)。
 - **通用后端与云原生知识**：K8s 本身、网络基础、Linux 系统编程。假设读者作为后端工程师已经具备；11 只讲它们在 AI 负载下的特殊之处。
 - **数学的系统课程**：不从零讲线性代数、概率与优化。但 AI-Infra 用到的数学是一个很小的子集，列出来比一句"另有课程"更有用；每一条在算法地图的 [L0 数学系列](/math-for-ai-algorithm-engineers.html)里都有一篇从定义讲起：
