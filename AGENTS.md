@@ -782,6 +782,27 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   vLLM v0.15.0 and series 5 pins vLLM v0.20.0 but have no local worktree —
   add one (`git -C ../vllm worktree add ../vllm-v0.20.0 v0.20.0`) before
   re-verifying their source citations.
+  Series 13 (选修《ML 编译器内部》, key `ml-compilers`, dates 2026-11-21 …
+  12-04) pins Triton **v3.8.0** (`../triton-v3.8.0`, detached at the tag;
+  `.venv` = python3.12 with `pip install -e .` built on macOS — `triton-opt`,
+  `triton-tensor-layout` and the gtest binaries live under
+  `build/cmake.macosx-11.0-arm64-cpython-3.12/`; the LLVM pin is auto-downloaded to
+  `~/.triton/llvm/`), LLVM/MLIR **23.1.1** (Homebrew `llvm`: `mlir-opt`,
+  `mlir-tblgen`, `mlir-runner`, `opt`, `llc` with `nvptx64`/`amdgcn` targets),
+  TVM **v0.26.0** (`../tvm-v0.26.0`, built in `build/` with Apple clang + Homebrew
+  LLVM; use `PYTHONPATH=python`, never `pip install -e`). All IR in the posts
+  was generated locally without a GPU: NVIDIA compiles run with
+  `TRITON_PTXAS_PATH=/tmp/mlc/fakebin/ptxas` (a script answering `--version`
+  with `release 12.9, V12.9.86` and touching the `-o` file), giving real
+  ttir/ttgir/llir/ptx and a 0-byte cubin; the AMD path (`GPUTarget("hip",
+  "gfx942", 64)`) needs nothing. Scratch scripts and dumps are in `/tmp/mlc/`
+  (`triton/compile_matmul.py`, `compile_tma.py`, `compile_amd.py`,
+  `compile_small.py`, `plugin/MulToShift.cpp`). Rebuild the fake ptxas if
+  `/tmp` was wiped. Do **not** `cd` into `../tvm-v0.26.0`, `../pytorch-*` or
+  `/opt/homebrew` from the blog shell — they ship their own AGENTS.md whose
+  rules then leak into the session; run their commands with `workdir` or
+  absolute paths. `lit` must be `< 20` in the Triton venv (Homebrew's lit 23
+  rejects Triton's `lit.cfg.py`).
 - **Series membership** is front matter, not prose: `series: <key>` where
   `<key>` is an entry in `_data/series.yml` (`name`, `overview` URL). Members
   are ordered by date; the layouts render the top quote (`本文是《…》系列的第
@@ -927,17 +948,32 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   Future-dated posts need `jekyll serve --future --port 4001 -d /tmp/_site4001`
   + `SITE=http://localhost:4001 node tools/check-render.cjs <slug>` to verify.
 - Series `efficient-inference` (《高效推理与压缩（算法侧）》, L6, 6 posts) and
-  `multimodal` (《多模态：从视觉编码器到扩散模型》, L7, 7 posts), plus the
-  横切 导读 `experimental-methodology-for-ai-algorithm-engineers`, complete the
-  algorithm roadmap (written 2026-09-14, no labs — same "动手（建议）" rule as
-  post-training 2–8; numbers come from papers / tech reports only). L6 builds
-  on 04-07 (量化 / 投机 / LoRA 的账) and 04-03/04-04 (KV) and must not re-derive
-  them; L7 builds on 04-08 (多模态成本) and L3-05 (ViT). Both series link to
-  04 / L5 posts by design — the "series are independent" rule below applies to
-  the Infra series, whereas algorithm-map series cite each other through the
-  map's layer structure. L6 post 6 and L7 post 7 carry the 系列总结 (no
-  hand-written 目录). Time anchors: nothing later than 2025 (posts are dated
-  Apr–May 2026); model refs go up to Qwen2.5-VL / Gemma 3 / BAGEL / gpt-oss.
+  `multimodal` (《多模态：从视觉编码器到扩散模型》, L7, 9 posts + recap NN=10),
+  plus the 横切 导读 `experimental-methodology-for-ai-algorithm-engineers`,
+  complete the algorithm roadmap (written 2026-09-14; L6 has no labs — same
+  "动手（建议）" rule as post-training 2–8, numbers from papers / tech reports
+  only). L6 builds on 04-07 (量化 / 投机 / LoRA 的账) and 04-03/04-04 (KV) and
+  must not re-derive them; L7 builds on 04-08 (多模态成本) and L3-05 (ViT). Both
+  series link to 04 / L5 posts by design — the "series are independent" rule
+  below applies to the Infra series, whereas algorithm-map series cite each
+  other through the map's layer structure. Time anchors: nothing later than
+  2025 (posts are dated Apr–May 2026); model refs go up to Qwen2.5-VL / Gemma 3
+  / BAGEL / gpt-oss.
+  **L7 was expanded 2026-09-21 (reader #67 「太简略，要图文并茂、有实际例子」) to
+  the L2 depth standard**: 语音 and 扩散 each split into 上 / 下 (the 上 keeps
+  the old slug, the 下 is a new file on the same date with `date: … 20:00:00
+  +0800` — 05-06 `speech-understanding-generation-and-full-duplex`, 05-07
+  `score-matching-flow-matching-and-classifier-free-guidance`; recap moved to
+  NN=10; roadmaps say 9 篇 / 7h). Every body post now has a CPU toy in
+  `ai-learning-labs/multimodal/NN_*.py` (numbers / figures in the post come
+  from `expected/` and `out/`, copied to `img/in-post/multimodal-NN-*.svg`;
+  `_plot.save` rasterizes scatter / quiver so a 4000-point plot stays ~100 KB);
+  the 「动手（建议）」 sections stay for real-model reproduction on a GPU. 06 /
+  07 / 08 share `_diffusion_toy.py` (two-moons data, MLP, DDPM schedule) and 07
+  / 08 load the model 06 saves to `out/06_ddpm_model.pt`. Honest toy results
+  are kept as teaching points (flow-matching trajectories are *curvier* than
+  DDIM before reflow, 0.49 vs 0.74; a count-based next-token model produces
+  half-recognizable digits).
 - Post dates encode the reading order of the three roadmaps and were re-dated
   on 2026-09-14 (permalinks are `/:title.html`, so dates are free to move):
   01-01 《AI 全栈学习地图》(overview of the three, pinned) → 01-02 算法地图 →
@@ -946,11 +982,12 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   `algorithm-tooling`; 01-17 Python 使用层 was added 2026-09-15 and everything
   up to 01-30 shifted a day) → Infra 01 Python (01-23 … 01-30, shared: L1 深入篇) →
   Infra 02 C++ (02-02 … 02-15) → Infra 03 PyTorch (02-16 … 02-26, shared: L1
-  深入篇) → L2 经典机器学习 (02-27 overview, 02-28 … 03-05, `classical-ml`) →
+  深入篇) → L2 经典机器学习 (02-27 overview, 02-28 … 03-09, `classical-ml`; expanded
+  from 6 to 10 body posts on 2026-09-21 — see below) →
   L3 (03-23 … 03-29) → 04 Transformer 与 LLM (04-01 … 04-13, shared L4)
   → 后训练 (04-15 … 04-23) → 横切 实验方法论 (04-24, one 导读) → L6
   高效推理与压缩 (04-25 overview, 04-26 … 05-01) → L7 多模态 (05-02 overview,
-  05-03 … 05-09) → Infra 05–10 (GPU Kernel was moved from 05-06…05-30 to
+  05-03 … 05-09, two same-day 下篇 at 20:00, recap 05-09 20:00) → Infra 05–10 (GPU Kernel was moved from 05-06…05-30 to
   05-10 … 05-20 on 2026-09-14 to make room; 通信 starts 06-01 unchanged) → 07
   大规模训练 (07-13 … 07-29) → 08 vLLM (08-11 … 08-25, daily) → 09 RL 后训练基础设施
   (08-26 overview, posts 08-27 … 09-03) → 10 扩散模型推理基础设施 (09-04 overview,
@@ -965,7 +1002,35 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   every claim gets a number from a real model, each post ends with 自测. L1 and
   L2 posts have one CPU script each in `ai-learning-labs/algorithm-tooling/`
   and `classical-ml/` (numbers in the posts come from `expected/`); L0 has
-  none. L1 does not teach Python itself — Infra 01 / 03 are its 深入篇. When
+  none. L1 does not teach Python itself — Infra 01 / 03 are its 深入篇.
+  **L2 was expanded 2026-09-21** after reader feedback (#58 / #59 「整个系列
+  太走马观花」): 6 → 10 body posts (01 什么是学习 · 02 线性回归 (new,
+  `linear-regression-least-squares-ridge-and-lasso`) · 03 逻辑回归与奖励模型
+  (old `linear-and-logistic-regression-…` slug kept) · 04 三个基础分类器 (old
+  `a-family-of-classifiers-…` slug kept) · 05 SVM 与核方法 (new) · 06 集成 (new,
+  `ensembles-random-forest-and-gradient-boosting`) · 07 聚类 (old
+  `unsupervised-learning-…` slug kept) · 08 降维 (new,
+  `dimensionality-reduction-pca-svd-tsne-and-umap`) · 09 去重 · 10 评估; recap
+  NN=11 at 03-09 20:00). Slugs with giscus discussions were never renamed.
+  The depth standard the user set for this series (and asked for series-wide):
+  「小白能看懂」 — every mechanism goes 具体小例子 → 图 → 逐符号公式 → 10–40
+  行手写实现（带 ①②③ 行标、与 scikit-learn 对数、贴真实输出）→ 在 LLM 里哪出现.
+  Second pass (user: 「务必以小白不需要借助其他资料就可以看懂为目标」) added
+  two more rules that apply to every expanded series: (a) a prerequisite the
+  post relies on (导数、梯度、转置、特征值、期望、方差、似然、标准误、hash …)
+  is explained **in place the first time it is used** — a sentence or a
+  `tip:` — never 「见 L0 第 N 篇」 (cross-series pointers are fine only for
+  *further* reading); (b) every formula gets a **hand-checkable example with
+  3–10 numbers** (a table the reader can redo on paper) *before* the code
+  runs it on real data, and the same toy numbers are reused across the post
+  where possible (02 uses the 3 points (1,3)(2,5)(3,8) from 残差 through
+  正规方程 to Ridge). Verify toy numbers with a one-off NumPy run.
+  Every number and every figure comes from `ai-learning-labs/classical-ml/NN_*.py`
+  (figures are matplotlib SVGs written by `_plot.py` — Heiti SC, `svg.fonttype
+  none`, 7.6 in wide, constrained layout — copied to `img/in-post/classical-ml-NN-*.svg`;
+  keep scatter plots subsampled so an SVG stays under ~150 KB). Posts 07 / 08 / 09
+  use a 78-sentence corpus embedded with the locally cached Qwen2.5-0.5B
+  (`_sentences.py`, `HF_HUB_OFFLINE=1`). When
   other posts cite these layers, write 「L0 数学系列第 N 篇」 etc., never
   「L0 导读第 N 章」 (the 导读 chapters no longer exist). Roadmaps link forward to series published later —
   that is the established convention. Series 收尾篇 must NOT carry a
@@ -1262,7 +1327,8 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
     label collisions: `curl -s -X PUT "localhost:9222/json/new?http://localhost:4000/img/in-post/<name>.svg"`
     then `~/.claude/skills/browser/scripts/screenshot.cjs` and view the PNG.
   - Mermaid pitfalls seen so far (10.x and 11.x alike): reserved words as node IDs (`end`,
-    `call`, `click`, `style`, `class`, `default`, `o`, `x`) break parsing;
+    `call`, `click`, `style`, `class`, `default`, `graph`, `o`, `x`) break parsing —
+    also as `classDef` names (`classDef graph …` killed a diagram in 2026-09);
     always quote labels and write literal `[`/`]`/`{`/`}` as `#91;`/`#93;`/
     `#123;`/`#125;`; one message per line in `sequenceDiagram`, no `;` inside.
     Brief used for the diagram pass: `tools/diagram-brief.md`.

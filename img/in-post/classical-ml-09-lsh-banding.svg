@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 300" width="800" height="300" font-family="Heiti SC, PingFang SC, Helvetica, Arial, sans-serif" font-size="12">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#666"/>
+    </marker>
+  </defs>
+  <!-- 标题 -->
+  <text x="400" y="22" text-anchor="middle" font-size="14" fill="#333">LSH 分组分桶：k = 12 个签名分成 b = 3 组、每组 r = 4 个；任一组落进同一个桶就是候选对</text>
+
+  <!-- 文本 A 的签名 -->
+  <text x="20" y="72" fill="#333">文本 A 的签名</text>
+  <g transform="translate(120,58)">
+    <!-- 组 1 -->
+    <rect x="0" y="0" width="128" height="22" fill="#dbe7f5" stroke="#3b6fb6"/>
+    <text x="16" y="16" text-anchor="middle" fill="#333">17</text><text x="48" y="16" text-anchor="middle" fill="#333">4</text><text x="80" y="16" text-anchor="middle" fill="#333">92</text><text x="112" y="16" text-anchor="middle" fill="#333">31</text>
+    <!-- 组 2 -->
+    <rect x="136" y="0" width="128" height="22" fill="#f8dcdc" stroke="#c94c4c"/>
+    <text x="152" y="16" text-anchor="middle" fill="#333">8</text><text x="184" y="16" text-anchor="middle" fill="#333">55</text><text x="216" y="16" text-anchor="middle" fill="#333">2</text><text x="248" y="16" text-anchor="middle" fill="#333">76</text>
+    <!-- 组 3 -->
+    <rect x="272" y="0" width="128" height="22" fill="#dff0e3" stroke="#4a9a5b"/>
+    <text x="288" y="16" text-anchor="middle" fill="#333">40</text><text x="320" y="16" text-anchor="middle" fill="#333">13</text><text x="352" y="16" text-anchor="middle" fill="#333">67</text><text x="384" y="16" text-anchor="middle" fill="#333">5</text>
+  </g>
+  <!-- 文本 B 的签名 -->
+  <text x="20" y="112" fill="#333">文本 B 的签名</text>
+  <g transform="translate(120,98)">
+    <rect x="0" y="0" width="128" height="22" fill="#dbe7f5" stroke="#3b6fb6"/>
+    <text x="16" y="16" text-anchor="middle" fill="#333">17</text><text x="48" y="16" text-anchor="middle" fill="#333">4</text><text x="80" y="16" text-anchor="middle" fill="#333">92</text><text x="112" y="16" text-anchor="middle" fill="#333">31</text>
+    <rect x="136" y="0" width="128" height="22" fill="#f8dcdc" stroke="#c94c4c"/>
+    <text x="152" y="16" text-anchor="middle" fill="#333">8</text><text x="184" y="16" text-anchor="middle" fill="#c94c4c" font-weight="bold">61</text><text x="216" y="16" text-anchor="middle" fill="#333">2</text><text x="248" y="16" text-anchor="middle" fill="#333">76</text>
+    <rect x="272" y="0" width="128" height="22" fill="#dff0e3" stroke="#4a9a5b"/>
+    <text x="288" y="16" text-anchor="middle" fill="#333">40</text><text x="320" y="16" text-anchor="middle" fill="#c94c4c" font-weight="bold">29</text><text x="352" y="16" text-anchor="middle" fill="#333">67</text><text x="384" y="16" text-anchor="middle" fill="#333">5</text>
+  </g>
+  <!-- 组标签 -->
+  <text x="184" y="146" text-anchor="middle" fill="#3b6fb6">组 1：4 个全相等</text>
+  <text x="320" y="146" text-anchor="middle" fill="#c94c4c">组 2：有 1 个不同</text>
+  <text x="456" y="146" text-anchor="middle" fill="#4a9a5b">组 3：有 1 个不同</text>
+
+  <!-- 箭头到桶 -->
+  <line x1="184" y1="152" x2="184" y2="190" stroke="#666" marker-end="url(#arr)"/>
+  <line x1="320" y1="152" x2="320" y2="190" stroke="#666" marker-end="url(#arr)"/>
+  <line x1="456" y1="152" x2="456" y2="190" stroke="#666" marker-end="url(#arr)"/>
+  <text x="184" y="182" text-anchor="middle" font-size="11" fill="#666">hash(17,4,92,31)</text>
+  <text x="320" y="182" text-anchor="middle" font-size="11" fill="#666">hash(…)</text>
+  <text x="456" y="182" text-anchor="middle" font-size="11" fill="#666">hash(…)</text>
+
+  <!-- 桶 -->
+  <g transform="translate(124,196)">
+    <rect x="0" y="0" width="120" height="44" rx="4" fill="#fff" stroke="#3b6fb6" stroke-width="1.5"/>
+    <text x="60" y="18" text-anchor="middle" fill="#333">组 1 的桶 #5817</text>
+    <text x="60" y="36" text-anchor="middle" fill="#3b6fb6" font-weight="bold">A、B 同桶</text>
+  </g>
+  <g transform="translate(260,196)">
+    <rect x="0" y="0" width="120" height="44" rx="4" fill="#fff" stroke="#c94c4c" stroke-width="1.5"/>
+    <text x="60" y="18" text-anchor="middle" fill="#333">组 2 的桶</text>
+    <text x="60" y="36" text-anchor="middle" fill="#c94c4c">A → #0912，B → #4470</text>
+  </g>
+  <g transform="translate(396,196)">
+    <rect x="0" y="0" width="120" height="44" rx="4" fill="#fff" stroke="#4a9a5b" stroke-width="1.5"/>
+    <text x="60" y="18" text-anchor="middle" fill="#333">组 3 的桶</text>
+    <text x="60" y="36" text-anchor="middle" fill="#4a9a5b">A → #7703，B → #2258</text>
+  </g>
+
+  <!-- 右侧说明 -->
+  <g transform="translate(560,58)">
+    <rect x="0" y="0" width="225" height="182" rx="6" fill="#fafafa" stroke="#ccc"/>
+    <text x="12" y="22" fill="#333" font-weight="bold">读法</text>
+    <text x="12" y="46" fill="#333">· 一组内 r 个签名逐个比较太慢，</text>
+    <text x="12" y="64" fill="#333">  把 r 个数拼起来 hash 成一个桶号</text>
+    <text x="12" y="90" fill="#333">· 一组全等 ⇔ 桶号相同（几乎）</text>
+    <text x="12" y="116" fill="#333">· b 组里只要有一组同桶</text>
+    <text x="12" y="134" fill="#333">  → A、B 成为候选对，再精确算 Jaccard</text>
+    <text x="12" y="160" fill="#3b6fb6">· 上图：组 1 同桶 → 候选</text>
+  </g>
+
+  <!-- 底部公式 -->
+  <text x="400" y="278" text-anchor="middle" fill="#333">Jaccard 为 s 的两段文本：一组全等的概率 s^r，b 组都不全等 (1 − s^r)^b，成为候选 1 − (1 − s^r)^b</text>
+</svg>

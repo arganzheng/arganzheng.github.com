@@ -18,7 +18,7 @@ updated: 2026-09-17
 
 > **一个模型从数据到上线经过哪些阶段？每个阶段需要掌握什么？按什么顺序学？**
 
-这张地图描述的是**知识结构**：八层加一个横切，每层说明回答什么问题、包含哪些概念、为什么放在那个位置。每一层都已有对应的系列（共 52 篇、约 31 小时，另与 Infra 地图共享 01 / 03 / 04 三个系列），目录与配套代码在[本文末尾](#已有的文章与系列)。
+这张地图描述的是**知识结构**：八层加一个横切，每层说明回答什么问题、包含哪些概念、为什么放在那个位置。每一层都已有对应的系列（共 58 篇、约 35 小时，另与 Infra 地图共享 01 / 03 / 04 三个系列），目录与配套代码在[本文末尾](#已有的文章与系列)。
 
 | 需要什么 | 具体是什么 |
 |---|---|
@@ -128,12 +128,12 @@ flowchart TB
 |---|---|---|---|---|
 | L0 | 数学基础 | 公式里的每个符号是什么意思？loss 为什么这样写？ | [系列（8 篇）](/math-for-ai-algorithm-engineers.html) | 3h |
 | L1 | 编程与工具 | 怎么把一个想法变成一次能跑的实验？ | [系列（6 篇）](/tooling-for-ai-algorithm-engineers.html) + 深入篇 [01 Python](/python-for-ai-infra.html)、[03 PyTorch](/deep-dive-into-pytorch.html)（共享） | 2h（+ 14h + 15h） |
-| L2 | 机器学习基础 | 什么是学习？怎么知道模型学会了而不是背下来了？ | [系列（6 篇）](/classical-machine-learning-in-the-llm-era.html) | 2h |
+| L2 | 机器学习基础 | 什么是学习？怎么知道模型学会了而不是背下来了？ | [系列（10 篇）](/classical-machine-learning-in-the-llm-era.html) | 4h |
 | L3 | 深度学习基础 | 梯度怎么流？为什么深了就难训？CNN 与 RNN 各解决了什么、留下了什么？ | [系列（6 篇）](/deep-learning-foundations.html) | 3h |
 | L4 | LLM 核心 | Transformer 为什么赢？tokenizer、scaling law 与预训练数据各决定了什么？ | [04 系列（8 篇，共享）](/transformer-and-llm-for-infra-engineers.html) + [预训练系列（4 篇）](/pretraining-from-tokenizer-to-training-recipe.html) | 11h + 4h |
 | L5 | 后训练 | 一个基座模型怎么变成一个能对话、会推理、符合偏好的模型？怎么证明它变好了？ | [系列（8 篇）](/post-training-from-sft-to-verifiable-rewards.html) | 6h |
 | L6 | 高效推理与压缩（算法侧） | 不改硬件，怎么让同一个模型更快、更小、更便宜？ | [系列（6 篇）](/efficient-inference-and-compression-for-llms.html) | 4h |
-| L7 | 多模态 | 图片、视频、语音怎么进入语言模型？图像生成为什么是另一套数学？ | [系列（7 篇）](/multimodal-from-vision-encoders-to-diffusion.html) | 5h |
+| L7 | 多模态 | 图片、视频、语音怎么进入语言模型？图像生成为什么是另一套数学？ | [系列（9 篇）](/multimodal-from-vision-encoders-to-diffusion.html) | 7h |
 | 横切 | 实验方法论 | 怎么用有限的算力得出可信的结论？ | [导读](/experimental-methodology-for-ai-algorithm-engineers.html) | 1h |
 | 选修 | 系统内部 ｜ 应用层 | 推理引擎与训练框架怎么实现（→ Infra 地图）｜ Agent、RAG 怎么搭（→ 应用地图） | — | — |
 
@@ -190,7 +190,7 @@ flowchart TB
 
 > **什么是学习？怎么知道模型学会了而不是背下来了？**
 
-系列：[《LLM 时代的经典机器学习：只讲它在哪里重现》](/classical-machine-learning-in-the-llm-era.html)（六篇）——什么是学习 · 线性与逻辑回归 · 分类器一家 · 无监督 · MinHash 与 LSH · 评估，每篇用几十行 scikit-learn 跑出数字，对到 LLM 上的形态（benchmark 污染、reward hacking、奖励模型 = 逻辑回归、去重阈值、judge 偏差）。
+系列：[《LLM 时代的经典机器学习：只讲它在哪里重现》](/classical-machine-learning-in-the-llm-era.html)（十篇）——什么是学习 · 线性回归 · 逻辑回归与奖励模型 · 三个基础分类器 · SVM 与核方法 · 集成 · 聚类 · 降维 · MinHash 与 LSH · 评估，每个机制用十几行 NumPy 手写并画出来，对到 LLM 上的形态（benchmark 污染、reward hacking、weight decay = Ridge、attention = 核回归、奖励模型 = 逻辑回归、embedding 各向异性、去重阈值、judge 偏差）。
 
 这一层在大模型时代常被跳过，但它提供的是**方法论**而不是具体模型。训练集 / 验证集 / 测试集的划分、过拟合与欠拟合、偏差-方差权衡、正则化、评估指标——这些概念在 LLM 上一个不少地重现：benchmark 污染就是测试集泄漏，奖励模型过拟合就是 reward hacking 的一种来源。
 
@@ -273,7 +273,7 @@ flowchart TB
 
 > **图片、视频、语音怎么进入语言模型？图像生成为什么是另一套数学？**
 
-系列：[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)（七篇）——视觉编码器 · VLM 结构 · VLM 训练与评测 · 语音与全模态 · 扩散模型的数学 · Latent diffusion 与文生图配方 · 自回归图像生成与统一模型。
+系列：[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)（九篇）——视觉编码器 · VLM 结构 · VLM 训练与评测 · 语音上下两篇（从波形到 token；理解、生成与全双工）· 扩散模型上下两篇（DDPM；score / flow matching 与 CFG）· Latent diffusion 与文生图配方 · 自回归图像生成与统一模型。
 
 多模态有两条几乎独立的线：**理解**（把其他模态送进 LLM）与**生成**（扩散模型）。前者是 LLM 的扩展，后者是另一套数学。
 
@@ -345,13 +345,13 @@ VLM 的成本结构——一张图等于多少 token、encoder 与 decoder 各�
 | L0 | [算法工程师的数学：读公式不卡壳的最小集](/math-for-ai-algorithm-engineers.html) | 8 |
 | L1 | [算法工程师的工具箱：从一个想法到一次能跑的实验](/tooling-for-ai-algorithm-engineers.html) | 6 |
 | L1 深入 | [Python 在 AI-Infra](/python-for-ai-infra.html)、[PyTorch 深度实践](/deep-dive-into-pytorch.html)（与 Infra 地图共享） | 7 + 10 |
-| L2 | [LLM 时代的经典机器学习：只讲它在哪里重现](/classical-machine-learning-in-the-llm-era.html) | 6 |
+| L2 | [LLM 时代的经典机器学习：只讲它在哪里重现](/classical-machine-learning-in-the-llm-era.html) | 10 |
 | L3 | [深度学习基础：从反向传播到残差](/deep-learning-foundations.html) | 6 |
 | L4 | [Transformer 与 LLM：结构、算量与数值](/transformer-and-llm-for-infra-engineers.html)（与 Infra 地图共享） | 8 |
 | L4 | [预训练：从 tokenizer 到训练配方](/pretraining-from-tokenizer-to-training-recipe.html) | 4 |
 | L5 | [后训练：从 SFT 到可验证奖励](/post-training-from-sft-to-verifiable-rewards.html) | 8 |
 | L6 | [高效推理与压缩（算法侧）：解码、投机、量化与 KV](/efficient-inference-and-compression-for-llms.html) | 6 |
-| L7 | [多模态：从视觉编码器到扩散模型](/multimodal-from-vision-encoders-to-diffusion.html) | 7 |
+| L7 | [多模态：从视觉编码器到扩散模型](/multimodal-from-vision-encoders-to-diffusion.html) | 9 |
 | 横切 | [算法工程师的实验方法论：用有限的算力得出可信的结论](/experimental-methodology-for-ai-algorithm-engineers.html) | 1 |
 
 L0–L2 最初写成三篇导读，只回答"学到什么深度、在哪里用到、怎么检验学会了"；读者反馈对从零开始的人不够，于是展开成三个系列——每个概念从定义讲起、代真实模型算出数字、L1 / L2 配 CPU 可跑的脚本。横切是一套方法而不是一组知识，一篇长文即可。至此地图上的每一层都有了对应的系列。篇数只计正文；每个系列末尾另有一篇「系列总结与通关自测」（逐篇回顾 + 判断计算 / 跨篇综合 / 面试题三段自测），读完正文再做。
@@ -364,7 +364,7 @@ L0–L2 最初写成三篇导读，只回答"学到什么深度、在哪里用�
 |---|---|---|
 | L1 | `algorithm-tooling/` | numpy、torch（CPU）、pandas、matplotlib；HF 一篇需 transformers / peft / trl 与 Qwen2.5-0.5B |
 | L1 深入 | `python-for-ai-infra/` | Python 3.10+ 标准库 |
-| L2 | `classical-ml/` | numpy、scikit-learn、matplotlib |
+| L2 | `classical-ml/` | numpy、scikit-learn、matplotlib（第七、八篇的句向量用本地缓存的 Qwen2.5-0.5B） |
 | L3 | `deep-learning-foundations/` | NumPy；CNN / RNN 两篇需 PyTorch（CPU） |
 | L4 | `transformer-and-llm/` | 04 系列的成本表与预训练系列的实验；纯 Python 为主 |
 | L5 | `post-training/` | PyTorch + transformers / trl / peft；MPS 或 CUDA |

@@ -149,7 +149,7 @@ Ray Data · 清洗 · 去重`"]
 | | | 10 | 扩散模型推理基础设施：从一次去噪到一个生成服务 |
 | L5 | 平台 | 11 | AI 平台工程：资源层与交付层 |
 | 横切 | 方法（贡献者路径） | 12 | AI-Infra 开源贡献指南 |
-| 选修 | 编译器 | — | ML 编译器内部（MLIR / Triton 编译器 / TVM） |
+| 选修 | 编译器 | 13 | ML 编译器内部：从 SSA、MLIR 到 Triton 编译器 |
 
 ### 两张图的叠加
 
@@ -263,7 +263,7 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 九篇。一次生成的三段（文本编码器、DiT × 步数 × CFG、VAE 解码）的 FLOPs、显存与时间账，以及为什么单请求就是 compute-bound；单卡的 attention 后端、编译、FP8 / INT4（SVDQuant）、offload 与 VAE 分块；相邻去噪步的时间冗余（TeaCache、First-Block Cache、Cache-DiT 一族）；视频的十万级 token 让 attention 占到七成之后的稀疏化（Sparse VideoGen、Radial Attention、STA）；多卡为什么用序列并行、CFG 并行与 PipeFusion 而不是张量并行；步数蒸馏与自回归视频（CausVid、Self-Forcing）之后哪些优化失效、KV cache 怎样回归；生成服务的请求形态、批处理为什么几乎不提吞吐、三段分离、LoRA / ControlNet 与异步任务 API；SGLang Diffusion、vLLM-Omni、xDiT 三个引擎的对照导读；配置推导、有损优化的质量评测与排障。
 
-它是推理主线的**另一半**：08 讲 memory-bound 的 serving，10 讲 compute-bound 的 serving，几乎每一个系统答案都相反。它曾在本图作为选修，理由是"读者面窄"；到 2026 年这个理由不再成立——SGLang 与 vLLM 两个 LLM serving 主项目都把扩散 / 全模态纳入了自己的框架，图像与视频生成已经是与 LLM 并列的一类 serving 负载。模型本身（扩散的数学、DiT、文生图与视频配方、步数蒸馏的方法）属于算法地图 L7 的[《多模态》](/multimodal-from-vision-encoders-to-diffusion.html)系列第五至七篇。
+它是推理主线的**另一半**：08 讲 memory-bound 的 serving，10 讲 compute-bound 的 serving，几乎每一个系统答案都相反。它曾在本图作为选修，理由是"读者面窄"；到 2026 年这个理由不再成立——SGLang 与 vLLM 两个 LLM serving 主项目都把扩散 / 全模态纳入了自己的框架，图像与视频生成已经是与 LLM 并列的一类 serving 负载。模型本身（扩散的数学、DiT、文生图与视频配方、步数蒸馏的方法）属于算法地图 L7 的[《多模态》](/multimodal-from-vision-encoders-to-diffusion.html)系列第六至九篇。
 
 ### L5 平台
 
@@ -285,7 +285,7 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 ### 选修：ML 编译器内部
 
-`torch.compile` 的用法与 Inductor 的工作方式在 03 中覆盖，Triton 的编译流水线在 05 中覆盖。这对绝大多数 AI-Infra 工作已经足够。MLIR 的方言设计、TVM 的调度语言、Triton 编译器自身的实现，只对准备从事编译器开发的读者必要，不进入主线。
+十三篇加一篇总结。`torch.compile` 的用法与 Inductor 的工作方式在 03 中覆盖，Triton 的编译流水线在 05 中从用户视角覆盖——这对绝大多数 AI-Infra 工作已经足够。选修补的是这两篇下面的东西：编译器本身的机制（IR、SSA、pass、pattern rewrite、dialect conversion、数据流分析）与 Triton 编译器源码里这些机制怎样落地——从 Python AST 到 TTIR、AxisInfo、layout 系统与 Linear Layout、layout 优化与 Tensor Core 路径、软件流水与 Hopper / Blackwell / warp specialization / Gluon、TritonGPU 到 LLVM 的下降、缓存与运行时、AMD 后端对照；再用 TVM 的调度语言做对照，最后是编译器开发者的工作台。全部真实 IR 在一台没有 GPU 的 Mac 上用 `triton-opt` 与从源码构建的 Triton v3.8.0 跑出来。它只对准备读 Triton / MLIR 源码、给编译器提 PR、或给新硬件接后端的读者必要，不进入主线；读它之前至少读过 05 的第七篇。
 
 
 ## 系列之间的依赖
@@ -313,6 +313,8 @@ graph LR
     S09 --> S11
     S10 --> S11
     S12["12 开源贡献指南（任何阶段，贡献者路径）"]
+    S05 --> S13["13 ML 编译器内部（选修）"]
+    S03 -.-> S13
 ```
 
 几条主要的依赖关系：
@@ -325,6 +327,7 @@ graph LR
 - **07、08 → 09**：RL 后训练把训练器与推理引擎放进同一个循环；它把两者当作黑盒使用，但读者必须知道黑盒里的状态放在哪、KV cache 有多大，才能理解显存切换与权重同步在搬什么。
 - **04、08 → 10**：扩散推理系列的每个结论都是对照 LLM serving 说的（没有 KV、compute-bound、batch 无益、时长可预测），读者必须先知道 08 的那一套是什么；04 给出 $$2PN + 4LN^2d$$ 的算量规则，10 的账在它上面加了"每 token 经过的参数"与序列长度这两个维度。
 - **07、08、09、10 → 11**：平台的设计决定来自引擎的需求；RL 任务对平台的要求（两类 GPU 池、沙箱集群、不同的弹性语义）与预训练、推理服务都不同，生成服务又多出按形状分池、GPU·秒计费与异步 job。
+- **05 → 13（选修）**：编译器系列顺着 Triton 的编译流水线自上而下，把 05 第七篇那张六层图的每一层打开；读者要先会写 Triton kernel、读过 TTGIR 与 PTX。03 的第七篇（Dynamo → AOTAutograd → Inductor）是它的另一个入口，但不是必需。
 
 "自治"和"依赖"并不矛盾：依赖描述的是**最佳阅读顺序**，自治保证的是**任何一个系列都能单独读懂**。每个系列都会在正文中保留理解它自己所需的最小知识集，深入的展开只在一个系列出现。例如集合通信原语的语义在 03 和 06 都会出现，但 NCCL 的实现细节只在 06；CUDA 执行模型的最小概念在 03 中出现，完整展开只在 05。
 
@@ -387,7 +390,7 @@ graph LR
 ### 不在地图上的内容
 
 - **算法与训练方法**：预训练配方、数据配比、SFT、RLHF / DPO / GRPO、评测、多模态的对齐训练、扩散模型的数学与配方。这些属于[算法工程师的地图](/ai-algorithm-engineer-learning-roadmap.html)；04 是两条路径的交点，10 只讲扩散模型的推理系统。
-- **经典机器学习与前 Transformer 时代的深度学习**：scikit-learn 一族、XGBoost、CNN / RNN 的模型谱系。AI-Infra 的负载以 Transformer 为主，CNN 时代的推理基础设施（TensorRT、Triton Inference Server）只在 11 作为 serving 平台出现。残差连接、LayerNorm 这些 Transformer 借用的部件，04 在需要处直接给出；想系统补的话，算法地图的 [L2 经典机器学习](/classical-machine-learning-in-the-llm-era.html)与 [L3 深度学习基础](/deep-learning-foundations.html)两个系列各六篇。
+- **经典机器学习与前 Transformer 时代的深度学习**：scikit-learn 一族、XGBoost、CNN / RNN 的模型谱系。AI-Infra 的负载以 Transformer 为主，CNN 时代的推理基础设施（TensorRT、Triton Inference Server）只在 11 作为 serving 平台出现。残差连接、LayerNorm 这些 Transformer 借用的部件，04 在需要处直接给出；想系统补的话，算法地图的 [L2 经典机器学习](/classical-machine-learning-in-the-llm-era.html)与 [L3 深度学习基础](/deep-learning-foundations.html)两个系列分别为十篇与六篇。
 - **NLP 基础与 tokenizer**：分词算法（BPE / SentencePiece）、词向量、n-gram。tokenizer 在本图中只以它对系统的影响出现：词表大小决定 embedding 与 lm_head 的参数量（04 第一篇）、tokenize / detokenize 在推理引擎里留在 CPU 侧的进程（08 第三篇）、离线 tokenization 与 `.bin / .idx` 索引（07 第七篇）。算法侧的完整讲法在预训练系列[第一篇](/tokenizer-vocabulary-and-token-efficiency.html)。
 - **通用后端与云原生知识**：K8s 本身、网络基础、Linux 系统编程。假设读者作为后端工程师已经具备；11 只讲它们在 AI 负载下的特殊之处。
 - **数学的系统课程**：不从零讲线性代数、概率与优化。但 AI-Infra 用到的数学是一个很小的子集，列出来比一句"另有课程"更有用；每一条在算法地图的 [L0 数学系列](/math-for-ai-algorithm-engineers.html)里都有一篇从定义讲起：
@@ -430,8 +433,9 @@ graph LR
 | 10 | [扩散模型推理基础设施：从一次去噪到一个生成服务](/diffusion-model-inference-infrastructure.html) | L4 | 9 | 13h |
 | 11 | [AI 平台工程：资源层与交付层](/ai-platform-engineering.html) | L5 | 8 | 21h |
 | 12 | [AI-Infra 开源贡献指南](/contributing-to-ai-infra-open-source.html) | 横切 | 4 | 9h |
+| 13 | [ML 编译器内部：从 SSA、MLIR 到 Triton 编译器](/ml-compiler-internals.html) | 选修 | 13 | 16h |
 
-时长按每分钟 450 字估算通读一遍的量（含代码），合计约 203 小时。篇数与时长只计正文；每个系列末尾另有一篇「系列总结与通关自测」（逐篇回顾 + 判断计算 / 跨篇综合 / 面试题三段自测），读完正文再做。这是给贡献者的深度；只想建立系统视角的读者，每个总纲都有一节「第一遍怎么读」，挑出必读的篇与章。
+时长按每分钟 450 字估算通读一遍的量（含代码），主线十二个系列合计约 203 小时，加选修约 219 小时。篇数与时长只计正文；每个系列末尾另有一篇「系列总结与通关自测」（逐篇回顾 + 判断计算 / 跨篇综合 / 面试题三段自测），读完正文再做。这是给贡献者的深度；只想建立系统视角的读者，每个总纲都有一节「第一遍怎么读」，挑出必读的篇与章。
 
 ### 配套代码
 
@@ -445,9 +449,9 @@ graph LR
 | 09 | `rl-post-training-infra/` | 第一篇的账本，纯 Python；后续实验需 verl 与 8 卡 |
 | 10 | `diffusion-inference-infra/` | 第一篇的账本（三段 FLOPs / 显存 / 时间、五个模型预设），纯 Python |
 
-03、05–08、11、12 以源码走读为主，示例直接给出命令与输出，暂无单独目录。
+03、05–08、11、12、13 以源码走读为主，示例直接给出命令与输出，暂无单独目录（13 的全部 IR 由文中给出的 `triton-opt` / `mlir-opt` / `llc` 命令在本地复现）。
 
-**哪些需要硬件，哪些不需要**：01、02、03、04 与两本账本（09、10 第一篇）在笔记本上就能跑——Python、C++ 编译器、CPU 版 PyTorch 足够，03 的 Dispatcher 与 Autograd 走读也可以在 CPU 上打断点单步跟。05 GPU Kernel 与 06 通信必须有 NVIDIA 卡（Mac 的 MPS 不能跑 CUDA，FlashAttention、NCCL 也没有 Mac 实现），按小时租一张卡足以完成 05 的全部实验；07 大规模训练与 09 的 verl 实验要多卡，文中给的是源码走读与可以对照日志验算的账本。08 vLLM 在 CPU 上能装能跑（`VLLM_TARGET_DEVICE=cpu`），足够走读调度与 KV 管理的代码路径，但性能数字要在卡上看。没有卡不妨碍读完这张地图——所有"千卡""H100"的数字都是算出来的，读者可以用同一套公式验算。
+**哪些需要硬件，哪些不需要**：01、02、03、04 与两本账本（09、10 第一篇）在笔记本上就能跑——Python、C++ 编译器、CPU 版 PyTorch 足够，03 的 Dispatcher 与 Autograd 走读也可以在 CPU 上打断点单步跟。05 GPU Kernel 与 06 通信必须有 NVIDIA 卡（Mac 的 MPS 不能跑 CUDA，FlashAttention、NCCL 也没有 Mac 实现），按小时租一张卡足以完成 05 的全部实验；07 大规模训练与 09 的 verl 实验要多卡，文中给的是源码走读与可以对照日志验算的账本。08 vLLM 在 CPU 上能装能跑（`VLLM_TARGET_DEVICE=cpu`），足够走读调度与 KV 管理的代码路径，但性能数字要在卡上看。没有卡不妨碍读完这张地图——所有"千卡""H100"的数字都是算出来的，读者可以用同一套公式验算。选修 13 特意全程不用 GPU：Homebrew 的 LLVM（`mlir-opt` / `opt` / `llc`）与 macOS 上从源码构建的 Triton 编译器（`triton-opt`、lit 测试、从 Python 编到 PTX 与 AMD ISA）足够跑出文中每一份 IR，只有最后把 cubin 跑起来那一步需要卡。
 
 
 
