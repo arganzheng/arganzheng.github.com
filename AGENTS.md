@@ -946,7 +946,8 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   `algorithm-tooling`; 01-17 Python 使用层 was added 2026-09-15 and everything
   up to 01-30 shifted a day) → Infra 01 Python (01-23 … 01-30, shared: L1 深入篇) →
   Infra 02 C++ (02-02 … 02-15) → Infra 03 PyTorch (02-16 … 02-26, shared: L1
-  深入篇) → L2 经典机器学习 (02-27 overview, 02-28 … 03-05, `classical-ml`) →
+  深入篇) → L2 经典机器学习 (02-27 overview, 02-28 … 03-09, `classical-ml`; expanded
+  from 6 to 10 body posts on 2026-09-21 — see below) →
   L3 (03-23 … 03-29) → 04 Transformer 与 LLM (04-01 … 04-13, shared L4)
   → 后训练 (04-15 … 04-23) → 横切 实验方法论 (04-24, one 导读) → L6
   高效推理与压缩 (04-25 overview, 04-26 … 05-01) → L7 多模态 (05-02 overview,
@@ -965,7 +966,25 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   every claim gets a number from a real model, each post ends with 自测. L1 and
   L2 posts have one CPU script each in `ai-learning-labs/algorithm-tooling/`
   and `classical-ml/` (numbers in the posts come from `expected/`); L0 has
-  none. L1 does not teach Python itself — Infra 01 / 03 are its 深入篇. When
+  none. L1 does not teach Python itself — Infra 01 / 03 are its 深入篇.
+  **L2 was expanded 2026-09-21** after reader feedback (#58 / #59 「整个系列
+  太走马观花」): 6 → 10 body posts (01 什么是学习 · 02 线性回归 (new,
+  `linear-regression-least-squares-ridge-and-lasso`) · 03 逻辑回归与奖励模型
+  (old `linear-and-logistic-regression-…` slug kept) · 04 三个基础分类器 (old
+  `a-family-of-classifiers-…` slug kept) · 05 SVM 与核方法 (new) · 06 集成 (new,
+  `ensembles-random-forest-and-gradient-boosting`) · 07 聚类 (old
+  `unsupervised-learning-…` slug kept) · 08 降维 (new,
+  `dimensionality-reduction-pca-svd-tsne-and-umap`) · 09 去重 · 10 评估; recap
+  NN=11 at 03-09 20:00). Slugs with giscus discussions were never renamed.
+  The depth standard the user set for this series (and asked for series-wide):
+  「小白能看懂」 — every mechanism goes 具体小例子 → 图 → 逐符号公式 → 10–40
+  行手写实现（带 ①②③ 行标、与 scikit-learn 对数、贴真实输出）→ 在 LLM 里哪出现;
+  every number and every figure comes from `ai-learning-labs/classical-ml/NN_*.py`
+  (figures are matplotlib SVGs written by `_plot.py` — Heiti SC, `svg.fonttype
+  none`, 7.6 in wide, constrained layout — copied to `img/in-post/classical-ml-NN-*.svg`;
+  keep scatter plots subsampled so an SVG stays under ~150 KB). Posts 07 / 08 / 09
+  use a 78-sentence corpus embedded with the locally cached Qwen2.5-0.5B
+  (`_sentences.py`, `HF_HUB_OFFLINE=1`). When
   other posts cite these layers, write 「L0 数学系列第 N 篇」 etc., never
   「L0 导读第 N 章」 (the 导读 chapters no longer exist). Roadmaps link forward to series published later —
   that is the established convention. Series 收尾篇 must NOT carry a
