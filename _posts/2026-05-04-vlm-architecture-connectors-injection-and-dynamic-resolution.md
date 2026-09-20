@@ -8,7 +8,7 @@ catalog: true
 updated: 2026-09-14
 ---
 
-编码器输出了几百个向量，它们要进入 LLM。这一步有三个设计决定：**connector**——用什么把编码器的 $$d_v$$ 维特征映射到 LLM 的 $$d$$ 维输入空间，顺便要不要压缩 token 数；**注入方式**——图片 token 是像文本一样进入 LLM 的输入序列（decoder-only 注入），还是通过额外的 cross-attention 层被 LLM "看"（cross-attention 注入）；**分辨率策略**——固定尺寸、切 tile、还是让编码器接受原生分辨率。三个决定合起来回答一个问题：一张图在 LLM 里占多少 token、保留了多少信息、花了多少算力。
+上一篇的编码器把一张图变成了几百个 $$d_v$$ 维向量（CLIP-L 是 1024 维）。LLM 的输入是 $$d$$ 维向量（7B 模型是 4096 维）——两边维度不同、"语言"也不同，中间要有一个转接头。这一步有三个设计决定：**connector**——用什么把编码器的 $$d_v$$ 维特征映射到 LLM 的 $$d$$ 维输入空间，顺便要不要压缩 token 数；**注入方式**——图片 token 是像文本一样进入 LLM 的输入序列（decoder-only 注入），还是通过额外的 cross-attention 层被 LLM "看"（cross-attention 注入）；**分辨率策略**——固定尺寸、切 tile、还是让编码器接受原生分辨率。三个决定合起来回答一个问题：一张图在 LLM 里占多少 token、保留了多少信息、花了多少算力。
 
 [04 系列第八篇](/multimodal-vision-encoder-cost-and-image-token-kv.html)已经算过这三个决定的**成本**：三类 connector 的 token 数表、两种注入的 FLOPs 与 KV 对照、M-RoPE 的三维位置、视频与音频的 token 数。这一篇讲成本背后的**动机与效果**：为什么 2024 年后主流从 Q-Former 回到 MLP、cross-attention 注入为什么被 Llama 3.2 选中又被多数人放弃、原生分辨率解决了 tile 的什么问题。每个选择都是一次"信息 vs token"的交换，这一篇把交换的两边都说清楚。
 
@@ -73,12 +73,12 @@ Qwen2-VL 让 ViT 接受原生分辨率，是为了解决 tile 的三个问题：
 
 | 章 | 主题 | 内容 |
 |---|---|---|
-| 二 | connector | MLP、空间压缩、resampler 三类的机制、参数量与信息保留；为什么 resampler 退出；压缩率的极限 |
+| 二 | connector | 用 16 个 patch 特征把 MLP、2×2 merge、池化、resampler 各跑一遍（形状、参数、丢不丢信息；代码 + 图）；为什么 resampler 退出；压缩率的极限 |
 | 三 | 注入方式 | decoder 序列 vs cross-attention 的结构、参数、文本能力保持、上下文占用；Llama 3.2 的选择与代价 |
-| 四 | 固定分辨率与 tile | AnyRes 的网格选择；缩略图的作用；tile 数与 token 预算；边界问题 |
+| 四 | 固定分辨率与 tile | AnyRes 的网格选择（一个 20 行的选网格函数）；缩略图的作用；tile 数与 token 预算；边界问题 |
 | 五 | 原生动态分辨率 | Qwen2-VL 的做法：2D RoPE、可变 patch 数、2×2 merge、上下限；窗口 attention；NaFlex |
 | 六 | 视频与多图 | 帧采样与时间合并；M-RoPE 的三个轴；token 预算在帧间的分配；交错图文 |
-| 七 | 信息 vs token 的交换 | 一张"任务 × 分辨率 × 压缩"的效果矩阵；文档、自然图、图表各需要什么 |
+| 七 | 信息 vs token 的交换 | 五张图在三种策略下的 token 数（表 + 图）；一张"任务 × 分辨率 × 压缩"的效果矩阵；每 token 多少像素 |
 | 八 | 成本 | 回指 04-08 的账；三个决定各改了什么；训练侧的影响 |
 | 九 | 动手（建议） | 分辨率—token—精度的三角 |
 | 十 | 本文小结 | |
@@ -88,7 +88,19 @@ Qwen2-VL 让 ViT 接受原生分辨率，是为了解决 tile 的三个问题：
 
 ### 1. MLP projector
 
-LLaVA（Liu 等 2023）用一个线性层，LLaVA-1.5 改成两层 MLP（GELU）：$$z_i = W_2\, \text{GELU}(W_1 h_i)$$，对每个 patch 特征 $$h_i \in \mathbb{R}^{d_v}$$ 独立作用，输出 $$z_i \in \mathbb{R}^d$$。参数量 $$d_v d + d^2$$：CLIP-L（1024）到 Vicuna-7B（4096）是 $$1024 \times 4096 + 4096^2 \approx 21M$$，可以忽略。token 数不变。
+最简单的转接头：每个向量各自过一个小网络，从 $$d_v$$ 维变成 $$d$$ 维。LLaVA（Liu 等 2023）用一个线性层（一个矩阵乘），LLaVA-1.5 改成两层 [MLP](# "tip: multi-layer perceptron，多层感知机：线性层 → 非线性激活 → 线性层。GELU 是一种平滑的激活函数，作用类似 ReLU")：$$z_i = W_2\, \text{GELU}(W_1 h_i)$$，对每个 patch 特征 $$h_i \in \mathbb{R}^{d_v}$$ 独立作用，输出 $$z_i \in \mathbb{R}^d$$。参数量 $$d_v d + d^2$$：CLIP-L（1024）到 Vicuna-7B（4096）是 $$1024 \times 4096 + 4096^2 \approx 21M$$，相对 7B 可以忽略。token 数不变。
+
+本章用同一份缩小的输入把四种 connector 各跑一遍：一个 $$4 \times 4 = 16$$ 个 patch 的网格，编码器特征 $$d_v = 8$$ 维，LLM 输入 $$d = 12$$ 维（真实是 576 个 patch、1024 → 4096）：
+
+```python
+h = torch.randn(16, 8)                                               # 编码器输出：16 个 patch 特征 [16, d_v]
+mlp = torch.nn.Sequential(torch.nn.Linear(8, 12), torch.nn.GELU(), torch.nn.Linear(12, 12))
+z_mlp = mlp(h)                                                       # [16, 12]：16 个 token 进去、16 个出来
+```
+
+```text
+MLP projector：(16, 8) → (16, 12)；参数 264（d_v·d + d² 量级）
+```
 
 它的性质：**逐 token、无信息损失**（映射是可逆的当 $$d \ge d_v$$）、**保留空间结构**（第 $$i$$ 个输出对应第 $$i$$ 个 patch，位置由 LLM 的位置编码给出）、**不做任何选择**（所有 patch 一律进 LLM，让 LLM 的 attention 决定看哪）。LLaVA-1.5 的实验证明，就凭这个 MLP 加 558K 对齐数据 + 665K 指令数据，在 12 个 benchmark 上超过用 Q-Former 的 InstructBLIP 与用 129M 数据的 BLIP-2——**LLM 的 attention 比一个小的 resampler 更会挑信息**。
 
@@ -96,15 +108,42 @@ LLaVA（Liu 等 2023）用一个线性层，LLaVA-1.5 改成两层 MLP（GELU）
 
 576 个 token 对 $$336^2$$ 可以接受，但高分辨率下 token 数爆炸（tile 5 个 = 2880，原生 $$1344^2$$ = 9216）。空间压缩把相邻的 $$k \times k$$ 个 patch 特征合成一个 token：
 
-- **2×2 merge / concat**（Qwen2-VL）：把 $$2 \times 2$$ 的四个 $$d_v$$ 维特征**拼接**成 $$4 d_v$$ 维，再过 MLP 到 $$d$$。信息全部保留（拼接不丢），只是让 LLM 用一个 token 处理原来四个的内容；MLP 的参数量变为 $$4 d_v d + d^2$$。
-- **pixel shuffle**（InternVL）：同一件事的另一个名字——来自超分辨率里的 space-to-depth 操作，把 $$H \times W \times C$$ 重排成 $$H/2 \times W/2 \times 4C$$。InternVL 把 $$448^2$$ 的 1024 个 patch 压成 256 个。
-- **平均 / 注意力池化**（Gemma 3、Molmo）：$$k \times k$$ 个特征**平均**（或加权平均）成一个 $$d_v$$ 维向量再投影。有信息损失（平均丢掉了四个 patch 之间的差别），但更便宜。Gemma 3 用 $$4 \times 4$$ 的平均池化把 $$896^2$$ 的 4096 个 patch 压到 256——16 倍。
+- **2×2 merge / concat**（Qwen2-VL）：把 $$2 \times 2$$ 的四个 $$d_v$$ 维特征**拼接**成 $$4 d_v$$ 维，再过 MLP 到 $$d$$。信息全部保留（拼接不丢），只是让 LLM 用一个 token 处理原来四个的内容；MLP 的参数量变为 $$4 d_v d + d^2$$。代码就是一次 reshape：
+
+  ```python
+  grid = h.view(4, 4, 8)                                                                  # 16 个特征摆回 4×4 的网格
+  merged = grid.view(2, 2, 2, 2, 8).permute(0, 2, 1, 3, 4).reshape(-1, 32)                # [4, 32]：每个新 token = 2×2 邻域的 4 个特征首尾相接
+  z_merge = torch.nn.Linear(32, 12)(merged)                                               # [4, 12]
+  ```
+
+  ```text
+  2×2 merge：(16, 8) → 拼接 (4, 32) → MLP (4, 12)；token 数 16 → 4，拼接不丢任何数（32 个数原样在）
+  ```
+- **pixel shuffle**（InternVL）：同一件事的另一个名字——来自超分辨率里的 space-to-depth 操作，把 $$H \times W \times C$$ 重排成 $$H/2 \times W/2 \times 4C$$（PyTorch 里叫 `pixel_unshuffle`，与上面手工拼接的结果只差通道顺序，验证过 `True`）。InternVL 把 $$448^2$$ 的 1024 个 patch 压成 256 个。
+- **平均 / 注意力池化**（Gemma 3、Molmo）：$$k \times k$$ 个特征**平均**（或加权平均）成一个 $$d_v$$ 维向量再投影。有信息损失——平均丢掉了四个 patch 之间的差别。toy 上量一下：`grid.view(2, 2, 2, 2, 8).mean((1, 3))` 得到 $$[4, 8]$$，被抹掉的部分（每个 patch 与其 2×2 均值的差的均方）是原方差的 77%——对随机特征这是灾难，对真实图片相邻 patch 高度相似、损失小得多，但文字这种相邻 patch 差别大的内容会受伤。Gemma 3 用 $$4 \times 4$$ 的平均池化把 $$896^2$$ 的 4096 个 patch 压到 256——16 倍。
+
+![四张小图：编码器输出的 4×4 个编号 0–15 的 patch 特征；MLP 逐个映射后仍是 4×4 个 z0–z15；2×2 merge 后变成 2×2 个 token，每格标着它拼接的四个 patch 编号（0,1,4,5 / 2,3,6,7 / …）；resampler 输出 3 个 token q0–q2，每个都"看全图"](/img/in-post/multimodal-02-connectors.svg)
 
 压缩率的极限在哪？经验上 **4×（2×2）几乎无损**——一个 $$28 \times 28$$ 像素的区域用一个 LLM token 表示，对文字（一个字约 $$20 \times 20$$ 像素）够用；**16×（4×4）在 OCR 与细节任务上开始掉**，Gemma 3 用 pan & scan（对大图或非方形图再切块）补偿；更高的压缩（64×）只在缩略图或视频帧上用。[04-08](/multimodal-vision-encoder-cost-and-image-token-kv.html)第三章给了 2×2 merge 的精确布局。
 
 ### 3. resampler：Q-Former 与 Perceiver
 
-**Perceiver resampler**（Flamingo，Alayrac 等 2022）：$$K$$ 个可学习的 query 向量（$$K = 64$$）对编码器的全部 patch 特征做若干层 cross-attention（query 是 learned latents，key / value 是 patch 特征），输出 $$K$$ 个向量。任意数量的 patch → 固定 $$K$$ 个 token。
+第三类不按位置映射，而是"提问"。先回忆 attention 的三步（L2 第五篇的核回归 = attention）：一个 **query** 向量与每个 **key** 向量算相似度、softmax 成权重、按权重加权平均对应的 **value** 向量。自注意力里 query、key、value 都来自同一串 token；**cross-attention** 里 query 来自一边、key / value 来自另一边——"用 A 去查 B"。
+
+**Perceiver resampler**（Flamingo，Alayrac 等 2022）：$$K$$ 个**可学习的** query 向量（$$K = 64$$，是模型参数，与输入图片无关）对编码器的全部 patch 特征做若干层 cross-attention（key / value 是 patch 特征），输出 $$K$$ 个向量。任意数量的 patch → 固定 $$K$$ 个 token。toy 上 $$K = 3$$：
+
+```python
+queries = torch.nn.Parameter(torch.randn(3, 12))                     # 与图片内容无关的 3 个 query（模型参数）
+att = torch.softmax(Wq(queries) @ Wk(h).T / 12 ** 0.5, dim=-1)       # [3, 16]：每个 query 在 16 个 patch 上的注意力权重
+z_res = att @ Wv(h)                                                  # [3, 12]：按权重加权平均 patch 的 value
+```
+
+```text
+resampler（K = 3 个 query）：(16, 8) → (3, 12)；不论图有多少 patch，永远输出 3 个 token
+   第 0 个 query 的注意力分布（16 个 patch）：[0.07 0.06 0.08 0.07 0.07 0.04 0.06 0.05 0.02 0.05 0.09 0.07 0.07 0.08 0.07 0.05]
+```
+
+每个输出 token 是全部 16 个 patch 的加权平均，权重由"这个 query 问什么"与"这个 patch 是什么"共同决定；训练让 query 学会问"图里主要物体是什么"一类的通用问题。
 
 **Q-Former**（BLIP-2，Li 等 2023）：结构类似（32 个 query、12 层 BERT 式的 cross-attention + self-attention），但训练分两阶段——先用图文对比 / 匹配 / 生成三个目标训 Q-Former 让 query 学会提取"与文本相关"的特征，再接 LLM 训第二阶段。
 
@@ -128,7 +167,7 @@ MM1（McKinzie 等 2024）的消融：connector 的类型（MLP / 池化 / C-Abs
 
 ### 2. cross-attention 注入
 
-Flamingo 与 Llama 3.2 Vision：图片特征**不进**序列。LLM 的每 $$k$$ 层（Flamingo 每层、Llama 3.2 每 4 层）之间插入一个新的 **cross-attention 层**——文本 token 作为 query，图片特征作为 key / value——再加一个 gate（初始为零的 tanh 门，让训练开始时 LLM 行为不变）。图片特征只作为被 attend 的对象，不产生 KV、不占位置。
+Flamingo 与 Llama 3.2 Vision：图片特征**不进**序列。LLM 的每 $$k$$ 层（Flamingo 每层、Llama 3.2 每 4 层）之间插入一个新的 **cross-attention 层**——文本 token 作为 query，图片特征作为 key / value——再加一个 gate——cross-attention 层的输出乘一个可学习的标量 $$\tanh(\alpha)$$，$$\alpha$$ 初始为 0，于是训练开始时这一层输出为零、LLM 的行为与没插层时完全一样，随训练 $$\alpha$$ 逐渐打开。图片特征只作为被 attend 的对象，不产生 KV、不占位置。
 
 性质：**不占上下文**（图片再多也不消耗文本窗口）；**LLM 的文本能力严格不变**（原来的层一个参数没动，gate 关掉就是原 LLM——Llama 3.2 Vision 在纯文本任务上与 Llama 3.1 完全相同）；**图片特征可以更多**（不进序列，几千个特征的成本只在 cross-attention 层）。代价：**新增参数**（Llama 3.2 90B 的 cross-attention 层约 20B 参数——每 4 层一个 cross-attention 层，每个约 $$4d^2$$）；**需要单独训**（这些层从零开始，需要大量图文数据）；**多图与交错的处理复杂**（哪张图对哪段文本可见需要额外的 mask 逻辑）；**推理引擎要特殊支持**（vLLM 为 Llama 3.2 Vision 单独实现了 encoder-decoder 式的 attention 路径）。
 
@@ -152,7 +191,24 @@ LLaVA-NeXT（2024）：把图按预设的网格（$$1 \times 2$$、$$2 \times 2$
 
 ### 3. 网格选择与 token 预算
 
-AnyRes 的网格候选是超参数：LLaVA-NeXT 用 $$\{1 \times 1, 1 \times 2, 2 \times 1, 2 \times 2, 1 \times 3, 3 \times 1\}$$（≤ 4 tile）；InternVL 用 1 到 40 个 tile 的所有宽高比组合。选择规则：找与原图宽高比最近的网格，把图 resize 到该网格的总尺寸（可能有轻微拉伸）。token 预算随 tile 数线性增长，一张 $$4000 \times 3000$$ 的文档照片在 InternVL 里可能用掉 25 个 tile = 6400 token。
+AnyRes 的网格候选是超参数：LLaVA-NeXT 用 $$\{1 \times 1, 1 \times 2, 2 \times 1, 2 \times 2, 1 \times 3, 3 \times 1\}$$（≤ 4 tile）；InternVL 用 1 到 40 个 tile 的所有宽高比组合。选择规则（LLaVA-NeXT 的 `select_best_resolution`）：对每个候选网格，把图保持宽高比缩放到刚好装进去，算"有效像素"（缩小后剩下的像素数，放大不算）与"浪费"（网格面积减有效像素），选有效像素最多、浪费最少的：
+
+```python
+def tokens_anyres(h, w, side=336, patch=14):
+    grids = [(1, 1), (1, 2), (2, 1), (2, 2), (1, 3), (3, 1)]             # (行, 列) 的候选网格
+    best, best_key = None, None
+    for r, c in grids:
+        gh, gw = r * side, c * side
+        scale = min(gw / w, gh / h)                                      # ① 保持宽高比缩放到网格里
+        eff = min(int(w * scale) * int(h * scale), w * h)                # ② 有效像素：放大不算
+        waste = gw * gh - eff                                            # ③ 网格里没被图占住的面积
+        key = (eff, -waste)
+        if best_key is None or key > best_key:
+            best, best_key = (r, c), key
+    return (best[0] * best[1] + 1) * (side // patch) ** 2                # ④ tile 数 × 576 + 一张缩略图
+```
+
+一张 $$1080 \times 2400$$ 的手机截图：$$1 \times 3$$ 的网格（$$336 \times 1008$$）宽高比最接近，3 个 tile + 缩略图 = 2304 token；一张 $$64 \times 64$$ 的小图标也得占 $$1 \times 1$$ + 缩略图 = 1152 token——放大 5 倍再切，全是浪费。token 预算随 tile 数线性增长，一张 $$4000 \times 3000$$ 的文档照片在 InternVL 里可能用掉 25 个 tile = 6400 token。
 
 tile 方案的优点是编码器**完全不变**（每个 tile 是标准的 $$336^2$$ 或 $$448^2$$ 输入，位置编码不需要插值），可以直接用任何现成的 CLIP / SigLIP。这是它在 2024 年流行的工程原因。
 
@@ -163,11 +219,19 @@ tile 方案的优点是编码器**完全不变**（每个 tile 是标准的 $$33
 Qwen2-VL（Wang 等 2024）让 ViT 直接处理任意大小的图：
 
 1. **可变 patch 数**：图按原尺寸（resize 到 28 的倍数，保持宽高比，像素总数限制在 $$[\text{min}, \text{max}]$$ 之间——默认 $$256 \times 28^2$$ 到 $$1280 \times 28^2$$）切成 $$14 \times 14$$ 的 patch，patch 数 $$N = HW / 14^2$$ 随图变化。
-2. **2D RoPE**：ViT 的位置编码从可学习的绝对位置换成 2D RoPE（[04-08](/multimodal-vision-encoder-cost-and-image-token-kv.html)第六章），head_dim 的一半编码行、一半编码列，任意 $$H \times W$$ 无需插值。
+2. **2D RoPE**：ViT 的位置编码从可学习的绝对位置换成 2D [RoPE](# "tip: rotary position embedding，旋转位置编码：不给每个位置一个可学习向量，而是把 query / key 向量按位置旋转一个角度，两个 token 的注意力分数只依赖它们的相对位置。位置可以是任意整数，所以不需要为新分辨率「插值」出新的位置向量")（[04-08](/multimodal-vision-encoder-cost-and-image-token-kv.html)第六章），head_dim 的一半编码行号、一半编码列号，任意 $$H \times W$$ 无需插值。
 3. **2×2 merge**：ViT 输出后相邻 $$2 \times 2$$ 的 patch 特征拼接过 MLP，token 数变为 $$N / 4 = HW / 28^2$$。
 4. **M-RoPE**：进入 LLM 后，图片 token 的位置用三维（时间、高、宽）编码，文本 token 三维相同——让 LLM 知道每个图片 token 的二维位置。
 
-一张 $$224 \times 224$$ 的图：64 个 token；$$448 \times 448$$：256；$$1344 \times 896$$（一页文档）：1536；上限 1280 个 token（约 $$1000 \times 1000$$）。**token 数与像素数成正比**，小图不浪费、大图不截断（在上限内）。
+算法是三行：
+
+```python
+def tokens_native(h, w, unit=28, lo=256, hi=1280):
+    n = round(h / unit) * round(w / unit)                                # 每 28×28 像素一个 token
+    return int(min(max(n, lo), hi))                                      # 夹在上下限之间
+```
+
+一张 $$224 \times 224$$ 的图：64 个 token（被下限顶到 256）；$$448 \times 448$$：256；$$1344 \times 896$$（一页文档）：1536 → 被上限截到 1280；上限 1280 个 token 约对应 $$1000 \times 1000$$。**token 数与像素数成正比**，小图不浪费、大图不截断（在上限内）。
 
 ### 2. 它解决了什么
 
@@ -205,7 +269,23 @@ decoder 序列注入下多图是自然的：每张图的 token 出现在它在�
 
 ## 七、信息 vs token 的交换
 
-### 1. 一张效果矩阵
+### 1. 五张图、三种策略
+
+把前三章的三个函数对几张常见的图各算一遍：
+
+| 图 | 固定 $$336^2$$ | AnyRes ≤ 4 tile | 原生动态（28 px / token） |
+|---|---:|---:|---:|
+| 手机截图 1080 × 2400 | 576 | 2304 | 1280（上限） |
+| A4 文档照片 3000 × 2100 | 576 | 2880 | 1280（上限；不设上限是 8036） |
+| 小图标 64 × 64 | 576 | 1152 | 256（下限；不设下限是 5） |
+| 横幅 400 × 1600 | 576 | 2304 | 798 |
+| 普通照片 768 × 1024 | 576 | 2880 | 999 |
+
+![横轴正方形图的边长 64–2048 像素，纵轴进 LLM 的 token 数：固定策略是 576 的水平线；AnyRes 是台阶——小图 1152、约 350 像素以上跳到 2880；原生动态沿抛物线（像素 / 784）上升，在 256 与 1280 处被上下限夹平](/img/in-post/multimodal-02-token-budget.svg)
+
+固定策略对什么图都是 576——小图浪费、大图糊；AnyRes 是台阶，一张 400 像素的图就要 2880；原生动态让 token 数跟着像素走。同样一张普通照片，三种策略给 LLM 的 token 数是 576 : 2880 : 999，prefill 的算力与 KV 也按这个比例。
+
+### 2. 一张效果矩阵
 
 把公开报告里的数字放在一起（不同模型的 LLM 不同，只看趋势）：
 
@@ -220,7 +300,7 @@ decoder 序列注入下多图是自然的：每张图的 token 出现在它在�
 
 结论：**自然图片任务对分辨率与 token 数不敏感**——LLM 的推理能力是瓶颈；**文档、图表、文字任务对分辨率极度敏感**——是 tile 与原生动态方案的主要受益者；**空间 / 计数任务受益于原生动态**（边界完整）。一个 VLM 的设计要看它的目标负载：通用助手可以用 Gemma 3 式的固定 256 token（便宜），文档理解必须高分辨率。
 
-### 2. 每 token 的信息密度
+### 3. 每 token 的信息密度
 
 另一个看法：一个 LLM token 该对应多少像素？LLaVA-1.5：$$336^2 / 576 = 196$$ 像素/token（$$14 \times 14$$）；Qwen2-VL：$$28 \times 28 = 784$$；Gemma 3：$$896^2 / 256 = 3136$$（$$56 \times 56$$）。经验上 $$28 \times 28$$（一个汉字或两三个英文字母的大小）是文字任务的甜点；$$56 \times 56$$ 对自然图片够、对文字勉强；$$14 \times 14$$ 浪费——相邻 patch 的信息高度冗余，2×2 merge 几乎无损正是因此。
 
@@ -246,6 +326,8 @@ VLM 训练的显存主要由 LLM 决定（与文本 SFT 相同），图片 token
 - **connector 与 tile**：LLaVA-1.5-7B（固定 336）与 LLaVA-NeXT-7B（AnyRes）在同样的 DocVQA 子集上比；用 `lmms-eval` 统一协议。
 
 该看的：DocVQA 随 token 预算的曲线是否陡而 MMBench 是否平；token 数与 prefill 时间的线性关系；LLaVA-NeXT 相比 LLaVA-1.5 在 DocVQA 上的提升是否远大于在 MMBench 上的。再挑几张跨 tile 边界有文字行的图，比较 AnyRes 与原生动态的输出。不引用任何未跑过的数字。
+
+配套代码：第二章四种 connector 的形状与信息损失、第四、五、七章的 token 数与两张图由 [`multimodal/02_connectors_and_resolution.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/multimodal/02_connectors_and_resolution.py) 产生（`connectors` / `budget` 两个子实验），CPU 一秒跑完。
 
 ## 十、本文小结
 

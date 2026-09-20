@@ -1,7 +1,7 @@
 ---
 layout: post
 series: multimodal
-title: "多模态（07）：自回归图像生成与统一模型"
+title: "多模态（09）：自回归图像生成与统一模型"
 subtitle: "Autoregressive Image Generation and Unified Understanding-Generation Models"
 tags: [AI, Multimodal, Image Generation, Unified Models]
 catalog: true
@@ -75,8 +75,8 @@ VAR：next-scale，由粗到细 10 步`"]
 
 | 章 | 主题 | 内容 |
 |---|---|---|
-| 二 | 图像 tokenizer | VQ-VAE 的推导（最近邻、STE、commitment）；码本坍缩与对策；VQGAN 的感知 + 对抗；无码本量化（FSQ、LFQ）；重建 vs 生成的权衡 |
-| 三 | 栅格 AR | DALL-E / Parti / LlamaGen；栅格顺序的问题；CFG 在 AR 上的形式；scaling |
+| 二 | 图像 tokenizer | 用 k-means 码本把手写数字变成 16 个 token（代码 + 图）；VQ-VAE 的推导（最近邻、STE、commitment）；码本坍缩与对策；VQGAN；无码本量化（FSQ 手算、LFQ）；重建 vs 生成的权衡 |
+| 三 | 栅格 AR | 一个计数版的 next-token 模型在 toy token 上生成数字（图）；DALL-E / Parti / LlamaGen；栅格顺序的问题；CFG 在 AR 上的形式；scaling |
 | 四 | 打破栅格 | MaskGIT 的并行解码；VAR 的 next-scale 推导与多尺度残差 VQ；速度与质量 |
 | 五 | AR vs 扩散 | 质量、效率、可控性、统一性的对照；混合方法（MAR 的连续 token AR + 扩散头） |
 | 六 | 统一模型 | 三条路线的结构、训练与结果；Chameleon 的稳定性问题；Janus 的解耦；Transfusion / BAGEL 的混合；GPT-4o 原生图像生成的启示 |
@@ -96,6 +96,26 @@ z_q(i, j) = e_{k^*}, \qquad k^* = \arg\min_k \lVert z_e(i, j) - e_k \rVert_2
 $$
 
 解码器 $$D$$ 从 $$z_q$$ 重建图。图就变成了 $$h \times w$$ 个整数（码字索引）——$$256^2$$ 的图、$$f = 16$$：$$16 \times 16 = 256$$ 个 token，每个 $$\log_2 K$$ bit。
+
+"码本 / 最近邻 / 查表"这些词在第四篇 RVQ 里已经出现过：**VQ 就是 K-Means**（L2 第七篇）——码本是簇中心，量化是归到最近的中心。先不用神经网络，把它做到最小：编码器 = 把 $$8 \times 8$$ 的手写数字切成 16 个 $$2 \times 2$$ 的 patch（每个 4 个像素），码本 = 对全部 patch 做 K-Means（$$K = 32$$），量化 = 每个 patch 取最近簇中心的编号，解码器 = 查码本、拼回 $$8 \times 8$$：
+
+```python
+km = KMeans(32).fit(ALL.reshape(-1, 4))                   # ① 训练码本 = 对 1797 × 16 个 2×2 patch 做 k-means
+CODEBOOK = km.cluster_centers_                            #    [32, 4]：32 个码字，每个是一个 2×2 的小块
+TOKENS = km.predict(ALL.reshape(-1, 4)).reshape(-1, 16)   # ② 每个 patch → 最近码字的编号：每张图 16 个整数
+rec = unpatchify(CODEBOOK[TOKENS[0]])                     # ③ 解码 = 查码本、拼回 8×8
+```
+
+```text
+码本 K = 32（5 bit / token）；一张图 = 16 个 token = 80 bit，原图 64 像素 × 4 bit = 256 bit
+第 0 张图（数字 0）的 token 序列：[3, 17, 0, 29, 9, 16, 14, 1, 25, 10, 18, 1, 3, 28, 4, 3]
+重建 MSE 0.0086；码字使用次数最多 9399、最少 267——0 个死码字
+K =   8：重建 MSE 0.0247    K = 128：重建 MSE 0.0034——码本越大重建越好，但 AR 模型要在越多的类里选
+```
+
+![三行六列：上排六张原始手写数字 0–5；中排是每张图对应的 4×4 token 网格，每格一个 0–31 的编号并按编号着色；下排是查码本重建出的图，与原图几乎一样](/img/in-post/multimodal-09-vq-tokens.svg)
+
+一张图变成了 16 个整数——**一句 16 个"词"的话，词表大小 32**。第三章的 AR 模型就在这些"句子"上做 next-token prediction。真实的 VQ-VAE 只是把"切 patch"换成卷积编码器、把 K-Means 换成与编码器一起训的码本（下面的三项损失），把 $$K$$ 从 32 换成 16384。
 
 $$\arg\min$$ 不可微。训练用三项损失与一个技巧：
 
@@ -121,7 +141,7 @@ VQ-VAE 的重建模糊——MSE 损失对高频不敏感。VQGAN（Esser 等 202
 
 码本的一切麻烦来自"学一个码本"。两个 2023 年的工作绕开它：
 
-**FSQ**（Finite Scalar Quantization，Mentzer 等 2023）：把 $$z_e$$ 投影到很低的维度 $$d'$$（比如 5），每一维独立地 round 到 $$L$$ 个等间隔的值（比如 $$L = 8$$，用 $$\tanh$$ 压到 $$[-1, 1]$$ 后 round），码本就是这个 $$d'$$ 维格点的**隐式**乘积——$$L^{d'} = 8^5 = 32768$$ 个码字，不需要学、不会坍缩、利用率 100%。STE 传梯度，没有 commitment 与 codebook loss。效果与 VQ 相当，训练简单得多。
+**FSQ**（Finite Scalar Quantization，Mentzer 等 2023）：把 $$z_e$$ 投影到很低的维度 $$d'$$（比如 5），每一维独立地 round 到 $$L$$ 个等间隔的值（比如 $$L = 8$$，用 $$\tanh$$ 压到 $$[-1, 1]$$ 后 round），码本就是这个 $$d'$$ 维格点的**隐式**乘积——$$L^{d'} = 8^5 = 32768$$ 个码字，不需要学、不会坍缩、利用率 100%。用 toy 的 4 维 patch 手算（$$L = 4$$，刻度 $$\{0, 1/3, 2/3, 1\}$$）：第 0 张图第 5 个 patch 的像素 $$(0.94, 0.12, 0.75, 0)$$ 逐维 round 到 $$(1, 0, 2/3, 0)$$，刻度编号 $$(3, 0, 2, 0)$$ 按 4 进制拼成一个整数 $$3 + 0 \times 4 + 2 \times 16 + 0 \times 64 = 35$$——这就是它的 token；隐式码本 $$4^4 = 256$$ 个，1797 张图用到 245 个，重建 MSE 0.0043，比 $$K = 32$$ 的 K-Means 码本还好而根本没有训练。STE 传梯度，没有 commitment 与 codebook loss。效果与 VQ 相当，训练简单得多。
 
 **LFQ**（Lookup-Free Quantization，Yu 等 2023，MAGVIT-v2）：FSQ 的极端——每一维二值化（$$L = 2$$），$$d' = 18$$ 就是 $$2^{18} = 262144$$ 的码本；加一个熵惩罚防止某些维度恒定。它让大码本（$$2^{18}$$）成为可能——VQ 的最近邻搜索在 $$K = 2^{18}$$ 下不可行，LFQ 每维独立所以是 $$O(d')$$。MAGVIT-v2 用它在视频生成上超过了扩散；Infinity 用**位级**的 LFQ（$$2^{32}$$ 等效码本，每个 token 是 32 个 bit，生成时预测 bit）做到 $$1024^2$$ 文生图。
 
@@ -135,7 +155,29 @@ tokenizer 有两个客户：重建（解码器要从 token 还原图）与生成
 
 ### 1. 从 DALL-E 到 LlamaGen
 
-有了 token，图像生成就是语言建模：把 $$16 \times 16$$ 的 token 网格按栅格顺序（左到右、上到下）展平成 256 个 token 的序列，前面接文本 token，用 decoder-only Transformer 做 next-token prediction。DALL-E（Ramesh 等 2021）：12B 参数、256 个文本 token + 1024 个图像 token（dVAE，$$f = 8$$）、2.5 亿图文对。Parti（Yu 等 2022）：encoder-decoder、20B、ViT-VQGAN——展示了 AR 文生图随规模的改善（350M → 20B，文字渲染与组合能力显著提升）。LlamaGen（Sun 等 2024）：完全用 Llama 的结构（RoPE、SwiGLU、RMSNorm，无任何视觉特化）、0.1–3.1B、VQGAN 16384 码本 $$f = 16$$——ImageNet $$256^2$$ 类别条件 FID 2.18（3.1B），超过 DiT-XL/2 的 2.27，证明"纯 LLM 结构 + 好的 tokenizer"够用。
+有了 token，图像生成就是语言建模：把 $$16 \times 16$$ 的 token 网格按栅格顺序（左到右、上到下）展平成 256 个 token 的序列，前面接文本 token，用 decoder-only Transformer 做 next-token prediction。
+
+先用第二章那 1797 句"16 个词、词表 32"的话，做一个不用神经网络的 next-token 模型看清这件事：每个位置一张计数表，数"左边的 token 是 $$l$$、上边的 token 是 $$u$$ 时，这个位置出现过哪些 token 各几次"，生成时从左上角开始逐个位置查表、按频率抽（一个上下文没见过几次时退回只看左边）：
+
+```python
+for seq in TOKENS:                                            # ① 训练 = 数数：(位置, 左邻, 上邻) → 当前 token 出现了几次
+    for i in range(1, 16):
+        c2[i, seq[i - 1], seq[i - 4] if i >= 4 else 0, seq[i]] += 1
+
+seq = [rng.choice(K, p=first / first.sum())]                  # ② 第一个 token 按频率抽
+for i in range(1, 16):
+    seq.append(rng.choice(K, p=dist(i, seq[i - 1], seq[i - 4] if i >= 4 else 0)))   # ③ next-token：查表、按概率抽——16 步
+img = unpatchify(CODEBOOK[np.array(seq)])                     # ④ 查码本解码
+```
+
+```text
+训练序列的平均对数似然 -22.58（每 token -1.41，即平均从约 4.1 个候选里选）；随机猜是每 token log(1/32) = -3.47
+生成一张图 = 16 次「查表 → 抽样」；一个 1024² 的图在 f16 下是 4096 次
+```
+
+![5 行 12 列共 60 张 8×8 的生成图：约一半是可辨认的数字（2、5、9、1、0、3 等），另一半是笔画拼接的碎片](/img/in-post/multimodal-09-ar-samples.svg)
+
+一个只会数数的模型，看着左边与上边两个 token 逐格往下写，就写出了一半像样的数字——**这就是 AR 图像生成的全部机制**，DALL-E 与 LlamaGen 只是把"查两个邻居的计数表"换成"一个 Transformer 看全部前文"，把词表 32 换成 16384、序列 16 换成 256–4096。另一半是碎片，恰好暴露了栅格顺序的两个问题（第 3 节）：模型写第 3 行时看不到第 4 行会是什么，写右边时不知道左边整体是不是一个"5"。DALL-E（Ramesh 等 2021）：12B 参数、256 个文本 token + 1024 个图像 token（dVAE，$$f = 8$$）、2.5 亿图文对。Parti（Yu 等 2022）：encoder-decoder、20B、ViT-VQGAN——展示了 AR 文生图随规模的改善（350M → 20B，文字渲染与组合能力显著提升）。LlamaGen（Sun 等 2024）：完全用 Llama 的结构（RoPE、SwiGLU、RMSNorm，无任何视觉特化）、0.1–3.1B、VQGAN 16384 码本 $$f = 16$$——ImageNet $$256^2$$ 类别条件 FID 2.18（3.1B），超过 DiT-XL/2 的 2.27，证明"纯 LLM 结构 + 好的 tokenizer"够用。
 
 ### 2. CFG 在 AR 上
 
@@ -273,6 +315,8 @@ Chameleon 34B：4.4T token；BAGEL：数万亿 token 的交错数据、14B MoT�
 - **统一模型**：Janus-Pro-7B 或 BAGEL（需 24 GB + offload）：同一张图先问理解问题再要求编辑，看编辑是否保持了理解到的内容；与"Qwen2.5-VL 理解 + FLUX 重绘"的两模型流水线比。
 
 该看的：f8 的重建远好于 f16 但 token 4 倍；码本利用率是否远低于 100%（旧 VQ）而低维归一化 VQ / FSQ 接近 100%；LlamaGen 无 CFG 的 FID 是否是有 CFG 的数倍；VAR 是否比 LlamaGen 快 20 倍且 FID 更好；统一模型的编辑是否比流水线更忠实于原图。不引用任何未跑过的数字。
+
+配套代码：第二章的 K-Means 码本与 FSQ、第三章的计数 AR 模型与两张图由 [`multimodal/09_vq_tokenizer_and_ar_toy.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/multimodal/09_vq_tokenizer_and_ar_toy.py) 产生（`vq` / `fsq` / `ar` / `steps`），纯 NumPy + scikit-learn，CPU 几秒。其余数字来自论文与技术报告。
 
 ## 九、本文小结
 

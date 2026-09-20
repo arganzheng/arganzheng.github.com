@@ -948,17 +948,32 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   Future-dated posts need `jekyll serve --future --port 4001 -d /tmp/_site4001`
   + `SITE=http://localhost:4001 node tools/check-render.cjs <slug>` to verify.
 - Series `efficient-inference` (《高效推理与压缩（算法侧）》, L6, 6 posts) and
-  `multimodal` (《多模态：从视觉编码器到扩散模型》, L7, 7 posts), plus the
-  横切 导读 `experimental-methodology-for-ai-algorithm-engineers`, complete the
-  algorithm roadmap (written 2026-09-14, no labs — same "动手（建议）" rule as
-  post-training 2–8; numbers come from papers / tech reports only). L6 builds
-  on 04-07 (量化 / 投机 / LoRA 的账) and 04-03/04-04 (KV) and must not re-derive
-  them; L7 builds on 04-08 (多模态成本) and L3-05 (ViT). Both series link to
-  04 / L5 posts by design — the "series are independent" rule below applies to
-  the Infra series, whereas algorithm-map series cite each other through the
-  map's layer structure. L6 post 6 and L7 post 7 carry the 系列总结 (no
-  hand-written 目录). Time anchors: nothing later than 2025 (posts are dated
-  Apr–May 2026); model refs go up to Qwen2.5-VL / Gemma 3 / BAGEL / gpt-oss.
+  `multimodal` (《多模态：从视觉编码器到扩散模型》, L7, 9 posts + recap NN=10),
+  plus the 横切 导读 `experimental-methodology-for-ai-algorithm-engineers`,
+  complete the algorithm roadmap (written 2026-09-14; L6 has no labs — same
+  "动手（建议）" rule as post-training 2–8, numbers from papers / tech reports
+  only). L6 builds on 04-07 (量化 / 投机 / LoRA 的账) and 04-03/04-04 (KV) and
+  must not re-derive them; L7 builds on 04-08 (多模态成本) and L3-05 (ViT). Both
+  series link to 04 / L5 posts by design — the "series are independent" rule
+  below applies to the Infra series, whereas algorithm-map series cite each
+  other through the map's layer structure. Time anchors: nothing later than
+  2025 (posts are dated Apr–May 2026); model refs go up to Qwen2.5-VL / Gemma 3
+  / BAGEL / gpt-oss.
+  **L7 was expanded 2026-09-21 (reader #67 「太简略，要图文并茂、有实际例子」) to
+  the L2 depth standard**: 语音 and 扩散 each split into 上 / 下 (the 上 keeps
+  the old slug, the 下 is a new file on the same date with `date: … 20:00:00
+  +0800` — 05-06 `speech-understanding-generation-and-full-duplex`, 05-07
+  `score-matching-flow-matching-and-classifier-free-guidance`; recap moved to
+  NN=10; roadmaps say 9 篇 / 7h). Every body post now has a CPU toy in
+  `ai-learning-labs/multimodal/NN_*.py` (numbers / figures in the post come
+  from `expected/` and `out/`, copied to `img/in-post/multimodal-NN-*.svg`;
+  `_plot.save` rasterizes scatter / quiver so a 4000-point plot stays ~100 KB);
+  the 「动手（建议）」 sections stay for real-model reproduction on a GPU. 06 /
+  07 / 08 share `_diffusion_toy.py` (two-moons data, MLP, DDPM schedule) and 07
+  / 08 load the model 06 saves to `out/06_ddpm_model.pt`. Honest toy results
+  are kept as teaching points (flow-matching trajectories are *curvier* than
+  DDIM before reflow, 0.49 vs 0.74; a count-based next-token model produces
+  half-recognizable digits).
 - Post dates encode the reading order of the three roadmaps and were re-dated
   on 2026-09-14 (permalinks are `/:title.html`, so dates are free to move):
   01-01 《AI 全栈学习地图》(overview of the three, pinned) → 01-02 算法地图 →
@@ -972,7 +987,7 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   L3 (03-23 … 03-29) → 04 Transformer 与 LLM (04-01 … 04-13, shared L4)
   → 后训练 (04-15 … 04-23) → 横切 实验方法论 (04-24, one 导读) → L6
   高效推理与压缩 (04-25 overview, 04-26 … 05-01) → L7 多模态 (05-02 overview,
-  05-03 … 05-09) → Infra 05–10 (GPU Kernel was moved from 05-06…05-30 to
+  05-03 … 05-09, two same-day 下篇 at 20:00, recap 05-09 20:00) → Infra 05–10 (GPU Kernel was moved from 05-06…05-30 to
   05-10 … 05-20 on 2026-09-14 to make room; 通信 starts 06-01 unchanged) → 07
   大规模训练 (07-13 … 07-29) → 08 vLLM (08-11 … 08-25, daily) → 09 RL 后训练基础设施
   (08-26 overview, posts 08-27 … 09-03) → 10 扩散模型推理基础设施 (09-04 overview,

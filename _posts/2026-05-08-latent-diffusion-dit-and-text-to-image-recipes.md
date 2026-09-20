@@ -1,14 +1,14 @@
 ---
 layout: post
 series: multimodal
-title: "多模态（06）：Latent diffusion、DiT 与文生图配方"
+title: "多模态（08）：Latent diffusion、DiT 与文生图配方"
 subtitle: "Latent Diffusion, DiT and How Text-to-Image Models Are Built"
 tags: [AI, Multimodal, Diffusion, Text-to-Image, Video Generation]
 catalog: true
 updated: 2026-09-15
 ---
 
-上一篇的数学在 $$32^2$$ 的 CIFAR 上就能跑；要生成 $$1024^2$$ 的图，中间隔着三个工程决定。**在哪个空间做扩散**——像素空间的 $$1024 \times 1024 \times 3$$ 太大，Latent Diffusion 先用一个 VAE 把图压到 $$128 \times 128 \times 4$$（或 16 通道），扩散在 latent 上做，48 倍的压缩让训练与采样都进入可行区间。**用什么网络**——2022 年是 U-Net，2023 年 DiT 证明 Transformer 在扩散上同样遵循 scaling law，2024 年 SD3 与 FLUX 用 MMDiT 让文本与图像 token 在同一个 Transformer 里交互。**文本怎么进入**——CLIP 文本塔、T5-XXL、还是 LLM，决定了模型对 prompt 的理解深度。
+前两篇的数学在二维点云和 $$32^2$$ 的 CIFAR 上就能跑；要生成 $$1024^2$$ 的图，中间隔着三个工程决定。**在哪个空间做扩散**——像素空间的 $$1024 \times 1024 \times 3$$ 太大，Latent Diffusion 先用一个 VAE 把图压到 $$128 \times 128 \times 4$$（或 16 通道），扩散在 latent 上做，48 倍的压缩让训练与采样都进入可行区间。**用什么网络**——2022 年是 U-Net，2023 年 DiT 证明 Transformer 在扩散上同样遵循 scaling law，2024 年 SD3 与 FLUX 用 MMDiT 让文本与图像 token 在同一个 Transformer 里交互。**文本怎么进入**——CLIP 文本塔、T5-XXL、还是 LLM，决定了模型对 prompt 的理解深度。
 
 这一篇也讲扩散模型与 LLM **完全不同的成本结构**：一张图是一个 4096 token 序列的前向乘以步数，每步是大 batch 的 GEMM，compute-bound、没有 KV cache、没有自回归的串行——所以它的加速手段不是投机解码与量化 KV，而是**步数蒸馏**：从 50 步到 4 步到 1 步。最后是视频：把"patch 是图像的 token"推广到"时空 patch 是视频的 token"。
 
@@ -74,7 +74,7 @@ U-Net + cross-attn 或 DiT / MMDiT
 
 | 章 | 主题 | 内容 |
 |---|---|---|
-| 二 | Latent diffusion | 为什么像素空间贵；VAE 的结构与训练（重建 + KL + 感知 + 对抗）；压缩率与通道数的权衡；VAE 的瓶颈 |
+| 二 | Latent diffusion | 为什么像素空间贵（一张账）；用 PCA 当"VAE"在 16 维 latent 里跑一遍 DDPM、生成手写数字（代码 + 图）；VAE 的结构与训练（重建 + KL + 感知 + 对抗）；压缩率与通道数；VAE 的瓶颈 |
 | 三 | U-Net 到 DiT | U-Net 的结构与条件注入；DiT 的 patchify、adaLN-Zero、scaling 结果；PixArt 的 cross-attn；MMDiT 的双流 |
 | 四 | 文本编码器 | CLIP 文本塔 vs T5 vs LLM；77 token 的限制；多编码器拼接；recaption 为什么是数据侧最重要的改进 |
 | 五 | 配方细节 | 多尺寸 / 多宽高比训练；微条件（SDXL）；分辨率平移；数据过滤与美学分 |
@@ -92,9 +92,50 @@ U-Net + cross-attn 或 DiT / MMDiT
 
 $$1024^2 \times 3$$ 的图有 3.1M 个数。U-Net 在这个尺寸上的第一层就要处理 $$1024^2$$ 个位置；如果用 Transformer，patch 16 也有 4096 个 token，patch 8 有 16384 个。且扩散的每一步都要在这个尺寸上前向，50 步就是 50 次。Imagen 与 DALL-E 2 的解法是**级联**：先在 $$64^2$$ 生成，再用两个超分扩散模型放大到 $$256^2$$、$$1024^2$$——三个模型、三套训练、错误在级联中累积。
 
-Rombach 等 2022（Latent Diffusion Models）的观察：图像生成的"感知压缩"与"语义压缩"可以分开。前者（去掉人眼不分辨的高频细节）是一个确定性的、容易学的任务，用自编码器一次完成；后者（学分布、生成结构与内容）是难的任务，交给扩散——在压缩后的空间里做。
+把这笔账算出来：
 
-### 2. VAE 的结构与训练
+| 空间 | 形状 | 数的个数 | 相对像素空间 | patch 2 的 DiT 序列长度 |
+|---|---|---:|---:|---:|
+| 像素 | $$1024 \times 1024 \times 3$$ | 3,145,728 | 1× | 262,144 |
+| latent f8 × 4 通道（SD 1.x） | $$128 \times 128 \times 4$$ | 65,536 | 1/48 | 4,096 |
+| latent f8 × 16 通道（SD3 / FLUX） | $$128 \times 128 \times 16$$ | 262,144 | 1/12 | 4,096 |
+
+Transformer 的 attention 成本随序列长度平方增长，262144 个 token 的 attention 是 4096 个的 4096 倍——像素空间的 DiT 根本跑不起来。
+
+Rombach 等 2022（Latent Diffusion Models）的观察：图像生成的"感知压缩"与"语义压缩"可以分开。前者（去掉人眼不分辨的高频细节）是一个确定性的、容易学的任务，用[自编码器](# "tip: autoencoder：两个网络，编码器把输入压成一个短向量（latent），解码器从短向量重建输入，训练目标是重建误差最小。VAE（variational autoencoder）在此基础上让 latent 服从一个概率分布并加 KL 正则")一次完成；后者（学分布、生成结构与内容）是难的任务，交给扩散——在压缩后的空间里做。
+
+### 2. 把它缩小到能跑：PCA 当 VAE，16 维里做扩散
+
+L2 第八篇的 PCA 就是最简单的自编码器：编码器 = 投影到前 $$k$$ 个主成分，解码器 = 乘回去加均值。用它当"VAE"，在 1797 张 $$8 \times 8$$ 手写数字上把 64 个像素压成 16 个数：
+
+```text
+latent  4 维：压缩 16.0 倍，重建 MSE 0.0376，保留方差 48.7%
+latent  8 维：压缩  8.0 倍，重建 MSE 0.0239，保留方差 67.4%
+latent 16 维：压缩  4.0 倍，重建 MSE 0.0110，保留方差 84.9%
+latent 32 维：压缩  2.0 倍，重建 MSE 0.0025，保留方差 96.6%
+```
+
+![上排六张原始手写数字 0–5，下排是各自压成 16 个数再解码的重建：形状与笔画都在，边缘略模糊](/img/in-post/multimodal-08-pca-vae.svg)
+
+16 维保留 85% 的方差，重建的数字都认得出、只是边缘略糊——这正是"感知压缩"：丢掉的是像素级的锐利度。然后把上一篇的 DDPM 原样搬到这 16 维的 latent 上（只把 `dim=2` 改成 16，把 latent 除以它的标准差归一到单位方差——SD 的 scale factor 0.18215 做的是同一件事）：
+
+```python
+pca = PCA(16).fit(X64)                                 # 「VAE」：编码器 = 投影到前 16 个主成分，解码器 = 乘回去加均值
+Zn = torch.tensor(pca.transform(X64) / Z_STD)          # 1797 张图 → 1797 个 16 维 latent，归一到单位方差
+model = MLP(dim=16); train(model, ddpm_loss, Zn)       # 上一篇的 DDPM，一个字不改，只是 2 维变 16 维
+z = ddim_sample(model, 60, 50, dim=16) * Z_STD         # ① 在 latent 里从噪声去噪 50 步
+imgs = pca.inverse_transform(z).reshape(-1, 8, 8)      # ② 「VAE 解码器」一次前向：16 个数 → 64 个像素
+```
+
+![5 行 12 列共 60 张 8×8 的生成图：大多是可辨认的手写数字——0、1、2、3、5、6、9 等，笔画粗细与真实数据相近，少数几张像两个数字的混合](/img/in-post/multimodal-08-latent-samples.svg)
+
+```text
+生成图到最近真实数字的平均像素距离 1.06（真实数字彼此之间约 1.03）
+```
+
+从 16 维的纯噪声出发、在 latent 里去噪 50 步、解码——得到的是没在训练集里出现过的手写数字。扩散网络每步只处理 16 个数而不是 64 个；像素级的细节由确定性的解码器一次给出。把"PCA"换成卷积 VAE、"16 维"换成 $$128 \times 128 \times 4$$、MLP 换成 U-Net 或 DiT，就是 Stable Diffusion。
+
+### 3. VAE 的结构与训练
 
 SD 的 VAE：卷积编码器把 $$H \times W \times 3$$ 下采样 $$f = 8$$ 倍到 $$H/8 \times W/8 \times c$$（$$c = 4$$），输出均值与对数方差；解码器镜像上采样。训练损失（继承自 VQGAN，Esser 等 2021）：
 
@@ -106,11 +147,11 @@ $$
 
 $$f = 8$$、$$c = 4$$：$$512^2 \times 3 = 786K$$ 个数 → $$64^2 \times 4 = 16K$$ 个数，**48 倍压缩**。论文比较了 $$f \in \{1, 2, 4, 8, 16, 32\}$$：$$f = 4$$–$$8$$ 是甜点——更小的 $$f$$ 压缩不够、扩散慢；更大的 $$f$$ 重建质量掉、扩散学不到细节。
 
-### 3. 通道数：4 → 16
+### 4. 通道数：4 → 16
 
 4 通道的 latent 是一个信息瓶颈：$$8 \times 8 \times 3 = 192$$ 个像素值被压成 4 个数。它重建不出小文字、精细纹理、手指等结构——这是 SD 1.x / SDXL 生成的图"手有问题"的一部分原因（另一部分是扩散模型本身）。SD3 把 $$c$$ 增到 16（同样 $$f = 8$$，压缩 12 倍），报告 VAE 的重建 FID 与 PSNR 大幅改善，且下游扩散模型的质量随之提高——但需要**更大的扩散模型**才能利用增加的通道（4 通道在小模型上更好、16 通道在 2B 以上更好）。FLUX 沿用 16 通道；一些 2025 年的工作试 32 通道或更深的压缩（DC-AE：$$f = 32$$、$$c = 128$$，让 DiT 的序列更短）。
 
-### 4. VAE 的瓶颈与另一条路
+### 5. VAE 的瓶颈与另一条路
 
 VAE 决定了扩散模型能生成什么的**上限**——扩散只能生成 VAE 能解码的东西。VAE 的问题：（1）重建的细节缺失（上述）；（2）latent 空间的语义结构差——相邻的 latent 值可能解码出很不同的像素，让扩散模型的任务变难；（3）编码器与扩散模型分开训，latent 不是为扩散优化的。REPA（Yu 等 2024）发现让 DiT 的中间表示对齐一个预训练视觉编码器（DINOv2）的特征，训练快 17 倍——说明 latent 空间的语义结构对扩散的学习效率影响很大。2025 年的方向之一是让 VAE 的 latent 更"语义化"（VA-VAE 用视觉基础模型对齐 latent），或者干脆把 latent 换成视觉编码器的特征。
 
@@ -130,7 +171,7 @@ $$
 h \leftarrow h + \alpha \cdot \text{Attn}\big(\gamma \cdot \text{LN}(h) + \beta\big), \qquad (\gamma, \beta, \alpha) = \text{MLP}(\text{emb}(t) + \text{emb}(c))
 $$
 
-"Zero"指 $$\alpha$$ 的 MLP 初始化为零——每个 block 初始是恒等映射，训练稳定（与 GPT-2 的残差缩放初始化同理）。相比把条件作为额外 token 拼进序列（in-context）或 cross-attention，adaLN 更便宜（不增加序列长度、不增加 attention）且效果最好。
+读法：[LayerNorm](# "tip: 层归一化：把一个向量减均值、除标准差，再乘一个缩放 γ、加一个平移 β。普通的 LN 里 γ、β 是固定的可学习参数；adaLN 让它们随条件变——同一个网络在 t = 900 与 t = 10 时表现得像两个不同的网络") 的缩放 $$\gamma$$ 与平移 $$\beta$$ 不再是固定参数，而是由"现在是第几步、要生成什么类别"算出来的；$$\alpha$$ 是残差分支的开关，控制这一层的输出加进去多少。"Zero"指 $$\alpha$$ 的 MLP 初始化为零——每个 block 初始是恒等映射，训练稳定（与 GPT-2 的残差缩放初始化同理）。上一篇的 toy MLP 把时间 $$t$$ 编码后直接拼在输入上，是最简陋的条件注入；adaLN 是让条件在每一层都能调节网络行为的精细版本。相比把条件作为额外 token 拼进序列（in-context）或 cross-attention，adaLN 更便宜（不增加序列长度、不增加 attention）且效果最好。
 
 **scaling 结果**：DiT-S/B/L/XL × patch 8/4/2 共 12 个配置，FID 与前向 GFLOPs 的关系是一条平滑的曲线——**同样的 GFLOPs 无论怎么分配（更深、更宽、更小的 patch）FID 接近**。DiT-XL/2（675M，119 GFLOPs）在 ImageNet $$256^2$$ 上 FID 2.27，当时的 SOTA。这条 scaling 曲线是 DiT 取代 U-Net 的根本原因：它告诉工程师"要更好就加算力"，而 U-Net 没有这样简单的规律。
 
@@ -305,6 +346,8 @@ $$
 - **成本**：记录 FLUX.1-dev 28 步与一个 7B LLM 生成 1000 token 的墙钟时间与（用 profiler 估的）FLOPs。
 
 该看的：$$w$$ 增大时一致性升、多样性降、$$w = 12$$ 出现过饱和；SD3 在 $$w = 4$$ 已好而 SD 1.5 需要 7.5；步数 20 与 50 的差别是否可见；蒸馏模型多样性是否更低；16ch VAE 的文字重建是否明显好；FLUX 的 FLOPs 是 LLM 的两个量级而时间相近。不引用任何未跑过的数字。
+
+配套代码：第二章的 PCA-VAE、latent 里的 DDPM 与两张图由 [`multimodal/08_latent_diffusion_toy.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/multimodal/08_latent_diffusion_toy.py) 产生（`vae` / `latent` / `cost`），CPU 一分钟。其余数字来自各模型的技术报告与论文。
 
 ## 十一、本文小结
 
