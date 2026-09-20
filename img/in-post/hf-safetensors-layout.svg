@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="300" viewBox="0 0 760 300" font-family="-apple-system, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif" font-size="12">
+  <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#555"/></marker></defs>
+  <style>.t{font-weight:600;fill:#222}.m{fill:#666;font-size:11px}.mono{font-family:Menlo,Consolas,monospace;font-size:10px;fill:#222}</style>
+  <text x="16" y="22" class="t">一个 model-00001-of-00002.safetensors 文件的字节布局</text>
+  <!-- header size -->
+  <rect x="16" y="40" width="96" height="46" fill="#fde7c8" stroke="#c98a00"/>
+  <text x="64" y="58" text-anchor="middle" class="m">8 字节</text>
+  <text x="64" y="74" text-anchor="middle" class="m">header 长度 N</text>
+  <!-- header json -->
+  <rect x="112" y="40" width="240" height="46" fill="#d6e6ff" stroke="#5b8def"/>
+  <text x="232" y="58" text-anchor="middle" class="m">N 字节：JSON header</text>
+  <text x="232" y="74" text-anchor="middle" class="m">每个张量的 名字 → dtype、shape、字节区间</text>
+  <!-- data -->
+  <rect x="352" y="40" width="392" height="46" fill="#e8f5e9" stroke="#4d9a5c"/>
+  <text x="540" y="58" text-anchor="middle" class="m">其余全部：张量的原始字节，一个接一个</text>
+  <text x="540" y="74" text-anchor="middle" class="m">没有任何结构、没有 Python 对象，只是数</text>
+  <!-- json content -->
+  <text x="16" y="112" class="mono">{"embed_tokens.weight":        {"dtype": "BF16", "shape": [151936, 896], "data_offsets": [0, 272269312]},</text>
+  <text x="16" y="128" class="mono"> "layers.0.self_attn.q_proj.weight": {"dtype": "BF16", "shape": [896, 896], "data_offsets": [272269312, 273874944]},</text>
+  <text x="16" y="144" class="mono"> "layers.0.self_attn.q_proj.bias":   {"dtype": "BF16", "shape": [896],      "data_offsets": [273874944, 273876736]},</text>
+  <text x="16" y="160" class="mono"> ... ,  "__metadata__": {"format": "pt"}}</text>
+  <line x1="232" y1="86" x2="232" y2="98" stroke="#5b8def" marker-end="url(#a)"/>
+  <!-- data offsets arrows -->
+  <rect x="336" y="190" width="200" height="26" fill="#e8f5e9" stroke="#4d9a5c"/>
+  <text x="436" y="207" text-anchor="middle" class="m">embed_tokens：272,269,312 B</text>
+  <rect x="536" y="190" width="120" height="26" fill="#e8f5e9" stroke="#4d9a5c"/>
+  <text x="596" y="207" text-anchor="middle" class="m">q_proj.weight 1.6 MB</text>
+  <rect x="656" y="190" width="14" height="26" fill="#e8f5e9" stroke="#4d9a5c"/>
+  <rect x="670" y="190" width="74" height="26" fill="#e8f5e9" stroke="#4d9a5c" stroke-dasharray="3 2"/>
+  <text x="707" y="207" text-anchor="middle" class="m">…</text>
+  <text x="336" y="182" class="m">data_offsets 是相对数据区起点的 [起, 止)：</text>
+    <!-- notes -->
+  <text x="16" y="246" class="m">① 读某一层只需：读 8 字节 → 读 header → 按 data_offsets 定位 → mmap 那一段。不必把 1 GB 全读进内存。</text>
+  <text x="16" y="264" class="m">② header 是纯 JSON、数据区是纯字节：加载过程没有代码可执行——pickle 格式的 .bin / .pt 做不到这一点。</text>
+  <text x="16" y="282" class="m">③ 分片：大模型按名字切成 model-0000k-of-0000n.safetensors，model.safetensors.index.json 记录每个张量在哪个文件。</text>
+</svg>

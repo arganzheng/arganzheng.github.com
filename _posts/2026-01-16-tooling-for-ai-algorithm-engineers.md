@@ -21,14 +21,14 @@ catalog: true
 
 系列覆盖的范围可以概括为六层工具：
 
-```text
-语言（用法）   Python 使用层：训练代码里的六个语法 · 生成器流式过语料 · dataclass 配置 · 多进程        → 第一篇
-数值与数据     NumPy 的形状与广播 · Pandas 的错误分析 · Matplotlib 看曲线                → 第二篇
-框架（用法）   PyTorch 五个对象 · 二十行训练循环 · Autograd 三件事                        → 第三篇
-框架（资源）   混合精度 · 显存的账（16 字节 / 参数）· 激活与 checkpointing · DDP / FSDP    → 第四篇
-模型生态       Hugging Face 六个库 · 六行 LoRA SFT · Hub 三个文件 · 读源码                → 第五篇
-硬件与管理     两个上限 · 四块显存 · profiler · 实验记录的最小一行                        → 第六篇
-```
+| 层 | 内容 | 篇 |
+|---|---|---|
+| 语言（用法） | Python 使用层：训练代码里的六个语法 · 生成器流式过语料 · dataclass 配置 · 多进程 | 第一篇 |
+| 数值与数据 | NumPy 的形状与广播 · Pandas 的错误分析 · Matplotlib 看曲线 | 第二篇 |
+| 框架（用法） | PyTorch 五个对象 · 二十行训练循环 · Autograd 三件事 | 第三篇 |
+| 框架（资源） | 混合精度 · 显存的账（16 字节 / 参数）· 激活与 checkpointing · DDP / FSDP | 第四篇 |
+| 模型生态 | Hugging Face 六个库 · 六行 LoRA SFT · Hub 三个文件 · 读源码 | 第五篇 |
+| 硬件与管理 | 两个上限 · 四块显存 · profiler · 实验记录的最小一行 | 第六篇 |
 
 
 ## 为什么写这个系列？
@@ -79,53 +79,27 @@ catalog: true
 
 六篇按"一次实验从数据到结论"的顺序推进——左列是实验的一步，右列是那一步用到的工具与讲它的篇：
 
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 320}}}%%
-flowchart TB
-    S0["`**读懂手里的代码、过一遍语料**
-六个语法 · 生成器流水线 · dataclass 配置`"]
-    S1["`**写出模型的数学**
-形状与广播 · 手写一个 attention`"]
-    S2["`**把模型训起来**
-五个对象 · 二十行训练循环 · 训一个小 Transformer`"]
-    S3["`**算它要多少资源**
-混合精度 · 16 字节 / 参数 · 激活 · DDP / FSDP`"]
-    S4["`**换成真实的模型与数据**
-六个库 · 六行 LoRA SFT · Hub 上的三个文件`"]
-    S5["`**判断快慢、留下记录**
-算力与带宽两个上限 · 四块显存 · profiler · 可复现`"]
-    S6["`**看结果、下结论**
-Pandas 错误分析 · Matplotlib 多 seed 曲线`"]
-    S0 --> S1 --> S2 --> S3 --> S4 --> S5 --> S6
-    S6 -. "改数据或配方，再来一轮" .-> S0
+| 实验的一步 | 用到的工具 | 篇 |
+|---|---|---|
+| 读懂手里的代码、过一遍语料 | 六个语法 · 生成器流水线 · dataclass 配置 | 第一篇：Python 使用层 |
+| 写出模型的数学 | 形状与广播 · 手写一个 attention | 第二篇：数据科学三剑客 |
+| 把模型训起来 | 五个对象 · 二十行训练循环 · 训一个小 Transformer | 第三篇：PyTorch 使用层（上） |
+| 算它要多少资源 | 混合精度 · 16 字节 / 参数 · 激活 · DDP / FSDP | 第四篇：PyTorch 使用层（下） |
+| 换成真实的模型与数据 | 六个库 · 六行 LoRA SFT · Hub 上的三个文件 | 第五篇：Hugging Face 生态 |
+| 判断快慢、留下记录 | 算力与带宽两个上限 · 四块显存 · profiler · 可复现 | 第六篇：GPU 直觉与实验管理 |
+| 看结果、下结论 | Pandas 错误分析 · Matplotlib 多 seed 曲线 | 第二篇：数据科学三剑客 |
 
-    T1["第二篇：科学计算栈<br/>NumPy · Pandas · Matplotlib"]
-    T2["第三篇：PyTorch 使用层（上）"]
-    T3["第四篇：PyTorch 使用层（下）"]
-    T4["第五篇：Hugging Face 生态"]
-    T5["第六篇：GPU 直觉与实验管理"]
-    T1 --- S1
-    T2 --- S2
-    T3 --- S3
-    T4 --- S4
-    T5 --- S5
-    T1 --- S6
-
-    classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
-    classDef post fill:#f4f8ff,stroke:#5b8def,stroke-width:1px,color:#222
-    class S0,S1,S2,S3,S4,S5,S6 step
-    class T0,T1,T2,T3,T4,T5 post
-```
+结论出来之后改数据或配方，再来一轮，回到第一步。
 
 第一篇是**语言**：训练代码里反复出现的那一小撮 Python 语法，讲到能读能用。二到四篇是**框架**：先在 NumPy 上建立形状直觉，再把它搬到 PyTorch 上写训练循环，再算这个循环要多少资源。第五篇是**生态**：真实的模型与数据从哪来、微调怎么组装。第六篇是**硬件与管理**：为什么快为什么慢、怎么让实验可追溯。
 
 三条交织的线索：
 
-```text
-形状线：`__getitem__` 取一条样本 → 轴与广播 → Tensor 的形状 → 激活的形状与大小 → 模型分片的形状 → profiler 表里每个算子的形状
-数字线：19 MB 文件读成 list 要 103 MB、生成器 12 MB → einsum 一行 → 二十行训练循环 → 16 字节 / 参数 · 128.5 GB · 16.7 GB → 六行 SFT → 4.8 ms / token · 295 FLOP / 字节
-工程线：GIL 让 8 线程 1.0× → 形状错误不报错 → zero_grad 与 no_grad → OOM 落在哪一块 → 从 compute_loss 往下追源码 → 一行记录换可复现
-```
+| 线索 | 从第一篇到第六篇 |
+|---|---|
+| 形状线 | `__getitem__` 取一条样本 → 轴与广播 → Tensor 的形状 → 激活的形状与大小 → 模型分片的形状 → profiler 表里每个算子的形状 |
+| 数字线 | 19 MB 文件读成 list 要 103 MB、生成器 12 MB → einsum 一行 → 二十行训练循环 → 16 字节 / 参数 · 128.5 GB · 16.7 GB → 六行 SFT → 4.8 ms / token · 295 FLOP / 字节 |
+| 工程线 | GIL 让 8 线程 1.0× → 形状错误不报错 → zero_grad 与 no_grad → OOM 落在哪一块 → 从 compute_loss 往下追源码 → 一行记录换可复现 |
 
 每一篇都用同样的方法：**从要做的事出发，把工具带出来，讲到能做为止，给出能算的数字与能跑的脚本，指出越过哪条线就进了 Infra 地图**。
 
@@ -150,7 +124,7 @@ Pandas 错误分析 · Matplotlib 多 seed 曲线`"]
 
 > **别人的训练代码里 `__getitem__`、`yield`、`@torch.no_grad()`、`with autocast(...)`、`**kwargs` 各在干什么？一份 10 GB 的 JSONL 语料怎么在 16 GB 内存的机器上过一遍？预处理开多线程为什么没用？**
 
-### 2. 科学计算栈：NumPy 的形状直觉、Pandas 的错误分析、Matplotlib 的曲线
+### 2. 数据科学三剑客：NumPy 的形状直觉、Pandas 的错误分析、Matplotlib 的曲线
 
 第二篇建立整个系列最基础的直觉：**形状**。PyTorch 的 Tensor 语义与 NumPy 的 ndarray 一致，所以先在 NumPy 上建立。
 
@@ -160,7 +134,7 @@ Pandas 错误分析 · Matplotlib 多 seed 曲线`"]
 - 轴（axis）：所有"沿哪个维度"的操作是一个概念——softmax 沿词表维、LayerNorm 沿 hidden 维、loss 沿 token 维平均；
 - 广播的三条规则，以及为什么形状错误常常**不报错**；
 - reshape / transpose：多头 attention 的形状变换；`reshape` 不移动数据、`transpose` 之后内存不连续；
-- `einsum`：把公式翻译成代码的最短路径，attention 的 $$QK^T$$ 一行；
+- [`einsum`](# "tip: 爱因斯坦求和记号的函数版：用一个下标字符串写出哪些维相乘、哪些维求和，例如 np.einsum('btd,bsd->bts', Q, K) 就是每个 batch 里 Q 与 K 的转置相乘；第二篇第五章")：把公式翻译成代码的最短路径，attention 的 $$QK^T$$ 一行；
 - 用 NumPy 写一个单头 causal self-attention 的前向，与 PyTorch 对数值；
 - Pandas：评测结果的错误分析——`groupby`、`merge`、`query`，找 baseline 对而新模型错的题；
 - Matplotlib：loss 曲线的读法——对数 x 轴看早期，多 seed 画均值与阴影带。
@@ -194,10 +168,10 @@ Pandas 错误分析 · Matplotlib 多 seed 曲线`"]
 这一篇会覆盖：
 
 - 混合精度：`autocast` 让矩阵乘在 bf16 上跑、reduction 留在 fp32；bf16 为什么不需要 loss scaling、fp16 为什么需要；
-- **显存的账**：训练时每参数 16 字节（bf16 权重 + bf16 梯度 + fp32 主权重 + AdamW 两个矩）；Llama-3-8B 全量微调 128.5 GB、LoRA 16.7 GB、QLoRA 约 5 GB；
-- 激活是第五块：与参数量无关、与 batch × 序列长度成正比；gradient checkpointing 用约 30% 的计算换掉大部分激活；
+- **显存的账**：训练时显存分四块——权重、梯度与优化器状态、激活、（推理时的）KV cache。前两块每参数 16 字节（bf16 权重 + bf16 梯度 + fp32 主权重 + AdamW 两个矩）；Llama-3-8B 全量微调 128.5 GB、LoRA 16.7 GB、QLoRA 约 5 GB；
+- 激活是四块里最难算的一块：与参数量无关、与 batch × 序列长度成正比；gradient checkpointing 用约 30% 的计算换掉大部分激活；
 - 一个 OOM 先问落在哪一块；
-- 多卡启用即可：DDP（每卡一份完整模型，all-reduce 梯度）、FSDP（参数 / 梯度 / 状态切到各卡）；`torchrun`；张量并行、流水并行属于预训练规模；
+- 多卡训练：DDP（每卡一份完整模型，all-reduce 梯度）、FSDP（参数 / 梯度 / 状态切到各卡）；`torchrun`；张量并行、流水并行属于预训练规模；
 - 在跑之前算出显存、与 `max_memory_allocated()` 对比。
 
 核心问题是：
@@ -210,7 +184,8 @@ Pandas 错误分析 · Matplotlib 多 seed 曲线`"]
 
 这一篇会覆盖：
 
-- 六个库各管什么：`transformers`（模型定义与加载、`generate`、`Trainer`）、`datasets`（Arrow、`map`、`streaming`）、`tokenizers`（BPE 训练与编码）、`peft`（LoRA）、`trl`（SFT / DPO / GRPO / Reward 的 Trainer）、`accelerate`（多卡启动）；
+- 六个库各管什么，按一次微调里用到的顺序：`tokenizers`（把文本切成 token id；BPE 训练与编码）→ `datasets`（装数据；Arrow、`map`、`streaming`）→ `transformers`（模型定义与加载、`generate`、`Trainer`）→ `peft`（Parameter-Efficient Fine-Tuning，参数高效微调；LoRA 挂到模型上）→ `trl`（Transformer Reinforcement Learning；SFT / DPO / GRPO / Reward 的 Trainer）→ `accelerate`（多卡启动）。六者的关系：`transformers` 是中心，`tokenizers` 与 `datasets` 给它喂输入，`peft` 改它的层，`trl` 用它的 `Trainer` 训，`accelerate` 把这一切放到多卡上；
+- 这六个库与 PyTorch 的分工：PyTorch 是底座——`transformers` 的模型就是一个 `nn.Module`，`Trainer` 里跑的就是第三篇那二十行。算法工程师日常两者都用：改模型结构、写自定义 loss 时在 PyTorch 层；换数据、调配方、跑一次标准 SFT / DPO 时在这六个库的层。第五篇开头有一张对照表；
 - Hub 上的三个文件：`config.json`（从它算参数量）、`tokenizer.json`（词表、特殊 token、chat template）、`*.safetensors`；
 - 六行组装一次 LoRA SFT，以及它背后发生的每件事——chat template、loss mask、packing、LoRA 挂载——在第三篇的二十行里的对应位置；
 - 为什么读源码是学后训练最快的路：`modeling_llama.py`、`dpo_trainer.py` 的 `dpo_loss`、`peft` 的 `Linear.forward`、`generate` 的 `LogitsProcessor`——各自的入口与长度；
@@ -226,7 +201,7 @@ Pandas 错误分析 · Matplotlib 多 seed 曲线`"]
 
 这一篇会覆盖：
 
-- GPU 的两个上限：算力与显存带宽；算术强度；H100 的 ridge 约 295 FLOP / 字节；
+- GPU 的两个上限：算力与显存带宽；算术强度；H100 的 [ridge](# "tip: Roofline 图上算力线与带宽线的交点，等于峰值算力 ÷ 显存带宽（H100：989 TFLOPS ÷ 3.35 TB/s ≈ 295 FLOP/字节）；算术强度低于它的 kernel 受带宽限制，高于它的受算力限制；第六篇第二章") 约 295 FLOP / 字节；
 - decode 是 memory-bound（8B 模型 batch 1 下限 4.8 ms / token）、prefill 与训练是 compute-bound——"为什么 batch 大才快"；
 - 显存的四块（权重、梯度与状态、激活、KV cache）与 OOM 归因；
 - kernel、launch 开销、stream 与为什么 `time.time()` 测不出 GPU 时间；
@@ -240,30 +215,32 @@ Pandas 错误分析 · Matplotlib 多 seed 曲线`"]
 
 ### 7. 系列总结与通关自测
 
-最后一篇不讲新内容：把六篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是六篇能不能连起来用；读完正文再做。
+最后一篇不讲新内容：把六篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾——上面每一篇导读末尾抛出的那几个问题，在那里逐条给出答案——拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是六篇能不能连起来用；读完正文再做。
 
 ## 贯穿全系列的实践线
 
 本系列的每一篇配一个可以在 CPU 上运行的脚本，在 [ai-learning-labs/algorithm-tooling](https://github.com/arganzheng/ai-learning-labs/tree/main/algorithm-tooling)：
 
-```text
-第一篇    只用标准库：生成器流式过 10 万行 JSONL 并量峰值内存；dataclass 配置；40 行玩具 PyTorch；串行 / 线程 / 进程对比；读 traceback
-第二篇    NumPy 单头 causal attention 与 PyTorch 对数值；Pandas 对一份评测结果做错误分析；Matplotlib 画多 seed 的 loss 曲线
-第三篇    二十行训练循环训一个字符级小 Transformer，loss 曲线正常下降
-第四篇    显存账本：全量 / LoRA / QLoRA 三种方案的参数与状态字节数；bf16 与 fp32 的实际字节；激活的估算
-第五篇    peft + trl 在 Qwen2.5-0.5B 上跑一次 LoRA SFT（需要下载模型）
-第六篇    torch.profiler 看一步训练的前几个算子；写出一次实验的最小记录并用 seed 复现
-```
+| 篇 | 脚本做的事 |
+|---|---|
+| 第一篇 | 只用标准库：生成器流式过 10 万行 JSONL 并量峰值内存；dataclass 配置；40 行玩具 PyTorch；串行 / 线程 / 进程对比；读 traceback |
+| 第二篇 | NumPy 单头 causal attention 与 PyTorch 对数值；Pandas 对一份评测结果做错误分析；Matplotlib 画多 seed 的 loss 曲线 |
+| 第三篇 | 二十行训练循环训一个字符级小 Transformer，loss 曲线正常下降 |
+| 第四篇 | 显存账本：全量 / LoRA / QLoRA 三种方案的参数与状态字节数；bf16 与 fp32 的实际字节；激活的估算 |
+| 第五篇 | peft + trl 在 Qwen2.5-0.5B 上跑一次 LoRA SFT（需要下载模型） |
+| 第六篇 | torch.profiler 看一步训练的前几个算子；写出一次实验的最小记录并用 seed 复现 |
 
 六件事做完，L1 就够了。其中第四篇的账最值得做：它把"跑得动跑不动"从试出来变成算出来。
 
 与它平行的源码阅读线：
 
-```text
-第三篇    Karpathy nanoGPT 的 train.py（约 300 行）——"从零写训练循环"的范本
-第五篇    transformers/models/llama/modeling_llama.py · trl/trainer/dpo_trainer.py 的 dpo_loss · peft/tuners/lora/layer.py
-第六篇    Horace He, "Making Deep Learning Go Brrrr From First Principles"
-```
+| 篇 | 读什么 | 为什么 |
+|---|---|---|
+| 第三篇 | Karpathy nanoGPT 的 [`train.py`](https://github.com/karpathy/nanoGPT/blob/master/train.py)（约 300 行） | "从零写训练循环"的范本，二十行的完整版 |
+| 第五篇 | [`transformers/models/llama/modeling_llama.py`](https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py) | 一个 decoder-only 模型的全部结构 |
+| 第五篇 | [`trl/trainer/dpo_trainer.py`](https://github.com/huggingface/trl/blob/main/trl/trainer/dpo_trainer.py) 的 `dpo_loss` | 一个后训练 loss 从公式到代码 |
+| 第五篇 | [`peft/tuners/lora/layer.py`](https://github.com/huggingface/peft/blob/main/src/peft/tuners/lora/layer.py) | LoRA 的 `Linear.forward` 只有几行 |
+| 第六篇 | Horace He, [*Making Deep Learning Go Brrrr From First Principles*](https://horace.io/brrr_intro.html) | 一篇博客讲透 compute / memory / overhead 三种瓶颈 |
 
 
 ## 前置要求与说明
@@ -285,7 +262,7 @@ Pandas 错误分析 · Matplotlib 多 seed 曲线`"]
 ## 章节目录
 
 1. [Python 使用层：读懂训练代码的语法、流式过一遍语料、把实验写成脚本](/python-in-use-for-algorithm-engineers.html)
-2. [科学计算栈：NumPy 的形状直觉、Pandas 的错误分析、Matplotlib 的曲线](/numpy-pandas-matplotlib-for-algorithm-engineers.html)
+2. [数据科学三剑客：NumPy 的形状直觉、Pandas 的错误分析、Matplotlib 的曲线](/numpy-pandas-matplotlib-for-algorithm-engineers.html)
 3. [PyTorch 使用层（上）：五个对象与二十行训练循环](/pytorch-in-use-five-objects-and-a-training-loop.html)
 4. [PyTorch 使用层（下）：混合精度、显存的账与多卡启用](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html)
 5. [Hugging Face 生态：六个库与一次 LoRA SFT 的组装](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)
@@ -297,15 +274,15 @@ Pandas 错误分析 · Matplotlib 多 seed 曲线`"]
 
 读完这套系列之后，面对一次要做的实验，读者应该能够回答：
 
-```text
-别人代码里的 __getitem__ / yield / @no_grad / **kwargs 在干什么？   → 第一篇
-这个公式对应什么 einsum？我的形状对不对？                    → 第二篇
-不用 Trainer 怎么写训练循环？每一行为什么在那里？              → 第三篇
-这个模型全量微调要多少显存？LoRA 呢？OOM 落在哪一块？          → 第四篇
-怎么用 peft + trl 一小时跑起 SFT？卡住了去读哪个文件？          → 第五篇
-这一步 300 ms 花在哪？decode 为什么快不起来？                  → 第六篇
-三个月后怎么复现今天这次实验？                                → 第六篇
-```
+| 问题 | 篇 |
+|---|---|
+| 别人代码里的 `__getitem__` / `yield` / `@no_grad` / `**kwargs` 在干什么？ | 第一篇 |
+| 这个公式对应什么 `einsum`？我的形状对不对？ | 第二篇 |
+| 不用 `Trainer` 怎么写训练循环？每一行为什么在那里？ | 第三篇 |
+| 这个模型全量微调要多少显存？LoRA 呢？OOM 落在哪一块？ | 第四篇 |
+| 怎么用 `peft` + `trl` 一小时跑起 SFT？卡住了去读哪个文件？ | 第五篇 |
+| 这一步 300 ms 花在哪？decode 为什么快不起来？ | 第六篇 |
+| 三个月后怎么复现今天这次实验？ | 第六篇 |
 
 最终目标是三种能力：
 

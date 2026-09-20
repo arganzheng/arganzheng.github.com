@@ -5,7 +5,7 @@ title: "算法工程师的工具箱（05）：Hugging Face 生态——六个库
 subtitle: "The Hugging Face Ecosystem: Six Libraries, a Six-Line LoRA SFT, and Why Reading the Source Is the Fastest Way to Learn"
 tags: [AI, LLM, PyTorch, Python]
 catalog: true
-updated: 2026-09-14
+updated: 2026-09-20
 ---
 
 前两篇的训练循环训的是自己写的小模型。真实工作里模型不是自己写的——是从 Hugging Face Hub 下载的 Llama、Qwen、DeepSeek；数据也不是随机切窗口——是 Hub 上的数据集经过 chat template、loss mask、packing；训练器也不是二十行——是 `trl` 的 `SFTTrainer` / `DPOTrainer` / `GRPOTrainer`。Hugging Face 的六个库把这条路铺好了，六行代码能组装一次 LoRA SFT。这一篇讲六个库各管什么、六行背后发生了什么、以及一个比任何教程都重要的习惯：**卡住的时候直接读源码**。
@@ -16,7 +16,11 @@ updated: 2026-09-14
 
 ## 一、总览
 
-### 1. 六个库
+### 1. 本文的组织方式
+
+按一次微调里遇到东西的顺序：先看 Hub 上下载下来的是什么（第二章：三个文件），再看六个库各接手哪一段（第三章），然后把六行代码写出来、对照第三篇的二十行看每一行背后发生了什么（第四章），在一个 0.5B 模型上真的跑一遍、看清 chat template、loss mask、LoRA 参数量这些名词的实物（第五章），最后讲一个习惯：卡住的时候去哪读源码（第六章）。
+
+### 2. 六个库
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 220}}}%%
@@ -54,7 +58,7 @@ DDP / FSDP / DeepSpeed 配置`"]
     class HUB hub
 ```
 
-### 2. 本文的章节安排
+### 3. 本文的章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
@@ -65,8 +69,6 @@ DDP / FSDP / DeepSpeed 配置`"]
 | 六 | 为什么读源码是最快的路 | 六个入口与它们的长度；从 `compute_loss` 往下追 |
 | 七 | 本文小结 | |
 | 八 | 自测 | 五道题 |
-
-配套脚本：[`04_hf_lora_sft.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/algorithm-tooling/04_hf_lora_sft.py)（需要下载 Qwen2.5-0.5B，约 1 GB）。
 
 ## 二、Hub 上的三个文件
 
@@ -79,17 +81,64 @@ DDP / FSDP / DeepSpeed 配置`"]
  "intermediate_size": 4864, "vocab_size": 151936, "tie_word_embeddings": true, ...}
 ```
 
-这是 Qwen2.5-0.5B 的。用 L0 第一篇的表就能算出参数量：每层 attention 四个矩阵 + MLP 三个矩阵，乘层数，加词嵌入。`tie_word_embeddings: true` 说明输出层与词嵌入共享一份权重（小模型常这样做，省 $$V \times d = 136$$M 参数）。脚本加载后数出 494M 参数，与名字里的 "0.5B" 对上。L4《Transformer 与 LLM》第一篇专门教从 `config.json` 算参数量。
+这是 Qwen2.5-0.5B 的。这几个数决定了模型的全部结构——一个 decoder-only Transformer 就是下面这张图，`config.json` 的每个字段对应图里一个尺寸：
+
+```mermaid
+flowchart TB
+    E["Embedding：vocab × hidden<br/>151936 × 896"]
+    subgraph L["× num_hidden_layers = 24 层，每层结构相同"]
+        N1["RMSNorm（896）"]
+        subgraph A["Attention：四个线性层"]
+            Q["q_proj 896 → 896"]
+            K["k_proj 896 → 128"]
+            V["v_proj 896 → 128"]
+            O["o_proj 896 → 896"]
+        end
+        N2["RMSNorm（896）"]
+        subgraph M["MLP：三个线性层（SwiGLU）"]
+            G["gate_proj 896 → 4864"]
+            U["up_proj 896 → 4864"]
+            D["down_proj 4864 → 896"]
+        end
+        N1 --> A --> N2 --> M
+    end
+    E --> L --> NF["RMSNorm"] --> H["lm_head：896 → 151936<br/>tie_word_embeddings：与 Embedding 共用同一份权重"]
+    classDef box fill:#eef4fb,stroke:#5b8dc9,color:#222
+    class E,N1,N2,NF,H,Q,K,V,O,G,U,D box
+```
+
+图 1：`config.json` 里的数字在结构里的位置。`num_attention_heads: 14` 与 `num_key_value_heads: 2` 决定 k/v 的宽度：每个头 $$896 / 14 = 64$$ 维，K、V 只有 2 个头，所以是 $$2 \times 64 = 128$$（GQA，L4 第三篇）。
+
+参数量就是把图里每个矩形的面积加起来（L0 第一篇"从结构算参数量"），Qwen2 的 q/k/v 带 bias：
+
+| 部件 | 形状 | 参数 |
+|---|---|---:|
+| `q_proj` | 896 × 896 + 896 | 803,712 |
+| `k_proj`、`v_proj` | 各 896 × 128 + 128 | 229,632 |
+| `o_proj` | 896 × 896 | 802,816 |
+| `gate_proj`、`up_proj`、`down_proj` | 各 896 × 4864 | 13,074,432 |
+| 两个 RMSNorm | 各 896 | 1,792 |
+| **一层合计** | | **14,912,384** |
+| 24 层 | | 357,897,216 |
+| Embedding（与 lm_head 共用） | 151936 × 896 | 136,134,656 |
+| 最后的 RMSNorm | | 896 |
+| **总计** | | **494,032,768** |
+
+`tie_word_embeddings: true` 说明输出层与词嵌入共享一份权重——小模型常这样做，否则 `lm_head` 还要再加 136M，词嵌入就占了近一半。加载后 `sum(p.numel() for p in model.parameters())` 数出 494M，与名字里的 "0.5B" 对上。L4《Transformer 与 LLM》第一篇专门教从 `config.json` 算参数量。
 
 ### 2. `tokenizer.json` 与 `tokenizer_config.json`
 
-词表、合并规则、特殊 token（`<|im_start|>`、`<|im_end|>`、`<|endoftext|>`）、以及 **chat template**——一段 Jinja 模板，规定"一轮对话怎么拼成一个字符串"。第五章会看到它的输出。L4 预训练系列的第一篇讲 tokenizer 本身。
+词表、合并规则、特殊 token（`<|im_start|>`、`<|im_end|>`、`<|endoftext|>`）、以及 **chat template**——一段 [Jinja](# "tip: Python 生态的模板引擎（Flask / Django 网页模板用的那个）：模板里用 for 循环遍历 messages，用双花括号占位符填入 message.content，渲染后得到一个字符串。chat template 用它把 messages 列表渲染成模型训练时见过的那种带特殊 token 的文本") 模板，规定"一轮对话怎么拼成一个字符串"。第五章会看到它的输出。L4 预训练系列的第一篇讲 tokenizer 本身。
 
 ### 3. `*.safetensors`：权重
 
-`state_dict`（第三篇）的磁盘格式：参数名 → 张量，按名字分片成几个文件，带一个 `index.json` 索引。`safetensors` 格式的好处是**不用加载全部就能读某一层**（内存映射），且不像 `pickle` 那样能执行任意代码。
+`state_dict`（第三篇第四章）的磁盘格式。一个 `.safetensors` 文件只有三段：8 个字节写 header 有多长，然后是一段 JSON header，然后是所有张量的原始字节首尾相接：
 
-模型卡（README）里的评测数字，读的时候带着 L0 第八篇的置信区间。
+![图 2：safetensors 文件的字节布局——8 字节 header 长度、JSON header（每个张量的名字、dtype、shape 与在数据区的字节区间）、数据区（纯字节）；读某一层只需按 data_offsets 定位并 mmap 那一段；大模型按名字分成多个分片，由 index.json 记录每个张量在哪个文件](/img/in-post/hf-safetensors-layout.svg)
+
+这个格式有三个后果，图 2 下方各一句：**能只读某一层**（读 header 知道字节区间，内存映射那一段即可，不必把 1 GB 全读进来——`from_pretrained(..., device_map=...)` 按层加载靠的就是它）；**不能执行代码**（header 是 JSON、数据区是数，加载过程没有任何 Python 对象被反序列化——`torch.save` 的 pickle 格式则可以在加载时执行任意代码，所以 Hub 默认用 safetensors）；**分片**（大模型按名字切成 `model-0000k-of-0000n.safetensors`，`model.safetensors.index.json` 是"张量名 → 在哪个文件"的索引）。
+
+模型卡（README）里的评测数字要带着 L0 第八篇的置信区间读。以 Qwen2.5-0.5B 技术报告里的两个数为例：GSM8K 41.6%，这个集有 1,319 题，95% 区间 $$\pm 1.96\sqrt{0.416 \times 0.584 / 1319} \approx \pm 2.7$$ 个点；HumanEval 30.5%，只有 164 题，区间 $$\pm 7.0$$ 个点。所以两个 0.5B 模型在 HumanEval 上差 5 个点，分不出谁好；差 2 个点的 GSM8K 也在噪声里。
 
 ## 三、六个库各管什么
 
@@ -102,7 +151,16 @@ DDP / FSDP / DeepSpeed 配置`"]
 | `trl` | 后训练的各个 Trainer | `SFTTrainer`（自动处理 chat template、packing、loss mask）、`DPOTrainer`、`GRPOTrainer`、`RewardTrainer` |
 | `accelerate` | 把单卡脚本变多卡，统一 DDP / FSDP / DeepSpeed 的启动 | `accelerate config` 生成配置；`accelerate launch train.py` |
 
-它们的分工对应第三篇的五个对象：`transformers` 给 `nn.Module`（模型）与 tokenizer，`datasets` 给 `Dataset`，`peft` 改 `nn.Module`（在线性层旁边挂 LoRA），`trl` 给训练循环，`accelerate` 给第四篇的多卡启动。
+它们的分工对应第三篇的五个对象——每个库产出（或改造）训练循环里的一个东西：
+
+| 库 | 产出的对象 | 对应第三篇的 |
+|---|---|---|
+| `transformers` | 模型（一个 `nn.Module`）与 tokenizer | `nn.Module`；`TinyGPT` 换成 `AutoModelForCausalLM` |
+| `datasets` | `Dataset`（Arrow 格式，可直接喂 `DataLoader`） | `Dataset` / `DataLoader`；`get_batch` 换成它 |
+| `tokenizers` | 把文本变成 `input_ids` 的编码器 | `Dataset.__getitem__` 里"字符 → id"那一步 |
+| `peft` | 改造后的 `nn.Module`：线性层旁挂上 LoRA，基座 `requires_grad=False` | `nn.Module` + `requires_grad` |
+| `trl` | 训练循环本身（`SFTTrainer` 等） | 二十行 |
+| `accelerate` | 多卡启动与设备放置 | 第四篇的 DDP / FSDP |
 
 ### `generate` 的采样参数
 
@@ -123,22 +181,59 @@ trainer.train()
 
 ### 2. 背后发生的事
 
-六行背后每一件事都在第三篇的二十行里有对应位置：
+把第三篇的二十行训练循环拿过来（SFT 版本：用 `DataLoader` 取数、loss 带 `ignore_index`），六行背后每一件事都在里面有对应位置：
 
-| 发生的事 | 谁做的 | 对应二十行里的 |
+```python
+model = AutoModelForCausalLM.from_pretrained(name, dtype=torch.bfloat16).to("cuda")        # ①
+model = get_peft_model(model, LoraConfig(...))                                              # ①′ 基座冻结，挂上 A、B
+opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=2e-4)         # ②
+sched = get_cosine_schedule_with_warmup(opt, warmup, total_steps)                           # ③
+
+for step, batch in enumerate(loader):                                                       # ④ Dataset.__getitem__ + collate_fn
+    batch = {k: v.to("cuda", non_blocking=True) for k, v in batch.items()}                  # ⑤
+    with torch.autocast("cuda", dtype=torch.bfloat16):                                      # ⑥
+        logits = model(batch["input_ids"])                                                  # ⑦
+        loss = F.cross_entropy(logits.view(-1, V).float(), batch["labels"].view(-1), ignore_index=-100)   # ⑧
+    loss.backward()                                                                         # ⑨
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)                                 # ⑩
+    opt.step(); sched.step(); opt.zero_grad(set_to_none=True)                               # ⑪ ⑫ ⑬
+    if step % 10 == 0: log(loss.item(), sched.get_last_lr()[0])                             # ⑭
+```
+
+| 发生的事 | 谁做的 | 对应上面第几行 |
 |---|---|---|
-| 数据被套上 chat template：每一轮用 `im_start` / `im_end` 一类特殊 token 包起来（第五章有实例） | `SFTTrainer` 调 `tok.apply_chat_template` | `Dataset` 的 `__getitem__` |
-| 回复之外的 token 的 label 被置成 −100 | `SFTTrainer`（`completion_only_loss`） | `ignore_index=-100`——**SFT 的 loss mask** |
-| 多条短样本被 pack 进一个序列（可选） | `SFTConfig(packing=True)` | `collate_fn` |
-| LoRA 的 $$A$$、$$B$$ 被挂到每个线性层旁边，基座冻结 | `get_peft_model` | `nn.Module` 的改造；`requires_grad` |
-| AdamW 只更新 $$A$$、$$B$$ | `Trainer` 用 `model.parameters()` 里 `requires_grad=True` 的 | `opt = AdamW(model.parameters())` |
-| bf16、梯度裁剪、学习率调度、日志、checkpoint | `SFTConfig` 的字段 | `autocast`、`clip_grad_norm_`、`sched`、`log` |
+| 数据被套上 chat template：每一轮用 `im_start` / `im_end` 一类特殊 token 包起来（第五章有实例） | `SFTTrainer` 调 `tok.apply_chat_template` | ④ `Dataset.__getitem__` 返回的 `input_ids` 就是模板渲染后再 tokenize 的结果 |
+| 回复之外的 token 的 label 被置成 −100 | `SFTTrainer`（`completion_only_loss`） | ⑧ `ignore_index=-100`——**SFT 的 loss mask**；`labels` 是在 ④ 的 `collate_fn` 里造出来的 |
+| 多条短样本被 pack 进一个序列（可选） | `SFTConfig(packing=True)` | ④ `collate_fn` |
+| LoRA 的 $$A$$、$$B$$ 被挂到每个线性层旁边，基座冻结 | `get_peft_model` | ①′ 改造 `nn.Module`；基座参数 `requires_grad=False` |
+| AdamW 只更新 $$A$$、$$B$$ | `Trainer` 只把 `requires_grad=True` 的参数交给优化器 | ② |
+| bf16、梯度裁剪、学习率调度、日志、checkpoint | `SFTConfig` 的字段：`bf16=True`、`max_grad_norm`、`lr_scheduler_type` / `warmup_steps`、`logging_steps` / `save_steps` | ⑥、⑩、③ ⑫、⑭ |
 
 `LoraConfig` 的四个参数：`r` 是秩（L0 第三篇）；`lora_alpha` 是缩放，实际加到输出上的是 $$\frac{\alpha}{r} BA x$$，常取 $$\alpha = 2r$$；`target_modules="all-linear"` 把七个线性层都挂上（也可以只挂 `q_proj, v_proj`）；`lora_dropout` 是 LoRA 分支上的 dropout。
 
 ## 五、在 0.5B 模型上跑通
 
-脚本用 Qwen2.5-0.5B 与 12 条写死的问答，CPU 上训 20 步，把六行背后的每件事打印出来。
+用 Qwen2.5-0.5B 与 12 条写死的问答（"What is the capital of France?" → "Paris." 一类），在 CPU 上训 20 步，把六行背后的每件事打印出来。第四章那六行换成这个模型与这份数据，就是下面这段——多出来的几行只是为了把中间结果打出来：
+
+```python
+tok = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B")
+model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen2.5-0.5B", dtype=torch.float32)      # CPU 上 fp32 最稳
+print(tok.apply_chat_template([{"role": "user", "content": q}, {"role": "assistant", "content": a}], tokenize=False))
+
+model = get_peft_model(model, LoraConfig(r=16, lora_alpha=32, target_modules="all-linear", lora_dropout=0.05, task_type="CAUSAL_LM"))
+n_train = sum(p.numel() for p in model.parameters() if p.requires_grad)                     # 可训练参数量
+
+ds = Dataset.from_list([{"prompt": [{"role": "user", "content": q}], "completion": [{"role": "assistant", "content": a}]} for q, a in QA])
+args = SFTConfig(max_steps=20, per_device_train_batch_size=4, learning_rate=2e-4, max_length=128, completion_only_loss=True, ...)
+trainer = SFTTrainer(model=model, train_dataset=ds, processing_class=tok, args=args)
+batch = next(iter(trainer.get_train_dataloader()))
+masked = (batch["labels"] == -100).sum().item()                                             # loss mask 的比例
+trainer.train()
+
+ids = tok.apply_chat_template([{"role": "user", "content": q}], add_generation_prompt=True, return_tensors="pt", return_dict=True)
+out = model.generate(**ids, max_new_tokens=12, do_sample=False, eos_token_id=tok.convert_tokens_to_ids("<|im_end|>"))
+merged = model.merge_and_unload()
+```
 
 ### 1. 模型与 chat template
 
@@ -210,6 +305,8 @@ Hugging Face 的库是当前算法工作的事实标准，也是**最好的教�
 - **六行组装 LoRA SFT**，背后的每件事——chat template、loss mask（−100）、packing、LoRA 挂载、只更新 $$A, B$$、bf16 / 裁剪 / 调度——都在二十行训练循环里有位置。
 - 0.5B 上跑通：七个线性层挂 LoRA、可训练 1.78%、训练状态 141 MB；一个 batch 85% 的 token 被 mask；20 步 loss 5.3 → 1.7，答案学会了但没学会停——**结束符要进 loss 且见够多次**。
 - **读源码是最快的路**：`modeling_llama.py`、`dpo_loss`、`grpo_trainer.py`、`peft` 的 `Linear.forward`、`LogitsProcessor`；从 `compute_loss` 往下追。库的接口会变，方法不变。
+
+配套代码：第五章那次运行的完整脚本是 [`algorithm-tooling/04_hf_lora_sft.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/algorithm-tooling/04_hf_lora_sft.py)（首次运行下载 Qwen2.5-0.5B 约 1 GB；CPU 20 步约 2–4 分钟，`--quick` 跑 5 步）。正文已给出它的全部关键行，读本文不需要它。
 
 ## 八、自测
 
