@@ -5,7 +5,7 @@ title: "通信与互联（04）：NCCL 架构——拓扑探测、channel、算�
 subtitle: "NCCL Architecture: Topology Detection, Channels, Algorithms and Protocols"
 tags: [NCCL, RDMA, GPU, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-09-20
 ---
 
 前三篇把"硬件能做到什么"的上限摆出来了：[第一篇](/collective-communication-primitives-and-cost-model.html)给出 α-β 模型和 ring all_reduce 的 $$T_{\text{ring}} = 2(n-1)\,\alpha + \frac{2(n-1)}{n}\cdot\frac{S}{\beta}$$；[第二篇](/hardware-interconnect-pcie-nvlink-and-topology.html)给 α 和 β 填上数字——NVLink 每 GPU 双向合计 600/900 GB/s（A100/H100），PCIe 4.0 x16 单向约 32 GB/s，IB NDR 单向 50 GB/s——并用 `nvidia-smi topo -m` 的 `NV#`/`PIX`/`PXB`/`PHB`/`SYS` 描述任意两个设备之间的路径；[第三篇](/rdma-and-gpudirect.html)讲清了跨机时网卡如何绕过 CPU 和主机内存直接读写显存。这些都是"能力"。本篇讲的是 NCCL 如何把这些能力**组织**成一次集合通信：它怎么知道机器长什么样、怎么决定数据走哪条路、怎么把一个 all_reduce 切成多少条并行的流、用哪种算法和协议、以及 GPU 上的 kernel 与 CPU 上的线程如何配合把字节送上网卡。
@@ -28,27 +28,30 @@ NCCL 对大多数使用者是一个黑盒：`ncclCommInitRank` 之后它就"能�
 
 把总纲里的那张图展开一层，标上本篇要读的函数：
 
-```text
-ncclCommInitRank                                  src/init.cc: ncclCommInitRankDev → initTransportsRank
-  bootstrap        用 uniqueId 里的地址连上 root，建 TCP 环，       src/bootstrap.cc: bootstrapInit / bootstrapAllGather
-                   两次 AllGather 交换 peerInfo 与图信息
-  topo detect      读 /sys 与 NVML 建 XML，节点内各 rank 的 XML 融合   src/graph/xml.cc · topo.cc: ncclTopoGetSystem
-  paths            BFS 算出 GPU/NIC/CPU 两两之间的路径类型与带宽      src/graph/paths.cc: ncclTopoComputePaths
-  search           按 pattern 搜 ring / tree / nvls / collnet 图     src/graph/search.cc: ncclTopoCompute
-  connect          节点内图拼成全局 ring 与 double binary tree       src/graph/connect.cc: ncclTopoPreset / ncclTopoPostset
-  channels         决定 nChannels，复制 channel，建 p2p 调度表        src/graph/connect.cc · src/channel.cc · src/init.cc
-  tuning           为每个 (函数, 算法, 协议) 填 latency 与 bandwidth    src/graph/tuning.cc: ncclTopoTuneModel
-  proxy            起 proxy service 线程（progress 线程按需再起）      src/proxy.cc: ncclProxyCreate
+**初始化期：`ncclCommInitRank`**（`src/init.cc: ncclCommInitRankDev → initTransportsRank`）
 
-ncclAllReduce                                     src/collectives.cc → src/enqueue.cc: ncclEnqueueCheck
-  group            隐式 ncclGroupStart/End，任务入队                 src/group.cc: ncclGroupEndInternal → groupLaunch
-  prepare          按大小聚合任务，查表选 算法×协议，定 channel 数      src/enqueue.cc: ncclPrepareTasks → getAlgoInfo
-  (lazy connect)   首次用到某算法时才真正建 transport 连接            src/transport/generic.cc: ncclTransportRingConnect …
-  plan             把工作切到 channel，生成 kernel 参数与 proxyOp     src/enqueue.cc: scheduleCollTasksToPlan
-  launch           一个 kernel，nChannels 个 block                    src/enqueue.cc: ncclLaunchKernel → cuLaunchKernelEx
-  kernel           每个 block 跑一条 ring/tree，用 primitives 收发     src/device/all_reduce.h · primitives.h · prims_*.h
-  proxy progress   CPU 线程替 GPU 提交 isend/irecv、轮询完成          src/proxy.cc: ncclProxyProgress · src/transport/net.cc
-```
+| 阶段 | 做什么 | 源码 |
+|---|---|---|
+| bootstrap | 用 uniqueId 里的地址连上 root，建 TCP 环，两次 AllGather 交换 peerInfo 与图信息 | `src/bootstrap.cc`<br/>`bootstrapInit` / `bootstrapAllGather` |
+| topo detect | 读 `/sys` 与 NVML 建 XML，节点内各 rank 的 XML 融合 | `src/graph/xml.cc`<br/>`src/graph/topo.cc: ncclTopoGetSystem` |
+| paths | BFS 算出 GPU / NIC / CPU 两两之间的路径类型与带宽 | `src/graph/paths.cc: ncclTopoComputePaths` |
+| search | 按 pattern 搜 ring / tree / nvls / collnet 图 | `src/graph/search.cc: ncclTopoCompute` |
+| connect | 节点内图拼成全局 ring 与 double binary tree | `src/graph/connect.cc`<br/>`ncclTopoPreset` / `ncclTopoPostset` |
+| channels | 决定 nChannels，复制 channel，建 p2p 调度表 | `src/graph/connect.cc`<br/>`src/channel.cc`<br/>`src/init.cc` |
+| tuning | 为每个 (函数, 算法, 协议) 填 latency 与 bandwidth | `src/graph/tuning.cc: ncclTopoTuneModel` |
+| proxy | 起 proxy service 线程（progress 线程按需再起） | `src/proxy.cc: ncclProxyCreate` |
+
+**执行期：`ncclAllReduce`**（`src/collectives.cc → src/enqueue.cc: ncclEnqueueCheck`）
+
+| 阶段 | 做什么 | 源码 |
+|---|---|---|
+| group | 隐式 `ncclGroupStart/End`，任务入队 | `src/group.cc`<br/>`ncclGroupEndInternal → groupLaunch` |
+| prepare | 按大小聚合任务，查表选 算法 × 协议，定 channel 数 | `src/enqueue.cc`<br/>`ncclPrepareTasks → getAlgoInfo` |
+| (lazy connect) | 首次用到某算法时才真正建 transport 连接 | `src/transport/generic.cc: ncclTransportRingConnect` … |
+| plan | 把工作切到 channel，生成 kernel 参数与 proxyOp | `src/enqueue.cc: scheduleCollTasksToPlan` |
+| launch | 一个 kernel，nChannels 个 block | `src/enqueue.cc`<br/>`ncclLaunchKernel → cuLaunchKernelEx` |
+| kernel | 每个 block 跑一条 ring / tree，用 primitives 收发 | `src/device/all_reduce.h`<br/>`src/device/primitives.h`<br/>`src/device/prims_*.h` |
+| proxy progress | CPU 线程替 GPU 提交 isend / irecv、轮询完成 | `src/proxy.cc: ncclProxyProgress`<br/>`src/transport/net.cc` |
 
 初始化期的决策全部与消息大小无关，所以它可以慢（几百毫秒到几秒），但只做一次。执行期每次调用都要走，所以它必须快——`ncclAllReduce` 在 host 侧的路径是查表和填结构体，没有搜索。
 
@@ -985,12 +988,11 @@ hostA:12345:12345 [0] NCCL INFO AllReduce: 65536 Bytes -> Algo Tree proto LL cha
 
 把 `NCCL_TOPO_DUMP_FILE` 导出的 XML 改一改再用 `NCCL_TOPO_FILE` 喂回去，是理解决策链最直接的实验（在单机上也能做；改的是 NCCL 对机器的**认知**，不是机器本身，所以性能结果不作数，只看日志里决策怎么变）：
 
-```text
-实验                                     改动                                              预期看到
-去掉 NVLink                              删掉所有 <nvlink …/>                                type PIX/… 或 PHB；nChannels 降到 2～4；LL128 消失（Enabled 矩阵里为 0）；小消息选 LL
-把 NIC 挪到另一个 NUMA                   把 <nic> 所在 <pci> 剪到另一个 <cpu> 下              GPU Direct RDMA Disabled … distance 9 > 5；连接行没有 /GDRDMA
-把 NVLink count 减半                     count="2" → "1"                                     NVL[120.0]；ring nChannels 从 12 降到 6（×2 后 12）
-```
+| 实验 | 改动 | 预期看到 |
+|---|---|---|
+| 去掉 NVLink | 删掉所有 <nvlink …/> | type PIX/… 或 PHB；nChannels 降到 2～4；LL128 消失（Enabled 矩阵里为 0）；小消息选 LL |
+| 把 NIC 挪到另一个 NUMA | 把 <nic> 所在 <pci> 剪到另一个 <cpu> 下 | GPU Direct RDMA Disabled … distance 9 > 5；连接行没有 /GDRDMA |
+| 把 NVLink count 减半 | count="2" → "1" | NVL[120.0]；ring nChannels 从 12 降到 6（×2 后 12） |
 
 同样，`NCCL_GRAPH_DUMP_FILE` 导出的图改 `nchannels`、`speedintra` 后用 `NCCL_GRAPH_FILE` 喂回去，可以直接看到调优表随 channel 数与带宽的变化，而不必重新搜索。
 
@@ -1038,18 +1040,17 @@ send/recv     必须同 group：否则 send kernel 等 recv、recv 在 send 返�
 
 ### 2. 排障检查项 / 决策要点
 
-```text
-现象                          先看                                                  再看
-多机远差于单机                Using network 是否 IB；连接行是否 /GDRDMA；GDR distance   NCCL_IB_HCA、PXN、NIC 亲和、crossNic
-单机大消息上不去              拓扑打印 NVL 带宽；Pattern 4 nChannels×bw；coll channels 数   NCCL_MAX_NCHANNELS / maxCTAs、是否落到 SHM
-小消息延迟高                  选了什么 proto（LL128 是否被禁）；channel{Lo..Hi} 是否过大    NCCL_MIN_NCHANNELS、proxy 线程所在核、跨 NUMA
-NCCL_ALGO/PROTO 不生效        ENV 子系统有没有 "set by environment"；Enabled 矩阵         tuner 插件 NCCL_TUNER_PLUGIN 是否加载
-"no algorithm/protocol available"  NCCL_ALGO/PROTO 指定了机器不支持的组合               去掉 env 或按 ncclAlgoStr 拼写
-初始化 hang                   Bootstrap: Using 的接口；NCCL_COMM_ID 子网                  防火墙、NCCL_SOCKET_IFNAME、NCCL_OOB_NET_ENABLE
-第一次集合操作特别慢          正常：lazy connect（Connected all rings 在 Init COMPLETE 之后）  PyTorch 侧 timeout 是否够
-kernel 长时间自旋             proxy 是否还活着；NCCL_PROXY_DUMP_SIGNAL 看游标              对端 rank 是否存活；网络；send/recv 是否配对
-决策：要不要设 NCCL_ALGO      先用 TUNING 日志看自动选择与调优表；用 nccl-tests 扫描确认交叉点   再写进 tuner 配置而不是全局 env
-```
+| 现象 | 先看 | 再看 |
+|---|---|---|
+| 多机远差于单机 | Using network 是否 IB；连接行是否 /GDRDMA；GDR distance | NCCL_IB_HCA、PXN、NIC 亲和、crossNic |
+| 单机大消息上不去 | 拓扑打印 NVL 带宽；Pattern 4 nChannels×bw；coll channels 数 | NCCL_MAX_NCHANNELS / maxCTAs、是否落到 SHM |
+| 小消息延迟高 | 选了什么 proto（LL128 是否被禁）；channel{Lo..Hi} 是否过大 | NCCL_MIN_NCHANNELS、proxy 线程所在核、跨 NUMA |
+| NCCL_ALGO/PROTO 不生效 | ENV 子系统有没有 "set by environment"；Enabled 矩阵 | tuner 插件 NCCL_TUNER_PLUGIN 是否加载 |
+| "no algorithm/protocol available" | NCCL_ALGO/PROTO 指定了机器不支持的组合 | 去掉 env 或按 ncclAlgoStr 拼写 |
+| 初始化 hang | Bootstrap: Using 的接口；NCCL_COMM_ID 子网 | 防火墙、NCCL_SOCKET_IFNAME、NCCL_OOB_NET_ENABLE |
+| 第一次集合操作特别慢 | 正常：lazy connect（Connected all rings 在 Init COMPLETE 之后） | PyTorch 侧 timeout 是否够 |
+| kernel 长时间自旋 | proxy 是否还活着；NCCL_PROXY_DUMP_SIGNAL 看游标 | 对端 rank 是否存活；网络；send/recv 是否配对 |
+| 决策：要不要设 NCCL_ALGO | 先用 TUNING 日志看自动选择与调优表；用 nccl-tests 扫描确认交叉点 | 再写进 tuner 配置而不是全局 env |
 
 ### 3. 本篇涉及的源码与工具位置
 

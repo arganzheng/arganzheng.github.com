@@ -5,7 +5,7 @@ title: "通信与互联（06）：nccl-tests、调优与排障——从带宽曲
 subtitle: "nccl-tests, Tuning and Debugging Hangs: From Bandwidth Curves to Flight Recorder"
 tags: [NCCL, RDMA, GPU, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-09-20
 ---
 
 前五篇建立了一条完整的因果链：第一篇的 α-β 模型给出一次集合通信的理论时间，第二、三篇给出链路能提供的 β 和 α，第四篇讲 NCCL 如何在探测到的拓扑上选 ring/tree、channel 数、算法与协议去逼近这个上限，第五篇讲 ProcessGroupNCCL 如何把 NCCL kernel 放到自己的 stream 上、watchdog 如何盯着每一个 `WorkNCCL`。这条链上每一环都可能出错，而错误的表现只有三种：**慢**、**卡**、**结果不对**。本篇的任务是把前五篇变成一套可操作的方法——面对这三种现象，先测什么、先看什么、先改什么。
@@ -24,27 +24,18 @@ updated: 2026-09-14
 
 ### 1. 两半、三种现象、一张层级图
 
+本篇分两半：**性能**这一半（第二到五章）回答"慢"——用 nccl-tests 测、用日志看决策、用参数调；**正确性**这一半（第六到八章）回答"卡"与"错"——hang 的分类与定位、timeout 的语义、数值问题。两半面对的是同样的六层，所以先把层级图放在这里。
+
 一次 `dist.all_reduce` 从 Python 到线路要穿过六层，每一层都有自己的观测手段和典型故障：
 
-```text
-层                    典型故障                          观测手段
-─────────────────────────────────────────────────────────────────────────────────
-框架 (c10d)           调用不一致 · 小消息没合并 ·        Flight Recorder · py-spy ·
-                      stream 依赖错 · .item() 打断重叠    torch.profiler · TORCH_NCCL_DESYNC_DEBUG
-─────────────────────────────────────────────────────────────────────────────────
-NCCL 决策层           算法/协议选错 · channel 太少 ·      NCCL_DEBUG=INFO SUBSYS=GRAPH,TUNING ·
-(graph/tuning)        拓扑探测错                          NCCL_TOPO_DUMP_FILE · NCCL_GRAPH_DUMP_FILE
-─────────────────────────────────────────────────────────────────────────────────
-NCCL transport        P2P 没走 NVLink · GDR 没开 ·         NCCL_DEBUG=INFO 里的 "via P2P/…" "via NET/IB/…/GDRDMA"
-(p2p/shm/net)         回落到 Socket                       "GPU Direct RDMA Disabled …"
-─────────────────────────────────────────────────────────────────────────────────
-设备 kernel           在 flag 上自旋等对端               cuda-gdb · nvidia-smi 看 SM 占用不降
-─────────────────────────────────────────────────────────────────────────────────
-网络 (IB/RoCE)        网卡亲和错 · PFC/ECN 没配 ·         ibstat · ib_write_bw · 交换机计数器 ·
-                      链路降速 · 丢包重传                 NCCL_IB_HCA · dmesg
-─────────────────────────────────────────────────────────────────────────────────
-硬件 (PCIe/NVLink)    链路降级 · 跨 NUMA · GPU 掉卡       nvidia-smi topo -m · nvidia-smi nvlink -s · lspci -vv
-```
+| 层 | 典型故障 | 观测手段 |
+|---|---|---|
+| 框架（c10d） | 调用不一致 · 小消息没合并 · stream 依赖错 · `.item()` 打断重叠 | Flight Recorder · py-spy · torch.profiler · `TORCH_NCCL_DESYNC_DEBUG` |
+| NCCL 决策层（graph / tuning） | 算法 / 协议选错 · channel 太少 · 拓扑探测错 | `NCCL_DEBUG=INFO SUBSYS=GRAPH,TUNING` · `NCCL_TOPO_DUMP_FILE` · `NCCL_GRAPH_DUMP_FILE` |
+| NCCL transport（p2p / shm / net） | P2P 没走 NVLink · GDR 没开 · 回落到 Socket | `NCCL_DEBUG=INFO` 里的 "via P2P/…" "via NET/IB/…/GDRDMA" "GPU Direct RDMA Disabled …" |
+| 设备 kernel | 在 flag 上自旋等对端 | cuda-gdb · nvidia-smi 看 SM 占用不降 |
+| 网络（IB / RoCE） | 网卡亲和错 · PFC / ECN 没配 · 链路降速 · 丢包重传 | ibstat · `ib_write_bw` · 交换机计数器 · `NCCL_IB_HCA` · dmesg |
+| 硬件（PCIe / NVLink） | 链路降级 · 跨 NUMA · GPU 掉卡 | `nvidia-smi topo -m` · `nvidia-smi nvlink -s` · `lspci -vv` |
 
 三种现象在这张图上的排查方向不同。**慢**从下往上：先确认硬件和网络能提供的上限（第二、三篇的 nvbandwidth 与 `ib_write_bw`），再用 nccl-tests 看 NCCL 拿到了多少，最后看框架侧是否浪费了。**卡**从上往下：先用 Flight Recorder 判断是不是调用不一致，是则到此为止；不是再往下看 rank 是否存活、网络是否断开。**错**几乎只在框架层和数值层：归约顺序、算法差异、stream 竞争、NaN 传播。
 
@@ -228,13 +219,12 @@ $$
 
 代入典型值（非实测；α 取"每步有效延迟"，含 kernel 内同步与协议握手）：
 
-```text
-场景                       n     α (每步)   β (每 GPU 单向可达)    S_knee = n·α·β    90% 平台 ≈ 9·S_knee
-8×H100 NVSwitch 节点内      8     ~3 µs      ~400 GB/s              ~10 MB            ~90 MB
-8×A100 NVSwitch 节点内      8     ~3 µs      ~270 GB/s              ~6.5 MB           ~60 MB
-2 节点 ×8，NDR 400 每 GPU   16    ~10 µs     ~45 GB/s               ~7 MB             ~65 MB
-8 节点 ×8，NDR 400 每 GPU   64    ~10 µs     ~45 GB/s               ~29 MB            ~260 MB
-```
+| 场景 | n | α (每步) | β (每 GPU 单向可达) | S_knee = n·α·β | 90% 平台 ≈ 9·S_knee |
+|---|---|---|---|---|---|
+| 8×H100 NVSwitch 节点内 | 8 | ~3 µs | ~400 GB/s | ~10 MB | ~90 MB |
+| 8×A100 NVSwitch 节点内 | 8 | ~3 µs | ~270 GB/s | ~6.5 MB | ~60 MB |
+| 2 节点 ×8，NDR 400 每 GPU | 16 | ~10 µs | ~45 GB/s | ~7 MB | ~65 MB |
+| 8 节点 ×8，NDR 400 每 GPU | 64 | ~10 µs | ~45 GB/s | ~29 MB | ~260 MB |
 
 这解释了几个常见的观察：为什么 8 卡节点内要到 64～128 MB 才接近平台；为什么 64 卡跨机的曲线在 256 MB 以下都"看起来没跑满"；为什么 DDP 默认 25 MB 的 bucket 在单机 8 卡上刚过拐点、在 64 卡上还在爬坡（这是为什么大规模下 NCCL 会为中等消息选 Tree——把 $$2(n-1)$$ 步的延迟项换成 $$2\log_2 n$$ 步）。
 
@@ -960,16 +950,15 @@ timeout         约束 enqueue → 结束 event 的墙钟时间；不约束 CPU�
 
 通信层出问题时按这个顺序看：
 
-```text
-1  版本与库      ldd 确认 libnccl.so；日志 "NCCL version"；各节点一致
-2  进程与硬件    进程数对不对；nvidia-smi（Xid、降频、掉卡）；dmesg；ibstat State/Rate
-3  路径          INFO 日志：Using network IB？via P2P 还是 SHM？GDRDMA 有没有？网卡与 GPU 亲和对不对？
-4  参数          "set by environment" 列表：有没有三年前留下的 NCCL_ALGO=Ring
-5  曲线          nccl-tests 单机 + 多机，与参考线、与 cost_model 比：平台低 → β 问题；左端低 → α 问题；中段 → 切换点
-6  卡            FR dump → fr_trace.py → 一致（环境）还是不一致（代码）；py-spy 补 Python 侧
-7  错            固定算法 → 差异消失是归约顺序；各 rank 不一致 → 竞争；NAN_CHECK 找源头
-8  记录          每次结论连同 topo -m、环境变量、版本一起归档
-```
+| 1 | 版本与库 | ldd 确认 libnccl.so；日志 "NCCL version"；各节点一致 |
+|---|---|---|
+| 2 | 进程与硬件 | 进程数对不对；nvidia-smi（Xid、降频、掉卡）；dmesg；ibstat State/Rate |
+| 3 | 路径 | INFO 日志：Using network IB？via P2P 还是 SHM？GDRDMA 有没有？网卡与 GPU 亲和对不对？ |
+| 4 | 参数 | "set by environment" 列表：有没有三年前留下的 NCCL_ALGO=Ring |
+| 5 | 曲线 | nccl-tests 单机 + 多机，与参考线、与 cost_model 比：平台低 → β 问题；左端低 → α 问题；中段 → 切换点 |
+| 6 | 卡 | FR dump → fr_trace.py → 一致（环境）还是不一致（代码）；py-spy 补 Python 侧 |
+| 7 | 错 | 固定算法 → 差异消失是归约顺序；各 rank 不一致 → 竞争；NAN_CHECK 找源头 |
+| 8 | 记录 | 每次结论连同 topo -m、环境变量、版本一起归档 |
 
 ### 3. 本篇涉及的源码与工具位置
 
