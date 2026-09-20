@@ -978,8 +978,18 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   NN=11 at 03-09 20:00). Slugs with giscus discussions were never renamed.
   The depth standard the user set for this series (and asked for series-wide):
   「小白能看懂」 — every mechanism goes 具体小例子 → 图 → 逐符号公式 → 10–40
-  行手写实现（带 ①②③ 行标、与 scikit-learn 对数、贴真实输出）→ 在 LLM 里哪出现;
-  every number and every figure comes from `ai-learning-labs/classical-ml/NN_*.py`
+  行手写实现（带 ①②③ 行标、与 scikit-learn 对数、贴真实输出）→ 在 LLM 里哪出现.
+  Second pass (user: 「务必以小白不需要借助其他资料就可以看懂为目标」) added
+  two more rules that apply to every expanded series: (a) a prerequisite the
+  post relies on (导数、梯度、转置、特征值、期望、方差、似然、标准误、hash …)
+  is explained **in place the first time it is used** — a sentence or a
+  `tip:` — never 「见 L0 第 N 篇」 (cross-series pointers are fine only for
+  *further* reading); (b) every formula gets a **hand-checkable example with
+  3–10 numbers** (a table the reader can redo on paper) *before* the code
+  runs it on real data, and the same toy numbers are reused across the post
+  where possible (02 uses the 3 points (1,3)(2,5)(3,8) from 残差 through
+  正规方程 to Ridge). Verify toy numbers with a one-off NumPy run.
+  Every number and every figure comes from `ai-learning-labs/classical-ml/NN_*.py`
   (figures are matplotlib SVGs written by `_plot.py` — Heiti SC, `svg.fonttype
   none`, 7.6 in wide, constrained layout — copied to `img/in-post/classical-ml-NN-*.svg`;
   keep scatter plots subsampled so an SVG stays under ~150 KB). Posts 07 / 08 / 09
