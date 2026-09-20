@@ -19,15 +19,15 @@ catalog: true
 
 这个系列把黑盒打开。它会从 GPU 的硬件结构出发，建立一套用数字说话的分析方法，然后沿着 AI 负载里最重要的几类 kernel 逐个写过去：
 
-```text
-elementwise    → 访存合并与向量化，memory-bound 的极限是什么
-reduction      → 共享内存与 warp 协作，softmax 与 LayerNorm 怎么写
-GEMM           → 分块、寄存器、双缓冲，compute-bound 的极限是什么
-Tensor Core    → mma 指令与 CUTLASS，硬件矩阵单元怎么用
-Triton         → 同样的 kernel 用块级编程重写，编译器替你做了哪一层
-Attention      → FlashAttention 与 PagedAttention 的推导和实现
-量化与融合      → 低精度 GEMM、RoPE、SiLU-mul、MoE 的 kernel 层含义
-```
+| kernel 类型 | 讲什么 |
+|---|---|
+| elementwise | 访存合并与向量化，memory-bound 的极限是什么 |
+| reduction | 共享内存与 warp 协作，softmax 与 LayerNorm 怎么写 |
+| GEMM | 分块、寄存器、双缓冲，compute-bound 的极限是什么 |
+| Tensor Core | mma 指令与 CUTLASS，硬件矩阵单元怎么用 |
+| Triton | 同样的 kernel 用块级编程重写，编译器替你做了哪一层 |
+| Attention | FlashAttention 与 PagedAttention 的推导和实现 |
+| 量化与融合 | 低精度 GEMM、RoPE、SiLU-mul、MoE 的 kernel 层含义 |
 
 每一个 kernel 都遵循同一套方法：**先算它理论上应该多快，再测它实际多快，再用 profiler 解释差距，再动手缩小差距**。
 
@@ -77,7 +77,7 @@ Triton 让写一个融合 kernel 的成本从几百行 CUDA 变成几十行 Pyth
 
 ### 理解 PyTorch 运行时、想继续向下的工程师
 
-你已经理解 Tensor 的 stride、Dispatcher 如何找到 CUDA kernel、Profiler 如何显示 kernel 时间线，也许还写过一个简单的 CUDA 扩展。你想知道的是：**那个 kernel 内部为什么是那个速度，如何让它更快**。
+你已经理解 Tensor 的 stride（[03 系列第二篇](/pytorch-tensor-and-memory-layout.html)）、Dispatcher 如何找到 CUDA kernel（[第五篇](/pytorch-dispatcher-and-operator-system.html)）、Profiler 如何显示 kernel 时间线（[第八篇](/pytorch-performance-optimization-and-debugging.html)），也许还写过一个简单的 CUDA 扩展（[第六篇](/pytorch-cpp-extension-and-custom-operators.html)）。你想知道的是：**那个 kernel 内部为什么是那个速度，如何让它更快**。
 
 ### 准备给 vLLM / SGLang / FlashInfer / PyTorch 贡献 kernel 的开发者
 
@@ -96,35 +96,26 @@ Triton 让写一个融合 kernel 的成本从几百行 CUDA 变成几十行 Pyth
 
 十篇文章按"从硬件到应用"的顺序推进，同时也是 kernel 复杂度递增的顺序：
 
-```text
-第一篇：GPU 硬件与 Roofline —— 建立分析框架
-        ↓
-第二篇：CUDA 编程模型 —— 第一个 kernel 与它的测量
-        ↓
-第三篇：访存合并与 elementwise —— memory-bound 的极限
-        ↓
-第四篇：共享内存与 reduction —— softmax、LayerNorm、online softmax
-        ↓
-第五篇：GEMM 从 naive 到分块 —— compute-bound 的极限
-        ↓
-第六篇：Tensor Core 与 CUTLASS —— 硬件矩阵单元
-        ↓
-第七篇：Triton —— 块级编程与编译器的边界
-        ↓
-第八篇：Attention Kernel —— FlashAttention 与 PagedAttention
-        ↓
-第九篇：量化与融合 kernel —— 推理系统的其余部分
-        ↓
-第十篇：剖析、测试与贡献 —— Nsight Compute、正确性、接入框架
-```
+| 篇 | 主题 | 一句话 |
+|---|---|---|
+| 第一篇 | GPU 硬件与 Roofline | 建立分析框架 |
+| 第二篇 | CUDA 编程模型 | 第一个 kernel 与它的测量 |
+| 第三篇 | 访存合并与 elementwise | memory-bound 的极限 |
+| 第四篇 | 共享内存与 reduction | softmax、LayerNorm、online softmax |
+| 第五篇 | GEMM 从 naive 到分块 | compute-bound 的极限 |
+| 第六篇 | Tensor Core 与 CUTLASS | 硬件矩阵单元 |
+| 第七篇 | Triton | 块级编程与编译器的边界 |
+| 第八篇 | Attention Kernel | FlashAttention 与 PagedAttention |
+| 第九篇 | 量化与融合 kernel | 推理系统的其余部分 |
+| 第十篇 | 剖析、测试与贡献 | Nsight Compute、正确性、接入框架 |
 
 三条交织的线索：
 
-```text
-硬件线：SM 与 warp → 内存层次 → Tensor Core → Hopper 新特性
-方法线：Roofline → 带宽测量 → 占用率 → Nsight Compute 指标 → 决策树
-应用线：elementwise → norm → GEMM → attention → 量化/MoE → 一个完整的 decoder layer
-```
+| 线索 | 从第一篇到第十篇 |
+|---|---|
+| 硬件线 | SM 与 warp → 内存层次 → Tensor Core → Hopper 新特性 |
+| 方法线 | Roofline → 带宽测量 → 占用率 → Nsight Compute 指标 → 决策树 |
+| 应用线 | elementwise → norm → GEMM → attention → 量化/MoE → 一个完整的 decoder layer |
 
 前六篇的所有 kernel 用 CUDA 写；第七篇用 Triton 把第三到五篇重写一遍；第八、九篇两种写法并行；第十篇的方法对两者通用。
 
@@ -371,38 +362,38 @@ Triton 让写一个融合 kernel 的成本从几百行 CUDA 变成几十行 Pyth
 
 ### 11. 系列总结与通关自测
 
-最后一篇不讲新内容：把十篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是十篇能不能连起来用；读完正文再做。
+最后一篇不讲新内容：把十篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾——上面每篇导读末尾抛出的问题在那里逐条作答——拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是十篇能不能连起来用；读完正文再做。
 
 ## 贯穿全系列的实践线
 
 系列的练手项目是**一个 Transformer decoder layer 的 kernel 全集**。选它是因为它覆盖了 LLM 推理里所有主要的 kernel 类型，而且体量足够小，每个 kernel 都能单独讨论：
 
-```text
-第二篇    benchmark 脚手架            事件计时 · warmup · L2 flush
-第三篇    elementwise                 residual add · 激活 · dtype cast
-第四篇    RMSNorm · softmax           reduction · online softmax
-第五篇    SGEMM                       六个版本，到 cuBLAS 的 70–80%
-第六篇    BF16 Tensor Core GEMM       mma.sync，到 cuBLAS 的 80%+
-第七篇    以上三类的 Triton 版本        性能对照表
-第八篇    FlashAttention 前向          因果掩码 · GQA · Triton 完整版 + CUDA 核心循环
-第九篇    RoPE · SiLU-mul · fused norm · INT4 GEMM    组装成完整 layer
-第十篇    剖析 · 测试 · 注册            Nsight Compute · opcheck · TORCH_LIBRARY
-```
+| 篇 | kernel | 内容 |
+|---|---|---|
+| 第二篇 | benchmark 脚手架 | 事件计时 · warmup · L2 flush |
+| 第三篇 | elementwise | residual add · 激活 · dtype cast |
+| 第四篇 | RMSNorm · softmax | reduction · online softmax |
+| 第五篇 | SGEMM | 六个版本，到 cuBLAS 的 70–80% |
+| 第六篇 | BF16 Tensor Core GEMM | mma.sync，到 cuBLAS 的 80%+ |
+| 第七篇 | 以上三类的 Triton 版本 | 性能对照表 |
+| 第八篇 | FlashAttention 前向 | 因果掩码 · GQA · Triton 完整版 + CUDA 核心循环 |
+| 第九篇 | RoPE · SiLU-mul · fused norm · INT4 GEMM | 组装成完整 layer |
+| 第十篇 | 剖析 · 测试 · 注册 | Nsight Compute · opcheck · TORCH_LIBRARY |
 
 到第九篇结束，读者手上有一个用自己写的 kernel 跑通的 decoder layer 前向，可以和 PyTorch eager 对照正确性、和 `torch.compile` 对照性能。它不是一个可用的推理引擎，但每一个 kernel 都能拿出来单独测、单独优化、单独讨论离 Roofline 有多远。
 
 与它平行的源码阅读线：
 
-```text
-第三篇    ATen  native/cuda/CUDALoops.cuh · Loops.cuh · MemoryAccess.cuh
-第四篇    ATen  native/cuda/Reduce.cuh · SoftMax.cu；vLLM  csrc/layernorm_kernels.cu
-第五篇    CUTLASS  examples 的 SGEMM；PyTorch  cuBLAS 调用路径 native/cuda/Blas.cpp
-第六篇    CUTLASS  include/cutlass/gemm/{device,kernel,collective}；vLLM  csrc/libtorch_stable/quantization/w8a8/cutlass/
-第七篇    Triton  python/tutorials；vLLM  model_executor/layers/fused_moe/fused_moe.py；Inductor 生成的 kernel
-第八篇    flash-attention  csrc/flash_attn/src；vLLM  csrc/attention/；FlashInfer  include/flashinfer/attention/
-第九篇    vLLM  csrc/quantization/{marlin,awq,gptq,w8a8/fp8}/ · csrc/activation_kernels.cu · csrc/pos_encoding_kernels.cu · csrc/moe/
-第十篇    vLLM  csrc/torch_bindings.cpp · vllm/_custom_ops.py · tests/kernels/
-```
+| 篇 | 项目 | 文件 |
+|---|---|---|
+| 第三篇 | ATen | `native/cuda/CUDALoops.cuh`<br/>`native/cuda/Loops.cuh`<br/>`native/cuda/MemoryAccess.cuh` |
+| 第四篇 | ATen<br/>vLLM | `native/cuda/Reduce.cuh`、`native/cuda/SoftMax.cu`<br/>`csrc/layernorm_kernels.cu` |
+| 第五篇 | CUTLASS<br/>PyTorch | `examples` 的 SGEMM<br/>cuBLAS 调用路径 `native/cuda/Blas.cpp` |
+| 第六篇 | CUTLASS<br/>vLLM | `include/cutlass/gemm/{device,kernel,collective}`<br/>`csrc/libtorch_stable/quantization/w8a8/cutlass/` |
+| 第七篇 | Triton<br/>vLLM<br/>Inductor | `python/tutorials`<br/>`model_executor/layers/fused_moe/fused_moe.py`<br/>生成的 kernel |
+| 第八篇 | flash-attention<br/>vLLM<br/>FlashInfer | `csrc/flash_attn/src`<br/>`csrc/attention/`<br/>`include/flashinfer/attention/` |
+| 第九篇 | vLLM | `csrc/quantization/{marlin,awq,gptq,w8a8/fp8}/`<br/>`csrc/activation_kernels.cu`<br/>`csrc/pos_encoding_kernels.cu`<br/>`csrc/moe/` |
+| 第十篇 | vLLM | `csrc/torch_bindings.cpp`<br/>`vllm/_custom_ops.py`<br/>`tests/kernels/` |
 
 
 ## 前置要求与说明
@@ -451,17 +442,17 @@ Triton 让写一个融合 kernel 的成本从几百行 CUDA 变成几十行 Pyth
 
 读完这套系列之后，面对任何一个 GPU kernel——无论是自己写的、PyTorch 里的、还是 vLLM PR 里的——读者应该能够回答：
 
-```text
-它读写多少字节、做多少 FLOP？               → Roofline 上的位置
-它理论上最快多少？实际多少？                 → 带宽/算力利用率
-差距来自哪里？                              → Nsight Compute 的指标
-访存模式对不对？                            → 合并、向量化、bank conflict
-线程协作方式对不对？                        → shared memory、shuffle、同步
-用上 Tensor Core 了吗？用对了吗？            → mma 指令、fragment 布局、流水
-用 Triton 写会怎样？                        → 编译器能自动化到哪一层
-它在别的架构上会怎样？                      → 多架构与 fallback
-怎么证明它是对的、没变慢？                   → 测试、tolerance、benchmark
-```
+| 问题 | 看什么 |
+|---|---|
+| 它读写多少字节、做多少 FLOP？ | Roofline 上的位置 |
+| 它理论上最快多少？实际多少？ | 带宽 / 算力利用率 |
+| 差距来自哪里？ | Nsight Compute 的指标 |
+| 访存模式对不对？ | 合并、向量化、bank conflict |
+| 线程协作方式对不对？ | shared memory、shuffle、同步 |
+| 用上 Tensor Core 了吗？用对了吗？ | mma 指令、fragment 布局、流水 |
+| 用 Triton 写会怎样？ | 编译器能自动化到哪一层 |
+| 它在别的架构上会怎样？ | 多架构与 fallback |
+| 怎么证明它是对的、没变慢？ | 测试、tolerance、benchmark |
 
 最终目标是三种能力：
 

@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="330" viewBox="0 0 760 330" font-family="-apple-system, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif" font-size="12">
+  <style>.t{font-weight:600;fill:#222}.m{fill:#666;font-size:11px}.ctl{fill:#fef3c7;stroke:#b45309}.alu{fill:#dbeafe;stroke:#1d4ed8}.cache{fill:#ede9fe;stroke:#7e22ce}.sm{fill:#dbeafe;stroke:#1d4ed8}.l2{fill:#ede9fe;stroke:#7e22ce}.hbm{fill:#dcfce7;stroke:#15803d}</style>
+  <text x="16" y="22" class="t">CPU 芯片：几个大核心，大部分面积是控制逻辑与缓存</text>
+  <g transform="translate(16,34)">
+    <rect x="0" y="0" width="340" height="250" fill="#fafafa" stroke="#999"/>
+    <!-- 4 cores -->
+    <g id="core">
+      <rect x="10" y="10" width="150" height="100" fill="#fff" stroke="#555"/>
+      <rect x="16" y="16" width="138" height="30" class="ctl"/><text x="85" y="35" text-anchor="middle" class="m">分支预测 · 乱序调度 · 重命名</text>
+      <rect x="16" y="50" width="70" height="26" class="ctl"/><text x="51" y="67" text-anchor="middle" class="m">取指 / 译码</text>
+      <rect x="90" y="50" width="64" height="26" class="alu"/><text x="122" y="67" text-anchor="middle" class="m">ALU（小）</text>
+      <rect x="16" y="80" width="138" height="24" class="cache"/><text x="85" y="97" text-anchor="middle" class="m">私有 L1 / L2 缓存</text>
+    </g>
+    <use href="#core" x="170" y="0"/><use href="#core" x="0" y="110"/><use href="#core" x="170" y="110"/>
+    <rect x="10" y="222" width="320" height="22" class="cache"/><text x="170" y="237" text-anchor="middle" class="m">共享 L3 缓存：几十 MB</text>
+  </g>
+  <text x="16" y="306" class="m">4 个核心，每个核心里真正做算术的 ALU 只占一角；缓存几十 MB。</text>
+  <text x="16" y="322" class="m">目标：让一条指令流等得尽量短（延迟优化）。</text>
+
+  <text x="400" y="22" class="t">GPU 芯片（A100）：108 个小 SM 铺满，缓存很小</text>
+  <g transform="translate(400,34)">
+    <rect x="0" y="0" width="340" height="250" fill="#fafafa" stroke="#999"/>
+    <!-- grid of SMs: 12 x 9 = 108 -->
+    <g id="smrow">
+      <rect x="8" y="8" width="24" height="18" class="sm"/><rect x="35" y="8" width="24" height="18" class="sm"/><rect x="62" y="8" width="24" height="18" class="sm"/><rect x="89" y="8" width="24" height="18" class="sm"/><rect x="116" y="8" width="24" height="18" class="sm"/><rect x="143" y="8" width="24" height="18" class="sm"/>
+      <rect x="170" y="8" width="24" height="18" class="sm"/><rect x="197" y="8" width="24" height="18" class="sm"/><rect x="224" y="8" width="24" height="18" class="sm"/><rect x="251" y="8" width="24" height="18" class="sm"/><rect x="278" y="8" width="24" height="18" class="sm"/><rect x="305" y="8" width="24" height="18" class="sm"/>
+    </g>
+    <use href="#smrow" y="21"/><use href="#smrow" y="42"/><use href="#smrow" y="63"/>
+    <rect x="8" y="94" width="321" height="22" class="l2"/><text x="168" y="109" text-anchor="middle" class="m">L2：40 MB（整卡共享，中间一条）</text>
+    <use href="#smrow" y="112"/><use href="#smrow" y="133"/><use href="#smrow" y="154"/><use href="#smrow" y="175"/><use href="#smrow" y="196"/>
+    <rect x="8" y="226" width="321" height="18" class="hbm"/><text x="168" y="239" text-anchor="middle" class="m">HBM 控制器 ↔ 80 GB HBM2e，2.0 TB/s</text>
+    <text x="20" y="20" class="m" style="fill:#1d4ed8">SM</text>
+  </g>
+  <text x="400" y="306" class="m">108 个 SM，每个 64 FP32 + 4 Tensor Core + 256 KB 寄存器 + 192 KB L1/shared；</text>
+  <text x="400" y="322" class="m">没有分支预测与乱序。目标：总吞吐，用海量线程把延迟藏起来。</text>
+</svg>
