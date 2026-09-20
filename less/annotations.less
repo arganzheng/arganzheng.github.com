@@ -18,7 +18,9 @@
 
 // ---- highlights & markers
 .post-container {
-	mark.annotation-hl {
+	// `.katex.has-note` = a formula with a note: the <mark> sits in its hidden
+	// TeX source, so the visible formula box takes the same styles (js markHost)
+	mark.annotation-hl, .katex.has-note {
 		padding: 0 0 1px;
 		color: inherit;
 		background-color: @annot-bg;
@@ -695,14 +697,14 @@
 .post-container {
 	// a doubted passage: dotted red line instead of the amber dashed one — the
 	// author should spot it
-	mark.annotation-hl.has-doubt { border-bottom-style: dotted; border-bottom-color: fade(@annot-doubt, 75%); }
-	mark.annotation-hl.has-doubt:hover { border-bottom-color: @annot-doubt; background-color: fade(@annot-doubt, 7%); }
-	mark.annotation-hl.has-doubt.is-multi { border-bottom-style: solid; }
+	mark.annotation-hl.has-doubt, .katex.has-note.has-doubt { border-bottom-style: dotted; border-bottom-color: fade(@annot-doubt, 75%); }
+	mark.annotation-hl.has-doubt:hover, .katex.has-note.has-doubt:hover { border-bottom-color: @annot-doubt; background-color: fade(@annot-doubt, 7%); }
+	mark.annotation-hl.has-doubt.is-multi, .katex.has-note.has-doubt.is-multi { border-bottom-style: solid; }
 	// a passage with an open GitHub Issue on it: solid red line on a faint red
 	// wash — stronger than 存疑 (dotted), it is the author's todo
-	mark.annotation-hl.has-issue,
-	mark.annotation-hl.has-issue.has-doubt { border-bottom: 2px solid fade(@annot-doubt, 80%); background-color: fade(@annot-doubt, 6%); }
-	mark.annotation-hl.has-issue:hover { border-bottom-color: @annot-doubt; background-color: fade(@annot-doubt, 12%); }
+	mark.annotation-hl.has-issue, .katex.has-note.has-issue,
+	mark.annotation-hl.has-issue.has-doubt, .katex.has-note.has-issue.has-doubt { border-bottom: 2px solid fade(@annot-doubt, 80%); background-color: fade(@annot-doubt, 6%); }
+	mark.annotation-hl.has-issue:hover, .katex.has-note.has-issue:hover { border-bottom-color: @annot-doubt; background-color: fade(@annot-doubt, 12%); }
 	// the marker carries up to three icon+count pairs
 	.annotation-marker {
 		.fa + .annotation-marker-count + .fa,
@@ -758,9 +760,9 @@
 @annot-fixed: #1a7f37;
 .post-container {
 	// every note on this passage is resolved: green solid line, the doubt red gives way
-	mark.annotation-hl.is-resolved,
-	mark.annotation-hl.is-resolved.has-doubt { border-bottom: 1.5px solid fade(@annot-fixed, 70%); }
-	mark.annotation-hl.is-resolved:hover { border-bottom-color: @annot-fixed; background-color: fade(@annot-fixed, 7%); }
+	mark.annotation-hl.is-resolved, .katex.has-note.is-resolved,
+	mark.annotation-hl.is-resolved.has-doubt, .katex.has-note.is-resolved.has-doubt { border-bottom: 1.5px solid fade(@annot-fixed, 70%); }
+	mark.annotation-hl.is-resolved:hover, .katex.has-note.is-resolved:hover { border-bottom-color: @annot-fixed; background-color: fade(@annot-fixed, 7%); }
 	.annotation-marker.is-resolved,
 	.annotation-marker.is-resolved.has-doubt { color: @annot-fixed; background: #dafbe1; border-color: #aceebb; }
 	.annotation-marker.is-resolved:hover { color: #fff; background: @annot-fixed; border-color: @annot-fixed; }
@@ -872,7 +874,7 @@
 	// a note on the caption outlines the picture it belongs to
 	.post-figure:has(> .post-figcaption.has-note) img,
 	.mermaid:has(+ .post-figcaption.has-note) { outline: 2px solid fade(@annot-line, 55%); outline-offset: 4px; border-radius: 4px; }
-	// the picture's own box (shrink-wrapped, centred by the parent's text-align) — the strip sits on *its* corner
+	// the picture's own box (shrink-wrapped, centred by the parent's text-align)
 	.fig-media {
 		position: relative;
 		display: inline-block;
@@ -880,7 +882,7 @@
 		vertical-align: top;
 		> img, > svg { display: block; max-width: 100%; }
 	}
-	// corner strip: 32 px targets, 6 px dead-zone padding, faint plate on hover
+	// corner strip on the block (figure / .mermaid / pre): copy · 放大 · feedback, 32 px targets, always visible
 	.fig-tools {
 		position: absolute;
 		top: 2px;
@@ -894,13 +896,6 @@
 		.code-copy { position: static; width: 32px; height: 32px; }
 		&:hover { background: rgba(255, 255, 255, 0.85); }
 	}
-	// on pictures and diagrams the strip overlaps the drawing, so it shows on hover (always on phones);
-	// code blocks have padding for it and keep it visible
-	.fig-media .fig-tools { opacity: 0; transition: opacity 0.15s; }
-	.fig-media:hover .fig-tools, .fig-media .fig-tools:focus-within { opacity: 1; }
-}
-@media (max-width: 767px) {
-	.post-container .fig-media .fig-tools { opacity: 1; }
 }
 
 // ---- tables: caption, copy format menu, and feedback handle (js/code-copy.js + js/figures.js)

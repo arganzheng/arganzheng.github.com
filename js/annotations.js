@@ -71,8 +71,12 @@
   var GITHUB_MARKDOWN = 'https://api.github.com/markdown';
   var SESSION_KEY = 'giscus-session';
   var CONTEXT_CHARS = 32;
-  var EXCLUDE_SELECTOR = '.comment, .pager, .related-posts, .footnotes, .reversefootnote, sup[id^="fnref"], a.footnote, ' +
-    'script, style, noscript, svg, .katex, .mermaid, button, .heading-anchor, .annotation-toolbar, .annotation-panel, .annotation-marker, .sec-react';
+  // Footnote bodies are indexed (a note can be about a footnote); only the
+  // `[1]` superscripts and the `↩` back links are not. A KaTeX formula is
+  // indexed through its TeX source (the MathML <annotation>, see isExcluded),
+  // not through the rendered glyphs in .katex-html.
+  var EXCLUDE_SELECTOR = '.comment, .pager, .related-posts, .reversefootnote, sup[id^="fnref"], a.footnote, ' +
+    'script, style, noscript, svg, .katex-html, .mermaid, button, .heading-anchor, .annotation-toolbar, .annotation-panel, .annotation-marker, .sec-react';
   var BLOCK_SELECTOR = 'p, li, pre, blockquote, h1, h2, h3, h4, h5, h6, dd, dt, figcaption, figure, .table-caption, .highlight, table';
   var GHOST = { login: 'ghost', url: 'https://github.com/ghost', avatarUrl: 'https://avatars.githubusercontent.com/u/10137?s=64&v=4' };
 
@@ -169,7 +173,19 @@
 
   function isExcluded(node) {
     var el = node.nodeType === 1 ? node : node.parentNode;
-    return !!(el && el.closest && el.closest(EXCLUDE_SELECTOR));
+    if (!el || !el.closest) return false;
+    // Inside a formula only the <annotation encoding="application/x-tex"> text
+    // counts: the passage reads `\frac{a}{b}`, the way the author wrote it.
+    if (el.closest('.katex-mathml')) return el.tagName.toLowerCase() !== 'annotation';
+    return !!el.closest(EXCLUDE_SELECTOR);
+  }
+  // The element a reader sees for a mark: the whole formula when the mark sits
+  // in its hidden TeX source, else the mark itself.
+  function markHost(mark) { return mark.closest('.katex') || mark; }
+  function katexOf(node) {
+    var el = node.nodeType === 1 ? node : node.parentNode;
+    var k = el && el.closest && el.closest('.katex');
+    return k && container.contains(k) ? k : null;
   }
 
   function buildIndex() {
@@ -422,6 +438,7 @@
     for (var i = 0; i < markers.length; i++) markers[i].parentNode.removeChild(markers[i]);
     unwrap('mark.annotation-hl');
     Array.prototype.forEach.call(container.querySelectorAll('.post-figcaption.has-note'), function (c) { c.classList.remove('has-note'); });
+    Array.prototype.forEach.call(container.querySelectorAll('.katex.has-note'), function (k) { k.className = 'katex'; });
     buildIndex();
 
     var orphans = [], items = [], anchoredHash = {};
@@ -455,6 +472,9 @@
       if (commented && resolved) mark.classList.add('is-resolved'); // the author fixed every note here
       // a note on a figure's caption (js/figures.js) outlines the whole figure
       var cap = mark.closest('.post-figcaption'); if (cap) cap.classList.add('has-note');
+      // a note on a formula: the mark is in the hidden TeX source, so the visible .katex carries the classes
+      var host = markHost(mark);
+      if (host !== mark) { host.classList.add('has-note'); ['has-doubt', 'has-issue', 'is-resolved', 'is-multi'].forEach(function (c) { if (mark.classList.contains(c)) host.classList.add(c); }); }
     });
     insertMarkers();
     buildIndex();
@@ -549,7 +569,7 @@
         e.preventDefault(); e.stopPropagation();
         toggleThread(p.ids, last);
       });
-      last.insertAdjacentElement('afterend', marker);
+      markHost(last).insertAdjacentElement('afterend', marker);
     });
   }
 
@@ -559,11 +579,15 @@
 
   function bindMark(mark) {
     if (mark.closest('a[href]:not(.inline-tip)')) return; // links keep navigating; use the marker
-    mark.addEventListener('click', function (e) {
+    var host = markHost(mark);
+    if (host !== mark && host._hlClick) host.removeEventListener('click', host._hlClick); // re-anchored: one handler per formula
+    var onClick = function (e) {
       e.preventDefault();
       e.stopPropagation();
       toggleThread(idsFor(mark), mark);
-    });
+    };
+    if (host !== mark) host._hlClick = onClick;
+    host.addEventListener('click', onClick);
   }
 
   function idsFor(mark) {
@@ -577,8 +601,9 @@
 
   function flashMarks(marks) {
     marks.forEach(function (m) {
-      m.classList.add('is-new');
-      setTimeout(function () { m.classList.remove('is-new'); }, 2500);
+      var host = markHost(m);
+      host.classList.add('is-new');
+      setTimeout(function () { host.classList.remove('is-new'); }, 2500);
     });
   }
 
@@ -1727,14 +1752,15 @@
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
     var range = sel.getRangeAt(0).cloneRange();
     if (!container.contains(range.commonAncestorContainer)) return null;
-    // A drag across a formula usually ends *inside* the KaTeX spans; snap
-    // that boundary to the edge of the excluded element instead of bailing.
-    var ex = excludedAncestor(range.startContainer);
-    if (ex) range.setStartAfter(ex);
-    ex = excludedAncestor(range.endContainer);
-    if (ex) range.setEndBefore(ex);
+    // A boundary inside a formula takes the whole formula (its TeX source is
+    // what gets quoted); one inside another excluded element (heading buttons,
+    // `↩`…) snaps to that element's edge instead of bailing.
+    var k = katexOf(range.startContainer), ex = k || excludedAncestor(range.startContainer);
+    if (k) range.setStartBefore(k); else if (ex) range.setStartAfter(ex);
+    k = katexOf(range.endContainer); ex = k || excludedAncestor(range.endContainer);
+    if (k) range.setEndAfter(k); else if (ex) range.setEndBefore(ex);
     if (range.collapsed || !container.contains(range.commonAncestorContainer)) return null;
-    if (range.toString().trim().length < 2) return null;
+    if (!range.toString().trim()) return null;
     return range;
   }
 

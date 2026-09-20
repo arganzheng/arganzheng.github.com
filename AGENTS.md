@@ -279,8 +279,12 @@ Pages has `https_enforced` on.
   `dateModified` / `article:modified_time`), `description:` (SEO text).
 - Post layouts pipe `content` through `replace: '<img src=', '<img
   loading="lazy" decoding="async" src='` — every content image is lazy.
-  `js/diagram-zoom.js` opens Mermaid diagrams *and* content images (>= 200 px
-  natural width, not inside `<a>`) in the zoom/pan lightbox.
+  `js/diagram-zoom.js` is the zoom/pan lightbox for Mermaid diagrams *and*
+  content images (>= 200 px natural width, not inside `<a>`), exposed as
+  `window.DiagramZoom.open(el)` and opened **only** from the 放大 button
+  `js/figures.js` puts in each figure's `.fig-tools` strip — not by clicking the
+  picture (a drag that selected a caption ended in a click that opened the
+  lightbox over the 划线 toolbar), and no `zoom-in` cursor.
 - **No jQuery / Bootstrap JS.** `footer.html` loads one bundle,
   `js/blog.min.js` (`npm run js` = `tools/build-js.sh`, uglify-js; the source
   list and order live in that script — `figures.js` must precede
@@ -522,18 +526,17 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
   - Orphans (`renderOrphans`) show the first 24 chars of the quote + author
     (title = full quote + section) under 「N 条划线评论对应的原文已修改」.
   - **Figures** (`js/figures.js`, loaded before annotations.js): every `p > img`
-    becomes `figure.post-figure > span.fig-media > (img + div.fig-tools >
-    button.code-copy.fig-feedback) + figcaption.post-figcaption (.fig-no 「图 N」 +
-    .fig-title = alt)`; every rendered `.mermaid` gets its `svg` wrapped in the same
-    `.fig-media` (inline-block, `width` = the svg's `max-width`, so it shrink-wraps
-    the drawing) with a `.fig-tools` strip that also holds code-copy's button, and
-    the caption as the `.mermaid`'s next sibling (title = Mermaid front matter
-    `title:` or a first-line `%% 图：…` comment). The strip must sit on the
-    **picture's own** top-right corner — anchored to the block it floated in blank
-    space hundreds of px right of a centred picture, which is why it was "hard to
-    hit". 32 px targets, 6 px padded dead zone whose click handler stops propagation
-    so near-misses don't open the zoom lightbox; hover-only on `.fig-media` (it
-    overlaps the drawing), always shown on phones. `code-copy.js`'s duplicate check
+    becomes `figure.post-figure > span.fig-media > img + div.fig-tools >
+    (button.code-copy.fig-zoom + button.code-copy.fig-feedback) +
+    figcaption.post-figcaption (.fig-no 「图 N」 + .fig-title = alt)`; every rendered
+    `.mermaid` gets its `svg` wrapped in the same `.fig-media` (inline-block,
+    `width` = the svg's `max-width`, so it shrink-wraps the drawing), a `.fig-tools`
+    strip (code-copy's button · 放大 · feedback) and the caption as the `.mermaid`'s
+    next sibling (title = Mermaid front matter `title:` or a first-line `%% 图：…`
+    comment). The strip is **always visible** (GitHub-style) on the block's
+    top-right corner, like on code blocks — it used to be hover-only on the
+    picture's own corner, which covered a narrow diagram's top node once it stayed
+    on. 32 px targets, click handler stops propagation. `code-copy.js`'s duplicate check
     looks inside `.fig-tools` / `.fig-media` too — moving its button out again would
     loop the two MutationObservers. Code blocks (`.highlighter-rouge` / `pre`) get the
     same strip with the copy button and the same handle, which selects the whole
@@ -652,9 +655,19 @@ re-anchoring.
   testing anchoring. `window.BlogAnnotations` exposes
   `reload/anchor/buildIndex/annotHash/threadLink/shareLink/buildCommentBody/
   parseComment/parseVotes/openThread/closePanel/logout/list/comments`.
-- **Interplay with footnotes / tips**: the text index excludes footnote
-  markers (`sup[id^=fnref]`, `a.footnote`, `.footnotes`), KaTeX, Mermaid,
-  markers/panels and the comment section; `<mark>` wraps text nodes only, so
+- **Interplay with footnotes / tips / formulas**: the text index excludes footnote
+  markers (`sup[id^=fnref]`, `a.footnote`, `.reversefootnote` — footnote *bodies*
+  are indexed and can be annotated), Mermaid,
+  markers/panels and the comment section. **KaTeX**: `.katex-html` (the glyphs)
+  is excluded, but the TeX source in the MathML `<annotation>` is indexed
+  (`isExcluded`), so a formula is a passage whose `exact` is `s = 8192` /
+  `\frac{a}{b}` as written; a selection boundary inside a formula takes the
+  whole formula (`currentRange`). The `<mark>` then sits in the hidden MathML,
+  so `markHost(mark)` (= the `.katex`) carries the visible classes
+  (`.katex.has-note` + `.has-doubt/.has-issue/.is-resolved/.is-new`), the
+  click handler and the marker (`insertMarkers` puts it after the formula).
+  Any selected text >= 1 char shows the toolbar (single characters allowed).
+  `<mark>` wraps text nodes only, so
   bound events and `data-tip` on `.inline-tip` / `sup` survive. Hover on a
   tip still shows the tip popover (annotations have no hover UI); clicking a
   highlight inside a tip opens the thread panel with `stopPropagation`;

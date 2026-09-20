@@ -1,16 +1,14 @@
 /*!
  * diagram-zoom.js
- * Click a Mermaid diagram or a content image to open it full screen, then zoom
+ * Lightbox for Mermaid diagrams and content images: full screen, then zoom
  * (wheel / buttons / pinch) and pan (drag). Rendered diagrams and wide figures
  * are capped at the column width, which makes them unreadable without this.
- * Images inside links, tiny images (icons, QR codes < 200 px) and the comment
- * section are left alone.
+ * Exposed as window.DiagramZoom.open(el); js/figures.js puts the 放大 button
+ * in each figure's corner strip. Tiny images (icons, QR codes < 200 px) get none.
  */
 (function () {
     'use strict';
 
-    var SELECTOR = '.post-container .mermaid';
-    var IMG_SELECTOR = '.post-container img';
     var IMG_MIN = 200;
     var MIN_SCALE = 0.1;
     var MAX_SCALE = 12;
@@ -206,28 +204,16 @@
         document.body.style.overflow = bodyOverflow;
     }
 
-    document.addEventListener('click', function (e) {
-        if (overlay && overlay.contains(e.target)) return;
-        var diagram = e.target.closest && e.target.closest(SELECTOR);
-        var svg = diagram && diagram.querySelector('svg');
-        if (svg) { open(svg); return; }
-        var img = e.target.closest && e.target.closest(IMG_SELECTOR);
-        if (img && zoomable(img)) open(img);
-    });
-
+    // Icons and QR codes (< 200 px) are not worth a lightbox.
     function zoomable(img) {
-        return !img.closest('a, .comment, .annotation-panel') && img.naturalWidth >= IMG_MIN &&
-            (img.naturalWidth > img.clientWidth + 20 || img.clientWidth >= 400);
+        return !img.closest('a, .comment, .annotation-panel') && img.naturalWidth >= IMG_MIN;
     }
 
-    // zoom-in cursor on the images that actually open (decided once they are loaded)
-    function markImages() {
-        Array.prototype.forEach.call(document.querySelectorAll(IMG_SELECTOR), function (img) {
-            var mark = function () { if (zoomable(img)) img.style.cursor = 'zoom-in'; };
-            if (img.complete) mark(); else img.addEventListener('load', mark);
-        });
-    }
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', markImages); else markImages();
+    // Opened from the corner button js/figures.js puts on every picture and
+    // diagram — not by clicking the picture itself: a drag that selects a
+    // caption or the text around a figure ends with a click on it, and the
+    // lightbox used to swallow the 划线 toolbar (2026-09-16).
+    window.DiagramZoom = { open: open, zoomable: zoomable };
 
     window.addEventListener('resize', function () {
         if (overlay && overlay.classList.contains('open')) fit();

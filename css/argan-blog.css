@@ -1329,10 +1329,7 @@ nav.navbar-default:not(.navbar-custom) .nav li a:focus {
     font-size: 14px;
   }
 }
-/* Mermaid diagram lightbox, driven by js/diagram-zoom.js */
-.post-container .mermaid svg {
-  cursor: zoom-in;
-}
+/* Mermaid / image lightbox, driven by js/diagram-zoom.js (opened from the figure's 放大 button) */
 .diagram-zoom {
   display: none;
   position: fixed;
@@ -2423,7 +2420,8 @@ footer .copyright a,
     columns: 1;
   }
 }
-.post-container mark.annotation-hl {
+.post-container mark.annotation-hl,
+.post-container .katex.has-note {
   padding: 0 0 1px;
   color: inherit;
   background-color: transparent;
@@ -2432,14 +2430,17 @@ footer .copyright a,
   cursor: pointer;
   transition: background-color 0.15s ease, border-color 0.15s ease;
 }
-.post-container mark.annotation-hl.is-multi {
+.post-container mark.annotation-hl.is-multi,
+.post-container .katex.has-note.is-multi {
   border-bottom: 2px solid rgba(214, 158, 0, 0.85);
 }
-.post-container mark.annotation-hl:hover {
+.post-container mark.annotation-hl:hover,
+.post-container .katex.has-note:hover {
   background-color: rgba(255, 213, 79, 0.22);
   border-bottom-color: #b5860a;
 }
-.post-container mark.annotation-hl.is-new {
+.post-container mark.annotation-hl.is-new,
+.post-container .katex.has-note.is-new {
   animation: annotation-flash 2.5s ease-out forwards;
 }
 .post-container mark.annotation-flash {
@@ -3587,23 +3588,29 @@ footer .copyright a,
     row-gap: 6px;
   }
 }
-.post-container mark.annotation-hl.has-doubt {
+.post-container mark.annotation-hl.has-doubt,
+.post-container .katex.has-note.has-doubt {
   border-bottom-style: dotted;
   border-bottom-color: rgba(209, 36, 47, 0.75);
 }
-.post-container mark.annotation-hl.has-doubt:hover {
+.post-container mark.annotation-hl.has-doubt:hover,
+.post-container .katex.has-note.has-doubt:hover {
   border-bottom-color: #d1242f;
   background-color: rgba(209, 36, 47, 0.07);
 }
-.post-container mark.annotation-hl.has-doubt.is-multi {
+.post-container mark.annotation-hl.has-doubt.is-multi,
+.post-container .katex.has-note.has-doubt.is-multi {
   border-bottom-style: solid;
 }
 .post-container mark.annotation-hl.has-issue,
-.post-container mark.annotation-hl.has-issue.has-doubt {
+.post-container .katex.has-note.has-issue,
+.post-container mark.annotation-hl.has-issue.has-doubt,
+.post-container .katex.has-note.has-issue.has-doubt {
   border-bottom: 2px solid rgba(209, 36, 47, 0.8);
   background-color: rgba(209, 36, 47, 0.06);
 }
-.post-container mark.annotation-hl.has-issue:hover {
+.post-container mark.annotation-hl.has-issue:hover,
+.post-container .katex.has-note.has-issue:hover {
   border-bottom-color: #d1242f;
   background-color: rgba(209, 36, 47, 0.12);
 }
@@ -3724,10 +3731,13 @@ footer .copyright a,
   }
 }
 .post-container mark.annotation-hl.is-resolved,
-.post-container mark.annotation-hl.is-resolved.has-doubt {
+.post-container .katex.has-note.is-resolved,
+.post-container mark.annotation-hl.is-resolved.has-doubt,
+.post-container .katex.has-note.is-resolved.has-doubt {
   border-bottom: 1.5px solid rgba(26, 127, 55, 0.7);
 }
-.post-container mark.annotation-hl.is-resolved:hover {
+.post-container mark.annotation-hl.is-resolved:hover,
+.post-container .katex.has-note.is-resolved:hover {
   border-bottom-color: #1a7f37;
   background-color: rgba(26, 127, 55, 0.07);
 }
@@ -3948,19 +3958,6 @@ footer .copyright a,
 }
 .post-container .fig-tools:hover {
   background: rgba(255, 255, 255, 0.85);
-}
-.post-container .fig-media .fig-tools {
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-.post-container .fig-media:hover .fig-tools,
-.post-container .fig-media .fig-tools:focus-within {
-  opacity: 1;
-}
-@media (max-width: 767px) {
-  .post-container .fig-media .fig-tools {
-    opacity: 1;
-  }
 }
 .post-container .table-caption {
   margin: 1.5em 0 6px;
