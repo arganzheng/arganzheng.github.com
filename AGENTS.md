@@ -1051,7 +1051,13 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   real dependencies between quantities) → `## 四、常见误区` table →
   `## 五、通关自测` (A 判断与计算 10 · B 跨篇综合 5 · C 面试题 6–8 with 答案要点 /
   追问方向 / 好答案与一般答案的区别 · D 掌握判据) → `## 六、下一步` (links only
-  to other series' *overviews* and the maps) → footnotes. No 本文小结, no
+  to other series' *overviews* and the maps) → `## 七、延伸阅读` (the
+  「本系列的边界」 paragraphs that used to live in the overview: what this
+  series deliberately does not cover and which series does, 2026-09-20)
+  → footnotes. **「二、逐篇回顾」 must answer, per post, the questions the
+  overview's 分章导读 raises for that post** (reader feedback 2026-09-17/20:
+  「总纲每一篇都抛几个问题，系列总结务必回应」) — copy the questions into the
+  核心问题 cell and give the checkable answer. No 本文小结, no
   下一篇, no lab. Every number must come from the series' own posts. The old
   「系列总结」 sections in the last body posts were removed (本文小结 kept,
   chapter numbers / 章节安排 rows renumbered); overviews got a 分章导读
@@ -1086,6 +1092,63 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
     the question (a list item's continuation, indented 3 spaces), so the reader
     can try first. `markdown="1"` is required for KaTeX / lists inside. Styles
     for `details` live at the end of `less/extras.less`.
+- **Series overview (总纲) template** (unified over all 27 overviews on
+  2026-09-20 after reader feedback on the 工具箱 overview: 「作为一篇总纲太啰嗦」):
+  内容简介 → 为什么写这个系列 → 系列的整体主线 → 章节结构与分章导读 (each post
+  gets its questions) → 贯穿全系列的实践线 / 源码阅读线 (tables with links)
+  → 前置要求与说明 → 最终目标. **Not** in an overview: 「阅读路径建议」,
+  「怎么学 / 材料 / 顺序」, a 「下一步做什么」 paragraph at the end of 最终目标
+  (the recap's 下一步 owns that), 「本系列的边界」 (moved to the recap's
+  延伸阅读), a history paragraph such as 「这一层原来是一篇导读 / 这个系列的
+  前身」 (no information for the reader), and a 前置要求 row for something the
+  series itself teaches (L1 first post teaches the Python subset → Python is
+  not a prerequisite). Version baselines (C++17, PyTorch v2.10.0, vLLM
+  v0.15.0 …) are stated once, in the overview.
+- **Body-post 「一、总览」**: keep the 本文的章节安排 table, but open the section
+  with a short paragraph on *why the post is organised this way* (the
+  organising axis, e.g. 「按类型信息的流动：表达 → 分发 → 消费」). Do not
+  repeat overview material there — no 「本文的读者与读法」, no 「语言标准与
+  版本基线」 (removed from the C++ body posts 2026-09-20).
+- **A post must be self-contained; the companion script is for reproducing,
+  not for understanding** (reader, 2026-09-17: 「看懂文章不应依赖脚本，只有
+  需要重现实验才去实验仓拉脚本」). Never write 「脚本里的 X」, 「见 train.py
+  第 N 行」 or point the reader at the lab to learn what a thing is; paste the
+  code the prose needs (the 20-line loop, the model definition, the
+  `get_batch`) into the post and refer to *those* blocks. The lab path
+  appears once, in a 「配套代码」 paragraph after 本文小结 — nowhere earlier.
+- **「几点」 are written as points** (reader, 2026-09-17, several posts): when
+  the prose announces a count — 三件事, 两个习惯, 五个对象, 多出来的四样 — what
+  follows is a numbered list starting at 1 (short items) or numbered
+  sub-sections (long items), never one sentence with the items joined by
+  commas. Do not introduce an item the count did not announce (the 工具箱
+  overview said 四块 and then produced a 「第五块」).
+- **Table headers carry meaning**: no one-character headers (「错」 →
+  「错误类型」, 「概念」 → 「对象」 when the column holds objects).
+- **Abbreviations get full name + Chinese on first use**: `peft（Parameter-
+  Efficient Fine-Tuning，参数高效微调）`, `trl（Transformer Reinforcement
+  Learning）`; a term the passage is not about (Jinja, PPL, ridge point,
+  Jacobian, SP) gets an inline tip (see below) at its first appearance.
+- **No 「本机」**: 「本机没有 libtorch，输出标注为预期」, 「（本机就有）」, 「本机
+  macOS ld64 的实际输出」 — the reader is not on the author's machine. Either
+  set the environment up and show real output, or show no output; never a
+  「预期」 transcript.
+- **No AI / lecturer voice** (reader flagged 「AI 味太浓」 on: 「一个现实的标准」,
+  「出现时就是越界的信号」, 「……就过关了；遇到……也是回到这二十行想」, 「本篇写出它」,
+  「一切机制都建立在一个事实上」, 「读的时候带着 L0 第八篇的置信区间」). Write the
+  concrete statement instead: what the thing is, what number, where it is
+  used. Cut sentences that only grade the reader or announce what the text
+  is about to do.
+- **Code and prose must be linkable**: in a multi-line block that the prose
+  discusses piece by piece, mark the lines (`# ①`, `# ②` … or trailing
+  comments) and refer to the marks. 「逐行解释」 is a code block followed by a
+  numbered list ① ② … — not a table. A block that defines classes/functions
+  and is followed by printed output must also show the calling code that
+  produced the output.
+- **Space-aligned `text` blocks → tables, series-wide**: when a post is
+  touched for any reason, scan its remaining ```` ```text ```` blocks; about
+  70 Infra posts still have column-aligned ones (2026-09-20). `text` stays
+  only for box-drawing figures, cell-exact memory/thread maps, terminal
+  output and multi-line calculations.
 - Series are independent: no links to posts of other series.
 - `{%`/`{{` inside code (PTX asm, printf formats, regexes, **Java / C++ nested
   array initializers like `int[][] DIRS = {{1, 0}, {-1, 0}}`**, Go/Jinja
