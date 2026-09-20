@@ -176,48 +176,6 @@ tokenizer 在 NLP 教材里、scaling law 在几篇论文里、数据工程在 F
 四篇的脚本（`llm_cost_09` 到 `llm_cost_12`，各自独立可运行）与独立实验保存在 [ai-learning-labs/transformer-and-llm](https://github.com/arganzheng/ai-learning-labs/tree/main/transformer-and-llm)，与成本表八篇的脚本同一目录，附每个脚本的完整输出。
 
 
-## 阅读路径建议
-
-### 完整学习路径
-
-```text
-1 → 2 → 3 → 4
-```
-
-先读[《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)的第一、二篇（参数量与 $$6ND$$），再进本系列，四篇顺序读。
-
-### 算法工程师，要做或要读懂一次预训练
-
-四篇全读。读技术报告时，第二篇的表告诉你它的 $$D/N$$ 落在哪个时代，第四篇的表告诉你它的超参与同行差在哪。
-
-### 做训练基础设施，要为一次预训练做容量与 I/O 规划
-
-```text
-2 → 3 → 4
-```
-
-$$6ND$$ 与 MFU 给 GPU 小时（第二篇的表），数据侧的 CPU 小时与几十 MB/s 的读带宽（第三篇），checkpoint 的 GB/s 写带宽与 spike 回滚的代价（第四篇）。
-
-### 排查训练不稳定
-
-```text
-4
-```
-
-loss spike 的三个机制、六个开关、该监控的曲线都在第四篇；数值格式本身的问题回到《Transformer 与 LLM》第六篇。
-
-
-## 本系列的边界
-
-本系列只讨论"一个基座模型**怎么训出来**"的账。以下内容与它紧邻，但不在范围内：
-
-- **模型作为计算对象的成本**：参数量、FLOPs、字节数、KV cache、通信量的推导。它们是本系列的前提，在[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)。
-- **后训练**：SFT、RLHF / DPO、蒸馏、评测。把一个基座模型变成对话模型的方法在[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)。
-- **深度学习基础的推导**：反向传播、初始化与归一化、优化器、正则化的公式。第四篇直接使用它们的结论，推导在[《深度学习基础》](/deep-learning-foundations.html)。
-- **分布式训练的实现**：TP / PP / EP / 序列并行如何切分与同步、checkpoint 如何写、故障如何恢复。本系列只算它们的**量**（GPU 小时、写带宽、回滚代价），实现在[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)。
-- **数据管线的工程实现**：本系列算 CPU 小时与带宽，不讲 Spark / Ray / datatrove 的用法。
-
-
 ## 前置要求与说明
 
 ### 前置要求

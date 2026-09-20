@@ -461,6 +461,16 @@ date: 2026-02-15 20:00:00
 
 回到总纲：[《C++ 在 AI-Infra：从对象模型到算子扩展》](/cpp-for-ai-infra.html)。
 
+## 七、延伸阅读
+
+本系列只讲 C++ 这门语言在 AI-Infra 项目中的用法，以及读懂这些项目 C++ 层所需的工程知识。以下内容不在范围内，虽然它们与本系列的源码阅读对象紧密相关：
+
+- **PyTorch 的机制本身**：Autograd 如何构图、Dispatcher 的分发规则、`torch.compile` 的工作方式。本系列只借用它们的 C++ 代码作为语言特性的例子，读者不需要事先理解这些机制，也不会在本系列里学到它们的完整原理。
+- **CUDA 编程**：kernel 的写法、GPU 内存层次、性能优化。本系列停在 host 侧，只覆盖 CUDA 代码所依赖的 C++ 特性。
+- **Python 语言本身**：第七篇讨论 C++ 与 Python 的边界，假设读者已经了解 CPython 的引用计数和 GIL 是什么。
+- **通用 C++ 知识的完整覆盖**：STL 算法库、iostream、正则、文件系统、协程等在这些项目里很少出现的部分。
+
+
 [^q0]: 八个：`import torch` 加载了哪些 `.so`、依赖关系是什么、扩展链接到哪一个（编译模型与库布局）；`at::Tensor y = x;` 之后两者是什么关系、数据什么时候释放（句柄、`intrusive_ptr`、持有链）；`AT_DISPATCH` 里的 `scalar_t` 从哪里来、lambda 编译了几次（模板与编译期分派）；Dispatcher 用什么机制调到 kernel、为什么既有 boxed 又有 unboxed（类型擦除、`IValue`）；一个 `.so` 被 `import` 后算子怎么出现在 `torch.ops` 下（静态注册、链接方式）；`no_grad` 在 C++ 层做了什么、为什么对其他线程不生效（`thread_local`、守卫、`ThreadLocalState`）；一个 Tensor 跨过 Python/C++ 边界经过几次转换与计数变化、GIL 状态如何（C API、pybind11、ABI）；一个改动从写完到能提 PR 要跑什么（构建、调试、sanitizer、矩阵）。详见[第二章](#二逐篇回顾)。
 [^q1]: `Tensor` 8 字节、`shared_ptr` 16 字节、每个字 3.2 GB；`y = x` / view / clone 三种关系与 `del` 后的四步排查；`AT_DISPATCH_FLOATING_TYPES` 两个 `case` 编两份、`DimVector` 内联 5 维；`std::function` 32 / `function_ref` 16 / 函数指针 8 字节、`IValue` 16 字节、`lookup` 一次数组下标无虚调用；`TORCH_CHECK` 是宏的两个理由、四种链接方式里静态库直接链注册表为空、`native_functions.yaml` 2666 条目；relaxed 增 acq_rel 减、64 位合并计数低 32 强高 31 弱第 63 位 PyObject、线程数优先级 `set_num_threads` > `OMP_NUM_THREADS` > `MKL_NUM_THREADS` > 核数、`GRAIN_SIZE` 32768；一次往返输入 3 次输出 2 次转换、C++ 计数 1 → 2 → 1、ABI 三层、2.7 起全部 CXX11 ABI 且 v2.10.0 开关已删；`-O0` 慢 3–10 倍、ASan 约 2×、TSan 5–15× 且与 ASan 互斥、GCC ≥ 9.3、CUDA ≥ 12.0、C++17、325 个测试。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
 [^q2]: 用第五章的三段自测：A 组 10 题判断与计算（至少 8 题）、B 组 5 题跨篇综合（至少 4 题）、C 组 7 道面试题（每题说出一半以上要点）；D 组的表给出"读过 / 掌握 / 能教人"三级的表现。详见[第五章](#五通关自测)。

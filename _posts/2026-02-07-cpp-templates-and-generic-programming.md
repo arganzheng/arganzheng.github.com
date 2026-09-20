@@ -40,9 +40,9 @@ AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "log_sigmoid_cpu", [&] {
 
 ## 一、总览
 
-### 1. 语言标准与版本基线
+### 1. 本文的组织方式
 
-正文以 C++17 为基线（本机 PyTorch v2.10.0 源码树的顶层 `CMakeLists.txt` 是 `set(CMAKE_CXX_STANDARD 17 ...)`，`torch/utils/cpp_extension.py` 给扩展传的也是 `-std=c++17`；vLLM v0.15.0 的 `CMakeLists.txt` 同样是 `CMAKE_CXX_STANDARD 17`，与本系列一致。本文涉及的机制在 C++17 中全部存在，源码树里也没有用到 concepts 等 C++20 特有语法，所有 mini-c10 片段用 `clang++ -std=c++17 -Wall -Wextra` 验证）。
+模板只有一件事：**在编译期用类型（或整数）当参数生成代码**。本文按"配方 → 怎么填参数 → 填了之后能做什么 → 在源码里长什么样"的顺序展开：第二章先建立模板是配方、实例化才生成代码这个模型，并与 Java 的类型擦除对照；第三、四章讲参数从哪来（推导、显式指定、非类型参数）；第五、六章讲同一个配方怎样按参数走不同分支（特化、变参、`if constexpr`、SFINAE）；第七章把这些机制合起来逐层展开 `AT_DISPATCH_FLOATING_TYPES`，回答核心问题——运行期的 dtype 怎么变成编译期的 `T`；第八、九章是源码里高频出现的两类模板产物（轻量视图与 lambda）；第十、十一章回到源码与 mini-c10。
 
 ### 2. 本文的章节安排
 

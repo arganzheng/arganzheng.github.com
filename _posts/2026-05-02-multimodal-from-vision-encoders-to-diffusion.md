@@ -202,39 +202,6 @@ VLM 的训练不是一步到位的：先让 connector 学会对齐、再让 LLM 
 | 七 | 用 VQGAN 编解码图片，改变码本大小，看重建；用 LlamaGen 生成并与 SD 比时间 | 离散瓶颈与 AR 的成本 |
 
 
-## 阅读路径建议
-
-### 完整学习路径
-
-一到七按顺序。第一到三篇是理解线的主体，第四篇把音频接上并过渡到"离散 token 也能生成"，第五、六篇是生成线，第七篇合并。
-
-### 只做 VLM
-
-一 → 二 → 三，加第七篇的前半（VQ 与统一模型的理解侧）。第四篇可选。
-
-### 只做生成
-
-五 → 六 → 七。第一篇的 ViT 部分与第七篇的 VQ 是前置。第五篇的推导是必须的，不能跳。
-
-### 做语音
-
-四为主，一、二作为"编码器 + connector"范式的参考，第七篇的离散 token 生成作为对照。
-
-### Infra 工程师
-
-二（结构决定的成本形态）、六（扩散的成本结构为什么与 LLM 不同）。
-
-
-## 本系列的边界
-
-- **成本的账**在 [04 系列第八篇](/multimodal-vision-encoder-cost-and-image-token-kv.html)：encoder FLOPs、image token 的 KV、connector 的 token 数、视频与音频的 token 数、训练侧的显存。本系列引用它的结论，不重算。
-- **CNN 与 ViT 的基础**在 [L3 第五篇](/cnn-from-lenet-to-resnet-and-vit.html)。
-- **后训练方法本身**（SFT、DPO、RL）在 [L5](/post-training-from-sft-to-verifiable-rewards.html)；本系列第三篇只讲它们在多模态上的特殊之处。
-- **视频理解的时序建模、3D 与机器人的具身多模态、音乐生成**不展开——各自是独立的方向。
-- **扩散模型的服务系统**（批处理、多 GPU 的步并行）属于 Infra 地图。
-- **应用层**（多模态 RAG、Agent 的截图操作）属于应用地图。
-
-
 ## 前置要求与说明
 
 ### 前置要求

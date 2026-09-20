@@ -190,38 +190,6 @@ PTQ 到 4 bit 是当前的舒适区；再往下（3 bit、2 bit、三值）或�
 | 六 | 用 Block Influence 裁掉 8 层，测困惑度与 5 个 benchmark；用 L5 第一篇的 SFT 脚本蒸馏恢复 | 困惑度与任务退化的不一致；恢复曲线 |
 
 
-## 阅读路径建议
-
-### 完整学习路径
-
-按一到六的顺序。第一篇建立"采样也在改分布"的前提；第二篇是唯一不改分布的方法；三、四篇是量化的主体；第五篇处理长上下文；第六篇收尾并总结。
-
-### 只做部署选型、不训练
-
-一 → 三 → 四的评测章 → 五的前半（KV 量化）→ 六的总表。目标是知道每种方法的适用范围与评测方法，能读懂官方量化模型的报告。
-
-### 做端侧或小模型
-
-四 → 六 → 三。端侧模型的主线是 QAT + 剪枝 + 蒸馏，PTQ 是最后一步。
-
-### 做推理模型、长输出
-
-一 → 二 → 五。解码成本主导时，投机解码与 KV 压缩的收益最大，采样参数对评测的影响也最大。
-
-### Infra 工程师
-
-二、三、五各读推导与"收益区间"部分，对应 vLLM 系列的[第七篇](/decoding-extensions-sampling-speculative-and-structured-output.html)（投机与结构化输出）与[第五篇](/kv-cache-memory-core.html)（KV 内存）。
-
-
-## 本系列的边界
-
-- **系统侧的推理优化**——PagedAttention、continuous batching、chunked prefill、PD 分离、prefix caching、量化 kernel 的实现——不在本系列。它们在 [vLLM 系列](/deep-dive-into-vllm.html)与 [GPU Kernel 系列](/gpu-kernel-engineering.html)。
-- **训练时就决定的结构选择**——GQA、MLA、MoE、sliding window——它们的成本账在 [04 系列](/transformer-and-llm-for-infra-engineers.html)，建模动机散在各篇；本系列只在第五篇讨论训好之后对 KV 的处理时回指它们。
-- **蒸馏的方法本身**在 [L5 第七篇](/knowledge-distillation-for-llms.html)；本系列第四、六篇把它当作恢复精度的工具引用。
-- **扩散模型的推理加速**（步数蒸馏、一致性模型）是另一套数学，放在 L7 多模态系列的第六篇。
-- **硬件相关的格式细节**（FP8 的 E4M3 / E5M2、Tensor Core 对 2:4 的支持）在 [04 系列第六篇](/floating-point-formats-and-mixed-precision.html)与 GPU Kernel 系列；本系列只用它们的结论。
-
-
 ## 前置要求与说明
 
 ### 前置要求

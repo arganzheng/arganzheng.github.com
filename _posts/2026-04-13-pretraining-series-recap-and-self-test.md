@@ -369,6 +369,17 @@ date: 2026-04-13 20:00:00
 
 回到总纲：[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)。
 
+## 七、延伸阅读
+
+本系列只讨论"一个基座模型**怎么训出来**"的账。以下内容与它紧邻，但不在范围内：
+
+- **模型作为计算对象的成本**：参数量、FLOPs、字节数、KV cache、通信量的推导。它们是本系列的前提，在[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)。
+- **后训练**：SFT、RLHF / DPO、蒸馏、评测。把一个基座模型变成对话模型的方法在[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)。
+- **深度学习基础的推导**：反向传播、初始化与归一化、优化器、正则化的公式。第四篇直接使用它们的结论，推导在[《深度学习基础》](/deep-learning-foundations.html)。
+- **分布式训练的实现**：TP / PP / EP / 序列并行如何切分与同步、checkpoint 如何写、故障如何恢复。本系列只算它们的**量**（GPU 小时、写带宽、回滚代价），实现在[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)。
+- **数据管线的工程实现**：本系列算 CPU 小时与带宽，不讲 Spark / Ray / datatrove 的用法。
+
+
 [^q0]: 四个：换一个 tokenizer 会怎样（$$2Vd$$ 与每字符成本）；给定算力模型多大、数据多少、训完要服务多少（Chinchilla 与推理感知的最优点）；15T token 从哪来、丢掉的是什么、够不够（漏斗、MinHash、配比 → epoch）；超参表里的每个数字从哪来、训练为什么会崩（$$\mu$$P、梯度噪声尺度、三个机制与六个开关）。详见[第二章](#二逐篇回顾)。
 [^q1]: 词表参数 $$2Vd$$、Llama-3-8B 的 13.1% 与 7.0%；英文 3.17 → 3.94 字符/token、每字符低 15%；$$L = E + A/N^\alpha + B/D^\beta$$ 与 $$C = 6ND$$、$$D/N \approx 20$$；固定 $$C$$ 缩 10 倍 loss +0.053；服务 100T token 时 24B / 13.8T；4 epoch 值 93%；漏斗 240T → 15T → 1.3–5.4T；MinHash 14 × 8 阈值 0.72；25% ≈ 7.5 epoch；lr 3e-4 → 8e-5 随宽度、batch 4M → 16M ramp；QK-norm 12592 → 22；spike 一次约 1 万 GPU 小时。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
 [^q2]: 用第五章的三段自测：A 组 10 题判断与计算（至少 8 题）、B 组 5 题跨篇综合（至少 4 题）、C 组 7 道面试题（每题说出一半以上要点）；D 组的表给出"读过 / 掌握 / 能教人"三级的表现。详见[第五章](#五通关自测)。

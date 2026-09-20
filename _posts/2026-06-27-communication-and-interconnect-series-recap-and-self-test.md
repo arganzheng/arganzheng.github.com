@@ -448,6 +448,19 @@ date: 2026-06-27 20:00:00
 
 回到总纲：[《通信与互联：从 NCCL 到 RDMA》](/communication-and-interconnect-for-ai-infra.html)。
 
+## 七、延伸阅读
+
+本系列只讨论通信层：数据如何在 GPU 之间、节点之间流动，由哪些软硬件承载，代价是多少，如何测量与排障。以下内容与它紧邻，但不在范围内：
+
+- **并行策略的设计**：数据并行、张量并行、流水线并行、专家并行、FSDP / ZeRO 的分片规则与配置选择。本系列只把它们产生的通信模式（哪种原语、多大消息、多少参与者、在不在关键路径上）作为输入，不讨论怎么切分模型。
+- **训练系统的容错与弹性**：节点失败后的恢复、checkpoint、弹性伸缩。本系列第六篇讨论如何定位一次 hang，但不讨论定位之后如何自动恢复训练。
+- **推理引擎的调度与 KV cache 管理**：continuous batching、分页管理、prefix caching、PD 分离的调度策略。本系列第七篇只讨论 KV 从一张卡搬到另一张卡的传输层，不讨论何时搬、搬谁。
+- **kernel 内部**：NCCL 的设备侧原语会读源码，vLLM 的 custom all-reduce kernel 与 DeepEP 的 dispatch / combine kernel 会讲结构，但不讨论如何优化一个 CUDA kernel 的访存与占用率。
+- **通用网络知识**：TCP/IP、以太网交换、路由。假设读者作为后端工程师已经具备；本系列只讲 RDMA 与 GPU 相关的部分。
+- **集群网络的物理设计与运维**：交换机选型、布线、fat-tree 的层数与超额订阅比。第二篇会在拓扑一节提及它们对通信的影响，但不展开。
+- **NVIDIA 之外的通信栈**：AMD 的 RCCL 与 CUDA 版 NCCL 高度对应，华为 HCCL、Intel oneCCL 结构类似；正文在相关位置提及，不展开。
+
+
 [^q0]: 八个：这次通信传了多少字节、多少参与者、理论上要多久、是延迟还是带宽主导（α-β 模型、拐点 $$S^* = n\alpha\beta$$）；数据走了哪条物理链路、上限多少（`nvidia-smi topo -m` 的六个等级、NVLink / PCIe / IB 的单向带宽）；跨机时经过主机内存了吗、GPUDirect 生效了吗（三条路径、`NCCL_NET_GDR_LEVEL`）；NCCL 为什么选这个算法与协议、切了几个 channel（调优表、LL / LL128 / Simple、Ring / Tree / NVLS）；框架侧有没有浪费它、重叠发生了吗（stream / event 语义、重叠杀手、合并）；实测曲线和理论差在哪、hang 住是谁在哪一次操作上（曲线读法、六类 hang、Flight Recorder）；推理的小消息为什么绕开 NCCL、KV 该用什么传（custom all-reduce 的 α 账、单边 RDMA）；MoE 一层 all_to_all 搬多少字节、decode 为什么不能靠 proxy（每 token $$k$$ 份、按节点去重、发起速率与 IBGDA）。详见[第二章](#二逐篇回顾)。
 [^q1]: $$T_{\text{ring}} = 2(n-1)\alpha + \frac{2(n-1)}{n}\frac{S}{\beta}$$，8 卡 25 GB/s 上 1 GB 约 70 ms、64 KB 约 145 µs；拐点 $$S^* = n\alpha\beta$$、90% 平台约 $$9\,S^*$$；busbw = algbw × $$\frac{2(n-1)}{n}$$；NVLink 单向 A100 300 / H100 450 GB/s，PCIe 4.0 / 5.0 x16 单向 32 / 64 GB/s，HDR 25 / NDR 50 GB/s，网卡约为 PCIe 的 78%；GDR 上限 min(NIC, PCIe)，A100 配 NDR 卡在 32 GB/s；`NCCL_P2P_LEVEL` / `NCCL_NET_GDR_LEVEL` 默认 `PXB`；LL 50%、LL128 94%、Simple 接近 100%；32 节点 ring 510 步 vs tree 24 步；watchdog 100 ms、timeout 10 分钟、heartbeat 480 s；8×H100 拐点约 10 MB、平台 350–480 GB/s；decode TP 128 KB、NCCL 模型 15 µs、custom AR 14 步 → 2 步、8 卡 < 256 KB one-shot、上限 8 MB；Llama-3-70B KV 320 KB / token；MoE FP8 dispatch 59 KB、BF16 combine 115 KB、网卡份数 7 → 4.6 → 3.2、EP=64 decode 429 / 487 µs。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
 [^q2]: 用第五章的三段自测：A 组 10 题判断与计算（至少 8 题）、B 组 5 题跨篇综合（至少 4 题）、C 组 7 道面试题（每题说出一半以上要点）；D 组的表给出"读过 / 掌握 / 能教人"三级的表现，最后一条判据是能在一台新机器上按 comm-probe 的顺序跑一遍并解释每一处差距。详见[第五章](#五通关自测)。

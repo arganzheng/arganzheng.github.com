@@ -217,7 +217,6 @@ PyTorch 的源码树有几百万行，`test/` 目录下有两百多个条目；v
 > **两个都是"小"PR，却各花了作者一到几周。这些时间花在哪里了？哪些是可以省的，哪些是这个项目的正常成本？**
 
 
-
 实践：按同样的走读格式，复盘自己在第三篇提交的那个 PR——无论它最终合入了还是没有。
 
 ### 5. 系列总结与通关自测
@@ -248,60 +247,6 @@ PyTorch 的源码树有几百万行，`test/` 目录下有两百多个条目；v
           vLLM     docs/contributing/README.md（DCO · AI Assisted Contributions · PR Title · Reviews）· AGENTS.md · .pre-commit-config.yaml · .github/PULL_REQUEST_TEMPLATE.md · .buildkite/test_areas/ · .buildkite/ci_config.yaml · .github/mergify.yml
 第四篇    两个 PR 各自触及的源码、测试、benchmark 文件，以及 PR 页面上的 CI 与 review 记录
 ```
-
-
-## 阅读路径建议
-
-### 第一遍怎么读（全栈 / 新手读者）
-
-```text
-1
-```
-
-第一篇「读懂一个百万行的代码库」对任何阶段都有用——读 Infra 各系列的源码走读部分时就用得上，约 2 小时。找切入点、做出可合入的改动、两个真实 PR 三篇在准备第一次提 PR 时读。
-
-### 完整学习路径
-
-```text
-1 → 2 → 3 → 4
-```
-
-四篇本来就短，建议按顺序读完，并且边读边推进自己的贡献日志。
-
-### 已经选好了要做什么，想尽快提 PR
-
-```text
-3 → 4 → 1
-```
-
-第三篇是规则的全集，第四篇看两个实例，第一篇在读源码卡住时回头补。
-
-### 已经提过 PR 但过程不顺
-
-```text
-3 → 2
-```
-
-先对照第三篇检查 PR 本身，再回到第二篇检查选题——很多"review 没人理"的问题根源在选题而不在 PR。
-
-### 只想读懂项目，暂时不打算贡献
-
-```text
-1 → 4
-```
-
-第一篇的阅读方法对任何目的都有用；第四篇的两个走读是学习"maintainer 怎么想"的最短路径。
-
-
-## 本系列的边界
-
-本系列只讨论**如何参与**一个 AI-Infra 开源项目：阅读方法、选题方法、提交规范、协作规则。以下内容与它紧邻，但不在范围内：
-
-- **任何一层的技术原理**：算子怎么分发、kernel 怎么写、调度器怎么工作、通信怎么走。第四篇走读 PR 时会解释那两个改动本身在做什么，但只到读懂这个 diff 所需的程度，不展开背后的机制。
-- **git 与 GitHub 的基本操作**：fork、branch、rebase、解决冲突、开 PR。假设读者作为工程师已经熟练；本系列只讲这些操作在两个项目里的特殊约定（如 `ghstack`、`Signed-off-by`）。
-- **开源许可、CLA/DCO 的法律含义**：只说明两个项目各自要求什么，不讨论为什么。
-- **成为 maintainer 之后的工作**：triage、release management、governance。PyTorch 的 `docs/source/community/governance.md` 描述了 module maintainer 与 core maintainer 的机制，本系列只把它作为"谁有权批准我的 PR"的背景来读。
-- **PyTorch 与 vLLM 之外项目的具体流程**：NCCL、Megatron-LM、FlashAttention、Triton、SGLang 在正文中只做定性提及；它们的贡献规则请以各自仓库的文档为准。
 
 
 ## 前置要求与说明

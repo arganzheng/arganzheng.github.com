@@ -363,6 +363,17 @@ PyTorch 与 vLLM 在每篇并排出现，四张对照表叠起来是两种一致
 
 回到总纲：[《AI-Infra 开源贡献指南（总纲）》](/contributing-to-ai-infra-open-source.html)。
 
+## 七、延伸阅读
+
+本系列只讨论**如何参与**一个 AI-Infra 开源项目：阅读方法、选题方法、提交规范、协作规则。以下内容与它紧邻，但不在范围内：
+
+- **任何一层的技术原理**：算子怎么分发、kernel 怎么写、调度器怎么工作、通信怎么走。第四篇走读 PR 时会解释那两个改动本身在做什么，但只到读懂这个 diff 所需的程度，不展开背后的机制。
+- **git 与 GitHub 的基本操作**：fork、branch、rebase、解决冲突、开 PR。假设读者作为工程师已经熟练；本系列只讲这些操作在两个项目里的特殊约定（如 `ghstack`、`Signed-off-by`）。
+- **开源许可、CLA/DCO 的法律含义**：只说明两个项目各自要求什么，不讨论为什么。
+- **成为 maintainer 之后的工作**：triage、release management、governance。PyTorch 的 `docs/source/community/governance.md` 描述了 module maintainer 与 core maintainer 的机制，本系列只把它作为"谁有权批准我的 PR"的背景来读。
+- **PyTorch 与 vLLM 之外项目的具体流程**：NCCL、Megatron-LM、FlashAttention、Triton、SGLang 在正文中只做定性提及；它们的贡献规则请以各自仓库的文档为准。
+
+
 [^q0]: 四个：给一个报错能不能两小时定位到函数、靠什么（登记表、生成代码、测试即规格、历史即注释）；maintainer 最想要哪类工作、怎么判断题一周后不被关（`actionable` / `help wanted`、maintainer 最后一条评论、open PR 数、RFC 门槛、硬件、政策）；reviewer 的十分钟要确认什么、diff / 描述 / 测试 / CI 各答哪个问题；小 PR 的时间花在哪、哪些可省哪些是正常成本（数据是正常成本，等待大半可省）。详见[第二章](#二逐篇回顾)。
 [^q1]: PyTorch 分层 `c10/` → `aten/` → `torch/csrc/` → `torch/` 与登记表 `native_functions.yaml`；vLLM `csrc/` → `vllm/` 与 `pyproject.toml` / `torch_bindings.cpp`；发布约 2 个月 vs 约 2 周；PyTorch 682 个标签、`actionable` 396 占不到 3%、状态链四态；vLLM 63 个标签、RFC 门槛 >500 LOC 不含 kernel / data / config / test、stale 90 + 30 天；三条查重命令；PyTorch 2000 行硬上限、61 个 linter、148 个 workflow、49 个 `ciflow/*`、33 条 merge rule、4 个工作日可催；vLLM 6 个 open PR 上限、35 个 test_area、pre-commit 需 `verified` / `ready` 或 ≥4 合入 PR、`/ci run` 七步授权、2–3 天 / 7 天、DCO 每个 commit；#185344 +104 −0、27 天 3792 个点、3 小时 42 分收到 review、`merge -i`、进 v2.13.0；#47272 47 天无 review、6 个自己引入的失败、不在 v0.28.0。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
 [^q2]: 用第五章的三段自测：A 组 10 题判断与计算（至少 8 题）、B 组 5 题跨篇综合（至少 4 题）、C 组 7 道面试题（每题说出一半以上要点）；D 组的表给出"读过 / 掌握 / 能教人"三级的表现。详见[第五章](#五通关自测)。

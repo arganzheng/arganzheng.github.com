@@ -442,6 +442,18 @@ scaling 是另一个共同点，且它决定了结构的胜负。第六篇 DiT �
 
 回到总纲：[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)；回到地图：[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)。
 
+## 七、延伸阅读
+
+本系列有意不展开的内容，以及它们在哪个系列里：
+
+- **成本的账**在 [04 系列第八篇](/multimodal-vision-encoder-cost-and-image-token-kv.html)：encoder FLOPs、image token 的 KV、connector 的 token 数、视频与音频的 token 数、训练侧的显存。本系列引用它的结论，不重算。
+- **CNN 与 ViT 的基础**在 [L3 第五篇](/cnn-from-lenet-to-resnet-and-vit.html)。
+- **后训练方法本身**（SFT、DPO、RL）在 [L5](/post-training-from-sft-to-verifiable-rewards.html)；本系列第三篇只讲它们在多模态上的特殊之处。
+- **视频理解的时序建模、3D 与机器人的具身多模态、音乐生成**不展开——各自是独立的方向。
+- **扩散模型的服务系统**（批处理、多 GPU 的步并行）属于 Infra 地图。
+- **应用层**（多模态 RAG、Agent 的截图操作）属于应用地图。
+
+
 [^q0]: 七个：编码器为什么选对比学习、它看不到什么（目标函数决定保留的信息）；一张图怎么进 LLM、占多少 token（connector、注入、分辨率的信息 vs token 交换）；训练分几阶段、冻结谁、幻觉从哪来（新旧参数、数据形状、三源三治）；语音为什么必须离散、全双工时延由什么决定（RVQ、四段时延）；DDPM / score / flow 为什么是一件事、CFG 在采样什么分布；为什么在 latent 做、DiT 赢在哪、一张图与一次 LLM 推理怎么比；AR 与扩散各赢在哪、理解与生成能不能共享表示。详见[第二章](#二逐篇回顾)。
 [^q1]: $$I \ge \log B - \mathcal{L}$$ 与 CLIP 32K；576 / 729 token、$$28 \times 28$$ 像素/token 甜点、2×2 merge 4× 无损；Qwen2-VL token $$= HW / 28^2$$；MM1 45 / 45 / 10、POPE 85 → 90、文本混入 10–50%；RVQ $$8 \times 1024 = 2^{80}$$、Moshi 80 ms 帧 / 200 ms、半双工 1–3 s；$$\epsilon = -\sigma s$$、$$v = \epsilon - x_0$$、采样 $$\propto p(x) p(c \mid x)^w$$、$$w = 7.5$$；VAE f8 48×、DiT FID ∝ GFLOPs、SD 1.5 80 TFLOPs vs 7B LLM 14 TFLOPs、FLUX 2.8 PFLOPs；VAR 10 尺度 FID 1.73 vs DiT 2.27、栅格 AR 4096 步 100 s。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
 [^q2]: 用第五章的三段自测：A 组 10 题判断与计算（至少 8 题）、B 组 5 题跨篇综合（至少 4 题）、C 组 7 道面试题（每题说出一半以上要点）；D 组的表给出"读过 / 掌握 / 能教人"三级的表现。详见[第五章](#五通关自测)。

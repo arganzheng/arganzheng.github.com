@@ -423,6 +423,17 @@ date: 2026-05-01 20:00:00
 
 回到总纲：[《高效推理与压缩（算法侧）：解码、投机、量化与 KV》](/efficient-inference-and-compression-for-llms.html)。
 
+## 七、延伸阅读
+
+本系列有意不展开的内容，以及它们在哪个系列里：
+
+- **系统侧的推理优化**——PagedAttention、continuous batching、chunked prefill、PD 分离、prefix caching、量化 kernel 的实现——不在本系列。它们在 [vLLM 系列](/deep-dive-into-vllm.html)与 [GPU Kernel 系列](/gpu-kernel-engineering.html)。
+- **训练时就决定的结构选择**——GQA、MLA、MoE、sliding window——它们的成本账在 [04 系列](/transformer-and-llm-for-infra-engineers.html)，建模动机散在各篇；本系列只在第五篇讨论训好之后对 KV 的处理时回指它们。
+- **蒸馏的方法本身**在 [L5 第七篇](/knowledge-distillation-for-llms.html)；本系列第四、六篇把它当作恢复精度的工具引用。
+- **扩散模型的推理加速**（步数蒸馏、一致性模型）是另一套数学，放在 L7 多模态系列的第六篇。
+- **硬件相关的格式细节**（FP8 的 E4M3 / E5M2、Tensor Core 对 2:4 的支持）在 [04 系列第六篇](/floating-point-formats-and-mixed-precision.html)与 GPU Kernel 系列；本系列只用它们的结论。
+
+
 [^q0]: 六个：采样参数怎么定、评测用 greedy 还是采样、温度改了 pass@k 怎么变（变形 / 截断 / 搜索、pass@1 与 pass@k 的相反响应）；投机解码在这个负载上有收益吗、草稿用什么、接受率预期多少（$$1 - \text{TV}$$、蒸馏训草稿、EAGLE 与 MTP、ridge 约束）；量化到几位、用哪种方法、group 多大、为什么这个模型量化后崩了（$$\Delta^2/12$$、重尾与离群、GPTQ / AWQ / 旋转）；需要 QAT 吗、怎么在部署前发现量化的任务退化（STE、末段 QAT、困惑度掩盖的四类任务、逐 token KL）；128K 的 KV 怎么压、哪种办法在这类任务上安全（key / value 的结构、FP8 → INT4 → 驱逐的安全序、sink）；一个 70B 怎么变成能用的 8B、剪枝 + 蒸馏还是从头训（余弦相似度、悬崖、Minitron 的 token 账）。详见[第二章](#二逐篇回顾)。
 [^q1]: 尾部总质量可达 10%、pass@1 最优 $$T \approx 0.2$$ 与 pass@100 约 0.8、推理模型 $$T = 0.6$$ / top-p 0.95；$$\alpha = 1 - \text{TV}$$、$$\mathbb{E}[\text{tokens}] = \frac{1 - \alpha^{\gamma+1}}{1 - \alpha}$$、接受长度 Medusa 2.5–3 → EAGLE-3 5–6.5、MTP 85–90%、$$B \cdot N_{tree} \lesssim \text{ridge}$$；$$\Delta^2/12$$ 与每少 1 bit ×4、$$15\sigma$$ 让 $$\Delta = 2\sigma$$、g128 = 4.156 bit、Hadamard 1000 → 17、70B 141 → 39.8 GB；Llama-3-8B W4 的 PPL +0.36 / MMLU −1–2 / GSM8K −3–6 / needle −10 以上、KL 0.01–0.05 nat、末段 QAT 5–10% token；70B 128K KV 40 → 20 → 12.5 → 3.1 GB、key per-channel / value per-token、sink 30–50%；余弦 0.85–0.95、悬崖 70B 约 40%、Minitron 94B token 对 8T 省 40×、蒸馏比继续预训练 +3–4 MMLU。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
 [^q2]: 用第五章的三段自测：A 组 10 题判断与计算（至少 8 题）、B 组 5 题跨篇综合（至少 4 题）、C 组 7 道面试题（每题说出一半以上要点）；D 组的表给出"读过 / 掌握 / 能教人"三级的表现。详见[第五章](#五通关自测)。

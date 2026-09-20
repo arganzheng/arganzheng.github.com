@@ -33,10 +33,6 @@ catalog: true
 
 ## 为什么写这个系列？
 
-### 这一层原来是一篇导读，读者需要的是能动手
-
-这个系列的前身是一篇导读，只回答"每个工具用到什么程度"。它对已经会用这些工具的人是一张清单，对第一次接触的人是一堆名词。展开成系列之后，每一篇都从"要做什么事"出发——写一个 attention、写一个训练循环、算一笔显存账、组装一次微调、读一张 profiler 表——把工具放在事里讲，并配上可以直接运行的脚本。
-
 ### "用"与"改"的边界
 
 同一个名词——Python、PyTorch、CUDA——在两张地图上都出现，分工用一句话说清：**算法地图"用"它们，Infra 地图"改"它们**。
@@ -270,65 +266,12 @@ Pandas 错误分析 · Matplotlib 多 seed 曲线`"]
 ```
 
 
-## 阅读路径建议
-
-### 完整学习路径
-
-```text
-1 → 2 → 3 → 4 → 5 → 6
-```
-
-### 只想尽快跑起第一次微调
-
-```text
-3 → 5 → 4
-```
-
-先写训练循环，再用 Hugging Face 组装真实模型的微调，卡在显存时回第四篇算账。第一篇在读不懂别人代码时补、第二篇在形状报错时补、第六篇在跑得慢或要复现时补。
-
-### 已经会用 `Trainer`，想知道它背后是什么
-
-```text
-3 → 4 → 6
-```
-
-### Infra 工程师，想知道用户视角
-
-```text
-4 → 6
-```
-
-
-## 本系列的边界
-
-- **Python 的机制**：第一篇只讲训练代码里那一小撮语法的用法；它们在解释器里怎么实现——GIL、生成器的暂停恢复、描述符与元类、内存模型、C 扩展、打包交付——在 Infra 地图的 [01 系列](/python-for-ai-infra.html)——它是两张地图共享的基础、本系列第一篇的深入篇，紧接本系列发布。
-- **PyTorch 内部**：Dispatcher、Autograd 引擎、编译、分布式通信栈的实现。在 Infra 地图的 [03 系列](/deep-dive-into-pytorch.html)——同样两张地图共享，本系列讲"用"，它讲"改"。
-- **GPU 编程**：CUDA、kernel、Tensor Core。本系列只到"读 profiler 知道慢在哪"；写 kernel 在 Infra 05 系列。
-- **并行策略的选择与实现**：张量 / 流水 / 专家并行、checkpoint、容错。在 Infra 07 系列。本系列只到 DDP / FSDP 启用。
-- **每个训练概念的原理**：混合精度为什么能工作、梯度裁剪剪的是什么、warmup 为什么必须。分别在 L4《Transformer 与 LLM》第六篇与 L3 深度学习基础系列。本系列只讲怎么用、在训练循环的哪一行。
-- **后训练算法本身**：SFT 的数据、DPO / GRPO 的原理。在 L5 后训练系列。本系列只到"用 `trl` 跑起来、知道去哪读源码"。
-
-
 ## 前置要求与说明
 
 ### 前置要求
 
-- [L0 数学](/math-for-ai-algorithm-engineers.html)前三篇：形状规则与 FLOPs、内积、LoRA 的参数量；第五篇的交叉熵；
-- **Python**：会读会写基本语法（变量、函数、类、列表与字典）。训练代码里实际出现的语言特性是一个很窄的子集，读几个主流仓库（`transformers` 的 `Trainer`、`trl` 的各个 Trainer、nanoGPT）就能看到全部——下表是清单：**第一篇**把它们的用法讲完，"深入"一列是 Infra 01 系列里讲机制的篇目：
-
-| 特性 | 在训练代码里的样子 | 要到什么程度 | 深入 |
-|---|---|---|---|
-| 面向对象与协议方法 | `class MyModel(nn.Module)` 重写 `forward`、`Dataset` 的 `__len__` / `__getitem__`、`model(x)` 走 `__call__` | 会继承、会重写方法、知道 `super().__init__()` 为什么必须调、知道 PyTorch 的 API 各建在哪个协议上（第一篇第五章） | 01 系列[第一篇](/python-language-mechanisms-and-runtime-internals.html) |
-| `dataclass` 与类型标注 | `@dataclass class TrainConfig: lr: float = 1e-5` | 配置全用它 | 01 系列[第二篇](/python-type-system-and-data-contract-design.html) |
-| 装饰器 | `@torch.no_grad()`、`@torch.compile`、`@property` | 会用、知道装饰器就是"函数包函数" | 01 系列[第四篇](/python-reflection-metaprogramming-and-plugin-architecture.html) |
-| 上下文管理器 | `with torch.autocast(...)`、`with torch.no_grad()` | 会用；`contextlib.contextmanager` 会写一个 | 同上 |
-| 生成器与迭代器 | 流式数据集 `yield` 一条条样本、`for batch in dataloader` | 理解惰性求值：数据不必全进内存（第一篇第三章） | 01 系列[第一篇](/python-language-mechanisms-and-runtime-internals.html) |
-| 异常处理 | 捕获 OOM 后减 batch 重试 | 基本 `try / except / finally` | — |
-| 多进程 | `DataLoader(num_workers=8)`、`Pool.map`、`torchrun --nproc_per_node=8` | 知道每个 rank 是一个进程、进程间不共享内存、GIL 为什么让线程帮不上忙（第一篇第六章） | 01 系列[第三篇](/python-concurrency-asynchrony-and-task-collaboration.html) |
-| `asyncio` | RL 训练里 rollout 与训练的并发、调用外部 API 做评测 | 基本用法：`async def`、`await`、`gather` | 同上 |
-| 包与环境 | `pip` / `uv` / `conda`、`requirements.txt`、虚拟环境 | 能建一个干净可复现的环境（第一篇第二章） | 01 系列[第七篇](/python-engineering-and-production-delivery.html) |
-
-一个现实的标准：**能读懂 nanoGPT 的 `train.py`（约 300 行）与 `trl` 里 `DPOTrainer` 的 loss 函数**，Python 就够了。GIL 与真正的并行、引用计数与垃圾回收、C 扩展与 pybind11、打包成 wheel——这些在算法工作里几乎不出现，出现时就是越界的信号。
+- [L0 数学](/math-for-ai-algorithm-engineers.html)前三篇：形状规则与 FLOPs、内积、LoRA 的参数量；第五篇的交叉熵。
+- 会一门编程语言。训练代码里出现的 Python 语法是一个很窄的子集，第一篇把它讲完；它们在解释器里怎么实现是 Infra 01 系列的事。
 
 不要求：有 GPU（全部脚本 CPU 可跑；第五篇的微调在 CPU 上慢但能跑通）；了解任何具体的模型结构。
 
@@ -350,26 +293,6 @@ Pandas 错误分析 · Matplotlib 多 seed 曲线`"]
 7. [系列总结与通关自测](/algorithm-tooling-series-recap-and-self-test.html)
 
 
-## 怎么学
-
-### 材料
-
-| 工具 | 材料 | 说明 |
-|---|---|---|
-| Python | 官方 tutorial 的 Classes、Iterators / Generators、`dataclasses` 与 `multiprocessing` 几节；Fluent Python（Luciano Ramalho）第 1、17、24 章 | 前者按需查；后者是想弄清"为什么"时的书，不必通读 |
-| NumPy | 官方 "NumPy fundamentals"（特别是 Broadcasting 与 Indexing 两节）；Nicolas Rougier《From Python to NumPy》 | 后者的练习建立形状直觉最快 |
-| PyTorch | 官方 "Learn the Basics" 与 "Deep Learning with PyTorch: A 60 Minute Blitz"；Karpathy 的 nanoGPT 与 "Let's build GPT" 视频 | 官方教程建立五个对象；nanoGPT 是"从零写训练循环"的范本，读完能改 |
-| Hugging Face | 官方 LLM Course（hf.co/learn）；`trl` 与 `peft` 文档里的示例脚本；`transformers` 源码 | 课程过一遍即可，源码是主教材 |
-| GPU 直觉 | [《Transformer 与 LLM》第二篇](/transformer-flops-bytes-and-roofline.html)；"Making Deep Learning Go Brrrr From First Principles"（Horace He） | 后者一篇博客讲透三种瓶颈；不需要 CUDA 教材 |
-| 实验管理 | W&B 或 MLflow 的快速入门；Hydra 文档 | 半天 |
-
-### 顺序
-
-从"做一件事"倒推：先写训练循环（第三篇），它会逼你学会 PyTorch 的五个对象与看曲线；然后补形状（第二篇）；再进 HF 生态与显存账（第五、四篇）；最后看 profiler（第六篇）。全部做完大约两到三周。不要按库逐个学完——工具在被用来做一件事时才记得住，这与 L0 对数学的建议是同一条。
-
-L1 与 L0 可以交错：写训练循环时遇到 `cross_entropy` 为什么要 `.float()`、`clip_grad_norm_` 在防什么，回 L0 与 L3 找答案。
-
-
 ## 最终目标
 
 读完这套系列之后，面对一次要做的实验，读者应该能够回答：
@@ -389,5 +312,3 @@ L1 与 L0 可以交错：写训练循环时遇到 `cross_entropy` 为什么要 `
 1. **组装能力**：把数据、模型、训练循环、评测拼成一次能跑的实验；
 2. **算账能力**：在跑之前算出显存与时间，判断跑得动跑不动、瓶颈在哪；
 3. **追溯能力**：出问题时从高层封装回到二十行训练循环，从报错回到显存的四块，从慢回到 profiler 表；实验结果三个月后能复现。
-
-工具的检验是做，不是读。六篇的六个脚本跑完、改过，L1 就够了；接下来紧随本系列发布的 Infra 01 Python 与 03 PyTorch 两个系列是它的深入篇，按需再读；然后进 L2 经典机器学习。

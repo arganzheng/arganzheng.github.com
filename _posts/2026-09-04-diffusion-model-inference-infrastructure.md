@@ -322,68 +322,6 @@ xDiT（2026-09-02 主线）  xfuser/：core/{distributed,long_ctx_attention,cach
 ```
 
 
-## 阅读路径建议
-
-### 第一遍怎么读（全栈 / 新手读者）
-
-```text
-1 → 7
-```
-
-约 2 小时。第一篇把一次生成的三段账算出来、与 LLM 对照，第七篇看这种负载的服务长什么样——读过 08 系列前两篇的读者到这里就知道"另一半 serving"与 LLM 的差别在哪。中间五篇的优化机制与第八篇的源码在真的要做生成服务时读。
-
-### 完整学习路径
-
-```text
-1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9
-```
-
-### 只做图像生成服务
-
-```text
-1 → 2 → 3 → 7 → 9
-```
-
-图像模型的 $$N$$ 只有几千，attention 占比小、单卡放得下，优化以单卡（第二篇）与跨步缓存（第三篇）为主，多卡只在延迟 SLO 逼迫时用。
-
-### 做视频生成
-
-```text
-1 → 4 → 5 → 6 → 9
-```
-
-视频的账由 attention 与序列长度主导，第四篇的稀疏化、第五篇的序列并行、第六篇的自回归流式是三条主要出路。
-
-### 平台 / 调度团队
-
-```text
-1 → 7 → 9
-```
-
-第一篇知道一个请求要几秒几 GiB，第七篇知道服务的形态与对资源层的要求，第九篇知道该看什么指标。
-
-### 主要目标是读懂引擎源码
-
-```text
-1 → 5 → 8
-```
-
-第八篇是主体；第一篇给出每个函数在处理的量级，第五篇的并行组是三个引擎里最"Infra"、也最相似的一段。
-
-
-## 本系列的边界
-
-本系列只讨论扩散模型（含 flow matching 模型，系统上无区别）**推理**的系统。以下内容与它紧邻，但不在范围内：
-
-- **扩散模型的数学、结构与训练**：DDPM / score matching / flow matching、DiT 与 MMDiT、VAE 的设计、文生图与视频的配方、步数蒸馏的方法。它们是算法地图 L7 的[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)第五至七篇；本系列只使用"一步是一次对 $$N$$ 个 token 的前向、有没有 CFG、蒸馏到几步"这些结论。
-- **LLM 推理系统**：KV cache、连续批处理、PagedAttention、投机解码、PD 分离。它们在[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)；本系列在每个对应位置说明"扩散为什么不同"，不重讲 LLM 侧。
-- **多模态理解模型**（把图片送进 LLM）的推理：vision encoder 的调度、image token 的 KV、请求形态。它们在[《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)第八篇与 08 系列第十一篇；生成模型与它们除了"都有一个 vision 部件"之外没有共同的系统问题。
-- **kernel 的实现**：FlashAttention、SageAttention、block-sparse attention、量化 GEMM 的内部。它们在[《GPU Kernel 工程》](/gpu-kernel-engineering.html)；本系列只用它们的接口与加速比。
-- **集合通信的实现**：all-to-all、P2P、all-gather 的算法与调优。本系列只用它们的语义与带宽。
-- **扩散模型的后训练与 RL**：Diffusion-DPO、奖励微调、Flow-GRPO 的系统。它们的 rollout 就是本系列讲的推理，训练侧属于 09 系列的形态。
-- **训练侧的并行**：DiT 的 FSDP + SP 训练。第五篇只在对照处提及。
-
-
 ## 前置要求与说明
 
 ### 前置要求

@@ -449,6 +449,18 @@ flowchart TB
 
 回到总纲：[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)。
 
+## 七、延伸阅读
+
+本系列有意不展开的内容，以及它们在哪个系列里：
+
+- **Transformer 本身**：attention 的变体、位置编码、MoE、参数量与 FLOPs 的完整推导，在 [《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)系列。本系列第六篇止于"attention 为什么被发明、为什么取代 RNN"。
+- **预训练配方**：具体的学习率、batch、warmup 数值怎么随规模定，scaling law，数据配比。属于 L4。本系列只讲每个开关的原理与诊断。
+- **框架内部**：Autograd 引擎、Dispatcher、分布式通信、混合精度的实现。属于 Infra 地图 03 系列。本系列只到"框架在做什么"。
+- **数值格式**：bf16 / fp8 的位布局、混合精度为什么能工作。在 04 系列第六篇。
+- **泛化理论**：VC 维、Rademacher 复杂度、PAC-Bayes。本系列只讲现象与实践中的正则化手段，不做理论。
+- **具体的 CNN / RNN 应用**：目标检测、分割、语音识别的网络设计。本系列只讲两条结构史留给 Transformer 的遗产。
+
+
 [^q0]: 六个：不用框架能不能手推两层网络的反向传播、由此说出 $$6ND$$ 与激活为什么要存（VJP、形状规则、两个 GEMM）；64 层 MLP 为什么训不动、初始化 / 归一化 / 残差各修哪一环（连乘、$$I + J$$、Pre-Norm）；Adam 的两个矩做什么、AdamW 与 $$L_2$$ 差在哪、warmup 为什么不能省、batch 变大学习率怎么变（步长 $$\approx \eta$$、满步长、临界 batch）；参数比样本多为什么不过拟合、什么时候会（$$N/D$$、隐式正则化、double descent、SFT 的 epoch）；卷积相当于多大的矩阵、ResNet 留下什么、ViT 为什么不用卷积（稀疏矩阵、退化问题、patch embedding）；RNN 为什么记不住、LSTM 门与残差的关系、attention 为什么被发明又取代了 RNN（BPTT、时间上的残差、seq2seq 瓶颈）。详见[第二章](#二逐篇回顾)。
 [^q1]: $$\partial L/\partial W = X^T G$$ 与 $$6ND$$、$$8ND$$；$$\text{Var}(y) = n_{in}\sigma_w^2\text{Var}(x)$$、Kaiming $$2/n_{in}$$、$$2^{-32}$$、$$0.9^{128} \approx 10^{-6}$$；残差 $$I + J$$、残差流每层翻倍对线性、$$1/\sqrt{2L}$$、0.02；Pre-Norm 梯度 0.12–0.15 对 Post-Norm 0.51–1.96；Adam 第一步 $$\eta \cdot \text{sign}(g)$$、$$\beta_2 = 0.95$$ 记 20 步、8 字节 / 参数、Llama-3-8B 64 GB；$$L_2$$ 把 $$\lVert W_1 \rVert$$ 22.6 打到 2.3；warmup 4.59 对 1.26；scaling 512 成立 2048 发散；$$N/D$$ 0.0005 对 1600；宽度 2048 最好、宽度 8 尖峰 5.48；4 epoch 以内无损；ResNet-50 25.6M / 8.2 GFLOPs、$$16 \times 36$$ 矩阵 9 参数、196 token；BPTT 20 步千分之四、$$b_f = 1$$、倒序 0% → 76%、attention 算力 4.5 倍。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
 [^q2]: 用第五章的三段自测：A 组 10 题判断与计算（至少 8 题）、B 组 5 题跨篇综合（至少 4 题）、C 组 7 道面试题（每题说出一半以上要点）；D 组的表给出"读过 / 掌握 / 能教人"三级的表现。详见[第五章](#五通关自测)。

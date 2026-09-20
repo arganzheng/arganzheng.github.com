@@ -388,6 +388,17 @@ flowchart TB
 
 前置：[L1《模型作为组件》](/model-as-a-component.html)（工具调用协议、失效模式、推理状态、成本）、[L2《Prompt 与上下文工程》](/prompt-and-context-engineering.html)（预算、压缩、缓存）、[L3《检索与知识接入》](/retrieval-and-knowledge-access.html)（检索作为工具、本体）。三张地图的分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)；agent 能力的训练在算法地图 L5，RL 的 rollout 基础设施在 Infra 地图 09。
 
+## 七、延伸阅读
+
+本系列有意不展开的内容，以及它们在哪个系列里：
+
+- **不讲 agent 能力的训练**：工具调用数据、多轮环境、RL——属于算法地图 L5；RL 的 rollout 基础设施属于 Infra 地图 09。
+- **不讲检索**：agentic retrieval 属于 L3；本系列只把检索当作一类工具。
+- **不讲评测方法论本身**：judge、评测集运营属于 L5；本系列只讲 agent 专属的轨迹评测。
+- **不讲 prompt injection 的完整防御体系**：属于 L6；本系列讲它作为权限与沙箱设计的输入。
+- **不讲物理世界的 agent**：自动驾驶的 harness 在地图里作为对照案例，本系列只在第八篇的人机分工里引用它的 SAE 分级。
+
+
 [^q0]: 面对一个要让模型做事的场景：要不要循环、卫士设在哪、两个生产循环各几层（1）；工具用 MCP 还是自定义、2026-07-28 版要改什么、几十个工具怎么办、中间结果怎么不进上下文（2）；任务中断怎么续、日志存什么、托管还是自托管（3）；第 40 步满了怎么办、什么交给子 agent、哪种子 agent（4）；这个调用自动 / 问人 / 禁止、沙箱用什么、五环防住了几环、审批疲劳怎么解（5）；四个 harness 各怎么解、学谁（6）；需要多 agent 吗、哪种模式、代价（7）；记忆存什么忘什么、人站在第几级、业务动作怎么验证（8）；可靠吗、轨迹怎么评、上生产还缺什么（9）。详见[第一章](#一总览系列回答的问题与主线)。
 
 [^q1]: 数字：四个卫士、两个出口；Codex 三层与编排器顺序；MCP 2026-07-28（去 `initialize`、DCR → CIMD、`resource`、Tasks / Apps）、AAIF、十亿下载；Agents API 2026-09-10、九家沙箱、无额外费、86% / 4× / 60%；DeepSeek Harness 2026-08-13 v0.1 MIT、四种模式、七种子 agent 后端；Claude Code 六步、83.5%、25 KB、agent teams v2.1.178；Codex `:read_only` / `:workspace` / `:danger_full_access`、`execpolicy` allow / prompt / forbidden、"无 >10K token 的项"；多 agent 15 倍；六级；风险五级；十类失败一类异常；轨迹六维；Terminal-Bench 90.6 / 30.0 / 31.2；十二行清单。结论：循环之外一切是 harness；权限范围是错误上限；验证决定自主；日志是底座（"模型可见 ⟺ 已记录"）；先用一个 agent 加更好的工具；MCP 管工具 A2A 管 agent；本体是业务侧 harness；基准只缩范围。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。

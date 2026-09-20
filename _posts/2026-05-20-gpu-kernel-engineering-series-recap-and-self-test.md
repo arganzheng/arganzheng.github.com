@@ -503,6 +503,17 @@ flowchart TB
 
 回到总纲：[《GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention》](/gpu-kernel-engineering.html)。
 
+## 七、延伸阅读
+
+本系列只讨论单个 kernel 内部：它如何映射到硬件、如何访存、如何计算、如何测量。以下内容与它紧邻，但不在范围内：
+
+- **框架层的运行时机制**：Dispatcher 如何选择 kernel、Autograd 如何调用反向 kernel、Caching Allocator 如何管理显存、Inductor 如何决定融合哪些算子。本系列在需要时说明"框架在 host 侧准备了什么"，但不展开这些机制的原理。
+- **系统层的性能问题**：Python 开销、kernel launch 开销、CPU-GPU 同步、数据加载、多卡通信。这些决定了 kernel 之外的时间花在哪里；本系列假设读者已经确认瓶颈在某个 kernel 内部。
+- **推理引擎的调度与内存管理**：continuous batching、KV cache 的分页管理、prefix caching、PD 分离。本系列第八篇只讨论分页之后 kernel 如何访问 KV cache。
+- **模型与算法**：注意力机制的设计动机、量化算法的校准方法、MoE 的路由策略。本系列把它们当作给定的数学定义，只讨论如何高效地算出来。
+- **C++ 语言本身**：模板、RAII、lambda 等在 kernel 的 host 侧代码中大量出现，本系列假设读者已经掌握。
+
+
 [^q0]: 总纲"最终目标"列出的九个：它读写多少字节、做多少 FLOP（Roofline 上的位置）；理论上最快多少、实际多少（带宽 / 算力利用率）；差距来自哪里（ncu 的指标）；访存模式对不对（合并、向量化、bank conflict）；线程协作方式对不对（shared、shuffle、同步）；用上 Tensor Core 了吗、用对了吗（mma、fragment、流水）；用 Triton 写会怎样（编译器能自动化到哪一层）；它在别的架构上会怎样（多架构与 fallback）；怎么证明它是对的、没变慢（测试、tolerance、benchmark）。详见[第二章](#二逐篇回顾)。
 [^q1]: A100 2.0 TB/s、BF16 312 TFLOPS、FP32 19.5、108 个 SM；ridge A100 BF16 156、FP32 约 10、H100 295；$$T = \max(F / P_{peak}, B / BW)$$；elementwise $$I = 1/6$$、RMSNorm ≈ 1、decode attention ≈ 4、GEMM 4096³ ≈ 1365；DRAM 可达 85–92%；32 B sector、16 B/线程、Little's law 1.2 MB 在飞；bank = (addr / 4) mod 32；online softmax 合并 $$m = \max(m_a, m_b)$$、$$l = l_a e^{m_a - m} + l_b e^{m_b - m}$$；GEMM 4096³ 137.4 GFLOP、7.0 ms（FP32）/ 0.44 ms（BF16）、分块 $$MNK(1/BM + 1/BN)$$、128×128 → $$I = 32$$；`mma.sync.m16n8k16` = 4096 FLOP 占 8 周期；Triton matmul 到 cuBLAS 80–95%；attention 132 MiB → 66 MiB、decode 每 token 128 KiB、$$B \times s \approx$$ 131k 临界；W4A16 交叉点 $$M \approx 40$$；SOL > 80% 到顶、两者 < 40–50% latency-bound。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
 [^q2]: 用第五章的三段自测：A 组 10 题判断与计算（至少 8 题）、B 组 5 题跨篇综合（至少 4 题）、C 组 7 道面试题（每题说出一半以上要点）；D 组的表给出"读过 / 掌握 / 能教人"三级的表现。详见[第五章](#五通关自测)。

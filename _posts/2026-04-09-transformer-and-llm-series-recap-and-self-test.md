@@ -459,6 +459,21 @@ flowchart TB
 
 回到总纲：[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)。
 
+## 七、延伸阅读
+
+本系列只讨论模型作为一个**计算对象**的结构与成本。以下内容与它紧邻，但不在范围内：
+
+- **预训练**：tokenizer 与词表、scaling law、数据工程、训练配方与稳定性——这个模型**怎么训出来**的账，在紧接着的[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)。
+- **后训练**：SFT、RLHF / DPO、蒸馏、评测。把一个基座模型变成对话模型的方法不在本系列。
+- **深度学习基础的推导**：反向传播、初始化与归一化、优化器、正则化的公式。推导在算法地图的 L3 系列。
+- **kernel 实现**：FlashAttention 的分块与 online softmax 如何写、量化 GEMM 如何反量化、MoE 的 permute 与 grouped GEMM 如何实现。本系列只推导它们的 IO 复杂度与收益区间，把实现当作黑盒。
+- **推理引擎的调度与内存管理**：continuous batching、PagedAttention 的 block 管理、prefix caching、PD 分离。本系列给出这些机制所依据的数字，不讲机制本身。
+- **分布式并行的实现**：TP / PP / EP / 序列并行如何切分与同步、集合通信的算法。本系列在 MoE 一篇讨论 EP 的通信**量**，不讨论通信**怎么做**。
+- **框架 API**：`transformers`、PyTorch、vLLM 的使用方式。实践部分会调用它们做验证，但不解释它们。
+- **非 Transformer 结构**：状态空间模型（Mamba 一类）、线性 attention、扩散模型。它们改变了成本结构的基本形态，值得单独讨论，不进入本系列。
+- **多模态的训练与对齐方法**：第八篇只把 vision encoder、connector 与 image token 当作计算对象来算账，不讨论视觉-语言对齐怎么训、数据怎么配；扩散模型（图像 / 视频生成）的成本结构与自回归 LLM 完全不同，不进入本系列。这两部分在算法地图的 L7 系列[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)里展开。
+
+
 [^q0]: 八个：给一个 `config.json` 算出参数量与分布（逐矩阵公式）；每 token 算多少、每步读多少、batch 多大才 compute-bound（$$2N$$、$$I = B$$、ridge 295、KV 读取封顶）；KV cache 由什么决定、GQA 与 MLA 各改了什么（$$2 L n_{kv} d_{head}$$、576 维 latent、吸收）；上下文能多长、代价在哪（波长、交叉点、二次项）；MoE 的三个"参数量"与 all-to-all（期望激活专家数、$$Tk/E$$）；每个数占几个字节、数值在哪丢失（范围对精度、master weights、累加）；量化、投机、LoRA 各改哪个变量、在哪个区间有效（$$W_{bytes}$$、$$m$$、训练状态）；一张图等于多少 token、贵在哪（$$\lceil H/28 \rceil \lceil W/28 \rceil$$、KV 是 encoder 输出的 20 倍）。详见[第二章](#二逐篇回顾)。
 [^q1]: 8B = 8.03B、16.06 GB、15 GFLOPs/token、128 KiB/token；ridge 295、$$I_{weight} = B$$、$$I_{KV} = g$$；decode 下界 4.8 ms / 208 token/s；64 GB 放 52 万 token 的 KV；$$\text{bytes/token} = 2 L n_{kv} d_{head} \cdot \text{bytes/elem}$$，V3 68.6 KiB 对 MHA 3.81 MiB（57 倍）；$$\lambda_i = 2\pi \cdot \text{base}^{2i/d_{head}}$$，8K 训练 14 对没转完一圈；交叉点 28.6K，128K prefill 11 s；$$E[1 - (1 - k/E)^B]$$，$$B = 32$$ 时 163 个专家；BF16 单位舍入 $$2^{-8}$$、FP16 溢出 11.09、E4M3 最大 448、16 B/参数；INT4 4.25 bit、转折 $$\text{ridge}/4$$；$$\mathbb{E}[\text{tokens}] = (1 - \alpha^{\gamma+1})/(1 - \alpha) = 3.36$$、转折 $$\text{ridge}/(\gamma + 1)$$；LoRA 128 GB → 16.7 GB；1024² → 1369 token，KV 是 encoder 输出的 20 倍。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
 [^q2]: 用第五章的三段自测：A 组 10 题判断与计算（至少 8 题）、B 组 5 题跨篇综合（至少 4 题）、C 组 7 道面试题（每题说出一半以上要点）；D 组的表给出"读过 / 掌握 / 能教人"三级的表现。详见[第五章](#五通关自测)。
