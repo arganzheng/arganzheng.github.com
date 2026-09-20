@@ -459,12 +459,21 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
   `passage_reactions(path, hash, quote, up, doubt, share, reasons, section)` in D1; `hash` =
   `annotHash(exact)` (the `#annot-<hash>` id), `quote` lets `applyHighlights`
   anchor and underline a passage nobody commented on (mark ids `r:<hash>`,
-  same `mark.annotation-hl`; `.has-doubt` = red dotted line). One reader's
+  same `mark.annotation-hl`; `.has-doubt` = red dotted line; `.has-issue` =
+  red solid line on a faint red wash + ⚑ in the marker, when a live note there
+  has an *open* GitHub Issue — `passageIssues(p)`). One reader's
   choices live in `localStorage["react:<path>:<hash>:<kind>"]`. The unit of
   everything passage-level is `passages()` / `passageFor(ids)` (`{ ids, list,
   hash, exact, reaction, marks }`): markers (`markerHtml`: 💬 · 👍 · ❓),
   `openThread`, `passageContaining(offsets)` (a selection inside an
   underlined passage joins it — comment or reaction), `renderHotPassages`.
+  The toolbar's 评论 button is relabelled per selection (`updateCommentButton`):
+  「编辑评论」 when the viewer's own note is on that passage (click =
+  `editMyComment`: open the thread and start `startEdit` on it — re-selecting
+  your own quote means "fix my note", not "add a second one"), 「加入讨论」
+  when others' notes are, plain 「评论」 otherwise. Posting, replying or saving
+  an edit *in the panel* closes it (`closePanel`; the flash + toast confirm);
+  the bottom comment section's editors stay put.
   `refreshReactionViews` repaints marker / panel row in place and only
   re-anchors when an underline must appear or vanish. Toolbar 存疑 opens the
   passage panel (its 「说说哪里不对 →」 focuses the editor); 赞 just flashes +

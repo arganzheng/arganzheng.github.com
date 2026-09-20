@@ -443,14 +443,15 @@
     });
     wrapPieces(items, 'annotation-hl').forEach(function (mark) {
       bindMark(mark);
-      var doubt = false, commented = false, resolved = true;
+      var doubt = false, issue = false, commented = false, resolved = true;
       mark.getAttribute('data-annotation-ids').split(' ').forEach(function (id) {
         var an = findAnnotation(id), r = null;
-        if (an) { an.marks.push(mark); r = reactions[annotHash(an.selector.exact)]; commented = true; if (!an.resolved) resolved = false; }
+        if (an) { an.marks.push(mark); r = reactions[annotHash(an.selector.exact)]; commented = true; if (!an.resolved) resolved = false; if (an.issue && !an.resolved) issue = true; }
         else if (id.indexOf('r:') === 0 && reactions[id.slice(2)]) { r = reactions[id.slice(2)]; r.marks.push(mark); }
         if (r && r.doubt > 0) doubt = true;
       });
       if (doubt) mark.classList.add('has-doubt');
+      if (issue) mark.classList.add('has-issue'); // an open GitHub Issue hangs on this passage
       if (commented && resolved) mark.classList.add('is-resolved'); // the author fixed every note here
       // a note on a figure's caption (js/figures.js) outlines the whole figure
       var cap = mark.closest('.post-figcaption'); if (cap) cap.classList.add('has-note');
@@ -504,10 +505,23 @@
     return live.length > 0 && live.every(function (a) { return a.resolved; });
   }
 
-  // One marker per passage: ✓ fixed · 💬 comments · 👍 up · ❓ doubt (only the non-zero ones).
+  // Notes here that were also filed as a GitHub Issue and are still open.
+  function passageIssues(p) { return p.list.filter(function (a) { return !a.deleted && a.issue && !a.resolved; }).length; }
+  // The viewer's own (live, top-level) note on this passage, if any.
+  function myCommentIn(p) {
+    if (!viewer) return null;
+    for (var i = 0; i < p.list.length; i++) if (!p.list[i].deleted && p.list[i].author && p.list[i].author.login === viewer.login) return p.list[i];
+    return null;
+  }
+  function markerClass(p) {
+    return 'annotation-marker' + (p.reaction && p.reaction.doubt ? ' has-doubt' : '') + (passageIssues(p) ? ' has-issue' : '') + (passageResolved(p) ? ' is-resolved' : '');
+  }
+
+  // One marker per passage: ✓ fixed · ⚑ issue · 💬 comments · 👍 up · ❓ doubt (only the non-zero ones).
   function markerHtml(p) {
     var r = p.reaction, n = commentCount(p);
     return (passageResolved(p) ? '<i class="fa fa-check-circle"></i>' : '') +
+      (passageIssues(p) ? '<i class="fa fa-flag"></i>' : '') +
       (n ? '<i class="fa fa-comment"></i><span class="annotation-marker-count">' + n + '</span>' : '') +
       (r && r.up ? '<i class="fa fa-thumbs-up"></i><span class="annotation-marker-count">' + r.up + '</span>' : '') +
       (r && r.doubt ? '<i class="fa fa-question-circle"></i><span class="annotation-marker-count">' + r.doubt + '</span>' : '');
@@ -515,6 +529,7 @@
   function markerTitle(p) {
     var r = p.reaction, parts = [], n = commentCount(p);
     if (passageResolved(p)) parts.push('作者已修正');
+    if (passageIssues(p)) parts.push(passageIssues(p) + ' 个待处理的 Issue');
     if (n) parts.push(n + ' 条评论');
     if (r && r.up) parts.push(r.up + ' 人赞');
     if (r && r.doubt) parts.push(r.doubt + ' 人存疑' + (reasonsSummary(r) ? '（' + reasonsSummary(r) + '）' : ''));
@@ -525,7 +540,7 @@
     passages().forEach(function (p) {
       var last = p.marks[p.marks.length - 1];
       var marker = document.createElement('span');
-      marker.className = 'annotation-marker' + (p.reaction && p.reaction.doubt ? ' has-doubt' : '') + (passageResolved(p) ? ' is-resolved' : '');
+      marker.className = markerClass(p);
       marker.setAttribute('data-annotation-ids', p.ids.join(' '));
       marker.setAttribute('data-hash', p.hash);
       marker.setAttribute('title', markerTitle(p));
@@ -826,6 +841,7 @@
   function startEdit(el, c, isReply, parent) {
     if (el.querySelector('.ap-inline-editor')) return;
     var bodyEl = el.querySelector('.ap-comment-body');
+    var inPanel = !!el.closest('.annotation-panel');
     var host = document.createElement('div');
     host.className = 'ap-editor ap-inline-editor';
     host.innerHTML = '<span class="ap-muted">正在读取原文…</span>';
@@ -847,7 +863,9 @@
             c.bodyHTML = res.updateDiscussionComment.comment.bodyHTML;
             c.lastEditedAt = new Date().toISOString();
             if (!isReply) { var keep = c.selector; c.selector = null; c.noteHTML = null; c.issue = null; parseBodyHeader(c); if (!c.selector && keep) { c.selector = keep; c.noteHTML = c.bodyHTML; } }
+            if (inPanel) closePanel(); // same as posting: the panel goes, the flash confirms
             syncViews();
+            if (inPanel && c.marks && c.marks.length) flashMarks(c.marks);
             flashComment(c.id);
             showToast('已保存');
           });
@@ -1735,8 +1753,31 @@
     var range = currentRange();
     if (!range) { hideToolbar(); return; }
     ensureToolbar();
+    updateCommentButton(range);
     toolbar.style.display = 'block';
     positionToolbar();
+  }
+
+  // The 「评论」 button says what will actually happen: a selection inside an
+  // already-underlined passage joins that thread — and when the viewer's own
+  // note is there, it opens that note for editing (the common case for the
+  // author re-reading a review: fix the wording, not add a second note).
+  function selectionContext(range) {
+    var offsets = selectionOffsets(range);
+    var p = offsets && passageContaining(offsets);
+    return { offsets: offsets, passage: p, mine: p ? myCommentIn(p) : null };
+  }
+  function updateCommentButton(range) {
+    var ctx = selectionContext(range), btn = toolbar.querySelector('.annotation-tb-comment'), n = ctx.passage ? commentCount(ctx.passage) : 0;
+    if (ctx.mine) { btn.innerHTML = '<i class="fa fa-pencil"></i> 编辑评论'; btn.title = '你评论过这段话，点击修改那条评论'; }
+    else if (n) { btn.innerHTML = '<i class="fa fa-regular fa-comment"></i> 加入讨论'; btn.title = '这段话已有 ' + n + ' 条评论，在同一讨论串里接着说'; }
+    else { btn.innerHTML = '<i class="fa fa-regular fa-comment"></i> 评论'; btn.title = '对选中的文字发表评论'; }
+  }
+  // Open the passage thread and drop straight into editing the viewer's note.
+  function editMyComment(p, mine) {
+    openThread(p.ids, p.marks[p.marks.length - 1]);
+    var el = panel && panel.querySelector('.ap-comment[data-comment-id="' + mine.id + '"] .ap-edit-btn');
+    if (el) el.click();
   }
 
   function positionToolbar() {
@@ -1788,12 +1829,13 @@
       toolbar.querySelector('.annotation-tb-' + pair[0]).addEventListener('click', function (e) {
         e.stopPropagation();
         var range = currentRange();
-        var offsets = range && selectionOffsets(range);
-        if (!offsets) { hideToolbar(); return; }
-        var sel = selectorFromOffsets(offsets);
+        var ctx = range ? selectionContext(range) : { offsets: null };
+        if (!ctx.offsets) { hideToolbar(); return; }
+        var sel = selectorFromOffsets(ctx.offsets);
         var endNode = range.endContainer;
         hideToolbar();
-        openComposer(sel, offsets, endNode, '', pair[1]);
+        if (ctx.mine) editMyComment(ctx.passage, ctx.mine);
+        else openComposer(sel, ctx.offsets, endNode, '', pair[1]);
       });
     });
     toolbar.querySelector('.annotation-tb-copy').addEventListener('click', function (e) {

@@ -698,11 +698,18 @@
 	mark.annotation-hl.has-doubt { border-bottom-style: dotted; border-bottom-color: fade(@annot-doubt, 75%); }
 	mark.annotation-hl.has-doubt:hover { border-bottom-color: @annot-doubt; background-color: fade(@annot-doubt, 7%); }
 	mark.annotation-hl.has-doubt.is-multi { border-bottom-style: solid; }
+	// a passage with an open GitHub Issue on it: solid red line on a faint red
+	// wash — stronger than 存疑 (dotted), it is the author's todo
+	mark.annotation-hl.has-issue,
+	mark.annotation-hl.has-issue.has-doubt { border-bottom: 2px solid fade(@annot-doubt, 80%); background-color: fade(@annot-doubt, 6%); }
+	mark.annotation-hl.has-issue:hover { border-bottom-color: @annot-doubt; background-color: fade(@annot-doubt, 12%); }
 	// the marker carries up to three icon+count pairs
 	.annotation-marker {
-		.fa + .annotation-marker-count + .fa { margin-left: 5px; }
-		&.has-doubt { color: @annot-doubt; background: #fff1f1; border-color: #f7c5c8; }
-		&.has-doubt:hover { color: #fff; background: @annot-doubt; border-color: @annot-doubt; }
+		.fa + .annotation-marker-count + .fa,
+		.fa-flag + .fa { margin-left: 5px; }
+		&.has-doubt, &.has-issue { color: @annot-doubt; background: #fff1f1; border-color: #f7c5c8; }
+		&.has-issue { border-color: fade(@annot-doubt, 55%); }
+		&.has-doubt:hover, &.has-issue:hover { color: #fff; background: @annot-doubt; border-color: @annot-doubt; }
 	}
 }
 .annotation-toolbar {

@@ -3598,15 +3598,30 @@ footer .copyright a,
 .post-container mark.annotation-hl.has-doubt.is-multi {
   border-bottom-style: solid;
 }
-.post-container .annotation-marker .fa + .annotation-marker-count + .fa {
+.post-container mark.annotation-hl.has-issue,
+.post-container mark.annotation-hl.has-issue.has-doubt {
+  border-bottom: 2px solid rgba(209, 36, 47, 0.8);
+  background-color: rgba(209, 36, 47, 0.06);
+}
+.post-container mark.annotation-hl.has-issue:hover {
+  border-bottom-color: #d1242f;
+  background-color: rgba(209, 36, 47, 0.12);
+}
+.post-container .annotation-marker .fa + .annotation-marker-count + .fa,
+.post-container .annotation-marker .fa-flag + .fa {
   margin-left: 5px;
 }
-.post-container .annotation-marker.has-doubt {
+.post-container .annotation-marker.has-doubt,
+.post-container .annotation-marker.has-issue {
   color: #d1242f;
   background: #fff1f1;
   border-color: #f7c5c8;
 }
-.post-container .annotation-marker.has-doubt:hover {
+.post-container .annotation-marker.has-issue {
+  border-color: rgba(209, 36, 47, 0.55);
+}
+.post-container .annotation-marker.has-doubt:hover,
+.post-container .annotation-marker.has-issue:hover {
   color: #fff;
   background: #d1242f;
   border-color: #d1242f;
