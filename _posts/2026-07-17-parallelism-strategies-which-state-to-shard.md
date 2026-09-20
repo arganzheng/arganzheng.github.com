@@ -171,21 +171,13 @@ FSDP 是 ZeRO-3 在 PyTorch 里的原生实现，有两代。
 
 ZeRO-3 的 $$3N$$ 通信全在 DP 组上；当 $$N_d$$ 跨越几十个节点时，这 $$3N$$ 走的是 InfiniBand，而且 all-gather 是在关键路径附近的（预取深度有限）。**HSDP**（Hybrid Sharded Data Parallel）把 DP 维拆成两层：在一个 $$N_s$$ 卡的分片组内做 ZeRO-3（通常 $$N_s = 8$$ 或几个节点），分片组之间做普通 DP 复制（$$N_r = N_d / N_s$$ 个副本）。把 $$N_d = 16$$ 张卡排成 $$N_r \times N_s = 2 \times 8$$ 的网格，两种通信各走网格的一个方向：
 
-```text
- N_d = 16, N_s = 8（一个节点）, N_r = 2      placement = (Replicate(), Shard(0))
-                    ── 分片组：Shard(0)，AG + AG + RS ≈ 3N，NVLink ──→
- 副本 0（节点 0）   [ 0    1    2    3    4    5    6    7 ]   卡 i 持第 i 段
- 副本 1（节点 1）   [ 8    9   10   11   12   13   14   15 ]   卡 8+i 持同一段
-                     ↕    ↕    ↕    ↕    ↕    ↕    ↕    ↕
-                    复制组 {i, 8+i}：Replicate()，第 i 段梯度 AR ≈ 2N/N_s，IB
-```
+![HSDP 网格：16 张卡排成 2 行 8 列，每行是一个节点（副本），行内 8 张卡各持参数的一段（Shard(0)），横向是分片组的 3N 通信走 NVLink；每列的两张卡持同一段，竖向红箭头是复制组之间的梯度 all-reduce，走 IB](/img/in-post/parallelism-hsdp-grid.svg)
 
-```text
-显存      16N / N_s                                            ← 只被分片组均分，N_s 小则显存大
-通信      分片组内：AG + AG + RS ≈ 3N                 走 NVLink（N_s = 8 时）
-          副本间：  reduce-scatter 之后的梯度分片做 all-reduce
-                    每卡 2(N_r-1)/N_r × N/N_s ≈ 2N/N_s          走 IB，量小了 N_s 倍
-```
+| 项 | HSDP（$$N_s$$ 卡一组） | 走哪条链路 | 备注 |
+|---|---|---|---|
+| 显存 | $$16N / N_s$$ | — | 只被分片组均分，$$N_s$$ 小则显存大 |
+| 分片组内通信 | AG + AG + RS ≈ $$3N$$ | NVLink（$$N_s = 8$$ 时） | ZeRO-3 的全部大头 |
+| 副本间通信 | reduce-scatter 之后的梯度分片做 all-reduce，每卡 $$2(N_r - 1)/N_r \times N/N_s \approx 2N/N_s$$ | IB | 量比 $$3N$$ 小了 $$N_s$$ 倍 |
 
 它的取舍很直接：把大头 $$3N$$ 挪到快链路上，跨节点只剩 $$2N/N_s$$，代价是显存只省 $$N_s$$ 倍。70B 用 $$N_s = 8$$ 每卡要 141 GB，放不下；$$N_s = 64$$ 才是 17.6 GB。所以 HSDP 的 $$N_s$$ 是"刚好放得下"的最小值，不是越小越好。FSDP2 里 HSDP 由传入的 2D `DeviceMesh` 决定：`fully_shard(module, mesh=mesh_2d)` 时参数 placement 为 `(Replicate(), Shard(0))`，`_fsdp_common.py` 的 `HSDPMeshInfo` 同时持有 shard 与 replicate 两个进程组；`_fsdp_api.py` 的 `DataParallelMeshDims` 则允许在一个更高维的 SPMD mesh 上指定哪些维是 shard、哪些是 replicate。
 
@@ -195,25 +187,28 @@ ZeRO-3 的 $$3N$$ 通信全在 DP 组上；当 $$N_d$$ 跨越几十个节点时�
 
 张量并行把一个线性层的权重矩阵切开。对 $$Y = XA$$（Megatron 的记法，$$X$$ 是 $$[\text{tokens}, h]$$ 的激活，$$A$$ 是 $$[h, h']$$ 的权重），有两种切法：
 
-```text
-列切（column-parallel）  A = [A_1 | A_2 | … | A_t]     每卡持 A_i（h × h'/t）
-                         输入 X 完整（每卡一份）；输出 Y_i = X A_i 是 Y 的第 i 列块
-                         → 输入不需通信，输出按列分布在各卡
+![上：列切——A 被竖着切成四条，每卡持一条，输入 X 完整、输出 Yᵢ = X Aᵢ 是 Y 的第 i 列块，不需通信；下：行切——A 被横着切成四条，输入 X 必须按列切成 Xᵢ，每卡算出一个部分和 XᵢAᵢ，四个部分和要 all-reduce 相加](/img/in-post/parallelism-tp-column-row-split.svg)
 
-行切（row-parallel）     A = [A_1 ; A_2 ; … ; A_t]     每卡持 A_i（h/t × h'）
-                         输入 X 必须按列切成 X_i；输出 Y = Σ_i X_i A_i 是 t 个部分和
-                         → 输入按列分布即可，输出需要 all-reduce
-```
+| 切法 | 每卡持有 | 输入 | 输出 | 通信 |
+|---|---|---|---|---|
+| 列切（column-parallel）$$A = [A_1 \mid A_2 \mid \cdots \mid A_t]$$ | $$A_i$$：$$h \times h'/t$$ | $$X$$ 完整（每卡一份） | $$Y_i = X A_i$$ 是 $$Y$$ 的第 $$i$$ 列块，按列分布在各卡 | 输入不需通信 |
+| 行切（row-parallel）$$A = [A_1 ; A_2 ; \cdots ; A_t]$$ | $$A_i$$：$$h/t \times h'$$ | $$X$$ 必须按列切成 $$X_i$$ | $$Y = \sum_i X_i A_i$$，每卡一个部分和 | 输出需要 all-reduce |
 
 Megatron-LM（Shoeybi et al. 2019）的洞见是把两者**配对**：MLP 的第一个线性层列切、第二个行切。列切的输出 $$Y_i$$ 正好是行切需要的按列分布的输入 $$X_i$$，中间的 GELU 是逐元素的、不需要完整向量——于是整个 MLP 只在末尾做一次 all-reduce。注意力同理：Q/K/V 投影列切（每卡持 $$a/N_t$$ 个头，头之间的计算天然独立），输出投影行切，末尾一次 all-reduce。
 
-```text
-      X ──┬── [列切 Q/K/V] ── 每卡 a/t 个头的注意力 ── [行切 O] ──┐
-          │                                                    ├── all-reduce ── + 残差 ── LayerNorm
-          └────────────────────────────────────────────────────┘
-      X ──┬── [列切 W1] ── GELU ── [行切 W2] ──┐
-          │                                   ├── all-reduce ── + 残差 ── LayerNorm
-          └───────────────────────────────────┘
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 160}}}%%
+flowchart LR
+    X1[X] --> QKV["列切 Q/K/V<br/>每卡 a/t 个头"] --> ATT["每卡自己头的注意力<br/>（头之间独立，无通信）"] --> O["行切 O"] --> AR1(("all-reduce")) --> R1["+ 残差 → LayerNorm"]
+    X1 -.残差.-> R1
+    R1 --> W1["列切 W1"] --> GELU --> W2["行切 W2"] --> AR2(("all-reduce")) --> R2["+ 残差 → LayerNorm"]
+    R1 -.残差.-> R2
+    classDef col fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef row fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef ar fill:#fee2e2,stroke:#b91c1c,color:#222
+    class QKV,W1 col
+    class O,W2 row
+    class AR1,AR2 ar
 ```
 
 状态上，TP 是最"干净"的切分：权重被切成 $$1/N_t$$，它的梯度和优化器状态自然也是 $$1/N_t$$，**不需要任何额外通信来维持分片**——这与 ZeRO 形成对比，ZeRO 为了维持参数分片每步要 all-gather 两次。LayerNorm 的权重、偏置这类小参数在 TP 组内是复制的。
@@ -222,13 +217,7 @@ Megatron-LM（Shoeybi et al. 2019）的洞见是把两者**配对**：MLP 的第
 
 前向每层两次 all-reduce（注意力后一次、MLP 后一次），每次的载荷是一个完整的激活张量 $$s \cdot b \cdot h$$ 个元素。反向也是两次：行切层前向的 all-reduce 在反向是恒等（梯度直接分发），而列切层前向的恒等（输入广播）在反向变成 all-reduce（各卡对 $$X$$ 的梯度要求和）——两者互为共轭，所以反向的 all-reduce 出现在与前向不同的位置，但次数相同。用 Megatron 论文的记法（$$f$$：前向恒等、反向 all-reduce；$$g$$：前向 all-reduce、反向恒等），一个 MLP 块的前向与反向是：
 
-```text
- 前向  X ──f: 恒等──→ [列切 W1] ──→ GELU ──→ [行切 W2] ──g: all-reduce──→ Y
-          各卡各持完整 X                    各卡持部分和 Σ_i        各卡得完整 Y
-
- 反向  dX ←──f: all-reduce── [W1ᵢᵀ] ←── GELU' ←── [W2ᵢᵀ] ←──g: 恒等── dY
-          各卡对 X 的部分梯度求和               dY 完整，各卡直接取自己那块
-```
+![上：前向——X 完整经 f（恒等）进列切 W1ᵢ、GELU、行切 W2ᵢ，各卡得到部分和，经 g（all-reduce）得完整 Y；下：反向——dY 完整经 g（恒等）各卡取自己那块，经 W2ᵢᵀ、GELU′、W1ᵢᵀ 得到对 X 的部分梯度，经 f（all-reduce）求和得 dX](/img/in-post/parallelism-tp-conjugate-fg.svg)
 
 前向的 all-reduce 在块尾（$$g$$），反向的 all-reduce 在块头（$$f$$）；注意力块同理。每层四次，每次每卡 $$\frac{2(N_t-1)}{N_t} \cdot sbh \cdot 2$$ 字节。
 
@@ -248,11 +237,10 @@ TP 切了层**内**的激活（Q/K/V、FFN 中间态按头 / 按列分布），�
 
 **序列并行**（Megatron 意义下的 SP，注意与后面的 CP 区分）把这部分沿序列维切成 $$N_t$$ 份：LayerNorm、dropout、残差加法都是逐 token 的，切开序列不影响结果。切开后进入列切线性层前要把序列拼回来（**all-gather**），行切线性层的输出原本要 all-reduce、现在改成 **reduce-scatter**（归约的同时按序列切开），正好落回序列并行的布局：
 
-```text
-  无 SP：   LN ──── X（完整）───→ [列切] … [行切] ─── all-reduce ───→ + 残差 ─── LN
-  有 SP：   LN ── X_i（s/t）── all-gather ──→ [列切] … [行切] ── reduce-scatter ──→ + 残差 ── LN
-            ↑ 每卡 1/t                                                         ↑ 每卡 1/t
-```
+| | 层边界（LN、dropout、残差） | 进列切层前 | 行切层之后 | 层边界 |
+|---|---|---|---|---|
+| 无 SP | $$X$$ 完整，每卡一份（$$sbh$$） | 直接进 | **all-reduce** | 完整 |
+| 有 SP | $$X_i$$，每卡 $$1/t$$ 的序列（$$sbh/t$$） | **all-gather** 拼回完整序列 | **reduce-scatter**：归约的同时按序列切开 | 每卡 $$1/t$$ |
 
 通信量：一次 all-gather $$\approx S$$ 加一次 reduce-scatter $$\approx S$$，等于一次 all-reduce 的 $$\approx 2S$$——**分文未加**。反向对称（all-gather 的反向是 reduce-scatter，reduce-scatter 的反向是 all-gather）。收益是那 $$10sbh$$ 也被 $$N_t$$ 均分，一层的激活变成 $$\frac{sbh}{N_t}(34 + 5as/h)$$，整层都被切了。因为不花钱，Megatron 里 SP 总是随 TP 一起开（`--sequence-parallel`），torchtitan 的 TP 也默认带 SP。它顺带还改变了 PP 的载荷：层边界处的张量现在是 $$sbh/N_t$$ 而不是 $$sbh$$，Megatron `megatron/core/pipeline_parallel/schedules.py` 的 `get_tensor_shapes()` 在 `sequence_parallel` 打开时把序列长除以 TP 大小，正是这一点。
 
@@ -274,12 +262,7 @@ CP 与 SP 的区别：SP 只切层边界处那些逐 token 的算子，注意力
 
 Ring Attention（Liu et al. 2023）让每张卡固定持有自己那块 Q，把 K/V 块沿环传递：第 $$j$$ 步用来自第 $$(i-j) \bmod N_c$$ 张卡的 K/V 块算一个局部注意力，同时把手上的 K/V 块发给下一张卡、接收上一张卡的。$$N_c - 1$$ 步后每块 Q 看过了全部 K/V；局部结果用 online-softmax 的方式合并（与 FlashAttention 分块的合并方式相同）。
 
-```text
-  卡 0: Q_0  K/V_0 → K/V_3 → K/V_2 → K/V_1        每步：算 attn(Q_0, K/V_j)，同时收发下一块
-  卡 1: Q_1  K/V_1 → K/V_0 → K/V_3 → K/V_2
-  卡 2: Q_2  K/V_2 → K/V_1 → K/V_0 → K/V_3
-  卡 3: Q_3  K/V_3 → K/V_2 → K/V_1 → K/V_0
-```
+![左：四张卡围成一个环，每张卡固定持有自己的 Q 块，K/V 块沿环顺时针 send/recv；右：4 步 × 4 卡的表格，每一格是该卡该步用的 K/V 块——卡 0 依次用 K/V₀、K/V₃、K/V₂、K/V₁，每一列四张卡用的块各不相同](/img/in-post/parallelism-ring-attention.svg)
 
 通信是**点对点的 send/recv**，每步传一个 K/V 块。每卡每层：前向接收 $$N_c - 1$$ 个 K/V 块；反向再接收一遍 K/V（重算局部注意力需要）并传递累积的 dK/dV，约为前向的两倍。每个 K/V 块的大小是 $$\frac{s}{N_c} \cdot b \cdot 2 \cdot h_{kv} \cdot 2$$ 字节（K 和 V 各一份，$$h_{kv}$$ 是 K/V 的总维度：MHA 下等于 $$h$$，GQA 下是 $$\text{kv\_heads} \times \text{head\_dim}$$；再有 TP 时除以 $$N_t$$）。合计：
 
@@ -289,23 +272,18 @@ $$
 
 注意这个量**与 $$N_c$$ 几乎无关**：不论切成几份，每张卡都要把整个序列的 K/V 看一遍。它的好处在别处：通信是点对点、可以与当前块的注意力计算完全重叠（算第 $$j$$ 块时收第 $$j+1$$ 块），只要一块的注意力计算时间大于一块 K/V 的传输时间。所以 Ring Attention 可以跨节点、$$N_c$$ 可以很大。因果 mask 下还有一个负载均衡问题：靠后的 Q 块要算更多的 K/V 块，靠前的少；标准做法是把序列按"头尾配对"的方式分块（第 $$i$$ 张卡持有第 $$i$$ 块和第 $$2N_c - 1 - i$$ 块），让每张卡的计算量相等：
 
-```text
- 因果 mask，序列切成 2N_c = 8 块（N_c = 4）；块 j 的 Q 要看 K/V 块 0..j
- 块编号     0   1   2   3   4   5   6   7
- 工作量     1   2   3   4   5   6   7   8        （= j + 1 个 K/V 块）
- 顺序分配   卡0 {0,1}=3  卡1 {2,3}=7  卡2 {4,5}=11  卡3 {6,7}=15  最忙/最闲 = 5
- 头尾配对   卡0 {0,7}=9  卡1 {1,6}=9  卡2 {2,5}=9   卡3 {3,4}=9   全部相等
-```
+因果 mask 下把序列切成 $$2N_c = 8$$ 块（$$N_c = 4$$），块 $$j$$ 的 Q 要看 K/V 块 $$0..j$$，工作量是 $$j + 1$$ 个 K/V 块：
+
+| 分配方式 | 卡 0 | 卡 1 | 卡 2 | 卡 3 | 最忙 / 最闲 |
+|---|---|---|---|---|---|
+| 顺序分配 | {0, 1} = 1 + 2 = 3 | {2, 3} = 7 | {4, 5} = 11 | {6, 7} = 15 | 5 |
+| 头尾配对 | {0, 7} = 1 + 8 = 9 | {1, 6} = 9 | {2, 5} = 9 | {3, 4} = 9 | 1（全部相等） |
 
 ### 3. Ulysses：按头 all-to-all
 
 DeepSpeed-Ulysses（Jacobs et al. 2023）换一个思路：注意力对**头**是独立的。每张卡持有 $$s/N_c$$ 个 token 的全部头，算 Q/K/V 投影后做一次 **all-to-all**，变成持有全部 $$s$$ 个 token 的 $$a/N_c$$ 个头——这时每张卡可以对自己的头做完整的、不需要任何通信的注意力；算完再 all-to-all 回到按序列切的布局，进输出投影。
 
-```text
-      按序列切 [s/c, b, a·d]  ── all-to-all(Q)、(K)、(V) ──→  按头切 [s, b, a/c·d]  ── 局部完整注意力
-                                                                       │
-      按序列切 [s/c, b, a·d]  ←──────── all-to-all(O) ────────────────┘
-```
+![左：按序列切的 4×4 表，每行一张卡持自己那段 token 的全部 4 个头（四种颜色）；右：按头切，每行一张卡持全部 token 的一个头（一种颜色）；中间两条红箭头是 Q/K/V 的 all-to-all 与 O 的 all-to-all——把表转置](/img/in-post/parallelism-ulysses-all-to-all.svg)
 
 前向四次 all-to-all（Q、K、V、O），反向四次，每次载荷是一个激活张量 $$\frac{s}{N_c} b h$$：
 
@@ -317,16 +295,14 @@ $$
 
 ### 4. 两者对比与 GQA 的影响
 
-```text
-                      Ring Attention                       Ulysses
-──────────────────    ────────────────────────────────     ──────────────────────────────────
-切的状态              Q/K/V/激活 沿 s 切 1/N_c               同，但注意力内部临时按头切
-通信形态              send/recv 环，N_c - 1 步                all-to-all，每层 4 + 4 次
-每卡每层通信量        ≈ 12 s b h_kv（与 N_c 无关）              ≈ 16 s b h / N_c
-能否重叠              是（与分块注意力计算流水）               否（关键路径）
-N_c 上限              无                                     ≤ 头数（GQA：≤ K/V 头数）
-与 TP 组合            K/V 块再除以 N_t                         头数再除以 N_t，上限更紧
-```
+| | Ring Attention | Ulysses |
+|---|---|---|
+| 切的状态 | Q/K/V/激活 沿 $$s$$ 切 $$1/N_c$$ | 同，但注意力内部临时按头切 |
+| 通信形态 | send/recv 环，$$N_c - 1$$ 步 | all-to-all，每层 4 + 4 次 |
+| 每卡每层通信量 | $$\approx 12\, s b h_{kv}$$（与 $$N_c$$ 无关） | $$\approx 16\, s b h / N_c$$ |
+| 能否重叠 | 是（与分块注意力计算流水） | 否（关键路径） |
+| $$N_c$$ 上限 | 无 | ≤ 头数（GQA：≤ K/V 头数） |
+| 与 TP 组合 | K/V 块再除以 $$N_t$$ | 头数再除以 $$N_t$$，上限更紧 |
 
 GQA 是分水岭。MHA 下 $$h_{kv} = h$$，Ring 每层 $$12sbh$$ 对 Ulysses 的 $$16sbh/N_c$$，$$N_c = 8$$ 时 Ring 多搬 6 倍；GQA 下 $$h_{kv}$$ 只有 $$h$$ 的 $$1/8$$ 到 $$1/16$$（Llama 3 405B：128 个头、8 个 K/V 头，$$h_{kv} = h/16$$），Ring 的通信量随之缩到 $$0.75\,sbh$$，反而比 Ulysses 少了；同时 Ulysses 的 $$N_c$$ 上限被压到 8 个 K/V 头再除以 $$N_t$$——TP = 8 时它只剩 1。所以 GQA + TP 的大模型上 Ring 是唯一可行的选择，Llama 3 用的正是它。放进五元组：CP **切激活（含注意力）；Ring 每层 $$\approx 12sbh_{kv}$$，Ulysses $$\approx 16sbh/N_c$$；可跨节点；Ring 可重叠、Ulysses 不可；长序列必需**。
 
@@ -344,14 +320,7 @@ PyTorch 2.13.0 里 CP 是实验 API：`torch/distributed/tensor/experimental/_co
 
 记 $$p = N_p$$，每个 micro-batch 在一个 stage 上前向耗时 $$t_f$$、反向 $$t_b$$（通常 $$t_b \approx 2t_f$$）。GPipe（Huang et al. 2019）的调度是先把 $$m$$ 个 micro-batch 的前向全部做完，再做全部反向：
 
-```text
- p = 4, m = 4      时间 →
- stage 0   F0 F1 F2 F3 ·  ·  ·  ·  ·  ·  B3 B2 B1 B0
- stage 1   ·  F0 F1 F2 F3 ·  ·  ·  ·  B3 B2 B1 B0 ·
- stage 2   ·  ·  F0 F1 F2 F3 ·  ·  B3 B2 B1 B0 ·  ·
- stage 3   ·  ·  ·  F0 F1 F2 F3 B3 B2 B1 B0 ·  ·  ·
-                    ↑ 前向填充 p-1 格          ↑ 反向排空 p-1 格
-```
+下图上半是 $$p = 4$$、$$m = 4$$ 的时间表（横轴时间、每行一个 stage，F 是前向、B 是反向），两头各有 $$p - 1$$ 格空白——气泡。
 
 看任何一个 stage：它做了 $$m$$ 次前向和 $$m$$ 次反向，有用时间 $$m(t_f + t_b)$$。但整条流水线从第一个前向开始到最后一个反向结束的总时间，等于 stage 0 的时间线长度：前向阶段最后一个 micro-batch 要在 stage $$p-1$$ 做完，stage 0 才能开始反向，中间 stage 0 空等 $$(p-1)t_f$$；反向阶段对称，空等 $$(p-1)t_b$$。所以：
 
@@ -366,14 +335,7 @@ $$
 
 GPipe 的另一个问题是显存：stage 0 在开始反向前要保存全部 $$m$$ 个 micro-batch 的激活。1F1B（PipeDream-Flush，Narayanan et al. 2021）在进入稳态后交替做一次前向、一次反向，让每个 micro-batch 的激活尽早被反向消费掉：
 
-```text
- p = 4, m = 8
- stage 0   F0 F1 F2 F3 B0 F4 B1 F5 B2 F6 B3 F7 B4 ·  B5 ·  B6 ·  B7
- stage 1   ·  F0 F1 F2 B0 F3 B1 F4 B2 F5 B3 F6 B4 F7 B5 ·  B6 ·  B7 ·
- stage 2   ·  ·  F0 F1 B0 F2 B1 F3 B2 F4 B3 F5 B4 F6 B5 F7 B6 ·  B7 ·  ·
- stage 3   ·  ·  ·  F0 B0 F1 B1 F2 B2 F3 B3 F4 B4 F5 B5 F6 B6 F7 B7 ·  ·  ·
-           ←warm-up→←────────────── 稳态：1F1B ──────────────→←cool-down→
-```
+下图下半是 $$p = 4$$、$$m = 8$$ 的 1F1B 时间表：
 
 两种调度画在同一张图上对比（GPipe 里反向按 2 倍时长画，1F1B 按等长画以便看清交替）：
 
@@ -389,11 +351,12 @@ $$
 \frac{T_{\text{bubble}}}{T_{\text{ideal}}} = \frac{(p-1)(t_f + t_b)/v}{m(t_f + t_b)} = \frac{p-1}{v\,m}
 $$
 
-```text
- p = 2 卡, v = 2 → 4 个 stage：卡 0 持 stage {0, 2}，卡 1 持 stage {1, 3}
- 卡 0   F0⁰ F1⁰ F0² F1² B1² B0² B1⁰ B0⁰ …      上标为 stage 编号；同一 micro-batch 在卡 0 上进出两次
- 卡 1   ·   F0¹ F1¹ F0³ F1³ B1³ B0³ B1¹ B0¹ …
-```
+$$p = 2$$ 张卡、$$v = 2$$，共 4 个 stage，卡 0 持 stage {0, 2}、卡 1 持 stage {1, 3}（上标是 stage 编号，同一个 micro-batch 在卡 0 上进出两次）：
+
+| 时间 → | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|
+| 卡 0 | F0⁰ | F1⁰ | F0² | F1² | B1² | B0² | B1⁰ | B0⁰ |
+| 卡 1 | · | F0¹ | F1¹ | F0³ | F1³ | B1³ | B0³ | B1¹ |
 
 代价：stage 边界从 $$p - 1$$ 个变成 $$pv - 1$$ 个，PP 的点对点通信量乘以 $$v$$；调度更复杂；每张卡在途的激活也多了。Megatron 的 `--num-layers-per-virtual-pipeline-stage` 就是这个 $$v$$。$$p = 16$$、$$m = 16$$、$$v = 8$$ 时气泡从 48% 降到 10.5%。
 
@@ -442,14 +405,12 @@ $$
 
 EP 的进程组与 DP 组是**同一批卡的不同用法**：一个 EP 组的 $$N_e$$ 张卡处理的是 $$N_e$$ 个不同的 micro-batch（它们本来是 DP 副本），只是专家层在它们之间交换 token。所以 EP 不增加总卡数，$$N_e$$ 从 $$N_d$$ 里划出来：专家参数的 DP 组大小是 $$N_d / N_e$$（Megatron 称为 expert data parallel），非专家参数的 DP 组仍是 $$N_d$$。同一批卡的两种分组如下（$$N_d = 8$$、$$N_e = 4$$、$$E = 16$$ 个专家）：
 
-```text
- DP rank      0     1     2     3      4     5     6     7
- EP 组        [──── EP 组 0 ──────────]  [──── EP 组 1 ─────────]  all-to-all 组
- 本卡专家     E0-3  E4-7  E8-11 E12-15 E0-3  E4-7  E8-11 E12-15
- 专家 DP 组   a     b     c     d      a     b     c     d      a={0,4} b={1,5}…
-                                                               大小 N_d/N_e = 2
- 非专家 DP 组 [────────────────── 全部 8 卡 ───────────────────]  注意力/embedding
-```
+| DP rank | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---|---|---|---|---|---|---|---|
+| EP 组（all-to-all 组） | EP 组 0 | EP 组 0 | EP 组 0 | EP 组 0 | EP 组 1 | EP 组 1 | EP 组 1 | EP 组 1 |
+| 本卡专家 | E0–3 | E4–7 | E8–11 | E12–15 | E0–3 | E4–7 | E8–11 | E12–15 |
+| 专家 DP 组（大小 $$N_d / N_e = 2$$） | a = {0, 4} | b = {1, 5} | c = {2, 6} | d = {3, 7} | a | b | c | d |
+| 非专家 DP 组（注意力 / embedding） | 全部 8 卡 | | | | | | | |
 
 ZeRO 对两组参数分别按各自的 DP 组分片：专家参数在 2 卡的组里切，非专家参数在 8 卡的组里切——这是本篇 `ledger/parallel.py` 里 MoE 那几行除法的来源。Megatron 0.18.0 的 `parallel_state.py` 里 EP 是 rank 排布 `"tp-cp-ep-dp-pp"` 中的一维，`megatron/core/transformer/moe/token_dispatcher.py` 里 `MoEAlltoAllTokenDispatcher` 是本节描述的 all-to-all 实现，`MoEAllGatherTokenDispatcher` 是 $$N_e$$ 很小时的替代（all-gather 全部 token、各卡挑自己专家的）。EP 与 TP 的组合（专家再做 TP）在 Megatron 里也支持，但如第 1 节所说通常不划算，多数 MoE 配置让专家层的 TP 为 1。
 
@@ -516,17 +477,14 @@ flowchart TB
 
 要区分两件事：**逻辑嵌套**与**物理 rank 排布**。逻辑上 DP 最外，但在把 rank 映射到物理卡时，框架把**通信量最大、最不能等的维度放在编号最相邻（同节点）的卡上**，通信量最小、最能等的维度放在最远的卡上——Megatron `parallel_state.py` 的 `initialize_model_parallel()` 默认 rank 顺序是 `"tp-cp-ep-dp-pp"`（`RankGenerator` 按它生成各进程组）：TP 变化最快（同节点），PP 变化最慢（最远），DP 在两者之间。用一个小例子把这个顺序落到 rank 编号上：
 
-```text
- TP = 4, DP = 2, PP = 2（CP = EP = 1），16 卡 = 2 节点 × 8，order tp-cp-ep-dp-pp
- rank = tp + 4·dp + 8·pp       tp 变化最快 → 相邻 rank；pp 变化最慢 → 最远的卡
+TP = 4、DP = 2、PP = 2（CP = EP = 1），16 卡 = 2 节点 × 8，order `tp-cp-ep-dp-pp`，rank = tp + 4·dp + 8·pp——tp 变化最快、拿到相邻的 rank，pp 变化最慢、拿到最远的卡：
 
-                        tp=0  tp=1  tp=2  tp=3
- 节点 0   pp=0   dp=0  [  0     1     2     3 ]  ← TP 组 {0,1,2,3}：同节点相邻
- (NVLink)        dp=1  [  4     5     6     7 ]  ← DP 组 {0,4}{1,5}…：本例在节点内
- ═══════════════════════════════════════════════  ← 节点边界：IB
- 节点 1   pp=1   dp=0  [  8     9    10    11 ]  ← PP 组 {0,8}{1,9}…：跨节点，
- (NVLink)        dp=1  [ 12    13    14    15 ]     只走每 step 最小的那 1 GB
-```
+| 节点（链路） | pp | dp | tp = 0 | tp = 1 | tp = 2 | tp = 3 | 组 |
+|---|---|---|---|---|---|---|---|
+| 节点 0（NVLink） | 0 | 0 | 0 | 1 | 2 | 3 | TP 组 {0, 1, 2, 3}：同节点相邻 |
+| 节点 0（NVLink） | 0 | 1 | 4 | 5 | 6 | 7 | DP 组 {0, 4}、{1, 5}…：本例在节点内 |
+| 节点 1（IB 跨节点） | 1 | 0 | 8 | 9 | 10 | 11 | PP 组 {0, 8}、{1, 9}…：跨节点，只走每 step 最小的那 1 GB |
+| 节点 1（IB 跨节点） | 1 | 1 | 12 | 13 | 14 | 15 | |
 
 真实配置里 TP = 8 就占满一个节点，DP 组已经跨节点，PP 组则跨得更远（相隔 $$N_t N_d$$ 个 rank）。也就是说物理上 PP 而不是 DP 被放到最外层的链路上，因为 PP 只有 1 GB 而 DP 有十几 GB。"TP 最内、DP 最外"说的是决策顺序与状态嵌套，"PP 最远"说的是链路分配——两者不矛盾，都是从上表推出来的。
 
@@ -536,37 +494,36 @@ Llama 3 论文（Dubey et al. 2024）给出的 405B 训练配置有三档（Tabl
 
 **状态放置**（16K GPU、$$s = 8192$$ 档，ZeRO-1 式的分布式优化器）：
 
-```text
-每卡参数份额       N_local = 405B / (8 × 16) = 3.16B
-bf16 参数          2 × 3.16B = 6.3 GB
-bf16 梯度          6.3 GB
-优化器 (fp32 × 3)  12 × 3.16B / N_d = 38 GB / 128 = 0.3 GB           ← ZeRO-1 把 38 GB 切成 0.3 GB
-常驻合计           ≈ 12.9 GB                                           （二进制单位 12.06 GiB）
-每层激活（每卡）    34 × 8192 × 16384 / 8 = 570 MB（FlashAttention，SP 已切 1/N_t，b = 1）
-每 stage 层数      126 / 16 ≈ 8 层；1F1B 下 stage 0 在途 ≤ 16 个 micro-batch → 峰值 8 × 16 × 570 MB ≈ 73 GB
-```
+| 项 | 计算 | 结果 |
+|---|---|---:|
+| 每卡参数份额 | $$N_{local} = 405B / (8 \times 16)$$ | 3.16B |
+| bf16 参数 | $$2 \times 3.16B$$ | 6.3 GB |
+| bf16 梯度 | | 6.3 GB |
+| 优化器（fp32 × 3） | $$12 \times 3.16B / N_d = 38\ \text{GB} / 128$$ | 0.3 GB（ZeRO-1 把 38 GB 切成 0.3 GB） |
+| 常驻合计 | | ≈ 12.9 GB（二进制单位 12.06 GiB） |
+| 每层激活（每卡） | $$34 \times 8192 \times 16384 / 8$$（FlashAttention，SP 已切 $$1/N_t$$，$$b = 1$$） | 570 MB |
+| 每 stage 层数与峰值激活 | $$126 / 16 \approx 8$$ 层；1F1B 下 stage 0 在途 ≤ 16 个 micro-batch → $$8 \times 16 \times 570$$ MB | ≈ 73 GB |
 
 最后一行说明了两件事：常驻状态只有 13 GB，80 GB 显存的大头是**在途激活**；以及为什么 405B 需要选择性重计算或更小的 $$v$$ 才能把激活压进 80 GB（第四篇）。
 
 **通信量**（global batch 16M token → 每 step 2048 个序列，每个 DP 副本 16 个，$$b = 1$$ 则 $$m = 16$$；6N 算力 $$3.9 \times 10^{22}$$ FLOP，16384 × 989 TFLOPS 标称 × 41% MFU 下 step 约 5.9 s）：
 
-```text
-TP   4 × AR(268 MB) × 8 层 × 16 mb  =  4 × 470 MB × 126  ≈ 220 GB   NVLink   ← 220 GB / 5.9 s ≈ 37 GB/s 每卡平均
-PP   2 × 33.5 MB × 16 mb            ≈  1.0 GB                IB
-DP   RS(6.3 GB) + AG(6.3 GB)        ≈ 12.6 GB                IB       ← 与反向重叠；12.6 GB / 50 GB/s = 0.25 s ≪ 5.9 s
-CP   —（N_c = 1）
-```
+| 维度 | 计算 | 每卡每 step | 链路 | 备注 |
+|---|---|---:|---|---|
+| TP | 4 × AR(268 MB) × 8 层 × 16 mb = 4 × 470 MB × 126 | ≈ 220 GB | NVLink | 220 GB / 5.9 s ≈ 37 GB/s 每卡平均 |
+| PP | 2 × 33.5 MB × 16 mb | ≈ 1.0 GB | IB | |
+| DP | RS(6.3 GB) + AG(6.3 GB) | ≈ 12.6 GB | IB | 与反向重叠；12.6 GB / 50 GB/s = 0.25 s ≪ 5.9 s |
+| CP | — | — | | $$N_c = 1$$ |
 
 长上下文档（$$s = 131072$$，CP = 16，每卡仍是 8192 个 token，$$m$$ 取 32 为例）：
 
-```text
-TP   不变的每卡序列长 → 每 mb 每层与上面相同，× 32 mb  ≈ 441 GB   NVLink
-CP   K/V 块 = 8192 × 2 × (1024 / 8) × 2 B = 4 MB；3 × 15 × 4 MB × 8 层 × 32 mb ≈ 47 GB   IB，与注意力重叠
-     （若用 Ulysses：8 × 15/16 × 33.5 MB × 8 × 32 ≈ 63 GB，且 N_c = 16 > K/V 头数 / N_t = 1，不可行）
-PP   2 × 33.5 MB × 32                                                  ≈ 2.1 GB    IB
-DP   N_d × N_c = 64 个副本，RS + AG 仍 ≈ 12.6 GB                                    IB
-气泡 (16-1)/(32+15) = 32%（v = 1）；v = 8 时 (15/8)/(32+15/8) = 5.5%
-```
+| 维度 | 计算 | 每卡每 step | 链路 | 备注 |
+|---|---|---:|---|---|
+| TP | 每卡序列长不变 → 每 mb 每层与上面相同，× 32 mb | ≈ 441 GB | NVLink | |
+| CP | K/V 块 = 8192 × 2 × (1024 / 8) × 2 B = 4 MB；3 × 15 × 4 MB × 8 层 × 32 mb | ≈ 47 GB | IB | 与注意力重叠。若用 Ulysses：8 × 15/16 × 33.5 MB × 8 × 32 ≈ 63 GB，且 $$N_c = 16 >$$ K/V 头数 / $$N_t$$ = 1，不可行 |
+| PP | 2 × 33.5 MB × 32 | ≈ 2.1 GB | IB | |
+| DP | $$N_d \times N_c = 64$$ 个副本，RS + AG | 仍 ≈ 12.6 GB | IB | |
+| 气泡 | $$(16 - 1)/(32 + 15)$$（$$v = 1$$）；$$v = 8$$ 时 $$(15/8)/(32 + 15/8)$$ | 32% / 5.5% | | |
 
 CP 那一行是 GQA 的功劳：K/V 总维度 1024 只有 $$h$$ 的 1/16，再被 TP 切 8 份，每卡每块 K/V 只有 4 MB，16 倍的序列长度只多了 47 GB 的**可重叠**跨节点通信。这正是"CP 放在 TP 之外、PP 之内"的实例——它跨节点，但通信量和形态都比 DP 温和。
 

@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="270" viewBox="0 0 760 270" font-family="-apple-system, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif" font-size="12">
+  <style>.t{fill:#222;font-weight:600}.n{fill:#222;font-size:11px}.m{fill:#555;font-size:11px}.c0{fill:#dbe7f5;stroke:#3b6fb6}.c1{fill:#f8dcdc;stroke:#c94c4c}.c2{fill:#e6f2e6;stroke:#3a7d44}.c3{fill:#fdf1d6;stroke:#b9770e}</style>
+  <defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#555"/></marker></defs>
+  <text x="14" y="22" class="t">Ulysses，N_c = 4：一次 all-to-all 把「按序列切」变成「按头切」，注意力在本地完整地算，再 all-to-all 回来</text>
+  <text x="14" y="52" class="m">按序列切：卡 i 持第 i 段 token 的全部 4 个头</text>
+  <text x="440" y="52" class="m">按头切：卡 i 持全部 token 的第 i 个头</text>
+  <!-- left grid: rows = 卡 (token 段), cols = 头 -->
+  <g font-size="10">
+    <text x="30" y="78" class="m">头 →</text>
+    <text x="80" y="78" text-anchor="middle" class="m">h₀</text><text x="130" y="78" text-anchor="middle" class="m">h₁</text><text x="180" y="78" text-anchor="middle" class="m">h₂</text><text x="230" y="78" text-anchor="middle" class="m">h₃</text>
+    <text x="14" y="100" class="n">卡 0</text><rect x="55" y="86" width="50" height="22" class="c0"/><rect x="105" y="86" width="50" height="22" class="c1"/><rect x="155" y="86" width="50" height="22" class="c2"/><rect x="205" y="86" width="50" height="22" class="c3"/>
+    <text x="14" y="128" class="n">卡 1</text><rect x="55" y="114" width="50" height="22" class="c0"/><rect x="105" y="114" width="50" height="22" class="c1"/><rect x="155" y="114" width="50" height="22" class="c2"/><rect x="205" y="114" width="50" height="22" class="c3"/>
+    <text x="14" y="156" class="n">卡 2</text><rect x="55" y="142" width="50" height="22" class="c0"/><rect x="105" y="142" width="50" height="22" class="c1"/><rect x="155" y="142" width="50" height="22" class="c2"/><rect x="205" y="142" width="50" height="22" class="c3"/>
+    <text x="14" y="184" class="n">卡 3</text><rect x="55" y="170" width="50" height="22" class="c0"/><rect x="105" y="170" width="50" height="22" class="c1"/><rect x="155" y="170" width="50" height="22" class="c2"/><rect x="205" y="170" width="50" height="22" class="c3"/>
+    <text x="155" y="212" text-anchor="middle" class="m">每行一张卡：token 段 s/4，4 个头 → [s/4, b, a·d]</text>
+  </g>
+  <!-- arrows -->
+  <line x1="270" y1="120" x2="420" y2="120" stroke="#b91c1c" stroke-width="2" marker-end="url(#a)"/>
+  <text x="345" y="112" text-anchor="middle" class="m" fill="#b91c1c">all-to-all（Q、K、V 各一次）</text>
+  <line x1="420" y1="150" x2="270" y2="150" stroke="#b91c1c" stroke-width="2" marker-end="url(#a)"/>
+  <text x="345" y="166" text-anchor="middle" class="m" fill="#b91c1c">all-to-all（O 一次）</text>
+  <!-- right grid: rows = 卡 (头), cols = token 段 -->
+  <g font-size="10">
+    <text x="455" y="78" class="m">token 段 →</text>
+    <text x="545" y="78" text-anchor="middle" class="m">s₀</text><text x="595" y="78" text-anchor="middle" class="m">s₁</text><text x="645" y="78" text-anchor="middle" class="m">s₂</text><text x="695" y="78" text-anchor="middle" class="m">s₃</text>
+    <text x="440" y="100" class="n">卡 0</text><rect x="520" y="86" width="50" height="22" class="c0"/><rect x="570" y="86" width="50" height="22" class="c0"/><rect x="620" y="86" width="50" height="22" class="c0"/><rect x="670" y="86" width="50" height="22" class="c0"/>
+    <text x="440" y="128" class="n">卡 1</text><rect x="520" y="114" width="50" height="22" class="c1"/><rect x="570" y="114" width="50" height="22" class="c1"/><rect x="620" y="114" width="50" height="22" class="c1"/><rect x="670" y="114" width="50" height="22" class="c1"/>
+    <text x="440" y="156" class="n">卡 2</text><rect x="520" y="142" width="50" height="22" class="c2"/><rect x="570" y="142" width="50" height="22" class="c2"/><rect x="620" y="142" width="50" height="22" class="c2"/><rect x="670" y="142" width="50" height="22" class="c2"/>
+    <text x="440" y="184" class="n">卡 3</text><rect x="520" y="170" width="50" height="22" class="c3"/><rect x="570" y="170" width="50" height="22" class="c3"/><rect x="620" y="170" width="50" height="22" class="c3"/><rect x="670" y="170" width="50" height="22" class="c3"/>
+    <text x="620" y="212" text-anchor="middle" class="m">每行一张卡：全部 s 个 token，1 个头 → [s, b, a/4·d]</text>
+  </g>
+  <text x="14" y="240" class="m">颜色 = 头。all-to-all 就是把这张 4×4 的表「转置」：卡 i 把自己的第 j 个头发给卡 j，同时从卡 j 收来第 i 个头的第 j 段。每卡发出 3/4 的数据、收进 3/4。</text>
+  <text x="14" y="258" class="m">前向 4 次、反向 4 次，每次载荷 (s/N_c)·b·h，随 N_c 减小；但 N_c 不能超过头数，且 all-to-all 在关键路径上。</text>
+</svg>
