@@ -5,7 +5,7 @@ title: "算法工程师的数学（07）：导数、梯度与链式法则——s
 subtitle: "Derivatives, Gradients and the Chain Rule: The Softmax Gradient and the Policy Gradient"
 tags: [AI, LLM, Math]
 catalog: true
-updated: 2026-09-17
+updated: 2026-09-20
 ---
 
 前两篇给了目标：交叉熵、KL、DPO 的 loss。这一篇讲**怎么让参数朝着目标变好**——求导，然后往导数的反方向走一小步。全部工具只有三件：导数（一个数变一点，函数变多少）、梯度（很多个数一起变时的导数）、链式法则（复合函数的导数是局部导数的乘积）。用它们推两个后面反复出现的结果：softmax + 交叉熵的梯度是 $$p - y$$（简洁到令人怀疑），以及目标是期望时的梯度——策略梯度，RL 的全部算法都建立在它上面。最后讲用梯度更新参数的最简单方法与学习率。
@@ -18,16 +18,15 @@ updated: 2026-09-17
 
 ### 1. 本文的对象
 
-```text
-导数 f'(x)          一个输入变一点，输出变多少           斜率
-梯度 ∇_θ L          θ 的每个分量各变一点，L 变多少        指向 L 增长最快的方向的向量，形状 = θ
-Jacobian ∂y/∂x      向量对向量：每个输出对每个输入        矩阵 [dim y, dim x]
-链式法则            ∂L/∂θ = (∂L/∂g)(∂g/∂θ)               复合函数：局部导数相乘；反向传播 = 逐层套用
-
-两个结果            softmax + CE 的梯度 = p − y
-                    ∇_θ E_{y~π_θ}[R(y)] = E[R(y) ∇ log π_θ(y)]     策略梯度
-一个方法            θ ← θ − η ∇L                                    梯度下降
-```
+| | 对象 | 含义 | 形状 / 几何 |
+|---|---|---|---|
+| 三件工具 | 导数 $$f'(x)$$ | 一个输入变一点，输出变多少 | 斜率 |
+| | 梯度 $$\nabla_\theta L$$ | $$\theta$$ 的每个分量各变一点，$$L$$ 变多少 | 指向 $$L$$ 增长最快的方向的向量，形状 = $$\theta$$ |
+| | Jacobian $$\partial y / \partial x$$ | 向量对向量：每个输出对每个输入 | 矩阵 $$[\dim y, \dim x]$$ |
+| | 链式法则 $$\partial L / \partial \theta = (\partial L / \partial g)(\partial g / \partial \theta)$$ | 复合函数：局部导数相乘 | 反向传播 = 逐层套用 |
+| 两个结果 | softmax + CE 的梯度 | $$= p - y$$ | 第四章 |
+| | 策略梯度 | $$\nabla_\theta \mathbb{E}_{y \sim \pi_\theta}[R(y)] = \mathbb{E}[R(y)\nabla\log\pi_\theta(y)]$$ | 第五章 |
+| 一个方法 | 梯度下降 | $$\theta \leftarrow \theta - \eta\nabla L$$ | 第六章 |
 
 ### 2. 本文的章节安排
 
@@ -54,15 +53,14 @@ $$
 
 几何上是曲线在该点的斜率。几条后面要用的导数：
 
-```text
-f(x)        f'(x)
-x²          2x
-e^x         e^x
-ln x        1/x
-σ(x)        σ(x)(1 − σ(x))        sigmoid 的导数用自己表示
-c·f(x)      c·f'(x)               常数倍
-f + g       f' + g'               和的导数是导数的和
-```
+| $$f(x)$$ | $$f'(x)$$ | 备注 |
+|---|---|---|
+| $$x^2$$ | $$2x$$ | |
+| $$e^x$$ | $$e^x$$ | |
+| $$\ln x$$ | $$1/x$$ | |
+| $$\sigma(x)$$ | $$\sigma(x)(1 - \sigma(x))$$ | sigmoid 的导数用自己表示 |
+| $$c \cdot f(x)$$ | $$c \cdot f'(x)$$ | 常数倍 |
+| $$f + g$$ | $$f' + g'$$ | 和的导数是导数的和 |
 
 ### 2. 偏导与梯度
 
@@ -92,28 +90,69 @@ $$
 
 ### 2. 向量情形与 Jacobian
 
-$$g$$ 是向量对向量的函数（$$\mathbb{R}^n \to \mathbb{R}^m$$）时，它的导数是一个矩阵——**Jacobian**：
+先看一个能手算的例子。两个输入、两个输出的函数：
+
+$$
+g(\theta_1, \theta_2) = \begin{pmatrix} g_1 \\ g_2 \end{pmatrix} = \begin{pmatrix} \theta_1 \theta_2 \\ \theta_1 + \theta_2 \end{pmatrix}
+$$
+
+"$$g$$ 对 $$\theta$$ 的导数"要回答的是：每个输入变一点，**每个**输出各变多少——两个输入 × 两个输出，一共四个数，排成一张表：
+
+| | 对 $$\theta_1$$ 求导 | 对 $$\theta_2$$ 求导 |
+|---|---|---|
+| $$g_1 = \theta_1\theta_2$$ | $$\partial g_1 / \partial \theta_1 = \theta_2$$ | $$\partial g_1 / \partial \theta_2 = \theta_1$$ |
+| $$g_2 = \theta_1 + \theta_2$$ | $$\partial g_2 / \partial \theta_1 = 1$$ | $$\partial g_2 / \partial \theta_2 = 1$$ |
+
+每一格都是第二章的偏导：对一个变量求导、另一个当常数。在 $$\theta = (2, 3)$$ 处这张表是 $$\begin{pmatrix} 3 & 2 \\ 1 & 1 \end{pmatrix}$$。这张表就是 **Jacobian**：**行**对应输出（$$g_1, g_2$$），**列**对应输入（$$\theta_1, \theta_2$$），第 $$(i, j)$$ 格是"第 $$i$$ 个输出对第 $$j$$ 个输入的偏导"。一般地，$$g: \mathbb{R}^n \to \mathbb{R}^m$$（$$n$$ 个输入、$$m$$ 个输出）的 Jacobian 是 $$m$$ 行 $$n$$ 列：
 
 $$
 \frac{\partial g}{\partial \theta} \in \mathbb{R}^{m \times n}, \qquad \left(\frac{\partial g}{\partial \theta}\right)_{ij} = \frac{\partial g_i}{\partial \theta_j}
 $$
 
-链式法则变成矩阵乘法：$$L = f(g(\theta))$$，$$f: \mathbb{R}^m \to \mathbb{R}$$，则
+写成循环就是"对每个输出、对每个输入，各求一次偏导"：
+
+```python
+J = [[0.0] * n for _ in range(m)]      # m 行（输出）× n 列（输入）
+for i in range(m):                     # 第 i 个输出 g_i
+    for j in range(n):                 # 对第 j 个输入 θ_j 求偏导
+        J[i][j] = d(g[i]) / d(theta[j])
+```
+
+它的用处是**链式法则在向量情形下的形式**。设 $$L = f(g(\theta))$$，$$f$$ 把 $$m$$ 个数变成一个标量（比如 $$L = g_1 + 2 g_2$$）。$$\theta_j$$ 变一点会让每个 $$g_i$$ 都变一点，每个 $$g_i$$ 的变化又各自影响 $$L$$，所以 $$L$$ 对 $$\theta_j$$ 的导数要把所有路径加起来：
+
+$$
+\frac{\partial L}{\partial \theta_j} = \sum_{i=1}^{m} \frac{\partial L}{\partial g_i} \cdot \frac{\partial g_i}{\partial \theta_j}
+$$
+
+这个"对 $$i$$ 求和"正好是一次矩阵乘法（第一篇：矩阵乘的每个元素是一行乘一列、沿内维求和）：
 
 $$
 \underbrace{\frac{\partial L}{\partial \theta}}_{[1, n]} = \underbrace{\frac{\partial L}{\partial g}}_{[1, m]} \cdot \underbrace{\frac{\partial g}{\partial \theta}}_{[m, n]}
 $$
 
-用第一篇的形状规则检查：$$[1, m] \times [m, n] = [1, n]$$，与 $$\theta$$ 同形。
+用第一篇的形状规则检查：$$[1, m] \times [m, n] = [1, n]$$，与 $$\theta$$ 同形——第二章说过梯度总与被求导的参数同形。回到例子：$$L = g_1 + 2g_2$$，$$\partial L / \partial g = (1, 2)$$；在 $$\theta = (2, 3)$$ 处
+
+$$
+\frac{\partial L}{\partial \theta} = (1, 2) \begin{pmatrix} 3 & 2 \\ 1 & 1 \end{pmatrix} = (1 \cdot 3 + 2 \cdot 1,\; 1 \cdot 2 + 2 \cdot 1) = (5, 4)
+$$
+
+直接验算：$$L = \theta_1\theta_2 + 2(\theta_1 + \theta_2)$$，$$\partial L / \partial \theta_1 = \theta_2 + 2 = 5$$，$$\partial L / \partial \theta_2 = \theta_1 + 2 = 4$$。一致。
 
 ### 3. 反向传播就是逐层套用
 
 一个 $$L$$ 层的网络是 $$L$$ 个函数的复合：$$\text{loss} = f_L(f_{L-1}(\cdots f_1(x)))$$。对第 $$l$$ 层参数的梯度，按链式法则是从 loss 一路乘到第 $$l$$ 层的局部 Jacobian 的乘积。**反向传播**就是从输出往输入方向逐层做这个乘法，每层把上游传来的梯度（一个与本层输出同形的量）乘上自己的局部 Jacobian，传给下游。
 
-```text
-前向：  x ──f₁──► h₁ ──f₂──► h₂ ──f₃──► loss
-反向：  ∂loss/∂x ◄── × ∂h₁/∂x ◄── ∂loss/∂h₁ ◄── × ∂h₂/∂h₁ ◄── ∂loss/∂h₂ ◄── × ∂loss/∂h₂
+```mermaid
+flowchart LR
+    X["x<br/>[n₀]"] -->|"f₁"| H1["h₁<br/>[n₁]"] -->|"f₂"| H2["h₂<br/>[n₂]"] -->|"f₃"| LO["loss<br/>标量"]
+    LO -.->|"∂loss/∂h₂ [1, n₂]"| H2
+    H2 -.->|"× ∂h₂/∂h₁ [n₂, n₁] → ∂loss/∂h₁ [1, n₁]"| H1
+    H1 -.->|"× ∂h₁/∂x [n₁, n₀] → ∂loss/∂x [1, n₀]"| X
+    classDef t fill:#e3f2fd,stroke:#1565c0,color:#222
+    class X,H1,H2,LO t
 ```
+
+实线是前向（每层把上一层的输出变成自己的输出），虚线是反向：从 loss 出发带着一个 $$[1, n_2]$$ 的行向量，每经过一层就右乘该层的 Jacobian，形状从 $$[1, n_2]$$ 变成 $$[1, n_1]$$ 再变成 $$[1, n_0]$$——每一步都是上一节那个 $$[1, m] \times [m, n]$$。
 
 这个过程和异常沿调用栈向上传播很像：前向是一串嵌套调用 `f3(f2(f1(x)))`，反向是从最外层开始，每一层收到上游传来的"你的输出对 loss 负多少责任"（$$\partial \text{loss} / \partial h_l$$），乘上自己的局部导数，把责任分摊到自己的参数和输入上，再把对输入的那份传给下一层。每一层只需要知道自己那一步的导数，不需要知道整个网络长什么样——这就是为什么 PyTorch 能对任意组合的算子自动求导：每种算子只实现自己的"局部导数 × 上游梯度"。
 
@@ -167,10 +206,12 @@ $$
 
 ### 3. 它说明的三件事
 
-```text
-真实 token 的位置：  p_k − 1   ∈ [−1, 0]     预测越准（p_k → 1）梯度越接近 0
-其他 token 的位置：  p_k − 0   ∈ [0, 1]      被"推低"，推的力度是它当前的概率
-```
+| 位置 | 梯度 | 范围 | 含义 |
+|---|---|---|---|
+| 真实 token 的位置（$$y_k = 1$$） | $$p_k - 1$$ | $$[-1, 0]$$ | 预测越准（$$p_k \to 1$$）梯度越接近 0 |
+| 其他 token 的位置（$$y_k = 0$$） | $$p_k - 0$$ | $$[0, 1]$$ | 被"推低"，推的力度是它当前的概率 |
+
+举一个 $$V = 3$$ 的数字例子：logits $$z = (2, 1, 0)$$，$$p = \text{softmax}(z) \approx (0.665, 0.245, 0.090)$$，真实 token 是第 2 个，$$y = (0, 1, 0)$$。梯度 $$p - y = (0.665, -0.755, 0.090)$$：第 2 位是负的（往上推，因为梯度下降走 $$-\nabla$$），另外两位是正的（往下推），推得最狠的是当前概率最高的第 1 位。
 
 - **梯度有界**，每个分量在 $$[-1, 1]$$ 内。对比用均方误差（MSE）做分类：梯度里会多一个 $$p_k(1 - p_k)$$ 的因子，预测很错（$$p_k \approx 0$$）时梯度反而接近零、学不动。这是交叉熵比 MSE 更适合分类的原因之一。
 - **预测越准梯度越小**：$$p_k \to 1$$ 时梯度 $$\to 0$$，模型自动在"已经会的"位置上少更新。
@@ -242,14 +283,11 @@ $$
 
 L5 后训练系列里的每一种在线 RL 算法都是在 $$\mathbb{E}[A(y)\nabla\log\pi_\theta(y)]$$ 这个式子上做两件事——**baseline 从哪来、更新怎么限**：
 
-```text
-算法        baseline / 优势从哪来                              更新幅度怎么限
-REINFORCE   b = 0 或一个滑动平均                                不限
-PPO         一个单独训练的价值网络估 b（critic），逐 token 的优势   把 π_θ/π_old 的比值裁剪在 [1−ε, 1+ε]，加 KL 惩罚
-GRPO        同一个 prompt 采 G 条回答，用这一组的均值当 b、        同 PPO 的裁剪
-            用组内标准差归一化：A_i = (R_i − mean) / std
-            → 不需要价值网络
-```
+| 算法 | baseline / 优势从哪来 | 更新幅度怎么限 |
+|---|---|---|
+| REINFORCE | $$b = 0$$ 或一个滑动平均 | 不限 |
+| PPO | 一个单独训练的价值网络估 $$b$$（critic），逐 token 的优势 | 把 $$\pi_\theta / \pi_{\text{old}}$$ 的比值裁剪在 $$[1 - \epsilon, 1 + \epsilon]$$，加 KL 惩罚 |
+| GRPO | 同一个 prompt 采 $$G$$ 条回答，用这一组的均值当 $$b$$、用组内标准差归一化：$$A_i = (R_i - \text{mean}) / \text{std}$$ → 不需要价值网络 | 同 PPO 的裁剪 |
 
 读懂本章，这些算法之间的差别就只剩这两个问题；GRPO 论文里"优势为什么减均值"的答案就是第 3 节那一行证明。
 

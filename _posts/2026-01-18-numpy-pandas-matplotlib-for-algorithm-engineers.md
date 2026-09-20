@@ -163,7 +163,7 @@ Q = Q.transpose(0, 2, 1, 3)                  # ③ [B, h, T, d_h]   把 head 维
 S = Q @ K.transpose(0, 1, 3, 2)              # ④ [B, h, T, d_h] × [B, h, d_h, T] → [B, h, T, T]
 ```
 
-![图 1：多头 attention 的形状变换——① Q 是 [T, d] 的矩阵（B 省略，T = 3，d = 4）；② reshape 把每行的 4 个数读成 2 个头 × 2 维，内存不动；③ transpose 把 head 维挪到最前面，每个头成为独立的 [T, d_h] 矩阵，读取顺序改变、内存不再连续；④ 最后两维做矩阵乘得到每个头的 [T, T] 分数表](/img/in-post/numpy-multihead-reshape-transpose.svg)
+![多头 attention 的形状变换——① Q 是 [T, d] 的矩阵（B 省略，T = 3，d = 4）；② reshape 把每行的 4 个数读成 2 个头 × 2 维，内存不动；③ transpose 把 head 维挪到最前面，每个头成为独立的 [T, d_h] 矩阵，读取顺序改变、内存不再连续；④ 最后两维做矩阵乘得到每个头的 [T, T] 分数表](/img/in-post/numpy-multihead-reshape-transpose.svg)
 
 图 1 用 $$T = 3$$、$$d = 4$$、$$h = 2$$ 画出这四步。两个改形状的操作性质不同：
 

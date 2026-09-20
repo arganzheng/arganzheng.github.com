@@ -39,6 +39,7 @@ PyTorch 的使用层只需要掌握五个对象：
 五个对象在一步训练里各站一个位置，数据沿着一个环流动——第六章的二十行代码就是把这个环写出来：
 
 ```mermaid
+%% 一步训练里五个对象的位置：绿色数据进来，黄色前向算 loss，蓝色梯度回去改参数
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
 flowchart TB
     DS["`**Dataset**
@@ -63,7 +64,7 @@ zero_grad()：清零`"]
     class AG,OPT grad
 ```
 
-图 1：一步训练里五个对象的位置。绿色是数据怎么进来，黄色是前向算出 loss，蓝色是梯度怎么回去再改参数。Tensor 没有单独画：环上流动的每一样东西——batch、logits、loss、.grad、参数——都是 Tensor。
+一步训练里五个对象的位置。绿色是数据怎么进来，黄色是前向算出 loss，蓝色是梯度怎么回去再改参数。Tensor 没有单独画：环上流动的每一样东西——batch、logits、loss、.grad、参数——都是 Tensor。
 
 ### 3. 本文的章节安排
 
@@ -103,6 +104,7 @@ x.requires_grad   # 要不要对它求导：参数 True，数据 False
 `loss.item()` 把一个单元素 Tensor 变成 Python 数字。它看起来只是取一个数，实际上是一次**同步**：
 
 ```mermaid
+%% .item() 为什么慢：CPU 异步发 kernel，GPU 排队算，.item() 等队列清空
 sequenceDiagram
     participant P as Python（CPU）
     participant G as GPU
@@ -115,7 +117,7 @@ sequenceDiagram
     Note over P: 这段等待时间 CPU 什么都没干
 ```
 
-图 2：`.item()` 为什么慢。CPU 向 GPU 发 kernel 是异步的——发出去就返回，GPU 在后面排队算；`.item()` 要一个具体的数，只能停下来等队列清空。每步都 `.item()`，CPU 就每步都等 GPU 算完再发下一步的 kernel，两者从并行变成串行。所以第六章的循环每 10 步才 log 一次；要在 GPU 上累计 loss 用 Tensor 加（`total += loss.detach()`），最后再 `.item()` 一次。
+`.item()` 为什么慢。CPU 向 GPU 发 kernel 是异步的——发出去就返回，GPU 在后面排队算；`.item()` 要一个具体的数，只能停下来等队列清空。每步都 `.item()`，CPU 就每步都等 GPU 算完再发下一步的 kernel，两者从并行变成串行。所以第六章的循环每 10 步才 log 一次；要在 GPU 上累计 loss 用 Tensor 加（`total += loss.detach()`），最后再 `.item()` 一次。
 
 ## 三、Autograd
 
@@ -141,6 +143,7 @@ loss.backward()                 # 报错：图已释放。要再算得重新前�
 前向时 Autograd 记下的图是这样的（矩形是 Tensor，圆角是记下的反向节点；实线是前向数据流，虚线是 `backward()` 走的路）：
 
 ```mermaid
+%% loss = (w·x − 1)² 的计算图：矩形是 Tensor，圆角是反向节点，虚线是 backward 走的路
 flowchart TB
     W["w = 3（leaf，requires_grad=True）"]
     X["x = 2（不求导，不入图）"]
@@ -166,7 +169,7 @@ flowchart TB
     class X const
 ```
 
-图 3：`loss = (w·x − 1)²` 的计算图。前向从上往下算出 25，同时每个运算记下自己的反向节点；`backward()` 从 loss 沿虚线往回走，每经过一个节点乘上它的局部导数。
+`loss = (w·x − 1)²` 的计算图。前向从上往下算出 25，同时每个运算记下自己的反向节点；`backward()` 从 loss 沿虚线往回走，每经过一个节点乘上它的局部导数。
 
 `w.grad = 20` 是链式法则（L0 第七篇）一步步乘出来的。把 $$L = (wx - 1)^2$$ 看成三层函数的复合：$$u = wx$$，$$v = u - 1$$，$$L = v^2$$。每一层对自己输入的导数：
 
@@ -308,6 +311,7 @@ for batch in loader: ...
 `Dataset` 只定义"第 $$i$$ 条是什么"，其余全是 `DataLoader` 的事。一个 batch 从哪来：
 
 ```mermaid
+%% DataLoader 的一步：Sampler 出下标 → worker 子进程取样本并 collate → 队列 → 主进程
 flowchart TB
     S["Sampler：打乱后的下标序列<br/>[17, 3, 42, …]，每次给出 batch_size 个"]
     subgraph W["worker 子进程 × num_workers（各自一个 Python 进程，不共享内存）"]
@@ -324,7 +328,7 @@ flowchart TB
     class S,G1,G2,G3,G4,C data
 ```
 
-图 4：`DataLoader` 的一步。四个参数各对应图里一个环节：`shuffle=True` 决定 Sampler 给出的顺序；`batch_size` 决定每次取多少个下标；`collate_fn` 把 `batch_size` 个 `__getitem__` 的返回值拼成一个 batch 的 Tensor（默认实现只会 `torch.stack` 同形状的 Tensor，变长序列要自己写 pad）；`num_workers` 个子进程各自跑"取 + collate"，把做好的 batch 放进队列，主进程只管取。子进程各自是一个 Python 进程、不共享内存——这是第一篇第六章"多进程"的用法，也是 `num_workers=0` 时训练循环常被取数卡住的原因。
+`DataLoader` 的一步。四个参数各对应图里一个环节：`shuffle=True` 决定 Sampler 给出的顺序；`batch_size` 决定每次取多少个下标；`collate_fn` 把 `batch_size` 个 `__getitem__` 的返回值拼成一个 batch 的 Tensor（默认实现只会 `torch.stack` 同形状的 Tensor，变长序列要自己写 pad）；`num_workers` 个子进程各自跑"取 + collate"，把做好的 batch 放进队列，主进程只管取。子进程各自是一个 Python 进程、不共享内存——这是第一篇第六章"多进程"的用法，也是 `num_workers=0` 时训练循环常被取数卡住的原因。
 
 本文第六章的语料是一个长字符串，随机切 128 个字符的窗口，用一个 `get_batch` 函数就够了，没有用 `Dataset` + `DataLoader`（下面会给出它的代码）。真实项目里用后者：`datasets` 库（第五篇）返回的对象可以直接喂 `DataLoader`。
 

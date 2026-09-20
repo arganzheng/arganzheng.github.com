@@ -17,18 +17,18 @@ catalog: true
 
 深度学习教材通常按"模型"组织：感知机、MLP、CNN、RNN、Transformer。这个系列按**训练现象**组织：梯度怎么流、为什么会消失或爆炸、优化器在做什么、为什么参数比样本多却不过拟合、卷积与循环各解决了什么又败在哪里。每一个现象都用三步处理——**推导**（公式从哪来）、**算账**（代到真实网络是多少）、**实验**（几十行 NumPy / PyTorch 在 CPU 上复现它）——最后指出它在 Transformer 与 LLM 里的形态。
 
-举一个例子说明这个系列的取法。"残差连接让深网络能训"是每本教材都有的一句话；本系列要把它变成三件可验证的事：（一）推导：没有残差时第 $$l$$ 层的梯度是 $$l$$ 个 Jacobian 的乘积，任何一个的谱范数系统性地偏离 1 就指数级放大或缩小；有残差时每层的 Jacobian 变成 $$I + J_l$$，乘积里多出一条恒等通路。（二）算账：一个 128 层、每层 Jacobian 谱范数 0.9 的网络，最底层梯度是顶层的 $$0.9^{128} \approx 1.4 \times 10^{-6}$$；加残差后不再有这个因子。（三）实验：用 NumPy 搭一个 64 层 MLP，画出有无残差时各层梯度范数的分布，两条曲线差六个数量级。Transformer 的每一层都靠这条恒等通路，Pre-Norm 与 Post-Norm 的全部争论也在这条通路上。
+举一个例子说明这个系列的取法。"残差连接让深网络能训"是每本教材都有的一句话；本系列要把它变成三件可验证的事：（一）推导：没有残差时第 $$l$$ 层的梯度是 $$l$$ 个 [Jacobian](# "tip: 雅可比矩阵：一个向量函数对它的向量输入的导数，第 (i, j) 格是第 i 个输出对第 j 个输入的偏导，形状 [输出维, 输入维]。一层网络的 Jacobian 描述这一层把上游梯度放大或缩小多少；L0 第七篇第三章有一个 2×2 的手算例子") 的乘积，任何一个的谱范数系统性地偏离 1 就指数级放大或缩小；有残差时每层的 Jacobian 变成 $$I + J_l$$，乘积里多出一条恒等通路。（二）算账：一个 128 层、每层 Jacobian 谱范数 0.9 的网络，最底层梯度是顶层的 $$0.9^{128} \approx 1.4 \times 10^{-6}$$；加残差后不再有这个因子。（三）实验：用 NumPy 搭一个 64 层 MLP，画出有无残差时各层梯度范数的分布，两条曲线差六个数量级。Transformer 的每一层都靠这条恒等通路，Pre-Norm 与 Post-Norm 的全部争论也在这条通路上。
 
 系列覆盖的范围可以概括为五个训练现象与两段历史：
 
-```text
-现象一   梯度怎么流                反向传播、链式法则、激活存储、反向为什么是前向的两倍       → 第一篇
-现象二   为什么深了就难训          方差在层间的传播、初始化、归一化、残差、Pre/Post-Norm     → 第二篇
-现象三   优化器在做什么            SGD、Momentum、Adam / AdamW、学习率调度、梯度裁剪        → 第三篇
-现象四   为什么不过拟合、何时会    正则化、dropout、weight decay、double descent、epoch 数    → 第四篇
-历史一   卷积解决了什么             参数共享、感受野、LeNet → ResNet、ViT 把图切成 token        → 第五篇
-历史二   循环解决了什么、败在哪    RNN、时间反传、LSTM 门控、seq2seq、attention 的诞生        → 第六篇
-```
+| | 问题 | 内容 | 篇 |
+|---|---|---|---|
+| 现象一 | 梯度怎么流 | 反向传播、链式法则、激活存储、反向为什么是前向的两倍 | 第一篇 |
+| 现象二 | 为什么深了就难训 | 方差在层间的传播、初始化、归一化、残差、Pre/Post-Norm | 第二篇 |
+| 现象三 | 优化器在做什么 | SGD、Momentum、Adam / AdamW、学习率调度、梯度裁剪 | 第三篇 |
+| 现象四 | 什么情况会过拟合？怎么办？ | 正则化、dropout、weight decay、double descent、epoch 数 | 第四篇 |
+| 历史一 | 卷积解决了什么 | 参数共享、感受野、LeNet → ResNet、ViT 把图切成 token | 第五篇 |
+| 历史二 | 循环解决了什么、败在哪 | RNN、时间反传、LSTM 门控、seq2seq、attention 的诞生 | 第六篇 |
 
 
 ## 为什么写这个系列？
@@ -36,6 +36,18 @@ catalog: true
 ### LLM 时代的深度学习基础没有变少，只是换了名字
 
 Transformer 之后，"深度学习基础"常被当成历史课跳过。但打开任何一份预训练技术报告，遇到的仍是这一层的词：loss spike 与梯度裁剪、warmup 步数、AdamW 的 $$\beta_2$$、weight decay 系数、RMSNorm 与 Pre-Norm、初始化的标准差、$$\mu$$P、z-loss、QK-norm。每一个都是本系列某一篇的主题在大模型上的形态。不懂方差传播，就不理解为什么 Llama 的初始化标准差是 0.02 而 GPT-2 的残差分支要额外除以 $$\sqrt{2L}$$；不懂 Adam 的二阶矩，就不理解 warmup 为什么必须；不懂 dropout 的期望等价，就不理解为什么 LLM 预训练几乎不用它。
+
+上面这一串词每一个在本系列里都有出处，总结篇会逐个回收；先给对照表，读完可以回来核对：
+
+| 技术报告里的词 | 它是哪个基础概念在大模型上的形态 | 篇 |
+|---|---|---|
+| loss spike、梯度裁剪 | 梯度范数的量级与坏 batch；裁剪把一步的总范数压回阈值 | 第三篇 |
+| warmup 步数 | Adam 的二阶矩估计在前几步不稳定，实际步长偏大 | 第三篇 |
+| AdamW 的 $$\beta_2$$、weight decay 系数 | 二阶矩的记忆长度；解耦的 L2 正则 | 第三、四篇 |
+| RMSNorm、Pre-Norm | 方差在层间怎么传播，归一化放在残差分支前还是后 | 第二篇 |
+| 初始化标准差 0.02、GPT-2 残差分支除以 $$\sqrt{2L}$$ | 残差流的方差随层数线性增长 | 第二篇 |
+| $$\mu$$P、z-loss、QK-norm | 规模化之后的三个稳定性补丁：学习率随宽度漂移、lm_head logits 漂移、attention logits 增长 | 第二篇第七章 |
+| 预训练不用 dropout、一个 epoch | dropout 的期望等价与数据充足时的正则化需求 | 第四篇 |
 
 ### 从"会调用"到"会诊断"
 
@@ -74,29 +86,24 @@ L7 多模态的 vision encoder 来自 ViT，ViT 来自 CNN 的 patch 化；语�
 
 六篇按"先建立梯度的流动，再看它为什么会坏、怎么修，再看用梯度更新参数的方法与它的副作用，最后回看两段历史"的顺序推进：
 
-```text
-第一篇：反向传播 —— 手推两层网络，梯度的形状规则，反向 = 2 × 前向，激活为什么要存
-        ↓
-第二篇：初始化、归一化与残差 —— 方差怎么在层间传播，深网络为什么难训，残差与 Pre-Norm 怎么修
-        ↓
-第三篇：优化器 —— 从 SGD 到 AdamW，学习率调度，梯度裁剪，batch 与学习率的 scaling
-        ↓
-第四篇：正则化与泛化 —— dropout、weight decay、早停，参数远多于样本为什么不过拟合，何时会
-        ↓
-第五篇：CNN —— 卷积作为参数共享，感受野，LeNet → ResNet 的遗产，ViT 把图切成 token
-        ↓
-第六篇：RNN —— 时间上的反传与梯度消失，LSTM 的门，seq2seq 的瓶颈，attention 的诞生
-```
+| 篇 | 主题 | 内容 |
+|---|---|---|
+| 第一篇 | 反向传播 | 手推两层网络，梯度的形状规则，反向 = 2 × 前向，激活为什么要存 |
+| 第二篇 | 初始化、归一化与残差 | 方差怎么在层间传播，深网络为什么难训，残差与 Pre-Norm 怎么修 |
+| 第三篇 | 优化器 | 从 SGD 到 AdamW，学习率调度，梯度裁剪，batch 与学习率的 scaling |
+| 第四篇 | 正则化与泛化 | dropout、weight decay、早停；参数远多于样本时什么情况会过拟合、怎么办 |
+| 第五篇 | CNN | 卷积作为参数共享，感受野，LeNet → ResNet 的遗产，ViT 把图切成 token |
+| 第六篇 | RNN | 时间上的反传与梯度消失，LSTM 的门，seq2seq 的瓶颈，attention 的诞生 |
 
 前四篇是**训练动力学**：一个网络从初始化到收敛，梯度经历了什么、参数怎么动、什么时候停。后两篇是**结构史**：Transformer 之前的两条主线各解决了什么、留下了什么——残差与归一化来自 CNN 这条线，attention 来自 RNN 这条线。读完第六篇，Transformer 的每一个组件都有了来历，L4 的 04 系列可以直接接上。
 
 三条交织的线索：
 
-```text
-推导线：链式法则 → Jacobian 乘积与谱范数 → 更新量的量级 → 期望等价与先验 → 卷积的线性算子形式 → 时间反传
-数字线：反向 FLOPs = 2 × 前向 → 0.9^128 → 每参数 8 字节 → 一个 epoch 就够 → ResNet-50 的 4.1 GFLOPs → RNN 不能并行
-LLM 线：6ND · 激活重算 → RMSNorm · Pre-Norm · 0.02 → AdamW · warmup · 裁剪到 1.0 → 预训练不用 dropout → ViT / patch → attention → Transformer
-```
+| 线索 | 从第一篇到第六篇 |
+|---|---|
+| 推导线 | 链式法则 → Jacobian 乘积与谱范数 → 更新量的量级 → 期望等价与先验 → 卷积的线性算子形式 → 时间反传 |
+| 数字线 | 反向 FLOPs = 2 × 前向 → $$0.9^{128}$$ → 每参数 8 字节 → 一个 epoch 就够 → ResNet-50 的 4.1 GFLOPs → RNN 不能并行 |
+| LLM 线 | 6ND · 激活重算 → RMSNorm · Pre-Norm · 0.02 → AdamW · warmup · 裁剪到 1.0 → 预训练不用 dropout → ViT / patch → attention → Transformer |
 
 每一篇都用同样的方法：**推导公式，代入真实网络算出数字，用几十行代码复现现象，指出它在 LLM 里的形态**。
 
@@ -230,27 +237,27 @@ LLM 线：6ND · 激活重算 → RMSNorm · Pre-Norm · 0.02 → AdamW · warmu
 
 本系列的贯穿物是**一份几百行的 NumPy 小框架和一组建立在它之上的实验**。框架从第一篇的两层 MLP 开始，每篇加一点：
 
-```text
-第一篇    Linear · ReLU · softmax-CE 的前向与反向；梯度检查；FLOPs 计数
-第二篇    深层堆叠；Kaiming 初始化；LayerNorm / RMSNorm；残差块；逐层方差与梯度范数统计
-第三篇    SGD · Momentum · Adam · AdamW；学习率调度；梯度裁剪
-第四篇    dropout；weight decay；训练 - 验证曲线；宽度扫描
-第五篇    Conv2d 与它的全连接等价形式；patch embedding（PyTorch 对照 CIFAR-10）
-第六篇    RNN 单元 · LSTM 单元 · BPTT；Bahdanau attention
-```
+| 篇 | 框架里加的东西 |
+|---|---|
+| 第一篇 | Linear · ReLU · softmax-CE 的前向与反向；梯度检查；FLOPs 计数 |
+| 第二篇 | 深层堆叠；Kaiming 初始化；LayerNorm / RMSNorm；残差块；逐层方差与梯度范数统计 |
+| 第三篇 | SGD · Momentum · Adam · AdamW；学习率调度；梯度裁剪 |
+| 第四篇 | dropout；weight decay；训练 - 验证曲线；宽度扫描 |
+| 第五篇 | Conv2d 与它的全连接等价形式；patch embedding（PyTorch 对照 CIFAR-10） |
+| 第六篇 | RNN 单元 · LSTM 单元 · BPTT；Bahdanau attention |
 
 全部实验在 CPU 上几分钟内跑完，没有 GPU 不影响。框架的目的不是替代 PyTorch，而是让每一个训练现象都能在自己写的、每一行都懂的代码里复现一次；之后回到 PyTorch，`loss.backward()` 与 `optimizer.step()` 就不再是黑盒。
 
 与它平行的源码与资料阅读线：
 
-```text
-第一篇    Rumelhart 等 1986（反向传播）· Karpathy micrograd · PyTorch autograd 文档的 "How autograd encodes the history"
-第二篇    Glorot & Bengio 2010（Xavier）· He 等 2015（Kaiming）· Ioffe & Szegedy 2015（BatchNorm）· Ba 等 2016（LayerNorm）· Zhang & Sennrich 2019（RMSNorm）· Xiong 等 2020（Pre-LN）
-第三篇    Kingma & Ba 2014（Adam）· Loshchilov & Hutter 2017（AdamW）· Goyal 等 2017（线性 scaling）· Hu 等 2024（MiniCPM，WSD）
-第四篇    Srivastava 等 2014（dropout）· Zhang 等 2017（Understanding deep learning requires rethinking generalization）· Nakkiran 等 2019（double descent）· Muennighoff 等 2023（数据受限的 scaling）
-第五篇    LeCun 等 1998（LeNet）· Krizhevsky 等 2012（AlexNet）· He 等 2015（ResNet）· Dosovitskiy 等 2020（ViT）
-第六篇    Hochreiter & Schmidhuber 1997（LSTM）· Sutskever 等 2014（seq2seq）· Bahdanau 等 2014（attention）· Vaswani 等 2017（Transformer）第 1–2 节
-```
+| 篇 | 论文与资料 |
+|---|---|
+| 第一篇 | Rumelhart 等 1986 [*Learning representations by back-propagating errors*](https://www.nature.com/articles/323533a0) · Karpathy [micrograd](https://github.com/karpathy/micrograd) · PyTorch autograd 文档 [*How autograd encodes the history*](https://pytorch.org/docs/stable/notes/autograd.html) |
+| 第二篇 | Glorot & Bengio 2010 [Xavier](https://proceedings.mlr.press/v9/glorot10a.html) · He 等 2015 [Kaiming](https://arxiv.org/abs/1502.01852) · Ioffe & Szegedy 2015 [BatchNorm](https://arxiv.org/abs/1502.03167) · Ba 等 2016 [LayerNorm](https://arxiv.org/abs/1607.06450) · Zhang & Sennrich 2019 [RMSNorm](https://arxiv.org/abs/1910.07467) · Xiong 等 2020 [Pre-LN](https://arxiv.org/abs/2002.04745) |
+| 第三篇 | Kingma & Ba 2014 [Adam](https://arxiv.org/abs/1412.6980) · Loshchilov & Hutter 2017 [AdamW](https://arxiv.org/abs/1711.05101) · Goyal 等 2017 [线性 scaling](https://arxiv.org/abs/1706.02677) · Hu 等 2024 [MiniCPM，WSD](https://arxiv.org/abs/2404.06395) |
+| 第四篇 | Srivastava 等 2014 [dropout](https://jmlr.org/papers/v15/srivastava14a.html) · Zhang 等 2017 [*Understanding deep learning requires rethinking generalization*](https://arxiv.org/abs/1611.03530) · Nakkiran 等 2019 [double descent](https://arxiv.org/abs/1912.02292) · Muennighoff 等 2023 [数据受限的 scaling](https://arxiv.org/abs/2305.16264) |
+| 第五篇 | LeCun 等 1998 [LeNet](http://yann.lecun.com/exdb/publis/pdf/lecun-98.pdf) · Krizhevsky 等 2012 [AlexNet](https://papers.nips.cc/paper/2012/hash/c399862d3b9d6b76c8436e924a68c45b-Abstract.html) · He 等 2015 [ResNet](https://arxiv.org/abs/1512.03385) · Dosovitskiy 等 2020 [ViT](https://arxiv.org/abs/2010.11929) |
+| 第六篇 | Hochreiter & Schmidhuber 1997 [LSTM](https://www.bioinf.jku.at/publications/older/2604.pdf) · Sutskever 等 2014 [seq2seq](https://arxiv.org/abs/1409.3215) · Bahdanau 等 2014 [attention](https://arxiv.org/abs/1409.0473) · Vaswani 等 2017 [Transformer](https://arxiv.org/abs/1706.03762) 第 1–2 节 |
 
 
 ## 前置要求与说明
@@ -286,16 +293,16 @@ LLM 线：6ND · 激活重算 → RMSNorm · Pre-Norm · 0.02 → AdamW · warmu
 
 读完这套系列之后，面对一个训练中的网络，读者应该能够回答：
 
-```text
-loss 不降，是梯度没传到还是学习率不对？                 → 第一篇：梯度检查；第三篇：学习率与 warmup
-loss 爆成 NaN，先看哪个数字？                          → 第二篇：逐层激活方差；第三篇：梯度范数与裁剪
-这个网络为什么要 Pre-Norm？初始化为什么是 0.02？        → 第二篇：方差传播与残差流
-AdamW 的每个超参数在控制什么？状态占多少显存？          → 第三篇
-SFT 训了 5 个 epoch，模型开始背答案，怎么判断、怎么修？  → 第四篇
-预训练为什么一个 epoch、不用 dropout？                 → 第四篇
-ViT 的 patch embedding 与卷积是什么关系？              → 第五篇
-attention 为什么能取代 RNN？代价是什么？               → 第六篇
-```
+| 问题 | 答案在 |
+|---|---|
+| loss 不降，是梯度没传到还是学习率不对？ | 第一篇：梯度检查；第三篇：学习率与 warmup |
+| loss 爆成 NaN，先看哪个数字？ | 第二篇：逐层激活方差；第三篇：梯度范数与裁剪 |
+| 这个网络为什么要 Pre-Norm？初始化为什么是 0.02？ | 第二篇：方差传播与残差流 |
+| AdamW 的每个超参数在控制什么？状态占多少显存？ | 第三篇 |
+| SFT 训了 5 个 epoch，模型开始背答案，怎么判断、怎么修？ | 第四篇 |
+| 预训练为什么一个 epoch、不用 dropout？ | 第四篇 |
+| ViT 的 patch embedding 与卷积是什么关系？ | 第五篇 |
+| attention 为什么能取代 RNN？代价是什么？ | 第六篇 |
 
 最终目标是三种能力：
 

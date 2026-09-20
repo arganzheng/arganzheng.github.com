@@ -84,6 +84,7 @@ DDP / FSDP / DeepSpeed 配置`"]
 这是 Qwen2.5-0.5B 的。这几个数决定了模型的全部结构——一个 decoder-only Transformer 就是下面这张图，`config.json` 的每个字段对应图里一个尺寸：
 
 ```mermaid
+%% config.json 里的数字在 decoder-only 结构里的位置（Qwen2.5-0.5B）
 flowchart TB
     E["Embedding：vocab × hidden<br/>151936 × 896"]
     subgraph L["× num_hidden_layers = 24 层，每层结构相同"]
@@ -107,7 +108,7 @@ flowchart TB
     class E,N1,N2,NF,H,Q,K,V,O,G,U,D box
 ```
 
-图 1：`config.json` 里的数字在结构里的位置。`num_attention_heads: 14` 与 `num_key_value_heads: 2` 决定 k/v 的宽度：每个头 $$896 / 14 = 64$$ 维，K、V 只有 2 个头，所以是 $$2 \times 64 = 128$$（GQA，L4 第三篇）。
+`config.json` 里的数字在结构里的位置。`num_attention_heads: 14` 与 `num_key_value_heads: 2` 决定 k/v 的宽度：每个头 $$896 / 14 = 64$$ 维，K、V 只有 2 个头，所以是 $$2 \times 64 = 128$$（GQA，L4 第三篇）。
 
 参数量就是把图里每个矩形的面积加起来（L0 第一篇"从结构算参数量"），Qwen2 的 q/k/v 带 bias：
 
@@ -134,9 +135,9 @@ flowchart TB
 
 `state_dict`（第三篇第四章）的磁盘格式。一个 `.safetensors` 文件只有三段：8 个字节写 header 有多长，然后是一段 JSON header，然后是所有张量的原始字节首尾相接：
 
-![图 2：safetensors 文件的字节布局——8 字节 header 长度、JSON header（每个张量的名字、dtype、shape 与在数据区的字节区间）、数据区（纯字节）；读某一层只需按 data_offsets 定位并 mmap 那一段；大模型按名字分成多个分片，由 index.json 记录每个张量在哪个文件](/img/in-post/hf-safetensors-layout.svg)
+![safetensors 文件的字节布局——8 字节 header 长度、JSON header（每个张量的名字、dtype、shape 与在数据区的字节区间）、数据区（纯字节）；读某一层只需按 data_offsets 定位并 mmap 那一段；大模型按名字分成多个分片，由 index.json 记录每个张量在哪个文件](/img/in-post/hf-safetensors-layout.svg)
 
-这个格式有三个后果，图 2 下方各一句：**能只读某一层**（读 header 知道字节区间，内存映射那一段即可，不必把 1 GB 全读进来——`from_pretrained(..., device_map=...)` 按层加载靠的就是它）；**不能执行代码**（header 是 JSON、数据区是数，加载过程没有任何 Python 对象被反序列化——`torch.save` 的 pickle 格式则可以在加载时执行任意代码，所以 Hub 默认用 safetensors）；**分片**（大模型按名字切成 `model-0000k-of-0000n.safetensors`，`model.safetensors.index.json` 是"张量名 → 在哪个文件"的索引）。
+这个格式有三个后果，图 3 下方各一句：**能只读某一层**（读 header 知道字节区间，内存映射那一段即可，不必把 1 GB 全读进来——`from_pretrained(..., device_map=...)` 按层加载靠的就是它）；**不能执行代码**（header 是 JSON、数据区是数，加载过程没有任何 Python 对象被反序列化——`torch.save` 的 pickle 格式则可以在加载时执行任意代码，所以 Hub 默认用 safetensors）；**分片**（大模型按名字切成 `model-0000k-of-0000n.safetensors`，`model.safetensors.index.json` 是"张量名 → 在哪个文件"的索引）。
 
 模型卡（README）里的评测数字要带着 L0 第八篇的置信区间读。以 Qwen2.5-0.5B 技术报告里的两个数为例：GSM8K 41.6%，这个集有 1,319 题，95% 区间 $$\pm 1.96\sqrt{0.416 \times 0.584 / 1319} \approx \pm 2.7$$ 个点；HumanEval 30.5%，只有 164 题，区间 $$\pm 7.0$$ 个点。所以两个 0.5B 模型在 HumanEval 上差 5 个点，分不出谁好；差 2 个点的 GSM8K 也在噪声里。
 

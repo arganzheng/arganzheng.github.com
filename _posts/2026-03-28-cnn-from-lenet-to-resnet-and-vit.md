@@ -5,7 +5,7 @@ title: "深度学习基础（05）：CNN——从 LeNet 到 ResNet，再到 ViT"
 subtitle: "CNN: Convolution as a Constrained Linear Layer, the ResNet Legacy and How ViT Turns Images into Tokens"
 tags: [AI, Deep Learning, LLM]
 catalog: true
-updated: 2026-09-14
+updated: 2026-09-20
 ---
 
 前四篇讲训练动力学，用的网络全是 MLP。这一篇和下一篇回看 Transformer 之前的两条结构史——卷积与循环——不是为了怀旧，而是因为 Transformer 的每个部件都有来历：残差连接、归一化、"堆同样的块"来自卷积这条线；attention 来自循环那条线。理解一个部件当初解决了什么问题，才知道它今天还在解决什么、什么时候可以拿掉。
@@ -80,7 +80,7 @@ row 0 of M (reshaped 6x6):          ← 输出位置 (0,0) 对输入的权重
 
 ### 1. 感受野
 
-第 $$L$$ 层的一个输出位置能"看到"输入的多大范围，叫感受野（receptive field）。stride 为 1 的 $$3 \times 3$$ 卷积每层把感受野扩大 2：$$\text{RF}_L = 1 + 2L$$。一维的截面：
+第 $$L$$ 层的一个输出位置能"看到"输入的多大范围，叫**感受野**（receptive field，中文文献里的通行译法，借自神经科学里视网膜神经元的同名概念）。stride 为 1 的 $$3 \times 3$$ 卷积每层把感受野扩大 2：$$\text{RF}_L = 1 + 2L$$。一维的截面：
 
 ```text
 第 3 层输出        ·  ·  ·  ·  ·  ·  ●  ·  ·  ·  ·  ·  ·        一个位置

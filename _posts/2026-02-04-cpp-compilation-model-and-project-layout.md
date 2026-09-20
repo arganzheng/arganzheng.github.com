@@ -216,9 +216,9 @@ clang++ -std=c++17 -Wall -fPIC -I. -c minic10/core/Version.cpp -o Version.o
 1. **符号解析**（symbol resolution）：每个"我引用了 X 但没定义"的地方，都要找到唯一一个"我定义了 X"；
 2. **重定位**（relocation）：确定每段代码和数据的最终地址，把所有引用处的占位地址改成真实地址。
 
-![图 1：链接做的两件事。左：链接前两个 .o 各有自己的符号表，hello.o 引用（U）version_string 而 Version.o 定义（T）它，地址都从 0 起；右：链接后的可执行文件装进进程的虚拟地址空间——代码段、数据段、堆、栈、动态库映射区各占一段——① 符号解析把每个 U 对到恰好一个 T，② 重定位把占位地址改成最终地址](/img/in-post/cpp-linking-symbol-resolution-and-relocation.svg)
+![链接做的两件事。左：链接前两个 .o 各有自己的符号表，hello.o 引用（U）version_string 而 Version.o 定义（T）它，地址都从 0 起；右：链接后的可执行文件装进进程的虚拟地址空间——代码段、数据段、堆、栈、动态库映射区各占一段——① 符号解析把每个 U 对到恰好一个 T，② 重定位把占位地址改成最终地址](/img/in-post/cpp-linking-symbol-resolution-and-relocation.svg)
 
-图 1 画出这两件事。左边是链接前的两个 `.o`：各自的代码从地址 0 开始排，`hello.o` 的符号表里 `version_string` 标着 `U`（引用了、没定义），`Version.o` 里标着 `T`（定义了、对外可见）。右边是链接后的样子：可执行文件被装进进程的**虚拟地址空间**——每个进程一份，从低到高依次是代码段（`.text`）、全局变量（`.data` / `.bss`）、向上生长的堆、动态库的映射区、向下生长的栈；链接器给 `main` 和 `version_string` 各定下一个最终地址，再把 `hello.o` 里 `call ???` 的占位改成 `version_string` 的真实地址。第五章会用 `nm` 看这些字母，第六章讲动态库的情况——`version_string` 在 `.so` 里时，②这一步推迟到运行时由 `ld.so` 完成。
+图 2 画出这两件事。左边是链接前的两个 `.o`：各自的代码从地址 0 开始排，`hello.o` 的符号表里 `version_string` 标着 `U`（引用了、没定义），`Version.o` 里标着 `T`（定义了、对外可见）。右边是链接后的样子：可执行文件被装进进程的**虚拟地址空间**——每个进程一份，从低到高依次是代码段（`.text`）、全局变量（`.data` / `.bss`）、向上生长的堆、动态库的映射区、向下生长的栈；链接器给 `main` 和 `version_string` 各定下一个最终地址，再把 `hello.o` 里 `call ???` 的占位改成 `version_string` 的真实地址。第五章会用 `nm` 看这些字母，第六章讲动态库的情况——`version_string` 在 `.so` 里时，②这一步推迟到运行时由 `ld.so` 完成。
 
 ```bash
 clang++ -std=c++17 -shared -o libminic10.so Version.o
@@ -452,6 +452,7 @@ std::ostream& operator<<(std::ostream& stream, const Device& device) {
 Java 里改一个类只需重编它自己和直接依赖它的类（Gradle 的增量编译粒度是类级别的 ABI 变化）。C++ 的粒度是"文本包含"，粗得多——两边画出来：
 
 ```mermaid
+%% 同一个改动在两种语言里的重编范围：Java 增量编译到直接依赖就停，C++ 所有 #include 它的翻译单元全部重编
 flowchart LR
     subgraph J["Java：改 Half.java"]
         JH["Half.java ✎"] --> JS["ScalarType.java<br/>直接引用了 Half"]
@@ -471,7 +472,7 @@ flowchart LR
     class JA,JB,JC skip
 ```
 
-图 2：同一个改动在两种语言里的重编范围。Java 里 `Half` 的改动只要不改它对外的签名，`javac` 增量编译到 `ScalarType` 就停了；C++ 里 `Half.h` 的文本是每个间接包含它的翻译单元的一部分，改一个字节，上千个 `.cpp` 的输入都变了。这带来了 C++ 项目特有的两个工程习惯：
+同一个改动在两种语言里的重编范围。Java 里 `Half` 的改动只要不改它对外的签名，`javac` 增量编译到 `ScalarType` 就停了；C++ 里 `Half.h` 的文本是每个间接包含它的翻译单元的一部分，改一个字节，上千个 `.cpp` 的输入都变了。这带来了 C++ 项目特有的两个工程习惯：
 
 1. **前向声明**（forward declaration）。一行 `class Tensor;` 只告诉编译器"有一个叫 `Tensor` 的类"，不说它有哪些成员、多大——这就是前向声明。什么时候够用：只用它的**指针或引用**（`Tensor*`、`const Tensor&`）时，编译器不需要知道它多大，一个指针总是 8 字节。什么时候不够：按值持有成员（`Tensor t_;` 要知道多大）、调用成员函数、`sizeof`，这些都需要完整定义，必须 `#include`。所以头文件里能用前向声明就不 `#include`——包含者就不必因为 `Tensor.h` 变了而重编。`aten/src/ATen/templates/TensorBody.h`（生成 `ATen/core/TensorBody.h` 的模板）开头就是一串前向声明，每一行都是"只说有、不说多大"：
 
@@ -520,6 +521,7 @@ ODR 的核心可以概括为两句话：
 第二条有一个"非 inline"的限定，反过来说：**类、inline 函数、模板允许在多个翻译单元里各有一份定义。** 这听起来违反直觉，但它是头文件机制的必然结果：`Device.h` 里的 `is_cuda()` 是类内定义的 inline 函数，每个 `#include <c10/core/Device.h>` 的 `.cpp` 编出来的 `.o` 里都有一份 `is_cuda` 的机器码——编译器一次只看一个翻译单元，它没法知道别的 `.o` 里已经有了，也必须有一份才能内联。于是规则改成：多份可以，但**所有定义必须逐字相同**（token-for-token identical），链接器假定它们相同并任选一份、丢掉其余（下一章 `nm` 里标 `W` 的就是这种"可合并的弱定义"）。
 
 ```mermaid
+%% inline 函数为什么可以有多份定义：每个翻译单元各编一份，链接器按逐字相同的假定合并
 flowchart LR
     H["Device.h<br/>inline bool is_cuda() { return type_ == CUDA; }"]
     H --> A["a.cpp → a.o<br/>含一份 is_cuda（W）"]
@@ -531,7 +533,7 @@ flowchart LR
     class H,A,B,L,OUT box
 ```
 
-图 3：inline 函数为什么可以有多份定义——每个翻译单元各编一份，链接器按"逐字相同"的假定合并。危险在于**违反"逐字相同"不会报错**：如果 `a.cpp` 编译时定义了某个宏让 `is_cuda` 的函数体多了一行，两份就不同了，链接器照样任选一份——这是**未定义行为**，程序可能用了 A 文件的版本，也可能用了 B 文件的版本，也可能崩溃。
+inline 函数为什么可以有多份定义——每个翻译单元各编一份，链接器按"逐字相同"的假定合并。危险在于**违反"逐字相同"不会报错**：如果 `a.cpp` 编译时定义了某个宏让 `is_cuda` 的函数体多了一行，两份就不同了，链接器照样任选一份——这是**未定义行为**，程序可能用了 A 文件的版本，也可能用了 B 文件的版本，也可能崩溃。
 
 Java 里不存在这个问题：一个类只有一个 `.class`，JVM 按全限定名找到它，同名类冲突时类加载器有明确的优先规则（父加载器优先）。C++ 没有这层运行时仲裁，全靠链接器在构建时把名字对上。
 
