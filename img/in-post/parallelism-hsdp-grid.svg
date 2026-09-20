@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="230" viewBox="0 0 760 230" font-family="-apple-system, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif" font-size="12">
+  <style>.t{fill:#222;font-weight:600}.n{fill:#222;font-size:11px}.m{fill:#555;font-size:11px}.g{fill:#eef6ff;stroke:#5b8fd6}</style>
+  <defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#555"/></marker><marker id="r" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#b91c1c"/></marker></defs>
+  <text x="14" y="22" class="t">HSDP：N_d = 16 张卡排成 N_r × N_s = 2 × 8 的网格，placement = (Replicate(), Shard(0))</text>
+  <text x="120" y="52" class="m">→ 分片组（一个节点 8 卡）：Shard(0)，AG + AG + RS ≈ 3N，走 NVLink</text>
+  <line x1="120" y1="58" x2="700" y2="58" stroke="#555" marker-end="url(#a)"/>
+  <text x="14" y="90" class="n">副本 0（节点 0）</text>
+  <g font-size="11">
+    <rect x="120" y="72" width="66" height="30" class="g"/><text x="153" y="92" text-anchor="middle" class="n">卡 0：段 0</text>
+    <rect x="192" y="72" width="66" height="30" class="g"/><text x="225" y="92" text-anchor="middle" class="n">卡 1：段 1</text>
+    <rect x="264" y="72" width="66" height="30" class="g"/><text x="297" y="92" text-anchor="middle" class="n">卡 2：段 2</text>
+    <rect x="336" y="72" width="66" height="30" class="g"/><text x="369" y="92" text-anchor="middle" class="n">卡 3：段 3</text>
+    <rect x="408" y="72" width="66" height="30" class="g"/><text x="441" y="92" text-anchor="middle" class="n">卡 4：段 4</text>
+    <rect x="480" y="72" width="66" height="30" class="g"/><text x="513" y="92" text-anchor="middle" class="n">卡 5：段 5</text>
+    <rect x="552" y="72" width="66" height="30" class="g"/><text x="585" y="92" text-anchor="middle" class="n">卡 6：段 6</text>
+    <rect x="624" y="72" width="66" height="30" class="g"/><text x="657" y="92" text-anchor="middle" class="n">卡 7：段 7</text>
+    <text x="14" y="160" class="n">副本 1（节点 1）</text>
+    <rect x="120" y="142" width="66" height="30" class="g"/><text x="153" y="162" text-anchor="middle" class="n">卡 8：段 0</text>
+    <rect x="192" y="142" width="66" height="30" class="g"/><text x="225" y="162" text-anchor="middle" class="n">卡 9：段 1</text>
+    <rect x="264" y="142" width="66" height="30" class="g"/><text x="297" y="162" text-anchor="middle" class="n">卡 10：段 2</text>
+    <rect x="336" y="142" width="66" height="30" class="g"/><text x="369" y="162" text-anchor="middle" class="n">卡 11：段 3</text>
+    <rect x="408" y="142" width="66" height="30" class="g"/><text x="441" y="162" text-anchor="middle" class="n">卡 12：段 4</text>
+    <rect x="480" y="142" width="66" height="30" class="g"/><text x="513" y="162" text-anchor="middle" class="n">卡 13：段 5</text>
+    <rect x="552" y="142" width="66" height="30" class="g"/><text x="585" y="162" text-anchor="middle" class="n">卡 14：段 6</text>
+    <rect x="624" y="142" width="66" height="30" class="g"/><text x="657" y="162" text-anchor="middle" class="n">卡 15：段 7</text>
+  </g>
+  <g stroke="#b91c1c" stroke-width="1.5">
+    <line x1="153" y1="106" x2="153" y2="138" marker-end="url(#r)"/><line x1="225" y1="106" x2="225" y2="138" marker-end="url(#r)"/><line x1="297" y1="106" x2="297" y2="138" marker-end="url(#r)"/><line x1="369" y1="106" x2="369" y2="138" marker-end="url(#r)"/>
+    <line x1="441" y1="106" x2="441" y2="138" marker-end="url(#r)"/><line x1="513" y1="106" x2="513" y2="138" marker-end="url(#r)"/><line x1="585" y1="106" x2="585" y2="138" marker-end="url(#r)"/><line x1="657" y1="106" x2="657" y2="138" marker-end="url(#r)"/>
+  </g>
+  <text x="700" y="126" class="m" fill="#b91c1c">↕ 复制组 {i, 8+i}</text>
+  <text x="14" y="200" class="m">竖向（红）：Replicate()，同一段的梯度在两个副本之间 all-reduce，每卡 ≈ 2N/N_s，走 IB——量比 3N 小了 N_s 倍。</text>
+  <text x="14" y="218" class="m">横向（蓝）：ZeRO-3 的全部 3N 通信留在节点内的 NVLink 上。代价：显存只被分片组均分，每卡 16N/N_s。</text>
+</svg>

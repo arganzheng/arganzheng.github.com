@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="330" viewBox="0 0 760 330" font-family="-apple-system, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif" font-size="12">
+  <style>.t{fill:#222;font-weight:600}.n{fill:#222;font-size:11px}.m{fill:#555;font-size:11px}.c0{fill:#dbe7f5;stroke:#3b6fb6}.c1{fill:#f8dcdc;stroke:#c94c4c}.c2{fill:#e6f2e6;stroke:#3a7d44}.c3{fill:#fdf1d6;stroke:#b9770e}.w{fill:#fff;stroke:#333}</style>
+  <!-- 列切 -->
+  <text x="14" y="22" class="t">列切（column-parallel）：A = [A₁ | A₂ | A₃ | A₄]，每卡持 h × h′/t 的一竖条</text>
+  <rect x="20" y="40" width="110" height="80" class="w"/><text x="75" y="84" text-anchor="middle" class="n">X（tokens × h）</text>
+  <text x="75" y="134" text-anchor="middle" class="m">完整，每卡一份</text>
+  <text x="145" y="86" class="t">×</text>
+  <rect x="165" y="40" width="35" height="80" class="c0"/><rect x="200" y="40" width="35" height="80" class="c1"/><rect x="235" y="40" width="35" height="80" class="c2"/><rect x="270" y="40" width="35" height="80" class="c3"/>
+  <text x="182" y="84" text-anchor="middle" class="n">A₁</text><text x="217" y="84" text-anchor="middle" class="n">A₂</text><text x="252" y="84" text-anchor="middle" class="n">A₃</text><text x="287" y="84" text-anchor="middle" class="n">A₄</text>
+  <text x="235" y="134" text-anchor="middle" class="m">A（h × h′），按列切给 4 张卡</text>
+  <text x="322" y="86" class="t">=</text>
+  <rect x="345" y="40" width="30" height="80" class="c0"/><rect x="375" y="40" width="30" height="80" class="c1"/><rect x="405" y="40" width="30" height="80" class="c2"/><rect x="435" y="40" width="30" height="80" class="c3"/>
+  <text x="360" y="84" text-anchor="middle" class="n">Y₁</text><text x="390" y="84" text-anchor="middle" class="n">Y₂</text><text x="420" y="84" text-anchor="middle" class="n">Y₃</text><text x="450" y="84" text-anchor="middle" class="n">Y₄</text>
+  <text x="405" y="134" text-anchor="middle" class="m">Yᵢ = X Aᵢ 是 Y 的第 i 列块</text>
+  <text x="490" y="60" class="n">输入：不需通信（X 每卡都有）</text>
+  <text x="490" y="80" class="n">输出：Y 按列分布在各卡，</text>
+  <text x="490" y="96" class="n">每卡持 tokens × h′/t</text>
+  <text x="490" y="118" class="m">卡 i 的计算量 = 全量的 1/t</text>
+  <!-- 行切 -->
+  <line x1="14" y1="158" x2="746" y2="158" stroke="#ccc"/>
+  <text x="14" y="182" class="t">行切（row-parallel）：A = [A₁ ; A₂ ; A₃ ; A₄]，每卡持 h/t × h′ 的一横条</text>
+  <rect x="20" y="200" width="30" height="80" class="c0"/><rect x="50" y="200" width="30" height="80" class="c1"/><rect x="80" y="200" width="30" height="80" class="c2"/><rect x="110" y="200" width="30" height="80" class="c3"/>
+  <text x="35" y="244" text-anchor="middle" class="n">X₁</text><text x="65" y="244" text-anchor="middle" class="n">X₂</text><text x="95" y="244" text-anchor="middle" class="n">X₃</text><text x="125" y="244" text-anchor="middle" class="n">X₄</text>
+  <text x="80" y="296" text-anchor="middle" class="m">输入 X 必须按列切成 Xᵢ</text>
+  <text x="155" y="246" class="t">×</text>
+  <rect x="175" y="200" width="120" height="20" class="c0"/><rect x="175" y="220" width="120" height="20" class="c1"/><rect x="175" y="240" width="120" height="20" class="c2"/><rect x="175" y="260" width="120" height="20" class="c3"/>
+  <text x="235" y="215" text-anchor="middle" class="n">A₁</text><text x="235" y="235" text-anchor="middle" class="n">A₂</text><text x="235" y="255" text-anchor="middle" class="n">A₃</text><text x="235" y="275" text-anchor="middle" class="n">A₄</text>
+  <text x="235" y="296" text-anchor="middle" class="m">A 按行切给 4 张卡</text>
+  <text x="312" y="246" class="t">=</text>
+  <rect x="335" y="200" width="120" height="80" class="c0" fill-opacity="0.5"/>
+  <text x="395" y="236" text-anchor="middle" class="n">X₁A₁ + X₂A₂</text><text x="395" y="254" text-anchor="middle" class="n">+ X₃A₃ + X₄A₄</text>
+  <text x="395" y="296" text-anchor="middle" class="m">每卡算出一个部分和 XᵢAᵢ（tokens × h′）</text>
+  <text x="480" y="220" class="n">输入：按列分布即可——</text>
+  <text x="480" y="236" class="n">恰好是列切层的输出布局</text>
+  <text x="480" y="260" class="n">输出：4 个部分和要相加</text>
+  <text x="480" y="276" class="t" fill="#c94c4c">→ 一次 all-reduce</text>
+  <text x="14" y="322" class="m">配对：MLP 第一层列切、第二层行切，中间的 GELU 逐元素、不需要完整向量——整个 MLP 只在末尾 all-reduce 一次；注意力同理（Q/K/V 列切、O 行切）。</text>
+</svg>

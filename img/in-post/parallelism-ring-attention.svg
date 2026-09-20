@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="300" viewBox="0 0 760 300" font-family="-apple-system, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif" font-size="12">
+  <style>.t{fill:#222;font-weight:600}.n{fill:#222;font-size:11px}.m{fill:#555;font-size:11px}.q{fill:#dbe7f5;stroke:#3b6fb6}.k0{fill:#fdf1d6;stroke:#b9770e}.k1{fill:#e6f2e6;stroke:#3a7d44}.k2{fill:#f8dcdc;stroke:#c94c4c}.k3{fill:#ece4f5;stroke:#7b5ea7}</style>
+  <defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#555"/></marker></defs>
+  <text x="14" y="22" class="t">Ring Attention，N_c = 4：每张卡固定持有自己的 Q 块，K/V 块沿环传递 3 步，每步算一个局部注意力并用 online-softmax 合并</text>
+  <!-- 环 -->
+  <circle cx="150" cy="165" r="80" fill="none" stroke="#999" stroke-dasharray="4 3"/>
+  <g>
+    <rect x="120" y="60" width="60" height="30" class="q"/><text x="150" y="80" text-anchor="middle" class="n">卡 0：Q₀</text>
+    <rect x="200" y="150" width="60" height="30" class="q"/><text x="230" y="170" text-anchor="middle" class="n">卡 1：Q₁</text>
+    <rect x="120" y="240" width="60" height="30" class="q"/><text x="150" y="260" text-anchor="middle" class="n">卡 2：Q₂</text>
+    <rect x="40" y="150" width="60" height="30" class="q"/><text x="70" y="170" text-anchor="middle" class="n">卡 3：Q₃</text>
+  </g>
+  <path d="M185,95 A80,80 0 0 1 225,145" fill="none" stroke="#555" marker-end="url(#a)"/>
+  <path d="M225,185 A80,80 0 0 1 185,235" fill="none" stroke="#555" marker-end="url(#a)"/>
+  <path d="M115,235 A80,80 0 0 1 75,185" fill="none" stroke="#555" marker-end="url(#a)"/>
+  <path d="M75,145 A80,80 0 0 1 115,95" fill="none" stroke="#555" marker-end="url(#a)"/>
+  <text x="150" y="160" text-anchor="middle" class="m">K/V 块</text><text x="150" y="176" text-anchor="middle" class="m">顺时针 send/recv</text>
+  <!-- 时间表 -->
+  <text x="300" y="60" class="t">每张卡每一步用的 K/V 块（颜色 = 块来自哪张卡）</text>
+  <text x="300" y="84" class="m">步</text><text x="360" y="84" text-anchor="middle" class="m">0</text><text x="440" y="84" text-anchor="middle" class="m">1</text><text x="520" y="84" text-anchor="middle" class="m">2</text><text x="600" y="84" text-anchor="middle" class="m">3</text>
+  <g font-size="11">
+    <text x="300" y="112" class="n">卡 0</text>
+    <rect x="330" y="96" width="60" height="24" class="k0"/><text x="360" y="112" text-anchor="middle" class="n">K/V₀</text>
+    <rect x="410" y="96" width="60" height="24" class="k3"/><text x="440" y="112" text-anchor="middle" class="n">K/V₃</text>
+    <rect x="490" y="96" width="60" height="24" class="k2"/><text x="520" y="112" text-anchor="middle" class="n">K/V₂</text>
+    <rect x="570" y="96" width="60" height="24" class="k1"/><text x="600" y="112" text-anchor="middle" class="n">K/V₁</text>
+    <text x="300" y="146" class="n">卡 1</text>
+    <rect x="330" y="130" width="60" height="24" class="k1"/><text x="360" y="146" text-anchor="middle" class="n">K/V₁</text>
+    <rect x="410" y="130" width="60" height="24" class="k0"/><text x="440" y="146" text-anchor="middle" class="n">K/V₀</text>
+    <rect x="490" y="130" width="60" height="24" class="k3"/><text x="520" y="146" text-anchor="middle" class="n">K/V₃</text>
+    <rect x="570" y="130" width="60" height="24" class="k2"/><text x="600" y="146" text-anchor="middle" class="n">K/V₂</text>
+    <text x="300" y="180" class="n">卡 2</text>
+    <rect x="330" y="164" width="60" height="24" class="k2"/><text x="360" y="180" text-anchor="middle" class="n">K/V₂</text>
+    <rect x="410" y="164" width="60" height="24" class="k1"/><text x="440" y="180" text-anchor="middle" class="n">K/V₁</text>
+    <rect x="490" y="164" width="60" height="24" class="k0"/><text x="520" y="180" text-anchor="middle" class="n">K/V₀</text>
+    <rect x="570" y="164" width="60" height="24" class="k3"/><text x="600" y="180" text-anchor="middle" class="n">K/V₃</text>
+    <text x="300" y="214" class="n">卡 3</text>
+    <rect x="330" y="198" width="60" height="24" class="k3"/><text x="360" y="214" text-anchor="middle" class="n">K/V₃</text>
+    <rect x="410" y="198" width="60" height="24" class="k2"/><text x="440" y="214" text-anchor="middle" class="n">K/V₂</text>
+    <rect x="490" y="198" width="60" height="24" class="k1"/><text x="520" y="214" text-anchor="middle" class="n">K/V₁</text>
+    <rect x="570" y="198" width="60" height="24" class="k0"/><text x="600" y="214" text-anchor="middle" class="n">K/V₀</text>
+  </g>
+  <text x="300" y="246" class="m">每一列的四个块各不相同：同一时刻四张卡在算四个不同的 K/V 块，链路上同时有四个块在传。</text>
+  <text x="300" y="264" class="m">算第 j 块时收第 j+1 块——只要一块的注意力计算时间 ≥ 一块的传输时间，通信全部藏在计算后面。</text>
+  <text x="300" y="282" class="m">每卡每层收 N_c − 1 个块，总量 ≈ 整个序列的 K/V，与 N_c 无关。</text>
+</svg>
