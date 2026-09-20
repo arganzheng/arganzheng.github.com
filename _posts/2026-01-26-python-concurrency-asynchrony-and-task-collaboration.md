@@ -5,7 +5,7 @@ title: Python 在 AI-Infra（03）：并发、异步与任务协作
 subtitle: Python Concurrency, Asynchrony, and Task Collaboration in AI Systems
 tags: [Python]
 catalog: true
-updated: 2026-09-14
+updated: 2026-09-20
 ---
 
 在 AI-Infra 系统中，Python 往往并不直接承担最重的数值计算。真正消耗算力的部分，通常由 CUDA、C++、通信库或专用推理引擎完成。
@@ -1849,6 +1849,47 @@ class BatchProcessor:
 - GPU 显存水位控制；
 - 批量大小动态调整；
 - 推理实例熔断和重试。
+
+**把它封装成装饰器**
+
+Ray Serve 的 `@serve.batch` 让调用方"传一个、收一个"，攒批完全不可见。用上面的 `BatchProcessor` 加二十行就能做到同样的事——这也是第一篇讲的装饰器在真实系统里的样子：装饰器收到的是那个"接收一批"的异步函数，返回的是一个"接收单个"的异步函数，中间藏着一个惰性启动的后台 Task：
+
+```python
+import functools
+
+
+def batched(max_batch_size: int = 16, max_wait_seconds: float = 0.01):
+    """把 async def f(items: list[T]) -> list[R] 变成 async def f(item: T) -> R，内部自动攒批。"""
+
+    def decorator(infer_batch):
+        processor: BatchProcessor | None = None
+        worker: asyncio.Task | None = None
+
+        @functools.wraps(infer_batch)
+        async def submit_one(item):
+            nonlocal processor, worker
+            if processor is None:                                   # 第一次调用时才创建：此时一定已在事件循环里
+                processor = BatchProcessor(infer_batch, max_batch_size, max_wait_seconds)
+                worker = asyncio.create_task(processor.run())       # 后台常驻的攒批循环
+            return await processor.submit(item)
+
+        submit_one.batch = infer_batch                              # 保留原函数，测试或离线批处理时直接调
+        return submit_one
+
+    return decorator
+
+
+@batched(max_batch_size=8, max_wait_seconds=0.1)
+async def predict(samples: list[int]) -> list[int]:                # 写的时候按"一批"写
+    return [s * 2 for s in samples]
+
+
+async def main():
+    results = await asyncio.gather(*(predict(i) for i in range(20)))   # 用的时候按"一个"用
+    print(results)                                                     # [0, 2, 4, ..., 38]，内部只跑了 3 次 predict.batch
+```
+
+三处对应第一篇的机制：`batched(...)` 是带参数的装饰器，两层闭包把 `max_batch_size` 带到 `submit_one` 里；`nonlocal processor` 让闭包在第一次调用时改写外层变量，把"创建队列与后台 Task"推迟到事件循环已经在跑的时候（`asyncio.Queue` 与 `create_task` 都要求这一点，所以不能在装饰的那一刻做）；`functools.wraps` 让 `predict.__name__` 与文档字符串保持原样。与 Ray Serve 的差别只在生产细节——它的后台 Task 会跟着 replica 的生命周期启停，还处理了取消与超时；调用方看到的接口一模一样。
 
 对应 Java：同一个模式在 Java 里是"攒批线程 + `BlockingQueue` + `CompletableFuture`"，`drainTo` 让攒批代码比 Python 短得多：
 

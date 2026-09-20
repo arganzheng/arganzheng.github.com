@@ -5,7 +5,7 @@ title: Python 在 AI-Infra（01）：语言机制与运行时原理
 subtitle: Python Language Mechanisms and Runtime Internals
 tags: [Python]
 catalog: true
-updated: 2026-09-14
+updated: 2026-09-20
 ---
 
 Python 常被认为是一门"简单易学"的语言。但在深度学习框架、推理服务和分布式训练系统里，真正需要掌握的不是语法，而是语法背后的运行时模型。下面这些在 AI-Infra 代码里随处可见的写法，每一行都依赖一个可以被替换、被拦截、被扩展的机制：
@@ -76,7 +76,7 @@ class Runner:
 
 这段代码从写下到跑完，Python 运行时做了这些事：
 
-1. 有人 `import runner`，导入系统找到文件、编译成字节码、执行模块顶层代码——`REGISTRY` 被创建，`@registered("runner")` 在这一刻把 `Runner` 写进注册表；
+1. 另一个模块执行 `import runner`，导入系统找到文件、编译成字节码、执行模块顶层代码——`REGISTRY` 被创建，`@registered("runner")` 在这一刻把 `Runner` 写进注册表；
 2. `Runner(model)` 创建实例，经过 `__new__` 和 `__init__`；
 3. `runner(batch)` 触发 `__call__`，其中 `with context:` 进入并退出上下文；
 4. `for out in runner.stream(batch)` 创建生成器，逐步暂停与恢复；
@@ -125,7 +125,7 @@ import 语句 ──finder/loader──► 模块对象 ──执行顶层代码
 
 ## 二、执行模型：源码如何变成正在运行的代码
 
-一切机制都建立在一个事实上：Python 源码在运行前会被编译成一种中间表示，运行时操作的是这种表示，而不是文本。这一章先把这条链路建立起来，后面讨论导入、闭包、生成器时都会回到它。
+Python 源码在运行前会先被编译成字节码，解释器执行的是字节码，不是源文件的文本。这一章讲清这条链路——源码怎么变成 code object、函数对象、执行帧，以及编译在什么时候发生——后面的导入、闭包、生成器都建在它上面。
 
 ### 1. Python 不是"逐行解释"
 
@@ -135,7 +135,18 @@ import 语句 ──finder/loader──► 模块对象 ──执行顶层代码
 源代码(.py)  ──parser──►  AST  ──compiler──►  code object（含字节码）  ──解释器──►  在执行帧中运行
 ```
 
-编译以**整个模块**为单位发生在导入时（或 `python script.py` 启动时），每个函数体、类体、生成器体各自编译成一个嵌套的 code object。用 `dis` 可以看到函数的字节码：
+Python 没有 `javac` 那样一个单独的编译步骤，但编译确实发生，而且有明确的触发时机：
+
+| 触发 | 编译什么 | 产物放哪 |
+|---|---|---|
+| `python script.py` 启动 | 整个 `script.py` | 内存里的 code object；**不**写 `.pyc` |
+| 第一次 `import mod`（第四章） | 整个 `mod.py`，含其中每个函数体、类体 | 内存里的 code object，并写到 `__pycache__/mod.cpython-312.pyc` 缓存；下次导入若源文件没变，直接读 `.pyc` 跳过编译 |
+| `exec(src)` / `eval(expr)` / `compile(src, ...)` | 传入的字符串 | 返回或直接执行 code object——这是"运行时编译"的显式入口 |
+| 交互式解释器每输入一条语句 | 那一条语句 | 立刻执行 |
+
+所以说"运行时编译"是指：编译发生在**进程运行期间、第一次用到某个模块时**，而不是在一个独立的构建阶段；单位是**整个模块**——一个函数里的语法错误会让整个文件编译失败，于是 `import` 报 `SyntaxError`，哪怕那个函数从未被调用。编译的产物里，每个函数体、类体、生成器体各自是一个嵌套的 code object；`def` 语句执行时只是把已经编译好的 code object 包成函数对象（§2），不再编译。与 Java 对照：`javac` 在构建期把每个类编成 `.class`，JVM 启动后按需加载并**再次**即时编译成机器码；Python 只有前一半（源码 → 字节码）且发生在运行期，字节码之后就是解释执行。
+
+用 `dis` 可以看到函数的字节码：
 
 ```python
 import dis
@@ -171,10 +182,10 @@ print(c.co_varnames, c.co_argcount, c.co_consts)  # ('x', 'y') 2 (None,)
 
 这里需要分清几个概念，后面每一章都会用到：
 
-| 概念 | 是什么 | 什么时候产生 |
+| 对象 | 是什么 | 什么时候产生 |
 | :--- | :--- | :--- |
 | 源代码 | `.py` 文本 | 开发者编写 |
-| code object | 编译产物：字节码、常量表、变量名表、行号表 | 编译时，一个作用域一个 |
+| code object | 编译产物：字节码、常量表、变量名表、行号表 | 模块被首次导入（或脚本启动）时整体编译；每个作用域一个 |
 | 函数对象 | code object + 默认参数 + 全局命名空间 + 闭包 + 注解 | 执行到 `def` 语句时 |
 | 执行帧（frame） | 一次调用的运行状态：局部变量、当前指令位置、指向调用者的链 | 每次调用时创建 |
 | 解释器 | 执行字节码，维护调用栈、异常状态 | 进程级 |
@@ -199,7 +210,7 @@ print(predict.__qualname__)     # predict
 print(predict.__globals__ is globals())   # True
 ```
 
-`__globals__` 是函数定义所在模块的命名空间字典——这决定了函数里的全局名称在**定义它的模块**中查找，而不是在调用它的模块中。第三章的作用域规则、第四章"模块的顶层代码执行后名称才存在"，都以这个字段为基础。
+`__globals__` 是函数定义所在模块的命名空间字典——这决定了函数里的全局名称在**定义它的模块**中查找，而不是在调用它的模块中。第三章的作用域规则、第四章"模块的顶层代码执行后名称才存在"，都以 `__globals__` 这个字段为基础——查全局名称就是查这个字典。
 
 `def` 是语句，每执行一次就创建一个新的函数对象。两个函数对象可以共享同一个 code object：
 
@@ -338,7 +349,15 @@ f = outer()
 print(f())      # enclosing
 ```
 
-关键在于：编译器在编译 `inner` 时，扫描整个函数体，把每个名称分类——有赋值的是局部变量，没有赋值但在外层函数中有定义的是**自由变量**（free variable），其余都当作全局/内置。分类结果直接体现在字节码里：
+关键在于：编译器在编译 `inner` 时，扫描整个函数体，把每个名称分类——有赋值的是局部变量，没有赋值但在外层函数中有定义的是**自由变量**（free variable），其余都当作全局/内置。
+
+这条规则值得单独强调，因为它是 Python 与 Java 这类静态语言在"变量"这件事上最大的差别：**Python 没有变量声明，一个名称属于哪个作用域由"这个函数体里有没有对它赋值"决定，而且是在编译期、看整个函数体一次决定的。** Java 里 `int count;` 声明了类型和作用域，之后的 `count++` 只是使用；Python 里 `count += 1` 这一句本身就宣告了"`count` 是本函数的局部变量"——不管它出现在函数的第几行、前面有没有读过它。三个直接后果：
+
+1. 同一个名称在一个函数里只能属于一个作用域，不存在"前半段是全局、后半段是局部"；
+2. 一个名称是局部变量与它**有没有被赋过值**是两回事：局部变量可以"存在但还没有值"，读它会得到 `UnboundLocalError`（§3 的例子）；
+3. 要在函数里改外层的变量，必须用 `nonlocal` / `global` 显式声明"这个赋值不是在造局部变量"。
+
+分类结果直接体现在字节码里：
 
 ```python
 import dis
@@ -560,7 +579,7 @@ print(m.BYTECODE_SUFFIXES)     # ['.pyc']                                    →
 print(m.EXTENSION_SUFFIXES)    # ['.cpython-312-darwin.so', '.abi3.so', '.so'] → ExtensionFileLoader
 ```
 
-`ExtensionFileLoader` 就是 C 扩展进入 Python 的入口：它 `dlopen` 这个 `.so`，调用其中的 `PyInit_<name>` 函数拿到模块对象。看一个真实的扩展模块：
+这张表说明了一件初学者容易漏掉的事：**`import` 能导入的不只是 `.py` 文件。** 同一条 `import foo` 语句，目录里如果是 `foo.py`，就编译执行它；如果是 `foo.cpython-312-darwin.so`（Linux 上是 `foo.cpython-312-x86_64-linux-gnu.so`），就把它当作**扩展模块**（extension module）加载——一个用 C / C++ 编译出来的共享库，只要它导出一个名为 `PyInit_foo` 的 C 函数。`ExtensionFileLoader` 就是 C 扩展进入 Python 的入口：它 `dlopen` 这个 `.so`，调用其中的 `PyInit_<name>` 函数拿到模块对象；从此 `foo.bar()` 调的是 C 函数，`import` 语句本身看不出任何差别。C++ 系列第一篇会从 C++ 这一侧讲 `torch/csrc/stub.c` 里那个 `PyInit__C` 长什么样、它又拉起了哪些 `.so`。看一个真实的扩展模块：
 
 ```python
 import numpy, sys
@@ -1053,7 +1072,47 @@ print(hasattr(classmethod, "__set__"), hasattr(staticmethod, "__set__"), hasattr
 | `property` | getter/setter 约定，或 record 的访问器 | Java 没有语法级支持，`obj.getX()` 不能写成 `obj.x` |
 | `classmethod` | 静态工厂方法 | 见下 |
 
-`classmethod` 与 Java 静态工厂的差异需要说准确。Java 的静态方法**不按接收者分派**：`GpuRunner.createDefault()` 在编译期就被解析为 `Runner.createDefault()`，方法体内没有任何途径知道调用方写的是 `GpuRunner`。要让工厂创建子类，必须由调用方**显式传入**类型信息——`Class<T>` 令牌加反射（`cls.getDeclaredConstructor().newInstance()`），或一个 `Supplier<T>`。这并不难写，但它是显式的；Python 的 `classmethod` 则由描述符协议在 `__get__` 时**自动**把实际的类绑定进去。两者能达到同样的目的，区别在"谁负责提供类对象"：Java 靠调用方传参，Python 靠属性查找机制注入。
+`classmethod` 与 Java 静态工厂的差异需要说准确。Java 的静态方法**不按接收者分派**：`GPURunner.fromConfig(cfg)` 在编译期就被解析为 `Runner.fromConfig(cfg)`，方法体内没有任何途径知道调用方写的是 `GPURunner`，`new Runner(...)` 写死了就只能造 `Runner`：
+
+```java
+class Runner {
+    static Runner fromConfig(Map<String, Object> cfg) {
+        return new Runner((Model) cfg.get("model"));     // 只能造 Runner；GPURunner.fromConfig(cfg) 得到的也是 Runner
+    }
+}
+class GPURunner extends Runner { ... }
+```
+
+要让工厂创建子类，必须由调用方**显式传入**类型信息。两种写法：
+
+```java
+// 写法一：Class<T> 令牌 + 反射
+static <T extends Runner> T fromConfig(Class<T> cls, Map<String, Object> cfg) throws Exception {
+    return cls.getDeclaredConstructor(Model.class).newInstance((Model) cfg.get("model"));
+}
+GPURunner r = Runner.fromConfig(GPURunner.class, cfg);
+
+// 写法二：把构造函数当参数传进来
+static <T extends Runner> T fromConfig(Function<Model, T> ctor, Map<String, Object> cfg) {
+    return ctor.apply((Model) cfg.get("model"));
+}
+GPURunner r = Runner.fromConfig(GPURunner::new, cfg);
+```
+
+这并不难写，但类对象是调用方**传**进去的；Python 的 `classmethod` 则由描述符协议在 `__get__` 时**自动**把实际的类绑定进 `cls`：
+
+```python
+class Runner:
+    @classmethod
+    def from_config(cls, cfg):
+        return cls(cfg["model"])          # cls 是谁调的就是谁
+
+class GPURunner(Runner): ...
+
+GPURunner.from_config(cfg)                # 得到 GPURunner，不用传任何类型信息
+```
+
+两者能达到同样的目的，区别在"谁负责提供类对象"：Java 靠调用方传参，Python 靠属性查找机制注入。
 
 ### 6. `__getattr__` 与 `__getattribute__`：查找失败后的钩子
 
@@ -1431,6 +1490,8 @@ retry(max_attempts)  →  decorator(func)  →  wrapper(*args, **kwargs)
 
 ### 5. 装饰类：注册表
 
+先说清装饰器**接收什么**：`@deco` 写在什么定义的上面，`deco` 收到的就是那个定义产生的对象——`def` 上面收到函数对象，`class` 上面收到类对象，`async def` 上面收到协程函数；因为方法也是函数，写在方法上面收到的同样是函数（§6 讲它与 `property` / `staticmethod` 叠放时的顺序）。没有第四种：Python 只允许把装饰器写在 `def` 和 `class` 前面。至于装饰器**返回**什么则完全自由——通常是同类型的替代品（包装函数、原类），但也可以是任何对象：`@property` 收到函数、返回一个 `property` 描述符对象；`@functools.lru_cache` 收到函数、返回一个带 `cache_info()` 方法的可调用对象；`@dataclass` 收到类、原地改造后返回同一个类。
+
 装饰器的参数可以是类，返回原类不变、只做登记，就是第一章的 `registered`：
 
 ```python
@@ -1511,7 +1572,26 @@ print(next(g))                                  #   resume / 2
 next(g)                                         #   end → StopIteration；状态变为 GEN_CLOSED
 ```
 
-调用生成器函数不执行函数体，只创建一个生成器对象，它内部持有一个帧（`g.gi_frame`）；第一次 `next()` 才开始执行；到 `yield` 处暂停，帧里的局部变量、指令位置全部保留（`g.gi_frame.f_locals` 可以直接看到）；函数体结束时抛出 `StopIteration`。生成器同时实现了 `__iter__`（返回自己）和 `__next__`，所以它是第六章意义上的迭代器，可以直接放进 `for`。
+把这段执行画出来——左边是调用方，右边是生成器对象里那个帧：
+
+```mermaid
+sequenceDiagram
+    participant C as 调用方
+    participant G as 生成器对象 g（内部持有一个帧）
+    C->>G: g = stream()
+    Note over G: 创建帧，指令位置指向函数开头<br/>状态 GEN_CREATED——函数体一行都没执行
+    C->>G: next(g)
+    Note over G: 帧开始执行：print("start")<br/>遇到 yield 1：帧挂起，局部变量与指令位置原地保留<br/>状态 GEN_SUSPENDED
+    G-->>C: 1
+    C->>G: next(g)
+    Note over G: 从 yield 1 的下一条指令恢复：print("resume")<br/>遇到 yield 2：再次挂起
+    G-->>C: 2
+    C->>G: next(g)
+    Note over G: 恢复：print("end")，函数体结束<br/>帧销毁，状态 GEN_CLOSED
+    G-->>C: raise StopIteration
+```
+
+调用生成器函数不执行函数体，只创建一个生成器对象，它内部持有一个帧（`g.gi_frame`）；第一次 `next()` 才开始执行；到 `yield` 处暂停，帧里的局部变量、指令位置全部保留（`g.gi_frame.f_locals` 可以直接看到）；函数体结束时抛出 `StopIteration`。普通函数的帧在 `return` 时销毁，生成器的帧在两次 `next()` 之间一直活着——这就是"惰性"的全部实现。生成器同时实现了 `__iter__`（返回自己）和 `__next__`，所以它是第六章意义上的迭代器，可以直接放进 `for`。
 
 ### 2. 惰性的价值与成本
 

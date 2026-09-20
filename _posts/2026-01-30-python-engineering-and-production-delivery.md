@@ -5,7 +5,7 @@ title: Python 在 AI-Infra（07）：项目工程化与生产交付
 subtitle: Python Project Engineering and Production Delivery
 tags: [Python]
 catalog: true
-updated: 2026-09-14
+updated: 2026-09-20
 ---
 
 前面几篇讨论的都是"代码本身"：语言机制、类型与数据契约、并发、元编程、内存、测试与调试。这一篇讨论一件不同的事——**怎么把这些代码变成一个可以交付的东西**。
@@ -61,7 +61,7 @@ Java 开发者常有的一个错觉是"Python 简单，随便装装就能跑"。
 |---|---|---|
 | 二 | `pyproject.toml`：项目元数据的单一入口 | [project]、可选依赖与分组、scripts 入口、build-system、工具配置聚合、对照 Maven |
 | 三 | 虚拟环境与解释器隔离 | 为什么比 Java 更依赖隔离、venv 操作、隔离解决不了什么、conda vs venv |
-| 四 | 依赖管理与可复现构建 | 抽象依赖与锁定依赖、`requirements.txt` 的局限、工具选型、版本上界、供应链安全 |
+| 四 | 依赖管理与可复现构建 | 对照 Maven 的五件事、抽象依赖与锁定依赖、`requirements.txt` 的局限、工具选型、版本上界、供应链安全 |
 | 五 | AI-Infra 的依赖难题 | +cu121 本地版本、index-url 与 extra-index-url、CUDA 兼容矩阵、锁文件跨平台失效、把 torch 摘出去 |
 | 六 | 代码质量工具链 | Ruff、渐进式引入与 noqa、pre-commit、与类型检查的分工、对照 Checkstyle/SpotBugs |
 | 七 | 打包与分发 | wheel 与 sdist、纯 Python 包 vs 带扩展的包、类型信息随包分发、版本号与发布 |
@@ -371,7 +371,23 @@ pyenv local 3.11.10
 
 ## 四、依赖管理与可复现构建
 
-### 1. 抽象依赖与锁定依赖
+### 1. 先对照 Maven：同样五件事，缺了一件
+
+Java 开发者对依赖管理的心智模型来自 Maven：写 `pom.xml`、`mvn install`、出问题看 `dependency:tree`。Python 做的是同样的五件事，工具与文件各有对应，但有一处结构性差别：
+
+| 事 | Maven | Python（uv / pip 生态） | 差别 |
+|---|---|---|---|
+| **声明**直接依赖 | `pom.xml` 的 `<dependencies>`，坐标 `groupId:artifactId:version`，版本几乎总是写死 | `pyproject.toml` 的 `dependencies = [...]`，只有包名（无命名空间），版本通常写范围 `>=2.9` | Python 没有 groupId：`requests` 全世界只有一个，谁先注册谁拿走（第二章末尾的扁平命名空间） |
+| **解析**传递依赖 | 构建时按"最近优先"（nearest-wins）取每个坐标的一个版本，结果由 pom 树唯一确定 | 解析器（pip 的 resolvelib、uv 的 PubGrub）在所有范围的交集里挑满足约束的最新版本，结果随 PyPI 上的新发布而变 | Maven 的结果是确定的，所以它**没有锁文件也能复现**；Python 的结果随时间漂移，所以必须把解析结果写下来 |
+| **锁定**解析结果 | 不需要（Gradle 有 `gradle.lockfile`，Maven 靠 `dependencyManagement` / BOM 把版本钉死） | `uv.lock` / `poetry.lock` / `requirements.lock`：每个包的精确版本 + hash | 这一件是 Python 多出来的、也是最容易被跳过的一步——`pip install -r requirements.txt` 跳过的就是它 |
+| **安装**到环境 | 下载到 `~/.m2/repository`（全局缓存，按坐标隔离），运行时按 classpath 取 | 装进当前 venv 的 `site-packages`（每项目一份；uv 有全局缓存做硬链接） | Java 靠坐标天然隔离多版本；Python 同一个环境里一个包只能有一个版本，隔离靠 venv |
+| **审计** | `mvn dependency:tree`、`versions:display-dependency-updates`、OWASP dependency-check | `uv tree` / `pipdeptree`、`uv lock --upgrade`、`pip-audit` | 相同 |
+
+其余概念的对应：`jar` ↔ `wheel`（第七章），Nexus / Artifactory 私有仓库 ↔ 私有 index（`--index-url`，第 6 节与第五章），BOM ↔ `constraints.txt` / `[tool.uv] constraint-dependencies`，`mvn -o` 离线严格构建 ↔ `uv sync --frozen`，`mvn exec:java` ↔ `uv run`。
+
+第三行的差别决定了本章其余内容的组织：先分清"声明"与"锁定"两种依赖（§2），说明为什么常见的 `requirements.txt` 做不到复现（§3），再看工具怎么选（§4）、版本范围怎么写（§5）、传递依赖与供应链怎么管（§6）。
+
+### 2. 抽象依赖与锁定依赖
 
 这是整章最重要的概念区分，也是 `pip install -r requirements.txt` 给人虚假安全感的根源。
 
@@ -415,9 +431,9 @@ typing-extensions==4.12.2
 | 库项目 | 必须有 | 可以没有（不能限制下游） |
 | 应用/服务 | 必须有 | **必须有** |
 
-**库和应用的区别很关键**：库不该锁死依赖版本，否则会和下游其他库的要求冲突（这也是为什么第 4 节讨论"上界该不该加"）；应用是依赖链的终点，锁得越死越好。
+**库和应用的区别很关键**：库不该锁死依赖版本，否则会和下游其他库的要求冲突（这也是为什么第 5 节讨论"上界该不该加"）；应用是依赖链的终点，锁得越死越好。
 
-### 2. 为什么 requirements.txt 不等于可复现
+### 3. 为什么 requirements.txt 不等于可复现
 
 一个典型的 `requirements.txt`：
 
@@ -450,7 +466,7 @@ pip install --require-hashes -r requirements.lock
 
 `uv.lock` 和 `poetry.lock` 默认就带 hash，不需要额外开关。
 
-### 3. 工具选型
+### 4. 工具选型
 
 Python 的依赖管理工具经历了长期的碎片化。当前的格局：
 
@@ -487,7 +503,7 @@ uv run pytest                  # 在项目环境里执行命令，无需激活
 
 对应 Java：uv 的定位相当于 Maven 本身（依赖解析 + 环境管理 + 命令执行），而 pip 只相当于 Maven 依赖下载的那一小部分。
 
-### 4. 版本约束：上界该不该加
+### 5. 版本约束：上界该不该加
 
 这是个有争议的话题，我给出的判断是**分情况**：
 
@@ -512,7 +528,7 @@ uv run pytest                  # 在项目环境里执行命令，无需激活
 - 依赖的库有明确破坏性历史（如 Pydantic v1→v2 那种级别）时，才加大版本上界；
 - 靠 CI 定期跑最新依赖来提前发现问题，而不是靠上界预防。
 
-### 5. 直接依赖、传递依赖与供应链安全
+### 6. 直接依赖、传递依赖与供应链安全
 
 回到第二章末尾提到的 PyPI 扁平命名空间问题。几条实践：
 

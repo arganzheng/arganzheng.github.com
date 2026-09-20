@@ -5,7 +5,7 @@ title: Python 在 AI-Infra（02）：类型系统与数据契约设计
 subtitle: Python Type System and Data Contract Design
 tags: [Python]
 catalog: true
-updated: 2026-09-14
+updated: 2026-09-20
 ---
 
 Python 是动态类型语言，但这不意味着"无类型"。自 Python 3.5 引入 `typing` 模块以来，类型注解已经从"可选装饰"演变为大型项目的工程标配。PyTorch、vLLM、FastAPI 等 AI Infra 项目大量依赖类型系统的高级特性。
@@ -1920,14 +1920,14 @@ def matmul(a: Tensor, b: Tensor) -> Tensor: ...
 
 常见机制的分工如下：
 
-```text
-.py       类型信息与 Python 实现写在同一个文件中
-.pyi      单独描述模块的接口和类型信息
-typeshed  为标准库及部分第三方库提供外部存根
-types-*   以独立软件包形式分发第三方库的类型存根
-py.typed  声明包内的类型信息可以提供给下游类型检查器
-PEP 561   规定 Python 包分发类型信息的相关机制
-```
+| 机制 | 分工 |
+|---|---|
+| `.py` | 类型信息与 Python 实现写在同一个文件中 |
+| `.pyi` | 单独描述模块的接口和类型信息 |
+| typeshed | 为标准库及部分第三方库提供外部存根 |
+| `types-*` | 以独立软件包形式分发第三方库的类型存根 |
+| `py.typed` | 声明包内的类型信息可以提供给下游类型检查器 |
+| PEP 561 | 规定 Python 包分发类型信息的相关机制 |
 
 需要注意的是，C/C++ 扩展并不一定没有类型信息；它们通常只是无法通过二进制实现本身被类型检查器直接推导。类型信息仍然可以由 `.pyi` 文件、Python 包装层、外部存根包或类型检查器插件提供。下面我们就展开介绍这种外部存根包的类型信息提供机制。
 
@@ -2355,7 +2355,7 @@ hints = get_type_hints(User)
 |---|---|---|
 | 字符串注解 | 原样返回字符串 | 求值为真正的类型对象 |
 | 继承来的字段 | 只有当前类自己的 | 合并整条 MRO 上的注解 |
-| `Optional` 补全 | 不处理 | 带 `None` 默认值的参数自动补成 `X \| None` |
+| `Optional` 补全 | 不处理 | 带 `None` 默认值的参数自动补成 `X ∣ None` |
 
 第一点尤其重要。开启 `from __future__ import annotations` 后（或使用前向引用），所有注解都会以字符串形式保存：
 
@@ -2532,15 +2532,13 @@ Python 类型系统的一个核心设计原则是：**静态检查和运行时�
 
 **分工**
 
-```
-                    静态检查（mypy/pyright）          运行时检查（Pydantic/beartype）
-                    ─────────────────────           ─────────────────────────────
-覆盖范围           你写的代码 + 有存根的库            所有实际运行的数据
-检查时机           开发时 / CI                       运行时
-性能开销           零（不影响运行）                   有（校验成本）
-能做到             推断、收窄、穷尽检查               精确值校验（范围、格式、正则）
-做不到             校验外部输入的具体值               类型推断、代码可读性提升
-```
+| | 静态检查（mypy / pyright） | 运行时检查（Pydantic / beartype） |
+|---|---|---|
+| 覆盖范围 | 你写的代码 + 有存根的库 | 所有实际运行的数据 |
+| 检查时机 | 开发时 / CI | 运行时 |
+| 性能开销 | 零（不影响运行） | 有（校验成本） |
+| 能做到 | 推断、收窄、穷尽检查 | 精确值校验（范围、格式、正则） |
+| 做不到 | 校验外部输入的具体值 | 类型推断、代码可读性提升 |
 
 **推荐实践**
 
@@ -3094,18 +3092,23 @@ settings = Settings()
 
 **决策树**
 
-```text
-外部数据（HTTP / JSON / YAML / 环境变量）
-    └─ 需要解析和校验 ──→ Pydantic BaseModel
-    └─ 来自环境变量 / .env ──→ Pydantic BaseSettings
-
-内部数据传递
-    └─ 需要不可变（可做 dict key / 跨线程共享）──→ @dataclass(frozen=True) / NamedTuple
-    └─ 需要可变状态 ──→ @dataclass
-    └─ 实例数量极大、内存敏感 ──→ @dataclass(slots=True)
-
-数据本身就是 dict（第三方 API 返回值、已解析的 JSON）
-    └─ 只想约束形状，不想改变运行时行为 ──→ TypedDict
+```mermaid
+flowchart TB
+    Q0{"这组数据从哪来？"}
+    Q0 -->|"外部：HTTP / JSON / YAML / 环境变量"| Q1{"来自环境变量或 .env？"}
+    Q1 -->|"是"| S["Pydantic BaseSettings"]
+    Q1 -->|"否"| M["Pydantic BaseModel<br/>进门时解析并校验一次"]
+    Q0 -->|"内部：模块之间传递"| Q2{"需要什么性质？"}
+    Q2 -->|"不可变：可做 dict key、跨线程共享"| F["@dataclass(frozen=True) / NamedTuple"]
+    Q2 -->|"可变状态"| D["@dataclass"]
+    Q2 -->|"实例数量极大、内存敏感"| SL["@dataclass(slots=True)"]
+    Q0 -->|"数据本身就是 dict：第三方 API 返回值、已解析的 JSON"| Q3{"只想约束形状、不改运行时行为？"}
+    Q3 -->|"是"| TD["TypedDict"]
+    Q3 -->|"否，要校验值"| M
+    classDef q fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef a fill:#eef4fb,stroke:#5b8dc9,color:#222
+    class Q0,Q1,Q2,Q3 q
+    class S,M,F,D,SL,TD a
 ```
 
 **核心原则：边界校验一次，内部自由传递**
@@ -3201,8 +3204,8 @@ vLLM 的源码就是这个模式：API 层（`entrypoints/openai/protocol.py`）
 | 工具 | 版本 | 一句话说明 | Java 对应 | 频次 |
 |---|---|---|---|---|
 | `list[str]` | 3.9 | 内置容器泛型 | `List<String>` | ★★★★★ |
-| `X \| Y` | 3.10 | 联合类型 | sealed interface | ★★★★★ |
-| `Optional[X]` | 3.5 | `X \| None` 的语法糖 | `Optional<X>` | ★★★★★ |
+| `X ∣ Y` | 3.10 | 联合类型 | sealed interface | ★★★★★ |
+| `Optional[X]` | 3.5 | `X ∣ None` 的语法糖 | `Optional<X>` | ★★★★★ |
 | `Any` | 3.5 | 逃逸舱，跳过检查 | 裸类型 `List` | ★★★★☆ |
 | `Literal` | 3.8 | 字面量类型 | `enum` | ★★★★☆ |
 | `TypeVar` | 3.5 | 泛型类型变量 | `<T>` | ★★★★☆ |
@@ -3226,7 +3229,7 @@ vLLM 的源码就是这个模式：API 层（`entrypoints/openai/protocol.py`）
 | `TypeAlias` | 3.10 | 类型别名 | 无 | ★★★★☆ |
 | `get_type_hints()` | 3.5 | 运行时获取注解 | `Field.getGenericType()` | ★★★☆☆ |
 
-> 频次说明：基于 PyTorch、vLLM、FastAPI、Pydantic、httpx、SQLAlchemy 等主流项目源码中的实际出现情况估算。★★★★★ 表示几乎每个模块都会用到，★☆☆☆☆ 表示仅在特定场景出现。
+> 表里的 `X ∣ Y` 是 `X | Y`——Markdown 表格里写不出竖线，用了形近的 ∣ 代替。频次说明：基于 PyTorch、vLLM、FastAPI、Pydantic、httpx、SQLAlchemy 等主流项目源码中的实际出现情况估算。★★★★★ 表示几乎每个模块都会用到，★☆☆☆☆ 表示仅在特定场景出现。
 
 ## 八、本文小结
 
