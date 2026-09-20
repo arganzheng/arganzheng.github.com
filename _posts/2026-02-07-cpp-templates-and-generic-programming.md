@@ -5,7 +5,7 @@ title: "C++ 在 AI-Infra（03）：模板与泛型编程"
 subtitle: "Templates and Generic Programming"
 tags: [C++, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-09-20
 ---
 
 打开 `aten/src/ATen/native/cpu/Activation.cpp`，`log_sigmoid` 的 CPU kernel 里有这么一段（`log_sigmoid_cpu_kernel` 的 `else` 分支，删节）：

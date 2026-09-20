@@ -2420,7 +2420,7 @@ int main() {
 clang++ -std=c++17 -Wall -Wextra -pthread demo.cpp -o demo && ./demo
 ```
 
-在本机（macOS，Apple clang）的输出：
+macOS（Apple clang）上的输出：
 
 ```text
 main: grad enabled = 0

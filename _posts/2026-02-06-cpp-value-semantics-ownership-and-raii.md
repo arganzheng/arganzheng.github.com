@@ -5,7 +5,7 @@ title: "C++ 在 AI-Infra（02）：值、引用与所有权——对象模型与
 subtitle: "Value Semantics, Ownership and RAII"
 tags: [C++, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-09-20
 ---
 
 打开 `aten/src/ATen/core/TensorBase.h`，`at::Tensor` 的基类是这样定义的（类定义开头和结尾）：
@@ -83,7 +83,7 @@ at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta) {
 
 ```cpp
 struct Point {        // struct 定义一个类型；结尾的分号不能少
-  double x, y;        // 两个数据成员（Java 叫字段）
+  double x, y;        // 两个数据成员（Java 叫成员变量 / field）
 };                    // <- 这个分号是初学者最常漏掉的
 
 class Counter {

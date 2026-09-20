@@ -1871,7 +1871,7 @@ PyTorch 2.x 中的变化：`torch/csrc/stable/` 和 `torch/headeronly/` 是 2.9 
 
 ### 1. Name mangling：类型信息编进符号名
 
-第一篇 5.2 节讲过基本规则。这里关注它和 ABI 的关系：**C++ 把参数类型编进符号名，所以同一个函数如果参数类型的"名字"变了，符号就变了，链接就对不上。** 用本机的 `c++filt` 看两个 PyTorch 里真实会出现的符号：
+第一篇 5.2 节讲过基本规则。这里关注它和 ABI 的关系：**C++ 把参数类型编进符号名，所以同一个函数如果参数类型的"名字"变了，符号就变了，链接就对不上。** 用 macOS 上的 `c++filt` 看两个 PyTorch 里真实会出现的符号：
 
 ```bash
 $ echo _ZN3c105ErrorC1ENS_14SourceLocationESs | c++filt
@@ -1924,7 +1924,7 @@ PyTorch 2.x 中的变化（版本敏感，按官方发布说明和 v2.10.0 源�
 
 所以在 v2.10.0 上，`__cxx11` 类的 `undefined symbol` 只会在一种情况下出现：你自己（或者你用的某个第三方库、某个 conda 编译器配置）显式加了 `-D_GLIBCXX_USE_CXX11_ABI=0`。在 2.6 之前的版本上则是反过来：忘了加 `=0` 就会撞上。
 
-本机是 macOS，用的是 libc++ 而不是 libstdc++，**没有** `_GLIBCXX_USE_CXX11_ABI` 这个宏，无法直接复现上述错误。但 libc++ 用了同样的 inline namespace 技巧——它的所有类型都在 `std::__1` 里，所以在 macOS 上编译一个接受 `std::string` 的函数：
+macOS 用的是 libc++ 而不是 libstdc++，**没有** `_GLIBCXX_USE_CXX11_ABI` 这个宏，在 macOS 上复现不出上述错误。但 libc++ 用了同样的 inline namespace 技巧——它的所有类型都在 `std::__1` 里，所以在 macOS 上编译一个接受 `std::string` 的函数：
 
 ```bash
 $ printf '#include <string>\nvoid f(const std::string&) {}\n' > s.cpp
@@ -2159,7 +2159,7 @@ def _check_cuda_version(compiler_name: str, compiler_version: TorchVersion) -> N
 
 按系列约定，本篇给 mini-c10 加 `python/minic10_python.cpp`：用 pybind11 把第二篇的 `Tensor`、第三篇的 `add`/`mul`、第六篇的 `GradMode` 暴露给 Python，并照 `torch/csrc/utils/pybind.h` 的写法给 `Tensor` 写一个自定义 caster。假设前面各篇的头文件已存在：`minic10/core/Tensor.h`（`Tensor`、`empty(sizes, dtype, key)`）、`minic10/core/GradMode.h`、`minic10/ops/ops.h`（声明 `Tensor add(const Tensor&, const Tensor&)` 和 `mul`，实现在 `ops/add.cpp`、`ops/mul.cpp`）。
 
-本机有 macOS `clang++` 和一个临时 venv 里安装的 pybind11 3.0.1（`python3 -c "import pybind11"` 在系统 Python 里失败，于是 `python3 -m venv` 后 `pip install pybind11`），以下模块**实际编译并运行通过**。
+以下模块在 macOS（Apple clang，venv 里 `pip install pybind11` 装的 pybind11 3.0.1）上**实际编译并运行通过**。
 
 ### 1. `python/minic10_python.cpp`
 
@@ -2382,7 +2382,7 @@ with mc.no_grad():
 print("after:", mc.is_grad_enabled())
 ```
 
-本机实际输出：
+实际输出（macOS）：
 
 ```text
 Tensor(sizes=[4], dtype=Float) use_count = 1
@@ -2426,7 +2426,7 @@ minic10::add(minic10::Tensor const&, minic10::Tensor const&)
 
 目标：复现 10.2 节那种"编译全部通过、链接/加载时 `undefined symbol`、符号里多了一个 `__cxx11`"的事故，并演示用 `c++filt` 定位。
 
-本机是 macOS + libc++，没有 `_GLIBCXX_USE_CXX11_ABI`，不能直接用 `std::string` 复现。但 libstdc++ 双 ABI 的**机制**只是一个 inline namespace，可以用三个小文件把机制本身复现出来，然后说明它在 Linux 上对应的真实现象。
+macOS 用 libc++，没有 `_GLIBCXX_USE_CXX11_ABI`，不能直接用 `std::string` 复现。但 libstdc++ 双 ABI 的**机制**只是一个 inline namespace，可以用三个小文件把机制本身复现出来，然后说明它在 Linux 上对应的真实现象。
 
 `mystring.h` 模仿 libstdc++ 的 `<string>`：
 

@@ -552,7 +552,7 @@ inline Return callUnboxedKernelFunction(
 
 代价有三项：
 
-1. **大小**：本机 libc++ 下 `sizeof(std::function<void()>)` 是 32 字节，libstdc++ 也是 32（函数指针是 8）。
+1. **大小**：macOS libc++ 下 `sizeof(std::function<void()>)` 是 32 字节，libstdc++ 也是 32（函数指针是 8）。
 2. **堆分配**：被装进去的对象超过内部小缓冲区（通常 16 字节）就要 `new`。一个捕获了两个 `Tensor` 的 lambda 就会触发。
 3. **间接调用**：调用时经一层内部的函数指针或虚函数跳转，不能内联。
 

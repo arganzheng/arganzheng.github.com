@@ -535,7 +535,7 @@ C++ 对象按生命周期分三类（第六篇加上 `thread_local` 是四类）
 1. **静态初始化**：常量初始化（`constexpr` 或字面量），编译期算好，直接写进二进制的数据段，没有运行时代码；
 2. **动态初始化**：需要运行构造函数或调用函数才能得到初值的，编译器为每个这样的变量生成一段初始化代码，收集进一张表（ELF 的 `.init_array`、Mach-O 的 `__mod_init_func`），由运行时在 `main` 之前——对动态库来说是 `dlopen` 返回之前——逐个执行。
 
-用 mini-c10 的一个目标文件验证第二点（本机 macOS）：
+用 mini-c10 的一个目标文件验证第二点（macOS）：
 
 ```text
 $ nm -C add.o | grep -E "_static_init|global_var_init"
@@ -2094,7 +2094,7 @@ int main() {
 clang++ -std=c++17 -Wall -Wextra -I. check_demo.cpp -o check_demo && ./check_demo
 ```
 
-本机输出：
+实际输出（macOS）：
 
 ```text
 ok, expensive() called 0 times
@@ -2112,7 +2112,7 @@ expensive() called 1 times
 
 `f(1)` 三个检查全通过，`expensive()` 一次都没调——惰性求值；`f(-3)` 失败时才调了一次。三种消息形式分别走了三个 `checkMsg` 重载。`Exception raised from f at check_demo.cpp:6` 是 `__func__`/`__FILE__`/`__LINE__` 的去处。
 
-用 `-E` 看 `f` 的第一行展开成什么（本机实际输出，手工换行）：
+用 `-E` 看 `f` 的第一行展开成什么（macOS 上的实际输出，手工换行）：
 
 ```cpp
 if ((__builtin_expect(static_cast<bool>(!(x > 0)), 0))) {
@@ -2386,7 +2386,7 @@ MINI_LIBRARY(minic10, m) {
 }
 ```
 
-`-E` 看它展开成什么（本机实际输出，手工换行）：
+`-E` 看它展开成什么（macOS 上的实际输出，手工换行）：
 
 ```cpp
 static void MINI_LIBRARY_init_minic10(::minic10::Library&);
@@ -2587,7 +2587,7 @@ clang++ -std=c++17 main.o -Wl,-force_load,libminic10.a -o demo_whole && ./demo_w
 clang++ -std=c++17 main.o -Wl,--whole-archive -L. -lminic10 -Wl,--no-whole-archive -o demo_whole && ./demo_whole
 ```
 
-本机（macOS）输出与 A 完全相同。这对应 `cmake/TorchConfig.cmake.in` 里 `append_wholearchive_lib_if_found(torch torch_cpu)` 做的事。
+macOS 上的输出与 A 完全相同。这对应 `cmake/TorchConfig.cmake.in` 里 `append_wholearchive_lib_if_found(torch torch_cpu)` 做的事。
 
 **D. 动态库**：
 
@@ -2644,7 +2644,7 @@ Undefined symbols for architecture arm64:
 
 （Linux GNU ld 的措辞是 `undefined reference to 'minic10::Dispatcher::realSingleton()'`。）`-fvisibility=hidden` 让 `realSingleton` 不再导出，`main.o` 链接不到它。这是第一篇末尾说的"给 PyTorch 加新 API 时最常见的遗漏"在 mini-c10 里的复现。
 
-**去掉 `Error` 上的 `MINI_API`**，重编 D 并运行（本机 macOS，Apple clang 21，arm64）：
+**去掉 `Error` 上的 `MINI_API`**，重编 D 并运行（macOS，Apple clang 21，arm64）：
 
 ```text
 registered ops: minic10::mul minic10::add

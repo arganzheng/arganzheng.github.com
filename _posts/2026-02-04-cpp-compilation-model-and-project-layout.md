@@ -5,10 +5,10 @@ title: "C++ 在 AI-Infra（01）：从源码到二进制——编译模型与项
 subtitle: "Compilation Model and Project Layout"
 tags: [C++, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-09-20
 ---
 
-`import torch` 背后，Python 解释器真正加载的第一个 C 语言文件只有 15 行。它是 `torch/csrc/stub.c`，全文如下：
+`import torch` 背后，Python 解释器真正加载的第一个 C 语言文件只有 15 行。先说清楚一件事：`import` 导入的不一定是 `.py` 文件。目录里如果放的是一个编译好的共享库 `_C.cpython-312-x86_64-linux-gnu.so`，同一条 `import` 语句会 `dlopen` 它并调用其中一个名为 `PyInit__C` 的 C 函数拿到模块对象——这是 Python 系列[第一篇第四章](/python-language-mechanisms-and-runtime-internals.html)讲的 `ExtensionFileLoader`。本篇从 C++ 这一侧接着讲：那个 `PyInit__C` 在哪、它编成了什么、又拉起了什么。它在 `torch/csrc/stub.c`，全文如下：
 
 ```c
 #include <Python.h>
@@ -61,7 +61,7 @@ Java 是全篇的参照系。Java 的世界里只有一种编译产物（`.class
 | 七 | 命名空间 | c10::、at::、torch:: 的分工；一个命名空间可以横跨多个库 |
 | 八 | PyTorch 的源码布局与库布局 | c10/ -> aten/ -> torch/csrc/ 各编成什么；import torch 加载了什么；扩展链接到哪一个 |
 | 九 | 回到源码 | `c10/CMakeLists.txt`、`caffe2/CMakeLists.txt`、`torch/CMakeLists.txt`、`stub.c`、`setup.py` |
-| 十 | 实践一 | 手写 g++ 命令把一个 libtorch 程序链接到 PyTorch 的 .so，用 ldd 和 nm 观察 |
+| 十 | 实践一 | 手写编译命令把一个 libtorch 程序链接到 PyTorch 的库，用 ldd / otool 和 nm 观察 |
 | 十一 | 实践二 | mini-c10 的目录结构与第一个可链接的库 |
 | 十二 | 工程实践建议与常见错误 | 按阶段定位错误、头文件卫生、链接与部署、读源码的定位技巧 |
 | 十三 | 本文小结 |  |
@@ -73,20 +73,31 @@ Java 是全篇的参照系。Java 的世界里只有一种编译产物（`.class
 
 Java 的构建流程可以概括为一步：`javac` 把 `.java` 编成 `.class`，`.class` 里带着完整的类型信息、方法签名、常量池和字节码，谁引用了谁全部记在文件里。运行时，JVM 的类加载器按需读 `.class`、解析、链接、初始化。"链接"这个词在 Java 里也存在，但它发生在运行时，由 JVM 负责，程序员几乎感觉不到。
 
-C++ 的构建流程有四个阶段，每个阶段都是独立的程序，有自己的输入和输出：
+C++ 的构建流程有四个阶段——预处理、编译、汇编、链接——每个阶段都是独立的程序，有自己的输入和输出；对动态库来说，运行时还有第五步**加载**（§6）：
 
 ```mermaid
 flowchart LR
-    SRC[Version.cpp<br/>源文件] -->|预处理 -E| I[Version.i<br/>翻译单元]
-    I -->|编译 -S| S[Version.s<br/>汇编]
-    S -->|汇编 -c| O[Version.o<br/>目标文件]
-    O -->|链接| OUT[libminic10.so<br/>或可执行文件]
+    SRC[Version.cpp<br/>源文件] -->|① 预处理 -E| I[Version.i<br/>翻译单元]
+    I -->|② 编译 -S| S[Version.s<br/>汇编]
+    S -->|③ 汇编 -c| O[Version.o<br/>目标文件]
+    O -->|④ 链接| OUT[libminic10.so<br/>或可执行文件]
     OTHER[其他 .o / .a / .so] --> OUT
+    OUT -.->|⑤ 加载：运行时，ld.so| RUN[进程地址空间]
 ```
 
-平时用 `g++ -c foo.cpp` 或者 CMake 构建时，四步是被驱动程序（`g++`/`clang++`）串起来一次跑完的，所以初学者往往感觉不到它们的存在。但**每一类错误只会出现在某一个阶段**：找不到头文件是预处理错误；类型不匹配是编译错误；"undefined reference"是链接错误；"cannot open shared object file"是加载错误。分清阶段，是排错的第一步。
+平时用 `g++ -c foo.cpp` 或者 CMake 构建时，前四步是被驱动程序（`g++`/`clang++`）串起来一次跑完的，所以初学者往往感觉不到它们的存在。但**每一类错误只会出现在某一个阶段**：
 
-下面用本文最后要建的 mini-c10 里的一个文件走一遍。先给出它的内容（第十一章会解释设计）：
+| 阶段 | 典型报错 |
+|---|---|
+| ① 预处理 | `fatal error: xxx.h: No such file or directory`——找不到头文件 |
+| ② 编译 | 类型不匹配、未声明的名字、语法错误 |
+| ③ 汇编 | 几乎不会出错（输入是编译器生成的） |
+| ④ 链接 | `undefined reference to ...`、`multiple definition of ...` |
+| ⑤ 加载 | `cannot open shared object file`、`undefined symbol`（运行时才发现） |
+
+分清阶段，是排错的第一步。
+
+下面用本文最后要建的 mini-c10 里的三个文件走一遍（第十一章会解释设计）：一个头文件 `Version.h`、实现它的 `Version.cpp`，以及一个调用它的小程序 `examples/hello.cpp`。前两个编成库 `libminic10.so`，第三个链接这个库：
 
 ```cpp
 // minic10/core/Version.h
@@ -133,6 +144,18 @@ std::string version_string() {
 } // namespace minic10
 ```
 
+```cpp
+// examples/hello.cpp
+#include <minic10/core/Version.h>
+
+#include <iostream>
+
+int main() {
+  std::cout << "mini-c10 " << minic10::version_string()
+            << ", number=" << minic10::version_number() << '\n';
+}
+```
+
 ### 2. 预处理：把文本拼成翻译单元
 
 预处理器（preprocessor）只做文本处理，不懂 C++：
@@ -148,7 +171,7 @@ std::string version_string() {
 clang++ -std=c++17 -I. -E minic10/core/Version.cpp | wc -l
 ```
 
-在本机（macOS，Apple clang 21）实际输出是 `40222`：一个 20 行的源文件，加上 `<string>` 和 `<cstdint>` 展开后，变成四万行。这就是**翻译单元**（translation unit）——预处理器输出的那一整段文本，是编译器真正看到的输入。
+实际输出（macOS，Apple clang 21）是 `40222`：一个 20 行的源文件，加上 `<string>` 和 `<cstdint>` 展开后，变成四万行。这就是**翻译单元**（translation unit）——预处理器输出的那一整段文本，是编译器真正看到的输入。
 
 `stub.c` 里那些 `#ifndef _WIN32`、`#ifdef __cplusplus` 就在这个阶段生效。`_WIN32` 是 Windows 编译器预定义的宏，`__cplusplus` 是 C++ 编译器预定义的宏（C 编译器不定义它）。`stub.c` 是一个 `.c` 文件，用 C 编译器编译时 `__cplusplus` 不存在，`extern "C"` 那行被删掉；如果有人用 C++ 编译器编它，`extern "C"` 保留，保证 `PyInit__C` 的符号名不被 C++ 修饰（第五章讲修饰）。
 
@@ -163,7 +186,7 @@ clang++ -std=c++17 -I. -S minic10/core/Version.cpp -o Version.s
 grep -n "version_string" Version.s | head -3
 ```
 
-本机输出：
+输出（macOS 上符号名多一个前导下划线，Mach-O 的惯例）：
 
 ```text
 3:	.globl	__ZN7minic1014version_stringEv  ; -- Begin function _ZN7minic1014version_stringEv
@@ -178,7 +201,7 @@ grep -n "version_string" Version.s | head -3
 
 ### 4. 汇编：生成目标文件
 
-汇编器把 `.s` 变成 `.o`（目标文件，object file），Linux 上是 ELF 格式，macOS 上是 Mach-O，Windows 上是 COFF。`-c` 让驱动程序停在这一步：
+这一步的名字容易误解："汇编"（assemble）不是生成汇编语言，而是**把汇编语言翻成机器码**——上一步编译器输出的 `.s` 是人能读的汇编文本，汇编器（assembler）把每条汇编指令翻成对应的二进制机器指令，写进 `.o`（目标文件，object file）。名字来自它处理的**输入**是汇编语言，就像"编译器"的名字来自它处理的是源语言。目标文件 Linux 上是 ELF 格式，macOS 上是 Mach-O，Windows 上是 COFF。`-c` 让驱动程序停在这一步：
 
 ```bash
 clang++ -std=c++17 -Wall -fPIC -I. -c minic10/core/Version.cpp -o Version.o
@@ -193,12 +216,28 @@ clang++ -std=c++17 -Wall -fPIC -I. -c minic10/core/Version.cpp -o Version.o
 1. **符号解析**（symbol resolution）：每个"我引用了 X 但没定义"的地方，都要找到唯一一个"我定义了 X"；
 2. **重定位**（relocation）：确定每段代码和数据的最终地址，把所有引用处的占位地址改成真实地址。
 
+![图 1：链接做的两件事。左：链接前两个 .o 各有自己的符号表，hello.o 引用（U）version_string 而 Version.o 定义（T）它，地址都从 0 起；右：链接后的可执行文件装进进程的虚拟地址空间——代码段、数据段、堆、栈、动态库映射区各占一段——① 符号解析把每个 U 对到恰好一个 T，② 重定位把占位地址改成最终地址](/img/in-post/cpp-linking-symbol-resolution-and-relocation.svg)
+
+图 1 画出这两件事。左边是链接前的两个 `.o`：各自的代码从地址 0 开始排，`hello.o` 的符号表里 `version_string` 标着 `U`（引用了、没定义），`Version.o` 里标着 `T`（定义了、对外可见）。右边是链接后的样子：可执行文件被装进进程的**虚拟地址空间**——每个进程一份，从低到高依次是代码段（`.text`）、全局变量（`.data` / `.bss`）、向上生长的堆、动态库的映射区、向下生长的栈；链接器给 `main` 和 `version_string` 各定下一个最终地址，再把 `hello.o` 里 `call ???` 的占位改成 `version_string` 的真实地址。第五章会用 `nm` 看这些字母，第六章讲动态库的情况——`version_string` 在 `.so` 里时，②这一步推迟到运行时由 `ld.so` 完成。
+
 ```bash
 clang++ -std=c++17 -shared -o libminic10.so Version.o
 clang++ -std=c++17 -I. examples/hello.cpp -L. -lminic10 -o hello
 ```
 
-第一条把 `Version.o` 链接成动态库；第二条编译 `hello.cpp`，并把它对 `minic10::version_string()` 的引用解析到 `libminic10.so` 里的定义。
+第一条把 `Version.o` 链接成动态库；第二条编译 `hello.cpp`，并把它对 `minic10::version_string()` 的引用解析到 `libminic10.so` 里的定义。两条命令里的每个选项：
+
+| 选项 | 含义 | 出现在 |
+|---|---|---|
+| `-std=c++17` | 按 C++17 标准编译 | 两条 |
+| `-shared` | 输出动态库（`.so`），而不是可执行文件 | 第一条 |
+| `-o <文件>` | 输出文件名 | 两条 |
+| `-I.` | 头文件搜索路径加上当前目录：`#include <minic10/core/Version.h>` 在这里找 | 第二条 |
+| `-L.` | 库文件搜索路径加上当前目录：`-lminic10` 在这里找 | 第二条 |
+| `-lminic10` | 链接名为 `libminic10.so`（或 `.a`）的库——`-l` 后面写去掉 `lib` 前缀和后缀的名字 | 第二条 |
+| `-c` | 只编译到 `.o`，不链接（§4） | 前面 |
+| `-fPIC` | 生成位置无关代码：动态库会被装到任意地址，代码里不能写死绝对地址（§4） | 前面 |
+| `-Wall` | 打开常用警告 | 前面 |
 
 两类最常见的链接错误都发生在符号解析阶段：
 
@@ -207,7 +246,7 @@ undefined reference to `helper()'          # 有人引用了，没人定义
 multiple definition of `helper()'          # 不止一个人定义了
 ```
 
-（以上是 Linux GNU ld 的措辞；macOS ld64 分别说 `Undefined symbols for architecture arm64` 和 `duplicate symbol`。本文所有"预期输出"以 Linux 为准，macOS 差异随文标注。）
+（以上是 Linux GNU ld 的措辞；macOS ld64 分别说 `Undefined symbols for architecture arm64` 和 `duplicate symbol`。本文的命令行输出以 Linux 为准，macOS 差异随文标注。）
 
 ### 6. 第五个阶段：加载
 
@@ -293,10 +332,21 @@ C10_API std::ostream& operator<<(std::ostream& stream, const Device& device);
 } // namespace c10
 ```
 
+先认几个 Java 里没有的记号，后文会反复出现：
+
+| 记号 | 含义 | Java 里 |
+|---|---|---|
+| `using DeviceIndex = int8_t;` | **类型别名**：给 `int8_t` 起一个新名字 `DeviceIndex`，两者是同一个类型（老写法是 `typedef int8_t DeviceIndex;`）；类内的 `using Type = DeviceType;` 同理 | 没有；最接近的是用一个 `record` 包一层，但那是新类型 |
+| `C10_API` | 一个**宏**，展开成"这个符号要从 `libc10.so` 导出给别人用"（Linux 上是 `__attribute__((visibility("default")))`）；第五章和第五篇展开 | 没有；Java 的 `public` 类天然可被别的 jar 用 |
+| `constexpr int kVersionMajor = 0;` | **编译期常量**：值在编译时就确定，可以用在数组长度、模板参数这些必须编译期已知的地方；比 `const` 严格 | `static final int`，但 Java 不保证编译期求值 |
+| `final` | 类不能被继承 | `final class` |
+| `noexcept` | 函数保证不抛异常 | 没有对应 |
+| `Device::str()` | 作用域限定：`.cpp` 里定义头文件声明过的成员函数时写类名前缀 | 方法只能写在类体内 |
+
 注意三种成员：
 
-- `Device(DeviceType, DeviceIndex)`、`is_cuda()`、`validate()` **在类内直接给出函数体**。类内定义的成员函数隐含 `inline`（第四章解释为什么这样就不违反 ODR）。它们一两行就完，放在头文件里让编译器可以内联。
-- `Device(const std::string&)` 和 `str()` **只有声明**。它们的定义在 `c10/core/Device.cpp`：
+- ① `Device(DeviceType, DeviceIndex)`、`is_cuda()`、`validate()` **在类内直接给出函数体**。类内定义的成员函数隐含 `inline`（第四章解释为什么这样就不违反 ODR）。它们一两行就完，放在头文件里让编译器可以内联。
+- ② `Device(const std::string&)` 和 `str()` **只有声明**。它们的定义在 `c10/core/Device.cpp`（代码里标 ②）：
 
 ```cpp
 #include <c10/core/Device.h>
@@ -305,20 +355,20 @@ C10_API std::ostream& operator<<(std::ostream& stream, const Device& device);
 // ...
 
 namespace c10 {
-namespace {
-DeviceType parse_type(const std::string& device_string) {
+namespace {                                                    // ③ 匿名命名空间：只在本文件可见
+DeviceType parse_type(const std::string& device_string) {     // ③ 实现细节，头文件里没有它
   // ...
 }
 // ...
 } // namespace
 
-Device::Device(const std::string& device_string) : Device(Type::CPU) {
+Device::Device(const std::string& device_string) : Device(Type::CPU) {   // ② 头文件里只声明、这里定义
   TORCH_CHECK(!device_string.empty(), "Device string must not be empty");
   // ... 解析 "cuda:0" 这类字符串
   validate();
 }
 
-std::string Device::str() const {
+std::string Device::str() const {                              // ② 同上
   std::string str = DeviceTypeName(type(), /* lower case */ true);
   if (has_index()) {
     str.push_back(':');
@@ -337,11 +387,8 @@ std::ostream& operator<<(std::ostream& stream, const Device& device) {
 
   字符串解析有几十行，不适合放头文件（放了会让每个包含 `Device.h` 的翻译单元都编一遍，而 `Device.h` 几乎被所有文件间接包含）。所以只在头文件里声明，定义放 `.cpp`，编进 `libc10.so`。
 
-- `parse_type` **只在 `.cpp` 里，头文件里没有它**。它是实现细节，被匿名命名空间包住（第四章讲）。
+- ③ `parse_type` **只在 `.cpp` 里，头文件里没有它**。它是实现细节，被匿名命名空间包住（第四章讲）。
 
-`Device.cpp` 里 `Device::Device(...)` 和 `Device::str()` 前面的 `Device::` 是作用域限定：告诉编译器"我在定义前面声明过的那个成员函数"。Java 里方法定义必须在类体内，没有这种"类外定义"的语法。
-
-`C10_API` 暂时可以读作"这个符号要从 `libc10.so` 导出给别人用"，第五章和第五篇会展开。
 
 ### 3. 头文件的职责与 `#pragma once`
 
@@ -402,30 +449,51 @@ std::ostream& operator<<(std::ostream& stream, const Device& device) {
 
 `ScalarType` 是 dtype，几乎每一个 ATen 文件都要用它。改一下 `c10/util/Half.h`，`ScalarType.h` 的所有包含者都要重编，也就是几乎整个 `libtorch_cpu.so`——上千个翻译单元，一小时级别。这就是 PyTorch 开发者对"往 c10 头文件里加东西"极其谨慎的原因，也是 `c10/CMakeLists.txt` 开头那段注释的背景（第九章）。
 
-Java 里改一个类只需重编它自己和直接依赖它的类（Gradle 的增量编译粒度是类级别的 ABI 变化）。C++ 的粒度是"文本包含"，粗得多。这带来了 C++ 项目特有的两个工程习惯：
+Java 里改一个类只需重编它自己和直接依赖它的类（Gradle 的增量编译粒度是类级别的 ABI 变化）。C++ 的粒度是"文本包含"，粗得多——两边画出来：
 
-1. **前向声明**（forward declaration）：只需要"知道有这个类型"而不需要"知道它多大"时，写 `class Tensor;` 而不是 `#include <ATen/core/Tensor.h>`。`aten/src/ATen/templates/TensorBody.h`（生成 `ATen/core/TensorBody.h` 的模板）开头就是一串：
-
-```cpp
-namespace c10{
-template<class T> class List;
-template<class T> class IListRef;
-}
-namespace at {
-struct Generator;
-struct Type;
-class DeprecatedTypeProperties;
-class Tensor;
-} // namespace at
-// ...
-namespace torch { namespace autograd {
-
-struct Node;
-
-}} // namespace torch::autograd
+```mermaid
+flowchart LR
+    subgraph J["Java：改 Half.java"]
+        JH["Half.java ✎"] --> JS["ScalarType.java<br/>直接引用了 Half"]
+        JS -.->|"ABI 没变就不重编"| JA["add.java"]
+        JS -.-> JB["mul.java"]
+        JS -.-> JC["… 上千个用到 ScalarType 的类"]
+    end
+    subgraph C["C++：改 Half.h"]
+        CH["Half.h ✎"] --> CS["ScalarType.h<br/>#include &lt;Half.h&gt;"]
+        CS --> CA["add.cpp ✎ 重编"]
+        CS --> CB["mul.cpp ✎ 重编"]
+        CS --> CC["… 上千个 #include 它的 .cpp 全部重编"]
+    end
+    classDef edit fill:#fde7c8,stroke:#c98a00,color:#222
+    classDef skip fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class JH,CH,CA,CB,CC edit
+    class JA,JB,JC skip
 ```
 
-   指针和引用只需要前向声明；按值持有成员、调用成员函数、`sizeof` 才需要完整定义。这是第二篇会反复用到的规则。
+图 2：同一个改动在两种语言里的重编范围。Java 里 `Half` 的改动只要不改它对外的签名，`javac` 增量编译到 `ScalarType` 就停了；C++ 里 `Half.h` 的文本是每个间接包含它的翻译单元的一部分，改一个字节，上千个 `.cpp` 的输入都变了。这带来了 C++ 项目特有的两个工程习惯：
+
+1. **前向声明**（forward declaration）。一行 `class Tensor;` 只告诉编译器"有一个叫 `Tensor` 的类"，不说它有哪些成员、多大——这就是前向声明。什么时候够用：只用它的**指针或引用**（`Tensor*`、`const Tensor&`）时，编译器不需要知道它多大，一个指针总是 8 字节。什么时候不够：按值持有成员（`Tensor t_;` 要知道多大）、调用成员函数、`sizeof`，这些都需要完整定义，必须 `#include`。所以头文件里能用前向声明就不 `#include`——包含者就不必因为 `Tensor.h` 变了而重编。`aten/src/ATen/templates/TensorBody.h`（生成 `ATen/core/TensorBody.h` 的模板）开头就是一串前向声明，每一行都是"只说有、不说多大"：
+
+   ```cpp
+   namespace c10 {
+   template <class T> class List;        // 前向声明一个类模板
+   template <class T> class IListRef;
+   }
+
+   namespace at {
+   struct Generator;                     // 前向声明：struct 与 class 在这里等价
+   struct Type;
+   class DeprecatedTypeProperties;
+   class Tensor;                         // Tensor 自己也被前向声明——TensorBody.h 后面才定义它
+   } // namespace at
+
+   namespace torch { namespace autograd {
+   struct Node;                          // Tensor 只持有 Node 的指针，不需要 Node 的定义
+   }} // namespace torch::autograd
+   ```
+
+   这是第二篇会反复用到的规则。
 
 2. **`-inl.h` 拆分和 `#include <iosfwd>`**：`Device.h` 包含 `<iosfwd>`（只有 `std::ostream` 的前向声明）而不是 `<ostream>`（完整定义），因为它只需要声明 `operator<<`。
 
@@ -449,7 +517,21 @@ ODR 的核心可以概括为两句话：
 1. 任何翻译单元里，一个变量、函数、类、枚举、模板最多只能有一个定义；
 2. 整个程序里，每个非 inline 的函数和变量**恰好**一个定义（用到了却没有 → undefined reference；多于一个 → multiple definition）。
 
-类、inline 函数、模板可以在多个翻译单元里各有一个定义，但**所有定义必须逐字相同**（token-for-token identical），编译器和链接器假定它们相同并任选一份。违反这一条不会报错，是**未定义行为**——程序可能用了 A 文件的版本，也可能用了 B 文件的版本，也可能崩溃。
+第二条有一个"非 inline"的限定，反过来说：**类、inline 函数、模板允许在多个翻译单元里各有一份定义。** 这听起来违反直觉，但它是头文件机制的必然结果：`Device.h` 里的 `is_cuda()` 是类内定义的 inline 函数，每个 `#include <c10/core/Device.h>` 的 `.cpp` 编出来的 `.o` 里都有一份 `is_cuda` 的机器码——编译器一次只看一个翻译单元，它没法知道别的 `.o` 里已经有了，也必须有一份才能内联。于是规则改成：多份可以，但**所有定义必须逐字相同**（token-for-token identical），链接器假定它们相同并任选一份、丢掉其余（下一章 `nm` 里标 `W` 的就是这种"可合并的弱定义"）。
+
+```mermaid
+flowchart LR
+    H["Device.h<br/>inline bool is_cuda() { return type_ == CUDA; }"]
+    H --> A["a.cpp → a.o<br/>含一份 is_cuda（W）"]
+    H --> B["b.cpp → b.o<br/>含一份 is_cuda（W）"]
+    A --> L["链接器：两份 W 逐字相同<br/>任选一份留下，另一份丢掉"]
+    B --> L
+    L --> OUT["libc10.so<br/>一份 is_cuda"]
+    classDef box fill:#eef4fb,stroke:#5b8dc9,color:#222
+    class H,A,B,L,OUT box
+```
+
+图 3：inline 函数为什么可以有多份定义——每个翻译单元各编一份，链接器按"逐字相同"的假定合并。危险在于**违反"逐字相同"不会报错**：如果 `a.cpp` 编译时定义了某个宏让 `is_cuda` 的函数体多了一行，两份就不同了，链接器照样任选一份——这是**未定义行为**，程序可能用了 A 文件的版本，也可能用了 B 文件的版本，也可能崩溃。
 
 Java 里不存在这个问题：一个类只有一个 `.class`，JVM 按全限定名找到它，同名类冲突时类加载器有明确的优先规则（父加载器优先）。C++ 没有这层运行时仲裁，全靠链接器在构建时把名字对上。
 
@@ -469,14 +551,12 @@ int main() { return helper(); }
 g++ -std=c++17 dup1.cpp dup2.cpp -o dup
 ```
 
-预期输出（Linux GNU ld）：
+GNU ld 的报错：
 
 ```text
 /usr/bin/ld: /tmp/ccXXXX.o: in function `helper()':
 dup2.cpp:(.text+0x0): multiple definition of `helper()'; /tmp/ccYYYY.o:dup1.cpp:(.text+0x0): first defined here
 ```
-
-本机 macOS ld64 的实际输出是 `duplicate symbol 'helper()' in: ... ld: 1 duplicate symbols`。
 
 反过来：
 
@@ -486,14 +566,14 @@ int helper();
 int main() { return helper(); }
 ```
 
-预期输出（Linux）：
+GNU ld 的报错：
 
 ```text
 /usr/bin/ld: /tmp/ccXXXX.o: in function `main':
 undef.cpp:(.text+0x5): undefined reference to `helper()'
 ```
 
-macOS 实际输出：`Undefined symbols for architecture arm64: "helper()", referenced from: _main in undef-xxxx.o`。
+（macOS 的 ld64 对这两种错误的措辞分别是 `duplicate symbol` 和 `Undefined symbols for architecture arm64`，意思相同。）
 
 注意错误信息里的 `helper()`——链接器本来看到的是修饰后的 `_Z6helperv`，现代链接器会自动"反修饰"（demangle）给人看。第五章讲修饰。
 
@@ -634,7 +714,7 @@ REGISTER_DISPATCH(div_true_stub, &div_true_kernel)
 nm -C Version.o
 ```
 
-`-C` 让 `nm` 反修饰名字。预期输出（Linux，g++，节选）：
+`-C` 让 `nm` 反修饰名字。输出（Linux，g++，节选）：
 
 ```text
 0000000000000000 t minic10::(anonymous namespace)::build_flavor()
@@ -662,16 +742,14 @@ clang++ -std=c++17 -I. -c examples/hello.cpp -o hello.o
 nm -C hello.o | grep minic10
 ```
 
-预期输出（Linux）：
+输出（Linux）：
 
 ```text
 0000000000000000 W minic10::version_number()
                  U minic10::version_string()
 ```
 
-`version_number()` 是 inline，在 `hello.o` 里有一份定义，标 `W`；`version_string()` 只有声明，标 `U`。链接 `hello` 时，链接器要为这个 `U` 找到一个 `T`——它在 `libminic10.so` 里。
-
-本机 macOS 实际输出中 `version_number()` 标 `T` 而非 `W`（Mach-O 用另一套机制标记可合并的弱定义，`nm -m` 能看到 `weak`），符号名多一个前导下划线；语义相同。
+`version_number()` 是 inline，在 `hello.o` 里有一份定义，标 `W`；`version_string()` 只有声明，标 `U`。链接 `hello` 时，链接器要为这个 `U` 找到一个 `T`——它在 `libminic10.so` 里。（macOS 的 `nm` 把 `version_number()` 标 `T` 而非 `W`——Mach-O 用另一套机制标记可合并的弱定义，`nm -m` 能看到 `weak`；符号名多一个前导下划线；语义相同。）
 
 ### 2. Name mangling：符号名为什么长得像乱码
 
@@ -822,7 +900,7 @@ macOS 对应：`nm`、`c++filt` 一样；`otool -L` 代替 `ldd`；`otool -l` �
 ldd hello
 ```
 
-预期输出（Linux）：
+Linux 上的输出形如：
 
 ```text
 	linux-vdso.so.1 (0x00007ffd...)
@@ -885,7 +963,7 @@ ldd hello
 readelf -d torch/_C.cpython-312-x86_64-linux-gnu.so | grep -E 'RPATH|RUNPATH|NEEDED'
 ```
 
-预期输出形如：
+Linux wheel 上的输出形如（macOS 对应 `otool -l _C.cpython-312-darwin.so | grep -A2 LC_RPATH`，看到 `path @loader_path/lib`）：
 
 ```text
  0x0000000000000001 (NEEDED)             Shared library: [libtorch_python.so]
@@ -899,7 +977,7 @@ readelf -d torch/_C.cpython-312-x86_64-linux-gnu.so | grep -E 'RPATH|RUNPATH|NEE
 clang++ -std=c++17 -I. examples/hello.cpp -L. -lminic10 -Wl,-rpath,'$ORIGIN' -o hello
 ```
 
-（macOS 上 `$ORIGIN` 对应 `@loader_path`，`ldd` 对应 `otool -L`。本机验证时用的是 `DYLD_LIBRARY_PATH=. ./hello`，对应 Linux 的 `LD_LIBRARY_PATH`。）
+（macOS 上 `$ORIGIN` 对应 `@loader_path`，`ldd` 对应 `otool -L`，`LD_LIBRARY_PATH` 对应 `DYLD_LIBRARY_PATH`。）
 
 ### 3. `dlopen`：运行时显式加载
 
@@ -1209,28 +1287,33 @@ ldd lib/libtorch_python.so | grep torch
 readelf -d lib/libtorch.so | grep NEEDED
 ```
 
-预期输出（CPU wheel，路径和版本号因环境而异）：
+在一份 macOS 的 CPU wheel（`torch==2.14.0`）上实际看到的（`ldd` 换成 `otool -L`，`readelf -d` 换成 `otool -l`；Linux 上文件名是 `.so`、`ldd` 会直接印出解析后的绝对路径，其余相同）：
 
 ```text
 $ ls lib/
-libc10.so  libgomp-xxxx.so.1  libshm.so  libtorch.so  libtorch_cpu.so
-libtorch_global_deps.so  libtorch_python.so  ...
+libc10.dylib  libomp.dylib  libshm.dylib  libtorch.dylib  libtorch_cpu.dylib
+libtorch_global_deps.dylib  libtorch_python.dylib
 
-$ ldd _C.cpython-312-x86_64-linux-gnu.so
-	libtorch_python.so => /.../torch/lib/libtorch_python.so
-	libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6
-	libtorch.so => /.../torch/lib/libtorch.so
-	libtorch_cpu.so => /.../torch/lib/libtorch_cpu.so
-	libc10.so => /.../torch/lib/libc10.so
-	libshm.so => /.../torch/lib/libshm.so
-	libstdc++.so.6 => /lib/x86_64-linux-gnu/libstdc++.so.6
-	libgomp-xxxx.so.1 => /.../torch/lib/libgomp-xxxx.so.1
-	...
+$ otool -L _C.cpython-312-darwin.so
+	@loader_path/lib/libtorch_python.dylib
+	/usr/lib/libSystem.B.dylib
 
-$ readelf -d lib/libtorch.so | grep NEEDED
- 0x0000000000000001 (NEEDED)  Shared library: [libtorch_cpu.so]
- 0x0000000000000001 (NEEDED)  Shared library: [libc.so.6]
+$ otool -L lib/libtorch_python.dylib | grep -E 'torch|c10|shm'
+	@loader_path/libtorch.dylib
+	@loader_path/libshm.dylib
+	@loader_path/libtorch_cpu.dylib
+	@loader_path/libc10.dylib
+
+$ otool -L lib/libtorch.dylib | grep -E 'torch|c10'
+	@loader_path/libtorch_cpu.dylib
+	@loader_path/libc10.dylib
+
+$ nm -C _C.cpython-312-darwin.so | grep -E 'PyInit|initModule'
+0000000000000d48 T _PyInit__C
+                 U _initModule
 ```
+
+逐行对回前面几节：`_C` 只依赖 `libtorch_python`（加系统库），它的符号表里只有一个定义 `PyInit__C` 和一个引用 `initModule`——就是 `stub.c` 那 15 行；`libtorch_python` 依赖 `libtorch`、`libtorch_cpu`、`libc10`、`libshm`；`libtorch` 这个"空壳"自己只依赖 `libtorch_cpu` 与 `libc10`。`@loader_path/lib` 就是 Linux 上的 `$ORIGIN/lib`（6.2 节）。
 
 CUDA wheel 会多出 `libtorch_cuda.so`、`libc10_cuda.so`，以及 `libcudart.so.12` 等指向 `nvidia/*/lib/` 的条目（PyTorch 2.x 中的变化：CUDA 库从 wheel 内 `torch/lib/` 拆成了独立的 `nvidia-*-cu12` PyPI 包，`_load_global_deps` 里的 `_preload_cuda_deps` 就是为此而写）。
 
@@ -1568,7 +1651,7 @@ PyMODINIT_FUNC PyInit__C(void)              // 定义：Python 解释器 dlsym �
 }
 ```
 
-这个文件编成 `_C.cpython-*.so`，它的 `nm -D` 输出预期只有寥寥几行：`T PyInit__C`，`U initModule`，以及 libc 的东西。它就是一个把 Python 的入口约定翻译给 C++ 世界的转接头。
+这个文件编成 `_C.cpython-*.so`，它的符号表只有寥寥几行：`T PyInit__C`，`U initModule`，以及 libc 的东西（8.3 节实际看过）。它就是一个把 Python 的入口约定翻译给 C++ 世界的转接头。
 
 ### 4. `setup.py`：`.so` 如何进 wheel
 
@@ -1648,9 +1731,9 @@ if BUILD_PYTHON_ONLY:
 
 vLLM 的 `setup.py` 走的是同一条路的下游：它定义一个 `cmake_build_ext` 命令类，在 `build_extensions` 里调 `cmake` 配置和构建 `CMakeLists.txt`（8.4 节看过的 `find_package(Torch)` 那个），把产物 `_C.abi3.so`、`_moe_C.abi3.so` 等拷进 `vllm/` 包目录。它对 PyTorch 的依赖完全通过 `torch.utils.cmake_prefix_path` 解析，所以 vLLM 的 wheel 必须和特定 PyTorch 版本配对——`.so` 里 `DT_NEEDED` 的 `libtorch_cpu.so` 只是名字，而里面符号的修饰名和结构体布局是编译时那个 PyTorch 版本的（第七篇 ABI）。
 
-## 十、实践一：手写 `g++` 命令链接一个 libtorch 程序
+## 十、实践一：手写编译命令链接一个 libtorch 程序
 
-这一节要在一台装了 PyTorch（Linux，pip 安装的 CPU 或 CUDA wheel）的机器上做。本机没有 libtorch，下面的命令是按 v2.10.0 源码树里的头文件路径和库名写的，输出标注为"预期"。
+这一节在一台 pip 安装了 PyTorch CPU wheel 的机器上做。下面的输出来自 macOS（Apple clang 21，`torch==2.14.0` 的 CPU wheel）——与 Linux 的差别只在文件名与工具名：`.so` ↔ `.dylib`、`g++` ↔ `clang++`、`ldd` ↔ `otool -L`、`readelf -d` ↔ `otool -l`、`RUNPATH` ↔ `LC_RPATH`、`LD_LIBRARY_PATH` ↔ `DYLD_LIBRARY_PATH`。每一步先给 Linux 的写法，再给 macOS 实际跑出来的结果。
 
 ### 1. 程序
 
@@ -1677,11 +1760,18 @@ int main() {
 ```bash
 TORCH_DIR=$(python -c 'import torch, os; print(os.path.dirname(torch.__file__))')
 echo $TORCH_DIR
-ls $TORCH_DIR/include | head
+ls $TORCH_DIR/include | head -5
 ls $TORCH_DIR/lib
 ```
 
-预期：`$TORCH_DIR` 形如 `/.../site-packages/torch`；`include/` 下有 `ATen/`、`c10/`、`torch/`、`pybind11/` 等；`lib/` 下是 8.3 节列的那些 `.so`。
+```text
+/Users/.../.venv/lib/python3.12/site-packages/torch
+ATen  c10  caffe2  clog.h  cpuinfo.h
+libc10.dylib  libomp.dylib  libshm.dylib  libtorch.dylib  libtorch_cpu.dylib
+libtorch_global_deps.dylib  libtorch_python.dylib
+```
+
+`include/` 下有 `ATen/`、`c10/`、`torch/`、`pybind11/` 等；`lib/` 下是 8.3 节列的那些库（Linux 上后缀是 `.so`，CUDA wheel 多出 `libtorch_cuda`、`libc10_cuda`）。
 
 ### 3. 编译（只编译）
 
@@ -1693,25 +1783,32 @@ g++ -std=c++17 -c hello_torch.cpp -o hello_torch.o \
 
 两个 `-I`：第一个让 `#include <c10/...>`、`<ATen/...>`、`<torch/csrc/...>` 能找到；第二个让 `#include <torch/torch.h>` 能找到（C++ 前端头文件在 `torch/csrc/api/include/` 下，和 `torch/csrc/` 是两套路径前缀）。`torch/CMakeLists.txt` 的 `TORCH_PYTHON_INCLUDE_DIRECTORIES` 和 `cpp_extension.py` 的 `include_paths()` 加的就是这两个。
 
-`-std=c++17`：见 9.1 节，与 PyTorch 自身和 `cpp_extension.py` 传给扩展的标准一致。PyTorch 的头文件用到了 C++17 特性（`std::optional`、`if constexpr`、嵌套命名空间简写等），用更低的标准编会直接报语法错误。
-
-这一步只需要头文件，不需要任何 `.so`。看一下它引用了什么：
-
-```bash
-nm -C hello_torch.o | grep ' U ' | grep -E 'at::|c10::|torch::' | head
-```
-
-预期输出（节选）：
+`-std=c++17` 是本系列基线 v2.10.0 的要求（9.1 节）。**版本提醒**：2.14.0 的头文件已经要求 C++20——用 `-std=c++17` 编这一步会在 `torch/all.h` 第 5 行停住：
 
 ```text
-                 U at::_ops::ones::call(c10::ArrayRef<c10::SymInt>, std::optional<c10::ScalarType>, ...)
-                 U at::_ops::sum::call(at::Tensor const&, std::optional<c10::ScalarType>)
-                 U at::print(std::ostream&, at::Tensor const&, long)
-                 U c10::operator<<(std::ostream&, c10::Device const&)
-                 U c10::TensorImpl::...
+torch/include/torch/csrc/api/include/torch/all.h:5:2: error: C++20 or later compatible compiler is required to use PyTorch.
 ```
 
-（具体列表依赖优化级别和 PyTorch 版本；`torch::ones` 是头文件里的 inline 函数，最终调到 `at::_ops::ones::call`。）这就是"我写的扩展依赖哪些符号"的精确答案。
+换成 `-std=c++20` 即可。这正是"编译扩展时的 `-std=` 要跟 PyTorch 保持一致"的实例：标准由你装的那个 wheel 决定，不由文章决定。下面的输出用 `-std=c++20` 编出，4.7 秒——一个 12 行的程序，因为 `torch/torch.h` 展开后是几十万行的翻译单元。
+
+这一步只需要头文件，不需要任何库。看一下它引用了什么：
+
+```bash
+nm -C hello_torch.o | grep ' U ' | grep -E 'at::|c10::|torch::' | head -8
+```
+
+```text
+U at::_ops::add_Scalar::call(at::Tensor const&, c10::Scalar const&, c10::Scalar const&)
+U at::_ops::mul_Scalar::call(at::Tensor const&, c10::Scalar const&)
+U at::_ops::sum::call(at::Tensor const&, std::optional<c10::ScalarType>)
+U at::_ops::ones::call(c10::ArrayRef<c10::SymInt>, std::optional<c10::ScalarType>, std::optional<c10::Layout>, std::optional<c10::Device>, std::optional<bool>)
+U at::print(std::ostream&, at::Tensor const&, long long)
+U c10::TensorImpl::set_autograd_meta(std::unique_ptr<c10::AutogradMetaInterface>)
+U c10::UndefinedTensorImpl::_singleton
+U c10::AutogradMetaInterface::~AutogradMetaInterface()
+```
+
+（为了可读，去掉了 libc++ 的 `std::__1::` 前缀。）`torch::ones`、`t * 2.5`、`+ 1.0`、`.sum()` 这四个源码里的调用，变成了四个 `at::_ops::*::call` 的 `U`——`torch::ones` 是头文件里的 inline 函数，最终调到 `at::_ops::ones::call`；后三个 `c10::` 符号来自 `Tensor` 构造与析构走过的头文件里的 inline 代码。这就是"我写的扩展依赖哪些符号"的精确答案：前五个在 `libtorch_cpu`，后三个在 `libc10`。
 
 ### 4. 链接
 
@@ -1726,29 +1823,32 @@ g++ hello_torch.o -o hello_torch \
 - `-ltorch -ltorch_cpu -lc10`：`libtorch.so`（空壳，可省，但写上和 CMake 行为一致）、`libtorch_cpu.so`、`libc10.so`。`-l` 顺序原则上是"引用者在前、被引用者在后"，动态库对顺序不敏感，静态库敏感；
 - `-Wl,-rpath,$TORCH_DIR/lib`：把库路径烧进 `hello_torch`，运行时不用设 `LD_LIBRARY_PATH`。
 
-如果省掉 `-lc10`：
+如果省掉 `-lc10`，链接器为上面那三个 `c10::` 的 `U` 找不到 `T`（macOS ld64 的措辞；GNU ld 说 `undefined reference to`）：
 
 ```text
-/usr/bin/ld: hello_torch.o: undefined reference to `c10::operator<<(std::ostream&, c10::Device const&)'
+Undefined symbols for architecture arm64:
+  "c10::TensorImpl::set_autograd_meta(std::unique_ptr<c10::AutogradMetaInterface>)", referenced from:
+      torch::autograd::make_variable(at::Tensor, bool, bool) in hello_torch.o
+  ...
 ```
 
-（现代 GNU ld 默认 `--no-copy-dt-needed-entries`，不会通过 `libtorch_cpu.so` 的 `DT_NEEDED` 间接满足 `hello_torch.o` 对 `libc10.so` 符号的引用，必须显式 `-lc10`。这是新手常见的一个坑：链接错误提示的符号明明在 `libc10.so` 里，却因为没写 `-lc10` 而找不到。）
+（现代 GNU ld 默认 `--no-copy-dt-needed-entries`，macOS ld64 也一样：不会通过 `libtorch_cpu` 的依赖间接满足 `hello_torch.o` 对 `libc10` 符号的引用，必须显式 `-lc10`。这是新手常见的一个坑：链接错误提示的符号明明在 `libc10` 里，却因为没写 `-lc10` 而找不到。）
 
-如果省掉 `-Wl,-rpath`：链接成功，运行报错：
+如果省掉 `-Wl,-rpath`：链接成功，运行报错——
 
 ```text
-./hello_torch: error while loading shared libraries: libtorch.so: cannot open shared object file: No such file or directory
+dyld[69854]: Library not loaded: @rpath/libtorch.dylib
+  Referenced from: /tmp/hello_torch/hello_torch_norpath
+  Reason: no LC_RPATH's found
 ```
 
-这是加载期错误，不是链接期。用 `LD_LIBRARY_PATH=$TORCH_DIR/lib ./hello_torch` 可以临时绕过。
+Linux 上是 `./hello_torch: error while loading shared libraries: libtorch.so: cannot open shared object file: No such file or directory`。这是加载期错误，不是链接期。用 `LD_LIBRARY_PATH=$TORCH_DIR/lib ./hello_torch`（macOS：`DYLD_LIBRARY_PATH`）可以临时绕过。
 
 ### 5. 运行与观察
 
 ```bash
 ./hello_torch
 ```
-
-预期输出：
 
 ```text
  3.5000  3.5000  3.5000
@@ -1759,37 +1859,29 @@ device = cpu, dtype = float
 ```
 
 ```bash
-ldd hello_torch | grep -E 'torch|c10'
+ldd hello_torch | grep -E 'torch|c10'        # macOS: otool -L hello_torch
 ```
-
-预期：
 
 ```text
-	libtorch.so => /.../torch/lib/libtorch.so
-	libtorch_cpu.so => /.../torch/lib/libtorch_cpu.so
-	libc10.so => /.../torch/lib/libc10.so
+	@rpath/libtorch.dylib (compatibility version 0.0.0, current version 0.0.0)
+	@rpath/libtorch_cpu.dylib (compatibility version 0.0.0, current version 0.0.0)
+	@rpath/libc10.dylib (compatibility version 0.0.0, current version 0.0.0)
 ```
 
-CUDA wheel 还会多出 `libtorch_cuda.so`、`libc10_cuda.so`、`libcudart.so.12` 等——虽然程序一行 CUDA 代码都没有，但 `libtorch.so` 的 `DT_NEEDED` 把它们全拉进来了（6.4 节说的"递归加载全部依赖，不管用不用"）。
+三个库正是 `-l` 的三个；Linux 的 `ldd` 会直接印出解析后的绝对路径 `libtorch.so => /.../torch/lib/libtorch.so`。CUDA wheel 还会多出 `libtorch_cuda`、`libc10_cuda`、`libcudart.so.12` 等——虽然程序一行 CUDA 代码都没有，但 `libtorch` 的 `DT_NEEDED` 把它们全拉进来了（6.4 节说的"递归加载全部依赖，不管用不用"）。
 
 ```bash
-readelf -d hello_torch | grep -E 'NEEDED|RUNPATH'
-nm -DC $TORCH_DIR/lib/libc10.so | grep 'c10::Device::str'
+readelf -d hello_torch | grep -E 'NEEDED|RUNPATH'     # macOS: otool -l hello_torch | grep -A2 LC_RPATH
+nm -DC $TORCH_DIR/lib/libc10.so | grep 'c10::Device::str'   # macOS: nm -C libc10.dylib
 ```
-
-预期：
 
 ```text
- 0x0000000000000001 (NEEDED)  Shared library: [libtorch.so]
- 0x0000000000000001 (NEEDED)  Shared library: [libtorch_cpu.so]
- 0x0000000000000001 (NEEDED)  Shared library: [libc10.so]
- ...
- 0x000000000000001d (RUNPATH)  Library runpath: [/.../torch/lib]
+         path /Users/.../site-packages/torch/lib (offset 12)
 
-00000000000xxxxx T c10::Device::str[abi:cxx11]() const
+000000000000da78 T c10::Device::str() const
 ```
 
-最后这一行的 `[abi:cxx11]` 标签是 libstdc++ 新 ABI 的痕迹（第七篇）。如果扩展编译时用了 `-D_GLIBCXX_USE_CXX11_ABI=0`，它引用的会是没有这个标签的 `c10::Device::str() const`，加载时报 `undefined symbol`——这是 PyTorch 2.6 之前 Linux wheel 用旧 ABI 时最常见的事故；PyTorch 2.x 中的变化：2.6 起 Linux wheel 切换到 CXX11 ABI，`cpp_extension.py` 不再显式传这个宏。
+第一行是 `-Wl,-rpath` 烧进去的路径（Linux 上是 `(RUNPATH) Library runpath: [/.../torch/lib]`，前面还有三行 `(NEEDED)`）；第二行是 `c10::Device::str` 在 `libc10` 里的定义，`T`——第五章那张符号表的字母。Linux 的 wheel 上这一行会带 `[abi:cxx11]` 标签：`T c10::Device::str[abi:cxx11]() const`，那是 libstdc++ 新 ABI 的痕迹（第七篇）。如果扩展编译时用了 `-D_GLIBCXX_USE_CXX11_ABI=0`，它引用的会是没有这个标签的 `c10::Device::str() const`，加载时报 `undefined symbol`——这是 PyTorch 2.6 之前 Linux wheel 用旧 ABI 时最常见的事故；PyTorch 2.x 中的变化：2.6 起 Linux wheel 切换到 CXX11 ABI，`cpp_extension.py` 不再显式传这个宏。macOS 用 libc++，没有这个标签，也就没有这个坑。
 
 ### 6. 与 CMake 的对应
 
@@ -1921,13 +2013,13 @@ clang++ -std=c++17 -Wall -Wextra -I. examples/hello.cpp -L. -lminic10 -Wl,-rpath
 ./hello
 ```
 
-以上命令（macOS 上把 `.so` 换成 `.dylib`、`-Wl,-rpath,'$ORIGIN'` 换成 `DYLD_LIBRARY_PATH=.`）已在本机用 Apple clang 21 实际验证，`-Wall -Wextra` 无警告，输出：
+以上命令用 Apple clang 21 在 macOS 上实际运行（把 `.so` 换成 `.dylib`、`-Wl,-rpath,'$ORIGIN'` 换成 `DYLD_LIBRARY_PATH=.`），`-Wall -Wextra` 无警告，输出：
 
 ```text
 mini-c10 0.1 (debug), number=1
 ```
 
-再看符号（5.1 节讨论过预期的 Linux 输出，这里是本机 macOS 的实际输出，去掉了 libc++ 的内部符号）：
+再看符号（5.1 节给的是 Linux 的输出，这里是 macOS 的，去掉了 libc++ 的内部符号）：
 
 ```text
 $ nm -C Version.o | grep minic10
@@ -2011,10 +2103,10 @@ install(DIRECTORY minic10/ DESTINATION include/minic10 FILES_MATCHING PATTERN "*
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -G Ninja
 cmake --build build
 ./build/hello
-# 预期：mini-c10 0.1 (release), number=1      （Release 构建定义了 NDEBUG）
+# mini-c10 0.1 (release), number=1      （Release 构建定义了 NDEBUG，所以 build_flavor 是 release）
 ```
 
-本机没有安装 CMake，这份 `CMakeLists.txt` 未实际运行；它只用了 CMake 最基础的命令，每一条都与 `c10/CMakeLists.txt` 中的对应项一一对照：
+这份 `CMakeLists.txt` 只用了 CMake 最基础的命令，每一条都与 `c10/CMakeLists.txt` 中的对应项一一对照：
 
 | mini-c10 | `c10/CMakeLists.txt` |
 |---|---|
@@ -2153,4 +2245,4 @@ Java 工程师需要放弃的三个直觉：**"编译器能看到整个项目"**
 [^q3]: 这个文件编成一个目标文件，再链接成扩展模块 `torch/_C.cpython-*.so`——一个只含很薄的入口的动态库。它对 `initModule` 的引用在链接时解析到 `libtorch_python.so`（`Module.cpp` 编进了那里），加载时由动态链接器沿 `DT_NEEDED` 把两者接上。详见[第五章](#五目标文件库与符号)、[第六章](#六动态链接与加载)、[第九章](#九回到源码)。
 [^q4]: `import torch` 先由 `_load_global_deps()` 以 `RTLD_GLOBAL` `dlopen` `libtorch_global_deps.so`（把 CUDA runtime、cuDNN、NCCL 的符号放进全局命名空间），再导入扩展模块 `torch/_C.*.so`，它的 `DT_NEEDED` 链上是 `libtorch_python.so` → `libtorch.so` → `libtorch_cpu.so` / `libtorch_cuda.so` → `libc10.so` / `libc10_cuda.so`。详见[第八章](#八pytorch-的源码布局与库布局)、[第九章](#九回到源码)。
 [^q5]: `c10` 是最底层（Tensor 元数据、Device、Allocator、Dispatcher 核心），`torch_cpu` / `torch_cuda` 是算子与 kernel，`torch` 是把两者拼起来的空壳，`torch_python` 是 Python 绑定；每一层只导出标了 `C10_API` / `TORCH_API` 的符号，其余在 `-fvisibility=hidden` 下不可见。详见[第七章](#七命名空间c10attorch-的分工)、[第八章](#八pytorch-的源码布局与库布局)。
-[^q6]: 用 `torch.utils.cpp_extension` 构建的扩展链接 `libc10.so`、`libtorch.so`、`libtorch_cpu.so`（CUDA 扩展再加 `libc10_cuda.so`、`libtorch_cuda.so`），用了 pybind11 / Python API 时再加 `libtorch_python.so`，并用 `-Wl,-rpath` 把搜索路径烧进去。符号在加载期由动态链接器解析，所以扩展的 ABI（`_GLIBCXX_USE_CXX11_ABI`、编译器版本）必须与这些库一致。详见[第九章](#九回到源码)、[第十章](#十实践一手写-g-命令链接一个-libtorch-程序)。
+[^q6]: 用 `torch.utils.cpp_extension` 构建的扩展链接 `libc10.so`、`libtorch.so`、`libtorch_cpu.so`（CUDA 扩展再加 `libc10_cuda.so`、`libtorch_cuda.so`），用了 pybind11 / Python API 时再加 `libtorch_python.so`，并用 `-Wl,-rpath` 把搜索路径烧进去。符号在加载期由动态链接器解析，所以扩展的 ABI（`_GLIBCXX_USE_CXX11_ABI`、编译器版本）必须与这些库一致。详见[第九章](#九回到源码)、[第十章](#十实践一手写编译命令链接一个-libtorch-程序)。

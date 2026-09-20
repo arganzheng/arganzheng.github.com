@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="480" viewBox="0 0 760 480" font-family="-apple-system, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif" font-size="12">
+  <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#555"/></marker></defs>
+  <style>.t{font-weight:600;fill:#222}.m{fill:#666;font-size:11px}.mono{font-family:Menlo,Consolas,monospace;font-size:10.5px;fill:#222}</style>
+  <text x="16" y="22" class="t">链接前：两个 .o，各有符号表，地址从 0 起</text>
+  <g transform="translate(16,36)">
+    <rect x="0" y="0" width="230" height="118" fill="#fff7e0" stroke="#c98a00"/>
+    <text x="8" y="16" class="mono">hello.o</text>
+    <text x="8" y="34" class="mono">.text 0x0000 main:</text>
+    <text x="8" y="50" class="mono">  call ???  ; version_string</text>
+    <text x="8" y="72" class="mono">符号表：</text>
+    <text x="8" y="88" class="mono"> T main            定义 @0x0000</text>
+    <text x="8" y="104" class="mono"> U version_string  引用，未定义</text>
+  </g>
+  <g transform="translate(16,170)">
+    <rect x="0" y="0" width="230" height="118" fill="#d6e6ff" stroke="#5b8def"/>
+    <text x="8" y="16" class="mono">Version.o</text>
+    <text x="8" y="34" class="mono">.text 0x0000 version_string:</text>
+    <text x="8" y="50" class="mono">.text 0x0040 build_flavor: (static)</text>
+    <text x="8" y="72" class="mono">符号表：</text>
+    <text x="8" y="88" class="mono"> T version_string  定义 @0x0000</text>
+    <text x="8" y="104" class="mono"> t build_flavor    内部链接，外面看不见</text>
+  </g>
+  <!-- symbol resolution annotation between the two -->
+  <line x1="130" y1="154" x2="130" y2="170" stroke="#c98a00" stroke-width="1.5" marker-end="url(#a)"/>
+  <text x="16" y="312" class="m">① 符号解析：hello.o 的 U version_string ↔ Version.o 的 T version_string</text>
+  <!-- arrow to the right -->
+  <line x1="256" y1="100" x2="420" y2="100" stroke="#555" stroke-width="1.5" marker-end="url(#a)"/>
+  <text x="338" y="92" text-anchor="middle" class="m">链接器：ld / lld / ld64</text>
+  <!-- right: address space -->
+  <text x="430" y="22" class="t">链接后：一个可执行文件，装进进程的虚拟地址空间</text>
+  <g transform="translate(430,36)">
+    <rect x="0" y="0" width="150" height="340" fill="#fafafa" stroke="#999"/>
+    <rect x="0" y="0" width="150" height="36" fill="#f0f0f0" stroke="#999"/>
+    <text x="75" y="22" text-anchor="middle" class="m">内核空间</text>
+    <rect x="0" y="36" width="150" height="48" fill="#fde7c8" stroke="#c98a00"/>
+    <text x="75" y="55" text-anchor="middle" class="m">栈（向下生长）</text>
+    <text x="75" y="71" text-anchor="middle" class="m">局部变量、返回地址</text>
+    <rect x="0" y="84" width="150" height="48" fill="#e8f5e9" stroke="#4d9a5c"/>
+    <text x="75" y="103" text-anchor="middle" class="m">动态库映射区</text>
+    <text x="75" y="119" text-anchor="middle" class="m">libminic10.so（运行时填）</text>
+    <rect x="0" y="132" width="150" height="48" fill="#fde7c8" stroke="#c98a00"/>
+    <text x="75" y="151" text-anchor="middle" class="m">堆（向上生长）</text>
+    <text x="75" y="167" text-anchor="middle" class="m">new / malloc</text>
+    <rect x="0" y="180" width="150" height="34" fill="#ede7f6" stroke="#7e57c2"/>
+    <text x="75" y="201" text-anchor="middle" class="m">.data / .bss：全局变量</text>
+    <rect x="0" y="214" width="150" height="84" fill="#d6e6ff" stroke="#5b8def"/>
+    <text x="6" y="230" class="mono">.text（代码段）</text>
+    <text x="6" y="246" class="mono">0x401000 main:</text>
+    <text x="6" y="262" class="mono">  call 0x401040</text>
+    <text x="6" y="278" class="mono">0x401040</text>
+    <text x="6" y="292" class="mono">  version_string:</text>
+    <rect x="0" y="298" width="150" height="42" fill="#f0f0f0" stroke="#999"/>
+    <text x="75" y="323" text-anchor="middle" class="m">低地址：保留，不可访问</text>
+  </g>
+  <line x1="580" y1="298" x2="600" y2="298" stroke="#5b8def" stroke-width="1.5"/>
+  <text x="604" y="60" class="m">每个进程一份独立的地址空间，</text>
+  <text x="604" y="76" class="m">64 位下远大于物理内存，</text>
+  <text x="604" y="92" class="m">由页表映射到物理页。</text>
+  <text x="604" y="250" class="m">② 重定位：链接器给每段</text>
+  <text x="604" y="266" class="m">代码和数据定下最终地址，</text>
+  <text x="604" y="282" class="m">把 hello.o 里占位的 ???</text>
+  <text x="604" y="298" class="m">改成 0x401040。</text>
+  <text x="604" y="322" class="m">version_string 若在 .so 里，</text>
+  <text x="604" y="338" class="m">这一步推迟到加载期由 ld.so</text>
+  <text x="604" y="354" class="m">做，填的是映射区里的地址。</text>
+  <!-- legend -->
+  <text x="16" y="412" class="m">符号表里的一个字母就是链接属性：T 定义且对外可见 · U 引用、等别人提供 · t 定义但只在本文件可见（static / 匿名命名空间）。</text>
+  <text x="16" y="430" class="m">链接器只做两件事：① 把每个 U 对到恰好一个 T（找不到 → undefined reference；找到两个 → multiple definition）；</text>
+  <text x="16" y="448" class="m">② 按最终布局改写地址。</text>
+</svg>

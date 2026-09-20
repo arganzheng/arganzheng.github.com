@@ -47,15 +47,14 @@ class TensorBase {
 
 Python 是 AI-Infra 的控制平面，但性能关键的执行平面几乎全是 C++：
 
-```text
-项目            Python 层                      C++ 层
-PyTorch         torch/                         c10/ · aten/ · torch/csrc/
-vLLM            vllm/                          csrc/（attention、量化、MoE、cache）
-FlashAttention  flash_attn/                    csrc/（CUTLASS 之上的 kernel）
-Triton          python/triton/                 lib/ · include/（MLIR 编译器）
-NCCL            —                              src/（全部 C++/CUDA）
-TensorRT-LLM    tensorrt_llm/                  cpp/
-```
+| 项目 | Python 层 | C++ 层 |
+|---|---|---|
+| PyTorch | `torch/` | `c10/` · `aten/` · `torch/csrc/` |
+| vLLM | `vllm/` | `csrc/`（attention、量化、MoE、cache） |
+| FlashAttention | `flash_attn/` | `csrc/`（CUTLASS 之上的 kernel） |
+| Triton | `python/triton/` | `lib/` · `include/`（MLIR 编译器） |
+| NCCL | — | `src/`（全部 C++/CUDA） |
+| TensorRT-LLM | `tensorrt_llm/` | `cpp/` |
 
 在这些项目中做有价值的贡献——修一个算子的 bug、加一个 kernel、优化一条 dispatch 路径、适配一个新硬件——迟早会碰到 C++。只在 Python 层活动，能做的事情有上限。
 

@@ -1208,13 +1208,13 @@ int main() {
 }
 ```
 
-不开 sanitizer，`clang++ -std=c++17 -O1 -I. uaf.cpp -o uaf_plain && ./uaf_plain` 在本机输出 `0`，退出码 0——读到了已释放内存里的残留值，**没有任何报错**。这就是 7.1 节说的"通常不崩"。开 ASan：
+不开 sanitizer，`clang++ -std=c++17 -O1 -I. uaf.cpp -o uaf_plain && ./uaf_plain` 在 macOS 上输出 `0`，退出码 0——读到了已释放内存里的残留值，**没有任何报错**。这就是 7.1 节说的"通常不崩"。开 ASan：
 
 ```bash
 clang++ -std=c++17 -g -O1 -fsanitize=address -fno-omit-frame-pointer -I. uaf.cpp -o uaf && ./uaf
 ```
 
-本机（macOS，Apple clang 21）的实际输出（去掉了末尾的 shadow bytes 图例）：
+macOS（Apple clang 21）上的实际输出（去掉了末尾的 shadow bytes 图例）：
 
 ```text
 =================================================================
@@ -2674,7 +2674,7 @@ TEST(DispatcherTest, OutputIsFreshTensor) {
 
 `MissingKernelThrows` 里的 `(Dispatcher::singleton().call<...>(...))` 外层括号和 `UnboxedRoundTrip` 里的同理：`EXPECT_THROW`、`EXPECT_EQ` 是宏，`call<Tensor, const Tensor&, const Tensor&>` 里的逗号会被预处理器当成宏参数分隔符，报 "too many arguments provided to function-like macro invocation"。本篇验证时先写的是不带括号的版本，clang 报了这个错——第五篇讲宏的局限时提过这一点，这是它在测试代码里最常见的表现。
 
-在本机用桩 gtest 头文件跑的结果：
+用桩 gtest 头文件跑的结果（macOS）：
 
 ```text
 [ RUN      ] DispatcherTest.OpsAreRegisteredByStaticInit
