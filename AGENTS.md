@@ -477,7 +477,13 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
   your own quote means "fix my note", not "add a second one"), 「加入讨论」
   when others' notes are, plain 「评论」 otherwise. Posting, replying or saving
   an edit *in the panel* closes it (`closePanel`; the flash + toast confirm);
-  the bottom comment section's editors stay put.
+  the bottom comment section's editors stay put. 搜一搜 opens a three-item
+  menu (`openSearchMenu`, reuses `.pa-share-pop` styles): 站内搜索 →
+  `window.openSearchOverlay(q)` (search-overlay.html pre-fills and runs the
+  query), Google, and Google AI 模式 → `search?udm=50&q=` with `aiPrompt()`
+  — the passage wrapped in a Chinese prompt naming the article (og:title) and
+  chapter (`sectionForOffsets`); a URL has no system prompt, the instructions
+  ride in `q`.
   `refreshReactionViews` repaints marker / panel row in place and only
   re-anchors when an underline must appear or vanish. Toolbar 存疑 opens the
   passage panel (its 「说说哪里不对 →」 focuses the editor); 赞 just flashes +

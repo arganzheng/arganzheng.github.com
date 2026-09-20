@@ -149,11 +149,15 @@
         var closeBtn = overlay.querySelector('.search-overlay-close');
         var initialized = false;
 
-        function openOverlay() {
+        // `query` (a string) pre-fills the box and runs the search — the 划线
+        // toolbar's 「搜一搜 → 站内搜索」 (js/annotations.js) comes in this way.
+        function openOverlay(query) {
+            var q = typeof query === 'string' ? query : null;
             overlay.classList.add('search-active');
             document.body.style.overflow = 'hidden';
+            if (q !== null) { input.value = q; input.dispatchEvent(new Event('input')); }
             if (!initialized) {
-                if (!window.BLOG_SEARCH) { document.addEventListener('DOMContentLoaded', openOverlay, { once: true }); return; }
+                if (!window.BLOG_SEARCH) { document.addEventListener('DOMContentLoaded', function () { openOverlay(q === null ? undefined : q); }, { once: true }); return; }
                 initialized = true;
                 window.BLOG_SEARCH.init({
                     inputId: 'search-overlay-input',

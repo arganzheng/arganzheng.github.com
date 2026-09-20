@@ -1821,7 +1821,62 @@
     toolbar.style.left = left + 'px';
   }
 
-  function hideToolbar() { if (toolbar) toolbar.style.display = 'none'; }
+  function hideToolbar() { if (toolbar) toolbar.style.display = 'none'; closeSearchMenu(); }
+
+  // ------------------------------------------------------------ 搜一搜 menu
+  // 站内 = the site search overlay (search-overlay.html exposes
+  // `openSearchOverlay(q)`); Google = a plain web search; Google AI 模式 =
+  // `udm=50` with the passage wrapped in a prompt that names the article and
+  // chapter — a URL has no system prompt, the instructions ride in `q`.
+  var searchPop = null;
+  function openSearchMenu(btn, q, section) {
+    if (!searchPop) {
+      searchPop = document.createElement('div');
+      searchPop.className = 'pa-share-pop annotation-search-pop';
+      searchPop.setAttribute('role', 'menu');
+      searchPop.innerHTML =
+        '<button type="button" class="pa-sp-item" data-k="site"><i class="fa fa-search"></i>站内搜索</button>' +
+        '<button type="button" class="pa-sp-item" data-k="google"><i class="fa fa-brands fa-google"></i>Google</button>' +
+        '<button type="button" class="pa-sp-item" data-k="ai" title="在 Google AI 模式里解释这段话（带上文章与章节）"><i class="fa fa-wand-magic-sparkles"></i>Google AI 模式</button>';
+      searchPop.addEventListener('mousedown', function (e) { e.preventDefault(); }); // keep the selection
+      searchPop.addEventListener('click', function (e) {
+        var item = e.target.closest('.pa-sp-item');
+        if (!item) return;
+        e.stopPropagation();
+        var k = item.getAttribute('data-k'), d = searchPop._ctx;
+        if (k === 'site') { if (window.openSearchOverlay) window.openSearchOverlay(d.q); else location.href = '/search/?q=' + encodeURIComponent(d.q); }
+        else if (k === 'google') window.open('https://www.google.com/search?q=' + encodeURIComponent(d.q), '_blank', 'noopener');
+        else window.open('https://www.google.com/search?udm=50&q=' + encodeURIComponent(aiPrompt(d)), '_blank', 'noopener');
+        hideToolbar();
+        if (window.getSelection) window.getSelection().removeAllRanges();
+      });
+      document.addEventListener('click', function (e) { if (!searchPop.hidden && !searchPop.contains(e.target)) closeSearchMenu(); });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeSearchMenu(); });
+      document.body.appendChild(searchPop);
+    }
+    searchPop._ctx = { q: q, section: section };
+    searchPop.hidden = false; searchPop.style.visibility = 'hidden';
+    var r = btn.getBoundingClientRect(), pw = searchPop.offsetWidth, ph = searchPop.offsetHeight;
+    var left = Math.min(Math.max(8, r.left + window.scrollX), window.scrollX + document.documentElement.clientWidth - pw - 8);
+    var below = r.bottom + 8 + ph < window.innerHeight || r.top < ph + 8;
+    searchPop.style.left = left + 'px';
+    searchPop.style.top = (below ? r.bottom + window.scrollY + 8 : r.top + window.scrollY - ph - 8) + 'px';
+    searchPop.style.visibility = '';
+    btn.setAttribute('aria-expanded', 'true');
+  }
+  function closeSearchMenu() {
+    if (!searchPop || searchPop.hidden) return;
+    searchPop.hidden = true;
+    if (toolbar) toolbar.querySelector('.annotation-tb-search').setAttribute('aria-expanded', 'false');
+  }
+  function postTitle() {
+    var og = document.querySelector('meta[property="og:title"]');
+    return (og && og.getAttribute('content')) || document.title.replace(/\s+-\s+[^-]+$/, '');
+  }
+  function aiPrompt(d) {
+    return '下面这段话出自技术博客文章《' + postTitle() + '》' + (d.section ? '的「' + d.section + '」一节' : '') +
+      '（' + location.href.split('#')[0] + '）。请用中文解释它的含义和背后的原理，指出其中容易误解或可能有误的地方，并补充相关背景与延伸阅读：\n\n“' + d.q + '”';
+  }
 
   function ensureToolbar() {
     if (toolbar) return toolbar;
@@ -1833,7 +1888,7 @@
       '<span class="annotation-tb-sep"></span>' +
       '<button type="button" class="annotation-tb-comment"><i class="fa fa-regular fa-comment"></i> 评论</button>' +
       '<button type="button" class="annotation-tb-copy" title="复制选中的文字"><i class="fa fa-copy"></i> 复制</button>' +
-      '<button type="button" class="annotation-tb-search" title="用 Google 搜这段文字"><i class="fa fa-search"></i> 搜一搜</button>' +
+      '<button type="button" class="annotation-tb-search" title="搜这段文字：站内 / Google / Google AI 模式" aria-haspopup="true" aria-expanded="false"><i class="fa fa-search"></i> 搜一搜</button>' +
       '<button type="button" class="annotation-tb-share" title="分享这段话：微博 / X / 微信 / 复制链接（打开后自动定位这段文字）" aria-haspopup="true" aria-expanded="false"><i class="fa fa-share-alt"></i> 分享</button>' +
       '<span class="annotation-tb-arrow"></span>';
     toolbar.addEventListener('mousedown', function (e) { e.preventDefault(); }); // keep the selection
@@ -1875,9 +1930,9 @@
       e.stopPropagation();
       var range = currentRange();
       if (!range) return;
+      var offsets = selectionOffsets(range);
       var q = range.toString().replace(/\s+/g, ' ').trim().slice(0, 200);
-      window.open('https://www.google.com/search?q=' + encodeURIComponent(q), '_blank', 'noopener');
-      hideToolbar();
+      openSearchMenu(e.currentTarget, q, offsets ? sectionForOffsets(offsets) : '');
     });
     toolbar.querySelector('.annotation-tb-share').addEventListener('click', function (e) {
       e.stopPropagation();
