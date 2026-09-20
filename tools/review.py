@@ -547,7 +547,7 @@ def hunks(t, path):
 def anchor_for_section(t, path, sections, section, fm_lines):
     """First diff hunk inside a section -> (line, side) for a PR line comment."""
     starts = [ln for ln, _ in sections]
-    lo, hi = fm_lines + 1, 10 ** 9
+    lo, hi = 1, (starts[0] if starts else 10 ** 9)
     if section:
         for idx, (ln, title) in enumerate(sections):
             if norm_heading(title) == norm_heading(section):
@@ -658,7 +658,7 @@ def build_post_page(t, ctx, status, path, old_path):
         kind, a, b = pairs[i]
         sec = (b or a).section
         key = norm_heading(sec)
-        if kind != 'equal' and key not in notes_done:
+        if kind != 'equal' and key not in notes_done and status != 'A':
             notes_done.add(key)
             body.append(notes_card(t, path, sec, threads_by_sec.pop(key, []), sections, fm_lines))
         u, l, r = render_pair(kind, a, b)
@@ -671,7 +671,10 @@ def build_post_page(t, ctx, status, path, old_path):
     if fm_changed:
         rows = ''.join('<tr><th>%s</th><td><del>%s</del></td><td><ins>%s</ins></td></tr>' % (html.escape(k), html.escape(ofm.get(k, '')), html.escape(nfm.get(k, ''))) for k in fm_changed)
         top.append('<table class="rv-fm"><thead><tr><th>front matter</th><th>旧</th><th>新</th></tr></thead><tbody>%s</tbody></table>' % rows)
-    if '' not in notes_done and (threads_by_sec.get('') or fm_changed):
+    if status == 'A':  # a new post is reviewed as a whole: one card, every thread
+        top.append(notes_card(t, path, '', [th for v in threads_by_sec.values() for th in v], sections, fm_lines, label='整篇（新文章）'))
+        threads_by_sec.clear(); notes_done.add(''); changed_secs = ['']
+    elif '' not in notes_done and (threads_by_sec.get('') or fm_changed):
         top.append(notes_card(t, path, '', threads_by_sec.pop('', []), sections, fm_lines)); notes_done.add('')
     leftovers = [th for k, v in threads_by_sec.items() for th in v]
     if leftovers:
@@ -699,9 +702,9 @@ def slug_file(path):
     return re.sub(r'[^A-Za-z0-9_.-]+', '-', os.path.splitext(os.path.basename(path))[0]) + '.html'
 
 
-def notes_card(t, path, sec, threads, sections, fm_lines):
+def notes_card(t, path, sec, threads, sections, fm_lines, label=None):
     anchor = anchor_for_section(t, path, sections, sec, fm_lines) if t.pr else None
-    head = '<span class="rv-sec">%s</span>' % html.escape(sec or '文章开头 / front matter')
+    head = '<span class="rv-sec">%s</span>' % html.escape(label or sec or '文章开头 / front matter')
     if t.pr and not threads: head += ' <span class="rv-nonote">无说明</span>'
     form = ''
     if t.pr:
@@ -781,8 +784,11 @@ def post_notes(t, notes, post_paths):
     for path, sec, body in notes:
         if path not in post_paths: problems.append('%s: not a changed post in this PR' % path); continue
         new_md = read_at(t.head, path); _, nbody, fm_lines = front_matter(new_md)
-        anchor = anchor_for_section(t, path, md_sections(nbody, fm_lines), sec, fm_lines)
-        if not anchor: problems.append('%s › %s: no changed line under that section' % (path, sec or '(top)')); continue
+        sections = md_sections(nbody, fm_lines)
+        anchor = anchor_for_section(t, path, sections, sec, fm_lines)
+        if not anchor:
+            have = sorted({section_of_line(sections, ns if nc else ns + 1) or '(top)' for ns, nc, _, _ in hunks(t, path)})
+            problems.append('%s › %s: no changed line under that section; changed sections: %s' % (path, sec or '(top)', ' · '.join(have))); continue
         comments.append({'path': path, 'line': anchor[0], 'side': anchor[1], 'body': body})
     if problems: log('\n'.join('  ! ' + p for p in problems))
     if not comments: sys.exit('no postable notes')
