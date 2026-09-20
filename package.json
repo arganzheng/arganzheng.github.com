@@ -16,6 +16,7 @@
         "build": "tools/build-css.sh && tools/build-js.sh",
         "check": "tools/check.sh",
         "audit": "tools/audit.py",
+        "review": "tools/review.py",
         "hooks": "git config core.hooksPath .githooks"
     },
     "devDependencies": {

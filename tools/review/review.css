@@ -1,0 +1,90 @@
+/* Review page (tools/review.py). Loaded after the site's own CSS, so the
+   article looks as it does on the site; only the diff marks / chrome are ours. */
+body.rv { padding-top: 0; }
+.rv-bar { position: sticky; top: 0; z-index: 50; display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 16px; background: #fff; border-bottom: 1px solid #d0d7de; font-size: 14px; }
+.rv-bar a { margin-right: 12px; }
+.rv-label { color: #59636e; }
+.rv-toggle { margin-left: 14px; font-weight: normal; cursor: pointer; }
+.rv-head { max-width: 900px; margin: 24px auto 0; padding: 0 16px; }
+.rv-head h1 { font-size: 26px; margin: 0 0 4px; }
+.rv-sub { color: #59636e; margin: 0; }
+.rv-path { font-size: 13px; color: #59636e; }
+.rv-status:not(:empty) { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 10px; background: #ddf4ff; color: #0969da; margin-bottom: 6px; }
+.rv-body { max-width: 900px; margin: 0 auto 80px; padding: 0 16px; float: none; width: auto; }
+.rv-cols { display: none; }
+.rv-index .rv-cols, .rv-index .rv-open, .rv-index .rv-toggle { display: none !important; }
+
+/* marks */
+.rv ins { background: #dafbe1; text-decoration: none; color: #116329; border-radius: 2px; }
+.rv del { background: #ffebe9; text-decoration: line-through; color: #82071e; border-radius: 2px; }
+.rv del .katex, .rv del code { text-decoration: line-through; }
+.rv-blk { position: relative; border-left: 4px solid transparent; padding-left: 12px; margin-left: -16px; }
+.rv-chg { border-left-color: #bf8700; }
+.rv-ins { border-left-color: #1a7f37; background: #f0fff4; }
+.rv-del { border-left-color: #cf222e; background: #fff5f5; }
+.rv-del > *, .rv-ins > * { margin-top: 0.4em !important; margin-bottom: 0.4em !important; }
+.rv-gap { min-height: 24px; background: repeating-linear-gradient(135deg, #f6f8fa 0 6px, #fff 6px 12px); border-left-color: #d0d7de; }
+.rv-row-del { background: #ffebe9; }
+.rv-row-ins { background: #dafbe1; }
+pre.rv-code { white-space: pre; overflow-x: auto; font-size: 13px; line-height: 1.5; padding: 10px 12px; background: #f6f8fa; border-radius: 6px; }
+pre.rv-code ins, pre.rv-code del { display: inline-block; width: 100%; text-decoration: none; }
+pre.rv-code del { background: #ffd7d5; }
+pre.rv-code ins { background: #ccffd8; }
+.rv-render { margin-top: 8px; }
+.rv-render-old::before, .rv-render-new::before { display: block; font-size: 12px; color: #59636e; margin: 8px 0 2px; }
+.rv-render-old::before { content: '旧图'; }
+.rv-render-new::before { content: '新图'; }
+
+/* modes */
+.rv-mode-unified .rv-l, .rv-mode-unified .rv-r { display: none; }
+.rv-mode-split .rv-u { display: none; }
+.rv-mode-split .rv-body { max-width: 1440px; }
+.rv-mode-split .rv-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; }
+.rv-mode-split .rv-pair > div { min-width: 0; }
+.rv-mode-split .rv-l { border-right: 1px solid #eaeef2; padding-right: 14px; }
+.rv-mode-split .rv-cols { display: block; max-width: 1440px; margin: 8px auto 0; padding: 0 16px; }
+.rv-colhead { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; font-size: 12px; color: #59636e; border-bottom: 1px solid #eaeef2; }
+.rv-mode-split .rv-render-old, .rv-mode-split .rv-render-new { display: none; }
+
+/* folds */
+.post-container details.rv-fold { margin: 6px 0; padding: 0; border: 0; border-radius: 0; background: none; }
+.post-container details.rv-fold > summary { cursor: pointer; color: #59636e; font-weight: normal; font-size: 13px; padding: 4px 0; list-style: none; text-align: center;
+  border-top: 1px dashed #d0d7de; border-bottom: 1px dashed #d0d7de; margin: 0; }
+.post-container details.rv-fold > summary::-webkit-details-marker { display: none; }
+.post-container details.rv-fold > summary::before { content: none; }
+.post-container details.rv-fold[open] > summary { color: #0969da; margin-bottom: 8px; }
+
+/* notes / threads */
+.rv-notes { margin: 20px 0 8px; padding: 10px 14px; border: 1px solid #d0d7de; border-radius: 8px; background: #f6f8fa; font-size: 14px; }
+.rv-notes-h { font-weight: 600; margin-bottom: 6px; }
+.rv-sec::before { content: '§ '; color: #59636e; }
+.rv-nonote { font-weight: normal; font-size: 12px; color: #9a6700; background: #fff8c5; padding: 0 6px; border-radius: 8px; }
+.rv-thread { background: #fff; border: 1px solid #d0d7de; border-radius: 6px; padding: 8px 10px; margin: 8px 0; }
+.rv-thread.is-resolved { opacity: .7; border-style: dashed; }
+.rv-c { display: flex; gap: 8px; margin: 4px 0; }
+.rv-c img { width: 22px; height: 22px; border-radius: 50%; margin: 2px 0 0 !important; flex: none; }
+.rv-c time { color: #59636e; font-size: 12px; margin-left: 6px; }
+.rv-c p { margin: 2px 0 4px; }
+.rv-thread-foot { font-size: 12px; color: #59636e; display: flex; gap: 10px; align-items: center; }
+.rv-state { color: #1a7f37; }
+.rv-form textarea { width: 100%; box-sizing: border-box; font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid #d0d7de; border-radius: 6px; resize: vertical; }
+.rv-form > div { margin-top: 4px; display: flex; gap: 10px; align-items: center; }
+.rv button, .rv-pr-actions button { font: inherit; font-size: 13px; padding: 3px 10px; border: 1px solid #d0d7de; border-radius: 6px; background: #fff; cursor: pointer; }
+.rv button:hover { background: #f3f4f6; }
+.rv button[disabled] { opacity: .5; cursor: default; }
+.rv-msg { font-size: 12px; color: #59636e; }
+.rv-msg.is-err { color: #cf222e; }
+.rv-reply-form { margin-top: 6px; }
+
+/* index */
+.rv-idx { list-style: none; padding: 0; }
+.rv-idx li { padding: 8px 0; border-bottom: 1px solid #eaeef2; }
+.rv-idx small { color: #59636e; margin-left: 8px; }
+.rv-idx-secs { font-size: 12px; color: #59636e; margin-top: 2px; }
+.rv-pr { padding: 12px 16px; border: 1px solid #d0d7de; border-radius: 8px; background: #f6f8fa; margin-bottom: 20px; }
+.rv-pr-body { font-size: 14px; margin-top: 8px; }
+.rv-pr-actions { margin-top: 8px; }
+.rv-raw { font-size: 12px; max-height: 480px; overflow: auto; }
+.rv-fm { font-size: 13px; margin-bottom: 16px; }
+.rv-fm ins, .rv-fm del { padding: 0 3px; }

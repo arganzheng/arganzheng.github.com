@@ -11,3 +11,5 @@ npm-debug.log
 .wrangler
 !tools/*.sh
 _site-check
+_site-review
+.review

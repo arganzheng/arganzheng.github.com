@@ -35,7 +35,9 @@ layout: default
 
 				{% include post-stale.html %}
 				{% include series-context.html %}{% include series-nav.html %}
+<!-- article -->
 {{ content | replace: '<img src=', '<img loading="lazy" decoding="async" src=' }}
+<!-- /article -->
 {% include series-toc.html %}
 {% include post-license.html %}
 

@@ -76,6 +76,63 @@ clients (the IDE's push button) run hooks with a bare PATH, so `bundle`,
 `lychee`, `node`, `rg` were not found and every push from the IDE failed
 while the terminal passed (2026-09-16).
 
+### Revising posts = a PR, reviewed rendered (`tools/review.py`)
+
+Content revisions by an agent (fixing a post after reader feedback, a
+待修订 issue, a sweep over a series) never go straight to `master`. The
+workflow, mirroring code review:
+
+1. Work in a **separate worktree** so the user's checkout is untouched:
+   `git worktree add ../arganzheng.github.com-rev-<topic> -b rev/<topic>`
+   (we once had the user's commits land on an agent's branch because both
+   used the same working tree). Commit there, `gh pr create`; the PR body is
+   the summary and the sources (which passages / issues / instructions).
+2. **Every changed section gets a reason.** Write `.review/notes.md`
+   (gitignored) — `## _posts/<file>.md`, then `### <h2/h3 title>` + the
+   reason (what was wrong, what the change does, what reader signal it
+   answers); text before the first `###` is a file-level note — and run
+   `tools/review.py <PR#> --notes .review/notes.md`. It posts one review
+   with a comment on the first changed line of each section and prints the
+   changed sections that still have **no** note (non-zero exit) — fix those
+   before handing over. The same anchor rule (section → first hunk under
+   that heading, `RIGHT` side, `LEFT` for pure deletions) is how the user's
+   comments from the review page land on GitHub, so both sides of the
+   conversation sit on the same lines.
+3. The user runs `npm run review -- <PR#>` (see below), comments per section
+   from the rendered page (→ PR line comments), approves / requests changes.
+4. Read the threads (`gh api graphql` `reviewThreads`, or the page), reply
+   on each with 采纳（见 commit …）or 不采纳 + why, push, and tell the user to
+   re-run the page. Merge = publish (deploy runs on `master`).
+
+`tools/review.py` (= `npm run review --`): `<PR#>` (merge-base..head,
+fetches `pull/N/head` if needed), `A..B`, a single commit (`X^..X`), or no
+argument (working tree vs HEAD). It `jekyll build`s both sides
+(`--future --unpublished --drafts`, worktrees in `/tmp/blog-review/<sha>`,
+output cached in `_site-review/<sha>/` — the working tree is always rebuilt),
+cuts each changed post's article out of the built page between the
+`<!-- article -->` / `<!-- /article -->` markers the three post layouts
+emit (older builds fall back to `.post-container` heuristics), splits it
+into top-level blocks, aligns them by text (`difflib`, then a similarity DP
+inside replace runs), and renders each pair three ways — unified (new
+markup with `<del>` text spliced in), left (old + `<del>`), right (new +
+`<ins>`): word-level for prose (tags ride with the next word so each
+side's markup stays balanced; `\( \)` / `\[ \]` math is one token so KaTeX
+still renders it), line-level for code / Mermaid (plus the rendered
+diagrams), row/cell-level for tables, item-level for lists; a block whose
+text changed > 60 % is shown as old | new. Unchanged runs fold to 「… N
+段未变」, one context block on each side, h2/h3 shown only when their
+section changed. Pages go to `<head build>/_review/` and are served from
+`http://localhost:4100/` (so `/css`, `/js`, `/img` resolve against the new
+build); the page reuses the built post's `<head>` (site CSS + the
+`rich-content` KaTeX / Mermaid loaders) and loads only `code-tokens.js` and
+`inline-popups.js`, not `blog.min.js` (annotations / views / figures would
+run against the diff). Its own chrome is `tools/review/review.{css,js}` —
+not part of `less/` or the JS bundle. In PR mode the server also answers
+`POST /_api/comment` (new line comment or `reply_to`) and `POST /_api/review`
+(`gh pr review --approve|--request-changes`), all through the local `gh`
+login. Rendering is faithful because it *is* the site's rendering; the
+price is ~20 s per side to build.
+
 ## Deploy
 
 `.github/workflows/deploy.yml` builds with the Gemfile's Jekyll (4.4) and
