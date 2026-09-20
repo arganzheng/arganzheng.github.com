@@ -1,0 +1,218 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="468" viewBox="0 0 800 468" font-family="-apple-system, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif" font-size="12">
+<style>.m{fill:#555;font-size:11px}.t{fill:#222;font-weight:600}.n{fill:#222;font-size:10px}.p{fill:#dbeafe;stroke:#1d4ed8}.g{fill:#dcfce7;stroke:#15803d}.o{fill:#ede9fe;stroke:#7e22ce}.e{fill:#fff;stroke:#bbb;stroke-dasharray:3 2}</style>
+<text x="16" y="20" class="t">四级 ZeRO：N_d = 4 张卡上，参数 P（2N）、梯度 G（2N）、优化器状态 O（12N）各是整份还是 1/4 片</text>
+<text x="16" y="38" class="m">实心格 = 本卡持有的那一段；虚线格 = 不持有（在别的卡上）。每张卡的显存 = 实心部分之和。</text>
+<text x="16" y="82" class="t">DP (ZeRO-0)</text>
+<text x="16" y="100" class="m" font-size="10">每卡 16N</text>
+<text x="16" y="114" class="m" font-size="10">通信 all-reduce 2N</text>
+<rect x="170" y="64" width="140" height="78" rx="4" fill="#fafafa" stroke="#999"/>
+<text x="176" y="76" class="n">GPU 0</text>
+<rect x="178.0" y="82" width="15.5" height="44" class="p"/>
+<text x="185.8" y="136" text-anchor="middle" class="n">P</text>
+<rect x="193.5" y="82" width="15.5" height="44" class="g"/>
+<text x="201.2" y="136" text-anchor="middle" class="n">G</text>
+<rect x="209.0" y="82" width="93.0" height="44" class="o"/>
+<text x="255.5" y="136" text-anchor="middle" class="n">O</text>
+<rect x="322" y="64" width="140" height="78" rx="4" fill="#fafafa" stroke="#999"/>
+<text x="328" y="76" class="n">GPU 1</text>
+<rect x="330.0" y="82" width="15.5" height="44" class="p"/>
+<text x="337.8" y="136" text-anchor="middle" class="n">P</text>
+<rect x="345.5" y="82" width="15.5" height="44" class="g"/>
+<text x="353.2" y="136" text-anchor="middle" class="n">G</text>
+<rect x="361.0" y="82" width="93.0" height="44" class="o"/>
+<text x="407.5" y="136" text-anchor="middle" class="n">O</text>
+<rect x="474" y="64" width="140" height="78" rx="4" fill="#fafafa" stroke="#999"/>
+<text x="480" y="76" class="n">GPU 2</text>
+<rect x="482.0" y="82" width="15.5" height="44" class="p"/>
+<text x="489.8" y="136" text-anchor="middle" class="n">P</text>
+<rect x="497.5" y="82" width="15.5" height="44" class="g"/>
+<text x="505.2" y="136" text-anchor="middle" class="n">G</text>
+<rect x="513.0" y="82" width="93.0" height="44" class="o"/>
+<text x="559.5" y="136" text-anchor="middle" class="n">O</text>
+<rect x="626" y="64" width="140" height="78" rx="4" fill="#fafafa" stroke="#999"/>
+<text x="632" y="76" class="n">GPU 3</text>
+<rect x="634.0" y="82" width="15.5" height="44" class="p"/>
+<text x="641.8" y="136" text-anchor="middle" class="n">P</text>
+<rect x="649.5" y="82" width="15.5" height="44" class="g"/>
+<text x="657.2" y="136" text-anchor="middle" class="n">G</text>
+<rect x="665.0" y="82" width="93.0" height="44" class="o"/>
+<text x="711.5" y="136" text-anchor="middle" class="n">O</text>
+<text x="16" y="174" class="t">ZeRO-1</text>
+<text x="16" y="192" class="m" font-size="10">每卡 4N + 12N/N_d</text>
+<text x="16" y="206" class="m" font-size="10">通信 RS N + AG N = 2N</text>
+<rect x="170" y="156" width="140" height="78" rx="4" fill="#fafafa" stroke="#999"/>
+<text x="176" y="168" class="n">GPU 0</text>
+<rect x="178.0" y="174" width="15.5" height="44" class="p"/>
+<text x="185.8" y="228" text-anchor="middle" class="n">P</text>
+<rect x="193.5" y="174" width="15.5" height="44" class="g"/>
+<text x="201.2" y="228" text-anchor="middle" class="n">G</text>
+<rect x="209.0" y="174.0" width="93.0" height="11.0" class="o"/>
+<rect x="209.0" y="185.0" width="93.0" height="11.0" class="e"/>
+<rect x="209.0" y="196.0" width="93.0" height="11.0" class="e"/>
+<rect x="209.0" y="207.0" width="93.0" height="11.0" class="e"/>
+<text x="255.5" y="228" text-anchor="middle" class="n">O</text>
+<rect x="322" y="156" width="140" height="78" rx="4" fill="#fafafa" stroke="#999"/>
+<text x="328" y="168" class="n">GPU 1</text>
+<rect x="330.0" y="174" width="15.5" height="44" class="p"/>
+<text x="337.8" y="228" text-anchor="middle" class="n">P</text>
+<rect x="345.5" y="174" width="15.5" height="44" class="g"/>
+<text x="353.2" y="228" text-anchor="middle" class="n">G</text>
+<rect x="361.0" y="174.0" width="93.0" height="11.0" class="e"/>
+<rect x="361.0" y="185.0" width="93.0" height="11.0" class="o"/>
+<rect x="361.0" y="196.0" width="93.0" height="11.0" class="e"/>
+<rect x="361.0" y="207.0" width="93.0" height="11.0" class="e"/>
+<text x="407.5" y="228" text-anchor="middle" class="n">O</text>
+<rect x="474" y="156" width="140" height="78" rx="4" fill="#fafafa" stroke="#999"/>
+<text x="480" y="168" class="n">GPU 2</text>
+<rect x="482.0" y="174" width="15.5" height="44" class="p"/>
+<text x="489.8" y="228" text-anchor="middle" class="n">P</text>
+<rect x="497.5" y="174" width="15.5" height="44" class="g"/>
+<text x="505.2" y="228" text-anchor="middle" class="n">G</text>
+<rect x="513.0" y="174.0" width="93.0" height="11.0" class="e"/>
+<rect x="513.0" y="185.0" width="93.0" height="11.0" class="e"/>
+<rect x="513.0" y="196.0" width="93.0" height="11.0" class="o"/>
+<rect x="513.0" y="207.0" width="93.0" height="11.0" class="e"/>
+<text x="559.5" y="228" text-anchor="middle" class="n">O</text>
+<rect x="626" y="156" width="140" height="78" rx="4" fill="#fafafa" stroke="#999"/>
+<text x="632" y="168" class="n">GPU 3</text>
+<rect x="634.0" y="174" width="15.5" height="44" class="p"/>
+<text x="641.8" y="228" text-anchor="middle" class="n">P</text>
+<rect x="649.5" y="174" width="15.5" height="44" class="g"/>
+<text x="657.2" y="228" text-anchor="middle" class="n">G</text>
+<rect x="665.0" y="174.0" width="93.0" height="11.0" class="e"/>
+<rect x="665.0" y="185.0" width="93.0" height="11.0" class="e"/>
+<rect x="665.0" y="196.0" width="93.0" height="11.0" class="e"/>
+<rect x="665.0" y="207.0" width="93.0" height="11.0" class="o"/>
+<text x="711.5" y="228" text-anchor="middle" class="n">O</text>
+<text x="16" y="266" class="t">ZeRO-2</text>
+<text x="16" y="284" class="m" font-size="10">每卡 2N + 14N/N_d</text>
+<text x="16" y="298" class="m" font-size="10">通信 2N，梯度即时释放</text>
+<rect x="170" y="248" width="140" height="78" rx="4" fill="#fafafa" stroke="#999"/>
+<text x="176" y="260" class="n">GPU 0</text>
+<rect x="178.0" y="266" width="15.5" height="44" class="p"/>
+<text x="185.8" y="320" text-anchor="middle" class="n">P</text>
+<rect x="193.5" y="266.0" width="15.5" height="11.0" class="g"/>
+<rect x="193.5" y="277.0" width="15.5" height="11.0" class="e"/>
+<rect x="193.5" y="288.0" width="15.5" height="11.0" class="e"/>
+<rect x="193.5" y="299.0" width="15.5" height="11.0" class="e"/>
+<text x="201.2" y="320" text-anchor="middle" class="n">G</text>
+<rect x="209.0" y="266.0" width="93.0" height="11.0" class="o"/>
+<rect x="209.0" y="277.0" width="93.0" height="11.0" class="e"/>
+<rect x="209.0" y="288.0" width="93.0" height="11.0" class="e"/>
+<rect x="209.0" y="299.0" width="93.0" height="11.0" class="e"/>
+<text x="255.5" y="320" text-anchor="middle" class="n">O</text>
+<rect x="322" y="248" width="140" height="78" rx="4" fill="#fafafa" stroke="#999"/>
+<text x="328" y="260" class="n">GPU 1</text>
+<rect x="330.0" y="266" width="15.5" height="44" class="p"/>
+<text x="337.8" y="320" text-anchor="middle" class="n">P</text>
+<rect x="345.5" y="266.0" width="15.5" height="11.0" class="e"/>
+<rect x="345.5" y="277.0" width="15.5" height="11.0" class="g"/>
+<rect x="345.5" y="288.0" width="15.5" height="11.0" class="e"/>
+<rect x="345.5" y="299.0" width="15.5" height="11.0" class="e"/>
+<text x="353.2" y="320" text-anchor="middle" class="n">G</text>
+<rect x="361.0" y="266.0" width="93.0" height="11.0" class="e"/>
+<rect x="361.0" y="277.0" width="93.0" height="11.0" class="o"/>
+<rect x="361.0" y="288.0" width="93.0" height="11.0" class="e"/>
+<rect x="361.0" y="299.0" width="93.0" height="11.0" class="e"/>
+<text x="407.5" y="320" text-anchor="middle" class="n">O</text>
+<rect x="474" y="248" width="140" height="78" rx="4" fill="#fafafa" stroke="#999"/>
+<text x="480" y="260" class="n">GPU 2</text>
+<rect x="482.0" y="266" width="15.5" height="44" class="p"/>
+<text x="489.8" y="320" text-anchor="middle" class="n">P</text>
+<rect x="497.5" y="266.0" width="15.5" height="11.0" class="e"/>
+<rect x="497.5" y="277.0" width="15.5" height="11.0" class="e"/>
+<rect x="497.5" y="288.0" width="15.5" height="11.0" class="g"/>
+<rect x="497.5" y="299.0" width="15.5" height="11.0" class="e"/>
+<text x="505.2" y="320" text-anchor="middle" class="n">G</text>
+<rect x="513.0" y="266.0" width="93.0" height="11.0" class="e"/>
+<rect x="513.0" y="277.0" width="93.0" height="11.0" class="e"/>
+<rect x="513.0" y="288.0" width="93.0" height="11.0" class="o"/>
+<rect x="513.0" y="299.0" width="93.0" height="11.0" class="e"/>
+<text x="559.5" y="320" text-anchor="middle" class="n">O</text>
+<rect x="626" y="248" width="140" height="78" rx="4" fill="#fafafa" stroke="#999"/>
+<text x="632" y="260" class="n">GPU 3</text>
+<rect x="634.0" y="266" width="15.5" height="44" class="p"/>
+<text x="641.8" y="320" text-anchor="middle" class="n">P</text>
+<rect x="649.5" y="266.0" width="15.5" height="11.0" class="e"/>
+<rect x="649.5" y="277.0" width="15.5" height="11.0" class="e"/>
+<rect x="649.5" y="288.0" width="15.5" height="11.0" class="e"/>
+<rect x="649.5" y="299.0" width="15.5" height="11.0" class="g"/>
+<text x="657.2" y="320" text-anchor="middle" class="n">G</text>
+<rect x="665.0" y="266.0" width="93.0" height="11.0" class="e"/>
+<rect x="665.0" y="277.0" width="93.0" height="11.0" class="e"/>
+<rect x="665.0" y="288.0" width="93.0" height="11.0" class="e"/>
+<rect x="665.0" y="299.0" width="93.0" height="11.0" class="o"/>
+<text x="711.5" y="320" text-anchor="middle" class="n">O</text>
+<text x="16" y="358" class="t">ZeRO-3 / FSDP</text>
+<text x="16" y="376" class="m" font-size="10">每卡 16N/N_d</text>
+<text x="16" y="390" class="m" font-size="10">通信 AG+AG+RS = 3N</text>
+<rect x="170" y="340" width="140" height="78" rx="4" fill="#fafafa" stroke="#999"/>
+<text x="176" y="352" class="n">GPU 0</text>
+<rect x="178.0" y="358.0" width="15.5" height="11.0" class="p"/>
+<rect x="178.0" y="369.0" width="15.5" height="11.0" class="e"/>
+<rect x="178.0" y="380.0" width="15.5" height="11.0" class="e"/>
+<rect x="178.0" y="391.0" width="15.5" height="11.0" class="e"/>
+<text x="185.8" y="412" text-anchor="middle" class="n">P</text>
+<rect x="193.5" y="358.0" width="15.5" height="11.0" class="g"/>
+<rect x="193.5" y="369.0" width="15.5" height="11.0" class="e"/>
+<rect x="193.5" y="380.0" width="15.5" height="11.0" class="e"/>
+<rect x="193.5" y="391.0" width="15.5" height="11.0" class="e"/>
+<text x="201.2" y="412" text-anchor="middle" class="n">G</text>
+<rect x="209.0" y="358.0" width="93.0" height="11.0" class="o"/>
+<rect x="209.0" y="369.0" width="93.0" height="11.0" class="e"/>
+<rect x="209.0" y="380.0" width="93.0" height="11.0" class="e"/>
+<rect x="209.0" y="391.0" width="93.0" height="11.0" class="e"/>
+<text x="255.5" y="412" text-anchor="middle" class="n">O</text>
+<rect x="322" y="340" width="140" height="78" rx="4" fill="#fafafa" stroke="#999"/>
+<text x="328" y="352" class="n">GPU 1</text>
+<rect x="330.0" y="358.0" width="15.5" height="11.0" class="e"/>
+<rect x="330.0" y="369.0" width="15.5" height="11.0" class="p"/>
+<rect x="330.0" y="380.0" width="15.5" height="11.0" class="e"/>
+<rect x="330.0" y="391.0" width="15.5" height="11.0" class="e"/>
+<text x="337.8" y="412" text-anchor="middle" class="n">P</text>
+<rect x="345.5" y="358.0" width="15.5" height="11.0" class="e"/>
+<rect x="345.5" y="369.0" width="15.5" height="11.0" class="g"/>
+<rect x="345.5" y="380.0" width="15.5" height="11.0" class="e"/>
+<rect x="345.5" y="391.0" width="15.5" height="11.0" class="e"/>
+<text x="353.2" y="412" text-anchor="middle" class="n">G</text>
+<rect x="361.0" y="358.0" width="93.0" height="11.0" class="e"/>
+<rect x="361.0" y="369.0" width="93.0" height="11.0" class="o"/>
+<rect x="361.0" y="380.0" width="93.0" height="11.0" class="e"/>
+<rect x="361.0" y="391.0" width="93.0" height="11.0" class="e"/>
+<text x="407.5" y="412" text-anchor="middle" class="n">O</text>
+<rect x="474" y="340" width="140" height="78" rx="4" fill="#fafafa" stroke="#999"/>
+<text x="480" y="352" class="n">GPU 2</text>
+<rect x="482.0" y="358.0" width="15.5" height="11.0" class="e"/>
+<rect x="482.0" y="369.0" width="15.5" height="11.0" class="e"/>
+<rect x="482.0" y="380.0" width="15.5" height="11.0" class="p"/>
+<rect x="482.0" y="391.0" width="15.5" height="11.0" class="e"/>
+<text x="489.8" y="412" text-anchor="middle" class="n">P</text>
+<rect x="497.5" y="358.0" width="15.5" height="11.0" class="e"/>
+<rect x="497.5" y="369.0" width="15.5" height="11.0" class="e"/>
+<rect x="497.5" y="380.0" width="15.5" height="11.0" class="g"/>
+<rect x="497.5" y="391.0" width="15.5" height="11.0" class="e"/>
+<text x="505.2" y="412" text-anchor="middle" class="n">G</text>
+<rect x="513.0" y="358.0" width="93.0" height="11.0" class="e"/>
+<rect x="513.0" y="369.0" width="93.0" height="11.0" class="e"/>
+<rect x="513.0" y="380.0" width="93.0" height="11.0" class="o"/>
+<rect x="513.0" y="391.0" width="93.0" height="11.0" class="e"/>
+<text x="559.5" y="412" text-anchor="middle" class="n">O</text>
+<rect x="626" y="340" width="140" height="78" rx="4" fill="#fafafa" stroke="#999"/>
+<text x="632" y="352" class="n">GPU 3</text>
+<rect x="634.0" y="358.0" width="15.5" height="11.0" class="e"/>
+<rect x="634.0" y="369.0" width="15.5" height="11.0" class="e"/>
+<rect x="634.0" y="380.0" width="15.5" height="11.0" class="e"/>
+<rect x="634.0" y="391.0" width="15.5" height="11.0" class="p"/>
+<text x="641.8" y="412" text-anchor="middle" class="n">P</text>
+<rect x="649.5" y="358.0" width="15.5" height="11.0" class="e"/>
+<rect x="649.5" y="369.0" width="15.5" height="11.0" class="e"/>
+<rect x="649.5" y="380.0" width="15.5" height="11.0" class="e"/>
+<rect x="649.5" y="391.0" width="15.5" height="11.0" class="g"/>
+<text x="657.2" y="412" text-anchor="middle" class="n">G</text>
+<rect x="665.0" y="358.0" width="93.0" height="11.0" class="e"/>
+<rect x="665.0" y="369.0" width="93.0" height="11.0" class="e"/>
+<rect x="665.0" y="380.0" width="93.0" height="11.0" class="e"/>
+<rect x="665.0" y="391.0" width="93.0" height="11.0" class="o"/>
+<text x="711.5" y="412" text-anchor="middle" class="n">O</text>
+<text x="16" y="446" class="m">ZeRO-3 的参数片在用到某一层时临时 all-gather 成整份、用完释放；所以它多出一次反向前的 all-gather，通信 2N → 3N。</text>
+</svg>

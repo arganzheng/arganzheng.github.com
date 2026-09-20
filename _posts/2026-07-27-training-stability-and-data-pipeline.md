@@ -5,7 +5,7 @@ title: "大规模训练工程（07）：训练稳定性与数据管线——loss
 subtitle: Training Stability and the Data Pipeline
 tags: [Megatron, DeepSpeed, torchtitan, Distributed Training, Data Pipeline, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-09-20
 ---
 
 > **更新 @2026-09-06**：本文 torchtitan 部分基于 v0.3.0 刷新；其余源码引用仍以 PyTorch 2.13.0 / Megatron Core 0.18.0 / DeepSpeed 0.19.2 为准。
@@ -107,13 +107,11 @@ loss scale          fp16：DynamicGradScaler（hysteresis/backoff）；    fp16�
 
 同样是"loss 跳升"，在曲线上有三种不同的走法，处置完全不同：
 
-```text
-形态          曲线                                        伴随信号                                 通常的成因
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-瞬时 spike    单步或几步跳高，几十步内回到原趋势           grad norm 同步跳一下，被 clip 压住          单个坏 batch；bf16 舍入的偶发放大
-可恢复 spike  跳高后花几百到几千步慢慢爬回，可能留下台阶   grad norm 先跳后持续偏高；param norm 有折点  LR 偏高；优化器状态被污染后需要时间"忘掉"
-发散          跳高后不回头，loss 升到接近 ln(V) 或 NaN     grad norm 爆炸或变 NaN；attention logit 极大  logit 增长；LR 过高；精度链某环断裂
-```
+| 形态 | 曲线 | 伴随信号 | 通常的成因 |
+|---|---|---|---|
+| 瞬时 spike | 单步或几步跳高，几十步内回到原趋势 | grad norm 同步跳一下，被 clip 压住 | 单个坏 batch；bf16 舍入的偶发放大 |
+| 可恢复 spike | 跳高后花几百到几千步慢慢爬回，可能留下台阶 | grad norm 先跳后持续偏高；param norm 有折点 | LR 偏高；优化器状态被污染后需要时间"忘掉" |
+| 发散 | 跳高后不回头，loss 升到接近 ln(V) 或 NaN | grad norm 爆炸或变 NaN；attention logit 极大 | logit 增长；LR 过高；精度链某环断裂 |
 
 第一种最常见也最无害，多数时候不需要处理；第二种是本篇的主角，PaLM 描述的就是它；第三种一旦出现只能回退。三种形态在发生**之前**的信号上就有区别——这是第五章要讲的：发散往往在几百步前就能从 attention logit 最大值或 grad norm 的缓慢上升中看到，而瞬时 spike 事前没有任何征兆。
 
@@ -160,15 +158,13 @@ PaLM 论文有一个精妙的观察：把 spike 时的那批数据拿到**另一
 
 五种成因，五种指纹，都要靠事前记录的信号来读。把它们放在一张表里：
 
-```text
-成因            事前征兆                                    spike 步的信号                             回退+跳过后
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-LR              param norm 增速变快；grad norm 缓升           grad norm 跳、被 clip；loss 慢慢回           附近再现（周期性）
-bf16 精度       无                                          grad norm 单步跳、立刻回；num_zeros 异常     不再现，但别处偶发
-logit 增长      max attention logit 单调升，越过 ~100        grad norm 爆；部分层 NaN                    很快再现，除非加 QK-norm
-坏数据          无                                          grad norm 跳；loss 可能先降后升              同一步再现；跳过后消失
-优化器状态      grad norm 有一段低平台                        正常量级梯度被放大                          换数据顺序后消失
-```
+| 成因 | 事前征兆 | spike 步的信号 | 回退+跳过后 |
+|---|---|---|---|
+| LR | param norm 增速变快；grad norm 缓升 | grad norm 跳、被 clip；loss 慢慢回 | 附近再现（周期性） |
+| bf16 精度 | 无 | grad norm 单步跳、立刻回；num_zeros 异常 | 不再现，但别处偶发 |
+| logit 增长 | max attention logit 单调升，越过 ~100 | grad norm 爆；部分层 NaN | 很快再现，除非加 QK-norm |
+| 坏数据 | 无 | grad norm 跳；loss 可能先降后升 | 同一步再现；跳过后消失 |
+| 优化器状态 | grad norm 有一段低平台 | 正常量级梯度被放大 | 换数据顺序后消失 |
 
 表是"指纹 → 成因"的对照，真正值班时是按信号一层层排除的。把上表压成一棵决策树，问题的顺序是"哪种成因的信号最独特、最早能看到"：
 
@@ -331,21 +327,19 @@ torchtitan 与 DeepSpeed 没有等价的内建开关。torchtitan 的 `trainer.p
 
 下面是每一步都应该记录（不是每 `log_interval` 步）、且要落到可查询存储里的信号。"正常形态"是稠密 Transformer 预训练在 warmup 之后的典型样子：
 
-```text
-信号                       来源                                            正常形态                                异常形态与含义
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-loss（global avg）         全 DP 组按 token 加权平均                        平滑下降，步间抖动 < 1–2%                单步跳 > 10%：spike；持续上升：发散；台阶：数据阶段切换或 LR 拐点
-loss（global max）         各 DP rank 本地平均的最大值（torchtitan 有）      与 avg 差 < 5%                          某 rank 远高于 avg：该 rank 的 batch 有坏样本——直接定位到 rank
-grad norm（clip 前）       全局 L2，见第三章第 1 节                          warmup 后缓慢下降至 0.1–1，抖动 < 30%    跳 > 3×：spike 起点；缓升：LR 偏高或 logit 增长；低平台后跳：优化器状态
-param norm                 全部参数的 L2（Megatron --log-params-norm）      单调缓升，增速递减                       增速突增：步长过大；折点：spike 已改变轨迹
-learning rate              调度器当前值                                     按调度曲线                               恢复后与调度不符：scheduler 状态没进 checkpoint
-loss scale（fp16）         DynamicGradScaler 当前值                         阶梯状，偶尔 backoff 后回涨               持续下降：inf 越来越多，发散前兆
-skipped iterations         fp16 overflow / iterations_to_skip 的计数        长期为 0                                 连续出现：数值链某环断裂
-num_zeros_in_grad          梯度中精确为零的元素数（Megatron）                稳定，随模型固定                          突增：梯度下溢（精度）或某部分参数收不到梯度（数据/mask）
-max attention logit        全模型各层 logit 最大值（Megatron log_max_attention_logit）  缓升后平台，< 50–100          单调升过 100：成因三，加 QK-norm 或 qk_clip
-n_tokens_seen / consumed samples   数据位置                                 线性增长                                 恢复后不连续：数据位置没进 checkpoint，样本重复或遗漏
-step time / data_loading(%)        第四篇的 MFU 账                          稳定；data_loading < 1%                  data_loading 上升：管线跟不上（第七章第 6 节）
-```
+| 信号 | 来源 | 正常形态 | 异常形态与含义 |
+|---|---|---|---|
+| loss（global avg） | 全 DP 组按 token 加权平均 | 平滑下降，步间抖动 < 1–2% | 单步跳 > 10%：spike；持续上升：发散；台阶：数据阶段切换或 LR 拐点 |
+| loss（global max） | 各 DP rank 本地平均的最大值（torchtitan 有） | 与 avg 差 < 5% | 某 rank 远高于 avg：该 rank 的 batch 有坏样本——直接定位到 rank |
+| grad norm（clip 前） | 全局 L2，见第三章第 1 节 | warmup 后缓慢下降至 0.1–1，抖动 < 30% | 跳 > 3×：spike 起点；缓升：LR 偏高或 logit 增长；低平台后跳：优化器状态 |
+| param norm | 全部参数的 L2（Megatron --log-params-norm） | 单调缓升，增速递减 | 增速突增：步长过大；折点：spike 已改变轨迹 |
+| learning rate | 调度器当前值 | 按调度曲线 | 恢复后与调度不符：scheduler 状态没进 checkpoint |
+| loss scale（fp16） | DynamicGradScaler 当前值 | 阶梯状，偶尔 backoff 后回涨 | 持续下降：inf 越来越多，发散前兆 |
+| skipped iterations | fp16 overflow / iterations_to_skip 的计数 | 长期为 0 | 连续出现：数值链某环断裂 |
+| num_zeros_in_grad | 梯度中精确为零的元素数（Megatron） | 稳定，随模型固定 | 突增：梯度下溢（精度）或某部分参数收不到梯度（数据/mask） |
+| max attention logit | 全模型各层 logit 最大值（Megatron log_max_attention_logit） | 缓升后平台，< 50–100 | 单调升过 100：成因三，加 QK-norm 或 qk_clip |
+| n_tokens_seen / consumed samples | 数据位置 | 线性增长 | 恢复后不连续：数据位置没进 checkpoint，样本重复或遗漏 |
+| step time / data_loading(%) | 第四篇的 MFU 账 | 稳定；data_loading < 1% | data_loading 上升：管线跟不上（第七章第 6 节） |
 
 三个补充：第一，**loss 与 grad norm 要记 clip 前的原始值**——clip 后的 grad norm 恒等于阈值，没有信息量。第二，grad norm 若能按 PP stage 或按层分组记录（Megatron 的 `check_grads()` 是按 bucket 算的，可以顺手记下来），能直接看出是哪一段网络出了问题。第三，这些信号要**逐步记录、长期保存**：spike 的归因要看它前几百步的形态，`log_interval = 100` 的日志分辨率不够；TensorBoard 事件文件够用，但第八篇会讨论为什么要同时进 Prometheus。
 
@@ -446,12 +440,11 @@ CPU              一次性成本；训练时 DataLoader 几乎不占 CPU        
 
 `megatron/core/datasets/gpt_dataset.py` 的 `GPTDataset` 把"文档的集合"变成"定长样本的序列"。它不复制任何 token，只造三个 numpy 数组（`_build_document_sample_shuffle_indices()`）：
 
-```text
-document_index   1-D int32   文档 id 的序列。每个 epoch 一份 [0..D) 的随机排列，拼接 num_epochs 份（_build_document_index）
-sample_index     2-D int32   (num_samples + 1) × 2：第 i 个样本从 document_index[sample_index[i,0]] 的第 sample_index[i,1] 个 token 开始，
-                             到 sample_index[i+1] 结束——样本是文档流上连续的 s+1 个 token，可以跨文档（helpers.cpp build_sample_idx）
-shuffle_index    1-D         [0..num_samples) 的随机排列（_build_shuffle_index）；若最后一个 epoch 不完整则分两段各自 shuffle
-```
+| 数组 | 形状 / dtype | 含义 |
+|---|---|---|
+| document_index | 1-D int32 | 文档 id 的序列。每个 epoch 一份 [0..D) 的随机排列，拼接 num_epochs 份（_build_document_index） |
+| sample_index | 2-D int32 | (num_samples + 1) × 2：第 i 个样本从 document_index[sample_index[i,0]] 的第 sample_index[i,1] 个 token 开始， 到 sample_index[i+1] 结束——样本是文档流上连续的 s+1 个 token，可以跨文档（helpers.cpp build_sample_idx） |
+| shuffle_index | 1-D | [0..num_samples) 的随机排列（_build_shuffle_index）；若最后一个 epoch 不完整则分两段各自 shuffle |
 
 `__getitem__(idx)` → `_query_document_sample_shuffle_indices(idx)`：`idx = shuffle_index[idx]`，查 `sample_index[idx]` 与 `sample_index[idx+1]` 得到起止文档与偏移，对跨越的每个文档调 `dataset.get(document_index[i], offset, length)`，拼接，不足则 pad。然后 `_get_ltor_masks_and_position_ids()` 造 loss mask、position ids 与（可选的）attention mask。
 
@@ -560,11 +553,11 @@ torchtitan 用另一种编码：`HuggingFaceTextDataset` 输出 `positions`，�
 
 恢复后的数据流要与不中断的运行**逐样本相同**。拆成三条：
 
-```text
-① 精确位置       恢复后第一个 batch 是中断前最后一个已完成 step 的下一个 batch；不多不少
-② 不重不漏       中断时 DataLoader worker 已预取但训练未消费的 batch 不能丢（漏），也不能被算作已消费（重）
-③ 多 rank 一致   所有 DP rank 恢复到同一个 step 的位置；TP/PP/CP 组内各 rank 看到同一份数据
-```
+| 要求 | 含义 |
+|---|---|
+| ① 精确位置 | 恢复后第一个 batch 是中断前最后一个已完成 step 的下一个 batch；不多不少 |
+| ② 不重不漏 | 中断时 DataLoader worker 已预取但训练未消费的 batch 不能丢（漏），也不能被算作已消费（重） |
+| ③ 多 rank 一致 | 所有 DP rank 恢复到同一个 step 的位置；TP/PP/CP 组内各 rank 看到同一份数据 |
 
 第 ② 条最容易被忽略：`torch.utils.data.DataLoader` 有 `prefetch_factor × num_workers` 个 batch 在飞，进程被 kill 时它们就没了；若位置按"dataset 已产出的样本数"记，就会漏；按"训练已消费的样本数"记则安全。第 ③ 条在 PP 下有个细节：只有 PP 首尾 stage 真正读数据（Megatron 的 `get_batch()` 在中间 stage 返回 None），但 `consumed_train_samples` 是所有 rank 的 args 都有的一致值。
 
@@ -625,15 +618,13 @@ torchtitan 的方案跟随 PyTorch 生态的 `Stateful` 协议（`torch/distribu
 
 第四篇的七项拆解里，"数据等待"是 GPU 全空、CPU 线程停在 `DataLoader.__next__` 的那段空隙。反过来的情况——数据早就准备好、在队列里等 GPU——是健康状态，不需要处理。区分两者：
 
-```text
-现象                                 GPU 等数据                                    数据等 GPU（健康）
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-profiler 时间线                     step 边界处 GPU 空隙，CPU 在 __next__ 里阻塞     step 边界处无空隙；__next__ 立即返回
-torchtitan time_metrics/data_loading(%)  > 1–2%，且随 step 时间抖动                 ≈ 0
-DataLoader 队列                      worker 的输出队列长期为空                        队列长期满（prefetch_factor × num_workers 个 batch 就位）
-CPU                                  worker 进程 100%，或被 NCCL proxy / 主进程挤占    worker 大部分时间 sleep
-对象存储                             请求延迟抖动直接映射到 step 时间                 预取深度盖住了延迟
-```
+| 现象 | GPU 等数据 | 数据等 GPU（健康） |
+|---|---|---|
+| profiler 时间线 | step 边界处 GPU 空隙，CPU 在 __next__ 里阻塞 | step 边界处无空隙；__next__ 立即返回 |
+| torchtitan time_metrics/data_loading(%) | > 1–2%，且随 step 时间抖动 | ≈ 0 |
+| DataLoader 队列 | worker 的输出队列长期为空 | 队列长期满（prefetch_factor × num_workers 个 batch 就位） |
+| CPU | worker 进程 100%，或被 NCCL proxy / 主进程挤占 | worker 大部分时间 sleep |
+| 对象存储 | 请求延迟抖动直接映射到 step 时间 | 预取深度盖住了延迟 |
 
 torchtitan 的 `batch_generator()` 用 `time.perf_counter()` 包住 `next(data_iterator)`，累计到 `MetricsProcessor.data_loading_times`，`log()` 时算出 `data_loading(s)` 与 `data_loading(%)`——这是三个框架里唯一开箱即用的"数据等待"指标。Megatron 没有直接的等价物，但 `--timing-log-level` 提高后 `batch-generator` 计时器（`get_batch()` 外层）给出同样的信息；profiler 是通用手段。
 

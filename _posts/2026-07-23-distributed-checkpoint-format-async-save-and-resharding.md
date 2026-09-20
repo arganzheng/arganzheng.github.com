@@ -5,7 +5,7 @@ title: "大规模训练工程（05）：分布式 checkpoint——格式、异�
 subtitle: "Distributed Checkpoint: Format, Async Save and Resharding"
 tags: [PyTorch, Megatron, DeepSpeed, torchtitan, Checkpoint, Distributed Training, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-09-20
 ---
 
 > **更新 @2026-09-06**：本文 torchtitan 部分基于 v0.3.0 刷新；其余源码引用仍以 PyTorch 2.13.0 / Megatron Core 0.18.0 / DeepSpeed 0.19.2 为准。
@@ -28,13 +28,13 @@ Llama 3 论文（Dubey et al. 2024）给了一组值得反复引用的数字：1
 
 第一篇建立的符号，本篇只用下面这些，在此复述以求自治：
 
-```text
-N            参数量（个）
-N_t N_p N_d N_c   张量并行 / 流水线并行 / 数据并行 / 上下文并行的并行度；正文中常写作 t, p, d, c
-δ            一次 checkpoint 让训练停下的时间（秒）；同步保存时是整个写入时间，异步保存时只是阻塞部分
-M            集群的平均故障间隔 MTBF（秒）；单卡 MTBF 除以卡数
-τ            checkpoint 间隔（秒）
-```
+| 符号 | 含义 |
+|---|---|
+| N | 参数量（个） |
+| N_t N_p N_d N_c | 张量并行 / 流水线并行 / 数据并行 / 上下文并行的并行度；正文中常写作 t, p, d, c |
+| δ | 一次 checkpoint 让训练停下的时间（秒）；同步保存时是整个写入时间，异步保存时只是阻塞部分 |
+| M | 集群的平均故障间隔 MTBF（秒）；单卡 MTBF 除以卡数 |
+| τ | checkpoint 间隔（秒） |
 
 两条结论：
 
@@ -160,14 +160,11 @@ Llama 3 405B 的训练配置是 TP=8、CP=16、PP=16、DP=128，共 16384 张 H1
 
 最朴素的写法是所有 rank 把状态发给 rank 0，rank 0 调一次 `torch.save`。这条路在三个地方同时撞墙：
 
-```text
-瓶颈             算术                                                              结论
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-主机内存         rank 0 所在节点要装下 5.7 TB；一个 8 卡节点通常配 1–2 TB 内存        物理上放不下；即便流式处理也要分几十批
-接收带宽         全部数据经 rank 0 的一张网卡进来：5.7 TB / 50 GB/s ≈ 114 s          仅传输就近两分钟，且期间其他 16383 张卡空转
-写入带宽         单个客户端写并行文件系统：标称 2–5 GB/s；torch.save 是单线程 pickle，   5.7 TB / 5 GB/s ≈ 19 min；按 1 GB/s ≈ 95 min
-                 通常 1 GB/s 上下
-```
+| 瓶颈 | 算术 | 结论 |
+|---|---|---|
+| 主机内存 | rank 0 所在节点要装下 5.7 TB；一个 8 卡节点通常配 1–2 TB 内存 | 物理上放不下；即便流式处理也要分几十批 |
+| 接收带宽 | 全部数据经 rank 0 的一张网卡进来：5.7 TB / 50 GB/s ≈ 114 s | 仅传输就近两分钟，且期间其他 16383 张卡空转 |
+| 写入带宽 | 单个客户端写并行文件系统：标称 2–5 GB/s；torch.save 是单线程 pickle， 通常 1 GB/s 上下 | 5.7 TB / 5 GB/s ≈ 19 min；按 1 GB/s ≈ 95 min |
 
 第三行是决定性的。即使前两个问题用流式与多网卡绕过去，**单个写入者的带宽**决定了同步写至少要停十几分钟到一个多小时。把这个 δ 代入第九章的 Young 公式：δ = 10 min、M = 3 h 时最优间隔约 1 小时，训练时间的三分之一花在存 checkpoint 和回退重算上。这就是"单文件 checkpoint 为什么不可行"的完整回答——不是格式不优雅，是算术不允许。
 
@@ -459,14 +456,11 @@ GPU / 主 stream  ────────────────┤ 阻塞 δ 
 
 每张卡要 stage 的字节就是它唯一持有的 checkpoint 字节，乘上一个"几份"的系数：
 
-```text
-配置                          每卡唯一字节   每节点 staging   双缓冲 / 缓存时   备注
-──────────────────────────────────────────────────────────────────────────────────────────────────────────
-405B / 16384 卡（14 B/参数）    ~350 MB        ~2.8 GB          ~5.6 GB          节点 1–2 TB 内存，可忽略
-70B / 1024 卡（14 B/参数）      ~1.0 GB        ~7.7 GB          ~15 GB           同上
-8B / 8 卡 FSDP2（12 B/参数）    ~12 GB         ~96 GB           ~190 GB          单节点 8 卡、全部状态都在这一个节点上：
-                                                                                  pinned 内存占掉主机内存的相当一部分
-```
+| 配置 | 每卡唯一字节 | 每节点 staging | 双缓冲 / 缓存时 | 备注 |
+|---|---|---|---|---|
+| 405B / 16384 卡（14 B/参数） | ~350 MB | ~2.8 GB | ~5.6 GB | 节点 1–2 TB 内存，可忽略 |
+| 70B / 1024 卡（14 B/参数） | ~1.0 GB | ~7.7 GB | ~15 GB | 同上 |
+| 8B / 8 卡 FSDP2（12 B/参数） | ~12 GB | ~96 GB | ~190 GB | 单节点 8 卡、全部状态都在这一个节点上： pinned 内存占掉主机内存的相当一部分 |
 
 第三行是练手项目的规模，也是最容易踩坑的规模：8B 模型的 12 字节/参数在 8 卡上摊下来每卡 12 GB，pinned 之后这块内存不能被换出、不能给 page cache、不能给数据加载 worker；`cache_staged_state_dict=True` 或 `StateDictStager` 的缓存复用意味着它常驻。共享内存模式下它还要算进 `/dev/shm` 的限额。千卡规模反而轻松——总字节被摊得很薄。
 
@@ -603,18 +597,13 @@ no_load_optim / no_load_rng / finetune                 部分加载
 
 DeepSpeed 的 checkpoint 抽象在 `deepspeed/runtime/checkpoint_engine/checkpoint_engine.py` 的 `CheckpointEngine`：`create(info)` / `save(state_dict, path)` / `load(path)` / `commit(info)` 四个方法，加 `is_data_parallel_writer(dp_rank)`（哪些 DP rank 参与写）与 `is_decoupled()`。`utils.py` 的 `create_checkpoint_engine()` 按 JSON 配置选实现：
 
-```text
-实现                              选择条件                                   行为
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────
-TorchCheckpointEngine             默认                                       torch.save / torch.load
-FastCheckpointEngine              checkpoint.writer 配置存在、decoupled=false    双缓冲 io_buffer_size（默认 64 MB）的流式写；
-                                                                              data_parallel = replica | socket | machine 决定 DP 副本
-                                                                              内谁写（越粗的单位写的 rank 越少）
-DecoupledCheckpointEngine         writer.decoupled = true                    spawn 一个常驻子进程，save 只是把 state_dict 放进
-                                                                              mp.SimpleQueue，commit 时写 latest；即 DeepSpeed 的异步保存
-NebulaCheckpointEngine            nebula.enabled                             Azure Nebula 服务
-DataStatesCheckpointEngine        datastates.enabled                         DataStates-LLM 的异步多级引擎
-```
+| 实现 | 选择条件 | 行为 |
+|---|---|---|
+| TorchCheckpointEngine | 默认 | torch.save / torch.load |
+| FastCheckpointEngine | checkpoint.writer 配置存在、decoupled=false | 双缓冲 io_buffer_size（默认 64 MB）的流式写； data_parallel = replica ∣ socket ∣ machine 决定 DP 副本 内谁写（越粗的单位写的 rank 越少） |
+| DecoupledCheckpointEngine | writer.decoupled = true | spawn 一个常驻子进程，save 只是把 state_dict 放进 mp.SimpleQueue，commit 时写 latest；即 DeepSpeed 的异步保存 |
+| NebulaCheckpointEngine | nebula.enabled | Azure Nebula 服务 |
+| DataStatesCheckpointEngine | datastates.enabled | DataStates-LLM 的异步多级引擎 |
 
 `DeepSpeedEngine.save_checkpoint()`（`deepspeed/runtime/engine.py`）的流程：`checkpoint_engine.create(CheckpointCommitInfo(tag, save_dir, save_latest))` → `_save_checkpoint()` 写 `mp_rank_XX_model_states.pt`（`_get_ckpt_name()`，每个 TP×PP 位置一份、DP 副本中一份）→ ZeRO 开启时 `_save_zero_checkpoint()` 写 `zero_pp_rank_X_mp_rank_XX_optim_states.pt`（`_get_zero_ckpt_name()`，**每个 DP rank 一份**）→ `checkpoint_engine.commit()` 写 `latest` 文件。ZeRO 文件里是该 rank 的 fp32 展平缓冲区与优化器状态——它们与 DP 度、与 `zero_optimization` 的 partition 方式绑定，换 DP 度加载会因为分片形状对不上而失败。
 

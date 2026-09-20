@@ -5,7 +5,7 @@ title: "大规模训练工程（02）：并行策略全景——每种并行切�
 subtitle: "A Map of Parallelism: Which State Does Each Strategy Shard"
 tags: [Megatron, DeepSpeed, torchtitan, Distributed Training, Parallelism, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-09-20
 ---
 
 上一篇算出了一个数字：混合精度 + Adam 下，每个参数在训练时要占 16 字节。一个 70B 的模型光是参数、梯度和优化器状态就是 1.13 TB，还没算激活；405B 是 6.5 TB。任何一张 80 GB 的卡都放不下其中的零头。所以这些字节必须被切开放到很多卡上——**怎么切**，就是并行策略的全部内容。
@@ -26,24 +26,22 @@ updated: 2026-09-14
 
 本篇沿用第一篇的记账符号，用到的复述如下：
 
-```text
-N            参数量（个数）。混合精度 + Adam 下每参数 16 字节：
-             bf16 参数 2 + bf16 梯度 2 + fp32 主参数 4 + fp32 一阶矩 4 + fp32 二阶矩 4
-             → 常驻状态 16N 字节（fp32 累加梯度则 18N）
-N_d N_t N_p N_c N_e     数据 / 张量 / 流水 / 上下文 / 专家并行度；总卡数 N = N_t · N_c · N_p · N_d
-s  b  h  a  L           序列长、micro-batch 大小、隐藏维、注意力头数、层数
-m                       每个 DP 副本每 step 的 micro-batch 数（梯度累积步数）
-```
+| 符号 | 含义 |
+|---|---|
+| $$N$$ | 参数量（个数）。混合精度 + Adam 下每参数 16 字节：bf16 参数 2 + bf16 梯度 2 + fp32 主参数 4 + fp32 一阶矩 4 + fp32 二阶矩 4 → 常驻状态 16N 字节（fp32 累加梯度则 18N） |
+| $$N_d, N_t, N_p, N_c, N_e$$ | 五个并行度：数据 / 张量 / 流水 / 上下文 / 专家。放在一起是因为它们的乘积就是总卡数：$$N_{\text{GPU}} = N_t \cdot N_c \cdot N_p \cdot N_d$$（EP 从 DP 里划出，不另乘） |
+| $$s, b, h, a, L$$ | 序列长、micro-batch 大小、隐藏维、注意力头数、层数。放在一起是因为激活的大小由这五个数决定（第一篇的 $$34sbh$$ 每层） |
+| $$m$$ | 每个 DP 副本每 step 的 micro-batch 数（梯度累积步数） |
 
 **通信量的口径**：本篇所有"通信量"指**一张卡在一个 step 内发出的字节数**（全双工链路上收发同时进行、数量相等）。对 $$n$$ 个参与者、有效载荷 $$S$$ 字节，五个原语的每卡通信量是：
 
-```text
-all-reduce(S)                 2(n-1)/n · S  ≈ 2S       S 为每卡 buffer 大小
-all-gather(S)                   (n-1)/n · S  ≈  S       S 为拼接后的总大小
-reduce-scatter(S)               (n-1)/n · S  ≈  S       S 为输入总大小
-all-to-all(S)                   (n-1)/n · S  ≈  S       S 为每卡输入总大小；n(n-1) 条独立的流
-send/recv(S)                              S             点对点
-```
+| 原语 | 每卡通信量 | 近似 | S 的含义 |
+|---|---|---|---|
+| all-reduce(S) | 2(n−1)/n · S | ≈ 2S | S 为每卡 buffer 大小 |
+| all-gather(S) | (n−1)/n · S | ≈ S | S 为拼接后的总大小 |
+| reduce-scatter(S) | (n−1)/n · S | ≈ S | S 为输入总大小 |
+| all-to-all(S) | (n−1)/n · S | ≈ S | S 为每卡输入总大小；n(n−1) 条独立的流 |
+| send/recv(S) | S | S | 点对点 |
 
 以及一条后面反复使用的等式：**all-reduce = reduce-scatter + all-gather**，两半各 $$\approx S$$，合计 $$\approx 2S$$。用 N 计量时，$$N$$ 个 bf16 梯度做一次 all-reduce，每卡搬 $$\approx 2N$$ 个元素，即 $$4N$$ 字节；本篇按 ZeRO 论文的习惯把它写成"$$2N$$ 的通信量"，单位是元素，乘以 dtype 字节数才是字节。
 
@@ -51,37 +49,35 @@ send/recv(S)                              S             点对点
 
 把四种状态、六种并行放在同一张图上：
 
-```text
-                   参数        梯度        优化器状态      激活
-                 ─────────   ─────────   ────────────   ────────────────────
-DP (DDP)         复制         复制→归约    复制            按 batch 切（天然）
-ZeRO-1           复制         复制→归约    切 1/N_d        同上
-ZeRO-2           复制         切 1/N_d     切 1/N_d        同上
-ZeRO-3 / FSDP    切 1/N_d     切 1/N_d     切 1/N_d        同上；前向前临时 all-gather 一层参数
-TP               切 1/N_t     切 1/N_t     切 1/N_t        按 h（头 / FFN 列）切 1/N_t，层边界处完整
-SP（Megatron）    —            —            —               层边界处也按 s 切 1/N_t
-CP               复制         复制→归约    复制            按 s 切 1/N_c，含注意力本身
-PP               切 1/N_p     切 1/N_p     切 1/N_p        只持有本 stage 的层；同时在途 ≤ N_p 个 micro-batch
-EP               专家切 1/N_e  同           同              token 按路由结果 all-to-all 到专家所在卡
-```
+| 策略 | 参数 | 梯度 | 优化器状态 | 激活 |
+|---|---|---|---|---|
+| DP (DDP) | 复制 | 复制→归约 | 复制 | 按 batch 切（天然） |
+| ZeRO-1 | 复制 | 复制→归约 | 切 1/N_d | 同上 |
+| ZeRO-2 | 复制 | 切 1/N_d | 切 1/N_d | 同上 |
+| ZeRO-3 / FSDP | 切 1/N_d | 切 1/N_d | 切 1/N_d | 同上；前向前临时 all-gather 一层参数 |
+| TP | 切 1/N_t | 切 1/N_t | 切 1/N_t | 按 h（头 / FFN 列）切 1/N_t，层边界处完整 |
+| SP（Megatron） | — | — | — | 层边界处也按 s 切 1/N_t |
+| CP | 复制 | 复制→归约 | 复制 | 按 s 切 1/N_c，含注意力本身 |
+| PP | 切 1/N_p | 切 1/N_p | 切 1/N_p | 只持有本 stage 的层；同时在途 ≤ N_p 个 micro-batch |
+| EP | 专家切 1/N_e | 同 | 同 | token 按路由结果 all-to-all 到专家所在卡 |
 
 读这张表的方式：**每一行"切"的格子越多，显存越省；每一个"切"都对应一种通信**。DP 那一行只在"梯度→归约"处有通信；ZeRO-3 在参数一格多了一次 all-gather；TP 的三个"切"是免费的（矩阵切开后梯度和优化器状态自然跟着切），它的代价在激活那一格——层内切开的激活要在层边界处拼回来。PP 同理，三个状态的"切"不产生通信，代价是 stage 之间传激活和气泡。
 
 这张图还揭示了另一件事：**DP 系的策略（DP/ZeRO/FSDP）与模型并行系的策略（TP/PP/CP/EP）是正交的**。前者决定"同一个参数的几份副本之间如何分工"，后者决定"一份模型如何被切开"。任何一个真实配置都是两者的乘积：模型被 TP/PP 切成 $$N_t N_p$$ 份，每份再有 $$N_d N_c$$ 个副本，副本之间用 ZeRO 的某一级分片。
 
+同一套切法在推理侧也用（vLLM 的 TP / PP / EP / DP），但账完全不同：推理没有梯度和优化器状态，DP 系整个不存在；TP 切的是权重与 KV cache，通信在每个 decode step 的关键路径上，所以推理更在意延迟而不是重叠；PP 在推理里几乎只为跨节点放大模型。这些差别在 [vLLM 系列第八篇《Multi-GPU：一张卡不够时如何扩展》](/multi-gpu-scaling-strategies.html) 里从推理的角度讲；本篇专注训练侧，即"状态有四种、每一种怎么切"。
+
 ### 3. 五元组与两条链路
 
 每种并行的五元组里，"走哪条链路"和"能否重叠"是决定它放在哪一层的关键。集群有两种链路：节点内 8 张卡之间的 NVLink（H100 标称单向 450 GB/s，8 卡集合通信通常能用到每卡 200–300 GB/s 量级）和节点之间每卡一张的 InfiniBand（NDR 标称单向 50 GB/s）。两者带宽差 5–10 倍。
 
-```text
-                通信量（每卡每 step）                     形态          在关键路径上？
-──────────────  ────────────────────────────────────    ──────────    ─────────────────────────
-TP              4 × 2 × (激活 s·b·h) × 每 stage 层数 × m   集合          是；下一步 GEMM 等它 → 必须 NVLink
-CP (ring)       3 × (N_c-1) × 每卡 K/V 块 × 层数 × m        点对点环      否；与注意力分块计算重叠 → 可跨节点
-PP              2 × 层边界激活 × m                          点对点        否；调度掩盖 → 跨节点
-DP / ZeRO       2N_local（ZeRO-3 为 3N_local）              集合          否；与反向重叠 → 跨节点，但量大
-EP              4 × 路由 token × 层数 × m                    all-to-all    是；专家计算等它 → 尽量节点内
-```
+| 策略 | 通信量（每卡每 step） | 形态 | 在关键路径上？ |
+|---|---|---|---|
+| TP | 4 × 2 × (激活 s·b·h) × 每 stage 层数 × m | 集合 | 是；下一步 GEMM 等它 → 必须 NVLink |
+| CP (ring) | 3 × (N_c−1) × 每卡 K/V 块 × 层数 × m | 点对点环 | 否；与注意力分块计算重叠 → 可跨节点 |
+| PP | 2 × 层边界激活 × m | 点对点 | 否；调度掩盖 → 跨节点 |
+| DP / ZeRO | 2N_local（ZeRO-3 为 3N_local） | 集合 | 否；与反向重叠 → 跨节点，但量大 |
+| EP | 4 × 路由 token × 层数 × m | all-to-all | 是；专家计算等它 → 尽量节点内 |
 
 "通信量大"和"必须快链路"是两件事。TP 的通信量在数值上常常是最大的一项，但真正把它锁在节点内的是**它在关键路径上**：column-parallel 的输出经过 all-reduce 才能进下一个 GEMM，没有东西可以和它重叠。DP 的通信量也不小，但它是一大块可以在反向传播期间慢慢发的数据，对延迟不敏感，只要带宽够。PP 的通信量最小、又不在关键路径上，所以它是最适合放在最慢链路上的那一维。
 
@@ -123,47 +119,41 @@ Megatron 的分布式优化器（`megatron/core/optimizer/distrib_optimizer.py`�
 
 代价是通信量从 $$2N$$ 涨到 $$3N$$。逐项数：
 
-```text
-前向       每层执行前 all-gather 该层参数            全部层合计   ≈ N      ← 新增
-反向       每层反向前再次 all-gather 该层参数        全部层合计   ≈ N      ← 新增（前向后释放了）
-反向       每层梯度算完 reduce-scatter               全部层合计   ≈ N      ← 原有
-优化器后   不再需要 all-gather 参数                                 0       ← 原 ZeRO-1 的那次省掉了：
-                                                                          下一步前向本来就要 all-gather
-────────────────────────────────────────────────────────────────────────
-合计                                                              3N
-```
+| 阶段 | 通信 | 全部层合计 | 说明 |
+|---|---|---:|---|
+| 前向 | 每层执行前 all-gather 该层参数 | ≈ N | 新增 |
+| 反向 | 每层反向前再次 all-gather 该层参数 | ≈ N | 新增（前向后释放了） |
+| 反向 | 每层梯度算完 reduce-scatter | ≈ N | 原有 |
+| 优化器后 | 不再需要 all-gather 参数 | 0 | 原 ZeRO-1 的那次省掉了：下一步前向本来就要 all-gather |
+| **合计** | | **3N** | |
 
 把四级放到同一条 step 时间轴上，通信落在哪个阶段一眼可见（每格是该级在该阶段的每卡通信量，单位元素）：
 
-```text
- 阶段           前向 L1…Ln        反向 Ln…L1              优化器步骤之后
- ────────────   ───────────────   ─────────────────────   ──────────────────
- DP (ZeRO-0)    —                 AR 梯度 ≈ 2N            —
- ZeRO-1 / 2     —                 RS 梯度 ≈ N             AG 参数 ≈ N
- ZeRO-3         逐层 AG 参数 ≈ N   逐层 AG 参数 ≈ N        —（下一步前向的
-                （用完即释放）      + RS 梯度 ≈ N             逐层 AG 取代了它）
- ZeRO-3 不释放   逐层 AG 参数 ≈ N   —（参数仍在）           —
-                                  + RS 梯度 ≈ N
- ────────────   ───────────────   ─────────────────────   ──────────────────
- 合计           ZeRO-0/1/2: 2N    ZeRO-3: 3N              ZeRO-3 不释放: 2N
-```
+| 级别 | 前向 L1…Ln | 反向 Ln…L1 | 优化器步骤之后 | 合计 |
+|---|---|---|---|---:|
+| DP (ZeRO-0) | — | AR 梯度 ≈ 2N | — | 2N |
+| ZeRO-1 / 2 | — | RS 梯度 ≈ N | AG 参数 ≈ N | 2N |
+| ZeRO-3 | 逐层 AG 参数 ≈ N（用完即释放） | 逐层 AG 参数 ≈ N + RS 梯度 ≈ N | —（下一步前向的逐层 AG 取代了它） | 3N |
+| ZeRO-3 不释放 | 逐层 AG 参数 ≈ N | —（参数仍在）+ RS 梯度 ≈ N | — | 2N |
 
 推导里有一个容易漏的抵消：ZeRO-1/2 在优化器步骤后有一次参数 all-gather，ZeRO-3 把它省掉了，因为下一个 step 的前向本来就要逐层 all-gather——时间轴上就是 ZeRO-1 最右一格挪到了 ZeRO-3 最左一格；所以净增只有反向那一次。如果前向后**不释放**参数（FSDP 的 `reshard_after_forward=False`），反向那次 all-gather 也省掉，通信回到 $$2N$$，代价是完整的 bf16 参数 $$2N$$ 常驻——这时它的显存是 $$2N + 14N/N_d$$，与 ZeRO-2 相同。**ZeRO-3 的 $$3N$$ 是用 $$1N$$ 的通信换 $$2N(1 - 1/N_d)$$ 的显存**。
 
 另一点：这 $$3N$$ 的每一份都能重叠。前向的 all-gather 可以预取（算第 $$i$$ 层时 all-gather 第 $$i+1$$ 层），反向同样；reduce-scatter 与 DP 一样跟着反向走。所以 ZeRO-3 在带宽充足时 step 时间接近 DP，只是"带宽充足"的门槛比 DP 高 50%。
 
+把四级放到 4 张卡上画出来，哪一级切了哪种状态一眼可见：
+
+![四级 ZeRO 在 4 张卡上的状态放置：DP 每卡持有整份参数 P、梯度 G、优化器状态 O；ZeRO-1 把 O 切成 4 片各持一片；ZeRO-2 再把 G 切片；ZeRO-3 把 P 也切片，每卡只剩 16N/4。每张卡的显存等于实心部分之和](/img/in-post/parallelism-zero-stages.svg)
+
 ### 4. 每卡显存表：70B、N_d = 64
 
 把 70.6B 参数（Llama 3 70B）、$$N_d = 64$$ 代入，字节数以 GB（$$10^9$$）计：
 
-```text
-               参数 (bf16)   梯度 (bf16)   优化器 (fp32×3)   常驻合计      每 step 通信（元素）     通信形态
-─────────────  ───────────   ───────────   ───────────────   ──────────    ────────────────────    ─────────────────────────
-DP (ZeRO-0)    141.2         141.2         847.2             1129.6  GB    2N                      all-reduce
-ZeRO-1         141.2         141.2          13.2              295.6  GB    2N                      reduce-scatter + all-gather
-ZeRO-2         141.2           2.2          13.2              156.6  GB    2N                      同上，梯度即时释放
-ZeRO-3           2.2           2.2          13.2               17.6  GB    3N                      AG (fwd) + AG (bwd) + RS
-```
+| 级别 | 参数 (bf16) | 梯度 (bf16) | 优化器 (fp32×3) | 常驻合计 | 每 step 通信（元素） | 通信形态 |
+|---|---:|---:|---:|---:|---|---|
+| DP (ZeRO-0) | 141.2 | 141.2 | 847.2 | 1129.6 GB | 2N | all-reduce |
+| ZeRO-1 | 141.2 | 141.2 | 13.2 | 295.6 GB | 2N | reduce-scatter + all-gather |
+| ZeRO-2 | 141.2 | 2.2 | 13.2 | 156.6 GB | 2N | 同上，梯度即时释放 |
+| ZeRO-3 | 2.2 | 2.2 | 13.2 | 17.6 GB | 3N | AG (fwd) + AG (bwd) + RS |
 
 三级之间的显存台阶分别是 $$12N$$、$$2N$$、$$2N$$——优化器状态是最大的一块，所以 ZeRO-1 一步就拿掉了 74%，这也是为什么 Megatron 长期只做到 ZeRO-1 而不觉得亏。表里没有激活：$$s = 8192$$、$$b = 1$$ 时一层 34sbh ≈ 2.3 GB，80 层 180 GB，ZeRO 一个字节都不帮它——切激活是 TP/SP/CP/PP 和重计算的事。
 
@@ -385,6 +375,10 @@ GPipe 的另一个问题是显存：stage 0 在开始反向前要保存全部 $$
            ←warm-up→←────────────── 稳态：1F1B ──────────────→←cool-down→
 ```
 
+两种调度画在同一张图上对比（GPipe 里反向按 2 倍时长画，1F1B 按等长画以便看清交替）：
+
+![GPipe 与 1F1B 的流水线时间表对比。上：GPipe，p = 4、m = 4，每个 stage 先做完全部 4 个前向，等下游做完反向才开始自己的反向，两头各有 p−1 格气泡；下：1F1B，p = 4、m = 8，warm-up 后每个 stage 交替做一次前向、一次反向，气泡总量不变但在途 micro-batch 不超过 p](/img/in-post/parallelism-pipeline-gpipe-vs-1f1b.svg)
+
 气泡的总量没有变（仍是前向填充 $$p-1$$ 格、反向排空 $$p-1$$ 格，$$\frac{p-1}{m}$$），但任一时刻每个 stage 在途的 micro-batch 数不超过 $$p$$（stage $$i$$ 是 $$p - i$$），激活显存从 $$O(m)$$ 降到 $$O(p)$$，与 $$m$$ 无关——这让 $$m$$ 可以放大去压气泡。1F1B 是所有生产框架的默认调度。
 
 ### 4. Interleaved 1F1B：用更多 stage 换更小的气泡
@@ -465,21 +459,19 @@ ZeRO 对两组参数分别按各自的 DP 组分片：专家参数在 2 卡的�
 
 把前五章收进一张表。通信量一栏是每卡每 step，$$N_{\text{local}} = N / (N_t N_p)$$ 是本卡持有的参数份额；"激活"指一个层边界处的张量 $$\frac{s}{N_c} b h$$ 个元素。
 
-```text
-策略         切哪种状态                        每 step 通信量（每卡）                        链路      重叠     适用条件
-──────────   ───────────────────────────────  ──────────────────────────────────────────  ───────   ──────   ──────────────────────────────
-DP (DDP)     无（切数据）                       all-reduce 2N_local                          IB        是       模型放得下一张卡；N_d 任意
-ZeRO-1       优化器状态 1/N_d                   RS N + AG N = 2N_local                       IB        是       优化器状态是显存大头（74%）
-ZeRO-2       + 梯度 1/N_d                      同上 2N_local                                IB        是       梯度需即时归约释放
-ZeRO-3/FSDP  + 参数 1/N_d                      AG N + AG N + RS N = 3N_local                IB        是       带宽充足；不 reshard 则 2N
-HSDP         参数/梯度/优化器 1/N_s              组内 3N_local（NVLink）+ 组间 AR 2N_local/N_s   NVLink+IB 是       中等模型，跨节点带宽紧
-TP           参数/梯度/优化器 1/N_t + 层内激活    4 × AR(激活) × 层数/stage × m ≈ 8·sbh·L_s·m/N_c   NVLink    否       N_t ≤ 8；GEMM 够大
-SP           层边界激活再切 1/N_t               与 TP 相同（AR → AG + RS）                     NVLink    否       总是随 TP 打开
-CP (Ring)    激活（含注意力）1/N_c               3(N_c-1) × K/V 块 ≈ 12·sb·h_kv·L_s·m            IB        是       长序列；GQA 下极便宜
-CP (Ulysses) 同上                              8 次 all-to-all ≈ 16·sbh·L_s·m/N_c            IB        否       N_c ≤ K/V 头数 / N_t
-PP           参数/梯度/优化器/激活 按层 1/N_p     2 × 激活/N_t × m × v（send/recv）              IB        是       m ≫ p；气泡 (p-1)/(vm)
-EP           专家参数/梯度/优化器 1/N_e           4 × ρ × all-to-all(token·k·h) × L_s × m        IB/NVLink 部分     MoE；负载均衡；N_e 从 N_d 划出
-```
+| 策略 | 切哪种状态 | 每 step 通信量（每卡） | 链路 | 重叠 | 适用条件 |
+|---|---|---|---|---|---|
+| DP (DDP) | 无（切数据） | all-reduce 2N_local | IB | 是 | 模型放得下一张卡；N_d 任意 |
+| ZeRO-1 | 优化器状态 1/N_d | RS N + AG N = 2N_local | IB | 是 | 优化器状态是显存大头（74%） |
+| ZeRO-2 | + 梯度 1/N_d | 同上 2N_local | IB | 是 | 梯度需即时归约释放 |
+| ZeRO-3/FSDP | + 参数 1/N_d | AG N + AG N + RS N = 3N_local | IB | 是 | 带宽充足；不 reshard 则 2N |
+| HSDP | 参数/梯度/优化器 1/N_s | 组内 3N_local（NVLink）+ 组间 AR 2N_local/N_s | NVLink+IB | 是 | 中等模型，跨节点带宽紧 |
+| TP | 参数/梯度/优化器 1/N_t + 层内激活 | 4 × AR(激活) × 层数/stage × m ≈ 8·sbh·L_s·m/N_c | NVLink | 否 | N_t ≤ 8；GEMM 够大 |
+| SP | 层边界激活再切 1/N_t | 与 TP 相同（AR → AG + RS） | NVLink | 否 | 总是随 TP 打开 |
+| CP (Ring) | 激活（含注意力）1/N_c | 3(N_c−1) × K/V 块 ≈ 12·sb·h_kv·L_s·m | IB | 是 | 长序列；GQA 下极便宜 |
+| CP (Ulysses) | 同上 | 8 次 all-to-all ≈ 16·sbh·L_s·m/N_c | IB | 否 | N_c ≤ K/V 头数 / N_t |
+| PP | 参数/梯度/优化器/激活 按层 1/N_p | 2 × 激活/N_t × m × v（send/recv） | IB | 是 | m ≫ p；气泡 (p−1)/(vm) |
+| EP | 专家参数/梯度/优化器 1/N_e | 4 × ρ × all-to-all(token·k·h) × L_s × m | IB/NVLink | 部分 | MoE；负载均衡；N_e 从 N_d 划出 |
 
 看这张表的两个维度。**按通信量**：TP 最大、DP/ZeRO 次之（但只与 $$N_{\text{local}}$$ 成正比、与 $$N_d$$ 无关）、CP 与 EP 视模型而定、PP 最小。**按链路要求**：TP 与 EP 在关键路径上必须快链路；CP（Ring）、PP、DP 都能重叠，可以跨节点。
 
@@ -487,15 +479,12 @@ EP           专家参数/梯度/优化器 1/N_e           4 × ρ × all-to-all
 
 多维并行是这些策略的乘积，卡数 $$N = N_t N_c N_p N_d$$。选择每一维的大小有一个几乎固定的顺序，它来自上表的"链路"和"重叠"两栏：
 
-```text
-第一步  TP     受节点内卡数限制（≤ 8），受 GEMM 效率限制（h/N_t 不能太小）
-               选 TP 是为了把一层放进一张卡（层内激活 + 该层参数），以及把层边界激活切 1/N_t（SP）
-第二步  CP     序列长到 TP/SP 切完仍放不下一层激活时才需要；Ring 可跨节点，N_c 由 s 决定
-第三步  PP     把 L 层的参数 + 优化器状态放进 N_t × N_p 张卡；越小越好（气泡），
-               但受"每卡显存放得下 L/N_p 层的 16N/(N_t N_p) + 在途激活"约束
-第四步  DP     用满剩余的卡：N_d = N / (N_t N_c N_p)；ZeRO-1 几乎总是打开（不花通信）
-               如果 PP 放不下、或 N_p 太大气泡不可接受，用 ZeRO-3/FSDP 代替一部分 PP
-```
+| 步 | 维度 | 约束 | 为什么选它 |
+|---|---|---|---|
+| 第一步 | TP | 受节点内卡数限制（≤ 8），受 GEMM 效率限制（h/N_t 不能太小） | 把一层放进一张卡（层内激活 + 该层参数），并把层边界激活切 1/N_t（SP） |
+| 第二步 | CP | 序列长到 TP/SP 切完仍放不下一层激活时才需要；Ring 可跨节点 | N_c 由 s 决定 |
+| 第三步 | PP | 越小越好（气泡），但受"每卡显存放得下 L/N_p 层的 16N/(N_t N_p) + 在途激活"约束 | 把 L 层的参数 + 优化器状态放进 N_t × N_p 张卡 |
+| 第四步 | DP | 用满剩余的卡：N_d = N / (N_t N_c N_p) | ZeRO-1 几乎总是打开（不花通信）；如果 PP 放不下、或 N_p 太大气泡不可接受，用 ZeRO-3/FSDP 代替一部分 PP |
 
 每一步都是一个"放得下吗"的判断，放不下就在当前维度上加，直到 PP 的气泡不可接受时才改用 ZeRO-3/FSDP 兜底：
 
@@ -587,20 +576,14 @@ CP 那一行是 GQA 的功劳：K/V 总维度 1024 只有 $$h$$ 的 1/16，再�
 
 三个框架实现的是同一张表，但各自覆盖的格子与默认取向不同（源码细节在下一篇）：
 
-```text
-                 Megatron Core 0.18.0                    DeepSpeed 0.19.2                     torchtitan（PyTorch 原生 API）
-──────────────   ─────────────────────────────────────   ──────────────────────────────────   ────────────────────────────────────
-DP/ZeRO          DDP + 分布式优化器（ZeRO-1）；            ZeRO-1/2/3 全部；offload；             FSDP2 fully_shard（ZeRO-3）；
-                 Megatron-FSDP（ZeRO-3）作为新选项          ZeRO++ 的分层与量化通信                 reshard_after_forward 调 2N/3N；HSDP 由 2D mesh
-TP + SP          ColumnParallelLinear / RowParallelLinear  依赖 Megatron 的层或自带 autotp          ColwiseParallel / RowwiseParallel / SequenceParallel
-                 手写 mappings.py 的通信                                                           通信由 DTensor redistribute 推导
-CP               Transformer Engine 的 ring attention；    DeepSpeed-Ulysses（按头 all-to-all）     torch.distributed.tensor.experimental 的
-                 dp-cp 组归约梯度                                                                  context_parallel（ring）
-PP               schedules.py 的 1F1B / interleaved         pipe/ 引擎，1F1B                       torch.distributed.pipelining 的 Schedule* 类
-                 过程式写法                                                                       声明式动作表
-EP               token_dispatcher.py（all-to-all / all-gather / flex）  MoE 层 + expert parallel 组   实验性
-进程组           parallel_state.py，order "tp-cp-ep-dp-pp"  groups.py                             DeviceMesh（device_mesh.py），维度命名
-```
+| | Megatron Core 0.18.0 | DeepSpeed 0.19.2 | torchtitan（PyTorch 原生 API） |
+|---|---|---|---|
+| DP/ZeRO | DDP + 分布式优化器（ZeRO-1）；Megatron-FSDP（ZeRO-3）作为新选项 | ZeRO-1/2/3 全部；offload；ZeRO++ 的分层与量化通信 | FSDP2 `fully_shard`（ZeRO-3）；`reshard_after_forward` 调 2N/3N；HSDP 由 2D mesh |
+| TP + SP | `ColumnParallelLinear` / `RowParallelLinear`，手写 `mappings.py` 的通信 | 依赖 Megatron 的层或自带 autotp | `ColwiseParallel` / `RowwiseParallel` / `SequenceParallel`，通信由 DTensor redistribute 推导 |
+| CP | Transformer Engine 的 ring attention；dp-cp 组归约梯度 | DeepSpeed-Ulysses（按头 all-to-all） | `torch.distributed.tensor.experimental` 的 `context_parallel`（ring） |
+| PP | `schedules.py` 的 1F1B / interleaved，过程式写法 | `pipe/` 引擎，1F1B | `torch.distributed.pipelining` 的 `Schedule*` 类，声明式动作表 |
+| EP | `token_dispatcher.py`（all-to-all / all-gather / flex） | MoE 层 + expert parallel 组 | 实验性 |
+| 进程组 | `parallel_state.py`，order "tp-cp-ep-dp-pp" | `groups.py` | DeviceMesh（`device_mesh.py`），维度命名 |
 
 三者对同一格子的选择差异，多数可以从五元组解释：Megatron 长期只做 ZeRO-1 是因为 ZeRO-1 拿掉了 74% 的显存却不花通信，其余靠 TP/PP 解决；DeepSpeed 从 ZeRO-3 出发是因为它对用户模型零侵入；torchtitan 用 FSDP2 + DTensor 是因为 per-parameter 分片让各维度可以自由组合。
 
@@ -608,15 +591,13 @@ EP               token_dispatcher.py（all-to-all / all-gather / flex）  MoE �
 
 最后把通信原语与并行策略的对应关系收成一张表，本系列只用到这五个原语的语义与通信量：
 
-```text
-原语             语义                                    每卡通信量        服务于
-──────────────   ─────────────────────────────────────   ───────────────  ───────────────────────────────────────────
-all-reduce       所有卡的 buffer 求和，结果每卡一份         ≈ 2S             DP 梯度；TP（无 SP）每层 2 + 2 次；HSDP 组间梯度
-all-gather       每卡一段，拼成完整的一份给每卡             ≈ S              ZeRO-1/2 更新后的参数；ZeRO-3/FSDP 前向与反向前的参数；SP 进列切层前的激活
-reduce-scatter   每卡一份完整输入，求和后每卡拿一段         ≈ S              ZeRO-1/2/3 的梯度；SP 行切层后的激活
-all-to-all       第 i 卡的第 j 块发给第 j 卡（转置）         ≈ S；n(n-1) 条流  EP 的 token dispatch / combine；Ulysses 的 Q/K/V/O 转置
-send / recv      一对一                                  S                PP 的 stage 边界激活与梯度；Ring Attention 的 K/V 块
-```
+| 原语 | 语义 | 每卡通信量 | 服务于 |
+|---|---|---|---|
+| all-reduce | 所有卡的 buffer 求和，结果每卡一份 | ≈ 2S | DP 梯度；TP（无 SP）每层 2 + 2 次；HSDP 组间梯度 |
+| all-gather | 每卡一段，拼成完整的一份给每卡 | ≈ S | ZeRO-1/2 更新后的参数；ZeRO-3/FSDP 前向与反向前的参数；SP 进列切层前的激活 |
+| reduce-scatter | 每卡一份完整输入，求和后每卡拿一段 | ≈ S | ZeRO-1/2/3 的梯度；SP 行切层后的激活 |
+| all-to-all | 第 i 卡的第 j 块发给第 j 卡（转置） | ≈ S；n(n−1) 条流 | EP 的 token dispatch / combine；Ulysses 的 Q/K/V/O 转置 |
+| send / recv | 一对一 | S | PP 的 stage 边界激活与梯度；Ring Attention 的 K/V 块 |
 
 一个记法：**all-reduce 给复制的状态用，all-gather / reduce-scatter 给分片的状态用，all-to-all 给按路由或按维度转置的激活用，send/recv 给流水和环用**。看到一个训练任务的通信 profile 里各原语的占比，就能反推它的并行配置。
 

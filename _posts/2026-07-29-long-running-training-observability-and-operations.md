@@ -5,7 +5,7 @@ title: "大规模训练工程（08）：长时训练的可观测与运维——�
 subtitle: Observability and Operations for Long-Running Training
 tags: [PyTorch, Megatron, torchtitan, Observability, Distributed Training, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-09-20
 ---
 
 > **更新 @2026-09-06**：本文 torchtitan 部分基于 v0.3.0 刷新；其余源码引用仍以 PyTorch 2.13.0 / Megatron Core 0.18.0 为准。
@@ -98,25 +98,15 @@ checkpoint/重启的周期在本篇里的意义是：**检测时间是有效训�
 
 ### 4. 三框架在"可观测面"上的对照
 
-```text
-项                Megatron Core 0.18.0                                DeepSpeed 0.19.2                          torchtitan v0.3.0
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-计时器            megatron/core/timers.py：Timers / Timer；            deepspeed/utils/timer.py：                torchtitan/observability/structured_logger：
-                  --timing-log-level 0/1/2、--timing-log-option        SynchronizedWallClockTimer；              log_trace_span 写每 rank JSONL；
-                  max/minmax/all                                       wall_clock_breakdown 配置                  gantt_generator 合成 Chrome trace
-step 日志         megatron/training/training.py：training_log()        engine.py 按 steps_per_print 打印；        torchtitan/components/metrics.py：
-                  "elapsed time per iteration" · "throughput per GPU"  ThroughputTimer                           MetricsProcessor.log()：tps · tflops · mfu(%)
-                  · grad norm · num zeros · skipped / nan iterations                                              · memory/max_active · data_loading(%)
-MFU / TFLOPS      num_floating_point_operations() / (Δt × world_size)   flops_profiler（按 op 统计，非每 step）    num_flops_per_token × tps / get_peak_flops()
-显存              --log-memory-to-tensorboard 写 memory_stats 四项；    monitor 配置写 tensorboard/wandb/csv       DeviceMemoryMonitor.get_peak_stats()：
-                  report_memory()；--record-memory-history 存快照                                                  active/reserved 峰值 · num_alloc_retries · num_ooms
-后端              TensorBoard · W&B · one_logger                       deepspeed/monitor/：tensorboard/wandb/     TensorBoardLogger · WandBLogger（LoggerContainer）
-                                                                       comet/csv
-straggler         megatron/core/utils.py：StragglerDetector；           无                                         无（靠每 rank JSONL 事后比较）
-                  --log-straggler；运行时可通过端口开关
-Flight Recorder   由 PyTorch 提供，Megatron 不额外封装                  同左                                       CommConfig.trace_buf_size（默认 20000）自动设
-                                                                                                                 TORCH_FR_BUFFER_SIZE / TORCH_FR_DUMP_TEMP_FILE
-```
+| 项 | Megatron Core 0.18.0 | DeepSpeed 0.19.2 | torchtitan v0.3.0 |
+|---|---|---|---|
+| 计时器 | megatron/core/timers.py：Timers / Timer； --timing-log-level 0/1/2、--timing-log-option max/minmax/all | deepspeed/utils/timer.py： SynchronizedWallClockTimer； wall_clock_breakdown 配置 | torchtitan/observability/structured_logger： log_trace_span 写每 rank JSONL； gantt_generator 合成 Chrome trace |
+| step 日志 | megatron/training/training.py：training_log() "elapsed time per iteration" · "throughput per GPU" · grad norm · num zeros · skipped / nan iterations | engine.py 按 steps_per_print 打印； ThroughputTimer · memory/max_active · data_loading(%) | torchtitan/components/metrics.py： MetricsProcessor.log()：tps · tflops · mfu(%) |
+| MFU / TFLOPS | num_floating_point_operations() / (Δt × world_size) | flops_profiler（按 op 统计，非每 step） | num_flops_per_token × tps / get_peak_flops() |
+| 显存 | --log-memory-to-tensorboard 写 memory_stats 四项； report_memory()；--record-memory-history 存快照 | monitor 配置写 tensorboard/wandb/csv active/reserved 峰值 · num_alloc_retries · num_ooms | DeviceMemoryMonitor.get_peak_stats()： |
+| 后端 | TensorBoard · W&B · one_logger | deepspeed/monitor/：tensorboard/wandb/ comet/csv | TensorBoardLogger · WandBLogger（LoggerContainer） |
+| straggler | megatron/core/utils.py：StragglerDetector； --log-straggler；运行时可通过端口开关 | 无 | 无（靠每 rank JSONL 事后比较） |
+| Flight Recorder | 由 PyTorch 提供，Megatron 不额外封装 | 同左 | CommConfig.trace_buf_size（默认 20000）自动设 TORCH_FR_BUFFER_SIZE / TORCH_FR_DUMP_TEMP_FILE |
 
 DeepSpeed 这一列后文不再展开：它的计时与监控概念与 Megatron 同构，读者按对照表映射即可。
 
@@ -181,16 +171,16 @@ mfu = None if self.has_quantization else 100 * self.num_flops_per_token * tps / 
 
 进程层的第一个来源是 `torch.cuda.memory_stats()`。它返回 PyTorch Caching Allocator 的全部计数器，本篇用到的键（PyTorch 2.13.0，`torch/cuda/memory.py` 的 `memory_stats()` 文档串列出全部）：
 
-```text
-allocated_bytes.all.{current,peak}     张量实际占用；peak 是显存账的"实测"，与第一、二篇的计算对账
-reserved_bytes.all.{current,peak}      分配器向 CUDA 要到的总量（cudaMalloc 的和）；reserved − allocated 是分配器持有但未用的
-active_bytes.all.{current,peak}        含尚未被 stream 释放的块；torchtitan 的 max_active 用的是它
-inactive_split_bytes.all.current       碎片：被切分后空闲、但因邻块在用而无法归还的字节；长期训练中持续上涨 = 碎片化
-requested_bytes.all.{current,peak}     用户实际请求的字节（不含对齐 padding）
-num_alloc_retries                      cudaMalloc 失败后 empty_cache 重试的次数；> 0 说明已经在显存边缘，每次重试都是一次同步与停顿
-num_ooms                               抛出的 OOM 次数
-num_device_alloc / num_device_free     cudaMalloc / cudaFree 调用次数；稳态下应当为 0 增长——增长说明分配器在反复向驱动要还内存
-```
+| 键 | 含义 |
+|---|---|
+| allocated_bytes.all.{current,peak} | 张量实际占用；peak 是显存账的"实测"，与第一、二篇的计算对账 |
+| reserved_bytes.all.{current,peak} | 分配器向 CUDA 要到的总量（cudaMalloc 的和）；reserved − allocated 是分配器持有但未用的 |
+| active_bytes.all.{current,peak} | 含尚未被 stream 释放的块；torchtitan 的 max_active 用的是它 |
+| inactive_split_bytes.all.current | 碎片：被切分后空闲、但因邻块在用而无法归还的字节；长期训练中持续上涨 = 碎片化 |
+| requested_bytes.all.{current,peak} | 用户实际请求的字节（不含对齐 padding） |
+| num_alloc_retries | cudaMalloc 失败后 empty_cache 重试的次数；> 0 说明已经在显存边缘，每次重试都是一次同步与停顿 |
+| num_ooms | 抛出的 OOM 次数 |
+| num_device_alloc / num_device_free | cudaMalloc / cudaFree 调用次数；稳态下应当为 0 增长——增长说明分配器在反复向驱动要还内存 |
 
 这些计数器每 step 读一次几乎没有开销（不涉及同步），每个 rank 都应当采。第四章会用 `inactive_split_bytes` 与 `num_alloc_retries` 诊断"step 时间慢慢变长"。
 
@@ -204,24 +194,12 @@ num_device_alloc / num_device_free     cudaMalloc / cudaFree 调用次数；稳�
 
 硬件层不经过训练进程。NVIDIA DCGM（Data Center GPU Manager）以守护进程从驱动读计数器，dcgm-exporter 把它们以 Prometheus 格式暴露，每张卡一组标签（`gpu`、`UUID`、`Hostname`，可选注入 Kubernetes 的 pod 标签）。本篇关心的字段分四组：
 
-```text
-组        字段（dcgm-exporter 默认表中的名字）                      用途
-────────────────────────────────────────────────────────────────────────────────────────────────────────────
-状态      DCGM_FI_DEV_GPU_TEMP · DCGM_FI_DEV_MEMORY_TEMP             温度；HBM 温度过高先于 SM 降频
-          DCGM_FI_DEV_POWER_USAGE                                    功耗；训练稳态应贴近 TDP；某卡显著低 = 它没在干活
-          DCGM_FI_DEV_SM_CLOCK · DCGM_FI_DEV_MEM_CLOCK                时钟；H100 SXM 满载 SM 时钟约 1.98 GHz（标称最大）
-          DCGM_FI_DEV_CLOCK_THROTTLE_REASONS（新版名 CLOCKS_EVENT_REASONS） 降频原因位图：功耗墙 / 温度墙 / 同步 boost
-利用率    DCGM_FI_PROF_GR_ENGINE_ACTIVE · DCGM_FI_PROF_SM_ACTIVE      粗粒度活跃度；hang 时也可能是 100%
-          DCGM_FI_PROF_PIPE_TENSOR_ACTIVE                            Tensor core 活跃比例；与 MFU 同趋势，是"这张卡在算矩阵"的直接证据
-          DCGM_FI_PROF_DRAM_ACTIVE                                   HBM 带宽活跃度
-          DCGM_FI_PROF_NVLINK_TX_BYTES / RX_BYTES · PCIE_TX/RX_BYTES  链路流量；TP 组内各卡应对称
-错误      DCGM_FI_DEV_XID_ERRORS                                     最近的 XID 码；任何非 0 值 = 该卡不可信
-          DCGM_FI_DEV_ECC_SBE_VOL_TOTAL · ECC_DBE_VOL_TOTAL           单/双比特错误累计；DBE = 立即隔离
-          DCGM_FI_DEV_ROW_REMAP_PENDING · UNCORRECTABLE_REMAPPED_ROWS  HBM 行重映射；pending = 需要重置 GPU
-          DCGM_FI_DEV_NVLINK_CRC_FLIT_ERROR_COUNT_TOTAL · NVLINK_REPLAY_ERROR_COUNT_TOTAL   NVLink 链路错误
-          DCGM_FI_DEV_PCIE_REPLAY_COUNTER                            PCIe 重放
-显存      DCGM_FI_DEV_FB_USED · DCGM_FI_DEV_FB_FREE                   驱动视角的显存占用（含 CUDA context、NCCL buffer）
-```
+| 组 | 字段（dcgm-exporter 默认表中的名字） | 用途 |
+|---|---|---|
+| 状态 | DCGM_FI_DEV_GPU_TEMP · DCGM_FI_DEV_MEMORY_TEMP DCGM_FI_DEV_POWER_USAGE DCGM_FI_DEV_SM_CLOCK · DCGM_FI_DEV_MEM_CLOCK DCGM_FI_DEV_CLOCK_THROTTLE_REASONS（新版名 CLOCKS_EVENT_REASONS） 降频原因位图：功耗墙 / 温度墙 / 同步 boost | 温度；HBM 温度过高先于 SM 降频 功耗；训练稳态应贴近 TDP；某卡显著低 = 它没在干活 时钟；H100 SXM 满载 SM 时钟约 1.98 GHz（标称最大） |
+| 利用率 | DCGM_FI_PROF_GR_ENGINE_ACTIVE · DCGM_FI_PROF_SM_ACTIVE DCGM_FI_PROF_PIPE_TENSOR_ACTIVE DCGM_FI_PROF_DRAM_ACTIVE DCGM_FI_PROF_NVLINK_TX_BYTES / RX_BYTES · PCIE_TX/RX_BYTES | 粗粒度活跃度；hang 时也可能是 100% Tensor core 活跃比例；与 MFU 同趋势，是"这张卡在算矩阵"的直接证据 HBM 带宽活跃度 链路流量；TP 组内各卡应对称 |
+| 错误 | DCGM_FI_DEV_XID_ERRORS DCGM_FI_DEV_ECC_SBE_VOL_TOTAL · ECC_DBE_VOL_TOTAL DCGM_FI_DEV_ROW_REMAP_PENDING · UNCORRECTABLE_REMAPPED_ROWS DCGM_FI_DEV_NVLINK_CRC_FLIT_ERROR_COUNT_TOTAL · NVLINK_REPLAY_ERROR_COUNT_TOTAL DCGM_FI_DEV_PCIE_REPLAY_COUNTER | 最近的 XID 码；任何非 0 值 = 该卡不可信 单/双比特错误累计；DBE = 立即隔离 HBM 行重映射；pending = 需要重置 GPU NVLink 链路错误 PCIe 重放 |
+| 显存 | DCGM_FI_DEV_FB_USED · DCGM_FI_DEV_FB_FREE | 驱动视角的显存占用（含 CUDA context、NCCL buffer） |
 
 字段名随 dcgm-exporter 版本有增删（例如降频原因字段在新版本改名），部署时以 `dcgm-exporter --help` 或其默认 csv 为准。两点经验：**`PROF_*` 系列需要 DCGM 的 profiling 模块**，与 Nsight 同时使用会冲突（同一时刻只能有一个 profiler 占用硬件计数器），做 Nsight 采样的那几张卡上要临时关掉；**XID 的权威来源是内核日志**（`dmesg` / `journalctl -k` 里的 `NVRM: Xid`），DCGM 只报最近一个码，故障复盘时以 dmesg 为准。
 
@@ -314,29 +292,26 @@ retired_                                    retired                         已�
 
 全部环境变量在 `torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp`、`FlightRecorder.hpp` 与 `FlightRecorder.cpp` 里定义，2.13.0 的默认值：
 
-```text
-环境变量                                    默认值                       含义（读取位置）
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-TORCH_FR_BUFFER_SIZE                        2000                         环形缓冲条目数；> 0 即启用（FlightRecorder 构造函数）
-  = TORCH_NCCL_TRACE_BUFFER_SIZE            （同一值的旧名，二者任一生效；ProcessGroupNCCL 构造函数也读它填 traceBufferSize_）
-TORCH_FR_CPP_STACK = TORCH_NCCL_TRACE_CPP_STACK   false                  是否同时抓 C++ 栈（慢，默认关）
-TORCH_NCCL_DUMP_ON_TIMEOUT                  true                         超时或异常时 dump（HeartbeatMonitor 构造函数；注释说明名字已不准确，异常也会触发）
-TORCH_NCCL_ENABLE_MONITORING                true                         启用 heartbeat monitor 线程（dump 由它执行）
-TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC            480（8 分钟）                 watchdog 线程本身无心跳多久后判定 watchdog 卡死并 abort 进程
-TORCH_NCCL_WAIT_TIMEOUT_DUMP_MILSEC         15000                        等 dump 完成的时间；watchdog 抛异常前额外 sleep 它的 4 倍（60 s）给全体 rank 时间 dump
-TORCH_NCCL_COORD_CHECK_MILSEC               1000                         monitor 线程轮询 TCPStore 上"有人要 dump"信号的间隔
-TORCH_FR_DUMP_TEMP_FILE                     $XDG_CACHE_HOME 或 $HOME/.cache 下 torch/comm_lib_trace_rank_   dump 文件前缀，后接全局 rank 号
-  = TORCH_NCCL_DEBUG_INFO_TEMP_FILE         （旧名，兼容）                 （DebugInfoWriter::getWriter()）
-TORCH_FR_DUMP_DYNAMIC_FILE_NAME             false                        每次 write 时重新读 TORCH_FR_DUMP_TEMP_FILE（用于按时间命名）
-TORCH_NCCL_DEBUG_INFO_PIPE_FILE             空                           设了则在 <值><rank>.pipe 处建命名管道，往里写任何字节触发一次 dump 而不终止训练
-TORCH_INCLUDE_STACK_TRACE                   true                         dump 里包含 Python 栈
-TORCH_INCLUDE_ONLY_ACTIVE                   false                        只 dump 未完成的条目
-TORCH_NCCL_ENABLE_TIMING                    false                        记录 kernel 时长（需要额外的 CUDA event，略有开销）
-TORCH_NCCL_ASYNC_ERROR_HANDLING             3（SkipCleanUp）              超时后的处理：0 不处理 / 1 TearDown / 2 CleanUpOnly / 3 SkipCleanUp
-TORCH_NCCL_PROPAGATE_ERROR                  false                        把错误通过 TCPStore 广播到同进程组其他 rank
-TORCH_NCCL_DESYNC_DEBUG                     false                        另一套更早的 desync 诊断（DesyncDebugger），与 FR 独立
-TORCH_DISTRIBUTED_DEBUG                     OFF                          OFF / INFO / DETAIL；DETAIL 时 desync debug 与 timing 自动开（见第 7 节）
-```
+| 环境变量 | 默认值 | 含义（读取位置） |
+|---|---|---|
+| TORCH_FR_BUFFER_SIZE = TORCH_NCCL_TRACE_BUFFER_SIZE | 2000 （同一值的旧名，二者任一生效；ProcessGroupNCCL 构造函数也读它填 traceBufferSize_） | 环形缓冲条目数；> 0 即启用（FlightRecorder 构造函数） |
+| TORCH_FR_CPP_STACK = TORCH_NCCL_TRACE_CPP_STACK | false | 是否同时抓 C++ 栈（慢，默认关） |
+| TORCH_NCCL_DUMP_ON_TIMEOUT | true | 超时或异常时 dump（HeartbeatMonitor 构造函数；注释说明名字已不准确，异常也会触发） |
+| TORCH_NCCL_ENABLE_MONITORING | true | 启用 heartbeat monitor 线程（dump 由它执行） |
+| TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC | 480（8 分钟） | watchdog 线程本身无心跳多久后判定 watchdog 卡死并 abort 进程 |
+| TORCH_NCCL_WAIT_TIMEOUT_DUMP_MILSEC | 15000 | 等 dump 完成的时间；watchdog 抛异常前额外 sleep 它的 4 倍（60 s）给全体 rank 时间 dump |
+| TORCH_NCCL_COORD_CHECK_MILSEC | 1000 | monitor 线程轮询 TCPStore 上"有人要 dump"信号的间隔 |
+| TORCH_FR_DUMP_TEMP_FILE | $XDG_CACHE_HOME 或 $HOME/.cache 下 torch/comm_lib_trace_rank_ | dump 文件前缀，后接全局 rank 号 |
+| = TORCH_NCCL_DEBUG_INFO_TEMP_FILE | （旧名，兼容） | （DebugInfoWriter::getWriter()） |
+| TORCH_FR_DUMP_DYNAMIC_FILE_NAME | false | 每次 write 时重新读 TORCH_FR_DUMP_TEMP_FILE（用于按时间命名） |
+| TORCH_NCCL_DEBUG_INFO_PIPE_FILE | 空 | 设了则在 <值><rank>.pipe 处建命名管道，往里写任何字节触发一次 dump 而不终止训练 |
+| TORCH_INCLUDE_STACK_TRACE | true | dump 里包含 Python 栈 |
+| TORCH_INCLUDE_ONLY_ACTIVE | false | 只 dump 未完成的条目 |
+| TORCH_NCCL_ENABLE_TIMING | false | 记录 kernel 时长（需要额外的 CUDA event，略有开销） |
+| TORCH_NCCL_ASYNC_ERROR_HANDLING | 3（SkipCleanUp） | 超时后的处理：0 不处理 / 1 TearDown / 2 CleanUpOnly / 3 SkipCleanUp |
+| TORCH_NCCL_PROPAGATE_ERROR | false | 把错误通过 TCPStore 广播到同进程组其他 rank |
+| TORCH_NCCL_DESYNC_DEBUG | false | 另一套更早的 desync 诊断（DesyncDebugger），与 FR 独立 |
+| TORCH_DISTRIBUTED_DEBUG | OFF | OFF / INFO / DETAIL；DETAIL 时 desync debug 与 timing 自动开（见第 7 节） |
 
 三点必须知道。**第一，2.13.0 里 Flight Recorder 与超时 dump 都是默认开的**——`TORCH_FR_BUFFER_SIZE` 默认 2000、`TORCH_NCCL_DUMP_ON_TIMEOUT` 默认 true、`TORCH_NCCL_ENABLE_MONITORING` 默认 true。很多"要开 FR 得设一堆环境变量"的经验来自更早的版本；2.13.0 上要做的不是开它，而是**把 dump 路径指到一个所有 rank 都能写、事后能收集到的地方**（默认在 `$HOME/.cache/torch/` 下，容器里往往是临时文件系统，进程退出即丢）。**第二，`TORCH_NCCL_ASYNC_ERROR_HANDLING` 不能是 1**：TearDown 模式下 watchdog 会先 abort，dump 来不及完成；torchtitan 的 `torchtitan/distributed/utils.py` 的 `init_distributed()` 强制把它设成 `"3"`，并按 `CommConfig.trace_buf_size`（默认 20000）设 `TORCH_FR_BUFFER_SIZE`，把 `TORCH_FR_DUMP_TEMP_FILE` 指到 `<dump_folder>/comm_traces/rank_`，注释里写明原因。**第三，缓冲要够大**：2000 条在一个每 step 几百次通信的任务里只够几个 step；PP 加 FSDP 的任务一个 step 可能上千次。torchtitan 选 20000 是合理的量级，每条几百字节，内存代价几 MB。
 
@@ -664,19 +639,17 @@ flowchart TB
 
 告警只有两级有意义：**page**（叫醒人，需要在分钟级采取行动，否则损失持续累积）与 **record**（记下来，第二天早上看，或者作为复盘材料）。中间的"warning"级别在实践里等于 record，因为没有人会为它半夜起床。判断标准只有一个：**如果没人处理，接下来一小时会不会持续损失 GPU 小时？**
 
-```text
-page（叫醒人）                                            record（记录，白天看）
-────────────────────────────────────────────────────────────────────────────────────────────────────────
-step 计数 N 分钟没前进（hang；N = 2–3 倍正常 step 时间，且 > 90 s）   单个 rank 的 step 时间偶尔超 p95
-loss 为 NaN / Inf（若框架没有内建停止）                     grad norm 单次 spike 但自行恢复
-连续 K 次重启失败（K = 2–3；自动恢复已经不工作）             单次重启成功
-checkpoint 保存失败、或连续两次保存时长超阈值                checkpoint 时长缓慢上涨
-有效训练时间（滑动 24 h）跌破阈值（如 85%）                  MFU 相对基准下滑 < 5%
-MFU 相对基准下滑 > 15% 且持续 > 30 min                       任何一张卡 SM 时钟低于阈值（先 record，重复出现再升级）
-任何一张卡 XID / ECC DBE / 行重映射 pending                   ECC SBE 增长
-任务进程消失且未被自动拉起                                   dataloader 等待占比 > 5%
-数据消费位置回退或重复（恢复后顺序不对）                      显存 reserved 上涨 / num_alloc_retries > 0
-```
+| page（叫醒人） | record（记录，白天看） |
+|---|---|
+| step 计数 N 分钟没前进（hang；N = 2–3 倍正常 step 时间，且 > 90 s） | 单个 rank 的 step 时间偶尔超 p95 |
+| loss 为 NaN / Inf（若框架没有内建停止） | grad norm 单次 spike 但自行恢复 |
+| 连续 K 次重启失败（K = 2–3；自动恢复已经不工作） | 单次重启成功 |
+| checkpoint 保存失败、或连续两次保存时长超阈值 | checkpoint 时长缓慢上涨 |
+| 有效训练时间（滑动 24 h）跌破阈值（如 85%） | MFU 相对基准下滑 < 5% |
+| MFU 相对基准下滑 > 15% 且持续 > 30 min | 任何一张卡 SM 时钟低于阈值（先 record，重复出现再升级） |
+| 任何一张卡 XID / ECC DBE / 行重映射 pending | ECC SBE 增长 |
+| 任务进程消失且未被自动拉起 | dataloader 等待占比 > 5% |
+| 数据消费位置回退或重复（恢复后顺序不对） | 显存 reserved 上涨 / num_alloc_retries > 0 |
 
 有几条的归类需要解释。**XID 是 page**，尽管一张卡的 XID 不一定立刻让任务停——因为它几乎总是在几小时内导致 hang 或崩溃，而且隔离节点的动作越早，回退到的 checkpoint 越近。**MFU 下滑 15% 是 page 而 5% 不是**——按第七章的成本换算，1024 卡上 15% 的 MFU 损失每小时值几百美元，等到早上就是几千；5% 在 step 时间抖动的范围边缘，容易误报。**dataloader 等待是 record**——它通常是慢慢恶化的，而且处置（调整 worker 数、换数据源）多半要重启任务，白天做更合适。
 

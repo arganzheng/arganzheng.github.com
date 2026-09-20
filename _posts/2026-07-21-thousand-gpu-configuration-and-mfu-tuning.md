@@ -5,7 +5,7 @@ title: "大规模训练工程（04）：千卡配置实战——并行搭配、m
 subtitle: "Configuring a Thousand-GPU Job: Parallelism, Micro-batch, Recompute and MFU"
 tags: [Megatron, torchtitan, Distributed Training, MFU, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-09-20
 ---
 
 > **更新 @2026-09-06**：本文 torchtitan 部分基于 v0.3.0 刷新；其余源码引用仍以 PyTorch 2.13.0 / Megatron Core 0.18.0 为准。
@@ -58,12 +58,12 @@ PP（每个 stage 边界每 micro-batch）2 × sbh × 2 / t 字节        走节
 
 一个千卡配置有四个自由度和三类约束：
 
-```text
-自由度      TP · PP · DP · CP 的乘积 = 卡数；micro-batch b；重计算策略；（EP 仅 MoE）
-约束 1      显存：静态状态 + 在途激活 + 开销 ≤ 80 GB（留 10% 给碎片）
-约束 2      通信：每类通信量 / 对应链路带宽 ≪ 计算时间，且能被重叠
-约束 3      算法：global batch 由训练配方定，不是性能参数
-```
+| 项 | 内容 |
+|---|---|
+| 自由度 | TP · PP · DP · CP 的乘积 = 卡数；micro-batch b；重计算策略；（EP 仅 MoE） |
+| 约束 1 | 显存：静态状态 + 在途激活 + 开销 ≤ 80 GB（留 10% 给碎片） |
+| 约束 2 | 通信：每类通信量 / 对应链路带宽 ≪ 计算时间，且能被重叠 |
+| 约束 3 | 算法：global batch 由训练配方定，不是性能参数 |
 
 三类约束的地位不同。显存是硬约束，放不下就是放不下；通信是软约束，超了只是慢；global batch 是外部给定的，配置只能决定它怎么被切成 micro-batch。所有推导都是在这三条边界内找 MFU 的最大值。
 
@@ -114,23 +114,13 @@ PP（每个 stage 边界每 micro-batch）2 × sbh × 2 / t 字节        走节
 
 同一件事三个框架各有各的名字，本篇正文以 Megatron 和 torchtitan 为主：
 
-```text
-配置项              Megatron Core 0.18.0                          DeepSpeed 0.19.2                     torchtitan v0.3.0
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-并行度              --tensor-model-parallel-size                  TP 需模型侧支持；PP 用 PipelineModule   ParallelismConfig.tensor_parallel_degree /
-                    --pipeline-model-parallel-size                ZeRO stage 决定 DP 形态                pipeline_parallel_degree / data_parallel_shard_degree /
-                    --context-parallel-size                                                             data_parallel_replicate_degree / context_parallel_degree
-micro-batch         --micro-batch-size / --global-batch-size      train_micro_batch_size_per_gpu /       TrainingConfig.local_batch_size / global_batch_size；
-                    m 由 num_microbatches_calculator 算           gradient_accumulation_steps            PP 下再由 pipeline_parallel_microbatch_size 切
-重计算              TransformerConfig.recompute_granularity /     activation_checkpointing 段            activation_checkpoint 子命令：selective / full /
-                    recompute_method / recompute_num_layers /     (partition_activations, cpu_checkpointing)   memory-budget / none（activation_checkpoint.py）
-                    recompute_modules
-重叠                DistributedDataParallelConfig.overlap_grad_   ZeRO overlap_comm；stage3_prefetch_    FSDP2 隐式预取 + set_modules_to_forward_prefetch；
-                    reduce / overlap_param_gather；               bucket_size                            CompileConfig.enable_async_tensor_parallel
-                    ModelParallelConfig.tp_comm_overlap /
-                    overlap_p2p_comm
-编译 / 低精度        --fp8 (TE)；cuda_graph_impl                   无原生 compile 集成                    CompileConfig.enable（per-block）；Float8LinearConverter
-```
+| 配置项 | Megatron Core 0.18.0 | DeepSpeed 0.19.2 | torchtitan v0.3.0 |
+|---|---|---|---|
+| 并行度 | --tensor-model-parallel-size --pipeline-model-parallel-size --context-parallel-size | TP 需模型侧支持；PP 用 PipelineModule ZeRO stage 决定 DP 形态 data_parallel_replicate_degree / context_parallel_degree | ParallelismConfig.tensor_parallel_degree / pipeline_parallel_degree / data_parallel_shard_degree / |
+| micro-batch | --micro-batch-size / --global-batch-size m 由 num_microbatches_calculator 算 | train_micro_batch_size_per_gpu / gradient_accumulation_steps | TrainingConfig.local_batch_size / global_batch_size； PP 下再由 pipeline_parallel_microbatch_size 切 |
+| 重计算 | TransformerConfig.recompute_granularity / recompute_method / recompute_num_layers / recompute_modules | activation_checkpointing 段 (partition_activations, cpu_checkpointing) | activation_checkpoint 子命令：selective / full / memory-budget / none（activation_checkpoint.py） |
+| 重叠 | DistributedDataParallelConfig.overlap_grad_ reduce / overlap_param_gather； ModelParallelConfig.tp_comm_overlap / overlap_p2p_comm | ZeRO overlap_comm；stage3_prefetch_ bucket_size | FSDP2 隐式预取 + set_modules_to_forward_prefetch； CompileConfig.enable_async_tensor_parallel |
+| 编译 / 低精度 | --fp8 (TE)；cuda_graph_impl | 无原生 compile 集成 | CompileConfig.enable（per-block）；Float8LinearConverter |
 
 DeepSpeed 这一列后文不再展开：它的配置面是 JSON，概念与 Megatron 的 ZeRO-1 一致，重计算沿用 `deepspeed/runtime/activation_checkpointing/checkpointing.py`，读者按对照表映射即可。
 
@@ -388,17 +378,14 @@ Megatron 走 Transformer Engine 的 userbuffers：`ModelParallelConfig.tp_comm_o
 
 重叠开关打开不等于重叠发生。profiler 时间线上通信 kernel 与计算 kernel 不并行，通常是这五种原因之一：
 
-```text
-现象                                  原因                                          处置
-─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-DP 的 reduce-scatter 全部堆在反向结束后  overlap 没开；或 bucket 太大（一个 bucket 覆盖半个模型）  开 overlap_grad_reduce；bucket 调到 每卡消息 ≥ 拐点大小 即可，不要更大
-一个 bucket 一发就等它完成             通信 stream 与计算 stream 之间有多余的同步            查 .item()、torch.cuda.synchronize()、日志里的 tensor 打印
-通信 kernel 与计算 kernel 交替而不并行  通信 kernel 占了太多 SM，计算 kernel 没有 SM 可用；    减 NCCL channel 数；或让 GEMM 留出 SM（TE userbuffers 的做法）
-                                      或计算 kernel 把 SM 占满，通信 kernel 排不进去
-TP 的 all-gather 每次都暴露            没开 SP（通信是 all-reduce，不可分块）；或 M 太小      开 SP；b 或 s 加大；确认 tp_comm_overlap / async TP 实际生效（看日志）
-p2p 有等待但两边都空闲                 相邻 stage 的 micro-batch 顺序不一致、或 stage 层数不均   查 pipeline 布局；用 --decoder-first/last-pipeline-num-layers 平衡
-CPU 侧发射慢，通信虽异步但发得晚        每个 step 几千个小 kernel，Python 跟不上 GPU             第六章第 7 节；CUDA Graph；融合
-```
+| 现象 | 原因 | 处置 |
+|---|---|---|
+| DP 的 reduce-scatter 全部堆在反向结束后 | overlap 没开；或 bucket 太大（一个 bucket 覆盖半个模型） | 开 overlap_grad_reduce；bucket 调到 每卡消息 ≥ 拐点大小 即可，不要更大 |
+| 一个 bucket 一发就等它完成 | 通信 stream 与计算 stream 之间有多余的同步 | 查 .item()、torch.cuda.synchronize()、日志里的 tensor 打印 |
+| 通信 kernel 与计算 kernel 交替而不并行 | 通信 kernel 占了太多 SM，计算 kernel 没有 SM 可用； 或计算 kernel 把 SM 占满，通信 kernel 排不进去 | 减 NCCL channel 数；或让 GEMM 留出 SM（TE userbuffers 的做法） |
+| TP 的 all-gather 每次都暴露 | 没开 SP（通信是 all-reduce，不可分块）；或 M 太小 | 开 SP；b 或 s 加大；确认 tp_comm_overlap / async TP 实际生效（看日志） |
+| p2p 有等待但两边都空闲 | 相邻 stage 的 micro-batch 顺序不一致、或 stage 层数不均 | 查 pipeline 布局；用 --decoder-first/last-pipeline-num-layers 平衡 |
+| CPU 侧发射慢，通信虽异步但发得晚 | 每个 step 几千个小 kernel，Python 跟不上 GPU | 第六章第 7 节；CUDA Graph；融合 |
 
 第三条值得多说一句：GPU 上通信与计算"并行"的前提是两种 kernel 同时驻留在 SM 上。NCCL kernel 每个 channel 占一个 block，几十个 channel 就是几十个 SM；H100 有 132 个 SM，计算 kernel 若是按满 SM 设计的 GEMM，两者只能轮流。这是本系列不展开的 NCCL 侧细节，但它是"重叠没发生"最难查的一种：时间线上两类 kernel 看起来是并行发起的，实际是串行执行的，只有看每个 kernel 的实际时长是否比单独跑时变长才能确认。
 
@@ -414,17 +401,15 @@ $$T_{ideal}$$ 是模型 FLOP 除以标称峰值（候选 A：2.0 s），七个 $
 
 时间线上要看的只有三条泳道：计算 stream 上的 kernel、通信 stream 上的 NCCL kernel（名字以 `ncclDevKernel_` 开头，`SendRecv` 是 p2p，`AllGather / ReduceScatter / AllReduce` 是集合通信）、以及 CPU 线程上的 op 与 `cudaLaunchKernel`。七项就是这三条泳道上七种不同的**空隙形状**：
 
-```text
-项              时间线上的形状                                              测量
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────
-1 PP 气泡        计算 stream 空，通信 stream 上只有 SendRecv 在等             p2p 独占时间（无计算 kernel 并行的 SendRecv 时长）
-2 未重叠通信     计算 stream 空，通信 stream 上是 AllGather/ReduceScatter     集合通信独占时间
-3 重计算         反向区间里出现与前向同形状的 GEMM/attention kernel           反向 GEMM 时间 − 2 × 前向 GEMM 时间（正值部分）
-4 数据等待       两个 step 之间、CPU 线程停在 DataLoader.__next__，GPU 全空    step 边界处的 GPU 空隙 ∩ DataLoader op 区间
-5 kernel 效率    kernel 都在跑，但每个 GEMM 的 FLOP/时长 低于峰值；非 GEMM 多  计算 kernel 总时长 − T_ideal
-6 CPU 发射开销   计算 stream 有细碎空隙，CPU 线程在忙（Python / aten 调度）    GPU 全空 且 不在 DataLoader 中 的空隙
-7 straggler      集合通信 kernel 时长 ≫ 字节数/带宽；跨 rank 计算时间不一致   多 rank trace：计算时长的 max − median；或集合通信时长 − 理论传输时间
-```
+| 项 | 时间线上的形状 | 测量 |
+|---|---|---|
+| 1 PP 气泡 | 计算 stream 空，通信 stream 上只有 SendRecv 在等 | p2p 独占时间（无计算 kernel 并行的 SendRecv 时长） |
+| 2 未重叠通信 | 计算 stream 空，通信 stream 上是 AllGather/ReduceScatter | 集合通信独占时间 |
+| 3 重计算 | 反向区间里出现与前向同形状的 GEMM/attention kernel | 反向 GEMM 时间 − 2 × 前向 GEMM 时间（正值部分） |
+| 4 数据等待 | 两个 step 之间、CPU 线程停在 DataLoader.__next__，GPU 全空 | step 边界处的 GPU 空隙 ∩ DataLoader op 区间 |
+| 5 kernel 效率 | kernel 都在跑，但每个 GEMM 的 FLOP/时长 低于峰值；非 GEMM 多 | 计算 kernel 总时长 − T_ideal |
+| 6 CPU 发射开销 | 计算 stream 有细碎空隙，CPU 线程在忙（Python / aten 调度） | GPU 全空 且 不在 DataLoader 中 的空隙 |
+| 7 straggler | 集合通信 kernel 时长 ≫ 字节数/带宽；跨 rank 计算时间不一致 | 多 rank trace：计算时长的 max − median；或集合通信时长 − 理论传输时间 |
 
 表里的七种形状两两之间容易混：4 与 6 都是"GPU 全空"，只差 CPU 线程当时在干什么；2 与 7 都是"通信 kernel 很长"，只差是带宽不够还是在等别人；3 与 5 都是"计算 kernel 在跑"，只差反向里有没有多出一份前向。把时间线上任意一段空隙归到某一项，走的是下面这棵判定树：
 

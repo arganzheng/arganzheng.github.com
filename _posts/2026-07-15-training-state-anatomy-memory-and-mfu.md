@@ -5,14 +5,14 @@ title: "大规模训练工程（01）：训练任务的状态解剖——显存�
 subtitle: "Anatomy of Training State: Memory Accounting and MFU"
 tags: [Megatron, DeepSpeed, torchtitan, Distributed Training, MFU, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-09-20
 ---
 
-一张 H100 有 80 GB 显存、标称 989 TFLOPS 的 bf16 算力。一个 70B 参数的模型，用 bf16 混合精度加 Adam 训练，参数、梯度和优化器状态加在一起是 1.13 TB——是那张卡的 14 倍。序列长 8192 时，它每一层的激活值还要 2.3 GB，80 层就是 180 GB。每个 token 的前向加反向要 4.5×10¹¹ 次浮点运算，一条 8192 token 的序列在一张卡上就算满了也要 3.7 秒。
+一张 H100 有 80 GB 显存、标称 989 TFLOPS 的 bf16 算力。一个 70B 参数的模型，用 bf16 混合精度加 Adam 训练，参数、梯度和[优化器状态](# "tip: 优化器为每个参数额外维护的数：AdamW 是一阶矩 m、二阶矩 v 各一个 fp32，再加一份 fp32 主参数，共 12 字节/参数，占混合精度训练常驻显存的 3/4；第二章第 1 节展开")加在一起是 1.13 TB——是那张卡的 14 倍。序列长 8192 时，它每一层的激活值还要 2.3 GB，80 层就是 180 GB。每个 token 的前向加反向要 4.5×10¹¹ 次浮点运算，一条 8192 token 的序列在一张卡上就算满了也要 3.7 秒。
 
 这几个数字是本系列后面七篇的全部起点。并行策略要解决的是"1.13 TB 放到哪些卡上"；micro-batch 与激活重计算要解决的是"180 GB 的激活怎么塞进剩下的显存"；MFU 调优要解决的是"3.7 秒的理论下限实际跑成了多少"；checkpoint 要解决的是"这 1.13 TB 里哪些必须落盘、多久落一次"；容错要解决的是"一部分卡消失后这些字节怎么重建"。不先把这些数字算出来，后面的每一个决定都只能靠试。
 
-算这些数字不需要 GPU，只需要一套一致的记账方法：训练任务的状态只有四样——**参数、梯度、优化器状态、激活**——每一样有明确的字节数公式、明确的生命周期；算力只有一个主项——每个参数每个 token 6 FLOP——加一个随序列长度增长的注意力项。把它们与硬件的两个数字（显存容量、峰值 FLOPS）放在一起，就得到显存够不够、step 时间下限是多少、MFU 是多少这三个答案。
+算这些数字不需要 GPU，只需要一套一致的记账方法：训练任务的状态只有四样——**参数、梯度、优化器状态、激活**——每一样有明确的字节数公式、明确的生命周期；算力只有一个主项——每个参数每个 token 6 FLOP（前向一次乘加 2 FLOP，反向对输入、对权重各一次乘加 4 FLOP；第六章第 1 节推导）——加一个随序列长度增长的注意力项。把它们与硬件的两个数字（显存容量、峰值 FLOPS）放在一起，就得到显存够不够、step 时间下限是多少、MFU 是多少这三个答案。
 
 这一篇不讨论任何并行策略，也不进入任何框架的进程组代码。它只做一件事：把这套记账方法建立起来，给出符号、公式、三档模型（Llama 3 的 8B、70B、405B）在 $$s = 8192$$ 下的完整数字，并与 Megatron Core 0.18.0 里做同一件事的两段源码——`megatron/training/theoretical_memory_usage.py` 与 `megatron/training/training.py` 的 `num_floating_point_operations()`——逐项对上。
 
@@ -28,14 +28,12 @@ updated: 2026-09-14
 
 训练引擎围绕状态组织。一个训练任务在任一时刻持有的全部数据可以归成四类：
 
-```text
-                  何时存在              字节数由什么决定                  谁切它（下一篇）
-─────────────    ─────────────────    ──────────────────────────────   ────────────────────
-参数 θ            常驻                  N × 每参数字节                    TP / PP / ZeRO-3
-梯度 ∇θ           反向产生，优化器后清零   N × 每参数字节                    TP / PP / ZeRO-2
-优化器状态        常驻                  N × 每参数字节（Adam：12）          TP / PP / ZeRO-1
-激活 A            前向产生，反向消费      s · b · h · L × 常数               TP/SP、CP、PP、重计算
-```
+| 状态 | 何时存在 | 字节数由什么决定 | 谁切它（下一篇） |
+|---|---|---|---|
+| 参数 θ | 常驻 | N × 每参数字节 | TP / PP / ZeRO-3 |
+| 梯度 ∇θ | 反向产生，优化器后清零 | N × 每参数字节 | TP / PP / ZeRO-2 |
+| 优化器状态 | 常驻 | N × 每参数字节（Adam：12） | TP / PP / ZeRO-1 |
+| 激活 A | 前向产生，反向消费 | s · b · h · L × 常数 | TP/SP、CP、PP、重计算 |
 
 前三样是**参数量 $$N$$ 的线性函数**，系数由精度与优化器决定，与 batch 大小、序列长度无关；第四样是**每次前向喂进去多少 token 的线性函数**，与参数量无关（只与 $$h$$、$$L$$ 有关）。这两条线在一张卡的显存里相加，超过容量就放不下。整个第二、三、四章就是把这两条线的系数推出来。
 
@@ -43,11 +41,10 @@ updated: 2026-09-14
 
 训练的性能也只有两本账。**字节的账**决定一个配置能不能跑：四种状态加上显存之外的开销要小于每卡容量。**FLOP 的账**决定它最快能跑多快：每 token 的 FLOP 数乘以每 step 的 token 数，除以卡数乘以峰值算力，就是 step 时间的下限；观测到的 step 时间与这个下限之比就是 MFU。
 
-```text
-字节的账     16N（或 18N）+ 激活(s, b, h, L) + 非张量开销   ≤  每卡显存
-FLOP 的账    step 时间  ≥  tokens/step × FLOP/token ÷ (卡数 × 峰值 FLOPS)
-             MFU  =  下限 ÷ 实测 step 时间
-```
+| 账 | 公式 |
+|---|---|
+| 字节的账 | 16N（或 18N）+ 激活(s, b, h, L) + 非张量开销 ≤ 每卡显存 |
+| FLOP 的账 | step 时间 ≥ tokens/step × FLOP/token ÷ (卡数 × 峰值 FLOPS)；MFU = 下限 ÷ 实测 step 时间 |
 
 两本账的公式都很短，容易算错的是**系数**：每参数到底 16 字节还是 18 字节、激活里那个 34 从哪来、6N 的 N 算不算 embedding、注意力的 $$s^2$$ 项要不要乘 1/2。本篇的大部分篇幅花在把这些系数的来源讲清楚，并与 Megatron 源码里的同一个系数对上。
 
@@ -55,26 +52,32 @@ FLOP 的账    step 时间  ≥  tokens/step × FLOP/token ÷ (卡数 × 峰值 
 
 全系列使用同一套符号，后续各篇会在总览里复述用到的部分：
 
-```text
-N                参数量（个数），不是字节数。bf16 参数是 2N 字节，16 字节/参数的常驻状态是 16N 字节
-s  b  h  a  L    序列长、micro-batch 大小（每卡每次前向的序列数）、隐藏维、注意力头数、层数
-f  V             FFN 中间维、词表大小
-N_d N_t N_p      数据 / 张量 / 流水线并行度（本篇全部为 1）
-N_c N_e          上下文 / 专家并行度（本篇全部为 1）
-m                每个 DP 副本每 step 的 micro-batch 数（梯度累积步数）
-B                global batch，以 token 计：B = s · b · m · N_d
-δ                一次 checkpoint 的开销时间（第五篇）
-M                集群的平均故障间隔 MTBF（第五、六篇）
-```
+| 符号 | 含义 | 备注 |
+|---|---|---|
+| $$N$$ | 参数量（个数） | 不是字节数：bf16 参数是 2N 字节，16 字节/参数的常驻状态是 16N 字节 |
+| $$s$$ | 序列长 | 与 $$b$$、$$h$$、$$L$$ 一起决定激活大小：激活 ∝ s·b·h·L |
+| $$b$$ | micro-batch 大小 | 每卡每次前向的序列数 |
+| $$h$$ | 隐藏维 | |
+| $$a$$ | 注意力头数 | 只出现在注意力分数矩阵的 $$5as$$ 项里 |
+| $$L$$ | 层数 | |
+| $$f$$ | FFN 中间维 | 与 $$V$$ 一起决定参数量里除 $$h^2$$ 之外的两大项 |
+| $$V$$ | 词表大小 | logits 的大小 s·b·V |
+| $$N_d$$、$$N_t$$、$$N_p$$ | 数据 / 张量 / 流水线并行度 | 本篇全部为 1 |
+| $$N_c$$、$$N_e$$ | 上下文 / 专家并行度 | 本篇全部为 1 |
+| $$m$$ | 每个 DP 副本每 step 的 micro-batch 数 | 即梯度累积步数 |
+| $$B$$ | global batch，以 token 计 | $$B = s \cdot b \cdot m \cdot N_d$$ |
+| $$\delta$$ | 一次 checkpoint 的开销时间 | 第五篇 |
+| $$M$$ | 集群的平均故障间隔 MTBF | 第五、六篇 |
+
+原先挤在一行的符号确实有关系：$$s, b, h, a, L$$ 是模型与 batch 的形状参数，五个一起决定激活；$$f, V$$ 决定参数量；$$N_d \ldots N_e$$ 是五个并行度，后面各篇会用它们做分母。
 
 三档模型的尺寸（Llama 3 论文 Table 3；$$V$$ 取 128256，含特殊 token）：
 
-```text
-              L      h       a    kv heads    f        V         N
-Llama 3 8B     32    4096    32     8       14336    128256      8.03 B
-Llama 3 70B    80    8192    64     8       28672    128256     70.55 B
-Llama 3 405B  126   16384   128     8       53248    128256    405.85 B
-```
+| 模型 | L | h | a | kv heads | f | V | N |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Llama 3 8B | 32 | 4096 | 32 | 8 | 14336 | 128256 | 8.03 B |
+| Llama 3 70B | 80 | 8192 | 64 | 8 | 28672 | 128256 | 70.55 B |
+| Llama 3 405B | 126 | 16384 | 128 | 8 | 53248 | 128256 | 405.85 B |
 
 $$N$$ 由第八章的 `ledger/model.py` 按每层 $$2h^2 + 2h\cdot h_{kv} + 3hf + 2h$$、加两份 $$Vh$$ 的 embedding（输入与输出不共享）算出，与官方公布的参数量一致到小数点后一位。
 
@@ -94,7 +97,7 @@ $$N$$ 由第八章的 `ledger/model.py` 按每层 $$2h^2 + 2h\cdot h_{kv} + 3hf 
 
 ### 1. 每种状态是什么
 
-**参数**是模型本身。混合精度下它有两份：一份低精度（bf16）用来做前向和反向的 GEMM，一份 fp32 的"主参数"（master weights）由优化器持有、只在优化器步骤被读写。两份都是常驻的——bf16 那份每层前向都要用，fp32 那份每步都要更新。本篇在字节账里把 fp32 主参数归入"优化器状态"一类，因为它的生命周期与 Adam 的两个矩完全相同，而且在 ZeRO-1 / Megatron 分布式优化器里它们是一起被分片的。
+**参数**是模型本身。混合精度下它有两份：一份低精度（bf16）用来做前向和反向的 GEMM，一份 fp32 的"主参数"（master weights）由优化器持有、只在优化器步骤被读写。两份都是常驻的——bf16 那份每层前向都要用，fp32 那份每步都要更新。业界常见的划分是"参数、梯度、优化器状态、激活"四类，其中 fp32 主参数有两种归法：ZeRO 论文把它与 Adam 的两个矩合记为 $$K = 12$$ 字节的优化器状态，Megatron 的 `theoretical_memory_usage.py` 也是这么算的（18 = 2 + 4 + 12）；另一些资料把它算作"参数"的一部分（参数 6 字节 + 优化器 8 字节）。本篇采用前者，理由有两点：一是它们的读写时机相同——都只在 `optimizer.step()` 里被读写，其余时间静静占着显存（"生命周期相同"说的是这个，不是说训练结束后主参数会消失：它当然会随 checkpoint 保存下来，Adam 的矩也一样会）；二是在 ZeRO-1 / Megatron 分布式优化器里它们是作为一个整体按 DP 切分的，归到一类账才好算。读别的资料时留意一下作者用的是哪种归法，两种算出来的总字节数是一样的。
 
 **梯度**是反向传播的产物。它在反向过程中逐层产生（从最后一层往前），在优化器步骤被消费，随后清零。所以梯度的显存在反向结束、优化器开始前达到峰值——那一刻全部 $$N$$ 个梯度同时存在。它的 dtype 有两种选择，是 16 字节与 18 字节的分水岭（第三章）。
 
@@ -106,25 +109,7 @@ $$N$$ 由第八章的 `ledger/model.py` 按每层 $$2h^2 + 2h\cdot h_{kv} + 3hf 
 
 把四种状态在一个 step 内的占用画出来（单卡、无并行、$$m = 1$$）：
 
-```text
- 显存
-  ▲
-  │            ┌──────── 激活峰值（前向末）
-  │           ╱│╲
-  │          ╱ │ ╲        ┌──── 梯度峰值（反向末）
-  │         ╱  │  ╲       │
-  │  ┌─────╱───┼───╲──────┼──────┐   梯度 2N（bf16）或 4N（fp32）：反向中逐层填满，优化器后清零
-  │  │    ╱    │    ╲     │      │
-  │  ├───╱─────┼─────╲────┼──────┤
-  │  │  ╱      │      ╲   │      │   激活：前向逐层堆高，反向逐层释放
-  │  ├─╱───────┼───────╲──┼──────┤
-  │  │         │          │      │   优化器状态 12N：常驻，只在 optimizer.step() 被读写
-  │  ├─────────┼──────────┼──────┤
-  │  │         │          │      │   bf16 参数 2N：常驻，每层前向 / 反向读
-  │  └─────────┴──────────┴──────┘
-  └────────────────────────────────────▶ 时间
-     ├─ 前向 ─┤├── 反向 ──┤├ step ┤
-```
+![四种状态在一个 step 内的显存占用随时间的变化：bf16 参数 2N 与优化器状态 12N 是两条常驻的水平带；激活在前向阶段逐层堆高、在反向阶段逐层释放，形成一个峰在前向末的三角；梯度在反向阶段逐层填满、在 optimizer.step() 后清零，峰在反向末。两个峰值不在同一时刻](/img/in-post/training-state-step-timeline.svg)
 
 三点值得注意。第一，**峰值不在同一时刻**：激活的峰值在前向结束处，梯度的峰值在反向结束处，两者不同时达到最大。所以"参数 + 梯度 + 优化器状态 + 激活"简单相加是一个**保守的**上界；精确的峰值是 $$\max(\text{前向末}, \text{反向末})$$，取决于激活总量与梯度总量谁大。对大模型、小 micro-batch，激活往往比梯度小（70B、$$b = 1$$、有 FlashAttention 时 180 GB 激活对 141 GB 梯度——差不多），所以上界通常不算太保守。
 
@@ -136,17 +121,11 @@ $$N$$ 由第八章的 `ledger/model.py` 按每层 $$2h^2 + 2h\cdot h_{kv} + 3hf 
 
 这四种状态在三个框架里都存在，但"两份参数"和"梯度的 dtype"的安排不同。这是本系列"框架线"的第一张对照表，只讲结果，实现细节留到第三篇：
 
-```text
-                   bf16 计算参数                 梯度                            fp32 主参数 + Adam 矩          每参数字节（常驻）
-────────────────   ───────────────────────────   ─────────────────────────────   ────────────────────────────   ─────────────────
-Megatron-LM        模型持有，常驻                 默认 fp32 main_grad（连续 buffer，  优化器持有；分布式优化器       18；
-                                                 bf16 grad 逐层累加进去后释放）     打开时按 DP 切                 6 + 12/N_d
-DeepSpeed ZeRO     模型持有，常驻（Stage 3 下      bf16；Stage 2/3 下 reduce-scatter  优化器持有 fp32 分区           16；
-（bf16）            分片，用到时 all-gather）       后只留本卡分片                                                  Stage 1: 4 + 12/N_d
-torchtitan         没有常驻的 bf16 副本：FSDP2      reduce-scatter 用 fp32，结果是    分片参数本身就是 fp32，        16 / N_d 常驻，
-（FSDP2 默认策略）   前向前 all-gather 出当前层的     fp32 分片梯度                   不另存主参数；Adam 矩 fp32      + 当前层的 bf16 副本
-                   bf16 副本，用完即释放
-```
+| 框架 | bf16 计算参数 | 梯度 | fp32 主参数 + Adam 矩 | 每参数字节（常驻） |
+|---|---|---|---|---|
+| Megatron-LM | 模型持有，常驻 | 默认 fp32 `main_grad`（连续 buffer，bf16 grad 逐层累加进去后释放） | 优化器持有；分布式优化器打开时按 DP 切 | 18；分布式优化器 6 + 12/N_d |
+| DeepSpeed ZeRO（bf16） | 模型持有，常驻（Stage 3 下分片，用到时 all-gather） | bf16；Stage 2/3 下 reduce-scatter 后只留本卡分片 | 优化器持有 fp32 分区 | 16；Stage 1: 4 + 12/N_d |
+| torchtitan（FSDP2 默认策略） | 没有常驻的 bf16 副本：FSDP2 前向前 all-gather 出当前层的 bf16 副本，用完即释放 | reduce-scatter 用 fp32，结果是 fp32 分片梯度 | 分片参数本身就是 fp32，不另存主参数；Adam 矩 fp32 | 16 / N_d 常驻，+ 当前层的 bf16 副本 |
 
 三者的每参数字节在 16–18 之间，差别只在**梯度用 bf16 还是 fp32**，以及**fp32 主参数是"另一份"还是"参数本身"**。torchtitan 的做法值得单独说一句：FSDP2 的分片参数就是 fp32 的，`MixedPrecisionPolicy(param_dtype=bfloat16)` 让 all-gather 出来的完整参数是 bf16 临时副本，前向后释放；所以它没有"两份常驻参数"，bf16 那 2 字节只在当前层存在。三种安排的常驻字节数不同，但**全部落在 16N 到 18N 的区间**（再除以各自的分片度），这就是下一章要推导的数。
 
@@ -162,15 +141,14 @@ bf16 有 8 位指数、7 位尾数，能表示的相对精度约 $$2^{-8} \appro
 
 于是 bf16 混合精度 + Adam 下，每个参数的常驻字节：
 
-```text
-bf16 参数（计算用）          2
-bf16 梯度                   2
-fp32 主参数                 4
-fp32 Adam 一阶矩 m           4
-fp32 Adam 二阶矩 v           4
-──────────────────────────────
-                            16 字节 / 参数
-```
+| 项 | 精度 | 字节 |
+|---|---|---:|
+| 参数（计算用） | bf16 | 2 |
+| 梯度 | bf16 | 2 |
+| 主参数 | fp32 | 4 |
+| Adam 一阶矩 m | fp32 | 4 |
+| Adam 二阶矩 v | fp32 | 4 |
+| **合计** | | **16 字节 / 参数** |
 
 分成三类就是本篇 `StateBytes` 的三个字段：`params_bytes = 2N`、`grads_bytes = 2N`、`optim_bytes = 12N`。优化器一类占 75%，这是 ZeRO-1 只切优化器状态就能省掉 3/4 显存的原因（第二篇）。
 
@@ -197,36 +175,7 @@ def num_bytes_per_parameter(data_parallel_size):
 
 18 就是上一节的 2 + 4 + 12；`6 + 12/d` 是分布式优化器（ZeRO-1）下的每参数字节：bf16 参数 2 与 fp32 梯度 4 不切，fp32 主参数与两个矩 12 按 DP 度 $$d$$ 切。同一仓库 `docs/user-guide/features/dist_optimizer.md` 里的表格列出了三种精度组合：fp16 参数 + fp16 梯度 20 / $$4 + 16/d$$（fp16 下 Megatron 把主参数与梯度都放进优化器分片），bf16 参数 + fp32 梯度 18 / $$6 + 12/d$$，fp32 参数 + fp32 梯度 16 / $$8 + 8/d$$。这三行与本章的推导完全一致，是检验记账方法的一个好锚点。把四种组合按字节画成条，就能看出"不切的部分"与"按 $$d$$ 切的部分"各是哪几块：
 
-```text
-每格宽度与每参数字节数成正比；[ ] 内是分布式优化器 / ZeRO-1
-按 DP 度 d 切分的部分，[ ] 外的部分每张卡都完整保留。
-
-bf16 参数 + bf16 梯度（本篇的 16；ZeRO 论文的 2 + 2 + K，K = 12）
-┌────┬────┬────────┬────────┬────────┐
-│p16 │g16 │ master │ Adam m │ Adam v │
-└────┴────┴────────┴────────┴────────┘
-  2    2  [    4   +   4    +    4   ]   = 16   →  4 + 12/d
-
-bf16 参数 + fp32 梯度（Megatron 默认的 18：main_grad 是 fp32）
-┌────┬────────┬────────┬────────┬────────┐
-│p16 │  g32   │ master │ Adam m │ Adam v │
-└────┴────────┴────────┴────────┴────────┘
-  2      4    [    4   +   4    +    4   ]   = 18   →  6 + 12/d
-
-fp16 参数 + fp16 梯度（Megatron 的 20：主参数与主梯度都进优化器分片）
-┌────┬────┬────────┬────────┬────────┬────────┐
-│p16 │g16 │  g32   │ master │ Adam m │ Adam v │
-└────┴────┴────────┴────────┴────────┴────────┘
-  2    2  [    4   +   4    +    4   +   4    ]   = 20   →  4 + 16/d
-
-fp32 参数 + fp32 梯度（16：参数本身就是 fp32，没有主参数）
-┌────────┬────────┬────────┬────────┐
-│  p32   │  g32   │ Adam m │ Adam v │
-└────────┴────────┴────────┴────────┘
-    4        4    [   4    +    4   ]   = 16   →  8 + 8/d
-```
-
-四条里 Adam 的两个矩始终是 8 字节且始终可切；变化的只是梯度用几字节、主参数是否单独一份、以及 Megatron 在 fp16 下把 fp32 主梯度也放进分片。
+![四种精度组合下每参数字节的条形图，每格宽度与字节数成正比：bf16 参数 + bf16 梯度 = 2 + 2 + [4 + 4 + 4] = 16 → 4 + 12/d；bf16 参数 + fp32 梯度 = 2 + 4 + [4 + 4 + 4] = 18 → 6 + 12/d；fp16 参数 + fp16 梯度 = 2 + 2 + [4 + 4 + 4 + 4] = 20 → 4 + 16/d；fp32 参数 + fp32 梯度 = 4 + 4 + [4 + 4] = 16 → 8 + 8/d。红色括号内是分布式优化器按 DP 度 d 切分的部分](/img/in-post/training-state-bytes-per-parameter.svg)
 
 `report_theoretical_memory()` 在训练日志里把这个数与激活估算一起打印（`training.py` 的 `training_log()` 在第一次报告显存时调用它，随后 `report_memory()` 打印 `torch.cuda.memory_allocated()` 等实测值），理论与实测并排，是第三篇"对账"要用的工具。
 
@@ -234,12 +183,11 @@ fp32 参数 + fp32 梯度（16：参数本身就是 fp32，没有主参数）
 
 把 $$N$$ 代进去，bf16 + Adam（16 字节）与 Megatron 默认（18 字节）两列：
 
-```text
-                 N           bf16 参数    bf16 梯度    fp32 主参数+Adam    合计 16N     合计 18N（fp32 梯度）
-Llama 3 8B        8.03 B      16.1 GB      16.1 GB       96.4 GB          128.5 GB      144.5 GB
-Llama 3 70B      70.55 B     141.1 GB     141.1 GB      846.6 GB            1.13 TB       1.27 TB
-Llama 3 405B    405.85 B     811.7 GB     811.7 GB        4.87 TB           6.49 TB       7.31 TB
-```
+| 模型 | N | bf16 参数 | bf16 梯度 | fp32 主参数 + Adam | 合计 16N | 合计 18N（fp32 梯度） |
+|---|---:|---:|---:|---:|---:|---:|
+| Llama 3 8B | 8.03 B | 16.1 GB | 16.1 GB | 96.4 GB | 128.5 GB | 144.5 GB |
+| Llama 3 70B | 70.55 B | 141.1 GB | 141.1 GB | 846.6 GB | 1.13 TB | 1.27 TB |
+| Llama 3 405B | 405.85 B | 811.7 GB | 811.7 GB | 4.87 TB | 6.49 TB | 7.31 TB |
 
 三个结论。第一，**8B 在一张 80 GB 的卡上也放不下**——128 GB 的常驻状态，还没算激活；"单卡训 8B"只能靠 ZeRO/FSDP 把它切到至少两张卡，或者把优化器状态 offload 到 CPU。第二，70B 的 1.13 TB 是 14 张 H100 的显存总和，即便切得毫无浪费也至少要 15 张卡起步。第三，405B 的 6.49 TB 就是第五篇要写的 checkpoint 的大小量级——checkpoint 里存参数与优化器状态（bf16 参数其实可以从 fp32 主参数恢复，所以严格说是 $$12N$$ 到 $$14N$$），一次要落盘 5–6 TB。
 
@@ -257,20 +205,22 @@ $$
 
 假设是：激活为 fp16/bf16（2 字节，mask 1 字节），MLP 中间维 $$f = 4h$$，MHA（$$h_{kv} = h$$），有 dropout，不做任何重计算。34 与 5 是逐个张量数出来的（论文 4.1 节；下面的数是每 token、每层的字节，乘回 $$sb$$ 即得总量）：
 
-```text
-注意力块                                                MLP 块
-  Q/K/V 投影的输入                     2h                  第一个线性层的输入           2h
-  QKᵀ 的输入：Q 与 K                   4h                  GELU 的输入（f = 4h 宽）      8h
-  softmax 输出          2 a s  ┐                          第二个线性层的输入（4h 宽）    8h
-  softmax dropout mask  1 a s  ├ 5 a s                    dropout mask                 1h
-  dropout 输出（PV 的输入）2 a s ┘                          小计                        19h
-  PV 的输入：V                         2h
-  输出投影的输入                       2h                 两个 LayerNorm
-  输出 dropout mask                    1h                  各保留一份输入 2h            4h
-  小计                          11h + 5as
-──────────────────────────────────────────────────────────────────────────────────────
-  每层每 token   11h + 19h + 4h = 34h，外加 5as        →  每层  sbh(34 + 5as/h)
-```
+| 块 | 为反向保留的张量 | 每 token 字节 |
+|---|---|---:|
+| 注意力 | Q/K/V 投影的输入 | 2h |
+| 注意力 | QKᵀ 的输入：Q 与 K | 4h |
+| 注意力 | softmax 输出（2as）+ softmax dropout mask（1as）+ dropout 输出即 PV 的输入（2as） | 5as |
+| 注意力 | PV 的输入：V | 2h |
+| 注意力 | 输出投影的输入 | 2h |
+| 注意力 | 输出 dropout mask | 1h |
+| **注意力小计** | | **11h + 5as** |
+| MLP | 第一个线性层的输入 | 2h |
+| MLP | GELU 的输入（f = 4h 宽） | 8h |
+| MLP | 第二个线性层的输入（4h 宽） | 8h |
+| MLP | dropout mask | 1h |
+| **MLP 小计** | | **19h** |
+| 两个 LayerNorm | 各保留一份输入 2h | 4h |
+| **每层每 token** | 11h + 19h + 4h = 34h，外加 5as | **34h + 5as** → 每层 sbh(34 + 5as/h) |
 
 34 这个系数里，**24 是可以被张量并行切开的**（Q、K、V、PV 输出、GELU 前后的 MLP 中间态——按头或按列分布在 TP 卡上），**10 是切不开的**（两个 LayerNorm 的输入 4h、注意力与 MLP 的输入各 2h、两个 dropout mask 各 1h——每张 TP 卡上都是完整的），这是第二篇讲序列并行时 "10 + 24/t" 的来源。把这些被保留的张量标在一层的数据通路上（每个节点标的是**该算子为反向保留的输入/输出**，蓝色可被 TP 切开、橙色每张 TP 卡都完整保留）：
 
@@ -317,12 +267,11 @@ FlashAttention（Dao et al. 2022）分块计算注意力，从不把 $$[s, s]$$ 
 
 $$s = 8192$$、$$b = 1$$、bf16、无重计算：
 
-```text
-                 h        a     34sbh 每层     5as²b 每层（无 Flash）   全部层 34sbh·L    + logits（bf16 + fp32）
-Llama 3 8B       4096     32      1.14 GB          10.7 GB               36.5 GB             42.8 GB
-Llama 3 70B      8192     64      2.28 GB          21.5 GB              182.5 GB            188.8 GB
-Llama 3 405B    16384    128      4.56 GB          42.9 GB              574.9 GB            581.3 GB
-```
+| 模型 | h | a | 34sbh 每层 | 5as²b 每层（无 Flash） | 全部层 34sbh·L | + logits（bf16 + fp32） |
+|---|---:|---:|---:|---:|---:|---:|
+| Llama 3 8B | 4096 | 32 | 1.14 GB | 10.7 GB | 36.5 GB | 42.8 GB |
+| Llama 3 70B | 8192 | 64 | 2.28 GB | 21.5 GB | 182.5 GB | 188.8 GB |
+| Llama 3 405B | 16384 | 128 | 4.56 GB | 42.9 GB | 574.9 GB | 581.3 GB |
 
 最后一列加上了 logits：输出层的 $$[s, V]$$ 张量在 bf16 是 $$2sV$$，交叉熵通常再在 fp32 上留一份 $$4sV$$，$$V = 128256$$ 时一条序列是 6.3 GB——它不随 $$L$$ 增长，但比一层的激活还大，是流水线并行最后一个 stage 显存偏高的原因之一，也是各框架都有"融合交叉熵 / 分块 logits"的原因。
 
@@ -374,54 +323,44 @@ per_layer_memory = args.seq_length * args.micro_batch_size * args.hidden_size * 
 
 PyTorch 不为每个张量调用 `cudaMalloc`——那太慢，而且会与 NCCL 等异步操作产生同步。它用一个 caching allocator（`c10/cuda/CUDACachingAllocator.cpp`）向驱动申请大块 **segment**，再在 segment 内切 **block** 分给张量；张量释放时 block 回到缓存池而不还给驱动。于是有三个不同的数：
 
-```text
-allocated   张量实际占用的字节（所有活着的 block 之和）              torch.cuda.memory_allocated()
-reserved    allocator 向驱动申请、尚未归还的字节（所有 segment 之和）   torch.cuda.memory_reserved()
-device used 驱动看到的本进程占用：reserved + context + NCCL + 其他库    torch.cuda.mem_get_info() 的差 / nvidia-smi
-```
+| 数 | 含义 | 怎么读 |
+|---|---|---|
+| allocated | 张量实际占用的字节（所有活着的 block 之和） | `torch.cuda.memory_allocated()` |
+| reserved | allocator 向驱动申请、尚未归还的字节（所有 segment 之和） | `torch.cuda.memory_reserved()` |
+| device used | 驱动看到的本进程占用：reserved + context + NCCL + 其他库 | `torch.cuda.mem_get_info()` 的差 / nvidia-smi |
 
 三个数是层层包含的关系，哪些东西落在哪一层、哪些根本不经过 allocator，画出来是这样：
 
-```text
-┌─ 驱动看到的本进程占用：mem_get_info() 的差 / nvidia-smi ─────────────────┐
-│                                                                          │
-│  ┌─ CUDA context + 库 kernel ─┐  ┌─ NCCL buffer ─┐  cudaMalloc 直接分配  │
-│  │        0.5 - 1 GiB         │  │   1 - 3 GiB   │  不经 allocator       │
-│  └────────────────────────────┘  └───────────────┘  reserved 里看不到    │
-│                                                                          │
-│  ┌─ reserved：allocator 持有的全部 segment（memory_reserved()）───────┐  │
-│  │                                                                    │  │
-│  │  ┌─ allocated：活着的 block（memory_allocated()）───────────────┐  │  │
-│  │  │ 参数 │ 梯度 │ 优化器状态 │ 激活（前向涨、反向落）│ workspace │  │  │
-│  │  └──────────────────────────────────────────────────────────────┘  │  │
-│  │                                                                    │  │
-│  │  ┌─ 缓存的空闲 block ──────────┐  ┌─ 碎片 inactive_split_bytes ─┐  │  │
-│  │  │ 上个 step 释放的激活，等复用│  │ 相邻 block 在用，合不回去   │  │  │
-│  │  └─────────────────────────────┘  └─────────────────────────────┘  │  │
-│  └────────────────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────────────┘
-```
+![三个数的包含关系与每一块的典型大小：最外层是驱动看到的本进程占用（上限约 79.6 GiB）；其中 CUDA context + 库 kernel（0.5–1 GiB）与 NCCL buffer（1–3 GiB）由 cudaMalloc 直接分配、不在 reserved 里；reserved 是 allocator 持有的全部 segment，内含 allocated（bf16 参数 2N、梯度 2N/4N、优化器状态 12N、激活约 34sbhL 加 logits、库 workspace 0.2–0.5 GiB）以及缓存的空闲 block 与碎片（reserved 的 5–15%）；另留 2–4 GiB 的 OOM 安全边际](/img/in-post/training-state-memory-nesting.svg)
 
-`torch.cuda.memory_stats()`（`torch/cuda/memory.py`）返回全部计数器，键的形式是 `"{stat}.{pool}.{current|peak|allocated|freed}"`：`allocated_bytes`、`reserved_bytes`、`active_bytes`、`inactive_split_bytes`（碎片：segment 里被切出、当前空闲但因为相邻 block 在用而无法合并的部分）、`requested_bytes`（用户实际请求的字节，与 `allocated_bytes` 的差是分配器的对齐与舍入开销）、`num_alloc_retries`（`cudaMalloc` 失败后释放缓存重试的次数——它不为零说明已经在 OOM 边缘）、`num_ooms`。Megatron 的 `training_log()` 在 `--log-memory-to-tensorboard` 时记录的就是其中的 `reserved_bytes.all.current`、`allocated_bytes.all.current`、`allocated_bytes.all.peak`。
+`torch.cuda.memory_stats()`（`torch/cuda/memory.py`）返回全部计数器，键的形式是 `"{stat}.{pool}.{current|peak|allocated|freed}"`，常看的几个：
 
-reserved 与 allocated 的差有两个来源。一是**缓存**：反向释放的激活 block 留在池里等下一个 step 复用，这是设计如此，不是浪费——但它意味着 reserved 在第一个 step 后就基本等于峰值 allocated 加上碎片。二是**碎片**：分配器把请求分成小池（≤ 1 MiB，`kSmallSize`，装在 2 MiB 的 segment 里，`kSmallBuffer`）与大池（大于 1 MiB，segment 至少 20 MiB，`large_segment_size` 默认 20971520，即原先的 `kLargeBuffer`；大于 10 MiB 的请求按 2 MiB 取整单独分配，`kMinLargeAlloc` / `kRoundLarge`；所有请求至少按 512 字节对齐，`kMinBlockSize`——这些常数在 `c10/core/AllocatorConfig.h`）。大池里不同大小的张量交替分配释放，会留下大量无法合并的空洞，典型的训练进程碎片在 reserved 的 5–15%。`PYTORCH_ALLOC_CONF`（2.13.0 推荐的通用名字，旧名 `PYTORCH_CUDA_ALLOC_CONF` 仍接受，见 `c10/core/AllocatorConfig.cpp`）的 `expandable_segments:True` 让 segment 可以通过虚拟地址映射按需扩展，把多个物理块拼成一个连续的虚拟区间，大幅降低碎片，是长序列、变长 batch 训练的常用设置；`garbage_collection_threshold` 与 `max_split_size_mb` 是另两个相关开关。
+- `allocated_bytes`、`reserved_bytes`：就是上面的 allocated 与 reserved，带 `.peak` 后缀的是峰值；
+- `active_bytes`：活着的 block 加上已释放但因为有 stream 事件未完成而暂不能复用的 block；
+- `inactive_split_bytes`：碎片——segment 里被切出、当前空闲、但相邻 block 在用而无法合并的部分；
+- `requested_bytes`：用户实际请求的字节，与 `allocated_bytes` 的差是分配器的对齐与舍入开销；
+- `num_alloc_retries`：`cudaMalloc` 失败后释放缓存重试的次数——不为零说明已经在 OOM 边缘；
+- `num_ooms`：真正抛出 OOM 的次数。
+
+Megatron 的 `training_log()` 在 `--log-memory-to-tensorboard` 时记录的就是其中的 `reserved_bytes.all.current`、`allocated_bytes.all.current`、`allocated_bytes.all.peak`。
+
+reserved 与 allocated 的差有两个来源。一是**缓存**：反向释放的激活 block 留在池里等下一个 step 复用，这是设计如此，不是浪费——但它意味着 reserved 在第一个 step 后就基本等于峰值 allocated 加上碎片。
+
+二是**碎片**：分配器把请求分成小池（≤ 1 MiB，`kSmallSize`，装在 2 MiB 的 segment 里，`kSmallBuffer`）与大池（大于 1 MiB，segment 至少 20 MiB，`large_segment_size` 默认 20971520，即原先的 `kLargeBuffer`；大于 10 MiB 的请求按 2 MiB 取整单独分配，`kMinLargeAlloc` / `kRoundLarge`；所有请求至少按 512 字节对齐，`kMinBlockSize`——这些常数在 `c10/core/AllocatorConfig.h`）。大池里不同大小的张量交替分配释放，会留下大量无法合并的空洞，典型的训练进程碎片在 reserved 的 5–15%。`PYTORCH_ALLOC_CONF`（2.13.0 推荐的通用名字，旧名 `PYTORCH_CUDA_ALLOC_CONF` 仍接受，见 `c10/core/AllocatorConfig.cpp`）的 `expandable_segments:True` 让 segment 可以通过虚拟地址映射按需扩展，把多个物理块拼成一个连续的虚拟区间，大幅降低碎片，是长序列、变长 batch 训练的常用设置；`garbage_collection_threshold` 与 `max_split_size_mb` 是另两个相关开关。
 
 ### 4. 一张 H100 的预算
 
 把以上各项放进一张 80 GB（`mem_get_info()` 报告约 79.6 GiB）的卡：
 
-```text
-项目                                   典型量级（GiB）    在 memory_reserved() 里？
-─────────────────────────────────────  ───────────────   ─────────────────────────
-总容量                                   79.6
-CUDA context + 全部库的 kernel            0.5 – 1.0        否
-NCCL communicators（多维并行、多个组）     1 – 3            否
-cuBLAS / cuDNN / TE workspace             0.2 – 0.5        是
-caching allocator 碎片 + 对齐             reserved 的 5–15%  是（inactive_split_bytes）
-OOM 安全边际（峰值抖动、临时 buffer）      2 – 4            —
-─────────────────────────────────────  ───────────────
-可以分给四种状态的张量                      约 68 – 74
-```
+| 项目 | 典型量级（GiB） | 在 `memory_reserved()` 里？ |
+|---|---:|---|
+| 总容量 | 79.6 | |
+| CUDA context + 全部库的 kernel | 0.5 – 1.0 | 否 |
+| NCCL communicators（多维并行、多个组） | 1 – 3 | 否 |
+| cuBLAS / cuDNN / TE workspace | 0.2 – 0.5 | 是 |
+| caching allocator 碎片 + 对齐 | reserved 的 5–15% | 是（`inactive_split_bytes`） |
+| OOM 安全边际（峰值抖动、临时 buffer） | 2 – 4 | — |
+| **可以分给四种状态的张量** | **约 68 – 74** | |
 
 这就是"80 GB 的卡实际只有 70 多 GB 可用"的来源。它不是一个固定的数——组多、碎片重、workspace 大的配置只剩 65 GiB，精心调过的配置能到 75 GiB。第四篇的配置推导里，每卡显存预算一律按 70 GiB 起算，留出的部分就是这一章。
 
@@ -514,12 +453,11 @@ standard_self_attn_core_term = (
 
 $$s = 8192$$，因果注意力：
 
-```text
-                 N           6N           6N + 6Lsh（精确）   一条 8192 序列的 FLOP    一张 H100 的下限（989 TFLOPS）
-Llama 3 8B        8.03 B     48 GFLOP      51 GFLOP           4.2 × 10¹⁴              0.43 s
-Llama 3 70B      70.55 B    423 GFLOP     449 GFLOP           3.7 × 10¹⁵              3.72 s
-Llama 3 405B    405.85 B   2435 GFLOP    2524 GFLOP           2.1 × 10¹⁶             20.9 s
-```
+| 模型 | N | 6N | 6N + 6Lsh（精确） | 一条 8192 序列的 FLOP | 一张 H100 的下限（989 TFLOPS） |
+|---|---:|---:|---:|---:|---:|
+| Llama 3 8B | 8.03 B | 48 GFLOP | 51 GFLOP | 4.2 × 10¹⁴ | 0.43 s |
+| Llama 3 70B | 70.55 B | 423 GFLOP | 449 GFLOP | 3.7 × 10¹⁵ | 3.72 s |
+| Llama 3 405B | 405.85 B | 2435 GFLOP | 2524 GFLOP | 2.1 × 10¹⁶ | 20.9 s |
 
 "下限"的意思是：如果这条序列的每一个 FLOP 都以 989 TFLOPS 的速度执行、没有任何通信、气泡、kernel 启动与显存带宽瓶颈，需要这么久。实际训练的 step 时间做到这个下限的 2.5 倍以内——即 MFU 40%——就是好成绩（第七章）。
 
@@ -599,16 +537,13 @@ HFU                     = 41.3% × 1.024                       =  42.3%
 
 有了定义，可以给出几个公开的锚点（全部为论文报告值）：
 
-```text
-来源                                          硬件                   利用率            口径说明
-─────────────────────────────────────────    ─────────────────     ──────────────    ──────────────────────────────────────────
-Narayanan et al. 2021（Megatron-LM，SC'21）   3072 × A100，1T 模型    52%（163 TFLOPS）  论文的 FLOP 公式 96 s L h²(…) 含全量重计算的
-                                                                                       那次前向（8 而不是 6），按 PaLM 术语更接近 HFU
-Chowdhery et al. 2022（PaLM）                 6144 × TPU v4，540B    46.2% MFU         PaLM 自己的定义；同表给 MT-NLG 530B 30.2% MFU
-Llama 3 论文（Dubey et al. 2024）Table 4      8192 × H100，405B     43%（430 TFLOPS）  bf16 MFU；TP 8 / CP 1 / PP 16 / DP 128，s = 8192
-                                             16384 × H100          41%（400 TFLOPS）  同上，DP 翻倍
-                                             16384 × H100，长上下文  38%（380 TFLOPS）  s = 131072，CP 16
-```
+| 来源 | 硬件 | 利用率 | 口径说明 |
+|---|---|---|---|
+| Narayanan et al. 2021（Megatron-LM，SC'21） | 3072 × A100，1T 模型 | 52%（163 TFLOPS） | 论文的 FLOP 公式 96 s L h²(…) 含全量重计算的那次前向（8 而不是 6），按 PaLM 术语更接近 HFU |
+| Chowdhery et al. 2022（PaLM） | 6144 × TPU v4，540B | 46.2% MFU | PaLM 自己的定义；同表给 MT-NLG 530B 30.2% MFU |
+| Llama 3 论文（Dubey et al. 2024）Table 4 | 8192 × H100，405B | 43%（430 TFLOPS） | bf16 MFU；TP 8 / CP 1 / PP 16 / DP 128，s = 8192 |
+| 同上 | 16384 × H100 | 41%（400 TFLOPS） | 同上，DP 翻倍 |
+| 同上 | 16384 × H100，长上下文 | 38%（380 TFLOPS） | s = 131072，CP 16 |
 
 从这几个数得到本系列反复使用的判断标准：**千卡 H100 上 dense 模型做到 40% 以上是好成绩；做不到 30% 说明有明确的问题**（气泡、通信未重叠、重计算过度、数据等待、straggler 之一或几个）。第四篇的任务就是把 41% 与 30% 之间的差逐项归因。
 
@@ -642,40 +577,42 @@ throughput = num_floating_point_operations(args, batch_size, ...) / (
 
 ### 2. 符号与公式速查
 
-```text
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-符号
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-N 参数量      s 序列长   b micro-batch   h 隐藏维   a 头数   L 层数   f FFN 维   V 词表
-N_d N_t N_p N_c N_e  数据 / 张量 / 流水 / 上下文 / 专家并行度      m 梯度累积步数      B = s·b·m·N_d
-δ 一次 checkpoint 的开销时间      M 集群 MTBF
+**符号**
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-字节
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-常驻状态（bf16 + Adam）        16N = 2N 参数 + 2N 梯度 + 12N（fp32 主参数 + m + v）
-常驻状态（fp32 梯度，Megatron） 18N = 2N + 4N + 12N；分布式优化器 (6 + 12/N_d)N
-激活 / 层 / micro-batch        sbh(34 + 5as/h)；FlashAttention → 34sbh；TP+SP → 34sbh/N_t；34 = 10 + 24
-logits                        s·b·V·(2 + 4)
-每卡可用                       ≈ 总容量 − context − NCCL − workspace − 碎片 − 边际 ≈ 70 GiB（80 GB 卡）
+| 符号 | 含义 |
+|---|---|
+| N · s · b · h · a · L · f · V | 参数量 · 序列长 · micro-batch · 隐藏维 · 头数 · 层数 · FFN 维 · 词表 |
+| N_d · N_t · N_p · N_c · N_e | 数据 / 张量 / 流水 / 上下文 / 专家并行度 |
+| m · B | 梯度累积步数 · global batch（token）= s·b·m·N_d |
+| δ · M | 一次 checkpoint 的开销时间 · 集群 MTBF |
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-FLOP 与时间
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-FLOP / token                  6N + 6Lsh（因果；全 mask 为 12Lsh），N = 参与 GEMM 的参数 ≈ N
-step 下限                      T ≥ B × FLOP/token ÷ (N_GPU × 峰值)
-MFU                           tokens/s × FLOP/token ÷ (N_GPU × 峰值)          不含重计算
-HFU                           MFU × 硬件 FLOP / 模型 FLOP；全量重计算 × 4/3；选择性 × (1 + 2Lsh / FLOP/token)
-参考                           H100 989 TFLOPS（bf16 dense，标称）；A100 312；千卡 dense 好成绩 ≥ 40% MFU
+**字节**
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-三档模型 @ s = 8192, b = 1
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-              N          16N        激活/层     全部激活+logits    FLOP/token    单卡单序列下限
-8B            8.03 B     128 GB     1.14 GB      42.8 GB          51 GFLOP      0.43 s
-70B          70.55 B    1.13 TB     2.28 GB     188.8 GB         449 GFLOP      3.72 s
-405B        405.85 B    6.49 TB     4.56 GB     581.3 GB        2524 GFLOP     20.9 s
-```
+| 项 | 公式 |
+|---|---|
+| 常驻状态（bf16 + Adam） | 16N = 2N 参数 + 2N 梯度 + 12N（fp32 主参数 + m + v） |
+| 常驻状态（fp32 梯度，Megatron） | 18N = 2N + 4N + 12N；分布式优化器 (6 + 12/N_d)N |
+| 激活 / 层 / micro-batch | sbh(34 + 5as/h)；FlashAttention → 34sbh；TP+SP → 34sbh/N_t；34 = 10 + 24 |
+| logits | s·b·V·(2 + 4) |
+| 每卡可用 | ≈ 总容量 − context − NCCL − workspace − 碎片 − 边际 ≈ 70 GiB（80 GB 卡） |
+
+**FLOP 与时间**
+
+| 项 | 公式 |
+|---|---|
+| FLOP / token | 6N + 6Lsh（因果；全 mask 为 12Lsh），N = 参与 GEMM 的参数 ≈ N |
+| step 下限 | T ≥ B × FLOP/token ÷ (N_GPU × 峰值) |
+| MFU | tokens/s × FLOP/token ÷ (N_GPU × 峰值)，不含重计算 |
+| HFU | MFU × 硬件 FLOP / 模型 FLOP；全量重计算 × 4/3；选择性 × (1 + 2Lsh / FLOP/token) |
+| 参考 | H100 989 TFLOPS（bf16 dense，标称）；A100 312；千卡 dense 好成绩 ≥ 40% MFU |
+
+**三档模型 @ s = 8192, b = 1**
+
+| 模型 | N | 16N | 激活/层 | 全部激活 + logits | FLOP/token | 单卡单序列下限 |
+|---|---:|---:|---:|---:|---:|---:|
+| 8B | 8.03 B | 128 GB | 1.14 GB | 42.8 GB | 51 GFLOP | 0.43 s |
+| 70B | 70.55 B | 1.13 TB | 2.28 GB | 188.8 GB | 449 GFLOP | 3.72 s |
+| 405B | 405.85 B | 6.49 TB | 4.56 GB | 581.3 GB | 2524 GFLOP | 20.9 s |
 
 ### 3. 本篇涉及的源码位置
 

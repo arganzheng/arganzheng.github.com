@@ -5,7 +5,7 @@ title: "大规模训练工程（03）：三个框架——Megatron-LM、DeepSpee
 subtitle: "Megatron-LM, DeepSpeed and torchtitan: Architecture and Source Guide"
 tags: [Megatron, DeepSpeed, torchtitan, Distributed Training, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-09-20
 ---
 
 > **更新 @2026-09-06**：本文 torchtitan 部分基于 v0.3.0 刷新；其余源码引用仍以 PyTorch 2.13.0 / Megatron Core 0.18.0 / DeepSpeed 0.19.2 为准。
@@ -57,15 +57,13 @@ fp32 主参数     优化器内部的 1/N_d 切片拷贝           扁平 fp32 �
 
 三个框架都建在 `torch.distributed` 上，但用到的层次不同：
 
-```text
-torch.distributed 层次                                            Megatron   DeepSpeed   torchtitan
-────────────────────────────────────────────────────────────────  ─────────  ──────────  ──────────
-ProcessGroup（new_group / all_reduce / all_gather_into_tensor …）    ✓ 直接用   ✓ 经 deepspeed.comm 封装   经 DeviceMesh
-DeviceMesh（torch/distributed/device_mesh.py）                       FSDP 路径  autoTP 路径              ✓ 全部并行维度
-DTensor（torch/distributed/tensor/）与 placement                    FSDP 路径  —                        ✓ 参数与激活
-fully_shard / FSDP2（torch/distributed/fsdp/_fully_shard/）         可选后端   —                        ✓ 默认 DP
-pipelining（torch/distributed/pipelining/{stage,schedules}.py）      —（自写）  —（自写）                ✓
-```
+| torch.distributed 层次 | Megatron | DeepSpeed | torchtitan |
+|---|---|---|---|
+| ProcessGroup（new_group / all_reduce / all_gather_into_tensor …） | ✓ 直接用 | ✓ 经 deepspeed.comm 封装 | 经 DeviceMesh |
+| DeviceMesh（torch/distributed/device_mesh.py） | FSDP 路径 | autoTP 路径 | ✓ 全部并行维度 |
+| DTensor（torch/distributed/tensor/）与 placement | FSDP 路径 | — | ✓ 参数与激活 |
+| fully_shard / FSDP2（torch/distributed/fsdp/_fully_shard/） | 可选后端 | — | ✓ 默认 DP |
+| pipelining（torch/distributed/pipelining/{stage,schedules}.py） | —（自写） | —（自写） | ✓ |
 
 Megatron 与 DeepSpeed 诞生于 DeviceMesh 和 DTensor 之前，各自手写了进程组管理、集合通信调用和流水线调度；torchtitan 诞生于之后，是这些原生 API 的参考用法。所以读 torchtitan 有一个副产品：它告诉你 PyTorch 官方认为多维并行"应该"怎么组合。本篇第五章会看到，这条路在 v0.3.0 又往前走了一步——参数的切分方式已经不再由 `ColwiseParallel` 这类 API 逐个 module 指定，而是由一份声明式的 `ShardingConfig` 描述。
 
@@ -73,42 +71,31 @@ Megatron 与 DeepSpeed 诞生于 DeviceMesh 和 DTensor 之前，各自手写了
 
 本篇涉及的目录如下，每个框架只列本篇会读到的部分（完整目录见各章）。
 
-```text
-Megatron Core 0.18.0  megatron/core/
-  parallel_state.py                 进程组：initialize_model_parallel、RankGenerator、get_*_group
-  process_groups_config.py          ProcessGroupCollection：把进程组打包传给各模块的新式接口
-  tensor_parallel/{layers,mappings}.py   TP 的层与通信
-  pipeline_parallel/{schedules,p2p_communication}.py   PP 调度与点对点
-  distributed/{distributed_data_parallel,param_and_grad_buffer,finalize_model_grads}.py   DDP 与 buffer
-  distributed/fsdp/                 Megatron-FSDP
-  optimizer/{distrib_optimizer,optimizer}.py   分布式优化器
-                      megatron/training/{training,arguments}.py   训练循环与参数
-
-DeepSpeed 0.19.2      deepspeed/
-  __init__.py                       deepspeed.initialize()
-  runtime/engine.py                 DeepSpeedEngine
-  runtime/zero/{stage_1_and_2,stage3,partition_parameters,parameter_offload,partitioned_param_coordinator}.py
-  runtime/zero/config.py            zero_optimization 的全部键
-  runtime/pipe/{engine,schedule,module,topology,p2p}.py   流水线引擎
-  utils/groups.py                   进程组
-  comm/comm.py                      对 torch.distributed 的封装
-
-torchtitan v0.3.0     torchtitan/
-  train.py, trainer.py              入口与 Trainer
-  config/{configs,manager}.py       ParallelismConfig / TrainingConfig 等；Trainer.Config 是根
-  distributed/{parallel_dims,fsdp,tensor_parallel,pipeline_parallel,utils}.py, distributed/context_parallel/
-  protocols/{module,sharding}.py    Module 协议与 ShardingConfig（TP 的声明式描述）
-  models/common/decoder_sharding.py 一个 decoder 的 TP/SP 切分方案
-  models/llama3/{__init__,model,parallelize,config_registry}.py
-  components/{checkpoint,dataloader,metrics}.py, components/{checkpointer,optimizer}/
-  tools/profiler.py
-
-PyTorch 2.13.0        torch/distributed/
-  device_mesh.py                    DeviceMesh
-  tensor/_api.py, tensor/parallel/  DTensor、distribute_tensor、ColwiseParallel 等
-  fsdp/_fully_shard/                FSDP2；fsdp/_flat_param.py、_runtime_utils.py 是 FSDP1
-  pipelining/{stage,schedules,_backward}.py
-```
+| 文件（`megatron/core/`，Megatron Core 0.18.0） | 内容 |
+|---|---|
+| parallel_state.py | 进程组：initialize_model_parallel、RankGenerator、get_*_group |
+| process_groups_config.py | ProcessGroupCollection：把进程组打包传给各模块的新式接口 |
+| tensor_parallel/{layers,mappings}.py | TP 的层与通信 |
+| pipeline_parallel/{schedules,p2p_communication}.py | PP 调度与点对点 |
+| distributed/{distributed_data_parallel,param_and_grad_buffer,finalize_model_grads}.py | DDP 与 buffer |
+| distributed/fsdp/ | Megatron-FSDP |
+| optimizer/{distrib_optimizer,optimizer}.py | 分布式优化器 |
+| megatron/training/{training,arguments}.py | 训练循环与参数 |
+| DeepSpeed 0.19.2 | deepspeed/ |
+| __init__.py | deepspeed.initialize() |
+| runtime/engine.py runtime/zero/{stage_1_and_2,stage3,partition_parameters,parameter_offload,partitioned_param_coordinator}.py | DeepSpeedEngine |
+| runtime/zero/config.py | zero_optimization 的全部键 |
+| runtime/pipe/{engine,schedule,module,topology,p2p}.py | 流水线引擎 |
+| utils/groups.py | 进程组 |
+| comm/comm.py | 对 torch.distributed 的封装 |
+| torchtitan v0.3.0 | torchtitan/ |
+| train.py, trainer.py | 入口与 Trainer |
+| config/{configs,manager}.py distributed/{parallel_dims,fsdp,tensor_parallel,pipeline_parallel,utils}.py, distributed/context_parallel/ | ParallelismConfig / TrainingConfig 等；Trainer.Config 是根 |
+| protocols/{module,sharding}.py models/common/decoder_sharding.py 一个 decoder 的 TP/SP 切分方案 models/llama3/{__init__,model,parallelize,config_registry}.py components/{checkpoint,dataloader,metrics}.py, components/{checkpointer,optimizer}/ tools/profiler.py | Module 协议与 ShardingConfig（TP 的声明式描述） |
+| PyTorch 2.13.0 | torch/distributed/ |
+| device_mesh.py | DeviceMesh |
+| tensor/_api.py, tensor/parallel/ | DTensor、distribute_tensor、ColwiseParallel 等 |
+| fsdp/_fully_shard/ pipelining/{stage,schedules,_backward}.py | FSDP2；fsdp/_flat_param.py、_runtime_utils.py 是 FSDP1 |
 
 一处与 torchtitan 旧版用法不同的地方要先说明：v0.2.x 的 torchtitan 用 TOML 文件配置一次运行，v0.3.0 已经不是——`torchtitan/config/README.md` 明确说一次运行由一个返回 `Trainer.Config` 的 Python 函数描述，通过 `--module` 与 `--config` 选择，`--section.option` 命令行参数只为兼容保留。本篇第五章与练手项目都按 v0.3.0 的写法。
 
@@ -174,12 +161,12 @@ get_ranks("tp-dp")  变 tp,dp，固定 pp  -> {0,1,2,3} {4,5,6,7}
 
 `build_mesh()` 只做一件事：先 `init_device_mesh(device_type, (world_size,), mesh_dim_names=("world",))` 建一个一维的世界 mesh，再用 `DeviceMesh._unflatten()` 把它按不同的维度组合"展开"成几张视图：
 
-```text
-dataloading_mesh   ("pp", "batch", "cp", "tp")                       batch = dp_replicate × dp_shard，数据加载用它决定读哪一份
-loss_mesh          dataloading_mesh["batch", "cp"]._flatten()         loss 归约：所有切数据的维度
-dense_mesh         ("pp", "dp_replicate", "dp_shard", "cp", "tp")     参数分片用；fully_shard 从中挑 dp_shard（与 cp）为 shard 维
-sparse_mesh        ("pp", "dp_replicate", "efsdp", "ep")              MoE 专家用；efsdp = dp_shard × cp × tp / ep
-```
+| mesh | 维度 | 用途 |
+|---|---|---|
+| dataloading_mesh | ("pp", "batch", "cp", "tp") | batch = dp_replicate × dp_shard，数据加载用它决定读哪一份 |
+| loss_mesh | dataloading_mesh["batch", "cp"]._flatten() | loss 归约：所有切数据的维度 |
+| dense_mesh | ("pp", "dp_replicate", "dp_shard", "cp", "tp") | 参数分片用；fully_shard 从中挑 dp_shard（与 cp）为 shard 维 |
+| sparse_mesh | ("pp", "dp_replicate", "efsdp", "ep") | MoE 专家用；efsdp = dp_shard × cp × tp / ep |
 
 大小为 1 的维度用 `backend_override[name] = "fake"`，不真正创建 NCCL 通信器（`_mesh_exist()` 决定哪些维即使为 1 也要保留，例如 `dp_shard`，因为 `fully_shard` 需要它来安装 `MixedPrecisionPolicy`）。之后 `get_mesh("tp")`、`get_optional_mesh("pp")`、`get_mesh(["dp_replicate", "dp_shard"])` 按名取子 mesh，各并行模块拿到 mesh 后自己 `mesh.get_group()`。
 

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="780" height="360" viewBox="0 0 780 360" font-family="-apple-system, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif" font-size="12">
+  <style>.m{fill:#555;font-size:11px}.t{fill:#222;font-weight:600}</style>
+  <!-- axes -->
+  <line x1="60" y1="300" x2="740" y2="300" stroke="#333"/><polygon points="740,300 732,296 732,304" fill="#333"/>
+  <line x1="60" y1="300" x2="60" y2="30" stroke="#333"/><polygon points="60,30 56,38 64,38" fill="#333"/>
+  <text x="44" y="26" class="m">显存</text><text x="745" y="304" class="m">时间</text>
+  <!-- phases -->
+  <line x1="300" y1="300" x2="300" y2="40" stroke="#bbb" stroke-dasharray="4 3"/>
+  <line x1="600" y1="300" x2="600" y2="40" stroke="#bbb" stroke-dasharray="4 3"/>
+  <text x="180" y="322" text-anchor="middle" class="t">前向</text>
+  <text x="450" y="322" text-anchor="middle" class="t">反向</text>
+  <text x="660" y="322" text-anchor="middle" class="t">optimizer.step()</text>
+  <!-- bf16 params 2N -->
+  <rect x="60" y="278" width="660" height="22" fill="#dbeafe" stroke="#1d4ed8"/>
+  <text x="70" y="294" class="m">bf16 参数 2N：常驻，每层前向 / 反向读</text>
+  <!-- optimizer 12N -->
+  <rect x="60" y="146" width="660" height="132" fill="#ede9fe" stroke="#7e22ce"/>
+  <text x="70" y="216" class="m">优化器状态 12N（fp32 主参数 4N + Adam m 4N + v 4N）：常驻，只在 optimizer.step() 被读写</text>
+  <!-- activations -->
+  <polygon points="60,146 300,80 600,146" fill="#fef3c7" stroke="#b45309"/>
+  <text x="300" y="132" text-anchor="middle" class="m">激活 ≈ 34·s·b·h·L：前向逐层堆高，反向逐层释放</text>
+  <!-- gradients -->
+  <polygon points="300,80 600,124 700,124 720,146 600,146" fill="#dcfce7" stroke="#15803d"/>
+  <text x="650" y="139" text-anchor="middle" class="m">梯度 2N / 4N</text>
+  <!-- peaks -->
+  <circle cx="300" cy="80" r="3" fill="#b45309"/><text x="300" y="66" text-anchor="middle" class="m">激活峰值（前向末）</text>
+  <circle cx="600" cy="124" r="3" fill="#15803d"/><text x="600" y="52" text-anchor="middle" class="m">梯度峰值（反向末）</text>
+  <line x1="600" y1="56" x2="600" y2="120" stroke="#15803d" stroke-width="0.8" stroke-dasharray="3 2"/>
+  <text x="70" y="342" class="m">绿色：梯度 2N（bf16）或 4N（fp32），反向中逐层填满，optimizer.step() 后清零。</text>
+  <text x="70" y="356" class="m">两个峰值不在同一时刻：显存峰值 = max(前向末的激活 + 常驻, 反向末的梯度 + 常驻)，四项直接相加是保守上界。</text>
+</svg>

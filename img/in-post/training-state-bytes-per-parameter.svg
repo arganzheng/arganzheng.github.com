@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="780" height="400" viewBox="0 0 780 400" font-family="-apple-system, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif" font-size="12">
+  <style>.m{fill:#555;font-size:11px}.t{fill:#222;font-weight:600}.n{fill:#222;font-size:12px}
+  .p{fill:#dbeafe;stroke:#1d4ed8}.g{fill:#dcfce7;stroke:#15803d}.ms{fill:#fef3c7;stroke:#b45309}.a{fill:#ede9fe;stroke:#7e22ce}</style>
+  <text x="16" y="20" class="m">每格宽度与每参数字节数成正比（1 字节 = 28 px）。红色括号内是分布式优化器 / ZeRO-1 按 DP 度 d 切分的部分，括号外每张卡都完整保留。</text>
+  <!-- legend -->
+  <rect x="16" y="32" width="14" height="12" class="p"/><text x="34" y="42" class="m">bf16/fp32 参数</text>
+  <rect x="140" y="32" width="14" height="12" class="g"/><text x="158" y="42" class="m">梯度</text>
+  <rect x="210" y="32" width="14" height="12" class="ms"/><text x="228" y="42" class="m">fp32 主参数</text>
+  <rect x="320" y="32" width="14" height="12" class="a"/><text x="338" y="42" class="m">Adam m / v</text>
+  <g id="row1" transform="translate(16,60)">
+    <text x="0" y="12" class="t">bf16 参数 + bf16 梯度 —— 本篇的 16；ZeRO 论文的 2 + 2 + K（K = 12）</text>
+    <rect x="0" y="20" width="56" height="28" class="p"/><text x="28" y="39" text-anchor="middle" class="n">p16 · 2</text>
+    <rect x="56" y="20" width="56" height="28" class="g"/><text x="84" y="39" text-anchor="middle" class="n">g16 · 2</text>
+    <rect x="112" y="20" width="112" height="28" class="ms"/><text x="168" y="39" text-anchor="middle" class="n">master · 4</text>
+    <rect x="224" y="20" width="112" height="28" class="a"/><text x="280" y="39" text-anchor="middle" class="n">Adam m · 4</text>
+    <rect x="336" y="20" width="112" height="28" class="a"/><text x="392" y="39" text-anchor="middle" class="n">Adam v · 4</text>
+    <path d="M112,54 v6 h336 v-6" fill="none" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="460" y="39" class="n">= 16  →  4 + 12/d</text>
+  </g>
+  <g transform="translate(16,140)">
+    <text x="0" y="12" class="t">bf16 参数 + fp32 梯度 —— Megatron 默认的 18：main_grad 是 fp32</text>
+    <rect x="0" y="20" width="56" height="28" class="p"/><text x="28" y="39" text-anchor="middle" class="n">p16 · 2</text>
+    <rect x="56" y="20" width="112" height="28" class="g"/><text x="112" y="39" text-anchor="middle" class="n">g32 · 4</text>
+    <rect x="168" y="20" width="112" height="28" class="ms"/><text x="224" y="39" text-anchor="middle" class="n">master · 4</text>
+    <rect x="280" y="20" width="112" height="28" class="a"/><text x="336" y="39" text-anchor="middle" class="n">Adam m · 4</text>
+    <rect x="392" y="20" width="112" height="28" class="a"/><text x="448" y="39" text-anchor="middle" class="n">Adam v · 4</text>
+    <path d="M168,54 v6 h336 v-6" fill="none" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="516" y="39" class="n">= 18  →  6 + 12/d</text>
+  </g>
+  <g transform="translate(16,220)">
+    <text x="0" y="12" class="t">fp16 参数 + fp16 梯度 —— Megatron 的 20：主参数与 fp32 主梯度都进优化器分片</text>
+    <rect x="0" y="20" width="56" height="28" class="p"/><text x="28" y="39" text-anchor="middle" class="n">p16 · 2</text>
+    <rect x="56" y="20" width="56" height="28" class="g"/><text x="84" y="39" text-anchor="middle" class="n">g16 · 2</text>
+    <rect x="112" y="20" width="112" height="28" class="g"/><text x="168" y="39" text-anchor="middle" class="n">g32 · 4</text>
+    <rect x="224" y="20" width="112" height="28" class="ms"/><text x="280" y="39" text-anchor="middle" class="n">master · 4</text>
+    <rect x="336" y="20" width="112" height="28" class="a"/><text x="392" y="39" text-anchor="middle" class="n">Adam m · 4</text>
+    <rect x="448" y="20" width="112" height="28" class="a"/><text x="504" y="39" text-anchor="middle" class="n">Adam v · 4</text>
+    <path d="M112,54 v6 h448 v-6" fill="none" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="572" y="39" class="n">= 20  →  4 + 16/d</text>
+  </g>
+  <g transform="translate(16,300)">
+    <text x="0" y="12" class="t">fp32 参数 + fp32 梯度 —— 16：参数本身就是 fp32，没有主参数</text>
+    <rect x="0" y="20" width="112" height="28" class="p"/><text x="56" y="39" text-anchor="middle" class="n">p32 · 4</text>
+    <rect x="112" y="20" width="112" height="28" class="g"/><text x="168" y="39" text-anchor="middle" class="n">g32 · 4</text>
+    <rect x="224" y="20" width="112" height="28" class="a"/><text x="280" y="39" text-anchor="middle" class="n">Adam m · 4</text>
+    <rect x="336" y="20" width="112" height="28" class="a"/><text x="392" y="39" text-anchor="middle" class="n">Adam v · 4</text>
+    <path d="M224,54 v6 h224 v-6" fill="none" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="460" y="39" class="n">= 16  →  8 + 8/d</text>
+  </g>
+  <text x="16" y="390" class="m">四条里 Adam 的两个矩始终 8 字节且始终可切；变化的只是梯度用几字节、主参数是否单独一份、以及 fp16 下 fp32 主梯度是否也进分片。</text>
+</svg>

@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="780" height="430" viewBox="0 0 780 430" font-family="-apple-system, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif" font-size="12">
+  <style>.m{fill:#555;font-size:11px}.t{fill:#222;font-weight:600}.n{fill:#222;font-size:11px}</style>
+  <!-- device used -->
+  <rect x="10" y="10" width="760" height="410" rx="6" fill="#fafafa" stroke="#333" stroke-width="1.5"/>
+  <text x="22" y="30" class="t">驱动看到的本进程占用（device used）：torch.cuda.mem_get_info() 的差 / nvidia-smi —— 上限 ≈ 79.6 GiB（80 GB H100）</text>
+  <!-- outside allocator -->
+  <rect x="22" y="44" width="230" height="52" rx="4" fill="#fee2e2" stroke="#b91c1c"/>
+  <text x="137" y="64" text-anchor="middle" class="t">CUDA context + 全部库的 kernel</text>
+  <text x="137" y="82" text-anchor="middle" class="n">0.5 – 1.0 GiB</text>
+  <rect x="264" y="44" width="230" height="52" rx="4" fill="#fee2e2" stroke="#b91c1c"/>
+  <text x="379" y="64" text-anchor="middle" class="t">NCCL communicators 的 buffer</text>
+  <text x="379" y="82" text-anchor="middle" class="n">1 – 3 GiB（多维并行、多个组）</text>
+  <text x="510" y="62" class="m">← cudaMalloc 直接分配，不经 allocator，</text>
+  <text x="510" y="78" class="m">   memory_reserved() 里看不到</text>
+  <rect x="22" y="104" width="330" height="30" rx="4" fill="#f5f5f5" stroke="#999" stroke-dasharray="4 2"/>
+  <text x="187" y="124" text-anchor="middle" class="n">OOM 安全边际：2 – 4 GiB（峰值抖动、临时 buffer）</text>
+  <!-- reserved -->
+  <rect x="22" y="146" width="736" height="262" rx="6" fill="#eff6ff" stroke="#1d4ed8" stroke-width="1.5"/>
+  <text x="34" y="166" class="t">reserved：allocator 持有的全部 segment —— memory_reserved()；第一个 step 后 ≈ 峰值 allocated + 碎片</text>
+  <!-- allocated -->
+  <rect x="34" y="180" width="712" height="130" rx="6" fill="#ecfdf5" stroke="#15803d" stroke-width="1.5"/>
+  <text x="46" y="200" class="t">allocated：活着的 block —— torch.cuda.memory_allocated()</text>
+  <rect x="46" y="212" width="80" height="84" fill="#dbeafe" stroke="#1d4ed8"/><text x="86" y="248" text-anchor="middle" class="n">bf16 参数</text><text x="86" y="264" text-anchor="middle" class="n">2N</text>
+  <rect x="130" y="212" width="90" height="84" fill="#dcfce7" stroke="#15803d"/><text x="175" y="248" text-anchor="middle" class="n">梯度</text><text x="175" y="264" text-anchor="middle" class="n">2N / 4N</text>
+  <rect x="224" y="212" width="200" height="84" fill="#ede9fe" stroke="#7e22ce"/><text x="324" y="240" text-anchor="middle" class="n">优化器状态</text><text x="324" y="256" text-anchor="middle" class="n">fp32 主参数 + Adam m、v</text><text x="324" y="272" text-anchor="middle" class="n">12N</text>
+  <rect x="428" y="212" width="220" height="84" fill="#fef3c7" stroke="#b45309"/><text x="538" y="240" text-anchor="middle" class="n">激活：前向涨、反向落</text><text x="538" y="256" text-anchor="middle" class="n">≈ 34·s·b·h·L（FlashAttention）</text><text x="538" y="272" text-anchor="middle" class="n">+ logits s·b·V·6</text>
+  <rect x="652" y="212" width="82" height="84" fill="#f3f4f6" stroke="#6b7280"/><text x="693" y="248" text-anchor="middle" class="n">库 workspace</text><text x="693" y="264" text-anchor="middle" class="n">0.2 – 0.5 GiB</text>
+  <!-- cached + fragments -->
+  <rect x="34" y="322" width="348" height="72" rx="4" fill="#fff" stroke="#1d4ed8" stroke-dasharray="4 2"/>
+  <text x="208" y="346" text-anchor="middle" class="t">缓存的空闲 block</text>
+  <text x="208" y="364" text-anchor="middle" class="n">上个 step 释放的激活，留在池里等下一个 step 复用</text>
+  <text x="208" y="380" text-anchor="middle" class="n">（设计如此，不是浪费）</text>
+  <rect x="398" y="322" width="348" height="72" rx="4" fill="#fff" stroke="#b91c1c" stroke-dasharray="4 2"/>
+  <text x="572" y="346" text-anchor="middle" class="t">碎片：inactive_split_bytes</text>
+  <text x="572" y="364" text-anchor="middle" class="n">segment 里被切出、空闲、但相邻 block 在用而合不回去</text>
+  <text x="572" y="380" text-anchor="middle" class="n">典型 reserved 的 5 – 15%</text>
+</svg>

@@ -232,15 +232,13 @@ PyTorch 的 NCCL 后端对每一次集合通信记一个 `WorkNCCL`，`torch/csr
 
 与本篇相关的还有四个变量（均在 `ProcessGroupNCCL.hpp` 定义、`.cpp` 里 `getCvar*` 读取默认值）：
 
-```text
-变量                                   2.13 默认     作用
-────────────────────────────────────────────────────────────────────────────────────────────────────────
-TORCH_NCCL_ASYNC_ERROR_HANDLING        3             超时/错误的处理模式：0 不处理 · 1 TearDown · 2 CleanUpOnly · 3 SkipCleanUp
-TORCH_NCCL_ENABLE_MONITORING           true          启用 HeartbeatMonitor：一个监视 watchdog 线程本身的线程
-TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC       480（8 分钟）  watchdog 线程多久没心跳就认为它卡死（例如卡在 CUDA 调用里），杀进程
-TORCH_NCCL_COORD_CHECK_MILSEC          1000          HeartbeatMonitor 轮询间隔
-TORCH_NCCL_PROPAGATE_ERROR             false         一个进程组出错时把错误传播到其他进程组
-```
+| 变量 | 2.13 默认 | 作用 |
+|---|---|---|
+| TORCH_NCCL_ASYNC_ERROR_HANDLING | 3 | 超时/错误的处理模式：0 不处理 · 1 TearDown · 2 CleanUpOnly · 3 SkipCleanUp |
+| TORCH_NCCL_ENABLE_MONITORING | true | 启用 HeartbeatMonitor：一个监视 watchdog 线程本身的线程 |
+| TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC | 480（8 分钟） | watchdog 线程多久没心跳就认为它卡死（例如卡在 CUDA 调用里），杀进程 |
+| TORCH_NCCL_COORD_CHECK_MILSEC | 1000 | HeartbeatMonitor 轮询间隔 |
+| TORCH_NCCL_PROPAGATE_ERROR | false | 一个进程组出错时把错误传播到其他进程组 |
 
 `HeartbeatMonitor::runLoop()` 解决的是"看门狗自己死了"的问题：watchdog 线程在 `cudaEventQuery` 这类调用里卡住时，谁来发现？答案是再来一个只看 watchdog 心跳的线程，8 分钟没心跳就 dump 调试信息（第八篇的 Flight Recorder）并终止进程。这两层超时——集合通信 10 分钟、watchdog 心跳 8 分钟——是 PyTorch 自带的 hang 检测上限，**把 `timeout=` 调短是最便宜的 T_d 优化**：一个 step 若稳定在 5 秒，timeout 设 2 分钟足够覆盖 checkpoint 保存和偶发抖动；但要记住第五篇的提醒，同步 checkpoint 保存和数据加载卡顿会让其他 rank 在下一次集合通信上等，timeout 必须大于这些操作的最长时间。
 
