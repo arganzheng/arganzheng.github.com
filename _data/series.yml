@@ -87,3 +87,6 @@ production-and-operations:
 product-and-experience:
   name: 产品与体验：把不确定的能力做成可信的产品
   overview: /ai-product-and-experience.html
+ml-compilers:
+  name: ML 编译器内部：从 SSA、MLIR 到 Triton 编译器
+  overview: /ml-compiler-internals.html

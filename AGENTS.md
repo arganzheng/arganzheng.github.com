@@ -782,6 +782,27 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   vLLM v0.15.0 and series 5 pins vLLM v0.20.0 but have no local worktree —
   add one (`git -C ../vllm worktree add ../vllm-v0.20.0 v0.20.0`) before
   re-verifying their source citations.
+  Series 13 (选修《ML 编译器内部》, key `ml-compilers`, dates 2026-11-21 …
+  12-04) pins Triton **v3.8.0** (`../triton-v3.8.0`, detached at the tag;
+  `.venv` = python3.12 with `pip install -e .` built on macOS — `triton-opt`,
+  `triton-tensor-layout` and the gtest binaries live under
+  `build/cmake.macosx-11.0-arm64-cpython-3.12/`; the LLVM pin is auto-downloaded to
+  `~/.triton/llvm/`), LLVM/MLIR **23.1.1** (Homebrew `llvm`: `mlir-opt`,
+  `mlir-tblgen`, `mlir-runner`, `opt`, `llc` with `nvptx64`/`amdgcn` targets),
+  TVM **v0.26.0** (`../tvm-v0.26.0`, built in `build/` with Apple clang + Homebrew
+  LLVM; use `PYTHONPATH=python`, never `pip install -e`). All IR in the posts
+  was generated locally without a GPU: NVIDIA compiles run with
+  `TRITON_PTXAS_PATH=/tmp/mlc/fakebin/ptxas` (a script answering `--version`
+  with `release 12.9, V12.9.86` and touching the `-o` file), giving real
+  ttir/ttgir/llir/ptx and a 0-byte cubin; the AMD path (`GPUTarget("hip",
+  "gfx942", 64)`) needs nothing. Scratch scripts and dumps are in `/tmp/mlc/`
+  (`triton/compile_matmul.py`, `compile_tma.py`, `compile_amd.py`,
+  `compile_small.py`, `plugin/MulToShift.cpp`). Rebuild the fake ptxas if
+  `/tmp` was wiped. Do **not** `cd` into `../tvm-v0.26.0`, `../pytorch-*` or
+  `/opt/homebrew` from the blog shell — they ship their own AGENTS.md whose
+  rules then leak into the session; run their commands with `workdir` or
+  absolute paths. `lit` must be `< 20` in the Triton venv (Homebrew's lit 23
+  rejects Triton's `lit.cfg.py`).
 - **Series membership** is front matter, not prose: `series: <key>` where
   `<key>` is an entry in `_data/series.yml` (`name`, `overview` URL). Members
   are ordered by date; the layouts render the top quote (`本文是《…》系列的第
@@ -1262,7 +1283,8 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
     label collisions: `curl -s -X PUT "localhost:9222/json/new?http://localhost:4000/img/in-post/<name>.svg"`
     then `~/.claude/skills/browser/scripts/screenshot.cjs` and view the PNG.
   - Mermaid pitfalls seen so far (10.x and 11.x alike): reserved words as node IDs (`end`,
-    `call`, `click`, `style`, `class`, `default`, `o`, `x`) break parsing;
+    `call`, `click`, `style`, `class`, `default`, `graph`, `o`, `x`) break parsing —
+    also as `classDef` names (`classDef graph …` killed a diagram in 2026-09);
     always quote labels and write literal `[`/`]`/`{`/`}` as `#91;`/`#93;`/
     `#123;`/`#125;`; one message per line in `sequenceDiagram`, no `;` inside.
     Brief used for the diagram pass: `tools/diagram-brief.md`.
