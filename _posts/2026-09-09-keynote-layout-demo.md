@@ -2,7 +2,7 @@
 layout: keynote
 title: "keynote 布局演示：给一份幻灯片配上讲稿"
 subtitle: "上面是可以翻页的幻灯片，下面是文字稿、参考资料和评论区"
-iframe: "/slides/reveal-demo.html"
+iframe: "/slides/reveal-demo/play.html"
 navcolor: invert
 catalog: true
 tags: [Blog, Demo, Slides]
@@ -16,7 +16,7 @@ tags: [Blog, Demo, Slides]
 
 三步。
 
-**1. 先有一份幻灯片。** 本站的幻灯片是 `slides/` 目录下的 Markdown 文件，`layout: slides`，reveal.js 渲染，URL 是 `/slides/<名字>.html`——上面嵌的就是 `slides/2026-08-01-reveal-demo.md`。也可以嵌外部的：Slides.com、Speaker Deck、Google Slides 的嵌入地址都行，只要对方允许 iframe。
+**1. 先有一份幻灯片。** 本站的幻灯片是 `slides/` 目录下的 Markdown 文件，`layout: slides`，reveal.js 渲染。每份有两个地址：`/slides/<名字>.html` 是带播放器、平铺页面和评论区的落地页，`/slides/<名字>/play.html` 是纯全屏版——keynote 嵌的是后者（上面嵌的就是 `slides/2026-08-01-reveal-demo.md`）。也可以嵌外部的：Slides.com、Speaker Deck、Google Slides 的嵌入地址都行，只要对方允许 iframe。
 
 **2. 新建一篇 `layout: keynote` 的文章，`iframe` 指向幻灯片。** 本文的 front matter 一字不差是：
 
@@ -25,14 +25,14 @@ tags: [Blog, Demo, Slides]
 layout: keynote
 title: "keynote 布局演示：给一份幻灯片配上讲稿"
 subtitle: "上面是可以翻页的幻灯片，下面是文字稿、参考资料和评论区"
-iframe: "/slides/reveal-demo.html"   # 站内相对地址或完整 URL
+iframe: "/slides/reveal-demo/play.html"   # 站内用全屏版 play.html，或外部完整 URL
 navcolor: invert                      # 幻灯片是浅色背景时加上，导航栏文字变深色
 catalog: true
 tags: [Blog, Demo, Slides]
 ---
 ```
 
-也可以用脚本一步生成：`python3 tools/new-post.py my-talk "标题" --layout keynote --iframe /slides/my-talk.html`。
+也可以用脚本一步生成：`python3 tools/new-post.py my-talk "标题" --layout keynote --iframe /slides/my-talk/play.html`。
 
 **3. 正文照常写 Markdown。** 所有文章能用的东西这里都能用：目录、脚注、Tips、Mermaid、公式、划线评论。
 
@@ -40,14 +40,14 @@ tags: [Blog, Demo, Slides]
 
 | | `slides` 布局 | `keynote` 布局 | `post` 布局 |
 | :--- | :--- | :--- | :--- |
-| 它是什么 | **幻灯片本身**，全屏演示 | **一篇文章**，头部嵌一份幻灯片 | 普通文章 |
+| 它是什么 | **幻灯片本身**：落地页带播放器、平铺页面；`/play.html` 全屏演示 | **一篇文章**，头部嵌一份幻灯片 | 普通文章 |
 | 文件位置 | `slides/xxx.md` | `_posts/日期-xxx.md` | `_posts/日期-xxx.md` |
-| URL | `/slides/xxx.html` | `/xxx.html` | `/xxx.html` |
+| URL | `/slides/xxx.html`（+ `/slides/xxx/play.html`） | `/xxx.html` | `/xxx.html` |
 | 出现在首页 / 归档 / RSS | 否（只在 [/slides/](/slides/) 索引） | 是 | 是 |
-| 评论、点赞、阅读数 | 无 | 有 | 有 |
-| 适合 | 现场演讲、投屏、导出 PDF | 分享之后的"落地页" | 一切 |
+| 评论、点赞、阅读数 | 有（在落地页） | 有 | 有 |
+| 适合 | 幻灯片本身的分享、现场演讲、投屏、导出 PDF | 幻灯片配长篇讲稿 | 一切 |
 
-所以典型流程是：**在 `slides/` 写幻灯片 → 讲完 → 建一篇 keynote 文章挂上它、把讲稿整理进去**。幻灯片和文章各自有 URL，互不影响。
+所以典型流程是：**在 `slides/` 写幻灯片 → 讲完 → 要配长篇讲稿时再建一篇 keynote 文章挂上它**（只是分享幻灯片，落地页本身已经有评论和统计，不必再建文章）。幻灯片和文章各自有 URL，互不影响。
 
 ## 三、几个注意点
 
@@ -69,11 +69,13 @@ tags: [Blog, Demo, Slides]
 
 ```mermaid
 flowchart LR
-    S["slides/my-talk.md"] -- "layout: slides" --> D["/slides/my-talk.html<br/>全屏幻灯片"]
-    P["_posts/2026-xx-xx-my-talk.md"] -- "layout: keynote<br/>iframe: /slides/my-talk.html" --> K["/my-talk.html<br/>幻灯片 + 讲稿 + 评论"]
+    S["slides/my-talk.md"] -- "layout: slides" --> L["/slides/my-talk.html<br/>播放器 + 平铺页 + 评论"]
+    S -- "自动生成" --> D["/slides/my-talk/play.html<br/>全屏幻灯片"]
+    P["_posts/2026-xx-xx-my-talk.md"] -- "layout: keynote<br/>iframe: /slides/my-talk/play.html" --> K["/my-talk.html<br/>幻灯片 + 讲稿 + 评论"]
+    D -. 被嵌入 .-> L
     D -. 被嵌入 .-> K
     classDef c fill:#f6f8fa,stroke:#d0d7de,color:#24292f;
-    class S,D,P,K c;
+    class S,L,D,P,K c;
 ```
 
 写幻灯片本身的语法（分页、纵向子页、逐条显示、演讲者备注、导出 PDF）见上面那份演示文稿。

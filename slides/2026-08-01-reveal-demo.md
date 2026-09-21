@@ -15,7 +15,7 @@ transition: slide
 一份**纯 Markdown** 写成的在线幻灯片。
 
 - 源文件放在 `slides/`，和写博客一模一样
-- kramdown 正常渲染，`_layouts/slides.html` 再按 `---` 切成一页页
+- kramdown 正常渲染，布局再按 `---` 切成一页页
 - 复用博客已有的能力：rouge 代码高亮、Mermaid、KaTeX
 - 没有构建步骤，`git push` 就上线
 
@@ -52,7 +52,8 @@ transition: slide     # slide / fade / convex / concave / zoom / none
 正文……
 ```
 
-访问 `/slides/my-talk.html` 即可。
+访问 `/slides/my-talk.html`：播放器 + 全部页面平铺 + 评论；
+`/slides/my-talk/play.html` 是投屏用的纯全屏版。
 
 ---
 
@@ -197,10 +198,10 @@ $$
 
 ## 导出 PDF
 
-在地址后面加上 `?print-pdf`，然后用浏览器打印：
+点播放器下方的 **PDF**（也就是全屏版加 `?print-pdf`），然后用浏览器打印：
 
 ```text
-/slides/reveal-demo.html?print-pdf
+/slides/reveal-demo/play.html?print-pdf
 ```
 
 在打印对话框里选 **横向**、边距 **无**、勾上 **背景图形**，

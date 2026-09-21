@@ -5,7 +5,7 @@ Create a post skeleton with the front matter this site understands.
 
     tools/new-post.py my-slug "标题" [--subtitle "副标题"] [--tags AI,AI-Infra]
                       [--series deep-dive-into-vllm] [--category life] [--date 2026-10-01] [--draft]
-                      [--layout post|header-post|keynote] [--header-img img/x.jpg] [--iframe /slides/x.html]
+                      [--layout post|header-post|keynote] [--header-img img/x.jpg] [--iframe /slides/x/play.html]
 
 Writes _posts/<date>-<slug>.md (or _drafts/<slug>.md with --draft) and prints the
 path. The slug is the URL: /<slug>.html — pick it once, renaming later breaks

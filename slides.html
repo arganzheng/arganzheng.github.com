@@ -52,6 +52,7 @@ nav: false
     padding: 14px 14px 12px;
   }
   .deck-cover-shell {
+    display: block;
     aspect-ratio: 16 / 9;
     border: 1px solid #d9e1ea;
     border-radius: 10px;
@@ -60,7 +61,10 @@ nav: false
     position: relative;
     box-shadow: 0 8px 16px rgba(17, 28, 39, 0.12);
     cursor: pointer;
+    color: #fff;
+    text-decoration: none;
   }
+  .deck-cover-shell:hover, .deck-cover-shell:focus { color: #fff; text-decoration: none; }
   .deck-cover-shell.cover-b {
     background: linear-gradient(140deg, #3d2c8d, #5562c7 60%, #5f89e9);
   }
@@ -189,97 +193,8 @@ nav: false
     color: #9aa2ab;
     font-size: 12px;
   }
-  .deck-modal {
-    position: fixed;
-    inset: 0;
-    z-index: 9999;
-    display: none;
-  }
-  .deck-modal.is-open {
-    display: block;
-  }
-  .deck-modal-backdrop {
-    position: absolute;
-    inset: 0;
-    background: rgba(6, 15, 22, 0.68);
-  }
-  .deck-modal-dialog {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    width: min(1100px, calc(100vw - 40px));
-    background: #fff;
-    border-radius: 14px;
-    overflow: hidden;
-    box-shadow: 0 20px 50px rgba(6, 18, 29, 0.28);
-  }
-  .deck-modal-head {
-    padding: 14px 18px;
-    border-bottom: 1px solid #e5ebf2;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 8px;
-  }
-  .deck-modal-title {
-    margin: 0;
-    font-size: 16px;
-    color: #1a2733;
-  }
-  .deck-modal-meta {
-    margin: 2px 0 0;
-    font-size: 12px;
-    color: #778596;
-  }
-  .deck-modal-close {
-    border: 1px solid #d5dde7;
-    background: #fff;
-    border-radius: 999px;
-    width: 30px;
-    height: 30px;
-    line-height: 28px;
-    font-size: 20px;
-    color: #4a5968;
-    cursor: pointer;
-    padding: 0;
-  }
-  .deck-modal-actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .deck-modal-fullscreen {
-    border: 1px solid #d5dde7;
-    background: #fff;
-    border-radius: 999px;
-    min-width: 74px;
-    height: 30px;
-    line-height: 28px;
-    font-size: 12px;
-    color: #4a5968;
-    cursor: pointer;
-    padding: 0 10px;
-  }
-  .deck-modal-body {
-    aspect-ratio: 16 / 9;
-    background: #0f1722;
-  }
-  .deck-modal-body iframe {
-    width: 100%;
-    height: 100%;
-    border: 0;
-  }
   @media (max-width: 768px) {
-    .deck-modal-dialog {
-      width: calc(100vw - 18px);
-    }
-    .deck-modal-head {
-      padding: 10px 12px;
-    }
-    .deck-modal-title {
-      font-size: 14px;
-    }
+    .deck-grid { gap: 16px; }
   }
 </style>
 
@@ -296,23 +211,20 @@ nav: false
 </div>
 <div class="deck-grid">
   {% for p in slides %}
+  {%- comment -%} page count the way the layout / player count: `---` pages plus `<!-- v -->` sub-pages, plus the cover {%- endcomment -%}
   {% assign rendered_content = p.content | markdownify | replace: '<hr>', '<hr />' %}
   {% assign page_count = rendered_content | split: '<hr />' | size %}
+  {% assign vertical_count = rendered_content | split: '<!-- v -->' | size | minus: 1 %}
   {% assign title_slide_count = 1 %}
   {% if p["title-slide"] == false %}
     {% assign title_slide_count = 0 %}
   {% endif %}
-  {% assign total_pages = page_count | plus: title_slide_count %}
+  {% assign total_pages = page_count | plus: vertical_count | plus: title_slide_count %}
+  {% assign deck_url = p.url | prepend: site.baseurl %}
+  {% assign play_url = p.url | replace: '.html', '/play.html' | prepend: site.baseurl %}
   <article class="deck-card">
     <div class="deck-stage" data-year="{{ p.date | date: '%Y' }}">
-      <div
-        class="deck-cover-shell deck-launch {% cycle 'cover-a', 'cover-b', 'cover-c', 'cover-d', 'cover-e' %}"
-        role="button"
-        tabindex="0"
-        data-deck-url="{{ p.url | prepend: site.baseurl }}"
-        data-deck-title="{{ p.title | escape }}"
-        data-deck-subtitle="{{ p.subtitle | default: '' | escape }}"
-        data-deck-pages="{{ total_pages }}">
+      <a class="deck-cover-shell {% cycle 'cover-a', 'cover-b', 'cover-c', 'cover-d', 'cover-e' %}" href="{{ deck_url }}">
         <div class="deck-cover-content">
           <h4 class="deck-cover-title">{{ p.title }}</h4>
           {% if p.subtitle %}<p class="deck-cover-subtitle">{{ p.subtitle }}</p>{% endif %}
@@ -323,31 +235,22 @@ nav: false
         <div class="deck-overlay">
           <div class="deck-overlay-content">
             <div class="deck-pages">{{ total_pages }} 页</div>
-            <a
-              class="deck-play-inline deck-launch"
-              href="{{ p.url | prepend: site.baseurl }}"
-              data-deck-url="{{ p.url | prepend: site.baseurl }}"
-              data-deck-title="{{ p.title | escape }}"
-              data-deck-subtitle="{{ p.subtitle | default: '' | escape }}"
-              data-deck-pages="{{ total_pages }}">立即播放</a>
+            <span class="deck-play-inline">查看</span>
           </div>
         </div>
-      </div>
+      </a>
       <div class="deck-actions">
-        <a
-          class="deck-play deck-launch"
-          href="{{ p.url | prepend: site.baseurl }}"
-          data-deck-url="{{ p.url | prepend: site.baseurl }}"
-          data-deck-title="{{ p.title | escape }}"
-          data-deck-subtitle="{{ p.subtitle | default: '' | escape }}"
-          data-deck-pages="{{ total_pages }}">Play</a>
-        <a class="deck-open" href="{{ p.url | prepend: site.baseurl }}?print-pdf">PDF 导出模式</a>
+        <a class="deck-play" href="{{ deck_url }}">查看</a>
+        <span>
+          <a class="deck-open" href="{{ play_url }}" title="单独全屏播放">全屏播放</a>
+          · <a class="deck-open" href="{{ play_url }}?print-pdf">PDF</a>
+        </span>
       </div>
     </div>
     <div class="deck-meta">
-      <h3 class="deck-title"><a href="{{ p.url | prepend: site.baseurl }}">{{ p.title }}</a></h3>
+      <h3 class="deck-title"><a href="{{ deck_url }}">{{ p.title }}</a></h3>
       {% if p.subtitle %}<p class="deck-subtitle">{{ p.subtitle }}</p>{% endif %}
-      <p class="deck-date">{{ p.date | date: "%Y/%m/%d" }}</p>
+      <p class="deck-date">{{ p.date | date: "%Y/%m/%d" }} · {{ total_pages }} 页<span class="post-stats" data-path="{{ p.url }}" data-annotations-api="{{ site.annotations.api }}"></span></p>
     </div>
   </article>
   {% endfor %}
@@ -357,161 +260,20 @@ nav: false
 {% endif %}
 </div>
 
-<div class="deck-modal" id="deck-modal" aria-hidden="true">
-  <div class="deck-modal-backdrop" data-deck-close="1"></div>
-  <div class="deck-modal-dialog" role="dialog" aria-modal="true" aria-label="Slide player">
-    <div class="deck-modal-head">
-      <div>
-        <h4 class="deck-modal-title" id="deck-modal-title"></h4>
-        <p class="deck-modal-meta" id="deck-modal-meta"></p>
-      </div>
-      <div class="deck-modal-actions">
-        <button class="deck-modal-fullscreen" type="button" id="deck-modal-fullscreen">全屏</button>
-        <button class="deck-modal-close" type="button" data-deck-close="1" aria-label="Close">×</button>
-      </div>
-    </div>
-    <div class="deck-modal-body">
-      <iframe id="deck-modal-frame" src="" loading="lazy" allowfullscreen></iframe>
-    </div>
-  </div>
-</div>
-
 <script>
   (function () {
     var toolbar = document.getElementById('slides-toolbar');
     var cards = document.querySelectorAll('.deck-stage');
     var buttons = toolbar ? toolbar.querySelectorAll('.slides-filter') : [];
-    var launchers = document.querySelectorAll('.deck-launch');
-    var modal = document.getElementById('deck-modal');
-    var modalDialog = modal ? modal.querySelector('.deck-modal-dialog') : null;
-    var modalFrame = document.getElementById('deck-modal-frame');
-    var fullscreenBtn = document.getElementById('deck-modal-fullscreen');
-    var modalTitle = document.getElementById('deck-modal-title');
-    var modalMeta = document.getElementById('deck-modal-meta');
-
-    function each(nodeList, fn) {
-      Array.prototype.forEach.call(nodeList || [], fn);
-    }
-
-    function setActive(targetYear) {
-      each(buttons, function (btn) {
-        btn.classList.toggle('active', btn.getAttribute('data-year') === targetYear);
-      });
-      each(cards, function (card) {
-        var show = targetYear === 'all' || card.getAttribute('data-year') === targetYear;
-        card.parentElement.style.display = show ? '' : 'none';
-      });
-    }
-
-    function openModal(url, title, subtitle, pages) {
-      if (!modal || !modalFrame || !modalTitle || !modalMeta) return;
-      if (!url) return;
-      modal.classList.add('is-open');
-      modal.setAttribute('aria-hidden', 'false');
-      modalFrame.src = new URL(url, window.location.href).toString();
-      modalTitle.textContent = title || 'Slides';
-      var metaText = [];
-      if (subtitle) metaText.push(subtitle);
-      if (pages) metaText.push(pages + ' 页');
-      modalMeta.textContent = metaText.join(' · ');
-      document.body.style.overflow = 'hidden';
-    }
-
-    function enterFullscreen() {
-      if (!modalDialog) return;
-      if (modalDialog.requestFullscreen) {
-        modalDialog.requestFullscreen();
-      } else if (modalDialog.webkitRequestFullscreen) {
-        modalDialog.webkitRequestFullscreen();
-      }
-    }
-
-    function exitFullscreen() {
-      if (document.fullscreenElement && document.exitFullscreen) {
-        document.exitFullscreen();
-      } else if (document.webkitFullscreenElement && document.webkitExitFullscreen) {
-        document.webkitExitFullscreen();
-      }
-    }
-
-    function isFullscreen() {
-      return document.fullscreenElement === modalDialog || document.webkitFullscreenElement === modalDialog;
-    }
-
-    function syncFullscreenButton() {
-      if (!fullscreenBtn) return;
-      fullscreenBtn.textContent = isFullscreen() ? '退出全屏' : '全屏';
-    }
-
-    function closeModal() {
-      if (!modal || !modalFrame) return;
-      if (isFullscreen()) {
-        exitFullscreen();
-      }
-      modal.classList.remove('is-open');
-      modal.setAttribute('aria-hidden', 'true');
-      modalFrame.src = '';
-      document.body.style.overflow = '';
-      syncFullscreenButton();
-    }
-
-    if (toolbar) {
-      each(buttons, function (btn) {
-        btn.addEventListener('click', function () {
-          setActive(btn.getAttribute('data-year'));
+    function each(nodeList, fn) { Array.prototype.forEach.call(nodeList || [], fn); }
+    each(buttons, function (btn) {
+      btn.addEventListener('click', function () {
+        var year = btn.getAttribute('data-year');
+        each(buttons, function (b) { b.classList.toggle('active', b.getAttribute('data-year') === year); });
+        each(cards, function (card) {
+          card.parentElement.style.display = (year === 'all' || card.getAttribute('data-year') === year) ? '' : 'none';
         });
       });
-    }
-
-    each(launchers, function (link) {
-      link.addEventListener('click', function (event) {
-        event.preventDefault();
-        var url = link.getAttribute('data-deck-url') || link.getAttribute('href');
-        if (!url) return;
-        openModal(
-          url,
-          link.getAttribute('data-deck-title'),
-          link.getAttribute('data-deck-subtitle'),
-          link.getAttribute('data-deck-pages')
-        );
-      });
-      link.addEventListener('keydown', function (event) {
-        if (event.key !== 'Enter' && event.key !== ' ') return;
-        event.preventDefault();
-        var url = link.getAttribute('data-deck-url') || link.getAttribute('href');
-        if (!url) return;
-        openModal(
-          url,
-          link.getAttribute('data-deck-title'),
-          link.getAttribute('data-deck-subtitle'),
-          link.getAttribute('data-deck-pages')
-        );
-      });
-    });
-
-    if (modal) {
-      modal.addEventListener('click', function (event) {
-        if (event.target && event.target.getAttribute('data-deck-close') === '1') {
-          closeModal();
-        }
-      });
-    }
-
-    if (fullscreenBtn) {
-      fullscreenBtn.addEventListener('click', function () {
-        if (isFullscreen()) {
-          exitFullscreen();
-        } else {
-          enterFullscreen();
-        }
-      });
-    }
-
-    document.addEventListener('fullscreenchange', syncFullscreenButton);
-    document.addEventListener('webkitfullscreenchange', syncFullscreenButton);
-
-    document.addEventListener('keydown', function (event) {
-      if (event.key === 'Escape') closeModal();
     });
   })();
 </script>

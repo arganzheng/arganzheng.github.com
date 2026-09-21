@@ -25,6 +25,7 @@ SRC=(
   js/vendor/approx-string-match.js
   js/annotations.js       # comments, 划线评论, reactions, views
   js/share.js             # action bar, share menu, .post-stats strip
+  js/slides-player.js     # deck landing page: player bar driving the reveal.js iframe
 )
 
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
