@@ -65,13 +65,13 @@ $$
 
 ### 2. 直通估计器
 
-STE（Bengio 等 2013；Hinton 的课程里更早提到）的做法：**反向时把 round 当作恒等函数**，$$\partial \hat{w} / \partial w := 1$$（在裁剪范围内；范围外为 0）。于是 $$\partial \mathcal{L} / \partial w = \partial \mathcal{L} / \partial \hat{w}$$——用量化后权重的梯度更新量化前的权重。实现上是一行：
+STE（Bengio 等 2013；Hinton 的课程里更早提到）的做法：**反向时把 round 当作恒等函数**，$$\partial \hat{w} / \partial w := 1$$。于是 $$\partial \mathcal{L} / \partial w = \partial \mathcal{L} / \partial \hat{w}$$——用量化后权重的梯度更新量化前的权重。实现上是一行：
 
 $$
 \hat{w} = w + \text{stop\_gradient}\big(Q(w) - w\big)
 $$
 
-前向等于 $$Q(w)$$，反向梯度直接流到 $$w$$。
+前向等于 $$Q(w)$$，反向梯度直接流到 $$w$$。这一行是**恒等 STE**：裁剪范围外的 $$w$$ 梯度也是 1（被裁到端点的权重仍会被推动）。另一种是**裁剪 STE**——范围外梯度为 0（PyTorch 的 `fake_quantize_per_tensor_affine` 是这种：$$w = 10$$、范围 $$\pm 7$$ 时它给梯度 0，上面那一行给 1，CPU 验证）。两者都是常用选择，LSQ 一类方法依赖裁剪 STE 才能让 scale 的梯度有正确的分段形式，用哪一种要写明，不能一句"范围外为 0"配一个范围外为 1 的公式。
 
 ### 3. 为什么"错"的梯度能用
 
@@ -124,7 +124,7 @@ Llama 3.2 与 Gemma 3 的 QAT 都没有报告用可学习 scale——它们用�
 从头做 QAT（整个预训练在假量化下）成本太高且不必要——量化误差是一种"细节"，模型的主要能力在全精度下学会即可，最后一段让它适应量化。公开配方的做法是**用预训练最后 5–10% 的 token 做 QAT**，或者在 SFT 阶段做：
 
 - **Gemma 3 QAT**（Google 2025）：在预训练之后、用约 5000 步继续训练，教师是全精度的 Gemma 3（蒸馏目标），目标是 INT4 per-channel 权重 / INT4 per-block 32 权重 / SFP8 三种格式各出一个 checkpoint。报告的结果是 INT4 QAT 的困惑度损失比 PTQ 低一半以上，且 27B 在 INT4 下从 54 GB 降到 14.1 GB、"精度与 BF16 接近"（他们的 Elo 数字：BF16 1338 vs INT4 QAT 1330 左右）。
-- **Llama 3.2 1B / 3B**（Meta 2024）：两种量化版本。QLoRA 方案（基座 PTQ 到 INT4，LoRA 全精度，SFT + DPO 只训 LoRA）；QAT + LoRA 方案（基座在 SFT 阶段做 QAT——INT4 per-group 32 权重、INT8 per-token 激活、INT8 KV——然后冻结、加 LoRA 做 DPO）。目标硬件是移动端的 ARM CPU 与 NPU（ExecuTorch），INT4 × INT8 的 GEMM。报告 QAT + LoRA 版本比 SpinQuant PTQ 版本在多数 benchmark 上好 1–3 个点，接近 BF16。
+- **Llama 3.2 1B / 3B**（Meta 2024）：模型卡上有两条量化路线。**SpinQuant**（PTQ，学习旋转 + INT4 per-group 32 权重、INT8 per-token 激活）；**QAT + LoRA**（Meta 自己称 QLoRA）：从 BF16 SFT checkpoint 出发，再做一轮带 INT4 fake-quant 的 SFT，然后冻结基座、再做一轮 LoRA SFT，最后**基座与 adapter 一起**做 DPO——不是"只训 LoRA"。目标硬件是移动端的 ARM CPU 与 NPU（ExecuTorch），INT4 × INT8 的 GEMM；量化版本的上下文长度限制在 8K（原版 128K）。模型卡的表里两种版本各有胜负（3B：MMLU BF16 63.4 / SpinQuant 62.0 / QAT+LoRA 62.4；GSM8K 77.7 / 75.7 / 77.9），"QAT 好 1–3 个点、接近 BF16"只对部分 benchmark 成立；卡上没有写 INT8 KV cache。
 - **gpt-oss**（OpenAI 2025）：MoE 专家权重（占参数 90% 以上）在**后训练**阶段用 MXFP4 做 QAT，其余保持 BF16；120B 模型的权重降到 60 GB 左右，单张 80 GB 卡装下。报告"精度几乎无损"，但只公开了最终数字，没有 PTQ 对照。
 
 三个配方的共同点：（1）都在训练的末段而不是全程；（2）都保持 KV / 激活的处理与部署硬件一致；（3）都有全精度的教师（Gemma 3 显式蒸馏；Llama 3.2 用全精度的 SFT 模型初始化；gpt-oss 未详述）。
@@ -139,7 +139,7 @@ Gemma 3 QAT 明确用了这个配方。这也是 TernaryLLM、BitDistiller 等�
 
 QLoRA（Dettmers 等 2023）不是 QAT——底座被 PTQ 到 4 bit 并**冻结**，只训 LoRA。但它引入的两个技术属于这一篇：
 
-**NF4（NormalFloat 4）**。假设权重是零均值高斯，最优的 4 bit 格点（在"每个格点等概率"的意义上）是标准正态分布的 16 个分位点：把 $$[0, 1]$$ 等分成 16 段，取每段中点的正态分位数 $$\Phi^{-1}(\cdot)$$，再归一化到 $$[-1, 1]$$。实际的格点是 $$\{-1, -0.696, -0.525, -0.395, -0.284, -0.185, -0.091, 0, 0.080, 0.161, 0.246, 0.338, 0.441, 0.563, 0.723, 1\}$$（非对称——为了让 0 精确可表示，正负各取 8 个再合并去重）。量化时按 group（64）取 absmax 归一化到 $$[-1, 1]$$，找最近的格点。对高斯权重，NF4 比均匀 INT4 的 MSE 低约 30%。
+**NF4（NormalFloat 4）**。假设权重是零均值高斯，NF4 的格点按"每个格点等概率"的原则取标准正态的分位数——但**不是**"$$[0, 1]$$ 等分 16 段取中点"那么简单：那样得到的 16 个点关于 0 对称、最靠近 0 的两个是 $$\pm 0.042$$，没有 0（CPU 复算）。bitsandbytes 的 `create_normal_map` 实际做法是：正半轴取 $$[\text{offset}, 1]$$ 上 9 个等距概率的分位数（offset ≈ 0.9677），负半轴取 $$[1 - \text{offset}, 0.5]$$ 上 8 个，加上 0，再按最大值归一化——得到 8 个正数、7 个负数、1 个零共 16 点。实际的格点是 $$\{-1, -0.696, -0.525, -0.395, -0.284, -0.185, -0.091, 0, 0.080, 0.161, 0.246, 0.338, 0.441, 0.563, 0.723, 1\}$$（非对称，正负各半的说法不对）。"信息论最优"说的是等概率占用码字，它不等于最小 MSE（那是 Lloyd–Max 量化器），absmax 归一化后的 block 也不再是标准高斯。量化时按 group（64）取 absmax 归一化到 $$[-1, 1]$$，找最近的格点。对高斯权重，NF4 比均匀 INT4 的 MSE 低约 30%。
 
 **双重量化**。每 64 个权重一个 FP32 scale，元数据是 $$32 / 64 = 0.5$$ bit/权重——不小。QLoRA 把这些 scale 再量化到 FP8（每 256 个 scale 一个 FP32 二级 scale），元数据降到 $$8/64 + 32/(64 \times 256) \approx 0.127$$ bit/权重。总的 $$4.127$$ bit/权重。
 
@@ -158,7 +158,7 @@ QLoRA 的意义是**训练时**的内存：65B 模型的 4-bit 底座 33 GB + Lo
 - **QuIP#**（Tseng 等 2024）：先 Hadamard 旋转（让权重接近球形高斯——上一篇的 incoherence），再用 E8 lattice 的码本（8 维空间里最密的球堆积）做向量量化，最后微调。Llama-2 70B 的 2 bit 困惑度约 +0.6–0.8。
 - **AQLM**（Egiazarian 等 2024）：加性量化——每个向量用多个码本的码字之和表示，码本通过在校准集上的优化学习（不是固定的 lattice），加上逐层与端到端的微调。2 bit 与 QuIP# 相当或略好，2.5–3 bit 接近无损。
 
-代价：dequant 需要查表（码本 $$2^{16} \times 8$$ 个 FP16 = 1 MB，放 shared memory 勉强），kernel 比标量量化复杂、慢，且不能利用 Tensor Core 的低比特整数乘法。2 bit 的实用价值是**把 70B 放进一张 24 GB 的消费卡**（70B × 2.x bit ≈ 20 GB），代价是速度与精度。
+代价：dequant 需要查表（$$2^{16}$$ 个 8 维码字若逐个存成 FP16 是 1 MiB，远超一个 SM 的 shared memory——A100 164 KiB、H100 228 KiB——所以 QuIP# 用 E8 lattice 的结构化码本隐式计算、AQLM 用更小的码本），kernel 比标量量化复杂、慢，且不能利用 Tensor Core 的低比特整数乘法。2 bit 的实用价值是**把 70B 放进一张 24 GB 的消费卡**（70B × 2.x bit ≈ 20 GB），代价是速度与精度。
 
 ### 2. BitNet b1.58：三值权重
 

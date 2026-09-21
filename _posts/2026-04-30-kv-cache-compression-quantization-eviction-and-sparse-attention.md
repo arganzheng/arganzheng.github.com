@@ -8,7 +8,7 @@ catalog: true
 updated: 2026-09-14
 ---
 
-[04 系列第三篇](/attention-variants-and-kv-cache.html)算过 KV cache 的账：Llama-3-70B 在 128K 上下文下每个请求的 KV 是 40 GB（GQA 之后），比权重的一半还多；decode 每步要把它全部读一遍，长上下文下 KV 读取超过权重读取成为 decode 的主要流量。结构级的解法——GQA 把 KV 头数除以 8、MLA 把每 token 的 KV 压到 576 维——在训练时就决定了，训好之后不能改。
+[04 系列第三篇](/attention-variants-and-kv-cache.html)算过 KV cache 的账：Llama-3-70B 在 128K 上下文下每个请求的 KV 是 40 GiB（GQA 之后）——权重 141 GB 的近三成，一张 80 GB 卡的一半；decode 每步要把它全部读一遍，单请求 128K 时 KV 读取已是权重的 30%，batch 到 4 就与权重相当（每 token 320 KiB，$$141\text{ GB}/320\text{ KiB} \approx 43$$ 万 token 与权重打平），长上下文 + 并发下 KV 读取超过权重读取成为 decode 的主要流量。结构级的解法——GQA 把 KV 头数除以 8、MLA 把每 token 的 KV 压到 576 维——在训练时就决定了，训好之后不能改。
 
 这一篇讲**训好之后**还能对 KV 做什么。三条路：**量化**（每个元素的字节从 2 降到 1 或 0.5 甚至 0.25）、**驱逐**（丢掉一部分 token 的 KV，只留"重要"的）、**稀疏 attention**（每步只读一部分 KV——如果模型训练时就这样，推理时可以精确地这样做）。三条路对输出分布的影响从小到大：量化是可控的噪声；驱逐是有损的、任务依赖的近似；训练时就稀疏的 attention 在推理时是精确的（但需要重新训练）。
 
@@ -42,7 +42,7 @@ KV 压缩是本系列里"退化最不均匀"的一类方法：摘要任务上驱
 3. 如果任务是**问题已知、文档在前**的 QA / 摘要（SnapKV 的场景），驱逐到 25% 通常安全——用 prompt 尾部（问题）的注意力选 KV。
 4. 如果任务是**多跳、needle、或问题在文档之后**（Agent 的长对话历史），驱逐不安全——任何基于"当前注意力"的重要性打分都不知道未来的问题要什么。这时只有量化，或者换一个训练时就稀疏的模型。
 
-所以对通用负载：FP8 KV + INT4 KV 拿到 4 倍，不驱逐；对已知形态的 QA 负载：FP8 + SnapKV 驱逐拿到 4 倍以上。第七章的决策表。
+所以对通用负载：直接 BF16 → INT4（KIVI 式）拿到约 3 倍（元数据后），或保守些只做 FP8 拿 2 倍——FP8 与 INT4 是同一份 KV 的两种精度选择，不能叠成"再压 2 倍"；不驱逐；对已知形态的 QA 负载：FP8 + SnapKV 驱逐拿到 4 倍以上。第七章的决策表。
 
 ### 3. 本文的章节安排
 
@@ -195,8 +195,8 @@ NSA / MoBA 训练时就按这个模式计算 attention，模型学到的一切�
 | 负载形态 | 推荐 | 预期压缩 | 不要做 |
 |---|---|---|---|
 | 通用对话，上下文 < 32K | FP8 KV | 2× | 驱逐（收益小、风险不值） |
-| 长文档 QA / 摘要（问题在后） | FP8 + INT4 KV；或 FP8 + SnapKV 25% | 4–8× | H2O（不知道问题） |
-| 多轮 Agent、长历史、问题未知 | FP8 + INT4 KV | 4× | 任何驱逐 |
+| 长文档 QA / 摘要（问题在后） | INT4 KV（或 FP8）；或 FP8 + SnapKV 25% | 3–8× | H2O（不知道问题） |
+| 多轮 Agent、长历史、问题未知 | INT4 KV（保守则 FP8） | 2–3× | 任何驱逐 |
 | 流式生成、只依赖近期 | StreamingLLM（sink + 窗口） | 常数 | — |
 | 推理模型、长输出 | FP8 KV；INT4 谨慎（生成误差累积）；不驱逐 | 2–4× | 驱逐（推理链的每一步都可能被回看） |
 | 超长（> 128K）、精确检索 | FP8 KV；INT4 要测 needle | 2× 稳妥 | 2 bit、驱逐 |
@@ -206,13 +206,14 @@ NSA / MoBA 训练时就按这个模式计算 attention，模型学到的一切�
 
 ### 1. 字节账
 
-Llama-3.1-70B（80 层、8 KV head、head_dim 128）每 token 的 KV：$$2 \times 80 \times 8 \times 128 \times 2 = 327{,}680$$ 字节 ≈ 320 KB（BF16）。128K 上下文：40 GB。
+Llama-3.1-70B（80 层、8 KV head、head_dim 128）每 token 的 KV：$$2 \times 80 \times 8 \times 128 \times 2 = 327{,}680$$ 字节 = 320 KiB（BF16）。128K = 131072 token 上下文：40 GiB（约 43 GB；下表沿用二进制单位，写作 GB 的地方都是 GiB）。
 
 | 配置 | 每 token | 128K | 备注 |
 |---|---|---|---|
 | BF16 | 320 KB | 40 GB | 基线 |
 | FP8 | 160 KB + scale（per-head 静态，忽略） | 20 GB | 免费 |
-| INT4 KIVI（G = 32，R = 128 残差） | 80 KB + scale/zero（每 32 token 每通道 FP16 ×2：$$2 \times 80 \times 8 \times 128 \times 4 / 32$$ = 20 KB） | 12.5 GB + 残差 40 MB | 元数据 25%——group 小的代价 |
+| INT4 KIVI（G = 32，R = 128 残差） | 80 KiB + scale/zero（每 32 token 每通道 FP16 ×2：$$2 \times 80 \times 8 \times 128 \times 4 / 32$$ = 20 KiB） | 12.5 GiB + 残差 40 MiB | 元数据 25%——group 小的代价 |
+| INT2 KIVI（同 G = 32） | 40 KiB + 同样 20 KiB 元数据 | 7.5 GiB + 残差 | 元数据占一半，2 bit 的"4 倍"只兑现 2.7 倍 |
 | INT4 + SnapKV 25% | 上述 × 0.25 | 3.1 GB | 仅 QA 形态 |
 | MLA（DeepSeek-V3，训练时决定） | 576 × 2 = 1.15 KB（61 层：70 KB） | 8.8 GB | 结构级；不同模型 |
 
@@ -224,7 +225,7 @@ FP8 KV 的 dequant 在 attention kernel 内，开销几个百分点，被 KV 读
 
 ### 3. 与其他方法的叠加
 
-KV 量化与权重量化叠加：decode 的两项流量（权重、KV）都减少，在长上下文下 KV 量化的边际收益更大（[04 系列第三篇](/attention-variants-and-kv-cache.html)的交叉点：Llama-3-70B 在约 40K 上下文时 KV 读取超过权重读取）。KV 量化与投机解码叠加：验证 $$N_{tree}$$ 个 token 要读 KV，KV 字节减半让长上下文下投机的验证成本也减半（上一篇第八章的问题被缓解）。驱逐与投机叠加则要小心——树的多条路径需要一致的 KV 视图。
+KV 量化与权重量化叠加：decode 的两项流量（权重、KV）都减少，在长上下文下 KV 量化的边际收益更大（Llama-3-70B 每 token KV 320 KiB，与 141 GB 权重打平要约 43 万 token——单请求 430K，或 batch 4 × 108K、batch 8 × 54K；"约 40K 交叉"只在 batch ≈ 10 时成立，交叉点随并发移动）。KV 量化与投机解码叠加：验证 $$N_{tree}$$ 个 token 要读 KV，KV 字节减半让长上下文下投机的验证成本也减半（上一篇第八章的问题被缓解）。驱逐与投机叠加则要小心——树的多条路径需要一致的 KV 视图。
 
 ## 九、动手（建议）
 
@@ -283,7 +284,7 @@ KV 量化与权重量化叠加：decode 的两项流量（权重、KV）都减�
 
    <details markdown="1"><summary>答案</summary>
 
-   FP8 20 GB（几乎无损，任何部署都该开）；2 bit 约 5–6 GB（含残差窗与 scale，靠分组粒度才从崩掉到 +0.1）；25% 驱逐 10 GB（只在问题已知的 QA 上安全）。安全性：8 bit > 4 bit > 驱逐。
+   FP8 20 GiB（多数任务几乎无损，但要看 kernel / 后端是否支持、scale 怎么校准，不是"任何部署都该开"）；2 bit 约 7.5 GiB（40 KiB 载荷 + G = 32 下同样 20 KiB 的 scale/zero，元数据占一半，再加残差窗；靠分组粒度才从崩掉到 +0.1）；25% 驱逐 10 GiB（只在问题已知的 QA 上安全）。安全性：8 bit > 4 bit > 驱逐。
 
    </details>
 
