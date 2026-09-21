@@ -20,6 +20,7 @@ updated: 2026-09-20
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+%% 图：动态机制的三个时刻：定义时登记、启动时按字符串选择、运行时热路径静态调用
 flowchart TB
     subgraph DEF["定义时（import 阶段）"]
         direction TB

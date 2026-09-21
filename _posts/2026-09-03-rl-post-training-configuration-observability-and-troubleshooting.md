@@ -22,6 +22,7 @@ updated: 2026-09-14
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 400}}}%%
+%% 图：reward 曲线变平台时先看的四个信号
 flowchart TB
     A["凌晨两点：reward 曲线变平台，步时间没变，日志没报错"] --> Q{"先看哪个信号？"}
     Q --> S1["staleness 分布：版本差涨了？→ 回答变长、同步没跟上（第五篇）"]

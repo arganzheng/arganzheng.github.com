@@ -41,6 +41,7 @@ Java 开发者常有的一个错觉是"Python 简单，随便装装就能跑"。
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 400}}}%%
+%% 图：从 pyproject 到运行：锁文件 → 虚拟环境 → 质量门 → wheel → 容器镜像
 flowchart TB
     A["pyproject.toml：元数据 + 依赖声明（第二章）"] --> B["锁文件 uv.lock / poetry.lock：精确到版本与哈希（第四章）"]
     B --> C["虚拟环境：uv sync --locked（第三章）"]

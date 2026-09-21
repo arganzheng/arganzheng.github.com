@@ -18,6 +18,7 @@ date: 2026-06-27 20:00:00
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
+%% 图：通信与互联系列全景：先造 α-β 尺子，再给 β 与 α 填数，汇合到 NCCL
 flowchart TB
     N1["01 α-β 模型与 ring all-reduce<br/>造一把尺子：T = α + S/β"]
     N1 --> N2["02 硬件互联<br/>给 β 填上真实数字：PCIe / NVLink / IB"]

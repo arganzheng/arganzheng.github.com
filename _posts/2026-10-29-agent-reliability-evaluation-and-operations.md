@@ -21,6 +21,7 @@ catalog: true
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
+%% 图：agent 的三种结束方式 → trace → 失败打类 → 评测用例的闭环
 flowchart TB
     R["agent 跑一个任务"] --> O{"结束方式"}
     O -- "模型给出最终回答" --> V["结果校验：文件真改了？测试真过了？<br/>（「已完成」要有佐证）"]

@@ -24,6 +24,7 @@ updated: 2026-09-14
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 400}}}%%
+%% 图：找切入点：maintainer 写出的「我们想要什么」在标签、RFC、CI 失败、性能回归里
 flowchart TB
     W["想给 PyTorch / vLLM 提第一个 PR"] --> Q{"maintainer 已经写出了「我们想要什么」——去哪读？"}
     Q --> L["<b>标签</b>（第二章）：good first issue / help wanted / triaged——每个项目的标签体系与它的含义"]

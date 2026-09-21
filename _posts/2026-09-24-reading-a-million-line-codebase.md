@@ -24,6 +24,7 @@ updated: 2026-09-14
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 330}}}%%
+%% 图：读懂一个百万行代码库的七步：地图、入口、生成代码、构建、测试、历史、定位
 flowchart TB
     I["一个 issue：torch.logaddexp 在 complex128 上 CPU 与 CUDA 不一致"] --> MAP["<b>先画地图</b>（第二章）：顶层目录各管什么——aten / c10 / torch / test / tools"]
     MAP --> E["<b>找入口</b>（第三章）：从符号、报错信息、Python 名字反查——<br/>rg logaddexp 出来 200 处，哪一处是定义？"]

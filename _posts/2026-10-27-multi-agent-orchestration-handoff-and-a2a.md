@@ -31,6 +31,7 @@ catalog: true
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 140}}}%%
+%% 图：三种多 agent 模式：orchestrator-workers、handoff、层级
 flowchart TB
     subgraph O["orchestrator-workers：分解 → 并行 → 综合"]
         direction TB

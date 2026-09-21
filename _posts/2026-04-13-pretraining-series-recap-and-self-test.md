@@ -18,6 +18,7 @@ date: 2026-04-13 20:00:00
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 210}}}%%
+%% 图：预训练系列全景：tokenizer → scaling law → 数据 → 配方
 flowchart TB
     T1["01 分词与词表<br/>token 数是所有公式的自变量"] --> T2["02 Scaling law<br/>C ≈ 6ND，算力怎么分给 N 与 D"]
     T2 -- "D 要多大、唯一 token ≥ D/4" --> T3["03 预训练数据工程<br/>240T → 15T：去重、过滤、配比"]

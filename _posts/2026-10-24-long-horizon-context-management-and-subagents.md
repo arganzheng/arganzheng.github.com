@@ -21,6 +21,7 @@ L2 第四篇讲了长任务上下文管理的**策略**：隔离 → 卸载 → 
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 360}}}%%
+%% 图：长任务上下文管理的代价阶梯：隔离 → 卸载 → 清理 → 压缩
 flowchart TB
     A["<b>隔离</b>：子 agent 在自己的上下文里干活，只把摘要带回来<br/>代价几乎为零"] --> B["<b>卸载</b>：大的工具返回存到外面，上下文里留一个可取回的定位符<br/>（DeepSeek Harness 的 spill）"]
     B --> C["<b>清理</b>：读过的、过期的工具输出直接修剪掉<br/>（compaction-tool-result-pruner）"]

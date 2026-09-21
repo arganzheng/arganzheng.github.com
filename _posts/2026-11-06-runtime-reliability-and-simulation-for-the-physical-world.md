@@ -19,6 +19,7 @@ catalog: true
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 320}}}%%
+%% 图：请求路径上的两道检查与 fallback；评测发现的失效模式做成运行时检查
 flowchart TB
     U["请求"] --> I["输入侧检查：注入特征、越界请求、敏感信息（只降概率，不是防线）"]
     I --> LLM["模型 / agent"]

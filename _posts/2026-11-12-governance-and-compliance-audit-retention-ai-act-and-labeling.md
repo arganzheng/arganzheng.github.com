@@ -21,6 +21,7 @@ catalog: true
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 300}}}%%
+%% 图：审计链：一条输出能追到模型快照、prompt 版本、检索文档与审批记录
 flowchart TB
     Q["合规部门：上月这条回复依据什么给出的？"] --> O["输出 → trace_id → 会话 / 任务（L4 第三篇的事件日志）"]
     O --> M["模型 id + 快照、prompt 版本"]

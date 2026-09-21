@@ -21,6 +21,7 @@ judge 是一个**测量仪器**，仪器要先被测量。2026 年两项大规�
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
+%% 图：三层评分：能用规则的不用 judge、能用 judge 的不用人，judge 先校准
 flowchart TB
     O["一条输出"] --> R{"能用<b>规则</b>判吗？<br/>字段齐不齐、枚举、容差、引用 id 是否存在"}
     R -- "能：确定、免费" --> RR["规则打分"]

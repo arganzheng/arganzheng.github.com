@@ -21,6 +21,7 @@ L1 第二篇讲了工具调用在**模型 API** 上的协议：模型返回 `too
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
+%% 图：工具的四个来源 → 注册表 → 全量放入 / tool search 按需加载 / 程序化调用
 flowchart TB
     subgraph SRC["工具从哪来（模型眼里都是一组带 schema 的定义）"]
         direction LR

@@ -21,6 +21,7 @@ catalog: true
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 420}}}%%
+%% 图：形态的梯子：copilot → 同步 agent → 后台 agent → 自动化，每级把一类验证交给系统
 flowchart TB
     A["<b>copilot</b>：人在做，AI 在旁边建议（Tab 补全、对话框）——人每一步都看"] --> B["<b>同步 agent</b>：AI 多步执行，人在关键步审批（编辑器内改多个文件、看 diff）"]
     B --> C["<b>后台 agent</b>：人提任务、走开、回来审 PR——人只看结果（on the loop）"]

@@ -21,6 +21,7 @@ catalog: true
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 210}}}%%
+%% 图：场景选择的决策：可验证 × 可撤销决定人在哪，价值 × 频率决定值不值
 flowchart TB
     S["一个候选场景"] --> D1{"可验证吗？"}
     D1 -- "能自动验证（跑测试、比对答案）" --> D2{"可撤销吗？"}

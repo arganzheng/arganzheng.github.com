@@ -77,6 +77,7 @@ python -m pip list | grep -i torch                # python -m：用"当前这个
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 220}}}%%
+%% 图：读一个 JSONL 的两种读法：整个读成 list vs 生成器一次一条
 flowchart TB
     subgraph A["读法一：整个文件读成 list"]
         direction TB

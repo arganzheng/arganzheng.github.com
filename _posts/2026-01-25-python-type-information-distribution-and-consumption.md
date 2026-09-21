@@ -24,6 +24,7 @@ updated: 2026-09-21
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 380}}}%%
+%% 图：类型信息的载体与两种消费：静态检查器与运行时库读同一份注解
 flowchart TB
     SRC["类型信息的载体（第二章）：源码里的注解 · .pyi 存根（C 扩展、没注解的库）· typeshed · py.typed 标记"]
     SRC --> ST["<b>静态消费</b>（第三章）<br/>mypy / pyright / IDE：不运行代码，推理每个表达式的类型；报错在提交前，运行时零开销"]

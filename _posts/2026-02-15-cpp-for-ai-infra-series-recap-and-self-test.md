@@ -18,6 +18,7 @@ date: 2026-02-15 20:00:00
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 150}}}%%
+%% 图：C++ 系列全景：语言核心四篇与工程实践四篇之间的依赖
 flowchart TB
     subgraph L["语言核心（前四篇）"]
         direction TB

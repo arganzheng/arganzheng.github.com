@@ -18,6 +18,7 @@ date: 2026-02-26 20:00:00
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
+%% 图：PyTorch 系列全景：Tensor → Autograd → Module → Dispatcher → 扩展 / 编译 → 性能 → 分布式 → 工程体系
 flowchart TB
     P1["01 整体介绍：三层运行时链路"] --> T2["02 Tensor 与内存布局<br/>Storage · shape · stride"]
     T2 --> A3["03 Autograd 与动态图"]

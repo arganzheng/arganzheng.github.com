@@ -21,6 +21,7 @@ catalog: true
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
+%% 图：trace 的三级树：会话 → 步 → 模型调用 / 工具调用 / 检索 span
 flowchart TB
     T["trace = 一次会话 / 一个任务<br/>trace_id · 用户 · prompt 版本 · 模型快照 · 总成本"]
     T --> S1["span：第 1 步"] & S2["span：第 2 步"] & S3["span：第 k 步"]

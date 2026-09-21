@@ -18,6 +18,7 @@ date: 2026-03-09 20:00:00
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 240}}}%%
+%% 图：经典机器学习系列全景：从学习与泛化出发的十篇依赖
 flowchart TB
     L1["01 什么是学习：划分、泛化、偏差-方差"] --> L2["02 线性回归：最小二乘、梯度下降、Ridge"]
     L2 --> L3["03 逻辑回归与奖励模型：sigmoid、交叉熵、Bradley-Terry"]

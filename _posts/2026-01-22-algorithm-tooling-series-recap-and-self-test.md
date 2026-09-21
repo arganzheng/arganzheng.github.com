@@ -18,6 +18,7 @@ date: 2026-01-22 20:00:00
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
+%% 图：工具箱系列全景：Python → 三剑客 → PyTorch 上下 → Hugging Face → GPU 直觉
 flowchart TB
     P1["01 Python 使用层<br/>生成器、dataclass、协议方法"] --> P2["02 NumPy / Pandas / Matplotlib<br/>形状、轴、广播；错误分析；看曲线"]
     P2 --> P3["03 PyTorch（上）<br/>五个对象、二十行训练循环"]

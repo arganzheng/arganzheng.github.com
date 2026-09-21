@@ -26,6 +26,7 @@ updated: 2026-09-14
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 330}}}%%
+%% 图：一步 RL 的三个作业与两次同步：生成 602 s、打分与前向 72 s、训练 136 s
 flowchart TB
     P["512 个 prompt"] --> G["<b>① 生成（rollout）</b>：推理引擎，每个 prompt 采 16 条回答<br/>decode、memory-bound、最长的那条决定墙钟——602 s（其中长尾 196 s）"]
     G --> R["<b>② 打分 + 前向</b>：奖励（验证器 / RM）+ 策略、参考模型算 logprob<br/>prefill 形态、compute-bound——72 s"]

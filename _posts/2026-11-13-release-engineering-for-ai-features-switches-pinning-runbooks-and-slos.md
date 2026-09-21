@@ -21,6 +21,7 @@ catalog: true
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 270}}}%%
+%% 图：改动 = 发布：版本 → 门禁 → 灰度 → 生产 / 回滚，钉快照与 kill switch
 flowchart TB
     C["任何会改变模型行为的改动<br/>prompt · 模型快照 · effort · schema · 工具集 · 检索配置 · harness 版本"] -- "改动 = 发布" --> V["不可变版本 + 标签<br/>staging / canary / production"]
     V --> G["门禁：评测集（L5 第四篇）"]

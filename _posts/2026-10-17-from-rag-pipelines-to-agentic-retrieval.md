@@ -21,6 +21,7 @@ catalog: true
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
+%% 图：流水线 RAG 与 agentic retrieval 两种形态的取舍
 flowchart TB
     subgraph P["流水线 RAG（2023 起的标准形态）"]
         direction TB

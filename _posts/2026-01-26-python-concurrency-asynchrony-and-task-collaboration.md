@@ -18,6 +18,7 @@ updated: 2026-09-20
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 210}}}%%
+%% 图：并发模型的选择：按瓶颈在哪种资源上选线程 / 进程 / asyncio，再用有界队列组合
 flowchart TB
     Q{"瓶颈在哪种资源上？"} -- "等 I/O：网络、磁盘、等 GPU / 下游" --> IO{"并发数？"}
     IO -- "几十个" --> TH["<b>线程</b>（第二章）<br/>GIL 在等待时释放，等待型任务能并发；<br/>写法最接近 Java"]

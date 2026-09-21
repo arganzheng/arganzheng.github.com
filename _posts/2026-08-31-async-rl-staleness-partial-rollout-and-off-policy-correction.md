@@ -24,6 +24,7 @@ updated: 2026-09-14
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 230}}}%%
+%% 图：异步拆掉同步的墙之后的三种「样本过期」：staleness、部分 rollout、训推不一致
 flowchart TB
     S["同步：所有 rollout 用同一版权重，训练等最长的那条回答"] -- "拆掉墙：生成与训练同时跑" --> A["异步：训练器用「上一版或更早」权重生成的样本"]
     A --> C1["<b>staleness</b>（第二章）<br/>样本是几版之前的策略生成的？<br/>信号：版本差的分布"]

@@ -20,6 +20,7 @@ Python 在这类系统里不做最重的数值计算，它做的是组织请求�
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 230}}}%%
+%% 图：三块内存各有各的量尺：Python 堆（pymalloc）、原生缓冲区、CUDA 缓存分配器
 flowchart TB
     subgraph PY["Python 堆：小对象由 pymalloc 管"]
         direction TB

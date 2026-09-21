@@ -21,6 +21,7 @@ catalog: true
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 300}}}%%
+%% 图：系统里的机制与用户看到的呈现一一对应
 flowchart TB
     subgraph P1[" "]
         direction LR

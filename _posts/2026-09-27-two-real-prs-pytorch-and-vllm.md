@@ -24,6 +24,7 @@ updated: 2026-09-14
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
+%% 图：两个真实 PR 的并排时间线：PyTorch #185344 与 vLLM #47272
 flowchart TB
     subgraph A["PyTorch #185344"]
         direction TB

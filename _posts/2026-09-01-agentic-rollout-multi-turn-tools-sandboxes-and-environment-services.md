@@ -24,6 +24,7 @@ GPU 这一侧在这 30 分钟里做了什么，是这篇更想回答的问题。
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 380}}}%%
+%% 图：一条 agent 轨迹：推理引擎与沙箱交替，GPU 与 CPU 互相等待
 flowchart TB
     subgraph LOOP["一条 agent 轨迹（重复 20 轮）"]
         direction TB

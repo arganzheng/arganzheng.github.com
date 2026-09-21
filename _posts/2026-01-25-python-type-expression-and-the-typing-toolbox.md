@@ -28,6 +28,7 @@ Python 是动态类型语言，但这不意味着"无类型"。自 Python 3.5 �
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 330}}}%%
+%% 图：类型意图与 typing 工具的对应；注解在运行时只是存进 __annotations__
 flowchart TB
     Q["想表达的类型意图 → typing 里对应的工具"]
     Q --> A["「可能没有」→ Optional[T] / T | None"]

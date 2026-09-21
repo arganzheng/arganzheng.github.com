@@ -21,6 +21,7 @@ catalog: true
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+%% 图：模型网关的位置：十二个服务经它调三家供应商，供应商 key 只在网关
 flowchart TB
     subgraph APPS["十二个服务"]
         direction LR

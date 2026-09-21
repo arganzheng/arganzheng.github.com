@@ -18,6 +18,7 @@ date: 2026-05-09 20:00:00
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 150}}}%%
+%% 图：多模态系列全景：理解线与生成线在第九篇交汇
 flowchart TB
     subgraph U["理解线：其他模态 → token → LLM"]
         direction TB

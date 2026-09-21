@@ -18,6 +18,7 @@ date: 2026-05-01 20:00:00
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
+%% 图：高效推理系列全景：一步 decode 的成本公式与四条改它的线
 flowchart TB
     C["一步 decode 的成本 = （权重字节 + KV 字节 + 算力）÷ 每次前向产出的 token 数"]
     C --> D1["改解码过程<br/>01 采样与约束"] --> D2["02 投机解码<br/>唯一不改变输出分布的方法"]

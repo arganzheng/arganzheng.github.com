@@ -21,6 +21,7 @@ catalog: true
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
+%% 图：三类检索各自的前提、买到的与付出的
 flowchart TB
     Q["一条查询"] --> L & V & S
     subgraph L["词法 / 精确：grep、BM25"]

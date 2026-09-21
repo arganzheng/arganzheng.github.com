@@ -37,6 +37,7 @@ catalog: true
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
+%% 图：system prompt 的六个部分（模式）与随模型变的措辞
 flowchart TB
     subgraph SP["一份 system prompt 的六个部分（模式：随模型不变）"]
         direction TB

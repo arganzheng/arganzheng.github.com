@@ -21,6 +21,7 @@ catalog: true
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
+%% 图：一次检索的路径：两路召回 → RRF 融合 → rerank → top-5 进 prompt
 flowchart TB
     Q["查询 + 请求者的权限"] --> A["向量召回<br/>抓语义：同义 / 改述<br/>取 top-50"]
     Q --> B["BM25 召回<br/>抓精确：型号 / 函数名 / 错误码<br/>取 top-50"]

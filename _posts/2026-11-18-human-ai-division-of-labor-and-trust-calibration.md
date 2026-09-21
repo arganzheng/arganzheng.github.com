@@ -21,6 +21,7 @@ catalog: true
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 230}}}%%
+%% 图：信任校准的三态：过度信任、校准、信任不足，以及各自的升降手段
 flowchart TB
     X["信任 vs 实际能力"] --> OT["<b>过度信任</b>（信任 > 能力）<br/>自动化偏见：多数时候对，人停止核对<br/>信号：核对率趋零而错误率不为零<br/>案例：Air Canada、虚构判例、PocketOS"]
     X --> OK["<b>校准</b>（信任 ≈ 能力）：目标<br/>用户在 AI 擅长处放手、在边界外核对"]

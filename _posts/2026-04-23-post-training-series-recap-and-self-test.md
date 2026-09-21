@@ -18,6 +18,7 @@ date: 2026-04-23 20:00:00
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
+%% 图：后训练系列全景：策略 / 奖励 / 参考三件套在八篇里逐篇替换
 flowchart TB
     S1["01 SFT<br/>造出「策略」：会按格式回答"] --> R2["02 偏好数据与奖励模型<br/>造出「奖励」：Bradley-Terry"]
     S1 & R2 --> O3["03 在线 RL：PPO / GRPO<br/>策略 + 奖励 + 参考，三件套"]

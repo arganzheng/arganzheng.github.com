@@ -19,6 +19,7 @@ catalog: true
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 280}}}%%
+%% 图：从一个坏结果到修复：trace → 决策点 → 打类 → 回放或评测用例
 flowchart TB
     B["一个坏结果（用户 👎 / 存疑 / 客服工单）"] -- "反馈绑定 trace_id" --> TR["打开完整轨迹"]
     TR --> D["决策点日志：第几步、看到了什么、为什么这么选"]

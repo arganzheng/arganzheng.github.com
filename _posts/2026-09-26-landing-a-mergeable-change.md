@@ -26,6 +26,7 @@ updated: 2026-09-14
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 330}}}%%
+%% 图：一个改动从最小 diff 到合入要过的门
 flowchart TB
     C["一个真实的修复"] --> D["<b>最小 diff</b>（第二章）：一个 PR 只做一件事<br/>顺手排 import 会让 review 多绕十天"]
     D --> T["<b>测试</b>（第三章）：改动必须带测试；性能改动必须带 benchmark 数字（第四章）"]

@@ -21,6 +21,7 @@ catalog: true
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
+%% 图：RAG 答错的两种病：没找到（检索侧）与找到了没说对（生成侧）
 flowchart TB
     E["一个 RAG 答错了"] --> D{"正确的块在上下文里吗？"}
     D -- "不在：<b>没找到</b>" --> R["检索侧的病<br/>指标：recall@50（召回够不够）、recall@5（rerank 后够不够）、nDCG<br/>评测集：（查询，相关块）——标注便宜"]

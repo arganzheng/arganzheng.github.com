@@ -21,6 +21,7 @@ catalog: true
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
+%% 图：结构化知识的三种接入：SQL + 语义层、本体、GraphRAG 各答哪类问题
 flowchart TB
     Q["答案在「关系」里，不在任何一个块里"] --> W{"数据长什么样？"}
     W -- "有 schema 的业务表<br/>「华东区 Q3 营收」" --> S["text-to-SQL + <b>语义层</b><br/>业务概念定义一次、编译成 SQL、可审查"]

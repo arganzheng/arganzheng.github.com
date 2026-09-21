@@ -21,6 +21,7 @@ catalog: true
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 360}}}%%
+%% 图：p95 = 9 秒的四段分解与各段的药
 flowchart TB
     Q["请求"] --> A["应用侧准备：检索 1.2 s（rerank 50 个候选）"]
     A --> N["网络 + 排队：1 s（峰值时段）"]

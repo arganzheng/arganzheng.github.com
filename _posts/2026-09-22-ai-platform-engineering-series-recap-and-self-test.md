@@ -18,6 +18,7 @@ date: 2026-09-22 20:00:00
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 160}}}%%
+%% 图：AI 平台工程系列全景：需求清单分出资源层与交付层两条链
 flowchart TB
     P1["01 引擎的需求清单与整体架构<br/>K8s 的四个假设被 AI 负载逐条违背"]
     subgraph RES["资源层：引擎之下"]

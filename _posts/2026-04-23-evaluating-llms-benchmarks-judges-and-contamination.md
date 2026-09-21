@@ -38,6 +38,7 @@ judge 的 80% 胜率：Zheng 等 2023 测出 GPT-4 作 judge 时对更长回答�
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 210}}}%%
+%% 图：一个 benchmark 分数的五步：题目集、协议、模型输出、评分、统计——每一步能改变分数的变量
 flowchart TB
     A["① 题目集<br/>MMLU / GSM8K / HumanEval …"] --> B["② 协议<br/>few-shot 数、prompt 模板、<br/>温度、抽取答案的正则、k"]
     B --> C["③ 模型输出<br/>采样一次还是 n 次"]

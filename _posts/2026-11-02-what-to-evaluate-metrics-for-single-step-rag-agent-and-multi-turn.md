@@ -19,6 +19,7 @@ catalog: true
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
+%% 图：四种应用形态各评什么，以及所有形态都要并列报的三样
 flowchart LR
     F{"应用形态"} --> S["<b>单步</b><br/>结果：准确率 / F1 / rubric<br/>形式：格式遵循率、schema 通过率、拒答正确率"]
     F --> RG["<b>RAG</b><br/>检索侧：recall@k、nDCG<br/>生成侧：faithfulness、引用准确<br/>（分开评，L3 第七篇）"]

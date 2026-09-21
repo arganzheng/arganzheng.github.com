@@ -14,6 +14,24 @@ date: 2026-05-20 20:00:00
 
 > **读完这十篇，你应该能回答哪些问题？[^q0] 哪些数字与结论必须能脱口而出？[^q1] 怎么判断自己是"读过"还是"掌握"了？[^q2]**
 
+先把整个系列放在一张图上——箭头是**推导或前置上的依赖**（箭头尾端的结论被箭头头端当作前提），不是阅读顺序：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 180}}}%%
+%% 图：GPU Kernel 工程全景：先算理论上界，再从 memory-bound 到 compute-bound 逐类 kernel 逼近它
+flowchart TB
+    G1["01 硬件结构与 Roofline<br/>字节数、FLOPs、ridge point"] --> G2["02 CUDA 编程模型与第一个 kernel<br/>怎么写、怎么测"]
+    G2 --> G3["03 访存合并与 elementwise<br/>把带宽用满"]
+    G3 --> G4["04 shared memory 与 reduction<br/>softmax、LayerNorm、online softmax"]
+    G3 --> G5["05 GEMM：naive → 分块<br/>复用让强度过 ridge"]
+    G5 --> G6["06 Tensor Core、CUTLASS、CuTe<br/>把分块接到 mma"]
+    G4 & G5 --> G7["07 Triton<br/>块级编程，编译器替你做前六篇的一半"]
+    G4 & G6 --> G8["08 Attention kernel<br/>FlashAttention、PagedAttention——前七篇的汇合点"]
+    G6 & G7 --> G9["09 量化与融合 kernel<br/>decoder layer 的其余部分"]
+    G8 & G9 --> G10["10 剖析、测试与贡献<br/>把 kernel 做成产品"]
+
+```
+
 ## 一、总览：系列回答的问题与主线
 
 系列的一句话主张是：**每个 kernel 先算它理论上应该多快，再测它实际多快，再用 profiler 解释差距，再动手缩小差距**。理论下界来自 kernel 的两个数——字节数与 FLOPs——和硬件的两个数——峰值带宽与峰值算力；相除得到算术强度与 ridge point，比一下就知道是 memory-bound 还是 compute-bound，方向是减字节还是喂满 Tensor Core。硬件基线全系列一致：A100（2.0 TB/s、BF16 312 TFLOPS、FP32 19.5 TFLOPS、108 个 SM），随文标注 H100（3.35 TB/s、989 TFLOPS、132 个 SM）。

@@ -21,6 +21,7 @@ catalog: true
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 300}}}%%
+%% 图：跨会话记忆的写、取、忘
 flowchart TB
     S["一次会话结束"] --> W{"写什么？下次会用到、且别处不易取回"}
     W -- "用户偏好、踩过的坑、长期任务进度" --> ST["存储：文件 / 事件 / 向量库，每条带来源与时间戳"]

@@ -21,6 +21,7 @@ catalog: true
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
+%% 图：评测集的生命周期：流量与红队 → 标注 → 分层 → 门禁 → bad case 回流
 flowchart TB
     L["生产流量（trace）"] -- "按<b>类型</b>采样，不按流量比例" --> S["候选用例"]
     R["红队 / 安全用例<br/>（流量里不会自然出现，专门写）"] --> S

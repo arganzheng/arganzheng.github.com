@@ -33,6 +33,7 @@ except Exception: log; raise       异常是否重抛，决定 Worker 是否退�
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 210}}}%%
+%% 图：Python 代码怎么跑：源码 → code object → 帧 → 名称解析 / import / 异常传播
 flowchart TB
     S["源码 .py"] -- "编译（第二章）" --> CO["code object：字节码 + 常量 + 名字表，缓存在 __pycache__/*.pyc"]
     CO -- "每次调用" --> FR["帧（frame）：这一次执行的局部变量与执行位置；一次调用一个帧，帧连成调用栈"]

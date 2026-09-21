@@ -21,6 +21,7 @@ catalog: true
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 300}}}%%
+%% 图：四个 harness 与 harness 的五个组件
 flowchart TB
     H["一个 harness 的五个组件：循环（一）· 工具协议（二）· 运行时（三）· 上下文管理（四）· 权限与沙箱（五）"]
     H --> C1["<b>Codex</b>（Rust，开源）<br/>单核大工作区 · 状态在对象 · 专用策略语言 · 三平台原生沙箱"]
