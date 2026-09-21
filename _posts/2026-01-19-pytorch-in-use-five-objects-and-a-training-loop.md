@@ -382,57 +382,70 @@ def get_batch(data, cfg, gen):
 cfg = Config()
 torch.manual_seed(cfg.seed); gen = torch.Generator().manual_seed(cfg.seed)
 train, val = load_corpus()
-model = TinyGPT(cfg).to(DEV)                                                       # ①
-opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=0.1)           # ②
-sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: cosine_with_warmup(s, cfg))  # ③
+# !ref model
+model = TinyGPT(cfg).to(DEV)
+# !ref opt
+opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=0.1)
+# !ref sched
+sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: cosine_with_warmup(s, cfg))
 
 for step in range(cfg.steps):
-    x, y = get_batch(train, cfg, gen)                                               # ④
-    x, y = x.to(DEV, non_blocking=True), y.to(DEV, non_blocking=True)               # ⑤
-    with torch.autocast(DEV, dtype=torch.bfloat16, enabled=DEV == "cuda"):          # ⑥
-        logits = model(x)                                                           # ⑦  [B, T, V]
-        loss = F.cross_entropy(logits.view(-1, cfg.vocab).float(), y.view(-1))      # ⑧
-    loss.backward()                                                                 # ⑨
-    gnorm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)                 # ⑩
-    opt.step(); sched.step(); opt.zero_grad(set_to_none=True)                       # ⑪ ⑫ ⑬
-    if step % 100 == 0:                                                             # ⑭
+    # !ref batch
+    x, y = get_batch(train, cfg, gen)
+    # !ref to-dev
+    x, y = x.to(DEV, non_blocking=True), y.to(DEV, non_blocking=True)
+    # !ref autocast
+    with torch.autocast(DEV, dtype=torch.bfloat16, enabled=DEV == "cuda"):
+        # !ref forward
+        logits = model(x)                       # [B, T, V]
+        # !ref loss
+        loss = F.cross_entropy(logits.view(-1, cfg.vocab).float(), y.view(-1))
+    # !ref backward
+    loss.backward()
+    # !ref clip
+    gnorm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+    # !ref update
+    opt.step(); sched.step(); opt.zero_grad(set_to_none=True)
+    # !ref log +1
+    if step % 100 == 0:
         print(f"step {step:4d}  loss {loss.item():.3f}  lr {sched.get_last_lr()[0]:.2e}  grad_norm {gnorm:.2f}")
 
-model.eval()                                                                        # ⑮
-with torch.no_grad():                                                               # ⑯
+# !ref eval +4
+model.eval()
+with torch.no_grad():
     x, y = get_batch(val, Config(batch=64), gen)
     val_loss = F.cross_entropy(model(x).view(-1, cfg.vocab), y.view(-1)).item()
 print(f"验证 loss {val_loss:.3f}  (PPL {math.exp(val_loss):.1f})")
 ```
 
-用真实数据（SFT）时第 ④ 行换成 `for step, batch in enumerate(loader)`，第 ⑧ 行多一个 `ignore_index=-100`——下面的逐行解释里一起讲。
+用真实数据（SFT）时[取 batch 那一行](#batch)换成 `for step, batch in enumerate(loader)`，[算 loss 那一行](#loss)多一个 `ignore_index=-100`——下面的逐行解释里一起讲。
 
 ### 3. 逐行解释
 
-- **①** `TinyGPT(cfg).to(DEV)`：建模型并把全部参数搬到 GPU（第二章的 `device`；`DEV = "cuda" if torch.cuda.is_available() else "cpu"`）。
-- **②** `AdamW(model.parameters(), ...)`：优化器拿到全部可训练参数的引用；`weight_decay=0.1` 是 L0 第二篇的正则化。
-- **③** `LambdaLR(opt, ...)`：调度器拿到优化器，每步按 warmup + cosine 改它的学习率（第五章第 2 节）。
-- **④** 取一个 batch：`x` 是 `[32, 128]` 的字符 id，`y` 是每个位置的下一个字符。真实项目里这一行是 `for step, batch in enumerate(loader)`（第五章第 1 节）。
-- **⑤** `.to(DEV, non_blocking=True)`：数据搬到 GPU，`non_blocking=True` 让拷贝与前一步的计算重叠（第二章）。
-- **⑥** `torch.autocast(..., bfloat16)`：这段里的矩阵乘在 bf16 上跑、reduction 留 fp32——混合精度，第四篇讲；数值格式在 L4 第六篇。`enabled=DEV == "cuda"` 是因为 CPU 没有 bf16 硬件路径，开了慢 30 倍（第 6 节）。
-- **⑦** `model(x)`：前向，走 `__call__` → `forward`（第四章），得到 `[B, T, V]` 的 logits。
-- **⑧** `cross_entropy(logits.view(-1, V).float(), y.view(-1))`：三个细节。`view(-1, V)` 把 `[B, T, V]` 展平成 `[B·T, V]`，因为 `cross_entropy` 要二维输入（上一篇的 reshape）；`.float()` 让 softmax + log 在 fp32 上算，避免 bf16 下溢出和精度损失（L0 第五篇：softmax 的数值）；SFT 时还要加 `ignore_index=-100`——labels 里标成 −100 的位置（prompt 与 padding）不算 loss，这就是 **SFT 的 loss mask**（L0 第五篇第四章）。`cross_entropy` 算的就是 L0 第五篇的每 token 负对数似然：内部做 log-softmax，取真实 label 那一位取负，对所有非 −100 的位置平均。
-- **⑨** `loss.backward()`：反向传播，梯度累加到每个参数的 `.grad`（第三章第二件事；L0 第七篇链式法则）。
-- **⑩** `clip_grad_norm_(..., 1.0)`：算所有梯度拼起来的总范数，超过 1.0 就整体缩放到 1.0——**梯度裁剪**，防 loss spike（L3 第三篇）。返回值是裁剪前的范数，值得打出来看。
-- **⑪** `opt.step()`：AdamW 用 `.grad` 更新参数（L3 第三篇）。
-- **⑫** `sched.step()`：学习率按曲线走一步（L0 第七篇第六章）。
-- **⑬** `opt.zero_grad(set_to_none=True)`：清梯度；置 `None` 而不是填 0，省一次显存写。放在 `step` 之后而不是 `backward` 之前，是为了让第三章说的梯度累积只改这一行的位置就能实现。
-- **⑭** 每 100 步才 `loss.item()`：它会同步 GPU（第二章第 3 节），别每步做。
-- **⑮ ⑯** 评估：`model.eval()` 切换 dropout / BatchNorm 的行为（本模型没有，写上是习惯），`torch.no_grad()` 不建图（第三章第三件事），验证集上算一次 loss，`exp` 一下就是 [PPL](# "tip: perplexity，困惑度 = exp(每 token 交叉熵)。直觉是模型每步在多少个候选里犹豫：PPL 128 等于在 128 个字符里均匀乱猜，PPL 9.6 是在不到 10 个里犹豫；L0 第六篇")。
+下面每条开头的代码就是上面的某一行：悬停它，那一行会亮起；点击跳过去。反过来，代码左侧蓝色的行号悬停就能看到对应的解释。
+
+- [`TinyGPT(cfg).to(DEV)`](#model)：建模型并把全部参数搬到 GPU（第二章的 `device`；`DEV = "cuda" if torch.cuda.is_available() else "cpu"`）。
+- [`AdamW(model.parameters(), ...)`](#opt)：优化器拿到全部可训练参数的引用；`weight_decay=0.1` 是 L0 第二篇的正则化。
+- [`LambdaLR(opt, ...)`](#sched)：调度器拿到优化器，每步按 warmup + cosine 改它的学习率（第五章第 2 节）。
+- [`get_batch(train, cfg, gen)`](#batch)：取一个 batch，`x` 是 `[32, 128]` 的字符 id，`y` 是每个位置的下一个字符。真实项目里这一行是 `for step, batch in enumerate(loader)`（第五章第 1 节）。
+- [`.to(DEV, non_blocking=True)`](#to-dev)：数据搬到 GPU，`non_blocking=True` 让拷贝与前一步的计算重叠（第二章）。
+- [`torch.autocast(..., bfloat16)`](#autocast)：这段里的矩阵乘在 bf16 上跑、reduction 留 fp32——混合精度，第四篇讲；数值格式在 L4 第六篇。`enabled=DEV == "cuda"` 是因为 CPU 没有 bf16 硬件路径，开了慢 30 倍（第 6 节）。
+- [`model(x)`](#forward)：前向，走 `__call__` → `forward`（第四章），得到 `[B, T, V]` 的 logits。
+- [`cross_entropy(logits.view(-1, V).float(), y.view(-1))`](#loss)：三个细节。`view(-1, V)` 把 `[B, T, V]` 展平成 `[B·T, V]`，因为 `cross_entropy` 要二维输入（上一篇的 reshape）；`.float()` 让 softmax + log 在 fp32 上算，避免 bf16 下溢出和精度损失（L0 第五篇：softmax 的数值）；SFT 时还要加 `ignore_index=-100`——labels 里标成 −100 的位置（prompt 与 padding）不算 loss，这就是 **SFT 的 loss mask**（L0 第五篇第四章）。`cross_entropy` 算的就是 L0 第五篇的每 token 负对数似然：内部做 log-softmax，取真实 label 那一位取负，对所有非 −100 的位置平均。
+- [`loss.backward()`](#backward)：反向传播，梯度累加到每个参数的 `.grad`（第三章第二件事；L0 第七篇链式法则）。
+- [`clip_grad_norm_(..., 1.0)`](#clip)：算所有梯度拼起来的总范数，超过 1.0 就整体缩放到 1.0——**梯度裁剪**，防 loss spike（L3 第三篇）。返回值是裁剪前的范数，值得打出来看。
+- [`opt.step(); sched.step(); opt.zero_grad(set_to_none=True)`](#update)：三件事一行。`opt.step()`——AdamW 用 `.grad` 更新参数（L3 第三篇）；`sched.step()`——学习率按曲线走一步（L0 第七篇第六章）；`opt.zero_grad(set_to_none=True)`——清梯度，置 `None` 而不是填 0，省一次显存写。清零放在 `step` 之后而不是 `backward` 之前，是为了让第三章说的梯度累积只改这一行的位置就能实现。
+- [`if step % 100 == 0: print(...)`](#log)：每 100 步才 `loss.item()`——它会同步 GPU（第二章第 3 节），别每步做。
+- [评估那五行](#eval)：`model.eval()` 切换 dropout / BatchNorm 的行为（本模型没有，写上是习惯），`torch.no_grad()` 不建图（第三章第三件事），验证集上算一次 loss，`exp` 一下就是 [PPL](# "tip: perplexity，困惑度 = exp(每 token 交叉熵)。直觉是模型每步在多少个候选里犹豫：PPL 128 等于在 128 个字符里均匀乱猜，PPL 9.6 是在不到 10 个里犹豫；L0 第六篇")。
 
 ### 4. 多出来的四样
 
 它比教程里常见的循环长。教程的最小版只有五行——前向、算 loss、`backward`、`step`、`zero_grad`——那是[第一章](#一总览)那个环的骨架，能跑 MNIST。多出来的四样是 LLM 训练的标配，每一样都对应一种不加就会遇到的故障：
 
-1. **`autocast`（第 ⑥ 行）。** 不开，所有矩阵乘在 fp32 上跑：显存里的激活是 bf16 的两倍，Tensor Core 的 bf16 吞吐也用不上，同一张卡上速度与能放的 batch 都差一倍多。只对 GPU 成立——CPU 上开它是纯开销。
-2. **`.float()` 与 `ignore_index`（第 ⑧ 行）。** 不加 `.float()`，softmax 在 bf16 上算：bf16 只有 8 位尾数，几万个 logits 里 `exp` 之后求和会丢掉小项，loss 从第一步起就带着系统误差，训到后期梯度不准。不加 `ignore_index=-100`，SFT 数据里的 prompt 也被当成学习目标——模型花一半算力去学"复述问题"，而且 padding 位置的 loss 会把平均值拉偏。
-3. **`clip_grad_norm_`（第 ⑩ 行）。** 不裁，某一个 batch 里的坏样本产生一个特别大的梯度，一步就把参数推到很远的地方，loss 冲上去，之后可能回不来——这就是 loss spike。裁剪把这一步的总范数压回 1.0，参数只往那个方向走一小步。
-4. **学习率调度（第 ③、⑫ 行）。** 不 warmup，第一步就用 $$3 \times 10^{-4}$$：AdamW 的二阶矩估计在前几步还没稳定，实际步长可能比设定大很多倍，前几步就发散（L3 第三篇讲 Adam 为什么需要 warmup）；不衰减，后期学习率太大，loss 在最优点附近来回抖、收不下去。
+1. **[`autocast`](#autocast)。** 不开，所有矩阵乘在 fp32 上跑：显存里的激活是 bf16 的两倍，Tensor Core 的 bf16 吞吐也用不上，同一张卡上速度与能放的 batch 都差一倍多。只对 GPU 成立——CPU 上开它是纯开销。
+2. **[`.float()` 与 `ignore_index`](#loss)。** 不加 `.float()`，softmax 在 bf16 上算：bf16 只有 8 位尾数，几万个 logits 里 `exp` 之后求和会丢掉小项，loss 从第一步起就带着系统误差，训到后期梯度不准。不加 `ignore_index=-100`，SFT 数据里的 prompt 也被当成学习目标——模型花一半算力去学"复述问题"，而且 padding 位置的 loss 会把平均值拉偏。
+3. **[`clip_grad_norm_`](#clip)。** 不裁，某一个 batch 里的坏样本产生一个特别大的梯度，一步就把参数推到很远的地方，loss 冲上去，之后可能回不来——这就是 loss spike。裁剪把这一步的总范数压回 1.0，参数只往那个方向走一小步。
+4. **学习率调度（[建调度器](#sched)、[每步 `sched.step()`](#update)）。** 不 warmup，第一步就用 $$3 \times 10^{-4}$$：AdamW 的二阶矩估计在前几步还没稳定，实际步长可能比设定大很多倍，前几步就发散（L3 第三篇讲 Adam 为什么需要 warmup）；不衰减，后期学习率太大，loss 在最优点附近来回抖、收不下去。
 
 所以**这二十行是正常的、也是够用的**：真实训练代码只会在它外面再包日志、评估、checkpoint 与分布式，不会在里面再多什么——那层外壳就是第 7 节的 `Trainer`。
 
@@ -462,11 +475,11 @@ step  999  loss 2.022  lr 3.00e-05  grad_norm 0.31   53.6s
 
 ### 6. 一个 CPU 上的陷阱
 
-第 ⑥ 行的 `enabled=DEV == "cuda"` 不是可有可无的：在 CPU 上开着 bf16 autocast 训，一步 1.4 秒；关掉是 0.05 秒——**慢 30 倍**。原因是 CPU 没有 bf16 的硬件路径，PyTorch 用软件模拟。混合精度的收益完全来自硬件（GPU 的 Tensor Core），没有硬件时它只是开销。第四篇讲它在 GPU 上为什么快、省多少显存。
+[`autocast` 那一行](#autocast)的 `enabled=DEV == "cuda"` 不是可有可无的：在 CPU 上开着 bf16 autocast 训，一步 1.4 秒；关掉是 0.05 秒——**慢 30 倍**。原因是 CPU 没有 bf16 的硬件路径，PyTorch 用软件模拟。混合精度的收益完全来自硬件（GPU 的 Tensor Core），没有硬件时它只是开销。第四篇讲它在 GPU 上为什么快、省多少显存。
 
 ### 7. 与 `Trainer` 的关系
 
-`transformers.Trainer`、`trl.SFTTrainer` 做的是同样的事，对应到上面的标号：`compute_loss` 是第 ⑦–⑧ 行（前向 + 算 loss），`training_step` 是第 ⑨–⑬ 行（反向、裁剪、更新、清零），`autocast` 由 `TrainingArguments(bf16=True)` 打开，学习率曲线由 `lr_scheduler_type` 与 `warmup_steps` 决定，外面再包上日志、评估、checkpoint 与分布式。它们的行为不符合预期时——loss 不降、显存爆、学习率不对——回到这二十行想"它在第几行做了和我不一样的事"，然后去读它的源码（第五篇给入口）。
+`transformers.Trainer`、`trl.SFTTrainer` 做的是同样的事，对应到上面的代码：`compute_loss` 是[前向](#forward) + [算 loss](#loss)两行，`training_step` 是[反向](#backward)、[裁剪](#clip)、[更新与清零](#update)三行，`autocast` 由 `TrainingArguments(bf16=True)` 打开，学习率曲线由 `lr_scheduler_type` 与 `warmup_steps` 决定，外面再包上日志、评估、checkpoint 与分布式。它们的行为不符合预期时——loss 不降、显存爆、学习率不对——回到这二十行想"它在第几行做了和我不一样的事"，然后去读它的源码（第五篇给入口）。
 
 ## 七、本文小结
 
