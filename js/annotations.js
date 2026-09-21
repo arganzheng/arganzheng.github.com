@@ -656,11 +656,12 @@
   function blockFor(node) {
     var el = node.nodeType === 1 ? node : node.parentNode;
     var cell = el.closest('td, th');
-    var caption = el.closest('.table-caption');
     var block = cell ? cell.closest('table') : el.closest(BLOCK_SELECTOR);
-    if (caption) {
-      var anchor = caption.nextElementSibling;
-      block = anchor && anchor.querySelector ? (anchor.querySelector('table') || anchor) : anchor;
+    // a note on a table cell / header row goes under the table's caption, like a figure's
+    if (block && block.tagName === 'TABLE') {
+      var wrap = block.parentNode.classList.contains('table-responsive') ? block.parentNode : block;
+      var cap = wrap.nextElementSibling;
+      if (cap && cap.classList.contains('table-caption')) block = cap;
     }
     if (block && block.tagName === 'PRE' && block.parentNode.classList.contains('highlight')) block = block.parentNode;
     if (block && block.parentNode && block.parentNode.classList.contains('highlighter-rouge')) block = block.parentNode;
