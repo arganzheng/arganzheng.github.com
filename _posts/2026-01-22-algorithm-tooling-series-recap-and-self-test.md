@@ -156,7 +156,7 @@ date: 2026-01-22 20:00:00
 
 ### 4. 从封装回到二十行：追溯的路径
 
-总纲把第三种能力叫追溯：从高层封装回到二十行，从报错回到四块，从慢回到 profiler 表。第一篇给第一层地图：PyTorch 的每个 API 建在哪个 Python 协议上，traceback 从下往上读、跳过 `_call_impl`、找自己文件的最后一帧。第三篇给第二层：二十行的每一行对应一个概念，`Trainer` 的 `compute_loss` 是第 9–10 行、`training_step` 是第 11–13 行，行为不对时回到这张表想"它在哪一行做了不同的事"。第五篇给第三层：六行 SFT 背后的六件事各落在二十行的哪一行（chat template 在 `__getitem__`、loss mask 在 `ignore_index=-100`、packing 在 `collate_fn`、LoRA 在 `requires_grad`），然后从 `compute_loss` 往下追源码——答案学会了却不会停这种问题只有读源码才能定位。
+总纲把第三种能力叫追溯：从高层封装回到二十行，从报错回到四块，从慢回到 profiler 表。第一篇给第一层地图：PyTorch 的每个 API 建在哪个 Python 协议上，traceback 从下往上读、跳过 `_call_impl`、找自己文件的最后一帧。第三篇给第二层：二十行的每一行对应一个概念，`Trainer` 的 `compute_loss` 是[前向 + 算 loss 那两行](/pytorch-in-use-five-objects-and-a-training-loop.html#forward)、`training_step` 是[反向到清零那三行](/pytorch-in-use-five-objects-and-a-training-loop.html#backward)，行为不对时回到这张表想"它在哪一行做了不同的事"。第五篇给第三层：六行 SFT 背后的六件事各落在二十行的哪一行（chat template 在 `__getitem__`、loss mask 在 `ignore_index=-100`、packing 在 `collate_fn`、LoRA 在 `requires_grad`），然后从 `compute_loss` 往下追源码——答案学会了却不会停这种问题只有读源码才能定位。
 
 第四篇与第六篇给另外两条：OOM 按爆的时机归到四块之一；慢按 profiler 表归到 GEMM、attention、`copy_`、launch 开销或 GPU 空转。四条路径的共同点是都有一张"我这一层的表"——协议对照表、二十行、四块、profiler 前几行——问题先落到表上的某一格，再往下一层去。越过表能解释的范围（一个算子太慢、一个并行策略框架不支持、一个 OOM 调参绕不过）就是进 Infra 地图的信号。
 
