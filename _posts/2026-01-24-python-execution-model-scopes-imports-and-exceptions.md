@@ -31,6 +31,18 @@ except Exception: log; raise       异常是否重抛，决定 Worker 是否退�
 
 ## 一、总览
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 210}}}%%
+flowchart TB
+    S["源码 .py"] -- "编译（第二章）" --> CO["code object：字节码 + 常量 + 名字表，缓存在 __pycache__/*.pyc"]
+    CO -- "每次调用" --> FR["帧（frame）：这一次执行的局部变量与执行位置；一次调用一个帧，帧连成调用栈"]
+    FR -- "读一个名字（第三章）" --> LEGB["按 Local → Enclosing → Global → Builtins 找；闭包 = 内层函数带走了外层帧的变量格"]
+    FR -- "import torch（第四章）" --> IMP["找到模块（sys.path）→ 执行它的 code object 一次 → 放进 sys.modules 缓存；.so 扩展在这里被 dlopen"]
+    FR -- "出错（第五章）" --> EXC["异常沿帧链向上传播，每一层的 except 有机会接住；没人接住就到解释器顶层打印 traceback"]
+
+```
+
+
 ### 1. 一个贯穿上下两篇的例子
 
 为了让后面的机制讨论有一个共同的落点，先给出一个极简的推理组件。它没有任何真实的模型逻辑，但用到了上下两篇要讲的每一种机制：

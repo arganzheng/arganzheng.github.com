@@ -18,6 +18,28 @@ updated: 2026-09-20
 
 ## 一、总览
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+flowchart TB
+    subgraph DEF["定义时（import 阶段）"]
+        direction TB
+        D1["@register('qwen3')<br/>装饰器把类登记进注册表"] --> REG["注册表：{'qwen3': Qwen3Model, 'llama': …}<br/>（dict、或 __init_subclass__ / 元类自动收集）"]
+    end
+    subgraph RUN["启动时（选择）"]
+        direction TB
+        C["config: model_type = 'qwen3'"] --> L["按字符串查注册表 → 得到类<br/>没找到就 import_module('plugins.xxx') 再查"]
+        L --> I["实例化一次，拿到对象"]
+    end
+    subgraph HOT["运行时（热路径）"]
+        direction TB
+        H["obj.forward(x)：普通方法调用<br/>不再有 getattr / 字符串 / 反射"]
+    end
+    DEF --> RUN --> HOT
+    HOT -. "原则：动态机制只负责启动时「选择」，不负责运行时「执行」" .-> DEF
+
+```
+
+
 ### 1. 两个问题与全文脉络
 
 全文只有两部分。**前半是 Python 的动态机制**：先说清楚 AI-Infra 为什么需要它们（第二章），再把工具箱摊开——反射、元编程、动态加载三章是同一个工具箱的三个抽屉，不是三种不同的能力（第三到第五章）——最后给出选型与边界（第六章）。**后半是应用与工程实践**：用组件注册 / 插件化和路由分发两个应用把机制组合起来（第七到第九章），再从性能、可维护性和安全三方面算清代价（第十章），并与 Java 对照（第十一章）。贯穿全文的一条工程原则是：**动态机制只负责在启动时"选择"，不负责在运行时"执行"**——初始化可以动态，热路径必须静态。

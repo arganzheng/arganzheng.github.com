@@ -26,6 +26,21 @@ Python 是动态类型语言，但这不意味着"无类型"。自 Python 3.5 �
 
 ## 一、总览
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 330}}}%%
+flowchart TB
+    Q["想表达的类型意图 → typing 里对应的工具"]
+    Q --> A["「可能没有」→ Optional[T] / T | None"]
+    Q --> B["「几种之一」→ Union、Literal、枚举"]
+    A --> C["「对什么都行，但要一致」→ TypeVar、Generic、ParamSpec"]
+    B --> D["「长得像就行」→ Protocol（结构化子类型，鸭子类型的静态版）"]
+    C --> E["「一个有固定键的 dict」→ TypedDict"]
+    D --> F["「可调用的东西」→ Callable、装饰器保留签名"]
+    E & F --> N["注解本身在运行时什么都不做：只是存进 __annotations__<br/>——谁来读它、怎么用，是中篇的事"]
+
+```
+
+
 ### 1. 提供层、消费层与数据契约：三篇的地图
 
 ```

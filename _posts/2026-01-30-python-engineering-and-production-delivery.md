@@ -39,6 +39,20 @@ Java 开发者常有的一个错觉是"Python 简单，随便装装就能跑"。
 
 ## 一、总览
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 400}}}%%
+flowchart TB
+    A["pyproject.toml：元数据 + 依赖声明（第二章）"] --> B["锁文件 uv.lock / poetry.lock：精确到版本与哈希（第四章）"]
+    B --> C["虚拟环境：uv sync --locked（第三章）"]
+    C --> D["质量门：ruff · mypy · pytest（第六章）"]
+    D --> E["产物：wheel / sdist（第七章）"]
+    E --> F["容器镜像：多阶段构建、CUDA 基础镜像（第八章）"]
+    F --> G["运行：ASGI server / K8s"]
+    B -. "AI-Infra 的难点（第五章）：torch 的 CUDA 版本、flash-attn 的预编译轮子、同一份 lock 跨 GPU 架构" .-> F
+
+```
+
+
 ### 1. 组织轴：可交付物的生命周期
 
 本文的组织轴是**项目作为一个可交付物的生命周期**：声明依赖 → 隔离环境 → 锁定版本 → 检查质量 → 打成制品 → 交付运行。第二到第八章依次对应这条链上的每一步（其中第五章专门处理 AI-Infra 特有的 torch/CUDA 依赖难题），第九章把它们串成一个可复现的项目骨架。

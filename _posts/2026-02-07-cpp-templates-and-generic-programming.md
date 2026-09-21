@@ -40,6 +40,18 @@ AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "log_sigmoid_cpu", [&] {
 
 ## 一、总览
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 200}}}%%
+flowchart TB
+    T["模板：kernel<scalar_t>(...)<br/>一份「配方」，T 未定"] -- "编译期实例化" --> F["kernel<float>"] & D["kernel<double>"] & H["kernel<c10::Half>"] & B["kernel<c10::BFloat16>"]
+    RT["运行时：input.scalar_type() == Float"] --> SW["AT_DISPATCH_FLOATING_TYPES 展开成 switch<br/>case Float: 调 kernel<float>；case Double: …"]
+    SW --> F
+    F & D & H & B -. "编译期分派：每种类型一份独立的、无分支的机器码（快，但二进制变大）<br/>运行期分派：只在入口 switch 一次选哪一份（第七章逐层展开这个宏）" .-> X[" "]
+    style X fill:none,stroke:none
+
+```
+
+
 ### 1. 本文的组织方式
 
 模板只有一件事：**在编译期用类型（或整数）当参数生成代码**。本文按"配方 → 怎么填参数 → 填了之后能做什么 → 在源码里长什么样"的顺序展开：第二章先建立模板是配方、实例化才生成代码这个模型，并与 Java 的类型擦除对照；第三、四章讲参数从哪来（推导、显式指定、非类型参数）；第五、六章讲同一个配方怎样按参数走不同分支（特化、变参、`if constexpr`、SFINAE）；第七章把这些机制合起来逐层展开 `AT_DISPATCH_FLOATING_TYPES`，回答核心问题——运行期的 dtype 怎么变成编译期的 `T`；第八、九章是源码里高频出现的两类模板产物（轻量视图与 lambda）；第十、十一章回到源码与 mini-c10。

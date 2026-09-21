@@ -22,6 +22,17 @@ updated: 2026-09-21
 
 ## 一、总览
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 380}}}%%
+flowchart TB
+    SRC["类型信息的载体（第二章）：源码里的注解 · .pyi 存根（C 扩展、没注解的库）· typeshed · py.typed 标记"]
+    SRC --> ST["<b>静态消费</b>（第三章）<br/>mypy / pyright / IDE：不运行代码，推理每个表达式的类型；报错在提交前，运行时零开销"]
+    SRC --> RT["<b>动态消费</b>（第四章）<br/>pydantic / FastAPI / dataclasses：运行时读 __annotations__ / get_type_hints，据此做校验、转换、生成 schema"]
+    ST -. "同一份注解，两种读法：一个防写错，一个管数据" .-> RT
+
+```
+
+
 ### 1. 在三篇地图上的位置
 
 ```

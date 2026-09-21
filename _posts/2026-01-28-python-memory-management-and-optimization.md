@@ -18,6 +18,27 @@ Python 在这类系统里不做最重的数值计算，它做的是组织请求�
 
 ## 一、总览
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 230}}}%%
+flowchart TB
+    subgraph PY["Python 堆：小对象由 pymalloc 管"]
+        direction TB
+        P1["int / str / dict / list 的对象头与槽位<br/>tracemalloc 看得见"] --> P2["释放后留在 arena 里复用，<br/>不一定还给操作系统 → RSS 不降"]
+    end
+    subgraph NAT["原生缓冲区：malloc / 库自己的分配器"]
+        direction TB
+        N1["NumPy 数组的数据、torch CPU tensor 的 storage<br/>tracemalloc 默认<b>看不见</b>"] --> N2["Python 对象只是一个 40 字节的壳，<br/>指着几百 MB 的缓冲区"]
+    end
+    subgraph GPU["显存：CUDA 缓存分配器"]
+        direction TB
+        G1["tensor 释放后显存留在 PyTorch 的缓存池里"] --> G2["nvidia-smi 看到的是池子大小，<br/>不是正在用的量（memory_allocated vs reserved）"]
+    end
+    PY --- NAT --- GPU
+    X["开头那 280 MB：Python 对象只涨 20 MB，其余在原生缓冲区（被一个没上限的 dict 引用着）——三块内存各有各的量尺"] -.-> NAT
+
+```
+
+
 ### 1. 本文的范围
 
 本文聚焦 Python 工程师在 AI-Infra 场景下必须掌握的内存知识，包括对象模型、内存分配、复制语义、垃圾回收、缓存生命周期，以及 Python 与原生运行时之间的内存边界。
