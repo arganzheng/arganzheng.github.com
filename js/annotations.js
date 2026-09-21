@@ -6,7 +6,7 @@
  *     「复制」 / 「搜一搜」 / 「分享」.
  *   - 「点赞」 / 「存疑」 are anonymous per-passage counters (worker /reactions,
  *     D1; no login, one per browser in localStorage) — "raising a hand". A
- *     存疑 can carry one *reason* (有错误 / 没看懂 / 版本过时 / 缺例子 / 与前文矛盾)
+ *     存疑 can carry *reasons* (有错误 / 没看懂 / 版本过时 / 缺例子 / 与前文矛盾, multi-select)
  *     and every reaction records the chapter (nearest h2/h3) it sits in.
  *   - Images and Mermaid diagrams get a caption and a corner button (js/figures.js)
  *     that selects the caption's title — that text is the passage, so pictures
@@ -715,16 +715,16 @@
   // 点赞 / 存疑 row of the thread panel (also re-rendered alone after a click).
   function reactBarHtml(p) {
     var r = p.reaction || { up: 0, doubt: 0, share: 0, reasons: {} }, up = myReaction(p.hash, 'up'), doubt = myReaction(p.hash, 'doubt');
-    var summary = reasonsSummary(r), mine = myReason(p.hash);
+    var summary = reasonsSummary(r), mine = myReasons(p.hash);
     return '<button type="button" class="ap-react-btn ap-react-up' + (up ? ' is-on' : '') + '" title="' + (up ? '取消点赞' : '点赞这段话（不用登录）') + '"><i class="fa ' + (up ? 'fa-thumbs-up' : 'fa-regular fa-thumbs-up') + '"></i> 点赞' + (r.up ? ' <b>' + r.up + '</b>' : '') + '</button>' +
       '<button type="button" class="ap-react-btn ap-react-doubt' + (doubt ? ' is-on' : '') + '" title="' + escapeAttr((doubt ? '取消存疑' : '觉得这段话有问题？（不用登录）') + (summary ? '\n' + summary : '')) + '"><i class="fa ' + (doubt ? 'fa-question-circle' : 'fa-regular fa-circle-question') + '"></i> 存疑' + (r.doubt ? ' <b>' + r.doubt + '</b>' : '') + '</button>' +
       '<button type="button" class="ap-react-btn ap-react-share" title="分享这段话（微博 / X / 微信 / 复制链接）" aria-haspopup="true" aria-expanded="false"><i class="fa fa-share-alt"></i> 分享' + (r.share ? ' <b>' + r.share + '</b>' : '') + '</button>' +
       (doubt ? '<a href="#" class="ap-react-say">说说哪里不对 →</a>' : '') +
       // 存疑 alone is a 1-bit signal; one tap on *why* makes it actionable. Shown to
       // the reader who raised the doubt; the counts are everyone's.
-      (doubt ? '<div class="ap-doubt-why"><span class="ap-doubt-why-label">哪里不对？</span>' + DOUBT_REASONS.map(function (d) {
-        var n = (r.reasons && r.reasons[d.key]) || 0;
-        return '<button type="button" class="ap-reason' + (mine === d.key ? ' is-on' : '') + '" data-reason="' + d.key + '">' + d.label + (n ? ' <b>' + n + '</b>' : '') + '</button>';
+      (doubt ? '<div class="ap-doubt-why"><span class="ap-doubt-why-label">哪里不对？（可多选）</span>' + DOUBT_REASONS.map(function (d) {
+        var n = (r.reasons && r.reasons[d.key]) || 0, on = mine.indexOf(d.key) !== -1;
+        return '<button type="button" class="ap-reason' + (on ? ' is-on' : '') + '" data-reason="' + d.key + '" aria-pressed="' + on + '">' + d.label + (n ? ' <b>' + n + '</b>' : '') + '</button>';
       }).join('') + '</div>' : '');
   }
   function bindReactBar(host, p) {
@@ -2091,8 +2091,9 @@
   function myReaction(hash, kind) { try { return localStorage.getItem(reactKey(hash, kind)) === '1'; } catch (e) { return false; } }
   function rememberReaction(hash, kind, on) { try { if (on) localStorage.setItem(reactKey(hash, kind), '1'); else localStorage.removeItem(reactKey(hash, kind)); } catch (e) { /* ignore */ } }
 
-  // Why a reader doubts a passage — one tap, anonymous, one pick per browser
-  // (`react:<path>:<hash>:reason` = key). Keys match the worker's DOUBT_REASONS.
+  // Why a reader doubts a passage — one tap each, anonymous, any number of picks
+  // per browser (`react:<path>:<hash>:reason` = comma-joined keys; older
+  // single-key values still parse). Keys match the worker's DOUBT_REASONS.
   var DOUBT_REASONS = [
     { key: 'wrong', label: '有错误' },
     { key: 'unclear', label: '没看懂' },
@@ -2107,8 +2108,12 @@
       .sort(function (a, b) { return r.reasons[b.key] - r.reasons[a.key]; })
       .map(function (d) { return d.label + ' ' + r.reasons[d.key]; }).join(' · ');
   }
-  function myReason(hash) { try { return localStorage.getItem(reactKey(hash, 'reason')) || ''; } catch (e) { return ''; } }
-  function rememberReason(hash, key) { try { if (key) localStorage.setItem(reactKey(hash, 'reason'), key); else localStorage.removeItem(reactKey(hash, 'reason')); } catch (e) { /* ignore */ } }
+  function myReasons(hash) { try { return (localStorage.getItem(reactKey(hash, 'reason')) || '').split(',').filter(Boolean); } catch (e) { return []; } }
+  function rememberReasons(hash, keys) { try { if (keys.length) localStorage.setItem(reactKey(hash, 'reason'), keys.join(',')); else localStorage.removeItem(reactKey(hash, 'reason')); } catch (e) { /* ignore */ } }
+  // One worker call per pick: `{reason}` counts it, `{reason, prev: reason}` un-counts it.
+  function postReason(r, exact, key, on) {
+    return api('/reactions', { method: 'POST', body: { path: cfg.path, hash: r.hash, quote: exact, kind: 'reason', reason: key, prev: on ? undefined : key, section: r.section || sectionForExact(exact) } });
+  }
 
   function newReaction(hash, quote) { return { hash: hash, quote: quote, section: '', up: 0, doubt: 0, share: 0, reasons: {}, range: null, marks: [] }; }
   function takeCounts(r, d) { r.up = d.up || 0; r.doubt = d.doubt || 0; r.share = d.share || 0; r.reasons = d.reasons || {}; }
@@ -2188,25 +2193,25 @@
 
   // Toggle my 点赞 / 存疑 on the passage with this exact text. Optimistic; the
   // underline / marker / open panel / ranking follow the new counts. Taking a
-  // 存疑 back also takes back the reason picked with it.
+  // 存疑 back also takes back the reasons picked with it.
   function react(exact, kind) {
     var hash = annotHash(exact);
     var r = reactions[hash] || (reactions[hash] = newReaction(hash, exact));
     var on = !myReaction(hash, kind), before = r[kind];
     r[kind] = Math.max(0, r[kind] + (on ? 1 : -1));
     rememberReaction(hash, kind, on);
-    var prevReason = kind === 'doubt' && !on ? myReason(hash) : '';
-    if (prevReason) { rememberReason(hash, ''); if (r.reasons[prevReason] > 0) r.reasons[prevReason] -= 1; }
+    var prevReasons = kind === 'doubt' && !on ? myReasons(hash) : [];
+    if (prevReasons.length) { rememberReasons(hash, []); prevReasons.forEach(function (k) { if (r.reasons[k] > 0) r.reasons[k] -= 1; }); }
     refreshReactionViews(hash);
     if (reactLocalOnly) return Promise.resolve({ on: on, r: r });
     var body = { path: cfg.path, hash: hash, quote: exact, kind: kind, on: on, section: r.section || sectionForExact(exact) };
     return api('/reactions', { method: 'POST', body: body })
       .then(function (d) { takeCounts(r, d); refreshReactionViews(hash); return { on: on, r: r }; })
       .then(function (res) {
-        // prev === reason: the worker un-counts the old pick without counting a new one
-        if (prevReason) return api('/reactions', { method: 'POST', body: { path: cfg.path, hash: hash, quote: exact, kind: 'reason', reason: prevReason, prev: prevReason } })
-          .then(function (d) { takeCounts(r, d); refreshReactionViews(hash); return res; }).catch(function () { return res; });
-        return res;
+        // un-count every reason I had picked, one call each (sequential: the worker read-modify-writes the JSON)
+        return prevReasons.reduce(function (chain, k) {
+          return chain.then(function () { return postReason(r, exact, k, false).then(function (d) { takeCounts(r, d); refreshReactionViews(hash); }); });
+        }, Promise.resolve()).then(function () { return res; }, function () { return res; });
       })
       .catch(function (err) {
         r[kind] = before; rememberReaction(hash, kind, !on); refreshReactionViews(hash);
@@ -2215,20 +2220,20 @@
       });
   }
 
-  // Pick (or switch) my reason for doubting this passage; tapping the current one clears it.
+  // Toggle one of my reasons for doubting this passage (several may be on at once).
   function setReason(exact, key) {
     var hash = annotHash(exact);
     var r = reactions[hash] || (reactions[hash] = newReaction(hash, exact));
-    var prev = myReason(hash), next = prev === key ? '' : key;
-    if (prev && r.reasons[prev] > 0) r.reasons[prev] -= 1;
-    if (next) r.reasons[next] = (r.reasons[next] || 0) + 1;
-    rememberReason(hash, next);
+    var prev = myReasons(hash), on = prev.indexOf(key) === -1;
+    var next = on ? prev.concat(key) : prev.filter(function (k) { return k !== key; });
+    if (on) r.reasons[key] = (r.reasons[key] || 0) + 1;
+    else if (r.reasons[key] > 0) r.reasons[key] -= 1;
+    rememberReasons(hash, next);
     refreshReactionViews(hash);
     if (reactLocalOnly) return;
-    // clearing = prev === reason (un-count only), see the worker
-    api('/reactions', { method: 'POST', body: { path: cfg.path, hash: hash, quote: exact, kind: 'reason', reason: next || prev, prev: prev || undefined, section: r.section || sectionForExact(exact) } })
+    postReason(r, exact, key, on)
       .then(function (d) { takeCounts(r, d); refreshReactionViews(hash); })
-      .catch(function (err) { rememberReason(hash, prev); showToast('操作失败：' + err.message); });
+      .catch(function (err) { rememberReasons(hash, prev); refreshReactionViews(hash); showToast('操作失败：' + err.message); });
   }
 
   // 分享 a passage: the same popover as the article's 「分享」 (js/share.js,

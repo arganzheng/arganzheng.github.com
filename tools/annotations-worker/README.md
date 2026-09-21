@@ -113,8 +113,9 @@ to existing tables by `ALTER TABLE` on first use.
 
 **Why a passage is doubted** — `kind: 'reason'` with `reason` one of `wrong |
 unclear | outdated | example | conflict` (有错误 / 没看懂 / 版本过时 / 缺例子 /
-与前文矛盾) bumps that key in the row's `reasons` JSON object; pass `prev` to
-switch (un-counts the old pick) and `prev === reason` to clear. Every POST may
+与前文矛盾) bumps that key in the row's `reasons` JSON object; `prev === reason`
+un-counts it instead (the browser lets a reader pick several reasons, one POST
+per toggle; `prev` ≠ `reason` still switches in one call). Every POST may
 carry `section` (nearest heading above the passage, ≤ 120 chars) which is stored
 once per row (`COALESCE`). Both come back in every reactions response.
 

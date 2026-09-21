@@ -563,9 +563,11 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
   - `DOUBT_REASONS` (`wrong|unclear|outdated|example|conflict`, labels in
     both `annotations.js` and `dashboard.js`, whitelist in the worker): after
     存疑 the panel's `.ap-react` gets a `.ap-doubt-why` chip row (`setReason`,
-    `POST /reactions kind:'reason' {reason, prev}`; `prev === reason` clears;
-    one pick per browser in `localStorage["react:<path>:<hash>:reason"]`;
-    un-doubting sends the clear too). Counts live in `passage_reactions.reasons`
+    multi-select: each chip toggles on its own — `POST /reactions kind:'reason'
+    {reason}` counts, `{reason, prev: reason}` un-counts; my picks are the
+    comma-joined keys in `localStorage["react:<path>:<hash>:reason"]`;
+    un-doubting un-counts every pick, one call each, sequentially because the
+    worker read-modify-writes the JSON). Counts live in `passage_reactions.reasons`
     (JSON) and show in the 存疑 button title / marker title / dashboard.
   - `section` = nearest `h2/h3` above the passage (`sectionForOffsets`, set on
     every selector by `selectorFromOffsets`, sent with every reaction POST,
