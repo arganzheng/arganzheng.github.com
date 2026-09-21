@@ -22,6 +22,23 @@ updated: 2026-09-14
 
 ## 一、总览
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 180}}}%%
+flowchart TB
+    subgraph A["PyTorch #185344"]
+        direction TB
+        A1["起点：一个 issue"] --> A2["阅读：定位到 aten 里的一处"] --> A3["diff：几十行 + 测试"] --> A4["CI：矩阵、flaky、重跑"] --> A5["review 往返 → 合入"]
+    end
+    subgraph B["vLLM #47272"]
+        direction TB
+        B1["起点：性能回归报告"] --> B2["阅读：kernel 与调度的交界"] --> B3["diff + benchmark 数字"] --> B4["CI：需要 ready label 才跑全量"] --> B5["review 往返 → 合入"]
+    end
+    A ~~~ B
+    X["第六章的问题：从开 PR 到合入的日子里，时间去了哪里——<br/>写代码只占一小部分，大半在等 CI、等 review、改描述"] -.-> A5 & B5
+
+```
+
+
 ### 1. 问题
 
 读完规则之后直接动手，典型的失败方式有四种，两个走读里都能找到对应的现场：

@@ -22,6 +22,20 @@ updated: 2026-09-14
 
 ## 一、总览
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 330}}}%%
+flowchart TB
+    I["一个 issue：torch.logaddexp 在 complex128 上 CPU 与 CUDA 不一致"] --> MAP["<b>先画地图</b>（第二章）：顶层目录各管什么——aten / c10 / torch / test / tools"]
+    MAP --> E["<b>找入口</b>（第三章）：从符号、报错信息、Python 名字反查——<br/>rg logaddexp 出来 200 处，哪一处是定义？"]
+    E --> GEN["<b>生成代码</b>（第四章）：native_functions.yaml → 代码生成 → 「找不到定义」的原因"]
+    GEN --> B["<b>构建一次</b>（第五章）：能编才能改；增量构建怎么省时间"]
+    B --> T["<b>用测试当文档</b>（第六章）：test_*.py 里写着这个算子该有什么行为"]
+    T --> H["<b>读历史</b>（第七章）：git blame / log 找到为什么这样写、谁在维护"]
+    H --> R["两小时定位流程（第八章）：从 issue 到「改哪个文件的哪一行」"]
+
+```
+
+
 ### 1. 问题
 
 面对一个大型代码库，贡献者典型的失败方式有四种，它们都源于"读法不对"而非"读不懂"：

@@ -24,6 +24,18 @@ updated: 2026-09-14
 
 ## 一、总览
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 330}}}%%
+flowchart TB
+    P["512 个 prompt"] --> G["<b>① 生成（rollout）</b>：推理引擎，每个 prompt 采 16 条回答<br/>decode、memory-bound、最长的那条决定墙钟——602 s（其中长尾 196 s）"]
+    G --> R["<b>② 打分 + 前向</b>：奖励（验证器 / RM）+ 策略、参考模型算 logprob<br/>prefill 形态、compute-bound——72 s"]
+    R --> T["<b>③ 训练</b>：反向 + 优化器更新<br/>6N × token——136 s"]
+    T -- "新权重同步回推理引擎（第四篇）" --> G
+    G -. "同一组 GPU 上：生成时要权重 + 大 KV 池，训练时要 16 B/参数的训练状态——两样东西怎么共存是第二、三篇" .-> T
+
+```
+
+
 ### 1. 先说答案：三个作业、两次同步
 
 在线 RL 后训练（PPO、GRPO 及其一族）的一步，展开是这样的：

@@ -22,6 +22,20 @@ updated: 2026-09-14
 
 ## 一、总览
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 400}}}%%
+flowchart TB
+    W["想给 PyTorch / vLLM 提第一个 PR"] --> Q{"maintainer 已经写出了「我们想要什么」——去哪读？"}
+    Q --> L["<b>标签</b>（第二章）：good first issue / help wanted / triaged——每个项目的标签体系与它的含义"]
+    L --> RFC["<b>RFC 与 roadmap</b>（第三章）：大改动从讨论开始，不从 PR 开始"]
+    RFC --> CI["<b>CI 失败</b>（第四章）：低风险、高感谢度——flaky 测试、平台特有的失败"]
+    CI --> PERF["<b>性能回归</b>（第五章）：带数字的报告本身就是贡献"]
+    PERF --> D["<b>先讨论再动手，并查重</b>（第八章）：同一个 issue 可能已有人在做；一句「我来试试」省两周"]
+    D -. "「不欢迎单个 typo」：文档 / 类型的贡献要成批、要有上下文（第六章）" .-> Q
+
+```
+
+
 ### 1. 问题
 
 选题环节的失败方式可以归为四类，每一类都能在两个项目的 issue 区找到本周的实例：

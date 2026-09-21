@@ -24,6 +24,21 @@ updated: 2026-09-14
 
 ## 一、总览
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 330}}}%%
+flowchart TB
+    C["一个真实的修复"] --> D["<b>最小 diff</b>（第二章）：一个 PR 只做一件事<br/>顺手排 import 会让 review 多绕十天"]
+    D --> T["<b>测试</b>（第三章）：改动必须带测试；性能改动必须带 benchmark 数字（第四章）"]
+    T --> L["<b>本地 lint</b>（第五章）：lintrunner / pre-commit——CI 的第一道门在本机过"]
+    L --> P["<b>PR 描述与签名</b>（第六章）：Summary / Test Plan / BC-breaking；DCO 的 -s 一个 commit 都不能漏"]
+    P --> CI["<b>CI 矩阵</b>（第七章）：什么会跑、什么要 label 才跑、红了先看是不是 flaky"]
+    CI --> RV["<b>review</b>：回每条评论、不 force-push 打乱 review 上下文、耐心等 maintainer 的时区"]
+    RV --> MG["合入"]
+    style MG fill:#eefaf0,stroke:#4d9a5c
+
+```
+
+
 ### 1. 问题：这个环节典型的失败方式
 
 从改动到合入之间有一串关卡，每一关都有人倒下。按出现频率排：
