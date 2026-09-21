@@ -542,24 +542,25 @@ z = torch.add(x, y)
 可以沿着下面的路径理解：
 
 ```mermaid
-flowchart LR
-    A[Python API<br/>torch.add / x + y]
-    B[Python Binding]
-    C[Operator Schema]
-    D[Dispatcher<br/>Dispatch Key Set]
-    E[ATen Operator]
-    F{运行时上下文}
-    G[CPU Kernel]
-    H[CUDA Kernel]
-    I[Meta Kernel]
-    J[底层数学库与硬件]
-
-    A --> B --> C --> D --> E --> F
+flowchart TB
+    subgraph UP["统一的上层：与设备无关"]
+        direction LR
+        A[Python API<br/>torch.add / x + y] --> B[Python Binding] --> C[Operator Schema]
+    end
+    subgraph MID["分发：按输入与上下文选实现"]
+        direction LR
+        D[Dispatcher<br/>Dispatch Key Set] --> E[ATen Operator] --> F{运行时上下文}
+    end
+    subgraph LOW["设备相关的下层"]
+        direction LR
+        G[CPU Kernel] --> J[底层数学库与硬件]
+        H[CUDA Kernel] --> J
+        I[Meta Kernel]
+    end
+    C --> D
     F -->|CPU Tensor| G
     F -->|CUDA Tensor| H
     F -->|Meta Tensor| I
-    G --> J
-    H --> J
 ```
 
 这张图表达的是典型执行路径：统一的算子契约和 Dispatcher 位于上层，具体设备 Kernel 位于下层。实际路径会因算子实现、Autograd、编译模式和 PyTorch 版本而有所变化。
@@ -647,7 +648,7 @@ Dispatcher 根据运行时信息选择实现。影响选择的因素可能包括
 ```mermaid
 flowchart TB
     META["Tensor 元数据<br/>device · dtype · layout · requires_grad"]
-    CTX["全局上下文<br/>no_grad · tracing · functorch"]
+    CTX["全局上下文<br/>inference_mode · tracing · functorch"]
     KS["合成 DispatchKeySet<br/>例：#91;Autograd, CUDA#93;"]
     TOP["取最高优先级 Key<br/>→ Autograd"]
     TBL["Operator Table 查 add.Tensor 一行<br/>按 Key 挂着各实现"]
@@ -667,7 +668,7 @@ flowchart TB
     class AG,CU kern;
 ```
 
-Autograd 在这里只是表里优先级更高的一个 Key：它先被命中、做完记录后把自己从 KeySet 中去掉再分发，才轮到设备 Kernel。如果是 CPU Tensor，最后一步命中的就是 CPU Kernel；如果处于 `no_grad()`，Autograd Key 会在合成 KeySet 时就被排除。第五篇会展开这张表的每一格。
+Autograd 在这里只是表里优先级更高的一个 Key：它先被命中、做完记录后把自己从 KeySet 中去掉再分发，才轮到设备 Kernel。如果是 CPU Tensor，最后一步命中的就是 CPU Kernel；如果处于 `no_grad()`，Autograd Key 仍会被命中，只是包装层读到 GradMode 关闭就不记录 `grad_fn`；`inference_mode()` 才会在合成 KeySet 时把它排除。第五篇会展开这张表的每一格。
 
 这不是 Java 方法重载的简单等价物。Java 重载通常依据编译期静态类型选择方法，而 PyTorch 的分发还会受到设备、Autograd、Tracing 和运行时上下文影响。
 
@@ -1001,7 +1002,7 @@ torch/（Python）→ torch/csrc/（绑定、Autograd 引擎、c10d）→ aten/s
 
    <details markdown="1"><summary>答案</summary>
 
-   `c10`：最底层，Tensor 元数据、Device、Allocator、Dispatcher 核心；`aten`：算子与 kernel 实现（`ATen/native`）；`torch/csrc`：Autograd 引擎、Python 绑定、分布式 C++ 部分；`torch/`：Python API。依赖自下而上：`c10` ← `aten` ← `torch/csrc` ← `torch/`，反向不允许。
+   `c10`：最底层，Tensor 元数据、Device、Allocator、DispatchKey/KeySet 的定义；`aten`：算子与 kernel 实现（`ATen/native`），Dispatcher 本体也在这里（`ATen/core/dispatch/`）；`torch/csrc`：Autograd 引擎、Python 绑定、分布式 C++ 部分；`torch/`：Python API。依赖自下而上：`c10` ← `aten` ← `torch/csrc` ← `torch/`，反向不允许。
 
    </details>
 
@@ -1009,7 +1010,7 @@ torch/（Python）→ torch/csrc/（绑定、Autograd 引擎、c10d）→ aten/s
 
    <details markdown="1"><summary>答案</summary>
 
-   自动求导不是一层独立系统，而是注册在 Autograd key 上的包装 kernel：Dispatcher 先调它（记录 `grad_fn`、保存反向需要的 Tensor），它再重新分发到后端 key 执行真实计算；autocast、Functionalize、Python 子类的拦截都用同一机制叠加。
+   自动求导的**前向接入点**不是一层特殊通道，而是注册在 Autograd key 上的包装 kernel：Dispatcher 先调它（记录 `grad_fn`、保存反向需要的 Tensor），它再重新分发到后端 key 执行真实计算；autocast、Functionalize、Python 子类的拦截都用同一机制叠加。Autograd 作为子系统还有另外两半——图的数据结构（`Node`/`SavedVariable`）和执行反向的 engine（`torch/csrc/autograd/engine.cpp`）——它们不是 Key，这句话只说前向那一半。
 
    </details>
 

@@ -289,13 +289,22 @@ flowchart TB
     G[state_dict]
     H[设备与 dtype 迁移]
 
-    A --> B
-    A --> C
-    A --> D
-    A --> E
-    A --> F
-    A --> G
-    A --> H
+    subgraph STATE["它持有的状态"]
+        direction TB
+        B --> C --> D
+    end
+    subgraph BEH["它的行为"]
+        direction TB
+        E --> F
+    end
+    subgraph IO["进出的通道"]
+        direction TB
+        G --> H
+    end
+    A --> STATE
+    A --> BEH
+    A --> IO
+    linkStyle 0,1,2,3 stroke-width:0px;
 ```
 
 后续所有训练行为，都建立在 Module 能够找到并管理这些对象的前提上。
@@ -405,7 +414,7 @@ flowchart TB
     class Q1,Q2,Q3 q;
 ```
 
-注意 Buffer 走的是“名字已经被 `register_buffer()` 登记过”这条判断，而不是看 value 的类型——这也是为什么必须先 `register_buffer("scale", ...)`，之后再 `self.scale = new_tensor` 才会更新 Buffer 而不是变成普通属性。
+注意 Buffer 有两条登记路径：一是“名字已经被 `register_buffer()` 登记过”——之后 `self.scale = new_tensor` 会更新 Buffer 而不是变成普通属性；二是 value 的类型是 `torch.nn.Buffer`（2.5 起，`module.py` 里 `__setattr__` 有一个 `isinstance(value, Buffer)` 分支）——`self.scale = nn.Buffer(torch.ones(10))` 与 `register_buffer` 等价，写法上和 `Parameter` 对称。普通 `Tensor` 直接赋值仍然只是属性。
 
 这也是为什么下面几种对象的行为不同：
 
@@ -632,6 +641,8 @@ weight
 bias
 ```
 
+一个容易踩的坑：`state_dict()` 返回的 Tensor 是**参数本体的引用**（`detach()` 过，但共享 Storage），不是拷贝——`state = model.state_dict()` 之后再训练一步，`state["weight"]` 跟着变。所以“先记下最好的一版权重、训完再恢复”必须 `{k: v.clone() for k, v in state.items()}`（或 `copy.deepcopy`），异步保存 checkpoint 也要先拷贝一份再交给后台线程；`torch.save` 是同步序列化，直接传 `state_dict()` 没问题。
+
 嵌套模块会使用点号组织 key：
 
 ```text
@@ -826,7 +837,7 @@ no_grad / inference_mode
 | `model.train()` | Dropout 随机丢弃，BN 用 batch 统计并更新 `running_*`<br/>**建图**<br/>正常训练 step | Dropout 随机丢弃，BN 用 batch 统计并更新 `running_*`<br/>不建图<br/>训练中临时的无梯度计算（如 EMA 权重更新、手写参数修改） | 同上，BN 仍更新 `running_*`<br/>不建图，且输出 Tensor 不能再进入 Autograd<br/>少见，通常没有理由这样组合 |
 | `model.eval()` | Dropout 关闭（恒等），BN 用 `running_*`，不更新<br/>**建图**（显存和时间白白浪费）<br/>需要对输入求梯度的场景：对抗样本、显著性图、部分蒸馏 | Dropout 关闭，BN 用 `running_*`<br/>不建图<br/>验证 / 评估，输出后续还可能参与梯度计算时 | Dropout 关闭，BN 用 `running_*`<br/>不建图，跳过版本计数与 view 追踪，最省<br/>纯推理 / 验证：默认首选 |
 
-真正的“推理”只有右下角那一格：`eval()` 负责让 Module 行为确定，`inference_mode()` 负责让 Autograd 彻底退出；缺任何一个都不算完整。
+纯推理的默认选择是右下角那一格：`eval()` 负责让 Module 行为确定，`inference_mode()` 负责让 Autograd 彻底退出。中间那格 `eval()` + `no_grad()` 同样是合法的推理写法，只是少省一点开销，而且产物之后还能参与求导——如果推理结果要喂给别的可微计算（蒸馏、评分器回传），就该用它。少了 `eval()` 才是错误：Dropout 会随机丢弃、BN 会用 batch 统计（MC-Dropout 之类刻意保留随机性的场景除外）。
 
 ### 3. 一个完整的评估函数
 
@@ -1439,10 +1450,10 @@ def train_one_epoch(
 ```python
 model = MLP(input_dim=128, hidden_dim=256, output_dim=10)
 criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model.to(device)
+model.to(device)                                              # 先迁移
+optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)    # 再构造 optimizer（官方文档对 Module.to/cuda 的提醒）
 
 for epoch in range(10):
     train_loss = train_one_epoch(
@@ -1501,7 +1512,7 @@ optimizer.step()
 
 如果没有在下一步前清零，梯度会继续累积。
 
-**在 forward 前错误地清零**
+**清零放在哪一行**
 
 通常推荐：
 

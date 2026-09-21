@@ -14,7 +14,7 @@ updated: 2026-09-14
 
 > **当一张卡放不下模型或跑不完数据时，PyTorch 如何把计算和状态切分到多个设备，并让通信与计算重叠？[^q0]**
 
-分布式训练的资料通常按 API 组织：DDP 一章、FSDP 一章、张量并行一章、流水线并行一章。这样读完会记住一堆包装类，却答不出"为什么 FSDP 比 DDP 多 50% 通信量"或者"张量并行为什么只能在节点内做"。本文换一条主线：
+分布式训练的资料通常按 API 组织：DDP 一章、FSDP 一章、张量并行一章、流水线并行一章。这样读完会记住一堆包装类，却答不出"FSDP 比 DDP 多的那份通信从哪来、什么条件下才多 50%"或者"张量并行为什么只能在节点内做"。本文换一条主线：
 
 > **每种并行策略，都是对训练中的五类状态——数据、参数、梯度、优化器状态、激活值——各自做一个决定：复制还是分片。每个决定对应一种集合通信原语和一个通信时机；所有决定加起来，决定了显存占用和通信量。**
 
@@ -454,10 +454,13 @@ DDP 允许替换桶的通信逻辑：
 ```python
 from torch.distributed.algorithms.ddp_comm_hooks import default_hooks, powerSGD_hook
 
-model.register_comm_hook(state=None, hook=default_hooks.bf16_compress_hook)     # 梯度 cast 成 bf16 再 all_reduce，通信量减半
+# 方案一：梯度 cast 成 bf16 再 all_reduce，通信量减半
+model.register_comm_hook(state=None, hook=default_hooks.bf16_compress_hook)
 
+# 方案二（二选一——一个 DDP 实例只能注册一个 hook，重复注册会报错）：
+# PowerSGD 低秩近似，通信量可降一个数量级，有精度代价
 state = powerSGD_hook.PowerSGDState(process_group=None, matrix_approximation_rank=1, start_powerSGD_iter=1000)
-model.register_comm_hook(state, powerSGD_hook.powerSGD_hook)                     # 低秩近似，通信量可降一个数量级，有精度代价
+model.register_comm_hook(state, powerSGD_hook.powerSGD_hook)
 ```
 
 前者几乎无损（归约在 bf16 上做，累加误差略大于 fp32）；后者是有损压缩，适合带宽极度受限（跨数据中心、以太网）的场景。hook 拿到的是整个桶的 Tensor，返回一个 Future——自定义的通信策略都从这里进。
@@ -518,7 +521,7 @@ DDP 中的冗余显而易见：N 个 rank 持有 N 份完全相同的参数、�
 
 **ZeRO-2**：既然只更新 1/N 的参数，那么其余 (N−1)/N 的梯度在 reduce_scatter 之后就没用了，可以立刻释放。梯度显存从 2P 降到 2P/N。通信量不变。
 
-**ZeRO-3**：参数也分片。每个 rank 只持有 1/N 的参数，前向算到某一层时 all_gather 这层的完整参数，算完释放；反向同样再 all_gather 一次，算完梯度后 reduce_scatter。通信量：前向 all_gather P + 反向 all_gather P + reduce_scatter P = **3P**，比 DDP 多 50%。
+**ZeRO-3**：参数也分片。每个 rank 只持有 1/N 的参数，前向算到某一层时 all_gather 这层的完整参数，算完释放；反向同样再 all_gather 一次，算完梯度后 reduce_scatter。通信量：前向 all_gather P + 反向 all_gather P + reduce_scatter P = **3P**，按元素数比 DDP 的 2P 多 50%。注意这是**元素数**：实际字节还要乘各自的 dtype——常见配置里参数用 bf16 all_gather、梯度用 fp32 reduce_scatter，按字节算是 2P×2 + P×4 = 8 B/参数，与 DDP 对 fp32 梯度 all_reduce 的 2×4 = 8 B/参数**相同**（§7 的 7B 例子就是这种配置）。"多 50%" 只在参数与梯度同 dtype 时成立。
 
 结论用主线表达：**ZeRO-1/2 只改变了"归约后的梯度给谁"，是 all_reduce 恒等式的直接应用，不增加通信；ZeRO-3 把参数也分片，多出的 P 是"用到时凑齐"的代价**。
 
@@ -579,7 +582,7 @@ meta 设备初始化是大模型的必要步骤：7B 模型 fp32 参数 28 GB，
 
 调用 `fully_shard(module)` 之后：
 
-- `module` 的类型不变（FSDP1 会包一层 wrapper，改变 `model.xxx` 的访问路径），但被就地混入了前向/反向 hook，并获得 `set_*` 系列控制方法；
+- `module` 对象本身不变、`model.xxx` 的访问路径不变（FSDP1 会包一层 wrapper），但 `type(module)` 会变：`fully_shard` 动态生成一个 `FSDP<原类名>` 子类混入 `FSDPModule`，改写对象的 `__class__`（`_fsdp_init` 里的做法），由此获得前向/反向 hook 和 `set_*` 系列控制方法；`isinstance(module, 原类)` 仍成立；
 - `module` 的每个参数被替换为 `DTensor`，在 mesh 的 dp 维上按 dim 0 分片：`param.to_local()` 拿到本地分片，`param.full_tensor()` 触发 all_gather 得到完整参数；
 - 前向 hook 负责 all_gather 和释放，反向 hook 负责 all_gather、释放和 reduce_scatter。
 
@@ -660,10 +663,12 @@ FSDP 每 step 通信 3P，其中 2P 是 all_gather 参数（bf16，`param_dtype`
 ```text
 all_gather × 2     2 × 7e9 × 2 B = 28 GB
 reduce_scatter     7e9 × 4 B     = 28 GB（fp32 归约）
-每 rank 每 step    56 GB
-NVLink 300 GB/s    ≈ 190 ms
+每 rank 每 step    56 GB 逻辑量；ring 实际每 rank 发送 (N-1)/N × 56 ≈ 49 GB（N=8），接收同量
+NVLink 300 GB/s    ≈ 190 ms（按 56 GB 粗算；这里的 300 GB/s 是 all_reduce 的总线带宽口径，已含 ring 的倍数）
 IB 50 GB/s/GPU     ≈ 1.1 s
 ```
+
+（同一个 7B 模型用 DDP：fp32 梯度 all_reduce = 7e9 × 4 B × 2 = 56 GB——与上面 FSDP 的字节数一样多。§3 说的"3P 对 2P"是元素数，字节账取决于 dtype 配置。）
 
 节点内 190 ms 可以藏在几秒的计算里；跨节点 1.1 s 就很难藏。**HSDP**（Hybrid Sharded Data Parallel）用一个 2D mesh 折中：
 
@@ -961,6 +966,8 @@ stage 2   .  .  F₀ F₁ B₀ F₂ B₁ F₃ B₂ F₄ B₃ ...
 stage 3   .  .  .  F₀ B₀ F₁ B₁ F₂ B₂ F₃ B₃ ...
 ```
 
+（每一行只表示该 stage **自己**的执行顺序，列不是对齐的时间刻——真实时间线上 stage 0 的 B₀ 要等 stage 3 的 B₀ 传回梯度之后才能开始，中间是等待；大规模训练系列的 GPipe vs 1F1B 图按时间轴画了这些等待。）
+
 气泡与 GPipe 相同，但任一时刻每个 stage 最多持有 K 个 micro-batch 的激活（而不是 M 个），**显存不随 M 增长**——于是可以放心增大 M 来压气泡。这是训练 PP 的默认调度。
 
 **Interleaved 1F1B**：每个 rank 持有 v 段**不连续**的层（如 rank 0 持有 layer 1-4 和 17-20），相当于虚拟 stage 数变成 vK，气泡缩小到 1/v，代价是 stage 边界数变成 v 倍、P2P 通信量也 v 倍。
@@ -1169,7 +1176,7 @@ router 的具体算法、capacity factor 的取舍、grouped GEMM 与 token 重�
 训练配置的经验顺序，从内到外：
 
 ```text
-1. 单层放不下、或激活太大而 FSDP 通信藏不住   → TP（+ SP），节点内，度 ≤ 8
+1. 单层放不下、或激活太大而 FSDP 通信藏不住   → TP（+ SP），限在 NVLink 域内（常见一机 8 卡，因此度 ≤ 8 是部署经验而非硬限制）
 2. 序列太长                                    → CP，与 FSDP 共用维度
 3. MoE                                         → EP，通常 EP × TP = 节点内卡数
 4. 模型状态放不下                              → FSDP（节点内） / HSDP（跨节点）
@@ -1717,7 +1724,7 @@ DDP 全复制只分数据；ZeRO 三级逐个把优化器状态、梯度、参�
 
    <details markdown="1"><summary>答案</summary>
 
-   每卡 `[4096, 3584]`，输出各是 `[B, 3584]`，不用拼——直接把后一个矩阵按行切成 `[3584, 4096]`，每卡算部分和，最后一次 all-reduce 得到完整输出。Megatron 的 MLP 就是 Colwise + Rowwise 配对，一层只通信一次。
+   数学上 $$W_1$$ 是 $$[4096, 14336]$$，按列切每卡 $$[4096, 3584]$$；PyTorch 的 `nn.Linear` 权重存成 `[out, in]`，所以每卡的 `weight.shape` 是 `[3584, 4096]`（`ColwiseParallel` 对应 `Shard(0)`）。输出各是 `[B, 3584]`，不用拼——直接把后一个矩阵按行切：数学上 $$[3584, 4096]$$，`weight.shape` 为 `[4096, 3584]`（`RowwiseParallel` = `Shard(1)`），每卡算部分和，最后一次 all-reduce 得到完整输出。Megatron 的 MLP 就是 Colwise + Rowwise 配对，一层只通信一次。
 
    </details>
 

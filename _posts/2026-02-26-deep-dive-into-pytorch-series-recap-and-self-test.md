@@ -25,7 +25,7 @@ date: 2026-02-26 20:00:00
 | [第三篇：自动求导与动态计算图](/pytorch-autograd-and-dynamic-computation-graph.html) | PyTorch 如何把链式法则变成一次沿图的反向遍历？ | 前向就地建图，每个 `Node.apply` 算一次 VJP，梯度 `+=` 到叶子的 `.grad`；保存一个输出等于保存整张图 | 每节点算 VJP 不物化 Jacobian（`[B, 4096]` 层每样本 $$4096^2$$ 个数）；`.grad` 是累加；version counter 抓 in-place；`gradcheck` 用 float64 |
 | [第四篇：nn.Module 与训练系统](/pytorch-module-and-training-system.html) | 模型结构、参数状态、数据管线和训练循环如何组织成可保存、可迁移的系统？ | `__setattr__` 的注册机制决定框架能否发现对象；一切状态都在 `state_dict` 里 | Adam 训练每参数 16 B（4 + 4 + 4 + 4），7B → 112 GB；GradScaler 初始 65536、溢出 ÷2、连续 2000 步 ×2；`prefetch_factor` 默认 2；worker 是进程 |
 | [第五篇：Dispatcher 与算子系统](/pytorch-dispatcher-and-operator-system.html) | 谁决定 `x + y` 调用哪个 Kernel？ | 开发态填表（定义 → 注册 → 实现）、运行态查表（入口 → 分发 → 执行），交汇于 Operator Table；包装 Key 做完事再次分发 | DispatchKeySet = 各输入 OR + TLS include − exclude，取最高优先级；一次 `add` 两次经过 Dispatcher；五种实现模式；AutocastCUDA → AutogradCUDA → CUDA |
-| [第六篇：C++ 扩展与自定义算子](/pytorch-cpp-extension-and-custom-operators.html) | 自己写一个算子，怎么接入算子系统？ | 三步、两种接入、四个阶段；实现层必须处理 device、dtype、stride、生命周期四件事 | `blocks = (n + 255) / 256`；warp 32 线程、事务 128 B，stride 2 访问带宽利用 50%，最坏 32 倍事务；`gradcheck` 必须 float64；ABI：`_GLIBCXX_USE_CXX11_ABI` 一致 |
+| [第六篇：C++ 扩展与自定义算子](/pytorch-cpp-extension-and-custom-operators.html) | 自己写一个算子，怎么接入算子系统？ | 三步、两种接入、四个阶段；实现层必须处理 device、dtype、stride、生命周期四件事 | `blocks = (n + 255) / 256`；warp 32 线程、取数按 32 B 扇区，stride 2 访问带宽利用 50%，最坏多搬 8 倍；`gradcheck` 必须 float64；ABI：`_GLIBCXX_USE_CXX11_ABI` 一致 |
 | [第七篇：编译执行与图优化](/pytorch-compilation-and-graph-optimization.html) | `torch.compile` 到底做了什么？ | 前端 Dynamo 捕获、中端 AOTAutograd 变换、后端 Inductor 生成，共享 FX Graph；运行时靠 Guard 决定复用 | `f` 热路径：3 次分发 → 0 次、3 次 launch → 2 次；Guard `size[0] == 128` → `s0 > 64`；缓存条目上限 8；`backend="eager"` / `"aot_eager"` / `"inductor"` |
 | [第八篇：性能优化与调试](/pytorch-performance-optimization-and-debugging.html) | 如何判断一个程序慢，以及定位它为什么慢？ | CPU 与 GPU 是两条异步时间线；五类瓶颈 + 显存四类；优化是把瓶颈从一类推到另一类 | CPU 每算子固定成本 10～30 µs；$$T \ge \max(\text{字节}/\text{带宽}, \text{FLOPs}/\text{算力})$$；A100 ridge point FP32 ≈ 10、BF16 ≈ 156 FLOP/Byte；融合 5N → 2N 访存；案例 166 → 2207 samples/s（13 倍） |
 | [第九篇：分布式 PyTorch](/pytorch-distributed-training.html) | 一张卡放不下或跑不完时，如何切分状态并让通信与计算重叠？ | 五类状态各做一个决定（复制 / 分片），每个决定对应一种集合通信原语与一个时机 | ring all_reduce 每 rank 收发 $$2(N-1)/N \cdot n$$ → 2n；DDP 2P、FSDP 3P；每 rank 静态显存 16P → 16P/N；TP 每层 4 次 all_reduce、只在节点内；PP 气泡 $$(K-1)/(M+K-1)$$ |
@@ -62,7 +62,7 @@ date: 2026-02-26 20:00:00
 
 **核心问题**：Tensor 到底是什么？为什么 `transpose()` 不复制、`view()` 有时报错、`reshape()` 有时零拷贝、同 shape 的 Tensor 性能可能完全不同？
 
-**结论**：Tensor 是六样东西的组合：数据（`StorageImpl` 里可共享的字节缓冲）、形状（`sizes`）、布局（`strides` + `storage_offset`）、类型、设备与生命周期（引用计数）。Python 的 `torch.Tensor` 是句柄，指向 C++ `TensorImpl`，后者持有 `Storage`；多个 `TensorImpl` 可指向同一 `StorageImpl`，这是 view 的实现基础。stride 表示"沿某维加 1，存储位置前进多少个元素"，`offset(i, j) = storage_offset + i × stride[0] + j × stride[1]`。`transpose` / `permute` / 切片只改元数据；`view` 要求新形状能在现有内存排列上直接解释，转置后往往做不到；`reshape` 是"能 view 就 view，否则先 `contiguous()` 复制再 view"。dtype 不只是位宽：fp16 指数 5 位、尾数 10 位，最大 65504，易溢出；bf16 指数 8 位与 fp32 相同、尾数只有 7 位，是 fp32 直接砍掉低 16 位。`device` 是每个 Tensor 自己的属性，`model.to("cuda")` 只搬注册的参数与 buffer。广播靠 `expand` 产生 stride 为 0 的视图，物理上不多占一个字节。显存问题的两个根源：某个小 view 让整块 Storage 活着；`del` 后的块只回到 caching allocator，`memory_reserved` 不降，`empty_cache()` 才归还驱动。
+**结论**：Tensor 是六样东西的组合：数据（`StorageImpl` 里可共享的字节缓冲）、形状（`sizes`）、布局（`strides` + `storage_offset`）、类型、设备与生命周期（引用计数）。Python 的 `torch.Tensor` 是句柄，指向 C++ `TensorImpl`，后者持有 `Storage`；多个 `TensorImpl` 可指向同一 `StorageImpl`，这是 view 的实现基础。stride 表示"沿某维加 1，存储位置前进多少个元素"，`offset(i, j) = storage_offset + i × stride[0] + j × stride[1]`。`transpose` / `permute` / 切片只改元数据；`view` 要求新形状能在现有内存排列上直接解释，转置后往往做不到；`reshape` 是"能 view 就 view，否则先 `contiguous()` 复制再 view"。dtype 不只是位宽：fp16 指数 5 位、尾数 10 位，最大 65504，易溢出；bf16 指数 8 位与 fp32 相同、尾数只有 7 位，位域是 fp32 的高 16 位，但转换按最近舍入（1.005 → 1.0078125），不是直接砍掉。`device` 是每个 Tensor 自己的属性，`model.to("cuda")` 只搬注册的参数与 buffer。广播靠 `expand` 产生 stride 为 0 的视图，物理上不多占一个字节。显存问题的两个根源：某个小 view 让整块 Storage 活着；`del` 后的块只回到 caching allocator，`memory_reserved` 不降，`empty_cache()` 才归还驱动。
 
 **必记**：
 
@@ -78,7 +78,7 @@ date: 2026-02-26 20:00:00
 
 **核心问题**：模型输出变化时，参数应沿什么方向、以多大幅度变化？PyTorch 如何把链式法则变成一次沿计算图执行的反向传播？
 
-**结论**：Autograd 在前向执行每个需要梯度的算子时就地创建 `Node`（`grad_fn`），节点通过 `next_functions` 指向输入的 `grad_fn`，沿链走到头就是整张图；每次前向一张新图，所以 Python 控制流可以直接参与。`backward()` 从结果节点按拓扑序执行，每个 `Node.apply` 算一次 VJP——上游梯度乘局部 Jacobian，从不物化 Jacobian（一个 `[B, 4096] → [B, 4096]` 层每样本的 Jacobian 是 $$4096^2$$ 个数）；公式来自 `derivatives.yaml`。叶子的 `.grad` 用 `+=` 累加，所以每步前必须 `zero_grad()`。节点用 `SavedVariable` 保存反向需要的值并记 version，in-place 修改后 version 不一致就报 "modified by an inplace operation"；哪些算子保存哪些输入由 `derivatives.yaml` 决定，所以同一个 in-place 有时安全有时报错。保存一个 non-leaf 输出（如把 `loss` 存进 list）会通过 `grad_fn` → `SavedVariable` → 上游节点的链让整张图与所有激活活着。`detach()` 作用于一个 Tensor，`no_grad()` 是线程局部开关（产物仍可参与后续求导），`inference_mode()` 更激进——不维护 version counter、不分配 AutogradMeta，产物不能再进入 autograd。自定义 `autograd.Function` 用 `ctx.save_for_backward` 存值、`backward` 返回对每个输入的 VJP，`gradcheck` 用 float64 有限差分验证。
+**结论**：Autograd 在前向执行每个需要梯度的算子时就地创建 `Node`（`grad_fn`），节点通过 `next_functions` 指向输入的 `grad_fn`，沿链走到头就是整张图；每次前向一张新图，所以 Python 控制流可以直接参与。`backward()` 从结果节点按拓扑序执行，每个 `Node.apply` 算一次 VJP——上游梯度乘局部 Jacobian，从不物化 Jacobian（一个 `[B, 4096] → [B, 4096]` 层每样本的 Jacobian 是 $$4096^2$$ 个数）；公式来自 `derivatives.yaml`。叶子的 `.grad` 用 `+=` 累加，所以每步前必须 `zero_grad()`。节点用 `SavedVariable` 保存反向需要的值并记 version，in-place 修改后 version 不一致就报 "modified by an inplace operation"；哪些算子保存哪些输入由 `derivatives.yaml` 决定，所以同一个 in-place 有时安全有时报错。保存一个 non-leaf 输出（如把 `loss` 存进 list）会通过 `grad_fn` → `SavedVariable` → 上游节点的链让整张图与所有激活活着。`detach()` 作用于一个 Tensor，`no_grad()` 是线程局部开关（产物仍可参与后续求导），`inference_mode()` 更激进——不维护 version counter、不分配 AutogradMeta，产物不能再作为需保存的输入进入 autograd（`x * c` 报错，`x + c` 仍可）。自定义 `autograd.Function` 用 `ctx.save_for_backward` 存值、`backward` 返回对每个输入的 VJP，`gradcheck` 用 float64 有限差分验证。
 
 **必记**：
 
@@ -110,7 +110,7 @@ date: 2026-02-26 20:00:00
 
 **核心问题**：写下 `z = x + y` 时，谁决定这个操作对应哪个算子、位于哪个设备、是否需要 Autograd、最终调用哪个 Kernel？
 
-**结论**：算子系统有两个时间轴。开发态三步：定义 Schema（`native_functions.yaml` 或 `torch.library`，含 overload 名、mutability 与 alias 标注）→ 注册实现到 DispatchKey（`dispatch` 字段或 `TORCH_LIBRARY_IMPL`）→ 编写实现；Codegen 横向生成 Binding、`at::` 入口、注册代码与 Autograd 函数。运行态三步：入口（`torch.add` → Binding → `at::add`）→ 分发 → 执行。两者交汇于 Operator Table——每个算子一个 `OperatorEntry`，按 DispatchKey 存实现。分发是位运算：各输入的 KeySet 做 OR，加上 TLS 的 include、减去 exclude，取最高优先级 Key 查表；包装 Key（Autograd、Autocast、Functionalize、Python）优先级高于后端 Key，做完自己的事后把自己排除再次分发，所以一次 `add` 两次经过 Dispatcher；`no_grad()` 下 Autograd 在合成 KeySet 时就被排除。实现内部有五种模式：TensorIterator 路径（逐元素 / 归约，Kernel 只写 `a + alpha * b`）、直接 Kernel、厂商库（cuBLAS / cuDNN）、Composite（组合其他 `at::` 算子并重新进入 Dispatcher）、Meta（只推断元数据）。TensorIterator 消费第二篇的 shape / stride / dtype，不是所有算子的必经之路。
+**结论**：算子系统有两个时间轴。开发态三步：定义 Schema（`native_functions.yaml` 或 `torch.library`，含 overload 名、mutability 与 alias 标注）→ 注册实现到 DispatchKey（`dispatch` 字段或 `TORCH_LIBRARY_IMPL`）→ 编写实现；Codegen 横向生成 Binding、`at::` 入口、注册代码与 Autograd 函数。运行态三步：入口（`torch.add` → Binding → `at::add`）→ 分发 → 执行。两者交汇于 Operator Table——每个算子一个 `OperatorEntry`，按 DispatchKey 存实现。分发是位运算：各输入的 KeySet 做 OR，加上 TLS 的 include、减去 exclude，取最高优先级 Key 查表；包装 Key（Autograd、Autocast、Functionalize、Python）优先级高于后端 Key，做完自己的事后把自己排除再次分发，所以一次 `add` 两次经过 Dispatcher；`requires_grad` 与 `no_grad()` 都不改 KeySet——普通 Tensor 的 KeySet 总含 Autograd Key，`no_grad()` 只翻转 GradMode 标志让包装层不记录；`inference_mode()` 才把 Autograd Key 加入 TLS excluded、真正跳过那一跳。实现内部有五种模式：TensorIterator 路径（逐元素 / 归约，Kernel 只写 `a + alpha * b`）、直接 Kernel、厂商库（cuBLAS / cuDNN）、Composite（组合其他 `at::` 算子并重新进入 Dispatcher）、Meta（只推断元数据）。TensorIterator 消费第二篇的 shape / stride / dtype，不是所有算子的必经之路。
 
 **必记**：
 
@@ -126,7 +126,7 @@ date: 2026-02-26 20:00:00
 
 **核心问题**：自己写一个算子（`scale_shift(x, alpha, beta) = alpha * x + beta`），把它接入 PyTorch 的算子系统，要做哪几件事、用什么工具、按什么顺序练？
 
-**结论**：三步、两种接入、四个阶段。三步与第五篇相同：定义 Schema → 注册到 DispatchKey（CPU / CUDA / Autograd / Meta 各一份）→ 编写实现；原生算子靠 Codegen 生成粘合代码，自定义算子三步都要自己做。两种接入：Python 的 `torch.library.define / impl / register_autograd / register_fake`，C++ 的 `TORCH_LIBRARY / TORCH_LIBRARY_IMPL`，写进同一张 Operator Table，`torch.ops.myops.scale_shift` 按名字取回；pybind11 暴露的是普通函数，要成为算子必须走 `TORCH_LIBRARY`。四个阶段：纯 Python 建立契约 → C++ CPU（`AT_DISPATCH` 把运行时 dtype 桥接到编译期模板，`cpp_extension.load` 即时编译）→ CUDA（`CUDAGuard` 切到输入所在设备、用当前 stream、launch 后检查）→ Autograd 与 Meta（`register_fake` 供 FakeTensor 与 `torch.compile` 使用）。实现层必须处理四件事：device、dtype、stride（`contiguous()` 用一次拷贝换 Kernel 简单，TensorIterator 用地址计算换零拷贝）、生命周期（`at::Tensor` 是句柄，`data_ptr` 只在 Tensor 存活期间有效）。读懂 Kernel 需要的 CUDA 最小集：`blockIdx.x * blockDim.x + threadIdx.x` 是全局线程号，warp 内 32 个线程锁步执行，访存合并按 128 B 事务。验证靠 `opcheck`（Schema、Autograd、FakeTensor、别名一致性）与 `gradcheck`（float64），Benchmark 对照原生 `2.0 * x + 1.0` 的两个 Kernel。
+**结论**：三步、两种接入、四个阶段。三步与第五篇相同：定义 Schema → 注册到 DispatchKey（CPU / CUDA / Autograd / Meta 各一份）→ 编写实现；原生算子靠 Codegen 生成粘合代码，自定义算子三步都要自己做。两种接入：Python 的 `torch.library.define / impl / register_autograd / register_fake`，C++ 的 `TORCH_LIBRARY / TORCH_LIBRARY_IMPL`，写进同一张 Operator Table，`torch.ops.myops.scale_shift` 按名字取回；pybind11 暴露的是普通函数，要成为算子必须走 `TORCH_LIBRARY`。四个阶段：纯 Python 建立契约 → C++ CPU（`AT_DISPATCH` 把运行时 dtype 桥接到编译期模板，`cpp_extension.load` 即时编译）→ CUDA（`CUDAGuard` 切到输入所在设备、用当前 stream、launch 后检查）→ Autograd 与 Meta（`register_fake` 供 FakeTensor 与 `torch.compile` 使用）。实现层必须处理四件事：device、dtype、stride（`contiguous()` 用一次拷贝换 Kernel 简单，TensorIterator 用地址计算换零拷贝）、生命周期（`at::Tensor` 是句柄，`data_ptr` 只在 Tensor 存活期间有效）。读懂 Kernel 需要的 CUDA 最小集：`blockIdx.x * blockDim.x + threadIdx.x` 是全局线程号，warp 内 32 个线程锁步执行，访存按 32 B 扇区合并。验证靠 `opcheck`（Schema、Autograd 注册、FakeTensor 元数据、AOT 可追踪——不含数值梯度）与 `gradcheck`（float64），Benchmark 对照原生 `2.0 * x + 1.0` 的两个 Kernel。
 
 **必记**：
 
@@ -146,7 +146,7 @@ date: 2026-02-26 20:00:00
 
 **必记**：
 
-- 热路径对照 Eager：Python 进入 C++ 3 次 → 1 次；分发 3 次 → 0 次；前向 launch 3 → 2；中间 Tensor 2 → 0；Autograd 节点 3 个 → 1 个 `CompiledFunctionBackward`。
+- 热路径对照 Eager：Python 进入 C++ 3 次 → 1 次；分发 3×2 次 → 1 次（`extern_kernels.mm` 仍是 `torch.mm`，逐元素部分才绕开 Dispatcher）；前向 launch 3 → 2；中间 Tensor 2 → 0；Autograd 节点 3 个 → 1 个 `CompiledFunctionBackward`。
 - `backend=` 指"Dynamo 之后的一切"：`"eager"` 只捕获、`"aot_eager"` 加中端、`"inductor"` 全走；`mode="reduce-overhead"` 加 CUDA Graphs，`mode="max-autotune"` 用 Triton 矩阵乘模板。
 - `torch.compile` 是带回退的 JIT，`torch.export` 是无回退的 AOT，分歧只在对 graph break 的态度；AOTInductor 在 export 之上编成共享库。
 - Inductor 默认不把 pointwise 融进 cuBLAS 的 `mm`（库调用是黑盒），也不消除 launch 本身。
@@ -164,8 +164,8 @@ date: 2026-02-26 20:00:00
 
 - A100：FP32 19.5 TFLOPS、BF16 Tensor Core 312 TFLOPS、带宽 2 TB/s → ridge point ≈ 10 与 156 FLOP/Byte；bf16 算力是 fp32 的 16 倍。
 - `[128, 64]` fp32 的 `add` Kernel 约 3～5 µs，CPU 提交它要几倍时间；launch-bound 阈值约 10～20 µs。
-- 融合 `add` + `relu`：分开 5N 次访存，融合约 2N；`4096³` bf16 矩阵乘 AI ≈ 1370 ≫ 156。
-- 混合精度静态显存不变：bf16 参数 2 + bf16 梯度 2 + fp32 主参数 4 + m 4 + v 4 = 16 B/参数，收益全在激活值。
+- 融合 `add` + `relu`（两个 N 元输入）：分开 5N 次访存，融合 3N；bias 广播时约 4N → 2N；`4096³` bf16 矩阵乘 AI ≈ 1370 ≫ 156。
+- 混合精度静态显存不变：原生 autocast 下参数 leaf 与 `.grad` 仍是 fp32（4 + 4 + 4 + 4）；Megatron 式 bf16 主流程是 bf16 参数 2 + bf16 梯度 2 + fp32 主参数 4 + m 4 + v 4——都是 16 B/参数，收益全在激活值。
 - 案例：48.2 ms / 3.1 GB → batch 64：118 ms（吞吐 ×3.3）→ bf16：51 ms → compile：38 ms（47 s 冷编译，Kernel 2100 → 640）→ SDPA：29 ms / 8.4 GB（`att` 每层 268 MB 不再物化）；checkpoint 换 batch 128 反而 1882 < 2207，未采用。
 - 低精度对 launch-bound 无效甚至变慢（autocast 插入 cast Kernel）——先解决 CPU 侧问题再上低精度。
 
@@ -175,18 +175,18 @@ date: 2026-02-26 20:00:00
 
 **核心问题**：当一张卡放不下模型或跑不完数据时，PyTorch 如何把计算和状态切分到多个设备，并让通信与计算重叠？
 
-**结论**：每种并行策略都是对五类状态——数据、参数、梯度、优化器状态、激活值——各做一个决定：复制（显存 N 份，需 all_reduce 同步）还是分片（显存 1/N，用到时 all_gather 凑齐、用完 reduce_scatter 分发）；每个决定同时决定显存占用、通信原语与通信时机。成本用 α + β 模型：小消息由延迟 α 主导，所以要合并成大消息（DDP 梯度桶、FSDP 分片单元不能太小）；ring all_reduce 每 rank 收发 $$2(N-1)/N \cdot n$$ 字节，N 大时趋近 2n、与进程数无关，而延迟项 $$2(N-1)\alpha$$ 随 N 线性增长。DDP 只分数据、其余全复制，`Reducer` 按反向顺序分桶，桶就绪就在 NCCL stream 上 all_reduce，与更早层的反向重叠——DDP 不省显存。ZeRO 三级逐个分片优化器状态、梯度、参数：ZeRO-1/2 只是 all_reduce = reduce_scatter + all_gather 恒等式的应用，通信仍 2P；ZeRO-3（FSDP）参数也分片，前向 all_gather、反向再 all_gather 加 reduce_scatter，通信 3P，比 DDP 多 50%，换来 16P/N 显存；HSDP 节点内分片、节点间复制，跨 IB 流量降到 2P/N_shard。TP 切层内，通信激活而非参数，每层 4 次 all_reduce 在关键路径上无法重叠，只能在 NVLink 范围内做、度 ≤ 8；SP 把边界上复制的激活也切掉。PP 按层切，气泡 $$(K-1)/(M+K-1)$$，1F1B 让每 stage 激活显存 ∝ K 而非 M。CP 切序列、只有 attention 通信；EP 切 expert、all_to_all 路由。加卡不线性的四组原因：通信时间、同步等待、计算效率（per-rank batch 变小回到 launch-bound）、算法效率（超过临界 batch）。
+**结论**：每种并行策略都是对五类状态——数据、参数、梯度、优化器状态、激活值——各做一个决定：复制（显存 N 份，需 all_reduce 同步）还是分片（显存 1/N，用到时 all_gather 凑齐、用完 reduce_scatter 分发）；每个决定同时决定显存占用、通信原语与通信时机。成本用 α + β 模型：小消息由延迟 α 主导，所以要合并成大消息（DDP 梯度桶、FSDP 分片单元不能太小）；ring all_reduce 每 rank 收发 $$2(N-1)/N \cdot n$$ 字节，N 大时趋近 2n、与进程数无关，而延迟项 $$2(N-1)\alpha$$ 随 N 线性增长。DDP 只分数据、其余全复制，`Reducer` 按反向顺序分桶，桶就绪就在 NCCL stream 上 all_reduce，与更早层的反向重叠——DDP 不省显存。ZeRO 三级逐个分片优化器状态、梯度、参数：ZeRO-1/2 只是 all_reduce = reduce_scatter + all_gather 恒等式的应用，通信仍 2P；ZeRO-3（FSDP）参数也分片，前向 all_gather、反向再 all_gather 加 reduce_scatter，通信按元素数 3P（同 dtype 时比 DDP 多 50%；bf16 参数 + fp32 梯度的常见配置下按字节与 DDP 相同，都是 8 B/参数），换来 16P/N 显存；HSDP 节点内分片、节点间复制，跨 IB 流量降到 2P/N_shard。TP 切层内，通信激活而非参数，每层 4 次 all_reduce 在关键路径上无法重叠，实践上限在 NVLink 域内（常见一机 8 卡）；SP 把边界上复制的激活也切掉。PP 按层切，气泡 $$(K-1)/(M+K-1)$$，1F1B 让每 stage 激活显存 ∝ K 而非 M。CP 切序列、只有 attention 通信；EP 切 expert、all_to_all 路由。加卡不线性的四组原因：通信时间、同步等待、计算效率（per-rank batch 变小回到 launch-bound）、算法效率（超过临界 batch）。
 
 **必记**：
 
 - 每 rank 静态显存：DDP 16P；ZeRO-1 4P + 12P/N；ZeRO-2 2P + 14P/N；ZeRO-3 / FSDP 16P/N（N=8：16P → 5.5P → 3.75P → 2P）；通信 2P、2P、2P、3P。
 - 带宽层级：NVLink（H100）约 900 GB/s 双向、all_reduce 总线带宽 300～450 GB/s；PCIe Gen5 x16 约 64 GB/s；IB NDR 每卡约 50 GB/s——节点内外差近一个数量级。
-- 7B 模型 8 卡 FSDP：all_gather 2 × 14 GB + reduce_scatter 28 GB（fp32）= 56 GB/rank/step，NVLink 约 190 ms、IB 约 1.1 s。
+- 7B 模型 8 卡 FSDP：all_gather 2 × 14 GB（bf16）+ reduce_scatter 28 GB（fp32）= 56 GB/rank/step（ring 实发约 49 GB），NVLink 约 190 ms、IB 约 1.1 s——与 DDP 对 fp32 梯度 all_reduce 的 56 GB 相同。
 - GPipe 气泡 M=4、K=4 时 43%，M=32 时 9%；决策顺序里 PP 的 micro-batch 数 ≥ 4K。
 - 案例：8 卡 DDP 95%；7B 8 卡 FSDP + checkpointing 通信全部隐藏；32 卡 FSDP 掉到 62%（56 GB 不随卡数减少，计算缩到 1/4）；HSDP 回到 94%，代价是显存不随节点数下降。
 - `dist.all_reduce` 同步版返回即可读；`async_op=True` 必须 `work.wait()`，且 `wait()` 只让当前 stream 等，不阻塞 CPU。
 
-**常见误解**："FSDP 比 DDP 省显存也省通信"——它多 50% 通信（3P 对 2P），省的是 16P → 16P/N 的显存。另一个："加卡就该线性加速"——总 batch 不变时 per-rank 计算随 N 缩小，而带宽项通信量不随 N 减少，两条曲线会交叉。
+**常见误解**："FSDP 比 DDP 省显存也省通信"——它不省通信：按元素数 3P 对 2P，按字节在常见 dtype 配置下持平；省的是 16P → 16P/N 的显存。另一个："加卡就该线性加速"——总 batch 不变时 per-rank 计算随 N 缩小，而带宽项通信量不随 N 减少，两条曲线会交叉。
 
 ### 10. 第十篇：PyTorch 的工程体系
 
@@ -198,7 +198,7 @@ date: 2026-02-26 20:00:00
 
 - 首次完整 CUDA 构建在 32 核机器上约 1～2 小时；改一个 `.cu` 几分钟，改 `c10/` 头文件可能触发半数文件重编；改 Schema 要重跑 Codegen、几乎整个 `aten` 重编。
 - 小版本每三到四个月，cut 出 release 分支距发布约 6 周，之后只接受 cherry-pick；CUDA 通常同时支持两到三个版本。
-- wheel 矩阵：Python 版本 × 加速后端（CPU / CUDA / ROCm / XPU）× 平台，每个维度都是 ABI 的一部分；Linux 从 2.6 起统一 cxx11 ABI。
+- wheel 矩阵：Python 版本 × 加速后端（CPU / CUDA / ROCm / XPU）× 平台，每个维度都是 ABI 的一部分；Linux 官方 wheel 2.6 起部分、2.7 起全部切到 cxx11 ABI，扩展读 `torch._C._GLIBCXX_USE_CXX11_ABI` 跟随。
 - 弃用：保留至少一个小版本（通常两个）；`torch.symeig` 1.9 弃用、1.13 移除；`weights_only` 默认值 2.4 警告、2.6 切换。
 - Schema BC/FC：新增算子或 overload、末尾加带默认值的参数 ✓BC ✗FC；删除 / 重命名 / 改类型 / 改默认值都禁止，要变化就新增 overload；`torch.div` 1.6 的语义变更走 upgrader。
 - 使用者节奏：生产 pin 到具体版本连同 CUDA、驱动、扩展一起进镜像；每个小版本评估、每两个小版本升级一次；`-W error::FutureWarning` 让弃用在 CI 里变成错误。
@@ -209,11 +209,11 @@ date: 2026-02-26 20:00:00
 
 ### 1. Tensor 元数据一路向下决定访存
 
-第二篇建立的六个字段——尤其是 stride 与 dtype——不只是解释"view 为什么不复制"，它们决定了下面每一层的行为。第五篇的 TensorIterator 消费的正是 shape / stride / storage_offset / dtype：构造迭代空间、检测连续布局、划分并行块，Kernel 只表达对一个元素做什么。第六篇把同一件事放到自定义 Kernel 里：`data_ptr<T>()` 返回的是 `storage_offset` 之后的起始地址，对非连续 Tensor 直接一维遍历会得到错误结果，所以要么 `contiguous()` 用一次拷贝换 Kernel 简单、要么 TensorIterator 用地址计算换零拷贝；而 warp 内 32 个线程访问连续地址才能合并成一次 128 B 事务，跨步 2 就只剩 50% 带宽利用。第八篇给出后果的度量：逐元素算子永远 memory-bound，时间由字节数除以带宽决定，访存不合并的 `y + 1` 比连续情形慢数倍；bf16 把数据量减半，所以同一个 Kernel 时间大致减半。第二篇的 dtype 位域（fp16 5/10、bf16 8/7）在第四篇成为 GradScaler 存在的理由，在第八篇成为 Tensor Core 16 倍算力与"主参数必须保留 fp32 副本"的依据。
+第二篇建立的六个字段——尤其是 stride 与 dtype——不只是解释"view 为什么不复制"，它们决定了下面每一层的行为。第五篇的 TensorIterator 消费的正是 shape / stride / storage_offset / dtype：构造迭代空间、检测连续布局、划分并行块，Kernel 只表达对一个元素做什么。第六篇把同一件事放到自定义 Kernel 里：`data_ptr<T>()` 返回的是 `storage_offset` 之后的起始地址，对非连续 Tensor 直接一维遍历会得到错误结果，所以要么 `contiguous()` 用一次拷贝换 Kernel 简单、要么 TensorIterator 用地址计算换零拷贝；而 warp 内 32 个线程访问连续地址才能把 32 B 扇区用满，跨步 2 就只剩 50% 带宽利用。第八篇给出后果的度量：逐元素算子几乎总是 memory-bound，时间由字节数除以带宽决定；单个转置 view 参与运算并不慢（TensorIterator 沿物理布局遍历），两个输入布局正交时才掉带宽；bf16 把数据量减半，所以同一个 Kernel 时间大致减半。第二篇的 dtype 位域（fp16 5/10、bf16 8/7）在第四篇成为 GradScaler 存在的理由，在第八篇成为 Tensor Core 16 倍算力与"主参数必须保留 fp32 副本"的依据。
 
 ### 2. Autograd 是一个 DispatchKey
 
-第一篇的一句话"Autograd 是一个 DispatchKey"在后面五篇里反复兑现。第三篇从用户视角看它：每个算子在前向时记录 `grad_fn`、用 `SavedVariable` 保存反向所需的值。第五篇从运行态看它：Autograd 是 Operator Table 上优先级高于后端 Key 的包装 Key，`VariableType` 里的包装 Kernel 由 Codegen 从 `derivatives.yaml` 生成，做完记录后 `AutoDispatchBelowAutograd` 把自己排除、再次分发到 CUDA——一次 `add` 两次经过 Dispatcher；Autocast、Functionalize、Python 子类拦截都是同一条链上的 Key。第六篇要求自定义算子自己往这个槽位填东西：`register_autograd` 或 Autograd Key 上的 `torch::autograd::Function`，`opcheck` 检查它与有限差分是否一致。第七篇的 AOTAutograd 是把这层"提前做"：用 FakeTensor 追踪 autograd 得到整张反向图，运行时只剩一个 `CompiledFunctionBackward` 节点——编译改变了节点内部的执行方式，没有改变 Autograd 图的拓扑与 Optimizer 看到的接口。第九篇的 DDP `Reducer` 与 FSDP 的反向 hook 都挂在第三篇的 autograd hook 上，梯度就绪的那一刻就是通信开始的时刻。第十篇则用 `gradcheck` 作为五种 oracle 之一守住每个反向节点。
+第一篇的一句话"Autograd 是一个 DispatchKey"在后面五篇里反复兑现。第三篇从用户视角看它：每个算子在前向时记录 `grad_fn`、用 `SavedVariable` 保存反向所需的值。第五篇从运行态看它：Autograd 是 Operator Table 上优先级高于后端 Key 的包装 Key，`VariableType` 里的包装 Kernel 由 Codegen 从 `derivatives.yaml` 生成，做完记录后 `AutoDispatchBelowAutograd` 把自己排除、再次分发到 CUDA——一次 `add` 两次经过 Dispatcher；Autocast、Functionalize、Python 子类拦截都是同一条链上的 Key。第六篇要求自定义算子自己往这个槽位填东西：`register_autograd` 或 Autograd Key 上的 `torch::autograd::Function`，`opcheck` 检查它的注册是否合法，`gradcheck` 用有限差分检查数值。第七篇的 AOTAutograd 是把这层"提前做"：用 FakeTensor 追踪 autograd 得到整张反向图，运行时只剩一个 `CompiledFunctionBackward` 节点——编译改变了节点内部的执行方式，没有改变 Autograd 图的拓扑与 Optimizer 看到的接口。第九篇的 DDP `Reducer` 与 FSDP 的反向 hook 都挂在第三篇的 autograd hook 上，梯度就绪的那一刻就是通信开始的时刻。第十篇则用 `gradcheck` 作为五种 oracle 之一守住每个反向节点。
 
 ### 3. 固定成本与"少而大"
 
@@ -221,7 +221,7 @@ date: 2026-02-26 20:00:00
 
 ### 4. 16 B/参数这笔账
 
-同一个数字在三篇里各算一次。第四篇在 Optimizer 一章第一次写下它：FP32 + Adam 下每个参数对应 param、grad、`exp_avg`、`exp_avg_sq` 四块各 4 B，7B 模型 112 GB，其中一半是 Optimizer state，并预告它是多卡训练最先被切分的状态。第八篇把它放进显存的构成——前三项是静态的、与 batch 无关，激活值随 batch 线性增长；并指出混合精度下这个数字不变（bf16 参数 2 + bf16 梯度 2 + fp32 主参数 4 + m 4 + v 4），收益全在激活值上；案例里 38M 参数的小模型静态部分微不足道，checkpointing 换 batch 反而不值得。第九篇以它为所有显存账的基准：DDP 每卡 16P，ZeRO-1 4P + 12P/N，ZeRO-2 2P + 14P/N，FSDP 16P/N；7B 模型 8 卡 FSDP 静态 14 GB，激活 143 GB 远超显存，第八篇"不值得"的 checkpointing 在这里成为必需（激活降到约 13 GB，代价 +33% 计算）；HSDP 的代价正是静态显存从 3.5 GB 回到 14 GB。第十篇的升级 playbook 第 5 步"旧 checkpoint 在新版本加载并续训"，加载的就是这 16 B 里属于 `state_dict` 与优化器 `state_dict` 的部分。
+同一个数字在三篇里各算一次。第四篇在 Optimizer 一章第一次写下它：FP32 + Adam 下每个参数对应 param、grad、`exp_avg`、`exp_avg_sq` 四块各 4 B，7B 模型 112 GB，其中一半是 Optimizer state，并预告它是多卡训练最先被切分的状态。第八篇把它放进显存的构成——前三项是静态的、与 batch 无关，激活值随 batch 线性增长；并指出混合精度下这个数字不变（原生 autocast：参数与 `.grad` 都还是 fp32；bf16 主流程：bf16 参数 2 + bf16 梯度 2 + fp32 主参数 4 + m 4 + v 4），收益全在激活值上；案例里 38M 参数的小模型静态部分微不足道，checkpointing 换 batch 反而不值得。第九篇以它为所有显存账的基准：DDP 每卡 16P，ZeRO-1 4P + 12P/N，ZeRO-2 2P + 14P/N，FSDP 16P/N；7B 模型 8 卡 FSDP 静态 14 GB，激活 143 GB 远超显存，第八篇"不值得"的 checkpointing 在这里成为必需（激活降到约 13 GB，代价 +33% 计算）；HSDP 的代价正是静态显存从 3.5 GB 回到 14 GB。第十篇的升级 playbook 第 5 步"旧 checkpoint 在新版本加载并续训"，加载的就是这 16 B 里属于 `state_dict` 与优化器 `state_dict` 的部分。
 
 ### 5. 契约与实现分离
 
@@ -298,7 +298,7 @@ date: 2026-02-26 20:00:00
 
    <details markdown="1"><summary>答案</summary>
 
-   第一种：AutocastCUDA → CUDA。`no_grad` 让 TLS 的 exclude 集合包含 Autograd，合成 KeySet 时就被排除，只经过一层包装。第二种：只有 CUDA——输入 KeySet 里根本没有 AutogradCUDA，一次分发直接到后端 Kernel。
+   两种情形 KeySet 都是 `{AutogradCUDA, AutocastCUDA, ADInplaceOrView, CUDA}`——`requires_grad` 与 `no_grad` 都不改 KeySet。第一种：AutogradCUDA（读到 GradMode 关闭，不记录 `grad_fn`）→ AutocastCUDA（`add` 属 fallthrough 类，不转精度）→ CUDA。第二种：AutogradCUDA（发现没有输入 `requires_grad`，不记录）→ CUDA。只有 `inference_mode()` 会在合成 KeySet 时把 Autograd 一族剔掉，一次分发直接到后端。
 
    </details>
 
@@ -306,7 +306,7 @@ date: 2026-02-26 20:00:00
 
    <details markdown="1"><summary>答案</summary>
 
-   分开 5N 次：$$5 \times 10^8 \times 4 = 2$$ GB，约 1 ms；融合约 2N 次：0.8 GB，约 0.4 ms。两个算子 AI 都在 0.1 量级，远低于 ridge point，时间按访存量线性下降——这就是 Inductor 融合省下的东西。
+   分开 5N 次（add 读 2N 写 N，relu 读 N 写 N）：$$5 \times 10^8 \times 4 = 2$$ GB，约 1 ms；融合 3N 次（读两个输入、写一个输出，中间结果不落显存）：1.2 GB，约 0.6 ms。两个算子 AI 都在 0.1 量级，远低于 ridge point，时间按访存量线性下降——这就是 Inductor 融合省下的东西。
 
    </details>
 
@@ -400,7 +400,7 @@ date: 2026-02-26 20:00:00
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) `view` 只改元数据、要求新形状能在现有排列上解释；`reshape` 能 view 就 view 否则复制；`contiguous` 视布局而定；`clone` 一定新 Storage；(2) 转置后 strides 不再行主序，逐元素 Kernel 按 stride 遍历，warp 内 32 个线程地址分散，128 B 事务合并失效——跨步 2 只剩 50% 带宽，极端 32 倍事务；(3) 逐元素算子永远 memory-bound，时间由字节数 / 有效带宽决定；(4) 处方：让上游产出连续布局，或一次 `contiguous()` 换后续多个 Kernel 变快。
+   **答案要点**：(1) `view` 只改元数据、要求新形状能在现有排列上解释；`reshape` 能 view 就 view 否则复制；`contiguous` 视布局而定；`clone` 一定新 Storage；(2) 转置后 strides 不再行主序；单输入时 TensorIterator 会沿物理布局遍历、不慢，但与另一个连续 Tensor 一起运算时其中一个必然跨 stride——warp 内 32 个线程地址分散，32 B 扇区用不满：跨步 2 只剩 50% 带宽，极端情形多搬 8 倍；(3) 逐元素算子几乎总是 memory-bound，时间由字节数 / 有效带宽决定；(4) 处方：让上游产出连续布局，或一次 `contiguous()` 换后续多个 Kernel 变快。
    **追问方向**：`x[:, 0]` 为什么不连续；`expand` 的 stride 0 与 in-place 的限制；`channels_last` 这类布局。
    **好答案与一般答案的区别**：一般答案背"view 不复制、reshape 可能复制"；好答案把 stride 一路讲到 warp 访存合并与带宽利用率。
 
@@ -440,7 +440,7 @@ date: 2026-02-26 20:00:00
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 先算显存：16P = 1.1 TB，节点内 8 卡分片后每卡 140 GB 仍放不下 → 引入 TP=8 在节点内切每一层，FSDP 在跨节点 dp 维分片，参数是 2D DTensor；(2) TP 每层 4 次关键路径 all_reduce，通信激活 ∝ B·S·H，只能走 NVLink，度 ≤ 8；(3) 跨节点 FSDP 通信 3P，每卡收发不随卡数减少，IB 每卡约 50 GB/s，若藏不住换 HSDP 或 PP（micro-batch ≥ 4K）；(4) 激活按 block 做 checkpointing（+33% 计算），序列很长再上 CP；(5) 判断标准只有两条：每卡显存放不放得下、通信时间能否被计算隐藏。
+   **答案要点**：(1) 先算显存：16P = 1.1 TB，64 卡纯 FSDP 每卡 17.5 GB 静态状态本可放下，但单层参数 + 激活太大、且跨节点 3P 通信藏不住 → 引入 TP=8 在节点内切每一层，FSDP 在跨节点 dp 维分片，参数是 2D DTensor（TP=8 是一种常见落点，不是唯一方案）；(2) TP 每层 4 次关键路径 all_reduce，通信激活 ∝ B·S·H，实践上限在 NVLink 域内；(3) 跨节点 FSDP 按 TP 分片后每卡通信 3P/8 的元素数，不随 dp 卡数减少，IB 每卡约 50 GB/s，若藏不住换 HSDP 或 PP（micro-batch ≥ 4K）；(4) 激活按 block 做 checkpointing（+33% 计算），序列很长再上 CP；(5) 判断标准只有两条：每卡显存放不放得下、通信时间能否被计算隐藏。
    **追问方向**：ZeRO 三级各分什么、通信为什么是 2P / 2P / 3P；1F1B 为什么显存 ∝ K；`MixedPrecisionPolicy` 里 fp32 分片、bf16 通信的理由；扩展效率不线性的四组原因。
    **好答案与一般答案的区别**：一般答案报一组"TP=8、PP=4"的配置；好答案从五类状态复制还是分片出发，给出每一步的显存与通信数字，并说清节点内外带宽差近一个数量级如何决定策略落点。
 
@@ -476,5 +476,5 @@ date: 2026-02-26 20:00:00
 回到总纲：[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)。
 
 [^q0]: 总纲那串追问的每一个：Tensor 如何表示输入（元数据 + 共享 Storage，view 不复制）；Module 如何组织模型（`__setattr__` 注册，一切状态在 `state_dict`）；Autograd 如何建图（前向就地建 `grad_fn`，每节点算 VJP，`.grad` 累加）；Dispatcher 如何选算子（DispatchKeySet 查 Operator Table，包装 Key 再分发）；自定义算子如何接入（三步、两种接入、四个阶段，`opcheck`）；Compiler 如何变换（Dynamo → AOTAutograd → Inductor，Guard 决定复用）；Profiler 如何告诉你瓶颈在哪（两条时间线、五类瓶颈、显存四类）；多卡如何协同（五类状态各做复制或分片的决定）；Tests、Build 和 CI 如何保证演进（七关、五种 oracle、OpInfo、BC/FC）。详见[第二章](#二逐篇回顾)。
-[^q1]: 源码四层 `torch/` → `torch/csrc/` → `aten/` → `c10/`；`[2,3,4]` 连续 strides `(12, 4, 1)`；fp16 最大 65504、bf16 尾数 7 位；Adam 训练 16 B/参数、7B → 112 GB、混合精度不变；一次 `add` 两次经过 Dispatcher；warp 32 线程、事务 128 B、跨步 2 带宽 50%；`f` 热路径 3 次分发 → 0、缓存条目上限 8；每算子 CPU 固定成本 10～30 µs；A100 ridge point ≈ 10 / 156 FLOP/Byte、bf16 算力 16 倍；融合 5N → 2N；案例 166 → 2207 samples/s；ring all_reduce 每 rank $$2(N-1)/N \cdot n$$；DDP 2P、FSDP 3P、显存 16P → 16P/N；TP 每层 4 次 all_reduce、度 ≤ 8；PP 气泡 $$(K-1)/(M+K-1)$$；NVLink 与 IB 带宽差近一个数量级；2000+ 算子 × 约 15 种 dtype → 几十万测试；小版本每三到四个月、弃用保留通常两个小版本。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
+[^q1]: 源码四层 `torch/` → `torch/csrc/` → `aten/` → `c10/`；`[2,3,4]` 连续 strides `(12, 4, 1)`；fp16 最大 65504、bf16 尾数 7 位；Adam 训练 16 B/参数、7B → 112 GB、混合精度不变；一次 `add` 两次经过 Dispatcher；warp 32 线程、32 B 扇区、跨步 2 带宽 50%；`f` 热路径 6 次分发 → 1、缓存条目上限 8；每算子 CPU 固定成本 10～30 µs；A100 ridge point ≈ 10 / 156 FLOP/Byte、bf16 算力 16 倍；融合 5N → 2N；案例 166 → 2207 samples/s；ring all_reduce 每 rank $$2(N-1)/N \cdot n$$；DDP 2P、FSDP 3P、显存 16P → 16P/N；TP 每层 4 次 all_reduce、度 ≤ 8；PP 气泡 $$(K-1)/(M+K-1)$$；NVLink 与 IB 带宽差近一个数量级；2000+ 算子 × 约 15 种 dtype → 几十万测试；小版本每三到四个月、弃用保留通常两个小版本。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
 [^q2]: 用第五章的三段自测：A 组 10 题判断与计算（至少 8 题）、B 组 5 题跨篇综合（至少 4 题）、C 组 7 道面试题（每题说出一半以上要点）；D 组的表给出"读过 / 掌握 / 能教人"三级的表现。详见[第五章](#五通关自测)。

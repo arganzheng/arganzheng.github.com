@@ -191,7 +191,7 @@ torch.cuda.synchronize()
 elapsed_ms = start.elapsed_time(end)
 ```
 
-Event 记录的是 GPU 执行到该位置的时刻，因此测量的是 GPU 侧的真实区间，不受 CPU 提交速度影响。
+Event 记录的是 GPU 执行到该位置的时刻，因此测量的是 GPU 侧的真实区间，包括其间所有 Kernel 的执行时间，也包括 GPU 在两个 Event 之间**空等** CPU 提交下一个 Kernel 的空档。所以它不等于"纯 Kernel 时间之和"：模型小、launch 密集时，Event 区间会被 CPU 侧拖长——这恰恰是第五章要诊断的 launch-bound；要分开两者，看 Profiler 时间线里 GPU 行的空隙。
 
 ### 2. Stream：队列本身
 
@@ -651,7 +651,7 @@ AI      ≈ 1370  ≫ 156   → compute-bound
 
 结论：
 
-- **逐元素算子永远是 memory-bound**。它们的 AI 在 0.1 量级，与硬件 ridge point 差两到三个数量级。让它们变快的唯一途径是**减少访存**。
+- **逐元素算子几乎总是 memory-bound**。它们的 AI 在 0.1 量级，与硬件 ridge point 差两到三个数量级，让它们变快的主要途径是**减少访存**。例外是小 shape（launch 与延迟主导，见第五章）和含 `exp`/`erf` 等特殊函数、按 SFU 吞吐而非 FMA 吞吐计算的算子——Roofline 的两条线只覆盖显存带宽与 FMA 算力，不覆盖所有瓶颈。
 - **大矩阵乘是 compute-bound**。让它变快的途径是用更高算力的单元，或减少计算量。
 - **小矩阵乘两头不靠**，规模不足以填满 GPU，实际受 launch 开销和低 occupancy 限制。回到第五章。
 
@@ -694,11 +694,11 @@ Launch-bound             没有作用，Kernel 数量不变；autocast 插入的
 |---|---|---|---|---|---|
 | FP32 | 8 | 23 | ~1e±38 | ~7 位十进制 | 基线；主参数、优化器状态、归约 |
 | TF32 | 8 | 10 | 与 FP32 相同 | ~3 位 | Tensor Core 内部格式，fp32 矩阵乘的免费加速 |
-| FP16 | 5 | 10 | ±65504，最小正规数 6e-5 | ~3 位 | 需 GradScaler 防下溢 |
+| FP16 | 5 | 10 | ±65504，最小正规数 6.1e-5，非正规数可到 6e-8 | ~3 位 | 需 GradScaler 防下溢 |
 | BF16 | 8 | 7 | 与 FP32 相同 | ~2 位 | 大模型训练默认 |
 
 - **TF32** 不是存储格式：输入输出仍是 fp32 Tensor，矩阵乘内部把尾数截到 10 位。`torch.set_float32_matmul_precision("high")` 开启。对用户几乎透明，代价是矩阵乘精度降到 fp16 水平。
-- **FP16** 指数位少，**容易溢出和下溢**：梯度小于 6e-5 归零，激活值大于 65504 变 inf。第四篇的 `GradScaler` 为它存在：把 loss 放大后反向，让小梯度不下溢。
+- **FP16** 指数位少，**容易溢出和下溢**：梯度小于 6.1e-5 就进入非正规数区间、有效位逐位丢失，小于约 3e-8 才真正归零（`torch.tensor(1e-5).half()` 仍是 1.0014e-5，不是 0）；激活值大于 65504 变 inf。第四篇的 `GradScaler` 为它存在：把 loss 放大后反向，让小梯度不下溢。
 - **BF16** 范围与 fp32 相同，不需要 GradScaler，但尾数只有 7 位——相近的数相减会损失大部分有效位。它是当前大模型训练的默认，因为范围问题比精度问题更难处理。
 
 第四篇讲过 `autocast` 的用法。它不是把所有 Tensor 变成 bf16，而是按算子分类：
@@ -717,7 +717,7 @@ Launch-bound             没有作用，Kernel 数量不变；autocast 插入的
 
 **溢出**。Attention score `q @ k.T / sqrt(d)` 在长序列、大 hidden 下容易超过 fp16 范围。softmax 前减去最大值是标准做法，PyTorch 的 `softmax` 内部已经这样做，但手写的 `exp(x) / exp(x).sum()` 没有。
 
-**下溢与精度丢失**。fp16 梯度小于 6e-5 归零，深层网络的早期层梯度容易落入此区间。bf16 下 `x + delta` 当 `delta < x / 128` 时直接等于 `x`——优化器更新 `lr × grad` 相对参数值极小，用 bf16 存参数会导致更新丢失，所以主参数必须是 fp32。
+**下溢与精度丢失**。fp16 梯度小于 6.1e-5 就落进非正规数区间开始丢有效位，深层网络的早期层梯度容易落入此区间。bf16 的相邻可表示数在 $$[1, 2)$$ 区间内相距 $$2^{-7}$$，加法按最近舍入，所以 `x + delta` 当 `delta` 小于半个 ulp（约 `x / 256`，且与 `x` 在二进制区间里的位置有关）时直接等于 `x`——优化器更新 `lr × grad` 相对参数值极小，用 bf16 存参数会导致更新丢失，这是 fp32 主参数这份 recipe 的由来（另一条路是随机舍入，见 Transformer 系列第六篇）。
 
 **累加误差**。对 N 个 bf16 数求和，如果累加器也是 bf16，误差随 N 增长。PyTorch 的 CUDA 归约 Kernel 内部用 fp32 累加，矩阵乘的 Tensor Core 同样以 fp32 累加，但用户手写的循环累加不会。
 
@@ -737,16 +737,17 @@ loss 计算保持 fp32；用 F.cross_entropy(logits) 而不是 log(softmax(logit
 
 ### 7. 处方三：数据布局
 
-第二篇讲过 stride 和连续性。对 memory-bound 的 Kernel，访存模式直接决定实际带宽：连续访问能合并成宽事务，跨 stride 的访问浪费带宽。
+第二篇讲过 stride 和连续性。对 memory-bound 的 Kernel，访存模式直接决定实际带宽：warp 内相邻线程访问相邻地址才能合并成整扇区，跨 stride 的访问浪费带宽。但"非连续就慢"是一个常见的误解——TensorIterator 会**按物理布局重排遍历顺序**（第五篇），一个转置 view 单独参与运算时，输出会按同样的 stride 分配，遍历仍然沿着内存连续方向走，速度与连续情形相当。真正吃亏的是**多个输入布局互相打架**的情形：
 
 ```python
 x = torch.randn(4096, 4096, device="cuda")
 y = x.t()                    # view，非连续
-z = y + 1                    # TensorIterator 按 stride 遍历，访存不合并，比连续情形慢数倍
-z = y.contiguous() + 1       # 先复制成连续（一次额外访存），再快速逐元素
+z = y + 1                    # 单输入：TensorIterator 沿 y 的物理布局遍历，输出也按该布局分配，不慢
+w = y + x                    # 两个输入的连续方向正交：无论按谁的顺序走，另一个都跨 stride，带宽掉一半以上
+w = y.contiguous() + x       # 先复制一次（一读一写），之后逐元素按同一布局跑满带宽
 ```
 
-哪种更快取决于后续用几次：用一次时直接遍历，用多次时先 `contiguous()`。`channels_last` 内存格式对卷积网络的加速也是同一原理——让 cuDNN 的访存模式与数据布局匹配。
+哪种更快取决于后续用几次：只用一次时让 TensorIterator 直接遍历，之后还要与连续 Tensor 反复运算时先 `contiguous()`。`channels_last` 内存格式对卷积网络的加速也是同一原理——让 cuDNN 的访存模式与数据布局匹配。
 
 ### 8. Occupancy：为什么达不到 Roofline
 
@@ -796,12 +797,14 @@ CPU-bound 场景   队列本来就浅；同步后 GPU 立即空闲，等 CPU 重
 
 ```python
 running = torch.zeros((), device="cuda")
-for step, batch in enumerate(loader):
+for step, batch in enumerate(loader, start=1):
     loss = train_step(batch)
     running += loss.detach()                  # GPU 上累加，不同步
     if step % 100 == 0:
-        log(running.item() / 100)             # 每 100 步同步一次
+        log(running.item() / 100)             # 每 100 步同步一次（start=1，第一次 log 时确实累了 100 步）
         running.zero_()
+if step % 100:                                # 收尾：不足 100 步的余数也要汇报
+    log(running.item() / (step % 100))
 ```
 
 同步次数从每步一次降到每百步一次，队列在绝大多数 step 里保持深度。同样的思路适用于梯度范数、准确率等所有监控指标：在 GPU 上累积，定期取回。
@@ -817,7 +820,7 @@ for batch in loader:
     ...
 ```
 
-缺任一条件，`non_blocking` 静默退化为同步拷贝——不报错，只是不异步。`pin_memory=True` 让 `DataLoader` 的 worker 把 batch 放进 pinned memory，主进程拿到的已经是可以异步传输的数据。反方向（Device 到 Host）同理：目标是 pinned Tensor 且 `non_blocking=True`，之后需要显式同步再读值。
+缺任一条件，`non_blocking` 就不能保证异步——不报错，只是可能退化：源在 pageable 内存时，CUDA 先把数据搬进一块内部的 pinned 中转区，H2D 调用要等这一步完成才返回（大 batch 时就是一次同步拷贝的大部分时间），真正的 DMA 才是异步的。`pin_memory=True` 让 `DataLoader` 的 worker 把 batch 放进 pinned memory，主进程拿到的已经是可以异步传输的数据。反方向（Device 到 Host）同理：目标是 pinned Tensor 且 `non_blocking=True`，之后需要显式同步再读值。
 
 ### 5. 处方三：多 Stream 重叠传输与计算
 
@@ -825,43 +828,50 @@ for batch in loader:
 
 ```python
 copy_stream = torch.cuda.Stream()
+compute_stream = torch.cuda.current_stream()
 
-next_batch = None
-for batch in loader:
+it = iter(loader)
+with torch.cuda.stream(copy_stream):
+    current = next(it).to("cuda", non_blocking=True)          # 预取第 0 个 batch
+for batch in it:
     with torch.cuda.stream(copy_stream):
-        next_batch = batch.to("cuda", non_blocking=True)     # 在另一条队列上传输
-    if current is not None:
-        y = model(current)                                    # 默认队列上计算，与传输并发
-    torch.cuda.current_stream().wait_stream(copy_stream)      # 计算队列等传输完成
+        next_batch = batch.to("cuda", non_blocking=True)      # 在另一条队列上传输第 i+1 个
+    compute_stream.wait_stream(copy_stream)                   # 第 i 个的拷贝完成后计算才能开始
+    current.record_stream(compute_stream)                     # 告知 allocator：这块内存在 compute_stream 上还在用
+    y = model(current)                                        # 默认队列上计算第 i 个，与第 i+1 个的传输并发
     current = next_batch
-    current.record_stream(torch.cuda.current_stream())        # 告知 allocator 跨 Stream 使用
+compute_stream.wait_stream(copy_stream)                       # 最后一个 batch：拷贝完再算
+current.record_stream(compute_stream)
+y = model(current)
 ```
+
+注意 `wait_stream` 让 compute_stream **同时**等到了刚提交的第 $$i+1$$ 个拷贝——这条依赖比必要的强，把它拆开需要每个 batch 一个 Event；作为演示，先保证正确。
 
 把这段代码里四个角色的交互画出来，两条 Stream 上并发的部分和必须串行的依赖就一目了然：
 
 ```mermaid
 sequenceDiagram
-    participant W as DataLoader worker
-    participant P as pinned buffer
+    participant W as worker
+    participant P as pinned buf
     participant CS as copy_stream
-    participant MS as compute_stream（默认）
-    W->>P: 准备 batch i+1，collate 进 pinned memory
-    P->>CS: to(cuda, non_blocking=True) 入队一次 H2D 拷贝
-    par copy_stream 上传输
-        Note over CS: DMA 引擎搬运 batch i+1
-    and compute_stream 上计算
-        Note over MS: 前向 / 反向 batch i（Kernel 队列不断）
+    participant MS as compute_stream
+    W->>P: batch i+1 collate<br/>进 pinned memory
+    P->>CS: to(cuda, non_blocking)<br/>入队 H2D 拷贝
+    par copy_stream
+        Note over CS: DMA 搬 batch i+1
+    and compute_stream
+        Note over MS: 前向/反向 batch i<br/>Kernel 队列不断
     end
-    MS->>CS: current_stream().wait_stream(copy_stream)
-    Note over CS,MS: 在 compute_stream 里插入一个等待 copy_stream 的 Event<br/>之后提交的 Kernel 保证在拷贝完成后才执行
-    CS-->>MS: 拷贝完成，依赖满足
-    MS->>CS: batch.record_stream(compute_stream)
-    Note over CS,MS: 告知 allocator 这块内存被 compute_stream 使用<br/>copy_stream 上的 Tensor 释放后不会被立刻复用
-    Note over MS: 前向 / 反向 batch i+1
-    W->>P: 同时准备 batch i+2，循环继续
+    MS->>CS: wait_stream(copy_stream)
+    Note over CS,MS: compute_stream 里插一个 Event<br/>之后的 Kernel 等拷贝完成
+    CS-->>MS: 拷贝完成
+    MS->>CS: record_stream(compute_stream)
+    Note over CS,MS: 告知 allocator：<br/>这块内存 compute_stream 还在用
+    Note over MS: 前向/反向 batch i+1
+    W->>P: 准备 batch i+2，循环
 ```
 
-`wait_stream` 表达跨 Stream 依赖，`record_stream` 防止 allocator 在拷贝完成前回收内存。这两行漏掉任何一行都会产生难以复现的数据错误——这是多 Stream 的主要风险。`DataLoader` 加 `pin_memory` 加 `non_blocking` 在大多数情况下已经足够，显式多 Stream 用于传输时间与计算时间同量级的场景。
+`wait_stream` 表达跨 Stream 依赖；`record_stream` 解决另一件事：这块显存是在 copy_stream 上分配的，`current = next_batch` 之后 Python 引用一丢，caching allocator 就认为它空闲、可以给 copy_stream 上的下一次分配复用——而 compute_stream 上的前向可能还没读完它。`record_stream` 让 allocator 等 compute_stream 也走过这个点再回收。这两行漏掉任何一行都会产生难以复现的数据错误——这是多 Stream 的主要风险。`DataLoader` 加 `pin_memory` 加 `non_blocking` 在大多数情况下已经足够，显式多 Stream 用于传输时间与计算时间同量级的场景。
 
 ### 6. 处方四：消除数据依赖的 shape
 
@@ -930,14 +940,16 @@ Caching Allocator 的保留量   已向驱动申请但当前未分配给 Tensor 
 优化器状态    保持 fp32
 ```
 
-以 Adam 为例，每个参数的静态占用：
+以 Adam 为例，每个参数的静态占用，取两种常见 recipe：
 
 ```text
-纯 fp32       fp32 参数 4 + fp32 梯度 4 + m 4 + v 4 = 16 B/参数
-混合精度      bf16 参数 2 + bf16 梯度 2 + fp32 主参数 4 + m 4 + v 4 = 16 B/参数
+纯 fp32                    fp32 参数 4 + fp32 梯度 4 + m 4 + v 4                 = 16 B/参数
+PyTorch 原生 autocast      fp32 参数 4 + fp32 梯度 4 + m 4 + v 4                 = 16 B/参数
+                           （参数 leaf 仍是 fp32，autocast 只在算子内部临时转 bf16；.grad 也是 fp32）
+Megatron 式 bf16 主流程    bf16 参数 2 + bf16 梯度 2 + fp32 主参数 4 + m 4 + v 4   = 16 B/参数
 ```
 
-静态部分**没有减少**，收益全在激活值上。7B 参数的模型仅静态部分就是 112 GB，单卡放不下——这是第九篇分布式的起点。
+三种写法的静态部分都是 16 B/参数，**没有减少**，收益全在激活值上（原生 autocast 连参数副本都没省，只是省了算子内部的临时 Tensor）。7B 参数的模型仅静态部分就是 112 GB，单卡放不下——这是第九篇分布式的起点。要把静态部分真正压下去，得换 recipe：bf16 参数 + bf16 的 m/v（DeepSeek-V3 的做法，Transformer 系列第六篇）、8-bit 优化器、或把 optimizer 状态分片到多卡（ZeRO）。
 
 ### 3. Caching Allocator：`allocated` 与 `reserved`
 
@@ -969,7 +981,7 @@ of which 2.31 GiB is free. Process has 76.84 GiB memory in use. Of the allocated
 68.12 GiB is allocated by PyTorch, and 7.91 GiB is reserved by PyTorch but unallocated.
 ```
 
-"reserved but unallocated" 接近 8 GB 就是碎片。下面把一个 Segment 内部画出来（1 MB = 2 格），并标出两种常见"处方"各自作用在哪一层：
+"reserved but unallocated" 接近 8 GB 是碎片的**线索**而不是证明：这个数还包含刚释放、等着下一步复用的正常缓存，以及峰值过后留下的空闲块。判断办法是看它在稳态里是否持续偏大、且 OOM 时请求的大小小于空闲总量——那才是"有空间但不连续"。下面把一个 Segment 内部画出来（1 MB = 2 格），并标出两种常见"处方"各自作用在哪一层：
 
 ```text
 一个 20 MB 的 Segment（reserved 20 MB，allocated 11 MB，空闲 9 MB）
@@ -997,7 +1009,7 @@ empty_cache()              只把"整块全空"的 Segment 还给驱动；
 
 - `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`：让 Segment 可以扩展而不是新申请，显著减少碎片（2.x 引入）；
 - 让 shape 稳定：动态 shape 是碎片的主要来源，因为每种 shape 的 Block 大小不同；
-- `torch.cuda.empty_cache()` 归还缓存给驱动——**它不解决碎片**，只在多进程共享 GPU 时有用，且会引入同步（第七章）。
+- `torch.cuda.empty_cache()` 归还缓存给驱动——它归还的是整块全空的 Segment，对上图这种"块内碎片"无能为力；只在多进程共享 GPU、或想让驱动重新分出一整块大 Segment 时有用（官方文档措辞是"某些情况下可能有帮助"），且会引入同步（第七章）。
 
 ### 5. 峰值在哪里
 

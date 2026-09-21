@@ -48,6 +48,7 @@ flowchart TB
     end
     C4[四 · 进入 C++ 之前：扩展的构建基础]
     subgraph S[实践：四个阶段]
+        direction TB
         S5[五 · 阶段一 Python 实现] --> S6[六 · 阶段二 C++ CPU 实现] --> S7[七 · 阶段三 CUDA 实现] --> S8[八 · 阶段四 Autograd 与 Meta]
     end
     subgraph X[横切]
@@ -193,7 +194,7 @@ C++:     at::Tensor scale_shift(const at::Tensor& x, double alpha, double beta)
 ### 4. 三步的关系
 
 ```mermaid
-flowchart LR
+flowchart TB
     D[定义<br/>Schema 字符串] -->|决定实现的签名| I[实现<br/>符合签名的函数]
     D -->|在 Operator Table 建一行| OT[(Operator Table)]
     I -->|注册：填入某个 Key 的槽位| OT
@@ -369,12 +370,18 @@ PyTorch C++ 扩展本质上是一个**共享库**（Linux 下是 `.so`，Windows
 3. `import` 时，共享库被加载，其中的 `TORCH_LIBRARY` 静态初始化执行，算子注册完成。
 
 ```mermaid
-flowchart LR
-    SRC[scale_shift.cpp<br/>scale_shift_cuda.cu] -->|g++ / nvcc 编译| OBJ[目标文件 .o]
-    OBJ -->|链接 libtorch / libc10 / CUDA| SO[共享库<br/>myops.so]
-    SO -->|Python import| LOAD[动态加载]
-    LOAD -->|静态初始化| REG[TORCH_LIBRARY 注册]
-    REG --> OT[(Operator Table)]
+flowchart TB
+    subgraph BUILD["构建期"]
+        direction LR
+        SRC[scale_shift.cpp<br/>scale_shift_cuda.cu] -->|g++ / nvcc 编译| OBJ[目标文件 .o]
+        OBJ -->|链接 libtorch / libc10 / CUDA| SO[共享库<br/>myops.so]
+    end
+    subgraph RUN["运行期"]
+        direction LR
+        LOAD[动态加载<br/>import 或 load_library] -->|静态初始化| REG[TORCH_LIBRARY 注册]
+        REG --> OT[(Operator Table)]
+    end
+    SO --> LOAD
 ```
 
 对 Java 工程师：这与 JNI 的流程一一对应——`.c` 编译成 `.so`，`System.loadLibrary` 加载，`JNI_OnLoad` 执行初始化。
@@ -624,13 +631,14 @@ TORCH_LIBRARY_IMPL(myops, CPU, m) {
 import torch
 from torch.utils.cpp_extension import load
 
-load(name="myops", sources=["scale_shift.cpp"], verbose=True)
+load(name="myops", sources=["scale_shift.cpp"], verbose=True,
+     is_python_module=False)          # 见下
 
 x = torch.randn(4, 3)
 print(torch.ops.myops.scale_shift(x, 2.0, 1.0))
 ```
 
-注意 `load()` 的返回值这里没有使用——因为我们不走 pybind11，`import` 的副作用（静态初始化注册）已经让 `torch.ops.myops.scale_shift` 可用。
+`is_python_module=False` 这个参数不能省。`load()` 默认把编译产物当作 Python 扩展模块 `import`（`importlib` 走 `PyInit_myops` 入口），而上面的源文件里没有 `PYBIND11_MODULE`，产物只是一个普通共享库，默认方式会报 `ImportError: dynamic module does not define module export function (PyInit_myops)`。`is_python_module=False` 改为 `torch.ops.load_library` 式的裸加载——只把 `.so` `dlopen` 进来，静态初始化（`TORCH_LIBRARY` 注册）随之执行，`torch.ops.myops.scale_shift` 就可用了。返回值因此也不需要接。另一条路是加一个空的 `PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {}` 保留默认加载方式，第十章打包发布时用的是这一条。
 
 如果这个骨架能跑通，构建环境就是正确的，后面的章节只需要替换实现函数。
 
@@ -800,13 +808,15 @@ at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta) {
   TORCH_CHECK(x.device().is_cpu(), "expected CPU tensor");
   TORCH_CHECK(x.is_floating_point(), "expected floating dtype");
 
-  auto out = at::empty_like(x);
+  // 输出约定为连续布局：与第七章的 CUDA 版、第八章的 Fake 实现保持同一份契约
+  auto out = at::empty_like(x, x.options(), at::MemoryFormat::Contiguous);
   auto iter = at::TensorIteratorConfig()
       .add_output(out)
       .add_input(x)
       .build();
 
-  AT_DISPATCH_FLOATING_TYPES(x.scalar_type(), "scale_shift_cpu", [&] {
+  AT_DISPATCH_FLOATING_TYPES_AND2(at::kHalf, at::kBFloat16,
+      x.scalar_type(), "scale_shift_cpu", [&] {
     at::native::cpu_kernel(iter, [alpha, beta](scalar_t v) -> scalar_t {
       return static_cast<scalar_t>(alpha) * v + static_cast<scalar_t>(beta);
     });
@@ -823,7 +833,7 @@ TORCH_LIBRARY_IMPL(myops, CPU, m) {
 }
 ```
 
-三步在同一个文件里清晰可见：`m.def` 定义，`m.impl` 注册，`scale_shift_cpu` 实现。
+三步在同一个文件里清晰可见：`m.def` 定义，`m.impl` 注册，`scale_shift_cpu` 实现。两处约定值得说明：`AT_DISPATCH_FLOATING_TYPES_AND2(kHalf, kBFloat16, …)` 让 CPU 与后面的 CUDA 版支持同一组 dtype（float32 / float64 / float16 / bfloat16），否则第九章"CPU 与 CUDA 结果一致"那条测试在半精度上会一边报 dtype 错误一边正常返回；输出用 `MemoryFormat::Contiguous` 显式声明为连续布局，而不是 `empty_like(x)` 默认的"沿用输入 stride"——这样 CPU、CUDA、Fake 三个实现给出的 stride 才是同一个，`opcheck` 对非连续输入的元数据比对才能通过。
 
 ### 6. `data_ptr` 的边界
 
@@ -844,7 +854,7 @@ for (int64_t i = 0; i < x_contig.numel(); ++i) {
 
 ```python
 from torch.utils.cpp_extension import load
-load(name="myops", sources=["scale_shift.cpp"])
+load(name="myops", sources=["scale_shift.cpp"], is_python_module=False)
 
 x = torch.randn(4, 3)
 torch.testing.assert_close(torch.ops.myops.scale_shift(x, 2.0, 1.0), 2.0 * x + 1.0)
@@ -922,28 +932,24 @@ idx = blockIdx.x * blockDim.x + threadIdx.x
 - **分支发散**：warp 内线程若走了不同的 `if` 分支，两条分支会串行执行，其他线程空等。`if (i < n)` 只在最后一个 warp 发散一次，代价可忽略；但按元素值分支的 Kernel 可能慢好几倍。
 - **访存合并**：warp 内 32 个线程若访问**连续**的 32 个地址，硬件合并成少数几次内存事务；若地址分散，每个线程一次事务。这就是为什么 Kernel 假设输入 contiguous——第二篇讲的 stride 在这里直接决定访存效率，也是第八篇 memory-bound 分析的根源之一。
 
-访存合并的效果可以直接数事务次数。一个 warp 的 32 个线程各读一个 float（4B），硬件按 128B 对齐的段发起事务：
+访存合并的效果可以直接数**扇区**（sector）。现代 GPU（Volta 及之后）的 L1/L2 以 32B 扇区为最小取数单位，一个 warp 的一条 load 指令触碰几个扇区、每个扇区里有几个字节真被用到，就是合并好坏的全部：
 
 ```text
-warp = 32 个连续线程 t0..t31，每线程读 1 个 float（4B），事务粒度 128B
+warp = 32 个连续线程 t0..t31，每线程读 1 个 float（4B），取数粒度 32B 扇区
 
-(a) 连续访问 x[idx]                  32 × 4B = 128B，正好一段
-    线程  t0  t1  t2  t3  ...  t31
-    字节  0   4   8   12  ...  124    → 同一 128B 段 → 1 次事务
-    ┌──────────────────────────────┐
-    │ 段 #0：字节 0 .. 127         │  128B 全部被用到
-    └──────────────────────────────┘
+(a) 连续访问 x[idx]                  32 × 4B = 128B，恰好 4 个扇区
+    线程  t0..t7   t8..t15  t16..t23  t24..t31
+    字节  0..31    32..63   64..95    96..127   → 4 个扇区，每个扇区 32B 全部用到
 
-(b) 跨步访问 x[2*idx]                地址相隔 8B，跨越两段
-    线程  t0  t1  t2  ...  t15 │ t16  t17 ...  t31
-    字节  0   8   16 ...  120  │ 128  136 ...  248  → 2 次事务
-    ┌──────────────────────────────┐┌──────────────────────────────┐
-    │ 段 #0：字节 0 .. 127         ││ 段 #1：字节 128 .. 255       │
-    └──────────────────────────────┘└──────────────────────────────┘
-      只用到一半字节                  只用到一半字节 → 带宽利用率 50%
+(b) 跨步访问 x[2*idx]                地址相隔 8B，铺满 256B
+    线程  t0..t3   t4..t7   ...  t28..t31
+    字节  0..31    32..63   ...  224..255  → 8 个扇区，每个扇区只用到 16B → 有效带宽 50%
+
+(c) 每线程隔 32B 以上（如按行读一个转置矩阵的列）
+    32 个线程落在 32 个不同扇区 → 32 个扇区，每个只用到 4B → 有效带宽 1/8
 ```
 
-stride 越大，同一 warp 触碰的段越多；极端情况下 32 个线程落在 32 个不同的段，事务数是合并访问的 32 倍。
+stride 越大，同一 warp 触碰的扇区越多；极端情况下 32 个线程落在 32 个不同扇区，取回 1024B 只用 128B——比合并访问多搬 **8 倍**数据（不是常见说法里的 32 倍：那是把 128B cache line 当成了最小取数单位）。扇区数是 L1 层面的请求账；实际到显存的流量还受 L2 命中、相邻 warp 复用同一扇区等影响，GPU Kernel 系列第三篇用 profiler 数据展开。
 
 **SM、Occupancy 与内存层次**。GPU 由几十到上百个 **SM**（Streaming Multiprocessor）组成，每个 block 被整体分配到一个 SM 上执行，一个 SM 同时驻留多个 block。SM 上活跃 warp 数与最大可驻留 warp 数之比叫 **occupancy**：占用率高，SM 才能在某些 warp 等待访存时切换到其他 warp，把延迟藏起来。每个线程用的寄存器数和每个 block 用的 **shared memory**（block 内线程共享的片上高速缓存，`__shared__` 声明）决定一个 SM 能容纳多少 block，因此也决定 occupancy。本文的 Kernel 不用 shared memory，寄存器也很少，occupancy 不是问题；reduction、矩阵乘这类需要线程间协作的 Kernel 才会用到它。内存层次从快到慢是：寄存器 → shared memory → L2 → 显存（global memory）。`__restrict__` 是对编译器的承诺——指针之间不别名——允许它更激进地缓存和重排访存。
 
@@ -985,7 +991,7 @@ at::Tensor scale_shift_cuda(const at::Tensor& x, double alpha, double beta) {
 
   const c10::cuda::CUDAGuard guard(x.device());   // 切换到 x 所在的 GPU
   auto x_contig = x.contiguous();
-  auto out = at::empty_like(x_contig);
+  auto out = at::empty_like(x_contig);             // x_contig 连续，输出也连续：与 CPU 版同一约定
   const int64_t n = x_contig.numel();
   if (n == 0) return out;                          // 空 Tensor：blocks 为 0 时 launch 会报错
 
@@ -1029,7 +1035,8 @@ CUDA Kernel launch 是异步的：函数返回时 Kernel 可能还没执行。�
 ### 6. 编译
 
 ```python
-load(name="myops", sources=["scale_shift.cpp", "scale_shift_cuda.cu"], verbose=True)
+load(name="myops", sources=["scale_shift.cpp", "scale_shift_cuda.cu"], verbose=True,
+     is_python_module=False)
 ```
 
 `TORCH_LIBRARY(myops, m)` 只能出现一次（在 `.cpp` 中）；`.cu` 文件里只放 `TORCH_LIBRARY_IMPL`。
@@ -1074,6 +1081,16 @@ torch.library.register_autograd(
 
 ```cpp
 #include <torch/autograd.h>
+#include <ATen/core/dispatch/Dispatcher.h>
+
+// TORCH_LIBRARY 不会为自定义算子生成 torch::ops::myops::scale_shift 这样的 C++ 函数
+// （那是 Codegen 只给原生算子做的事），所以从 Operator Table 里按名字取一个 typed handle：
+static const auto& scale_shift_op() {
+  static auto op = c10::Dispatcher::singleton()
+      .findSchemaOrThrow("myops::scale_shift", "")
+      .typed<at::Tensor(const at::Tensor&, double, double)>();
+  return op;
+}
 
 class ScaleShiftFunction : public torch::autograd::Function<ScaleShiftFunction> {
  public:
@@ -1081,7 +1098,7 @@ class ScaleShiftFunction : public torch::autograd::Function<ScaleShiftFunction> 
                             const at::Tensor& x, double alpha, double beta) {
     ctx->saved_data["alpha"] = alpha;
     at::AutoDispatchBelowADInplaceOrView guard;   // 去掉 Autograd Key，再次分发到后端
-    return torch::ops::myops::scale_shift::call(x, alpha, beta);
+    return scale_shift_op().call(x, alpha, beta);
   }
   static torch::autograd::tensor_list backward(torch::autograd::AutogradContext* ctx,
                                                torch::autograd::tensor_list grads) {
@@ -1113,7 +1130,7 @@ sequenceDiagram
     activate AG
     Note over AG: ScaleShiftFunction::apply<br/>ctx 保存 alpha
     Note over AG: AutoDispatchBelowADInplaceOrView<br/>从当前线程 KeySet 去掉 Autograd
-    AG->>D: 再次 scale_shift::call(x, alpha, beta)
+    AG->>D: 再次 op.call(x, alpha, beta)（typed handle）
     Note over D: 剩余 KeySet 只有 CUDA<br/>不会再命中 Autograd，无递归
     D->>K: 命中 CUDA 槽位 scale_shift_cuda
     activate K
@@ -1126,15 +1143,18 @@ sequenceDiagram
     D-->>Py: y
 ```
 
-`AutoDispatchBelowADInplaceOrView` 就是第五篇讲的“包装 Key 执行后去掉自身 Key 再次分发”：forward 内部再次调用算子时不能再进入 Autograd Key，否则无限递归。图中第二次 `::call` 之所以能落到 CUDA kernel，正是因为查表前 KeySet 已经被剔除了 Autograd。
+`AutoDispatchBelowADInplaceOrView` 就是第五篇讲的“包装 Key 执行后去掉自身 Key 再次分发”：forward 内部再次调用算子时不能再进入 Autograd Key，否则无限递归。图中第二次 `op.call` 之所以能落到 CUDA kernel，正是因为查表前 KeySet 已经被剔除了 Autograd。
 
 ### 4. 注册 Meta / Fake 实现
 
 ```python
 @torch.library.register_fake("myops::scale_shift")
 def _fake(x, alpha, beta):
-    return torch.empty_like(x)       # 只描述输出的 shape / dtype / device
+    # 只描述输出的 shape / dtype / device / stride；不算数
+    return torch.empty_like(x, memory_format=torch.contiguous_format)
 ```
+
+`memory_format=torch.contiguous_format` 不是可有可无的：Fake 实现描述的元数据里**包括 stride**。第六、七章的真实实现都返回连续输出，若这里写成默认的 `empty_like(x)`（沿用输入 stride），对转置输入 Fake 会报"输出 stride 与输入相同"、真实实现却给出连续 stride，`opcheck` 的 `test_faketensor` 会失败，`torch.compile` 也可能据错误的 stride 做出错误的布局假设。
 
 有了它：`torch.compile` 可以把算子纳入图捕获；Meta Tensor 上可以调用这个算子做 shape 推断；`opcheck` 能检查 Fake 与真实实现是否一致。C++ 侧的等价做法是向 `Meta` Key 注册一个只调用 `at::empty_like` 的函数。
 
@@ -1203,7 +1223,7 @@ Autograd
 
 ### 2. `torch.library.opcheck`
 
-一站式检查：Schema 与实现是否一致、Fake 是否正确、Autograd 注册是否合法、`mutates_args` 声明是否与实际行为匹配。
+一站式检查：Schema 与实现是否一致（`test_schema`）、Fake 的输出元数据与真实实现是否一致（`test_faketensor`）、Autograd 注册是否合法（`test_autograd_registration`）、算子在 AOTAutograd 下能否被静态与动态 shape 追踪（`test_aot_dispatch_*`）。它**不**做有限差分——梯度数值对不对是下一节 `gradcheck` 的事，`opcheck` 只检查"注册得对不对"。
 
 ```python
 from torch.library import opcheck
@@ -1212,6 +1232,7 @@ for device in ["cpu", "cuda"]:
     for dtype in [torch.float32, torch.float64]:
         x = torch.randn(4, 3, device=device, dtype=dtype, requires_grad=True)
         opcheck(torch.ops.myops.scale_shift, (x, 2.0, 1.0))
+        opcheck(torch.ops.myops.scale_shift, (x.t(), 2.0, 1.0))   # 非连续输入：Fake 与真实实现的 stride 也要一致
 ```
 
 这些正是自定义算子最容易出错、又最难靠肉眼发现的地方。
@@ -1251,10 +1272,16 @@ print(t_native.timeit(100))
 
 发布时改为第四章 §4 的 setuptools 方式，并在 Python 包的 `__init__.py` 中完成加载与 Python 侧注册：
 
+```cpp
+// csrc/scale_shift.cpp 末尾追加：给 setuptools 产物一个 Python 模块入口
+// （没有它，`import myops._C` 会因找不到 PyInit__C 而失败；模块本身可以是空的）
+PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {}
+```
+
 ```python
 # myops/__init__.py
 import torch
-from . import _C                     # 触发 TORCH_LIBRARY 静态初始化
+from . import _C                     # import 触发 TORCH_LIBRARY 静态初始化
 
 from ._autograd import _backward, _setup_context, _fake
 torch.library.register_autograd("myops::scale_shift", _backward, setup_context=_setup_context)
