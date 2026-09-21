@@ -4,7 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（08）：Multi-GPU：一张卡不够时如何扩展？
 tags: [AI, AI-Infra, 大模型推理]
 catalog: true
-updated: 2026-09-14
+updated: 2026-09-21
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -31,6 +31,8 @@ updated: 2026-09-14
 | 模型明明装得下，但**要更多吞吐** | **DP** | 什么都不切，**整个模型复制一份** |
 
 这张表里最值得单独说的是 **DP**：它和其余四个不是一类东西。TP/PP/EP/CP 解决的都是"装不下"，是被迫拆分；**DP 解决的是"想要更多"，前提恰恰是单卡装得下**。所以生产部署里通常是"先用 TP/PP/EP/CP 把模型塞进一组卡，再用 DP 把这组卡整体复制 N 份来放大吞吐"——DP 永远是最外层。
+
+这五种切法训练侧也全都在用，但训练多出三种状态——梯度、优化器状态、为反向保存的激活——所以训练侧还有 ZeRO / FSDP 这一族（切优化器状态与梯度），TP / PP / EP 也各多一半反向的通信。本篇只讲推理侧；训练侧的完整账（四种状态 × 六种切法、每 step 通信量、Llama 3 405B 的代入）在[大规模训练系列第二篇《并行策略全景——每种并行切的是哪种状态》](/parallelism-strategies-which-state-to-shard.html)，那篇开头有一张两侧逐项对照的表。
 
 下面按 DP → TP → PP → EP → CP 的顺序展开，再汇总为组合策略，最后进入多 GPU 推理的性能深水区——通信优化。
 
@@ -122,38 +124,9 @@ $$Y=XW$$
 
 为例，TP 最常见的两种切法是 **Column Parallel** 和 **Row Parallel**。
 
-```text
-┌────────────── Tensor Parallelism ────────────────────────────────────┐
-│                                                                       │
-│  TP: 单层内的矩阵按行/列切分到多个 GPU                                │
-│                                                                       │
-│  Column-parallel (QKV Projection, Gate/Up):                           │
-│  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐         │
-│  │  GPU 0   │   │  GPU 1   │   │  GPU 2   │   │  GPU 3   │         │
-│  │ W[:, 0:d]│   │W[:, d:2d]│   │W[:,2d:3d]│   │W[:,3d:4d]│         │
-│  │    ↓     │   │    ↓     │   │    ↓     │   │    ↓     │         │
-│  │ Y₀=X@W₀ │   │ Y₁=X@W₁ │   │ Y₂=X@W₂ │   │ Y₃=X@W₃ │         │
-│  └──────────┘   └──────────┘   └──────────┘   └──────────┘         │
-│       ↓              ↓              ↓              ↓                 │
-│   各 GPU 得到输出的一部分, 无需通信 (column-parallel 前半)             │
-│                                                                       │
-│  Row-parallel (O Projection, Down):                                   │
-│  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐         │
-│  │  GPU 0   │   │  GPU 1   │   │  GPU 2   │   │  GPU 3   │         │
-│  │W[0:d, :] │   │W[d:2d, :]│   │W[2d:3d,:]│   │W[3d:4d,:]│         │
-│  │    ↓     │   │    ↓     │   │    ↓     │   │    ↓     │         │
-│  │ Z₀=Y₀@W₀│   │ Z₁=Y₁@W₁│   │ Z₂=Y₂@W₂│   │ Z₃=Y₃@W₃│         │
-│  └────┬─────┘   └────┬─────┘   └────┬─────┘   └────┬─────┘         │
-│       └───────┬───────┴──────┬───────┘              │                │
-│               ▼              ▼                       ▼                │
-│         ═══════════ All-Reduce ═══════════                           │
-│         Z = Z₀ + Z₁ + Z₂ + Z₃                                       │
-│                                                                       │
-│  每层 All-Reduce 次数: 2（Attention 后 + MLP 后）                     │
-│  通信量: 2 × B × S × H × sizeof(dtype)                               │
-│  最佳场景: NVLink / NVSwitch 互联的同机多卡                          │
-└───────────────────────────────────────────────────────────────────────┘
-```
+![上：列切——权重被竖着切成四条，每卡持一条，输入完整、各卡得到输出的不同列块，不需通信；下：行切——权重被横着切成四条，输入必须按列切开，每卡算出一个部分和，四个部分和要 all-reduce 相加](/img/in-post/parallelism-tp-column-row-split.svg)
+
+（图中记法 $$Y = XA$$、$$A_i$$ 是 Megatron 论文的，与下文的 $$W$$ 相同；每层 all-reduce 两次——Attention 后一次、MLP 后一次——载荷 $$B \times S \times H \times \text{sizeof(dtype)}$$，最佳场景是 NVLink / NVSwitch 互联的同机多卡。）
 
 两者的核心区别：
 
@@ -878,6 +851,8 @@ Backward：Stage 2 → Stage 1 → Stage 0
 | 典型调度 | Microbatch、1F1B | 请求/Token 批处理、Prefill/Decode 调度 |
 | 主要优化目标 | 训练吞吐和显存 | Serving 吞吐、延迟和缓存容量 |
 | 边界通信 | 激活 + 反向梯度 | 主要是前向激活 |
+
+训练 PP 的那一列——GPipe 与 1F1B 的时间表、气泡率 $$(p-1)/m$$ 的推导、interleaved 与 zero-bubble 调度——在[大规模训练系列第二篇的第五章](/parallelism-strategies-which-state-to-shard.html#五流水线并行)；那篇的 EP 一章也把 dispatch / combine 的**反向**（split 互换的 all-to-all）讲了一遍，是本文 EP 一节推理流程的另一半。
 
 ### 7. PP 对 KV cache 有什么影响
 
