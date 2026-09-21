@@ -871,9 +871,10 @@
 		&.has-note { color: #24292f; }
 	}
 	.mermaid + .post-figcaption { margin-top: -6px; margin-bottom: 1.4em; }
-	// a note on the caption outlines the picture it belongs to
+	// a note on the caption outlines the picture / table it belongs to
 	.post-figure:has(> .post-figcaption.has-note) img,
-	.mermaid:has(+ .post-figcaption.has-note) { outline: 2px solid fade(@annot-line, 55%); outline-offset: 4px; border-radius: 4px; }
+	.mermaid:has(+ .post-figcaption.has-note),
+	:is(.table-responsive, table):has(+ .table-caption.has-note) { outline: 2px solid fade(@annot-line, 55%); outline-offset: 4px; border-radius: 4px; }
 	// the picture's own box (shrink-wrapped, centred by the parent's text-align)
 	.fig-media {
 		position: relative;
@@ -900,13 +901,11 @@
 
 // ---- tables: caption, copy format menu, and feedback handle (js/code-copy.js + js/figures.js)
 .post-container {
-	.table-caption {
-		margin: 1.5em 0 6px;
-		font-size: 13px;
-		line-height: 1.5;
-		color: @annot-muted;
-		.table-no { color: @annot-faint; }
-	}
+	// 「表 N：标题」 under the table (js/figures.js), same look as a figure's caption;
+	// the wrapper keeps Bootstrap's bottom margin, so pull the caption up to it
+	.table-caption { margin-top: -12px; margin-bottom: 1.6em; }
+	// the native <caption> (_plugins/table_captions.rb) before figures.js moves it out, and without JS
+	table > caption { caption-side: bottom; padding: 8px 0 0; font-size: 13px; line-height: 1.5; color: @annot-muted; text-align: center; }
 	.table-tools-anchor {
 		position: relative;
 	}

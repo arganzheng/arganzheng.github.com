@@ -4012,7 +4012,8 @@ footer .copyright a,
   margin-bottom: 1.4em;
 }
 .post-container .post-figure:has(> .post-figcaption.has-note) img,
-.post-container .mermaid:has(+ .post-figcaption.has-note) {
+.post-container .mermaid:has(+ .post-figcaption.has-note),
+.post-container :is(.table-responsive, table):has(+ .table-caption.has-note) {
   outline: 2px solid rgba(214, 158, 0, 0.55);
   outline-offset: 4px;
   border-radius: 4px;
@@ -4048,13 +4049,16 @@ footer .copyright a,
   background: rgba(255, 255, 255, 0.85);
 }
 .post-container .table-caption {
-  margin: 1.5em 0 6px;
+  margin-top: -12px;
+  margin-bottom: 1.6em;
+}
+.post-container table > caption {
+  caption-side: bottom;
+  padding: 8px 0 0;
   font-size: 13px;
   line-height: 1.5;
   color: #57606a;
-}
-.post-container .table-caption .table-no {
-  color: #59636e;
+  text-align: center;
 }
 .post-container .table-tools-anchor {
   position: relative;

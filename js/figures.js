@@ -1,5 +1,5 @@
 /*!
- * figures.js — captions and a feedback handle for images and Mermaid diagrams.
+ * figures.js — captions and a feedback handle for images, Mermaid diagrams and tables.
  *
  * Highlight comments (js/annotations.js) anchor on *text*, so a picture has
  * nothing to select. This gives every block image and every Mermaid diagram a
@@ -18,6 +18,11 @@
  *                                     top-right corner, the <figcaption> as the next sibling
  *   <pre> / .highlighter-rouge  ->  the same .fig-tools strip with the copy button and a handle that selects
  *                                     the whole block (the toolbar then works as for any selection)
+ *   <table>                     ->  the same caption (<div class="post-figcaption table-caption">, 「表 N：」 +
+ *                                     title) as the next sibling of the table / its .table-responsive wrapper;
+ *                                     the title is the table's <caption> (Pandoc-style `Table: …` paragraph after
+ *                                     the table, folded in by _plugins/table_captions.rb), moved into the caption.
+ *                                     Tables have their own numbering (表 N), independent of the figures'.
  *
  * Diagrams render asynchronously (rich-content.html), so they are picked up by
  * a MutationObserver; the number counts images and diagrams in document order
@@ -59,10 +64,11 @@
     return c ? norm(c[1].replace(/^(图|title)\s*[:：]\s*/i, '')) : '';
   }
 
-  function caption(no, title) {
-    var cap = document.createElement('figcaption');
+  // `kind` = 「图」 (default, a <figcaption>) or 「表」 (a <div>, since it sits outside a <figure>)
+  function caption(no, title, kind) {
+    var cap = document.createElement(kind === '表' ? 'div' : 'figcaption');
     cap.className = 'post-figcaption' + (title ? '' : ' is-untitled');
-    var num = document.createElement('span'); num.className = 'fig-no'; num.textContent = '图 ' + no + (title ? '：' : '');
+    var num = document.createElement('span'); num.className = 'fig-no'; num.textContent = (kind || '图') + ' ' + no + (title ? '：' : '');
     cap.appendChild(num);
     if (title) { var t = document.createElement('span'); t.className = 'fig-title'; t.textContent = title; cap.appendChild(t); }
     return cap;
@@ -176,33 +182,58 @@
     });
   }
 
-  function tableTitle(table) {
-    var caption = table.querySelector(':scope > caption');
-    if (caption) return { node: caption, explicit: true };
-    var anchor = table.parentNode.classList.contains('table-responsive') ? table.parentNode : table;
-    var previous = anchor.previousElementSibling;
-    var m = previous && /^表\s*(\d+)?\s*[:：]\s*(.+)$/.exec(norm(previous.textContent));
-    if (m) return { node: previous, explicit: true };
-    // Markdown tables normally render a <thead>. Select only that row as the
-    // stable fallback; a table without a header must use the whole table.
-    return { node: table.querySelector('thead > tr') || table, explicit: false };
+  var TABLE_EXCLUDE = '.comment, .annotation-panel, .series-toc, .related-posts';
+  function tableAnchor(table) { return table.parentNode.classList.contains('table-responsive') ? table.parentNode : table; }
+
+  // Ordinal of a table among the article's tables (own sequence: 表 N).
+  function tableNo(table) {
+    var all = container.querySelectorAll('table'), n = 0;
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].closest(TABLE_EXCLUDE)) continue;
+      n++;
+      if (all[i] === table) return n;
+    }
+    return n + 1;
   }
 
-  function ensureTableTitle(table) {
-    var title = tableTitle(table);
-    if (title.explicit) title.node.classList.add('table-caption');
-    return title;
+  // Title of a table: its <caption> (_plugins/table_captions.rb folds a
+  // `Table: …` / `表：…` paragraph after the table into one at build time; the
+  // same paragraph is also read here for pages the plugin does not cover).
+  // The source node is removed — the caption rendered under the table
+  // replaces it, inline markup kept — and any hand-written number is dropped.
+  var TITLE_PREFIX = /^\s*(Table|表)\s*\d*\s*[:：]\s*/i;
+  function tableTitle(table) {
+    var src = table.querySelector(':scope > caption');
+    if (!src) {
+      var next = tableAnchor(table).nextElementSibling;
+      if (next && next.tagName === 'P' && TITLE_PREFIX.test(next.textContent) && norm(next.textContent).replace(TITLE_PREFIX, '')) src = next;
+    }
+    if (!src) return null;
+    src.parentNode.removeChild(src);
+    var first = src.firstChild;
+    if (first && first.nodeType === 3) first.nodeValue = first.nodeValue.replace(TITLE_PREFIX, '');
+    return src;
   }
 
   var TABLE_TITLE = '对这张表评论 / 存疑（会选中表格标题，再从工具条里选）';
   function decorateTables() {
     Array.prototype.forEach.call(container.querySelectorAll('table'), function (table) {
-      if (table.closest('.comment, .annotation-panel, .series-toc, .related-posts')) return;
-      var title = ensureTableTitle(table);
-      var anchor = table.parentNode.classList.contains('table-responsive') ? table.parentNode : table;
+      if (table.closest(TABLE_EXCLUDE)) return;
+      var anchor = tableAnchor(table);
+      var cap = anchor.nextElementSibling;
+      if (!cap || !cap.classList.contains('table-caption')) {
+        var src = tableTitle(table);
+        cap = caption(tableNo(table), src ? norm(src.textContent) : '', '表');
+        cap.classList.add('table-caption');
+        if (src) { var t = cap.querySelector('.fig-title'); t.textContent = ''; while (src.firstChild) t.appendChild(src.firstChild); }
+        anchor.parentNode.insertBefore(cap, anchor.nextSibling);
+      }
       var tools = anchor.querySelector(':scope > .table-tools');
       if (!tools || tools.querySelector('.table-feedback')) return;
-      var feedback = button(TABLE_TITLE, function () { pick(title.node, title.node); });
+      // Untitled: 「表 N」 renumbers when a table is inserted, so the header row
+      // is the stable passage; only a table without a header uses the whole table.
+      var target = cap.querySelector('.fig-title') || table.querySelector('thead > tr') || table;
+      var feedback = button(TABLE_TITLE, function () { pick(target, target.closest('.post-figcaption') || target); });
       feedback.classList.add('table-feedback');
       tools.appendChild(feedback);
     });

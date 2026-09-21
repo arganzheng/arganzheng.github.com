@@ -622,14 +622,32 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
   - **Tables** (`js/code-copy.js` + `js/figures.js`): every table in the article
     body gets a copy button and a feedback handle, excluding comments, annotation
     panels, series TOC, and related posts. The copy menu offers TSV, Markdown,
-    and HTML. A stable feedback passage comes from a native `<caption>` or a
-    paragraph immediately before the table matching `表：标题`, `表1：标题`,
-    `表: 标题`, or `表1: 标题` (spaces before the number are allowed); an
-    an explicit number is kept. Without a title, the handle selects the
-    `<thead>` row directly; only a table with no header falls back to selecting
-    the whole table. Explicit caption nodes and title paragraphs are included
-    in `BLOCK_SELECTOR` so the feedback panel is mounted after the table rather
-    than after the caption node.
+    and HTML. Every table also gets a caption under it, like a figure's:
+    `<div class="post-figcaption table-caption">` 「表 N：标题」 (「表 N」 when
+    untitled), tables numbered in document order, independently of 图 N. The
+    title is written **Pandoc style — a paragraph right after the table
+    starting with `Table:` or `表：`** (`表1：` also works, the number is
+    dropped; inline markup kept):
+
+    ```
+    | a | b |
+    |---|---|
+
+    Table: 各调度器对比
+    ```
+
+    `_plugins/table_captions.rb` (`:documents, :post_render`, posts only)
+    folds that paragraph into the table as a real `<caption>` at build time,
+    so the static HTML / feed / WeChat export / review pages carry it without
+    JS (CSS `caption-side: bottom` while it is still native); HTML tables can
+    write `<caption>` directly. `figures.js` then moves the caption's nodes
+    into the `.fig-title` under the table (it also accepts the raw `Table:`
+    paragraph on pages the plugin does not process). Feedback handle: titled →
+    selects the title (the passage, stable while the title is); untitled →
+    the `<thead>` row (「表 N」 renumbers), a header-less table → the whole
+    table. `.table-caption` is in `BLOCK_SELECTOR` and `blockFor` redirects a
+    table cell's panel to the caption, so a note on a table lands under its
+    caption and `:has()` outlines the table.
   - **Section-level 点赞 / 没看懂** (`renderChapterBars`, `.sec-react` appended
     inside every article heading `h2`–`h6`, two `.sec-react-btn`s; `chapters` map): anonymous
     like passage reactions, no selection needed. Same worker route and table,

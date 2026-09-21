@@ -300,6 +300,8 @@
       if (!img.getAttribute('style')) img.setAttribute('style', STYLES.img);
     });
 
+    // Table captions are <div>s (figures.js); style them like figcaptions.
+    root.querySelectorAll('.table-caption').forEach(function (n) { n.setAttribute('style', STYLES.figcaption.replace('-0.6em', '-0.8em')); });
     // Generic styles, then strip classes/ids/data-* everywhere.
     root.querySelectorAll('*').forEach(function (n) {
       var tag = n.tagName.toLowerCase();
