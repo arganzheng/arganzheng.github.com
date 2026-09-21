@@ -356,18 +356,20 @@ nav.navbar-default:not(.navbar-custom) .nav li a:focus {
     left: -16px; /* the pre's padding (css/github-markdown.css): flush with its left edge */
     display: inline-block;
     box-sizing: content-box;
-    width: 2em;
+    width: 1.5em; /* two digits, right-aligned */
     margin-left: -16px;
-    padding: 0 1.2em 0 16px; /* padding, not margin: the gap must be opaque too */
+    /* 8px | digits | .6em | rule | .9em | code — all padding (not margin) so the
+       whole strip is opaque while a long line scrolls underneath; the rule is
+       painted by the background so the gap after it is covered too */
+    padding: 0 1.5em 0 8px;
     text-align: right;
     color: #8c959f;
-    background-color: #f6f8fa; /* same as the pre: covers the code scrolling underneath */
-    border-right: 1px solid #d0d7de;
+    background: linear-gradient(to right, #f6f8fa calc(~"100% - 0.9em - 1px"), #d0d7de calc(~"100% - 0.9em - 1px"), #d0d7de calc(~"100% - 0.9em"), #f6f8fa calc(~"100% - 0.9em"));
     -webkit-user-select: none;
     user-select: none;
   }
-  &.lineno-3 .line::before { width: 2.6em; } /* 100+ lines (set by the plugin) */
-  &.lineno-4 .line::before { width: 3.2em; }
+  &.lineno-3 .line::before { width: 2.1em; } /* 100+ lines (set by the plugin) */
+  &.lineno-4 .line::before { width: 2.7em; }
 }
 
 /* Github-style copy button on code blocks and diagrams (js/code-copy.js) */
