@@ -3,8 +3,8 @@
  *
  * Highlight comments (js/annotations.js) anchor on *text*, so a picture has
  * nothing to select. This gives every block image and every Mermaid diagram a
- * <figcaption> — 「图 N」 + the image's alt / the diagram's `title:` (Mermaid
- * front matter) or first `%%` comment — and a corner strip with a 放大 button
+ * <figcaption> — 「图 N：」 + the image's alt / the diagram's `title:` (Mermaid
+ * front matter) or first `%%` comment (「图 N」 alone when there is no title) — and a corner strip with a 放大 button
  * (js/diagram-zoom.js lightbox; pictures do not zoom on click) and a feedback
  * button that selects the caption's title, which pops the usual 点赞 / 存疑 /
  * 评论 toolbar. The caption title is the passage:
@@ -12,7 +12,7 @@
  *
  *   <p><img alt="…"></p>        ->  <figure class="post-figure"><span class="fig-media"><img></span>
  *                                     <div class="fig-tools"><button class="code-copy fig-zoom">…</button><button class="code-copy fig-feedback">…</button></div>
- *                                     <figcaption class="post-figcaption"><span class="fig-no">图 N</span><span class="fig-title">…</span></figcaption></figure>
+ *                                     <figcaption class="post-figcaption"><span class="fig-no">图 N：</span><span class="fig-title">…</span></figcaption></figure>
  *   <div class="mermaid">…</div> ->  its <svg> wrapped in the same .fig-media (sized to the svg's max-width), the
  *                                     .fig-tools strip (code-copy's button, 放大, ours; 32 px targets) on the block's
  *                                     top-right corner, the <figcaption> as the next sibling
@@ -61,7 +61,7 @@
   function caption(no, title) {
     var cap = document.createElement('figcaption');
     cap.className = 'post-figcaption' + (title ? '' : ' is-untitled');
-    var num = document.createElement('span'); num.className = 'fig-no'; num.textContent = '图 ' + no;
+    var num = document.createElement('span'); num.className = 'fig-no'; num.textContent = '图 ' + no + (title ? '：' : '');
     cap.appendChild(num);
     if (title) { var t = document.createElement('span'); t.className = 'fig-title'; t.textContent = title; cap.appendChild(t); }
     return cap;
