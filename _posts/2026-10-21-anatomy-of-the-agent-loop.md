@@ -19,6 +19,23 @@ agent 的核心机制不复杂：模型看上下文，决定调用什么工具�
 
 ### 1. 最小循环
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 200}}}%%
+flowchart TB
+    A["① 组装上下文<br/>七层拼成一次请求，历史只追加"] --> B["② 调模型<br/>流式、带工具定义、有超时"]
+    B --> C{"③ 解析输出"}
+    C -- "最终回答" --> END1["出口一：正常结束"]
+    C -- "tool_call（模型的「决定」）" --> D["④ 权限 → 沙箱里执行<br/>要问人的先问人"]
+    D --> E["⑤ 写回<br/>每个 call_id 一条结果，错误也是结果"] --> A
+    G["四个卫士：步数 / token / 美元 / 时间预算<br/>+ 重复调用与连续失败检测"] -. 每一圈都检查 .-> A
+    G -- "预算耗尽" --> END2["出口二：交付部分结果 + 未完成清单"]
+    G -- "卫士触发" --> END3["出口三：降级给人"]
+    style END2 fill:#fff3e0,stroke:#c98a00
+    style END3 fill:#fde8e8,stroke:#c0392b
+
+```
+
+
 ```text
 loop(task):
     ctx = [system, tools, task]

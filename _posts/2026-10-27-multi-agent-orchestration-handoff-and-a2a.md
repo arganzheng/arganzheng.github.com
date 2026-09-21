@@ -29,6 +29,28 @@ catalog: true
 
 ### 2. 三种模式
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 140}}}%%
+flowchart TB
+    subgraph O["orchestrator-workers：分解 → 并行 → 综合"]
+        direction TB
+        O1["主 agent"] --> W1["worker A"] & W2["worker B"] & W3["worker C"]
+        W1 & W2 & W3 --> O2["主 agent 综合"]
+    end
+    subgraph HD["handoff：控制权移交"]
+        direction TB
+        A1["agent A：接待"] -- "这事该 B 做" --> B1["agent B：退款"] -- "要人工" --> C1["人 / agent C"]
+    end
+    subgraph HI["层级：经理管小组"]
+        direction TB
+        M1["经理 agent"] --> T1["组长 1"] & T2["组长 2"]
+        T1 --> E1["执行者"] & E2["执行者"]
+    end
+    O ~~~ HD ~~~ HI
+
+```
+
+
 ```text
 orchestrator-workers          handoff                      层级
       ┌─ worker A                agent A ──→ agent B         ┌─ 子 agent ─┬─ 子子 agent

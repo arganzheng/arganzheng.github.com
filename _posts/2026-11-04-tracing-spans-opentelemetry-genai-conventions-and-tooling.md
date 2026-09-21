@@ -19,6 +19,19 @@ catalog: true
 
 ### 1. 三级树
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 200}}}%%
+flowchart TB
+    T["trace = 一次会话 / 一个任务<br/>trace_id · 用户 · prompt 版本 · 模型快照 · 总成本"]
+    T --> S1["span：第 1 步"] & S2["span：第 2 步"] & S3["span：第 k 步"]
+    S2 --> M["模型调用 span<br/>完整输入（或可重建的引用）、输出、<br/>四类 token、effort、TTFT、stop_reason"]
+    S2 --> TO["工具调用 span<br/>名称、参数、结果引用、耗时、<br/>沙箱决定、审批人与时间"]
+    S2 --> RT["检索 span<br/>改写前后的查询、过滤条件、两路候选、<br/>RRF / rerank 排序、最终块 id"]
+    M & TO & RT -. "评测集从这里采；bad case 带 trace_id；<br/>供应商静默升级从指标曲线看出来" .-> U["下游用途"]
+
+```
+
+
 ```text
 会话 span（session）
   属性：用户 / 租户 · 模型版本 · prompt 版本 · 工具集版本

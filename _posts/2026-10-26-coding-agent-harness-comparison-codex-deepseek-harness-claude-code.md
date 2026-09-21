@@ -19,6 +19,18 @@ catalog: true
 
 ### 1. 十二维对照
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 300}}}%%
+flowchart TB
+    H["一个 harness 的五个组件：循环（一）· 工具协议（二）· 运行时（三）· 上下文管理（四）· 权限与沙箱（五）"]
+    H --> C1["<b>Codex</b>（Rust，开源）<br/>单核大工作区 · 状态在对象 · 专用策略语言 · 三平台原生沙箱"]
+    H --> C2["<b>DeepSeek Harness</b>（TS，MIT）<br/>一切都是插件 · 日志即状态 · 可读事件 · 沙箱是接缝"]
+    C1 --> C3["<b>Claude Code</b>（TS，产品闭源）<br/>Agent SDK 对外 · 规则 + 模式审批 · auto-compact"]
+    C2 --> C4["<b>OpenHarness</b><br/>对 Claude Code 的开源复刻，读它看结构"]
+
+```
+
+
 | 维度 | Codex | DeepSeek Harness | Claude Code | OpenHarness |
 |---|---|---|---|---|
 | **语言与架构** | Rust 工作区，几十个 `codex-*` crate；`core` 是重心（循环、配置、模型客户端、沙箱管理器） | TypeScript 单体仓库，几十个 `@deepseek-ai/dsh-*` 包；Cordis 插件树；profile → bundle → patch 三层配置 | TypeScript；产品闭源；Agent SDK（TS / Python）暴露同一基座 | Python（`pip install openharness-ai`）；`src/` 核心 + `ohmo` 个人 agent + React 终端前端 |

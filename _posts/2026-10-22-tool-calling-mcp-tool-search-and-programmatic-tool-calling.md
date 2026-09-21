@@ -19,6 +19,22 @@ L1 第二篇讲了工具调用在**模型 API** 上的协议：模型返回 `too
 
 ### 1. 工具的四个来源
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 170}}}%%
+flowchart TB
+    subgraph SRC["工具从哪来（模型眼里都是一组带 schema 的定义）"]
+        direction LR
+        S1["应用自己写的函数"] --- S2["MCP server<br/>（别人写的，按协议接入）"] --- S3["供应商内置<br/>（web search 等）"] --- S4["技能 / 脚本<br/>（SKILL.md）"]
+    end
+    SRC --> REG["工具注册表：名字 · 描述 · 参数 schema"]
+    REG -- "全部塞进上下文<br/>几十个工具 = 几千到上万 token" --> CTX1["② 工具定义层（第一篇）"]
+    REG -- "tool search：只放名字<br/>用到时再加载完整 schema" --> CTX2["按需加载的定义"]
+    CTX1 & CTX2 --> MD["模型：返回 tool_call"]
+    MD -- "程序化工具调用：写一段程序调多个工具，<br/>中间结果不进上下文" --> EX["执行层"]
+
+```
+
+
 | 来源 | 谁执行 | 谁定义 schema | 代表 |
 |---|---|---|---|
 | 应用自定义函数 | 你的代码 | 你 | L1 第二篇的 function calling |

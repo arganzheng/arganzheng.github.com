@@ -19,6 +19,18 @@ L2 第四篇讲了长任务上下文管理的**策略**：隔离 → 卸载 → 
 
 ### 1. 策略到实现
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 360}}}%%
+flowchart TB
+    A["<b>隔离</b>：子 agent 在自己的上下文里干活，只把摘要带回来<br/>代价几乎为零"] --> B["<b>卸载</b>：大的工具返回存到外面，上下文里留一个可取回的定位符<br/>（DeepSeek Harness 的 spill）"]
+    B --> C["<b>清理</b>：读过的、过期的工具输出直接修剪掉<br/>（compaction-tool-result-pruner）"]
+    C --> D["<b>压缩</b>：用一次模型调用把旧历史摘要成一段<br/>最贵、最有损、缓存全失效（Codex compact*，Claude Code auto-compact）"]
+    style A fill:#eefaf0,stroke:#4d9a5c
+    style D fill:#fde8e8,stroke:#c0392b
+
+```
+
+
 | L2 的策略 | Codex | DeepSeek Harness | Claude Code |
 |---|---|---|---|
 | 卸载（大结果出上下文留引用） | 工具返回的截断与 `view_image` 一类按需读取 | **`spill` 包组**：存储服务 + 本地后端 + 结果策略，返回带取回指引的定位符 | 子 agent 隔离大量读取；工具返回截断 |
