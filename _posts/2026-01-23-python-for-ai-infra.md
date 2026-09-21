@@ -233,8 +233,8 @@ Java 工程师在这里会遇到最大的落差：
 
 ## 章节目录（建议按顺序阅读）
 
-1. 语言机制与运行时原理：[上·代码如何被执行——执行模型、作用域、导入与异常](/python-language-mechanisms-and-runtime-internals.html) · [下·对象如何工作——对象模型、协议、装饰器与生成器](/python-object-model-protocols-decorators-and-generators.html)
-2. 类型系统与数据契约设计：[上·类型表达与 typing 工具箱](/python-type-system-and-data-contract-design.html) · [中·类型信息的分发与消费](/python-type-information-distribution-and-consumption.html) · [下·数据契约设计](/python-data-contract-design-dataclass-pydantic-and-settings.html)
+1. 语言机制与运行时原理：[上·代码如何被执行——执行模型、作用域、导入与异常](/python-execution-model-scopes-imports-and-exceptions.html) · [下·对象如何工作——对象模型、协议、装饰器与生成器](/python-object-model-protocols-decorators-and-generators.html)
+2. 类型系统与数据契约设计：[上·类型表达与 typing 工具箱](/python-type-expression-and-the-typing-toolbox.html) · [中·类型信息的分发与消费](/python-type-information-distribution-and-consumption.html) · [下·数据契约设计](/python-data-contract-design-dataclass-pydantic-and-settings.html)
 3. [并发、异步与任务协作](/python-concurrency-asynchrony-and-task-collaboration.html)
 4. [Python 的动态机制及工程实践](/python-reflection-metaprogramming-and-plugin-architecture.html)
 5. [内存管理与优化](/python-memory-management-and-optimization.html)

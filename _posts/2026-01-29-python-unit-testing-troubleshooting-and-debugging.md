@@ -517,7 +517,7 @@ monkeypatch.setattr("service.download_model", fake_download)
 monkeypatch.setattr("loader.download_model", fake_download)
 ```
 
-> 理解 `monkeypatch` 的替换目标，需要了解 Python 的模块导入和名称绑定机制，参见[《Python 语言机制与运行时原理》](/python-language-mechanisms-and-runtime-internals.html)。
+> 理解 `monkeypatch` 的替换目标，需要了解 Python 的模块导入和名称绑定机制，参见[《Python 语言机制与运行时原理》](/python-execution-model-scopes-imports-and-exceptions.html)。
 
 ## 七、使用 pdb 定位 Python 逻辑问题
 

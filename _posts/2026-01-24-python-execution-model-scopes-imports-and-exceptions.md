@@ -5,6 +5,8 @@ title: "Python 在 AI-Infra（01 上）：代码如何被执行——执行模�
 subtitle: "How Code Runs — Execution Model, Scopes, Imports and Exceptions"
 tags: [Python]
 catalog: true
+redirect_from:
+  - /python-language-mechanisms-and-runtime-internals.html
 updated: 2026-09-21
 ---
 

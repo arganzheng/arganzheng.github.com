@@ -459,7 +459,7 @@ mini-c10 的代码与各篇的小例子在 [ai-learning-labs/cpp-for-ai-infra](h
 
 ## 章节目录
 
-1. 从源码到二进制：[上·编译模型——从一个 .cpp 到可加载的 .so](/cpp-compilation-model-and-project-layout.html) · [下·工程布局——命名空间、库的分层与 CMake](/cpp-project-layout-namespaces-libraries-and-cmake.html)
+1. 从源码到二进制：[上·编译模型——从一个 .cpp 到可加载的 .so](/cpp-compilation-model-from-cpp-to-shared-object.html) · [下·工程布局——命名空间、库的分层与 CMake](/cpp-project-layout-namespaces-libraries-and-cmake.html)
 2. [值、引用与所有权：对象模型与 RAII](/cpp-value-semantics-ownership-and-raii.html)
 3. [模板与泛型编程](/cpp-templates-and-generic-programming.html)
 4. [多态与类型擦除：运行时如何选择实现](/cpp-polymorphism-and-type-erasure.html)

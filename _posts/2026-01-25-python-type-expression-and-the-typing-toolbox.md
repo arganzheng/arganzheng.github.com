@@ -5,6 +5,8 @@ title: "Python 在 AI-Infra（02 上）：类型系统——类型表达与 typi
 subtitle: "Type System I: Type Expression and the typing Toolbox"
 tags: [Python]
 catalog: true
+redirect_from:
+  - /python-type-system-and-data-contract-design.html
 updated: 2026-09-21
 ---
 
@@ -97,7 +99,7 @@ Java 把前两件事合为一体：类型写在源码里，编译器既是提供
 
 ## 二、类型表达：从基础注解到 typing 工具箱
 
-这一层解决"类型信息从哪里来"。它包括两部分：**类型表达**——用什么语法和工具把类型意图写出来；**类型载体与分发**——如何让没有源码注解的库也能提供类型信息给消费方。
+提供层解决"类型信息从哪里来"。它包括两部分：**类型表达**——用什么语法和工具把类型意图写出来，是本章的全部内容；**类型载体与分发**——如何让没有源码注解的库也能提供类型信息给消费方，在[中篇第二章](/python-type-information-distribution-and-consumption.html#二类型载体与分发存根typeshed-与-pytyped)。
 
 这一部分覆盖所有"把类型意图表达出来"的语法和工具——从 Python 内建的类型注解语法，到 `typing` 模块提供的高级类型构造，再到 `typing_extensions` 对旧版本的兼容。
 

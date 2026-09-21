@@ -358,7 +358,7 @@ print(model.describe())
 
 ### 2. 装饰器：注入横切逻辑
 
-> 装饰器的基础用法在[《Python 语言机制与运行时原理》](/python-language-mechanisms-and-runtime-internals.html)中已经覆盖，这里聚焦类型安全的装饰器写法和工程边界问题。
+> 装饰器的基础用法在[《Python 语言机制与运行时原理》](/python-execution-model-scopes-imports-and-exceptions.html)中已经覆盖，这里聚焦类型安全的装饰器写法和工程边界问题。
 
 装饰器本质上是一个接收可调用对象并返回新可调用对象的函数。
 
@@ -458,7 +458,7 @@ async def infer(...):
 
 ### 3. 描述符：属性访问背后的机制
 
-> 描述符的基本原理在[《Python 语言机制与运行时原理》](/python-language-mechanisms-and-runtime-internals.html)中已经介绍，这里侧重它在元编程和插件系统中的应用。
+> 描述符的基本原理在[《Python 语言机制与运行时原理》](/python-execution-model-scopes-imports-and-exceptions.html)中已经介绍，这里侧重它在元编程和插件系统中的应用。
 
 描述符是 Python 属性系统的重要基础。实现了以下任意方法的对象，都可以参与属性访问控制：
 
@@ -1088,7 +1088,7 @@ class LazyPlugin:
 
 它同时需要静态和运行时两种手段：`Protocol` 在开发阶段约束实现，`inspect` 在插件加载阶段确认实际对象结构。
 
-> `Protocol`、类型标注和运行时校验的详细机制，参见[《Python 类型系统与数据契约设计》](/python-type-system-and-data-contract-design.html)。
+> `Protocol`、类型标注和运行时校验的详细机制，参见[《Python 类型系统》上中两篇](/python-type-expression-and-the-typing-toolbox.html)。
 
 反射提供运行时访问和操作能力，类型系统提供开发阶段约束。二者并不是互相替代，而是互相补充。
 
@@ -1687,7 +1687,7 @@ adapter = TypeAdapter(ChatRequest)   # 启动阶段构造，内部会编译校�
 payload = adapter.validate_python(request)
 ```
 
-> 用类型标注驱动运行时校验的完整做法，见[《Python 类型系统与数据契约设计》](/python-type-system-and-data-contract-design.html)。
+> 用类型标注驱动运行时校验的完整做法，见[《Python 类型系统与数据契约设计》](/python-type-expression-and-the-typing-toolbox.html)。
 
 ### 4. `getattr` 与映射表的选择
 
@@ -2038,7 +2038,7 @@ validate_backend(obj)                    # 先在运行时确认结构
 backend = cast(InferenceBackend, obj)    # 之后才向检查器做出承诺
 ```
 
-> 泛型、`Protocol`、`.pyi` 存根与 `cast()` 的完整机制，见[《Python 类型系统与数据契约设计》](/python-type-system-and-data-contract-design.html)。
+> 泛型、`Protocol`、`.pyi` 存根与 `cast()` 的完整机制，见[《Python 类型信息的分发与消费》](/python-type-information-distribution-and-consumption.html)。
 
 ### 4. 安全边界：动态能力不能突破信任边界
 

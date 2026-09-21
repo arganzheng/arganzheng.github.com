@@ -9,7 +9,7 @@ date: 2026-01-25 20:00:00 +0800
 updated: 2026-09-21
 ---
 
-前两篇沿着"类型信息如何流动"展开：[上篇](/python-type-system-and-data-contract-design.html)讲怎么写（`typing` 工具箱），[中篇](/python-type-information-distribution-and-consumption.html)讲怎么分发、谁消费（存根、mypy、运行时读注解）。本篇的组织轴切换——不再讨论类型信息本身，而是讨论**用这些能力去构建什么**：数据契约。
+前两篇沿着"类型信息如何流动"展开：[上篇](/python-type-expression-and-the-typing-toolbox.html)讲怎么写（`typing` 工具箱），[中篇](/python-type-information-distribution-and-consumption.html)讲怎么分发、谁消费（存根、mypy、运行时读注解）。本篇的组织轴切换——不再讨论类型信息本身，而是讨论**用这些能力去构建什么**：数据契约。
 
 所谓数据契约，就是对"一组数据长什么样"的正式约定。在 AI Infra 里它无处不在：推理服务的请求体与响应体、训练任务的配置文件、模型仓库里的元数据、Worker 之间传递的消息。Java 工程师熟悉的 Bean Validation、Jackson、`@ConfigurationProperties` 在这里对应的是 `@dataclass`、Pydantic `BaseModel`、`BaseSettings`——但它们不是一一对应的翻译，而是同一份类型注解的三种消费方式，各有适用位置。
 
@@ -88,7 +88,7 @@ updated: 2026-09-21
 
 ## 二、工程落地：数据契约设计
 
-前四章沿着"类型信息如何流动"展开：怎么表达、怎么分发、谁来消费。这一章**组织轴切换**——不再讨论类型信息本身，而是讨论用这些能力去构建什么：**数据契约**。
+前两篇沿着"类型信息如何流动"展开：怎么表达（上篇）、怎么分发、谁来消费（中篇）。这一篇**组织轴切换**——不再讨论类型信息本身，而是讨论用这些能力去构建什么：**数据契约**。
 
 所谓数据契约，就是对"一组数据长什么样"的正式约定。在 AI-Infra 系统里，它无处不在：
 
@@ -297,7 +297,7 @@ class User(BaseModel):
     age: int = Field(default=18, ge=0, le=120)
 ```
 
-约束也可以写在 `Annotated` 里，这是 Pydantic v2 更推荐的形式，因为它让类型和元数据分离得更干净（见[上篇第二章](/python-type-system-and-data-contract-design.html#二类型表达从基础注解到-typing-工具箱)「类型信息提供层（上）：类型表达」的 `Annotated` 一节）：
+约束也可以写在 `Annotated` 里，这是 Pydantic v2 更推荐的形式，因为它让类型和元数据分离得更干净（见[上篇第二章](/python-type-expression-and-the-typing-toolbox.html#二类型表达从基础注解到-typing-工具箱)「类型信息提供层（上）：类型表达」的 `Annotated` 一节）：
 
 ```python
 from typing import Annotated

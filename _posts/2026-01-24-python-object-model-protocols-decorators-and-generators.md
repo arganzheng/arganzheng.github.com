@@ -9,7 +9,7 @@ date: 2026-01-24 20:00:00 +0800
 updated: 2026-09-21
 ---
 
-[上篇](/python-language-mechanisms-and-runtime-internals.html)讲的是代码怎么跑：源码编译成 code object，调用创建帧，名称在帧里按 LEGB 解析，`import` 找到并执行模块，异常沿帧链传播。本篇讲**对象怎么工作**——上篇开头那七行里剩下的五行：
+[上篇](/python-execution-model-scopes-imports-and-exceptions.html)讲的是代码怎么跑：源码编译成 code object，调用创建帧，名称在帧里按 LEGB 解析，`import` 找到并执行模块，异常沿帧链传播。本篇讲**对象怎么工作**——上篇开头那七行里剩下的五行：
 
 ```text
 model(x)                           走的是 __call__，中间可能插入 hooks
@@ -79,12 +79,12 @@ class Runner:
 
 ```text
 类语句 ──type──► 类对象 ──__call__──► 实例 ──属性查找/描述符──► 方法、property
-  ▲ [上篇第二章](/python-language-mechanisms-and-runtime-internals.html#二执行模型源码如何变成正在运行的代码) 类与对象模型      ▲ [上篇第三章](/python-language-mechanisms-and-runtime-internals.html#三作用域与闭包名称在哪里被解析) 对象协议：__call__、迭代、__getitem__ ...
+  ▲ [上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码) 类与对象模型      ▲ [上篇第三章](/python-execution-model-scopes-imports-and-exceptions.html#三作用域与闭包名称在哪里被解析) 对象协议：__call__、迭代、__getitem__ ...
   │
-装饰器改写调用路径（[上篇第四章](/python-language-mechanisms-and-runtime-internals.html#四模块与导入系统代码如何被加载)）→ 生成器暂停帧（第二章）→ 上下文管理器管资源（第三章）→ 完整追踪（第四章）
+装饰器改写调用路径（[上篇第四章](/python-execution-model-scopes-imports-and-exceptions.html#四模块与导入系统代码如何被加载)）→ 生成器暂停帧（第二章）→ 上下文管理器管资源（第三章）→ 完整追踪（第四章）
 ```
 
-各章之间的依赖是单向的：[上篇第二章](/python-language-mechanisms-and-runtime-internals.html#二执行模型源码如何变成正在运行的代码)的方法绑定、`property` 依赖描述符协议，所以描述符放在[上篇第二章](/python-language-mechanisms-and-runtime-internals.html#二执行模型源码如何变成正在运行的代码)内部讲，而不是拖到对象协议之后；[上篇第四章](/python-language-mechanisms-and-runtime-internals.html#四模块与导入系统代码如何被加载)装饰器同时依赖闭包（上篇[上篇第三章](/python-language-mechanisms-and-runtime-internals.html#三作用域与闭包名称在哪里被解析)）和描述符（本篇[上篇第二章](/python-language-mechanisms-and-runtime-internals.html#二执行模型源码如何变成正在运行的代码)），因此排在两者之后；第二章生成器建立在上篇[上篇第二章](/python-language-mechanisms-and-runtime-internals.html#二执行模型源码如何变成正在运行的代码)的帧之上；第三章 `contextlib` 的实现又建立在第二章的生成器之上。
+各章之间的依赖是单向的：[上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码)的方法绑定、`property` 依赖描述符协议，所以描述符放在[上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码)内部讲，而不是拖到对象协议之后；[上篇第四章](/python-execution-model-scopes-imports-and-exceptions.html#四模块与导入系统代码如何被加载)装饰器同时依赖闭包（上篇[上篇第三章](/python-execution-model-scopes-imports-and-exceptions.html#三作用域与闭包名称在哪里被解析)）和描述符（本篇[上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码)），因此排在两者之后；第二章生成器建立在上篇[上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码)的帧之上；第三章 `contextlib` 的实现又建立在第二章的生成器之上。
 
 ### 2. 本文的章节安排
 
@@ -481,7 +481,7 @@ print(Run().run())                         # ['base', 'metrics', 'logging']
 
 `Logging.run` 里的 `super().run()` 调到的是 `Metrics.run`，不是 `Base.run`——`super()` 的含义是"**在实例的 MRO 中，当前类之后的下一个**"，它取决于实例的类型，而不是写代码时看到的父类。`Logging` 类的作者并不知道 `Metrics` 的存在，链条却能接上，这就是协作式多继承。
 
-零参数 `super()` 之所以知道"当前类"是谁，是因为编译器在使用了 `super()` 的方法里注入了一个名为 `__class__` 的闭包变量（可以用 `Child.run.__code__.co_freevars` 看到 `('__class__',)`）——[上篇第三章](/python-language-mechanisms-and-runtime-internals.html#三作用域与闭包名称在哪里被解析)的 cell 机制在这里又出现了一次。
+零参数 `super()` 之所以知道"当前类"是谁，是因为编译器在使用了 `super()` 的方法里注入了一个名为 `__class__` 的闭包变量（可以用 `Child.run.__code__.co_freevars` 看到 `('__class__',)`）——[上篇第三章](/python-execution-model-scopes-imports-and-exceptions.html#三作用域与闭包名称在哪里被解析)的 cell 机制在这里又出现了一次。
 
 协作式多继承的约定：每一层都调 `super()`（包括 `__init__`）；同名方法签名兼容，通常用 `*args, **kwargs` 透传；不假设 `super()` 指向某个具体类。任何一层漏掉 `super()`，它之后的所有层都会被跳过。声明顺序不一致时 C3 会直接拒绝：`class X(A, C)` 抛出 `TypeError: Cannot create a consistent method resolution order (MRO) for bases A, C`，因为 `C` 已经要求 `A` 在自己之后。
 
@@ -643,7 +643,7 @@ Java 的做法是**接口**：想被 `for-each` 遍历就实现 `Iterable<T>`，
 
 ## 四、装饰器：用闭包和描述符改写调用路径
 
-第一章的 `@registered("runner")` 让 `Runner` 在被定义的同时进入注册表。装饰器的全部机制在前面已经准备好了：函数是对象（[上篇第二章](/python-language-mechanisms-and-runtime-internals.html#二执行模型源码如何变成正在运行的代码)），闭包能记住参数（[上篇第三章](/python-language-mechanisms-and-runtime-internals.html#三作用域与闭包名称在哪里被解析)），类属性上的函数是描述符（第二章）。这一章把它们组装起来。
+第一章的 `@registered("runner")` 让 `Runner` 在被定义的同时进入注册表。装饰器的全部机制在前面已经准备好了：函数是对象（[上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码)），闭包能记住参数（[上篇第三章](/python-execution-model-scopes-imports-and-exceptions.html#三作用域与闭包名称在哪里被解析)），类属性上的函数是描述符（第二章）。这一章把它们组装起来。
 
 ### 1. 基本机制
 
@@ -678,7 +678,7 @@ def run(): ...
 
 ### 2. 装饰器与闭包的关系
 
-`wrapper` 能在 `log_call` 返回之后仍然找到 `func`，靠的是[上篇第三章](/python-language-mechanisms-and-runtime-internals.html#三作用域与闭包名称在哪里被解析)的 cell：`wrapper.__closure__[0].cell_contents is predict_original`。闭包是实现装饰器最常见的方式，但不是必需的——任何"接收可调用对象、返回可调用对象"的东西都是装饰器，包括类：
+`wrapper` 能在 `log_call` 返回之后仍然找到 `func`，靠的是[上篇第三章](/python-execution-model-scopes-imports-and-exceptions.html#三作用域与闭包名称在哪里被解析)的 cell：`wrapper.__closure__[0].cell_contents is predict_original`。闭包是实现装饰器最常见的方式，但不是必需的——任何"接收可调用对象、返回可调用对象"的东西都是装饰器，包括类：
 
 ```python
 class LogCall:
@@ -694,7 +694,7 @@ class LogCall:
 def predict(x): ...
 ```
 
-状态少用闭包，状态多、需要暴露方法（如 `cache.clear()`）用类——与[上篇第三章](/python-language-mechanisms-and-runtime-internals.html#三作用域与闭包名称在哪里被解析) §5 的取舍一致。注意类实现的装饰器用在**方法**上时有一个坑，见 §6。
+状态少用闭包，状态多、需要暴露方法（如 `cache.clear()`）用类——与[上篇第三章](/python-execution-model-scopes-imports-and-exceptions.html#三作用域与闭包名称在哪里被解析) §5 的取舍一致。注意类实现的装饰器用在**方法**上时有一个坑，见 §6。
 
 ### 3. `functools.wraps` 与 `__wrapped__`
 
@@ -755,7 +755,7 @@ def registered(name):
     return decorator
 ```
 
-由 §1 的时机规则和[上篇第四章](/python-language-mechanisms-and-runtime-internals.html#四模块与导入系统代码如何被加载) §6 的导入规则可推出它的全部行为：注册发生在类定义执行时，也就是模块被导入时；模块没被导入则注册表为空；模块以两个名字导入则第二次触发 `duplicate registration`——这正是[上篇第四章](/python-language-mechanisms-and-runtime-internals.html#四模块与导入系统代码如何被加载) §4 那个 `__main__`/`app` 双重导入实验里看到的报错。重复注册抛异常而不是静默覆盖，是刻意的：它把"同一个文件被导入了两次"这个隐蔽问题变成一个显眼的启动失败。
+由 §1 的时机规则和[上篇第四章](/python-execution-model-scopes-imports-and-exceptions.html#四模块与导入系统代码如何被加载) §6 的导入规则可推出它的全部行为：注册发生在类定义执行时，也就是模块被导入时；模块没被导入则注册表为空；模块以两个名字导入则第二次触发 `duplicate registration`——这正是[上篇第四章](/python-execution-model-scopes-imports-and-exceptions.html#四模块与导入系统代码如何被加载) §4 那个 `__main__`/`app` 双重导入实验里看到的报错。重复注册抛异常而不是静默覆盖，是刻意的：它把"同一个文件被导入了两次"这个隐蔽问题变成一个显眼的启动失败。
 
 ### 6. 装饰方法时的叠放顺序：与描述符的交互
 
@@ -799,7 +799,7 @@ Java 的注解（`@Transactional`、`@Retryable`）只是**元数据**，本身�
 
 ## 五、生成器与惰性执行
 
-[上篇第二章](/python-language-mechanisms-and-runtime-internals.html#二执行模型源码如何变成正在运行的代码)说函数调用创建一个帧，返回时销毁它。生成器打破了这个规则：`yield` 让帧**挂起**而不销毁，下次 `next()` 时从原地恢复。第一章的 `Runner.stream` 用它实现流式输出。
+[上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码)说函数调用创建一个帧，返回时销毁它。生成器打破了这个规则：`yield` 让帧**挂起**而不销毁，下次 `next()` 时从原地恢复。第一章的 `Runner.stream` 用它实现流式输出。
 
 ### 1. `yield`：帧被挂起而不是销毁
 
@@ -993,24 +993,24 @@ Java 7 的 try-with-resources 是同一个思路：实现 `AutoCloseable`，`clo
 
 ## 七、一个推理组件的完整运行时追踪
 
-回到第一章的 `runner.py`。现在可以按时间顺序，用前面九章的机制精确描述它的每一步。
+回到第一章的 `runner.py`。现在可以按时间顺序，用上下两篇的机制精确描述它的每一步——上篇的导入、帧与异常传播，本篇的对象创建、属性查找、协议、生成器与上下文管理器。
 
 ### 1. 导入阶段
 
 某个模块执行 `import runner`（或 `from runner import Runner`）：
 
-1. `sys.modules` 中没有 `"runner"`，进入查找（[上篇第四章](/python-language-mechanisms-and-runtime-internals.html#四模块与导入系统代码如何被加载) §2）；
-2. `sys.meta_path` 上的 `PathFinder` 沿 `sys.path` 找到 `runner.py`，`FileFinder` 按 `.py` 后缀选出 `SourceFileLoader`，生成 `ModuleSpec`（[上篇第四章](/python-language-mechanisms-and-runtime-internals.html#四模块与导入系统代码如何被加载) §3）；
-3. 创建空模块对象，写入 `sys.modules["runner"]`——此刻它还是空的（[上篇第四章](/python-language-mechanisms-and-runtime-internals.html#四模块与导入系统代码如何被加载) §7 循环导入的窗口期）；
-4. 编译整个文件为 code object（[上篇第二章](/python-language-mechanisms-and-runtime-internals.html#二执行模型源码如何变成正在运行的代码) §1），在模块 `__dict__` 中执行顶层代码：
+1. `sys.modules` 中没有 `"runner"`，进入查找（[上篇第四章](/python-execution-model-scopes-imports-and-exceptions.html#四模块与导入系统代码如何被加载) §2）；
+2. `sys.meta_path` 上的 `PathFinder` 沿 `sys.path` 找到 `runner.py`，`FileFinder` 按 `.py` 后缀选出 `SourceFileLoader`，生成 `ModuleSpec`（[上篇第四章](/python-execution-model-scopes-imports-and-exceptions.html#四模块与导入系统代码如何被加载) §3）；
+3. 创建空模块对象，写入 `sys.modules["runner"]`——此刻它还是空的（[上篇第四章](/python-execution-model-scopes-imports-and-exceptions.html#四模块与导入系统代码如何被加载) §7 循环导入的窗口期）；
+4. 编译整个文件为 code object（[上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码) §1），在模块 `__dict__` 中执行顶层代码：
    - `from contextlib import nullcontext`：`contextlib` 已在 `sys.modules`，直接绑定名称；
    - `REGISTRY = {}`：创建字典；
-   - `def registered(name)`：创建函数对象，`__globals__` 指向本模块的 `__dict__`（[上篇第二章](/python-language-mechanisms-and-runtime-internals.html#二执行模型源码如何变成正在运行的代码) §2）；
+   - `def registered(name)`：创建函数对象，`__globals__` 指向本模块的 `__dict__`（[上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码) §2）；
    - `class InferenceContext:`：执行类体、调用 `type` 创建类对象（第二章 §1）；
-   - `@registered("runner") class Runner:`：先执行类体得到类对象，然后调用 `registered("runner")` 得到 `decorator`（闭包持有 `name`，[上篇第三章](/python-language-mechanisms-and-runtime-internals.html#三作用域与闭包名称在哪里被解析) §2），再调用 `decorator(Runner)`——写入 `REGISTRY`，返回原类（第四章 §5）；名称 `Runner` 绑定到它。
+   - `@registered("runner") class Runner:`：先执行类体得到类对象，然后调用 `registered("runner")` 得到 `decorator`（闭包持有 `name`，[上篇第三章](/python-execution-model-scopes-imports-and-exceptions.html#三作用域与闭包名称在哪里被解析) §2），再调用 `decorator(Runner)`——写入 `REGISTRY`，返回原类（第四章 §5）；名称 `Runner` 绑定到它。
 5. 导入方拿到模块对象或 `Runner` 名称。
 
-如果没有任何模块导入 `runner`，第 4 步不会发生，`REGISTRY` 里不会有 `"runner"`。如果 `runner.py` 同时被当作脚本运行又被别的模块导入，第 4 步会执行两次，第二次抛出 `duplicate registration`（[上篇第四章](/python-language-mechanisms-and-runtime-internals.html#四模块与导入系统代码如何被加载) §4）。
+如果没有任何模块导入 `runner`，第 4 步不会发生，`REGISTRY` 里不会有 `"runner"`。如果 `runner.py` 同时被当作脚本运行又被别的模块导入，第 4 步会执行两次，第二次抛出 `duplicate registration`（[上篇第四章](/python-execution-model-scopes-imports-and-exceptions.html#四模块与导入系统代码如何被加载) §4）。
 
 ### 2. 创建对象阶段
 
@@ -1026,7 +1026,7 @@ Java 7 的 try-with-resources 是同一个思路：实现 `AutoCloseable`，`clo
 `output = runner(batch)`：
 
 1. 解释器在 `type(runner)` 上查找 `__call__` 槽位（第三章 §1），找到 `Runner.__call__`；
-2. 函数作为非数据描述符被绑定，`self = runner`（第二章 §5），创建新的执行帧（[上篇第二章](/python-language-mechanisms-and-runtime-internals.html#二执行模型源码如何变成正在运行的代码) §3）；
+2. 函数作为非数据描述符被绑定，`self = runner`（第二章 §5），创建新的执行帧（[上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码) §3）；
 3. `self.inference`：类 MRO 上没有同名描述符，实例 `__dict__` 中命中（第二章 §3 的 ③）；
 4. `InferenceContext()` 创建上下文管理器实例；
 5. `with context:` 调用 `__enter__`，打印 `enter inference mode`（第六章 §1）；
@@ -1050,7 +1050,7 @@ Java 7 的 try-with-resources 是同一个思路：实现 `AutoCloseable`，`clo
 
 若第 3 阶段第 6 步 `self.model(batch)` 抛出 `RuntimeError`：
 
-1. 异常在 `model` 的帧中产生，沿 `f_back` 回到 `Runner.__call__` 的帧（[上篇第五章](/python-language-mechanisms-and-runtime-internals.html#五异常处理与失败传播) §1）；
+1. 异常在 `model` 的帧中产生，沿 `f_back` 回到 `Runner.__call__` 的帧（[上篇第五章](/python-execution-model-scopes-imports-and-exceptions.html#五异常处理与失败传播) §1）；
 2. 经过 `with` 块：`InferenceContext.__exit__(RuntimeError, exc, tb)` 被调用，打印 `exit inference mode`，返回 `False`，异常继续传播（第六章 §1）；
 3. `__call__` 的帧被加入 traceback 后销毁；
 4. 到达调用方的 `try`：
@@ -1063,7 +1063,7 @@ Java 7 的 try-with-resources 是同一个思路：实现 `AutoCloseable`，`clo
        raise
    ```
 
-   记录完整 traceback 后原样重抛（[上篇第五章](/python-language-mechanisms-and-runtime-internals.html#五异常处理与失败传播) §5）；再向上由 Worker 主循环决定重试、降级还是退出。
+   记录完整 traceback 后原样重抛（[上篇第五章](/python-execution-model-scopes-imports-and-exceptions.html#五异常处理与失败传播) §5）；再向上由 Worker 主循环决定重试、降级还是退出。
 
 五个阶段对应的机制：
 
@@ -1171,5 +1171,5 @@ Java 7 的 try-with-resources 是同一个思路：实现 `AutoCloseable`，`clo
 
 ## 下一篇
 
-[类型系统与数据契约设计](/python-type-system-and-data-contract-design.html)
+[类型系统与数据契约设计](/python-type-expression-and-the-typing-toolbox.html)
 

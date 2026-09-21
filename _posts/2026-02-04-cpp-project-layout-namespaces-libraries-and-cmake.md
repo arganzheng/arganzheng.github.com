@@ -9,9 +9,29 @@ date: 2026-02-04 20:00:00 +0800
 updated: 2026-09-21
 ---
 
-[上篇](/cpp-compilation-model-and-project-layout.html)讲的是**一个**翻译单元怎么变成一个 `.so`：预处理、编译、汇编、链接四个阶段，声明与定义、ODR、符号与可见性、动态链接。PyTorch 有几千个翻译单元，最终编成的不是一个 `.so` 而是十几个——`libc10.so`、`libtorch_cpu.so`、`libtorch_cuda.so`、`libtorch.so`、`libtorch_python.so`、`torch/_C.cpython-*.so`……本篇讲**几千个翻译单元怎么组织成几个库**：靠什么划分层次（命名空间）、每一层编成什么（库的分层）、谁来描述这些规则（CMake），以及自己动手搭一个同样结构的最小骨架。
+[上篇](/cpp-compilation-model-from-cpp-to-shared-object.html)讲的是**一个**翻译单元怎么变成一个 `.so`：预处理、编译、汇编、链接四个阶段，声明与定义、ODR、符号与可见性、动态链接。PyTorch 有几千个翻译单元，最终编成的不是一个 `.so` 而是十几个——`libc10.so`、`libtorch_cpu.so`、`libtorch_cuda.so`、`libtorch.so`、`libtorch_python.so`、`torch/_C.cpython-*.so`……本篇讲**几千个翻译单元怎么组织成几个库**：靠什么划分层次（命名空间）、每一层编成什么（库的分层）、谁来描述这些规则（CMake），以及自己动手搭一个同样结构的最小骨架。
 
 Java 工程师在这里要放弃的直觉是**"一个包就是一个 jar"**。Java 里 `package`、目录、`.jar` 三者天然对齐；C++ 里命名空间、目录、库是三个**独立的维度**——`torch::` 命名空间横跨两个 `.so`，`c10/` 目录编成一个库但 `aten/` 目录编进 `torch_cpu`，而库与库之间的依赖写在 CMake 里而不是源码里。PyTorch 只是让这三个维度**大致**对齐，读懂它的目录结构就是读懂这三个维度各自的规则。
+
+上篇开头那个 15 行的 `torch/csrc/stub.c` 在这里再贴一遍——它是 `import torch` 加载的第一个 C 文件，本篇第四章会逐行解释它编成什么、链到哪：
+
+```c
+#include <Python.h>
+
+extern PyObject* initModule(void);
+
+#ifndef _WIN32
+#ifdef __cplusplus
+extern "C"
+#endif
+__attribute__((visibility("default"))) PyObject* PyInit__C(void);
+#endif
+
+PyMODINIT_FUNC PyInit__C(void)
+{
+  return initModule();
+}
+```
 
 本文要回答的核心问题是：
 
@@ -70,7 +90,7 @@ namespace ptx = ::cuda::ptx;            // 命名空间别名
 | 没有"把一个包的所有名字注入另一个包"的手段 | `namespace torch { using namespace at; }` 可以（下面会看到） |
 | 类名也是运行时身份（`Class.getName()`） | 命名空间只影响修饰后的符号名，运行时没有"命名空间"对象 |
 
-匿名命名空间（[上篇第四章](/cpp-compilation-model-and-project-layout.html#四one-definition-rule同一个名字只能有一个定义)）是 Java 完全没有的：它的目的不是组织名字，而是控制链接属性。
+匿名命名空间（[上篇第四章](/cpp-compilation-model-from-cpp-to-shared-object.html#四one-definition-rule同一个名字只能有一个定义)）是 Java 完全没有的：它的目的不是组织名字，而是控制链接属性。
 
 ### 2. 三个命名空间对应三个层次
 
@@ -239,7 +259,7 @@ endif()
 
 **`torch/csrc/`（Python 部分）→ `libtorch_python.so`**。`torch/CMakeLists.txt`：`add_library(torch_python SHARED ${TORCH_PYTHON_SRCS})`，源文件来自 `build_variables.bzl` 的 `libtorch_python_core_sources`（`torch/csrc/Module.cpp`、`torch/csrc/autograd/python_variable.cpp` 等），加上 torchgen 生成的 Python 绑定代码 `${GENERATED_CXX_PYTHON}`。链接 `${TORCH_LIB}`（即 `torch`）和 `Python::Module`、`pybind::pybind11`、`shm` 等。
 
-**`torch/csrc/stub.c` → `torch/_C.cpython-*.so`**。15 行的 stub 单独编成 Python 扩展模块，链接 `torch_python`。它是整个 PyTorch 里唯一不由 CMake 编译的二进制：`setup.py` 把它声明为 setuptools 的 `Extension("torch._C", sources=["torch/csrc/stub.c"], libraries=["torch_python"], ...)`，由 setuptools 的 `build_ext` 在 CMake 构建完成之后编译（9.4 节）。
+**`torch/csrc/stub.c` → `torch/_C.cpython-*.so`**。15 行的 stub 单独编成 Python 扩展模块，链接 `torch_python`。它是整个 PyTorch 里唯一不由 CMake 编译的二进制：`setup.py` 把它声明为 setuptools 的 `Extension("torch._C", sources=["torch/csrc/stub.c"], libraries=["torch_python"], ...)`，由 setuptools 的 `build_ext` 在 CMake 构建完成之后编译（4.4 节）。
 
 为什么要一个 stub 而不是把 `libtorch_python.so` 直接命名为 `_C.so`？因为 Python 扩展模块的文件名必须是 `_C.cpython-312-x86_64-linux-gnu.so` 这种带 ABI tag 的形式，且放在 `torch/` 包目录下；而 `libtorch_python.so` 需要一个稳定的 SONAME 放在 `torch/lib/` 供其他 C++ 扩展链接（`torch.utils.cpp_extension` 的默认库列表里有 `torch_python`）。一个 15 行的 stub 把两个需求解耦。
 
@@ -290,7 +310,7 @@ $ nm -C _C.cpython-312-darwin.so | grep -E 'PyInit|initModule'
                  U _initModule
 ```
 
-逐行对回前面几节：`_C` 只依赖 `libtorch_python`（加系统库），它的符号表里只有一个定义 `PyInit__C` 和一个引用 `initModule`——就是 `stub.c` 那 15 行；`libtorch_python` 依赖 `libtorch`、`libtorch_cpu`、`libc10`、`libshm`；`libtorch` 这个"空壳"自己只依赖 `libtorch_cpu` 与 `libc10`。`@loader_path/lib` 就是 Linux 上的 `$ORIGIN/lib`（6.2 节）。
+逐行对回前面几节：`_C` 只依赖 `libtorch_python`（加系统库），它的符号表里只有一个定义 `PyInit__C` 和一个引用 `initModule`——就是 `stub.c` 那 15 行；`libtorch_python` 依赖 `libtorch`、`libtorch_cpu`、`libc10`、`libshm`；`libtorch` 这个"空壳"自己只依赖 `libtorch_cpu` 与 `libc10`。`@loader_path/lib` 就是 Linux 上的 `$ORIGIN/lib`（[上篇 6.2 节](/cpp-compilation-model-from-cpp-to-shared-object.html)）。
 
 CUDA wheel 会多出 `libtorch_cuda.so`、`libc10_cuda.so`，以及 `libcudart.so.12` 等指向 `nvidia/*/lib/` 的条目（PyTorch 2.x 中的变化：CUDA 库从 wheel 内 `torch/lib/` 拆成了独立的 `nvidia-*-cu12` PyPI 包，`_load_global_deps` 里的 `_preload_cuda_deps` 就是为此而写）。
 
@@ -422,7 +442,7 @@ if(NOT BUILD_LIBTORCHLESS)
   torch_compile_options(c10)
 ```
 
-`file(GLOB ...)` 按通配符收集源文件——注意 `c10/cuda/` 不在列表里，它是另一个库。`add_library(c10 ...)` 没写 `SHARED`/`STATIC`，由全局变量 `BUILD_SHARED_LIBS` 决定，默认 ON，所以是 `libc10.so`。`torch_compile_options(c10)` 就是 5.4 节看到的那个函数，加上 `-fvisibility=hidden` 和一堆警告选项。
+`file(GLOB ...)` 按通配符收集源文件——注意 `c10/cuda/` 不在列表里，它是另一个库。`add_library(c10 ...)` 没写 `SHARED`/`STATIC`，由全局变量 `BUILD_SHARED_LIBS` 决定，默认 ON，所以是 `libc10.so`。`torch_compile_options(c10)` 就是 [上篇 5.4 节](/cpp-compilation-model-from-cpp-to-shared-object.html)看到的那个函数，加上 `-fvisibility=hidden` 和一堆警告选项。
 
 ```cmake
   # If building shared library, set dllimport/dllexport proper.
@@ -489,7 +509,7 @@ endif()
 torch_compile_options(torch_cpu)  # see cmake/public/utils.cmake
 ```
 
-`Caffe2_CPU_SRCS` 在前面几百行里被一步步 `list(APPEND ...)` 填满：ATen 的 `ATen_CPU_SRCS`、`build_variables.bzl` 里的 `libtorch_cmake_sources`、torchgen 生成的 `GENERATED_CXX_TORCH`……并按 4.3 节说的 AVX 顺序排列。`SOVERSION` 决定 `libtorch_cpu.so` 是否带版本后缀（pip wheel 里不带）。
+`Caffe2_CPU_SRCS` 在前面几百行里被一步步 `list(APPEND ...)` 填满：ATen 的 `ATen_CPU_SRCS`、`build_variables.bzl` 里的 `libtorch_cmake_sources`、torchgen 生成的 `GENERATED_CXX_TORCH`……并按 [上篇 4.3 节](/cpp-compilation-model-from-cpp-to-shared-object.html)说的 AVX 顺序排列。`SOVERSION` 决定 `libtorch_cpu.so` 是否带版本后缀（pip wheel 里不带）。
 
 ```cmake
 target_link_libraries(torch_cpu PUBLIC c10)
@@ -503,7 +523,7 @@ if(USE_CUDA)
 endif()
 ```
 
-`torch_cpu PUBLIC c10`：`libtorch_cpu.so` 依赖 `libc10.so`，且链接 `torch_cpu` 的人自动链接 `c10`。`CAFFE2_BUILD_MAIN_LIB` 让 `TORCH_API` 在这个库里展开成导出（5.4 节）。`Caffe2_DEPENDENCY_WHOLE_LINK_LIBS` 是需要 `--whole-archive` 链接的静态库（5.3 节讨论的静态注册问题）。
+`torch_cpu PUBLIC c10`：`libtorch_cpu.so` 依赖 `libc10.so`，且链接 `torch_cpu` 的人自动链接 `c10`。`CAFFE2_BUILD_MAIN_LIB` 让 `TORCH_API` 在这个库里展开成导出（[上篇 5.4 节](/cpp-compilation-model-from-cpp-to-shared-object.html)）。`Caffe2_DEPENDENCY_WHOLE_LINK_LIBS` 是需要 `--whole-archive` 链接的静态库（[上篇 5.3 节](/cpp-compilation-model-from-cpp-to-shared-object.html)讨论的静态注册问题）。
 
 CUDA 库：
 
@@ -528,7 +548,7 @@ if(USE_CUDA)
 
 `libtorch_cuda.so` 依赖 `libc10_cuda.so` 和 `libtorch_cpu.so`。`torch_cpu_library` 是 `caffe2_interface_library(torch_cpu torch_cpu_library)` 生成的接口目标，处理一些链接顺序和 whole-archive 细节。
 
-空壳 `torch` 目标（8.2 节已引）在这两个之后定义，用 `PUBLIC` 依赖把它们串起来。`install(TARGETS torch_cpu torch_cpu_library EXPORT Caffe2Targets ...)`、`install(TARGETS torch torch_library EXPORT Caffe2Targets ...)` 把它们加进同一个导出集合。
+空壳 `torch` 目标（3.2 节已引）在这两个之后定义，用 `PUBLIC` 依赖把它们串起来。`install(TARGETS torch_cpu torch_cpu_library EXPORT Caffe2Targets ...)`、`install(TARGETS torch torch_library EXPORT Caffe2Targets ...)` 把它们加进同一个导出集合。
 
 ### 3. `torch/CMakeLists.txt` 与 `torch/csrc/stub.c`：Python 绑定
 
@@ -570,7 +590,7 @@ target_compile_definitions(torch_python PRIVATE "-DTHP_BUILD_MAIN_LIB")
 target_link_libraries(torch_python PRIVATE ${TORCH_LIB} ${TORCH_PYTHON_LINK_LIBRARIES})
 ```
 
-这里显式写了 `SHARED`——`libtorch_python.so` 永远是动态库。`THP_BUILD_MAIN_LIB` 对应 `torch/csrc/Export.h` 里的 `TORCH_PYTHON_API`（`THP` = TorcH Python，老前缀）。`${TORCH_LIB}` 是 `torch`，即 8.2 节的空壳，间接带来 `torch_cpu`、`torch_cuda`、`c10`。注意是 `PRIVATE`——链接 `torch_python` 的人（`_C`）不会自动传递依赖，但因为动态库的 `DT_NEEDED` 是递归加载的，运行时还是全部会被加载。
+这里显式写了 `SHARED`——`libtorch_python.so` 永远是动态库。`THP_BUILD_MAIN_LIB` 对应 `torch/csrc/Export.h` 里的 `TORCH_PYTHON_API`（`THP` = TorcH Python，老前缀）。`${TORCH_LIB}` 是 `torch`，即 3.2 节的空壳，间接带来 `torch_cpu`、`torch_cuda`、`c10`。注意是 `PRIVATE`——链接 `torch_python` 的人（`_C`）不会自动传递依赖，但因为动态库的 `DT_NEEDED` 是递归加载的，运行时还是全部会被加载。
 
 然后是 `_C`。它不在 `torch/CMakeLists.txt` 里——这是 PyTorch 里唯一由 setuptools 而不是 CMake 编译的二进制。`setup.py` 的 `configure_extension_build()`：
 
@@ -605,9 +625,9 @@ target_link_libraries(torch_python PRIVATE ${TORCH_LIB} ${TORCH_PYTHON_LINK_LIBR
     ext_modules.append(C)
 ```
 
-setuptools 的 `Extension` 就是 Python 扩展模块的标准描述：`language="c"` 用 C 编译器编 `stub.c`（所以 `__cplusplus` 不会被定义，2.2 节），产物自动带 `.cpython-312-x86_64-linux-gnu` 后缀；`libraries=["torch_python"]` 加 `library_dirs=[torch/lib]` 就是 `-L torch/lib -ltorch_python`；`make_relative_rpath_args("lib")` 是 6.2 节讲的 `-Wl,-rpath,$ORIGIN/lib`。`BUILD_LIBTORCH_WHL` 是 split build 的 libtorch 半边，那时不需要 `_C`，后面 `ext_modules = []` 直接清空。
+setuptools 的 `Extension` 就是 Python 扩展模块的标准描述：`language="c"` 用 C 编译器编 `stub.c`（所以 `__cplusplus` 不会被定义，[上篇 2.2 节](/cpp-compilation-model-from-cpp-to-shared-object.html)），产物自动带 `.cpython-312-x86_64-linux-gnu` 后缀；`libraries=["torch_python"]` 加 `library_dirs=[torch/lib]` 就是 `-L torch/lib -ltorch_python`；`make_relative_rpath_args("lib")` 是 [上篇 6.2 节](/cpp-compilation-model-from-cpp-to-shared-object.html)讲的 `-Wl,-rpath,$ORIGIN/lib`。`BUILD_LIBTORCH_WHL` 是 split build 的 libtorch 半边，那时不需要 `_C`，后面 `ext_modules = []` 直接清空。
 
-现在回到开头的 `stub.c`，每一行都能解释了：
+现在回到开头的 `stub.c`（上篇用它引出编译模型，本篇用它收尾），每一行都能解释了：
 
 ```c
 #include <Python.h>                         // PyObject、PyMODINIT_FUNC 的声明
@@ -628,11 +648,11 @@ PyMODINIT_FUNC PyInit__C(void)              // 定义：Python 解释器 dlsym �
 }
 ```
 
-这个文件编成 `_C.cpython-*.so`，它的符号表只有寥寥几行：`T PyInit__C`，`U initModule`，以及 libc 的东西（8.3 节实际看过）。它就是一个把 Python 的入口约定翻译给 C++ 世界的转接头。
+这个文件编成 `_C.cpython-*.so`，它的符号表只有寥寥几行：`T PyInit__C`，`U initModule`，以及 libc 的东西（3.3 节实际看过）。它就是一个把 Python 的入口约定翻译给 C++ 世界的转接头。
 
 ### 4. `setup.py`：`.so` 如何进 wheel
 
-v2.10.0 的 `setup.py` 分两步：`main()` 先调 `build_deps()`，由 `tools/setup_helpers/cmake.py` 运行 CMake 把 `libc10.so`、`libtorch_cpu.so`、`libtorch_python.so` 等全部编好、安装到 `torch/lib/`；然后交给 setuptools，它只编译 9.3 节那个 `Extension("torch._C", ...)`（setuptools 自带的 `build_ext` 被子类化，加了拷贝 Windows 导出库、生成 `compile_commands.json` 等杂事），并按 `package_data` 决定把哪些文件打进 wheel。关键片段：
+v2.10.0 的 `setup.py` 分两步：`main()` 先调 `build_deps()`，由 `tools/setup_helpers/cmake.py` 运行 CMake 把 `libc10.so`、`libtorch_cpu.so`、`libtorch_python.so` 等全部编好、安装到 `torch/lib/`；然后交给 setuptools，它只编译 4.3 节那个 `Extension("torch._C", ...)`（setuptools 自带的 `build_ext` 被子类化，加了拷贝 Windows 导出库、生成 `compile_commands.json` 等杂事），并按 `package_data` 决定把哪些文件打进 wheel。关键片段：
 
 ```python
 BUILD_LIBTORCH_WHL = str2bool(os.getenv("BUILD_LIBTORCH_WHL"))
@@ -706,7 +726,7 @@ if BUILD_PYTHON_ONLY:
 
 ### 5. 对照 vLLM 的 `setup.py`
 
-vLLM 的 `setup.py` 走的是同一条路的下游：它定义一个 `cmake_build_ext` 命令类，在 `build_extensions` 里调 `cmake` 配置和构建 `CMakeLists.txt`（8.4 节看过的 `find_package(Torch)` 那个），把产物 `_C.abi3.so`、`_moe_C.abi3.so` 等拷进 `vllm/` 包目录。它对 PyTorch 的依赖完全通过 `torch.utils.cmake_prefix_path` 解析，所以 vLLM 的 wheel 必须和特定 PyTorch 版本配对——`.so` 里 `DT_NEEDED` 的 `libtorch_cpu.so` 只是名字，而里面符号的修饰名和结构体布局是编译时那个 PyTorch 版本的（第七篇 ABI）。
+vLLM 的 `setup.py` 走的是同一条路的下游：它定义一个 `cmake_build_ext` 命令类，在 `build_extensions` 里调 `cmake` 配置和构建 `CMakeLists.txt`（3.4 节看过的 `find_package(Torch)` 那个），把产物 `_C.abi3.so`、`_moe_C.abi3.so` 等拷进 `vllm/` 包目录。它对 PyTorch 的依赖完全通过 `torch.utils.cmake_prefix_path` 解析，所以 vLLM 的 wheel 必须和特定 PyTorch 版本配对——`.so` 里 `DT_NEEDED` 的 `libtorch_cpu.so` 只是名字，而里面符号的修饰名和结构体布局是编译时那个 PyTorch 版本的（第七篇 ABI）。
 
 ## 五、实践二：mini-c10 的目录结构与第一个可链接的库
 
@@ -746,23 +766,23 @@ mini-c10/
 
 ### 2. 第一个符号：`Version.h` / `Version.cpp`
 
-内容在 2.1 节已经给出，这里解释设计上的四个选择，每个都对应本文的一个概念：
+内容在 [上篇 2.1 节](/cpp-compilation-model-from-cpp-to-shared-object.html)已经给出，这里解释设计上的四个选择，每个都对应本文的一个概念：
 
 ```cpp
 // minic10/core/Version.h
-#pragma once                                  // 3.3 节：防止重复包含
+#pragma once                                  // [上篇 3.3 节](/cpp-compilation-model-from-cpp-to-shared-object.html)：防止重复包含
 
 #include <cstdint>
 #include <string>
 
 namespace minic10 {                           // 6 节：所有东西在 minic10:: 下
 
-constexpr int kVersionMajor = 0;              // 4.3 节：constexpr 变量隐含 inline，
+constexpr int kVersionMajor = 0;              // [上篇 4.3 节](/cpp-compilation-model-from-cpp-to-shared-object.html)：constexpr 变量隐含 inline，
 constexpr int kVersionMinor = 1;              //         放头文件不违反 ODR
 
-std::string version_string();                 // 3.2 节：声明；定义在 Version.cpp，编进 .so
+std::string version_string();                 // [上篇 3.2 节](/cpp-compilation-model-from-cpp-to-shared-object.html)：声明；定义在 Version.cpp，编进 .so
 
-inline int version_number() {                 // 4.3 节：头文件里的函数定义必须 inline
+inline int version_number() {                 // [上篇 4.3 节](/cpp-compilation-model-from-cpp-to-shared-object.html)：头文件里的函数定义必须 inline
   return kVersionMajor * 1000 + kVersionMinor;
 }
 
@@ -775,9 +795,9 @@ inline int version_number() {                 // 4.3 节：头文件里的函数
 
 namespace minic10 {
 
-namespace {                                   // 4.4 节：内部链接，不导出，不与别的 .cpp 冲突
+namespace {                                   // [上篇 4.4 节](/cpp-compilation-model-from-cpp-to-shared-object.html)：内部链接，不导出，不与别的 .cpp 冲突
 const char* build_flavor() {
-#ifdef NDEBUG                                 // 2.2 节：预处理条件编译；CMake Release 构建定义 NDEBUG
+#ifdef NDEBUG                                 // [上篇 2.2 节](/cpp-compilation-model-from-cpp-to-shared-object.html)：预处理条件编译；CMake Release 构建定义 NDEBUG
   return "release";
 #else
   return "debug";
@@ -785,7 +805,7 @@ const char* build_flavor() {
 }
 } // namespace
 
-std::string version_string() {                // 3.2 节：定义
+std::string version_string() {                // [上篇 3.2 节](/cpp-compilation-model-from-cpp-to-shared-object.html)：定义
   return std::to_string(kVersionMajor) + "." + std::to_string(kVersionMinor) +
       " (" + build_flavor() + ")";
 }
@@ -831,7 +851,7 @@ clang++ -std=c++17 -Wall -Wextra -I. examples/hello.cpp -L. -lminic10 -Wl,-rpath
 mini-c10 0.1 (debug), number=1
 ```
 
-再看符号（5.1 节给的是 Linux 的输出，这里是 macOS 的，去掉了 libc++ 的内部符号）：
+再看符号（[上篇 5.1 节](/cpp-compilation-model-from-cpp-to-shared-object.html)给的是 Linux 的输出，这里是 macOS 的，去掉了 libc++ 的内部符号）：
 
 ```text
 $ nm -C Version.o | grep minic10
@@ -943,13 +963,13 @@ mini-c10 现在只有一个函数，但它已经是一个"库"：有头文件和
 |---|---|---|
 | `fatal error: torch/torch.h: No such file or directory` | 预处理 | 少 `-I`；`torch/torch.h` 需要 `include/torch/csrc/api/include` 这个额外路径 |
 | `error: 'Tensor' was not declared in this scope` / `'at' has not been declared` | 编译 | 少 `#include`，或者只有前向声明却用了完整定义 |
-| `error: invalid use of incomplete type 'class at::Tensor'` | 编译 | 前向声明了但没包含完整定义（3.4 节） |
+| `error: invalid use of incomplete type 'class at::Tensor'` | 编译 | 前向声明了但没包含完整定义（[上篇 3.4 节](/cpp-compilation-model-from-cpp-to-shared-object.html)） |
 | `undefined reference to 'at::xxx'` | 链接 | 少 `-ltorch_cpu`/`-lc10`；或函数声明了没定义；或声明上没有 `TORCH_API`（符号没导出） |
 | `multiple definition of 'xxx'` | 链接 | 头文件里的函数定义忘了 `inline`；或同一个 `.cpp` 被加进两个目标 |
 | `error while loading shared libraries: libtorch.so: cannot open shared object file` | 加载 | 没有 RPATH 也没设 `LD_LIBRARY_PATH` |
 | `undefined symbol: _ZN2at...` （`import` 时） | 加载 | 编译扩展用的 PyTorch 头文件和运行时加载的 `.so` 版本不一致；或 ABI 不匹配（`[abi:cxx11]`）；或 `-std=` 不一致导致某些 inline 函数签名不同 |
 | `dynamic module does not define module export function (PyInit_xxx)` | 加载 | 扩展用了 `-fvisibility=hidden` 却没给 `PyInit_xxx` 加默认可见性；或模块名和 `PYBIND11_MODULE`/`TORCH_EXTENSION_NAME` 不一致 |
-| 运行时算子"不存在"，但 `nm` 里能看到注册代码 | 链接/加载 | 静态库没用 `--whole-archive`，注册所在的 `.o` 被丢弃（5.3 节，第五篇） |
+| 运行时算子"不存在"，但 `nm` 里能看到注册代码 | 链接/加载 | 静态库没用 `--whole-archive`，注册所在的 `.o` 被丢弃（[上篇 5.3 节](/cpp-compilation-model-from-cpp-to-shared-object.html)，第五篇） |
 
 ### 2. 头文件卫生
 
@@ -1030,4 +1050,4 @@ Java 工程师需要放弃的第三个直觉：**"一个包就是一个 jar"**�
 
 [^q4]: `import torch` 先由 `_load_global_deps()` 以 `RTLD_GLOBAL` `dlopen` `libtorch_global_deps.so`（把 CUDA runtime、cuDNN、NCCL 的符号放进全局命名空间），再导入扩展模块 `torch/_C.*.so`，它的 `DT_NEEDED` 链上是 `libtorch_python.so` → `libtorch.so` → `libtorch_cpu.so` / `libtorch_cuda.so` → `libc10.so` / `libc10_cuda.so`。详见[第三章](#三pytorch-的源码布局与库布局)、[第四章](#四回到源码)。
 [^q5]: `c10` 是最底层（Tensor 元数据、Device、Allocator、Dispatcher 核心），`torch_cpu` / `torch_cuda` 是算子与 kernel，`torch` 是把两者拼起来的空壳，`torch_python` 是 Python 绑定；每一层只导出标了 `C10_API` / `TORCH_API` 的符号，其余在 `-fvisibility=hidden` 下不可见。详见[第二章](#二命名空间c10attorch-的分工)、[第三章](#三pytorch-的源码布局与库布局)。
-[^q6]: 用 `torch.utils.cpp_extension` 构建的扩展链接 `libc10.so`、`libtorch.so`、`libtorch_cpu.so`（CUDA 扩展再加 `libc10_cuda.so`、`libtorch_cuda.so`），用了 pybind11 / Python API 时再加 `libtorch_python.so`，并用 `-Wl,-rpath` 把搜索路径烧进去。符号在加载期由动态链接器解析，所以扩展的 ABI（`_GLIBCXX_USE_CXX11_ABI`、编译器版本）必须与这些库一致。详见[第四章](#四回到源码)、[上篇第七章](/cpp-compilation-model-and-project-layout.html#七实践一手写编译命令链接一个-libtorch-程序)。
+[^q6]: 用 `torch.utils.cpp_extension` 构建的扩展链接 `libc10.so`、`libtorch.so`、`libtorch_cpu.so`（CUDA 扩展再加 `libc10_cuda.so`、`libtorch_cuda.so`），用了 pybind11 / Python API 时再加 `libtorch_python.so`，并用 `-Wl,-rpath` 把搜索路径烧进去。符号在加载期由动态链接器解析，所以扩展的 ABI（`_GLIBCXX_USE_CXX11_ABI`、编译器版本）必须与这些库一致。详见[第四章](#四回到源码)、[上篇第七章](/cpp-compilation-model-from-cpp-to-shared-object.html#七实践一手写编译命令链接一个-libtorch-程序)。

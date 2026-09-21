@@ -9,7 +9,7 @@ date: 2026-01-25 12:00:00 +0800
 updated: 2026-09-21
 ---
 
-[上篇](/python-type-system-and-data-contract-design.html)讲了怎么**写**类型：`typing` 工具箱里每个工具表达哪一种类型意图。但写下来的注解在 Python 里默认什么都不发生——解释器只是把它存进 `__annotations__`，不检查、不转换。类型信息要产生作用，得有人**读**它。本篇讲的就是这条链路的中间两段：
+[上篇](/python-type-expression-and-the-typing-toolbox.html)讲了怎么**写**类型：`typing` 工具箱里每个工具表达哪一种类型意图。但写下来的注解在 Python 里默认什么都不发生——解释器只是把它存进 `__annotations__`，不检查、不转换。类型信息要产生作用，得有人**读**它。本篇讲的就是这条链路的中间两段：
 
 - **分发**：我写的注解怎么随包发给别人？没有源码注解的库（`torch._C` 这类 C 扩展）怎么提供类型信息？——`.pyi` 存根、typeshed、`types-*`、`py.typed` / PEP 561；
 - **消费**：谁在读注解、什么时候读、读到之后做什么？——静态一侧是 mypy / pyright 在开发时推理与检查；动态一侧是 `get_type_hints()`、`@dataclass` 的代码生成、Pydantic 的元类、beartype 的运行时校验。
@@ -642,7 +642,7 @@ print(type(User))               # <class 'pydantic._internal._model_construction
 print(User.__pydantic_core_schema__ is not None)   # True
 ```
 
-上面 `type(User)` 打印出 `ModelMetaclass` 而不是 `type`，正是[上篇第二章](/python-type-system-and-data-contract-design.html#二类型表达从基础注解到-typing-工具箱) §7 "类的类型是 `type`，自定义元类则是 `type` 的子类"那条规则的直接体现。换句话说，`User` 这个**类对象**的类型是 `ModelMetaclass`，所以任何接受 `type[BaseModel]` 的函数都能拿到它。
+上面 `type(User)` 打印出 `ModelMetaclass` 而不是 `type`，正是[上篇第二章](/python-type-expression-and-the-typing-toolbox.html#二类型表达从基础注解到-typing-工具箱) §7 "类的类型是 `type`，自定义元类则是 `type` 的子类"那条规则的直接体现。换句话说，`User` 这个**类对象**的类型是 `ModelMetaclass`，所以任何接受 `type[BaseModel]` 的函数都能拿到它。
 
 > 元类本身的机制（`type` 的三参数形式、`__new__` 的拦截时机、与 `__init_subclass__` 的取舍）在[《Python 动态机制及 AI-Infra 实践》](/python-reflection-metaprogramming-and-plugin-architecture.html)的"元类：控制类的创建过程"一节有完整展开，这里只关注它作为注解消费者的角色。
 
