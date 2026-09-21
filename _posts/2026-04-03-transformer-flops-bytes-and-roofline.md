@@ -38,9 +38,9 @@ $$
 |---|---|---|
 | 二 | 算量：FLOPs 从哪里来 | 2mkn、2N FLOPs/token、embedding 为什么不算、attention 的 4ds 上下文项、训练的 6N |
 | 三 | prefill 与 decode | 同一组矩阵，m = s 与 m = B 两种 GEMM 形状 |
-| 四 | 访存量 | 每步读一遍权重 16.06 GB、KV cache 每 token 128 KiB、激活值可忽略 |
+| 四 | 访存量 | 每步读一遍参与 GEMM 的权重（≈15.0 GB，驻留 16.06 GB）、KV cache 每 token 128 KiB、激活值可忽略 |
 | 五 | Roofline | 两条上限、算术强度与 ridge point、decode 权重 GEMM 的强度 ≈ B、读 KV 的强度 = g |
-| 六 | 时间下界 | decode 4.8 ms / 208 token/s、加上 KV cache、prefill 8K 与 128K |
+| 六 | 时间下界 | decode ≈4.5–4.8 ms / 210–220 token/s 的理想下界、加上 KV cache、prefill 8K 与 128K |
 | 七 | 核心问题 | batch 多大 decode 才 compute-bound；8K 上下文下单卡为什么不可达；64 GB 预算 |
 | 八 | 训练侧 | 每层激活值 `sbh(34` + 5as/h)、FlashAttention 与重算、MFU 与 HFU |
 | 九 | 实践 | `llm_cost.py` 增加 FLOPs、字节数与时间下界；与实测对照的方法 |
@@ -254,15 +254,16 @@ chunked prefill（切成 8 块，每块 1K token 约 30 ms）：
 
 FLOPs 是成本的一半。另一半是每一步必须从 HBM 搬进 SM 的字节数。decode 一步要读三类数据。
 
-### 1. 权重：每步读一遍，16.06 GB
+### 1. 权重：驻留 16.06 GB，每步读约 15.0 GB
 
-GPU 的片上 SRAM（H100 每个 SM 256 KB，共 132 个 SM，加 50 MB L2）放不下任何一层的权重，所以每一步 decode，模型的每个权重矩阵都要从 HBM 完整读一遍。BF16 每参数 2 字节：
+GPU 的片上 SRAM（H100 每个 SM 256 KB，共 132 个 SM，加 50 MB L2）放不下任何一层的权重，所以每一步 decode，每个**参与 GEMM 的**权重矩阵都要从 HBM 完整读一遍。这里要把两个数分开：
 
-$$
-8.03 \times 10^9 \times 2 = 16.06\ \text{GB}
-$$
+- **驻留容量**：全部参数 BF16 每个 2 字节，$$8.03 \times 10^9 \times 2 = 16.06$$ GB。这是显存要放下的量，决定"能不能单卡"。
+- **每步流量**：第二章 §3 说过 embedding 是查表——每步只 gather 出 $$B$$ 行，不读整张 $$[V, d]$$ 表。所以每步真正流过 HBM 的权重是扣掉输入 embedding 的 525.3M 参数：$$(8.03 - 0.525) \times 10^9 \times 2 \approx 15.0$$ GB。lm_head 是 GEMM，照常算在里面。
 
-这个数字与 $$B$$ 无关：batch 里 1 个请求和 100 个请求，权重都只读一遍。Llama-3-70B 是 141 GB——已经超过一张 80 GB 的 H100，必须切到至少两张卡上。DeepSeek-V3 BF16 是 1342 GB，FP8 是 671 GB，一台 8 卡 H100 节点（640 GB）连 FP8 权重都放不下。
+两者差 7%。下文的时间下界按流量 15.0 GB 算；很多资料（包括本系列早期版本）直接用 16.06 GB，得到的 4.8 ms 是一个偏保守 7% 的近似，量级判断不受影响，但拿它当"物理下限"去核对实测就会差这 7%。对 tied embedding 的模型（如 Qwen2.5 小尺寸）lm_head 与 embedding 共享一张表，这张表作为 lm_head 仍要读一遍，流量就等于全部参数字节。
+
+流量与 $$B$$ 无关：batch 里 1 个请求和 100 个请求，权重都只读一遍。Llama-3-70B 是 141 GB——已经超过一张 80 GB 的 H100，必须切到至少两张卡上。DeepSeek-V3 BF16 是 1342 GB，FP8 是 671 GB，一台 8 卡 H100 节点（640 GB）连 FP8 权重都放不下。
 
 多卡时这个数怎么变？tensor parallel 把每个权重矩阵按列或按行切成 $$n$$ 份，每张卡只读自己那 $$1/n$$，每步读权重的时间也变成 $$1/n$$——这是 TP 在 decode 上真正的收益：不是算得更快，而是**每张卡读得更少**。代价是每层两次 all-reduce，通信量每 token 每层约 $$2 \times 2d$$ 字节，在 NVLink 上通常小于省下的 HBM 时间，但它引入了同步点，$$B$$ 小时这些同步的固定延迟会吃掉相当一部分收益。pipeline parallel 则不同：每张卡持有 $$L/n$$ 层的完整权重，每步仍然要把这些层读一遍，一步 decode 的总时间不变，只是每张卡各读自己的部分——PP 对 decode 延迟没有帮助，只解决容量。
 
@@ -408,23 +409,27 @@ $$
 
 ## 六、时间下界
 
-### 1. decode：4.8 ms，208 token/s
+### 1. decode：约 4.5 ms，约 220 token/s 的理想下界
 
-$$B = 1$$、短上下文时 KV 可忽略，decode 一步的时间下界就是读一遍权重：
+$$B = 1$$、短上下文时 KV 可忽略，decode 一步的时间下界就是读一遍参与 GEMM 的权重：
 
 $$
-T_{decode} \ge \frac{16.06\ \text{GB}}{3.35\ \text{TB/s}} \approx 4.8\ \text{ms}
+T_{decode} \ge \frac{15.0\ \text{GB}}{3.35\ \text{TB/s}} \approx 4.5\ \text{ms}
 $$
 
 对应单个请求的生成速度上限：
 
 $$
-\frac{1}{4.8\ \text{ms}} \approx 208\ \text{token/s}
+\frac{1}{4.5\ \text{ms}} \approx 220\ \text{token/s}
 $$
 
-作为对照，这一步的算力时间是 $$19.3\ \text{GFLOPs} / 989\ \text{TFLOPS} \approx 0.02$$ ms，是访存时间的 1/250——与 $$I / I_{ridge} = 1/295$$ 一致。任何在单张 H100 上宣称 Llama-3-8B BF16 单流超过 208 token/s 的数字，要么用了量化，要么用了投机解码，要么测的不是这个模型。同样的算法，Llama-3-70B 若能放进一张卡：$$141 / 3.35 \approx 42$$ ms，约 24 token/s；A100 上的 8B 是 $$16.06 / 2.0 \approx 8.0$$ ms，125 token/s。
+（按全部 16.06 GB 算是 4.8 ms / 208 token/s，本系列其他篇和地图里出现的就是这个粗算值，差 7%。）
 
-这个 4.8 ms 值得多看一眼：它与模型的算力需求完全无关。把 Llama-3-8B 的 FFN 换成一半大小的 $$d_{ff}$$，FLOPs 减少 40%，但只要参数字节数不变，decode 时间下界就不变；反过来把权重量化到 INT4（每参数约 0.53 字节，第七篇会算精确的 4.25 bit），FLOPs 不变，下界降到约 1.3 ms。**对 decode 而言，"模型多大"的正确度量是字节，不是 FLOPs，也不是参数个数。**
+这是什么性质的数字要说清：它是**同一算法、同一精度、权重冷读、按标称峰值带宽**的理想下界——实测通常达到它的 80–90%（有效带宽到不了标称值，还有 kernel launch、KV 读取、通信）。它**不是**"超过就是造假"的判据：量化改了字节数，投机解码一步产出多个 token，多张卡 TP 每张只读 $$1/n$$，H200/B200 带宽更高，任何一条都能让单流超过 220 token/s；反过来若一个 BF16 单卡 H100 的实测明显高于它，先查这四件事，而不是先怀疑数字。
+
+作为对照，这一步的算力时间是 $$19.3\ \text{GFLOPs} / 989\ \text{TFLOPS} \approx 0.02$$ ms，是访存时间的 1/230——与 $$I / I_{ridge} = 1/295$$ 同一量级。同样的算法，Llama-3-70B 若能放进一张卡：$$141 / 3.35 \approx 42$$ ms，约 24 token/s；A100 上的 8B 是 $$15.0 / 2.0 \approx 7.5$$ ms，133 token/s。
+
+这个 4.5 ms 值得多看一眼：它与模型的算力需求完全无关。把 Llama-3-8B 的 FFN 换成一半大小的 $$d_{ff}$$，FLOPs 减少 40%，权重字节也少约 40%，下界随字节一起降——决定它的是字节而不是 FLOPs；反过来把权重量化到 INT4（每参数约 0.53 字节，第七篇会算精确的 4.25 bit），FLOPs 不变，下界降到约 1.3 ms。**对 decode 而言，"模型多大"的正确度量是字节，不是 FLOPs，也不是参数个数。**
 
 这也解释了 70B 与 8B 在 decode 上的差距为什么是 8.8 倍而不是"参数多所以更慢"这种模糊的说法：141 GB 对 16 GB，字节数之比就是时间之比。用两张 H100 做 TP=2 跑 70B，每卡读 70 GB，下界 21 ms、约 48 token/s；用 8 卡 TP=8，每卡读 17.6 GB，下界 5.3 ms，接近单卡 8B 的速度——前提是 all-reduce 的时间被重叠掉。
 
@@ -454,13 +459,13 @@ $$
 
 prefill 的 8192 个 token 一次进入模型，权重项 $$8192 \times 15.0\ \text{GFLOPs} = 123$$ TFLOP。attention 上下文项若按每个 token 都看全部 8192 个 key 算，是 $$8192 \times 4.29 = 35$$ TFLOP，合计约 158 TFLOP。但因果掩码下第 $$i$$ 个 token 只看前 $$i$$ 个，$$QK^\top$$ 与 $$PV$$ 里有一半是被 mask 掉的，FlashAttention 一类 kernel 会直接跳过这些块，attention 项减半为 17.6 TFLOP，合计约 140 TFLOP。
 
-按 60% 的 MFU（prefill 是 compute-bound，大 GEMM 上这是可以达到的效率）：
+峰值算力下的理想下界是 $$140 \sim 158\ \text{TFLOP} / 989\ \text{TFLOPS} \approx 0.14 \sim 0.16$$ s。实际达不到峰值，按一个**经验效率** 60% 的 MFU 估（prefill 是 compute-bound，大 GEMM 上这是经验上可以达到的效率）：
 
 $$
 T_{prefill} \ge \frac{140 \sim 158\ \text{TFLOP}}{989\ \text{TFLOPS} \times 0.6} \approx 0.24 \sim 0.27\ \text{s}
 $$
 
-这是 8K prompt 下 TTFT（time to first token）的物理下限。算术强度上，这一步的 FLOPs 是 140 TFLOP、读权重 16 GB，$$I \approx 8700$$，远在 ridge point 右侧。
+这是 8K prompt 下 TTFT（time to first token）的一个**效率假设估计**，不是物理下限——物理下限是上面按峰值算的 0.14–0.16 s；60% 是把 GEMM 效率、attention kernel 效率、非 GEMM 算子一起打包的经验系数，换硬件、换 kernel 会变。本系列后面出现的“@60% MFU”都按这个意思读。算术强度上，这一步的 FLOPs 是 140 TFLOP、读权重 16 GB，$$I \approx 8700$$，远在 ridge point 右侧。
 
 128K 的 prefill：权重项 $$131072 \times 15.0 = 2.0$$ PFLOP；attention 项按因果的 $$s^2 / 2$$：$$0.524\ \text{MFLOPs} \times 131072^2 / 2 \approx 4.5$$ PFLOP；合计 6.5 PFLOP，60% MFU 下约 11 s。attention 项在这里是权重项的 2.2 倍，而且随 $$s^2$$ 增长——这就是长上下文 prefill 要做 chunked prefill、要把 prefill 与 decode 分开调度的算量原因。
 
@@ -511,15 +516,17 @@ $$
 这是 batch 与上下文乘积的上限：$$B \times s \le 524288$$。几个点：
 
 ```text
-上下文 s      最大 batch B      每步读 KV       每步下界       I (FLOP/byte)
-   1024         512            64 GiB          25 ms          116
-   2048         256            64 GiB          25 ms           58
-   8192          64            64 GiB          25 ms           15
-  32768          16            64 GiB          25 ms            3.7
- 131072           4            64 GiB          25 ms            0.9
+上下文 s      最大 batch B      每步读 KV       每步下界     每 token FLOPs    I (FLOP/byte)
+   1024         512            64 GiB          25 ms        15.5 G            94
+   2048         256            64 GiB          25 ms        16.1 G            49
+   8192          64            64 GiB          25 ms        19.3 G            15
+  32768          16            64 GiB          25 ms        32.2 G             6.1
+ 131072           4            64 GiB          25 ms        83.7 G             3.9
 ```
 
-注意到当 KV cache 把显存填满时，每步读的 KV 字节数总是 64 GiB，与 $$s$$ 无关——总时间下界固定在约 25 ms，变的只是这 25 ms 里产出多少个 token。$$s = 1024$$ 时 $$B = 512$$，强度 116，是这张卡上离 ridge point 最近的配置，但仍差 2.5 倍。
+（每 token FLOPs = 权重 15.0 G + attention $$0.524\text{M} \times s$$，上下文越长 attention 项越重，所以 $$I$$ 下降得比 $$1/s$$ 慢；第四篇专门算这一项。）
+
+注意到当 KV cache 把显存填满时，每步读的 KV 字节数总是 64 GiB，与 $$s$$ 无关——总时间下界固定在约 25 ms，变的只是这 25 ms 里产出多少个 token。$$s = 1024$$ 时 $$B = 512$$，强度 94，是这张卡上离 ridge point 最近的配置，但仍差 3 倍。
 
 这张表还说明了一件事：在显存被 KV cache 填满的前提下，**吞吐与上下文长度成反比**。同样 25 ms 一步，1K 上下文能产出 512 个 token，128K 只能产出 4 个；每 token 的成本差 128 倍。这是长上下文服务比短上下文贵得多的直接原因，也是为什么服务方按"输入 token + 输出 token"计费而不是按请求数计费——它们对应的是真实的 HBM 字节数。
 
@@ -820,7 +827,7 @@ prefill 131072 causal=True      40.74 PFLOP  @60% MFU 68.651 s
 - decode 每步读一遍权重（16.06 GB）加全部 KV cache（$$B \cdot s \cdot 128$$ KiB），激活可忽略；
 - Roofline：ridge point $$P_{peak} / BW$$，H100 295、A100 156；BF16 decode 权重 GEMM 的算术强度 $$= B$$，KV 读取的强度 $$= g$$；
 - 单卡 Llama-3-8B：decode 下界 4.8 ms / 208 token/s；要 compute-bound 需 $$B \approx 295$$，但 8K 上下文下 KV cache 需要 295 GiB，且总强度趋于 18，因此不可达；64 GB 预算下 $$B \times s \le 52$$ 万 token；
-- prefill 8K 约 140–158 TFLOP，60% MFU 下 0.24–0.27 s，是 TTFT 的下限；
+- prefill 8K 约 140–158 TFLOP，峰值下 0.14–0.16 s 是物理下限，60% MFU 下 0.24–0.27 s 是经验估计；
 - 训练激活 $$sbh(34 + 5as/h)$$，$$s = 8192$$ 时每层 11 GiB，其中 10 GiB 是 $$s^2$$ 项，FlashAttention 与选择性重算把它去掉；
 - MFU $$= \text{tokens/s} \times 6N / P_{peak}$$，8B 模型每卡 8200 token/s 即 40%，40–50% 已是好成绩。
 

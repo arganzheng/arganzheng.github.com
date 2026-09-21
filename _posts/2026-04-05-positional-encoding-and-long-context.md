@@ -30,7 +30,7 @@ updated: 2026-09-14
 
 | 章 | 主题 | 内容 |
 |---|---|---|
-| 二 | 为什么需要位置编码 | attention 是置换不变的；绝对（正弦/可学习）与相对位置编码 |
+| 二 | 为什么需要位置编码 | 无 mask 的 attention 是置换等变的；绝对（正弦/可学习）与相对位置编码 |
 | 三 | RoPE 的推导 | `d_head/2` 个复数、相对性的完整形式、`rotate_half` 实现、与 KV cache 的关系 |
 | 四 | 波长：RoPE 的频谱 | 每个维度对的波长、8K 训练时哪些对"没转完一圈"、外推为什么失败、base 10000 → 500000 |
 | 五 | 长上下文扩展方法 | Position Interpolation、NTK-aware、YaRN、Llama 3.1 分段缩放、DeepSeek-V3/Qwen 的配置、ALiBi |
@@ -43,7 +43,7 @@ updated: 2026-09-14
 
 ## 二、为什么需要位置编码
 
-### 1. attention 是置换不变的
+### 1. attention 是置换等变的（在没有 mask 时）
 
 单个 attention 头的计算是：
 
@@ -57,9 +57,11 @@ $$
 \text{softmax}\!\left(\frac{PQK^\top P^\top}{\sqrt{d_{head}}}\right) PV = P\,\text{softmax}\!\left(\frac{QK^\top}{\sqrt{d_{head}}}\right) V
 $$
 
-输出只是原输出的同样置换。换句话说，attention 把输入看作一个**集合**而不是序列：第 $$m$$ 个 token 的输出只取决于"其他 token 是什么"，与"它们在哪里"无关。FFN 是逐 token 的，RMSNorm 也是逐 token 的，所以整个 Transformer block 都是置换等变的。因果掩码给了模型一点方向感（只能看前面），但仍然无法区分"前面第 1 个"和"前面第 100 个"。
+输出只是原输出的同样置换——这叫**置换等变**（输出跟着输入一起换位；"不变"是输出完全不动，那是对集合做 pooling 才有的性质）。换句话说，attention 把输入看作一个**集合**而不是序列：第 $$m$$ 个 token 的输出只取决于"其他 token 是什么"，与"它们在哪里"无关。FFN 是逐 token 的，RMSNorm 也是逐 token 的，所以整个 Transformer block 都是置换等变的。
 
-要让模型读懂"猫追狗"和"狗追猫"的区别，位置信息必须显式注入。注入的方式分为两大类。
+上面的推导有一个前提：**没有 mask**。加上因果掩码之后等变性就不再成立——固定的下三角 mask 在行置换下不再是下三角，第 $$m$$ 个位置能看到多少个 token 本身就泄露了它的序号（用 NumPy 验证：无 mask 时置换输入、输出最大差 $$10^{-7}$$；加 causal mask 后差 0.73）。所以严格说，causal 模型即便不加任何位置编码也能从"能看见几个"里学到一些顺序信息（确实有 NoPE 的实验），只是这种信号很弱、不显式、外推性差。
+
+要让模型稳定地读懂"猫追狗"和"狗追猫"的区别，位置信息还是要显式注入。注入的方式分为两大类。
 
 ### 2. 绝对位置编码：正弦与可学习
 
@@ -174,7 +176,7 @@ HF rotate_half（前后半配对）  第 i 对 = (x_i, x_i+64)
 
 ### 4. RoPE 与 KV cache 的关系
 
-第三篇讲 KV cache 时默认存的是投影后的 $$K$$、$$V$$。有了 RoPE 之后，存的是**旋转后**的 $$k_n = R_n W_K x_n$$。因为 $$R_n$$ 只依赖 $$n$$，每个 token 的 key 只需要在它进入时旋转一次，之后所有 query 都可以直接用；这是 RoPE 与 KV cache 天然兼容的原因，也是相对位置 bias 一类方法做不到的（bias 依赖 $$m - n$$，每个新 query 都要重算）。
+第三篇讲 KV cache 时默认存的是投影后的 $$K$$、$$V$$。有了 RoPE 之后，存的是**旋转后**的 $$k_n = R_n W_K x_n$$。因为 $$R_n$$ 只依赖 $$n$$，每个 token 的 key 只需要在它进入时旋转一次，之后所有 query 都可以直接用；这是 RoPE 与 KV cache 天然兼容的原因。相对位置 bias 一类方法（T5、Transformer-XL）其实也能缓存 K、V——bias 加在 logits 上、不进 K，每个新 query 只需算自己那一行 $$b_{m-n}$$（$$s$$ 个标量或一次查表），ALiBi 就是它的特例；区别在于 bias 是 attention kernel 里的一个额外项，而 RoPE 在 kernel 之前逐元素做完、kernel 本身不用知道位置。
 
 MLA（DeepSeek-V2/V3）把 K、V 压成一个 512 维的 latent $$c$$，decode 时把 $$W_{UK}$$ 吸收进 query 一侧。问题是旋转矩阵 $$R_n$$ 夹在 $$W_{UK}$$ 与 $$c_n$$ 之间，无法与 $$W_{UK}$$ 交换次序，所以吸收后 $$c_n$$ 上没法再补 RoPE。DeepSeek 的解法是把位置信息分离到一个独立的 64 维 "decoupled RoPE" key 上（$$d_h^R = 64$$），与 latent 一起缓存——每层每 token $$(512 + 64) \times 2 = 1152$$ 字节，61 层 68.6 KiB，这是第三篇 8.6 GiB（128K 上下文）的来源。位置编码的形式直接决定了 KV cache 的结构。
 
@@ -291,7 +293,7 @@ $$
 
 NTK-aware 的问题是它对高频维度**完全**不动，而某些中高频维度的波长其实略大于 $$L$$ 的一个分数，它们外推时也会轻微出界。它也没有处理熵的问题。
 
-还有一个与"改哪个量"无关、但工程上很重要的变体：**Dynamic NTK**（HF 的 `rope_scaling.type = "dynamic"`）。上面的 factor 是固定的——即使当前序列只有 2K，频谱也已经按 factor 4 拉长，短文本的分辨率白白受损。Dynamic 版把 factor 变成当前序列长度的函数：$$s \le L$$ 时 factor = 1，原频谱一点不动；$$s > L$$ 时按 $$\text{factor} = s/L$$ 实时重算 base' 与 cos/sin 表。代价在推理侧：base 随长度变，cos/sin 表不能预计算一次用到底，每当序列跨过 $$L$$ 后每步都要更新；更麻烦的是 KV cache 里已存的 k 是用**旧** base 旋转的，与新 base 下的 q 不一致——严格实现要么重算已缓存的 k（违背 KV cache 的初衷），要么接受这个不一致（HF 的实现选了后者）。这就是 vLLM 这类推理框架对 dynamic 支持有限、生产上多用静态 YaRN 的原因。
+还有一个与"改哪个量"无关、但工程上很重要的变体：**Dynamic NTK**（HF 的 `rope_scaling.type = "dynamic"`）。上面的 factor 是固定的——即使当前序列只有 2K，频谱也已经按 factor 4 拉长，短文本的分辨率白白受损。Dynamic 版把 factor 变成当前序列长度的函数：$$s \le L$$ 时 factor = 1，原频谱一点不动；$$s > L$$ 时实时重算 base' 与 cos/sin 表。论文里的定义是 $$\text{factor} = s/L$$；transformers 的实现（`modeling_rope_utils.py` 的 dynamic 分支，5.x）用的是 $$\text{base}' = \text{base} \cdot [\text{factor} \cdot s/L - (\text{factor} - 1)]^{d/(d-2)}$$，多了一个配置里的 `factor` 参与——读实现时要按具体版本对。代价在推理侧：base 随长度变，cos/sin 表不能预计算一次用到底，每当序列跨过 $$L$$ 后每步都要更新；更麻烦的是 KV cache 里已存的 k 是用**旧** base 旋转的，与新 base 下的 q 不一致——严格实现要么重算已缓存的 k（违背 KV cache 的初衷），要么接受这个不一致（HF 的实现选了后者）。这就是 vLLM 这类推理框架对 dynamic 支持有限、生产上多用静态 YaRN 的原因。
 
 ### 3. YaRN：按波长分三段，再修正温度
 
@@ -421,7 +423,7 @@ RoPE 加上第 1–5 节的缩放方法，成了 2023 年之后长上下文模�
 |---|---|---|---|---|---|---|
 | 正弦绝对编码（原始 Transformer） | embedding 上**加** $$p_m$$ | 展开含 $$p_m^\top W p_n$$，依赖绝对位置 | 0 | 可计算，模型不会用 | 兼容（位置已在 K 里） | 无 |
 | 可学习绝对编码（GPT-2、BERT） | embedding 上加查表行 | 依赖绝对位置 | $$L_{max} \times d$$（GPT-2：1024 × 768） | 物理上不可能（没有那一行） | 兼容 | 无 |
-| 相对 bias（T5、Transformer-XL） | logits 上加 $$b_{m-n}$$ | 只依赖 $$m - n$$ | 每 head 每桶一个标量 | 远距离落入最粗的桶，可用 | 差：bias 依赖 $$m - n$$，每个新 query 重算 | 需要 $$s \times s$$ bias 物化或 kernel 内查表 |
+| 相对 bias（T5、Transformer-XL） | logits 上加 $$b_{m-n}$$ | 只依赖 $$m - n$$（T5 是纯标量；Transformer-XL 还有内容–位置交互项） | 每 head 每桶一个标量 | 远距离落入最粗的桶，可用 | 兼容：K、V 照常缓存，新 query 只算自己那一行 bias | 需要 kernel 内加 bias（物化 $$s \times s$$ 或查表） |
 | RoPE | q、k 上**乘**旋转 $$R_m$$ | 只依赖 $$m - n$$，且与 q、k 内容交互 | 0 | 低频对出现未见相位，失败；需缩放 + 训练 | 天然兼容：存旋转后的 k | 无（kernel 之前逐元素完成） |
 | ALiBi（BLOOM、MPT） | logits 上减 $$\mu_h (m - n)$$ | 只依赖 $$m - n$$，与内容无关 | 0（斜率固定） | 好：惩罚形状不随距离变 | 兼容 | 需要 kernel 内逐元素加 bias（FA2 有分支支持） |
 
@@ -462,7 +464,7 @@ $$
 
 H100 BF16 989 TFLOPS，按 60% MFU 算 593 TFLOPS，$$6.5 \times 10^{15} / 593 \times 10^{12} \approx 11$$ s。同一个模型 8K 的 prefill 约 0.14 PFLOP、0.24 s；128K 是 8K 的 16 倍长度、46 倍算量、46 倍时间。二次项已经占了 70%。
 
-对 70B，128K prefill 约 41 PFLOP（权重 18.5 + attention 22.5），单卡 60% MFU 要 69 s；即便 8 卡 TP 完美线性，也接近 9 s。这就是 TTFT（time to first token）在长上下文下的物理下界：不是调度问题，是算量问题。
+对 70B，128K prefill 约 41 PFLOP（权重 18.5 + attention 22.5），单卡 60% MFU 要 69 s；即便 8 卡 TP 完美线性，也接近 9 s。这就是 TTFT（time to first token）在长上下文下的量级：不是调度问题，是算量问题（60% 是经验效率，按峰值算的物理下界是 6.6 s / 41 s；第二篇第六章说明了两者的区别）。
 
 ### 3. KV cache 的线性项
 
@@ -520,7 +522,7 @@ cache 槽   0   1   2   3               4    5    6     7     8     9
 RoPE 位置  0   1   2   3               4    5    6     7     8     9      10
 ```
 
-新 token 与最早的窗口 token（t9997）之间的相对距离在 RoPE 看来是 $$10 - 4 = 6$$，而不是原文中的 6006；sink 与新 token 的距离是 10，不是 10003。所有相对距离都被控制在 $$W + 4$$ 之内，永远不会超出训练长度。
+新 token 与最早的窗口 token（t9997）之间的相对距离在 RoPE 看来是 $$10 - 4 = 6$$——这一项本来就是 $$10003 - 9997 = 6$$，窗口内的相对距离重编号前后不变；真正被改变的是 sink 与新 token 的距离：原文里是 10003，重编号后是 10。所有相对距离都被控制在 $$W + 4$$ 之内，永远不会超出训练长度。这是 sink + 滑窗特有的处理；普通滑窗（不保留 sink）不需要重编号，用原始位置即可——窗口内的相对差值本来就 $$\le W$$。
 
 ### 4. 稀疏 attention 的形态
 
@@ -555,7 +557,7 @@ MLA（DeepSeek-V3）      (d_c + d_h^R) · L · s（系数减 57 倍） 与 full
 
 **二次项：prefill 算量。** 128K 的 prefill 在 8B 上是 6.5 PFLOP、11 s，其中 attention 占 70%。这一项无法靠 batch 摊薄，因为它本身就是 compute-bound 的（算术强度远高于 ridge point）。减少它只能靠减少算量本身：滑窗、交错、稀疏，或者 prefix caching（同一个 system prompt 的 KV 只算一次）。
 
-**TTFT：单请求的物理下界。** 用户感知的首 token 延迟至少等于 prefill 时间。一个 128K 请求在单卡 8B 上的 TTFT 下界约 11 s（60% MFU），要压到 1 s 以内需要至少 11 张卡并行处理同一个请求——这是序列并行的动机之一。
+**TTFT：单请求的算量下界。** 用户感知的首 token 延迟至少等于 prefill 时间。一个 128K 请求在单卡 8B 上的 TTFT 按峰值算至少 6.6 s、按 60% MFU 经验估约 11 s，要压到 1 s 以内需要 7–11 张卡并行处理同一个请求——这是序列并行的动机之一。
 
 **chunked prefill 的必要性。** 如果调度器让一个 128K 请求一次性 prefill，它会独占 GPU 约 11 s，期间所有正在 decode 的请求全部停顿——它们的 token 间延迟从几十毫秒跳到 11 s。chunked prefill（Sarathi-Serve，Agrawal 等 2023；vLLM 与 SGLang 默认启用）把长 prefill 切成若干个 chunk（例如每次 2K–8K token），每个调度步里让一个 prefill chunk 与若干 decode 请求拼成一个 batch。decode 请求的 KV 读取是 memory-bound、prefill chunk 是 compute-bound，两者拼在一起恰好能同时用满带宽与算力。代价是长请求自己的 TTFT 略微变长，换来其他请求的延迟稳定。两种调度下同一段时间内 GPU 上发生的事对比如下（P = 128K 请求的 prefill，D = 已在 decode 的请求各出一个 token）：
 
@@ -804,7 +806,7 @@ Llama-3-70B: KV 320.0 KiB/token, weights 139.0 GFLOPs/token
 
 位置编码在参数量和算量表里几乎不占位置，却决定了上下文长度这个维度的上限与代价。本篇的结论：
 
-1. attention 是置换不变的，位置必须显式注入。正弦编码是加性的，$$q^\top k$$ 展开后依赖绝对位置；可学习编码有硬上限；相对 bias 需要 $$s \times s$$ 的额外项。RoPE 把 $$d_{head}$$ 维向量看成 $$d_{head}/2$$ 个复数、第 $$i$$ 对以 $$\theta_i = \text{base}^{-2i/d_{head}}$$ 旋转，$$q_m^\top k_n = \text{Re}[\sum_i q_i \bar{k}_i e^{\mathrm{i}(m-n)\theta_i}]$$ 只依赖 $$m - n$$——以绝对位置的实现得到相对位置的性质，且与 KV cache 天然兼容。
+1. 无 mask 的 attention 是置换等变的，causal mask 只给弱的顺序信号，位置要显式注入。正弦编码是加性的，$$q^\top k$$ 展开后依赖绝对位置；可学习编码有硬上限；相对 bias 需要 $$s \times s$$ 的额外项。RoPE 把 $$d_{head}$$ 维向量看成 $$d_{head}/2$$ 个复数、第 $$i$$ 对以 $$\theta_i = \text{base}^{-2i/d_{head}}$$ 旋转，$$q_m^\top k_n = \text{Re}[\sum_i q_i \bar{k}_i e^{\mathrm{i}(m-n)\theta_i}]$$ 只依赖 $$m - n$$——以绝对位置的实现得到相对位置的性质，且与 KV cache 天然兼容。
 2. 每一对的波长 $$\lambda_i = 2\pi \cdot \text{base}^{2i/d_{head}}$$ 是理解一切的钥匙。base 10000、$$d_{head} = 128$$ 时从 6.28 到 5.4 万；训练长度 8K 时 $$i \ge 50$$ 的 14 对没转完一圈，推 32K 时这些维度出现从未见过的相位，是外推失败的根源。base 500000 把最低频波长拉到 256 万，让 128K 内的长距离在数学上可区分，但"见过"只能靠在长序列上训练；高频维度不变，attention 熵随长度增长的问题也不归它管。
 3. PI 把所有 $$\theta_i$$ 除以 factor；NTK-aware 用 $$\text{base}' = \text{base} \cdot \text{factor}^{d/(d-2)}$$ 使最低频恰好插值 factor 倍、最高频不动；YaRN 按 $$r_i = L/\lambda_i$$ 分三段（$$r > \beta$$ 不动、$$r < \alpha$$ 全插值、中间线性），再用 $$\sqrt{1/t} = 0.1 \ln(\text{factor}) + 1$$ 修正温度；Llama 3.1 的 `factor 8 / low 1 / high 4 / 8192` 就是 $$\alpha = 1$$、$$\beta = 4$$ 的 YaRN 分段规则、不带温度；DeepSeek-V3 与 Qwen2.5 直接用 YaRN 字段。ALiBi 用 $$2^{-8h/n_h}$$ 的线性惩罚，外推好但局部性先验太强、无法表达内容与位置交互，被 RoPE 取代。
 4. 长上下文的成本有一个线性项（KV cache）、一个二次项（prefill 的 attention）和一个不能物化的中间量（$$s \times s$$ logits）。Llama-3-70B 128K 每 token attention 344 GFLOPs 超过权重 141 GFLOPs；Llama-3-8B 128K prefill 6.5 PFLOP、60% MFU 约 11 s。滑窗把两项都变成 $$O(W)$$ 但丢信息；全局/局部交错把系数变成 $$1/k$$；sink + 滑窗让 full attention 模型能流式运行；MLA 减 KV 的系数不改阶。
@@ -871,7 +873,7 @@ DeepSeek-V3 的 attention FLOPs 按未吸收的朴素形式（128 头、q/k 192 
 
    <details markdown="1"><summary>答案</summary>
 
-   6.5 PFLOP / (989 T × 60% MFU) ≈ 11 s；这是 TTFT 下界，且这 11 秒里 GPU 被一个请求独占——chunked prefill 与序列并行就是为它设计的。
+   6.5 PFLOP / (989 T × 60% MFU) ≈ 11 s（峰值下 6.6 s 才是物理下界，60% 是经验效率）；且这 11 秒里 GPU 被一个请求独占——chunked prefill 与序列并行就是为它设计的。
 
    </details>
 

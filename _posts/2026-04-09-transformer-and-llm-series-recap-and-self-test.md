@@ -60,12 +60,12 @@ date: 2026-04-09 20:00:00
 
 **核心问题**：Llama-3-8B 在一张 H100 上，batch 多大时 decode 从 memory-bound 变成 compute-bound？考虑 KV cache 之后，这个 batch 还能达到吗？
 
-**结论**：每参数每 token 2 FLOPs，attention 上下文项每层每 token $$4ds$$；decode 每步把全部权重读一遍（16.06 GB，与 batch 无关）加全部 KV，于是 BF16 decode 权重 GEMM 的算术强度在数值上就等于 $$B$$，而 ridge 是 $$989 / 3.35 \approx 295$$——这就是"decode 是 memory-bound 的"的全部含义。要 compute-bound 需 $$B \approx 295$$，但 8K 上下文下这些请求的 KV 要 295 GiB，放不进剩下的 64 GB；且 KV 读取的强度是常数 $$g = 4$$、不随 batch 摊薄，总强度趋于 18——单卡 8B 在任何可行 batch 下都 memory-bound，真正的约束是 $$B \times s \le 52$$ 万 token。prefill 在 ridge 右侧很远，8K 约 0.24–0.27 s，是 TTFT 的物理下限。
+**结论**：每参数每 token 2 FLOPs，attention 上下文项每层每 token $$4ds$$；decode 每步把参与 GEMM 的权重读一遍（约 15.0 GB，驻留 16.06 GB；与 batch 无关）加全部 KV，于是 BF16 decode 权重 GEMM 的算术强度在数值上就等于 $$B$$，而 ridge 是 $$989 / 3.35 \approx 295$$——这就是"decode 是 memory-bound 的"的全部含义。要 compute-bound 需 $$B \approx 295$$，但 8K 上下文下这些请求的 KV 要 295 GiB，放不进剩下的 64 GB；且 KV 读取的强度是常数 $$g = 4$$、不随 batch 摊薄，总强度趋于 18——单卡 8B 在任何可行 batch 下都 memory-bound，真正的约束是 $$B \times s \le 52$$ 万 token。prefill 在 ridge 右侧很远，8K 峰值下 0.14–0.16 s 是物理下限，按 60% 经验 MFU 约 0.24–0.27 s。
 
 **必记**：
 
 - $$T \ge \max(\text{FLOPs}/P_{peak},\ \text{Bytes}/BW)$$；ridge H100 295、A100 156、FP8 590。
-- 8B 每 token 权重 FLOPs 15.0 G，attention 8K 4.3 G、128K 68.7 G；decode 下界 4.8 ms、208 token/s；70B 141 GB → 42 ms。
+- 8B 每 token 权重 FLOPs 15.0 G，attention 8K 4.3 G、128K 68.7 G；decode 理想下界约 4.5 ms、220 token/s（按全部 16.06 GB 粗算是 4.8 ms / 208）；70B 141 GB → 42 ms。
 - $$I_{weight} = B$$、$$I_{KV} = n_h / n_{kv} = g$$；8K、$$B = 64$$ 时读 84.8 GB、25.3 ms、有效 batch 约 15。
 - 训练 $$6ND$$（重算 $$8N$$）；激活 $$sbh(34 + 5as/h)$$，8K 时每层 11 GiB 其中 10 GiB 是 $$s^2$$ 项；MFU 40–50% 已是好成绩。
 
@@ -105,7 +105,7 @@ date: 2026-04-09 20:00:00
 
 **核心问题**：DeepSeek-V3 每 token 只算 37B 参数，为什么部署它比部署一个 dense 70B 难得多？把"参数量"、"激活参数量"、"每步实际读取的参数量"三个数分开算。
 
-**结论**：总参数 671B 决定显存——FP8 下也是 671 GB，一台 8 卡 H100（640 GB）放不下；激活参数 37B 决定 FLOPs——74 GFLOPs，是 70B 的一半；每步实际读取的参数决定 decode 带宽——期望激活专家数 $$E[1 - (1 - k/E)^B]$$ 在 $$B = 32$$ 时 163 个、读 434B，$$B = 128$$ 时 252 个，"稀疏"节省了算量但没有节省访存。出路是专家并行（EP32 每卡约 37 GB，EP320 每卡 19.6 GB），代价是每层两次 all-to-all（每 token 每层 dispatch FP8 56 KiB + combine BF16 112 KiB，是 TP-8 all-reduce 的 6.7 倍）、每专家 GEMM 只有 $$Tk/E$$ 行、最慢的卡决定全层时间；节点受限路由（每 token 最多 4 个节点）、aux-loss-free 均衡、冗余专家都围绕这些代价。TP-8 会把 $$d_{ff} = 2048$$ 的专家切成 256 列，GEMM 太瘦，且不减少每卡读的专家数。
+**结论**：总参数 671B 决定显存——FP8 下也是 671 GB，一台 8 卡 H100（640 GB）放不下；激活参数 37B 决定 FLOPs——74 GFLOPs，是 70B 的一半；每步实际读取的参数决定 decode 带宽——期望激活专家数 $$E[1 - (1 - k/E)^B]$$ 在 $$B = 32$$ 时 163 个、读 434B，$$B = 128$$ 时 252 个，"稀疏"节省了算量但没有节省访存。出路是专家并行（简化模型下 EP32 每卡约 37 GB，EP320 每卡 19.6 GB；真实部署 attention 另做 TP4 × DP、共享专家也走路由，数字会不同），代价是每层两次 all-to-all（每 token 每层 dispatch FP8 56 KiB + combine BF16 112 KiB，是 TP-8 all-reduce 的 6.7 倍）、每专家 GEMM 只有 $$Tk/E$$ 行、最慢的卡决定全层时间；节点受限路由（每 token 最多 4 个节点）、aux-loss-free 均衡、冗余专家都围绕这些代价。TP-8 会把 $$d_{ff} = 2048$$ 的专家切成 256 列，GEMM 太瘦，且不减少每卡读的专家数。
 
 **必记**：
 
@@ -125,7 +125,7 @@ date: 2026-04-09 20:00:00
 **必记**：
 
 - FP32 1/8/23、FP16 1/5/10、BF16 1/8/7、E4M3 1/4/3（最大 448，无 inf）、E5M2 1/5/2；FP16 最大 65504、最小正规数 $$6.1 \times 10^{-5}$$、$$e^x$$ 在 $$x > 11.09$$ 溢出，BF16 / FP32 阈值 88.7。
-- 训练状态 16 B/参数（2 + 2 + 4 + 4 + 4）：8B 128 GB、70B 1129 GB、671B 10.7 TB；V3 配方 11 B/参数约 7.4 TB。
+- 训练状态 16 B/参数（2 + 2 + 4 + 4 + 4）：8B 128 GB、70B 1129 GB、671B 10.7 TB；V3 配方 13 B/参数（master 与累积梯度仍 FP32、m/v BF16）约 8.7 TB。
 - FP8 分工：E4M3 存权重与激活，E5M2 存梯度；分块 128 让一个离群值只影响 1/56 的元素。
 - 数值丢失的四个位置：大数吃小数、长求和、指数溢出（softmax 减最大值）、相消（Welford）；QK-norm 把 logit 上界压到 $$\sqrt{d_{head}} \cdot g_q g_k \approx 11.3 g_q g_k$$。
 
@@ -157,7 +157,7 @@ date: 2026-04-09 20:00:00
 - ViT：CLIP-L/14-336 0.3B、576 patch、0.38 TFLOP；Qwen2-VL 0.63B、5476 patch、11.8 TFLOP，attention 二次项占 42%；encoder 参数只是 decoder 的 4–10%。
 - $$n_{img} = \lceil H/28 \rceil \lceil W/28 \rceil$$：336² → 144、1024² → 1369、1920×1080 → 2691。
 - 70B 规格 1369 token：prefill 193 TFLOP、KV 428 MiB、encoder 输出 21 MiB；比值 20（8B 是 16，Qwen2-VL-7B 是 8）；一分钟 720p 1 fps 视频 35880 token；Whisper 50 token/秒。
-- 训练侧：冻结 encoder 省的是激活值（10 GB 量级）而不是状态（9 GB 对 LLM 的 122 GB）；图片解码把数据管线瓶颈搬到 CPU。
+- 训练侧：冻结 encoder 两样都省，主项是激活值（10 GB 量级），状态是小头（9 GB 对 LLM 的 122 GB）；图片解码把数据管线瓶颈搬到 CPU。
 
 **常见误解**："多模态贵在 vision encoder"——encoder 12 ms 对 prefill 195 ms，且输出用完即弃；一张 1024² 图就是一段 1369 token、无法被 tokenizer 压短的 system prompt。"按图片张数预算"——原生动态分辨率下 $$n_p$$ 相差三个数量级，必须按像素预算。
 
@@ -221,7 +221,7 @@ flowchart TB
 | 上下文长度 $$s$$ | 二、三、四、八 | 二给 $$4ds$$ 与 $$s^2$$；三给 $$s \times s$$ 的 logits 与 FlashAttention；四给波长、外推与 11 s；八让 $$s$$ 由分辨率决定 |
 | 参数量 / 激活参数 / 每步读取 | 一、二、五、七 | 一算 $$N$$；二分出 $$N_{gemm}$$；五拆成三个数；七改 bytes/param 与可训练比例 |
 | bytes/elem 与 FP8 | 二、三、五、六、七 | 二给 FP8 的 ridge 590；三给 FP8 KV；五给 FP8 dispatch；六解释格式与累加；七给 FP8 对离群值的宽容 |
-| 训练状态 16 B/参数 | 六、七、八 | 六推导；七用 LoRA 降到冻结权重 + 可忽略；八说明冻结 encoder 省的是激活不是状态 |
+| 训练状态 16 B/参数 | 六、七、八 | 六推导；七用 LoRA 降到冻结权重 + 可忽略；八说明冻结 encoder 省的主要是激活、状态是小头 |
 | RoPE | 三、四、八 | 三解释 MLA 为什么必须解耦 RoPE；四推导波长与外推；八的 M-RoPE 把维度分给 $$(t, h, w)$$ |
 
 ## 四、常见误区
@@ -265,7 +265,7 @@ flowchart TB
 
    <details markdown="1"><summary>答案</summary>
 
-   $$32 \times 32768 \approx 105$$ 万 token，超过 64 GB 预算的 52 万，放不下；最多 16 条。那一步读 KV 64 GiB + 权重 16.06 GB ≈ 84.8 GB，下界约 25 ms；FLOPs 约 $$16 \times 19.3$$ G = 0.31 TFLOP，强度约 3.7——比 8K、$$B = 64$$ 的 15 还低，同样 25 ms 只产出 16 个 token。
+   $$32 \times 32768 \approx 105$$ 万 token，超过 64 GiB 预算的 52 万，放不下；最多 16 条（恰好用满，实际留余量是 15）。那一步读 KV 64 GiB + 权重 16.06 GB ≈ 84.8 GB，下界约 25 ms；每 token 的 attention 项在 32K 上下文是 $$0.524\text{M} \times 32768 \approx 17.2$$ G（不是 8K 的 4.3 G），FLOPs 约 $$16 \times (15.0 + 17.2)$$ G = 0.52 TFLOP，强度约 6——比 8K、$$B = 64$$ 的 15 还低，同样 25 ms 只产出 16 个 token。
 
    </details>
 
@@ -281,7 +281,7 @@ flowchart TB
 
    <details markdown="1"><summary>答案</summary>
 
-   每层 $$1024 + 64 = 1088$$ 个数，$$61 \times 1088 \times 2 \approx 129.6$$ KiB；MHA 是 3.81 MiB，压缩比从 57 倍降到约 29 倍——与 Llama-3-8B 的 128 KiB 相当。
+   每层 $$1024 + 64 = 1088$$ 个数，$$61 \times 1088 \times 2 \approx 129.6$$ KiB；MHA 是 3.81 MiB，压缩比从 57 倍降到约 30 倍（$$3.81 \times 1024 / 129.6 = 30.1$$）——与 Llama-3-8B 的 128 KiB 相当。
 
    </details>
 
@@ -403,7 +403,7 @@ flowchart TB
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 三个参数量分开：671B 定显存（FP8 也放不进 640 GB）、37B 定 FLOPs、每步读取随 batch 趋近 671B（$$B = 32$$ 读 434B）；(2) TP-8 不减少每卡读的专家数，且把 $$d_{ff} = 2048$$ 切成 256 列，GEMM 太瘦；(3) EP 让每卡只读自己的专家，EP32 每卡约 37 GB、EP320 每卡 19.6 GB；(4) 代价是每层两次 all-to-all（每 token 每层 168 KiB，TP-8 all-reduce 的 6.7 倍）、专家 GEMM 只有 $$Tk/E$$ 行、最慢的卡定全层时间；(5) 节点受限路由（最多 4 个节点）、aux-loss-free 均衡、冗余专家是围绕这些代价的设计，且节点受限路由是训练时定的。
+   **答案要点**：(1) 三个参数量分开：671B 定显存（FP8 也放不进 640 GB）、37B 定 FLOPs、每步读取随 batch 趋近 671B（$$B = 32$$ 读 434B）；(2) TP-8 不减少每卡读的专家数，且把 $$d_{ff} = 2048$$ 切成 256 列，GEMM 太瘦；(3) EP 让每卡只读自己的专家，EP32 每卡约 37 GB、EP320 每卡 19.6 GB（均为均匀分布的简化模型，报告的真实部署见第五篇第四章）；(4) 代价是每层两次 all-to-all（每 token 每层 168 KiB，TP-8 all-reduce 的 6.7 倍）、专家 GEMM 只有 $$Tk/E$$ 行、最慢的卡定全层时间；(5) 节点受限路由（最多 4 个节点）、aux-loss-free 均衡、冗余专家是围绕这些代价的设计，且节点受限路由是训练时定的。
    **追问方向**：EP 下 prefill 的通信为什么可能是计算的 3 倍；Mixtral 为什么单机 TP 可行；grouped GEMM 过 ridge 需要多少 token。
    **好答案与一般答案的区别**：一般答案说"参数太多放不下"；好答案算出访存那一行——中等 batch 下 MoE 每步读的字节是 dense 70B 的 3–5 倍，并说明 EP 与 TP 在 GEMM 形状上的差别。
 
