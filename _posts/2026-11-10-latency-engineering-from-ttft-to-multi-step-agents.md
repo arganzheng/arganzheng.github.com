@@ -19,6 +19,22 @@ catalog: true
 
 ### 1. 分解
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 360}}}%%
+flowchart TB
+    Q["请求"] --> A["应用侧准备：检索 1.2 s（rerank 50 个候选）"]
+    A --> N["网络 + 排队：1 s（峰值时段）"]
+    N --> P["prefill / TTFT：2.5 s（60K 上下文，前缀有时间戳 → 缓存未命中）"]
+    P --> D["输出：3 s（400 token，不流式）"]
+    D --> U["用户看到：p95 = 9 s，但 4 s 时已经关了页面"]
+    A -. "rerank 候选 50 → 20、两路召回并行" .-> A
+    P -. "去掉时间戳让缓存命中" .-> P
+    D -. "流式：首字 1 s 就出现" .-> D
+    style U fill:#fde8e8,stroke:#c0392b
+
+```
+
+
 ```text
 用户发出 ──→ 网关 ──→ 应用侧准备 ──→ 模型：TTFT ──→ 模型：输出 ──→ 后处理 ──→ 用户看到
              ~50 ms    检索 · 上下文    网络 + 排队 + prefill   token 数 × 每 token    解析 · 校验

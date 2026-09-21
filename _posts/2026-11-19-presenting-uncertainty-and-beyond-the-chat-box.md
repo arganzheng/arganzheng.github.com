@@ -19,6 +19,29 @@ catalog: true
 
 ### 1. 呈现与机制的对应
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 300}}}%%
+flowchart TB
+    subgraph P1[" "]
+        direction LR
+        M1["检索到的块（L3）"] --> U1["引用：点开定位到原文段落，粒度到句子"]
+    end
+    subgraph P2[" "]
+        direction LR
+        M2["模型的不确定 / 拒答出口（L2）"] --> U2["置信度用行为不用数字：「我不确定」、给两个选项、反问一句"]
+    end
+    subgraph P3[" "]
+        direction LR
+        M3["agent 的步骤与审批（L4）"] --> U3["步骤流可见、审批带理由与影响范围、diff 式审阅"]
+    end
+    subgraph P4[" "]
+        direction LR
+        M4["流式输出（L1）"] --> U4["首字 1 秒出现、进度可见"]
+    end
+    P1 ~~~ P2 ~~~ P3 ~~~ P4
+```
+
+
 | 呈现 | 背后的机制 | 层 |
 |---|---|---|
 | 引用可点开 | 检索的块 id 与来源文档、引用正确率 | L3、L5 |

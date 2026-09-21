@@ -19,6 +19,20 @@ catalog: true
 
 ### 1. 七项职责
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+flowchart TB
+    subgraph APPS["十二个服务"]
+        direction LR
+        A1["客服"] --- A2["搜索"] --- A3["报告 agent"] --- A4["…"]
+    end
+    APPS -- "逻辑模型名 chat-default<br/>网关凭据（按服务 / 租户发）" --> GW["<b>模型网关</b><br/>① 认证与密钥 ② 路由与 fallback ③ 限流与配额<br/>④ 成本归因 ⑤ 日志 / trace ⑥ 缓存 ⑦ 内容检查"]
+    GW -- "供应商 key 只在这里" --> P1["OpenAI"] & P2["Anthropic"] & P3["自托管 vLLM"]
+    GW -. "限流时统一退避，不是十二个服务各自重试" .-> P1
+
+```
+
+
 | 职责 | 解决的事故 | 关联的层 |
 |---|---|---|
 | 认证与密钥 | key 散落、泄露、轮换要改多处 | 第四篇密钥管理 |

@@ -19,6 +19,20 @@ catalog: true
 
 ### 1. 发布体系
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 270}}}%%
+flowchart TB
+    C["任何会改变模型行为的改动<br/>prompt · 模型快照 · effort · schema · 工具集 · 检索配置 · harness 版本"] -- "改动 = 发布" --> V["不可变版本 + 标签<br/>staging / canary / production"]
+    V --> G["门禁：评测集（L5 第四篇）"]
+    G -- "过" --> CN["灰度：特性开关按租户 / 比例放量"]
+    CN -- "在线指标正常" --> PR["production"]
+    CN -- "回归" --> RB["一键回滚到上一个版本"]
+    PR -. "供应商别名指向新快照：钉住快照 + 依赖变更单独发布，<br/>两个变化不叠在一起" .-> V
+    K["kill switch：供应商宕机 40 分钟 → 关掉 AI 功能走降级路径<br/>runbook 写清谁在什么信号下按"] -.-> PR
+
+```
+
+
 ```text
 什么算发布
   → 版本化（不可变 + 六元组 + 批准人）
