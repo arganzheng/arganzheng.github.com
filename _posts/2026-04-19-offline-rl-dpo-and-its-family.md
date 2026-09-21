@@ -160,7 +160,7 @@ $$
 
 DPO 训练中最常被观察到的现象：**chosen 与 rejected 的对数概率一起下降**，只是 rejected 降得更快，差距在拉开。loss 在降、隐式奖励的准确率在涨，但模型对偏好数据里"好的回答"的概率也在降——概率跑到了别处。
 
-原因在梯度里：DPO 的目标只约束**差**。压低 rejected 的梯度作用在与 chosen 共享的 token 上（两个回答通常有大量相同的前缀与用词），会顺带压低 chosen；而 loss 只要差距拉开就满意，不管两者绝对值。被挤出去的概率质量流向偏好数据里没出现的序列——Razin 等 2024 把它命名为 likelihood displacement，并证明当 chosen 与 rejected 在 embedding 上相似时最严重（Pal 等 2024 也在数学推理数据上观察到同样现象，那里 chosen 与 rejected 常只差一步）。后果可以很实际：安全对齐时 chosen 是"礼貌拒绝"、rejected 是"照做"，两者相似，训练后概率流向"不礼貌地照做"。
+原因在梯度里：DPO 的目标只约束**差**，loss 只要差距拉开就满意，不管两者绝对值。至于概率为什么会往下跑，要小心一个直觉上的错误解释："chosen 与 rejected 共享前缀，压 rejected 顺带压了 chosen"——对**完全相同**的前缀 token（同一 prompt 下同一位置同一 token），两条序列的 logprob 项与梯度是精确抵消的，差里根本没有它们。真正起作用的是参数耦合：模型学的是表征，chosen 与 rejected 的 embedding 越相似，压低后者的参数更新就越会连带压低前者；被挤出去的概率质量流向偏好数据里没出现的序列——Razin 等 2024 把它命名为 likelihood displacement，并证明当 chosen 与 rejected 在 embedding 上相似时最严重（Pal 等 2024 也在数学推理数据上观察到同样现象，那里 chosen 与 rejected 常只差一步）。后果可以很实际：安全对齐时 chosen 是"礼貌拒绝"、rejected 是"照做"，两者相似，训练后概率流向"不礼貌地照做"。
 
 对策有三类：给 loss 加一项 chosen 的 SFT 项（下一章的 RPO），让 chosen 的绝对概率有梯度维持；挑数据，去掉 chosen 与 rejected 过于相似的对；或换用不只约束差的 loss（IPO、KTO）。
 
@@ -168,7 +168,7 @@ DPO 训练中最常被观察到的现象：**chosen 与 rejected 的对数概率
 
 DPO 没有显式 RM，是否就没有第二篇的 Goodhart？Rafailov 等 2024 对 DPO、IPO、SLiC 三种直接对齐方法做了与 Gao 等 2022 同样的实验：横轴 KL（对参考），纵轴金标准 RM 的分数。**曲线形状相同**——先升后降，且 $$\beta$$ 越小（允许的 KL 越大）峰越早过。隐式奖励在数据分布外不受约束，策略一旦走出去，隐式奖励可以给任何序列高分，效果就是 hacking 一个不存在的 RM。差别只在过优化的"内容"：PPO 利用的是 RM 的捷径，DPO 利用的是数据没覆盖到的地方。
 
-这给了 DPO 一个与 PPO 相同的操作规则：**有 KL 预算，按 KL 而不是按 loss 决定停**。DPO 的 KL 不像 PPO 那样每步有监控值——它要额外算（用训练集上的隐式奖励可以估，$$\text{KL} \approx \mathbb{E}[\hat r_\theta] / \beta$$ 在 chosen 上），很多 DPO 训练就这样在没有 KL 监控的情况下过优化了。
+这给了 DPO 一个与 PPO 相同的操作规则：**有 KL 预算，按 KL 而不是按 loss 决定停**。DPO 的 KL 不像 PPO 那样每步有监控值——它要额外算。注意**不能**用训练集 chosen 上的隐式奖励均值 $$\mathbb{E}[\hat r_\theta]/\beta$$ 当 KL：KL 的期望要对**当前策略采样的** $$y$$ 取，chosen 是固定数据，两者可以差很远甚至符号相反（CPU 小例：$$\pi = (0.2, 0.8)$$、$$\pi_{ref} = (0.5, 0.5)$$，只看第一项的对数比是 $$-0.92$$，真实 KL 是 $$+0.19$$）。要算就对一组 prompt 用当前策略采样、算 $$\log\pi_\theta - \log\pi_{ref}$$ 的均值。很多 DPO 训练就这样在没有 KL 监控的情况下过优化了。
 
 ### 3. 长度
 
@@ -176,7 +176,7 @@ DPO 与 PPO 一样会拉长回答，机制略不同：偏好数据里 chosen 平
 
 ### 4. 参考的选择
 
-$$\pi_{ref}$$ 通常是 SFT 模型——DPO 论文的推导假设偏好数据是从 $$\pi_{ref}$$ 采样的（这样 $$\pi_{ref}$$ 在数据上的对数概率有意义）。实践里偏好数据常来自别的模型（UltraFeedback 的四个模型），参考在这些回答上的概率很低、对数比噪声大。两个补救：先用偏好数据的 chosen 做一轮 SFT 再当参考（DPO 论文自己的做法），或直接用当前策略采样重造偏好数据（第五章）。参考也可以在训练中更新（每隔若干步把参考换成当前策略），这让策略走得更远，也更容易过优化。
+$$\pi_{ref}$$ 通常是 SFT 模型。DPO 的推导本身不要求偏好数据从 $$\pi_{ref}$$ 采样（第二章说过它是离线方法），要求的是 $$\pi_{ref}$$ 在这些回答上有非零概率、且数据覆盖了要区分的区域；论文用 SFT 模型作参考、并建议偏好对来自它附近，是为了让对数比有意义、噪声可控。实践里偏好数据常来自别的模型（UltraFeedback 的四个模型），参考在这些回答上的概率很低、对数比噪声大。两个补救：先用偏好数据的 chosen 做一轮 SFT 再当参考（DPO 论文自己的做法），或直接用当前策略采样重造偏好数据（第五章）。参考也可以在训练中更新（每隔若干步把参考换成当前策略），这让策略走得更远，也更容易过优化。
 
 ### 5. 分布外的一句话
 
@@ -193,7 +193,7 @@ $$\pi_{ref}$$ 通常是 SFT 模型——DPO 论文的推导假设偏好数据是
 | **KTO**（Ethayarajh 等 2024） | 不要成对：每个样本一个"好 / 坏"标签；loss 用前景理论的效用函数 | 好样本 $$\lambda_D\big(1 - \sigma(\beta(\hat r - z_0))\big)$$，坏样本 $$\lambda_U\big(1 - \sigma(\beta(z_0 - \hat r))\big)$$，$$z_0$$ 是当前 KL 的估计 | 成对数据贵；单样本数据（点赞 / 点踩）多得多；$$\lambda_D / \lambda_U$$ 可处理好坏样本不平衡 |
 | **ORPO**（Hong 等 2024） | 去掉参考；把 SFT 与偏好合成一步 | $$\mathcal{L}_{SFT}(y_w) - \lambda \log\sigma\big(\log\frac{\text{odds}(y_w)}{\text{odds}(y_l)}\big)$$，$$\text{odds}(y) = \frac{\pi(y)}{1 - \pi(y)}$$（长度归一化的概率） | 少一个模型；不必先 SFT 再 DPO；SFT 项防止似然同降 |
 | **SimPO**（Meng 等 2024） | 去掉参考；隐式奖励换成长度归一化的平均对数概率；加 margin | $$-\log\sigma\big(\frac{\beta}{\lvert y_w \rvert}\log\pi(y_w) - \frac{\beta}{\lvert y_l \rvert}\log\pi(y_l) - \gamma\big)$$ | 隐式奖励与生成时的度量（平均对数概率）一致；消长度偏差；少一个模型 |
-| **cDPO / rDPO**（2023–24） | loss 对标签噪声鲁棒 | cDPO：标签平滑 $$(1 - \epsilon)\mathcal{L}(w, l) + \epsilon \mathcal{L}(l, w)$$；rDPO：无偏的噪声修正 | 偏好数据 25–30% 是噪声（第二篇的一致率） |
+| **cDPO / rDPO**（2023–24） | loss 对标签噪声鲁棒 | cDPO：标签平滑 $$(1 - \epsilon)\mathcal{L}(w, l) + \epsilon \mathcal{L}(l, w)$$；rDPO：无偏的噪声修正 | 偏好数据有可观的标签噪声（第二篇：人际一致率 70–75% 是它的线索，但不等于 25–30% 的错标率） |
 | **RPO**（Llama 3、Pang 等 2024） | 加 chosen 的 NLL 项 | $$\mathcal{L}_{DPO} + \alpha \cdot \mathcal{L}_{SFT}(y_w)$$（Llama 3 取 $$\alpha = 0.2$$，且按长度归一化） | 似然同降；保持 chosen 的绝对概率 |
 | **TDPO**（Zeng 等 2024） | token 级：每个 token 的 KL 单独约束 | DPO 加逐 token 的前向 KL 差项 | 序列级 KL 让少数 token 承担全部偏移 |
 | **SLiC-HF**（Zhao 等 2023） | loss 形状：hinge；不用参考的对数比 | $$\max(0, \delta - \log\pi(y_w) + \log\pi(y_l)) + \lambda \mathcal{L}_{SFT}$$ | DPO 之前的排序 loss 做法 |
@@ -316,26 +316,28 @@ from trl import DPOTrainer, DPOConfig
 
 cfg = DPOConfig(
     beta=0.1,                          # 第二章第 4 节：既是梯度尺度也是"多大差距算排好"
-    loss_type="sigmoid",               # 或 "ipo" / "kto_pair" / "hinge" / "simpo"…：第四章的一族
+    loss_type="sigmoid",               # 或 "ipo" / "hinge" / "robust"…（列表随版本变，按你 pin 的 trl 查 DPOConfig）；
+                                       # SimPO、KTO 不是这里的一个字符串：前者要 CPOTrainer(loss_type="simpo")，后者要 KTOTrainer 与不同的数据格式
     rpo_alpha=None,                    # 设 0.2 即 Llama 3 的 DPO + NLL
     precompute_ref_log_probs=True,     # 第七章：参考只跑一遍，训练时不加载
     learning_rate=5e-7, num_train_epochs=2, max_length=1024,
 )
-trainer = DPOTrainer(model=SFT_MODEL, ref_model=None,      # None：LoRA 下用关掉 adapter 的底座作参考
+trainer = DPOTrainer(model=SFT_MODEL, ref_model=None,      # None：LoRA 下用关掉 adapter 的模型作参考——所以 SFT_MODEL 必须是已 merge 的 SFT 权重，
+                                                          # 若第一篇的 SFT 本身是 LoRA 且未 merge，关掉 adapter 得到的是裸 base，不是 SFT 参考
                      args=cfg, train_dataset=pairs,        # 每条 {"prompt": ..., "chosen": ..., "rejected": ...}
                      processing_class=tok, peft_config=lora_cfg)
 trainer.train()
 ```
 
-`loss_type` 一个参数切换第四章表里的多数变体，是体会"它们只差一个 loss 形状"最直接的方法。该看的曲线，按第三章的失效方式：
+`loss_type` 一个参数切换第四章表里的一部分变体（哪些在 `DPOConfig` 里、哪些要换 trainer 与数据格式，按 pin 的版本查），是体会"它们只差一个 loss 形状"最直接的方法。该看的曲线，按第三章的失效方式：
 
 1. **`rewards/chosen` 与 `rewards/rejected`**——两条隐式奖励的均值。正常是 chosen 涨、rejected 降；**两条都降**就是第三章第 1 节的似然同降，加 `rpo_alpha`；
-2. **`rewards/margins`** 与 **`rewards/accuracies`**——隐式奖励的差与排对的比例。准确率到 70–80% 之后继续涨多半是过拟合（第二篇：人的一致率就这么高）；
+2. **`rewards/margins`** 与 **`rewards/accuracies`**——隐式奖励的差与排对的比例。这是训练集上的数，涨到 90%+ 说明在记数据；要看的是留出对上的准确率有没有一起涨（第二篇 §二.4：人的一致率不是上限，不要拿它当停止线）；
 3. **`logps/chosen`**——chosen 的绝对对数概率。它比隐式奖励更早暴露问题；
-4. **KL**——`trl` 不默认记录，用 $$\mathbb{E}[\hat r_\theta] / \beta$$ 在 chosen 上估，或训后对一组 prompt 采样算；到 2–3 nats 时用 judge 核对；
+4. **KL**——`trl` 不默认记录；对一组固定 prompt 用当前策略采样、算 $$\log\pi_\theta - \log\pi_{ref}$$ 的均值（不能用 chosen 上的隐式奖励代替，第三章 §2）；到 2–3 nats 时用 judge 核对；
 5. **生成长度**——训后采样一批与 SFT 模型对比，涨 30% 以上要换长度归一化的变体。
 
-同一份数据把 `loss_type` 换成 `"simpo"` 或 `"ipo"` 再跑一遍，对比 1 与 5——是第四章那张表最便宜的验证。
+同一份数据把 `loss_type` 换成 `"ipo"` 再跑一遍（SimPO 用 `CPOTrainer`），对比 1 与 5——是第四章那张表最便宜的验证。
 
 ## 十一、本文小结
 

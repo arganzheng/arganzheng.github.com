@@ -133,7 +133,7 @@ The sum is 1060.<|im_end|>
 
 ### 4. 为什么先 SFT
 
-一个从未见过工具 schema 的模型不会在正确的地方生成正确格式的调用；RL 的探索在"随机字符串"里找不到合法 JSON。所以 Agent RL 的起点几乎总是一个**已经会用工具的模型**——靠 SFT（第一篇）在示范轨迹上学会格式、学会"什么时候该调工具"。ReTool 与 Search-R1 都有一个冷启动阶段；Kimi K2 的 Agent 能力主要来自大规模合成轨迹的 SFT，RL 在其上精调。RL 不负责教格式，负责在会格式的模型上**提高任务成功率**。
+一个从未见过工具 schema 的模型很难在正确的地方生成正确格式的调用，RL 的探索在"随机字符串"里几乎找不到合法 JSON。所以 Agent RL 的起点**通常**是一个已经会用工具的模型——靠 SFT（第一篇）在示范轨迹上学会格式、学会"什么时候该调工具"。但这是效率问题不是必要条件：Search-R1 的论文（4.3 节）在 base 与 instruct 模型上都**直接 RL**，base 模型也学会了发起搜索、最终表现接近 instruct 版；ReTool 有冷启动阶段；Kimi K2 的 Agent 能力主要来自大规模合成轨迹的 SFT，RL 在其上精调。实践上的分工是：格式尽量交给 SFT（便宜、确定），RL 负责在会格式的模型上**提高任务成功率**。
 
 ## 四、环境与轨迹数据
 
@@ -263,7 +263,7 @@ Search-R1 的消融把第一条做成了对照：mask 掉检索到的文档 toke
 | 不复用 KV 时的累计 prefill | $$\sum_t \lvert s_t \rvert \approx 20 \times 24\text{K} = 48$$ 万 token |
 | 复用 KV（前缀缓存）时的累计 prefill | 4.8 万（每个 token 只算一次） |
 
-两个结论。第一，**轨迹里八成的 token 是环境的**——训练时它们要过前向（作为上下文）但不产生梯度，反向的算力按全部 token 算（L4 第二篇：反向要过所有位置的激活），所以 Agent RL 每个"有效"训练 token 的代价是单轮的 5 倍。第二，rollout 时**前缀缓存**（推理引擎的 prefix caching）把累计 prefill 从二次降到线性，是 Agent rollout 引擎的必备功能；每轮工具返回的 token 要经过一次 prefill 追加进 KV cache，这部分是 compute-bound 的（L4 第二篇），比生成便宜。
+两个结论。第一，**轨迹里八成的 token 是环境的**——训练时它们要过前向（作为上下文），它们的位置上没有 policy loss，但梯度仍会**穿过**它们（后面的动作 token 通过 attention 依赖它们的表示，反向照样回传到这些位置的激活与参数），所以反向的算力按全部 token 算（L4 第二篇），所以 Agent RL 每个"有效"训练 token 的代价是单轮的 5 倍。第二，rollout 时**前缀缓存**（推理引擎的 prefix caching）把累计 prefill 从二次降到线性，是 Agent rollout 引擎的必备功能；每轮工具返回的 token 要经过一次 prefill 追加进 KV cache，这部分是 compute-bound 的（L4 第二篇），比生成便宜。
 
 上下文上限（32K–128K）决定了轨迹的最大长度，超过要截断——丢掉早期的工具输出（保留摘要）、或让模型自己总结。截断改变了状态，是训练与推理都要一致处理的又一个模板问题。
 
@@ -274,7 +274,7 @@ Search-R1 的消融把第一条做成了对照：mask 掉检索到的文档 toke
 一条轨迹的 rollout 是一个循环：
 
 ```mermaid
-flowchart LR
+flowchart TB
     S["构造 s_0<br/>system + schema + 任务"] --> G["推理引擎生成 a_t"]
     G --> P{"解析：<br/>工具调用？"}
     P -- 是 --> E["环境执行<br/>沙箱 / 检索 / 模拟用户"]
@@ -297,13 +297,13 @@ flowchart LR
 
 第三篇的同步 rollout 是"一步生成全部完成 → 训练 → 同步权重 → 下一步"。在 Agent 环境里，一步的 rollout 时间由**最慢的那条轨迹**决定——它可能卡在一个 10 分钟的测试上，而 95% 的轨迹早已完成，GPU 在等。第五篇的部分 rollout 对付的是生成长度的方差，这里的方差来自环境，且不能"暂停一半下次继续"（沙箱状态要保持）。
 
-于是 2025 年的 Agent RL 框架（verl 的 agent loop、SkyRL、AReaL、slime）全部走**异步**：
+要分开两层"异步"：**rollout 内部**几千个沙箱并发 I/O、轨迹各自推进，这在同步训练里也能做（一步内并发，步末等齐）；真正让训练变 off-policy 的是**训练器层面**的异步——不等一步的轨迹全部完成就更新。2025 年的 Agent RL 框架（verl 的 agent loop、SkyRL、AReaL、slime）多数走到了第二层：
 
 - rollout worker 持续运行，轨迹完成一条就放进缓冲区，不等其他轨迹；
 - 训练器从缓冲区取够一个 batch 就更新，不等 rollout 全部完成；
 - 权重定期同步到推理引擎，rollout 中的轨迹可能跨越一次或几次更新——**同一条轨迹的不同轮由不同版本的策略生成**。
 
-最后一条是 off-policy 的来源，修正靠第三篇的重要性比（按轮算，每轮记录生成它的策略版本的 $$\log \pi_{old}$$）与限制"落后步数"（缓冲区里超过 $$k$$ 步的轨迹丢弃）。$$k$$ = 1–4 在多数报告里几乎无损。**Infra 地图 09 [《RL 后训练基础设施》](/rl-post-training-infrastructure.html)的最难部分——异步 rollout、多版本权重、按轮的 off-policy 修正——是被 Agent 环境逼出来的**，单轮 RLVR 只是让它变得划算，多轮让它变得必需。
+最后一条是 off-policy 的来源，修正靠第三篇的重要性比（按轮算，每轮记录生成它的策略版本的 $$\log \pi_{old}$$）与限制"落后步数"（缓冲区里超过 $$k$$ 步的轨迹丢弃）。$$k$$ = 1–4 在多数报告里几乎无损（按轮的比值只修每轮自己那一段，整条轨迹的 off-policy 程度是各轮之积，$$k$$ 大了仍会偏）。**Infra 地图 09 [《RL 后训练基础设施》](/rl-post-training-infrastructure.html)的最难部分——异步 rollout、多版本权重、按轮的 off-policy 修正——是被 Agent 环境逼出来的**，单轮 RLVR 只是让它变得划算，多轮让它变得必需。
 
 ### 3. 一步的账：环境与模型
 
@@ -368,28 +368,35 @@ TOOL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
 def rollout(policy, tok, task, max_turns=6):
     msgs = [{"role": "system", "content": SYSTEM_WITH_SCHEMA},
             {"role": "user", "content": task["question"]}]
-    segments = []                                            # [(token_ids, mask)]
+    ids, mask = [], []                                       # 整条序列的 token 与 provenance mask，逐段追加
+    final_text, status = None, "max_turns"
     for turn in range(max_turns):
         prompt_ids = tok.apply_chat_template(msgs, add_generation_prompt=True, tokenize=True)
-        out_ids = policy.generate(prompt_ids)                # a_t
-        segments.append((out_ids, 1))                        # 模型生成：算 loss
-        text = tok.decode(out_ids)
+        assert prompt_ids[:len(ids)] == ids, "重渲染后前缀变了：模板或 tokenizer 边界不稳定，mask 会错位"
+        ids  += prompt_ids[len(ids):]                        # 模板新增的 header 等：来自环境/模板
+        mask += [0] * (len(prompt_ids) - len(mask))
+        gen_ids = policy.generate(torch.tensor([prompt_ids]))[0, len(prompt_ids):].tolist()   # 只取新生成的后缀
+        ids  += gen_ids                                       # a_t：模型生成，算 loss（含结束符）
+        mask += [1] * len(gen_ids)
+        text = tok.decode(gen_ids, skip_special_tokens=True)
         msgs.append({"role": "assistant", "content": text})
         call = TOOL_RE.search(text)
         if not call:                                         # 最终回答 → 结束
+            final_text, status = text, "answered"
             break
         try:
             result = str(safe_eval(json.loads(call.group(1))["expression"]))   # 环境：受限的算式求值
         except Exception as e:
             result = f"error: {e}"                           # 第三章第 3 节：报错作为观察返回
-        obs = f"<tool_response>\n{result}\n</tool_response>"
-        msgs.append({"role": "user", "content": obs})        # o_t
-        segments.append((tok.encode(obs), 0))                # 环境输出：mask 掉
-    reward = float(extract_answer(msgs[-1]["content"]) == task["answer"])
-    return msgs, segments, reward
+        msgs.append({"role": "tool", "content": result})     # o_t，用模板自己的 tool 角色渲染
+    reward = float(final_text is not None and extract_answer(final_text) == task["answer"])   # 超轮数没答 → 0
+    assert len(ids) == len(mask)
+    return ids, mask, reward, status
 ```
 
-`segments` 里的 mask 就是第六章的 $$\mathcal{M}_i$$；训练时把整条对话重新按模板渲染成 token 序列，按 `segments` 的边界铺开 mask，只在 mask = 1 的位置算 $$\log \pi_\theta$$ 与 loss。同一任务采 $$G$$ 条、组内归一化奖励、按第三篇的 GRPO 更新——`trl` 新版的 `GRPOTrainer` 支持自定义 rollout 函数接入这样的循环，verl 的 agent loop 是它的生产版本。
+几处实现细节是这个循环能否正确训练的关键，也是评审时最容易被忽略的：`generate` 返回的是 prompt + 新生成，要**切掉前缀**只留 $$a_t$$；工具结果不能 `encode(obs)` 直接拼——要以 `tool` 角色放回 `msgs`，让模板去渲染，再用"重渲染后的 token 比上一轮多出来的那段"作为 mask = 0 的环境段（模板加的 header、分隔符也属于环境，不是模型生成的）；每轮都要 **assert 前缀不变**，否则 BPE 边界一挪，mask 就整体错位；超过 `max_turns` 时最后一条消息是工具输出而非回答，直接拿它比对答案会给出错误奖励，所以要显式记录结束原因。
+
+`ids` / `mask` 就是第六章的序列与 $$\mathcal{M}_i$$，训练时直接用，不必再按边界"铺开"。同一任务采 $$G$$ 条、组内归一化奖励、按第三篇的 GRPO 更新——`trl` 新版的 `GRPOTrainer` 支持自定义 rollout 函数接入这样的循环，verl 的 agent loop 是它的生产版本。
 
 要看的东西：把 `segments` 的 mask 全设 1 再训一遍，对比模型是否开始在 `<tool_response>` 之前自己写出结果（第六章第 2 节的幻觉现象）；统计每条轨迹的轮数、环境调用次数、总 token 数与其中 mask = 1 的比例（第六章第 5 节的账）；记录每条轨迹的墙钟时间，看它的分布有多宽（第七章异步的理由）。
 

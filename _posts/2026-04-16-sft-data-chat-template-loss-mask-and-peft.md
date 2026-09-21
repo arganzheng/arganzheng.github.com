@@ -29,7 +29,7 @@ SFT 的目标函数与预训练完全相同——对目标 token 的交叉熵—
 | loss 算在哪些 token 上 | 全部 | 只算回复（loss mask） | 第四章 |
 | 数据量与 epoch | 15T token，1 个 epoch | 几百万到几十亿 token，2–3 个 epoch | 第五、六章：全量 vs LoRA，遗忘 |
 
-四个先给出的数字：SFT 的数据量是预训练的万分之一到千分之一（Llama 3 的 SFT 约几百万条，Tülu 3 是 94 万条，LIMA 只用 1000 条）；学习率比预训练小一个量级（$$10^{-5}$$ 对 $$10^{-4}$$）；8B 模型全量 SFT 的训练状态与预训练相同（128 GB），LoRA 把可训练部分压到 2% 以下；一次 8B 的 SFT 只要几十到几百 GPU 小时——预训练的万分之一。**SFT 便宜、快、决定格式，但不增加知识**：模型回答里的内容来自预训练，SFT 只教它用什么形式把内容拿出来（LIMA 的"表面对齐假说"）。
+四个先给出的数字：SFT 的数据量是预训练的万分之一到千分之一（Llama 3 的 SFT 约几百万条，Tülu 3 是 94 万条，LIMA 只用 1000 条）；学习率比预训练小一个量级（$$10^{-5}$$ 对 $$10^{-4}$$）；8B 模型全量 SFT 的训练状态与预训练相同（128 GB），LoRA 把可训练部分压到 2% 以下；一次 8B 的 SFT 只要几十到几百 GPU 小时——预训练的万分之一。**SFT 便宜、快、决定格式；典型配方下它主要不是在加知识**：模型回答里的内容大多来自预训练，SFT 教它用什么形式把内容拿出来——这是 LIMA 提出的"表面对齐**假说**"，有 URIAL 的分布对照支持，但它描述的是几千到几十万条对话数据的典型 SFT；同样的目标函数配上大量新领域数据，就是继续预训练，当然能注入知识（第五章的全量 vs LoRA 讨论正是这条边界）。
 
 ### 2. 本文的路线
 
@@ -231,7 +231,7 @@ $$
 \frac{\partial \mathcal{L}}{\partial A} = \frac{\alpha}{r} \, B^\top \frac{\partial \mathcal{L}}{\partial W'}
 $$
 
-$$B = 0$$ 让第一步 $$A$$ 没有梯度、只有 $$B$$ 动，之后两者交替增长——这是为什么 LoRA 的前几十步 loss 几乎不动，也是为什么它需要比全量大的 lr。$$\partial \mathcal{L} / \partial W'$$ 本身仍要算（它是 $$d_{out} \times d_{in}$$ 的，与全量一样大），LoRA 省的是**存储与更新**：不存 $$W$$ 的梯度与 Adam 状态，只存 $$A$$、$$B$$ 的。L4 第七篇算过它的参数量：$$r (d_{in} + d_{out})$$ 每个矩阵。配套实验在 0.5B 上的账：
+$$B = 0$$ 让第一步 $$A$$ 没有梯度、只有 $$B$$ 动；从第二步起两者每步都一起更新（不是交替），$$A$$ 的梯度随 $$B$$ 长大而变大——这是 LoRA 头几步 loss 动得慢的原因之一，也是它常用比全量大的 lr 的原因。还要纠正一个常见说法：LoRA **不需要**算 $$d_{out} \times d_{in}$$ 的完整 $$\partial\mathcal{L}/\partial W'$$。设上游梯度 $$G = \partial\mathcal{L}/\partial y$$（$$d_{out} \times$$ batch），则 $$\partial\mathcal{L}/\partial B = G (A x)^\top$$、$$\partial\mathcal{L}/\partial A = B^\top G\, x^\top$$，两个都是小矩阵乘，autograd 走的就是这条路（CPU 验证：`W.grad is None`，`A.grad`/`B.grad` 与公式逐元素相等）。所以 LoRA 省的不只是**存储**（不存 $$W$$ 的梯度与 Adam 状态），反向对权重那一半的算量也省了；没省的是对输入的梯度 $$\partial\mathcal{L}/\partial x = W^\top G + A^\top B^\top G$$——它要穿过冻结的 $$W$$ 传到前一层，与全量一样。L4 第七篇算过它的参数量：$$r (d_{in} + d_{out})$$ 每个矩阵。配套实验在 0.5B 上的账：
 
 ```text
 配置                      可训练参数     占比    训练状态(混合精度)   8B 规格同比例
@@ -404,7 +404,7 @@ SFT 训出的模型会按格式回答，但"好回答"与"坏回答"它分不出
 
    <details markdown="1"><summary>答案</summary>
 
-   只有 assistant 内容的 token（约 20 个左右）参与，一半以下；不 mask 则 44 个全算，模型在花一半梯度学“怎么提问”。prompt 很短时两者 loss 差别可忽略（80 步：2.3924 vs 2.3869），prompt 长时差别大。
+   只有 assistant 回复的 token（内容加各自的结束符，具体几个要数模板输出，题干给的数不够精确到个位）参与 loss，通常一半以下；不 mask 则 44 个全算，模型在花一半梯度学“怎么提问”。注意 mask 掉的只是这些位置的 CE 目标——prompt token 仍参与前向、后面的回复 token 通过 attention 依赖它们，梯度照样穿过它们回传到参数。prompt 很短时两者 loss 差别可忽略（80 步：2.3924 vs 2.3869），prompt 长时差别大。
 
    </details>
 
@@ -412,7 +412,7 @@ SFT 训出的模型会按格式回答，但"好回答"与"坏回答"它分不出
 
    <details markdown="1"><summary>答案</summary>
 
-   剩下是 padding——batch 里最长的样本决定长度，其他样本补零。packing 把多条样本首尾相接填满序列，但不加 causal 掩码的话后一条样本的 token 会 attend 到前一条的内容，跨样本泄漏。
+   剩下是 padding——batch 里最长的样本决定长度，其他样本补零。packing 把多条样本首尾相接填满序列，但普通的 causal 掩码只挡"看后面"，挡不住后一条样本 attend 到前一条的内容——要的是按样本边界重置的块对角掩码（或 varlen attention 传 `cu_seqlens`，第三章 §2），否则跨样本泄漏。
 
    </details>
 

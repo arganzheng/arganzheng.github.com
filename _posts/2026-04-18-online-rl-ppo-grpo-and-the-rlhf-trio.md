@@ -120,7 +120,7 @@ $$\text{KL}(\pi_\theta \| \pi_{ref}) = \mathbb{E}_{y \sim \pi_\theta}[\log \pi_\
 | $$k_2$$ | $$\frac{1}{2}(\log \rho)^2$$ | 否（但偏差小） | 小 | 少用 |
 | $$k_3$$ | $$\rho - 1 - \log \rho$$ | 是 | 小（恒非负） | GRPO 把它直接写进 loss |
 
-$$k_3$$ 是 $$k_1$$ 加上一个期望为零的控制变量 $$\rho - 1$$（因为 $$\mathbb{E}_{\pi_\theta}[\pi_{ref} / \pi_\theta] = 1$$），恒为非负、单样本上就是一个有意义的距离。GRPO 用它有一个实现上的理由：$$k_3$$ 对 $$\theta$$ 可微且梯度形式简单，能作为 loss 的一项直接反传，不必像 PPO 那样先折进奖励再经过价值网络。两种做法的效果不同——PPO 的 KL 惩罚通过优势影响每个 token 的权重，GRPO 的 KL 是一个独立的正则项——但目标相同。
+$$k_3$$ 是 $$k_1$$ 加上一个期望为零的控制变量 $$\rho - 1$$（因为 $$\mathbb{E}_{\pi_\theta}[\pi_{ref} / \pi_\theta] = 1$$），恒为非负、单样本上就是一个有意义的距离。GRPO 用它有一个实现上的理由：$$k_3$$ 对 $$\theta$$ 可微且梯度形式简单，能作为 loss 的一项直接反传，不必像 PPO 那样先折进奖励再经过价值网络。要说清一点：表里的"无偏"说的是 **KL 值**的估计（样本从当前 $$\pi_\theta$$ 采）；把 $$k_3$$ 对固定样本直接求梯度、拿它当 $$\nabla_\theta \text{KL}$$ 却**不是**无偏的——真正的 KL 梯度还含采样分布随 $$\theta$$ 变化那一项（CPU 小例：Bernoulli $$p = 0.8$$、$$q = 0.5$$，对 logit 的真实 $$\partial\text{KL} = 0.222$$，$$\mathbb{E}[\partial k_3]$$ = 0.300）。GRPO 用的是一个方便的替代目标（surrogate），效果上起 KL 正则的作用，不等于精确的 KL 梯度；rollout 来自旧策略、多个 epoch 复用时离得更远。两种做法的效果不同——PPO 的 KL 惩罚通过优势影响每个 token 的权重，GRPO 的 KL 是一个独立的正则项——但目标相同。
 
 ### 4. token 级与序列级
 
@@ -206,7 +206,7 @@ $$
 \mathcal{L}^{CLIP}(\theta) = \mathbb{E}_t\Big[\min\big(\rho_t A_t,\ \text{clip}(\rho_t, 1 - \epsilon, 1 + \epsilon)\, A_t\big)\Big],\qquad \epsilon = 0.2
 $$
 
-读法：$$A_t > 0$$（这一步走得好，想提高 $$\pi_\theta(a_t)$$）时，比值涨到 $$1 + \epsilon$$ 之后目标不再增加——继续提高没有收益，梯度为零；$$A_t < 0$$ 时，比值降到 $$1 - \epsilon$$ 之后停止。**每个 token 的概率一次最多变 20%**，超过就没有梯度。取 $$\min$$ 让裁剪只在"对目标有利"的方向起作用（悲观下界）。这就是 PPO 名字里的"proximal"。
+读法：$$A_t > 0$$（这一步走得好，想提高 $$\pi_\theta(a_t)$$）时，比值涨到 $$1 + \epsilon$$ 之后目标不再增加——继续提高没有收益，梯度为零；$$A_t < 0$$ 时，比值降到 $$1 - \epsilon$$ 之后停止。直觉上是"每个 token 的概率一次最多变 20%"，但这不是硬界：clip 只让**这一项**在越界后梯度归零，参数是共享的，同一 batch 里其他 token、其他样本的梯度仍可能把这个 token 的概率推过 $$1 \pm \epsilon$$，多步之后更是如此——PPO 论文自己也报告实际比值会越界。取 $$\min$$ 让裁剪只在"对目标有利"的方向起作用（悲观下界）。这就是 PPO 名字里的"proximal"。
 
 ### 4. 一步 PPO 的全部动作
 
@@ -357,7 +357,7 @@ GRPO 一步：$$B$$ 个 prompt × $$G$$ 条回答 × 平均长度 $$\bar L$$。�
 FLOPs 相同，时间不同。训练的前向反向是大矩阵乘，MFU 40%；参考与 RM 的前向是 prefill 形态（整条序列一次算），MFU 也高。**生成是 decode**：每步一个 token，memory-bound（L4 第二篇），即便 4096 条序列一起 decode，MFU 也只有 10–25%，且有三个额外的拖累：
 
 - **长尾**：同一 batch 里最长的回答决定这一步何时结束，其余序列在等——回答长度的方差越大（推理模型尤甚），浪费越多；连续批处理能缓解但不能消除，因为下一步训练要等全部 rollout 完成；
-- **KV cache**：4096 条 × 1300 token × 128 KiB（Llama-3-8B 规格）= **680 GiB**，一张卡放不下，要分几波生成或用 8 张卡的推理引擎；
+- **KV cache**：4096 条 × 1300 token × 128 KiB（Llama-3-8B 规格）= **650 GiB**（约 698 GB），一张卡放不下，8 张 80 GB 卡的 596 GiB 也放不下（还没算权重），要分几波生成、开 prefix 共享（同一 prompt 的 $$G$$ 条回答共用 prompt 部分的 KV），或用更大的推理集群；
 - **引擎切换**：训练框架与推理引擎（vLLM / SGLang）共置时，每步要把显存从训练状态切到 KV cache 再切回，加权重同步。
 
 把 MFU 差别代进去：生成 $$6.6 \times 10^{16}$$ FLOPs 在 15% MFU 下约 450 GPU·秒，训练 $$2 \times 10^{17}$$ 在 40% 下约 500 GPU·秒，两个前向约 330 GPU·秒——生成已占三分之一，再加长尾与切换，**一半以上的墙钟时间在生成**是常态。verl、OpenRLHF 的论文都报告 rollout 占 60–80%。这是 Infra 地图 09 [《RL 后训练基础设施》](/rl-post-training-infrastructure.html)的全部由来：优化 RL 后训练 = 优化训练循环里的推理引擎。
@@ -394,7 +394,7 @@ DeepSeekMath 的 GRPO：$$B = 1024$$、$$G = 64$$、$$\bar L$$ 约 1000、7B 模
 |---|---|---|---|
 | InstructGPT（2022） | PPO | 策略 175B、RM 6B、$$\beta = 0.02$$（自适应）、$$\gamma = 1$$、$$\lambda = 0.95$$、每批 4 个 epoch | 混入预训练梯度（PPO-ptx）抵消 alignment tax |
 | Llama 2（2023） | 拒绝采样 4 轮 → PPO 1 轮 | $$\beta = 0.01$$、奖励白化、两个 RM 按规则组合 | RLHF-v5 才用 PPO；前几轮全是拒绝采样 + SFT |
-| DeepSeekMath（2024） | GRPO | $$G = 64$$、$$\beta = 0.04$$、lr $$10^{-6}$$、batch 1024 | GRPO 首发；奖励是数学答案匹配 |
+| DeepSeekMath（2024） | GRPO | $$G = 64$$、$$\beta = 0.04$$、lr $$10^{-6}$$、batch 1024 | GRPO 首发；奖励来自一个在 DeepSeekMath-Base 7B 上训练的 RM（报告 4.2），不是规则匹配——规则奖励是后来 R1-Zero 的做法 |
 | DeepSeek-R1（2025） | GRPO | 规则奖励（准确 + 格式）+ 语言一致性 | 第五篇展开 |
 | Tülu 3（2024） | PPO（RLVR） | $$\beta = 0.05$$、价值从 RM 初始化 | 可验证奖励下仍用 PPO，报告价值模型有帮助 |
 | DAPO（2025） | GRPO 改 | 32B、$$G = 16$$、$$\epsilon$$ 0.2 / 0.28、无 KL、token 级 loss | AIME 50 分；完整开源配方与代码 |
@@ -413,8 +413,10 @@ from trl import GRPOTrainer, GRPOConfig
 def rm_reward(prompts, completions, **kw):          # 第二篇的 RM：返回每条回答一个分
     return [score(p, c) for p, c in zip(prompts, completions)]
 
-def length_penalty(completions, **kw):               # 第二篇第五章的长度控制
-    return [-0.001 * len(c) for c in completions]
+def length_penalty(completions, completion_ids, **kw):   # 第二篇第五章的长度控制
+    # 对话式数据里 completions 是消息列表（len 恒为 1），字符串时 len 是字符数：
+    # 两者都不是 token 数，要用 trainer 传入的 completion_ids 计真实长度
+    return [-0.001 * len(ids) for ids in completion_ids]
 
 cfg = GRPOConfig(
     num_generations=8,          # G
@@ -508,5 +510,5 @@ trainer.train()
 [离线 RL：从 RLHF 目标推出 DPO 及其变体](/offline-rl-dpo-and-its-family.html)
 
 [^q0]: 因为它选择了 token 级的 MDP 视角——要一个价值网络把终末奖励分摊回每个 token 作 baseline，加上算 KL 的参考模型与打分的 RM，再加策略本身；四个里两个要训，显存的主体是它们的 16 字节/参数。详见[第三章](#三策略梯度)、[第四章](#四ppo)。
-[^q1]: 用同一 prompt 的 $$G$$ 条回答的均值与标准差代替价值网络——baseline 只要不依赖当前样本就无偏，组内均值恰好满足，还顺带做了按 prompt 的归一化。代价是每个 prompt 生成 $$G$$ 倍的 token、优势降到序列级、以及两个归一化各带一个偏差（Dr. GRPO 与 DAPO 修的就是它们）。详见[第五章](#五grpo-一族)。
+[^q1]: 用同一 prompt 的 $$G$$ 条回答的均值与标准差代替价值网络，顺带做了按 prompt 的归一化。严格说组内均值**含本条回答自己**，不满足"baseline 不依赖当前样本"，会把梯度期望缩成 $$(1 - 1/G)$$ 倍（第五章 §3 的推导；$$G$$ 大时可忽略，留一法 RLOO 才严格无偏）；除以组内标准差再引入一个偏差——Dr. GRPO 与 DAPO 修的就是这两个。代价还有每个 prompt 生成 $$G$$ 倍的 token、优势降到序列级。详见[第五章](#五grpo-一族)。
 [^q2]: FLOPs 里训练占一半、生成只占六分之一，但生成是 memory-bound 的 decode 且有长尾，墙钟时间反而占一半以上——RL 后训练的系统问题本质上是训练循环里的推理引擎问题。详见[第六章](#六成本与系统)。
