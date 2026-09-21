@@ -194,6 +194,8 @@ logits z = (2, 1, 0)
 τ → ∞      p = (1/3, 1/3, 1/3)            均匀：随机乱说
 ```
 
+![同一组 logits 在 τ = 0.5 / 1 / 2 下的三张柱状图：顺序不变，只是尖或平](/img/in-post/from-maximum-likelihood-to-cross-entropy-temperature.svg)
+
 温度不改变顺序，只改变"多确定"。$$\tau < 1$$ 保守、重复；$$\tau > 1$$ 多样、易出错。代码生成常用 0.0–0.2，创意写作常用 0.7–1.0。
 
 ### 2. 截断：top-k 与 top-p

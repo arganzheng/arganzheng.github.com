@@ -133,6 +133,8 @@ p("我 爱 北京") = p("我") × p("爱" | "我") × p("北京" | "我 爱")
 
 ### 2. 语言模型的定义
 
+![语言模型：给定前文输出词表上的一张概率表；一句话的概率是逐 token 条件概率的乘积](/img/in-post/probability-basics-next-token-distribution-and-chain-rule.svg)
+
 **语言模型就是链式法则里每一项 $$p(x_t \mid x_{<t})$$ 的参数化**：一个带参数 $$\theta$$ 的函数（Transformer），输入前文 $$x_{<t}$$，输出词表上的一个分布 $$p_\theta(\cdot \mid x_{<t})$$——128256 个非负数，加起来是 1。
 
 这就是"语言模型是一个条件分布"的全部含义。它决定了后面四件事：

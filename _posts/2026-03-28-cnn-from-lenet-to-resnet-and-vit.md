@@ -14,6 +14,8 @@ updated: 2026-09-20
 
 > **一个 3×3 卷积核相当于多大的全连接矩阵？[^q0] ResNet 的残差与 Transformer 的残差是同一个东西吗？[^q1] ViT 为什么可以不用卷积？[^q2]**
 
+![卷积：3×3 的 kernel 在 5×5 输入上滑动，每个位置对应相乘再相加得到输出的一个格子](/img/in-post/cnn-convolution-sliding-window.svg)
+
 ## 一、总览：三个阶段
 
 ### 1. 卷积网络的三个阶段

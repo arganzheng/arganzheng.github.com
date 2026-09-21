@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 345" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="13">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+<text x="380" y="22" fill="#222" font-size="14" text-anchor="middle" font-weight="600">内积、范数、余弦：同一对向量的三个读数</text>
+<circle cx="95" cy="130" r="2" fill="#555"/>
+<line x1="25" y1="130" x2="165" y2="130" stroke="#ddd" stroke-width="1"/>
+<line x1="95" y1="60" x2="95" y2="170" stroke="#ddd" stroke-width="1"/>
+<line x1="95" y1="130" x2="155" y2="130" stroke="#1f6fb2" stroke-width="2.5" marker-end="url(#ar)"/>
+<text x="159" y="134" fill="#1f6fb2" font-size="13" text-anchor="start" font-weight="600">a</text>
+<line x1="95" y1="130" x2="140" y2="121" stroke="#c0392b" stroke-width="2.5" marker-end="url(#ar)"/>
+<text x="146" y="115" fill="#c0392b" font-size="13" text-anchor="start" font-weight="600">b</text>
+<text x="95" y="192" fill="#333" font-size="12" text-anchor="middle" font-weight="600">同向：cos = 1（b 画偏一点以便看见）</text>
+<circle cx="275" cy="130" r="2" fill="#555"/>
+<line x1="205" y1="130" x2="345" y2="130" stroke="#ddd" stroke-width="1"/>
+<line x1="275" y1="60" x2="275" y2="170" stroke="#ddd" stroke-width="1"/>
+<line x1="275" y1="130" x2="335" y2="130" stroke="#1f6fb2" stroke-width="2.5" marker-end="url(#ar)"/>
+<text x="339" y="134" fill="#1f6fb2" font-size="13" text-anchor="start" font-weight="600">a</text>
+<line x1="275" y1="130" x2="305" y2="78" stroke="#c0392b" stroke-width="2.5" marker-end="url(#ar)"/>
+<text x="311" y="72" fill="#c0392b" font-size="13" text-anchor="start" font-weight="600">b</text>
+<text x="275" y="192" fill="#333" font-size="12" text-anchor="middle" font-weight="600">夹角 60°：cos = 0.5</text>
+<circle cx="455" cy="130" r="2" fill="#555"/>
+<line x1="385" y1="130" x2="525" y2="130" stroke="#ddd" stroke-width="1"/>
+<line x1="455" y1="60" x2="455" y2="170" stroke="#ddd" stroke-width="1"/>
+<line x1="455" y1="130" x2="515" y2="130" stroke="#1f6fb2" stroke-width="2.5" marker-end="url(#ar)"/>
+<text x="519" y="134" fill="#1f6fb2" font-size="13" text-anchor="start" font-weight="600">a</text>
+<line x1="455" y1="130" x2="455" y2="75" stroke="#c0392b" stroke-width="2.5" marker-end="url(#ar)"/>
+<text x="461" y="69" fill="#c0392b" font-size="13" text-anchor="start" font-weight="600">b</text>
+<text x="455" y="192" fill="#333" font-size="12" text-anchor="middle" font-weight="600">垂直：cos = 0</text>
+<circle cx="635" cy="130" r="2" fill="#555"/>
+<line x1="565" y1="130" x2="705" y2="130" stroke="#ddd" stroke-width="1"/>
+<line x1="635" y1="60" x2="635" y2="170" stroke="#ddd" stroke-width="1"/>
+<line x1="635" y1="130" x2="695" y2="130" stroke="#1f6fb2" stroke-width="2.5" marker-end="url(#ar)"/>
+<text x="699" y="134" fill="#1f6fb2" font-size="13" text-anchor="start" font-weight="600">a</text>
+<line x1="635" y1="130" x2="590" y2="130" stroke="#c0392b" stroke-width="2.5" marker-end="url(#ar)"/>
+<text x="576" y="124" fill="#c0392b" font-size="13" text-anchor="start" font-weight="600">b</text>
+<text x="635" y="192" fill="#333" font-size="12" text-anchor="middle" font-weight="600">反向：cos = −1</text>
+<text x="60" y="215" fill="#333" font-size="12" text-anchor="start" font-weight="normal">内积 ⟨a,b⟩ = ‖a‖‖b‖cos θ：既看方向也看长度——把 b 拉长两倍，内积翻倍，余弦不变。</text>
+<text x="60" y="235" fill="#333" font-size="12" text-anchor="start" font-weight="normal">余弦 = 内积 ÷ 两个长度：只剩方向，取值 −1…1。范数 ‖a‖ = √⟨a,a⟩：只有长度。</text>
+<line x1="460" y1="300" x2="680" y2="300" stroke="#ddd" stroke-width="1"/>
+<line x1="500" y1="300" x2="560" y2="270" stroke="#1f6fb2" stroke-width="2.5" marker-end="url(#ar)"/>
+<text x="564" y="268" fill="#1f6fb2" font-size="12" text-anchor="start" font-weight="normal">a</text>
+<line x1="500" y1="300" x2="630" y2="290" stroke="#c0392b" stroke-width="2.5" marker-end="url(#ar)"/>
+<text x="634" y="286" fill="#c0392b" font-size="11" text-anchor="start" font-weight="normal">b（长、啰嗦）</text>
+<line x1="500" y1="300" x2="552" y2="296" stroke="#c98a00" stroke-width="2.5" marker-end="url(#ar)"/>
+<text x="530" y="316" fill="#c98a00" font-size="11" text-anchor="start" font-weight="normal">b′（同方向、短）</text>
+<text x="60" y="300" fill="#333" font-size="12" text-anchor="start" font-weight="normal">检索为什么用余弦：b 与 b′ 方向相同、说的是同一件事，</text>
+<text x="60" y="318" fill="#333" font-size="12" text-anchor="start" font-weight="normal">内积却因为 b 更长而给 b 高分；余弦对两者一视同仁。</text>
+</svg>

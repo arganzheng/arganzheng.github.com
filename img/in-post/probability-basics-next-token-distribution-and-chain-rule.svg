@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 370" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="13">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+<text x="380" y="22" fill="#222" font-size="14" text-anchor="middle" font-weight="600">语言模型 = 给定前文，输出「下一个 token」在整个词表上的概率表</text>
+<text x="40" y="55" fill="#333" font-size="13" text-anchor="start" font-weight="600">前文：「今天天气」</text>
+<line x1="150" y1="50" x2="190" y2="50" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+<text x="210" y="54" fill="#333" font-size="12" text-anchor="end" font-weight="normal">很</text>
+<rect x="218" y="43" width="279.0" height="14" fill="#1f6fb2" opacity="0.85"/>
+<text x="503.0" y="54" fill="#555" font-size="11" text-anchor="start" font-weight="normal">0.31</text>
+<text x="210" y="76" fill="#333" font-size="12" text-anchor="end" font-weight="normal">真</text>
+<rect x="218" y="65" width="162.0" height="14" fill="#1f6fb2" opacity="0.85"/>
+<text x="386.0" y="76" fill="#555" font-size="11" text-anchor="start" font-weight="normal">0.18</text>
+<text x="210" y="98" fill="#333" font-size="12" text-anchor="end" font-weight="normal">不</text>
+<rect x="218" y="87" width="108.0" height="14" fill="#1f6fb2" opacity="0.85"/>
+<text x="332.0" y="98" fill="#555" font-size="11" text-anchor="start" font-weight="normal">0.12</text>
+<text x="210" y="120" fill="#333" font-size="12" text-anchor="end" font-weight="normal">怎么</text>
+<rect x="218" y="109" width="81.0" height="14" fill="#1f6fb2" opacity="0.85"/>
+<text x="305.0" y="120" fill="#555" font-size="11" text-anchor="start" font-weight="normal">0.09</text>
+<text x="210" y="142" fill="#333" font-size="12" text-anchor="end" font-weight="normal">预报</text>
+<rect x="218" y="131" width="45.0" height="14" fill="#1f6fb2" opacity="0.85"/>
+<text x="269.0" y="142" fill="#555" font-size="11" text-anchor="start" font-weight="normal">0.05</text>
+<text x="210" y="164" fill="#333" font-size="12" text-anchor="end" font-weight="normal">香蕉</text>
+<rect x="218" y="153" width="1.5" height="14" fill="#1f6fb2" opacity="0.85"/>
+<text x="224.09" y="164" fill="#555" font-size="11" text-anchor="start" font-weight="normal">0.0001</text>
+<text x="210" y="186" fill="#333" font-size="12" text-anchor="end" font-weight="normal">（其余 12 万个）</text>
+<rect x="218" y="175" width="225.0" height="14" fill="#1f6fb2" opacity="0.85"/>
+<text x="449.0" y="186" fill="#555" font-size="11" text-anchor="start" font-weight="normal">0.25</text>
+<text x="218" y="208" fill="#666" font-size="11" text-anchor="start" font-weight="normal">词表 128256 个 token 每个一个数，全部 ≥ 0、加起来 = 1</text>
+<text x="40" y="250" fill="#333" font-size="13" text-anchor="start" font-weight="600">一句话的概率 = 每一步条件概率的乘积（链式法则）：</text>
+<rect x="40" y="264" width="150" height="46" rx="6" fill="#eef6ff" stroke="#1f6fb2"/>
+<text x="115" y="283" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">p(今天)</text>
+<text x="115" y="302" fill="#1f6fb2" font-size="12" text-anchor="middle" font-weight="600">= 0.010</text>
+<text x="200" y="292" fill="#333" font-size="16" text-anchor="middle" font-weight="normal">×</text>
+<rect x="210" y="264" width="150" height="46" rx="6" fill="#eef6ff" stroke="#1f6fb2"/>
+<text x="285" y="283" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">p(天气 | 今天)</text>
+<text x="285" y="302" fill="#1f6fb2" font-size="12" text-anchor="middle" font-weight="600">= 0.05</text>
+<text x="370" y="292" fill="#333" font-size="16" text-anchor="middle" font-weight="normal">×</text>
+<rect x="380" y="264" width="150" height="46" rx="6" fill="#eef6ff" stroke="#1f6fb2"/>
+<text x="455" y="283" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">p(很 | 今天天气)</text>
+<text x="455" y="302" fill="#1f6fb2" font-size="12" text-anchor="middle" font-weight="600">= 0.31</text>
+<text x="540" y="292" fill="#333" font-size="16" text-anchor="middle" font-weight="normal">×</text>
+<rect x="550" y="264" width="150" height="46" rx="6" fill="#eef6ff" stroke="#1f6fb2"/>
+<text x="625" y="283" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">p(好 | 今天天气很)</text>
+<text x="625" y="302" fill="#1f6fb2" font-size="12" text-anchor="middle" font-weight="600">= 0.40</text>
+<text x="40" y="332" fill="#333" font-size="12" text-anchor="start" font-weight="normal">p(今天天气很好) = 0.010 × 0.05 × 0.31 × 0.40 ≈ 6.2 × 10⁻⁵。</text>
+<text x="40" y="350" fill="#333" font-size="12" text-anchor="start" font-weight="normal">模型每一步只做一件事：算上面那张表；训练（第五篇）就是让真实的下一个 token 在表里的概率变大。</text>
+</svg>

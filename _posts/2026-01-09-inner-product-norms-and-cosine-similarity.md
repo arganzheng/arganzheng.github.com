@@ -57,6 +57,8 @@ $$a^T b$$ 这个写法用上一篇的形状规则读：$$a^T$$ 是 $$[1, d]$$，
 
 ### 2. 几何含义
 
+![内积、范数、余弦：同向 / 60° / 垂直 / 反向四对向量的余弦，以及检索为什么用余弦而不用内积](/img/in-post/inner-product-norms-and-cosine-similarity-geometry.svg)
+
 内积等于两个向量的长度乘以夹角的余弦：
 
 $$

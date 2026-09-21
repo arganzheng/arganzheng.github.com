@@ -75,6 +75,21 @@ python -m pip list | grep -i torch                # python -m：用"当前这个
 
 ### 1. 两种读法
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 220}}}%%
+flowchart TB
+    subgraph A["读法一：整个文件读成 list"]
+        direction TB
+        F1["train.jsonl（19 MB）"] --> L["list：10 万个 dict 同时在内存<br/>峰值约 103 MB"] --> P1["然后才开始逐条处理"]
+    end
+    subgraph B["读法二：生成器（yield）"]
+        direction TB
+        F2["train.jsonl（19 MB）"] --> G["一次只取出一行 → 一个 dict"] --> P2["处理完这一条，再取下一条<br/>内存常驻只有一条记录 + 统计量"]
+        P2 -. "for 循环要下一个" .-> G
+    end
+```
+
+
 语料通常是 **JSONL**：一行一个 JSON 对象。最直接的读法是整个文件读成一个 `list`：
 
 ```python

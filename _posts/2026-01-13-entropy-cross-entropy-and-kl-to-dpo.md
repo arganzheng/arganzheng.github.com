@@ -140,6 +140,8 @@ forward KL：q 必须盖住两个峰            reverse KL：q 挑一个峰待�
    q:  ▁▁▁▁▂▃▅▆▅▃▂▁▁▁▁  （宽、平）         q:  ▁▂▅█▅▂▁▁▁▁▁▁▁▁▁  （窄、尖）
 ```
 
+![双峰 p、单峰 q：forward KL 让 q 摊开盖住两个峰，reverse KL 让 q 挑一个峰待着](/img/in-post/entropy-cross-entropy-and-kl-direction-mode-covering-vs-seeking.svg)
+
 ### 2. RLHF 用的是 reverse
 
 先说这个目标从哪来。预训练完的模型只会"接着往下写"，再经过 **SFT**（supervised fine-tuning，用人写的问答对做上一篇那种交叉熵训练）它学会了按问答的格式回话，但回答好不好——有没有帮助、是否胡编、是否安全——SFT 数据覆盖不到的地方它不知道。**RLHF**（reinforcement learning from human feedback）的做法是：先训一个**奖励模型** $$r(x, y)$$（给"问题 $$x$$ 的回答 $$y$$"打一个分数，从人的偏好比较里学出来，第五章讲怎么学），再调整模型让它的回答拿到更高的分。但只追分数会出事：奖励模型是从有限数据学出来的，模型很快会找到它的漏洞——写得更长、更谄媚、或者干脆说一些奖励模型没见过而误判为好的胡话（**reward hacking**）。所以要加一根"拉绳"：不许离出发点（**参考模型** $$\pi_{\text{ref}}$$，通常就是 SFT 之后的那个模型）太远。用什么量"离得多远"？就是 KL。于是 RLHF 的目标写成"最大化奖励，同时不偏离参考模型"：

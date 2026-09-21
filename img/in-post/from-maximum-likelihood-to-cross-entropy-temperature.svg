@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 290" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="13">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+<text x="380" y="22" fill="#222" font-size="14" text-anchor="middle" font-weight="600">同一组 logits z = (2, 1, 0)，温度只改变「多确定」，不改变顺序</text>
+<text x="140" y="52" fill="#333" font-size="12" text-anchor="middle" font-weight="600">τ = 0.5（更尖）</text>
+<line x1="55" y1="200" x2="235" y2="200" stroke="#555" stroke-width="1.2"/>
+<rect x="60" y="87.31426681434648" width="40" height="112.68573318565352" fill="#1f6fb2" opacity="0.85"/>
+<text x="80" y="82.31426681434648" fill="#333" font-size="11" text-anchor="middle" font-weight="normal">0.87</text>
+<text x="80" y="216" fill="#333" font-size="12" text-anchor="middle" font-weight="normal">A</text>
+<rect x="115" y="184.74964438259423" width="40" height="15.250355617405788" fill="#c98a00" opacity="0.85"/>
+<text x="135" y="179.74964438259423" fill="#333" font-size="11" text-anchor="middle" font-weight="normal">0.12</text>
+<text x="135" y="216" fill="#333" font-size="12" text-anchor="middle" font-weight="normal">B</text>
+<rect x="170" y="197.93608880305933" width="40" height="2.0639111969406794" fill="#4d9a5c" opacity="0.85"/>
+<text x="190" y="192.93608880305933" fill="#333" font-size="11" text-anchor="middle" font-weight="normal">0.02</text>
+<text x="190" y="216" fill="#333" font-size="12" text-anchor="middle" font-weight="normal">C</text>
+<text x="140" y="240" fill="#666" font-size="11" text-anchor="middle" font-weight="normal">差距放大两倍：几乎总选 A，稳定但重复</text>
+<text x="380" y="52" fill="#333" font-size="12" text-anchor="middle" font-weight="600">τ = 1（模型原始分布）</text>
+<line x1="295" y1="200" x2="475" y2="200" stroke="#555" stroke-width="1.2"/>
+<rect x="300" y="113.51867574927316" width="40" height="86.48132425072684" fill="#1f6fb2" opacity="0.85"/>
+<text x="320" y="108.51867574927316" fill="#333" font-size="11" text-anchor="middle" font-weight="normal">0.67</text>
+<text x="320" y="216" fill="#333" font-size="12" text-anchor="middle" font-weight="normal">A</text>
+<rect x="355" y="168.1852987628763" width="40" height="31.814701237123693" fill="#c98a00" opacity="0.85"/>
+<text x="375" y="163.1852987628763" fill="#333" font-size="11" text-anchor="middle" font-weight="normal">0.24</text>
+<text x="375" y="216" fill="#333" font-size="12" text-anchor="middle" font-weight="normal">B</text>
+<rect x="410" y="188.29602548785053" width="40" height="11.70397451214946" fill="#4d9a5c" opacity="0.85"/>
+<text x="430" y="183.29602548785053" fill="#333" font-size="11" text-anchor="middle" font-weight="normal">0.09</text>
+<text x="430" y="216" fill="#333" font-size="12" text-anchor="middle" font-weight="normal">C</text>
+<text x="380" y="240" fill="#666" font-size="11" text-anchor="middle" font-weight="normal">p ∝ e^z</text>
+<text x="620" y="52" fill="#333" font-size="12" text-anchor="middle" font-weight="600">τ = 2（更平）</text>
+<line x1="535" y1="200" x2="715" y2="200" stroke="#555" stroke-width="1.2"/>
+<rect x="540" y="134.15754916276498" width="40" height="65.84245083723502" fill="#1f6fb2" opacity="0.85"/>
+<text x="560" y="129.15754916276498" fill="#333" font-size="11" text-anchor="middle" font-weight="normal">0.51</text>
+<text x="560" y="216" fill="#333" font-size="12" text-anchor="middle" font-weight="normal">A</text>
+<rect x="595" y="160.0645348565952" width="40" height="39.93546514340479" fill="#c98a00" opacity="0.85"/>
+<text x="615" y="155.0645348565952" fill="#333" font-size="11" text-anchor="middle" font-weight="normal">0.31</text>
+<text x="615" y="216" fill="#333" font-size="12" text-anchor="middle" font-weight="normal">B</text>
+<rect x="650" y="175.77791598063982" width="40" height="24.22208401936018" fill="#4d9a5c" opacity="0.85"/>
+<text x="670" y="170.77791598063982" fill="#333" font-size="11" text-anchor="middle" font-weight="normal">0.19</text>
+<text x="670" y="216" fill="#333" font-size="12" text-anchor="middle" font-weight="normal">C</text>
+<text x="620" y="240" fill="#666" font-size="11" text-anchor="middle" font-weight="normal">差距压缩一半：常常选到 B、C，多样但易错</text>
+<text x="380" y="270" fill="#333" font-size="12" text-anchor="middle" font-weight="normal">τ → 0 变成 greedy（永远选最大的 A）；τ 很大趋近均匀分布（三个各 1/3）。代码生成常用 0–0.2，创作类 0.7–1.0。</text>
+</svg>

@@ -78,6 +78,8 @@ $$
                   1          10         100   ridge≈295   1000
 ```
 
+![H100 的 Roofline：斜线是带宽 × 强度，横线是 989 TFLOPS；decode 落在左边的 memory-bound 区，prefill 与训练落在右边](/img/in-post/gpu-intuition-roofline-h100.svg)
+
 一个操作的算术强度决定它落在横轴的哪个位置；落在斜线段上的是 memory-bound，往右挪（提高强度）性能线性上升；落到水平段上的是 compute-bound，再挪也不会更快。L4《Transformer 与 LLM》第二篇把整个模型逐层放到这张图上；Infra 05 系列第一篇从硬件侧讲同一件事。算法工程师需要的是用它判断：**我改的这个结构把瓶颈往哪边推了**。
 
 ## 三、decode 与 prefill
