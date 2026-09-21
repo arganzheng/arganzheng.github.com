@@ -70,7 +70,7 @@ ViT（Dosovitskiy 等 2020）处理图片的方法与 Transformer 处理文本�
 
 $$n_p = \frac{H}{p} \cdot \frac{W}{p}$$
 
-代入：336 px 的图，$$336 / 14 = 24$$，$$n_p = 576$$；448 px，$$32^2 = 1024$$；560 px，$$40^2 = 1600$$；1024 px（Qwen2-VL 先把边长凑成 28 的倍数，1022 或 1036 px），约 $$73^2 = 5329$$ 到 $$74^2 = 5476$$。
+代入：336 px 的图，$$336 / 14 = 24$$，$$n_p = 576$$；448 px，$$32^2 = 1024$$；560 px，$$40^2 = 1600$$；1024 px（Qwen2-VL 先把边长凑成 28 的倍数——1024 不是 28 的倍数，processor 会 round 到 1036 px），$$74^2 = 5476$$。
 
 一个 patch 就是 ViT 的一个"token"。ViT 内部的 attention 是**双向**的（不是 causal），每个 patch 看得到全图的所有 patch。
 
@@ -112,7 +112,7 @@ $$\text{FLOPs}_{vit} = 2 N_{vit} \cdot n_p + 4 L_{vit}\, n_p^2\, d_{vit}$$
 | 固定 tile，动态 tile 数 | InternVL2、Llama 3.2 Vision | 图按长宽比切成 1–12（InternVL）或 1–4（Llama）个 448² / 560² 的 tile，各自过 encoder | 1024 × tile 数 / 1601 × tile 数 |
 | 原生动态分辨率 | Qwen2-VL / 2.5-VL | 边长凑到 28 的倍数后整图一次过 encoder，`min_pixels` / `max_pixels` 限制范围 | 从 4 个 patch 到默认上限 16384 × 4 个 patch |
 
-固定分辨率简单但浪费：一张 4K 截图缩到 336² 什么字都看不清。tile 方案让 encoder 每次只处理固定形状（对 kernel 和 batch 友好），代价是 tile 之间没有 attention。原生动态分辨率最灵活，但 $$n_p$$ 可以相差三个数量级，encoder 的 FLOPs 与后面 decoder 的账都随之剧烈变化——系统必须按图片尺寸而不是"图片张数"来预算。
+固定分辨率简单但浪费：一张 4K 截图缩到 336² 什么字都看不清。tile 方案让 encoder 每次只处理固定形状（对 kernel 和 batch 友好），代价是 tile 之间在 encoder 里通常没有 attention（InternVL 各 tile 独立过 ViT；Llama-3.2 例外，它把 4 个 tile 拼成一个 6404 长的序列，局部层和全局层都在整个序列上做 attention），tile 边界上的物体要靠 decoder 自己拼回去。原生动态分辨率最灵活，但 $$n_p$$ 可以相差三个数量级，encoder 的 FLOPs 与后面 decoder 的账都随之剧烈变化——系统必须按图片尺寸而不是"图片张数"来预算。
 
 ## 三、connector：谁决定 image token 数
 
@@ -137,7 +137,7 @@ encoder 输出 $$n_p$$ 个 $$d_{vit}$$ 维向量，decoder 需要 $$n_{img}$$ �
 三点：
 
 - merge 不是池化，是**拼接**：4 个 $$d_{vit}$$ 维向量拼成一个 $$4 d_{vit}$$ 维向量，信息没有丢，只是让 MLP 决定怎么压。MLP 的输入维度因此是 5120 而不是 1280。
-- 每个 image token 对应 28×28 像素。Qwen2-VL 的 token 数公式是 $$n_{img} = \lceil H / 28 \rceil \cdot \lceil W / 28 \rceil$$（先把边长凑到 28 的倍数）：336² → 144，1024² → 37 × 37 = 1369，1920 × 1080 → 69 × 39 = 2691。
+- 每个 image token 对应 28×28 像素。Qwen2-VL 的 token 数**近似**是 $$n_{img} \approx \lceil H / 28 \rceil \cdot \lceil W / 28 \rceil$$：336² → 144，1024² → 37 × 37 = 1369，1920 × 1080 → 69 × 39 = 2691。精确值要看 processor 的 `smart_resize`：它先把边长 **round**（不是 ceil）到 28 的倍数，再按 `min_pixels` / `max_pixels` 缩放到预算内——1009² 会被 round 成 1008² → 36² = 1296，而 ceil 会给 37² = 1369；模型卡里的 `max_pixels` 与本地 processor 的默认值也可能不同。所以预算要以 processor 输出的 `image_grid_thw` 为准，不要拿原始像素套公式。
 - 展平是行优先的：token $$t_k$$ 的二维坐标是 $$(k \,/\, W_{tok},\; k \bmod W_{tok})$$。这个坐标在第六章会被 M-RoPE 用到。
 
 InternVL 的 pixel-shuffle 在数学上与 2×2 merge 相同（把 $$2 \times 2 \times d$$ 重排成 $$1 \times 1 \times 4d$$），448² 的 1024 个 patch 变成 256 个 token。
@@ -167,10 +167,12 @@ $$\text{FLOPs}_{prefill} = 2 N_{dec} \cdot n_{img}, \qquad \text{KV}_{img} = n_{
 
 | $$n_{img}$$ | 来源 | 8B：prefill FLOPs | 8B：KV | 8B：encoder 输出 | 70B：prefill FLOPs | 70B：KV | 70B：encoder 输出 |
 |---|---|---|---|---|---|---|---|
-| 576 | LLaVA 336² | 9.3 T | 72 MiB | 4.5 MiB | 81 T | 180 MiB | 9.0 MiB |
-| 1369 | Qwen2-VL 1024² | 22 T | 171 MiB | 10.7 MiB | 193 T | 428 MiB | 21.4 MiB |
-| 3328 | InternVL2 13 tile | 53 T | 416 MiB | 26 MiB | 470 T | 1040 MiB | 52 MiB |
-| 6404 | Llama-3.2 4 tile | 103 T | 800 MiB | 50 MiB | 904 T | 2001 MiB | 100 MiB |
+| 576 | LLaVA 336² | 8.6 T | 72 MiB | 4.5 MiB | 80 T | 180 MiB | 9.0 MiB |
+| 1369 | Qwen2-VL 1024² | 20.5 T | 171 MiB | 10.7 MiB | 190 T | 428 MiB | 21.4 MiB |
+| 3328 | InternVL2 13 tile | 50 T | 416 MiB | 26 MiB | 466 T | 1040 MiB | 52 MiB |
+| 6400 | Llama-3.2 4 tile | 96 T | 800 MiB | 50 MiB | 890 T | 2000 MiB | 100 MiB |
+
+（prefill FLOPs 按 $$2 N_{gemm} n_{img}$$，$$N_{gemm}$$ 是扣掉输入 embedding 的参数量——第二篇的口径；tile 方案的 CLS token 在 encoder 里参与计算、不进 decoder，所以 Llama-3.2 是 $$4 \times 1600 = 6400$$ 个 token。）
 
 （Qwen2-VL-7B 自己的 decoder 是 28 层、4 个 KV 头，每 token KV 只有 56 KiB，1369 个 token 的 KV 是 73 MiB；LLaVA-1.5 的 Vicuna-7B 是 MHA，每 token 512 KiB，576 个 token 是 288 MiB——decoder 的 attention 变体对图片的代价影响是 4–9 倍，这正是第三篇 GQA 的价值在多模态上的放大。）
 
@@ -183,7 +185,7 @@ $$\text{FLOPs}_{prefill} = 2 N_{dec} \cdot n_{img}, \qquad \text{KV}_{img} = n_{
 | encoder 权重（BF16） | 1.26 GB | 常驻，所有请求共享 |
 | encoder 输出 | 21 MiB | prefill 期间用一次；prefill 完成即可释放 |
 | image token 的 KV | 428 MiB | 从 prefill 到请求结束（含全部 decode 步） |
-| prefill FLOPs | 193 TFLOP ≈ 195 ms（H100 峰值） | 一次性 |
+| prefill FLOPs | 190 TFLOP ≈ 192 ms（H100 峰值） | 一次性 |
 
 **KV 是 encoder 输出的 20 倍**。原因在公式里：encoder 输出每 token 是 $$d_{model} \times 2$$ 字节（16 KiB），KV 每 token 是 $$2 L n_{kv} d_{head} \times 2$$ 字节（320 KiB），比值是 $$2 L \cdot n_{kv} d_{head} / d_{model} = 2 \times 80 \times 1024 / 8192 = 20$$——K 与 V 两份，乘层数，乘 KV 头总维度与模型维度之比。这个比值对 Llama-3-8B 是 16，对 Qwen2-VL-7B（28 层、4 个 KV 头）是 8。
 
@@ -191,7 +193,7 @@ $$\text{FLOPs}_{prefill} = 2 N_{dec} \cdot n_{img}, \qquad \text{KV}_{img} = n_{
 
 ### 3. prefill 的另一面
 
-image token 让 prefill 变长，而 prefill 是 compute-bound 的（第二篇）：1369 个 image token 在 70B 上要 193 TFLOP，与 1369 个文本 token 完全相同；再加上 encoder 自己的 11.8 TFLOP，一张图让这个请求的首 token 延迟多了约 200 ms（H100 峰值下界，实际 1.5–2 倍）。
+image token 让 prefill 变长，而 prefill 是 compute-bound 的（第二篇）：1369 个 image token 在 70B 上要 190 TFLOP，与 1369 个文本 token 完全相同；再加上 encoder 自己的 11.8 TFLOP，一张图让这个请求的首 token 延迟多了约 200 ms（H100 峰值下界，实际 1.5–2 倍）。
 
 这里有一个常见的误判：encoder 12 ms、decoder prefill 195 ms，看起来 encoder 不重要。但 encoder 的时间是**串行前置**的——decoder 的 prefill 必须等 encoder 输出就绪才能开始（image token 的 embedding 来自它）。系统层面能做的是把 encoder 与其他请求的 decoder 计算重叠，而不是缩短它。
 
@@ -217,14 +219,14 @@ Llama-3.2-11B-Vision 的 `config.json` 给出的结构：
 |---|---|---|
 | 图片进入哪里 | decoder 输入序列，与文本 token 并列 | 8 个 cross-attention 层的 K / V |
 | 序列长度 | 文本 + $$n_{img}$$ | 只有文本 |
-| prefill FLOPs（图片部分） | $$2 N_{dec} \cdot n_{img}$$：6404 token × 8B = 103 T | 只有投影：8 层 K、V 各 $$2 d\, d_{kv} n_{img}$$ 共 0.9 T，加 7680 → 4096 的视觉投影 0.4 T，约 1.3 T |
-| 图片 KV | 全部 32 层自注意力：6404 × 128 KiB = 800 MiB | 8 层 cross-attention：6404 × 2 × 8 × 128 × 2 B × 8 = 200 MiB |
-| 每步 decode 多读的字节 | 多读 6404 token 的 KV（800 MiB） | 多读 cross-attention 的 K / V（200 MiB） |
+| prefill FLOPs（图片部分） | $$2 N_{gemm} \cdot n_{img}$$：6400 token × 7.5B = 96 T | 图片一次性：8 层 K、V 投影各 $$2 d\, d_{kv} n_{img}$$ 共 0.9 T，加 7680 → 4096 的视觉投影 0.4 T，约 1.3 T。**另有随文本长度走的一项**：每个文本 token 在这 8 层里多做 Q、O 投影、对 6400 个图片 K/V 的 attention 和一个 FFN，约 $$2 \times 218\text{M} + 4 \times 6400 \times 4096 \approx 0.54$$ GFLOPs/文本 token——文本 2K 时约 1.1 T |
+| 图片 KV | 全部 32 层自注意力：6400 × 128 KiB = 800 MiB | 8 层 cross-attention：6400 × 2 × 8 × 128 × 2 B × 8 = 200 MiB（GQA 8 个 KV 头） |
+| 每步 decode 多读的字节 | 多读 6400 token 的 KV（800 MiB） | 多读 cross-attention 的 K / V（200 MiB） |
 | 图片 KV 随文本增长？ | 否，但文本 KV 与图片 KV 在同一份 cache 里 | 否，且与文本 KV 分离，形状固定 |
-| 参数量 | 不变 | 每个 cross-attention 层 $$\approx 4 d^2$$，8 层约 0.5 B（11B = 8B + 0.9B ViT + cross-attn + 投影） |
+| 参数量 | 不变 | 每个 cross-attention 层不只 4 个投影：Q、O 各 $$d^2$$，K、V 各 $$d\,d_{kv}$$（GQA），再加一个完整的 SwiGLU FFN（$$3 d\, d_{ff}$$）与两个 gate，合计约 218M/层，8 层 **1.75 B**（11B ≈ 8.0B + 0.9B ViT + 1.75B cross 层 + 31M 投影） |
 | 结构改动 | decoder 完全不变，任何 LLM 都能接 | decoder 加层，权重要重训 |
 
-cross-attention 用**参数**换**序列长度**：多了 0.5 B 参数，换来 decoder 序列不被图片撑长、图片 KV 减到四分之一。代价是 decoder 不再是"标准的 Llama"——推理引擎要为它单独实现 cross-attention 的 KV 管理（图片 KV 的形状与文本 KV 不同，不能放进同一套分页），训练框架也要处理两种 attention 的并行切分。这是它在开源社区里不如 decoder-only 注入流行的工程原因；Llama 4 已经改回 early fusion。
+cross-attention 用**参数**换**序列长度**：多了 1.75 B 参数（这 8 层对每个文本 token 也要算，所以文本侧每 token 多约 20% 的算量），换来 decoder 序列不被图片撑长、图片 KV 减到四分之一。哪边总成本低取决于文本有多长、图片有几张、生成多少 token——不是"cross 一定省"。代价是 decoder 不再是"标准的 Llama"——推理引擎要为它单独实现 cross-attention 的 KV 管理（图片 KV 的形状与文本 KV 不同，不能放进同一套分页），训练框架也要处理两种 attention 的并行切分。这是它在开源社区里不如 decoder-only 注入流行的工程原因；Llama 4 已经改回 early fusion。
 
 ## 六、位置编码：从一维到三维
 
@@ -284,7 +286,7 @@ $$n_{audio} = \frac{T_{sec}}{30} \times 1500 = 50\ \text{token / 秒}$$
 
 ## 八、训练侧的账
 
-### 1. 冻结 encoder 省的是状态，不是激活
+### 1. 冻结 encoder 省的主要是激活，状态只是小头
 
 多模态模型的训练通常分阶段：先冻结 encoder 与 LLM、只训 connector（对齐），再解冻 LLM（指令微调），encoder 是否解冻各家不同（LLaVA-1.5 冻结，Qwen2-VL 在前两个阶段训练 ViT、第三阶段冻结）。用第六篇的训练状态公式看冻结省了什么：
 
@@ -325,9 +327,10 @@ class VisionConfig:
     tile: int = 0           # 固定 tile 边长（px）；0 表示原生动态分辨率
     max_tiles: int = 1
     cls_token: int = 0
+    tile_attn: bool = False   # True: 各 tile 独立过 encoder（InternVL）；False: 多 tile 拼成一个序列做 attention（Llama-3.2）
 
 CLIP_L_336 = VisionConfig("CLIP ViT-L/14-336", 24, 1024, tile=336, cls_token=1)
-INTERN_VIT_300M = VisionConfig("InternViT-300M", 24, 1024, merge=2, tile=448, max_tiles=13)
+INTERN_VIT_300M = VisionConfig("InternViT-300M", 24, 1024, merge=2, tile=448, max_tiles=13, tile_attn=True)
 QWEN2_VL_VIT = VisionConfig("Qwen2-VL ViT", 32, 1280, merge=2)
 LLAMA32_VIT = VisionConfig("Llama-3.2 ViT-H/14", 40, 1280, tile=560, max_tiles=4, cls_token=1)
 
@@ -347,22 +350,27 @@ def image_patches(v, h, w, tiles=1):
 def image_tokens(v, h, w, tiles=1):
     """connector 之后进入 decoder 的 token 数（tile 方案里 CLS 不进 decoder）。"""
     if v.tile:
-        return tiles * ((v.tile // v.patch) ** 2 // v.merge ** 2 + v.cls_token)
+        return tiles * ((v.tile // v.patch) ** 2 // v.merge ** 2)
     return image_patches(v, h, w) // v.merge ** 2
 
-def vit_flops(v, n_patches, window=0, full_layers=0):
-    """一张图的 encoder FLOPs；window>0 时按窗口 attention 计，full_layers 层做全图 attention。"""
+def vit_flops(v, n_patches, window=0, full_layers=0, tiles=1):
+    """一张图的 encoder FLOPs；window>0 时按窗口 attention 计，full_layers 层做全图 attention。
+    tiles>1 且 v.tile_attn 时各 tile 独立做 attention（二次项按每 tile 求和，而不是全部 patch 平方）。"""
     weight = 2 * vit_params(v) * n_patches
     if window:
         attn = 4 * n_patches * window * v.hidden * (v.layers - full_layers) \
              + 4 * n_patches ** 2 * v.hidden * full_layers
+    elif tiles > 1 and v.tile_attn:
+        per_tile = n_patches // tiles
+        attn = tiles * 4 * per_tile ** 2 * v.hidden * v.layers
     else:
         attn = 4 * n_patches ** 2 * v.hidden * v.layers
     return weight, attn
 
 def image_cost_in_decoder(cfg, n_img, dtype_bytes=2):
     """image token 在 decoder 里的三个数：prefill FLOPs、KV 字节、encoder 输出字节。"""
-    gemm_params = param_count(cfg)["total"] - cfg.vocab * cfg.hidden
+    # 输入 embedding 是查表不算 GEMM；tied 模型那张表兼作 lm_head，仍要算
+    gemm_params = param_count(cfg)["total"] - (0 if cfg.tie_embeddings else cfg.vocab * cfg.hidden)
     return {
         "prefill_flops": 2 * gemm_params * n_img,
         "kv_bytes": n_img * kv_bytes_per_token(cfg, dtype_bytes),
@@ -374,7 +382,7 @@ if __name__ == "__main__":
     for v, (h, w, tiles) in [(CLIP_L_336, (336, 336, 1)), (QWEN2_VL_VIT, (1024, 1024, 1)),
                              (INTERN_VIT_300M, (1024, 1024, 5)), (LLAMA32_VIT, (1024, 1024, 4))]:
         n_p, n_t = image_patches(v, h, w, tiles), image_tokens(v, h, w, tiles)
-        wf, af = vit_flops(v, n_p)
+        wf, af = vit_flops(v, n_p, tiles=tiles)
         print(f"{v.name:22s} patches {n_p:5d} tokens {n_t:5d} "
               f"encoder {(wf + af) / 1e12:5.2f} TFLOP (attn {af / (wf + af):.0%})")
         for cfg in (LLAMA3_8B, LLAMA3_70B):
@@ -387,14 +395,17 @@ if __name__ == "__main__":
 
 ```text
 CLIP ViT-L/14-336      patches   577 tokens   576 encoder  0.38 TFLOP (attn 8%)
-    Llama-3-8B   prefill    9.3 TFLOP  KV    72.0 MiB  enc-out   4.5 MiB
-    Llama-3-70B  prefill   81.3 TFLOP  KV   180.0 MiB  enc-out   9.0 MiB
-Qwen2-VL ViT           patches  5476 tokens  1369 encoder 11.80 TFLOP (attn 42%)
-    Llama-3-8B   prefill   22.0 TFLOP  KV   171.1 MiB  enc-out  10.7 MiB
-    Llama-3-70B  prefill  193.3 TFLOP  KV   427.8 MiB  enc-out  21.4 MiB
-Llama-3.2 ViT-H/14     patches  6404 tokens  6404 encoder 18.47 TFLOP (attn 45%)
-    Llama-3-8B   prefill  102.9 TFLOP  KV   800.5 MiB  enc-out  50.0 MiB
-    Llama-3-70B  prefill  904.2 TFLOP  KV  2001.2 MiB  enc-out 100.1 MiB
+    Llama-3-8B   prefill    8.6 TFLOP  KV    72.0 MiB  enc-out   4.5 MiB
+    Llama-3-70B  prefill   80.1 TFLOP  KV   180.0 MiB  enc-out   9.0 MiB
+Qwen2-VL ViT           patches  5476 tokens  1369 encoder 11.81 TFLOP (attn 42%)
+    Llama-3-8B   prefill   20.5 TFLOP  KV   171.1 MiB  enc-out  10.7 MiB
+    Llama-3-70B  prefill  190.3 TFLOP  KV   427.8 MiB  enc-out  21.4 MiB
+InternViT-300M         patches  5120 tokens  1280 encoder  3.61 TFLOP (attn 14%)
+    Llama-3-8B   prefill   19.2 TFLOP  KV   160.0 MiB  enc-out  10.0 MiB
+    Llama-3-70B  prefill  177.9 TFLOP  KV   400.0 MiB  enc-out  20.0 MiB
+Llama-3.2 ViT-H/14     patches  6404 tokens  6400 encoder 18.48 TFLOP (attn 45%)
+    Llama-3-8B   prefill   96.1 TFLOP  KV   800.0 MiB  enc-out  50.0 MiB
+    Llama-3-70B  prefill  889.6 TFLOP  KV  2000.0 MiB  enc-out 100.0 MiB
 ```
 
 ### 2. 成本表新增的一列
@@ -405,7 +416,7 @@ Llama-3.2 ViT-H/14     patches  6404 tokens  6404 encoder 18.47 TFLOP (attn 45%)
 |---|---|---|---|
 | encoder FLOPs | 0.38 T | 11.8 T | 18.5 T |
 | encoder 时间下界（H100） | 0.4 ms | 12 ms | 19 ms |
-| decoder prefill FLOPs | 9.3 T | 22 T | 1.3 T（仅投影） |
+| decoder prefill FLOPs | 8.6 T | 20.5 T | 1.3 T（图片投影）+ 文本每 token 多 0.54 G |
 | prefill 时间下界 | 9 ms | 22 ms | 1.3 ms |
 | image KV（8B 规格） | 72 MiB | 171 MiB | 200 MiB（8 层 cross-attn，与 decoder 层数无关） |
 | encoder 输出 | 4.5 MiB | 10.7 MiB | 50 MiB（7680 维拼接前） |
@@ -427,7 +438,7 @@ Llama-3.2 ViT-H/14     patches  6404 tokens  6404 encoder 18.47 TFLOP (attn 45%)
 | encoder FLOPs | $$2 N_{vit} n_p + 4 L_{vit} n_p^2 d_{vit}$$ | 11.8 TFLOP | 一次性、compute-bound、与 batch 无关 |
 | image token 数 | $$(H/28)(W/28)$$ | 1369 | 由分辨率与 connector 压缩比决定 |
 | encoder 输出 | $$n_{img} \cdot d_{model} \cdot 2$$ B | 21 MiB | prefill 后即可释放 |
-| prefill FLOPs | $$2 N_{dec} \cdot n_{img}$$ | 193 TFLOP | 与同样长度的文本相同 |
+| prefill FLOPs | $$2 N_{gemm} \cdot n_{img}$$ | 190 TFLOP | 与同样长度的文本相同 |
 | image KV | $$n_{img} \cdot 2 L n_{kv} d_{head} \cdot 2$$ B | 428 MiB | 活到请求结束；是 encoder 输出的 $$2 L n_{kv} d_{head} / d_{model} = 20$$ 倍 |
 
 ## 十一、自测
@@ -477,5 +488,5 @@ Llama-3.2 ViT-H/14     patches  6404 tokens  6404 encoder 18.47 TFLOP (attn 45%)
 本系列到此为止。紧接着的系列[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)用同样的方法算这张成本表的训练侧，第一篇是[分词与词表：BPE、词表大小与 token 效率](/tokenizer-vocabulary-and-token-efficiency.html)。
 
 [^q0]: 约 **1369** 个：Qwen2-VL 每 $$14 \times 14$$ 像素一个 patch、2×2 merge 后每 $$28 \times 28$$ 像素一个 token，$$(1024/28)^2 \approx 1369$$。token 数由 connector 的合并比例与图片分辨率决定，与文本长度无关。详见[第二章](#二从像素到-patchvision-encoder-的账)、[第三章](#三connector谁决定-image-token-数)。
-[^q1]: encoder 一次性 11.8 TFLOP、compute-bound、与 batch 无关；connector 几乎不花；decoder 的 prefill 193 TFLOP 与同样长度的文本一样；真正长期占用的是 **image token 在 decoder 里的 KV**——1369 个 token × 每 token 320 KiB（7B 规格）≈ 428 MiB，活到请求结束。详见[第二章](#二从像素到-patchvision-encoder-的账)、[第四章](#四image-token-在-decoder-里真正的账)。
+[^q1]: encoder 一次性 11.8 TFLOP、compute-bound、与 batch 无关；connector 几乎不花；decoder 的 prefill 190 TFLOP 与同样长度的文本一样；真正长期占用的是 **image token 在 decoder 里的 KV**——1369 个 token × 每 token 320 KiB（7B 规格）≈ 428 MiB，活到请求结束。详见[第二章](#二从像素到-patchvision-encoder-的账)、[第四章](#四image-token-在-decoder-里真正的账)。
 [^q2]: 两个数在流水线的不同位置。encoder / connector 的输出是 $$n_{img} \times d_{model} \times 2$$ 字节 ≈ 21 MiB，prefill 之后就能释放；这些 token 进入 decoder 后每层每个 KV 头都要存一份 K、V，放大 $$2 L n_{kv} d_{head} / d_{model} \approx 20$$ 倍。对推理系统的含义：图片请求的 KV 需求由分辨率决定，方差远大于文本。详见[第四章](#四image-token-在-decoder-里真正的账)。

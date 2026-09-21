@@ -75,7 +75,7 @@ t=4   q4 k4 v4     [k1 v1][k2 v2][k3 v3][k4 v4]           4 行    q4·[k1 … k
 
 也就是说不缓存时**每一步都是一次 $$t$$ 个 token 的 prefill**，单步 $$O(t^2)$$，生成 $$s$$ 个 token 累计 $$O(s^3)$$。缓存之后，每一步只算当前 token 的投影（权重项 $$2N$$ FLOPs），attention 项退化为 $$4 d t$$ 每层——单步 $$O(t)$$，累计 $$O(s^2)$$。
 
-用 Llama-3-8B 在 $$t = 4096$$ 处生成一个 token 感受一下差距。不缓存：权重项 $$15.0 \times 4096 \approx 61$$ TFLOP，attention 项 $$0.524 \text{ M} \times 4096^2 \approx 8.8$$ TFLOP，合计约 70 TFLOP，H100 上按 60% MFU 约 0.12 秒——**一个 token**。缓存：权重项 15 GFLOPs，attention 项 $$0.524 \text{ M} \times 4096 \approx 2.1$$ GFLOPs，合计 17 GFLOPs，且瓶颈在读权重与读 KV 的几毫秒上。两者差了四个数量级。所以"要不要 KV cache"从来不是一个选项，问题只是它要占多少显存、怎么让它占得更少。
+用 Llama-3-8B 在 $$t = 4096$$ 处生成一个 token 感受一下差距。不缓存：权重项 $$15.0 \times 4096 \approx 61$$ TFLOP，attention 项 $$0.524 \text{ M} \times 4096^2 \approx 8.8$$ TFLOP，合计约 70 TFLOP，H100 上按 60% MFU 约 0.12 秒——**一个 token**。缓存：权重项 15 GFLOPs，attention 项 $$0.524 \text{ M} \times 4096 \approx 2.1$$ GFLOPs，合计 17 GFLOPs，且瓶颈在读权重与读 KV 的几毫秒上。**算量**差了四个数量级（70 T 对 17 G）；**时间**差得少一些——0.12 s 对约 5 ms，二十几倍——因为缓存之后那一步是 memory-bound，时间不再由 FLOPs 决定。所以"要不要 KV cache"从来不是一个选项，问题只是它要占多少显存、怎么让它占得更少。
 
 代价是显存：$$K$$、$$V$$ 每层每 token 都要留在 HBM 里，并且每一步都要被读一遍。
 
@@ -268,16 +268,15 @@ flowchart TB
         UQ["W_UQ + W_QR: 1536 → 128 × 192"]
         QC["q^C_t: 128 head × 128"]
         QR["q^R_t: 128 head × 64<br/>每 head 各自 RoPE"]
+        QC ~~~ QR
     end
     subgraph kvside["KV 侧"]
         direction TB
         DKV["W_DKV + W_KR: 7168 → 576"]
         CKV["c^KV_t (512)<br/>RMSNorm"]
         KR["k^R_t (64)<br/>RoPE，128 个 head 共享"]
-        UK["W_UK: 512 → 128 × 128"]
-        UV["W_UV: 512 → 128 × 128"]
-        KC["k^C_t: 128 head × 128"]
-        VC["v^C_t: 128 head × 128"]
+        UKV["W_UK / W_UV: 512 → 128 × 128 各一份"]
+        KVC["k^C_t / v^C_t: 128 head × 128 各一份"]
     end
     CAT["q_t,h = #91;q^C ; q^R#93; (192)<br/>k_j,h = #91;k^C ; k^R#93; (192)"]
     ATT["softmax(q·k / √192) · v^C<br/>128 个 head，各得 128 维"]
@@ -290,20 +289,19 @@ flowchart TB
     H --> DKV
     DKV --> CKV
     DKV --> KR
-    CKV --> UK --> KC
-    CKV --> UV --> VC
+    CKV --> UKV --> KVC
     QC --> CAT
     QR --> CAT
-    KC --> CAT
+    KVC -->|"k^C"| CAT
     KR --> CAT
     CAT --> ATT
-    VC --> ATT
+    KVC -->|"v^C"| ATT
     ATT --> WO --> U
 
     classDef cache fill:#fde68a,stroke:#b45309,stroke-width:2px,stroke-dasharray:5 3;
     classDef weight fill:#e0e7ff,stroke:#4338ca;
     class CKV,KR cache;
-    class DQ,UQ,DKV,UK,UV,WO weight;
+    class DQ,UQ,DKV,UKV,WO weight;
 ```
 
 黄色虚线框是 cache 里的全部内容：每 token 每层 512 + 64 = 576 个数。
@@ -358,7 +356,7 @@ $$
 
 $$R_{j-t}$$ 夹在 $$W_{UQ}^\top$$ 与 $$W_{UK}$$ 之间，且随 $$j - t$$ 变化。下一节要做的"矩阵吸收"依赖把 $$W_{UQ}^\top W_{UK}$$ 预先乘成一个矩阵，与位置无关；中间插一个随位置变化的 $$R_{j-t}$$，这个乘积就无法预计算——要么对每个相对位置存一个矩阵（不可能），要么老老实实把 $$c^{KV}_j$$ 升维成 $$k^C_j$$ 再旋转（那就等于放弃了压缩：升维后的 K 是 $$128 \times 128$$，每个 cached token 都要做一次 $$512 \times 16384$$ 的乘法）。
 
-所以 MLA 把 RoPE **解耦**出来：压缩路径 $$c^{KV}$$ 完全不带位置信息，位置信息由一个独立的、直接从 $$h_t$$ 算出的 64 维 $$k^R_t$$ 承载；它是已经旋转好的，缓存的就是旋转后的值，所有 head 共用。代价是每 token 每层多缓存 64 个数（576 而不是 512，多 12.5%），换来压缩路径可以做矩阵吸收。
+所以 MLA 把 RoPE **解耦**出来：压缩路径 $$c^{KV}$$ 不施加旋转（上面证明的是"对升维后的每个 head 做标准 RoPE"会挡住吸收，不是 latent 空间里不能有别的位置方案；$$c^{KV}$$ 本身当然还带着上层残差流里的位置信息），位置信息由一个独立的、直接从 $$h_t$$ 算出的 64 维 $$k^R_t$$ 承载；它是已经旋转好的，缓存的就是旋转后的值，所有 head 共用。代价是每 token 每层多缓存 64 个数（576 而不是 512，多 12.5%），换来压缩路径可以做矩阵吸收。
 
 ### 5. 矩阵吸收
 
@@ -370,7 +368,7 @@ $$
 (q^C_{t,h})^\top k^C_{j,h} = (q^C_{t,h})^\top W_{UK,h}\, c^{KV}_j = \left(W_{UK,h}^\top q^C_{t,h}\right)^\top c^{KV}_j
 $$
 
-把 $$W_{UK,h}^\top$$ 移到 query 一侧：先算 $$\tilde q_{t,h} = W_{UK,h}^\top q^C_{t,h} \in \mathbb{R}^{512}$$，这是**每步只做一次**的小计算（128 个 head 各一个 $$512 \times 128$$ 的矩阵向量乘），然后 $$\tilde q_{t,h}$$ 直接与 cache 里的 $$c^{KV}_j$$ 做 512 维点积。更进一步，$$W_{UK,h}^\top W_{UQ,h}$$ 可以离线乘成一个 $$512 \times 1536$$ 的矩阵，query 从 $$c^Q_t$$ 一步得到 $$\tilde q_{t,h}$$——这就是"把 $$W_{UK}$$ 吸进 $$W_{UQ}$$"。
+把 $$W_{UK,h}^\top$$ 移到 query 一侧：先算 $$\tilde q_{t,h} = W_{UK,h}^\top q^C_{t,h} \in \mathbb{R}^{512}$$，这是**每步只做一次**的小计算（128 个 head 各一个 $$512 \times 128$$ 的矩阵向量乘），然后 $$\tilde q_{t,h}$$ 直接与 cache 里的 $$c^{KV}_j$$ 做 512 维点积。更进一步，$$W_{UK,h}^\top W_{UQ,h}$$ 可以离线乘成一个 $$512 \times 1536$$ 的矩阵，query 从 $$c^Q_t$$ 一步得到 $$\tilde q_{t,h}$$——这就是"把 $$W_{UK}$$ 吸进 $$W_{UQ}$$"。两种做法代数上等价，成本不同：**运行时重结合**（每步先 $$W_{UQ}$$ 再 $$W_{UK}^\top$$）不改权重字节；**离线预合并**把 128 个 $$[128, 1536]$$ 与 $$[128, 512]$$ 换成 128 个 $$[512, 1536]$$，常驻权重从约 $$128 \times 128 \times (1536 + 512) = 33.6$$M 涨到 $$128 \times 512 \times 1536 = 100.7$$M，每步多读这些字节。实际实现（vLLM、FlashMLA 等）多取运行时重结合，只把"在 latent 上做 attention"这一点吸收进去。
 
 再把 RoPE 部分拼上，完整的 score 是：
 
@@ -386,7 +384,7 @@ $$
 o_{t,h} = \sum_j p_{t,j,h}\, v^C_{j,h} = \sum_j p_{t,j,h}\, W_{UV,h}\, c^{KV}_j = W_{UV,h} \left(\sum_j p_{t,j,h}\, c^{KV}_j\right)
 $$
 
-先在 512 维的 latent 上做加权和 $$\tilde o_{t,h} = \sum_j p_{t,j,h} c^{KV}_j$$，再乘 $$W_{UV,h}$$；而 $$W_O$$ 紧跟其后，$$u_t = \sum_h W_{O,h} W_{UV,h} \tilde o_{t,h}$$，其中 $$W_{O,h} W_{UV,h}$$ 是 $$7168 \times 512$$，可以离线乘好——这就是"把 $$W_{UV}$$ 吸进 $$W_O$$"。
+先在 512 维的 latent 上做加权和 $$\tilde o_{t,h} = \sum_j p_{t,j,h} c^{KV}_j$$，再乘 $$W_{UV,h}$$；而 $$W_O$$ 紧跟其后，$$u_t = \sum_h W_{O,h} W_{UV,h} \tilde o_{t,h}$$，其中 $$W_{O,h} W_{UV,h}$$ 是 $$7168 \times 512$$，可以离线乘好——这就是"把 $$W_{UV}$$ 吸进 $$W_O$$"。同样要算一笔账：原来的 $$W_O$$（$$7168 \times 16384$$）加 $$W_{UV}$$（$$128 \times 512 \times 128$$）共约 125.8M 参数，合并后 128 个 $$[7168, 512]$$ 是 469.8M——大了 3.7 倍。所以"吸收"在工程上通常指**先在 latent 上做加权和、再依次乘 $$W_{UV,h}$$ 与 $$W_O$$**（重结合次序），而不是真的把权重乘成一个大矩阵。
 
 吸收之后，attention 核心（softmax 前后两次矩阵乘）看到的形状是：
 
@@ -722,7 +720,7 @@ DeepSeek-V3      16    671GB    4231    2115     528     132
 
 - 并发数是**只算权重与 KV cache 的上界**。实际引擎还要留激活（prefill 一个 chunk 的中间张量）、CUDA graph、框架自身的显存，vLLM 默认 `gpu_memory_utilization=0.9` 一类的预留会再压掉 10% 左右，可以用 `reserve_frac` 模拟；
 - Llama-3-8B 在一张 H100 上 128K 上下文只能放 3 条序列，这就是"长上下文 = 低并发"的定量版本；8K 上下文 59 条对应第二章"64 条 8K 序列"的估算（差别来自 16.06 GB 权重与 64 GiB 预算的取整）；
-- DeepSeek-V3 的 FP8 权重 671 GB 放不进 8 张 H100（640 GB），表里用了 16 卡；即便如此每卡分到的 KV 预算只有约 38 GB，但因为每 token 只有 68.6 KiB，128K 上下文仍能放 66 条——这就是 MLA 对服务成本的意义；
+- DeepSeek-V3 的 FP8 权重 671 GB 放不进 8 张 H100（640 GB），表里用了 16 卡；即便如此每卡分到的 KV 预算只有约 38 GB，但因为每 token 只有 68.6 KiB，128K 上下文仍能放 66 条——这就是 MLA 对服务成本的意义。注意这一行假设 KV 在 16 卡间**完美分片**、权重均匀切分，是容量上界；真实部署（报告 3.4：attention TP4 × DP、专家 EP、冗余专家）里每卡的权重与 KV 预算都不同，并发要按实际布局重算，第五篇第四章有说明；
 - FP8 KV 让每一格翻倍，且不改变模型结构，是所有优化中性价比最高的一项——前提是质量可接受。
 
 下一篇会给 `kv_bytes` 加上上下文长度扫描，把 RoPE 外推与 KV 显存放在同一张图里看。
@@ -808,5 +806,5 @@ MLA 的 K、V 之所以能压成 576 个数，前提是 RoPE 被单独拿了出�
 
 [位置编码与长上下文](/positional-encoding-and-long-context.html)
 
-[^q0]: KV cache 每 token 的字节数是 $$2 L n_{kv} d_{head} \times$$ bytes/elem，与 head 总数 $$n_h$$ 无关。Llama-3-8B 是 $$2 \times 32 \times 8 \times 128 \times 2 = 128$$ KiB；DeepSeek-V3 的 MLA 不存 K、V，而是存一个 512 维的压缩 latent 加 64 维解耦 RoPE key，每 token 每层 576 个数、61 层、FP8 一字节，约 68.6 KiB——128 个头在 decode 时共享同一个 latent。GQA 是另一条路：把 $$n_{kv}$$ 从 32 降到 8，KV 缩 4 倍。详见[第三章](#三mqa-与-gqa直接减少-kv-head)、[第四章](#四mla把-kv-压成一个-latent)。
-[^q1]: MLA 的 K、V 要从 latent 升维恢复，算量比 GQA 大：把升维矩阵吸收进 $$W_Q$$、$$W_O$$ 后 decode 等价于 128 头共享一个 576/512 维 KV 头的 MQA，attention 核心 FLOPs 约 3.4 倍，所以 prefill 走非吸收路径、decode 走吸收路径；RoPE 必须解耦成单独的 64 维，因为位置相关的旋转不能被吸进与位置无关的矩阵。用算力换字节，在 memory-bound 的 decode 上划得来。详见[第四章](#四mla把-kv-压成一个-latent)。
+[^q0]: KV cache 每 token 的字节数是 $$2 L n_{kv} d_{head} \times$$ bytes/elem，与 head 总数 $$n_h$$ 无关。Llama-3-8B 是 $$2 \times 32 \times 8 \times 128 \times 2 = 128$$ KiB；DeepSeek-V3 的 MLA 不存 K、V，而是存一个 512 维的压缩 latent 加 64 维解耦 RoPE key，每 token 每层 576 个数、61 层、BF16 两字节，约 68.6 KiB（FP8 存 KV 则 34.3 KiB）——128 个头在 decode 时共享同一个 latent。GQA 是另一条路：把 $$n_{kv}$$ 从 32 降到 8，KV 缩 4 倍。详见[第三章](#三mqa-与-gqa直接减少-kv-head)、[第四章](#四mla把-kv-压成一个-latent)。
+[^q1]: MLA 的 K、V 要从 latent 升维恢复，算量比 GQA 大：把升维矩阵吸收进 $$W_Q$$、$$W_O$$ 后 decode 等价于 128 头共享一个 576/512 维 KV 头的 MQA，attention 核心 FLOPs 是同一 MLA 非吸收路径的约 3.4 倍（320 → 1088 每 token 每 cached token），所以 prefill 走非吸收路径、decode 走吸收路径；RoPE 必须解耦成单独的 64 维，因为位置相关的旋转不能被吸进与位置无关的矩阵。用算力换字节，在 memory-bound 的 decode 上划得来。详见[第四章](#四mla把-kv-压成一个-latent)。

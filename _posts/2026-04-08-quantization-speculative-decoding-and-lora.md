@@ -86,7 +86,7 @@ q = \text{clamp}\left( \text{round}\left(\frac{w}{s}\right) + z,\ 0,\ 2^b - 1 \r
 \hat{w} = s \cdot (q - z)
 $$
 
-常写成 $$\hat{w} = s \cdot \text{round}(w/s) + z$$ 的形式。$$s$$ 是 scale，$$z$$ 是 zero point。**对称量化** $$z = 0$$，$$s = \max\lvert w\rvert  / (2^{b-1} - 1)$$，整数范围以 0 为中心；**非对称量化** $$z \neq 0$$，$$s = (\max w - \min w) / (2^b - 1)$$，把实际的 $$[\min, \max]$$ 区间完整映射到 $$[0, 2^b - 1]$$，对分布偏斜的权重多用掉一个 bit 的表达力。
+$$s$$ 是 scale（实数），$$z$$ 是 zero point（一个**整数**编码，表示实数 0 落在哪一格）。注意 $$z$$ 是加在整数一侧的，解码时先减 $$z$$ 再乘 $$s$$；有些资料写成 $$\hat w = s \cdot \text{round}(w/s) + z$$，那里的 $$z$$ 就得是实数偏移、量纲是 $$w$$ 而不是格点，两种写法不能混。用一个 3 值例子核对：$$b = 2$$、$$w \in [-1.5, 3]$$，非对称 $$s = 4.5/3 = 1.5$$、$$z = \text{round}(1.5/1.5) = 1$$；$$w = -1.5 \to q = \text{round}(-1) + 1 = 0 \to \hat w = 1.5 \times (0 - 1) = -1.5$$，$$w = 3 \to q = 3 \to \hat w = 1.5 \times 2 = 3$$，端点都还原。**对称量化** $$z = 0$$，$$s = \max\lvert w\rvert  / (2^{b-1} - 1)$$，整数范围以 0 为中心；**非对称量化** $$z \neq 0$$，$$s = (\max w - \min w) / (2^b - 1)$$，把实际的 $$[\min, \max]$$ 区间完整映射到 $$[0, 2^b - 1]$$，对分布偏斜的权重多用掉一个 bit 的表达力。
 
 $$s$$ 与 $$z$$ 按什么范围共享，决定了量化的**粒度**：
 
@@ -158,7 +158,7 @@ $$
 
 FLOPs 没变，Tensor Core 还是 BF16 的，权重那 16 GB 本来在 0.12 s 里只占 4.8 ms，省掉 3/4 也只是省了 3.6 ms。而反量化是纯增加的工作：每个权重元素在被用于 8192 行的乘加之前，要先做一次移位、掩码、乘 scale、加 zero，且 W4A16 kernel 在大 $$m$$ 下通常达不到 cuBLAS BF16 GEMM 的效率。结果是 **prefill 可能比 BF16 更慢**。
 
-把反量化的成本放进模型里看得更清楚。一个 W4A16 GEMM kernel 对每个权重元素做的额外工作是常数（几条整数与浮点指令），总量与 $$kn$$ 成正比、与 $$m$$ 无关；而有用的乘加与 $$mkn$$ 成正比。$$m = 1$$ 时两者同量级，但此时 kernel 在等 HBM，反量化藏在访存延迟后面；$$m = 8192$$ 时有用计算是反量化的 8192 倍，反量化本身可忽略，但它占用的寄存器与指令槽、以及为了容纳 INT4 布局而偏离 cuBLAS 最优 tile 形状的代价，让 kernel 的 MFU 低于纯 BF16 GEMM。所以"prefill 更慢"的幅度不是理论能算出来的，取决于 kernel 实现；理论能说的是它**不可能更快**。
+把反量化的成本放进模型里看得更清楚。一个 W4A16 GEMM kernel 对每个权重元素做的额外工作是常数（几条整数与浮点指令），总量与 $$kn$$ 成正比、与 $$m$$ 无关；而有用的乘加与 $$mkn$$ 成正比。$$m = 1$$ 时两者同量级，但此时 kernel 在等 HBM，反量化藏在访存延迟后面；$$m = 8192$$ 时有用计算是反量化的 8192 倍，反量化本身可忽略，但它占用的寄存器与指令槽、以及为了容纳 INT4 布局而偏离 cuBLAS 最优 tile 形状的代价，让 kernel 的 MFU 低于纯 BF16 GEMM。所以"prefill 更慢"的幅度不是理论能算出来的，取决于 kernel 实现；理论能说的只是**字节数少这一项在 compute-bound 区兑现不了**——它不能证明 W4A16 prefill 一定不比 BF16 快：两边的 FLOPs 下界相同，实际快慢由 kernel 效率决定，权重更小也可能带来 L2 命中率等次级收益。实践中 W4A16 的 prefill 通常持平或略慢，把它当经验事实而不是定理。
 
 同一个 4.25 bit 的权重文件，decode 快约 4 倍（理论），prefill 慢——不是两种现象，是 Roofline 上两个位置：一个在斜线上（字节数决定时间，字节减少直接兑现），一个在平台上（FLOPs 决定时间，字节减少不兑现，反量化的额外指令反而算进去）。
 
@@ -196,8 +196,10 @@ $$
 GPTQ（Frantar 等 2022）继承 OBQ（Optimal Brain Quantization）的思路：**逐个量化权重，每量化一个，就调整剩下未量化的权重去补偿它带来的输出误差**。对一个线性层的一行权重 $$w \in \mathbb{R}^{d_{in}}$$，让量化后的输出尽量接近原输出：
 
 $$
-\min_{\hat{w}} \ \| w X - \hat{w} X \|_2^2 = (w - \hat{w}) H (w - \hat{w})^\top, \qquad H = 2 X X^\top
+\min_{\hat{w}} \ \| w X - \hat{w} X \|_2^2 = \tfrac{1}{2}\,(w - \hat{w}) H (w - \hat{w})^\top, \qquad H = 2 X X^\top
 $$
+
+（OBS/GPTQ 沿用 $$H = 2XX^\top$$ 的写法，所以前面带 $$\tfrac12$$；这个常数不影响 $$\arg\min$$，下面的更新公式里也约掉了。）
 
 $$H \in \mathbb{R}^{d_{in} \times d_{in}}$$ 是这个二次目标的 Hessian，由该层的输入 $$X$$ 决定，**对矩阵的所有行相同**。OBQ 的结论是：把第 $$q$$ 个权重量化为 $$\text{quant}(w_q)$$ 后，其余权重的最优更新是
 
@@ -205,7 +207,7 @@ $$
 \delta = -\frac{w_q - \text{quant}(w_q)}{[H^{-1}]_{qq}} \cdot H^{-1}_{:, q}
 $$
 
-即量化误差按 $$H^{-1}$$ 第 $$q$$ 列的比例分摊到其他权重上，然后从 $$H^{-1}$$ 中删去第 $$q$$ 行列继续。GPTQ 做了三处工程改造使它能跑到百亿参数：
+即量化误差按 $$H^{-1}$$ 第 $$q$$ 列的比例分摊到其他权重上，然后把第 $$q$$ 个权重从问题中移除、更新 $$H^{-1}$$ 继续——这一步不是简单删掉一行一列，而是按 Schur 补 $$H^{-1} \leftarrow H^{-1} - H^{-1}_{:,q} H^{-1}_{q,:} / [H^{-1}]_{qq}$$ 更新后再去掉该行列（GPTQ 用 Cholesky 分解一次性得到所有列的这个量）。GPTQ 做了三处工程改造使它能跑到百亿参数：
 
 1. **固定列顺序**：OBQ 每步挑误差最小的权重，各行顺序不同；GPTQ 让所有行按同一列顺序量化，于是 $$H^{-1}$$ 的更新对所有行共享，一列一列推进，每列是一次矩阵向量操作；
 2. **lazy batch**：每 128 列为一块，块内更新只作用在块内，块结束时再一次性更新块外的列，减少对 $$d_{out} \times d_{in}$$ 大矩阵的反复读写；
@@ -297,6 +299,7 @@ flowchart TB
         tc8 --> ep["epilogue：× s_w × s_a<br/>乘回 BF16"]
         ep --> o8["BF16 输出"]
     end
+    w4 ~~~ w8
     classDef mem fill:#fdebd0,stroke:#b9770e;
     classDef cvt fill:#fadbd8,stroke:#c0392b;
     classDef tc fill:#d5f5e3,stroke:#1e8449;
@@ -305,7 +308,7 @@ flowchart TB
     class tc4,tc8 tc;
 ```
 
-左边省的只有权重字节，乘加与 BF16 完全相同，反量化是加进去的工作；右边权重字节减半、activations 也变成 8 位，乘加本身换到了两倍算力的 Tensor Core 上。现在可以把两类量化放到 Roofline 上：
+上面（W4A16）省的只有权重字节，乘加与 BF16 完全相同，反量化是加进去的工作；下面（W8A8）权重字节减半、activations 也变成 8 位，乘加本身换到了两倍算力的 Tensor Core 上。现在可以把两类量化放到 Roofline 上：
 
 ```text
                  权重字节     GEMM 精度        decode (memory-bound)   prefill (compute-bound)
@@ -359,7 +362,7 @@ flowchart TB
     more -->|"否，i ← i + 1"| acc
     more -->|"是，γ 个全接受"| bonus["从 p_γ+1 再采样 1 个<br/>本轮产出 γ + 1 个"]
     acc -->|"拒绝"| rs["从 norm(max(0, p_i − q_i)) 重采样替代 x_i<br/>本轮产出 i 个"]
-    rs --> rb["回退：丢弃位置 i 之后的<br/>草稿 token 与 KV cache 条目"]
+    rs --> rb["回退：丢弃位置 i 及之后的草稿 token 与其 KV；<br/>位置 i 换成重采样的 token，<br/>它的 KV 下一轮才算"]
     rb --> nx["下一轮"]
     bonus --> nx
     nx --> dr
@@ -399,7 +402,7 @@ $$
 
 每个位置都从 $$p$$ 采样，且被接受的 token 之后的位置以它为条件——与目标模型自回归采样的联合分布逐位相同。greedy 解码是 $$p$$ 退化为 one-hot 的特例：接受当且仅当草稿与目标 argmax 一致。这个证明不依赖 $$q$$ 是什么——$$q$$ 只影响**效率**，不影响**正确性**。
 
-两点补充。第一，拒绝后的重采样分布 $$\text{norm}(\max(0, p - q))$$ 有直观含义：它只在 $$p(x) > q(x)$$ 的 token 上有质量，即"目标模型认为比草稿更可能"的那些 token——草稿高估的 token 已经被接受步骤按 $$p/q$$ 的比例采纳过了，剩下的概率质量正好是目标模型比草稿多出来的部分。第二，验证时目标模型输出的 $$\gamma + 1$$ 个分布只需要一次前向，是因为因果掩码下每个位置的输出只依赖它之前的 token，草稿序列的每个前缀恰好对应一个位置——这与 prefill 一次算出整个 prompt 所有位置的 KV 是同一件事，投机解码的验证本质上是一次长度为 $$\gamma + 1$$ 的小 prefill。被拒绝位置之后的 KV cache 条目要回退丢弃，这是引擎实现中需要处理的细节。
+两点补充。第一，拒绝后的重采样分布 $$\text{norm}(\max(0, p - q))$$ 有直观含义：它只在 $$p(x) > q(x)$$ 的 token 上有质量，即"目标模型认为比草稿更可能"的那些 token——草稿高估的 token 已经被接受步骤按 $$p/q$$ 的比例采纳过了，剩下的概率质量正好是目标模型比草稿多出来的部分。第二，验证时目标模型输出的 $$\gamma + 1$$ 个分布只需要一次前向，是因为因果掩码下每个位置的输出只依赖它之前的 token，草稿序列的每个前缀恰好对应一个位置——这与 prefill 一次算出整个 prompt 所有位置的 KV 是同一件事，投机解码的验证本质上是一次长度为 $$\gamma + 1$$ 的小 prefill。KV cache 的回退要精确到位置：被拒绝的位置 $$i$$ **本身**的 KV 是按草稿 token $$x_i$$ 算的，也要丢掉（或覆盖），保留到 $$i - 1$$；重采样出的新 token 占据位置 $$i$$，它的 KV 在下一轮验证前向里才会算出来；全接受时的 bonus token 同理。这是引擎实现中需要处理的细节。
 
 ### 3. 期望接受数与加速比
 
@@ -586,8 +589,10 @@ flowchart TB
 多 LoRA 服务把一个 batch 里属于不同 adapter 的行分组：
 
 $$
-Y = X W + \begin{bmatrix} X_1 B_1 A_1 \\ X_2 B_2 A_2 \\ \vdots \end{bmatrix}
+Y = X W^\top + \begin{bmatrix} X_1 A_1^\top B_1^\top \\ X_2 A_2^\top B_2^\top \\ \vdots \end{bmatrix}
 $$
+
+（按上文 $$W \in \mathbb{R}^{d_{out} \times d_{in}}$$、$$B A$$ 与 $$W$$ 同形的约定，行向量 $$X$$ 要右乘转置；$$\alpha / r$$ 略去。）
 
 前一项是所有请求共享的一次 GEMM，后一项是"每段 $$X_i$$ 乘各自的小矩阵"——Punica（Chen 等 2023）称之为 SGMV（Segmented Gather Matrix-Vector），一个 kernel 内按段 gather 不同的 $$A_i$$、$$B_i$$ 完成全部请求；S-LoRA（Sheng 等 2023）在此之上把 adapter 权重与 KV cache 统一分页管理，支持上千个 adapter 常驻。vLLM 的 multi-LoRA 支持基于这类 kernel。它们的成本模型与本篇的 Roofline 一致：adapter 字节数小，瓶颈在 kernel 组织，不在带宽。
 
@@ -653,7 +658,8 @@ def param_count(cfg):
 
 def forward_flops_per_token(cfg, ctx=0):
     # embedding 查表不算 GEMM；lm_head 算
-    gemm_params = param_count(cfg)["total"] - cfg.vocab * cfg.hidden
+    # 输入 embedding 是查表不算 GEMM；tied 模型那张表兼作 lm_head，仍要算
+    gemm_params = param_count(cfg)["total"] - (0 if cfg.tie_embeddings else cfg.vocab * cfg.hidden)
     return 2 * gemm_params + 4 * cfg.hidden * ctx * cfg.layers
 
 def kv_bytes_per_token(cfg, dtype_bytes=2):
@@ -678,7 +684,9 @@ def roofline_step_time(cfg, gpu, rows, weight_bytes, mfu=1.0):
 
 def speculative_speedup(alpha, gamma, c, batch, cfg, gpu, mfu=1.0):
     """投机解码相对普通 decode 的加速比；返回 (speedup, E[tokens])。"""
-    exp_tokens = (1 - alpha ** (gamma + 1)) / (1 - alpha)
+    assert 0.0 <= alpha <= 1.0
+    # alpha == 1 时几何级数的闭式是 0/0，极限是 gamma + 1（全部接受 + bonus）
+    exp_tokens = gamma + 1 if alpha == 1.0 else (1 - alpha ** (gamma + 1)) / (1 - alpha)
     w = param_count(cfg)["total"] * 2              # BF16 目标模型
     t_base = roofline_step_time(cfg, gpu, batch, w, mfu)
     t_verify = roofline_step_time(cfg, gpu, batch * (gamma + 1), w, mfu)
@@ -825,7 +833,7 @@ LoRA 额外 FLOPs（W_Q）               0.78%             0.39%             —
 
    <details markdown="1"><summary>答案</summary>
 
-   权重 GEMM 的算术强度是 $$B$$ 乘 4（字节少 4 倍），过 ridge 的 batch 从 295 降到约 75；超过它算力成为瓶颈，字节省了也没用。prefill 本来就 compute-bound，还多了片上反量化的开销。
+   两个不同的转折点要分开：W4A16 自己在 $$B \approx 75$$ 越过 ridge 变成 compute-bound（强度 $$4B$$）；但"相对 BF16 没有收益"要到 BF16 也 compute-bound、两者时间都由同样的 FLOPs 决定，即 $$B \approx 295$$——中间那段（75–295）W4A16 仍快，只是加速比从 4 倍逐渐降到 1（第三章的表里 $$B = 128$$ 仍有 2.5 倍）。prefill 本来就在 295 之外，字节省了兑现不了，还多了片上反量化的开销，所以持平或略慢。
 
    </details>
 
@@ -833,7 +841,7 @@ LoRA 额外 FLOPs（W_Q）               0.78%             0.39%             —
 
    <details markdown="1"><summary>答案</summary>
 
-   $$E = (1 - 0.8^5)/(1 - 0.8) = 3.36$$；加速 $$3.36 / (4 \times 0.1 + 1) = 2.4\times$$；验证一次前向要算 $$\gamma + 1 = 5$$ 倍的 token，等效 batch 过 ridge 的点是 $$295 / 5 \approx 60$$，之后验证不再免费，加速降到 1 以下。
+   $$E = (1 - 0.8^5)/(1 - 0.8) = 3.36$$；加速 $$3.36 / (4 \times 0.1 + 1) = 2.4\times$$；验证一次前向要算 $$\gamma + 1 = 5$$ 倍的 token，等效 batch 过 ridge 的点是 $$295 / 5 \approx 60$$，之后验证不再免费、加速开始随 $$B$$ 下降，但不是立刻低于 1：要到验证时间变成基线的 3.36 倍以上才亏（第四章的表里 $$B = 64$$ 仍有 2.38 倍、$$B = 128$$ 是 1.39 倍）。
 
    </details>
 

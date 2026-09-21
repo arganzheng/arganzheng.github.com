@@ -31,7 +31,7 @@ vocab_size           128256
 - 它有 8.03B 参数，BF16 权重 16.06 GB；
 - 每生成一个 token 需要约 15 GFLOPs（不含 attention 对上下文的那部分），而这部分在上下文 8K 时再加 4.3 GFLOPs，128K 时加 68.7 GFLOPs——超过权重那部分；
 - 每个 token 的 KV cache 占 128 KiB；如果它没有用 GQA，会是 512 KiB；
-- 在一张 H100 上，batch 为 1 的 decode 每步至少要 4.8 ms，因为要把 16 GB 权重从 HBM 读一遍；要让 Tensor Core 忙起来，batch 得接近三百。
+- 在一张 H100 上，batch 为 1 的 decode 每步至少要 4.5–4.8 ms，因为要把约 15–16 GB 权重从 HBM 读一遍；要让 Tensor Core 忙起来，batch 得接近三百。
 
 这些推导是本系列的全部内容。系列不由 API 驱动——不讲 `transformers` 库怎么用、不讲如何调 prompt；它由**推导**驱动：每一篇给出公式、代入公开模型的真实超参数、得到数字，再解释这个数字对系统设计意味着什么。
 
@@ -179,11 +179,11 @@ $$
 - attention 对上下文的那部分：$$QK^\top$$ 与 $$PV$$ 每层每 token 各 $$2 \cdot n_h \cdot d_{head} \cdot s = 2ds$$ FLOPs，合计 $$4ds$$；对 Llama-3-8B 这是每层 $$16384 \cdot s$$，32 层共 $$0.52\,\text{MFLOPs} \times s$$；上下文 8K 时 4.3 GFLOPs，128K 时 68.7 GFLOPs，与权重部分的 15 GFLOPs 对比；
 - 训练的 $$6ND$$：前向 $$2N$$，反向约 $$4N$$（对输入的梯度和对权重的梯度各一次），乘以 token 总数；激活重算再加一个前向；
 - prefill 与 decode 的区别：prefill 一次处理 $$s$$ 个 token，GEMM 的 $$m$$ 维是 $$s$$；decode 每步处理 1 个 token，$$m$$ 维是 batch 大小；
-- 访存量：权重每步必须读一遍——Llama-3-8B BF16 是 16.06 GB；KV cache 每步读一遍——每个 token 128 KiB 乘以上下文长度乘以 batch；激活值在 decode 时可以忽略；
+- 访存量：参与 GEMM 的权重每步必须读一遍——Llama-3-8B BF16 驻留 16.06 GB、每步流量约 15.0 GB（embedding 只 gather 不整表读）；KV cache 每步读一遍——每个 token 128 KiB 乘以上下文长度乘以 batch；激活值在 decode 时可以忽略；
 - Roofline：算术强度 $$I = \text{FLOPs} / \text{bytes}$$；H100 SXM 的 ridge point 约 $$989 / 3.35 \approx 295$$ FLOP/byte（BF16 dense 算力 989 TFLOPS，HBM3 带宽 3.35 TB/s），A100 约 156；
 - decode 的算术强度：batch 为 $$B$$ 时，权重 GEMM 的强度约为 $$B$$ FLOP/byte（每 2 字节权重做 $$2B$$ 次运算）；$$B = 1$$ 时距 ridge point 差两个数量级——这就是"decode 是 memory-bound 的"的全部含义；
-- decode 每步的时间下界：Llama-3-8B 在 H100 上 $$16.06\,\text{GB} / 3.35\,\text{TB/s} \approx 4.8$$ ms，即单请求最多约 200 token/s；加上 KV cache：上下文 8K、batch 64 时 KV 读取 64 GiB，已远超权重；
-- prefill 的时间下界：8K 个 token 约 $$8192 \times 19\,\text{GFLOPs} \approx 156$$ TFLOP，按 60% 的 MFU 约 0.26 s；这是 TTFT 的物理下限；
+- decode 每步的时间下界：Llama-3-8B 在 H100 上约 $$15.0\,\text{GB} / 3.35\,\text{TB/s} \approx 4.5$$ ms（按全部 16.06 GB 粗算 4.8 ms），即 BF16 单卡单请求理想上限约 220 token/s——量化、投机、多卡 TP 都能超过它；加上 KV cache：上下文 8K、batch 64 时 KV 读取 64 GiB，已远超权重；
+- prefill 的时间：8K 个 token 约 $$8192 \times 19\,\text{GFLOPs} \approx 156$$ TFLOP，峰值下 0.16 s 是物理下限，按 60% 的经验 MFU 约 0.26 s；
 - 激活值显存：训练时每层每 token 的激活值随 $$d$$、$$s$$、head 数变化的估算式（Megatron 团队论文中的 $$s b h (34 + 5 a s / h)$$ 字节，不用 FlashAttention 时），以及为什么 $$s^2$$ 项让长序列训练必须重算或用 FlashAttention；
 - MFU 与 HFU：如何从 token 吞吐反推硬件利用率，为什么 40–50% 的 MFU 已经算好。
 
@@ -334,7 +334,7 @@ $$
 - cross-attention 注入（Llama 3.2 Vision）：图片特征不进序列，8 个 cross-attention 层的 K / V 固定为 200 MiB，与 decoder-only 注入的 800 MiB 对照；用 0.5 B 参数换序列长度；
 - M-RoPE：把 $$d_{head}$$ 的 64 对旋转维度按 16 / 24 / 24 分给 $$(t, h, w)$$，图片在位置空间里占的长度是边长而不是面积——但不改变 KV 的账；
 - 视频与音频：一分钟 720p 视频约 36K token；Whisper encoder 30 秒 → 1500 个位置、50 token / 秒；所有模态最终归结为进入 decoder 的 token 数；
-- 训练侧：冻结 encoder 省的是激活值而不是状态；样本 token 数的方差对打包的影响；图片解码把数据管线的瓶颈搬到 CPU。
+- 训练侧：冻结 encoder 省的主要是激活值，状态是小头（两者都省）；样本 token 数的方差对打包的影响；图片解码把数据管线的瓶颈搬到 CPU。
 
 核心问题是：
 

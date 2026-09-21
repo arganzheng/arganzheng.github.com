@@ -12,7 +12,7 @@ updated: 2026-09-17
 
 本篇要建立的是整个系列的分析对象：一个 decoder-only Transformer 里到底有哪些矩阵、每个矩阵的形状由哪个超参数决定、把它们加起来等于多少。它不讲 attention 为什么有效，也不讲训练方法，只把结构拆到能数出每一个参数的粒度。全篇的核心问题是：
 
-> **给你任意一个模型的 `config.json`，不运行代码，能不能在五分钟内算出它的参数量，并说出这些参数在 attention、FFN、embedding 之间怎么分配？[^q0] 误差要在 1% 以内。**
+> **给你一个 Llama 式 dense 模型（RMSNorm、SwiGLU、无 bias、GQA）的 `config.json`，不运行代码，能不能在五分钟内算出它的参数量，并说出这些参数在 attention、FFN、embedding 之间怎么分配？[^q0] 误差要在 1% 以内。MoE 与 MLA 的差异在第三、五篇补上。**
 
 ## 一、总览：三个基线模型与一张形状表
 
@@ -161,7 +161,7 @@ $$
 h \leftarrow h + \text{SubLayer}(\text{Norm}(h))
 $$
 
-区别在于残差主干上有没有 Norm。pre-norm 的主干是一条纯加法链 $$h_L = h_0 + \sum_i \text{SubLayer}_i(\cdot)$$，梯度可以沿这条链无衰减地传到底层，训练深层网络时稳定得多；代价是主干上的数值会随层数单调增长（每层都往上加），所以最后需要一个 final norm 把它归一化再送进 lm_head。post-norm 每层都归一化一次，主干幅度受控，但深层训练需要 warmup 等技巧。
+区别在于残差主干上有没有 Norm。pre-norm 的主干是一条纯加法链 $$h_L = h_0 + \sum_i \text{SubLayer}_i(\cdot)$$，反向时每一层的 Jacobian 里都有一个恒等项 $$I$$，梯度沿这条链传到底层时有一条“直通路”不经过任何子层——这是经验上深层 pre-norm 好训的原因（不是保证：子层那一项仍可能与恒等项相抵消或叠加）；另一个经验事实是主干上的范数随层数趋于增长（每层往上加的东西不保证相互抵消），所以最后需要一个 final norm 把它归一化再送进 lm_head。post-norm 每层都归一化一次，主干幅度受控，但深层训练需要 warmup 等技巧。
 
 对本篇的参数量计算而言，两者没有区别：每层都是两个 Norm。对第六篇的数值分析而言，区别很大：pre-norm 的残差流在 BF16 下随深度累积的幅度增长，是低精度训练需要关心的地方。Llama、Mistral、DeepSeek 全部使用 pre-norm，本系列后续默认 pre-norm。
 
@@ -285,8 +285,10 @@ $$QK^\top$$、softmax、$$PV$$ 这几步没有任何可学习参数，它们的�
 原始 Transformer 的 FFN 是两个矩阵夹一个非线性：
 
 $$
-\text{FFN}(x) = W_2 \, \sigma(W_1 x), \quad W_1 \in \mathbb{R}^{d \times d_{ff}}, \; W_2 \in \mathbb{R}^{d_{ff} \times d}
+\text{FFN}(x) = \sigma(x W_1)\, W_2, \quad W_1 \in \mathbb{R}^{d \times d_{ff}}, \; W_2 \in \mathbb{R}^{d_{ff} \times d}
 $$
+
+（沿用第三章 $$Q = x W_Q$$ 的行向量约定：$$x$$ 是 $$[s, d]$$，矩阵右乘，形状按 $$[in, out]$$ 写。）
 
 $$\sigma$$ 是 ReLU 或 GELU，$$d_{ff} = 4d$$ 是从 Vaswani 等 2017 一直沿用到 GPT-3 的惯例。参数量 $$2 d \cdot d_{ff} = 8 d^2$$。
 
@@ -295,7 +297,7 @@ $$\sigma$$ 是 ReLU 或 GELU，$$d_{ff} = 4d$$ 是从 Vaswani 等 2017 一直沿
 Shazeer 2020 提出用门控线性单元（GLU）替换 FFN 的第一层，其中 SiLU 门控的版本称为 SwiGLU，被 PaLM、Llama 系列以及之后几乎所有开源模型采用：
 
 $$
-\text{FFN}(x) = W_{down} \left[ \text{SiLU}(W_{gate} x) \odot (W_{up} x) \right]
+\text{FFN}(x) = \left[ \text{SiLU}(x W_{gate}) \odot (x W_{up}) \right] W_{down}
 $$
 
 三个矩阵：$$W_{gate}, W_{up} \in \mathbb{R}^{d \times d_{ff}}$$，$$W_{down} \in \mathbb{R}^{d_{ff} \times d}$$。$$\odot$$ 是逐元素乘。参数量：
@@ -380,7 +382,7 @@ $$
 
 参数量上 bias 从来不重要：一个 $$[4096, 4096]$$ 的矩阵有 16.78M 个权重，它的 bias 只有 4096 个，占 0.02%。去掉它的原因主要有三：
 
-- pre-norm 结构里，每个子层的输入都刚被 RMSNorm 归一化过，输入的均值信息已经被移除（或者说由 $$\gamma$$ 承载），线性层的 bias 学不到有用的偏移；
+- 经验上没有收益：Llama 团队和 PaLM 都报告去掉 bias 不掉点。注意这**不是**因为 RMSNorm 去掉了均值——第二章的公式里 RMSNorm 只除以均方根、不减均值（$$\text{RMSNorm}([1, 2])$$ 的输出均值是 0.95，不是 0），所以“输入已中心化因此 bias 无用”这个常见解释不成立；bias 能学的偏移，在有 $$\gamma$$ 和后续矩阵的情况下大多可以被吸收，这更接近实际原因；
 - PaLM（Chowdhery 等 2022）的报告指出去掉 bias 提升了大模型训练的稳定性；
 - 对系统而言，无 bias 的 GEMM 是纯 $$Y = XW$$，少一次 broadcast add 的 epilogue，量化时也少一个需要处理的浮点向量（第七篇 INT4 权重量化只需要处理 $$W$$）。
 
@@ -417,7 +419,7 @@ $$
 
 词表大小对系统的影响有两面：
 
-**参数量与显存。** Llama 2 的词表是 32000，Llama 3 扩到 128256（4 倍）。同样 $$d = 4096$$，embedding + lm_head 从 262M 涨到 1.05B，多出的 789M 参数在 BF16 下是 1.58 GB 显存。Llama-2-7B 到 Llama-3-8B 的"多出来的 1B"，几乎全部来自词表（另有 GQA 省下的部分抵消了一些）。
+**参数量与显存。** Llama 2 的词表是 32000，Llama 3 扩到 128256（4 倍）。同样 $$d = 4096$$，embedding + lm_head 从 262M 涨到 1.05B，多出的 789M 参数在 BF16 下是 1.58 GB 显存。Llama-2-7B 到 Llama-3-8B 的"多出来的 1.3B"由三项构成：词表 +789M，FFN 从 11008 加宽到 14336 再 +1.31B，GQA 把 K/V 从 32 头减到 8 头省了 805M；净增 $$0.789 + 1.309 - 0.805 \approx 1.29$$B——词表只占其中六成，另一大块是 FFN 加宽。
 
 **lm_head 的算量。** lm_head 是一个 $$[m, d] \times [d, V]$$ 的 GEMM，每 token $$2 d V = 2 \times 4096 \times 128256 \approx 1.05$$ GFLOPs，占 Llama-3-8B 每 token 总 FLOPs（约 15 GFLOPs）的 7%。而 embedding 是查表，不是 GEMM，每 token 只读一行 $$d$$ 个数，FLOPs 为零。这就是为什么第二篇算每 token FLOPs 时用 $$2 \times (8.03 - 0.53)\text{B} \approx 15.0$$ GFLOPs：总参数减去 embedding 那 525M，因为它不参与乘加。
 
@@ -544,7 +546,7 @@ lm_head               0.525B     6.5%            1.051B     1.5%
 
 从系统视角，这张分布表直接对应显存的分布：BF16 下 Llama-3-8B 的 16.06 GB 权重里，FFN 11.3 GB、attention 2.7 GB、embedding 与 lm_head 各 1.05 GB。做张量并行时，FFN 和 attention 的权重按列/行切到各卡，embedding 通常按词表切（vocab parallel），lm_head 同样按词表切并在 cross-entropy 处做规约——切法不同是因为它们的形状不同。
 
-这张表也决定了优化精力应该花在哪里。权重量化（第七篇）如果只量化 FFN 的三个矩阵而保留 attention 为 BF16，就已经覆盖了 70% 的字节；反过来，attention 投影的量化收益有限，很多量化方案对 `o_proj` 或 `down_proj` 单独保留更高精度，付出的显存代价不到 10%。LoRA（第七篇）默认只挂在 Q、K、V、O 四个矩阵上，覆盖的是那 17% 的参数；要覆盖 FFN 就得再挂 gate、up、down，可训练参数会翻倍。embedding 与 lm_head 在 8B 上占 13%，是 INT4 量化通常跳过的部分——跳过它们意味着 8B 模型量化后的字节数是 $$6.98\text{B} \times 0.5 + 1.05\text{B} \times 2 \approx 5.6$$ GB，相对 BF16 的压缩比不是 4 倍而是不到 3 倍，这个差异在容量规划时不能忽略。
+这张表也决定了优化精力应该花在哪里。权重量化（第七篇）如果只量化 FFN 的三个矩阵而保留 attention 为 BF16，就已经覆盖了 70% 的字节；反过来，attention 投影的量化收益有限，很多量化方案对 `o_proj` 单独保留更高精度，显存代价约 3%（`o_proj` 占 8B 参数的 6.7%，从 4 bit 回到 16 bit 多出 $$0.54\text{B} \times 1.5$$ B ≈ 0.8 GB）；对 `down_proj` 这么做就贵得多——它一项占 23%。LoRA（第七篇）默认只挂在 Q、K、V、O 四个矩阵上，覆盖的是那 17% 的参数；要覆盖 FFN 就得再挂 gate、up、down——按 Llama-3-8B 的形状，七个矩阵的 LoRA 参数量约是四个的 3.1 倍（FFN 矩阵更宽，$$r(d + d_{ff})$$ 对 $$r(d + d_{kv})$$）。embedding 与 lm_head 在 8B 上占 13%，是 INT4 量化通常跳过的部分——跳过它们意味着 8B 模型量化后的字节数是 $$6.98\text{B} \times 0.5 + 1.05\text{B} \times 2 \approx 5.6$$ GB，相对 BF16 的压缩比不是 4 倍而是不到 3 倍，这个差异在容量规划时不能忽略。
 
 ### 6. 几种常见的算错方式
 
