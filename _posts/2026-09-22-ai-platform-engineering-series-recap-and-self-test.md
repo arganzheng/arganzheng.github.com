@@ -14,6 +14,27 @@ date: 2026-09-22 20:00:00
 
 > **读完这八篇，你应该能回答哪些问题？[^q0] 哪些数字与结论必须能脱口而出？[^q1] 怎么判断自己是"读过"还是"掌握"了？[^q2]**
 
+先把整个系列放在一张图上——箭头是**推导或前置上的依赖**（箭头尾端的结论被箭头头端当作前提），不是阅读顺序：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 160}}}%%
+flowchart TB
+    P1["01 引擎的需求清单与整体架构<br/>K8s 的四个假设被 AI 负载逐条违背"]
+    subgraph RES["资源层：引擎之下"]
+        direction TB
+        P2["02 容器里的 GPU<br/>驱动、CUDA、device plugin"] --> P3["03 AI 任务调度<br/>gang、队列、拓扑感知"] --> P4["04 GPU 共享与切分<br/>MIG、时间片、HAMi"]
+        P2 --> P5["05 网络与存储<br/>RDMA 进容器、checkpoint I/O"]
+    end
+    subgraph DEL["交付层：引擎之侧"]
+        direction TB
+        P6["06 Serving 平台<br/>InferenceService → llm-d"] --> P7["07 模型网关与多租户"] --> P8["08 可观测、成本与 FinOps"]
+    end
+    P1 --> P2
+    P1 --> P6
+    P4 & P5 -. "推理服务也跑在这些资源上" .-> P6
+
+```
+
 ## 一、总览：系列回答的问题与主线
 
 系列的一句话主张是：**平台的每一个设计决定都是被引擎的某个需求推出来的，而每个决定都有代价**。每篇同一个骨架——引擎的需求 → K8s 的空缺 → 平台的机制 → 代价与边界；同一条主线：Kubernetes 的四个假设（Pod 独立、资源可细分、一张 overlay 网卡、HPA 看 CPU）被 AI 负载逐条违背，于是有了 device plugin、Kueue / Volcano、MIG / HAMi、Multus、LeaderWorkerSet、InferencePool、DCGM 映射这一层又一层的扩展；每一层都填一个洞，也都挖一个新的。

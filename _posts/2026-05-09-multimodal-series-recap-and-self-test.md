@@ -14,6 +14,25 @@ date: 2026-05-09 20:00:00
 
 > **读完这九篇，你应该能回答哪些问题？[^q0] 哪些数字与结论必须能脱口而出？[^q1] 怎么判断自己是"读过"还是"掌握"了？[^q2]**
 
+先把整个系列放在一张图上——箭头是**推导或前置上的依赖**（箭头尾端的结论被箭头头端当作前提），不是阅读顺序：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 150}}}%%
+flowchart TB
+    subgraph U["理解线：其他模态 → token → LLM"]
+        direction TB
+        V1["01 视觉编码器<br/>CLIP / SigLIP / 自监督 ViT"] --> V2["02 VLM 的结构<br/>connector、注入、动态分辨率"] --> V3["03 VLM 的训练<br/>数据、阶段、评测"]
+        A4["04 语音（上）<br/>mel 谱、Whisper、codec"] --> A5["05 语音（下）<br/>理解、生成、全双工"]
+    end
+    subgraph G["生成线：从噪声去噪"]
+        direction TB
+        G6["06 DDPM<br/>加噪、去噪、预测噪声"] --> G7["07 score / flow matching、CFG"] --> G8["08 Latent diffusion、DiT、文生图配方"]
+    end
+    V2 & G8 --> M9["09 自回归图像生成与统一模型<br/>两条线在这里交汇"]
+    V1 -. "encoder + connector 的范式" .-> A4
+
+```
+
 ## 一、总览：系列回答的问题与主线
 
 系列的一句话主张是：**多模态模型的每个部件都在做一次"信息 vs token"的交换，而交换的两端都能算账**。编码器的目标函数决定保留什么信息；connector 与分辨率策略决定一张图值多少 token；codec 决定一秒语音值多少 token；VAE 与 VQ tokenizer 决定生成侧在哪个空间、多长的序列上工作；生成范式（自回归 vs 扩散）决定这些 token 是串行 decode 还是多步并行前向——进而决定成本是 memory-bound 还是 compute-bound。九篇用同一套方法（推导 → 算账 → 公开配方对照），对照的是同一批模型（LLaVA → Qwen2.5-VL → InternVL、Whisper → Moshi、SD 1.5 → FLUX、VQGAN → BAGEL）。

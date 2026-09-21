@@ -14,6 +14,24 @@ date: 2026-02-26 20:00:00
 
 > **读完这十篇，你应该能回答哪些问题？[^q0] 哪些数字与结论必须能脱口而出？[^q1] 怎么判断自己是"读过"还是"掌握"了？[^q2]**
 
+先把整个系列放在一张图上——箭头是**推导或前置上的依赖**（箭头尾端的结论被箭头头端当作前提），不是阅读顺序：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 170}}}%%
+flowchart TB
+    P1["01 整体介绍：三层运行时链路"] --> T2["02 Tensor 与内存布局<br/>Storage · shape · stride"]
+    T2 --> A3["03 Autograd 与动态图"]
+    A3 --> M4["04 nn.Module 与训练系统"]
+    T2 --> D5["05 Dispatcher 与算子系统<br/>一切能力建立在它之上"]
+    A3 --> D5
+    D5 --> X6["06 C++ 扩展与自定义算子"]
+    D5 --> C7["07 编译执行与图优化<br/>torch.compile"]
+    M4 & C7 --> P8["08 性能优化与调试<br/>profiler、Roofline"]
+    P8 --> D9["09 分布式 PyTorch<br/>DDP / FSDP / 并行"]
+    X6 & D9 --> E10["10 工程体系<br/>一次改动怎么到达用户"]
+
+```
+
 ## 一、总览：系列回答的问题与主线
 
 系列的一句话主张是：**PyTorch 不是一个 Python 库，而是一条分层的运行时链路——Python 表达、C++ 运行时、CUDA 执行——每一层各解决一件事，而所有能力（求导、跨设备、编译、分布式）都建立在同一个算子系统之上**。三条线索贯穿十篇：抽象线（Tensor → Autograd → Module → Operator → Compiler）、执行线（Python → C++ → CUDA → Kernel → Hardware）、工程线（Training → Profiling → Distributed → Testing → Build）。读每一篇时问的都是同一组问题：这一层的职责是什么、边界在哪、代价是多少。
