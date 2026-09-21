@@ -19,6 +19,19 @@ catalog: true
 
 ### 1. 两段评测
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 200}}}%%
+flowchart TB
+    E["一个 RAG 答错了"] --> D{"正确的块在上下文里吗？"}
+    D -- "不在：<b>没找到</b>" --> R["检索侧的病<br/>指标：recall@50（召回够不够）、recall@5（rerank 后够不够）、nDCG<br/>评测集：（查询，相关块）——标注便宜"]
+    D -- "在：<b>找到了没说对</b>" --> G["生成侧的病<br/>指标：faithfulness（有没有编）、answer relevance、引用准确<br/>评测集：（查询，正确块，理想答案）——标注贵"]
+    R --> RF["药：分块、embedding、混合、rerank"]
+    G --> GF["药：prompt、引用约束、guardrails、换模型"]
+    G -. "评生成时<b>固定检索</b>：直接喂正确块，<br/>再跑一次真实检索，两者之差就是检索造成的损失" .-> R
+
+```
+
+
 ```text
                ┌──────────── 检索侧 ────────────┐   ┌──────────── 生成侧 ────────────┐
 查询 ──→ 解析 · 分块 · 索引 · 召回 · 融合 · rerank ──→ top-k 块 ──→ prompt · 模型 · 引用 ──→ 答案

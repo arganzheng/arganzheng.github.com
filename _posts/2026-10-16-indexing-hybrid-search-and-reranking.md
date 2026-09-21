@@ -19,6 +19,19 @@ catalog: true
 
 ### 1. 一次检索的路径
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 200}}}%%
+flowchart TB
+    Q["查询 + 请求者的权限"] --> A["向量召回<br/>抓语义：同义 / 改述<br/>取 top-50"]
+    Q --> B["BM25 召回<br/>抓精确：型号 / 函数名 / 错误码<br/>取 top-50"]
+    P["权限与时间过滤<br/>在召回时就做，不能等到最后"] -.-> A & B
+    A & B --> R["RRF 融合<br/>两个排名合成一个（按名次不按分数）"]
+    R --> K["rerank（cross-encoder）<br/>对前 30–50 个逐一精排——整条线上性价比最高的一步"]
+    K --> O["top-5 进 prompt<br/>最相关的放末尾（位置效应）"]
+
+```
+
+
 ```text
 查询
  ├─ embedding ─→ 向量索引（ANN）─→ top-50   ← 元数据过滤（权限、时间）

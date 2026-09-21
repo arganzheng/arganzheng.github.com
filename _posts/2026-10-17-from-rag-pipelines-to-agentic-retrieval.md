@@ -19,6 +19,24 @@ catalog: true
 
 ### 1. 两种形态
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 190}}}%%
+flowchart TB
+    subgraph P["流水线 RAG（2023 起的标准形态）"]
+        direction TB
+        P1["query"] --> P2["embedding → 混合召回 → rerank"] --> P3["top-k 放进 prompt"] --> P4["生成"]
+    end
+    subgraph AG["agentic retrieval（检索是 agent 的一个工具）"]
+        direction TB
+        A1["模型读问题，决定先查什么"] --> A2["调 search_docs / grep / sql / read"] --> A3["看结果：够不够？<br/>不够 → 换查询再查 / 顺着线索查下一跳"] --> A1
+        A3 -- "够了" --> A4["生成（带引用）"]
+    end
+    P -. "每步确定、延迟可控、成本固定<br/>一次没找到就没找到，多跳做不到" .-> X["取舍"]
+    AG -. "召回压力小、能多跳、能自纠<br/>延迟与 token 不可预测，要预算与上限" .-> X
+
+```
+
+
 | | 流水线 RAG | agentic retrieval |
 |---|---|---|
 | 谁决定查什么 | 代码：用户问题（或固定改写）就是查询 | **模型**：读问题后决定查询词、检索类型、轮数 |

@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 345" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="13">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+<text x="380" y="22" fill="#222" font-size="14" text-anchor="middle" font-weight="600">一次请求里模型看到的七层：第 1 步 vs 第 30 步（单位 K token，示意）</text>
+<rect x="40" y="62" width="12" height="12" fill="#c98a00"/>
+<text x="58" y="72" fill="#333" font-size="11" text-anchor="start" font-weight="normal">① 系统指令</text>
+<rect x="40" y="84" width="12" height="12" fill="#e0a030"/>
+<text x="58" y="94" fill="#333" font-size="11" text-anchor="start" font-weight="normal">② 工具定义</text>
+<rect x="40" y="106" width="12" height="12" fill="#d9b45c"/>
+<text x="58" y="116" fill="#333" font-size="11" text-anchor="start" font-weight="normal">③ 长期记忆</text>
+<rect x="40" y="128" width="12" height="12" fill="#1f6fb2"/>
+<text x="58" y="138" fill="#333" font-size="11" text-anchor="start" font-weight="normal">④ 对话历史</text>
+<rect x="40" y="150" width="12" height="12" fill="#8a6bd1"/>
+<text x="58" y="160" fill="#333" font-size="11" text-anchor="start" font-weight="normal">⑤ 检索结果</text>
+<rect x="40" y="172" width="12" height="12" fill="#4d9a5c"/>
+<text x="58" y="182" fill="#333" font-size="11" text-anchor="start" font-weight="normal">⑥ 工具返回</text>
+<rect x="40" y="194" width="12" height="12" fill="#c0392b"/>
+<text x="58" y="204" fill="#333" font-size="11" text-anchor="start" font-weight="normal">⑦ 当前输入</text>
+<text x="240" y="52" fill="#333" font-size="12" text-anchor="middle" font-weight="600">第 1 步</text>
+<rect x="190" y="60" width="100" height="8.76424189307625" fill="#c98a00" stroke="#fff"/>
+<rect x="190" y="68.76424189307625" width="100" height="13.146362839614374" fill="#e0a030" stroke="#fff"/>
+<rect x="190" y="81.91060473269062" width="100" height="4.382120946538125" fill="#d9b45c" stroke="#fff"/>
+<rect x="190" y="86.29272567922874" width="100" height="4" fill="#1f6fb2" stroke="#fff"/>
+<rect x="190" y="90.29272567922874" width="100" height="6.573181419807187" fill="#8a6bd1" stroke="#fff"/>
+<rect x="190" y="96.86590709903592" width="100" height="4" fill="#4d9a5c" stroke="#fff"/>
+<rect x="190" y="100.86590709903592" width="100" height="4" fill="#c0392b" stroke="#fff"/>
+<text x="240" y="120.86590709903592" fill="#333" font-size="12" text-anchor="middle" font-weight="600">合计 ≈ 15K</text>
+<text x="240" y="150" fill="#666" font-size="10" text-anchor="middle" font-weight="normal">①②③ 是常驻层：敲第一个字前</text>
+<text x="240" y="163" fill="#666" font-size="10" text-anchor="middle" font-weight="normal">就在了，每轮全量传</text>
+<text x="410" y="52" fill="#333" font-size="12" text-anchor="middle" font-weight="600">第 30 步</text>
+<rect x="360" y="60" width="100" height="8.76424189307625" fill="#c98a00" stroke="#fff"/>
+<rect x="360" y="68.76424189307625" width="100" height="13.146362839614374" fill="#e0a030" stroke="#fff"/>
+<rect x="360" y="81.91060473269062" width="100" height="4.382120946538125" fill="#d9b45c" stroke="#fff"/>
+<rect x="360" y="86.29272567922874" width="100" height="19.71954425942156" fill="#1f6fb2" stroke="#fff"/>
+<text x="410" y="100.15249780893951" fill="#fff" font-size="10" text-anchor="middle" font-weight="normal">④ 对话历史 9K</text>
+<rect x="360" y="106.01226993865029" width="100" height="13.146362839614374" fill="#8a6bd1" stroke="#fff"/>
+<rect x="360" y="119.15863277826466" width="100" height="190.62226117440844" fill="#4d9a5c" stroke="#fff"/>
+<text x="410" y="218.46976336546888" fill="#fff" font-size="10" text-anchor="middle" font-weight="normal">⑥ 工具返回 87K</text>
+<rect x="360" y="309.78089395267307" width="100" height="4" fill="#c0392b" stroke="#fff"/>
+<text x="410" y="329.78089395267307" fill="#333" font-size="12" text-anchor="middle" font-weight="600">合计 ≈ 114K</text>
+<line x1="460" y1="311.7808939526731" x2="478" y2="311.7808939526731" stroke="#c0392b" stroke-width="1.5"/>
+<text x="482" y="315.7808939526731" fill="#c0392b" font-size="10" text-anchor="start" font-weight="normal">⑦ 当前输入 0.1K：被挤到最底下</text>
+<text x="500" y="80" fill="#333" font-size="11" text-anchor="start" font-weight="600">30 步后 ⑥ 工具返回占了 3/4：</text>
+<text x="500" y="95" fill="#333" font-size="11" text-anchor="start" font-weight="normal">每步读一个文件 / 跑一条命令，</text>
+<text x="500" y="110" fill="#333" font-size="11" text-anchor="start" font-weight="normal">原始输出都留在了上下文里</text>
+<text x="500" y="146" fill="#333" font-size="11" text-anchor="start" font-weight="600">⑦ 当前任务前面隔着 100K 的历史：</text>
+<text x="500" y="161" fill="#333" font-size="11" text-anchor="start" font-weight="normal">正是「Lost in the Middle」里</text>
+<text x="500" y="176" fill="#333" font-size="11" text-anchor="start" font-weight="normal">最容易被忽略的位置</text>
+<text x="500" y="212" fill="#333" font-size="11" text-anchor="start" font-weight="600">第四篇的顺序由此而来：先不让无关的</text>
+<text x="500" y="227" fill="#333" font-size="11" text-anchor="start" font-weight="normal">进来（隔离）→ 清掉读过的 ⑥（清理）</text>
+<text x="500" y="242" fill="#333" font-size="11" text-anchor="start" font-weight="normal">→ 最后才摘要 ④（压缩，最贵最有损）</text>
+</svg>

@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 350" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="13">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+<text x="380" y="22" fill="#222" font-size="14" text-anchor="middle" font-weight="600">prompt caching 只认「逐字节相同的前缀」：按变化频率排四层，改动处起后面全部失效</text>
+<text x="40" y="52" fill="#333" font-size="12" text-anchor="start" font-weight="600">① 正确的排列（Anthropic 的 4 个断点 ▲ 放在每层末尾；其他家自动缓存也按同样顺序）</text>
+<rect x="40" y="60" width="120" height="30" fill="#c98a00" opacity="0.9" stroke="#c98a00"/>
+<text x="100.0" y="79" fill="#fff" font-size="10" text-anchor="middle" font-weight="normal">tools 定义</text>
+<text x="100.0" y="104" fill="#666" font-size="10" text-anchor="middle" font-weight="normal">发布时才变</text>
+<rect x="160" y="60" width="150" height="30" fill="#e0a030" opacity="0.9" stroke="#e0a030"/>
+<text x="235.0" y="79" fill="#fff" font-size="10" text-anchor="middle" font-weight="normal">system prompt</text>
+<text x="235.0" y="104" fill="#666" font-size="10" text-anchor="middle" font-weight="normal">发布时才变</text>
+<rect x="310" y="60" width="150" height="30" fill="#d9b45c" opacity="0.9" stroke="#d9b45c"/>
+<text x="385.0" y="79" fill="#fff" font-size="10" text-anchor="middle" font-weight="normal">半静态：画像 / few-shot / 记忆</text>
+<text x="385.0" y="104" fill="#666" font-size="10" text-anchor="middle" font-weight="normal">会话间变</text>
+<rect x="460" y="60" width="180" height="30" fill="#1f6fb2" opacity="0.9" stroke="#1f6fb2"/>
+<text x="550.0" y="79" fill="#fff" font-size="10" text-anchor="middle" font-weight="normal">对话历史（只追加）</text>
+<text x="550.0" y="104" fill="#666" font-size="10" text-anchor="middle" font-weight="normal">每轮追加</text>
+<rect x="640" y="60" width="60" height="30" fill="#c0392b" opacity="0.9" stroke="#c0392b"/>
+<text x="670.0" y="79" fill="#fff" font-size="10" text-anchor="middle" font-weight="normal">本轮输入</text>
+<text x="670.0" y="104" fill="#666" font-size="10" text-anchor="middle" font-weight="normal">每轮变</text>
+<text x="160" y="108" fill="#c0392b" font-size="12" text-anchor="middle" font-weight="normal">▲</text>
+<text x="310" y="108" fill="#c0392b" font-size="12" text-anchor="middle" font-weight="normal">▲</text>
+<text x="460" y="108" fill="#c0392b" font-size="12" text-anchor="middle" font-weight="normal">▲</text>
+<text x="640" y="108" fill="#c0392b" font-size="12" text-anchor="middle" font-weight="normal">▲</text>
+<text x="40" y="128" fill="#333" font-size="11" text-anchor="start" font-weight="normal">第二轮请求：前四层逐字节相同 → 命中到 ▲④，只有本轮输入按原价；命中部分读价 0.1×</text>
+<text x="40" y="172" fill="#333" font-size="12" text-anchor="start" font-weight="600">② system 开头放了「当前时间：14:23:07」——第一个不同的字节在 system 里</text>
+<rect x="40" y="180" width="120" height="30" fill="#c98a00" opacity="0.9" stroke="#c98a00"/>
+<text x="100.0" y="199" fill="#fff" font-size="10" text-anchor="middle" font-weight="normal">tools 定义</text>
+<rect x="160" y="180" width="150" height="30" fill="#e0a030" opacity="0.25" stroke="#e0a030"/>
+<text x="235.0" y="199" fill="#e0a030" font-size="10" text-anchor="middle" font-weight="normal">system prompt</text>
+<rect x="310" y="180" width="150" height="30" fill="#d9b45c" opacity="0.25" stroke="#d9b45c"/>
+<text x="385.0" y="199" fill="#d9b45c" font-size="10" text-anchor="middle" font-weight="normal">半静态：画像 / few-shot / 记忆</text>
+<rect x="460" y="180" width="180" height="30" fill="#1f6fb2" opacity="0.25" stroke="#1f6fb2"/>
+<text x="550.0" y="199" fill="#1f6fb2" font-size="10" text-anchor="middle" font-weight="normal">对话历史（只追加）</text>
+<rect x="640" y="180" width="60" height="30" fill="#c0392b" opacity="0.25" stroke="#c0392b"/>
+<text x="670.0" y="199" fill="#c0392b" font-size="10" text-anchor="middle" font-weight="normal">本轮输入</text>
+<text x="40" y="226" fill="#333" font-size="11" text-anchor="start" font-weight="normal">红线处字节第一次不同（07 → 08）→ 从 system 起全部失效：每轮按 1.25× 写入价重写几万 token，命中率 ≈ 0</text>
+<line x1="160" y1="180" x2="160" y2="210" stroke="#c0392b" stroke-width="2.5"/>
+<text x="40" y="267" fill="#333" font-size="12" text-anchor="start" font-weight="600">③ 会话中途按阶段删掉了一个工具——tools 那一层变了</text>
+<rect x="40" y="275" width="120" height="30" fill="#c98a00" opacity="0.25" stroke="#c98a00"/>
+<text x="100.0" y="294" fill="#c98a00" font-size="10" text-anchor="middle" font-weight="normal">tools 定义</text>
+<rect x="160" y="275" width="150" height="30" fill="#e0a030" opacity="0.25" stroke="#e0a030"/>
+<text x="235.0" y="294" fill="#e0a030" font-size="10" text-anchor="middle" font-weight="normal">system prompt</text>
+<rect x="310" y="275" width="150" height="30" fill="#d9b45c" opacity="0.25" stroke="#d9b45c"/>
+<text x="385.0" y="294" fill="#d9b45c" font-size="10" text-anchor="middle" font-weight="normal">半静态：画像 / few-shot / 记忆</text>
+<rect x="460" y="275" width="180" height="30" fill="#1f6fb2" opacity="0.25" stroke="#1f6fb2"/>
+<text x="550.0" y="294" fill="#1f6fb2" font-size="10" text-anchor="middle" font-weight="normal">对话历史（只追加）</text>
+<rect x="640" y="275" width="60" height="30" fill="#c0392b" opacity="0.25" stroke="#c0392b"/>
+<text x="670.0" y="294" fill="#c0392b" font-size="10" text-anchor="middle" font-weight="normal">本轮输入</text>
+<text x="40" y="321" fill="#333" font-size="11" text-anchor="start" font-weight="normal">第一层就不同 → 整个前缀失效；Manus 的做法是保留全部工具、用屏蔽控制可用性（第五章）</text>
+</svg>

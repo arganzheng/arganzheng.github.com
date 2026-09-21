@@ -23,6 +23,8 @@ L1 第四篇算过缓存的账：命中读价 0.1×（Fable 5.1 0.025×、DeepSe
 
 ### 2. 排列的原则
 
+![按变化频率排四层、断点放在每层末尾；system 开头一个时间戳或中途删一个工具，就让后面全部失效](/img/in-post/prompt-caching-prefix-layout-and-invalidation.svg)
+
 ```text
 ┌──────────────────────────────────────────────┐
 │ tools（工具定义）                               │ ← 静态：发布时变        断点 ①

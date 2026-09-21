@@ -19,6 +19,27 @@ catalog: true
 
 ### 1. 三类检索
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 180}}}%%
+flowchart TB
+    Q["一条查询"] --> L & V & S
+    subgraph L["词法 / 精确：grep、BM25"]
+        direction TB
+        L1["前提：语料里有精确标识符<br/>函数名、错误码、条款编号"] --> L2["买到：零过期、不出机器、可解释"] --> L3["付出：词汇不匹配<br/>问「支付失败」找不到 handleDeclined"]
+    end
+    subgraph V["向量 / 语义：embedding + ANN"]
+        direction TB
+        V1["前提：问法与写法不同<br/>同义、改述、跨语言"] --> V2["买到：语义相近也能召回"] --> V3["付出：索引会过期、要维护<br/>X-200 与 X-2000 分不清"]
+    end
+    subgraph S["结构化：SQL、API、图谱"]
+        direction TB
+        S1["前提：数据有 schema、问的是关系<br/>「这个客户的未完成订单」"] --> S2["买到：精确的关系查询与动作"] --> S3["付出：要有 schema / 语义层<br/>非结构化文档用不上"]
+    end
+    L & V & S --> H["生产系统几乎总是混用：<br/>各自的前提成立时用哪类，第四篇讲怎么合"]
+
+```
+
+
 | | 词法 / 精确 | 向量 / 语义 | 结构化 |
 |---|---|---|---|
 | 做法 | grep、glob、BM25、全文索引（Elasticsearch / Lucene） | embedding 模型把文本变向量，ANN 索引找最近邻；混合检索 + rerank | SQL、业务 API、知识图谱、本体（第六篇） |
