@@ -84,7 +84,7 @@ tokenizer 在 NLP 教材里、scaling law 在几篇论文里、数据工程在 F
 
 - 词级与字符级两端各失败在哪；子词；n-gram 语言模型与困惑度、词向量到上下文相关表示的一页史，以及困惑度为什么依赖 tokenizer（跨 tokenizer 要换算到 bits/byte）；
 - BPE 算法（合并顺序就是词表）与经典玩具例子；byte-level 初始词表；预分词正则如何决定数字与空格的切法（GPT-2、cl100k 的 1–3 位数字、Qwen 的逐位）；WordPiece 与 Unigram；
-- 词表大小的账：$$2Vd$$ 参数（Llama-3-8B 1.05B、13.1%），lm_head 每 token $$2Vd$$ FLOPs（7.0%；Qwen2.5-0.5B 38%），decode 每步读 1.05 GB，训练时 logits $$\text{tokens} \times V \times 4$$ 字节（8K 序列 3.9 GiB，必须分块或融合）；
+- 词表大小的账：$$2Vd$$ 参数（Llama-3-8B 1.05B、13.1%），lm_head 每 token $$2Vd$$ FLOPs（7.0%；Qwen2.5-0.5B 28%），decode 每步读 1.05 GB，训练时 logits $$\text{tokens} \times V \times 4$$ 字节（8K 序列 3.9 GiB，必须分块或融合）；
 - token 效率的账：五个真实 tokenizer 在英文 / 中文 / 代码 / 数字上的字符/token；Llama 2 → 3 的 3.17 → 3.94 让每字符 FLOPs 低 15%、KV 低 20%；词表翻倍压缩率近似对数增长，与 lm_head 的线性成本相交于"最优词表"；中文在 cl100k 与 DeepSeek-V3 下每字 1.46 对 0.69 个 token；
 - tokenizer 对模型行为的副作用：欠训练 token、数字切分与算术、多语言的价格差、特殊 token 与 chat template。
 
@@ -100,7 +100,7 @@ tokenizer 在 NLP 教材里、scaling law 在几篇论文里、数据工程在 F
 
 这一篇会覆盖：
 
-- Kaplan 等 2020 的三条幂律与 $$N \propto C^{0.73}$$；Chinchilla 的参数化 $$L = E + A/N^\alpha + B/D^\beta$$ 与三种拟合方法；两者为什么不同（固定长度的 lr 调度、不数 embedding、规模）；常数的可靠性（Besiroglu 等 2024 的重拟合）；
+- Kaplan 等 2020 的三条幂律与 $$N \propto C^{0.73}$$；Chinchilla 的参数化 $$L = E + A/N^\alpha + B/D^\beta$$ 与三种拟合方法；两者为什么不同（不数输出层算力、固定 warmup、超参不随规模调）；常数的可靠性（Besiroglu 等 2024 的重拟合）；
 - 拉格朗日推导 $$N_{opt} \propto C^{0.5}$$ 与 $$D/N \approx 20$$；$$10^{21}$$ 到 $$10^{26}$$ FLOPs 的最优点表与 GPU 小时；十几个真实模型的 $$D/N$$（从 GPT-3 的 2 到 Qwen2.5-7B 的 2368）与它们离最优点的 loss 差；
 - Chinchilla 之后：推理成本 $$2N D_{inf}$$ 不在 $$6ND$$ 里；固定算力缩小模型 10 倍 loss 只高 0.053 而推理便宜 10 倍；推理感知的最优点随预期服务量移动（服务 100T token 时 24B / 13.8T 而非 81B / 1.5T）；数据重复的有效 token（4 epoch 值 93%）；MoE 的 $$N$$ 用哪个；
 - scaling law 作为实验方法：固定 $$D$$ 扫 $$N$$ 与 IsoFLOP 两种扫法、Llama 3 用万分之一算力定 405B、从 loss 到 benchmark 的两步法、常见错误。

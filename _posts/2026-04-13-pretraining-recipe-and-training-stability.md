@@ -36,7 +36,7 @@ updated: 2026-09-14
 | 输出 logit 漂移 | $$\lvert \log Z \rvert$$（lm_head 的 logsumexp） | 归一化常数自由漂移，logits 整体变大，低精度下溢出 | z-loss $$10^{-4} \log^2 Z$$ |
 | 单步更新过大 | 梯度范数、参数范数 | 一个坏 batch 或 Adam 二阶矩的瞬时失配让一步走得太远 | 梯度裁剪；warmup；较小的 $$\beta_2$$；回滚并跳过 batch |
 
-DeepSeek-V3 的"零不可恢复 spike"来自这些开关的组合，加上 FP8 训练里的分块量化与高精度累加（《Transformer 与 LLM》第六篇）；Kimi K2 在 15.5T token 上零 spike 靠的是 QK-Clip。**稳定性在 2024 年后从"运气"变成了"配置"**。
+DeepSeek-V3 报告了"零不可恢复 spike"，但没有把它归因到上表某几个开关——报告明确写的是 FP8 训练里的分块量化与高精度累加（《Transformer 与 LLM》第六篇）、MLA 里对压缩 latent 做的 RMSNorm（不是逐 head 的 QK-norm）、以及一套常规的 warmup / 裁剪配置；上表是各家配方的汇总，不是 V3 的清单。Kimi K2 在 15.5T token 上零 spike 靠的是 QK-Clip。**稳定性在 2024 年后从"运气"变成了"配置"**。
 
 ### 2. 本文的路线
 
@@ -134,7 +134,7 @@ $$B \ll B_{noise}$$ 时每翻倍 batch 步数几乎减半（完美并行）、�
 
 ![学习率调度与 batch 增长](/img/in-post/pretraining-recipe-lr-schedules-and-batch-ramp.svg)
 
-Llama 3 405B 从 4M token（序列 4K）开始，252M token 后到 8M（序列 8K），2.87T 后到 16M；DeepSeek-V3 在前 469B token 里从 3072 条序列线性增到 15360 条（12.6M → 63M token）。ramp 的另一个作用是**训练早期用小 batch 多走步**——loss 下降最快的阶段每一步都值钱。
+Llama 3 405B 从 4M token（序列 4K）开始，报告写的是 252**M** token 后到 8M（序列 8K）、2.87T 后到 16M——252M 只是 63 步，与下一个刻度 2.87T 相差四个数量级，更像 252B 的笔误；上图按 252B（占 15.6T 的 1.6%）画，这一点以报告原文为准、存疑；DeepSeek-V3 在前 469B token 里从 3072 条序列线性增到 15360 条（12.6M → 63M token）。ramp 的另一个作用是**训练早期用小 batch 多走步**——loss 下降最快的阶段每一步都值钱。
 
 batch 还有一个来自硬件的**下界**。16 384 张卡训 405B，TP 8 × PP 16 = 128 张卡放一份模型，于是有 128 个数据并行副本；每个副本每步至少处理一条 8K 序列（实际为了流水线效率要几条），batch 的下界就是 $$128 \times 8\text{K} = 1$$M token，实际 16M 对应每副本 16 条序列。DeepSeek-V3 的 63M 在 2048 张卡上是每卡 7.5 条 4K 序列，配它的 MoE 专家并行（每个专家要有足够的 token 才不闲着，《Transformer 与 LLM》第五篇）。**核心问题里 3.2M 到 63M 的差距，一半是梯度噪声尺度，一半是"几千张卡上每步至少要有这么多 token 才能并行"**。
 
@@ -183,7 +183,7 @@ $$
 \tau = \frac{1}{\eta \lambda} \text{ 步}
 $$
 
-$$\eta = 3 \times 10^{-4}$$、$$\lambda = 0.1$$ 时 $$\tau = 33\text{K}$$ 步——Llama-2 7B 的 50 万步里，权重"记住"最近约 7% 的训练；405B 的 $$\eta = 8 \times 10^{-5}$$ 给 $$\tau = 125\text{K}$$，占 975K 步的 13%。Wang & Aitchison 2024 指出应该固定的是 **$$\tau$$ 占总步数的比例**而不是 $$\lambda$$：lr 随规模减小时，要维持同样的遗忘比例，$$\lambda$$ 应相应增大；而 batch 变大、总步数变少时，$$\lambda$$ 应减小。照抄 0.1 在不同配方间隐含了 3–10 倍的 $$\tau / \text{总步数}$$ 差异——这是超参表里最少被调、最值得调的一个数。
+$$\eta = 3 \times 10^{-4}$$、$$\lambda = 0.1$$ 时 $$\tau = 33\text{K}$$ 步——Llama-2 7B 的 50 万步里，权重"记住"最近约 7% 的训练；405B 的 $$\eta = 8 \times 10^{-5}$$ 给 $$\tau = 125\text{K}$$，占 975K 步的 13%。Wang & Aitchison 2024 指出应该固定的是 **$$\tau$$ 占总步数的比例**而不是 $$\lambda$$：lr 随规模减小时，要维持同样的遗忘比例，$$\lambda$$ 应相应增大；而 batch 变大、总步数变少时，要保持 $$\tau / S$$ 不变，$$\lambda = 1/(\eta\, \tau)$$ 应**增大**（$$\tau$$ 要随 $$S$$ 一起缩短）。照抄 0.1 在不同配方间隐含了 3–10 倍的 $$\tau / \text{总步数}$$ 差异——这是超参表里最少被调、最值得调的一个数。
 
 ### 6. warmup
 
@@ -207,7 +207,7 @@ WSD 的衰减段有两个自由度。**长度**：Hägele 等 2024 的系统比�
 
 ### 3. 为什么中途的 loss 不可比
 
-这是第二篇 Kaplan 与 Chinchilla 分歧的根源，值得再说一次。cosine 调度下，训到 50% 的 checkpoint 的 lr 仍是峰值的 55%，它的 loss 里包含"还没退火"的成分——同样的 token 数如果单独跑一个完整的 cosine，loss 会低得多。所以 cosine 下的中途 checkpoint **不能**用来画 $$L(D)$$ 曲线、不能用来比较数据配比、不能作为"训一半的模型"发布。WSD 解决了这三件事：常数段的任何 checkpoint 拿出来衰减 10–20% 就是一个完整训练的等价物。MiniCPM 报告 WSD 的终点不差于 cosine，且用这个性质在同一次训练里得到了多个 $$D$$ 的 scaling law 数据点；Hägele 等把它做成了"一次训练画一条 scaling 曲线"的标准方法，把第二篇的实验成本降了一个数量级。
+这是一个独立于第二篇 Kaplan / Chinchilla 分歧的方法论问题（Porian 等 2024 检验后认为衰减不是那个分歧的主因，第二篇 §二.4），但对怎么做 scaling 实验很重要。cosine 调度下，训到 50% 的 checkpoint 的 lr 仍是峰值的 55%，它的 loss 里包含"还没退火"的成分——同样的 token 数如果单独跑一个完整的 cosine，loss 会低得多。所以 cosine 下的中途 checkpoint **不能**用来画 $$L(D)$$ 曲线、不能用来比较数据配比、不能作为"训一半的模型"发布。WSD 解决了这三件事：常数段的任何 checkpoint 拿出来衰减 10–20% 就是一个完整训练的等价物。MiniCPM 报告 WSD 的终点不差于 cosine，且用这个性质在同一次训练里得到了多个 $$D$$ 的 scaling law 数据点；Hägele 等把它做成了"一次训练画一条 scaling 曲线"的标准方法，把第二篇的实验成本降了一个数量级。
 
 配套实验（`schedule` 子实验，1500 步）：cosine 终点 1.578，WSD 1.464，常数 1.536；WSD 在前 80% 与常数完全同一条轨迹，最后 20% 的衰减把它拉到三者最低。常数比 cosine 好是这个玩具设置的特例（步数少、lr 偏低，cosine 大部分时间 lr 太小）——真实规模下两者终点接近；但 WSD 的衰减段带来的骤降是普遍现象。
 
@@ -219,7 +219,7 @@ WSD 的衰减段有两个自由度。**长度**：Hägele 等 2024 的系统比�
 
 ### 1. spike 是什么
 
-训练 loss 曲线突然上跳（几个百分点到几倍），然后要么回落、要么继续上升直到发散。PaLM 540B 报告了约 20 次；同样的 batch 单独重跑不出问题，说明**不是数据本身坏，而是数据与当时参数状态的组合**。一次 spike 的直接代价（`llm_cost_12_recipe.py`）：按 PaLM 的处理——回退到约 100 步前的 checkpoint、跳过 200–500 个 batch——在 405B 规格上是重算 300–600 步、约 30–60 分钟 × 16K 卡 = 8 千到 1.6 万 GPU 小时，外加人盯曲线的时间。DeepSeek-V3 与 Kimi K2 报告的"零 spike"就是省掉了这些。
+训练 loss 曲线突然上跳（几个百分点到几倍），然后要么回落、要么继续上升直到发散。PaLM 540B 报告了约 20 次；同样的 batch 单独重跑不出问题，说明**不是数据本身坏，而是数据与当时参数状态的组合**。一次 spike 的直接代价（`llm_cost_12_recipe.py`）：按 PaLM 的处理——回退到约 100 步前的 checkpoint、跳过 200–500 个 batch——重算的是那 100 步（跳过的 batch 不重算，是放弃了那部分数据），在 405B 规格上约 10 分钟 × 16K 卡 ≈ 2.7 千 GPU 小时，外加人盯曲线的时间与被跳过的 200–500 个 batch 的数据。DeepSeek-V3 与 Kimi K2 报告的"零 spike"就是省掉了这些。
 
 spike 在小模型上很难复现，这是它长期被当作"玄学"的原因。Wortsman 等 2023 的贡献是找到一组**小规模代理**：把 lr 调到远超最优的范围、去掉 warmup 或裁剪、用低精度、加深层数，小模型就会表现出大模型的两种主要不稳定，而且开关在小模型上有效就在大模型上有效。下面的三个机制与配套实验都建立在这个方法上。
 
@@ -288,7 +288,7 @@ $$\delta$$ 是写一次 checkpoint 的时间。405B 的完整训练状态是 14 
 
 ### 6. 低精度与稳定性
 
-FP8 训练（DeepSeek-V3）把稳定性的门槛提高了：E4M3 的最大值 448，attention logit 到几百就出界，激活里的离群值让 per-tensor 缩放失效。DeepSeek-V3 的对策在《Transformer 与 LLM》第六篇讲过——激活按 $$1 \times 128$$、权重按 $$128 \times 128$$ 分块量化，累加每 128 个元素提升到 FP32，且 embedding、lm_head、norm、attention 的 softmax 与 MoE 路由保持高精度。这些让 FP8 下的 14.8T token 没有出现不可恢复的 spike。低精度不是稳定性的敌人，但它把上面每个开关的必要性都放大了一档：BF16 训练里 logit 到 1000 只是"学得差"，FP8 里是溢出成 inf。
+FP8 训练（DeepSeek-V3）把稳定性的门槛提高了：E4M3 的最大值 448，attention logit 到几百就出界，激活里的离群值让 per-tensor 缩放失效。DeepSeek-V3 的对策在《Transformer 与 LLM》第六篇讲过——激活按 $$1 \times 128$$、权重按 $$128 \times 128$$ 分块量化，累加每 128 个元素提升到 FP32，且 embedding、lm_head、norm、attention 的 softmax 与 MoE 路由保持高精度。这些让 FP8 下的 14.8T token 没有出现不可恢复的 spike。低精度不是稳定性的敌人，但它把上面每个开关的必要性都放大了一档：BF16 训练里 logit 到 1000 只是"学得差"，FP8 里若不经缩放直接 cast 就超出 E4M3 的 448（结果按 cast 模式饱和到最大值或成 NaN/inf）——所以 V3 的 attention 分数根本不走 FP8，quantize 时也总是先按块求 amax 再缩放，raw logit 从不直接碰 448 这个上限；把 448 当"logit 不能超过的阈值"是误读。
 
 ## 六、长上下文继续预训练
 
@@ -359,7 +359,7 @@ total = loss + z_loss * (log_z ** 2).mean()
 | warmup | 服务 Adam 的 $$v$$，按步数定 | 总步数的 0.4–0.9% |
 | 调度 | cosine → 10%；WSD 常数 + 末段 10–20% 衰减 | 实验：WSD 1.464 < 常数 1.536 < cosine 1.578 |
 | 稳定性 | attention logit（QK-norm）、$$\log Z$$（z-loss）、单步过大（裁剪） | 无 QK-norm 时 logit 随 lr 涨到 12592，loss 2.23 → 2.75；有时 22，2.19 → 2.45 |
-| spike 代价 | 回退 100 步 + 跳 200–500 batch | 405B：8 千–1.6 万 GPU 小时 |
+| spike 代价 | 回退 100 步（重算）+ 跳 200–500 batch（放弃数据） | 405B：重算约 2.7 千 GPU 小时 + 3–8B token 数据 |
 | 硬件故障 | 每 3 小时一次；$$T_{opt} = \sqrt{2\delta \cdot \text{MTBF}}$$ | 405B checkpoint 5.7 TB；每 4–5 分钟一次 → 有效时间 > 90% |
 | 长上下文阶段 | 分步扩，attention 占比 4% → 40% | 405B：800B token，6 步到 128K |
 

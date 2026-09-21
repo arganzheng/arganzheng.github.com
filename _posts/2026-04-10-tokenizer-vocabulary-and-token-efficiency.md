@@ -213,12 +213,12 @@ flowchart TB
 | Llama-3-8B | 128 256 | 4096 | 8.03B | 1.05B | 13.1% | 1.05 G | 7.0% | 1.05 GB |
 | Llama-3-70B | 128 256 | 8192 | 70.6B | 2.10B | 3.0% | 2.10 G | 1.5% | 2.10 GB |
 | Qwen2.5-7B | 152 064 | 3584 | 7.62B | 1.09B | 14.3% | 1.09 G | 7.7% | 1.09 GB |
-| Qwen2.5-0.5B（tied） | 151 936 | 896 | 494M | 136M | 27.6% | 0.27 G | 38.0% | 272 MB |
-| Gemma-2-2B（tied） | 256 000 | 2304 | 2.61B | 590M | 22.6% | 1.18 G | 29.1% | 1.18 GB |
+| Qwen2.5-0.5B（tied） | 151 936 | 896 | 494M | 136M | 27.6% | 0.27 G | 27.6% | 272 MB |
+| Gemma-2-2B（tied） | 256 000 | 2304 | 2.61B | 590M | 22.6% | 1.18 G | 22.6% | 1.18 GB |
 
 Llama 2 到 Llama 3 的 7B/8B 规格，骨架几乎一样（都是 32 层、$$d = 4096$$，Llama 3 的 FFN 略宽并换了 GQA），参数从 6.74B 到 8.03B 里有 0.79B 是词表扩大带来的——**"8B"比"7B"多出来的那 1B 主要是词表**。
 
-要不要 tie，是一个随模型大小变化的取舍。tie 的理由是省参数：0.5B 模型 untie 要多 136M，占 27%。不 tie 的理由是两张表干的不是一件事——embedding 把 id 映射到输入空间，lm_head 把最后一层的表示投影到 logits，两者的几何结构不同（输出侧的向量范数与 token 频率强相关，输入侧不必如此），共享一张表要模型在两种用途间妥协。经验上小模型（≤ 2B）tie，大模型 untie：Qwen2.5 从 0.5B 到 1.5B tie、3B 起 untie；Gemma 全系 tie（它的词表 256K，untie 的代价太大）；Llama 全系 untie。在参数量的公式里，这是"$$Vd$$ 还是 $$2Vd$$"的一个开关，读 `config.json` 里的 `tie_word_embeddings` 即知。
+要不要 tie，是一个随模型大小变化的取舍。tie 的理由是省参数：0.5B 模型 untie 要多 136M，占 27%。不 tie 的理由是两张表干的不是一件事——embedding 把 id 映射到输入空间，lm_head 把最后一层的表示投影到 logits，两者的几何结构不同（输出侧的向量范数与 token 频率强相关，输入侧不必如此），共享一张表要模型在两种用途间妥协。经验上小模型 tie，大模型 untie：Qwen2.5 从 0.5B 到 3B tie（3B 的 `config.json` 里 `tie_word_embeddings: true`）、7B 起 untie；Gemma 全系 tie（它的词表 256K，untie 的代价太大）；Llama 全系 untie。在参数量的公式里，这是"$$Vd$$ 还是 $$2Vd$$"的一个开关，读 `config.json` 里的 `tie_word_embeddings` 即知。
 
 ### 2. 为什么 vocab_size 是 128 的倍数
 
@@ -235,7 +235,7 @@ Llama 2 到 Llama 3 的 7B/8B 规格，骨架几乎一样（都是 32 层、$$d 
 
 embedding 是查表，不算 FLOPs；lm_head 是每个 token 一次 $$[1, d] \times [d, V]$$ 的矩阵乘，$$2Vd$$ FLOPs。Llama-3-8B 每 token 1.05 GFLOPs，占 15.0 GFLOPs 的 7%；这是一层 Transformer 的两倍多（每层 $$2 \times 218\text{M} = 0.44$$ GFLOPs）——**lm_head 是模型里最贵的单个矩阵**。
 
-在小模型里它的占比失控：Qwen2.5-0.5B 的 lm_head 占每 token FLOPs 的 38%，Gemma-2-2B 占 29%。这两个模型都 tie 了 embedding，参数上只算一份，但 FLOPs 上 lm_head 一分不少。小模型选大词表，是为了和同系列的大模型共用 tokenizer（数据只需 tokenize 一次、蒸馏时 logits 可对齐——第二篇与后训练系列会用到），代价是三分之一的算力花在输出层。
+在小模型里它的占比失控：Qwen2.5-0.5B 的 lm_head 占每 token FLOPs 的 27.6%，Gemma-2-2B 占 22.6%。这两个模型都 tie 了 embedding，参数上只算一份，但 FLOPs 上 lm_head 一分不少——算 FLOPs 分母时那张共享表要**作为 lm_head 算进去**（早期版本这里把它从分母里扣掉了，得到 38%，是算错）。tied 模型的"词表参数占比"与"lm_head FLOPs 占比"恰好相等，不是巧合：分子都是 $$Vd$$、分母都是含一张表的总量。小模型选大词表，是为了和同系列的大模型共用 tokenizer（数据只需 tokenize 一次、蒸馏时 logits 可对齐——第二篇与后训练系列会用到），代价是三分之一的算力花在输出层。
 
 训练时这一项更重。反向传播对 lm_head 要算两个梯度（对权重、对输入），《Transformer 与 LLM》第二篇的"训练 = 3 × 前向"对它同样成立：Llama-3-8B 每 token 训练 FLOPs 约 $$6N = 48$$ GFLOPs，其中 lm_head 贡献 $$6 \times 0.525\text{B} = 3.15$$ GFLOPs，仍是 7%。但 15T token 乘下来，Llama-3-8B 全部预训练里有约 $$4.7 \times 10^{22}$$ FLOPs 花在输出层——按 H100 40% MFU 算约 33 000 GPU·小时。
 
@@ -319,7 +319,7 @@ Llama 3 论文给出它的 tokenizer 在英文上把压缩率从 Llama 2 的 3.1
 
 ### 3. 跨 tokenizer 怎么比 loss
 
-第二章留下的问题：困惑度依赖 tokenizer，那 Llama 2 的预训练 loss 与 Llama 3 的能不能比？直接比不能。一段文本 $$B$$ 个字节，切成 $$T$$ 个 token，模型对它的总负对数似然是 $$T \cdot L$$（$$L$$ 是每 token 的平均 loss，nats）。这个总量是**文本的性质**，不随切法变——不管切成多少段，模型给整段文字分配的概率是同一个数。所以：
+第二章留下的问题：困惑度依赖 tokenizer，那 Llama 2 的预训练 loss 与 Llama 3 的能不能比？直接比不能。一段文本 $$B$$ 个字节，切成 $$T$$ 个 token，模型对它的总负对数似然是 $$T \cdot L$$（$$L$$ 是每 token 的平均 loss，nats）。两个不同的模型对同一段文字给出的总概率**当然不同**——这个总量是模型的性质，不是文本的性质；bits/byte 的意义只是把它换到一个与切法无关的单位（每字节几 bit），让两个 tokenizer 不同的模型可以放在同一把尺上比。换算是：
 
 $$
 \text{bits/byte} = \frac{T \cdot L}{B \cdot \ln 2} = \frac{L}{\ln 2} \cdot \frac{T}{B}
@@ -345,7 +345,7 @@ $$
 
 词表每翻一倍，训练集的压缩率大约加 0.4–0.5 字节/token——**近似对数增长**。前几次翻倍收益最大（256 → 2048 从 1.0 到 3.35），之后每翻一倍只多 10% 左右。这与词频的 Zipf 分布一致：第 $$r$$ 常见的 token 频率约 $$\propto 1/r$$，词表从 $$V$$ 扩到 $$2V$$ 新增的那些 token 合计只覆盖语料的 $$\ln 2 / \ln V$$ 左右——$$V = 64\text{K}$$ 时约 6%。
 
-而第三章算过每翻一倍 lm_head 的成本翻一倍。两条曲线一条对数一条线性，交点就是"最优词表"；它在哪取决于模型多大——lm_head 在 70B 模型里只占 1.5%，翻倍几乎免费，在 0.5B 模型里占 38%，翻倍要付真金白银。
+而第三章算过每翻一倍 lm_head 的成本翻一倍。两条曲线一条对数一条线性，交点就是"最优词表"；它在哪取决于模型多大——lm_head 在 70B 模型里只占 1.5%，翻倍几乎免费，在 0.5B 模型里占 28%，翻倍要付真金白银。
 
 Tao 等 2024 把这件事做成了 scaling law：在固定训练算力下，最优词表大小随非词表参数量 $$N_{nv}$$ 呈幂律增长（他们拟合的指数约 0.4–0.5——词表应比参数长得慢，但要一起长），且当前多数模型的词表**偏小**——他们估计 Llama-2-70B 的最优词表应在 216K 以上而不是 32K。论文的另一个结论对系统更有用：**训练数据越多，最优词表越大**。理由是 embedding 要靠出现次数训练，罕见 token 在数据少时训不好，拖累整体；数据多了这个约束放松。这与业界的走向一致：Llama 3 128K、Qwen 152K、Gemma 256K、GPT-4o 200K。
 
@@ -425,7 +425,7 @@ BPE 是贪心的，一段文字的切法依赖它后面跟着什么。`http://` 
 
 词表里除了子词还有一组**特殊 token**：`<|begin_of_text|>`、`<|eot_id|>`、`<|start_header_id|>` 这类控制符，对话格式（chat template）用它们标记角色与轮次边界。它们在预训练时通常不出现（或只作为文档分隔符），在后训练阶段才被赋予含义；embedding 在预训练结束时是欠训练的，SFT 的一部分工作就是把它们训出来。Llama 3 预留了 256 个特殊 token 位（128 000–128 255），这就是 128 256 这个数字的来源：100K（cl100k）+ 28K（非英语）+ 256（特殊）。
 
-特殊 token 与普通 token 的另一个区别是**它们不能从文本里切出来**：用户输入里若出现字面的 `<|eot_id|>` 字符串，tokenizer 默认把它当普通文本切成几个碎片，而不是那一个控制 id——否则用户就能在输入里伪造"助手回合结束"。这个开关在 HF 里叫 `split_special_tokens`，在推理服务器里对应"是否信任输入中的特殊 token"；把它设错是一类真实的注入漏洞。后训练系列的第一篇会回到特殊 token 与模板的细节。
+特殊 token 与普通 token 的另一个区别是**它们是否能从文本里切出来**是一个开关，而且默认值与直觉相反：HF tokenizer 的 `split_special_tokens` 默认 **False**，意思是"不拆开特殊 token"——用户输入里若出现字面的 `<|eot_id|>` 字符串，默认会被识别成那一个控制 id（本地用 3 词的 toy tokenizer 验证：字面 `<eot>` 直接输出特殊 id；设成 True 才被切成普通碎片）。所以把 tokenizer 当安全边界是错的：要防止用户伪造"助手回合结束"，推理服务器必须显式地对用户输入做转义或在应用层过滤（vLLM 等引擎有对应选项），不能靠默认行为；把它设错是一类真实的注入漏洞。后训练系列的第一篇会回到特殊 token 与模板的细节。
 
 ## 六、换词表：扩展、裁剪、移植与不用 tokenizer
 
@@ -514,7 +514,7 @@ tokenizer 决定成本表的两端：
 | 项 | 公式 | Llama-3-8B 的数字 |
 |---|---|---|
 | 词表参数 | $$2Vd$$（tied 为 $$Vd$$） | 1.05B，占 13.1%；训练状态 16.8 GB |
-| lm_head FLOPs | $$2Vd$$ /token | 1.05 G，占 7.0%；0.5B 模型里占 38% |
+| lm_head FLOPs | $$2Vd$$ /token | 1.05 G，占 7.0%；0.5B 模型里占 28% |
 | lm_head 字节 | $$2Vd$$ B（BF16） | 1.05 GB，decode 每步 0.31 ms |
 | 训练 logits | $$\text{tokens} \times V \times 4$$ B | 8K 序列 3.9 GiB，vocab-parallel 或分块融合 |
 | 压缩率 | 字符/token | 英文 3.94（Llama 2 为 3.17）；中文视词表 0.4–1.5 |
@@ -537,7 +537,7 @@ tokenizer 决定成本表的两端：
 
    <details markdown="1"><summary>答案</summary>
 
-   $$2Vd = 2 \times 128256 \times 4096 = 1.05$$ GFLOPs，占 16 G 的 7%；0.5B：$$2 \times 152\text{K} \times 896 = 0.27$$ G，占约 1 GFLOPs 的 38%——小模型的词表开销失控。
+   $$2Vd = 2 \times 128256 \times 4096 = 1.05$$ GFLOPs，占 16 G 的 7%；0.5B：$$2 \times 152\text{K} \times 896 = 0.27$$ G，占约 0.99 GFLOPs 的 28%（tied 模型的分母要把共享表作为 lm_head 算进去）——小模型的词表开销失控。
 
    </details>
 
