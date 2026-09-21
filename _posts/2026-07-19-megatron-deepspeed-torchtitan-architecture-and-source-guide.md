@@ -65,6 +65,8 @@ fp32 主参数     优化器内部的 1/N_d 切片拷贝           扁平 fp32 �
 | fully_shard / FSDP2（torch/distributed/fsdp/_fully_shard/） | 可选后端 | — | ✓ 默认 DP |
 | pipelining（torch/distributed/pipelining/{stage,schedules}.py） | —（自写） | —（自写） | ✓ |
 
+Table: 三框架用到的 torch.distributed 层次
+
 Megatron 与 DeepSpeed 诞生于 DeviceMesh 和 DTensor 之前，各自手写了进程组管理、集合通信调用和流水线调度；torchtitan 诞生于之后，是这些原生 API 的参考用法。所以读 torchtitan 有一个副产品：它告诉你 PyTorch 官方认为多维并行"应该"怎么组合。本篇第五章会看到，这条路在 v0.3.0 又往前走了一步——参数的切分方式已经不再由 `ColwiseParallel` 这类 API 逐个 module 指定，而是由一份声明式的 `ShardingConfig` 描述。
 
 ### 4. 版本与目录地图
@@ -97,6 +99,8 @@ Megatron 与 DeepSpeed 诞生于 DeviceMesh 和 DTensor 之前，各自手写了
 | tensor/_api.py, tensor/parallel/ | DTensor、distribute_tensor、ColwiseParallel 等 |
 | fsdp/_fully_shard/ pipelining/{stage,schedules,_backward}.py | FSDP2；fsdp/_flat_param.py、_runtime_utils.py 是 FSDP1 |
 
+Table: 本篇涉及的目录地图
+
 一处与 torchtitan 旧版用法不同的地方要先说明：v0.2.x 的 torchtitan 用 TOML 文件配置一次运行，v0.3.0 已经不是——`torchtitan/config/README.md` 明确说一次运行由一个返回 `Trainer.Config` 的 Python 函数描述，通过 `--module` 与 `--config` 选择，`--section.option` 命令行参数只为兼容保留。本篇第五章与练手项目都按 v0.3.0 的写法。
 
 ### 5. 本文的章节安排
@@ -109,6 +113,8 @@ Megatron 与 DeepSpeed 诞生于 DeviceMesh 和 DTensor 之前，各自手写了
 | 五 | torchtitan | `Trainer.__init__` 的装配顺序；ShardingConfig 描述的 TP；`fully_shard` 的应用；PP 与 CP；bf16 参数的一生；`train_step` |
 | 六 | 对照阅读 | 三条时序并排；前向前 all-gather 的三种实现（Stage 3 / FSDP1 / FSDP2）；1F1B 的两种写法；取舍表 |
 | 七 | 小结 | 要点、源码位置、train-ledger 的 runs/ 与 `probe_memory.py` |
+
+Table: 本文的章节安排
 
 ## 二、进程组：谁和谁通信
 
@@ -167,6 +173,8 @@ get_ranks("tp-dp")  变 tp,dp，固定 pp  -> {0,1,2,3} {4,5,6,7}
 | loss_mesh | dataloading_mesh["batch", "cp"]._flatten() | loss 归约：所有切数据的维度 |
 | dense_mesh | ("pp", "dp_replicate", "dp_shard", "cp", "tp") | 参数分片用；fully_shard 从中挑 dp_shard（与 cp）为 shard 维 |
 | sparse_mesh | ("pp", "dp_replicate", "efsdp", "ep") | MoE 专家用；efsdp = dp_shard × cp × tp / ep |
+
+Table: torchtitan 的几个 DeviceMesh 及其用途
 
 大小为 1 的维度用 `backend_override[name] = "fake"`，不真正创建 NCCL 通信器（`_mesh_exist()` 决定哪些维即使为 1 也要保留，例如 `dp_shard`，因为 `fully_shard` 需要它来安装 `MixedPrecisionPolicy`）。之后 `get_mesh("tp")`、`get_optional_mesh("pp")`、`get_mesh(["dp_replicate", "dp_shard"])` 按名取子 mesh，各并行模块拿到 mesh 后自己 `mesh.get_group()`。
 
@@ -853,6 +861,8 @@ cooldown: for i in range(num_warmup_microbatches):
 | 通信在哪发出 | `P2PCommunicator._communicate()`，四类收发打包成一次 `batch_isend_irecv` | `_exec_send_activations` 等，走 `pipe/p2p.py` | `PipelineStage.get_fwd_recv_ops()` 等生成 `P2POp`，`_batch_p2p` 合并 |
 | 改调度要动什么 | 改代码（interleaved 版本另写了一千行） | 改生成器；只有一种调度 | 换一张表；PP × FSDP、zero-bubble 都是表变换（`_add_send_recv` / `_add_unshard_reshard` / `_merge_bw`） |
 
+Table: 1F1B 在三个框架里的写法
+
 两种写法的取舍：Megatron 的过程式**快**——每一步做什么在代码里写死，没有解释开销，与 Megatron 自己的 DDP、分布式优化器、interleaved 调度的 `overlap_p2p_comm` 深度耦合（`forward_backward_pipelining_with_interleaving()` 有一千行）；PyTorch 的动作表**通用**——新调度只是一张新表，PP 与 FSDP、与 zero-bubble 的组合是表变换，代价是每步的解释与 `_batch_p2p` 的开销，以及形状推断带来的第一步延迟。DeepSpeed 的 `TrainSchedule` 在两者之间：指令序列是声明的，但只有一种调度。
 
 ### 4. 取舍表
@@ -924,6 +934,8 @@ all-gather 三种  Stage 3 每参数 ds_tensor + coalesced；FSDP1 FlatParameter
 | PyTorch 2.13.0 `torch/distributed/pipelining/schedules.py`、`stage.py`、`_backward.py` | `Schedule1F1B`（`_step_microbatches()`、`_get_pipeline_order()`）、`_Action`、`_ComputationType`、`_PipelineScheduleRuntime`（`_load_csv()`）、`_add_send_recv()`、`_add_unshard_reshard()`、`_merge_bw()`、`_batch_p2p()`、`get_schedule_class()`；`PipelineStage`（`forward_one_chunk()`、`backward_one_chunk()`、`backward_weight_one_chunk()`、`get_fwd_recv_ops()` 等）；`stage_backward()`、`stage_backward_input()`、`stage_backward_weight()` |
 | PyTorch 2.13.0 `torch/distributed/device_mesh.py`、`tensor/_api.py`、`tensor/parallel/style.py` | `DeviceMesh`（`__getitem__`、`get_group()`、`_flatten()`、`_unflatten()`）、`init_device_mesh()`；`DTensor`（`redistribute()`、`to_local()`、`full_tensor()`）、`distribute_tensor()`；`ColwiseParallel`、`RowwiseParallel`、`SequenceParallel` |
 | train-ledger `runs/{megatron,deepspeed,titan}/`、`probe_memory.py` | 本篇增量，见下 |
+
+Table: 本篇涉及的源码位置
 
 ### 3. train-ledger 本篇增量：runs/ 与 probe_memory.py
 

@@ -47,6 +47,8 @@ LLM Serving 则完全不同。一个请求可能携带几十个，也可能携�
 | 八 | 本文小结 |  |
 | 九 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、范式转移：服务对象从“一次计算”变成“持续生成过程”
 
 理解 LLM Serving 的第一步，不是从某个具体优化技术开始，而是先看清它与典型传统 DL Serving 在**服务对象**上的差异：**从一次 Forward 到持续生成**。
@@ -96,6 +98,8 @@ EOS 或达到长度上限
 | 内存模式 | 相对静态 | KV Cache 动态增长和回收 |
 | 服务时长 | 相对容易估计 | 与输出长度、调度和资源竞争有关 |
 | 主要挑战 | 高效执行一次计算 | 计算、调度和状态管理协同优化 |
+
+Table: 传统 DL Serving 与 LLM Serving 的对比
 
 这并不意味着传统 Serving 的技术全部失效，而是意味着系统不能再只依赖以下假设：
 
@@ -171,6 +175,8 @@ Prefill 主要决定**第一个 Token 何时到达**，Decode 则决定**后续 
 | 典型瓶颈 | Compute、长序列 Attention | HBM 带宽、KV Cache、通信 |
 | 常见优化 | FlashAttention、Chunked Prefill | PagedAttention、FlashInfer、CUDA Graph |
 | CUDA Graph | 需视执行形态而定 | 适合形状和路径相对稳定的场景 |
+
+Table: Prefill 与 Decode 的对比
 
 在多请求服务中，Prefill 和 Decode 会竞争同一组 GPU 资源：
 
@@ -310,6 +316,8 @@ Prefill 更偏向计算密集型，Decode 更偏向访存密集型。
 | 三 | 这一轮**如何计算得更快？** | FlashAttention、CUDA Graph、算子融合、量化、投机解码 | `ModelRunner` / Attention Backend | 执行优化 |
 | 四 | 一张卡不够，**如何扩展？** | TP、PP、EP、CP、DP、集合通信 | `Executor` / `distributed` | 多卡与集群 |   |
 
+Table: LLM Serving 的四个核心问题与代码落点
+
 四问之外还有两个**横切约束**：模型在变、硬件在变——它们不新增问题，但要求上面四个答案在剧烈变化的外部环境里保持稳定。
 
 ## 七、一个贯穿全文的例子
@@ -333,6 +341,8 @@ Prefill 更偏向计算密集型，Decode 更偏向访存密集型。
 | 这个请求最终的 KV 总量 | `2350 × 320 KB` | **约 734 MB** |
 | 权重每卡 | `141 GB ÷ 8` | 17.6 GB |
 
+Table: 贯穿全文例子的两个基础量
+
 有了这两个量，就可以给第三章“Prefill 偏 Compute-Bound、Decode 偏 Memory-Bound”的判断算一笔账。线性层的 FLOPs 按 `2 × 参数量 × token 数` 估，每卡参数 `70.6B ÷ 8 ≈ 8.8B`；HBM 读取按“权重读一遍 + 历史 KV 读一遍”估；H100 SXM 的 FP16 稠密算力约 989 TFLOPS、HBM 带宽约 3.35 TB/s，拐点（ridge point）约 295 FLOP/B——算术强度高于它是 Compute-Bound，低于它是 Memory-Bound：
 
 | 一个 step（每卡） | FLOPs | HBM 读取 | 算术强度 | 相对拐点 295 | 下界耗时 |
@@ -341,6 +351,8 @@ Prefill 更偏向计算密集型，Decode 更偏向访存密集型。
 | Decode，Batch=1，L=2350 | `2 × 8.8G` ≈ 17.6 GFLOP | 17.6 GB + KV 94 MB | ≈ 1 FLOP/B | 低 300× → **Memory-Bound** | 带宽：17.7 GB / 3.35 TB/s ≈ **5.3 ms** |
 | Decode，Batch=64，L=2350 | 64 × 17.6G ≈ 1.1 TFLOP | 17.6 GB + KV 6.0 GB | ≈ 48 FLOP/B | 低 6× → 仍 Memory-Bound | 带宽：23.6 GB / 3.35 TB/s ≈ **7.0 ms** |
 | Decode，Batch=256，L=2350 | 256 × 17.6G ≈ 4.5 TFLOP | 17.6 GB + KV 24 GB | ≈ 108 FLOP/B | 低 2.7× → 仍 Memory-Bound | 带宽：41.6 GB / 3.35 TB/s ≈ **12.4 ms** |
+
+Table: Prefill 与 Decode 一个 step 的算术强度
 
 这张表忽略了 Attention 自身的 FLOPs、TP 通信和 Kernel 效率，只给理想下界，但已经足够说明几件事：
 

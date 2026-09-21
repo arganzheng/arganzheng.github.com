@@ -75,6 +75,8 @@ flowchart TB
 | 十三 | 本文小结 |  |
 | 十四 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、模板是生成代码的配方
 
 ### 1. 函数模板与隐式实例化
@@ -166,6 +168,8 @@ T* TensorBase::data_ptr() const {
 | 值可以做参数吗 | 不能 | 能（非类型模板参数，第四章） |
 | 类型检查发生在 | 泛型定义处（有 `extends` 约束） | 实例化处（默认没有约束，第六章） |
 | 运行期能问 `T` 是什么吗 | 不能（已擦除） | 不需要问，`T` 已经编进代码 |
+
+Table: Java 泛型的类型擦除与 C++ 模板的单态化
 
 对 AI-Infra 读者，C++ 这一侧有一个更熟悉的类比：`torch.compile` 对同一个 Python 函数，会按输入的 dtype、形状（guard）各编译一份专用的图，`f(float32 张量)` 和 `f(float64 张量)` 跑的是两份不同的生成代码。模板做的是同一件事，只是发生在编译期、由源码里显式或推导出的 `<T>` 触发，而 `torch.compile` 发生在运行期、由第一次见到的实参触发。两者的代价也同构：份数随参数组合增长（模板是编译时间与二进制体积，`torch.compile` 是 recompile 次数与缓存），这是第七章 `AT_DISPATCH` 只为有限几种 dtype 实例化、而不是对所有类型全开的原因。
 
@@ -1457,6 +1461,8 @@ void scale_11(float* out, const float* in, float alpha, long n) {
 | `[this]` | 捕获 `this` 指针，可以访问成员 | `Cls*` |
 | `[fn = std::move(f)]` | 初始化捕获（C++14）：把表达式的结果存成成员 `fn` | 任意类型 |
 
+Table: lambda 捕获列表的写法与生成的成员
+
 `[&]` 和 `[=]` 的区别只在两点：**能否修改外层变量**（`[=]` 拷了一份，改的是自己的副本，且默认 `operator()` 是 `const`，需要 `mutable` 才能改），以及**生命周期**（`[&]` 里的引用不延长被引用对象的寿命，9.5 节）。ATen 里 `[&]` 占绝大多数，因为 kernel 代码几乎总是"在当前函数里同步地把活干完"。`[=]` 用于要把 lambda 存起来或传到别处的场合，例如 `aten/src/ATen/native/Linear.cpp` 里 einsum 的辅助函数：
 
 ```cpp
@@ -2225,6 +2231,8 @@ grep -n "fmul\|\tmul\tx8, x8, x9" mul.s
 | lambda 捕获 | 只能按值捕获 effectively final | `[&]`/`[=]`/初始化捕获 | Java 靠禁止按引用捕获避免悬垂；C++ 靠程序员 |
 | 传 lambda | 函数式接口，接口调用 | 模板参数直接内联；`std::function` 才是类型擦除 | Java 无零开销选项 |
 | 类型见证 `Collections.<String>emptyList()` | 少用，通常能推导 | `data_ptr<float>()` 必须写 | C++ 不从返回值推导 |
+
+Table: 模板与泛型编程：Java 对照汇总
 
 下一篇进入多态：`AT_DISPATCH` 解决了"按 dtype 选 kernel"，但"按设备（CPU/CUDA）选 kernel"是运行期的事，PyTorch 的 Dispatcher 用虚函数、函数指针、`std::function` 和手写类型擦除（`c10::KernelFunction`）把任意签名的 kernel 装进统一的表里。为什么 `TensorImpl` 有虚函数而 `Tensor` 没有，为什么 `KernelFunction` 同时有 boxed 和 unboxed 两条路径，`IValue` 和 Java 的 `Object` 有什么不同——这些是第四篇的内容。
 

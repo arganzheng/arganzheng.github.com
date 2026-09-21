@@ -39,6 +39,8 @@ updated: 2026-09-20
 | 第二层 Linear | $$Z = AW_2 + b_2$$ | $$[m, 10]$$ |
 | loss | $$L = \text{CE}(\text{softmax}(Z), Y)$$ | 标量 |
 
+Table: 两层 MLP 前向每一步的形状
+
 参数是 $$W_1 \in \mathbb{R}^{784 \times 256}, b_1 \in \mathbb{R}^{256}, W_2 \in \mathbb{R}^{256 \times 10}, b_2 \in \mathbb{R}^{10}$$。个数就是这四个数组的元素数之和——图 1 里每条边一个权重、每个隐藏 / 输出神经元一个偏置：
 
 $$
@@ -62,6 +64,8 @@ $$
 | 十 | 本文小结 |  |
 | 十一 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、链式法则与计算图
 
 ### 1. 三种导数的形状
@@ -73,6 +77,8 @@ $$
 | 标量 $$L$$ | 向量 $$x \in \mathbb{R}^n$$ | 梯度 $$\nabla_x L$$ | $$\mathbb{R}^n$$，与 $$x$$ 相同 |
 | 标量 $$L$$ | 矩阵 $$W \in \mathbb{R}^{k \times n}$$ | 梯度 $$\partial L / \partial W$$ | $$\mathbb{R}^{k \times n}$$，与 $$W$$ 相同 |
 | 向量 $$y \in \mathbb{R}^n$$ | 向量 $$x \in \mathbb{R}^k$$ | Jacobian $$J = \partial y / \partial x$$ | $$\mathbb{R}^{n \times k}$$，$$J_{ij} = \partial y_i / \partial x_j$$ |
+
+Table: 三种导数的形状
 
 前两种是训练最终要的东西——loss 对每个参数的梯度，形状与参数一样，所以可以直接 `W -= lr * dW`。第三种是中间量：每一层把输入变成输出，层的局部导数是一个 Jacobian。
 
@@ -198,6 +204,8 @@ flowchart LR
 | 反向 4 | $$G_H = G_A \odot \mathbb{1}[H > 0]$$ | $$[128, 256]$$ | $$H$$ 的符号（掩码） |
 | 反向 5 | $$\partial L / \partial W_1 = X^T G_H$$；$$\partial L / \partial b_1 = \sum_i G_H$$ | $$[784, 256]$$；$$[256]$$ | $$X$$ |
 
+Table: 两层网络反向每一步的形状与用到的前向量
+
 $$\partial L / \partial X = G_H W_1^T$$ 在数学上存在，但 $$X$$ 是数据不是参数，不需要它的梯度，框架会跳过这一步。任何深度的 MLP 都是把反向 3–5 重复若干次；Transformer 的 FFN 子层就是一个两层 MLP，attention 子层多几个矩阵乘和一个 softmax，规则不变。
 
 ## 五、反向为什么是前向的两倍
@@ -213,6 +221,8 @@ $$\partial L / \partial X = G_H W_1^T$$ 在数学上存在，但 $$X$$ 是数据
 | 前向 | $$2 \times 128 \times 784 \times 256 = 51.4$$M | $$0.66$$M | **52.0 MFLOPs** |
 | 反向 | $$102.8$$M | $$1.31$$M | **104.1 MFLOPs** |
 | 比值 | | | **2.00** |
+
+Table: 两层网络前向与反向的 FLOPs
 
 第九章的实验里用计数器验证了这两个数字——它的实现**故意也算了**第一层的 $$\partial L / \partial X$$（输入是图片，这一项没人用），所以比值恰好 2.00。实践中省掉它：这个两层网络里第一层占 98.7% 的权重，省掉后反向是 $$51.4 + 1.31 = 52.7$$M，比值 1.01——对**浅而宽**的网络"反向 = 2 × 前向"差得远；层数多时第一层占比小，比值回到接近 2，$$6ND$$ 才是好的近似。
 
@@ -236,6 +246,8 @@ $$\partial L / \partial X = G_H W_1^T$$ 在数学上存在，但 $$X$$ 是数据
 | $$H$$ 的掩码 | $$[128, 256]$$ bool | 32 KiB |
 | $$A$$ | $$[128, 256]$$ fp32 | 128 KiB |
 | 合计 | | **552 KiB**（权重 795 KiB） |
+
+Table: 反向需要保存的激活及其字节数
 
 batch 换成 4096，激活变成 17.3 MiB，权重不变。序列模型里 $$m$$ 是 batch × 序列长度，所以长上下文训练的激活显存会远超权重——[L1 工具箱系列](/tooling-for-ai-algorithm-engineers.html)给过 Llama-3-8B 在 4096 长度下仅残差流一份就是 1 GiB / 序列的锚点，精确公式在 Infra 地图 07 系列第一篇。
 
@@ -277,6 +289,8 @@ $$\epsilon$$ 有两头约束：太大截断误差大，太小舍入误差大—�
 | 每个算子的 backward | 第三章的三类 VJP 公式 | 每个 `Function` 有 `forward` 与 `backward`，后者接收上游梯度、返回对每个输入的 VJP |
 | saved tensors | 第六章要保存的 $$X$$、掩码、$$A$$ | `ctx.save_for_backward(...)`；`backward()` 后释放，所以同一个图不能反向两次（除非 `retain_graph=True`） |
 | 梯度累加 | `dW[...] = X.T @ dY` | 叶子张量的 `.grad` 是**累加**而不是覆盖，所以每步要 `zero_grad()`；梯度累积正是利用这一点 |
+
+Table: Autograd 自动化的四个机制及本文对应
 
 `torch.no_grad()` 关掉录带（推理与评测时省激活显存）；`.detach()` 把一个张量从图上摘下来（RL 里对 old logprobs 常用）；`torch.utils.checkpoint` 就是第六章的激活重算。第九章的实验把手写梯度与 PyTorch autograd 的结果对了一遍，差在 $$10^{-8}$$ 量级——两边算的是同一组公式，差异只是浮点求和顺序。
 

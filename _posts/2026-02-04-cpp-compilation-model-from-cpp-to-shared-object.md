@@ -69,6 +69,8 @@ Java 是全篇的参照系。Java 的世界里只有一种编译产物（`.class
 | 八 | 本文小结 |  |
 | 九 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、四个阶段：一个 `.cpp` 是怎么变成机器码的
 
 ### 1. Java 的一步与 C++ 的四步
@@ -97,6 +99,8 @@ flowchart LR
 | ③ 汇编 | 几乎不会出错（输入是编译器生成的） |
 | ④ 链接 | `undefined reference to ...`、`multiple definition of ...` |
 | ⑤ 加载 | `cannot open shared object file`、`undefined symbol`（运行时才发现） |
+
+Table: 编译四阶段各自的典型报错
 
 分清阶段，是排错的第一步。
 
@@ -242,6 +246,8 @@ clang++ -std=c++17 -I. examples/hello.cpp -L. -lminic10 -o hello
 | `-fPIC` | 生成位置无关代码：动态库会被装到任意地址，代码里不能写死绝对地址（§4） | 前面 |
 | `-Wall` | 打开常用警告 | 前面 |
 
+Table: 两条编译命令里各选项的含义
+
 两类最常见的链接错误都发生在符号解析阶段：
 
 ```text
@@ -264,6 +270,8 @@ multiple definition of `helper()'          # 不止一个人定义了
 | 汇编 | 汇编 → `.o` | 无（`.class` 已是最终产物） | |
 | 链接 | 多个 `.o`/库 → 可执行文件或 `.so` | 无直接对应 | Java 把这一步推迟到运行时由 JVM 做 |
 | 加载 | `ld.so` 加载 `.so` | 类加载器加载 `.class` | 最接近的类比，但 C++ 加载时要解析的符号在链接期已确定 |
+
+Table: C++ 编译加载五阶段与 Java 的对应
 
 ## 三、翻译单元、声明与定义、头文件
 
@@ -346,6 +354,8 @@ C10_API std::ostream& operator<<(std::ostream& stream, const Device& device);
 | `noexcept` | 函数保证不抛异常 | 没有对应 |
 | `Device::str()` | 作用域限定：`.cpp` 里定义头文件声明过的成员函数时写类名前缀 | 方法只能写在类体内 |
 
+Table: c10/core/Device.h 里 Java 没有的记号
+
 注意三种成员：
 
 - ① `Device(DeviceType, DeviceIndex)`、`is_cuda()`、`validate()` **在类内直接给出函数体**。类内定义的成员函数隐含 `inline`（第四章解释为什么这样就不违反 ODR）。它们一两行就完，放在头文件里让编译器可以内联。
@@ -406,6 +416,8 @@ std::ostream& operator<<(std::ostream& stream, const Device& device) {
 | 常量 | `constexpr int kX = 1;` | |
 | 模板 | 第三篇 | 模板几乎必须全部放头文件 |
 | 宏 | `C10_API` | 第五篇 |
+
+Table: 头文件通常包含的内容
 
 头文件会被间接包含很多次。`Device.h` 包含 `Exception.h`，`ScalarType.h` 也包含 `Exception.h`，一个同时包含 `Device.h` 和 `ScalarType.h` 的文件里 `Exception.h` 就被粘贴两次——第二次会因为重复定义 `class Error` 而编译失败。`#pragma once` 解决这个问题：同一个文件在同一个翻译单元里只展开一次。
 
@@ -709,6 +721,8 @@ REGISTER_DISPATCH(div_true_stub, &div_true_kernel)
 | `static`、匿名命名空间 | 内部链接 | 互不相干 | `.cpp` 里的私有辅助 |
 | `extern` 声明 | 声明而非定义 | 不算定义 | 头文件里引用别处的变量 |
 
+Table: 四种链接属性
+
 ## 五、目标文件、库与符号
 
 ### 1. 用 `nm` 看目标文件里的符号表
@@ -739,6 +753,8 @@ nm -C Version.o
 | `W` | weak，inline/模板生成的可重复定义 | 下面 `hello.o` 里的 `version_number()` |
 | `D`/`d` | 已初始化的全局/局部数据 | |
 | `B`/`b` | 未初始化数据（bss） | |
+
+Table: nm 输出中常用的符号类型字母
 
 再看 `hello.o`（只编译不链接 `examples/hello.cpp`）：
 
@@ -809,6 +825,8 @@ Java 对照：JNI 也有一套名字规则（`Java_com_example_Foo_bar`），本
 | 更新库 | 必须重新链接程序 | 替换 `.so` 即可（ABI 兼容的前提下） |
 | 未被引用的 `.o` | **不会**被拉进来（下一段） | 整个库都加载 |
 
+Table: 静态库与动态库的差别
+
 静态库有一个让很多人踩坑的性质：链接器从 `.a` 里只取**被引用了的** `.o`。一个 `.o` 如果没有任何符号被别人引用——典型就是"只靠静态初始化把自己注册进全局表"的算子文件（第五篇）——就会被整个丢掉，注册代码根本不存在于最终产物里。`cmake/TorchConfig.cmake.in` 里 `append_wholearchive_lib_if_found(torch torch_cpu)` 用 `-Wl,--whole-archive` 强制链接器把 `libtorch_cpu.a` 全部拉进来，就是为了这个。PyTorch 的默认发布形态是动态库（`BUILD_SHARED_LIBS=ON`），不存在这个问题；vLLM、TorchServe 等下游一律链接动态库。
 
 Java 里没有这个二分法：`.jar` 就是 `.class` 的 zip 包，运行时按需加载，最接近"动态库"；但 JVM 只在真的用到某个类时才加载它，这又有点像"静态库只取被引用的 `.o`"——只是 Java 是运行期惰性，C++ 是链接期裁剪。
@@ -874,6 +892,8 @@ GCC/Clang 用 `-fvisibility=hidden` 把默认改成"全部不导出"，再用 `_
 | `ldd` | 列运行时会加载的库及解析到的路径 | `ldd hello`；`ldd torch/lib/libtorch_python.so` |
 | `strings` | 找字符串 | `strings libtorch_cpu.so \| grep GLIBCXX` 看依赖的 libstdc++ 版本 |
 
+Table: 二进制分析工具箱
+
 macOS 对应：`nm`、`c++filt` 一样；`otool -L` 代替 `ldd`；`otool -l` 代替 `readelf -d`；`dyld_info` 代替部分 `objdump -p`。Windows 用 `dumpbin`。
 
 这些工具在第八篇（调试）会再次出现。本篇最后的实践一会用 `ldd` 和 `nm` 看真实的 PyTorch 库。
@@ -889,6 +909,8 @@ macOS 对应：`nm`、`c++filt` 一样；`otool -L` 代替 `ldd`；`otool -l` �
 | `ClassNotFoundException` | `undefined reference`（链接期）/ `cannot open shared object file`（加载期） | 都是找不到 | Java 是运行时异常可捕获；C++ 是构建失败或进程直接起不来 |
 | `NoSuchMethodError` | `undefined symbol: _ZN...`（加载期） | 都是"类找到了但方法不对" | C++ 的通常是 ABI 不匹配（第七篇） |
 | `public`/包私有 | `visibility("default")`/`hidden` | 都是"对外暴露什么" | Java 是编译期检查，反射可绕；C++ 的 hidden 符号在 `.so` 里没有名字，无法绕过 |
+
+Table: Java 的 .class / .jar 与 C++ 翻译单元、目标文件、库的对照
 
 ## 六、动态链接与加载
 
@@ -1230,6 +1252,8 @@ nm -DC $TORCH_DIR/lib/libc10.so | grep 'c10::Device::str'   # macOS: nm -C libc1
 | `-Wl,-rpath,...` | `CMAKE_INSTALL_RPATH` / `BUILD_RPATH`，或 `set_target_properties(... INSTALL_RPATH ...)` |
 | `-std=c++17` | `CMAKE_CXX_STANDARD 17`；`TorchConfig.cmake` 也给导入目标 `torch` 设了 `CXX_STANDARD 17` |
 
+Table: 手写 g++ 参数与 CMake 的对应
+
 第八篇会系统讲 CMake。这里的目的是让读者知道：**CMake 生成的最终命令和手写的没有本质区别，出了链接问题可以把 `ninja -v` 打出的命令拿出来单独跑。**
 
 ## 八、本文小结
@@ -1250,6 +1274,8 @@ nm -DC $TORCH_DIR/lib/libc10.so | grep 'c10::Device::str'   # macOS: nm -C libc1
 | 静态库 vs 动态库 | `.a` 链接期裁剪拷贝，`.so` 记依赖加载期解析 | `--whole-archive`；`BUILD_SHARED_LIBS` |
 | RPATH / `$ORIGIN` | 把库搜索路径烧进二进制 | `setup.py` 给 `_C` 传的 `-Wl,-rpath,$ORIGIN/lib` |
 | `dlopen` / `RTLD_GLOBAL` | 运行时显式加载，符号是否全局可见 | `libtorch_global_deps.so`；`_load_global_deps()` |
+
+Table: 本篇涉及的 C++ 机制及其在 PyTorch 里的体现
 
 Java 工程师需要放弃的两个直觉：**"编译器能看到整个项目"**（不能，只能看到一个翻译单元，头文件是手写的接口）；**"找不到类是运行时异常"**（在 C++ 里它是构建失败或进程起不来，三个阶段都在业务代码运行之前）。第三个直觉——"一个包就是一个 jar"——留给下篇：命名空间、目录、库是三个独立的维度。
 

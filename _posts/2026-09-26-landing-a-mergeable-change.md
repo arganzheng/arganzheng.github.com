@@ -116,6 +116,8 @@ AI 政策         AI_POLICY.md：不接受全自主 agent 的贡献；标注 AI 
 | 十四 | 贡献日志 | PR 草稿模板；两份按项目模板填好的描述样例；review 往返记录表 |
 | 十五 | 小结 | 要点 · 对照表 · 文件位置表 |
 
+Table: 本文的章节安排
+
 ## 二、最小 diff：一个 PR 只做一件事
 
 ### 1. 什么叫"一件事"
@@ -1158,6 +1160,8 @@ AI          针对讨论质量（不贴 AI 文本）                            
 | | `benchmarks/kernels/`（66 个）；`benchmarks/benchmark_serving.py` 等（弃用桩）；`benchmarks/README.md` | kernel benchmark；指向 `vllm bench` |
 | | `vllm/benchmarks/`；`vllm/entrypoints/cli/benchmark/` | `latency` / `throughput` / `serve` / `startup` / `sweep` / `mm_processor` |
 | | `tests/`（`kernels/` / `entrypoints/` / `evals/` / `v1/` …） | 测试组织；`tests/kernels/attention/test_attention.py` 的 `opcheck` 用法 |
+
+Table: 本篇涉及的文件位置
 
 GitHub 标签（截至 2026-09 查询）：PyTorch 存在 `actionable`、`skip-pr-sanity-checks`、`ciflow/trunk`、`topic: not user facing` 与一组 `release notes: *`；vLLM 存在 `ready`（"ONLY add when PR is ready to merge/full CI is needed"）、`ready-run-all-tests`、`verified`、`needs-rebase`、`ci-failure`，而文档提到的 `action-required` 与 `rfc-required` 在标签列表中未找到。
 

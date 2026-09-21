@@ -65,6 +65,8 @@ M 个 8 卡 SP 组"]
 | 换 FLUX.1-schnell 4 步 | 1.25（0.8 s） | 80 | 0.8 | \$0.0006 |
 | 4 卡 SP（延迟 1.6 s，吞吐不变） | 0.26 张/s/卡 | 390 | 3.9 | \$0.0027 |
 
+Table: 100 QPS FLUX.1-dev 服务各配置的卡数与成本
+
 三个结论：
 
 - **卡数由吞吐决定、吞吐由单卡时间决定、batch 不参与**：需要的卡数 = QPS × 单张 GPU·秒。前六篇的每一项优化直接按比例减少卡数；多卡 SP 不减少卡数（只减延迟）。
@@ -87,6 +89,8 @@ M 个 8 卡 SP 组"]
 | 十一 | 本文小结 | |
 | 十二 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、请求形态
 
 ### 1. 六种请求
@@ -99,6 +103,8 @@ M 个 8 卡 SP 组"]
 | **I2V** 图生视频 | + 首帧图 | VAE 编码首帧；首帧 latent 作为条件拼进序列 | 分钟级 | Wan-I2V、LTX-2 |
 | **+ 附件** | + LoRA id / ControlNet 条件图 / IP-Adapter 参考图 | LoRA：线性层多一个低秩分支（或 merge）；ControlNet：多一个网络的前向（U-Net 时代约 +50%，DiT 时代的 ControlNet 是几个 block 的副本 +15–30%）；IP-Adapter：多一个图像编码器一次前向 | +0–50% | 风格 / 姿态 / 参考 |
 | **流式 / 会话**（第六篇） | 控制信号流 | KV cache、会话状态 | 不定 | 世界模型 |
+
+Table: 六种生成请求形态
 
 ### 2. 时长在收到请求时就确定
 
@@ -119,6 +125,8 @@ $$
 | 状态 | KV cache 随生成增长 | 无（自回归视频除外） |
 | 抢占 | 任意 token 边界，KV 要换出 | 步边界，只需保存 latent（$$N \times c p^2$$，FLUX 0.6 MB） |
 | 失败重试 | 从头或从 KV 恢复 | 从任意步的 latent 恢复（确定性 seed 下 bit-exact） |
+
+Table: LLM 请求与扩散请求的对照
 
 最后两行是扩散独有的便利：**一个请求的全部状态就是当前的 latent**——0.6 MB，任何一步都可以 checkpoint、迁移到另一张卡继续、或抢占后恢复。
 
@@ -150,6 +158,8 @@ $$
 | **SLO 准入** | 估算 $$t_\text{排队} + t_\text{执行}$$ 超过 SLO 就拒绝 / 降级（减步数、换 schnell、开缓存） | p99 可控 | 需要准确的时长模型 |
 | **预付费 / 配额** | 按估算 GPU·秒扣配额 | 事前计费 | — |
 
+Table: 时长可预测带来的调度策略
+
 这些在 LLM serving 里都做不好（不知道时长），在扩散上都是直接的。
 
 ### 2. 抢占
@@ -169,6 +179,8 @@ $$
 | 文本编码器 | 小（5 T） | 9–14 GiB 权重 | 20–70 ms | 每请求一次；同 prompt 可缓存 | 独立小实例 / CPU / 与 DiT 同卡但 offload |
 | DiT | 大（2 P） | 22–38 GiB 权重 + 激活 | 秒到分钟 | 每请求 $$T$$ 次 | 主体；SP 组 |
 | VAE 解码 | 小（5 T） | **2–8 GiB 峰值**（视频百 GiB） | 100 ms（视频秒级） | 每请求一次 | 独立实例 / Parallel VAE / 与 DiT 同卡但 tiling |
+
+Table: 三段的资源形态
 
 同卡部署时 DiT 的 22 GiB 权重旁边要留 VAE 的 8 GiB 峰值（2048²），文本编码器的 9 GiB 要 offload；分离后 DiT 卡只放 DiT，密度更高。
 
@@ -216,6 +228,8 @@ Parallel VAE / 独立卡
 | **merge** | $$W' = W + BA$$ 合并进权重 | 合并 / 卸载各一次全权重的读写（FLUX 22 GiB，几百 ms） | 0 | 一个实例长期服务一个 LoRA |
 | **unmerged** | 每个线性层多算 $$x B A$$ | 加载 $$BA$$（几十到几百 MB） | 低秩分支的 GEMM（rank 32：约 +2–5%） | 按请求切换 |
 | **多 LoRA batch** | batch 里不同请求用不同 LoRA，按请求索引选 adapter（LLM 的 S-LoRA / Punica 思路） | — | 分组 GEMM 的开销 | 高并发多 LoRA |
+
+Table: LoRA 的三种服务方式
 
 扩散上多 LoRA batch 的价值比 LLM 小（batch 本来就不提吞吐），所以 vLLM-Omni 的兼容键要求**一个 batch 一个 LoRA**、SGLang 同样按 LoRA id 分批。切换的瓶颈是**加载**：从磁盘 / 网络读几百 MB 的 adapter。SwiftDiffusion（Li 等 2024）的 **bounded async loading**：观察到去噪的前几步对 LoRA 不敏感（前几步在定构图，LoRA 影响的是风格与细节），所以**前 $$k$$ 步先用基座模型跑、同时异步加载 LoRA**，加载完再挂上，$$k \le 4$$ 时质量不变——把加载完全藏在生成里。Nunchaku 让 LoRA 直接挂在 SVDQuant 的低秩分支旁而不必重新量化。
 
@@ -298,6 +312,8 @@ sequenceDiagram
 | warmup | `--warmup-mode`、`--warmup-resolutions`；`server_warmup.py` | — | — | — |
 | 存储 / job | `openai/storage.py`、`stores.py` | `outputs/` | — | — |
 
+Table: 服务机制在四个引擎里的实现对照
+
 ### 2. 实践建议
 
 一张卡、SGLang Diffusion 或 vLLM-Omni、FLUX.1-dev 或 SD3-medium：起服务，用一个压测脚本以并发 1 / 2 / 4 / 8 / 16 打 `/v1/images/generations`（同分辨率、同步数），记录吞吐（张/s）与 p50 / p99；再换 SD3-Turbo 512² 重复。该看到：FLUX 的吞吐在并发 > 1 后不再增长、p99 随并发线性恶化（排队）；SD3-Turbo 512² 的吞吐在并发 4 时约 2–3×（batch 有效）。然后开 `--batching-max-size` 与不开各测一次，验证兼容键的行为（混入一个不同分辨率的请求看它是否单独成批）。
@@ -317,6 +333,8 @@ sequenceDiagram
 | API | 图像同步 `/v1/images/generations`；视频异步 `/v1/videos` job + 轮询 + 对象存储；会话流式 | 状态可 checkpoint |
 | 成本 | GPU·秒 × 单价，事前可算 | FLUX \$0.0006–0.005 / 张；Wan 720p 5 s \$0.22–1 |
 | 冷启动 | 权重 30–50 GB + 编译 1–3 min → 分钟级，提前扩 | 编译缓存持久化 |
+
+Table: 扩散服务的规则与数字小结
 
 ### 下一篇
 

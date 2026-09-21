@@ -26,6 +26,8 @@ updated: 2026-09-20
 | 深度与残差 | 2015–2016 | 深了训不动（退化问题）；BN 让前向稳定，残差让反向稳定 | ResNet、ResNet-v2 | **残差连接、归一化、堆同样的块、pre-activation（Pre-Norm 的前身）** |
 | 去掉归纳偏置 | 2020– | 数据够多时局部性约束成了上限；把图切成 token 交给 attention | ViT、ConvNeXt | **patch embedding = stride 卷积；一张图等于多少 token** |
 
+Table: 卷积网络的三个阶段
+
 ### 2. 本文的章节安排
 
 | 章 | 主题 | 内容 |
@@ -38,6 +40,8 @@ updated: 2026-09-20
 | 七 | 实验 | 代码与结果 |
 | 八 | 本文小结 |  |
 | 九 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、卷积作为带约束的线性层
 
@@ -115,6 +119,8 @@ stride 为 $$s$$ 的卷积（或池化）把特征图缩小 $$s$$ 倍，之后�
 | GoogLeNet | 2014 | 22 | 6.8M | $$1 \times 1$$ 卷积做通道降维（bottleneck）；多分支；去掉大全连接层，用全局平均池化 | $$1 \times 1$$ 卷积；全局平均池化 |
 | ResNet-50 / 152 | 2015 | 50 / 152 | 25.6M / 60M | 残差连接；BN 到处用；bottleneck 残差块 | **残差、归一化、堆同样的块** |
 
+Table: 经典 CNN 各解决了什么
+
 两个趋势值得看：参数量从 AlexNet 的 60M 到 GoogLeNet 的 6.8M 再到 ResNet-50 的 25.6M——大全连接层被砍掉后（AlexNet 的 60M 里 58M 在最后三个全连接层），参数量不再是深度的函数；层数从 8 到 152，深度成了主要的扩展维度。
 
 ### 2. ResNet-50 的账
@@ -136,6 +142,8 @@ ResNet-50 的残差块是三层：$$1 \times 1$$ 降维 → $$3 \times 3$$ → $
 |---|---|---|
 | 两个 $$3 \times 3$$，$$256 \to 256 \to 256$$（ResNet-18/34 的块） | 2 | $$2 \times 256 \times 256 \times 9 = 1.18$$M |
 | Bottleneck：$$1 \times 1$$ $$256 \to 64$$，$$3 \times 3$$ $$64 \to 64$$，$$1 \times 1$$ $$64 \to 256$$ | 3 | $$16\text{K} + 37\text{K} + 16\text{K} = 69$$K |
+
+Table: Bottleneck 块与两个 3×3 卷积的参数对比
 
 ```text
 ResNet-34 的基本块（256 通道）                 ResNet-50 的 bottleneck 块
@@ -172,6 +180,8 @@ He 等 2015 的出发点是一个实验事实：在 CIFAR-10 上，56 层的 pla
 | 56 | plain | **950 / 0.33** | **2849** | 1.676 | **0.724** | **70.9%** |
 | 56 | residual | 2.2 / 0.76 | 2.9 | 0.268 | 0.129 | 96.1% |
 
+Table: 20 层与 56 层 plain / 残差网络的实测
+
 两个观察。第一，**退化问题复现了**：plain 网络从 20 层到 56 层，训练 loss 从 0.13 恶化到 0.72；残差网络 0.09 与 0.13，深了没有变坏。第二，**梯度爆炸的方向**：plain-56 第 1 块的梯度范数是第 56 块的 2849 倍——是靠近输入的层梯度大，不是小。这与第二篇"没有归一化时梯度消失"相反：有了 BN 的深 plain 网络，梯度反向穿过每个 BN 时被输入方差归一化放大，越靠输入越大（Yang 等 2019 从平均场理论证明了 BN 在深 plain 网络里必然导致梯度爆炸）。BN 修了前向，把反向的问题换了一个方向。残差网络的比值在 3 左右——恒等通路把它压平了。
 
 ### 3. 四样遗产
@@ -184,6 +194,8 @@ ResNet 留给 Transformer 的不只是残差：
 | 归一化到处用 | 每个卷积后一个 BN | 每个子层一个 LayerNorm / RMSNorm |
 | Pre-activation | ResNet-v2（He 等 2016）把 BN 与 ReLU 移到卷积**之前**、残差相加之后不再有非线性，更深更稳 | **Pre-Norm**（第二篇第六章）——同一个想法后来进了 Transformer：原始 Transformer（2017）与 BERT 用的是 Post-Norm，GPT-2（2019）起 Pre-Norm 成为主流 |
 | 堆同样的块 | 一个块的设计定好，重复 $$N$$ 次，只改深度与宽度 | 一层的设计定好，重复 $$L$$ 次；scaling 只动 $$L$$、$$d$$、$$d_{ff}$$ |
+
+Table: ResNet 留给 Transformer 的四样遗产
 
 第三条最少被提到、也最有意思：Transformer 后来的 Pre-Norm 在 ResNet 这条线上已经被发现过一次（Transformer 自己是从 Post-Norm 起步、两年后才换的）。
 
@@ -226,6 +238,8 @@ token 数 $$= (H / p) \times (W / p)$$，由分辨率与 patch 大小决定，�
 | ViT-L/14、ViT-H/14 | 224 | 14 | 256 |
 | CLIP ViT-L/14-336（LLaVA-1.5 用） | 336 | 14 | 576 |
 | 原生分辨率 ViT（Qwen2-VL 一类）在 1024² 上 | 1024 | 14 | 5476（merge 前） |
+
+Table: 不同分辨率与 patch 大小下的 token 数
 
 这张表是 L7 多模态的入口：VLM 把 ViT 的输出 token 送进 LLM，一张图占多少上下文、多少 KV cache，从这里开始算——[04 系列第八篇](/multimodal-vision-encoder-cost-and-image-token-kv.html)把这笔账算完了。attention 的算量随 token 数平方增长，所以高分辨率图像要么用更大的 patch、要么在 encoder 后合并 token（2×2 merge）、要么用窗口 attention——三种办法都在那一篇。
 

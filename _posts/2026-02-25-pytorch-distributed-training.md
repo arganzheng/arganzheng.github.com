@@ -47,6 +47,8 @@ DDP、ZeRO 的三个阶段、FSDP、张量并行、流水线并行、上下文�
 | 优化器状态 | 2P（Adam 的 m、v） | 每卡各自更新，结果相同 | 每卡只更新自己负责的 1/N 参数 |
 | 激活值 | ∝ batch × 序列长度 × hidden × 层数 | 每卡持有自己那份数据的激活 | 按序列或按 hidden 维切开 |
 
+Table: 五类训练状态的复制与分片含义
+
 复制和分片各有代价，而且代价刚好互补：
 
 ```text
@@ -107,6 +109,8 @@ M       流水线并行的 micro-batch 数
 | 十三 | 本文小结 | |
 | 十四 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、通信底座：进程、进程组与集合通信
 
 ### 1. SPMD 执行模型
@@ -154,6 +158,8 @@ SPMD 的关键后果是：**代码中每一处集合通信，都必须被所有�
 | **NCCL** | GPU | NVIDIA 集合通信库，GPU 训练的唯一实际选择；直接走 NVLink / PCIe / InfiniBand，数据不经过 CPU |
 | **Gloo** | CPU（也支持 GPU 但慢） | CPU 训练、调试、以及少数需要在 CPU 上做的控制面通信（如 `monitored_barrier`） |
 | **MPI** | 两者 | 需要自行编译，HPC 环境使用 |
+
+Table: 进程组的通信后端
 
 后端决定了原语的实现方式和性能，不影响 Python 层的语义。
 
@@ -240,6 +246,8 @@ dist.send(t, dst=1);  dist.recv(t, src=0)
 | reduce_scatter | 把完整结果分回各分片 | FSDP 反向后归约梯度；Sequence Parallel |
 | all_to_all | 重新划分维度 | EP 的 token 分发；Ulysses 序列并行 |
 | send / recv | 相邻 stage 传递 | PP；CP 的 Ring Attention |
+
+Table: 集合通信原语在并行策略中的用途
 
 一个恒等式贯穿全文：
 
@@ -514,6 +522,8 @@ DDP 中的冗余显而易见：N 个 rank 持有 N 份完全相同的参数、�
 | **ZeRO-1** | 优化器状态 | 4P + 12P/N | 5.5P | 2P |
 | **ZeRO-2** | + 梯度 | 2P + 14P/N | 3.75P | 2P |
 | **ZeRO-3** | + 参数 | 16P/N | 2P | 3P |
+
+Table: DDP 与 ZeRO 三级分片的显存与通信量
 
 （16P 的构成：bf16 参数 2 + bf16 梯度 2 + fp32 主参数 4 + Adam 的 m、v 各 4 = 16 字节/参数。优化器状态这里指 fp32 主参数 + m + v 共 12P。）
 
@@ -1173,6 +1183,8 @@ router 的具体算法、capacity factor 的取舍、grouped GEMM 与 token 重�
 | 重叠的余地 | 反向传播是天然的重叠窗口（DDP 桶、FSDP prefetch） | 前向的关键路径短，重叠靠分块流水 |
 | 序列切分 | CP 切激活，与 FSDP 共用维度 | Prefill CP、Decode 切 KV Cache |
 
+Table: 训练与推理在并行重心上的差别
+
 推理没有优化器状态、没有反向，所以 ZeRO / FSDP 那一整节在推理中没有对应物；反过来，KV Cache 的分布和 decode 的小消息优化在训练中没有对应物。
 
 ### 2. 决策顺序
@@ -1267,6 +1279,8 @@ fully_shard(model, mesh=mesh["dp"])
 | PP | micro-batch | 按层分片 | 按层分片 | 按层分片 | 按层分片 | send/recv | stage 边界 | 16P/N | 4·B·S·H·(K−1)，最小 |
 | CP | 序列分段 | 复制 | 复制→归约 | 复制 | 序列分片 | send/recv（ring）或 all_to_all | 每层 attention 内，可重叠 | 16P（与 FSDP 共用维度时 16P/N） | ≈ 4·B·S·H·L（K、V） |
 | EP | 分片 | expert 分片、稠密部分复制 | expert 在 EP 内无冗余 | 同参数 | token 路由到 expert | all_to_all ×2 | 每个 MoE 层，关键路径 | expert 部分 /N | 4·k·B·S·H·L_moe |
+
+Table: 各并行策略的统一表
 
 读这张表的方式：**先看"参数"列决定了显存能否放下，再看"通信原语"和"通信时机"列决定通信能否被计算隐藏**。任何新策略，只要填出它的行，性能特征就清楚了。
 
@@ -1576,6 +1590,8 @@ fully_shard(block, mesh=mesh, mp_policy=mp)
 | 32 卡 FSDP | 154k tokens/s（62%） | 10 GB | 56 GB（跨 IB） | 0.6 s | 通信不随卡数减少，计算随 batch 减少 |
 | 32 卡 HSDP | 234k tokens/s（94%） | 21 GB | 49 GB 内 + 5.3 GB 间 | 0.05 s | 显存不随节点数下降 |
 
+Table: 多卡优化报告：每项改动的吞吐、显存与通信
+
 每一步的决策依据都是第九章 §4 那张表的两列：**先看每卡显存放不放得下，再看通信时间能不能被计算隐藏**。第三步还展示了第十章 §7 的第一组和第三组原因同时发生：卡数翻四倍，通信量不变而计算量缩到四分之一，两条曲线交叉，扩展效率断崖式下跌。
 
 ## 十二、Java 工程师如何理解分布式 PyTorch
@@ -1696,6 +1712,8 @@ DDP 全复制只分数据；ZeRO 三级逐个把优化器状态、梯度、参�
 | `torch/distributed/tensor/parallel/` | TP：`ColwiseParallel`、`RowwiseParallel`、`SequenceParallel`、`loss_parallel` |
 | `torch/distributed/pipelining/`、`torch/distributed/tensor/experimental/_attention.py` | PP 的 stage 与调度；CP 的 `context_parallel` |
 | `torch/distributed/checkpoint/`、`torch/distributed/run.py`、`torch/distributed/elastic/` | 分布式 Checkpoint；`torchrun` 与弹性启动 |
+
+Table: 本篇涉及的源码位置
 
 到这里，PyTorch 的执行系统从单卡讲到了多机。剩下最后一个问题：这样一个横跨 Python、C++、CUDA、编译器和分布式运行时的框架，如何保证每次改动不破坏正确性和性能？
 

@@ -75,6 +75,8 @@ at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta) {
 | 十三 | 本文小结 |  |
 | 十四 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、读本文需要的 C++ 语法最小集
 
 这一章不讲机制，只讲"这段代码怎么读"。每一条都很短，目标是让后面章节里的代码片段没有一个符号是陌生的。
@@ -156,6 +158,8 @@ ptr->x                // 通过指针访问成员，等价于 (*ptr).x
 | `&` | `int& r = a;` 声明 `r` 是一个**引用** | `&a` 取 `a` 的**地址** |
 | `*` | `int* p = &a;` 声明 `p` 是一个**指针** | `*p` **解引用**：`p` 指向的那个对象 |
 
+Table: * 与 & 在声明与表达式中的两种含义
+
 这两个符号的双重含义是 C++ 初学者最大的阅读障碍之一。一个可靠的判读办法：紧跟在类型名（`int`、`Tensor`、`const T`）后面的是声明，其余情况是运算。`Tensor&&` 里两个连写的 `&` 是第三种东西（右值引用），第六章讲。
 
 ### 4. 关键字速查
@@ -180,6 +184,8 @@ ptr->x                // 通过指针访问成员，等价于 (*ptr).x
 | `auto` | 让编译器推导变量类型（类似 Java 10 的 `var`）：`auto out = at::empty_like(x);` | 第三篇 |
 | `using X = Y;` | 类型别名（`using DeleterFnPtr = void (*)(void*);`） | 第十章 |
 | `enum class` | 强类型枚举，必须写 `ScalarType::Float`，不能隐式转成 `int` | 第十一章 |
+
+Table: 后文源码里的关键字速查
 
 ### 5. 模板怎么读
 
@@ -381,6 +387,8 @@ dtor      a
 | 对象在哪 | 堆 | 默认栈/成员内嵌；`new` 才在堆 |
 | 类的字段 | 引用，对象另在堆上 | 对象本身嵌在外层对象里 |
 
+Table: = 的含义：Java 与 C++ 对照
+
 理解这张表之后再看 `at::Tensor y = x;`，会产生一个正确的担心：这是不是拷贝了整个 tensor？答案是"拷贝了整个 `Tensor` 对象，但 `Tensor` 对象只有一个指针那么大"。`Tensor` 是一个刻意设计成**值语义外壳、引用语义内核**的类型：拷贝它很便宜，拷贝之后两个 `Tensor` 共享同一个 `TensorImpl`。这种设计叫句柄（handle）——`Tensor` 对象本身只是一个"把手"，真正的东西在它指向的地方。第十章会完整拆开。
 
 ## 四、引用与指针：`T&`、`const T&`、`T*`
@@ -438,6 +446,8 @@ void f(at::Tensor& t);         // 按非常量引用：零开销，函数内可�
 | `T&` | 否 | 是 | 否 | 输出参数、in-place 修改 |
 | `T*` | 否 | 看 `const` | 是（传地址） | 可以为空；或者表达"非拥有"关系 |
 | `T&&` | 否 | 是 | 只接受临时对象 | 移动构造/移动赋值（第六章） |
+
+Table: 三种传参方式与选择规则
 
 为什么 `T&` 不能接受临时对象？因为 `T&` 的语义是"我要修改调用方的对象"，而临时对象在语句结束就消失了，修改它没有意义，编译器干脆禁止。`const T&` 承诺不修改，所以允许绑定临时对象（编译器会让临时对象活到引用失效为止）。
 
@@ -1071,6 +1081,8 @@ Java 也有释放资源的机制，但它们和 RAII 的能力边界差别很大
 | 能否放进容器 | 放进去后 `try` 管不到 | — | `std::vector<unique_ptr<T>>` 析构时逐个释放 |
 | 管什么 | 实现了 `AutoCloseable` 的对象 | 内存 | 任何资源 |
 
+Table: try-with-resources、GC 与 RAII 的能力边界
+
 `try-with-resources` 解决的是"一个函数内打开、同一个函数内关闭"的场景。但 AI-Infra 里的资源大多**不是**这样：一块显存被一个 `Tensor` 持有，`Tensor` 被放进 `std::vector`，`vector` 是某个 `Module` 的成员，`Module` 又被 Python 对象持有。这条链上没有任何一个块作用域能覆盖显存的整个寿命。RAII 让显存的释放跟着所有者走：最后一个持有者析构的那一刻，显存归还。
 
 GC 的问题则是另一种：它管理的只是 JVM 堆内存。GPU 显存、文件描述符、锁、外部库分配的内存，GC 根本不知道它们存在。Java 的 GPU 库（如 DJL、TornadoVM）都不得不引入手工的 `close()` 或者 `NDManager` 这种作用域管理器，本质上是在 Java 里模拟 RAII。而在 C++ 里这就是语言本身。
@@ -1226,6 +1238,8 @@ use_count=1
 | 原子操作 | 计数增减是原子的（多线程安全），拷贝一个 `shared_ptr` 比拷贝一个裸指针慢一到两个数量级 |
 | 缓存局部性 | 对象和控制块可能在不同的 cache line 上 |
 | 从裸指针恢复 | 拿到一个 `T*` 无法找到它的控制块，除非 `T` 继承 `enable_shared_from_this`（它在对象里塞了一个 `weak_ptr`，又多 16 字节） |
+
+Table: shared_ptr 的代价
 
 对一般应用代码这些代价可以忽略。但对 PyTorch 来说，`Tensor` 是最高频被拷贝的对象——每次算子调用、每次放进 `std::vector<Tensor>`、每次从 Python 传到 C++——16 字节对 8 字节、两个 cache line 对一个 cache line，是真实的差别。`c10/core/TensorImpl.h` 末尾 Note [TensorImpl size constraints] 里有这样一段：
 
@@ -1667,6 +1681,8 @@ inline intrusive_ptr<TTarget, NullType> make_intrusive(Args&&... args) {
 | `unsafe_reclaim_from_nonowning(p)` | +1 | 同上，但 `p` 是非拥有的（相当于 `shared_from_this`） | 同上 |
 | `unsafe_steal_from_new(p)` | 0→1 | 接管一个刚 `new` 出来、还没有任何引用的对象 | — |
 
+Table: intrusive_ptr 与裸指针互转的操作及其 Python C API 对应
+
 `release()`/`reclaim()` 必须严格配对：`release` 出去的裸指针带着一个引用，最终必须被 `reclaim` 回来，否则泄漏。这和 Python C API 里 new reference 必须 `Py_DECREF` 是同一个纪律。文件末尾的 `c10::raw::intrusive_ptr` 命名空间提供了直接对裸指针操作的版本，其中 `decref` 的实现只有一行：
 
 ```cpp
@@ -1749,6 +1765,8 @@ Java 里对应的模式叫 Null Object。差别是 C++ 把它做进了智能指�
 | 空指针只能是 `nullptr` | `NullType` 模板参数可以指定一个"哨兵对象"作为空值 |
 | 弱引用要保留控制块到弱计数归零 | 弱引用要保留整个对象到弱计数归零（这一点 `intrusive_ptr` 更差——但 `release_resources()` 让昂贵资源提前释放，缓解了这个问题） |
 
+Table: intrusive_ptr 相对 shared_ptr 省了什么
+
 代价是侵入性：`T` 必须继承 `intrusive_ptr_target`，多一个 8 字节的计数字段和一个 vtable 指针。对 `TensorImpl`、`StorageImpl`、`c10::ivalue::Future`、`c10d::ProcessGroup` 这些本来就是多态类、本来就要被引用计数管理的类型，这个代价等于零。
 
 ### 10. `weak_intrusive_ptr`：打破 autograd 图里的环
@@ -1819,6 +1837,8 @@ class TORCH_API TensorBase {
 | `TensorBase(TensorBase&&) noexcept = default;` | 移动构造 = 偷指针、对方置空，计数不变；`noexcept` 让 `std::vector<Tensor>` 扩容时用移动（6.6 节） |
 | `~TensorBase() noexcept = default;` | 析构 = 析构 `impl_` = 强计数 -1，归零则开始第七章的析构链 |
 | `protected: intrusive_ptr<TensorImpl, UndefinedTensorImpl> impl_;` | 唯一的数据成员，8 字节；第二个模板参数是空值哨兵（9.8 节）。`protected` 让子类 `Tensor` 能访问 |
+
+Table: TensorBase 开头逐行重读
 
 一个 `Tensor` 对象就是这 8 字节。数据在哪里？顺着 `impl_` 往下找。
 
@@ -2164,6 +2184,8 @@ CUDA 分配器从所有权的角度看**没有任何区别**。`c10/cuda/CUDACac
 | `Tensor y = x;` | 共享（计数 +1） | 共享 | 共享 | 一切：数据、形状、autograd 状态 |
 | `auto y = x.view(...)` / `x[0]` / `x.t()` | 新建 | 共享（计数 +1） | 共享 | 数据；形状各自独立 |
 | `auto y = x.clone()` | 新建 | 新建 | 拷贝 | 什么都看不到 |
+
+Table: Tensor 拷贝、view 与 clone 的共享关系
 
 Java 对照：`Tensor y = x;` 在效果上最接近 Java 的引用赋值（两个名字指向同一个对象），但机制上是值拷贝——拷贝的是一个带引用计数的句柄。Java 里两个引用指向同一对象不需要任何记账；C++ 这里要做一次原子加，将来还要做一次原子减。这也是为什么 PyTorch 内部大量函数用 `const Tensor&` 而不是 `Tensor` 传参：省掉这两次原子操作。
 
@@ -2598,6 +2620,8 @@ y.defined()=0, w use_count=1
 | `null` 对象 | `null` | `nullptr` / Null Object（`UndefinedTensorImpl`） | — |
 | `WeakReference` | 不阻止 GC | `weak_ptr`/`weak_intrusive_ptr`，需 `lock()` | 用途不同：Java 多用于缓存，C++ 多用于断环 |
 | JNI `jobject` 引用 | local/global ref | `release()`/`reclaim()` 出入的裸指针 | 概念直接对应，第七篇展开 |
+
+Table: 值语义与所有权：Java 对照汇总
 
 下一篇进入模板：`AT_DISPATCH_FLOATING_TYPES` 里的 `scalar_t` 从哪里来，`data_ptr<scalar_t>()` 的 `<>` 为什么和 Java 泛型完全不是一回事，以及 `IntArrayRef`、`std::optional`、lambda 这些"轻量视图"类型如何与本篇的所有权规则配合。
 

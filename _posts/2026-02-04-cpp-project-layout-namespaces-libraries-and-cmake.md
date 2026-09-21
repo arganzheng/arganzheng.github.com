@@ -59,6 +59,8 @@ PyTorch 在本篇里是被拆开看的样本，与系列其他篇一样——目
 | 七 | 本文小结 |  |
 | 八 | 自测 | 3 道题 |
 
+Table: 本文的章节安排
+
 ## 二、命名空间：`c10::`、`at::`、`torch::` 的分工
 
 ### 1. 命名空间的语法
@@ -90,6 +92,8 @@ namespace ptx = ::cuda::ptx;            // 命名空间别名
 | 没有"把一个包的所有名字注入另一个包"的手段 | `namespace torch { using namespace at; }` 可以（下面会看到） |
 | 类名也是运行时身份（`Class.getName()`） | 命名空间只影响修饰后的符号名，运行时没有"命名空间"对象 |
 
+Table: Java package 与 C++ namespace 的差别
+
 匿名命名空间（[上篇第四章](/cpp-compilation-model-from-cpp-to-shared-object.html#四one-definition-rule同一个名字只能有一个定义)）是 Java 完全没有的：它的目的不是组织名字，而是控制链接属性。
 
 ### 2. 三个命名空间对应三个层次
@@ -101,6 +105,8 @@ PyTorch 的 C++ 源码分三层，每层一个主命名空间、一个主目录�
 | `c10::` | `c10/` | `libc10.so`（CUDA 部分 `libc10_cuda.so`） | 最底层的核心抽象：Tensor 的元数据实现、设备、dtype、分配器、Dispatcher 的键、智能指针、错误处理。**不依赖任何算子**，不知道 `add` 是什么 | `c10::TensorImpl`、`c10::StorageImpl`、`c10::Device`、`c10::ScalarType`、`c10::intrusive_ptr`、`c10::DispatchKey`、`c10::Error` |
 | `at::` | `aten/src/ATen/` | `libtorch_cpu.so`（CUDA 部分 `libtorch_cuda.so`） | "A Tensor library"：`Tensor` 句柄类、所有算子（`at::add`、`at::empty_like`）、Dispatcher 本体、CPU/CUDA kernel | `at::Tensor`、`at::TensorIterator`、`at::native::*`、`at::parallel_for`、`at::Dispatcher`（实际定义在 `c10::` 里，`at::` 有别名） |
 | `torch::` | `torch/csrc/` | `libtorch_cpu.so`（Python 无关部分）+ `libtorch_python.so`（Python 绑定） | 面向用户的 C++ API（`torch::nn`、`torch::optim`）、Autograd 引擎、JIT、分布式、Python 绑定 | `torch::Tensor`（就是 `at::Tensor`）、`torch::autograd::Node`、`torch::jit::Graph`、`torch::Library` |
+
+Table: PyTorch 的三个命名空间、目录与库
 
 名字里的历史：c10 是 "Caffe2 + ATen → C-ten" 的谐音（Caffe2 是 PyTorch 1.0 时期合并进来的另一个框架），`caffe2/CMakeLists.txt` 这个文件名也是那时留下的——今天它是构建 `libtorch_cpu.so` 的主 CMake 文件，和 Caffe2 框架已经没有关系。
 
@@ -173,6 +179,8 @@ using c10::DeviceType;
 | `torch::nn::`、`torch::optim::`、`torch::data::` | C++ 前端 |
 | `torch::headeronly::` | 2.x 新增，不依赖 libtorch 的纯头文件工具（`torch/headeronly/`） |
 | `torch::stable::` | 2.x 新增的稳定 ABI 层（`torch/csrc/stable/`），供扩展跨 PyTorch 版本使用；vLLM 0.15 尚未使用 |
+
+Table: 其他常见子命名空间
 
 vLLM 的 `csrc/` 没有自己的顶层命名空间约定，大部分 kernel 直接写在 `namespace vllm { ... }` 里，调用 PyTorch 时用 `torch::Tensor`。
 
@@ -334,6 +342,8 @@ print(open("/proc/self/maps").read().count("libtorch_cpu.so") > 0)
 | `at::Tensor` 的方法、`at::empty_like`、`at::parallel_for`、`torch::Library`（`TORCH_LIBRARY` 宏） | `libtorch_cpu.so` | `-ltorch_cpu`（或 `-ltorch` 间接） |
 | CUDA stream、`c10::cuda::CUDAGuard` | `libc10_cuda.so`、`libtorch_cuda.so` | `-lc10_cuda -ltorch_cuda` |
 | pybind11 的 `at::Tensor` 类型转换器、`THPVariable_Wrap` | `libtorch_python.so` | `-ltorch_python` |
+
+Table: C++ 扩展引用的三类符号所在的库
 
 `torch/utils/cpp_extension.py` 的 `CppExtension` 函数替你把这些加上：
 
@@ -950,6 +960,8 @@ cmake --build build
 | `install(TARGETS minic10 DESTINATION lib)` | `install(TARGETS c10 EXPORT Caffe2Targets DESTINATION lib)` |
 | `install(DIRECTORY minic10/ DESTINATION include/minic10 ...)` | `install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR} DESTINATION include FILES_MATCHING PATTERN "*.h")` |
 
+Table: mini-c10 与 c10/CMakeLists.txt 的逐条对照
+
 第八篇会把 `EXPORT`、`find_package` 支持、gtest、sanitizer 补齐。
 
 ### 5. 本篇留下的问题
@@ -971,6 +983,8 @@ mini-c10 现在只有一个函数，但它已经是一个"库"：有头文件和
 | `undefined symbol: _ZN2at...` （`import` 时） | 加载 | 编译扩展用的 PyTorch 头文件和运行时加载的 `.so` 版本不一致；或 ABI 不匹配（`[abi:cxx11]`）；或 `-std=` 不一致导致某些 inline 函数签名不同 |
 | `dynamic module does not define module export function (PyInit_xxx)` | 加载 | 扩展用了 `-fvisibility=hidden` 却没给 `PyInit_xxx` 加默认可见性；或模块名和 `PYBIND11_MODULE`/`TORCH_EXTENSION_NAME` 不一致 |
 | 运行时算子"不存在"，但 `nm` 里能看到注册代码 | 链接/加载 | 静态库没用 `--whole-archive`，注册所在的 `.o` 被丢弃（[上篇 5.3 节](/cpp-compilation-model-from-cpp-to-shared-object.html)，第五篇） |
+
+Table: 按编译阶段定位错误
 
 ### 2. 头文件卫生
 
@@ -1014,6 +1028,8 @@ mini-c10 现在只有一个函数，但它已经是一个"库"：有头文件和
 | 目录 → 库 | 哪些目录编进哪个库由 CMake 决定，不由目录层级决定 | `c10/` → `libc10.so`；`aten/` + `torch/csrc/` 的大部分 → `libtorch_cpu.so` |
 | 库的分层 | 每层只依赖更低的层，只导出标了 `*_API` 的符号 | `c10` ← `torch_cpu` ← `torch` ← `torch_python` ← `_C` |
 | `setup.py` 与 wheel | `.so` 与 RPATH 一起进 wheel，`$ORIGIN/lib` 让它们在任何安装位置都能互相找到 | `-Wl,-rpath,$ORIGIN/lib` |
+
+Table: 本篇补上的机制：命名空间
 
 Java 工程师需要放弃的第三个直觉：**"一个包就是一个 jar"**——命名空间、目录、库是三个独立的维度，PyTorch 只是让它们大致对齐。
 

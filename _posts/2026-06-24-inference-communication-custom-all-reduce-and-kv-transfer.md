@@ -73,6 +73,8 @@ KV 传输回到带宽的账，但和梯度 all_reduce 又不一样：它不是�
 | 八 | 测一测与比一比：TP `all_reduce` 延迟异常与 KV 传输慢的排障检查项 |
 | 九 | 本文小结与 comm-probe 增量：`tp_ar_bench.py` 与 `kv_xfer/` |
 
+Table: 本文的章节安排
+
 ## 二、算一算：decode 阶段 TP all_reduce 的账
 
 ### 1. 每层多少字节
@@ -514,6 +516,8 @@ H100（9.0）上 4/6/8 卡用 `multimem_all_reduce_`（NVSwitch 归约），2 �
 | 256 KB ～ 64 MB | torch symm mem `multimem_all_reduce_` | NVSwitch 多播归约 | α 与 β 各占一部分；NVLS 一步完成 |
 | > 64 MB | PyNccl（NCCL 自选算法，NVSwitch 上通常 NVLS） | 多 channel 流水 | 纯 β；prefill 大 batch 的区间 |
 
+Table: 按消息大小看 TP all_reduce 各后端的默认落点
+
 拓扑的影响：
 
 | 拓扑 | custom AR | torch symm mem | PyNccl |
@@ -523,6 +527,8 @@ H100（9.0）上 4/6/8 卡用 `multimem_all_reduce_`（NVSwitch 归约），2 �
 | 2 卡 PCIe | 可用（例外） | two-shot 版本，若 rendezvous 成功 | 兜底 |
 | TP 跨节点 | 禁用（`nnodes > 1` 时 `ParallelConfig` 置 `disable_custom_all_reduce`，`CustomAllreduce.__init__` 也按 `in_the_same_node_as` 拒绝） | 禁用 | 全部，走 IB + proxy，每步几十 µs |
 | 多机 NVLink（NVL72 类机型） | 同上，v0.23.0 的 custom AR 没有跨节点路径 | 取决于 symm mem 的 rendezvous 与多播能否建立，本文不展开 | 兜底 |
+
+Table: 拓扑对各 all_reduce 后端可用性的影响
 
 TP 跨节点那一行值得单独说：一旦 TP 组跨了节点，每层两次 all_reduce 都要经过 NIC 与 proxy 线程，延迟从十几微秒跳到几十微秒，160 次就是几毫秒到十几毫秒——这是"TP 不要跨节点、跨节点用 PP"这条经验的通信层根据。
 
@@ -841,6 +847,8 @@ NIXL 的 READ 和 Mooncake 的 WRITE 是单边 RDMA 的两个方向，第三篇�
 | 失败范围 | 整个 communicator abort | 单请求（`_handle_failed_transfer`、`kv_load_failure_policy`） | 单请求 | 单请求 |
 | 依赖 | NCCL | GPUDirect RDMA（`nvidia-peermem` / DMA-BUF）或节点内 `cuda_ipc` | Mooncake Transfer Engine + RDMA | 不依赖 GDR，受 PCIe 带宽限制 |
 
+Table: KV 传输各路径与 NCCL 的对照
+
 ## 八、测一测与比一比：推理侧的排障
 
 ### 1. TP all_reduce：先看走了哪个后端
@@ -961,6 +969,8 @@ KV 传输慢            → 理论值（字节 / 每 rank 网卡带宽）→ kv_
 | KV 页大小 | `vllm/v1/kv_cache_interface.py`：`AttentionSpec.real_page_size_bytes` / `page_size_bytes` |
 | NCCL 调优常数 | NCCL 2.28.9 `src/graph/tuning.cc`：`ncclTunerConstantsDefaults`（`baseLatencies`、`hwLatencies`）与 ring 延迟公式；`src/enqueue.cc`：`ncclLaunchPrepare`、`ncclLaunchKernel` |
 | 工具 | `nvidia-smi topo -m` / `-mp`、`lsmod`（查 `nvidia_peermem`）、`ib_write_bw --use_cuda`、nccl-tests `all_reduce_perf`、torch profiler、UCX 的 `UCX_TLS` / `UCX_NET_DEVICES` / `UCX_LOG_LEVEL` |
+
+Table: 本篇涉及的源码与工具位置
 
 ### 4. comm-probe 本篇增量
 

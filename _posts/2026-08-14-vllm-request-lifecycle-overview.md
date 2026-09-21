@@ -34,6 +34,8 @@ vLLM V1 的整体架构遵循**控制面/数据面分离**的经典设计哲学�
 | 五 | 本文小结 | 模块分工，以及与第一篇“四问”的对应 |
 | 六 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、静态系统拓扑（自顶向下）
 
 vLLM V1 的整体架构遵循**控制面/数据面分离**的经典设计哲学。我们自顶向下，逐层解剖其系统拓扑。
@@ -401,6 +403,8 @@ sequenceDiagram
 | `EngineCoreOutput(s)` | `vllm/v1/engine/__init__.py` | B → A（ZMQ） | 一个 step | 每个请求的 `new_token_ids` + `finish_reason`；仍然只有 token ids |
 | `RequestOutput` | `vllm/outputs.py` | A（`OutputProcessor` 产出） | 一个 SSE chunk | 第一次出现**文本**：detokenize 后的增量 `text` + `token_ids` |
 
+Table: 一个请求在各层的对象
+
 表里有两条规律。第一，**状态只在 B 和 C 各有一份**：`Request` 是权威，`CachedRequestState` 是靠每步增量同步的镜像；所有跨进程的载荷（`EngineCoreRequest`、`SchedulerOutput`、`ModelRunnerOutput`、`EngineCoreOutputs`）都是无状态的一次性消息，读完即弃，也因此可以随意序列化、走任何 IPC 通道。第二，**文本只在进程 A 出现**：从 `EngineCoreRequest` 到 `EngineCoreOutputs` 全程都是 token ids，进程 B、C 完全不需要 tokenizer。
 
 ## 五、本文小结
@@ -417,6 +421,8 @@ sequenceDiagram
 | 二、状态放哪、怎么复用 | `KVCacheManager` / `BlockPool` |
 | 三、怎么算得更快 | `ModelRunner` / Attention Backend / Kernel |
 | 四、怎么扩出去 | `Executor` / `Worker` / 集合通信 |
+
+Table: 四问与承担模块
 
 
 <details markdown="1">
@@ -435,6 +441,8 @@ sequenceDiagram
 | 调度器给执行层的"订单" | `vllm/v1/core/sched/output.py` → `SchedulerOutput` / `NewRequestData` / `CachedRequestData` |
 | 执行抽象与各种部署形态 | `vllm/v1/executor/abstract.py` |
 | 一轮 batch 在 GPU 上怎么跑 | `vllm/v1/worker/gpu_model_runner.py` → `GPUModelRunner.execute_model()` / `sample_tokens()` |
+
+Table: 入口与引擎循环的源码导航
 
 </details>
 

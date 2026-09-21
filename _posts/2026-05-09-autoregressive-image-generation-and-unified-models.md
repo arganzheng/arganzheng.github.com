@@ -32,6 +32,8 @@ updated: 2026-09-14
 | Emu3 | 2024 | SBER-MoVQGAN | 栅格 AR | 8B，文本 + 图 + 视频统一 | $$512^2$$+ | 纯 next-token 的统一模型 |
 | Infinity | 2024 | 位级 LFQ（$$2^{32}$$ 等效码本） | next-scale | 2B | $$1024^2$$ | VAR 的文生图放大 |
 
+Table: 自回归图像生成的谱系
+
 表里所有模型共用一条流水线，差别在 tokenizer 怎么把图变成离散 token、以及 Transformer 按什么顺序生成它们：
 
 ```mermaid
@@ -66,6 +68,8 @@ VAR：next-scale，由粗到细 10 步`"]
 | 双编码器 | 连续（SigLIP）特征 | VQ token | AR | Janus / Janus-Pro（DeepSeek 2024 / 2025） | 理解不妥协；生成与理解的视觉表示不共享 |
 | AR + 扩散混合 | 连续特征（或 VAE latent） | VAE latent | 同一个 Transformer，图像部分用扩散 loss | Transfusion（Meta 2024）、Show-o、BAGEL（ByteDance 2025）、MetaQuery | 生成质量最好；模型内两套 loss；推理时图像部分要多步 |
 
+Table: 统一模型的三条路线
+
 ### 3. 先说答案
 
 **AR 赢在**：（1）与 LLM 完全共享结构、训练基础设施、scaling 经验——VAR 与 LlamaGen 都展示了图像生成上的 scaling law；（2）统一——文本、图、视频、音频都是 token，一个模型、一个 loss、一套推理引擎；（3）可变长度与多轮——生成可以在任意位置插入文本条件、生成一部分后修改。**扩散赢在**：（1）质量——同规模下 FID 与人类偏好仍领先，尤其高分辨率与细节；（2）效率——一张 $$1024^2$$ 图的 AR 是 4096 个 token 的串行 decode（4096 步！），扩散是 20–50 步的并行前向；VAR 用 next-scale 把 AR 的步数降到 10 个尺度、MaskGIT 用并行 mask 降到 8–12 步，但每步仍需完整前向；（3）可控性与编辑——CFG、inpainting、ControlNet 一类的条件注入在扩散上成熟。**2024–2025 年的结论**：AR 在 ImageNet 类别条件生成上追平了扩散（VAR 1.73 vs DiT 2.27），在文生图上仍落后一档（Emu3、Janus-Pro 的生成质量低于 SD3 / FLUX）；统一模型里生成质量最好的是混合路线（BAGEL）。
@@ -85,6 +89,8 @@ VAR：next-scale，由粗到细 10 步`"]
 | 八 | 动手（建议） | VQGAN 码本大小与重建；LlamaGen vs SD 的时间 |
 | 九 | 本文小结 | |
 | 十 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、图像 tokenizer
 
@@ -243,6 +249,8 @@ Li 等 2024（MAR，"Autoregressive Image Generation without Vector Quantization
 | scaling law | 明确（LLM 式） | 明确 | 存在（DiT），效率较低 |
 | 训练稳定性 | 需注意（Chameleon 的问题） | 好 | 好 |
 
+Table: 栅格 AR、VAR / MaskGIT 与扩散的对照
+
 ### 2. 结论
 
 在 ImageNet 类别条件生成这个 benchmark 上，AR 路线（VAR、MAR）已经与扩散平手或领先。在**文生图**上扩散仍领先——一部分是投入差距（SD3 / FLUX 的数据与算力远超任何开源 AR 文生图模型），一部分是结构性的：扩散在连续空间里建模、没有 VQ 的信息瓶颈；CFG 在噪声空间的外推比在 logits 空间的更有效；高分辨率的 latent 扩散成熟。AR 的优势在**统一**与 **scaling 基础设施**——这两点在"一个模型做所有事"的目标下压倒了单项质量的差距，是 Chameleon / Emu3 / Janus 走 AR 的原因。
@@ -301,6 +309,8 @@ $$1024^2$$ 图、$$f = 16$$：4096 个 token，栅格 AR 是 4096 步 decode，�
 | DiT-XL/2 $$256^2$$，50 步 CFG | $$119 \text{ G} \times 100 \approx 12$$ T | 50 | 算力 | ~1 s |
 | FLUX.1-dev $$1024^2$$ | 2.8 P | 28 | 算力 | 12 s |
 
+Table: 自回归与扩散生成一张图的账
+
 栅格 AR 的 FLOPs 不高但**串行**——它继承了 LLM decode 的 memory-bound 形态；VAR 与 MaskGIT 把它变回 compute-bound 的多步并行，与扩散同形态。统一模型（BAGEL）生成一张图的成本约等于一个同规模扩散模型（rectified flow 多步）加上理解侧的 prefill。
 
 ### 3. 训练
@@ -336,6 +346,8 @@ Chameleon 34B：4.4T token；BAGEL：数万亿 token 的交错数据、14B MoT�
 | 统一三路线 | 纯 token（Chameleon，理解妥协、不稳定）；双编码器（Janus，两侧好、不共享）；AR + 扩散（Transfusion、BAGEL，生成最好、涌现） | GPT-4o 确认方向 |
 | 共享 | 部分共享：共享 attention / 上下文，分开 FFN；tokenizer 走向一套语义化 | BAGEL MoT |
 | 成本 | 栅格 AR 7B 4096 步 100 s（带宽）；VAR < 1 s；统一模型 ≈ LLM 预训练量级 | |
+
+Table: 自回归图像生成与统一模型的规则小结
 
 ## 十、自测
 

@@ -81,6 +81,8 @@ updated: 2026-09-14
 | 九 | 本文小结 | 要点、源码与 CRD 位置、mini-platform/gpu/ 增量 |
 | 十 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、四层栈与三条兼容规则
 
 ### 1. 四层栈：哪层在宿主机、哪层在容器
@@ -143,6 +145,8 @@ CUDA 13.x   驱动 >= 580.65.06
 | compat 包版本 | `dpkg -l \| grep cuda-compat` 或 `rpm -qa \| grep cuda-compat` | 包名 `cuda-compat-13-1`，版本号是其中 `libcuda.so` 的驱动版本 |
 | GPU 是否数据中心品牌 | `nvidia-smi --query-gpu=name --format=csv,noheader`；或看 Toolkit 的 `NVIDIA_REQUIRE_CUDA` 判定结果 | 官方 CUDA 镜像的 `NVIDIA_REQUIRE_CUDA` 里含 `brand=tesla,driver>=570,driver<571` 这类子句，就是为 forward compat 留的口子 |
 
+Table: 驱动与 CUDA 版本的查法
+
 ### 4. 为什么 PyTorch wheel 带 CUDA Runtime 不带驱动
 
 `pip install torch` 装下来的除了 `torch` 还有十来个 `nvidia-*-cu12` 包：`nvidia-cuda-runtime-cu12`（cudart）、`nvidia-cudnn-cu12`、`nvidia-cublas-cu12`、`nvidia-nccl-cu12`、`nvidia-nvjitlink-cu12`…… 加起来 2–3 GB。它们是第 3、4 层。wheel **不带** `libcuda.so`，因为：
@@ -196,6 +200,8 @@ flowchart TB
 | 驱动 580 + CUDA 13.1 的 PyTorch，常规使用 | 规则二（13.x 基线 580.65.06 ≤ 580） | **能跑**。`torch.cuda.is_available()` 为 `True`，kernel 走 SASS。`nvidia-smi` 仍显示 `CUDA Version: 13.0`，这不是错 |
 | 驱动 580 + CUDA 13.1 的 PyTorch + 代码调用 13.1 新增的驱动侧 API | 规则二不覆盖新入口 | **那一处调用失败**：`cudaErrorCallRequiresNewerDriver`（36）。其余功能正常。解法是把驱动升到 13.1 对应的 ≥ 590.44.01，或在数据中心 GPU 上装 `cuda-compat-13-1` 转入规则三——compat 的 `libcuda.so` 是 13.1 对应的 590 驱动，新入口就有了 |
 | 驱动 570 + CUDA 13.x 的 PyTorch | 规则二不适用（570 < 580.65.06，跨大版本）；只剩规则三 | **数据中心 GPU + 镜像含 `cuda-compat-13-x` + 570 是受支持分支**：能跑，容器内 `ldconfig -p` 看到 `libcuda.so` 来自 `/usr/local/cuda/compat/`。**其他情况**：容器启动阶段被 Toolkit 的 `NVIDIA_REQUIRE_CUDA` 检查拒绝（`unsatisfied condition: cuda>=13.1`），或绕过检查后 `cudaErrorInsufficientDriver`（35）、`torch.cuda.is_available()` 为 `False` |
+
+Table: 核心问题三个组合的兼容结果
 
 第三行不是假设的边角情况，而是 2026 年最常见的坑：PyTorch 从 2.11 起 PyPI 默认 wheel 切到 CUDA 13.0，驱动停在 5xx 且 < 580 的集群（570、550、535 都一样）只要 `pip install torch` 就直接落到规则三——不是数据中心 GPU、或镜像里没有 `cuda-compat-13-x`，就是上面那两个报错。第九章练手项目的 `mismatch/Dockerfile` 就用这个组合复现两种报错。
 
@@ -282,6 +288,8 @@ Toolkit 自身也能消费 CDI：`nvidia-container-runtime.mode = "cdi"` 时，`
 | 安全性 | 环境变量可被 Pod 自己设置，需 `accept-nvidia-visible-devices-envvar-when-unprivileged=false` 配合 | 设备名由 kubelet 传，Pod 无法自设 |
 | 可审计性 | 注入内容隐含在 `nvidia-container-cli` 的逻辑里 | spec 文件可读、可 diff、可版本化 |
 | 与 DRA 的关系 | DRA 不用它 | DRA 的 `NodePrepareResources` 返回的就是 CDI 设备名（第六章第 3 节） |
+
+Table: legacy hook 与 CDI 的对照
 
 GPU Operator v26.7.0 的 `cdi.enabled` 默认 `true`（`api/nvidia/v1/clusterpolicy_types.go` 的 `CDIConfigSpec.Enabled`），它把 Toolkit 配成 CDI 模式、把 device plugin 的 `deviceListStrategy` 配成 CDI 注解。方向很清楚：hook 是过去，CDI 是现在和 DRA 的基础。
 
@@ -704,6 +712,8 @@ devel 到 base 通常能去掉 5 GB 以上；`--no-cache-dir` 与清理 apt 列�
 | 驱动、Toolkit、插件、标签、监控在每个节点一致 | 每个组件一个 DaemonSet，各有版本与节点前提 | GPU Operator 的 `ClusterPolicy` 统一编排与校验 | 驱动容器与节点内核强耦合，内核升级即故障点；Operator 单例、集群级，异构节点组要靠 `NVIDIADriver` CRD 或标签排除；多一个需要升级的组件 |
 | 训练任务秒级启动、推理副本分钟级扩容 | 镜像拉取时间不在任何调度决策里 | 统一基底、多阶段构建、预热、P2P、按需加载 | 预热占节点磁盘（每个版本一份 10 GB）；P2P 分发是又一个要运维的系统；按需加载对 CUDA 镜像收益有限 |
 
+Table: 引擎需求、K8s 空缺、平台机制与代价
+
 ### 2. 每个机制引入的新问题
 
 **Toolkit 与 CDI 的迁移期。** v1.20.0 同时支持 legacy、cdi、jit-cdi 三种模式，device plugin 支持四种 `deviceListStrategy`，GPU Operator 用 `cdi.enabled` 统一切换。但三者的默认值不同（Toolkit 单独安装默认 `auto` → jit-cdi；device plugin 单独安装默认 `envvar`；Operator 默认 CDI），手工混装时出现"插件给了环境变量、运行时只认 CDI 注解"的组合，症状是 Pod Running 但容器内没有设备。一个集群只选一条路径，并用 `kubectl debug node` 检查 `/etc/nvidia-container-runtime/config.toml` 的 `mode` 与插件的启动参数一致。
@@ -773,6 +783,8 @@ DRA               resource.k8s.io/v1：ResourceSlice（驱动发布属性与容�
 | gpu-operator `controllers/state_manager.go` | `nvidia.com/gpu.present`、`nvidia.com/gpu.deploy.*`（`driver` / `container-toolkit` / `device-plugin` / `gpu-feature-discovery` / `dcgm-exporter` / `mig-manager` / `operator-validator` / `dra-driver` …）、`nvidia.com/mig.config`、NFD 的 `feature.node.kubernetes.io/pci-10de.present` |
 | gpu-operator `deployments/gpu-operator/values.yaml`；`templates/clusterpolicy.yaml` | Helm 键与默认版本：`driver.version 595.91.07`、`toolkit.version v1.20.0`、`devicePlugin.version v0.20.0`、`gfd.version v0.20.0`、`dcgmExporter.version 4.6.0-4.8.3-distroless`、`migManager.version v0.15.0`、`cdi.enabled true`、`mig.strategy single`、`operator.runtimeClass nvidia`、`clusterPolicy.deployCR`、`gpuCluster.deployCR`（实验）、`draDriver.version v0.5.0` |
 | gpu-operator `api/nvidia/v1alpha1/gpucluster_types.go` `GPUClusterSpec` / `DRADriverSpec`；`manifests/state-dra-driver/` | 实验性 DRA 路径：`draDriver`（`repository` / `image` / `version` / `featureGates` / `gpus.kubeletPlugin` / `computeDomains`）；DeviceClass `gpu.nvidia.com` / `mig.nvidia.com` 的 CEL 选择器 |
+
+Table: 本篇涉及的源码与 CRD 位置
 
 ### 3. mini-platform 本篇增量：`gpu/`
 

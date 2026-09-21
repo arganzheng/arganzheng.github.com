@@ -26,6 +26,8 @@ date: 2026-05-07 20:00:00 +0800
 | Score SDE（分数） | Song 等 2021 | 连续时间 SDE $$dx = f\,dt + g\,dw$$ | 分数 $$s_\theta(x_t, t) \approx \nabla_x \log p_t(x)$$ | 去噪分数匹配 $$\lVert s_\theta - \nabla \log p_t(x_t \mid x_0) \rVert^2$$ | 反向 SDE 或概率流 ODE，任意数值求解器 |
 | Flow matching（流） | Lipman 等 2023；Liu 等 2023（rectified flow） | 直线插值 $$x_t = (1-t) x_0 + t\, \epsilon$$ | 速度 $$v_\theta(x_t, t)$$ | $$\lVert (\epsilon - x_0) - v_\theta \rVert^2$$ | ODE $$dx/dt = v_\theta$$，Euler 几十步 |
 
+Table: DDPM、score matching 与 flow matching 的对照
+
 三行的网络输入都是（带噪样本，时间），输出都是一个与样本同形状的向量场。噪声 $$\epsilon$$、分数 $$s$$、速度 $$v$$ 之间是**线性变换**（第三章给出公式）——训练其中一个就能算出另外两个。差别在：训练时对不同时间步的**加权**不同、采样时的**路径**不同（曲线 vs 直线）。
 
 ### 2. 先说答案
@@ -48,6 +50,8 @@ CFG 的 $$w = 7.5$$ 意味着**每一步**用的分数被换成了 $$(1-w)\,s_\e
 | 七 | 动手（建议） | CIFAR-10 上 DDPM vs flow matching；配套代码 |
 | 八 | 本文小结 | |
 | 九 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、score matching：分数的视角
 
@@ -188,6 +192,8 @@ reflow 一轮后同一批起点的轨迹直线度 1.00
 | 5 | 0.099 | 0.041 | 0.023 |
 | 20 | 0.033 | 0.017 | 0.020 |
 
+Table: 三个模型在不同采样步数下的误差
+
 ![3 行 4 列的散点图：第一行 DDIM——1 步是满屏乱点，2 步是一个斜条，5 步一团，20 步才是月牙；第二行 flow matching——1 步缩成一个点，2 步一个椒盐团，5 步月牙初现，20 步清晰；第三行 reflow——1 步就是两个清晰的月牙，之后几乎不变](/img/in-post/multimodal-07-few-steps.svg)
 
 reflow 后**一步**就生成出两个月牙（0.030），而 DDIM 一步是灾难、flow matching 一步全缩到均值——这就是"轨迹直 = 步数少"的全部含义。每轮 reflow 让边缘轨迹更直，几轮后可以 1–2 步采样。SD3 与 FLUX 没有做 reflow，但直线参数化本身已经让它们在 20–30 步达到 DDPM 50 步的质量（上表 5 步一列：0.041 vs 0.099），且更容易做后续的步数蒸馏（下一篇）。
@@ -310,6 +316,8 @@ CIFAR-10（$$32^2$$）上从零训两个小模型（同一个 U-Net，约 35M �
 | CFG | $$\tilde\epsilon = \epsilon_\emptyset + w(\epsilon_c - \epsilon_\emptyset)$$；每个噪声层 $$\propto p_t(x) p_t(c \mid x)^w$$，终点不是 $$p_0$$ 的幂分布 | toy：$$w$$ 1 → 4 命中 95% → 100%、标准差 0.60 → 0.35；$$w = 8$$ 甩出分布外 |
 | 修正 | 过饱和 → 动态阈值 / rescale；多样性 → 区间 guidance；两倍成本 → CFG 蒸馏 | FLUX-dev 是蒸馏过的 |
 | 成本 | 训练每样本一个 $$t$$；采样步数 × 2（CFG）× 前向；compute-bound、无 KV | SD 1.5 一张图 80 TFLOPs、3 秒 |
+
+Table: score matching、flow matching 与 CFG 的公式小结
 
 ## 九、自测
 

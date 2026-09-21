@@ -29,6 +29,8 @@ catalog: true
 | Attention | FlashAttention 与 PagedAttention 的推导和实现 |
 | 量化与融合 | 低精度 GEMM、RoPE、SiLU-mul、MoE 的 kernel 层含义 |
 
+Table: 系列覆盖的 kernel 类型
+
 每一个 kernel 都遵循同一套方法：**先算它理论上应该多快，再测它实际多快，再用 profiler 解释差距，再动手缩小差距**。
 
 系列使用两种写法：CUDA C++ 和 Triton。前者是 PyTorch ATen、vLLM `csrc/`、FlashAttention、CUTLASS 的语言；后者是 `torch.compile` 生成代码和 vLLM 中大量融合算子的语言。两者会在同一组 kernel 上并行推进、互相对照。
@@ -109,6 +111,8 @@ Triton 让写一个融合 kernel 的成本从几百行 CUDA 变成几十行 Pyth
 | 第九篇 | 量化与融合 kernel | 推理系统的其余部分 |
 | 第十篇 | 剖析、测试与贡献 | Nsight Compute、正确性、接入框架 |
 
+Table: 十篇的主题与一句话概括
+
 三条交织的线索：
 
 | 线索 | 从第一篇到第十篇 |
@@ -116,6 +120,8 @@ Triton 让写一个融合 kernel 的成本从几百行 CUDA 变成几十行 Pyth
 | 硬件线 | SM 与 warp → 内存层次 → Tensor Core → Hopper 新特性 |
 | 方法线 | Roofline → 带宽测量 → 占用率 → Nsight Compute 指标 → 决策树 |
 | 应用线 | elementwise → norm → GEMM → attention → 量化/MoE → 一个完整的 decoder layer |
+
+Table: 贯穿十篇的三条线索
 
 前六篇的所有 kernel 用 CUDA 写；第七篇用 Triton 把第三到五篇重写一遍；第八、九篇两种写法并行；第十篇的方法对两者通用。
 
@@ -380,6 +386,8 @@ Triton 让写一个融合 kernel 的成本从几百行 CUDA 变成几十行 Pyth
 | 第九篇 | RoPE · SiLU-mul · fused norm · INT4 GEMM | 组装成完整 layer |
 | 第十篇 | 剖析 · 测试 · 注册 | Nsight Compute · opcheck · TORCH_LIBRARY |
 
+Table: 练手项目：decoder layer 各 kernel 的分篇安排
+
 到第九篇结束，读者手上有一个用自己写的 kernel 跑通的 decoder layer 前向，可以和 PyTorch eager 对照正确性、和 `torch.compile` 对照性能。它不是一个可用的推理引擎，但每一个 kernel 都能拿出来单独测、单独优化、单独讨论离 Roofline 有多远。
 
 与它平行的源码阅读线：
@@ -394,6 +402,8 @@ Triton 让写一个融合 kernel 的成本从几百行 CUDA 变成几十行 Pyth
 | 第八篇 | flash-attention<br/>vLLM<br/>FlashInfer | `csrc/flash_attn/src`<br/>`csrc/attention/`<br/>`include/flashinfer/attention/` |
 | 第九篇 | vLLM | `csrc/quantization/{marlin,awq,gptq,w8a8/fp8}/`<br/>`csrc/activation_kernels.cu`<br/>`csrc/pos_encoding_kernels.cu`<br/>`csrc/moe/` |
 | 第十篇 | vLLM | `csrc/torch_bindings.cpp`<br/>`vllm/_custom_ops.py`<br/>`tests/kernels/` |
+
+Table: 各篇平行的源码阅读线
 
 
 ## 前置要求与说明
@@ -453,6 +463,8 @@ Triton 让写一个融合 kernel 的成本从几百行 CUDA 变成几十行 Pyth
 | 用 Triton 写会怎样？ | 编译器能自动化到哪一层 |
 | 它在别的架构上会怎样？ | 多架构与 fallback |
 | 怎么证明它是对的、没变慢？ | 测试、tolerance、benchmark |
+
+Table: 读完 GPU kernel 系列后应能回答的问题
 
 最终目标是三种能力：
 

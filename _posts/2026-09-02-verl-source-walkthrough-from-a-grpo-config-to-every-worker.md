@@ -96,6 +96,8 @@ flowchart TB
 | 十 | 对照：slime 与 AReaL 在哪里分道 | — |
 | 十一 | 小结 | — |
 
+Table: 本文的章节安排
+
 ## 二、入口：从配置到 trainer
 
 ### 1. 一条命令

@@ -34,6 +34,8 @@ LLM Serving 的性能不能只看单一指标：延迟、吞吐、效率与服�
 | 五 | 本文小结 |  |
 | 六 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、LLM Serving 指标总览
 
 LLM Serving 的性能不能只看单一指标，而应同时关注四个维度：
@@ -108,6 +110,8 @@ mindmap
 | **服务质量** | **P95** | 95% 请求不超过该延迟 | 大多数用户体验 | 负载波动、请求长度、调度 | 常用于在线服务 SLO |
 | **服务质量** | **P99** | 99% 请求不超过该延迟 | 尾部请求体验 | 长请求、资源竞争、抢占、网络抖动 | 对多租户和交互式服务尤其重要 |
 | **服务质量** | **SLO 达标率** | 满足预设延迟或吞吐目标的请求比例 | 服务稳定性 | TTFT、ITL、E2E、排队和错误率 | Goodput 的计算基础之一 |
+
+Table: LLM Serving 指标总览
 
 ## 三、指标常见误区与优化方向
 
@@ -187,6 +191,8 @@ Total Tokens/s、TTFT、TPOT/ITL 和 P99
 | **吞吐高但 Goodput 低** | 系统牺牲延迟换取吞吐，导致大量请求违反 SLO | 引入 SLO-aware 调度、限制 Batch 上限、控制长请求、优化资源隔离 |
 | **P99 随并发快速恶化** | 系统接近饱和，排队和资源竞争出现非线性增长 | 设置并发上限、实施 Admission Control、区分请求优先级、扩展实例或进行负载分片 |
 
+Table: 指标与优化方向的对应关系
+
 ### 3. 使用原则
 
 指标分析应遵循以下顺序：
@@ -221,6 +227,8 @@ Total Tokens/s、TTFT、TPOT/ITL 和 P99
 | `vllm bench latency` | 单 batch 端到端延迟 | `vllm/benchmarks/latency.py` |
 | `vllm bench sweep` | 对多组参数批量跑 `serve` | `vllm/benchmarks/sweep/` |
 
+Table: vllm bench 的子命令
+
 一次典型的在线压测：
 
 ```bash
@@ -249,6 +257,8 @@ vllm bench serve --model <MODEL> --dataset-name sharegpt --dataset-path ShareGPT
 | R5 | 150 | 40 | ✓ | ✓ | ✓ | — |
 | R6 | 310 | 62 | ✗ | ✗ | ✗ | 两项都超 |
 | **合计** | | | | | **3 / 6** | Requests/s = 6/10 = **0.6**；Goodput = 3/10 = **0.3 req/s** |
+
+Table: Goodput 从 Requests/s 里扣除的例子
 
 R3 和 R4 各只违反一项，但一样不计入——Goodput 是按请求做“与”判断，不是按指标各算达标率。这也解释了第三章“吞吐高但 Goodput 低”那一行：加大 Batch 让 6 个请求都完成了（Requests/s 不变甚至更高），却把一半请求推过了阈值。
 

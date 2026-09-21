@@ -28,6 +28,8 @@ catalog: true
 | 跨轮状态 | Responses：`reasoning` item 由服务端保留（`previous_response_id`）或以加密 item 随请求往返；Chat Completions 不保留 | 上一轮的 thinking block 必须原样送回；Fable 5.1 起校验其之前的历史未被改动 | thought signature 随 function call 往返 | `reasoning_content` **不要**送回（送回会 400） |
 | 关闭思考 | `effort: none`（支持的模型） | `thinking: disabled`，仅在 effort ≤ `high` 时允许（Opus 5）；Sonnet 5 上手动 `budget_tokens` 返回 400 | `thinking_level: low`（不能完全关） | 切非 thinking 模式 |
 
+Table: 四家的推理维度
+
 ### 2. 一轮推理调用的解剖
 
 ```mermaid
@@ -74,6 +76,8 @@ flowchart TB
 | Sonnet 5，effort `high`，同一任务 | 2,000 | 4,000 | 50 | \$2 / \$10 | 2,000 × 2 + 4,050 × 10 = \$0.0445 |
 | GPT-5.6 Sol，effort `xhigh`，agent 一步 | 30,000 | 12,000 | 400 | \$4 / \$20 | 30,000 × 4 + 12,400 × 20 = \$0.368 |
 
+Table: 思考 token 的计费例子
+
 （成本 = token 数 × 单价 ÷ 10⁶。）第一行到第二行，输入没变、回答没变，账单涨了 6 倍——全部是思考。对一个每天百万次的分类接口，这是每天几百美元与几千美元的差别。
 
 `max_tokens` 的含义随之变化：它是思考加回答的**总**上限。一个在非推理模型上设 `max_tokens = 1024` 刚好够输出一段 JSON 的应用，迁到推理模型后，思考用掉 900 个，回答被截断，JSON 不完整——`stop_reason` 是 `max_tokens`。Anthropic 的 Sonnet 5 迁移指南把这一条单列出来提醒。
@@ -97,6 +101,8 @@ effort 不是一个精确的 token 预算（那是 Anthropic 已经移除的 `bu
 | `high` | 默认；多数场景的平衡点 |
 | `xhigh` | 最难的编码与 agent 任务的推荐档 |
 | `max` | 不限制思考 token 的最高档 |
+
+Table: effort 各档的用途
 
 OpenAI 的 GPT-6 Astra 也是 `low` 到 `max` 五档，另有 `reasoning.mode: pro` 对应原 o3-pro / GPT-5 Pro 一类"多次采样再综合"的更贵形态。Gemini 只有三档，`low` 也不能完全关闭思考。
 
@@ -132,6 +138,8 @@ OpenAI 的 GPT-6 Astra 也是 `low` 到 `max` 五档，另有 `reasoning.mode: p
 | OpenAI（Responses） | `reasoning` item | 服务端状态：用 `previous_response_id` 自动带上；无状态 / ZDR：用 `include` 要回加密的 reasoning 内容并随下一次请求送回 | 加密内容只有服务端能读 |
 | Google（Gemini 3） | thought signature | 在多轮 function calling 中随 `functionCall` 部分原样送回 | 缺失会降低后续轮的质量或报错 |
 | DeepSeek | 无 | **不要**送回 `reasoning_content`，送回返回 400 | — |
+
+Table: 四家推理状态的传递机制
 
 前三家的设计是同一个思想的三种实现：**思考是模型的内部状态，应用只负责搬运，不负责读写**。加密（OpenAI）、签名（Anthropic、Gemini）都是为了保证你搬运的是原件。DeepSeek 选择了无状态——简单，但每轮重新推理。
 

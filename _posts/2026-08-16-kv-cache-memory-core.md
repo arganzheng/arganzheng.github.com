@@ -44,6 +44,8 @@ PagedAttention 的核心思想，用一句话就能说完：
 | 五 | 本文小结 |  |
 | 六 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、PagedAttention 的数学本质与源码实现
 
 ### 1. 痛点：传统显存分配的碎片灾难
@@ -66,6 +68,8 @@ GPU HBM (80 GB)，每个请求按 max_len=2048 预留连续空间
 | **内部碎片** | 按最大长度预留，实际用不了那么多 | 主要浪费来源 |
 | **外部碎片** | 已释放的空间不连续 | 总量够却无法分配给新请求 |
 
+Table: 传统显存分配的两类碎片
+
 总浪费率有多大？PagedAttention 论文（SOSP'23）测得当时的 SOTA 系统中，**真正存放有效 KV 的显存只占 20.4% ~ 38.2%**——也就是约 60% ~ 80% 被碎片和预留吃掉了。
 
 ### 2. 页表思想的映射：操作系统虚拟内存在推理系统中的重现
@@ -79,6 +83,8 @@ PagedAttention 的灵感直接来自操作系统的虚拟内存管理。核心�
 | 不连续的物理载体 | 物理页框 Physical Frame | **物理 KV 块** Physical Block（GPU HBM 上） |
 | 分配单位 | 一页（如 4 KB） | 一块（`block_size` 个 token 的 K/V） |
 | 好处 | 进程看到连续内存，实际零散存放 | 请求看到连续序列，KV 实际零散存放 |
+
+Table: 操作系统虚拟内存与 PagedAttention 的对应
 
 映射关系是这样的——注意物理块号完全不需要连续：
 
@@ -274,6 +280,8 @@ T2 里有个容易忽略的细节：`KVCacheManager.free()` 是把请求的块**
 | Prefill | 批量写入若干整块 | `Block 0: t₁~t₁₆`、`Block 1: t₁₇~t₃₂`、`Block 2: t₃₃~tₙ` |
 | Decode | 每步增量追加 1 个 slot | `Block 2` 尾部追加 `tₙ₊₁`，写满了才要新块 |
 
+Table: Prefill 与 Decode 阶段的 KV 写入方式
+
 **② 读取**——Attention Kernel 不认识"请求"，只认 Block Table：
 
 ```
@@ -296,6 +304,8 @@ for each query position:
 | ↳ 块无 hash（未写满） | 立即回收 | 无法复用 |
 | 被抢占 | 释放所有块 + `num_computed_tokens = 0` | 需重算，但 Prefix Cache 命中可跳过大部分 |
 
+Table: KV 块归还的触发与后果
+
 注意倒数第二行：**块只有"写满"才会被缓存**。这解释了为什么 Prefix Cache 的命中粒度是 `block_size`，而不是单个 token。
 
 上表里的 `ref_cnt--` 之所以要"归零才真正归还"，是因为一个物理块可能同时被多个请求持有。沿着贯穿全文的例子，跟踪那 125 个 system prompt 块的引用计数怎样随事件变化：
@@ -310,6 +320,8 @@ for each query position:
 | ⑥a | Req C 带同样 system prompt 到来 → `touch()` | 0 → **1** | 从链表中间摘出，缓存续命 |
 | ⑥b | 或者 Req D 要新块，`get_new_blocks()` 弹到它 | 0 → **1** | `_maybe_evict_cached_block()` 摘掉 hash，缓存被驱逐 |
 
+Table: 125 个前缀块引用计数的变化
+
 也就是说 `ref_cnt` 只回答"有几个请求正在用"，块是否可复用由 hash 是否还在决定；两者独立，这是第四章 Prefix Cache 一节的前提。
 
 ## 四、KV Cache 还能更小吗：复用、压缩与分层存储
@@ -321,6 +333,8 @@ for each query position:
 | 系统管理层 | PagedAttention、Prefix Cache | 已经要存这么多，**显存怎么管才不浪费** |
 | 模型架构层 | MQA / GQA / MLA | **本来到底需要存多少** |
 | 数值层 | FP8 / INT8 量化 | 每个 KV 元素**占几个字节** |
+
+Table: KV Cache 瘦身的三个层级
 
 三者是正交的，可以叠加：MLA 减少了要存的量，PagedAttention 管理这些量的摆放，FP8 再把每个元素压小。下面按这个顺序展开。
 
@@ -412,6 +426,8 @@ KV Cache 的大小与 KV head 数量成正比。Grouped-Query Attention (GQA) �
 | **GQA** | 8 | 2~4（分组共享） | `2 × L × S × G × d` | 1/2 ~ 1/8 |
 | **MQA** | 8 | 1（全部共享） | `2 × L × S × 1 × d` | 1/8 ~ 1/64 |
 
+Table: MHA、GQA 与 MQA 的 KV 大小
+
 ```
 MHA   Q: [1][2][3][4][5][6][7][8]
       K: [1][2][3][4][5][6][7][8]      ← 一个 Q 配一个 K/V
@@ -433,6 +449,8 @@ MQA   Q: [1][2][3][4][5][6][7][8]
 | Falcon 7B | MQA | 71 | 1 | 1.4% |
 | DeepSeek V3 | MLA | 128 | - | ~2% (存 576 维 latent，非 128×128 的完整 KV) |
 
+Table: 主流模型的注意力类型与 KV Cache 比例
+
 ### 3. MLA：从 KV Cache 到 Latent Cache
 
 DeepSeek V2/V3 提出的 Multi-head Latent Attention (MLA) 是一种更激进的 KV Cache 压缩方案。它不存储完整的 K、V 张量，而是存储一个低维的 latent 向量：
@@ -442,6 +460,8 @@ DeepSeek V2/V3 提出的 Multi-head Latent Attention (MLA) 是一种更激进的
 | 存的是什么 | `K [Hkv, d]` + `V [Hkv, d]` | `c_kv [kv_lora_rank]` + `k_pe [qk_rope_head_dim]` |
 | 每 token 每层 | `2 × Hkv × d` bytes | `(kv_lora_rank + qk_rope_head_dim) × sizeof(dtype)` |
 | 实例 | Llama-70B（GQA-8）：`2×8×128×2B` = **4 KB** | DeepSeek V3：`(512+64)×2B` ≈ **1.1 KB** |
+
+Table: MHA / GQA 与 MLA 的对比
 
 MLA 的运作分两步——**存的时候压缩，用的时候还原**：
 
@@ -477,6 +497,8 @@ vLLM 中 MLA 的实现位于 `vllm/model_executor/layers/mla.py`，通过 `MLAAt
 | INT8 | 1 byte | 0.5× | 需要校准，按 head / channel 量化 |
 | INT4 | 0.5 bytes | 0.25× | 显著损失，很少用于 KV Cache |
 
+Table: KV Cache 各量化格式的每元素字节与精度影响
+
 算一遍实际规模（Llama-70B、GQA-8、80 layers、seq_len=4096）：
 
 | 场景 | 计算 | 结果 |
@@ -484,6 +506,8 @@ vLLM 中 MLA 的实现位于 `vllm/model_executor/layers/mla.py`，通过 `MLAAt
 | 单请求 FP16 | 4 KB/token/layer × 4096 × 80 | 1.34 GB |
 | 单请求 FP8 | 2 KB/token/layer × 4096 × 80 | 0.67 GB（省 50%） |
 | **并发 8 路 FP16** | 1.34 GB × 8 | **10.7 GB** |
+
+Table: Llama-70B 的 KV Cache 实际规模
 
 单请求看着不大，但注意最后一行：**KV Cache 是"并发数 × 上下文长度"的乘积**，这才是它压垮显存的方式。
 
@@ -496,6 +520,8 @@ vLLM 中 MLA 的实现位于 `vllm/model_executor/layers/mla.py`，通过 `MLAAt
 | Per-head | 每个 head 一个 scale | 精细 |
 | Per-channel | 每个 channel 一个 scale | 最优 |
 | Per-group | 每 G 个元素共享 scale | 灵活折中 |
+
+Table: KV 量化的粒度与精度
 
 实现上分两个动作：**Quantize-on-write**（写入时即以低精度存储）和 **Dequantize-on-read**（读取时反量化，或直接在 attention kernel 内处理）。是否启用取决于模型、dtype、backend 与配置。
 
@@ -513,6 +539,8 @@ KV Cache 量化与 PagedAttention 在设计上可以组合：量化后的 KV 仍
 | **CPU DRAM**（温） | 256 GB–2 TB | ~200 GB/s | ~100 ns | 被抢占请求的 KV（经 PCIe Gen5，64 GB/s） |
 | **NVMe SSD**（冷） | 1–16 TB | ~7 GB/s | ~10 μs | 长期前缀缓存（较新的方向） |
 
+Table: KV Cache 的分层存储
+
 当 GPU 显存不够时，有三种应对策略，代价各不相同：
 
 | 策略 | 做法 | 优点 | 缺点 |
@@ -520,6 +548,8 @@ KV Cache 量化与 PagedAttention 在设计上可以组合：量化后的 KV 仍
 | **Recomputation**（重算） | 直接释放 KV，恢复时从头算 | 无传输开销，不占 CPU 内存 | 浪费 GPU 算力 |
 | **Swapping**（换出） | KV 块 GPU→CPU，恢复时回传 | 保留了已算结果 | 吃 PCIe 带宽 |
 | **Quantization + Offload** | 量化后再换出 | 传输量减半 | 额外精度损失 |
+
+Table: 显存不够时的三种应对策略
 
 vLLM V1 当前主要使用 **Recomputation** 策略（`_preempt_request()` 中将 `num_computed_tokens` 置零），因为在 Prefix Cache 存在的情况下，重算的实际成本远低于理论最坏情况——大部分前缀块仍在缓存中可复用。
 
@@ -536,6 +566,8 @@ vLLM V1 当前主要使用 **Recomputation** 策略（`_preempt_request()` 中�
 | 各类 KV Cache 规格（含 MLA） | `vllm/v1/kv_cache_interface.py` |
 | MLA 层实现 | `vllm/model_executor/layers/mla.py` |
 | KV 量化 | `vllm/model_executor/layers/quantization/` |
+
+Table: KV Cache 与 PagedAttention 源码导航
 
 </details>
 

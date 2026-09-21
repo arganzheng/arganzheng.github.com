@@ -32,6 +32,8 @@ catalog: true
 | 十 | 本文小结 | |
 | 十一 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、LLVM IR 的结构
 
 ### 1. 四层容器
@@ -64,6 +66,8 @@ Instruction、Argument、Constant、Function 都是 `Value` 的子类——**任
 | 聚合 | `{ float, float, i32 }`、`[256 x float]` | Triton 把一个线程持有的张量元素表示成 `!llvm.struct<(f32, f32, …)>`——一个 `[128, 32]` 的 bf16 张量在 4 个 warp 上每线程 32 个元素，就是一个 32 元的 struct（第十篇） |
 | 函数 / 标签 / metadata | `void (ptr, i32)`、`label`、`metadata` | |
 
+Table: LLVM IR 的类型
+
 ### 3. 最重要的几条指令
 
 拿第一篇的 `sum` 函数（`mem2reg` 之后）当参照：
@@ -89,6 +93,8 @@ for.body:
 | 函数 / 参数 attribute | 函数、参数、返回值 | `noundef`、`readonly`、`noalias`、`align 16`、`dereferenceable(64)`、`nounwind` | **语义承诺**，优化器可以依赖；违反是未定义行为 |
 | 指令 flag | 指令 | `nsw`、`nuw`、`inbounds`、`fast`、`volatile` | 同上 |
 | metadata | 指令、函数、模块 | `!tbaa`（类型别名）、`!llvm.loop`（循环展开 / 向量化提示）、`!range`、`!dbg`（调试位置）、`!nvvm.annotations` | **可丢弃的提示**：任何 pass 可以删掉它而不影响正确性 |
+
+Table: attribute 与 metadata 的机制
 
 区分两者对读 Triton 的 LLVM IR 有用：函数参数上的 `align 16` 是 Triton 从 `tt.divisibility` 翻译来的承诺；`!dbg` 是 Python 源码行号，`-lineinfo` 会把它带到 SASS 供 Nsight Compute 使用；NVPTX 特有的 `"nvvm.maxntid"` 这类**函数属性**（LLVM 23 已从 `!nvvm.annotations` metadata 迁到函数 attribute）告诉后端一个 block 最多多少线程。
 
@@ -283,6 +289,8 @@ exit:
 | 5 | local | `ld.local` / `st.local` | 局部数组、spill | **spill 去的地方**；Triton IR 不主动生成 |
 | 7 | shared::cluster | `ld.shared::cluster`、`mapa` | 线程块集群的分布式共享内存 | Hopper 多 CTA 路径（第九篇） |
 
+Table: NVPTX 的地址空间
+
 ### 3. 编成 PTX
 
 ```bash
@@ -437,6 +445,8 @@ PTX（Parallel Thread Execution）不是任何一代 GPU 的机器码。它是 N
 | 前向兼容 | 老 PTX 可以在新 GPU 上 JIT | cubin 只对一代架构有效，PTX 可以嵌入 fatbin 让驱动在运行时编译 |
 | 与源码接近 | 基本块、标签、谓词分支都保留 | 可读，是调试 Triton 编译器时最常看的一层 |
 
+Table: PTX 作为虚拟 ISA 的特征
+
 `-mattr=+ptx80` 决定 `.version 8.0`，`-mcpu=sm_80` 决定 `.target sm_80`。两者共同限制后端能用哪些指令：`wgmma` 需要 `+ptx80` 与 `sm_90a`，`tcgen05` 需要 `+ptx86` 与 `sm_100a`。Triton 的 `get_features` 把 `ptx_version` 上限设为 LLVM 认识的最高值（3.8.0 是 `+ptx90`），`sm_arch_from_capability` 给 sm_90 及以后加 `a` 后缀（`sm_90a`：架构特有指令）。
 
 `make_ptx` 生成 PTX 之后用两个正则把 `.version` 和 `.target` 改成运行时决定的值——因为 LLVM 版本认识的 PTX 版本可能比装的 `ptxas` 支持的低，而 `.target` 要与实际卡一致；这是"两个编译器版本不同步"的又一处胶水。
@@ -454,6 +464,8 @@ PTX（Parallel Thread Execution）不是任何一代 GPU 的机器码。它是 N
 | 寄存器分配 | **不做**（虚拟寄存器直出） | **做**：分配到 255 个物理寄存器以内，超出则 spill 到 local memory |
 | 谓词与分支 | 保留 PTX 谓词 | 转成 SASS 的谓词与分支、插入 reconvergence 指令 |
 | 常量传播、死代码 | 做过了 | 再做一遍（`-O3` 默认） |
+
+Table: LLVM NVPTX 与 ptxas 的分工
 
 `ptxas -v`（Triton 的 `make_cubin` 传了 `-v`）在 stderr 打印每个 kernel 的资源用量，格式是：
 
@@ -511,6 +523,8 @@ Triton 不能直接指定"用多少寄存器"，但有几个间接手段：
 | layout 选择 | `RemoveLayoutConversions` 决定哪些值以哪种 layout 活跃，`#mma` 累加器 `[128, 128]` f32 在 4 warp 上是每线程 128 个寄存器 | 第八篇 |
 | `tl.dot` 累加器精度 | f32 累加器是 f16 的两倍寄存器 | 算法侧决定 |
 | `knobs.nvidia.disable_ptxas_opt` | `--opt-level 0` | 只用于调试，性能极差 |
+
+Table: Triton 侧控制寄存器压力的杠杆
 
 ## 八、AMDGPU 对照
 

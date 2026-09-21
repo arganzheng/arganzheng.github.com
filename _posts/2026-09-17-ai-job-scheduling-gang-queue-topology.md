@@ -98,6 +98,8 @@ Kueue 不碰 Pod 的节点选择，它只决定"这个任务现在能不能开�
 | 十二 | 实践 | mini-platform/sched/：Kueue 两队列 cohort、TrainJob、Volcano Job、从 suspended 到 admitted |
 | 十三 | 小结 | 要点、源码位置、练手项目增量 |
 
+Table: 本文的章节安排
+
 ## 二、为什么逐 Pod 调度会死锁
 
 ### 1. 一条时间线
@@ -1186,6 +1188,8 @@ TAS                        准入即确定节点，节点级 gang          Kueue
 | Kubernetes v1.37.0 | `pkg/scheduler/framework/plugins/noderesources/fit.go`；`dynamicresources/dynamicresources.go`；`CHANGELOG/CHANGELOG-1.37.md` | `Fit.Filter` / `Score` / `ScorePlacement`；`DynamicResources.Filter` / `Reserve` / `PreBind`；WAS：`scheduling.k8s.io/v1beta1` `Workload` / `PodGroup`、`GenericWorkload` gate、`PodGroupPostFilter` / `PlacementFeasible` |
 | PyTorch v2.13.0 | `torch/distributed/argparse_util.py`、`run.py` | `PET_<dest>` 环境变量作为 torchrun 参数默认值 |
 | k8s-device-plugin v0.20.0 | `internal/lm/imex.go` | `nvidia.com/gpu.clique` 标签 |
+
+Table: 本篇涉及的源码与 CRD 位置
 
 ### 4. 练手项目本篇增量
 

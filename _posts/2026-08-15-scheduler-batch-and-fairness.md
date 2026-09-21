@@ -98,6 +98,8 @@ Scheduler 每一轮到底给每个 Request 多少计算额度？
 | 六 | Admission Control 与 Preemption | KV Cache 不够时：准入、抢占、重算 vs 换出、LIFO 与 Watermark |
 | 七 | 本文小结 | 从“Batch 调度”到“资源调度” |
 
+Table: 本文的章节安排
+
 ## 二、Continuous Batching：为什么 Batch 必须动态变化？
 
 ### 1. Static Batching 的问题
@@ -223,6 +225,8 @@ Iter 6:        [B] [D] [E]      ← C 完成
 | Padding    | 通常需要            | 不需要为了 Batch 对齐而等待   |
 | GPU 利用率    | 请求完成后逐渐下降       | 可以持续填充              |
 | 调度复杂度      | 较低              | 较高                  |
+
+Table: Static Batching 与 Continuous Batching 的对比
 
 因此，Continuous Batching 的核心不是简单地：
 
@@ -1120,6 +1124,8 @@ Token Budget 限制的是"本轮算多少 token"，但 Scheduler 还有第二个
 | Decode 为主 | budget=2048, max_num_seqs=256 | 256 个请求都在 Decode，各 1 token | 256 | **max_num_seqs**：第 257 个 waiting 请求即使有 KV、预算还剩 1792 也进不来 | 预算只用了 12.5%，GPU 显著欠载（memory-bound） |
 | 混合 | budget=2048, max_num_seqs=256 | 200 个 Decode + 1 个 Prefill 1800 | 2000 | 都没碰到；再来一个 Prompt 300 的请求只能拿 48 | 典型 Mixed Batch，长 Prefill 被自然切成 chunk |
 
+Table: Token Budget 与 max_num_seqs 哪个先生效
+
 从这张表可以看出，Decode 为主的在线服务往往是 `max_num_seqs` 而不是 Token Budget 在决定 Batch 大小——每个 Decode 请求只消耗 1 token 的预算，却占掉一个 running 名额，同时还长期占着 KV Cache。这也是为什么调大 `max_num_seqs` 通常要和 KV Cache 容量（`gpu_memory_utilization`、Block 数）一起考虑：名额放开了，但 KV 装不下，结果就是下一章要讲的抢占。
 
 ## 五、Mixed Batch：为什么 Prefill、Decode 与 Speculative 可以共存？
@@ -1170,6 +1176,8 @@ Scheduler 可以得到类似这样的分配：
 | C         |        5 | Speculative Decode | 推进真实 token + 候选 token |
 | D         |      250 | Prefill            | 新请求开始 Prefill         |
 | **Total** |  **512** |                    |                       |
+
+Table: 一轮 batch 里的请求构成示例
 
 于是这一轮：
 
@@ -1551,6 +1559,8 @@ flowchart TB
 | Swapping               | GPU KV → CPU，恢复时再传回 GPU | 保留已经计算的 KV      | 消耗 CPU 内存和 PCIe 带宽 |
 | Quantization + Offload | KV 量化后再换出               | 减少传输量           | 增加量化误差和实现复杂度       |
 
+Table: Recomputation 与 Swapping 的对比
+
 vLLM V1 当前主要采用 Recomputation。
 
 其核心逻辑可以概念化为：
@@ -1912,6 +1922,8 @@ Speculative Decode
 | **Preemption**           | `Scheduler._preempt_request()`                             |
 | **Scheduler → Executor** | `SchedulerOutput`                                          |
 | **执行层 InputBatch 构造**    | `ModelRunner`，见后续执行层章节                                     |
+
+Table: Scheduler 源码导航
 
 </details>
 

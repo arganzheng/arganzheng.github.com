@@ -75,6 +75,8 @@ verl 里         Megatron-Bridge / mbridge、FSDP 的 get_per_tensor_param   che
 | 九 | 正确性 | 同步中的生成、权重之外的权重、版本 |
 | 十 | 小结 | 要点、速查表、下一篇 |
 
+Table: 本文的章节安排
+
 ## 二、布局之一：名字与形状
 
 ### 1. 三套命名

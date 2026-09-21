@@ -24,6 +24,8 @@ updated: 2026-09-20
 | 打包产物 | jar / war | wheel / sdist |
 | 部署运行 | Docker / Kubernetes | Docker + ASGI server |
 
+Table: 工程化工具链：Java 与 Python 的对应
+
 这张表里最值得注意的是**"没有等价物"那一行**。Python 没有 Spring 这样的单一核心框架来统摄一切，工程化是由若干相互独立的工具组合出来的。这意味着两件事：一是选择更自由，二是**没有人替你做决定**——项目的工程规范必须自己立。
 
 Java 开发者常有的一个错觉是"Python 简单，随便装装就能跑"。在单机脚本上确实如此，但 AI-Infra 的场景会迅速打破这个错觉：
@@ -85,6 +87,8 @@ flowchart TB
 | 十 | 附：Java 与 Python 工程化工具链对照 |  |
 | 十一 | 本文小结 |  |
 | 十二 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、pyproject.toml：项目元数据的单一入口
 
@@ -196,6 +200,8 @@ build-backend = "setuptools.build_meta"
 | `scikit-build-core` | **带 CMake 的 C++ / CUDA 扩展**，PyTorch 生态常用 |
 | `maturin` | Rust 扩展（Pydantic v2 的 `pydantic-core` 就是它构建的） |
 
+Table: 常见构建后端与适用场景
+
 AI-Infra 项目如果要编译 CUDA kernel，基本都是 `scikit-build-core` 或自定义的 setuptools 扩展。这部分见第七章。
 
 `src` 布局下还需要告诉 setuptools 去哪里找包：
@@ -248,6 +254,8 @@ markers = ["slow: marks tests as slow"]
 | 环境切换 | profile | 没有内建 profile，靠环境变量或多份配置文件 |
 | 传递依赖冲突 | 有明确的"最近优先"仲裁规则 | pip 的解析器会尽力求解，失败则报冲突 |
 | 仓库 | 中央仓库 + 严格坐标（groupId:artifactId） | PyPI，**只有扁平的包名**，无命名空间 |
+
+Table: pyproject.toml 与 Maven 不像的部分
 
 最后一行值得多说一句：PyPI 没有 groupId 这样的命名空间，包名是全局先到先得的扁平空间。这直接导致了**名称抢注**和**typosquatting**（把 `reqeusts` 注册成恶意包）这类供应链风险。所以企业项目应该：固定依赖版本、使用锁文件与 hash 校验、定期扫描漏洞——这些在第四章展开。
 
@@ -334,6 +342,8 @@ $ which python
 | **CUDA driver** | **不隔离** | 内核态驱动，全机唯一 |
 | **系统工具**（gcc、cmake、git） | **不隔离** | 由 PATH 上的系统安装提供 |
 
+Table: 虚拟环境隔离与不隔离的层次
+
 所以下面这类问题，虚拟环境救不了：
 
 ```text
@@ -369,6 +379,8 @@ pyenv local 3.11.10
 | 依赖解析 | 只解 Python 包 | 解整个环境（含 C 库） |
 | 环境体积 | 小 | 大 |
 
+Table: venv + pip 与 conda 管理范围的对比
+
 **真正需要 conda 的场景**，只有一个核心判据：**你需要环境自带非 Python 的二进制依赖，且无法通过系统包管理器或容器基础镜像提供**。典型情况：
 
 - 在没有 root 权限的共享 HPC 集群上，需要特定版本的 `cudatoolkit`、MKL、编译器；
@@ -397,6 +409,8 @@ Java 开发者对依赖管理的心智模型来自 Maven：写 `pom.xml`、`mvn 
 | **锁定**解析结果 | 不需要（Gradle 有 `gradle.lockfile`，Maven 靠 `dependencyManagement` / BOM 把版本钉死） | `uv.lock` / `poetry.lock` / `requirements.lock`：每个包的精确版本 + hash | 这一件是 Python 多出来的、也是最容易被跳过的一步——`pip install -r requirements.txt` 跳过的就是它 |
 | **安装**到环境 | 下载到 `~/.m2/repository`（全局缓存，按坐标隔离），运行时按 classpath 取 | 装进当前 venv 的 `site-packages`（每项目一份；uv 有全局缓存做硬链接） | Java 靠坐标天然隔离多版本；Python 同一个环境里一个包只能有一个版本，隔离靠 venv |
 | **审计** | `mvn dependency:tree`、`versions:display-dependency-updates`、OWASP dependency-check | `uv tree` / `pipdeptree`、`uv lock --upgrade`、`pip-audit` | 相同 |
+
+Table: 依赖管理的五件事：Maven 与 Python 的对应
 
 其余概念的对应：`jar` ↔ `wheel`（第七章），Nexus / Artifactory 私有仓库 ↔ 私有 index（`--index-url`，第 6 节与第五章），BOM ↔ `constraints.txt` / `[tool.uv] constraint-dependencies`，`mvn -o` 离线严格构建 ↔ `uv sync --locked`，`mvn exec:java` ↔ `uv run`。
 
@@ -446,6 +460,8 @@ typing-extensions==4.12.2
 | 库项目 | 必须有 | 可以没有（不能限制下游） |
 | 应用/服务 | 必须有 | **必须有** |
 
+Table: 抽象依赖与锁定依赖的职责
+
 **库和应用的区别很关键**：库不该锁死依赖版本，否则会和下游其他库的要求冲突（这也是为什么第 5 节讨论"上界该不该加"）；应用是依赖链的终点，锁得越死越好。
 
 ### 3. 为什么 requirements.txt 不等于可复现
@@ -494,6 +510,8 @@ Python 的依赖管理工具经历了长期的碎片化。当前的格局：
 | **PDM** | 全套项目管理 | `pdm.lock` | 部分 | 中 | 标准兼容性好，用户较少 |
 | **uv** | 全套项目管理（Rust 实现） | `uv.lock` | **是** | **极快** | **新项目推荐** |
 | **conda** | 环境管理（含非 Python 依赖） | `environment.yml` | 是 | 慢 | 只在真需要系统级依赖时 |
+
+Table: Python 依赖管理工具的当前格局
 
 **推荐 uv 的理由**，不只是快（虽然快得很夸张，装 torch 这种大包的差距是分钟级 vs 十几秒）：
 
@@ -697,6 +715,8 @@ python -c "import torch; print(torch.cuda.is_available(), torch.cuda.device_coun
 | `torch.cuda.is_available() == False` 但有 GPU | 1 | 装了 `+cpu` 变体，或容器没挂 GPU |
 | `undefined symbol: ...cudnn...` | 2 | cuDNN 版本与 torch 编译时不一致 |
 | `no kernel image is available for execution` | 3 | GPU 架构（compute capability）不在 wheel 的编译目标里 |
+
+Table: CUDA 兼容性典型报错与对应层次
 
 最后一行值得注意：wheel 是针对特定的 GPU 架构列表编译的。很新的卡（如刚发布的架构）在旧 torch wheel 里可能没有对应的 kernel，即使 CUDA 版本都对得上也跑不了。
 
@@ -950,6 +970,8 @@ Ruff 和 mypy 的职责不重叠，都需要：
 | 速度 | 极快（毫秒级） | 慢（需构建类型图） |
 | 误报处理 | `# noqa: CODE` | `# type: ignore[code]` |
 
+Table: Ruff 与 mypy / pyright 的分工
+
 一个直观的例子：
 
 ```python
@@ -988,6 +1010,8 @@ pytest                 # 行为
 | 提交前钩子 | git hook + spotless | pre-commit |
 | 强制手段 | 构建失败 | CI 失败 |
 
+Table: 代码质量工具：Checkstyle / SpotBugs 与 Ruff 的对照
+
 最关键的差异仍然是类型检查那一行：Java 的类型检查是**语言强制**的，你不可能提交一个类型错误的 Java 项目；Python 的类型检查是**可选的外挂工具**，需要项目自己立规矩、自己在 CI 里强制。
 
 这也是为什么本系列反复强调工程规范：**Python 给了你更大的自由度，代价是纪律必须自己建立**。团队应该在项目层面统一：Python 版本、格式化工具与配置、import 规则、类型注解覆盖要求、异常处理规范、日志规范、目录结构、测试覆盖率门槛。这些一旦写进 `pyproject.toml` 和 CI，就从"口头约定"变成了"机器强制"。
@@ -1007,6 +1031,8 @@ Python 有两种分发格式：
 | 安装时 | **需要执行构建**（可能要编译器） | 解压 + 拷贝 |
 | 速度 | 慢 | 快 |
 | 平台相关性 | 与平台无关 | 可能与平台绑定 |
+
+Table: sdist 与 wheel 的对比
 
 ```bash
 # 构建两种产物
@@ -1272,6 +1298,8 @@ FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
 | `runtime` | + cuBLAS、cuDNN 等库 | **生产推理服务用这个** |
 | `devel` | + nvcc 编译器、头文件 | 需要现场编译扩展时用 |
 
+Table: nvidia/cuda 镜像的三个变体
+
 `devel` 比 `runtime` 大好几 GB。如果需要编译自定义算子，用多阶段构建：`devel` 阶段编译，`runtime` 阶段只拷产物。
 
 **其三，模型权重不要打进镜像。** 权重应该在启动时从对象存储或挂载卷加载。理由：镜像不可变但模型要频繁换版本；几 GB 的权重让镜像推拉极慢；同一镜像应该能服务不同的模型。
@@ -1359,6 +1387,8 @@ gunicorn inference_service.main:app \
 | 纯 I/O 转发（调用远端模型服务） | worker 数 ≈ 2–4，靠 asyncio 撑并发 | I/O 等待不占 GIL，单 worker 就能扛很高并发 |
 | Python 层有 CPU 工作（tokenize、后处理） | worker 数 ≈ CPU 核数 | 需要多进程绕过 GIL |
 | **本地 GPU 推理** | **worker 数 = 1**（或按 GPU 数） | 见下 |
+
+Table: uvicorn worker 数按瓶颈的建议
 
 **GPU 推理服务的 worker 数是个坑**。每个 worker 是独立进程，会**各自加载一份模型到显存**。4 个 worker × 一个 14GB 的模型 = 56GB 显存，直接 OOM。而且多进程抢同一块 GPU 会导致上下文切换开销和显存碎片。
 
@@ -1644,6 +1674,8 @@ jobs:
 | 类型错误上线才发现 | `mypy src/` 进 CI 门禁 |
 | 代码风格各写各的 | Ruff + pre-commit + `make check` |
 
+Table: 工程骨架回答了开头的哪些问题
+
 ## 十、附：Java 与 Python 工程化工具链对照
 
 | 关注点 | Java | Python | 关键差异 |
@@ -1668,6 +1700,8 @@ jobs:
 | 制品仓库 | Maven Central（可覆盖 SNAPSHOT） | PyPI（**版本永久不可变**） | PyPI 约束更严 |
 | 实际交付单位 | jar 或容器镜像 | **容器镜像** | Python 基本只能靠容器 |
 | 应用框架 | Spring（统摄一切） | **无等价物** | 规范需自行建立 |
+
+Table: Java 与 Python 工程化工具链对照
 
 两条贯穿全表的结论：
 

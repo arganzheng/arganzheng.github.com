@@ -69,6 +69,8 @@ Parameter 更新
 | 十五 | 本文小结 |  |
 | 十六 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、从模型对象到训练系统
 
 ### 1. 一个模型包含什么？
@@ -162,6 +164,8 @@ class SequentialMLP(nn.Module):
 |---|---|---|---|
 | `Sequential` | 通过容器注册子模块 | 容器内部固定为顺序调用 | 线性、固定流程 |
 | 显式 `__init__` + `forward` | 在 `__init__` 中显式注册 | 在 `forward` 中自由编排 | 分支、残差、多输入、多输出 |
+
+Table: Sequential 与自定义 Module 的适合场景
 
 
 ### 2. Module 树：`__init__` 定义的静态结构
@@ -600,6 +604,8 @@ self.register_buffer(
 | 普通 Tensor 属性 | 否 | 否 | 否 | 否 |
 | 普通 Python 属性 | 否 | 否 | 否 | 否 |
 
+Table: Parameter、Buffer 与普通属性的行为
+
 这张表是理解模型状态的关键。
 
 ### 5. 为什么普通 Tensor 不会自动迁移？
@@ -838,6 +844,8 @@ no_grad / inference_mode
 |---|---|---|---|
 | `model.train()` | Dropout 随机丢弃，BN 用 batch 统计并更新 `running_*`<br/>**建图**<br/>正常训练 step | Dropout 随机丢弃，BN 用 batch 统计并更新 `running_*`<br/>不建图<br/>训练中临时的无梯度计算（如 EMA 权重更新、手写参数修改） | 同上，BN 仍更新 `running_*`<br/>不建图，且输出 Tensor 不能再进入 Autograd<br/>少见，通常没有理由这样组合 |
 | `model.eval()` | Dropout 关闭（恒等），BN 用 `running_*`，不更新<br/>**建图**（显存和时间白白浪费）<br/>需要对输入求梯度的场景：对抗样本、显著性图、部分蒸馏 | Dropout 关闭，BN 用 `running_*`<br/>不建图<br/>验证 / 评估，输出后续还可能参与梯度计算时 | Dropout 关闭，BN 用 `running_*`<br/>不建图，跳过版本计数与 view 追踪，最省<br/>纯推理 / 验证：默认首选 |
+
+Table: train / eval 与梯度模式组合出的六种状态
 
 纯推理的默认选择是右下角那一格：`eval()` 负责让 Module 行为确定，`inference_mode()` 负责让 Autograd 彻底退出。中间那格 `eval()` + `no_grad()` 同样是合法的推理写法，只是少省一点开销，而且产物之后还能参与求导——如果推理结果要喂给别的可微计算（蒸馏、评分器回传），就该用它。少了 `eval()` 才是错误：Dropout 会随机丢弃、BN 会用 batch 统计（MC-Dropout 之类刻意保留随机性的场景除外）。
 
@@ -1995,6 +2003,8 @@ checkpoint 是否保存了完整状态？
 | `aten/src/ATen/autocast_mode.cpp` | autocast 的 C++ 实现：作为一个 DispatchKey 拦截算子并转换 dtype（第五篇的机制） |
 | `torch/serialization.py` | `torch.save` / `torch.load`、`weights_only` 的受限 unpickler |
 | `torch/utils/hooks.py` | `RemovableHandle` 与 hook 注册机制 |
+
+Table: 本篇涉及的源码位置
 
 下一篇将进入 PyTorch 的算子运行时：
 

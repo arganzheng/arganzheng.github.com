@@ -47,6 +47,8 @@ flowchart LR
 | 六 | 本文小结 | |
 | 七 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 源码：`lib/Dialect/TritonGPU/Transforms/{RemoveLayoutConversions,AccelerateMatmul,OptimizeDotOperands,OptimizeThreadLocality,F32DotTC}.cpp`、`lib/Dialect/TritonGPU/IR/Dialect.cpp`（`getMmaV2WarpsPerCTA`）、`lib/Analysis/Utility.cpp`；lit 测试 `test/TritonGPU/{combine,accelerate-matmul,dot-operands,optimize-locality}.mlir`。
 
 ## 二、RemoveLayoutConversions
@@ -84,6 +86,8 @@ load 结果 #blocked6 → convert → #blocked1 → convert → #dot_op<parent=#
 | `tt.gather`（有高效布局时）、`tt.reshape`（允许重排时） | 是 | 特殊 |
 | 函数参数 | 是 | 方便写测试 |
 | **其他一切**（`arith.*`、`splat`、`broadcast`、`expand_dims`、`reduce`、`convert_layout` 本身……） | 否 | layout 可以随便改，跟着锚点走 |
+
+Table: 哪些 op 是 layout 锚点
 
 锚点的直觉：**layout 只在与硬件打交道的地方有意义**——访存指令需要合并、Tensor Core 指令需要 fragment 布局。中间的算术运算在任何 layout 下都是每线程对自己持有的元素做同样的事，layout 对它们是透明的。所以算法让"透明"的 op 服从"硬件"的 op。
 
@@ -144,6 +148,8 @@ flowchart TB
 | 切片里的 `tt.load` / `local_load`（非昂贵） | 8 × 字节数 | 乐观假设命中 L1 |
 | 切片里的 `reduce` | warp 内 + 8 × warp 间的数据量；非结合的 reduce 直接拒绝 | 规约要重做 |
 
+Table: 后向重物化的代价模型
+
 典型的重物化：`make_range → splat → addi → expand_dims → broadcast → addptr` 这样的地址运算链，全是廉价的整数 op、结果只喂给一个 load，把它们在 load 想要的 layout 下重算一遍，比把算好的指针张量经 shared memory 转一次便宜得多。lit 测试 `combine.mlir` 的 `@remat`：两个 `make_range` 相乘再转 layout，重物化后 `make_range` 直接生在目标 layout 上，转换消失。
 
 `backwardRematerialization` 在一个 `do … while (changed)` 里反复跑到没有转换能消为止。然后是三种 **hoist**：
@@ -153,6 +159,8 @@ flowchart TB
 | `hoistConvertOnTopOfExtOrBroadcast` | 把 `convert(extf(x))` 变成 `extf(convert(x))`、`convert(broadcast(x))` 变成 `broadcast(convert(x))` | 在**小**的张量上转换：`f16 → f32` 之前转换少搬一半字节，broadcast 之前转换少搬几倍 |
 | `hoistConvertIntoConditionals` | 把 `scf.if` 之后的转换挪进分支 | 只在真的执行的分支里转换 |
 | `hoistConvertDotOperand` | 把到 `#dot_op` 的转换尽量向上推过逐元素 op | 让 load 出来的值尽早进入 `dot` 需要的 layout，中间的运算（如 dtype 转换、缩放）在 `#dot_op` 下做 |
+
+Table: 三种 hoist
 
 本例的 epilogue：`truncf(acc)` 从 f32 到 bf16，然后 `convert` 到 store 的 layout——最终 TTGIR 里是 `%c = arith.truncf %acc : #mma`、`%0 = ttg.convert_layout %c : #mma -> #blocked1`：**先截断再转换**，shared memory 往返搬的是 bf16 而不是 f32，字节数减半。这是第一种 hoist 的功劳。
 
@@ -187,6 +195,8 @@ flowchart TB
 | 90（Hopper） | {3, 2} | 先试 `wgmma`，不行退回 `mma.sync` |
 | 100 – 119（Blackwell 数据中心） | {5, 2}（INT8 某些情况只有 {2}） | 先试 `tcgen05.mma`，不行退回 v2 |
 | 120 – 129（Blackwell 消费级） | {2} | 没有 `tcgen05` |
+
+Table: 各 compute capability 的 MMA 版本偏好
 
 不合法时发一条 MLIR remark：`MMA version 3 acceleration not applied due to unsupported shapes or data types`——用 `triton-opt` 跑 `--tritongpu-accelerate-matmul` 时能看到，是"为什么我的 kernel 没走 wgmma"的第一手诊断。`supportMMA` 检查的是：M、N、K 是 `instrShape` 的倍数、dtype 在硬件支持的组合里（v3 不支持某些 FP8 组合、不支持 K 太小等）。
 
@@ -257,6 +267,8 @@ Ampere 与 Hopper 的根本差别在这里：`mma.sync` 的操作数在**寄存�
 | `ReshapeMemDesc` | `local_alloc(reshape(x))` | 变成 `memdesc_reshape(local_alloc(x))` | 同上 |
 | `RewriteMmaOperandViewsToMemDescForDotOp` | 操作数上的视图类 op 链 | 全部改写到 `memdesc` 上 | 视图不搬数据 |
 
+Table: OptimizeDotOperands 的四条 pattern
+
 对本例（无转置、Ampere）没有变化。它在 GPU Kernel 系列第七篇提到的"把转置折进 `ldmatrix.trans`"是 Ampere 上的对应效果，由第十篇的 `local_load` lowering 按 shared layout 的 order 决定是否发 `.trans`。
 
 ### 2. OptimizeThreadLocality
@@ -317,6 +329,8 @@ triton-opt mma2dot.mlir --allocate-shared-memory --convert-triton-gpu-to-llvm=co
 | `#mma → #dot_op<{opIdx = 0, parent = #mma, kWidth = 2}>` | 0 | 0 | 0 | **纯寄存器重排** |
 | `#mma → #blocked<{[1, 8], [4, 8], [4, 1]}>` | 8 条 `st.shared::cta.v4.b32` | 3 | 0 | 走 shared memory |
 
+Table: warpsPerCTA = [4, 1] 时 P·V 转换的开销
+
 第一行就是 FlashAttention 在 Triton 里"P 不落 shared memory"的机制：`mma.m16n8k16` 的 C fragment（lane t 持有 `(t/4, 2(t%4) + {0,1})` 与行 +8）和 A fragment（lane t 持有 `(t/4, 2(t%4) + {0,1})`、行 +8、列 +8）在 lane 位上**完全相同**——都是 lane 高 3 位管行、低 2 位管列对；差别只在寄存器位（C 的两个 n-tile 恰好是 A 的一个 k16 里的两半）。`minimalCvtLayout` 把 `warp` 与 `lane` 都 `quotient` 掉，只剩 `register`，`cvtReordersRegisters` 为真。这不是 Triton 的特例代码，是 Linear Layout 算出来的。
 
 但有一个条件——`warpsPerCTA = [4, 1]`：4 个 warp 全在 M 上。换成 matmul 用的 `[2, 2]` 再跑一次：
@@ -324,6 +338,8 @@ triton-opt mma2dot.mlir --allocate-shared-memory --convert-triton-gpu-to-llvm=co
 | 转换（`warpsPerCTA = [2, 2]`） | `st.shared` | `nvvm.barrier` | 结论 |
 |---|---|---|---|
 | `#mma → #dot_op<{opIdx = 0, parent = #mma, kWidth = 2}>` | 8 | 15 | 走 shared memory（多轮） |
+
+Table: warpsPerCTA = [2, 2] 时 P·V 转换的开销
 
 因为 `#dot_op` 的 A 操作数要求**每个 warp 持有自己 M 块的全部 K**，而 `[2, 2]` 的 `#mma` 把 N（= 下一个 dot 的 K）分在两个 warp 上——数据要跨 warp。这正是 `warpsPerTileV2` 里"链式 dot 全部 warp 放 M 上"那条规则的原因：**为了让 P 的转换是寄存器级的，第一个 dot 的 warp 排布要服从第二个 dot 的需要**。attention kernel 在 Triton 里比 matmul 多一个 `dot`，却少一次 shared memory 往返，靠的是这条规则加 Linear Layout 的判定。
 

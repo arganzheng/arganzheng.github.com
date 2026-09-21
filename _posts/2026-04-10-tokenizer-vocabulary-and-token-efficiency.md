@@ -27,6 +27,8 @@ tokenizer 对成本的影响走两条相反的路：
 | 词表大小 $$V$$ | embedding 与 lm_head 各 $$V \times d$$ 个参数；lm_head 每 token $$2Vd$$ FLOPs、decode 每步读 $$2Vd$$ 字节；训练时 logits 占 $$\text{tokens} \times V \times 4$$ 字节 | $$V$$ 越大，每个 token 越贵 | 32K → 128K：8B 骨架的参数 7.24B → 8.03B，每 token FLOPs 14.2 → 15.0 G（+5.6%） |
 | 压缩率 | 每个 token 平均对应多少字符（或字节） | 压缩率越高，同一段文字的 token 越少 | 英文 3.17 → 3.94 字符/token（+24%） |
 
+Table: tokenizer 影响成本的两条路
+
 两条路合在一起，成本应该按**每个字符**而不是每个 token 算：
 
 $$
@@ -49,6 +51,8 @@ Llama-3-8B 的骨架配 32K 词表是 $$14.2 / 3.17 = 4.49$$ GFLOPs/字符，配
 | Qwen2.5 | 151 665 | Qwen2 / 2.5 / 3 | byte-level BPE，中英双语料 |
 | DeepSeek-V3 | 128 815（`config.json` 里 `vocab_size` 为 129 280） | DeepSeek-V3 / R1 | byte-level BPE，中英双语料 |
 
+Table: 本文比较的五个 tokenizer
+
 Llama 3 自己的 tokenizer 需要授权下载，本文用 cl100k_base 近似它的英文行为；两者在英文上的切分几乎相同，中文上 Llama 3 多出的 28K token 会比 cl100k 好一些，但仍远不及双语料训练的 Qwen 与 DeepSeek。
 
 一个提醒：表里"词表"一列是 tokenizer 实际拥有的 token 数，模型 `config.json` 里的 `vocab_size` 往往比它大——Qwen2.5-7B 是 152 064 对 151 665，DeepSeek-V3 是 129 280 对 128 815。多出来的几百个是**填充位**，第三章会解释它为什么存在、为什么恰好都是 128 的倍数。
@@ -65,6 +69,8 @@ Llama 3 自己的 tokenizer 需要授权下载，本文用 cl100k_base 近似它
 | 七 | 实践 | 从零实现 BPE、真实 tokenizer 对比、`llm_cost.py` 第九版 |
 | 八 | 本文小结 | |
 | 九 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、从词到子词：为什么是 BPE
 
@@ -84,6 +90,8 @@ Llama 3 自己的 tokenizer 需要授权下载，本文用 cl100k_base 近似它
 | 词级（≈5 字符/token） | 200K | 3.0 PFLOP | 21 PFLOP | 24 PFLOP |
 | 子词（3.94 字符/token） | 254K | 3.8 PFLOP | 34 PFLOP | 38 PFLOP |
 | 字节级 | 1M | 15 PFLOP | 524 PFLOP | 539 PFLOP |
+
+Table: 词级、字符级与子词切分的 prefill 算量
 
 字节级比子词贵 14 倍，其中 attention 项贵 15 倍——序列每长 $$k$$ 倍，attention 项长 $$k^2$$ 倍。（这是一整段当作一条序列的极端算法；实际按 8K 分块后 attention 项会小得多，但字节级的 decode 步数仍是 4 倍，KV 也是 4 倍。）字节级模型不是没人做，第六章会看到它们要另想办法把序列压回去。
 
@@ -181,6 +189,8 @@ $$
 | WordPiece | 自底向上合并 | 似然增量 $$\frac{f(ab)}{f(a) f(b)}$$ | 最长匹配 | BERT |
 | Unigram | 自顶向下删除 | 删除后的似然损失 | Viterbi（可采样） | T5、ALBERT |
 
+Table: BPE、WordPiece 与 Unigram 的对照
+
 **SentencePiece**（Kudo & Richardson 2018）是一个实现，同时支持 BPE 与 Unigram；它的特点是把空格当成普通字符 `▁` 处理，不依赖语言相关的预分词，且默认做 NFKC 归一化。Llama 1 / 2 用 SentencePiece BPE（32K，字符级初始词表加 byte fallback：没见过的字符退回到字节）；Llama 3 换成了 tiktoken 风格的 byte-level BPE。工程上今天的主流是 byte-level BPE + 一条精心设计的预分词正则，三种方法在压缩率上的差异远小于词表大小与训练语料带来的差异。
 
 ### 6. tokenizer 的四段流水线
@@ -216,6 +226,8 @@ flowchart TB
 | Qwen2.5-7B | 152 064 | 3584 | 7.62B | 1.09B | 14.3% | 1.09 G | 7.7% | 1.09 GB |
 | Qwen2.5-0.5B（tied） | 151 936 | 896 | 494M | 136M | 27.6% | 0.27 G | 27.6% | 272 MB |
 | Gemma-2-2B（tied） | 256 000 | 2304 | 2.61B | 590M | 22.6% | 1.18 G | 22.6% | 1.18 GB |
+
+Table: 各模型词表参数与 lm_head 的占比
 
 Llama 2 到 Llama 3 的 7B/8B 规格，骨架几乎一样（都是 32 层、$$d = 4096$$，Llama 3 的 FFN 略宽并换了 GQA），参数从 6.74B 到 8.03B 里有 0.79B 是词表扩大带来的——**"8B"比"7B"多出来的那 1B 主要是词表**。
 
@@ -273,6 +285,8 @@ $$
 | 128 256 | 8.03B | 13.1% | 15.01 G | 7.0% | 0.31 ms | 3.9 GiB |
 | 256 000 | 9.08B | 23.1% | 16.06 G | 13.1% | 0.63 ms | 7.8 GiB |
 
+Table: 同一 8B 骨架换四种词表的全套数字
+
 这一侧的结论：词表每翻一倍，8B 模型每个 token 贵约 3.5%，训练时 logits 显存翻倍。
 
 ### 5. 训练状态：词表参数按 16 字节算
@@ -301,6 +315,8 @@ $$
 | Qwen2.5 | 152K | 32 tok · 5.44 c/t | 31 tok · 2.03 c/t | 52 tok · 3.63 c/t | 58 tok · 1.95 c/t |
 | DeepSeek-V3 | 129K | 33 tok · 5.27 c/t | 27 tok · 2.33 c/t | 58 tok · 3.26 c/t | 41 tok · 2.76 c/t |
 
+Table: 五个 tokenizer 在四段样本上的压缩率
+
 英文一列几乎没有差别：从 50K 到 200K 词表，同一句话 33 → 32 个 token。**英文早已饱和**——常用词在 50K 词表里就已经各是一个 token，再扩词表加进来的是罕见词与其他语言。差别全在另外三列。
 
 这一句英文样本 5.44 字符/token 比 Llama 3 报告的 3.94 高，是因为样本是通顺的散文；真实预训练语料里有代码、表格、URL、拼写错误，平均值会低得多。**压缩率是语料的性质，不只是 tokenizer 的性质**，比较两个 tokenizer 要在同一份足够大、足够杂的样本上比。
@@ -313,6 +329,8 @@ Llama 3 论文给出它的 tokenizer 在英文上把压缩率从 Llama 2 的 3.1
 |---|---|---|---|---|
 | 8B 骨架 + 32K 词表 | 14.22 G | 3.17 | 4.49 G | 40.4 KiB |
 | Llama-3-8B（128K） | 15.01 G | 3.94 | **3.81 G（−15%）** | **32.5 KiB（−20%）** |
+
+Table: Llama 2 与 Llama 3 tokenizer 的每字符成本
 
 每个 token 贵 5.6%，每段英文的 token 少 20%，净效果每字符便宜 15%。KV 的收益更大（20%），因为 KV/token 不随 $$V$$ 变。对推理系统这意味着：同样的显存放下多 25% 的上下文字符、同样的 prompt 少 20% 的 prefill 时间、生成同一段回答少 20% 的 decode 步——**tokenizer 的改进是少数对 prefill、decode、KV 三项同时有效的优化**，而且是零运行时开销的。
 
@@ -344,6 +362,8 @@ $$
 | 8 192 | 4.27 | 2.68 | 2.41 | 1.00 |
 | 16 384 | 4.57 | 3.00 | 2.50 | 1.00 |
 
+Table: 从零训 BPE 时词表大小的边际收益
+
 词表每翻一倍，训练集的压缩率大约加 0.4–0.5 字节/token——**近似对数增长**。前几次翻倍收益最大（256 → 2048 从 1.0 到 3.35），之后每翻一倍只多 10% 左右。这与词频的 Zipf 分布一致：第 $$r$$ 常见的 token 频率约 $$\propto 1/r$$，词表从 $$V$$ 扩到 $$2V$$ 新增的那些 token 合计只覆盖语料的 $$\ln 2 / \ln V$$ 左右——$$V = 64\text{K}$$ 时约 6%。
 
 而第三章算过每翻一倍 lm_head 的成本翻一倍。两条曲线一条对数一条线性，交点就是"最优词表"；它在哪取决于模型多大——lm_head 在 70B 模型里只占 1.5%，翻倍几乎免费，在 0.5B 模型里占 28%，翻倍要付真金白银。
@@ -363,6 +383,8 @@ Tao 等 2024 把这件事做成了 scaling law：在固定训练算力下，最�
 | o200k | 1.00 | 15.0 GFLOPs · 128 KiB KV | `分 · 词 · 器 · 决定 · 一句 · 话` |
 | Qwen2.5 | 0.79 | 11.9 GFLOPs · 101 KiB KV | `分 · 词 · 器 · 决定 · 一句话 · 变成` |
 | DeepSeek-V3 | 0.69 | 10.4 GFLOPs · 88 KiB KV | `分词 · 器 · 决定 · 一句话 · 变成 · 多少个` |
+
+Table: 各 tokenizer 每个汉字的 token 数与切分示例
 
 cl100k 里"词"和"决"各是两个不完整的字节 token（`��`），说明这两个字在它的训练语料里不够频繁，没有合并成整字。GB2312 常用汉字 6763 个，若要每个字至少是一个 token，词表里要留至少这么多位；要让常用双字词成为一个 token，还要再几万位——Qwen 与 DeepSeek 的词表里中文 token 估计占三到四成。它们的词表大小和 cl100k 在同一量级，但训练语料里有大量中文，常用词组（一句话、多少个）都成了单个 token。**同一段中文，用 cl100k 系的模型服务比用 DeepSeek 贵 2.1 倍**——prefill、decode 步数、KV 全部按这个比例。对多语言服务的容量规划，"每请求多少 token"必须按语言分别估。
 
@@ -391,6 +413,8 @@ GPT-2 的切法对算术是灾难：`1000` 和 `1001` 可能被切成完全不�
 | Python 代码 | cl100k 系 | 3.6 | 46 万字符 ≈ 1.2 万行 |
 | Python 代码 | GPT-2 | 2.0 | 26 万字符 ≈ 6 500 行 |
 | base64 / 哈希 / 随机串 | 任何 | ≈ 1.5–2.5 | 20–30 万字符 |
+
+Table: 128K 上下文窗口装得下多少文字
 
 同一个"128K"对中文用户可能只有英文用户的五分之一到三分之一。RAG 系统的 chunk 预算、长文档摘要的分段策略、agent 的上下文管理，如果按"一个 token 约等于 0.75 个英文词"的经验规则设计，在非英文流量上会系统性地超预算。
 
@@ -521,6 +545,8 @@ tokenizer 决定成本表的两端：
 | 压缩率 | 字符/token | 英文 3.94（Llama 2 为 3.17）；中文视词表 0.4–1.5 |
 | 每字符成本 | FLOPs/token ÷ 字符/token | 3.81 GFLOPs，比 32K 词表低 15%；KV 低 20% |
 | 跨 tokenizer 比 loss | $$\text{bits/byte} = \frac{L}{\ln 2} \cdot \frac{T}{B}$$ | 同等 bits/byte 下 Llama 3 每 token loss 应比 Llama 2 高 24% |
+
+Table: tokenizer 决定的成本表两端
 
 
 几条对系统的含义：

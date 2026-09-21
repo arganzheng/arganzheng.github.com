@@ -28,6 +28,8 @@ updated: 2026-09-14
 | connector | 把 encoder 输出变成 decoder 的 embedding | 决定 **image token 数**；输出 $$n_{img} \times d_{model} \times 2$$ 字节 | 便宜，但它的压缩比决定后面两笔账 |
 | decoder | image token 与文本 token 一起做 prefill 和 decode | prefill $$2N \cdot n_{img}$$ FLOPs；KV cache $$n_{img} \times$$ 每 token KV，**活到请求结束** | 与文本 token 完全同价 |
 
+Table: 一张图进入多模态 LLM 的三段账
+
 结论提前给出：**图片贵的不是 encoder，而是它变成的那几百上千个 token 在 decoder 里占的 KV**。以 Llama-3-70B 规格的 decoder（每 token KV 320 KiB）为例，1369 个 image token 的 encoder 输出是 21 MiB，它们的 KV 是 418 MiB，是前者的 20 倍；而且 encoder 输出用完即弃，KV 要陪伴整个请求。
 
 ### 2. 本文的路线
@@ -40,6 +42,8 @@ updated: 2026-09-14
 | Qwen2-VL-7B | 2024-08 | 自训 ViT，32 层 d=1280，原生动态分辨率 | 2×2 merge + MLP，÷4 | Qwen2-7B（GQA 4 KV 头） | 动态分辨率 + M-RoPE |
 | InternVL2-8B | 2024-07 | InternViT-300M，448 px，24 层 d=1024 | pixel-shuffle + MLP，÷4 | InternLM2.5-7B | 固定 tile + 动态 tile 数 |
 | Llama-3.2-11B-Vision | 2024-09 | ViT-H/14，560 px tile，32 局部 + 8 全局层 | 线性投影 | Llama-3.1-8B + 8 层 cross-attention | cross-attention 注入 |
+
+Table: 贯穿全篇的四个多模态模型
 
 数字都是理论值，硬件基线仍是 H100 SXM（80 GB，3.35 TB/s，BF16 约 989 TFLOPS）。
 
@@ -57,6 +61,8 @@ updated: 2026-09-14
 | 九 | 实践 | `llm_cost.py` 的多模态支持与最终成本表 |
 | 十 | 本文小结 | |
 | 十一 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、从像素到 patch：vision encoder 的账
 
@@ -94,6 +100,8 @@ $$\text{FLOPs}_{vit} = 2 N_{vit} \cdot n_p + 4 L_{vit}\, n_p^2\, d_{vit}$$
 | Qwen2.5-VL ViT（28 层 window + 4 层 full） | 32 | 1280 | 629 M | 1024² | 5476 | 6.89 T | 0.66 T | 7.55 T | 7.6 ms |
 | Llama-3.2 Vision ViT-H/14 | 32 + 8 | 1280 | 786 M | 560² × 4 tile | 6404 | 10.1 T | 8.4 T | 18.5 T | 18.7 ms |
 
+Table: 四个 vision encoder 的参数量与 FLOPs
+
 三个观察：
 
 1. **encoder 参数量在 0.3–0.8 B**，是 decoder 的 4–10%。它的权重字节（BF16 0.6–1.6 GB）在显存账里不是主角。
@@ -112,6 +120,8 @@ $$\text{FLOPs}_{vit} = 2 N_{vit} \cdot n_p + 4 L_{vit}\, n_p^2\, d_{vit}$$
 | 固定 tile，动态 tile 数 | InternVL2、Llama 3.2 Vision | 图按长宽比切成 1–12（InternVL）或 1–4（Llama）个 448² / 560² 的 tile，各自过 encoder | 1024 × tile 数 / 1601 × tile 数 |
 | 原生动态分辨率 | Qwen2-VL / 2.5-VL | 边长凑到 28 的倍数后整图一次过 encoder，`min_pixels` / `max_pixels` 限制范围 | 从 4 个 patch 到默认上限 16384 × 4 个 patch |
 
+Table: 四个模型的分辨率策略与 patch 数范围
+
 固定分辨率简单但浪费：一张 4K 截图缩到 336² 什么字都看不清。tile 方案让 encoder 每次只处理固定形状（对 kernel 和 batch 友好），代价是 tile 之间在 encoder 里通常没有 attention（InternVL 各 tile 独立过 ViT；Llama-3.2 例外，它把 4 个 tile 拼成一个 6404 长的序列，局部层和全局层都在整个序列上做 attention），tile 边界上的物体要靠 decoder 自己拼回去。原生动态分辨率最灵活，但 $$n_p$$ 可以相差三个数量级，encoder 的 FLOPs 与后面 decoder 的账都随之剧烈变化——系统必须按图片尺寸而不是"图片张数"来预算。
 
 ## 三、connector：谁决定 image token 数
@@ -125,6 +135,8 @@ encoder 输出 $$n_p$$ 个 $$d_{vit}$$ 维向量，decoder 需要 $$n_{img}$$ �
 | MLP projector | LLaVA-1.5 | 每个 patch 向量独立过 2 层 MLP（1024 → 4096 → 4096） | $$= n_p$$，576 | $$d_{vit} d + d^2 \approx 21$$ M |
 | 空间合并 | Qwen2-VL（2×2 merge）、InternVL（pixel-shuffle） | 相邻 2×2 个 patch 的向量拼接成 $$4 d_{vit}$$ 维，再过 MLP | $$= n_p / 4$$ | Qwen2-VL：5120 → 5120 → 3584，约 45 M |
 | 重采样 | Flamingo 的 Perceiver Resampler、BLIP-2 的 Q-Former、MiniCPM-V | 固定数量的可学习 query 对 patch 向量做 cross-attention | 固定 64 / 96 / 256 | 数十到数百 M |
+
+Table: 三类 connector 的做法、token 数与参数量
 
 第一类把 token 数的决定权完全交给 encoder；第二类给一个固定的压缩比；第三类把 token 数固定下来，与图片分辨率脱钩。
 
@@ -153,6 +165,8 @@ InternVL 的 pixel-shuffle 在数学上与 2×2 merge 相同（把 $$2 \times 2 
 | Qwen2-VL | 144 | 1369 | 默认 `max_pixels` 下 16384 |
 | Llama-3.2 Vision | 1601（1 tile） | 4 × 1601 = 6404 | 6404 |
 
+Table: 一张图等于多少 token
+
 同一张 1024² 的图，从 576 到 6404，差 11 倍。这个数决定了下一章的全部内容。
 
 ## 四、image token 在 decoder 里：真正的账
@@ -172,6 +186,8 @@ $$\text{FLOPs}_{prefill} = 2 N_{dec} \cdot n_{img}, \qquad \text{KV}_{img} = n_{
 | 3328 | InternVL2 13 tile | 50 T | 416 MiB | 26 MiB | 466 T | 1040 MiB | 52 MiB |
 | 6400 | Llama-3.2 4 tile | 96 T | 800 MiB | 50 MiB | 890 T | 2000 MiB | 100 MiB |
 
+Table: 不同 image token 数下的 prefill FLOPs、KV 与 encoder 输出
+
 （prefill FLOPs 按 $$2 N_{gemm} n_{img}$$，$$N_{gemm}$$ 是扣掉输入 embedding 的参数量——第二篇的口径；tile 方案的 CLS token 在 encoder 里参与计算、不进 decoder，所以 Llama-3.2 是 $$4 \times 1600 = 6400$$ 个 token。）
 
 （Qwen2-VL-7B 自己的 decoder 是 28 层、4 个 KV 头，每 token KV 只有 56 KiB，1369 个 token 的 KV 是 73 MiB；LLaVA-1.5 的 Vicuna-7B 是 MHA，每 token 512 KiB，576 个 token 是 288 MiB——decoder 的 attention 变体对图片的代价影响是 4–9 倍，这正是第三篇 GQA 的价值在多模态上的放大。）
@@ -186,6 +202,8 @@ $$\text{FLOPs}_{prefill} = 2 N_{dec} \cdot n_{img}, \qquad \text{KV}_{img} = n_{
 | encoder 输出 | 21 MiB | prefill 期间用一次；prefill 完成即可释放 |
 | image token 的 KV | 428 MiB | 从 prefill 到请求结束（含全部 decode 步） |
 | prefill FLOPs | 190 TFLOP ≈ 192 ms（H100 峰值） | 一次性 |
+
+Table: 一张图的三段字节数与生命周期
 
 **KV 是 encoder 输出的 20 倍**。原因在公式里：encoder 输出每 token 是 $$d_{model} \times 2$$ 字节（16 KiB），KV 每 token 是 $$2 L n_{kv} d_{head} \times 2$$ 字节（320 KiB），比值是 $$2 L \cdot n_{kv} d_{head} / d_{model} = 2 \times 80 \times 1024 / 8192 = 20$$——K 与 V 两份，乘层数，乘 KV 头总维度与模型维度之比。这个比值对 Llama-3-8B 是 16，对 Qwen2-VL-7B（28 层、4 个 KV 头）是 8。
 
@@ -226,6 +244,8 @@ Llama-3.2-11B-Vision 的 `config.json` 给出的结构：
 | 参数量 | 不变 | 每个 cross-attention 层不只 4 个投影：Q、O 各 $$d^2$$，K、V 各 $$d\,d_{kv}$$（GQA），再加一个完整的 SwiGLU FFN（$$3 d\, d_{ff}$$）与两个 gate，合计约 218M/层，8 层 **1.75 B**（11B ≈ 8.0B + 0.9B ViT + 1.75B cross 层 + 31M 投影） |
 | 结构改动 | decoder 完全不变，任何 LLM 都能接 | decoder 加层，权重要重训 |
 
+Table: decoder-only 注入与 cross-attention 注入的成本对照
+
 cross-attention 用**参数**换**序列长度**：多了 1.75 B 参数（这 8 层对每个文本 token 也要算，所以文本侧每 token 多约 20% 的算量），换来 decoder 序列不被图片撑长、图片 KV 减到四分之一。哪边总成本低取决于文本有多长、图片有几张、生成多少 token——不是"cross 一定省"。代价是 decoder 不再是"标准的 Llama"——推理引擎要为它单独实现 cross-attention 的 KV 管理（图片 KV 的形状与文本 KV 不同，不能放进同一套分页），训练框架也要处理两种 attention 的并行切分。这是它在开源社区里不如 decoder-only 注入流行的工程原因；Llama 4 已经改回 early fusion。
 
 ## 六、位置编码：从一维到三维
@@ -244,6 +264,8 @@ Qwen2-VL 的 M-RoPE（Multimodal RoPE）把 $$d_{head} = 128$$ 的 64 对旋转�
 | 图片第 $$(i, j)$$ 个 token（图片起始位置 $$s$$） | $$(s, s + i, s + j)$$ |
 | 视频第 $$f$$ 帧第 $$(i, j)$$ 个 token | $$(s + f, s + i, s + j)$$ |
 | 图片之后的文本 | 从 $$s + \max(H_{tok}, W_{tok})$$ 继续，而不是 $$s + n_{img}$$ |
+
+Table: M-RoPE 下各类 token 的 (t, h, w) 位置
 
 最后一行是 M-RoPE 对长上下文的一个副作用：一张 37 × 37 = 1369 个 token 的图，只让位置编号前进 37 而不是 1369。图片在位置空间里占的"长度"是它的边长，不是它的面积。这对第四篇讨论的 RoPE 外推范围是个好消息，但**不改变 KV cache 的账**——KV 仍然是 1369 份。位置编码决定 attention 怎么"看"，不决定要"存"多少。
 
@@ -282,6 +304,8 @@ $$n_{audio} = \frac{T_{sec}}{30} \times 1500 = 50\ \text{token / 秒}$$
 | 视频 | 1 分钟 720p | ViT × 帧对数 | 35880（1 fps）| 帧率、单帧分辨率、时间合并 |
 | 音频 | 1 分钟 | Whisper encoder，4.5 TFLOP | 3000（不压缩）/ 1500（Qwen2-Audio） | 时间维池化 |
 
+Table: 三种模态的每单位 token 数与调节手段
+
 所有模态最终都归结为同一个数——进入 decoder 的 token 数。**decoder 不知道也不关心 token 从哪里来**，它的 prefill FLOPs 和 KV 只看这个数。encoder 的差异只影响前置的一次性计算。
 
 ## 八、训练侧的账
@@ -295,6 +319,8 @@ $$n_{audio} = \frac{T_{sec}}{30} \times 1500 = 50\ \text{token / 秒}$$
 | ViT（0.63 B） | 1.26 GB BF16 | 1.26 GB（只有权重） | 10 GB |
 | connector（45 M） | 90 MB | — | 0.7 GB |
 | LLM（7.6 B） | 15.2 GB | 15.2 GB | 122 GB |
+
+Table: 冻结与解冻 encoder 时各组件的训练状态
 
 冻结 ViT 省 9 GB 状态，相对 LLM 的 122 GB 只有 7%——状态不是冻结的主要收益。真正省的是**激活值**：encoder 位于计算图的最前端，它的参数不需要梯度、它前面也没有需要梯度的层，所以反向传播到 connector 就停了，ViT 前向的中间张量一个都不必保存（可以在 `torch.no_grad()` 下跑）。一张 1024² 图片的 5476 个 patch × 32 层，每层十几个 `seq × d` 的张量，激活值在 10 GB 量级，比它的训练状态还大；解冻 ViT 意味着这些全部要留到反向。
 
@@ -422,6 +448,8 @@ Llama-3.2 ViT-H/14     patches  6404 tokens  6400 encoder 18.48 TFLOP (attn 45%)
 | encoder 输出 | 4.5 MiB | 10.7 MiB | 50 MiB（7680 维拼接前） |
 | 等价于多长的文本 prompt | 576 token | 1369 token | KV 上约 1600 token；序列长度上 0 |
 
+Table: 一张 1024² 图片在三种注入方式下的成本
+
 ### 3. 实验设计
 
 有 GPU 时可以验证两件事：
@@ -440,6 +468,8 @@ Llama-3.2 ViT-H/14     patches  6404 tokens  6400 encoder 18.48 TFLOP (attn 45%)
 | encoder 输出 | $$n_{img} \cdot d_{model} \cdot 2$$ B | 21 MiB | prefill 后即可释放 |
 | prefill FLOPs | $$2 N_{gemm} \cdot n_{img}$$ | 190 TFLOP | 与同样长度的文本相同 |
 | image KV | $$n_{img} \cdot 2 L n_{kv} d_{head} \cdot 2$$ B | 428 MiB | 活到请求结束；是 encoder 输出的 $$2 L n_{kv} d_{head} / d_{model} = 20$$ 倍 |
+
+Table: 多模态三笔账的公式与量级
 
 ## 十一、自测
 

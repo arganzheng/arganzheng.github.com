@@ -99,6 +99,8 @@ class Runner:
 | 八 | 本文小结 |  |
 | 九 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、类与对象模型：对象如何被创建和查找
 
 模块被导入、顶层代码执行时，`class Runner:` 语句创建了一个类对象。接下来 `Runner(model)` 创建实例，`runner.model`、`runner.stream` 读取属性。这一章回答的核心问题只有一个：**`obj.attr` 到底做了什么**。方法绑定、`property`、`classmethod`、`__getattr__`、`nn.Module` 把子模块藏在 `_modules` 里却能用 `self.linear` 访问——全部是这一个算法的不同分支。
@@ -292,6 +294,8 @@ print(hasattr(classmethod, "__set__"), hasattr(staticmethod, "__set__"), hasattr
 | `staticmethod` | 原函数本身，不绑定任何东西 | 否 | 普通函数挂在类命名空间 |
 | `property` | 调用 `fget(obj)` 的结果 | **是**（有 `__set__`，未提供 setter 时抛 `AttributeError`） | 计算属性，且不可被实例字典覆盖 |
 
+Table: 函数、classmethod、staticmethod、property 的 __get__ 行为
+
 从这张表能直接推出三者的用法：
 
 - **`classmethod` 的价值在于 `cls` 是"实际被调用的那个类"**。`Sub.c()` 和 `Sub().c()` 都返回 `Sub`，不是 `K`。这让它成为替代构造函数的标准写法：
@@ -322,6 +326,8 @@ print(hasattr(classmethod, "__set__"), hasattr(staticmethod, "__set__"), hasattr
 | `staticmethod` | `static` 方法 | 相同 |
 | `property` | getter/setter 约定，或 record 的访问器 | Java 没有语法级支持，`obj.getX()` 不能写成 `obj.x` |
 | `classmethod` | 静态工厂方法 | 见下 |
+
+Table: 方法绑定：Python 与 Java 的对照
 
 `classmethod` 与 Java 静态工厂的差异需要说准确。Java 的静态方法**不按接收者分派**：`GPURunner.fromConfig(cfg)` 在编译期就被解析为 `Runner.fromConfig(cfg)`，方法体内没有任何途径知道调用方写的是 `GPURunner`，`new Runner(...)` 写死了就只能造 `Runner`：
 
@@ -521,6 +527,8 @@ class InferenceRunner:
 | 给单个函数加日志、重试、tracing | 装饰器（第四章） |
 | 管理业务依赖 | 组合 |
 
+Table: 继承与组合的选择规则
+
 **与 Java 的对照**：Java 单继承加接口，接口的 default 方法能提供一部分 Mixin 的效果，但没有 MRO——两个接口的同名 default 方法冲突时必须在实现类里显式选择，不存在"沿链自动接力"的 `super()`。Java 的 `super.method()` 永远指向直接父类，是静态的；Python 的 `super()` 是动态的，取决于实例的 MRO。这一点是 Java 程序员读 Python 多继承代码时最容易误判的地方。
 
 ## 三、对象协议：语法背后的特殊方法
@@ -540,6 +548,8 @@ class InferenceRunner:
 | `x + y` | `__add__`，失败时尝试 `y.__radd__` |
 | `with x:` | `__enter__`、`__exit__` |
 | `obj.attr` | `__getattribute__`、`__getattr__`（第二章） |
+
+Table: 语法到特殊方法的映射
 
 有一个规则与第二章的属性查找不同：**特殊方法由解释器直接在类型上查找，跳过实例字典**。
 
@@ -1081,6 +1091,8 @@ Java 7 的 try-with-resources 是同一个思路：实现 `AutoCloseable`，`clo
 | 流式 | 生成器帧挂起、`yield from`、迭代协议 | 六、八 |
 | 异常 | 沿帧传播、`__exit__` 参与、异常链与重抛 | 九、十 |
 
+Table: 五个异常阶段对应的机制
+
 ### 6. 从追踪到工程建议
 
 上面的追踪也解释了为什么下面这些常见建议是对的：
@@ -1120,6 +1132,8 @@ Java 7 的 try-with-resources 是同一个思路：实现 `AutoCloseable`，`clo
 | `with torch.inference_mode()` | `with` 展开为 `__enter__` / `__exit__`；这类上下文管理器进入时切换一个线程局部状态、退出时恢复，异常也照样恢复 | 六 §1、§3 |
 | `@register("cuda")` 注册表能否填上取决于谁导入了它 | 装饰器在**定义时**执行一次；定义所在的模块没被导入、或被以两个名字导入，注册就不会发生或发生两次 | 四 §5、上篇四 §6 |
 | `self.linear = nn.Linear(4, 4)` 登记到 `_modules` | `Module.__setattr__` 拦截赋值写进 `_modules`（不进 `__dict__`），读取时属性查找算法在类和实例字典都找不到，落到 `__getattr__` 从 `_modules` 取回 | 二 §3、§6 |
+
+Table: 开头五行代码背后的机制
 
 读 AI-Infra 代码时的这些疑问，也都落在本篇的机制上：
 

@@ -41,6 +41,8 @@ updated: 2026-09-14
 | 十 | 本文小结 |  |
 | 十一 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、为什么需要位置编码
 
 ### 1. attention 是置换等变的（在没有 mask 时）
@@ -395,6 +397,8 @@ Qwen2.5 的做法类似：预训练与默认配置是 32K，官方说明中给�
 | YaRN | 按 $$r_i = L/\lambda_i$$ 分三段 | $$r_i > \beta$$ 不动 / $$r_i < \alpha$$ ÷ factor / 线性混合 | $$\sqrt{1/t} = 0.1\ln(\text{factor}) + 1$$，乘进 cos/sin 表 | 约 400 步微调（Llama 2 → 64K）；DeepSeek-V2/V3（factor 40）、Qwen2.5（factor 4） |
 | Llama 3.1 `llama3` | 同 YaRN 分段，$$\alpha = 1$$、$$\beta = 4$$ | $$\lambda_i < 2048$$ 不动（29 对）/ $$\lambda_i > 8192$$ ÷ 8（29 对）/ 线性混合（6 对） | 无，靠长序列训练解决熵 | 8K 预训练后分阶段长序列训练 800B token；Llama 3.1 |
 
+Table: RoPE 外推方法对照：改的量、规则与代价
+
 ### 6. ALiBi：不旋转，直接加线性惩罚
 
 ALiBi（Attention with Linear Biases，Press 等 2021）走了完全不同的路：不给 q、k 加任何位置信息，直接在 attention 分数上减去一个与距离成正比的惩罚：
@@ -426,6 +430,8 @@ RoPE 加上第 1–5 节的缩放方法，成了 2023 年之后长上下文模�
 | 相对 bias（T5、Transformer-XL） | logits 上加 $$b_{m-n}$$ | 只依赖 $$m - n$$（T5 是纯标量；Transformer-XL 还有内容–位置交互项） | 每 head 每桶一个标量 | 远距离落入最粗的桶，可用 | 兼容：K、V 照常缓存，新 query 只算自己那一行 bias | 需要 kernel 内加 bias（物化 $$s \times s$$ 或查表） |
 | RoPE | q、k 上**乘**旋转 $$R_m$$ | 只依赖 $$m - n$$，且与 q、k 内容交互 | 0 | 低频对出现未见相位，失败；需缩放 + 训练 | 天然兼容：存旋转后的 k | 无（kernel 之前逐元素完成） |
 | ALiBi（BLOOM、MPT） | logits 上减 $$\mu_h (m - n)$$ | 只依赖 $$m - n$$，与内容无关 | 0（斜率固定） | 好：惩罚形状不随距离变 | 兼容 | 需要 kernel 内逐元素加 bias（FA2 有分支支持） |
+
+Table: 五种位置编码从 Infra 维度的对照
 
 ## 六、长上下文的成本
 

@@ -91,6 +91,8 @@ Java 里"按运行时类型选实现"只有一种做法：接口加虚方法。C
 | 十二 | 本文小结 |  |
 | 十三 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、虚函数与 vtable：C++ 里"默认不虚"的多态
 
 ### 1. `virtual`、`override`、`final`、纯虚函数与抽象类
@@ -364,6 +366,8 @@ struct TORCH_API NestedTensorImpl : public c10::TensorImpl {
 | 虚函数 | 没有 | 虚析构 + `*_custom` 定制点 + `shallow_copy_and_detach` |
 | 多态发生在哪 | 不发生 | 通过 `intrusive_ptr<TensorImpl>` 调虚函数 |
 | 热路径保护 | — | 先查 `sizes_strides_policy_` 字节，默认不进虚调用 |
+
+Table: Tensor 与 TensorImpl 的分工
 
 Java 对照：Java 里所有对象都是"实体 + 引用"，`Tensor`/`TensorImpl` 的拆分没有对应物。Java 引用本身不能有方法，所以只能把所有行为放在对象上、全部走虚调用。C++ 把"轻量、可拷贝、无多态"的句柄和"重量、不可拷贝、有多态"的实体拆开，两边各取所需。
 
@@ -756,6 +760,8 @@ Java 对照：Java 的策略模式（`Comparator<T>`、`Function<T,R>`）在语�
 | 能放进非模板类 / 数组 | 是 | 是 | 是（短期） | 否 |
 | PyTorch 用例 | `DeleterFnPtr`、`boxed_kernel_func_` | 线程池任务、`from_blob` 删除器 | `TensorIterator::for_each` | `cpu_kernel`、`gpu_kernel`、`AT_DISPATCH` |
 
+Table: 四种可调用抽象的对比
+
 `KernelFunction` 需要"能放进非模板类的数组里"（`OperatorEntry::dispatchTable_`），排除了模板参数；需要"每次算子调用零额外开销"，排除了 `std::function`；需要"能带状态"（kernel functor 可以有成员），排除了裸函数指针。于是它自己实现了一个介于 `function_ref` 和 `std::function` 之间的东西：`functor_`（拥有状态，`intrusive_ptr`）+ 两个函数指针。这就是第六章。
 
 ## 五、CRTP：编译期多态
@@ -922,6 +928,8 @@ Java 里不需要这个技巧，因为所有对象都有统一基类 `Object` �
 | `functor_` | `intrusive_ptr<OperatorKernel>` | 拥有 kernel 对象（可能有状态）；对纯函数指针可以为空 |
 | `boxed_kernel_func_` | `void(*)(OperatorKernel*, const OperatorHandle&, DispatchKeySet, Stack*)` | boxed 入口，**永远有效** |
 | `unboxed_kernel_func_` | `void*`，实际是 `Return(*)(OperatorKernel*, DispatchKeySet, Args...)` | unboxed 快路径，**可能为空** |
+
+Table: KernelFunction 的三个字段
 
 `OperatorKernel*` 出现在两个函数指针的第一个参数位置上，它就是 `function_ref` 里那个 `intptr_t callable`——"被装进去的东西"的地址。区别是 `KernelFunction` 拥有它（`intrusive_ptr`），而且它有一个公共基类 `OperatorKernel`（只为虚析构存在，2.3 节）。
 
@@ -1446,6 +1454,8 @@ inline at::Tensor& IValue::toTensor() & {
 | 加新类型 | 任意类天然可用 | 必须改 `TORCH_FORALL_TAGS` 和一堆 `isX/toX`；用户自定义类走 `Object`/`Capsule` 这两个通用 tag |
 | 值语义 | 没有，永远是引用 | 有：拷贝 `IValue` 拷贝值（对引用类型是计数 +1） |
 
+Table: Java Object 与 c10::IValue 的异同
+
 类比成立的地方：都是"能装任何东西的盒子"，boxed 调用约定和 Java 反射的 `Object[] args` 在概念上完全对应。类比会误导的地方：`IValue` 不是基类，`Tensor` 不"是一个" `IValue`，把 `Tensor` 装进 `IValue` 是构造一个新对象；`IValue` 的类型集合是**封闭的**，这是 PyTorch 的 schema 类型系统只有固定几十种类型的根本原因。
 
 ### 4. `std::variant` 与 `std::visit`：标准库版本的 tagged union
@@ -1698,6 +1708,8 @@ static PyObject* set_grad_enabled(PyObject* _unused, PyObject* args, PyObject* k
 | `c10::OutOfMemoryError` | `torch.OutOfMemoryError` |
 | `c10::Error`（其他） | `RuntimeError` |
 | 其他 `std::exception` | `RuntimeError` |
+
+Table: C++ 异常到 Python 异常的映射
 
 这就是为什么 Python 侧一个越界索引看到的是 `IndexError`，而大多数 `TORCH_CHECK` 失败看到的是 `RuntimeError`。`what_without_backtrace()` 是 8.1 节那个虚函数——默认不显示 C++ 栈，设了 `TORCH_SHOW_CPP_STACKTRACES=1` 才用 `what()`。
 
@@ -2474,6 +2486,8 @@ class KernelFunction final {
 | `KernelFunction::call` 里的折叠表达式装箱 | `impl::BoxedKernelWrapper` + `boxArgs` |
 | `functor_` / `boxed_kernel_func_` / `unboxed_kernel_func_` | `BoxedKernel::functor_` / `BoxedKernel::boxed_kernel_func_` / `KernelFunction::unboxed_kernel_func_` |
 
+Table: mini-c10 的 KernelFunction 与 PyTorch 的对应
+
 几处值得注意的 C++：`template <auto Func>` 是 C++17 的"自动推导类型的非类型模板参数"，`makeFromUnboxedFunction<&add_cpu>()` 里 `Func` 的类型是 `Tensor(*)(const Tensor&, const Tensor&)`，值是函数地址——比 `TORCH_FN` 少一层宏，但要求 C++17。`intrusive_ptr<OperatorKernel>::reclaim(functor.release())` 把派生类 `intrusive_ptr` 转成基类 `intrusive_ptr`（第二篇的 `intrusive_ptr` 没有转换构造函数，真实的 `c10::intrusive_ptr` 有）。`(stack.emplace_back(std::forward<Args>(args)), ...)` 是 C++17 折叠表达式，对参数包里每个参数执行一次逗号左边的表达式。
 
 ### 4. `dispatch/OperatorEntry.h`
@@ -3026,6 +3040,8 @@ registered keys for add: CPU, Meta
 | 反射 `Method.invoke(Object...)` | 内建 | boxed 调用约定（`Stack*`） | C++ 的是手工维护的第二套约定 |
 | 异常 | checked/unchecked，`finally` | 只有 unchecked，`noexcept`，RAII | 异常不能穿过 C 边界和不兼容的 ABI 边界 |
 | JNI `ThrowNew` | 设置 pending exception 后返回 | `PyErr_SetString` + `return nullptr` | 概念直接对应 |
+
+Table: 多态与类型擦除：Java 对照汇总
 
 下一篇进入宏和静态注册：`TORCH_LIBRARY_IMPL(aten, CPU, m)` 这一行怎么在 `main` 之前跑起来、把本篇的 `KernelFunction` 塞进 `OperatorEntry`，`TORCH_CHECK` 为什么必须是宏，以及 torchgen 生成的那些文件长什么样。mini-c10 的 `register_add_kernels()` 会被 `MINI_LIBRARY_IMPL` 取代。
 

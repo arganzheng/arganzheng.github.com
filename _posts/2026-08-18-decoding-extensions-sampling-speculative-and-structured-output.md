@@ -45,6 +45,8 @@ ModelRunnerOutput → Scheduler.update_from_output()
 | 投机解码 | **每步决定的位置数**：一次 forward 不再只出 1 个 token，而是验证 K 个候选再加 1 个 bonus | logits 从 `[num_reqs, V]` 变成 `[num_reqs + num_drafts, V]` |
 | 结构化输出 | **分布的支撑集**：把 grammar 当前状态下不合法的 token 全部置 `-inf` | 在 Sampler 之前，先用一张 bitmask 把 logits 挖空 |
 
+Table: 三种解码扩展各改的是什么
+
 ### 2. 三种扩展分别惊动了谁
 
 如果它们只改 Sampler，本篇一章就够了。问题在于它们各自向上游捅了多深：
@@ -54,6 +56,8 @@ ModelRunnerOutput → Scheduler.update_from_output()
 | logits processors | —— | —— | 维护每个请求的 `output_token_ids` 列表并每步上传；batch 增删移动时同步处理器状态 | 主战场 |
 | 投机解码 | `num_tokens_with_spec` 进预算；被拒绝的 token 回滚 `num_computed_tokens`；每步收集接受率 | `allocate_slots(num_lookahead_tokens)` 预留槽位；EAGLE 命中 prefix cache 时**少算一块** | 一次 forward 算 `1+K` 个位置；draft 模型有自己的 KV group 和 CUDA graph；"纯 decode batch"的定义从 1 token/req 变成 `1+K` token/req | 换成 `RejectionSampler` |
 | 结构化输出 | 请求进入 `WAITING_FOR_STRUCTURED_OUTPUT_GRAMMAR` 等编译；每步生成 bitmask；每步用 `accept_tokens` 推进 FSM；过滤 draft | —— | 在采样前对 logits 就地打掩码 | 掩码在 Sampler 之前，Sampler 本身不变 |
+
+Table: 三种解码扩展惊动的模块
 
 这张表就是本篇的路线图：每一章讲一种扩展，先说它给三个核心战场加了什么约束，再看 vLLM 的实现，最后算账。
 
@@ -77,6 +81,8 @@ ModelRunnerOutput → Scheduler.update_from_output()
 | 五 | 三者叠加 | 一步之内的执行顺序；留给多卡（08）与 PD 分离（12）的问题 |
 | 六 | 本文小结 |  |
 | 七 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、采样与 logits processors：让同一个 batch 里的每一行按自己的规矩走
 
@@ -184,6 +190,8 @@ class BatchUpdate:
 | `LogitBiasLogitsProcessor` | 稀疏：`dict[req_idx → dict[token → bias]]`，变化时重建一组 `(req_idx, tok_id, bias)` 的索引张量 | `logits[(reqs, toks)] += biases` 一次 index_put | 否 |
 | `MinTokensLogitsProcessor` | 稀疏：`dict[req_idx → (min_toks, output_ids 引用, stop_token_ids)]` | `index_put_(-inf)` 到所有未达最小长度请求的 stop token 上 | 否 |
 
+Table: 内置三个 LogitsProcessor 的状态组织
+
 稀疏路线的通用逻辑抽成了 `process_dict_updates()`，`AdapterLogitsProcessor` 也复用它。
 
 **thinking budget** 走的是同一套协议，但不是 `LogitsProcessor` 子类：`ThinkingBudgetStateHolder`（`vllm/v1/sample/thinking_budget_state.py`）用同样的 `BatchUpdate` 做 `sync_batch()`，但它需要看到本步"已经提交的输出 + 投机 draft"来判断思考段是否超预算，所以 `Sampler.apply_logits_processors()` 把它放在 penalties 之后单独调用（`holder.update_state()` → `holder.apply_to_logits()`），并明确区分 `output_token_ids`（已提交）与 `spec_token_ids`（草稿）。
@@ -221,6 +229,8 @@ def apply_penalties(logits, prompt_tokens_tensor, output_tokens_tensor,
 | `output_token_ids` 上传 | `_convert_to_tensors()` 把 Python 的 `list[list[int]]` pad 成张量再 H2D | 长度随已生成 token 数增长；300 步时是 `64 × 300` 个 int64 |
 | repetition penalty | `apply_repetition_penalties` 自定义 op（`csrc/libtorch_stable/sampler.cu`） | 读两张 mask + 整张 logits |
 
+Table: penalties 每步的直方图开销
+
 几十 MB、几百微秒的量级，和 10 ms 的 decode 比仍然是小数——但它是**每一步、只要 batch 里有任何一个请求开了 penalty 就要全 batch 付**的固定成本，而且随 batch 和词表线性增长。源码里 `NOTE(nick)` 直言 "The penalties implementation is currently quite inefficient and will be reworked anyhow"。更隐蔽的成本在 CPU 侧：`no_penalties` 为 False 时 model runner 必须每步维护并上传 `output_token_ids`，异步调度下这个列表甚至可能含有 `-1` 占位（`apply_all_penalties()` 里专门有一行把 `-1` 换成 `vocab_size`）。
 
 **对比一下不同采样参数的成本形态**：
@@ -233,6 +243,8 @@ def apply_penalties(logits, prompt_tokens_tensor, output_tokens_tensor,
 | `logit_bias` / `min_tokens` / `allowed_token_ids` / `bad_words` | 稀疏 index_put | 忽略 |
 | 任一 penalty | 两张 `[B, V+1]` int64 直方图 + 历史输出上传 | **O(B·V) 显存流量 + CPU 侧列表维护** |
 | 带 `seed` | 逐请求 Python 循环覆盖噪声；FlashInfer 路径失效 | 与带 seed 的请求数线性 |
+
+Table: 不同采样参数的成本形态
 
 结论：采样参数里真正值得在容量规划时考虑的只有 penalties 和 seed，其余都淹没在 forward 里。
 
@@ -275,6 +287,8 @@ RejectionSampler（vllm/v1/sample/rejection_sampler.py）
 | | `dflash` / `dspark` / `gemma4_mtp` / `step3p5_mtp` | `DFlashProposer`、`Gemma4Proposer`、`Step3p5MTPProposer` 等变体 | 是 | 是 | —— |
 | 独立模型 | `draft_model` | `DraftModelProposer`（`draft_model.py`）：`SpecDecodeBaseProposer` + `pass_hidden_states_to_model=False`；支持异构词表（`VocabMapping`） | 是，一个完整小模型 | 是 | 可选 |
 | 自定义 | `custom_class` | `create_custom_proposer()`（`custom_class_proposer.py`） | —— | —— | —— |
+
+Table: 投机解码 proposer 的家族
 
 几个实现细节决定了后面几节的形状：
 
@@ -461,6 +475,8 @@ T_ridge ≈ (989e12 FLOP/s × 2 B/param) / (2 × 3.35e12 B/s) ≈ 295 token / �
 | 128 | 3 | 512 | **否**，≈ 1.7× 临界 | ≈ 17 ms |
 | 128 | 0（不开） | 128 | —— | ≈ 10 ms |
 
+Table: 不同 batch 与 K 下验证是否免费
+
 **每步的总时间**再加上 draft：EAGLE 头一层、TP=8 下每卡权重不到 0.3 GB，一次 forward 的权重读取不到 0.1 ms，但 K 步串行、每步几十个 kernel，launch 与同步开销主导，估 0.5–1 ms/步；独立 1B draft model 大约 1–2 ms/步。
 
 **回到我们的例子**（batch=1，300 个输出 token）：
@@ -473,6 +489,8 @@ T_ridge ≈ (989e12 FLOP/s × 2 B/param) / (2 × 3.35e12 B/s) ≈ 295 token / �
 | n-gram，K=3，接受长度 1.2（几乎不重复的文本） | 250 | 10 ms（draft 在 CPU） | 2500 ms | 1.2× |
 | n-gram，K=3，接受长度 3.5（RAG 抄原文） | 86 | 10 ms | 860 ms | **3.5×** |
 | EAGLE，K=3，batch=128 | 每请求 120 步 | 17 + 2 ≈ 19 ms | ≈ 2280 ms | 1.3×（吞吐口径下还要再看：128 个请求同时慢了 1.9 倍） |
+
+Table: 贯穿全文例子在不同投机配置下的 Decode 时间
 
 最后一行是关键：**batch=128 时，投机解码把每一步拖慢 1.9 倍，只换来 2.5 倍的步数减少**——单请求延迟略好，系统吞吐反而下降（同样的 GPU 时间产出的 token 变少）。这和第六篇结尾"高并发下可能负收益"是同一件事，现在有了数字。
 
@@ -665,6 +683,8 @@ S0  回到起点                  真正的推进在 update_from_output 里，
 | 每步掩码 | 一个 GPU kernel，读写整张 logits | GPU，百微秒以下 | 每步 |
 | FSM 推进 | `accept_tokens()`，微秒级 | 调度器进程 | 每步之后 |
 
+Table: 结构化输出的代价
+
 结构化输出的"贵"几乎全在 CPU 和延迟上，GPU 侧近乎免费。当调度器进程是瓶颈（大 batch、小模型、每步只有几毫秒）时，每步几毫秒的 CPU 填充就不再能被 forward 遮住，这是 `fill_bitmask_parallel_threshold` 存在的场景。
 
 ## 五、三者叠加：执行顺序，以及留给后面两篇的问题
@@ -735,6 +755,8 @@ Scheduler.update_from_output()
 | 持久 batch 的增删移动 | `vllm/v1/sample/logits_processor/state.py` → `BatchUpdateBuilder`；`vllm/v1/worker/gpu_input_batch.py` → `InputBatch.refresh_metadata()` |
 | thinking budget | `vllm/v1/sample/thinking_budget_state.py` → `ThinkingBudgetStateHolder` |
 
+Table: 采样与 logits processors 源码导航
+
 **投机解码**
 
 | 想看什么 | 从哪开始 |
@@ -750,6 +772,8 @@ Scheduler.update_from_output()
 | 指标 | `vllm/v1/spec_decode/metrics.py` → `SpecDecodingStats`、`SpecDecodingLogging`、`SpecDecodingProm` |
 | CUDA graph 的 key | `vllm/v1/cudagraph_dispatcher.py` → `CudagraphDispatcher.initialize_cudagraph_keys(uniform_decode_query_len=...)` |
 
+Table: 投机解码源码导航
+
 **结构化输出**
 
 | 想看什么 | 从哪开始 |
@@ -763,6 +787,8 @@ Scheduler.update_from_output()
 | 引擎循环的时序 | `vllm/v1/engine/core.py` → `EngineCore.step()` / `step_with_batch_queue()` |
 | GPU 上打掩码 | `vllm/v1/structured_output/utils.py` → `apply_grammar_bitmask()`；调用处 `GPUModelRunner.sample_tokens()` |
 | GrammarOutput | `vllm/v1/core/sched/output.py` → `GrammarOutput`、`SchedulerOutput.scheduled_spec_decode_tokens` / `num_invalid_spec_tokens` |
+
+Table: 结构化输出源码导航
 
 </details>
 

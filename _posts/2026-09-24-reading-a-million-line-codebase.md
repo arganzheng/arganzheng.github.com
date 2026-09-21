@@ -102,6 +102,8 @@ commit 与 PR 的链接  正文含 Pull Request resolved: 与 Approved by:      
 | 十 | 本文小结 | 要点、对照表、文件位置表 |
 | 十一 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、先画地图
 
 ### 1. PyTorch 的目录
@@ -119,6 +121,8 @@ commit 与 PR 的链接  正文含 Pull Request resolved: 与 Approved by:      
 | `tools/` | 388 | — | 构建与开发脚本：`nightly.py`、`autograd/`（Python 绑定的模板与生成器）、`pyi/gen_pyi.py`、`testing/` |
 | `benchmarks/` | 549 | — | 按子系统组织的 benchmark：`operator_benchmark/`、`dynamo/`、`inductor_backends/`、`distributed/`、`transformer/` 等 |
 
+Table: PyTorch v2.14.0 的目录地图
+
 这张表里有一条需要立刻记住的分层关系：**`c10/` → `aten/` → `torch/csrc/` → `torch/`**，从底到顶，下层不依赖上层。一个符号如果是 Tensor 的基本属性（dtype、device、stride），在 `c10/`；如果是一个算子，在 `aten/`；如果是 Python 能看到的东西的 C++ 那一半，在 `torch/csrc/`；纯 Python 的模块，在 `torch/` 其他目录。
 
 ### 2. vLLM 的目录
@@ -135,6 +139,8 @@ commit 与 PR 的链接  正文含 Pull Request resolved: 与 Approved by:      
 | `tests/` | 1926 | 50.1 万 | pytest 测试，40 个子目录按子系统组织：`kernels/`、`v1/`、`entrypoints/`、`models/`、`distributed/`、`quantization/`、`lora/`、`evals/`、`benchmarks/` |
 | `benchmarks/` | 129 | — | `benchmark_serving.py`、`benchmark_throughput.py`、`benchmark_latency.py` 等端到端脚本；`kernels/`、`cutlass_benchmarks/`、`fused_kernels/`、`attention_benchmarks/` 是 kernel 级 |
 | `docs/contributing/` | 16 | — | 贡献文档：`README.md`、`incremental_build.md`、`deprecation_policy.md`、`profiling.md`、`vulnerability_management.md`、`editing-agent-instructions.md`；子目录 `ci/`（`failures.md`、`nightly_builds.md`、`update_pytorch_version.md`）、`model/`（`basic.md`、`registration.md`、`tests.md`、`multimodal.md`、`transcription.md`）、`dockerfile/` |
+
+Table: vLLM v0.28.0 的目录地图
 
 vLLM 的分层比 PyTorch 简单：**`csrc/`（kernel）→ `vllm/`（一切其他）**，Python 占绝大多数。读 vLLM 时真正的难点不是语言边界而是 `vllm/` 内部的分工：请求怎么从 `entrypoints/` 进入 `v1/engine/`，再由 `v1/core/sched/` 调度、`v1/worker/` 执行、`model_executor/` 算出来。这条链第三章会走一遍。
 
@@ -901,6 +907,8 @@ vLLM 案例：想知道 `vllm serve` 启动时"engine core 还在初始化、API
 | commit 形态 | 正文 = PR 描述 + `Fixes #` + `Pull Request resolved:` + `Approved by:` | 标题 `[Tag] ... (#N)`；正文 `Signed-off-by`、`Co-authored-by` |
 | 发布节奏 | 约 2 个月一个 minor；cut → 发布 3–4 周；`@pytorchbot cherry-pick` | 约 2 周一版；cut → 发布 1–2 天；minor 递增 |
 
+Table: 读代码各环节的 PyTorch 与 vLLM 对照
+
 ### 3. 本篇涉及的文件位置
 
 | 路径 | 内容 |
@@ -933,6 +941,8 @@ vLLM 案例：想知道 `vllm serve` 启动时"engine core 还在初始化、API
 | vllm `vllm/_custom_ops.py`、`vllm/platforms/cuda.py` | `torch.ops._C.rms_norm` 包装；`import vllm._C_stable_libtorch` |
 | vllm `csrc/libtorch_stable/torch_bindings.cpp`、`ops.h`、`layernorm_kernels.cu`；`csrc/cpu/layernorm.cpp` | `STABLE_TORCH_LIBRARY_FRAGMENT(_C, ops)`、`ops.def("rms_norm(...)")`；`rms_norm` 声明与 CUDA/CPU 实现 |
 | vllm `tests/v1/engine/test_startup_watch_processes.py` | #43417 的配套测试 |
+
+Table: 本篇涉及的文件位置
 
 ## 十一、自测
 

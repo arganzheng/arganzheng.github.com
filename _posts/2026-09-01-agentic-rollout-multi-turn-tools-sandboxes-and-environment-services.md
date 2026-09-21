@@ -89,6 +89,8 @@ reward = 规则 / RM                             reward = 测试结果 / 环境�
 | 八 | verl 的实现 | AgentLoop、LLMServerClient、RewardLoop、uni-agent |
 | 九 | 小结 | 要点、速查表、下一篇 |
 
+Table: 本文的章节安排
+
 ## 二、agent loop 的结构
 
 ### 1. 一条轨迹

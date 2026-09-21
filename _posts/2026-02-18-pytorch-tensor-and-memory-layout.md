@@ -55,6 +55,8 @@ updated: 2026-09-14
 | 十五 | 本文小结 |  |
 | 十六 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 
 ## 二、Tensor 的整体模型
 
@@ -1147,6 +1149,8 @@ copy = x.clone()
 | `clone()` | 不共享 | 创建独立副本 |
 | `contiguous()` | 不连续时复制 | 获得连续布局 |
 
+Table: View 与 Clone 的语义
+
 ### 2. View 与 Detach 是两个维度的问题
 
 `view()` 解决的是存储解释方式：
@@ -1289,6 +1293,8 @@ b = x.repeat(1, 3)
 |---|---|---|
 | `expand()` | 否 | 通过 stride 为 0 的 view 表示重复访问 |
 | `repeat()` | 是 | 创建实际重复的数据 |
+
+Table: expand() 与 repeat() 的存储语义
 
 `expand()` 可以节省内存，但它产生的 view 不能简单当作普通连续 Tensor；某些 in-place 操作也会受到限制，因为多个逻辑位置可能对应同一个物理位置。
 
@@ -1441,6 +1447,8 @@ loss_value = loss.detach().item()
 | `contiguous()` | 视布局而定 | 视布局而定 | 可能 |
 | `.to("cuda")` | 通常是 | 是 | 否，设备不同 |
 | `detach()` | 通常否 | 否 | 共享关系仍需注意 |
+
+Table: 复制、迁移和视图的成本模型
 
 这张表是分析思路，不是对所有特殊后端和布局的绝对保证。
 
@@ -1616,6 +1624,8 @@ Tensor
 | 数值计算 | 通常由循环和库完成 | 交给算子、Kernel 和硬件后端 |
 | 内存释放 | GC 管理对象可达性 | Python 引用、Storage、Autograd、Allocator 共同影响 |
 
+Table: Java 数组与 PyTorch Tensor 的关键差异
+
 类比的价值在于搭桥，但不能让 Java 的数组和对象模型覆盖 Tensor 的真实语义。
 
 
@@ -1713,6 +1723,8 @@ flowchart TB
 | `c10/core/ScalarType.h`、`aten/src/ATen/native/TypeProperties.cpp` | dtype 定义与 `result_type`（dtype promotion） |
 | `c10/cuda/CUDACachingAllocator.cpp` | 缓存分配器：为什么 `del` 之后显存仍被占用 |
 | `torch/_tensor.py`、`torch/csrc/autograd/python_variable.cpp` | Python `torch.Tensor` 对象与它包装的 C++ Tensor |
+
+Table: 本篇涉及的源码位置
 
 下一篇将进入 Tensor 之上的梯度系统：
 

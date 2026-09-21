@@ -67,6 +67,8 @@ updated: 2026-09-14
 | InfiniBand 端口 | NDR 400 Gb/s | ≈ 50 GB/s | ≈ 100 GB/s | 一张网卡一个端口 |
 | CPU 间互联 | UPI / Infinity Fabric | 数十 GB/s | — | NCCL 按 CPU 型号取 6–40 GB/s |
 
+Table: 各种链路的单向带宽
+
 三个量级：NVLink 是几百 GB/s，PCIe 与网卡是几十 GB/s，跨 CPU socket 的路径在 NCCL 的估算里最低只有个位数 GB/s。一次 all_reduce 走哪个量级，时间就差一个量级。
 
 ### 3. 两本账在硬件层上的对应
@@ -92,6 +94,8 @@ updated: 2026-09-14
 | 九 | 测一测 | nvbandwidth、p2pBandwidthLatencyTest、`ib_write_bw` 各测哪一段；数字该长什么样 |
 | 十 | 小结 | 要点、检查项、源码位置、comm-probe 的 `topo_map.py` |
 
+Table: 本文的章节安排
+
 ## 二、PCIe：lane、代际、root complex 与 P2P
 
 ### 1. 从 GT/s 到 GB/s
@@ -104,6 +108,8 @@ PCIe 是点对点的串行链路，一条链路由若干 lane 组成，每个 la
 | 4.0 | 16 GT/s | 128b/130b | ≈ 1.97 GB/s | ≈ 31.5 GB/s（常记 32） | ≈ 63 GB/s |
 | 5.0 | 32 GT/s | 128b/130b | ≈ 3.94 GB/s | ≈ 63 GB/s（常记 64） | ≈ 126 GB/s |
 | 6.0 | 64 GT/s | PAM4 + FLIT | ≈ 7.6 GB/s | ≈ 121 GB/s | ≈ 242 GB/s |
+
+Table: PCIe 各代际的带宽换算
 
 计算方法：$$\text{x16 单向} = 16 \times \text{GT/s} \times \frac{128}{130} / 8$$。3.0 是 $$16 \times 8 \times 0.985 / 8 \approx 15.75$$ GB/s。这是物理层的上限；上面还有事务层的开销——每个 TLP（Transaction Layer Packet）带 12–16 字节头，加上 DLLP、流控 credit、ACK/NAK，最大 payload 通常是 256 或 512 字节——所以 DMA 的实际带宽通常是理论值的 80–90%。PCIe 4.0 x16 上一次大块 `cudaMemcpy` H2D 能跑 25–27 GB/s，5.0 x16 上 50–55 GB/s，是常见的区间（非实测）。
 
@@ -237,6 +243,8 @@ NVLink 是 NVIDIA 专有的 GPU 间互联，与 PCIe 相比有三点本质区别
 | H100 SXM | 第四代 | 18 | 50 GB/s | 900 GB/s | 450 GB/s |
 | B200 / GB200 | 第五代 | 18 | 100 GB/s | 1.8 TB/s | 900 GB/s |
 
+Table: 每代 NVLink 的链路数与带宽
+
 厂商宣传的"600 GB/s"、"900 GB/s"、"1.8 TB/s"全部是**双向合计**，做代价模型时 β 要用单向值：A100 300 GB/s、H100 450 GB/s、Blackwell 900 GB/s。与 PCIe 对比：H100 的 NVLink 单向 450 GB/s 是它自己 PCIe 5.0 x16 单向 64 GB/s 的 7 倍；A100 的 300 GB/s 是 PCIe 4.0 x16 的 9.4 倍。
 
 `nvidia-smi topo -m` 里 `NV12`、`NV18` 的数字就是两张 GPU 之间**绑定的链路条数**。A100 的 8 卡机器上任意两卡都是 `NV12`，说明 GPU0 的全部 12 条链路都能服务到 GPU1 的流量——这不是 GPU0 与 GPU1 之间直连了 12 条线，而是 NVSwitch 的功劳。
@@ -330,6 +338,8 @@ InfiniBand 的速率按每 lane 的信号速率命名，一个端口通常是 4 
 | NDR | 100 Gb/s | 400 Gb/s | ≈ 50 GB/s | ConnectX-7 |
 | XDR | 200 Gb/s | 800 Gb/s | ≈ 100 GB/s | ConnectX-8 |
 
+Table: InfiniBand 的代际与端口速率
+
 "200 Gb/s"、"400 Gb/s"是数据速率（编码开销已经扣除），直接除 8 就是字节速率。RDMA 传输还有包头（IB 传输头 + 可能的 RoCE 的以太网/IP/UDP 头）和 ACK 开销，MTU 4096 字节时协议效率在 95% 以上，所以 `ib_write_bw` 测出来的大消息带宽通常是端口速率的 92–97%：HDR 上 23–24.5 GB/s，NDR 上 46–49 GB/s（非实测，常见区间）。NCCL 内部 `NET_BW 12.0` 是按 100 Gb/s 网卡写的默认值，实际会用网卡插件报告的速率覆盖。
 
 一张网卡（HCA，Host Channel Adapter）在 `/sys/class/infiniband/` 下叫 `mlx5_0`、`mlx5_1`……每个 HCA 可以有一个或两个端口。8 卡训练机上通常是 8 张单端口 HDR 或 NDR 网卡（有的机器还有一两张双端口网卡专门给存储和管理流量）。
@@ -386,6 +396,8 @@ RoCE v2（RDMA over Converged Ethernet）把 IB 的传输层原封不动地封�
 | `PHB` | 经过 PCIe host bridge（通常即 CPU 的 root complex） | 同一颗 CPU 下不同根端口 | 受 root complex 转发能力限制，通常明显低于 PIX；Intel 平台可能只有一半 |
 | `NODE` | 经过 PCIe 与同一 NUMA 节点内多个 host bridge 之间的互联 | 同一 NUMA 节点、不同 host bridge | 与 PHB 相近或更低 |
 | `SYS` | 经过 PCIe 与 NUMA 节点之间的 SMP 互联（QPI/UPI） | 跨 CPU socket | 最低，NCCL 按 CPU 型号估 6–40 GB/s，且 P2P 可能不可用 |
+
+Table: nvidia-smi topo 的六个等级
 
 `NODE` 与 `PHB` 的区分在多数双路服务器上不明显（一个 NUMA 节点通常就是一颗 CPU 一个 host bridge），在把一颗 CPU 划成多个 NUMA 节点（AMD 的 NPS 模式、Intel 的 SNC）的机器上会出现。从排障角度可以把六级压成三档：`NV#` 是 NVLink，几百 GB/s；`PIX`/`PXB` 是 PCIe switch 内，几十 GB/s，P2P 与 GPUDirect RDMA 都能全速；`PHB`/`NODE`/`SYS` 是经过了 CPU，带宽打折、延迟增加、P2P 可能被禁用。
 
@@ -706,6 +718,8 @@ NCCL 对此有明确的配合。当一个 GPU 需要发给的目标 GPU 不在�
 | `ib_write_lat` / `ib_read_lat` | perftest | 单次 RDMA 操作的往返/单程延迟 | µs | 节点间 α 的硬件部分 |
 | `nccl-tests` | 第六篇 | 整条路径上的集合通信 | busbw 曲线 | 与模型预测比对 |
 
+Table: 带宽测量工具与它们测的路径
+
 前四个测**单段链路**，是本篇的工具；nccl-tests 测**整条路径**，把它们全部叠起来，留到第六篇。排障的顺序是从下往上：nccl-tests 的数字不对时，先用本篇的工具确认每一段链路各自是好的。
 
 ### 2. `nvbandwidth`：节点内的 PCIe 与 NVLink
@@ -831,6 +845,8 @@ GDR 路径          = 网卡速率          接近网卡速率        topo -m �
 | `src/proxy.cc` | `ncclProxyService`（proxy 线程入口，启动时设亲和并打印 CPU core）；`NCCL_PROXY_CPUSET`（`ncclGetEnv`） |
 | `src/init.cc` | 调用 `ncclTopoGetCpuAffinity` 后 `sched_setaffinity`，分配主机资源后恢复 |
 | 工具 | `nvidia-smi topo -m` / `-mp` / `-p2p r`、`nvidia-smi nvlink -s`、`lspci -tv` / `-vvv`、`numactl -H`、`/sys/bus/pci/devices/*/{numa_node,local_cpulist,class}`、`nvbandwidth`、cuda-samples `p2pBandwidthLatencyTest`、perftest `ib_write_bw` / `ib_read_bw` / `ib_write_lat` |
+
+Table: 本篇涉及的源码与工具位置
 
 ### 4. comm-probe 本篇增量：`topo_map.py`
 

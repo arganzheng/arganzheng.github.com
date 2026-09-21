@@ -100,6 +100,8 @@ OpenTelemetry 为 GenAI 定义的一组 span、事件、指标与属性的命名
 | 内容 | 输入输出消息作为事件或属性，有 JSON schema；默认可关（敏感） |
 | 指标 | 操作时长、token 用量、TTFT、流式延迟（2026-04 加） |
 
+Table: OpenTelemetry GenAI 语义约定的元素
+
 ### 2. 2026 年的现状
 
 | 事实 | 含义 |
@@ -110,6 +112,8 @@ OpenTelemetry 为 GenAI 定义的一组 span、事件、指标与属性的命名
 | `OTEL_SEMCONV_STABILITY_OPT_IN` 环境变量 | 让你选 span 说哪个版本的约定 |
 | span 从单次模型调用扩展到整个 agent 循环：`invoke_agent`、`execute_tool`、`plan`、检索、记忆家族 | OTel 在标准化 agent trace，不只是模型调用 |
 | Arize 的 OpenInference（OTel 对齐的另一套约定）把 span kind 分类与之对齐；Langfuse v3 围绕 OTel 重建 | "方言之争"基本结束，线格式共享 |
+
+Table: GenAI 约定 2026 年的现状
 
 ### 3. 正确用法
 
@@ -131,6 +135,8 @@ OpenTelemetry 为 GenAI 定义的一组 span、事件、指标与属性的命名
 | Braintrust | trace 到评测的闭环（从 trace 一键建用例、跑评测、比版本） | 评测驱动的团队 |
 | Helicone | 网关式接入（改 base URL 即可） | 最低接入成本、以成本监控为主 |
 | Datadog / Honeycomb / New Relic 的 LLM 模块 | 与既有 APM 一体 | 已有这些 APM、想统一面板 |
+
+Table: 可观测工具候选
 
 选法：与**评测的集成**（trace → 用例 → 评测 → diff 的闭环是这一层的核心工作流）、**自托管**（敏感数据不出域）、**成本**（按 trace 量计费的在大流量下贵）、**栈**（框架原生的省接入）。多数团队从 Langfuse / Phoenix 一类开源起步。
 

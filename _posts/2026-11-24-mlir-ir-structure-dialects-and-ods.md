@@ -50,6 +50,8 @@ func.func @sum(%a: memref<?xi32>, %n: index) -> i32 {
 | 十 | 本文小结 | |
 | 十一 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、MLIR 为什么存在
 
 第一篇 §八.2 已经点到：LLVM 只有一层中端 IR，每个需要更高抽象的前端都自己造一层——Swift 的 SIL、Rust 的 MIR、Julia 的 SSA IR、TensorFlow 的 GraphDef 与 XLA 的 HLO、TVM 的 Relay 与 TIR、Glow 的两层 IR。每一层都重新实现同样的东西：文本打印与解析、验证器、pass manager、模式重写、位置信息、多线程。Chris Lattner 在 2019 年提出 MLIR（Multi-Level Intermediate Representation）时的观察是：**这些项目的"IR 基础设施"是相同的，不同的只是"IR 的内容"**。
@@ -64,6 +66,8 @@ MLIR 把两者分开：
 | Pass manager、pattern rewrite driver、dialect conversion、数据流分析框架 | 具体的 pass 与 pattern |
 | 位置信息、诊断、多线程 pass 执行 | — |
 | Trait / Interface 机制 | 每个 op 声明自己有哪些 trait、实现哪些 interface |
+
+Table: MLIR 的基础设施与内容
 
 结果是 Triton 的编译器可以只写"内容"：`TritonOps.td` 几百行声明了 TTIR 的全部 op，`TritonGPUAttrDefs.td` 声明了全部 layout，剩下的 C++ 都是 pass 和 pattern。打印、解析、验证、`--mlir-print-ir-after-all`、lit 测试用的文本往返，一行没写就有了。
 
@@ -173,6 +177,8 @@ MLIR 自带几十个方言，Triton 用到的：
 | `llvm` | LLVM IR 的 MLIR 镜像：`llvm.func`、`llvm.getelementptr`、`llvm.load`、`llvm.inline_asm`、`!llvm.struct<…>`、`!llvm.ptr<3>` | `TritonGPUToLLVM` 的主要目标；`translateModuleToLLVMIR` 把它变成真正的 LLVM IR（第二篇 §九） |
 | `linalg`、`tensor`、`memref`、`vector`、`affine` | 张量 / 缓冲区 / 向量层的通用方言 | Triton **不用**——它有自己的张量语义（块级 + layout），这是 Triton 与 IREE / torch-mlir 路线的分叉点；本文例子用 `memref` 只是为了演示 |
 
+Table: Triton 用到的 MLIR 标准方言
+
 Triton 自己的方言（`include/triton/Dialect/`）：
 
 | 方言 | 前缀 | 内容 | 出现在 |
@@ -184,6 +190,8 @@ Triton 自己的方言（`include/triton/Dialect/`）：
 | Gluon | `gluon` | 显式 layout 语言的 op（`set_auto_layout` 等） | Gluon 路径 |
 | TritonInstrument | `tti` | ConSan / FpSan / GSan 的插桩 op | 开 sanitizer 时 |
 | AMD 的三个 | `amdgpu`、`amdg`… | AMD 后端对应物 | `third_party/amd` |
+
+Table: Triton 自己的方言
 
 ## 五、ODS：一段声明生成什么
 
@@ -236,6 +244,8 @@ mlir-tblgen -gen-op-defs  -I /opt/homebrew/opt/llvm/include toy/ToyOps.td > toy/
 | `hasVerifier = 1` / `hasCanonicalizer = 1` | 同上：声明 `verify()` / `getCanonicalizationPatterns()`，手写实现 |
 | 若干 `build(...)` 重载 | `OpBuilder::create<AddPtrOp>(loc, resultType, ptr, offset)` 用的构造函数 |
 | `Adaptor` / `GenericAdaptor<RangeT>` | 一个"只有操作数与属性、没有 Operation"的视图——Dialect Conversion 用它把**已转换的**操作数传给 pattern（第四篇） |
+
+Table: ODS 字段与生成物
 
 生成的类头（节选）：
 
@@ -325,6 +335,8 @@ pass 面对的是任意方言的任意 op。它不能为每种 op 写特例，�
 | `LoopLikeOpInterface` | interface | `getLoopInductionVars()`、`getRegionIterArgs()`、`getYieldedValues()`、`getLoopBody()`、`moveOutOfLoop(op)`、`isDefinedOutsideOfLoop(value)` | LICM、循环流水化、`LoopAwareCSE` |
 | `RegionBranchOpInterface` | interface | 控制流怎样进出各 Region：哪个 Region 先执行、哪些操作数传给哪个 Region 的参数、Region 结束后去哪 | 数据流分析框架（AxisInfo 靠它知道 `scf.for` 的 yield 值流回 block 参数，第六篇）、`scf → cf` 转换 |
 | `DotOpInterface`（Triton） | interface | `tt.dot` 与 `tt.dot_scaled` 共有的 `verifyDims` 等 | `AccelerateMatmul` 统一处理两种 dot |
+
+Table: Triton 用到的 trait 与 interface
 
 ### 2. LICM 的例子
 

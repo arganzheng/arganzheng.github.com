@@ -88,6 +88,8 @@ updated: 2026-09-14
 | Ray Serve / `RayService` | Python deployment 图 + `serveConfigV2` + `rayClusterConfig` | replica 是 Ray actor，放在 Ray worker Pod 内；K8s 只见 head / worker Pod | Serve HTTP proxy 按 `route_prefix` 到 deployment；deployment 间 handle 调用 | 三层：Serve autoscaler（`target_ongoing_requests`）→ Ray autoscaler（worker Pod）→ cluster autoscaler | 引擎自理（`ray.serve.llm` 的 `model_loading_config`） | `@serve.batch`；多阶段 DAG 在进程间零拷贝传对象 |
 | llm-d v0.9.0 | Router Helm values（EPP 插件链）+ 模型服务器 Kustomize overlay | Deployment / LWS / DisaggregatedSet（recipes 提供） | Router = Proxy + EPP；InferencePool（GIE） | KEDA `ScaledObject`（EPP 汇总指标）/ WVA 路径 | recipes 里 PVC 或 HF 下载；Fast Model Actuation 热启动 | 引擎内部；Batch Serving 属于 workloads 路径 |
 
+Table: Serving 平台组件按层次的定位
+
 ### 4. 本文的章节安排
 
 | 章 | 主题 |
@@ -101,6 +103,8 @@ updated: 2026-09-14
 | 八 | 核心问题的数值推演：假设、反应式阈值倒推、headroom 的代价、cron + 指标兜底的组合 |
 | 九 | 代价与边界：引擎需求 → K8s 空缺 → 平台机制 → 代价 四栏表；什么场景不该用 |
 | 十 | 本文小结与 mini-platform/serve/ 增量 |
+
+Table: 本文的章节安排
 
 ## 二、推理服务的四种部署形态
 
@@ -116,6 +120,8 @@ updated: 2026-09-14
 | 单 Pod 多卡 | `--tensor-parallel-size N`（N ≤ 节点卡数） | 1 | Deployment | 不需要（进程组在 Pod 内） | Deployment `/scale` | 32B–70B（TP=2–8） |
 | 多 Pod 一副本 | `--tensor-parallel-size 8 --pipeline-parallel-size 2 --nnodes 2 --node-rank i --master-addr <leader>`；或 `--distributed-executor-backend ray` | `nnodes` | `LeaderWorkerSet`（`leaderworkerset.x-k8s.io/v1`） | headless Service，`LWS_LEADER_ADDRESS` 注入 | LWS `/scale`（按 group 计数） | 405B、DeepSeek-R1 |
 | PD 分离 | prefill 与 decode 各一组，`--kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":...}'` | 两个独立的副本集合 | 两个 Deployment / 两个 LWS；或 `DisaggregatedSet`（`disaggregatedset.x-k8s.io/v1`）；或 `LLMInferenceService.spec.prefill` | 每组各自的 Service / InferencePool | 两个 `/scale`，指标不同 | 中大模型、长输入 |
+
+Table: 四种部署形态与 K8s 对象
 
 第三列决定了对象选择：Pod 数为 1 就用 Deployment，其余都需要 LWS 或建立在 LWS 之上的抽象。第五列是 HPA/KEDA 能否工作的前提：只要对象有 `/scale` 子资源，扩缩容层就不关心它是 Deployment 还是 LWS。
 
@@ -909,6 +915,8 @@ prefill 与 decode 的饱和信号不同：prefill 是算力受限，合适的�
 | 加载到显存 | safetensors 读取、反序列化、H2D 拷贝 | 磁盘/文件系统读带宽、PCIe、CPU 解码 | 1–3 分钟 | 直接从并行文件系统 mmap；更快的 load format |
 | 预热 | CUDA graph 捕获、`torch.compile`、profile run 决定 KV block 数 | 模型、`--max-num-seqs`、编译缓存 | 1–3 分钟 | 持久化 compile cache（llm-d 的 recipe 挂 `/.cache` 卷）；`--enforce-eager` 换吞吐 |
 
+Table: 一个 70B TP=4 副本扩容时间的分解
+
 五段加起来正是题设的 8 分钟量级。前三段是平台能优化的（本系列前几篇的内容），后两段是引擎的。**扩缩容策略的所有"提前多久"都是这个总时间加上信号链路的延迟**：Prometheus 抓取间隔（15–30 秒）+ KEDA `pollingInterval`（15 秒）+ HPA 同步周期（15 秒），约 1 分钟。
 
 ## 八、核心问题的数值推演
@@ -1014,6 +1022,8 @@ cron 19:48  19:48 cron 抬到 6, 19:57 就绪 (比 D > 128 的 20:04 早 7 分)
 | 140 GB 权重在 Pod 起来前到位 | 镜像不含权重；无原生预取 | storage-initializer（`s3://` `hf://`）、`pvc://` 直挂、`oci://` modelcar / image volume、`LocalModelCache` | 下载路径每副本重复拉；PVC 依赖并行文件系统；OCI 镜像巨大、版本管理复杂；预热占用节点盘 |
 | 按副本组滚动升级、不中断 | Deployment 滚动按 Pod | LWS `rolloutStrategy`（`partition`、`maxSurge`）；RayService `NewCluster*`；KServe `canary` / `router.route.group+weight` | `maxSurge` 期间双倍 GPU；`partition` 需要人工推进；canary 需要网关分流 |
 
+Table: 引擎需求、K8s 空缺、平台机制与代价
+
 ### 2. 什么时候不该用这些
 
 - **一个 7B 模型、一个团队、一台机器**：Deployment + Service + 一个手写的 HPA（或者不扩缩）就够了。KServe、llm-d、Ray 的每一层抽象都是为"多模型、多团队、多形态"付的成本。
@@ -1069,6 +1079,8 @@ llm-d v0.9.0          Router = Proxy + EPP（llm-d-router）；InferencePool（G
 | KubeRay | `kuberay ray-operator/apis/ray/v1/rayservice_types.go`：`RayServiceSpec`（`ServeConfigV2`、`RayClusterSpec`、`UpgradeStrategy`、`ServiceUnhealthySecondThreshold`、`DeploymentUnhealthySecondThreshold`、`ExcludeHeadPodFromServeSvc`、`Suspend`）、`RayServiceUpgradeStrategy`、`ClusterUpgradeOptions`、`RayServiceNewCluster` / `RayServiceNewClusterWithIncrementalUpgrade` / `RayServiceUpgradeNone`；`raycluster_types.go`：`EnableInTreeAutoscaling`、`AutoscalerOptions`（`UpscalingMode`、`IdleTimeoutSeconds`）、`WorkerGroupSpec`（`GroupName`、`MinReplicas`、`MaxReplicas`、`NumOfHosts`、`RayStartParams`）；`config/samples/ray-service.llm-serve.yaml` |
 | KEDA | `keda apis/keda/v1alpha1/scaledobject_types.go`：`ScaledObjectSpec`（`ScaleTargetRef`、`PollingInterval`、`CooldownPeriod`、`InitialCooldownPeriod`、`IdleReplicaCount`、`MinReplicaCount`、`MaxReplicaCount`、`Advanced`、`Triggers`、`Fallback`）、`Fallback`（`FailureThreshold`、`Replicas`、`Behavior`）、`AdvancedConfig`（`HorizontalPodAutoscalerConfig`、`RestoreToOriginalReplicaCount`、`ScalingModifiers`）、`ScaleTarget`；`scaletriggers_types.go`：`ScaleTriggers`（`Type`、`Name`、`Metadata`、`AuthenticationRef`、`MetricType`）；`pkg/scalers/prometheus_scaler.go`：`prometheusMetadata`（`serverAddress`、`query`、`threshold`、`activationThreshold`、`namespace`、`ignoreNullValues`）；`cron_scaler.go`（`start`、`end`、`timezone`、`desiredReplicas`）；`pkg/scalers/scaler.go`：`GetMetricTargetType`；`groupversion_info.go`：`keda.sh/v1alpha1` |
 | vLLM（被服务对象） | `vllm/v1/metrics/loggers.py`：`vllm:num_requests_running`、`vllm:num_requests_waiting`、`vllm:kv_cache_usage_perc`、`vllm:time_to_first_token_seconds`、`vllm:inter_token_latency_seconds`、`vllm:request_time_per_output_token_seconds`、`vllm:e2e_request_latency_seconds`、`vllm:request_queue_time_seconds`、`vllm:prefix_cache_hits`、`vllm:num_preemptions`、`vllm:cache_config_info`；`vllm/engine/arg_utils.py`：`--tensor-parallel-size`、`--pipeline-parallel-size`、`--distributed-executor-backend`、`--nnodes`、`--node-rank`、`--master-addr`、`--served-model-name`、`--gpu-memory-utilization`、`--max-model-len`；`vllm/entrypoints/openai/cli_args.py`：`--headless`；`vllm/config/parallel.py`：`DistributedExecutorBackend`；`docs/serving/parallelism_scaling.md`；`examples/ray_serving/multi-node-serving.sh` |
+
+Table: 本篇涉及的 CRD 与源码位置
 
 ### 3. mini-platform 本篇增量：`serve/`
 

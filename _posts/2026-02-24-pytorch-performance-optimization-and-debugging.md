@@ -45,6 +45,8 @@ CPU 执行 Python 代码，走完第五篇的入口和分发，把 Kernel **提�
 | GPU 侧 | Kernel 计算受限、Kernel 访存受限 | GPU 忙，CPU 等待 GPU 完成 |
 | 两者之间 | 同步点：CPU 必须等 GPU 结果才能继续 | 两条线都有空闲 |
 
+Table: CPU 与 GPU 两条时间线上的瓶颈
+
 ### 2. 时间维度：五类瓶颈
 
 把上表展开，一个 PyTorch 程序慢，几乎总是以下五类之一或其组合：
@@ -56,6 +58,8 @@ CPU 执行 Python 代码，走完第五篇的入口和分发，把 Kernel **提�
 | GPU 侧 | **Memory-bound** | 搬运数据 | Kernel 达到显存带宽上限，算力利用低 | 融合减少中间结果、降低精度、改变数据布局 |
 | GPU 侧 | **Compute-bound** | 做算术 | Kernel 达到算力上限 | 用 Tensor Core（低精度）、更好的算法、更少的计算量 |
 | 两侧之间 | **Sync-bound** | CPU 等 GPU 或 GPU 等 CPU | 时间线上两侧都有空洞，同步调用频繁 | 消除隐式同步点、异步数据传输、重叠通信与计算 |
+
+Table: 五类瓶颈的判断依据与处方
 
 同一个程序在不同条件下会落入不同类别：batch 很小时 launch-bound，batch 大了变 memory-bound，换成低精度后可能变 compute-bound。**优化就是不断把瓶颈从一类推到另一类，直到达到硬件上限或成本上限。**
 
@@ -86,6 +90,8 @@ CPU 执行 Python 代码，走完第五篇的入口和分发，把 Kernel **提�
 | Nsight Systems | 系统级时间线：CPU 线程、CUDA API、Kernel、内存拷贝、NVTX 标记 | Kernel 内部为什么慢 |
 | Nsight Compute | 单个 Kernel 的硬件指标：占用率、带宽利用、指令吞吐 | 程序整体 |
 | `torch.cuda.memory_*` / memory snapshot | 显存分配的时间线与调用栈 | 时间性能 |
+
+Table: 性能工具地图：每种工具能看到什么
 
 顺序通常是：先用 Profiler 或 Nsight Systems 确定**哪一类**瓶颈，再决定是否需要 Nsight Compute 深入**某个 Kernel**。绝大多数问题在第一步就能定位。
 
@@ -155,6 +161,8 @@ flowchart TB
 | 十 | Java 对照 | |
 | 十一 | 本文小结 | |
 | 十二 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、度量（1）：异步执行模型——正确计时的前提
 
@@ -307,6 +315,8 @@ Benchmark 必须先跑几次不计时的迭代把这些排除，否则测到的�
 | 端到端 epoch 时间 | 含数据加载、日志、checkpoint | 数据加载可能是真正的瓶颈 |
 | MFU（模型 FLOPs 利用率） | 实际 FLOPs / 硬件峰值 FLOPs | 需要正确计算模型 FLOPs |
 
+Table: 几种性能口径及其陷阱
+
 报告 Benchmark 时必须写明口径、batch、序列长度、dtype、硬件、PyTorch 版本。缺任何一项，数字不可比。
 
 ### 4. 正确性测试先于性能
@@ -435,6 +445,8 @@ ncu --set full --kernel-name regex:triton_poi_fused_add_relu -c 1 python demo.py
 | Registers / Shared Memory per Block | 资源占用 | 是限制 occupancy 的原因 |
 | Memory Coalescing / L2 Hit Rate | 访存效率 | 低 → 访存模式差（如非连续 stride） |
 
+Table: Nsight Compute 的关键指标
+
 这是最深的一层，只在已经确认某个 Kernel 是瓶颈、且要动手写或改 Kernel（第六篇）时才需要。理解它的指标需要第六章的性能模型。
 
 ### 6. 从形态到归类
@@ -449,6 +461,8 @@ ncu --set full --kernel-name regex:triton_poi_fused_add_relu -c 1 python demo.py
 | GPU 泳道密集，矩阵乘占 CUDA 时间大头 | `mm`、`bmm`、`conv` 占比高 | Compute-bound | 六 |
 | 两条泳道周期性交替空洞 | `cudaStreamSynchronize`、`cudaMemcpy` 频繁出现 | Sync-bound | 七 |
 | GPU 泳道大段空白，CPU 停在数据加载 | `DataLoader.__next__` 耗时长 | Sync-bound 的特例：数据加载 | 七 |
+
+Table: 从时间线形态到瓶颈归类
 
 ## 五、时间维度（1）：CPU 侧——Python-bound 与 Launch-bound
 
@@ -644,6 +658,8 @@ Kernel 的 AI 低于 ridge point → memory-bound，能达到的算力 = AI × �
 | `add` | 128 × 64 = 8k FLOPs | 3 × 128 × 64 × 4 B ≈ 98 KB | ≈ 0.08 | 严重 memory-bound |
 | `relu` | 8k 次比较 | 2 × 128 × 64 × 4 B ≈ 65 KB | ≈ 0.12 | 严重 memory-bound |
 
+Table: mm、add、relu 三个算子的算术强度归类
+
 换成大模型尺度，`mm` 为 `[4096, 4096] × [4096, 4096]` fp16：
 
 ```text
@@ -699,6 +715,8 @@ Launch-bound             没有作用，Kernel 数量不变；autocast 插入的
 | TF32 | 8 | 10 | 与 FP32 相同 | ~3 位 | Tensor Core 内部格式，fp32 矩阵乘的免费加速 |
 | FP16 | 5 | 10 | ±65504，最小正规数 6.1e-5，非正规数可到 6e-8 | ~3 位 | 需 GradScaler 防下溢 |
 | BF16 | 8 | 7 | 与 FP32 相同 | ~2 位 | 大模型训练默认 |
+
+Table: FP32、TF32 / BF16、FP16 三种精度格式
 
 - **TF32** 不是存储格式：输入输出仍是 fp32 Tensor，矩阵乘内部把尾数截到 10 位。`torch.set_float32_matmul_precision("high")` 开启。对用户几乎透明，代价是矩阵乘精度降到 fp16 水平。
 - **FP16** 指数位少，**容易溢出和下溢**：梯度小于 6.1e-5 就进入非正规数区间、有效位逐位丢失，小于约 3e-8 才真正归零（`torch.tensor(1e-5).half()` 仍是 1.0014e-5，不是 0）；激活值大于 65504 变 inf。第四篇的 `GradScaler` 为它存在：把 loss 放大后反向，让小梯度不下溢。
@@ -779,6 +797,8 @@ Occupancy 低的 Kernel 即使 AI 合适也达不到 Roofline，因为访存延�
 | `tensor[mask]`（布尔索引）、`torch.nonzero` | 输出 shape 依赖数据，CPU 必须知道 shape 才能分配 |
 | `torch.cuda.empty_cache()` | 等待所有使用中的 Block 释放 |
 | 非 pinned memory 的 `.to("cuda")` | 同步拷贝 |
+
+Table: 常见的隐式同步点
 
 训练循环里一行看似无害的 `loss.item()` 累加日志，每个 step 都会把 CPU 拖住等 GPU 排空，然后 GPU 再等 CPU 重新提交。
 
@@ -1289,6 +1309,8 @@ checkpoint 后加大 batch 的吞吐（1882）反而低于不 checkpoint 的 bat
 | SDPA | 38 → 29 ms | 访存（不物化 score） | −3.5 GB | 与手写实现容差内一致 | 要求 head_dim 等满足 Kernel 约束 | 无 |
 | checkpoint | 29 → 36 ms | — | −4.3 GB | 无 | — | +30% 计算，**未采用** |
 
+Table: 优化报告：每项改动的收益与转移的成本
+
 把这几步的 step 时间与峰值显存画在一起，能看到两条曲线并不同向：第一步 batch 加大让 step 变长、显存暴涨，却是吞吐提升最大的一步；之后三步在 batch=64 不变的前提下同时压低时间和显存。
 
 ![案例五步的 step 时间（柱）与峰值显存（折线）：基线 48.2 ms / 3.1 GB → batch=64 118 ms / 19.6 GB → bf16 51 ms / 12.8 GB → compile 38 ms / 11.9 GB → SDPA 29 ms / 8.4 GB；checkpoint 36 ms / 4.1 GB 未采用；吞吐从 166 到 2207 samples/s](/img/in-post/pytorch-performance-optimization-and-debugging-case-steps.svg)
@@ -1332,6 +1354,8 @@ JMH 解决的问题与 `torch.utils.benchmark` 完全对应：
 | 报告分位数而非均值 | 报告中位数与 IQR |
 | `Mode.Throughput` vs `Mode.AverageTime` | 吞吐 vs 延迟口径 |
 
+Table: JMH 与 torch.utils.benchmark 的对应
+
 用过 JMH 的人知道"微基准测试很容易测错"，这个直觉在 GPU 上同样成立，且多了异步这一层陷阱。
 
 ### 3. Profiler：JFR 与 async-profiler
@@ -1348,6 +1372,8 @@ JMH 解决的问题与 `torch.utils.benchmark` 完全对应：
 | Compute-bound | 真正的 CPU 密集，`perf` 显示 IPC 高、热点在算术 |
 | Sync-bound | 锁竞争、`Future.get()` 在错误位置、同步 I/O 阻塞线程池 |
 
+Table: 五类瓶颈的 Java 对应
+
 ### 5. 内存：GC 与 Caching Allocator
 
 | JVM | PyTorch |
@@ -1359,6 +1385,8 @@ JMH 解决的问题与 `torch.utils.benchmark` 完全对应：
 | `System.gc()` 通常无益 | `torch.cuda.empty_cache()` 通常无益 |
 | 堆 dump + MAT 找泄漏 | memory snapshot + memory_viz 找泄漏 |
 | 持有对象引用导致无法回收 | 持有带 `grad_fn` 的 Tensor 导致整张图无法释放 |
+
+Table: JVM 内存与 PyTorch Caching Allocator 的对照
 
 一个关键差别：JVM 有 GC，对象生命周期由可达性决定；PyTorch 靠引用计数（第二篇），Tensor 引用归零立即释放。所以 PyTorch 的"泄漏"几乎总是**有一个明确的引用还活着**，比 JVM 的泄漏更容易定位——只要找到那个引用。
 
@@ -1394,6 +1422,8 @@ Java 工程师默认用 `double`，把 `float` 当作节省内存的特例。PyT
 | `reserved` ≫ `allocated`，OOM | 碎片 | OOM 信息、`memory_reserved` | `expandable_segments`、稳定 shape | 四 |
 | `allocated` 单调增长 | 泄漏 | memory snapshot | 找到持有 `grad_fn` 的引用 | 四 |
 | 平均显存不高但 OOM | 峰值 | memory snapshot 时间线 | 不物化大 Tensor、checkpoint、`no_grad` | 四 |
+
+Table: 症状、归类、工具与处方速查
 
 ### 3. 测量的纪律
 
@@ -1439,6 +1469,8 @@ warmup 后再测，报告中位数与分布
 | `torch/cuda/graphs.py`、`aten/src/ATen/cuda/CUDAGraph.cpp` | CUDA Graphs：消除 launch 开销 |
 | `torch/utils/checkpoint.py` | Activation Checkpointing：用 `saved_tensors_hooks` 实现的重算 |
 | `aten/src/ATen/native/transformers/` | `scaled_dot_product_attention` 的 FlashAttention / 内存高效实现选择 |
+
+Table: 本篇涉及的源码位置
 
 到这里，单卡上的 PyTorch 已经讲完：Tensor、Autograd、Module、算子、扩展、编译、性能。第八章算过，7B 模型仅静态显存就要 112 GB，单卡放不下。下一篇进入多卡：
 

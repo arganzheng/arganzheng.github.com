@@ -32,6 +32,8 @@ Triton 用户接触过它的两个末端：一头是 `tl.multiple_of(x, 16)` 这
 | 十 | 本文小结 | |
 | 十一 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 源码：`include/triton/Analysis/AxisInfo.h`、`lib/Analysis/AxisInfo.cpp`（约 1500 行，本文覆盖其中所有传递规则）、`test/Analysis/test-alignment.mlir`（1290 行 lit 测试，本文引用的每个"预期结果"都来自它）、消费者在 `lib/Dialect/TritonGPU/Transforms/CoalesceUtils.cpp`、`Utility.cpp` 与 `third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/LoadStoreOpToLLVM.cpp`。
 
 ## 二、格：三个属性的精确定义
@@ -117,6 +119,8 @@ class AxisInfo {
 | 有定义 op 的值 | 读 op 上的**可丢弃属性**（discardable attribute）`tt.divisibility` / `tt.contiguity` / `tt.constancy` | `tl.multiple_of(x, v)`、`tl.max_contiguous(x, v)`、`tl.max_constancy(x, v)`：`semantic.py` 里它们只做一件事——`x.handle.set_attr("tt.divisibility", …)`，把属性挂在**定义 `x` 的那个 op** 上，返回 `x` 本身 |
 | 其他 block 的参数（`scf.for` 的 iter_args、`scf.if` 的结果） | 全 1，随后由汇合决定（§五） | — |
 
+Table: 各类值的悲观初值与信息来源
+
 然后 `visitOperation` 对每个 op 算出结果的 AxisInfo 后，**再用 op 上的属性覆盖一次**（`initDimVectorFromHint`）：
 
 ```cpp
@@ -141,6 +145,8 @@ AxisInfo::initDimVectorFromHint(op->getDiscardableAttr("tt.constancy"), &newCons
 | `tt.get_program_id` | 1 | 1 | 1 | — | 没有专门的 visitor，落到悲观值：编译器对 `pid` 一无所知 |
 | `ub.poison` | 全 $$2^{62}$$ | 全 $$2^{62}$$ | 全 $$2^{62}$$ | — | 前端给归纳变量的占位符（第五篇 §四.6）；poison 永远不会被读到，给最乐观的值让它不拖累汇合 |
 
+Table: 叶子 op 的 AxisInfo 初值
+
 `get_program_id` 是最值得注意的一行：**编译器不知道 `pid` 的任何性质**（它是运行时的 `blockIdx`）。所有从 `pid` 出发的地址运算，对齐信息只能来自乘上去的常量——这就是核心问题里 `pid * BLOCK` 与 `pid * n` 的差别。
 
 ## 四、传递函数：每种 op 的规则
@@ -154,6 +160,8 @@ AxisInfo::initDimVectorFromHint(op->getDiscardableAttr("tt.constancy"), &newCons
 | `tt.splat x → tensor<s…>` | 每维 contiguity 1、divisibility = x 的 divisibility、constancy = 该维长度；constantValue 继承 |
 | `tt.expand_dims x, axis` | 在 axis 位置插入一维：contiguity 1、constancy 1、divisibility = 各维中"contiguity 为 1 的维的 divisibility"的 gcd（contiguity > 1 的维按 1 计）；x 是常量时用常量的 2 幂因子 |
 | `tt.broadcast x` | 被广播的维（原长 1）：contiguity 1、constancy = 新长度；其他维不变；divisibility 全部不变 |
+
+Table: 形状类 op 的传递规则
 
 ```text
 %10 = tt.make_range {end = 128, start = 0}          → contiguity=[128], divisibility=[2^30], constancy=[1]
@@ -221,6 +229,8 @@ $$\text{contig}(a+b) = \max\bigl(\gcd(\text{const}(a), \text{contig}(b)),\ \gcd(
 | constancy | `gcd(const(lhs), const(rhs))` |
 | constantValue | 两边都是常量则相乘；任一边是 0 则 0 |
 
+Table: arith.muli 的传递规则
+
 ```text
 %pid = tt.get_program_id x                              → [1], [1], [1]
 %c128 = arith.constant 128 : i32                        → [1], [128], [1], value 128
@@ -235,6 +245,8 @@ $$\text{contig}(a+b) = \max\bigl(\gcd(\text{const}(a), \text{contig}(b)),\ \gcd(
 |---|---|---|---|
 | `a / b` | `b == 1 ? contig(a) : 1` | `a == 0` → 不变；`b == 1` → 不变；a 不连续且 b 是 2 的幂常量 → `div(a) / b`；否则 1 | a 连续、b 常量：`max(默认, gcd(contig(a), div(a), div(b)))`——`[0..127] / 64` 是 `0,…,0,1,…,1`，每 64 个相同 |
 | `a % b` | a 连续、b 常量：`gcd(contig(a), div(a), div(b))`；否则 1 | b 的 constancy > 1：`gcd(div(a), div(b))`；否则 1 | `b == 1` → 全长（结果全 0）；否则默认 |
+
+Table: 除法与取模的传递规则
 
 ```text
 %0 = tt.make_range {end = 128, start = 0}
@@ -280,6 +292,8 @@ $$\text{contig}(a+b) = \max\bigl(\gcd(\text{const}(a), \text{contig}(b)),\ \gcd(
 | `tt.trans` | 按置换重排三个向量 |
 | `tt.reshape` | 有专门的合并 / 拆分规则（`ReshapeOpAxisInfoVisitor`，约 120 行），保证相邻维合并时连续性能传递 |
 
+Table: 逻辑、选择、移位、极值与类型转换的传递规则
+
 `load` 的规则是理解"AxisInfo 只关于地址、不关于数据"的一个好例子：`tl.load(ptr)` 的结果是内存里的数，编译器不可能知道它们是否连续；但如果 `ptr` 沿某一维 constancy 为 32（32 个线程读同一个地址），结果沿那一维也是 32 个相同的值——第十篇的 elementwise lowering 会用这个 constancy 做去重，让 32 个相同元素的运算只做一次。
 
 ## 五、汇合与循环：分析怎样收敛
@@ -308,6 +322,8 @@ gcd 是格上的 meet：结果比两边都保守，且是最不保守的那个�
 | `setToEntryState(lattice)` | 给一个值悲观初值（§三） |
 | `visitOperation(op, operands, results)` | 查 visitor 表算结果；用 op 上的提示属性覆盖；`propagateIfChanged(result, result->join(curr))` |
 | `visitNonControlFlowArguments(...)` | `scf.for` 的归纳变量：divisibility = `gcd(div(lb), div(step))`——`for k in range(0, K, 32)` 的 `k` 是 32 的倍数；其他 block 参数：悲观初值 |
+
+Table: AxisInfoAnalysis 要实现的三个方法
 
 框架负责其余一切：维护每个值的 lattice、按 use-def 边把变化传播给使用者、把 `scf.for` 的 `yield` 值汇合到下一轮的 block 参数、迭代到没有变化为止。**稀疏**（sparse）指传播沿 SSA 的 use-def 边而不是沿 CFG 逐块——只有操作数变了的 op 才重新算。
 
@@ -389,6 +405,8 @@ load / store lowering 把向量宽度再与它取 min：`vec = min(vec, getMaskA
 | Gluon 的 `InferCoalescedEncodings` | 九 | 为 `AutoLayout` 推 coalesced layout |
 | AMD 后端多处 | 十一 | buffer op 转换、LDS 旁路等 |
 
+Table: AxisInfo 的消费者
+
 ## 七、信息怎么丢
 
 回到核心问题，用第四章的规则把三个变体走一遍（`BLOCK = 1024`，`pid = tt.get_program_id`，`n: i32`）。
@@ -402,6 +420,8 @@ load / store lowering 把向量宽度再与它取 min：`vec = min(vec, getMaskA
 | `arange(0, 1024)` | [1024] [2^30] [1] | 同 | 同 |
 | `addi` | contig = gcd(1024, 1024) = **1024**；div = gcd(1024, 2^30, 1024) = **1024** | contig **1024**；div = gcd(1, 2^30, 1024) = **1** | contig **1024**；div = gcd(16, 2^30, 1024) = **16** |
 | `addptr(splat(ptr, div 16), offs)`，f32 | contig 1024；div gcd(16, 1024 × 4) = 16 → alignment min(16/4, 1024) = **4**（128 bit） | contig 1024；div gcd(16, 1 × 4) = 4 → alignment min(4/4, 1024) = **1**（标量） | div gcd(16, 16 × 4) = 16 → alignment **4** |
+
+Table: 三个变体的 AxisInfo 逐步推演
 
 三个结论：
 
@@ -422,6 +442,8 @@ load / store lowering 把向量宽度再与它取 min：`vec = min(vec, getMaskA
 | `offs // 2 * 2` | contiguity → 1（`// 2` 已经不连续）；divisibility 保留 2 | `div` 后再 `mul` |
 | `ptr + offs` 其中 `ptr` 的 `data_ptr` 不对齐（切片视图 `x[1:]`） | 指针参数没有 `D`，divisibility 按元素大小算 | binder 的 `(data_ptr & 15) != 0` |
 | 循环里 `ptrs += n * stride`，`n` 运行时 | 整条循环携带链的 divisibility → 1 | iter_arg 的 join 把 yield 的 1 传回来 |
+
+Table: 常见的信息杀手写法
 
 ## 八、工具：把每个值的 AxisInfo 打出来
 
@@ -492,6 +514,8 @@ triton-opt matmul_kernel.ttir -test-print-alignment -o /dev/null 2>&1 | head -60
 | `ScalarEvolution` | 循环里的整数 | 递推表达式 `{start, +, step}` | contiguity 是它在"步长为 1"这个特例上的张量版；SCEV 能表达任意仿射递推，AxisInfo 只记段长 |
 | `Alignment` / `getOrEnforceKnownAlignment` | 指针 | 2 的幂 | 与 divisibility 同义 |
 | `ConstantRange` / `IntegerRangeAnalysis`（MLIR 也有） | 整数 | 区间 [lo, hi] | 正交：AxisInfo 不记范围，所以它不知道 `offs < n` 是否恒真——那需要区间分析 |
+
+Table: LLVM 里的同类分析
 
 AxisInfo 的独特之处在于它是**按张量维度**的：LLVM 的分析作用在标量上，一个 128 元素的数组的连续性在 LLVM 里要靠 SCEV 分析循环归纳变量才能得到；Triton 把张量当作一个值，一次分析就给出每一维的规律。这正是第一篇说的"在信息还在的那一层做分析"：连续性在张量层是 `make_range` 一个 op 的属性，到了标量层就变成了要重新发现的东西。
 

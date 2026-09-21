@@ -30,6 +30,8 @@ updated: 2026-09-21
 | **上下文太长**，KV Cache 装不下 | **CP** | 按 **token 序列**切 |
 | 模型明明装得下，但**要更多吞吐** | **DP** | 什么都不切，**整个模型复制一份** |
 
+Table: 五种并行策略的选择表
+
 这张表里最值得单独说的是 **DP**：它和其余四个不是一类东西。TP/PP/EP/CP 解决的都是"装不下"，是被迫拆分；**DP 解决的是"想要更多"，前提恰恰是单卡装得下**。所以生产部署里通常是"先用 TP/PP/EP/CP 把模型塞进一组卡，再用 DP 把这组卡整体复制 N 份来放大吞吐"——DP 永远是最外层。
 
 这五种切法训练侧也全都在用，但训练多出三种状态——梯度、优化器状态、为反向保存的激活——所以训练侧还有 ZeRO / FSDP 这一族（切优化器状态与梯度），TP / PP / EP 也各多一半反向的通信。本篇只讲推理侧；训练侧的完整账（四种状态 × 六种切法、每 step 通信量、Llama 3 405B 的代入）在[大规模训练系列第二篇《并行策略全景——每种并行切的是哪种状态》](/parallelism-strategies-which-state-to-shard.html)，那篇开头有一张两侧逐项对照的表。
@@ -50,6 +52,8 @@ updated: 2026-09-21
 | 九 | 本文小结 |  |
 | 十 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、DP (Data Parallelism)
 
 **DP：每个 GPU 持有完整模型副本，各自处理不同请求。**
@@ -69,6 +73,8 @@ graph LR
 | 适用 | 模型放得下、但并发不够的场景 |
 | vLLM 实现 | `DPCoordinator`（`vllm/v1/engine/coordinator.py`）管理多个 `EngineCore` 实例，用 ZMQ 做请求分发与负载均衡 |
 
+Table: DP 的优势与局限
+
 模型装得下时，最常见的一个取舍是：同样两张卡，跑 DP=2（两个完整副本 + 前端负载均衡）还是 TP=2（一个副本，两卡合算一个请求）？两者在延迟、吞吐和显存上的差别正好相反：
 
 | 维度 | DP=2（两个副本） | TP=2（一个副本） |
@@ -82,6 +88,8 @@ graph LR
 | Prefix Cache | 同一会话可能落到不同副本，前缀缓存被稀释，需要会话亲和路由 | 全局只有一份 |
 | 故障隔离 | 一个副本挂了另一个仍在服务 | 任一卡故障整个实例停摆 |
 | 适合 | 小模型、高并发、单卡延迟已达标 | 模型偏大、要压低单请求延迟、机内有 NVLink |
+
+Table: DP=2 与 TP=2 的对比
 
 一句话：**DP 买的是吞吐和隔离，TP 买的是单请求延迟和 KV 容量**。两者不冲突——生产上常见的"DP × TP"就是先用 TP 把单请求延迟压到目标以下，再用 DP 复制若干份填满并发。
 
@@ -167,6 +175,8 @@ $$Y=XW$$
 | 结果   | 输出的不同分片         | 输出的部分和       |
 | 通信   | 无               | All-Reduce   |
 | 典型应用 | QKV、Gate/Up     | O、Down       |
+
+Table: Column Parallel 与 Row Parallel 的区别
 
 
 ### 3. 为什么 Column 和 Row 可以配合而且经常成对出现？
@@ -454,6 +464,8 @@ $$
 | Activation           | **GPU 本地计算**        | 每个 GPU 处理自己的中间维度          |
 | Down Projection      | **Row Parallel**    | 将各 GPU 的部分结果合并            |
 
+Table: Transformer 各部分的 TP 方式
+
 因此可以把一个 Transformer Layer 简化成：
 
 ```text
@@ -584,6 +596,8 @@ All-Reduce
 | NVLink / NVSwitch | ⭐⭐⭐⭐⭐  | 高带宽、低延迟       |
 | PCIe              | ⭐⭐⭐    | 带宽和延迟较弱       |
 | 跨机 IB / RoCE     | ⭐⭐      | 网络路径更长、同步成本更高 |
+
+Table: 不同互联对 TP 的适合度
 
 所以工程上通常遵循：**TP 优先放在高速互联的机内多卡**。跨机扩展时，则通常结合 **DP、PP、EP** 等并行方式，减少高频的跨机同步。
 
@@ -882,6 +896,8 @@ Backward：Stage 2 → Stage 1 → Stage 0
 | 典型调度 | Microbatch、1F1B | 请求/Token 批处理、Prefill/Decode 调度 |
 | 主要优化目标 | 训练吞吐和显存 | Serving 吞吐、延迟和缓存容量 |
 | 边界通信 | 激活 + 反向梯度 | 主要是前向激活 |
+
+Table: 训练 PP 与推理 PP 的不同
 
 训练 PP 的那一列——GPipe 与 1F1B 的时间表、气泡率 $$(p-1)/m$$ 的推导、interleaved 与 zero-bubble 调度——在[大规模训练系列第二篇的第五章](/parallelism-strategies-which-state-to-shard.html#五流水线并行)；那篇的 EP 一章也把 dispatch / combine 的**反向**（split 互换的 all-to-all）讲了一遍，是本文 EP 一节推理流程的另一半。
 
@@ -1744,6 +1760,8 @@ Expert 2：███              GEMM 利用率较低
 | 专家并行 EP | MoE Expert | 分摊 Expert 参数 | All-to-All | 动态路由、负载不均 |
 | 序列并行 SP | 序列维度 | 降低激活显存 | All-Gather、Reduce-Scatter | 序列切分和同步 |
 
+Table: EP 与其他并行策略的区别
+
 EP 与 TP 的核心区别如下：
 
 ```text
@@ -1888,6 +1906,8 @@ outputs = communicator.combine(
 | **ROCm AIter** | `experts/rocm_aiter_moe.py` | AMD GPU |
 | **XPU Experts** | `experts/xpu_moe.py` | Intel GPU |
 
+Table: vLLM Fused MoE 的专家后端
+
 ### 11. EP 的常见优化方向
 
 MoE 工程优化通常围绕以下四类手段展开：
@@ -1898,6 +1918,8 @@ MoE 工程优化通常围绕以下四类手段展开：
 | **Grouped GEMM** | 把多个形状不同的小 GEMM 合成一次 kernel 调用 |
 | **Fused MoE Kernel** | Route + Dispatch + GEMM + Combine 全融进一个 kernel，省掉中间张量的 HBM 往返 |
 | **All-to-All 与计算重叠** | 把通信藏到计算背后 |
+
+Table: EP 的常见优化手段
 
 **① Token 重排与内存布局优化**
 
@@ -2208,6 +2230,8 @@ Prefill 阶段通常具有较大的序列长度和计算量，更适合通过序
 | 超长上下文 | 上述 + CP | 在已有方案上叠加 |
 | 高并发小模型 | DP + TP | DP 放大吞吐，TP 降低单请求延迟 |
 
+Table: 不同模型规模与场景的推荐并行策略
+
 四条经验法则：
 
 - **TP 优先放在 NVLink 互联的卡之间**——它通信最频繁且在关键路径上
@@ -2246,6 +2270,8 @@ DP 组：[0,4] [1,5] [2,6] [3,7]      EP 组（若开 EP）：[0,1,4,5] [2,3,6,7
 | TP 组 | 同一 stage、同一副本内的 2 张卡 | 激活的 All-Reduce | 机内 NVLink | 每层 2 次，关键路径 |
 | PP 组 | 同一副本、同一 TP rank 的两个 stage | `hidden_states` 的 send/recv | 机内（本例）；每机只有 2 卡时会跨机 IB/RoCE | 每个 microbatch 1 次 |
 | DP 组 | 两个副本中位置相同的卡 | 不传激活；只在 MoE + EP 时 Expert 的 All-to-All 会跨副本 | 跨机 | 副本间的请求分发与 step 对齐由 `DPCoordinator` 走 ZMQ 完成 |
+
+Table: 混合并行各通信组传什么、走哪条链路
 
 进程层面，每个 DP 副本对应一个独立的 `EngineCore`，它自己的 `MultiprocExecutor` 拉起 TP × PP = 4 个 `WorkerProc`（每卡一个进程）；两台机器上因此各有 4 个 worker 进程和一个 EngineCore。这也是"TP 优先放 NVLink、PP 可跨机、DP 在最外层"三条法则在 rank 编号上的直接体现：TP 组是编号相邻的卡，PP 组间隔一个 TP 组，DP 组间隔一整个副本。
 
@@ -2349,6 +2375,8 @@ PCIe
 | InfiniBand NDR 400 Gb/s | 约 50 GB/s，原始线速折算 | 实际有效带宽受协议和实现影响 |
 | RoCE | 取决于网卡和网络配置 | 对拥塞控制、交换机配置更敏感 |
 
+Table: 典型链路的带宽量级
+
 这里需要避免将不同口径的带宽直接等价比较。例如，NVLink 或 NVSwitch 的宣传带宽可能是单 GPU 聚合带宽、双向带宽或系统总带宽，而 PCIe 和 InfiniBand 常按单向链路带宽描述。实际性能还取决于拓扑、并发度、消息大小和通信算法。
 
 下面是主要数据移动类型的分析：
@@ -2362,6 +2390,8 @@ PCIe
 | EP Token Dispatch | GPU ↔ GPU | 每个 MoE 层 | 高 | NCCL All-to-All | 关键路径 |
 | KV Cache Swap | GPU ↔ CPU | 抢占或显存不足时 | 高 | 异步 PCIe 拷贝 | 影响异常请求和尾延迟 |
 | Sampled Token | GPU → CPU | 每步 | 极低，通常为整数 | Device-to-Host Copy | 通常不是带宽瓶颈 |
+
+Table: 主要数据移动类型的分析
 
 因此，不能简单地说“所有通信都值得优化”。更准确的结论是：
 
@@ -2383,6 +2413,8 @@ NCCL（NVIDIA Collective Communications Library）是 NVIDIA 提供的 GPU 集�
 | `All-to-All` | 每张 GPU 向所有其他 GPU 发送不同数据 | EP Token Dispatch |
 | `Broadcast` | 一张 GPU 将数据发送给所有 GPU | 广播控制数据或共享状态 |
 | `Send / Recv` | 点对点发送与接收 | PP Stage 之间传递激活 |
+
+Table: 常见 NCCL 通信原语与推理中的用途
 
 在 vLLM 或类似推理框架中，模型并行代码通常不会直接管理底层的 NVLink、PCIe 或 InfiniBand。上层只需要调用相应的集合通信接口，底层通信库再根据当前硬件和进程组执行实际的数据移动。
 
@@ -2428,6 +2460,8 @@ vLLM 对通信后端进行了抽象，使模型代码不需要直接感知底层
 | 最高层：集合通信 API | `tensor_model_parallel_all_reduce()`<br/>`tensor_model_parallel_all_gather()`<br/>`tensor_model_parallel_reduce_scatter()` | 模型代码调用集合通信 |
 | 中间层：`GroupCoordinator` | `all_reduce()`、`all_gather()`、`send()`、`recv()` | 管理进程组和通信协调 |
 | 底层：设备通信器 | `CudaCommunicator`、`CustomAllreduce`、`FlashInferAllReduce`、`CpuCommunicator`、`XpuCommunicator` | 执行具体的设备或网络通信 |
+
+Table: vLLM 通信后端的三层抽象
 
 其中，`CudaCommunicator` 通常对应 NCCL 路径；`CpuCommunicator` 可用于 CPU 通信；在特定硬件和场景下，还可能使用 FlashInfer 或其他专门优化的实现。
 
@@ -2518,6 +2552,8 @@ NCCL 的调优应遵循“先确认拓扑，再定位瓶颈，最后修改参数
 | `NCCL_NET_GDR_LEVEL` | 控制 GPUDirect RDMA 使用条件 | 跨节点排查时关注 |
 | `NCCL_ALGO` | 指定通信算法 | 适合基准测试和针对性实验 |
 | `NCCL_PROTO` | 指定通信协议 | 不建议生产环境盲目固定 |
+
+Table: 常见 NCCL 调试环境变量
 
 首先可以检查 GPU 拓扑：
 
@@ -2738,6 +2774,8 @@ NCCL_DEBUG_SUBSYS=INIT,GRAPH,NET
 | MoE 通信抖动明显 | Token 分布不均 | 路由、Expert 负载和 Token 分桶 |
 | Decode 吞吐低 | 小消息和同步占主导 | 通信融合、低延迟实现和批处理 |
 
+Table: 按消息规模区分通信优化方向
+
 ### 5. 小结：通信优化的优先级
 
 通信优化可以按照以下顺序推进：
@@ -2775,6 +2813,8 @@ NCCL_DEBUG_SUBSYS=INIT,GRAPH,NET
 | 数据并行协调 | `vllm/v1/engine/coordinator.py` |
 | Fused MoE 各后端 | `vllm/model_executor/layers/fused_moe/experts/` |
 | MoE 路由（含两级 grouped top-k） | `vllm/model_executor/layers/fused_moe/router/grouped_topk_router.py` |
+
+Table: 分布式源码导航
 
 </details>
 

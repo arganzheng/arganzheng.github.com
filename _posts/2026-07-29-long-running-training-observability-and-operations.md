@@ -108,6 +108,8 @@ checkpoint/重启的周期在本篇里的意义是：**检测时间是有效训�
 | straggler | megatron/core/utils.py：StragglerDetector； --log-straggler；运行时可通过端口开关 | 无 | 无（靠每 rank JSONL 事后比较） |
 | Flight Recorder | 由 PyTorch 提供，Megatron 不额外封装 | 同左 | CommConfig.trace_buf_size（默认 20000）自动设 TORCH_FR_BUFFER_SIZE / TORCH_FR_DUMP_TEMP_FILE |
 
+Table: 三框架在可观测面上的对照
+
 DeepSpeed 这一列后文不再展开：它的计时与监控概念与 Megatron 同构，读者按对照表映射即可。
 
 ### 5. 本文的章节安排
@@ -122,6 +124,8 @@ DeepSpeed 这一列后文不再展开：它的计时与监控概念与 Megatron 
 | 七 | 成本视角 | GPU 小时的换算 · 用它排优先级 |
 | 八 | 本文小结 | 要点 · 源码位置 · train-ledger 的 dash/ 与 `runbook.md` · Flight Recorder hang 演练 |
 | 九 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、三层指标的采集
 
@@ -182,6 +186,8 @@ mfu = None if self.has_quantization else 100 * self.num_flops_per_token * tps / 
 | num_ooms | 抛出的 OOM 次数 |
 | num_device_alloc / num_device_free | cudaMalloc / cudaFree 调用次数；稳态下应当为 0 增长——增长说明分配器在反复向驱动要还内存 |
 
+Table: memory_stats 里本篇用到的键
+
 这些计数器每 step 读一次几乎没有开销（不涉及同步），每个 rank 都应当采。第四章会用 `inactive_split_bytes` 与 `num_alloc_retries` 诊断"step 时间慢慢变长"。
 
 第二个来源是**每 rank 的阶段计时**。Megatron 的 `Timers` 在 `log_option='all'` 下给出每 rank 每阶段的时间，但要经过一次 all-gather 并打在一行里，千卡下这一行有一千个数字。torchtitan v0.3.0 的做法更适合大规模：`torchtitan/observability/structured_logger/` 是一个每 rank 写 JSONL 的结构化日志器，`init_structured_logger(source, output_dir)` 在每个进程里初始化一次，`log_trace_span("fwd_bwd")` 作为上下文管理器或装饰器写出 `fwd_bwd_start` / `fwd_bwd_end` 两条记录，`log_trace_instant()` 写点事件，`log_trace_scalar({...})` 写数值，`set_step(step)` 让之后的每条记录带上 step 号。`Trainer` 里已经埋好的 span 有 `step`、`fetching_batch`、`post_dataloading_process`、`fwd_bwd`、`optim`、`collect_dist_metrics`，以及初始化阶段的 `torch_distributed_init`、`model_parallelism_init`；数值有 `local_valid_tokens`、`global_valid_tokens`。每条记录由 `jsonl_handler.py` 的 `TraceJsonlFormatter` 写成一行 JSON，字段含 `rank`、`source`、`step`、`relative_step`、`time_us`、`log_type_name`（如 `fwd_bwd_end`）、`caller`（文件:行:函数），文件名为 `structured_logs/{source}.global_rank_{rank}.{时间戳}-{随机}.jsonl`。`gantt_generator.py` 的 `generate_gantt_trace(log_dir, output_path)` 把一个目录下所有 rank 的 JSONL 合成一个 Chrome trace JSON，在 Perfetto 里打开就是一张**所有 rank 同一时间轴的甘特图**——`fwd_bwd` 在哪个 rank 上总是最长、`fetching_batch` 在哪个 rank 上偶尔冒出来，一眼可见。配置项是 `DebugConfig.enable_structured_logging`（默认 `True`），自定义后端通过环境变量 `TITAN_STRUCT_LOGGER_HANDLERS` 指定 handler 工厂。
@@ -200,6 +206,8 @@ mfu = None if self.has_quantization else 100 * self.num_flops_per_token * tps / 
 | 利用率 | DCGM_FI_PROF_GR_ENGINE_ACTIVE · DCGM_FI_PROF_SM_ACTIVE DCGM_FI_PROF_PIPE_TENSOR_ACTIVE DCGM_FI_PROF_DRAM_ACTIVE DCGM_FI_PROF_NVLINK_TX_BYTES / RX_BYTES · PCIE_TX/RX_BYTES | 粗粒度活跃度；hang 时也可能是 100% Tensor core 活跃比例；与 MFU 同趋势，是"这张卡在算矩阵"的直接证据 HBM 带宽活跃度 链路流量；TP 组内各卡应对称 |
 | 错误 | DCGM_FI_DEV_XID_ERRORS DCGM_FI_DEV_ECC_SBE_VOL_TOTAL · ECC_DBE_VOL_TOTAL DCGM_FI_DEV_ROW_REMAP_PENDING · UNCORRECTABLE_REMAPPED_ROWS DCGM_FI_DEV_NVLINK_CRC_FLIT_ERROR_COUNT_TOTAL · NVLINK_REPLAY_ERROR_COUNT_TOTAL DCGM_FI_DEV_PCIE_REPLAY_COUNTER | 最近的 XID 码；任何非 0 值 = 该卡不可信 单/双比特错误累计；DBE = 立即隔离 HBM 行重映射；pending = 需要重置 GPU NVLink 链路错误 PCIe 重放 |
 | 显存 | DCGM_FI_DEV_FB_USED · DCGM_FI_DEV_FB_FREE | 驱动视角的显存占用（含 CUDA context、NCCL buffer） |
+
+Table: DCGM 的字段分组与用途
 
 字段名随 dcgm-exporter 版本有增删（例如降频原因字段在新版本改名），部署时以 `dcgm-exporter --help` 或其默认 csv 为准。两点经验：**`PROF_*` 系列需要 DCGM 的 profiling 模块**，与 Nsight 同时使用会冲突（同一时刻只能有一个 profiler 占用硬件计数器），做 Nsight 采样的那几张卡上要临时关掉；**XID 的权威来源是内核日志**（`dmesg` / `journalctl -k` 里的 `NVRM: Xid`），DCGM 只报最近一个码，故障复盘时以 dmesg 为准。
 
@@ -313,6 +321,8 @@ retired_                                    retired                         已�
 | TORCH_NCCL_PROPAGATE_ERROR | false | 把错误通过 TCPStore 广播到同进程组其他 rank |
 | TORCH_NCCL_DESYNC_DEBUG | false | 另一套更早的 desync 诊断（DesyncDebugger），与 FR 独立 |
 | TORCH_DISTRIBUTED_DEBUG | OFF | OFF / INFO / DETAIL；DETAIL 时 desync debug 与 timing 自动开（见第 7 节） |
+
+Table: Flight Recorder 的环境变量与默认值
 
 三点必须知道。**第一，2.13.0 里 Flight Recorder 与超时 dump 都是默认开的**——`TORCH_FR_BUFFER_SIZE` 默认 2000、`TORCH_NCCL_DUMP_ON_TIMEOUT` 默认 true、`TORCH_NCCL_ENABLE_MONITORING` 默认 true。很多"要开 FR 得设一堆环境变量"的经验来自更早的版本；2.13.0 上要做的不是开它，而是**把 dump 路径指到一个所有 rank 都能写、事后能收集到的地方**（默认在 `$HOME/.cache/torch/` 下，容器里往往是临时文件系统，进程退出即丢）。**第二，`TORCH_NCCL_ASYNC_ERROR_HANDLING` 不能是 1**：TearDown 模式下 watchdog 会先 abort，dump 来不及完成；torchtitan 的 `torchtitan/distributed/utils.py` 的 `init_distributed()` 强制把它设成 `"3"`，并按 `CommConfig.trace_buf_size`（默认 20000）设 `TORCH_FR_BUFFER_SIZE`，把 `TORCH_FR_DUMP_TEMP_FILE` 指到 `<dump_folder>/comm_traces/rank_`，注释里写明原因。**第三，缓冲要够大**：2000 条在一个每 step 几百次通信的任务里只够几个 step；PP 加 FSDP 的任务一个 step 可能上千次。torchtitan 选 20000 是合理的量级，每条几百字节，内存代价几 MB。
 
@@ -654,6 +664,8 @@ flowchart TB
 | 任何一张卡 XID / ECC DBE / 行重映射 pending | ECC SBE 增长 |
 | 任务进程消失且未被自动拉起 | dataloader 等待占比 > 5% |
 | 数据消费位置回退或重复（恢复后顺序不对） | 显存 reserved 上涨 / num_alloc_retries > 0 |
+
+Table: page 与 record 的边界
 
 有几条的归类需要解释。**XID 是 page**，尽管一张卡的 XID 不一定立刻让任务停——因为它几乎总是在几小时内导致 hang 或崩溃，而且隔离节点的动作越早，回退到的 checkpoint 越近。**MFU 下滑 15% 是 page 而 5% 不是**——按第七章的成本换算，1024 卡上 15% 的 MFU 损失每小时值几百美元，等到早上就是几千；5% 在 step 时间抖动的范围边缘，容易误报。**dataloader 等待是 record**——它通常是慢慢恶化的，而且处置（调整 worker 数、换数据源）多半要重启任务，白天做更合适。
 

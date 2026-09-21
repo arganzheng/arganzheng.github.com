@@ -37,6 +37,8 @@ flowchart TB
 | [第三篇：做出一个能被合入的改动](/landing-a-mergeable-change.html) | reviewer 打开你的 PR 只有十分钟，他要确认什么？diff、描述、测试、CI 状态分别替他回答了哪个问题？ | 四件事：改了什么且只改了这一件、为什么改怎么验证、怎么证明对怎么防回归、有没有弄坏别的；diff、描述、测试、CI 各答一个 | PyTorch 2000 行硬上限、61 个 linter、148 个 workflow、49 个 `ciflow/*`、33 条 merge rule、4 个工作日可催；vLLM 6 个 open PR 上限、35 个 test_area、pre-commit 需 `verified` / `ready` 或 ≥4 个合入 PR、2–3 天 / 7 天、DCO 每个 commit |
 | [第四篇：两个真实 PR 的完整走读](/two-real-prs-pytorch-and-vllm.html) | 两个都是"小"PR，却各花了作者一到几周。时间花在哪里？哪些可省，哪些是正常成本？ | 小 PR 的时间不在写代码：PyTorch 那个在数据（正常成本），vLLM 那个在等待（大半可省） | #185344：+104 −0、27 天采 3792 个点、PR 5 天、3 小时 42 分收到 review、`merge -i`、进 v2.13.0；#47272：+109 −16、47 天无 review 未 ping、6 个自己引入的 CI 失败、合入 08-20 不在 v0.28.0（分支 08-17 切出） |
 
+Table: 四篇的核心问题、结论与必记判据
+
 ### 1. 本文的章节安排
 
 | 章 | 内容 |
@@ -46,6 +48,8 @@ flowchart TB
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
 | 六 | 下一步 |
+
+Table: 本文的章节安排
 
 ## 二、逐篇回顾
 
@@ -144,6 +148,8 @@ PyTorch 与 vLLM 在每篇并排出现，四张对照表叠起来是两种一致
 | CI：谁触发、红了是谁的 | 二、三、四 | 二把 CI 失败当切入点；三讲两种哲学与判断表；四对照退出码 127（无关，`merge -i`）与 6 个自己引入的失败（修测试） |
 | AI 辅助政策 | 二、三、四 | 二从"不要 typo PR"引出 `AI_POLICY.md` / `AGENTS.md`；三逐条对照；四看 "Authored with Claude" 该放哪、`Co-authored-by` trailer |
 
+Table: 贯穿四篇的概念及其关系
+
 ## 四、常见误区
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
@@ -155,6 +161,8 @@ PyTorch 与 vLLM 在每篇并排出现，四张对照表叠起来是两种一致
 | vLLM 的 PR 开出来 CI 是灰的，等它自己跑 | 默认只跑 pre-commit 且有门槛；测试任务要 `/ci run`；新 commit 不自动重跑 | 本地 `pre-commit run --all-files`；等 reviewer 敲 `/ci run` 或打 `ready`；每次 push 后重新敲 | [第三篇](/landing-a-mergeable-change.html) |
 | review 意见是在检查算法对不对 | #185344 的三条意见全是注释与来源 | 提交前用描述里的数字校对代码注释；署名放描述不放代码 | [第四篇](/two-real-prs-pytorch-and-vllm.html) |
 | 合入了就在最新版里 | #47272 合入六天后 v0.28.0 发布却不含它——分支已于 08-17 切出 | `git tag --contains <sha>`；`merge-base --is-ancestor` 核对 | [第四篇](/two-real-prs-pytorch-and-vllm.html) |
+
+Table: 常见误区与正确说法
 
 ## 五、通关自测
 
@@ -361,6 +369,8 @@ PyTorch 与 vLLM 在每篇并排出现，四张对照表叠起来是两种一致
 | 读过 | 能说出四篇各讲什么；知道 `native_functions.yaml`、`actionable`、ghstack、`/ci run`、`ready`、DCO 这些名词 |
 | 掌握 | A 组能不翻书答出 8 题以上；B 组能说出每题用了哪几篇的什么；拿到一个陌生项目的 `CONTRIBUTING.md` 能在半小时内说出它更像 PyTorch 还是 vLLM、差在哪几格；能用七阶段走读一个自己没参与的 PR |
 | 能教人 | C 组每题能给出全部要点并预判追问；能解释四篇里每个反直觉结论为什么成立（构建放最后、`good first issue` 最挤、vLLM 的灰不是绿、合入了不一定在最新版、review 意见全是注释） |
+
+Table: 掌握程度的判据
 
 通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点。没过的部分回到第二章对应篇的"必记"，再回该篇正文；如果卡在 B 组，说明各篇读懂了但没连起来，重读第三章的四条线。
 
