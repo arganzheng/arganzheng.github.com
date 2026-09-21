@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 300" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="13">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#555"/></marker>
+  </defs>
+  <text x="380" y="22" text-anchor="middle" fill="#222" font-size="14" font-weight="600">约束解码的一步：先按 schema 把不合法的候选置零，再从剩下的里采样</text>
+
+  <!-- left: generated so far -->
+  <g transform="translate(20,50)">
+    <rect width="200" height="70" rx="6" fill="#f7f7f7" stroke="#999"/>
+    <text x="10" y="20" fill="#333" font-size="12">已经生成的前缀</text>
+    <text x="10" y="44" fill="#222" font-family="Menlo, monospace" font-size="12">{"status": "</text>
+    <text x="10" y="62" fill="#666" font-size="11">自动机状态：正在填 enum 字段</text>
+  </g>
+  <g transform="translate(20,140)">
+    <rect width="200" height="100" rx="6" fill="#eef6ff" stroke="#1f6fb2"/>
+    <text x="10" y="20" fill="#1f6fb2" font-size="12" font-weight="600">schema 在这一步允许的开头</text>
+    <text x="10" y="42" fill="#222" font-family="Menlo, monospace" font-size="12">"pending"</text>
+    <text x="10" y="60" fill="#222" font-family="Menlo, monospace" font-size="12">"shipped"</text>
+    <text x="10" y="78" fill="#222" font-family="Menlo, monospace" font-size="12">"completed"</text>
+    <text x="10" y="94" fill="#666" font-size="11">（由 FSM / 文法预先算出）</text>
+  </g>
+
+  <!-- middle: model logits -->
+  <g transform="translate(270,50)">
+    <text x="0" y="0" fill="#333" font-size="12" font-weight="600">模型这一步的候选（按概率排）</text>
+    <g font-family="Menlo, monospace" font-size="12">
+      <text x="0" y="24" fill="#c0392b">已完成      0.41</text><line x1="0" y1="20" x2="130" y2="20" stroke="#c0392b" stroke-width="1.5"/>
+      <text x="0" y="46" fill="#222">completed  0.30</text>
+      <text x="0" y="68" fill="#c0392b">done        0.12</text><line x1="0" y1="64" x2="130" y2="64" stroke="#c0392b" stroke-width="1.5"/>
+      <text x="0" y="90" fill="#222">shipped    0.09</text>
+      <text x="0" y="112" fill="#c0392b">finished    0.05</text><line x1="0" y1="108" x2="130" y2="108" stroke="#c0392b" stroke-width="1.5"/>
+      <text x="0" y="134" fill="#222">pending    0.02</text>
+      <text x="0" y="156" fill="#c0392b">…           0.01</text><line x1="0" y1="152" x2="130" y2="152" stroke="#c0392b" stroke-width="1.5"/>
+    </g>
+    <text x="0" y="185" fill="#c0392b" font-size="11">划掉的：不在允许集合里，logit 设为 −∞</text>
+    <text x="0" y="201" fill="#c0392b" font-size="11">——模型"最想说"的 已完成 也一样被屏蔽</text>
+  </g>
+  <line x1="230" y1="190" x2="262" y2="120" stroke="#1f6fb2" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <!-- right: renormalized -->
+  <g transform="translate(540,50)">
+    <text x="0" y="0" fill="#333" font-size="12" font-weight="600">剩下的重新归一化后采样</text>
+    <g font-family="Menlo, monospace" font-size="12">
+      <text x="0" y="24" fill="#222">completed  0.73</text>
+      <rect x="120" y="14" width="73" height="12" fill="#1f6fb2" opacity="0.8"/>
+      <text x="0" y="46" fill="#222">shipped    0.22</text>
+      <rect x="120" y="36" width="22" height="12" fill="#1f6fb2" opacity="0.8"/>
+      <text x="0" y="68" fill="#222">pending    0.05</text>
+      <rect x="120" y="58" width="5" height="12" fill="#1f6fb2" opacity="0.8"/>
+    </g>
+    <text x="0" y="100" fill="#333" font-size="12">输出一定是三者之一：</text>
+    <text x="0" y="118" fill="#1f6fb2" font-size="12" font-weight="600">语法上不可能出错（硬保证）</text>
+    <text x="0" y="146" fill="#333" font-size="12">但选 completed 还是 shipped</text>
+    <text x="0" y="164" fill="#333" font-size="12">对不对是语义问题：</text>
+    <text x="0" y="182" fill="#c0392b" font-size="12" font-weight="600">约束不管</text>
+  </g>
+  <line x1="470" y1="110" x2="530" y2="110" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+  <text x="380" y="280" text-anchor="middle" fill="#666" font-size="12">生成完这一个 token，自动机走到下一个状态，允许集合随之更新；每一步都重复这三格</text>
+</svg>
