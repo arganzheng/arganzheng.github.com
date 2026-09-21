@@ -67,7 +67,7 @@ Meta Tensor                   → 只推断 shape、dtype 等元数据
 两个维度通过同一个数据结构连接：**Operator Table**——Dispatcher 内部为每个算子维护的一张 `DispatchKey → Kernel` 表。开发者往里填，用户调用时从里查。
 
 ```mermaid
-flowchart LR
+flowchart TB
     subgraph DEV[开发态：算子开发者]
         direction TB
         A1[定义 Schema<br/>native_functions.yaml / torch.library] --> A2[注册实现到各 DispatchKey<br/>dispatch 字段 / TORCH_LIBRARY_IMPL] --> A3[编写实现<br/>Native Function / 自定义 Kernel]
@@ -463,27 +463,31 @@ Dispatcher 拿到算子 handle 后，先从 Operator Table 取出 Schema，校�
 
 ### 2. 合并 DispatchKeySet
 
-Dispatcher 收集所有输入 Tensor 的 DispatchKey，并合并当前线程的全局状态（是否在 `no_grad` 中、是否在 tracing、是否有 Python Dispatch 模式），得到本次调用的 **DispatchKeySet**。
+Dispatcher 收集所有输入 Tensor 的 DispatchKey，并合并当前线程的全局状态（是否在 tracing、是否有 Python Dispatch 模式、是否在 `inference_mode` 中），得到本次调用的 **DispatchKeySet**。
+
+一个容易想当然的地方：**`requires_grad` 不在 KeySet 里**。任何普通（dense）Tensor 的 KeySet 都自带 Autograd Key——`torch.zeros(3)` 的 KeySet 是 `{AutogradCPU, ADInplaceOrView, CPU}`，与它是否 `requires_grad` 无关；`requires_grad` 存在 Tensor 的 AutogradMeta 里，是 Autograd Kernel 进去之后才读的字段。同样，`torch.no_grad()` **不改 KeySet**：它只翻转线程局部的 GradMode 标志（`c10/core/GradMode.cpp` 就 12 行），Autograd Kernel 仍会被命中，只是在里面看到 GradMode 关闭就不记录 `grad_fn`、直接再分发。真正把 Autograd Key 从集合里剔掉的是 `torch.inference_mode()`（`InferenceMode.h`：把 autograd 一族 Key 加入 TLS excluded）——这也是它比 `no_grad` 更快、产物不能再进入 autograd 的原因。
 
 ```text
-x: CUDA Tensor, requires_grad=True  → {AutogradCUDA, CUDA}
-y: CUDA Tensor                      → {CUDA}
-全局状态: 梯度开启                   → 不移除 Autograd
+x: CUDA Tensor, requires_grad=True   → {AutogradCUDA, ADInplaceOrView, CUDA}
+y: CUDA Tensor, requires_grad=False  → {AutogradCUDA, ADInplaceOrView, CUDA}   ← 一样
+TLS: 普通状态 / no_grad             → excluded 为空（no_grad 只改 GradMode 标志）
+TLS: inference_mode                  → excluded 含 Autograd*、ADInplaceOrView
     ↓ 合并
-DispatchKeySet = {AutogradCUDA, CUDA}
+普通 / no_grad：  DispatchKeySet = {AutogradCUDA, ADInplaceOrView, CUDA} → 最高优先级 AutogradCUDA
+inference_mode：  DispatchKeySet = {CUDA}                                → 直接 CUDA
 ```
 
 这一步的合并是位运算：各输入的 KeySet 做 OR，再叠加线程局部（TLS）的 include 集合、减去 exclude 集合，最后取最高优先级的 Key：
 
 ```mermaid
 flowchart TB
-    TX["x: CUDA Tensor, requires_grad=True<br/>KeySet = #123;AutogradCUDA, CUDA#125;"]
-    TY["y: CUDA Tensor<br/>KeySet = #123;CUDA#125;"]
-    TLS["线程局部状态 TLS<br/>no_grad → excluded 加入 Autograd<br/>torch.func / tracing → included 加入相应 Key"]
-    OR["OR 合并所有输入的 KeySet<br/>#123;AutogradCUDA, CUDA#125;"]
+    TX["x: CUDA Tensor, requires_grad=True<br/>KeySet = #123;AutogradCUDA, ADInplaceOrView, CUDA#125;"]
+    TY["y: CUDA Tensor, requires_grad=False<br/>KeySet 相同（requires_grad 不在 KeySet 里）"]
+    TLS["线程局部状态 TLS<br/>inference_mode → excluded 加入 Autograd 一族<br/>torch.func / tracing → included 加入相应 Key<br/>（no_grad 不在这里：它只改 GradMode 标志）"]
+    OR["OR 合并所有输入的 KeySet<br/>#123;AutogradCUDA, ADInplaceOrView, CUDA#125;"]
     MERGE["加上 TLS included，减去 TLS excluded"]
-    KS["本次调用的 DispatchKeySet<br/>梯度开启：#123;AutogradCUDA, CUDA#125;<br/>no_grad 下：#123;CUDA#125;"]
-    TOP["取最高优先级 Key<br/>AutogradCUDA（或 no_grad 下的 CUDA）"]
+    KS["本次调用的 DispatchKeySet<br/>普通 / no_grad：#123;AutogradCUDA, ADInplaceOrView, CUDA#125;<br/>inference_mode：#123;CUDA#125;"]
+    TOP["取最高优先级 Key<br/>AutogradCUDA（或 inference_mode 下的 CUDA）"]
     TX --> OR
     TY --> OR
     OR --> MERGE
@@ -556,7 +560,7 @@ sequenceDiagram
 
 这就是“Autograd Kernel 与设备 Kernel 是什么关系”的答案：Autograd 是注册在包装 Key 上的一层实现，通过**再次分发**串联到后端实现。Functionalize、Python Dispatch、Vmap 都是同样的机制。
 
-在 `torch.no_grad()` 中，全局状态会让 Autograd Key 被排除，DispatchKeySet 直接是 `{CUDA}`，跳过包装层。
+在 `torch.no_grad()` 中，Autograd 包装层**仍然被命中**——它读到 GradMode 关闭，跳过记录 `grad_fn` 那一步，直接再分发到 CUDA；省的是建图的工作，不是分发的那一跳。要连这一跳也省掉，用 `torch.inference_mode()`：它把 Autograd Key 加入 TLS 的 excluded 集合，DispatchKeySet 直接是 `{CUDA}`。
 
 ### 5. Dispatcher 不是简单的 if/else
 
@@ -661,7 +665,7 @@ z = torch.add(x, y)
 ```
 
 ```mermaid
-flowchart LR
+flowchart TB
     P[torch.add] --> B[Python Binding] --> API[at::add]
     API --> D[Dispatcher]
     D -->|AutogradCUDA| AG[Autograd 包装<br/>记录 AddBackward0]
@@ -676,8 +680,9 @@ flowchart LR
 
 | 上下文 | DispatchKeySet | 路径 |
 |---|---|---|
-| CUDA + `no_grad` | `{CUDA}` | 跳过 Autograd，直接 `at::native::add` → TensorIterator → CUDA Kernel |
-| CPU，不需梯度 | `{CPU}` | `at::native::add` → TensorIterator → 向量化 CPU Kernel |
+| CUDA + `no_grad` | `{AutogradCUDA, …, CUDA}` | 仍进 Autograd 包装，读到 GradMode 关闭不记录 `grad_fn`，再分发到 CUDA Kernel |
+| CUDA + `inference_mode` | `{CUDA}` | Autograd Key 被 TLS excluded 剔除，直接 `at::native::add` → TensorIterator → CUDA Kernel |
+| CPU，输入都不需梯度 | `{AutogradCPU, …, CPU}` | Autograd 包装发现没有输入 `requires_grad`，不记录，再分发 → TensorIterator → 向量化 CPU Kernel |
 | Meta | `{Meta}` | `add_meta` → 只推断元数据，无 Kernel |
 | 自定义后端未注册 `add` | `{PrivateUse1}` | fallback 或 `NotImplementedError` |
 
@@ -722,22 +727,6 @@ Dispatcher 本身的开销只是执行路径的一部分。第八篇会用 Profi
 ## 十一、本文小结
 
 ### 1. 两个维度
-
-```mermaid
-flowchart LR
-    subgraph DEV[开发态]
-        direction LR
-        A1[定义 Schema] --> A2[注册到 DispatchKey] --> A3[编写实现]
-    end
-    CG[Codegen] -.-> DEV
-    OT[(Operator Table)]
-    subgraph RUN[运行态]
-        direction LR
-        B1[入口<br/>at::add] --> B2[分发<br/>Dispatcher 查表] --> B3[执行<br/>选中的实现]
-    end
-    A2 -->|填表| OT
-    OT -->|查表| B2
-```
 
 ```text
 开发态  定义 Schema（YAML / torch.library）

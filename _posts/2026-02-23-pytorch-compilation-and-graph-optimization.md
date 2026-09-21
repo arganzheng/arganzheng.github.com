@@ -410,9 +410,9 @@ L['x'].size()[0] == 128        # 以及 dtype、device、requires_grad 等，第
 |---|---|---|
 | 分支条件依赖 Tensor 元数据（`x.shape[0] > 64`） | 报错 | 用 FakeTensor 算出结果，**特化**到当前分支，记录 Guard |
 | 分支条件依赖 Tensor 值（`x.sum() > 0`） | 报错 | 编译期算不出值，在此处**切断图**，条件交给 Python 运行时判断（第六章 Graph Break） |
-| 产出 | 一张图，或失败 | 一张或多张图 + Guard + 改写的字节码，不会失败 |
+| 产出 | 一张图，或失败 | 一张或多张图 + Guard + 改写的字节码；不支持处 graph break 回退而非失败 |
 
-`symbolic_trace` 试图得到一张对所有输入都成立的图，做不到就放弃；Dynamo 只承诺得到一张对**当前输入**成立的图，并用 Guard 记下"当前输入"的范围。后者放弃了通用性，换来了永不失败——这是它能成为 `torch.compile` 默认前端的原因。
+`symbolic_trace` 试图得到一张对所有输入都成立的图，做不到就放弃；Dynamo 只承诺得到一张对**当前输入**成立的图，并用 Guard 记下"当前输入"的范围。后者放弃了通用性，换来了"几乎不会因为代码写法而失败"——遇到不支持的结构就 graph break 回退到 Python（第六章 §1）。它仍然可能报错：`fullgraph=True` 下的 graph break、后端编译失败、`torch._dynamo.config` 的显式限制都会抛出；"永不失败"只对默认配置的常见代码近似成立。这是它能成为 `torch.compile` 默认前端的原因。
 
 ### 6. 两个时间点
 
@@ -463,30 +463,26 @@ flowchart TB
     IN --> TR["FakeTensor 执行前向，Autograd 照常记录 grad_fn<br/>对输出调用反向，引擎回溯的每一步也被追踪成节点"]
     TR --> JG
     subgraph JG["joint graph：前向 + 反向在同一张 FX Graph 里"]
+        direction TB
         MM["aten.mm(x, weight)<br/>输入 x、weight 反向要用 → 保存"]
         ADD["aten.add(mm, bias)<br/>反向不需要，体积大、重算便宜 → 不保存"]
         RL["aten.relu(add)<br/>threshold_backward 需要 → 保存"]
         THB["aten.threshold_backward(tangent, relu, 0)"]
-        GX["aten.mm(grad, weight.t) → grad_x"]
-        GW["aten.mm(x.t, grad) → grad_weight"]
-        GB["aten.sum(grad, 0) → grad_bias"]
-        MM --> ADD --> RL --> THB
-        THB --> GX
-        THB --> GW
-        THB --> GB
+        GR["三个梯度<br/>aten.mm(grad, weight.t) → grad_x<br/>aten.mm(x.t, grad) → grad_weight<br/>aten.sum(grad, 0) → grad_bias"]
+        MM --> ADD --> RL --> THB --> GR
     end
-    JG --> CUT["min-cut 分区：在前向节点与反向节点之间找一条割线<br/>目标是割线穿过的张量总体积最小<br/>体积小、重算贵的值保存；体积大、重算便宜的值留给反向重算"]
-    CUT --> FW["前向图<br/>输出 relu，额外输出 saved tensors: relu、x、weight"]
-    CUT --> BW["反向图<br/>输入 saved tensors + tangent，输出三个梯度"]
+    JG --> CUT["min-cut 分区<br/>在前向节点与反向节点之间找一条割线<br/>目标：割线穿过的张量总体积最小<br/>体积小、重算贵 → 保存<br/>体积大、重算便宜 → 留给反向重算"]
+    CUT --> FW["前向图<br/>输出 relu<br/>额外输出 saved tensors:<br/>relu、x、weight"]
+    CUT --> BW["反向图<br/>输入 saved tensors + tangent<br/>输出三个梯度"]
     FW -.->|"saved tensors"| BW
-    CUT --> TRADE["权衡<br/>多保存：显存高、反向快<br/>少保存：显存低、反向多算一段前向<br/>（第八篇 Activation Checkpointing 的自动化版本）"]
+    BW --> TRADE["权衡<br/>多保存：显存高、反向快<br/>少保存：显存低、反向多算一段前向<br/>（第八篇 Activation Checkpointing 的自动化版本）"]
     classDef saved fill:#e3f2e1,stroke:#2e7d32;
     classDef recomp fill:#fff3e0,stroke:#ef6c00;
     classDef bwd fill:#e8eaf6,stroke:#3949ab;
     classDef note fill:#fafafa,stroke:#9e9e9e,stroke-dasharray: 4 3;
     class MM,RL saved;
     class ADD recomp;
-    class THB,GX,GW,GB bwd;
+    class THB,GR bwd;
     class TRADE note;
 ```
 
@@ -667,7 +663,7 @@ Kernel 名字编码了它的来源：`poi` 是 pointwise（`red` 是 reduction�
 几个值得对照前几篇的细节：
 
 - **广播变成了索引算术**。第二篇讲 `bias` 广播到 `(128, 64)` 在 Eager 里靠 stride 为 0 的 view，第五篇讲 TensorIterator 负责按 stride 遍历。这里两者都不存在了：`x0 = xindex % 64` 直接在生成代码里算出 `bias` 的读取位置。编译器把运行时的元数据解释**固化成了编译期的代码**。
-- **没有 Dispatcher**。`call()` 里的 Triton Kernel 调用不经过 Operator Table。只有 `extern_kernels.mm` 仍然是一次库调用。
+- **Triton 部分没有 Dispatcher**。`call()` 里的 Triton Kernel 是直接 launch，不经过 Operator Table。`extern_kernels.mm` 则不然：它就是 `torch.mm`（`torch/_inductor/kernel/mm.py`：`aten_mm = ExternKernelChoice(torch.mm, "at::mm_out", op_overload=aten.mm.out)`），照常走一次 Dispatcher 到 cuBLAS——只是这一次没有 Autograd 包装（反向已由 AOTAutograd 单独编译），也没有 Python 层的参数解析。所以编译省掉的是**逐元素算子**的分发与 Python 开销，不是把 Dispatcher 整个绕开。
 - **内存复用是静态决定的**。`buf1 = buf0` 不是运行时分配器的决定，而是编译器看到 `mm` 的输出在 `add` 之后不再被引用，直接原地写。
 - **shape 被烧进了代码**。`128`、`64`、`8192` 都是常量。这是 Guard 存在的原因之一：输入 shape 一变，这份代码就不再正确。
 
@@ -740,11 +736,11 @@ Triton 不是 Inductor 的唯一目标。CPU 路径生成 C++，用 OpenMP 做�
 对 `N` 个元素的 `add` + `relu`：
 
 ```text
-Eager    add:  读 2N，写 N        relu: 读 N，写 N        合计 5N 次访存，2 次 launch
-Fused    读 N + bias，写 N                                合计约 2N 次访存，1 次 launch
+Eager    add:  读 N + bias，写 N   relu: 读 N，写 N        合计约 4N 次访存（bias 只有 64 个数，可忽略），2 次 launch
+Fused    读 N + bias，写 N                                 合计约 2N 次访存，1 次 launch
 ```
 
-融合减少的是**中间结果在显存中的往返**，以及每次 launch 的固定开销。融合越长的 pointwise 链，收益越大。这是第八篇“Memory Bandwidth 与 Arithmetic Intensity”的一个具体实例。
+（`bias` 是长度 64 的向量、被广播，两边都只读 64 个数；若两个输入都是完整的 `N` 元 Tensor，则是 Eager 5N 对 Fused 3N。）融合减少的是**中间结果在显存中的往返**，以及每次 launch 的固定开销。融合越长的 pointwise 链，收益越大。这是第八篇“Memory Bandwidth 与 Arithmetic Intensity”的一个具体实例。
 
 ### 7. Inductor 不做什么
 
@@ -1042,7 +1038,7 @@ flowchart TB
 | | Eager | `torch.compile`（热路径） |
 |---|---|---|
 | Python 层调用 | 3 次进入 C++ | 1 次（进入改写后的字节码） |
-| Dispatcher 分发 | 3 次（含 Autograd 包装的再次分发） | 0 次（Extern Kernel 是库调用，不经 Operator Table） |
+| Dispatcher 分发 | 3 次 × 2（Autograd 包装 + 再次分发） | 1 次（`extern_kernels.mm` 仍是 `torch.mm`，走 Dispatcher 到 cuBLAS；Triton Kernel 直接 launch） |
 | 前向 Kernel launch | 3 | 2 |
 | 中间 Tensor 分配 | 2 | 0（原地复用） |
 | Autograd 节点 | 3 个（`MmBackward0`、`AddBackward0`、`ReluBackward0`） | 1 个（`CompiledFunctionBackward`） |

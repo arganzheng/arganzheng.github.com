@@ -152,7 +152,8 @@ torchgen 读 native_functions.yaml、derivatives.yaml、tags.yaml → 生成
 Ninja 编译上万个 .cpp / .cu → 链接成共享库
     libc10.so          libc10_cuda.so
     libtorch_cpu.so    libtorch_cuda.so      libtorch.so（伞形库）
-    libtorch_python.so → 安装为 torch/_C.cpython-*.so
+    libtorch_python.so   Python 绑定层
+    torch/_C.cpython-*.so  很薄的入口模块，动态链接到 libtorch_python.so（C++ 系列第一篇拆过这层）
     ↓
 develop 模式下 Python 源码原地使用；只有 C++ 改动需要重新构建
 ```
@@ -293,10 +294,10 @@ class TestFoo(TestCase):
     def test_cuda_only(self, device, dtype): ...
 
 instantiate_device_type_tests(TestFoo, globals())        # 生成 TestFooCPU、TestFooCUDA（有 GPU 时）
-del TestFoo                                              # 泛型类本身不应被运行
+                                                         # 并从 globals() 里删掉泛型类 TestFoo，免得它被当成测试运行
 ```
 
-`instantiate_device_type_tests` 为每种可用设备生成一个子类，测试名加上 `_cpu` / `_cuda` 后缀和 dtype 后缀。可用的装饰器包括 `@dtypes`、`@dtypesIfCUDA`（CUDA 上不同的 dtype 集）、`@onlyCPU` / `@onlyCUDA` / `@onlyNativeDeviceTypes`、`@skipCUDAIf(cond)`、`@precisionOverride({torch.half: 1e-2})`、`@largeTensorTest("20GB")`（显存不够时跳过）、`@deviceCountAtLeast(2)`。
+`instantiate_device_type_tests` 为每种可用设备生成一个子类，并**自己**把泛型类从传入的命名空间里删掉（源码 `common_device_type.py` 末尾的 `del scope[generic_test_class.__name__]`），所以之后再写一句 `del TestFoo` 会 `NameError`——老教程里常见的这一行是多余的。测试名加上 `_cpu` / `_cuda` 后缀和 dtype 后缀。可用的装饰器包括 `@dtypes`、`@dtypesIfCUDA`（CUDA 上不同的 dtype 集）、`@onlyCPU` / `@onlyCUDA` / `@onlyNativeDeviceTypes`、`@skipCUDAIf(cond)`、`@precisionOverride({torch.half: 1e-2})`、`@largeTensorTest("20GB")`（显存不够时跳过）、`@deviceCountAtLeast(2)`。
 
 这套机制对外部后端也开放：新设备通过 `common_device_type` 的注册接口挂进来，同一份测试就会在它上面实例化——这就是"OpInfo 是后端一致性套件"的含义。
 
@@ -616,7 +617,7 @@ Python 版本    × 3.9 ~ 3.13
 |---|---|---|
 | Python 版本 | 3.9 / 3.10 / 3.11 / 3.12 / 3.13 | CPython 扩展 ABI：wheel 文件名里的 `cp312-cp312` 标签，`torch/_C.cpython-*.so` 只能被同一小版本的解释器加载 |
 | 加速后端 | CPU / CUDA 11.8 / CUDA 12.x（如 12.4、12.6，通常同时支持两三个）/ ROCm / XPU | `+cu124` 本地版本标识；CUDA minor version compatibility——12.x 编出的 wheel 可以在任何 12.y 的驱动上运行，但 C++ 扩展仍要用与 wheel 相同的 CUDA 版本编译；`nvidia-*` PyPI 包（cuBLAS、cuDNN、NCCL）的版本随之固定 |
-| 平台 | Linux x86_64 / Linux aarch64 / Windows / macOS arm64 | manylinux 标签规定 glibc 最低版本；libstdc++ 的 CXX11 ABI（Linux 从 2.6 起统一为 cxx11 ABI，`_GLIBCXX_USE_CXX11_ABI=1`）；Windows 绑定 MSVC 运行时；macOS 绑定最低系统版本 |
+| 平台 | Linux x86_64 / Linux aarch64 / Windows / macOS arm64 | manylinux 标签规定 glibc 最低版本；libstdc++ 的 CXX11 ABI（Linux 官方 wheel 2.6 起部分、2.7 起全部切到 cxx11 ABI，`_GLIBCXX_USE_CXX11_ABI=1`；扩展要读 `torch._C._GLIBCXX_USE_CXX11_ABI` 跟随，而不是记版本号）；Windows 绑定 MSVC 运行时；macOS 绑定最低系统版本 |
 
 每个组合一个 wheel，`torch==2.x.y+cu124` 的 `+cu124` 是本地版本标识（Python 系列讨论过）。CUDA wheel 不再打包整个 CUDA Toolkit，而是依赖 `nvidia-*` 的 PyPI 包（cuBLAS、cuDNN、NCCL 各自是一个 wheel），`libtorch_cuda.so` 在加载时通过 rpath 找到它们。`libtorch` 压缩包提供纯 C++ 使用（CMake 的 `find_package(Torch)`）。
 
@@ -1040,25 +1041,30 @@ CI 中与 `baseline.json` 比较：同一 GPU 型号下任一项中位数慢 15%
 
 {% raw %}
 ```yaml
-# .github/workflows/ci.yml（节选）
+# .github/workflows/ci.yml（结构示意：矩阵与阶段依赖是重点，步骤内容压成了一行伪码，
+# 不是可直接运行的 workflow——真实文件里每个 step 是 uses:/run: 键值，镜像 tag 也不能带通配）
 jobs:
   lint:  { runs-on: ubuntu-latest, steps: [ruff, clang-format --dry-run] }
   test:
     needs: lint
     strategy:
       matrix:
-        torch: ["2.5.*", "2.6.*"]           # 支持窗口内的版本；与第六章 §3 的平台窗口对齐
+        torch: ["2.5.1", "2.6.0"]            # 支持窗口内的版本；与第六章 §3 的平台窗口对齐
         cuda:  ["12.4"]
         python: ["3.10", "3.12"]
     runs-on: [self-hosted, gpu]
-    container: pytorch/pytorch:${{ matrix.torch }}-cuda${{ matrix.cuda }}-cudnn9-devel
+    container: pytorch/pytorch:${{ matrix.torch }}-cuda${{ matrix.cuda }}-cudnn9-devel   # 镜像只决定 torch/CUDA
     steps:
+      - uses: actions/setup-python@v5        # python 维度要显式选解释器，镜像不会替你换
+        with: { python-version: ${{ matrix.python }} }
       - run: pip install -e . --no-build-isolation
       - run: python -W error::FutureWarning -m pytest test/ -x -q        # 第八章 §2：弃用警告即错误
       - run: python benchmarks/bench_scale_shift.py out.json && python benchmarks/compare.py baseline.json out.json --tol 0.15
   wheel:
+    needs: test
     if: startsWith(github.ref, 'refs/tags/v')                              # 打 tag 才构建制品
-    strategy: { matrix: { torch: ["2.5.*", "2.6.*"], python: ["3.10", "3.12"] } }
+    runs-on: [self-hosted, gpu]
+    strategy: { matrix: { torch: ["2.5.1", "2.6.0"], python: ["3.10", "3.12"] } }
     steps: [build wheel, 上传到内部 index；文件名带 +torch2.6cu124 本地版本标识]
 ```
 {% endraw %}
@@ -1108,7 +1114,7 @@ myops::scale_shift(Tensor x, float alpha, float beta, Tensor? mask=None) -> Tens
 └── 非法输入            test_error_inputs
 ```
 
-大纲要求的"支持 CPU、CUDA、Autograd、Meta，并具有完整测试和 Benchmark 的自定义算子"到这里完成。它把前九篇串成了一条线：Schema（第五篇）→ stride 与 dtype 处理（第二、六篇）→ 反向（第三篇）→ Fake 与 compile（第七篇）→ Benchmark（第八篇）→ DDP 一致性（第九篇）→ 七个关卡（本篇）。
+大纲要求的"支持 CPU、CUDA、Autograd、Meta，并具有完整测试和 Benchmark 的自定义算子"到这里在**结构上**完成——本章给的是骨架与关键片段（`test_autograd.py`、`test_compile.py` 只有节选，没有完整 `__main__` 与注册），CI 文件是结构示意；照抄需要补齐这些文件并在有 CUDA 的机器上实际跑过，本文没有替你跑。它把前九篇串成了一条线：Schema（第五篇）→ stride 与 dtype 处理（第二、六篇）→ 反向（第三篇）→ Fake 与 compile（第七篇）→ Benchmark（第八篇）→ DDP 一致性（第九篇）→ 七个关卡（本篇）。
 
 ## 十、Java 工程师如何理解 PyTorch 的工程体系
 

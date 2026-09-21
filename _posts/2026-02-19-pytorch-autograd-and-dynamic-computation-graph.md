@@ -238,39 +238,48 @@ x ─────┘        + → z → sum → loss
 
 ```mermaid
 flowchart TB
-    tX["x（leaf, requires_grad=True）"]
-    c3["3（Python 常数，不入图）"]
-    mul(["MulBackward0"])
-    add(["AddBackward0"])
-    sm(["SumBackward0"])
-    acc(["AccumulateGrad<br/>把梯度写入 x.grad"])
-    tY["y = x * x<br/>y.grad_fn → MulBackward0"]
-    tZ["z = y + 3<br/>z.grad_fn → AddBackward0"]
-    tL["loss = z.sum()<br/>loss.grad_fn → SumBackward0"]
-
-    tX --> mul
-    tX --> mul
-    mul --> tY
-    tY --> add
-    c3 --> add
-    add --> tZ
-    tZ --> sm
-    sm --> tL
-
-    sm -.->|"next_functions"| add
-    add -.->|"next_functions<br/>(常数 3 对应 None)"| mul
-    mul -.->|"next_functions"| acc
-    acc -.-> tX
+    subgraph fwd["forward：算子与 Tensor（实线是数据流）"]
+        direction TB
+        tX["x（leaf, requires_grad=True）"]
+        c3["3（Python 常数，不入图）"]
+        opMul[["mul"]]
+        opAdd[["add"]]
+        opSum[["sum"]]
+        tY["y = x * x"]
+        tZ["z = y + 3"]
+        tL["loss = z.sum()"]
+        tX --> opMul
+        tX --> opMul
+        opMul --> tY --> opAdd
+        c3 --> opAdd
+        opAdd --> tZ --> opSum --> tL
+    end
+    subgraph bwd["Autograd 顺手记下的反向节点（虚线是 next_functions）"]
+        direction TB
+        sm(["SumBackward0"])
+        add(["AddBackward0"])
+        mul(["MulBackward0<br/>saved: x"])
+        acc(["AccumulateGrad<br/>把梯度写入 x.grad"])
+        sm -.->|"next_functions"| add
+        add -.->|"next_functions<br/>(常数 3 对应 None)"| mul
+        mul -.->|"next_functions"| acc
+    end
+    tL -. "loss.grad_fn" .-> sm
+    tZ -. "z.grad_fn" .-> add
+    tY -. "y.grad_fn" .-> mul
+    acc -. "写入" .-> tX
 
     classDef tensor fill:#e3f2fd,stroke:#1565c0;
+    classDef op fill:#ede7f6,stroke:#5e35b1;
     classDef gradfn fill:#fff3e0,stroke:#ef6c00;
     classDef const fill:#f5f5f5,stroke:#9e9e9e,stroke-dasharray:4 2;
     class tX,tY,tZ,tL tensor;
+    class opMul,opAdd,opSum op;
     class mul,add,sm,acc gradfn;
     class c3 const;
 ```
 
-矩形是 Tensor，圆角节点是 Autograd 记录下来的反向节点（也就是每个 non-leaf Tensor 的 `grad_fn`）；实线是 forward 的数据流，虚线是反向节点之间的 `next_functions` 指向——backward 正是沿着虚线从 `loss` 一路走回 `x`。
+上半是 forward 真正执行的算子（双边框）和它们产出的 Tensor（矩形），实线是数据流；下半是 Autograd 在执行每个算子时**顺手创建**的反向节点（圆角），每个 non-leaf Tensor 的 `grad_fn` 指向自己那一个，节点之间用 `next_functions` 串起来——backward 正是沿着下半的虚线从 `loss` 一路走回 `x`。两半是两套对象：`mul` 是算出 `y` 的那次运算，`MulBackward0` 是知道"怎么把 `y` 的梯度变成 `x` 的梯度"的节点，它还保存了反向要用的 `x`。
 
 ### 2. Eager Mode 下的图是动态创建的
 
@@ -435,13 +444,16 @@ print(x.grad)  # tensor(6.)
 print(y.grad)  # 通常为 None
 ```
 
-如果确实需要查看 non-leaf Tensor 的梯度，可以在 backward 前调用：
+如果确实需要查看 non-leaf Tensor 的梯度，要在**第一次** backward 之前调用 `retain_grad()`——上面那段代码 `z.backward()` 已经跑过，图里保存的中间值被释放了，接着再 `z.backward()` 会报 "Trying to backward through the graph a second time"。重新前向一遍：
 
 ```python
-y.retain_grad()
+x = torch.tensor(2.0, requires_grad=True)
+y = x * 2
+y.retain_grad()          # 在 backward 之前
+z = y * 3
 z.backward()
 
-print(y.grad)
+print(y.grad)            # tensor(3.)
 ```
 
 这会要求 Autograd 额外保留该梯度，因此调试时可以使用，生产热路径中不要无差别对大量中间 Tensor 调用 `retain_grad()`。
@@ -673,7 +685,7 @@ for inputs, targets in loader:
 
 如果这些 `loss` 仍然连接着 Autograd 图，那么列表可能间接持有每个 step 的计算图和中间 Tensor，导致显存持续增长。
 
-下图对比了两种写法的引用链。左边 `losses.append(loss)` 只多持有了一个标量 Tensor，但它的 `grad_fn` 顺着 `next_functions` 连到整张图，图上每个节点的 saved tensors（激活值）都因此无法释放；右边 `loss.item()` 把引用链在第一步就切断，backward 结束后整张图正常回收：
+要分两个时刻看。**backward 之前**（或者根本没有 backward——例如验证循环忘了 `no_grad`）：`loss` → `grad_fn` → `SavedVariable` → 每层激活，整条链都活着，列表每 append 一次就多锁住一份激活，这是显存一步步涨的那种情形。**普通 `loss.backward()` 之后**：引擎在用完每个节点的 saved tensors 时就把它们释放了（这正是"第二次 backward 报错"的原因），此时列表持有的 `loss` 只剩下一串空壳节点——几百字节的元数据，不再是激活值；只有 `retain_graph=True` 才会让激活在 backward 后继续活着。下图画的是第一个时刻。左边 `losses.append(loss)` 只多持有了一个标量 Tensor，但它的 `grad_fn` 顺着 `next_functions` 连到整张图，图上每个节点的 saved tensors（激活值）都因此无法释放；右边 `loss.item()` 把引用链在第一步就切断，backward 结束后整张图正常回收：
 
 ```mermaid
 flowchart TB
@@ -684,7 +696,7 @@ flowchart TB
         k_fn["loss.grad_fn<br/>MseLossBackward0"]
         k_sv1["saved tensors<br/>outputs, targets"]
         k_fn2["next_functions →<br/>AddmmBackward0 / ReluBackward0 …"]
-        k_sv2["saved tensors<br/>每一层的激活值"]
+        k_sv2["saved tensors<br/>每一层的激活值<br/>（backward 之前 / retain_graph 时）"]
         k_list -->|"引用"| k_loss
         k_loss -->|"引用"| k_fn
         k_fn -->|"持有"| k_sv1
@@ -696,7 +708,7 @@ flowchart TB
         f_list["Python list losses"]
         f_val["Python float"]
         f_loss["loss（Tensor）<br/>没有外部引用"]
-        f_graph["grad_fn 与 saved tensors<br/>backward 后即释放"]
+        f_graph["grad_fn 与 saved tensors<br/>无引用，随 loss 一起回收"]
         f_list -->|"引用"| f_val
         f_val -.-|"item() 只取数值，不引用 Tensor"| f_loss
         f_loss -.-> f_graph
@@ -925,32 +937,32 @@ forward：y = x²
 
 ```mermaid
 sequenceDiagram
-    participant Caller as Python 调用方
-    participant Fwd as Square.forward
-    participant Ctx as ctx
-    participant Engine as autograd engine
-    participant Bwd as Square.backward
+    participant C as 调用方
+    participant F as forward
+    participant X as ctx
+    participant E as engine
+    participant B as backward
 
-    Caller->>Fwd: Square.apply(x)
-    activate Fwd
-    Fwd->>Ctx: ctx.save_for_backward(x)
-    Note over Ctx: x 被引用并挂在反向节点上
-    Fwd-->>Caller: y = x * x（y.grad_fn = SquareBackward）
-    deactivate Fwd
+    C->>F: Square.apply(x)
+    activate F
+    F->>X: save_for_backward(x)
+    Note over X: x 挂在反向节点上
+    F-->>C: y = x*x<br/>y.grad_fn = SquareBackward
+    deactivate F
 
-    Note over Caller,Engine: forward 结束，图已建好，等待 backward
+    Note over C,E: forward 结束，图已建好
 
-    Caller->>Engine: y.backward()
-    activate Engine
-    Engine->>Bwd: backward(ctx, grad_output = dLoss/dy)
-    activate Bwd
-    Bwd->>Ctx: ctx.saved_tensors
-    Ctx-->>Bwd: (x,)
-    Bwd-->>Engine: grad_input = grad_output * 2 * x
-    deactivate Bwd
-    Engine->>Caller: x.grad += grad_input（AccumulateGrad）
-    Note over Ctx,Engine: 节点释放，saved tensors 随之释放
-    deactivate Engine
+    C->>E: y.backward()
+    activate E
+    E->>B: backward(ctx, dL/dy)
+    activate B
+    B->>X: saved_tensors
+    X-->>B: (x,)
+    B-->>E: dL/dy * 2x
+    deactivate B
+    E->>C: x.grad += …<br/>(AccumulateGrad)
+    Note over X,E: 节点释放<br/>saved tensors 随之释放
+    deactivate E
 ```
 
 ### 3. `ctx.save_for_backward()`
@@ -1242,44 +1254,17 @@ Mini-Autograd 没有实现：
 
 Autograd 的问题大多集中在几类：链路没接上、链路被切断、保存值被改、状态没清、图已释放。下面这棵决策树给出一个从上到下的排查顺序，后面几个小节分别展开每个分支：
 
-```mermaid
-flowchart TB
-    start["backward 报错 / 梯度为 None / 梯度数值不对"]
-    q1{"目标 Tensor 或参数<br/>requires_grad=True？"}
-    a1["设置 requires_grad=True<br/>检查参数是否被误冻结"]
-    q2{"loss.grad_fn 存在？<br/>沿路径打印 requires_grad / grad_fn"}
-    a2["链路被切断：detach() / no_grad()<br/>inference_mode() / .item() / 不可导操作"]
-    q3{"报 version counter<br/>modified by an inplace operation？"}
-    a3["in-place 修改了被保存的值<br/>移除 add_() 等或改用 out-of-place"]
-    q4{"梯度是预期的整数倍<br/>或随 step 单调变大？"}
-    a4["忘了 zero_grad()<br/>梯度在 .grad 上累积"]
-    q5{"第二次 backward 报<br/>buffers have already been freed？"}
-    a5["图已释放：重新 forward<br/>或有明确理由时 retain_graph=True"]
-    q6{"是 non-leaf 的 .grad 为 None？"}
-    a6["正常现象<br/>调试时用 retain_grad()"]
-    a7["NaN / Inf：检查输入、dtype、lr<br/>set_detect_anomaly(True) 定位"]
+按下面的顺序排查，每一步只回答一个问题：
 
-    start --> q1
-    q1 -->|"否"| a1
-    q1 -->|"是"| q2
-    q2 -->|"否"| a2
-    q2 -->|"是"| q3
-    q3 -->|"是"| a3
-    q3 -->|"否"| q4
-    q4 -->|"是"| a4
-    q4 -->|"否"| q5
-    q5 -->|"是"| a5
-    q5 -->|"否"| q6
-    q6 -->|"是"| a6
-    q6 -->|"否"| a7
-
-    classDef question fill:#fff3e0,stroke:#ef6c00;
-    classDef answer fill:#e8f5e9,stroke:#2e7d32;
-    classDef entry fill:#ffebee,stroke:#c62828;
-    class q1,q2,q3,q4,q5,q6 question;
-    class a1,a2,a3,a4,a5,a6,a7 answer;
-    class start entry;
-```
+| 步 | 先看 | 若是 | 处理 |
+|---|---|---|---|
+| 1 | 目标 Tensor / 参数 `requires_grad=True`？ | 否 | 设 `requires_grad=True`；检查参数是否被误冻结 |
+| 2 | `loss.grad_fn` 存在？沿路径打印 `requires_grad` / `grad_fn` | 否 | 链路被切断：`detach()`、`no_grad()`、`inference_mode()`、`.item()`、不可导操作 |
+| 3 | 报 "modified by an inplace operation"？ | 是 | in-place 修改了被保存的值：移除 `add_()` 等或改用 out-of-place |
+| 4 | 梯度是预期的整数倍、或随 step 单调变大？ | 是 | 忘了 `zero_grad()`，梯度在 `.grad` 上累积 |
+| 5 | 第二次 backward 报 "buffers have already been freed"？ | 是 | 图已释放：重新 forward；有明确理由时 `retain_graph=True` |
+| 6 | 是 non-leaf 的 `.grad` 为 `None`？ | 是 | 正常现象；调试时用 `retain_grad()` |
+| 7 | 以上都不是，数值 NaN / Inf | — | 检查输入、dtype、lr；`set_detect_anomaly(True)` 定位 |
 
 ### 1. `element 0 of tensors does not require grad`
 
@@ -1354,10 +1339,19 @@ loss.detach().cpu()
 ```python
 x = torch.randn(3, requires_grad=True)
 y = x * x
-x.add_(1)
+x.add_(1)        # 立刻报错：a leaf Variable that requires grad is being used in an in-place operation
 ```
 
-如果 backward 需要 `x` 的旧值，而 `x` 已经被修改，Autograd 可能检测到版本不一致并报错。
+对需要梯度的 **leaf** Tensor 做 in-place，Autograd 在操作发生的那一刻就拒绝——不等到 backward。更隐蔽的是对**中间结果**做 in-place：
+
+```python
+x = torch.randn(3, requires_grad=True)
+a = torch.exp(x)
+a.add_(1)        # 允许
+a.sum().backward()   # 这里才报：modified by an inplace operation
+```
+
+`exp` 的反向需要它自己的输出 `a`，`SavedVariable` 保存了 `a` 并记下 version；`add_` 让 version +1，backward 时检查到不一致才报错。哪些算子会保存哪些输入由 `derivatives.yaml` 决定，所以同一个 in-place 有时安全、有时报错。
 
 遇到 in-place 相关错误时，先移除 in-place 操作验证正确性，再判断是否有必要通过更安全的方式优化内存。
 
@@ -1589,7 +1583,7 @@ loss 是否参与了目标参数的计算？
 
    <details markdown="1"><summary>答案</summary>
 
-   `no_grad` 只是不记录 `grad_fn`，产生的 Tensor 仍是普通 Tensor、可以之后参与求导；`inference_mode` 更进一步：不维护 version counter、不分配 AutogradMeta，产出的 Tensor 不能再进入 autograd，更快更省。纯推理用 `inference_mode`。
+   `no_grad` 只是不记录 `grad_fn`，产生的 Tensor 仍是普通 Tensor、可以之后参与求导；`inference_mode` 更进一步：不维护 version counter、不分配 AutogradMeta，产出的 Tensor 不能再作为**需要被保存**的输入进入 autograd（`x * c` 会在 `x` 求导时报错，因为 `c` 没有 version counter 无法保存；`x + c` 不保存 `c`，仍能正常求导），更快更省。纯推理用 `inference_mode`。
 
    </details>
 
@@ -1612,6 +1606,6 @@ loss 是否参与了目标参数的计算？
 [^q4]: 因为 `backward()` 对 leaf 的 `.grad` 做的是 `+=` 而不是 `=`：同一个参数在图里被多处使用、或多次调用 `backward()`（梯度累积、多任务 loss）时，各路梯度要相加。代价是每个 step 前必须 `zero_grad()`，否则上一步的梯度混进来。详见[第五章](#五backward反向传播与梯度累积)。
 [^q5]: 前向执行每个需要梯度的算子时就地创建节点（动态图，每次前向一张新图）；`backward()` 默认执行完就释放各节点保存的中间值（`retain_graph=False`），节点本身在没有 Tensor 引用它的 `grad_fn` 时随引用计数回收。详见[第三章](#三动态计算图每次执行都记录一条新路径)、[第六章](#六计算图中的保存值与生命周期)。
 [^q6]: 因为 Tensor 通过 `grad_fn` 持有节点，节点通过 `SavedVariable` 持有前向中间值，中间值又通过自己的 `grad_fn` 持有上游节点——保存一个 non-leaf 输出（比如把 `loss` 存进 list 而不是 `loss.item()`），整条链连同所有保存的激活都活着，显存一步步涨。详见[第六章](#六计算图中的保存值与生命周期)。
-[^q7]: `detach()` 作用于一个 Tensor：返回共享数据、但切断与图连接的新 Tensor。`no_grad()` 是线程局部的开关：作用域内的运算都不建图，但已有的图不受影响，产生的 Tensor 仍可被后续带梯度的运算使用。`inference_mode()` 更激进：除了不建图还省掉 version counter 与 view 元数据的维护，更快，但产生的 Tensor 之后**不能**再进入 autograd。详见[第七章](#七detachno_grad-与-inference_mode)。
+[^q7]: `detach()` 作用于一个 Tensor：返回共享数据、但切断与图连接的新 Tensor。`no_grad()` 是线程局部的开关：作用域内的运算都不建图，但已有的图不受影响，产生的 Tensor 仍可被后续带梯度的运算使用。`inference_mode()` 更激进：除了不建图还省掉 version counter 与 view 元数据的维护，更快，但产生的 Tensor 之后**不能**再作为需保存的输入进入 autograd（`x * c` 报错，`x + c` 仍可）。详见[第七章](#七detachno_grad-与-inference_mode)。
 [^q8]: 写一个 `torch.autograd.Function` 子类，实现 `forward`（用 `ctx.save_for_backward` 存反向需要的值）与 `backward`（接上游梯度，返回对每个输入的 VJP），用 `apply` 调用；自定义算子则通过 `torch.library.register_autograd` 挂上同样的两个函数。用 `gradcheck`（float64 有限差分）验证。详见[第八章](#八自定义-autogradfunction)。
 [^q9]: 节点保存的输入带 version counter；in-place 操作修改被保存的 Tensor 后 version 变了，反向时 `SavedVariable` 检查到不一致就报 `one of the variables needed for gradient computation has been modified by an inplace operation`。哪些算子保存哪些输入由 `derivatives.yaml` 决定，所以同一个 in-place 有时安全、有时报错。详见[第六章](#六计算图中的保存值与生命周期)、[第十章](#十autograd-常见问题与排查方法)。

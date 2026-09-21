@@ -236,10 +236,10 @@ y = x.reshape(2, 3)
 如果底层布局满足条件，`y` 可以和 `x` 共享 Storage：
 
 ```python
-print(x.data_ptr() == y.data_ptr())
+print(x.untyped_storage().data_ptr() == y.untyped_storage().data_ptr())   # 比较 Storage，而不是 data_ptr()
 ```
 
-但这不是 `reshape()` 的永久保证。它会尝试返回 view；如果现有布局不允许，就可能创建拷贝。
+（`x.data_ptr() == y.data_ptr()` 只在两者 `storage_offset` 相同时才等价——`x[1:]` 与 `x` 共享 Storage，但 `data_ptr()` 差一个元素。）但这不是 `reshape()` 的永久保证。它会尝试返回 view；如果现有布局不允许，就可能创建拷贝。
 
 ### 3. `view()`、`reshape()` 与 `flatten()`
 
@@ -885,12 +885,14 @@ BF16 ┌─┬────────┬───────┐
      │S│ exp(8) │mant(7)│  1 + 8 + 7 = 16 bit
      └─┴────────┴───────┘  指数位和 FP32 一样，范围相同；~2 位十进制精度
 
-BF16 = FP32 直接砍掉低 16 位尾数（符号位、指数位与 FP32 完全一致）：
+BF16 的位域 = FP32 的高 16 位（符号位、指数位与 FP32 完全一致，尾数取前 7 位）：
 FP32 ┌─┬────────┬───────┬────────────────┐
      │S│ exp(8) │mant 7 │  mant 低 16 位 │
      └─┴────────┴───────┴────────────────┘
-      └── BF16 保留 ───┘ └─ 直接丢弃 ───┘
+      └── BF16 保留 ───┘ └─ 转换时按这 16 位舍入 ─┘
 ```
+
+位域重合不等于"转换就是砍掉低 16 位"：`x.to(torch.bfloat16)` 按**最近偶数舍入**，低 16 位大于一半时会向上进位。例：`1.005` 的 FP32 尾数低 16 位超过一半，转 BF16 得 `1.0078125`（`1 + 2^-7`），而直接截断会得到 `1.0`；两者都离 1.005 一个 ulp 以内，但方向不同，累加起来偏差不一样。
 
 因此二者的工程特性不同：
 
@@ -1026,8 +1028,8 @@ flowchart TB
     DISK["磁盘 / 数据集文件"]
     PAGE["CPU pageable 内存<br/>DataLoader worker 进程读取、预处理"]
     PIN["CPU pinned 内存（页锁定，不会被换出）<br/>pin_memory=True 时由 DataLoader 主进程拷入"]
-    H2D_SYNC["H2D 拷贝：同步<br/>来源是 pageable 内存，或 non_blocking=False<br/>CPU 线程阻塞直到拷贝完成 —— 同步点"]
-    H2D_ASYNC["H2D 拷贝：异步 DMA<br/>pinned 来源 + non_blocking=True<br/>CPU 立即返回，拷贝排入当前 CUDA stream"]
+    H2D_SYNC["H2D 拷贝：（近乎）同步<br/>来源是 pageable 内存，或 non_blocking=False<br/>pageable：先搬进驱动的 pinned 中转区，CPU 等这一步；<br/>non_blocking=False：CPU 等整个拷贝 —— 同步点"]
+    H2D_ASYNC["H2D 拷贝：异步 DMA<br/>pinned 来源 + non_blocking=True<br/>CPU 立即返回，拷贝排入当前 CUDA stream<br/>（要与计算重叠还需另一条 stream，第八篇）"]
     GPU["GPU 显存中的 batch Tensor"]
     KERNEL["Kernel 执行<br/>同一 stream 上按序排队，自动等拷贝完成<br/>CPU 不需要等待"]
     IMPLICIT["隐式同步点：.item()、print(tensor)、.cpu()<br/>会让 CPU 等待 stream 上全部工作完成，<br/>把异步拷贝的收益吃掉"]
@@ -1726,7 +1728,7 @@ flowchart TB
 
    <details markdown="1"><summary>答案</summary>
 
-   `view` 报错（要求元素在内存中按新形状连续可解释）；`reshape` 在能 view 时 view、否则复制一份连续的再 view；`flatten` 等同 `reshape`。所以 `reshape` 的返回值是否共享内存不确定，写代码时要意识到。
+   `view` 在新形状**无法**用一组 stride 在现有内存排列上解释时报错——不连续不等于一定报错：`torch.arange(12).view(2, 6)[:, ::2]`（strides `(6, 2)`）不连续，但 `view(-1)` 可以得到 stride `(2,)` 的一维视图；`transpose` 之后那种维度顺序被打乱的布局才做不到。`reshape` 在能 view 时 view、否则复制一份连续的再 view；`flatten` 等同 `reshape`。所以 `reshape` 的返回值是否共享内存不确定，写代码时要意识到。
 
    </details>
 
@@ -1761,10 +1763,10 @@ flowchart TB
 
 [^q0]: Tensor 是六样东西的组合：数据（`StorageImpl` 里的字节缓冲区，可被多个 Tensor 共享）、形状（`sizes`）、布局（`strides` + `storage_offset`）、类型（`dtype`）、设备（`device`）与生命周期（`TensorImpl` / `StorageImpl` 的引用计数）。Python 的 `torch.Tensor` 是句柄，指向 C++ 的 `TensorImpl`，后者持有 `Storage`。详见[第二章](#二tensor-的整体模型)。
 [^q1]: `transpose()` 只交换两维的 `size` 与 `stride`，产生一个新的 `TensorImpl`，与原 Tensor 共享同一个 `Storage`；数据一个字节都没动，代价是结果不再连续。详见[第五章](#五transposepermute-与-view)。
-[^q2]: `view()` 要求新形状能用一组 stride 在**现有内存排列**上直接解释出来（不复制）；对连续 Tensor 总能做到，对 `transpose` 之后这类不连续 Tensor 往往做不到，于是报错。详见[第五章](#五transposepermute-与-view)。
+[^q2]: `view()` 要求新形状能用一组 stride 在**现有内存排列**上直接解释出来（不复制）；对连续 Tensor 总能做到，对 `transpose` 之后这类维度顺序被打乱的不连续 Tensor 往往做不到，于是报错（但不连续不等于必报错：等步长的切片 `x[:, ::2]` 就能 `view(-1)`）。详见[第五章](#五transposepermute-与-view)。
 [^q3]: `reshape()` = "能 `view` 就 `view`，不能就先 `contiguous()` 复制一份再 `view`"，所以它的返回值是否与原 Tensor 共享内存取决于输入是否连续。详见[第五章](#五transposepermute-与-view)与[第六章](#六contiguous连续布局与数据拷贝)。
 [^q4]: `shape` 只是逻辑形状，性能由 stride（是否连续、内存访问模式）、`dtype`（字节数与能否走 Tensor Core）和 `device` 决定；同一 shape 的连续与非连续 Tensor 会走不同的 kernel 路径。详见[第四章](#四stride逻辑索引如何映射到内存)与[第六章](#六contiguous连续布局与数据拷贝)。
 [^q5]: `device` 是每个 Tensor 自己的属性，`model.to("cuda")` 只搬模块注册的参数与 buffer；输入是另一个 Tensor，没人替它搬，算子要求所有输入在同一设备上。详见[第九章](#九device数据到底在哪里执行)。
-[^q6]: `dtype` 决定每个元素的解释方式：位宽只是其一，还有能表示的范围与精度（fp16 最大 65504、bf16 尾数只有 7 位）、混合运算时的类型提升规则，以及能选到哪些 kernel。详见[第八章](#八dtype如何解释每个元素)。
+[^q6]: `dtype` 决定每个元素的解释方式：位宽只是其一，还有能表示的范围与精度（fp16 最大 65504、bf16 尾数只有 7 位，FP32→BF16 按最近舍入而非截断）、混合运算时的类型提升规则，以及能选到哪些 kernel。详见[第八章](#八dtype如何解释每个元素)。
 [^q7]: Autograd 在前向时会保存某些中间 Tensor 供反向使用，in-place 操作改写了这些被保存的数据，PyTorch 用版本计数器检测到后报错。原则：只在明确数据依赖时才用 in-place。详见[第十章](#十viewclonedetach-与-in-place)。
 [^q8]: 两个原因：某个小 view 仍持有同一个 `Storage`，整块数据就活着；`del` 之后释放的块也只是回到 CUDA caching allocator 的缓存（`memory_reserved` 不降），`empty_cache()` 才归还驱动。详见[第十二章](#十二从-tensor-视角理解内存问题)。
