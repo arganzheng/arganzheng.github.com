@@ -20,7 +20,7 @@ date: 2026-02-15 20:00:00
 
 | 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 判据 |
 |---|---|---|---|
-| [第一篇：编译模型与项目布局](/cpp-compilation-model-and-project-layout.html) | `import torch` 加载了哪些 `.so`？依赖关系是什么？扩展链接到哪一个？ | 编译器只看得见一个翻译单元，符号由链接器与动态加载器在两个时刻解析；每类"找不到"只出现在一个阶段 | 四阶段 + 加载第五步；20 行源文件预处理后 40222 行；四种链接属性；`ld.so` 搜索顺序 RPATH → `LD_LIBRARY_PATH` → RUNPATH；`libtorch_global_deps.so`（`RTLD_GLOBAL`）→ `_C` → `torch_python` → `torch` → `torch_cpu` → `c10` |
+| 第一篇：编译模型与项目布局（[上](/cpp-compilation-model-from-cpp-to-shared-object.html) · [下](/cpp-project-layout-namespaces-libraries-and-cmake.html)） | `import torch` 加载了哪些 `.so`？依赖关系是什么？扩展链接到哪一个？ | 编译器只看得见一个翻译单元，符号由链接器与动态加载器在两个时刻解析；每类"找不到"只出现在一个阶段 | 四阶段 + 加载第五步；20 行源文件预处理后 40222 行；四种链接属性；`ld.so` 搜索顺序 RPATH → `LD_LIBRARY_PATH` → RUNPATH；`libtorch_global_deps.so`（`RTLD_GLOBAL`）→ `_C` → `torch_python` → `torch` → `torch_cpu` → `c10` |
 | [第二篇：对象模型与 RAII](/cpp-value-semantics-ownership-and-raii.html) | `at::Tensor y = x;` 之后 `y` 与 `x` 是什么关系？数据什么时候释放？ | `Tensor` 是 8 字节值句柄，`=` 拷贝句柄、计数 +1；数据在最后一个 `TensorImpl` 与所有 view 的 `StorageImpl` 计数归零那一刻同步释放 | `Tensor` 8 字节 vs `shared_ptr` 16 字节 + 控制块；400M 个活 tensor 每加一个字多 3.2 GB；`y = x` / view / clone 三种关系；`del` 后显存未降的四步排查；`const` 五个位置且 `Tensor` 的 `const` 是浅的 |
 | [第三篇：模板与泛型编程](/cpp-templates-and-generic-programming.html) | `AT_DISPATCH` 里的 `scalar_t` 从哪里来？lambda 被编译了几次？ | 模板为每组参数生成一份代码；`AT_DISPATCH` 是一个 `switch`，每个 `case` 里 `using scalar_t = ...` 再粘贴 lambda，N 个 dtype 就编 N 份 | 浮点两份、`ALL_TYPES_AND_HALF` 十几份；不从返回值推导 → `data_ptr<T>()` 必须显式；`DimVector` 内联 5 维；vLLM 3 dtype × 2 width = 6 份 kernel；`[&]` 同步不逃逸才安全 |
 | [第四篇：多态与类型擦除](/cpp-polymorphism-and-type-erasure.html) | Dispatcher 用什么机制调到 CPU kernel？为什么既有 boxed 又有 unboxed？ | 不是虚函数，是函数指针 + 模板生成的适配器；unboxed 为快，boxed（`Stack*` 上的 `IValue`）为通用层写一次 | `KernelFunction` = `intrusive_ptr<OperatorKernel>` + boxed 指针 + `void*` unboxed；`std::function` 32 / `function_ref` 16 / 函数指针 8 字节；`IValue` 16 字节（4 tag + 8 payload）；`lookup` 一次数组下标、全程无虚调用 |
@@ -42,6 +42,8 @@ date: 2026-02-15 20:00:00
 ## 二、逐篇回顾
 
 ### 1. 第一篇：从源码到二进制——编译模型与项目布局
+
+（拆成[上：编译模型](/cpp-compilation-model-from-cpp-to-shared-object.html)与[下：工程布局](/cpp-project-layout-namespaces-libraries-and-cmake.html)两篇。）
 
 **核心问题**：`import torch` 时加载了哪些 `.so`？它们之间是什么依赖关系？我写的扩展链接到哪一个？
 
@@ -227,8 +229,8 @@ date: 2026-02-15 20:00:00
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
 |---|---|---|---|
-| 找不到符号是运行时异常，像 `NoClassDefFoundError` | 三类"找不到"分别在编译期、链接期、加载期，都在业务代码运行之前 | 按错误信息判断阶段：`not declared` / `undefined reference` / `undefined symbol` | [第一篇](/cpp-compilation-model-and-project-layout.html) |
-| `-ltorch_cpu` 已经依赖 `libc10.so`，不用再写 `-lc10` | GNU ld 默认 `--no-copy-dt-needed-entries`，不通过依赖的依赖满足引用 | 引用了 `c10::` 的符号就显式 `-lc10` | [第一篇](/cpp-compilation-model-and-project-layout.html) |
+| 找不到符号是运行时异常，像 `NoClassDefFoundError` | 三类"找不到"分别在编译期、链接期、加载期，都在业务代码运行之前 | 按错误信息判断阶段：`not declared` / `undefined reference` / `undefined symbol` | [第一篇](/cpp-compilation-model-from-cpp-to-shared-object.html) |
+| `-ltorch_cpu` 已经依赖 `libc10.so`，不用再写 `-lc10` | GNU ld 默认 `--no-copy-dt-needed-entries`，不通过依赖的依赖满足引用 | 引用了 `c10::` 的符号就显式 `-lc10` | [第一篇](/cpp-compilation-model-from-cpp-to-shared-object.html) |
 | `Tensor y = x;` 是起别名，和 Java 一样不花钱 | 它是值拷贝，拷的是带引用计数的 8 字节句柄，一次原子加、将来一次原子减 | 只读参数用 `const Tensor&` 省掉这两次原子操作 | [第二篇](/cpp-value-semantics-ownership-and-raii.html) |
 | `del x` 之后显存立刻回来 | 数据只在最后一个 `TensorImpl` 与所有 view 的 `StorageImpl` 计数归零时释放，CUDA 默认还给缓存池 | 四步排查：别的 Python 引用 → autograd 保存 → view 活着 → 在缓存池 | [第二篇](/cpp-value-semantics-ownership-and-raii.html) |
 | `const Tensor&` 保证函数不改数据 | `const` 只看句柄自己的字节，不追踪指针指向的地方 | `Tensor` 的 `const` 是浅的；in-place 算子的输出参数就是 `const Tensor&` | [第二篇](/cpp-value-semantics-ownership-and-raii.html) |

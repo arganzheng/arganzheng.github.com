@@ -9,7 +9,7 @@ catalog: true
 
 ## 内容简介
 
-《Python 在 AI-Infra：从语言机制到生产交付》是一组共七篇的系列文章，面向有后端工程经验（尤其是 Java 背景）、准备转向 AI-Infra 方向的工程师，系统梳理这个方向真正需要的 Python 能力：语言核心机制、类型系统与数据契约、并发与异步、反射与元编程、内存管理、测试与调试、以及工程化交付。
+《Python 在 AI-Infra：从语言机制到生产交付》是一组共七讲、九篇的系列文章（第一讲拆成上下两篇、第二讲拆成上中下三篇，其余各一篇），面向有后端工程经验（尤其是 Java 背景）、准备转向 AI-Infra 方向的工程师，系统梳理这个方向真正需要的 Python 能力：语言核心机制、类型系统与数据契约、并发与异步、反射与元编程、内存管理、测试与调试、以及工程化交付。
 
 它同时是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html) L1 工具箱的**深入篇**：算法侧的[《算法工程师的工具箱》](/tooling-for-ai-algorithm-engineers.html)只讲训练代码里用到的 Python 子集，把语言机制与运行时交给这里——两张地图共享本系列，算法方向的读者按需读。
 
@@ -233,8 +233,8 @@ Java 工程师在这里会遇到最大的落差：
 
 ## 章节目录（建议按顺序阅读）
 
-1. [语言机制与运行时原理](/python-language-mechanisms-and-runtime-internals.html)
-2. [类型系统与数据契约设计](/python-type-system-and-data-contract-design.html)
+1. 语言机制与运行时原理：[上·代码如何被执行——执行模型、作用域、导入与异常](/python-execution-model-scopes-imports-and-exceptions.html) · [下·对象如何工作——对象模型、协议、装饰器与生成器](/python-object-model-protocols-decorators-and-generators.html)
+2. 类型系统与数据契约设计：[上·类型表达与 typing 工具箱](/python-type-expression-and-the-typing-toolbox.html) · [中·类型信息的分发与消费](/python-type-information-distribution-and-consumption.html) · [下·数据契约设计](/python-data-contract-design-dataclass-pydantic-and-settings.html)
 3. [并发、异步与任务协作](/python-concurrency-asynchrony-and-task-collaboration.html)
 4. [Python 的动态机制及工程实践](/python-reflection-metaprogramming-and-plugin-architecture.html)
 5. [内存管理与优化](/python-memory-management-and-optimization.html)

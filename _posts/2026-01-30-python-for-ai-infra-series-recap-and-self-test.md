@@ -20,8 +20,8 @@ date: 2026-01-30 20:00:00
 
 | 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 判据 |
 |---|---|---|---|
-| [第一篇：语言机制与运行时原理](/python-language-mechanisms-and-runtime-internals.html) | 一段代码从被加载、创建对象、执行任务到释放资源，运行时做了什么？ | 每行"简单"语法背后是一个可替换的协议：`import` 是运行时动作，`obj.attr` 是一个固定算法，`model(x)` 查类型上的 `__call__`，装饰器在定义时执行一次，生成器是挂起的帧 | 属性查找：数据描述符 → 实例字典 → 非数据描述符 → `__getattr__`；`sys.path[0]` 由启动方式决定；`sys.modules` 每进程一份；`super()` 是 MRO 里的下一个；`break` 不等于 `close()` |
-| [第二篇：类型系统与数据契约设计](/python-type-system-and-data-contract-design.html) | 类型信息从哪来、被谁消费、怎么落成可执行的契约？ | 提供与消费拆成两层：解释器只把注解存进 `__annotations__`；`@dataclass` 读注解只当字段清单、用 `exec` 生成代码；Pydantic 用元类在类创建时构建验证树 | 边界校验一次、内部零开销；`Protocol` 3.8、`X \| Y` 3.10、`ParamSpec` 3.10、`Self` 3.11；`get_type_hints()` 比 `__annotations__` 多做三件事；`@runtime_checkable` 只查方法存在 |
+| 第一篇：语言机制与运行时原理（[上](/python-execution-model-scopes-imports-and-exceptions.html) · [下](/python-object-model-protocols-decorators-and-generators.html)） | 一段代码从被加载、创建对象、执行任务到释放资源，运行时做了什么？ | 每行"简单"语法背后是一个可替换的协议：`import` 是运行时动作，`obj.attr` 是一个固定算法，`model(x)` 查类型上的 `__call__`，装饰器在定义时执行一次，生成器是挂起的帧 | 属性查找：数据描述符 → 实例字典 → 非数据描述符 → `__getattr__`；`sys.path[0]` 由启动方式决定；`sys.modules` 每进程一份；`super()` 是 MRO 里的下一个；`break` 不等于 `close()` |
+| 第二篇：类型系统与数据契约设计（[上](/python-type-expression-and-the-typing-toolbox.html) · [中](/python-type-information-distribution-and-consumption.html) · [下](/python-data-contract-design-dataclass-pydantic-and-settings.html)） | 类型信息从哪来、被谁消费、怎么落成可执行的契约？ | 提供与消费拆成两层：解释器只把注解存进 `__annotations__`；`@dataclass` 读注解只当字段清单、用 `exec` 生成代码；Pydantic 用元类在类创建时构建验证树 | 边界校验一次、内部零开销；`Protocol` 3.8、`X \| Y` 3.10、`ParamSpec` 3.10、`Self` 3.11；`get_type_hints()` 比 `__annotations__` 多做三件事；`@runtime_checkable` 只查方法存在 |
 | [第三篇：并发、异步与任务协作](/python-concurrency-asynchrony-and-task-collaboration.html) | 瓶颈在哪？任务怎么协作？下游跟不上时系统怎么稳？ | 按瓶颈选模型不按 API 流行度：线程管阻塞 I/O，进程绕开 GIL，asyncio 管大量 I/O 协作；背压、超时、取消、批处理是过载时的稳定手段 | 线程池默认 $$\min(32, \text{cpu} + 4)$$；OS 线程约 8 MB 栈、协程几 KB；`fork` 只复制调用线程，3.14 起 Linux 默认 `forkserver`；`/dev/shm` 默认 64 MB；队列默认无界、`asyncio.Lock` 不可重入、`CancelledError` 是 `BaseException`；FastAPI `def` 端点线程池 40 |
 | [第四篇：Python 的动态机制及工程实践](/python-reflection-metaprogramming-and-plugin-architecture.html) | 运行时怎么访问和改造程序结构？怎么用它做插件系统与路由，又不失控？ | 反射观察、元编程改造、动态加载导入；插件化 = 注册表 + 发现 + 契约 + 边界；动态机制只在启动时"选择"，热路径必须静态 | 侵入性递增：显式注册 → 装饰器 → 描述符 → `__init_subclass__` → 元类；`getattr` ≈ 23 ns（2.3×）、`inspect.signature` ≈ 3700 ns（约 370×）；三种发现机制；用户输入能选名字、不能造名字 |
 | [第五篇：内存管理与优化](/python-memory-management-and-optimization.html) | 哪些内存归 Python、哪些在原生缓冲区或设备上？哪些操作复制或延长生命周期？增长怎么定位？ | 内存问题多数不是"泄漏"而是"被意外长期持有"；Python 归还内存是分层的，对象释放不等于 RSS 下降 | 引用计数归零立即释放，循环靠分代 GC，阈值 `(700, 10, 10)`；pymalloc 管 ≤ 512 字节，arena 256 KB / pool 4 KB；小整数 −5 到 256 缓存；`memory_reserved` ≥ `memory_allocated`；先分三类再找源 |
@@ -42,6 +42,8 @@ date: 2026-01-30 20:00:00
 
 ### 1. 第一篇：语言机制与运行时原理
 
+（拆成[上：代码如何被执行](/python-execution-model-scopes-imports-and-exceptions.html)与[下：对象如何工作](/python-object-model-protocols-decorators-and-generators.html)两篇。）
+
 **核心问题**：一段 AI-Infra 代码从被加载、创建对象、执行任务到释放资源，Python 运行时究竟做了什么？`import torch` 为什么能加载几百 MB 的 C++ 库，`model(x)` 与 `model.forward(x)` 为什么不等价，写了 `@register` 为什么注册表还是空的？
 
 **结论**：沿"一段代码的生命周期"看，九组机制层层依赖。源码按模块编译成 code object，函数对象封装它，调用时创建帧；名称归属在编译期决定，闭包是"函数对象 + cell"且 cell 是共享的（循环里的 `lambda: i` 全返回最后一个值）。`import` 不是声明而是运行时动作：查 `sys.modules` → `sys.meta_path` 上的 finder 给出 `ModuleSpec` → loader 执行顶层代码；`.so` 由 `ExtensionFileLoader` `dlopen` 并调 `PyInit_*`，所以 `torch._C` 与一个 `.py` 走的是同一条路。模块在顶层代码执行完之前就已在 `sys.modules` 里，这是循环导入报 `cannot import name` 的窗口期。类由 `type` 创建；`obj.attr` 是一个固定算法（数据描述符 → 实例 `__dict__` → 非数据描述符或类属性 → `__getattr__`），方法、`classmethod`、`staticmethod`、`property` 只是描述符 `__get__` 返回值不同；`nn.Module` 靠 `__setattr__` 拦截写、`__getattr__` 兜底读把子模块藏进 `_modules`。特殊方法在类型上查找、跳过实例字典，所以 `model(x)` 走 `nn.Module.__call__`（hooks 挂在这里），`model.forward(x)` 绕过全部 hook。装饰器在定义时执行一次、返回替代对象，靠闭包记参数、靠描述符协议对方法透明；生成器是被挂起而非销毁的帧，资源随生成器存活；`with` 展开为 `__enter__` / `__exit__`，异常沿帧链传播、途经每个 `__exit__` 与 `finally`，只记录不重抛是反模式。
@@ -59,6 +61,8 @@ date: 2026-01-30 20:00:00
 **常见误解**："`import` 只是声明依赖"——它执行模块顶层代码，算子注册、CUDA 初始化、日志配置都可能发生在这一步，时机由导入顺序决定。另一个："`super()` 调的是父类"——它调的是实例 MRO 中当前类之后的下一个，`Logging.run` 里的 `super().run()` 可能调到 `Metrics.run`；任何一层漏掉 `super()`，之后的层全被跳过。
 
 ### 2. 第二篇：类型系统与数据契约设计
+
+（拆成[上：类型表达](/python-type-expression-and-the-typing-toolbox.html)、[中：分发与消费](/python-type-information-distribution-and-consumption.html)、[下：数据契约](/python-data-contract-design-dataclass-pydantic-and-settings.html)三篇。）
 
 **核心问题**：Python 的类型信息从哪里来、被谁消费，又如何在系统边界上落成可执行的数据契约？为什么 `x: int = "hello"` 不报错，`@dataclass` 读了注解却不校验，Pydantic 又凭什么能校验？
 
@@ -220,12 +224,12 @@ flowchart TB
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
 |---|---|---|---|
-| `import` 只是声明依赖 | 它执行模块顶层代码，注册、CUDA 初始化都在这一步发生 | `import` 是运行时动作，副作用时机由导入顺序决定；顶层只做声明式的事 | [第一篇](/python-language-mechanisms-and-runtime-internals.html) |
-| `model.forward(x)` 与 `model(x)` 一样 | 调用语法查类型上的 `__call__`，hooks 挂在 `nn.Module.__call__` 里 | 直接调 `forward` 绕过全部 hook | [第一篇](/python-language-mechanisms-and-runtime-internals.html) |
-| `super()` 调父类 | 它调的是实例 MRO 中当前类之后的下一个 | 协作式多继承每一层都要调 `super()`，漏一层之后全被跳过 | [第一篇](/python-language-mechanisms-and-runtime-internals.html) |
-| 类型注解在运行时生效 | 解释器只把注解存进 `__annotations__` | 只有 Pydantic、beartype 这类消费者主动读取时才生效 | [第二篇](/python-type-system-and-data-contract-design.html) |
-| `@dataclass` 会按注解校验 | 它只读字段名与顺序、`exec` 生成 `__init__`，不理解注解语义 | `User(id="abc")` 静默通过；要校验用 Pydantic 或 `__post_init__` | [第二篇](/python-type-system-and-data-contract-design.html) |
-| 过了 mypy 就是被检查过了 | 默认不检查没标注的函数体 | `check_untyped_defs` 或 `strict` 才检查 | [第二篇](/python-type-system-and-data-contract-design.html) |
+| `import` 只是声明依赖 | 它执行模块顶层代码，注册、CUDA 初始化都在这一步发生 | `import` 是运行时动作，副作用时机由导入顺序决定；顶层只做声明式的事 | [第一篇](/python-execution-model-scopes-imports-and-exceptions.html) |
+| `model.forward(x)` 与 `model(x)` 一样 | 调用语法查类型上的 `__call__`，hooks 挂在 `nn.Module.__call__` 里 | 直接调 `forward` 绕过全部 hook | [第一篇](/python-execution-model-scopes-imports-and-exceptions.html) |
+| `super()` 调父类 | 它调的是实例 MRO 中当前类之后的下一个 | 协作式多继承每一层都要调 `super()`，漏一层之后全被跳过 | [第一篇](/python-execution-model-scopes-imports-and-exceptions.html) |
+| 类型注解在运行时生效 | 解释器只把注解存进 `__annotations__` | 只有 Pydantic、beartype 这类消费者主动读取时才生效 | [第二篇](/python-type-expression-and-the-typing-toolbox.html) |
+| `@dataclass` 会按注解校验 | 它只读字段名与顺序、`exec` 生成 `__init__`，不理解注解语义 | `User(id="abc")` 静默通过；要校验用 Pydantic 或 `__post_init__` | [第二篇](/python-type-expression-and-the-typing-toolbox.html) |
+| 过了 mypy 就是被检查过了 | 默认不检查没标注的函数体 | `check_untyped_defs` 或 `strict` 才检查 | [第二篇](/python-type-expression-and-the-typing-toolbox.html) |
 | 多线程能加速 CPU 计算 | GIL 让字节码执行期间只有一个线程 | 线程只对阻塞 I/O 与释放了 GIL 的 C 扩展有效，纯 Python CPU 用进程 | [第三篇](/python-concurrency-asynchrony-and-task-collaboration.html) |
 | 在协程里调 `requests.get()` 没问题 | Python 不会替你把阻塞变非阻塞，事件循环整个停摆 | 用异步客户端或 `asyncio.to_thread()`；虚拟线程里这样写才是对的 | [第三篇](/python-concurrency-asynchrony-and-task-collaboration.html) |
 | `Future.cancel()` 能停掉运行中的线程 | 只对未开始的任务有效，运行中的线程无法取消 | 线程不能取消、进程只能 kill、协程在下一个 `await` 点协作式取消 | [第三篇](/python-concurrency-asynchrony-and-task-collaboration.html) |

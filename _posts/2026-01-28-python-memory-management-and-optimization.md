@@ -263,7 +263,7 @@ class RequestContext:
 
 对于大量创建、结构稳定、生命周期较短的请求元数据或任务节点，`__slots__` 比较适合。
 
-> 关于 `__slots__` 与类对象模型的详细讨论，参见[《Python 语言机制与运行时原理》](/python-language-mechanisms-and-runtime-internals.html)。
+> 关于 `__slots__` 与类对象模型的详细讨论，参见[《Python 对象如何工作》](/python-object-model-protocols-decorators-and-generators.html)。
 
 ### 5. 使用数据类表达结构化对象
 
@@ -283,7 +283,7 @@ class RequestContext:
 
 需要注意的是，数据类主要解决的是结构表达和代码维护问题。是否能够明显降低内存占用，仍然取决于对象数量、字段类型和实际生命周期。
 
-> 关于 `dataclass` 的完整用法和与 Pydantic `BaseModel` 的对比，参见[《Python 类型系统与数据契约设计》](/python-type-system-and-data-contract-design.html)的"选型指南"一节。
+> 关于 `dataclass` 的完整用法和与 Pydantic `BaseModel` 的对比，参见[《Python 数据契约设计》](/python-data-contract-design-dataclass-pydantic-and-settings.html)的"选型指南"一节。
 
 ## 四、复制、视图与对象共享
 
@@ -930,7 +930,7 @@ def create_handler(large_model):
 
 在高并发服务中，应避免让短生命周期回调捕获不必要的大对象。
 
-> 关于闭包的工作机制和常见陷阱（如延迟绑定），参见[《Python 语言机制与运行时原理》](/python-language-mechanisms-and-runtime-internals.html)。
+> 关于闭包的工作机制和常见陷阱（如延迟绑定），参见[《Python 对象如何工作》](/python-object-model-protocols-decorators-and-generators.html)。
 
 ### 3. 任务对象和异常对象也可能持有引用
 
