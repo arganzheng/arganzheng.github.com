@@ -256,7 +256,16 @@
   function init() {
     container = document.querySelector('.post-container');
     if (!container) return;
-    decorateImages();
+    // 随笔 (/moments/): pictures sit in a 朋友圈 grid — no 「图 N」 caption, no
+    // tool strip; a tap opens the zoom overlay (the link is the no-JS fallback).
+    if (container.classList.contains('moments')) {
+      container.addEventListener('click', function (e) {
+        var pic = e.target.closest('.moment-pic');
+        if (!pic || !window.DiagramZoom) return;
+        e.preventDefault();
+        window.DiagramZoom.open(pic.querySelector('img'));
+      });
+    } else decorateImages();
     decorateDiagrams();
     decorateCode();
     decorateTables();

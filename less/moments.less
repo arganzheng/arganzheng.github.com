@@ -1,0 +1,259 @@
+// 随笔 / Moments (_layouts/moments.html, _plugins/moments.rb): a single 640px
+// column, a thin timeline on the left with the day / time, the note on the
+// right — text, image grid, quote card, music card — and a footer with the
+// per-entry ♡ (a `.sec-react` placeholder that js/annotations.js fills, only
+// the 点赞 kind), 评论 and the permalink.
+
+@mo-width: 640px;
+@mo-rail: 64px;
+@mo-line: #e3e8ec;
+@mo-muted: #7a8794;
+@mo-text: #2b3238;
+
+.moments-wrap { max-width: @mo-width + 30px; margin-top: 6rem; }
+
+// ---- header: 随笔 · month switcher · 全部月份
+.moments-head {
+	margin: 0 0 22px;
+	.title { margin: 0 0 4px; }
+	.moments-tagline {
+		margin: 0 0 14px;
+		color: @mo-muted;
+		font-size: 14px;
+		a { color: #c8d0d8; margin-left: 6px; &:hover { color: #f26522; } }
+	}
+}
+.moments-months {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 8px 10px;
+	font-size: 14px;
+	color: @mo-text;
+	.mm-arrow {
+		display: inline-flex; align-items: center; justify-content: center;
+		width: 26px; height: 26px; border-radius: 50%;
+		border: 1px solid @mo-line; color: @mo-muted; font-size: 16px; line-height: 1;
+		text-decoration: none;
+		&:hover { color: @brand-primary; border-color: @brand-primary; }
+		&.is-off { opacity: 0.35; }
+	}
+	.mm-current { font-weight: 600; .post-stats { margin-left: 10px; font-weight: normal; } }
+	.mm-all {
+		position: relative;
+		margin-left: auto;
+		summary { cursor: pointer; color: @mo-muted; font-size: 13px; list-style: none; &::-webkit-details-marker { display: none; } &::after { content: " ▾"; } }
+		ul {
+			position: absolute; right: 0; top: 24px; z-index: 5;
+			min-width: 150px; max-height: 320px; overflow: auto;
+			margin: 0; padding: 6px 0; list-style: none;
+			background: #fff; border: 1px solid @mo-line; border-radius: 8px;
+			box-shadow: 0 8px 24px rgba(20, 30, 40, 0.12);
+		}
+		li a {
+			display: flex; justify-content: space-between; gap: 12px;
+			padding: 5px 14px; color: @mo-text; text-decoration: none; font-size: 13px;
+			small { color: @mo-muted; }
+			&:hover { background: #f4f7f9; }
+			&.is-current { color: @brand-primary; font-weight: 600; }
+		}
+	}
+}
+
+// ---- the list. Everything under .post-container.moments so it outranks
+// css/github-markdown.css (`.post-container p/ol/li/a`, loaded after our bundle).
+.post-container.moments {
+	// ---- the list
+	.moments-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		position: relative;
+		// the timeline
+		&::before {
+			content: "";
+			position: absolute;
+			top: 8px; bottom: 8px; left: @mo-rail - 1px;
+			width: 2px;
+			background: @mo-line;
+		}
+	}
+	.moment {
+		position: relative;
+		display: grid;
+		margin: 0;
+		scroll-margin-top: 80px;   // the fixed navbar
+		grid-template-columns: @mo-rail minmax(0, 1fr);
+		padding: 0 0 34px;
+		&:last-child { padding-bottom: 12px; }
+		// the dot on the line
+		&::before {
+			content: "";
+			position: absolute;
+			left: @mo-rail - 5px; top: 9px;
+			width: 10px; height: 10px; border-radius: 50%;
+			background: #fff; border: 2px solid #b8c4cd;
+		}
+		&:target::before, &.is-here::before { border-color: @brand-primary; background: @brand-primary; }
+		&:target .moment-body { animation: moment-flash 1.6s ease-out; }
+	}
+	.moment-when {
+		display: block;
+		padding-right: 16px;
+		text-align: right;
+		text-decoration: none;
+		color: @mo-muted;
+		time { color: @mo-muted; }
+		line-height: 1.15;
+		time { display: block; }
+		b { font-size: 22px; font-weight: 600; color: @mo-text; letter-spacing: -0.5px; }
+		small { font-size: 12px; margin-left: 1px; }
+		span { display: block; margin-top: 3px; font-size: 12px; font-variant-numeric: tabular-nums; }
+		&:hover { text-decoration: none; b { color: @brand-primary; } }
+	}
+	.moment-body {
+		padding-left: 18px;
+		margin: 0;
+		border-radius: 6px;
+		color: @mo-text;
+		font-size: 16.5px;
+		line-height: 1.75;
+		p { margin: 0 0 0.6em; }
+		> p:last-of-type { margin-bottom: 0; }
+		ul, ol { margin: 0.3em 0 0.6em; padding-left: 1.6em; }
+		a:not(.moment-pic):not(.moment-act):not(.moment-music-link) { color: @brand-primary; }
+		code { font-size: 0.88em; }
+	}
+	.moment-place {
+		display: inline-block;
+		margin: 0 0 4px;
+		font-size: 12.5px;
+		color: @mo-muted;
+		.fa { margin-right: 2px; font-size: 11px; }
+	}
+
+	// ---- gallery: 1 large · 2 / 4 two columns · 3+ three columns (朋友圈)
+	.moment-gallery {
+		display: grid;
+		gap: 6px;
+		margin: 0.6em 0 0.4em;
+		max-width: 480px;
+		grid-template-columns: repeat(3, 1fr);
+		.moment-pic {
+			display: block; position: relative;
+			aspect-ratio: 1 / 1; overflow: hidden;
+			border-radius: 6px; background: #f0f3f5;
+			cursor: zoom-in;
+			img { width: 100%; height: 100%; object-fit: cover; margin: 0; display: block; transition: transform 0.25s ease; }
+			&:hover img { transform: scale(1.03); }
+		}
+		&.n-1 {
+			grid-template-columns: 1fr;
+			max-width: 420px;
+			.moment-pic { aspect-ratio: auto; max-height: 460px; img { height: auto; max-height: 460px; object-fit: contain; width: auto; max-width: 100%; } }
+		}
+		&.n-2, &.n-4 { grid-template-columns: repeat(2, 1fr); max-width: 400px; }
+	}
+
+	// ---- quote card
+	.moment-quote {
+		position: relative;
+		margin: 0.6em 0 0.8em;
+		padding: 14px 18px 12px 44px;
+		border: 0;
+		border-radius: 8px;
+		background: #f7f5ef;
+		color: #4a4238;
+		font-size: 16px;
+		line-height: 1.8;
+		&::before {
+			content: "\201C";
+			position: absolute; left: 14px; top: 2px;
+			font-family: Georgia, "Times New Roman", serif;
+			font-size: 44px; line-height: 1; color: #d6c9a8;
+		}
+		p { margin: 0; }
+		.moment-cite {
+			margin-top: 6px;
+			text-align: right;
+			font-size: 13.5px;
+			color: #8a7f6e;
+			&::before { content: "—— "; }
+		}
+	}
+
+	// ---- music card
+	.moment-music {
+		margin: 0.6em 0 0.4em;
+		max-width: 420px;
+		iframe { display: block; width: 100%; border: 0; border-radius: 8px; background: #f4f6f8; }
+		audio { display: block; width: 100%; }
+		.moment-music-link { display: inline-block; margin-top: 4px; font-size: 12px; color: @mo-muted; &:hover { color: @brand-primary; } }
+	}
+
+	.moment:hover .moment-link, .moment:target .moment-link { opacity: 1; }
+
+	// ---- footer: ♡ n · 评论 · 链接
+	.moment-foot {
+		display: flex;
+		align-items: center;
+		gap: 14px;
+		margin-top: 10px;
+		font-size: 12.5px;
+		color: @mo-muted;
+		.moment-act { color: @mo-muted; text-decoration: none; .fa { margin-right: 3px; } &:hover { color: @brand-primary; } }
+		.moment-link { opacity: 0; transition: opacity 0.15s; }
+		// the ♡: the section-reaction button without its chip look
+		.sec-react { display: inline-flex; }
+		.sec-react-btn {
+			display: inline-flex; align-items: center;
+			padding: 0; border: 0; background: none;
+			color: @mo-muted; font-size: 12.5px; font-family: inherit; cursor: pointer;
+			.fa { margin-right: 3px; font-size: 13px; }
+			b { margin-left: 2px; font-weight: 600; &:empty { display: none; } }
+			&:hover { color: #e0245e; }
+			&.is-on { color: #e0245e; }
+		}
+	}
+	
+}
+
+@keyframes moment-flash {
+	0% { background: #fff8c5; box-shadow: 0 0 0 8px #fff8c5; }
+	100% { background: transparent; box-shadow: 0 0 0 8px transparent; }
+}
+
+.moments-pager {
+	display: flex; justify-content: space-between;
+	margin: 20px 0 30px; padding-top: 14px; border-top: 1px solid @mo-line;
+	font-size: 14px;
+	a { color: @mo-muted; text-decoration: none; &:hover { color: @brand-primary; } }
+}
+.moments-empty { color: @mo-muted; }
+
+// the highlight-comment panel and markers sit inside .moment-body like in a post
+.moments .annotation-panel { font-size: 14px; }
+
+// ---- phones: the rail becomes a line above the note
+@media (max-width: 767px) {
+	.moments-wrap { margin-top: 5rem; }
+	.moments-months .mm-all { margin-left: 0; }
+	.post-container.moments {
+		.moments-list::before { display: none; }
+		.moment {
+			grid-template-columns: 1fr;
+			padding-bottom: 26px;
+			&::before { display: none; }
+			& + .moment { border-top: 1px solid @mo-line; padding-top: 18px; }
+		}
+		.moment-when {
+			text-align: left; padding: 0 0 4px;
+			time { display: flex; align-items: baseline; gap: 4px; }
+			b { font-size: 15px; }
+			span { margin: 0 0 0 6px; }
+		}
+		.moment-body { padding-left: 0; font-size: 16px; }
+		.moment-gallery, .moment-music { max-width: none; }
+		.moment-foot .moment-link { opacity: 1; }
+	}
+}

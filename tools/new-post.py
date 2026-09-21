@@ -8,7 +8,7 @@ Create a post skeleton with the front matter this site understands.
                       [--layout post|header-post|keynote] [--header-img img/x.jpg] [--iframe /slides/x/play.html]
 
 Writes _posts/<date>-<slug>.md (or _drafts/<slug>.md with --draft) and prints the
-path. The slug is the URL: /<slug>.html — pick it once, renaming later breaks
+path. For a short 随笔 (a moment, not a post) use tools/moment.py instead. The slug is the URL: /<slug>.html — pick it once, renaming later breaks
 links and the comment thread.
 """
 import argparse, datetime, io, os, sys

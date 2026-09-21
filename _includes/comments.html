@@ -8,7 +8,7 @@
 <!-- comments (GitHub Discussions, rendered by js/annotations.js) start -->
 <section class="comment" id="comments"
          data-annotations-api="{{ site.annotations.api }}"
-         data-page-path="{{ page.url }}"
+         data-page-path="{{ page.comments_path | default: page.url }}"
          data-site-url="{{ site.url }}{{ site.baseurl }}"
          data-repo="{{ site.giscus.repo }}"
          data-repo-id="{{ site.giscus.repo_id }}"

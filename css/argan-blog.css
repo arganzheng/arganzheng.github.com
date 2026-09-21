@@ -4995,3 +4995,467 @@ footer .copyright a,
     flex-basis: 128px;
   }
 }
+.moments-wrap {
+  max-width: 670px;
+  margin-top: 6rem;
+}
+.moments-head {
+  margin: 0 0 22px;
+}
+.moments-head .title {
+  margin: 0 0 4px;
+}
+.moments-head .moments-tagline {
+  margin: 0 0 14px;
+  color: #7a8794;
+  font-size: 14px;
+}
+.moments-head .moments-tagline a {
+  color: #c8d0d8;
+  margin-left: 6px;
+}
+.moments-head .moments-tagline a:hover {
+  color: #f26522;
+}
+.moments-months {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  font-size: 14px;
+  color: #2b3238;
+}
+.moments-months .mm-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid #e3e8ec;
+  color: #7a8794;
+  font-size: 16px;
+  line-height: 1;
+  text-decoration: none;
+}
+.moments-months .mm-arrow:hover {
+  color: #00788f;
+  border-color: #00788f;
+}
+.moments-months .mm-arrow.is-off {
+  opacity: 0.35;
+}
+.moments-months .mm-current {
+  font-weight: 600;
+}
+.moments-months .mm-current .post-stats {
+  margin-left: 10px;
+  font-weight: normal;
+}
+.moments-months .mm-all {
+  position: relative;
+  margin-left: auto;
+}
+.moments-months .mm-all summary {
+  cursor: pointer;
+  color: #7a8794;
+  font-size: 13px;
+  list-style: none;
+}
+.moments-months .mm-all summary::-webkit-details-marker {
+  display: none;
+}
+.moments-months .mm-all summary::after {
+  content: " ▾";
+}
+.moments-months .mm-all ul {
+  position: absolute;
+  right: 0;
+  top: 24px;
+  z-index: 5;
+  min-width: 150px;
+  max-height: 320px;
+  overflow: auto;
+  margin: 0;
+  padding: 6px 0;
+  list-style: none;
+  background: #fff;
+  border: 1px solid #e3e8ec;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(20, 30, 40, 0.12);
+}
+.moments-months .mm-all li a {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 14px;
+  color: #2b3238;
+  text-decoration: none;
+  font-size: 13px;
+}
+.moments-months .mm-all li a small {
+  color: #7a8794;
+}
+.moments-months .mm-all li a:hover {
+  background: #f4f7f9;
+}
+.moments-months .mm-all li a.is-current {
+  color: #00788f;
+  font-weight: 600;
+}
+.post-container.moments .moments-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: relative;
+}
+.post-container.moments .moments-list::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 63px;
+  width: 2px;
+  background: #e3e8ec;
+}
+.post-container.moments .moment {
+  position: relative;
+  display: grid;
+  margin: 0;
+  scroll-margin-top: 80px;
+  grid-template-columns: 64px minmax(0, 1fr);
+  padding: 0 0 34px;
+}
+.post-container.moments .moment:last-child {
+  padding-bottom: 12px;
+}
+.post-container.moments .moment::before {
+  content: "";
+  position: absolute;
+  left: 59px;
+  top: 9px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid #b8c4cd;
+}
+.post-container.moments .moment:target::before,
+.post-container.moments .moment.is-here::before {
+  border-color: #00788f;
+  background: #00788f;
+}
+.post-container.moments .moment:target .moment-body {
+  animation: moment-flash 1.6s ease-out;
+}
+.post-container.moments .moment-when {
+  display: block;
+  padding-right: 16px;
+  text-align: right;
+  text-decoration: none;
+  color: #7a8794;
+  line-height: 1.15;
+}
+.post-container.moments .moment-when time {
+  color: #7a8794;
+}
+.post-container.moments .moment-when time {
+  display: block;
+}
+.post-container.moments .moment-when b {
+  font-size: 22px;
+  font-weight: 600;
+  color: #2b3238;
+  letter-spacing: -0.5px;
+}
+.post-container.moments .moment-when small {
+  font-size: 12px;
+  margin-left: 1px;
+}
+.post-container.moments .moment-when span {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.post-container.moments .moment-when:hover {
+  text-decoration: none;
+}
+.post-container.moments .moment-when:hover b {
+  color: #00788f;
+}
+.post-container.moments .moment-body {
+  padding-left: 18px;
+  margin: 0;
+  border-radius: 6px;
+  color: #2b3238;
+  font-size: 16.5px;
+  line-height: 1.75;
+}
+.post-container.moments .moment-body p {
+  margin: 0 0 0.6em;
+}
+.post-container.moments .moment-body > p:last-of-type {
+  margin-bottom: 0;
+}
+.post-container.moments .moment-body ul,
+.post-container.moments .moment-body ol {
+  margin: 0.3em 0 0.6em;
+  padding-left: 1.6em;
+}
+.post-container.moments .moment-body a:not(.moment-pic):not(.moment-act):not(.moment-music-link) {
+  color: #00788f;
+}
+.post-container.moments .moment-body code {
+  font-size: 0.88em;
+}
+.post-container.moments .moment-place {
+  display: inline-block;
+  margin: 0 0 4px;
+  font-size: 12.5px;
+  color: #7a8794;
+}
+.post-container.moments .moment-place .fa {
+  margin-right: 2px;
+  font-size: 11px;
+}
+.post-container.moments .moment-gallery {
+  display: grid;
+  gap: 6px;
+  margin: 0.6em 0 0.4em;
+  max-width: 480px;
+  grid-template-columns: repeat(3, 1fr);
+}
+.post-container.moments .moment-gallery .moment-pic {
+  display: block;
+  position: relative;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #f0f3f5;
+  cursor: zoom-in;
+}
+.post-container.moments .moment-gallery .moment-pic img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  margin: 0;
+  display: block;
+  transition: transform 0.25s ease;
+}
+.post-container.moments .moment-gallery .moment-pic:hover img {
+  transform: scale(1.03);
+}
+.post-container.moments .moment-gallery.n-1 {
+  grid-template-columns: 1fr;
+  max-width: 420px;
+}
+.post-container.moments .moment-gallery.n-1 .moment-pic {
+  aspect-ratio: auto;
+  max-height: 460px;
+}
+.post-container.moments .moment-gallery.n-1 .moment-pic img {
+  height: auto;
+  max-height: 460px;
+  object-fit: contain;
+  width: auto;
+  max-width: 100%;
+}
+.post-container.moments .moment-gallery.n-2,
+.post-container.moments .moment-gallery.n-4 {
+  grid-template-columns: repeat(2, 1fr);
+  max-width: 400px;
+}
+.post-container.moments .moment-quote {
+  position: relative;
+  margin: 0.6em 0 0.8em;
+  padding: 14px 18px 12px 44px;
+  border: 0;
+  border-radius: 8px;
+  background: #f7f5ef;
+  color: #4a4238;
+  font-size: 16px;
+  line-height: 1.8;
+}
+.post-container.moments .moment-quote::before {
+  content: "\201C";
+  position: absolute;
+  left: 14px;
+  top: 2px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 44px;
+  line-height: 1;
+  color: #d6c9a8;
+}
+.post-container.moments .moment-quote p {
+  margin: 0;
+}
+.post-container.moments .moment-quote .moment-cite {
+  margin-top: 6px;
+  text-align: right;
+  font-size: 13.5px;
+  color: #8a7f6e;
+}
+.post-container.moments .moment-quote .moment-cite::before {
+  content: "—— ";
+}
+.post-container.moments .moment-music {
+  margin: 0.6em 0 0.4em;
+  max-width: 420px;
+}
+.post-container.moments .moment-music iframe {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  background: #f4f6f8;
+}
+.post-container.moments .moment-music audio {
+  display: block;
+  width: 100%;
+}
+.post-container.moments .moment-music .moment-music-link {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #7a8794;
+}
+.post-container.moments .moment-music .moment-music-link:hover {
+  color: #00788f;
+}
+.post-container.moments .moment:hover .moment-link,
+.post-container.moments .moment:target .moment-link {
+  opacity: 1;
+}
+.post-container.moments .moment-foot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: #7a8794;
+}
+.post-container.moments .moment-foot .moment-act {
+  color: #7a8794;
+  text-decoration: none;
+}
+.post-container.moments .moment-foot .moment-act .fa {
+  margin-right: 3px;
+}
+.post-container.moments .moment-foot .moment-act:hover {
+  color: #00788f;
+}
+.post-container.moments .moment-foot .moment-link {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.post-container.moments .moment-foot .sec-react {
+  display: inline-flex;
+}
+.post-container.moments .moment-foot .sec-react-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #7a8794;
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.post-container.moments .moment-foot .sec-react-btn .fa {
+  margin-right: 3px;
+  font-size: 13px;
+}
+.post-container.moments .moment-foot .sec-react-btn b {
+  margin-left: 2px;
+  font-weight: 600;
+}
+.post-container.moments .moment-foot .sec-react-btn b:empty {
+  display: none;
+}
+.post-container.moments .moment-foot .sec-react-btn:hover {
+  color: #e0245e;
+}
+.post-container.moments .moment-foot .sec-react-btn.is-on {
+  color: #e0245e;
+}
+@keyframes moment-flash {
+  0% {
+    background: #fff8c5;
+    box-shadow: 0 0 0 8px #fff8c5;
+  }
+  100% {
+    background: transparent;
+    box-shadow: 0 0 0 8px transparent;
+  }
+}
+.moments-pager {
+  display: flex;
+  justify-content: space-between;
+  margin: 20px 0 30px;
+  padding-top: 14px;
+  border-top: 1px solid #e3e8ec;
+  font-size: 14px;
+}
+.moments-pager a {
+  color: #7a8794;
+  text-decoration: none;
+}
+.moments-pager a:hover {
+  color: #00788f;
+}
+.moments-empty {
+  color: #7a8794;
+}
+.moments .annotation-panel {
+  font-size: 14px;
+}
+@media (max-width: 767px) {
+  .moments-wrap {
+    margin-top: 5rem;
+  }
+  .moments-months .mm-all {
+    margin-left: 0;
+  }
+  .post-container.moments .moments-list::before {
+    display: none;
+  }
+  .post-container.moments .moment {
+    grid-template-columns: 1fr;
+    padding-bottom: 26px;
+  }
+  .post-container.moments .moment::before {
+    display: none;
+  }
+  .post-container.moments .moment + .moment {
+    border-top: 1px solid #e3e8ec;
+    padding-top: 18px;
+  }
+  .post-container.moments .moment-when {
+    text-align: left;
+    padding: 0 0 4px;
+  }
+  .post-container.moments .moment-when time {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+  }
+  .post-container.moments .moment-when b {
+    font-size: 15px;
+  }
+  .post-container.moments .moment-when span {
+    margin: 0 0 0 6px;
+  }
+  .post-container.moments .moment-body {
+    padding-left: 0;
+    font-size: 16px;
+  }
+  .post-container.moments .moment-gallery,
+  .post-container.moments .moment-music {
+    max-width: none;
+  }
+  .post-container.moments .moment-foot .moment-link {
+    opacity: 1;
+  }
+}

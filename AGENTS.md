@@ -800,6 +800,68 @@ the HTML on every `<hr>` into slides. One file gives two pages:
 `slides/reveal-demo.md` is a live demo of all of the above. `/slides/` lists
 the decks (cards link to the landing page; 全屏播放 / PDF go to `play.html`).
 
+## 随笔 / Moments (`/moments/`)
+
+Short notes in a 朋友圈-style timeline — the third content type next to posts
+and decks. **One file per month**, `moments/YYYY-MM.md` (layout `moments` from
+the `_config.yml` defaults; no other front matter needed), entries under dated
+headings, any order, rendered newest first:
+
+```markdown
+## 2026-09-21 08:02 @深圳湾      date · optional HH:MM · optional @place
+早起跑了五公里。                   plain Markdown
+
+![](/img/moments/2026/09/a.webp)   image-only lines in a row = one gallery
+![](/img/moments/2026/09/b.webp)   (1 large · 2 / 4 two columns · 3+ a 3-col grid)
+
+> 人生到处知何似，应似飞鸿踏雪泥。   blockquote = quote card, line breaks kept;
+> —— 苏轼《和子由渑池怀旧》          a last line starting —— / — / -- is the attribution
+
+https://music.163.com/#/song?id=347230   a line that is only a URL of 网易云 /
+                                         QQ 音乐 / Spotify / Apple Music, or an
+                                         .mp3/.m4a/.ogg link = a player card
+```
+
+`tools/moment.py "文字" [--at 地点] [--img a.jpg …] [--quote "…" --by "…"]
+[--music URL] [--time "YYYY-MM-DD HH:MM"]` appends an entry (images →
+`img/moments/YYYY/MM/*.webp` via cwebp, ≤ 1600 px); with no arguments it opens
+the month file in `$EDITOR` under a fresh heading.
+
+How it is built (`_plugins/moments.rb`):
+- `:site, :post_read` gives each month page `permalink: /moments/YYYY-MM.html`
+  (pages do not get `.html` from the site's `/:title.html` style, and the
+  worker's `VIEW_PATH` wants it), `date` (the 1st), `month`, `title`.
+- `Moments::Generator` (`:low`) splits `page.content` on the `## YYYY-MM-DD…`
+  headings, renders each entry with the site's kramdown converter (no Liquid),
+  applies the gallery / quote / music rewrites and stores
+  `page.moments = [{id, title, time, has_time, place, html, text}]` (id
+  `YYYYMMDD[-HHMM]`, `-2` … on collision; title = `2026-09-21 08:02`, the
+  section / reaction quote). `site.data.moments = {months, entries}` feeds
+  `moments.xml` (one `<item>` per entry, 30 newest, guid = month URL + `#id`),
+  `archive.html` (`[Moments]` rows) and the month picker. `/moments/` is a
+  `PageWithoutAFile` copy of the newest month (`canonical` → month URL, which
+  `head.html` now honours, `sitemap: false`).
+- `_layouts/moments.html` iterates `page.moments` — never `{{ content }}`.
+  Markup per entry: `li.moment#id[data-title] > a.moment-when > time` +
+  `.moment-body` (place, html, `.moment-foot`: `.sec-react` placeholder ·
+  评论 → `#comments` · 链接). `comments.html` / `.post-stats` use
+  `page.comments_path` (= the month URL) so the `/moments/` copy shares the
+  month's Discussion, views and reactions.
+- Reader interaction reuses the post machinery unchanged: the container is
+  `.post-container.moments`, so 划线评论 work; `sectionForOffsets` returns the
+  enclosing `.moment[data-title]` as the section; the per-entry ♡ is a
+  section reaction (`renderChapterBars` fills any empty
+  `.sec-react[data-title]` placeholder — `data-kinds="up"`,
+  `data-icon`/`data-icon-on` swap the glyph, toast says 已点赞 not 这一章; quote
+  `§ 2026-09-21 08:02` in `passage_reactions`). `figures.js` skips captions
+  in `.moments` and opens `DiagramZoom` on a `.moment-pic` click.
+  `EXCLUDE_SELECTOR` has `.moment-when, .moment-foot, .moment-music`.
+- Search: one document per month page (`search_index.rb`, doc file
+  `<month>.txt` because js/search.js derives it from the URL's last segment).
+- Styles `less/moments.less`, all under `.post-container.moments` to outrank
+  `css/github-markdown.css` (loaded after our bundle); do not use `<footer>`
+  inside an entry — `blog.less` styles the tag for the site footer.
+
 ## Writing AI-Infra series posts
 
 - **Version/date rule:** a post may only cite software versions (and facts about

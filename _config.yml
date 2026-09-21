@@ -64,6 +64,13 @@ defaults:
       path: "slides"
     values:
       layout: slides
+  # 随笔 / Moments: one file per month, `moments/YYYY-MM.md`, entries under
+  # `## YYYY-MM-DD [HH:MM] [@place]` headings (_plugins/moments.rb). Output
+  # `/moments/YYYY-MM.html`; `/moments/` is the newest month.
+  - scope:
+      path: "moments"
+    values:
+      layout: moments
 
 
 

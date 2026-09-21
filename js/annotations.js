@@ -76,7 +76,7 @@
   // indexed through its TeX source (the MathML <annotation>, see isExcluded),
   // not through the rendered glyphs in .katex-html.
   var EXCLUDE_SELECTOR = '.comment, .pager, .related-posts, .reversefootnote, sup[id^="fnref"], a.footnote, ' +
-    'script, style, noscript, svg, .katex-html, .mermaid, button, .heading-anchor, .annotation-toolbar, .annotation-panel, .annotation-marker, .sec-react';
+    'script, style, noscript, svg, .katex-html, .mermaid, button, .heading-anchor, .annotation-toolbar, .annotation-panel, .annotation-marker, .sec-react, .moment-when, .moment-foot, .moment-music';
   var BLOCK_SELECTOR = 'p, li, pre, blockquote, h1, h2, h3, h4, h5, h6, dd, dt, figcaption, figure, .table-caption, .highlight, table';
   var GHOST = { login: 'ghost', url: 'https://github.com/ghost', avatarUrl: 'https://avatars.githubusercontent.com/u/10137?s=64&v=4' };
 
@@ -301,7 +301,9 @@
   function sectionForOffsets(o) {
     var segs = segmentsFor(o.start, o.end);
     if (!segs.length) return '';
-    var node = segs[0].node, owner = node.parentElement && node.parentElement.closest('h2, h3'), heads = container.querySelectorAll('h2, h3'), best = owner || null;
+    var node = segs[0].node, moment = node.parentElement && node.parentElement.closest('.moment[data-title]');
+    if (moment) return moment.getAttribute('data-title');   // a 随笔 entry: its date is the section
+    var owner = node.parentElement && node.parentElement.closest('h2, h3'), heads = container.querySelectorAll('h2, h3'), best = owner || null;
     for (var i = 0; i < heads.length; i++) {
       if (heads[i] === owner) break;
       if (heads[i].compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) best = heads[i]; else break;
@@ -2146,6 +2148,23 @@
     var quote = CHAPTER_PREFIX + title;
     return chapters[title] || (chapters[title] = { hash: annotHash(quote), quote: quote, up: 0, doubt: 0 });
   }
+  // Fill a `.sec-react` bar with buttons. A page may also lay down empty
+  // placeholders itself (`<span class="sec-react" data-title="…" data-kinds="up"
+  // data-icon="fa-regular fa-heart" data-icon-on="fa-heart">`, the ♡ under every
+  // 随笔 entry): same table, same quote, only the kinds / icon it asks for.
+  function fillChapterBar(bar, title) {
+    var kinds = (bar.getAttribute('data-kinds') || 'up doubt').split(/\s+/);
+    CHAPTER_KINDS.forEach(function (k) {
+      if (kinds.indexOf(k.kind) === -1) return;
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'sec-react-btn sec-react-' + k.kind; b.setAttribute('data-kind', k.kind); b.title = k.title;
+      var icon = bar.getAttribute('data-icon') || (k.kind === 'up' ? 'fa-thumbs-up' : 'fa-question-circle');
+      b.innerHTML = '<i class="fa ' + icon + '"></i>' + (bar.hasAttribute('data-icon') ? '' : k.label) + '<b></b>';
+      b.addEventListener('click', onChapterClick);
+      bar.appendChild(b);
+    });
+    bar.setAttribute('aria-label', '这一章：' + title);
+  }
   function renderChapterBars() {
     var heads = container.querySelectorAll('h2, h3, h4, h5, h6');
     for (var i = 0; i < heads.length; i++) {
@@ -2158,24 +2177,25 @@
         bar = document.createElement('span');
         bar.className = 'sec-react';
         bar.setAttribute('data-title', title);
-        bar.setAttribute('aria-label', '这一章：' + title);
-        CHAPTER_KINDS.forEach(function (k) {
-          var b = document.createElement('button');
-          b.type = 'button'; b.className = 'sec-react-btn sec-react-' + k.kind; b.setAttribute('data-kind', k.kind); b.title = k.title;
-          b.innerHTML = '<i class="fa ' + (k.kind === 'up' ? 'fa-thumbs-up' : 'fa-question-circle') + '"></i>' + k.label + '<b></b>';
-          b.addEventListener('click', onChapterClick);
-          bar.appendChild(b);
-        });
+        fillChapterBar(bar, title);
         h.appendChild(bar);
       }
       paintChapterBar(bar, title);
+    }
+    var placed = container.querySelectorAll('.sec-react[data-title]:not(h1 *):not(h2 *):not(h3 *):not(h4 *):not(h5 *):not(h6 *)');
+    for (var j = 0; j < placed.length; j++) {
+      if (!placed[j].firstChild) fillChapterBar(placed[j], placed[j].getAttribute('data-title'));
+      paintChapterBar(placed[j], placed[j].getAttribute('data-title'));
     }
   }
   function paintChapterBar(bar, title) {
     var c = chapters[title], hash = c ? c.hash : annotHash(CHAPTER_PREFIX + title);
     CHAPTER_KINDS.forEach(function (k) {
       var b = bar.querySelector('.sec-react-' + k.kind), n = c ? c[k.kind] : 0;
-      b.classList.toggle('is-on', myReaction(hash, k.kind));
+      if (!b) return;
+      var on = myReaction(hash, k.kind);
+      b.classList.toggle('is-on', on);
+      if (bar.hasAttribute('data-icon-on')) b.querySelector('i').className = 'fa ' + (on ? bar.getAttribute('data-icon-on') : bar.getAttribute('data-icon'));
       b.querySelector('b').textContent = n > 0 ? n : '';
     });
   }
@@ -2186,9 +2206,10 @@
     c[kind] = Math.max(0, c[kind] + (on ? 1 : -1));
     rememberReaction(c.hash, kind, on);
     paintChapterBar(bar, title);
-    if (reactLocalOnly) { showToast(on ? (kind === 'up' ? '已点赞这一章' : '已标记这一章没看懂') : '已取消'); return; }
+    var what = bar.hasAttribute('data-kinds') ? '' : '这一章';   // a placed bar (随笔 entry) is not a chapter
+    if (reactLocalOnly) { showToast(on ? (kind === 'up' ? '已点赞' + what : '已标记' + what + '没看懂') : '已取消'); return; }
     api('/reactions', { method: 'POST', body: { path: cfg.path, hash: c.hash, quote: c.quote, kind: kind, on: on, section: title } })
-      .then(function (d) { c.up = d.up || 0; c.doubt = d.doubt || 0; paintChapterBar(bar, title); showToast(on ? (kind === 'up' ? '已点赞这一章' : '已标记这一章没看懂，谢谢——作者会回头补这一章') : '已取消'); })
+      .then(function (d) { c.up = d.up || 0; c.doubt = d.doubt || 0; paintChapterBar(bar, title); showToast(on ? (kind === 'up' ? '已点赞' + what : '已标记这一章没看懂，谢谢——作者会回头补这一章') : '已取消'); })
       .catch(function (err) { c[kind] = before; rememberReaction(c.hash, kind, !on); paintChapterBar(bar, title); showToast('操作失败：' + err.message); });
   }
 

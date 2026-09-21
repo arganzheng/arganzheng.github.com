@@ -176,6 +176,12 @@ permalink: /archive/
   {% endif %}
   {% assign timeline_rows = timeline_rows | append: row %}
 {% endfor %}
+{% comment %}随笔: one row per month page (_plugins/moments.rb), dated the 1st of the month.{% endcomment %}
+{% for item in site.data.moments.months %}
+  {% assign mdate = item.month | append: "-01" | date: "%s" | date: "%Y-%m-%d" %}
+  {% capture row %}{{ mdate | date: "%Y%m%d%H%M%S" }}::{{ mdate | date: "%Y" }}::{{ item.month }}::{{ mdate | date: "%B" }}::{{ mdate | date: "%Y/%m/%d" }}::moments::{{ item.url | prepend: site.baseurl }}::{{ item.title }}::{{ item.count }} 条###{% endcapture %}
+  {% assign timeline_rows = timeline_rows | append: row %}
+{% endfor %}
 {% assign timeline = timeline_rows | split: "###" | sort | reverse %}
 
 {% assign year = nil %}
@@ -214,6 +220,8 @@ permalink: /archive/
       &nbsp;&raquo;&nbsp;
       {% if item_type == "slides" %}
       <span style="color: #00788f; font-size: 12px;">[Slides]</span>
+      {% elsif item_type == "moments" %}
+      <span style="color: #7a8794; font-size: 12px;">[Moments]</span>
       {% elsif item_type == "life" %}
       <span style="color: #b35c00; font-size: 12px;">[Life]</span>
       {% else %}
@@ -276,7 +284,7 @@ permalink: /archive/
       }
 
       results.innerHTML = list.map(function (item, index) {
-        var typeLabel = item.type === 'slides' ? '[Slides]' : item.type === 'life' ? '[Life]' : '[Tech]';
+        var typeLabel = item.type === 'slides' ? '[Slides]' : item.type === 'moments' ? '[Moments]' : item.type === 'life' ? '[Life]' : '[Tech]';
         var subtitle = item.subtitle ? ('<small>' + escapeHtml(item.subtitle) + '</small>') : '';
         return '<li><button type="button" class="archive-goto-option' + (index === activeIndex ? ' active' : '') + '" data-index="' + index + '">' +
           escapeHtml(typeLabel + ' ' + item.title) + subtitle +

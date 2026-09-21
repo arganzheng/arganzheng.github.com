@@ -85,6 +85,18 @@ Jekyll::Hooks.register :site, :post_render do |site|
     pages << SearchIndex.page(site, '/search/doc', "#{File.basename(post.url, '.html')}.txt", text)
   end
 
+  # 随笔: one document per month page (its entries' plain text joined)
+  moments = site.pages.select { |p| p.data['layout'] == 'moments' && !p.data['is_index'] && p.data['moments'] }
+  moments.sort_by { |p| p.data['month'] }.reverse.each do |page|
+    id = meta.size
+    url = File.join(site.baseurl.to_s, page.url)
+    title = page.data['title'].to_s
+    text = page.data['moments'].map { |e| "#{e['title']} #{e['text']}" }.join(' ')
+    meta << [url, title, page.data['date'].strftime('%Y-%m-%d'), ['随笔']]
+    SearchIndex.keys_of("#{title} #{text}").each { |k| postings[k] << id }
+    pages << SearchIndex.page(site, '/search/doc', "#{page.data['month']}.txt", text)   # js/search.js: doc/<last url segment>.txt
+  end
+
   buckets = Array.new(SearchIndex::BUCKETS) { {} }
   postings.each do |key, ids|
     prev = -1
@@ -96,5 +108,5 @@ Jekyll::Hooks.register :site, :post_render do |site|
   pages << SearchIndex.page(site, '/search', 'meta.json', JSON.generate(meta))
 
   site.pages.concat(pages)
-  Jekyll.logger.info 'Search index:', "#{posts.size} posts, #{postings.size} keys, #{SearchIndex::BUCKETS} buckets"
+  Jekyll.logger.info 'Search index:', "#{posts.size} posts, #{moments.size} moments months, #{postings.size} keys, #{SearchIndex::BUCKETS} buckets"
 end

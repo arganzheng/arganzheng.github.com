@@ -1,0 +1,71 @@
+---
+layout: default
+---
+{%- comment -%}
+随笔 / Moments — one month of short notes as a timeline (朋友圈 / 微博 style).
+`page.moments` is built by _plugins/moments.rb from the `## YYYY-MM-DD` entries
+of moments/YYYY-MM.md, newest first; this layout never prints `{{ content }}`.
+Each entry: a date rail on the left, the note on the right (text, gallery,
+quote card, music card), and a footer with a per-entry anonymous ♡ (the
+section-reaction machinery of js/annotations.js, `.sec-react` placeholder,
+quote = `§ 2026-09-21 08:02`), a link to the comments and the entry's permalink.
+Views, the Discussion and passage reactions are keyed on the month URL
+(`page.comments_path`), also on the `/moments/` copy of the newest month.
+{%- endcomment -%}
+{%- assign path = page.comments_path | default: page.url -%}
+{%- assign months = site.data.moments.months -%}
+
+<div class="container moments-wrap">
+    <header class="moments-head">
+        <p class="h1 title">随笔</p>
+        <p class="moments-tagline">写不成文章的碎碎念：一张图、一句话、一首歌。<a href="{{ '/moments.xml' | prepend: site.baseurl }}" title="随笔的 RSS"><i class="fa fa-rss"></i></a></p>
+        <nav class="moments-months" aria-label="按月浏览">
+            {%- if page.older %}<a class="mm-arrow" href="{{ page.older | prepend: site.baseurl }}" title="上一个月">‹</a>{% else %}<span class="mm-arrow is-off">‹</span>{% endif %}
+            <span class="mm-current">{{ page.date | date: "%Y 年 %-m 月" }}<span class="post-stats" data-path="{{ path }}" data-annotations-api="{{ site.annotations.api }}"></span></span>
+            {%- if page.newer %}<a class="mm-arrow" href="{{ page.newer | prepend: site.baseurl }}" title="下一个月">›</a>{% else %}<span class="mm-arrow is-off">›</span>{% endif %}
+            {%- if months.size > 1 %}
+            <details class="mm-all">
+                <summary>全部月份</summary>
+                <ul>
+                {%- for m in months %}
+                    <li><a href="{{ m.url | prepend: site.baseurl }}"{% if m.month == page.month %} class="is-current"{% endif %}>{{ m.month }}<small>{{ m.count }}</small></a></li>
+                {%- endfor %}
+                </ul>
+            </details>
+            {%- endif %}
+        </nav>
+    </header>
+
+    <div class="post-container moments">
+<!-- article -->
+        <ol class="moments-list">
+        {%- for e in page.moments %}
+            <li class="moment" id="{{ e.id }}" data-title="{{ e.title }}">
+                <a class="moment-when" href="{{ path | prepend: site.baseurl }}#{{ e.id }}" title="{{ e.title }}">
+                    <time datetime="{{ e.time | date: '%Y-%m-%dT%H:%M:%S%:z' }}"><b>{{ e.time | date: '%-d' }}</b><small>日</small>{% if e.has_time %}<span>{{ e.time | date: '%H:%M' }}</span>{% endif %}</time>
+                </a>
+                <div class="moment-body">
+                    {%- if e.place %}<span class="moment-place"><i class="fa fa-location-dot"></i> {{ e.place }}</span>{% endif %}
+                    {{ e.html }}
+                    <div class="moment-foot">
+                        <span class="sec-react" data-title="{{ e.title }}" data-kinds="up" data-icon="fa-regular fa-heart" data-icon-on="fa-heart"></span>
+                        <a href="#comments" class="moment-act" title="到本月的评论区"><i class="fa fa-regular fa-comment"></i> 评论</a>
+                        <a href="{{ path | prepend: site.baseurl }}#{{ e.id }}" class="moment-act moment-link" title="这一条的链接"><i class="fa fa-link"></i> 链接</a>
+                    </div>
+                </div>
+            </li>
+        {%- endfor %}
+        </ol>
+<!-- /article -->
+        {%- if page.moments.size == 0 %}<p class="moments-empty">这个月还没写。</p>{% endif %}
+
+        {%- if page.older or page.newer %}
+        <nav class="moments-pager">
+            {%- if page.older %}<a href="{{ page.older | prepend: site.baseurl }}">‹ 更早</a>{% endif %}
+            {%- if page.newer %}<a href="{{ page.newer | prepend: site.baseurl }}">更新 ›</a>{% endif %}
+        </nav>
+        {%- endif %}
+
+        {% include comments.html %}
+    </div>
+</div>
