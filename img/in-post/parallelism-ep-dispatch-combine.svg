@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="345" viewBox="0 0 760 345" font-family="-apple-system, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif" font-size="12">
+  <style>.t{fill:#222;font-weight:600}.n{fill:#222;font-size:11px}.m{fill:#555;font-size:11px}.card{fill:#fafafa;stroke:#999;stroke-dasharray:4 3}.e0{fill:#dbe7f5;stroke:#3b6fb6}.e1{fill:#f8dcdc;stroke:#c94c4c}.e2{fill:#e6f2e6;stroke:#3a7d44}.e3{fill:#fdf1d6;stroke:#b9770e}.tok{fill:#fff;stroke:#666}.stay{stroke:#999;stroke-width:1.2;fill:none}.go{stroke:#c94c4c;stroke-width:1.6;fill:none}.back{stroke:#3b6fb6;stroke-width:1.6;fill:none;stroke-dasharray:5 3}</style>
+  <defs>
+    <marker id="ar" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#c94c4c"/></marker>
+    <marker id="ag" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#999"/></marker>
+    <marker id="ab" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#3b6fb6"/></marker>
+  </defs>
+  <text x="14" y="22" class="t">EP，N_e = 2、E = 4、k = 1：token 留在自己的卡上算注意力，进 MoE 层时被 all-to-all 送到专家所在的卡，算完再送回</text>
+
+  <!-- top row: tokens on their own card, with routing result -->
+  <text x="14" y="52" class="m">路由后（token 仍在原卡）：每个 token 上标注它选中的专家</text>
+  <rect x="40" y="60" width="300" height="60" rx="4" class="card"/><text x="48" y="76" class="n">卡 0 · 持专家 E0、E1</text>
+  <rect x="400" y="60" width="300" height="60" rx="4" class="card"/><text x="408" y="76" class="n">卡 1 · 持专家 E2、E3</text>
+  <g font-size="11">
+    <rect x="70" y="86" width="60" height="24" rx="3" class="e2"/><text x="100" y="102" text-anchor="middle" class="n">t₀ → E2</text>
+    <rect x="160" y="86" width="60" height="24" rx="3" class="e0"/><text x="190" y="102" text-anchor="middle" class="n">t₁ → E0</text>
+    <rect x="250" y="86" width="60" height="24" rx="3" class="e3"/><text x="280" y="102" text-anchor="middle" class="n">t₂ → E3</text>
+    <rect x="430" y="86" width="60" height="24" rx="3" class="e1"/><text x="460" y="102" text-anchor="middle" class="n">t₃ → E1</text>
+    <rect x="520" y="86" width="60" height="24" rx="3" class="e2"/><text x="550" y="102" text-anchor="middle" class="n">t₄ → E2</text>
+    <rect x="610" y="86" width="60" height="24" rx="3" class="e0"/><text x="640" y="102" text-anchor="middle" class="n">t₅ → E0</text>
+  </g>
+
+  <!-- arrows: dispatch -->
+  <text x="14" y="150" class="m">dispatch</text><text x="14" y="164" class="m">all-to-all</text>
+  <!-- stay on card 0: t1 -> E0 slot (x=100) -->
+  <path d="M190,110 L100,206" class="stay" marker-end="url(#ag)"/>
+  <!-- t0 card0 -> card1 E2 slot (x=460) -->
+  <path d="M100,110 C100,160 440,150 455,206" class="go" marker-end="url(#ar)"/>
+  <!-- t2 card0 -> card1 E3 slot (x=640) -->
+  <path d="M280,110 C280,160 620,150 640,206" class="go" marker-end="url(#ar)"/>
+  <!-- t3 card1 -> card0 E1 slot (x=280) -->
+  <path d="M460,110 C460,160 300,150 285,206" class="go" marker-end="url(#ar)"/>
+  <!-- t4 stays on card 1 -> E2 slot (x=530) -->
+  <path d="M550,110 L530,206" class="stay" marker-end="url(#ag)"/>
+  <!-- t5 card1 -> card0 E0 slot (x=170) -->
+  <path d="M640,110 C640,160 190,150 172,206" class="go" marker-end="url(#ar)"/>
+
+  <!-- bottom row: tokens grouped by expert on the expert's card -->
+  <rect x="40" y="210" width="300" height="70" rx="4" class="card"/><text x="48" y="226" class="n">卡 0 · 收到 3 个 token，按专家分组后各算一个小 GEMM</text>
+  <rect x="400" y="210" width="300" height="70" rx="4" class="card"/><text x="408" y="226" class="n">卡 1 · 收到 3 个 token</text>
+  <g font-size="11">
+    <rect x="60" y="236" width="150" height="34" rx="3" class="e0"/><text x="135" y="250" text-anchor="middle" class="n">E0 ← { t₁, t₅ }</text><text x="135" y="264" text-anchor="middle" class="m">t₁ 本卡，t₅ 来自卡 1</text>
+    <rect x="230" y="236" width="100" height="34" rx="3" class="e1"/><text x="280" y="250" text-anchor="middle" class="n">E1 ← { t₃ }</text><text x="280" y="264" text-anchor="middle" class="m">来自卡 1</text>
+    <rect x="420" y="236" width="150" height="34" rx="3" class="e2"/><text x="495" y="250" text-anchor="middle" class="n">E2 ← { t₀, t₄ }</text><text x="495" y="264" text-anchor="middle" class="m">t₀ 来自卡 0，t₄ 本卡</text>
+    <rect x="590" y="236" width="100" height="34" rx="3" class="e3"/><text x="640" y="250" text-anchor="middle" class="n">E3 ← { t₂ }</text><text x="640" y="264" text-anchor="middle" class="m">来自卡 0</text>
+  </g>
+
+  <!-- combine note -->
+  <path d="M715,270 C745,230 745,130 715,100" class="back" marker-end="url(#ab)"/>
+  <text x="712" y="190" class="m" transform="rotate(-90 712,190)" text-anchor="middle">combine：原路送回</text>
+  <text x="14" y="304" class="m">dispatch 矩阵（卡 i 发给卡 j 的 token 数）：卡 0 → [1, 2]，卡 1 → [2, 1]；每卡发出 2 个、收到 3 个。</text>
+  <text x="14" y="320" class="m">k = 2 时每个 token 复制两份、各去一个专家，回来后按路由权重加权相加。</text>
+  <text x="14" y="336" class="m">反向走同一条路、方向相反：combine 的反向是 dispatch 形状的 all-to-all，反之亦然——所以每层 2 + 2 次。</text>
+</svg>
