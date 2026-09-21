@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 300" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="13">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#555"/></marker>
+  </defs>
+  <text x="380" y="22" text-anchor="middle" fill="#222" font-size="14" font-weight="600">同一组数据 y = 20 · x^-0.3 ：普通坐标上是一条弯曲线，双对数坐标上是一条直线</text>
+  <!-- left panel: linear axes -->
+  <g transform="translate(60,60)">
+    <text x="130" y="-12" text-anchor="middle" fill="#333">普通坐标</text>
+    <line x1="0" y1="180" x2="290" y2="180" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+    <line x1="0" y1="180" x2="0" y2="0" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+    <text x="290" y="200" text-anchor="end" fill="#333">x（参数量 N）</text>
+    <text x="-8" y="-2" text-anchor="end" fill="#333" font-size="12">loss</text>
+    <!-- curve: x from 1..100 mapped to 0..260px; y = 20 x^-0.3 : y(1)=20 -> y px=20 ; y(100)=5.02 -> 165px. y px = 180 - (y-3)*9.4 -->
+    <path d="M 2.6,20 C 20,90 50,130 90,145 S 180,160 260,161" fill="none" stroke="#1f6fb2" stroke-width="2.5"/>
+    <g fill="#c98a00">
+      <circle cx="2.6" cy="21" r="4"/><circle cx="26" cy="112" r="4"/><circle cx="52" cy="136" r="4"/><circle cx="104" cy="149" r="4"/><circle cx="182" cy="158" r="4"/><circle cx="260" cy="161" r="4"/>
+    </g>
+    <text x="150" y="110" fill="#1f6fb2" font-size="12">一开始降得快，之后越来越平——</text>
+    <text x="150" y="126" fill="#1f6fb2" font-size="12">看不出指数是多少</text>
+  </g>
+  <!-- right panel: log-log -->
+  <g transform="translate(430,60)">
+    <text x="130" y="-12" text-anchor="middle" fill="#333">双对数坐标（两轴都取 log）</text>
+    <line x1="0" y1="180" x2="290" y2="180" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+    <line x1="0" y1="180" x2="0" y2="0" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+    <text x="290" y="200" text-anchor="end" fill="#333">log x</text>
+    <text x="-8" y="-2" text-anchor="end" fill="#333" font-size="12">log loss</text>
+    <!-- log x from 0..2 (1..100) -> 0..260px ; log y = log20 - 0.3 log x : from 1.301 to 0.701 -> map log y 0.6..1.4 to 180..20px : px = 180 - (logy-0.6)*200 -->
+    <line x1="0" y1="39.8" x2="260" y2="159.8" stroke="#1f6fb2" stroke-width="2.5"/>
+    <g fill="#c98a00">
+      <circle cx="0" cy="39.8" r="4"/><circle cx="52" cy="63.8" r="4"/><circle cx="104" cy="87.8" r="4"/><circle cx="156" cy="111.8" r="4"/><circle cx="208" cy="135.8" r="4"/><circle cx="260" cy="159.8" r="4"/>
+    </g>
+    <!-- slope triangle -->
+    <line x1="104" y1="87.8" x2="208" y2="87.8" stroke="#c0392b" stroke-dasharray="4 3"/>
+    <line x1="208" y1="87.8" x2="208" y2="135.8" stroke="#c0392b" stroke-dasharray="4 3"/>
+    <text x="156" y="82" text-anchor="middle" fill="#c0392b" font-size="12">Δ log x</text>
+    <text x="214" y="116" fill="#c0392b" font-size="12">Δ log y</text>
+    <text x="20" y="160" fill="#1f6fb2" font-size="12">斜率 = Δ log y / Δ log x = −α = −0.3</text>
+    <text x="20" y="176" fill="#1f6fb2" font-size="12">截距 = log c；一把尺子就能量出两个常数</text>
+  </g>
+  <line x1="365" y1="150" x2="405" y2="150" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+  <text x="385" y="138" text-anchor="middle" fill="#333" font-size="12">取 log</text>
+</svg>

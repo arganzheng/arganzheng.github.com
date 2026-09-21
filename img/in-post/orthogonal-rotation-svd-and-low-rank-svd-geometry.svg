@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 250" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="13">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#555"/></marker>
+    <marker id="arb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1f6fb2"/></marker>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#c0392b"/></marker>
+  </defs>
+  <!-- panel 1: unit circle, two perpendicular vectors v1 v2 (tilted 30°) -->
+  <g transform="translate(95,120)">
+    <line x1="-70" y1="0" x2="70" y2="0" stroke="#ccc"/><line x1="0" y1="-70" x2="0" y2="70" stroke="#ccc"/>
+    <circle r="50" fill="#eef6ff" stroke="#1f6fb2" stroke-width="1.5"/>
+    <line x1="0" y1="0" x2="43.3" y2="-25" stroke="#1f6fb2" stroke-width="2" marker-end="url(#arb)"/>
+    <line x1="0" y1="0" x2="25" y2="43.3" stroke="#c0392b" stroke-width="2" marker-end="url(#arr)"/>
+    <text x="48" y="-30" fill="#1f6fb2" font-weight="600">v₁</text>
+    <text x="28" y="58" fill="#c0392b" font-weight="600">v₂</text>
+    <text x="0" y="95" text-anchor="middle" fill="#333">输入：单位圆</text>
+    <text x="0" y="112" text-anchor="middle" fill="#666" font-size="11">x 长度为 1</text>
+  </g>
+  <!-- arrow 1 -->
+  <line x1="180" y1="120" x2="222" y2="120" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+  <text x="201" y="108" text-anchor="middle" fill="#333" font-size="12">Vᵀ 旋转</text>
+  <!-- panel 2: circle, vectors now on axes -->
+  <g transform="translate(300,120)">
+    <line x1="-70" y1="0" x2="70" y2="0" stroke="#ccc"/><line x1="0" y1="-70" x2="0" y2="70" stroke="#ccc"/>
+    <circle r="50" fill="#eef6ff" stroke="#1f6fb2" stroke-width="1.5"/>
+    <line x1="0" y1="0" x2="50" y2="0" stroke="#1f6fb2" stroke-width="2" marker-end="url(#arb)"/>
+    <line x1="0" y1="0" x2="0" y2="50" stroke="#c0392b" stroke-width="2" marker-end="url(#arr)"/>
+    <text x="54" y="-6" fill="#1f6fb2" font-weight="600">e₁</text>
+    <text x="6" y="62" fill="#c0392b" font-weight="600">e₂</text>
+    <text x="0" y="95" text-anchor="middle" fill="#333">还是圆</text>
+    <text x="0" y="112" text-anchor="middle" fill="#666" font-size="11">长度、夹角都没变</text>
+  </g>
+  <!-- arrow 2 -->
+  <line x1="385" y1="120" x2="427" y2="120" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+  <text x="406" y="108" text-anchor="middle" fill="#333" font-size="12">Σ 拉伸</text>
+  <!-- panel 3: ellipse along axes, sigma1=3 (drawn 1.5x), sigma2=1 -->
+  <g transform="translate(505,120)">
+    <line x1="-95" y1="0" x2="95" y2="0" stroke="#ccc"/><line x1="0" y1="-70" x2="0" y2="70" stroke="#ccc"/>
+    <ellipse rx="75" ry="25" fill="#fff3e0" stroke="#c98a00" stroke-width="1.5"/>
+    <line x1="0" y1="0" x2="75" y2="0" stroke="#1f6fb2" stroke-width="2" marker-end="url(#arb)"/>
+    <line x1="0" y1="0" x2="0" y2="25" stroke="#c0392b" stroke-width="2" marker-end="url(#arr)"/>
+    <text x="30" y="-8" fill="#1f6fb2" font-weight="600">σ₁ = 3</text>
+    <text x="6" y="40" fill="#c0392b" font-weight="600">σ₂ = 1</text>
+    <text x="0" y="95" text-anchor="middle" fill="#333">沿坐标轴拉成椭圆</text>
+    <text x="0" y="112" text-anchor="middle" fill="#666" font-size="11">第 i 个轴拉 σᵢ 倍</text>
+  </g>
+  <!-- arrow 3 -->
+  <line x1="600" y1="120" x2="642" y2="120" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+  <text x="621" y="108" text-anchor="middle" fill="#333" font-size="12">U 旋转</text>
+  <!-- panel 4: tilted ellipse -->
+  <g transform="translate(700,120)">
+    <line x1="-55" y1="0" x2="55" y2="0" stroke="#ccc"/><line x1="0" y1="-70" x2="0" y2="70" stroke="#ccc"/>
+    <g transform="rotate(-35)">
+      <ellipse rx="75" ry="25" fill="#fff3e0" stroke="#c98a00" stroke-width="1.5"/>
+      <line x1="0" y1="0" x2="75" y2="0" stroke="#1f6fb2" stroke-width="2" marker-end="url(#arb)"/>
+      <line x1="0" y1="0" x2="0" y2="25" stroke="#c0392b" stroke-width="2" marker-end="url(#arr)"/>
+    </g>
+    <text x="40" y="-52" fill="#1f6fb2" font-weight="600">σ₁u₁</text>
+    <text x="14" y="36" fill="#c0392b" font-weight="600">σ₂u₂</text>
+    <text x="0" y="95" text-anchor="middle" fill="#333">输出 W x</text>
+    <text x="0" y="112" text-anchor="middle" fill="#666" font-size="11">轴的方向是 U 的列</text>
+  </g>
+  <text x="380" y="22" text-anchor="middle" fill="#222" font-size="14" font-weight="600">W x = U ( Σ ( Vᵀ x ) )：任何矩阵都是「旋转 · 拉伸 · 旋转」</text>
+  <text x="380" y="40" text-anchor="middle" fill="#666" font-size="12">V 的列 v₁、v₂ 是输入里被拉得最多 / 最少的方向；U 的列 u₁、u₂ 是它们在输出里的去向；σᵢ 是拉伸倍数</text>
+</svg>
