@@ -53,7 +53,8 @@ N_img × d_LLM`"]
 image token 与文本同价：同样的 attention、同样的 KV`"]
     CON -. "③ 注入方式 B：cross-attention（Flamingo、Llama 3.2 Vision）" .-> XA["`**LLM decoder**
 文本序列不变，每隔几层插一层 cross-attention 去读图像特征
-图像不占序列长度与 KV`"]
+图像不占文本序列长度与自注意力 KV
+（视觉 K/V 另存、可跨步复用）`"]
 
     classDef enc fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef llm fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
@@ -65,7 +66,7 @@ image token 与文本同价：同样的 attention、同样的 KV`"]
 
 ### 2. 先说答案
 
-LLaVA 的 MLP 与 BLIP-2 的 Q-Former 差在**信息瓶颈的位置**。MLP 对每个 patch 特征独立做一个映射，576 个 patch 进去 576 个 token 出来，空间结构与全部信息保留，代价是 token 多；Q-Former 用 32 个可学习的 query 对全部 patch 做 cross-attention，把任意数量的 patch 压成 32 个 token，token 少，但 32 个向量装不下一张图的细节——尤其是 OCR、小物体、精确位置——且 query 是**与内容无关**的（同一组 query 用于所有图），它学到的是"平均而言什么重要"，对每张图的具体细节没有自适应。实证上 LLaVA-1.5 用 MLP 在 12 个 benchmark 上超过了用 Q-Former 的 BLIP-2 与 InstructBLIP，之后 Q-Former 基本退出。2024 年的折中是 MLP + **空间压缩**（2×2 merge）：压缩 4 倍但保持空间结构，每个输出 token 对应一个确定的 2×2 patch 区域。
+LLaVA 的 MLP 与 BLIP-2 的 Q-Former 差在**信息瓶颈的位置**。MLP 对每个 patch 特征独立做一个映射，576 个 patch 进去 576 个 token 出来，空间结构与全部信息保留，代价是 token 多；Q-Former 用 32 个可学习的 query 对全部 patch 做 cross-attention，把任意数量的 patch 压成 32 个 token，token 少，但 32 个向量装不下一张图的细节——尤其是 OCR、小物体、精确位置。常见的说法"query 与内容无关、没有自适应"要说准：固定的是 query 的**个数与初始向量**，attention 权重 $$QK^\top$$ 随每张图的 key 变化，读出的内容当然随图变（toy：同一个 query，把两个 patch 的 key 对调，输出从 3.48 变成 6.52）；它的真正限制是**预算固定**（32 个槽位分给整张图）与**空间结构丢失**。实证上 LLaVA-1.5 用 MLP 在 12 个 benchmark 上超过了用 Q-Former 的 BLIP-2 与 InstructBLIP，之后 Q-Former 基本退出。2024 年的折中是 MLP + **空间压缩**（2×2 merge）：压缩 4 倍但保持空间结构，每个输出 token 对应一个确定的 2×2 patch 区域。
 
 Qwen2-VL 让 ViT 接受原生分辨率，是为了解决 tile 的三个问题：**边界**（tile 之间没有 attention，一个跨 tile 的物体或一行文字被切断）、**失真**（把任意宽高比的图 resize 或 pad 到正方形 tile 会拉伸或浪费）、**token 效率**（小图也要占满一个 tile 的 576 个 token，大图的 tile 网格与内容的实际密度不匹配）。原生分辨率让 token 数**与图片的像素数成比例**（每 $$28 \times 28$$ 像素一个 token），一张 $$224 \times 224$$ 的图 64 个 token、一张 $$1344 \times 896$$ 的文档 1536 个 token，全图在一个 attention 里。代价是 ViT 的 attention 是 $$O(N^2)$$——Qwen2.5-VL 用窗口 attention 缓解——以及位置编码要换成 2D RoPE。第五章展开。
 
@@ -102,7 +103,7 @@ z_mlp = mlp(h)                                                       # [16, 12]�
 MLP projector：(16, 8) → (16, 12)；参数 264（d_v·d + d² 量级）
 ```
 
-它的性质：**逐 token、无信息损失**（映射是可逆的当 $$d \ge d_v$$）、**保留空间结构**（第 $$i$$ 个输出对应第 $$i$$ 个 patch，位置由 LLM 的位置编码给出）、**不做任何选择**（所有 patch 一律进 LLM，让 LLM 的 attention 决定看哪）。LLaVA-1.5 的实验证明，就凭这个 MLP 加 558K 对齐数据 + 665K 指令数据，在 12 个 benchmark 上超过用 Q-Former 的 InstructBLIP 与用 129M 数据的 BLIP-2——**LLM 的 attention 比一个小的 resampler 更会挑信息**。
+它的性质：**逐 token、不做压缩**（输出维度 $$d \ge d_v$$，没有把多个 patch 合并；但"可逆"不是保证——$$W_1$$ 可以不满秩、GELU 不是单射，toy 上 $$x = -2$$ 与 $$x \approx -0.0988$$ 过 GELU 得到同一个值——它保留的是**空间粒度**，不是数学意义的信息无损）、**保留空间结构**（第 $$i$$ 个输出对应第 $$i$$ 个 patch，位置由 LLM 的位置编码给出）、**不做任何选择**（所有 patch 一律进 LLM，让 LLM 的 attention 决定看哪）。LLaVA-1.5 的实验证明，就凭这个 MLP 加 558K 对齐数据 + 665K 指令数据，在 12 个 benchmark 上超过用 Q-Former 的 InstructBLIP 与用 129M 数据的 BLIP-2——**LLM 的 attention 比一个小的 resampler 更会挑信息**。
 
 ### 2. 空间压缩：2×2 merge、pixel shuffle、pooling
 
@@ -149,7 +150,7 @@ resampler（K = 3 个 query）：(16, 8) → (3, 12)；不论图有多少 patch�
 
 **Qwen-VL 的 resampler**：单层 cross-attention，256 个 query，加了 2D 绝对位置编码在 key 上以保留位置信息。
 
-resampler 的问题：（1）**固定预算**——32 或 64 个 token 装不下高分辨率图的信息，OCR 与细节任务上明显落后；（2）**query 与内容无关**——同一组 query 对所有图，它学到的是"通用的重要性"，不能对每张图自适应地决定保留什么；（3）**空间结构丢失**——输出的 $$K$$ 个 token 没有明确的空间对应，LLM 难以做定位与 grounding；（4）**多了一个要训的模块**——Q-Former 的第一阶段训练需要 129M 图文对，且它的表示与 LLM 的表示之间又有一个 gap。
+resampler 的问题：（1）**固定预算**——32 或 64 个 token 装不下高分辨率图的信息，OCR 与细节任务上明显落后；（2）**预算固定、选择由 attention 权重隐式完成**——query 数与初始值对所有图相同，读什么由 $$QK^\top$$ 随图决定，但没有机制按图片复杂度增减槽位；（3）**空间结构丢失**——输出的 $$K$$ 个 token 没有明确的空间对应，LLM 难以做定位与 grounding；（4）**多了一个要训的模块**——Q-Former 的第一阶段训练需要 129M 图文对，且它的表示与 LLM 的表示之间又有一个 gap。
 
 LLaVA-1.5 之后的实证（Cambrian-1 的系统对照、MM1 的消融）一致：在同样的数据与 LLM 下，MLP（+ 空间压缩）优于 resampler，尤其在需要细节的任务上。resampler 在 2024 年后只剩两种用法：**视频**（帧太多，需要激进压缩到固定预算）与 **cross-attention 注入**（下一章，Flamingo 式结构本身就是 resampler + cross-attention）。
 
@@ -169,7 +170,7 @@ MM1（McKinzie 等 2024）的消融：connector 的类型（MLP / 池化 / C-Abs
 
 Flamingo 与 Llama 3.2 Vision：图片特征**不进**序列。LLM 的每 $$k$$ 层（Flamingo 每层、Llama 3.2 每 4 层）之间插入一个新的 **cross-attention 层**——文本 token 作为 query，图片特征作为 key / value——再加一个 gate——cross-attention 层的输出乘一个可学习的标量 $$\tanh(\alpha)$$，$$\alpha$$ 初始为 0，于是训练开始时这一层输出为零、LLM 的行为与没插层时完全一样，随训练 $$\alpha$$ 逐渐打开。图片特征只作为被 attend 的对象，不产生 KV、不占位置。
 
-性质：**不占上下文**（图片再多也不消耗文本窗口）；**LLM 的文本能力严格不变**（原来的层一个参数没动，gate 关掉就是原 LLM——Llama 3.2 Vision 在纯文本任务上与 Llama 3.1 完全相同）；**图片特征可以更多**（不进序列，几千个特征的成本只在 cross-attention 层）。代价：**新增参数**（Llama 3.2 90B 的 cross-attention 层约 20B 参数——每 4 层一个 cross-attention 层，每个约 $$4d^2$$）；**需要单独训**（这些层从零开始，需要大量图文数据）；**多图与交错的处理复杂**（哪张图对哪段文本可见需要额外的 mask 逻辑）；**推理引擎要特殊支持**（vLLM 为 Llama 3.2 Vision 单独实现了 encoder-decoder 式的 attention 路径）。
+性质：**不占文本上下文**（图片再多也不消耗文本窗口；但视觉 K/V 仍要算、仍要存——HF `MllamaTextCrossAttention` 用 `past_key_values` 缓存 `k_proj/v_proj(cross_attention_states)`，decode 时复用，所以"图片不产生 KV"是错的，它只是不在文本自注意力的 KV 里）；**LLM 的文本能力可以严格不变**（条件是原来的层被冻结、且纯文本输入时跳过视觉层——Meta 正是这样训的，Llama 3.2 Vision 在纯文本任务上与 Llama 3.1 完全相同；这是训练选择不是结构自带的保证）；**图片特征可以更多**（不进序列，几千个特征的成本只在 cross-attention 层）。代价：**新增参数**（Llama 3.2 90B 的 cross-attention 层约 20B——每 4 层一个，每个不只 $$4d^2$$：Q、O 各 $$d^2$$、K、V 各 $$d\,d_{kv}$$、外加一个完整的 SwiGLU FFN $$3d\,d_{ff}$$，$$d = 8192$$ 时约 855M/层，20 层 17B，加 ViT-H 与投影正好对上 90B − 70B）；**需要单独训**（这些层从零开始，需要大量图文数据）；**多图与交错的处理复杂**（哪张图对哪段文本可见需要额外的 mask 逻辑）；**推理引擎要特殊支持**（vLLM 为 Llama 3.2 Vision 单独实现了 encoder-decoder 式的 attention 路径）。
 
 ### 3. 为什么主流是序列注入
 
@@ -231,7 +232,7 @@ def tokens_native(h, w, unit=28, lo=256, hi=1280):
     return int(min(max(n, lo), hi))                                      # 夹在上下限之间
 ```
 
-一张 $$224 \times 224$$ 的图：64 个 token（被下限顶到 256）；$$448 \times 448$$：256；$$1344 \times 896$$（一页文档）：1536 → 被上限截到 1280；上限 1280 个 token 约对应 $$1000 \times 1000$$。**token 数与像素数成正比**，小图不浪费、大图不截断（在上限内）。
+上面的 `lo=256, hi=1280` 是 Qwen2-VL 模型卡里**推荐的部署配置**，不是 processor 的默认——公开 `preprocessor_config.json` 的默认是 `min_pixels = 3136`（4 个 token）、`max_pixels = 12845056`（16384 个 token）。而且真实 processor 不是"算完 token 再夹"：它先把像素数夹到 [min, max] 内**缩放图片**、再 round 到 28 的倍数，所以小图会被放大、大图会被缩小，而不是 token 数被截断。按推荐配置：$$224 \times 224$$ 会被放大到约 $$448 \times 448$$ 得 256 个 token；$$1344 \times 896$$（一页文档）1536 超上限，图片被缩到约 $$1260 \times 840$$ 得 1350 → round 后落在 1280 附近。**token 数与（缩放后的）像素数成正比**，预算以 processor 输出的 `image_grid_thw` 为准。
 
 ### 2. 它解决了什么
 
@@ -239,7 +240,7 @@ def tokens_native(h, w, unit=28, lo=256, hi=1280):
 
 ### 3. 代价与 Qwen2.5-VL 的窗口 attention
 
-ViT 的 attention 是 $$O(N^2 d)$$。$$N = 5120$$ 个 patch（$$1280 \times 4$$，merge 之前）时 attention 的 FLOPs 是 $$2 \times 5120^2 \times 1280 \approx 67$$ GFLOPs 每层，32 层 2.1 TFLOPs，与 patch 的线性部分（$$2 \times 675M \times 5120 \approx 6.9$$ TFLOPs）同量级——不可忽略，且激活内存 $$N^2$$ 增长。Qwen2.5-VL 把 ViT 的大部分层改成**窗口 attention**（$$112 \times 112$$ 像素的窗口，即 $$8 \times 8$$ 个 patch，只有 4 层保留全局 attention），把 attention 成本变成线性。这与 Swin Transformer 的思路一致，效果上几乎无损。
+ViT 的 attention 是 $$O(N^2 d)$$。$$N = 5120$$ 个 patch（$$1280 \times 4$$，merge 之前）时 attention 的 FLOPs 是 $$4 \times 5120^2 \times 1280 \approx 134$$ GFLOPs 每层（$$QK^\top$$ 与 $$AV$$ 各 $$2N^2d$$），32 层 4.3 TFLOPs，与 patch 的线性部分（$$2 \times 675M \times 5120 \approx 6.9$$ TFLOPs）同量级——不可忽略，且激活内存 $$N^2$$ 增长。Qwen2.5-VL 把 ViT 的大部分层改成**窗口 attention**（$$112 \times 112$$ 像素的窗口，即 $$8 \times 8$$ 个 patch，只有 4 层保留全局 attention），把 attention 成本变成线性。这与 Swin Transformer 的思路一致，效果上几乎无损。
 
 另一个代价是**工程**：可变 token 数的 batch 需要 padding 或 packing（Qwen2-VL 用 packing——多张图的 patch 拼成一个序列，用 attention mask 隔开，与 [L5 第一篇](/sft-data-chat-template-loss-mask-and-peft.html)讲的 SFT packing 同一个技术）。
 
@@ -333,12 +334,12 @@ VLM 训练的显存主要由 LLM 决定（与文本 SFT 相同），图片 token
 
 | 项 | 规则 | 备注 |
 |---|---|---|
-| MLP projector | 逐 patch 映射，无损，保留空间结构 | LLaVA-1.5 凭它超过 BLIP-2；参数可忽略 |
-| 空间压缩 | 2×2 merge / pixel shuffle（拼接，无损）；池化（有损） | 4× 几乎无损；16× 需补偿；$$28 \times 28$$ 像素/token 是文字甜点 |
+| MLP projector | 逐 patch 映射，不压缩，保留空间结构 | LLaVA-1.5 凭它超过 BLIP-2；参数可忽略 |
+| 空间压缩 | 2×2 merge / pixel shuffle（拼接这一步不丢数，其后 $$4d_v \to d$$ 的 MLP 是否降维看模型）；池化（有损） | 4× 经验上几乎无损；16× 需补偿；$$28 \times 28$$ 像素/token 是文字甜点 |
 | resampler | 固定 $$K$$ 个 query 的 cross-attention | 固定预算、内容无关、丢空间结构；退出主流，仅视频与 cross-attn 注入 |
 | connector 大小 | 类型影响远小于分辨率与 token 数（MM1） | 不丢信息即可 |
 | 序列注入 | 图片 token 进序列，LLM 零改动，复用生态 | 占上下文；每层全算 |
-| cross-attn 注入 | 每 $$k$$ 层插 gated cross-attention，图片不进序列 | 文本能力严格不变；+20B 参数；引擎需特殊支持；Llama 3.2 唯一主流 |
+| cross-attn 注入 | 每 $$k$$ 层插 gated cross-attention，图片不进序列（视觉 K/V 另存可复用） | 冻结原层则文本能力严格不变；+20B 参数（含每层 FFN）；引擎需特殊支持；Llama 3.2 唯一主流 |
 | tile | 切 $$336^2$$ / $$448^2$$ 块 + 缩略图；编码器不变 | 边界切断、pad 失真、小图浪费；InternVL ≤ 40 tile |
 | 原生动态 | 2D RoPE、$$N = HW/14^2$$、2×2 merge、M-RoPE、上下限 | token ∝ 像素；文档任务最好；ViT attention $$O(N^2)$$ → 窗口化 |
 | 视频 | 帧率 × 每帧 token；时间合并 ×2；绝对时间 M-RoPE | 1 分钟 2 fps 256/帧 = 30K |
@@ -358,7 +359,7 @@ VLM 训练的显存主要由 LLM 决定（与文本 SFT 相同），图片 token
 
    <details markdown="1"><summary>答案</summary>
 
-   固定 $$K$$ 个 query 与内容无关，学的是“平均而言什么重要”，OCR、小物体、定位这类需要细节的任务上输给无损的 MLP（LLaVA-1.5 凭 MLP 超过 BLIP-2）；剩下用在视频（帧多必须压）与 cross-attention 注入。
+   固定 $$K$$ 个 query 预算固定、丢空间结构（读什么仍由 attention 随图决定），OCR、小物体、定位这类需要细节的任务上输给不压缩的 MLP（LLaVA-1.5 凭 MLP 超过 BLIP-2）；剩下用在视频（帧多必须压）与 cross-attention 注入。
 
    </details>
 
@@ -382,7 +383,7 @@ VLM 训练的显存主要由 LLM 决定（与文本 SFT 相同），图片 token
 
    <details markdown="1"><summary>答案</summary>
 
-   文本能力严格不变（文本路径没有任何改动，图片不进序列、不占上下文与 KV）；付出 +20B 参数的 cross-attention 层、推理引擎需要特殊支持、图文交互不如序列注入深。
+   冻结原层后文本能力严格不变（文本路径没有任何改动，图片不进序列、不占文本上下文；视觉 K/V 另存可复用，不是没有 KV）；付出 +20B 参数的 cross-attention 层（每层含 FFN）、推理引擎需要特殊支持、图文交互不如序列注入深。
 
    </details>
 
@@ -390,5 +391,5 @@ VLM 训练的显存主要由 LLM 决定（与文本 SFT 相同），图片 token
 
 [VLM 的训练：数据、阶段与评测](/vlm-training-recipe-data-stages-and-evaluation.html)
 
-[^q0]: LLaVA 的 MLP 对每个 patch 独立映射、不丢信息、保留空间结构、把「看哪里」交给 LLM 的 attention；BLIP-2 的 Q-Former 用 32 个与内容无关的 query 把整张图压成 32 个 token，装不下细节、丢了空间结构、且多了一个要单独训的模块——LLaVA-1.5 的实证让主流转向 MLP，2024 年的折中是 MLP + 2×2 merge，压缩 4 倍而无损。详见[第二章](#二connector从编码器空间到-llm-空间)、[第三章](#三注入方式)。
+[^q0]: LLaVA 的 MLP 对每个 patch 独立映射、不丢信息、保留空间结构、把「看哪里」交给 LLM 的 attention；BLIP-2 的 Q-Former 用 32 个可学习 query（个数固定，读取内容仍随图变）把整张图压成 32 个 token，装不下细节、丢了空间结构、且多了一个要单独训的模块——LLaVA-1.5 的实证让主流转向 MLP，2024 年的折中是 MLP + 2×2 merge，压缩 4 倍、经验上几乎无损。详见[第二章](#二connector从编码器空间到-llm-空间)、[第三章](#三注入方式)。
 [^q1]: 因为 tile 方案切断跨块的物体与文字行、pad 与拉伸造成失真、小图也要占满一个 tile 的 token；原生分辨率让 token 数与像素数成正比、全图在一个 attention 里，用 2D RoPE 取代需要插值的绝对位置编码，代价是 ViT 的 $$O(N^2)$$ attention（Qwen2.5-VL 用窗口 attention 解决）与可变长度的 batch 工程。三个决定合起来是一次「信息 vs token」的交换：自然图片对 token 数不敏感，文档与文字任务要每 $$28 \times 28$$ 像素一个 token。详见[第四章](#四固定分辨率与-tile)、[第五章](#五原生动态分辨率)、[第七章](#七信息-vs-token-的交换)。

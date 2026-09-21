@@ -26,7 +26,7 @@ updated: 2026-09-21
 | **离散 token** | 神经 codec（EnCodec 一类）的量化码，或语义 token（HuBERT 聚类） | 可以，但有信息损失 | 可以——LLM 自回归生成 token，codec 解码成波形 | AudioLM、VALL-E、SpeechGPT、Moshi、GPT-4o（推测） |
 | **混合** | 理解用连续特征，生成用离散 token | 好 | 好 | Qwen2.5-Omni、Mini-Omni、GLM-4-Voice |
 
-VLM 几乎全在第一行（理解用连续特征），因为它们不生成图片。语音模型要生成，所以必须有离散 token（第二、三行）——这是核心问题后半的答案，第三章展开。
+VLM 几乎全在第一行（理解用连续特征），因为它们不生成图片。语音模型要生成，主流做法是让 LLM 输出离散 token（第二、三行）——但这是**工程上的选择而不是唯一可行**：下篇第四章的 F5-TTS / CosyVoice 用 flow matching 直接生成连续的 mel 谱，WaveNet 早就自回归地生成过波形；离散 token 赢在能复用 LLM 的整套训练与推理基础设施、序列短。这是核心问题后半的答案，第三章展开。
 
 ### 2. 三个层次的 token
 
@@ -67,7 +67,7 @@ VLM 几乎全在第一行（理解用连续特征），因为它们不生成图�
 2. **每帧做傅里叶变换（FFT）**：把这 400 个点分解成"包含哪些频率、各多强"——一个音是几个频率的叠加，FFT 把它拆开。400 个点得到 201 个频点（0 到 8000 Hz），取幅度的平方（**功率谱**）。
 3. **合并成 mel 频带、取对数**：人耳对低频敏感、对高频粗糙——100 Hz 与 200 Hz 听起来差很多，7000 Hz 与 7100 Hz 几乎一样。**mel 刻度**（$$m = 2595 \log_{10}(1 + f / 700)$$）模拟这种感知；在 mel 轴上等距地放 80 个三角形滤波器，低频处窄而密、高频处宽而疏，201 个频点被合并成 80 个频带；再取对数（响度也是对数感知的）。
 
-得到的就是 **log-mel 谱**：每秒约 100 帧 × 80 维。它是所有语音模型的输入（除了直接在波形上工作的 codec 编码器）。三步各几行 NumPy：
+得到的就是 **log-mel 谱**：每秒约 100 帧 × 80 维。它是 Whisper 一类模型的输入；wav2vec 2.0、HuBERT 与 codec 编码器直接吃波形，用一维卷积自己学"滤波器"。三步各几行 NumPy：
 
 ```python
 def log_mel(wave, sr=16000, win=400, hop=160, n_mels=80):
@@ -94,7 +94,7 @@ def log_mel(wave, sr=16000, win=400, hop=160, n_mels=80):
 
 ### 1. Whisper
 
-Whisper（Radford 等 2022）是语音的"CLIP"——一个在 68 万小时（v3 用 500 万小时含伪标签）多语言、多任务数据上训的 [encoder-decoder](# "tip: 两个 Transformer：encoder 用双向 attention 把输入（mel 谱）编码成一串特征；decoder 自回归地逐 token 生成输出（转写文本），每一步通过 cross-attention 读 encoder 的特征。翻译模型的经典结构") Transformer，任务是转写（[ASR](# "tip: automatic speech recognition，自动语音识别：语音 → 文字")）与翻译。encoder 输入 30 秒的 log-mel（3000 帧 × 80），过两层步长 2 的卷积（→ 1500 帧，20 ms 一帧）加正弦位置编码，32 层 Transformer（large：1.55B）；decoder 是标准的自回归文本 decoder，输出转写。
+Whisper（Radford 等 2022）是语音的"CLIP"——一个在 68 万小时（v3 用 500 万小时含伪标签）多语言、多任务数据上训的 [encoder-decoder](# "tip: 两个 Transformer：encoder 用双向 attention 把输入（mel 谱）编码成一串特征；decoder 自回归地逐 token 生成输出（转写文本），每一步通过 cross-attention 读 encoder 的特征。翻译模型的经典结构") Transformer，任务是转写（[ASR](# "tip: automatic speech recognition，自动语音识别：语音 → 文字")）与翻译。encoder 输入 30 秒的 log-mel（3000 帧 × 80；large-v3 改为 128 个 mel 频带），过两层卷积——第一层步长 1、第二层步长 2（两层都是 2 会变成 750 帧；HF `modeling_whisper.py` 里 `conv1` stride 1、`conv2` stride 2）→ 1500 帧、20 ms 一帧，加正弦位置编码，32 层 Transformer（large 的 1.55B 是 encoder + decoder 合计，encoder 约 0.64B）；decoder 是标准的自回归文本 decoder，输出转写。
 
 它的 encoder 输出（1500 × 1280）是语音理解任务最常用的特征——就像 CLIP ViT 的 patch 特征。[04-08](/multimodal-vision-encoder-cost-and-image-token-kv.html)第七章算过它的成本：30 秒固定 1500 个位置（不足 30 秒 pad），是 VLM 里 576 个 patch 的 2.6 倍。Qwen2-Audio 用 Whisper-large-v3 的 encoder，再 pool 到 25 Hz（每秒 25 个特征，30 秒 750 个），进 LLM。
 
@@ -262,4 +262,4 @@ RVQ 的层次结构决定了语音生成的形态：第 1 个码本的 token 序
 [语音（下）：语音理解、语音生成与全双工](/speech-understanding-generation-and-full-duplex.html)
 
 [^q0]: 一个每秒 16000 个数的波形，先按 25 ms 窗、10 ms 步切成约 100 帧，每帧 FFT 后合并成 80 个 mel 频带取对数——一秒语音变成 100 个 80 维向量（log-mel 谱），像一张"时间 × 频率"的图；编码器（Whisper）再把它变成每 20 ms 一个的特征向量。详见[第二章](#二音频的表示)、[第三章](#三编码器)。
-[^q1]: 因为语音模型要**生成**——VLM 只需理解，连续特征进 LLM 就够；而把 LLM 的输出变回每秒上万个采样点的波形，唯一可行的方式是让 LLM 生成一个短的离散序列（codec token，每秒几十帧、每帧几个码），再用 codec 解码器还原波形。RVQ 逐级量化残差，用 8 个 1024 项的小码本得到 $$2^{80}$$ 的等效表示能力，每级误差约减半，且自然分层（第一码本内容、后面细节）——这个层次直接决定了下篇 VALL-E 的 AR + NAR 结构与 Moshi 的多流建模。详见[第四章](#四神经-codec-与-rvq)。
+[^q1]: 因为语音模型要**生成**——VLM 只需理解，连续特征进 LLM 就够；而把 LLM 的输出变回每秒上万个采样点的波形，最省事的方式是让 LLM 生成一个短的离散序列（codec token，每秒几十帧、每帧几个码），再用 codec 解码器还原波形——不是唯一可行（flow matching 生成连续 mel、自回归波形都能做），而是与 LLM 的训练 / 推理栈最兼容。RVQ 逐级量化残差，用 8 个 1024 项的小码本得到 $$2^{80}$$ 的等效表示能力，每级误差约减半，且自然分层（第一码本内容、后面细节）——这个层次直接决定了下篇 VALL-E 的 AR + NAR 结构与 Moshi 的多流建模。详见[第四章](#四神经-codec-与-rvq)。

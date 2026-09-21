@@ -10,7 +10,7 @@ updated: 2026-09-15
 
 前两篇的数学在二维点云和 $$32^2$$ 的 CIFAR 上就能跑；要生成 $$1024^2$$ 的图，中间隔着三个工程决定。**在哪个空间做扩散**——像素空间的 $$1024 \times 1024 \times 3$$ 太大，Latent Diffusion 先用一个 VAE 把图压到 $$128 \times 128 \times 4$$（或 16 通道），扩散在 latent 上做，48 倍的压缩让训练与采样都进入可行区间。**用什么网络**——2022 年是 U-Net，2023 年 DiT 证明 Transformer 在扩散上同样遵循 scaling law，2024 年 SD3 与 FLUX 用 MMDiT 让文本与图像 token 在同一个 Transformer 里交互。**文本怎么进入**——CLIP 文本塔、T5-XXL、还是 LLM，决定了模型对 prompt 的理解深度。
 
-这一篇也讲扩散模型与 LLM **完全不同的成本结构**：一张图是一个 4096 token 序列的前向乘以步数，每步是大 batch 的 GEMM，compute-bound、没有 KV cache、没有自回归的串行——所以它的加速手段不是投机解码与量化 KV，而是**步数蒸馏**：从 50 步到 4 步到 1 步。最后是视频：把"patch 是图像的 token"推广到"时空 patch 是视频的 token"。
+这一篇也讲扩散模型与 LLM **完全不同的成本结构**：一张图是一个 4096 token 序列的前向乘以步数，每步是大 batch 的 GEMM，compute-bound、没有自回归的 token 级 KV cache（文本 cross-attention 的 K/V 仍可跨步缓存）、没有 token 级的串行（步与步之间仍是串行）——所以它的加速手段不是投机解码与量化 KV，而是**步数蒸馏**：从 50 步到 4 步到 1 步。最后是视频：把"patch 是图像的 token"推广到"时空 patch 是视频的 token"。
 
 本篇要回答的核心问题是：
 
@@ -40,8 +40,8 @@ flowchart TB
 CLIP 文本塔 / T5-XXL / LLM`"]
     TE -- "条件 c" --> NET
     IMG["训练图像 1024²"] -. "训练时" .-> VE["`**VAE 编码器**（f8）
-1024² × 3 → 128² × 4 或 16 通道
-（48× 更小）`"]
+1024² × 3 → 128² × 4（48× 更小）
+或 128² × 16（12× 更小）`"]
     VE -. "加噪到 x_t" .-> NET
     Z["噪声 latent x_T ~ N(0, I)
 128² × 16"] -- "采样时" --> NET["`**去噪网络**
@@ -362,7 +362,7 @@ $$
 | 配方 | bucket 多宽高比；微条件（尺寸、裁剪）；美学过滤；两阶段分辨率；分辨率平移 | 数据质量 > 结构 |
 | 求解器 | DPM-Solver / UniPC 10–20 步 | 不重训的极限 |
 | 步数蒸馏 | progressive → consistency（LCM 4 步）→ 对抗（Turbo 1–4 步）→ DMD2（1 步） | 上限是教师；多样性降；FID 不够评 |
-| 成本 | SD 1.5 80 T / 3 s；FLUX 2.8 P / 12 s；7B LLM 1000 token 14 T / 25 s | 扩散 compute-bound、无 KV、静态 batch |
+| 成本 | SD 1.5 80 T / 3 s；FLUX 2.8 P / 12 s；7B LLM 1000 token 14 T / 25 s | 扩散 compute-bound、无自回归 KV、按步数 / 分辨率组 batch |
 | 视频 | 3D VAE（4× 时间、8× 空间）+ 时空 patch + 全 3D attention；5 s 720p ≈ 100K token | HunyuanVideo 13B ≈ 600 P（attention 占八成以上），FLUX 的 300× |
 | 后训练 | 美学微调；Diffusion-DPO（ELBO 替代似然）；奖励微调；可验证奖励 + GRPO | 与 L5 平行，含 reward hacking |
 
@@ -396,7 +396,7 @@ $$
 
    <details markdown="1"><summary>答案</summary>
 
-   扩散约 80 TFLOPs、A100 2–3 秒；LLM 约 14 TFLOPs 却要 20–30 秒。扩散每步是一个几千 token 的大 batch 前向（compute-bound、MFU 高），LLM 每步只算 1 个 token（memory-bound、MFU 1%）。所以扩散的服务系统不需要 KV cache 与 continuous batching，需要的是步数蒸馏与算力。
+   扩散约 80 TFLOPs、A100 2–3 秒；LLM 约 14 TFLOPs 却要 20–30 秒。扩散每步是一个几千 token 的大 batch 前向（compute-bound、MFU 高），LLM 每步只算 1 个 token（memory-bound、MFU 1%）。所以扩散的服务系统不需要自回归的 KV cache 与 token 级 continuous batching（文本 cross-attn 的 K/V 仍可跨步缓存；不同步数 / 分辨率的请求仍要动态组 batch），需要的是步数蒸馏与算力。
 
    </details>
 
@@ -414,4 +414,4 @@ $$
 
 [^q0]: 因为像素空间的扩散把大部分算力花在人眼不分辨的高频细节上，而 VAE 能用一次确定性的解码重建这些细节——扩散只需在 48 倍小的空间里学语义与结构，训练算力降一个量级；代价是 VAE 的瓶颈，SD3 用 16 通道放宽它。详见[第二章](#二latent-diffusion)。
 [^q1]: 赢在 **scaling**：把 latent 切成 patch 用标准 Transformer 处理后，FID 随 GFLOPs 平滑下降、与参数怎么分配无关，工程师知道「加算力就变好」，而 U-Net 的多尺度结构没有这样的规律；MMDiT 进一步让文本 token 进入同一个 attention 与图像深度交互。详见[第三章](#三从-u-net-到-dit)。
-[^q2]: 一张 FLUX 图是 2.8 PFLOPs、一次 7B LLM 回答是 14 TFLOPs，相差 200 倍，时间却相近——因为扩散每步是 4096 个 token 的并行前向、compute-bound、MFU 高，LLM 每步是 1 个 token、memory-bound、MFU 1%；所以扩散没有 KV cache、不需要 continuous batching，它的加速手段是把 50 步蒸成 4 步。详见[第六章](#六采样加速)、[第七章](#七成本结构)。
+[^q2]: 一张 FLUX 图是 2.8 PFLOPs、一次 7B LLM 回答是 14 TFLOPs，相差 200 倍，时间却相近——因为扩散每步是 4096 个 token 的并行前向、compute-bound、MFU 高，LLM 每步是 1 个 token、memory-bound、MFU 1%；所以扩散没有自回归的 KV cache、不需要 token 级 continuous batching，它的加速手段是把 50 步蒸成 4 步。详见[第六章](#六采样加速)、[第七章](#七成本结构)。

@@ -30,9 +30,9 @@ date: 2026-05-07 20:00:00 +0800
 
 ### 2. 先说答案
 
-三者是同一件事，因为它们都在学同一个对象——每个噪声水平 $$t$$ 下带噪数据分布 $$p_t(x)$$ 的**分数** $$\nabla_x \log p_t(x)$$——的不同参数化。DDPM 学的噪声 $$\epsilon$$ 与分数的关系是 $$s = -\epsilon / \sigma_t$$（Tweedie 公式的推论，第二章）；flow matching 学的速度 $$v$$ 是 $$\epsilon$$ 与 $$x_0$$ 的差，也可以用分数表达。三种损失在换元后只差一个与 $$t$$ 有关的权重。它们的采样都是解同一个概率流 ODE（或对应的 SDE），只是 flow matching 选择的前向过程让 ODE 的轨迹更容易拉直，因而少步数就够。
+三者在高斯加噪路径下是同一件事，因为它们都在学同一个对象——每个噪声水平 $$t$$ 下带噪数据分布 $$p_t(x)$$ 的**分数** $$\nabla_x \log p_t(x)$$——的不同参数化。DDPM 学的噪声 $$\epsilon$$ 与分数的关系是 $$s = -\epsilon / \sigma_t$$（Tweedie 公式的推论，第二章）；flow matching 学的速度 $$v$$ 是 $$\epsilon$$ 与 $$x_0$$ 的差，也可以用分数表达。三种损失在换元后只差一个与 $$t$$ 有关的权重（一般 coupling / 非高斯路径的 flow matching 不在此列）。它们的采样都是解同一个概率流 ODE（或对应的 SDE），只是 flow matching 选择的前向过程让 ODE 的轨迹更容易拉直，因而少步数就够。
 
-CFG 的 $$w = 7.5$$ 意味着采样的分布不是 $$p(x \mid c)$$，而是 $$p(x \mid c)^{w} / p(x)^{w-1}$$ 的归一化——把条件分布"锐化"了 $$w$$ 倍：条件 $$c$$ 下比无条件更可能的区域被放大 $$w$$ 次幂，其他区域被压掉。$$w = 1$$ 是原条件分布；$$w = 7.5$$ 让样本强烈偏向"最典型地符合 $$c$$"的模式——保真度与文本一致性上升、多样性下降、颜色饱和度过高（over-saturation）。它是一个**有意的分布改变**，与 [L6 第一篇](/decoding-strategies-sampling-and-constrained-generation.html)的低温采样是同类操作。第五章展开。
+CFG 的 $$w = 7.5$$ 意味着**每一步**用的分数被换成了 $$(1-w)\,s_\emptyset + w\,s_c$$——在每个噪声水平上，它是"$$p_t(x \mid c)^{w} / p_t(x)^{w-1}$$ 归一化"这个锐化分布的分数：条件 $$c$$ 下比无条件更可能的区域被放大 $$w$$ 次幂，其他区域被压掉。要说清一点：这个锐化是**逐噪声层**的，把每一层都锐化之后再一路采到 $$t = 0$$，终点分布**不等于**把干净数据分布 $$p_0(x \mid c)$$ 锐化——"先加噪再锐化"与"先锐化再加噪"不交换（第五章给一个一维高斯反例，Bradley & Nakkiran 2024 的结论）。"CFG 采样 $$p(x\mid c)^w/p(x)^{w-1}$$"是一个好用的直觉，不是采样定理。$$w = 1$$ 是原条件分布；$$w = 7.5$$ 让样本强烈偏向"最典型地符合 $$c$$"的模式——保真度与文本一致性上升、多样性下降、颜色饱和度过高（over-saturation）。它是一个**有意的分布改变**，与 [L6 第一篇](/decoding-strategies-sampling-and-constrained-generation.html)的低温采样是同类操作。第五章展开。
 
 ### 3. 本文的章节安排
 
@@ -155,13 +155,13 @@ Lipman 等证明：这个只用"配对的条件速度"的损失，与匹配**边
 
 ### 2. 与 DDPM 的换算
 
-直线路径 $$x_t = (1 - t) x_0 + t \epsilon$$ 与 DDPM 的 $$x_t = \sqrt{\bar\alpha_t} x_0 + \sqrt{1 - \bar\alpha_t}\, \epsilon$$ 是同一族（$$x_t = a_t x_0 + b_t \epsilon$$）中的两个成员：DDPM 是**方差保持**（$$a_t^2 + b_t^2 = 1$$，圆弧），flow matching 是 $$a_t + b_t = 1$$（直线）。在任何这样的路径上，$$\epsilon$$、$$x_0$$、$$v = \epsilon - x_0$$、分数 $$s$$ 都由 $$x_t$$ 与其中一个线性决定：
+直线路径 $$x_t = (1 - t) x_0 + t \epsilon$$ 与 DDPM 的 $$x_t = \sqrt{\bar\alpha_t} x_0 + \sqrt{1 - \bar\alpha_t}\, \epsilon$$ 是同一族（$$x_t = a_t x_0 + b_t \epsilon$$）中的两个成员：DDPM 是**方差保持**（$$a_t^2 + b_t^2 = 1$$，圆弧），flow matching 是 $$a_t + b_t = 1$$（直线）。在任何这样的路径上，$$\epsilon$$、$$x_0$$、分数 $$s$$ 都由 $$x_t$$ 与其中一个线性决定；速度是路径的时间导数 $$v = \dot a_t x_0 + \dot b_t \epsilon$$——**只有直线路径**（$$a_t = 1-t$$、$$b_t = t$$）上才是 $$v = \epsilon - x_0$$，方差保持的圆弧路径上 $$v$$-prediction 的 $$v = \sqrt{\bar\alpha_t}\,\epsilon - \sqrt{1-\bar\alpha_t}\,x_0$$ 是另一个量（差一个角度导数因子）：
 
 $$
 \epsilon = x_t + (1 - t)\, v, \qquad x_0 = x_t - t\, v, \qquad s = -\frac{\epsilon}{t} = -\frac{x_t + (1-t) v}{t}
 $$
 
-（直线路径下 $$\sigma_t = t$$。）所以 flow matching 的 $$v$$-预测与 DDPM 的 $$\epsilon$$-预测学的是同一个信息，训练损失只差一个与 $$t$$ 有关的权重（$$\lVert v - v_\theta \rVert^2 = \lVert \epsilon - \epsilon_\theta \rVert^2 / (1-t)^2$$ 一类）。Kingma & Gao 2023 把所有这些损失统一成"加权的 ELBO"——不同方法的差别**全部**归结为对不同噪声水平的加权。这是核心问题前半的完整答案。
+（直线路径下 $$\sigma_t = t$$。）所以 flow matching 的 $$v$$-预测与 DDPM 的 $$\epsilon$$-预测学的是同一个信息，训练损失只差一个与 $$t$$ 有关的权重（$$\lVert v - v_\theta \rVert^2 = \lVert \epsilon - \epsilon_\theta \rVert^2 / (1-t)^2$$ 一类）。Kingma & Gao 2023 把这些损失统一成"加权的 ELBO"——在**高斯路径**（$$x_t = a_t x_0 + b_t \epsilon$$、噪声与数据独立配对）这个前提下，不同方法的差别归结为对不同噪声水平的加权、坐标 / 时间的重参数化与端点的选择。前提要记住：一般的 flow matching 允许非高斯路径与非独立 coupling（例如 OT 配对的 reflow），那些不在"同一个分数的不同参数化"之列。这是核心问题前半的答案。
 
 ### 3. 为什么直线让步数少
 
@@ -202,7 +202,7 @@ reflow 后**一步**就生成出两个月牙（0.030），而 DDIM 一步是灾�
 
 - **DDPM linear**（$$\beta_t$$ 线性）：SNR 在中间下降太快，很多步浪费在几乎纯噪声的区域。
 - **cosine**（Nichol & Dhariwal 2021）：$$\bar\alpha_t = \cos^2(\frac{t/T + s}{1 + s} \cdot \frac{\pi}{2})$$，SNR 下降更均匀，在小数据集上提升明显。
-- **零终端 SNR**（Lin 等 2024）：DDPM linear 在 $$t = T$$ 处 $$\bar\alpha_T \approx 0.0047 \ne 0$$——训练时最噪的样本仍含一点信号，但采样从纯噪声开始，训练与采样不一致；表现是生成的图片平均亮度总是中等（不能生成很暗或很亮的图）。修正：把调度缩放到 $$\bar\alpha_T = 0$$，用 $$v$$-prediction（此时 $$\epsilon$$-prediction 无定义），采样从真正的纯噪声开始。
+- **零终端 SNR**（Lin 等 2024）：Stable Diffusion 的 scaled-linear 调度（$$\beta$$ 从 $$0.00085$$ 到 $$0.012$$ 按 $$\sqrt{\beta}$$ 线性）在 $$t = T$$ 处 $$\bar\alpha_T \approx 0.0047 \ne 0$$（DDPM 原版 linear $$10^{-4} \to 0.02$$ 是 $$4 \times 10^{-5}$$，两个调度别混）——训练时最噪的样本仍含一点信号，但采样从纯噪声开始，训练与采样不一致；表现是生成的图片平均亮度总是中等（不能生成很暗或很亮的图）。修正：把调度缩放到 $$\bar\alpha_T = 0$$，改用 $$v$$-prediction——在 $$\bar\alpha_T = 0$$ 处 $$x_T = \epsilon$$，$$\epsilon$$ 目标仍有定义但等于输入本身、从它换算 $$x_0$$ 要除以 0，网络学不到任何东西；$$x_0$$-prediction 也能用，$$v$$ 是在两端都表现好的选择——采样从真正的纯噪声开始。
 - **EDM**（Karras 等 2022）：在 $$\sigma$$ 空间用对数正态分布采样噪声水平，配合网络输入输出的预处理（preconditioning），是很多后续工作的调度基线。
 
 ### 2. 时间步采样：logit-normal
@@ -211,7 +211,7 @@ flow matching 的 $$t \sim U[0, 1]$$ 让所有噪声水平等权。SD3 发现**�
 
 ### 3. 分辨率与调度的耦合
 
-同一个噪声水平在不同分辨率下的"破坏程度"不同：$$1024^2$$ 的图加 $$\sigma = 1$$ 的噪声，相邻像素平均后噪声被抵消一部分，图的低频结构仍清晰；$$256^2$$ 的图加同样的噪声几乎看不出内容。所以高分辨率需要**更多噪声**才能达到同样的破坏。SD3 的做法：把时间步按分辨率**平移**（shift），$$t_{new} = \frac{\alpha t}{1 + (\alpha - 1) t}$$，$$\alpha = \sqrt{m / n}$$（$$m$$、$$n$$ 是两个分辨率的 token 数），$$1024^2$$ 相比 $$256^2$$ 平移 $$\alpha = 3$$。FLUX 沿用（并在采样时也做动态平移）。Simple Diffusion（Hoogeboom 等 2023）更早提出了同样的调度缩放。这是从 $$256^2$$ 到 $$1024^2$$ 直接训练（不用超分级联）成为可能的原因之一。
+同一个噪声水平在不同分辨率下的"破坏程度"不同：$$1024^2$$ 的图加 $$\sigma = 1$$ 的噪声，相邻像素平均后噪声被抵消一部分，图的低频结构仍清晰；$$256^2$$ 的图加同样的噪声几乎看不出内容。所以高分辨率需要**更多噪声**才能达到同样的破坏。SD3 的做法：把时间步按分辨率**平移**（shift），$$t_{new} = \frac{\alpha t}{1 + (\alpha - 1) t}$$，$$\alpha = \sqrt{m / n}$$（$$m$$、$$n$$ 是两个分辨率的 token 数）——$$1024^2$$ 相比 $$256^2$$ token 数是 16 倍，公式给 $$\alpha = 4$$；SD3 实际用的 $$\alpha = 3$$ 是在人评上扫出来的经验值，论文自己也说公式只给量级。FLUX 沿用（并在采样时也做动态平移）。Simple Diffusion（Hoogeboom 等 2023）更早提出了同样的调度缩放。这是从 $$256^2$$ 到 $$1024^2$$ 直接训练（不用超分级联）成为可能的原因之一。
 
 ## 五、classifier-free guidance
 
@@ -258,9 +258,9 @@ $$
 \tilde p(x \mid c) \propto p(x)^{1 - w}\, p(x \mid c)^{w} = p(x) \left(\frac{p(x \mid c)}{p(x)}\right)^{w} \propto p(x)\, p(c \mid x)^{w}
 $$
 
-即 $$p(x \mid c)^w / p(x)^{w-1}$$ 归一化。$$w = 7.5$$（SD 1.x 的默认）意味着**分类器项 $$p(c \mid x)$$ 被升到 7.5 次幂**：一个区域在条件下比无条件下可能 2 倍，被放大到 $$2^{7.5} \approx 180$$ 倍；可能 0.5 倍的区域被压到 $$1/180$$。分布被极度锐化到"最典型地符合 $$c$$"的模式上。这就是核心问题后半的答案——它与 [L6 第一篇](/decoding-strategies-sampling-and-constrained-generation.html)的低温采样是同一类操作（温度 $$1/w$$ 作用在 $$p(c \mid x)$$ 上），带来同样的权衡：**保真度与一致性上升、多样性下降**。
+即 $$p(x \mid c)^w / p(x)^{w-1}$$ 归一化——**在每一个噪声水平 $$t$$ 上**。$$w = 7.5$$（SD 1.x 的默认）意味着分类器项 $$p_t(c \mid x_t)$$ 被升到 7.5 次幂：一个区域在条件下比无条件下可能 2 倍，被放大到 $$2^{7.5} \approx 180$$ 倍；可能 0.5 倍的区域被压到 $$1/180$$。每一层都被锐化到"最典型地符合 $$c$$"的模式上。它与 [L6 第一篇](/decoding-strategies-sampling-and-constrained-generation.html)的低温采样是同一类操作（温度 $$1/w$$ 作用在 $$p(c \mid x)$$ 上），带来同样的权衡：**保真度与一致性上升、多样性下降**。
 
-（严格地说，两个分数的线性组合不一定是任何归一化分布的分数——上面的 $$\tilde p$$ 是在每个 $$t$$ 的带噪分布上的近似解释，且 $$\epsilon_\theta$$ 不是精确的分数。但作为理解 $$w$$ 的含义，这个解释是标准的。）
+但这里有一个很多教程都写错的地方：**逐层锐化之后采到底，终点不是 $$p_0(x\mid c)^w / p_0(x)^{w-1}$$**。原因是"锐化"与"加噪"不交换——先把干净分布锐化再加噪，与先加噪再锐化每一层，得到的不是同一族分布，而 CFG 做的是后者。一维高斯就能看出来（CPU 验证）：无条件 $$p_0 = \mathcal N(0, 4)$$、有条件 $$p_0^c = \mathcal N(0, 1)$$、$$w = 2$$。若终点真是幂分布，方差应为 $$1/(2/1 - 1/4) = 4/7 \approx 0.571$$；而用**精确分数**（不是网络近似）跑 CFG 的概率流 ODE，终点方差是 $$1/4$$——差了两倍多。所以"采样幂分布"只对每个噪声层成立、对最终样本是一个近似直觉，且即便分数完全精确也不成立（Bradley & Nakkiran 2024 对 DDPM / DDIM 都给了证明）；网络不精确只是第二层误差。实践中 $$w$$ 的效果——更贴 prompt、更少样、过饱和——是经验事实，不依赖这个错误的"定理"。
 
 ### 3. 副作用与修正
 
@@ -307,7 +307,7 @@ CIFAR-10（$$32^2$$）上从零训两个小模型（同一个 U-Net，约 35M �
 | 统一 | 所有损失 = 加权 ELBO，差别只在噪声水平的权重与路径形状 | Kingma & Gao 2023 |
 | 直线 | 随机配对 → 边缘轨迹弯（toy 直线度 0.49）；reflow 在 ODE 配对上重训 → 1.00，一步采样 0.030 | SD3 / FLUX 20–30 步；5 步时 FM 0.041 vs DDIM 0.099 |
 | 调度 | cosine；零终端 SNR；logit-normal 采 $$t$$；分辨率平移 $$\alpha = \sqrt{m/n}$$ | 高分辨率需更多噪声 |
-| CFG | $$\tilde\epsilon = \epsilon_\emptyset + w(\epsilon_c - \epsilon_\emptyset)$$；采样 $$\propto p(x) p(c \mid x)^w$$ | toy：$$w$$ 1 → 4 命中 95% → 100%、标准差 0.60 → 0.35；$$w = 8$$ 甩出分布外 |
+| CFG | $$\tilde\epsilon = \epsilon_\emptyset + w(\epsilon_c - \epsilon_\emptyset)$$；每个噪声层 $$\propto p_t(x) p_t(c \mid x)^w$$，终点不是 $$p_0$$ 的幂分布 | toy：$$w$$ 1 → 4 命中 95% → 100%、标准差 0.60 → 0.35；$$w = 8$$ 甩出分布外 |
 | 修正 | 过饱和 → 动态阈值 / rescale；多样性 → 区间 guidance；两倍成本 → CFG 蒸馏 | FLUX-dev 是蒸馏过的 |
 | 成本 | 训练每样本一个 $$t$$；采样步数 × 2（CFG）× 前向；compute-bound、无 KV | SD 1.5 一张图 80 TFLOPs、3 秒 |
 
@@ -317,7 +317,7 @@ CIFAR-10（$$32^2$$）上从零训两个小模型（同一个 U-Net，约 35M �
 
    <details markdown="1"><summary>答案</summary>
 
-   $$\epsilon = -\sigma_t s$$（去噪分数匹配 = 噪声预测）；线性插值路径 $$x_t = (1 - t) x_0 + t\epsilon$$ 下 $$v = \epsilon - x_0$$，与 $$\epsilon$$、$$x_0$$ 线性相关。三个视角训的是同一个网络、不同的参数化。
+   $$\epsilon = -\sigma_t s$$（去噪分数匹配 = 噪声预测）；线性插值路径 $$x_t = (1 - t) x_0 + t\epsilon$$ 下 $$v = \epsilon - x_0$$，与 $$\epsilon$$、$$x_0$$ 线性相关。三个视角在高斯路径下训的是同一个网络、不同的参数化（一般路径上 $$v = \dot a_t x_0 + \dot b_t\epsilon$$，直线时才是 $$\epsilon - x_0$$）。
 
    </details>
 
@@ -333,7 +333,7 @@ CIFAR-10（$$32^2$$）上从零训两个小模型（同一个 U-Net，约 35M �
 
    <details markdown="1"><summary>答案</summary>
 
-   $$\hat\epsilon = \epsilon(\varnothing) + w[\epsilon(c) - \epsilon(\varnothing)]$$，等价于从 $$p(x)\, p(c \mid x)^w$$ 采样——把条件似然的幂放大 $$w$$ 倍，让样本更"像 prompt"；$$w = 1$$ 是原始条件分布，多样但贴合度低（toy 上 5% 落错月牙）；7.5 是贴合与多样、饱和之间的经验点。代价是每步两次前向。
+   $$\hat\epsilon = \epsilon(\varnothing) + w[\epsilon(c) - \epsilon(\varnothing)]$$，在每个噪声层上等价于用 $$p_t(x)\, p_t(c \mid x)^w$$ 的分数——把条件似然的幂放大 $$w$$ 倍，让样本更"像 prompt"（终点分布不是 $$p_0$$ 的幂分布，第五章 §2 的高斯反例）；$$w = 1$$ 是原始条件分布，多样但贴合度低（toy 上 5% 落错月牙）；7.5 是贴合与多样、饱和之间的经验点。代价是每步两次前向。
 
    </details>
 
@@ -357,5 +357,5 @@ CIFAR-10（$$32^2$$）上从零训两个小模型（同一个 U-Net，约 35M �
 
 [Latent diffusion、DiT 与文生图配方](/latent-diffusion-dit-and-text-to-image-recipes.html)
 
-[^q0]: 三者学的是同一个对象——每个噪声水平下带噪数据分布的分数 $$\nabla_x \log p_t(x)$$——的三种线性参数化：DDPM 的噪声 $$\epsilon = -\sigma s$$（Tweedie 公式），flow matching 的速度 $$v = \epsilon - x_0$$ 也由 $$x_t$$ 与 $$\epsilon$$ 线性决定；三种训练损失换元后只差一个与噪声水平有关的权重，全部是加权的 ELBO；三者的采样都是解同一个概率流 ODE（或反向 SDE），DDIM 是它的一种离散化，flow matching 的直线参数化让轨迹容易拉直（reflow）、Euler 法少步就够。详见[第二章](#二score-matching分数的视角)、[第三章](#三flow-matching直线的视角)。
-[^q1]: 采样分布不是 $$p(x \mid c)$$ 而是 $$\propto p(x)\, p(c \mid x)^{7.5}$$——把「这张图有多符合文本」这一项升到 7.5 次幂，分布被锐化到最典型地符合文本的模式上：一致性与保真度上升、多样性下降（toy：$$w$$ 从 1 到 4，标准差 0.60 → 0.35）、外推过头落到分布之外导致过饱和（toy 的 $$w = 8$$），需要动态阈值或 rescale 修正，且每步要两次前向（除非蒸馏掉）。详见[第五章](#五classifier-free-guidance)。
+[^q0]: 三者学的是同一个对象——每个噪声水平下带噪数据分布的分数 $$\nabla_x \log p_t(x)$$——的三种线性参数化：DDPM 的噪声 $$\epsilon = -\sigma s$$（Tweedie 公式），flow matching 的速度 $$v = \epsilon - x_0$$ 也由 $$x_t$$ 与 $$\epsilon$$ 线性决定；在高斯路径的前提下三种训练损失换元后只差一个与噪声水平有关的权重（加权的 ELBO）；三者的采样都是解同一个概率流 ODE（或反向 SDE），DDIM 是它的一种离散化，flow matching 的直线参数化让轨迹容易拉直（reflow）、Euler 法少步就够。详见[第二章](#二score-matching分数的视角)、[第三章](#三flow-matching直线的视角)。
+[^q1]: 每个噪声层上用的分数对应 $$\propto p_t(x)\, p_t(c \mid x)^{7.5}$$——把「这张图有多符合文本」这一项升到 7.5 次幂（终点样本的分布不是干净分布的这个幂，只是逐层的直觉），分布被锐化到最典型地符合文本的模式上：一致性与保真度上升、多样性下降（toy：$$w$$ 从 1 到 4，标准差 0.60 → 0.35）、外推过头落到分布之外导致过饱和（toy 的 $$w = 8$$），需要动态阈值或 rescale 修正，且每步要两次前向（除非蒸馏掉）。详见[第五章](#五classifier-free-guidance)。

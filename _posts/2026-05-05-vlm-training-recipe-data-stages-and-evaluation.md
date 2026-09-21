@@ -91,7 +91,7 @@ LLaVA-1.5 阶段 1：558K 条 caption（LAION / CC / SBU 的子集经 BLIP 重�
 
 ### 3. 编码器解不解冻
 
-阶段 1 是否同时训编码器，各家分歧：LLaVA 系列一直冻结 CLIP（理由：保护预训练的表示、省显存）；Qwen-VL / Qwen2-VL 在阶段 1 就解冻 ViT（理由：编码器要为 LLM 的任务调整，且他们的数据量大到不怕破坏）；InternVL 解冻（编码器是自己训的，本来就要与 LLM 联训）。经验规律：**数据少（< 几百万）冻结，数据多解冻；用现成 CLIP 且数据一般时冻结更稳**。解冻时编码器的 lr 要比 connector 小一到两个量级（$$2 \times 10^{-5}$$ 一类），且常配 layer-wise lr decay（浅层更小）。
+阶段 1 是否同时训编码器，各家分歧：LLaVA 系列一直冻结 CLIP（理由：保护预训练的表示、省显存）；Qwen-VL / Qwen2-VL 在阶段 1 就训 ViT——Qwen2-VL 的阶段 1 甚至**只**训 ViT、LLM 冻结（理由：编码器要为 LLM 的任务调整，且他们的数据量大到不怕破坏）；InternVL 解冻（编码器是自己训的，本来就要与 LLM 联训）。经验规律：**数据少（< 几百万）冻结，数据多解冻；用现成 CLIP 且数据一般时冻结更稳**。解冻时编码器的 lr 要比 connector 小一到两个量级（$$2 \times 10^{-5}$$ 一类），且常配 layer-wise lr decay（浅层更小）。
 
 ### 4. 把这件事缩小到能亲眼看见
 
@@ -140,7 +140,7 @@ Prismatic VLMs（Karamcheti 等 2024）的系统消融：在 LLaVA 规模的数�
 
 阶段 2 的配比决定能力的形状。几个公开的例子：
 
-- **Qwen2-VL**：阶段 2 约 600B token（含文本），图文对、OCR、交错、VQA、grounding、视频混合；随后阶段 2b 加高质量与合成数据到总计 1.4T token。
+- **Qwen2-VL**：论文 2.2 节的三阶段——阶段 1 **只训 ViT**（约 600B token，图文对 / OCR / 交错）；阶段 2 **全部解冻**（再 800B token，加 VQA、grounding、视频等混合数据）；阶段 3 **锁定 ViT、只对 LLM 做指令微调**。合计约 1.4T token（含图像与文本 token，只算文本 loss）。
 - **InternVL 2.5**：阶段 2 数据按任务分桶（caption、通用 QA、数学、图表、OCR、知识、文档、grounding、对话、多图、视频），公布了各桶的数据集列表；强调"数据质量过滤"（去掉重复模式、异常长度的样本）比数据量重要，报告过滤后训练更稳、幻觉更少。
 - **MM1**：消融的结论——**交错图文数据对 few-shot 能力关键**（去掉它 few-shot 掉 10+ 点），caption 数据对零样本关键，纯文本数据对文本能力关键；三者的比例 45 / 45 / 10 是他们的甜点。
 - **Idefics2 / 3**：OBELICS 交错数据 + LAION caption + PDF 文档（Docmatix，250 万文档页的合成 QA）；报告文档数据让 DocVQA 从 ~50 涨到 ~75。
@@ -153,7 +153,7 @@ Prismatic VLMs（Karamcheti 等 2024）的系统消融：在 LLaVA 规模的数�
 
 ### 4. 学习率与冻结
 
-阶段 2 通常全部解冻，lr 分组：LLM 用 SFT 量级（$$1\text{–}2 \times 10^{-5}$$）、connector 可以大一点、编码器最小（$$2 \times 10^{-6}$$ 到 $$2 \times 10^{-5}$$，配 layer decay）。Qwen2-VL 报告全阶段解冻 ViT 有收益；LLaVA-NeXT 在阶段 2（他们称 stage 1.5）解冻 ViT 并用 $$2 \times 10^{-6}$$。冻结编码器的代价是编码器的盲点（上一篇）不能被下游任务修正——对 OCR 与定位任务，解冻是必要的。
+阶段 2 通常全部解冻，lr 分组：LLM 用 SFT 量级（$$1\text{–}2 \times 10^{-5}$$）、connector 可以大一点、编码器最小（$$2 \times 10^{-6}$$ 到 $$2 \times 10^{-5}$$，配 layer decay）。Qwen2-VL 在阶段 1、2 训练 ViT（阶段 3 冻结）；LLaVA-NeXT 在阶段 2（他们称 stage 1.5）解冻 ViT 并用 $$2 \times 10^{-6}$$。冻结编码器的代价是编码器的盲点（上一篇）不能被下游任务修正——对 OCR 与定位任务，解冻是必要的。
 
 ## 四、阶段 3–4：指令微调与偏好
 
@@ -186,7 +186,7 @@ LLaVA-OneVision（2024）的 SFT 数据 3.2M 条，分为单图、多图、视�
 |---|---|---|---|---|---|---|
 | LLaVA-1.5（2023） | 2 | 558K caption，只训 MLP，1 ep | — | 665K（学术 VQA + GPT-4 生成 + 文本），LLM + MLP，1 ep | 冻结 CLIP | 8 × A100 约 1 天；一切的基线 |
 | LLaVA-NeXT / OneVision（2024） | 3 | 558K | 4M 高质量 recaption（stage 1.5），解冻 ViT | 3.2M（单图 / 多图 / 视频） | 解冻（小 lr） | 强调数据质量 |
-| Qwen2-VL（2024） | 3 | 图文对 + OCR，训 ViT | 600B → 1.4T token 多任务，全解冻 | 指令 + 多图 + 视频 + agent | 自训，全程解冻 | 原生分辨率；DPO |
+| Qwen2-VL（2024） | 3 | 只训 ViT，600B token | 再 800B token 多任务，全解冻 | 指令 + 多图 + 视频 + agent，**ViT 冻结** | 自训；阶段 1–2 解冻、阶段 3 冻结 | 原生分辨率；DPO |
 | InternVL 2.5（2024） | 3 | 对齐（InternViT + MLP） | 多任务分桶，数据过滤 | 分桶 SFT，"渐进式缩放"（小 LLM 上调好数据再换大 LLM） | 解冻 | 78B 用 Qwen2.5-72B |
 | Molmo（2024） | 2 | PixMo-Cap 712K 人写描述，训 connector + LLM | — | PixMo 多任务（AskModelAnything、Points、Docs、Clocks…） | 冻结 → 解冻 | 全部数据开放、无 VLM 合成 |
 | Llama 3.2 Vision（2024） | 3 | 6B 图文对，训 cross-attn + 编码器 | 高质量数据 | SFT + 拒绝采样 + DPO | 训 | 文本能力零变化 |
@@ -207,7 +207,7 @@ LLaVA-OneVision（2024）的 SFT 数据 3.2M 条，分为单图、多图、视�
 - **HallusionBench**、**MMHal-Bench**：更复杂的幻觉（视觉错觉、误导性问题、文本先验陷阱），常用 GPT-4 评分。
 - **AMBER**：生成式与判别式结合的无 LLM 评测。
 
-LLaVA-1.5 在 POPE 的共现子集上准确率约 85%（即 15% 的幻觉率）；经过 RLHF-V 或高质量数据训练的模型到 88–90%；2025 年的模型（Qwen2.5-VL、InternVL 3）在 87–90%。剩下的 10% 顽固部分说明幻觉不只是数据问题。
+LLaVA-1.5 在 POPE 的共现子集上准确率约 85%；经过 RLHF-V 或高质量数据训练的模型到 88–90%；2025 年的模型（Qwen2.5-VL、InternVL 3）在 87–90%。注意 $$1 - \text{acc}$$ **不是**幻觉率：POPE 是 yes/no 二分类，错误里既有"没有却说有"（假阳性，才是幻觉）也有"有却说没有"（假阴性，是漏检）；平衡的 200 题里 TP 80 / TN 90 与 TP 90 / TN 80 准确率都是 85%，假阳性率却是 10% 与 20%——要看 yes 比例与 F1，或直接报假阳性率。剩下的 10% 顽固部分说明幻觉不只是数据问题。
 
 ### 2. 三个来源
 
@@ -281,9 +281,9 @@ VLM 的评测里应包含**纯文本 benchmark 的回归**（MMLU、GSM8K、Huma
 
 以一个 7B LLM + 400M 编码器、图片平均 576 token、文本 200 token 的配置估算（每样本约 800 token）：
 
-| 阶段 | 样本数 | token 数 | 训练参数 | FLOPs（$$6 \times P \times T$$，冻结部分按前向 $$2P$$） | 8 × H100 时间（40% MFU） |
+| 阶段 | 样本数 | token 数 | 训练参数 | FLOPs（可训部分 $$6PT$$；冻结但在可训模块**之后**的部分要前向 + 对输入的反向 $$\approx 4PT$$；冻结且在可训模块**之前**的部分只前向 $$2PT$$） | 8 × H100 时间（40% MFU） |
 |---|---|---|---|---|---|
-| 1 对齐（只训 MLP） | 558K | 4.5 亿 | 20M（MLP）；LLM 与 ViT 前向 | $$2 \times 7.4B \times 4.5 \times 10^8 \approx 6.7 \times 10^{18}$$（几乎全是 LLM 前向） | 约 0.6 小时 |
+| 1 对齐（只训 MLP） | 558K | 4.5 亿 | 20M（MLP）；ViT 在 connector 之前可 `no_grad`（$$2P$$）；LLM 在 connector **之后**，梯度要穿过它回到 connector——不算 $$dW$$ 但要算 $$dX$$（$$\approx 4P$$），把 LLM 包进 `no_grad` 会让 connector 拿不到梯度（CPU 验证：`connector.weight.grad` 存在、`backbone.grad is None`；加 `no_grad` 后输出 `requires_grad=False`） | $$4 \times 7B \times 4.5 \times 10^8 + 2 \times 0.3B \times 4.5 \times 10^8 \approx 1.3 \times 10^{19}$$ | 约 1.1 小时 |
 | 2 预训练 | 10M | 80 亿 | 全部 7.4B | $$6 \times 7.4B \times 8 \times 10^9 \approx 3.6 \times 10^{20}$$ | 约 32 小时 |
 | 3 SFT | 1M | 8 亿 | 7B + MLP | $$6 \times 7B \times 8 \times 10^8 \approx 3.4 \times 10^{19}$$ | 约 3 小时 |
 | 4 DPO | 20K 对 | — | LLM | 小 | < 1 小时 |
@@ -345,7 +345,7 @@ recaption 1000 万张图：每张图一次 VLM 推理（约 1K token 输入 + 30
 
    <details markdown="1"><summary>答案</summary>
 
-   保持文本能力——全解冻训多模态数据会让 MMLU / GSM8K 回退；训后必须回归测这两类。cross-attn 注入天然零退化，序列注入靠混文本。
+   保持文本能力——全解冻训多模态数据会让 MMLU / GSM8K 回退；训后必须回归测这两类。cross-attn 注入在**冻结原层 + 纯文本时跳过视觉层**的条件下零退化（Llama 3.2 的做法，不是结构自带），序列注入靠混文本。
 
    </details>
 

@@ -237,7 +237,7 @@ def ddpm_sample(model, n):
 
 ### 2. 三种预测目标
 
-网络可以预测 $$\epsilon$$、预测 $$x_0$$、或预测 $$v$$（velocity，Salimans & Ho 2022：$$v = \sqrt{\bar\alpha_t}\, \epsilon - \sqrt{1 - \bar\alpha_t}\, x_0$$）。三者线性相关，知道其一与 $$x_t$$ 就能算另外两个：$$x_0 = (x_t - \sqrt{1 - \bar\alpha_t}\, \epsilon) / \sqrt{\bar\alpha_t}$$。差别在数值行为：预测 $$\epsilon$$ 在 $$t \to T$$（几乎纯噪声）时容易——$$x_t \approx \epsilon$$——但在 $$t \to 0$$ 时从 $$\epsilon$$ 恢复 $$x_0$$ 要除以接近零的 $$\sqrt{1 - \bar\alpha_t}$$，误差放大；预测 $$x_0$$ 相反。$$v$$-prediction 在两端都稳定，是 SDXL 精炼模型、Imagen Video 等的选择，且在**零终端 SNR** 的调度下（下篇第四章）是必需的——那时 $$t = T$$ 处 $$x_T$$ 完全是噪声，预测 $$\epsilon$$ 就是输出输入本身、网络学不到东西。
+网络可以预测 $$\epsilon$$、预测 $$x_0$$、或预测 $$v$$（velocity，Salimans & Ho 2022：$$v = \sqrt{\bar\alpha_t}\, \epsilon - \sqrt{1 - \bar\alpha_t}\, x_0$$）。三者线性相关，知道其一与 $$x_t$$ 就能算另外两个：$$x_0 = (x_t - \sqrt{1 - \bar\alpha_t}\, \epsilon) / \sqrt{\bar\alpha_t}$$。差别在数值行为，看 $$x_0 = (x_t - \sqrt{1 - \bar\alpha_t}\,\epsilon)/\sqrt{\bar\alpha_t}$$ 这个换算：$$\epsilon$$ 的误差被放大 $$\sqrt{1 - \bar\alpha_t}/\sqrt{\bar\alpha_t}$$ 倍——$$\bar\alpha_t = 0.99$$（小 $$t$$）时只有 0.1 倍，$$\bar\alpha_t = 0.01$$（大 $$t$$、几乎纯噪声）时是 10 倍。所以预测 $$\epsilon$$ 在**小 $$t$$** 稳、在**大 $$t$$** 换算 $$x_0$$ 时误差放大（那里 $$x_t \approx \epsilon$$，猜噪声本身容易，但"猜对噪声"离"猜对图"很远）；预测 $$x_0$$ 相反，大 $$t$$ 稳、小 $$t$$ 时换算 $$\epsilon$$ 要除以小的 $$\sqrt{1-\bar\alpha_t}$$。$$v$$-prediction 在两端都稳定，是 Imagen Video、Stable Diffusion 2.x 768-v 等的选择（SDXL 的 refiner 官方 scheduler 配置是 `epsilon`，不是 $$v$$）；在**零终端 SNR** 的调度下（下篇第四章）尤其重要——那时 $$t = T$$ 处 $$x_T$$ 完全是噪声，预测 $$\epsilon$$ 就是输出输入本身、网络学不到东西，$$x_0$$-prediction 也可用，$$v$$ 是两端都好的选择。
 
 ## 六、DDIM 与确定性采样
 
