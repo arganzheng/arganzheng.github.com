@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 280" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="13">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+<text x="380" y="22" fill="#222" font-size="14" text-anchor="middle" font-weight="600">同一个排好序的分布，三种截断各砍在哪里（灰柱 = 被置零、剩下的重新归一化后采样）</text>
+<text x="140" y="52" fill="#333" font-size="12" text-anchor="middle" font-weight="600">top-k（k = 4）：只留个数最多的 4 个</text>
+<line x1="36" y1="190" x2="250" y2="190" stroke="#555" stroke-width="1.2"/>
+<rect x="40" y="53.20000000000002" width="11" height="136.79999999999998" fill="#1f6fb2"/>
+<rect x="54" y="106.4" width="11" height="83.6" fill="#1f6fb2"/>
+<rect x="68" y="140.6" width="11" height="49.4" fill="#1f6fb2"/>
+<rect x="82" y="159.6" width="11" height="30.400000000000002" fill="#1f6fb2"/>
+<rect x="96" y="167.2" width="11" height="22.8" fill="#ccc"/>
+<rect x="110" y="174.8" width="11" height="15.200000000000001" fill="#ccc"/>
+<rect x="124" y="178.6" width="11" height="11.4" fill="#ccc"/>
+<rect x="138" y="182.4" width="11" height="7.6000000000000005" fill="#ccc"/>
+<rect x="152" y="182.4" width="11" height="7.6000000000000005" fill="#ccc"/>
+<rect x="166" y="184.3" width="11" height="5.7" fill="#ccc"/>
+<rect x="180" y="186.2" width="11" height="3.8000000000000003" fill="#ccc"/>
+<rect x="194" y="186.2" width="11" height="3.8000000000000003" fill="#ccc"/>
+<rect x="208" y="188.1" width="11" height="1.9000000000000001" fill="#ccc"/>
+<rect x="222" y="188.1" width="11" height="1.9000000000000001" fill="#ccc"/>
+<rect x="236" y="188.1" width="11" height="1.9000000000000001" fill="#ccc"/>
+<text x="140" y="208" fill="#666" font-size="11" text-anchor="middle" font-weight="normal">不管它们加起来是 0.79 还是 0.99</text>
+<line x1="95" y1="70" x2="95" y2="190" stroke="#c0392b" stroke-width="1.5" stroke-dasharray="4 3"/>
+<text x="100" y="82" fill="#c0392b" font-size="11" text-anchor="start" font-weight="normal">第 4 个之后全砍</text>
+<text x="385" y="52" fill="#333" font-size="12" text-anchor="middle" font-weight="600">top-p（p = 0.9）：从大到小累加到 0.9</text>
+<line x1="281" y1="190" x2="495" y2="190" stroke="#555" stroke-width="1.2"/>
+<rect x="285" y="53.20000000000002" width="11" height="136.79999999999998" fill="#1f6fb2"/>
+<rect x="299" y="106.4" width="11" height="83.6" fill="#1f6fb2"/>
+<rect x="313" y="140.6" width="11" height="49.4" fill="#1f6fb2"/>
+<rect x="327" y="159.6" width="11" height="30.400000000000002" fill="#1f6fb2"/>
+<rect x="341" y="167.2" width="11" height="22.8" fill="#1f6fb2"/>
+<rect x="355" y="174.8" width="11" height="15.200000000000001" fill="#1f6fb2"/>
+<rect x="369" y="178.6" width="11" height="11.4" fill="#1f6fb2"/>
+<rect x="383" y="182.4" width="11" height="7.6000000000000005" fill="#ccc"/>
+<rect x="397" y="182.4" width="11" height="7.6000000000000005" fill="#ccc"/>
+<rect x="411" y="184.3" width="11" height="5.7" fill="#ccc"/>
+<rect x="425" y="186.2" width="11" height="3.8000000000000003" fill="#ccc"/>
+<rect x="439" y="186.2" width="11" height="3.8000000000000003" fill="#ccc"/>
+<rect x="453" y="188.1" width="11" height="1.9000000000000001" fill="#ccc"/>
+<rect x="467" y="188.1" width="11" height="1.9000000000000001" fill="#ccc"/>
+<rect x="481" y="188.1" width="11" height="1.9000000000000001" fill="#ccc"/>
+<text x="385" y="208" fill="#666" font-size="11" text-anchor="middle" font-weight="normal">尖的分布留得少、平的分布留得多</text>
+<line x1="382" y1="70" x2="382" y2="190" stroke="#c0392b" stroke-width="1.5" stroke-dasharray="4 3"/>
+<text x="387" y="82" fill="#c0392b" font-size="11" text-anchor="start" font-weight="normal">累加到 0.9 时已有 7 个</text>
+<text x="630" y="52" fill="#333" font-size="12" text-anchor="middle" font-weight="600">min-p（0.1）：低于最大值 × 0.1 的砍掉</text>
+<line x1="526" y1="190" x2="740" y2="190" stroke="#555" stroke-width="1.2"/>
+<rect x="530" y="53.20000000000002" width="11" height="136.79999999999998" fill="#1f6fb2"/>
+<rect x="544" y="106.4" width="11" height="83.6" fill="#1f6fb2"/>
+<rect x="558" y="140.6" width="11" height="49.4" fill="#1f6fb2"/>
+<rect x="572" y="159.6" width="11" height="30.400000000000002" fill="#1f6fb2"/>
+<rect x="586" y="167.2" width="11" height="22.8" fill="#1f6fb2"/>
+<rect x="600" y="174.8" width="11" height="15.200000000000001" fill="#1f6fb2"/>
+<rect x="614" y="178.6" width="11" height="11.4" fill="#ccc"/>
+<rect x="628" y="182.4" width="11" height="7.6000000000000005" fill="#ccc"/>
+<rect x="642" y="182.4" width="11" height="7.6000000000000005" fill="#ccc"/>
+<rect x="656" y="184.3" width="11" height="5.7" fill="#ccc"/>
+<rect x="670" y="186.2" width="11" height="3.8000000000000003" fill="#ccc"/>
+<rect x="684" y="186.2" width="11" height="3.8000000000000003" fill="#ccc"/>
+<rect x="698" y="188.1" width="11" height="1.9000000000000001" fill="#ccc"/>
+<rect x="712" y="188.1" width="11" height="1.9000000000000001" fill="#ccc"/>
+<rect x="726" y="188.1" width="11" height="1.9000000000000001" fill="#ccc"/>
+<text x="630" y="208" fill="#666" font-size="11" text-anchor="middle" font-weight="normal">门槛随最大概率伸缩：0.36 × 0.1 = 0.036</text>
+<line x1="526" y1="176.32" x2="740" y2="176.32" stroke="#c0392b" stroke-width="1.5" stroke-dasharray="4 3"/>
+<text x="680" y="170.32" fill="#c0392b" font-size="10" text-anchor="start" font-weight="normal">门槛 0.036</text>
+<text x="380" y="245" fill="#333" font-size="12" text-anchor="middle" font-weight="normal">为什么要截断：尾部几十上百个每个只有千分之一的 token，加起来可能有 5–10% 的总质量——</text>
+<text x="380" y="263" fill="#333" font-size="12" text-anchor="middle" font-weight="normal">每 10–20 步就会抽到一个"胡话"token，而且一旦抽到，后面的生成都以它为条件。</text>
+</svg>

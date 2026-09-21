@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 312" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="13">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+<text x="380" y="22" fill="#222" font-size="14" text-anchor="middle" font-weight="600">直通估计器（STE）：前向用真的 round（台阶），反向假装它是 y = x（斜率 1）</text>
+<line x1="90" y1="250" x2="400" y2="250" stroke="#555" stroke-width="1.2" marker-end="url(#ar)"/>
+<line x1="240.0" y1="250" x2="240.0" y2="50" stroke="#555" stroke-width="1.2" marker-end="url(#ar)"/>
+<text x="398" y="266" fill="#333" font-size="11" text-anchor="end" font-weight="normal">w / Δ（输入）</text>
+<text x="246.0" y="50" fill="#333" font-size="11" text-anchor="start" font-weight="normal">round(w / Δ)</text>
+<line x1="90.0" y1="231.0" x2="150.0" y2="231.0" stroke="#1f6fb2" stroke-width="3"/>
+<circle cx="150.0" cy="231.0" r="3" fill="#fff" stroke="#1f6fb2" stroke-width="1.5"/>
+<line x1="150.0" y1="193.0" x2="210.0" y2="193.0" stroke="#1f6fb2" stroke-width="3"/>
+<circle cx="210.0" cy="193.0" r="3" fill="#fff" stroke="#1f6fb2" stroke-width="1.5"/>
+<line x1="210.0" y1="155.0" x2="270.0" y2="155.0" stroke="#1f6fb2" stroke-width="3"/>
+<circle cx="270.0" cy="155.0" r="3" fill="#fff" stroke="#1f6fb2" stroke-width="1.5"/>
+<line x1="270.0" y1="117.0" x2="330.0" y2="117.0" stroke="#1f6fb2" stroke-width="3"/>
+<circle cx="330.0" cy="117.0" r="3" fill="#fff" stroke="#1f6fb2" stroke-width="1.5"/>
+<line x1="330.0" y1="79.0" x2="390.0" y2="79.0" stroke="#1f6fb2" stroke-width="3"/>
+<line x1="90.0" y1="250.0" x2="390.0" y2="60.0" stroke="#c0392b" stroke-width="2" stroke-dasharray="6 4"/>
+<text x="258.0" y="65.70000000000002" fill="#c0392b" font-size="11" text-anchor="start" font-weight="normal">反向当作 y = x：∂y/∂w = 1</text>
+<text x="96.0" y="259.5" fill="#1f6fb2" font-size="11" text-anchor="start" font-weight="normal">前向：台阶，处处斜率 0（跳变处 ∞）</text>
+<text x="440" y="70" fill="#333" font-size="12" text-anchor="start" font-weight="600">训练时的一个线性层（假量化）：</text>
+<text x="440" y="98" fill="#333" font-size="12" text-anchor="start" font-weight="normal">w（fp32 主权重）</text>
+<text x="440" y="122" fill="#333" font-size="12" text-anchor="start" font-weight="normal">↓  ŵ = Δ · round(w/Δ)   ← 前向真的量化，误差进 loss</text>
+<text x="440" y="146" fill="#333" font-size="12" text-anchor="start" font-weight="normal">↓  y = ŵ x，算 loss</text>
+<text x="440" y="170" fill="#333" font-size="12" text-anchor="start" font-weight="normal">↑  ∂L/∂ŵ 正常反传</text>
+<text x="440" y="194" fill="#c0392b" font-size="12" text-anchor="start" font-weight="600">↑  ∂L/∂w ≔ ∂L/∂ŵ   ← STE：跳过 round，梯度直通</text>
+<text x="440" y="218" fill="#333" font-size="12" text-anchor="start" font-weight="normal">w ← w − η ∂L/∂w   （fp32 主权重被更新）</text>
+<text x="440" y="262" fill="#333" font-size="11" text-anchor="start" font-weight="normal">为什么"错"的梯度能用：round 是 y = x 加一个</text>
+<text x="440" y="278" fill="#333" font-size="11" text-anchor="start" font-weight="normal">[−Δ/2, Δ/2] 的抖动，平均看斜率就是 1；主权重是 fp32，</text>
+<text x="440" y="294" fill="#333" font-size="11" text-anchor="start" font-weight="normal">微小更新能累积、跨过格点时 ŵ 才跳一格。</text>
+</svg>

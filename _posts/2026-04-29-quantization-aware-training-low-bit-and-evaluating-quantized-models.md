@@ -65,6 +65,8 @@ $$
 
 ### 2. 直通估计器
 
+![STE：前向走 round 的台阶，反向当作 y = x；fp32 主权重被更新，跨过格点时量化值才跳一格](/img/in-post/quantization-aware-training-straight-through-estimator.svg)
+
 STE（Bengio 等 2013；Hinton 的课程里更早提到）的做法：**反向时把 round 当作恒等函数**，$$\partial \hat{w} / \partial w := 1$$。于是 $$\partial \mathcal{L} / \partial w = \partial \mathcal{L} / \partial \hat{w}$$——用量化后权重的梯度更新量化前的权重。实现上是一行：
 
 $$
