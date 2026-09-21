@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 314" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="13">
+<text x="380" y="22" text-anchor="middle" fill="#222" font-size="14" font-weight="600">KV 驱逐：预算只够留 12 个 token 的 K/V，三种策略各留哪些？</text>
+<text x="380" y="40" text-anchor="middle" fill="#666" font-size="12">24 个 token 的上下文（从左到右），第 10 个是埋下的"针"，问题在末尾才出现；灰格 = 被驱逐</text>
+<text x="142" y="86" text-anchor="end" fill="#333" font-size="12" font-weight="600">StreamingLLM</text>
+<rect x="150" y="70" width="20" height="22" rx="3" fill="#c98a00" stroke="#c98a00" opacity="1"/>
+<rect x="172" y="70" width="20" height="22" rx="3" fill="#c98a00" stroke="#c98a00" opacity="1"/>
+<rect x="194" y="70" width="20" height="22" rx="3" fill="#c98a00" stroke="#c98a00" opacity="1"/>
+<rect x="216" y="70" width="20" height="22" rx="3" fill="#c98a00" stroke="#c98a00" opacity="1"/>
+<rect x="238" y="70" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="260" y="70" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="282" y="70" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="304" y="70" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="326" y="70" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="348" y="70" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<text x="358.0" y="86" text-anchor="middle" fill="#c0392b" font-size="11" font-weight="700">针</text>
+<rect x="370" y="70" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="392" y="70" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="414" y="70" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="436" y="70" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="458" y="70" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="480" y="70" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="502" y="70" width="20" height="22" rx="3" fill="#1f6fb2" stroke="#1f6fb2" opacity="1"/>
+<rect x="524" y="70" width="20" height="22" rx="3" fill="#1f6fb2" stroke="#1f6fb2" opacity="1"/>
+<rect x="546" y="70" width="20" height="22" rx="3" fill="#1f6fb2" stroke="#1f6fb2" opacity="1"/>
+<rect x="568" y="70" width="20" height="22" rx="3" fill="#1f6fb2" stroke="#1f6fb2" opacity="1"/>
+<rect x="590" y="70" width="20" height="22" rx="3" fill="#1f6fb2" stroke="#1f6fb2" opacity="1"/>
+<rect x="612" y="70" width="20" height="22" rx="3" fill="#1f6fb2" stroke="#1f6fb2" opacity="1"/>
+<rect x="634" y="70" width="20" height="22" rx="3" fill="#1f6fb2" stroke="#1f6fb2" opacity="1"/>
+<rect x="656" y="70" width="20" height="22" rx="3" fill="#1f6fb2" stroke="#1f6fb2" opacity="1"/>
+<text x="150" y="108" fill="#555" font-size="11">前 4 个 sink + 最近 8 个：窗口外全丢，针丢了</text>
+<text x="142" y="144" text-anchor="end" fill="#333" font-size="12" font-weight="600">H2O</text>
+<rect x="150" y="128" width="20" height="22" rx="3" fill="#c98a00" stroke="#c98a00" opacity="1"/>
+<rect x="172" y="128" width="20" height="22" rx="3" fill="#c98a00" stroke="#c98a00" opacity="1"/>
+<rect x="194" y="128" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="216" y="128" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="238" y="128" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="260" y="128" width="20" height="22" rx="3" fill="#4d9a5c" stroke="#4d9a5c" opacity="1"/>
+<rect x="282" y="128" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="304" y="128" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="326" y="128" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="348" y="128" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<text x="358.0" y="144" text-anchor="middle" fill="#c0392b" font-size="11" font-weight="700">针</text>
+<rect x="370" y="128" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="392" y="128" width="20" height="22" rx="3" fill="#4d9a5c" stroke="#4d9a5c" opacity="1"/>
+<rect x="414" y="128" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="436" y="128" width="20" height="22" rx="3" fill="#4d9a5c" stroke="#4d9a5c" opacity="1"/>
+<rect x="458" y="128" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="480" y="128" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="502" y="128" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="524" y="128" width="20" height="22" rx="3" fill="#4d9a5c" stroke="#4d9a5c" opacity="1"/>
+<rect x="546" y="128" width="20" height="22" rx="3" fill="#1f6fb2" stroke="#1f6fb2" opacity="1"/>
+<rect x="568" y="128" width="20" height="22" rx="3" fill="#1f6fb2" stroke="#1f6fb2" opacity="1"/>
+<rect x="590" y="128" width="20" height="22" rx="3" fill="#1f6fb2" stroke="#1f6fb2" opacity="1"/>
+<rect x="612" y="128" width="20" height="22" rx="3" fill="#1f6fb2" stroke="#1f6fb2" opacity="1"/>
+<rect x="634" y="128" width="20" height="22" rx="3" fill="#1f6fb2" stroke="#1f6fb2" opacity="1"/>
+<rect x="656" y="128" width="20" height="22" rx="3" fill="#1f6fb2" stroke="#1f6fb2" opacity="1"/>
+<text x="150" y="166" fill="#555" font-size="11">累计注意力高的 + 最近窗口：针来时没人看它，被驱逐</text>
+<text x="142" y="202" text-anchor="end" fill="#333" font-size="12" font-weight="600">SnapKV</text>
+<rect x="150" y="186" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="172" y="186" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="194" y="186" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="216" y="186" width="20" height="22" rx="3" fill="#8a6bd1" stroke="#8a6bd1" opacity="1"/>
+<rect x="238" y="186" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="260" y="186" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="282" y="186" width="20" height="22" rx="3" fill="#8a6bd1" stroke="#8a6bd1" opacity="1"/>
+<rect x="304" y="186" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="326" y="186" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="348" y="186" width="20" height="22" rx="3" fill="#8a6bd1" stroke="#8a6bd1" opacity="1"/>
+<text x="358.0" y="202" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">针</text>
+<rect x="370" y="186" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="392" y="186" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="414" y="186" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="436" y="186" width="20" height="22" rx="3" fill="#8a6bd1" stroke="#8a6bd1" opacity="1"/>
+<rect x="458" y="186" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="480" y="186" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="502" y="186" width="20" height="22" rx="3" fill="#8a6bd1" stroke="#8a6bd1" opacity="1"/>
+<rect x="524" y="186" width="20" height="22" rx="3" fill="#eee" stroke="#999" opacity="0.5"/>
+<rect x="546" y="186" width="20" height="22" rx="3" fill="#1f6fb2" stroke="#1f6fb2" opacity="1"/>
+<rect x="568" y="186" width="20" height="22" rx="3" fill="#1f6fb2" stroke="#1f6fb2" opacity="1"/>
+<rect x="590" y="186" width="20" height="22" rx="3" fill="#1f6fb2" stroke="#1f6fb2" opacity="1"/>
+<rect x="612" y="186" width="20" height="22" rx="3" fill="#1f6fb2" stroke="#1f6fb2" opacity="1"/>
+<rect x="634" y="186" width="20" height="22" rx="3" fill="#1f6fb2" stroke="#1f6fb2" opacity="1"/>
+<rect x="656" y="186" width="20" height="22" rx="3" fill="#1f6fb2" stroke="#1f6fb2" opacity="1"/>
+<text x="150" y="224" fill="#555" font-size="11">用问题（观察窗）选 KV：问题指向针，针留下</text>
+<text x="150" y="252" fill="#666" font-size="11">token 1</text>
+<text x="676" y="252" text-anchor="end" fill="#666" font-size="11">token 24（问题）</text>
+<rect x="150" y="267" width="14" height="14" rx="2" fill="#c98a00"/><text x="170" y="278" fill="#333" font-size="12">attention sink</text>
+<rect x="300" y="267" width="14" height="14" rx="2" fill="#1f6fb2"/><text x="320" y="278" fill="#333" font-size="12">最近窗口</text>
+<rect x="450" y="267" width="14" height="14" rx="2" fill="#4d9a5c"/><text x="470" y="278" fill="#333" font-size="12">累计注意力 top-k</text>
+<rect x="600" y="267" width="14" height="14" rx="2" fill="#8a6bd1"/><text x="620" y="278" fill="#333" font-size="12">按问题选出</text>
+</svg>

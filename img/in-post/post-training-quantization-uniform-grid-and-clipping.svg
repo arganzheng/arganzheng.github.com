@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 350" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="13">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#c0392b"/></marker>
+  </defs>
+  <text x="380" y="22" text-anchor="middle" fill="#222" font-size="14" font-weight="600">INT4 均匀量化：把一行权重「吸」到 15 个格点上，误差 = 到最近格点的距离</text>
+  <text x="380" y="40" text-anchor="middle" fill="#666" font-size="12">同一组 12 个权重（蓝点），其中一个是离群值；上下两行只差一个决定：范围 α 取多大</text>
+
+  <!-- row 1: alpha = max|w|, coarse grid -->
+  <g transform="translate(60,115)">
+    <text x="0" y="-33" fill="#333" font-size="12" font-weight="600">① α = max|w|（不裁剪）：格点被离群值撑开，Δ = α/7 很粗</text>
+    <line x1="0" y1="0" x2="640" y2="0" stroke="#555" stroke-width="1.5"/>
+    <!-- grid: 15 points from -alpha..alpha across 0..640 -> spacing 45.7 -->
+    <g stroke="#c98a00" stroke-width="1.5">
+      <line x1="0" y1="-8" x2="0" y2="8"/><line x1="45.7" y1="-8" x2="45.7" y2="8"/><line x1="91.4" y1="-8" x2="91.4" y2="8"/><line x1="137.1" y1="-8" x2="137.1" y2="8"/><line x1="182.9" y1="-8" x2="182.9" y2="8"/><line x1="228.6" y1="-8" x2="228.6" y2="8"/><line x1="274.3" y1="-8" x2="274.3" y2="8"/><line x1="320" y1="-8" x2="320" y2="8"/><line x1="365.7" y1="-8" x2="365.7" y2="8"/><line x1="411.4" y1="-8" x2="411.4" y2="8"/><line x1="457.1" y1="-8" x2="457.1" y2="8"/><line x1="502.9" y1="-8" x2="502.9" y2="8"/><line x1="548.6" y1="-8" x2="548.6" y2="8"/><line x1="594.3" y1="-8" x2="594.3" y2="8"/><line x1="640" y1="-8" x2="640" y2="8"/>
+    </g>
+    <text x="0" y="24" text-anchor="middle" fill="#c98a00" font-size="11">−α</text>
+    <text x="320" y="24" text-anchor="middle" fill="#c98a00" font-size="11">0</text>
+    <text x="640" y="24" text-anchor="middle" fill="#c98a00" font-size="11">α = 离群值</text>
+    <text x="388.5" y="24" text-anchor="middle" fill="#c98a00" font-size="11">←Δ→</text>
+    <!-- weights cluster near 0: positions in units of alpha: -0.28,-0.19,-0.12,-0.07,-0.02,0.03,0.08,0.14,0.2,0.26,0.33, outlier 1.0 -->
+    <g fill="#1f6fb2">
+      <circle cx="230.4" cy="-18" r="4"/><circle cx="259.2" cy="-18" r="4"/><circle cx="281.6" cy="-18" r="4"/><circle cx="297.6" cy="-18" r="4"/><circle cx="313.6" cy="-18" r="4"/><circle cx="329.6" cy="-18" r="4"/><circle cx="345.6" cy="-18" r="4"/><circle cx="364.8" cy="-18" r="4"/><circle cx="384" cy="-18" r="4"/><circle cx="403.2" cy="-18" r="4"/><circle cx="425.6" cy="-18" r="4"/><circle cx="640" cy="-18" r="4"/>
+    </g>
+    <!-- error arrows for a few -->
+    <g stroke="#c0392b" stroke-width="1.2" fill="none">
+      <path d="M230.4,-14 L228.6,-2" marker-end="url(#ar)"/><path d="M259.2,-14 L274.3,-2" marker-end="url(#ar)"/><path d="M297.6,-14 L320,-2" marker-end="url(#ar)"/><path d="M345.6,-14 L365.7,-2" marker-end="url(#ar)"/><path d="M403.2,-14 L411.4,-2" marker-end="url(#ar)"/><path d="M425.6,-14 L411.4,-2" marker-end="url(#ar)"/>
+    </g>
+    <text x="470" y="-46" fill="#c0392b" font-size="11">中间那一堆权重只用到 3–4 个格点，</text>
+    <text x="470" y="-33" fill="#c0392b" font-size="11">每个都差半格上下——11 个权重误差大</text>
+  </g>
+
+  <!-- row 2: clipped alpha -->
+  <g transform="translate(60,255)">
+    <text x="0" y="-33" fill="#333" font-size="12" font-weight="600">② α 取小（裁剪离群值）：格点变密，多数误差变小，离群值被夹到 α′</text>
+    <line x1="0" y1="0" x2="640" y2="0" stroke="#555" stroke-width="1.5"/>
+    <!-- alpha' = 0.35 alpha: grid spans 208..432 (center 320), spacing 16 -->
+    <g stroke="#c98a00" stroke-width="1.5">
+      <line x1="208" y1="-8" x2="208" y2="8"/><line x1="224" y1="-8" x2="224" y2="8"/><line x1="240" y1="-8" x2="240" y2="8"/><line x1="256" y1="-8" x2="256" y2="8"/><line x1="272" y1="-8" x2="272" y2="8"/><line x1="288" y1="-8" x2="288" y2="8"/><line x1="304" y1="-8" x2="304" y2="8"/><line x1="320" y1="-8" x2="320" y2="8"/><line x1="336" y1="-8" x2="336" y2="8"/><line x1="352" y1="-8" x2="352" y2="8"/><line x1="368" y1="-8" x2="368" y2="8"/><line x1="384" y1="-8" x2="384" y2="8"/><line x1="400" y1="-8" x2="400" y2="8"/><line x1="416" y1="-8" x2="416" y2="8"/><line x1="432" y1="-8" x2="432" y2="8"/>
+    </g>
+    <text x="208" y="24" text-anchor="middle" fill="#c98a00" font-size="11">−α′</text>
+    <text x="320" y="24" text-anchor="middle" fill="#c98a00" font-size="11">0</text>
+    <text x="432" y="24" text-anchor="middle" fill="#c98a00" font-size="11">α′</text>
+    <text x="376" y="24" text-anchor="middle" fill="#c98a00" font-size="11">Δ′</text>
+    <g fill="#1f6fb2">
+      <circle cx="230.4" cy="-18" r="4"/><circle cx="259.2" cy="-18" r="4"/><circle cx="281.6" cy="-18" r="4"/><circle cx="297.6" cy="-18" r="4"/><circle cx="313.6" cy="-18" r="4"/><circle cx="329.6" cy="-18" r="4"/><circle cx="345.6" cy="-18" r="4"/><circle cx="364.8" cy="-18" r="4"/><circle cx="384" cy="-18" r="4"/><circle cx="403.2" cy="-18" r="4"/><circle cx="425.6" cy="-18" r="4"/><circle cx="640" cy="-18" r="4"/>
+    </g>
+    <g stroke="#c0392b" stroke-width="1.2" fill="none">
+      <path d="M230.4,-14 L224,-2" marker-end="url(#ar)"/><path d="M297.6,-14 L304,-2" marker-end="url(#ar)"/><path d="M364.8,-14 L368,-2" marker-end="url(#ar)"/>
+      <path d="M636,-18 L436,-4" stroke-width="2" marker-end="url(#ar)"/>
+    </g>
+    <text x="470" y="-46" fill="#c0392b" font-size="11">离群值被裁掉一大段（裁剪误差），</text>
+    <text x="470" y="-33" fill="#c0392b" font-size="11">而它往往正是"重要"的那个权重</text>
+    <text x="0" y="52" fill="#333" font-size="12">总误差 = 舍入误差（Δ²/12，随 α 变小而降）+ 裁剪误差（随 α 变小而升）→ 最优的 α 在两者之间；</text>
+    <text x="0" y="70" fill="#333" font-size="12">分组量化（每 128 个权重一个 α）、AWQ 的按通道缩放、旋转把离群值"摊平"，都是在让①的格点别被一个值撑开。</text>
+  </g>
+</svg>
