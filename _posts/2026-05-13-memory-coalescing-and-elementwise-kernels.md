@@ -202,7 +202,7 @@ __device__ __forceinline__ int4 add_bf16x8(int4 xa, int4 ba) {
 
 `__bfloat1622float2` 把一对 BF16 转成 `float2`，`__floats2bfloat162_rn` 反向舍入打包。这里的 `reinterpret_cast` 作用在寄存器里的局部变量上，编译器会把它优化成纯寄存器操作，不产生额外访存。
 
-为什么不用 `__hadd2` 直接在 BF16 上加？BF16 只有 8 位尾数，直接相加的舍入误差比先转 float 再舍入更大，而转换和 FP32 加法在 memory-bound kernel 里是免费的——本文所有 kernel 都遵循"BF16 存储、float 计算"的约定，与 ATen 的 `opmath_type` 做法一致。
+为什么不用 `__hadd2` 直接在 BF16 上加？对**单次**加法其实两条路结果通常逐位相同——`__hadd2` 也是 round-to-nearest-even，一次加法只舍入一次，先转 float 再加再舍回 BF16 的最终结果一样（第二篇实测里两版对齐就是这个原因）。差别在**多步**：一旦要连做几次运算（融合了 relu、乘、加，或累加），中间量留在 float 里只在最后舍入一次，逐步用 BF16 则每步都舍入，误差会累积；而转换和 FP32 运算在 memory-bound kernel 里几乎免费（前提是有足够 warp 把它们藏在访存后面）。所以本文所有 kernel 都遵循"BF16 存储、float 计算"的约定，与 ATen 的 `opmath_type` 做法一致——理由是多步精度与代码统一，不是单次加法更准。
 
 ### 3. 对齐要求、`reinterpret_cast` 与尾部处理
 
@@ -321,7 +321,7 @@ $$
 
 （寄存器分配按 warp 级、以 256 个为单位向上取整，实际值略小。）向量化 add kernel 每线程用 20–30 个寄存器，$$T = 256$$ 时 $$65536 / (32 \times 256) = 8$$ 个 block、2048 线程，占用率 100%。elementwise kernel 几乎不会遇到寄存器压力；用 `__launch_bounds__(256)` 告诉编译器 block 大小，可以防止它为了 ILP 过度分配寄存器。
 
-block 大小本身对 elementwise kernel 影响不大，128 到 512 都常见。太小（如 32 或 64）会撞上每 SM 最多 32 个 block 的限制——32 个 block × 64 线程 = 2048 线程刚好够，但 32 × 32 = 1024 线程只有一半占用率；太大（1024）则一个 block 占满整个 SM，block 之间切换时的空档无法被填补，且尾部 block 的浪费更多。ATen 取 128、本文取 256，都是让每 SM 驻留 8–16 个 block 的选择，粒度足够细，调度器有余地。
+block 大小本身对 elementwise kernel 影响不大，128 到 512 都常见。太小（如 32 或 64）会撞上每 SM 最多 32 个 block 的限制——32 个 block × 64 线程 = 2048 线程刚好够，但 32 × 32 = 1024 线程只有一半占用率；太大（1024）则一个 SM 最多只能驻留 2 个这样的 block（2048 线程上限，还要寄存器与 shared 允许），block 之间切换时的空档更难被填补，且尾部 block 的浪费更多。ATen 取 128、本文取 256，都是让每 SM 驻留 8–16 个 block 的选择，粒度足够细，调度器有余地。
 
 还有一个与占用率无关但常被忽视的因素：**每 SM 的 L1/LSU 事务数上限**。一条 warp 级加载指令覆盖 4 条 cache line 时，L1 需要 4 个周期（每周期处理一条 128 B 的 line）才能把它处理完——这不是坏事，恰恰说明 128-bit 加载让 LSU 的每条指令都在做满载的工作；反过来，2 字节的标量加载一条指令只占半条 line，L1 每周期能处理的有效字节数只有向量化时的 1/8。这就是第三章"naive 很难超过 70–80%"的微架构解释。
 
@@ -362,7 +362,7 @@ x 转置 view，stride (1, 3)           off_x = 1·1 + 2·3 = 7        相邻线
 
 **broadcast 就是 stride 为 0**：`b` 的形状 `[1, d]` 扩展到 `[m, d]`，第 0 维的 stride 设为 0，所有行读同一段内存。不需要物化任何数据。
 
-两个性能提示。第一，只要最内维 stride 为 1，相邻线程仍访问相邻地址，合并不受影响；但如果最内维 stride 不是 1（如转置后的 `x.t()`，最内维 stride 是 4096 个元素 = 8 KiB），每个线程独占一个 sector，BF16 的效率只剩 $$2 / 32 = 6.25\%$$。这种情况下应该先 `contiguous()`（一次 transpose kernel 的代价远小于低效访问），或者让 kernel 用 shared memory 做 tile 转置——那是第四篇的话题。第二，64 位整数除法在 GPU 上很慢（几十条指令），ATen 的做法是把除数预处理成"魔数 + 移位"（`IntDivider`），用乘法代替除法，且用 32 位 index。
+两个性能提示。第一，只要最内维 stride 为 1，相邻线程仍访问相邻地址，合并不受影响；但如果最内维 stride 不是 1（如转置后的 `x.t()`，最内维 stride 是 4096 个元素 = 8 KiB），每个线程独占一个 sector，BF16 的效率只剩 $$2 / 32 = 6.25\%$$。这种情况下通常先 `contiguous()`（一次 transpose kernel 的代价通常小于低效访问——但它本身是一读一写，是否划算要按整条流水线算：`TensorIterator` 会按 stride 重排迭代顺序，很多情况下不必真的 copy），或者让 kernel 用 shared memory 做 tile 转置——那是第四篇的话题。第二，64 位整数除法在 GPU 上很慢（几十条指令），ATen 的做法是把除数预处理成"魔数 + 移位"（`IntDivider`），用乘法代替除法，且用 32 位 index。
 
 ### 2. TensorIterator 在 host 侧做了什么
 
@@ -711,7 +711,7 @@ flowchart TB
 
 ### 2. 这就是 Inductor 融合的收益来源
 
-`torch.compile` 的 Inductor 后端对 pointwise 算子做的最主要优化，就是把这一串融合成一个 Triton kernel。它的收益不来自任何单个算子"更快"——`add` 的 Triton 版本和 ATen 版本都是 90% 带宽——而来自**字节数减少**。用 Roofline 的语言：memory-bound 区域里，kernel 已经贴在带宽斜线上，往上走的唯一办法是把点向右移（提高算术强度），融合就是把多个 1 FLOP/6 B 的点合并成一个 3 FLOP/8 B 的点。
+`torch.compile` 的 Inductor 后端对 pointwise 算子做的最主要优化，就是把这一串融合成一个 Triton kernel。它的收益不来自任何单个算子"更快"——`add` 的 Triton 版本和 ATen 版本都是 90% 带宽——而来自**字节数减少**。用 Roofline 的语言：memory-bound 区域里，kernel 已经贴在带宽斜线上，往上走的唯一办法是把点向右移（提高算术强度），融合就是把多个 1 FLOP/6 B 的点合并成一个几 FLOP/6 B 的点（relu、乘、加各算 1 FLOP 只是记账口径，SiLU 这类含 exp 的函数走 SFU、不能按 1 FLOP 塞进同一个屋顶）。
 
 从这个角度重新审视 elementwise 优化的边界：
 
@@ -869,6 +869,7 @@ from torch.utils.cpp_extension import load_inline
 cuda_src = r"""
 #include <torch/types.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDAGuard.h>
 #include <cuda_bf16.h>
 #include <cstdint>
 #include <algorithm>
@@ -878,6 +879,12 @@ cuda_src = r"""
 static inline bool aligned16(const void* p) {
   return (reinterpret_cast<uintptr_t>(p) % 16) == 0;
 }
+// 四个 wrapper 共用的入口检查：都在 CUDA 上、同一张卡，并把当前 device 切过去——
+// 少了这一步，CPU tensor 的指针会被当成 device 指针解引用，多卡时会在错误的卡上 launch
+#define CHECK_SAME_CUDA(x, b)                                                        \
+  TORCH_CHECK((x).is_cuda() && (b).is_cuda(), "inputs must be CUDA tensors");       \
+  TORCH_CHECK((x).device() == (b).device(), "inputs must be on the same device");   \
+  const c10::cuda::CUDAGuard guard((x).device())
 static inline const __nv_bfloat16* bf(const at::Tensor& t) {
   return reinterpret_cast<const __nv_bfloat16*>(t.data_ptr<at::BFloat16>());
 }
@@ -886,6 +893,7 @@ static inline __nv_bfloat16* bf_mut(at::Tensor& t) {
 }
 
 at::Tensor add_naive(at::Tensor x, at::Tensor b) {
+  CHECK_SAME_CUDA(x, b);
   TORCH_CHECK(x.is_contiguous() && b.is_contiguous() && x.sizes() == b.sizes());
   TORCH_CHECK(x.scalar_type() == at::kBFloat16 && b.scalar_type() == at::kBFloat16);
   auto y = at::empty_like(x);
@@ -900,6 +908,7 @@ at::Tensor add_naive(at::Tensor x, at::Tensor b) {
 }
 
 at::Tensor add_vec8(at::Tensor x, at::Tensor b) {
+  CHECK_SAME_CUDA(x, b);
   TORCH_CHECK(x.is_contiguous() && b.is_contiguous() && x.sizes() == b.sizes());
   auto y = at::empty_like(x);
   TORCH_CHECK(aligned16(x.data_ptr()) && aligned16(b.data_ptr()) && aligned16(y.data_ptr()),
@@ -915,6 +924,7 @@ at::Tensor add_vec8(at::Tensor x, at::Tensor b) {
 }
 
 at::Tensor add_vec8_gs(at::Tensor x, at::Tensor b) {
+  CHECK_SAME_CUDA(x, b);
   TORCH_CHECK(x.is_contiguous() && b.is_contiguous() && x.sizes() == b.sizes());
   auto y = at::empty_like(x);
   TORCH_CHECK(aligned16(x.data_ptr()) && aligned16(b.data_ptr()) && aligned16(y.data_ptr()));
@@ -934,6 +944,7 @@ at::Tensor add_vec8_gs(at::Tensor x, at::Tensor b) {
 
 // x: [size0, size1] 任意 stride；b: 可 broadcast 到同形状（用 expand 得到 stride 0）
 at::Tensor add_strided2d(at::Tensor x, at::Tensor b) {
+  CHECK_SAME_CUDA(x, b);
   TORCH_CHECK(x.dim() == 2 && b.dim() == 2 && x.sizes() == b.sizes());
   auto y = at::empty(x.sizes(), x.options());   // 连续输出
   const int64_t n = x.numel();
@@ -1138,7 +1149,7 @@ unrolled 每线程 4 元素；legacy elementwise_kernel<128, 2 或 4> + OffsetCa
 
    <details markdown="1"><summary>答案</summary>
 
-   分开：每个算子读 2 写 2，三个共 12 B（`+ b` 多读 2 B，共 14 B）；融合：读 x 2 B、读 b 2 B、写 2 B = 6 B。字节少一半以上，时间也少一半以上——这就是 90% 之后唯一的优化。
+   分开：每个算子读 2 写 2，三个共 12 B（`+ b` 多读 2 B，共 14 B）；融合：读 x 2 B、读 b 2 B、写 2 B = 6 B。字节少一半以上；带宽利用率相同时时间也少一半以上——实际还要看 launch 开销、cold/warm cache 与指令数，融合的收益不只是字节。这是 90% 之后最主要的优化。
 
    </details>
 

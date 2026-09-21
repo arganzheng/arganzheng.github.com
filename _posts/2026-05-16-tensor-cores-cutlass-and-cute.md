@@ -11,7 +11,7 @@ updated: 2026-09-14
 上一篇用 CUDA Core 把 GEMM 的分块结构讲透了。回顾一下那个结构，因为本篇要做的事情就是把它"接"到另一种计算单元上：
 
 - 一个 thread block 负责输出矩阵 $$C$$ 的一个 $$BM \times BN$$ 的 tile，沿 $$K$$ 维以 $$BK$$ 为步长循环；
-- 每一步把 $$A$$ 的 $$BM \times BK$$ 子块和 $$B$$ 的 $$BK \times BN$$ 子块搬进 shared memory，全局读取量从 naive 的 $$2MNK$$ 个元素降为 $$MNK \cdot (1/BM + 1/BN)$$，$$BM = BN = 128$$ 时减少 64 倍；
+- 每一步把 $$A$$ 的 $$BM \times BK$$ 子块和 $$B$$ 的 $$BK \times BN$$ 子块搬进 shared memory，全局读取量从 naive 的 $$2MNK$$ 个元素降为 $$MNK \cdot (1/BM + 1/BN)$$，$$BM = BN = 128$$ 时减少 128 倍（$$2 / (2/128)$$）；
 - 每个线程再从 shared memory 把自己需要的一小段 $$A$$、$$B$$ 读进寄存器，算一个 $$TM \times TN$$（如 $$8 \times 8$$）的累加器块，对 shared memory 的读取量再减少 $$TM \cdot TN / (TM + TN) = 4$$ 倍；
 - 用 `cp.async` 做多 stage 流水，让下一块 tile 的搬运与当前 tile 的计算重叠。
 
@@ -189,7 +189,7 @@ __device__ void wmma_tile(const __nv_bfloat16* A, const __nv_bfloat16* B, float*
 
 - 粒度从 warp 变成 **warpgroup**（4 个连续的 warp，128 个线程）；形状是 `m64nNk16`，$$N$$ 为 8 的倍数、最大 256，一条指令最多 $$64 \times 256 \times 16 = 262144$$ 次乘加，是 `m16n8k16` 的 128 倍；
 - 操作数 $$B$$ **必须在 shared memory**（$$A$$ 可在寄存器或 shared memory），通过一个 64 位的 **matrix descriptor** 描述其起始地址、leading dimension byte offset、stride byte offset 和 swizzle 模式，硬件直接从 shared memory 读，不再经过线程寄存器；
-- **异步**：`wgmma.mma_async` 发出后立刻返回，用 `wgmma.fence`（保证之前对累加器寄存器 / shared memory 的写对 wgmma 可见）、`wgmma.commit_group`（把之前发出的 wgmma 打成一组）、`wgmma.wait_group N`（等到未完成组数不超过 $$N$$）来管理完成。
+- **异步**：`wgmma.mma_async` 发出后立刻返回，用 `wgmma.fence`（只建立**寄存器**——累加器与寄存器里的 A——访问的先后顺序；shared memory 里的矩阵若是普通 `st.shared` 写入的，还要 `fence.proxy.async` 让 async proxy 看到，TMA 写入的则不需要，PTX ISA 9.7.16.7.1）、`wgmma.commit_group`（把之前发出的 wgmma 打成一组）、`wgmma.wait_group N`（等到未完成组数不超过 $$N$$）来管理完成。
 
 伪代码形态如下（需 sm_90，仅展示结构）：
 
@@ -298,7 +298,7 @@ C/D (16 x 8 FP32)    列:  0      1      2      3      4      5      6      7
   每行 8 个 FP32 全部在同一个 quad 手里（每 lane 2 个）→ 行内 max/sum 只需 quad 内 2 次 shfl_xor
 ```
 
-一个 warp 64 个寄存器（32 线程 × 2）装下 $$16 \times 16$$ 个 BF16 的 A，正好不多不少；C 是 32 × 4 = 128 个 float，正好 $$16 \times 8$$。fragment 布局的本质是一个**双射**：`(lane, reg) ↔ (row, col)`。
+一个 warp 128 个 32 位寄存器（32 线程 × 4 个 b32，每个装 2 个 BF16 = 256 个元素）装下 $$16 \times 16$$ 个 BF16 的 A，正好不多不少；C 是 32 × 4 = 128 个 float，正好 $$16 \times 8$$。fragment 布局的本质是一个**双射**：`(lane, reg) ↔ (row, col)`。
 
 ### 2. 为什么布局这么"奇怪"
 
@@ -709,9 +709,16 @@ cpp_src = "void bf16_gemm_tn(const at::Tensor&, const at::Tensor&, at::Tensor&);
 cuda_src = open("bf16_gemm_mma.cu").read() + r"""
 #include <torch/extension.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDAGuard.h>
 void bf16_gemm_tn(const at::Tensor& A, const at::Tensor& B, at::Tensor& C) {
   int M = A.size(0), K = A.size(1), N = B.size(0);
-  TORCH_CHECK(M % 128 == 0 && N % 128 == 0 && K % 32 == 0);
+  TORCH_CHECK(A.is_cuda() && B.is_cuda() && C.is_cuda() && A.device() == B.device() && A.device() == C.device());
+  const c10::cuda::CUDAGuard guard(A.device());
+  TORCH_CHECK(A.scalar_type() == at::kBFloat16 && B.scalar_type() == at::kBFloat16 && C.scalar_type() == at::kBFloat16);
+  TORCH_CHECK(A.dim() == 2 && B.dim() == 2 && B.size(1) == K && C.size(0) == M && C.size(1) == N);
+  TORCH_CHECK(A.is_contiguous() && B.is_contiguous() && C.is_contiguous());   // kernel 假定行主序、无 offset
+  TORCH_CHECK(M % 128 == 0 && N % 128 == 0 && K % 32 == 0 && M > 0 && N > 0);
+  // data_ptr() 是 void*，reinterpret 前 dtype 检查不能省，否则 fp16 输入会被静默当成 bf16
   bf16_gemm_tn(reinterpret_cast<const __nv_bfloat16*>(A.data_ptr()),
                reinterpret_cast<const __nv_bfloat16*>(B.data_ptr()),
                reinterpret_cast<__nv_bfloat16*>(C.data_ptr()),
@@ -732,7 +739,7 @@ torch.testing.assert_close(C, ref, rtol=1.6e-2, atol=1e-2)
 ms = bench(lambda: mod.bf16_gemm_tn(A, W, C))        # 第二篇的 bench()
 ms_ref = bench(lambda: torch.matmul(A, W.T))
 flops = 2 * M * N * K
-print(f"ours {flops / ms / 1e9:.0f} GFLOPS, cuBLAS {flops / ms_ref / 1e9:.0f} GFLOPS")
+print(f"ours {flops / (ms * 1e-3) / 1e12:.1f} TFLOPS, cuBLAS {flops / (ms_ref * 1e-3) / 1e12:.1f} TFLOPS")  # ms 要先换成秒
 ```
 
 `atol` 从默认的 1e-5 调大到 1e-2：$$K = 4096$$ 项 FP32 累加、再舍入到 BF16（8 位尾数），我们的累加顺序与 cuBLAS 不同，绝对误差在 $$10^{-2}$$ 量级是正常的；`rtol` 保持 1.6e-2。
@@ -1303,7 +1310,7 @@ Hopper setmaxnreg 典型分配                   producer 40 / consumer 232 x 2�
 
    <details markdown="1"><summary>答案</summary>
 
-   16 倍（312 vs 19.5 TFLOPS）；ridge FP32 约 10、BF16 156——同一个 128×128 tile（强度 32）在 FP32 下 compute-bound，在 BF16 下变成 memory-bound。
+   16 倍（312 vs 19.5 TFLOPS）；ridge FP32 约 10、BF16 156——同一个 128×128 tile 在 FP32 下强度 32、compute-bound，在 BF16 下字节减半强度 64、仍低于 156，变成 memory-bound。
 
    </details>
 

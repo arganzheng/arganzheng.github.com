@@ -255,7 +255,7 @@ CUDA_CHECK(cudaMemcpy(h_c, d_c, bytes, cudaMemcpyDeviceToHost));       // device
 CUDA_CHECK(cudaFree(d_a));
 ```
 
-`cudaMalloc` 返回的是 device 地址空间里的指针，只能传给 kernel 或 CUDA API，不能在 host 上解引用。`cudaMemcpy` 是同步的：它等待之前所有 GPU 工作完成，做完拷贝再返回。异步版本 `cudaMemcpyAsync` 需要配合 pinned host 内存才真正异步。
+`cudaMalloc` 返回的是 device 地址空间里的指针，只能传给 kernel 或 CUDA API，不能在 host 上解引用。`cudaMemcpy` 对 host 来说是**同步**的——但同步到什么程度按方向不同（CUDA 12.6 Runtime API 的 sync-behavior 页）：D2H 等拷贝完成再返回；pageable 内存的 H2D 在数据进了 staging buffer 就可能返回、DMA 还没结束；D2D 对 host 不阻塞。它隐含的是"与默认流上之前的工作有序"，不是"等待所有 GPU 工作完成"。异步版本 `cudaMemcpyAsync` 需要配合 pinned host 内存才真正异步。
 
 还有 `cudaMemset` / `cudaMemsetAsync`，把一段显存填成某个字节值；本篇会用它来做 L2 flush。
 
@@ -263,7 +263,7 @@ CUDA_CHECK(cudaFree(d_a));
 
 PyTorch 的每个 CUDA Tensor 的 Storage 背后并不是一次 `cudaMalloc`。原因一句话：**`cudaMalloc` 和 `cudaFree` 慢（微秒到毫秒级），并且 `cudaFree` 隐含一次设备同步**——它要等 GPU 上所有正在运行的工作结束，才能安全地回收这块内存。一个训练步里有成千次 Tensor 的创建与销毁，每次都同步会把 CPU-GPU 流水彻底打断。
 
-所以 PyTorch 用 **Caching Allocator**（`c10/cuda/CUDACachingAllocator.cpp`，v2.10.0）：向驱动申请大块显存后自己切分和复用，Tensor 释放时只是把块还回缓存池而不调 `cudaFree`。这也是为什么 `del` 一个 Tensor 后 `nvidia-smi` 显示的显存占用不会下降。本系列不展开分配器的机制；kernel 开发者需要知道的只是：从 PyTorch 拿到的 `data_ptr()` 是分配器切出来的一段地址，它的对齐通常是 512 字节（分配器的最小粒度），可以放心用于向量化访存。
+所以 PyTorch 用 **Caching Allocator**（`c10/cuda/CUDACachingAllocator.cpp`，v2.10.0）：向驱动申请大块显存后自己切分和复用，Tensor 释放时只是把块还回缓存池而不调 `cudaFree`。这也是为什么 `del` 一个 Tensor 后 `nvidia-smi` 显示的显存占用不会下降。本系列不展开分配器的机制；kernel 开发者需要知道的只是：从 PyTorch 拿到的 `data_ptr()` 是分配器切出来的一段地址，**分配的起点**对齐是 512 字节（分配器的最小粒度），但 `data_ptr()` 是起点加 `storage_offset`——`x[1:]` 这样的连续切片 `is_contiguous()` 为 True、指针却只偏了 2 字节（CPU 上验证：base % 16 == 0，view % 16 == 2）。所以向量化访存前要在运行时检查指针对齐，不能"放心"（第三篇的 vec8 kernel 会做这个检查）。
 
 ## 五、stream、event 与异步语义
 
@@ -363,7 +363,7 @@ GPU 时间戳                ↑ t_start                          ↑ t_stop
 CPU                 launch…launch…record…   cudaEventSynchronize(stop) 阻塞 …… 返回 → 读 ms
 ```
 
-`cudaEventElapsedTime` 测的是 GPU 上两个标记之间的时间，不含 CPU 侧 launch 的开销，也不受 CPU 何时调用 `cudaEventSynchronize` 影响。这是 kernel 计时的标准做法；PyTorch 的 `torch.cuda.Event` 是它的封装。
+`cudaEventElapsedTime` 测的是 GPU 上两个标记之间的时间，不受 CPU 何时调用 `cudaEventSynchronize` 影响；它也**不完全等于** kernel 的执行时间——两个 event 之间 GPU 若因为 host 还没把下一个 kernel 提交上来而空转，这段空档也计在里面。小 kernel 或 host 慢时要么先把一串 kernel 排进队列再计时，要么用 profiler 看 kernel 的实际占用。这是 kernel 计时的标准做法；PyTorch 的 `torch.cuda.Event` 是它的封装。
 
 event 还可以用于 stream 之间建立依赖（`cudaStreamWaitEvent`），本系列用到的地方不多。
 
@@ -605,9 +605,16 @@ mask 参数通常填 `0xffffffff`（全 warp），但要保证 32 个 lane 确�
 // 错误：i >= n 的 lane 不会执行到 __shfl_down_sync，但 mask 说它们参与 → 未定义行为
 if (i < n) { v = __shfl_down_sync(0xffffffffu, v, 1); }
 
-// 正确：先用 ballot 算出真正会进入分支的 lane 集合，再作为 mask
+// 半对：先用 ballot 算出真正会进入分支的 lane 集合，再作为 mask
 unsigned mask = __ballot_sync(0xffffffffu, i < n);
 if (i < n) { v = __shfl_down_sync(mask, v, 1); }
+// 仍有问题：mask 只规定谁参与同步，不补上缺席 lane 的值。参与的最后一个 lane 要读
+// lane+1，而 lane+1 不在 mask 里——取回的值是未定义的（Programming Guide 7.22）
+
+// 正确：让全 warp 都执行 shuffle，越界 lane 用单位元参与，谁用结果由 i < n 决定
+float v_all = (i < n) ? v : 0.0f;              // 越界 lane 带单位元
+float got = __shfl_down_sync(0xffffffffu, v_all, 1);
+if (i < n) v = got;
 ```
 
 `__activemask()` 返回"此刻哪些 lane 恰好活跃"，看起来像是 mask 的现成答案，但它**不是**同步点：独立线程调度下，两个本应一起到达的 lane 可能一先一后，`__activemask()` 只报告先到的那些。用 `__ballot_sync` 在一个明确的会合点算 mask 才是正确做法。
@@ -758,9 +765,10 @@ int main() {
   printf("f32  n=2^28: %.3f ms  %.0f GB/s  (理论下界 %.3f ms @ 2.0 TB/s)\n",
          ms_f32, traffic_f32 / (ms_f32 * 1e-3) / 1e9, traffic_f32 / 2.0e12 * 1e3);
 
-  // 正确性抽查
+  // 正确性抽查：步长要与输入的周期 1024 互质，否则 64 个点全落在 i % 1024 == 0、
+  // 输入恒为 0 + 1，一个输出常量 1 的错 kernel 也能通过；再补上末尾几个元素
   CUDA_CHECK(cudaMemcpy(h_c.data(), d_c, bytes_f32, cudaMemcpyDeviceToHost));
-  for (size_t i = 0; i < n; i += n / 64) {
+  for (size_t i = 0; i < n; i += n / 64 + 7) {
     if (h_c[i] != h_a[i] + h_b[i]) {
       fprintf(stderr, "mismatch at %zu: %f vs %f\n", i, h_c[i], h_a[i] + h_b[i]);
       return EXIT_FAILURE;
@@ -812,6 +820,7 @@ cuda_src = r"""
 #include <torch/extension.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAException.h>
+#include <c10/cuda/CUDAGuard.h>
 
 __global__ void vector_add_bf16(const __nv_bfloat16* __restrict__ a,
                                 const __nv_bfloat16* __restrict__ b,
@@ -822,6 +831,8 @@ __global__ void vector_add_bf16(const __nv_bfloat16* __restrict__ a,
 
 torch::Tensor vector_add(torch::Tensor a, torch::Tensor b) {
   TORCH_CHECK(a.is_cuda() && b.is_cuda(), "inputs must be CUDA tensors");
+  TORCH_CHECK(a.device() == b.device(), "inputs must be on the same device");
+  const c10::cuda::CUDAGuard guard(a.device());   // 多卡时把当前 device 切到输入所在卡
   TORCH_CHECK(a.is_contiguous() && b.is_contiguous(), "inputs must be contiguous");
   TORCH_CHECK(a.scalar_type() == torch::kBFloat16 && b.scalar_type() == torch::kBFloat16,
               "inputs must be bf16");

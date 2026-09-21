@@ -306,9 +306,9 @@ for (int s = 1; s < blockDim.x; s *= 2) {
 
 第一轮 `s=1`：偶数线程加相邻的奇数线程。第二轮 `s=2`：tid 为 4 的倍数的线程加 `tid+2`。……10 轮之后 `sdata[0]` 是总和。
 
-问题有三个。**分支发散**：`tid % (2*s) == 0` 在一个 warp 内一半为真一半为假（第一轮），之后是 1/4、1/8……但 warp 是整体调度的，只要 warp 里有一个线程活跃，整个 warp 就要走一遍，活跃线程越少浪费越大。**取模**：整数取模在 GPU 上不是单条指令。**bank conflict**：第 $$k$$ 轮里活跃线程 tid 是 $$2^k$$ 的倍数，它们访问 `sdata[tid]` 的地址 stride 是 $$2^k$$ 个字，从第 2 轮开始就有 2-way、4-way……的冲突。
+问题有三个。**分支发散**：`tid % (2*s) == 0` 在一个 warp 内一半为真一半为假（第一轮），之后是 1/4、1/8……但 warp 是整体调度的，只要 warp 里有一个线程活跃，整个 warp 就要走一遍，活跃线程越少浪费越大。**取模**：整数取模在 GPU 上不是单条指令。**bank conflict——常被误报**：很多资料（包括早期版本的本文）说 v1 活跃线程的地址 stride 是 $$2^k$$ 个字所以有 $$2^k$$-way 冲突。实际不是：v1 的活跃线程 tid 是 $$2^k$$ 的倍数，它们读 `sdata[tid]` 与 `sdata[tid + s]`，逐轮枚举同一 warp 内活跃 lane 的地址（$$s = 1 \ldots 512$$），每条 load 落到的 bank 都互不相同——没有冲突。真正有 bank conflict 的是 Harris 的**下一版**：把索引改写成 `i = 2*s*tid`（下段），那时同一 warp 的 32 个线程访问 stride 为 $$2s$$ 的连续地址，才是 2-way、4-way……v1 的两个问题只是分支发散与取模。
 
-Harris 的 v2 把 `if (tid % (2*s) == 0)` 换成 `int i = 2*s*tid; if (i < blockDim.x)`，前一半线程干活、后一半空闲——消除了发散和取模，但地址 stride 还是 $$2s$$，bank conflict 变得更严重。所以直接跳到下一步。
+Harris 的 v2 把 `if (tid % (2*s) == 0)` 换成 `int i = 2*s*tid; if (i < blockDim.x)`，前一半线程干活、后一半空闲——消除了发散和取模，但代价是**引入了** bank conflict：现在同一 warp 内相邻线程访问的地址差 $$2s$$ 个字，$$s = 1$$ 时就已经是 2-way，$$s$$ 每翻倍冲突路数翻倍。所以直接跳到下一步。
 
 ### 2. v2：顺序寻址
 
@@ -323,18 +323,19 @@ for (int s = blockDim.x / 2; s > 0; s >>= 1) {
 两种寻址方式在 8 个元素上的对比（数字是线程 tid，箭头表示谁把谁加到自己身上）：
 
 ```text
-v1 交错寻址（stride 翻倍）              v2 顺序寻址（stride 减半）
+v1 交错寻址（活跃线程隔开）            v2 顺序寻址（stride 减半）
 sdata  0 1 2 3 4 5 6 7                  sdata  0 1 2 3 4 5 6 7
 s=1    0←1 2←3 4←5 6←7   活跃 tid 0,2,4,6   s=4    0←4 1←5 2←6 3←7   活跃 tid 0,1,2,3
 s=2    0←2     4←6       活跃 tid 0,4       s=2    0←2 1←3           活跃 tid 0,1
 s=4    0←4               活跃 tid 0         s=1    0←1               活跃 tid 0
        活跃线程是隔开的：同一 warp 内一半旁观（发散）      活跃线程永远是连续的前 s 个：整 warp 活跃或整 warp 空闲
-       访问 sdata[2·s·tid]：stride 为 2 的幂 → bank conflict   访问 sdata[tid]、sdata[tid+s]：连续 → 无冲突
+       访问 sdata[tid]、sdata[tid+s]：活跃 lane 的 bank 互不相同 → 无冲突   访问 sdata[tid]、sdata[tid+s]：连续 → 无冲突
+       （Harris 改写成 sdata[2·s·tid] 的那一版才有 stride 2s 的 bank conflict）
 ```
 
 第一轮 `s=512`：前 512 个线程分别加后 512 个。活跃线程永远是连续的前 $$s$$ 个，所以：warp 要么全活跃要么全不活跃（$$s \ge 32$$ 时），没有发散；`sdata[tid]` 和 `sdata[tid+s]` 对连续的 tid 都是连续地址，没有 bank conflict；没有取模。
 
-减少了：发散、取模、bank conflict。没变的是：10 次 `__syncthreads()`，以及一半的线程从第一轮起就闲着。
+减少了：发散、取模（v1 本来就没有 bank conflict，见上）。没变的是：10 次循环内的 `__syncthreads()`（1024 → 1 是 10 级，加装载后那一次共 11 次），以及一半的线程从第一轮起就闲着。
 
 ### 3. v3：加载时先加一次
 
@@ -351,11 +352,11 @@ __syncthreads();
 
 v2 的第一轮里 512 个线程各做一次加法，等价于"每个线程加载时就把两个元素加起来"，后者不需要 shared memory 也不需要 sync。于是让一个 block 处理 $$2 \times$$ `BLOCK` 个元素，第一级归约在寄存器里完成。
 
-减少了：一次 sync、一半的 block 数（同样的数据量 grid 减半），shared memory 的一轮读写。这一步的思想推到极致就是 v5。
+减少了：一半的 block 数（同样的数据量 grid 减半）与 shared memory 的一轮读写；sync 次数**没少**——BLOCK 仍是 1024，循环还是 $$s = 512 \ldots 1$$ 的 10 级，少的是每 block 的元素装载轮次而不是同步（只有把 BLOCK 减半才少一级）。这一步的思想推到极致就是 v5。
 
 ### 4. v4：最后一个 warp 用 shuffle 展开
 
-v2 的循环里当 $$s \le 16$$ 时，只有一个 warp 的一部分线程活跃，却还要全 block sync 5 次（s = 16, 8, 4, 2, 1）。这 5 级可以完全在 warp 内做，用 warp shuffle 指令直接读同 warp 其他 lane 的寄存器：
+v2 的循环里当 $$s \le 16$$ 时，只有一个 warp 的一部分线程活跃，却还要全 block sync 5 次（s = 16, 8, 4, 2, 1）——去掉后循环里剩 $$s = 512, 256, 128, 64, 32$$ 五级；若把 $$s = 32$$ 那一级也交给 warp（读 `sdata[tid + 32]` 后再 shuffle），block 级同步只剩 4 次。这 5 级可以完全在 warp 内做，用 warp shuffle 指令直接读同 warp 其他 lane 的寄存器：
 
 ```cpp
 // v4: shared-memory tree down to 32, then warp shuffle
@@ -377,16 +378,17 @@ if (tid < 32) {
 用 8 个 lane 演示 `__shfl_down_sync` 的归约树（实际 32 个 lane、`off = 16, 8, 4, 2, 1`），每格是"已累加进该 lane 的原始 lane 集合"：
 
 ```text
-每步 lane i 读 lane i+off 的值加到自己身上；i+off ≥ 8 的 lane 读回自己，值不变
+每步 lane i 读 lane i+off 的值加到自己身上；i+off ≥ 8 的 lane 读回自己，于是 v += v 把自己翻倍
+（用 8 个 lane 演示、宽度 8；表里写的是数值，初值取 lane 编号，总和 = 28）
 
-lane    0       1       2       3       4       5       6       7
-初值    0       1       2       3       4       5       6       7
-off=4   0+4     1+5     2+6     3+7     4       5       6       7
-off=2   0+2+4+6 1+3+5+7 2+4+6   3+5+7   4+6     5+7     6       7
-off=1   0..7    1..7    2..7    3..7    4..7    5+6+7   6+7     7
+lane    0    1    2    3    4    5    6    7
+初值    0    1    2    3    4    5    6    7
+off=4   4    6    8   10    8   10   12   14     lane 4–7 读回自己：翻倍
+off=2  12   16   16   20   20   24   24   28
+off=1  28   32   36   40   44   48   52   56
         ▲
-        只有 lane 0 是完整总和；其他 lane 是"从自己往右"的部分和，不能用
-        （所以 v4 里由 tid == 0 写 sdata[0]）
+        只有 lane 0 是正确的总和 28；其他 lane 的值既不是部分和也不是原值，不能用
+        （所以 v4 里由 tid == 0 写 sdata[0]；要让所有 lane 都拿到总和用下面的 xor 版本）
 
 对比 v6 用的 __shfl_xor_sync：lane i 与 lane i^off 互换，3 步后 8 个 lane 都持有 0..7
 ```
@@ -1025,7 +1027,11 @@ __global__ void softmax_warp_online_kernel(__nv_bfloat16* __restrict__ out,
     if (idx < d) {
       v[i] = __bfloat162float(x[idx]);
       const float m_new = fmaxf(m, v[i]);
-      l = l * __expf(m - m_new) + __expf(v[i] - m_new);
+      // 状态为空（m == -inf）时 m - m_new 是 (-inf) - x：x 有限 → exp(-inf) = 0 没问题，
+      // 但 x 本身是 -inf（掩码位）时是 (-inf) - (-inf) = NaN；用 online_merge 统一处理
+      l = (m == -INFINITY) ? __expf(v[i] - m_new) + 0.f
+                            : l * __expf(m - m_new) + __expf(v[i] - m_new);
+      if (m_new == -INFINITY) l = 0.f;     // 到目前为止全是 -inf：状态保持为空
       m = m_new;
     } else {
       v[i] = -INFINITY;                    // 越界元素不参与
@@ -1038,9 +1044,15 @@ __global__ void softmax_warp_online_kernel(__nv_bfloat16* __restrict__ out,
     const float m_o = __shfl_xor_sync(0xffffffffu, m, off);
     const float l_o = __shfl_xor_sync(0xffffffffu, l, off);
     const float m_new = fmaxf(m, m_o);
-    l = l * __expf(m - m_new) + l_o * __expf(m_o - m_new);
+    // 两边都为空（d < 32 时的空 lane、或整行被掩码）：(-inf) - (-inf) = NaN，要守卫
+    if (m_new == -INFINITY) { l = 0.f; }
+    else {
+      l = (m   == -INFINITY ? 0.f : l   * __expf(m   - m_new))
+        + (m_o == -INFINITY ? 0.f : l_o * __expf(m_o - m_new));
+    }
     m = m_new;
   }
+  // 整行全 -inf：PyTorch 的约定是输出全 NaN；这里让 inv_l = NaN 与之一致（l == 0）
   const float inv_l = 1.f / l;
 
   // 第二遍（寄存器）：写出
@@ -1058,14 +1070,15 @@ void softmax_bf16(__nv_bfloat16* out, const __nv_bfloat16* in, int rows, int d,
   if      (d <= 1024) softmax_warp_online_kernel<32 ><<<grid, THREADS, 0, stream>>>(out, in, rows, d);
   else if (d <= 2048) softmax_warp_online_kernel<64 ><<<grid, THREADS, 0, stream>>>(out, in, rows, d);
   else if (d <= 4096) softmax_warp_online_kernel<128><<<grid, THREADS, 0, stream>>>(out, in, rows, d);
-  // d > 4096：改用 block-per-row 的版本
+  else TORCH_CHECK(false, "softmax_bf16: d > 4096 needs the block-per-row version");  // 不能静默不做
+  // rows == 0 时 grid 为 0：launch 前要 return，否则是非法配置
 }
 ```
 
 几处细节：
 
 - **初值**。$$m = -\infty, l = 0$$。第一个元素到来时 $$m_{\text{new}} = x_0$$，$$l = 0 \cdot e^{-\infty} + e^0 = 1$$，正确。`__expf(-INFINITY)` 返回 0，不是 NaN。
-- **越界 lane**。d ≥ 32 保证每个 lane 至少有一个真实元素，所以合并时不会出现两个 $$m = -\infty$$ 相减产生 NaN。如果要支持 $$d < 32$$ 或输入本身含 $$-\infty$$（掩码），合并处要加一个 `m_new == -INFINITY ? 0 : ...` 的守卫。
+- **空状态与 $$-\infty$$**。$$m = -\infty$$ 表示"还没有任何元素"。两处会出 NaN：（1）局部更新时输入本身是 $$-\infty$$（掩码位）——$$m - m_{\text{new}} = (-\infty) - (-\infty)$$；（2）合并时两个 lane 都为空（$$d < 32$$ 的空 lane，或整行被掩码）。早期版本只在合并处加守卫，用 CPU 按同样的递推跑 $$d = 1, 7, 15$$ 全部 NaN、$$d = 32$$ 含一个 $$-\infty$$ 的行全 NaN，而 `torch.softmax` 都是有限值——所以上面两处都加了 `m == -INFINITY` 的分支，让空状态的贡献恰好是 0；整行全 $$-\infty$$ 时 $$l = 0$$、输出 NaN，与 PyTorch 一致。测试要覆盖这些边界，而不只是 8192 × 4096 的随机矩阵。
 - **寄存器**。d = 4096 时 `v[128]` 占 128 个寄存器，加上其他约 20 个，接近 150；每 SM 65536 个寄存器，128 线程的 block 最多驻留 $$\lfloor 65536 / (150 \times 128) \rfloor = 3$$ 个 block、12 个 warp——occupancy 只有 19%。这是 warp-per-row 在 d = 4096 时的代价，也是 PyTorch 把 warp softmax 的上限定在 2048 的原因。d ≤ 1024 时 `v[32]` 很轻，occupancy 接近满。
 - **访存**。`x[lane + i*32]` 每次 warp 读 64 字节连续，是半条 cache line；下一次迭代读接下来的 64 字节，同一条 line 在 L1 里被用完，HBM 流量仍是每字节一次。改成 `__nv_bfloat162` 一次读两个可以把每次 warp 访问凑成 128 字节，是一个可选的小优化。
 - **`__expf` vs `expf`**。`__expf` 是硬件近似指令（SFU 的 `ex2` 加一次乘法），误差约 2 ulp，对 BF16 输出绰绰有余；`expf` 精度更高但要十几条指令。softmax 是 memory-bound 的，两者在带宽上看不出差别，但 d 小、行多时指令数会开始有影响。
@@ -1098,7 +1111,7 @@ torch.testing.assert_close(my_ext.softmax_fp32(x32), torch.softmax(x32, -1),
                            rtol=1e-5, atol=1e-6)
 ```
 
-BF16 的默认容差 rtol = 1.6e-2 对应约 2 个 BF16 ulp（BF16 尾数 8 位，1 ulp 约 $$2^{-8} \approx 3.9 \times 10^{-3}$$ 的相对误差）。softmax 的输出值很小（平均 $$1/d \approx 2.4 \times 10^{-4}$$），atol = 1e-5 在这个量级上仍是相对容差在起作用，不必调大。online 版本与三遍版本在数学上完全等价，差别只在 FP32 舍入的顺序，FP32 对照能验证这一点。
+BF16 的默认容差 rtol = 1.6e-2 对应约 4 个 BF16 ulp（BF16 存 7 位尾数、含隐含位 8 位有效数字，1 ulp 的相对大小在 $$2^{-8}$$ 到 $$2^{-7}$$ 之间随 binade 变）。softmax 的输出值很小（平均 $$1/d \approx 2.4 \times 10^{-4}$$），这时 **atol 才是主项**：$$1.6\times10^{-2} \times 2.4\times10^{-4} \approx 3.9 \times 10^{-6} < 10^{-5}$$，一个把每个概率都算大 5% 的错误结果也能通过（行和 1.05 照样 PASS）。所以对 softmax 不能只做逐元素 `assert_close`，还要检查每行和 ≈ 1、全部有限、非负，并加入 $$d < 32$$、非 2 的幂、含 $$-\infty$$ 的行这些边界样例。online 版本与三遍版本在数学上完全等价，差别只在 FP32 舍入的顺序，FP32 对照能验证这一点。
 
 性能上，先算下界：rows = 8192、d = 4096 的 RMSNorm 读写 128 MiB，A100 上 ≈ 67 µs；softmax 同样形状也是读 8 KiB 写 8 KiB 每行，下界相同。用第二篇的 `bench(fn, warmup=10, iters=100, flush_l2=True)` 计时，**读者跑出的数字大致应该落在：RMSNorm 75–85 µs（带宽的 80–90%），warp softmax 在 d ≤ 2048 时同样 80–90%，d = 4096 时因为 occupancy 下降通常掉到 60–75%**。如果 RMSNorm 落在 150 µs 以上，先查是否向量化（用 Nsight Compute 看 `ld.global.v4` 是否出现）、block 是否太大导致行少时并行度不足；落在 500 µs 以上，几乎一定是第二章列的四个 naive 问题之一。
 

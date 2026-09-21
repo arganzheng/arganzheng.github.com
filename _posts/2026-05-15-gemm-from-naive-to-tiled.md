@@ -433,7 +433,7 @@ $$
 
 **向量化**。256 个线程要搬 $$128 \times 8 = 1024$$ 个 $$A$$ 元素和 1024 个 $$B$$ 元素，每人 4 + 4 个，正好一个 `float4`。128 位加载（`LDG.128`）把加载指令数降到 1/4，对 L1 的请求数也更少。前提是地址 16 字节对齐：$$K$$、$$N$$ 是 4 的倍数，基址来自 `cudaMalloc`（256 字节对齐），就满足。
 
-**转置**。计算阶段线程要读"同一列 $$k$$ 上连续 $$TM$$ 行"的 $$A$$。如果 shared 里 $$A$$ 按原样存 `As[BM][BK]`，这 8 个数的地址间隔是 $$BK$$ 个 float，不连续，只能用 8 条 32 位 `LDS`；而且在 warp 内如果有 8 个线程的 `tm` 不同、读同一个 `kk`，它们的地址间隔 $$8 \times BK \times 4$$ 字节，$$BK = 8$$ 时正好是 256 字节，全部落在同一个 bank——8 路 bank conflict。两个经典解法：一是 `As[BM][BK + 1]` 的 padding，行跨度变成 9 个 float，同一列的元素错开一个 bank，conflict 消失，但 8 个数仍然不连续、不能用 `float4` 读；二是**转置存入** `As[BK][BM]`，同一 $$k$$ 的 $$BM$$ 个 $$A$$ 元素在 shared 里连续，读取阶段一条 `LDS.128` 取 4 个，两条取完 $$TM = 8$$，且 16 个共享同一个 `tm` 的线程读同一地址、是广播。转置的代价发生在写入端：`float4` 从全局读进来的 4 个 $$k$$ 连续元素要拆成 4 次标量写到 shared 的 4 个不同行。每个 tile 只写一次、读 $$BK$$ 次，把开销放在写这边是对的。
+**转置**。计算阶段线程要读"同一列 $$k$$ 上连续 $$TM$$ 行"的 $$A$$。如果 shared 里 $$A$$ 按原样存 `As[BM][BK]`，这 8 个数的地址间隔是 $$BK$$ 个 float，不连续，只能用 8 条 32 位 `LDS`；而且按第六节的线程铺法一个 warp 里有 **2 个**不同的 `tm`（`tid / 16`），它们读同一个 `kk` 时地址相差 $$8 \times BK \times 4$$ 字节，$$BK = 8$$ 时正好是 256 字节——同一个 bank、两个不同地址，同 `tm` 的 16 个线程是广播，两组之间是 **2 路** bank conflict（早期版本按"8 个不同 tm"写成 8 路，是把每线程的 8 行与 warp 内的 tm 数混了）。两个经典解法：一是 `As[BM][BK + 1]` 的 padding，行跨度变成 9 个 float，同一列的元素错开一个 bank，conflict 消失，但 8 个数仍然不连续、不能用 `float4` 读；二是**转置存入** `As[BK][BM]`，同一 $$k$$ 的 $$BM$$ 个 $$A$$ 元素在 shared 里连续，读取阶段一条 `LDS.128` 取 4 个，两条取完 $$TM = 8$$，且 16 个共享同一个 `tm` 的线程读同一地址、是广播。转置的代价发生在写入端：`float4` 从全局读进来的 4 个 $$k$$ 连续元素要拆成 4 次标量写到 shared 的 4 个不同行。每个 tile 只写一次、读 $$BK$$ 次，把开销放在写这边是对的。
 
 ```text
   As[BM][BK]（原样存放，BK = 8）                As[BK][BM]（转置存放）
@@ -447,8 +447,8 @@ $$
   m=7    [ ■  .  .  .  .  .  .  . ]
                                                  读: 2 条 LDS.128（连续 8 个 float）
   读: 8 条标量 LDS，地址间隔 BK×4 = 32 B          写: 全局 float4 的 4 个 k 拆成 4 次标量写
-  warp 内不同 tm 的线程地址间隔 8×32 B = 256 B         （每 tile 只写 1 次、读 BK 次，代价放在写端划得来）
-  → 全部落在同一 bank，8 路 conflict
+  warp 内 2 个不同 tm 的线程地址间隔 8×32 B = 256 B     （每 tile 只写 1 次、读 BK 次，代价放在写端划得来）
+  → 同一 bank、两个地址：2 路 conflict（同 tm 的 16 线程是广播）
 
   折中方案 As[BM][BK+1]（padding）: 行跨度 9 个 float → 同列元素错开 1 个 bank，conflict 消失，
                                    但 8 个数仍不连续，不能 float4 读
@@ -908,7 +908,7 @@ $$
   1024 block / 216 = 4.74 wave，但要付 5 个 wave 的时间 → 效率 4.74 / 5 = 94.8%
 ```
 
-前 4 波满载，第 5 波只有 $$0.74 \times 216 = 160$$ 个 block，SM 有 26% 在空转。如果每个 block 的时间相同，整体效率是 $$4.74 / 5 = 94.8\%$$，损失 5%。这叫 wave quantization（波次量化）。缓解办法有：换一个让 block 数接近 216 整数倍的 tile 尺寸（比如 128×256 → 512 个 block，每 SM 1 个 → 4.74 波，没有改善；256×128 同理；64×128 → 2048 个 block，每 SM 3 个 → 324 并发 → 6.3 波，第 7 波 32%，效率 90%——更差），或者用第九节的 stream-K 把最后一波的工作按 $$K$$ 拆碎分给所有 SM。cuBLAS 的启发式选择 kernel 时就在权衡这些，这也是为什么同一个 GEMM 换一组形状，cuBLAS 的效率会在 85% 与 95% 之间跳动。
+前 4 波满载，第 5 波只有 $$0.74 \times 216 = 160$$ 个 block，216 个驻留槽位有 26% 空着（108 个 SM 仍可以每个都至少有一个 block，所以"26% 的 SM 空转"不准确——空的是槽位，双驻留时一个 block 也可能把 SM 吃满）。如果每个 block 的时间相同、且时间只由波数决定，整体效率是 $$4.74 / 5 = 94.8\%$$，损失 5%。这叫 wave quantization（波次量化）。缓解办法有：换一个让 block 数接近 216 整数倍的 tile 尺寸（比如 128×256 → 512 个 block，每 SM 1 个 → 4.74 波，没有改善；256×128 同理；64×128 → 2048 个 block，每 SM 3 个 → 324 并发 → 6.3 波，第 7 波 32%，效率 90%——更差），或者用第九节的 stream-K 把最后一波的工作按 $$K$$ 拆碎分给所有 SM。cuBLAS 的启发式选择 kernel 时就在权衡这些，这也是为什么同一个 GEMM 换一组形状，cuBLAS 的效率会在 85% 与 95% 之间跳动。
 
 ## 九、Roofline 汇总与 CUDA Core 的极限
 
@@ -935,14 +935,14 @@ cuBLAS 16–21（多种 tile）    ≥2              —                        
 
 v5 与 cuBLAS 之间还有 10–20 个百分点，分散在几个地方：
 
-- **LDS 与 FFMA 的配比**。每个 warp 调度器每周期只发一条指令。v5 每个 $$k$$ 发 10 条 LDS 对 64 条 FFMA，FFMA 占 86%；cuBLAS/CUTLASS 的 SIMT kernel 用更大的 warp tile（比如每 warp 64×32 或 32×64）与更精细的 lane 映射，把 LDS 压到 4 条 LDS.128 对 64 条 FFMA，再配合双缓冲的寄存器片段（读下一个 $$k$$ 的片段时算当前 $$k$$），让 FFMA 占到 95% 以上。
+- **LDS 与 FFMA 的配比**。每个 warp 调度器每周期只发一条指令。v5 每个 $$k$$ 发 10 条 LDS 对 64 条 FFMA，FFMA 占 86%；cuBLAS/CUTLASS 的 SIMT kernel 用更大的 warp tile（比如每 warp 64×32 或 32×64）与更精细的 lane 映射，把 LDS 压到 4 条 LDS.128 对 64 条 FFMA，再配合双缓冲的寄存器片段（读下一个 $$k$$ 的片段时算当前 $$k$$），让 FFMA 占到 $$64 / (64 + 4) \approx 94\%$$（指令发射的占比；执行吞吐上 LDS.128 与 FFMA 又不是同一条管线，这个百分比只是发射侧的估计）。
 - **残余 bank conflict**。第四节指出的 $$B$$ 片段 4 个 wavefront 对 2 个理想值，以及 v5 里 $$A$$ 的标量读。修法是调整 lane 到片段的映射（把 8 列拆成两段 4 列）或对 shared 地址做 XOR swizzle，让一个 warp 的 32 次访问恰好覆盖 32 个 bank。下一篇的 CuTe 会把这类布局变换变成可组合的代数。
 - **epilogue**。$$C$$ 的写回是 64 MiB，理论 33 µs，占 7 ms 的 0.5%；但 v5 的 epilogue 是每线程 8 行各一个 `float4`，一个 warp 一次写 2 行各 256 字节，合并度尚可但不完美。cuBLAS 会先把累加器经 shared memory 重排，再以完整 128 字节 cache line 写回，并在这里融合 $$\alpha$$、$$\beta$$、bias、激活。
 - **wave quantization** 与 tile 启发式，上一节已述。
 
 值得强调的是：这些优化每一项只值 2–5 个百分点，而且互相牵制——更大的 warp tile 要更多寄存器，swizzle 增加地址计算。**在 CUDA Core 上把 SGEMM 从 80% 推到 95% 的工程量，比从 3% 推到 80% 还大**，这也是为什么绝大多数场景直接用 cuBLAS 或 CUTLASS 而不是手写。
 
-而真正的量级差距不在这里。同一块 A100，BF16 Tensor Core 的峰值是 312 TFLOPS，是 FP32 CUDA Core 的 16 倍；一条 `mma.sync.m16n8k16` 让一个 warp 一条指令做 2048 次乘加，而 FFMA 一条只做 32 次。本文建立的每一层结构——block tile、warp tile、shared 布局、流水线——原样保留，只是最内层的 $$TM \times TN$$ 外积换成了 Tensor Core 指令，并且因为算力高了 16 倍，ridge point 也从 10 跳到 156 FLOP/byte，128×128 的 tile 在 BF16 下只有 32 FLOP/byte，**又回到了斜线下面**。这就是下一篇要解决的问题。
+而真正的量级差距不在这里。同一块 A100，BF16 Tensor Core 的峰值是 312 TFLOPS，是 FP32 CUDA Core 的 16 倍；一条 `mma.sync.m16n8k16` 让一个 warp 一条指令做 2048 次乘加，而 FFMA 一条只做 32 次。本文建立的每一层结构——block tile、warp tile、shared 布局、流水线——原样保留，只是最内层的 $$TM \times TN$$ 外积换成了 Tensor Core 指令，并且因为算力高了 16 倍，ridge point 也从 10 跳到 156 FLOP/byte，128×128 的 tile 在 BF16 下是 64 FLOP/byte（同样的 FLOPs，字节减半），仍低于 156，**又回到了斜线下面**。这就是下一篇要解决的问题。
 
 ## 十、split-K、stream-K 与 GEMV
 
@@ -1155,7 +1155,7 @@ report("v5", lambda: ext.sgemm_v5(A, B))
 6. **v5 软件流水**：Ampere 前用寄存器预取 + 双 shared buffer；Ampere 用 `cp.async.cg.shared.global` 直接全局到 shared，`commit_group / wait_group` 管理 $$S$$ 级流水，每 tile 一次 `__syncthreads()`，shared 用量 $$S(BM + BN) \cdot BK \cdot 4$$ 字节。
 7. **v6 边界**：predicated load 补 0、越界不写；`float4` 与 `cp.async` 的 16 字节粒度要求 $$K$$、$$N$$ 是 4 的倍数，否则退化或用 `src-size` 零填充；或 host 侧 pad。
 8. **tile 三角关系**：算术强度、寄存器、shared、占用率互相牵制，128×128×8、8×8 是 CUDA Core 上的自然平衡点；wave quantization（1024 个 block / 216 并发 = 4.74 波）损失约 5%。
-9. **CUDA Core 极限**：v5 到 FP32 峰值的 70–80%、cuBLAS 的 80–90%；剩余差距在 LDS/FFMA 配比、残余 bank conflict、epilogue、tile 启发式。Tensor Core 的峰值高 16 倍，ridge 从 10 跳到 156，128×128 的 tile 在 BF16 下又回到斜线下面——下一篇的起点。
+9. **CUDA Core 极限**：v5 到 FP32 峰值的 70–80%、cuBLAS 的 80–90%；剩余差距在 LDS/FFMA 配比、残余 bank conflict、epilogue、tile 启发式。Tensor Core 的峰值高 16 倍，ridge 从 10 跳到 156，128×128 的 tile 在 BF16 下只有 64 FLOP/byte、又回到斜线下面——下一篇的起点。
 10. **split-K / stream-K / GEMV**：decode 阶段 $$M$$ 很小、block 数填不满 108 个 SM，split-K 沿 $$K$$ 并行再归约，stream-K 按 MAC 总量给持久 block 分工；$$M = 1$$ 的 GEMV 算术强度 0.5（FP32）/ 1（BF16）FLOP/byte，只能靠减少权重字节数（量化）加速。
 
 ```text
