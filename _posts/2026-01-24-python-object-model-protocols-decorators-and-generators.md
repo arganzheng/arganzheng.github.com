@@ -1,8 +1,8 @@
 ---
 layout: post
 series: python-for-ai-infra
-title: Python 在 AI-Infra（01 下）：对象如何工作——对象模型、协议、装饰器与生成器
-subtitle: How Objects Work — Object Model, Protocols, Decorators and Generators
+title: "Python 在 AI-Infra（01 下）：对象如何工作——对象模型、协议、装饰器与生成器"
+subtitle: "How Objects Work — Object Model, Protocols, Decorators and Generators"
 tags: [Python]
 catalog: true
 date: 2026-01-24 20:00:00 +0800
