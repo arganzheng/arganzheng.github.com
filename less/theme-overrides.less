@@ -342,6 +342,34 @@ nav.navbar-default:not(.navbar-custom) .nav li a:focus {
   pointer-events: none;
 }
 
+/* Line numbers (_plugins/code_lines.rb wraps every line in span.line and marks
+   the blocks that show them with pre.lineno). CSS counters, so the numbers are
+   not text: copy, 划线 quotes and the search index never see them. The gutter
+   is sticky so it stays put while a long line scrolls. */
+.post-container pre.lineno {
+  code { counter-reset: line; }
+  .line::before {
+    counter-increment: line;
+    content: counter(line);
+    position: -webkit-sticky;
+    position: sticky;
+    left: -16px; /* the pre's padding (css/github-markdown.css): flush with its left edge */
+    display: inline-block;
+    box-sizing: content-box;
+    width: 2em;
+    margin-left: -16px;
+    padding: 0 1.2em 0 16px; /* padding, not margin: the gap must be opaque too */
+    text-align: right;
+    color: #8c959f;
+    background-color: #f6f8fa; /* same as the pre: covers the code scrolling underneath */
+    border-right: 1px solid #d0d7de;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  &.lineno-3 .line::before { width: 2.6em; } /* 100+ lines (set by the plugin) */
+  &.lineno-4 .line::before { width: 3.2em; }
+}
+
 /* Github-style copy button on code blocks and diagrams (js/code-copy.js) */
 .code-copy-anchor {
   position: relative;

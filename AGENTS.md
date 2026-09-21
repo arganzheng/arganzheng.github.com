@@ -920,6 +920,21 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   `wechat-export.js` flattens groups into labelled blocks. Highlight
   comments anchored in a hidden panel simply stay hidden until that tab is
   chosen — no special handling.
+- Line numbers (`_plugins/code_lines.rb`, `:documents, :post_render` on
+  posts): every `<pre><code>` line becomes `<span class="line">` (Rouge spans
+  that cross lines are closed and reopened, textContent unchanged) and the
+  `<pre>` gets `data-lines="N"`; blocks that show numbers get `pre.lineno`
+  (+ `lineno-3` / `lineno-4` for 100+ / 1000+ lines, gutter width). Default:
+  a real language (`language-xxx`, not `text` / untyped) and >= 2 lines —
+  ```text and bare fences are output / logs / ASCII art. Per block: IAL on
+  the line before the fence, `{:.lineno}` forces, `{:.no-lineno}` hides.
+  The numbers are CSS counters (`less/theme-overrides.less`, `.line::before`,
+  sticky so they stay while a long line scrolls), so they are never text:
+  copy, 划线 quotes, the search index and the WeChat export do not see them.
+  Not Rouge's `line_numbers`: global, table layout, numbers in innerText,
+  and ~70 % of the fences never reach Rouge. Mermaid sources are skipped.
+  Prose that refers to lines by number now has something to point at;
+  `第 N 行` is still plain text (no auto-linking — it also means table rows).
 - Companion code lives in `../ai-learning-labs` (git repo, pushed by the
   user). Its `.venv/` (Python 3.12 via `~/.local/bin/python3.12`, torch CPU,
   numpy, tiktoken, tokenizers) is gitignored; recreate with
