@@ -72,8 +72,11 @@ module CodeLines
 
     flush = lambda do
       # a directive line is dropped — unless it sits inside a multi-line
-      # string / block comment, where it is just text
-      if directives && line_open.empty? && (m = DIRECTIVE.match(text_of(line)))
+      # string / block comment, where it is just text. Spans carried over
+      # from the previous line that close right at the start of this one do
+      # not count (Rouge's Python comments swallow the newline).
+      carried = line_open.size - line[%r{\A(?:</span>)*}].count('/')
+      if directives && carried <= 0 && (m = DIRECTIVE.match(text_of(line)))
         pending = [m[1], (m[2] || 0).to_i + 1]
       else
         lines += 1
