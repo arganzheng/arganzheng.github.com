@@ -225,6 +225,7 @@ $$
 34 这个系数里，**24 是可以被张量并行切开的**（Q、K、V、PV 输出、GELU 前后的 MLP 中间态——按头或按列分布在 TP 卡上），**10 是切不开的**（两个 LayerNorm 的输入 4h、注意力与 MLP 的输入各 2h、两个 dropout mask 各 1h——每张 TP 卡上都是完整的），这是第二篇讲序列并行时 "10 + 24/t" 的来源。把这些被保留的张量标在一层的数据通路上（每个节点标的是**该算子为反向保留的输入/输出**，蓝色可被 TP 切开、橙色每张 TP 卡都完整保留）：
 
 ```mermaid
+%% 图：一层为反向保留的激活：橙色六项 10h 切不开，蓝色四个节点 24h 可按 TP 切开，softmax 一项是 5as
 flowchart TB
     subgraph attn["LayerNorm 1 + 注意力块：保留 13h + 5as"]
         LN1["LayerNorm 1<br/>保留输入 2h"]
@@ -381,6 +382,7 @@ $$
 三个 GEMM 各自读什么、写什么，画出来也顺带解释了第四章"为什么每个线性层的输入要保留到反向"——wgrad 要用它：
 
 ```mermaid
+%% 图：每参数每 token 6 FLOP：前向一个 GEMM 2 FLOP，反向 dgrad 与 wgrad 各 2 FLOP，wgrad 要读保留的 x
 flowchart TB
     subgraph fwd["前向：1 个 GEMM，每参数 2 FLOP"]
         Xin["输入 x #91;tokens, n#93;<br/>保留到反向（这就是激活）"]

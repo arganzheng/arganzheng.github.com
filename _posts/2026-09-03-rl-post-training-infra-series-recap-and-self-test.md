@@ -208,6 +208,7 @@ date: 2026-09-03 20:00:00
 第一篇划定边界：本系列只用推理引擎的三个接口——批量生成、让渡显存、加载权重——与它的吞吐特性。第二篇让"批量生成"变成 server 模式的持续服务，绕开单控制器的同步点。第三篇是"让渡显存"：sleep / wake_up 按 `weights` / `kv_cache` 标签分区，`CuMemAllocator` 保虚拟地址，SGLang 的 `torch_memory_saver` 同一机制。第四篇是"加载权重"：`load_weights` 接 HF 名字的张量流、按自己的 TP / EP 切出分片，加上 `reset_prefix_cache` 与版本号。第六篇让"批量生成"再长出 OpenAI / Anthropic 兼容的一面，现成 harness 接进来，网关重建 token 序列。第七篇的结论是这三个接口在三家框架里写法趋同——是必然，不是 verl 的选择；第八篇说趋势是 vLLM 与 SGLang 把它们做成一等 API，训练框架的适配层会变薄。
 
 ```mermaid
+%% 图：RL 系统几个量的依赖关系：回答长度决定在飞 KV 与长尾占比，进而决定并发、形态、配比与 staleness，最后落到 logprob 的份数与修正
 flowchart TB
     L[回答长度 L̄ 与 L_max<br/>随训练变长] --> KV[在飞 KV 量]
     L --> F[长尾占比 f]

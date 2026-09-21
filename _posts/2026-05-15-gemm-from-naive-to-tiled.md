@@ -25,6 +25,7 @@ GEMM 是这个系列的转折点。一个 4096×4096×4096 的矩阵乘法有 13
 六个版本是一条"瓶颈不断迁移"的路：每解决一层瓶颈，下一层就浮出来。先把整条路画出来，后面每一章只是放大其中一步：
 
 ```mermaid
+%% 图：GEMM 六个版本的瓶颈迁移：从 naive 到 cp.async 流水，每解决一层瓶颈下一层浮出来
 flowchart TB
     v1["v1 naive<br/>一线程一输出，操作数全从全局读<br/>I_HBM = 0.25 · ~1–3%"]
     v2["v2 shared 分块<br/>32×32 tile 进 shared，block 内复用<br/>I_HBM = 8 · ~10–20%"]
@@ -397,6 +398,7 @@ $$
 同时 block 的线程数从 $$BM \cdot BN$$ 降到 $$\frac{BM}{TM} \cdot \frac{BN}{TN}$$：128×128 的 tile、8×8 的线程块，只要 256 个线程。这就解锁了 32 FLOP/byte 的全局算术强度。三层复用一起看，就是同一个"越靠近计算单元、容量越小、复用越密"的金字塔：
 
 ```mermaid
+%% 图：三层复用的金字塔：HBM → shared → 寄存器 → 累加器，越靠近计算单元容量越小、复用越密
 flowchart TB
     hbm["HBM / L2<br/>A: M×K　B: K×N　C: M×N<br/>每个元素被 BN（或 BM）个输出用到"]
     smem["shared memory（block 级）<br/>As: BM×BK　Bs: BK×BN<br/>每次载入被 block 内所有线程复用<br/>I_HBM = BM·BN / 2(BM+BN) = 32"]

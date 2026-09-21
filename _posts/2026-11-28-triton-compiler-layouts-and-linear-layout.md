@@ -367,6 +367,7 @@ BlockedEncodingAttr getDefaultBlockedEncoding(ctx, shape, numWarps, threadsPerWa
 `Coalesce.cpp` 只有 125 行，核心在 `CoalesceUtils.cpp` 的 `buildCoalescedEncoding`。对每个操作 `tensor<… x !tt.ptr<T>>` 的 load / store / atomic：
 
 ```mermaid
+%% 图：buildCoalescedEncoding 的算法：查 AxisInfo 定 order，找同切片的访存 op，取每线程元素数的最大值再用总数与 store 上限截断，构造 sizePerThread
 flowchart TB
     ptr["取指针操作数 ptr，查 AxisInfo（第六篇）"]
     order["order = 按 contiguity 从大到小排各维<br/>（getOrderFromContiguity）"]

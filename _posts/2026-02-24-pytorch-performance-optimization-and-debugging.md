@@ -112,6 +112,7 @@ CPU 执行 Python 代码，走完第五篇的入口和分发，把 Kernel **提�
 其中"定位瓶颈"一步是一棵决策树：先看 GPU 泳道的形态，再看是谁在占时间，最后落到五类之一及其处方（工具与处方的完整对照见 §4 的表格和第四章 §6）：
 
 ```mermaid
+%% 图：定位瓶颈的决策树：先看 GPU 泳道形态，再看谁占时间，落到 Launch / Python / Sync / Memory / Compute 五类之一
 flowchart TB
     tl["采集时间线：torch.profiler / nsys"] --> q1{"GPU 泳道的形态？"}
     q1 -->|"稀疏，大段空闲"| q2{"CPU 在忙什么？"}
@@ -206,6 +207,7 @@ CUDA Stream 是 GPU 的一条命令队列。同一 Stream 内的 Kernel 按提�
 把 §1 的三段代码放到两条时间线上，就能看清 `time.time()` 到底测到了什么、`synchronize()` 在哪里把 CPU 拖住：
 
 ```mermaid
+%% 图：time.time() 测到了什么：launch 立即返回，只有 synchronize() 把 CPU 拖住等 GPU 队列排空
 sequenceDiagram
     participant CPU as CPU 线程（Python）
     participant GPU as GPU default stream
@@ -228,6 +230,7 @@ sequenceDiagram
 CUDA Event 则把"打点"这件事交给 GPU 自己做——Event 也是入队的一条命令，GPU 执行到它时记下时间戳，CPU 全程不必参与：
 
 ```mermaid
+%% 图：CUDA Event 计时：打点由 GPU 自己做，elapsed_time 是纯 GPU 区间，不含 CPU 提交时间
 sequenceDiagram
     participant CPU as CPU 线程（Python）
     participant GPU as GPU default stream
@@ -850,6 +853,7 @@ y = model(current)
 把这段代码里四个角色的交互画出来，两条 Stream 上并发的部分和必须串行的依赖就一目了然：
 
 ```mermaid
+%% 图：多 Stream 重叠传输与计算：copy_stream 搬 batch i+1 时 compute_stream 算 batch i，wait_stream 与 record_stream 表达依赖
 sequenceDiagram
     participant W as worker
     participant P as pinned buf
@@ -1057,6 +1061,7 @@ y = checkpoint(transformer_block, x, use_reentrant=False)
 两种模式下前向保存什么、反向到达时做什么，对比如下（L 层，每 k 层一个 checkpoint block）：
 
 ```mermaid
+%% 图：Activation Checkpointing 的两种模式：默认保存每层激活 O(L)，checkpoint 只保存 block 入口 O(L/k) 并在反向时重算
 flowchart TB
     subgraph normal["默认：前向保存每层激活，显存 O(L)"]
         direction TB

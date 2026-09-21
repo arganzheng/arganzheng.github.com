@@ -158,6 +158,7 @@ CUDA 13.x   驱动 >= 580.65.06
 把三条规则连成一棵决策树——输入是节点的驱动 D（`nvidia-smi` 的 `Driver Version` 与右上角 `CUDA Version` 上限）和镜像的 Toolkit T（`torch.version.cuda`），沿着判断走到叶子就是结果与对应的错误码：
 
 ```mermaid
+%% 图：驱动 D 与 Toolkit T 的兼容决策树：向后兼容无条件能跑，同大版本走 minor version compatibility，否则靠 cuda-compat 包
 flowchart TB
     IN["输入：驱动 D（nvidia-smi 的 Driver Version，CUDA Version 上限）<br/>Toolkit T（torch.version.cuda / cudaRuntimeGetVersion）"]
     Q1{"D 原生支持的 CUDA 版本 ≥ T ?"}
@@ -216,6 +217,7 @@ Container Toolkit 是"注入边界"的执行者。它以 NVIDIA Container Toolki
 把这条调用链按时间画出来，可以看清两件事：OCI spec 只在 `create` 之前被改过一次（只加了一条 hook），真正的注入发生在 `runc` 已经建好 namespace、尚未 exec 容器进程的 prestart 窗口里；以及 `--require` 检查失败为什么表现为"容器起不来"而不是 CUDA 报错——它在 hook 里就返回了非零退出码：
 
 ```mermaid
+%% 图：legacy 路径的 prestart hook 时序：nvidia-container-runtime 只往 OCI spec 加一条 hook，注入发生在 runc 建好 namespace 之后的 prestart 窗口
 sequenceDiagram
     participant CD as containerd（RuntimeClass nvidia）
     participant NCR as nvidia-container-runtime
@@ -306,6 +308,7 @@ kubelet 侧的实现在 `pkg/kubelet/cm/devicemanager/manager.go` 的 `ManagerIm
 把插件侧和 kubelet 侧串成一次完整的生命周期，注意方向：只有 `Register` 是插件主动调 kubelet，其余五个方法都是 kubelet 调插件；`ListAndWatch` 是一条常驻的流，`Allocate` 才是每个容器创建时发生一次的调用；调度器在整条链上只看到一个整数：
 
 ```mermaid
+%% 图：device plugin v1beta1 的一次完整生命周期：只有 Register 是插件主动调 kubelet，ListAndWatch 是常驻流，Allocate 每容器一次
 sequenceDiagram
     participant P as nvidia-device-plugin
     participant K as kubelet device manager
@@ -443,6 +446,7 @@ MIG 策略为 `mixed` 时资源名变成 `nvidia.com/mig-1g.5gb` 之类，标签
 三组标签不是并列的，而是一条因果链：NFD 的硬件标签触发 Operator 打部署标签，部署标签是各 operand DaemonSet 的 `nodeSelector`，GFD 作为其中一个 operand 跑起来之后才有第三组属性标签；三组里只有第三组是给 Pod 和上层调度器消费的：
 
 ```mermaid
+%% 图：节点标签的三个来源是一条因果链：NFD 的硬件标签触发 Operator 打部署标签，operand 起来后 GFD 才给出设备属性标签
 flowchart TB
     subgraph src1["来源一：NFD（硬件事实）"]
         NFD["NFD 扫 PCI 总线，vendor 10de"] --> L1["feature.node.kubernetes.io/pci-10de.present=true"]
@@ -515,6 +519,7 @@ DRA 的核心变化是**分配决定由调度器做**（结构化参数，struct
 与第四章第 1 节的 device plugin 时序对照着看：分配决定从 kubelet 移到了调度器，驱动只在两端出现——开头发布 `ResourceSlice`，结尾把已分配的设备翻译成 CDI 设备名；调度器读的不再是一个整数而是每张卡的属性：
 
 ```mermaid
+%% 图：DRA 的调度与 kubelet 侧时序：驱动发布 ResourceSlice，调度器按属性求解分配，kubelet 只把已分配设备翻译成 CDI 设备名
 sequenceDiagram
     participant D as NVIDIA DRA driver（gpu.nvidia.com）
     participant A as API server

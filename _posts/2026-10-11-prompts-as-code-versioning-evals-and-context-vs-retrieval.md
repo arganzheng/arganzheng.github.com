@@ -20,6 +20,7 @@ catalog: true
 ### 1. prompt 的生命周期
 
 ```mermaid
+%% 图：prompt 的生命周期：编辑出不可变版本，离线评测过门禁后打 staging，灰度 1% 再切 production，模型升级从评测重新触发
 flowchart TB
     E["编辑：prompt 文本 · 变量模板 · 绑定的模型与参数"] --> V["新版本（不可变）<br/>version N"]
     V --> T["离线评测：评测集 × k 次<br/>格式遵循率 · 任务指标 · 成本 · 延迟"]

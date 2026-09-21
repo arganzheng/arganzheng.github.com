@@ -346,6 +346,7 @@ pretrain()
 把第二点画成时序，重点看两处异步：reduce-scatter 在最后一个 micro-batch 的反向里发出、在 `finalize_model_grads` 里等；all-gather 在 `optimizer.step()` 里发出、在**下一个** step 的前向 pre-hook 里等。调度函数与 DDP 之间没有直接引用，只有四个回调和两个 hook：
 
 ```mermaid
+%% 图：Megatron train_step 的两处异步：reduce-scatter 在最后一个 micro-batch 的反向里发出，all-gather 在 step 里发出、下一 step 的前向 pre-hook 里等
 sequenceDiagram
     participant TS as train_step
     participant DOPT as DistributedOptimizer
@@ -430,6 +431,7 @@ DeepSpeedEngine.__init__
 所以 DeepSpeed 的"ZeRO 优化器"是一个**优化器包装类**：它接管用户优化器的 `param_groups`，把里面的参数替换成分片；ZeRO 的一切——分片、hook、通信——都在这个包装类里，engine 只在 `backward()` 与 `step()` 里调用它。这与 Megatron（DDP 负责梯度通信、优化器负责参数分片与 all-gather，两个类）和 torchtitan（FSDP 负责一切通信、优化器是普通的）都不同。三种"谁持有分片、谁发起通信"的归属画在一起（黄色 = 分片与集合通信所在的类）：
 
 ```mermaid
+%% 图：三个框架的分工：Megatron 是 DDP + DistributedOptimizer 两个类，DeepSpeed 是 ZeRO 优化器包装类，torchtitan 是 FSDP 负责一切通信
 flowchart TB
     subgraph MG["Megatron Core"]
         direction TB
@@ -498,6 +500,7 @@ Stage 3 的实现分散在四个文件里，按参数的生命周期读：
 四个文件在一层的前向、反向里各自出场的次序如下（`ds_status` 与 `param.data` 的身份随之变化四次）：
 
 ```mermaid
+%% 图：ZeRO Stage 3 一层的前向与反向：pre-hook 让 ParamCoordinator all-gather 参数，post-hook 释放回分片，ds_status 变化四次
 sequenceDiagram
     participant FW as 层 k forward / backward
     participant HK as DeepSpeedZeRoOffload
@@ -685,6 +688,7 @@ fully_shard([norm, lm_head], ..., reshard_after_forward=False)    最后几层�
 前向与反向由 `FSDPState` 注册的 hook 驱动（`_register_group_forward_hooks()`）：`_pre_forward` → `FSDPParamGroup.pre_forward()` → `unshard()`（`_fsdp_collectives.py` 的 `foreach_all_gather()`：组内所有参数的分片拷进一个连续 buffer、一次 `all_gather_into_tensor`，输入在此处按 `mp_policy.param_dtype` 转 bf16）→ `wait_for_unshard()` → `foreach_all_gather_copy_out()` → `FSDPParam.to_unsharded()`（bf16 的完整参数注册到 module 上）；`_post_forward` → `post_forward()` → `reshard()` → `to_sharded()`（释放 bf16，module 上又是 fp32 分片）；反向 `pre_backward()` 再 unshard（`_backward_prefetch()` 按前向的逆序预取），`post_backward()` → `foreach_reduce()`（梯度拷进连续 buffer、`reduce_dtype` 为 fp32 的 reduce-scatter、结果写到分片参数的 `.grad`——也是 `Shard(0)` 的 fp32 DTensor）。三条 stream（`FSDPCommContext` 的 all-gather / reduce-scatter / all-reduce stream）让通信与计算重叠。一个 `fully_shard` 单元建出来的对象（上半）与它们在 `FSDPCommContext` 的两条通信 stream 上的分工（下半，黄色；所有单元共享同一个 context）：
 
 ```mermaid
+%% 图：FSDP2 的对象关系：fully_shard 装上 FSDPState，FSDPParamGroup 驱动 unshard / reshard，三条专用 stream 做集合通信
 flowchart TB
     FS["fully_shard(block, mesh, mp_policy)<br/>block 的类换成 FSDPTransformerBlock"]
     ST["FSDPState<br/>注册 _pre_forward / _post_forward<br/>/ _pre_backward hook"]

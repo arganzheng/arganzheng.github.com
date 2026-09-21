@@ -65,6 +65,7 @@ Anthropic 的 `system` 也是块列表，这是它的 `cache_control` 能精确�
 ### 1. 一轮往返
 
 ```mermaid
+%% 图：工具调用的一轮往返：模型只决定调用什么和读结果，校验、权限、执行、配对、循环控制都在应用侧
 sequenceDiagram
     participant App as 应用（你的代码）
     participant API as 模型 API

@@ -68,6 +68,7 @@ tags: [Blog, Demo, Slides]
 比如上面这份演示文稿的第 4 页讲到 Mermaid，讲稿里就可以顺手放一张图并展开说：
 
 ```mermaid
+%% 图：幻灯片与讲稿的关系：slides/ 下的 Markdown 生成播放页与全屏页，keynote 布局的文章用 iframe 嵌入全屏页
 flowchart LR
     S["slides/my-talk.md"] -- "layout: slides" --> L["/slides/my-talk.html<br/>缩略图 + 播放器 + 评论"]
     S -- "自动生成" --> D["/slides/my-talk/play.html<br/>全屏幻灯片"]

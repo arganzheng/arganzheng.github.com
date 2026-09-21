@@ -173,6 +173,7 @@ cudagraph_capture_sizes（默认生成规则，vllm/config/compilation.py）：
 PIECEWISE 的"分段"落到一层 Transformer 上长什么样？`VllmBackend.split_graph()`（`vllm/compilation/backends.py`）拿到整个 forward 的 FX 图后，在每一个 `splitting_ops`（默认是 `_attention_ops`，即 `vllm::unified_attention_with_output` 等）处切一刀，切出来的每一段交给 Inductor 编译并由 `CUDAGraphWrapper` 各录一张图；attention 本身留在图外 eager 调用：
 
 ```mermaid
+%% 图：PIECEWISE CUDA Graph 落到一层 Transformer：attention 处切一刀，前后两段各录成 CUDA Graph，attention 由 eager 调用
 flowchart TB
     IN["上一层输出 hidden #91;num_tokens, hidden#93;"] --> SEG1
     subgraph SEG1["段 i：Inductor 编译 → 录成 CUDA Graph（按 num_tokens 桶固定形状）"]
@@ -605,6 +606,7 @@ Decode 阶段的核心瓶颈是**逐 Token 串行**：每一步只生成 1 个 t
 所以它的本质是一次**赌注**：用便宜模型猜一条路径，再用贵模型一次性核对这条路径对不对。猜对了就白赚几个 token，猜错了就退回重来。**它省下的是 Target 模型的"轮次"，而不是语言模型的"依赖"。** 这也解释了为什么接受率一低，收益就迅速蒸发——赌输的次数太多了。
 
 ```mermaid
+%% 图：Speculative Decoding 的一轮：Draft 串行猜 K 步，Target 一次前向核对，拒绝采样按位置接受或重采
 sequenceDiagram
     participant D as Draft Model<br/>(小而快)
     participant T as Target Model<br/>(大而准)
@@ -643,6 +645,7 @@ sequenceDiagram
 在 vLLM 的实际工程实现中，Draft 模型（草稿模型）与 Target 模型（目标大模型）各自维护一套完全隔离的 KV Cache 空间。Target 模型在验证时，必须使用自己独立计算的 KV 矩阵。以下是 vLLM 投机解码的数据流向与组件交互图：
 
 ```mermaid
+%% 图：vLLM 投机解码的数据流：Scheduler 预留插槽，Draft 与 Target 各写独立 KV Cache，验证后回滚
 graph TD
     %% 样式定义
     classDef scheduler fill:#e1f5fe,stroke:#01579b,stroke-width:2px;

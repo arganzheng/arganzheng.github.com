@@ -42,6 +42,7 @@ updated: 2026-09-14
 ## 二、控制面与数据面的分离
 
 ```mermaid
+%% 图：控制面与数据面的分离：Python 一侧从 API Server 到 KVCacheManager，C++ / CUDA 一侧从 Worker 到 NCCL，中间只传 SchedulerOutput
 graph LR
     subgraph CP["控制面（Python）"]
         direction LR
@@ -174,6 +175,7 @@ vLLM V1 的核心数据对象（定义在 `vllm/v1/request.py`、`vllm/v1/core/s
 上面的全景图按域列出了字段，但没有回答"这些对象之间靠什么串起来"。答案是两把钥匙——`request_id` 和 `block_id`——以及一次跨进程的复制：调度器进程里 `Request` 通过 `request_id` 找到它的 `KVCacheBlock` 列表，块对象只在这个进程存在；跨到 Worker 进程时，`SchedulerOutput` 只带整数 `block_id`，Worker 用它填 `BlockTable` 的一行，再由 `BlockTable` 派生出 kernel 真正读写 KV 张量所需的 `slot_mapping`：
 
 ```mermaid
+%% 图：四个域里对象的两把钥匙：request_id 把 Request 连到 KVCacheBlock，跨进程只传 block_id 整数，Worker 用它填 BlockTable
 flowchart TB
     subgraph SB["EngineCore 进程：Scheduler / KVCacheManager"]
         direction TB
@@ -222,6 +224,7 @@ flowchart TB
 vLLM V1 的请求状态机（`RequestStatus`，定义在 `vllm/v1/request.py`）是理解控制流的关键：
 
 ```mermaid
+%% 图：vLLM V1 的请求状态机：WAITING 与 RUNNING 之间的迁移，PREEMPTED 回到 WAITING，四种 FINISHED 终态
 stateDiagram-v2
     [*] --> WAITING: 请求到达
 
@@ -371,6 +374,7 @@ class RequestStatus(enum.IntEnum):
 上面讲的是"翻译什么"，还有一个问题是"翻译和计算在时间上怎么排"。第二章那张流水线图说 CPU 准备 N+1 步时 GPU 在算 N 步，它成立的前提是**一步之内 CPU 几乎不等 GPU**。v0.27.1 把一步拆成 `execute_model()` 和 `sample_tokens()` 两次调用，下面按时间顺序标出每个动作发生在 CPU 还是 GPU、哪里是异步入队、哪里是真正的同步点：
 
 ```mermaid
+%% 图：一步之内 CPU 与 GPU 在哪里等谁：execute_model 与 sample_tokens 两次调用，标出异步入队与真正的同步点
 sequenceDiagram
     participant EC as EngineCore.step()<br/>(EngineCore 进程)
     participant MR as GPUModelRunner<br/>(Worker 进程, CPU 侧)

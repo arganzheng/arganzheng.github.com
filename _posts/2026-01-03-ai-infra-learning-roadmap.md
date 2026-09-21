@@ -46,6 +46,7 @@ AI-Infra 的**架构视图**（技术栈）如下。中间是从硬件到引擎�
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 360}}}%%
+%% 图：AI-Infra 架构视图：中间是硬件到引擎的五层主干，左翼数据平台，右翼 MLOps / LLMOps
 flowchart BT
     %% 三个子图之间没有连线，dagre 会按定义顺序从右到左排布，所以这里按 右 → 左 定义
     subgraph OPS["MLOps / LLMOps"]
@@ -293,6 +294,7 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 系列之间的依赖只在这里说明；每个系列的正文都是自治的，不假设读者读过其他系列，也不引用其他系列。
 
 ```mermaid
+%% 图：系列之间的依赖：箭头尾端是箭头头端的前置
 graph LR
     S01["01 Python"] --> S03["03 PyTorch"]
     S02["02 C++"] --> S03

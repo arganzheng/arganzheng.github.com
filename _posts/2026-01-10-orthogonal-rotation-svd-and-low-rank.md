@@ -211,6 +211,7 @@ $$
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 220}}}%%
+%% 图：LoRA 的前向：冻结的 W 与两个瘦矩阵 B、A 并行，先算 xB 再乘 A
 flowchart LR
     X["x  [1 × m]"] --> W["`**W**  [m × n]
 冻结，不算梯度`"]

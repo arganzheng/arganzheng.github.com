@@ -22,6 +22,7 @@ catalog: true
 一次文生图 / 文生视频的生成是下面这条流水线：
 
 ```mermaid
+%% 图：一次文生图的三段流水线：文本编码器一次前向，DiT 去噪网络迭代几十步，VAE 解码器一次前向
 flowchart TB
     P["prompt"] --> TE["`**① 文本编码器**
 T5-XXL / CLIP / LLM
@@ -132,6 +133,7 @@ FLUX：~5 TFLOPs，~0.1 s
 ### 3. 一步的时间线
 
 ```mermaid
+%% 图：一个去噪步的时间线：时间步 embedding → 57 个 block 的 attention + MLP → 预测 ε / v → 采样器 → x_{t-1}
 flowchart TB
     subgraph STEP["一个去噪步（FLUX，无 CFG）"]
         direction TB
@@ -300,6 +302,7 @@ $$
 H100 的拐点是 $$989 \text{ TFLOPS} / 3.35 \text{ TB/s} = 295$$。3,100 在拐点右边十倍——**算力屋顶**。对照 LLM decode：每生成一个 token 读一遍权重、做 $$2P$$ FLOPs，强度 $$= 2 \cdot (\text{batch})$$，batch 1 时是 2，要到 batch 150 才到拐点。
 
 ```mermaid
+%% 图：H100 roofline 上的位置：LLM decode 在带宽屋顶，DiT 一次前向强度 3,100 在算力屋顶，视频 DiT 更深
 flowchart TB
     subgraph ROOF["H100 roofline 上的位置（算术强度从低到高）"]
         direction TB

@@ -54,6 +54,7 @@ int sum(int *a, int n) {
 一个编译器把源语言翻译成目标语言。从 1960 年代开始，这个翻译就被切成三段，切分点是一种**中间表示**（Intermediate Representation，IR）：
 
 ```mermaid
+%% 图：编译器的三段：前端产出 IR，中端做与目标无关的 IR → IR 优化，后端做指令选择、调度与寄存器分配
 flowchart LR
     src["源码<br/>C / Python / …"]
     fe["前端<br/>词法 · 语法 · 语义分析"]
@@ -98,6 +99,7 @@ Java 工程师每天用的工具链恰好把三段拆到了两个进程里：
 CUDA 的编译器 nvcc 在同一张图里是这样的：
 
 ```mermaid
+%% 图：nvcc 的两级后端：cudafe++ 前端 → NVVM IR → libnvvm 出 PTX 虚拟 ISA → ptxas 出真实机器码 SASS
 flowchart LR
     cu[".cu 源码"]
     cudafe["前端<br/>cudafe++（EDG）"]
@@ -121,6 +123,7 @@ flowchart LR
 前端第一步产出的是**抽象语法树**（Abstract Syntax Tree，AST）。`s += a[i] * 2` 这一行的 AST：
 
 ```mermaid
+%% 图：s += a[i] * 2 的 AST：复合赋值节点下挂 DeclRef s 与乘法，乘法下挂数组下标与整数字面量
 flowchart TB
     asg["CompoundAssign +="]
     s["DeclRef s"]
@@ -157,6 +160,7 @@ s  = s + t3
 `sum` 函数的 CFG：
 
 ```mermaid
+%% 图：sum 函数的 CFG：entry、for.cond、for.body、for.inc、for.end 五个基本块，一条回边
 flowchart TB
     entry["entry<br/>s = 0; i = 0"]
     cond["for.cond<br/>i < n ?"]
@@ -332,6 +336,7 @@ SSA 之前，回答"这条指令用的 `s` 是哪条指令定义的"需要一次
 `sum` 的 CFG 与它的支配树：
 
 ```mermaid
+%% 图：sum 的 CFG 与它的支配树：for.cond 是 for.body 与 for.end 的父节点，支配树里没有回边
 flowchart TB
     subgraph cfg["CFG"]
         direction TB
@@ -394,6 +399,7 @@ HotSpot C2 和 Graal 用的 IR 叫 **Sea of Nodes**（Cliff Click，1995）。�
 算法是**不动点迭代**：给每个块的入口 / 出口事实一个初值，反复应用传递函数和汇合运算，直到没有任何变化。只要格是有限高度的、传递函数是单调的（输入更精确不会让输出更不精确），迭代一定终止，且结果是最优的安全解。
 
 ```mermaid
+%% 图：数据流分析的不动点迭代：取一个块，汇合前驱的 out 得到 in，应用传递函数得到 out，变了就把后继加入 worklist
 flowchart TB
     init["初始化：每个块的 in/out = 初值（⊥ 或 ∅）"]
     pick["取一个块 B"]
@@ -691,6 +697,7 @@ LLVM 的历史局限是它**只有一层**中端 IR：所有前端都要把自�
 Triton 的分层是这条原则的直接应用：
 
 ```mermaid
+%% 图：Triton 的渐进式下降：Python → TTIR（无 layout）→ TTGIR（带 layout）→ LLVM IR（每线程标量）→ PTX / SASS，每层能做什么、丢掉什么
 flowchart TB
     py["Python 函数<br/>信息：源码结构、constexpr 实参值、整数实参的对齐"]
     ttir["TTIR：块级张量 op，无 layout<br/>能做：代数简化、广播重排、AxisInfo 分析<br/>丢掉：Python 语法、函数边界（全内联）"]
@@ -754,6 +761,7 @@ ML 编译器不是一种东西，按作用的层和输入分三类：
 ### 4. 家谱
 
 ```mermaid
+%% 图：编译器家谱：LLVM → MLIR 提供基础设施，Halide → TVM 提供调度思想，Triton 从 LLVM 直出起步、2022 年重写到 MLIR
 flowchart TB
     llvm["LLVM（2003）<br/>通用中端 + 多后端"]
     nvvm["nvcc / NVVM（2007 起，2012 转 LLVM）<br/>CUDA C++ → PTX"]

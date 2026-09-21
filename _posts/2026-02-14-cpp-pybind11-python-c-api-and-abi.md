@@ -1089,6 +1089,7 @@ PyTorch 2.x 中的变化：早期 2.x 版本里 `PyObjectSlot` 的 `PyInterprete
 它们之间的关系：
 
 ```mermaid
+%% 图：两个引用计数谁持有谁：THPVariable 经 cdata 强引用 TensorImpl，TensorImpl 经 pyobj_slot_ 回指
 flowchart LR
     PY["THPVariable (PyObject)<br/>ob_refcnt<br/>at::Tensor cdata"]
     IMPL["TensorImpl<br/>combined_refcount_ (kHasPyObject 位)<br/>PyObjectSlot pyobj_slot_"]
@@ -1588,6 +1589,7 @@ py::object toPyObject(IValue ivalue) {
 ### 6. 汇总
 
 ```mermaid
+%% 图：一次 torch.ops 调用的汇总：从 pybind11 胶水到 kernel，标出每处引用计数与 GIL 的变化
 flowchart TD
     A["Python: torch.ops.myops.scale(t, 2.0)<br/>GIL: 持有"] --> B["pybind11 cpp_function 胶水<br/>args/kwargs → py::args/py::kwargs（Py_INCREF）"]
     B --> C["_maybe_handle_torch_function<br/>扫描 __torch_function__（borrowed 引用）"]

@@ -624,6 +624,7 @@ watchdog 发现某个 work 超时
 这条流程里有两个线程、两类 rank 在协作——超时的 rank 的 watchdog 只负责"喊"，真正写文件的是每个 rank 自己的 monitor 线程，包括那个没有超时的掉队者：
 
 ```mermaid
+%% 图：Flight Recorder 的 dump 流程：超时 rank 的 watchdog 只负责经 TCPStore 广播信号，每个 rank 的 monitor 线程各自写文件
 sequenceDiagram
     participant WD as rank k 的 watchdog
     participant ST as TCPStore

@@ -52,6 +52,7 @@ $$
 控制流始终在 host 上。CPU 负责分配显存、拷贝数据、发起 GPU 上的计算、等待结果。GPU 上运行的每一段代码都是被 CPU"发射"（launch）出去的一个函数，这个函数叫 **kernel**：
 
 ```mermaid
+%% 图：两个处理器、两个地址空间：host 内存与显存之间只有显式拷贝，CPU 只传 device 指针发射 kernel
 flowchart LR
     classDef h fill:#fef3c7,stroke:#b45309
     classDef d fill:#dbeafe,stroke:#1d4ed8
@@ -119,6 +120,7 @@ vector_add_f32<<<grid, block>>>(d_a, d_b, d_c, n);
 一次 kernel launch 启动一个 **grid**；grid 由若干 **block** 组成；block 由若干 **thread** 组成。这三个名字对应上一篇讲的硬件层级：grid 撒满整卡，一个 block 整块落到一个 SM 上、不迁移，block 内的线程被硬件按 32 个连续编号切成 warp，每个线程是 warp 里的一个 lane：
 
 ```mermaid
+%% 图：三层结构与硬件位置：Grid → Block → Thread 对应整卡 → SM → lane，warp 没有内建变量
 flowchart TB
     classDef sw fill:#dbeafe,stroke:#1d4ed8
     classDef hw fill:#fef3c7,stroke:#b45309
@@ -203,6 +205,7 @@ $$n = 2^{28}$$、block = 256 时 grid = 1,048,576 个 block。grid 的 x 维上�
 程序员看到的是 block 和 thread；硬件调度的是 warp。一个 block 被分配到一个 SM 之后，它的线程被**线性化**再按 32 个一组切分。一维 block 最直观：
 
 ```mermaid
+%% 图：block 在硬件上如何切成 warp：256 线程线性化后按 32 个一组切成 8 个 warp，整块落到一个 SM
 flowchart TB
     classDef w0 fill:#dbeafe,stroke:#1d4ed8
     classDef w1 fill:#dcfce7,stroke:#15803d
@@ -282,6 +285,7 @@ auto t1 = std::chrono::steady_clock::now();   // 只测到了 launch 的开销�
 正确的方法有两种：在 `t1` 之前加 `cudaDeviceSynchronize()`（粗糙），或者用 CUDA event 让 GPU 自己给时间戳（推荐，见第 3 小节）。
 
 ```mermaid
+%% 图：kernel launch 是异步的：CPU 连续发射三个 kernel 立即返回，cudaDeviceSynchronize() 才等它们完成
 sequenceDiagram
     participant CPU
     participant Q as GPU 命令队列
@@ -388,6 +392,7 @@ CUDA API 的错误分两类。
 **异步错误**发生在 GPU 执行期间：越界访问、非法指令、断言失败。因为 launch 是异步的，CPU 在错误发生时早已往下走了；错误会被记录在上下文里，在**下一次任何与 GPU 同步的调用**时才报出来——可能是几十行之后的一个 `cudaMemcpy`，报出的是一个与它自身毫无关系的 `cudaErrorIllegalAddress`。而且这类错误是**粘性**的：上下文进入不可恢复状态，之后所有 CUDA 调用都返回同一个错误，只能重启进程。
 
 ```mermaid
+%% 图：异步错误的报错位置：越界写在 kernel 里发生，错误在下一次同步点（cudaMemcpy）才报出，且粘性
 sequenceDiagram
     participant CPU
     participant GPU
@@ -498,6 +503,7 @@ JIT 的代价是第一次加载时几秒到几十秒的编译（结果缓存在 
 运行时加载 kernel 的选择过程：
 
 ```mermaid
+%% 图：运行时加载 kernel 的选择：有匹配的 SASS 直接加载，否则找兼容的 SASS，再否则 JIT 编译 PTX，都没有就报错
 flowchart TD
     classDef ok fill:#dcfce7,stroke:#15803d
     classDef jit fill:#fef9c3,stroke:#a16207

@@ -39,6 +39,7 @@ updated: 2026-09-14
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+%% 图：VLM 的三段结构：视觉编码器 → connector → 注入 LLM decoder，注入方式有拼进序列与 cross-attention 两种
 flowchart TB
     IMG["图像
 固定分辨率 / tile / 原生动态"] --> ENC["`**① 视觉编码器**（ViT）

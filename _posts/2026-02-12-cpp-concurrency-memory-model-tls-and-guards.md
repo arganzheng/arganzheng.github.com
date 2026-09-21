@@ -346,6 +346,7 @@ void consumer() {
 用 Mermaid 画出这几条边：
 
 ```mermaid
+%% 图：release / acquire 配对建立 happens-before：sequenced-before 与 synchronizes-with 两种边拼出第三种
 flowchart LR
     A["(A) payload = 42"] -->|sequenced-before| B["(B) ready.store(true, release)"]
     B -->|synchronizes-with| C["(C) ready.load(acquire) == true"]
@@ -1248,6 +1249,7 @@ class VirtualGuardImpl final : public DeviceGuardImplInterface {
 两层结构用 Mermaid 表示：
 
 ```mermaid
+%% 图：DeviceGuard 的两层结构：运行期确定设备类型走虚调用，编译期已知则内联去虚化
 flowchart TD
     DG["c10::DeviceGuard<br/>（libc10，设备类型运行期确定）"] --> IDG_V["InlineDeviceGuard&lt;VirtualGuardImpl&gt;"]
     IDG_V --> VGI["VirtualGuardImpl<br/>持有 const DeviceGuardImplInterface*"]
@@ -1369,6 +1371,7 @@ class InlineStreamGuard : private InlineDeviceGuard<T> {
 把前几节串起来，`with torch.no_grad():` 在 C++ 层做的事情是：
 
 ```mermaid
+%% 图：torch.no_grad() 从 Python 到 TLS：一路调到 thread_local 的 AutogradState
 flowchart TD
     P1["Python: with torch.no_grad():"] --> P2["no_grad.__enter__()<br/>torch/autograd/grad_mode.py"]
     P2 --> P3["self.prev = torch.is_grad_enabled()<br/>torch.set_grad_enabled(False)"]
@@ -1875,6 +1878,7 @@ CUDA 的执行模型是：host 线程把工作（kernel、memcpy）**异步地**
 这两个"当前"都是 TLS，两个线程各自设置、各自读取，不会互相干扰，也就不需要锁。PyTorch 的默认用法是**每个 host 线程一条自己的 stream**（默认 stream，或用 `torch.cuda.Stream` + `CUDAStreamGuard` 切到另一条），线程之间通过 CUDA event 或 `stream.wait_stream` 建立依赖，而不是通过 host 侧的锁。
 
 ```mermaid
+%% 图：host 线程模型：当前设备与当前 stream 都是线程局部的，两条 stream 之间没有顺序保证
 flowchart LR
     subgraph T1["Host 线程 1"]
         A1["TLS: device=0, stream=s1"] --> L1["launch K1 &lt;&lt;&lt;..., s1&gt;&gt;&gt;"] --> L2["launch K2 &lt;&lt;&lt;..., s1&gt;&gt;&gt;"]

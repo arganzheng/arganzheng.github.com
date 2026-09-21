@@ -120,6 +120,7 @@ $$
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 160}}}%%
+%% 图：LSTM 的门控：细胞状态 c 从 c_{t−1} 到 c_t 只经一次逐元素乘和一次加法
 flowchart LR
     CP["c_{t−1}"] --> MF(("⊙"))
     F["f_t = σ(·)

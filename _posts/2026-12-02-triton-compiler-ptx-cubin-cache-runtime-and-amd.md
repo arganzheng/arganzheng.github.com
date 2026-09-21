@@ -196,6 +196,7 @@ Tensor descriptor 参数（第九篇的 TMA）在这里被展开：`TensorDescri
 把第五篇 §三与本篇接起来，一次 `kernel[grid](x, y, out, n, BLOCK_SIZE=1024)` 调用：
 
 ```mermaid
+%% 图：一次 kernel[grid](...) 调用的全流程：JITFunction.run 算特化 key → 缓存未命中则 compile → CompiledKernel 惰性加载 → CudaLauncher → cuLaunchKernelEx
 flowchart TB
     jrun["JITFunction.run<br/>算特化 key（dtype、constexpr、divisibility、equal_to_1）"]
     hit{"self.device_caches 命中？"}

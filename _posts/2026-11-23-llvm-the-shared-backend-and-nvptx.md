@@ -37,6 +37,7 @@ catalog: true
 ### 1. 四层容器
 
 ```mermaid
+%% 图：LLVM IR 的四层容器：Module → Function → BasicBlock → Instruction，Instruction 与 Function 都是 Value
 flowchart TB
     mod["Module<br/>target triple · datalayout · 全局变量 · 函数 · metadata"]
     fn["Function<br/>签名 · 调用约定 · 属性 · 参数 · 基本块列表"]
@@ -198,6 +199,7 @@ mpm.run(*mod, mam);
 后端把 IR 变成机器码，核心是三步，中间夹着几次"清理"：
 
 ```mermaid
+%% 图：后端的三件事：指令选择、指令调度、寄存器分配，前后夹着 IR 输入与机器码发射
 flowchart TB
     ir["LLVM IR（SSA，无限虚拟寄存器，与目标无关的指令）"]
     isel["指令选择<br/>IR 指令 → 目标指令（仍是虚拟寄存器）<br/>SelectionDAG（每个基本块建 DAG，模式匹配）或 GlobalISel"]
@@ -564,6 +566,7 @@ Triton 的 AMD 后端（`third_party/amd`）因此比 NVIDIA 后端少一个阶�
 把 `third_party/nvidia/backend/compiler.py` 的三个阶段与本篇的内容对上：
 
 ```mermaid
+%% 图：make_llir 的链：MLIR 各方言降到 LLVM 方言 → translateModuleToLLVMIR → 附 datalayout → 链接 libdevice → O3 优化
 flowchart TB
     ttgir["TTGIR（MLIR，TritonGPU 方言）"]
     subgraph llir["make_llir"]

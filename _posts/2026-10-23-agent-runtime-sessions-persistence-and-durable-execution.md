@@ -47,6 +47,7 @@ agent 的状态是什么？用户说过的话、模型的每次输出（含思�
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
+%% 图：会话日志的事件溯源：只追加不可改，重放到第 3 步得到当时的上下文，复制前缀再追加就是分叉，当前上下文是派生出来的
 flowchart TB
     subgraph LOG["会话日志（只追加、不可改）"]
         direction TB

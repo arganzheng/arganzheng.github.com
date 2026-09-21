@@ -291,6 +291,7 @@ $$
 $$
 
 ```mermaid
+%% 图：Little's law 算占用率：在飞字节 = 带宽 × 延迟，每 warp 加载宽度决定需要多少 warp / SM
 flowchart LR
     classDef k fill:#dbeafe,stroke:#1d4ed8
     BW["带宽 2.0 TB/s"]:::k --> L["Little's law<br/>在飞字节 = 带宽 × 延迟"]
@@ -411,6 +412,7 @@ void gpu_kernel_impl_nocast(TensorIteratorBase& iter, const func_t& f) {
 从 `gpu_kernel` 到最终落地的三个 kernel，一共经过两次判断；后面 2–4 节逐个读它们，这里先把整条决策链画出来：
 
 ```mermaid
+%% 图：gpu_kernel 的路径选择：是否连续、能否向量化两次判断，落到 vectorized / unrolled / 带 offset 计算的三个 kernel
 flowchart TB
     classDef host fill:#f1f5f9,stroke:#475569
     classDef dec fill:#fef3c7,stroke:#b45309
@@ -685,6 +687,7 @@ kernel 3:  out = t2 * y      读 t2, y       写 out
 融合成一个 kernel：读 x、b、y，算完写 out。3 次读、1 次写，$$4 \times 2 = 8$$ 字节。总时间减半，而三个中间量 `t1`、`t2` 根本不需要存在。
 
 ```mermaid
+%% 图：三个 kernel 与一个融合 kernel：中间量 t1、t2 从 HBM 挪到寄存器，每元素字节数从 16 B 降到 8 B
 flowchart TB
     classDef hbm fill:#fee2e2,stroke:#b91c1c
     classDef k fill:#dbeafe,stroke:#1d4ed8

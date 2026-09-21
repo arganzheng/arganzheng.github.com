@@ -30,6 +30,7 @@ $$L$$ 层网络的前向是 $$L$$ 个函数的复合，反向是 $$L$$ 个 Jacob
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 220}}}%%
+%% 图：深网络的一条链：前向是方差的连乘，反向是 Jacobian 的连乘，初始化、归一化、残差各修一环
 flowchart LR
     subgraph FWD["前向：方差的连乘  Var(h_L) = Var(x) · ∏ 因子"]
         direction LR

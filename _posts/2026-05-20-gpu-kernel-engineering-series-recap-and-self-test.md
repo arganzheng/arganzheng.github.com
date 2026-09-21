@@ -241,6 +241,7 @@ date: 2026-05-20 20:00:00
 第五篇把天平推向 ILP：寄存器分块用约 128 个寄存器换 8 倍的 LDS 减少，25% 占用率是 compute-bound GEMM 的常态；第六篇 Hopper 的 `setmaxnreg` 把 producer 压到 40 个寄存器、consumer 给 232 个，是同一个取舍。第八篇 decode 的 split-KV 解决另一种在飞不足——batch 小、head 少时 block 数填不满 SM。第十篇把这条线收成判断顺序：SOL 未满且 long scoreboard 高才是问题，先看占用率的限制因素，不论如何加 ILP。
 
 ```mermaid
+%% 图：kernel 优化的判断顺序：算术强度与 ridge 比较，memory-bound 只能减字节，compute-bound 上 Tensor Core，latency-bound 提在飞
 flowchart TB
     B["字节数 B（合并 · 融合 · 不物化 · 量化）"] --> I["算术强度 I = F / B"]
     F["FLOPs F"] --> I

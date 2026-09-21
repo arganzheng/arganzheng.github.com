@@ -75,6 +75,7 @@ catalog: true
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+%% 图：系列的整体主线：每 token 的成本由权重字节、KV 字节、算力与每次前向产出的 token 数决定，四条线各改其中一项
 flowchart TB
     COST["`**每 token 的成本**
 = (权重字节 + KV 字节) / 带宽 ÷ 每次前向产出的 token 数

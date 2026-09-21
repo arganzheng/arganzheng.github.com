@@ -279,6 +279,7 @@ x ─────┴→ fc1 → ReLU → fc2 ───────────�
 ### 4. Module 是模型的生命周期容器
 
 ```mermaid
+%% 图：nn.Module 是模型的生命周期容器：它持有的状态、它的行为、进出的通道
 flowchart TB
     A[nn.Module]
     B[子 Module]
@@ -382,6 +383,7 @@ value 是 Module？    → 注册到 _modules
 把 Buffer 也算进来，`__setattr__()` 的完整决策路径如下——绿色分支的对象会进入 Module 的内部字典，从而被框架“看见”；灰色分支的对象只是 Python 对象属性：
 
 ```mermaid
+%% 图：__setattr__ 的决策路径：Parameter、Module、已登记的 Buffer 进入内部字典，其余只是普通属性
 flowchart TB
     S["self.name = value"]
     Q1{"value 是 nn.Parameter？"}
@@ -1196,6 +1198,7 @@ GPU 计算
 把这条链路展开到进程 / 线程层面，就能看到 `num_workers`、`prefetch_factor`、`pin_memory` 三个参数各自作用在哪一段，以及瓶颈最终在哪里表现出来：
 
 ```mermaid
+%% 图：DataLoader 的进程 / 线程链路：num_workers、prefetch_factor、pin_memory 各作用在哪一段
 flowchart TB
     subgraph main["DataLoader 主进程"]
         SM["Sampler<br/>产生本 batch 的索引列表"]
@@ -1475,6 +1478,7 @@ for epoch in range(10):
 ### 3. 一次训练迭代的状态流
 
 ```mermaid
+%% 图：一次训练迭代的状态流：DataLoader → Module → Autograd → Optimizer
 sequenceDiagram
     participant L as DataLoader
     participant M as Module
@@ -1594,6 +1598,7 @@ for inputs, targets in loader:
 这三行各自做了什么、和 autocast、Optimizer 之间怎么配合，用一次迭代的时序来看：
 
 ```mermaid
+%% 图：GradScaler 的一次迭代：scale 放大 loss，step 内部 unscale 并查溢出，update 自适应 scale
 sequenceDiagram
     participant T as 训练循环
     participant AC as autocast
@@ -1773,6 +1778,7 @@ start_epoch = checkpoint["epoch"] + 1
 一个完整的 save / resume 流程如下。save 时是“收集所有会影响后续训练轨迹的状态”，resume 时则有严格的先后顺序——模型对象必须先由代码构造出来，`optimizer` 又必须在 `model.to(device)` 之后才能 `load_state_dict`，否则 Optimizer state 会留在 CPU 上、与参数设备不一致：
 
 ```mermaid
+%% 图：save 时收集的全部状态：模型、优化器、scheduler、scaler、进度、RNG 与 Sampler 位置
 flowchart TB
     subgraph trainer["训练器持有的状态（save 时收集）"]
         S1["model.state_dict()<br/>参数 + 持久化 Buffer"]
@@ -1801,6 +1807,7 @@ flowchart TB
 resume 是 save 的逆过程，但顺序不能乱：
 
 ```mermaid
+%% 图：resume 的六步顺序：先构造对象，load 权重，to(device)，再 load 优化器状态
 flowchart TB
     R0["torch.load(path, map_location='cpu')<br/>weights_only=True 默认，只含 Tensor / 基本容器"]
     R1["1. 用代码重新构造 model / optimizer / scheduler<br/>state_dict 里没有类定义和 forward"]

@@ -279,6 +279,7 @@ async def update_weights(self, global_steps=None, mode="auto"):
 把第二章的字节与本章的顺序合起来，32B、8 卡、一步（`sync` 模式）：
 
 ```mermaid
+%% 图：共置一步的显存时间线：推理引擎 sleep 让出显存，训练器搬入参数与优化器状态做更新，再唤醒引擎同步权重
 sequenceDiagram
     participant T as 训练器（FSDP）
     participant R as 推理引擎（vLLM）

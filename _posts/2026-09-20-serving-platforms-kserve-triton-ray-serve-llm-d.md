@@ -132,6 +132,7 @@ LWS 的类型定义在 `lws api/leaderworkerset/v1/leaderworkerset_types.go`。`
 以 `replicas: 2, size: 3` 为例，控制器实际创建的对象及它们之间的关系如下——注意 leader 由一个 StatefulSet 统一管理（所以 `<lws>-0`、`<lws>-1` 名字稳定），而每个 group 的 worker 各有一个自己的 StatefulSet，HPA 与 Service 都只"看见"leader：
 
 ```mermaid
+%% 图：LeaderWorkerSet 的对象模型：leader 由一个 StatefulSet 统一管理，每个 group 的 worker 各有自己的 StatefulSet，HPA 与 Service 只看见 leader
 flowchart TB
     LWS["LeaderWorkerSet vllm<br/>replicas: 2 · size: 3"]
     LSTS["leader StatefulSet vllm<br/>(replicas = 2)"]
@@ -525,6 +526,7 @@ vllm serve /mnt/models
 把第 4 节那个 PD 分离示例交给控制器，生成物与请求路径如下。上排是 spec 的三块字段，下面是 K8s 里实际出现的对象；实线是控制器的"生成 / 引用"关系，虚线是运行时的请求流——两者是两回事，排障时要分开看：
 
 ```mermaid
+%% 图：LLMInferenceService 的生成物与请求路径：spec 的三块字段生成 HTTPRoute、InferencePool、EPP 与 prefill / decode 的 LWS，实线是生成、虚线是请求流
 flowchart TB
     subgraph spec["LLMInferenceService llama-70b（用户写的）"]
         Srouter["router:<br/>gateway #123;#125; · route #123;#125; · scheduler #123;#125;"]
@@ -665,6 +667,7 @@ RayService 适合的场景：Python 逻辑重、多阶段、需要在阶段之�
 三个概念在一次请求里怎么协作，用 PD 分离路径（`router/pd-disaggregation.values.yaml` 的插件链）走一遍最清楚。EPP 不在数据路径上：它只回答"送到哪"，请求体仍由 Proxy 转发；prefill 与 decode 的选择用两个不同的 `schedulingProfile`，打分依据也不同：
 
 ```mermaid
+%% 图：PD 分离路径上三个概念的协作：EPP 不在数据路径上，只回答送到哪，prefill 与 decode 用不同的 schedulingProfile 打分
 sequenceDiagram
     participant C as 客户端
     participant P as Router Proxy<br/>(Envoy / GIE L7)
@@ -776,6 +779,7 @@ KEDA 的工作方式是**生成并拥有一个 HPA**：它自己实现 `external
 下图把两条链路放在一起对比。粗看都是"Prometheus → 某个 metrics API → HPA → `/scale`"，差别在谁拥有 HPA、PromQL 写在哪、以及 0 ↔ 1 这一步由谁做；括号里是信号延迟的三段来源，第八章的 `T_signal ≈ 1 分钟` 就是它们之和：
 
 ```mermaid
+%% 图：HPA + prometheus-adapter 与 KEDA 两条扩缩容链路：差别在谁拥有 HPA、PromQL 写在哪、0 ↔ 1 由谁做
 flowchart TB
     VLLM["vLLM Pod /metrics<br/>vllm:num_requests_running …"]
     PROM["Prometheus<br/>(抓取间隔 15–30 s)"]

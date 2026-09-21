@@ -20,6 +20,7 @@ TTGIR 是一种"每个 op 作用在整个 tile 上"的 IR：`tt.load` 加载一�
 本文按 `make_llir` 的 pass 顺序展开：先是准备（`scf → cf`、`AllocateSharedMemory`），然后是主体 `TritonGPUToLLVM`——它的类型转换、公共机制（Linear Layout 的展开、PTX 拼装）、逐 op 的 pattern——其中 `Membar` 分析在主体开头运行；最后是几步收尾。产物是 LLVM 方言的 MLIR，交给第二篇讲过的 `translateModuleToLLVMIR` 与 `-O3`。
 
 ```mermaid
+%% 图：make_llir 的 pass 顺序：scf → cf、AllocateSharedMemory 等准备，TritonGPUToLLVM 主体（Membar 分析 + Dialect Conversion），再几步收尾
 flowchart TB
     a["combine_tensor_select_and_if · allocate_warp_groups"]
     b["scf → cf：结构化控制流拆成 Block 与跳转（第三篇 §七）"]
@@ -225,6 +226,7 @@ tail call void asm sideeffect "cp.async.cg.shared.global [ $0 + 0 ], [ $1 + 0 ],
 `ReduceOpToLLVM.cpp` 把 `tt.reduce` 分成三步，每一步的"要不要做、做多少"都从**输入 layout 的 Linear Layout** 读出：
 
 ```mermaid
+%% 图：tt.reduce 的三级：线程内折叠 register 位，warp 内用 shfl.sync.bfly 蝶形规约 lane 位，跨 warp 经 shared memory 与 barrier 再规约
 flowchart LR
     r1["① reduceWithinThreads<br/>规约维落在 register 位的部分：<br/>本线程持有的同一行元素直接用 combine 函数折叠"]
     r2["② reduceWithinWarps<br/>规约维落在 lane 位的部分：<br/>每一位一次 shfl.sync.bfly + combine（蝶形）"]

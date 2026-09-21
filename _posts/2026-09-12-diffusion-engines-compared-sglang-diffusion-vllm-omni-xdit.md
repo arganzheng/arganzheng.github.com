@@ -20,6 +20,7 @@ catalog: true
 ### 1. 先说答案：三条路径
 
 ```mermaid
+%% 图：SGLang Diffusion 的路径：http_server → DiffGenerator → SchedulerClient → Scheduler 进程 → GPUWorker → ComposedPipelineBase
 flowchart TB
     subgraph SG["SGLang Diffusion（sglang.multimodal_gen）"]
         direction TB
@@ -39,6 +40,7 @@ runtime/layers/：USPAttention · fused ops · cache"]
 ```
 
 ```mermaid
+%% 图：vLLM-Omni 的路径：vllm serve --omni → AsyncOmni → StageDiffusionProc → DiffusionEngine → MultiprocExecutor → DiffusionWorker
 flowchart TB
     subgraph VO["vLLM-Omni（vllm_omni.diffusion）"]
         direction TB
@@ -57,6 +59,7 @@ attention/ · distributed/ · cache/ · offloader/"]
 ```
 
 ```mermaid
+%% 图：xDiT 的路径：torchrun 用户脚本 → EngineConfig → xDiTParallel 包装 diffusers pipeline → 初始化并行组 → 替换 attention processor
 flowchart TB
     subgraph XD["xDiT（xfuser）"]
         direction TB

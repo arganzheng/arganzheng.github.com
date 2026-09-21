@@ -89,6 +89,7 @@ decode 阶段（$$M = 1$$ 或几十）这张表会完全翻转：所有 GEMM 的
 **Nsight Compute（ncu）** 只看单个 kernel 的内部：它把这个 kernel 重放（replay）几十次，每次采集一组硬件计数器，最后拼成一份报告。开销极大（一个 kernel 可能被重放 40 次以上），所以必须用过滤器只选一两个 kernel。它回答的是"这个 kernel 为什么慢"。
 
 ```mermaid
+%% 图：profiling 的分工与顺序：先算理论下界，torch.profiler 找算子，nsys 看时间线，最后才用 ncu 看 kernel 内部
 flowchart TB
     theory["① 先算理论下界<br/>每个 kernel 的 bytes / BW、FLOPs / P_peak"]
     tp["② torch.profiler<br/>哪个算子慢？（Python 栈 ↔ kernel）"]
@@ -392,6 +393,7 @@ Launch Statistics
 ### 1. 决策树
 
 ```mermaid
+%% 图：ncu 的决策树：先用 SOL 把 kernel 分成 memory / compute / latency-bound 三类，再按类看 Tensor pipe 与 stall 原因
 flowchart TB
     sol["读 GPU Speed of Light"]
     mem["Memory > 80%<br/><b>memory-bound</b>"]
@@ -880,6 +882,7 @@ at::Tensor my_gemm(const at::Tensor& a, const at::Tensor& b) {
 编译期与运行期是两级互相独立的选择：nvcc 按 `-gencode` 把同一份源码编成多份 SASS 装进一个 fatbin，运行时**驱动**按当前 GPU 从 fatbin 里挑 SASS（挑不到就 JIT PTX）；而 **host 函数**按 compute capability 挑调用哪个入口。前者对代码透明，后者必须自己写：
 
 ```mermaid
+%% 图：编译期与运行期的两级选择：nvcc 按 -gencode 编多份 SASS 进 fatbin，驱动挑 SASS，host 函数按 compute capability 挑入口
 flowchart TB
     src["my_gemm.cu<br/>device 代码用 __CUDA_ARCH__ 在编译期分支<br/>host 代码看不到这个宏"]
     nvcc["nvcc -gencode ×3<br/>device 阶段每个目标编一遍"]
@@ -921,6 +924,7 @@ flowchart TB
 第二到九篇用 `torch.utils.cpp_extension.load_inline` 把 kernel 暴露成一个普通的 Python 函数，测试与 benchmark 够用了。但一个普通函数对 PyTorch 是黑盒：`torch.compile` 遇到它会 graph break（Dynamo 不知道它对 tensor 做了什么，只能把图切开、把这个调用留给 eager）；`torch.export` 无法序列化它；autograd 不知道它有没有原地修改输入。把 kernel 注册成 **算子（operator）** 就是给 PyTorch 一份"它做了什么"的声明：一个 schema 字符串描述输入输出与可变性，一个 fake kernel 描述输出的 shape/dtype/device 如何由输入决定。有了这两样，编译器就能把它当成一个不透明但形状已知的节点放进图里。
 
 ```mermaid
+%% 图：为什么要注册成算子：schema、CUDA 实现与 fake kernel 各就各位，eager 与 torch.compile 走不同路径都不 graph break
 flowchart TB
     py["Python: torch.ops.my_ops.rms_norm(x, w, eps)"]
     disp["Dispatcher<br/>按输入 tensor 的 device / 是否 Fake 选实现"]
@@ -1216,6 +1220,7 @@ kernel 注册进 `torch.ops._C` 只是让它可调用；决定"什么时候调�
 从想法到合入，一条 kernel PR 要过的关卡按顺序排出来是这样的（每一步的"产出物"就是下一步的输入）：
 
 ```mermaid
+%% 图：一个 kernel PR 的完整流程：RFC → 实现 → 正确性测试 → benchmark → 数值行为变了则模型评测 → lint → review
 flowchart TB
     idea["动机：哪个模型 / shape / 现有 kernel 离 Roofline 差多少"]
     rfc["① 开 issue / RFC<br/>方案、架构与 dtype 范围、benchmark 计划<br/>→ 等 maintainer 正面回应"]

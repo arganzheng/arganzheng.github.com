@@ -248,6 +248,7 @@ Llama-3-8B：$$h = 32$$ 个头，每头 $$d_h = 4096 / 32 = 128$$。
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
+%% 图：一个 Transformer 层的七个权重矩阵：attention 部件四个、MLP 部件三个，以 Llama-3-8B 的形状标注
 flowchart TB
     X["x　[1, 4096]"]
     subgraph ATTN["attention 部件：token 之间交流"]

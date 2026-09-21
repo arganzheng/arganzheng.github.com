@@ -24,6 +24,7 @@ updated: 2026-09-14
 **PD 共置（colocation）**是指：同一请求的 Prefill 和 Decode 由同一个推理实例接续执行，使用该实例的模型权重、KV Cache 和调度体系。实例可以是一张卡，也可以通过 TP / PP 跨多卡甚至跨节点；因此“共置”不等于“单机”，“分离”也不一定跨节点。
 
 ```mermaid
+%% 图：PD 共置：同一个 vLLM 实例的 Scheduler 统一安排 Prefill 与 Decode，KV 在本地
 flowchart TB
     C[客户端] --> R[入口 / 副本路由]
     subgraph I[同一个 vLLM 实例，可跨多卡]
@@ -41,6 +42,7 @@ flowchart TB
 **PD 分离**将 Prefill 与 Decode 放到独立的实例或实例池里。两侧仍然是完整的推理运行时，但承担不同的主要工作：
 
 ```mermaid
+%% 图：PD 分离：外部 Proxy 选择 P、D 实例，两侧各有 Scheduler-side 与 Worker-side Connector，KV 从 P 流向 D
 flowchart TB
     C[客户端] --> R[外部 Proxy / Router<br/>选择 P、D，编排交接与输出]
     R --> PE
@@ -537,6 +539,7 @@ vLLM 用 `KVConnectorBase_V1` 定义这组契约。对于引擎来说，关键�
 **P、D 实例都需要 Scheduler-side 与 Worker-side Connector，不是 P 只管控制面、D 只管数据面。** 两侧 Connector 的协作关系如下：
 
 ```mermaid
+%% 图：两侧 Connector 的协作：Scheduler-side 持有请求与块分配决策，Worker-side 访问 KV 张量，经元数据与执行结果闭环
 flowchart TB
     subgraph CTRL[控制面：Scheduler 进程]
         S[Scheduler<br/>接纳、token 预算、请求状态] <-->|匹配与生命周期契约| CS[Scheduler-side Connector]
@@ -662,6 +665,7 @@ D 成功读取后向 P 发送完成通知；P 侧完成反馈最终让 Scheduler
 把 6.3～6.6 的状态变化合起来看，P 侧的源块和 D 侧的请求各走一条独立的状态机，只在“D 读源块”和“D 通知读完”两个点上耦合；两条链上各有一个分叉，分别对应租约过期和加载失败：
 
 ```mermaid
+%% 图：P 侧源块与 D 侧请求的两条状态机：只在「D 读源块」与「D 通知读完」两点耦合，各有租约过期与加载失败的分叉
 flowchart TB
     subgraph PSIDE["P 侧：源块生命周期"]
         P1["计算中<br/>Prefill 写入源块"] --> P2["请求结束、响应已返回<br/>request_finished() 要求延迟释放<br/>附带 remote_block_ids 等交接参数"]
@@ -695,6 +699,7 @@ flowchart TB
 以下限定为**成功交接路径**：标准 attention、D 无可复用本地前缀、使用所述 toy proxy，P 的输出 token 不直接返回客户端。图中完成通知与 D 的后续执行可以并行推进，不要求 P 等到客户端收到首 token 才释放；失败反馈与恢复在第四部分展开。
 
 ```mermaid
+%% 图：一次 NIXL pull 请求的完整时序：P prefill 后保留源块，D 分配目标块、READ 取回 KV，接收完成后继续生成
 sequenceDiagram
     participant C as 客户端
     participant R as Proxy
@@ -854,6 +859,7 @@ $$
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+%% 图：局部扩容加剧拥塞的循环：P 扩容抬高 KV 产出，D 或网络消费不足，交接排队反过来阻塞接纳，只有联合容量控制与背压能打断它
 flowchart TB
     A[P 扩容，提高 KV 产出] --> B[网络或 D 消费能力不足]
     B --> C[交接排队，源块保留时间增长]
@@ -929,6 +935,7 @@ recompute 是可用性与隔离的取舍：请求可能获救，但 D 重新承�
 第三部分第 5 小节已经解释了 KV Transfer 为什么需要解耦 Serving 语义、KV 查找管理与数据操作。这里沿用这套功能划分，将视角扩大到外围编排，讨论具体组件如何组合，而不是重新定义另一套 Connector 抽象。
 
 ```mermaid
+%% 图：PD 分离外围组件的三类职责：请求编排、vLLM 本地调度与执行、KV Connector 接入点对点传输或 KV 缓存与索引
 flowchart TB
     R[请求编排与池级控制<br/>路由、SLO、容量、取消与恢复] --> V[vLLM 本地调度与执行<br/>Scheduler / KVCacheManager / Worker]
     V --> C[KV Connector<br/>把外部状态接入引擎生命周期]

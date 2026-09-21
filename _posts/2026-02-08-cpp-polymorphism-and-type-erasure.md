@@ -177,6 +177,7 @@ Java 工程师对"虚调用"的直觉是 JVM 的 `invokevirtual`，具体实现�
 用上一节的 `Shape` / `Circle` / `Square` 画出来就是下面这样。两个对象各自开头有一个 vptr，指向**所属类**的 vtable；两张 vtable 槽位顺序一致（0 析构、1 `area`、2 `name`），`Square` 没覆盖 `name`，它的第 2 槽仍然指向 `Shape::name`。`s->area()` 就是沿着"对象 → vptr → 第 1 槽 → 函数"跳三次：
 
 ```mermaid
+%% 图：vtable 的三次跳转：对象 → vptr → 槽位 → 函数，Square 未覆盖的 name 仍指向 Shape::name
 flowchart LR
     subgraph objs["堆上的对象（通过 Shape* 访问）"]
         direction TB
@@ -2003,6 +2004,7 @@ TORCH_LIBRARY_IMPL(aten, CPU, m) {
 ### 5. 全景图
 
 ```mermaid
+%% 图：一次 at::add 调用的全景：从生成的 Functions.h 经 Dispatcher 查表到 kernel 的快慢两条路径
 flowchart TD
     A["at::add(a, b)<br/>Functions.h（生成）"] --> B["at::_ops::add_Tensor::call<br/>static TypedOperatorHandle op"]
     B --> C["Dispatcher::call&lt;Return, Args...&gt;"]

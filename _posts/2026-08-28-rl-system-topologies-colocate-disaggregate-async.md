@@ -81,6 +81,7 @@ updated: 2026-09-14
 ### 2. HybridFlow 的三层
 
 ```mermaid
+%% 图：HybridFlow 的三层：单控制器写算法流程，worker 组各自 SPMD，资源池决定共置与分离
 flowchart TB
     subgraph C[单控制器（driver 进程）]
         direction LR

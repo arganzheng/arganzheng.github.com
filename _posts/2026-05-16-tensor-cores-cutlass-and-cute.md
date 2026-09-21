@@ -36,6 +36,7 @@ updated: 2026-09-14
 三条数据流并排画出来，本篇的主线就是从左到右这条演化：
 
 ```mermaid
+%% 图：三条 GEMM 数据流的演化：CUDA Core 的 FFMA、Ampere 的 mma.sync、Hopper 的 TMA + wgmma
 flowchart LR
     subgraph cc["CUDA Core（第五篇）"]
         direction TB
@@ -813,6 +814,7 @@ Ampere kernel 中每个 warp 既搬数据又算矩阵，两种工作交织在同
 同步用两组 mbarrier，每个 stage 一对：`full_barrier[s]`（producer 到 consumer："数据到了"）和 `empty_barrier[s]`（consumer 到 producer："我读完了，可以覆盖"）。两个角色围着 stage 环形 buffer 转，时序如下（2 个 stage 示意）：
 
 ```mermaid
+%% 图：warp specialization 的时序：producer 发 TMA，consumer 做 wgmma，full / empty 两组 mbarrier 围着 stage 环形 buffer 转
 sequenceDiagram
     participant P as Producer warp（1 个线程发 TMA）
     participant S0 as stage 0（full0 / empty0）
@@ -919,6 +921,7 @@ CuTe：Layout / Tensor / Shape / Stride / local_tile / local_partition —— �
 把这棵树和第四章的手写 kernel 左右对照：
 
 ```mermaid
+%% 图：CUTLASS 3.x 的分层与手写 kernel 的对照：device → kernel → collective → TiledMma / TiledCopy → CuTe
 flowchart TB
     subgraph cutlass["CUTLASS 3.x"]
         direction TB
@@ -1195,6 +1198,7 @@ Tensor& addmm_out_cuda_impl(Tensor& result, const Tensor& self, const Tensor& ma
 把这几个分派条件画成一棵决策树，从 `torch.matmul` 到最终落在哪种计算单元、几个 kernel：
 
 ```mermaid
+%% 图：torch.matmul 的分派决策树：按 dtype 落到 Tensor Core、TF32、FP32 CUDA Core 或 _scaled_mm，再看能否走 cuBLASLt 融合 bias
 flowchart TB
     entry["torch.matmul / torch.mm / nn.Linear<br/>→ addmm_out_cuda_impl"]
     dt{"输入 dtype？"}

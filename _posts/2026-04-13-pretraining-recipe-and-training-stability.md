@@ -258,6 +258,7 @@ Kimi K2 加了一个新开关 **QK-Clip**：训练中监控每个 head 的最大
 开关能大幅减少 spike，不能保证为零。处理流程（PaLM、OLMo 等都描述过类似的）：
 
 ```mermaid
+%% 图：loss spike 发生后的处理流程：停止、回退 checkpoint、跳过一段 batch、继续，再犯则降 lr 开更多开关
 flowchart TB
     M["监控：loss / 梯度范数<br/>超出滑动均值 k 倍"] --> S["停止"]
     S --> R["回退到 spike 前<br/>100–200 步的 checkpoint"]

@@ -593,7 +593,7 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
   - **Figures** (`js/figures.js`, loaded before annotations.js): every `p > img`
     becomes `figure.post-figure > span.fig-media > img + div.fig-tools >
     (button.code-copy.fig-zoom + button.code-copy.fig-feedback) +
-    figcaption.post-figcaption (.fig-no 「图 N」 + .fig-title = alt)`; every rendered
+    figcaption.post-figcaption (.fig-no 「图 N：」 + .fig-title = alt)`; every rendered
     `.mermaid` gets its `svg` wrapped in the same `.fig-media` (inline-block,
     `width` = the svg's `max-width`, so it shrink-wraps the drawing), a `.fig-tools`
     strip (code-copy's button · 放大 · feedback) and the caption as the `.mermaid`'s

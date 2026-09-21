@@ -36,6 +36,7 @@ catalog: true
 一次调用从组装上下文开始，经过 prefill、逐 token 采样、输出解析，到（如果有工具）执行动作。七条失效模式各在不同的位置进入：
 
 ```mermaid
+%% 图：七条失效模式各在一次调用的哪个位置进入：上下文、知识截止、指令遵循、供应商变更在 prefill，非确定性与幻觉在采样，越界在执行动作
 flowchart TB
     CTX["组装上下文<br/>system · 历史 · 检索 · 工具定义"] --> PRE["prefill：模型读上下文"]
     PRE --> SAMP["逐 token 采样"]

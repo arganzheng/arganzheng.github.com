@@ -46,6 +46,7 @@ Llama 3 的 15T 训练集是 Meta 自己的管线，报告没有公布它的漏�
 管线的全貌先放一张图，后面各章按它的顺序展开：
 
 ```mermaid
+%% 图：预训练数据管线全貌：从 Common Crawl 抓取到 tokenize 打包，中间是过滤、去重、打分、配比与污染检测
 flowchart TB
     CC["Common Crawl WARC<br/>2500 亿次抓取"] --> URL["URL 过滤<br/>黑名单、成人站、垃圾域"]
     URL --> EX["正文抽取<br/>trafilatura / resiliparse"]

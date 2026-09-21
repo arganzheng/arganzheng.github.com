@@ -199,6 +199,7 @@ Prefill 主要决定**第一个 Token 何时到达**，Decode 则决定**后续 
 - 更大的 KV Cache 压力。
 
 ```mermaid
+%% 图：Batch Size 对吞吐和延迟的影响：吞吐随 batch 增大趋于饱和，单请求延迟持续上升
 xychart-beta
     title "Batch Size 对吞吐和延迟的影响"
     x-axis "Batch Size" [1, 2, 4, 8, 16, 32]

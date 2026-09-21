@@ -214,6 +214,7 @@ mfu = None if self.has_quantization else 100 * self.num_flops_per_token * tps / 
 训练进程向 Prometheus 暴露指标有两条路：进程内起一个 HTTP 端口（`prometheus_client` 的 `start_http_server`），千卡下就是一千个抓取目标，服务发现要能跟上 torchrun 重启后的端口变化；或者训练进程只写本地 JSONL（第 3 节的做法），节点上一个 sidecar 读文件并暴露——一个节点一个目标，重启不影响。第八章的 `dash/jsonl_exporter.py` 走第二条路。把三层指标的采集点、落地位置与两种后端画在一起，能看清"谁在每个节点上跑、谁只有一份、谁绕过了训练进程"：
 
 ```mermaid
+%% 图：三层指标的分工：训练进程写本地 JSONL，sidecar 暴露给 Prometheus，DCGM 不经训练进程；TensorBoard / W&B 看按 step 的曲线
 flowchart TB
   subgraph node1["每个节点上（×128）"]
     RK["rank 0..7 训练进程<br/>训练循环算任务层指标<br/>memory_stats 等进程层指标"]
@@ -343,6 +344,7 @@ retired_                                    retired                         已�
 上面是单个 rank 内两条线程各自的调用树；跨 rank 看，dump 信号是怎样从发现超时的 rank k 传到其余 rank、以及为什么 watchdog 要在抛异常前多睡 60 秒，用时序图更清楚：
 
 ```mermaid
+%% 图：从超时到 dump 的跨 rank 链路：rank k 的 watchdog 经 TCPStore 广播信号，各 rank 的 monitor 写文件，watchdog 多睡 60 s 再抛异常
 sequenceDiagram
   participant WK as rank k Watchdog
   participant MK as rank k Monitor (PG 0)
@@ -519,6 +521,7 @@ watchdog 自己卡死                         "watchdog got stuck for 480 second
 前五条是**代码问题**，8 卡上开 `TORCH_DISTRIBUTED_DEBUG=DETAIL` 就能抓到；后四条是**环境问题**，只能靠 FR 排除掉代码问题后转向硬件层指标。把本章的工具按"先看什么、结果指向哪里"串起来，就是值班时从 step 停止到归因的决策树（第六章的 runbook 是它的命令版）：
 
 ```mermaid
+%% 图：从 step 停止到归因的决策树：先排除重启中，再看有没有 Watchdog 超时，无则 py-spy，有则等 FR dump
 flowchart TB
   S["step 计数停止<br/>（TrainingStepStalled）"] --> Q1{"restarts 面板 +1 /<br/>torchrun 有 death signal？"}
   Q1 -->|"是"| R["不是 hang，是重启中<br/>看第六篇的恢复链路"]
@@ -612,6 +615,7 @@ fi
 第四篇的七项是**空间分解**（一个 step 的时间去了哪里），本章的四个嫌疑是**时间分解**（哪一项随时间变了）。两者用同一份工具（`mfu_breakdown.py` 与 trace），区别只在于本章要两份 trace 做差。straggler 是两者的交点：第四篇说它在时间线上表现为"集合通信 kernel 时长远超字节数除以带宽"，本章补上它的**时间性**——一张卡的降频、一条链路的错误计数上涨，都是渐进的，在硬件层指标上比在 MFU 上更早可见。所以"step 时间从 12 秒变成 40 秒"这个核心问题里，先看的不是 profiler，而是：`topk(3, step_time_seconds)` 是不是集中在某几个 rank；那几个 rank 所在卡的 `DCGM_FI_DEV_SM_CLOCK` 与 `NVLINK_*_ERROR_COUNT` 有没有异常；`data_loading(%)` 有没有涨；`inactive_split_bytes` 有没有涨。四个查询，一分钟，四个嫌疑各排除或坐实一个。查询有先后：第一刀先切"少数 rank 还是全体"，因为它把硬件嫌疑与其余三个分开，后面的每一步都只在自己那一侧查：
 
 ```mermaid
+%% 图：step 变慢的时间分解：先看是否少数 rank 拖全体，再从 DCGM 时钟、温度、链路错误区分 straggler 类型，全体变慢看数据与分配器
 flowchart TB
   S["step 时间变长 / MFU 下滑<br/>（无报错）"] --> Q1{"topk(3, step_time) by rank<br/>集中在少数 rank？"}
   Q1 -->|"是：少数 rank 拖全体"| Q2{"那几张卡的 DCGM<br/>SM_CLOCK 掉 / TEMP 高 /<br/>NVLINK_ERROR 增长？"}
@@ -694,6 +698,7 @@ Prometheus 规则的形式（完整文件见第八章的 `dash/alerts.yml`）：
 抑制规则和值班手册里的升级条件，背后是同一个东西：从运维视角看，一个运行中的任务只有几个状态，每条告警只在特定状态下有意义，每个状态迁移要么是自动的（torchrun / ft_launcher 触发）、要么要人来决定。把它画出来，抑制规则就不是零散的经验，而是"同一状态下不重复报"这一条原则的展开：
 
 ```mermaid
+%% 图：任务状态与告警的对应：红色会 page，蓝色是自动迁移，黄色必须有人决定
 flowchart TB
     RUN["正常训练<br/>step 前进，restarts 计数不变"]
     STALL["停滞<br/>TrainingStepStalled 触发（page）<br/>等 Watchdog 超时 → FR dump"]

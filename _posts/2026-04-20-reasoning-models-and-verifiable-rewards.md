@@ -114,6 +114,7 @@ R1-Zero 引出了 2025 年的一个方法论争论：RL 让模型**学会**了�
 ## 四、R1 的四阶段
 
 ```mermaid
+%% 图：R1 的四阶段：冷启动 SFT → 推理 RL → 全能力 SFT → 全场景 RL，80 万条 SFT 数据另出 R1-Distill
 flowchart TB
     B["DeepSeek-V3-Base"]
     B -->|"几千条长思维链<br/>（R1-Zero 输出清洗 + few-shot 生成 + 人工整理）"| S1["阶段 1：冷启动 SFT<br/>修：可读性、格式、语言"]

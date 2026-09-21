@@ -80,6 +80,7 @@ VLM 的材料多是各家的技术报告（各说各的选择，没有横向比�
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 240}}}%%
+%% 图：多模态系列的主线：理解线把模态送进 LLM，生成线从噪声到图片，两条线在统一模型交汇
 flowchart TB
     subgraph U["理解线：把模态送进 LLM"]
         direction TB

@@ -1825,6 +1825,7 @@ class TORCH_API TensorBase {
 ### 2. 持有链全图
 
 ```mermaid
+%% 图：Tensor 的持有链：Tensor → TensorImpl → Storage → StorageImpl → DataPtr → 内存，三种箭头是三种所有权
 flowchart TB
     T["at::Tensor<br/>(值类型，8 字节)"] -->|"intrusive_ptr&lt;TensorImpl&gt; impl_<br/>强引用，可多对一"| TI["TensorImpl<br/>(堆，引用计数)"]
     TI -->|"Storage storage_<br/>(值类型，8 字节)"| S["Storage"]

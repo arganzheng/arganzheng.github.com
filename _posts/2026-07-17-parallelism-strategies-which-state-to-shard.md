@@ -239,6 +239,7 @@ Megatron-LM（Shoeybi et al. 2019）的洞见是把两者**配对**：MLP 的第
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 160}}}%%
+%% 图：列切与行切的配对：Q/K/V 与 W1 列切，O 与 W2 行切，一个 Transformer 层只在两处 all-reduce
 flowchart LR
     X1[X] --> QKV["列切 Q/K/V<br/>每卡 a/t 个头"] --> ATT["每卡自己头的注意力<br/>（头之间独立，无通信）"] --> O["行切 O"] --> AR1(("all-reduce")) --> R1["+ 残差 → LayerNorm"]
     X1 -.残差.-> R1
@@ -688,6 +689,7 @@ EP 本地专家梯度与完整梯度的最大误差（各进程）  : ['9.5e-07'
 每一步都是一个"放得下吗"的判断，放不下就在当前维度上加，直到 PP 的气泡不可接受时才改用 ZeRO-3/FSDP 兜底：
 
 ```mermaid
+%% 图：并行组合顺序 TP → CP → PP → DP：每步都是「放得下吗」的判断，PP 气泡不可接受时改用 ZeRO-3 / FSDP
 flowchart TB
     S["给定模型 N、序列 s、集群 N 卡（节点内 8 卡 NVLink）"] --> Q1{"一层的参数 + 层内激活<br/>放得进一张卡？"}
     Q1 -->|"否"| T["TP = 2..8，锁在节点内，SP 随手打开<br/>上限：8 卡 与 h/N_t 的 GEMM 效率"]

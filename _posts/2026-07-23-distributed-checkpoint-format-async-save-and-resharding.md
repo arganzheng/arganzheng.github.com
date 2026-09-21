@@ -383,6 +383,7 @@ rank 2 发两个读请求，从 `__0_0.distcp` 读 682 行、从 `__1_0.distcp` 
 重分片能自动发生，条件是：**同一个 FQN、同一个全局形状、分片在磁盘上表达成全局坐标的块**。加载时对 state_dict 里的每个张量，这三个条件是依次检查的，哪一步不满足就落到哪种"额外工作"：
 
 ```mermaid
+%% 图：重分片的三个条件：FQN 在 .metadata 里、全局形状一致、磁盘块带全局坐标，哪一步不满足就落到哪种额外工作
 flowchart TB
     S["加载：state_dict 里的一个本地张量"] --> Q1{"FQN 在 .metadata 里？"}
     Q1 -- "否" --> K["key 不一致：PP 虚拟 stage 的 model0 / model1 前缀<br/>→ planner 展平 key（MCoreSavePlanner / ModelWrapper）<br/>或 allow_partial_load / strictness 放行"]
@@ -478,6 +479,7 @@ GPU / 主 stream  ────────────────┤ 阻塞 δ 
 把上面两个等待点（`staging_completion` 在 `optimizer.step()` 前、`upload_completion` 在下一次保存前）放到一条时间线上，就是 torchtitan `async_with_pinned_mem` 模式下"谁等谁"的完整关系：
 
 ```mermaid
+%% 图：异步保存的时间线：staging 在 optimizer.step() 前必须等到，upload 在下一次保存前必须等到，中间与 step k+1 重叠
 sequenceDiagram
     participant T as 训练循环（主线程）
     participant ST as staging（拷贝线程 / 拷贝 stream）

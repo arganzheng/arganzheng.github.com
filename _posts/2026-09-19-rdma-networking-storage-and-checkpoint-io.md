@@ -168,6 +168,7 @@ k8s.v1.cni.cncf.io/network-status    Pod 上（Multus 写回）：每个接口�
 RDMA 网卡进 Pod 的第二张网卡有三种常见接法。它们决定的是**IP 接口**怎么进 Pod；RDMA 设备文件由第四章的 device plugin 负责，两者是正交的。下图把这两条链放在一起看：kubelet 创建 Pod 时分别走 CNI 和 device plugin 两个扩展点，前者给 Pod 两个 IP 接口（`eth0` 走内核协议栈；`net1` 也是内核接口，但 NCCL 只用它做握手），后者把 `/dev/infiniband/*` 挂进容器；NCCL 的数据面最终只经 verbs 直达 HCA，两条链在此汇合。唯一的交叉点是 NAD 上的 `resourceName` 注解——host-device/sriov 接法需要 CNI 知道 device plugin 分到了哪张网卡。
 
 ```mermaid
+%% 图：RDMA 网卡进 Pod 的两条链：CNI 扩展点给 Pod eth0 与 net1 两个 IP 接口，device plugin 把 /dev/infiniband/* 挂进去
 flowchart TB
     PodSpec["Pod spec<br/>annotations: k8s.v1.cni.cncf.io/networks: rdma-net<br/>resources.limits: rdma/rdma_shared_device_a: 1"]
     subgraph ipchain["IP 接口这条链（第三章，CNI 扩展点）"]
@@ -440,6 +441,7 @@ spec.gdrcopy.enabled              GDRCopySpec：gdrdrv 驱动
 两者的依赖关系是：**nvidia_peermem 要针对当前的 OFED 内核模块编译并在其后加载**。所以推荐顺序是 Network Operator 的 OFED 驱动先就位，GPU Operator 的驱动容器再启动；OFED 升级重载后，`nvidia-peermem-ctr` 的 `reload_nvidia_peermem` 负责重新加载。Network Operator 用节点标签 `network.nvidia.com/operator.mofed.wait` 表达"OFED 尚未就绪"（`controllers/mofed_wait_labels.go` 设置；`pkg/nodeinfo/attributes.go` 的 `NodeLabelWaitOFED`），GPU Operator 在 `internal/nodeinfo/attributes.go` 里定义了同名常量；这个标签也出现在 Network Operator Helm values 的 `configDaemonNodeSelector` 里。两个 Operator 各自的 Helm 参数与安装顺序以 NVIDIA 文档为准，本篇只说明机制。把这条依赖链画出来，两个 Operator 之间靠的是一个宿主机路径和一个节点标签：
 
 ```mermaid
+%% 图：两个 Operator 的顺序：Network Operator 的 OFED 驱动先就位并移除 wait 标签，GPU Operator 的驱动容器再启动并加载 nvidia_peermem
 flowchart TB
     NCP["NicClusterPolicy.spec.ofedDriver<br/>（Network Operator）"]
     OFED["OFED / DOCA 驱动容器 DaemonSet<br/>加载 mlx5_core · ib_core · ib_uverbs · rdma_cm"]
@@ -594,6 +596,7 @@ GPU Direct RDMA Disabled for GPU 3 / HCA … (distance 5 > 3)           src/grap
 只要第一行列出了正确数量的 HCA、`Using network IB`、每个 channel 都有 `GDRDMA`，网络这一层就是通的；再慢就不是平台的问题，而是第三章之外的调优范围。按固定顺序读这几行，就是一棵四层决策树，每一层的"否"分支都对应一个明确的修法：
 
 ```mermaid
+%% 图：读 NCCL_DEBUG=INFO 的四层决策树：Using network 是 IB 还是 Socket，HCA 数够不够，OOB 接口是否 net1，每个 channel 有没有 GDRDMA
 flowchart TB
     Start["NCCL_DEBUG=INFO<br/>NCCL_DEBUG_SUBSYS=INIT,NET"]
     Q1{"Using network<br/>IB 还是 Socket？"}
@@ -743,6 +746,7 @@ spec:
 缓存层这一类方案（JuiceFS/Alluxio/Fluid）在 Pod 里也只是一个 PVC，但一次 `read()` 在节点上要经过的组件比并行文件系统多得多——元数据和数据分两条路，数据又按缓存命中与否分两条：
 
 ```mermaid
+%% 图：缓存层文件系统里一次 read() 的路径：FUSE 客户端分元数据与数据两条路，数据再按本地缓存命中与否分两条
 flowchart TB
     subgraph podside["训练 Pod"]
         DL["dataloader worker<br/>open / stat / read"]

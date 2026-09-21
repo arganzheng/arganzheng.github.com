@@ -148,6 +148,7 @@ PCIe 的每次读写都是一个 TLP，带着目标地址。GPU0 要写 GPU1 的
 把这三条 P2P 路径叠到第 2 节那棵树上，就是 `nvidia-smi topo -m` 里 `PIX`/`PHB`/`SYS` 三个等级的物理含义（下一节的 ACS 用虚线画出：它把本该在 switch 内完成的 ① 强行改道成 ②）：
 
 ```mermaid
+%% 图：三条 PCIe P2P 路径：PIX 在 switch 内转发，PHB 上行到 root complex，SYS 再跨 UPI；ACS 把 ① 改道成 ②
 flowchart TB
   subgraph cpu0["CPU0（NUMA 0）"]
     RC0["root complex 0<br/>（IOMMU）"]
@@ -245,6 +246,7 @@ NVLink 是 NVIDIA 专有的 GPU 间互联，与 PCIe 相比有三点本质区别
 没有 NVSwitch 时，GPU 的链路要分给不同的邻居。以 8 卡 V100 的 DGX-1 为例，每卡 6 条链路，不可能与另外 7 张卡各连一条，只能形成一个 hybrid cube-mesh：有的卡对之间 2 条链路，有的 1 条，有的 0 条（要经第三张卡转发）。此时两卡之间的带宽取决于它们是谁，ring 的构造要精心贴合物理连线。
 
 ```mermaid
+%% 图：有无 NVSwitch 的对比：hybrid cube-mesh 里两卡带宽取决于它们是谁，NVSwitch 让任意一对都能用满全部链路
 flowchart TB
   subgraph mesh["无 NVSwitch：DGX-1 式 hybrid cube-mesh（每卡 6 链路，只画 4 卡）"]
     M0["GPU0"]
@@ -586,6 +588,7 @@ pinned memory 有代价：分配慢（要 pin 页、建立映射），占用不�
 NCCL 决定一次传输要不要经过主机内存，走的是下面这棵决策树——两个分叉点分别由第五章第 6 节的 `NCCL_P2P_LEVEL` 与 `NCCL_NET_GDR_LEVEL` 门控，默认边界都是 `PXB`：
 
 ```mermaid
+%% 图：NCCL 传输路径的决策树：同节点按 P2P_LEVEL 选 NVLink / PCIe P2P / SHM，跨节点按 NET_GDR_LEVEL 决定是否经主机 staging
 flowchart TB
   S["GPU A 要把数据送到 GPU B"] --> Q1{"B 在同一节点？"}
   Q1 -- "是" --> Q2{"A–B 路径等级 ≤ NCCL_P2P_LEVEL（默认 PXB）<br/>且 cudaDeviceCanAccessPeer = 1？"}
@@ -647,6 +650,7 @@ IB 网络另有一个特点：路由由子网管理器（Subnet Manager）静态
 一台 8 卡机器有 8 张网卡，传统做法是把 8 张网卡接到同一台 leaf 上（一台机器一个 leaf 端口组）。**rail-optimized** 反过来：把所有机器的 NIC0 接到 leaf 0，所有机器的 NIC1 接到 leaf 1，……，所有机器的 NIC7 接到 leaf 7。每台 leaf 对应一条 **rail**，一条 rail 上是全部机器同一编号的网卡——也就是同一编号的 GPU。
 
 ```mermaid
+%% 图：rail-optimized 网络：同编号 GPU 的流量只经一台 leaf 一跳，跨 rail 要上 spine，PXN 先经 NVLink 换到同 rail
 flowchart TB
   SP["spine"]
   subgraph rails["leaf 层：一台 leaf 就是一条 rail"]

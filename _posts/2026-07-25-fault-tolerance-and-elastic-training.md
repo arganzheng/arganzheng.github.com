@@ -299,6 +299,7 @@ rendezvous 回答一个问题：**这一轮参与训练的是哪些节点，各�
 把 `_RendezvousJoinOp` 的分支与四个超时画在一起（每次 `sync()` 后重新走一遍判断）：
 
 ```mermaid
+%% 图：rendezvous 的分支与四个超时：到 max 立即完成，到 min 后再等 last_call，join 超时则 FAILED
 flowchart TB
     S["节点启动 / 重启：_RendezvousJoinOp 写入参与者列表<br/>每 5 s _keep_alive 刷新心跳"] --> Q1{"参与者数 ≥ max_nodes？"}
     Q1 -->|"是"| DONE["完成：round += 1，分配 group_rank / world_size / store<br/>worker 运行中，_sanitize 剔除 5 s 无心跳的节点"]
@@ -384,6 +385,7 @@ termination_grace_time                  5 s                                     
 把这个循环连同它的三个分支（不健康 rank 被剔除、健康 rank 不够时交给外层 `ft_launcher`、hard timeout 直接杀）画出来：
 
 ```mermaid
+%% 图：inprocess.Wrapper 的重启循环：异常、进度停滞或心跳丢失触发全体 rank 重启，hard timeout 直接杀
 flowchart TB
     T["训练函数运行中（被 Wrapper 包裹）<br/>MonitorThread · MonitorProcess · ProgressWatchdog 各自轮询"] --> E{"触发条件"}
     E -->|"本 rank 抛异常"| N["MonitorThread 经内部 TCPStore 通知全部 rank<br/>各 rank 主线程被注入 RankShouldRestart<br/>last_call_wait 1 s 合并并发故障"]
@@ -437,6 +439,7 @@ torchft v0.2.0 的协调服务 Lighthouse 是 Rust 实现（`src/lighthouse.rs`�
 三层角色的关系——注意副本组**内部**仍是普通的、不容错的 NCCL 进程组，torchft 只接管副本**之间**的那一维：
 
 ```mermaid
+%% 图：torchft 的三层角色：Lighthouse 算 quorum，每个副本组的 rank 0 是 ManagerServer，副本内部仍是普通 NCCL 进程组
 flowchart TB
     LH["Lighthouse（Rust，torchft_lighthouse）<br/>LighthouseService：Quorum / Heartbeat<br/>每 quorum_tick_ms 100 ms 跑一次 quorum_compute"]
     subgraph rg0["副本组 0 = 一个 DP 副本"]
@@ -492,6 +495,7 @@ Python 侧 `torchft/manager.py` 的 `Manager` 是训练循环看到的全部接�
 一个 step 里这三次交互与前向反向的重叠关系（`use_async_quorum=True`；heal 分支只在本副本落后时走）：
 
 ```mermaid
+%% 图：一个 step 里 Manager 与 Lighthouse 的三次交互：start_quorum 与前向重叠，quorum_id 变了就重建进程组，落后则 heal
 sequenceDiagram
     participant T as 训练循环 / OptimizerWrapper
     participant M as Manager (Python)
@@ -694,6 +698,7 @@ optimizer.step()
 `RerunState` 的完整转移——两次比对、三种结论，中间隔着一次"存盘退出、换卡重启"：
 
 ```mermaid
+%% 图：RerunStateMachine 的状态转移：原地重跑比对一次，换卡重跑再比对一次，得出瞬时错误、持久错误或结果可疑
 flowchart TB
     S0["NOT_RUNNING_YET"] --> S1["INITIAL_RUN<br/>保存 RNG 状态，包装 data iterator"]
     S1 --> V{"validate_result：rejection_func 为 True？<br/>（NaN / Inf / spiky loss / large grad）"}

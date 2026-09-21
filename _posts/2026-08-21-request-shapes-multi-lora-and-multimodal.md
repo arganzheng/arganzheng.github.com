@@ -270,6 +270,7 @@ Worker 侧是 `LRUCacheWorkerLoRAManager`（`vllm/lora/worker_manager.py`）：`
 文本请求的输入处理是 tokenizer 一步；多模态请求要先把图片变成像素张量、算出它会占多少 token、把占位符（placeholder：在 prompt 里替图片"占座"的 N 个特殊 token，N = 这张图会变成多少个 embedding）插进 prompt。先把一张图从进门到变成 KV 的完整路径摆出来——它跨了三个进程，两级缓存（processor cache、encoder cache）分别落在前两个进程的边界上，本章 1–4 节就是沿着这条路径展开：
 
 ```mermaid
+%% 图：一张图从进门到变成 KV 的路径：API server 进程做输入处理与 processor cache，EngineCore 管 encoder cache，Worker 编码
 flowchart TB
   subgraph api["API server 进程：输入处理（第 1 节）"]
     img["图片 + 文本 prompt<br/>MultiModalHasher 对原始像素算 mm_hash"] --> pcache{"processor cache 命中?"}
@@ -388,6 +389,7 @@ encoder 用双向注意力，一张图必须整体编码（注释："the encoder
 一个 `mm_hash` 在这套账里的状态迁移如下（`freeable` 与 `cached` 之间可以来回，`freed` 之后 worker 才真正释放显存）：
 
 ```mermaid
+%% 图：EncoderCacheManager 里一个 mm_hash 的状态迁移：不在 cache → 本步调度 → cached → freeable → freed
 flowchart TB
   none["不在 cache<br/>（未编码，或已被 worker pop）"]
   none -- "can_allocate() 通过 → allocate()<br/>扣 num_free_slots，引用 +1" --> sched["本步 scheduled_encoder_inputs<br/>worker _execute_mm_encoder() 写入 dict"]

@@ -33,6 +33,7 @@ RM 的整条链是：**收集偏好 → 拟合 Bradley-Terry 模型 → 得到�
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+%% 图：奖励模型的训练：一对偏好走两次同一个 RM，loss 只依赖分差 σ(r_w − r_l)
 flowchart TB
     P["prompt x"] --> W["x + 更好的回答 y_w"]
     P --> L["x + 较差的回答 y_l"]

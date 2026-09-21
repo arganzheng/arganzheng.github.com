@@ -209,6 +209,7 @@ date: 2026-01-30 20:00:00
 | 日志与上下文 | 三、六、七 | 三的 `contextvars` 替代 `threading.local`；六用它注入 request ID、库与应用分工；七的 stdout + `PYTHONUNBUFFERED` |
 
 ```mermaid
+%% 图：Python 系列的两条主线：import 是运行时动作，GIL 逼出多进程，两条线在 __main__ 保护处会合
 flowchart TB
     A["import 是运行时动作（一）"] --> B["顶层代码的副作用：注册、CUDA 初始化（一）"]
     B --> C["注册表为空 ⇔ 模块未被导入（四）"]

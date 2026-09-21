@@ -20,6 +20,7 @@ catalog: true
 ### 1. 飞轮
 
 ```mermaid
+%% 图：数据飞轮：真实流量的反馈进 bad case 队列，补进评测集驱动改进，过门禁回到使用，评测集攒够后微调小模型
 flowchart TB
     U["使用<br/>真实流量"] --> F["反馈<br/>隐式（采纳 / 修改 / 重试 / 放弃）· 显式（点踩）· 系统（错误 / 卫士 / 拒答）<br/>全部带 trace id"]
     F --> Q["bad case 队列<br/>owner · SLA · 分类 · 去重"]

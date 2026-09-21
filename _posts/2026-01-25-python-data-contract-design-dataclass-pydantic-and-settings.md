@@ -595,6 +595,7 @@ settings = Settings()
 **决策树**
 
 ```mermaid
+%% 图：数据契约选型决策树：外部数据用 Pydantic，内部传递用 dataclass，只约束形状用 TypedDict
 flowchart TB
     Q0{"这组数据从哪来？"}
     Q0 -->|"外部：HTTP / JSON / YAML / 环境变量"| Q1{"来自环境变量或 .env？"}

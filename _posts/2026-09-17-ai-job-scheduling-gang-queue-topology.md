@@ -179,6 +179,7 @@ Job controller（`volcano pkg/controllers/job/job_controller_actions.go` 的 `cr
 `PodGroupStatus.Phase` 有五个值：`Pending`（还没被队列接受）、`Inqueue`（配额上放得下，controller 可以创建 Pod 了）、`Running`（`minMember` 个 Pod 在跑）、`Unknown`（部分在跑、部分调不上——这就是第二章的死锁状态，Volcano 会把它显式标出来）、`Completed`。每次迁移由不同的组件驱动，排障时先看 Phase 就能知道该去查哪一层：
 
 ```mermaid
+%% 图：PodGroup 的五个 Phase：Pending 卡住看队列配额，Inqueue 卡住看节点资源，Unknown 是部分运行的僵尸态
 flowchart TB
     Create["Job controller 创建 PodGroup"] --> Pending["Pending<br/>队列还没接受"]
     Pending -->|"enqueue action：JobEnqueueable<br/>队列配额放得下 minResources"| Inqueue["Inqueue<br/>配额已占，Job controller 此时才创建 Pod"]
@@ -240,6 +241,7 @@ plugin 是"按什么规则"，`volcano pkg/scheduler/plugins/` 下每个目录�
 `allocate` 的骨架在 `volcano pkg/scheduler/actions/allocate/allocate.go` 的 `Action.Execute` 注释里写得很清楚（"1. pick a queue … 5. use ssn.NodeOrderFn to judge the best node"）。关键的 gang 语义在 `allocateForJob`：它为 Job 新建一个 `framework.Statement`（`volcano pkg/scheduler/framework/statement.go`），逐个 task 调用 `Statement.Allocate`（在快照上扣资源、记录操作但不真正绑定），全部 task 处理完后检查 `ssn.JobReady(job)`——满足就 `Statement.Commit`（真正发出绑定），不满足就 `Statement.Discard`（回滚快照，什么都没发生）。这就是 gang 的实现：**模拟分配 + 整体提交或整体回滚**。`JobReady` 与 `JobPipelined` 的区别是，pipelined 允许 task 排到正在释放资源的节点上等（`Statement.Pipeline`），为 preempt/reclaim 之后的分配留位置。
 
 ```mermaid
+%% 图：allocate action 的骨架：选队列、选 Job，逐 task 过滤打分，在 Session 快照上 Allocate / Pipeline，凑齐 minMember 才 Commit
 flowchart TB
     Pick["allocate：QueueOrderFn 选队列 → JobOrderFn 选 Job"] --> NewStmt["为该 Job 新建 Statement<br/>（在 Session 快照上操作，不碰 API server）"]
     NewStmt --> NextTask["TaskOrderFn 取下一个待调度 task"]
@@ -331,6 +333,7 @@ Kueue 的出发点和 Volcano 相反：**不替换调度器，不碰 Pod 的节�
 流程：用户创建一个带 `kueue.x-k8s.io/queue-name` 标签（`kueue pkg/controller/constants/constants.go` 的 `QueueLabel`）的 Job → Kueue 的 webhook 把它的 `suspend` 置为 `true` → `JobReconciler.ReconcileGenericJob` 为它创建一个 `Workload` 对象 → Kueue 调度器把 Workload 排进队列、算配额、决定准入 → 准入后 reconciler 调用 `startJob`：把 Workload 里分配到的 flavor 对应的 `nodeSelector` / `tolerations` 写进 Job 的 Pod 模板（`RunWithPodSetsInfo`），再 `Unsuspend` → Job controller 开始创建 Pod → kube-scheduler 接手。Workload 的命名规则是 `<kind 小写>-<job 名>-<5 位 hash>`（`kueue pkg/controller/jobframework/workload_names.go` 的 `GenerateWorkloadNamePrefix` 与 `hashLength`），所以一个叫 `ddp-2node` 的 TrainJob 对应的 Workload 叫 `trainjob-ddp-2node-xxxxx`。
 
 ```mermaid
+%% 图：Kueue 的准入流程：webhook 先 suspend Job，生成 Workload 排队，准入后写 nodeSelector 并翻回 suspend=false，驱逐时再翻回
 sequenceDiagram
     participant U as 用户
     participant W as Kueue webhook
@@ -398,6 +401,7 @@ borrowWithinCohort      待准入的 Workload 需要借用才能放下，能否�
 三个开关分别管三种"放不下"的情形，判断顺序可以画成一棵决策树——先看待准入的 Workload 加上本队列已用量是否超出 `nominalQuota`，再看放不下的原因是别人借走了还是自己就不够：
 
 ```mermaid
+%% 图：Kueue 抢占策略的决策树：先看是否在 nominalQuota 内，再看放不下是被借走还是自己占满，借用要看 cohort 有没有空闲
 flowchart TB
     Start["待准入 Workload W 在 ClusterQueue 里放不下<br/>（flavorassigner 判定需要抢占）"] --> Q1{"CQ 已用 + W 请求<br/>≤ nominalQuota？"}
     Q1 -->|"是：在自己的配额内"| Q2{"cohort 里有别的 CQ<br/>借走了我的配额？"}

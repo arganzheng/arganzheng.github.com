@@ -826,6 +826,7 @@ next(g)                                         #   end → StopIteration；状�
 把这段执行画出来——左边是调用方，右边是生成器对象里那个帧：
 
 ```mermaid
+%% 图：生成器的执行时序：帧在 yield 处挂起而不是销毁，next() 再从断点恢复
 sequenceDiagram
     participant C as 调用方
     participant G as 生成器对象 g（内部持有一个帧）

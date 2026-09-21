@@ -40,6 +40,7 @@ updated: 2026-09-17
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 320}}}%%
+%% 图：AI 应用架构视图：用户到模型的四层，评测与安全两条横切贯穿所有层
 flowchart TB
     subgraph APP["AI 应用"]
         direction TB
@@ -232,6 +233,7 @@ Agent 是当前变化最快、也最容易被过度设计的一层。它的核�
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+%% 图：Agent 循环：模型决策 → 权限检查 → 执行工具 → 写回上下文，每个菱形是一个工程决定
 flowchart TB
     START(["用户任务"]) --> LLM["模型推理：读上下文，给出下一步"]
     LLM --> DEC{"输出类型？"}

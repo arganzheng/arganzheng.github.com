@@ -111,6 +111,7 @@ triton-opt x.ttgir --allocate-shared-memory --convert-triton-gpu-to-llvm=compute
 回答核心问题。用户给了 `repro.py`：某个 `(M, N, K)` 下 `matmul_kernel` 的结果与 `torch.matmul` 不符。步骤：
 
 ```mermaid
+%% 图：结果不符的二分步骤：固定复现 → 排除 LLVM / ptxas → dump 每级 IR → 用解释器验证 TTIR 语义 → 二分 pass
 flowchart TB
     s0["① 固定复现：TRITON_ALWAYS_COMPILE=1、固定输入（seed）、缩到最小形状与 num_warps<br/>判断是否与 num_stages / 架构 / dtype 相关（各改一个）"]
     s1["② 排除后端：DISABLE_LLVM_OPT=1 结果对了？→ LLVM 优化的锅（罕见，LLVM_IR_ENABLE_DUMP 二分 pass）<br/>disable_ptxas_opt 结果对了？→ ptxas 的锅（报 NVIDIA）"]

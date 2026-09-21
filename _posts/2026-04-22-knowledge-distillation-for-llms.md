@@ -30,6 +30,7 @@ updated: 2026-09-14
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
+%% 图：蒸馏的三种形态：logits 级、序列级、on-policy，差别只在序列谁生成、目标是硬标签还是教师分布
 flowchart TB
     %% 三个子图之间没有连线时 dagre 会把它们横排；用不可见边把三块叠成一列
     subgraph C["on-policy"]

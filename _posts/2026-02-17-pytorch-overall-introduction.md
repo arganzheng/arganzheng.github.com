@@ -341,6 +341,7 @@ PyTorch 2.0 于 2023 年 3 月 15 日发布，其主要方向是在保持 Eager 
 从上到下，可以把 PyTorch 粗略分为以下六层：
 
 ```mermaid
+%% 图：PyTorch 的六层逻辑分层：Eager 逐算子走算子运行时，torch.compile 走图与编译
 flowchart TB
     A[① 用户模型与训练代码]
     B[② 编程模型]
@@ -542,6 +543,7 @@ z = torch.add(x, y)
 可以沿着下面的路径理解：
 
 ```mermaid
+%% 图：一次算子调用的路径：统一的上层契约，Dispatcher 按输入与上下文选实现，设备相关的 kernel 在下层
 flowchart TB
     subgraph UP["统一的上层：与设备无关"]
         direction LR
@@ -646,6 +648,7 @@ Dispatcher 根据运行时信息选择实现。影响选择的因素可能包括
 把这三行再展开一步——以两个 `requires_grad=True` 的 CUDA Tensor 相加为例——分发实际上会经过两轮查表：
 
 ```mermaid
+%% 图：Dispatcher 的两轮查表：先命中 Autograd 记录反向节点，去掉自身 Key 再分发到 CUDA kernel
 flowchart TB
     META["Tensor 元数据<br/>device · dtype · layout · requires_grad"]
     CTX["全局上下文<br/>inference_mode · tracing · functorch"]
@@ -739,6 +742,7 @@ Meta Tensor → Meta Kernel
 前两张地图按职责划分，不对应源码目录。真正打开 `pytorch/` 仓库，看到的是另一种分层——按**库**划分，自上而下四层，每一层只依赖它下面的层：
 
 ```mermaid
+%% 图：源码目录的四层：torch/ → torch/csrc/ → aten/ → c10/，每层只依赖它下面的层
 flowchart TB
     L1["torch/<br/><br/>Python 层"]
     L2["torch/csrc/<br/><br/>C++ 绑定与运行时引擎"]
@@ -905,6 +909,7 @@ Eager Mode 鼓励动态 Python，但编译器更喜欢稳定、可推断的程�
 `torch.compile()` 的工程价值就在于尝试在两者之间建立桥梁。但这座桥不是无条件成立的，graph break、动态 shape 和运行时 guard 都是需要理解的边界。下图是这座桥的骨架：
 
 ```mermaid
+%% 图：torch.compile 的骨架：Dynamo 捕获成 FX Graph，捕获不了的地方 graph break，下次调用先查 guard
 flowchart TB
     EAGER["Eager Python 代码<br/>model(x)"]
     DYN["TorchDynamo<br/>在字节码层捕获 Tensor 操作"]

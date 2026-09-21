@@ -559,6 +559,7 @@ kernel 参数里的 `RankData*` 指向 `rank_data` 数组中一个**尚未填内
 三个阶段里，kernel 参数指向的 `RankData` 槽位地址始终不变，变的只是它的内容：
 
 ```mermaid
+%% 图：register_graph_buffers 的三个阶段：捕获时预留 RankData 槽位，捕获结束后交换 IPC 句柄填满它，回放时读到完整地址
 flowchart TB
     subgraph cap["捕获期间（cudaStreamIsCapturing 为 Active）"]
         C1["allreduce(input) 被调用"] --> C2["ptrs = d_rank_data_base_ + k<br/>预留第 k 个 RankData 槽位：地址固定，内容为空"]
@@ -771,6 +772,7 @@ self._recving_transfers[request_id].append(handle)
 把四个阶段按一个请求的生命周期串起来。注意两点：握手只在第一次遇到某个 prefill engine 时发生一次；数据面的 READ 由 decode 侧网卡发起，期间两边的 GPU 都在跑别的请求：
 
 ```mermaid
+%% 图：NixlConnector 一个请求的生命周期：首次遇到 prefill engine 时握手一次，数据面的 READ 由 decode 侧网卡发起
 sequenceDiagram
     participant R as Router / 客户端
     participant PS as Prefill scheduler

@@ -45,6 +45,7 @@ TCP/IP 的路径上有内核协议栈、至少两次内存拷贝和一个必须�
 上面的箭头链只说了"经过谁"，没说"在哪条 PCIe 链路上"。把一台 8 卡机器里一对 GPU + NIC 所在的那一小片 PCIe 拓扑画出来，三条路径落在物理链路上的差别才看得清：A 和 B 都要上行穿过 root complex 进主机内存再下来，C 在 PCIe switch 内部就折返了。
 
 ```mermaid
+%% 图：从显存到对端显存的三条路径：A、B 都要上行经 root complex 进主机内存，GPUDirect RDMA 在 PCIe switch 内折返
 flowchart TB
   subgraph host["主机侧（root complex 之上）"]
     CPU["CPU<br/>协议栈 + memcpy（仅路径 A 参与数据面）"]
@@ -287,6 +288,7 @@ RDMA READ 在 NCCL 里只用于一个特殊目的：GDR 接收后的 **flush**�
 把两侧 proxy 与两侧网卡放在一条时间轴上，谁等谁就清楚了：接收方先动（post recv、写 FIFO），发送方在 FIFO 元素到达前只能自旋；数据 WRITE 本身不产生对端完成，是最后那个 WITH_IMM 让接收方的 CQ 里冒出一个 CQE。
 
 ```mermaid
+%% 图：接收方告诉发送方往哪写：先 post recv 并用 RDMA WRITE 送 FIFO 元素，发送方自旋等到后再发数据，末尾 WITH_IMM 产生对端完成
 sequenceDiagram
     participant RP as 接收方 proxy
     participant RN as 接收方 NIC
@@ -349,6 +351,7 @@ rkey + 地址        如果对端要做单边操作，还要告诉它我的 buff
 状态机的三步和这次带外交换是交错的，哪一步必须等对端、哪一步可以先做，用时间轴看更直观——尤其是"为什么 recv WR 要在交换之前就 post 好"：
 
 ```mermaid
+%% 图：QP 建连的时序：本地独立完成 INIT 并先 post recv，再经 TCP 交换 ncclIbConnectionMetadata，才能把 QP 推到 RTR / RTS
 sequenceDiagram
     participant A as 本端（ncclIbConnect）
     participant B as 对端（ncclIbAccept）
@@ -523,6 +526,7 @@ PCIe 上任何设备都可以向另一个设备的 BAR（Base Address Register�
 两条路从同一个显存指针出发，在不同层分叉，最后汇合到同一张网卡翻译表；NCCL 的选择顺序是先试 DMA-BUF、失败再落到 peermem：
 
 ```mermaid
+%% 图：网卡怎么 DMA 到显存：先试 DMA-BUF 导出 fd 再 ibv_reg_dmabuf_mr，失败则落到 nv_peermem 的 ibv_reg_mr
 flowchart TB
   APP["显存指针（cudaMalloc 返回的设备地址）<br/>NCCL channel buffer 或用户 buffer"]
   Q1{"DMA-BUF 可用？<br/>ncclIbDmaBufSupport 且 dmaBufSupported"}
@@ -597,6 +601,7 @@ GDR 有两个方向：接收（网卡**写**显存）和发送（网卡**读**�
 这个竞争关系画成时间轴如下——关键是"数据到 HBM"与"CQE 到 CPU"是两条互不保序的 PCIe 路径，flush 用一次 non-posted 读把它们串起来：
 
 ```mermaid
+%% 图：flush 为什么收完还要读一次：数据到 HBM 与 CQE 到 CPU 是两条互不保序的 PCIe 路径，一次 RDMA READ 把它们串起来
 sequenceDiagram
     participant NIC as 本地 NIC
     participant HBM as GPU 显存（channel buffer）

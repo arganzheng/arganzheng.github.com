@@ -20,6 +20,7 @@ catalog: true
 ### 1. 先说答案：两次形态变化
 
 ```mermaid
+%% 图：两次形态变化：多步双向 → 少步双向（步数与 guidance 蒸馏）→ 少步自回归（因果化 + chunk 生成）
 flowchart TB
     A["`**多步双向**（第一至五篇）
 FLUX.1-dev 28 步 · Wan 50 步
@@ -172,6 +173,7 @@ dev 上 4 卡 SP 是为了把 4.3 s 切成 1.6 s（延迟）；schnell 单卡 0.
 交互式生成（画板实时上色、摄像头实时风格化）要的是**每帧几十毫秒**，即使 1 步模型（SD-Turbo 512² 单步约 20 ms 计算）也要把整条流水线的开销压掉。StreamDiffusion（Kodaira 等 2023）是这类系统的原型，它的几个设计都是"把串行变并行、把开销摊掉"：
 
 ```mermaid
+%% 图：StreamDiffusion 的 Stream Batch：不同帧处于不同去噪步拼成一个 batch，每次前向完成一帧，延迟仍是 T 步
 flowchart TB
     subgraph NAIVE["朴素：每帧串行走完 T 步 —— 吞吐 = 1 帧 / (T 次前向)"]
         direction TB
@@ -213,6 +215,7 @@ Wan / HunyuanVideo 的 DiT 是**双向**的：每个 token 看全部帧，包括
 ### 3. 一个 chunk 的前向
 
 ```mermaid
+%% 图：一个 chunk 的前向：3 个 latent 帧的 token 走 4 步，attention 看前面 chunk 的 KV cache，算完把自己的 K / V 追加进去
 flowchart LR
     KV["KV cache：
 chunk 1 … k−1 的 K / V

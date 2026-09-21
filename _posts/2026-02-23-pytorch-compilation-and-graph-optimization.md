@@ -102,6 +102,7 @@ y = compiled_f(x3, weight, bias)   # 事件 B：调用。假设被打破 → 再
 这就是本文的第二个维度。把两个维度画在一张图上：
 
 ```mermaid
+%% 图：torch.compile 的两个维度：运行时每次调用查 Guard 与缓存，编译器被触发时跑一次 Dynamo → AOTAutograd → Inductor
 flowchart TB
     subgraph RT[运行时：每次调用 compiled_f 都经过]
         direction LR
@@ -458,6 +459,7 @@ AOTAutograd 的名字就是它的做法：**Ahead-Of-Time** 地运行一遍 Auto
 把这一节的追踪和下一节的切分连起来，对 `f` 而言就是下图：joint graph 里前向节点和反向节点同在一张图上，切分器在两者之间找一条"割线"，割线穿过的中间值就是需要从前向传给反向的 saved tensors。
 
 ```mermaid
+%% 图：AOTAutograd 的 joint graph：前向与反向节点在同一张图上，切分器的割线决定哪些中间值成为 saved tensors
 flowchart TB
     IN["Dynamo 的 torch 级前向图<br/>matmul → add → relu"]
     IN --> TR["FakeTensor 执行前向，Autograd 照常记录 grad_fn<br/>对输出调用反向，引擎回溯的每一步也被追踪成节点"]
@@ -577,6 +579,7 @@ Triton / C++ 源码 + call() 调度代码
 把每一步在 `f` 的前向图上落实，就是下图：三个 ATen 节点进去，一个 cuBLAS 调用加一个 Triton Kernel 出来。
 
 ```mermaid
+%% 图：Inductor 的内部步骤：ATen 节点 lowering 到循环级 IR，Scheduler 把相邻 pointwise 融合成一个 kernel
 flowchart TB
     IN["ATen 级 FX Graph<br/>aten.mm → aten.add → aten.relu"]
     IN --> LOW["lowering：降到 Inductor IR<br/>每个节点变成 “给定索引 i，如何算出该位置的值”"]
@@ -863,6 +866,7 @@ Guard 是编译栈的**正确性基础**：Inductor 之所以能把 `128`、`64`
 把这条演化链画成状态机：节点是函数当前积累的编译产物，边是每次调用带来的转移；黄色边表示流水线真正运行，绿色边表示直接复用。注意每次重编译后 Guard 的形态都在变。
 
 ```mermaid
+%% 图：Dynamic Shape 的状态机：每次调用带来的转移，Guard 从 == 128 变成 s0 > 64 再变成 s0 ≤ 64
 flowchart TB
     S0["没有任何产物"]
     S0 -->|"① x: #91;128, 32#93;<br/>无条目可查 → 静态编译"| SA["产物 A：relu 版<br/>128 / 64 / 8192 烧成常量<br/>Guard: size#91;0#93; == 128"]
@@ -928,6 +932,7 @@ y = compiled_f(x, weight, bias)       # x: [128, 32]
 ```
 
 ```mermaid
+%% 图：第一次调用的冷编译：帧钩子截获字节码，Dynamo → AOTAutograd → Inductor → Triton，真实数据只在最后一步被读取
 flowchart TB
     A[调用 compiled_f] --> B[帧钩子截获 f 的字节码]
     B --> C[Dynamo 符号求值<br/>FakeTensor 推断元数据]
@@ -1012,6 +1017,7 @@ Guard 检查：条目 1 要求 size[0] == 128 → 失败
 与 §1 冷编译那张图对照，这一次的入口逻辑是"逐条查 Guard、都不命中才进流水线"：
 
 ```mermaid
+%% 图：第四次调用走到另一条分支：逐条查 Guard 都不命中，才进流水线追加第三份编译产物
 flowchart TB
     IN["调用 compiled_f(x4, weight, bias)，x4: #91;32, 32#93;<br/>帧钩子取出 f 的缓存条目列表（此时 2 条），逐条查 Guard"]
     IN --> E1["条目 1：type(x) is Tensor · dtype · device · size#91;0#93; == 128"]
@@ -1112,6 +1118,7 @@ HotSpot 的 C2 直接生成机器码。Inductor 不生成机器码，它生成 T
 第一章 §4 的两层图，现在每个节点都有了具体内容：
 
 ```mermaid
+%% 图：回看总览的两层图：运行时的 Guard / 缓存与编译器的三段流水线，每个节点现在都有了具体内容
 flowchart TB
     subgraph RT[运行时：每次调用 compiled_f 都经过]
         direction LR

@@ -20,6 +20,7 @@ catalog: true
 ### 1. 先说答案：一个生成服务的结构
 
 ```mermaid
+%% 图：一个生成服务的结构：API 层估时与配额，队列按形状分池、合 batch，实例分文本编码、DiT、VAE 三段，结果落对象存储
 flowchart TB
     CLIENT["客户端"] -- "POST /v1/images/generations（同步）
 POST /v1/videos（异步 job）" --> API["API 层
@@ -174,6 +175,7 @@ $$
 ### 2. 两种分离
 
 ```mermaid
+%% 图：两种分离：单体一个进程跑三段，分离成 encoder / denoiser / decoder 三个 stage 各自扩缩
 flowchart TB
     subgraph MONO["单体：一个进程三段"]
         direction TB
@@ -238,6 +240,7 @@ DiffServe（Yang 等 2025，MLSys）的观察：不是每个请求都需要最�
 ### 2. 视频：异步 job
 
 ```mermaid
+%% 图：视频异步 job 的时序：POST 立即返回 job id，worker 回报进度，客户端轮询状态，完成后从对象存储取内容
 sequenceDiagram
     participant C as 客户端
     participant A as API 层 + job 表

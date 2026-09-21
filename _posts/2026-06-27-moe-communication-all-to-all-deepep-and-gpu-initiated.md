@@ -400,6 +400,7 @@ kNVLReceivers           从本卡的 NVL buffer 读出 token 落到 recv_x 的�
 一份跨节点的 token 拷贝的路径是：源 GPU 的 `kRDMASender` → RDMA → 目标节点同号 GPU 的对称 buffer → 该 GPU 的 `kRDMAAndNVLForwarder` → NVLink → 目标 GPU 的 NVL buffer → 目标 GPU 的 `kNVLReceivers` → `recv_x`。用一个 token 的三个目标专家恰好都落在同一个远端节点的情形，把它和平坦 all_to_all 并排画出来：
 
 ```mermaid
+%% 图：平坦 all_to_all 与 DeepEP normal kernel：前者三份各自过网卡，后者按节点去重网卡只过一份、节点内 NVLink 分发
 flowchart TB
     subgraph flat["平坦 all_to_all（NCCL send/recv、DeepEP low-latency）：3 份各自过网卡"]
         S1["节点 0 · GPU 2<br/>token t 的 3 个目标专家分别在节点 1 的 GPU 1 / 3 / 5"]
@@ -467,6 +468,7 @@ if (return_recv_hook) recv_hook = [=]() { launcher(LOW_LATENCY_RECV_PHASE); };
 把上面三段合成一张图——一次 LL dispatch 里数据、计数与 kernel 生命周期是怎么走的：
 
 ```mermaid
+%% 图：一次 LL dispatch 的数据流：token warp 写发送槽，NVLink 可达则直写对端显存，否则 IBGDA 发 RDMA，最后原子加计数
 flowchart TB
     subgraph send["send 阶段：LOW_LATENCY_SEND_PHASE"]
         A["token warp：读一行 BF16<br/>kUseFP8 时每 128 通道求 amax、转 FP8<br/>写本地发送槽（16 B 头 + 数据 + scale）"]
@@ -549,6 +551,7 @@ nvshmemi_ibgda_put_nbi_warp(uint64_t req_rptr, uint64_t req_lptr, size_t bytes, 
 **它拿掉了哪一部分 α。** 对比第四篇的 proxy 链路，先把两条路上的参与者画出来——同一条跨节点消息，从发送 kernel 到接收 kernel 各经过谁：
 
 ```mermaid
+%% 图：NCCL NET 与 IBGDA 的参与者对比：前者两端各过一次 CPU proxy，后者 CPU 不在路径上、每个 warp 自己写 WQE 敲 doorbell
 sequenceDiagram
     participant GK as GPU kernel
     participant PX as CPU proxy

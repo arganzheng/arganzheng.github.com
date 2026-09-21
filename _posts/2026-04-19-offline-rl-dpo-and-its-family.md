@@ -38,6 +38,7 @@ $$
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+%% 图：DPO 推导的四步：闭式解 → 反解奖励 → 代入 Bradley-Terry → DPO loss，奖励模型在第三步消失
 flowchart TB
     A["`**RLHF 目标**（第三篇）
 max E[r(x,y)] − β·KL(π ‖ π_ref)`"] --> B["`**① 闭式解**
