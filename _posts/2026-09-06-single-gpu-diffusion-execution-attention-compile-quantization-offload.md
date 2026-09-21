@@ -20,6 +20,7 @@ catalog: true
 ### 1. 先说答案：六种手段，各改账上的哪一项
 
 ```mermaid
+%% 图：六种手段各改账上的哪一项：attention 后端、编译与融合改 η，量化改峰值与权重字节，offload 改权重字节，VAE tiling 改解码峰值
 flowchart LR
     subgraph OPT["六种手段"]
         direction TB
@@ -96,6 +97,7 @@ FLUX.1-dev 1024² 28 步，从 eager 基线出发逐项叠加（H100 与 4090 �
 第一篇的字节账：FLUX 三段权重 31.5 GiB，但 DiT 段只需 22.5 GiB。offload 的全部内容就是**让不在用的部分不占显存**，粒度从粗到细有三种：
 
 ```mermaid
+%% 图：offload 的三种粒度：模型级三段轮流上卡，顺序级逐层搬入搬出，分组级在另一条 stream 上预取下一组
 flowchart TB
     subgraph M["模型级：pipeline.enable_model_cpu_offload()"]
         direction LR
@@ -224,6 +226,7 @@ FP8 只对**线性层的 GEMM**（占 FLUX 每步的 80%）生效，attention �
 4-bit 是另一个量级的问题：权重与激活都到 4 bit 时，两边的离群值都装不下 16 个量化级。LLM 的做法（SmoothQuant：把激活的离群值"搬"到权重上）不够——搬过去之后权重的离群值又量化不了。**SVDQuant**（Li 等 2024，ICLR 2025）的做法是**多加一条低秩分支吸收离群值**：
 
 ```mermaid
+%% 图：SVDQuant：激活平滑后权重做 SVD，前 32 个奇异值走 16-bit 低秩分支吸收离群值，剩余走 INT4 Tensor Core
 flowchart LR
     X["激活 X（有离群值）"] --> SM["平滑：X̂ = X / s
 离群值搬到权重"]
@@ -298,6 +301,7 @@ LLM 的 W4（GPTQ / AWQ）几乎无损，扩散的 W4 却要 SVDQuant 这样的�
 ### 1. 顺序
 
 ```mermaid
+%% 图：单卡优化的顺序：bf16 基线 → 无损装下 → 无损算快 → 几乎不可见的有损 → 可见但可接受的有损 → 多卡或换模型
 flowchart TB
     S0["bf16 eager 基线
 记录：每步 ms · 峰值显存 · 一组固定 seed 的输出图"] --> S1["无损：装下

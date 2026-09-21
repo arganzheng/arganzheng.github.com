@@ -284,6 +284,7 @@ scale 的粒度在 FP8 里同样重要：
 两类量化在 kernel 里的数据流不同——差别在**反量化发生在哪一步**、**乘加用哪种 Tensor Core**：
 
 ```mermaid
+%% 图：W4A16 与 W8A8 在 kernel 里的数据流：反量化发生在哪一步、乘加用哪种 Tensor Core
 flowchart TB
     subgraph w4["W4A16（weight-only）"]
         direction TB
@@ -354,6 +355,7 @@ decode 每步读 16 GB 权重、产出 $$B$$ 个 token。$$B = 1$$ 时，4.8 ms 
 每轮至少产出 1 个 token（拒绝时的重采样或全接受时的额外采样），最多 $$\gamma + 1$$ 个。一轮的分支与回退如下：
 
 ```mermaid
+%% 图：投机解码的一轮：草稿模型自回归 γ 步，目标模型一次前向验证，逐位置接受或拒绝后重采样
 flowchart TB
     dr["草稿模型自回归 γ 步<br/>x_1 … x_γ ~ q，成本 γ · c · T(B)"] --> vf["目标模型一次前向 prefix, x_1 … x_γ<br/>得到 p_1 … p_γ+1，成本 T(B(γ+1))"]
     vf --> i1["i = 1"]
@@ -562,6 +564,7 @@ $$W_Q$$：$$16 \times 8192 / 16.78\text{M} \approx 0.78\%$$；$$W_K$$、$$W_V$$�
 一层线性层上的前向与反向，实线是前向、虚线是反向，标出哪些梯度仍要算、哪一项被省掉：
 
 ```mermaid
+%% 图：LoRA 一层线性层的前向与反向：∂L/∂x 仍要算穿过每一层，∂L/∂W 被省掉
 flowchart TB
     x["输入 x<br/>（仍需保存供反向，激活值不省）"] --> W["冻结 W  d_out × d_in<br/>BF16 一份：无梯度、无主权重、无 Adam"]
     x --> A["A  r × d_in<br/>可训练，高斯初始化"]

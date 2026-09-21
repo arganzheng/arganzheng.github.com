@@ -210,6 +210,7 @@ future_                          getFuture() 返回的 CUDA-aware Future
 把一个 `WorkNCCL` 从构造到销毁经历的状态画出来，可以看到推动它的信号来自三个互不相关的源：GPU 的 event、host 的 steady_clock、NCCL 后台的异步错误——前者由 GPU 触发，后两者由 watchdog 线程（第八章）轮询发现：
 
 ```mermaid
+%% 图：WorkNCCL 的状态机：Enqueued → Started → Completed，超时与异步错误由 watchdog 轮询发现
 flowchart TB
     Enq["Enqueued<br/>collective() 构造 WorkNCCL，workStartTime_ = now<br/>workEnqueue 放进 workMetaList_"]
     Sta["Started<br/>ncclStartEvent_ 已触发<br/>（仅 TORCH_NCCL_ENABLE_TIMING 时存在）"]
@@ -260,6 +261,7 @@ ncclEvents_.emplace(deviceKey, at::cuda::CUDAEvent(cudaEventDisableTiming));
 把两个组在同一进程、同一张卡上各自拥有的东西画出来，能看清哪些是共享的、哪些是每组一份的：
 
 ```mermaid
+%% 图：同一进程里两个 ProcessGroupNCCL 实例：TCPStore 共享，communicator、stream、event、workMetaList_ 与两条边线程每组一份
 flowchart TB
     Store["TCPStore（进程内唯一，控制面）<br/>各组用不同前缀的 PrefixStore 隔离 key"]
     subgraph pgdp["ProcessGroupNCCL 实例 1（DP 组）"]
@@ -365,6 +367,7 @@ elif work is not None:  # Backward compatible with backends that don't sync at C
 ### 3. 异步模式（`async_op=True`）：内部 stream 与两个 event
 
 ```mermaid
+%% 图：async_op=True 的时序：当前 stream record event，NCCL 内部 stream 等它，all_reduce 返回只保证 kernel 已入队
 sequenceDiagram
     participant CPU as CPU (Python 主线程)
     participant CS as 当前 stream
@@ -673,6 +676,7 @@ eager 模式下返回的是 `AsyncCollectiveTensor`，一个 tensor 子类，带
 三条线程之间没有直接调用关系，全靠两个共享变量（`workMetaList_`、`heartbeat_`）和 TCPStore 上的信号联系起来：
 
 ```mermaid
+%% 图：两条边线程：Watchdog 每 100 ms 遍历 workMetaList_ 并给 heartbeat_ 计数，HeartbeatMonitor 读心跳并轮询 TCPStore 的 dump 信号
 flowchart TB
     Main["主线程<br/>collective() → workEnqueue(work)"]
     List["workMetaList_<br/>WorkNCCL 拷贝列表（mutex 保护）"]

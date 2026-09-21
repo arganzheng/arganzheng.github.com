@@ -1187,6 +1187,7 @@ htmlcov/index.html
 本文的核心不是建立完整的测试理论，而是让开发者在遇到问题时能够快速执行：
 
 ```mermaid
+%% 图：测试失败的排查流程：从复现到修复，按症状选 pdb / logging / inspect / tracemalloc / faulthandler / cProfile
 graph TD
     A[复现问题] --> B[查看失败堆栈]
     B --> C{能定位原因?}

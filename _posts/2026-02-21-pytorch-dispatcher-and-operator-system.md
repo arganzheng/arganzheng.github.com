@@ -67,6 +67,7 @@ Meta Tensor                   → 只推断 shape、dtype 等元数据
 两个维度通过同一个数据结构连接：**Operator Table**——Dispatcher 内部为每个算子维护的一张 `DispatchKey → Kernel` 表。开发者往里填，用户调用时从里查。
 
 ```mermaid
+%% 图：Operator Table 是两个维度的交汇点：开发态往里填，运行态从里查
 flowchart TB
     subgraph DEV[开发态：算子开发者]
         direction TB
@@ -329,6 +330,7 @@ Operator Table 里填的函数，就是实现层的入口。它有三种来源�
 五种模式并不是随意挑选的，选哪一种基本由算子的计算形态决定：
 
 ```mermaid
+%% 图：算子实现的五种模式：按计算形态在 Meta、Composite、厂商库、TensorIterator、直接 Kernel 之间选
 flowchart TB
     Q0["一个算子实现该怎么写？"] --> Q1{"只需要推断 shape / dtype，<br/>不算数值？"}
     Q1 -->|"是"| META["Meta 路径<br/>只构造输出元数据，不 launch Kernel"]
@@ -388,6 +390,7 @@ PyTorch 有上千个算子、多种 variant、多个后端。如果 Python Bindi
 ### 2. Codegen 读什么、生成什么
 
 ```mermaid
+%% 图：Codegen 读什么、生成什么：两份 yaml 生成 Binding、C++ API、注册代码、反向函数与 Structured Kernel 胶水
 flowchart LR
     Y1[native_functions.yaml] --> CG[Codegen]
     Y2[derivatives.yaml] --> CG
@@ -480,6 +483,7 @@ inference_mode：  DispatchKeySet = {CUDA}                                → �
 这一步的合并是位运算：各输入的 KeySet 做 OR，再叠加线程局部（TLS）的 include 集合、减去 exclude 集合，最后取最高优先级的 Key：
 
 ```mermaid
+%% 图：合并 DispatchKeySet：各输入 KeySet 做 OR，叠加 TLS 的 include、减去 exclude
 flowchart TB
     TX["x: CUDA Tensor, requires_grad=True<br/>KeySet = #123;AutogradCUDA, ADInplaceOrView, CUDA#125;"]
     TY["y: CUDA Tensor, requires_grad=False<br/>KeySet 相同（requires_grad 不在 KeySet 里）"]
@@ -508,6 +512,7 @@ flowchart TB
 Dispatcher 在 DispatchKeySet 中按优先级取最高的 Key，到 `add.Tensor` 那一行查对应槽位：
 
 ```mermaid
+%% 图：按优先级取 Key 查表：包装 Key 执行后去掉自身再回到查表，后端 Key 直接执行
 flowchart TB
     A[add.Tensor + DispatchKeySet] --> B{按优先级取最高 Key}
     B -->|包装 Key<br/>Autograd / Functionalize / Python| W[包装实现]
@@ -533,6 +538,7 @@ Autograd 包装实现（Codegen 生成）：
 按时间顺序看，一次 `add` 调用会两次经过 Dispatcher：
 
 ```mermaid
+%% 图：一次 add 调用两次经过 Dispatcher：先命中 AutogradCUDA 包装，去掉 Autograd 后再分发到 CUDA kernel
 sequenceDiagram
     participant C as 调用方 at::add
     participant D as Dispatcher
@@ -665,6 +671,7 @@ z = torch.add(x, y)
 ```
 
 ```mermaid
+%% 图：用户调用时的路径：torch.add → Binding → at::add → Dispatcher → Autograd 包装 → 再次分发 → TensorIterator → CUDA Kernel
 flowchart TB
     P[torch.add] --> B[Python Binding] --> API[at::add]
     API --> D[Dispatcher]

@@ -119,6 +119,7 @@ Model Executor
 理想的依赖关系如下：
 
 ```mermaid
+%% 图：硬件适配的理想依赖关系：Serving Core 只依赖 Platform 抽象层，CUDA / ROCm / Ascend / XPU 在其下各自实现
 graph TD
     CORE["vLLM Serving Core<br/>Scheduler · KV Cache Manager · EngineCore<br/><br/>只依赖抽象能力，不包含芯片分支"]
 
@@ -266,6 +267,7 @@ Kernel Backend
 整体关系更接近下面这样：
 
 ```mermaid
+%% 图：current_platform 的五条路径：Attention 选择、平台 kernel 导入、通信、配置检查、Worker / Device 执行
 graph TD
     START["vLLM 启动"] --> DETECT["平台检测与注册"]
     DETECT --> CP["current_platform"]
@@ -393,6 +395,7 @@ class CudaPlatform(Platform):
 `import_kernels()` 只解决“把 `torch.ops._C.*` 这些符号装进进程”，还没有回答另一个问题：模型层里的一次 `SiluAndMul()(x)`，到底怎么走到不同后端的实现？这一步由 `vllm/model_executor/custom_op.py` 里的 `CustomOp` 基类负责。它的分派不是每次 forward 时做 `if is_cuda()`，而是在构造时一次性完成两层决策：先看插件有没有用 `CustomOp.register_oot` 把整个算子类换掉；再由 `dispatch_forward()` 根据“该算子是否启用”和 `current_platform` 选定一个 `forward_*` 方法，绑定到 `self._forward_method`，之后 `forward()` 只是转调它：
 
 ```mermaid
+%% 图：CustomOp 的分派：构造时先查插件整类替换，再按是否启用与 current_platform 一次性绑定 forward 实现
 flowchart TB
     NEW["模型层构造算子实例，如 SiluAndMul()<br/>CustomOp.__new__ 查 op_registry_oot"]
     OOTCLS["改为实例化插件用 register_oot<br/>注册的替代类（整类替换）"]
@@ -538,6 +541,7 @@ OOT 的核心思想是：
 从架构上看：
 
 ```mermaid
+%% 图：Out-of-Tree 插件架构：vllm-ascend 依赖 vLLM 主仓库的 Platform 接口与 CANN 运行时
 graph LR
     VLLM["vLLM 主仓库<br/>Serving Core + Platform Interface"]
     PLUGIN["vllm-ascend<br/>AscendPlatform + Worker + Backend"]
@@ -606,6 +610,7 @@ class AscendPlatform(Platform):
 启动阶段的逻辑可以抽象为：
 
 ```mermaid
+%% 图：平台识别与注册的启动时序：Runtime 查找平台，插件加载 AscendPlatform 并初始化 NPU Runtime，注册为 current_platform
 sequenceDiagram
     participant User as 用户启动 vLLM
     participant Runtime as vLLM Runtime
@@ -974,6 +979,7 @@ OOT 能否做到真正独立，取决于主仓库是否已经提供足够稳定�
 把前面的模块组合起来，可以得到一个更完整的请求执行路径：
 
 ```mermaid
+%% 图：一次请求在异构硬件上的执行路径：设备无关的 Core 下发 SchedulerOutput，Platform Worker 与 Attention Backend 落到设备
 sequenceDiagram
     participant Core as Engine / Scheduler / KV Cache Manager<br/>（设备无关）
     participant Worker as Platform Worker<br/>（设备生命周期）

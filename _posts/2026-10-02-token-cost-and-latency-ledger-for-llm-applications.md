@@ -175,6 +175,7 @@ k=N  [ S ─────────────][u1][a1] ... [a(N-1)][uN]      
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 420}}}%%
+%% 图：一次调用的时间线：排队 → prefill → 思考 → 首个可见 token（TTFT 结束）→ decode → 最后一个 token
 flowchart TB
     Q["排队<br/>供应商侧的负载 · 你的限流队列"] --> P["prefill<br/>读完整上下文，∝ 未缓存输入长度<br/>命中缓存的前缀跳过"]
     P --> T["思考<br/>∝ 思考 token 数 × 每 token 时间<br/>由 effort 决定"]

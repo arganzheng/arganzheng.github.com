@@ -169,6 +169,7 @@ PaLM 论文有一个精妙的观察：把 spike 时的那批数据拿到**另一
 表是"指纹 → 成因"的对照，真正值班时是按信号一层层排除的。把上表压成一棵决策树，问题的顺序是"哪种成因的信号最独特、最早能看到"：
 
 ```mermaid
+%% 图：loss spike 归因的决策树：先看是否发散，再依次看 logit 增长、param norm 增速、单 rank 的坏数据、优化器状态
 flowchart TB
     S["loss 单步跳升<br/>grad norm 同步跳 > 3×"] --> Q0{"loss 已 NaN<br/>或持续上升不回头?"}
     Q0 -->|是| DIV["发散：先回退，再归因"]
@@ -365,6 +366,7 @@ torchtitan 与 DeepSpeed 没有等价的内建开关。torchtitan 的 `trainer.p
 先看 Megatron 整条管线的各个环节**分别在哪里跑**——离线一次、启动时只有 rank 0、每个 rank、DataLoader worker 进程、还是训练进程——以及第七章要用的那个整数 `consumed_train_samples` 插在哪一环：
 
 ```mermaid
+%% 图：Megatron 数据管线各环节在哪跑：离线一次、启动时 rank 0、每个 rank、DataLoader worker、训练进程，consumed_train_samples 插在中间
 flowchart TB
     subgraph OFF["离线，一次性（CPU 集群）"]
         J["JSONL 文本"]

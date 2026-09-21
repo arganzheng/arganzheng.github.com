@@ -83,6 +83,7 @@ PagedAttention 的灵感直接来自操作系统的虚拟内存管理。核心�
 映射关系是这样的——注意物理块号完全不需要连续：
 
 ```mermaid
+%% 图：页表思想的映射：逻辑块连续，Block Table 把它们映到不连续的物理 KV 块
 graph LR
     subgraph LOG["逻辑视图（连续）"]
         B0["Blk 0<br/>t₁–t₁₆"] --- B1["Blk 1<br/>t₁₇–t₃₂"] --- B2["Blk 2<br/>t₃₃–t₄₈"]
@@ -114,6 +115,7 @@ kv_cache = torch.zeros(num_blocks, block_size, num_kv_heads, head_dim,
 ### 3. 源码解密：核心数据结构关系
 
 ```mermaid
+%% 图：KV Cache 核心数据结构关系：Request → KVCacheBlocks → KVCacheBlock → GPU HBM 上的 kv_cache[block_id]
 graph TD
     R["<b>Request</b>（逻辑层，不碰显存）<br/>request_id / prompt_token_ids / output_token_ids<br/>num_computed_tokens / block_hashes / status"]
     R -->|"1:N，经 KVCacheManager"| KB
@@ -327,6 +329,7 @@ for each query position:
 在生产环境中，大量请求共享相同的 System Prompt（如 ChatGPT 的系统指令可能占 2000+ tokens）。Prefix Cache 的核心思想是：如果两个请求的前缀 token 完全相同，它们可以共享同一份 KV Cache 块。
 
 ```mermaid
+%% 图：Prefix Cache 的复用：Request A prefill 后注册 125 个满块，Request B 经链式哈希全部命中，只需 prefill 最后一块
 sequenceDiagram
     participant A as Request A<br/>[SysPrompt 2000] + "Hi"
     participant P as BlockPool<br/>(hash → block)
@@ -443,6 +446,7 @@ DeepSeek V2/V3 提出的 Multi-head Latent Attention (MLA) 是一种更激进的
 MLA 的运作分两步——**存的时候压缩，用的时候还原**：
 
 ```mermaid
+%% 图：MLA 的两步：Prefill 时经 kv_a_proj 压成低维 latent 存进 KV Cache，Decode 时经 kv_b_proj 还原全维 K、V
 graph LR
     subgraph E["编码（Prefill）"]
         H[hidden] -->|kv_a_proj| C["c_kv（低维 latent）"] --> KV[("KV Cache<br/>只存 latent")]

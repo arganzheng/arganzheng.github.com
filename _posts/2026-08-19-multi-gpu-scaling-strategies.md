@@ -55,6 +55,7 @@ updated: 2026-09-21
 **DP：每个 GPU 持有完整模型副本，各自处理不同请求。**
 
 ```mermaid
+%% 图：DP：每个 GPU 持有完整模型副本，各自处理不同请求
 graph LR
     R["请求流"] --> G0["GPU 0<br/>完整模型副本<br/>请求 1–10"]
     R --> G1["GPU 1<br/>完整模型副本<br/>请求 11–20"]
@@ -607,6 +608,7 @@ Stage 2：Layers 40–59
 其PP和数据流向如下所示：
 
 ```mermaid
+%% 图：PP 的数据流向：每个 GPU 负责一段层，边界激活经 P2P send 传给下一个 stage
 graph LR
     A["GPU 0<br/>Layers 0–19"] -->|"P2P send<br/>hidden_states"| B["GPU 1<br/>Layers 20–39"]
     B -->|"P2P send<br/>hidden_states"| C["GPU 2<br/>Layers 40–59<br/>→ logits"]
@@ -1567,6 +1569,7 @@ GPU：    通信等待  计算       通信等待
 以 2 卡、8 个 Expert 为例，每张卡都要把“不属于自己”的 token 送出去，同时接收“属于自己”的 token：
 
 ```mermaid
+%% 图：EP 的两次 All-to-All：dispatch 把 token 送到持有对应 Expert 的卡，combine 再送回来
 graph LR
     subgraph G0["GPU 0（持有 Expert 0–3）"]
         A0["本地 token：<br/>去 E0–3 的 + 去 E4–7 的"] --> X0["Expert 0–3<br/>GEMM"]
@@ -2135,6 +2138,7 @@ GPU 3：[t₄₈₀₀₁ ~ t₆₄₀₀₀]       chunk 3
 以 4 个 GPU 为例，计算过程可以抽象为：
 
 ```mermaid
+%% 图：Ring Attention：4 个 GPU 各持一段序列，K、V 沿环传递四步凑出全局注意力
 graph LR
     G0["GPU 0<br/>t₁–t₁₆₀₀₀"] -->|"K₀V₀"| G1["GPU 1<br/>t₁₆₀₀₁–t₃₂₀₀₀"]
     G1 -->|"K₁V₁"| G2["GPU 2<br/>t₃₂₀₀₁–t₄₈₀₀₀"]
@@ -2272,6 +2276,7 @@ DP 组：[0,4] [1,5] [2,6] [3,7]      EP 组（若开 EP）：[0,1,4,5] [2,3,6,7
 模型权重加载通常只发生一次，虽然数据量很大，但一般不属于每个请求或每个 Token 的关键路径。真正决定在线推理性能的，主要是推理循环中的高频通信。
 
 ```mermaid
+%% 图：推理循环中的数据流向：CPU 与 GPU 之间是 PCIe，GPU 之间是 NVLink / NVSwitch，跨节点经 NIC
 graph TB
     CPU["<b>CPU / Host Memory</b><br/>Tokenizer · Scheduler · Block Table · Sampling Results"]
 
@@ -2386,6 +2391,7 @@ NCCL（NVIDIA Collective Communications Library）是 NVIDIA 提供的 GPU 集�
 NCCL 会根据 GPU 拓扑、节点结构、消息规模和可用网络设备选择通信方式。典型路径如下：
 
 ```mermaid
+%% 图：NCCL 的典型路径：节点内 NVLink / NVSwitch，跨节点 PCIe → NIC → InfiniBand / RoCE
 graph LR
     G0["GPU 0"] <-->|"NVLink / NVSwitch"| G1["GPU 1"]
     G1 <-->|"PCIe"| N0["NIC 0"]
@@ -2435,6 +2441,7 @@ vLLM 对通信后端进行了抽象，使模型代码不需要直接感知底层
 以 TP=2、PP=1 为例，一个 decode step 的消息路径如下：
 
 ```mermaid
+%% 图：TP=2 一个 decode step 的消息路径：SchedulerOutput 经共享内存广播给全部 worker，只有 output_rank 回传结果
 sequenceDiagram
     participant E as EngineCore<br/>(Scheduler)
     participant X as MultiprocExecutor

@@ -259,6 +259,7 @@ $$W_O$$ 是 $$16384 \times 7168$$（$$16384 = 128 \times 128$$，value 的 head 
 把上面几组投影连起来，一个 token 在一层 MLA 里的数据流如下——注意只有虚线框里的两个量进 KV cache，升维后的 $$k^C$$、$$v^C$$ 和 query 侧的一切都是即算即用：
 
 ```mermaid
+%% 图：MLA 一层的数据流：只有 c^KV 与 k^R 进 KV cache，升维后的 k^C、v^C 与 query 侧即算即用
 flowchart TB
     H["h_t (7168)"]
     subgraph qside["Query 侧（不进 cache）"]
@@ -397,6 +398,7 @@ $$
 把"字面执行"与"吸收后"两条路径并排放在一起，可以看清吸收到底挪动了什么——同一份 cache，升维矩阵从 cache 一侧（每个 cached token 都要乘）挪到了 query / 输出一侧（每步只乘一次）：
 
 ```mermaid
+%% 图：矩阵吸收前后的两条路径：升维矩阵从 cache 一侧挪到 query / 输出一侧，每步只乘一次
 flowchart TB
     subgraph naive["非吸收路径（字面公式，prefill 用）"]
         direction TB

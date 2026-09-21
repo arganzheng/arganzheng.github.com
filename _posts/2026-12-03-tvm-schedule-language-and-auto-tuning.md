@@ -43,6 +43,7 @@ Halide（2012，图像处理 DSL）提出：把**算法**（每个像素是什�
 ### 2. TVM 的分层
 
 ```mermaid
+%% 图：TVM 的分层：前端导入 → Relax 图层 IR → legalize 成 TensorIR PrimFunc → 调度改写 → lowering → 多后端代码生成，Relax VM 按图执行
 flowchart TB
     fe["前端：PyTorch / ONNX 导入，或 relax.frontend.nn 直接写模型"]
     relax["Relax（图层 IR）：R.matmul、R.nn.relu……算子、shape、dataflow 块"]

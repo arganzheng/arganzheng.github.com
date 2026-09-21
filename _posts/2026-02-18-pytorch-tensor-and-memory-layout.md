@@ -138,6 +138,7 @@ print(y.shape)  # torch.Size([3, 2])
 可以用一张图表示 Tensor 如何解释 Storage：
 
 ```mermaid
+%% 图：Tensor 如何解释 Storage：storage_offset、sizes、strides、dtype / device 共同决定一个 view
 flowchart LR
     S[Storage<br/>一段底层数据]
     O[storage_offset<br/>起始位置]
@@ -1024,6 +1025,7 @@ Kernel 执行
 把这条路径按 `pin_memory` 和 `non_blocking` 两个开关展开，可以看清哪一步是真正的同步点、哪一步可以和计算重叠：
 
 ```mermaid
+%% 图：CPU 到 GPU 的数据搬运：pin_memory 与 non_blocking 决定 H2D 拷贝是同步点还是异步 DMA
 flowchart TB
     DISK["磁盘 / 数据集文件"]
     PAGE["CPU pageable 内存<br/>DataLoader worker 进程读取、预处理"]
@@ -1343,6 +1345,7 @@ Allocator 缓存
 把这几类放进同一块 GPU 显存里看，并标出 `memory_allocated()` 与 `memory_reserved()` 各自覆盖的范围：
 
 ```mermaid
+%% 图：GPU 显存的分层：memory_allocated() 是活跃 Tensor 占用的部分，memory_reserved() 还包括分配器缓存的块
 flowchart TB
     subgraph RESERVED["memory_reserved()：Caching Allocator 向 CUDA 申请并持有的显存"]
         direction TB
@@ -1678,6 +1681,7 @@ reshape / contiguous
 ### 4. 两张 Tensor 地图
 
 ```mermaid
+%% 图：两张 Tensor 地图：逻辑形状、物理布局、底层存储、类型与位置如何汇入算子执行
 flowchart TB
     A[Tensor API]
     B[逻辑形状<br/>sizes / shape]

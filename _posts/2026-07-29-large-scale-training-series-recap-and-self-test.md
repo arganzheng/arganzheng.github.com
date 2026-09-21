@@ -219,6 +219,7 @@ Megatron-LM 按模型结构切、DeepSpeed 按优化器状态切、torchtitan �
 下图是算账线上各量的依赖关系（箭头表示"决定"）：
 
 ```mermaid
+%% 图：算账线各量的依赖关系：常驻状态与激活决定并行配置，配置决定通信量与气泡进 MFU，落盘字节决定 δ、τ_opt 与有效训练时间
 flowchart TB
     S["常驻状态 16N / 18N"] --> P["并行配置 TP · PP · DP"]
     A["激活 34sbh"] --> P

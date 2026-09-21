@@ -87,6 +87,7 @@ matmul_kernel[grid](a, b, c, 1024, 2048, 512,
 原始的 Python 函数对象 `fn` 也保存着，但只用来取源码、全局变量和闭包变量。`JITFunction.__call__` 直接抛异常：`Cannot call @triton.jit'd outside of the scope of a kernel`——**它不可调用**。`matmul_kernel[grid]` 走的是 `__getitem__`，返回一个记住了 `grid` 的 lambda，lambda 调 `self.run(...)`。
 
 ```mermaid
+%% 图：JITFunction 保存什么：源码文本、KernelParam、cache_key、按设备的缓存；kernel[grid] 走 __getitem__ 到 run，直接调用抛异常
 flowchart LR
     src["Python 源码文本<br/>（def 开始，无装饰器）"]
     params["KernelParam × 15<br/>名字 · 位置 · is_constexpr · do_not_specialize"]
@@ -123,6 +124,7 @@ flowchart LR
 `JITFunction.run` 是每次 `kernel[grid](...)` 走的路：
 
 ```mermaid
+%% 图：JITFunction.run 的流程：binder 算出每个参数的 (type_str, spec_key) → 缓存 key 命中则直接 launch，否则打包成 ASTSource 交给 triton.compile
 flowchart TB
     args["实参：a, b, c, 1024, 2048, 512, strides…, BLOCK_M=128, …, num_warps=4, num_stages=3"]
     binder["binder(*args, **kwargs)<br/>对每个参数：(type_str, spec_key)<br/>constexpr 参数：(&quot;constexpr&quot;, 值)"]
@@ -247,6 +249,7 @@ def ast_to_ttir(fn, src, context, options, codegen_fns, module_map, module=None)
 `a_ptr + offs_m[:, None] * stride_am` 的翻译路径：
 
 ```mermaid
+%% 图：一个 + 怎么变成 tt.addptr：visit_BinOp → _apply_binary_method → tensor.__add__ → semantic.add → 类型检查与 broadcast → 按标量类型分派
 flowchart TB
     ast["ast.BinOp(left=Name a_ptr, op=Add, right=BinOp(…))"]
     vb["visit_BinOp：lhs = visit(left) → tl.tensor(!tt.ptr&lt;bf16&gt;)<br/>rhs = visit(right) → tl.tensor(tensor&lt;128x1xi32&gt;)"]
@@ -330,6 +333,7 @@ if (hasattr(fn, '__self__') and _is_triton_value(fn.__self__)) or language.core.
 7. 循环结束后，`lscope["acc"]` 等指向 `scf.for` 的结果。
 
 ```mermaid
+%% 图：for 到 scf.for：先空跑循环体找出携带变量，删临时 block，建 scf.for 并把 lscope 指向 block 参数，真正遍历后 scf.yield
 flowchart TB
     dry["空跑循环体到临时 block<br/>lscope 变化的名字 = 携带变量：acc, a_ptrs, b_ptrs"]
     erase["删临时 block，恢复 lscope"]

@@ -24,6 +24,7 @@ updated: 2026-09-20
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 220}}}%%
+%% 图：Hugging Face 六个库的分工：Hub 存放，datasets / tokenizers 准备数据，transformers / peft / trl 训练，accelerate 分发
 flowchart LR
     HUB["`**Hub**
 config.json · safetensors

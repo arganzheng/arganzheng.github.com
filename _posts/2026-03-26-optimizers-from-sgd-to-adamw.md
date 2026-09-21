@@ -32,6 +32,7 @@ updated: 2026-09-14
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
+%% 图：一步 AdamW 更新的解剖：梯度经裁剪、两个矩、学习率调度，weight decay 走一条不经过矩的支路
 flowchart LR
     G["梯度 g_t"] --> C["裁剪
 g ← g · min(1, c/‖g‖)"]

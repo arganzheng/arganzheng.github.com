@@ -274,6 +274,7 @@ Search-R1 的消融把第一条做成了对照：mask 掉检索到的文档 toke
 一条轨迹的 rollout 是一个循环：
 
 ```mermaid
+%% 图：agent loop 的一条轨迹：生成、解析工具调用、环境执行、渲染观察拼回上下文，直到最终回答交给验证器
 flowchart TB
     S["构造 s_0<br/>system + schema + 任务"] --> G["推理引擎生成 a_t"]
     G --> P{"解析：<br/>工具调用？"}

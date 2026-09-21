@@ -89,6 +89,7 @@ $$
 这就是 FlashAttention 要解决的问题：**不是 FLOPs 太多，而是一个 $$N \times N$$ 的中间结果不该被写出去。**
 
 ```mermaid
+%% 图：标准 attention 与 FlashAttention：前者三个 kernel 让 N² 的 S、P 往返 HBM，后者一个 kernel 让它们只存在于片上
 flowchart LR
     subgraph std["标准实现：三个 kernel，S 与 P 往返 HBM"]
         direction TB
@@ -503,6 +504,7 @@ for (int block_idx = start_block_idx + warp_idx; block_idx < end_block_idx;
 v1 的并行度是 `num_seqs × num_heads` 个 block。decode 时 batch 8、32 head 只有 256 个 block，每个 128 线程；108 个 SM 每个能驻留 2048 线程（16 个这样的 block），也就是**只用到了硬件并发能力的 15% 左右**，带宽拉不满。而 memory-bound kernel 的唯一目标就是拉满带宽。
 
 ```mermaid
+%% 图：paged attention v1 与 v2：v1 一个 block 走完整个序列，v2 按 512 token 分 partition 再用 reduce kernel 合并
 flowchart LR
     subgraph v1["v1：grid (heads, seqs)，一个 block 走完整个序列"]
         direction TB
@@ -985,6 +987,7 @@ __device__ void attn_1rowblock_warp(/* ... */) {
 选择的原则可以压缩成三条：prefill 追求 Tensor Core 利用率，优先 FA3（sm_90）或 FA2；decode 追求带宽利用率与并行度，split-KV 的策略质量比 GEMM 效率更重要，FlashInfer 与 FA3 的 scheduler 在这里下了最多功夫；需要非标准特性（新的 mask 形状、bias、KV 量化格式）时，Triton 版本的修改成本远低于 CUDA 版本，这是它在生产系统里一直有一席之地的原因。
 
 ```mermaid
+%% 图：vLLM 选 attention 后端的流程：用户指定优先，否则按设备能力的优先级列表逐个 validate_configuration
 flowchart TB
     start["vLLM 启动：选 attention 后端"]
     user{"--attention-backend /<br/>VLLM_ATTENTION_BACKEND 指定了？"}

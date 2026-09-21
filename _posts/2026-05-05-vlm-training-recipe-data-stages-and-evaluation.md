@@ -34,6 +34,7 @@ updated: 2026-09-14
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 220}}}%%
+%% 图：VLM 的四阶段训练：对齐、多模态预训练、指令微调、偏好对齐，每阶段谁在学、谁被冻住
 flowchart LR
     S1["`**阶段 1 对齐**
     ViT ❄ · connector 🔥 · LLM ❄

@@ -41,6 +41,7 @@ scale_shift(x, alpha, beta) = alpha * x + beta
 ### 4. 本文的章节安排
 
 ```mermaid
+%% 图：本文的章节安排：概念、构建基础、四个阶段的实践、两个横切
 flowchart TB
     subgraph C[概念：做什么、用什么]
         C2[二 · 三步：定义 / 注册 / 实现]
@@ -194,6 +195,7 @@ C++:     at::Tensor scale_shift(const at::Tensor& x, double alpha, double beta)
 ### 4. 三步的关系
 
 ```mermaid
+%% 图：定义、注册、实现三步的关系：定义决定签名并在 Operator Table 建行，注册把实现填入槽位
 flowchart TB
     D[定义<br/>Schema 字符串] -->|决定实现的签名| I[实现<br/>符合签名的函数]
     D -->|在 Operator Table 建一行| OT[(Operator Table)]
@@ -370,6 +372,7 @@ PyTorch C++ 扩展本质上是一个**共享库**（Linux 下是 `.so`，Windows
 3. `import` 时，共享库被加载，其中的 `TORCH_LIBRARY` 静态初始化执行，算子注册完成。
 
 ```mermaid
+%% 图：C++ 扩展的构建期与运行期：源码编成 .so，import 时静态初始化执行 TORCH_LIBRARY 注册
 flowchart TB
     subgraph BUILD["构建期"]
         direction LR
@@ -1119,6 +1122,7 @@ TORCH_LIBRARY_IMPL(myops, Autograd, m) {
 这段代码最值得看清的是 `forward` 里那次“再入 Dispatcher”的调用路径——同一个算子被 Dispatcher 分发了两次，第二次的 KeySet 少了 Autograd：
 
 ```mermaid
+%% 图：C++ 侧 Autograd 注册的时序：forward 里去掉 Autograd Key 再入 Dispatcher，第二次落到 CUDA kernel
 sequenceDiagram
     participant Py as Python 调用方
     participant D as Dispatcher
@@ -1170,6 +1174,7 @@ def _fake(x, alpha, beta):
 把这张表按运行态的调用顺序展开，就是一次完整的分发路径：先命中包装 Key，剥掉它之后再按设备落到某个后端槽位；Meta 那条分支不跑真实 Kernel，专供 FakeTensor 与 `torch.compile` 推断 shape：
 
 ```mermaid
+%% 图：完成后的 Operator Table 按运行态展开：先命中 Autograd 槽位，剥掉后按设备落到 CPU / CUDA / Meta
 flowchart TB
     IN["torch.ops.myops.scale_shift(x, 2.0, 1.0)"]
     KS["计算 DispatchKeySet<br/>device 决定后端 Key<br/>requires_grad 决定是否含 Autograd"]
@@ -1404,6 +1409,7 @@ Benchmark 证明它比原生组合有价值
 把这七条按顺序串起来，就是一张核对流程图——前四步对应 Operator Table 的四个槽位，后三步是把它交给别人之前必须过的关：
 
 ```mermaid
+%% 图：一个算子完成的七条标准：前四步填满 Operator Table 的槽位，后三步是交付前的校验、benchmark 与 ABI 检查
 flowchart TB
     S1["1. Schema 定义<br/>myops::scale_shift(Tensor x, float alpha, float beta) → Tensor<br/>声明 mutates_args / alias"]
     S2["2. 后端实现并注册<br/>CPU / CUDA / Meta 槽位"]

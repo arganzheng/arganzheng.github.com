@@ -45,6 +45,7 @@ verl v0.9.0 的代码量不小（`verl/` 下十几万行），这一篇只走一
 ### 2. 进程地图
 
 ```mermaid
+%% 图：verl 的进程地图：driver 进程是单控制器，每张卡上 hybrid worker 与 vLLM EngineCore 共置，CPU 侧是 Ray 与奖励服务
 flowchart TB
     subgraph D[driver 进程：单控制器]
         M[main_ppo → TaskRunnerV1.run] --> TR[PPOTrainerSync.fit / _step_once]

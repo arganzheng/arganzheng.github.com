@@ -151,6 +151,7 @@ vLLM 应对这一问题的方式，并不是建立一个包含所有模型逻辑
 从整体上看，vLLM 的模型接入与运行时执行可以抽象为下面这条链路：
 
 ```mermaid
+%% 图：vLLM 模型接入与运行时执行的链路：配置 → 注册表 → 模型类 → 加载 → ModelRunner → Attention Backend → kernel
 flowchart LR
     A[Raw arguments / HF config]
     A --> B[ModelConfig]
@@ -246,6 +247,7 @@ vLLM 通过 `ModelConfig` 对外部参数和 Hugging Face 配置进行统一解�
 落到 `vllm/model_executor/models/registry.py` 上，这两个阶段是靠“惰性注册项”实现的。内置模型表 `_VLLM_MODELS` 里每个 arch 只记录 `(模块名, 类名)`，启动时被包成 `_LazyRegisteredModel`，主进程并不 import 任何模型文件；`inspect_model_cls` 需要能力信息时，先查 `VLLM_CACHE_ROOT/modelinfos` 下按源码 hash 缓存的 `_ModelInfo`，未命中才用 `_run_in_subprocess` 在子进程里 import 模型类并跑一遍 Protocol 检查（`is_text_generation_model`、`supports_pp`、`is_hybrid` 等），这样主进程在解析配置阶段不会因为 import 模型文件而提前初始化 CUDA；只有 `resolve_model_cls → load_model_cls` 才真正 `importlib.import_module`。arch 名本身也要先经过两层解析：`model_impl` 决定是否走 Transformers backend，`_normalize_arch` 把 `XxxForSequenceClassification` 这类后缀变体回退到基础 arch。整个解析路径如下：
 
 ```mermaid
+%% 图：ModelRegistry 的模型发现：按 architectures 查注册表，惰性注册项经子进程检查产出 _ModelInfo，load_model_cls 才 import 类
 flowchart TB
     ARCH["hf_config.architectures<br/>例如 #91;LlamaForCausalLM#93;"] --> INTREE{"model_impl 与注册表<br/>(_VLLM_MODELS + register_model)"}
     INTREE -->|"transformers, 或 auto 且未注册"| TF["_try_resolve_transformers<br/>Transformers backend 类"]
@@ -320,6 +322,7 @@ PyTorch nn.Module
 概念上可以表示为：
 
 ```mermaid
+%% 图：能力契约：具体模型继承 nn.Module，同时实现 VllmModel 与若干 Supports* Protocol
 classDiagram
     class nn_Module["nn.Module"]
     class VllmModel~Protocol~
@@ -562,6 +565,7 @@ ModelRunner 决定：
 其构造过程可以表示为：
 
 ```mermaid
+%% 图：Attention Metadata 的构造：SchedulerOutput、KV cache 状态、输入布局与后端能力汇入 ModelRunner，经 Builder 产出 metadata
 flowchart TD
     S[Scheduler] -->|SchedulerOutput| R[ModelRunner]
     K[KV cache state] --> R
@@ -643,6 +647,7 @@ Attention Backend 则负责把 attention 语义映射到具体执行实现。它
 可以将这一层表示为：
 
 ```mermaid
+%% 图：从模型逻辑到 kernel：ModelRunner 给出输入与 metadata，Attention layer 经 Backend 落到具体 kernel
 flowchart LR
     R[ModelRunner] --> I[Model inputs]
     R --> M[Attention Metadata]

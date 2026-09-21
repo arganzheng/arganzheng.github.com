@@ -439,6 +439,7 @@ __device__ float block_reduce_sum_v6(float v, float* shared /* >= 32 floats */) 
 ```
 
 ```mermaid
+%% 图：两级 shuffle 归约：每个 warp 先 5 步 shuffle 归约到 1，32 个部分和经 shared 再由 warp 0 归约
 flowchart TB
     classDef w fill:#dbeafe,stroke:#1d4ed8
     classDef sh fill:#fef9c3,stroke:#a16207
@@ -770,6 +771,7 @@ if (dim_size <= 2048 && dim_size*sizeof(scalar_t) <= 8192) {
 这段 host 代码本质是一棵按行长度分派的决策树，四个叶子对应四种"行放在哪里"的策略：
 
 ```mermaid
+%% 图：SoftMax.cu 按行长度分派的决策树：warp-per-row、寄存器版、shared 版、全局版四个叶子
 flowchart TB
     classDef q fill:#fef9c3,stroke:#a16207
     classDef k fill:#dbeafe,stroke:#1d4ed8
@@ -852,6 +854,7 @@ C10_DEVICE bool mark_block_finished() const {
 跨 block 的这一级，谁等谁、原子操作用在哪里，画出来是：
 
 ```mermaid
+%% 图：Reduce.cuh 跨 block 的一级：各 block 写 staging buffer，原子计数选出最后到达的 block 做最终归约
 flowchart TB
     classDef b fill:#dbeafe,stroke:#1d4ed8
     classDef g fill:#fef9c3,stroke:#a16207

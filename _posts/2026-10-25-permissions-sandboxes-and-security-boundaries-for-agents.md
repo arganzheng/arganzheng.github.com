@@ -20,6 +20,7 @@ catalog: true
 ### 1. 四层
 
 ```mermaid
+%% 图：工具调用要过的四层：权限档是静态范围，审批策略与执行策略是动态判断，沙箱是执行时的强制，被拦住后再看是否允许升级
 flowchart TB
     CALL["模型返回一个工具调用<br/>shell: rm -rf ./build · write: src/x.py · http: DELETE /volumes/7"] --> L1{"① 权限档<br/>这个会话能碰什么？"}
     L1 -->|"超出档位：写只读区、访问网络"| DENY1["拒绝（不问人）"]

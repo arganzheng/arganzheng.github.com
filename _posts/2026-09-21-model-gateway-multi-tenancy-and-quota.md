@@ -228,6 +228,7 @@ spec:
 Envoy 的 `ext_proc` filter 允许把请求的 headers / body 以 gRPC 流的形式发给一个外部处理器，处理器可以改写 headers、body，或直接返回响应。GIE 的 `004-endpoint-picker-protocol` 规定 EPP 必须实现这个 gRPC 服务（`envoy.service.ext_proc.v3.ExternalProcessor`），必须支持 streaming 模式，并定义了四个约定：
 
 ```mermaid
+%% 图：ext_proc 数据路径：Envoy 把 headers 与 body 以 gRPC 流发给 EPP，EPP 经 x-gateway-destination-endpoint 头与 dynamic_metadata 返回目标
 sequenceDiagram
     participant C as 客户端
     participant GW as Gateway (Envoy)
@@ -293,6 +294,7 @@ llm-d-router `docs/architecture.md` 把一个请求在 EPP 里的路径分成两
 上面 12 步是"顺利路径"。把请求可能**离开**这条流水线的出口全部标出来，才能看清哪一步会拒绝、拒绝时 GPU 有没有被消耗（步骤编号对应上面的列表；429 的 `x-llm-d-request-dropped-reason` 取值见第五章 4 节）：
 
 ```mermaid
+%% 图：请求控制流水线的全部出口：所有 rejected-* 都在进入引擎之前，只有 evicted-* 发生在转发之后
 flowchart TB
     IN["1–4 请求到达 EPP（外层已剥头 / 注入头 / 预扣 TPM）<br/>解析 body、模型名重写、取 priority 与 fairness ID"]
     SAT{"5 Admit：池饱和？"}
@@ -492,6 +494,7 @@ r1 的前缀全命中、adapter 也已加载，但 KV 0.95 与队列 6 让它在
 PD 分离下一个请求要选两个 Pod。`disagg-profile-handler` 先跑 `decode` profile（总是），再由 decider 决定是否跑 `prefill` profile：`prefix-based-pd-decider` 读 decode 候选上的前缀匹配信息，只有**未命中的后缀长度 ≥ `nonCachedTokens`** 时才值得分离（`promptTokens` 另设一个最短提示长度门槛）。两个 profile 各自用 `prefill-filter` / `decode-filter`（按 `llm-d.ai/role` 标签，或用 `label-selector-filter` 适配外部系统的标签）缩候选，各自打分。结果写成两个 header：`x-gateway-destination-endpoint` 指向 decode Pod，`x-prefiller-host-port` 指向 prefill Pod（`docs/disaggregation.md`）。
 
 ```mermaid
+%% 图：PD 分离下选两个 Pod：decode profile 总是跑，decider 按未命中后缀长度决定是否跑 prefill profile，sidecar 先转给 prefill Pod
 sequenceDiagram
     participant GW as Gateway
     participant EPP as EPP (disagg-profile-handler)
@@ -833,6 +836,7 @@ EPP 在 `modelRewriteIfNeeded` 里按规则改写请求体的 `model`，改写�
 两层灰度在对象上的落点、以及它们与前缀缓存边界的关系，放在一张图里（下一节的 header 定向也画在其中）：
 
 ```mermaid
+%% 图：两层灰度的落点：HTTPRoute 在池间分流会换 EPP 与前缀索引，InferenceModelRewrite 在池内分流不跨缓存边界
 flowchart TB
     REQ["请求 model=llama-70b 或 support-assistant<br/>IPP 都映射为 X-Gateway-Base-Model-Name: llama-70b"]
     subgraph route["HTTPRoute llama-70b —— 池间灰度（跨缓存边界）"]

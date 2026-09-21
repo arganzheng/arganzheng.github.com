@@ -62,6 +62,7 @@ autocast 下: Linear 输出 torch.bfloat16, .float() 后 softmax torch.float32; 
 最后半句是关键：**`autocast` 不改变参数的存储精度**。参数本体仍是 fp32（或你加载时指定的 dtype），前向时临时转成 bf16 参与矩阵乘。优化器更新的是那份 fp32 的"主权重"（master weights）。一步训练里数据在两种精度之间怎么走，画出来是这样——每个方框就是显存里的一份东西，括号里是每个参数占的字节数：
 
 ```mermaid
+%% 图：混合精度下一步训练的数据流：fp32 主权重、bf16 副本与激活、fp32 的 loss 与优化器状态
 flowchart TB
     W32["fp32 主权重 W<br/>（4 字节 / 参数，常驻）"]
     W16["bf16 权重副本<br/>（2 字节 / 参数，前向时转出）"]

@@ -120,6 +120,7 @@ CUDA Multi-Process Service 换了一种思路：不让多个 context 轮转，�
 时间片与 MPS 的结构差别在 context 的数量与位置：
 
 ```mermaid
+%% 图：时间片与 MPS 的结构差别：时间片每进程一个 context 由驱动轮转，MPS 把所有进程合并到 server 的一个 context
 flowchart TB
     subgraph ts["时间片：每个进程一个 context，驱动轮转"]
         direction TB
@@ -499,6 +500,7 @@ HAMi 在容器内强制显存与算力上限的方式是 **CUDA 驱动 API 拦�
 一次 CUDA 调用在 HAMi 容器里走的路径，以及两个限制各在哪一步生效：
 
 ```mermaid
+%% 图：一次 CUDA 调用在 HAMi 容器里的路径：ld.so.preload 装入 libvgpu.so，cuMemAlloc 查显存配额，cuLaunchKernel 按利用率节流
 flowchart TB
     app["容器内进程（vLLM / PyTorch）<br/>调用 cuMemAlloc、cuLaunchKernel、cuMemGetInfo"]
     preload["动态链接器读 /etc/ld.so.preload<br/>= /usr/local/vgpu/libvgpu.so"]

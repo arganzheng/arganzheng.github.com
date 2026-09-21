@@ -59,6 +59,7 @@ Kubernetes 自带的可观测面对 GPU 几乎是空白：
 四层采出来之后汇到同一条管线：
 
 ```mermaid
+%% 图：四层采集汇到同一条管线：Prometheus 出指标与告警，OpenTelemetry 出 trace 与日志，成本引擎按 label 分摊后回流到配置
 flowchart TB
     L["四层采集：DCGM Exporter · kube-state-metrics / cAdvisor · vLLM / 训练进程 · EPP / 网关日志"]
     P["Prometheus<br/>agent 模式采集 → 中心存储；recording rules 算三个数"]
@@ -146,6 +147,7 @@ DCGM Exporter 以 DaemonSet 跑在每个 GPU 节点上，通过 DCGM host engine
 把上面两段合起来，PodMapper 做的是一个三路 join——设备指标、设备到 Pod 的分配记录、Pod 的 label 分别来自三个只有各自才知道的地方：
 
 ```mermaid
+%% 图：PodMapper 的三路 join：DCGM 的设备指标、kubelet pod-resources 的设备到 Pod 分配、API server 的 Pod label
 flowchart TB
     subgraph src["同一节点上的三个数据源"]
         DCGM["DCGM host engine<br/>gpu=3 · UUID=GPU-… · SM_ACTIVE=0.41<br/>只知道卡，不知道给了谁"]
@@ -422,6 +424,7 @@ GPU 成本 = Σ_(卡, 时间) 单价(卡型, 计费方式) × 分配时长
 一条卡的 GPU 小时先按 `pod` 归到 Pod，再按 Pod 的 label 归到团队；一个推理副本的 GPU 小时归到模型，再按该模型各租户的 token 占比**二次分摊**到租户。共享成本（DCGM Exporter、Prometheus、网关自己占的资源）按各团队 GPU 小时的比例分摊，或者作为平台成本单列——OpenCost 的 `SharedCost` / `shareIdle` 参数就是这两种选择。整条分摊链路如下，实线是钱的归属，虚线是两种可选的"摊回去"：
 
 ```mermaid
+%% 图：GPU 成本的分摊链路：资产成本分成已分配与未分配，已分配按 Pod label 归到团队或模型，模型再按 token 占比二次分摊到租户
 flowchart TB
     ASSET["集群全部 GPU 小时 × 单价 = 资产成本<br/>（64 卡 × 720 h，按卡型 / MIG profile 取价）"]
     ASSET --> ALLOC["已分配：DCGM 指标带 pod 标签<br/>按 UUID + pod 积分 → 每段分配的 GPU 小时"]
@@ -518,6 +521,7 @@ FinOps 的"回路"指成本数据改变前七篇的参数，而不是只出一�
 每一行的左边是一条 recording rule 或一个看板面板，右边是一个 PR。回路的周期按月：月初出账单与分解表，月中改配置，月末看三个数字的变化。闭合起来是这样一个环——它与"出报表"的区别只在最后一条边：
 
 ```mermaid
+%% 图：成本回流到配置的月度闭环：四层指标 → recording rules → 账单与分解表 → 对账 → 改配额、切分、扩缩容或采购
 flowchart TB
     M["四层指标<br/>DCGM · kube-state-metrics · Kueue · vllm:* · llm_d_epp_*"]
     M --> R["recording rules<br/>A / U / E · 按团队 / 队列 · TTFT p95 · token 速率"]

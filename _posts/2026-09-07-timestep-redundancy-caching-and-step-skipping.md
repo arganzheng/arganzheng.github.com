@@ -20,6 +20,7 @@ catalog: true
 ### 1. 先说答案：一个决策、一份缓存
 
 ```mermaid
+%% 图：跨步缓存的一个决策、一份缓存：算一个便宜的信号并累积，超过阈值或首末步全算并更新残差，否则复用缓存残差
 flowchart TB
     IN["第 t 步输入 x_t, t, c"] --> SIG["`**信号**：算一个便宜的量
 TeaCache：调制后输入的相对 L1 差
@@ -262,6 +263,7 @@ SGLang 的 **CFG gating**（`--cfg-gate-step 0.5`）是另一种利用冗余的�
 ### 1. 结构
 
 ```mermaid
+%% 图：跨步缓存 hook 的结构：pre-forward 算信号并决策，全算则保存残差，复用则输出 = 输入 + 缓存残差，状态按请求 reset
 flowchart TB
     subgraph HOOK["transformer.forward 的外层 hook"]
         direction TB

@@ -321,6 +321,7 @@ bfloat16    rtol 1.6e-2   atol 1e-5
 `torch.autograd.gradcheck(fn, inputs)` 的核心是比较两个 Jacobian——左边一列完全不碰被测的反向代码，右边一列完全依赖它：
 
 ```mermaid
+%% 图：gradcheck 的内部：数值 Jacobian 与实现无关，解析 Jacobian 完全依赖被测的反向实现，逐元素比较
 flowchart TB
     IN["被测函数 y = f(x)<br/>x 为 float64 且 requires_grad=True"]
     subgraph num["数值 Jacobian：与实现无关的真值"]
@@ -495,6 +496,7 @@ inductor    编译器的正确性与性能基准（第四章 §2），部分每 
 把几层和合入、回滚（§3）放在一张图里，能看到验证是分两段的：合入**前**只有 `pull` 层挡着，合入**后**更慢更全的层在主干上继续跑，红了就回滚：
 
 ```mermaid
+%% 图：CI 分层与合入、回滚：合入前只有 pull 层拦截，合入后 trunk / periodic / inductor 在主干上继续跑，红了就回滚
 flowchart TB
     PR["PR 提交 / 更新"]
     TD["Target Determination<br/>按改动文件给测试文件排序<br/>历史上被它弄红过的排前面，再分片到多机"]
@@ -575,6 +577,7 @@ cut 出 release/2.x 分支 → 发布候选 RC1、RC2 …
 用分支图看更直观：主干一直往前走并每天出 nightly，release 分支从 cut 那一刻起只靠 cherry-pick 前进，RC 和正式版、补丁版都是它上面的 tag：
 
 ```mermaid
+%% 图：节奏与分支：主干每天出 nightly，release 分支从 cut 起只靠 cherry-pick 前进，RC 与正式版是它上面的 tag
 gitGraph TB:
     commit id: "PR 合入（每天出 nightly）"
     commit id: "更多 PR 合入"
@@ -743,6 +746,7 @@ class _BatchNorm(nn.Module):
 保存与加载两侧的版本号怎样对上、旧 checkpoint 在哪一步被"升级"：
 
 ```mermaid
+%% 图：state_dict 的版本升级：保存时写入 _metadata 的 version，加载时 _load_from_state_dict 按版本补字段
 flowchart TB
     SAVE["保存时（旧版本代码）<br/>_BatchNorm._version = 1<br/>state_dict 只有 weight / bias / running_mean / running_var"]
     META["state_dict._metadata#91;'bn'#93;#91;'version'#93; = 1<br/>随 data.pkl 一起写进 model.pt"]
@@ -810,6 +814,7 @@ python -W error::FutureWarning -W error::DeprecationWarning -m pytest tests/
 画成流程：每一步都有明确的输出物，通过才进下一步，失败则回到旧镜像 tag——回退的成本在每一层都一样低，这是分层的前提：
 
 ```mermaid
+%% 图：升级 playbook 的八步：每步有明确输出物，通过才进下一步，失败则换回旧镜像 tag
 flowchart TB
     S1["1. 读发布说明<br/>输出：BC 变更与弃用清单、平台窗口核对结果"]
     S2["2. 重编译 C++ / CUDA 扩展<br/>输出：针对新版本的扩展制品，扩展自测全过"]
@@ -858,6 +863,7 @@ C++ 扩展             针对具体 torch × CUDA 编译（FlashAttention、自�
 五者是一条单向的约束链：上游限定下游能取的值，而升级频率恰好反过来——越靠上游越慢：
 
 ```mermaid
+%% 图：兼容矩阵的单向约束链：驱动 → CUDA → PyTorch → C++ 扩展 → 上层框架，越靠上游升级越慢
 flowchart TB
     DRV["NVIDIA 驱动<br/>集群级、随节点镜像走，升级最慢<br/>决定了 CUDA 版本的上限"]
     CUDA["CUDA 运行时<br/>由 torch wheel 的 +cuXXX 与 nvidia-* PyPI 包决定"]

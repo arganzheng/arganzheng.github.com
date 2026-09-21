@@ -20,6 +20,7 @@ LLM serving 用多卡有两个理由：权重放不下（70B 的 140 GB 要切�
 ### 1. 先说答案：四种刀法、一张通信表
 
 ```mermaid
+%% 图：四种刀法：切序列（Ulysses / Ring / USP）、切 CFG、切层加 patch（PipeFusion）、切权重（TP）
 flowchart TB
     subgraph SP["切序列：Ulysses / Ring / USP"]
         direction LR
@@ -142,6 +143,7 @@ ring all-reduce 每卡收发 $$2\frac{p-1}{p}$$ 倍张量大小，每层两次�
 DeepSpeed-Ulysses（Jacobs 等 2023）的思路：线性层不需要通信——每卡持有 $$N/p$$ 个 token，QKV 投影、MLP 各算自己的 token（权重复制）。只有 attention 需要看全部 token。Ulysses 在 attention 前做一次 **all-to-all**：把"每卡 $$N/p$$ 个 token 的全部 $$h$$ 个 head"重排成"每卡全部 $$N$$ 个 token 的 $$h/p$$ 个 head"——每卡对自己的 $$h/p$$ 个 head 做完整的 attention（不需要任何通信、直接调 FlashAttention），attention 后再一次 all-to-all 换回来。
 
 ```mermaid
+%% 图：Ulysses 的换 head：all-to-all 前按 token 切算线性层，all-to-all 后按 head 切做完整 attention，每层四次 all-to-all
 flowchart TB
     subgraph BEFORE["all-to-all 前：按 token 切（线性层在这个布局上算，无通信）"]
         direction LR
@@ -222,6 +224,7 @@ latent 切成 $$p$$ 个空间 patch，每卡一个 patch、**复制全部权重*
 PipeFusion 把**层**切到 $$p$$ 个 stage（每卡持 $$L/p$$ 层，权重切 $$1/p$$），把 latent 切成 $$M$$ 个 patch；每步里 $$M$$ 个 patch 依次流过 $$p$$ 个 stage，像 TeraPipe 一样形成流水线——stage 1 算 patch 2 时 stage 2 在算 patch 1。attention 需要的"其他 patch 的 K / V"用上一步的 stale 值（本 stage 存自己那些层的全部 patch 的 K / V：$$2 N d \cdot L/p$$，FLUX 4 stage 0.8 GB）。stage 间只传 patch 的激活边界：每步每 stage 发出 $$N d$$（分 $$M$$ 片），**与层数无关**——是 SP 的 $$1/L$$。
 
 ```mermaid
+%% 图：PipeFusion 一个去噪步内的流水线：4 个 patch 依次流过 4 个 stage，气泡 (p−1)/(M+p−1)，跨步连续流水填掉大半
 flowchart LR
     subgraph T["一个去噪步内的流水线（p = 4 stage，M = 4 patch）"]
         direction TB

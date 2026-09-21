@@ -41,6 +41,7 @@ $$
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 210}}}%%
+%% 图：一步在线 RL 里四个模型的位置：策略 rollout，奖励模型与参考模型整形奖励，价值模型仅 PPO 有
 flowchart TB
     X["一批 prompt x"] --> POL["`**策略 π_θ**（推理引擎里的副本）
 rollout：每个 prompt 生成 1 条（PPO）或 G 条（GRPO）`"]

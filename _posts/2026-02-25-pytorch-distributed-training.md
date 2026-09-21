@@ -325,6 +325,7 @@ work.wait()                                  # 让当前 Stream 等待通信完�
 这三行代码涉及三个执行者——CPU 线程、计算 Stream、NCCL 通信 Stream——它们之间的关系用时序图看最清楚：
 
 ```mermaid
+%% 图：通信也是异步的：CPU 线程、compute stream、NCCL stream 三个执行者，wait() 只是让计算流等一个事件
 sequenceDiagram
     participant CPU as CPU 线程
     participant CS as compute stream
@@ -391,6 +392,7 @@ DDP 的核心组件是 C++ 实现的 **Reducer**。它在构造时给每个参�
 如果每个参数算完就单独 all_reduce，会有几百到几千次小消息，被第二章 §4 的 α 项吃掉。Reducer 把参数分成**桶（Bucket）**，默认每桶 25 MB（`bucket_cap_mb`），一个桶内所有参数的梯度都就位后，对整个桶发起一次异步 all_reduce。从"参数 → hook → 桶 → all_reduce"的结构看：
 
 ```mermaid
+%% 图：Reducer 把 all_reduce 藏进反向：梯度 hook 通知 Reducer，桶满即对整个桶发起一次异步 all_reduce
 flowchart TB
     subgraph grads["反向传播：梯度按 layer 4 → 1 的顺序陆续就位"]
         G4["grad(layer 4)<br/>post_accumulate_grad_hook"]
@@ -858,6 +860,7 @@ TP 下层的输入/输出激活是复制的。LayerNorm、Dropout、残差相加
 把一个 Transformer 子层（以 MLP 为例）从进到出画出来，哪段激活是序列分片、哪段是 hidden 分片、哪里发生通信：
 
 ```mermaid
+%% 图：Sequence Parallel 的一个子层：TP 区域外激活按序列维分片，f 处 all_gather、g 处 reduce_scatter
 flowchart TB
     S0["LayerNorm / Dropout / 残差<br/>激活按序列维分片：每 rank 持有 S/N 个 token"]
     F["f：all_gather（序列维）<br/>凑齐全部 S 个 token → 复制的输入"]
@@ -1119,6 +1122,7 @@ combine       all_to_all：结果按原顺序送回 token 所属的 rank，按�
 从 rank 0 的一批 token 出发，看它们在 EP 组里走了一圈的路径（rank 1 的 token 走的是对称的路径）：
 
 ```mermaid
+%% 图：EP 中一批 token 的路径：router 选 expert，两次 all_to_all 分别做 dispatch 与 combine，都在关键路径上
 flowchart TB
     T0["Rank 0 的 token<br/>hidden #91;B·S, H#93;"]
     R0["router（本地）<br/>每个 token 选 top-k 个 expert 及权重"]
@@ -1189,6 +1193,7 @@ router 的具体算法、capacity factor 的取舍、grouped GEMM 与 token 重�
 前三步决定**切计算**的维度（都从节点内开始）：
 
 ```mermaid
+%% 图：并行策略决策顺序（前三步）：按需选 TP + SP、CP、EP，决定切计算的维度
 flowchart TB
     Q1{"单层参数 + 激活放不进一张卡？<br/>或 FSDP 的 3P 通信藏不住？"}
     TP["TP + SP<br/>节点内，度 ≤ 8"]
@@ -1214,6 +1219,7 @@ flowchart TB
 后三步决定**切状态**的维度和跨节点的方式，剩下的卡全部给数据并行：
 
 ```mermaid
+%% 图：并行策略决策顺序（后三步）：模型状态放不下则 FSDP 或 HSDP / PP，剩余的卡给数据并行
 flowchart TB
     Q4{"整个模型状态（16P）放不下？"}
     Q5{"跨节点带宽能藏住<br/>FSDP 的 3P 通信？"}
@@ -1420,6 +1426,7 @@ NCCL 自带 `nccl-tests`（`all_reduce_perf` 等）可以在不跑模型的情�
 排查顺序可以画成一棵决策树，从"是不是所有 rank 都卡住了"开始问：
 
 ```mermaid
+%% 图：训练 hang 的排查决策树：从「所有 rank 都卡住吗」开始，到 py-spy 看栈、检查集合通信一致性与网络
 flowchart TB
     S["训练静止不动（hang）"]
     Q1{"所有 rank 都卡住？"}

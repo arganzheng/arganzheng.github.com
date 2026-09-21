@@ -42,6 +42,7 @@ updated: 2026-09-17
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 300}}}%%
+%% 图：模型生命周期视图：从数据工程到部署上线，两个回边是主循环与外循环
 flowchart TB
     DATA["`**数据工程**
 采集 · 清洗 · 去重 · 质量过滤
@@ -85,6 +86,7 @@ benchmark · LLM-as-judge · Arena
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+%% 图：学习路径：L0–L7 八层加横切，紫色两处与 Infra 地图共享
 flowchart TB
     L0["`**L0 数学**
 8 篇 ≈ 3h`"]

@@ -927,6 +927,7 @@ def schedule(self, throttle_prefills=False):
 把上面两个循环的分支画出来，可以更清楚地看到 Token Budget 递减、KV Cache 分配失败时的抢占循环，以及 waiting 队列在什么条件下根本不会被看一眼（本轮发生过抢占、running 已达 `max_num_seqs`、预算已耗尽）：
 
 ```mermaid
+%% 图：Scheduler.schedule() 的两个循环：先遍历 running 递减 token budget、分配失败则抢占，再在条件允许时看 waiting 队列
 flowchart TB
     S0["token_budget = max_num_scheduled_tokens"] --> R0
     subgraph RunLoop["1. 遍历 running 队列（Decode / 未完成的 Prefill）"]
@@ -1513,6 +1514,7 @@ num_computed_tokens = 0
 把状态放到一起看，一个 Request 在 Scheduler 眼里的生命周期是一个很小的状态机（`vllm/v1/request.py` 的 `RequestStatus`）。注意 PREEMPTED 并不是一个独立的队列——它只是 waiting 队列里一种特殊的状态：被 `prepend_request` 放到队头，恢复时 `num_computed_tokens` 从 0（或 Prefix Cache 命中数）重新开始：
 
 ```mermaid
+%% 图：Request 在 Scheduler 眼里的状态机：WAITING → RUNNING → PREEMPTED 回到 waiting 队头，终态都排在 PREEMPTED 之后
 flowchart TB
     NEW(("add_request()")) --> WAITING["WAITING<br/>在 waiting 队列排队<br/>num_computed_tokens = 0"]
     WAITING -->|"waiting 循环：allocate_slots() 成功<br/>且未达 max_num_seqs"| RUNNING["RUNNING<br/>在 running 列表<br/>每轮拿 num_new_tokens"]

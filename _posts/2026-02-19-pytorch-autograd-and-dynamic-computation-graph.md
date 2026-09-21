@@ -237,6 +237,7 @@ x ─────┘        + → z → sum → loss
 加上反向传播需要的信息，可以表示为下面这张图：
 
 ```mermaid
+%% 图：一张计算图的两半：上半是 forward 执行的算子与 Tensor，下半是 Autograd 顺手创建的反向节点
 flowchart TB
     subgraph fwd["forward：算子与 Tensor（实线是数据流）"]
         direction TB
@@ -688,6 +689,7 @@ for inputs, targets in loader:
 要分两个时刻看。**backward 之前**（或者根本没有 backward——例如验证循环忘了 `no_grad`）：`loss` → `grad_fn` → `SavedVariable` → 每层激活，整条链都活着，列表每 append 一次就多锁住一份激活，这是显存一步步涨的那种情形。**普通 `loss.backward()` 之后**：引擎在用完每个节点的 saved tensors 时就把它们释放了（这正是"第二次 backward 报错"的原因），此时列表持有的 `loss` 只剩下一串空壳节点——几百字节的元数据，不再是激活值；只有 `retain_graph=True` 才会让激活在 backward 后继续活着。下图画的是第一个时刻。左边 `losses.append(loss)` 只多持有了一个标量 Tensor，但它的 `grad_fn` 顺着 `next_functions` 连到整张图，图上每个节点的 saved tensors（激活值）都因此无法释放；右边 `loss.item()` 把引用链在第一步就切断，backward 结束后整张图正常回收：
 
 ```mermaid
+%% 图：持有 loss 就持有整张图：losses.append(loss) 与 append(loss.item()) 的引用链对比
 flowchart TB
     subgraph keep["losses.append(loss)：持有 loss 就持有整张图"]
         direction TB
@@ -936,6 +938,7 @@ forward：y = x²
 `forward` 和 `backward` 并不是被同一段代码先后调用的：`forward` 由 `Square.apply()` 立即执行，`backward` 则要等到 `y.backward()` 时由 Autograd 引擎回调，两者之间靠 `ctx` 传递状态：
 
 ```mermaid
+%% 图：自定义 Function 的时序：forward 由 apply 立即执行，backward 由引擎回调，ctx 在两者之间传状态
 sequenceDiagram
     participant C as 调用方
     participant F as forward
@@ -1199,6 +1202,7 @@ d = a × b + a
 对应的 Value 图如下：实线是 `parents` 关系，虚线是逆拓扑序执行 `backward_fn` 时的梯度流。`a` 同时是 `c` 和 `d` 的父节点，两条路径的梯度在 `a.grad` 上累加（`+=`），这正是 `∂d/∂a = b + 1` 的来源：
 
 ```mermaid
+%% 图：Mini-Autograd 的 Value 图：实线是 parents，虚线是逆拓扑序的梯度流，a 的两条路径在 grad 上累加
 flowchart TB
     va["a = Value(2.0)<br/>grad = 3 + 1 = 4"]
     vb["b = Value(3.0)<br/>grad = 2"]

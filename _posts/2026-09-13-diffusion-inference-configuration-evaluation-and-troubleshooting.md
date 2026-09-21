@@ -20,6 +20,7 @@ catalog: true
 ### 1. 先说答案：推导顺序与信号清单
 
 ```mermaid
+%% 图：配置的推导顺序：算账 → 无损单卡 → 有损 I → 有损 II → 延迟仍不达 SLO 则多卡
 flowchart TB
     S0["输入：模型 · 分辨率 / 帧数 · 步数 · CFG · GPU 型号与数量 · 延迟 SLO · 吞吐目标 · 质量预算"] --> S1["① 算账（第一篇）
 diffusion_ledger.py：三段 FLOPs / 显存 / 时间

@@ -20,6 +20,7 @@ catalog: true
 ### 1. 从文件到块
 
 ```mermaid
+%% 图：从文件到块：按文件类型走规则抽取、布局模型或视觉语言模型三级解析，得到结构化文本后分块并附元数据
 flowchart TB
     F["文件<br/>PDF · Office · HTML · 扫描件 · 图片"] --> P{"解析梯级"}
     P -->|"数字原生 PDF · HTML"| R1["① 规则抽取<br/>读文本层 → markdown<br/>毫秒 · 免费 · 无 GPU"]

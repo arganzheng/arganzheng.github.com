@@ -20,6 +20,7 @@ catalog: true
 本文按 `make_ttgir` 里这几个 pass 的**实际顺序**组织，用 `convert_layout` 的数量作为贯穿的刻度：
 
 ```mermaid
+%% 图：make_ttgir 里 layout 相关 pass 的实际顺序，以 convert_layout 数量为刻度：16 → 23 → 3 → 7 → 3 → 1
 flowchart LR
     c0["ConvertTritonToTritonGPU<br/>16 个 convert"]
     c1["Coalesce<br/>23 个"]
@@ -120,6 +121,7 @@ for (Attribute e : info.encodings) {
 前向传播消不掉的转换，第二阶段从另一头试：对每个剩下的 `convert_layout`，**能不能把它的源那一整段计算用目标 layout 重新算一遍**（rematerialize），使转换不再需要？
 
 ```mermaid
+%% 图：后向重物化：取 convert_layout 源的后向切片，代价模型判定值得就用目标 layout 把切片重算一遍并删掉 convert
 flowchart TB
     cvt["convert_layout %x : #A -> #B"]
     slice["取 %x 的后向切片：所有定义 %x 所依赖的、可以重物化的 op<br/>（canBeRemat：不是昂贵的 load / store、不是 dot / atomic、不是 while）<br/>直到遇到常量、函数参数、或不可重物化的 op 为止"]

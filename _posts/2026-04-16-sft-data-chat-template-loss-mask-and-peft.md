@@ -66,6 +66,7 @@ SFT 的目标函数与预训练完全相同——对目标 token 的交叉熵—
 一条 SFT 样本有两半，两半的来源与质量标准不同：
 
 ```mermaid
+%% 图：一条 SFT 样本的两半：prompt 侧决定覆盖面，回答侧决定质量，汇入过滤与配比
 flowchart LR
     subgraph P["prompt 侧"]
         direction TB

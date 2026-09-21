@@ -48,12 +48,13 @@
     return n + 1;
   }
 
-  // `---\ntitle: …\n---` front matter, else the first `%% …` comment line.
+  // `---\ntitle: …\n---` front matter, else the first `%% …` comment line
+  // (leading `%%{init: …}%%` directives do not count as lines).
   function mermaidTitle(source) {
     var m = /^\s*---\s*\n([\s\S]*?)\n---/.exec(source || '');
     if (m) { var t = /^\s*title:\s*(.+?)\s*$/m.exec(m[1]); if (t) return norm(t[1].replace(/^["']|["']$/g, '')); }
     // only a comment on the very first line counts as a title — mid-source comments are just comments
-    var first = String(source || '').replace(/^\s*---[\s\S]*?\n---\s*\n/, '').replace(/^\s+/, '').split('\n')[0];
+    var first = String(source || '').replace(/^\s*---[\s\S]*?\n---\s*\n/, '').replace(/^\s*(%%\{[\s\S]*?\}%%\s*)*/, '').split('\n')[0];
     var c = /^%%\s*(?!\{)(.+?)\s*$/.exec(first || '');
     return c ? norm(c[1].replace(/^(图|title)\s*[:：]\s*/i, '')) : '';
   }

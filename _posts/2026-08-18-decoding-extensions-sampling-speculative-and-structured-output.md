@@ -111,6 +111,7 @@ class Sampler(nn.Module):
 把这个"先共用、再分叉、最后按行合流"的结构画出来（整张 `[num_reqs, V]` 的 logits 从头到尾没有被拆成两个 batch）：
 
 ```mermaid
+%% 图：Sampler 的流水线：先共用会改变 argmax 的处理，再分 greedy 与随机采样两路，最后按行 torch.where 合流
 flowchart TB
     L["logits #91;num_reqs, V#93; → float32<br/>（若要 logprobs，先留一份原始 logits）"]
     PRE["会改变 argmax 的处理<br/>allowed_token_ids → bad_words<br/>→ min_tokens / logit_bias → penalties"]

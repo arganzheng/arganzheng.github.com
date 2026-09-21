@@ -263,6 +263,7 @@ Micikevicius 等 2017 提出的混合精度训练包含三个部件，后来所�
 第 2 点节省的是激活的显存与 GEMM 的时间——这是混合精度的全部收益来源。第 1 点和第 3 点都是为了让第 2 点不破坏收敛而付出的代价。把一步迭代中每个张量的精度标出来，就能看到低精度只出现在环路的中段，权重的"权威副本"与更新始终留在 FP32：
 
 ```mermaid
+%% 图：混合精度一步迭代的精度标注：低精度只出现在环路中段，master weights 与更新始终留在 FP32
 flowchart TB
     master["FP32 master weights w"]
     cast["cast 为 BF16/FP16 副本<br/>(FP32 → BF16 对低 16 位舍入)"]
@@ -306,6 +307,7 @@ FP16 的最小正规数是 $$2^{-14} \approx 6.1 \times 10^{-5}$$，最小次正
 loss scaling 的做法是把 loss 乘 $$S$$（如 $$2^{16}$$）再反向，链式法则让所有梯度线性放大 $$S$$ 倍，整体平移进窗口；在更新权重之前把梯度除以 $$S$$（在 FP32 中进行，因为 master weights 是 FP32）。$$S$$ 太小则下溢没有解决，太大则梯度溢出成 inf。**动态 loss scaling** 自动调节：每步检查梯度里有没有 inf/NaN，有则跳过本步更新并把 $$S$$ 减半；连续 $$N$$ 步（PyTorch `GradScaler` 默认 2000）没有溢出则把 $$S$$ 加倍。它让 $$S$$ 始终逼近"刚好不溢出"的最大值，把 FP16 的 30 个二进制数量级尽量对准梯度的分布。每一步的决策如下：
 
 ```mermaid
+%% 图：动态 loss scaling 的流程：有 inf / NaN 则跳步并减半 S，连续正常 growth_interval 步则翻倍
 flowchart TB
     bwd["反向结束, 得到 FP16 梯度 g·S"]
     chk{"g·S 中有 inf / NaN ?"}
@@ -378,6 +380,7 @@ E4M3 的范围只有 5 个十进制数量级，任何真实张量都要先乘一
 Transformer Engine 使用 **delayed scaling**：不用当前张量的 amax，而是用这个张量在过去若干步（默认记录最近 1024 步的历史）的 amax 的最大值或最近值来确定本步的 scale，本步的 amax 在 GEMM 的 epilogue 里顺便算出来，更新历史供下一步用。这样量化与 GEMM 可以融合在一个 kernel 里，代价是当激活分布突变时，scale 落后一步，可能溢出（E4M3 无 inf，溢出饱和成 448 或变 NaN）。两种做法对张量 $$x$$ 的访问次数与 scale 的来源对比如下：
 
 ```mermaid
+%% 图：per-tensor scaling 与 delayed scaling：前者读两遍 x，后者用历史 amax 把量化与 GEMM 融合成一遍
 flowchart TB
     subgraph pt["per-tensor scaling: 即时 amax"]
         direction TB

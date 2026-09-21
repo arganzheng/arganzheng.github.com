@@ -938,6 +938,7 @@ void TORCH_LIBRARY_IMPL_init_myops_CPU_0(torch::Library& m) {
 把整条链串起来：
 
 ```mermaid
+%% 图：从 load_library 到算子可调用：dlopen 触发静态构造，TORCH_LIBRARY 宏在构造函数里向 Dispatcher 注册
 flowchart TD
     A["Python: torch.ops.load_library('ext.so')<br/>或 import ext（若 ext.so 是 Python 扩展）"] --> B["ctypes.CDLL / dlopen"]
     B --> C["动态加载器 ld.so 映射 ext.so，<br/>解析依赖（libtorch_cpu.so 等）"]
@@ -1589,6 +1590,7 @@ m.def("bincount(Tensor self, Tensor? weights=None, SymInt minlength=0) -> Tensor
 本机没有 build 目录，下面以模板和生成器代码为依据说明 `bincount` 条目在 `build/aten/src/ATen/` 下会出现在哪些文件里、长什么样。文件名和结构是确定的；具体的空白、注释可能与实际生成物略有差别。
 
 ```mermaid
+%% 图：一个 native_functions.yaml 条目生成了什么：torchgen 产出的头文件、注册文件与 wrapper
 flowchart LR
     Y["native_functions.yaml<br/>- func: bincount(...)<br/>dispatch: CPU: _bincount_cpu"] --> G[torchgen/gen.py]
     G --> F["Functions.h / ops/bincount.h<br/>公开 C++ API：at::bincount(...)"]

@@ -928,6 +928,7 @@ Linux 上 attach 可能被 `ptrace_scope` 拦住（`/proc/sys/kernel/yama/ptrace
 CPU kernel 的断点位置有三个层次，从 Python 到最底层：
 
 ```mermaid
+%% 图：CPU kernel 的断点层次：从 Python 入口经 Dispatcher、autograd、后端 wrapper 到 DispatchStub 的 kernel
 flowchart TD
     A["Python: torch.add(x, y)"] --> B["torch/csrc/autograd/generated/python_torch_functions_*.cpp<br/>THPVariable_add（参数解析）"]
     B --> C["at::add → Dispatcher::call<br/>aten/src/ATen/core/dispatch/Dispatcher.h"]
@@ -1157,6 +1158,7 @@ use(p[0]);                              // 读已释放的内存：可能读到�
 把这些合起来，排查流程是：
 
 ```mermaid
+%% 图：崩溃与不崩溃两条排查路径：core / gdb 看栈，ASan / UBSan / TSan 抓未定义行为
 flowchart TD
     A[进程崩了?] -->|是| B[ulimit -c unlimited 拿 core<br/>或 gdb --args 直接跑]
     B --> C[bt: 找第一个自己代码的帧]

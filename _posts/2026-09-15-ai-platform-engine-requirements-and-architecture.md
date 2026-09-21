@@ -148,6 +148,7 @@ LOCAL_RANK     本进程在本节点上的编号（0..nproc_per_node-1），代�
 两条故障路径与两个责任方画在一起：
 
 ```mermaid
+%% 图：两条故障路径与两个责任方：worker 挂了 torchrun 在 --max-restarts 内自己闭环，agent 或节点消失由平台按 gang 或补节点处理
 flowchart TB
     subgraph torch_side["torchrun 自己处理"]
         W["某个 worker 进程退出或不健康"] --> M["本机 agent _monitor_workers()<br/>看到 FAILED / UNHEALTHY"]
@@ -456,6 +457,7 @@ Pod 组抽象      LeaderWorkerSet / JobSet 定义"哪些 Pod 是一组"，调�
 把"训练任务只走资源层"这条路展开到组件，可以看到它在哪三处会停下来等：
 
 ```mermaid
+%% 图：训练任务从提交到运行的三个等待点：Kueue 配额排队、kube-scheduler 逐 Pod 调度、torchrun rendezvous
 sequenceDiagram
     participant U as 用户
     participant T as Trainer 控制器

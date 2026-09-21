@@ -269,6 +269,7 @@ RL 一步的学习率小（$$10^{-6}$$ 量级），一步之后**多数参数的
 `delta_sharded` 后端（`verl/checkpoint_engine/delta_checkpoint_engine.py` + `verl/workers/engine/utils/hf_delta_export.py`）把 diff 放到 **all-gather 之下**：
 
 ```mermaid
+%% 图：delta_sharded 权重同步：每个训练 rank 与 pinned 快照逐字节比较，只 gather 变化对，广播给推理 worker 原地覆盖
 flowchart LR
     subgraph T[每个训练 rank（FSDP Shard0）]
         A[本 rank 的分片<br/>bf16] --> B[与 pinned CPU 快照<br/>逐字节比较]

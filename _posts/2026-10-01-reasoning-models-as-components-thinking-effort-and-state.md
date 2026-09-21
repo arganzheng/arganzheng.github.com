@@ -31,6 +31,7 @@ catalog: true
 ### 2. 一轮推理调用的解剖
 
 ```mermaid
+%% 图：一轮推理调用的解剖：思考阶段生成不可见的 thinking token，产物作为状态必须在下一轮携带，effort 控制思考的量级
 flowchart TB
     IN["输入：完整历史（含上一轮的 thinking / reasoning 状态）+ 本轮 user 或 tool result"] --> THINK["思考阶段<br/>生成 thinking token：不可见 / 摘要<br/>按输出价计费 · 占 TTFT"]
     THINK --> OUT["可见输出<br/>文本 或 tool_call"]

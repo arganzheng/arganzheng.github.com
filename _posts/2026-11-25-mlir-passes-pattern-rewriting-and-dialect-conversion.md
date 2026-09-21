@@ -134,6 +134,7 @@ struct MulPow2ToShift : public OpRewritePattern<arith::MulIOp> {
 `applyPatternsGreedily(op, patterns)` 是把一组 pattern 应用到不动点的驱动器：
 
 ```mermaid
+%% 图：applyPatternsGreedily 的循环：取出 op 先 fold 再 DCE，按 benefit 试 pattern，改动的使用者入表，工作表空后再扫一轮直到收敛
 flowchart TB
     init["把 region 内所有 op 放入工作表（top-down：按前序）"]
     pop["取出一个 op"]
@@ -273,6 +274,7 @@ Greedy rewrite 有一个隐含前提：**改写前后，被替换的值类型相
 ### 2. 四个组件
 
 ```mermaid
+%% 图：Dialect Conversion 的四个组件：ConversionTarget 定合法性，TypeConverter 定类型怎么变，ConversionPattern 定 op 怎么变，driver 全部成功才提交
 flowchart TB
     target["ConversionTarget：合法性<br/>Legal：这些 op / 方言不用动<br/>Illegal：这些必须消失<br/>Dynamic：由谓词判断（如「所有 tensor 操作数都带 layout」）"]
     tc["TypeConverter：类型怎么变<br/>addConversion：tensor&lt;…&gt; → tensor&lt;…, #blocked&gt;<br/>materialization：两个类型之间需要桥接时插什么 op"]
@@ -527,6 +529,7 @@ func.func @g(%arg0: i1) -> i32 {
 以 `Coalesce` 为例，`compiler.py` 里那一行 `passes.ttgpuir.add_coalesce(pm)` 背后的链：
 
 ```mermaid
+%% 图：一个 Triton pass 从哪里来：Passes.td 用 TableGen 声明 → mlir-tblgen 生成 CRTP 基类与 create / register 函数 → .cpp 实现 runOnOperation
 flowchart TB
     td["include/triton/Dialect/TritonGPU/Transforms/Passes.td<br/>def TritonGPUCoalesce : Pass&lt;&quot;tritongpu-coalesce&quot;, &quot;mlir::ModuleOp&quot;&gt; { dependentDialects = [ttg] }"]
     gen["mlir-tblgen -gen-pass-decls<br/>→ impl::TritonGPUCoalesceBase&lt;Derived&gt;（CRTP 基类：名字、选项、依赖方言）<br/>→ createTritonGPUCoalesce()<br/>→ registerTritonGPUCoalesce()"]

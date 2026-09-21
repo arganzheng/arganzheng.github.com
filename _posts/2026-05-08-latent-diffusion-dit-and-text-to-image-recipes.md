@@ -35,6 +35,7 @@ updated: 2026-09-15
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+%% 图：文生图流水线：文本编码器给条件，VAE 编码器把图像压成 latent，去噪网络迭代几十步，VAE 解码器重建像素
 flowchart TB
     TXT["文本 prompt"] --> TE["`**文本编码器**
 CLIP 文本塔 / T5-XXL / LLM`"]

@@ -72,6 +72,7 @@ MLIR 把两者分开：
 ### 1. 包含关系
 
 ```mermaid
+%% 图：MLIR 的包含关系：Operation 拥有 Region，Region 拥有 Block，Block 拥有 Operation，Value 是 OpResult 或 BlockArgument
 flowchart TB
     op["Operation<br/>名字（dialect.mnemonic）· 操作数 Value* · 结果 OpResult<br/>属性字典 · Region 列表 · 后继 Block 列表 · Location"]
     region["Region<br/>Block 的有序列表"]

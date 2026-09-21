@@ -81,6 +81,7 @@ $$y = \sum_{i \in \text{TopK}(s)} g_i \cdot \text{FFN}_i(x) \ \big(+ \sum_{j=1}^
 把三步放在一起，一个 token 经过 MoE 层的数据流如下（以 $$k = 2$$ 为例，灰色是未被选中、这一步不参与计算的专家；共享专家绕过 router 直接接收输入）：
 
 ```mermaid
+%% 图：MoE 层的结构：router 打分、top-k 选择，只有选中的专家参与计算，共享专家绕过 router
 flowchart TB
     TOK["输入 token x（d 维）"]
     RT["router：W_r x，W_r 是 E × d<br/>softmax 或 sigmoid 得到 E 个分数 s_i"]
@@ -433,6 +434,7 @@ prefill 阶段的数字更直观：一个 4096 token 的序列，每层 dispatch
 这个限制之所以能省流量，是因为一份 hidden state 只需跨 IB 到达目标节点**一次**，节点内再由 NVLink 分发给该节点上的多个专家。下图以一个 token 的 8 个专家落在 4 个节点（1 + 3 + 2 + 2）为例：
 
 ```mermaid
+%% 图：节点受限路由：一份 hidden state 跨 IB 只到达每个目标节点一次，节点内再由 NVLink 分发
 flowchart TB
     T["token 的 hidden state（本节点 N0）<br/>先按节点亲和度选 4 个节点，再在其中取 top-8"]
     subgraph n0["节点 N0（本节点）"]

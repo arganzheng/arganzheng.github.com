@@ -194,6 +194,7 @@ versa.
 ### 1. 目录 → 库
 
 ```mermaid
+%% 图：PyTorch 源码目录到 torch/lib 里的 .so：实线是编进哪个库，虚线是库依赖哪个库
 flowchart TD
     subgraph SRC[源码目录]
         C10[c10/]

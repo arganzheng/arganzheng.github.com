@@ -39,6 +39,7 @@ vLLM V1 的整体架构遵循**控制面/数据面分离**的经典设计哲学�
 vLLM V1 的整体架构遵循**控制面/数据面分离**的经典设计哲学。我们自顶向下，逐层解剖其系统拓扑。
 
 ```mermaid
+%% 图：vLLM V1 的静态系统拓扑：API 层 → 引擎层 → 调度层 → 执行层，控制面与数据面分离
 graph TB
     subgraph "API Layer (控制面入口)"
         Client[Client / OpenAI SDK]
@@ -135,6 +136,7 @@ class EngineCore:
 ### 4. Worker 与 Model Executor：模型执行的设备抽象
 
 ```mermaid
+%% 图：Executor 与 Worker：一次 execute_model() 分发给多个 GPU Worker，各自的 ModelRunner 持有分片权重与 KV Cache
 graph TB
     EX["Executor<br/><i>执行抽象：单设备或多设备模型调用</i>"]
     EX --> W0 & W1 & WN
@@ -172,6 +174,7 @@ graph TB
 上面几节按"模块"切分，但真正决定谁会阻塞谁的是**进程边界**。默认的 `vllm serve` + `MultiprocExecutor` 部署下，一个请求要跨越三类进程，中间是两种完全不同的 IPC 机制：
 
 ```mermaid
+%% 图：三类进程与两道 IPC 边界：API Server 与 EngineCoreProc 之间是 ZMQ，EngineCore 与 Worker 之间是共享内存消息队列
 flowchart TB
     subgraph PA["进程 A：API Server（uvicorn 事件循环 + AsyncLLM）"]
         direction TB
@@ -211,6 +214,7 @@ flowchart TB
 ## 三、一次请求的完整生命周期
 
 ```mermaid
+%% 图：一次请求的完整生命周期：从 POST /v1/chat/completions 经 AsyncLLM、EngineCore、Scheduler、Executor 到 GPU，再流式返回
 sequenceDiagram
     participant C as Client
     participant API as API Server
@@ -293,6 +297,7 @@ sequenceDiagram
 上面的时序图把 EngineCore 和 AsyncLLM 之间画成了同步的请求-应答，实际上它们跨进程、各自有独立的循环。下面把 decode 循环中**一个 token 的回程**放大，重点看两件事：detokenize 发生在哪个进程，以及引擎循环为什么不需要等它。
 
 ```mermaid
+%% 图：一个 token 的回程：ModelRunner 采样后 D2H，EngineCore 主线程立刻回到 schedule()，序列化与 detokenize 分别在输出线程与进程 A 完成
 sequenceDiagram
     participant MR as ModelRunner<br/>(Worker 进程, GPU)
     participant EC as EngineCore 主线程<br/>(进程 B)

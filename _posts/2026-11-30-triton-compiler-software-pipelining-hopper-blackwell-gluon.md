@@ -51,6 +51,7 @@ for k in range(0, K, BLOCK_K):
 Triton 把这件事拆成四个 pass（`make_ttgir` 里 `add_assign_latencies → add_schedule_loops → add_pipeline`，最后一个内部再分 `LowerLoops` 与 `PipelineExpander`），每一步只做一个决定：
 
 ```mermaid
+%% 图：软件流水的四个 pass：AssignLatencies 决定哪些 load 值得流水，ScheduleLoops 分 stage，LowerLoops 变成 async_copy 与缓冲，PipelineExpander 机械展开
 flowchart TB
     L["AssignLatencies<br/>决定：哪些 load 值得流水、提前几个迭代<br/>输出：op 上的 tt.latency 属性"]
     S["ScheduleLoops<br/>决定：每个 op 属于哪个 stage、stage 内的顺序（cluster）<br/>输出：op 上的 loop.stage / loop.cluster 属性"]
@@ -404,6 +405,7 @@ def small_mma_kernel(a_desc, b_desc, c_desc, d_desc, LHS_IN_REG: gl.constexpr, I
 ### 3. 它跳过了什么
 
 ```mermaid
+%% 图：Triton 与 Gluon 的 TTGIR 流水线对照：Gluon 前端直接生成带 layout 的 TTGIR，跳过 Coalesce 到 Pipeline 的全部 layout 优化
 flowchart LR
     subgraph triton["Triton（tl）"]
         direction TB

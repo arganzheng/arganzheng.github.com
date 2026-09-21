@@ -36,6 +36,7 @@ updated: 2026-09-14
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+%% 图：自回归图像生成的流水线：VQ 编码器把图变成离散 token 网格，Transformer 按栅格 / mask / next-scale 顺序生成
 flowchart TB
     IMG["图像 256²"] -. "训练时" .-> ENC["`**VQ 编码器**（f16）
 256² × 3 → 16 × 16 个连续特征`"]

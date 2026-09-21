@@ -75,6 +75,7 @@ Qwen2-Audio（2024）的结构就是 VLM 的翻版（第二篇）：Whisper-larg
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
+%% 图：LLM 说话的三种做法：外接 TTS、LLM 直接出语音 token（Moshi）、Thinker-Talker（Qwen2.5-Omni）
 flowchart LR
     subgraph A["(a) 外接 TTS"]
         A1[LLM] -->|文本| A2[TTS] -->|波形| A3((🔊))

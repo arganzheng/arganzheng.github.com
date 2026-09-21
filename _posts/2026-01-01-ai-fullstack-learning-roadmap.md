@@ -29,6 +29,7 @@ updated: 2026-09-17
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+%% 图：模型的一生：三张地图在同一条链上，实线是产物的流动，虚线是需求的回流
 flowchart LR
     subgraph ALGO["造模型 · 算法地图"]
         direction TB
@@ -134,6 +135,7 @@ flowchart LR
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 420}}}%%
+%% 图：全栈的一条线：六段主线与按需进入的深入篇
 flowchart TB
     S1["`**1 算法基础**
 L0 数学 8 篇 ≈ 3h

@@ -275,6 +275,7 @@ float sm90SpeedArrayInter[] = { 48.0, 45.0, 42.0, 40.0, 30.0, 24.0, 22.0, 20.0, 
 把这个"搜—不完美—放宽一项—重搜"的循环和两个出口画出来：
 
 ```mermaid
+%% 图：拓扑搜索的循环：DFS 找 channel，不完美就按顺序放宽一项重搜，两个出口是完美解与用尽放宽项后的最优解
 flowchart TB
   S0["从 speedArray 取第一个 ≤ maxBw 的速度<br/>bwIntra = bwInter = speed，sameChannels = 1"]
   S1["ncclTopoSearchRec：DFS 回溯<br/>沿 type ≤ typeIntra 且余量 ≥ speed 的链路走遍所有 GPU<br/>每找到一条就从链路上扣带宽、记一个 channel"]
@@ -566,6 +567,7 @@ Simple    ≈ 100%        512 KiB slot + fence + head/tail     最高   最高  
 把这些判定按 all_reduce 串起来，就是"初始化的拓扑输入 → 执行期候选集"的决策链（第八章的手算只在候选集里比大小）：
 
 ```mermaid
+%% 图：算法 / 协议候选集的决策链：Ring、Tree、LL、Simple 总是可用，三道门决定 LL128、NVLS、CollNet 能不能加
 flowchart TB
   IN["输入：typeIntra / typeInter、有无 NVS、nNodes、collnet 插件、计算能力<br/>Ring、Tree、LL、Simple 总是可用，三道门决定还能加什么"]
   Q128["门 1  typeIntra ≤ NVB 且 typeInter ≤ PXB (Hopper 起 PXN/P2C)<br/>且各 GPU 计算能力相同且 ≥ 7.0 ?"]
@@ -866,6 +868,7 @@ NET transport 的 `sendProxyProgress`（`src/transport/net.cc`）对每个 chann
 一个 slot 从发送端 GPU 写入到接收端 GPU 读走，五个参与者之间谁等谁：
 
 ```mermaid
+%% 图：proxy 线程与 GPU kernel 的协作：一个 slot 从发送端 GPU 写入到接收端 GPU 读走，只靠 head / tail 计数器同步
 sequenceDiagram
   participant GK as 发送端 GPU kernel
   participant SP as 发送端 proxy

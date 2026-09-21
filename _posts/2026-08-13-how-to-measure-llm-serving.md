@@ -46,6 +46,7 @@ LLM Serving 的性能不能只看单一指标，而应同时关注四个维度�
 ```
 
 ```mermaid
+%% 图：LLM Serving 指标体系：延迟、吞吐、资源效率、服务质量四组
 mindmap
   root((LLM Serving 指标体系))
     延迟指标

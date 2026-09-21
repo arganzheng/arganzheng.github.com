@@ -206,6 +206,7 @@ def matmul_kernel(a_ptr, b_ptr, c_ptr, M, N, K, ...):
 它的工作方式，用一次调用的流程画出来：
 
 ```mermaid
+%% 图：@triton.autotune 一次调用的流程：新 key 首次出现时剪枝、逐 config 编译计时选最快，之后直接命中缓存
 flowchart TB
     invoke["调用 kernel#91;grid#93;(args)"]
     key{"(M, N, K) 这组 key<br/>进程内缓存里有吗？"}
@@ -504,6 +505,7 @@ Triton matmul 能接近 cuBLAS，是因为编译器自动做了第五、六篇�
 ### 1. 编译流水线的六层
 
 ```mermaid
+%% 图：Triton 编译流水线的六层：Python 源码 → TTIR → TTGIR → LLVM IR → PTX → cubin
 flowchart TB
     py["Python 源码<br/>@triton.jit 函数"]
     ttir["TTIR（Triton IR）<br/>硬件无关的块级张量 IR<br/>tt.load / tt.store / tt.dot / tt.reduce / scf.for"]
@@ -610,6 +612,7 @@ TTGIR 里的每个张量类型都带一个 layout 属性。以 `add_kernel`（`B
 把这几个 layout 按一个 K 迭代里数据流过的顺序串起来，标出每一步数据所在的存储层次、编译器为这一步生成的 PTX 指令，以及它替代了前几篇的哪段手写代码：
 
 ```mermaid
+%% 图：一个 K 迭代里的 layout 流转：#blocked 加载、#shared 环形缓冲、#dot_op fragment、#mma 累加器、再经 #blocked 写回
 flowchart TB
     gA["全局内存：A、B 的 K-tile（BF16）"]
     blk["#blocked（加载布局）<br/>sizePerThread=#91;1,8#93;：每线程连续 8 个 BF16 = 16 B<br/>只决定每个线程负责搬哪 16 B"]
@@ -901,6 +904,7 @@ def _fwd_kernel(Q, K, V, K_cache, V_cache, B_Loc, sm_scale, ..., Out, ...,
 反过来就是答案，先画成一棵决策树：
 
 ```mermaid
+%% 图：什么时候值得手写的决策树：需要 Triton 没暴露的指令、memory-bound、端到端热点、Hopper 极限四个问题
 flowchart TB
     q0{"需要 Triton 没暴露的指令？<br/>mma/cp.async/mbarrier 级 PTX、<br/>stmatrix、TMA multicast、cluster"}
     q1{"是 memory-bound 吗？<br/>elementwise / norm / softmax / gather"}

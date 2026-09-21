@@ -398,6 +398,7 @@ $$
 两种路径的 K 循环放在一起对比——scale 乘在哪、需要几套累加器：
 
 ```mermaid
+%% 图：两种 scale 路径的 K 循环：scale 不依赖 k 时放 epilogue，per-block 128×128 时每 128 个 k 在 CUDA Core 上 promote 一次
 flowchart TB
     subgraph ep["per-tensor / per-token / per-channel：scale 不依赖 k"]
         direction TB
@@ -504,6 +505,7 @@ __global__ void dynamic_per_token_scaled_fp8_quant_kernel_strided(
 以"residual add → RMSNorm → 动态量化"这条 decoder layer 里最常见的链为例，分开做与融合做各有哪些张量经过 HBM（每元素字节数，BF16 输入）：
 
 ```mermaid
+%% 图：分开与融合的字节数：residual add → RMSNorm → 动态量化，三次 launch 13 B/元素对一次 launch 7 B/元素
 flowchart TB
     subgraph sep["分开：3 次 launch，共 13 B/元素"]
         direction TB
@@ -795,6 +797,7 @@ $$
 GPU 上不能一个 token 一个 token 地算——要把走同一个 expert 的 token 收集到一起做 GEMM。于是 vLLM 的 fused MoE 流水线（`vllm/model_executor/layers/fused_moe/fused_moe.py` 编排，kernel 在 `csrc/moe/`）是：
 
 ```mermaid
+%% 图：vLLM fused MoE 流水线：topk_softmax → moe_align_block_size → grouped GEMM #1 → SiLU-and-mul → grouped GEMM #2 → 加权求和
 flowchart TB
     logits["router logits [T, E]"]
     topk["topk_softmax<br/>每 token 选 top-k（可 renormalize）"]
@@ -1270,6 +1273,7 @@ __global__ void w4a16_gemv_kernel(__nv_bfloat16* __restrict__ y,
 画成数据流，颜色标出每一步是本系列哪一篇的 kernel、以及哪些边界被融合掉了：
 
 ```mermaid
+%% 图：一个 decoder layer 前向的十次 launch：四个 GEMM、两处 attention 读写端、四个融合的 elementwise / row-wise kernel
 flowchart TB
     in["x [T,4096] + residual [T,4096]"]
     n1["① fused_add_rms_norm<br/>residual += x；xn = norm(residual)·w"]
