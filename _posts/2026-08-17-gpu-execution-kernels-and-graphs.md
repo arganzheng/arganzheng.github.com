@@ -27,6 +27,8 @@ Decode 偏 memory-bound、Prefill 偏 compute-bound，但落到 GPU 上，浪费
 | 搬的**每个数太胖** | 带宽被低信息密度的数据占满 | FP8 / INT8 / INT4 量化 | 
 | **轮次本身太多** | 每轮只产出 1 个 token | 投机解码 | 
 
+Table: GPU 上的四种浪费形态
+
 
 ### 2. 回到我们的例子：一笔账
 
@@ -39,6 +41,8 @@ Decode 偏 memory-bound、Prefill 偏 compute-bound，但落到 GPU 上，浪费
 | Prefill 2050 token | ≈ 92 ms（8×H100 稠密算力 7.9 PFLOPS，按 40% MFU 估） | 3% |
 | Decode 300 步 | 300 × 10 ms ≈ **3000 ms** | **97%** |
 | E2E | ≈ 3.1 s | |
+
+Table: 贯穿全文例子的一笔时间账
 
 **看清楚这个 3% vs 97%**：TTFT 只有 92 ms，而 97% 的时间花在那 300 次逐 token 的 decode 上。这解释了为什么绝大多数优化都是针对 Decode 侧的优化——Prefill 再快一倍，端到端也只省 3%。
 
@@ -54,6 +58,8 @@ Decode 偏 memory-bound、Prefill 偏 compute-bound，但落到 GPU 上，浪费
 | 五 | 能不能少跑几轮模型？ | 投机解码的原理、vLLM 中的工程实现，以及 EAGLE / Medusa / MTP 等变体 |
 | 六 | 本文小结 |  |
 | 七 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、GPU 为什么在空转？—— Kernel Launch 与 CUDA Graph
 
@@ -169,6 +175,8 @@ cudagraph_capture_sizes（默认生成规则，vllm/config/compilation.py）：
 | FULL | 整个 forward（含 attention）录成**一张图**，一次 replay | "小模型或短 prompt 负载可能有收益；很多 backend 不支持" | 要求 attention backend 支持 CUDA Graph 下的 prefill（形状必须能分桶）；对多数负载不如 FULL_AND_PIECEWISE |
 | FULL_DECODE_ONLY | decode batch 走 FULL；混合 batch 不录图 | "适合 P/D 分离中的 decode 实例：prefill 不重要，可以省下 piecewise 图的显存" | 只录一套 decode 图，显存开销最小的"有图"方案 |
 | FULL_AND_PIECEWISE | decode batch 走 FULL；prefill / 混合 batch 走 PIECEWISE | "对大多数模型最快，是默认值" | 常驻两套图（decode 各桶的 FULL 图 + piecewise 段图），显存开销最大 |
+
+Table: cudagraph_mode 的几种模式
 
 PIECEWISE 的"分段"落到一层 Transformer 上长什么样？`VllmBackend.split_graph()`（`vllm/compilation/backends.py`）拿到整个 forward 的 FX 图后，在每一个 `splitting_ops`（默认是 `_attention_ops`，即 `vllm::unified_attention_with_output` 等）处切一刀，切出来的每一段交给 Inductor 编译并由 `CUDAGraphWrapper` 各录一张图；attention 本身留在图外 eager 调用：
 
@@ -332,6 +340,8 @@ HBM -> V_tile ┤  Online Softmax(S_tile):              ├
 | `O_acc` | `[Bq, d]` | 在线累加的输出 |
 | `m, l` | `[Bq]` | softmax 的运行时统计量（行最大值、指数和） |
 
+Table: FlashAttention 驻留 SRAM 的张量
+
 **③ Online Softmax 是怎么“边算边归一化”的**
 
 FlashAttention能够运转的关键在于**Online Softmax**，它让 softmax 不需要先看到整行就能开始累加。
@@ -387,6 +397,8 @@ FlashAttention 并没有把注意力从 O(N²) 变成 O(N)。
 | IO 效率 | 低（中间矩阵 HBM 往返） | 高（tile 在 SRAM 内复用） |
 | 实现复杂度 | 简单 | 高（需要手写 CUDA kernel） |
 
+Table: Standard Attention 与 FlashAttention 的对比
+
 **FlashAttention 在显存上是渐进式的胜利（O(N²) → O(N)，这条无条件成立），在带宽上拿到的是一个常数倍的胜利**——倍数约为 `M/d²`，`d` 越小、SRAM 越大越划算。实测 2~4× 的加速也不只来自访存量本身，还来自少了一趟独立的 softmax kernel、以及不再被 N² 显存卡住 batch。
 
 **⑤ 训练和推理中的差异**
@@ -415,6 +427,8 @@ Decode 侧的办法不是继续沿 query 切，而是**把切分方向换到 KV 
 | SRAM ↔ HBM | query | FlashAttention | 
 | SM ↔ SM | KV | Flash-Decoding / split-KV |
 | GPU ↔ GPU | 序列 | Ring Attention | 
+
+Table: 分块计算 + 在线累加在不同层级的重现
 
 因此，在 Serving 场景中，FlashAttention 的关键不再只是“能不能把 attention 算得更省”，而是“在当前 workload 形态下，应该沿哪一维切块、在哪一层级做合并”。这也是为什么 Prefill、Decode、跨 GPU 长序列分别对应 FlashAttention、Flash-Decoding 和 Ring Attention。
 
@@ -446,6 +460,8 @@ Kernel Fusion 的核心目标，是**把原本多个相邻的算子合并到一�
 | 中间 tensor | 2 个 | **0 个** |
 | kernel launch | 3 次 | 1 次 |
 
+Table: 未融合与融合后的 RMSNorm → RoPE → Residual
+
 可以看到，未融合版本的问题并不只是“多了几个算子”，而是每个算子之间都要把中间结果写回 HBM，再从 HBM 读出来继续处理。这种反复搬运数据的方式，会显著放大显存带宽压力。相比之下，融合后的 kernel 直接在一次执行过程中完成多个连续操作，只在最开始读取输入、最后写出结果，中间过程尽量留在寄存器或共享内存中，从而大幅减少内存访问。
 
 Kernel Fusion优化带来的收益主要有三类：
@@ -474,6 +490,8 @@ Kernel Fusion优化带来的收益主要有三类：
 | Attention | `softmax(QKᵀ/√d)·V` 全程留在 SRAM，直接从 paged KV Cache 读 | FlashAttention / FlashInfer / Triton 后端 | 本节主角：中间的 N×N 矩阵不落 HBM |
 | KV Cache 写入（MLA） | RoPE + 拼接 + 写 cache + 可选 FP8 转换 | `concat_and_cache_mla_rope_fused`（`cache_kernels_fused.cu`） | MLA 专用；普通模型的写入是 `reshape_and_cache_flash`（`cache_kernels.cu`），只做写入 |
 | 采样中的重算子 | repetition penalty；per-row top-k | `apply_repetition_penalties_`、`top_k_per_row_*`（`sampler.cu`） | 只是采样流水线中的两个 kernel；完整流程（temperature → top-k/top-p → 采样 → logprobs）在 `vllm/v1/sample/sampler.py` 里是多阶段 PyTorch 代码，**不是**一个融合 kernel |
+
+Table: vLLM 里的融合算子
 
 这些融合算子覆盖了推理过程中的几个关键环节：
 
@@ -510,6 +528,8 @@ Kernel Fusion 和 FlashAttention 的共同点在于，它们都在解决同一�
 | 量化收益 | 减少显存、加速推理 | 加速 GEMM、减少带宽 | 更多并发、更长上下文 |
 | 典型方法 | GPTQ / AWQ / W4A16 | W8A8 / FP8、per-token | FP8 / INT8、per-head |
 
+Table: 推理量化的三类对象
+
 三种量化对象不是均匀受益的。权重量化同时降低显存和 Decode 带宽压力，因为 Decode 每步都要读权重；KV Cache 量化主要受益于 Decode 的历史 KV 读取和并发数；激活量化则更直接加速 Prefill 的 GEMM。选择方案前需要先判断瓶颈在 Prefill 还是 Decode。
 
 ### 2. 权重量化方法
@@ -522,6 +542,8 @@ Kernel Fusion 和 FlashAttention 的共同点在于，它们都在解决同一�
 | **FP8** | W8A8 | 硬件原生 FP8 格式 | 在线/离线 | 接近 FP16 |
 | **Weight-only** | W4A16/W8A16 | 只量化权重，激活保持 FP16 | 离线 | 较好 |
 
+Table: 权重量化方法对照
+
 以 Llama-70B 为例：
 
 | 格式 | 权重大小 | Decode 加速 | 精度损失 |
@@ -530,6 +552,8 @@ Kernel Fusion 和 FlashAttention 的共同点在于，它们都在解决同一�
 | FP8 (W8A8) | 70 GB | 1.5–2.0× | 极小 |
 | INT8 (W8A8) | 70 GB | 1.5–2.0× | 小 |
 | INT4 (W4A16) | 35 GB | 1.8–2.5× | 中等 |
+
+Table: Llama-70B 各量化格式的权重大小与加速
 
 Decode 之所以能加速，有三个叠加的原因：
 
@@ -548,6 +572,8 @@ FP8 有两种排布，推理基本只用前者：
 | **E4M3** | 1 符号 + 4 指数 + 3 尾数 | [-448, 448] | ~3–4 位有效数字 | **权重与激活** |
 | E5M2 | 1 符号 + 5 指数 + 2 尾数 | 更大 | ~2–3 位有效数字 | 梯度，推理少用 |
 
+Table: FP8 的两种排布
+
 这个取舍很直白：E4M3 拿指数位换尾数位，**牺牲动态范围来保精度**——推理时数值范围可以靠 scaling 控住，精度却不能省。
 
 FP8 推理的优势：
@@ -565,6 +591,8 @@ FP8 推理的优势：
 | W4A16 + FP16 KV | INT4 | FP16 | FP16 | 35% | 0.8× | 0.5× | 轻降 |
 | W4A16 + FP8 KV | INT4 | FP16 | FP8 | 27% | 0.7× | 0.5× | 轻降 |
 | FP8 W/A + FP8 KV | FP8 | FP8 | FP8 | 50% | 0.5× | 0.5× | ≈ 基准 |
+
+Table: 混合精度组合的显存、延迟与质量
 
 **表中数值是相对基准的比例，仅作量级示意，实际因模型和场景而异。** 读这张表时注意三条规律：
 
@@ -633,6 +661,8 @@ sequenceDiagram
 |---|---|---|---|---|
 | 普通 Decode | 5 次 Forward，每次 15 ms | 75 ms | 5 tokens | 15 ms |
 | Speculative | Draft 5 步（5 ms）+ Verify 1 次（18 ms） | 23 ms | 3 tokens（接受 2 + 重采样 1） | **≈ 7.7 ms** |
+
+Table: 普通 Decode 与投机解码的一次对比
 
 约 **2× 加速**。注意 Verify 那 18 ms 比普通 Decode 的 15 ms 略高——因为要一次算 6 个位置而不是 1 个，计算量确实增加了，只是在 memory-bound 区间这点额外计算几乎免费。**这正是投机解码的本质：拿闲置算力去换延迟。**
 
@@ -778,6 +808,8 @@ N-gram、Suffix、Draft Model、EAGLE、Medusa，本质上都是为了在推理�
 | **EAGLE**           | Target Feature | 利用 Target Model 的内部 feature，通过轻量 Draft Head 自回归生成候选 | 不需要完整 Draft Model，额外开销较低         | 需要针对 Target Model 训练 EAGLE 组件                   |
 | **Medusa**          | 多预测 Head       | 在 Target Model 上增加多个未来 token 预测 Head，并构造候选树         | 不需要独立 Draft Model，可并行产生多个候选      | 需要训练额外 Head，并涉及 Candidate Tree / Tree Attention |
 | **MTP**             | MTP Layers     | 利用模型原生的 Multi-Token Prediction 层生成未来 token          | 模型原生支持，天然适合 speculative decoding | 需要模型 checkpoint 原生支持 MTP                        |
+
+Table: 候选生成方法的对比
 
 
 **EAGLE：不再外挂完整 Draft Model，而是外挂轻量 Draft Head**
@@ -963,6 +995,8 @@ Model-native Speculation
 | 投机解码各 Proposer | `vllm/v1/spec_decode/`：公共基类 `SpecDecodeBaseProposer`（`llm_base_proposer.py`）、`EagleProposer`（`eagle.py`）、`MedusaProposer`、`NgramProposer`、`DraftModelProposer`；MTP 的 draft 结构是模型的一部分，在 `vllm/model_executor/models/*_mtp.py`（如 `deepseek_mtp.py`），运行时复用 `EagleProposer` |
 | 融合算子（CUDA） | `csrc/libtorch_stable/` |
 | 量化 | `vllm/model_executor/layers/quantization/`（FP8 见 `fp8.py`） |
+
+Table: GPU 执行源码导航
 
 </details>
 

@@ -30,6 +30,8 @@ catalog: true
 | 历史一 | 卷积解决了什么 | 参数共享、感受野、LeNet → ResNet、ViT 把图切成 token | 第五篇 |
 | 历史二 | 循环解决了什么、败在哪 | RNN、时间反传、LSTM 门控、seq2seq、attention 的诞生 | 第六篇 |
 
+Table: 系列覆盖的五个训练现象与两段历史
+
 
 ## 为什么写这个系列？
 
@@ -48,6 +50,8 @@ Transformer 之后，"深度学习基础"常被当成历史课跳过。但打开
 | 初始化标准差 0.02、GPT-2 残差分支除以 $$\sqrt{2L}$$ | 残差流的方差随层数线性增长 | 第二篇 |
 | $$\mu$$P、z-loss、QK-norm | 规模化之后的三个稳定性补丁：学习率随宽度漂移、lm_head logits 漂移、attention logits 增长 | 第二篇第七章 |
 | 预训练不用 dropout、一个 epoch | dropout 的期望等价与数据充足时的正则化需求 | 第四篇 |
+
+Table: 技术报告里的词与它对应的基础概念
 
 ### 从"会调用"到"会诊断"
 
@@ -95,6 +99,8 @@ L7 多模态的 vision encoder 来自 ViT，ViT 来自 CNN 的 patch 化；语�
 | 第五篇 | CNN | 卷积作为参数共享，感受野，LeNet → ResNet 的遗产，ViT 把图切成 token |
 | 第六篇 | RNN | 时间上的反传与梯度消失，LSTM 的门，seq2seq 的瓶颈，attention 的诞生 |
 
+Table: 六篇的主题与内容
+
 前四篇是**训练动力学**：一个网络从初始化到收敛，梯度经历了什么、参数怎么动、什么时候停。后两篇是**结构史**：Transformer 之前的两条主线各解决了什么、留下了什么——残差与归一化来自 CNN 这条线，attention 来自 RNN 这条线。读完第六篇，Transformer 的每一个组件都有了来历，L4 的 04 系列可以直接接上。
 
 三条交织的线索：
@@ -104,6 +110,8 @@ L7 多模态的 vision encoder 来自 ViT，ViT 来自 CNN 的 patch 化；语�
 | 推导线 | 链式法则 → Jacobian 乘积与谱范数 → 更新量的量级 → 期望等价与先验 → 卷积的线性算子形式 → 时间反传 |
 | 数字线 | 反向 FLOPs = 2 × 前向 → $$0.9^{128}$$ → 每参数 8 字节 → 一个 epoch 就够 → ResNet-50 的 4.1 GFLOPs → RNN 不能并行 |
 | LLM 线 | 6ND · 激活重算 → RMSNorm · Pre-Norm · 0.02 → AdamW · warmup · 裁剪到 1.0 → 预训练不用 dropout → ViT / patch → attention → Transformer |
+
+Table: 贯穿六篇的三条线索
 
 每一篇都用同样的方法：**推导公式，代入真实网络算出数字，用几十行代码复现现象，指出它在 LLM 里的形态**。
 
@@ -246,6 +254,8 @@ L7 多模态的 vision encoder 来自 ViT，ViT 来自 CNN 的 patch 化；语�
 | 第五篇 | Conv2d 与它的全连接等价形式；patch embedding（PyTorch 对照 CIFAR-10） |
 | 第六篇 | RNN 单元 · LSTM 单元 · BPTT；Bahdanau attention |
 
+Table: 各篇在 NumPy 小框架里加的东西
+
 全部实验在 CPU 上几分钟内跑完，没有 GPU 不影响。框架的目的不是替代 PyTorch，而是让每一个训练现象都能在自己写的、每一行都懂的代码里复现一次；之后回到 PyTorch，`loss.backward()` 与 `optimizer.step()` 就不再是黑盒。
 
 与它平行的源码与资料阅读线：
@@ -258,6 +268,8 @@ L7 多模态的 vision encoder 来自 ViT，ViT 来自 CNN 的 patch 化；语�
 | 第四篇 | Srivastava 等 2014 [dropout](https://jmlr.org/papers/v15/srivastava14a.html) · Zhang 等 2017 [*Understanding deep learning requires rethinking generalization*](https://arxiv.org/abs/1611.03530) · Nakkiran 等 2019 [double descent](https://arxiv.org/abs/1912.02292) · Muennighoff 等 2023 [数据受限的 scaling](https://arxiv.org/abs/2305.16264) |
 | 第五篇 | LeCun 等 1998 [LeNet](http://yann.lecun.com/exdb/publis/pdf/lecun-98.pdf) · Krizhevsky 等 2012 [AlexNet](https://papers.nips.cc/paper/2012/hash/c399862d3b9d6b76c8436e924a68c45b-Abstract.html) · He 等 2015 [ResNet](https://arxiv.org/abs/1512.03385) · Dosovitskiy 等 2020 [ViT](https://arxiv.org/abs/2010.11929) |
 | 第六篇 | Hochreiter & Schmidhuber 1997 [LSTM](https://www.bioinf.jku.at/publications/older/2604.pdf) · Sutskever 等 2014 [seq2seq](https://arxiv.org/abs/1409.3215) · Bahdanau 等 2014 [attention](https://arxiv.org/abs/1409.0473) · Vaswani 等 2017 [Transformer](https://arxiv.org/abs/1706.03762) 第 1–2 节 |
+
+Table: 各篇平行的论文与资料阅读线
 
 
 ## 前置要求与说明
@@ -303,6 +315,8 @@ L7 多模态的 vision encoder 来自 ViT，ViT 来自 CNN 的 patch 化；语�
 | 预训练为什么一个 epoch、不用 dropout？ | 第四篇 |
 | ViT 的 patch embedding 与卷积是什么关系？ | 第五篇 |
 | attention 为什么能取代 RNN？代价是什么？ | 第六篇 |
+
+Table: 读完深度学习基础系列后应能回答的问题
 
 最终目标是三种能力：
 

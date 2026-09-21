@@ -50,6 +50,8 @@ AI 负载里除 GEMM 与 attention 之外的绝大多数算子——激活函数
 | 九 | 本文小结 |  |
 | 十 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、一个 warp 的内存请求发生了什么
 
 ### 1. 32 字节 sector 与 128 字节 cache line
@@ -69,6 +71,8 @@ GPU 不是按线程访问内存的，而是按 warp。一个 warp 的 32 个线�
 | L1（与共享内存合用） | 192 KB / SM | 128 B cache line = 4 个 sector | ~30 cycle | ~128 B / cycle / SM |
 | L2 | 40 MB（整卡） | 32 B sector（L1 ↔ L2） | ~200 cycle | 数 TB/s（整卡） |
 | HBM2e | 80 GB | 32 B sector（L2 ↔ HBM） | ~600 ns ≈ 800 cycle | 2.0 TB/s |
+
+Table: A100 访存路径各级的粒度、延迟与带宽
 
 一次 warp 级加载最终被拆成若干个 sector 请求。**决定效率的不是线程数，而是这 32 个地址一共触碰了多少个 sector**。有效字节数（warp 真正需要的）除以实际搬运的字节数（sector 数 × 32 B），就是访存效率。
 

@@ -117,6 +117,8 @@ Megatron 是这一章的主角：它和 NVRx 一起覆盖了检测、进程内�
 | 十 | 本文小结 | 要点 · 源码位置 · train-ledger 的 `ledger/availability.py` 与 chaos/ |
 | 十一 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、故障率数学：从 MTBF 到有效训练时间
 
 ### 1. 集群 MTBF
@@ -239,6 +241,8 @@ PyTorch 的 NCCL 后端对每一次集合通信记一个 `WorkNCCL`，`torch/csr
 | TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC | 480（8 分钟） | watchdog 线程多久没心跳就认为它卡死（例如卡在 CUDA 调用里），杀进程 |
 | TORCH_NCCL_COORD_CHECK_MILSEC | 1000 | HeartbeatMonitor 轮询间隔 |
 | TORCH_NCCL_PROPAGATE_ERROR | false | 一个进程组出错时把错误传播到其他进程组 |
+
+Table: 与容错相关的四个 TORCH_NCCL_* 变量
 
 `HeartbeatMonitor::runLoop()` 解决的是"看门狗自己死了"的问题：watchdog 线程在 `cudaEventQuery` 这类调用里卡住时，谁来发现？答案是再来一个只看 watchdog 心跳的线程，8 分钟没心跳就 dump 调试信息（第八篇的 Flight Recorder）并终止进程。这两层超时——集合通信 10 分钟、watchdog 心跳 8 分钟——是 PyTorch 自带的 hang 检测上限，**把 `timeout=` 调短是最便宜的 T_d 优化**：一个 step 若稳定在 5 秒，timeout 设 2 分钟足够覆盖 checkpoint 保存和偶发抖动；但要记住第五篇的提醒，同步 checkpoint 保存和数据加载卡顿会让其他 rank 在下一次集合通信上等，timeout 必须大于这些操作的最长时间。
 
@@ -573,6 +577,8 @@ torchft 不是免费的：每步一次 quorum RPC（快速路径下几毫秒，�
 | 对训练代码的要求 | 启动时有 checkpoint 就加载 | 训练函数可重入：全局状态可销毁重建 | 并行度必须含 replicate 维；副本间通信交给 Manager / ManagedProcessGroup |
 | 覆盖不了的 | — | 健康 rank < `min_world_size` → 交外层 ft_launcher | 副本内部（TP/PP/FSDP）故障：整组退出，再靠前两种重启 |
 | 框架支持 | 三框架皆可 | Megatron `--inprocess-restart` | torchft 原生 DDP；torchtitan `experiments/torchft/`（HSDP） |
+
+Table: 三种恢复方式的对照
 
 ## 七、坏卡隔离与开训前自检
 

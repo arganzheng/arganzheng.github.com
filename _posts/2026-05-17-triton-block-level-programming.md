@@ -39,6 +39,8 @@ updated: 2026-09-14
 | 八 | 本文小结 |  |
 | 九 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、把"线程"拿掉之后：Triton 的编程模型
 
 ### 1. 一个 program 对应一个 CUDA block
@@ -460,6 +462,8 @@ autotune 列表里的五个 config 看起来只是几组数字，但每一组都
 | 128×64×32 / 4 / 4 | 8 + 4 = 12 KiB | 48 KiB | 64 | 32 | 2048 | 43 |
 | 64×64×32 / 4 / 5 | 4 + 4 = 8 KiB | 40 KiB | 32 | 16 | 4096 | 32 |
 
+Table: matmul autotune 五个 config 的资源账
+
 第一行是"大 tile、深流水、高复用"：144 KiB shared memory 让一个 SM 只能驻留一个 program，靠 8 个 warp 与最高的算术强度撑满 Tensor Core，适合 4096³ 这种大而规整的形状；最后一行是"小 tile、多 program"：4096 个 program 能填满 108 个 SM 的多个波次、尾波浪费小，但算术强度只有第一行的 3/8，A、B 从 L2 读的次数也多。中间三行是折中。对 $$M = 16$$ 这类小形状，前两行的 `BLOCK_M = 128` 有 7/8 是空转，autotune 会自然选到后面的 config——但选项也只有这五个，这是第六章"小 shape 的 tile 选择"要讨论的局限。
 
 **mask 与 `other=0.0`**。K 方向的 mask 只在 `K % BLOCK_K != 0` 时的最后一个迭代有作用，越界的位置填 0，对点积没有贡献。M/N 方向没有 mask，而是用了 `% M`、`% N` 取模：越界的行会回卷到矩阵开头，读到的是合法地址上的无用数据，算出来的 `acc` 行在 epilogue 被 `c_mask` 丢弃。这样做是为了让 `tl.load` 在 K 循环内不带 M/N 方向的 mask——mask 会阻碍编译器生成 `cp.async` 的多 stage 流水（带 mask 的加载需要额外的谓词处理）。这是 Triton 官方教程 `03-matrix-multiplication.py` 的写法。
@@ -551,6 +555,8 @@ flowchart TB
 | TTGIR passes | 带 layout 的 IR | **Coalesce**：根据指针的连续性分析（`tl.multiple_of`/`tl.max_contiguous` 提示或推断），重选 load/store 的 layout 使每线程持有连续元素 → 128 bit 向量化；**Pipeline**：把 `scf.for` 内的 load 提前 `num_stages - 1` 个迭代，插入 `cp.async` 与 shared memory 环形缓冲；**Prefetch**：把 `mma` 操作数的 shared → 寄存器搬运提前一个子迭代；**RemoveLayoutConversions**：消除冗余的 layout 转换（每次转换意味着一次 shared memory 往返）；**ReorderInstructions**、**OptimizeDotOperands**（把转置折进 `ldmatrix.trans`）；为 `#shared` 选 swizzle 参数避免 bank conflict；插入 barrier | 向量化访存、多 stage `cp.async` 流水、`ldmatrix`、shared memory padding/swizzle、`__syncthreads()` 位置 |
 | TTGIR → LLVM IR | | 把 layout "展开"：每个块级 op 变成每线程对自己持有的元素的标量/向量运算，`tt.reduce` 变成线程内循环 + `shfl.sync` + shared memory；`tt.dot` 变成 `mma.sync` 内联 PTX（Hopper 上 `wgmma`）；地址计算、mask 变成谓词 | 手写线程索引、warp shuffle、inline PTX |
 | LLVM → PTX → cubin | | LLVM 的标量优化与 NVPTX codegen；`ptxas` 做寄存器分配、SASS 指令调度 | nvcc 的后端，与 CUDA 相同 |
+
+Table: Triton 编译流水线的六层
 
 重点是 TTGIR 那一层：**第五、六篇手工做的几乎所有优化——向量化、分块、流水、`ldmatrix`、swizzle、同步——都是 TTGIR 上的 pass**。程序员写的 `tl.load` + `tl.dot` + `for` 只是"意图"，性能来自这些 pass 的质量。这也解释了 Triton 的两个特性：为什么它对"规整"的代码（连续访存、标准 GEMM 循环）效果好——pass 的模式匹配到了；为什么对"不规整"的代码（间接寻址、带 mask 的 K 循环、数据依赖的循环边界）效果差——pass 匹配不上，退回保守的代码。
 

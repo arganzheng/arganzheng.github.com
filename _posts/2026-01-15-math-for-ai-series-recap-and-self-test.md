@@ -47,6 +47,8 @@ flowchart TB
 | [第七篇：导数、梯度与链式法则](/derivatives-gradients-chain-rule-and-policy-gradient.html) | 能不能用链式法则推一层的梯度？能不能对一个期望求导得到策略梯度？ | 梯度与参数同形；softmax + 交叉熵的梯度是 $$p - y$$；期望的梯度用 $$\nabla\pi = \pi\nabla\log\pi$$ 写回期望，策略梯度是"按奖励加权的最大似然"，减 baseline 期望不变 | $$\partial \mathcal{L}/\partial z = p - y$$，分量在 $$[-1, 1]$$；$$\nabla J = \mathbb{E}[R(y)\nabla\log\pi_\theta(y)]$$；$$\mathbb{E}[\nabla\log\pi] = 0$$；GRPO 优势 $$(R_i - \text{mean})/\text{std}$$；随机梯度噪声方差 $$\propto 1/B$$ |
 | [第八篇：统计推断与拟合](/statistical-inference-and-fitting-scaling-laws.html) | HumanEval 差 3 个点算不算提升？$$D/N \approx 20$$ 从哪来？ | 95% 区间 $$= \hat p \pm 1.96\,\text{SE}$$，164 题分辨不出 3 个点；幂律在双对数上是直线；固定 $$C = 6ND$$ 用拉格朗日乘子，$$N$$、$$D$$ 应同步增长 | HumanEval ±6.1%、GSM8K ±1.6%、MMLU ±0.8%；独立比较显著差异 8.7 / 2.3 / 1.1 个点；$$E = 1.69, A = 406.4, B = 410.7, \alpha = 0.34, \beta = 0.28$$；$$N_{\text{opt}} \propto C^{0.45}$$、$$D_{\text{opt}} \propto C^{0.55}$$；70B ↔ 1.4T |
 
+Table: 八篇的核心问题、结论与必记公式
+
 ### 1. 本文的章节安排
 
 | 章 | 内容 |
@@ -56,6 +58,8 @@ flowchart TB
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
 | 六 | 下一步 |
+
+Table: 本文的章节安排
 
 ## 二、逐篇回顾
 
@@ -242,6 +246,8 @@ flowchart TB
 | 1.96、高斯、中心极限定理 | 四、八 | 四给性质；八给置信区间与显著性 |
 | 结合律、低秩 | 一、三 | 一算两千倍成本差；三 LoRA 的 $$xB \to (xB)A$$ |
 
+Table: 贯穿各篇的概念及其关系
+
 ```mermaid
 %% 图：loss 这个数字的一生：八篇里的结论怎样一环套一环推出 DPO 与策略梯度
 flowchart TB
@@ -290,6 +296,8 @@ flowchart TB
 | KL 是距离，方向无所谓 | KL 不对称，$$q$$ 表达能力不够时 forward 覆盖、reverse 收窄 | RLHF 用 reverse；"对齐降低多样性"要奖励形状配合，有熵上升的反例 | [第六篇](/entropy-cross-entropy-and-kl-to-dpo.html) |
 | 策略梯度减 baseline 会引入偏差 | $$\mathbb{E}_{\pi_\theta}[\nabla\log\pi_\theta] = 0$$ | 期望不变、方差降低；GRPO 减组均值同理 | [第七篇](/derivatives-gradients-chain-rule-and-policy-gradient.html) |
 | HumanEval 差 3 个点是提升 | 164 题、80% 附近区间半宽 ±6.1%，独立比较要 8.7 个点 | 在噪声里；配对更灵敏但量级不变 | [第八篇](/statistical-inference-and-fitting-scaling-laws.html) |
+
+Table: 常见误区与正确说法
 
 ## 五、通关自测
 
@@ -496,6 +504,8 @@ flowchart TB
 | 读过 | 能说出八篇各讲什么；知道 $$2mnk$$、$$\sqrt{d_k}$$、$$\ln V$$、KL 的方向、$$p - y$$、1.96 这些名词 |
 | 掌握 | A 组能不翻书算出 8 题以上；B 组能说出每题用了哪几篇的什么；拿到一个新 loss 能说出"什么概率进了 $$-\log$$"，拿到一个评测数字能算出它的区间 |
 | 能教人 | C 组每题能给出全部要点并预判追问；能独立在一页纸内推完 MLE → 交叉熵、KL 约束 → DPO、softmax 梯度、策略梯度四条推导；能解释每个反直觉结论（对齐降低多样性何时成立何时不成立、HumanEval 分辨不出 3 个点、RoPE 只剩 $$n - m$$）为什么成立 |
+
+Table: 掌握程度的判据
 
 通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点。另一个检验是总纲里的八个公式：每个符号知道是什么、每一步等号知道为什么、能说出它在算什么——八个都行，这一层就够了。没过的部分回到第二章对应篇的"必记"，再回该篇正文；四条推导要动笔各推一遍，推过一次，读论文时的公式就从"要看懂的东西"变成"知道它在说什么的东西"。
 

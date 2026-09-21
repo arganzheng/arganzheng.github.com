@@ -41,6 +41,8 @@ flowchart TB
 | 更新 | 数据实时；语义层随业务变 | 对象实时；模型随业务变 | 文档变了要重抽、重聚类 |
 | 代表 | 语义层工具（dbt semantic layer、Cube 一类）；各家 text-to-SQL | Palantir Foundry Ontology / AIP | Microsoft GraphRAG、LazyGraphRAG、LightRAG |
 
+Table: 三种结构化接入的对照
+
 ### 2. 本文的章节安排
 
 第二章 text-to-SQL 的真实水平与语义层；第三章本体——它是什么、解决什么、为什么是 harness；第四章 GraphRAG——机制、成本、LazyGraphRAG、什么时候值得；第五章三者与前两类检索的组合；第六章实践建议。
@@ -132,6 +134,8 @@ Microsoft 2024 年 11 月的 **LazyGraphRAG** 把大部分工作推到查询时�
 | 多跳关系（"A 与 B 的关联路径"） | 值得——或者如果关系本来就在结构化数据里，用 SQL / 本体更便宜 |
 | 语料小（几百份文档） | 全放上下文（L2 第六篇）或让模型多轮读，不必建图 |
 | 语料频繁变 | LazyGraphRAG 一类，避免重抽 |
+
+Table: 结构化知识在不同场景下是否值得
 
 一个常见的误判是为定位型问答建图——花几千美元建了图，查询走的还是向量路径。先用第七篇的评测集看有多少问题是全局或多跳的，比例低就不建。
 

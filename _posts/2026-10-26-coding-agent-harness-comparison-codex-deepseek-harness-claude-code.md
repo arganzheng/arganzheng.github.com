@@ -47,6 +47,8 @@ flowchart TB
 | **模型耦合** | Responses API（`codex-api`、`responses-api-proxy`）；另有 `ollama` / `lmstudio` / `model-provider` crate | 多供应商：官方 `deepseek-official` 适配器 + `llm-pi-ai` 接 pi-ai 的模型目录；Python SDK 可指向本地代理 | Claude 专用（API / Bedrock / Vertex / Foundry） | 多 API 格式（含 `--api-format copilot`）；ohmo 复用 Claude Code / Codex 订阅 |
 | **基准与研究** | 内部评测；开源便于审计 | **Minimal 模式**只留 shell 与文件编辑器，为在最小环境里公平比较模型；`BENCHMARK.md`、`benchmarks/` 性能门 | 公开 SWE-bench 等成绩 | 面向研究者：114 个单元 / 集成测试、E2E 脚本 |
 
+Table: 四个 harness 的十二维对照
+
 ### 2. 本文的章节安排
 
 第二章逐维度讲取舍；第三章三种交付形态；第四章从每家学什么；第五章实践建议。
@@ -115,6 +117,8 @@ DeepSeek Harness 的 Minimal 模式值得单独说：只留 shell 与文件编�
 | 费用 | 无额外费，只收 token / 工具 / 容器 | 无 | 基础设施 |
 | 早期数据 | 用户报告 4× 延迟降低、60% 每任务成本降低、86% 失败响应减少 | — | — |
 
+Table: 三种交付形态的对照
+
 选法（第三篇第五章）：快速上线且接受 OpenAI 模型 → 托管；需要深度控制且已有运行时基础 → 库；多模型、合规要求、平台团队 → 自托管。**混合是常态**：用托管做原型验证价值、日志格式自己定，再决定要不要迁到自托管；或自托管 harness 做运行时中心、把子任务委派给托管的 Codex（第四篇的跨 harness 子 agent）。
 
 ## 四、从每家学什么
@@ -132,6 +136,8 @@ DeepSeek Harness 的 Minimal 模式值得单独说：只留 shell 与文件编�
 | Claude Code | **`settingSources`、CLAUDE.md、`.claude/agents`、skills 的文件系统约定** | 把配置放在仓库里、随代码版本化——L2 第六篇 |
 | OpenHarness | **轻量与复用** | 不是每个团队都需要五十万行；复用底层 CLI 的订阅与沙箱、把精力放在个人 agent 的交互（即时通讯）上，是一种务实路线 |
 | 全部 | **一个核心多个面**、**MCP + SKILL.md + AGENTS.md 的共享层**、**压缩前的便宜一步** | 四家独立收敛到的东西，大概率是对的 |
+
+Table: 从每家 harness 学什么
 
 ## 五、实践建议
 

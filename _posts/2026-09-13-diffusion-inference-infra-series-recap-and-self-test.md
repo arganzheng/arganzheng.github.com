@@ -52,6 +52,8 @@ $$\eta$$ 是第二篇，$$T_\text{eff}$$ 是第三篇与第六篇，$$s^{-1}$$ �
 | [第八篇：三个引擎](/diffusion-engines-compared-sglang-diffusion-vllm-omni-xdit.html) | 一个 `/v1/images/generations` 请求在三个引擎里各经过哪些进程与类？它们在进程模型、pipeline 抽象、并行组、调度上各怎么选、为什么？ | SGLang 把扩散塞进 LLM serving 的结构；vLLM-Omni 把扩散做成全模态流水线的一个 stage；xDiT 只做并行、包装 diffusers；三者共用 diffusers 底座与 vLLM 式并行组 | SGLang：HTTP / Scheduler / GPUWorker 三类进程、`ComposedPipelineBase`；vLLM-Omni：stage 0 + stage N、`DiffusionEngine`；xDiT：torchrun SPMD、`xFuserPipelineBaseWrapper`；有调度器的两个都是同构静态批 |
 | [第九篇：配置、评测与排障](/diffusion-inference-configuration-evaluation-and-troubleshooting.html) | p99 抬升 / 伪影 / 半夜 OOM 各先查什么？该采集哪些信号？配置按什么顺序推？ | 八步推导：算账 → 无损单卡 → 有损 I → 有损 II → 多卡 → 少步 → serving → 面板；无损先于有损、切卡先于换模型、卡数由 GPU·秒决定 | 门限 PSNR > 35 / 30 dB；FID 不能评"开不开某项优化"；同一部署内确定、跨部署不保证；OOM 先看 `vae.decode`；p99 抬升先看重编译；告警：每步 +20%、命中率 ±30%、抽检 −3 dB |
 
+Table: 九篇的核心问题、结论与必记公式
+
 ### 1. 本文的章节安排
 
 | 章 | 内容 |
@@ -61,6 +63,8 @@ $$\eta$$ 是第二篇，$$T_\text{eff}$$ 是第三篇与第六篇，$$s^{-1}$$ �
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
 | 六 | 下一步 |
+
+Table: 本文的章节安排
 
 ## 二、逐篇回顾
 
@@ -276,6 +280,8 @@ flowchart TB
 | PSNR 门限与基线图 | 二、三、四、九 | 二给门限；三给阈值曲线；四加视频指标；九给三层评测与确定性 |
 | 三个引擎的对照表 | 二至七、八 | 各篇末尾一张；八按请求路径串成一篇 |
 
+Table: 贯穿九篇的概念及其关系
+
 ## 四、常见误区
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
@@ -293,6 +299,8 @@ flowchart TB
 | 少步模型上前几篇的优化全部照搬 | 依赖相邻步相似与 CFG 的优化失效 | 缓存、PipeFusion、CFG 并行失效；CUDA graph 变必需；VAE 占比升到 15% | [第六篇](/few-step-and-autoregressive-video-generation-systems.html) |
 | 吞吐不随并发增长是引擎的 bug | compute-bound 下 batch 2 ≈ 2× 时间 | 正常现象；加实例或换少步模型，不要调 batch | [第七篇](/diffusion-serving-shapes-batching-disaggregation-and-cost.html)、[第九篇](/diffusion-inference-configuration-evaluation-and-troubleshooting.html) |
 | 评"开不开某项优化"用 FID | FID 对单图细节与模式坍缩不敏感、需几千张 | 对基线图 PSNR / SSIM / LPIPS + 偏好模型 + 人工 A/B | [第九篇](/diffusion-inference-configuration-evaluation-and-troubleshooting.html) |
+
+Table: 常见误区与正确说法
 
 ## 五、通关自测
 
@@ -499,6 +507,8 @@ flowchart TB
 | 读过 | 能说出九篇各讲什么；知道 $$2P_\text{tok}N + 4LN^2d$$、compute-bound、TeaCache、USP、PipeFusion、Self-Forcing 这些名词；知道"扩散没有 KV cache" |
 | 掌握 | A 组能不翻书算出 8 题以上；B 组能说出每题用了哪几篇的什么；拿到一个模型 × 形状 × GPU 能算出三段的 FLOPs / 显存 / 时间并判断 attention 占比、放不放得下、离 SLO 多远；能按第九篇的八步推出配置 |
 | 能教人 | C 组每题能给出全部要点并预判追问；能解释九篇里每个反直觉结论为什么成立（150× FLOPs 却 0.8× 时间、量化不减时间、SP 不减卡数、缓存在 4 步上零收益、"没有 KV cache"的负载又需要 KV cache）；能在三个引擎里定位每个机制 |
+
+Table: 掌握程度的判据
 
 通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点。没过的部分回到第二章对应篇的"必记"，再回该篇正文。
 

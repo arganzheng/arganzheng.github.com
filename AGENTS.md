@@ -864,6 +864,17 @@ How it is built (`_plugins/moments.rb`):
 
 ## Writing AI-Infra series posts
 
+- **Every figure and every table has a title** (applies to all posts, not
+  only the series). Images: the alt *is* the title (`![学习率调度与 batch 增长](…)`),
+  never empty or a file name. Mermaid: first source line `%% 图：…` (after any
+  `%%{init}%%`), or `title:` in Mermaid front matter. Tables: a paragraph
+  right after the table, `Table: …` (or `表：…`), see the Tables bullet under
+  the annotations section. The page shows 「图 N：title」 / 「表 N：title」 under
+  the block; a bare 「图 N」 / 「表 N」 in a rendered post means a missing title
+  and is a defect to fix. Titles are a noun phrase saying *what the reader is
+  looking at* (「三种并行方式的通信量对比」), not a sentence, not the section
+  heading repeated, no trailing period; the number is never hand-written (it
+  is generated and would change when a figure / table is inserted).
 - **Version/date rule:** a post may only cite software versions (and facts about
   them) released *before* the post's front-matter date. Check tag dates with
   `git log -1 --format=%cs <tag>` before pinning a version; pin an explicit tag

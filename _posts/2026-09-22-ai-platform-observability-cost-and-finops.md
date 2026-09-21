@@ -56,6 +56,8 @@ Kubernetes 自带的可观测面对 GPU 几乎是空白：
 | 引擎 | vLLM `/metrics`（每副本）· 训练进程或 sidecar | `vllm:*` · 训练框架自定义（`step_time` 等） | Prometheus 服务发现给 `pod` / `namespace`；训练侧自带 `rank` / `job` 标签 |
 | 请求 | Endpoint Picker（llm-d-router）· 网关的访问日志 | `llm_d_epp_*` · `inference_objective_*` | `model_name` / `target_model_name` / `fairness_id`（租户）/ `priority` |
 
+Table: 填补空缺的采集组件与数据流
+
 四层采出来之后汇到同一条管线：
 
 ```mermaid
@@ -93,6 +95,8 @@ flowchart TB
 | 十一 | 代价与边界 | 采集开销 · 基数 · 归因的误差 · 成本模型的假设 |
 | 十二 | 本文小结 | 要点 · 四栏表 · 源码位置 · 练手项目 obs/ 与 cost/ |
 | 十三 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、四层指标：从 DCGM 到网关
 
@@ -133,6 +137,8 @@ flowchart TB
 | | `llm_d_epp_request_input_tokens` · `llm_d_epp_request_output_tokens`（histogram） | EPP | 按租户与模型的 token 分布；`_sum` 即累计 token |
 | | `llm_d_epp_request_ttft_seconds` · `llm_d_epp_request_streaming_tpot_seconds` | EPP | 网关视角的 TTFT / TPOT（含网关与路由开销） |
 | | `llm_d_epp_average_kv_cache_utilization` · `llm_d_epp_average_queue_size` · `llm_d_epp_ready_endpoints` | EPP | 池级视图 |
+
+Table: 四层指标表
 
 表里的名字全部在对应版本检出中 grep 到；DCGM 的"默认表"指 `dcgm-exporter etc/default-counters.csv`（与 `etc/dcp-metrics-included.csv` 的启用项相同）。两点先说明：**vLLM 的 Counter 在 Prometheus 暴露时带 `_total` 后缀**（源码里 `name="vllm:prompt_tokens"`，抓到的是 `vllm:prompt_tokens_total`，`docs/design/metrics.md` 里两种写法并存）；**EPP 的 `inference_objective_*` 与 `inference_pool_*` 前缀在 llm-d-router v0.10.0 已标 Deprecated**，`pkg/epp/metrics/metrics.go` 的注释指向 `llm_d_epp_*` 替代（`llm_d_router_metrics.go`），本篇用新名。
 
@@ -184,6 +190,8 @@ flowchart TB
 | `DCGM_FI_PROF_PIPE_TENSOR_ACTIVE` | Tensor core 管线活跃周期比例；训练与 prefill 的主指标，直接对应 MFU 的趋势 |
 | `DCGM_FI_PROF_DRAM_ACTIVE` | HBM 接口收发数据的周期比例；decode 是 memory-bound，这个指标才反映它是否吃满带宽 |
 
+Table: DCGM_FI_PROF_* 字段的含义
+
 三个"活跃"指标在同一张卡上是逐级包含的：有 Tensor core 在算就一定有 SM 有 warp，有 SM 有 warp 就一定有 kernel 在跑，反过来都不成立。把开头那个集群的 78%（`GPU_UTIL`）与 35%（`SM_ACTIVE`）放到一个采样窗口里看，每一级的差距各有一类来源：
 
 ```text
@@ -229,6 +237,8 @@ vLLM 的指标在 `vllm/v1/metrics/loggers.py` 的 `PrometheusStatLogger` 里定
 | 吞吐 / 计数 | `vllm:prompt_tokens_total` · `vllm:generation_tokens_total` | Counter；`rate()` 即 token/s |
 | | `vllm:iteration_tokens_total` | Histogram；每次调度迭代处理的 token 数（批大小的代理） |
 
+Table: vllm:* 指标分组
+
 三点使用上的提醒。**分位数从 `_bucket` 算**：`histogram_quantile(0.95, sum(rate(vllm:time_to_first_token_seconds_bucket[5m])) by (le, model_name))`，桶边界在 `loggers.py` 里硬编码（TTFT 从 0.001 s 起），超出最大桶的值会被截到最大桶，长上下文 prefill 的 p99 可能因此失真。**`_sum / _count` 给平均值**，对 SLO 没用但对成本有用——`rate(vllm:request_generation_tokens_sum[1h]) / rate(vllm:request_generation_tokens_count[1h])` 是平均输出长度。**`engine` 标签在单引擎时恒为 `0`**，聚合时记得 `sum by (model_name)`。
 
 训练框架没有统一的指标规范。平台侧的做法是**把训练进程当黑盒，只约定一组它必须暴露的指标名**，由训练脚本用 `prometheus_client` 暴露，或写本地 JSONL 由节点上的 sidecar 转换。本系列练手项目约定的最小集合（名字是本系列自定的，不是任何框架的原生名）：`train_step_seconds{job,rank}`（gauge，最近一步耗时）、`train_step_total{job,rank}`（counter）、`train_last_step_timestamp_seconds{job}`（hang 检测）、`train_loss{job}`、`train_tokens_per_second{job}`、`train_ckpt_seconds{job,phase}`（save / load）。第五章据此讲训练侧的可观测。
@@ -248,6 +258,8 @@ vLLM 的指标在 `vllm/v1/metrics/loggers.py` 的 `PrometheusStatLogger` 里定
 | 分配率 A | 已分配的 GPU 数 / 集群可分配的 GPU 数 | 调度视角："给出去了多少" |
 | 使用率 U | 已分配 GPU 上 `SM_ACTIVE` 的平均 | 引擎视角："给出去的算得多满" |
 | 有效利用率 E | 全部 GPU 上 `SM_ACTIVE` 的平均 ≈ A × U | 平台视角："买来的算了多少" |
+
+Table: 分配率、利用率与效率的定义
 
 `E ≈ A × U` 不只是代数：把横轴画成卡的份额、纵轴画成已分配卡上"在算"的时间份额，E 就是一块矩形的面积，两段差距是围着它的两块空白（数字用总纲核心问题的 85% / 35%）：
 
@@ -358,6 +370,8 @@ trace 的采样率要低（1%–5%）——每个请求一个 span 树的存储�
 | 一两行持续比其他行暗 | straggler：该 rank 慢，其余在等它 | 第五篇网络（该节点链路）；硬件层降频 / XID |
 | 全体亮度均匀但只有 40% | 通信 / 计算比高，或 kernel 小 | 引擎内部（并行策略 / 批大小），平台层只能提供 RDMA |
 
+Table: 任务级 GPU 时间线的几种形态
+
 这张图的价值是把"任务 MFU 只有 30%"从一个数字变成一种形状；形状决定该找平台还是找算法。
 
 ### 2. 每 rank 的 step 时间
@@ -421,6 +435,8 @@ GPU 成本 = Σ_(卡, 时间) 单价(卡型, 计费方式) × 分配时长
 | 模型 | vLLM 的 `model_name`；InferencePool 名 | 推理侧的天然维度；同一模型多版本时加 `target_model_name` |
 | 租户 | EPP 的 `fairness_id` | 请求层；只有 token 数，没有 GPU 小时——要靠第八章的换算 |
 
+Table: 成本分摊的维度
+
 一条卡的 GPU 小时先按 `pod` 归到 Pod，再按 Pod 的 label 归到团队；一个推理副本的 GPU 小时归到模型，再按该模型各租户的 token 占比**二次分摊**到租户。共享成本（DCGM Exporter、Prometheus、网关自己占的资源）按各团队 GPU 小时的比例分摊，或者作为平台成本单列——OpenCost 的 `SharedCost` / `shareIdle` 参数就是这两种选择。整条分摊链路如下，实线是钱的归属，虚线是两种可选的"摊回去"：
 
 ```mermaid
@@ -477,6 +493,8 @@ OpenCost v1.121.1 的分配模型（`core/pkg/opencost/allocation.go` 的 `Alloc
 | 未分配（碎片 · 坏节点 · 配额过紧） | 6,912（1 − A = 15%） | $17,280 | — | — | $17,280（15 个点） | 1 − A；OpenCost 的 gpuIdleCost |
 | **集群合计** | 46,080（64 × 720 h） | $115,200 | E = 35% | 16,101 | $74,948（65 个点） | |
 
+Table: 64 卡集群一个月的分配账单与闲置成本
+
 三点读法。账单一列的合计是 97,920 而不是 115,200：未分配的 17,280 美元没有主，要么按 `shareIdle` 摊回各团队，要么作为平台成本单列——两种做法都会让某个人对这 15 个点负责。闲置成本一列合计 74,948 美元，是全部账单的 65%，正是 `1 − E`；其中 dev 的 12,000 美元几乎全是闲置，用 4% 的 U 对着 12,500 美元的账单，比任何说教都有效。serving 一行还能往下算：12,000 GPU 小时是 3,000 个 TP=4 副本小时，若副本平均负载为满载的 40%（第八章的 $$U$$，注意它不是 `SM_ACTIVE`），输出约 8,640 M token，每百万 token 3.47 美元——就是第八章算例里那个数。
 
 ## 八、每百万 token 的成本
@@ -517,6 +535,8 @@ FinOps 的"回路"指成本数据改变前七篇的参数，而不是只出一�
 | 某 namespace 全天 A 不变、E ≈ 0 | 开发环境改时间片；notebook 加空闲超时回收 | 第四篇时间片；第三篇配额与超时 |
 | 训练 job 的 checkpoint 竖条宽度 × 频率 > 5% 时间 | 异步 checkpoint；存储带宽扩容；间隔拉长 | 第五篇：checkpoint I/O |
 | 某租户 token 占比高但 SLO 达成率低 | 提高该租户的 priority 或独立 InferencePool | 第七篇：租户优先级与配额 |
+
+Table: 成本回流到配置的观察与动作
 
 每一行的左边是一条 recording rule 或一个看板面板，右边是一个 PR。回路的周期按月：月初出账单与分解表，月中改配置，月末看三个数字的变化。闭合起来是这样一个环——它与"出报表"的区别只在最后一条边：
 
@@ -566,6 +586,8 @@ flowchart TB
 | 隔离的坏节点 | ~3 | cordoned / tainted 节点上的 GPU 数；XID 告警后未恢复的节点 | 第二篇：驱动 · 第五章第 4 节的隔离动作 |
 | 预留与配额过紧 | ~6 | `kueue_cluster_queue_nominal_quota − resource_usage` 的和大于 0 且 pending 非零 | 第三篇：配额与 cohort 借用 |
 
+Table: 50 个百分点的去向与测法
+
 四个观察。第一，**推理低峰与开发环境合起来占了一半**，它们是最容易回收的——参数级的改动（KEDA 阈值、时间片、空闲超时），不需要改架构。第二，**训练的通信等待是平台与引擎共同的责任**：平台保证 RDMA 生效、拓扑对齐（第三、五篇），剩下的比例由并行策略决定，平台看板上要把这两部分分开（RDMA 没生效时 `NVLINK_BANDWIDTH_TOTAL` 低而 PCIe 流量高，是平台的问题；RDMA 生效仍等待，是引擎的问题）。第三，**有 5 个点不是浪费**——用 `SM_ACTIVE` 做统一尺度的代价是它低估 memory-bound 负载，decode 服务要用 `DRAM_ACTIVE` 复核；把"不可回收"的部分明确标出来，团队才不会追一个到不了的目标。第四，**`1 − A` 那 15 个点里有 6 个是配额设置**，不是硬件——配额过紧的队列在账单上表现为"闲置"，在 Kueue 上表现为别的队列在排队，这两个信号要放在同一张看板上才会被同时看到。
 
 分解完之后，每一项都成了前面某一篇的一个待办。这就是可观测层的作用：它自己不省一张卡，但它决定了前七篇的哪个开关该动。
@@ -601,6 +623,8 @@ flowchart TB
 | 回路 | 队列使用率 → 配额；`FB_USED` / `SM_ACTIVE` 双低 → 切分；日夜周期 → KEDA / 缩零；dev 恒定 → 时间片 + 超时；按月闭环 |
 | 50 个点 | 推理低峰 ~15 · dev ~10 · 通信等待 ~10 · 排队占位 ~5 · checkpoint ~3 · 冷启动 ~2 · 测量上限 ~5（不可回收）；1 − A 的 15：碎片 ~6 · 坏节点 ~3 · 配额过紧 ~6 |
 
+Table: 要点回顾
+
 ### 2. 引擎需求 → K8s 空缺 → 平台机制 → 代价
 
 | 引擎的需求 | K8s 的空缺 | 平台的机制 | 代价 |
@@ -613,6 +637,8 @@ flowchart TB
 | 训练 hang / straggler 可定位 | 无 | 约定的 `train_*` 指标 + 每 rank 标签 + 日志正则 | 千 rank 千目标或 sidecar；引擎需配合暴露 |
 | GPU 有价、闲置有主 | 无成本概念 | 按分配计费 × 分层单价；OpenCost 或自建分摊 | 单价是约定；被动闲置需人工冲销；OpenCost 缺队列 / token / MIG |
 | 成本能回流到配置 | 无 | 看板 → 每月改 Kueue 配额 / MIG / KEDA 参数 | 需要人来闭环；改动有滞后 |
+
+Table: 引擎需求、K8s 空缺、平台机制与代价
 
 ### 3. 本篇涉及的源码位置
 
@@ -643,6 +669,8 @@ flowchart TB
 | | `pkg/costmodel/metrics.go` · `router.go` · `aggregation.go` | `node_gpu_hourly_cost` · `container_gpu_allocation`；`/allocation/compute` 的 `aggregate` / `includeIdle` / `shareIdle` |
 | | `modules/prometheus-source/pkg/prom/metricsquerier.go` | `queryFmtGPUsRequested`（`nvidia_com_gpu`）· `queryFmtGPUsUsageAvg`（`DCGM_FI_PROF_GR_ENGINE_ACTIVE`）· `queryFmtNodeCostPerGPUHr` |
 | | `pkg/cloud/models/models.go` · `configs/default.json` | `CustomPricing` 的 `GPU` / `SpotGPU` 键；默认 `"GPU": "0.95"` |
+
+Table: 本篇涉及的源码位置
 
 ### 4. 练手项目：mini-platform 的 obs/ 与 cost/
 

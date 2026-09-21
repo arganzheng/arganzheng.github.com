@@ -39,6 +39,8 @@ updated: 2026-09-14
 | 十 | 本文小结 |  |
 | 十一 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、先算账：标准 attention 读写多少 HBM
 
 ### 1. 记号与两个需要重述的结论
@@ -983,6 +985,8 @@ __device__ void attn_1rowblock_warp(/* ... */) {
 | cuDNN attention | 闭源库，cuDNN 8.9+ | Ampere / Hopper，Hopper 上最强 | 无 | 有 | Hopper 训练 | 经 PyTorch SDPA 间接使用 |
 | Triton 实现 | Triton（`triton_unified_attention.py` 等） | 任意，含 ROCm | 每 token 查表的 gather load | `find_seq_idx` 二分；3D 模式 segments | 可移植、易改（新 mask / KV 格式） | `TRITON_ATTN`（prefill/decode 统一） |
 | PyTorch SDPA | 分发器，不是 kernel | 随后端 | 无 | 随后端 | 正确性参考 / 基线 | 本文测试的 reference |
+
+Table: attention 后端对照与 vLLM 的选择
 
 选择的原则可以压缩成三条：prefill 追求 Tensor Core 利用率，优先 FA3（sm_90）或 FA2；decode 追求带宽利用率与并行度，split-KV 的策略质量比 GEMM 效率更重要，FlashInfer 与 FA3 的 scheduler 在这里下了最多功夫；需要非标准特性（新的 mask 形状、bias、KV 量化格式）时，Triton 版本的修改成本远低于 CUDA 版本，这是它在生产系统里一直有一席之地的原因。
 

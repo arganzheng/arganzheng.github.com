@@ -92,6 +92,8 @@ USP：core/long_ctx_attention/"] --> XD7["diffusers 的 transformer 原样执行
 | **自回归 / 实时** | causal DMD pipelines、KV cache、`realtime/` 会话、KV 量化 | `diffusion_kv/`（分页 KV） | `pipeline_causal_wan.py` |
 | **硬件** | NVIDIA / AMD / Intel XPU / Ascend / MPS / MUSA | NVIDIA / Ascend（NPU） | NVIDIA 为主 |
 
+Table: 三个扩散引擎的定位对照
+
 ### 2. 本文的章节安排
 
 | 章 | 主题 | 内容 |
@@ -105,6 +107,8 @@ USP：core/long_ctx_attention/"] --> XD7["diffusers 的 transformer 原样执行
 | 八 | 本文小结 | |
 | 九 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、diffusers：共同的底座
 
 ### 1. 四个接口
@@ -117,6 +121,8 @@ diffusers 给扩散推理定义了四层可替换的接口，三个引擎都在�
 | **模型** | `models/transformers/transformer_flux.py`（`FluxTransformer2DModel`）、`models/autoencoders/`、文本编码器来自 transformers | block 结构、attention、adaLN、RoPE | xDiT 原样用、只换 attention processor；SGLang / vLLM-Omni 用自己的 `layers/` 重写（为了 fused ops、USP、量化、CUDA graph） |
 | **attention 分派** | `models/attention_dispatch.py`：`set_attention_backend("flash" / "_flash_3_hub" / "sage" / "flex" / "native" / …)` | 后端枚举与分派 | 各引擎有自己的 selector，语义相同 |
 | **hook** | `hooks/`：`HookRegistry`、`ModelHook`、`StateManager`；`group_offloading.py`、`layerwise_casting.py`、`first_block_cache.py`、`taylorseer_cache.py`、`mag_cache.py`、`context_parallel.py`、`tensor_parallel.py` | 不改模型代码的 forward 拦截 | 缓存与 offload 的形态被三者沿用；xDiT 直接用 hook 接 TeaCache / FBCache |
+
+Table: diffusers 的四层接口与引擎的用法
 
 ### 2. 权重格式
 
@@ -268,6 +274,8 @@ xDiT 的核心设计是**包装 diffusers**：模型定义、pipeline 流程、�
 | **权重加载** | `loader/`：`weight_load_plan.py`、`component_loaders/`、`weight_readers/`、`rank_local_checkpoint.py` | `model_loader/`：`diffusers_loader.py`、`checkpoint_adapters/`、`host_weight_loader.py`、`hub_prefetch.py` | diffusers `from_pretrained` | |
 | **profiling** | `profiler.py`、`benchmarks/`（`--perf-dump-path`） | `profiler/`；`--log-stats`、pipeline profiler | benchmark 脚本 | |
 
+Table: 三个引擎的逐机制对照
+
 ## 七、分歧点
 
 ### 1. 三种取向来自三种出发点
@@ -282,6 +290,8 @@ xDiT 的核心设计是**包装 diffusers**：模型定义、pipeline 流程、�
 | **serving** | 完整：API、批处理、warmup、分离、job、realtime | 完整：API、stage 分离、批处理 | 无 |
 | **分离** | 角色制 disaggregation | stage 制，天然 | — |
 | **付出的代价** | 与 SGLang 主线耦合（版本、依赖）；模型覆盖靠社区重写 | stage 结构对纯扩散模型偏重；模型覆盖同样靠重写 | 无服务层；绝对性能受 diffusers 限制；接口易碎 |
+
+Table: 三个引擎的取向与出发点
 
 ### 2. 三个共同点
 
@@ -302,6 +312,8 @@ xDiT 的核心设计是**包装 diffusers**：模型定义、pipeline 流程、�
 | 研究并行方法 / 做 benchmark | xDiT |
 | 只是单卡跑图 | diffusers 本身 + compile + hook 缓存 |
 
+Table: 不同场景该选哪个引擎
+
 ## 八、本文小结
 
 | 项 | SGLang Diffusion | vLLM-Omni | xDiT |
@@ -312,6 +324,8 @@ xDiT 的核心设计是**包装 diffusers**：模型定义、pipeline 流程、�
 | 模型 | 原生重写 | 原生重写 | diffusers 原样 |
 | 独有 | 动态批处理准入、breakable CUDA graph、`--quality`、realtime 会话、KV 量化、多平台 | stage 分离、HSDP、VAE patch 并行、分页 diffusion KV | PipeFusion、Parallel VAE、弱互联 |
 | 共有 | USP / CFG 并行、hook 式缓存与 offload、同构批、vLLM 式并行组、diffusers 权重格式 | | |
+
+Table: 三个引擎的一句话小结
 
 ### 下一篇
 

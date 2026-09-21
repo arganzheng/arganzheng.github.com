@@ -58,6 +58,8 @@ FLUX.1-dev → schnell 的账（H100，$$\eta$$ 0.45）：
 | 编译 / CUDA graph | 1.56× | 更重要（固定开销占比大） | — |
 | SP 4 卡 | 1.63 s（延迟） | ~0.3 s；xDiT 8×A100 0.82 s（含全部） | — |
 
+Table: FLUX.1-dev 与 schnell 的账
+
 三个结论：
 
 - **步数蒸馏是本系列里最大的一项加速，但它不是系统做的**：7× 来自算法侧重训一个模型；系统侧的全部工作（编译 1.5×、缓存 1.8×、稀疏 2×、多卡 2.6×）加起来与它同量级。系统工程师要知道的是：它之后账的结构变了。
@@ -76,6 +78,8 @@ FLUX.1-dev → schnell 的账（H100，$$\eta$$ 0.45）：
 | 单卡 | 分钟级 | H100 约 17 fps、4090 实时（Self-Forcing 论文） |
 | 时长 | 固定 81 帧 | 可无限延长（滑动窗口；误差累积是限制） |
 
+Table: 双向 Wan 与自回归视频的账
+
 ### 2. 本文的章节安排
 
 | 章 | 主题 | 内容 |
@@ -91,6 +95,8 @@ FLUX.1-dev → schnell 的账（H100，$$\eta$$ 0.45）：
 | 十 | 本文小结 | |
 | 十一 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、少步的账
 
 ### 1. 三种改步数的方式
@@ -100,6 +106,8 @@ FLUX.1-dev → schnell 的账（H100，$$\eta$$ 0.45）：
 | **高阶采样器**（DPM-Solver++、UniPC） | 采样器的积分方法 | 50 → 15–25 | 无 | 几乎无损 | 步数减半，其余不变；跨步缓存的收益随之减小 |
 | **步数蒸馏**（LCM、progressive、consistency、ADD / Turbo、DMD2） | 训一个学生模型，几步走完教师的轨迹 | → 1–8 | 有（几千到几万 GPU 小时） | 上限是教师；多样性略降 | 账上 $$T$$ 除以 7–25；相邻步不再相似 |
 | **guidance 蒸馏** | 把 CFG 的效果烤进模型 | $$g$$: 2 → 1 | 有（常与步数蒸馏一起做） | 几乎无损；guidance 强度固定 | 每步 FLOPs 减半；CFG 并行与 CFG gating 消失 |
+
+Table: 三种改步数的方式
 
 FLUX.1-dev 是 guidance 蒸馏（$$g = 1$$、28 步），FLUX.1-schnell 是两者都做（4 步、$$g = 1$$）；SD3-Turbo、SDXL-Turbo、LCM-LoRA、Z-Image-Turbo（9 步、无 CFG）、FLUX.2-klein（步数蒸馏）、FastWan（DMD 3 步）都是这一类。
 
@@ -115,6 +123,8 @@ $$
 | SD3-medium → SD3-Turbo | 28 步 $$g$$=2 | 4 步 $$g$$=1 | 0.50 P → 36 T | 1.1 s → 0.16 s（+0.14 s） |
 | Wan2.1-14B → FastWan（VSA + DMD） | 50 步 $$g$$=2 | 3 步 $$g$$=1，VSA 稀疏 | 650 P → 20 P（再稀疏） | 24 min → ~40 s；FastVideo 报告 1.3B 480p 5 秒视频在 H200 上去噪约 1 s |
 | Wan2.1-1.3B → Self-Forcing | 50 步 $$g$$=2 | 4 步 $$g$$=1，自回归 | — | 分钟级 → 实时流式 |
+
+Table: 步数蒸馏前后的账
 
 ### 3. 另两段浮出来
 
@@ -143,6 +153,8 @@ FLUX 的文本编码器 22 ms + VAE 102 ms 在 dev 上是 2.6%，在 schnell 上
 | PipeFusion / DistriFusion（05） | 相邻步激活相似（stale K/V） | **失效** | xDiT 对 schnell 不用 PipeFusion |
 | Parallel VAE（05） | 无 | **不变、更重要** | VAE 占比大 |
 
+Table: 前五篇的优化在少步模型上的失效与不变
+
 失效的三项有同一个根：**它们都在利用"几十步里大部分步是保守余量"这个事实**，蒸馏把余量拿走了。剩下的优化都是对"一次前向"本身的。
 
 ## 四、少步下的新形态
@@ -167,6 +179,8 @@ dev 上 4 卡 SP 是为了把 4.3 s 切成 1.6 s（延迟）；schnell 单卡 0.
 | 首输出 | 4.8 s 后一次给出 | 0.8 s |
 | 中间预览 | 每步可以解码一张模糊预览（VAE 100 ms，太贵；用 TAESD 5 ms） | 4 步没必要 |
 | 交互（改 prompt 重生成） | 不可能实时 | 接近实时：0.8 s 一轮 |
+
+Table: dev 与 schnell 的延迟结构
 
 ## 五、实时交互：StreamDiffusion
 
@@ -212,6 +226,8 @@ Wan / HunyuanVideo 的 DiT 是**双向**的：每个 token 看全部帧，包括
 | **Causal Forcing** | 2025 | 同 | 指出 Self-Forcing 用双向教师做 ODE 初始化的理论问题，先把双向底座微调成因果扩散模型再作教师 | 质量与运动优于 Self-Forcing，同样实时 |
 | **LingBot World / 世界模型一类** | 2026 | 因果 DMD | 交互式：每 chunk 接收动作 / 相机控制信号 | SGLang 有专门的 causal DMD pipeline 与 realtime 会话 |
 
+Table: 自回归视频生成的代表工作
+
 ### 3. 一个 chunk 的前向
 
 ```mermaid
@@ -256,6 +272,8 @@ K/V = 本 chunk ∪ 缓存"] --> OUT["去噪 4 步 → clean chunk"]
 | 若 720p（3,600 token / 帧） | ×2.3 | 窗口 14 GB |
 | 若 14B 底座（$$d$$ 5120，40 层） | 每 token 819 KB | 480p 窗口 27 GB |
 
+Table: 自回归视频的 KV 字节数
+
 对比第一篇 Llama-3-8B 的 KV：128 KB / token（GQA 8 head）。**自回归视频的 KV 每 token 比 LLM 还大**（无 GQA、$$d$$ 大），且一个 chunk 就是几千 token——08 系列的 KV 管理问题（分页、驻留、换出）在这里重现，vLLM-Omni 的 `diffusion_kv/` 直接复用了 vLLM 的分页 KV 管理器与 PagedAttention 适配。
 
 ### 2. 滑动窗口与长视频
@@ -281,6 +299,8 @@ K/V = 本 chunk ∪ 缓存"] --> OUT["去噪 4 步 → clean chunk"]
 | 抢占 | 步边界 | chunk 边界；被抢占的会话要换出 KV |
 | 请求时长 | 可预测 | **不可预测**（用户决定何时停）——与 LLM 一样 |
 
+Table: 08 系列的概念在自回归少步视频上回来了什么
+
 第一篇那张"08 的机制在扩散上大半用不上"的表，在自回归视频上要重新画：大半又用得上了。**因果化让视频生成在系统形态上向 LLM serving 收敛**——这是 SGLang 与 vLLM 两个 LLM 引擎恰好适合承载它的原因之一。
 
 ### 2. 会话与控制信号
@@ -301,6 +321,8 @@ K/V = 本 chunk ∪ 缓存"] --> OUT["去噪 4 步 → clean chunk"]
 | 流式输出 | realtime 会话逐 chunk 推送 | 流式输出（`outputs/`） | — | — |
 | 动态批处理 | `runtime/managers/dynamic_batch_admission.py` | `sched/step_scheduler.py`（step 级批） | — | — |
 
+Table: 少步与自回归视频在四个引擎里的实现对照
+
 ### 2. 实践建议
 
 一张 24 GB 以上的卡：（1）FLUX.1-dev 与 schnell 各跑 20 个固定 prompt，对比开 / 关 `torch.compile`、开 / 关 TeaCache（FBCache）的每张时间与 PSNR——该看到 schnell 上缓存零命中或图坏、compile 的相对收益更大、VAE 时间占比从 2% 到 15%；（2）用 Self-Forcing 的开源实现（`guandeh17/self-forcing`，Wan2.1-1.3B）生成一段 10 秒视频，用 `torch.cuda.memory_allocated` 记录每个 chunk 后的显存增量（应接近 0.86 GB / chunk 直到窗口满），记录首 chunk 延迟与之后每 chunk 的延迟（应接近恒定），看第 30 秒之后的画面漂移。
@@ -320,6 +342,8 @@ K/V = 本 chunk ∪ 缓存"] --> OUT["去噪 4 步 → clean chunk"]
 | KV cache 回归 | 每 token $$2 d L \times 2$$ 字节（无 GQA）；chunk 级；滑动窗口 | Wan 1.3B 480p：184 KB / token，chunk 0.86 GB，窗口 6 GB |
 | 限制 | 误差累积（漂移）、窗口外遗忘 | 分钟级 |
 | 形态 | 批任务 → 会话：KV 驻留、流式、抢占、不可预测时长 | 08 系列大半回归 |
+
+Table: 少步与自回归视频的规则与数字小结
 
 ### 下一篇
 

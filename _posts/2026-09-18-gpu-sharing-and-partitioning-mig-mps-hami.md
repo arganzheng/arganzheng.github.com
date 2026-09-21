@@ -91,6 +91,8 @@ HAMi 不是第五层，而是**在时间片之上用软件补上显存与算力�
 | 十 | 实践 | mini-platform/share/：MIG 配置、HAMi 两服务共卡、时间片 ConfigMap、压测与 OOM 演练 |
 | 十一 | 小结 | 要点、四栏表、源码位置、练手项目增量 |
 
+Table: 本文的章节安排
+
 ## 二、共享的四个层次
 
 ### 1. 不隔离：多进程直接共用
@@ -206,6 +208,8 @@ MIG 的代价来自"硬"：分区几何是固定的枚举（第三章），改�
 | 与其他机制 | — | 与 MPS 互斥 | 与时间片互斥；不支持 MIG 设备 | MIG 设备上可再叠时间片 |
 | 动态调整 | — | 改 ConfigMap，重启 plugin | 改 ConfigMap，重启 plugin 与 MPS | 清空 GPU 后重新 apply |
 
+Table: GPU 共享四个层次的对照
+
 "与其他机制"一列有两个细节值得记住：device plugin 的 README 明确"Time-slicing and MPS are mutually exclusive"、"Sharing with MPS is currently not supported on devices with MIG enabled"；而时间片可以叠在 MIG 设备上——README 列出 A100 上可时间片化的资源包括 `nvidia.com/mig-1g.5gb` 等。第八章回答核心问题时会用到这一点。
 
 ## 三、MIG：硬件分区与 K8s 的接线
@@ -228,6 +232,8 @@ MIG 把 GPU 的资源切成 **slice**：A100 有 7 个计算 slice（每个 14 �
 | A100 80 GB / H100 80 GB：`3g.40gb` | 3 | 4 | 2 | |
 | A100 80 GB / H100 80 GB：`4g.40gb` | 4 | 4 | 1 | |
 | A100 80 GB / H100 80 GB：`7g.80gb` | 7 | 8 | 1 | 整卡 |
+
+Table: MIG 的 profile 与合法组合
 
 这张表与 GPU Operator v26.7.0 `assets/state-mig-manager/0400_configmap.yaml` 里 `default-mig-parted-config` 的 `all-1g.5gb`（`"1g.5gb": 7`）、`all-3g.20gb`（`"3g.20gb": 2`）、`all-1g.10gb`（H100/A100 80 GB 为 `"1g.10gb": 7`）等条目一致。带 `+me` 后缀的 profile（如 `1g.5gb+me`）额外带上视频编解码等媒体引擎，本篇不涉及。
 
@@ -456,6 +462,8 @@ HAMi（Heterogeneous AI Computing Virtualization Middleware，CNCF 孵化项目�
 | `resourceCores` | `nvidia.com/gpucores` | 每张卡算力的百分比（0–100） |
 | `resourcePriority` | `nvidia.com/priority` | 任务优先级，注入 `CUDA_TASK_PRIORITY` |
 
+Table: HAMi 的四个资源
+
 它们对应 `pkg/device/nvidia/device.go` 的 `NvidiaConfig` 字段 `ResourceCountName` / `ResourceMemoryName` / `ResourceMemoryPercentageName` / `ResourceCoreName` / `ResourcePriority`，由 chart 的 `templates/scheduler/device-configmap.yaml` 渲染进 `device-config.yaml`。`gpumem` 与 `gpucores` 都是可选的：不写 `gpumem` 时按 `defaultMemory`（默认 0，表示整卡）、不写 `gpucores` 时按 `defaultCores`（默认 0，表示不限）。
 
 一个完整的、按显存共卡的 vLLM Pod（`examples/nvidia/default_use.yaml` 的形状）：
@@ -619,6 +627,8 @@ HAMi 与 MPS 的情况不同：它们不切带宽与 L2，`gpucores: 40` 的容�
 | MPS `replicas: 2` | ≤ 50%（上限） | 整卡（共享） | 1/2（软） | 整卡 × 2 | 邻居空闲时 ≈ 整卡 | 同 HAMi |
 | 时间片 `replicas: 2` | 轮转，无保证 | 轮到时整卡 | 无 | 随邻居 | 随邻居 | 最大，含 context 切换抖动 |
 
+Table: 各共享方案的资源份额与两个阶段的延迟
+
 表里最值得看的是 MIG 两行的 SM 与带宽份额**不成比例**（`3g.20gb` 是 3/7 对 4/8），以及 HAMi / MPS 的带宽列是"整卡"——前者决定了同一 profile 对 prefill 密集与 decode 密集的服务划算程度不同，后者是软件切分总吞吐更高、延迟波动也更大的直接原因。
 
 引擎侧的另一个影响是**启动时的显存探测**。vLLM 按 `--gpu-memory-utilization` × 可见显存总量预留 KV cache。在 MIG 实例里可见显存就是 GI 的显存，没有问题；在 HAMi 里可见显存被拦截库改写为 `gpumem` 配额，也没有问题；在裸时间片与 MPS 里，vLLM 看到的是整卡显存，`0.9 × 80 GB` 会撞上邻居——必须手动把 `--gpu-memory-utilization` 调到 `1/N` 以下并留出余量（MPS 下 pinned memory limit 会让越界的分配失败，时间片下则是先到先得）。
@@ -660,6 +670,8 @@ HAMi 与 MPS 的情况不同：它们不切带宽与 L2，`gpucores: 40` 的容�
 | 谁的 OOM 会拖垮别人 | 不会 | 不会（越界者自己失败） | **会**：一个服务多分了显存，另两个在下一次分配时 OOM |
 | 几何 / 配额调整 | 排空节点后改 `nvidia.com/mig.config` | 改 Pod 的 `gpumem` 重新调度即可 | 改 ConfigMap 重启 plugin |
 | 用户看到的请求 | `nvidia.com/mig-3g.20gb: 1`（mixed）或 `nvidia.com/gpu: 1`（single） | `nvidia.com/gpu: 1` + `nvidia.com/gpumem: 13000` | `nvidia.com/gpu.shared: 1` |
+
+Table: 三个小模型与一张 A100 的三种方案
 
 对核心问题的直接回答：**时间片方案下一个服务的 OOM 会拖垮另外两个**——它没有显存隔离，一个服务把显存分完，另两个的下一次 `cudaMalloc` 就失败；HAMi 下 OOM 被限制在越界的容器内，但 Xid 级的 GPU 错误仍是整卡故障域；MIG 下无论 OOM 还是 Xid 都限制在单个 GI 内。
 
@@ -964,6 +976,8 @@ echo "== phase 4: A after drill";             bench "$A" a-after 16
 | 调度器按"剩余显存 ≥ X"选卡 | 默认调度器只计数 | HAMi scheduler extender（Filter / Bind，binpack / spread）；DRA 的 `SharedCounters` / `AllowMultipleAllocations`（v1.37 beta） | extender 是额外的调度跳与单点；DRA 切分语义与驱动支持仍在演进 |
 | 训练要整卡与 NCCL | — | 不切分；MIG 节点池与训练池分开 | 训练卡的利用率问题只能靠调度与排队解决（第三、八篇） |
 
+Table: 引擎需求、K8s 空缺、平台机制与代价
+
 ### 3. 本篇涉及的源码与配置位置
 
 | 项目 / 版本 | 位置 | 内容 |
@@ -995,6 +1009,8 @@ echo "== phase 4: A after drill";             bench "$A" a-after 16
 | | `docs/develop/dynamic-mig-migration.md`、`CHANGELOG.md` | 动态 MIG 的 reservation-first 模型、与 MIG Manager 不能同管一张卡；v2.8.0 引入 HAMi-DRA、v2.9.0 "ready for use" |
 | Kubernetes v1.37.0 | `staging/src/k8s.io/api/resource/v1/types.go` | `ResourceSliceSpec.SharedCounters []CounterSet`、`Device.ConsumesCounters []DeviceCounterConsumption`（`DRAPartitionableDevices`，beta）；`Device.AllowMultipleAllocations`、`DeviceCapacity.RequestPolicy`、`DeviceRequestAllocationResult.ShareID`（`DRAConsumableCapacity`） |
 | NVIDIA 文档（非检出） | MIG 用户指南、MPS 文档 | profile 表与合法 placement；改配置的空闲要求；MIG 实例间无 P2P / CUDA IPC；MPS 的 pinned memory limit / active thread percentage 与 Volta 起的故障隔离范围 |
+
+Table: 本篇涉及的源码与配置位置
 
 ### 4. 练手项目本篇增量
 

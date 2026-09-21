@@ -28,6 +28,8 @@ catalog: true
 | 八 | 本文小结 | |
 | 九 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 源码：`python/triton/compiler/compiler.py`、`python/triton/runtime/{cache,jit,driver}.py`、`python/triton/knobs.py`、`include/triton/Tools/Sys/GetEnv.h`、`third_party/nvidia/backend/{compiler.py,driver.py,driver.c}`、`third_party/amd/backend/{compiler.py,driver.py}`。
 
 ## 二、`compile()` 的骨架
@@ -82,6 +84,8 @@ def get_cache_key(src, backend, backend_options, env_vars):
 | `backend_options.hash()` | `CUDAOptions` 全部字段（`num_warps`、`num_stages`、`num_ctas`、`enable_fp_fusion`、`maxnreg`、`extern_libs` 的路径与**内容哈希**……）的 SHA-256 | autotune 的每个配置、`debug=True`、换 libdevice |
 | `env_vars` | `GetEnv.h` 里 `CACHE_INVALIDATING_ENV_VARS` 名单上**当前设置了**的环境变量及其值：`MLIR_ENABLE_DUMP`、`LLVM_IR_ENABLE_DUMP`、`DISABLE_MMA_V3`、`DISABLE_LLVM_OPT`、`TRITON_DISABLE_LINE_INFO`、`TRITON_F32_DEFAULT`、`TRITON_HIP_USE_ASYNC_COPY`……共约 40 个 | 设或不设这些变量 |
 
+Table: 缓存键的五个成分
+
 回答核心问题第一问。三种变化各落在哪个成分：
 
 - **不同的 `BLOCK_SIZE`**：`constexpr` 实参进 `src.hash()` 的 `constants` → 每个值一个目录。
@@ -131,6 +135,8 @@ add_kernel.json          ← 元数据
 | `make_ptx` / `make_amdgcn` | `name`（从 PTX 的 `.entry` / LLVM 的 `define amdgpu_kernel` 正则抓出来） | `cuModuleGetFunction` |
 | 运行时（不在 json 里） | `n_regs`、`n_spills`、`n_max_threads` | 加载后由 `cuFuncGetAttribute` 查得（§六.1） |
 
+Table: 元数据字段按来源分类
+
 `CompiledKernel.metadata` 是这个 json 反序列化成的 namedtuple（`KernelMetadata`）；`packed_metadata` 是 launcher 需要的子集打包成元组（`num_warps, num_ctas, shared, ...`）。`asm` 字典按扩展名给出每级产物的文本（`k.asm["ttgir"]`）——第五篇起所有 IR dump 都是从这里拿的。
 
 ## 五、dump 与 override
@@ -142,6 +148,8 @@ add_kernel.json          ← 元数据
 | `TRITON_KERNEL_DUMP=1`（目录 `TRITON_DUMP_DIR`，默认 `~/.triton/dump/<src.hash>/`） | 每级产物写一份到 dump 目录；`cubin` 阶段还用 `cuobjdump -sass` 生成 `.sass`（`get_sass`）——**读 SASS 的入口** |
 | `TRITON_KERNEL_OVERRIDE=1`（目录 `TRITON_OVERRIDE_DIR`） | 每级完成后，若 override 目录里有同名文件（如 `matmul_kernel.ttgir`），用它**替换**本级产物（`parse(full_name, ext, context)`），后续阶段从被替换的 IR 继续；打印 `Overriding kernel with file …` |
 | autotune config 的 `ir_override="path/to/x.ttgir"` | 同上，但按 kernel 配置指定而不是全局环境变量——"规模化覆盖" |
+
+Table: dump 与 override 的环境变量
 
 典型用法：`TRITON_KERNEL_DUMP=1` 跑一次拿到 `.ttgir`，手改（例如换一个 layout、删一个 `convert_layout`），拷到 override 目录，`TRITON_KERNEL_OVERRIDE=1` 再跑——**不改编译器就能试一个不同的编译决定**。第十三篇的二分法建立在它和 `triton.compile("x.ttgir")` 之上。`USE_IR_LOC=ttgir` 让后续 IR 的 `loc` 指向 dump 出来的 `.ttgir` 文件行号而不是 Python 行号，配合 `-lineinfo` 可以在 Nsight Compute 里把 SASS 对回 TTGIR。
 
@@ -240,6 +248,8 @@ flowchart TB
 | shared memory | `ttg.shared = 32768` | `16384`（`num_stages = 2`，`#amd_rotating_shared` 环形复用） |
 | 等待 | 硬件 scoreboard + `bar.sync` | **编译器插 `s_waitcnt`**（24 条）+ `s_barrier` |
 
+Table: 同一个 matmul 在 NVIDIA 与 AMD 上的对照
+
 ### 2. 阶段表与 pass 列表
 
 ```python
@@ -258,6 +268,8 @@ stages["hsaco"]  = make_hsaco     # llvm-mc 汇编成 .o → lld 链接成 ELF�
 | 循环 | `fuse_nested_loops`、`triton_licm`、`canonicalize`、`cse` | `schedule_loops(num_stages)`、`pipeline(use_async_copy, use_block_pingpong)`——**自己的流水器**（`third_party/amd/lib/TritonAMDGPUTransforms/`），`block_pingpong`（两组 wave 交替做 MMA 与访存，gfx942 / gfx950 的核心优化）、`coalesce_async_copy`、`move_up_prologue_loads` |
 | 访存 | — | `canonicalize_pointers`、`convert_to_buffer_ops`（`tt.load` → `amdgpu.buffer_load`：用 128 位 buffer resource 描述符、32 位偏移，硬件做越界检查——mask 变成免费）、`optimize_buffer_op_ptr` |
 | 收尾 | `combine_tensor_select_and_if`、`allocate_warp_groups`、`fold_true_cmpi` | `warp_pipeline`、`prepare_if_combining`、`fp_sanitizer` |
+
+Table: AMD 后端 make_ttgir 的阶段与 pass
 
 Blackwell / Hopper 特有的 TMA、TMEM、warp specialization pass 没有；对应的 CDNA 概念（`buffer_load … lds`、TDM on gfx1250）有自己的 pass。**共用的部分是所有与 layout 推理相关的通用 pass——它们只依赖 `DistributedEncodingTrait` 与 Linear Layout，`#amd_mfma` 实现了同一组接口就能用**（第七篇 §八.3 的接口设计在这里兑现）。
 

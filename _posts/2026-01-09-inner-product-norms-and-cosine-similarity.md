@@ -41,6 +41,8 @@ updated: 2026-09-17
 | 七 | 本文小结 | |
 | 八 | 自测 | 五道题 |
 
+Table: 本文的章节安排
+
 ## 二、内积
 
 ### 1. 定义
@@ -212,6 +214,8 @@ $$
 | 长度 / 归一化 | $$\lVert a \rVert_2$$，$$\hat a = a / \lVert a \rVert$$ | 余弦相似度、QK-norm、LayerNorm / RMSNorm 的分母 |
 | 正则化项 | $$\frac{\lambda}{2} \lVert W \rVert_F^2$$，$$\lVert w \rVert_1$$ | weight decay、Lasso |
 | 误差度量 | $$\lVert W - \hat W \rVert_F$$，$$\lVert WX - \hat W X \rVert_F$$ | 量化误差、低秩近似误差（下一篇） |
+
+Table: 范数的三个身份
 
 读论文时看到 $$\lVert \cdot \rVert$$，先判断它是哪个身份。
 

@@ -50,6 +50,8 @@ flowchart TB
 | [第八篇：Latent diffusion 与 DiT](/latent-diffusion-dit-and-text-to-image-recipes.html) | 为什么在 latent 空间做？DiT 赢在哪？一张图与一次 LLM 推理怎么比？ | VAE 接管感知压缩，扩散只做语义（1/10 算力）；DiT 的 FID 随 GFLOPs 平滑下降、与分配无关；扩散 compute-bound 多步并行，LLM memory-bound 串行，加速手段是步数蒸馏 | f8 4ch 48×、16ch 12×；DiT-XL/2 FID 2.27；FLUX 12B、28 步、2.8 PFLOPs vs 7B LLM 1000 token 14 TFLOPs，200× 而时间相近；LCM 4 步、Turbo 1–4 步；5 s 720p 视频 ≈ 115K token、600 PFLOPs |
 | [第九篇：自回归生成与统一模型](/autoregressive-image-generation-and-unified-models.html) | AR 与扩散各赢在哪？理解与生成的表示能不能共享？ | AR 赢在与 LLM 共享一切与"一切皆 token"的统一，扩散赢在质量、效率、编辑生态；表示目前部分共享（共享 attention、分开 FFN），方向是收敛 | VQ commitment $$\beta = 0.25$$；LlamaGen 16384 码本利用率 97%；栅格 $$1024^2$$ 4096 步 100 s；VAR 10 尺度 680 token、FID 1.73 vs DiT 2.27；Janus-Pro GenEval 0.80；BAGEL 14B MoT |
 
+Table: 九篇的核心问题、结论与必记公式
+
 ### 1. 本文的章节安排
 
 | 章 | 内容 |
@@ -59,6 +61,8 @@ flowchart TB
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
 | 六 | 下一步 |
+
+Table: 本文的章节安排
 
 ## 二、逐篇回顾
 
@@ -254,6 +258,8 @@ scaling 是另一个共同点，且它决定了结构的胜负。第八篇 DiT �
 | recaption / 数据过滤 | 一、三、六 | 一 DFN；三 ShareGPT4V、Molmo；六 DALL-E 3 95%、SD3 50% |
 | scaling law | 一、六、七 | 一编码器分辨率 > 参数；六 DiT FID ∝ GFLOPs；七 VAR、LlamaGen、BAGEL 涌现 |
 
+Table: 贯穿九篇的概念及其关系
+
 ## 四、常见误区
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
@@ -270,6 +276,8 @@ scaling 是另一个共同点，且它决定了结构的胜负。第八篇 DiT �
 | guidance scale 越大越好、可跨模型比较 | $$w$$ 是逐噪声层对 $$p_t(c \mid x)$$ 的 $$w$$ 次幂锐化（终点非幂分布），大了过饱和、多样性坍缩；且与模型、调度、是否蒸馏耦合 | SD 1.x 7.5、SD3 3.5–7、FLUX.1-dev 3.5；配动态阈值 / rescale / 区间 guidance | [第六、七篇](/diffusion-models-ddpm-score-matching-and-flow-matching.html) |
 | 扩散模型的推理优化照搬 LLM | 扩散无自回归 KV cache、compute-bound、每步形状相同（文本 cross-attn K/V 可缓存） | 加速靠步数蒸馏与求解器，服务按步数 / 分辨率组 batch | [第八篇](/latent-diffusion-dit-and-text-to-image-recipes.html) |
 | AR 图像生成已被扩散淘汰 | VAR FID 1.73 优于 DiT-XL/2 2.27，且 AR 是统一模型的基础 | ImageNet 上平手或领先，文生图上仍落后一档；最优形式可能是混合 | [第九篇](/autoregressive-image-generation-and-unified-models.html) |
+
+Table: 常见误区与正确说法
 
 ## 五、通关自测
 
@@ -476,6 +484,8 @@ scaling 是另一个共同点，且它决定了结构的胜负。第八篇 DiT �
 | 读过 | 能说出九篇各讲什么；知道 InfoNCE、2×2 merge、RVQ、DDIM、CFG、DiT、VQ-VAE、VAR 这些名词与它们属于哪条线 |
 | 掌握 | A 组能不翻书算出 8 题以上；B 组能说出每题用了哪几篇的什么；拿到一份 VLM 或文生图技术报告能指出编码器 / connector / 分辨率 / 阶段或 latent / 预测目标 / 调度 / guidance 的每个选择在信息与 token、算力与质量上换了什么 |
 | 能教人 | C 组每题能给出全部要点并预判追问；能解释九篇里每个反直觉结论（分辨率 > 编码器大小、MLP 胜 Q-Former、幻觉不只是数据问题、语义决策不是计算时延、三种扩散视角是一件事、FLOPs 200 倍时间相近、VAR 超过 DiT）为什么成立 |
+
+Table: 掌握程度的判据
 
 通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点。没过的部分回到第二章对应篇的"必记"，再回该篇正文。
 

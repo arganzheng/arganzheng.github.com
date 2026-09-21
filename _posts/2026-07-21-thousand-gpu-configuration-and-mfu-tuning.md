@@ -65,6 +65,8 @@ PP（每个 stage 边界每 micro-batch）2 × sbh × 2 / t 字节        走节
 | 约束 2 | 通信：每类通信量 / 对应链路带宽 ≪ 计算时间，且能被重叠 |
 | 约束 3 | 算法：global batch 由训练配方定，不是性能参数 |
 
+Table: 千卡配置的自由度与约束
+
 三类约束的地位不同。显存是硬约束，放不下就是放不下；通信是软约束，超了只是慢；global batch 是外部给定的，配置只能决定它怎么被切成 micro-batch。所有推导都是在这三条边界内找 MFU 的最大值。
 
 ### 3. 决策流程
@@ -122,6 +124,8 @@ PP（每个 stage 边界每 micro-batch）2 × sbh × 2 / t 字节        走节
 | 重叠 | DistributedDataParallelConfig.overlap_grad_ reduce / overlap_param_gather； ModelParallelConfig.tp_comm_overlap / overlap_p2p_comm | ZeRO overlap_comm；stage3_prefetch_ bucket_size | FSDP2 隐式预取 + set_modules_to_forward_prefetch； CompileConfig.enable_async_tensor_parallel |
 | 编译 / 低精度 | --fp8 (TE)；cuda_graph_impl | 无原生 compile 集成 | CompileConfig.enable（per-block）；Float8LinearConverter |
 
+Table: 三框架在配置面上的对照
+
 DeepSpeed 这一列后文不再展开：它的配置面是 JSON，概念与 Megatron 的 ZeRO-1 一致，重计算沿用 `deepspeed/runtime/activation_checkpointing/checkpointing.py`，读者按对照表映射即可。
 
 ### 5. 本文的章节安排
@@ -137,6 +141,8 @@ DeepSpeed 这一列后文不再展开：它的配置面是 JSON，概念与 Mega
 | 八 | 配置纪律 | 版本控制 · 前后基准 · 变更留痕 |
 | 九 | 本文小结 | 要点 · 源码位置 · train-ledger 的 sweep/ 与 `mfu_breakdown.py` · 外推到 1024 卡 |
 | 十 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、从规格推配置：70B / 1024 H100 的完整推导
 
@@ -280,6 +286,8 @@ $$b$$ 大的问题是**激活与气泡**。激活随 $$b$$ 线性增长（候选
 | 2 | 16384 | 8 | 37.5% → 9.4% | ~76 GB（紧） | 4 | 25% → 6.3% | ~89 GB ✗ |
 | 4 | 32768 | 4 | 75% → 18.8% | ~130 GB ✗ | 2 | 50% → 12.5% | ~143 GB ✗ |
 
+Table: micro-batch 大小对气泡与显存的影响
+
 所以 PP 下 $$b$$ 几乎总是 1 或 2，而"用更大的 micro-batch 提高 GEMM 效率"这条路在 PP 下是被气泡堵死的：要 GEMM 效率就得减小 $$p$$（候选 B）或不用 PP（FSDP，但通信压不住）。这是三个约束互相牵制最直接的例子。
 
 序列打包（第七篇）是绕开这个矛盾的手段之一：$$b=1$$ 但一条"序列"里装多个文档，M 维不变、token 利用率上去。Megatron 的 `--micro-batch-size 1` 配 packed sequence 是标准写法（`arguments.py` 里有对应断言：sequence packing 要求 micro_batch_size 为 1）。
@@ -387,6 +395,8 @@ Megatron 走 Transformer Engine 的 userbuffers：`ModelParallelConfig.tp_comm_o
 | p2p 有等待但两边都空闲 | 相邻 stage 的 micro-batch 顺序不一致、或 stage 层数不均 | 查 pipeline 布局；用 --decoder-first/last-pipeline-num-layers 平衡 |
 | CPU 侧发射慢，通信虽异步但发得晚 | 每个 step 几千个小 kernel，Python 跟不上 GPU | 第六章第 7 节；CUDA Graph；融合 |
 
+Table: 重叠失败的常见原因与处置
+
 第三条值得多说一句：GPU 上通信与计算"并行"的前提是两种 kernel 同时驻留在 SM 上。NCCL kernel 每个 channel 占一个 block，几十个 channel 就是几十个 SM；H100 有 132 个 SM，计算 kernel 若是按满 SM 设计的 GEMM，两者只能轮流。这是本系列不展开的 NCCL 侧细节，但它是"重叠没发生"最难查的一种：时间线上两类 kernel 看起来是并行发起的，实际是串行执行的，只有看每个 kernel 的实际时长是否比单独跑时变长才能确认。
 
 ## 六、MFU 损失的七项拆解
@@ -410,6 +420,8 @@ $$T_{ideal}$$ 是模型 FLOP 除以标称峰值（候选 A：2.0 s），七个 $
 | 5 kernel 效率 | kernel 都在跑，但每个 GEMM 的 FLOP/时长 低于峰值；非 GEMM 多 | 计算 kernel 总时长 − T_ideal |
 | 6 CPU 发射开销 | 计算 stream 有细碎空隙，CPU 线程在忙（Python / aten 调度） | GPU 全空 且 不在 DataLoader 中 的空隙 |
 | 7 straggler | 集合通信 kernel 时长 ≫ 字节数/带宽；跨 rank 计算时间不一致 | 多 rank trace：计算时长的 max − median；或集合通信时长 − 理论传输时间 |
+
+Table: 时间线上的各项开销与测法
 
 表里的七种形状两两之间容易混：4 与 6 都是"GPU 全空"，只差 CPU 线程当时在干什么；2 与 7 都是"通信 kernel 很长"，只差是带宽不够还是在等别人；3 与 5 都是"计算 kernel 在跑"，只差反向里有没有多出一份前向。把时间线上任意一段空隙归到某一项，走的是下面这棵判定树：
 

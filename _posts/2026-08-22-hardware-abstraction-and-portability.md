@@ -42,6 +42,8 @@ vLLM 的答案不是在核心代码里堆积更多硬件分支，而是建立一
 | 九 | 如何判断硬件适配是否真正做到了解耦 | 五条检查项 |
 | 十 | 本文小结 | Platform 是边界，不是万能胶 |
 
+Table: 本文的章节安排
+
 ## 二、一条设计原则：硬件适配不能污染 Serving 核心
 
 先看一个反例。
@@ -486,6 +488,8 @@ current_platform ────────┼─ Kernel Import
 | TPU | `TpuPlatform`，由独立包 `tpu_inference` 提供，主仓库 `tpu.py` 只做转发 import | 由 `tpu_inference` 提供 | 由 `tpu_inference` 提供 | 无 `_C` 扩展 | 由 `tpu_inference` 提供 |
 | OOT 插件（如 vllm-ascend） | 通过 `vllm.platform_plugins` entry point 注册的 `AscendPlatform` | 插件自带 NPU Worker / ModelRunner | 插件自定义 Backend（可经 `AttentionBackendEnum.CUSTOM` 注册） | 插件自己的 custom ops，或 `register_oot` 整类替换 | 插件提供（HCCL） |
 
+Table: 内置后端与 OOT 插件在各扩展点的实现
+
 这张表有两个值得留意的地方。一是 ROCm 与 CUDA 共用 Worker、ModelRunner 和 Communicator，差异只落在 Platform 与 Kernel 扩展两层——这是“上层稳定、底层替换”做得最彻底的一对。二是 TPU 在 v0.27.1 里实际上已经走了和 OOT 插件相同的路径：主仓库只保留一个转发用的 `tpu.py`，真正实现在 `tpu_inference` 包里，这也说明第五章要讲的 Out-of-Tree 机制并不只是给第三方厂商用的。
 
 ### 4. 为什么 Attention 要单独做 Selector？
@@ -572,6 +576,8 @@ graph LR
 | 量化 | 量化配置和模型接口 | 昇腾量化 Kernel 与转换逻辑 |
 | 内存 | KV Cache 抽象和缓存管理流程 | NPU 内存分配、显存/内存池适配 |
 | 配置检查 | 通用配置校验入口 | NPU 特有约束和兼容性检查 |
+
+Table: vLLM 主仓库与 Ascend 插件的分工
 
 因此，“接入昇腾”绝不是简单地把：
 
@@ -1132,6 +1138,8 @@ Serving 核心保持稳定
 | CUDA 平台实现 | `vllm/platforms/cuda.py`（注意 `import_kernels()` 与 `get_attn_backend_cls()` 是**两条并行路径**） |
 | 其他平台 | `vllm/platforms/`（`rocm.py`、`xpu.py`、`cpu.py`） |
 | Attention 分派点 | `vllm/v1/attention/selector.py` |
+
+Table: 硬件平台源码导航
 
 </details>
 

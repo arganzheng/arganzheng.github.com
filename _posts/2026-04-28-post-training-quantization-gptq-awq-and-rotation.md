@@ -28,6 +28,8 @@ updated: 2026-09-14
 | SmoothQuant | W + A | 让激活可量化 | 把激活的离群值迁移到权重 | 校准集，激活统计 | W8A8 接近无损；W4A4 不够 |
 | 旋转（QuaRot / SpinQuant） | W + A（+ KV） | 让权重与激活都没有离群值 | Hadamard / 学习的正交旋转，摊平离群值 | 校准集（SpinQuant 需要少量优化） | W4A4 困惑度 +0.2 到 +0.5，是 W4A4 的可行路径 |
 
+Table: 训练后量化方法对照
+
 五种方法里前三种只量化权重（W4A16 / W8A16），GEMM 仍在 BF16 上算，收益是字节；后两种也量化激活，GEMM 在 INT8 / INT4 / FP8 Tensor Core 上算，收益是字节加算力。两类的难度差一个量级：权重是静态的、可以离线慢慢算；激活是动态的、每次前向都不同、且有离群值。
 
 ### 2. 先说答案
@@ -52,6 +54,8 @@ updated: 2026-09-14
 | 十一 | 动手（建议） | RTN / GPTQ / AWQ 的对照 |
 | 十二 | 本文小结 | |
 | 十三 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、误差模型
 
@@ -127,6 +131,8 @@ per-tensor 量化一个 scale 管整个矩阵——一个离群值毁掉全部�
 | 128 | $$4 + 20/128 = 4.156$$ | 3.85× |
 | 64 | $$4 + 20/64 = 4.3125$$ | 3.71× |
 | 32 | $$4 + 20/32 = 4.625$$ | 3.46× |
+
+Table: 不同 group size 下每权重的有效 bit
 
 $$g = 128$$ 是 GPTQ / AWQ 的默认：元数据开销 4%，误差已经比 per-channel 低得多。$$g = 32$$ 的额外收益通常在 0.05 困惑度以内，代价是 15% 的字节与更碎的 dequant。GGUF 的 Q4_K_M 用了两级 scale（super-block 256 内再分 8 个 32 的 block，block scale 用 6 bit）来压元数据——第八章。
 
@@ -276,6 +282,8 @@ Hadamard 是一个固定的、"平均"的旋转；对特定模型可能有更好
 | MXFP4 | E2M1 元素 + 每 32 个一个 E8M0（2 的幂）scale | 块内 FP4，块间 2 的幂缩放 | OCP 标准；Blackwell 原生；gpt-oss 的权重格式 |
 | NVFP4 | E2M1 元素 + 每 16 个一个 E4M3 scale + 每张量一个 FP32 scale | 更细的块与更精确的 scale | NVIDIA Blackwell；比 MXFP4 精度好 |
 
+Table: 整数与浮点的低比特格式
+
 **非均匀格点**（FP4、NF4）对高斯分布的权重更有效：高斯的多数质量在 $$\pm\sigma$$ 内，均匀格点在那里太稀、在 $$\pm 3\sigma$$ 太密。NF4 是这个思路的极限——按分位数放格点，每个格点等概率。FP4 是它的硬件友好近似。但非均匀格点的**激活**量化不能直接用 Tensor Core 的整数乘加（需要查表），所以 FP4 作为硬件原生格式（Blackwell）才让非均匀格点进入激活量化。
 
 ### 2. 微缩放（microscaling）
@@ -320,6 +328,8 @@ llama.cpp 的 GGUF 格式有自己的一族：Q4_0（简单 per-32 block）、Q4
 | QuaRot | 与 GPTQ 相同 + 旋转折叠 | 同 GPTQ |
 | SpinQuant | GPTQ + 几小时的旋转优化 | 需要整模型前向（可以 offload） |
 
+Table: 各量化方法的量化时间与内存
+
 都是一次性成本，与训练相比可以忽略。
 
 ### 2. 运行时开销
@@ -338,6 +348,8 @@ Llama-3.1-70B（70.6B 参数，其中 embedding + lm_head 2.1B）：
 | W8A8 / FP8 | 70.6 GB | 一张 H100 80 GB 刚好，KV 空间小 |
 | W4A16 g128（lm_head / embedding 保持 BF16） | $$68.5 \times 0.52 + 2.1 \times 2 = 39.8$$ GB | 一张 H100 装下并留 40 GB 给 KV |
 | W4A4 g128 | 同上，激活也是 4 bit | 算力也翻倍（需要 INT4 / FP4 Tensor Core） |
+
+Table: Llama-3.1-70B 各量化配置的权重字节
 
 0.52 字节/权重 = 4.156 bit / 8。这就是 4-bit 量化在部署上的意义：**70B 从两张卡变成一张卡**，且留出 KV 空间——单卡不需要张量并行的通信，端到端延迟再降一截。
 
@@ -368,6 +380,8 @@ Llama-3.1-70B（70.6B 参数，其中 embedding + lm_head 2.1B）：
 | 格式 | INT4 / FP4 / NF4；MXFP4（32 块 E8M0）/ NVFP4（16 块 E4M3）；GGUF k-quants | 非均匀格点匹配高斯；微缩放 = 小 group |
 | 敏感层 | 首尾层、out_proj / down_proj、lm_head、MoE 路由 | 混合精度：敏感层 6–8 bit |
 | 成本 | 量化 1–4 小时；W4A16 的 dequant 在 compute-bound 区间变慢 | 70B：141 → 40 GB，两卡变一卡 |
+
+Table: 训练后量化的规则与公式小结
 
 ## 十三、自测
 

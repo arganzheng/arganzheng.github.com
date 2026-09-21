@@ -25,6 +25,8 @@ catalog: true
 | 八 | Latent diffusion、DiT 与文生图配方 | 生成 | 为什么在 latent 空间做；U-Net 到 DiT；SD / FLUX 的配方；采样加速；视频 |
 | 九 | 自回归图像生成与统一模型 | 交汇 | 图像怎么 token 化；AR 生成 vs 扩散；理解与生成能不能用一个模型 |
 
+Table: 系列九篇的主题、所属线与回答的问题
+
 每一篇都按"小白能看懂"的标准写：每个机制先给一个能在纸上算的小例子、一张图、再给公式，核心代码贴在文中并附真实输出——CLIP 的对比学习、VLM 的 connector、mel 谱、RVQ、DDPM 的加噪去噪、flow matching、CFG、latent diffusion、VQ 与自回归生成，全部在 CPU 上用几十行代码的 toy 跑通过一遍（配套代码见"实践线"）。
 
 读完这个系列，读者应该能够：读懂一个 VLM 的技术报告（编码器选什么、connector 怎么设计、分辨率策略、训练阶段、数据配比、评测），并判断它的每个选择在成本与效果上的取舍；读懂一个文生图模型的技术报告（噪声调度、预测目标、结构、guidance、采样步数），并理解它与 LLM 在训练与推理上的根本不同；知道两条线在哪里交汇、统一模型当前的三种路线各是什么。
@@ -226,6 +228,8 @@ VLM 的训练不是一步到位的：先让 connector 学会对齐、再让 LLM 
 | 八 | `08_latent_diffusion_toy.py` | PCA 当 VAE，在 16 维 latent 里跑 DDPM 生成手写数字 |
 | 九 | `09_vq_tokenizer_and_ar_toy.py` | K-Means 码本把数字变成 16 个 token；FSQ；计数版 next-token 模型生成数字 |
 
+Table: 各篇的 toy 实验脚本与跑通什么
+
 真实模型上的复现（需要一张 24 GB 的 GPU）在每篇的"动手（建议）"一节：用现成工具（`transformers`、`open_clip`、`diffusers`、`lmms-eval`、`encodec`）复现该篇核心现象的骨架与该看的指标，不引用未跑过的数字。
 
 ## 前置要求与说明
@@ -277,5 +281,7 @@ VLM 的训练不是一步到位的：先让 connector 学会对齐、再让 LLM 
 | 它用的是 $$\epsilon$$ 预测还是 flow matching？guidance 该设多少？ | 第七篇 |
 | 生成一张图的成本与一次 LLM 推理怎么比？步数怎么从 50 降到 4？ | 第八篇 |
 | 要一个既能看图又能画图的模型，选纯 token、双编码器还是 AR + 扩散？ | 第九篇 |
+
+Table: 读完多模态系列后应能回答的追问
 
 多模态的模型每年都在换结构。不变的是两条线的数学、"一张图值多少 token"这个账、以及"模型看到了什么、没看到什么"这个问题。

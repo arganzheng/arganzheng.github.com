@@ -33,6 +33,8 @@ updated: 2026-09-21
 | $$s, b, h, a, L$$ | 序列长、micro-batch 大小、隐藏维、注意力头数、层数。放在一起是因为激活的大小由这五个数决定（第一篇的 $$34sbh$$ 每层） |
 | $$m$$ | 每个 DP 副本每 step 的 micro-batch 数（梯度累积步数） |
 
+Table: 本篇沿用的记账符号
+
 **通信量的口径**：本篇所有"通信量"指**一张卡在一个 step 内发出的字节数**（全双工链路上收发同时进行、数量相等）。对 $$n$$ 个参与者、有效载荷 $$S$$ 字节，五个原语的每卡通信量是：
 
 | 原语 | 每卡通信量 | 近似 | S 的含义 |
@@ -42,6 +44,8 @@ updated: 2026-09-21
 | reduce-scatter(S) | (n−1)/n · S | ≈ S | S 为输入总大小 |
 | all-to-all(S) | (n−1)/n · S | ≈ S | S 为每卡输入总大小；n(n−1) 条独立的流 |
 | send/recv(S) | S | S | 点对点 |
+
+Table: 五个原语的每卡通信量
 
 以及一条后面反复使用的等式：**all-reduce = reduce-scatter + all-gather**，两半各 $$\approx S$$，合计 $$\approx 2S$$。用 N 计量时，$$N$$ 个 bf16 梯度做一次 all-reduce，每卡搬 $$\approx 2N$$ 个元素，即 $$4N$$ 字节；本篇按 ZeRO 论文的习惯把它写成"$$2N$$ 的通信量"，单位是元素，乘以 dtype 字节数才是字节。
 
@@ -61,6 +65,8 @@ updated: 2026-09-21
 | PP | 切 1/N_p | 切 1/N_p | 切 1/N_p | 只持有本 stage 的层；同时在途 ≤ N_p 个 micro-batch |
 | EP | 专家切 1/N_e | 同 | 同 | token 按路由结果 all-to-all 到专家所在卡 |
 
+Table: 六种并行各切哪种状态
+
 读这张表的方式：**每一行"切"的格子越多，显存越省；每一个"切"都对应一种通信**。DP 那一行只在"梯度→归约"处有通信；ZeRO-3 在参数一格多了一次 all-gather；TP 的三个"切"是免费的（矩阵切开后梯度和优化器状态自然跟着切），它的代价在激活那一格——层内切开的激活要在层边界处拼回来。PP 同理，三个状态的"切"不产生通信，代价是 stage 之间传激活和气泡。
 
 这张图还揭示了另一件事：**DP 系的策略（DP/ZeRO/FSDP）与模型并行系的策略（TP/PP/CP/EP）是正交的**。前者决定"同一个参数的几份副本之间如何分工"，后者决定"一份模型如何被切开"。任何一个真实配置都是两者的乘积：模型被 TP/PP 切成 $$N_t N_p$$ 份，每份再有 $$N_d N_c$$ 个副本，副本之间用 ZeRO 的某一级分片。
@@ -75,6 +81,8 @@ updated: 2026-09-21
 | PP | 切层；气泡 $$(p-1)/m$$ 用 micro-batch 填；边界传激活 + 梯度 | 切层 + 对应层的 KV cache；气泡用**并发请求**填，请求长短不一所以更难填满；边界只传前向激活 | 训练的 $$m$$ 由 batch 决定、可控；推理的"m"是在线流量，不可控 |
 | CP | 切序列 + 注意力本身，K/V 沿环流动，前向 + 反向 | 切长 prompt 的 prefill（PCP）或 decode 时的 KV cache（DCP） | 推理侧 decode 阶段每步只有 1 个 query，切的是 KV cache 而不是激活 |
 | EP | 切专家参数 / 梯度 / 优化器状态；每层 dispatch + combine 各一次 all-to-all，反向再两次 | 切专家权重；每层 dispatch + combine，无反向；更在意小批次下 all-to-all 的延迟 | 反向的两次 all-to-all 与负载不均的梯度效应是训练独有的 |
+
+Table: 训练侧与推理侧并行策略的对照
 
 一句话概括：**推理侧的并行是本篇的子集**——去掉所有与梯度、优化器状态有关的行和列，剩下的就是 vLLM 那篇讨论的东西；反过来，推理侧对延迟的极端敏感（decode 每步只算一个 token）是本篇用不上的约束。两篇都需要理解的读者，建议先读本篇把"四种状态"看全，再看推理篇里哪两种消失了。本篇专注训练侧，即"状态有四种、每一种怎么切"。
 
@@ -92,6 +100,8 @@ updated: 2026-09-21
 | DP / ZeRO | 2N_local（ZeRO-3 为 3N_local） | 集合 | 否；与反向重叠 → 跨节点，但量大 |
 | EP | 4 × 路由 token × 层数 × m | all-to-all | 是；专家计算等它 → 尽量节点内 |
 
+Table: 各并行策略的通信量、形态与是否在关键路径上
+
 "通信量大"和"必须快链路"是两件事。TP 的通信量在数值上常常是最大的一项，但真正把它锁在节点内的是**它在关键路径上**：column-parallel 的输出经过 all-reduce 才能进下一个 GEMM，没有东西可以和它重叠。DP 的通信量也不小，但它是一大块可以在反向传播期间慢慢发的数据，对延迟不敏感，只要带宽够。PP 的通信量最小、又不在关键路径上，所以它是最适合放在最慢链路上的那一维。
 
 ### 4. 本文的章节安排
@@ -105,6 +115,8 @@ updated: 2026-09-21
 | 六 | 专家并行 | 专家的状态形态；一个 token 的旅程：路由 → dispatch → 专家 → combine；all-to-all 通信量；负载不均、容量因子与辅助损失；分块流水把 all-to-all 藏起来；EP 与 DP/TP 的组合；4 个进程亲手跑一遍 |
 | 七 | 组合与实例 | 五元组大表；组合顺序 TP → CP → PP → DP 及原因；Llama 3 405B 代入；原语对应表；三框架对照 |
 | 八 | 小结 | 要点、源码位置、train-ledger 的 `ledger/parallel.py` |
+
+Table: 本文的章节安排
 
 ## 二、数据并行与 ZeRO：切优化器状态、梯度、参数
 
@@ -151,6 +163,8 @@ RS + AG == AR × 0.5 ?  : True
 | 优化器后 | 不再需要 all-gather 参数 | 0 | 原 ZeRO-1 的那次省掉了：下一步前向本来就要 all-gather |
 | **合计** | | **3N** | |
 
+Table: ZeRO-3 通信量从 2N 到 3N 的逐项
+
 把四级放到同一条 step 时间轴上，通信落在哪个阶段一眼可见（每格是该级在该阶段的每卡通信量，单位元素）：
 
 | 级别 | 前向 L1…Ln | 反向 Ln…L1 | 优化器步骤之后 | 合计 |
@@ -159,6 +173,8 @@ RS + AG == AR × 0.5 ?  : True
 | ZeRO-1 / 2 | — | RS 梯度 ≈ N | AG 参数 ≈ N | 2N |
 | ZeRO-3 | 逐层 AG 参数 ≈ N（用完即释放） | 逐层 AG 参数 ≈ N + RS 梯度 ≈ N | —（下一步前向的逐层 AG 取代了它） | 3N |
 | ZeRO-3 不释放 | 逐层 AG 参数 ≈ N | —（参数仍在）+ RS 梯度 ≈ N | — | 2N |
+
+Table: ZeRO 四级在 step 时间轴上的通信
 
 推导里有一个容易漏的抵消：ZeRO-1/2 在优化器步骤后有一次参数 all-gather，ZeRO-3 把它省掉了，因为下一个 step 的前向本来就要逐层 all-gather——时间轴上就是 ZeRO-1 最右一格挪到了 ZeRO-3 最左一格；所以净增只有反向那一次。如果前向后**不释放**参数（FSDP 的 `reshard_after_forward=False`），反向那次 all-gather 也省掉，通信回到 $$2N$$，代价是完整的 bf16 参数 $$2N$$ 常驻——这时它的显存是 $$2N + 14N/N_d$$，与 ZeRO-2 相同。**ZeRO-3 的 $$3N$$ 是用 $$1N$$ 的通信换 $$2N(1 - 1/N_d)$$ 的显存**。
 
@@ -178,6 +194,8 @@ RS + AG == AR × 0.5 ?  : True
 | ZeRO-1 | 141.2 | 141.2 | 13.2 | 295.6 GB | 2N | reduce-scatter + all-gather |
 | ZeRO-2 | 141.2 | 2.2 | 13.2 | 156.6 GB | 2N | 同上，梯度即时释放 |
 | ZeRO-3 | 2.2 | 2.2 | 13.2 | 17.6 GB | 3N | AG (fwd) + AG (bwd) + RS |
+
+Table: 70B、N_d = 64 下各 ZeRO 级别的每卡显存与通信
 
 三级之间的显存台阶分别是 $$12N$$、$$2N$$、$$2N$$——优化器状态是最大的一块，所以 ZeRO-1 一步就拿掉了 74%，这也是为什么 Megatron 长期只做到 ZeRO-1 而不觉得亏。表里没有激活：$$s = 8192$$、$$b = 1$$ 时一层 34sbh ≈ 2.3 GB，80 层 180 GB，ZeRO 一个字节都不帮它——切激活是 TP/SP/CP/PP 和重计算的事。
 
@@ -203,6 +221,8 @@ ZeRO-3 的 $$3N$$ 通信全在 DP 组上；当 $$N_d$$ 跨越几十个节点时�
 | 分片组内通信 | AG + AG + RS ≈ $$3N$$ | NVLink（$$N_s = 8$$ 时） | ZeRO-3 的全部大头 |
 | 副本间通信 | reduce-scatter 之后的梯度分片做 all-reduce，每卡 $$2(N_r - 1)/N_r \times N/N_s \approx 2N/N_s$$ | IB | 量比 $$3N$$ 小了 $$N_s$$ 倍 |
 
+Table: HSDP 的显存、通信与链路
+
 它的取舍很直接：把大头 $$3N$$ 挪到快链路上，跨节点只剩 $$2N/N_s$$，代价是显存只省 $$N_s$$ 倍。70B 用 $$N_s = 8$$ 每卡要 141 GB，放不下；$$N_s = 64$$ 才是 17.6 GB。所以 HSDP 的 $$N_s$$ 是"刚好放得下"的最小值，不是越小越好。FSDP2 里 HSDP 由传入的 2D `DeviceMesh` 决定：`fully_shard(module, mesh=mesh_2d)` 时参数 placement 为 `(Replicate(), Shard(0))`，`_fsdp_common.py` 的 `HSDPMeshInfo` 同时持有 shard 与 replicate 两个进程组；`_fsdp_api.py` 的 `DataParallelMeshDims` 则允许在一个更高维的 SPMD mesh 上指定哪些维是 shard、哪些是 replicate。
 
 ## 三、张量并行与序列并行
@@ -218,6 +238,8 @@ ZeRO-3 的 $$3N$$ 通信全在 DP 组上；当 $$N_d$$ 跨越几十个节点时�
 | 列切（column-parallel）$$A = [A_1 \mid A_2 \mid \cdots \mid A_t]$$ | $$A_i$$：$$h \times h'/t$$ | $$X$$ 完整（每卡一份） | $$Y_i = X A_i$$ 是 $$Y$$ 的第 $$i$$ 列块，按列分布在各卡 | 输入不需通信 |
 | 行切（row-parallel）$$A = [A_1 ; A_2 ; \cdots ; A_t]$$ | $$A_i$$：$$h/t \times h'$$ | $$X$$ 必须按列切成 $$X_i$$ | $$Y = \sum_i X_i A_i$$，每卡一个部分和 | 输出需要 all-reduce |
 
+Table: 列切与行切的对比
+
 用一个能在纸上算完的例子把两种切法走一遍。$$N_t = 2$$，输入 $$X = [1, 2]$$（1 个 token、$$h = 2$$），两个权重矩阵
 
 $$
@@ -232,6 +254,8 @@ $$
 | $$Y_i = X A_i$$，X 每卡一份完整的 | $$Y_0 = 1{\cdot}1 + 2{\cdot}3 = 7$$ | $$Y_1 = 1{\cdot}2 + 2{\cdot}4 = 10$$ | $$[Y_0 \mid Y_1] = [7, 10] = Y$$ ✓ 不需通信 |
 | **行切 B**：卡 $$i$$ 持第 $$i$$ 行 | $$B_0 = (1, 0)$$ | $$B_1 = (0, 2)$$ | |
 | $$Z_i = Y_i B_i$$，输入正好是上一步自己那块 | $$Z_0 = 7 \cdot (1, 0) = [7, 0]$$ | $$Z_1 = 10 \cdot (0, 2) = [0, 20]$$ | $$Z_0 + Z_1 = [7, 20] = Z$$ ✓ 一次 all-reduce |
+
+Table: 2×2 例子里列切与行切的每卡计算
 
 两点在数字里看得很清楚：列切的输出 $$Y_i$$ 就是行切需要的输入——**中间不用任何通信就接上了**；行切各卡算出的是**部分和**（$$[7, 0]$$ 和 $$[0, 20]$$ 单独看都不对），必须相加才是答案，这就是 all-reduce 的来源。如果 A 和 B 之间有一个逐元素的激活函数（ReLU、GELU），它作用在 $$Y_i$$ 上与作用在完整 $$Y$$ 上结果相同，所以不影响这个结论。
 
@@ -264,6 +288,8 @@ flowchart LR
 | 激活函数（GELU / SwiGLU） | 本地计算 | 逐元素，作用在自己那一段上 |
 | FFN 第二层（down、W2） | 行切 | 输入维是 FFN 中间维，正好是上一步的分量；输出部分和 → all-reduce |
 
+Table: Transformer 层六个线性层的切法
+
 所以一层只有两次 all-reduce（O 之后、W2 之后），而不是六次。LayerNorm、embedding 这类不是"列切→行切"配对的层，在 TP 组内要么复制、要么按词表切（embedding 的词表切法在 Megatron 里是 `VocabParallelEmbedding`，输出也要一次 all-reduce）。
 
 状态上，TP 是最"干净"的切分：权重被切成 $$1/N_t$$，它的梯度和优化器状态自然也是 $$1/N_t$$，**不需要任何额外通信来维持分片**——这与 ZeRO 形成对比，ZeRO 为了维持参数分片每步要 all-gather 两次。LayerNorm 的权重、偏置这类小参数在 TP 组内是复制的。
@@ -284,6 +310,8 @@ flowchart LR
 | $$dY_i = dZ\, B_i^{\mathsf T}$$ | $$[1,1]\cdot(1,0)^{\mathsf T} = 1$$ | $$[1,1]\cdot(0,2)^{\mathsf T} = 2$$ | 单卡 $$dY = [1, 2]$$，按列拼 ✓ 不需通信 |
 | $$dA_i = X^{\mathsf T} dY_i$$ | $$\binom{1}{2} \cdot 1 = \binom{1}{2}$$ | $$\binom{1}{2} \cdot 2 = \binom{2}{4}$$ | 单卡 $$dA = \binom{1\ 2}{2\ 4}$$，按**列**拼 ✓ |
 | $$dX_i = dY_i A_i^{\mathsf T}$$ | $$1 \cdot (1, 3) = [1, 3]$$ | $$2 \cdot (2, 4) = [4, 8]$$ | 单卡 $$dX = dY A^{\mathsf T} = [5, 11]$$ = $$[1,3] + [4,8]$$ ✓ **一次 all-reduce**（$$f$$） |
+
+Table: 2×2 例子里 TP 反向的每卡计算
 
 权重的梯度 $$dA_i$$、$$dB_i$$ 每卡只算自己那一块、正好就是自己持有的那一块的梯度——这是上一节末尾说的"参数、梯度、优化器状态的切分不需要额外通信"的具体含义。唯一要通信的是对输入的梯度 $$dX$$：两卡各有一个部分和，相加才对。
 
@@ -347,6 +375,8 @@ TP 切了层**内**的激活（Q/K/V、FFN 中间态按头 / 按列分布），�
 | 无 SP | $$X$$ 完整，每卡一份（$$sbh$$） | 直接进 | **all-reduce** | 完整 |
 | 有 SP | $$X_i$$，每卡 $$1/t$$ 的序列（$$sbh/t$$） | **all-gather** 拼回完整序列 | **reduce-scatter**：归约的同时按序列切开 | 每卡 $$1/t$$ |
 
+Table: 有无 SP 时层边界的通信
+
 通信量：一次 all-gather $$\approx S$$ 加一次 reduce-scatter $$\approx S$$，等于一次 all-reduce 的 $$\approx 2S$$——**分文未加**。反向对称（all-gather 的反向是 reduce-scatter，reduce-scatter 的反向是 all-gather）。收益是那 $$10sbh$$ 也被 $$N_t$$ 均分，一层的激活变成 $$\frac{sbh}{N_t}(34 + 5as/h)$$，整层都被切了。因为不花钱，Megatron 里 SP 总是随 TP 一起开（`--sequence-parallel`），torchtitan 的 TP 也默认带 SP。它顺带还改变了 PP 的载荷：层边界处的张量现在是 $$sbh/N_t$$ 而不是 $$sbh$$，Megatron `megatron/core/pipeline_parallel/schedules.py` 的 `get_tensor_shapes()` 在 `sequence_parallel` 打开时把序列长除以 TP 大小，正是这一点。
 
 ### 6. 实现的位置
@@ -375,6 +405,8 @@ Ring Attention（Liu et al. 2023）让每张卡固定持有自己那块 Q，把 
 | $$l = \sum e^{s - m}$$ | $$e^0 + e^{-1} = 1.368$$ | $$e^0 + e^{-2} = 1.135$$ | $$1.368 \times 0.368 + 1.135 = 1.639$$ |
 | $$\text{acc} = \sum e^{s - m} v$$ | $$(1.000, 0.368)$$ | $$(1.271, 1.000)$$ | $$(1.000, 0.368) \times 0.368 + (1.271, 1.000) = (1.639, 1.135)$$ |
 | 输出 $$\text{acc} / l$$ | | | $$(1.000, 0.693)$$ |
+
+Table: 两块 softmax 统计量的合并
 
 对照一次算完的完整 softmax：$$e^s = (2.718, 1, 7.389, 1)$$，分母 $$12.107$$，权重 $$(0.225, 0.083, 0.610, 0.083)$$，输出 $$0.225(1,0) + 0.083(0,1) + 0.610(1,1) + 0.083(2,0) = (1.000, 0.693)$$——完全一致（合并后的 $$l = 1.639$$ 正是 $$12.107 / e^2$$）。分块的顺序、块数都不影响结果，所以 K/V 块可以按环上任何顺序到达。
 
@@ -408,6 +440,8 @@ $$
 | 顺序分配 | {0, 1} = 1 + 2 = 3 | {2, 3} = 7 | {4, 5} = 11 | {6, 7} = 15 | 5 |
 | 头尾配对 | {0, 7} = 1 + 8 = 9 | {1, 6} = 9 | {2, 5} = 9 | {3, 4} = 9 | 1（全部相等） |
 
+Table: 因果 mask 下 CP 两种分配方式的负载
+
 ### 3. Ulysses：按头 all-to-all
 
 DeepSpeed-Ulysses（Jacobs et al. 2023）换一个思路：注意力对**头**是独立的。每张卡持有 $$s/N_c$$ 个 token 的全部头，算 Q/K/V 投影后做一次 **all-to-all**，变成持有全部 $$s$$ 个 token 的 $$a/N_c$$ 个头——这时每张卡可以对自己的头做完整的、不需要任何通信的注意力；算完再 all-to-all 回到按序列切的布局，进输出投影。
@@ -432,6 +466,8 @@ $$
 | 能否重叠 | 是（与分块注意力计算流水） | 否（关键路径） |
 | $$N_c$$ 上限 | 无 | ≤ 头数（GQA：≤ K/V 头数） |
 | 与 TP 组合 | K/V 块再除以 $$N_t$$ | 头数再除以 $$N_t$$，上限更紧 |
+
+Table: Ring Attention 与 Ulysses 的对比
 
 GQA 是分水岭。MHA 下 $$h_{kv} = h$$，Ring 每层 $$12sbh$$ 对 Ulysses 的 $$16sbh/N_c$$，$$N_c = 8$$ 时 Ring 多搬 6 倍；GQA 下 $$h_{kv}$$ 只有 $$h$$ 的 $$1/8$$ 到 $$1/16$$（Llama 3 405B：128 个头、8 个 K/V 头，$$h_{kv} = h/16$$），Ring 的通信量随之缩到 $$0.75\,sbh$$，反而比 Ulysses 少了；同时 Ulysses 的 $$N_c$$ 上限被压到 8 个 K/V 头再除以 $$N_t$$——TP = 8 时它只剩 1。所以 GQA + TP 的大模型上 Ring 是唯一可行的选择，Llama 3 用的正是它。放进五元组：CP **切激活（含注意力）；Ring 每层 $$\approx 12sbh_{kv}$$，Ulysses $$\approx 16sbh/N_c$$；可跨节点；Ring 可重叠、Ulysses 不可；长序列必需**。
 
@@ -496,6 +532,8 @@ $$p = 2$$ 张卡、$$v = 2$$，共 4 个 stage，卡 0 持 stage {0, 2}、卡 1 
 | 卡 0 | F0⁰ | F1⁰ | F0² | F1² | B1² | B0² | B1⁰ | B0⁰ |
 | 卡 1 | · | F0¹ | F1¹ | F0³ | F1³ | B1³ | B0³ | B1¹ |
 
+Table: Interleaved 1F1B 的时间表
+
 代价：stage 边界从 $$p - 1$$ 个变成 $$pv - 1$$ 个，PP 的点对点通信量乘以 $$v$$；调度更复杂；每张卡在途的激活也多了。Megatron 的 `--num-layers-per-virtual-pipeline-stage` 就是这个 $$v$$。$$p = 16$$、$$m = 16$$、$$v = 8$$ 时气泡从 48% 降到 10.5%。
 
 ### 5. Zero-bubble：把反向拆成两半
@@ -534,6 +572,8 @@ MoE 把每层的 FFN 换成 $$E$$ 个专家，每个 token 由路由器选 $$k$$
 | ④ 本地专家计算 | 收到的 token 再按专家分组，每个专家对自己那批做一个 FFN（两个 GEMM + 激活） | 卡 0：E0 ← {$$t_1, t_5$$}，E1 ← {$$t_3$$}；卡 1：E2 ← {$$t_0, t_4$$}，E3 ← {$$t_2$$} | 无 |
 | ⑤ combine | 第二次 all-to-all，split 与 ③ 互换，结果回到 token 原来的卡与原来的位置 | $$t_0$$ 的结果从卡 1 回到卡 0 的第 0 个位置 | **all-to-all**，载荷同 ③ |
 | ⑥ 加权求和 | $$k$$ 份结果按路由权重相加，再加残差 | $$k = 2$$ 时若 $$t_0$$ 选了 E2（0.62）与 E0（0.28）：$$y_0 = 0.62\,E2(x_0) + 0.28\,E0(x_0)$$ | 无 |
+
+Table: 一个 token 在 MoE 层的旅程
 
 ④ 里每个专家的 GEMM 都很小（例子里 1–2 个 token；真实训练里每专家几十到几千个 token），所以实现上把一张卡上所有专家的 GEMM 打包成一个 **grouped GEMM**（一次 kernel 启动、按段处理），而不是逐个专家发 kernel——这是 MoE 的算力效率问题，本篇只记住它存在。
 
@@ -588,6 +628,8 @@ $$T k / E$$ 是"完全均匀时每个专家该收到几个"（例子里 16），
 | 专家 GEMM（计算） | | 块 0 | 块 1 | 块 2 | 块 3 |
 | combine（通信） | | | 块 0 | 块 1 | 块 2 … |
 
+Table: all-to-all 分块流水的时间表
+
 不分块时一层的时间是 $$T_{\text{dispatch}} + T_{\text{GEMM}} + T_{\text{combine}}$$；分块流水后接近 $$\max(T_{\text{通信}}, T_{\text{计算}})$$ 加一头一尾的填充。能藏多少取决于两者哪个更长：跨节点 IB 上 all-to-all 慢、专家 GEMM 又因为 token 少而短，经常是通信更长、藏不干净——这就是 EP 仍然"尽量节点内"的原因。DeepSeek-V3 的 DeepEP 与 Megatron 的 `MoEFlexTokenDispatcher` 做的正是这件事，前者还把节点内 NVLink 与节点间 IB 两段分开走（token 先 IB 到目标节点的某一张卡，再 NVLink 到目标卡，让 $$N_e(N_e-1)$$ 条流里跨节点的那部分变少）。
 
 ### 6. EP 与 DP/TP 的组合
@@ -600,6 +642,8 @@ EP 的进程组与 DP 组是**同一批卡的不同用法**：一个 EP 组的 $
 | 本卡专家 | E0–3 | E4–7 | E8–11 | E12–15 | E0–3 | E4–7 | E8–11 | E12–15 |
 | 专家 DP 组（大小 $$N_d / N_e = 2$$） | a = {0, 4} | b = {1, 5} | c = {2, 6} | d = {3, 7} | a | b | c | d |
 | 非专家 DP 组（注意力 / embedding） | 全部 8 卡 | | | | | | | |
+
+Table: EP 组与 DP rank 的对应
 
 ZeRO 对两组参数分别按各自的 DP 组分片：专家参数在 2 卡的组里切，非专家参数在 8 卡的组里切——这是本篇 `ledger/parallel.py` 里 MoE 那几行除法的来源。Megatron 0.18.0 的 `parallel_state.py` 里 EP 是 rank 排布 `"tp-cp-ep-dp-pp"` 中的一维，`megatron/core/transformer/moe/token_dispatcher.py` 里 `MoEAlltoAllTokenDispatcher` 是本节描述的 all-to-all 实现，`MoEAllGatherTokenDispatcher` 是 $$N_e$$ 很小时的替代（all-gather 全部 token、各卡挑自己专家的）。EP 与 TP 的组合（专家再做 TP）在 Megatron 里也支持，但如第 1 节所说通常不划算，多数 MoE 配置让专家层的 TP 为 1。
 
@@ -673,6 +717,8 @@ EP 本地专家梯度与完整梯度的最大误差（各进程）  : ['9.5e-07'
 | PP | 参数/梯度/优化器/激活 按层 1/N_p | 2 × 激活/N_t × m × v（send/recv） | IB | 是 | m ≫ p；气泡 (p−1)/(vm) |
 | EP | 专家参数/梯度/优化器 1/N_e | 4 × ρ × all-to-all(token·k·h) × L_s × m | IB/NVLink | 部分 | MoE；负载均衡；N_e 从 N_d 划出 |
 
+Table: 并行策略五元组大表
+
 看这张表的两个维度。**按通信量**：TP 最大、DP/ZeRO 次之（但只与 $$N_{\text{local}}$$ 成正比、与 $$N_d$$ 无关）、CP 与 EP 视模型而定、PP 最小。**按链路要求**：TP 与 EP 在关键路径上必须快链路；CP（Ring）、PP、DP 都能重叠，可以跨节点。
 
 ### 2. 组合顺序：TP → CP → PP → DP 及原因
@@ -685,6 +731,8 @@ EP 本地专家梯度与完整梯度的最大误差（各进程）  : ['9.5e-07'
 | 第二步 | CP | 序列长到 TP/SP 切完仍放不下一层激活时才需要；Ring 可跨节点 | N_c 由 s 决定 |
 | 第三步 | PP | 越小越好（气泡），但受"每卡显存放得下 L/N_p 层的 16N/(N_t N_p) + 在途激活"约束 | 把 L 层的参数 + 优化器状态放进 N_t × N_p 张卡 |
 | 第四步 | DP | 用满剩余的卡：N_d = N / (N_t N_c N_p) | ZeRO-1 几乎总是打开（不花通信）；如果 PP 放不下、或 N_p 太大气泡不可接受，用 ZeRO-3/FSDP 代替一部分 PP |
+
+Table: 多维并行的组合顺序
 
 每一步都是一个"放得下吗"的判断，放不下就在当前维度上加，直到 PP 的气泡不可接受时才改用 ZeRO-3/FSDP 兜底：
 
@@ -726,6 +774,8 @@ TP = 4、DP = 2、PP = 2（CP = EP = 1），16 卡 = 2 节点 × 8，order `tp-c
 | 节点 1（IB 跨节点） | 1 | 0 | 8 | 9 | 10 | 11 | PP 组 {0, 8}、{1, 9}…：跨节点，只走每 step 最小的那 1 GB |
 | 节点 1（IB 跨节点） | 1 | 1 | 12 | 13 | 14 | 15 | |
 
+Table: 16 卡 TP=4、DP=2、PP=2 的 rank 布局
+
 真实配置里 TP = 8 就占满一个节点，DP 组已经跨节点，PP 组则跨得更远（相隔 $$N_t N_d$$ 个 rank）。也就是说物理上 PP 而不是 DP 被放到最外层的链路上，因为 PP 只有 1 GB 而 DP 有十几 GB。"TP 最内、DP 最外"说的是决策顺序与状态嵌套，"PP 最远"说的是链路分配——两者不矛盾，都是从上表推出来的。
 
 ### 3. Llama 3 405B 代入
@@ -744,6 +794,8 @@ Llama 3 论文（Dubey et al. 2024）给出的 405B 训练配置有三档（Tabl
 | 每层激活（每卡） | $$34 \times 8192 \times 16384 / 8$$（FlashAttention，SP 已切 $$1/N_t$$，$$b = 1$$） | 570 MB |
 | 每 stage 层数与峰值激活 | $$126 / 16 \approx 8$$ 层；1F1B 下 stage 0 在途 ≤ 16 个 micro-batch → $$8 \times 16 \times 570$$ MB | ≈ 73 GB |
 
+Table: Llama 3 405B 的状态放置
+
 最后一行说明了两件事：常驻状态只有 13 GB，80 GB 显存的大头是**在途激活**；以及为什么 405B 需要选择性重计算或更小的 $$v$$ 才能把激活压进 80 GB（第四篇）。
 
 **通信量**（global batch 16M token → 每 step 2048 个序列，每个 DP 副本 16 个，$$b = 1$$ 则 $$m = 16$$；6N 算力 $$3.9 \times 10^{22}$$ FLOP，16384 × 989 TFLOPS 标称 × 41% MFU 下 step 约 5.9 s）：
@@ -755,6 +807,8 @@ Llama 3 论文（Dubey et al. 2024）给出的 405B 训练配置有三档（Tabl
 | DP | RS(6.3 GB) + AG(6.3 GB) | ≈ 12.6 GB | IB | 与反向重叠；12.6 GB / 50 GB/s = 0.25 s ≪ 5.9 s |
 | CP | — | — | | $$N_c = 1$$ |
 
+Table: Llama 3 405B 各维度的通信量
+
 长上下文档（$$s = 131072$$，CP = 16，每卡仍是 8192 个 token，$$m$$ 取 32 为例）：
 
 | 维度 | 计算 | 每卡每 step | 链路 | 备注 |
@@ -764,6 +818,8 @@ Llama 3 论文（Dubey et al. 2024）给出的 405B 训练配置有三档（Tabl
 | PP | 2 × 33.5 MB × 32 | ≈ 2.1 GB | IB | |
 | DP | $$N_d \times N_c = 64$$ 个副本，RS + AG | 仍 ≈ 12.6 GB | IB | |
 | 气泡 | $$(16 - 1)/(32 + 15)$$（$$v = 1$$）；$$v = 8$$ 时 $$(15/8)/(32 + 15/8)$$ | 32% / 5.5% | | |
+
+Table: Llama 3 405B 长上下文档的通信量
 
 CP 那一行是 GQA 的功劳：K/V 总维度 1024 只有 $$h$$ 的 1/16，再被 TP 切 8 份，每卡每块 K/V 只有 4 MB，16 倍的序列长度只多了 47 GB 的**可重叠**跨节点通信。这正是"CP 放在 TP 之外、PP 之内"的实例——它跨节点，但通信量和形态都比 DP 温和。
 
@@ -782,6 +838,8 @@ CP 那一行是 GQA 的功劳：K/V 总维度 1024 只有 $$h$$ 的 1/16，再�
 | EP | `token_dispatcher.py`（all-to-all / all-gather / flex） | MoE 层 + expert parallel 组 | 实验性 |
 | 进程组 | `parallel_state.py`，order "tp-cp-ep-dp-pp" | `groups.py` | DeviceMesh（`device_mesh.py`），维度命名 |
 
+Table: 三框架对并行策略的覆盖
+
 三者对同一格子的选择差异，多数可以从五元组解释：Megatron 长期只做 ZeRO-1 是因为 ZeRO-1 拿掉了 74% 的显存却不花通信，其余靠 TP/PP 解决；DeepSpeed 从 ZeRO-3 出发是因为它对用户模型零侵入；torchtitan 用 FSDP2 + DTensor 是因为 per-parameter 分片让各维度可以自由组合。
 
 ### 5. 原语 ↔ 并行对应表
@@ -795,6 +853,8 @@ CP 那一行是 GQA 的功劳：K/V 总维度 1024 只有 $$h$$ 的 1/16，再�
 | reduce-scatter | 每卡一份完整输入，求和后每卡拿一段 | ≈ S | ZeRO-1/2/3 的梯度；SP 行切层后的激活 |
 | all-to-all | 第 i 卡的第 j 块发给第 j 卡（转置） | ≈ S；n(n−1) 条流 | EP 的 token dispatch / combine；Ulysses 的 Q/K/V/O 转置 |
 | send / recv | 一对一 | S | PP 的 stage 边界激活与梯度；Ring Attention 的 K/V 块 |
+
+Table: 通信原语与并行策略的对应
 
 一个记法：**all-reduce 给复制的状态用，all-gather / reduce-scatter 给分片的状态用，all-to-all 给按路由或按维度转置的激活用，send/recv 给流水和环用**。看到一个训练任务的通信 profile 里各原语的占比，就能反推它的并行配置。
 
@@ -834,6 +894,8 @@ CP 那一行是 GQA 的功劳：K/V 总维度 1024 只有 $$h$$ 的 1/16，再�
 | Megatron Core 0.18.0 `megatron/core/transformer/moe/token_dispatcher.py`、`moe_utils.py` | `MoEAlltoAllTokenDispatcher`、`MoEAllGatherTokenDispatcher`、`MoEFlexTokenDispatcher`；`switch_load_balancing_loss_func()`、`get_capacity()` |
 | [`ai-learning-labs/large-scale-training/02_parallelism_toys.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/large-scale-training/02_parallelism_toys.py) | 本篇的五个 toy：`zero` / `tp` / `cp` / `pp` / `ep`，4 个 CPU 进程 + gloo，十秒跑完 |
 | train-ledger `ledger/parallel.py` | 本篇增量，见下 |
+
+Table: 本篇涉及的源码位置
 
 ### 3. train-ledger 本篇增量：ledger/parallel.py
 

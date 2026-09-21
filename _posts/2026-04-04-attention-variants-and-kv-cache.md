@@ -37,6 +37,8 @@ MHA、MQA、GQA、MLA 四种结构，做的是同一件事的不同取舍：
 | 八 | 本文小结 |  |
 | 九 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、为什么需要 KV cache
 
 ### 1. attention 公式与 decode 的形态

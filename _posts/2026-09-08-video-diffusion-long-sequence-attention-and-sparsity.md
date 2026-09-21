@@ -56,6 +56,8 @@ Wan2.1-14B 720p，帧数从 17 到 129：
 | **81** | **21** | **75,600** | **1.8 P** | **4.7 P** | **72%** | **29 s** | **24 min** | **14.4 GiB** |
 | 129 | 33 | 118,800 | 2.9 P | 11.6 P | 80% | 66 s | 54 min | 22.7 GiB |
 
+Table: Wan2.1-14B 720p 不同帧数的账
+
 帧数 17 → 129（latent 帧 5 → 33，6.6 倍）：线性项 6.6 倍、attention 44 倍、每步 21 倍。**视频时长是二次方的成本**。
 
 稀疏化的收益受 Amdahl 定律约束：attention 占比 $$a$$、稀疏后 attention 时间变为 $$1/s$$，端到端加速 $$= 1 / \big((1-a) + a/s\big)$$：
@@ -68,6 +70,8 @@ Wan2.1-14B 720p，帧数从 17 到 129：
 | 72% | ∞ | 3.57×（上限） |
 | 87%（HunyuanVideo 129 帧） | 3.5× | 2.6× |
 | 20%（FLUX） | 3.5× | 1.17× |
+
+Table: Amdahl 定律下稀疏 attention 的端到端加速
 
 三个结论：
 
@@ -89,6 +93,8 @@ Wan2.1-14B 720p，帧数从 17 到 129：
 | 九 | 实现对照与实践 | 四个实现里的后端；实践建议 |
 | 十 | 本文小结 | |
 | 十一 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、视频的 token 账
 
@@ -116,6 +122,8 @@ $$
 | HunyuanVideo-13B | 720×1280×129 | 90×160×33 | 118,800 | 256（联合） | 119,056 | 1.6 P + 10.5 P = 12.1 P ×1 |
 | CogVideoX-5B | 480×720×49 | 60×90×13 | 17,550 | 226（联合） | 17,776 | 小 |
 
+Table: 五个视频配置的 token 账
+
 Wan 用 cross-attention 接文本（不进 $$N$$），HunyuanVideo 与 CogVideoX 用联合 attention（进 $$N$$，但 256 相对 118,800 可忽略）。
 
 ## 三、attention 占比的翻转
@@ -135,6 +143,8 @@ $$P_\text{tok}/L$$ 是一层的每 token 参数（$$\approx 12 d^2$$ 加 FFN 的
 | Wan2.1-14B 480p | 5120 | 31K | 33K | 53% |
 | Wan2.1-14B 720p | 5120 | 31K | 76K | 72% |
 | HunyuanVideo 720p | 3072 | 18K | 119K | 87% |
+
+Table: 五个模型的 attention 交叉点
 
 $$d$$ 越大，交叉点越远：Wan 的 $$d = 5120$$ 让它在同样的 $$N$$ 下 attention 占比低于 HunyuanVideo。这是模型设计对系统的一个直接影响——**宽而浅的 DiT 比窄而深的更"GEMM 化"**，对 attention 稀疏化的依赖更低。
 
@@ -206,6 +216,8 @@ FlashAttention 下每层的激活随 $$N$$ 线性：10 份 $$[N, d]$$ 的 bf16 �
 | **VSA（Video Sparse Attention）** | 2025 | 粗粒度：把 token 分成 cube，先在 cube 级算一遍 attention 选 top-k cube，再在选中的 cube 里算细粒度 | **可训练**：粗粒度分支参与训练 | 需要（FastWan 用它训练） | attention 2.5×，训练与推理同用 |
 | **SageAttention** | 2024 | 不稀疏：INT8 / FP8 的 Q·K | — | 无 | attention 2–3×（第二篇） |
 
+Table: 视频稀疏 attention 的四类方法
+
 四条路的分界：
 
 - **内容相关 vs 静态**：SVG / SVG2 按内容在线决定（每步每 head 都要 profiling，有开销，但对不同视频自适应）；Radial / STA 是静态掩码（零开销、可预知、但对快速大运动可能漏掉远处的相关 token）。
@@ -250,6 +262,8 @@ $$N = 75,600$$、块 128：$$591 \times 591 = 35$$ 万个块，一个 bool 掩�
 | + TeaCache 跳 40%（视频上可行） | ×0.6 | ×0.6 | 4.7 | 3.9 min | 有损 II，与稀疏正交 |
 | + 8 卡 USP（第五篇，效率 80%） | | | 0.74 | **37 s** | 加 VAE 解码 7 s |
 
+Table: Wan2.1-14B 720p 81 帧 50 步的叠加账
+
 从 24 分钟到 40 秒：**单卡的四项拿到 6×，多卡拿到另一个 6×**。这张表也说明视频服务的形态：单卡不可能给出可接受的延迟，多卡是必需的（第五篇），少步蒸馏（第六篇：FastWan 3 步）再拿一个 10×。
 
 ## 九、实现对照与实践
@@ -263,6 +277,8 @@ $$N = 75,600$$、块 128：$$591 \times 591 = 35$$ 万个块，一个 bool 掩�
 | 按请求切换 | — | `--attention-backend-override`（只允许稠密后端：fa / sdpa / sage） | — | — |
 | 与 SP 的关系 | — | 稀疏后端只在服务级、与 ring 并行有兼容限制 | — | USP 下的 attention 由 `long_ctx_attention/` 包装 |
 | 3D VAE 分块 | `vae.enable_tiling()`（时空版本，Wan / Hunyuan 的 VAE 类各自实现） | `--vae-config.*`；overlapping tiled decode | `--vae-use-tiling`、`vae_patch_parallel.py` | Parallel VAE |
+
+Table: 视频 attention 机制在四个引擎里的实现对照
 
 注意 SGLang 把稀疏后端全部标为**服务级、有损、模型特定**：STA 需要每个模型每个分辨率的掩码配置文件；VSA 只对用 VSA 训练的模型（FastWan）是无损的。
 
@@ -285,6 +301,8 @@ $$N = 75,600$$、块 128：$$591 \times 591 = 35$$ 万个块，一个 bool 掩�
 | kernel | 稀疏必须对齐 FlashAttention 的 128 块；layout 置换让模式对齐 | 掩码 350 KB，可忽略 |
 | Amdahl | 端到端 $$= 1/((1-a) + a/s)$$ | $$a$$ 0.72、$$s$$ 3.5 → 2.06×；上限 3.57× |
 | 叠加 | FA3 + FP8 + Sage + 稀疏 + 缓存 ≈ 6×；多卡再 6× | Wan 81 帧 24 min → 40 s |
+
+Table: 视频扩散的规则与数字小结
 
 ### 下一篇
 

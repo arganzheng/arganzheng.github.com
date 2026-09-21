@@ -45,6 +45,8 @@ int sum(int *a, int n) {
 | 十 | 本文小结 | |
 | 十一 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 工具用 LLVM 23.1.1 的 `clang`、`opt`、`llc`，全部命令与输出都能在没有 GPU 的机器上重现。
 
 ## 二、编译器的三段
@@ -88,6 +90,8 @@ Java 工程师每天用的工具链恰好把三段拆到了两个进程里：
 | HotSpot C1 | 中端 + 后端（快、优化少） | 字节码 → HIR → LIR → 机器码 | 分层编译的第 1–3 层 |
 | HotSpot C2 | 中端 + 后端（慢、优化多） | 字节码 → Sea of Nodes IR → 机器码 | 第 4 层；逃逸分析、内联、循环优化都在这里 |
 | Graal | 中端 + 后端，Java 写的 | 字节码 → Graal IR → 机器码 | 可替换 C2；也是 GraalVM native-image 的 AOT 编译器 |
+
+Table: javac 与 HotSpot 各是哪一段
 
 两点对照到 ML 编译器时特别有用：
 
@@ -248,6 +252,8 @@ for.end:                                          ; preds = %for.cond
 | 控制流表示 | 结构化：循环、分支是带"体"的节点 | 非结构化：基本块 + 跳转 | MLIR 的 `scf.for` / `scf.if` vs LLVM 的 `br`；Triton 到 `make_llir` 才做 `scf → cf` 的转换（第十篇） |
 | 数据结构 | 线性序列（指令有顺序） | 图（指令是节点，只有依赖边，没有顺序） | LLVM IR、MLIR 是线性的；HotSpot C2 的 Sea of Nodes、TVM Relax 的 dataflow block 是图 |
 
+Table: IR 的三个设计维度
+
 抽象层级决定了**能做什么优化**：在张量层能做算子融合，因为"这两个 op 都是逐元素的"是一眼可见的；到了标量层，同一个信息埋在两个循环嵌套里，要用多面体分析才能找回来。控制流表示决定了**循环优化的成本**：结构化 IR 上"循环体"就是一个 Region，非结构化 IR 上要先用支配关系找出自然循环。数据结构决定了**调度自由度**：图 IR 上指令没有顺序，调度是后端的事；线性 IR 上顺序是语义的一部分，重排要证明合法。
 
 LLVM IR 在这三个维度上各选了一端：低层、非结构化、线性。这在 2003 年是正确的——它的目标是做 C / C++ 的通用后端。MLIR（第三篇）的出发点正是让每个维度都可以选：抽象层级由方言决定，控制流可以结构化也可以不结构化，同一个基础设施承载所有层。
@@ -321,6 +327,8 @@ SSA 之前，回答"这条指令用的 `s` 是哪条指令定义的"需要一次
 | 公共子表达式消除 | 判断两处表达式的操作数"在这两点上值相同"，需要可用表达式分析 | 操作数是同一个 SSA 值就是相同的，比较名字即可 |
 | 死代码消除 | 活跃变量分析 | 看 `users()` 是否为空 |
 | 复制传播 `b = a` | 判断 `a` 在 `b` 的每个使用点上没被改写 | `a` 不可能被改写；直接把 `b` 的所有使用替换成 `a`（`replaceAllUsesWith`） |
+
+Table: 经典优化在非 SSA 与 SSA 上的形态
 
 "值不可能被改写"是 SSA 的全部力量所在：一个 SSA 值就是一个**数学意义上的值**，不是一个可变的存储位置。这让编译器可以把值当成表达式的节点来推理，而不用时刻担心"中间有没有人改了它"。
 
@@ -433,6 +441,8 @@ flowchart TB
 | `for.inc` | i | i | a, n, s, i | a, n, s, i |
 | `for.end` | s | — | ∅ | s |
 
+Table: sum 函数活跃变量分析的不动点
+
 结论：`for.end` 的入口只有 `s` 活跃——`a`、`n`、`i` 在循环结束后没人再读。用途：寄存器分配要知道哪些值同时活跃（同时活跃的值不能共用寄存器）；死代码消除要知道一个赋值之后变量是否还活跃（不活跃的赋值可以删）。Triton 的 `AllocateSharedMemory`（第十篇）对 shared memory 缓冲区做的是同一件事：算每个缓冲区的活跃区间，区间不重叠的可以共用同一段偏移。
 
 ### 3. 实例：常量传播与它的格
@@ -461,6 +471,8 @@ flowchart TB
 | 路径敏感 | 汇合时合并所有路径 | 区分不同路径的条件（如"在 `if (n > 0)` 里 n 是正的"） |
 | 过程间 | 函数边界处假设最坏（参数是 ⊤） | 跨函数传播（或者先内联，这是 Triton 的选择：`make_ttir` 第一步就是 inliner） |
 | 上下文敏感 | 同一个函数的所有调用点共享结果 | 每个调用点单独分析 |
+
+Table: 分析精度的几个维度
 
 编译器是在编译时间和结果质量之间选点。JIT 编译器（C2、Triton）有额外的手段：**特化**。C2 拿 profile 里"这个虚调用 99% 是 `ArrayList`"做推测性内联；Triton 拿实参"这个整数是 16 的倍数"直接标成 IR 上的事实，分析从一个更精确的起点出发（第五、六篇）。
 
@@ -623,6 +635,8 @@ define i32 @m(i32 %a) {
 | 强度削减 | 乘法 → 移位、乘 → 累加 | 归纳变量 | `instcombine`、`indvars` | 同名 | 前端 `constexpr` 折叠、MLIR `arith` canonicalization |
 | 复制传播 | 消掉 `b = a` | SSA | `instcombine`（隐含） | 同名 | `replaceAllUsesWith` 到处都是 |
 
+Table: 经典优化、依赖的分析与三家实现
+
 ### 7. canonicalization：让模式匹配有唱和
 
 上面 `x * 8` 变成 `x << 3` 不只是快一点——它是**规范化**（canonicalization）：把语义等价的多种写法统一成一种，让后面的 pass 只需匹配一种形状。没有它，每个 pass 都要同时认得 `mul x, 8`、`shl x, 3`、`mul 8, x`。LLVM 的 `instcombine` 兼任规范化器；MLIR 把它独立成 `canonicalize` pass，每个 Op 可以声明自己的规范化 pattern，而且**流水线里几乎每隔几个 pass 就跑一次**——Triton 的 `make_ttgir` 里 `add_canonicalizer` 出现了七次。规范化与优化的区别在目标：优化求"更好"，规范化求"唯一"，哪怕规范形式偶尔略慢，也换来所有后续 pass 的简单。
@@ -639,6 +653,8 @@ define i32 @m(i32 %a) {
 | CGSCC pass | 调用图的一个强连通分量 | 内联器的调度单元 |
 | Function pass | 一个函数 | `instcombine`、`early-cse`、`mem2reg` |
 | Loop pass | 一个循环 | `licm`、`loop-unroll`、`indvars` |
+
+Table: LLVM pass 的粒度
 
 MLIR 把这个分级泛化成"作用在任意一种 Op 上"：`OperationPass<ModuleOp>`、`OperationPass<func::FuncOp>`，或者作用在任何带 Region 的 Op 上——因为在 MLIR 里模块、函数、循环都只是 Op（第四篇）。
 
@@ -686,6 +702,8 @@ pass manager 提供的最重要的调试手段是**在每个 pass 之后打印 I
 | CFG 上的 SSA（LLVM IR） | 五个基本块 + 一条回边 + 两个 φ | 标量优化全部；循环优化要先"发现"循环 | **循环结构**（要重新识别）、**归约变量的语义**（`s` 只是一个 φ） |
 | 机器码（SASS） | 寄存器、跳转、条件码 | 指令调度、peephole | **类型**、**SSA**、**基本块边界**（只剩地址） |
 
+Table: 每一层表示 sum 循环的方式与丢掉的信息
+
 丢掉之后就再也做不了依赖该信息的优化。这决定了编译器设计的一条基本原则：**每个优化做在信息还在的最高一层**。循环分块要在结构化 IR 上做；寄存器分配要在机器层做（只有那里知道有几个寄存器）；算子融合要在张量层做（只有那里知道"这两个 op 都是逐元素的、shape 相同"）。
 
 ### 2. 一步到位与渐进式下降
@@ -724,6 +742,8 @@ TTIR 和 TTGIR 之间的那条线是 Triton 最重要的设计决定：**layout 
 | 每个线程持有 `[128, 64]` 张量的哪 8 个元素 | 张量 shape、访存的连续性、后续 op 需要的布局 | 带 layout 的张量层 | TTGIR 的 Coalesce / RemoveLayoutConversions |
 | 这个线程的 8 个元素用几个寄存器、要不要 spill | 全 kernel 的活跃值数量、目标架构的寄存器文件大小 | 机器层 | `ptxas` |
 
+Table: 三个决定各属于哪一层
+
 Triton 的用户能影响第二个（写 Gluon 或加 `tl.multiple_of` 提示），几乎不能影响第三个（只能间接地调 `num_warps` 减少每线程持有的元素）——因为第三个决定发生在 Triton 之外。知道每个决定在哪一层，就知道遇到问题时该去哪一层找。
 
 ## 九、ML 为什么需要自己的编译器
@@ -755,6 +775,8 @@ ML 编译器不是一种东西，按作用的层和输入分三类：
 | 图编译器 | 整个模型的算子图 | 融合后的子图 + 每个子图的 kernel 调用 | 算子融合、layout 变换、内存规划、常量折叠、分布式切分 | XLA（HLO）、TVM Relax、Inductor 的调度层、TensorRT |
 | kernel 编译器 | 一个 kernel 的块级 / 循环级描述 | 一个 GPU kernel 的机器码 | 线程映射、访存合并、shared memory 分块、软件流水、匹配矩阵指令 | Triton、TVM TensorIR、Halide、Inductor 的 codegen、CUTLASS / CuTe（模板元编程形式） |
 | 通用后端 | 标量 / 向量 IR | 机器码 | 指令选择、调度、寄存器分配 | LLVM（NVPTX / AMDGPU 后端）、`ptxas`、`nvcc` 的后半段 |
+
+Table: 三类 ML 编译器
 
 三类是叠着用的：Inductor（图）生成 Triton（kernel）生成 LLVM IR（后端）。本系列的主体是第二类，用第三类做地基（第二篇），第十二篇用 TVM 同时对照第一、二类。
 
@@ -811,6 +833,8 @@ flowchart TB
 | 软件流水的 stage 数 | 程序员 | 程序员给 `num_stages`，编译器实现 | 搜索算法 |
 | 用哪条矩阵指令 | 程序员（`mma.sync` / `wgmma` 内联 PTX 或 CUTLASS） | 编译器 | schedule 里的 `tensorize` |
 | 寄存器分配 | `ptxas` | `ptxas` | `ptxas` / LLVM |
+
+Table: 同一个 matmul 谁做决定
 
 三者把"决定权"放在了不同的位置：nvcc 全给程序员，Triton 把中间几层交给编译器的固定策略，TVM 交给搜索。没有哪个是对的——每种放法把"可能做错"的风险放在了不同地方，第十二篇算这个账。
 

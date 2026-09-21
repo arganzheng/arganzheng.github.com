@@ -49,6 +49,8 @@ flowchart TB
 | [第九篇：量化与融合 kernel](/quantization-and-fused-kernels.html) | INT4 weight-only GEMM decode 快 3 倍、prefill 反而慢，用 Roofline 解释 | 用指令换字节：字节除以 4、FLOPs 不变、多一条反量化指令；decode 在斜线上受益，prefill 在屋顶上不动甚至下沉；FP8 字节与 FLOPs 同时减半 | BF16 $$I \approx M$$、W4A16 $$I \approx 4M$$，交叉点 $$M \approx 40$$；decode 8 ms → 约 2 ms；E4M3 max 448 无 inf；residual + RMSNorm 10 → 8 B、RMSNorm + FP8 量化 7 → 3 B |
 | [第十篇：剖析、测试与贡献](/kernel-profiling-testing-and-contribution.html) | ncu 报告 occupancy 25%、long scoreboard 60%，该改什么？ | 先看 SOL：任一接近 90% 就什么都不用改；两者都低才是 latency-bound，再看占用率的限制因素，加 ILP，改完重测 | SOL > 80% 到顶、两者 < 40–50% latency-bound；寄存器 > 32 压占用率、128+ 是 GEMM 常态；BF16 rtol 1.6e-2；边界 shape 0、1、769、5125；`TORCH_LIBRARY` + `register_fake` + `opcheck` |
 
+Table: 十篇的核心问题、结论与必记公式
+
 ### 1. 本文的章节安排
 
 | 章 | 内容 |
@@ -58,6 +60,8 @@ flowchart TB
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
 | 六 | 下一步 |
+
+Table: 本文的章节安排
 
 ## 二、逐篇回顾
 
@@ -286,6 +290,8 @@ flowchart TB
 | Tensor Core 与 fragment | 一、五、六、七、八、九 | 一 16 倍算力；五 CUDA Core 极限；六 mma / `ldmatrix` / `wgmma`；七 `tl.dot` 与 `#mma`；八 FA 的两个 GEMM；九 反量化后喂 mma |
 | decode 与 prefill | 五、八、九、十 | 五 GEMV $$I = 1$$；八 decode 每步读全部 KV；九 W4A16 交叉点 40；十 decode 时整层翻转为权重字节 / 带宽 |
 
+Table: 贯穿十篇的概念及其关系
+
 ## 四、常见误区
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
@@ -302,6 +308,8 @@ flowchart TB
 | FlashAttention 快是因为算得少 | FLOPs 略多于标准实现 | 快在不物化 $$N^2$$ 矩阵，HBM 132 MiB → 66 MiB（实际近 4 MiB） | [第八篇](/attention-kernels-flashattention-and-pagedattention.html) |
 | INT4 量化全面提速 | 只减字节不减 FLOPs，还多反量化指令 | 只在 decode（$$M$$ 小于约 40）赢；prefill 要 FP8 | [第九篇](/quantization-and-fused-kernels.html) |
 | stall 原因是 profiler 最有用的信息 | SOL 已满时等访存是正常的 | 先看 SOL 分类，两者都低时 stall 才有诊断价值 | [第十篇](/kernel-profiling-testing-and-contribution.html) |
+
+Table: 常见误区与正确说法
 
 ## 五、通关自测
 
@@ -508,6 +516,8 @@ flowchart TB
 | 读过 | 能说出十篇各讲什么；知道 Roofline、ridge point、合并、bank conflict、fragment、online softmax、SOL 这些名词 |
 | 掌握 | A 组能不翻书算出 8 题以上；B 组能说出每题用了哪几篇的什么；拿到一个 kernel 与一份 ncu 报告能先算下界、再说出它在 Roofline 上的位置与差距来自哪一层 |
 | 能教人 | C 组每题能给出全部要点并预判追问；能解释十篇里每个反直觉结论（90% 之后没有优化、25% 占用率是 GEMM 常态、FlashAttention 的 FLOPs 更多、INT4 在 prefill 更慢、stall 原因常无意义）为什么成立 |
+
+Table: 掌握程度的判据
 
 通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点。没过的部分回到第二章对应篇的"必记"，再回该篇正文。
 

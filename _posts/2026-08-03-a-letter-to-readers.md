@@ -163,4 +163,6 @@ flowchart LR
     | reduce-scatter | N−1 | S/N |
     | all-gather | N−1 | S/N |
 
+    Table: Ring AllReduce 两个阶段的步数与每步发送量
+
 [^vllm]: **vLLM**：伯克利出品的开源推理引擎，核心创新是借鉴操作系统虚拟内存分页思想的 **PagedAttention**，把 KV Cache 切成固定大小的 block 按需分配，显存浪费从 60%–80% 降到 4% 以下。本站有一个[十四篇的系列](/deep-dive-into-vllm.html)专门讲它。

@@ -75,6 +75,8 @@ schnell / Turbo / DMD 蒸馏版
 | 七 | 可观测 | 面板上放什么、哪些告警 |
 | 八 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、配置推导
 
 ### 1. 八步
@@ -89,6 +91,8 @@ schnell / Turbo / DMD 蒸馏版
 | ⑥ 少步 | 允许换模型 | schnell / Turbo / DMD 版；重做 ②③（缓存与 PipeFusion 失效、CUDA graph 变必需、VAE 占比升） | 新基线 |
 | ⑦ serving | QPS、SLO、形状分布 | 按形状分池；每池实例数 = QPS × GPU·秒 × 余量；三段是否分离（视频分 VAE）；同步 / job API；LoRA 策略 | 部署拓扑 |
 | ⑧ 面板 | — | 第七章的指标与告警；质量抽检 | 值班手册 |
+
+Table: 扩散推理配置推导的八步
 
 ### 2. 算例一：FLUX.1-dev 1024² 图像服务，8×H100 一台，SLO p99 3 s，100 QPS
 
@@ -117,6 +121,8 @@ schnell / Turbo / DMD 蒸馏版
 | **同一后端** | `--backend diffusers` 回退时的数字不代表原生性能 | 确认日志没有 "Falling back to diffusers" |
 | **profiler 只做诊断** | torch.profiler 有开销、扭曲时间 | 基线不开 profiler；定位瓶颈时对 1–2 个请求开，operator / shape 与 host stack 两种 trace 分开采 |
 
+Table: 评测规则、原因与做法
+
 ### 2. GPU 利用率的陷阱
 
 `nvidia-smi` 的 GPU-Util 是"有 kernel 在跑的时间比例"，eager 下几百个小 kernel 也能把它打到 95%——**它不度量 MFU**。看 MFU 要用账：每步 FLOPs / (每步秒 × 峰值)。FLUX eager 的 GPU-Util 接近 100%、MFU 0.31；compile 后 GPU-Util 差不多、MFU 0.49。同样，SP 多卡下每卡 GPU-Util 高不代表没有在等 all-to-all——NCCL kernel 也算"在跑"。诊断用 profiler 里的 kernel 分类（GEMM / attention / NCCL / 其他）与 GPU idle gap。
@@ -138,6 +144,8 @@ schnell / Turbo / DMD 蒸馏版
 | **对基线图** | 同 seed、同 prompt 下这张图变了多少 | PSNR、SSIM、LPIPS（感知距离）；视频加逐帧 PSNR 与帧间一致性 | 每一项优化的门禁；> 35 dB 不可见、30–35 细看可见、< 28 明显 |
 | **prompt 集上** | 整体质量有没有掉 | ImageReward、HPSv2、PickScore（人类偏好模型）；GenEval / T2I-CompBench（物体、数量、属性、位置的组合正确性）；文字渲染准确率 | 少步模型、量化、大幅缓存——改变了"分布"而不只是单图 |
 | **人工 A/B** | 用户会不会察觉、介意 | 成对比较的胜率与"无差别"率 | 上线前的最终门禁；每次质量预算的重新校准 |
+
+Table: 质量评测的三个层次
 
 ### 2. FID 为什么不够
 
@@ -166,6 +174,8 @@ FID 比较两组图的 Inception 特征分布，对**单张图的细节变化**�
 | 量化的动态 scale | per-token 的激活 scale 随 batch 内容变 | FP8 下同 batch 组成才 bit-exact |
 | 硬件 / 版本 | 不同 GPU、cuBLAS / FA 版本的算法选择 | 固定镜像；升级后重建基线 |
 
+Table: 确定性漂移的来源与对策
+
 结论：**同一部署内确定、跨部署不保证**。基线图要与部署配置一起存；每次改配置（并行度、编译、版本）重建基线再做 A/B，否则会把配置漂移当成优化的质量损失。
 
 ## 六、常见故障
@@ -185,6 +195,8 @@ FID 比较两组图的 Inception 特征分布，对**单张图的细节变化**�
 | 11 | **`--backend diffusers` 回退**：性能远低于文档 | 原生 pipeline 注册失败 / 模型路径不匹配 | 启动日志 "Falling back to diffusers backend" | 修注册 / 路径；或接受回退性能 |
 | 12 | **BCG 捕获后结果不同 / 偶发错图** | 未捕获形状走 eager（正常）；捕获签名 miss；与 compile / Cache-DiT 互斥被同时开了 | 日志 "captured" / "signature MISSED" | 列全形状；关掉互斥项 |
 
+Table: 扩散推理的常见故障
+
 ## 七、可观测
 
 ### 1. 面板
@@ -199,6 +211,8 @@ FID 比较两组图的 Inception 特征分布，对**单张图的细节变化**�
 | **质量抽检** | 每小时对固定 prompt × seed 生成一张与基线比 PSNR；人工抽样 | 配置漂移、版本升级、硬件差异的质量回归——**性能面板看不出质量掉了** |
 | **成本** | 每张 GPU·秒、每张成本、按形状 / 租户 | 计费与容量 |
 | **API** | p50 / p99、错误率、job 积压与超时 | SLO |
+
+Table: 监控面板与指标
 
 ### 2. 告警
 

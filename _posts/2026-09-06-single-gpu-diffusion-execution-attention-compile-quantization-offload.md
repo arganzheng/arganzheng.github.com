@@ -70,6 +70,8 @@ FLUX.1-dev 1024² 28 步，从 eager 基线出发逐项叠加（H100 与 4090 �
 | + SVDQuant INT4（W4A4） | Hopper 不支持 | — | ~0.45 s | ~12 s（Nunchaku：4090 上比 W4A16 快 3×） | 6.5 GiB | 有损：可见但小 |
 | + SageAttention INT8 | ~95 ms | ~2.7 s（估） | 再快 5–10% | | 同 | 有损：轻微 |
 
+Table: 六种手段逐项叠加的账
+
 三个结论：
 
 - **编译是最大的一项无损收益**（1.56×）：扩散是形状固定、步数固定、每步相同的负载，几乎是 `torch.compile` 的理想用例；eager 下 GEMM 之外的几十个小算子占了近一半时间。
@@ -89,6 +91,8 @@ FLUX.1-dev 1024² 28 步，从 eager 基线出发逐项叠加（H100 与 4090 �
 | 八 | 叠加顺序与收益表 | 无损先、有损后；FLUX 与 Wan 的两张表；三个引擎的对照 |
 | 九 | 本文小结 | |
 | 十 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、三段的 offload：装下
 
@@ -126,6 +130,8 @@ flowchart TB
 | **顺序级**（逐层） | 一层（几百 MiB） | **每步** 22 GiB → 28 步 620 GiB | 每步 +0.9 s：28 步 +25 s | 卡连 DiT 都装不下（16 GB 以下）、不在乎慢 |
 | **分组预取**（逐层 + 重叠） | 两组 | 同顺序级 | 若每层计算时间 ≥ 搬运时间则接近免费；否则 H2D 成为瓶颈 | 视频模型（每层计算 0.7 s ≫ 搬运 17 ms）；图像模型上常常变慢 |
 
+Table: offload 的三种粒度
+
 分组预取的收益完全取决于**每层的计算时间与搬运时间之比**。Wan 14B 一层权重 0.67 GB、搬运 27 ms（25 GB/s），而一层的计算在 720p 81 帧上是 29 s / 40 = 0.73 s——搬运只占 4%，可以完全藏在计算后面；SGLang 的文档给出 Wan A14B 显存从 40 GB 降到约 11 GB、速度几乎不变，并且对 Wan / MOVA 一类视频模型**默认开启**。FLUX 一层权重 0.39 GB、搬运 16 ms，而 1024² 上一层计算只有 154 / 57 = 2.7 ms——搬运是计算的 6 倍，逐层 offload 会让每步慢到 H2D 的速度（≈ 22 GiB / 25 GB/s ≈ 0.9 s）。所以同一个 flag 在视频模型上"免费"、在图像模型上"慢 6 倍"，SGLang 的性能指南明确建议图像模型关掉它（`--dit-layerwise-offload false`），并给出 `--dit-offload-prefetch-size` 调预取深度。
 
 ### 2. 文本编码器放哪
@@ -157,6 +163,8 @@ DiT 的 attention 是标准的双向 self-attention（无因果 mask），$$N = 
 | xformers | 旧 | 不再推荐 | |
 | **SageAttention**（`sage`） | Q·K 量化到 INT8 / FP8，PV 保留 FP16 / FP8 累加 | 比 FA2 快 2–3×（Ampere / Ada 上收益最大） | **有损**；SageAttention 3 用 Blackwell 的 FP4 |
 
+Table: FLUX attention 各后端的效率
+
 图像模型 attention 只占 20%，换后端的端到端收益有限（FA2 → FA3 约 5–10%）；到视频的 72–87% 时它成了主项（第四篇）。
 
 ### 2. SageAttention：为什么扩散能容忍 8-bit 的 Q·K
@@ -186,6 +194,8 @@ FLUX 一层的算子：adaLN 调制（从条件向量算出 scale / shift / gate
 | 每步相同：同一个图 28 次 | 编译成本被 28 步摊平；服务里被所有请求摊平 |
 | 无数据依赖的控制流 | 整个 DiT 前向可以捕获成一张图 |
 
+Table: 扩散负载对编译友好的性质
+
 代价：
 
 - **编译时间**：FLUX 第一次前向 1–3 分钟（`max-autotune` 更久）。服务启动时要 warmup（SGLang 的 `--warmup-mode request`）；
@@ -211,6 +221,8 @@ CUDA graph 的问题是全图必须静态：attention 的某些后端、集合�
 | INT8 | 1979 T | 2× | 11.1 GiB |
 | INT4（Ada / Ampere 有；Hopper 无） | 4090：660 T vs bf16 165 T | 4× | 5.6 GiB |
 | NVFP4（Blackwell） | B200：~9 P | 4× | 5.6 GiB |
+
+Table: H100 各精度的 Tensor Core 峰值与权重字节
 
 FP8 只对**线性层的 GEMM**（占 FLUX 每步的 80%）生效，attention 另有自己的 FP8 路径（FA3 FP8、SageAttention）。理论上限 GEMM 部分 2× → 端到端 1.6×；实践中量化 / 反量化的 scale 计算、部分层保留 bf16（首末层、adaLN）把它压到 **1.3–1.5×**（SGLang 与 vLLM-Omni 对 FP8 checkpoint 给出的数字都在这个范围）。
 
@@ -263,6 +275,8 @@ LLM 的 W4（GPTQ / AWQ）几乎无损，扩散的 W4 却要 SVDQuant 这样的�
 | — | FID / ImageReward / HPSv2 在一个 prompt 集上（整体质量有没有掉） |
 | — | 目测：文字渲染、手指、细纹理是最先坏的 |
 
+Table: LLM 量化评测与扩散量化评测的差别
+
 第九篇展开。经验阈值：PSNR > 35 dB 不可见，30–35 dB 细看可见，< 28 dB 明显。FP8 通常 > 35，SVDQuant INT4 在 30 上下，NF4 W4A16 更低。
 
 ## 六、融合 kernel：引擎的"fast path"
@@ -276,6 +290,8 @@ LLM 的 W4（GPTQ / AWQ）几乎无损，扩散的 W4 却要 SVDQuant 这样的�
 | **packed QKV** | 三个投影合成一个 $$[d, 3d]$$ 的 GEMM | GEMM 越大效率越高；也方便量化与 all-to-all | 三者都有；SGLang 注：NVFP4 路径下看到分开的 `to_q/k/v` 说明量化没生效 |
 | **GELU / gate epilogue** | 激活函数进 GEMM 的 epilogue（cuBLASLt） | 省一遍 $$[N, 4d]$$ 的读写 | SGLang `--quality high` 的 Wan FFN 路径 |
 | **GroupNorm + SiLU**（VAE） | 解码器残差块里的归一化 + 激活 | VAE 是 memory-bound，省读写就是省时间 | SGLang 的 VAE fast path |
+
+Table: DiT 特有的融合 kernel 模式
 
 这些各自 1–5% 的收益，叠起来是 eager → 最优之间"编译之外的那一半"。SGLang 把有些 fast path 标为**近似**（`--quality high`：bit-exact 的 `lossless` 是默认），因为融合改变了累加顺序或用了低精度中间值——它们的 SSIM 门限是图像 0.95 / 28 dB、视频 0.92 / 24 dB。
 
@@ -338,6 +354,8 @@ SVDQuant INT4（消费卡）· 跨步缓存（第三篇）· 稀疏 attention（
 | SVDQuant INT4 + compile | Hopper 无收益 | — | ~12 s | 6.5 GiB | ~30 dB | Nunchaku（4090：3× vs W4A16） |
 | + SageAttention | ~95 ms | ~2.7 s | ~11 s | 同 | ~32 dB | 估 |
 
+Table: FLUX.1-dev 1024² 28 步各配置的时间与显存
+
 ### 3. Wan2.1-14B 720p 81 帧 50 步（单卡，实际几乎不这样跑）
 
 | 配置 | 每步 | 50 步 | 显存 | 说明 |
@@ -348,6 +366,8 @@ SVDQuant INT4（消费卡）· 跨步缓存（第三篇）· 稀疏 attention（
 | + compile | ~23 s | ~19 min | 同 | 线性部分 28% 里的小算子 |
 | + FP8 | ~20 s | ~17 min | 同 | 只对 28% 的线性项 |
 | + SageAttention | ~13 s | ~11 min | 同 | attention 部分再 2× |
+
+Table: Wan2.1-14B 720p 单卡各配置的时间与显存
 
 视频模型的单卡优化里 **attention 后端是主项、量化是次项**——与图像相反。再往下就是第四篇的稀疏 attention 与第五篇的多卡。
 
@@ -364,6 +384,8 @@ SVDQuant INT4（消费卡）· 跨步缓存（第三篇）· 稀疏 attention（
 | INT4 / NVFP4 | Nunchaku 插件 | `--enable-svdquant --transformer-weights-path`；`flux_2_nvfp4.py` | ModelOpt NVFP4 | `fp4_quantize.py` |
 | VAE 分块 | `vae.enable_tiling()` / `enable_slicing()` | `--vae-config.*`；`runtime/pipelines_core/stages/` | `distributed/vae_patch_parallel.py`、`--vae-use-tiling` | Parallel VAE（第五篇） |
 | 融合 fast path | — | `runtime/layers/fused_scale_shift_gate.py`、`--quality high` | batched TP AdaLN 等 | — |
+
+Table: 单卡优化机制在四个引擎里的实现对照
 
 ### 5. 实践建议
 
@@ -383,6 +405,8 @@ SVDQuant INT4（消费卡）· 跨步缓存（第三篇）· 稀疏 attention（
 | SVDQuant | 低秩分支吸收离群值 + Nunchaku 融合 kernel | FLUX 22 → 6.5 GiB；4090 上 3× vs W4A16 |
 | 评测 | 对基线图的 PSNR / SSIM / LPIPS，不是困惑度 | > 35 不可见，30–35 细看可见 |
 | VAE | fp32、像素分辩率特征图；tiling / 时间分块 | 1024² 2 GiB → tile 0.5 GiB；Wan 107 GiB → 按帧 1.3 GiB |
+
+Table: 单卡扩散执行的规则与数字小结
 
 ### 下一篇
 

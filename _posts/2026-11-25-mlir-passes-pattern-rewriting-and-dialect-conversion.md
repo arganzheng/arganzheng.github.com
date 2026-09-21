@@ -30,6 +30,8 @@ catalog: true
 | 八 | 本文小结 | |
 | 九 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、Pass 基础设施
 
 ### 1. 一个 pass 是什么
@@ -84,6 +86,8 @@ Triton 的 `ModuleAxisInfoAnalysis` **不是**通过这个机制缓存的——�
 | `--verify-each` / `--verify-each=false` | 每个 pass 之后跑 verifier（默认开） | 默认开；`triton-opt` 同 |
 | `--mlir-disable-threading` | 单线程，便于调试 | — |
 | `--mlir-print-op-generic` / `--mlir-print-debuginfo` | 打印形式 | — |
+
+Table: mlir-opt 的 instrumentation 开关与 Triton 对应
 
 ```text
 $ mlir-opt --pass-pipeline='builtin.module(func.func(sccp,canonicalize,cse))' --mlir-print-ir-after-all sccp.mlir 2>&1 | rg 'IR Dump'
@@ -297,6 +301,8 @@ flowchart TB
 | source | 一个旧类型的值被替换了，但还有没转换的使用者需要旧类型 | `unrealized_conversion_cast`（`enableSourceRemat` 时） |
 | argument | Block 参数换了类型，Block 内还有人用旧类型 | 同 source |
 
+Table: 三种 materialization 与 Triton 里插的东西
+
 **ConversionPattern**：与 `RewritePattern` 的差别是签名多一个 `adaptor`：
 
 ```cpp
@@ -488,6 +494,8 @@ Unranked Memref base@ = 0x9f7001000 rank = 2 offset = 0 sizes = [4, 4] strides =
 | 稀疏后向 | `SparseBackwardDataFlowAnalysis` | 活跃性一类 |
 | 稠密分析 | `DenseForwardDataFlowAnalysis` | 每个程序点一个状态（不是每个值），用于内存别名、last-write 这类 |
 | 自带的 analysis | `DeadCodeAnalysis`、`SparseConstantPropagation`、`IntegerRangeAnalysis`、`LivenessAnalysis` | `--sccp` 用前两个；`--int-range-optimizations` 用第三个 |
+
+Table: MLIR 数据流框架的概念与类
 
 `propagateIfChanged(lattice, changeResult)`：只有格元素变了才把它的使用者加回工作表——这是"稀疏"的实现。多个 analysis 可以装进同一个 solver 协作：SCCP 依赖 `DeadCodeAnalysis` 知道哪些 block 可达（不可达分支的值不参与 join），这就是它比朴素常量传播强的地方。
 

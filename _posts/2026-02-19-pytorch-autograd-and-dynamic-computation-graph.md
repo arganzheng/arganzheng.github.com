@@ -72,6 +72,8 @@ optimizer.step()
 | 十二 | 本文小结 |  |
 | 十三 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、从数学求导到自动求导
 
 ### 1. 梯度解决什么问题？
@@ -858,6 +860,8 @@ with torch.inference_mode():
 | `inference_mode()` | 由内部操作决定 | 由内部操作决定 | 不记录新图且约束更强 | 独立的高性能推理路径 |
 | `detach().clone()` | 是 | 是 | 否 | 需要独立数据和独立梯度关系 |
 
+Table: detach()、no_grad 与 requires_grad_(False) 的区别
+
 ### 5. 与 `model.eval()` 的完整组合
 
 推理代码通常写成：
@@ -1270,6 +1274,8 @@ Autograd 的问题大多集中在几类：链路没接上、链路被切断、�
 | 6 | 是 non-leaf 的 `.grad` 为 `None`？ | 是 | 正常现象；调试时用 `retain_grad()` |
 | 7 | 以上都不是，数值 NaN / Inf | — | 检查输入、dtype、lr；`set_detect_anomaly(True)` 定位 |
 
+Table: Autograd 问题的排查顺序
+
 ### 1. `element 0 of tensors does not require grad`
 
 常见原因：
@@ -1552,6 +1558,8 @@ loss 是否参与了目标参数的计算？
 | `torch/csrc/autograd/generated/`（构建后才存在） | 由上者生成：`Functions.cpp`（反向节点）与 `VariableType*.cpp`（注册到 Autograd Key 的包装 Kernel） |
 | `torch/autograd/function.py`、`torch/csrc/autograd/custom_function.h` | Python 与 C++ 的自定义 `autograd.Function` |
 | `torch/autograd/graph.py`、`torch/autograd/gradcheck.py` | `saved_tensors_hooks`；`gradcheck` 的有限差分实现 |
+
+Table: 本篇涉及的源码位置
 
 下一篇将进入 Tensor 和 Autograd 之上的模型组织层：
 

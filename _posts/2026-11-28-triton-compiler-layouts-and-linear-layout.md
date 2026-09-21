@@ -30,6 +30,8 @@ Triton 编译器区别于 nvcc、也区别于大多数 MLIR 编译器的地方�
 | 八 | 本文小结 | |
 | 九 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 源码：`include/triton/Dialect/TritonGPU/IR/TritonGPUAttrDefs.td`、`lib/Dialect/TritonGPU/IR/Dialect.cpp`、`include/triton/Tools/LinearLayout.h`（头部四百行文档，Linear Layout 最好的说明）、`lib/Tools/LinearLayout.cpp`、`lib/Dialect/TritonGPU/IR/LinearLayoutConversions.cpp`、`lib/Conversion/TritonToTritonGPU/`、`lib/Dialect/TritonGPU/Transforms/Coalesce.cpp` 与 `CoalesceUtils.cpp`、`lib/Analysis/Utility.cpp`（转换代价判定）、`bin/triton-tensor-layout.cpp`。
 
 ## 二、layout 是什么
@@ -228,6 +230,8 @@ llvm::MapVector<StringAttr /*outDim*/, int32_t /*size*/> outDims;
 | | 8 | (16, 0) | |
 | | 16 | (32, 0) | |
 
+Table: [64, 64] 张量默认 #blocked 的基向量表
+
 `triton-tensor-layout` 的输出核对：行 0 是 `T0:0 … T63:0`（lane 与 warp 第 0 位铺 64 列），行 1 是 `T64:0 …`（warp 第 1 位），行 2 是 `T0:1 …`（寄存器第 0 位）。
 
 **同一张量的 `#nvidia_mma<{versionMajor = 2, warpsPerCTA = [2, 2], instrShape = [16, 8]}>`**（累加器 layout）：
@@ -246,6 +250,8 @@ llvm::MapVector<StringAttr /*outDim*/, int32_t /*size*/> outDims;
 | | 16 | (4, 0) | |
 | `warp` | 1 | (0, 8) | warp 第 0 位：列 +8 |
 | | 2 | (16, 0) | warp 第 1 位：行 +16 |
+
+Table: 同一张量 #nvidia_mma 的基向量表
 
 核对：行 0 是 `T0:0, T0:1, T1:0, T1:1, …, T3:1, T32:0, …`（lane 低 2 位与寄存器位 0 铺 8 列，然后 warp 位 0 铺下一个 8 列）；行 1 是 `T4:0 …`（lane 位 2）；行 8 是 `T0:2`（寄存器位 1）；行 16 是 `T64:0`（warp 位 1）；行 32 是 `T0:16`（寄存器位 4）。
 
@@ -289,6 +295,8 @@ LL 也有自己的属性写法 `#ttg.linear`，就是把基向量表直接写出
 | `getFreeVariableMasks()` | 哪些输入位不影响输出（复制） | 判断广播、去重 |
 | `reshapeIns` / `reshapeOuts` / `transposeOuts` | 维度的拆合与重排 | 处理 `tt.reshape` / `tt.trans` |
 | `divideLeft` / `divideRight` | 乘积的逆运算 | 从复合 layout 分解出 tile |
+
+Table: linear layout 上的运算
 
 全部是 GF(2) 上的矩阵运算（`LinearLayout.cpp` 约 1400 行，包括 GF(2) 高斯消元求逆）。
 
@@ -344,6 +352,8 @@ BlockedEncodingAttr getDefaultBlockedEncoding(ctx, shape, numWarps, threadsPerWa
 | `[32, 128]`（B） | `#blocked = <{[1, 1], [1, 32], [1, 4], [1, 0]}>` | 1 行 × 128 列 |
 | `[128, 128]`（累加器、C、mask） | 同上 `#blocked` | 1 行 × 128 列，铺 128 趟——每线程 128 个寄存器 |
 | `[128]`（`make_range`） | `#blocked2 = <{[1], [32], [4], [0]}>` | 128 个元素一趟 |
+
+Table: matmul 各 shape 的默认 layout
 
 这是**尚未考虑任何访存信息**的 layout：每个线程一个元素、相邻 lane 相邻元素——对 f32 是 32 个 lane × 4 字节 = 128 字节合并访存，但每个 lane 只发 32 bit 的指令，没有向量化。Coalesce 要改的就是这个。
 

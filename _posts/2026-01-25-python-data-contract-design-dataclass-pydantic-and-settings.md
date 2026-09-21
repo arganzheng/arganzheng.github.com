@@ -86,6 +86,8 @@ updated: 2026-09-21
 | 四 | 本文小结 |  |
 | 五 | 自测 | 2 道题 |
 
+Table: 本文的章节安排
+
 ## 二、工程落地：数据契约设计
 
 前两篇沿着"类型信息如何流动"展开：怎么表达（上篇）、怎么分发、谁来消费（中篇）。这一篇**组织轴切换**——不再讨论类型信息本身，而是讨论用这些能力去构建什么：**数据契约**。
@@ -577,6 +579,8 @@ settings = Settings()
 | 校验触发时机 | 实例化时立即校验 | 容器启动阶段，需配合 `@Validated` |
 | 宽松绑定 | 较严格，主要靠大小写不敏感 | 极宽松，`server.port`、`server_port`、`SERVER_PORT` 都能映射 |
 
+Table: Pydantic BaseSettings 与 Spring @ConfigurationProperties 的对比
+
 ### 5. 选型指南：dataclass vs Pydantic vs TypedDict
 
 **三者对比**
@@ -591,6 +595,8 @@ settings = Settings()
 | 序列化 | 天然是 dict，直接 `json.dumps` | 需 `asdict()`，不处理特殊类型 | 内置 `model_dump_json()` |
 | Schema 生成 | 无 | 无 | `model_json_schema()` |
 | 适用场景 | 已经是 dict 的数据 | 内部数据传递 | 系统边界、外部输入 |
+
+Table: TypedDict、dataclass、Pydantic 三者对比
 
 **决策树**
 
@@ -680,6 +686,8 @@ vLLM 的源码就是这个模式：API 层（`entrypoints/openai/protocol.py`）
 | 可替换接口 | `interface` | `Protocol` |
 | 枚举 | `enum` | `enum.Enum` / `Literal` |
 | 实现机制 | 编译期改 AST（Lombok）/ 运行时反射（Validator） | 运行时 `exec` 代码生成（dataclass）/ 元类 + Rust（Pydantic） |
+
+Table: Java 与 Python 数据契约对照
 
 核心差异：Java 用**多个独立框架**拼出完整的数据契约能力，每个框架各管一段；Python 用 **Pydantic 一个库**覆盖了校验、转换、序列化、Schema 生成、配置绑定的全部环节。
 

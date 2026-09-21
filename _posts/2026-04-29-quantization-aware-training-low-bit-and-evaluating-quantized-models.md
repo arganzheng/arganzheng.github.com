@@ -30,6 +30,8 @@ QAT 的核心技术问题只有一个：量化的 round 函数梯度处处为零
 | QAT + 蒸馏 | 同上，教师是全精度的自己 | 同上 + 教师前向 | Gemma 3 QAT、Llama 3.2 QAT |
 | 从头低比特训练 | 整个预训练在低比特下 | 全部训练成本 | 三值（BitNet b1.58）、FP8 训练（DeepSeek-V3） |
 
+Table: 训练参与量化的几种深度
+
 深度越深，能到的 bit 越低，成本越高。PTQ 在小时级解决 4 bit；QAT 在几百 GPU 小时内解决 W4A4；从头低比特训练解决三值，但要付全部训练成本。
 
 ### 2. 先说答案
@@ -50,6 +52,8 @@ QAT 的核心技术问题只有一个：量化的 round 函数梯度处处为零
 | 九 | 动手（建议） | KL vs 困惑度 vs 任务退化的相关性 |
 | 十 | 本文小结 | |
 | 十一 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、STE：让 round 有梯度
 
@@ -225,6 +229,8 @@ llama.cpp 社区（以及 Turboderp 的 exllama 评测）已经把 KL 作为量�
 | 对话质量 | MT-Bench 或 Arena-Hard（judge） | 风格漂移；judge 的偏差见 L5 第八篇 |
 | 分布 | 逐 token KL（均值与 P99） | 不需要 benchmark 的直接度量 |
 
+Table: 量化模型评测的任务组合
+
 推理模型再加 AIME / GPQA 的多次采样。领域部署加领域任务。
 
 ### 3. 协议一致性
@@ -276,6 +282,8 @@ llama.cpp 社区（以及 Turboderp 的 exllama 评测）已经把 KL 作为量�
 | KL | $$\overline{\text{KL}}(p \| q)$$ 逐 token；4-bit 0.01–0.05 nat；P99 更有信息 | 不需 benchmark；可在目标负载上测 |
 | 协议 | 同引擎、同采样、多次采样、配对检验 | 1–2 点差异在单次噪声内 |
 | 成本 | QAT 几百到几千 GPU 小时 vs PTQ 几小时 | Llama 3.2 3B：QAT 比 PTQ 少掉一半 |
+
+Table: 量化感知训练的规则与公式小结
 
 ## 十一、自测
 

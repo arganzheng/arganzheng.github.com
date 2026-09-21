@@ -39,6 +39,8 @@ QLoRA                  4-bit 基座 4.4 GB + 0.67 GB ≈ 5.1 GB                 
 | 八 | 本文小结 | |
 | 九 | 自测 | 五道题 |
 
+Table: 本文的章节安排
+
 配套脚本：[`03_memory_ledger.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/algorithm-tooling/03_memory_ledger.py)。
 
 ## 二、混合精度
@@ -97,6 +99,8 @@ fp16        1    5 位  ┌─────┐          10 位 ┌─────
 | bf16 | $$3.4 \times 10^{38}$$（与 fp32 相同） | 约 3 | 训练里的数几乎碰不到上限（不是"不会溢出"——$$10^{20}$$ 的平方照样 inf）；精度低，所以主权重不能用它存（上一节） |
 | fp16 | 65504 | 约 4 | 范围窄：梯度容易下溢成 0 或上溢成 inf，要靠 **loss scaling** 兜底 |
 
+Table: fp32、bf16、fp16 的范围与精度
+
 **loss scaling**（`GradScaler`）是给 fp16 打的补丁：把 loss 乘一个大数（如 $$2^{16}$$）再反向，让小梯度不下溢，更新前再除回去；遇到 inf 就跳过这一步并把倍数减半。bf16 与 fp32 同指数位，不需要这一套。当前 LLM 训练基本用 bf16，`GradScaler` 只在没有原生 bf16 的老硬件（V100 及更早——bf16 Tensor Core 从 Ampere / A100 开始）上遇到。
 
 > **注意**：混合精度的全部收益来自硬件对 bf16 矩阵乘的专门支持。普通笔记本 / 桌面 CPU 没有这条路径，`autocast` 在 CPU 上反而慢 30 倍（上一篇末尾的陷阱）；带 AVX-512 BF16 / AMX 的服务器 Xeon（Cooper Lake、Sapphire Rapids 起）是例外，PyTorch 的 CPU autocast 就是为它们准备的。
@@ -115,6 +119,8 @@ fp16        1    5 位  ┌─────┐          10 位 ┌─────
 | AdamW 一阶矩 m | 底部常驻 | fp32 | 4 |
 | AdamW 二阶矩 v | 底部常驻 | fp32 | 4 |
 | **合计** | | | **16** |
+
+Table: 训练时每个参数在显存里的 16 字节
 
 前两份是混合精度的工作副本，后三份是优化器需要的状态（AdamW 的两个矩是 L3 第三篇的内容，这里只需要知道它们各是一份与参数同形的 fp32 张量）。如果用 SGD 没有矩，就是 8 字节；用 8-bit 优化器把两个矩量化，约 10 字节；但 LLM 训练的标配是 AdamW，按 16 算。这五份有一个共同点：**都随参数量伸缩**——参数翻倍，它们一起翻倍。第四章的激活不满足这一点，所以要单独记一笔。
 
@@ -188,6 +194,8 @@ model.gradient_checkpointing_enable()          # Hugging Face 模型一行开启
 | 加了 LoRA 还是 OOM | 不是参数的问题——看激活 | 同上 |
 | 评测 / 生成时 OOM | 忘了 `no_grad`；或 KV cache（第六篇） | 加 `no_grad`；减并发 |
 | 显存"够"却 OOM，报错里 reserved 远大于 allocated | 碎片 | `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`；`empty_cache` |
+
+Table: OOM 归因：现象、落点与对策
 
 这张表加上第三章的账，能解释绝大多数 OOM。第六篇把"显存的四块"（权重、梯度与状态、激活、KV cache）放到推理场景里再讲一遍。
 

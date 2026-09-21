@@ -43,6 +43,8 @@ $$
 | 十 | 本文小结 | 要点回顾与速查表 |
 | 十一 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、host、device 与 kernel
 
 ### 1. 两个处理器、两个地址空间
@@ -144,6 +146,8 @@ flowchart TB
 | **Block** | 程序员，launch 时给 `blockDim` | 128 / 256 / 512 线程 | 共享 shared memory，`__syncthreads()` 对齐 |
 | **Warp** | 硬件，固定 32 | 32 线程 | 同一条指令；分歧时串行；访存以 warp 为粒度合并 |
 | **Thread** | 程序员写的代码 | 1 | 有自己的寄存器、编号、分支路径 |
+
+Table: Grid、Block、Warp、Thread 的三层结构与内建变量
 
 本章补上这幅画面在代码一侧的细节：坐标怎么编号、边界怎么检查、尺寸怎么选、block 如何切成 warp。grid 和 block 都可以是一维、二维或三维的，用 `dim3` 表示。每个线程可以读到四个内建变量：
 

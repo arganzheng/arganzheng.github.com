@@ -72,6 +72,8 @@ DDP / FSDP / DeepSpeed 配置`"]
 | 七 | 本文小结 | |
 | 八 | 自测 | 五道题 |
 
+Table: 本文的章节安排
+
 ## 二、Hub 上的三个文件
 
 拿到一个模型的 Hub 页面，先看三个文件：
@@ -127,6 +129,8 @@ flowchart TB
 | 最后的 RMSNorm | | 896 |
 | **总计** | | **494,032,768** |
 
+Table: Qwen2-0.5B 各部件的形状与参数量
+
 `tie_word_embeddings: true` 说明输出层与词嵌入共享一份权重——小模型常这样做，否则 `lm_head` 还要再加 136M，词嵌入就占了近一半。加载后 `sum(p.numel() for p in model.parameters())` 数出 494M，与名字里的 "0.5B" 对上。L4《Transformer 与 LLM》第一篇专门教从 `config.json` 算参数量。
 
 ### 2. `tokenizer.json` 与 `tokenizer_config.json`
@@ -154,6 +158,8 @@ flowchart TB
 | `trl` | 后训练的各个 Trainer | `SFTTrainer`（自动处理 chat template、packing、loss mask）、`DPOTrainer`、`GRPOTrainer`、`RewardTrainer` |
 | `accelerate` | 把单卡脚本变多卡，统一 DDP / FSDP / DeepSpeed 的启动 | `accelerate config` 生成配置；`accelerate launch train.py` |
 
+Table: Hugging Face 六个库各自负责的事
+
 它们的分工对应第三篇的五个对象——每个库产出（或改造）训练循环里的一个东西：
 
 | 库 | 产出的对象 | 对应第三篇的 |
@@ -164,6 +170,8 @@ flowchart TB
 | `peft` | 改造后的 `nn.Module`：线性层旁挂上 LoRA，基座 `requires_grad=False` | `nn.Module` + `requires_grad` |
 | `trl` | 训练循环本身（`SFTTrainer` 等） | 二十行 |
 | `accelerate` | 多卡启动与设备放置 | 第四篇的 DDP / FSDP |
+
+Table: 六个库产出的对象与第三篇五个对象的对应
 
 ### `generate` 的采样参数
 
@@ -211,6 +219,8 @@ for step, batch in enumerate(loader):                                           
 | LoRA 的 $$A$$、$$B$$ 被挂到每个线性层旁边，基座冻结 | `get_peft_model` | ①′ 改造 `nn.Module`；基座参数 `requires_grad=False` |
 | AdamW 只更新 $$A$$、$$B$$ | `Trainer` 只把 `requires_grad=True` 的参数交给优化器 | ② |
 | bf16、梯度裁剪、学习率调度、日志、checkpoint | `SFTConfig` 的字段：`bf16=True`、`max_grad_norm`、`lr_scheduler_type` / `warmup_steps`、`logging_steps` / `save_steps` | ⑥、⑩、③ ⑫、⑭ |
+
+Table: SFTTrainer 一次训练背后发生的事
 
 `LoraConfig` 的四个参数：`r` 是秩（L0 第三篇）；`lora_alpha` 是缩放，实际加到输出上的是 $$\frac{\alpha}{r} BA x$$，常取 $$\alpha = 2r$$；`target_modules="all-linear"` 把七个线性层都挂上（也可以只挂 `q_proj, v_proj`）；`lora_dropout` 是 LoRA 分支上的 dropout。
 
@@ -298,6 +308,8 @@ Hugging Face 的库是当前算法工作的事实标准，也是**最好的教�
 | LoRA 怎么挂上去 | `peft/tuners/lora/layer.py`：`Linear.forward` 里 `result += lora_B(lora_A(dropout(x))) * scaling` | 一行核心——L0 第三篇的 $$BAx$$ |
 | SFT 的 loss mask 与 packing | `trl/trainer/sft_trainer.py` 与它的 data collator | 几百行 |
 | `generate` 的采样 | `transformers/generation/utils.py` 与 `logits_process.py`：temperature、top-k、top-p 各是一个 `LogitsProcessor` | 每个 processor 十几行——L0 第五篇第七章 |
+
+Table: 值得直接读的 Hugging Face 源码入口
 
 方法很简单：**遇到一个后训练概念，先读它在 `trl` 里的实现，再读论文。** 库的版本变化快，函数名会变（本文写作时的接口未必与你读到时一致），但找到入口的方法不变——从 Trainer 的 `compute_loss` 往下追，或者在编辑器里对着一个 API 名按"跳转到定义"。读到一个看不懂的公式，回 L0 对应的篇；读到一个看不懂的形状操作，回本系列第一篇。
 

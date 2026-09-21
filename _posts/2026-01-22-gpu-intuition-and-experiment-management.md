@@ -29,6 +29,8 @@ updated: 2026-09-20
 | ridge | 989e12 / 3.35e12 ≈ 295 FLOP / 字节 | 每搬一个字节做多于 295 次运算 → 受算力限制；少于 → 受带宽限制 |
 | 显存四块 | 权重 · 梯度与优化器状态 · 激活 · KV cache | OOM 先问落在哪一块 |
 
+Table: H100 的两个数字：算力与带宽
+
 ### 3. 本文的章节安排
 
 | 章 | 主题 | 内容 |
@@ -39,6 +41,8 @@ updated: 2026-09-20
 | 五 | kernel、stream 与 profiler | 三个概念；读一张 profiler 表 |
 | 六 | 实验管理 | 最小记录的七项；工具各管哪项；随机性 |
 | 七 | 自测 | 五道题 |
+
+Table: 本文的章节安排
 
 
 ## 二、两个上限
@@ -103,6 +107,8 @@ $$
 | 128 | 4.8 ms | 2.1 ms | memory-bound | 26,700 token/s |
 | 512 | 4.8 ms | 8.3 ms | compute-bound | 61,582 token/s |
 
+Table: decode 吞吐随 batch 的变化：带宽时间与算力时间
+
 batch 从 1 到 128，时间几乎不变（都是 4.8 ms），吞吐涨 128 倍——**这就是"为什么 batch 大才快"**。到 batch ≈ 295（ridge）之后才开始受算力限制。推理系统（vLLM 一类）的核心工作就是把尽量多的请求凑成一个大 batch；Infra 08 系列讲它。
 
 ### 2. prefill 与训练是 compute-bound
@@ -126,6 +132,8 @@ prefill 把 prompt 的 4096 个 token 一起过模型。算力用第二章那条
 | 梯度与优化器状态 | 可训练参数量 × 14 字节（上一篇：梯度 2 + fp32 主权重 4 + AdamW 两个矩 8）。两者放在一块是因为它们都只在训练时存在、都随**可训练**参数量线性增长——LoRA 把这一块从 8B 缩到 41.9M 的原因就在这里 | 全量微调时的大头 | 无 |
 | 激活 | batch × 序列长度 × 层数 × hidden；反向要保存 | 长序列大 batch 时的大头；checkpointing 可换 | 只有当前层，很小 |
 | KV cache | batch × 序列长度 × 层数 × $$2 \times n_{kv} \times d_{head}$$ × 字节 | 无 | 长上下文、高并发时的大头；GQA / MLA 就是为了压它 |
+
+Table: 显存的四块：大小由什么决定
 
 前三块上一篇讲过。第四块 **KV cache** 是推理特有的：生成第 $$t$$ 个 token 时要看前面所有 token 的 key 与 value（L0 第四篇：条件不变、缓存有效），所以把它们存下来。每个 token、每层存 $$2 \times n_{kv} \times d_{head}$$ 个数；Llama-3-8B（$$n_{kv} = 8$$、$$d_{head} = 128$$、32 层、bf16）：每个 token $$2 \times 8 \times 128 \times 32 \times 2 = 131$$ KB，一个 8K 的上下文 1 GB，并发 64 个这样的请求 64 GB——**比权重还大**。这就是 GQA（Llama-3 用 8 个 kv 头而不是 32 个，KV cache 缩到 1/4）与 MLA（DeepSeek）的动机。精确公式在 L4 第三篇。
 
@@ -199,6 +207,8 @@ run id · commit · 配置文件 · 数据版本 · seed · 环境 · 指标
 | 环境 | `pip freeze` / 锁文件、CUDA 与驱动版本、容器镜像 | 随 run 记录 |
 | 随机性 | `seed` 参数 + `torch.manual_seed` 等 | 多 seed 报均值与方差；知道有些 kernel 本身不确定 |
 | 产物 | checkpoint、评测输出、生成样本 | 命名含 run id；评测输出保存到能做第二篇那种错误分析的粒度 |
+
+Table: 实验管理的需求、工具与最小做法
 
 这一行齐了，"复现三个月前的结果"就是重跑一条命令。少了任何一项，那次实验的结论都只是"当时好像是这样"。
 

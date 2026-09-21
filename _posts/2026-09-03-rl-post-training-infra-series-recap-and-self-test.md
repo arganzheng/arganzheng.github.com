@@ -45,6 +45,8 @@ flowchart TB
 | [第七篇：verl 源码导读](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html) | 一个 bf16 参数从优化器更新完成到推理引擎用它生成下一个 token，经过哪些函数、进程、链路？ | 十二步、四类进程、三条链路；共置 = 一个进程持有多个角色对象；TransferQueue 是同步与异步统一的解耦点；slime 薄、AReaL 异步优先 | `@register` 只挂属性、`_bind_worker_method` 生成组方法；`_step_once` 九个阶段；non-naive 同步七步；`create_colocated_worker_cls` + `spawn`；三家趋同的四段是必然 |
 | [第八篇：配置、可观测与排障](/rl-post-training-configuration-observability-and-troubleshooting.html) | 凌晨两点 reward 平台、步时间不变、无报错：十分钟内区分四个嫌疑，信号开训前采了没有？ | 六步推导、全步 MFU 瀑布、RL 状态的 checkpoint、确定性、必采指标、故障表；排查顺序是数据 → 版本 → 异步 → 实现 | 32B / 128 卡算例：80 : 48、一步 ≈ 1170 s、MFU ≈ 20%；瀑布 100% − 64% − 13% − 4% − 0.1% ≈ 13%；671B checkpoint 10.7 TB 写 18 分钟；`full_determinism` 要求 `use_v1=false` |
 
+Table: 八篇的核心问题、结论与必记公式
+
 ### 1. 本文的章节安排
 
 | 章 | 内容 |
@@ -54,6 +56,8 @@ flowchart TB
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 8 题、D 掌握判据 |
 | 六 | 下一步 |
+
+Table: 本文的章节安排
 
 ## 二、逐篇回顾
 
@@ -252,6 +256,8 @@ flowchart TB
 | 单控制器 + worker 组、TransferQueue | 二、七 | 二给编程模型与代价；七给 `@register`、`_bind_worker_method`、`KVBatchMeta` 的实现 |
 | 沙箱与环境服务 | 一、六、八 | 一说八成 token 来自环境、加一列 CPU·小时；六算环境账与配比；八进 checkpoint、故障表与平台要求 |
 
+Table: 贯穿八篇的概念及其关系
+
 ## 四、常见误区
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
@@ -269,6 +275,8 @@ flowchart TB
 | drop 掉过期样本是中性的随机丢弃 | staleness 与回答长度正相关 | drop 系统性地丢长回答；用 wait 或部分 rollout | [第五篇](/async-rl-staleness-partial-rollout-and-off-policy-correction.html) |
 | 开了前缀缓存，多轮的 prefill 就是线性的 | 命中要 KV 块还在显存；等环境的 30 秒里被逐出 | 默认配置下接近全重算（1400 s 对 160 s）；KV 卸载是出路 | [第六篇](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html) |
 | reward 为 0 就是环境出错 | 0 是合法 reward | 服务应返回错误码；reward 要按源分组监控 | [第八篇](/rl-post-training-configuration-observability-and-troubleshooting.html) |
+
+Table: 常见误区与正确说法
 
 ## 五、通关自测
 
@@ -485,6 +493,8 @@ flowchart TB
 | 读过 | 能说出八篇各讲什么；知道 $$12N$$、36 ms、共置 / 分离 / 异步、sleep / wake、`delta_sharded`、staleness、TransferQueue 这些名词 |
 | 掌握 | A 组能不翻书算出 8 题以上；B 组能说出每题用了哪几篇的什么；拿到一个 RL 任务的配置能算出三段时间、长尾占比、推荐形态与配比、全步 MFU 预期值，并解释它的利用率为什么是这个数 |
 | 能教人 | C 组每题能给出全部要点并预判追问；能解释八篇里每个反直觉结论（同步分离更差、切换不是共置的代价、同步慢与网络无关、drop 偏短、开了前缀缓存 prefill 仍接近二次）为什么成立；能在 verl 里定位并修改显存让渡、权重同步、异步控制、agent loop 中的任一段 |
+
+Table: 掌握程度的判据
 
 通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点。这对应总纲的三种能力——算账（第一、二、八篇）、实现（第三到七篇）、运维（第五、八篇）。没过的部分回到第二章对应篇的"必记"，再回该篇正文。
 

@@ -55,12 +55,16 @@ Meta Tensor                   → 只推断 shape、dtype 等元数据
 | **开发态** | 算子开发者 | 构建时 | 定义 Schema → 注册实现到 DispatchKey → 编写实现 |
 | **运行态** | 算子使用者 | 调用时 | 入口（Python API → C++ API）→ 分发（Dispatcher 查表选路）→ 执行（选中的实现运行） |
 
+Table: 算子系统的两个维度：开发态与运行态
+
 “分发”和“实现”在两个维度里都出现，但含义不同：
 
 | | 开发态 | 运行态 |
 |---|---|---|
 | 分发 | **填表**：把实现注册到 Operator Table 的各个 DispatchKey | **查表**：Dispatcher 根据 DispatchKeySet 查表选路 |
 | 实现 | **写代码**：Native Function / 自定义 Kernel，选择实现模式 | **被执行**：选中的实现运行，TensorIterator 遍历、Kernel launch |
+
+Table: 分发与实现在两个维度里的含义
 
 ### 3. Operator Table：两个维度的交汇点
 
@@ -95,6 +99,8 @@ flowchart TB
 | 九 | 串起来：add 的完整路径，开发者做了什么 / 用户调用时发生了什么 |  |
 | 十 | Java 对照 |  |
 | 十一 | 小结 |  |
+
+Table: 本文的章节安排
 
 ## 二、开发态（1）：定义算子
 
@@ -193,6 +199,8 @@ torch.add(x, y, out=output)      # add.out         out
 | in-place | 是 | 否 | 明确的内存复用 |
 | out | 否 | 由调用者提供 | 控制输出存储 |
 
+Table: functional、in-place 与 out 三种 Variant
+
 ### 5. 为什么 alias 和 mutability 语义重要？
 
 如果一个算子会修改输入，Autograd、编译器和调用者都必须知道哪个输入被修改、哪个输出与哪个输入共享存储：
@@ -229,6 +237,8 @@ Schema 中的 alias 标注（如 `Tensor(a!)`）是 Autograd 版本检查、编�
 | 后端 Key | CPU、CUDA、Meta、XLA、MPS、PrivateUse1 | 为哪种设备/后端提供实现 |
 | 包装 Key | Autograd、AutogradCUDA、Functionalize、Python、Vmap | 为哪种横切能力提供包装逻辑 |
 | 复合 Key | CompositeImplicitAutograd、CompositeExplicitAutograd | 用其他算子组合实现，各后端自动获得 |
+
+Table: DispatchKey 的两类
 
 大多数原生算子开发者只需关心后端 Key 和复合 Key；Autograd 等包装 Key 的实现通常由 Codegen 根据 `derivatives.yaml` 自动生成。
 
@@ -289,6 +299,8 @@ lib.impl("scale", scale_cuda, "CUDA")
 | Autograd | Codegen 生成的 `add` Autograd 包装（记录 `AddBackward0` 后再次分发） |
 | … | fallback 或空 |
 
+Table: add.Tensor 在 Operator Table 中的一行
+
 运行态的 Dispatcher 做的事，就是拿着 DispatchKeySet 在这一行里按优先级查一个非空槽位。
 
 ### 5. 没有注册会怎样
@@ -313,6 +325,8 @@ Operator Table 里填的函数，就是实现层的入口。它有三种来源�
 | Structured Kernel | 同上，但拆成 `meta` + `impl` 两个函数 | 原生算子的一种组织方式，`meta` 推断输出并分配，`impl` 计算；Codegen 拼接二者 |
 | 自定义算子函数 | 用户代码 | `TORCH_LIBRARY_IMPL` 注册的任意 C++/Python 函数 |
 
+Table: 实现入口函数的三种来源
+
 这里要澄清“Native Functions”的双重身份：**声明**在 `native_functions.yaml`（第二章，定义），**函数主体**在 `aten/src/ATen/native/`（本章，实现）。二者由第三章的注册代码连接。
 
 ### 2. 实现内部的五种模式
@@ -326,6 +340,8 @@ Operator Table 里填的函数，就是实现层的入口。它有三种来源�
 | 厂商库路径 | 调用 cuBLAS / cuDNN / MKL / oneDNN | `matmul`、`conv2d` | 是，但 Kernel 在库内部 |
 | Composite 路径 | 调用其他 `at::` 算子组合出语义，**重新进入 Dispatcher** | `CompositeImplicitAutograd` 算子 | 本层不直接启动 |
 | Meta 路径 | 只推断输出 shape / dtype / stride | 所有算子的 Meta 实现 | 否 |
+
+Table: 实现内部的五种模式
 
 五种模式并不是随意挑选的，选哪一种基本由算子的计算形态决定：
 
@@ -413,6 +429,8 @@ flowchart LR
 | 注册代码 | 开发态的**注册**，填 Operator Table（第三章） |
 | Autograd 反向函数 | 注册到 Autograd Key 的包装实现（第七章） |
 | Structured Kernel 胶水 | 开发态的**实现**组织（第四章） |
+
+Table: Codegen 产物分别服务于哪一步
 
 这就是“横向”的含义：Codegen 不属于任何一步，但为每一步生成代码。
 
@@ -693,6 +711,8 @@ flowchart TB
 | Meta | `{Meta}` | `add_meta` → 只推断元数据，无 Kernel |
 | 自定义后端未注册 `add` | `{PrivateUse1}` | fallback 或 `NotImplementedError` |
 
+Table: 不同上下文下的 DispatchKeySet 与路径
+
 开发态填好的表不变，变化的只是运行态查到的槽位。
 
 ### 4. 这是一条概念路径
@@ -758,6 +778,8 @@ Dispatcher 本身的开销只是执行路径的一部分。第八篇会用 Profi
 | TensorIterator | 实现的一种模式 | 逐元素 / 归约算子的通用遍历框架，不是必经之路 |
 | ATen | 基础库 | 提供 `at::Tensor`、`at::*` API 和 `at::native::*` 实现所在的 C++ 库，横跨入口与实现 |
 
+Table: 几个容易混淆的名字
+
 ### 3. 源码阅读的顺序
 
 ```text
@@ -783,6 +805,8 @@ native_functions.yaml 找到 Schema 与 dispatch 字段
 | `aten/src/ATen/TensorIterator.h`、`native/cpu/Loops.h`、`native/cuda/Loops.cuh` | TensorIterator 与它在 CPU / CUDA 上的循环模板 |
 | `aten/src/ATen/native/BinaryOps.cpp`、`native/cpu/BinaryOpsKernel.cpp`、`native/ufunc/add.h` | `add` 的结构化入口、CPU 实现；CUDA 实现由 ufunc Codegen 从 `add.h` 中的标量函数生成 |
 | `build/aten/src/ATen/RegisterCPU.cpp` 等、`torch/csrc/autograd/generated/python_torch_functions*.cpp` | Codegen 产物：各后端的注册文件；`torch.add` 的 Python 绑定（构建后才存在） |
+
+Table: 本篇涉及的源码位置
 
 下一篇进入开发态的实践：
 

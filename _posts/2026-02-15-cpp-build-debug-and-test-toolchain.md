@@ -86,6 +86,8 @@ Java 依然是参照系。Maven/Gradle 把依赖、编译、测试三件事一�
 | 十五 | 本文小结 | |
 | 十六 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、CMake 的目标模型
 
 ### 1. CMake 不是构建工具，是构建工具的生成器
@@ -172,6 +174,8 @@ add_subdirectory(benchmark)
 | `PRIVATE` | 是 | 否 | 实现细节：`-fvisibility=hidden`、`-DC10_BUILD_MAIN_LIB`、只在 `.cpp` 里用的第三方库（`fmt`、`nlohmann`） |
 | `PUBLIC` | 是 | 是 | 接口的一部分：头文件目录（下游要 include 你的头）、头文件里 `#include` 了的库（`headeronly`、`glog`） |
 | `INTERFACE` | 否 | 是 | 纯头文件库（自己没有 `.cpp` 可编译），或者"只是为了把一组属性打包"的假目标 |
+
+Table: PUBLIC、PRIVATE、INTERFACE 的传播规则
 
 判断标准只有一个：**这个属性是否出现在我的头文件里**。`c10` 的头文件 `#include <torch/headeronly/...>`，所以 `headeronly` 是 `PUBLIC`——任何 include 了 c10 头文件的下游都需要它的路径。`fmt` 只在 `c10/util/*.cpp` 里用，所以 `PRIVATE`——下游不需要知道 fmt 存在。`-fvisibility=hidden` 是 c10 自己怎么编的问题，`PRIVATE`——如果写成 `PUBLIC`，所有链接 c10 的目标都会变成 hidden 可见性，扩展模块的 `PyInit_*` 会消失。
 
@@ -400,6 +404,8 @@ vLLM 的 `setup.py` 只是这些 CMake 的驱动器：它计算并发数、选 c
 | 产物 | jar（平台无关） | `.so`/`.a`/可执行文件（平台、编译器、ABI 相关） |
 | 依赖找不到 | 运行时 `ClassNotFoundException` 或构建时下载失败 | 配置期 `find_package` 失败、编译期头文件找不到、链接期 undefined reference、加载期 `.so` 找不到——四个阶段之一 |
 
+Table: Maven / Gradle 与 CMake + Ninja 的对照
+
 最容易误导的类比是"`find_package(Torch)` = 声明一个 Maven 依赖"。Maven 依赖是一个坐标，Maven 负责让它出现；`find_package` 只是**找**，找的是别人已经装好的东西，装在哪里、版本对不对、ABI 是否匹配，全部是你的责任。vLLM 用"问 Python"的手法把这个责任转嫁给了 pip。
 
 ## 三、构建速度：Ninja、ccache/sccache 与增量构建
@@ -610,6 +616,8 @@ Java 对照：`javac` 的增量编译粒度是类，改一个类的实现（不�
 | `-Og` | 为调试优化：做不影响调试体验的优化 | 快 | 中 | 好 |
 | `-g` | 生成 DWARF 调试信息（变量名、类型、行号表） | 稍慢，`.o` 变大数倍 | **无影响** | 前提条件 |
 
+Table: 优化级别与调试信息选项
+
 `-g` 不影响生成的机器码，只是附加一张"地址 ↔ 源码"的表；所以 `-O2 -g` 是完全合法的组合，这就是 CMake 的 `RelWithDebInfo`。它的问题不是"不能调试"，而是调试时看到的东西和源码对不上：一个局部变量整个生命周期都在寄存器里、中途被复用，调试器只能显示 `<optimized out>`；一个小函数被内联进调用者，栈回溯里没有它自己的帧（DWARF 能记录内联信息，好的调试器会显示 `[inlined]`，但你不能在它的"帧"里 `finish`）。第六章用 mini-c10 实际演示。
 
 CMake 的四种构建类型对应的默认选项（GCC/Clang）：
@@ -620,6 +628,8 @@ CMake 的四种构建类型对应的默认选项（GCC/Clang）：
 | `Release` | `-O3 -DNDEBUG` | 发布 |
 | `RelWithDebInfo` | `-O2 -g -DNDEBUG` | 有符号的发布版；性能分析、线上 core dump 分析 |
 | `MinSizeRel` | `-Os -DNDEBUG` | 嵌入式 |
+
+Table: CMake 四种构建类型的默认选项
 
 `-DNDEBUG` 是 C 标准的约定：定义了它，`assert()` 变成空。PyTorch 用它控制 `TORCH_INTERNAL_ASSERT_DEBUG_ONLY`——`c10/util/Exception.h` 里这个宏在 `#ifdef NDEBUG` 分支下"generates no code"，否则等于 `TORCH_INTERNAL_ASSERT`。注释说明了用途："appropriate to use in situations where you want to add an assert to a hotpath, but it is too expensive to run this assert on production builds"。第一篇 mini-c10 的 `build_flavor()` 用的也是 `NDEBUG`。
 
@@ -857,6 +867,8 @@ Linux 上是 gdb，macOS 上是 lldb（Xcode 自带）；Linux 上也能用 lldb
 | 单步 | `next` / `step` / `finish` | `next` / `step` / `finish` |
 | 加载 Python 脚本 | `source file.py` | `command script import file.py` |
 
+Table: gdb 与 lldb 命令对照
+
 Java 工程师熟悉的 IDE 调试器（JDWP 协议）是这些命令的图形前端；VS Code 的 C++ 调试其实就是在后台跑 gdb 或 lldb。差别在于两点：一是 JDWP 由 JVM 实现，调试器看到的是 JVM 维护的完整元数据；gdb/lldb 依赖编译器写进二进制的 DWARF 调试信息，没有 `-g` 就只剩符号名，`-O2` 之后信息不完整。二是 Java 调试一个进程就是调试所有代码；C++ 调试 PyTorch 时，Python 解释器本身通常没有调试信息，你看到的 Python 帧只是 `_PyEval_EvalFrameDefault` 之类的 C 函数，要看 Python 调用栈需要额外工具（CPython 自带的 `python-gdb.py` 或 `py-bt` 命令），本文不展开。
 
 ### 2. 从 Python 进程进入 C++
@@ -976,6 +988,8 @@ tensor([1., 2., 3., 4.], dtype=torch.float64)
 | `torch-int-array-ref-repr EXP` | `c10::IntArrayRef`（第三篇的 `ArrayRef`，只有一个指针和长度，gdb 默认不展开） | `torch::gdb::int_array_ref_string` |
 | `torch-dispatch-keyset-repr EXP` | `c10::DispatchKeySet`（一个 64 位位集，直接看是个数字） | `torch::gdb::dispatch_keyset_string` |
 
+Table: pytorch-gdb.py 的命令与背后的 C++ 函数
+
 加载方式：仓库根目录有 `.gdbinit`，内容是 `source tools/gdb/pytorch-gdb.py`；gdb 出于安全默认不自动加载项目目录下的 `.gdbinit`，需要在 `~/.gdbinit` 里加 `add-auto-load-safe-path /path/to/pytorch/.gdbinit`，或者在会话里手工 `source`。lldb 版本是 `tools/lldb/pytorch_lldb.py`，做的是同一件事，但用的是 lldb 的"类型摘要"机制（`Tensor_summary`、`IntArrayRef_summary`、`DispatchKeyset_summary`）——注册之后直接 `p self` 就显示 repr，不需要单独的命令。
 
 一个前提：这些函数在被调试进程里执行 Python 代码，所以进程必须是活的（不能用于 core dump），而且 `libtorch_python.so` 必须已加载。
@@ -1049,6 +1063,8 @@ Breakpoint 1: where = demo_o2`minic10::(anonymous namespace)::add_cpu(minic10::T
 | use-after-free：读写已经 `free` 的内存 | 不存在（GC 保证对象活着） | C++ 里它**通常不崩**，而是读到垃圾或悄悄写坏别人的数据，症状出现在很远的地方 |
 | 越界读写 | `ArrayIndexOutOfBoundsException` | 同上，通常不崩 |
 | 未初始化的变量 | 编译器拒绝（definite assignment） | C++ 读到栈上的残留值，每次运行可能不同 |
+
+Table: 三种 C++ 崩溃在 Java 里的对应
 
 关键区别是最后三行：Java 把所有内存错误都变成了确定的、立即的异常；C++ 里只有"访问了未映射的页"才会立即崩，其他情况是未定义行为，表现为随机。所以 C++ 的排查分两条路：**崩了**——拿到崩溃点的栈；**没崩但结果不对**——用 sanitizer（第八章）把不确定的错误变成确定的报告。
 
@@ -1186,6 +1202,8 @@ Java 对照：JVM 在运行时**永远**做这些检查（数组边界、空指�
 | **ASan**（AddressSanitizer） | `-fsanitize=address` | 堆/栈/全局变量越界；use-after-free；use-after-return（需要 `detect_stack_use_after_return=1`）；double free；内存泄漏（LeakSanitizer，Linux 默认随 ASan 开启） | 未初始化读；越界但落在另一个合法对象上的访问（"跳过 redzone"）；通过 `mmap` 或自定义分配器分配的内存（除非分配器手工标注）；数据竞争 | 约 2× 时间，2–3× 内存 |
 | **UBSan**（UndefinedBehaviorSanitizer） | `-fsanitize=undefined` | 有符号整数溢出；除零；空指针解引用；未对齐访问；`shift` 超范围；数组下标为负或越界（仅静态已知大小的数组）；`vptr` 检查（通过错误类型的指针调虚函数）；`bool`/`enum` 装入非法值 | 内存错误（那是 ASan 的事）；无符号"溢出"（那是定义好的回绕，不是 UB） | 很小，可以和 ASan 同时开 |
 | **TSan**（ThreadSanitizer） | `-fsanitize=thread` | 数据竞争（两个线程无同步地访问同一内存且至少一个是写，第六篇的核心话题）；某些死锁模式 | 内存错误；与 ASan **互斥**（不能同时开）；对通过非 pthread 机制（比如 OpenMP 运行时内部、CUDA 回调）同步的代码可能误报或漏报 | 5–15× 时间，5–10× 内存 |
+
+Table: 三个常用 sanitizer 能抓什么
 
 另外还有 MSan（`-fsanitize=memory`，抓未初始化读，要求所有依赖库都用 MSan 编译，实际很难用于 PyTorch 这样的大项目）和 LSan（`-fsanitize=leak`，可以单独用）。
 
@@ -1387,6 +1405,8 @@ fi
 | 改了并发代码时 | TSan 构建跑相关测试 | 数据竞争 | 更慢；PyTorch 提供 `USE_TSAN` 开关但 CI 没有 TSan job，要自己跑 |
 | CI | 上面全部 + 多编译器矩阵（第十一章） | 编译器相关的警告和 ABI 问题 | 由 CI 承担 |
 
+Table: 一个 C++ 改动各阶段应跑的工具
+
 ASan 不是"有空再跑"的东西。第二篇到第七篇讲的每一个所有权、生命周期、引用计数、GIL 边界的问题，最终都以 ASan 报告的形式被发现——如果你跑了的话。
 
 ## 九、gtest：C++ 测试的组织方式
@@ -1431,6 +1451,8 @@ PyTorch 的 C++ 测试按被测库的层次分在三处：
 | `c10/test/` | `libc10`：`intrusive_ptr`、`ArrayRef`、`SmallVector`、`Half`、`DispatchKeySet`、`Exception`…… | 每个 `*_test.cpp` 一个可执行文件 `c10_<name>` | `c10/test/CMakeLists.txt`：glob + foreach |
 | `aten/src/ATen/test/` | ATen：Tensor 基本操作、`TensorIterator`、`Dispatcher`、`IValue`、allocator、CUDA 的 stream/event/allocator…… | 每个文件一个可执行文件 | `aten/src/ATen/test/CMakeLists.txt` 列出文件到 `ATen_CPU_TEST_SRCS`/`ATen_CUDA_TEST_SRCS`，由 `caffe2/CMakeLists.txt` 生成目标 |
 | `test/cpp/` | `torch/csrc/`：C++ 前端 API（`test/cpp/api`）、JIT（`test/cpp/jit`）、`c10d`、profiler、`lazy`、AOTInductor…… | 每个子目录一个大二进制（`test_api`、`test_jit`……） | 各子目录自己的 `CMakeLists.txt` |
+
+Table: PyTorch 的三个 C++ 测试目录
 
 `c10/test/CMakeLists.txt` 全文只有三十行，是 gtest 接进 CMake 的最小完整样本：
 
@@ -1552,6 +1574,8 @@ Java 项目有 Checkstyle（格式）、SpotBugs/ErrorProne（静态分析）、
 | **clang-format** | 只管格式：缩进、换行、空格、include 排序。不理解语义，不改变代码含义 | 源文件 + `.clang-format` | 毫秒级，可以做保存时自动格式化 |
 | **clang-tidy** | 静态分析：几百条检查，从"用 `nullptr` 不用 `NULL`"到"这个 `std::move` 之后又用了变量"到 Clang Static Analyzer 的路径敏感分析 | 源文件 + `.clang-tidy` + **`compile_commands.json`**（它要真的编译代码） | 秒到分钟级，每个文件 |
 | **lintrunner** | PyTorch 自己的 lint 驱动：读 `.lintrunner.toml`，对改动的文件并行调用几十个 linter（上面两个加 flake8、mypy、以及一堆 grep 规则） | `.lintrunner.toml` | 取决于 linter |
+
+Table: C++ 代码质量的三类工具
 
 ### 2. `.clang-format`
 
@@ -1796,6 +1820,8 @@ command = [
 | `CMAKE` | — | cmakelint 检查 `CMakeLists.txt` 本身 |
 | `TEST_HAS_MAIN` | — | Python 测试文件末尾必须有 `if __name__ == "__main__": run_tests()` |
 
+Table: .lintrunner.toml 里的 grep 规则
+
 这些规则把本系列讲过的多条约定变成了机器检查。读 `.lintrunner.toml` 是了解一个 C++ 项目"哪些事不许做"最快的办法。
 
 Java 对照：Checkstyle 的 XML 配置对应 `.clang-format` + grep 规则；ErrorProne/SpotBugs 对应 clang-tidy。差别是集成度：Java 的这些工具挂在 Maven/Gradle 的生命周期里，`mvn verify` 一并跑；C++ 这边 lintrunner 是 PyTorch 自己写的胶水，vLLM 用的是 pre-commit（`.pre-commit-config.yaml` 里挂 `mirrors-clang-format`），每个项目各有各的。
@@ -1811,6 +1837,8 @@ Java 对照：Checkstyle 的 XML 配置对应 `.clang-format` + grep 规则；Er
 | **C++ 标准** | C++17（`set(CMAKE_CXX_STANDARD 17 ...)`）；顶层 `CMakeLists.txt` 检测到环境变量里有 `-std=c++` 会警告 "PyTorch requires -std=c++17. Please remove -std=c++ settings in your environment." | `CMakeLists.txt`、`c10/CMakeLists.txt`、`torch_compile_options` 里的 `CXX_STANDARD 17`、`TorchConfig.cmake.in` 里给 `torch` 目标设的 `CXX_STANDARD 17`、`cpp_extension.py` 里的 `-std=c++17` |
 | **主机编译器** | GCC ≥ 9.3（"GCC-9.3 or newer is required to compile PyTorch"）；Clang/AppleClang 不检查最低版本（macOS 上只是把 clang 版本打印出来） | `CMakeLists.txt` 开头 |
 | **CUDA** | ≥ 12.0（`cmake/public/cuda.cmake`："PyTorch requires CUDA 12.0 or above"）；nvcc 版本必须与 CUDA 头文件版本一致（同文件有一个 `detect_cuda_version.cc` 的运行时检查，不一致就 FATAL_ERROR，注释说这常发生在 ccache 包装的 nvcc 与 `CUDA_HOME` 不一致时） | `cmake/public/cuda.cmake` |
+
+Table: 构建环境的三个版本轴
 
 PyTorch 2.10 与 vLLM 0.15 都以 C++17 编译，与本系列各篇 mini-c10 用的 `-std=c++17` 一致。这个数字不是永远不变的——读者在自己的版本上应以 `CMakeLists.txt` 里的 `CMAKE_CXX_STANDARD` 为准，扩展的标准要跟它走，而不要自己在 `CMAKE_CXX_FLAGS` 里塞一个 `-std=`（那正是顶层 `CMakeLists.txt` 开头那条警告要拦的事）。
 
@@ -1870,6 +1898,8 @@ linux-jammy-aarch64-py3.10            # linux-aarch64.yml，镜像是 gcc13
 | `import` 扩展时 `undefined symbol: ..._ZNSt7__cxx11...` 或 `...[abi:cxx11]` | 扩展和 PyTorch 的 libstdc++ ABI 不一致（第七篇） | `nm -DC` 看符号里有没有 `[abi:cxx11]`；确认 `_GLIBCXX_USE_CXX11_ABI` |
 | `GLIBCXX_3.4.30 not found` | 运行机器的 libstdc++ 比编译机器旧 | `strings /usr/lib/.../libstdc++.so.6 \| grep GLIBCXX`；用更老的编译机器或静态链接 libstdc++ |
 | 编 PyTorch 时 "FindCUDA says CUDA version is X but the CUDA headers say the version is Y" | PATH 上的 nvcc 和 `CUDA_HOME` 指向不同的 CUDA | `which nvcc`、`echo $CUDA_HOME` |
+
+Table: 版本不匹配的典型症状
 
 Java 对照：Java 的版本轴只有一个——JDK 版本，而且 `javac --release 17` 能在新 JDK 上精确产出老版本字节码，`.class` 文件在任何 JVM 上语义一致。C++ 的三个轴（标准、编译器、CUDA）加上第七篇的第四个轴（标准库 ABI），每个都影响二进制的兼容性，而且没有 `--release` 这样的开关能屏蔽差异。这是"在我机器上能跑"在 C++ 里格外不成立的根本原因，也是 Docker 镜像在 AI-Infra 项目里如此普遍的原因——vLLM 的 `docker/Dockerfile` 就是把这整个矩阵钉死的方式。
 
@@ -2245,6 +2275,8 @@ lldb 版 `tools/lldb/pytorch_lldb.py` 用的是 lldb 的"类型摘要提供器"�
 | `clang-analyzer-` | Clang Static Analyzer（路径敏感） | 慢但能发现深层问题；也有误报 |
 | `hicpp-` | High Integrity C++ 标准 | 安全关键领域的规范 |
 | `clang-diagnostic-` | 编译器警告本身（clang-tidy 可以把 `-W` 警告也当检查报） | 等同于编译器警告 |
+
+Table: clang-tidy 检查模块的来源与性质
 
 遇到一条不认识的检查，`clang-tidy --list-checks -checks='*' \| grep <name>` 确认它存在，然后到 LLVM 文档（`clang.llvm.org/extra/clang-tidy/checks/`）读它的说明——每条都有"为什么这是问题"和"怎么修"的示例。与 Java 的 ErrorProne 文档是同一种东西。
 
@@ -2889,6 +2921,8 @@ UseTab: Never
 | JUnit 一种测试框架 | C++ 层 gtest，Python 层 pytest，测试跟着接口所在的层走 |
 | Checkstyle/ErrorProne 挂在构建生命周期里 | clang-format/clang-tidy 是独立工具，每个项目自己写胶水（lintrunner、pre-commit） |
 
+Table: 构建工具链：与 Java 直觉冲突的几处
+
 ## 十五、本文小结
 
 回到核心问题：**一个 C++ 改动，从写完到确认正确、没有内存错误、不会在别的编译器上炸，需要跑哪些东西？**
@@ -2909,6 +2943,8 @@ UseTab: Never
 | gtest | C++ 层的单元测试 | `c10/test/`、`aten/src/ATen/test/`、`test/cpp/` |
 | clang-format/clang-tidy/lintrunner | 格式和静态规则 | `.clang-format`、`.clang-tidy`、`.lintrunner.toml` |
 | 版本矩阵 | 编译器、CUDA、C++ 标准、ABI 的兼容约束 | `CMakeLists.txt` 的版本检查、`cpp_extension.py` 的 `CUDA_GCC_VERSIONS` |
+
+Table: 本篇涉及的工具链及其在 PyTorch 里的体现
 
 Java 工程师需要接受的是：这些不是一个工具的十个功能，而是十个独立演化、各有配置文件、需要分别学的工具。PyTorch 的 `CONTRIBUTING.md`、`setup.py` 开头的注释、`.lintrunner.toml` 是把它们粘起来的胶水，也是读懂一个大型 C++ 项目"怎么工作"的最好入口。
 

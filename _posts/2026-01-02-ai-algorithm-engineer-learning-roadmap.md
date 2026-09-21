@@ -31,6 +31,8 @@ updated: 2026-09-17
 | 一个扩展 | 多模态：视觉语言模型、扩散模型、语音 |
 | 一种方法 | 实验方法论：假设、消融、可复现、读论文与复现 |
 
+Table: 算法工程师需要的八样东西
+
 
 ## 两张图：模型生命周期与学习路径
 
@@ -138,6 +140,8 @@ flowchart TB
 | 横切 | 实验方法论 | 怎么用有限的算力得出可信的结论？ | [导读](/experimental-methodology-for-ai-algorithm-engineers.html) | 1h |
 | 选修 | 系统内部 ｜ 应用层 | 推理引擎与训练框架怎么实现（→ Infra 地图）｜ Agent、RAG 怎么搭（→ 应用地图） | — | — |
 
+Table: 算法地图的学习路径：八层加一个横切
+
 ### 两张图的叠加
 
 | 生命周期阶段 | 主要用到的层 |
@@ -149,6 +153,8 @@ flowchart TB
 | 评测 | L5 · L2（评估方法论）· 横切 |
 | 压缩与高效推理 | L6 · L0（量化误差、投机解码的分布等式） |
 | 多模态 | L7 · L3（CNN、ViT）· L4 |
+
+Table: 模型生命周期各阶段主要用到的层
 
 
 ## 逐层说明
@@ -167,6 +173,8 @@ flowchart TB
 | 概率与统计 | 随机变量、条件概率、贝叶斯公式、联合与边缘分布、伯努利 / 二项 / 高斯 / 均匀分布、最大似然 MLE 与最大后验 MAP、置信区间、概率图模型的基本记号 | 语言模型就是 $$p(x_t \mid x_{<t})$$；交叉熵是 MLE；DPO 的推导从 Bradley-Terry 模型开始；评测要给置信区间 | [第四](/probability-basics-language-model-as-conditional-distribution.html)、[五](/from-maximum-likelihood-to-cross-entropy.html)、[八篇](/statistical-inference-and-fitting-scaling-laws.html) |
 | 信息论 | 熵、交叉熵、KL 散度、互信息 | 训练 loss 是交叉熵；RLHF 与 DPO 的约束项是 KL；蒸馏的目标是 KL；投机解码的接受率是分布之差 | [第六篇](/entropy-cross-entropy-and-kl-to-dpo.html) |
 | 微积分与优化 | 导数、偏导、梯度、链式法则、Jacobian；凸性、梯度下降、随机梯度下降、学习率、鞍点 | 反向传播是链式法则；优化器（L3）建立在 SGD 之上；策略梯度定理需要对期望求导 | [第七篇](/derivatives-gradients-chain-rule-and-policy-gradient.html) |
+
+Table: L0 数学四个分支的概念、用处与对应文章
 
 优化算法里的 Momentum、Adam / AdamW 放在 L3 深度学习里讲，因为它们的设计动机（梯度噪声、稀疏梯度、权重衰减与 L2 的区别）要到训练神经网络时才看得见。
 
@@ -187,6 +195,8 @@ flowchart TB
 | GPU 直觉 | GPU 有算力与带宽两个上限、显存分几块（权重 / 激活 / 优化器状态 / KV）、为什么 batch 大才快、CUDA kernel 与 stream 是什么 | 能看懂 profiler 输出、能解释 OOM 的来源即可；写 kernel 属于 Infra 地图 05 | [第六篇](/gpu-intuition-and-experiment-management.html) |
 | 实验工具 | W&B / MLflow / TensorBoard 记录实验；Hydra / 配置文件管理超参数；git 管代码与配置 | 实验方法论（横切）的物质基础 | 第六篇 |
 
+Table: L1 各工具要掌握到的程度
+
 ### L2 机器学习基础
 
 > **什么是学习？怎么知道模型学会了而不是背下来了？**
@@ -203,6 +213,8 @@ flowchart TB
 | 特征工程 | 特征选择与抽取、缩放、编码 | 在深度学习里被"表示学习"取代，但数据工程里的质量特征仍靠它 | 第二、三篇顺带 |
 | 评估 | 分类：Accuracy、Precision / Recall、F1、AUC；回归：MSE、RMSE、MAE；交叉验证、统计显著性 | 评测集怎么划、怎么给置信区间、A/B 差异是否显著 | [第六篇](/evaluation-from-confusion-matrix-to-judge-agreement.html) |
 | 工具 | scikit-learn | 快速训练一个数据过滤器、一个质量分类器 | 每篇 |
+
+Table: L2 机器学习基础的主题与 LLM 时代的必要性
 
 学到"能解释每个概念、能用 scikit-learn 跑通一个分类任务"即可，不需要手推 SVM 对偶。
 
@@ -222,6 +234,8 @@ flowchart TB
 | RNN | 序列建模、长距离依赖、梯度在时间上的消失；RNN → LSTM → GRU；seq2seq 与 attention 的起源 | 理解 RNN 的失败才理解 attention 为什么赢：并行性与长依赖 | [第六篇](/rnn-lstm-and-the-birth-of-attention.html) |
 | 训练实践 | 混合精度（AMP）的用法、显存的四个去向、checkpoint 的保存与恢复、多卡 DDP 的启用 | 用法在 L1 工具箱[第四篇](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html)已讲；本层只关心它们对训练稳定性的影响；原理与大规模实现属于 Infra 地图 03、07 | L1 第三篇 |
 
+Table: L3 深度学习基础的主题与概念
+
 ### L4 LLM 核心
 
 > **Transformer 为什么赢？tokenizer、scaling law 与预训练数据各决定了什么？**
@@ -235,6 +249,8 @@ flowchart TB
 | Scaling law | Kaplan 等 2020 与 Chinchilla（Hoffmann 等 2022）：loss 随参数量、数据量、算力的幂律；计算最优的 $$D / N \approx 20$$；数据受限时的多 epoch；推理成本纳入后的"过训练"（Llama 3 的 15T token）；用小模型外推大模型 | 04 系列第二篇给出 $$6ND$$；预训练系列第二篇：Kaplan 与 Chinchilla 的幂律与分歧、最优 N/D 的推导、推理成本纳入后的过训练、数据受限的有效 token、用小模型外推的实验设计与常见错误 |
 | 预训练 | 目标函数（next-token prediction、MTP）；数据工程：采集、清洗、去重（MinHash / 精确）、质量过滤（分类器、困惑度）、配比与多阶段课程、合成数据、退火阶段；训练配方：batch 与学习率的 scaling、warmup、WSD；训练稳定性的算法侧：loss spike 的归因、z-loss、QK-norm、初始化；长上下文的继续预训练 | 预训练系列第三篇：漏斗（240T → 15T）、Gopher / C4 规则与模型打分、MinHash 的数学、配比 → epoch、退火与合成数据、污染检测；预训练系列第四篇：目标函数与 MTP、AdamW / batch / lr / warmup 的依据、cosine 与 WSD、稳定性的三个机制与六个开关、长上下文阶段；数值与混合精度在 04 系列第六篇；工程侧（checkpoint、容错、MFU）属于 Infra 地图 07 |
 | 经典模型 | GPT-2 / GPT-3 / GPT-4 系列的公开信息；Llama 1–4；Qwen 2 / 2.5 / 3；Mistral 与 Mixtral；DeepSeek-V2 / V3 / R1；Kimi K2；Gemma。读技术报告时关注：结构选择、数据规模与配比、训练配方、评测方法 | 04 系列第一、三、五篇以 Llama-3 与 DeepSeek-V3 为基线；预训练系列以两者的技术报告为训练侧的对象，其第二篇有十几个模型的 D/N 对照表 |
+
+Table: L4 LLM 核心的主题与概念
 
 读 04 系列时，算法工程师的收获与 Infra 工程师相反：Infra 工程师从中知道要优化什么，算法工程师从中知道自己的每个结构决定在硬件上花多少钱——GQA 的组数、MLA 的压缩维、专家的粒度、上下文长度，每一个都对应成本表上的一格。
 
@@ -251,6 +267,8 @@ flowchart TB
 | 推理模型与 Agent | 可验证奖励的强化学习（RLVR：数学答案、代码测试）；DeepSeek-R1 的 GRPO 配方与"aha moment"；长思维链、test-time compute scaling；过程奖励模型 PRM 与结果奖励 ORM；推理长度的控制；多轮工具调用的 RL：环境、轨迹数据、工具输出的 mask、延后的奖励、异步 rollout | 2025 年后训练的主线；RL 训练的 rollout 与训练如何共享 GPU、异步 rollout 的实现属于 Infra 地图 09 [《RL 后训练基础设施》](/rl-post-training-infrastructure.html) |
 | 蒸馏 | logits 级蒸馏（KL 到教师分布）、序列级 / 数据蒸馏（用教师生成 SFT 数据，R1 蒸馏小模型的做法）、on-policy 蒸馏；蒸馏与量化的组合 | 蒸馏是把大模型能力搬进小模型的主要手段，也是"线上回流"回边上的一站 |
 | 评测 | 通用 benchmark（MMLU、GSM8K、MATH、HumanEval、IFEval、MT-Bench 等）与它们各自测什么；LLM-as-judge 的偏差（位置、长度、自我偏好）；人类偏好 Arena；污染检测；能力分解与错误分析；评测集自建 | 评测是"回到数据或配方"那条回边的起点；不会评测就不知道改什么 |
+
+Table: L5 后训练各阶段的概念
 
 工具层：`trl`、OpenRLHF、verl 的使用；知道它们把 rollout（推理）与训练（反向）怎么拼起来，但实现内部属于 Infra。
 
@@ -270,6 +288,8 @@ flowchart TB
 | 结构级压缩 | 剪枝与结构化稀疏（2:4）、层裁剪与深度缩放、MLA 一类 KV 压缩结构、KV eviction（H2O、StreamingLLM） | 04 第三篇给出 KV 的账；L6 第五、六篇 |
 | 长上下文推理 | 位置外推方法的推理侧、稀疏 attention（NSA、MoBA）、上下文压缩 | 04 第四篇；L6 第五篇 |
 
+Table: L6 算法侧推理优化的主题与概念
+
 ### L7 多模态
 
 > **图片、视频、语音怎么进入语言模型？图像生成为什么是另一套数学？**
@@ -285,6 +305,8 @@ flowchart TB
 | 理解 | 语音与全模态 | ASR（Whisper 的 encoder-decoder）、TTS、语音 LLM（音频 encoder + LLM）、全模态模型（Qwen2.5-Omni、GPT-4o 一类）的统一输入输出 |
 | 生成 | 扩散模型 | 前向加噪与反向去噪、DDPM、DDIM 与采样加速、score matching 与 flow matching 的统一视角、classifier-free guidance；U-Net → DiT（扩散 Transformer）；VAE 与 latent diffusion；文本条件（CLIP / T5 文本编码器）；代表模型：Stable Diffusion 1.x / SDXL / SD3、FLUX；视频生成（Sora 一类，时空 patch） |
 | 生成 | 自回归生成与统一模型 | 图像 token 化（VQ-VAE）、自回归图像生成、理解与生成统一的模型 |
+
+Table: L7 多模态的理解线与生成线
 
 VLM 的成本结构——一张图等于多少 token、encoder 与 decoder 各花多少、image token 的 KV——在 04 系列第八篇里算过；L7 系列讲这些成本背后的设计动机与训练配方。扩散模型的成本结构（无 KV cache、compute-bound、多步迭代）与 LLM 完全不同，L7 第六篇算了这笔账；它的推理系统——序列并行、跨步缓存、稀疏 attention、生成服务——在 Infra 地图的 10[《扩散模型推理基础设施》](/diffusion-model-inference-infrastructure.html)。
 
@@ -304,6 +326,8 @@ VLM 的成本结构——一张图等于多少 token、encoder 与 decoder 各�
 | 记录与复现 | 每次实验的代码版本、配置、数据版本、环境全部可追溯；实验跟踪工具；能复现三个月前的结果 |
 | 读论文与复现 | 从论文里提取"改了什么、和谁比、用什么评"；先复现 baseline 再复现方法；对报告数字保持怀疑（评测设置、污染、挑选） |
 | 看曲线 | loss、梯度范数、学习率、评测指标随步数的曲线；能从曲线形状判断学习率过大、数据有问题、过拟合开始 |
+
+Table: 横切：实验方法论的六项能力
 
 ### 选修
 
@@ -334,6 +358,8 @@ VLM 的成本结构——一张图等于多少 token、encoder 与 decoder 各�
 | 数据管线 | 数据配比、质量、去重的**决策** | tokenization 离线化、流式加载、打包的**实现** | 07 |
 | 多模态 | VLM 架构选择、对齐训练、扩散模型的数学与配方 | 理解模型：encoder 的调度与缓存、image token 的 KV、请求形态；生成模型：compute-bound 的推理、序列并行、跨步缓存、生成服务 | 04 · 08 · 10 |
 
+Table: 算法地图与 Infra 地图的重叠主题分工
+
 一个常见的误分类：把 PagedAttention、continuous batching、chunked prefill、PD 分离归入"推理算法"。它们不是算法，是推理引擎的调度与内存管理机制，模型不知道它们的存在，输出分布也不因它们改变。算法侧的推理优化只有 L6 列出的那些——改变模型或改变解码过程的方法。
 
 三个系列两张地图共享：01 Python 与 03 PyTorch 是本地图 L1 工具箱的深入篇（算法侧讲"用"，它们讲"为什么这样工作"与"怎么改"）；04 讨论的对象——模型作为一个计算对象的成本——恰好是两类工程师对话的语言。
@@ -355,6 +381,8 @@ VLM 的成本结构——一张图等于多少 token、encoder 与 decoder 各�
 | L7 | [多模态：从视觉编码器到扩散模型](/multimodal-from-vision-encoders-to-diffusion.html) | 9 |
 | 横切 | [算法工程师的实验方法论：用有限的算力得出可信的结论](/experimental-methodology-for-ai-algorithm-engineers.html) | 1 |
 
+Table: 算法地图各层已有的文章与系列
+
 L0–L2 最初写成三篇导读，只回答"学到什么深度、在哪里用到、怎么检验学会了"；读者反馈对从零开始的人不够，于是展开成三个系列——每个概念从定义讲起、代真实模型算出数字、L1 / L2 配 CPU 可跑的脚本。横切是一套方法而不是一组知识，一篇长文即可。至此地图上的每一层都有了对应的系列。篇数只计正文；每个系列末尾另有一篇「系列总结与通关自测」（逐篇回顾 + 判断计算 / 跨篇综合 / 面试题三段自测），读完正文再做。
 
 ### 配套代码
@@ -370,6 +398,8 @@ L0–L2 最初写成三篇导读，只回答"学到什么深度、在哪里用�
 | L4 | `transformer-and-llm/` | 04 系列的成本表与预训练系列的实验；纯 Python 为主 |
 | L5 | `post-training/` | PyTorch + transformers / trl / peft；MPS 或 CUDA |
 
+Table: 配套代码按层的目录与依赖
+
 L0 的推导用纸笔即可，L6、L7 与横切暂无配套代码。
 
 **这张地图上的代码不需要 GPU。** 上表除 L5 之外的全部脚本在笔记本的 CPU 上就能跑完（`make test` 一遍几分钟），L5 的 LoRA SFT 用 Qwen2.5-0.5B，Mac 的 MPS 或一张消费级显卡即可；只有 L4 预训练系列里"真的训一个模型"的部分需要多卡，文中把那部分写成了账本而不是实验。文章里的"千卡""H100 显存"是在算账，不是运行要求。在 IDE 里打断点、看每一步张量的形状与数值，比读十遍公式更快——反向传播、两层网络、小型 Transformer 前向、LoRA 都是可以单步跟的规模。
@@ -384,6 +414,8 @@ L0 的推导用纸笔即可，L6、L7 与横切暂无配套代码。
 | 多模态 | L3（CNN、ViT）→ L4 → L7 → L5（多模态后训练） | 理解线与生成线可以只走一条 |
 | 推理效率（算法侧） | L0 → L4 → L6 → Infra 地图 08 | 与 Infra 交界最深的方向，通常需要读两张地图 |
 | 后端工程师转算法 | L1 第一、二篇（已有编程基础，第一篇讲训练代码里的 Python 协议、过一遍即可，重点补第二篇的数据科学三剑客）→ L0 → L1 其余四篇 → L2 → L3 → L4 → 任选一个方向 | 数学是最大缺口，但按需补：L1 第三篇起的训练循环要用到 L0 第五篇的交叉熵、第七篇的梯度，所以 L0 插在 L1 中间；01 / 03 深入篇按需 |
+
+Table: 按目标选择的学习路径
 
 
 ## 边界与说明
@@ -418,5 +450,7 @@ L0 的推导用纸笔即可，L6、L7 与横切暂无配套代码。
 | 部署时想快一倍、小一半，量化到多少位？投机解码有用吗？ | L6 · 04 系列 |
 | 要让它看图，encoder 选什么？一张图占多少 token？ | L7 · 04 系列第八篇 |
 | 这个结论在 1B 上成立，在 70B 上还成立吗？ | 横切 · L4 scaling law |
+
+Table: 读完算法地图后能追问的问题与答案来源
 
 三张地图不是为了覆盖更多名词，而是为了让 AI 系统里的三类人——造模型的、跑模型的、用模型的——知道自己站在哪里、隔壁在做什么。

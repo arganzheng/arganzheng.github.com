@@ -113,6 +113,8 @@ review            @IvanYashchuk 3 条行内 + 1 条总评；@johannesz-codes 1 �
 | 九 | 本文小结 | 要点 · 对照表 · 文件位置 |
 | 十 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、选择两个 PR
 
 ### 1. 选取标准

@@ -91,6 +91,8 @@ CPU                      ▲ 全程不停：all_reduce 返回、wait() 返回都
 | 九 | 对照 | Gloo、UCC、vLLM 的 PyNccl；对称内存与 NCCL 的关系 |
 | 十 | 小结 | 要点、检查项、源码位置、comm-probe 的 `overlap_bench.py` |
 
+Table: 本文的章节安排
+
 ## 二、c10d 的分层：Python → ProcessGroup → Backend → ProcessGroupNCCL
 
 ### 1. `init_process_group` 做了什么
@@ -628,6 +630,8 @@ cm.wait()                        # 退出 with 时才真正调 group.allreduce_c
 | `all_reduce_coalesced` / `_coalescing_manager` | 1 次（`ncclGroupStart/End` 合成一个 plan） | 1 份 | N 块不连续，NCCL 逐块处理 | 2(n−1)α | 共享一次握手，但每块仍各自切分 |
 | DDP bucket（flatten 后一次 `all_reduce`） | 1 次 | 1 份 | 1 块连续（多一次 flatten 拷贝） | 2(n−1)α | 一块大 buffer 切满所有 channel |
 
+Table: 独立 all_reduce、coalesced 与 bucket 的对比
+
 ## 七、函数式集合通信与 `torch.compile`
 
 ### 1. 为什么需要另一套 API
@@ -749,6 +753,8 @@ enum ErrorHandlingMode {
 |---|---|---|
 | **进程继续活着** | `NoHandling` (0) | `CleanUpOnly` (2)：给上层做进程内恢复 |
 | **rethrow 让进程退出（`SHOULD_TEAR_DOWN`）** | `SkipCleanUp` (3，默认) | `TearDown` (1) |
+
+Table: TORCH_NCCL_ASYNC_ERROR_HANDLING 四个值的两个开关
 
 默认值 `3` 意味着：超时后 PyTorch **不调用** `ncclCommAbort`，直接抛 `DistBackendError` 让进程崩。理由写在注释里：`ncclCommAbort` 本身也可能 hang（它要和对端协调、要等 proxy 线程退出），在一个已经出问题的集群上再依赖它不可靠；进程退出后由驱动回收资源更稳。`TearDown`（1）则先 `work.abort()` → `ncclComm_->abort()` → `ncclCommAbort` 再抛。哪种更合适取决于上层的容错方案（是整个作业重启，还是希望进程活着做 in-process 恢复），后者用 `CleanUpOnly`。
 
@@ -916,6 +922,8 @@ CPU 阻塞    只有 TORCH_NCCL_BLOCKING_WAIT、显式 timeout、barrier、用�
 | 其他后端 | `torch/csrc/distributed/c10d/ProcessGroupGloo.hpp`、`ProcessGroupUCC.hpp` | `ProcessGroupGloo::AsyncWork`、`Options::threads`；`ProcessGroupUCC::WorkUCC`、`cuda_ee`、`stream` |
 | NCCL 侧旋钮 | `nccl/src/graph/tuning.cc`、`src/init.cc`、`src/device/common.h` | `NCCL_NTHREADS`、`NCCL_MAX_CTAS` / `NCCL_MIN_CTAS`、`ncclDevKernel_*` |
 | vLLM 对照（v0.23.0） | `vllm/distributed/device_communicators/pynccl_wrapper.py`、`pynccl.py` | `ctypes.CDLL`、`VLLM_NCCL_SO_PATH`、`find_nccl_library`、`PyNcclCommunicator.all_reduce(in_tensor, out_tensor=None, op, stream=None)` |
+
+Table: 本篇涉及的源码与工具位置
 
 ### 4. comm-probe 本篇增量：`overlap_bench.py`
 

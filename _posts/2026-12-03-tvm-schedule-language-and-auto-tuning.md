@@ -30,6 +30,8 @@ catalog: true
 | 十 | 本文小结 | |
 | 十一 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 源码：`python/tvm/tirx/`（IR、lowering）、`python/tvm/s_tir/schedule/schedule.py`（调度原语的 Python 接口）、`src/s_tir/schedule/primitive/`（原语实现）、`src/s_tir/schedule/analysis/`（合法性检查）、`python/tvm/s_tir/dlight/gpu/matmul.py`、`python/tvm/s_tir/meta_schedule/`、`python/tvm/s_tir/tensor_intrin/cuda.py`、`python/tvm/relax/`、`docs/deep_dive/tensor_ir/`。运行：`PYTHONPATH=python`（TVM 的 `AGENTS.md` 明说不要 `pip install -e`），`build/` 用 Apple clang + Homebrew `llvm@22` 构建（v0.26 与 LLVM 23 不兼容）、`USE_METAL=ON`。
 
 ## 二、算法与调度分离
@@ -112,6 +114,8 @@ class MyModule:
 | 3 | `sch.vectorize(j1); i0, i1 = sch.split(i, [None, 4]); sch.parallel(i0)` | 58 μs | 最内 8 个元素变 SIMD（LLVM IR 里出现 `<8 x float>` 与 `llvm.fmuladd`），外层多线程 |
 | 4 | `sch.decompose_reduction(Y_block, k)` | 52 μs | 把 `Y = 0` 的初始化从 `k` 循环里拆出来成独立 block（`Y_init`），主循环少一个分支 |
 
+Table: matmul 调度的五步与耗时
+
 第 1 步后的 IR（`sch.mod.show()`）：
 
 ```python
@@ -192,6 +196,8 @@ Definition of a reduction block:
 | 硬件指令 | `blockize / tensorize(loop, intrin)` | `AccelerateMatmul`（`#mma` + `mma.sync`） |
 | 流水 | `annotate(loop, "software_pipeline_stage", [...])`、`"software_pipeline_order"`、`"double_buffer_scope"` | `num_stages` + `AssignLatencies / ScheduleLoops / Pipeline` |
 | 采样（MetaSchedule 用） | `sample_perfect_tile / sample_categorical / sample_compute_location` | autotune 的 config 空间 |
+
+Table: Schedule 原语一览及 Triton 里的对应
 
 右列对得上的每一项都是 Triton 编译器**自己**决定、TVM 调度作者**显式**决定的东西。
 
@@ -440,6 +446,8 @@ MLC-LLM 就是这条路的产品：LLM 的每一层用 `relax.frontend.nn` 描�
 | **IREE** | 无（写图，MLIR 输入） | 全部：`linalg` 层 tiling / distribution / vectorization，`TransformDialect` 可选地让专家写变换脚本 | 编译器内部策略表；Transform dialect 脚本 = TVM 调度的 MLIR 版 | **编译器**，但留了专家通道（Transform dialect）——介于 XLA 与 TVM 之间 |
 | **Inductor** | 无（`torch.compile`） | 融合（scheduler）、生成 Triton kernel（tile 由模板 + `max_autotune` 搜索）、layout 由 PyTorch 的 strides 决定 | `max_autotune` 对 GEMM 试 cuBLAS / Triton 模板 / CUTLASS 的几十个 config | **两层**：Inductor 的融合与模板选择 + Triton 编译器的全部启发式；两层都不可干预 |
 | **CUTLASS / CuTe** | 全部：tile、warp 排布、layout（CuTe 代数）、流水、指令，C++ 模板参数 | `nvcc` 展开模板；`ptxas` | 人选，或 CUTLASS profiler 枚举模板实例 | **用户**（与 Gluon 同一端），加 C++ 模板的编译时间与可读性成本 |
+
+Table: 各编译器的设计空间对照
 
 两个观察：
 

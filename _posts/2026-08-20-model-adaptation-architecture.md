@@ -34,6 +34,8 @@ updated: 2026-09-14
 | 七 | DeepSeek 架构的工程适配 | MLA、MoE、MTP 各自触及的层次；通用层、特化层与验证层 |
 | 八 | 本文小结 | 推理引擎适配能力的本质 |
 
+Table: 本文的章节安排
+
 ## 二、痛点：为什么推理引擎必须持续适配新模型？
 
 ### 1. 模型算法同质化与工程实现异构化
@@ -59,6 +61,8 @@ LLM 模型在算法上高度同质，都是基于 Transformer模型，围绕以�
 | KV Cache 格式 | Full KV / Latent（MLA）/ State（Mamba） |
 | 特殊头 | MTP Head / EAGLE Head / Medusa Head |
 
+Table: 模型工程实现的异构维度
+
 难点不在"差异多"，而在**每一种差异都会往下捅穿好几层**：
 
 - 换 Attention 变体 → 影响 Attention Kernel **和** KV Cache 布局
@@ -78,6 +82,8 @@ LLM 模型在算法上高度同质，都是基于 Transformer模型，围绕以�
 | 模型层 | 网络结构、权重、配置 | 如何加载权重？如何表示模型结构？ |
 | 运行时层 | 调度、KV Cache、并行 | 如何执行动态 Batch？如何管理显存？ |
 | 算子层 | Attention、MoE、量化 Kernel | 如何获得足够的吞吐和延迟？ |
+
+Table: 新模型差异扩散的三个层次
 
 理想情况下，模型层只需要调用运行时提供的通用能力，运行时层则通过标准算子完成执行。但现实中的新模型经常会突破既有假设，导致修改从模型层一路传递到 Kernel 层。
 
@@ -129,6 +135,8 @@ Softmax
 | 模型专用 Python 逻辑 | 高 | 中低 | 中低 | 快速验证和早期接入 |
 | Custom Op | 中 | 高 | 中高 | 性能关键算子 |
 | 专用 Kernel 与运行时改造 | 低 | 很高 | 中 | 范式级模型创新 |
+
+Table: 适配方案的灵活性、性能与可维护性
 
 适配工作的本质，就是在这几个目标之间找到合理的工程折中。
 
@@ -863,6 +871,8 @@ Tokenizer Registry 将 tokenizer 的特殊处理从模型执行路径中解耦�
 | 图片、视频等输入异常 | MultiModal Registry |
 | 性能不稳定 | ModelRunner、Attention Backend、Graph Capture、编译配置 |
 
+Table: 新模型接入时按变化类型优先检查的层
+
 也可以将接入过程概括为下面的判断顺序：
 
 ```text
@@ -1163,6 +1173,8 @@ IR 表示
 | 适配范围 | 广 | 窄 |
 | 对模型创新的支持 | 有限 | 强 |
 
+Table: 通用实现与特化实现的对比
+
 可以将适配边界概括为：
 
 > 当模型只改变“计算结构”时，通用抽象通常足够；当模型改变“数据流、内存流或执行流”时，就需要引入特化实现。
@@ -1221,6 +1233,8 @@ IR 表示
 | 权重命名 | 与实现一致 | 命名不同 | Loader / Mapper | 是/否 |
 | 权重布局 | 标准布局 | 融合或打包布局 | Loader / Quantization | 是/否 |
 | 并行方式 | Tensor Parallel | 需要 Expert Parallel | Distributed | 是/否 |
+
+Table: 模型差异表
 
 差异分析的最终目标不是列出所有不同，而是做出接入决策。通常有三种结果：
 
@@ -1320,6 +1334,8 @@ C. 新增模型实现，并扩展运行时状态、执行协议或 backend
 | `embedding_modules` | `SupportsLoRA` | 标出 embedding / lm_head 的 LoRA 目标 | 支持 LoRA 时 |
 | `make_empty_intermediate_tensors` | `SupportsPP`；ModelRunner 在 PP 非首段构造输入 | 声明 PP 段间传递的 tensor 名与形状 | 支持 Pipeline Parallel 时 |
 | 注册项 | `ModelRegistry` | 内置：在 `registry.py` 的 `_TEXT_GENERATION_MODELS` 加一行 `"XxxForCausalLM": ("xxx", "XxxForCausalLM")`；树外：`ModelRegistry.register_model("XxxForCausalLM", "pkg.mod:XxxForCausalLM")` | 总是 |
+
+Table: decoder-only 顶层模型类需提供的成员
 
 表里没有出现 attention kernel、KV Cache、调度这些词：它们都被 `Attention` 层、`ParallelLinear` 等公共组件封装了，模型类只需要把它们按正确的形状拼起来。
 
@@ -1727,6 +1743,8 @@ ModelRunnerOutput
 | 多卡推理 | 通信占比、扩展效率、计算通信重叠 |
 | MoE 模型 | 路由开销、dispatch/combine 开销、expert 利用率 |
 | 量化模型 | 显存占用、量化误差、反量化开销 |
+
+Table: 不同场景的性能主要指标
 
 推荐使用以下优化流程：
 
@@ -2345,6 +2363,8 @@ MTP 的关键验证点也不只是“最终文本是否合理”，而是要检�
 | 推测式执行 | 计算结果存在暂存与提交两个阶段 | 建立可撤销的执行状态 | Scheduler、ModelRunner、KV Cache | 长序列、多请求并发和异常路径 |
 | 特化 Kernel | 通用算子难以覆盖全部性能需求 | 增加硬件与后端特化实现 | Attention Backend、Custom Op | 数值稳定性、边界尺寸、不同硬件兼容性 |
 
+Table: DeepSeek 架构接入的决策矩阵
+
 
 ### 5. 三层架构：通用层、特化层与验证层
 
@@ -2475,6 +2495,8 @@ DeepSeek 对 vLLM 的影响，可以概括为三次协议扩展：
 | 引入 MTP | 模型层、运行时层、采样层 |
 | 改变并行方式 | 运行时层、通信层 |
 
+Table: 模型变化与主要影响层
+
 真正成熟的推理引擎，不是让所有模型都使用同一个实现，而是建立清晰的适配边界，让变化能够被隔离在合适的层次中。
 
 
@@ -2546,6 +2568,8 @@ DeepSeek 对 vLLM 的影响，可以概括为三次协议扩展：
 | MTP 头 | `vllm/model_executor/models/deepseek_mtp.py` |
 | MTP 方法白名单 | `vllm/config/speculative.py` |
 | MLA 封装 | `vllm/model_executor/layers/mla.py` |
+
+Table: 模型适配源码导航
 
 </details>
 

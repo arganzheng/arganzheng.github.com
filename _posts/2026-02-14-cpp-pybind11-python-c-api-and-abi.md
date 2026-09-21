@@ -94,6 +94,8 @@ static PyObject * THPVariable_contiguous(PyObject* self, PyObject* args, PyObjec
 | 十四 | 本文小结 |  |
 | 十五 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、Python C API 基础：`PyObject`、引用计数、GIL、`PyObject_Call`
 
 pybind11 是建在 Python C API 之上的一层 C++ 模板。PyTorch 的 Python 绑定两层都用，而且在最关键的 `Tensor` 上用的是底层那层。所以先把 C API 的四个概念讲到"读懂 `python_variable.cpp` 所需"的程度。
@@ -739,6 +741,8 @@ Java 对照：JVM 没有 GIL，但 JNI 有 `MonitorEnter/MonitorExit`，与 `syn
 | Python C API | `THPVariable`（`Tensor`）、`THPDevice`、`THPDtype`、`THPGenerator`、`THPStorage`、`THPSize`、`torch.autograd.Function` 的 `THPFunction` | 手写 `PyTypeObject`、`tp_*` 函数、`PyMethodDef`/`PyGetSetDef` 表；参数解析用 `PythonArgParser` |
 | pybind11 | `torch._C._DispatchModule`（`torch.library`）、`c10d::ProcessGroup`、JIT 的 `Graph`/`Node`、`torch._C._jit_*`、大部分 `torch._C._xxx` 工具函数 | `py::class_`、`m.def`，类型转换靠 `type_caster` |
 
+Table: torch/csrc/ 里并存的两条绑定路线
+
 `torch/csrc/Module.cpp` 的 `initModule` 是两者混用的地方：它先用 C API 创建模块、调用 `THPVariable_initModule` 等一系列 `xxx_initModule` 把 C API 类型加进模块，然后：
 
 ```cpp
@@ -1181,6 +1185,8 @@ constexpr uint64_t kHasPyObject = (uint64_t(1) << 63);
 | `vector` 清空 | 1 | 1 | 2 → 1，`decref_pyobject`；现在只有 `u` 持有 |
 | `del u` | 0 | 0 | Python 计数归零 → `tp_dealloc` → `cdata.~Variable()` → C++ 计数归零 → `TensorImpl` 析构 |
 
+Table: Tensor 的 C++ 强计数与 Python 计数联动过程
+
 关键的不变量正是 5.4 节 `THPVariable_clear` 里断言的：Python 对象走到 `tp_dealloc` 时 C++ 计数一定是 1——因为计数 ≥ 2 时 C++ 侧一直替 Python 对象持着一个引用，Python 计数不可能归零。
 
 PyTorch 2.x 中的变化：早期 2.x 版本（如 2.4）用的是另一套叫 "resurrection" 的机制——`PyObjectSlot` 里有一个 `owns_pyobj` 标志表示所有权方向，Python 计数归零进 `tp_dealloc` 时先检查 C++ 计数，如果 > 1 就把 Python 对象"复活"（`THPVariable_tryResurrect`：`Py_INCREF` 回来并翻转所有权到 C++ 侧），C++ 计数最终归零时再由 `TensorImpl` 析构去释放 Python 对象。v2.10.0 改成上面这种在 1↔2 转换点联动的方案，`THPVariable_tryResurrect` 和 `owns_pyobj` 都不存在了，`weak_intrusive_ptr::lock()` 相应地要在计数为 1 且有 PyObject 时先 `try_incref_pyobject()`（`intrusive_ptr.h` 的 `lock()` 里有对应分支）。两种方案的目标相同，读旧版源码时注意名字不同。
@@ -1611,6 +1617,8 @@ flowchart TD
 | 输出的 C++ 计数 | kernel 返回时 1；进 `IValue`、出 `IValue` 靠移动不变；`THPVariable_Wrap` 拷进 `cdata` 后瞬时 2，局部变量析构后回到 1。 |
 | GIL 状态 | 参数解析持有；kernel 执行期间释放；输出转换持有。钩子需要时临时获取。 |
 
+Table: 一次算子调用穿过边界的汇总
+
 这条路径和 `torch.add(t, 1)` 这类原生算子的路径（`PythonArgParser` → `dispatch_add` → `THPVariable_Wrap`）在结构上完全一样，只是原生算子不经过 `IValue`，用 `PythonArgs::tensor(i)` 直接把 `PyObject*` 变成 `at::Tensor` 再走 unboxed 调用——少两次转换，这是 5.2 节说的性能理由之一。
 
 Java 对照：一次 JNI 调用 `nativeScale(tensorObj, 2.0)`：`jobject` 进来是 local ref（borrowed 性质，方法返回自动失效）；要在 C++ 里存下来得 `NewGlobalRef`；C++ 对象要还回 Java 得 `NewObject` 或者往一个 `long` 字段里写指针。没有 GIL，但如果 C++ 侧要长时间运行，也要注意不要在持有 Java 监视器时阻塞。转换次数类似，只是 JNI 里每一步都是显式函数调用，pybind11 把它们藏进了模板。
@@ -1721,6 +1729,8 @@ def rms_norm(
 | 类型转换 | pybind11 `type_caster`（`torch/csrc/utils/pybind.h`） | schema 驱动的 `toIValue`/`toPyObject`，用同一套 `THPVariable_Wrap/Unpack` |
 | 无 Python 环境 | 不可用（依赖 `libtorch_python.so`） | 可用（TorchScript、AOTInductor、纯 C++ 部署都能调 `torch.ops` 里的算子） |
 | 绑定代码量 | 每个函数一行 `m.def` | 每个函数一行 `def` + 一行 `impl`，外加 schema 字符串 |
+
+Table: pybind11 直接绑定与 TORCH_LIBRARY 的对比
 
 对 vLLM 这种要被 `torch.compile` 整图编译、要做 CUDA graph 捕获、要给融合 pass（`vllm/compilation/activation_quant_fusion.py` 里 `SILU_MUL_OP = torch.ops._C.silu_and_mul.default` 就是直接按算子匹配图节点）的推理引擎，第二列的每一项都是必需的。pybind11 直接绑定更适合"不进计算图的工具函数"——查询设备属性、初始化通信、管理句柄之类。
 
@@ -1964,6 +1974,8 @@ Python 的 wheel 标签 `manylinux2014_x86_64`、`manylinux_2_28_x86_64` 是 PyP
 | `manylinux2014` | CentOS 7 | 2.17 | devtoolset GCC（新编译器 + 旧 glibc，静态链接 libstdc++ 的新部分） |
 | `manylinux_2_28` | AlmaLinux 8 | 2.28 | GCC 11+ |
 
+Table: manylinux 标签的基线、glibc 与编译器
+
 wheel 里的 `.so` 只能依赖这个基线上有的系统库版本，`auditwheel` 工具负责检查并把其他依赖打包进 wheel。PyTorch 2.6/2.7 从 manylinux2014 切到 manylinux_2_28，就是 10.2 节 ABI 切换的直接原因——manylinux2014 的 CentOS 7 太老，`=1` 的 ABI 在那个平台上有兼容问题，所以之前一直用 `=0`；换到 2.28 之后没有这个顾虑了，就切到编译器默认的 `=1`。代价是 glibc 2.28 以下的系统（CentOS 7、Amazon Linux 2）从此装不了新 PyTorch。
 
 对扩展作者的含义：你的 wheel 的 manylinux 标签不能比它链接的 PyTorch wheel 更"新"（否则用户能装 PyTorch 却装不了你的扩展），编译用的 glibc/libstdc++ 也不能比目标平台新。
@@ -2154,6 +2166,8 @@ def _check_cuda_version(compiler_name: str, compiler_version: TorchVersion) -> N
 | CUDA 大版本一致、host 编译器在区间内 | `_check_cuda_version` 报错 | `RuntimeError: The detected CUDA version (...) mismatches ...` |
 | CPython 版本一致或 `abi3` | wheel 标签 | `ImportError: ... undefined symbol: _PyXXX` 或 pip 直接拒绝安装 |
 | `-std=c++17`（或更高） | `cpp_extension` 自动加 | 头文件编译错误 |
+
+Table: C++ 扩展成功 import 的契约清单
 
 其中"同一个 PyTorch 版本"是最容易被忽视、后果也最隐蔽的一条。9.3 节的 stable ABI 正是为了把这一条从"必须"变成"≥ 某个最低版本即可"。
 
@@ -2596,6 +2610,8 @@ Java 对照集中列一次：
 | C++ 持有托管对象 | global ref 是 GC 根，永不回收直到删除 | `tp_traverse` 报告给环 GC | Python 需要 C++ 侧配合才能收环 |
 | 二进制兼容 | class 文件版本号 | CPython ABI + 标准库 ABI + 库 ABI | JVM 统一了运行时，C++ 没有 |
 | 稳定 C 层 | JNI 本身就是稳定 C 接口 | `torch/csrc/stable/c/shim.h`、CPython limited API | C++ 需要额外造一层才有 |
+
+Table: pybind11 与 ABI：Java / JNI 对照汇总
 
 下一篇是工程闭环：这些 `.so` 怎么用 CMake 可靠地编出来、`import` 崩了怎么用 gdb/lldb 从 Python 进程一路断到 C++ kernel、怎么用 sanitizer 抓本篇提到的那些 use-after-free 和引用计数错误、怎么给 mini-c10 补上 gtest。
 

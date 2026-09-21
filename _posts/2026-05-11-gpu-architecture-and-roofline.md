@@ -35,6 +35,8 @@ updated: 2026-09-20
 | 十 | 本文小结 |  |
 | 十一 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 本文不写 CUDA 代码。grid、block、thread 这些名字在代码里怎么写、怎么编号，是下一篇的内容；本文只在第三章末尾给出硬件层级与这些名字的对应图，作为两篇之间的桥。
 
 ## 二、两种设计目标：延迟与吞吐
@@ -173,6 +175,8 @@ flowchart TB
 | 最多驻留 | 2048 个线程 = 64 个 warp，最多 32 个 block |
 | 其他 | load/store 单元、特殊函数单元（SFU：exp、rsqrt 等） |
 
+Table: A100 一个 SM 的资源
+
 FP32 峰值算力可以直接从这张表算出来：6912 个 FP32 单元，每个每周期做一次 FMA（2 FLOP），主频约 1.41 GHz：
 
 $$
@@ -292,6 +296,8 @@ flowchart TB
 | 一个 SM | **Block** | 整块落到一个 SM，不迁移；block 内共享 shared memory，可在屏障上对齐 |
 | 一个 warp（32 lane） | （无名字） | 硬件按 32 个连续线程切分；同一条指令、分歧时串行、访存按 warp 合并 |
 | 一个 lane | **Thread** | 有自己的寄存器、编号和分支路径 |
+
+Table: 硬件层级与编程模型名字的对应
 
 一句话总结：**block 是硬件分派的单位、也是程序员手里最小的"可协作"单位；warp 是硬件调度的单位，程序员看不见但必须时刻记着；SM 是执行这些 warp 的地方；SIMT 是 warp 内部的执行方式**。后面几篇所有优化，本质上都是在这几层之间对齐：让一个 warp 的 32 个 lane 访问连续地址、走同一条分支；让一个 block 的数据在 shared memory 里被复用；让一次 launch 有足够多的 block 填满 108 个 SM。
 
@@ -442,6 +448,8 @@ flowchart TB
 | shared memory / L1 | 192 KB / SM（shared ≤ 164 KB） | 每 SM 每周期 128 B（整卡 ≈ 19 TB/s） | ~20–30 |
 | L2 | 40 MB（整卡共享） | 数 TB/s 量级 | ~200 |
 | HBM2e | 80 GB | 约 2.0 TB/s（标称） | ~400–800 |
+
+Table: A100 内存层级的容量、带宽与延迟
 
 H100 对应的数字：shared/L1 每 SM 256 KB（shared 最大 228 KB），L2 50 MB，HBM3 80 GB 约 3.35 TB/s；每 SM 每周期 shared 带宽仍是 128 字节。
 
@@ -676,6 +684,8 @@ if __name__ == "__main__":
 | attention decode s=4096 | 2.15e+09 | 5.37e+08 | 4 | 268.4 | 160.3 |
 | GEMM 4096^3 BF16 | 1.37e+11 | 1.01e+08 | 1.37e+03 | 440.5 | 139.0 |
 
+Table: Roofline 计算器对几个 kernel 的输出
+
 前三行 elementwise、RMSNorm、decode 用的是 CUDA Core 的算力屋顶（它们不走 Tensor Core），但结果与算力屋顶无关——时间全部由 bytes 决定，从 A100 换到 H100 的加速比恰好是带宽比 3.35/2.0 = 1.68。最后一行 GEMM 的时间由 FLOPs 决定，A100 到 H100 的加速比是算力比 989/312 = 3.17。**一个 kernel 换硬件后的加速比，本身就能告诉你它是哪一类**——这是一个不用 profiler 的诊断方法。
 
 后面每一篇都会先用这个函数（或者它的手算版本）给出理论下界，再写 kernel，再解释差距。
@@ -847,6 +857,8 @@ flowchart TD
 | shared bank | 32 个 × 4 B | 同 |
 | 每 SM 每周期 shared 带宽 | 128 B | 同 |
 
+Table: A100 与 H100 的硬件基线数字
+
 四个例子的算术强度与理论时间（Roofline 下界，非实测）：
 
 | kernel | FLOPs | bytes | I（FLOP/byte） | 类型 | A100 下界 | H100 下界 |
@@ -855,6 +867,8 @@ flowchart TD
 | RMSNorm 8192×4096 BF16 | 1.3e8 | 1.3e8 | 1 | memory-bound | 67 µs | 40 µs |
 | decode attn, 8B, s=4096 | 2.1e9 | 5.4e8 | 4 | memory-bound | 268 µs | 160 µs |
 | GEMM 4096³ BF16 | 1.37e11 | 1.0e8 | 1365 | compute-bound | 0.44 ms | 0.14 ms |
+
+Table: 四个 kernel 例子的算术强度与 Roofline 理论时间
 
 下一篇进入 CUDA 编程模型：第三章末尾那张对应图里的每个名字在代码里怎么写——`__global__`、`dim3`、内建变量、边界检查、block 与 grid 大小怎么选、二维 block 如何切成 warp——以及设备内存、stream、event、错误处理、nvcc 编译流程，然后写第一个 kernel、用 `cudaEvent` 正确计时，回答为什么一个看起来没问题的 vector add 只跑到带宽的一小部分：
 

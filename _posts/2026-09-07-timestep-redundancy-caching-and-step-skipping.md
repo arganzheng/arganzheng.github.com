@@ -59,6 +59,8 @@ FLUX.1-dev 1024² 28 步，H100（第二篇 compile 后基线 154 ms / 步）：
 | Cache-DiT DBCache | $$F_n = 1, B_n = 0$$，阈值 0.24 | ~16 | ~12 | 1/57 步 | ~2.45 s | ~1.75× | ~30 dB |
 | Cache-DiT + TaylorSeer | 同上 + 一阶外推 | ~14 | ~14 | 1/57 步 + 外推 | ~2.2 s | ~2.0× | ~30 dB |
 
+Table: FLUX 各跨步缓存方法的加速与质量
+
 （加速比与阈值来自 TeaCache 仓库对 FLUX 的推荐档位——0.25 / 0.4 / 0.6 对应约 1.5 / 1.8 / 2.0×——与 diffusers / vLLM-Omni 文档给出的 1.5–2× 区间；PSNR 是这一族在 FLUX 上的典型值，具体数字随 prompt 与 seed 变。）
 
 三个结论：
@@ -80,6 +82,8 @@ FLUX.1-dev 1024² 28 步，H100（第二篇 compile 后基线 154 ms / 步）：
 | 八 | 实现 | hook 的结构；状态管理；四个实现的对照 |
 | 九 | 本文小结 | |
 | 十 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、为什么相邻步相似
 
@@ -128,6 +132,8 @@ FLUX.1-dev 1024² 28 步，H100（第二篇 compile 后基线 154 ms / 步）：
 | **AdaCache** | 2024 | 逐层的残差 | 逐层的变化率 | 每层独立决定 | 原样 | 无 |
 | **PAB**（Pyramid Attention Broadcast） | 2024 | attention 输出（按空间 / 时间 / 交叉三类） | 固定的广播间隔（三类不同） | attention 子层 | 原样 | 无 |
 
+Table: 跨步缓存方法的谱系
+
 四个演化方向：
 
 1. **信号从"固定间隔"到"自适应"**：均匀跳步在开头结尾也跳，质量差；TeaCache 之后都用一个与输出变化相关的信号决定。
@@ -171,6 +177,8 @@ MagCache 观察到残差的**幅度比** $$\lVert r_t \rVert / \lVert r_{t-1} \r
 | FBCache / DBCache | $$F_n / L$$ 步 | 无 | 是 | 否 |
 | MagCache | 0 | 幅度曲线（每模型 × 调度） | 否 | **是** |
 | 均匀跳步 | 0 | 无 | 否 | 是 |
+
+Table: 几种缓存决策信号的对照
 
 ## 五、命中率 → 加速比
 
@@ -231,6 +239,8 @@ FLUX 28 步命中 12 步：$$28 / 16 = 1.75\times$$；命中 14 步：2×。**�
 | 构图与基线不同 | 开头步被跳过（阈值太高、或首步保护不够） | 首 2–3 步强制全算 |
 | 视频闪烁 | 相邻帧的跳步决策不同（逐帧独立缓存时） | 整段视频用同一决策（视频模型天然如此：整个 latent 一起决策） |
 | CFG 下颜色饱和 | 条件 / 无条件分支的缓存状态混用 | 两份独立状态（第七章） |
+
+Table: 跨步缓存伪影的形态、原因与对策
 
 ### 3. 阈值怎么定
 
@@ -302,6 +312,8 @@ FBCache 的 hook 挂在**第一个 block**（算完它才决策）与**尾块**�
 | 系数 | `MagCacheConfig` 需 `mag_ratios`；TeaCache 系数在模型适配里 | 模型 sampling presets | `_MODEL_COEFFICIENTS`（FLUX、Qwen-Image、Z-Image…）+ 在线估计器 | 模型配置 |
 | 互斥 | — | 与 breakable CUDA graph 互斥；TeaCache 与 Spectrum 互斥 | — | — |
 
+Table: 跨步缓存在四个引擎里的实现对照
+
 四个实现的形态相同，说明这一族已经稳定：**hook + 状态 + 阈值**。Cache-DiT 作为独立库（vipshop/cache-dit）被 SGLang 与 vLLM-Omni 同时集成，正在成为这一族的事实标准接口。
 
 ### 3. 实践建议
@@ -322,6 +334,8 @@ FBCache 的 hook 挂在**第一个 block**（算完它才决策）与**尾块**�
 | 序列并行 | 决策全局一致（all-reduce 信号或 rank 0 广播） | 否则结果错或 hang |
 | 少步 | 互斥：4 步无冗余 | schnell 上零收益 |
 | 外推 | TaylorSeer 一阶外推让同阈值跳更多步 | 误差 $$\propto (\Delta t)^2$$ |
+
+Table: 跨步缓存的规则与数字小结
 
 ### 下一篇
 

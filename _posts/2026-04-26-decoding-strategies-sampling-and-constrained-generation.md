@@ -34,6 +34,8 @@ updated: 2026-09-14
 | 约束解码 | 只允许语法合法的 token | 截断，依赖状态机 | 状态机转移 + mask | 结构化输出（JSON、代码、工具调用） |
 | 多次采样 + 选择 | 采 $$n$$ 条，按投票 / 验证器 / RM 选 | 序列级的重加权 | $$n$$ 倍 | self-consistency、best-of-n、test-time compute |
 
+Table: 解码策略的分类表
+
 前七行在**单步**上操作，最后两行涉及**多步**。单步策略的组合顺序也重要——先 temperature 再 top-p，与先 top-p 再 temperature，结果不同（第三章第五节）。
 
 ### 2. 先说答案
@@ -54,6 +56,8 @@ updated: 2026-09-14
 | 九 | 动手（建议） | 一张温度 × 截断的扫描表 |
 | 十 | 本文小结 | |
 | 十一 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、搜索：greedy 与 beam search
 
@@ -140,6 +144,8 @@ min-p 在高温度下比 top-p 稳定，原因是它对每个 token **独立**�
 | 平（$$p_{\max} = 0.05$$，30 个几乎等概率） | 保留 40 个 | 保留约 27 个，截掉 3 个同等合理的 | 保留全部 30 个（阈值 0.0025） |
 | 高温后的中等分布（$$p_{\max} = 0.12$$） | 保留 40 个 | 累计到 0.9 需要几十甚至上百个 | 保留约 15–20 个（阈值 0.006） |
 
+Table: 三种截断在不同分布形状上裁掉的部分
+
 ### 6. 组合顺序
 
 实践中常同时开 temperature、top-k、top-p（有时加 min-p）。顺序在不同实现里不同，且结果不同。Hugging Face `generate` 的默认顺序是 temperature → top-k → top-p（作为 logits processor 依次作用）；vLLM 的采样器是 temperature → top-k → top-p → min-p（实现细节随版本变）。**先温度再截断**意味着截断作用在温度变形后的分布上——这是 top-p 在高温下失效的原因（上一节）。**先截断再温度**则是在原始分布上决定保留谁，再对保留的部分变形——高温下更安全，但多数库不是这个顺序。
@@ -159,6 +165,8 @@ min-p 的论文建议的顺序是 temperature → min-p，让阈值在变形后�
 | repetition penalty（Keskar 等 2019，CTRL） | $$z_i \leftarrow z_i / r$$ 若 $$z_i > 0$$，$$z_i \leftarrow z_i \cdot r$$ 若 $$z_i < 0$$；$$r > 1$$ | 乘法；对正负 logits 处理不同；不看出现次数 |
 | presence penalty（OpenAI API） | $$z_i \leftarrow z_i - \alpha \cdot \mathbb{1}[i \text{ 已出现}]$$ | 加法；出现过就罚固定量 |
 | frequency penalty（OpenAI API） | $$z_i \leftarrow z_i - \beta \cdot \text{count}(i)$$ | 加法；按出现次数线性增加 |
+
+Table: 重复惩罚的三种形式
 
 repetition penalty 的乘法形式有一个古怪之处：它假设 logits 的符号有意义（正的压小、负的压得更负），但 logits 的绝对值没有意义——softmax 对整体平移不变，同一个分布可以由全正、全负、或正负混合的 logits 表示。不同模型的 logits 偏置不同，同一个 $$r = 1.2$$ 在不同模型上的效果不同。加法形式（presence / frequency）是平移不变的，更规范。
 
@@ -301,6 +309,8 @@ $$n$$ 条链的成本是 $$n$$ 倍的解码 token，prefill 通过 prefix 共享
 | 温度与评测 | pass@1 最优低温（~0.2）；pass@k 最优中高温（~0.8） | 两者不能用同一组参数报告 |
 | 推理模型 | 不用 greedy；$$T = 0.6$$、top-p 0.95、无惩罚（R1 / Qwen3 模型卡） | 训练时 $$T = 1$$ 采样，greedy 路径未被训练 |
 | 成本 | 采样几十到几百微秒；约束 < 5%；$$n$$ 次采样 $$n$$ 倍 token | test-time compute 用 $$n$$ 倍成本换 pass@n |
+
+Table: 解码策略的规则与公式小结
 
 
 下一篇讲唯一不改变输出分布的加速方法：投机解码——从 04 系列第七篇的证明出发，讨论怎么把接受率提上去。

@@ -51,6 +51,8 @@ flowchart TB
 | [第七篇：模型网关与多租户](/model-gateway-multi-tenancy-and-quota.html) | 两租户共用 4 个副本、A 配额是 B 三倍、同时打满——按什么规则排队、排在哪个副本？"配额"是什么？ | 外层按 RPM / TPM / 并发 429，内层 EPP 按 priority 严格优先、同级 round-robin，无按权重公平；选副本与租户无关；配额是 token + 并发 + RPM，GPU 时间只做内部成本 | 64 会话 × 8k 对 4 副本 × 160k：前缀亲和让 TTFT 从 0.5 s 级到几十 ms；预扣 = 输入估算 + min(max_completion_tokens, 上限)；打分权重前缀 3、队列 2、KV 2、LoRA 1；EPP 每 50 ms 抓一次 `/metrics` |
 | [第八篇：可观测、成本与 FinOps](/ai-platform-observability-cost-and-finops.html) | 分配率 85%、`SM_ACTIVE` 35%，50 个点去了哪里？各对应哪篇？ | 四层指标靠 `pod` / `namespace` join；`GPU_UTIL` 只表示"有 kernel 在跑"；$$E \approx A \times U$$；按分配计费让闲置有主 | 50 个点：推理低峰 ~15、dev ~10、通信等待 ~10、排队占位 ~5、checkpoint ~3、冷启动 ~2、测量上限 ~5；每百万 token 成本 U 从 100% 到 40% 贵 2.5 倍（1.39 → 3.47 美元） |
 
+Table: 八篇的核心问题、结论与必记公式
+
 ### 1. 本文的章节安排
 
 | 章 | 内容 |
@@ -60,6 +62,8 @@ flowchart TB
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
 | 六 | 下一步 |
+
+Table: 本文的章节安排
 
 ## 二、逐篇回顾
 
@@ -225,6 +229,8 @@ flowchart TB
 | 隔离 vs 利用率 | 三、四、五、七、八 | 三 gang 与拓扑；四四档共享；五 shared 与 SR-IOV；七两个池；八换成 `1 − A` 与 `A − E` |
 | 三个数字 A / U / E | 三、四、六、八 | 八定义；三管 `1 − A` 的碎片与配额；四管低峰切分与开发环境；六管推理低峰空转 |
 
+Table: 贯穿八篇的概念及其关系
+
 ## 四、常见误区
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
@@ -241,6 +247,8 @@ flowchart TB
 | 推理服务的扩缩容阈值调准了就不会过配 | 为 9 分钟就绪预留的 headroom 在稳态高峰也被保留 | 反应式的结构性代价；可预测的高峰用 cron 提前，阈值抬到接近饱和 | [第六篇](/serving-platforms-kserve-triton-ray-serve-llm-d.html) |
 | 给 A 更高 priority 就是 3:1 的配额 | flow control 是严格优先 + 同级 round-robin，无加权公平 | 比例只能在外层 TPM / 并发桶上体现；饱和时 B 先撞 429 | [第七篇](/model-gateway-multi-tenancy-and-quota.html) |
 | DCGM 报 GPU 利用率 78%，集群用得不错 | `GPU_UTIL` 只表示有 kernel 在跑，NCCL 自旋也是 100% | 看 `SM_ACTIVE`；三个数字 A、U、E 分开算；按分配而非使用率计费 | [第八篇](/ai-platform-observability-cost-and-finops.html) |
+
+Table: 常见误区与正确说法
 
 ## 五、通关自测
 
@@ -447,6 +455,8 @@ flowchart TB
 | 读过 | 能说出八篇各讲什么；知道 gang、cohort、MIG profile、Multus、LeaderWorkerSet、InferencePool、EPP、`SM_ACTIVE` 这些名词 |
 | 掌握 | A 组能不翻书算出 8 题以上；B 组能说出每题用了哪几篇的什么；面对一个 Pending、一次变慢、一份账单，能说出它卡在哪一层、查哪个指标、改哪篇的旋钮 |
 | 能教人 | C 组每题能给出全部要点并预判追问；能解释八篇里每个反直觉结论（默认值下借了不还、1/7 的实例不是 1/7 的吞吐、领先阈值等于峰值过配、按分配计费才公平）为什么成立，并能说出每个机制的代价 |
+
+Table: 掌握程度的判据
 
 通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点。没过的部分回到第二章对应篇的"必记"，再回该篇正文的"核心问题"章。
 
