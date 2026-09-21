@@ -1821,7 +1821,7 @@ int intraop_default_num_threads() {
 }
 ```
 
-优先级：`torch.set_num_threads()` > `OMP_NUM_THREADS` > `MKL_NUM_THREADS` > 物理核数（Apple Silicon 上只算性能核）。这就是为什么在多进程数据并行训练时通常要设 `OMP_NUM_THREADS=1`：每个进程默认会开满核数的线程，几个进程加起来严重超订。
+优先级：`torch.set_num_threads()` > `MKL_NUM_THREADS` > `OMP_NUM_THREADS` > 物理核数（源码里先读 OMP 再用 MKL 覆盖，所以两者同时设时 MKL 赢——与直觉相反）（Apple Silicon 上只算性能核）。这就是为什么在多进程数据并行训练时通常要设 `OMP_NUM_THREADS=1`：每个进程默认会开满核数的线程，几个进程加起来严重超订。
 
 ### 6. `parallel_for` 与 `no_grad` 的关系
 
@@ -2531,7 +2531,7 @@ mini-c10 这一篇把 `refcount_` 改成了 `std::atomic<size_t>`（与 c10 相�
 
    <details markdown="1"><summary>答案</summary>
 
-   4——优先级 `set_num_threads` > `OMP_NUM_THREADS` > `MKL_NUM_THREADS` > 核数。元素数不超过 `grain_size`、已在并行区域内、或线程数为 1 时直接串行执行。
+   4——优先级 `set_num_threads` > `MKL_NUM_THREADS` > `OMP_NUM_THREADS` > 核数（不调 `set_num_threads` 时这组环境变量给 2，不是 8）。元素数不超过 `grain_size`、已在并行区域内、或线程数为 1 时直接串行执行。
 
    </details>
 

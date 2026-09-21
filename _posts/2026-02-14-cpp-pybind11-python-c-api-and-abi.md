@@ -2157,7 +2157,7 @@ def _check_cuda_version(compiler_name: str, compiler_version: TorchVersion) -> N
 
 ## 十二、mini-c10：`python/minic10_python.cpp` 与一次 ABI 事故复现
 
-按系列约定，本篇给 mini-c10 加 `python/minic10_python.cpp`：用 pybind11 把第二篇的 `Tensor`、第三篇的 `add`/`mul`、第六篇的 `GradMode` 暴露给 Python，并照 `torch/csrc/utils/pybind.h` 的写法给 `Tensor` 写一个自定义 caster。假设前面各篇的头文件已存在：`minic10/core/Tensor.h`（`Tensor`、`empty(sizes, dtype, key)`）、`minic10/core/GradMode.h`、`minic10/ops/ops.h`（声明 `Tensor add(const Tensor&, const Tensor&)` 和 `mul`，实现在 `ops/add.cpp`、`ops/mul.cpp`）。
+按系列约定，本篇给 mini-c10 加 `python/minic10_python.cpp`：用 pybind11 把第二篇的 `Tensor`、第三篇的 `add`/`mul`、第六篇的 `GradMode` 暴露给 Python，并照 `torch/csrc/utils/pybind.h` 的写法给 `Tensor` 写一个自定义 caster。本篇仍是设计骨架：下面的绑定代码假设前面各篇的头文件已存在且接口一致（已知不一致处：第二篇的 `empty` 是三参数形式但只给了声明，第三篇的 `ArrayRef` 没有 pybind11 caster、需要先转 `std::vector`），编译前要先把这些接缝对齐。假设的头文件：`minic10/core/Tensor.h`（`Tensor`、`empty(sizes, dtype, key)`）、`minic10/core/GradMode.h`、`minic10/ops/ops.h`（声明 `Tensor add(const Tensor&, const Tensor&)` 和 `mul`，实现在 `ops/add.cpp`、`ops/mul.cpp`）。
 
 以下模块在 macOS（Apple clang，venv 里 `pip install pybind11` 装的 pybind11 3.0.1）上**实际编译并运行通过**。
 

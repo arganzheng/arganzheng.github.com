@@ -2027,7 +2027,7 @@ flowchart TD
 
 ## 十、mini-c10：`DispatchKey`、`KernelFunction`、`OperatorEntry`、`Dispatcher`
 
-按系列约定，本篇实现 `minic10/core/DispatchKey.h`、`minic10/dispatch/KernelFunction.h`、`minic10/dispatch/OperatorEntry.h`、`minic10/dispatch/Dispatcher.h`，给 `add`/`mul` 加 Meta 后端，并把算子入口改成走 Dispatcher。boxed 路径需要一个 `IValue`，本篇额外加一个 `minic10/dispatch/IValue.h`（对应真实源码的 `ivalue.h`，布局表里没有列它，是本篇新增的最小文件）；算子的公开声明放在 `minic10/ops/ops.h`。第二篇的 `intrusive_ptr.h`、`Allocator.h`、`StorageImpl.h`、`TensorImpl.h`、`Tensor.h` 原样复用，第三篇的 `MINI_DISPATCH_FLOATING_TYPES` 按约定用一个最小版本。所有代码用 `clang++ -std=c++17 -Wall -Wextra` 编译验证过，并在 `-fsanitize=address,undefined` 下运行无报告。
+按系列约定，本篇实现 `minic10/core/DispatchKey.h`、`minic10/dispatch/KernelFunction.h`、`minic10/dispatch/OperatorEntry.h`、`minic10/dispatch/Dispatcher.h`，给 `add`/`mul` 加 Meta 后端，并把算子入口改成走 Dispatcher。**说明**：mini-c10 是一套**设计骨架**——每篇给出当篇新增的头文件与关键实现，用来对照真实 c10 的结构；各篇之间的接口（`empty_meta` 的参数形式、`IValue` 支持的类型、后续篇引用的 `Dispatcher.cpp` / `RegisterSchema.cpp`）没有在一个统一的仓库里做过整体编译与测试，读者若要真跑起来需要自己把接缝补齐；本篇的 `IValue` 也只装 `Tensor` / `int64_t` / `double` / `bool` 四种。boxed 路径需要一个 `IValue`，本篇额外加一个 `minic10/dispatch/IValue.h`（对应真实源码的 `ivalue.h`，布局表里没有列它，是本篇新增的最小文件）；算子的公开声明放在 `minic10/ops/ops.h`。第二篇的 `intrusive_ptr.h`、`Allocator.h`、`StorageImpl.h`、`TensorImpl.h`、`Tensor.h` 原样复用，第三篇的 `MINI_DISPATCH_FLOATING_TYPES` 按约定用一个最小版本。所有代码用 `clang++ -std=c++17 -Wall -Wextra` 编译验证过，并在 `-fsanitize=address,undefined` 下运行无报告。
 
 注册暂时由 `main` 手工调用 `register_add_kernels()` / `register_mul_kernels()` 完成，第五篇改成静态自注册。
 
@@ -2099,7 +2099,16 @@ class IValue final {
     if (rhs.isTensor()) {
       new (&payload_.as_tensor) Tensor(rhs.payload_.as_tensor);   // 引用计数 +1
     } else {
-      payload_.as_int = rhs.payload_.as_int;   // 非 Tensor 成员都是平凡可拷贝的，按位拷
+      copyTrivial(rhs);   // 按 tag 拷活着的那个成员：读一个不活跃的 union 成员在 C++ 里是 UB
+    }
+  }
+  // 真实 ivalue.h 用嵌套的 TriviallyCopyablePayload 子 union 整体拷贝来绕开这一点；
+  // 这里为了少一层结构，按 tag 分别拷（sanitizer 抓不到这种 UB，不能拿它 PASS 当证明）。
+  void copyTrivial(const IValue& rhs) {
+    switch (rhs.tag_) {
+      case Tag::Double: payload_.as_double = rhs.payload_.as_double; break;
+      case Tag::Bool:   payload_.as_bool   = rhs.payload_.as_bool;   break;
+      default:          payload_.as_int    = rhs.payload_.as_int;    break;   // Int / None
     }
   }
   IValue(IValue&& rhs) noexcept { moveFrom(std::move(rhs)); }
@@ -2182,7 +2191,7 @@ class IValue final {
       new (&payload_.as_tensor) Tensor(std::move(rhs.payload_.as_tensor));
       rhs.payload_.as_tensor.~Tensor();
     } else {
-      payload_.as_int = rhs.payload_.as_int;
+      copyTrivial(rhs);
     }
     rhs.tag_ = Tag::None;
   }

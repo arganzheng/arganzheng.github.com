@@ -673,7 +673,7 @@ handler.setFormatter(
 logger.addHandler(handler)
 ```
 
-注意**级别有两道关卡**：`Logger` 的级别和 `Handler` 的级别。日志要先通过 logger 的级别，再通过 handler 的级别才会被输出。一个常见困惑是"我设了 `logger.setLevel(DEBUG)` 但看不到 DEBUG 日志"——通常是 handler 的级别还停在默认的 `WARNING`。
+注意**级别有两道关卡**：`Logger` 的级别和 `Handler` 的级别。日志要先通过 logger 的级别，再通过 handler 的级别才会被输出。一个常见困惑是"我设了 `logger.setLevel(DEBUG)` 但看不到 DEBUG 日志"——通常是**根 logger** 的级别还停在默认的 `WARNING`（`Handler` 的默认级别是 `NOTSET` = 0，放行一切；`logging.basicConfig` 不带 `level` 时设置的也是 root logger 的 WARNING），或者 `propagate` 后被上层 logger 的 handler 过滤。
 
 ### 3. logger 的树结构与 propagate
 
@@ -1237,7 +1237,7 @@ graph TD
 
    <details markdown="1"><summary>答案</summary>
 
-   丢了原始 traceback 与异常链。写 `raise RuntimeError("load failed") from e`（显式链，`__cause__`），或直接裸 `raise` 重抛；`from None` 才是刻意切断链。
+   其实**没丢**：在 `except` 块里 `raise` 一个新异常，Python 会自动把原异常挂到 `__context__` 上，traceback 里打印 "During handling of the above exception, another exception occurred"，原始 traceback 也还在 `e.__traceback__`（3.12 验证）。丢的是**语义**——隐式链表示"处理时又出了错"，而不是"这个错是那个错导致的"。所以写 `raise RuntimeError("load failed") from e`（显式链，`__cause__`，打印 "The above exception was the direct cause"），或直接裸 `raise` 重抛；`from None` 才是刻意切断链。
 
    </details>
 

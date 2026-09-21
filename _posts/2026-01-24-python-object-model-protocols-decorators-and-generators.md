@@ -928,14 +928,19 @@ with resource() as value:
 ```python
 manager = resource()
 value = manager.__enter__()
+normal_exit = True
 try:
     use(value)
 except BaseException as exc:
+    normal_exit = False
     if not manager.__exit__(type(exc), exc, exc.__traceback__):
         raise                                   # __exit__ 返回假值 → 异常继续传播
-else:
-    manager.__exit__(None, None, None)
+finally:
+    if normal_exit:
+        manager.__exit__(None, None, None)      # 正常结束、return、break、continue 都走这里
 ```
+
+（PEP 343 的官方展开就是 try / except / finally 这种形状。常见的 try / except / **else** 写法是错的：块内 `return` 或 `break` 时 `else` 分支不会执行，`__exit__` 就漏掉了——本地 3.12 验证过，用 `else` 版本在 `return` 时上下文管理器不会退出。）
 
 由展开可以读出几条规则，每一条都在实验中验证过：
 

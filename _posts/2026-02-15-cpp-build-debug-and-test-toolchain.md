@@ -2250,7 +2250,7 @@ lldb 版 `tools/lldb/pytorch_lldb.py` 用的是 lldb 的"类型摘要提供器"�
 
 ## 十三、mini-c10：补齐工程
 
-按系列约定，本篇给 mini-c10 补上：完整的 `CMakeLists.txt`（库、算子、Python 模块、gtest、ASan 选项、`compile_commands.json`）、`test/intrusive_ptr_test.cpp`、`test/dispatcher_test.cpp`、`.clang-format`，以及一个 lldb 会话。
+按系列约定，本篇给 mini-c10 补上：完整的 `CMakeLists.txt`（库、算子、Python 模块、gtest、ASan 选项、`compile_commands.json`）、`test/intrusive_ptr_test.cpp`、`test/dispatcher_test.cpp`、`.clang-format`，以及一个 lldb 会话。**先说清边界**：这些文件是按前面各篇的接口**设计**出来的骨架，没有在一个仓库里整体配置、编译、跑通过——已知的接缝包括：`CMakeLists.txt` 引用的 `Dispatcher.cpp` / `RegisterSchema.cpp` 前面各篇只给了头文件；第四篇的 `IValue` 只装 `Tensor` / `int64` / `double` / `bool`，`dispatcher_test.cpp` 里若对 `int` 做 boxed 调用会因 `to<int>()` 未实例化而编译失败；sanitizer 选项要 `PUBLIC` 才能传给测试目标；导出的 `targets` 文件不是 `find_package` 的 Config 文件，还缺 `Config.cmake.in` 与 `find_dependency(Threads)`。把它当"照着补齐就能编"的清单读，而不是当已交付的可运行工程。
 
 **关于验证的说明。** 本机没有安装 CMake、Ninja、gtest 和 clang-format（`which cmake ninja clang-format` 均为空），只有 Apple clang 21 和 lldb。因此：所有 C++ 文件（第二、三、四、五、六篇约定的头文件的最小版本 + 本篇的两个测试文件）都用 `clang++ -std=c++17 -Wall -Wextra` 实际编译并运行过；gtest 用一个 40 行的桩头文件（只提供 `TEST`/`EXPECT_*`/`ASSERT_*`/`EXPECT_THROW` 宏和一个最简 `main`）代替，以验证测试文件的语法和逻辑，两个测试文件共 21 个测试全部通过；`CMakeLists.txt` **未经 cmake 实际配置**，它只用了本文第二章和第九章从 `c10/CMakeLists.txt`、`c10/test/CMakeLists.txt` 里读到的命令，逐条对照过；`.clang-format` 内容取自 PyTorch 的同名文件的子集。lldb 部分的限制在 6.5 节说明过。
 
@@ -2822,7 +2822,7 @@ UseTab: Never
 
 `StatementMacros` 里放 `MINI_LIBRARY_IMPL`，对应 PyTorch 的 `C10_DEFINE_bool` 等——否则 clang-format 会把 `MINI_LIBRARY_IMPL(minic10, CPU, m) { ... }` 当成一个普通函数调用后面跟了个花括号块，格式化成奇怪的样子。用法 `clang-format -i minic10/**/*.h minic10/**/*.cpp test/*.cpp`；如果用 pre-commit，照 vLLM 的 `.pre-commit-config.yaml` 挂 `mirrors-clang-format`。
 
-到这里 mini-c10 有了完整的工程闭环：`cmake` 配置，`ninja` 构建，`ctest` 跑测试，`-DUSE_ASAN=ON` 跑内存检查，`compile_commands.json` 给 clangd，`.clang-format` 管格式，lldb 能断到 kernel。它和 PyTorch 的差距只是规模——每一个环节都对应着 PyTorch 源码树里的一个文件。
+到这里 mini-c10 的工程**骨架**齐了（上面列的接缝补好后才是真正能 `ctest` 通过的闭环）：`cmake` 配置，`ninja` 构建，`ctest` 跑测试，`-DUSE_ASAN=ON` 跑内存检查，`compile_commands.json` 给 clangd，`.clang-format` 管格式，lldb 能断到 kernel。它和 PyTorch 的差距只是规模——每一个环节都对应着 PyTorch 源码树里的一个文件。
 
 ## 十四、工程实践建议与常见错误
 

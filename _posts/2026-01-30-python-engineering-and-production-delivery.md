@@ -383,7 +383,7 @@ Java 开发者对依赖管理的心智模型来自 Maven：写 `pom.xml`、`mvn 
 | **安装**到环境 | 下载到 `~/.m2/repository`（全局缓存，按坐标隔离），运行时按 classpath 取 | 装进当前 venv 的 `site-packages`（每项目一份；uv 有全局缓存做硬链接） | Java 靠坐标天然隔离多版本；Python 同一个环境里一个包只能有一个版本，隔离靠 venv |
 | **审计** | `mvn dependency:tree`、`versions:display-dependency-updates`、OWASP dependency-check | `uv tree` / `pipdeptree`、`uv lock --upgrade`、`pip-audit` | 相同 |
 
-其余概念的对应：`jar` ↔ `wheel`（第七章），Nexus / Artifactory 私有仓库 ↔ 私有 index（`--index-url`，第 6 节与第五章），BOM ↔ `constraints.txt` / `[tool.uv] constraint-dependencies`，`mvn -o` 离线严格构建 ↔ `uv sync --frozen`，`mvn exec:java` ↔ `uv run`。
+其余概念的对应：`jar` ↔ `wheel`（第七章），Nexus / Artifactory 私有仓库 ↔ 私有 index（`--index-url`，第 6 节与第五章），BOM ↔ `constraints.txt` / `[tool.uv] constraint-dependencies`，`mvn -o` 离线严格构建 ↔ `uv sync --locked`，`mvn exec:java` ↔ `uv run`。
 
 第三行的差别决定了本章其余内容的组织：先分清"声明"与"锁定"两种依赖（§2），说明为什么常见的 `requirements.txt` 做不到复现（§3），再看工具怎么选（§4）、版本范围怎么写（§5）、传递依赖与供应链怎么管（§6）。
 
@@ -494,12 +494,13 @@ uv venv                        # 创建虚拟环境
 uv add fastapi                 # 加依赖（同时更新 pyproject.toml 和 uv.lock）
 uv add --dev pytest ruff       # 加开发依赖
 uv sync                        # 按锁文件精确安装
-uv sync --frozen               # 严格按锁文件，不允许更新（CI 用这个）
+uv sync --locked               # 锁文件与 pyproject 不一致就报错（CI 用这个）
+uv sync --frozen               # 按锁文件装、跳过一致性检查（镜像构建等确定锁已核过的地方）
 uv lock --upgrade              # 主动升级锁文件
 uv run pytest                  # 在项目环境里执行命令，无需激活
 ```
 
-**`uv sync --frozen` 是 CI 里应该用的形式**——如果锁文件和 `pyproject.toml` 不一致就直接失败，而不是悄悄重新解析。这相当于 Maven 的 `--offline` + 严格版本。
+**CI 里该用 `uv sync --locked`**——它检查锁文件是否与 `pyproject.toml` 一致，不一致就直接失败而不是悄悄重新解析（`uv lock --check` 是只检查不安装的版本）。`--frozen` 的语义不同：它**跳过**这个检查、直接按现有锁文件安装，适合镜像构建这类锁已经在 CI 核过的地方；把 `--frozen` 当"不一致就失败"用是一个常见误读。两者合起来相当于 Maven 的 `--offline` + 严格版本。
 
 对应 Java：uv 的定位相当于 Maven 本身（依赖解析 + 环境管理 + 命令执行），而 pip 只相当于 Maven 依赖下载的那一小部分。
 
@@ -1209,7 +1210,7 @@ CMD [".venv/bin/uvicorn", "inference_service.main:app", "--host", "0.0.0.0"]
 关键点：
 
 - `--no-install-project` 让第一步只装依赖、不装项目本身，这样项目代码还没拷进来也能跑；
-- `--frozen` 严格按锁文件装，锁文件与 `pyproject.toml` 不一致就失败（对应第四章）；
+- `--frozen` 直接按锁文件装、不做一致性检查——镜像构建前 CI 已用 `--locked` 核过锁文件（对应第四章）；
 - `--no-dev` 排除测试和 lint 工具，它们不该进生产镜像；
 - `--no-cache-dir`（pip）避免把下载缓存留在镜像层里。
 

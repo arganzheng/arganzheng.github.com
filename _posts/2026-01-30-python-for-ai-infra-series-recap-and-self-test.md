@@ -158,11 +158,11 @@ date: 2026-01-30 20:00:00
 - `pip install torch` 在 Linux 上装的是捆绑 CUDA 运行时的默认变体（2 GB+，连带 `nvidia-*` 库），一个只写了 `torch` 的项目环境 5–8 GB；镜像 8–12 GB 里 torch + CUDA 库占 5–7 GB，`python:3.11-slim` 只约 150 MB。十个服务共用同一个基础镜像那 7 GB 只存一份，各自 `pip install torch` 存十份。
 - `torch==2.4.0` 这个约束可以被 `2.4.0+cu121` 满足，但锁文件记下 `+cu121` 后只对同样的 CUDA 目标有效。uv 用 `[[tool.uv.index]]` 的 `explicit = true` + `[tool.uv.sources]` 让只有 torch 走 PyTorch 索引。
 - 报错对应的层：`CUDA driver version is insufficient` 是 driver 太老；`is_available() == False` 但有 GPU 是装了 `+cpu` 或容器没挂 GPU；`undefined symbol: ...cudnn...` 是 cuDNN 版本不一致；`no kernel image is available` 是 GPU 架构不在 wheel 编译目标里。
-- 版本上界：应用用 `>=` 就够（可复现由锁文件保证）；库默认不加上界，已知不兼容用 `!=` 排除具体版本。`uv sync --frozen` 是 CI 的形式——锁文件与 `pyproject.toml` 不一致就直接失败。
+- 版本上界：应用用 `>=` 就够（可复现由锁文件保证）；库默认不加上界，已知不兼容用 `!=` 排除具体版本。`uv sync --locked` 是 CI 的形式——锁文件与 `pyproject.toml` 不一致就直接失败；`--frozen` 是跳过检查直接装，用在锁已核过的镜像构建里。
 - worker 数：纯 I/O 转发 2–4 个靠 asyncio 撑并发；Python 层有 CPU 工作约等于核数；本地 GPU 推理 = 1（或按 GPU 数），4 个 worker × 14 GB 模型 = 56 GB 显存直接 OOM。
 - Dockerfile 三层：基础层（CUDA + torch，几乎不变）、依赖层（锁文件变才重建）、代码层（每次提交重建）；顺序错了每次提交都重装全部依赖。`.dockerignore` 排掉 `.venv/`、`.git/`、`*.pt`、`*.safetensors`。
 
-**常见误解**："`requirements.txt` 里全写 `==` 就可复现"——传递依赖仍浮动，且没有 hash 校验；真正的可复现要锁文件带 hash 并 `--require-hashes` 或 `uv sync --frozen`。另一个："`nvidia-smi` 右上角的 CUDA Version 是已安装的 toolkit 版本"——它是 driver 能支持的最高版本，与 wheel 链接的 runtime 是不同层。
+**常见误解**："`requirements.txt` 里全写 `==` 就可复现"——传递依赖仍浮动，且没有 hash 校验；真正的可复现要锁文件带 hash 并 `--require-hashes` 或 `uv sync --locked`。另一个："`nvidia-smi` 右上角的 CUDA Version 是已安装的 toolkit 版本"——它是 driver 能支持的最高版本，与 wheel 链接的 runtime 是不同层。
 
 ## 三、贯穿全系列的几条线
 
@@ -238,7 +238,7 @@ flowchart TB
 | RSS 不降就是泄漏 | pymalloc 的 arena 只在全部 pool 释放后才归还 OS | 先分三类：仍被引用、分配器保留、原生或设备持有 | [第五篇](/python-memory-management-and-optimization.html) |
 | 用 `__del__` 释放 GPU 句柄 | 调用时机不可控、可能在解释器关闭时才调、对象可能复活 | 用 `with` 或 `weakref.finalize` | [第五篇](/python-memory-management-and-optimization.html) |
 | 在库里 `logging.basicConfig()` | 它配置 root logger，篡改了应用的全局配置 | 库只 `getLogger(__name__)`，最多加 `NullHandler`；应用在入口配一次 | [第六篇](/python-unit-testing-troubleshooting-and-debugging.html) |
-| `requirements.txt` 全写 `==` 就可复现 | 传递依赖仍浮动，且没有 hash 校验 | 锁文件带 hash，CI 用 `uv sync --frozen` | [第七篇](/python-engineering-and-production-delivery.html) |
+| `requirements.txt` 全写 `==` 就可复现 | 传递依赖仍浮动，且没有 hash 校验 | 锁文件带 hash，CI 用 `uv sync --locked`（`--frozen` 不做一致性检查） | [第七篇](/python-engineering-and-production-delivery.html) |
 | 装 torch 用 `--extra-index-url` | pip 在多个索引里选版本最高的，可能装到 PyPI 的默认变体 | 用 `--index-url`，或 uv 的 `explicit = true` 按包指定索引 | [第七篇](/python-engineering-and-production-delivery.html) |
 | GPU 服务多开几个 worker 提吞吐 | 每个 worker 各自加载一份模型进显存 | 每 GPU 一个进程，进程内靠 asyncio + 批处理 | [第七篇](/python-engineering-and-production-delivery.html) |
 

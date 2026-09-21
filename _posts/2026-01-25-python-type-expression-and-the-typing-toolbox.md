@@ -689,11 +689,12 @@ def freeze[M: Module](model: M) -> M:
         p.requires_grad_(False)
     return model
 
-# 协变/逆变
-class ReadOnlyList[+T]:     # + 表示协变（对应旧的 covariant=True）
+# 协变/逆变：PEP 695 语法**没有** +T / -T 这种写法（那是 Kotlin / Scala 的，写了是 SyntaxError，3.12 实测）
+# 变性由类型检查器根据 T 在类里的用法自动推断——只在返回位置出现即协变，只在参数位置出现即逆变
+class ReadOnlyList[T]:      # 检查器推断为协变（对应旧写法 TypeVar('T', covariant=True)）
     def __getitem__(self, index: int) -> T: ...
 
-class WriteOnlyList[-T]:    # - 表示逆变（对应旧的 contravariant=True）
+class WriteOnlyList[T]:     # 检查器推断为逆变（对应旧写法 contravariant=True）
     def append(self, item: T) -> None: ...
 ```
 
@@ -1553,12 +1554,12 @@ if (data instanceof List<?> list && isStringList(list)) {
 }
 ```
 
-**TypeIs（3.12+）**
+**TypeIs（3.13+；3.12 及更早从 `typing_extensions` 导入）**
 
 `TypeIs` 是 `TypeGuard` 的改进版，行为更直观：
 
 ```python
-from typing import TypeIs
+from typing_extensions import TypeIs   # 3.13+ 可直接 from typing import TypeIs
 
 def is_string(val: object) -> TypeIs[str]:
     return isinstance(val, str)
@@ -1570,7 +1571,7 @@ def process(val: str | int) -> None:
         print(val + 1)       # val: int（TypeIs 能正确收窄 else 分支）
 ```
 
-`TypeGuard` 和 `TypeIs` 的区别：`TypeIs` 在 `else` 分支也会收窄类型，`TypeGuard` 不会。如果你的项目目标版本 >= 3.12，优先用 `TypeIs`。
+`TypeGuard` 和 `TypeIs` 的区别：`TypeIs` 在 `else` 分支也会收窄类型，`TypeGuard` 不会。`typing.TypeIs` 是 3.13 才进标准库的（PEP 742），3.12 上 `from typing import TypeIs` 会 ImportError——用 `typing_extensions.TypeIs`；能用就优先用它。
 
 **真实项目中的 TypeGuard**
 

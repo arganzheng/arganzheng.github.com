@@ -137,7 +137,7 @@ date: 2026-02-15 20:00:00
 - 六种 memory order；`relaxed` 只保证原子性，release 写与 acquire 读配对建立 happens-before；不确定就用默认 `seq_cst`。
 - v2.10.0 把强、弱计数合并成一个 64 位 `combined_refcount_`：低 32 位强引用、高 31 位弱引用、第 63 位 `kHasPyObject`；一条原子指令同时操作两个计数。
 - 守卫三步骨架：构造保存旧值并设新值、析构恢复；`= delete` 拷贝与移动；守卫必须是有名字的局部变量（`c10::InferenceMode();` 立刻析构等于没生效）。
-- `parallel_for` 并行的三个条件：元素数超过 `grain_size`、不在并行区域内、线程数大于 1；不能嵌套；多数 ATen 算子用 `GRAIN_SIZE` 32768；线程数优先级 `torch.set_num_threads()` > `OMP_NUM_THREADS` > `MKL_NUM_THREADS` > 核数。
+- `parallel_for` 并行的三个条件：元素数超过 `grain_size`、不在并行区域内、线程数大于 1；不能嵌套；多数 ATen 算子用 `GRAIN_SIZE` 32768；线程数优先级 `torch.set_num_threads()` > `MKL_NUM_THREADS` > `OMP_NUM_THREADS` > 核数（源码先读 OMP 再让 MKL 覆盖）。
 - `std::mutex` 不可重入（重入是 UB）；`condition_variable::wait` 一律带谓词、配 `unique_lock`；不在持锁时调用户回调（`ThreadPool::main_loop` 先 `unlock` 再执行任务）。
 - CUDA host 代码用 `c10::cuda::CUDAGuard`（模板实例化、去虚化）而不是 `c10::DeviceGuard`（多一次虚调用和注册表查找）；launch 后紧跟 `C10_CUDA_KERNEL_LAUNCH_CHECK()`。
 
@@ -299,7 +299,7 @@ date: 2026-02-15 20:00:00
 
    <details markdown="1"><summary>答案</summary>
 
-   16——优先级 `set_num_threads` > `OMP_NUM_THREADS` > `MKL_NUM_THREADS` > 核数，没调 `set_num_threads` 就轮到 `OMP_NUM_THREADS`，核数只是最后的兜底（这也是多进程训练要显式设 `OMP_NUM_THREADS` 的原因——否则每个进程默认开满核数）。不会：默认 `GRAIN_SIZE` 是 32768，2 万元素没超过阈值，直接串行。
+   4——`intraop_default_num_threads()` 先读 `OMP_NUM_THREADS` 得 16，再用 `MKL_NUM_THREADS` **覆盖**得 4（`ParallelCommon.cpp`，两者同时设时 MKL 赢），核数只是两者都没设时的兜底（这也是多进程训练要显式设 `OMP_NUM_THREADS` 的原因——否则每个进程默认开满核数）。不会：默认 `GRAIN_SIZE` 是 32768，2 万元素没超过阈值，直接串行。
 
    </details>
 
@@ -315,7 +315,7 @@ date: 2026-02-15 20:00:00
 
    <details markdown="1"><summary>答案</summary>
 
-   低 32 位存强引用 3（第 0、1 位为 1）；弱引用从第 32 位起（`kWeakReferenceCountOne = 1 << 32`），弱引用 1 就是第 32 位为 1；第 63 位是 `kHasPyObject`。所以是第 0、1、32、63 位。`weakcount()` 读取时要先屏蔽掉 `kHasPyObject` 再右移 32。
+   低 32 位存强引用 3（第 0、1 位为 1）。弱引用要注意 `intrusive_ptr.h` 的不变量：`refcount > 0 ⇒ weakcount > 0`——所有强引用合起来算作**一个**弱引用，所以外部弱引用 1 个时 `weakcount` 字段是 2，二进制 10，从第 32 位起放就是**第 33 位**为 1（第 32 位为 0）；第 63 位是 `kHasPyObject`。所以是第 0、1、33、63 位，整个字段 `0x8000'0002'0000'0003`。`weakcount()` 读取时要先屏蔽掉 `kHasPyObject` 再右移 32。
 
    </details>
 

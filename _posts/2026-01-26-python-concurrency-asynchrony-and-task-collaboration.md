@@ -288,6 +288,7 @@ def consumer() -> None:
     while True:
         request = work.get()
         if request is STOP:
+            work.task_done()                 # 哨兵也是一次 put，不记账 join() 会永远等
             break
         try:
             process(request)
@@ -1437,7 +1438,7 @@ String limitedFetch(String url) throws Exception {
 
 两点差异值得注意：
 
-1. **Python 缺 `tryAcquire()`**。想实现"拿不到就立刻返回 429"，得用 `asyncio.wait_for(sem.acquire(), timeout=0)` 或者干脆用有界队列。
+1. **Python 缺 `tryAcquire()`**。想实现"拿不到就立刻返回 429"，别用 `asyncio.wait_for(sem.acquire(), timeout=0)`——3.12 实测即使有空余许可它也会先让出、然后直接超时；正确做法是先查 `sem.locked()`（没有许可时为 True），事件循环单线程、检查与 `acquire()` 之间没有 `await`，不会被插队：`if sem.locked(): return 429` 然后 `async with sem:`；或者干脆用有界队列。
 2. **公平性默认相反**。Java 的 `Semaphore` 默认非公平（吞吐更高但可能饿死），Python 的 `asyncio.Semaphore` 内部是 FIFO 等待队列，天然公平。做 GPU slot 分配这类场景时，Python 的默认行为通常正是你想要的。
 
 顺带一提，真实项目里限流常常不需要自己写 Semaphore。`httpx` 内建了连接池限制：
