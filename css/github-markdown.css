@@ -148,10 +148,12 @@
   border-collapse: collapse;
   margin-top: 0;
   margin-bottom: 16px;
+  margin-left: auto;
+  margin-right: auto;
   width: auto;
   max-width: 100%;
   overflow: auto;
-  display: block;
+  display: table;
 }
 .post-container table th,
 .post-container table td {
@@ -228,6 +230,10 @@
 /* ---- Responsive table wrapper added by hux-blog.js ---- */
 .post-container .table-responsive {
   border: 0;
+  width: max-content;
+  max-width: 100%;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 /* ---- Mermaid Diagrams ---- */

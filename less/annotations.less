@@ -901,6 +901,18 @@
 
 // ---- tables: caption, copy format menu, and feedback handle (js/code-copy.js + js/figures.js)
 .post-container {
+	.table-responsive {
+		width: max-content;
+		max-width: 100%;
+		margin-left: auto;
+		margin-right: auto;
+	}
+	table {
+		display: table;
+		width: auto;
+		margin-left: auto;
+		margin-right: auto;
+	}
 	// 「表 N：标题」 under the table (js/figures.js), same look as a figure's caption;
 	// the wrapper keeps Bootstrap's bottom margin, so pull the caption up to it
 	.table-caption { margin-top: -12px; margin-bottom: 1.6em; }

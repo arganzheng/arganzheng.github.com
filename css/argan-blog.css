@@ -4048,6 +4048,18 @@ footer .copyright a,
 .post-container .fig-tools:hover {
   background: rgba(255, 255, 255, 0.85);
 }
+.post-container .table-responsive {
+  width: max-content;
+  max-width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+}
+.post-container table {
+  display: table;
+  width: auto;
+  margin-left: auto;
+  margin-right: auto;
+}
 .post-container .table-caption {
   margin-top: -12px;
   margin-bottom: 1.6em;
