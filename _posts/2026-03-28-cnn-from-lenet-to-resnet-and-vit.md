@@ -47,7 +47,7 @@ $$
 y_{o, i, j} = \sum_{c=1}^{C_{in}} \sum_{a=0}^{k_h - 1} \sum_{b=0}^{k_w - 1} k_{o, c, a, b}\, x_{c,\, i + a,\, j + b} + \beta_o
 $$
 
-**参数量** $$= C_{out} \cdot C_{in} \cdot k_h \cdot k_w + C_{out}$$，与图像大小无关。**FLOPs** $$= 2 \cdot H_{out} \cdot W_{out} \cdot C_{out} \cdot C_{in} \cdot k_h \cdot k_w$$——每个输出位置做一次长度为 $$C_{in} k_h k_w$$ 的内积，与图像大小成正比。这是卷积与全连接层最大的算术区别：全连接层的参数量与 FLOPs 是同一个数（[第一篇](/backpropagation-by-hand.html)），卷积层的 FLOPs 是参数量乘以输出位置数。ResNet-50 有 2560 万参数、每张图 82 亿 FLOPs，比值 320——一个参数平均被用了 320 次。
+**参数量** $$= C_{out} \cdot C_{in} \cdot k_h \cdot k_w + C_{out}$$，与图像大小无关。**FLOPs** $$= 2 \cdot H_{out} \cdot W_{out} \cdot C_{out} \cdot C_{in} \cdot k_h \cdot k_w$$——每个输出位置做一次长度为 $$C_{in} k_h k_w$$ 的内积，与图像大小成正比。这是卷积与全连接层最大的算术区别：全连接层每个参数每样本用一次（2 FLOPs，[第一篇](/backpropagation-by-hand.html)），卷积层每个参数被用"输出位置数"次。ResNet-50 有 2560 万参数、每张图 82 亿 FLOPs（$$2 \times$$ 乘加），比值 320 FLOPs / 参数——即一个参数平均被用了 **160** 次（每次 2 FLOPs），是全连接的 160 倍。
 
 ### 2. 它就是一个稀疏矩阵
 
@@ -180,10 +180,10 @@ ResNet 留给 Transformer 的不只是残差：
 |---|---|---|
 | 残差连接 | $$x + f(x)$$，每块 | $$x + \text{Attn}(\cdot)$$，$$x + \text{FFN}(\cdot)$$，每层两次 |
 | 归一化到处用 | 每个卷积后一个 BN | 每个子层一个 LayerNorm / RMSNorm |
-| Pre-activation | ResNet-v2（He 等 2016）把 BN 与 ReLU 移到卷积**之前**、残差相加之后不再有非线性，更深更稳 | **Pre-Norm**（第二篇第六章）——同一个想法在一年后被 Transformer 采用 |
+| Pre-activation | ResNet-v2（He 等 2016）把 BN 与 ReLU 移到卷积**之前**、残差相加之后不再有非线性，更深更稳 | **Pre-Norm**（第二篇第六章）——同一个想法后来进了 Transformer：原始 Transformer（2017）与 BERT 用的是 Post-Norm，GPT-2（2019）起 Pre-Norm 成为主流 |
 | 堆同样的块 | 一个块的设计定好，重复 $$N$$ 次，只改深度与宽度 | 一层的设计定好，重复 $$L$$ 次；scaling 只动 $$L$$、$$d$$、$$d_{ff}$$ |
 
-第三条最少被提到、也最有意思：Transformer 的 Pre-Norm 在 ResNet 这条线上已经被发现过一次。
+第三条最少被提到、也最有意思：Transformer 后来的 Pre-Norm 在 ResNet 这条线上已经被发现过一次（Transformer 自己是从 Post-Norm 起步、两年后才换的）。
 
 ## 六、从 CNN 到 ViT
 
@@ -203,7 +203,7 @@ patch 序列 [196, 3·16·16 = 768]
   │  线性投影到 d = 768（"patch embedding"）；前面拼一个 [CLS] token；加可学习的位置编码
   ▼
 token 序列 [197, 768]
-  │  标准 Transformer encoder × 12 层（Pre-Norm，MHA + FFN，与 BERT 相同）
+  │  标准 Transformer encoder × 12 层（Pre-Norm，MHA + FFN；块结构同 BERT，但 BERT 是 Post-Norm）
   ▼
 [CLS] 的输出 → 分类头
 ```

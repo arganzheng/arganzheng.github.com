@@ -32,8 +32,9 @@ tokenizer.json · 数据集`"]
 load · map · filter
 streaming · Arrow`"]
     TOK["`**tokenizers**
-BPE 训练与编码
-chat template 应用`"]
+BPE 训练与编码（Rust 内核）
+（chat template 由 transformers 的
+PreTrainedTokenizer 应用）`"]
     TF["`**transformers**
 AutoModel · AutoTokenizer
 generate · Trainer`"]
@@ -204,7 +205,7 @@ for step, batch in enumerate(loader):                                           
 | 发生的事 | 谁做的 | 对应上面第几行 |
 |---|---|---|
 | 数据被套上 chat template：每一轮用 `im_start` / `im_end` 一类特殊 token 包起来（第五章有实例） | `SFTTrainer` 调 `tok.apply_chat_template` | ④ `Dataset.__getitem__` 返回的 `input_ids` 就是模板渲染后再 tokenize 的结果 |
-| 回复之外的 token 的 label 被置成 −100 | `SFTTrainer`（`completion_only_loss`） | ⑧ `ignore_index=-100`——**SFT 的 loss mask**；`labels` 是在 ④ 的 `collate_fn` 里造出来的 |
+| 回复之外的 token 的 label 被置成 −100 | `SFTTrainer`——`prompt` / `completion` 格式的数据用 `completion_only_loss`；`messages` 格式要用 `assistant_only_loss=True`（且模板需支持 generation 标记），两个开关对应两种数据契约 | ⑧ `ignore_index=-100`——**SFT 的 loss mask**；`labels` 是在 ④ 的 `collate_fn` 里造出来的 |
 | 多条短样本被 pack 进一个序列（可选） | `SFTConfig(packing=True)` | ④ `collate_fn` |
 | LoRA 的 $$A$$、$$B$$ 被挂到每个线性层旁边，基座冻结 | `get_peft_model` | ①′ 改造 `nn.Module`；基座参数 `requires_grad=False` |
 | AdamW 只更新 $$A$$、$$B$$ | `Trainer` 只把 `requires_grad=True` 的参数交给优化器 | ② |
@@ -331,7 +332,7 @@ Hugging Face 的库是当前算法工作的事实标准，也是**最好的教�
 
    <details markdown="1"><summary>答案</summary>
 
-   LoRA 输出的缩放 $$\alpha / r$$：32 / 16 = 2 倍；改成 16 就是 1 倍，等价于把学习率对 LoRA 的作用减半。
+   LoRA 输出的缩放 $$\alpha / r$$：32 / 16 = 2 倍；改成 16 就是 1 倍。它不精确等价于"学习率减半"：缩放同时作用在前向输出与反向梯度上，Adam 又会把梯度尺度归一化掉——效果上接近降低 LoRA 分支的有效学习率，但不是数值上的一半。
 
    </details>
 

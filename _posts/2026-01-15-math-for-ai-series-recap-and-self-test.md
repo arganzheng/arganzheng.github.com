@@ -25,7 +25,7 @@ date: 2026-01-15 20:00:00
 | [第三篇：正交与旋转、特征值与 SVD](/orthogonal-rotation-svd-and-low-rank.html) | RoPE 为什么能编码相对位置？LoRA 为什么能用半个百分点的参数微调？ | 正交保内积，所以旋转 $$m\theta$$ 与 $$n\theta$$ 后的内积只剩 $$n - m$$；截断 SVD 是最好的低秩近似，LoRA 的每个参数都省在 $$r(m + n) \ll mn$$ | $$(R_{m\theta} q)^T (R_{n\theta} k) = q^T R_{(n-m)\theta} k$$；$$\theta_i = \text{base}^{-2i/d_h}$$，128 维拆 64 对；$$W = U \Sigma V^T$$；Llama-3-8B 上 $$r = 16$$ 是 41.9M 参数、0.52% |
 | [第四篇：概率入门](/probability-basics-language-model-as-conditional-distribution.html) | "语言模型是一个条件分布"每个词是什么意思？它决定了哪些事？ | 语言模型是链式法则 $$p(x_{1:T}) = \prod_t p(x_t \mid x_{<t})$$ 里每一项的参数化；它决定 next-token 目标、逐 token 生成、KV cache、评测依赖采样设置 | $$p(a, b) = p(a \mid b)\,p(b)$$；独立和的方差相加，标准差 $$\sqrt{n}\sigma$$；样本均值标准差 $$\sigma/\sqrt{n}$$；高斯 95% 在 $$\mu \pm 1.96\sigma$$；$$d_k = 128$$ 时 score 标准差约 11.3，所以除 $$\sqrt{d_k}$$ |
 | [第五篇：从最大似然到交叉熵](/from-maximum-likelihood-to-cross-entropy.html) | 能不能三行推出交叉熵 loss？训练开始时 loss 应该是多少？ | 取对数 → 取负 → 除以 token 数，得到每 token 负对数似然；真实分布 one-hot 时它就是交叉熵；所有 loss 都是这个模板换一个概率 | $$\mathcal{L} = -\frac{1}{T}\sum_t \log p_\theta(x_t \mid x_{<t})$$；初始 loss $$\approx \ln V$$，Llama-3 是 11.8；1 nat = 1.44 bit；softmax 差值决定比值，差 1 是 2.7 倍、差 5 是 148 倍；温度改变分布 |
-| [第六篇：熵、交叉熵与 KL](/entropy-cross-entropy-and-kl-to-dpo.html) | 熵、交叉熵、KL 各是什么？能不能从 KL 约束的最优策略推出 DPO？ | $$H(p, q) = H(p) + D_{\mathrm{KL}}(p \Vert q)$$；KL 不对称，RLHF 用 reverse 所以"对齐降低多样性"；闭式解反解奖励、代入 Bradley-Terry、$$Z(x)$$ 抵消得 DPO | PPL $$= e^{\text{loss}}$$，loss 1.8 ↔ PPL 6.05 ↔ 2.6 bit；loss 降不到数据的熵 $$E = 1.69$$ 以下；$$\pi^* \propto \pi_{\text{ref}}\, e^{r/\beta}$$；$$\sigma(2) = 0.88$$；接受率 $$\alpha = \sum_x \min(p, q) = 1 - \mathrm{TV}$$ |
+| [第六篇：熵、交叉熵与 KL](/entropy-cross-entropy-and-kl-to-dpo.html) | 熵、交叉熵、KL 各是什么？能不能从 KL 约束的最优策略推出 DPO？ | $$H(p, q) = H(p) + D_{\mathrm{KL}}(p \Vert q)$$；KL 不对称，RLHF 用 reverse（mode-seeking 倾向）——"对齐降低多样性"还要奖励形状配合，不是定义行为；闭式解反解奖励、代入 Bradley-Terry、$$Z(x)$$ 抵消得 DPO | PPL $$= e^{\text{loss}}$$，loss 1.8 ↔ PPL 6.05 ↔ 2.6 bit；loss 降不到数据的熵 $$E = 1.69$$ 以下；$$\pi^* \propto \pi_{\text{ref}}\, e^{r/\beta}$$；$$\sigma(2) = 0.88$$；接受率 $$\alpha = \sum_x \min(p, q) = 1 - \mathrm{TV}$$ |
 | [第七篇：导数、梯度与链式法则](/derivatives-gradients-chain-rule-and-policy-gradient.html) | 能不能用链式法则推一层的梯度？能不能对一个期望求导得到策略梯度？ | 梯度与参数同形；softmax + 交叉熵的梯度是 $$p - y$$；期望的梯度用 $$\nabla\pi = \pi\nabla\log\pi$$ 写回期望，策略梯度是"按奖励加权的最大似然"，减 baseline 期望不变 | $$\partial \mathcal{L}/\partial z = p - y$$，分量在 $$[-1, 1]$$；$$\nabla J = \mathbb{E}[R(y)\nabla\log\pi_\theta(y)]$$；$$\mathbb{E}[\nabla\log\pi] = 0$$；GRPO 优势 $$(R_i - \text{mean})/\text{std}$$；随机梯度噪声方差 $$\propto 1/B$$ |
 | [第八篇：统计推断与拟合](/statistical-inference-and-fitting-scaling-laws.html) | HumanEval 差 3 个点算不算提升？$$D/N \approx 20$$ 从哪来？ | 95% 区间 $$= \hat p \pm 1.96\,\text{SE}$$，164 题分辨不出 3 个点；幂律在双对数上是直线；固定 $$C = 6ND$$ 用拉格朗日乘子，$$N$$、$$D$$ 应同步增长 | HumanEval ±6.1%、GSM8K ±1.6%、MMLU ±0.8%；独立比较显著差异 8.7 / 2.3 / 1.1 个点；$$E = 1.69, A = 406.4, B = 410.7, \alpha = 0.34, \beta = 0.28$$；$$N_{\text{opt}} \propto C^{0.45}$$、$$D_{\text{opt}} \propto C^{0.55}$$；70B ↔ 1.4T |
 
@@ -68,12 +68,12 @@ date: 2026-01-15 20:00:00
 
 - $$\langle a, b \rangle = a^T b = \sum_i a_i b_i = \lVert a \rVert \lVert b \rVert \cos\theta$$；同向为正、垂直为零、反向为负。
 - $$(3, -4)$$：$$L_1 = 7$$、$$L_2 = 5$$、$$L_\infty = 4$$；归一化 $$\hat a = a / \lVert a \rVert$$ 保留方向抹掉大小。
-- 高维随机向量的余弦标准差约 $$1/\sqrt{d}$$，$$d = 1024$$ 时 0.03；检索里 0.3 已是明显相关、0.8 几乎同义。
+- 高维随机向量的余弦标准差约 $$1/\sqrt{d}$$，$$d = 1024$$ 时 0.03；学到的 embedding 有各向异性，无关对余弦常 0.3–0.6，阈值按模型校准。
 - weight decay $$\frac{\lambda}{2}\lVert W \rVert_F^2$$，LLM 预训练常用 $$\lambda = 0.1$$，导数 $$\lambda W$$。
 - 量化误差看 $$\lVert WX - \hat W X \rVert_F$$，$$\lVert (W - \hat W) X \rVert_F^2 = \text{tr}((W - \hat W) X X^T (W - \hat W)^T)$$。
 - 范数的三个身份：长度 / 归一化（余弦、QK-norm、RMSNorm 的分母）、正则化项、误差度量。
 
-**常见误解**："余弦 0.5 才算有点像"——那是二维平面的直觉，高维里随机向量对的余弦在 $$\pm 0.1$$ 以内，0.3 已经明显相关。另一个："逐元素四舍五入是最优量化"——它最小化的是 $$\lVert W - \hat W \rVert_F$$，输入里有 outlier 通道时应该把对应列量得更准，哪怕别的列更差。
+**常见误解**："余弦 0.5 才算有点像"——那是二维平面的直觉，高维里随机向量对的余弦在 $$\pm 0.1$$ 以内；但真实 embedding 各向异性，"多少算相关"要按具体模型的无关对分布校准。另一个："逐元素四舍五入是最优量化"——它最小化的是 $$\lVert W - \hat W \rVert_F$$，输入里有 outlier 通道时应该把对应列量得更准，哪怕别的列更差。
 
 ### 3. 第三篇：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA
 
@@ -142,7 +142,7 @@ date: 2026-01-15 20:00:00
 - $$\mathcal{L}_{\text{DPO}} = -\log\sigma\big(\beta\log\frac{\pi_\theta(y_w)}{\pi_{\text{ref}}(y_w)} - \beta\log\frac{\pi_\theta(y_l)}{\pi_{\text{ref}}(y_l)}\big)$$；去掉 $$\pi_{\text{ref}}$$ 就失去"不偏离"的约束。
 - 总变差 $$\mathrm{TV} = \frac{1}{2}\sum\lvert p - q \rvert$$，对称有界；投机解码接受率 $$\alpha = 1 - \mathrm{TV}$$，拒绝采样保证输出严格服从 $$p$$。
 
-**常见误解**："KL 是距离，方向无所谓"——它不对称，两个方向的值不同、行为相反，RLHF 用 reverse 是有意的选择（样本从正在训的策略里抽即可）。另一个："对齐后模型变保守是训练没调好"——是 reverse KL 的数学根源，$$\beta$$ 只是在调保守的程度。
+**常见误解**："KL 是距离，方向无所谓"——它不对称，两个方向的值不同、行为相反，RLHF 用 reverse 是有意的选择（样本从正在训的策略里抽即可）。另一个："对齐后模型变保守是训练没调好"——reverse KL 的 mode-seeking 倾向加上奖励模型偏好某类回答，共同造成它；但 reverse KL 本身不保证多样性下降（ref (0.9, 0.1)、$$r = (0, \ln 9)$$ 时最优策略 (0.5, 0.5) 熵反而升），$$\beta$$ 调的是贴近参考的程度。
 
 ### 7. 第七篇：导数、梯度与链式法则——softmax 的梯度与策略梯度
 
@@ -159,7 +159,7 @@ date: 2026-01-15 20:00:00
 - PPO 把 $$\pi_\theta/\pi_{\text{old}}$$ 裁剪在 $$[1 - \epsilon, 1 + \epsilon]$$；DPO 不走这条路，是离线的监督学习。
 - 每步 $$L$$ 约降 $$\eta\lVert\nabla L\rVert^2$$；warmup 几百到几千步；衰减到目标值的 1/10 左右。
 
-**常见误解**："减 baseline 会让梯度有偏"——只要 $$b$$ 不依赖 $$y$$，期望严格不变，改变的只有方差；GRPO 论文里"优势为什么减均值"的答案就是那一行证明。另一个："鞍点和局部极小是非凸优化的大麻烦"——高维空间里鞍点远多于坏的局部极小，随机梯度的噪声足以逃离，但收敛到哪依赖初始化与学习率，所以要报多个种子。
+**常见误解**："减 baseline 会让梯度有偏"——只要 $$b$$ 不依赖 $$y$$，期望严格不变，改变的只有方差（方差也不是任意 $$b$$ 都降）；GRPO 的组均值含 $$y$$ 自己，那一行证明**不适用**，估计缩了 $$(1 - 1/G)$$ 倍（Bernoulli 算例 0.25 vs 0.125），留一法才严格无偏。另一个："鞍点和局部极小是非凸优化的大麻烦"——高维空间里鞍点远多于坏的局部极小，随机梯度的噪声通常足以逃离（经验，非保证），但收敛到哪依赖初始化与学习率，所以要报多个种子。
 
 ### 8. 第八篇：统计推断与拟合——评测的置信区间与 scaling law
 
@@ -268,7 +268,7 @@ flowchart TB
 | 独立变量相加，标准差相加 | 相加的是方差 | $$n$$ 项的标准差是 $$\sqrt{n}\sigma$$，样本均值是 $$\sigma/\sqrt{n}$$ | [第四篇](/probability-basics-language-model-as-conditional-distribution.html) |
 | 训练第一步 loss 越低越好 | 随机模型只能给均匀分布，loss 应是 $$\ln V$$ | 远低于 $$\ln V$$ 是数据泄漏或 loss 算错 | [第五篇](/from-maximum-likelihood-to-cross-entropy.html) |
 | 温度不影响模型之间的比较 | 同一个模型不同温度是不同的分布 | 比较必须固定采样设置；带温度要多跑几次报方差 | [第五篇](/from-maximum-likelihood-to-cross-entropy.html) |
-| KL 是距离，方向无所谓 | KL 不对称，forward 覆盖、reverse 收窄 | RLHF 用 reverse，"对齐降低多样性"是定义行为 | [第六篇](/entropy-cross-entropy-and-kl-to-dpo.html) |
+| KL 是距离，方向无所谓 | KL 不对称，$$q$$ 表达能力不够时 forward 覆盖、reverse 收窄 | RLHF 用 reverse；"对齐降低多样性"要奖励形状配合，有熵上升的反例 | [第六篇](/entropy-cross-entropy-and-kl-to-dpo.html) |
 | 策略梯度减 baseline 会引入偏差 | $$\mathbb{E}_{\pi_\theta}[\nabla\log\pi_\theta] = 0$$ | 期望不变、方差降低；GRPO 减组均值同理 | [第七篇](/derivatives-gradients-chain-rule-and-policy-gradient.html) |
 | HumanEval 差 3 个点是提升 | 164 题、80% 附近区间半宽 ±6.1%，独立比较要 8.7 个点 | 在噪声里；配对更灵敏但量级不变 | [第八篇](/statistical-inference-and-fitting-scaling-laws.html) |
 
@@ -362,7 +362,7 @@ flowchart TB
 
    <details markdown="1"><summary>答案</summary>
 
-   第一篇：$$C = 6ND$$；第八篇：$$D = 20N$$ 代入得 $$120N^2 = 10^{24}$$，$$N \approx 91$$B、$$D \approx 1.8$$T；第一篇：推理一个 token $$2N \approx 1.8 \times 10^{11}$$ FLOPs；第八篇：$$N_{\text{opt}} \propto C^{0.45}$$、$$D_{\text{opt}} \propto C^{0.55}$$，算力 ×10 则 $$N$$ ×2.8、$$D$$ ×3.5。
+   第一篇：$$C = 6ND$$；第八篇：$$D = 20N$$ 代入得 $$120N^2 = 10^{24}$$，$$N \approx 91$$B、$$D \approx 1.8$$T；第一篇：推理一个 token $$2N \approx 1.8 \times 10^{11}$$ FLOPs；第八篇：$$N_{\text{opt}} \propto C^{0.45}$$、$$D_{\text{opt}} \propto C^{0.55}$$，算力 ×10 则 $$N$$ ×2.8、$$D$$ ×3.5——注意这两个指数与前半用的固定 $$D/N = 20$$ 不是同一套口径：按 0.45 / 0.55 外推 $$D/N$$ 会随算力涨（×10 时从 20 变成约 25），$$D/N \approx 20$$ 是 Chinchilla 在实验规模上用另两种方法得到的经验比例（第八篇 §五.4 的"诚实注脚"）。答题时说明用了哪一套。
 
    </details>
 
@@ -445,7 +445,7 @@ flowchart TB
    <details markdown="1"><summary>答案</summary>
 
    **答案要点**：(1) 起点是 RLHF 目标：最大化 $$\mathbb{E}_\pi[r] - \beta D_{\mathrm{KL}}(\pi \Vert \pi_{\text{ref}})$$，KL 是 reverse 方向；(2) 在 $$\sum_y\pi(y) = 1$$ 下用拉格朗日乘子，闭式解 $$\pi^* = \frac{1}{Z(x)}\pi_{\text{ref}}\,e^{r/\beta}$$——参考模型 × 按奖励指数加权；(3) 反解 $$r = \beta\log(\pi^*/\pi_{\text{ref}}) + \beta\log Z(x)$$；(4) 代入 Bradley-Terry 的 $$\sigma(r_w - r_l)$$，同一 prompt 的 $$\log Z(x)$$ 抵消；(5) 套 $$-\log$$ 模板并用 $$\pi_\theta$$ 代 $$\pi^*$$，得 $$-\log\sigma(\beta\log\frac{\pi_\theta(y_w)}{\pi_{\text{ref}}(y_w)} - \beta\log\frac{\pi_\theta(y_l)}{\pi_{\text{ref}}(y_l)})$$；(6) $$\beta$$ 控制"偏好增量"的尺度，越大越贴近参考模型、越小越激进；$$\pi_{\text{ref}}$$ 来自闭式解，去掉它 loss 退化成只比较策略自己给两个回答的对数概率，"不偏离"的约束消失。
-   **追问方向**：reverse KL 为什么让对齐降低多样性；DPO 与 PPO / GRPO 的离线 vs 在线差别；$$\sigma(2) = 0.88$$ 这种分差与胜率的换算。
+   **追问方向**：reverse KL 的 mode-seeking 倾向与奖励形状如何共同影响多样性（含反例）；DPO 与 PPO / GRPO 的离线 vs 在线差别；$$\sigma(2) = 0.88$$ 这种分差与胜率的换算。
    **好答案与一般答案的区别**：一般答案背 loss 的形状；好答案说出每一步用了哪个工具（拉格朗日乘子、Bradley-Terry、$$Z$$ 抵消），并解释 $$\pi_{\text{ref}}$$ 与 $$\beta$$ 各来自哪一步。
 
    </details>
@@ -476,7 +476,7 @@ flowchart TB
 |---|---|
 | 读过 | 能说出八篇各讲什么；知道 $$2mnk$$、$$\sqrt{d_k}$$、$$\ln V$$、KL 的方向、$$p - y$$、1.96 这些名词 |
 | 掌握 | A 组能不翻书算出 8 题以上；B 组能说出每题用了哪几篇的什么；拿到一个新 loss 能说出"什么概率进了 $$-\log$$"，拿到一个评测数字能算出它的区间 |
-| 能教人 | C 组每题能给出全部要点并预判追问；能独立在一页纸内推完 MLE → 交叉熵、KL 约束 → DPO、softmax 梯度、策略梯度四条推导；能解释每个反直觉结论（对齐降低多样性是定义行为、HumanEval 分辨不出 3 个点、RoPE 只剩 $$n - m$$）为什么成立 |
+| 能教人 | C 组每题能给出全部要点并预判追问；能独立在一页纸内推完 MLE → 交叉熵、KL 约束 → DPO、softmax 梯度、策略梯度四条推导；能解释每个反直觉结论（对齐降低多样性何时成立何时不成立、HumanEval 分辨不出 3 个点、RoPE 只剩 $$n - m$$）为什么成立 |
 
 通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点。另一个检验是总纲里的八个公式：每个符号知道是什么、每一步等号知道为什么、能说出它在算什么——八个都行，这一层就够了。没过的部分回到第二章对应篇的"必记"，再回该篇正文；四条推导要动笔各推一遍，推过一次，读论文时的公式就从"要看懂的东西"变成"知道它在说什么的东西"。
 

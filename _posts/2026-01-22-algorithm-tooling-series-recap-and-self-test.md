@@ -387,7 +387,7 @@ date: 2026-01-22 20:00:00
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 不能读成 `list`——5 倍文件大小约 50 GB；生成器逐行读，读 → 过滤 → 去重 → 统计每步一个生成器串成流水线，内存里只有一条记录加去重的哈希集合；(2) CPU 密集的部分用 `multiprocessing.Pool` 不用线程（GIL：8 线程 1.0×，8 进程 3.1×），`chunksize` 让每次传一批以摊薄 `pickle` 开销，函数要模块顶层可导入；(3) 工业版直接用 `datasets`：`streaming=True`（所以没有 `len()`）、`.filter()` / `.map(batched=True, num_proc=8)`，底层是同一套生成器与进程池；(4) 精确去重靠内容哈希集合，近似去重（MinHash）不在本系列；(5) 输出与数据版本（hash）一起记录，数据变了就是另一个实验。
+   **答案要点**：(1) 不能读成 `list`——5 倍文件大小约 50 GB；生成器逐行读，读 → 过滤 → 去重 → 统计每步一个生成器串成流水线，内存里只有一条记录加去重的哈希集合；(2) CPU 密集的部分用 `multiprocessing.Pool` 不用线程（GIL：8 线程 1.0×，8 进程 3.1×），`chunksize` 让每次传一批以摊薄 `pickle` 开销，函数要模块顶层可导入；(3) 工业版直接用 `datasets`：`streaming=True`（所以没有 `len()`）、`.filter()` / `.map(batched=True)`（`IterableDataset.map` 没有 `num_proc`——多进程要在流式之前用普通 `Dataset`，或多开 shard），底层是同一套生成器与进程池；(4) 精确去重靠内容哈希集合，近似去重（MinHash）不在本系列；(5) 输出与数据版本（hash）一起记录，数据变了就是另一个实验。
    **追问方向**：为什么进程到不了 8×；`DataLoader(num_workers)` 与它的关系；`.map()` 为什么不立即执行。
    **好答案与一般答案的区别**：一般答案说"用 pandas 分块读"；好答案说出内存为什么是 5 倍、线程为什么无用、以及 `datasets` 在底层做的就是这两件事。
 

@@ -132,7 +132,7 @@ KL 的两条性质：**非负**（$$D_{\mathrm{KL}} \ge 0$$，用错分布只会
 | 行为 | $$p$$ 有概率的地方 $$q$$ 都必须覆盖——**mode-covering**，$$q$$ 变宽 | $$q$$ 只能待在 $$p$$ 有概率的地方——**mode-seeking**，$$q$$ 收窄到 $$p$$ 的某个峰 |
 | 出现在 | MLE / 交叉熵训练（$$p$$ 是数据）；标准蒸馏 | RLHF 的 KL 惩罚；on-policy 蒸馏 |
 
-一个直觉图：$$p$$ 是双峰的，$$q$$ 只允许是单峰的——
+一个直觉图——注意它的前提：$$p$$ 是双峰的，而 $$q$$ **被限制**只能是单峰的（比如一个高斯）。两种 KL 的"覆盖 / 收窄"之别只在 $$q$$ 的表达能力不够、够不到 $$p$$ 时才出现；$$q$$ 能任意取时，两种 KL 的最优解都是 $$q = p$$，没有差别。
 
 ```text
 forward KL：q 必须盖住两个峰            reverse KL：q 挑一个峰待着
@@ -150,7 +150,7 @@ $$
 
 $$\pi$$ 是正在训的策略（第四篇说过，就是条件分布 $$p(y \mid x)$$），$$\pi_{\text{ref}}$$ 是参考模型，$$\beta$$ 是拉力系数。KL 的第一个参数是 $$\pi$$——期望在 $$\pi$$ 上取，是 **reverse** 方向。这个方向的含义：策略可以**放弃**参考模型的一部分模式（那些地方 $$\pi$$ 小、$$\pi_{\text{ref}}$$ 大，惩罚不大），但**不能去**参考模型认为不可能的地方（$$\pi$$ 大、$$\pi_{\text{ref}}$$ 接近零，惩罚巨大）。
 
-于是策略会在参考模型的高概率区域里挑奖励高的那部分收窄——这正是"对齐会降低多样性"的数学根源：不是副作用，是 reverse KL 的定义行为。$$\beta$$ 越大越保守（更贴近参考模型），越小越激进（更追奖励、更容易 reward hacking）。
+于是策略倾向于在参考模型的高概率区域里挑奖励高的那部分——这是"对齐常常降低多样性"的机制之一。但要说准：它**不是** reverse KL 的定义行为，多样性降不降取决于奖励长什么样。一个两值的反例：$$\pi_{\text{ref}} = (0.9, 0.1)$$，奖励 $$r = (0, \ln 9)$$，$$\beta = 1$$，下一章的闭式解给 $$\pi^* = (0.5, 0.5)$$——熵从 0.325 **升到** 0.693，策略比参考更多样。真实 RLHF 里多样性下降，是因为奖励模型偏好某一类回答（长、稳、有礼），是奖励的形状加上 mode-seeking 的倾向，两者缺一不可。$$\beta$$ 越大越保守（更贴近参考模型），越小越激进（更追奖励、更容易 reward hacking）。
 
 为什么用 reverse 而不是 forward？工程原因：reverse KL 的期望在 $$\pi$$ 上，样本从正在训的策略里抽就行；forward KL 要从 $$\pi_{\text{ref}}$$ 里抽样并算 $$\pi$$ 在那些样本上的概率，多一份推理。两者的行为差别（收窄 vs 覆盖）则各有取舍。
 
@@ -188,7 +188,7 @@ $$
 
 其中 $$Z(x) = \sum_y \pi_{\text{ref}}(y \mid x) \exp(r(x, y)/\beta)$$ 是让概率和为 1 的归一化常数。读它：**最优策略 = 参考模型 × 按奖励指数加权**。奖励高的回答被放大，$$\beta$$ 小时放大得猛，$$\beta$$ 大时几乎不动。
 
-推导只用拉格朗日乘子（第七篇第四章会讲这个工具）与 $$\log$$ 的性质，几行可以完成，建议自己推一次：把目标写成 $$\sum_y \pi(y)[r(y) - \beta\log\pi(y) + \beta\log\pi_{\text{ref}}(y)]$$，加约束 $$\sum_y \pi(y) = 1$$，对 $$\pi(y)$$ 求导令为零。
+推导只用拉格朗日乘子（第七篇第七章会讲这个工具）与 $$\log$$ 的性质，几行可以完成，建议自己推一次：把目标写成 $$\sum_y \pi(y)[r(y) - \beta\log\pi(y) + \beta\log\pi_{\text{ref}}(y)]$$，加约束 $$\sum_y \pi(y) = 1$$，对 $$\pi(y)$$ 求导令为零。
 
 ### 2. 反解奖励
 
@@ -251,16 +251,16 @@ $$
 
 ### 2. 互信息与对比学习
 
-**互信息** $$I(X; Y) = D_{\mathrm{KL}}\big(p(x, y) \,\Vert\, p(x)\,p(y)\big)$$ 度量两个变量的相关程度：联合分布离"独立时的分布"有多远，独立时为 0。CLIP 的对比学习 loss（InfoNCE）是互信息的一个下界——最大化它就是让配对的图文比不配对的更"相关"。L7 多模态系列讲；这里知道定义即可。
+**互信息** $$I(X; Y) = D_{\mathrm{KL}}\big(p(x, y) \,\Vert\, p(x)\,p(y)\big)$$ 度量两个变量的相关程度：联合分布离"独立时的分布"有多远，独立时为 0。CLIP 的对比学习 loss（InfoNCE）给出互信息的一个下界 $$I \ge \log N - \mathcal{L}_{\text{InfoNCE}}$$——**最小化** loss 就是抬高这个下界，让配对的图文比不配对的更"相关"。L7 多模态系列讲；这里知道定义即可。
 
 ## 八、本文小结
 
 - **熵** $$H(p) = -\sum p\log p$$ 是不确定程度，均匀分布最大（$$\log V$$）、确定性分布为 0；**困惑度** $$= e^{\text{loss}}$$，loss 1.8 ↔ PPL 6.05 ↔ 2.6 bit/token。
 - **交叉熵 = 熵 + KL**：$$H(p, q) = H(p) + D_{\mathrm{KL}}(p \Vert q)$$；KL 非负、不对称。训练时 $$p$$ 是 one-hot 所以交叉熵 $$= -\log q(x_t)$$（与 MLE 同一件事）；蒸馏时 $$p$$ 是软分布，最小化交叉熵与最小化 KL 等价；loss 降不到数据的熵以下（Chinchilla 的 $$E = 1.69$$）。
-- **KL 的方向**：forward（期望在 $$p$$ 上）mode-covering、$$q$$ 变宽；reverse（期望在 $$q$$ 上）mode-seeking、$$q$$ 收窄。RLHF 的 $$\beta D_{\mathrm{KL}}(\pi \Vert \pi_{\text{ref}})$$ 是 reverse——"对齐降低多样性"的数学根源；$$\beta$$ 越大越保守。
+- **KL 的方向**：在 $$q$$ 表达能力不够时，forward（期望在 $$p$$ 上）mode-covering、$$q$$ 变宽；reverse（期望在 $$q$$ 上）mode-seeking、$$q$$ 收窄。RLHF 的 $$\beta D_{\mathrm{KL}}(\pi \Vert \pi_{\text{ref}})$$ 是 reverse，但"对齐降低多样性"要靠奖励的形状一起解释（反例：ref (0.9, 0.1)、$$r = (0, \ln 9)$$ 时最优策略是 (0.5, 0.5)，熵升高）；$$\beta$$ 越大越保守。
 - **Bradley-Terry**：$$P(y_w \succ y_l) = \sigma(r_w - r_l)$$，分差过 sigmoid；奖励模型的 loss $$-\log\sigma(r_w - r_l)$$ 是逻辑回归。
 - **DPO 推导链**：KL 约束目标的闭式解 $$\pi^* \propto \pi_{\text{ref}}\, e^{r/\beta}$$ → 反解 $$r = \beta\log(\pi^*/\pi_{\text{ref}}) + \beta\log Z$$ → 代入 Bradley-Terry，$$Z(x)$$ 抵消 → $$-\log\sigma(\beta\log\frac{\pi_\theta(y_w)}{\pi_{\text{ref}}(y_w)} - \beta\log\frac{\pi_\theta(y_l)}{\pi_{\text{ref}}(y_l)})$$。没有一步超出最小集。
-- **总变差** $$\frac{1}{2}\sum\lvert p - q \rvert$$ 对称有界；投机解码的接受率 $$= 1 - \mathrm{TV}$$。**互信息**是联合分布与独立分布的 KL，对比学习最大化它的下界。
+- **总变差** $$\frac{1}{2}\sum\lvert p - q \rvert$$ 对称有界；投机解码的接受率 $$= 1 - \mathrm{TV}$$。**互信息**是联合分布与独立分布的 KL，对比学习通过最小化 InfoNCE 抬高它的下界 $$\log N - \mathcal{L}$$。
 
 ## 九、自测
 
@@ -292,7 +292,7 @@ $$
 
    <details markdown="1"><summary>答案</summary>
 
-   更远离（KL 拉力变弱）；多样性下降更多、reward hacking 风险更高。
+   更远离（KL 拉力变弱）；策略更追奖励，reward hacking 风险更高；多样性通常下降更多（奖励模型偏好某类回答时），但不是定律——奖励若偏向参考模型的低概率区，多样性反而上升。
 
    </details>
 

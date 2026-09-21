@@ -224,7 +224,7 @@ flowchart TB
 | 参数比样本多就会过拟合 | 参数量不是容量的度量，优化器挑平坦、低范数的解 | 参数是样本 407 倍的网络测试 loss 最好；不要停在插值阈值 | [第四篇](/regularization-and-generalization.html) |
 | 加 dropout 总没坏处 | 减少有效容量、拖慢收敛，不改变过拟合的终点 | 300 epoch 后 dropout 0.5 反而最差（0.62）；预训练不用 | [第四篇](/regularization-and-generalization.html) |
 | 验证准确率没掉就没过拟合 | 过拟合最常见的形态是测试 loss 涨而准确率不变 | 那是过度自信，校准变差；看 loss 拐点与记忆探针 | [第四篇](/regularization-and-generalization.html) |
-| ResNet-50 是 4.1 GFLOPs | 4.1 数的是乘加次数（MACs） | 按一次乘加 = 2 FLOPs 是 8.2 GFLOPs；25.6M 参数每个用 320 次 | [第五篇](/cnn-from-lenet-to-resnet-and-vit.html) |
+| ResNet-50 是 4.1 GFLOPs | 4.1 数的是乘加次数（MACs） | 按一次乘加 = 2 FLOPs 是 8.2 GFLOPs；25.6M 参数每个用 160 次（320 FLOPs / 参数） | [第五篇](/cnn-from-lenet-to-resnet-and-vit.html) |
 | ViT 完全不用卷积 | patch embedding 就是 kernel = stride = $$p$$ 的卷积 | 实测两种写法差 $$10^{-6}$$、参数同为 590,592；卷积退到第一层 | [第五篇](/cnn-from-lenet-to-resnet-and-vit.html) |
 | RNN 记不住远处是隐状态太小 | 是训练信号传不到：20 步外梯度千分之四 | 64 维装得下 69 bit，但网络学不出编码；LSTM 靠恒等通路把 10 步推到几十步 | [第六篇](/rnn-lstm-and-the-birth-of-attention.html) |
 

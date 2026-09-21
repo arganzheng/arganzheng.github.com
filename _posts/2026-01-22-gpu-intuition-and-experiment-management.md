@@ -84,7 +84,7 @@ $$
 
 ### 1. decode 是 memory-bound
 
-生成一个 token 要把**全部权重读一遍**（8B 模型 bf16 是 16.06 GB），每个权重只做 2 次 FLOP（乘、加，L0 第一篇的 $$2N$$）。算术强度 $$= 2N / 2N = 1$$ FLOP/字节，远低于 295。所以 batch = 1 时一个 token 的时间**下限**是搬权重的时间：
+生成一个 token 要把**参与矩阵乘的权重读一遍**（8B 模型 bf16 驻留 16.06 GB；输入 embedding 只查一行不用整表读，每步实际约 15 GB——这里按 16.06 粗算），每个权重只做 2 次 FLOP（乘、加，L0 第一篇的 $$2N$$）。算术强度 $$= 2N / 2N = 1$$ FLOP/字节，远低于 295。所以 batch = 1 时一个 token 的时间**下限**是搬权重的时间（同算法、同精度、KV 很短的冷读估计；量化、投机解码、更高带宽的卡都能超过它）：
 
 $$
 \frac{16.06\ \text{GB}}{3.35\ \text{TB/s}} \approx 4.8\ \text{ms} \quad \Rightarrow \quad \approx 209\ \text{token/s}
@@ -110,7 +110,7 @@ prefill 把 prompt 的 4096 个 token 一起过模型。算力用第二章那条
 ### 3. 用它判断结构改动
 
 - 把 FFN 做大（$$d_{ff}$$ 翻倍）：参数与 FLOPs 同比涨，decode 每 token 多读一倍权重——memory-bound 的时间翻倍；
-- 换成 MoE（每 token 只激活一部分专家）：FLOPs 降、但**全部专家的权重都要在显存里**，decode 读的字节不降反可能升——这是 MoE 推理的特有困难（L4 第五篇）；
+- 换成 MoE（每 token 只激活一部分专家）：FLOPs 降、**全部专家的权重都要驻留在显存里**；每步实际读多少取决于 batch——batch 1 只读被选中的几个专家，batch 大了几乎所有专家都会被某个 token 选中、读的字节趋近全部权重——所以"稀疏省算量不省显存、大 batch 下也不省访存"（L4 第五篇）；
 - 上下文变长：attention 的 $$QK^T$$ 与 $$T^2$$ 成正比，KV cache 与 $$T$$ 成正比（下一章）；
 - 量化到 4 bit：decode 读的字节降到 1/4，memory-bound 的时间也降到 1/4——这是量化对推理有效的根本原因（L6）。
 
@@ -144,7 +144,7 @@ prefill 把 prompt 的 4096 个 token 一起过模型。算力用第二章那条
 ### 1. 三个概念
 
 - **kernel** 是 GPU 上执行的一个函数——一次矩阵乘、一次 softmax、一次逐元素加。PyTorch 的每个算子对应一个或几个 kernel。
-- **kernel launch 有固定开销**（几微秒）。一个大矩阵乘几毫秒，launch 开销可忽略；一个 $$[32, 128]$$ 的逐元素加几微秒，launch 开销与计算本身相当。所以**小算子多了 GPU 会空转**——这是 `torch.compile` 与 CUDA Graph 做算子融合的动机，也是小模型、小 batch 时 GPU 利用率低的原因。
+- **kernel launch 有固定开销**（几微秒）。一个大矩阵乘几毫秒，launch 开销可忽略；一个 $$[32, 128]$$ 的逐元素加几微秒，launch 开销与计算本身相当。所以**小算子多了 GPU 会空转**——这是 `torch.compile` 做算子融合、CUDA Graph 把一串 launch 录下来一次重放（它不融合算子，只省 launch 开销）的动机，也是小模型、小 batch 时 GPU 利用率低的原因。
 - **stream** 是 kernel 的执行队列。CPU 把 kernel 扔进队列就继续往下走（异步），GPU 在后面慢慢执行。所以 **`time.time()` 测出来的不是 GPU 时间**——要 `torch.cuda.synchronize()` 等 GPU 做完再计时，或者用 profiler。`loss.item()` 会隐式同步（第三篇），这也是它拖慢训练的原因。
 
 ### 2. 读一张 profiler 表
@@ -231,7 +231,7 @@ seed 1:      3.378334 → 与 seed 0 差 0.1404，这就是'单个数字不算�
 
    <details markdown="1"><summary>答案</summary>
 
-   $$4.0\ \text{GB} / 3.35 = 1.2$$ ms；训练是 compute-bound，读权重的字节不是瓶颈，且反向需要高精度的梯度。
+   $$4.0\ \text{GB} / 3.35 = 1.2$$ ms；训练是 compute-bound，读权重的字节不是瓶颈，所以 int4 **权重量化**对训练几乎没收益——但"量化对训练没用"说过头了：FP8 训练（DeepSeek-V3）量化的是 GEMM 的输入以换算力，QLoRA 把冻结底座量化到 4 bit 是为了省显存，两者都在训练里用；不能用的是把要更新的权重与梯度本身存成 int4。
 
    </details>
 

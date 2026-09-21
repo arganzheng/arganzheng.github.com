@@ -126,7 +126,7 @@ sequenceDiagram
 Autograd 是 PyTorch 帮你算梯度（L0 第七篇）的机制。使用层只需要知道三件事：
 
 1. **前向时记录计算图。** 对 `requires_grad=True` 的 Tensor 做的每个运算都被记下来（用了哪个函数、输入是谁），形成一张从参数到 loss 的图。下一小节画出这张图。
-2. **`loss.backward()` 从 loss 反向走一遍图，把每个叶子参数的梯度累加到它的 `.grad` 里。** 是**累加**不是覆盖——连续两次 `backward()` 不 `zero_grad`，`.grad` 里是两次的和。所以每步更新前要 `opt.zero_grad()`。这个设计的副产品是**梯度累积**不需要额外代码：想用 4 倍的有效 batch，就每 4 个 batch 才 `step` 和 `zero_grad` 一次。
+2. **`loss.backward()` 从 loss 反向走一遍图，把每个叶子参数的梯度累加到它的 `.grad` 里。** 是**累加**不是覆盖——连续两次 `backward()` 不 `zero_grad`，`.grad` 里是两次的和。所以每步更新前要 `opt.zero_grad()`。这个设计的副产品是**梯度累积**几乎不需要额外代码：想用 4 倍的有效 batch，就每 4 个 batch 才 `step` 和 `zero_grad` 一次——只有两处要留意：每个小 batch 的 loss 要除以累积步数（或按总 token 数归一化），否则梯度是 4 倍；梯度裁剪要放在累积完、`step` 之前，而不是每个小 batch 都裁。
 3. **`torch.no_grad()` 下不建图。** 推理与评测必须加，否则每一步的中间量都被保存等待一个永远不会来的 `backward`，显存很快用光。`@torch.no_grad()` 装饰整个函数，或 `with torch.no_grad():` 包一段。
 
 ### 2. 一个手算的例子
@@ -431,7 +431,7 @@ print(f"验证 loss {val_loss:.3f}  (PPL {math.exp(val_loss):.1f})")
 - [`.to(DEV, non_blocking=True)`](#to-dev)：数据搬到 GPU，`non_blocking=True` 让拷贝与前一步的计算重叠（第二章）。
 - [`torch.autocast(..., bfloat16)`](#autocast)：这段里的矩阵乘在 bf16 上跑、reduction 留 fp32——混合精度，第四篇讲；数值格式在 L4 第六篇。`enabled=DEV == "cuda"` 是因为 CPU 没有 bf16 硬件路径，开了慢 30 倍（第 6 节）。
 - [`model(x)`](#forward)：前向，走 `__call__` → `forward`（第四章），得到 `[B, T, V]` 的 logits。
-- [`cross_entropy(logits.view(-1, V).float(), y.view(-1))`](#loss)：三个细节。`view(-1, V)` 把 `[B, T, V]` 展平成 `[B·T, V]`，因为 `cross_entropy` 要二维输入（上一篇的 reshape）；`.float()` 让 softmax + log 在 fp32 上算，避免 bf16 下溢出和精度损失（L0 第五篇：softmax 的数值）；SFT 时还要加 `ignore_index=-100`——labels 里标成 −100 的位置（prompt 与 padding）不算 loss，这就是 **SFT 的 loss mask**（L0 第五篇第四章）。`cross_entropy` 算的就是 L0 第五篇的每 token 负对数似然：内部做 log-softmax，取真实 label 那一位取负，对所有非 −100 的位置平均。
+- [`cross_entropy(logits.view(-1, V).float(), y.view(-1))`](#loss)：三个细节。`view(-1, V)` 把 `[B, T, V]` 展平成 `[B·T, V]`，因为 `cross_entropy` 要二维输入（上一篇的 reshape）；`.float()` 让 softmax + log 在 fp32 上算，避免 bf16 下溢出和精度损失（L0 第五篇：softmax 的数值）；SFT 时还要加 `ignore_index=-100`——labels 里**你自己标成** −100 的位置不算 loss，这就是 **SFT 的 loss mask**（L0 第五篇第四章）。注意 `ignore_index` 只是"跳过值为 −100 的位置"，它不知道哪些是 prompt、哪些是 padding：把 prompt 与 padding 写成 −100 是数据处理（collator / 模板）那一步的事，这一行只负责跳过。还有 labels 与 logits 的**错位**：位置 $$t$$ 的 logits 预测的是 $$x_{t+1}$$，所以要么 labels 整体左移一位（HF 的 `labels=input_ids` 是模型内部帮你 shift），要么自己 `logits[:, :-1]` 对 `labels[:, 1:]`——上面的玩具循环里 `x`、`y` 已经是错开一位取的。`cross_entropy` 算的就是 L0 第五篇的每 token 负对数似然：内部做 log-softmax，取真实 label 那一位取负，对所有非 −100 的位置平均。
 - [`loss.backward()`](#backward)：反向传播，梯度累加到每个参数的 `.grad`（第三章第二件事；L0 第七篇链式法则）。
 - [`clip_grad_norm_(..., 1.0)`](#clip)：算所有梯度拼起来的总范数，超过 1.0 就整体缩放到 1.0——**梯度裁剪**，防 loss spike（L3 第三篇）。返回值是裁剪前的范数，值得打出来看。
 - [`opt.step(); sched.step(); opt.zero_grad(set_to_none=True)`](#update)：三件事一行。`opt.step()`——AdamW 用 `.grad` 更新参数（L3 第三篇）；`sched.step()`——学习率按曲线走一步（L0 第七篇第六章）；`opt.zero_grad(set_to_none=True)`——清梯度，置 `None` 而不是填 0，省一次显存写。清零放在 `step` 之后而不是 `backward` 之前，是为了让第三章说的梯度累积只改这一行的位置就能实现。
@@ -443,7 +443,7 @@ print(f"验证 loss {val_loss:.3f}  (PPL {math.exp(val_loss):.1f})")
 它比教程里常见的循环长。教程的最小版只有五行——前向、算 loss、`backward`、`step`、`zero_grad`——那是[第一章](#一总览)那个环的骨架，能跑 MNIST。多出来的四样是 LLM 训练的标配，每一样都对应一种不加就会遇到的故障：
 
 1. **[`autocast`](#autocast)。** 不开，所有矩阵乘在 fp32 上跑：显存里的激活是 bf16 的两倍，Tensor Core 的 bf16 吞吐也用不上，同一张卡上速度与能放的 batch 都差一倍多。只对 GPU 成立——CPU 上开它是纯开销。
-2. **[`.float()` 与 `ignore_index`](#loss)。** 不加 `.float()`，softmax 在 bf16 上算：bf16 只有 8 位尾数，几万个 logits 里 `exp` 之后求和会丢掉小项，loss 从第一步起就带着系统误差，训到后期梯度不准。不加 `ignore_index=-100`，SFT 数据里的 prompt 也被当成学习目标——模型花一半算力去学"复述问题"，而且 padding 位置的 loss 会把平均值拉偏。
+2. **[`.float()` 与 `ignore_index`](#loss)。** 不加 `.float()`，softmax 在 bf16 上算：bf16 只有 8 位尾数，几万个 logits 里 `exp` 之后求和会丢掉小项，loss 从第一步起就带着系统误差，训到后期梯度不准。不加 `ignore_index=-100`（且 labels 里没把 prompt / padding 标成 −100），SFT 数据里的 prompt 也被当成学习目标——模型花一半算力去学"复述问题"，而且 padding 位置的 loss 会把平均值拉偏。
 3. **[`clip_grad_norm_`](#clip)。** 不裁，某一个 batch 里的坏样本产生一个特别大的梯度，一步就把参数推到很远的地方，loss 冲上去，之后可能回不来——这就是 loss spike。裁剪把这一步的总范数压回 1.0，参数只往那个方向走一小步。
 4. **学习率调度（[建调度器](#sched)、[每步 `sched.step()`](#update)）。** 不 warmup，第一步就用 $$3 \times 10^{-4}$$：AdamW 的二阶矩估计在前几步还没稳定，实际步长可能比设定大很多倍，前几步就发散（L3 第三篇讲 Adam 为什么需要 warmup）；不衰减，后期学习率太大，loss 在最优点附近来回抖、收不下去。
 
