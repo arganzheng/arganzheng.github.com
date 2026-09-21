@@ -1013,6 +1013,26 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   L2 posts have one CPU script each in `ai-learning-labs/algorithm-tooling/`
   and `classical-ml/` (numbers in the posts come from `expected/`); L0 has
   none. L1 does not teach Python itself — Infra 01 / 03 are its 深入篇.
+- **Split posts (2026-09-21, reader #14 / #52 / #56 「太长」)**: Infra 01 Python
+  post 1 → 上 `python-execution-model-scopes-imports-and-exceptions` (执行模型 · 作用域 ·
+  导入 · 异常) + 下 `python-object-model-protocols-decorators-and-generators`
+  (对象模型 · 协议 · 装饰器 · 生成器 · 上下文 · 完整追踪, same day 20:00); post 2 →
+  上 `python-type-expression-and-the-typing-toolbox` (§二 类型表达 + typing 速查表) +
+  中 `python-type-information-distribution-and-consumption` (存根 / mypy / 运行时读注解,
+  12:00) + 下 `python-data-contract-design-dataclass-pydantic-and-settings` (数据契约,
+  20:00); Infra 02 C++ post 1 → 上 `cpp-compilation-model-from-cpp-to-shared-object` (四阶段 ·
+  翻译单元 · ODR · 符号 · 动态链接 · 实践一) + 下
+  `cpp-project-layout-namespaces-libraries-and-cmake` (命名空间 · 库分层 · CMake ·
+  mini-c10 · 建议, 20:00). Series 讲 numbering is unchanged (titles say 「01 上 / 01 下」,
+  「02 上 / 中 / 下」; recaps still say 第一篇 / 第二篇 and link all parts); slugs follow
+  the content (the user: 「slug 要跟标题一致，没有不能变的」) — the three old slugs are
+  `redirect_from:` on the 上篇 files; the giscus threads stayed on the old
+  pathnames (#14 / #52 / #56 were answered there). The split
+  was a pure move: chapters renumbered, 「第X章」 references rewritten to
+  `[上篇第N章](/slug.html#anchor)` across parts (helper `/tmp/split_lib.py` at the
+  time — kramdown ids = strip backticks and punctuation, spaces → `-`, lowercase),
+  each part got its own 总览 / 小结 / 自测 / 下一篇; body text untouched. Roadmap
+  counts: Python 7 → 9, C++ 8 → 9, Infra total 102 → 105 (hours unchanged).
   **L2 was expanded 2026-09-21** after reader feedback (#58 / #59 「整个系列
   太走马观花」): 6 → 10 body posts (01 什么是学习 · 02 线性回归 (new,
   `linear-regression-least-squares-ridge-and-lasso`) · 03 逻辑回归与奖励模型

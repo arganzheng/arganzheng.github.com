@@ -20,7 +20,7 @@ updated: 2026-09-20
 | 单元测试 | JUnit | pytest（见[篇六](/python-unit-testing-troubleshooting-and-debugging.html)） |
 | 日志 | SLF4J + Logback | `logging`（见[篇六](/python-unit-testing-troubleshooting-and-debugging.html)） |
 | 静态检查 | Checkstyle / SpotBugs | Ruff |
-| 类型检查 | 编译器内建 | mypy / pyright（见[篇二](/python-type-system-and-data-contract-design.html)） |
+| 类型检查 | 编译器内建 | mypy / pyright（见[篇二](/python-type-expression-and-the-typing-toolbox.html)） |
 | 打包产物 | jar / war | wheel / sdist |
 | 部署运行 | Docker / Kubernetes | Docker + ASGI server |
 
@@ -49,8 +49,8 @@ Java 开发者常有的一个错觉是"Python 简单，随便装装就能跑"。
 
 - **测试**（pytest、fixture、mock、覆盖率）与**日志配置** → [《Python 单元测试、问题定位与调试实践》](/python-unit-testing-troubleshooting-and-debugging.html)
 - **异步与并发**（asyncio、GIL、事件循环）→ [《Python 并发、异步与任务协作》](/python-concurrency-asynchrony-and-task-collaboration.html)
-- **类型检查配置**（mypy / pyright）与**类型信息分发**（`py.typed`、PEP 561）→ [《Python 类型系统与数据契约设计》](/python-type-system-and-data-contract-design.html)
-- **`import` 机制、`sys.path` 与 src 布局** → [《Python 语言机制与运行时原理》](/python-language-mechanisms-and-runtime-internals.html)
+- **类型检查配置**（mypy / pyright）与**类型信息分发**（`py.typed`、PEP 561）→ [《Python 类型信息的分发与消费》](/python-type-information-distribution-and-consumption.html)
+- **`import` 机制、`sys.path` 与 src 布局** → [《Python 语言机制与运行时原理》](/python-execution-model-scopes-imports-and-exceptions.html)
 - **入口点做插件发现** → [《Python 动态机制及 AI-Infra 实践》](/python-reflection-metaprogramming-and-plugin-architecture.html)
 
 > **版本基线**：Python 生态的工具链演进很快，本文以 **Python 3.11+、uv 0.5、PyTorch 2.4、setuptools 75** 为基线。涉及具体版本号的地方都集中在代码块里，读到时请以官方文档为准。
@@ -190,7 +190,7 @@ AI-Infra 项目如果要编译 CUDA kernel，基本都是 `scikit-build-core` �
 where = ["src"]
 ```
 
-> src 布局的原理和它与 `import` 机制的关系，见[《Python 语言机制与运行时原理》](/python-language-mechanisms-and-runtime-internals.html)的"项目布局、测试与 editable 安装"一节。
+> src 布局的原理和它与 `import` 机制的关系，见[《Python 语言机制与运行时原理》](/python-execution-model-scopes-imports-and-exceptions.html)的"项目布局、测试与 editable 安装"一节。
 
 ### 5. 工具配置的聚合
 
@@ -217,7 +217,7 @@ markers = ["slow: marks tests as slow"]
 
 对应 Java：类似把 Checkstyle、SpotBugs、Surefire 的配置都写进 `pom.xml` 的 `<build><plugins>`，而不是散落在各自的 XML 里。
 
-> `[tool.mypy]` 的详细配置和渐进式引入策略见[篇二](/python-type-system-and-data-contract-design.html)；`[tool.pytest.ini_options]` 的 marker 与 `asyncio_mode` 见[篇六](/python-unit-testing-troubleshooting-and-debugging.html)。本文不重复。
+> `[tool.mypy]` 的详细配置和渐进式引入策略见[篇二](/python-type-expression-and-the-typing-toolbox.html)；`[tool.pytest.ini_options]` 的 marker 与 `asyncio_mode` 见[篇六](/python-unit-testing-troubleshooting-and-debugging.html)。本文不重复。
 
 ### 6. 对照 Maven：像什么，不像什么
 
@@ -835,7 +835,7 @@ ignore = [
 - `ASYNC` 能查出在协程里调用阻塞函数（`time.sleep`、同步 `requests`）这类问题——这正是[篇三](/python-concurrency-asynchrony-and-task-collaboration.html)讲的事件循环阻塞陷阱，Ruff 可以在 CI 里自动拦住一部分；
 - `B008`（函数默认值里调用函数）、`B023`（闭包里的循环变量延迟绑定）都是 Python 特有的陷阱，靠 review 很难每次都发现。
 
-`__init__.py` 那条 per-file-ignore 值得解释：`F401` 是"导入了但没使用"，但 `__init__.py` 里的导入往往是故意做**重导出**（对外暴露 API），并非无用。更规范的做法是配合 `__all__` 声明——见[篇一](/python-language-mechanisms-and-runtime-internals.html)的"模块是对象，包是带 `__path__` 的模块"一节。
+`__init__.py` 那条 per-file-ignore 值得解释：`F401` 是"导入了但没使用"，但 `__init__.py` 里的导入往往是故意做**重导出**（对外暴露 API），并非无用。更规范的做法是配合 `__all__` 声明——见[篇一](/python-execution-model-scopes-imports-and-exceptions.html)的"模块是对象，包是带 `__path__` 的模块"一节。
 
 ### 2. 渐进式引入与 noqa 的边界
 
@@ -874,7 +874,7 @@ value = compute()  # noqa
 select = ["PGH004"]      # 禁止裸 noqa
 ```
 
-这和[篇二](/python-type-system-and-data-contract-design.html)里对 `# type: ignore` 的建议是同一个道理——逃逸舱要窄、要有记录。
+这和[篇二](/python-type-expression-and-the-typing-toolbox.html)里对 `# type: ignore` 的建议是同一个道理——逃逸舱要窄、要有记录。
 
 ### 3. pre-commit：把检查前移
 
@@ -958,7 +958,7 @@ mypy src/              # 类型
 pytest                 # 行为
 ```
 
-> mypy 的详细配置、`strict` 各项开关的含义、以及在存量项目上渐进引入类型检查的策略，见[篇二](/python-type-system-and-data-contract-design.html)的"静态分析与推理"。测试相关见[篇六](/python-unit-testing-troubleshooting-and-debugging.html)。
+> mypy 的详细配置、`strict` 各项开关的含义、以及在存量项目上渐进引入类型检查的策略，见[篇二（中）](/python-type-information-distribution-and-consumption.html)的"静态分析与推理"。测试相关见[篇六](/python-unit-testing-troubleshooting-and-debugging.html)。
 
 ### 5. 对照 Checkstyle / SpotBugs
 
@@ -1106,7 +1106,7 @@ myops = ["py.typed", "*.pyi"]
 
 这一步很容易漏——`py.typed` 在源码目录里存在，但如果没配 `package-data`，构建 wheel 时不会被打进去，下游依然看不到类型。
 
-> `py.typed` 背后的 PEP 561 机制、`.pyi` 存根的写法、typeshed 与 `types-*` 存根包的关系、以及 inline types 与 stub 的选择，见[篇二](/python-type-system-and-data-contract-design.html)的"类型载体与分发"一节。这里只强调打包时别漏掉这一步。
+> `py.typed` 背后的 PEP 561 机制、`.pyi` 存根的写法、typeshed 与 `types-*` 存根包的关系、以及 inline types 与 stub 的选择，见[篇二（中）](/python-type-information-distribution-and-consumption.html)的"类型载体与分发"一节。这里只强调打包时别漏掉这一步。
 
 对带 CUDA 扩展的包，`.pyi` 存根几乎是必需的——类型检查器无法分析 `.so` 里的内容，只能靠存根知道 `myops._C.fused_attention` 的签名。
 
@@ -1387,7 +1387,7 @@ async def create_completion(request: CompletionRequest):
 
 **其三，Django 的核心价值用不上。** ORM、模板、admin、用户认证、数据迁移——模型服务通常没有关系数据库，不渲染页面，认证在网关层做。带上整套 Django 只是负担。
 
-**其四，与类型系统的协同。** FastAPI 直接消费 Pydantic 模型做校验和 OpenAPI 生成，这正是[篇二](/python-type-system-and-data-contract-design.html)第六章讲的数据契约在服务边界上的落地。
+**其四，与类型系统的协同。** FastAPI 直接消费 Pydantic 模型做校验和 OpenAPI 生成，这正是[篇二（下）](/python-data-contract-design-dataclass-pydantic-and-settings.html)讲的数据契约在服务边界上的落地。
 
 需要说明的是，这个结论**只针对模型服务层**。如果你要做的是带管理后台、用户体系、复杂数据模型的平台类系统（比如训练任务管理平台），Django 依然是合理选择——它的 admin 和 ORM 能省掉大量工作。选型取决于负载特征，不存在普遍更优的框架。
 

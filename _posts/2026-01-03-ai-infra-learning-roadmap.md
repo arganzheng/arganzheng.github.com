@@ -421,8 +421,8 @@ graph LR
 
 | # | 系列 | 层 | 篇数 | 时长 |
 |---|---|---|---|---|
-| 01 | [Python 在 AI-Infra：从语言机制到生产交付](/python-for-ai-infra.html)（与算法地图共享） | L1 | 7 | 14h |
-| 02 | [C++ 在 AI-Infra：从对象模型到算子扩展](/cpp-for-ai-infra.html) | L1 | 8 | 33h |
+| 01 | [Python 在 AI-Infra：从语言机制到生产交付](/python-for-ai-infra.html)（与算法地图共享） | L1 | 9 | 14h |
+| 02 | [C++ 在 AI-Infra：从对象模型到算子扩展](/cpp-for-ai-infra.html) | L1 | 9 | 33h |
 | 03 | [PyTorch 深度实践：从 Tensor 到深度学习运行时](/deep-dive-into-pytorch.html)（与算法地图共享） | L2 | 10 | 15h |
 | 04 | [Transformer 与 LLM：结构、算量与数值](/transformer-and-llm-for-infra-engineers.html)（与算法地图共享） | L2 | 8 | 11h |
 | 05 | [GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention](/gpu-kernel-engineering.html) | L2 | 10 | 21h |

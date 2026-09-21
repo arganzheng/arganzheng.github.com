@@ -336,8 +336,8 @@ AssertionError: shape mismatch: x row has 2 features, w expects 3
 
 | 本篇 | 你会用了 | 想知道机制去 |
 |---|---|---|
-| 三 | 生成器、迭代协议、`with open` | [01 第一篇](/python-language-mechanisms-and-runtime-internals.html)：生成器怎么暂停恢复、迭代协议、名字绑定 |
-| 四 | `dataclass`、类型标注 | [01 第二篇](/python-type-system-and-data-contract-design.html)：类型系统、`Protocol`、pydantic 与数据契约 |
+| 三 | 生成器、迭代协议、`with open` | [01 第一篇](/python-execution-model-scopes-imports-and-exceptions.html)：生成器怎么暂停恢复、迭代协议、名字绑定 |
+| 四 | `dataclass`、类型标注 | [01 第二篇](/python-type-expression-and-the-typing-toolbox.html)：类型系统、`Protocol`、pydantic 与数据契约 |
 | 六 | `Pool`、GIL、`chunksize` | [01 第三篇](/python-concurrency-asynchrony-and-task-collaboration.html)：GIL、线程 / 进程 / asyncio 的选择、`DataLoader` worker |
 | 五 | 装饰器、`__call__`、`__getitem__` | [01 第四篇](/python-reflection-metaprogramming-and-plugin-architecture.html)：描述符、元类、算子注册表怎么用装饰器实现 |
 | 三 | 峰值内存、对象开销 | [01 第五篇](/python-memory-management-and-optimization.html)：引用计数、对象头、为什么一个 dict 比它的 JSON 大 5 倍 |
