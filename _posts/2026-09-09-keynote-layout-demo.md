@@ -16,7 +16,7 @@ tags: [Blog, Demo, Slides]
 
 三步。
 
-**1. 先有一份幻灯片。** 本站的幻灯片是 `slides/` 目录下的 Markdown 文件，`layout: slides`，reveal.js 渲染。每份有两个地址：`/slides/<名字>.html` 是带播放器、平铺页面和评论区的落地页，`/slides/<名字>/play.html` 是纯全屏版——keynote 嵌的是后者（上面嵌的就是 `slides/2026-08-01-reveal-demo.md`）。也可以嵌外部的：Slides.com、Speaker Deck、Google Slides 的嵌入地址都行，只要对方允许 iframe。
+**1. 先有一份幻灯片。** 本站的幻灯片是 `slides/` 目录下的 Markdown 文件，`layout: slides`，reveal.js 渲染。每份有两个地址：`/slides/<名字>.html` 是带缩略图、播放器和评论区的落地页，`/slides/<名字>/play.html` 是纯全屏版——keynote 嵌的是后者（上面嵌的就是 `slides/2026-08-01-reveal-demo.md`）。也可以嵌外部的：Slides.com、Speaker Deck、Google Slides 的嵌入地址都行，只要对方允许 iframe。
 
 **2. 新建一篇 `layout: keynote` 的文章，`iframe` 指向幻灯片。** 本文的 front matter 一字不差是：
 
@@ -40,7 +40,7 @@ tags: [Blog, Demo, Slides]
 
 | | `slides` 布局 | `keynote` 布局 | `post` 布局 |
 | :--- | :--- | :--- | :--- |
-| 它是什么 | **幻灯片本身**：落地页带播放器、平铺页面；`/play.html` 全屏演示 | **一篇文章**，头部嵌一份幻灯片 | 普通文章 |
+| 它是什么 | **幻灯片本身**：落地页是缩略图 + 播放器；`/play.html` 全屏演示 | **一篇文章**，头部嵌一份幻灯片 | 普通文章 |
 | 文件位置 | `slides/xxx.md` | `_posts/日期-xxx.md` | `_posts/日期-xxx.md` |
 | URL | `/slides/xxx.html`（+ `/slides/xxx/play.html`） | `/xxx.html` | `/xxx.html` |
 | 出现在首页 / 归档 / RSS | 否（只在 [/slides/](/slides/) 索引） | 是 | 是 |
@@ -69,7 +69,7 @@ tags: [Blog, Demo, Slides]
 
 ```mermaid
 flowchart LR
-    S["slides/my-talk.md"] -- "layout: slides" --> L["/slides/my-talk.html<br/>播放器 + 平铺页 + 评论"]
+    S["slides/my-talk.md"] -- "layout: slides" --> L["/slides/my-talk.html<br/>缩略图 + 播放器 + 评论"]
     S -- "自动生成" --> D["/slides/my-talk/play.html<br/>全屏幻灯片"]
     P["_posts/2026-xx-xx-my-talk.md"] -- "layout: keynote<br/>iframe: /slides/my-talk/play.html" --> K["/my-talk.html<br/>幻灯片 + 讲稿 + 评论"]
     D -. 被嵌入 .-> L

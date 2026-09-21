@@ -52,7 +52,7 @@ transition: slide     # slide / fade / convex / concave / zoom / none
 正文……
 ```
 
-访问 `/slides/my-talk.html`：播放器 + 全部页面平铺 + 评论；
+访问 `/slides/my-talk.html`：缩略图 + 播放器 + 评论；
 `/slides/my-talk/play.html` 是投屏用的纯全屏版。
 
 ---

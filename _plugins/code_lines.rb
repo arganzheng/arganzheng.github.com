@@ -163,11 +163,3 @@ Jekyll::Hooks.register :documents, :post_render do |doc|
   doc.content = CodeLines.process(doc.content)[0]
   unused.each { |name| Jekyll.logger.warn 'code refs:', "#{doc.relative_path}: `!ref #{name}` is never linked from the text" }
 end
-
-# slide landing pages (`layout: slides`, see _plugins/slides_deck.rb) show every
-# slide flat under the player with the post styles, so their code gets the same
-# treatment; the bare deck (`layout: deck`) keeps reveal's own code rendering
-Jekyll::Hooks.register :pages, :post_render do |page|
-  next unless page.data['layout'] == 'slides' && page.output_ext == '.html'
-  page.output = CodeLines.process(page.output)[0]
-end
