@@ -81,7 +81,7 @@ benchmark · LLM-as-judge · Arena
 
 ### 第二张图：学习路径
 
-学习路径分八层加一个横切。前四层是基础（L0–L3），任何方向都要；L4 是核心；L5–L7 是三个可以并行的方向。层的顺序就是推荐的学习顺序，也是各系列的发布顺序：
+学习路径分八层加一个横切。前四层是基础（L0–L3），任何方向都要；L4 是核心；L5 后训练是三个方向里先读的一个——L6 高效推理与 L7 多模态的两篇总纲都把它列为前置（L6 的蒸馏与"怎么评"、L7 理解线的对齐训练用的都是 L5 的方法），L5 之后 L6 与 L7 可以并行。层的顺序就是推荐的学习顺序，也是各系列的发布顺序：
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
@@ -94,7 +94,7 @@ flowchart TB
 01 Python 9 篇 ≈ 14h
 03 PyTorch 10 篇 ≈ 15h`"]
     L2["`**L2 经典机器学习**
-6 篇 ≈ 2h`"]
+10 篇 ≈ 4h`"]
     L3["`**L3 深度学习基础**
 6 篇 ≈ 3h`"]
     L4["`**L4 LLM 核心**
@@ -105,14 +105,13 @@ flowchart TB
     L6["`**L6 高效推理与压缩**
 6 篇 ≈ 4h`"]
     L7["`**L7 多模态**
-7 篇 ≈ 5h`"]
+9 篇 ≈ 7h`"]
     X["`**横切：实验方法论**
 1 篇 ≈ 1h，任何阶段`"]
     L0 --> L1 --> L2 --> L3 --> L4 --> L5
     L1 -. 深入 .-> D
-    L4 --> L6
-    L4 --> L7
-    L5 -.-> L7
+    L5 --> L6
+    L5 --> L7
 
     classDef algo fill:#fff7e0,stroke:#c98a00,stroke-width:1px,color:#222
     classDef shared fill:#f3eefc,stroke:#8a6bd1,stroke-width:1px,color:#222
@@ -127,7 +126,7 @@ flowchart TB
 | 层 | 主题 | 回答的问题 | 文章 | 时长 |
 |---|---|---|---|---|
 | L0 | 数学基础 | 公式里的每个符号是什么意思？loss 为什么这样写？ | [系列（8 篇）](/math-for-ai-algorithm-engineers.html) | 3h |
-| L1 | 编程与工具 | 怎么把一个想法变成一次能跑的实验？ | [系列（6 篇）](/tooling-for-ai-algorithm-engineers.html) + 深入篇 [01 Python](/python-for-ai-infra.html)、[03 PyTorch](/deep-dive-into-pytorch.html)（共享） | 2h（+ 14h + 15h） |
+| L1 | 编程与工具 | 怎么把一个想法变成一次能跑的实验？ | [系列（6 篇）](/tooling-for-ai-algorithm-engineers.html) + 深入篇 [01 Python](/python-for-ai-infra.html)、[03 PyTorch](/deep-dive-into-pytorch.html)（共享） | 2.5h（+ 14h + 15h） |
 | L2 | 机器学习基础 | 什么是学习？怎么知道模型学会了而不是背下来了？ | [系列（10 篇）](/classical-machine-learning-in-the-llm-era.html) | 4h |
 | L3 | 深度学习基础 | 梯度怎么流？为什么深了就难训？CNN 与 RNN 各解决了什么、留下了什么？ | [系列（6 篇）](/deep-learning-foundations.html) | 3h |
 | L4 | LLM 核心 | Transformer 为什么赢？tokenizer、scaling law 与预训练数据各决定了什么？ | [04 系列（8 篇，共享）](/transformer-and-llm-for-infra-engineers.html) + [预训练系列（4 篇）](/pretraining-from-tokenizer-to-training-recipe.html) | 11h + 4h |
