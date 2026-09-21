@@ -236,6 +236,10 @@
       } else n = addRef(s.textContent.trim(), '');
       s.replaceWith(supNum(n));
     });
+    // Code refs (`[text](#name)` -> a code line): no hover in WeChat, say the line number.
+    root.querySelectorAll('a.code-ref[data-line]').forEach(function (a) {
+      a.replaceWith(el('span', 'color:' + ACCENT + ';', a.innerHTML), document.createTextNode('（第 ' + a.getAttribute('data-line') + ' 行）'));
+    });
     // Links: WeChat keeps only mp.weixin.qq.com links, so everything else becomes text + [n].
     root.querySelectorAll('a[href]').forEach(function (a) {
       var href = a.getAttribute('href') || '';

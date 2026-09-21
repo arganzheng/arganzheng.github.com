@@ -935,6 +935,30 @@ splits the HTML on every `<hr>` into reveal.js `<section>`s.
   and ~70 % of the fences never reach Rouge. Mermaid sources are skipped.
   Prose that refers to lines by number now has something to point at;
   `第 N 行` is still plain text (no auto-linking — it also means table rows).
+- Code refs (same plugin, `js/code-refs.js`, styles next to the lineno rules):
+  the Code Hike "code mentions" model. In the fence, a comment line **of its
+  own** `# !ref name` (`+N` covers N more lines; `//` `--` `;` `%` `/* */`
+  `<!-- -->` all work, name `[A-Za-z][\w-]*`) is *dropped* from the output —
+  not counted, not copied, not indexed — and the next line(s) become
+  `span.line.ref-line[data-ref=name]`, the first one with `id=name`. In the
+  prose, a plain kramdown link `[text](#name)` becomes
+  `a.code-ref[data-ref][data-line=N]`. A block with refs always shows line
+  numbers: the blue gutter number *is* the marker. JS: hover a prose ref →
+  lines `.is-active`; click → scroll (nav offset) + flash, `pushState`;
+  hover / tap the gutter (x-coordinate test against the `::before` width, the
+  pseudo-element cannot take events) → the ref's paragraph in the shared
+  `InlinePopover` with the ref `<mark>`ed and a 「查看说明」 jump. Without JS
+  it is an anchor jump with `.line:target`. `wechat-export.js` appends
+  「（第 N 行）」. Names are per post; a name used in several blocks
+  (code-tabs panels) gets its id on the first only, JS picks the visible
+  panel. `!ref` never linked → build warning; link to a missing ref → lychee
+  fails `npm run check`. A directive inside a multi-line string / block
+  comment (a Rouge span still open at the line start) is left as text;
+  `{:.no-refs}` on a block keeps directives verbatim (the memo shows the
+  syntax that way). Trailing-comment form (`x = 1  # !ref a`) is deliberately
+  unsupported — stripping half a Rouge span is not worth it. The 34 posts
+  that explain code with ①②③ in comments keep working as plain text; new
+  posts should use `!ref` when a paragraph explains specific lines.
 - Companion code lives in `../ai-learning-labs` (git repo, pushed by the
   user). Its `.venv/` (Python 3.12 via `~/.local/bin/python3.12`, torch CPU,
   numpy, tiktoken, tokenizers) is gitignored; recreate with

@@ -21,6 +21,7 @@ SRC=(
   js/figures.js           # captions + feedback handle (before annotations.js: the caption is what gets underlined)
   js/code-tokens.js       # member-access colouring rouge cannot express
   js/inline-popups.js     # footnote / external-link popups
+  js/code-refs.js         # prose <-> code-line links (needs InlinePopover)
   js/vendor/approx-string-match.js
   js/annotations.js       # comments, 划线评论, reactions, views
   js/share.js             # action bar, share menu, .post-stats strip
