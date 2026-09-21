@@ -71,6 +71,8 @@ matmul_kernel[grid](a, b, c, 1024, 2048, 512,
 | 七 | 本文小结 | |
 | 八 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 源码以 Triton v3.8.0 为准：`python/triton/runtime/jit.py`、`python/src/specialize.cc`、`python/triton/compiler/{compiler,code_generator}.py`、`python/triton/language/{core,semantic}.py`、`include/triton/Dialect/Triton/IR/TritonOps.td`、`lib/Dialect/Triton/Transforms/`、`third_party/nvidia/backend/compiler.py`。
 
 ## 二、定义时：`@triton.jit` 做了什么
@@ -110,6 +112,8 @@ flowchart LR
 |---|---|---|---|
 | 运行时参数 | `a_ptr`、`M`、`stride_am` | `tt.func` 的一个形参，类型 `!tt.ptr<bf16>` / `i32` | 不重新编译（除非特化 key 变了，§三.2） |
 | `constexpr` 参数 | `BLOCK_M`、`BLOCK_K` | **不出现在函数签名里**，值直接代入 IR（`tt.make_range {start=0, end=128}`、`arith.constant 128`） | 每个不同的值编译一个新 kernel |
+
+Table: 运行时参数与 constexpr 参数
 
 `constexpr` 是 Triton 与 C++ 模板参数的对应物：`BLOCK_M=128` 编出来的 kernel 里，所有 shape 都是字面量 `128`，`tl.arange(0, BLOCK_M)` 的上界是一个属性而不是一个操作数（`TT_MakeRangeOp` 的 `I32Attr:$start, I32Attr:$end`）。这也是为什么张量的 shape 必须是 `constexpr`：MLIR 的 `tensor<128x32xbf16>` 类型要求维度是编译期常量，编译器所有的 layout 推理（第七篇）都建立在 shape 已知之上。
 
@@ -160,6 +164,8 @@ flowchart TB
 | `do_not_specialize` 列出的参数 | 按类型 | 不特化 | `KernelParam.do_not_specialize` |
 | `do_not_specialize_on_alignment` 列出的 | 按类型 | 不看 16 的倍数，但仍看是否等于 1 | `align=False` |
 
+Table: binder 从实参算特化的规则
+
 对上面那次调用，binder 产出的 specialization 列表大致是：
 
 | 参数 | 实参 | `(type_str, spec_key)` |
@@ -174,6 +180,8 @@ flowchart TB
 | `stride_cm` | 2048 | `("i32", "D")` |
 | `stride_cn` | **1** | `("constexpr", 1)` |
 | `BLOCK_M`、`BLOCK_N`、`BLOCK_K` | 128、128、32 | `("constexpr", 128)` … |
+
+Table: 一次调用的 specialization 列表
 
 三件事值得停一下：
 
@@ -191,6 +199,8 @@ flowchart TB
 | `signature` | `{"a_ptr": "*bf16", …, "M": "i32", …, "stride_ak": "constexpr", …, "BLOCK_M": "constexpr", …}` | 决定 `tt.func` 的参数类型；`constexpr` 的不进签名 |
 | `constants` | `{(7,): 1, (9,): 1, (11,): 1, (12,): 128, (13,): 128, (14,): 32}`（按参数位置索引） | 代入 IR 的编译期常量 |
 | `attrs` | `{(0,): [["tt.divisibility", 16]], (1,): …, (3,): …}` | 挂到对应参数上的属性 |
+
+Table: ASTSource 的字段
 
 `ASTSource.hash()` 把这四样哈希在一起（`fn.cache_key`、`attrs`、排序后的 `signature`、`constants`），是磁盘缓存 key 的一部分（第十一篇）。注意这里**没有实参的值**——`M = 1024` 这个数不在 `ASTSource` 里，只有"`M` 是 `i32` 且是 16 的倍数"这两个事实在。编译器看到的世界就是这么多。
 
@@ -235,6 +245,8 @@ def ast_to_ttir(fn, src, context, options, codegen_fns, module_map, module=None)
 | `tl.tensor` | `pid_m`、`offs_m`、`acc` | 一个 IR 值的**句柄**：`.handle` 是 MLIR 的 `Value`（通过 pybind 暴露），`.type` 是 Triton 的类型对象（`block_type([128], int32)`） |
 | `tl.constexpr` | `BLOCK_M`、`BLOCK_K * stride_ak`（两个 constexpr 相乘） | 编译期已知的 Python 值，**还没有进入 IR** |
 | 其他 Python 对象 | `tl.float32`（dtype）、`tl`（模块）、`range`（内建） | 只在编译期有意义 |
+
+Table: CodeGenerator visit 方法的返回值类型
 
 `self.builder` 是 MLIR `OpBuilder` 的 Python 绑定（`ir.builder`）：`create_addptr`、`create_load`、`create_for_op` 这些方法各生成一个 op 插到当前插入点，返回结果 `Value`。`self.semantic` 是 `TritonSemantic`（`language/semantic.py`），封装类型检查、广播和"调哪个 builder 方法"的决定。
 
@@ -370,6 +382,8 @@ flowchart TB
 | `tensor<128x32x!tt.ptr<bf16>>` | 指针张量 | 同上，元素是 `tt.ptr` |
 | `!tt.tensordesc<tensor<128x32xbf16>>` | TMA 张量描述符（Hopper+） | `TT_TensorDescType` |
 
+Table: TTIR 的类型
+
 TTIR 把张量表示为 MLIR 内建的 `tensor` 类型，只是元素类型允许 `!tt.ptr`。这让 `arith`、`math` 这些标准方言的 op 可以直接作用在 Triton 的张量上——`arith.addi %a, %b : tensor<128xi32>` 是合法的 MLIR，不需要 Triton 自己定义整数加法。**Triton 只定义 MLIR 没有的东西**。
 
 ### 2. Op 一览
@@ -388,6 +402,8 @@ TTIR 把张量表示为 MLIR 内建的 `tensor` 类型，只是元素类型允�
 | 数值 | `tt.fp_to_fp`、`tt.clampf`、`tt.precise_sqrt` / `precise_divf`、`tt.mulhiui`、`tt.extern_elementwise`、`tt.elementwise_inline_asm` | `.to(tl.float8e4nv)`、`tl.clamp`、`tl.sqrt_rn`、`tl.umulhi`、`tl.extra.libdevice.*`、`tl.inline_asm_elementwise` |
 | 函数 | `tt.func`、`tt.call`、`tt.return` | `def`、调用子函数、`return` |
 | 调试 | `tt.print`、`tt.assert` | `tl.device_print`、`tl.device_assert` |
+
+Table: tt 方言的 op 一览
 
 借用的标准方言：`arith`（所有整数 / 浮点算术、比较、`select`、类型转换 `extf` / `truncf` / `sitofp` …）、`math`（`exp`、`log`、`sqrt` …）、`scf`（`for` / `if` / `while` / `yield`）、`cf`（有 `return` 的 `if` 退化出的分支）、`ub.poison`（归纳变量占位）。
 
@@ -519,6 +535,8 @@ module {
 | 7 | `symbol_dce` | 删掉已被内联、不再被引用的 `tt.func private` | MLIR `SymbolDCE` | — |
 | 8 | `loop_unroll` | 展开带 `tt.loop_unroll_factor` 属性的 `scf.for` | `mlir::loopUnrollByFactor` | `LoopUnroll.cpp` |
 
+Table: make_ttir 的 pass 列表
+
 `Combine` 值得多看两眼，它是第四篇两种 pattern 写法的实例。DRR 那一条（`Combine.td`）：
 
 ```text
@@ -540,6 +558,8 @@ C++ 那几条（`Combine.cpp` 的 `runOnOperation` 里注册的）：
 | `CombineBroadcastMulReducePattern` | `reduce(mul(broadcast(a), broadcast(b)), axis)` | `dot(a, b)` 或保持 | 把用广播乘加写出的矩阵乘识别成 `dot`（有形状条件） |
 | `CombineReshapeReducePatterns` | `reshape` 后接可交换的 `reduce` | 调整顺序 | 减少数据重排 |
 | `RankedReduceDescriptorLoads` | `reshape(descriptor_load)` | 把 reshape 折进描述符的 shape | TMA 路径的整理 |
+
+Table: Combine.cpp 的 pattern
 
 它们的共同点：都是**用户写法的多样性 → 编译器认得的一种形状**。`tl.dot(a, b) + c` 和 `tl.dot(a, b, c)` 对用户是两种写法，对 `AccelerateMatmul`（第八篇）只应该是一种。这是第一篇说的 canonicalization 在 Triton 里的具体形式。
 

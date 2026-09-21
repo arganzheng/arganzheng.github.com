@@ -75,6 +75,8 @@ Java 仍是参照系。Java 没有预处理器，条件编译靠运行期 `if` �
 | 十四 | 本文小结 |  |
 | 十五 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、预处理器：文本层面的另一种语言
 
 ### 1. 预处理发生在编译之前
@@ -92,6 +94,8 @@ Java 仍是参照系。Java 没有预处理器，条件编译靠运行期 `if` �
 | `#if 表达式` / `#ifdef NAME` / `#ifndef NAME` / `#elif` / `#else` / `#endif` | 条件保留或删除一段文本 |
 | `#pragma once` 等 | 编译器扩展 |
 | `#error 消息` | 让编译失败并打印消息 |
+
+Table: 所有预处理指令
 
 用 `-E` 可以只跑预处理、看到编译器真正看到的东西。这是读懂任何宏的第一个工具，本文会反复用它。
 
@@ -193,6 +197,8 @@ STR2(__LINE__)   // "42"         ← 实参先展开成 42，再传给 STR1
 | `__HIPCC__` | 正在用 hipcc 编译 | hipcc |
 | `NDEBUG` | Release 构建，标准库的 `assert` 靠它关闭 | 构建系统 |
 
+Table: 本文用到的预定义宏
+
 另一类是构建系统传进来的：CMake `target_compile_definitions(... PRIVATE -DC10_BUILD_MAIN_LIB)` 等价于在每个源文件最前面写 `#define C10_BUILD_MAIN_LIB`。开头那段 vLLM 代码里的 `TORCH_EXTENSION_NAME` 就是这样定义的，`cmake/utils.cmake` 的 `define_extension_target` 函数里：
 
 ```cmake
@@ -213,6 +219,8 @@ Java 语言规范没有预处理器，这是刻意的设计决定。Java 用别�
 | 生成重复代码 | 注解处理器（Lombok、AutoValue）、反射 | 注解处理器在编译期生成新的 `.java`，是"结构化的代码生成"，比文本替换安全，也重得多 |
 | 捕获调用点 `__FILE__`/`__LINE__` | `Thread.currentThread().getStackTrace()`、`StackWalker` | Java 在运行期从栈帧取，有成本；C++ 在编译期就写死成字符串常量，零成本 |
 | 静态注册（第四、五节） | `ServiceLoader` + `META-INF/services`、Spring 组件扫描 | 见第六章 |
+
+Table: 宏的用途与 Java 的替代手段
 
 要建立的直觉：**Java 里"代码有没有"是运行期的事，C++ 里经过预处理，"代码有没有"在编译前就决定了**。看一个 PyTorch 源文件时，`#ifdef` 包住的两个分支只有一个会进入你正在读的那个二进制；想知道是哪一个，要看构建配置，不是看代码。
 
@@ -415,6 +423,8 @@ inline C10_API const char* torchCheckMsgImpl(
 | `TORCH_CHECK(x > 0, "x must be positive")` | `torchCheckMsgImpl(const char*, const char*)` | 用户的字面量 | 零 |
 | `TORCH_CHECK(x > 0, "x = ", x, ", y = ", y)` | 变参模板 | `c10::str(...)` 拼出的 `std::string` | 一个 `ostringstream` |
 
+Table: TORCH_CHECK 三种调用形式选中的重载
+
 关键在于第三种只有在检查失败时才会走到——因为整个 `TORCH_CHECK_MSG(...)` 在 `if` 里面。如果 `TORCH_CHECK` 是一个函数 `void check(bool cond, const std::string& msg)`，那么 `check(x > 0, str("x = ", x))` 每次调用都会先拼字符串再判断条件，热路径上多一次堆分配。
 
 `c10::str` 在 `c10/util/StringUtil.h`：
@@ -528,6 +538,8 @@ C++ 对象按生命周期分三类（第六篇加上 `thread_local` 是四类）
 | 动态（堆） | `new`、`make_intrusive` | `new` 时 | `delete` 时 |
 | 静态 | 全局变量、`static` 成员、`static` 局部变量、命名空间作用域变量 | 见下 | `main` 返回后（`exit` 时）逆序 |
 
+Table: 三种存储期
+
 第二篇讲的都是前两种。本篇的主角是第三种：**静态存储期对象在程序（或它所在的动态库）开始执行用户代码之前就已经构造好了**，而构造函数里可以跑任意代码。
 
 具体来说，静态存储期变量的初始化分两步：
@@ -582,6 +594,8 @@ PyTorch 至少有四套这样的注册表，形态各异但骨架相同：
 | CPU kernel 按指令集分发 | `REGISTER_DISPATCH`（`ATen/native/DispatchStub.h`） | 模板静态成员特化 / `RegisterCUDADispatch` | `DispatchStub<...>::DEFAULT/AVX2/AVX512` 等静态成员 |
 | 设备守卫实现 | `C10_REGISTER_GUARD_IMPL`（`c10/core/impl/DeviceGuardImplInterface.h`） | `DeviceGuardImplRegistrar` | 按 `DeviceType` 索引的原子指针数组 |
 | 通用字符串键工厂 | `C10_REGISTER_CLASS`（`c10/util/Registry.h`） | `c10::Registerer` | `c10::Registry` 的 `unordered_map` |
+
+Table: PyTorch 的四套静态注册表
 
 先看最通用的 `c10/util/Registry.h`，它把上面那个最小模式一模一样地写成了模板：
 
@@ -1155,6 +1169,8 @@ C10_EXPORT Dispatcher& Dispatcher::realSingleton() {
 | `hidden`（默认） | 正常使用 | 链接时 undefined reference / 加载时 undefined symbol；`nm -D` 看不到 |
 | `default`（有 `C10_API` 等） | 正常使用 | 可链接、可 `dlsym` |
 
+Table: 符号可见性对 .so 内外的影响
+
 对静态注册来说，可见性在三处起作用：
 
 **第一，注册器要能找到注册表。** `Dispatcher::realSingleton()` 定义在 `libtorch_cpu.so`，必须 `C10_EXPORT`，否则扩展 `.so` 里的 `TorchLibraryInit` 构造函数链接不到它。`class TORCH_API Library`、`class TORCH_API CppFunction` 同理——扩展调用它们的成员函数。
@@ -1178,6 +1194,8 @@ C10_EXPORT Dispatcher& Dispatcher::realSingleton() {
 | Linux（GNU ld / gold / lld） | `-Wl,--whole-archive libfoo.a -Wl,--no-whole-archive` |
 | macOS（ld64） | `-Wl,-force_load,libfoo.a` |
 | Windows（MSVC link） | `/WHOLEARCHIVE:foo.lib` |
+
+Table: 各平台强制链接静态库全部目标文件的选项
 
 `cmake/TorchConfig.cmake.in` 为静态构建的 libtorch 用户准备了这个：
 
@@ -1443,6 +1461,8 @@ bfloat16 的硬件转换指令从 Ampere（800）开始才有；给更老的架�
 | `CPU_CAPABILITY` | `cmake/Codegen.cmake`，同一 kernel 文件按 DEFAULT/AVX2/AVX512 编多遍 | `REGISTER_DISPATCH` 特化哪个静态成员（5.3 节） |
 | `USE_CUDA`、`USE_ROCM`、`USE_MPS` | CMake 顶层选项 | 整块后端代码的开关 |
 
+Table: 构建系统传入的配置宏
+
 排查"我的机器上这段代码为什么没生效"时，第一步是确认这些宏在那次构建里的值。`ninja -v` 或 `compile_commands.json`（第八篇）能看到完整的 `-D` 列表。
 
 ### 5. Java 对照：一份字节码 vs 多份二进制
@@ -1477,6 +1497,8 @@ Java 的口号是 "write once, run anywhere"：一份 `.class`，任何平台的
 | `dispatch` | 每个 DispatchKey 下的实现函数名。这些函数由人手写在 `aten/src/ATen/native/` 下，比如 `_bincount_cpu` 在 `aten/src/ATen/native/SummaryOps.cpp` |
 | `tags` | 元数据，供编译器/Dynamo 等使用 |
 | `autogen` | 让 torchgen 自动生成一个 `out=` 变体 |
+
+Table: native_functions.yaml 的字段含义
 
 手写的部分只有 kernel 本体：
 
@@ -1916,6 +1938,8 @@ CUDA 后端的 `csrc/torch_bindings.cpp`（8.4 节看过）是同一个骨架的
 | 322–363 | `C10_WARP_SIZE` 及 ROCm 的复杂处理 | 条件编译：CUDA/HIP |
 | 365–546 | `CUDA_KERNEL_ASSERT`、`SYCL_KERNEL_ASSERT` | 调用点捕获（device 侧的 assert） |
 | 548–694 | `C10_MOBILE`、`HAS_DEMANGLE`、`C10_CLANG_DIAGNOSTIC_PUSH/POP/IGNORE`、`HIDDEN_NAMESPACE_BEGIN/END` | 条件编译 |
+
+Table: Macros.h 的整体结构
 
 `C10_ERASE`（`C10_ALWAYS_INLINE C10_ATTR_VISIBILITY_HIDDEN`）是个有意思的组合：标在一个函数上表示"总是内联，且不导出"——保证它不会作为独立符号出现在 `.so` 里，第一篇 ODR 讨论的"inline 函数在多个 DSO 之间的版本不一致"问题对它就不存在了。
 
@@ -2709,6 +2733,8 @@ endif()
 | `ops/add.cpp` 的两个 `MINI_LIBRARY_IMPL` | 生成的 `RegisterCPU.cpp`、`RegisterMeta.cpp` | 匿名命名空间 kernel + `IMPL` 块 |
 | `ops/ops.h` 的 `inline add` + `static const OperatorHandle op` | 生成的 `Functions.h` + `Operators_N.cpp` | 查一次表，缓存句柄 |
 
+Table: mini-c10 的宏与 PyTorch 的对照
+
 本篇的注册表没有加锁：静态初始化阶段由加载器串行执行，`registerOps` 之类的读操作也只在 `main` 里单线程调用。真实的 `c10::Dispatcher` 用一把 `std::mutex` 保护注册路径（`torch.library` 允许运行时从任意线程注册），`c10::Registry::Register` 也是（5.2 节的 `std::lock_guard<std::mutex> lock(register_mutex_)`）。第六篇讲 `std::mutex`、原子和 `thread_local`，会把 mini-c10 的 `refcount_` 改成原子；本篇用到的"函数内静态的初始化是线程安全的"也属于那一篇的内容。
 
 ## 十三、工程实践建议与常见错误
@@ -2751,6 +2777,8 @@ endif()
 | 段错误发生在 `main` 之前 / `import` 时 | 静态初始化顺序问题；注册器构造函数依赖了未初始化的全局对象 | `gdb -ex run --args python -c 'import ext'`，看栈里的 `__cxx_global_var_init` / `_GLOBAL__sub_I_` |
 | `-fvisibility=hidden` 后 `import` 报 `dynamic module does not define module export function` | `PyInit_*` 没有默认可见性 | 用 `PyMODINIT_FUNC`（自带可见性）或 `PYBIND11_MODULE` |
 
+Table: 静态注册常见错误速查
+
 ### 5. 读源码时的定位技巧
 
 - 全大写标识符：先判断是三种用途中的哪一种。`*_API`/`*_EXPORT`/`C10_LIKELY`/`C10_NOINLINE`/`C10_HOST_DEVICE` 是属性适配，读代码时可以当空气；`AT_FORALL_*`/`AT_DISPATCH_*` 是生成，找到列表宏就找到了源头；`TORCH_CHECK`/`TORCH_LIBRARY*`/`REGISTER_*` 是调用点捕获和注册。
@@ -2784,6 +2812,8 @@ endif()
 | 静态库裁剪 | 没被引用的 `.o` 不进最终产物，静态注册随之消失 | `append_wholearchive_lib_if_found(torch torch_cpu)` |
 | 代码生成 | 跨文件的重复交给外部生成器，yaml 是单一事实来源 | `torchgen/gen.py` + `native_functions.yaml` + `aten/src/ATen/templates/` → `Functions.h`、`Operators_N.cpp`、`RegisterSchema.cpp`、`RegisterCPU.cpp` |
 | 平台/编译器宏 | 同一份源码在每个（编译器 × OS × GPU 架构）组合下是不同的二进制 | `__GNUC__`、`_MSC_VER`、`_WIN32`、`__CUDACC__`、`__CUDA_ARCH__`、`C10_MOBILE` |
+
+Table: 本篇涉及的机制及其在 PyTorch 里的体现
 
 Java 工程师需要建立的三个新直觉：**"代码有没有"在编译前就决定了**（预处理和条件编译，看到的分支未必在你的二进制里）；**"登记"不需要有人调用**（静态对象构造函数由加载器执行，这是 `ServiceLoader` 做不到的无条件初始化）；**"登记"可能被链接器静默取消**（静态库丢弃未引用的目标文件，Java 里没有任何对应物）。第一个直觉让你读得懂 `#ifdef`，第二个让你读得懂 `TORCH_LIBRARY`，第三个让你在算子"消失"时知道去看链接命令而不是代码。
 

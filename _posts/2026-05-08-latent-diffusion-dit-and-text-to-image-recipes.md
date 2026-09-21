@@ -31,6 +31,8 @@ updated: 2026-09-15
 | Imagen | 2022 | **像素空间**级联（64 → 256 → 1024） | U-Net ×3 | 2B + 超分 | T5-XXL | $$\epsilon$$ | cosine；动态阈值 | 内部 460M 对 |
 | DALL-E 3 | 2023 | latent | 未公开 | — | 未公开 | — | — | **recaption 95%**（技术报告的核心） |
 
+Table: 主流文生图模型的配方
+
 表里的每一列对应下面这条流水线上的一个部件——训练时图像先进 VAE 编码器变成 latent 再加噪，采样时从噪声 latent 出发、去噪几十步、最后过一次 VAE 解码器：
 
 ```mermaid
@@ -87,6 +89,8 @@ U-Net + cross-attn 或 DiT / MMDiT
 | 十一 | 本文小结 | |
 | 十二 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、Latent diffusion
 
 ### 1. 像素空间的代价
@@ -100,6 +104,8 @@ $$1024^2 \times 3$$ 的图有 3.1M 个数。U-Net 在这个尺寸上的第一层
 | 像素 | $$1024 \times 1024 \times 3$$ | 3,145,728 | 1× | 262,144 |
 | latent f8 × 4 通道（SD 1.x） | $$128 \times 128 \times 4$$ | 65,536 | 1/48 | 4,096 |
 | latent f8 × 16 通道（SD3 / FLUX） | $$128 \times 128 \times 16$$ | 262,144 | 1/12 | 4,096 |
+
+Table: 像素空间与 latent 空间的代价对比
 
 Transformer 的 attention 成本随序列长度平方增长，262144 个 token 的 attention 是 4096 个的 4096 倍——像素空间的 DiT 根本跑不起来。
 
@@ -203,6 +209,8 @@ FLUX.1（Black Forest Labs 2024）在 MMDiT 双流块之后接了若干**单流�
 | T5-XXL encoder | 4.7B | 512（实际用 77–256） | 纯语言理解：语法、组合、长描述、拼写 | Imagen、PixArt、SD3、FLUX |
 | LLM（Llama、Gemma） | 2–8B | 长 | 更强的语言理解与知识 | 2025 年的部分工作（Sana 用 Gemma-2、HunyuanVideo 用 MLLM） |
 
+Table: 文本编码器的三种选择
+
 CLIP 文本塔的问题是它为**匹配图像**训练，不为理解语言：对属性绑定、否定、计数、长 prompt 的后半段都弱（第一篇的词袋性），且 77 token 的上限让长描述被截断。Imagen 的关键发现：**换成 T5-XXL 比放大扩散模型本身更有效**——文本理解是文生图的瓶颈之一。SD3 用三个编码器（CLIP-L + bigG + T5）：CLIP 的池化向量提供全局条件（经 adaLN），T5 的序列提供细粒度的 token 条件（进 MMDiT 序列）；消融显示去掉 T5 在文字渲染与复杂 prompt 上明显下降，但对一般 prompt 影响小——所以 SD3 允许推理时不加载 T5 省显存。
 
 ### 2. recaption：数据侧的杠杆
@@ -270,6 +278,8 @@ FLUX.1-schnell 是 FLUX.1 经过（未公开细节的）对抗蒸馏的 1–4 �
 | FLUX.1-schnell | $$1024^2$$ | 4096 | 12B | 4 | ×1 | ~100 T | 400 T | H100 ~2 s |
 | LCM SD 1.5 | $$512^2$$ | 4096 | 0.86B | 4 | ×1 | ~0.8 T | 3.2 T | A100 < 0.5 s |
 
+Table: 主流文生图模型的采样算力与时间
+
 对比 LLM：7B 模型生成 1000 token 约 14 TFLOPs、batch 1 时 20–30 秒（memory-bound，每步读 14 GB 权重）。FLUX 一张图是它的 200 倍 FLOPs、时间却只有一半——**扩散的每步是 4096 个 token 的并行前向**（一次大 batch 的 GEMM，MFU 可到 50% 以上），LLM 的每步是 1 个 token（MFU ~1%）。
 
 ### 3. 对服务系统的含义
@@ -284,6 +294,8 @@ FLUX.1-schnell 是 FLUX.1 经过（未公开细节的）对抗蒸馏的 1–4 �
 | 延迟结构 | 首 token + 每 token | 步数 × 每步；无流式（要么等全部步数，要么输出中间的模糊预览） |
 | 加速手段 | 量化、投机解码、KV 压缩 | 步数蒸馏、求解器、模型量化（FP8 有效，INT4 对图质量伤害较大）、算子融合 |
 | 多 GPU | 张量并行 / PD 分离 | 步间流水线或 patch 并行（DistriFusion） |
+
+Table: LLM 服务与扩散服务的差别
 
 这是 Infra 地图的范畴，这里只说明：扩散模型的"推理优化"与 [L6](/efficient-inference-and-compression-for-llms.html) 讲的 LLM 推理优化几乎没有重叠——L6 的六篇里只有量化的部分适用。
 
@@ -310,6 +322,8 @@ Sora 的技术报告（OpenAI 2024）的核心表述："patch 是视频的 token
 | Wan 2.1（2025） | 1.3B / 14B | 3D（Wan-VAE，因果） | 全 3D DiT | umT5 | 720p 5 s | 中英文字渲染；14B 是开源最强之一 |
 | Veo 2 / Kling / Gen-3 | 未公开 | — | — | — | 1080p+ | 闭源 |
 
+Table: 视频生成模型的配方对照
+
 ### 4. 成本
 
 HunyuanVideo 13B 生成 5 秒 720p：token 数约 $$(129/4) \times (720/16) \times (1280/16) \approx 32 \times 45 \times 80 = 115K$$ 个（patch 2 后），50 步，每步线性项 $$2 \times 6.8B \times 119K \approx 1.6$$ PFLOPs（每个 token 只经过双流块的一条流与单流块，约 6.8B 参数，而不是全部 13B），attention 项 $$4 L N^2 d = 4 \times 60 \times 119K^2 \times 3072 \approx 10.5$$ PFLOPs——是线性项的 6 倍多，一步约 12 PFLOPs，50 步总计约 600 PFLOPs——是 FLUX 一张图的 300 倍，单卡 H100 二十多分钟，实际都在多卡序列并行上跑。视频生成是 attention 主导的负载，这笔账的系统含义在 Infra 地图的 10[《扩散模型推理基础设施》](/diffusion-model-inference-infrastructure.html)里展开。视频生成是当前算力最密集的生成任务，也是步数蒸馏（CausVid、Self-Forcing 一类的自回归 + 蒸馏）最迫切的领域。
@@ -326,6 +340,8 @@ HunyuanVideo 13B 生成 5 秒 720p：token 数约 $$(129/4) \times (720/16) \tim
 | DPO | **Diffusion-DPO**（Wallace 等 2023）：偏好对（人类选的好 / 差图），把 DPO 的目标推广到扩散的 ELBO 上 | Pick-a-Pic 数据集；SDXL-DPO 在人类偏好上显著提升 |
 | RM + RL | 奖励微调：用 ImageReward / HPS / PickScore 一类的偏好模型做奖励，ReFL / DRaFT 直接对生成图的奖励反传梯度（通过采样链）；DDPO 用 PPO | 奖励过优化（reward hacking）同样存在——图变得"过度美化" |
 | RLVR | 可验证奖励：OCR 检查文字渲染、检测器检查物体数量与位置、VQA 模型检查 prompt 遵循（GenEval 式） | 2025 年的 Flow-GRPO、DanceGRPO 把 GRPO 搬到 flow matching 模型上 |
+
+Table: 扩散模型后训练与 LLM 后训练的对应
 
 ### 2. Diffusion-DPO 的形式
 
@@ -366,6 +382,8 @@ $$
 | 成本 | SD 1.5 80 T / 3 s；FLUX 2.8 P / 12 s；7B LLM 1000 token 14 T / 25 s | 扩散 compute-bound、无自回归 KV、按步数 / 分辨率组 batch |
 | 视频 | 3D VAE（4× 时间、8× 空间）+ 时空 patch + 全 3D attention；5 s 720p ≈ 100K token | HunyuanVideo 13B ≈ 600 P（attention 占八成以上），FLUX 的 300× |
 | 后训练 | 美学微调；Diffusion-DPO（ELBO 替代似然）；奖励微调；可验证奖励 + GRPO | 与 L5 平行，含 reward hacking |
+
+Table: Latent diffusion 与 DiT 的规则小结
 
 ## 十二、自测
 

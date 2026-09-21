@@ -112,6 +112,8 @@ Java 把前两件事合为一体：类型写在源码里，编译器既是提供
 | 四 | 本文小结 |  |
 | 五 | 自测 | 2 道题 |
 
+Table: 本文的章节安排
+
 ## 二、类型表达：从基础注解到 typing 工具箱
 
 提供层解决"类型信息从哪里来"。它包括两部分：**类型表达**——用什么语法和工具把类型意图写出来，是本章的全部内容；**类型载体与分发**——如何让没有源码注解的库也能提供类型信息给消费方，在[中篇第二章](/python-type-information-distribution-and-consumption.html#二类型载体与分发存根typeshed-与-pytyped)。
@@ -204,6 +206,8 @@ def matmul(input: Tensor, other: Tensor, *, out: Tensor | None = None) -> Tensor
 | `FrozenSet[str]` | `frozenset[str]` | `Set.of(...)` | 不可变集合 |
 | `Sequence[int]` | `collections.abc.Sequence[int]` | `List<Integer>` | 只读序列 |
 | `Mapping[str, int]` | `collections.abc.Mapping[str, int]` | `Map<String, Integer>` | 只读映射 |
+
+Table: 内置容器的类型注解对照
 
 
 ### 2. Union、Optional 与 None：表达"可能性"
@@ -671,6 +675,8 @@ class ReadOnlyList(Generic[T_co]):
 | Python 3.12+ | 类型参数后加 `+` | 类型参数后加 `-` | 无标记 |
 | 适用场景 | 只读/生产者 | 只写/消费者 | 可读可写 |
 
+Table: 协变、逆变、不变：Java 与 Python 的写法
+
 在实践中，很少需要手动声明协变/逆变——Protocol 中类型检查器会自动推断。主要在定义泛型容器/接口类时才需要关心。
 
 **Python 3.12+ 的新语法**
@@ -880,6 +886,8 @@ Model build(Class<? extends Model> cls) throws Exception {
 | `type(x)` | `x.getClass()` | 取运行时类型 |
 | `issubclass(a, b)` | `b.isAssignableFrom(a)` | 子类判定 |
 | `isinstance(x, C)` | `C.isInstance(x)` / `instanceof` | 实例判定 |
+
+Table: 实例类型与类对象类型：Python 与 Java 对照
 
 两个实质差异：
 
@@ -1126,6 +1134,8 @@ class Dialect(ABC):
 | `Hashable` | `__hash__` | 重写 `hashCode()` | 可哈希 |
 | `Sized` | `__len__` | 无直接对应 | 有长度 |
 
+Table: collections.abc 速查
+
 在类型注解中，当你希望参数是"只读"的时候，用 `Sequence` 而不是 `list`，用 `Mapping` 而不是 `dict`——这和 Java 中用 `List<T>` 接口而不是 `ArrayList<T>` 作为参数类型是同一个道理。
 
 **Protocol：结构化子类型（静态鸭子类型）**
@@ -1176,6 +1186,8 @@ class DatabaseConnection implements Closeable {  // 必须写 implements
 | 运行时检查 | `instanceof` | `isinstance` | 需要 `@runtime_checkable` |
 | 检查时机 | 编译期 | 实例化时 | 静态分析时 |
 | 核心理念 | 名义类型 | 名义类型 | **结构化类型** |
+
+Table: Java interface、Python ABC 与 Protocol 的选择指南
 
 **何时选 ABC：**
 
@@ -1945,6 +1957,8 @@ class RelationshipProperty:
 | `TypeAlias` | 3.10 | 类型别名 | 无 | ★★★★☆ |
 | `get_type_hints()` | 3.5 | 运行时获取注解 | `Field.getGenericType()` | ★★★☆☆ |
 
+Table: typing 功能速查表
+
 > 表里的 `X ∣ Y` 是 `X | Y`——Markdown 表格里写不出竖线，用了形近的 ∣ 代替。频次说明：基于 PyTorch、vLLM、FastAPI、Pydantic、httpx、SQLAlchemy 等主流项目源码中的实际出现情况估算。★★★★★ 表示几乎每个模块都会用到，★☆☆☆☆ 表示仅在特定场景出现。
 
 ### 2. Java 与 Python 类型系统对照
@@ -1960,6 +1974,8 @@ class RelationshipProperty:
 | 协议/接口 | 名义类型（必须 implements） | Protocol 结构化类型（不需要继承） |
 | 检查时机 | 编译期 | 开发时（mypy/pyright）或运行时（Pydantic） |
 | 新语法 | 无变化 | 3.12+ `class Stack[T]:` |
+
+Table: Java 与 Python 类型系统对照
 
 ## 四、本文小结
 

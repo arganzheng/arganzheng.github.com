@@ -47,6 +47,8 @@ flowchart TB
 | [第九篇：去重](/deduplication-minhash-and-lsh-probabilities.html) | 相似到什么程度算重复？阈值怎么定？为什么不两两比较？ | MinHash 相等的概率恰好等于 Jaccard；LSH 的 S 曲线中点就是阈值；三层去重由便宜到贵 | 手算 3/6；标准差 $$\sqrt{J(1 - J)/k}$$、$$k = 128$$ ±0.04；$$P = 1 - (1 - s^r)^b$$，$$b = 14, r = 8$$ 阈值 0.685；200 万对 → 267 候选；模板页 Jaccard 0.70、同义句 0.00 但余弦 0.46 |
 | [第十篇：评估](/evaluation-from-confusion-matrix-to-judge-agreement.html) | 准确率 95% 能上线吗？judge 一致率 80% 够不够？20 个 benchmark 领先 12 个算不算？ | 不平衡时准确率没有信息；AUC 不看概率、校准要单独查；κ 扣掉随机一致、系统偏差平均不掉；同一套题用配对；多个 benchmark 要多重比较 | 召回 ≥ 95% 时精确率 0.904；正例 3% 全判负 95.6%；过度自信 ECE 0.069 → 0.019；永远选 A 一致率 92% κ = 0；位置偏差 21 个点；MMLU ±0.8、100 题 ±9；McNemar 3.13 vs 独立 1.38；领先期望 10 ± 2.2 |
 
+Table: 十篇的核心问题、结论与必记公式
+
 ### 1. 本文的章节安排
 
 | 章 | 内容 |
@@ -57,6 +59,8 @@ flowchart TB
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 8 题、D 掌握判据 |
 | 六 | 下一步 |
 | 七 | 延伸阅读 |
+
+Table: 本文的章节安排
 
 ## 二、逐篇回顾
 
@@ -198,6 +202,8 @@ flowchart TB
 | 标注一致性作为上限 | 三、十 | 三的 91.5% vs 91.3% 与噪声表；十的 κ 与人与人 70–80% |
 | 低维 / 低秩 | 八 | 29 维解释 95%；真实权重 299/896；LoRA 的假设是关于 $$\Delta W$$ |
 
+Table: 贯穿十篇的概念及其关系
+
 ## 四、常见误区
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
@@ -220,6 +226,8 @@ flowchart TB
 | AUC 高的模型给出的概率也可信 | AUC 只看排序，不看概率的绝对值 | 过度自信的模型 AUC 不变、ECE 0.069；Platt / isotonic 校准 | [第十篇](/evaluation-from-confusion-matrix-to-judge-agreement.html) |
 | judge 一致率超过人与人的一致率就够了 | 一致率未扣随机基线，且系统偏差不在里面 | 算 κ（永远选 A 可以 92% 一致、κ = 0）；对换顺序量位置偏差 | [第十篇](/evaluation-from-confusion-matrix-to-judge-agreement.html) |
 | 20 个 benchmark 领先 12 个就是全面领先 | 两个完全相同的模型随机期望领先 10 个、标准差 2.2 | 12 在一个标准差以内；Bonferroni、看平均分的置信区间、或预先指定主 benchmark | [第十篇](/evaluation-from-confusion-matrix-to-judge-agreement.html) |
+
+Table: 常见误区与正确说法
 
 ## 五、通关自测
 
@@ -436,6 +444,8 @@ flowchart TB
 | 读过 | 能说出十篇各讲什么；知道过拟合、正规方程、Bradley-Terry、Gini、核技巧、GBDT、K-Means、PCA、MinHash、McNemar 这些名词 |
 | 掌握 | A 组能不翻书算出 8 题以上；B 组能说出每题用了哪几篇的什么；看到 LLM 上的一个问题能叫出它的经典名字（污染是测试集泄漏、reward hacking 是过拟合、weight decay 是 Ridge、RAG 是 KNN、attention 是核回归、judge 的长度偏好是系统误差、过滤器误杀是精确率召回率的权衡、"20 个领先 12 个"是多重比较） |
 | 能教人 | C 组每题能给出全部要点并预判追问；能解释十篇里每个反直觉结论（奖励模型不该训得更久、数据过滤用小模型不是因为它更准、聚类不需要正确、0.7 不是经验值、准确率 95.9% 可能几乎没抓到正例、真实权重不低秩但 LoRA 仍成立）为什么成立，并能用几十行 NumPy 把最小二乘、逻辑回归、KNN、决策树、K-Means、PCA、MinHash、混淆矩阵各写出来并与 scikit-learn 对数 |
+
+Table: 掌握程度的判据
 
 通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点。没过的部分回到第二章对应篇的"必记"，再回该篇正文与配套脚本——总纲说的十个脚本跑完、改过参数，L2 就够了。
 

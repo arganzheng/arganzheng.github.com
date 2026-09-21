@@ -41,6 +41,8 @@ NCCL 对大多数使用者是一个黑盒：`ncclCommInitRank` 之后它就"能�
 | tuning | 为每个 (函数, 算法, 协议) 填 latency 与 bandwidth | `src/graph/tuning.cc: ncclTopoTuneModel` |
 | proxy | 起 proxy service 线程（progress 线程按需再起） | `src/proxy.cc: ncclProxyCreate` |
 
+Table: ncclCommInitRank 初始化期的阶段与源码
+
 **执行期：`ncclAllReduce`**（`src/collectives.cc → src/enqueue.cc: ncclEnqueueCheck`）
 
 | 阶段 | 做什么 | 源码 |
@@ -52,6 +54,8 @@ NCCL 对大多数使用者是一个黑盒：`ncclCommInitRank` 之后它就"能�
 | launch | 一个 kernel，nChannels 个 block | `src/enqueue.cc`<br/>`ncclLaunchKernel → cuLaunchKernelEx` |
 | kernel | 每个 block 跑一条 ring / tree，用 primitives 收发 | `src/device/all_reduce.h`<br/>`src/device/primitives.h`<br/>`src/device/prims_*.h` |
 | proxy progress | CPU 线程替 GPU 提交 isend / irecv、轮询完成 | `src/proxy.cc: ncclProxyProgress`<br/>`src/transport/net.cc` |
+
+Table: ncclAllReduce 执行期的阶段与源码
 
 初始化期的决策全部与消息大小无关，所以它可以慢（几百毫秒到几秒），但只做一次。执行期每次调用都要走，所以它必须快——`ncclAllReduce` 在 host 侧的路径是查表和填结构体，没有搜索。
 
@@ -83,6 +87,8 @@ $$
 | 九 | 执行期 | ncclEnqueueCheck → group → plan → 一个 kernel；primitives；proxy 线程；send/recv 配对 |
 | 十 | 读日志 | INFO 日志的格式与逐行解读；改拓扑文件观察决策变化；排障检查清单 |
 | 十一 | 小结 | 要点、检查项、源码位置、comm-probe 增量 `nccl_log_reader.py` |
+
+Table: 本文的章节安排
 
 ## 二、初始化：uniqueId 与 bootstrap
 
@@ -997,6 +1003,8 @@ hostA:12345:12345 [0] NCCL INFO AllReduce: 65536 Bytes -> Algo Tree proto LL cha
 | 把 NIC 挪到另一个 NUMA | 把 <nic> 所在 <pci> 剪到另一个 <cpu> 下 | GPU Direct RDMA Disabled … distance 9 > 5；连接行没有 /GDRDMA |
 | 把 NVLink count 减半 | count="2" → "1" | NVL[120.0]；ring nChannels 从 12 降到 6（×2 后 12） |
 
+Table: 改拓扑文件观察 NCCL 决策变化的实验
+
 同样，`NCCL_GRAPH_DUMP_FILE` 导出的图改 `nchannels`、`speedintra` 后用 `NCCL_GRAPH_FILE` 喂回去，可以直接看到调优表随 channel 数与带宽的变化，而不必重新搜索。
 
 ### 4. 比一比：这一层的检查清单
@@ -1055,6 +1063,8 @@ send/recv     必须同 group：否则 send kernel 等 recv、recv 在 send 返�
 | kernel 长时间自旋 | proxy 是否还活着；NCCL_PROXY_DUMP_SIGNAL 看游标 | 对端 rank 是否存活；网络；send/recv 是否配对 |
 | 决策：要不要设 NCCL_ALGO | 先用 TUNING 日志看自动选择与调优表；用 nccl-tests 扫描确认交叉点 | 再写进 tuner 配置而不是全局 env |
 
+Table: NCCL 排障检查项与决策要点
+
 ### 3. 本篇涉及的源码与工具位置
 
 | 主题 | 路径（NCCL 2.28.9） | 函数 / 符号 |
@@ -1076,6 +1086,8 @@ send/recv     必须同 group：否则 send kernel 等 recv、recv 在 send 返�
 | 设备侧 | `src/device/common.h`、`all_reduce.h`、`primitives.h`、`prims_simple.h`、`prims_ll.h`、`prims_ll128.h`、`generate.py` | `ncclKernelMain`、`loadWorkBatchToShmem`、`runRing`、`runTreeUpDown`、`runTreeSplit`、`Primitives<…>`、`waitPeer`、`postPeer`、`readLL`、`storeLL`、`flagThread` |
 | 日志与参数 | `src/debug.cc`、`src/misc/param.cc`、`src/include/param.h` | `ncclDebugInit`、`ncclDebugLog`、`NCCL_PARAM`、`ncclLoadParam`、`ncclGetEnv`；`NCCL_DEBUG`、`NCCL_DEBUG_SUBSYS`、`NCCL_DEBUG_FILE`、`NCCL_CONF_FILE` |
 | 较新目录 | `src/register/`、`src/scheduler/`、`src/ras/`、`src/plugin/` | 用户 buffer 注册；对称内存调度；RAS；net / tuner / profiler / env 插件加载 |
+
+Table: 本篇涉及的源码与工具位置
 
 ### 4. comm-probe 本篇增量：nccl_log_reader.py
 

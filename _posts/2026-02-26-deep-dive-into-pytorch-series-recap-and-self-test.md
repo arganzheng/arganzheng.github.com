@@ -49,6 +49,8 @@ flowchart TB
 | [第九篇：分布式 PyTorch](/pytorch-distributed-training.html) | 一张卡放不下或跑不完时，如何切分状态并让通信与计算重叠？ | 五类状态各做一个决定（复制 / 分片），每个决定对应一种集合通信原语与一个时机 | ring all_reduce 每 rank 收发 $$2(N-1)/N \cdot n$$ → 2n；DDP 2P、FSDP 3P；每 rank 静态显存 16P → 16P/N；TP 每层 4 次 all_reduce、只在节点内；PP 气泡 $$(K-1)/(M+K-1)$$ |
 | [第十篇：PyTorch 的工程体系](/pytorch-engineering-system.html) | 它怎么做到一直正确、一直可用？ | 一次改动过七关，守住正确性、性能、兼容性；框架工程是在组合爆炸下求可行 | 2000+ 算子 × 约 15 种 dtype × 设备 × 布局 × 模式 → 几十万测试实例；五种 oracle；`pull` 层约两小时；小版本每三到四个月、cut 距发布约 6 周；弃用保留至少一个小版本（通常两个） |
 
+Table: 十篇的核心问题、结论与必记公式
+
 ### 1. 本文的章节安排
 
 | 章 | 内容 |
@@ -58,6 +60,8 @@ flowchart TB
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
 | 六 | 下一步 |
+
+Table: 本文的章节安排
 
 ## 二、逐篇回顾
 
@@ -256,6 +260,8 @@ flowchart TB
 | 两条异步时间线、Stream | 四、八、九 | 四 pinned memory + `non_blocking` 才真正异步；八 计时必须同步、五类瓶颈的根源；九 NCCL 通信是独立 stream 上的 Kernel，`Work.wait()` 是 stream 依赖 |
 | checkpoint / `state_dict` | 四、九、十 | 四 模型与优化器两份 `state_dict`、`weights_only`；九 分布式 Checkpoint；十 `_version` 升级机制与 playbook 第 5 步 |
 
+Table: 贯穿十篇的概念及其关系
+
 ## 四、常见误区
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
@@ -275,6 +281,8 @@ flowchart TB
 | FSDP 比 DDP 省显存也省通信 | 参数分片后"用到时凑齐"多出一个 P | 通信 3P 对 2P，多 50%；省的是 16P → 16P/N | [第九篇](/pytorch-distributed-training.html) |
 | 加卡就该线性加速 | 带宽项通信量不随 N 减少，per-rank 计算随 N 缩小 | 四组原因：通信、同步等待、计算效率、算法效率；藏不住就换策略 | [第九篇](/pytorch-distributed-training.html) |
 | flaky 测试让作者重跑到过 | 几十万测试里的 flaky 会让所有人忽略红色 CI | 自动开 disable issue 隔离、定期重跑、连续通过后恢复 | [第十篇](/pytorch-engineering-system.html) |
+
+Table: 常见误区与正确说法
 
 ## 五、通关自测
 
@@ -481,6 +489,8 @@ flowchart TB
 | 读过 | 能说出十篇各讲什么；知道 stride、`grad_fn`、DispatchKey、Guard、launch-bound、all_reduce、OpInfo 这些名词 |
 | 掌握 | A 组能不翻书算出 8 题以上；B 组能说出每题用了哪几篇的什么；拿到一段慢的训练代码能先判断 GPU 在等谁、拿到一个分布式配置能算出每卡显存与每 step 通信量 |
 | 能教人 | C 组每题能给出全部要点并预判追问；能解释十篇里每个反直觉结论（Autograd 只是一个 Key、FSDP 通信比 DDP 多 50%、低精度对 launch-bound 无效、`empty_cache()` 不解决碎片、flaky 不能靠重跑）为什么成立 |
+
+Table: 掌握程度的判据
 
 通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点。没过的部分回到第二章对应篇的"必记"，再回该篇正文的相应章节。
 

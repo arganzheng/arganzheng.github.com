@@ -101,6 +101,8 @@ loss scale          fp16：DynamicGradScaler（hysteresis/backoff）；    fp16�
 | 八 | 本文小结 | 要点 · 源码位置 · train-ledger 的 signals/ 与 `data/replay_check.py` · 回答核心问题 |
 | 九 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、loss spike：现象与成因
 
 ### 1. 三种形态
@@ -112,6 +114,8 @@ loss scale          fp16：DynamicGradScaler（hysteresis/backoff）；    fp16�
 | 瞬时 spike | 单步或几步跳高，几十步内回到原趋势 | grad norm 同步跳一下，被 clip 压住 | 单个坏 batch；bf16 舍入的偶发放大 |
 | 可恢复 spike | 跳高后花几百到几千步慢慢爬回，可能留下台阶 | grad norm 先跳后持续偏高；param norm 有折点 | LR 偏高；优化器状态被污染后需要时间"忘掉" |
 | 发散 | 跳高后不回头，loss 升到接近 ln(V) 或 NaN | grad norm 爆炸或变 NaN；attention logit 极大 | logit 增长；LR 过高；精度链某环断裂 |
+
+Table: loss spike 的三种形态
 
 第一种最常见也最无害，多数时候不需要处理；第二种是本篇的主角，PaLM 描述的就是它；第三种一旦出现只能回退。三种形态在发生**之前**的信号上就有区别——这是第五章要讲的：发散往往在几百步前就能从 attention logit 最大值或 grad norm 的缓慢上升中看到，而瞬时 spike 事前没有任何征兆。
 
@@ -166,6 +170,8 @@ PaLM 论文有一个精妙的观察：把 spike 时的那批数据拿到**另一
 | 坏数据 | 无 | grad norm 跳；loss 可能先降后升 | 同一步再现；跳过后消失 |
 | 优化器状态 | grad norm 有一段低平台 | 正常量级梯度被放大 | 换数据顺序后消失 |
 
+Table: 五种 spike 成因的信号指纹
+
 表是"指纹 → 成因"的对照，真正值班时是按信号一层层排除的。把上表压成一棵决策树，问题的顺序是"哪种成因的信号最独特、最早能看到"：
 
 ```mermaid
@@ -213,6 +219,8 @@ flowchart TB
 | weight decay 例外 | norm gain / bias / embedding 范数被压小后放大相对更新 | 无算力代价，需要参数分组 | 1-D 与 `.bias` 默认 `wd_mult=0`；embedding 需 override | 所有参数同一 `weight_decay` |
 | 精度纪律 | 成因二（bf16 舍入吞掉更新 / 累积 / softmax / logits） | 每参数多 2–12 字节显存与 reduce 带宽 | `--accumulate-allreduce-grads-in-fp32`、`attention_softmax_in_fp32` | FSDP2 `reduce_dtype=fp32`，分片参数本体 fp32 |
 | fp16 loss scale | fp16 梯度下溢（bf16 不需要） | 溢出步整步跳过；scale 本身要进 checkpoint | `DynamicGradScaler` | 无 fp16 路径 |
+
+Table: 六种预防手段对准的成因、代价与开关
 
 ### 1. 全局梯度范数裁剪
 
@@ -342,6 +350,8 @@ torchtitan 与 DeepSpeed 没有等价的内建开关。torchtitan 的 `trainer.p
 | n_tokens_seen / consumed samples | 数据位置 | 线性增长 | 恢复后不连续：数据位置没进 checkpoint，样本重复或遗漏 |
 | step time / data_loading(%) | 第四篇的 MFU 账 | 稳定；data_loading < 1% | data_loading 上升：管线跟不上（第七章第 6 节） |
 
+Table: 每步都应记录的信号清单
+
 三个补充：第一，**loss 与 grad norm 要记 clip 前的原始值**——clip 后的 grad norm 恒等于阈值，没有信息量。第二，grad norm 若能按 PP stage 或按层分组记录（Megatron 的 `check_grads()` 是按 bucket 算的，可以顺手记下来），能直接看出是哪一段网络出了问题。第三，这些信号要**逐步记录、长期保存**：spike 的归因要看它前几百步的形态，`log_interval = 100` 的日志分辨率不够；TensorBoard 事件文件够用，但第八篇会讨论为什么要同时进 Prometheus。
 
 ### 2. 三框架里在哪
@@ -447,6 +457,8 @@ CPU              一次性成本；训练时 DataLoader 几乎不占 CPU        
 | document_index | 1-D int32 | 文档 id 的序列。每个 epoch 一份 [0..D) 的随机排列，拼接 num_epochs 份（_build_document_index） |
 | sample_index | 2-D int32 | (num_samples + 1) × 2：第 i 个样本从 document_index[sample_index[i,0]] 的第 sample_index[i,1] 个 token 开始， 到 sample_index[i+1] 结束——样本是文档流上连续的 s+1 个 token，可以跨文档（helpers.cpp build_sample_idx） |
 | shuffle_index | 1-D | [0..num_samples) 的随机排列（_build_shuffle_index）；若最后一个 epoch 不完整则分两段各自 shuffle |
+
+Table: GPTDataset 的三个索引数组
 
 `__getitem__(idx)` → `_query_document_sample_shuffle_indices(idx)`：`idx = shuffle_index[idx]`，查 `sample_index[idx]` 与 `sample_index[idx+1]` 得到起止文档与偏移，对跨越的每个文档调 `dataset.get(document_index[i], offset, length)`，拼接，不足则 pad。然后 `_get_ltor_masks_and_position_ids()` 造 loss mask、position ids 与（可选的）attention mask。
 
@@ -561,6 +573,8 @@ torchtitan 用另一种编码：`HuggingFaceTextDataset` 输出 `positions`，�
 | ② 不重不漏 | 中断时 DataLoader worker 已预取但训练未消费的 batch 不能丢（漏），也不能被算作已消费（重） |
 | ③ 多 rank 一致 | 所有 DP rank 恢复到同一个 step 的位置；TP/PP/CP 组内各 rank 看到同一份数据 |
 
+Table: 数据流可恢复的三条要求
+
 第 ② 条最容易被忽略：`torch.utils.data.DataLoader` 有 `prefetch_factor × num_workers` 个 batch 在飞，进程被 kill 时它们就没了；若位置按"dataset 已产出的样本数"记，就会漏；按"训练已消费的样本数"记则安全。第 ③ 条在 PP 下有个细节：只有 PP 首尾 stage 真正读数据（Megatron 的 `get_batch()` 在中间 stage 返回 None），但 `consumed_train_samples` 是所有 rank 的 args 都有的一致值。
 
 ### 3. Megatron：位置是一个整数
@@ -627,6 +641,8 @@ torchtitan 的方案跟随 PyTorch 生态的 `Stateful` 协议（`torch/distribu
 | DataLoader 队列 | worker 的输出队列长期为空 | 队列长期满（prefetch_factor × num_workers 个 batch 就位） |
 | CPU | worker 进程 100%，或被 NCCL proxy / 主进程挤占 | worker 大部分时间 sleep |
 | 对象存储 | 请求延迟抖动直接映射到 step 时间 | 预取深度盖住了延迟 |
+
+Table: GPU 等数据与数据等 GPU 的区分
 
 torchtitan 的 `batch_generator()` 用 `time.perf_counter()` 包住 `next(data_iterator)`，累计到 `MetricsProcessor.data_loading_times`，`log()` 时算出 `data_loading(s)` 与 `data_loading(%)`——这是三个框架里唯一开箱即用的"数据等待"指标。Megatron 没有直接的等价物，但 `--timing-log-level` 提高后 `batch-generator` 计时器（`get_batch()` 外层）给出同样的信息；profiler 是通用手段。
 

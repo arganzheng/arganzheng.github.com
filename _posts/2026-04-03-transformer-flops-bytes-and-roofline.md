@@ -47,6 +47,8 @@ $$
 | 十 | 本文小结 |  |
 | 十一 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、算量：FLOPs 从哪里来
 
 ### 1. 一个矩阵乘法的 FLOPs：2mkn
@@ -126,6 +128,8 @@ $$
 | 8192 | 4.29 GFLOPs | 29% |
 | 32768 | 17.2 GFLOPs | 114% |
 | 131072 | 68.7 GFLOPs | 458% |
+
+Table: 不同上下文长度下 attention 上下文项与权重项的比
 
 在 8K 上下文，attention 的上下文项是权重项的不到三分之一，"2N 近似"仍然好用；到 128K，它是权重项的 4.6 倍，模型每生成一个 token 的算量主要花在"看历史"而不是"过权重"上。对 Llama-3-70B（$$d = 8192$$，80 层）在 128K：$$4 \times 8192 \times 131072 \times 80 \approx 344$$ GFLOPs，是它 141 GFLOPs 权重项的 2.4 倍。这一项对系统的意义，第四篇讲长上下文时会算得更细。
 
@@ -402,6 +406,8 @@ $$
 | prefill 权重 GEMM | $$2 N_{gemm} s$$ | $$2 N_{gemm}$$ | $$s$$ | $$s = 8192$$ 时约 8000 |
 | RMSNorm、残差、RoPE 等逐元素算子 | $$\approx 4 m d$$ | $$4 m d$$（读+写，BF16） | $$\approx 1$$ | 永远在带宽线上，只能靠融合减少次数 |
 
+Table: 几类算子的 FLOPs、字节数与算术强度
+
 再把这些点按真实数值放到对数坐标的 Roofline 上（第 3 小节的示意图只标了两个点，这里是完整的一张）：
 
 ![Llama-3-8B 各算子在 H100 Roofline 上的位置](/img/in-post/transformer-flops-bytes-and-roofline-roofline.svg)
@@ -571,6 +577,8 @@ $$
 | | dropout mask | $$sbh$$ | 线性 | 32 MiB |
 | LayerNorm ×2 | 各自的输入 | $$4sbh$$ | 线性 | 128 MiB |
 | **合计** | | $$34sbh + 5as^2b$$ | | **1.06 GiB + 10 GiB** |
+
+Table: 每层反向需要的激活张量及其字节数
 
 代入 Llama-3-8B 的形状（$$h = 4096$$，$$a = 32$$，$$s = 8192$$，$$b = 1$$）：
 

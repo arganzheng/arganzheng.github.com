@@ -44,6 +44,8 @@ flowchart TB
 | [第七篇：蒸馏](/knowledge-distillation-for-llms.html) | 三种蒸馏各学到什么、漏掉什么？R1 为什么给小模型选蒸馏？ | logits 级学分布、序列级学模式、on-policy 修暴露偏差——采样像 RL、梯度是 token 级散度（不经采样反传），反向 KL 里学生的熵项不能丢；前向 KL 覆盖、反向 KL 集中；小模型靠探索碰不到正确解 | 每 token 几到几十 bit vs 硬标签 < 1 bit；128K 词表 BF16 每 token 256 KB、top-64 约 256 B；R1-Distill 一两千 GPU 小时 vs RL 几万；on-policy ≈ RL 的 1/10；1.5B 29% / 7B 55% / 32B 72.6%；Minitron 940 亿 token、少 40 倍 |
 | [第八篇：评测](/evaluating-llms-benchmarks-judges-and-contamination.html) | MMLU 涨 2 个点是能力、协议还是污染？judge 的 80% 胜率去掉长度剩多少？ | 分数 = 能力 + 协议 + 噪声 + 污染，三关（协议、区间、污染）都过才是能力；judge 有位置、长度、自我偏好三种偏差，要用长度控制的 win rate | 协议 5–15 点；$$\pm 1.96\sqrt{p(1-p)/n}$$：1000 题 ±3、AIME 30 题 ±18、MMLU ±0.8；污染子集 10–30 点；GSM1K 掉 13 点；MMLU-Redux 6.5% 错题；位置改判 20–30%；长度控制后与 Arena 相关 0.94 → 0.98 |
 
+Table: 八篇的核心问题、结论与必记公式
+
 ### 1. 本文的章节安排
 
 | 章 | 内容 |
@@ -53,6 +55,8 @@ flowchart TB
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
 | 六 | 下一步 |
+
+Table: 本文的章节安排
 
 ## 二、逐篇回顾
 
@@ -228,6 +232,8 @@ flowchart TB
 | 异步 rollout | 三、五、六 | 三滞后一步；五部分 rollout；六必需 |
 | 置信区间、一致率 | 二、八 | 二人的一致率 70–75%；八 judge 与人 80%、二项区间 |
 
+Table: 贯穿八篇的概念及其关系
+
 ## 四、常见误区
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
@@ -244,6 +250,8 @@ flowchart TB
 | 小模型要推理能力就直接 RL | 32B 上蒸馏 72.6 对 RL 47，且贵一到两个数量级 | 先蒸馏（序列级冷启动、on-policy 对齐）再可选 RL | [第五篇](/reasoning-models-and-verifiable-rewards.html)、[第七篇](/knowledge-distillation-for-llms.html) |
 | Agent RL 的瓶颈是模型 | 一步 4000 条轨迹环境 320 CPU·小时对模型 7 GPU·小时 | 瓶颈是沙箱集群与环境时间；异步是为了让 GPU 别闲着 | [第六篇](/agentic-rl-tool-use-environments-and-trajectories.html) |
 | 分数涨了 2 个点就是进步 | 协议差 5–15 点、1000 题噪声 ±3、污染子集高 10–30 点 | 三关：协议相同、超出置信区间、新题复测保持 | [第八篇](/evaluating-llms-benchmarks-judges-and-contamination.html) |
+
+Table: 常见误区与正确说法
 
 ## 五、通关自测
 
@@ -450,6 +458,8 @@ flowchart TB
 | 读过 | 能说出八篇各讲什么；知道三件套、Bradley-Terry、GRPO、DPO、RLVR、GKD 这些名词 |
 | 掌握 | A 组能不翻书算出 8 题以上；B 组能说出每题用了哪几篇的什么；拿到一份后训练报告能把每一步放回三件套、估出模型数与 GPU 小时、指出它的评测协议缺什么 |
 | 能教人 | C 组每题能给出全部要点并预判追问；能解释八篇里每个反直觉结论（70% 的 RM 够用、DPO 也有 Goodhart、RL 是放大不是创造、蒸馏好于直接 RL、瓶颈在环境、涨 2 个点不算涨）为什么成立 |
+
+Table: 掌握程度的判据
 
 通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点。没过的部分回到第二章对应篇的"必记"，再回该篇正文。
 

@@ -40,6 +40,8 @@ updated: 2026-09-14
 | **② 输入是 token id 序列，embedding 是查表** | `embed_input_ids(input_ids)`；调度器只数 token | 多模态：一部分位置的 embedding 来自 encoder；encoder 有自己的预算 |
 | **③ 相同的 token 前缀 ⇒ 相同的 KV** | prefix cache 的链式哈希只看 token id | 两者都打破：同一串 token 在不同 adapter 下 KV 不同；同一串 `<image>` 占位符对应不同图片时 KV 不同 |
 
+Table: 执行链路上的三个隐含假设与谁打破它
+
 第五篇讲 `hash_block_tokens()` 时留了一个 `extra_keys` 参数，说它"是隔离用的"——本篇就是它存在的理由。
 
 ### 2. 两种扩展分别惊动了谁
@@ -48,6 +50,8 @@ updated: 2026-09-14
 |---|---|---|---|---|
 | multi-LoRA | 一步内活跃 adapter 数 ≤ `max_loras`，超了的 waiting 请求跳过 | 块哈希加 `lora_name` | 每步算 token → adapter 的映射，交给 Punica kernel；每个 LoRA 层多两次 kernel；CUDA graph 按"有无 LoRA / 几个 LoRA"分别录 | 模型声明 `SupportsLoRA`；线性层被 `*WithLoRA` 包一层 |
 | 多模态 | 多一种预算（encoder compute budget）和一种缓存（encoder cache）；chunk 边界不能切开一张图；prefix cache 跳过了图但 encoder 没算过时 `num_new_tokens=0` | 块哈希加 `(mm_hash, 块内偏移)` | prefill 前先跑 encoder，输出按 hash 缓存；embedding 后把 encoder 输出按 `is_mm_embed` 掩码散射进去 | 模型声明 `SupportsMultiModal`，提供 `embed_multimodal()`；`MultiModalRegistry` 注册 processor |
+
+Table: multi-LoRA 与多模态惊动的模块
 
 ### 3. 回到我们的例子
 
@@ -65,6 +69,8 @@ updated: 2026-09-14
 | 四 | 叠加与向后 | LoRA + 多模态；留给硬件抽象（11）与 PD 分离（12）的问题；两个扩展的开销对照 |
 | 五 | 本文小结 |  |
 | 六 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、multi-LoRA：同一个 batch，每一行乘不同的权重
 
@@ -100,6 +106,8 @@ LoRA 路径的 FLOPs 是 `2·r·(in + out)` 对比基座的 `2·in·out`，`r=16
 | `num_tokens_per_lora` `[max_loras + 1]` | 第 k 组有几行？ | `[2, 3, 1, 0]` |
 | `lora_token_start_loc` `[max_loras + 2]` | 第 k 组从名单第几行开始？（前缀和） | `[0, 2, 5, 6, …]` |
 
+Table: LoRA kernel 的点名单张量
+
 ```python
 @dataclass
 class LoRAKernelMeta:
@@ -118,6 +126,8 @@ class LoRAKernelMeta:
 | 槽位下标（`lora_index_to_id` 的下标；kernel 里的 `lora_id`） | `LoRAModelManager.activate_adapter()` 找第一个空槽时分配；`convert_mapping()`（`vllm/lora/punica_wrapper/utils.py`）按 `lora_index_to_id` 把 `lora_int_id` 反查成它 | `0 … max_loras − 1` | `−1` | `token_lora_mapping`、`active_lora_ids`；`lora_a_stacked[slot]` / `lora_b_stacked[slot]` 的第 0 维 |
 | `lora_idx`（grid 第三维下标） | kernel 内 `tl.program_id(axis=2)` | `0 … max_loras`（共 `max_loras + 1` 格） | 该格 `active_lora_ids[lora_idx] == −1` 时整个 program 直接 `return` | 只在 kernel 里，用来读 `active_lora_ids` / `num_tokens_per_lora` / `lora_token_start_loc` 的第 `lora_idx` 项 |
 
+Table: LoRA 链上的三种编号
+
 记住一句话：**请求认 `lora_int_id`，显存认槽位，kernel 的 program 认自己在 grid 里的格号，再用格号查出槽位**。例子里 `lora_idx=1` 这一格查到槽位 1，于是它去 `lora_token_start_loc[1]=2` 开始的名单里取 3 行（第 0、1、5 行），乘 `lora_a_stacked[1]`；`lora_idx=0` 和 `lora_idx=3` 查到 −1，整格退出。
 
 有了名单，剩下的就是两次普通的小矩阵乘。vLLM v0.27.1 的实现是两个 Triton kernel（`vllm/lora/ops/triton_ops/`）：
@@ -126,6 +136,8 @@ class LoRAKernelMeta:
 |---|---|---|
 | `_lora_shrink_kernel`（`lora_shrink_op.py`） | `buffer[slice] += x @ A[slice, lora_id]ᵀ · scale` | `x: [tokens, in]` → `buffer: [num_slices, tokens, r]`，**fp32** |
 | `_lora_expand_kernel`（`lora_expand_op.py`） | `y[:, offset:offset+out_slice] += buffer[slice] @ B[slice, lora_id]ᵀ` | `buffer` → 加回基座输出 `y: [tokens, out]` |
+
+Table: LoRA 的两个 Triton kernel
 
 结果：y 第 0、1、5 行 `+= B₁·(A₁·x)`，第 2 行 `+= B₂·(A₂·x)`，第 3、4 行只有基座输出。
 
@@ -175,6 +187,8 @@ self.lora_b_stacked = tuple(torch.zeros(max_loras, 1, lora_b_out_size, max_lora_
 | GPU 层 | `_active_adapters: AdapterLRUCache[None]` | `max_loras` | 已 `copy_` 进 GPU 槽位的 adapter（只记 id，权重就在 `*_stacked` 里） |
 | 对照表 | `lora_index_to_id: list[Optional[int]]` | 长度 `max_loras` | 槽位号 → `lora_int_id`，`None` 表示空槽 |
 
+Table: LoRAModelManager 的两层缓存
+
 `activate_adapter(lora_id)`：找第一个空槽（`lora_index_to_id` 里的 `None`），遍历 `self.modules` 里每个 LoRA 层调用 `set_lora()`——**激活一个 adapter = 对每一层做一次 H2D（host-to-device，CPU 内存 → 显存）拷贝**。`LRUCacheLoRAModelManager.activate_adapter()` 在槽满时先 `_active_adapters.remove_oldest()`，其 `_on_remove` 回调把槽位清空。两层缓存的 LRU 序在每次访问时 `touch()`，`pin_adapter()` 可以把某个 adapter 钉在两层里不被淘汰。
 
 Worker 侧是 `LRUCacheWorkerLoRAManager`（`vllm/lora/worker_manager.py`）：`_apply_adapters(lora_requests)` 先检查本步请求的不同 adapter 数 ≤ `lora_slots`（超了直接 `RuntimeError`——但调度器保证了不会超，见第 5 节），然后对每个 `add_adapter()`：不在 CPU 缓存里就 `_load_adapter()`——用 `PEFTHelper.from_local_dir()`（`vllm/lora/peft_helper.py`）读 `adapter_config.json` 并 `validate_legal()`（rank 不能超过 `max_lora_rank`），`LoRAModel.from_local_checkpoint()`（`vllm/lora/lora_model.py`）读 safetensors；CPU 缓存满则 `remove_oldest_adapter()`；最后 `activate_adapter()`。源码注释特意说明先加载再淘汰是为了"确保新 adapter 有效后再驱逐旧的"，代价是 CPU 侧短暂超过 `max_cpu_loras`。
@@ -189,6 +203,8 @@ Worker 侧是 `LRUCacheWorkerLoRAManager`（`vllm/lora/worker_manager.py`）：`
 | 4 | c | 磁盘 → CPU 加载 c；GPU 满：`remove_oldest` = a（槽 0 清零），c 逐层 H2D `copy_` 进槽 0 | **c** | b | `[a b c]` | 读盘 + H2D |
 | 5 | a | CPU 命中，不读磁盘；GPU 满：淘汰 b（槽 1），a 重新 H2D 进槽 1 | c | **a** | `[b c a]` | 只 H2D |
 | 6 | d | CPU 满（3）：先加载 d 再淘汰最旧的 b；GPU 淘汰 c，d 进槽 0 | **d** | a | `[c a d]` | 读盘 + H2D |
+
+Table: 两层 LRU 下一段请求流的换入换出
 
 读磁盘：步 1、2、4、6；只 H2D：步 5；零拷贝：步 3。GPU 层的淘汰只是把槽位清零，adapter 仍留在 CPU 层（步 4 的 a 在步 5 免去了磁盘读）；CPU 层的淘汰才真正丢弃权重。第 6 节会说明这些加载都发生在 `execute_model` 里、整个 batch 同步等待。
 
@@ -209,6 +225,8 @@ Worker 侧是 `LRUCacheWorkerLoRAManager`（`vllm/lora/worker_manager.py`）：`
 | down_proj（行并行） | 28672 → 8192 | 16 × (28672/8) = 57344 | 131072 | 188416 |
 | **每层每槽每卡** | | | | **≈ 1.13 M 参数** |
 
+Table: 一个 LoRA 槽位每层每卡的参数量
+
 80 层 → 90 M 参数 → bf16 **≈ 180 MB / 槽 / 卡**；8 个槽 **≈ 1.44 GB / 卡**，在 `create_lora_weights()` 时一次性 `torch.zeros` 出来，无论实际加载了几个 adapter、实际 rank 是多少。对比：这 1.44 GB 等于每卡 36K token 的 KV（40 KB/token），或者 **15 个我们例子里的请求**（2350 token 各 94 MB/卡）。`max_lora_rank` 从 16 提到 64，这个数字乘 4。
 
 再看 CPU 侧：一个完整的 rank-16 adapter（不切分）约 207 M 参数、414 MB bf16；`max_cpu_loras` 默认等于 `max_loras`，即 8 × 414 MB ≈ 3.3 GB 主机内存，**每个 worker 进程各一份**（TP=8 就是 8 份，每份存的是切分前的完整权重再切）。
@@ -221,6 +239,8 @@ Worker 侧是 `LRUCacheWorkerLoRAManager`（`vllm/lora/worker_manager.py`）：`
 | 额外 kernel | 7 个模块 × 2（shrink + expand）× 80 层 = **1120 次 / 步** | 与第六篇"一步上千 kernel"同量级，**必须进 CUDA graph** |
 | fp32 中间缓冲 | `[num_slices, tokens, r]`，每层 `torch.empty` 一次 | batch=64 decode 时每层 `3 × 64 × 16 × 4 B = 12 KB`，忽略；prefill 2050 token 时 393 KB |
 | 元数据 | 每步一次 `sort` + `unique` + 若干 H2D | CPU-GPU 同步点，微秒级 |
+
+Table: multi-LoRA 的计算与 launch 开销
 
 结论：**multi-LoRA 的代价是显存（静态、按 `max_loras × max_lora_rank` 买断）和 launch 次数，不是 FLOPs。**
 
@@ -254,6 +274,8 @@ Worker 侧是 `LRUCacheWorkerLoRAManager`（`vllm/lora/worker_manager.py`）：`
 | `cudagraph_specialize_lora=True`（默认） | `[0, max_loras + 1]`，即"无 LoRA"和"有 LoRA"各一套 | **图的数量翻倍**，捕获时间与显存也翻倍 |
 | 再开 `specialize_active_lora=True` | `[0] + 2 的幂次直到 max_loras + [max_loras + 1]` | `get_captured_lora_counts()`；kernel grid 的第三维按活跃 adapter 数取整到上一个 2 的幂，少跑空 program |
 | `cudagraph_specialize_lora=False` | 只录 `[max_loras + 1]` | 无 LoRA 的 batch 也走带 LoRA 路径的图，kernel 靠 `lora_id == -1` 早退 |
+
+Table: 有无 LoRA 时录的 CUDA graph
 
 默认选择是一个典型的取舍：多录一套图换来"纯基座请求不付 LoRA 的 launch 成本"。`_lora_shrink_kernel` 开头那个 `if lora_id == -1: return` 是让同一张图能安全跑在"部分请求无 LoRA"的 batch 上的保证——grid 始终按 `max_loras + 1` 开，没用到的 adapter 维度整片早退。
 
@@ -373,6 +395,8 @@ encoder_cache_size     = max(scheduler_config.encoder_cache_size,            max
 | `disable_chunked_mm_input=True` 且窗口只覆盖图的一部分 | 回退到图之前，不切开图 |
 | 请求被抢占 | 已扣的 encoder budget 加回去（`encoder_compute_budget += num_embeds_to_restore`） |
 
+Table: encoder 输入的调度规则
+
 encoder 用双向注意力，一张图必须整体编码（注释："the encoder usually uses bidirectional attention"）——所以 encoder 预算的粒度是"项"，与 decoder 的 token 预算不同：**一张 1300 token 的图，要么这一步全算，要么不算**。这是第四篇 Token Budget 模型的第一个真正例外。
 
 ### 4. `EncoderCacheManager`：encoder 输出的分配与释放
@@ -385,6 +409,8 @@ encoder 用双向注意力，一张图必须整体编码（注释："the encoder
 | `cached` | `dict[mm_hash → set[request_id]]` | 哪些请求正在引用这份 encoder 输出（引用数 > 0 不可驱逐） |
 | `freeable` | `OrderedDict[mm_hash → num_embeds]` | 引用数已归零、可以被驱逐的，FIFO 先进先出 |
 | `freed` | `list[mm_hash]` | 本步真正驱逐的，通过 `SchedulerOutput.free_encoder_mm_hashes` 通知 worker `pop` |
+
+Table: EncoderCacheManager 的字段
 
 一个 `mm_hash` 在这套账里的状态迁移如下（`freeable` 与 `cached` 之间可以来回，`freed` 之后 worker 才真正释放显存）：
 
@@ -438,6 +464,8 @@ flowchart TB
 | KV / encoder 输出 | **≈ 20×** | **≈ 20×** |
 | 驻留时间 | 几步（prefill 期间） | 全请求（2350 步的 decode 都要读） |
 
+Table: LLaVA 类与 Qwen2-VL 类一张图的显存账
+
 **一张图真正贵的地方是它的 KV，不是 encoder 输出**——后者小 20 倍、活得短得多。这解释了为什么 encoder cache 的上限可以简单地绑到 `max_num_batched_tokens`：`16384 × 16 KB = 268 MB`，相对 80 GB 的卡不值得精细管理；而图片占的 KV 直接进第五篇那套按块管理的体系，第四篇的 Token Budget 也直接把 1369 个占位 token 当普通 prefill token 计费。
 
 encoder **激活**的峰值是另一笔：ViT 对 1024×1024 图有 5329 个 patch，注意力矩阵 `5329² × heads`，比它的输出大得多。vLLM 不试图精确算它，而是在 `profile_run()` 里用 `get_dummy_encoder_profile_inputs()`（`encoder_budget.py`）按 `mm_max_items_per_batch` 个最大尺寸的假图**实测一次峰值**，从可用显存里扣掉，剩下的才给 KV Cache。`skip_mm_profiling=True` 可以跳过以加快启动，代价是这部分显存需要用户自己预估——文档明说 "shifts the responsibility to users"。
@@ -488,6 +516,8 @@ CPU 侧还有 processor cache 的 `4 GiB × (api_server_count + dp_size)`。
 | **调度新约束** | 一步内活跃 adapter 数 ≤ `max_loras`，超出的 waiting 请求被跳过（FCFS 被打破，无 aging）；新 adapter 首次加载时整个 batch 同步等磁盘 | encoder compute budget（每步 ≤ `max_num_batched_tokens` 个 embedding），一张图整体编码不可拆；预算不够则 `num_new_tokens` 截到图之前，甚至为 0；encoder-decoder 模型关闭 chunked prefill 与 prefix cache |
 | **正确性 / 隔离** | 块哈希 `extra_keys` 加 `lora_name`：同一前缀在不同 adapter 下是两条哈希链、两份块 | 块哈希 `extra_keys` 加 `(mm_hash, 图起点相对块起点的偏移)`：相同 token 序列、不同图 → 从图开始全部不命中 |
 
+Table: multi-LoRA 与多模态的开销对照
+
 <details markdown="1">
 <summary><b>📂 本章源码导航</b></summary>
 
@@ -508,6 +538,8 @@ CPU 侧还有 processor cache 的 `4 GiB × (api_server_count + dp_size)`。
 | CUDA graph | `vllm/forward_context.py` → `BatchDescriptor.has_lora / num_active_loras`；`vllm/v1/cudagraph_dispatcher.py` → `CudagraphDispatcher._get_lora_cases()`；`vllm/lora/utils.py` → `get_captured_lora_counts()`；`vllm/config/compilation.py` → `cudagraph_specialize_lora` |
 | 动态加载 | `vllm/entrypoints/openai/models/serving.py` → `load_lora_adapter()` / `unload_lora_adapter()`；`vllm/lora/resolver.py` → `LoRAResolver`；`vllm/envs.py` → `VLLM_ALLOW_RUNTIME_LORA_UPDATING`、`VLLM_LORA_RESOLVER_CACHE_DIR` |
 
+Table: multi-LoRA 源码导航
+
 **多模态**
 
 | 想看什么 | 从哪开始 |
@@ -526,6 +558,8 @@ CPU 侧还有 processor cache 的 `4 GiB × (api_server_count + dp_size)`。
 | prefix cache 隔离 | `vllm/v1/core/kv_cache_utils.py` → `_gen_mm_extra_hash_keys()` |
 | 视频 / 音频 | `vllm/multimodal/video.py`（`VideoLoader` 及各后端）、`vllm/multimodal/video_prune/evs.py`、`vllm/multimodal/audio.py` |
 | encoder 分离 | `vllm/config/ec_transfer.py` → `ECTransferConfig`；`vllm/distributed/ec_transfer/` |
+
+Table: 多模态源码导航
 
 </details>
 

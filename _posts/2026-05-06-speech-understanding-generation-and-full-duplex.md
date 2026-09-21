@@ -39,6 +39,8 @@ date: 2026-05-06 20:00:00 +0800
 | 八 | 本文小结 | |
 | 九 | 自测 | 4 道题 |
 
+Table: 本文的章节安排
+
 ## 二、语音理解
 
 ### 1. 编码器 + connector + LLM
@@ -62,6 +64,8 @@ Qwen2-Audio（2024）的结构就是 VLM 的翻版（第二篇）：Whisper-larg
 | AR 声学 token | 文本 → 自回归生成 codec 第一码本 token → NAR 生成其余码本 → codec 解码 | VALL-E（2023）、VALL-E 2 | 零样本音色克隆（3 秒 prompt）；AR 的不稳定（重复、跳词） |
 | 语义 → 声学 两级 | 文本 → 语义 token（AR）→ 声学 token（NAR 或流匹配）→ 波形 | CosyVoice、SpeechGPT-Gen、AudioLM 式 | 内容与音色解耦；语义 token 的 AR 更稳 |
 | 非自回归 / 流匹配 | 文本 + 参考音频 → 直接用扩散 / flow matching 生成 mel 谱或 codec latent → vocoder | F5-TTS、E2 TTS、Voicebox、NaturalSpeech 3 | 快（几十步并行）、稳；需要文本—音频对齐（或 filler token 技巧） |
+
+Table: TTS 的三条路
 
 **VALL-E** 的设计直接来自上篇 RVQ 的层次：第一个码本的 token 用自回归 Transformer 生成（以文本音素与 3 秒 prompt 的声学 token 为条件），这一步决定内容与大致韵律；其余 7 个码本用一个非自回归 Transformer 一次性生成（每个码本一层，以前面所有码本为条件）——细节的并行填充。它把 TTS 变成了"语言建模"，用 6 万小时数据训出的零样本克隆能力震动了领域。它的问题也是语言模型的问题：AR 采样的不稳定（重复、丢字、幻觉式的多说），VALL-E 2 用重复感知采样与分组建模缓解。
 
@@ -128,6 +132,8 @@ Moshi（Kyutai 2024）是第一个开源的全双工语音模型，它的结构�
 | 解码 | 语音 token → 波形 | 流式 codec 解码器逐帧几 ms；非流式 vocoder 要等一段 | codec 解码器是否因果 / 流式 |
 | 语义决策 | 模型判断"用户说完了 / 该我说了" | 人类约 200 ms；模型依赖对停顿与语义完成度的判断 | 训练数据里的对话节奏；这不是计算延迟 |
 
+Table: 语音对话时延的四段账
+
 Moshi 的 160–200 ms 里：80 ms 分帧 + 一步 7B decode（约 40 ms，帧内 depth Transformer 另加几 ms）+ Mimi 流式解码（几 ms）+ 决策（模型每帧都在决策，没有额外等待）。半双工系统（ASR → LLM → TTS 串联）的典型时延是 1–3 秒：ASR 要等静音检测（VAD）判断说完（300–700 ms）+ LLM 首 token（几百 ms，含 prefill）+ TTS 首帧（几百 ms）。**全双工把三段串联变成一个模型的一步**，且去掉了 VAD 的等待——这是 10 倍时延差的来源。
 
 代价：全双工模型要**持续运行**——用户不说话时它也每 80 ms 跑一步（输出静音 token），一小时对话是 4.5 万步 decode；半双工只在有输入时算。且全双工的训练数据（真实的、有打断与重叠的双流对话）极少，Moshi 用合成对话（两个 TTS 声音按脚本对话）与真实数据混合。
@@ -189,6 +195,8 @@ Moshi 的 160–200 ms 里：80 ms 分帧 + 一步 7B decode（约 40 ms，帧�
 | 全双工 | Moshi：三流每帧 80 ms 同步、RQ-Transformer（时间 7B + 深度小模型）、内心独白 | 160 ms 理论 / 200 ms 实测；人类 200 ms |
 | 时延四段 | 分帧 + 首 token + 解码 + 语义决策 | 半双工串联 1–3 s（VAD + ASR + LLM + TTS）；全双工一步 |
 | 成本 | 全双工持续 decode，单路墙钟占比 50% 但算力空转，多路同拍可 batch，瓶颈在 KV 显存 | 半双工空闲时零成本 |
+
+Table: 语音理解、生成与全双工的规则小结
 
 ## 九、自测
 

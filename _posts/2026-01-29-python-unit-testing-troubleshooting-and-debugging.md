@@ -50,6 +50,8 @@ AI-Infra 的 Python 代码——异步调度、动态 batch、多后端切换、
 | 十七 | 本文小结 |  |
 | 十八 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、用 pytest 编写单元测试
 
 ### 1. 基本测试结构
@@ -647,6 +649,8 @@ logging.basicConfig(
 | `Formatter` | 决定日志长什么样 | `Layout` / `Encoder` |
 | `Filter` | 决定哪些记录被放过，可以改写记录 | `Filter` |
 
+Table: logging 的四个组件与 Logback 对应
+
 一条日志的流动路径是：`Logger` → `Filter` → 沿 logger 树向上传播 → 各级 `Handler` → `Formatter` → 输出。
 
 ```python
@@ -857,6 +861,8 @@ async def add_request_id(request, call_next):
 | MDC（诊断上下文） | `MDC.put()`（ThreadLocal） | `ContextVar` + Filter |
 | 异步日志 | AsyncAppender | `QueueHandler` + `QueueListener` |
 | 惰性格式化 | `log.info("x={}", x)` | `logger.info("x=%s", x)` |
+
+Table: logging 与 SLF4J + Logback 对照
 
 最后一行值得强调：**Python 也要用惰性格式化**。
 
@@ -1139,6 +1145,8 @@ htmlcov/index.html
 | 需要快速验证单个函数 | pytest -q | `pytest -q tests/test_backend.py::test_xxx` |
 | 需要静态检查类型和风格 | ruff + mypy | `ruff check . && mypy src/` |
 
+Table: 调试决策树：症状、首选工具与命令
+
 ## 十六、附：Java 与 Python 测试调试工具对照
 
 | 维度 | Java | Python |
@@ -1158,6 +1166,8 @@ htmlcov/index.html
 | 日志框架 | SLF4J + Logback | logging |
 | 静态检查 | SpotBugs / Error Prone | ruff / mypy / pyright |
 | 测试分类 | `@Tag("slow")` | `@pytest.mark.slow` / 自定义 marker |
+
+Table: Java 与 Python 测试调试工具对照
 
 ## 十七、本文小结
 

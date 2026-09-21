@@ -223,6 +223,8 @@ CPU / CUDA / Meta Kernel
 | 9 | 分布式 PyTorch | 工程线：Distributed | `torch/csrc/distributed/` `torch/distributed/` | 同一个 Transformer block 从 8 卡扩到 4 机 32 卡，算清显存与通信账 |
 | 10 | PyTorch 的工程体系 | 工程线：Testing → Build | `test/` `torch/testing/` `tools/` `.github/` | 把 `myops` 项目走完构建、正确性、性能、CI、发布、兼容七关 |
 
+Table: 十篇的标题、线索、源码目录与实践落点
+
 这不是严格的单向依赖：
 
 - 第五篇会复用第二篇关于 stride、dtype 和 device 的知识；
@@ -766,6 +768,8 @@ scale_shift(x, alpha, beta) = alpha * x + beta
 | Backward | 梯度和 Jacobian |
 | Attention | 点积和 softmax |
 | Distributed | 矩阵切分与通信 |
+
+Table: 各 PyTorch 主题同步补充的数学
 
 数学在这里的目标不是完成考试，而是回答：
 

@@ -45,6 +45,8 @@ updated: 2026-09-14
 | 同一模型名多版本灰度 | `HTTPRoute.backendRefs[].weight` | 只能按请求随机分流，不感知会话与缓存；模型名在请求体里，`HTTPRoute` 的 match 默认只看 path / header |
 | 跨集群容量共享 | MCS（`ServiceExport` / `ServiceImport`）处于 alpha 且不知道 GPU | 导入一个"池"并保留 EPP 选副本的语义，需要新对象 |
 
+Table: 模型网关需要什么、原生路径缺什么
+
 第一行是根本缺口。Envoy 这类数据面有能力按每个请求调用一个外部处理器决定目标（`ext_proc`），但 Gateway API 的 `HTTPRoute` 没有一个后端类型能表达"这组 Pod 是一个模型池，请调用某个处理器为每个请求选一个 Pod"。GIE 填的正是这一格。
 
 ### 3. 平台的机制
@@ -93,6 +95,8 @@ updated: 2026-09-14
 | 十 | 本文小结 | 要点、源码位置、mini-platform/gateway/ 增量与 `ttft-compare.py` |
 | 十一 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、为什么轮询是错的
 
 ### 1. 一个数值小例子
@@ -135,6 +139,8 @@ GIE 在 `docs/proposals/003-model-server-protocol/README.md` 里把 EPP 对引�
 | KV 事件订阅与精确前缀索引 | llm-d-router `pkg/kvevents/`、`pkg/kvcache/` | — |
 | PD 分离的路由 sidecar | llm-d-router `pkg/sidecar/`、`cmd/pd-sidecar/` | — |
 | body-based routing（从请求体提模型名） | GIE 只剩提案 `docs/proposals/1964-pluggable-bbr-framework`（Draft）；llm-d v0.9.0 的 `guides/multi-model-routing` 用独立仓库的 Inference Payload Processor（IPP） | 注入 `X-Gateway-Base-Model-Name` 头 |
+
+Table: GIE 与 llm-d v1.6.0 的仓库分工
 
 GIE `docs/proposals/1199-inferencemodel-api-evolution/README.md` 记录了这个演化：原来的 `InferenceModel`（v1alpha2）被拆掉，`Criticality` 变成 `InferenceObjective.spec.priority`（整数，允许负值），流量切分与模型名重写"不一定通过 GIE 的 CRD"实现——这就是它们最终落在 llm-d-router 的 `InferenceModelRewrite` 里的原因。GIE 的 `1816-inferenceomodelrewrite` 提案（状态 Proposed）与 llm-d-router `apix/v1alpha2/inferencemodelrewrite_types.go` 的字段是一致的。
 
@@ -362,6 +368,8 @@ flowchart TB
 | data producer | `approx-prefix-cache-producer`、`precise-prefix-cache-producer`、`token-producer`、`inflight-load-producer`、`session-id-producer`、`predicted-latency-producer` | 为 scorer / filter 准备每请求数据 |
 | flow control | `fcfs-ordering-policy`、`edf-ordering-policy`、`slo-deadline-ordering-policy`；`global-strict-fairness-policy`、`round-robin-fairness-policy`、`program-aware-fairness`；`utilization-detector`、`concurrency-detector`；`static-usage-limit-policy`、`priority-holdback-policy`、`soft-reflective-ceiling-policy` | 排队顺序 / 流间公平 / 饱和检测 / 准入上限 |
 
+Table: EPP 插件类型与实名清单
+
 brief 里提到的 `lora-affinity`，在 v0.10.0 的类型名是 `lora-affinity-scorer`（`scorer/loraaffinity/lora_affinity.go` 的 `LoraAffinityScorerType`）；`pd-profile-handler` 存在但已标 Deprecated，替代者是 `disagg-profile-handler`（`profilehandler/disagg/README.md`）。
 
 ### 3. `EndpointPickerConfig` 与加权打分
@@ -547,6 +555,8 @@ EPP 的 `requestHandler.parsers` 默认开三个：`openai-parser`、`anthropic-
 | `x-llm-d-model-name-rewrite` | 每请求覆写目标模型名 | `modelRewriteIfNeeded` |
 | `x-llm-d-slo-ttft-ms` / `x-llm-d-slo-tpot-ms` | 请求的延迟目标 | `latency-slo-admitter`、`slo-deadline-ordering-policy` 等 |
 
+Table: EPP 读取的租户控制头
+
 这几个头**任何客户端都能自己写**。llm-d `guides/flow-control/README.md` 用一段 WARNING 给出信任边界的正确做法：外层 API 网关（或 Envoy 的 `ext_authz` filter）**先剥掉**请求里所有 `x-llm-d-*` 头及其弃用别名（`x-gateway-destination-endpoint*` 这类 EPP 协议头不在剥除范围），**再**验证 API key 或 JWT，从凭证里取出租户与等级，**然后**注入权威的 `x-llm-d-inference-fairness-id` 与 `x-llm-d-inference-objective`。这一步在 GIE 的分层里明确属于 "auth handled upstream"（`1199` 提案的 Non-Goals："IGW implementing a custom auth mechanism"）。
 
 于是租户模型是两层的：**外层**（认证层）把 API key → 租户 → (fairness ID, objective 名, 配额档) 三元组；**内层**（EPP）只认 fairness ID 与 objective，不知道 API key 是什么。mini-platform 里认证层是一个几十行的 Envoy `ext_authz` 兼容服务或一个网关 filter，它读第五节的策略文件做映射与预扣，本篇不给它的代码，只给它执行的规则。
@@ -622,6 +632,8 @@ tick 到达         band100  band0     band-10  出队  说明
 | RPM（请求/分钟） | 请求到达率 | 防止大量小请求把 EPP、网关、tokenizer 打满；这些开销与 token 数无关 | 一个租户每分钟发 10 万个 1-token 请求，TPM 很低但 EPP CPU 打满 |
 | TPM（token/分钟） | 输入 + 输出 token 的消耗率 | 与 GPU 时间最接近的量纲；账单的单位 | 按 RPM 限的 600 个 30k-token 请求 = 1800 万 token/分钟 |
 | 并发（在途请求数） | 同时占用 KV cache 的请求数 | KV cache 是并发的函数不是速率的函数；一个租户开 2000 个慢流就把所有副本的 KV 占满 | TPM 未超但所有新请求排队 |
+
+Table: 每租户每模型配额的三个维度
 
 TPM 和并发之间还有一层：并发 × 每请求上下文长度 ≈ 占用的 KV token 数，这才是真正的"GPU 内存配额"。有的平台直接限"在途 token 数"（并发请求的 `prompt_tokens + max_completion_tokens` 之和）——这是最贴近资源的量纲，但对客户端最不直观。
 
@@ -701,6 +713,8 @@ spec:
 | token 数 | 强：prefill ∝ 输入 token，decode ∝ 输出 token；但输入 token 的单位成本远低于输出（prefill 批量并行） | 输入是、输出否 | 账单单位；速率配额（TPM）；预扣与结算 |
 | GPU 时间 | 就是它 | 否：取决于批内其他请求、缓存命中、量化版本 | 内部成本核算与容量规划；不适合对租户暴露，因为同一请求在不同时刻的 GPU 时间不同 |
 
+Table: 三种配额的量纲
+
 结论是：**对租户暴露 token 配额（区分输入与输出），用并发数约束 KV 占用，用 RPM 约束控制面开销；GPU 时间留给平台内部算成本**。这也是主流 API 厂商定价按输入 / 输出 token 分别计价的原因——它是既能在请求到达时部分确定、又与成本足够相关的最细量纲。
 
 ### 2. 预扣与结算
@@ -751,6 +765,8 @@ t=2 与 t=6 是两种不同的拒绝：前者余量足够但 KV 占用（并发�
 | 生成中客户端断开 | 网关关闭上游连接，vLLM 收到断开后中止该请求（释放 KV）；已生成的 token 已经花了 GPU | 按已生成计费：`continuous_usage_stats` 下用最后一个 usage；否则按已转发的 SSE chunk 数（vLLM 默认每 chunk 一个 token 的增量，近似）；输入按 prompt 全额 |
 | 生成中上游断开（Pod 重启） | 引擎没了，客户端收到半截流 | 输入是否计费是策略问题；建议只记不扣，并对这类事件告警——它对应下一篇的 goodput |
 
+Table: 流式断开的三种情形与记账
+
 EPP 在响应路径上记的是指标而不是账单：`HandleResponseBody` 从 usage 里取值调 `metrics.RecordInputTokens` / `RecordOutputTokens` / `RecordPromptCachedTokens`，暴露为 `llm_d_epp_request_input_tokens`、`llm_d_epp_request_output_tokens`、`llm_d_epp_request_cached_tokens` 三个 histogram，标签 `model_name`、`target_model_name`、`fairness_id`、`priority`（`pkg/epp/metrics/llm_d_router_metrics.go` 的 `modelLabelsWithFairnessPriority`；旧的 `inference_objective_*` 系列已标 Deprecated）。这意味着**按租户（fairness ID）× 模型 × 优先级的 token 用量在 EPP 的 `/metrics` 上已经有了**，可以直接做 PromQL 的对账；但 histogram 不是账本，丢一次抓取就丢一段，账单级的记录仍要在网关的访问日志或专门的事件流里做。
 
 `cached_tokens` 值得单独说：命中前缀缓存的输入 token 几乎不消耗 prefill 算力，API 厂商普遍对它打折。有了 `prompt_tokens_details.cached_tokens`，平台可以把"输入 token"拆成命中与未命中两种单价——这同时是给租户的一个正向激励：把 system prompt 放前面、保持会话连续，账单会变便宜，命中率也会变高。
@@ -767,6 +783,8 @@ EPP 在响应路径上记的是指标而不是账单：`HandleResponseBody` 从 
 | 排在哪个副本 | EPP scheduling profile | 与租户无关：`prefix-cache-affinity-filter` 缩到有前缀命中的副本 → `utilization-filter` 丢掉 KV > 0.9 或队列 > 4 的 → 加权分（前缀 3、队列 2、KV 2、LoRA 1）→ 最高分 | 4 个副本对两个租户是一个池；租户隔离在时间（排队顺序）上而不在空间（副本）上 |
 | "配额"是什么 | 平台设计 | 对租户：输入 / 输出 token（TPM）+ 并发数 + RPM；对平台：GPU 时间用于成本核算 | 请求数量纲错误；GPU 时间到达时不可知 |
 | 断开怎么算 | 认证层 + EPP | 排队中断开退全部预扣；生成中断开按已生成结算（`continuous_usage_stats` 或 chunk 数）；`usage` 靠网关强制 `include_usage` | 见 6.3 |
+
+Table: 两个租户共用副本的决策规则表
 
 如果要在**空间上**隔离两个租户（B 的突发不能影响 A 的 TTFT，哪怕 A 有余量），那就不是配额问题而是**两个池**：A 独占 3 个副本的池、B 用 1 个副本的池，各自一条 `HTTPRoute` 按租户头匹配。代价是 A 空闲时 B 用不上那 3 个副本——这正是总纲取舍线里"隔离 vs 利用率"在网关层的形态。
 
@@ -915,6 +933,8 @@ LLM 流量对网关的压力与普通 API 不同：连接**长**（一个流式�
 | EPP | 5k 输出 | — | 20+ GiB |
 | EPP 空闲 | 100 个模型服务 Pod | ≈ 7.5 核（指标抓取） | — |
 
+Table: 网关与 EPP 的容量参考
+
 几个可操作的结论：Envoy 的 CPU 与请求率线性、内存基本不变；EPP 的内存与**在途请求数 × 输出长度**成正比（每个在途请求的状态留在内存里直到流结束），flow control 打开后排队的请求体也在内存里（按 `maxBytes` 预算）；EPP 的空闲 CPU 与 Pod 数成正比（每个 Pod 每 50 ms 一次抓取）；近似前缀匹配的 `maxPrefixTokensToMatch` 直接影响 EPP CPU。所以一个 100 副本的池配一个 EPP 时，EPP 自己就是一个 8～32 核、几十 GiB 的工作负载（`docs/operations.md` 的 Helm 示例给 EPP `cpu: "32"`），要按第四章 6 节的 HA 限制规划。
 
 网关层的高可用与普通 Gateway 一样（多副本 + LB），但要注意两点：`HTTPRoute.timeouts.request` 要关掉或设到分钟级，否则长流被网关切断；网关滚动升级时在途的流式连接会断，客户端要能重试，账单要按 6.3 的规则处理。
@@ -933,6 +953,8 @@ LLM 流量对网关的压力与普通 API 不同：连接**长**（一个流式�
 | 同一模型名多版本灰度 | 权重分流不感知会话与缓存 | 池间 `HTTPRoute` 权重 / header 定向；池内 `InferenceModelRewrite` | 池间灰度打散前缀缓存；池内灰度要求同一引擎能服务两个版本（LoRA 成立，量化版本不成立） |
 | 按 adapter 选副本 | — | IPP 的 adapter → 基础模型映射 + `lora-affinity-scorer` | 算法偏向 vLLM 的实现；`--max-loras` 与换入代价要与前缀亲和权衡 |
 | 跨集群容量共享 | MCS alpha 且不知 GPU | `InferencePoolImport`（alpha、status-only、Draft 提案）；`multicluster-*` 插件 | 尚无稳定 API 与参考实现；生产仍靠上层 LB |
+
+Table: 引擎需求、K8s 空缺、平台机制与代价
 
 ### 2. 什么时候不该上这一层
 
@@ -995,6 +1017,8 @@ PD            两个 profile，两个 header（x-gateway-destination-endpoint �
 | llm-d guides | llm-d `guides/optimized-baseline/router/*.values.yaml`、`guides/flow-control/{objectives.yaml,router/*.values.yaml,README.md}`、`guides/precise-prefix-cache-routing/`、`guides/multi-model-routing/manifests/`、`guides/rollouts/{blue-green-update,adapter-rollout}.md`、`docs/infrastructure/gateway/README.md`、`docs/architecture/core/router/proxy.md`、`docs/api-reference/epp-http-headers.md` | `peakPrefillThroughput`；`X-Gateway-Base-Model-Name`、`inference.llm-d.ai/ipp-managed`；`x-llm-d-request-dropped-reason` 取值；Standalone / Gateway 模式 |
 | vLLM v0.28.0 | `vllm/entrypoints/openai/chat_completion/protocol.py`、`openai/engine/protocol.py`、`openai/cli_args.py`、`openai/models/protocol.py`、`serve/lora/api_router.py`、`vllm/envs.py`、`vllm/engine/arg_utils.py`、`vllm/v1/metrics/loggers.py` | `ChatCompletionRequest.model` / `stream` / `stream_options` / `max_completion_tokens`；`StreamOptions.include_usage` / `continuous_usage_stats`；`UsageInfo.prompt_tokens` / `completion_tokens` / `total_tokens` / `prompt_tokens_details`；`PromptTokenUsageInfo.cached_tokens`；`--lora-modules`、`LoRAModulePath`；`/v1/load_lora_adapter` / `/v1/unload_lora_adapter`；`VLLM_ALLOW_RUNTIME_LORA_UPDATING`、`VLLM_LORA_RESOLVER_CACHE_DIR`；`--enable-lora` / `--max-loras` / `--enable-prefix-caching` / `--kv-events-config`；`vllm:num_requests_waiting` / `num_requests_running` / `kv_cache_usage_perc` / `prefix_cache_hits` / `lora_requests_info` / `cache_config_info` |
 | KServe v0.20.0 对照 | `pkg/apis/serving/v1alpha1/llm_inference_service_types.go` | `LLMInferenceServiceSpec.Router`；`RouterSpec.Route` / `Gateway` / `Scheduler`；`SchedulerSpec.Pool` / `Config` / `Template` / `Replicas`；`SchedulerConfigSpec.Inline` / `Ref` |
+
+Table: 本篇涉及的源码与 CRD 位置
 
 ### 3. mini-platform 本篇增量：`gateway/`
 

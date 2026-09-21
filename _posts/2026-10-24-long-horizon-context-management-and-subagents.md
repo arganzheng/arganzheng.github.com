@@ -39,6 +39,8 @@ flowchart TB
 | 复述（目标回末尾） | `plan` 工具处理器、`get_context_remaining` 让模型看剩余预算 | `plan`（记录式规划）、`todo`（`todo_write` 工具）、`goal`（会话目标） | todo 工具、CLAUDE.md 重注入 |
 | 隔离（子 agent） | `multi_agents` / `multi_agents_v2` 处理器、`agent-roles` crate | `subagent` 包组七种后端 | subagent / agent teams |
 
+Table: L2 的上下文策略在三个 harness 里的实现
+
 ### 2. 本文的章节安排
 
 第二章卸载与清理的实现；第三章压缩的实现；第四章复述；第五章子 agent 的三种形态；第六章子 agent 的成本与取舍；第七章实践建议。
@@ -101,6 +103,8 @@ todo 工具与压缩后从磁盘重注入的 CLAUDE.md（L2 第一篇）：项�
 | 适合 | 只要结果的聚焦任务 | 需要讨论与协作的复杂工作 |
 | token | 较低：结果摘要回主上下文 | 较高：每个队友是独立的 Claude 实例 |
 
+Table: Claude Code 的 subagent 与 agent teams
+
 subagent 的定义有三种方式：程序化（Agent SDK 的 `agents` 参数）、文件（`.claude/agents/*.md`，前置元数据 `description` / `tools` / `model` / `permissionMode`）、内置（`general-purpose`、`Explore`、`Plan`）；主 agent 按每个 subagent 的 `description` 决定是否派发——又是"描述是 prompt"。subagent 继承父会话的权限，多数内置的用受限工具集。agent teams 默认关闭（`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`），文档明写"在会话恢复、任务协调、关闭行为上有已知限制"——第七篇讲多 agent 时再回来。
 
 ### 3. Codex：`multi_agents`
@@ -120,6 +124,8 @@ subagent 的定义有三种方式：程序化（Agent SDK 的 `agents` 参数）
 | `subagent-acp` | 通过 ACP（自动化协议）起外部 agent |
 | **`subagent-claude-code`** | 把 **Claude Code** 作为子 agent 拉起 |
 | **`subagent-codex`** | 把 **Codex** 作为子 agent 拉起 |
+
+Table: DeepSeek Harness 的七种 subagent 后端
 
 最后两个值得停一下：一个 harness 可以把另外两家的 harness 作为自己的子 agent——委派一个子任务给 Claude Code 或 Codex，拿回结果。`hooks/` 包组还有 Claude Code / Codex 的 hooks 桥接。这说明 2026 年 harness 之间的**互操作已经是事实**：它们共享 MCP、共享 SKILL.md、共享 AGENTS.md（L2 第六篇），现在还能互相调用。"该用哪个 harness"的问题正在变成"该怎么组合"。
 
@@ -143,6 +149,8 @@ Anthropic 的数字：agent 约 4 倍于聊天、多 agent 约 15 倍。原因�
 | 串行的、每步依赖上一步的任务 | 不值得：没有并行收益，多出派发与摘要的开销 |
 | 结果需要完整过程（不是摘要） | 不值得：摘要丢信息 |
 | 为了"看起来像团队" | 不值得 |
+
+Table: 委派子 agent 在不同情形下是否值得
 
 ### 3. 调试
 

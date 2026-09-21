@@ -93,6 +93,8 @@ flowchart TB
 | 十一 | 本文小结 | 要点、排障检查项、源码位置、comm-probe 的 `rdma_write.c` |
 | 十二 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、为什么需要 RDMA
 
 ### 1. TCP 发送一段显存的完整路径
@@ -141,6 +143,8 @@ RDMA 通过三个设计把上面每一项成本移走：
 | 单流带宽上限 | 受单核限制，通常几十 Gb/s | min(NIC 50 GB/s, PCIe 5.0 64 GB/s, 主机内存) ≈ 50 GB/s（A100/PCIe 4.0：32 GB/s 的 PCIe 被 D2H 和 NIC DMA 共享主机内存，实际不到 25 GB/s） | min(NIC 50 GB/s, PCIe 5.0 64 GB/s) = 50 GB/s（A100/HDR：min(25, 32) = 25 GB/s） |
 | 8 卡 8 网卡合计 | 受 CPU 核数与内存带宽限制，很难接近 8 × 50 GB/s | 主机内存流量 8 × 2 × 50 = 800 GB/s 收发合计，接近或超过两 socket 内存带宽 | 8 × 50 = 400 GB/s，主机内存流量 0 |
 | 单向延迟量级 | 15–50 µs（RTT 量级） | 2–5 µs + 一次 PCIe 拷贝 | 1–2 µs（IB）/ 2–4 µs（RoCE） |
+
+Table: TCP、RDMA 与 GPUDirect RDMA 三条路径的对照
 
 三点解读：
 
@@ -803,6 +807,8 @@ GDRCopy           CPU 经 BAR1 映射直接读写显存，亚微秒；NCCL_GDRCO
 | `src/transport/net.cc` 发送/接收 `proxySetup` 一路、`ncclNetLocalRegisterBuffer` | channel buffer 与用户 buffer 的注册：先 `cuMemGetHandleForAddressRange` + `regMrDmaBuf`，回退 `regMr`；`NCCL_GDRCOPY_SYNC_ENABLE` / `GDRCOPY_FLUSH_ENABLE` |
 | `src/register/register.cc` `ncclCommRegister` / `ncclRegister` | 用户 buffer 注册的 communicator 级缓存 `ncclRegCache`；`NCCL_LOCAL_REGISTER` |
 | 工具 | `ibstat`、`ibv_devinfo -v`、`rdma link`、`show_gids`、`ib_write_bw` / `ib_write_lat`（perftest，`--use_cuda`、`-x`、`-q`、`-R`）、`lsmod`、`ulimit -l`、`lspci -vv` |
+
+Table: 本篇涉及的源码与工具位置
 
 ### 4. comm-probe 本篇增量：`rdma_write.c`
 

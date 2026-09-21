@@ -35,6 +35,8 @@ date: 2026-08-25 20:00:00
 | [第十三篇：Serving Infra 的下一站](/future-of-serving-infra.html) | Serving 会不会从模型执行器演化为分布式系统？vLLM 在哪？ | 会，且在发生：四个转变（手工配置 → 自动执行计划、本地缓存 → 分布式状态平面、单体推理 → 多阶段分布式执行、GPU 利用率 → Goodput / SLO / 成本）；vLLM 是执行引擎层 | 三个平面：计算 / 状态 / 调度；OS 类比：vLLM = 内核里的调度器 + 内存管理器（请求 = 进程、KV 块 = 页），llm-d / Dynamo / Mooncake 一类 = 集群资源管理器；契约 = KV 传输、能力发现、指标 |
 | [第十四篇：回到源码](/source-code-request-walkthrough.html) | 每个概念对应哪个对象、哪次状态变化、哪条调用链？ | Python 控制面 / C++·CUDA 数据面分离；四个域（请求 / 调度 / 显存 / 模型）；`RequestStatus` 状态机；翻译层 `prepare_inputs()` 把 `SchedulerOutput` 变成 `slot_mapping` / `block_table` | Python 开销 0.15 ms / 15 ms ≈ 1%，且被 batch queue 流水线化；7B / A100：权重读取 13.5 GB ÷ 2.0 TB/s ≈ 6.6 ms，decode 一步 batch 1 8–12 ms、batch 32 10–18 ms，吞吐 100 → 2000 tok/s；五笔账：147 块 / 734 MB、5 段、92 + 3000 ms、每步同步 2.5 MB、跨节点搬 641 MB ≈ 13 ms |
 
+Table: 十四篇的核心问题、结论与必记公式
+
 ### 1. 本文的章节安排
 
 | 章 | 内容 |
@@ -44,6 +46,8 @@ date: 2026-08-25 20:00:00
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
 | 六 | 下一步 |
+
+Table: 本文的章节安排
 
 ## 二、逐篇回顾
 
@@ -310,6 +314,8 @@ date: 2026-08-25 20:00:00
 | CUDA Graph 的形状约束 | 六、七、十、十二 | 六分桶捕获；七 `1 + K` 改变纯 decode 定义；十按有无 LoRA 各录一套；十二 D 实例用 FULL_DECODE_ONLY |
 | 边界与契约 | 三、九、十一、十二、十三、十四 | 三进程边界；九三层适配；十一五层硬件边界；十二 `KVConnector`；十三层间契约；十四控制面 / 数据面 |
 
+Table: 贯穿十四篇的概念及其关系
+
 ```mermaid
 %% 图：KV Cache 是唯一随时间增长的状态：准入、并发上限、PD 交接、decode 每步时间都由它决定
 flowchart TB
@@ -348,6 +354,8 @@ flowchart TB
 | 多模态贵在 ViT encoder | encoder 输出 9–22 MB 且短命 | 图片占位 token 的 KV 184–438 MB、约 20 倍、伴随请求全程 | [第十篇](/request-shapes-multi-lora-and-multimodal.html) |
 | Attention Backend 应该继承 Platform | 一个平台多个 backend，接口与平台无关，继承会组合爆炸 | Platform 按条件派发一个类；backend 有独立实现树 | [第十一篇](/hardware-abstraction-and-portability.html) |
 | PD 分离 = 把两个阶段部署到两台机器；分离后干扰彻底消失 | 共置 / 分离描述资源域，不描述物理位置；D 内部干扰仍在 | 三个设计问题：计算如何拆、状态如何交接、系统如何协同；匹配不等于就绪 | [第十二篇](/prefill-decode-disaggregation.html) |
+
+Table: 常见误区与正确说法
 
 ## 五、通关自测
 
@@ -554,6 +562,8 @@ flowchart TB
 | 读过 | 能说出十四篇各讲什么；知道 PagedAttention、Continuous Batching、Chunked Prefill、CUDA Graph、投机解码、TP / PP / EP、PD 分离这些名词 |
 | 掌握 | A 组能不翻书算出 8 题以上；B 组能说出每题用了哪几篇的什么；拿到一个 serving 系统的指标面板能按"排队 → Prefill → Decode → 资源"定位瓶颈，拿到一个部署方案能算出 KV 池、每步时间与通信次数 |
 | 能教人 | C 组每题能给出全部要点并预判追问；能解释十四篇里每个反直觉结论为什么成立（调度单位是 token、重算比 swap 好、投机解码高并发下负收益、TP 不减单请求延迟、图片贵在 KV、PD 分离不产生全局调度器） |
+
+Table: 掌握程度的判据
 
 通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点。没过的部分回到第二章对应篇的"必记"，再回该篇正文；第十四篇的源码走读可以当作全部十三篇的验收——一个概念若在对象、状态变化和调用链里找不到对应，就还没落地。
 

@@ -42,6 +42,8 @@ flowchart TB
 | [第五篇：KV cache 压缩：量化、驱逐与稀疏 attention](/kv-cache-compression-quantization-eviction-and-sparse-attention.html) | 128K 上下文的 KV 从 40 GB 压到 10 GB，哪种办法在哪类任务上安全？ | key 有固定通道离群、value 没有，所以 key per-channel、value per-token；FP8 KV 永远是第一步；驱逐假设"过去不重要 = 将来不重要"，在问题未知、信息密度高的任务上不成立 | 70B 每 token KV 320 KB、128K 为 40 GB → FP8 20 → INT4 12.5（元数据 25%，实际 3.2×）→ +SnapKV 25% 3.1 GB；KIVI 2 bit：key per-token 崩掉、per-channel +0.1；sink 吃 30–50% 注意力；NSA 64K 下 KV 读取 ÷ 11 |
 | [第六篇：剪枝、深度缩放与小模型配方](/pruning-depth-scaling-and-small-model-recipes.html) | 剪掉 25% 的层困惑度只升 0.3，为什么下游任务掉一半？蒸馏能恢复多少？ | 中后层是残差流上的小修正，删掉对平均预测影响小、对关键位置的多步组合与后训练能力破坏大；剪枝必须蒸馏恢复，赢的是 token 效率不是精度上限 | OBS 重要性 $$w_q^2 / [H^{-1}]_{qq}$$；Wanda $$\lvert w_{ij} \rvert \cdot \lVert X_j \rVert$$；中后层余弦相似度 0.85–0.95；悬崖 70B 约 40%、13B 约 30%；Minitron 15B → 8B 用 94B token 对从头 8T，省 40×；蒸馏比继续预训练高 3–4 MMLU 点；2:4 稀疏 GEMM 1.3–1.8× |
 
+Table: 六篇的核心问题、结论与必记公式
+
 ### 1. 本文的章节安排
 
 | 章 | 内容 |
@@ -51,6 +53,8 @@ flowchart TB
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
 | 六 | 下一步 |
+
+Table: 本文的章节安排
 
 ## 二、逐篇回顾
 
@@ -201,6 +205,8 @@ flowchart TB
 | 训练阶段为部署设计 | 二、四、五、六 | MTP 头；厂商 QAT；NSA / MLA / 跨层共享；剪枝初始化 + 9T 蒸馏 |
 | 采样温度 | 一、二、四 | 一：pass@1 与 pass@k 的相反响应；二：接受率在 greedy 下最高、随温度下降；四：量化前后必须同一采样参数 |
 
+Table: 贯穿六篇的概念及其关系
+
 ## 四、常见误区
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
@@ -217,6 +223,8 @@ flowchart TB
 | 注意力低的 KV 可以安全驱逐 | needle 在被读到时就是"不重要"的；多跳的第二跳在问题之前不可知 | 驱逐只在问题已知（SnapKV）、只依赖近期（StreamingLLM）或输入冗余大时安全 | [第五篇](/kv-cache-compression-quantization-eviction-and-sparse-attention.html) |
 | 50% 非结构化稀疏让推理快一倍 | Tensor Core 不识别零，稀疏 GEMM 在 50% 下比稠密慢 | 只有 2:4 被硬件兑现（1.3–1.8×），且 decode 字节只到 5/8 | [第六篇](/pruning-depth-scaling-and-small-model-recipes.html) |
 | 删层后 MMLU 不掉就是无损 | 多选只要正确选项 logit 最大；生成任务每步精确、格式遵循写在深层 | GSM8K 可从 50 掉到 10 以下；剪枝后必须蒸馏恢复并重做后训练 | [第六篇](/pruning-depth-scaling-and-small-model-recipes.html) |
+
+Table: 常见误区与正确说法
 
 ## 五、通关自测
 
@@ -423,6 +431,8 @@ flowchart TB
 | 读过 | 能说出六篇各讲什么；知道 top-p / min-p、EAGLE、GPTQ / AWQ、STE、KIVI、Minitron 这些名词；知道"除投机解码外都改变分布" |
 | 掌握 | A 组能不翻书算出 8 题以上；B 组能说出每题用了哪几篇的什么；拿到一份量化 / 剪枝报告能指出它的"无损"在哪个指标、哪类任务、什么协议下成立，并估出该方法在自己负载上的收益区间 |
 | 能教人 | C 组每题能给出全部要点并预判追问；能解释六篇里每个反直觉结论（pass@k 随温度上升、边缘分布的接受率低于条件分布、W4A16 在 prefill 上更慢、驱逐 sink 即崩、删层 PPL 不动而 GSM8K 掉一半）为什么成立 |
+
+Table: 掌握程度的判据
 
 通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点。没过的部分回到第二章对应篇的"必记"，再回该篇正文。
 

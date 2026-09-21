@@ -37,6 +37,8 @@ updated: 2026-09-20
 | 网络（IB / RoCE） | 网卡亲和错 · PFC / ECN 没配 · 链路降速 · 丢包重传 | ibstat · `ib_write_bw` · 交换机计数器 · `NCCL_IB_HCA` · dmesg |
 | 硬件（PCIe / NVLink） | 链路降级 · 跨 NUMA · GPU 掉卡 | `nvidia-smi topo -m` · `nvidia-smi nvlink -s` · `lspci -vv` |
 
+Table: 一次 all_reduce 穿过的六层及其故障与观测手段
+
 三种现象在这张图上的排查方向不同。**慢**从下往上：先确认硬件和网络能提供的上限（第二、三篇的 nvbandwidth 与 `ib_write_bw`），再用 nccl-tests 看 NCCL 拿到了多少，最后看框架侧是否浪费了。**卡**从上往下：先用 Flight Recorder 判断是不是调用不一致，是则到此为止；不是再往下看 rank 是否存活、网络是否断开。**错**几乎只在框架层和数值层：归约顺序、算法差异、stream 竞争、NaN 传播。
 
 ### 2. 四段法在本篇的落法
@@ -62,6 +64,8 @@ updated: 2026-09-20
 | 九 | 决策树 | 慢 / hang / 错 三棵树的展开版，从现象到检查项到处理方式 |
 | 十 | 本文小结 | 要点 · 检查项 · 源码位置 · comm-probe 的 `sweep.sh` 与 `hang_lab/` |
 | 十一 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、nccl-tests：怎么测
 
@@ -225,6 +229,8 @@ $$
 | 8×A100 NVSwitch 节点内 | 8 | ~3 µs | ~270 GB/s | ~6.5 MB | ~60 MB |
 | 2 节点 ×8，NDR 400 每 GPU | 16 | ~10 µs | ~45 GB/s | ~7 MB | ~65 MB |
 | 8 节点 ×8，NDR 400 每 GPU | 64 | ~10 µs | ~45 GB/s | ~29 MB | ~260 MB |
+
+Table: α-β 模型预测的几种场景的拐点
 
 这解释了几个常见的观察：为什么 8 卡节点内要到 64～128 MB 才接近平台；为什么 64 卡跨机的曲线在 256 MB 以下都"看起来没跑满"；为什么 DDP 默认 25 MB 的 bucket 在单机 8 卡上刚过拐点、在 64 卡上还在爬坡（这是为什么大规模下 NCCL 会为中等消息选 Tree——把 $$2(n-1)$$ 步的延迟项换成 $$2\log_2 n$$ 步）。
 
@@ -960,6 +966,8 @@ timeout         约束 enqueue → 结束 event 的墙钟时间；不约束 CPU�
 | 6 | 卡 | FR dump → fr_trace.py → 一致（环境）还是不一致（代码）；py-spy 补 Python 侧 |
 | 7 | 错 | 固定算法 → 差异消失是归约顺序；各 rank 不一致 → 竞争；NAN_CHECK 找源头 |
 | 8 | 记录 | 每次结论连同 topo -m、环境变量、版本一起归档 |
+
+Table: 通信层排障检查项
 
 ### 3. 本篇涉及的源码与工具位置
 

@@ -30,6 +30,8 @@ updated: 2026-09-20
 | 把预处理跑快 | `multiprocessing.Pool`、GIL、`chunksize` | 六 |
 | 出错时定位 | 读 traceback、`assert` 形状、`breakpoint()` | 七 |
 
+Table: 训练代码里的四件事与用到的语法
+
 ### 3. 本文的章节安排
 
 | 章 | 主题 | 内容 |
@@ -43,6 +45,8 @@ updated: 2026-09-20
 | 八 | 越过哪条线进 Infra 01 | 本篇每一节的机制在 01 系列哪一篇 |
 | 九 | 本文小结 | |
 | 十 | 自测 | 五道题 |
+
+Table: 本文的章节安排
 
 ## 二、环境
 
@@ -216,6 +220,8 @@ PyTorch 的每个核心 API 都建在一个 Python 协议上。左边是你在�
 | `with torch.autocast(...)`、`with torch.no_grad()` | 上下文管理器：`__enter__` / `__exit__` | ⑤ `seeded` | 进入时改一个状态，退出时**保证**恢复，中间抛异常也恢复。`@contextmanager` 把一个 `yield` 前后各一段的生成器变成它 |
 | `Trainer(**kwargs)`、`model.generate(**inputs)` | 参数打包与展开：`*args` / `**kwargs` | ⑥ `wrapper(*args, **kwargs)` | `*args` 把多余的位置参数收成 tuple，`**kwargs` 把多余的关键字参数收成 dict；调用时 `f(*t, **d)` 反过来展开。`Trainer(**config)`、`tokenizer(text, **kw)` 都是把一个 dict 原样透传下去——看到它就去找那个 dict 里有什么键 |
 
+Table: PyTorch 核心 API 与 Python 协议的对照
+
 ### 2. 一个 40 行的"玩具 PyTorch"
 
 用纯 Python 把左列每一样各写一个最小版，跑起来与真的形状一致（①–⑥ 对应上表）：
@@ -343,6 +349,8 @@ AssertionError: shape mismatch: x row has 2 features, w expects 3
 | 设备 | `Expected all tensors to be on the same device, but found cuda:0 and cpu` | 某个张量忘了 `.to(device)`——常见于手建的 mask 或 label |
 | 类型 | `expected scalar type Float but found BFloat16` | `autocast` 之外把 bf16 与 fp32 混算了；第四篇 |
 
+Table: 三类最常见的错误与第一反应
+
 形状错误在 PyTorch 里**经常不报错**——广播把 `[B, T]` 和 `[T, 1]` 加在一起也能算出一个结果（第二篇"能跑但错"）。在形状会变的地方写一句 `assert x.shape == (B, T, d), x.shape`，错了当场停在这一行，而不是在几百步之后的 loss 曲线上。要看某一行时的变量值，在那一行前写 `breakpoint()`，运行到那里会进入 pdb：`p x.shape` 打印、`n` 下一行、`c` 继续。测试与调试的系统做法在 Infra 01 第六篇。
 
 ## 八、越过哪条线进 Infra 01
@@ -358,6 +366,8 @@ AssertionError: shape mismatch: x row has 2 features, w expects 3
 | 三 | 峰值内存、对象开销 | [01 第五篇](/python-memory-management-and-optimization.html)：引用计数、对象头、为什么一个 dict 比它的 JSON 大 5 倍 |
 | 七 | traceback、`assert`、`breakpoint()` | [01 第六篇](/python-unit-testing-troubleshooting-and-debugging.html)：pytest、性能剖析、线上排障 |
 | 二 | venv、`requirements` | [01 第七篇](/python-engineering-and-production-delivery.html)：打包、`pyproject`、镜像与交付 |
+
+Table: 本篇各章对应的 Infra 01 系列机制篇
 
 算法工作的日常在左边两列就够了；读框架源码、给框架提 PR、排查 `DataLoader` 卡死这类问题时，右边那一列是必需的。
 

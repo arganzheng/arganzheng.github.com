@@ -28,6 +28,8 @@ date: 2026-01-30 20:00:00
 | [第六篇：单元测试、问题定位与调试实践](/python-unit-testing-troubleshooting-and-debugging.html) | 怎么验证行为符合预期？异步时序、Mock、动态调用、内存、卡死各用哪个工具？ | 工具不难，难在按症状选工具；日志要分调试期与生产期；`raise ... from` 与带上下文的日志是所有工具的前提 | `Mock` 不能 `await`、要用 `AsyncMock`；替换"被测模块里实际用的名字"；logger 与 handler 两道级别关卡；库只建 logger 不配输出；`python -X faulthandler`、`PYTHONTRACEMALLOC=25`、`pytest -W error::RuntimeWarning` |
 | [第七篇：项目工程化与生产交付](/python-engineering-and-production-delivery.html) | 依赖怎么声明和锁定、环境怎么隔离、质量怎么把关、制品怎么打包、镜像怎么分层？ | Python 把 Java 里由框架和编译器强制的事交还给你：锁文件进 CI、torch 交给固定 tag 的基础镜像、静态检查是编译器的替代品 | `pip install torch` 2 GB+、环境 5–8 GB、镜像 8–12 GB；装 torch 用 `--index-url` 不用 `--extra-index-url`；CUDA 三层、同大版本向前兼容；GPU 服务每 GPU 一个 worker（4 × 14 GB = 56 GB）；`uv sync --frozen`；tag 不能是 `latest` |
 
+Table: 七篇的核心问题、结论与必记判据
+
 ### 1. 本文的章节安排
 
 | 章 | 内容 |
@@ -37,6 +39,8 @@ date: 2026-01-30 20:00:00
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
 | 六 | 下一步 |
+
+Table: 本文的章节安排
 
 ## 二、逐篇回顾
 
@@ -208,6 +212,8 @@ date: 2026-01-30 20:00:00
 | 异常链与重抛 | 一、四、六 | 一给 `raise` / `from exc` / `from None` 与"日志不是处理"；四的插件加载失败要 `from exc`；六用 `__cause__` 测试异常链 |
 | 日志与上下文 | 三、六、七 | 三的 `contextvars` 替代 `threading.local`；六用它注入 request ID、库与应用分工；七的 stdout + `PYTHONUNBUFFERED` |
 
+Table: 贯穿七篇的概念及其关系
+
 ```mermaid
 %% 图：Python 系列的两条主线：import 是运行时动作，GIL 逼出多进程，两条线在 __main__ 保护处会合
 flowchart TB
@@ -242,6 +248,8 @@ flowchart TB
 | `requirements.txt` 全写 `==` 就可复现 | 传递依赖仍浮动，且没有 hash 校验 | 锁文件带 hash，CI 用 `uv sync --locked`（`--frozen` 不做一致性检查） | [第七篇](/python-engineering-and-production-delivery.html) |
 | 装 torch 用 `--extra-index-url` | pip 在多个索引里选版本最高的，可能装到 PyPI 的默认变体 | 用 `--index-url`，或 uv 的 `explicit = true` 按包指定索引 | [第七篇](/python-engineering-and-production-delivery.html) |
 | GPU 服务多开几个 worker 提吞吐 | 每个 worker 各自加载一份模型进显存 | 每 GPU 一个进程，进程内靠 asyncio + 批处理 | [第七篇](/python-engineering-and-production-delivery.html) |
+
+Table: 常见误区与正确说法
 
 ## 五、通关自测
 
@@ -448,6 +456,8 @@ flowchart TB
 | 读过 | 能说出七篇各讲什么；知道 GIL、描述符、`Protocol`、`__init_subclass__`、pymalloc、`tracemalloc`、`uv.lock` 这些名词 |
 | 掌握 | A 组能不翻书答出 8 题以上；B 组能说出每题用了哪几篇的什么；读 vLLM / PyTorch 源码时遇到 `__getattr__`、元类、`ParamSpec`、`contextvars` 不再当黑盒；拿到一份 Dockerfile 或 `pyproject.toml` 能指出哪里会让构建不可复现 |
 | 能教人 | C 组每题能给出全部要点并预判追问；能解释七篇里每个反直觉结论（`import` 是执行代码、`super()` 不是父类、多线程不加速 CPU、RSS 不降不是泄漏、GPU 服务 worker 只开一个、torch 不该进锁文件）为什么成立，并说出对应的 Java 对照在哪里失效 |
+
+Table: 掌握程度的判据
 
 通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点。没过的部分回到第二章对应篇的"必记"，再回该篇正文。
 

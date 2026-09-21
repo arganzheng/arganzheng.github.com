@@ -92,6 +92,8 @@ combine 的通信矩阵 = Cᵀ：rank3 要发回 1068 份，rank2 只发回 170 
 | 九 | 测一测与比一比：专家热点如何体现为通信时间、DeepEP 的 SM 数与 Config、NVSHMEM 环境变量、检查清单 |
 | 十 | 本文小结：要点、源码位置、comm-probe 的 `moe_a2a_model.py` 与 `a2a_bench.py` |
 
+Table: 本文的章节安排
+
 ## 二、算一算：dispatch 与 combine 的账
 
 ### 1. 每个 token 多少字节
@@ -834,6 +836,8 @@ vLLM                  --all2all-backend：allgather_reducescatter（默认）/ d
 | vLLM prepare / finalize | `vllm/model_executor/layers/fused_moe/all2all_utils.py`：`maybe_make_prepare_finalize`（`use_fp8_dispatch` 的判定）；`prepare_finalize/deepep_ht.py`：`DeepEPHTPrepareAndFinalize._do_dispatch` / `prepare` / `finalize`；`prepare_finalize/deepep_ll.py`：`DeepEPLLPrepareAndFinalize`（`SUPPORTED_HIDDEN_SIZES`、`prepare_async`、`_receiver`、`finalize_async`）；`prepare_finalize/naive_dp_ep.py`、`nixl_ep.py`、`flashinfer_nvlink_*.py` |
 | vLLM EPLB | `vllm/distributed/eplb/eplb_state.py`：`EplbState`、`EplbStats`；`policy/default.py`：`rebalance_experts`、`rebalance_experts_hierarchical`；`rebalance_execute.py`：`rearrange_expert_weights_inplace` |
 | 工具 | nccl-tests `alltoall_perf`；`ib_write_bw --use_cuda`（第三篇）；`nvidia-smi topo -mp`（第二篇）；torch profiler；comm-probe `moe_a2a_model.py`、`a2a_bench.py`（下） |
+
+Table: 本篇涉及的源码与工具位置
 
 ### 3. comm-probe 本篇增量：moe_a2a_model.py 与 a2a_bench.py
 

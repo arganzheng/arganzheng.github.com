@@ -81,6 +81,8 @@ busbw
 | 九 | 消息大小的谱 | 几十 KB / 几十 MB / GB 三个量级各在曲线哪一段、各自的对策与检查项 |
 | 十 | 小结 | 要点、公式速查、源码位置、comm-probe 的 `cost_model.py` |
 
+Table: 本文的章节安排
+
 ## 二、集合通信原语：语义、组合与下界
 
 ### 1. 八个原语
@@ -521,6 +523,8 @@ $$
 | broadcast | 出向 | 0 | **2S** ← 瓶颈 | 0 + 2·(S/2) = S |
 | 合计（瓶颈方向） | | | 2S + 2S = **4S** | S + S = **2S** |
 
+Table: 单棵树与双树下各 rank 的链路负载
+
 单棵树里每个阶段都有一半 rank 的一个方向空着（叶子的入向、内部节点的出向），另一半 rank 的对应方向扛 $$2S$$；双树让每个 rank 在两棵树里各扮一个角色，每个方向的负载都被拉平到 $$S$$。于是：
 
 $$
@@ -646,6 +650,8 @@ busbw 把 $$\frac{2(n-1)}{n}$$ 乘回去：2 卡 25.0 GB/s，8 卡 24.9 GB/s，6
 | 8 | 140 µs | 1.75 × 40 ms | 70.1 ms | 14.3 GB/s | 1.75 | 24.9 GB/s |
 | 64 | 1.26 ms | 1.97 × 40 ms | 80.0 ms | 12.5 GB/s | 1.97 | 24.6 GB/s |
 | 1024 | 20.5 ms | 1.998 × 40 ms | 100.4 ms | 10.0 GB/s | 1.998 | 19.9 GB/s |
+
+Table: 不同卡数下 all_reduce 的 algbw 与 busbw
 
 algbw 一列随 $$n$$ 从 25 掉到 10，busbw 一列在 25 附近不动。（1024 卡的 ring 会降到 19.9 GB/s，但那 20% 是 2046 步的 α 账，不是链路的账；换 tree 就回到 24.9。）这就是它能与硬件标称值直接比的原因：nccl-tests 的 busbw 平台是 23 GB/s、链路是 25 GB/s，你立刻知道链路效率 92%；如果平台是 12 GB/s，你知道差了一倍，该去查路径、GDR、channel 数（第六篇）。
 
@@ -863,6 +869,8 @@ S 的口径                 all_gather 为拼接后总量；reduce_scatter 为�
 | NCCL 2.28.9 `src/graph/trees.cc` | `ncclGetBtree`、`ncclGetDtree`：单棵与 double binary tree 的构造 |
 | PyTorch `torch/csrc/distributed/c10d/reducer.hpp` | `kDefaultBucketBytesCap = 25 MiB`、`kDefaultFirstBucketBytes = 1 MiB`（DDP bucket 默认值） |
 | comm-probe `cost_model.py` | 本篇增量，见下 |
+
+Table: 本篇涉及的源码与工具位置
 
 ### 4. comm-probe 本篇增量：cost_model.py
 

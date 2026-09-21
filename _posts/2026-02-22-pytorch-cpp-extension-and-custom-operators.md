@@ -74,6 +74,8 @@ flowchart TB
 | 十二 | 本文小结 |
 | 十三 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 如果你已经熟悉 C++ 扩展的构建方式，可以跳过第四章；如果没有写过 C++ 扩展，第四章是后面所有代码能跑起来的前提。同样，没有 CUDA 编程经验的读者不必另找教程：第七章 §2 用一节讲清读懂本文和第八篇所需的几个 CUDA 概念。
 
 ## 二、三步：定义、注册、实现
@@ -123,6 +125,8 @@ Schema 有自己的类型名，与 Python 和 C++ 类型是三套不同的写法
 | `ScalarType` | `torch.dtype` | `at::ScalarType` | |
 | `Device` | `torch.device` | `at::Device` | |
 
+Table: Schema 类型与 Python、C++ 类型的对应
+
 两个高频错误：Schema 的 `float` 对应 C++ 的 `double`，Schema 的 `int` 对应 C++ 的 `int64_t`。
 
 **默认值与 keyword-only 参数**
@@ -160,6 +164,8 @@ myops::scale_shift_(Tensor(a!) x, float alpha, float beta) -> Tensor(a!)
 | `CompositeExplicitAutograd` | 用其他算子组合实现，对所有后端有效，但**不**自动提供 Autograd | 实现是纯算子组合，反向另外注册 |
 | `CompositeImplicitAutograd` | 用其他**可导**算子组合实现，Autograd 自动通过子算子获得 | 实现是纯算子组合，且不需要自定义反向 |
 
+Table: 自定义算子常用的 DispatchKey
+
 选错 Key 的典型后果：
 
 ```text
@@ -177,6 +183,8 @@ myops::scale_shift_(Tensor(a!) x, float alpha, float beta) -> Tensor(a!)
 | 注册前 | 空 | 空 | 空 | 空 |
 | 注册 CPU 实现后 | `scale_shift_cpu` | 空 | 空 | 空 |
 | 全部完成后 | `scale_shift_cpu` | `scale_shift_cuda` | `scale_shift_meta` | 反向包装 |
+
+Table: 注册前后 myops::scale_shift 的 Operator Table 槽位
 
 运行态的 Dispatcher 拿着 DispatchKeySet 在这一行里查非空槽位。空槽位就是 `NotImplementedError` 的来源。
 
@@ -276,6 +284,8 @@ torch.library.register_fake("myops::scale_shift")(fake_fn)
 | 把已编译的 C++/CUDA 函数包装成算子 | 在没有 Python 解释器的环境（纯 C++ 部署）中使用 |
 | 注册 Autograd、Fake，与 `torch.compile` 协作 | |
 
+Table: Python 侧 torch.library 能做与不能做的
+
 因此 Python 侧最常见的用法是：**Schema、Autograd、Fake 在 Python 定义，重计算通过扩展下沉到 C++/CUDA。**
 
 ### 2. C++ 侧：`TORCH_LIBRARY` 宏族
@@ -307,6 +317,8 @@ TORCH_LIBRARY_FRAGMENT(myops, m) {
 | `TORCH_LIBRARY_FRAGMENT(ns, m)` | 定义（追加） | 可多次；命名空间已存在时用它 |
 | `TORCH_LIBRARY_IMPL(ns, key, m)` | 注册 | 可多次；每个 (ns, key) 一份 |
 
+Table: TORCH_LIBRARY 宏族与三步的对应
+
 **宏在做什么**
 
 这三个宏展开后都是一个**静态初始化对象**。共享库被加载时，C++ 运行时执行静态初始化，对象的构造函数被调用，构造函数里执行你写的花括号代码块，`m.def` / `m.impl` 把 Schema 和函数指针写入 Operator Table。
@@ -333,6 +345,8 @@ torch.ops.myops.scale_shift 可用
 | 不依赖 Python，可用于 libtorch 纯 C++ 部署 | |
 | 直接调用 CUDA、厂商库 | |
 
+Table: C++ 侧能做与不能做的
+
 ### 3. 混用：最常见的实际组合
 
 两种方式可以混用，规则只有一条：**一个命名空间只能被 `TORCH_LIBRARY`（C++）或 `Library(..., "DEF")`（Python）定义一次**，其余位置用 `FRAGMENT` / `"IMPL"` 追加。
@@ -356,6 +370,8 @@ Python 侧 register_autograd 注册反向（Python 写反向更方便）
 | 把已有的 CUDA Kernel 接入 PyTorch | C++ `TORCH_LIBRARY` 定义 + 注册；Python 补 Autograd / Fake |
 | 扩展需要在纯 C++ 推理服务中使用 | 全部 C++ |
 | 为新硬件后端适配一批算子 | C++ `TORCH_LIBRARY_IMPL(aten, PrivateUse1, m)`，给原生算子填新 Key 的槽位 |
+
+Table: Python 与 C++ 侧的选型建议
 
 最后一行值得注意：新后端适配不需要重新定义 `aten::add`，只需要给它的 Operator Table 行填上新 Key 的槽位。这正是“定义与实现解耦”在硬件适配上的价值。
 
@@ -415,6 +431,8 @@ site-packages/torch/
 | `c10` | 最底层的基础设施：`Device`、`ScalarType`、`Scalar`、Dispatcher 核心、CUDA Stream 封装 | `c10::cuda::CUDAGuard`、`C10_CUDA_KERNEL_LAUNCH_CHECK` |
 | `at`（ATen） | Tensor 类型和算子 API | `at::Tensor`、`at::empty_like`、`at::TensorIterator`、`AT_DISPATCH_*` |
 | `torch` | 高层 API：Autograd、Library 注册宏、C++ 前端 | `TORCH_LIBRARY`、`torch::autograd::Function`、`TORCH_CHECK` |
+
+Table: c10、at、torch 三个命名空间的分工
 
 不需要记住每个符号在哪个命名空间；需要知道的是：**看到 `c10::` 是基础设施，`at::` 是 Tensor 与算子，`torch::` 是高层封装**。
 
@@ -534,6 +552,8 @@ target_compile_features(myops PRIVATE cxx_std_17)
 | setuptools | 安装时 | 发布为 pip 包 | 需要维护 `setup.py`；组合矩阵大时构建成本高 |
 | CMake | 独立构建 | 大型 C++ 项目集成、libtorch 纯 C++ 部署 | 配置最重 |
 
+Table: 三种构建方式对比
+
 本文用 `load` 演示，第十章讨论 setuptools 与分发。
 
 ### 5. 两种把 C++ 暴露给 Python 的方式
@@ -592,6 +612,8 @@ torch.ops.myops.scale_shift(x, 2.0, 1.0)   # 经过 Dispatcher
 | `torch.compile` 如何看它 | 不透明的 Python 调用，导致 graph break | 一个算子节点，配合 Fake 实现可被捕获 |
 | Profiler 中的表现 | 看不到算子名 | 显示为 `myops::scale_shift` |
 | 适合 | 暴露工具函数、配置接口 | **任何要成为算子的东西** |
+
+Table: pybind11 与 TORCH_LIBRARY 暴露方式的差别
 
 结论：**pybind11 适合暴露不是算子的辅助函数；要成为算子，必须走 `TORCH_LIBRARY`**。两者可以共存于同一个扩展中。本文的算子只用后者。
 
@@ -657,6 +679,8 @@ print(torch.ops.myops.scale_shift(x, 2.0, 1.0))
 | Schema 与函数签名不匹配的注册错误 | Schema 写 `float` 但 C++ 用了 `float` 而不是 `double` | 按第二章类型表修正 |
 | `import` 成功但 `torch.ops.myops` 没有属性 | 用了 pybind11 而不是 `TORCH_LIBRARY` | 检查是否写了 `m.def` Schema |
 
+Table: 常见编译与加载错误速查
+
 第一次遇到这些错误时很难判断问题在哪一层。原则是：**编译期错误看头文件和类型；链接期错误看 ABI 和库版本；加载期错误看注册；运行期 `NotImplementedError` 看 DispatchKey 槽位。**
 
 ## 五、阶段一：Python 实现，建立契约
@@ -687,6 +711,8 @@ def scale_shift(x: torch.Tensor, alpha: float, beta: float) -> torch.Tensor:
 | `torch.compile` 如何处理 | 追踪进函数内部，看到两个子算子 | 视为一个算子节点，需要 Fake 实现 |
 | 能否为 CUDA 单独注册实现 | 不能 | 能 |
 | 能否自定义反向 | 需要 `autograd.Function` | 通过 `register_autograd` |
+
+Table: 普通 Python 函数与 custom_op 的区别
 
 阶段一的价值在于：**先把边界画出来**。之后替换内部实现时，用户代码和 Schema 都不用变。
 
@@ -1028,6 +1054,8 @@ TORCH_LIBRARY_IMPL(myops, CUDA, m) {
 | `C10_CUDA_KERNEL_LAUNCH_CHECK()` | 捕获 launch 配置错误；它**不**等待 Kernel 完成，运行时错误会在之后某次同步时暴露 |
 | `contiguous()` | 这个简单 Kernel 假设一维连续；真实项目可改用 CUDA 版 TensorIterator（`at::native::gpu_kernel`）支持任意 stride |
 
+Table: Launch 函数里每段代码的作用
+
 ### 5. 异步语义
 
 CUDA Kernel launch 是异步的：函数返回时 Kernel 可能还没执行。两个后果：
@@ -1171,6 +1199,8 @@ def _fake(x, alpha, beta):
 | Autograd | `register_autograd` 生成的包装 | 四 |
 | Meta（Fake） | `_fake` | 四 |
 
+Table: 完成后的 Operator Table
+
 把这张表按运行态的调用顺序展开，就是一次完整的分发路径：先命中包装 Key，剥掉它之后再按设备落到某个后端槽位；Meta 那条分支不跑真实 Kernel，专供 FakeTensor 与 `torch.compile` 推断 shape：
 
 ```mermaid
@@ -1307,6 +1337,8 @@ C++ 扩展与 PyTorch 之间是二进制接口。以下任何一项不一致，�
 | 编译器 | GCC 主版本差异可能导致 ABI 不兼容 |
 | GPU 架构 | `nvcc` 的 `-gencode` 要覆盖目标 GPU 的 compute capability，否则“no kernel image” |
 
+Table: 影响 ABI 兼容的因素
+
 根源与 Python 系列第七篇讨论的 `torch==2.x+cu12x` 本地版本标识相同：**PyTorch 的二进制制品绑定了平台、CUDA 和 ABI**，扩展随之绑定。
 
 ### 3. 分发策略
@@ -1316,6 +1348,8 @@ C++ 扩展与 PyTorch 之间是二进制接口。以下任何一项不一致，�
 | 源码分发 | 发布 sdist，`pip install` 时本地编译 | 用户需要编译器和 CUDA Toolkit；安装慢 |
 | 预编译 wheel | 为每个 PyTorch × CUDA × Python 组合构建 wheel | 组合矩阵大，CI 成本高 |
 | 随基础镜像交付 | 在 Docker 镜像中预编译 | 最可控，只适用于容器化部署 |
+
+Table: 三种分发策略的做法与代价
 
 内部 AI-Infra 项目以第三种最常见；开源库通常前两种并行。
 
@@ -1349,6 +1383,8 @@ PyTorch 扩展     Schema 定义算子 → C++/CUDA 实现 → import → TORCH_
 | 执行位置 | CPU | CPU 或 GPU，且 GPU 调用是异步的 |
 | 自动微分 | 无此概念 | 需要注册反向规则 |
 | 与编译器的关系 | JIT 不感知 native 方法内部 | `torch.compile` 需要 Fake 实现才能处理 |
+
+Table: JNI 与 PyTorch C++ 扩展的关键区别
 
 最大的差异是**分发**：JNI 是“Java 调 C”，C++ 扩展是“把 C++ 函数注册为算子的一个后端实现”。前者是函数调用，后者是往注册表填一个槽位。
 
@@ -1444,6 +1480,8 @@ flowchart TB
 | `aten/src/ATen/native/cuda/Loops.cuh` | `gpu_kernel`：CUDA 版 TensorIterator，替代手写 launch 配置 |
 | `torch/csrc/autograd/custom_function.h` | C++ 侧 `torch::autograd::Function` |
 | `torch/testing/_internal/optests/` | `opcheck` 的实现：对自定义算子跑 Schema、Autograd、FakeTensor 等一致性测试 |
+
+Table: 本篇涉及的源码位置
 
 下一篇进入编译器：
 

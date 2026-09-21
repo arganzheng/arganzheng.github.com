@@ -32,6 +32,8 @@ catalog: true
 | 八 | 本文小结 | |
 | 九 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 源码：`lib/Dialect/TritonGPU/Transforms/Pipeliner/`（`AssignLatencies`、`ScheduleLoops`、`LowerLoops`、`PipelineExpander`、`SoftwarePipeliner`、`PipeliningUtility`）、`include/triton/Dialect/TritonGPU/Transforms/Schedule.h`、`Prefetch.cpp`、`WarpSpecialization/`、`include/triton/Dialect/TritonNvidiaGPU/IR/TritonNvidiaGPUOps.td`、`python/triton/experimental/gluon/`、`python/tutorials/gluon/`。本篇的 IR 来自同一个 matmul kernel 编到 `sm_80`、`sm_90`、`sm_100`，以及一个用 tensor descriptor 改写的版本。
 
 ## 二、软件流水的分解

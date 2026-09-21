@@ -29,6 +29,8 @@ date: 2026-07-29 20:00:00
 | [第七篇：稳定性与数据管线](/training-stability-and-data-pipeline.html) | 第 137,000 步 loss 从 2.1 跳到 4.8——数据、学习率还是精度？哪些信号要事前记、哪些状态要能回放？ | 五种成因各有信号指纹，靠事前记录的原始值归因；处理是回退 + 跳过，前提是 checkpoint 密度与数据管线确定性 | 三种形态（瞬时 / 可恢复 / 发散）× 五种成因（LR / bf16 / logit / 坏数据 / 优化器状态）；max attention logit 单调升过约 100；裁剪阈值 1.0；PaLM 回退约 100 步 + 跳过 200–500 batch，代价约 250–300 步 / 次；Megatron 位置 = `consumed_train_samples` 可换 DP，torchtitan `StatefulDataLoader` 不可换 |
 | [第八篇：可观测与运维](/long-running-training-observability-and-operations.html) | 凌晨三点 step 时间 12 s → 40 s、没有报错：十分钟内怎么判断是 straggler、数据、通信还是降频？信号在开训前采了吗？ | 三层指标（任务 / 进程 / 硬件）、按 rank 看、以 step 为时钟；"step 是否前进"是 hang 唯一可靠的信号；Flight Recorder 指出哪个 rank 缺席哪次集合通信 | 四个嫌疑各一个决定性指标：Timers minmax / `data_loading(%)` / 通信等待 + IB 计数器 / `SM_CLOCK`；FR 2.13.0 默认开（buffer 2000、dump on timeout），要把 dump 路径接好、缓冲加到 2 万；假设 2.5 美元 / 卡时：1 个 MFU 点 ≈ 30 天任务的 0.71 天 ≈ 4.4 万美元，告警 + runbook 每次事故省约 30 min ≈ 512 GPU 小时 |
 
+Table: 八篇的核心问题、结论与必记公式
+
 ### 1. 本文的章节安排
 
 | 章 | 内容 |
@@ -38,6 +40,8 @@ date: 2026-07-29 20:00:00
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
 | 六 | 下一步 |
+
+Table: 本文的章节安排
 
 ## 二、逐篇回顾
 
@@ -216,6 +220,8 @@ Megatron-LM 按模型结构切、DeepSpeed 按优化器状态切、torchtitan �
 | 回退与跳过 | 五、六、七 | 五的保留策略要留每 $$N$$ 小时一个；六的 $$\tau/2$$ 是被动回退；七把它反过来主动用 |
 | 三框架对照 | 三至八 | 每篇一张表；取向不变（按结构 / 按优化器 / 原生原语），主题变 |
 
+Table: 贯穿八篇的概念及其关系
+
 下图是算账线上各量的依赖关系（箭头表示"决定"）：
 
 ```mermaid
@@ -254,6 +260,8 @@ flowchart TB
 | straggler = 坏卡，隔离节点即可 | 多数 straggler 是序列长度 / stage 不均衡，每步换 rank | 先看是否每步换 rank；是则查数据 packing 与 PP 布局 | [第六篇](/fault-tolerance-and-elastic-training.html) |
 | loss spike 就是脏数据 | 五种成因里两种是模型内部数值问题、一种是优化器状态 | 先看形态与信号指纹：param norm、max logit、grad norm 平台、可复现性 | [第七篇](/training-stability-and-data-pipeline.html) |
 | GPU 利用率 100% 说明训练正常 | hang 时 NCCL kernel 自旋等对端，利用率照样 100% | "step 是否前进"是 hang 唯一可靠信号，须由独立进程读取 | [第八篇](/long-running-training-observability-and-operations.html) |
+
+Table: 常见误区与正确说法
 
 ## 五、通关自测
 
@@ -460,6 +468,8 @@ flowchart TB
 | 读过 | 能说出八篇各讲什么；知道 16 字节 / 参数、$$2N$$ 与 $$3N$$、气泡 $$\frac{p-1}{m}$$、Young 公式、Flight Recorder 这些名词 |
 | 掌握 | A 组能不翻书算出 8 题以上；B 组能说出每题用了哪几篇的什么；拿到一份模型与集群规格能推出配置并算出显存、通信量与理论 step 时间，拿到一份故障统计能算出有效训练时间并说出先动哪一段 |
 | 能教人 | C 组每题能给出全部要点并预判追问；能解释八篇里每个反直觉结论（PP 不减少激活、每卡 token 少不选 FSDP、checkpoint 大小与并行配置无关、异步保存是必需而非优化、多数 straggler 不是坏卡、GPU 利用率 100% 也可能是 hang）为什么成立 |
+
+Table: 掌握程度的判据
 
 通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点。没过的部分回到第二章对应篇的"必记"，再回该篇正文；算不出来的题先回第一篇把符号与两本账重建一遍——八篇里所有数字都是从那两本账推出来的。
 

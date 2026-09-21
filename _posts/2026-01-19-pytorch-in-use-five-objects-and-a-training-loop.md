@@ -36,6 +36,8 @@ PyTorch 的使用层只需要掌握五个对象：
 | `Dataset` / `DataLoader` | `__getitem__` 取一条 · `DataLoader` 组 batch、打乱、多进程预取 | `for batch in DataLoader(ds, batch_size=32, shuffle=True)` |
 | `Optimizer` | `step()` 用 `.grad` 更新参数 · `zero_grad()` 清零 · 学习率调度器 | `opt.step(); sched.step(); opt.zero_grad()` |
 
+Table: PyTorch 的五个对象与最小用法
+
 五个对象在一步训练里各站一个位置，数据沿着一个环流动——第六章的二十行代码就是把这个环写出来：
 
 ```mermaid
@@ -77,6 +79,8 @@ zero_grad()：清零`"]
 | 六 | 二十行训练循环，训一个小 Transformer | 代码、逐行解释、多出来的四样、跑起来的输出、与 `Trainer` 的关系 |
 | 七 | 本文小结 | |
 | 八 | 自测 | 五道题 |
+
+Table: 本文的章节安排
 
 ## 二、Tensor
 

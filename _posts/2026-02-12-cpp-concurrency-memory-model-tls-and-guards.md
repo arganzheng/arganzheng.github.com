@@ -97,6 +97,8 @@ struct C10_API NoGradGuard : public AutoGradMode {
 | 十五 | 本文小结 |  |
 | 十六 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、线程、锁与条件变量：从 `c10::ThreadPool` 读起
 
 C++11 之后，标准库提供了一套和 Java `java.util.concurrent` 大致对应的基础设施：`std::thread`、`std::mutex`、`std::condition_variable`、`std::atomic`。概念层面 Java 工程师都熟悉，差别集中在两点：**锁的持有由对象生命周期管理**，以及**内存序是显式的**。本节先讲前者，用 `c10/core/thread_pool.h` 与 `.cpp` 里一个真实的线程池做例子；下一节讲后者。
@@ -172,6 +174,8 @@ C++ 几乎不会直接写 `mutex_.lock()` / `mutex_.unlock()`，而是用两种 
 |---|---|---|
 | `std::lock_guard<std::mutex>` | 构造时 lock，析构时 unlock，中间不能解锁；最轻 | `synchronized (obj) { ... }` |
 | `std::unique_lock<std::mutex>` | 同上，但可以中途 `unlock()` / `lock()`，可以移动，可以配合 `condition_variable::wait` | `ReentrantLock` + `try/finally` |
+
+Table: 两种 RAII 锁守卫与 Java 对照
 
 `ThreadPool::run` 用 `unique_lock`（这里其实 `lock_guard` 也够）：
 
@@ -322,6 +326,8 @@ class Queue {
 | `memory_order_release` | 用于写：本操作之前的读写不能被重排到它之后 | 锁的 unlock、写"就绪"标志 |
 | `memory_order_acq_rel` | 读-改-写操作同时具备 acquire 和 release | 引用计数 -1、CAS 循环 |
 | `memory_order_seq_cst` | 默认值；acq_rel 之外，还保证所有 seq_cst 操作有一个全局一致的顺序 | 不确定用哪个时的安全选择 |
+
+Table: 六种 memory order
 
 `std::atomic<T>` 的所有成员函数（`load`、`store`、`fetch_add`、`compare_exchange_*`）都接受一个 memory order 参数，**默认是 `seq_cst`**。也就是说不写 order 参数永远是正确的，只是可能比必要的慢。
 
@@ -607,6 +613,8 @@ class C {
 | 生命周期 | 线程死亡时 map 一起回收；忘记 `remove()` 在线程池中会泄漏 | 线程退出时自动调用析构函数 |
 | 初始值 | `initialValue()` 回调 | 静态初始化必须是常量表达式或零初始化，动态初始化在首次使用时 |
 
+Table: Java ThreadLocal 与 C++ thread_local 的差别
+
 "跨动态库访问时走 `__tls_get_addr`"这一条在 PyTorch 源码里留下了直接痕迹。`c10/core/impl/LocalDispatchKeySet.h` 的守卫类里有：
 
 ```cpp
@@ -654,6 +662,8 @@ PyTorch 2.10 的 C++ 层里以 `thread_local` 存储的主要状态：
 | `in_at_parallel` | `c10/util/ParallelGuard.cpp` | `bool` | 当前是否在 `at::parallel_for` 的循环体内 |
 | `this_thread_id` / `thread_num_` | `aten/src/ATen/ParallelOpenMP.cpp` / `ParallelNative.cpp` | `int` | 当前并行区域内的线程编号 |
 | `worker_device`、`current_depth` 等 | `torch/csrc/autograd/engine.cpp` | `int` | autograd 引擎工作线程的设备与重入深度 |
+
+Table: PyTorch C++ 层的主要 thread_local 状态
 
 看几个定义。`AutogradState` 的存储（`c10/core/AutogradState.cpp`）：
 
@@ -913,6 +923,8 @@ you finish the current op.
 | `c10::ParallelGuard` | 是否在 `parallel_for` 内 | TLS `in_at_parallel` | `c10/util/ParallelGuard.h` |
 | `at::ThreadLocalStateGuard` | 上面绝大部分 TLS 的一份完整快照 | 多份 TLS | `aten/src/ATen/ThreadLocalState.h` |
 | `at::internal::ThreadIdGuard` | 并行区域内的线程编号 | TLS `this_thread_id` | `aten/src/ATen/Parallel.h` |
+
+Table: 守卫按管理状态的分类
 
 它们的共同骨架就是 6.1 节那三步。读 PyTorch 源码时看到任何以 `Guard` 结尾、没有业务方法、删掉了拷贝移动的类型，都可以按这个模板理解。
 
@@ -1749,6 +1761,8 @@ void invoke_parallel(
 | 与 MKL 的关系 | 共用同一个 OpenMP 线程组，避免两套池互相抖动 | 无关 |
 | 默认构建 | Linux x86 官方 wheel | macOS 与部分移动端构建 |
 
+Table: OpenMP 后端与原生线程池后端的差别
+
 ### 5. 线程数从哪里来
 
 `at::get_num_threads()` 在 OpenMP 后端（`aten/src/ATen/ParallelOpenMP.cpp`）：
@@ -2488,6 +2502,8 @@ out[12345] = 24690
 | `Thread` 对象可以随意丢弃 | `std::thread` 析构前必须 join 或 detach，否则 `terminate` |
 | `AtomicInteger` 的操作都是最强语义 | `std::atomic` 默认 seq_cst，但可以显式选 relaxed/acquire/release |
 | 忘记 `finally` 里的 `remove()`/`unlock()` 是常见 bug | RAII 守卫让"退出时恢复"由析构函数保证，包括异常路径 |
+
+Table: 与 Java 直觉冲突的几处
 
 ## 十五、本文小结
 

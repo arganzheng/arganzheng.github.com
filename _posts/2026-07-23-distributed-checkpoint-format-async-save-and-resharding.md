@@ -36,6 +36,8 @@ Llama 3 论文（Dubey et al. 2024）给了一组值得反复引用的数字：1
 | M | 集群的平均故障间隔 MTBF（秒）；单卡 MTBF 除以卡数 |
 | τ | checkpoint 间隔（秒） |
 
+Table: 本篇用到的记账符号
+
 两条结论：
 
 - **训练态每参数 16 字节**：bf16 参数 2 + bf16 梯度 2 + fp32 主参数 4 + Adam 一阶矩 4 + 二阶矩 4（Megatron 用 fp32 累积梯度时为 18）。checkpoint 不需要梯度——它每 step 重算——所以**落盘每参数 14 字节**（Megatron 路径：bf16 参数 + fp32 主参数 + 两个矩）或 **12 字节**（FSDP2 路径：参数本身就是 fp32，bf16 副本是前向时临时 cast 出来的）。405B 模型按 14 字节算是 5.7 TB，这就是总纲说的"约 6 TB"。
@@ -104,6 +106,8 @@ DeepSpeed 这一列后文只在第八章展开一节：它的 checkpoint 是"每
 | 十 | 本文小结 | 要点 · 源码位置 · train-ledger 的 ckpt/ 与 `ledger/checkpoint_interval.py` |
 | 十一 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、checkpoint 里有什么，为什么缺一样都不行
 
 ### 1. 六类内容
@@ -165,6 +169,8 @@ Llama 3 405B 的训练配置是 TP=8、CP=16、PP=16、DP=128，共 16384 张 H1
 | 主机内存 | rank 0 所在节点要装下 5.7 TB；一个 8 卡节点通常配 1–2 TB 内存 | 物理上放不下；即便流式处理也要分几十批 |
 | 接收带宽 | 全部数据经 rank 0 的一张网卡进来：5.7 TB / 50 GB/s ≈ 114 s | 仅传输就近两分钟，且期间其他 16383 张卡空转 |
 | 写入带宽 | 单个客户端写并行文件系统：标称 2–5 GB/s；torch.save 是单线程 pickle， 通常 1 GB/s 上下 | 5.7 TB / 5 GB/s ≈ 19 min；按 1 GB/s ≈ 95 min |
+
+Table: rank-0 汇总的三个瓶颈
 
 第三行是决定性的。即使前两个问题用流式与多网卡绕过去，**单个写入者的带宽**决定了同步写至少要停十几分钟到一个多小时。把这个 δ 代入第九章的 Young 公式：δ = 10 min、M = 3 h 时最优间隔约 1 小时，训练时间的三分之一花在存 checkpoint 和回退重算上。这就是"单文件 checkpoint 为什么不可行"的完整回答——不是格式不优雅，是算术不允许。
 
@@ -463,6 +469,8 @@ GPU / 主 stream  ────────────────┤ 阻塞 δ 
 | 70B / 1024 卡（14 B/参数） | ~1.0 GB | ~7.7 GB | ~15 GB | 同上 |
 | 8B / 8 卡 FSDP2（12 B/参数） | ~12 GB | ~96 GB | ~190 GB | 单节点 8 卡、全部状态都在这一个节点上： pinned 内存占掉主机内存的相当一部分 |
 
+Table: staging 的主机内存代价
+
 第三行是练手项目的规模，也是最容易踩坑的规模：8B 模型的 12 字节/参数在 8 卡上摊下来每卡 12 GB，pinned 之后这块内存不能被换出、不能给 page cache、不能给数据加载 worker；`cache_staged_state_dict=True` 或 `StateDictStager` 的缓存复用意味着它常驻。共享内存模式下它还要算进 `/dev/shm` 的限额。千卡规模反而轻松——总字节被摊得很薄。
 
 除了容量，pinned 内存的**分配时间**也要算：`cudaHostAlloc` 几 GB 要几百毫秒到一秒，若每次保存都重新分配，δ 就多了这一秒。这就是 `cache_staged_state_dict` 与 `StateDictStager` 缓存存在的原因。
@@ -606,6 +614,8 @@ DeepSpeed 的 checkpoint 抽象在 `deepspeed/runtime/checkpoint_engine/checkpoi
 | DecoupledCheckpointEngine | writer.decoupled = true | spawn 一个常驻子进程，save 只是把 state_dict 放进 mp.SimpleQueue，commit 时写 latest；即 DeepSpeed 的异步保存 |
 | NebulaCheckpointEngine | nebula.enabled | Azure Nebula 服务 |
 | DataStatesCheckpointEngine | datastates.enabled | DataStates-LLM 的异步多级引擎 |
+
+Table: DeepSpeed CheckpointEngine 的实现与选择条件
 
 `DeepSpeedEngine.save_checkpoint()`（`deepspeed/runtime/engine.py`）的流程：`checkpoint_engine.create(CheckpointCommitInfo(tag, save_dir, save_latest))` → `_save_checkpoint()` 写 `mp_rank_XX_model_states.pt`（`_get_ckpt_name()`，每个 TP×PP 位置一份、DP 副本中一份）→ ZeRO 开启时 `_save_zero_checkpoint()` 写 `zero_pp_rank_X_mp_rank_XX_optim_states.pt`（`_get_zero_ckpt_name()`，**每个 DP rank 一份**）→ `checkpoint_engine.commit()` 写 `latest` 文件。ZeRO 文件里是该 rank 的 fp32 展平缓冲区与优化器状态——它们与 DP 度、与 `zero_optimization` 的 partition 方式绑定，换 DP 度加载会因为分片形状对不上而失败。
 

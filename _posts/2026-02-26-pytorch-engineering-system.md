@@ -89,6 +89,8 @@ PyTorch 有两千多个算子、每个算子有十几种 dtype、两个以上后
 | 十一 | 本文小结 |  |
 | 十二 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、第一关：本地构建能跑
 
 改动的第一步是在自己机器上把它编出来、加载、跑通一个测试。这一步多快，决定了后面所有关卡的反馈周期。理解构建体系还有第二个价值：遇到"在我机器上能跑"的问题时，知道二进制到底绑定了什么。
@@ -218,6 +220,8 @@ compute-sanitizer python test.py                     # CUDA 的越界 / 竞态�
 | **跨后端一致** | CPU 与 CUDA 结果一致 | 某个 Kernel 的实现错误 | 同一 OpInfo 在两个设备上跑同一模板 |
 | **跨模式一致** | eager 与 compile / out= 变体 / inplace 变体 / 视图 结果一致 | 编译器变换错误、变体实现不同步 | `test_variant_consistency_eager`、Inductor 的 OpInfo 测试 |
 | **元数据一致** | Meta / Fake 实现的 shape、dtype、stride 与真实实现一致 | 编译器和 FSDP 依赖的"不算数只推 shape"路径出错 | `test_fake`、`opcheck` |
+
+Table: PyTorch 测试用的五种 oracle
 
 前两种回答"算得对不对"，后三种回答"不同路径是否一致"。**一个新算子至少要有第一种或第二种作为绝对标准**，否则跨后端一致只能证明两个实现错得一样。
 
@@ -622,6 +626,8 @@ Python 版本    × 3.9 ~ 3.13
 | 加速后端 | CPU / CUDA 11.8 / CUDA 12.x（如 12.4、12.6，通常同时支持两三个）/ ROCm / XPU | `+cu124` 本地版本标识；CUDA minor version compatibility——12.x 编出的 wheel 可以在任何 12.y 的驱动上运行，但 C++ 扩展仍要用与 wheel 相同的 CUDA 版本编译；`nvidia-*` PyPI 包（cuBLAS、cuDNN、NCCL）的版本随之固定 |
 | 平台 | Linux x86_64 / Linux aarch64 / Windows / macOS arm64 | manylinux 标签规定 glibc 最低版本；libstdc++ 的 CXX11 ABI（Linux 官方 wheel 2.6 起部分、2.7 起全部切到 cxx11 ABI，`_GLIBCXX_USE_CXX11_ABI=1`；扩展要读 `torch._C._GLIBCXX_USE_CXX11_ABI` 跟随，而不是记版本号）；Windows 绑定 MSVC 运行时；macOS 绑定最低系统版本 |
 
+Table: wheel 矩阵的三个维度与 ABI 约束
+
 每个组合一个 wheel，`torch==2.x.y+cu124` 的 `+cu124` 是本地版本标识（Python 系列讨论过）。CUDA wheel 不再打包整个 CUDA Toolkit，而是依赖 `nvidia-*` 的 PyPI 包（cuBLAS、cuDNN、NCCL 各自是一个 wheel），`libtorch_cuda.so` 在加载时通过 rpath 找到它们。`libtorch` 压缩包提供纯 C++ 使用（CMake 的 `find_package(Torch)`）。
 
 第六篇 ABI 一节列出的五个因素在这里有了全貌：wheel 的每个维度都是 ABI 的一部分，C++ 扩展必须与其中一个具体组合匹配。从 2.6 起 Linux wheel 统一使用 cxx11 ABI（此前长期是旧 ABI），这是一次典型的"制品层面的破坏性变更"，扩展作者需要重新编译——第七章 §4 的话题。
@@ -691,6 +697,8 @@ FC（向前兼容）   旧版本 PyTorch 能加载新版本保存的模型      
 | 在末尾新增带默认值的参数 | ✓ | ✗ | 旧模型不传它，用默认值；新模型传了它，旧版本解析失败 |
 | 删除参数、重命名、改类型、改默认值 | ✗ | ✗ | 直接禁止；要变化就新增 overload 并弃用旧的 |
 | 修改实现（不改 Schema） | ✓ | ✓ | 但可能改变数值结果 |
+
+Table: 算子 Schema 改动的 BC 与 FC
 
 CI 里的 `test/forward_backward_compatibility/check_forward_backward_compatibility.py` 把当前构建的所有 Schema 与最近一次 nightly 的 Schema 快照比较，任何 BC 破坏都会失败；确有必要的改动加进 `ALLOW_LIST`，附带过期日期——防止列表无限增长。这就是第五章 §3 说 `native_functions.yaml` 有额外审批要求的原因。
 

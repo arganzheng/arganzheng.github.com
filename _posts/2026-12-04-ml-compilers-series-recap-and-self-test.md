@@ -32,6 +32,8 @@ date: 2026-12-04 20:00:00
 | [12 TVM](/tvm-schedule-language-and-auto-tuning.html) | 另一条路怎么走？ | 算法 / 调度分离；block 是算法、循环是调度；原语带形式化前置条件；DLight 规则 = Triton 自动决定的显式版；MetaSchedule 搜带采样点的 trace；设计空间是一条轴 | CPU 1089 → 52 μs；Metal 700 GFLOP/s；DLight `storage_align(…, 16, 8)` 代替 swizzle；MetaSchedule 空间 10⁴–10⁶ vs Triton autotune 几十个 |
 | [13 工作台](/ml-compiler-developer-workbench.html) | 怎样改它、测它、定位它？ | macOS 可构建，假 `ptxas` 编到 PTX；lit 277 文件 9.5 s、gtest 毫秒、pytest 需 GPU；`MLIR_ENABLE_DUMP` 74 份；二分八步；lit 两种断言；加 pass 七步；读 PR 倒序 | `lit < 20`；`--run-reproducer`；`TRITON_INTERPRET=1` 是编译器 / kernel 的分界线 |
 
+Table: 十三篇的核心问题、结论与必记
+
 ### 1. 本文的章节安排
 
 | 章 | 内容 |
@@ -42,6 +44,8 @@ date: 2026-12-04 20:00:00
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
 | 六 | Infra 地图的收束与下一步 |
 | 七 | 延伸阅读 |
+
+Table: 本文的章节安排
 
 ## 二、逐篇回顾
 
@@ -146,6 +150,8 @@ matmul kernel（`[128, 128, 32]`、bf16、`num_warps = 4`、`num_stages = 3`、`
 | Hopper | 09 | 同源码 `sm_90` | `#mma v3 [4, 1] [16, 128, 16]`、`#nvmma_shared` 64 / 128 字节、3 缓冲、`warp_group_dot {isAsync}`、`shared = 49152` |
 | AMD | 11 | 同源码 `gfx942` | wave 64、`#amd_mfma<{version = 3, [2, 2], [32, 32, 8]}>`、48 `v_mfma`、144 VGPR、0 spill、`Occupancy 3`、16 KB LDS |
 
+Table: 一个 matmul kernel 的完整路径
+
 ### 2. 四条线
 
 - **IR + pass + lowering**：每一站都是"读 IR 的某种信息 → 做一个决定 → 写回 IR"；信息在哪一层还在，决定就要在哪一层做（第一篇 §八 → 第七篇把 layout 放进类型 → 第九篇把 `scf` 保留到最后）。
@@ -173,6 +179,8 @@ matmul kernel（`[128, 128, 32]`、bf16、`num_warps = 4`、`num_stages = 3`、`
 | SBlock / S·R 轴 / 原语 | TVM 的算法单元、轴类型、保语义变换 | 12 |
 | trace / `sample_*` | MetaSchedule 的搜索空间表示 | 12 |
 
+Table: 贯穿十三篇的概念表
+
 ## 四、常见误区
 
 | 误区 | 事实 | 篇 |
@@ -191,6 +199,8 @@ matmul kernel（`[128, 128, 32]`、bf16、`num_warps = 4`、`num_stages = 3`、`
 | 改 `.cpp` 就生效 | 要重新构建且装进 import 到的那份 Triton；否则 `triton_key` 不变、旧缓存命中 | 11 / 13 |
 | TVM 调度写错会算错 | 原语拒绝不合法变换；只会慢 | 12 |
 | 改编译器必须有 GPU | lit、gtest、`triton-opt`、编到 PTX 与 AMD ISA 都不需要 | 13 |
+
+Table: 常见误区与事实
 
 ## 五、通关自测
 
@@ -340,6 +350,8 @@ matmul kernel（`[128, 128, 32]`、bf16、`num_warps = 4`、`num_stages = 3`、`
 | 掌握 | 能对一个给定 kernel 手算 AxisInfo 与默认 layout、预测 Coalesce 的 `sizePerThread`、写出 `#blocked` 与 `#mma` 的基向量表并判定一次转换走哪条路、算出 `num_stages` 对应的缓冲与 `async_wait`、解释 PTX 里每个 `bar.sync` 的来源、算缓存目录数、用 `triton-opt` 复现任一篇的 IR、写一个 20 行的 lit 测试、用 TVM 原语写出同一 GEMM 的调度 |
 | 能教人 | 能解释为什么 layout 在类型里而不是表里、为什么 Block 参数优于 φ、为什么 Dialect Conversion 而非 greedy、为什么 NVPTX 不分配寄存器、为什么 epilogue 的转换消不掉而 attention 的 P 不需要、为什么 Hopper 多一个缓冲、为什么 TVM 能搜 10⁶ 而 Triton 只列几十个、为什么 Gluon 是另起一门而不是加参数 |
 
+Table: 掌握程度的判据
+
 通关标准：A 组 8 题以上正确（计算题精确），B 组 4 题以上能写出完整推理链并指出依据的 pass 与分析，C 组每题能说出至少三个要点并回答一个追问。
 
 ## 六、Infra 地图的收束与下一步
@@ -357,6 +369,8 @@ matmul kernel（`[128, 128, 32]`、bf16、`num_warps = 4`、`num_stages = 3`、`
 | 为什么 Hopper 上没有 `ldmatrix`？ | 08（v3 路径）→ 09（`wgmma` 操作数在 shared memory） |
 | 为什么改了编译器没生效？ | 11（`triton_key`）→ 13（构建） |
 | 为什么 TVM 能自动调而 Triton 要手列 config？ | 12（正确性放在原语里） |
+
+Table: 读完系列后可以追问到底的问题
 
 下一步：
 

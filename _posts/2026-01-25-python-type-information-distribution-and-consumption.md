@@ -99,6 +99,8 @@ flowchart TB
 | 五 | 本文小结 |  |
 | 六 | 自测 | 2 道题 |
 
+Table: 本文的章节安排
+
 ## 二、类型载体与分发：存根、typeshed 与 py.typed
 
 类型注解要对库的使用者生效，不仅需要写在源码中，还需要以类型检查器能够发现和读取的形式随库分发。
@@ -129,6 +131,8 @@ def matmul(a: Tensor, b: Tensor) -> Tensor: ...
 | `types-*` | 以独立软件包形式分发第三方库的类型存根 |
 | `py.typed` | 声明包内的类型信息可以提供给下游类型检查器 |
 | PEP 561 | 规定 Python 包分发类型信息的相关机制 |
+
+Table: 类型信息载体的分工
 
 需要注意的是，C/C++ 扩展并不一定没有类型信息；它们通常只是无法通过二进制实现本身被类型检查器直接推导。类型信息仍然可以由 `.pyi` 文件、Python 包装层、外部存根包或类型检查器插件提供。下面我们就展开介绍这种外部存根包的类型信息提供机制。
 
@@ -213,6 +217,8 @@ mypackage/
 | **包内存根** | `.pyi` 文件随包发布 + `py.typed` | PyTorch (`torch/_C/*.pyi`) |
 | **独立存根包** | 单独的 `types-*` 包 | `types-requests`, `types-PyYAML` |
 
+Table: 三种类型信息发布方式
+
 主流 AI Infra 项目的选择：
 
 - **FastAPI / Pydantic / httpx**：inline types——源码本身就有完整注解，加 `py.typed` 标记
@@ -231,6 +237,8 @@ mypackage/
 | 适用场景 | 纯 Python 库 | C 扩展、需要对外隐藏实现 |
 | 对调用方的体验 | 跳转到源码能看到完整实现 | 跳转到 `.pyi` 只能看签名 |
 | 运行时开销 | 极小（3.13 及之前注解在定义时求值，除非 `from __future__ import annotations`；3.14 起 PEP 649 才默认惰性） | 零 |
+
+Table: Inline types 与 .pyi 存根的选择考量
 
 **推荐**：如果你的库是纯 Python，直接在源码中写类型注解 + 加 `py.typed` 标记。只有 C 扩展模块才需要 `.pyi` 存根。
 
@@ -294,6 +302,8 @@ pyright src/
 | 维护方 | Python 官方 + 社区 | Microsoft |
 | 增量检查 | 支持（`--incremental`，默认开启） | 支持（文件级缓存） |
 | CI 常见度 | **更常见**（老牌标准） | 在增长 |
+
+Table: mypy 与 pyright 对比
 
 两者都广泛使用。如果用 VS Code 开发，pyright 通过 Pylance 自动工作；CI 中 mypy 更常见。很多项目**同时**配置两者——本地开发用 pyright 获得即时反馈，CI 用 mypy 做门禁。
 
@@ -558,6 +568,8 @@ hints = get_type_hints(User)
 | 继承来的字段 | 只有当前类自己的 | 合并整条 MRO 上的注解 |
 | `Optional` 补全 | 不处理 | 带 `None` 默认值的参数自动补成 `X ∣ None` |
 
+Table: __annotations__ 与 get_type_hints() 的差别
+
 第一点尤其重要。开启 `from __future__ import annotations` 后（或使用前向引用），所有注解都会以字符串形式保存：
 
 ```python
@@ -668,6 +680,8 @@ print(User.__pydantic_core_schema__ is not None)   # True
 | 运行时校验 | 无 | 有（Rust 实现的 `pydantic-core`） |
 | 实现技术 | `exec()` 动态代码生成 | 元类 + Rust 扩展 |
 
+Table: @dataclass 与 Pydantic BaseModel 消费注解的两条路线
+
 对应 Java：`@dataclass` 类似 Lombok——编译期往类里塞方法，注解只是生成指令；Pydantic 类似 Hibernate Validator——真正解析注解的语义并在运行时执行校验。差别是 Lombok 在编译期改 AST，`@dataclass` 在运行时 `exec` 字符串。
 
 > **接下来**：这一节讲的是"框架怎么读注解"。至于**用**这些框架怎么设计数据结构——什么时候该用 `dataclass`、什么时候该上 Pydantic、如何做序列化和配置管理——见[下篇第二章](/python-data-contract-design-dataclass-pydantic-and-settings.html#二工程落地数据契约设计)「工程落地：数据契约设计」。
@@ -701,6 +715,8 @@ beartype 的特点：
 | 性能开销 | 极低（O(1) 抽样检查） | 中等（完整校验） | 最低 |
 | 数据转换 | 不做 | 自动转换 | 不做 |
 | 适用场景 | 防御式编程、调试期 | API 边界、数据建模 | 简单分支判断 |
+
+Table: beartype、Pydantic 与纯 isinstance 的对比
 
 **typeguard：另一个运行时检查库**
 
@@ -740,6 +756,8 @@ Python 类型系统的一个核心设计原则是：**静态检查和运行时�
 | 性能开销 | 零（不影响运行） | 有（校验成本） |
 | 能做到 | 推断、收窄、穷尽检查 | 精确值校验（范围、格式、正则） |
 | 做不到 | 校验外部输入的具体值 | 类型推断、代码可读性提升 |
+
+Table: 静态检查与运行时检查的分工
 
 **推荐实践**
 

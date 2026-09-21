@@ -33,6 +33,8 @@ updated: 2026-09-17
 | 一层平台 | 资源调度与模型交付 |
 | 一套方法 | 如何进入并贡献一个百万行的开源项目 |
 
+Table: AI-Infra 工程师需要的十样东西
+
 每个系列独立成篇、自成体系：读者可以从任何一个系列进入，不需要先读完前面的；系列之间不互相引用。它们的依赖关系只在这张地图里说明。
 
 
@@ -129,6 +131,8 @@ Ray Data · 清洗 · 去重`"]
 | kernel 编程（CUDA / Triton） | 架构图把它藏在"GPU 软件栈"里，但它是高价值贡献最集中的地方 |
 | 贡献方法 | 架构图描述系统，不描述如何参与建设系统 |
 
+Table: 架构视图上没有独立位置的四样东西
+
 这四样东西在地图里各占一个系列。
 
 
@@ -152,6 +156,8 @@ Ray Data · 清洗 · 去重`"]
 | 横切 | 方法（贡献者路径） | 12 | AI-Infra 开源贡献指南 |
 | 选修 | 编译器 | 13 | ML 编译器内部：从 SSA、MLIR 到 Triton 编译器 |
 
+Table: Infra 地图的学习路径：五层、一个横切、一个选修
+
 ### 两张图的叠加
 
 把学习路径叠到架构视图上，可以看到每个系列在技术栈上的落点：
@@ -167,6 +173,8 @@ Ray Data · 清洗 · 去重`"]
 | 右翼：MLOps / LLMOps | Serving 平台 · 模型网关 · 可观测 | 11（交付层） |
 | 图上没有的 | 语言 ｜ 模型知识 ｜ 贡献方法 | 01 · 02 ｜ 04 ｜ 12 |
 
+Table: 十二个系列在架构视图上的落点
+
 
 ## 逐层说明
 
@@ -181,6 +189,8 @@ AI-Infra 的核心项目几乎都是同一个结构：**Python 外壳，C++ 内�
 | FlashAttention | `flash_attn/` | `csrc/` |
 | Triton | `python/triton/` | `lib/` · `include/` |
 | NCCL | — | `src/` |
+
+Table: 核心项目的 Python 层与 C++ 层目录
 
 Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 和 CUDA 承担真正的计算——执行平面。两门语言都要会，但要会的不是语法，而是**这些项目实际使用的那个子集，以及它背后的机制**。
 
@@ -348,6 +358,8 @@ graph LR
 | AI 平台与集群 | 01 → 03（1、4、8、9 篇）→ 08（1–5 篇）→ 07（checkpoint、容错篇）→ 10（1、7 篇）→ 11 | 平台工程师不写 kernel，但要知道引擎对资源层提出了什么要求 |
 | 读懂源码，暂时不定方向 | 01 → 02 → 03 → 04 | 到 04 为止具备阅读这个领域几乎任何项目源码的基础，再按兴趣向下（05、06）或向上（07、08、09、10、11） |
 
+Table: 按目标选择的 Infra 学习路径
+
 
 ## 与算法工程师地图的关系
 
@@ -371,6 +383,8 @@ graph LR
 | 数据管线 | tokenization 离线化、流式加载、打包的**实现** | 数据配比、质量、去重的**决策** | 07 |
 | 多模态 | 理解模型：encoder 的调度与缓存、image token 的 KV、请求形态；生成模型：compute-bound 的推理、序列并行、跨步缓存、生成服务 | VLM 架构选择、对齐训练、扩散模型的数学与配方 | 04 · 08 · 10 |
 
+Table: Infra 地图与算法地图的重叠主题分工
+
 三个系列两张地图共享。01 Python 与 03 PyTorch 是算法地图 L1 工具箱的深入篇：算法侧讲"用"，它们讲"为什么这样工作"与"怎么改"。04 讨论的对象——模型作为一个计算对象的成本——恰好是两类工程师对话的语言：Infra 工程师从中知道要优化什么，算法工程师从中知道自己的每个结构决定在硬件上花多少钱。
 
 
@@ -386,6 +400,8 @@ graph LR
 | 训练框架 | PyTorch · Megatron-LM · DeepSpeed · torchtitan | JAX · TensorFlow |
 | 推理引擎 | vLLM | SGLang · TensorRT-LLM · LMDeploy · llama.cpp |
 | 调度与平台 | Kubernetes · Volcano / Kueue · Slurm · Ray | — |
+
+Table: 主线技术与同位替代品
 
 学会主线之后迁移到替代品的成本，远低于一开始就同时学几套。
 
@@ -406,6 +422,8 @@ graph LR
   | 链式法则 | 03 第三篇的 Autograd | [第七篇](/derivatives-gradients-chain-rule-and-policy-gradient.html) |
   | 指数加权平均 | 07 第一篇的 Adam 状态与它的 8 字节/参数 | 算法地图 L3 [优化器](/optimizers-from-sgd-to-adamw.html)一篇 |
   | 幂律与对数坐标 | 04 第二篇的 scaling law、05 与 06 的 Roofline 与带宽-延迟模型 | [第八篇](/statistical-inference-and-fitting-scaling-laws.html) |
+
+  Table: AI-Infra 用到的数学子集及其在 L0 系列中的位置
 
   超出这张表的推导，04 和 05 会在需要处自带。
 - **Agent 框架与应用层**：RAG、工具调用、编排框架、Prompt 工程。它们在推理引擎之上，属于应用开发，是[第三张地图](/ai-application-engineer-learning-roadmap.html)的内容。
@@ -437,6 +455,8 @@ graph LR
 | 12 | [AI-Infra 开源贡献指南](/contributing-to-ai-infra-open-source.html) | 横切 | 4 | 9h |
 | 13 | [ML 编译器内部：从 SSA、MLIR 到 Triton 编译器](/ml-compiler-internals.html) | 选修 | 13 | 16h |
 
+Table: 十二个系列总览：层、篇数与时长
+
 时长按每分钟 450 字估算通读一遍的量（含代码），主线十二个系列合计约 203 小时，加选修约 219 小时。篇数与时长只计正文；每个系列末尾另有一篇「系列总结与通关自测」（逐篇回顾 + 判断计算 / 跨篇综合 / 面试题三段自测），读完正文再做。这是给贡献者的深度；只想建立系统视角的读者，每个总纲都有一节「第一遍怎么读」，挑出必读的篇与章。
 
 ### 配套代码
@@ -450,6 +470,8 @@ graph LR
 | 04 | `transformer-and-llm/` | 成本表的计算脚本，纯 Python 为主 |
 | 09 | `rl-post-training-infra/` | 第一篇的账本，纯 Python；后续实验需 verl 与 8 卡 |
 | 10 | `diffusion-inference-infra/` | 第一篇的账本（三段 FLOPs / 显存 / 时间、五个模型预设），纯 Python |
+
+Table: 配套代码按系列的目录与依赖
 
 03、05–08、11、12、13 以源码走读为主，示例直接给出命令与输出，暂无单独目录（13 的全部 IR 由文中给出的 `triton-opt` / `mlir-opt` / `llc` 命令在本地复现）。
 
@@ -472,5 +494,7 @@ graph LR
 | 一张图 / 一段视频为什么 FLOPs 是 LLM 的几百倍、时间却相近？它的服务为什么不用 KV cache 与连续批处理？ | 10 |
 | 集群为什么把任务放在这几张卡上？服务为什么这样扩缩容？ | 11 |
 | 发现问题之后，怎么把修复合入上游？ | 12 |
+
+Table: 读完 Infra 地图后能追问的问题与答案来源
 
 十二个系列不是为了覆盖更多名词，而是为了让这条追问链没有断点。

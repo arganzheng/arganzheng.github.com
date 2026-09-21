@@ -125,6 +125,8 @@ import 语句 ──finder/loader──► 模块对象 ──执行顶层代码
 | 六 | 本文小结 |  |
 | 七 | 自测 | 2 道题 |
 
+Table: 本文的章节安排
+
 ## 二、执行模型：源码如何变成正在运行的代码
 
 Python 源码在运行前会先被编译成字节码，解释器执行的是字节码，不是源文件的文本。这一章讲清这条链路——源码怎么变成 code object、函数对象、执行帧，以及编译在什么时候发生——后面的导入、闭包、生成器都建在它上面。
@@ -145,6 +147,8 @@ Python 没有 `javac` 那样一个单独的编译步骤，但编译确实发生�
 | 第一次 `import mod`（第四章） | 整个 `mod.py`，含其中每个函数体、类体 | 内存里的 code object，并写到 `__pycache__/mod.cpython-312.pyc` 缓存；下次导入若源文件没变，直接读 `.pyc` 跳过编译 |
 | `exec(src)` / `eval(expr)` / `compile(src, ...)` | 传入的字符串 | 返回或直接执行 code object——这是"运行时编译"的显式入口 |
 | 交互式解释器每输入一条语句 | 那一条语句 | 立刻执行 |
+
+Table: Python 编译的触发时机与产物
 
 所以说"运行时编译"是指：编译发生在**进程运行期间、第一次用到某个模块时**，而不是在一个独立的构建阶段；单位是**整个模块**——一个函数里的语法错误会让整个文件编译失败，于是 `import` 报 `SyntaxError`，哪怕那个函数从未被调用。编译的产物里，每个函数体、类体、生成器体各自是一个嵌套的 code object；`def` 语句执行时只是把已经编译好的 code object 包成函数对象（§2），不再编译。与 Java 对照：`javac` 在构建期把每个类编成 `.class`，JVM 启动后按需加载并**再次**即时编译成机器码；Python 只有前一半（源码 → 字节码）且发生在运行期，字节码之后就是解释执行。
 
@@ -191,6 +195,8 @@ print(c.co_varnames, c.co_argcount, c.co_consts)  # ('x', 'y') 2 (None,)
 | 函数对象 | code object + 默认参数 + 全局命名空间 + 闭包 + 注解 | 执行到 `def` 语句时 |
 | 执行帧（frame） | 一次调用的运行状态：局部变量、当前指令位置、指向调用者的链 | 每次调用时创建 |
 | 解释器 | 执行字节码，维护调用栈、异常状态 | 进程级 |
+
+Table: 源代码、code object、函数对象与执行帧
 
 字节码格式和执行循环属于 CPython 实现细节，不属于语言规范。但 code object、函数对象、帧这三个概念在所有主流实现中都存在，理解它们不会被版本差异推翻。
 
@@ -323,6 +329,8 @@ Java 程序员对上面大部分内容并不陌生：Java 的对象变量同样�
 | 编译发生在什么时候 | 导入/启动时按模块编译，编译产物（`.pyc`）只是缓存 | 构建期生成 `.class`，运行期由类加载器加载 |
 | 函数是对象吗 | 是，`def` 是运行时语句 | 方法不是对象；lambda 是函数式接口的实例 |
 | 帧能被程序访问吗 | 能，`inspect.currentframe()`、traceback 对象 | 只能通过 `StackTraceElement` 等有限视图 |
+
+Table: 执行模型与对象模型：Python 与 Java 的差异
 
 最重要的一条是第一行：Python 名称没有类型，类型信息全在对象上。这也是为什么本系列第二篇要单独讨论类型系统——Python 把"提供类型信息"和"消费类型信息"拆成了两层。
 
@@ -660,6 +668,8 @@ site-packages       当前解释器或虚拟环境的第三方包目录
 | `python -m pkg.mod` | **当前工作目录** | `__main__` | `pkg` |
 | `python -c` / 交互式 | `''`（当前目录） | `__main__` | `None` |
 
+Table: 不同启动方式下的 sys.path[0]、__name__ 与 __package__
+
 用一个 src 布局的项目验证。`src/myproject/cli.py` 打印自己的身份，然后做一次相对导入：
 
 ```python
@@ -749,6 +759,8 @@ myproject/                       myproject/
 | flat | `pytest tests/` | `ModuleNotFoundError` | `pytest` 可执行文件不加当前目录；pytest 默认的 prepend 模式只把 `tests/` 插入 `sys.path` |
 | flat | `pytest tests/`，且 `tests/__init__.py` 存在 | 通过 | prepend 模式向上找到第一个不含 `__init__.py` 的目录（仓库根）插入 `sys.path` |
 | src | 任何方式 | `ModuleNotFoundError` | `src/` 不在任何路径上 |
+
+Table: flat 与 src 布局在未安装时的导入结果
 
 flat 布局的三行结果说明了什么叫"测试环境可以导入、安装后不能"：测试通过与否取决于用 `pytest` 还是 `python -m pytest`、`tests/` 下有没有 `__init__.py`，而这些都与包装得对不对无关。`pyproject.toml` 里漏掉一个子包、忘了带上数据文件，flat 布局的测试照样绿——因为测的根本不是安装产物。
 
@@ -847,6 +859,8 @@ Java 程序员最需要注意的差异不在语法，而在语义：
 | 别名 | `as` | 无 |
 | 导入成员 | `from m import f` | `import static C.f` |
 | 可以放在函数里吗 | 可以，作为延迟导入 | 不可以 |
+
+Table: Python import 与 Java import 的语义对照
 
 Java 中"加载类"这件事由类加载器在**使用时**惰性完成，代码不会因为写了一行 `import` 就去执行什么；Python 的 `import` 则是一个会产生副作用的动作，且顺序由代码书写顺序决定。§6 的注册机制、§7 的循环导入，在 Java 里几乎没有对应的问题——反过来，Java 的类加载器隔离、`ClassNotFoundException` vs `NoClassDefFoundError` 那些问题，在 Python 里对应的是 `sys.path`、`sys.modules` 和 §4 的启动方式差异。
 
@@ -962,6 +976,8 @@ Python 没有受检异常，所有异常都是 Java 意义上的 `RuntimeExcepti
 |---|---|---|
 | `import torch` 触发 `.so` 加载、算子注册 | `import` 是运行时动作：`PathFinder` 找到 `torch/_C.*.so`，`ExtensionFileLoader` `dlopen` 它并调 `PyInit__C`；顶层代码顺带执行注册 | 四 §3、§6 |
 | `except Exception: log; raise` | 异常沿帧链传播，途经每个 `__exit__` 和 `finally`；只记录不重抛，Worker 会带着错误状态继续跑；裸 `raise` 保留原始 traceback | 五 §1、§5 |
+
+Table: 开头两行代码背后的机制
 
 读 AI-Infra 代码时的这些疑问，也都落在本篇的机制上：
 

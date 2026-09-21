@@ -55,6 +55,8 @@ flowchart TB
 | [第七篇：pybind11、Python C API 与 ABI](/cpp-pybind11-python-c-api-and-abi.html) | 一个 Tensor 从 Python 到 C++ 再回来，几次转换、几次计数变化、GIL 状态如何？ | 输入 3 次、输出 2 次类型转换，无一步拷贝数据；C++ 计数 1 → 2 → 1 联动一次 `Py_INCREF`/`Py_DECREF`；GIL 转参数时持有、跑 kernel 时释放 | new / borrowed / stolen 三种引用；1 → 2 `Py_INCREF`、2 → 1 `Py_DECREF`；ABI 三层（CPython、libstdc++、PyTorch）；2.7 起 Linux wheel 全部 CXX11 ABI，v2.10.0 开关已删；`cpp_extension` 检查 GCC ≥ 5、不检查 PyTorch 版本 |
 | [第八篇：构建、调试与测试工具链](/cpp-build-debug-and-test-toolchain.html) | 一个 C++ 改动，从写完到确认正确、无内存错误、不在别的编译器上炸，要跑哪些东西？ | 八步清单：clangd → clang-format → Debug 构建 → gtest/pytest → clang-tidy → ASan+UBSan → TSan → CI 矩阵；"不靠推理，靠矩阵" | `-O0` 比 `-O2` 慢 3–10 倍、`-g` 不影响速度；ASan 约 2× 时间、TSan 5–15×、二者互斥；`detect_leaks=0`；三张栈；GCC ≥ 9.3、CUDA ≥ 12.0、C++17；`intrusive_ptr_test.cpp` 325 个测试 |
 
+Table: 八篇的核心问题、结论与必记判据
+
 ### 1. 本文的章节安排
 
 | 章 | 内容 |
@@ -64,6 +66,8 @@ flowchart TB
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
 | 六 | 下一步 |
+
+Table: 本文的章节安排
 
 ## 二、逐篇回顾
 
@@ -251,6 +255,8 @@ flowchart TB
 | `thread_local` 与 TLS 传播 | 三、六、七 | 三说 `parallel_for` 的 lambda 只碰裸指针；六说新线程不继承、`ThreadLocalState` 显式传播；七的 GIL 是"全局一把"与 TLS 的对照 |
 | C++17 与 v2.10.0 基线 | 一、二、三、七、八 | 一与二在 `CMakeLists.txt` 确认 `CMAKE_CXX_STANDARD 17`；三说 concepts 源码树未用；七说 `cpp_extension` 传 `-std=c++17`；八说扩展的标准要跟 PyTorch 走 |
 
+Table: 贯穿八篇的概念及其关系
+
 ## 四、常见误区
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
@@ -268,6 +274,8 @@ flowchart TB
 | 放掉 GIL 后不能再用参数里的 Tensor | GIL 保护的是解释器状态不是 C++ 内存；`at::Tensor` 是 C++ 对象 | 不能碰 `PyObject*`、不能 `Py_INCREF/DECREF`、不能让 `py::object` 析构；C++ 值随便用 | [第七篇](/cpp-pybind11-python-c-api-and-abi.html) |
 | 在 PyTorch 2.10 上要给扩展传 `-D_GLIBCXX_USE_CXX11_ABI=1` 才安全 | v2.10.0 已删掉这个开关，只有编译器默认一种 ABI；显式传 `=0` 反而制造 `__cxx11` 类 undefined symbol | 不传；≤ 2.7 才需要与 `torch._C._GLIBCXX_USE_CXX11_ABI` 一致 | [第七篇](/cpp-pybind11-python-c-api-and-abi.html) |
 | 越界一个字节程序会崩，测试过了就没有内存错误 | 未定义行为默认什么都不发生，数据悄悄错；只检查插了桩的代码 | ASan 构建跑一遍相关测试，CI 里先跑"故意崩"自检确认 ASan 生效 | [第八篇](/cpp-build-debug-and-test-toolchain.html) |
+
+Table: 常见误区与正确说法
 
 ## 五、通关自测
 
@@ -474,6 +482,8 @@ flowchart TB
 | 读过 | 能说出八篇各讲什么；知道 `intrusive_ptr`、`AT_DISPATCH`、`KernelFunction`、`TORCH_LIBRARY`、`thread_local`、GIL、ASan 这些名词，能把总纲那段 `scale_shift_cpu` 的每一行指到对应的篇 |
 | 掌握 | A 组能不翻书算出 8 题以上；B 组能说出每题用了哪几篇的什么；打开 `c10/core/TensorImpl.h` 或 `Dispatcher.h` 能认出每一行的机制；遇到 `undefined symbol`、算子"消失"、`del` 后显存不降能按篇里的步骤排查 |
 | 能教人 | C 组每题能给出全部要点并预判追问；能解释八篇里每个反直觉结论（Dispatcher 无虚调用、静态库会取消注册、越界不崩、放掉 GIL 还能用 Tensor、`const Tensor&` 能写数据）为什么成立，并用 Java 的对照说清类比在哪里失效 |
+
+Table: 掌握程度的判据
 
 通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点。没过的部分回到第二章对应篇的"必记"，再回该篇正文的相应章节；mini-c10 的对应文件是最直接的复习材料。
 

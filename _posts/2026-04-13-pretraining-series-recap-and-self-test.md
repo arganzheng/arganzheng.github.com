@@ -37,6 +37,8 @@ flowchart TB
 | [第三篇：数据工程](/pretraining-data-pipeline-dedup-filtering-and-mixture.html) | Common Crawl 有 240T token，为什么只用 15T？丢掉的 94% 是什么？ | 一条漏斗（启发式过滤 → 四粒度去重 → 模型打分），每一级的刻度都被消融验证过；配比的百分比本质是 epoch 数 | 240T → 15T（6%）→ 1.3–5.4T；MinHash 14 × 8 阈值 0.72；跨快照全局去重反而更差；25% 数学推理 ≈ 7.5 epoch；一次消融 2700 H100 小时；抽取 ≫ 去重 ≈ tokenize |
 | [第四篇：配方与稳定性](/pretraining-recipe-and-training-stability.html) | 405B 的 lr 8e-5、V3 的 2.2e-4，batch 16M 与 63M——怎么定的？V3 靠什么没有一次不可恢复的 spike？ | 超参表的每个数字都有来历（$$\mu$$P、梯度噪声尺度、$$1/(\eta\lambda)$$）；不稳定拆成三个可单独度量、单独修的机制 | lr 3e-4 → 1.5e-4 → 8e-5 随宽度降；batch 4M → 16M / 12.6M → 63M ramp；warmup 0.4–0.9%；wd 时间尺度 $$1/(\eta\lambda)$$ ≈ 7–13% 训练；QK-norm：logit 12592 → 22；spike 一次约 1 万 GPU 小时；$$T_{opt} = \sqrt{2\delta \cdot \text{MTBF}}$$ |
 
+Table: 四篇的核心问题、结论与必记公式
+
 ### 1. 本文的章节安排
 
 | 章 | 内容 |
@@ -46,6 +48,8 @@ flowchart TB
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
 | 六 | 下一步 |
+
+Table: 本文的章节安排
 
 ## 二、逐篇回顾
 
@@ -145,6 +149,8 @@ flowchart TB
 | 小模型消融 | 二、三、四 | 二给方法；三给价格；四给超参迁移（$$\mu$$P） |
 | checkpoint 与故障 | 二、四 | 二给 GPU 小时；四给 5.7 TB、每 3 小时一次故障、$$T_{opt}$$ |
 
+Table: 贯穿四篇的概念及其关系
+
 ## 四、常见误区
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
@@ -161,6 +167,8 @@ flowchart TB
 | 学习率是调出来的经验值 | 公开配方全部落在随宽度下降的同一条线上 | $$\mu$$P $$\propto 1/d$$、$$0.31 C^{-0.125}$$ | [第四篇](/pretraining-recipe-and-training-stability.html) |
 | batch 越大越好，反正有卡 | 临界 batch 随训练增大，早期大 batch 浪费样本 | ramp：4M → 8M → 16M；硬件下界是副本数 × 序列长 | [第四篇](/pretraining-recipe-and-training-stability.html) |
 | loss spike 是脏数据造成的 | 三个机制里两个是模型内部数值问题 | attention logit（QK-norm）、$$\log Z$$（z-loss）、单步过大（裁剪） | [第四篇](/pretraining-recipe-and-training-stability.html) |
+
+Table: 常见误区与正确说法
 
 ## 五、通关自测
 
@@ -367,6 +375,8 @@ flowchart TB
 | 读过 | 能说出四篇各讲什么；知道 $$6ND$$、$$D/N \approx 20$$、MinHash、QK-norm 这些名词 |
 | 掌握 | A 组能不翻书算出 8 题以上；B 组能说出每题用了哪两篇的什么；拿到一份技术报告能指出它的 $$D/N$$ 落在哪个时代、超参与同行差在哪 |
 | 能教人 | C 组每题能给出全部要点并预判追问；能解释四篇里每个反直觉结论（过训练是对的、全局去重更差、lr 随宽度降）为什么成立 |
+
+Table: 掌握程度的判据
 
 通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点。没过的部分回到第二章对应篇的"必记"，再回该篇正文。
 

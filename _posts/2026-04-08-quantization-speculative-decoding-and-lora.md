@@ -38,6 +38,8 @@ updated: 2026-09-14
 | 七 | 本文小结 | 三种方法各改一个变量 |
 | 八 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、起点：decode 是 memory-bound 的
 
 ### 1. 算术强度与 ridge point
@@ -263,6 +265,8 @@ LLM.int8()（Dettmers 等 2022）选择不迁移而是**分离**：把 $$X$$ 中
 | AWQ | W（INT4） | 按激活统计放大约 1% 显著输入通道（$$s_j = \text{mean}\lvert X_j\rvert^{\alpha}$$）再 RTN | 少量前向统计 + $$\alpha$$ 网格搜索，无反向、无 Hessian | 无（$$\text{diag}(s)^{-1}$$ 折进 RMSNorm） | 同上，与 GPTQ 格式相同 |
 | SmoothQuant | W + A（INT8） | 激活通道 ÷ $$s_j$$、权重行 × $$s_j$$，把离群从激活迁到权重 | 静态 $$\max\lvert X_j\rvert$$ 统计 | 静态时无；退到 per-token 动态时每步算一次 max | INT8 GEMM（W8A8） |
 | LLM.int8() | W + A（INT8） | 离群列（$$\lvert x\rvert > 6$$）抽出走 FP16，其余 vector-wise INT8 | 无（运行时检测） | 两个 GEMM + gather/scatter，通常比 FP16 慢 | 混合 INT8/FP16，主要省显存 |
+
+Table: 几种量化方案的对象、校准需求与运行时开销
 
 ### 7. FP8 推理量化：浮点的相对精度 vs 整数的绝对精度
 

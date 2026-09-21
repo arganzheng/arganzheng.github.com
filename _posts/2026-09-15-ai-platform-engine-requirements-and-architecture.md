@@ -104,6 +104,8 @@ Service 轮询 + HPA 看 CPU      副本状态在引擎内部；请求长短差�
 | 九 | 代价与边界 | 四栏表；每叠一层的代价；本系列的边界；托管服务替你做了什么 |
 | 十 | 小结 | 要点、源码与 CRD 位置、mini-platform 的第一批文件 |
 
+Table: 本文的章节安排
+
 ## 二、训练任务的形态与需求
 
 ### 1. torchrun 启动的进程组
@@ -678,6 +680,8 @@ checkpoint 突发写            PVC 无带宽语义               PFS / 对象�
 | 网关（7） | Inference Extension + EPP | 托管模型 API 自带路由、限流、按 token 计费 | 多模型统一入口、跨厂商一致的租户配额 |
 | 可观测与成本（8） | DCGM Exporter、OpenCost | 云监控给 GPU 基础指标；账单按实例小时 | 引擎指标、每百万 token 成本、分配率 vs 使用率 |
 
+Table: 自建与托管方案各层的分工
+
 ### 4. 本系列的边界
 
 本系列只讨论**引擎之下的资源层**与**引擎之侧的交付层**，以下内容作为"需求来源"一句带过，不展开：
@@ -728,6 +732,8 @@ checkpoint 突发写            PVC 无带宽语义               PFS / 对象�
 | KEDA v2.20.2 `apis/keda/v1alpha1/scaledobject_types.go`、`pkg/scalers/prometheus_scaler.go` | `ScaledObjectSpec.Triggers`；Prometheus scaler |
 | DCGM Exporter 4.6.0-4.8.3 `etc/default-counters.csv` | `DCGM_FI_DEV_GPU_UTIL`、`DCGM_FI_DEV_FB_USED` 默认开启；`DCGM_FI_PROF_SM_ACTIVE` 默认注释 |
 | OpenCost v1.121.1 `pkg/costmodel/allocation.go` | allocation 合并逻辑中的 GPU 字段（第八篇展开） |
+
+Table: 本篇涉及的源码与 CRD 位置
 
 ### 3. mini-platform 本篇增量
 

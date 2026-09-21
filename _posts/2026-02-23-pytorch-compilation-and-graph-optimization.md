@@ -68,6 +68,8 @@ Java 工程师熟悉的 `javac` 是一个前端（Java 源码 → 字节码）�
 | 后端 | TorchInductor | ATen 级 FX Graph | Triton / C++ 源码 | 哪些算子合并成一个 Kernel？内存怎么分配？ |
 | 目标编译器 | Triton 编译器 / C++ 编译器 | 源码 | 机器码 | 真正的 GPU / CPU 指令 |
 
+Table: torch.compile 的前端、中端、后端
+
 目标编译器不属于 PyTorch，本文只在需要时提及。
 
 三个阶段中，**中端最容易被忽视**，因为它不接触 Python 也不接触硬件。但它是唯一改变图的语义内容的阶段：进去一张前向图，出来前向加反向两张图；in-place 操作被改写成纯函数；`torch.*` 级的算子被降到 `aten::` 级并进一步分解。没有这一段，每个后端都得自己处理 Autograd 和副作用；有了它，后端只需面对一张纯函数式的 ATen 级图。
@@ -133,6 +135,8 @@ flowchart TB
 | **编译器** | 流水线运行一次，做什么？ | 被触发时 | 三 ~ 五 |
 | **运行时** | 每次调用，如何决定是否运行流水线、运行到哪、结果放哪？ | 每次调用 | 六 |
 
+Table: 编译器与运行时两个维度
+
 运行时这一层由四个机制构成：
 
 ```text
@@ -166,6 +170,8 @@ torch.compile(f, backend="aot_eager")
 | `"aot_eager"` | 跑 AOTAutograd，得到前后向图后逐算子执行 | 前端 + 中端 | 排查中端问题：反向图、函数化是否正确 |
 | `"inductor"`（默认） | 跑 AOTAutograd，再交给 Inductor 生成代码 | 前端 + 中端 + 后端 | 正常使用 |
 
+Table: 三个内置 backend 对应的流水线截断位置
+
 因此 AOTAutograd 在 PyTorch 的代码组织里被算在"backend"一侧，但在编译器结构里它是中端。本文用**前端 / 中端 / 后端**指编译器阶段，用代码格式的 `backend` 指 `torch.compile` 的参数。
 
 **"FX"**。它在 PyTorch 文档里指两件相关但不同的事：
@@ -174,6 +180,8 @@ torch.compile(f, backend="aot_eager")
 |---|---|---|
 | `torch.fx` 工具包 | 1.8，2021 年 | 一个独立的 Python 到 Python 的图变换工具：`symbolic_trace` 追踪、`Graph` 表示、`GraphModule` 执行 |
 | FX Graph 作为 IR | 2.0 编译栈 | 编译栈内部各组件之间传递的中间表示，**数据结构**来自 `torch.fx`，但**追踪器**不是 `symbolic_trace` 而是 Dynamo |
+
+Table: FX 的两种含义
 
 混淆它们会导致一个常见误解："`torch.compile` 就是先 `symbolic_trace` 再优化"。不是。`symbolic_trace` 无法处理依赖 Tensor 的 Python 控制流——比如 `f` 里的那个 `if`——Dynamo 正是为了解决这个问题才在字节码层重新实现了捕获。第二章用 `symbolic_trace` 演示数据结构（因为它最简单），第三章展示它在 `f` 上如何失败、Dynamo 如何成功。
 
@@ -189,6 +197,8 @@ torch.compile(f, backend="aot_eager")
 | 九 | 本文小结 |  |
 | 十 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、IR：FX Graph
 
 ### 1. Graph、Node、GraphModule
@@ -200,6 +210,8 @@ torch.compile(f, backend="aot_eager")
 | `Graph` | 节点的有序列表，拓扑序即执行序 |
 | `Node` | 一次操作：做什么（`op` + `target`）、输入是什么（`args` / `kwargs`）、附加信息（`meta`） |
 | `GraphModule` | 一个 `nn.Module`，持有一个 `Graph`，并把它生成为可执行的 Python `forward` |
+
+Table: torch.fx 的三个类
 
 `Node.op` 只有六种：
 
@@ -284,6 +296,8 @@ gm.recompile()       # 重新生成 forward 的 Python 代码
 | torch 级 | `torch.relu`、`operator.add`、`torch.nn.functional.linear` | `symbolic_trace`、Dynamo |
 | ATen 级 | `torch.ops.aten.relu.default`、`torch.ops.aten.mm.default` | AOTAutograd |
 | Core ATen / prims | ATen 的一个较小子集，或更原始的 `prims.*` | 分解（decomposition）后 |
+
+Table: 同一个 Graph 承载的三种词汇层级
 
 编译器每过一段，图的**结构不变，词汇下降**：从用户写的 Python API，降到第五篇讨论的 `aten::` Schema 层，再分解到更小的核心算子集。后端只需支持核心集就能覆盖所有上层 API——这是 Composite 算子思想在编译器里的延续。
 
@@ -412,6 +426,8 @@ L['x'].size()[0] == 128        # 以及 dtype、device、requires_grad 等，第
 | 分支条件依赖 Tensor 元数据（`x.shape[0] > 64`） | 报错 | 用 FakeTensor 算出结果，**特化**到当前分支，记录 Guard |
 | 分支条件依赖 Tensor 值（`x.sum() > 0`） | 报错 | 编译期算不出值，在此处**切断图**，条件交给 Python 运行时判断（第六章 Graph Break） |
 | 产出 | 一张图，或失败 | 一张或多张图 + Guard + 改写的字节码；不支持处 graph break 回退而非失败 |
+
+Table: symbolic_trace 与 Dynamo 的根本分歧
 
 `symbolic_trace` 试图得到一张对所有输入都成立的图，做不到就放弃；Dynamo 只承诺得到一张对**当前输入**成立的图，并用 Guard 记下"当前输入"的范围。后者放弃了通用性，换来了"几乎不会因为代码写法而失败"——遇到不支持的结构就 graph break 回退到 Python（第六章 §1）。它仍然可能报错：`fullgraph=True` 下的 graph break、后端编译失败、`torch._dynamo.config` 的显式限制都会抛出；"永不失败"只对默认配置的常见代码近似成立。这是它能成为 `torch.compile` 默认前端的原因。
 
@@ -616,6 +632,8 @@ Inductor IR 的核心表示方式是**循环级的**：一个逐元素算子不�
 | Extern Kernel（外部 Kernel） | mm、conv、attention | 不生成代码，直接调用厂商库（第五篇的 cuBLAS / cuDNN 路径），**不参与融合** |
 | 数据搬运 | copy、cat 的某些情形 | 视情况 |
 
+Table: Inductor 的融合规则
+
 对 `f`：`mm` 是 Extern Kernel，留给 cuBLAS；`add` 和 `relu` 是相邻的 pointwise，融合成一个 Kernel。Eager 的三个 Kernel 变成两个：
 
 ```text
@@ -766,6 +784,8 @@ Fused    读 N + bias，写 N                                 合计约 2N 次�
 | Dynamic Shape | shape 变了是否必须重编？ | 前端决定符号维度、中端在符号上推断、后端生成符号尺寸代码 | 流水线运行时决定，每次调用检查 |
 | 编译缓存 | 编译产物存在哪、跨进程能否复用？ | 前端（Dynamo 条目）与后端（Inductor / Triton 缓存） | 流水线运行前查、运行后写 |
 
+Table: 运行时的四个机制
+
 第三列说明它们不是“横跨三段”的同一类东西；第四列说明为什么要放在一起：它们共同构成了从“调用”到“执行”之间的那条控制流程。
 
 ### 1. Graph Break：捕获的边界
@@ -789,6 +809,8 @@ Dynamo 遇到无法符号化求值的代码时，不报错，而是**在此处�
 | 副作用调用 | `print(x)`、日志、写文件 | 无法放进图 |
 | 未注册的 Python 自定义算子 | 直接调用一个 C 扩展函数 | 第六篇：不是 `torch.library` 算子，Dynamo 看不进去 |
 | 不支持的 Python 特性 | 部分生成器、动态 `__getattr__`、某些第三方库调用 | 符号求值器不支持 |
+
+Table: Graph Break 的常见触发原因
 
 诊断工具：
 
@@ -903,6 +925,8 @@ Dynamic Shape 的实现基础是 **SymInt**：一种可以是具体整数、也�
 | Triton Kernel 缓存 | Triton 源码到 GPU 机器码（PTX / cubin）的编译结果 | 磁盘，跨进程 |
 | Autotune 缓存 | `max-autotune` 选出的最优配置 | 磁盘，跨进程 |
 | 远程缓存 | 上述内容的 Redis 等共享存储版本 | 跨机器，用于训练集群 |
+
+Table: 编译缓存的几层
 
 新版本还在推进把整套产物打包保存、下次启动整体加载的机制，这部分 API 变化较快，此处不展开。
 
@@ -1052,6 +1076,8 @@ flowchart TB
 | 第一次调用成本 | 无额外成本 | 秒级编译 |
 | 对 shape 变化的反应 | 无感 | Guard 失败、重编译 |
 
+Table: Eager 与 torch.compile 热路径的对照
+
 对这个三算子的小函数，收益有限；对几十层、数百个 pointwise 算子的 Transformer，融合与内存规划的收益会显著放大。第八篇用 Profiler 量化这些差别。
 
 ### 7. 这是一条典型路径
@@ -1067,6 +1093,8 @@ flowchart TB
 | `mode="max-autotune"` | 同默认 | 同默认 | Inductor + Triton 矩阵乘模板与调优 | 追求峰值性能、可接受更长编译时间 |
 | `torch.export` | Dynamo，不允许 graph break | AOTAutograd 的一部分（函数化、分解） | 不生成代码，产出 `ExportedProgram` | 序列化模型、脱离 Python 部署 |
 | AOTInductor | 同 `torch.export` | 同 `torch.export` | Inductor 生成 C++ 与 Kernel → 共享库 | C++ 推理服务，无 Python 运行时 |
+
+Table: 同一套组件可以组成的其他路径
 
 `mode` 与 `backend` 的关系：`backend` 选择 Dynamo 之后接哪段流水线，`mode` 在 `inductor` 后端内部调整策略。两者可以同时指定。
 
@@ -1092,6 +1120,8 @@ flowchart TB
 | 逃逸分析与标量替换消除对象分配 | 内存规划消除中间 Buffer 分配 |
 | Code Cache 存放编译后的机器码 | Dynamo 缓存条目 + Inductor 磁盘缓存 |
 | 预热（warmup） | 冷编译 |
+
+Table: HotSpot JIT 与 torch.compile 的逐项对应
 
 理解了 Guard 就是投机优化的假设检查，Dynamic Shape 就是“假设被打破后放宽假设再编译”，编译缓存就是 Code Cache，`torch.compile` 的大部分行为都可以预测。
 
@@ -1152,6 +1182,8 @@ flowchart TB
 | 中端 AOTAutograd | torch 级图 | 前向图 + 反向图 + `autograd.Function` | `torch.ops.aten.*` | `TORCH_LOGS="aot_graphs"` |
 | 后端 Inductor | ATen 级图 | Triton / C++ 源码 + `call()` | 循环级 IR → 源码 | `TORCH_LOGS="output_code"` |
 
+Table: 编译器三阶段的输入、输出与观察手段
+
 运行时一维：
 
 ```text
@@ -1185,6 +1217,8 @@ Python      y = x @ weight + bias; if x.shape[0] > 64: relu(y) else: tanh(y)
 | Graph Break vs Guard 失败 | 前者是捕获时的边界，决定图有多大；后者是调用时的失效，决定是否重编译 |
 | Inductor vs Triton | Inductor 是 PyTorch 的代码生成器，产出 Triton 源码；Triton 是独立的 GPU 语言与编译器，产出 PTX |
 | `torch.compile` vs `torch.export` | 带回退的 JIT vs 无回退的 AOT；共享 Dynamo 与 FX Graph |
+
+Table: 几个容易混淆的名字
 
 ### 4. 同一条流水线的两个出口
 
@@ -1224,6 +1258,8 @@ torch._dynamo.explain               有几张图，为什么断
 | `torch/_decomp/`、`torch/_prims/`、`torch/_refs/` | 算子分解与参考实现：torch 级词汇下降到 ATen 级 |
 | `torch/_inductor/compile_fx.py`、`graph.py`、`scheduler.py`、`codegen/triton.py`、`codegen/cpp.py` | Inductor：入口、lowering、融合决策、Triton 与 C++ 代码生成 |
 | `torch/_inductor/codecache.py`、`torch/export/`、`torch/csrc/inductor/aoti_runtime/` | 编译缓存；`torch.export`；AOTInductor 运行时 |
+
+Table: 本篇涉及的源码位置
 
 最后一步是下一篇的起点：
 

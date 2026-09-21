@@ -61,6 +61,8 @@ flowchart TB
 | `:workspace` | 只写工作区根目录（可配多个）；**`.git`（目录或指针文件、解析出的 gitdir 目标）与 `.codex` 只读** | 可选受限 | 开 |
 | `:danger_full_access` | 无限制 | 无限制 | **关**——`PermissionProfile::Disabled` |
 
+Table: Codex 的三个内置权限档
+
 `protocol/src/permissions.rs` 里的类型把范围表达为文件系统访问模式（读 / 写 / 无）、特殊路径（`.git` 一类）、网络沙箱策略；`core/src/config/permissions.rs` 把配置解析成档位。`.git` 只读是一个值得注意的细节：agent 可以改源码，但不能直接篡改版本历史——历史的改动要经过 git 命令，而 git 命令受执行策略管（第三章）。名字里的 `danger` 是有意的：全权限档在 UI 与配置里都带着警告。
 
 ### 2. DeepSeek Harness：三档同构
@@ -88,6 +90,8 @@ Claude Code 没有"档"，用**规则**表达范围：allow / deny / ask 三类�
 | `on-request`（默认） | 模型决定何时问用户 |
 | 细粒度 | 对各类审批流的单独控制 |
 | `never` | 从不问；被沙箱拦住就失败，不升级 |
+
+Table: Codex AskForApproval 的取值
 
 它回答"什么时候问人"这个问题的**默认倾向**；具体到某条命令要不要问，由执行策略决定。
 
@@ -131,6 +135,8 @@ prefix_rule(
 | Linux | **bubblewrap + Landlock + seccomp** | `linux-sandbox` crate；分离的文件系统策略（可写根下的只读或拒绝子路径）走 bubblewrap，与旧模型语义等价时走 Landlock；优先用 PATH 上的 `bwrap`；`arg0` 技巧让同一二进制作为沙箱助手运行 |
 | Windows | **受限令牌 + ACL + Job Objects** | `windows-sandbox-rs` / `windows-sandbox-service`；分级的沙箱等级 |
 | 网络 | `network-proxy` crate | 沙箱内的网络经代理策略：允许列表、本地绑定、托管网络审批（`tools/network_approval.rs`） |
+
+Table: Codex 三平台的沙箱机制
 
 `sandboxing/src/manager.rs` 的 `SandboxManager` 按权限档、工具偏好、平台选初始沙箱；`violation.rs` / `denial.rs` 把沙箱拒绝翻译成给模型与人看的说明。`process-hardening` crate 处理进程级加固。
 
@@ -176,6 +182,8 @@ Agent SDK 文档把一个工具请求的判定顺序写得很精确，值得整�
 | ③ staging 能碰生产 | 一个 API 调用同时作用于两个环境的卷 | 环境隔离（基础设施侧） | staging 的凭据物理上碰不到生产资源 |
 | ④ 无确认 | 删除卷是一次 HTTPS 调用，没有确认步骤 | 审批 / 执行策略 | `DELETE` 类、`rm -rf`、`drop`、`force` 一类动作 `prompt` 或 `forbidden`；Guardian 把"删除生产资源"识别为高风险 |
 | ⑤ 备份同卷 | 卷级备份随卷一起消失 | 可回滚性（基础设施侧） | 备份与主数据隔离；不可逆动作要求先有可恢复的快照 |
+
+Table: 事故链条逐环的防线
 
 五环里三环在基础设施侧、两环在 harness 侧——**agent 的安全一半不在 agent 里**。Replit 事后加的"开发 / 生产环境自动分离"与"一键回滚"正是③与⑤。
 

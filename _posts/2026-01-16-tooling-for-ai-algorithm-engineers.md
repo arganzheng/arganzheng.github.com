@@ -30,6 +30,8 @@ catalog: true
 | 模型生态 | Hugging Face 六个库 · 六行 LoRA SFT · Hub 三个文件 · 读源码 | 第五篇 |
 | 硬件与管理 | 两个上限 · 四块显存 · profiler · 实验记录的最小一行 | 第六篇 |
 
+Table: 工具箱系列覆盖的六层工具
+
 
 ## 为什么写这个系列？
 
@@ -43,6 +45,8 @@ catalog: true
 | PyTorch | Tensor / Autograd / Module / DataLoader / Optimizer / AMP / DDP-FSDP 的**用法** | Dispatcher、Autograd 引擎、编译、分布式通信栈的**实现** → [03 系列](/deep-dive-into-pytorch.html) |
 | GPU | 算力与带宽两个上限、显存去向、为什么 batch 大才快 | CUDA 编程模型、访存、Tensor Core、写 kernel → [05 系列](/gpu-kernel-engineering.html) |
 | 分布式训练 | DDP / FSDP 启用、并行度对配方的影响 | 并行策略、checkpoint、容错、MFU → [07 系列](/large-scale-training-from-parallelism-to-fault-tolerance.html) |
+
+Table: Python、PyTorch、CUDA 在算法地图与 Infra 地图上的分工
 
 需要越界的时候是知道的：当你发现"用"解决不了问题——一个算子太慢、一个并行策略框架不支持、一个 OOM 靠调参绕不过去——就是该翻 Infra 地图的时候。
 
@@ -89,6 +93,8 @@ catalog: true
 | 判断快慢、留下记录 | 算力与带宽两个上限 · 四块显存 · profiler · 可复现 | 第六篇：GPU 直觉与实验管理 |
 | 看结果、下结论 | Pandas 错误分析 · Matplotlib 多 seed 曲线 | 第二篇：数据科学三剑客 |
 
+Table: 一次实验的每一步用到的工具与对应篇
+
 结论出来之后改数据或配方，再来一轮，回到第一步。
 
 第一篇是**语言**：训练代码里反复出现的那一小撮 Python 语法，讲到能读能用。二到四篇是**框架**：先在 NumPy 上建立形状直觉，再把它搬到 PyTorch 上写训练循环，再算这个循环要多少资源。第五篇是**生态**：真实的模型与数据从哪来、微调怎么组装。第六篇是**硬件与管理**：为什么快为什么慢、怎么让实验可追溯。
@@ -100,6 +106,8 @@ catalog: true
 | 形状线 | `__getitem__` 取一条样本 → 轴与广播 → Tensor 的形状 → 激活的形状与大小 → 模型分片的形状 → profiler 表里每个算子的形状 |
 | 数字线 | 19 MB 文件读成 list 要 103 MB、生成器 12 MB → einsum 一行 → 二十行训练循环 → 16 字节 / 参数 · 128.5 GB · 16.7 GB → 六行 SFT → 4.8 ms / token · 295 FLOP / 字节 |
 | 工程线 | GIL 让 8 线程 1.0× → 形状错误不报错 → zero_grad 与 no_grad → OOM 落在哪一块 → 从 compute_loss 往下追源码 → 一行记录换可复现 |
+
+Table: 贯穿六篇的三条线索
 
 每一篇都用同样的方法：**从要做的事出发，把工具带出来，讲到能做为止，给出能算的数字与能跑的脚本，指出越过哪条线就进了 Infra 地图**。
 
@@ -230,6 +238,8 @@ catalog: true
 | 第五篇 | peft + trl 在 Qwen2.5-0.5B 上跑一次 LoRA SFT（需要下载模型） |
 | 第六篇 | torch.profiler 看一步训练的前几个算子；写出一次实验的最小记录并用 seed 复现 |
 
+Table: 各篇配套脚本做的事
+
 六件事做完，L1 就够了。其中第四篇的账最值得做：它把"跑得动跑不动"从试出来变成算出来。
 
 与它平行的源码阅读线：
@@ -241,6 +251,8 @@ catalog: true
 | 第五篇 | [`trl/trainer/dpo_trainer.py`](https://github.com/huggingface/trl/blob/main/trl/trainer/dpo_trainer.py) 的 `dpo_loss` | 一个后训练 loss 从公式到代码 |
 | 第五篇 | [`peft/tuners/lora/layer.py`](https://github.com/huggingface/peft/blob/main/src/peft/tuners/lora/layer.py) | LoRA 的 `Linear.forward` 只有几行 |
 | 第六篇 | Horace He, [*Making Deep Learning Go Brrrr From First Principles*](https://horace.io/brrr_intro.html) | 一篇博客讲透 compute / memory / overhead 三种瓶颈 |
+
+Table: 各篇平行的源码阅读线
 
 
 ## 前置要求与说明
@@ -283,6 +295,8 @@ catalog: true
 | 怎么用 `peft` + `trl` 一小时跑起 SFT？卡住了去读哪个文件？ | 第五篇 |
 | 这一步 300 ms 花在哪？decode 为什么快不起来？ | 第六篇 |
 | 三个月后怎么复现今天这次实验？ | 第六篇 |
+
+Table: 读完工具箱系列后应能回答的问题
 
 最终目标是三种能力：
 

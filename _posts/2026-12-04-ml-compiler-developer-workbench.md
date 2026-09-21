@@ -26,6 +26,8 @@ catalog: true
 | 八 | 本文小结 | |
 | 九 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、搭工作台
 
 ### 1. 构建
@@ -53,6 +55,8 @@ TRITON_BUILD_PROTON=OFF pip install -e . -v     # 约 10–20 分钟（M 系列�
 | lit（IR 级） | `test/**/*.mlir`（277 个文件） | `lit build/cmake.*/test`；单个：`lit -v build/cmake.*/test/TritonGPU/combine.mlir` | 否 | 9.5 s 全部 |
 | C++ 单元测试 | `unittest/` | `build/cmake.*/unittest/Tools/LinearLayout`（72 个）、`unittest/Dialect/TritonGPU/LinearLayoutConversions`（112 个） | 否 | 毫秒 |
 | Python 端到端 | `python/test/unit/**` | `pytest -s --tb=short python/test/unit/language/test_core.py::test_dot` | **是**（`TRITON_INTERPRET=1` 时部分不需要） | 分钟到小时 |
+
+Table: Triton 的三层测试
 
 `Makefile` 把它们包成 `make test-lit`、`make test-cpp`、`make test-unit`，`make test-nogpu` = 前两者。lit 的版本要与 LLVM pin 匹配：Homebrew 的 `lit 23` 拒绝 Triton 的 `lit.cfg.py`（`execute_external` 在 LLVM 23 弃用），`pip install 'lit<20'` 即可。
 
@@ -103,6 +107,8 @@ triton-opt x.ttgir --allocate-shared-memory --convert-triton-gpu-to-llvm=compute
 | AMD | `AMDGCN_ENABLE_DUMP=1`；`k.asm["amdgcn"]` 末尾的 `; NumVgprs / ScratchSize / Occupancy` | 无需加载即知寄存器与 spill |
 | layout | `triton-tensor-layout -l "<attr>" -t "tensor<…>"`（`--use-hw-view`） | 任意 layout 的线程 ↔ 元素表（第七篇） |
 | 性能 | Proton（`proton` 命令，`TRITON_BUILD_PROTON`）、Nsight Compute + `-lineinfo`（默认开）+ `USE_IR_LOC=ttgir` | SASS 行对回 Python / TTGIR 行 |
+
+Table: 更低层的 dump 开关与工具
 
 ## 四、定位一个错误
 
@@ -212,6 +218,8 @@ Triton 的 PR 模板要求 lit 测试遵守 MLIR 的 [FileCheck best practices](
 | 5 | `third_party/nvidia/backend/compiler.py`（与 `amd`） | 在 `make_ttgir` 合适的位置 `passes.ttgpuir.add_my_pass(pm)` |
 | 6 | `test/TritonGPU/my-pass.mlir` | lit 测试：`// RUN: triton-opt %s -tritongpu-my-pass \| FileCheck %s` |
 | 7 | — | `make triton-opt && lit -v build/…/test/TritonGPU/my-pass.mlir`；再 `make` 全量、跑相关 pytest |
+
+Table: 加一个 pass 的清单
 
 `triton-opt` 通过 `registerTritonGPUPasses()`（`bin/RegisterTritonDialects.h`）自动认识新 pass——`Passes.td` 生成的 `registerXxx` 被它调用，不用改 `triton-opt.cpp`。开发期不想每次全量 `make`：把 pass 编成插件（第四篇 §三.5），`triton-opt --load-pass-plugin`（`test/Plugins/` 有例子）。
 

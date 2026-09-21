@@ -31,6 +31,8 @@ catalog: true
 | 状态 | 服务端：`previous_response_id` 或 Conversations；**默认存储**（`store: true`，30 天） | 客户端：每次送完整历史 | 服务端：`previous_interaction_id`；**默认存储** | 客户端 |
 | 缓存 | 自动前缀缓存（读 0.1×，GPT-5.6 起写 1.25×） | `cache_control` 显式断点或顶层自动；5 分钟 / 1 小时 TTL | 隐式缓存 + 显式缓存（按小时计存储费） | 自动磁盘前缀缓存（命中价约为未命中的 2%） |
 
+Table: 四家 API 的对照
+
 表里每一行都对应本文一章。看这张表要抓两点：**形状趋同**（都是"列表进、列表出"，都把工具调用、结构化输出、流式做成一等公民）；**默认值分歧**（谁存状态、缓存要不要显式声明、参数字符串还是对象）——坑都在默认值里。
 
 ### 2. 本文的章节安排
@@ -120,6 +122,8 @@ OpenAI Responses、Gemini、Anthropic 都提供**服务端执行**的内置工�
 | JSON 模式 | 参数声明输出必须是合法 JSON | 语法合法的 JSON；字段不保证 | DeepSeek `json_object`、OpenAI `json_object` |
 | schema 约束 | 传入 JSON schema，解码时约束每个 token 只能生成符合 schema 的续写 | 输出符合 schema：字段齐、类型对、枚举在范围内 | OpenAI `json_schema` + `strict`、Anthropic `output_config.format`、Gemini `response_format` / `responseSchema` |
 
+Table: 结构化输出的三个层次
+
 第三层的机制是**约束解码**：把 schema 编译成一个自动机，采样时把不合法的 token 概率置零。所以它的保证是硬的——不是"模型很少出错"，而是"不可能生成不合法的 JSON"。代价是 schema 有限制（OpenAI 的 strict 模式要求所有字段 `required`、`additionalProperties: false`、不支持部分 JSON schema 特性）、首次使用一个 schema 有编译延迟、以及 schema 本身要占 token（Anthropic 把 schema 注入为一段额外的 system 文本，实测约 50–200 token 的固定开销加上 schema 自身；它落在缓存前缀里）。
 
 ### 2. 它没保证什么
@@ -146,6 +150,8 @@ OpenAI Responses、Gemini、Anthropic 都提供**服务端执行**的内置工�
 | Chat Completions / DeepSeek | 第一个 chunk | `choices[0].delta.content` | `choices[0].delta.tool_calls[i].function.arguments`（分片字符串） | 最后一个 chunk（需 `stream_options.include_usage`） | `finish_reason` 非空 |
 | Anthropic | `message_start`（含输入用量） | `content_block_delta`（`text_delta`） | `content_block_delta`（`input_json_delta`，分片字符串） | `message_delta`（输出用量） | `message_stop` |
 | Gemini Interactions | `interaction.created` | `step.delta` | `step.delta` | 结束事件 | `interaction.completed` |
+
+Table: 四家流式接口的事件类型
 
 三个共同点决定了客户端的写法：
 
@@ -191,6 +197,8 @@ Responses API **默认 `store: true`**，响应保留 30 天；Conversation 对�
 | 2026（GPT-5.4 起） | OpenAI | Chat Completions 不支持 `reasoning_effort` 非 `none` 时的工具调用 | 功能收窄 |
 | 2026 | DeepSeek | 提供 OpenAI、Anthropic、Responses 三种格式端点 | 兼容性扩展 |
 
+Table: 2026 年 API 契约的变更清单
+
 模式很清楚：**新入口做加法，旧入口先冻结再移除，行为默认值随模型代际变**。应对不是追每一次变更，而是让变更只影响一处——下一章。
 
 ## 八、一个中间层的最小设计
@@ -206,6 +214,8 @@ Responses API **默认 `store: true`**，响应保留 30 天；Conversation 对�
 | 归一化流式事件 | 内部事件：`text_delta`、`tool_call_delta`、`tool_call_done`、`usage`、`done` | 业务层不感知四家事件名 |
 | 归一化用量 | 四类 token（输入 / 缓存命中 / 缓存写入 / 输出）+ 思考 token | 第四篇的账要这些字段；框架常把它们合成一个数 |
 | 记录原始请求与响应 | 完整请求体、完整响应、模型名、参数、耗时 | 第一篇的失效定位与 L5 的 trace 都从这里来 |
+
+Table: 适配层的五个职责
 
 **不要做的事**：不要把四种 token 合成一个"tokens"；不要吞掉 `stop_reason` / `finish_reason`；不要在中间层做重试以外的"智能"（自动改 prompt、自动截断历史），那些属于上层且要可见。
 

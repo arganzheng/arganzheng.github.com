@@ -67,6 +67,8 @@ flowchart TB
 | 十五 | 本文小结 |  |
 | 十六 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、为什么 AI-Infra 需要理解 Python 内存
 
 一个典型的推理请求可能经历如下过程：
@@ -1333,6 +1335,8 @@ def predict(array: np.ndarray):
 | GPU 内存 | 不直接涉及（由 native 库管理） | 同样由 CUDA runtime / PyTorch 缓存分配器管理 |
 | 弱引用 | `WeakReference` / `WeakHashMap` | `weakref.ref()` / `WeakValueDictionary` |
 | 零拷贝 | NIO `MappedByteBuffer` / Netty `CompositeByteBuf` | `memoryview` / `torch.from_numpy()` 共享存储 |
+
+Table: Java 与 Python 内存管理对照
 
 ## 十五、本文小结
 

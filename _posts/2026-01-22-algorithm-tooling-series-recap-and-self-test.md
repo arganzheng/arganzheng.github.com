@@ -41,6 +41,8 @@ flowchart TB
 | [第五篇：Hugging Face 生态](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html) | 能不能用 `peft` + `trl` 一小时跑起 LoRA SFT？卡住能不能读源码找原因？ | 六个库各管一段，六行组装；背后的每件事都在二十行里有位置；从 `compute_loss` 往下追是学后训练最快的路 | 三个文件；Qwen2.5-0.5B 494M、可训练 8.80M（1.78%）、状态 141 MB；85% 的 token 被 mask；20 步 5.3 → 1.7；$$\frac{\alpha}{r} BAx$$、$$\alpha = 2r$$ |
 | [第六篇：GPU 直觉与实验管理](/gpu-intuition-and-experiment-management.html) | 不写 kernel，能不能解释训练为什么慢、decode 为什么快不起来、OOM 从哪来？三个月后能复现吗？ | 两个上限之比是 ridge；decode 强度 1 是 memory-bound 所以 batch 大才快；显存四块；七项记录齐了才谈复现 | ridge ≈ 295 FLOP/字节；16.06 GB / 3.35 TB/s ≈ 4.8 ms → 209 token/s；prefill 4096 token 约 67 ms；MFU 40–50%；KV cache 131 KB/token；反向 ≈ 2 × 前向；seed 差 0.14 |
 
+Table: 六篇的核心问题、结论与必记数字
+
 ### 1. 本文的章节安排
 
 | 章 | 内容 |
@@ -50,6 +52,8 @@ flowchart TB
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
 | 六 | 下一步 |
+
+Table: 本文的章节安排
 
 ## 二、逐篇回顾
 
@@ -192,6 +196,8 @@ flowchart TB
 | seed、置信区间、记录 | 二、六 | 二给 `ci95` 与阴影带；六给 seed 差 0.14 与七项记录 |
 | 读源码 | 一、三、五 | 一给协议与 traceback；三给"回到二十行想"；五给六个入口与从 `compute_loss` 往下追 |
 
+Table: 贯穿六篇的概念及其关系
+
 ## 四、常见误区
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
@@ -208,6 +214,8 @@ flowchart TB
 | 加了 LoRA 还 OOM 是 LoRA 没生效 | LoRA 只减梯度与状态那 14 字节 / 参数；激活与参数量无关 | 看激活：开 gradient checkpointing、减 batch、缩短序列 | [第四篇](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html) |
 | loss 降下来 SFT 就成了 | 0.5B 上 20 步 5.3 → 1.7，答案对了却不会停 | 结束符要进 loss 且见够多次；看生成输出 | [第五篇](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html) |
 | decode 慢是 GPU 算不过来 | 强度 1 远低于 ridge 295，算力时间接近 0 | 时间全在搬 16 GB 权重；batch 大、量化、高带宽才有用 | [第六篇](/gpu-intuition-and-experiment-management.html) |
+
+Table: 常见误区与正确说法
 
 ## 五、通关自测
 
@@ -414,6 +422,8 @@ flowchart TB
 | 读过 | 能说出六篇各讲什么；知道 16 字节 / 参数、ridge、`ignore_index=-100`、`einsum`、GIL 这些名词 |
 | 掌握 | A 组能不翻书算出 8 题以上；B 组能说出每题用了哪几篇的什么；拿到一个 OOM 或一条慢的训练能归到四块 / profiler 表的某一格；跑前能算出显存并与 `max_memory_allocated()` 对上 |
 | 能教人 | C 组每题能给出全部要点并预判追问；能解释六篇里每个反直觉结论（线程无用、形状错不报错、`autocast` 不改参数精度、decode 慢与算力无关、loss 降了模型不会停）为什么成立；六个脚本改过参数、看过数字怎么变 |
+
+Table: 掌握程度的判据
 
 通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点。没过的部分回到第二章对应篇的"必记"，再回该篇正文；总纲说得对，工具的检验是做不是读——六个脚本跑完、改过，L1 才算够。
 

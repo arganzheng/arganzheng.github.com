@@ -42,6 +42,8 @@ flowchart TB
 | 供应商服务端工具 | 供应商 | 供应商 | web search、code interpreter、file search、computer use（L1 第二篇第三章） |
 | harness 内置工具 | harness | harness | Codex 的 shell / `apply_patch` / `plan`；DeepSeek Harness 的 fs / shell / todo |
 
+Table: 工具的四个来源
+
 四个来源在模型眼里是同一种东西——一组带 schema 的工具定义；差别在执行的位置、权限的落点（第五篇）、以及**定义占多少上下文**（第一篇的 ②）。
 
 ### 2. 本文的章节安排
@@ -64,6 +66,8 @@ MCP 借鉴 LSP（Language Server Protocol）：LSP 让任何编辑器接任何�
 | **授权加固** | RFC 9207 `iss` 校验（防授权服务器混淆攻击）；RFC 8707 `resource` 参数绑定受众（token 只对目标 server 有效，自 2025-06-18 起为 MUST）；客户端凭据绑定发行者；**动态客户端注册（DCR）弃用**改为客户端元数据文档（CIMD）；`application_type` 让 CLI 的 localhost 重定向不被拒 | 实施者反馈授权是集成里花时间最多的部分 |
 | **弃用政策** | Sampling、Roots、Logging 十二个月弃用窗口 | 协议能演进而不突然断 |
 | SDK | 四个一级 SDK 当天支持 | — |
+
+Table: MCP 2026-07-28 的变更
 
 一句话：**2026 年的 MCP 把自己从"一个有会话的 RPC 协议"改成"一个能在普通 HTTP 上横向扩展、授权按 OAuth 部署实践对齐、核心小扩展多的协议"**。注册表（server 的目录）仍在预览（API 2025 年 10 月冻结在 v0.1），不要把依赖建在它的稳定性上。
 
@@ -139,6 +143,8 @@ PTC：
 | Cloudflare | Code Mode（2025-09） | 把 MCP server 的工具变成一个 TypeScript API，模型写代码调它，在 Workers 隔离体里运行 |
 | DeepSeek Harness | Code 模式 + `ptc-runtime` 包组 | "Standard 模式的全部能力，工具经 Code Mode SDK 暴露，模型在一个 TypeScript 程序里组合多步"；`ptc-runtime` 让模型写一个程序调用宿主提供的函数（普通异步调用），**只返回程序的打印输出与返回值**；TypeScript 后端 |
 | Codex | `code-mode` / `code-mode-host` / `code-mode-protocol` / `code-mode-runtime` crate | 同一思想的 Rust 实现 |
+
+Table: 四家的程序化工具调用
 
 四家在 2025–2026 年不约而同做了同一件事，说明它解决的是一个真实且普遍的问题。
 

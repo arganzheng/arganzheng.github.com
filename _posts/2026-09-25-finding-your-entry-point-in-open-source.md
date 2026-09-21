@@ -47,6 +47,8 @@ flowchart TB
 | 选了项目不要的 | 单个 typo PR；孤立的 style cleanup；给一个 `needs research` 的 issue 直接发实现 | 没读 `AGENTS.md` / `CONTRIBUTING.md` 里"不欢迎什么"的段落 |
 | 选了做不完的 | 认领一个需要 B200 才能验证的性能优化；认领一个 tracker issue 里的整条线 | 没估规模，没看硬件要求 |
 
+Table: 选题的四类失败方式
+
 这四类失败在 2026 年比以前更常见，原因是 AI 辅助让"写出一个看起来能用的 PR"的成本降到了几乎为零，于是 reviewer 的时间成了唯一的瓶颈。两个项目的应对是一致的：把"什么值得做"更明确地写下来（标签、模板、政策文件），把"没按规则来"的 PR 更快地关掉（自动关闭、`closed-as-slop`、`Stale`）。这对认真的贡献者其实是好事——规则越明确，选题越有依据。
 
 ### 2. 方法
@@ -79,6 +81,8 @@ flowchart TB
 | 先讨论再动手 | 新贡献者的 PR 必须对应 `actionable` issue；新功能 issue 里 "NEVER include AI-generated explanation of how to solve" | 大改动先 `[RFC]`；`AGENTS.md` 三条查重命令；"Fail-closed behavior" |
 | 查重工具 | 无明文；实际用 `gh pr list --search "<n> in:body"` | `AGENTS.md` 明文：`gh issue view --comments`、`gh pr list --search "<issue_number> in:body"`、`--search "<short area keywords>"` |
 
+Table: 选题各环节的 PyTorch 与 vLLM 对照
+
 ### 4. 本文的章节安排
 
 | 章 | 主题 | 内容 |
@@ -94,6 +98,8 @@ flowchart TB
 | 十 | 本文小结 | 要点 · 对照表 · 文件位置 |
 | 十一 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、标签：maintainer 表达"我们想要什么"的主渠道
 
 ### 1. PyTorch：682 个标签的分层
@@ -107,6 +113,8 @@ flowchart TB
 | `release notes:` | 65 | PR 进 release note 的哪一节 | `release notes: nn`、`release notes: distributed (dtensor)`、`release notes: inductor (aoti)` |
 | `ciflow/` | 68 | 打在 PR 上触发某组 CI | `ciflow/trunk`、`ciflow/inductor`、`ciflow/h100`、`ciflow/mps`、`ciflow/b200` |
 | `topic:` | 14 | PR 的变更类型 | `topic: bug fixes`、`topic: performance`、`topic: docs`、`topic: not user facing`、`topic: bc breaking`、`topic: deprecation` |
+
+Table: PyTorch 标签按前缀的五层
 
 对选题真正重要的是第六层——**issue 状态与"欢迎程度"标签**。它们没有统一前缀，要单独记住（描述引自 `gh label list` 的 description 字段）：
 
@@ -129,6 +137,8 @@ flowchart TB
 | `has workaround` | （无描述） | 紧迫性低 |
 | `bot-triaged` | This is a label only to be used by the auto triage bot | 说明模块标签是 bot 打的，不是人 |
 | `Stale` | （无描述） | 长期无更新的 PR 会被打上，随后关闭 |
+
+Table: PyTorch 的 issue 状态与欢迎程度标签
 
 各状态标签的 open 数量（2026-09-07）：`needs reproduction` 535、`needs research` 211、`needs design` 167、`actionable` 396、`good first issue` 52、`high priority` 309、`better-engineering` 308、`small` 26、`module: docs` 702、`module: typing` 89。全仓 open issue 13,985 个——`actionable` 只占不到 3%，这就是 maintainer 已经筛过一遍的候选池。
 
@@ -264,6 +274,8 @@ vLLM 的标签只有 63 个，没有前缀体系，也没有状态机。`gh labe
 | 硬件标签 | `rocm`、`cpu`、`tpu`、`intel-gpu`、`nvidia` | — | 同上 |
 | 模型标签 | `llama`、`qwen`、`deepseek`、`mistral`、`gpt-oss`、`kimi`、`k3`、`glm`、`minimax`、`cohere` | — | 同上 |
 
+Table: vLLM 与选题相关的标签
+
 `docs/contributing/README.md` 的 "Job Board" 一节全文只有四个链接：
 
 > Unsure on where to start? Check out the following links for tasks to work on:
@@ -393,6 +405,8 @@ labels: ["RFC"]
 | `Any Other Things.` | Any other things you would like to mention. | false |
 | `Before submitting a new issue...` | 复选框：Make sure you already searched for relevant issues, and asked the chatbot ... | true |
 
+Table: vLLM RFC 模板的正文字段
+
 模板顶部还有一行提示："Please take a look at previous RFCs for reference"，链到 `label:RFC sort:updated-desc`。截至查询有 207 个 open 的 `RFC` issue，2026-09-01 到 09-06 这一周新开了至少 8 个（#54477 到 #55584），主题从 "GDS kv offloading" 到 "Custom all-reduce for XPU"。
 
 什么时候必须先开 RFC，`docs/contributing/README.md` 的 "Notes for Large Changes" 一节写死了数字：
@@ -420,6 +434,8 @@ PyTorch 的对应物是标题带 `Tracking:` 或 `[Tracker]` 的 issue，以及 
 | 新抽象、新公开 API、跨模块重构 | `pytorch/rfcs` PR + 主仓 issue | `[RFC]:` issue，Feedback Period 至少一周 |
 | >500 行架构改动 | RFC | RFC，否则 `rfc-required` |
 | BC-breaking | RFC；PR 模板有 "BC-breaking?" 一栏必填 | RFC；走 `deprecation_policy.md` 的三阶段 |
+
+Table: 什么改动需要 RFC
 
 一个常见误判：把"我写了很多代码"当成"需要 RFC"的唯一标准。判断标准其实是**有没有需要 maintainer 拍板的设计决策**——一个 800 行的纯 kernel 优化（不算入 500 行）可以不走 RFC，一个 200 行但引入了新配置项和新公开接口的改动应该走。
 
@@ -482,6 +498,8 @@ PyTorch 的 CI 状态看板是 HUD（`hud.pytorch.org`）。`CONTRIBUTING.md` �
 | 定位 | `git bisect`；HUD 上按时间看首次失败的 commit | Buildkite Test Suites 的历史；`git bisect` |
 | 提 PR | 描述写 `Fixes #<DISABLED issue>`，合入后 bot 重新启用测试 | 描述写 `Closes #12345`；加 `ci-failure` 标签 |
 
+Table: 修 flaky test 的四步与工具
+
 修 flaky test 之所以"高感谢度"，是因为它直接减少 maintainer 每天 triage 的噪音，而且不需要任何设计讨论。它之所以"低风险"，是因为改动范围被测试函数本身框死了。它唯一的门槛是耐心——复现一个 4 次成功 4 次失败的测试可能要跑几十遍。
 
 ## 五、性能回归：带数字的报告本身就是贡献
@@ -496,6 +514,8 @@ vLLM 的性能 issue 模板 `700-performance-discussion.yml`（标题前缀 `[Pe
 | `Report of performance regression` | Please provide detailed description of performance comparison to confirm the regression. You may want to run the benchmark script at https://github.com/vllm-project/vllm/tree/main/benchmarks . |
 | `Misc discussion on performance` | Anything about the performance. |
 | `Your current environment (if you think it is necessary)` | （粘贴 `collect_env.py` 输出） |
+
+Table: vLLM 性能 issue 模板的字段
 
 第二个字段的 description 直接指向 `benchmarks/` 目录。v0.28.0 的 `benchmarks/README.md` 第一句是 "This directory used to contain vLLM's benchmark scripts"——注意 "used to"：端到端 benchmark 的主入口已经迁到 `vllm bench` 子命令（README 链到 `cli/bench/latency`、`serve`、`throughput` 三份文档），目录里仍保留着 `benchmark_serving.py`、`benchmark_throughput.py`、`benchmark_latency.py` 等脚本，以及一批专项脚本（`benchmark_prefix_caching.py`、`benchmark_prioritization.py`、`benchmark_long_document_qa_throughput.py`、`benchmark_serving_structured_output.py`、`benchmark_ngram_proposer.py`、`benchmark_block_pool.py` 等）。kernel 级 benchmark 在 `benchmarks/kernels/`（`benchmark_fp8_gemm.py`、`benchmark_layernorm.py`、`benchmark_lora.py`、`benchmark_cutlass_moe_fp8.py` 等几十个），另有 `benchmarks/cutlass_benchmarks/`、`benchmarks/fused_kernels/`、`benchmarks/attention_benchmarks/`、`benchmarks/multi_turn/`、`benchmarks/auto_tune/`。CI 的性能基线在 `.buildkite/performance-benchmarks/`（含 `performance-benchmarks-descriptions.md` 与 `tests/`）。
 
@@ -565,6 +585,8 @@ PyTorch `CONTRIBUTING.md` 的 "AI-Assisted Development" 一节第 1 条：
 | 一个子包的类型标注补全 | `module: typing`（89 open）；`CONTRIBUTING.md` "Running `pyrefly`" 一节 | `torch/distributed/elastic/` 下某个子模块 | `pre-commit run mypy-3.12 --all-files --hook-stage manual` 报出的一类错误 |
 | 一类失效链接 / 过时引用 | 文档构建的 warning | `docs/source/` 里指向已删除模块的条目 | `docs/` 里指向已改名脚本的链接 |
 | 一批 `deprecated` 的清理 | 第七章的 deprecation policy | — | 到期的 `@typing_extensions.deprecated` API |
+
+Table: 成体系做文档与类型缺口的几种形态
 
 关键是 PR 描述里能说出"**这是一个什么范围、为什么这个范围、我怎么找全的**"。找全的方法就是第一篇讲的 `rg`：
 
@@ -714,6 +736,8 @@ general FlashInfer compatibility/wrapper layer, while `vllm.model_executor.layer
 | 与主线的关系 | tracker / roadmap 里未勾选的一项；release 分支上的 regression | 与 `release-feature-request` 正在推进的主线正面冲突 |
 | 项目政策 | 成体系的文档/类型批次；补测试；deprecation 流水线的一步 | 单个 typo；孤立 style cleanup；纯 AI 生成 |
 
+Table: 一周后会不会被关的打分表
+
 减分项里任何一个"硬"的（`needs research`、≥3 个 PR、>500 行无 RFC、单个 typo）都足以让 PR 一周内被关。加分项里最强的两个是 **`actionable` + maintainer 写明了要什么**——这时候你的 PR 不是在申请 review，而是在交付一个已经被下单的东西。
 
 ## 九、贡献日志：切入点清单
@@ -749,6 +773,8 @@ general FlashInfer compatibility/wrapper layer, while `vllm.model_executor.layer
 | P2 | #194344 Testing: Add/Extend dtype-converting copy to CPU test | `actionable` + `module: correctness (silent)` + `module: accelerator` | PR #194631 open（2026-08-24，设备通用测试，最后更新 2026-08-26，无 review decision）；#194396 已关闭；@malfet 2026-08-24 写明"non-MPS specific test" | 一个测试函数；需要 MPS 或任一加速器验证 | 否 | **放弃**：#194631 已按 maintainer 要求做了；可做的事是去 review 它 |
 | P3 | #191394 [Elastic] FileStore rendezvous leaks the mkstemp file descriptor | `good first issue` + `module: elastic` | **5 个 open PR**：#194259（08-20）、#194623（08-24）、#195137（08-28）、#195711（09-02）、#196096（09-05）；评论区有模板化认领 | 几行；无硬件要求 | 否 | **放弃**：第六个 PR 没有价值；这个 issue 的问题不是缺人修，是缺一个 maintainer 从 5 个里挑一个 |
 
+Table: PyTorch 的三个候选 issue
+
 备选（同样实查）：#175211 "CUDA/ROCm/Accelerator testing should replace get_device_capability() with feature queries"（`actionable`、`module: tests`；无 open PR，2026-04 的五个小 PR 已被 `Stale` 关闭）——规模大、可拆、需要 CUDA 与 ROCm 至少一种，适合先在 issue 里问"从哪个文件开始、上次的模式是否仍被接受"；#189666 "[CUDA] illegal memory atomic on kernelHistogram1D"（`actionable`）——PR #189685 自 2026-07-13 open、已 APPROVED、作者 08-07 在催合入，**不要重复**，但可以学习它的 diff。
 
 ### 3. vLLM：三个候选（2026-09-07 实查）
@@ -760,6 +786,8 @@ general FlashInfer compatibility/wrapper layer, while `vllm.model_executor.layer
 | V1 | #50128 [Performance] Measure Transformers backend startup time vs native | `help wanted`（@hmellor，2026-07-28） | 测量部分已由两位贡献者完成（2026-08-18）；maintainer 自己开了 #52766 处理 `RMSNormFuser`；AOT 缓存部分 assignee Taimys，PR #53295 open（2026-08-21） | issue 本身几乎完成；剩余是 review #53295 或做 maintainer 评论里提到的"warm start"后续 | 否 | **备选**：直接可做的部分已被认领；关注 #53295 合入后 maintainer 是否开新的 follow-up |
 | V2 | #40544 [Feature]: Integrate fused `kMoEFinalizeARResidualRMSNorm` from FlashInfer | `help wanted` + `feature request`（@benchislett） | **无 open PR**；2026-06-26 有人留了详细分析但未跟进；2026-09-01 有模板化认领；issue 作者 2026-05 评论提到 TRTLLM 可能用 MNNVL AR 后端而非此路径 | 几百行：新的 torch.compile custom pass，可能要把 `moe_finalize` 从 fused_moe op 里拆出来；需要支持 FlashInfer 的 NVIDIA 多卡 | **是**——方向本身被作者质疑过；先在 issue 里问"这条路径现在还是想要的吗" | **备选**：有价值、无竞争，但硬件门槛高且需先确认方向 |
 | V3 | #31414 [Feature][Cleanup]: Unify `vllm.utils.flashinfer` and `vllm.model_executor.layers.quantization.utils.flashinfer_utils` | `good first issue` + `help wanted` | **6 个 open PR**：#35440（02-26）、#42378（05-12）、#45618（06-14）、#49867（07-26）、#51523（08-08）、#54538（08-31）；评论区 2026-08-27 有人做了"五个实现的对比" | 几十到一百行的重命名与 import 整理 | 否 | **放弃**：与 P3 同病；六个 PR 里没有一个被合入说明 maintainer 尚未决定要哪种切分，再加一个无济于事 |
+
+Table: vLLM 的三个候选 issue
 
 备选：#39428 "[torch.compile] E2E correctness testing for fusions"（`help wanted`）——4 个 open PR 各覆盖一个 fusion 切片，评论区有盘点；可做的是找出盘点里仍未覆盖的切片，或 review 现有 PR。`ci-failure` 下的 14 个 issue 多数需要 B200 / ROCm / 多机，在单卡上可做的很少，本次未列入。
 
@@ -812,6 +840,8 @@ CI 失败       vLLM：Project 20 看板 · failures.md 的六节操作手册 ·
 | 查重 | 无明文，同样的 `gh` 命令可用 | `AGENTS.md` 三条命令，Fail-closed |
 | 认领 | 无机制；assignee 由 maintainer 设 | 无机制；maintainer 可能设 assignee |
 
+Table: 选题各环节的 PyTorch 与 vLLM 对照
+
 ### 3. 本篇涉及的文件位置
 
 | 主题 | PyTorch v2.14.0 | vLLM v0.28.0 |
@@ -824,6 +854,8 @@ CI 失败       vLLM：Project 20 看板 · failures.md 的六节操作手册 ·
 | CI 失败 | `CONTRIBUTING.md` "CI failure tips"；`torch/testing/_internal/common_utils.py`（`DEFAULT_DISABLED_TESTS_FILE`、`--rerun-disabled-tests`）；`.github/scripts/filter_test_configs.py`（`DISABLED_JOBS_URL`、`UNSTABLE_JOBS_URL`） | `docs/contributing/ci/failures.md`；`.buildkite/scripts/{ci-fetch-log,ci-clean-log,rerun-test}.sh` |
 | 性能 | `benchmarks/README.md` 与子目录；`RELEASE.md`（"Cherry Picking Fixes"、"Patch Release Criteria"） | `benchmarks/README.md`、`benchmarks/kernels/`、`.buildkite/performance-benchmarks/` |
 | deprecation | PR 模板 "BC-breaking?" 一栏；`topic: deprecation` 标签 | `docs/contributing/deprecation_policy.md` |
+
+Table: 本篇涉及的文件位置
 
 下一篇进入"做出一个能被合入的改动"：选定的切入点如何变成最小 diff、带什么测试、性能改动附什么数字、按两个项目的模板写 PR 描述、本地 lint 与 CI 矩阵、review 往返与 merge 机制。它的核心问题：
 

@@ -26,6 +26,8 @@ catalog: true
 | `__syncthreads()` 的位置由编译器决定 | `Membar` 分析在 shared memory 的读写依赖之间插 barrier，`AllocateSharedMemory` 用活跃区间做分配 |
 | "Triton 对不规整的代码效果差" | pass 的模式匹配失败时退回了保守路径——能在 IR 上指出是哪个 pass、哪一条模式没匹配上 |
 
+Table: 黑盒视角与打开黑盒的对照
+
 要做到这一点，需要先补上通用编译器的机制：IR、SSA、数据流分析、pattern rewrite、dialect conversion、LLVM 后端。它们不是 Triton 特有的，而是 Triton、TVM、XLA、Inductor 乃至 Java 的 C2 / Graal 共同的语言。系列前四篇讲这套语言，中间七篇用它读 Triton 编译器的源码，第十二篇用它对照 TVM 的另一条路，第十三篇讲编译器开发者的日常工作方式。
 
 
@@ -97,6 +99,8 @@ Triton 的 `third_party/` 目录是它的后端插件机制：NVIDIA 和 AMD 各
 | 第十二篇 | TVM | 调度语言与自动调优：另一条路 |
 | 第十三篇 | 工作台 | 构建、`triton-opt`、lit 测试、二分定位、读一个真实 PR |
 
+Table: 十三篇的主题与一句话
+
 三条交织的线索：
 
 | 线索 | 从第一篇到第十三篇 |
@@ -104,6 +108,8 @@ Triton 的 `third_party/` 目录是它的后端插件机制：NVIDIA 和 AMD 各
 | 机制线 | SSA 与数据流 → LLVM IR → MLIR 的 IR 结构 → 三种变换框架 → 每种机制在 Triton 里的实例 |
 | Triton 线 | 一个 matmul kernel 从 Python 源码开始，逐篇多走一步，到第十一篇变成 cubin 并被 launch |
 | 设计线 | 每个决定（分层、显式 layout、用户定 tile、编译器定线程映射）在第一篇提出问题，在 Triton 各篇看到答案，在第十二篇与 TVM / XLA 的另一种答案对照 |
+
+Table: 贯穿系列的三条线索
 
 前四篇的例子用 `clang`、`opt`、`llc`、`mlir-opt` 跑；第五到十一篇的 IR 用 Triton v3.8.0 的 `triton-opt`、`triton-tensor-layout` 和仓库里的 lit 测试（每个 pass 的输入 IR 与期望输出）给出；第十二篇的 TVM 例子用 v0.26.0。所有中间表示都是真实工具的输出，不是示意。
 
@@ -388,6 +394,8 @@ Triton 的 `third_party/` 目录是它的后端插件机制：NVIDIA 和 AMD 各
 | 第十二篇 | TVM | `python/tvm/tirx/`、`python/tvm/s_tir/schedule/`、`src/s_tir/schedule/primitive/`、`src/tirx/transform/`、`python/tvm/s_tir/meta_schedule/`、`python/tvm/relax/`、`docs/deep_dive/tensor_ir/` |
 | 第十三篇 | Triton | `bin/`、`test/lit.cfg.py`、`unittest/`、`Makefile`、`python/test/unit/test_filecheck.py`、`CONTRIBUTING.md`、`.github/PULL_REQUEST_TEMPLATE.md`、`AGENTS.md` |
 
+Table: 各篇的源码阅读对象
+
 MLIR 的源码用 LLVM 23.1.1；Homebrew 的 `llvm` 包同时装好了 `mlir-opt`、`opt`、`llc` 和全部 `.td` 文件，前四篇的所有例子在一台没有 GPU 的笔记本上就能跑。Triton 的编译器部分在 macOS 上可以从源码构建（只是不能 launch kernel）：第五到十一篇的 `triton-opt` 与 `triton.compile` 产出的各层 IR、直到 PTX，都可以在本地生成；只有 cubin 与 launch 需要一块 NVIDIA 卡。
 
 
@@ -453,6 +461,8 @@ MLIR 的源码用 LLVM 23.1.1；Homebrew 的 `llvm` 包同时装好了 `mlir-opt
 | `tl.dot` 为什么没走 `wgmma`？ | AccelerateMatmul 的版本选择条件、操作数 layout 的合法性 |
 | 换一个后端要改哪些文件？ | `third_party/` 的插件边界、`TargetInfo` |
 | 这个优化在 TVM / XLA 里是怎么做的？ | 设计空间表上的位置 |
+
+Table: 读完系列后应能回答的问题
 
 最终目标是三种能力：
 

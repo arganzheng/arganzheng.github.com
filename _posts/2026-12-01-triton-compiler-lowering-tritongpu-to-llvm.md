@@ -53,6 +53,8 @@ flowchart TB
 | 十 | 本文小结 | |
 | 十一 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 源码：`lib/Conversion/TritonGPUToLLVM/`（`TypeConverter.cpp`、`Utility.cpp`、`ReduceOpToLLVM.cpp`、`ConvertLayoutOpToLLVM.cpp`、`MemoryOpToLLVM.cpp`、`AllocateSharedMemory.cpp`）、`third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/`（`TritonGPUToLLVM.cpp`、`LoadStoreOpToLLVM.cpp`、`DotOpToLLVM/`、`PTXAsmFormat.cpp`、`TargetInfo.cpp`）、`lib/Analysis/{Allocation,Membar}.cpp`、`include/triton/Conversion/TritonGPUToLLVM/Utility.h`。实测 IR 来自三个 kernel：前几篇的 matmul（`sm_80`），以及一个向量加法 `add_kernel`（`BLOCK = 1024`）和一个行求和 `rowsum_kernel`（`N = 1024`），都是 `num_warps = 4`。
 
 ## 二、类型转换
@@ -250,6 +252,8 @@ x = tl.load(x_ptr + row * stride + tl.arange(0, 1024)); s = tl.sum(x, axis=0)
 | ② warp 内 | `llvm.nvvm.shfl.sync.bfly.i32` + `fadd` | 5 次 shuffle（偏移 16、8、4、2、1）+ 5 次加 |
 | ③ 跨 warp | `st.shared::cta.b32`（每 warp 的 lane 0 写 1 个值）→ `nvvm.barrier` → 读 4 个值 → 3 次 shuffle + 2 次加 → 广播 | scratch 16 字节（`metadata["shared"] = 16`）、2 个 barrier |
 
+Table: rowsum_kernel 归约三级生成的指令
+
 ```llvm
 %42 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %41, i32 16, i32 31)   ; 全 warp 参与（mask -1），与 lane ^ 16 交换
 %46 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %45, i32 8, i32 31)
@@ -292,6 +296,8 @@ Hopper 的 `ttng.warp_group_dot` 在 `DotOpToLLVM/WGMMA.cpp`：操作数是 `mem
 | `cvtReordersRegisters` | 纯 SSA 重排：新 struct 的第 r 个元素 = 旧 struct 的第 σ(r) 个，零指令（`llvm.extractvalue` / `insertvalue` 被 LLVM 折掉） |
 | `cvtNeedsWarpShuffle` | `transferWithinWarp`：把 `dst⁻¹ ∘ src` 在 lane 维的部分分解成若干轮 `shfl.sync.idx`（每轮每个 lane 发一个值、收一个值）加寄存器 `select`；`getWarpLayoutConvertDecomposition` 算最少几轮 |
 | 否则 | `transferWithinBlock`：算一个中间 shared memory 布局（`chooseShemLayoutForRegToRegConversion`——**在 LL 上搜索一个让写和读都无 bank conflict 的 swizzle**）；每线程 `st.shared` 自己的元素 → barrier → 按目标 layout `ld.shared` → 若 scratch 不够大则分多轮，每轮之间再 barrier |
+
+Table: convert_layout 的三条下降路径
 
 第八篇 §五.3 的实验里 `#mma → #blocked` 生成 8 条 `st.shared::cta.v4.b32` 与 3 个 barrier（一轮 + 前后同步），`#mma → #dot_op` 零指令，就是这三条路里的第三与第一。epilogue 那一次转换的 32 KB scratch 就是第三条路的中间缓冲。
 
@@ -376,6 +382,8 @@ void MembarAnalysis::update(Operation *op, BlockInfo *blockInfo, ...) {
 | 循环体里 `async_copy` 覆盖缓冲之前 | 若干 | ④ WAR：上一轮 `ldmatrix` 读过这段区间（记录里有读），本轮 `cp.async` 要写同一区间——所有线程读完才能覆盖 |
 | epilogue `convert_layout` 内部 | 2–3 | scratch op 同时是写和读：写之前与流水线缓冲（同地址！）的最后一次读 WAR，写与读之间 RAW，多轮之间 |
 | `local_dealloc` 附近 | — | 释放不插 barrier，但释放后地址被复用的写会与之前的读 WAR |
+
+Table: matmul 里 10 个 barrier 的来源
 
 这些 barrier **一个都不在 TTGIR 里**，全部由区间相交推出。`Membar` 不知道 `cp.async` 或 `ldmatrix` 是什么，它只看 `MemoryEffectsOpInterface` 报告的读写区间——第三篇讲的接口再一次让分析与 op 解耦。代价是保守：两个不同 warp 各自读写自己那一片的情况它也会插（它不做 warp 级的所有权分析），Triton 有一个 `canSkipBarSync` 回调（`TritonGPUToLLVM.cpp` 传给 `ModuleMembarAnalysis`）处理少数已知安全的模式，warp specialization 的分区之间则改用 mbarrier 而不是 `bar.sync`。
 

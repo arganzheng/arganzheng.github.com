@@ -45,6 +45,8 @@ flowchart TB
 | [第七篇：推理侧的通信](/inference-communication-custom-all-reduce-and-kv-transfer.html) | 8 卡 TP decode 每层 128 KB 的 all_reduce，NCCL 30 µs、custom all-reduce 10 µs，20 µs 省在哪？为什么不能用在梯度同步上？ | decode TP 是纯 α 的账：省的是 launch 路径、14 步 → 2 步、无 channel buffer 中转、可捕获进 CUDA Graph；KV 传输是纯 β 的点对点账，单边 RDMA 比 NCCL 更自然 | 128 KB = 8 × 8192 × 2 B；NCCL Ring + LL 模型 6.6 + 14 × 0.6 ≈ 15 µs；custom AR 36 个 block、8 卡 < 256 KB one-shot、上限 8 MB、只能节点内；Llama-3-70B 每 token KV 320 KB，4096 token 1.25 GiB，TP8 每 rank 160 MiB，400 Gb/s 约 3.4 ms |
 | [第八篇：MoE 的通信](/moe-communication-all-to-all-deepep-and-gpu-initiated.html) | EP=64 跨 8 节点，一层 dispatch + combine 每 token 跨多少链路、搬多少字节、走几步？NCCL 的 all_to_all 为什么在 decode 不够用，DeepEP 怎么做到几百微秒？ | 通信矩阵由路由决定、每步不同、最慢的 rank 决定时间；prefill 是网卡带宽的账（按节点去重把网卡上的份数从 7 压到 3.2）；decode 是发起速率的账（1024 条 7.4 KB 消息，CPU proxy 给不了，IBGDA 让 warp 自己写 WQE 与 doorbell） | FP8 dispatch 59 KB / token、BF16 combine 115 KB；跨节点比例 $$1 - 1/N$$；去重份数 $$N(1 - (1 - 1/N)^k)(1 - 1/N)$$：7 → 4.6 → 3.2；prefill 一层 5.6–12.5 ms；decode 理论 429 µs、README 487 µs，其中 3/4 是字节、40–60 µs 是 α |
 
+Table: 八篇的核心问题、结论与必记公式
+
 ### 1. 本文的章节安排
 
 | 章 | 内容 |
@@ -54,6 +56,8 @@ flowchart TB
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
 | 六 | 下一步 |
+
+Table: 本文的章节安排
 
 ## 二、逐篇回顾
 
@@ -226,6 +230,8 @@ flowchart TB
 | watchdog、timeout、Flight Recorder | 五、六 | 五给机制（100 ms、10 分钟、480 s）；六给排障（六类 hang、`fr_trace.py`） |
 | all_to_all 的 $$n(n-1)$$ 条流 | 一、八 | 一留下一句话；八展开为 MoE 的字节、去重与发起速率 |
 
+Table: 贯穿八篇的概念及其关系
+
 ## 四、常见误区
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
@@ -243,6 +249,8 @@ flowchart TB
 | 所有 rank 停在 all_reduce，是 NCCL 的 bug | kernel 自旋无超时，唯一计时器是 watchdog，任何 rank 掉队都表现为全体 timeout | 用 Flight Recorder 对齐序号找 culprit；六类 hang 里四类是调用不一致 | [第六篇](/nccl-tests-tuning-and-debugging-hangs.html) |
 | custom all-reduce 在所有小消息上都赢 | 36 个 block 的启动与两次 flag 交换也是固定成本 | 8 卡 (16 KB, 128 KB) 是优势区间，更小的消息 NCCL 对称内存更快 | [第七篇](/inference-communication-custom-all-reduce-and-kv-transfer.html) |
 | MoE 的 decode 通信是纯延迟问题 | EP=64 时 6.6 MB 过 50 GB/s 网卡本身就要 132 µs | README 173 µs 里 3/4 是字节，α 约 40 µs；瓶颈是发起速率 | [第八篇](/moe-communication-all-to-all-deepep-and-gpu-initiated.html) |
+
+Table: 常见误区与正确说法
 
 ## 五、通关自测
 
@@ -449,6 +457,8 @@ flowchart TB
 | 读过 | 能说出八篇各讲什么；知道 α-β、ring、busbw、`PIX` / `SYS`、GDR、LL / LL128 / Simple、proxy、watchdog、Flight Recorder、custom all-reduce、IBGDA 这些名词 |
 | 掌握 | A 组能不翻书算出 8 题以上；B 组能说出每题用了哪几篇的什么；拿到一份 nccl-tests 曲线或一份 `NCCL_DEBUG=INFO` 日志，能指出它在哪一层偏离理论值；拿到一次 hang 的 FR dump 能说出是代码还是环境 |
 | 能教人 | C 组每题能给出全部要点并预判追问；能解释八篇里每个反直觉结论（换快网卡对小消息无效、busbw 可以超过链路带宽、Tree 在大规模上比 Ring 快一个量级、`wait()` 不阻塞 CPU、所有 rank 停在同一处却只有一个 rank 有责任、custom AR 在最小消息上输给 NCCL、EP=64 的 decode 有 3/4 是字节）为什么成立 |
+
+Table: 掌握程度的判据
 
 通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点。没过的部分回到第二章对应篇的"必记"，再回该篇正文；能在一台新机器上按 comm-probe 的顺序跑一遍（画拓扑 → 测链路 → nccl-tests 对照 → 检查重叠与后端 → 算 all_to_all 的账）并解释每一处差距，才算真正掌握。
 

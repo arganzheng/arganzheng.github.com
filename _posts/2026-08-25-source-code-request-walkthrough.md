@@ -39,6 +39,8 @@ updated: 2026-09-14
 | 八 | 本文小结 | 同一个请求的五笔账 |
 | 九 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、控制面与数据面的分离
 
 ```mermaid
@@ -61,6 +63,8 @@ graph LR
 | 职责 | 请求接收与参数解析、Tokenization / Detokenization、请求状态机、流式响应、数据并行协调 | 输入张量准备、模型 Forward（GEMM / Attention / MLP）、KV Cache 物理读写 |
 | | 调度决策、KV 块分配与释放、Prefix Cache 查找、抢占决策、停止条件检测 | 采样（top-p / top-k / temperature）、集合通信、CUDA Graph 捕获与重放 |
 | 技术栈 | ZMQ IPC、msgspec 序列化、asyncio | CUDA Stream 驱动、零拷贝传输 |
+
+Table: 控制面与数据面的对比
 
 **为什么控制流和数据流需要解耦？**
 
@@ -95,6 +99,8 @@ Python/C++语言核心分工原则：
 | 自定义算子 | CUDA / Triton | RMSNorm、RoPE、Fused Attention | 硬件特化 |
 | 集合通信 | C++ (NCCL) | All-Reduce、All-Gather | 零拷贝、内核级调度 |
 
+Table: Python 与 C++ 的核心分工
+
 ### 1. Python如何调用C++：PyBind11 与 Triton
 
 vLLM 的 C++/CUDA 扩展通过 PyTorch 的 Custom Op 机制注册（位于 `csrc/` 目录），使用 PyBind11 绑定 Python 接口。同时，许多算子（尤其是 Attention 和 MoE 相关）使用 OpenAI Triton 编写，兼顾性能和开发效率：
@@ -105,6 +111,8 @@ vLLM 的 C++/CUDA 扩展通过 PyTorch 的 Custom Op 机制注册（位于 `csrc
 | `attention_backend()` | | FlashAttention（C++ lib）或 Triton kernel（`.py`） | | Tensor Cores |
 | `fused_moe()` | | `csrc/libtorch_stable/moe/`（CUDA）或 Triton experts（`.py`） | | Tensor Cores |
 | `torch.matmul()` | | cuBLAS GEMM | | Tensor Cores |
+
+Table: 从 Python 调用到 GPU 硬件的对应
 
 ## 三、四个域：给源码里的每个对象定位
 
@@ -314,6 +322,8 @@ class RequestStatus(enum.IntEnum):
 | `req_to_new_blocks` | `{req_id: [(block_id, n)]}` | 本轮的块分配 |
 | `finished_req_ids` / `preempted_req_ids` | — | 状态通知 |
 
+Table: SchedulerOutput 的字段
+
 **`ModelRunner.prepare_inputs()` 把它翻译成 GPU 数据结构**，四步：
 
 | 步骤 | 做什么 | 细节 |
@@ -322,6 +332,8 @@ class RequestStatus(enum.IntEnum):
 | ② `slot_mapping` 构造 | 每个 token → `(block_id, offset)` | 新块从头写；已有块追加到尾部；**Prefix Cache 命中的 token 不写，直接复用** |
 | ③ attention metadata | 告诉 kernel 每个请求能读哪些块 | `block_table`（per req）、`query_lens` / `kv_lens` / `is_prompt` / spec flags |
 | ④ 执行模式选择 | 决定走 Graph 还是 Eager | 纯 decode 且 size 匹配 → CUDA Graph replay；含 prefill / mixed / size 不匹配 → Eager |
+
+Table: prepare_inputs 的四步翻译
 
 最终**给 GPU 的**是 `input_ids, positions, attn_metadata`，**从 GPU 拿回的**是 `hidden_states → logits → sampled_token_ids`。
 
@@ -483,6 +495,8 @@ sequenceDiagram
 | ⑩ | 取回结果 | Sampling：`logits` → `sampled_token_ids`（GPU tensor → CPU list） | **GPU → CPU** |
 | ⑪ | 输出处理 | `ModelRunnerOutput` → `Scheduler.update_from_output()` → Detokenizer → SSE Stream → Client | Python |
 
+Table: 从请求到 GPU kernel 的完整调用链
+
 三道边界（③⑤⑦）恰好把这条链切成了四段，而它们的位置不是随意的：
 
 - **③ 是进程边界** —— API 层与引擎核心分离，为的是不让 HTTP 处理阻塞调度循环；
@@ -550,6 +564,8 @@ sequenceDiagram
 | GPU→CPU token 拷贝 | ~5 μs | 数据量极小 |
 | Detokenization | 0.01–0.05 ms | CPU，可忽略 |
 
+Table: 各环节的典型耗时量级
+
 派生指标：
 
 | 指标 | batch=1 | batch=32 | 说明 |
@@ -557,6 +573,8 @@ sequenceDiagram
 | TTFT | 10–20 ms | 随排队增加 | ≈ queueing + prefill |
 | TPOT | 8–12 ms | 10–18 ms | ≈ 一次 decode 步 |
 | 系统吞吐 | ~100 tok/s | **~2000 tok/s** | batch 放大的是这一行 |
+
+Table: 派生指标在 batch=1 与 batch=32 下的量级
 
 
 这张表里最值得盯住的是**加粗的那两行**。batch 从 1 涨到 32，单步耗时只从 ~10 ms 涨到 ~15 ms，**远不是 32 倍**——因为那 13.5 GB 权重无论 batch 多大都只需要从 HBM 读一遍，32 个请求把这笔固定成本摊薄了。
@@ -576,6 +594,8 @@ sequenceDiagram
 | 六 | 97% 的时间花在 300 次逐 token 的 decode 上 | 92 ms + 3000 ms |
 | 八 | 每个 token 每步在 8 张卡间同步约 2.5 MB | NVLink 上 ~0.09 ms |
 | 十二 | 若拆成 PD 两池，它的 641 MB KV 要跨节点搬一次 | ≈ 13 ms |
+
+Table: 贯穿全文的请求在各篇遭遇了什么
 
 **同一个请求，五个视角，五笔完全不同的账。** 这正是 Serving Infra 的日常——没有哪一个数字能单独说明问题，但它们合在一起就是系统的全貌。
 

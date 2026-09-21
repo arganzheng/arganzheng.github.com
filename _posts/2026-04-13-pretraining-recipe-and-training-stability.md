@@ -28,6 +28,8 @@ updated: 2026-09-14
 | 优化 | AdamW $$\beta = (0.9, 0.95)$$、wd 0.1、clip 1.0；峰值 lr；batch 与其增长；warmup；调度形状 | lr 6e-5 到 3e-4，随模型变大而变小；batch 3M 到 63M token，训练中增大；warmup 0.4–0.9% 的步数；cosine → 10% 或 WSD | 第三、四章 |
 | 稳定 | QK-norm、z-loss、初始化、weight decay 的排除项、Adam 的 $$\epsilon$$、spike 的处理流程 | 2024 年后 QK-norm 成为默认；z-loss $$10^{-4}$$ | 第五章 |
 
+Table: 预训练配方的三组决定
+
 稳定性归结为三个机制，各有一个可以监控的量和一个开关：
 
 | 机制 | 监控什么 | 现象 | 开关 |
@@ -35,6 +37,8 @@ updated: 2026-09-14
 | attention logit 增长 | $$\max \lvert q \cdot k \rvert / \sqrt{d_{head}}$$ | logit 到几十上百，softmax 饱和成 one-hot，这一头的梯度归零，loss 先变差再尖峰 | QK-norm（Q、K 各过一个 norm）；Gemma 2 的 soft-cap；Kimi K2 的 QK-Clip |
 | 输出 logit 漂移 | $$\lvert \log Z \rvert$$（lm_head 的 logsumexp） | 归一化常数自由漂移，logits 整体变大，低精度下溢出 | z-loss $$10^{-4} \log^2 Z$$ |
 | 单步更新过大 | 梯度范数、参数范数 | 一个坏 batch 或 Adam 二阶矩的瞬时失配让一步走得太远 | 梯度裁剪；warmup；较小的 $$\beta_2$$；回滚并跳过 batch |
+
+Table: 训练稳定性的三个机制、监控量与开关
 
 DeepSeek-V3 报告了"零不可恢复 spike"，但没有把它归因到上表某几个开关——报告明确写的是 FP8 训练里的分块量化与高精度累加（《Transformer 与 LLM》第六篇）、MLA 里对压缩 latent 做的 RMSNorm（不是逐 head 的 QK-norm）、以及一套常规的 warmup / 裁剪配置；上表是各家配方的汇总，不是 V3 的清单。Kimi K2 在 15.5T token 上零 spike 靠的是 QK-Clip。**稳定性在 2024 年后从"运气"变成了"配置"**。
 
@@ -55,6 +59,8 @@ DeepSeek-V3 报告了"零不可恢复 spike"，但没有把它归因到上表某
 | 八 | 实践 | `training_recipe_lab.py`、`llm_cost_12_recipe.py` |
 | 九 | 本文小结 | |
 | 十 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、目标函数
 
@@ -152,6 +158,8 @@ batch 还有一个来自硬件的**下界**。16 384 张卡训 405B，TP 8 × PP
 | Llama-3 405B | 405B | 16M | 8192 | 8e-5 | 8000 步 | 975K | 6.0 s（16K 卡） |
 | DeepSeek-V3 | 37B 激活 | 63M | 4096 | 2.2e-4 | 2000 步 | 235K | 17 s（2048 卡） |
 
+Table: 公开配方的峰值学习率、warmup 与步数
+
 **模型越大，峰值 lr 越小**：7B 3e-4，70B 1.5e-4，175–405B 6–8e-5。原因在 L3 层：宽度 $$d$$ 变大时，同样的 lr 让每层输出的变化随 $$d$$ 增长。没用 $$\mu$$P 的配方靠经验律：DeepSeek LLM（2024）在自家数据上拟合
 
 $$
@@ -172,6 +180,8 @@ $$\mu$$P（Maximal Update Parametrization，Yang 等 2022）从"每层输出的�
 | 隐藏层矩阵（attention、FFN） | $$\sigma^2 / m$$ | $$\eta / m$$ | 1 |
 | 输出层 lm_head | $$\sigma^2 / m^2$$ | $$\eta / m$$ | $$1 / m$$（logits 乘 $$1/m$$） |
 | attention logit 缩放 | — | — | $$1 / d_{head}$$ 而非 $$1 / \sqrt{d_{head}}$$ |
+
+Table: μP 各类参数的初始化、学习率与前向乘子缩放规则
 
 在这组规则下，**基础模型上扫出的最优 lr 直接用在大模型上仍是最优**（$$\mu$$Transfer），扫一组小模型就够。代价是要改初始化、给参数分组设 lr、改 attention 的缩放。用了 $$\mu$$P 的配方（Cerebras-GPT、MiniCPM、以及 OLMo 的部分实验）不必在大模型上再扫 lr；没用的靠上一节的经验律。两者的关系：经验律 $$\eta \propto C^{-0.125}$$ 里，$$C \propto N^2$$（Chinchilla 下 $$D \propto N$$）、$$N \propto d^2$$，于是 $$\eta \propto d^{-0.5}$$——比 $$\mu$$P 的 $$1/d$$ 平缓，因为经验律拟的是全局一个 lr（embedding 与 lm_head 没有单独缩放），是两种参数化的折中。
 
@@ -198,6 +208,8 @@ lr 从 0 线性升到峰值。Adam 的二阶矩 $$v$$ 在前几十步还是几�
 | cosine → 10% | warmup 后按余弦从峰值降到 10%（Llama 3 405B 降到 1%） | GPT-3、Llama 1/2/3、Chinchilla | 必须事先定总步数；中途的 loss 不代表"这么多 token 能训到多好" |
 | WSD（Warmup-Stable-Decay） | 常数到 80–90%，最后 10–20% 快速衰减到 0 | MiniCPM、DeepSeek 系列的变体、OLMo 2 | 可以在任意时刻"停下来衰减"得到一个可用模型；常数段的 checkpoint 相互可比 |
 | 多段 | DeepSeek-V3：常数到 10T → cosine 到 2.2e-5（4.3T）→ 常数 333B → 7.3e-6（167B） | DeepSeek-V3 | 分段对应数据阶段（末段配合高质量数据） |
+
+Table: 学习率调度的三种形状
 
 cosine 的公式是 $$\eta_t = \eta_{min} + \frac{1}{2}(\eta_{max} - \eta_{min})(1 + \cos(\pi t / T))$$，$$T$$ 是总步数——它必须事先知道。上一节的图把三种形状画在一起。cosine 与 WSD 的终点接近，但过程完全不同：cosine 从第一步就在降 lr，WSD 在衰减前一直是峰值。
 
@@ -232,6 +244,8 @@ spike 在小模型上很难复现，这是它长期被当作"玄学"的原因。
 | 无 QK-norm：末 loss / 最大 attention logit | 2.23 / 36 | 2.40 / 291 | 2.57 / 1256 | 2.75 / 12592 |
 | QK-norm：末 loss / 最大 logit | 2.19 / 7 | 2.26 / 9 | 2.28 / 13 | 2.45 / 22 |
 
+Table: 有无 QK-norm 在不同峰值 lr 下的 loss 与最大 attention logit
+
 没有约束时 logit 随 lr 涨四个数量级，loss 随之变差——训练"能跑但越来越差"，这是大模型 spike 前的状态（fp32 的两百万参数模型不会真的发散，spike 本身要在低精度、大 batch、深层上才容易复现）。**QK-norm**（Q 与 K 在点积前各过一个 LayerNorm / RMSNorm，Henry 等 2020；Dehghani 等 2023 在 ViT-22B 上确立）把 logit 钉在 $$O(\sqrt{d_{head}})$$——归一化后 $$\lvert q \rvert, \lvert k \rvert \approx \sqrt{d_{head}}$$（乘上可学的增益），点积最大 $$d_{head}$$，除以 $$\sqrt{d_{head}}$$ 后上界是 $$\sqrt{d_{head}} \times$$ 增益——loss 对 lr 的敏感度大幅下降：同样的 lr 范围内 loss 只从 2.19 到 2.45。这也是 Wortsman 论文的核心图：有 QK-norm 时"loss 随 lr"的曲线在大范围内是平的，没有时是一个窄谷。**平的曲线意味着 lr 不必调得很准**——这是 QK-norm 在 2024 年成为默认的实际原因，比"防 spike"更日常。
 
 **输出 logit 漂移。** 第二章的梯度说明 lm_head 的 logits 有一个自由度：整体加一个常数不改变 softmax，交叉熵对这个方向没有梯度。训练中这个常数（$$\log Z$$，logsumexp）会漂移，logits 整体变大，BF16 / FP8 下更容易溢出，也让 softmax 对微小扰动更敏感。**z-loss**（PaLM）加一项 $$10^{-4} \cdot \log^2 Z$$，它对 logits 的梯度是 $$2 \times 10^{-4} \log Z \cdot p_j$$——把 $$\log Z$$ 按在 0 附近，且系数极小时对主 loss 几乎无影响。配套实验（`zloss` 子实验）：无 z-loss 时 $$\lvert \log Z \rvert$$ 从 5.1 漂到 6.3；$$10^{-4}$$ 的系数在 600 步内影响很小（5.1 → 6.1，loss 差 0.001）；$$10^{-2}$$ 的夸张系数把它压到 0.4，loss 差 0.02。$$10^{-4}$$ 几乎无代价，所以能默认开着。
@@ -248,6 +262,8 @@ spike 在小模型上很难复现，这是它长期被当作"玄学"的原因。
 | 初始化 $$\mathcal{N}(0, 0.02)$$，残差分支缩放 | 前向 / 反向方差随深度爆炸（L3 第二篇） | GPT-2 的 $$1 / \sqrt{2L}$$；OLMo 2 全部 0.02 且不缩放，靠 norm 位置 |
 | weight decay 排除 embedding 与 norm | 罕见 token 的 embedding 被单向拉向 0 | OLMo 2 明确排除 |
 | Adam $$\epsilon$$ 随规模减小 | 更新被 $$\epsilon$$ 淹没 | Llama 2 $$10^{-5}$$；Wortsman 建议更小 |
+
+Table: 训练稳定性的六个开关
 
 **norm 的位置**是第七个、结构层面的开关。Pre-norm（norm 在子层输入，GPT-2 起的默认）比 post-norm 稳定得多，但残差流的范数随深度单调增长，深层的子层输出相对残差流越来越小（"深层不干活"）。OLMo 2 与 Swin-v2 的做法是**对子层的输出做 norm 再加回残差**（$$x + \text{Norm}(f(x))$$），保留 pre-norm 的稳定性，同时约束每层往残差里加的量；Gemma 2 / 3 两头都做（输入与输出各一个 norm）。OLMo 2（2024 年末）把这些整理成一份"稳定性配方"并逐项消融：QK-norm、z-loss、重排 norm、不 decay embedding、全部 0.02 初始化——每项单独看收益不大，合起来让 7B 模型在 4T token 上 loss 曲线里的尖峰几乎消失。
 
@@ -304,6 +320,8 @@ FP8 训练（DeepSeek-V3）把稳定性的门槛提高了：E4M3 的最大值 44
 | 进入下一步的标准 | 短上下文评测完全恢复，且 needle-in-a-haystack 满分 | — |
 | lr | 延续主阶段末尾 | 7.3e-6 |
 
+Table: Llama 3 405B 与 DeepSeek-V3 的长上下文继续预训练
+
 "分步"的原因是 RoPE 外推（《Transformer 与 LLM》第四篇）：每一步只把上下文扩 2–4 倍，让模型在"略超训练长度"的区间适应，比一次跳到 128K 稳定。数据换成长文档为主（书、长网页、代码仓库），且要保留一部分短数据防止短上下文能力退化——Llama 3 的"短评测完全恢复"就是这个门槛。
 
 按 FLOPs 算这个阶段比 5% 多：405B 在 128K 上 attention 占每 token FLOPs 的 40%（8K 时 4%，第二篇的 $$s / 6d$$），所以 800B token 的长上下文阶段约相当于主阶段 8% 的算力。系统上它需要**序列并行 / context parallel**——一条 128K 序列的激活（《Transformer 与 LLM》第二篇：每层 $$s \times d \times$$ 若干字节）单卡放不下，要把序列切到多张卡上，attention 通过 ring 或 all-to-all 交换 K、V。这是长上下文阶段与主阶段在 Infra 上最大的不同，也是它被放在最后、只跑 5% token 的第二个原因。
@@ -319,6 +337,8 @@ FP8 训练（DeepSeek-V3）把稳定性的门槛提高了：E4M3 的最大值 44
 | 最大 attention logit / 注意力熵 | logit $$O(10)$$；熵平稳 | logit 涨到 100+ 或熵骤降：logit 增长，QK-norm 缺失或失效 |
 | $$\lvert \log Z \rvert$$ | 接近 0（有 z-loss）或缓慢漂移 | 快速增长：输出 logit 漂移 |
 | 各领域验证 loss | 同步下降 | 某领域不降：配比或数据问题；某领域突然下降：可能污染 |
+
+Table: 预训练监控的七条曲线
 
 前三条每步都有；后四条要额外记录，成本可忽略。经验规律是**梯度范数先于 loss 报警**——spike 前几百步梯度范数常已开始爬升；注意力熵再早一些。把这些量按层、按 head 记录（而不只是全局最大值），能直接指出是哪一层出的问题——QK-Clip 就是把这种监控做成了自动干预。
 
@@ -363,6 +383,8 @@ total = loss + z_loss * (log_z ** 2).mean()
 | spike 代价 | 回退 100 步（重算）+ 跳 200–500 batch（放弃数据） | 405B：重算约 2.7 千 GPU 小时 + 3–8B token 数据 |
 | 硬件故障 | 每 3 小时一次；$$T_{opt} = \sqrt{2\delta \cdot \text{MTBF}}$$ | 405B checkpoint 5.7 TB；每 4–5 分钟一次 → 有效时间 > 90% |
 | 长上下文阶段 | 分步扩，attention 占比 4% → 40% | 405B：800B token，6 步到 128K |
+
+Table: 预训练配方的规则与数字小结
 
 配套代码：[`transformer-and-llm/training_recipe_lab.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/training_recipe_lab.py)（四个子实验，PyTorch CPU）、[`llm_cost_12_recipe.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_12_recipe.py)（配方的账）、[`tools/gen_schedule_svg.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/tools/gen_schedule_svg.py)（本文的图）。两个系列共十二版 `llm_cost.py` 与各篇实验的脚本、运行输出都在 [ai-learning-labs/transformer-and-llm](https://github.com/arganzheng/ai-learning-labs/tree/main/transformer-and-llm)。
 

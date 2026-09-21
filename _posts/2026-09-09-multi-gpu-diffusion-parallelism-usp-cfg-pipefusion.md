@@ -69,12 +69,16 @@ FSDP：每层 all-gather 权重"]
 | **DistriFusion** | 每层 async all-gather：$$2\frac{p-1}{p} N d$$ | 2.4 GB | 54 GB | 是（用 stale 值） | 复制 | NVLink / PCIe |
 | **FSDP 推理** | 每层 all-gather 权重：$$2P/L \cdot \frac{p-1}{p}$$ | 17 GB（全部权重） | 23 GB | 可预取 | 切 $$1/p$$ | NVLink |
 
+Table: 四种刀法的每步每卡通信量
+
 xDiT 实测（FLUX.1-dev 28 步，`torch.compile`）：
 
 | 配置 | 1×H100 | Ulysses-2 | Ring-2 | Ulysses-2 × Ring-2 | Ulysses-4 | Ring-4 |
 |---|---|---|---|---|---|---|
 | 时间 | 4.30 s | 2.68 s | 2.60 s | 1.80 s | **1.63 s** | 1.98 s |
 | 加速 | 1× | 1.60× | 1.65× | 2.39× | **2.63×** | 2.17× |
+
+Table: xDiT 实测 FLUX.1-dev 各并行配置的时间
 
 三个结论：
 
@@ -97,6 +101,8 @@ xDiT 实测（FLUX.1-dev 28 步，`torch.compile`）：
 | 十 | 本文小结 | |
 | 十一 | 自测 | 5 道题 |
 
+Table: 本文的章节安排
+
 ## 二、多卡的目的
 
 ### 1. 三种目的、两种负载
@@ -106,6 +112,8 @@ xDiT 实测（FLUX.1-dev 28 步，`torch.compile`）：
 | **装下** | 主要理由：70B 权重 + KV 要几张卡 | 图像模型不需要（12–20B 放得下 80 GB）；视频的激活（14–23 GiB）+ 权重接近 80 GB 时需要 |
 | **切短一个请求的延迟** | TP 让每步读 $$1/p$$ 的权重，接近线性 | **主要理由**：把 FLOPs 分到 p 张卡，但 GEMM 变小、通信不重叠 → 60–80% 效率 |
 | **提吞吐** | batch 摊权重读取，DP 复制实例 | DP 复制实例（每张卡一个请求）——吞吐上永远比切一个请求更高 |
+
+Table: 多卡的三种目的在 LLM 与扩散上的差别
 
 最后一行是关键：**如果只要吞吐，扩散不应该切请求**——四张卡各跑一个请求的吞吐（4 张 / 4.30 s）永远高于四张卡切一个请求（1 张 / 1.63 s = 2.63 张 / 4.30 s）。切请求是为了**延迟**：一张图 4.3 s 太慢、一段视频 24 分钟不可接受。服务的选型（第七篇）就是在延迟 SLO 与吞吐成本之间选 p。
 
@@ -280,6 +288,8 @@ xDiT 的命令行就是这五个度数；SGLang 的是 `--num-gpus`、`--enable-
 | Wan 14B 720p（CFG） | CFG 2 × Ulysses 4，VAE patch 并行 8 | Ulysses 8；加 Ring 若 all-to-all 慢 | TP |
 | HunyuanVideo（无 CFG） | Ulysses 8 | Ulysses 4 × Ring 2 | — |
 
+Table: 单节点 NVLink 的并行选型
+
 **单节点 PCIe（8×L40 / A10）**：Ulysses 度 ≤ 2–4、其余给 PipeFusion；CFG 并行照常（通信为零）。
 
 **跨节点**：节点内 Ulysses、跨节点 Ring（IB）或 PipeFusion（以太网）；CFG 并行的两组尽量放在两个节点上（跨节点只传 0.6 MB）。
@@ -304,6 +314,8 @@ Wan 720p 81 帧：单卡激活 14.4 GiB + 权重 26.6 GiB，129 帧 22.7 + 26.6 
 | 文本编码器并行 | parallel folding（SP 组复用为 T5 TP） | — | — | — |
 | 进程模型 | scheduler + GPU worker 进程组 | `executor/multiproc_executor.py` | `torchrun` SPMD | — |
 
+Table: 多卡并行机制在四个引擎里的实现对照
+
 三个引擎的 `parallel_state` / `GroupCoordinator` 写法几乎相同——都从 vLLM / Megatron 演化来，第八篇对照。
 
 ### 2. 实践建议
@@ -326,6 +338,8 @@ Wan 720p 81 帧：单卡激活 14.4 GiB + 权重 26.6 GiB，129 帧 22.7 + 26.6 
 | FSDP 推理 | 权重分片 + 每层 all-gather；显存策略 | FLUX 每步 gather 22 GB ≈ 50 ms |
 | 选型 | NVLink：USP（+ CFG）；PCIe / 以太网：+ PipeFusion；装不下：TP / FSDP | 乘积 = 卡数 |
 | 视频 | SP 必需：激活 14–32 GiB、单卡分钟级 | 8 卡 Wan 一步 29 → 4 s |
+
+Table: 多卡扩散并行的规则与数字小结
 
 ### 下一篇
 
