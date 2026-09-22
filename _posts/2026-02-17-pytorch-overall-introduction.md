@@ -78,69 +78,140 @@ Table: 本文的章节安排
 
 ### 1. PyTorch 是什么？
 
-PyTorch 是一个面向张量计算和深度学习的开源计算平台。它以 Python 作为主要用户接口，以 C++ 运行时和算子系统作为执行核心，并通过 CPU、CUDA 以及其他硬件后端完成实际计算。
+PyTorch 是一个面向 Tensor 计算和深度学习的开源计算框架。
 
-更完整地说，PyTorch 提供了一套从模型表达一直到设备执行的连续抽象：
+从用户角度看，它提供了表达模型、执行张量运算、自动计算梯度和更新参数的编程接口；从实现角度看，它包含 Python 层逻辑、C++ 运行时、算子库、自动求导系统、算子分发机制以及不同设备的后端支持。
 
-```text
-Tensor 与模型
-    ↓
-自动求导与训练
-    ↓
-算子分发与设备抽象
-    ↓
-CPU / GPU 执行
-    ↓
-编译优化与分布式扩展
-```
+因此，PyTorch 既不是只有 Python API 的工具包，也不是单独的 GPU 算子集合，而是一套连接用户模型代码、Tensor 运算与底层设备执行的计算框架。
 
-因此，PyTorch 既不是只有 Python API 的工具包，也不是单独的 GPU 算子集合，而是连接以下几个层次的深度学习运行时：
-
-```text
-用户模型代码
-    ↓
-PyTorch 编程模型
-    ↓
-算子运行时
-    ↓
-设备后端
-    ↓
-Kernel 与硬件
-```
-
-从使用者角度看，PyTorch 提供了大量 Python API：
+从使用者角度看，PyTorch 的主要入口是 Python API：
 
 ```python
 import torch
 from torch import nn
 
-x = torch.randn(32, 128, device="cuda")
-layer = nn.Linear(128, 256, device="cuda")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+x = torch.randn(32, 128, device=device)
+layer = nn.Linear(128, 256, device=device)
 y = layer(x)
 ```
 
-但 Python API 只是 PyTorch 的入口，不是 PyTorch 的全部实现。
+这段代码表达了几个关键动作：
 
-PyTorch 至少包含以下几类能力：
+- 创建一个形状为 `(32, 128)` 的 Tensor；
+- 创建一个输入维度为 128、输出维度为 256 的线性层；
+- 将输入和模型参数放到同一个设备上；
+- 执行前向计算，得到形状为 `(32, 256)` 的输出。
 
-| 能力 | 解决的问题 |
-|---|---|
-| Tensor | 如何表示和操作多维数据 |
-| Autograd | 如何自动计算梯度 |
-| `nn.Module` | 如何组织模型、参数和状态 |
-| Optimizer | 如何根据梯度更新参数 |
-| Dispatcher | 如何选择具体的算子实现 |
-| ATen | 如何提供统一的 Tensor 和算子抽象 |
-| CPU/CUDA Kernel | 如何在不同设备上执行计算 |
-| Compiler | 如何捕获、变换和优化计算图 |
-| Distributed | 如何让多个进程和设备协同工作 |
-| Extension | 如何接入 C++、CUDA 和自定义硬件 |
+用户不需要直接管理底层计算库或编写设备 Kernel，但这些工作仍然会由 PyTorch 及其依赖的后端完成。
 
-Table: PyTorch 包含的几类能力
+需要注意，**Python API 是 PyTorch 最主要的用户入口，但 Python 层并不只是简单的包装层**。模型组织、训练流程以及部分编译逻辑都可能由 Python 代码承担；C++ 运行时、算子实现和设备后端则承担 Tensor 管理、算子分发与具体执行等关键职责。
 
-### 2. PyTorch 不是什么？
+### 2. PyTorch 的基本组成
 
-**PyTorch 不只是 Python API**
+理解 PyTorch 时，可以按职责把它划分为几个部分：
+
+| 职责范围 | 代表组件 | 主要解决的问题 |
+| :--- | :--- | :--- |
+| 数据与模型表达 | Tensor、`nn.Module` | 如何表示数据、组织模型、管理参数和状态 |
+| 自动求导与参数更新 | Autograd、Optimizer | 如何计算梯度，以及如何根据梯度更新参数 |
+| 算子接口与运行时 | Operator Schema、Dispatcher、ATen | 如何定义算子、提供运算接口并选择实现 |
+| 设备执行 | 设备后端、底层计算库、Kernel | 如何在具体设备上完成计算 |
+| 编译优化 | `torch.compile` 及相关编译组件 | 如何捕获、变换和优化计算 |
+| 分布式协作 | `torch.distributed` 及相关组件 | 如何让多个进程和设备协同工作 |
+| 自定义扩展 | 自定义算子、C++/CUDA 扩展、后端接入机制 | 如何扩展算子与硬件支持 |
+
+这里的划分是为了帮助理解职责，**不是一张严格的源码目录图，也不是所有程序都会依次经过的调用链**。同一个组件可能参与多个阶段，不同执行模式也可能采用不同路径。
+
+#### 用户编程模型
+
+用户主要通过 Tensor、`nn.Module`、Autograd 和 Optimizer 表达计算与训练过程。
+
+- **Tensor** 表示多维数据及其形状、类型、布局、设备等属性。
+- **`nn.Module`** 组织模型层次，并管理参数、缓冲区和子模块。
+- **Autograd** 在满足梯度记录条件时建立求导关系，并支持反向计算梯度。
+- **Optimizer** 根据参数的梯度和自身维护的状态更新参数。
+
+例如，在前面的代码后继续执行：
+
+```python
+optimizer = torch.optim.SGD(layer.parameters(), lr=0.01)
+
+optimizer.zero_grad()
+loss = y.square().mean()
+loss.backward()
+optimizer.step()
+```
+
+这里，`loss.backward()` 计算梯度，`optimizer.step()` 更新参数。两者职责不同，反向传播本身并不负责更新模型参数。
+
+虽然输入 `x` 没有设置 `requires_grad=True`，线性层的参数默认需要梯度，因此仍然可以计算参数梯度。只有需要对输入本身求导时，才需要为输入开启梯度记录。
+
+这些训练能力并不是所有 Tensor 运算的必经步骤。单纯的数值计算或不记录梯度的推理过程，可以不构建反向传播图，也不使用 Optimizer。
+
+#### 算子接口与运行时
+
+Tensor 运算背后涉及几个需要区分的概念：
+
+- **Operator Schema** 描述算子的签名，包括参数、返回值以及相关别名和修改信息等约定。
+- **Dispatcher** 根据 Tensor 的设备、布局以及当前生效的分发状态等信息，选择相应处理或实现。
+- **ATen** 是 PyTorch 的 C++ Tensor 与算子基础库，提供运算接口，并承载大量算子实现。
+
+它们不是三个完全独立、顺序串联的执行阶段。例如，Schema 主要用于定义和注册算子，并不是每次计算都要经过的一层数值处理。
+
+Dispatcher 的职责也不只是判断“走 CPU 还是 CUDA”。自动求导、函数变换等机制同样可能参与分发过程。
+
+#### 设备执行
+
+具体计算最终由设备后端的实现完成。这些实现可能：
+
+- 执行 PyTorch 自身提供的 Kernel；
+- 调用 cuBLAS、cuDNN 等底层计算库；
+- 组合调用其他算子；
+- 在编译模式下执行生成的代码。
+
+因此，**一次 Python 调用、一个 Operator 和一次设备 Kernel 执行之间，并不总是一一对应**。
+
+一个算子可能触发多个 Kernel；多个算子也可能在编译优化后融合为一个 Kernel。
+
+以常见的 eager 执行为例，可以把整体关系概括为：
+
+    用户模型与 Tensor 运算
+        ↓
+    算子调用与运行时处理
+    （按需涉及自动求导等机制）
+        ↓
+    分发到相应实现
+        ↓
+    后端实现、底层计算库或其他算子
+        ↓
+    具体设备上的计算
+
+这是一张理解执行关系的示意图，不代表所有算子的精确调用栈。
+
+#### 编译、分布式与扩展
+
+编译优化、分布式协作和自定义扩展不是设备执行之后的三个固定步骤，而是作用于不同环节的能力。
+
+例如：
+
+- `torch.compile` 可以捕获并优化部分计算区域，通过后端生成或调用更高效的实现；
+- 分布式训练可以在模型组织、梯度同步、参数切分和设备通信等环节介入；
+- 自定义算子和后端扩展可以接入算子注册、分发、自动求导及设备执行等机制。
+
+因此，理解 PyTorch 时，应同时区分两个问题：
+
+> PyTorch 包含哪些能力？  
+> 一次具体计算实际经过了哪些路径？
+
+前者是组成关系，后者是执行关系，两者不能直接画等号。
+
+### 3. PyTorch 不是什么？
+
+#### PyTorch 不只是 Python API
+
+考虑下面的代码：
 
 ```python
 import torch
@@ -150,56 +221,77 @@ y = torch.randn(2, 3, device="cuda")
 z = x + y
 ```
 
-上面的 Python 代码只是用户入口。真正完成计算的部分还包括 Python Binding、Operator Schema、Dispatcher、ATen、设备后端以及 CPU/CUDA Kernel。
+`x + y` 看起来只是一次 Python 加法，但对普通 CUDA Tensor 而言，它会进入 PyTorch 的算子调用与分发机制，由相应实现提交设备计算。
 
-因此，阅读 PyTorch 源码时，不能只看 `torch` 和 `torch.nn` 目录；排查性能问题时，也不能只看 Python 函数是否高效。
+CUDA 操作通常相对于 CPU 异步执行：Python 调用返回，不一定意味着 GPU 已经完成计算。同步行为及其对性能测量的影响，需要在分析具体执行路径时进一步讨论。
 
-**PyTorch 不等于 CUDA**
+因此：
 
-CUDA 是 NVIDIA GPU 的编程平台和软件生态，PyTorch 是构建在 CUDA 等后端之上的深度学习计算平台。
+- 阅读源码时，不能只关注 Python API 的实现；
+- 排查性能问题时，不能只检查 Python 函数是否高效；
+- 测量 GPU 执行时间时，不能简单把未经同步处理的 Python 调用耗时当作设备计算耗时。
 
-```text
-PyTorch
-    ├── CPU 后端
-    ├── CUDA 后端
-    ├── ROCm 后端
-    ├── Meta 后端
-    └── 其他设备后端
-```
+同时，也不应反过来忽略 Python 层。Python 调度、循环、对象管理和模型组织方式，同样可能影响整体性能。
 
-PyTorch 可以调用 CUDA Kernel、cuBLAS 和 cuDNN，但这些只是它所使用的一个后端和若干底层库。即使使用 CUDA，模型、Autograd、Module、Dispatcher 和训练系统仍然属于 PyTorch 的职责范围。
+#### PyTorch 不等于 CUDA
 
-**PyTorch 不只是神经网络层的集合**
+CUDA 是 NVIDIA GPU 的编程平台和软件生态，PyTorch 则是可以使用 CUDA 等平台完成计算的框架。
 
-`nn.Linear`、`nn.Conv2d` 和 Transformer 模块是 PyTorch 的重要组成部分，但 PyTorch 的核心抽象是 Tensor 计算和围绕 Tensor 建立的运行时。
+从硬件支持角度看，PyTorch 可以使用：
 
-```text
-Tensor 计算
-    ↓
-Autograd
-    ↓
-算子分发
-    ↓
-设备执行
-```
+- CPU；
+- 基于 CUDA 的 NVIDIA GPU；
+- 基于 ROCm 的 AMD GPU；
+- MPS、XPU 等其他设备后端。
 
-`nn.Module` 负责组织模型和状态，它本身不是 Kernel；一个 Module 可能展开成许多 Tensor 操作，也可能在编译后被融合成不同的 Kernel 组合。
+这里的“CUDA 后端”“ROCm 后端”是面向硬件平台的概括，并不意味着它们与 PyTorch 的设备类型名称严格一一对应。例如，ROCm 版本的 PyTorch 通常也使用 `torch.cuda` 接口和 `"cuda"` 设备标识。
 
-**几组需要分开的概念**
+此外，PyTorch 还提供 **Meta 设备**。Meta Tensor 不存储实际数据，主要用于在算子支持的范围内推导输出形状、类型等元信息，以及模型构建和程序分析。它不是执行真实数值计算的硬件后端。
+
+即使使用 CUDA，模型组织、自动求导、算子分发和训练流程仍然属于 PyTorch 的职责范围。CUDA 及其相关库提供的是其中一部分底层执行能力，而不是整个框架。
+
+#### PyTorch 不只是神经网络层的集合
+
+`nn.Linear`、`nn.Conv2d` 和 Transformer 相关模块是 PyTorch 的重要组成部分，但 PyTorch 的基础仍然是 Tensor 计算及其相关机制。
+
+`nn.Module` 主要负责组织模型和状态，它本身不是一段固定的设备代码。
+
+一个 Module 可以包含：
+
+- 多个 Tensor 运算；
+- 子模块调用；
+- Python 控制流；
+- 参数、缓冲区和其他状态。
+
+在 eager 模式下，这些运算通常随程序执行逐步发起；在编译模式下，部分计算可以被捕获、重写和融合。因此，同一个 Module 并不必然对应固定数量或固定组合的 Kernel。
+
+### 4. 几组容易混淆的概念
 
 | 概念 | 它是什么 | 它不是什么 |
-|---|---|---|
-| Tensor | 数据、布局、类型和设备位置的运行时对象 | 不是模型，也不是 Kernel |
-| `nn.Module` | 组织层次、参数和状态的模型对象 | 不是一段固定的 GPU 指令 |
-| Autograd Graph | 描述梯度传播关系的运行时结构 | 不是最终的硬件执行图 |
-| FX Graph | 用于程序分析和重写的图表示 | 不等于最终 CUDA Kernel |
-| Operator | 具有统一 Schema 和语义的计算操作 | 不等于某个后端的具体实现 |
-| Kernel | 在 CPU、GPU 或其他设备上执行的实现 | 不等于完整的 PyTorch 模型 |
-| CUDA | NVIDIA 的设备编程平台和后端生态 | 不等于 PyTorch 本身 |
+| :--- | :--- | :--- |
+| Tensor | 表示多维数据及其形状、类型、布局、设备等属性的对象；某些特殊 Tensor 不持有实际数据存储 | 不是模型，也不是 Kernel |
+| `nn.Module` | 组织模型层次、参数、缓冲区和计算逻辑的对象 | 不是固定的 GPU 指令序列 |
+| Autograd Graph | 在常见 eager 反向模式下，由需要记录梯度的前向运算建立、用于反向传播的依赖结构 | 不等于完整的模型程序图，也不等于最终设备执行图 |
+| FX Graph | 表示被捕获计算的节点及其依赖关系、用于分析和变换的中间表示 | 不自动包含任意 Python 程序的全部行为，也不等于最终 Kernel |
+| Operator | 具有 Schema 和约定语义的操作，可以具有不同实现 | 不等于某个后端上的具体实现 |
+| Kernel | 需要结合语境理解：可指注册到分发系统的算子实现，也可指设备上的具体计算程序 | 不一定与一个 Operator 一一对应 |
+| CUDA | NVIDIA GPU 的编程平台和软件生态 | 不等于 PyTorch 本身 |
 
-Table: 几组需要分开的概念
+其中，**Kernel 的含义尤其需要结合上下文判断**。
 
-这些边界会在后面的静态分层图和动态执行路径中逐一展开。
+在 Dispatcher 语境中，注册的 Kernel 可以是一个 C++ 函数，这个函数可能继续调用其他算子或底层库；在 GPU 执行语境中，CUDA Kernel 通常指在 GPU 上启动执行的设备程序。
+
+因此，“Dispatcher 选择了一个 Kernel”不一定意味着“GPU 恰好执行了一次 Kernel”。
+
+同样，Autograd Graph 和 FX Graph 也不能混为一谈：
+
+- Autograd Graph 主要服务于梯度计算；
+- FX Graph 主要服务于被捕获计算的表示、分析与变换；
+- 编译流程可能利用自动求导相关机制生成前向图和反向图，并以 FX 等形式表示，但这些图仍不等同于最终的设备执行计划。
+
+建立这些边界之后，再阅读源码或分析性能，就可以更明确地判断：当前讨论的是用户编程接口、模型组织、算子语义、分发机制、图表示，还是设备上的实际计算。
+
+后续的静态分层图和动态执行路径，将在这些概念边界的基础上进一步展开。
 
 ## 三、PyTorch 与其他深度学习框架
 
