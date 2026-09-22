@@ -712,210 +712,246 @@ PyTorch 2.x 中的典型组件包括：
 
 ## 六、第二张地图：动态视角——一次算子调用发生了什么？
 
-上面的静态地图回答了“系统由什么组成”，但还没有回答“代码如何在系统中流动”。下面我们切换到**动态视角**：以一次 `torch.add(x, y)` 为例，追踪一个算子从 Python 入口经过绑定、Schema、Dispatcher 和 ATen，最终进入具体设备 Kernel 的过程。
+上面的静态地图回答了“系统由什么组成，各部分负责什么”，但还没有回答“代码如何在系统中流动”。下面我们切换到**动态视角**，以一次 `torch.add(x, y)` 为例，观察这些组成部分如何协作完成计算。
 
-以简单的加法为例：
+本章选取一条典型主线：**在 Eager 模式和梯度模式开启的情况下，对两个 `requires_grad=True` 的普通浮点 CUDA Tensor 执行加法。**
+
+整个过程可以概括为六步：
+
+**发起调用 → 跨越语言边界 → 进入算子接口 → 分发与梯度处理 → 后端计算 → 返回结果。**
+
+```mermaid
+flowchart TB
+    subgraph UP["统一的上层：与设备无关的调用接口"]
+        direction TB
+        A["Python API<br/>torch.add / x + y / x.add(y)"]
+        B["Python Binding<br/>参数解析 · 重载匹配 · Tensor 句柄转换"]
+        C["ATen 算子接口<br/>aten::add.Tensor"]
+        S["Operator Schema<br/>参数、返回类型与默认值等调用契约"]
+
+        A --> B --> C
+        S -.->|定义调用契约| C
+    end
+
+    subgraph MID["分发逻辑：按输入与上下文选择处理者"]
+        direction TB
+        K["Tensor 分发键 + 线程局部分发状态"]
+        D["Dispatcher<br/>依据 DispatchKeySet 查找处理者"]
+        AG["Autograd 包装层<br/>准备反向节点，返回时关联梯度历史"]
+        R["Redispatch<br/>排除当前 Autograd 层后重新分发"]
+
+        K --> D
+        D -->|本例先选中| AG
+        AG --> R
+    end
+
+    subgraph LOW["设备相关的下层：后端实现与计算"]
+        direction TB
+        CPU["CPU 后端实现"]
+        CUDA["CUDA 后端实现"]
+        META["Meta / 其他后端实现"]
+
+        CK["CPU Kernel<br/>原生实现或底层计算库"]
+        GK["CUDA Kernel<br/>原生实现或底层计算库"]
+        MK["Meta：推导输出元数据<br/>不执行实际数据计算"]
+
+        CPU --> CK
+        CUDA --> GK
+        META --> MK
+    end
+
+    C --> D
+    R -->|继续由 Dispatcher 选择：CPU| CPU
+    R ==>|本例：CUDA| CUDA
+    R -->|其他路径| META
+
+    classDef api fill:#e0f2fe,stroke:#0369a1;
+    classDef contract fill:#f1f5f9,stroke:#64748b;
+    classDef dispatch fill:#fef3c7,stroke:#b45309;
+    classDef compute fill:#dcfce7,stroke:#15803d;
+
+    class A,B,C api;
+    class S,K contract;
+    class D,AG,R dispatch;
+    class CPU,CUDA,META,CK,GK,MK compute;
+```
+
+这张图保留了算子调用的三个区域：上层提供统一的调用接口，中间由 Dispatcher 根据输入与上下文选择处理者，下层由具体后端组织计算或推导元数据。粗箭头标出了本章的 CUDA 主线；CPU、Meta 等分支用于展示不同后端的去向。计算提交后，调用沿调用链返回，Autograd 包装层关联输出的梯度历史，最终在 Python 层得到结果 Tensor。对于 CUDA，调用返回通常不意味着 GPU 计算已经完成。
+
+### 1. 第一步：Python API
+
+用户通过 Python 接口表达计算意图：
 
 ```python
 z = torch.add(x, y)
 ```
 
-可以沿着下面的路径理解：
-
-```mermaid
-%% 图：一次算子调用的路径：统一的上层契约，Dispatcher 按输入与上下文选实现，设备相关的 kernel 在下层
-flowchart TB
-    subgraph UP["统一的上层：与设备无关"]
-        direction LR
-        A[Python API<br/>torch.add / x + y] --> B[Python Binding] --> C[Operator Schema]
-    end
-    subgraph MID["分发：按输入与上下文选实现"]
-        direction LR
-        D[Dispatcher<br/>Dispatch Key Set] --> E[ATen Operator] --> F{运行时上下文}
-    end
-    subgraph LOW["设备相关的下层"]
-        direction LR
-        G[CPU Kernel] --> J[底层数学库与硬件]
-        H[CUDA Kernel] --> J
-        I[Meta Kernel]
-    end
-    C --> D
-    F -->|CPU Tensor| G
-    F -->|CUDA Tensor| H
-    F -->|Meta Tensor| I
-```
-
-这张图表达的是典型执行路径：统一的算子契约和 Dispatcher 位于上层，具体设备 Kernel 位于下层。实际路径会因算子实现、Autograd、编译模式和 PyTorch 版本而有所变化。
-
-### 1. 第一步：Python API
-
-用户调用的是 Python 暴露出来的函数：
-
-```python
-torch.add(x, y)
-```
-
-也可以使用运算符形式：
+相同的加法也可以写成运算符或 Tensor 方法：
 
 ```python
 z = x + y
-```
-
-或者 Tensor method：
-
-```python
 z = x.add(y)
 ```
 
-这几个入口在用户层语义相近，但可能对应不同的生成绑定和调用形式。不要只根据 Python 表面语法判断内部实现路径。
+对于本例中的普通 Tensor，这些写法最终会进入对应的 ATen 加法算子。
+
+这一层负责提供易于使用的编程接口，让用户表达“要做什么”，而不必直接处理后端选择、输出分配或设备内核启动。
 
 ### 2. 第二步：Python Binding
 
-PyTorch 需要把 Python 对象转换为 C++ 运行时能够理解的对象：
+调用随后跨越 Python 与 C++ 的边界。绑定层主要完成三项工作：
+
+- **参数解析**：提取输入对象，处理关键字参数和默认参数。
+- **重载匹配**：根据参数类型匹配相应的算子重载，例如区分 Tensor 相加与 Tensor 加标量。
+- **对象转换**：从 Python Tensor 对象中取得 C++ 侧可操作的 Tensor 句柄。
+
+可以将这一过程理解为：
 
 ```text
-Python Tensor object
-    ↓
-C++ Tensor handle
-    ↓
-算子参数检查与转换
+Python 调用与参数
+        ↓
+参数解析和重载匹配
+        ↓
+C++ Tensor 句柄与其他参数
 ```
 
-这一层涉及 Python/C++ 边界、引用管理和参数解析。
+这里通常不涉及 Tensor 数据复制。绑定层取得的是关联底层 Tensor 的句柄，不需要将 GPU 数据搬到 CPU 后再继续计算。
 
-它不是把所有 Tensor 数据复制到 C++，而通常是让 C++ 侧获得对 Tensor 对象和底层存储的可管理引用。
+### 3. 第三步：ATen 算子接口与 Schema
 
-### 3. 第三步：Operator Schema
-
-算子需要有明确的签名和语义。例如可以抽象表示为：
+参数完成解析后，调用进入 ATen 算子接口。本例对应的是 `aten::add.Tensor`，其 Schema 可以表示为：
 
 ```text
-add(Tensor self, Tensor other, Scalar alpha=1) -> Tensor
+aten::add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor
 ```
 
-Schema 描述：
+这个契约规定：
 
-- 参数类型；
-- 返回类型；
-- 默认参数；
-- mutable 参数；
-- aliasing 和 out variant 等语义。
+- 接受两个 Tensor 参数；
+- `alpha` 是仅限关键字传入的标量参数，默认值为 1；
+- 返回一个 Tensor。
 
-Schema 是算子系统的重要契约。它让不同语言绑定、后端实现、Autograd 和编译器能够围绕同一个算子定义协作。
-
-### 4. 第四步：Dispatcher
-
-Dispatcher 根据运行时信息选择实现。影响选择的因素可能包括：
-
-- Tensor 的 device；
-- dtype；
-- 是否需要 Autograd；
-- 是否处于 tracing 或 compiling；
-- 是否是 Meta Tensor；
-- 是否有自定义后端；
-- 是否使用特殊布局。
-
-可以简化成：
+对应的计算语义是：
 
 ```text
-算子名 + Tensor 元数据 + 运行时上下文
-                    ↓
-             Dispatch Key Set
-                    ↓
-              具体 Kernel
+结果 = self + alpha × other
 ```
 
-把这三行再展开一步——以两个 `requires_grad=True` 的 CUDA Tensor 相加为例——分发实际上会经过两轮查表：
+**ATen 算子接口提供统一入口，Schema 描述入口的调用契约。** 广播、类型提升等计算规则由算子的语义和实现落实，并不是全部编码在 Schema 签名中。
+
+因此，这一步中的执行入口是算子接口，Schema 是接口遵循的规则，而一个独立的执行站点。接口随后通过 Dispatcher 寻找当前上下文中的处理者。
+
+### 4. 第四步：Dispatcher 与 Autograd
+
+Dispatcher 不直接完成加法，而是依据 Tensor 携带的分发键和线程局部的分发上下文，为当前算子选择已注册的处理者。
+
+在本章选定的主线上，可以用**两轮查表**理解 Autograd 包装与 CUDA 后端之间的协作。
 
 ```mermaid
-%% 图：Dispatcher 的两轮查表：先命中 Autograd 记录反向节点，去掉自身 Key 再分发到 CUDA kernel
 flowchart TB
-    META["Tensor 元数据<br/>device · dtype · layout · requires_grad"]
-    CTX["全局上下文<br/>inference_mode · tracing · functorch"]
-    KS["合成 DispatchKeySet<br/>例：#91;Autograd, CUDA#93;"]
-    TOP["取最高优先级 Key<br/>→ Autograd"]
-    TBL["Operator Table 查 add.Tensor 一行<br/>按 Key 挂着各实现"]
-    AG["Autograd Kernel<br/>记录 AddBackward0，保存反向所需信息"]
-    RED["从 KeySet 中去掉 Autograd<br/>再次分发 → CUDA"]
-    CU["CUDA Kernel<br/>native/cuda/ 下的 add 实现"]
+    T["输入 Tensor 携带的分发键"]
+    L["线程局部的分发上下文"]
+    K["确定有效的 DispatchKeySet"]
 
-    META --> KS
-    CTX --> KS
-    KS --> TOP --> TBL --> AG --> RED --> CU
+    D1["第一轮查表<br/>选中 AutogradCUDA 处理者"]
+    A["Autograd 包装层<br/>检查梯度需求，准备反向节点"]
+    R["Redispatch：重新分发<br/>使用排除当前 Autograd 层的键集合"]
+    D2["第二轮查表<br/>选中 CUDA 后端实现"]
+    C["CUDA 后端实现<br/>组织计算并启动 Kernel"]
+    H["返回 Autograd 包装层<br/>关联输出的梯度历史"]
+
+    T --> K
+    L --> K
+    K --> D1 --> A --> R --> D2 --> C --> H
 
     classDef input fill:#e0f2fe,stroke:#0369a1;
-    classDef disp fill:#fef3c7,stroke:#b45309;
-    classDef kern fill:#dcfce7,stroke:#15803d;
-    class META,CTX input;
-    class KS,TOP,TBL,RED disp;
-    class AG,CU kern;
+    classDef dispatch fill:#fef3c7,stroke:#b45309;
+    classDef compute fill:#dcfce7,stroke:#15803d;
+
+    class T,L input;
+    class K,D1,A,R,D2,H dispatch;
+    class C compute;
 ```
 
-Autograd 在这里只是表里优先级更高的一个 Key：它先被命中、做完记录后把自己从 KeySet 中去掉再分发，才轮到设备 Kernel。如果是 CPU Tensor，最后一步命中的就是 CPU Kernel；如果处于 `no_grad()`，Autograd Key 仍会被命中，只是包装层读到 GradMode 关闭就不记录 `grad_fn`；`inference_mode()` 才会在合成 KeySet 时把它排除。第五篇会展开这张表的每一格。
+**第一轮查表：选中 Autograd 处理者。**
 
-这不是 Java 方法重载的简单等价物。Java 重载通常依据编译期静态类型选择方法，而 PyTorch 的分发还会受到设备、Autograd、Tracing 和运行时上下文影响。
+Dispatcher 根据有效的 `DispatchKeySet`，按照分发键优先级查找 `aten::add.Tensor` 的分发表。在这条主线上，先选中 `AutogradCUDA` 对应的 Autograd 包装层。
 
-### 5. 第五步：ATen Operator
+包装层检查本次操作是否需要记录梯度。本例开启了梯度模式，且输入需要梯度，因此它会准备加法对应的反向节点，并建立与输入梯度历史之间的连接关系。
 
-ATen 是 PyTorch 的核心 Tensor 和算子库，提供跨设备的统一抽象。
+**第二轮查表：重新分发到 CUDA 实现。**
 
-从用户角度看：
+Autograd 包装层随后发起 **Redispatch（重新分发）**，使用排除了当前 Autograd 层的分发键集合，继续寻找前向计算的实现。
 
-```python
-z = x + y
-```
+这次查表选中 CUDA 后端实现，进入具体的计算准备和内核启动过程。后端调用返回后，Autograd 包装层再将输出与反向节点关联起来。
 
-从运行时角度看，它需要保证：
+两轮查表的作用可以概括为：
 
-- shape 规则一致；
-- 广播规则一致；
-- dtype 规则一致；
-- 错误行为一致；
-- 不同后端具有相同的算子语义。
+- **第一轮选中功能包装层**：处理自动求导相关职责。
+- **第二轮选中计算后端**：将前向计算交给 CUDA 实现。
 
-ATen 并不意味着所有计算都由一份代码完成。它提供统一接口，具体执行仍可能落到不同后端。
+### 5. 第五步：后端实现与 Kernel
 
-### 6. 第六步：CPU、CUDA 或其他 Kernel
+进入 CUDA 后端实现后，框架开始组织具体计算：
 
-最终，Dispatcher 会让操作进入某个具体实现：
+- 检查输入是否满足算子要求；
+- 根据广播和类型提升规则确定输出的形状、数据类型；
+- 准备输出存储；
+- 组织输入、输出的访问方式；
+- 选择并启动执行加法的 CUDA Kernel。
+
+对于本例中的逐元素加法，可以把后端实现理解为**计算的组织者**，把设备 Kernel 理解为**执行数值计算的代码**。
 
 ```text
-CPU Tensor  → CPU Kernel
-CUDA Tensor → CUDA Kernel
-Meta Tensor → Meta Kernel
+CUDA 后端实现
+        ↓
+准备输出与数据访问方式
+        ↓
+向当前 CUDA Stream 提交 Kernel
+        ↓
+GPU 执行逐元素加法
 ```
 
-某些算子会调用底层库：
+不同算子会采用不同的计算实现。例如，矩阵乘法可能调用 cuBLAS，卷积可能调用 cuDNN，而本例的加法通常由原生逐元素 CUDA Kernel 完成。
 
-```text
-矩阵乘法 → cuBLAS / cuBLASLt
-卷积     → cuDNN 或专用 Kernel
-通用逐元素操作 → Native CUDA Kernel
-```
+### 6. 第六步：结果返回
 
-返回的结果仍然要重新包装成 PyTorch Tensor，并保留正确的：
+后端调用完成主机侧的提交工作后，结果沿调用链返回：
 
-- shape；
-- stride；
-- dtype；
-- device；
-- Autograd 信息；
-- storage 生命周期。
+1. Autograd 包装层将输出与反向节点关联；
+2. 调用经过 C++ 接口和 Python 绑定层返回；
+3. 用户获得结果 Tensor `z`。
+
+此时，`z` 已包含相应的形状、数据类型、设备和存储信息，也关联了后续求导所需的 `grad_fn`。
+
+但需要区分两件事：
+
+**Python 调用返回，不等于 GPU 计算已经完成。**
+
+CUDA 计算通常是异步提交的。Python 得到 `z` 时，加法 Kernel 可能仍在排队或执行。同一 Stream 中后续提交的计算会按顺序执行，因此程序可以继续提交依赖 `z` 的设备操作，而不必在每次算子调用后等待 GPU。
+
+当主机需要读取计算结果，或程序显式要求同步时，才需要等待相关设备工作完成。例如，对 CUDA 标量 Tensor 调用 `.item()`，或调用 `torch.cuda.synchronize()`。
 
 ### 7. 这是一条概念路径
 
-上面的流程适合建立架构认知，但不是所有算子在所有 PyTorch 版本中的固定源码调用栈。
+以上六步展示的是本章选定场景中的典型协作过程，不是所有算子都必须遵循的固定调用栈。
 
-实际路径可能因为以下因素而变化：
+其中，**“两轮查表”概括的是本例中 Autograd 包装与 CUDA 后端之间的分发关系**，并不意味着每次算子调用都恰好查表两次。其他功能包装、Tensor 类型或算子实现可能增加处理环节，改变具体路径。
 
-- Python function、Tensor method 或运算符入口不同；
-- 算子是否有 Composite 实现；
-- 是否正在进行 Autograd；
-- 是否处于编译或 Fake Tensor 模式；
-- 后端是否覆盖了特定 Dispatch Key；
-- PyTorch 版本的代码生成和绑定方式变化。
+常见的变化包括：
 
-这些层次是稳定的职责边界；具体函数调用栈则可能随版本和算子实现变化。
+- **梯度模式不同**：`no_grad()` 不记录新的反向图，但不一定绕过 Autograd 包装层；`inference_mode()` 还会进一步改变相关分发和运行时行为。
+- **设备或 Tensor 类型不同**：CPU Tensor 进入 CPU 实现；Meta Tensor 只进行元数据推导，不执行实际数据计算。
+- **算子实现不同**：Composite 实现可能通过调用其他算子完成计算，产生新的分发过程。
+- **扩展机制介入**：Tensor 子类、自定义分发模式或后端可能拦截调用，进入其他处理分支。
+- **编译模式不同**：编译器可能捕获并融合多个算子，减少逐算子的 Python 调用和运行时分发。
+- **跨 Stream 使用结果**：不同 Stream 之间的数据依赖需要适当的同步，不能仅依靠 Python 代码的先后顺序。
+
+此外，ATen 是一个算子体系，而不是 Dispatcher 之后的单一中转层。它既提供第三步中的算子接口，也包含第五步中的大量后端实现。因此，本章按照调用中的职责展开，而不把“ATen Operator”另外列为后端计算之前的一站。
+
+理解本章时，首先记住主线即可：**用户发起调用，绑定层连接语言边界，算子接口提供契约，Dispatcher 选择处理者，后端组织计算，结果携带必要的状态返回。**
+
+这些接口、注册机制和实现代码在源码中如何组织，正是第七章要介绍的第三张地图。
 
 ## 七、第三张地图：代码视角——源码目录与库的分层
 
