@@ -484,37 +484,48 @@ PyTorch 2.0 于 2023 年 3 月 15 日发布，其主要方向是在保持 Eager 
 
 这一章我们先从**静态视角**出发，看看“PyTorch 由哪些职责层组成、每一层负责什么”。
 
-从上到下，可以把 PyTorch 粗略分为以下六层：
+从上到下，可以把 PyTorch 粗略分为以下六层。这里的“层”表示**职责划分，而不是所有计算必须依次经过的执行步骤**：
 
 ```mermaid
-%% 图：PyTorch 的六层逻辑分层：Eager 逐算子走算子运行时，torch.compile 走图与编译
+%% 图：PyTorch 的六层逻辑分层；箭头表示主要执行或支撑关系，不表示固定调用顺序
 flowchart TB
     A[① 用户模型与训练代码]
     B[② 编程模型]
     C[③ 图与编译]
-    D[④ 算子运行时]
-    E[⑤ 设备与通信]
     F[⑥ Kernel 与硬件]
+
+    subgraph S["执行支撑：算子运行时、设备与通信"]
+        direction LR
+        D[④ 算子运行时]
+        E[⑤ 设备与通信]
+    end
 
     A --> B
     B -- "Eager：逐算子" --> D
-    B -- "torch.compile" --> C
-    C -- "生成 Kernel" --> F
-    D --> E --> F
+    B -- "torch.compile：捕获计算区域" --> C
+    C -- "调用已有算子" --> D
+    C -- "生成 Kernel / 调用底层库" --> F
+    D -- "选择并调用实现" --> F
+    D -. "使用运行时设施" .-> E
+    E -. "内存、执行队列与通信支撑" .-> F
 ```
 
 | 层 | 核心组件 | 回答的问题 |
-|---|---|---|
+| :--- | :--- | :--- |
 | ① 用户模型与训练代码 | `nn.Module` 子类、损失函数、训练循环、评估与推理逻辑 | 模型长什么样、怎么训练 |
 | ② 编程模型 | Tensor、Autograd、`nn.Module` / Parameter / Buffer、Optimizer、Dataset / DataLoader、`state_dict` | 用户用什么抽象表达计算和状态 |
-| ③ 图与编译 | TorchDynamo、FX Graph、AOTAutograd、TorchInductor、Guard / Graph Break / 编译缓存 | 动态 Python 程序如何变成可优化的图 |
+| ③ 图与编译 | TorchDynamo、FX Graph、AOTAutograd、TorchInductor、Guard / Graph Break / 编译缓存 | 动态 Python 程序中的计算区域如何变成可优化的图 |
 | ④ 算子运行时 | Operator Schema、Dispatcher / DispatchKey、ATen 算子实现（CPU / CUDA / Composite / Meta）、TensorIterator | 一个算子在当前上下文该调用哪个实现 |
-| ⑤ 设备与通信 | CUDA Runtime（Stream / Event / 同步）、Caching Allocator、H2D / D2H 数据迁移、进程组与集合通信（NCCL / Gloo） | 计算和数据如何到达设备、多设备如何协同 |
-| ⑥ Kernel 与硬件 | C++ CPU Kernel、CUDA Kernel、cuBLAS / cuDNN 等厂商库、Triton Kernel、CPU / GPU / 显存 / 互连 | 计算最终消耗多少算力、带宽和时间 |
+| ⑤ 设备与通信 | 设备运行时、Stream / Event / 同步、Caching Allocator、H2D / D2H 数据迁移、进程组与集合通信（NCCL / Gloo） | 计算和数据如何到达设备、多设备如何协同 |
+| ⑥ Kernel 与硬件 | C++ CPU Kernel、CUDA Kernel、cuBLAS / cuDNN 等厂商库、Triton Kernel、CPU / GPU / 显存 / 互连 | 计算最终消耗哪些资源、受哪些硬件约束 |
 
-Table: PyTorch 的逻辑分层
+Table：PyTorch 的逻辑分层
 
-Eager 模式下每个算子从编程模型直接进入算子运行时；`torch.compile` 则先经过图与编译层，生成的 Kernel 直接落到最底层。这不是 PyTorch 源码目录的直接映射（源码分层见第七章），而是一张用于分析问题的逻辑地图。
+Eager 模式下，Tensor 计算通常逐算子进入算子运行时；`torch.compile` 则捕获可处理的计算区域，通过编译后端生成优化代码，或调用已有算子和底层库。两种路径可以在同一个程序中共存，也都需要设备运行时等基础设施支撑。
+
+图中将“算子运行时”与“设备与通信”并列，是为了强调：**设备管理是执行支撑，通信则按需参与，它们不是每个算子都必须依次经过的中转站。** 编译生成的 Kernel 同样需要内存分配、Stream 和 Kernel Launch 等设施，并不意味着脱离 PyTorch 的运行时系统。
+
+这不是 PyTorch 源码目录的直接映射（源码分层见第七章），而是一张用于分析问题的逻辑地图。同一个机制也可能横跨多个职责层，例如 Autograd 既提供用户可见的求导语义，也通过底层包装层和引擎参与执行。
 
 ### 1. 第一层：用户模型与训练代码
 
@@ -543,7 +554,7 @@ class Classifier(nn.Module):
 - 训练循环；
 - 推理逻辑。
 
-这一层主要使用 Python，但它产生的每个 Tensor 操作最终都需要进入下面的运行时。
+这一层主要使用 Python。在 Eager 模式下，它产生的 Tensor 计算通常逐算子进入底层运行时；在编译模式下，多个操作可能被融合、重写，甚至消除，不再与底层算子调用或 Kernel 启动一一对应。
 
 ### 2. 第二层：编程模型
 
@@ -569,36 +580,40 @@ optimizer.step()
 
 - `inputs` 和 `targets` 有 dtype、shape、device；
 - `model` 可能是一个带参数和 Buffer 的模块树；
-- forward 可能动态构建 Autograd 图；
-- `backward()` 会沿图传播梯度；
-- `optimizer.step()` 会读取参数和梯度状态。
+- 在启用梯度记录且运算需要求导时，forward 会动态构建 Autograd 图；
+- `backward()` 会沿梯度依赖关系传播梯度；
+- `optimizer.step()` 会读取参数和梯度，并按优化算法更新参数及相关状态。
 
 第二篇到第四篇会集中讨论这一层。
 
 ### 3. 第三层：图与编译
 
-这一层负责把 Python 程序或 Tensor 操作转换为可以分析的图表示：
+这一层负责捕获 Python 程序中的计算区域，将其转换为可以分析和优化的图表示。以采用 TorchInductor 后端的典型训练编译路径为例：
 
 ```text
 Python Model
     ↓
-TorchDynamo
+TorchDynamo：捕获计算区域，建立 Guards
     ↓
 FX Graph
     ↓
-AOTAutograd
+AOTAutograd：处理前向与反向图
     ↓
-TorchInductor
+TorchInductor：优化与代码生成
     ↓
-Triton / C++ / Vendor Library
+Triton / C++ / 已有算子与 Vendor Library
 ```
+
+这是一条典型路径，不是所有编译后端和执行场景都必须经过的固定流程。图中断可能将程序分成多个计算区域；在允许图中断的配置下，编译区域也可以与 Eager 代码交替执行。
 
 这里需要区分几种概念：
 
-- Eager 计算图：为了 Autograd 记录的运行时图；
-- FX Graph：用于程序分析和重写的 Python 层图表示；
-- 编译器中间表示：面向代码生成和优化的内部表示；
-- Kernel：最终在 CPU 或 GPU 上执行的实现。
+- **Autograd 图**：Eager 执行中按需记录的梯度依赖图，用于组织反向传播，不是完整 Python 程序的执行图；
+- **FX Graph**：用于程序分析和重写的图表示；
+- **编译器中间表示**：面向优化和代码生成的内部表示；
+- **Kernel**：实际在 CPU 或 GPU 上执行计算的实现。
+
+编译优化的目标，是减少 Python 调度、重复的算子调用和不必要的中间数据读写，而不是完全绕过算子运行时。以 TorchInductor 为例，生成代码既可能执行融合 Kernel，也可能调用已有 ATen 算子或厂商库。
 
 第七篇会详细讨论这几个概念的关系。
 
@@ -619,38 +634,43 @@ Triton / C++ / Vendor Library
 - Composite Kernel；
 - Meta Kernel。
 
+其中，Operator Schema 是算子的接口契约，不是独立的执行中转站；Dispatcher 根据 Tensor 的分发信息和运行时上下文选择处理者。TensorIterator 则为许多逐元素及部分归约实现提供广播、类型处理和遍历支持，并不是所有算子都会使用它。
+
 例如，同样是加法操作：
 
 ```python
 z = x + y
 ```
 
-如果 `x` 和 `y` 是 CPU Tensor，就需要 CPU 实现；如果它们是 CUDA Tensor，就需要 CUDA 实现；如果当前操作正在构建 Meta Tensor 的形状推断，又需要 Meta 实现。
+对于普通稠密 Tensor，如果 `x` 和 `y` 都是 CPU Tensor，通常会进入 CPU 计算实现；如果都是 CUDA Tensor，则通常进入 CUDA 计算实现。如果输入是 Meta Tensor，则可以通过 Meta 实现推导输出形状、dtype 等元数据，而不执行真实数值计算。
+
+这只是后端选择的简化说明。实际调用还可能先经过 Autograd 等包装层，再重新分发到具体实现；Composite 实现则可能通过组合其他算子完成计算。
 
 第五篇会以 `add`、`add_` 和 `add.out` 为例展开这一层。
 
 ### 5. 第五层：设备与通信
 
-这一层连接 PyTorch 运行时和具体设备或进程：
+这一层为 PyTorch 执行提供设备和进程间协作支撑，主要包括两类能力：
 
-- CPU；
-- CUDA；
-- ROCm；
-- Meta；
-- NCCL；
-- Gloo；
-- 其他硬件后端。
+- **设备与运行平台支持**：CPU、CUDA、ROCm，以及其他硬件后端；
+- **分布式通信支持**：进程组、集合通信，以及 NCCL、Gloo 等通信后端。
 
-它处理的不只是“把代码放到 GPU 上”，还包括：
+Meta 不属于真实硬件执行平台：它不存放实际数值数据，相关元数据推导能力已在第四层介绍。
+
+这一层处理的不只是“把代码放到 GPU 上”，还包括：
 
 - 内存分配；
 - 数据迁移；
 - Kernel Launch；
-- stream；
-- event；
+- Stream；
+- Event；
 - 进程间通信；
 - 集合通信；
 - 设备同步。
+
+这些能力并非每次调用都会全部用到。普通加法通常不需要进程间通信，但仍需要相应的内存和设备执行支撑。
+
+此外，**Python 调用返回不一定意味着设备计算已经完成**。CUDA 操作通常异步提交到 Stream，后续任务依靠 Stream 顺序和必要的同步机制建立正确依赖。第六章会结合一次算子调用进一步说明这一点。
 
 第八篇和第九篇会分别讨论性能执行与分布式通信。
 
@@ -667,16 +687,18 @@ z = x + y
 - CPU 指令集；
 - GPU Streaming Multiprocessor。
 
-这一层决定了计算最终消耗多少：
+这一层涉及的资源约束与执行成本包括：
 
-- 算力；
-- 显存带宽；
-- Kernel Launch；
-- 寄存器和共享内存；
-- 线程块调度；
-- 设备间通信。
+- 计算吞吐；
+- 内存与显存带宽；
+- Kernel Launch 开销；
+- 寄存器和共享内存占用；
+- 线程块调度效率；
+- 设备间互连带宽与通信延迟。
 
 但性能问题不一定发生在最底层。上层的 Python 调度、Tensor 布局、数据搬运和同步，都可能成为瓶颈。
+
+因此，这张地图的用途不是要求我们从上到下逐层查找，而是先判断问题属于哪类职责，再沿相关执行路径深入。下一章，我们将继续以加法操作为例，从动态视角观察这些职责如何协作。
 
 ## 六、第二张地图：动态视角——一次算子调用发生了什么？
 
