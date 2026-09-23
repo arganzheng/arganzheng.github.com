@@ -1056,12 +1056,12 @@ c10/                 结果 Tensor 的 TensorImpl 与 StorageImpl 在此构造�
 
 | 组件 | 源码位置 | 职责层 | 展开篇 |
 |---|---|---|---|
-| TensorImpl、StorageImpl、stride、dtype、device | `c10/core/` | 编程模型 | 第二篇 |
-| Autograd 引擎、`grad_fn`、saved tensors | `torch/csrc/autograd/` | 编程模型 | 第三篇 |
-| `nn.Module`、Optimizer、DataLoader、序列化 | `torch/nn/` `torch/optim/` `torch/utils/data/` | 用户代码与编程模型 | 第四篇 |
-| Operator Schema、Dispatcher、native 算子、Codegen | `aten/src/ATen/` `torchgen/` | 算子运行时 | 第五篇 |
+| TensorImpl、StorageImpl、stride、dtype、device | `c10/core/` | 编程接口与应用表达 | 第二篇 |
+| Autograd 引擎、`grad_fn`、saved tensors | `torch/csrc/autograd/` | 编程接口与应用表达| 第三篇 |
+| `nn.Module`、Optimizer、DataLoader、序列化 | `torch/nn/` `torch/optim/` `torch/utils/data/` | 编程接口与应用表达 | 第四篇 |
+| Operator Schema、Dispatcher、native 算子、Codegen | `aten/src/ATen/` `torchgen/` | 算子与分发运行时 | 第五篇 |
 | pybind11 绑定、`TORCH_LIBRARY`、C++/CUDA 扩展 | `torch/csrc/` `torch/utils/cpp_extension.py` | Python 与 C++ 边界 | 第六篇 |
-| Dynamo、AOTAutograd、Inductor、FX | `torch/_dynamo/` `torch/_functorch/` `torch/_inductor/` `torch/fx/` | 图与编译 | 第七篇 |
+| Dynamo、AOTAutograd、Inductor、FX | `torch/_dynamo/` `torch/_functorch/` `torch/_inductor/` `torch/fx/` |  图表示与编译 | 第七篇 |
 | Profiler、Caching Allocator、Stream、CUDA Graphs | `torch/profiler/` `c10/cuda/` `torch/cuda/` | 设备与通信 | 第八篇 |
 | c10d、ProcessGroup、DDP、FSDP、DTensor | `torch/csrc/distributed/` `torch/distributed/` | 设备与通信 | 第九篇 |
 | 测试基础设施、构建、CI、发布 | `test/` `torch/testing/` `tools/` `.github/` | 横切 | 第十篇 |
@@ -1190,17 +1190,19 @@ PyTorch 不是一个单纯的 Python 库，而是连接模型代码、Tensor 编
 职责地图回答"谁负责什么"：
 
 ```text
-用户模型与训练代码
+用户训练代码
     ↓
-编程模型：Tensor / Autograd / nn.Module / Optimizer
+编程接口与应用表达：Tensor / Autograd / nn.Module / Optimizer
     ↓
-图与编译：FX / Dynamo / AOTAutograd / Inductor
+图表示与编译：FX / Dynamo / AOTAutograd / Inductor
     ↓
-算子运行时：Operator Schema / Dispatcher / ATen
+算子与分发运行时：Operator Schema / Dispatcher / ATen
     ↓
-设备与通信：CPU / CUDA / Meta 后端 · 内存分配 · stream · NCCL / Gloo
+设备与通信支撑：CPU / CUDA / Meta 后端 · 内存分配 · stream · NCCL / Gloo
     ↓
-Kernel 与硬件
+计算内核与底层库： 原生 CPU 与 CUDA 内核、编译生成内核 / cuBLAS、cuDNN 等计算库
+    ↓
+外部运行基础：操作系统、驱动、CPU、GPU 与互连
 ```
 
 动态地图回答"一次调用怎么走"：
