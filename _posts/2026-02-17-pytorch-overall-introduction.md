@@ -733,16 +733,14 @@ flowchart TB
         S -.->|定义调用契约| C
     end
 
-    subgraph MID["分发逻辑：按输入与上下文选择处理者"]
+    subgraph MID["中间：分发逻辑"]
         direction TB
-        K["Tensor 分发键 + 线程局部分发状态"]
-        D["Dispatcher<br/>依据 DispatchKeySet 查找处理者"]
-        AG["Autograd 包装层<br/>准备反向节点，返回时关联梯度历史"]
-        R["Redispatch<br/>排除当前 Autograd 层后重新分发"]
+        K["Tensor 分发键"]
+        T["线程局部分发状态"]
+        D["Dispatcher<br/>按照 两论查表 选择已注册的处理者"]
 
         K --> D
-        D -->|本例先选中| AG
-        AG --> R
+        T --> D
     end
 
     subgraph LOW["设备相关的下层：后端实现与计算"]
@@ -761,9 +759,9 @@ flowchart TB
     end
 
     C --> D
-    R -->|继续由 Dispatcher 选择：CPU| CPU
-    R ==>|本例：CUDA| CUDA
-    R -->|其他路径| META
+    D -->|继续由 Dispatcher 选择：CPU| CPU
+    D ==>|本例：CUDA| CUDA
+    D -->|其他路径| META
 
     classDef api fill:#e0f2fe,stroke:#0369a1;
     classDef contract fill:#f1f5f9,stroke:#64748b;
@@ -772,7 +770,7 @@ flowchart TB
 
     class A,B,C api;
     class S,K contract;
-    class D,AG,R dispatch;
+    class D, dispatch;
     class CPU,CUDA,META,CK,GK,MK compute;
 ```
 
@@ -845,7 +843,7 @@ aten::add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor
 
 Dispatcher 不直接完成加法，而是依据 Tensor 携带的分发键和线程局部的分发上下文，为当前算子选择已注册的处理者。
 
-在本章选定的主线上，可以用**两轮查表**理解 Autograd 包装与 CUDA 后端之间的协作。
+在本章选定的主线上，可以用**两轮查表**理解 Autograd 包装与 CUDA 后端之间的协作：先选中 Autograd 处理者，再由它通过 Redispatch 调用 CUDA 后端；后端调用返回后，Autograd 包装层为输出关联梯度历史。
 
 ```mermaid
 flowchart TB
@@ -854,22 +852,27 @@ flowchart TB
     K["确定有效的 DispatchKeySet"]
 
     D1["第一轮查表<br/>选中 AutogradCUDA 处理者"]
-    A["Autograd 包装层<br/>检查梯度需求，准备反向节点"]
-    R["Redispatch：重新分发<br/>使用排除当前 Autograd 层的键集合"]
+    A["Autograd 包装层：前处理<br/>检查梯度需求，准备反向节点"]
+    R["Redispatch：重新分发<br/>使用面向下层的分发键集合"]
     D2["第二轮查表<br/>选中 CUDA 后端实现"]
-    C["CUDA 后端实现<br/>组织计算并启动 Kernel"]
-    H["返回 Autograd 包装层<br/>关联输出的梯度历史"]
+    C["CUDA 后端实现<br/>准备输出，提交 Kernel 到当前 CUDA Stream"]
+    H["Autograd 包装层：后处理<br/>为输出关联梯度历史"]
+    O["向上层返回结果 Tensor"]
 
     T --> K
     L --> K
-    K --> D1 --> A --> R --> D2 --> C --> H
+    K --> D1 --> A --> R --> D2 --> C
+    C -->|"后端调用返回，不必等待 GPU 完成"| H
+    H --> O
 
     classDef input fill:#e0f2fe,stroke:#0369a1;
     classDef dispatch fill:#fef3c7,stroke:#b45309;
+    classDef autograd fill:#f3e8ff,stroke:#7e22ce;
     classDef compute fill:#dcfce7,stroke:#15803d;
 
-    class T,L input;
-    class K,D1,A,R,D2,H dispatch;
+    class T,L,O input;
+    class K,D1,R,D2 dispatch;
+    class A,H autograd;
     class C compute;
 ```
 
