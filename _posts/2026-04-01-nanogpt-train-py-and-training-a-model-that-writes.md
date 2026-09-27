@@ -290,7 +290,7 @@ model.to(device)
 
 [词表大小从数据来](#mi-meta)：`prepare.py` 写的 `meta.pkl` 里有 `vocab_size = 65`，脚本读到就用它——模型的 `wte` 和 `lm_head` 大小由数据决定，不是配置项。没有 `meta.pkl`（OpenWebText 用 GPT-2 的 BPE）就用上一篇讲的 50304。
 
-三种来源对应三种场景：
+三种来源对应 [`init_from`](#cfg-init) 的三个取值、三种场景：
 
 - [`scratch`](#mi-scratch)：从零训（预训练）。
 - [`resume`](#mi-resume)：断点续训——从 `ckpt.pt` 里读回模型参数、`iter_num`、`best_val_loss`，结构超参**强制**用 checkpoint 里的（层数对不上就加载不了），第七章再读回优化器状态。那个 `_orig_mod.` 前缀是 `torch.compile` 包装模型后 `state_dict` 键名多出来的（Infra PyTorch 第七篇），存之前没剥干净这里就剥。真实的大规模训练里 checkpoint 与恢复是一门大学问（Infra 大规模训练系列第五篇），这 22 行是它的最小形态。
