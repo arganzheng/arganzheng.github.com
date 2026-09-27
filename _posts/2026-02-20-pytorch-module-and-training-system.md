@@ -49,6 +49,23 @@ Parameter 更新
 
 本文沿着上面那条从 Module 树到参数更新的链路展开：先看一个模型对象里到底包含什么，`nn.Module` 靠什么机制发现子模块、Parameter 和 Buffer，`state_dict` 如何把模型状态变成可保存、可迁移的快照；再进入训练系统的其余部分——训练 / 评估 / 推理三种状态、Optimizer、Dataset / Sampler / DataLoader、CPU 到 GPU 的数据搬运；然后把这些部件拼成一个完整训练循环，并补上混合精度、Hook 和 checkpoint 三个工程上绕不开的话题。
 
+```mermaid
+%% 图：本文的主线：Module 树（第二至五章）→ 三种状态与 Optimizer（六、七）→ 数据管线（八、九）→ 拼成训练循环（十）→ 混合精度 / Hook / checkpoint（十一至十三）
+flowchart TB
+    subgraph M["模型对象（二 ～ 五章）"]
+        direction LR
+        A["nn.Module 树<br/>__init__ 定静态结构<br/>forward 定数据流"] --> B["注册机制<br/>__setattr__ 把 Parameter /<br/>子 Module / Buffer 登记进内部字典"] --> C["state_dict<br/>属性路径 → Tensor 的快照"]
+    end
+    subgraph T["训练部件（六 ～ 九章）"]
+        direction LR
+        D["train() / eval()<br/>no_grad / inference_mode"] --> E["Optimizer<br/>拿 parameters() 用 .grad 更新"]
+        F["Dataset → Sampler → DataLoader<br/>→ pin_memory / non_blocking 搬到 GPU"]
+    end
+    M --> T
+    T --> G["完整训练循环（十章）<br/>取 batch → forward → loss → backward → step"]
+    G --> H["工程补丁（十一 ～ 十三章）<br/>autocast / GradScaler · Hook · checkpoint"]
+```
+
 ### 2. 本文的章节安排
 
 | 章 | 主题 | 内容 |
@@ -318,45 +335,68 @@ flowchart TB
 
 ### 1. 为什么需要注册？
 
-考虑下面两种写法：
+先澄清一件事：第二章的 `MLP` 里写的 `self.fc1 = nn.Linear(...)`、`self.fc2 = nn.Linear(...)` **已经是注册**了——不是"没注册的写法"。`nn.Module` 重写了 Python 的属性赋值（下一节的 `__setattr__`），凡是把一个 `Parameter`、一个子 `Module` 赋给 `self.xxx`，它就悄悄把这个对象登记进自己的内部字典（`_parameters` / `_modules`）。你什么都不用多做，注册在赋值的那一刻就发生了。
+
+那为什么还要有"注册"这个概念？因为训练系统里有一大堆事是**替你自动做**的，它们都靠这份登记簿：
+
+| 你调用的 | 它其实在做什么 | 靠什么找到对象 |
+|---|---|---|
+| `optimizer = AdamW(model.parameters())` | 收集全部要训练的张量 | 递归遍历 `_modules`，收集每个的 `_parameters` |
+| `model.to("cuda")` / `model.half()` | 把每个参数、Buffer 搬到 GPU / 转精度 | 同上 |
+| `torch.save(model.state_dict())` | 把每个参数、Buffer 按"属性路径"存成字典 | 同上，路径就是登记时的名字 |
+| `model.train()` / `model.eval()` | 递归切换每个子模块的模式 | `_modules` |
+| `register_forward_hook` | 在每个子模块前后插钩子 | `_modules` |
+
+Table: 训练系统替你自动做的五件事，都依赖注册
+
+登记簿上没有的对象，这五件事全部对它视而不见。下面就是唯一一种常见的"漏登记"：把子模块放进一个**普通 Python list**——list 既不是 `Parameter` 也不是 `Module`，`__setattr__` 只会把它当普通属性存起来，里面的两个 `Linear` 于是从登记簿上消失：
 
 ```python
 class BadMLP(nn.Module):
     def __init__(self) -> None:
         super().__init__()
-        self.layers = [
+        self.layers = [                       # 普通 list：__setattr__ 看到的是 list，不是 Module
             nn.Linear(10, 20),
             nn.Linear(20, 1),
         ]
-```
 
-以及：
+    def forward(self, x):
+        for layer in self.layers:             # forward 里照样能用——问题不在这里
+            x = layer(x)
+        return x
 
-```python
+
 class GoodMLP(nn.Module):
     def __init__(self) -> None:
         super().__init__()
-        self.layers = nn.ModuleList([
+        self.layers = nn.ModuleList([         # ModuleList 自己是一个 Module，里面的 Linear 会被登记
             nn.Linear(10, 20),
             nn.Linear(20, 1),
         ])
+
+    def forward(self, x):
+        for layer in self.layers:
+            x = layer(x)
+        return x
 ```
 
-前者把子模块放进普通 Python list，后者使用 `ModuleList` 注册子模块。
+两者的 `forward` 一模一样、都能算出结果，差别只在登记簿：
 
 ```python
-bad = BadMLP()
-good = GoodMLP()
-
-print(sum(parameter.numel() for parameter in bad.parameters()))
-print(sum(parameter.numel() for parameter in good.parameters()))
+bad, good = BadMLP(), GoodMLP()
+print(sum(p.numel() for p in bad.parameters()))    # 0     ← 优化器拿到 0 个参数
+print(sum(p.numel() for p in good.parameters()))   # 241   ← 10×20+20 + 20×1+1
+print(bad.state_dict().keys())                     # odict_keys([])：checkpoint 里什么都没有
+bad.to("cuda"); print(bad.layers[0].weight.device) # cpu   ← 没搬动，前向时报 device mismatch
 ```
 
-普通 list 中的 Linear 可能不会被 Module 的参数遍历发现；`ModuleList` 中的 Linear 则会进入模块树。
+用 `BadMLP` 训练的症状很典型：代码不报错、loss 一直不降——因为 `AdamW(bad.parameters())` 拿到的是空列表，`optimizer.step()` 每步什么都没更新。
 
 这就是注册机制的意义：
 
-> **只有被 Module 认识的对象，才能自动参与参数遍历、状态保存、设备迁移和训练生命周期管理。**
+> **只有被 Module 登记过的对象，才能自动参与参数遍历、状态保存、设备迁移和训练生命周期管理。** 直接赋值 `Parameter` / `Module` 会自动登记；装在 list / dict / tuple 里的不会——要用 `ModuleList` / `ModuleDict`（第 3、4 节），它们自己是 Module，所以既能像容器一样用，又会把里面的东西登记上。
+
+下面几节会用到 `Parameter`（可训练的张量）和 `Buffer`（随模型保存、但不训练的张量，比如 BatchNorm 的均值）两个词，第四章再给完整定义，这里知道它们是登记簿上除子模块之外的另两类条目即可。
 
 ### 2. `__setattr__()` 的作用
 
@@ -420,6 +460,8 @@ flowchart TB
     class Q1,Q2,Q3 q;
 ```
 
+图里三个菱形都答"否"时走最下面的灰色分支：值只是存进 Python 对象的 `__dict__`，成为一个普通属性——`self.counter = 0`、`self.config = cfg`、以及上一节那个 `self.layers = [...]` 都在这里。它们照常可以在 `forward` 里读写，只是框架的五件自动化的事都不认识它们。
+
 注意 Buffer 有两条登记路径：一是“名字已经被 `register_buffer()` 登记过”——之后 `self.scale = new_tensor` 会更新 Buffer 而不是变成普通属性；二是 value 的类型是 `torch.nn.Buffer`（2.5 起，`module.py` 里 `__setattr__` 有一个 `isinstance(value, Buffer)` 分支）——`self.scale = nn.Buffer(torch.ones(10))` 与 `register_buffer` 等价，写法上和 `Parameter` 对称。普通 `Tensor` 直接赋值仍然只是属性。
 
 这也是为什么下面几种对象的行为不同：
@@ -439,6 +481,16 @@ int       → 普通属性
 ```
 
 ### 3. `ModuleList`
+
+三种容器解决的都是同一个问题：**子模块的数量或名字在写代码时不固定**（层数由配置决定、有几个输出头由任务决定），没法一个个写 `self.layer1 = ...`、`self.layer2 = ...`；又不能用普通 list / dict，否则第 1 节的漏登记就发生了。容器自己是一个 `Module`，赋给 `self.layers` 时被登记，它再把里面的每个子模块登记到自己名下（名字是 `layers.0`、`layers.1`……或 dict 的键）。三者的选择只看你需要哪种访问方式：
+
+| 容器 | 什么时候用 | forward 里怎么用 |
+|---|---|---|
+| `ModuleList` | 一组同类子模块、按下标访问，层数由参数决定（Transformer 的 N 层 block） | 自己写循环：`for layer in self.layers: x = layer(x)`，中间可以插别的逻辑 |
+| `ModuleDict` | 一组子模块要按**名字**取（多任务的多个输出头、按类型选专家） | `self.heads["classification"](x)` |
+| `Sequential` | 严格"上一个的输出就是下一个的输入"的直线结构 | 不用写 forward，`model(x)` 自动串着跑 |
+
+Table: 三种 Module 容器的用途与用法
 
 当需要保存一组按顺序执行的子模块时，可以使用：
 
@@ -1027,20 +1079,7 @@ optimizer.state_dict()
 
 以 FP32 + Adam(W) 为例，每一个标量参数在显存里对应四块同样大小的内存，其中一半属于 Optimizer state：
 
-```text
-每个参数（FP32, Adam/AdamW）
-┌────────────┬────────────┬────────────┬────────────┐
-│   param    │    grad    │  exp_avg   │ exp_avg_sq │
-│  (weight)  │  (.grad)   │ (一阶动量) │ (二阶动量) │
-│    4 B     │    4 B     │    4 B     │    4 B     │
-└────────────┴────────────┴────────────┴────────────┘
- ◀───── Module 持有 ─────▶ ◀── Optimizer.state 持有 ──▶
-                                        合计 16 B / 参数
-
-换算：7B 参数模型
-    7e9 × 16 B  ≈ 112 GB           （尚未计入激活值、临时缓冲）
-    其中 param + grad = 56 GB，Optimizer state = 56 GB
-```
+![FP32 + Adam(W) 下每个参数的 16 字节：param、grad 各 4 B 由 Module 持有，exp_avg、exp_avg_sq 各 4 B 由 Optimizer.state 持有；7B 模型换算 112 GB，其中 Optimizer state 56 GB](/img/in-post/pytorch-module-16-bytes-per-parameter.svg)
 
 这也是大模型训练中 Optimizer state 可能成为显存主要消耗者的原因之一：Adam 训练下每个参数要占 16 字节（参数、梯度、两个动量），第八篇会算这笔账。多卡训练时 Optimizer state 是最先被切分到各卡上的状态——第九篇的 ZeRO 与 FSDP 从这里开始。
 

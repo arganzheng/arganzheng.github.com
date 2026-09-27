@@ -40,8 +40,8 @@ from contextlib import nullcontext
 REGISTRY = {}
 
 
-def registered(name):                        # 带参数的装饰器：注册表
-    def decorator(cls):
+def registered(name):                        # 带参数的装饰器：registered("runner") 先被调用，返回下面的 decorator
+    def decorator(cls):                      # 真正的装饰器：拿到被装饰的类 Runner，登记后原样返回
         if name in REGISTRY:
             raise ValueError(f"duplicate registration: {name}")
         REGISTRY[name] = cls
@@ -1009,7 +1009,57 @@ Java 7 的 try-with-resources 是同一个思路：实现 `AutoCloseable`，`clo
 
 ## 七、一个推理组件的完整运行时追踪
 
-回到第一章的 `runner.py`。现在可以按时间顺序，用上下两篇的机制精确描述它的每一步——上篇的导入、帧与异常传播，本篇的对象创建、属性查找、协议、生成器与上下文管理器。
+回到第一章的 `runner.py`，为了不用来回翻，把它原样贴在这里（行号旁的蓝色数字可点，下面各阶段的描述会链接回具体的行）：
+
+```python
+# runner.py
+from contextlib import nullcontext
+
+REGISTRY = {}
+
+
+# !ref registered +7
+def registered(name):                        # 带参数的装饰器：registered("runner") 先被调用，返回下面的 decorator
+    def decorator(cls):                      # 真正的装饰器：拿到被装饰的类 Runner，登记后原样返回
+        if name in REGISTRY:
+            raise ValueError(f"duplicate registration: {name}")
+        REGISTRY[name] = cls
+        return cls
+
+    return decorator
+
+
+# !ref ctx +7
+class InferenceContext:                      # 上下文管理器：进入/退出推理模式
+    def __enter__(self):
+        print("enter inference mode")
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        print("exit inference mode")
+        return False
+
+
+# !ref apply
+@registered("runner")
+class Runner:
+    # !ref init +2
+    def __init__(self, model, inference=True):
+        self.model = model
+        self.inference = inference
+
+    # !ref call +3
+    def __call__(self, batch):               # 可调用协议
+        context = InferenceContext() if self.inference else nullcontext()
+        with context:
+            return self.model(batch)
+
+    # !ref stream +1
+    def stream(self, batch):                 # 生成器：流式输出
+        yield from self.model.generate(batch)
+```
+
+现在可以按时间顺序，用上下两篇的机制精确描述它的每一步——上篇的导入、帧与异常传播，本篇的对象创建、属性查找、协议、生成器与上下文管理器。
 
 ### 1. 导入阶段
 
@@ -1021,9 +1071,9 @@ Java 7 的 try-with-resources 是同一个思路：实现 `AutoCloseable`，`clo
 4. 编译整个文件为 code object（[上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码) §1），在模块 `__dict__` 中执行顶层代码：
    - `from contextlib import nullcontext`：`contextlib` 已在 `sys.modules`，直接绑定名称；
    - `REGISTRY = {}`：创建字典；
-   - `def registered(name)`：创建函数对象，`__globals__` 指向本模块的 `__dict__`（[上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码) §2）；
+   - [`def registered(name)`](#registered)：创建函数对象，`__globals__` 指向本模块的 `__dict__`（[上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码) §2）；
    - `class InferenceContext:`：执行类体、调用 `type` 创建类对象（第二章 §1）；
-   - `@registered("runner") class Runner:`：先执行类体得到类对象，然后调用 `registered("runner")` 得到 `decorator`（闭包持有 `name`，[上篇第三章](/python-execution-model-scopes-imports-and-exceptions.html#三作用域与闭包名称在哪里被解析) §2），再调用 `decorator(Runner)`——写入 `REGISTRY`，返回原类（第四章 §5）；名称 `Runner` 绑定到它。
+   - [`@registered("runner") class Runner:`](#apply)：先执行类体得到类对象，然后调用 `registered("runner")` 得到 `decorator`（闭包持有 `name`，[上篇第三章](/python-execution-model-scopes-imports-and-exceptions.html#三作用域与闭包名称在哪里被解析) §2），再调用 `decorator(Runner)`——写入 `REGISTRY`，返回原类（第四章 §5）；名称 `Runner` 绑定到它。
 5. 导入方拿到模块对象或 `Runner` 名称。
 
 如果没有任何模块导入 `runner`，第 4 步不会发生，`REGISTRY` 里不会有 `"runner"`。如果 `runner.py` 同时被当作脚本运行又被别的模块导入，第 4 步会执行两次，第二次抛出 `duplicate registration`（[上篇第四章](/python-execution-model-scopes-imports-and-exceptions.html#四模块与导入系统代码如何被加载) §4）。
@@ -1034,18 +1084,18 @@ Java 7 的 try-with-resources 是同一个思路：实现 `AutoCloseable`，`clo
 
 1. `Runner` 是类对象，调用它执行 `type.__call__(Runner, model)`（第二章 §7）；
 2. `Runner.__new__(Runner)` 分配实例（未重写，走 `object.__new__`）；
-3. `Runner.__init__(instance, model)` 执行：`self.model = model`、`self.inference = True`，两次赋值走默认 `__setattr__`，写入实例 `__dict__`（第二章 §2）；
+3. [`Runner.__init__(instance, model)`](#init) 执行：`self.model = model`、`self.inference = True`，两次赋值走默认 `__setattr__`，写入实例 `__dict__`（第二章 §2）；
 4. 返回实例，名称 `runner` 绑定到它。
 
 ### 3. 调用阶段
 
 `output = runner(batch)`：
 
-1. 解释器在 `type(runner)` 上查找 `__call__` 槽位（第三章 §1），找到 `Runner.__call__`；
+1. 解释器在 `type(runner)` 上查找 `__call__` 槽位（第三章 §1），找到 [`Runner.__call__`](#call)；
 2. 函数作为非数据描述符被绑定，`self = runner`（第二章 §5），创建新的执行帧（[上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码) §3）；
 3. `self.inference`：类 MRO 上没有同名描述符，实例 `__dict__` 中命中（第二章 §3 的 ③）；
 4. `InferenceContext()` 创建上下文管理器实例；
-5. `with context:` 调用 `__enter__`，打印 `enter inference mode`（第六章 §1）；
+5. `with context:` 调用 [`__enter__`](#ctx)，打印 `enter inference mode`（第六章 §1）；
 6. `self.model(batch)`：`model` 是什么类型就走什么类型的 `__call__`——如果是 `nn.Module`，进入 `_wrapped_call_impl` → hooks → `forward`（第三章 §2）；
 7. `return` 触发 `with` 的退出路径，`__exit__(None, None, None)` 打印 `exit inference mode`，返回 `False`；
 8. 帧销毁，返回值绑定到 `output`。
@@ -1054,7 +1104,7 @@ Java 7 的 try-with-resources 是同一个思路：实现 `AutoCloseable`，`clo
 
 `for out in runner.stream(batch):`：
 
-1. `runner.stream` 绑定为方法，调用它**不执行函数体**，返回一个 `GEN_CREATED` 状态的生成器对象（第五章 §1）；
+1. [`runner.stream`](#stream) 绑定为方法，调用它**不执行函数体**，返回一个 `GEN_CREATED` 状态的生成器对象（第五章 §1）；
 2. `for` 调用 `iter()`，生成器返回自身（第三章 §3）；
 3. 第一次 `next()`：进入函数体，`self.model.generate(batch)` 被调用，返回模型的生成器；`yield from` 开始转发（第五章 §3）；
 4. 每产生一个 token，两个生成器的帧都挂起，控制权回到 `for` 循环体；

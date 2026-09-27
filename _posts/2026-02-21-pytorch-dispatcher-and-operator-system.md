@@ -94,8 +94,8 @@ flowchart TB
 
 | 章 | 主题 | 内容 |
 |---|---|---|
-| 二 | ~ 五 | 开发态：定义 → 注册 → 实现 → Codegen（横向粘合） |
-| 六 | ~ 八 | 运行态：入口 → 分发 → 执行 |
+| 二 ~ 五 | 开发态 | 定义 → 注册 → 实现 → Codegen（横向粘合） |
+| 六 ~ 八 | 运行态 | 入口 → 分发 → 执行 |
 | 九 | 串起来：add 的完整路径，开发者做了什么 / 用户调用时发生了什么 |  |
 | 十 | Java 对照 |  |
 | 十一 | 小结 |  |
@@ -302,6 +302,48 @@ lib.impl("scale", scale_cuda, "CUDA")
 Table: add.Tensor 在 Operator Table 中的一行
 
 运行态的 Dispatcher 做的事，就是拿着 DispatchKeySet 在这一行里按优先级查一个非空槽位。
+
+上面是**逻辑视图**。它在内存里的**物理视图**是两层结构——一张"算子名 → 条目"的哈希表，每个条目里一个按 DispatchKey 下标的定长数组：
+
+```mermaid
+%% 图：Operator Table 的物理结构：Dispatcher 单例持有 operatorLookupTable_（算子名 → OperatorEntry），每个 OperatorEntry 里 dispatchTable_ 是按 DispatchKey 下标的 KernelFunction 定长数组
+flowchart TB
+    D["Dispatcher（进程内单例）<br/>operatorLookupTable_: flat_hash_map&lt;OperatorName, OperatorHandle&gt;"]
+    D -->|"add.Tensor"| E1
+    D -->|"mul.Tensor"| E2["OperatorEntry …"]
+    D -->|"myops::scale"| E3["OperatorEntry …"]
+    subgraph E1["OperatorEntry for add.Tensor"]
+        direction TB
+        S["schema_：add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor"]
+        K["kernels_：flat_hash_map&lt;DispatchKey, list&lt;AnnotatedKernel&gt;&gt;<br/>开发态：每个 Key 下注册过的全部实现（可叠、可撤销）"]
+        T["dispatchTable_：array&lt;KernelFunction, num_runtime_entries&gt;<br/>运行态：每个 Key 一个槽，由 kernels_ 算好后填入"]
+        K -->|"注册 / 反注册时重算"| T
+    end
+    T --> R["lookup(ks)：idx = ks 里最高优先级 key 的下标<br/>return dispatchTable_[idx]"]
+```
+
+对应到源码（`aten/src/ATen/core/dispatch/OperatorEntry.h`，节选）：
+
+```cpp
+class OperatorEntry {
+  // ...
+  const KernelFunction& lookup(DispatchKeySet ks) const {
+    const auto idx = ks.getDispatchTableIndexForDispatchKeySet();   // 取最高优先级 key 对应的下标
+    if (C10_UNLIKELY(idx == -1)) reportError(ks.highestPriorityTypeId());
+    const auto& kernel = dispatchTable_[idx];                          // O(1) 数组下标，不是哈希查找
+    // ...
+    return kernel;
+  }
+ private:
+  OperatorName name_;                                                  // "aten::add" + overload "Tensor"
+  std::optional<AnnotatedSchema> schema_;                              // 第二章的 Schema
+  std::array<KernelFunction, c10::num_runtime_entries> dispatchTable_; // 运行态查表：每个 DispatchKey 一个槽
+  DispatchKeyExtractor dispatchKeyExtractor_;                          // 知道从哪几个参数里取 DispatchKeySet
+  ska::flat_hash_map<DispatchKey, std::list<AnnotatedKernel>> kernels_; // 开发态账本：谁在哪个 Key 下注册了什么
+};
+```
+
+两张表分工明确：`kernels_` 是**开发态**的账本，`TORCH_LIBRARY_IMPL` 每注册一个实现就往对应 Key 的 list 头部插一条（所以后注册的覆盖先注册的，反注册时又能恢复）；`dispatchTable_` 是**运行态**的快表，每次 `kernels_` 变化后由 `updateDispatchTable_` 重算——把每个 Key 该用的那一个 kernel（本 Key 的、或 Alias Key 如 `CompositeImplicitAutograd` 的、或 fallback）填进槽位。运行时 `lookup` 只碰 `dispatchTable_`：一次位运算取下标、一次数组访问，这是每个算子调用都要走的路径，不能慢。上面那张"DispatchKey | Kernel"的表，就是 `dispatchTable_` 里非空槽位的可读版本。
 
 ### 5. 没有注册会怎样
 

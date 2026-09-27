@@ -122,18 +122,24 @@ Tensor 有两个需要分开的层次：
 逻辑形状相同的两个 Tensor，物理布局可以不同：
 
 ```python
-x = torch.randn(2, 3)
-y = x.t()
+x = torch.tensor([[1, 2, 3], [4, 5, 6]])
+y = torch.tensor([[1, 4], [2, 5], [3, 6]]).t()   # 先建一个 3×2，再转置
 
-print(x.shape)  # torch.Size([2, 3])
-print(y.shape)  # torch.Size([3, 2])
+print(x.shape, y.shape)          # torch.Size([2, 3]) torch.Size([2, 3])
+print(torch.equal(x, y))         # True：逐元素完全相同
+print(x.stride(), y.stride())    # (3, 1) (1, 2)
+print(x.is_contiguous(), y.is_contiguous())   # True False
 ```
 
-`y` 的逻辑形状发生了变化，但它可能仍然使用 `x` 的底层存储。它并不一定需要重新分配并复制六个元素。
+两者的形状、打印出来的数字一模一样，但底层的六个格子排得不一样——把逻辑视图和底层存储并排画出来：
 
-这就是 Tensor 与普通二维数组的一个重要差异：
+![逻辑形状相同（都是 2×3）、物理布局不同：x 的存储是 1 2 3 4 5 6、stride (3, 1)；y 的存储是 1 4 2 5 3 6、stride (1, 2)，每个逻辑下标 [i, j] 用 i·stride₀ + j·stride₁ 算出存储位置](/img/in-post/pytorch-tensor-same-shape-different-stride.svg)
 
-> Tensor 的逻辑维度和底层内存布局可以分离。
+`x` 的存储顺序就是行优先的 `1 2 3 4 5 6`，读 `x[i, j]` 去第 `i*3 + j` 格；`y` 的存储顺序是 `1 4 2 5 3 6`（它是那个 `3×2` 矩阵按行存的），读 `y[i, j]` 去第 `i*1 + j*2` 格。**同一个逻辑下标，两个 Tensor 走到的存储位置不同，靠的就是各自的 stride。** 转置 `.t()` 没有搬动任何数据，只是把 stride 从 `(2, 1)` 换成了 `(1, 2)`——这就是第四、五章要展开的机制。
+
+反过来的情况也成立：`x.t()` 形状变成 `3×2`、却和 `x` 用同一份存储。两件事合起来才是 Tensor 与普通二维数组的差异：
+
+> Tensor 的逻辑维度和底层内存布局是两层独立的信息：形状相同不代表存储相同，形状不同也不代表存储不同。连接它们的是 stride。
 
 ### 3. Tensor 的核心字段
 
@@ -255,7 +261,7 @@ x = torch.arange(6)
 y = x.view(2, 3)
 ```
 
-如果布局不满足要求，`view()` 通常会直接报错，而不是自动复制。
+如果布局不满足要求，`view()` 通常会直接报错，而不是自动复制。这里先给一个后面反复用到的词一个最短的定义：**contiguous**（连续）指 Tensor 的元素在底层存储里的顺序，和按行优先一个个数过去的逻辑顺序完全一致——上一章 `x` 是，`y` 不是。`view()` 能不能成功，本质上是在问"目标形状能不能用一组 stride 描述当前存储"；对 contiguous 的 Tensor 永远可以。第六章专门讲它。
 
 **`reshape()`**
 
@@ -734,16 +740,19 @@ contiguous()
 
 > 不要为了“看起来整齐”无条件调用 `contiguous()`，要根据后续算子是否需要以及拷贝成本决定。
 
-### 4. 不同 layout 不只有 contiguous 和 non-contiguous
+### 4. "layout" 到底指什么
 
-PyTorch 还支持其他布局概念，例如：
+前文几处出现的"布局 / layout"其实是三个不同层次的词，读源码和报错信息时要分清：
 
-- channels-last；
-- sparse layout；
-- MKLDNN layout；
-- nested layout。
+| 层次 | 在 PyTorch 里的名字 | 取值 | 回答什么问题 |
+|---|---|---|---|
+| **口语里的布局** | 本文说的"物理布局" | 由 `stride` + `storage_offset` 决定 | 逻辑下标怎么映到存储位置；`is_contiguous()` 只回答"是不是行优先连续"这一个具体问题 |
+| **memory format** | `torch.contiguous_format` / `torch.channels_last` / `torch.preserve_format` | `x.to(memory_format=torch.channels_last)` | 对**同样是 strided** 的 Tensor，四维图像 `[N, C, H, W]` 在内存里按 NCHW 还是 NHWC 排——卷积 Kernel 对后者更快；它也是一种 stride 模式，`is_contiguous(memory_format=...)` 可以按它检查 |
+| **`torch.layout`** | `x.layout` 属性 | `torch.strided`（默认）、`torch.sparse_coo`、`torch.sparse_csr`、`torch.jagged`（nested）、`torch._mkldnn` | 数据**根本不按 stride 组织**的情形：稀疏矩阵只存非零元素的坐标和值，nested 存变长序列——这些 Tensor 没有 `stride()` 可言 |
 
-所以工程中不应把 layout 简化成一个布尔值。`is_contiguous()` 只是在默认布局语境下回答一个具体问题，不代表 Tensor 的所有存储属性。
+Table: "layout" 一词的三个层次：口语的物理布局、memory format、torch.layout
+
+本文讨论的一切（stride、view、contiguous）都发生在第一、二层，也就是 `layout == torch.strided` 的前提下。所以工程中不应把 layout 简化成一个布尔值：`is_contiguous()` 只是在默认 strided 布局、默认 memory format 下回答一个具体问题，不代表 Tensor 的所有存储属性。
 
 
 ## 七、Storage、Storage Offset 与共享内存
@@ -1107,15 +1116,27 @@ print(targets.device)
 
 ### 5. Meta Device 不是普通计算设备
 
-Meta Tensor 可以只携带 shape、dtype 等元数据，而不分配真实数据：
+Meta Tensor 只有逻辑视图、没有物理存储：它携带本文讨论过的全部元数据——`shape`、`stride`、`storage_offset`、`dtype`、`device`、`layout`、`requires_grad`——唯独不分配 Storage 里的数据：
 
 ```python
 with torch.device("meta"):
     x = torch.empty(2, 3)
 
-print(x.shape)
-print(x.device)
+print(x.shape, x.stride(), x.dtype, x.device)   # torch.Size([2, 3]) (3, 1) torch.float32 meta
+print(x.data_ptr())                              # 0：Storage 只记了"该有 24 字节"，没有真的分配
+x + 1                                            # 可以：shape / dtype 照常推断，结果仍是 meta
+x.sum().item()                                   # 报错：没有数据可读
 ```
+
+| | 普通 Tensor（CPU / CUDA） | Meta Tensor |
+|---|---|---|
+| shape · stride · offset · dtype · layout · requires_grad | 有 | 有，一样可读、一样参与形状推断 |
+| device | `cpu` / `cuda:0` | `meta` |
+| Storage 里的数据 | 有，占 `numel × itemsize` 字节 | **没有**：Storage 只记录字节数，`data_ptr()` 为 0，不占内存 |
+| 能做什么 | 一切运算 | 只能做"算形状"的事：`x @ w` 得到正确 shape 的 meta 结果 |
+| 不能做什么 | — | 读数值：`.item()`、`print(x)` 的数值部分、`.tolist()` |
+
+Table: 普通 Tensor 与 Meta Tensor：元数据都有，差的只是 Storage 里的数据
 
 它适合：
 
@@ -1256,7 +1277,7 @@ z = x + y
 - 其中一个为 1；
 - 某个维度不存在。
 
-对 `(2, 3) + (3,)` 这个例子，PyTorch 实际做的是先把 `y` 右对齐补成 `(1, 3)`，再用 `expand` 得到一个 `shape=(2,3)`、`stride=(0,1)` 的视图，物理上不多占一个字节：
+先说为什么要有这一步：逐元素相加要求两边每个位置一一对应，`(2, 3)` 有 6 个位置、`(3,)` 只有 3 个，不能直接对。最直白的办法是把 `y` 抄两份拼成 `(2, 3)` 再加——多占一份内存、多一次拷贝。`expand` 做的是同一件事的零成本版本：**不抄数据，只造一个看起来是 `(2, 3)` 的视图**，让第 0 行和第 1 行都指向 `y` 那 3 个格子。对 `(2, 3) + (3,)` 这个例子，PyTorch 实际做的是先把 `y` 右对齐补成 `(1, 3)`（顺带说明写法：`(3,)` 里的逗号表示"一元组"，它是一维的、缺的是**前面**的维度，所以补成一行三列而不是三行一列），再用 `expand` 得到一个 `shape=(2,3)`、`stride=(0,1)` 的视图，物理上不多占一个字节：
 
 ```text
 第一步：右对齐比较各维
@@ -1300,10 +1321,10 @@ Table: expand() 与 repeat() 的存储语义
 
 ### 3. 广播不等于真实复制
 
-```text
-逻辑上：y 看起来扩展成了更大的形状
-物理上：底层数据可能仍然只有一份
-```
+- 逻辑上：`y` 看起来扩展成了更大的形状，运算时按 `(2, 3)` 的每个位置取值；
+- 物理上：底层数据仍然只有一份，第 0 行和第 1 行读的是同一段内存。
+
+所以"扩展"改的是**怎么读**（shape 和 stride），不是**存了什么**——目的只有一个：让两个形状不同的操作数能逐元素对应起来，而不为此复制数据。
 
 这也是 stride 重要的原因：一个维度的 stride 为 0 时，索引增加并不一定导致物理地址增加。
 
@@ -1688,25 +1709,27 @@ reshape / contiguous
 6. 是否延长了某块内存的生命周期？
 7. 是否影响 Autograd 或后续 Kernel？
 
-### 4. 两张 Tensor 地图
+### 4. 一张 Tensor 地图
+
+把全文的字段放回一张图：上面是读者看到的逻辑层，下面是内存里的物理层，两层由 stride / offset 连接，算子执行时要同时看两层。
 
 ```mermaid
-%% 图：两张 Tensor 地图：逻辑形状、物理布局、底层存储、类型与位置如何汇入算子执行
+%% 图：Tensor 地图：逻辑层（shape）与物理层（Storage + strides / offset）由 stride 连接，dtype / device 决定怎么解释与在哪执行，三者一起进入算子
 flowchart TB
-    A[Tensor API]
-    B[逻辑形状<br/>sizes / shape]
-    C[物理布局<br/>strides / offset]
-    D[底层存储<br/>Storage]
-    E[类型与位置<br/>dtype / device]
-    F[算子执行]
-
-    A --> B
-    A --> C
-    A --> E
-    B --> F
-    C --> F
-    D --> C
-    E --> F
+    subgraph LOGIC["逻辑层：用户看到的"]
+        direction LR
+        B["shape / sizes<br/>几行几列"]
+        E["dtype / device<br/>每个数怎么解释、在哪"]
+    end
+    subgraph PHYS["物理层：内存里的"]
+        direction LR
+        C["strides / storage_offset<br/>下标 → 存储位置"]
+        D["Storage<br/>一段底层数据"]
+        C --> D
+    end
+    B -. "同一 shape 可对应不同 stride" .-> C
+    LOGIC --> F["算子执行<br/>按 shape 遍历，按 stride 取数，按 dtype 算，在 device 上跑"]
+    PHYS --> F
 ```
 
 ### 5. 本篇涉及的源码位置

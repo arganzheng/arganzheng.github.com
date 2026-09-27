@@ -55,8 +55,8 @@ from contextlib import nullcontext
 REGISTRY = {}
 
 
-def registered(name):                        # 带参数的装饰器：注册表
-    def decorator(cls):
+def registered(name):                        # 带参数的装饰器：registered("runner") 先被调用，返回下面的 decorator
+    def decorator(cls):                      # 真正的装饰器：拿到被装饰的类 Runner，登记后原样返回
         if name in REGISTRY:
             raise ValueError(f"duplicate registration: {name}")
         REGISTRY[name] = cls

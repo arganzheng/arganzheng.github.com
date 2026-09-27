@@ -904,13 +904,11 @@ NotImplementedError: Could not run 'myops::scale_shift' with arguments from the 
 
 ### 1. CUDA 实现要多做的事
 
-```text
-Kernel 的 grid / block 配置
-在正确的 CUDA stream 上 launch
-使用设备指针而不是主机指针
-launch 后的错误检查
-多卡时切换到正确的设备
-```
+1. Kernel 的 grid / block 配置；
+2. 在正确的 CUDA stream 上 launch；
+3. 使用设备指针而不是主机指针；
+4. launch 后的错误检查；
+5. 多卡时切换到正确的设备。
 
 ### 2. 读懂一个 Kernel 需要的几个概念
 
@@ -920,11 +918,13 @@ launch 后的错误检查
 
 **Kernel、Thread、Block、Grid**。`__global__` 标记的函数是 Kernel，它描述**一个线程**做什么；launch 时用 `<<<blocks, threads>>>` 指定启动多少线程：`threads` 个线程组成一个 block，`blocks` 个 block 组成一个 grid。所有线程执行同一段代码，靠内建变量区分自己：
 
-```text
-threadIdx.x    线程在 block 内的编号        0 .. blockDim.x - 1
-blockIdx.x     block 在 grid 内的编号       0 .. gridDim.x - 1
-blockDim.x     每个 block 的线程数          launch 时给定
-```
+| 内建变量 | 含义 | 取值范围 |
+|---|---|---|
+| `threadIdx.x` | 线程在 block 内的编号 | `0 .. blockDim.x - 1` |
+| `blockIdx.x` | block 在 grid 内的编号 | `0 .. gridDim.x - 1` |
+| `blockDim.x` | 每个 block 的线程数 | launch 时给定 |
+
+Table: CUDA Kernel 里区分"我是谁"的三个内建变量
 
 于是 `blockIdx.x * blockDim.x + threadIdx.x` 就是一个全局唯一的线程编号，最常见的用法就是让第 `i` 个线程处理第 `i` 个元素——下面的 Kernel 正是这样。`n` 通常不是 `threads` 的整数倍，最后一个 block 会有多余线程，所以 Kernel 里必须有 `if (i < n)` 的边界检查。
 
@@ -1236,25 +1236,21 @@ flowchart TB
 
 ### 1. 至少要测什么
 
-```text
-正确性
-├── 与参考实现 alpha * x + beta 数值一致
-├── shape：标量、一维、高维、空 Tensor
-├── dtype：float32 / float64 / float16 / bfloat16
-├── CPU 与 CUDA 结果一致
-├── contiguous 与 non-contiguous 输入
-├── 非法输入：整数 dtype、错误设备 → 应报清晰错误而非崩溃
-└── 极端数值：inf、nan、极大 alpha
-
-Autograd
-├── gradcheck（一阶）
-└── gradgradcheck（二阶，如支持）
-
-系统集成
-├── Fake 与真实实现的 shape / dtype 一致
-├── torch.compile 下能被捕获且结果正确
-└── 多 GPU 下在正确设备上执行
-```
+- **正确性**
+  - 与参考实现 `alpha * x + beta` 数值一致；
+  - shape：标量、一维、高维、空 Tensor；
+  - dtype：float32 / float64 / float16 / bfloat16；
+  - CPU 与 CUDA 结果一致；
+  - contiguous 与 non-contiguous 输入；
+  - 非法输入：整数 dtype、错误设备 → 应报清晰错误而非崩溃；
+  - 极端数值：inf、nan、极大 alpha。
+- **Autograd**
+  - `gradcheck`（一阶）；
+  - `gradgradcheck`（二阶，如支持）。
+- **系统集成**
+  - Fake 与真实实现的 shape / dtype 一致；
+  - `torch.compile` 下能被捕获且结果正确；
+  - 多 GPU 下在正确设备上执行。
 
 ### 2. `torch.library.opcheck`
 
