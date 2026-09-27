@@ -18,6 +18,32 @@ updated: 2026-09-14
 
 ## 一、总览：三笔账与一个结论
 
+### 0. 先说清楚"多模态"是怎么接进来的
+
+算账之前，先把机制说明白——否则下面每一笔账都不知道在算谁。一个只会读文字的 LLM 之所以能"看图"，靠的是**把图片伪装成一段 token**，插进文字 token 中间，decoder 完全不知道它们来自图片：
+
+```mermaid
+%% 图：多模态 LLM 怎么把一张图接进来：图片切成 patch → vision encoder（ViT）把每个 patch 变成向量 → connector 压缩并投影成 decoder 的 embedding 维度 → 作为 image token 插进文字 token 序列 → decoder 照常做 attention 和生成
+flowchart TB
+    IMG["一张图 1024 × 1024 像素"] --> P["patchify：切成 14 × 14 的小方块<br/>→ 约 5000 个 patch，每个先拉直成向量"]
+    P --> ENC["vision encoder（ViT，一个独立的 Transformer）<br/>每个 patch 变成一个 d_enc 维向量，patch 之间做 attention"]
+    ENC --> CON["connector：2×2 合并 + MLP<br/>÷4 变成约 1300 个向量，并投影到 decoder 的 d_model 维"]
+    TXT["文字 prompt：请描述这张图"] --> TOK["tokenizer + embedding 表<br/>→ 文字 token 的 embedding"]
+    CON --> SEQ["拼成一个序列：[文字 token] [约 1300 个 image token] [文字 token]<br/>每个位置都是一个 d_model 维向量，decoder 分不出谁来自图"]
+    TOK --> SEQ
+    SEQ --> DEC["decoder：照常 prefill、KV cache、逐 token 生成文字"]
+```
+
+三段各自是什么、为什么需要：
+
+1. **vision encoder**（视觉编码器）：文字有 tokenizer 把字切成 token，图片没有——像素太多（100 万个），也没有"词"。ViT 的办法是先把图切成 14×14 像素的小方块（**patch**，相当于图片的"字"），每个方块拉直成一个向量，再用一个独立的 Transformer 让方块之间互相看（attention），输出每个方块的语义向量。这个 encoder 通常先用图文对比学习（CLIP，L0 第二篇提过）单独训好，所以它输出的向量已经"懂图"。
+2. **connector**（连接层）：encoder 输出的向量维度（比如 1280）和 decoder 用的维度（4096）不一样，个数也太多（几千个）——所以要一个小网络把相邻几个合并、再投影到 decoder 的维度。它输出的每个向量就叫一个 **image token**：从 decoder 的角度看，它和查 embedding 表得到的文字 token 向量没有任何区别。
+3. **decoder**：就是前七篇讨论的那个 LLM。image token 插在文字 token 之间，attention 让文字 token 能"看到"图片 token，于是模型可以回答关于图的问题。也正因为 decoder 一视同仁，每个 image token 都要走一遍 prefill、都要占一份 KV cache——这就是本篇要算的账。
+
+另一条路线（第五章）：不把图片塞进序列，而是在 decoder 的部分层里加 cross-attention，让文字 token 去"查"图片特征——图片不占序列位置、不占主 KV，代价是多出一组 cross-attention 参数。
+
+VLM 的结构选择（connector 有几种、注入方式怎么选、动态分辨率怎么做）与训练配方，在 L7 多模态系列的[第二篇](/vlm-architecture-connectors-injection-and-dynamic-resolution.html)、[第三篇](/vlm-training-recipe-data-stages-and-evaluation.html)展开；本篇只在上面这条链路上**算账**——因为对 Infra 来说，"图片贵在哪"决定了显存怎么分、批怎么组。
+
 ### 1. 先说答案
 
 一张图进入多模态 LLM，要经过三段，每段一笔账：

@@ -26,6 +26,31 @@ num_key_value_heads  8
 vocab_size           128256
 ```
 
+先把这六个数字标到模型结构上——每个数字都是图里某个方框的一条边长：
+
+```mermaid
+%% 图：Llama-3-8B 的结构与 config.json 六个数字的对应：vocab_size 决定 embedding / lm_head 的行数，hidden_size 是贯穿全模型的向量宽度，num_hidden_layers 是同样的层重复几次，num_attention_heads / num_key_value_heads 决定 Q 与 K、V 投影的输出宽度，intermediate_size 是 FFN 中间的宽度
+flowchart TB
+    IN["token 编号"] --> EMB["Embedding<br/>vocab_size × hidden_size = 128256 × 4096<br/>查一行 → 一个 4096 维向量"]
+    EMB --> L
+    subgraph L["× num_hidden_layers = 32 个相同的层"]
+        direction TB
+        subgraph ATT["attention 子层"]
+            direction LR
+            Q["W_Q：4096 → 4096<br/>num_attention_heads 32 × head_dim 128"]
+            KV["W_K、W_V：4096 → 1024<br/>num_key_value_heads 8 × head_dim 128"]
+            O["W_O：4096 → 4096"]
+        end
+        subgraph FFN["FFN 子层"]
+            direction LR
+            G["W_gate、W_up：4096 → 14336<br/>intermediate_size"]
+            D["W_down：14336 → 4096"]
+        end
+        ATT --> FFN
+    end
+    L --> NORM["RMSNorm"] --> HEAD["lm_head<br/>hidden_size × vocab_size = 4096 × 128256<br/>→ 词表上每个 token 一个分数"]
+```
+
 从这六个数字出发，不需要运行任何代码，可以算出：
 
 - 它有 8.03B 参数，BF16 权重 16.06 GB；
@@ -37,13 +62,15 @@ vocab_size           128256
 
 系列覆盖的范围可以用一句话概括——一个 LLM 的成本由四组变量决定，多模态加第五组，本系列逐一展开（训练侧的第六组在预训练系列）：
 
-```text
-结构变量    层数 · hidden · FFN 宽度 · head 数 · KV 头数 · 专家数与 top-k       → 第一、三、五篇
-运行变量    batch · 上下文长度 · prefill 还是 decode                          → 第二、四篇
-数值变量    每个数占几个字节 · 在哪一步累加 · 误差怎么积累                       → 第六篇
-方法变量    量化格式 · 投机解码的草稿与接受率 · LoRA 的秩                      → 第七篇
-模态变量    图片分辨率 · patch 与 merge 大小 · encoder 深度 · 注入方式             → 第八篇
-```
+| 变量组 | 包括 | 在哪几篇 |
+|---|---|---|
+| 结构变量 | 层数 · hidden · FFN 宽度 · head 数 · KV 头数 · 专家数与 top-k | 第一、三、五篇 |
+| 运行变量 | batch · 上下文长度 · prefill 还是 decode | 第二、四篇 |
+| 数值变量 | 每个数占几个字节 · 在哪一步累加 · 误差怎么积累 | 第六篇 |
+| 方法变量 | 量化格式 · 投机解码的草稿与接受率 · LoRA 的秩 | 第七篇 |
+| 模态变量 | 图片分辨率 · patch 与 merge 大小 · encoder 深度 · 注入方式 | 第八篇 |
+
+Table: 决定一个 LLM 成本的五组变量与对应篇目
 
 读完之后，读者应该能把任何一个模型放进这五组变量里，算出它在任何一张 GPU 上的成本表。
 
@@ -60,13 +87,14 @@ vocab_size           128256
 
 模型卡上通常只有一个数字：参数量。但一个 8B 的 dense 模型、一个 47B 总参数 13B 激活参数的 MoE 模型、一个 671B 总参数 37B 激活参数的 MoE 模型，它们的显存、算量、访存量、通信量之间的关系完全不同：
 
-```text
-              参数量决定    激活参数量决定    上下文长度决定    batch 决定
-显存           权重          —               KV cache         KV cache · 激活值
-算量（FLOPs）  —            每 token 的 GEMM   attention 项      总量
-访存量         decode 的下界  —               KV 读取           摊薄权重读取
-通信量         并行切分      MoE 的 all-to-all  序列并行          —
-```
+| | 参数量决定 | 激活参数量决定 | 上下文长度决定 | batch 决定 |
+|---|---|---|---|---|
+| 显存 | 权重 | — | KV cache | KV cache · 激活值 |
+| 算量（FLOPs） | — | 每 token 的 GEMM | attention 项 | 总量 |
+| 访存量 | decode 的下界 | — | KV 读取 | 摊薄权重读取 |
+| 通信量 | 并行切分 | MoE 的 all-to-all | 序列并行 | — |
+
+Table: 四类成本各由哪个变量决定
 
 每一格都有自己的公式，公式里的变量各不相同。本系列把这张表的每一格填上。
 
