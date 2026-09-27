@@ -28,21 +28,17 @@ z = x + y
 
 从 Python 代码看，`z = x + y` 很像一次普通的函数调用。但 PyTorch 还需要处理：
 
-```text
-x 的 dtype / device / layout / 是否需要梯度
-y 的 dtype / device / layout
-当前的 Autograd 状态
-当前的编译 / tracing 状态
-```
+- x 的 dtype / device / layout / 是否需要梯度
+- y 的 dtype / device / layout
+- 当前的 Autograd 状态
+- 当前的编译 / tracing 状态
 
 同一个加法语义，可能需要对应不同的底层实现：
 
-```text
-CPU Tensor + CPU Tensor       → CPU Kernel
-CUDA Tensor + CUDA Tensor     → CUDA Kernel
-需要 Autograd 的 Tensor 运算  → 先记录反向关系，再进入设备 Kernel
-Meta Tensor                   → 只推断 shape、dtype 等元数据
-```
+- CPU Tensor + CPU Tensor：→ CPU Kernel
+- CUDA Tensor + CUDA Tensor：→ CUDA Kernel
+- 需要 Autograd 的 Tensor 运算：→ 先记录反向关系，再进入设备 Kernel
+- Meta Tensor：→ 只推断 shape、dtype 等元数据
 
 如果每种组合都由 Python 代码手动判断，系统会迅速变成大量条件分支。算子系统的作用，就是把**统一的算子语义**与**具体的执行后端**解耦。
 
@@ -142,11 +138,13 @@ aten/src/ATen/native/native_functions.yaml
 
 真实文件包含更多字段，示例只用于说明结构。一条声明至少包含三类信息：
 
-```text
-func       → Schema 本身                    ← 本章
-variants   → 暴露为函数、方法，或两者都有    ← 决定入口层生成什么
-dispatch   → 各 DispatchKey 对应的实现函数名 ← 下一章：注册
-```
+| 字段 | 含义 | 在哪讲 |
+|---|---|---|
+| `func` | Schema 本身 | 本章 |
+| `variants` | 暴露为函数、方法，或两者都有 | 决定入口层生成什么（第五章） |
+| `dispatch` | 各 DispatchKey 对应的实现函数名 | 下一章：注册 |
+
+Table: native_functions.yaml 一个条目的三个字段
 
 把这条声明逐段拆开，可以看到每一段各自决定了系统的哪一部分：
 
@@ -417,13 +415,9 @@ TensorIterator 把“如何遍历多维 Tensor”抽象出来，让 Hardware Ker
 
 它消费的正是第二篇讨论的 Tensor 元数据：
 
-```text
-shape / stride / storage_offset / dtype
-    ↓
-TensorIterator 构造迭代空间，检测连续布局，划分并行块
-    ↓
-Hardware Kernel 处理每个块
-```
+1. shape / stride / storage_offset / dtype
+2. TensorIterator 构造迭代空间，检测连续布局，划分并行块
+3. Hardware Kernel 处理每个块
 
 它不是所有算子的必经之路——矩阵乘法走厂商库，卷积有专用实现，Attention 用融合 Kernel。
 
@@ -512,11 +506,8 @@ at::Tensor z = at::add(x, y);
 
 因此 `at::add` 不是实现。第四章的 `at::native::add` 才是实现。前者是入口，位于 Dispatcher 之前；后者是被注册的函数，位于 Dispatcher 之后。名字相近，位置相反。
 
-```text
-at::add(x, y)              入口：调用 Dispatcher
-    ↓ Dispatcher
-at::native::add(x, y)      实现：被 Dispatcher 调用
-```
+1. at::add(x, y)              入口：调用 Dispatcher（Dispatcher）
+2. at::native::add(x, y)      实现：被 Dispatcher 调用
 
 ## 七、运行态（2）：分发
 
@@ -585,15 +576,11 @@ flowchart TB
 
 包装 Key 的优先级高于后端 Key。以 Autograd 为例：
 
-```text
-DispatchKeySet = {AutogradCUDA, CUDA}
-    ↓ 取 AutogradCUDA
-Autograd 包装实现（Codegen 生成）：
-    检查 requires_grad，记录 AddBackward0，保存反向所需的值
-    从 KeySet 中去掉 Autograd，再次调用 Dispatcher
-    ↓ 取 CUDA
-后端实现 at::native::add
-```
+1. DispatchKeySet = {AutogradCUDA, CUDA}（取 AutogradCUDA）
+2. Autograd 包装实现（Codegen 生成）：
+3. 检查 requires_grad，记录 AddBackward0，保存反向所需的值
+4. 从 KeySet 中去掉 Autograd，再次调用 Dispatcher（取 CUDA）
+5. 后端实现 at::native::add
 
 按时间顺序看，一次 `add` 调用会两次经过 Dispatcher：
 
@@ -695,19 +682,14 @@ Meta 实现只推断输出元数据并构造一个无数据的 Tensor。不进�
 
 ### 1. 开发者在构建时做了什么
 
-```text
-定义    native_functions.yaml：add.Tensor(...) -> Tensor，variants: function, method
-        derivatives.yaml：self: grad, other: maybe_multiply(grad, alpha)
-    ↓
-注册    dispatch: CPU, CUDA: add；Meta: add_meta
-        → Codegen 生成 TORCH_LIBRARY_IMPL，填入 Operator Table
-        → Codegen 根据 derivatives.yaml 生成 Autograd 包装，填入 Autograd Key
-    ↓
-实现    aten/src/ATen/native/：at::native::add
-        内部使用 TensorIterator，调用 CPU / CUDA 逐元素 Kernel
-    ↓
-Codegen 另生成 Python Binding 与 at::add 入口
-```
+1. 定义    native_functions.yaml：add.Tensor(...) -> Tensor，variants: function, method
+2. derivatives.yaml：self: grad, other: maybe_multiply(grad, alpha)
+3. 注册    dispatch: CPU, CUDA: add；Meta: add_meta
+4. → Codegen 生成 TORCH_LIBRARY_IMPL，填入 Operator Table
+5. → Codegen 根据 derivatives.yaml 生成 Autograd 包装，填入 Autograd Key
+6. 实现    aten/src/ATen/native/：at::native::add
+7. 内部使用 TensorIterator，调用 CPU / CUDA 逐元素 Kernel
+8. Codegen 另生成 Python Binding 与 at::add 入口
 
 ### 2. 用户调用时发生了什么
 
@@ -717,18 +699,14 @@ y = torch.randn(2, 3, device="cuda")
 z = torch.add(x, y)
 ```
 
-```text
-入口    torch.add → Python Binding 解析参数 → at::add(x, y)
-    ↓
-分发    查 Operator Table 取 Schema，校验参数
-        DispatchKeySet = {AutogradCUDA, CUDA}
-        取 AutogradCUDA → Autograd 包装：记录 AddBackward0，去掉 Autograd Key，再次分发
-        取 CUDA → at::native::add
-    ↓
-执行    TensorIterator 对齐 shape / dtype / stride，划分迭代空间
-        launch CUDA Kernel：逐元素 a + alpha * b
-        构造结果 Tensor，挂上 grad_fn
-```
+1. 入口    torch.add → Python Binding 解析参数 → at::add(x, y)
+2. 分发    查 Operator Table 取 Schema，校验参数
+3. DispatchKeySet = {AutogradCUDA, CUDA}
+4. 取 AutogradCUDA → Autograd 包装：记录 AddBackward0，去掉 Autograd Key，再次分发
+5. 取 CUDA → at::native::add
+6. 执行    TensorIterator 对齐 shape / dtype / stride，划分迭代空间
+7. launch CUDA Kernel：逐元素 a + alpha * b
+8. 构造结果 Tensor，挂上 grad_fn
 
 ```mermaid
 %% 图：用户调用时的路径：torch.add → Binding → at::add → Dispatcher → Autograd 包装 → 再次分发 → TensorIterator → CUDA Kernel
@@ -769,10 +747,8 @@ Table: 不同上下文下的 DispatchKeySet 与路径
 
 Python 系列第四篇讨论过注册表模式：稳定接口 + 动态注册 + 运行时按 key 查找。Operator Table 就是这样一张注册表。区别在于 key 的维度：
 
-```text
-业务注册表   key = 字符串（"torch" / "tensorrt"）
-Operator Table   key = 算子 × DispatchKey，DispatchKey 由多个 Tensor 的元数据和执行上下文合并
-```
+- **业务注册表**：key = 字符串（"torch" / "tensorrt"）
+- **Operator Table**：key = 算子 × DispatchKey，DispatchKey 由多个 Tensor 的元数据和执行上下文合并
 
 ### 2. 与 SPI 的区别
 
@@ -784,12 +760,10 @@ Java 重载依据编译期参数类型；虚方法分发依据**单个**对象�
 
 ### 4. Dispatcher 是控制平面，不是计算本身
 
-```text
-Dispatcher   → 决定调用谁
-实现 / Kernel → 真正计算数值
-Autograd     → 注册在包装 Key 上的一层实现
-Compiler     → 可能在调用前后重写计算路径（第七篇）
-```
+- Dispatcher：→ 决定调用谁
+- 实现 / Kernel → 真正计算数值
+- Autograd：→ 注册在包装 Key 上的一层实现
+- Compiler：→ 可能在调用前后重写计算路径（第七篇）
 
 Dispatcher 本身的开销只是执行路径的一部分。第八篇会用 Profiler 区分 Python 开销、分发开销、Kernel 开销和同步开销。
 
@@ -797,16 +771,15 @@ Dispatcher 本身的开销只是执行路径的一部分。第八篇会用 Profi
 
 ### 1. 两个维度
 
-```text
-开发态  定义 Schema（YAML / torch.library）
-        → 注册实现到 DispatchKey（dispatch 字段 / TORCH_LIBRARY_IMPL）
-        → 编写实现（Native Function / 自定义函数；五种模式）
-        Codegen 横向生成 Binding、at::api、注册代码、Autograd 函数
-
-运行态  入口（torch.add → Binding → at::add）
-        → 分发（合并 DispatchKeySet，包装 Key 再次分发，后端 Key 查表）
-        → 执行（TensorIterator / 厂商库 / Composite 重入 / Meta）
-```
+- **开发态**
+  1. 定义 Schema（YAML / `torch.library`）；
+  2. 注册实现到 DispatchKey（`dispatch` 字段 / `TORCH_LIBRARY_IMPL`）；
+  3. 编写实现（Native Function / 自定义函数；五种模式）；
+  4. Codegen 横向生成 Binding、`at::` API、注册代码、Autograd 函数。
+- **运行态**
+  1. 入口（`torch.add` → Binding → `at::add`）；
+  2. 分发（合并 DispatchKeySet，包装 Key 再次分发，后端 Key 查表）；
+  3. 执行（TensorIterator / 厂商库 / Composite 重入 / Meta）。
 
 ### 2. 几个容易混淆的名字
 
@@ -824,14 +797,12 @@ Table: 几个容易混淆的名字
 
 ### 3. 源码阅读的顺序
 
-```text
-native_functions.yaml 找到 Schema 与 dispatch 字段
-    → aten/src/ATen/native/ 找 dispatch 指向的函数主体
-    → 看它是 TensorIterator / 直接 Kernel / 厂商库 / Composite
-    → derivatives.yaml 找反向公式
-    → 用 Meta Tensor 验证 shape 推断
-    → 用 Profiler 看实际 launch 了哪些 Kernel
-```
+- **native_functions.yaml 找到 Schema 与 dispatch 字段**
+  - → aten/src/ATen/native/ 找 dispatch 指向的函数主体
+  - → 看它是 TensorIterator / 直接 Kernel / 厂商库 / Composite
+  - → derivatives.yaml 找反向公式
+  - → 用 Meta Tensor 验证 shape 推断
+  - → 用 Profiler 看实际 launch 了哪些 Kernel
 
 ### 4. 本篇涉及的源码位置
 

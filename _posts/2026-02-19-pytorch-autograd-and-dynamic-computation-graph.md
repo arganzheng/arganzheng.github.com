@@ -16,19 +16,12 @@ updated: 2026-09-14
 
 这需要计算梯度。PyTorch 通过 Autograd 把数学上的求导过程变成了一个可以执行的运行时系统：
 
-```text
-Tensor 运算
-    ↓
-动态记录运算关系
-    ↓
-形成计算图
-    ↓
-从结果反向遍历
-    ↓
-计算并累积梯度
-    ↓
-Optimizer 更新参数
-```
+1. Tensor 运算
+2. 动态记录运算关系
+3. 形成计算图
+4. 从结果反向遍历
+5. 计算并累积梯度
+6. Optimizer 更新参数
 
 初学者通常只需要记住：
 
@@ -303,25 +296,15 @@ loss = z.sum()
 
 大致过程是：
 
-```text
-执行 x * 2
-    ↓
-创建乘法结果 y
-    ↓
-记录 y 如何由 x 得到
-
-执行 relu
-    ↓
-创建 z
-    ↓
-记录 z 如何由 y 得到
-
-执行 sum
-    ↓
-创建 loss
-    ↓
-记录 loss 如何由 z 得到
-```
+1. 执行 x * 2
+2. 创建乘法结果 y
+3. 记录 y 如何由 x 得到
+4. 执行 relu
+5. 创建 z
+6. 记录 z 如何由 y 得到
+7. 执行 sum
+8. 创建 loss
+9. 记录 loss 如何由 z 得到
 
 计算图不是预先写死的一张全局静态图，而是当前这次 forward 执行产生的运行时结构。
 
@@ -336,15 +319,10 @@ for inputs, targets in loader:
 
 通常每个训练 step 都会经历：
 
-```text
-本次 forward 创建图
-    ↓
-本次 backward 遍历图
-    ↓
-图中的中间信息被释放
-    ↓
-下一次 forward 创建新图
-```
+1. 本次 forward 创建图
+2. 本次 backward 遍历图
+3. 图中的中间信息被释放
+4. 下一次 forward 创建新图
 
 这种设计让 Python 控制流可以直接影响计算图：
 
@@ -507,13 +485,8 @@ print(weight.requires_grad)  # True
 
 这说明两个机制是分开的：
 
-```text
-requires_grad
-    → 是否参与梯度计算
-
-Parameter 注册
-    → 是否被 Module 和 Optimizer 发现
-```
+- **requires_grad**：是否参与梯度计算
+- **Parameter 注册**：是否被 Module 和 Optimizer 发现
 
 一个普通 Tensor 可以参与梯度计算，但不会因为 `requires_grad=True` 就自动成为模型参数。
 
@@ -530,15 +503,10 @@ loss.backward()
 
 可以抽象为：
 
-```text
-loss
-  ↓ 反向
-加法节点
-  ↓ 反向
-乘法节点
-  ↓ 反向
-x
-```
+1. loss（反向）
+2. 加法节点（反向）
+3. 乘法节点（反向）
+4. x
 
 每个节点需要做两件事：
 
@@ -753,13 +721,9 @@ from torch.autograd.graph import saved_tensors_hooks
 
 概念上可以实现：
 
-```text
-保存到 GPU 的中间 Tensor
-    ↓ pack
-压缩或搬到 CPU
-    ↓ unpack
-backward 时恢复
-```
+1. 保存到 GPU 的中间 Tensor（pack）
+2. 压缩或搬到 CPU（unpack）
+3. backward 时恢复
 
 这类机制可以换取显存空间，但会引入：
 
@@ -774,13 +738,10 @@ backward 时恢复
 
 需要同时区分两类生命周期：
 
-```text
-Tensor 对象生命周期
-    由 Python 引用和 Storage 关系影响
-
-Autograd 图生命周期
-    由输出、grad_fn、保存值和 backward 过程影响
-```
+- **Tensor 对象生命周期**
+  - 由 Python 引用和 Storage 关系影响
+- **Autograd 图生命周期**
+  - 由输出、grad_fn、保存值和 backward 过程影响
 
 一个 Tensor 可能：
 
@@ -806,12 +767,10 @@ print(z.requires_grad)  # False
 
 `detach()` 返回一个不再沿原计算图传播梯度的 Tensor。它通常与原 Tensor 共享底层数据，因此：
 
-```text
-detach
-    → 改变 Autograd 关系
-    → 不等于 clone
-    → 不等于数据复制
-```
+- **detach**
+  - → 改变 Autograd 关系
+  - → 不等于 clone
+  - → 不等于数据复制
 
 如果需要既切断梯度又创建独立数据，可以使用：
 
@@ -836,13 +795,8 @@ with torch.no_grad():
 
 这里的两个操作职责不同：
 
-```text
-model.eval()
-    → 改变 Dropout、BatchNorm 等 Module 行为
-
-no_grad()
-    → 关闭梯度记录
-```
+- **model.eval()**：改变 Dropout、BatchNorm 等 Module 行为
+- **no_grad()**：关闭梯度记录
 
 不能用其中一个代替另一个。
 
@@ -906,10 +860,8 @@ z.sum().backward()
 
 但当你实现了一个新的算子，或者希望用特殊方式计算 backward，就需要告诉 Autograd：
 
-```text
-forward 如何计算结果？
-backward 如何根据上游梯度计算输入梯度？
-```
+- forward 如何计算结果？
+- backward 如何根据上游梯度计算输入梯度？
 
 ### 2. 一个平方算子
 
@@ -938,12 +890,10 @@ print(x.grad)  # tensor(6.)
 
 这里：
 
-```text
-forward：y = x²
-局部导数：dy/dx = 2x
-上游梯度：grad_output = dLoss/dy
-输入梯度：dLoss/dx = grad_output × 2x
-```
+- forward：y = x²
+- 局部导数：dy/dx = 2x
+- 上游梯度：grad_output = dLoss/dy
+- 输入梯度：dLoss/dx = grad_output × 2x
 
 `forward` 和 `backward` 并不是被同一段代码先后调用的：`forward` 由 `Square.apply()` 立即执行，`backward` 则要等到 `y.backward()` 时由 Autograd 引擎回调，两者之间靠 `ctx` 传递状态：
 
@@ -1050,12 +1000,10 @@ torch.autograd.gradgradcheck
 
 PyTorch 的 Autograd 内部包含复杂的 C++ 和 Python 组件，但可以用一个很小的系统复现核心思想：
 
-```text
-每个值知道它的父节点
-每个运算保存局部梯度函数
-从结果开始反向拓扑遍历
-把梯度累加到父节点
-```
+- 每个值知道它的父节点
+- 每个运算保存局部梯度函数
+- 从结果开始反向拓扑遍历
+- 把梯度累加到父节点
 
 为了聚焦计算图，本实践使用 Python 标量，不实现 Tensor、dtype、device 和广播。
 
@@ -1073,19 +1021,14 @@ class Value:
 
 每个 Value 包含：
 
-```text
-data
-    当前数值
-
-grad
-    当前累积梯度
-
-parents
-    当前节点依赖的父节点
-
-backward_fn
-    当前节点如何把梯度传给父节点
-```
+- **data**
+  - 当前数值
+- **grad**
+  - 当前累积梯度
+- **parents**
+  - 当前节点依赖的父节点
+- **backward_fn**
+  - 当前节点如何把梯度传给父节点
 
 ### 3. 实现加法
 
@@ -1234,19 +1177,12 @@ flowchart TB
 
 Mini-Autograd 只有很少的代码，却已经包含了 Autograd 的核心结构：
 
-```text
-Value
-    ↓
-父节点关系
-    ↓
-局部导数
-    ↓
-拓扑排序
-    ↓
-逆序传播
-    ↓
-梯度累积
-```
+1. Value
+2. 父节点关系
+3. 局部导数
+4. 拓扑排序
+5. 逆序传播
+6. 梯度累积
 
 ### 8. Mini-Autograd 与 PyTorch Autograd 的差异
 
@@ -1307,10 +1243,8 @@ print(loss.grad_fn)
 
 需要先区分：
 
-```text
-这是正常的 None
-还是梯度链路断了？
-```
+- 这是正常的 None
+- 还是梯度链路断了？
 
 可能原因：
 
@@ -1402,10 +1336,8 @@ torch.autograd.set_detect_anomaly(True)
 
 Autograd 回答的是：
 
-```text
-当前输出由哪些 Tensor 运算得到？
-给定上游梯度，如何按照局部导数把梯度传回去？
-```
+- 当前输出由哪些 Tensor 运算得到？
+- 给定上游梯度，如何按照局部导数把梯度传回去？
 
 它是一个带数学语义的计算图系统，不是任意业务事件的监听器。
 
@@ -1413,15 +1345,12 @@ Autograd 回答的是：
 
 可以把一次 forward 和 backward 粗略理解为：
 
-```text
-forward
-    产生数值结果
-    同时记录反向所需的结构和数据
-
-backward
-    沿记录的结构逆序执行
-    将上游梯度转换为下游梯度
-```
+- **forward**
+  - 产生数值结果
+  - 同时记录反向所需的结构和数据
+- **backward**
+  - 沿记录的结构逆序执行
+  - 将上游梯度转换为下游梯度
 
 这和 Java 编译器在编译期生成字节码不同，也和普通运行时调用栈不同。Autograd 图只描述当前计算中与梯度有关的部分。
 
@@ -1429,15 +1358,10 @@ backward
 
 Java 工程师通常习惯把局部变量和对象状态区分开。在 PyTorch 中，`.grad` 是与参数生命周期相关的显式状态：
 
-```text
-forward 计算
-    ↓
-backward 写入 parameter.grad
-    ↓
-optimizer 读取 grad
-    ↓
-zero_grad 清理状态
-```
+1. forward 计算
+2. backward 写入 parameter.grad
+3. optimizer 读取 grad
+4. zero_grad 清理状态
 
 如果不理解这个状态流，就容易出现：
 
@@ -1468,11 +1392,7 @@ requires_grad / grad_fn / Graph / Gradient
 
 分析问题时，需要明确自己正在观察的是：
 
-```text
-数据布局问题
-还是
-梯度关系问题
-```
+"这是数据布局问题，还是梯度关系问题？"
 
 ## 十二、本文小结
 
@@ -1480,64 +1400,35 @@ Autograd 的核心任务，是把数学上的链式法则变成一次沿动态�
 
 ### 1. 计算图的基本结构
 
-```text
-Tensor 运算
-    ↓
-记录父节点和局部导数
-    ↓
-形成动态计算图
-    ↓
-从结果节点逆序遍历
-    ↓
-计算和累积梯度
-```
+1. Tensor 运算
+2. 记录父节点和局部导数
+3. 形成动态计算图
+4. 从结果节点逆序遍历
+5. 计算和累积梯度
 
 ### 2. 关键对象
 
-```text
-requires_grad
-    → 是否需要追踪梯度
-
-leaf Tensor
-    → 通常是用户或模型直接持有的参数节点
-
-grad_fn
-    → 当前 Tensor 对应的反向关系
-
-.grad
-    → 保存到 Tensor 或 Parameter 上的梯度状态
-```
+- **requires_grad**：是否需要追踪梯度
+- **leaf Tensor**：通常是用户或模型直接持有的参数节点
+- **grad_fn**：当前 Tensor 对应的反向关系
+- **.grad**：保存到 Tensor 或 Parameter 上的梯度状态
 
 ### 3. 三种常用的梯度控制方式
 
-```text
-detach()
-    → 切断一个 Tensor 与原计算图的连接
-
-no_grad()
-    → 临时关闭新的梯度记录
-
-inference_mode()
-    → 面向纯推理的更强优化上下文
-```
+- **detach()**：切断一个 Tensor 与原计算图的连接
+- **no_grad()**：临时关闭新的梯度记录
+- **inference_mode()**：面向纯推理的更强优化上下文
 
 它们都不等价于 `model.eval()`。
 
 ### 4. 分析 backward 问题的顺序
 
-```text
-输入是否 requires_grad？
-    ↓
-中间结果是否仍有 grad_fn？
-    ↓
-loss 是否参与了目标参数的计算？
-    ↓
-是否被 detach 或 no_grad 截断？
-    ↓
-是否发生了 in-place 修改？
-    ↓
-是否正确处理梯度累积和清零？
-```
+1. 输入是否 requires_grad？
+2. 中间结果是否仍有 grad_fn？
+3. loss 是否参与了目标参数的计算？
+4. 是否被 detach 或 no_grad 截断？
+5. 是否发生了 in-place 修改？
+6. 是否正确处理梯度累积和清零？
 
 ### 5. Mini-Autograd 的核心
 

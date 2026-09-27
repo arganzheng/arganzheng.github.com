@@ -90,20 +90,19 @@ myops::scale_shift(Tensor x, float alpha, float beta) -> Tensor
 
 **Schema 的组成**
 
-```text
-myops::scale_shift(Tensor x, float alpha, float beta) -> Tensor
-│      │           │                                     │
-│      │           └── 参数列表：类型 + 名字              └── 返回类型
-│      └── 算子名
-└── 命名空间：避免与 aten:: 和其他扩展冲突
-```
+| 片段 | 含义 |
+|---|---|
+| `myops::` | 命名空间：避免与 `aten::` 和其他扩展冲突 |
+| `scale_shift` | 算子名 |
+| `(Tensor x, float alpha, float beta)` | 参数列表：类型 + 名字 |
+| `-> Tensor` | 返回类型 |
+
+Table: Schema 字符串 `myops::scale_shift(Tensor x, float alpha, float beta) -> Tensor` 的四个部分
 
 如果同一个名字需要多个签名，用 overload 名区分，写法是 `name.overload`：
 
-```text
-myops::scale_shift.Tensor(Tensor x, Tensor alpha, Tensor beta) -> Tensor
-myops::scale_shift.Scalar(Tensor x, float alpha, float beta) -> Tensor
-```
+- myops::scale_shift.Tensor(Tensor x, Tensor alpha, Tensor beta) -> Tensor
+- myops::scale_shift.Scalar(Tensor x, float alpha, float beta) -> Tensor
 
 原生算子的 `add.Tensor`、`add.Scalar`、`add.out` 就是这样命名的。
 
@@ -168,11 +167,9 @@ Table: 自定义算子常用的 DispatchKey
 
 选错 Key 的典型后果：
 
-```text
-只注册 CPU        → 传 CUDA Tensor 时 NotImplementedError
-只注册 CompositeExplicitAutograd → 能算，但 backward 报错“没有导数”
-注册 CompositeImplicitAutograd 却手写了 Autograd → 两套反向冲突
-```
+- 只注册 CPU：→ 传 CUDA Tensor 时 NotImplementedError
+- 只注册 CompositeExplicitAutograd → 能算，但 backward 报错“没有导数”
+- 注册 CompositeImplicitAutograd 却手写了 Autograd → 两套反向冲突
 
 **注册就是往 Operator Table 填槽位**
 
@@ -353,12 +350,12 @@ Table: C++ 侧能做与不能做的
 
 最常见的组合：
 
-```text
-C++ 侧    TORCH_LIBRARY 定义 Schema
-          TORCH_LIBRARY_IMPL 注册 CPU / CUDA 实现（重计算在这里）
-Python 侧 register_autograd 注册反向（Python 写反向更方便）
-          register_fake 注册 Fake（Python 写 shape 推断更方便）
-```
+| 在哪一侧 | 做什么 |
+|---|---|
+| C++ | `TORCH_LIBRARY` 定义 Schema；`TORCH_LIBRARY_IMPL` 注册 CPU / CUDA 实现（重计算在这里） |
+| Python | `register_autograd` 注册反向（Python 写反向更方便）；`register_fake` 注册 Fake（Python 写 shape 推断更方便） |
+
+Table: 混合注册：C++ 管 Schema 与实现，Python 管反向与 Fake
 
 本文的四个阶段最终就是这个组合。
 
@@ -409,20 +406,18 @@ flowchart TB
 
 编译扩展时，编译器需要找到 PyTorch 的**头文件**和**库文件**。它们都在已安装的 `torch` 包目录下：
 
-```text
-site-packages/torch/
-├── include/            头文件
-│   ├── ATen/           at::Tensor、算子 API
-│   ├── c10/            核心基础设施：Device、ScalarType、Dispatcher
-│   ├── torch/          torch::autograd、torch::library 等高层 API
-│   └── torch/csrc/api/include/   C++ 前端
-└── lib/                库文件
-    ├── libc10.so
-    ├── libtorch_cpu.so
-    ├── libtorch_cuda.so
-    ├── libtorch_python.so
-    └── ...
-```
+- **site-packages/torch/**
+  - include/            头文件
+    - ATen/           at::Tensor、算子 API
+    - c10/            核心基础设施：Device、ScalarType、Dispatcher
+    - torch/          torch::autograd、torch::library 等高层 API
+    - torch/csrc/api/include/   C++ 前端
+  - lib/                库文件
+    - libc10.so
+    - libtorch_cpu.so
+    - libtorch_cuda.so
+    - libtorch_python.so
+    - ...
 
 三个命名空间经常一起出现，它们的分工是：
 
@@ -515,14 +510,12 @@ setup(
 
 配合一个 Python 包：
 
-```text
-myops/
-├── __init__.py        import myops._C 触发注册；补 register_autograd / register_fake
-├── _C.so              编译产物
-└── csrc/
-    ├── scale_shift.cpp
-    └── scale_shift_cuda.cu
-```
+- **myops/**
+  - __init__.py        import myops._C 触发注册；补 register_autograd / register_fake
+  - _C.so              编译产物
+  - csrc/
+    - scale_shift.cpp
+    - scale_shift_cuda.cu
 
 `pip install .` 或 `python setup.py develop` 完成构建与安装。
 
@@ -621,12 +614,10 @@ Table: pybind11 与 TORCH_LIBRARY 暴露方式的差别
 
 把前面的内容放在一起，一个最小的扩展骨架是：
 
-```text
-scale_shift/
-├── scale_shift.cpp        定义 + CPU 注册 + CPU 实现
-├── scale_shift_cuda.cu    CUDA 注册 + CUDA 实现（第七章加入）
-└── build.py               调用 load()
-```
+- **scale_shift/**
+  - scale_shift.cpp        定义 + CPU 注册 + CPU 实现
+  - scale_shift_cuda.cu    CUDA 注册 + CUDA 实现（第七章加入）
+  - build.py               调用 load()
 
 `scale_shift.cpp` 的骨架：
 
@@ -928,13 +919,11 @@ Table: CUDA Kernel 里区分"我是谁"的三个内建变量
 
 于是 `blockIdx.x * blockDim.x + threadIdx.x` 就是一个全局唯一的线程编号，最常见的用法就是让第 `i` 个线程处理第 `i` 个元素——下面的 Kernel 正是这样。`n` 通常不是 `threads` 的整数倍，最后一个 block 会有多余线程，所以 Kernel 里必须有 `if (i < n)` 的边界检查。
 
-```text
-grid
-├── block 0     thread 0 .. 255   → 元素 0 .. 255
-├── block 1     thread 0 .. 255   → 元素 256 .. 511
-├── ...
-└── block k     thread 0 .. 255   → 元素 256k .. n-1（其余线程直接返回）
-```
+- **grid**
+  - block 0     thread 0 .. 255   → 元素 0 .. 255
+  - block 1     thread 0 .. 255   → 元素 256 .. 511
+  - ...
+  - block k     thread 0 .. 255   → 元素 256k .. n-1（其余线程直接返回）
 
 把公式代入一组具体数字：n=1024、每 block 256 线程，正好切成 4 个 block，每个线程的 `idx` 由所在 block 的起点加上自己在 block 内的编号得到：
 
@@ -963,20 +952,15 @@ idx = blockIdx.x * blockDim.x + threadIdx.x
 
 访存合并的效果可以直接数**扇区**（sector）。现代 GPU（Volta 及之后）的 L1/L2 以 32B 扇区为最小取数单位，一个 warp 的一条 load 指令触碰几个扇区、每个扇区里有几个字节真被用到，就是合并好坏的全部：
 
-```text
-warp = 32 个连续线程 t0..t31，每线程读 1 个 float（4B），取数粒度 32B 扇区
+一个 warp 是 32 个连续线程 t0..t31，每线程读 1 个 float（4 B），显存取数的粒度是 32 B 的扇区：
 
-(a) 连续访问 x[idx]                  32 × 4B = 128B，恰好 4 个扇区
-    线程  t0..t7   t8..t15  t16..t23  t24..t31
-    字节  0..31    32..63   64..95    96..127   → 4 个扇区，每个扇区 32B 全部用到
+| 访问模式 | 32 个线程覆盖的地址 | 触发的扇区数 | 每个扇区用到多少 | 有效带宽 |
+|---|---|---|---|---|
+| (a) 连续访问 `x[idx]` | 32 × 4 B = 128 B，t0..t7 落在 0..31、t8..t15 落在 32..63…… | 4 | 32 B 全部用到 | 100% |
+| (b) 跨步访问 `x[2*idx]` | 地址相隔 8 B，铺满 256 B | 8 | 每个只用到 16 B | 50% |
+| (c) 每线程隔 32 B 以上（如按行读一个转置矩阵的列） | 32 个线程落在 32 个不同扇区 | 32 | 每个只用到 4 B | 1/8 |
 
-(b) 跨步访问 x[2*idx]                地址相隔 8B，铺满 256B
-    线程  t0..t3   t4..t7   ...  t28..t31
-    字节  0..31    32..63   ...  224..255  → 8 个扇区，每个扇区只用到 16B → 有效带宽 50%
-
-(c) 每线程隔 32B 以上（如按行读一个转置矩阵的列）
-    32 个线程落在 32 个不同扇区 → 32 个扇区，每个只用到 4B → 有效带宽 1/8
-```
+Table: 三种访存模式触发的扇区数与有效带宽
 
 stride 越大，同一 warp 触碰的扇区越多；极端情况下 32 个线程落在 32 个不同扇区，取回 1024B 只用 128B——比合并访问多搬 **8 倍**数据（不是常见说法里的 32 倍：那是把 128B cache line 当成了最小取数单位）。扇区数是 L1 层面的请求账；实际到显存的流量还受 L2 命中、相邻 warp 复用同一扇区等影响，GPU Kernel 系列第三篇用 profiler 数据展开。
 
@@ -1419,24 +1403,20 @@ pybind11 暴露普通函数，TORCH_LIBRARY 注册算子；要成为算子必须
 
 ### 4. 实现层必须处理的四件事
 
-```text
-device   TORCH_CHECK 设备；CUDA 下用 CUDAGuard 与当前 stream
-dtype    AT_DISPATCH 把运行时 dtype 桥接到编译期模板
-stride   contiguous() 或 TensorIterator，二选一
-生命周期  at::Tensor 是句柄；data_ptr 只在 Tensor 存活期间有效
-```
+- **device**：TORCH_CHECK 设备；CUDA 下用 CUDAGuard 与当前 stream
+- **dtype**：AT_DISPATCH 把运行时 dtype 桥接到编译期模板
+- **stride**：contiguous() 或 TensorIterator，二选一
+- **生命周期**：at::Tensor 是句柄；data_ptr 只在 Tensor 存活期间有效
 
 ### 5. 一个算子完成的标准
 
-```text
-定义了 Schema 并声明了 mutability
-注册了目标后端的实现
-注册了 Autograd
-注册了 Fake / Meta
-opcheck 与 gradcheck 通过
-Benchmark 证明它比原生组合有价值
-构建与 ABI 在目标环境可复现
-```
+- 定义了 Schema 并声明了 mutability
+- 注册了目标后端的实现
+- 注册了 Autograd
+- 注册了 Fake / Meta
+- opcheck 与 gradcheck 通过
+- Benchmark 证明它比原生组合有价值
+- 构建与 ABI 在目标环境可复现
 
 把这七条按顺序串起来，就是一张核对流程图——前四步对应 Operator Table 的四个槽位，后三步是把它交给别人之前必须过的关：
 

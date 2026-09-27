@@ -26,23 +26,14 @@ PyTorch 有两千多个算子、每个算子有十几种 dtype、两个以上后
 
 以一个典型改动为例——给某个 CUDA Kernel 换一种更快的实现。它从写下到进入用户的训练作业，要经过：
 
-```text
-写下改动
-   ↓
-① 本地构建能跑        改一个 .cu 文件后多久能重新编译、加载、跑通一个测试？          → 第二章
-   ↓
-② 结果正确            新 Kernel 与旧实现、与 CPU、与 fp64 参考、与 compile 后一致吗？ → 第三章
-   ↓
-③ 没有变慢            它快了，有没有让别的 shape 慢？CPU 侧开销有没有变化？          → 第四章
-   ↓
-④ 审查与 CI 合入       谁有权批准？几十万个测试怎么在两小时内跑完？红了怎么办？      → 第五章
-   ↓
-⑤ 随版本发布          进 nightly 还是等下个小版本？编成多少个 wheel？                → 第六章
-   ↓
-⑥ 用户升级不坏        用户的代码、C++ 扩展、保存的 checkpoint 在新版本上还能用吗？   → 第七章
-   ↓
-⑦ 使用者跟随演进       用户侧：什么时候升级、怎么升级、升级坏了怎么回退？            → 第八章
-```
+1. 写下改动
+2. ① 本地构建能跑        改一个 .cu 文件后多久能重新编译、加载、跑通一个测试？          → 第二章
+3. ② 结果正确            新 Kernel 与旧实现、与 CPU、与 fp64 参考、与 compile 后一致吗？ → 第三章
+4. ③ 没有变慢            它快了，有没有让别的 shape 慢？CPU 侧开销有没有变化？          → 第四章
+5. ④ 审查与 CI 合入       谁有权批准？几十万个测试怎么在两小时内跑完？红了怎么办？      → 第五章
+6. ⑤ 随版本发布          进 nightly 还是等下个小版本？编成多少个 wheel？                → 第六章
+7. ⑥ 用户升级不坏        用户的代码、C++ 扩展、保存的 checkpoint 在新版本上还能用吗？   → 第七章
+8. ⑦ 使用者跟随演进       用户侧：什么时候升级、怎么升级、升级坏了怎么回退？            → 第八章
 
 前六关是框架维护者的视角，第七关是使用者的视角。两者对 AI-Infra 工程师都重要：读源码、给 PyTorch 提 PR、维护树外后端时是前者；升级集群、维护自己的 C++ 扩展、保证 checkpoint 可加载时是后者。
 
@@ -50,11 +41,13 @@ PyTorch 有两千多个算子、每个算子有十几种 dtype、两个以上后
 
 七个关卡并非各守一样东西。归纳起来，整条链路要给出三个保证：
 
-```text
-正确性    改了之后结果还对            主要由 ② 守；④ 把它自动化
-性能      改了之后没有变慢            主要由 ③ 守；④⑤ 用看板持续监测
-兼容性    改了之后用户的东西还能用     主要由 ⑥ 守；⑤ 的制品矩阵和 ⑦ 的升级实践是它的两端
-```
+| 要守住的 | 含义 | 谁来守 |
+|---|---|---|
+| 正确性 | 改了之后结果还对 | 主要由 ② 守；④ 把它自动化 |
+| 性能 | 改了之后没有变慢 | 主要由 ③ 守；④⑤ 用看板持续监测 |
+| 兼容性 | 改了之后用户的东西还能用 | 主要由 ⑥ 守；⑤ 的制品矩阵和 ⑦ 的升级实践是它的两端 |
+
+Table: 工程系统要守住的三件事与对应的机制
 
 构建（①）不守任何一项，但三项都要在它的产物上验证；合入（④）与发布（⑤）是流程，把前面的验证变成强制的、自动的。
 
@@ -62,14 +55,12 @@ PyTorch 有两千多个算子、每个算子有十几种 dtype、两个以上后
 
 应用代码的测试是**枚举**：一个函数有几个分支，写几个用例覆盖。框架代码面对的是**组合爆炸**：
 
-```text
-测试空间 = 算子（2000+）
-         × dtype（float16 / bfloat16 / float32 / float64 / complex / int8 ... 约 15 种）
-         × 设备（CPU / CUDA / MPS / XPU ...）
-         × shape（标量 / 空 Tensor / 一维 / 高维 / 广播）
-         × layout（contiguous / non-contiguous / channels_last / 转置视图 / 有 offset 的切片）
-         × 执行模式（eager / compile / Meta / Autograd 一阶 / 二阶 / forward AD / 分布式）
-```
+- **测试空间 = 算子（2000+）**
+  - × dtype（float16 / bfloat16 / float32 / float64 / complex / int8 ... 约 15 种）
+  - × 设备（CPU / CUDA / MPS / XPU ...）
+  - × shape（标量 / 空 Tensor / 一维 / 高维 / 广播）
+  - × layout（contiguous / non-contiguous / channels_last / 转置视图 / 有 offset 的切片）
+  - × 执行模式（eager / compile / Meta / Autograd 一阶 / 二阶 / forward AD / 分布式）
 
 哪怕每个维度只取几个值，乘起来也是几十万个测试点。手写不可能，每个 PR 全跑一遍也不可能。这个事实塑造了第三章的数据驱动测试、第五章的 CI 分层，以及第七章"接口面按稳定程度分级"的策略——框架工程的大多数设计，都是在组合爆炸下求可行。
 
@@ -99,66 +90,57 @@ Table: 本文的章节安排
 
 第一篇第七章按库给过一张四层的代码地图（`torch/` → `torch/csrc/` → `aten/src/ATen/` → `c10/`）并把各层对应到系列各篇。这里把它展开成构建者需要的完整目录：
 
-```text
-pytorch/
-├── c10/                     核心基础库：TensorImpl、Storage（第二篇）、Device、ScalarType、DispatchKey（第五篇）、Allocator（第八篇）、intrusive_ptr
-│   ├── core/  cuda/  util/
-├── aten/src/ATen/           Tensor 库（第五篇）
-│   ├── native/              算子实现：native_functions.yaml 与 CPU 实现
-│   │   ├── cpu/             CPU Kernel（向量化、TensorIterator 循环）
-│   │   ├── cuda/            CUDA Kernel
-│   │   └── ...              sparse/ quantized/ mkldnn/ 等后端
-│   ├── core/                Tensor、TensorBase、Dispatcher、boxing
-│   └── TensorIterator.*     第六篇用过的 stride 处理机制
-├── torch/                   Python 包
-│   ├── csrc/                C++ 侧的 Python 绑定与运行时
-│   │   ├── autograd/        Autograd 引擎（第三篇）、generated/（Codegen 产物）
-│   │   ├── jit/             TorchScript、序列化的 upgraders（第七章 §3）
-│   │   ├── distributed/     c10d：ProcessGroup、NCCL 后端、Reducer（第九篇）
-│   │   ├── dynamo/          Dynamo 的 C 扩展（帧求值 hook，第七篇）
-│   │   ├── inductor/        AOTInductor 运行时、C shim（第七章 §4）
-│   │   └── api/             C++ 前端（libtorch 的 torch::nn 等）
-│   ├── nn/  optim/  fx/  distributed/  testing/      Python 实现
-│   ├── _dynamo/  _inductor/  _functorch/             编译栈（第七篇）
-│   ├── _refs/  _prims/  _decomp/                     参考实现与分解（第三章 §1）
-│   └── _C/                  编译出的扩展模块的类型桩
-├── torchgen/                Codegen（第五篇第五章）
-├── tools/                   构建脚本、autograd/derivatives.yaml、linter、测试基础设施
-├── test/                    测试（第三章 §7）
-├── benchmarks/              基准（第四章）
-├── third_party/             子模块：pybind11、fmt、cutlass、cudnn-frontend、gloo、oneDNN、XNNPACK、kineto、tensorpipe、protobuf...
-├── cmake/  CMakeLists.txt   构建定义
-├── setup.py                 Python 包入口，驱动 CMake
-├── .github/                 CI workflows、merge_rules.yaml、pytorchbot 脚本（第五章）
-├── .ci/                     Docker 镜像定义、CI 内的构建与测试脚本
-└── docs/                    Sphinx 文档源
-```
+- **pytorch/**
+  - c10/                     核心基础库：TensorImpl、Storage（第二篇）、Device、ScalarType、DispatchKey（第五篇）、Allocator（第八篇）、intrusive_ptr
+    - core/  cuda/  util/
+  - aten/src/ATen/           Tensor 库（第五篇）
+    - native/              算子实现：native_functions.yaml 与 CPU 实现
+      - cpu/             CPU Kernel（向量化、TensorIterator 循环）
+      - cuda/            CUDA Kernel
+      - ...              sparse/ quantized/ mkldnn/ 等后端
+    - core/                Tensor、TensorBase、Dispatcher、boxing
+    - TensorIterator.*     第六篇用过的 stride 处理机制
+  - torch/                   Python 包
+    - csrc/                C++ 侧的 Python 绑定与运行时
+      - autograd/        Autograd 引擎（第三篇）、generated/（Codegen 产物）
+      - jit/             TorchScript、序列化的 upgraders（第七章 §3）
+      - distributed/     c10d：ProcessGroup、NCCL 后端、Reducer（第九篇）
+      - dynamo/          Dynamo 的 C 扩展（帧求值 hook，第七篇）
+      - inductor/        AOTInductor 运行时、C shim（第七章 §4）
+      - api/             C++ 前端（libtorch 的 torch::nn 等）
+    - nn/  optim/  fx/  distributed/  testing/      Python 实现
+    - _dynamo/  _inductor/  _functorch/             编译栈（第七篇）
+    - _refs/  _prims/  _decomp/                     参考实现与分解（第三章 §1）
+    - _C/                  编译出的扩展模块的类型桩
+  - torchgen/                Codegen（第五篇第五章）
+  - tools/                   构建脚本、autograd/derivatives.yaml、linter、测试基础设施
+  - test/                    测试（第三章 §7）
+  - benchmarks/              基准（第四章）
+  - third_party/             子模块：pybind11、fmt、cutlass、cudnn-frontend、gloo、oneDNN、XNNPACK、kineto、tensorpipe、protobuf...
+  - cmake/  CMakeLists.txt   构建定义
+  - setup.py                 Python 包入口，驱动 CMake
+  - .github/                 CI workflows、merge_rules.yaml、pytorchbot 脚本（第五章）
+  - .ci/                     Docker 镜像定义、CI 内的构建与测试脚本
+  - docs/                    Sphinx 文档源
 
 前九篇的每一个概念都能在这张图上找到位置。读源码时的路径通常是：Python API（`torch/`）→ 绑定（`torch/csrc/`）→ 算子声明（`native_functions.yaml`）→ 实现（`aten/src/ATen/native/`）→ 基础类型（`c10/`）。
 
 ### 2. 构建流程与 Codegen 的位置
 
-```text
-python setup.py develop（或 pip install -e . --no-build-isolation）
-    ↓
-tools/build_pytorch_libs.py：整理环境变量 → 调用 CMake configure
-    ↓
-CMake 生成 build.ninja；其中包含一条 custom command：运行 torchgen
-    ↓
-torchgen 读 native_functions.yaml、derivatives.yaml、tags.yaml → 生成
-    build/aten/src/ATen/*.cpp（算子注册、at:: API、RegisterCPU.cpp / RegisterCUDA.cpp）
-    torch/csrc/autograd/generated/*（VariableType：Autograd 包装、反向 Function 类）
-    torch/csrc/autograd/generated/python_*_functions.cpp（Python 绑定）
-    torch/_C/_VariableFunctions.pyi（类型桩）
-    ↓
-Ninja 编译上万个 .cpp / .cu → 链接成共享库
-    libc10.so          libc10_cuda.so
-    libtorch_cpu.so    libtorch_cuda.so      libtorch.so（伞形库）
-    libtorch_python.so   Python 绑定层
-    torch/_C.cpython-*.so  很薄的入口模块，动态链接到 libtorch_python.so（C++ 系列第一篇拆过这层）
-    ↓
-develop 模式下 Python 源码原地使用；只有 C++ 改动需要重新构建
-```
+1. python setup.py develop（或 pip install -e . --no-build-isolation）
+2. tools/build_pytorch_libs.py：整理环境变量 → 调用 CMake configure
+3. CMake 生成 build.ninja；其中包含一条 custom command：运行 torchgen
+4. torchgen 读 native_functions.yaml、derivatives.yaml、tags.yaml → 生成
+5. build/aten/src/ATen/*.cpp（算子注册、at:: API、RegisterCPU.cpp / RegisterCUDA.cpp）
+6. torch/csrc/autograd/generated/*（VariableType：Autograd 包装、反向 Function 类）
+7. torch/csrc/autograd/generated/python_*_functions.cpp（Python 绑定）
+8. torch/_C/_VariableFunctions.pyi（类型桩）
+9. Ninja 编译上万个 .cpp / .cu → 链接成共享库
+10. libc10.so          libc10_cuda.so
+11. libtorch_cpu.so    libtorch_cuda.so      libtorch.so（伞形库）
+12. libtorch_python.so   Python 绑定层
+13. torch/_C.cpython-*.so  很薄的入口模块，动态链接到 libtorch_python.so（C++ 系列第一篇拆过这层）
+14. develop 模式下 Python 源码原地使用；只有 C++ 改动需要重新构建
 
 第五篇讲了 Codegen **生成什么**；这里的重点是它**何时运行**——它是构建的一步，`native_functions.yaml` 改一行，会触发大量生成文件重新编译。这就是为什么改一个算子的 Schema 比改它的实现要慢得多，也是第七章 §3 中"Schema 是契约、轻易不动"的工程侧理由。
 
@@ -181,11 +163,9 @@ python setup.py develop
 
 三种构建类型：
 
-```text
-默认（Release）           -O3，无调试符号；最快
-REL_WITH_DEB_INFO=1       -O2 -g；有符号可以用 gdb 看栈，优化后变量可能看不到；日常调试的选择
-DEBUG=1                   -O0 -g；变量全部可见，断言全开；慢 5～10 倍，二进制大数倍，某些测试会超时
-```
+- **默认（Release）**：-O3，无调试符号；最快
+- **REL_WITH_DEB_INFO=1**：-O2 -g；有符号可以用 gdb 看栈，优化后变量可能看不到；日常调试的选择
+- **DEBUG=1**：-O0 -g；变量全部可见，断言全开；慢 5～10 倍，二进制大数倍，某些测试会超时
 
 首次完整 CUDA 构建在 32 核机器上约 1～2 小时；之后增量构建只编译改动的文件及依赖它的文件——改一个 `.cu` 几分钟，改 `c10/` 里的头文件可能触发半数文件重编。`ccache` 让切分支后的重建命中缓存。只改 Python 代码不需要构建（develop 模式）。
 
@@ -307,12 +287,14 @@ instantiate_device_type_tests(TestFoo, globals())        # 生成 TestFooCPU、T
 
 **比较与容差**。`torch.testing.assert_close(actual, expected, rtol=..., atol=...)` 是标准比较函数，默认容差按 dtype：
 
-```text
-float64     rtol 1e-7     atol 1e-7
-float32     rtol 1.3e-6   atol 1e-5
-float16     rtol 1e-3     atol 1e-5
-bfloat16    rtol 1.6e-2   atol 1e-5
-```
+| dtype | rtol | atol |
+|---|---|---|
+| float64 | 1e-7 | 1e-7 |
+| float32 | 1.3e-6 | 1e-5 |
+| float16 | 1e-3 | 1e-5 |
+| bfloat16 | 1.6e-2 | 1e-5 |
+
+Table: torch.testing.assert_close 各 dtype 的默认容差
 
 它还检查 dtype、device、shape 是否相同（可关闭），处理 NaN（`equal_nan`）、复数、稀疏与量化 Tensor。第八篇讨论过混合精度的容差需要"有依据"；这张表就是依据的起点——bf16 只有 8 位尾数，1.6e-2 的相对误差是它本身的精度。
 
@@ -354,10 +336,12 @@ flowchart TB
     class FAST note;
 ```
 
-```text
-数值 Jacobian    对每个输入元素 xᵢ 加减 eps，重新算前向，(f(x+eps) - f(x-eps)) / 2eps      → 与实现无关的真值
-解析 Jacobian    对每个输出元素 yⱼ，用 one-hot 的 grad_output 调用 backward，得到 ∂yⱼ/∂x    → 被测的反向实现
-```
+| | 怎么算 | 代表什么 |
+|---|---|---|
+| 数值 Jacobian | 对每个输入元素 xᵢ 加减 eps，重新算前向，(f(x+eps) − f(x−eps)) / 2eps | 与实现无关的真值 |
+| 解析 Jacobian | 对每个输出元素 yⱼ，用 one-hot 的 grad_output 调用 backward，得到 ∂yⱼ/∂x | 被测的反向实现 |
+
+Table: gradcheck 比较的两个 Jacobian
 
 两者逐元素在 `atol=1e-5, rtol=1e-3` 内一致则通过。为什么必须 float64：eps 默认 1e-6，float32 只有 7 位有效数字，`f(x+eps) - f(x-eps)` 的差本身就在舍入误差里；float64 有 16 位，差分才有意义。
 
@@ -365,13 +349,11 @@ flowchart TB
 
 `gradcheck` 还检查几件容易忽略的事：
 
-```text
-check_undefined_grad    某些输出的 grad_output 为 None（未使用）时反向不崩
-check_batched_grad      反向对 vmap 友好（批量 grad_output）
-check_forward_ad        forward-mode AD（dual number）的结果与数值 Jacobian 一致
-check_grad_dtypes       梯度 dtype 与输入一致
-非确定性检测            同一输入算两次反向结果不同 → 报 nondeterministic 错误，而不是模糊的数值不匹配
-```
+- **`check_undefined_grad`**：某些输出的 grad_output 为 None（未使用）时反向不崩；
+- **`check_batched_grad`**：反向对 vmap 友好（批量 grad_output）；
+- **`check_forward_ad`**：forward-mode AD（dual number）的结果与数值 Jacobian 一致；
+- **`check_grad_dtypes`**：梯度 dtype 与输入一致；
+- **非确定性检测**：同一输入算两次反向结果不同 → 报 nondeterministic 错误，而不是模糊的数值不匹配。
 
 `gradgradcheck` 对**反向函数本身**做 gradcheck：把 backward 当成一个从 (input, grad_output) 到 grad_input 的函数，检查它的导数。这抓的是"反向公式里某个中间量没有接入计算图"这类错误——一阶 gradcheck 发现不了，二阶优化（如 Hessian-vector product、梯度惩罚）时才会炸。对线性算子（第六篇的 `scale_shift`）二阶导恒为零，`gradgradcheck` 平凡通过；对 gelu、softmax、attention 这类非线性算子，它是必要的。
 
@@ -379,12 +361,10 @@ check_grad_dtypes       梯度 dtype 与输入一致
 
 框架测试有一个应用测试很少遇到的敌人：**同一份代码同一输入，两次结果不同**。来源：
 
-```text
-GPU 归约顺序      浮点加法不满足结合律，atomicAdd 的顺序随线程调度变化 → index_add、scatter_add、embedding 反向
-cuBLAS / cuDNN    算法自动选择（不同 workspace、不同 split-K）→ 结果在容差内不同
-随机数            Dropout、randn；多进程时各 rank 的种子
-异步与竞态        Stream 依赖没建对，偶发读到旧数据
-```
+- **GPU 归约顺序**：浮点加法不满足结合律，atomicAdd 的顺序随线程调度变化 → index_add、scatter_add、embedding 反向；
+- **cuBLAS / cuDNN**：算法自动选择（不同 workspace、不同 split-K）→ 结果在容差内不同；
+- **随机数**：Dropout、randn；多进程时各 rank 的种子；
+- **异步与竞态**：Stream 依赖没建对，偶发读到旧数据。
 
 工具：`torch.use_deterministic_algorithms(True)` 让非确定性算子改用确定性实现或直接报错（配合 `CUBLAS_WORKSPACE_CONFIG=:4096:8`）；`torch.manual_seed` 与 `torch.testing._internal.common_utils.TestCase` 每个测试前重置种子；`freeze_rng_state()` 上下文。
 
@@ -398,28 +378,26 @@ cuBLAS / cuDNN    算法自动选择（不同 workspace、不同 split-K）→ �
 
 ### 7. `test/` 目录导读
 
-```text
-test/
-├── test_torch.py                 Tensor 基础操作、大杂烩（历史原因最大的文件）
-├── test_ops.py                   OpInfo 模板：一致性、dtype、out=、非连续、参考实现
-├── test_ops_gradients.py         OpInfo 模板：gradcheck / gradgradcheck
-├── test_ops_fwd_gradients.py     OpInfo 模板：forward AD
-├── test_autograd.py              Autograd 引擎本身：图构建、hook、异常、checkpoint
-├── test_nn.py                    nn.Module 与各层
-├── test_binary_ufuncs.py / test_unary_ufuncs.py / test_reductions.py    按算子类别的专项模板
-├── test_tensor_creation_ops.py / test_view_ops.py / test_indexing.py
-├── test_cuda.py                  CUDA 运行时：Stream、Event、Caching Allocator、Graphs
-├── test_meta.py                  Meta 实现与真实实现一致
-├── test_decomp.py                _refs / decomposition 与原算子一致
-├── test_fake_tensor.py
-├── dynamo/                       Dynamo：捕获、Guard、graph break、重编译
-├── inductor/                     Inductor：codegen、融合、OpInfo 全量、CUDA Graphs
-├── distributed/                  进程组、DDP、FSDP、TP、PP、DTensor、checkpoint
-├── cpp_extensions/               C++ 扩展的构建与加载
-├── cpp/                          C++ 单元测试（gtest）：c10、ATen、api、jit
-├── forward_backward_compatibility/    算子 Schema 的 BC/FC 检查（第七章 §3）
-└── run_test.py                   统一入口：分片、超时、重跑、禁用列表
-```
+- **test/**
+  - test_torch.py                 Tensor 基础操作、大杂烩（历史原因最大的文件）
+  - test_ops.py                   OpInfo 模板：一致性、dtype、out=、非连续、参考实现
+  - test_ops_gradients.py         OpInfo 模板：gradcheck / gradgradcheck
+  - test_ops_fwd_gradients.py     OpInfo 模板：forward AD
+  - test_autograd.py              Autograd 引擎本身：图构建、hook、异常、checkpoint
+  - test_nn.py                    nn.Module 与各层
+  - test_binary_ufuncs.py / test_unary_ufuncs.py / test_reductions.py    按算子类别的专项模板
+  - test_tensor_creation_ops.py / test_view_ops.py / test_indexing.py
+  - test_cuda.py                  CUDA 运行时：Stream、Event、Caching Allocator、Graphs
+  - test_meta.py                  Meta 实现与真实实现一致
+  - test_decomp.py                _refs / decomposition 与原算子一致
+  - test_fake_tensor.py
+  - dynamo/                       Dynamo：捕获、Guard、graph break、重编译
+  - inductor/                     Inductor：codegen、融合、OpInfo 全量、CUDA Graphs
+  - distributed/                  进程组、DDP、FSDP、TP、PP、DTensor、checkpoint
+  - cpp_extensions/               C++ 扩展的构建与加载
+  - cpp/                          C++ 单元测试（gtest）：c10、ATen、api、jit
+  - forward_backward_compatibility/    算子 Schema 的 BC/FC 检查（第七章 §3）
+  - run_test.py                   统一入口：分片、超时、重跑、禁用列表
 
 跑单个文件：`python test/test_ops.py -k test_noncontiguous_samples_add`；跑一类：`python test/run_test.py -i test_autograd`。C++ 测试在构建时 `BUILD_TEST=1` 生成到 `build/bin/`。
 
@@ -488,12 +466,10 @@ python benchmarks/dynamo/huggingface.py --accuracy --inference --bfloat16 --back
 
 第一章 §3 说过，每个 PR 跑全部几十万测试不可能。PyTorch 的 CI 分成几层：
 
-```text
-pull        每个 PR 触发。几个 Linux 构建 + 分片后的测试子集，约两小时。目标：拦住大多数错误
-trunk       合入后（或 PR 上加 ciflow/trunk 标签）触发。更多平台（macOS、Windows）、多 GPU、更慢的测试
-periodic    每晚。慢测试、ROCm、多机分布式、Debug 构建
-inductor    编译器的正确性与性能基准（第四章 §2），部分每 PR、部分每晚
-```
+- **pull**：每个 PR 触发。几个 Linux 构建 + 分片后的测试子集，约两小时。目标：拦住大多数错误
+- **trunk**：合入后（或 PR 上加 ciflow/trunk 标签）触发。更多平台（macOS、Windows）、多 GPU、更慢的测试
+- **periodic**：每晚。慢测试、ROCm、多机分布式、Debug 构建
+- **inductor**：编译器的正确性与性能基准（第四章 §2），部分每 PR、部分每晚
 
 在 `pull` 层内部，**目标确定**（Target Determination）按改动的文件排序测试：改了 `aten/native/cuda/Reduce.cu` 就先跑 reduction 相关的测试文件，历史上被这个文件的改动弄红过的测试排在前面。测试文件再被**分片**到多台机器并行。这是在"不能全跑"的前提下把漏网概率压到可接受的折中。
 
@@ -540,13 +516,11 @@ flowchart TB
 
 第三章 §5 说过，几十万个测试实例中总有偶发失败。处理它的机制必须是自动的，否则**flaky 测试的成本不是那一个测试，而是它让所有人开始忽略红色的 CI**：
 
-```text
-CI 检测到某测试在主干上偶发失败
-   → 机器人自动开一个 "DISABLED test_xxx (__main__.TestFoo)" issue
-   → 测试运行器启动时拉取这个列表，跳过其中的测试；PR 不再因它变红
-   → 定期任务 rerun-disabled-tests 重跑被禁用的测试
-   → 连续通过一段时间后自动关 issue，测试恢复
-```
+- **CI 检测到某测试在主干上偶发失败**
+  - → 机器人自动开一个 "DISABLED test_xxx (__main__.TestFoo)" issue
+  - → 测试运行器启动时拉取这个列表，跳过其中的测试；PR 不再因它变红
+  - → 定期任务 rerun-disabled-tests 重跑被禁用的测试
+  - → 连续通过一段时间后自动关 issue，测试恢复
 
 被禁用的测试列表是公开的，一个模块下禁用测试堆积，是该模块维护者的待办。
 
@@ -568,15 +542,10 @@ CI 检测到某测试在主干上偶发失败
 
 小版本大约每三到四个月一个（2.0 于 2023 年 3 月，之后 2.1、2.2 …），每个版本有若干补丁版本。流程：
 
-```text
-主干持续合入 → 每天构建 nightly（pip install --pre torch --index-url .../nightly/cu124）
-   ↓ 距发布约 6 周
-cut 出 release/2.x 分支 → 发布候选 RC1、RC2 …
-   ↓ 分支只接受 cherry-pick：在 "release tracker" issue 里申请，限于回归修复、关键 bug、文档
-正式发布 2.x.0
-   ↓
-补丁 2.x.1、2.x.2：同样走 cherry-pick 流程
-```
+1. 主干持续合入 → 每天构建 nightly（pip install --pre torch --index-url .../nightly/cu124）（距发布约 6 周）
+2. cut 出 release/2.x 分支 → 发布候选 RC1、RC2 …（分支只接受 cherry-pick：在 "release tracker" issue 里申请，限于回归修复、关键 bug、文档）
+3. 正式发布 2.x.0
+4. 补丁 2.x.1、2.x.2：同样走 cherry-pick 流程
 
 用分支图看更直观：主干一直往前走并每天出 nightly，release 分支从 cut 那一刻起只靠 cherry-pick 前进，RC 和正式版、补丁版都是它上面的 tag：
 
@@ -612,11 +581,9 @@ gitGraph TB:
 
 用户装的是预编译 wheel。每次发布构建的矩阵：
 
-```text
-Python 版本    × 3.9 ~ 3.13
-加速后端       × CPU / CUDA 11.8 / CUDA 12.x（通常同时支持两三个）/ ROCm / XPU
-平台           × Linux x86_64 / Linux aarch64 / Windows / macOS arm64
-```
+- **Python 版本**：× 3.9 ~ 3.13
+- **加速后端**：× CPU / CUDA 11.8 / CUDA 12.x（通常同时支持两三个）/ ROCm / XPU
+- **平台**：× Linux x86_64 / Linux aarch64 / Windows / macOS arm64
 
 三个维度各自绑定一部分 ABI，第六篇 ABI 一节列出的因素可以逐一归到某一维上：
 
@@ -636,12 +603,10 @@ Table: wheel 矩阵的三个维度与 ABI 约束
 
 每个版本支持的 CUDA、Python、操作系统和 GPU 架构是一个滑动窗口，在 cut 分支时决定：
 
-```text
-CUDA          通常同时支持两到三个版本（例如 11.8 + 12.4 + 12.6），新版本加入时最老的退出
-Python        新 Python 发布后几个月加入；到 EOL 前后移除
-GPU 架构      Maxwell、Pascal、Volta 等老架构陆续从默认 wheel 的 TORCH_CUDA_ARCH_LIST 中移除，需要时自行从源码构建（第二章 §3）
-操作系统      macOS x86_64 wheel 在 2.3 后停止
-```
+- **CUDA**：通常同时支持两到三个版本（例如 11.8 + 12.4 + 12.6），新版本加入时最老的退出
+- **Python**：新 Python 发布后几个月加入；到 EOL 前后移除
+- **GPU 架构**：Maxwell、Pascal、Volta 等老架构陆续从默认 wheel 的 TORCH_CUDA_ARCH_LIST 中移除，需要时自行从源码构建（第二章 §3）
+- **操作系统**：macOS x86_64 wheel 在 2.3 后停止
 
 具体窗口以每个版本的发布说明为准。对 AI-Infra 工程师的含义是：**集群的驱动版本、容器镜像的 CUDA 版本和 PyTorch 版本是一个需要一起规划的矩阵**，第八篇优化报告里"版本"一栏、第八章的兼容矩阵管理都是这个原因。
 
@@ -655,24 +620,23 @@ PyTorch 于 2022 年进入 Linux Foundation 下的 PyTorch Foundation。技术�
 
 正确性和性能是"这一版对不对"，兼容性是"下一版还能不能用"。PyTorch 有多个需要兼容的接口面，稳定程度差别很大，**分级**是在组合爆炸下唯一可行的策略：
 
-```text
-接口面              稳定程度                              机制
-Python API          stable 特性保证 BC；有明确的弃用流程     §2
-算子 Schema         自动化 BC/FC 检查；序列化模型依赖它       §3
-C++ API             无 BC 保证；每个小版本都可能破坏扩展      §4（稳定 ABI 子集、PrivateUse1 是缓解）
-序列化格式          torch.save / state_dict 有版本机制        §5
-平台                滑动窗口，定期移除                        第六章 §3
-```
+| 接口面 | 稳定程度 | 机制 |
+|---|---|---|
+| Python API | stable 特性保证 BC；有明确的弃用流程 | §2 |
+| 算子 Schema | 自动化 BC/FC 检查；序列化模型依赖它 | §3 |
+| C++ API | 无 BC 保证；每个小版本都可能破坏扩展 | §4（稳定 ABI 子集、PrivateUse1 是缓解） |
+| 序列化格式 | `torch.save` / state_dict 有版本机制 | §5 |
+| 平台 | 滑动窗口，定期移除 | 第六章 §3 |
+
+Table: 五个接口面的稳定程度与兼容机制
 
 ### 1. 特性阶段
 
 新特性按成熟度分三级，发布说明中标注：
 
-```text
-prototype    可能随时改变或删除，通常不在默认构建中或需要显式 opt-in
-beta         API 基本稳定，性能和覆盖度仍在完善；可能有不兼容改动但会尽量避免
-stable       保证向后兼容；改动走弃用流程
-```
+- **prototype**：可能随时改变或删除，通常不在默认构建中或需要显式 opt-in
+- **beta**：API 基本稳定，性能和覆盖度仍在完善；可能有不兼容改动但会尽量避免
+- **stable**：保证向后兼容；改动走弃用流程
 
 `torch.compile` 在 2.0 是 beta，DTensor 和 FSDP2 经历了 prototype → beta，`torch.distributed.pipelining` 在 2.4 以 prototype 进入。使用者读发布说明时，这个标签决定了"能不能在生产里用"。
 
@@ -684,10 +648,8 @@ stable API 的弃用流程：先在一个版本中发出警告（`FutureWarning`
 
 第五篇说 Schema 是算子的契约。它被序列化进 TorchScript 模型和导出的图，所以改 Schema 会影响已保存的模型。两个方向：
 
-```text
-BC（向后兼容）   新版本 PyTorch 能加载旧版本保存的模型      → 旧 Schema 的调用在新版本上仍能解析
-FC（向前兼容）   旧版本 PyTorch 能加载新版本保存的模型      → 新 Schema 的调用在旧版本上仍能解析
-```
+- **BC（向后兼容）**：新版本 PyTorch 能加载旧版本保存的模型 → 旧 Schema 的调用在新版本上仍能解析；
+- **FC（向前兼容）**：旧版本 PyTorch 能加载新版本保存的模型 → 新 Schema 的调用在旧版本上仍能解析。
 
 允许与不允许的改动：
 
@@ -808,16 +770,14 @@ python -W error::FutureWarning -W error::DeprecationWarning -m pytest tests/
 
 一次升级按风险从低到高分层验证，每层都有明确的通过标准：
 
-```text
-1. 读发布说明          先看 "Backwards Incompatible Changes" 和 "Deprecations"，再看与自己相关的模块；核对第六章 §3 的平台窗口
-2. 重编译扩展          所有 C++ / CUDA 扩展针对新版本重编译（第七章 §4：C++ 无 BC 保证）；扩展自己的测试全过
-3. CPU 单元测试        自己项目的测试套件在新版本上跑一遍；FutureWarning 当错误
-4. 单卡功能测试        小模型跑几十步，loss 曲线与旧版本在容差内一致（第八篇的正确性测试）
-5. checkpoint 兼容     用旧版本保存的 checkpoint 在新版本加载并继续训练；注意 weights_only 之类的默认值变化（第七章 §5）
-6. 多卡与 compile      DDP / FSDP 与 torch.compile 各跑一轮；编译时间与 graph break 数量对比
-7. 性能基线            与旧版本在同一硬件上对比 Benchmark（第八篇的口径）；变慢的项归因后再决定是否接受
-8. 灰度                先升级一部分作业或一个集群分区，观察一段时间再全量
-```
+- **1. 读发布说明**：先看 "Backwards Incompatible Changes" 和 "Deprecations"，再看与自己相关的模块；核对第六章 §3 的平台窗口
+- **2. 重编译扩展**：所有 C++ / CUDA 扩展针对新版本重编译（第七章 §4：C++ 无 BC 保证）；扩展自己的测试全过
+- **3. CPU 单元测试**：自己项目的测试套件在新版本上跑一遍；FutureWarning 当错误
+- **4. 单卡功能测试**：小模型跑几十步，loss 曲线与旧版本在容差内一致（第八篇的正确性测试）
+- **5. checkpoint 兼容**：用旧版本保存的 checkpoint 在新版本加载并继续训练；注意 weights_only 之类的默认值变化（第七章 §5）
+- **6. 多卡与 compile**：DDP / FSDP 与 torch.compile 各跑一轮；编译时间与 graph break 数量对比
+- **7. 性能基线**：与旧版本在同一硬件上对比 Benchmark（第八篇的口径）；变慢的项归因后再决定是否接受
+- **8. 灰度**：先升级一部分作业或一个集群分区，观察一段时间再全量
 
 画成流程：每一步都有明确的输出物，通过才进下一步，失败则回到旧镜像 tag——回退的成本在每一层都一样低，这是分层的前提：
 
@@ -860,13 +820,11 @@ flowchart TB
 
 一个训练环境至少有五个相互约束的版本：
 
-```text
-NVIDIA 驱动         ≥ CUDA 运行时要求的最低版本；集群级，升级最慢
-CUDA 运行时          由 torch wheel 的 +cuXXX 决定（第六章 §2）
-PyTorch              小版本
-C++ 扩展             针对具体 torch × CUDA 编译（FlashAttention、自定义算子、Apex ...）
-上层框架             Lightning、DeepSpeed、Megatron、vLLM 等各自声明的 torch 版本范围
-```
+- **NVIDIA 驱动**：≥ CUDA 运行时要求的最低版本；集群级，升级最慢
+- **CUDA 运行时**：由 torch wheel 的 +cuXXX 决定（第六章 §2）
+- **PyTorch**：小版本
+- **C++ 扩展**：针对具体 torch × CUDA 编译（FlashAttention、自定义算子、Apex ...）
+- **上层框架**：Lightning、DeepSpeed、Megatron、vLLM 等各自声明的 torch 版本范围
 
 五者是一条单向的约束链：上游限定下游能取的值，而升级频率恰好反过来——越靠上游越慢：
 
@@ -909,27 +867,25 @@ flowchart TB
 
 ### 1. 目录结构
 
-```text
-myops/
-├── pyproject.toml / setup.py       第一关：cpp_extension.CUDAExtension；把构建时的 torch 版本写进包元数据
-├── myops/
-│   ├── __init__.py                 import _C（触发 TORCH_LIBRARY）；注册 autograd / fake；运行时版本检查（第六篇第十章 §4）
-│   ├── _autograd.py                backward、setup_context、fake
-│   └── ops.py                      面向用户的 Python 函数；弃用垫片放这里（第六关）
-├── csrc/
-│   ├── scale_shift.cpp             TORCH_LIBRARY 定义 + CPU 实现
-│   └── scale_shift_cuda.cu
-├── test/                           第二关
-│   ├── test_ops.py                 设备泛化 × dtype 矩阵 × layout × 参考实现 × 错误输入
-│   ├── test_autograd.py            gradcheck / gradgradcheck / forward AD
-│   ├── test_compile.py             eager vs compile；Fake 与真实 shape 一致
-│   ├── test_distributed.py         DDP 下与单进程大 batch 一致
-│   └── test_schema.py              Schema 快照，防止无意的契约变更（第六关）
-├── benchmarks/                     第三关
-│   ├── bench_scale_shift.py        Compare 表 + JSON 输出
-│   └── baseline.json               基线；CI 中比较
-└── .github/workflows/ci.yml        第四、五关：lint → build → test → bench 的矩阵；tag 触发构建 wheel
-```
+- **myops/**
+  - pyproject.toml / setup.py       第一关：cpp_extension.CUDAExtension；把构建时的 torch 版本写进包元数据
+  - myops/
+    - __init__.py                 import _C（触发 TORCH_LIBRARY）；注册 autograd / fake；运行时版本检查（第六篇第十章 §4）
+    - _autograd.py                backward、setup_context、fake
+    - ops.py                      面向用户的 Python 函数；弃用垫片放这里（第六关）
+  - csrc/
+    - scale_shift.cpp             TORCH_LIBRARY 定义 + CPU 实现
+    - scale_shift_cuda.cu
+  - test/                           第二关
+    - test_ops.py                 设备泛化 × dtype 矩阵 × layout × 参考实现 × 错误输入
+    - test_autograd.py            gradcheck / gradgradcheck / forward AD
+    - test_compile.py             eager vs compile；Fake 与真实 shape 一致
+    - test_distributed.py         DDP 下与单进程大 batch 一致
+    - test_schema.py              Schema 快照，防止无意的契约变更（第六关）
+  - benchmarks/                     第三关
+    - bench_scale_shift.py        Compare 表 + JSON 输出
+    - baseline.json               基线；CI 中比较
+  - .github/workflows/ci.yml        第四、五关：lint → build → test → bench 的矩阵；tag 触发构建 wheel
 
 三个分离：**实现（csrc/）、契约（Schema + Python 垫片）、验证（test/ + benchmarks/）**各自独立演进；测试按 oracle 分文件（第三章 §1 的五种 oracle 各有归属）；性能基线入库，让"变慢了"有可比对象。
 
@@ -1115,18 +1071,19 @@ myops::scale_shift(Tensor x, float alpha, float beta, Tensor? mask=None) -> Tens
 
 ### 7. 对照大纲的检查清单
 
-```text
-正确性                                          工程质量
-├── 多种 shape          SHAPES × make_tensor      ├── 单元测试        test/ 四个文件，设备泛化
-├── 多种 dtype          @dtypes                   ├── gradcheck       test_autograd.py，fp64，含 gradgradcheck
-├── CPU/CUDA            instantiate_device_type   ├── Benchmark       Compare + baseline.json
-├── contiguous/non-     noncontiguous=True        ├── 文档            Schema 即文档；ops.py 的 docstring
-├── 空 Tensor / 标量    SHAPES 里的 (0,) 和 ()    ├── CI              矩阵 × lint → build → test → bench → wheel
-├── 广播                mask 的广播样例           └── 性能回归        15% 阈值，基线入库
-├── requires_grad       opcheck + gradcheck
-├── 极端数值 / NaN      test_extremal
-└── 非法输入            test_error_inputs
-```
+| 正确性覆盖 | 靠什么 | 工程质量 | 靠什么 |
+|---|---|---|---|
+| 多种 shape | `SHAPES × make_tensor` | 单元测试 | `test/` 四个文件，设备泛化 |
+| 多种 dtype | `@dtypes` | gradcheck | `test_autograd.py`，fp64，含 gradgradcheck |
+| CPU / CUDA | `instantiate_device_type` | Benchmark | `Compare` + `baseline.json` |
+| contiguous / non-contiguous | `noncontiguous=True` | 文档 | Schema 即文档；`ops.py` 的 docstring |
+| 空 Tensor / 标量 | `SHAPES` 里的 `(0,)` 和 `()` | CI | 矩阵 × lint → build → test → bench → wheel |
+| 广播 | mask 的广播样例 | 性能回归 | 15% 阈值，基线入库 |
+| requires_grad | opcheck + gradcheck | | |
+| 极端数值 / NaN | `test_extremal` | | |
+| 非法输入 | `test_error_inputs` | | |
+
+Table: 自定义算子项目的正确性覆盖与工程质量两张清单
 
 大纲要求的"支持 CPU、CUDA、Autograd、Meta，并具有完整测试和 Benchmark 的自定义算子"到这里在**结构上**完成——本章给的是骨架与关键片段（`test_autograd.py`、`test_compile.py` 只有节选，没有完整 `__main__` 与注册），CI 文件是结构示意；照抄需要补齐这些文件并在有 CUDA 的机器上实际跑过，本文没有替你跑。它把前九篇串成了一条线：Schema（第五篇）→ stride 与 dtype 处理（第二、六篇）→ 反向（第三篇）→ Fake 与 compile（第七篇）→ Benchmark（第八篇）→ DDP 一致性（第九篇）→ 七个关卡（本篇）。
 
@@ -1148,28 +1105,28 @@ JUnit 5 的 `@ParameterizedTest` + `@MethodSource` 与 OpInfo 的 `@ops` + `samp
 
 ### 4. 构建：Maven / Gradle vs CMake + setup.py
 
-```text
-pom.xml / build.gradle           CMakeLists.txt + setup.py
-Maven Central 上的 jar           PyPI 上的 wheel；但 wheel 绑定平台 × Python × CUDA，jar 不绑定
-一次编译到处运行                  一个 wheel 只在一个格子里运行；ABI 是显式的兼容性维度
-annotation processor 生成代码     torchgen 从 YAML 生成 C++ 和 Python 绑定
-增量编译（Gradle daemon）          Ninja 增量 + ccache；改头文件的代价远大于改 .java
-```
+- **pom.xml / build.gradle**：CMakeLists.txt + setup.py
+- **Maven Central 上的 jar**：PyPI 上的 wheel；但 wheel 绑定平台 × Python × CUDA，jar 不绑定
+- **一次编译到处运行**：一个 wheel 只在一个格子里运行；ABI 是显式的兼容性维度
+- **annotation processor 生成代码**：torchgen 从 YAML 生成 C++ 和 Python 绑定
+- **增量编译（Gradle daemon）**：Ninja 增量 + ccache；改头文件的代价远大于改 .java
 
 最大的心智差异是 **ABI**：Java 工程师习惯了字节码的平台无关性，C++ 扩展世界里编译器版本、标准库 ABI、CUDA 版本、GPU 架构都是二进制兼容性的一部分。
 
 ### 5. 兼容性：`@Deprecated`、`serialVersionUID` 与 class file version
 
-```text
-@Deprecated(since, forRemoval)          FutureWarning + 两个小版本的窗口
--Werror 对 deprecation                  -W error::FutureWarning（第八章 §2）
-serialVersionUID + readObject 迁移       nn.Module._version + _load_from_state_dict
-class file major version + 向后兼容      TorchScript 算子版本号 + upgrader
-Java 序列化的安全问题 → 过滤器          pickle 的安全问题 → weights_only=True
-JEP                                     RFC
-六个月一个 JDK，LTS 每两年               三到四个月一个小版本，无 LTS
-JCP / OpenJDK 治理                       PyTorch Foundation + 模块维护者
-```
+| Java | PyTorch |
+|---|---|
+| `@Deprecated(since, forRemoval)` | `FutureWarning` + 两个小版本的窗口 |
+| `-Werror` 对 deprecation | `-W error::FutureWarning`（第八章 §2） |
+| `serialVersionUID` + `readObject` 迁移 | `nn.Module._version` + `_load_from_state_dict` |
+| class file major version + 向后兼容 | TorchScript 算子版本号 + upgrader |
+| Java 序列化的安全问题 → 过滤器 | pickle 的安全问题 → `weights_only=True` |
+| JEP | RFC |
+| 六个月一个 JDK，LTS 每两年 | 三到四个月一个小版本，无 LTS |
+| JCP / OpenJDK 治理 | PyTorch Foundation + 模块维护者 |
+
+Table: Java 与 PyTorch 工程机制的对照
 
 Java 的 `readObject` 里按 `serialVersionUID` 迁移旧字段，与 `_load_from_state_dict` 里按 `version` 补 `num_batches_tracked` 是同一个模式。"无 LTS"是一个实际差别：Java 团队可以停在 LTS 上几年，PyTorch 使用者没有这个选项，第八章的跟随策略因此是必需的而不是可选的。
 

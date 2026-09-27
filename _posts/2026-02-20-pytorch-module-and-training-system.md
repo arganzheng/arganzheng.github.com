@@ -23,21 +23,13 @@ updated: 2026-09-14
 
 PyTorch 用 `nn.Module` 把这些对象组织起来，再通过 Optimizer、Dataset 和 DataLoader 将它们连接成训练系统：
 
-```text
-Module 树
-    ↓
-Parameter / Buffer / state_dict
-    ↓
-forward
-    ↓
-Loss
-    ↓
-backward
-    ↓
-Optimizer
-    ↓
-Parameter 更新
-```
+1. Module 树
+2. Parameter / Buffer / state_dict
+3. forward
+4. Loss
+5. backward
+6. Optimizer
+7. Parameter 更新
 
 本文要回答的不是“如何调用 `nn.Linear`”，而是：
 
@@ -126,16 +118,14 @@ class MLP(nn.Module):
 
 __init__ 定义的 Module 树：
 
-```text
-MLP
-├── fc1: Linear
-│   ├── weight
-│   └── bias
-├── activation: ReLU
-└── fc2: Linear
-    ├── weight
-    └── bias
-```
+- **MLP**
+  - fc1: Linear
+    - weight
+    - bias
+  - activation: ReLU
+  - fc2: Linear
+    - weight
+    - bias
 
 forward 定义的数据流：
 
@@ -145,17 +135,15 @@ x → fc1 → activation → fc2 → output
 
 因此，这个对象从训练系统的角度同时包含：
 
-```text
-MLP
-├── Module 层级结构
-├── Linear 的 Parameter
-├── ReLU 的行为
-├── forward 定义的数据流
-├── state_dict
-├── train / eval 状态
-├── device / dtype 迁移能力
-└── hook 和序列化协议
-```
+- **MLP**
+  - Module 层级结构
+  - Linear 的 Parameter
+  - ReLU 的行为
+  - forward 定义的数据流
+  - state_dict
+  - train / eval 状态
+  - device / dtype 迁移能力
+  - hook 和序列化协议
 
 `nn.Module` 的价值不只是提供一个可以继承的基类，而是定义了一套模型对象协议。
 
@@ -189,16 +177,14 @@ Table: Sequential 与自定义 Module 的适合场景
 
 模型通常是一个树状结构。对于上面的 `MLP`，`__init__` 执行完成后，Module 树是：
 
-```text
-MLP
-├── fc1: Linear
-│   ├── weight
-│   └── bias
-├── activation: ReLU
-└── fc2: Linear
-    ├── weight
-    └── bias
-```
+- **MLP**
+  - fc1: Linear
+    - weight
+    - bias
+  - activation: ReLU
+  - fc2: Linear
+    - weight
+    - bias
 
 可以查看这棵树：
 
@@ -233,41 +219,29 @@ for name, parameter in model.named_parameters():
 
 `__init__()` 和 `forward()` 描述的是两个不同层次：
 
-```text
-__init__()
-    定义可复用的模块、参数和 Buffer
-    通常在模型构造时执行一次
-
-forward()
-    定义输入、模块和 Tensor 运算之间的数据流
-    每次调用都可能形成一条新的执行路径
-```
+- **__init__()**
+  - 定义可复用的模块、参数和 Buffer
+  - 通常在模型构造时执行一次
+- **forward()**
+  - 定义输入、模块和 Tensor 运算之间的数据流
+  - 每次调用都可能形成一条新的执行路径
 
 对于当前的 `MLP`，`forward()` 定义的是：
 
-```text
-x
- ↓
-fc1
- ↓
-activation
- ↓
-fc2
- ↓
-output
-```
+1. x
+2. fc1
+3. activation
+4. fc2
+5. output
 
 在 Eager Mode 下，forward 中的每个 Tensor 运算会立即执行；如果开启梯度记录，Autograd 还会为本次调用记录一张动态计算图。这里要区分两张图：
 
-```text
-Module 树
-    → __init__ 中注册的模块、参数和 Buffer
-    → 主要描述模型有哪些组件
-
-Tensor / Autograd 计算图
-    → forward 本次执行产生的运算关系
-    → 主要描述数据如何流过这些组件
-```
+- **Module 树**
+  - → __init__ 中注册的模块、参数和 Buffer
+  - → 主要描述模型有哪些组件
+- **Tensor / Autograd 计算图**
+  - → forward 本次执行产生的运算关系
+  - → 主要描述数据如何流过这些组件
 
 `forward()` 不只是把层按顺序排列，也可以表达分支、跳跃连接和条件路径：
 
@@ -414,15 +388,10 @@ Module 的属性设置逻辑会识别右侧对象是不是：
 
 概念上可以简化为：
 
-```text
-赋值 self.name = value
-        ↓
-value 是 Parameter？ → 注册到 _parameters
-        ↓
-value 是 Module？    → 注册到 _modules
-        ↓
-否则                 → 作为普通属性保存
-```
+1. 赋值 self.name = value
+2. value 是 Parameter？ → 注册到 _parameters
+3. value 是 Module？    → 注册到 _modules
+4. 否则                 → 作为普通属性保存
 
 把 Buffer 也算进来，`__setattr__()` 的完整决策路径如下——绿色分支的对象会进入 Module 的内部字典，从而被框架“看见”；灰色分支的对象只是 Python 对象属性：
 
@@ -474,11 +443,9 @@ self.counter = 0
 
 分别属于：
 
-```text
-Parameter → 参数
-Module    → 子模块
-int       → 普通属性
-```
+- Parameter → 参数
+- Module：→ 子模块
+- int：→ 普通属性
 
 ### 3. `ModuleList`
 
@@ -609,13 +576,8 @@ model.state_dict()
 
 这再次说明：
 
-```text
-requires_grad
-    → 是否参与梯度计算
-
-Parameter 注册
-    → 是否被 Module 和 Optimizer 发现
-```
+- **requires_grad**：是否参与梯度计算
+- **Parameter 注册**：是否被 Module 和 Optimizer 发现
 
 ### 3. Buffer 是什么？
 
@@ -696,31 +658,23 @@ print(state.keys())
 
 通常会得到：
 
-```text
-weight
-bias
-```
+- weight
+- bias
 
 一个容易踩的坑：`state_dict()` 返回的 Tensor 是**参数本体的引用**（`detach()` 过，但共享 Storage），不是拷贝——`state = model.state_dict()` 之后再训练一步，`state["weight"]` 跟着变。所以“先记下最好的一版权重、训完再恢复”必须 `{k: v.clone() for k, v in state.items()}`（或 `copy.deepcopy`），异步保存 checkpoint 也要先拷贝一份再交给后台线程；`torch.save` 是同步序列化，直接传 `state_dict()` 没问题。
 
 嵌套模块会使用点号组织 key：
 
-```text
-layers.0.weight
-layers.0.bias
-layers.2.weight
-layers.2.bias
-```
+- layers.0.weight
+- layers.0.bias
+- layers.2.weight
+- layers.2.bias
 
 `state_dict` 是一个从名字到 Tensor 的映射：
 
-```text
-模块路径 + 参数 / Buffer 名称
-    ↓
-state_dict key
-    ↓
-Tensor 状态
-```
+1. 模块路径 + 参数 / Buffer 名称
+2. state_dict key
+3. Tensor 状态
 
 把 Module 树和 `state_dict` 并排放在一起看会更直观：左边是嵌套的对象树，右边是按"模块路径 + 属性名"拍平后的 key。Parameter 和持久化 Buffer 都会生成 key，无状态模块（如 ReLU）什么也不产生；下面以一个加了 BatchNorm 的 MLP 为例：
 
@@ -824,12 +778,10 @@ torch.save(checkpoint, "checkpoint.pt")
 
 `state_dict` 可以类比为结构化状态快照，但它不是 Java 序列化整个对象图：
 
-```text
-state_dict
-    → 只保存可训练参数和模型状态
-    → 依赖代码重新构造 Module
-    → 通过 key 和 shape 恢复
-```
+- **state_dict**
+  - → 只保存可训练参数和模型状态
+  - → 依赖代码重新构造 Module
+  - → 通过 key 和 shape 恢复
 
 这种设计使得权重状态和模型代码相对解耦，也使得模型结构变更时必须显式处理兼容性。
 
@@ -882,13 +834,8 @@ with torch.no_grad():
 
 两者控制的是不同维度：
 
-```text
-train / eval
-    → Module 行为
-
-no_grad / inference_mode
-    → Autograd 记录
-```
+- **train / eval**：Module 行为
+- **no_grad / inference_mode**：Autograd 记录
 
 两个维度正交，组合起来一共六种状态。下表每个格子写的是：Dropout / BatchNorm 的行为、是否构建计算图、典型用途：
 
@@ -957,21 +904,13 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
 
 训练过程为：
 
-```text
-Parameter
-    ↓
-forward
-    ↓
-loss
-    ↓
-backward
-    ↓
-Parameter.grad
-    ↓
-optimizer.step()
-    ↓
-Parameter.data 更新
-```
+1. Parameter
+2. forward
+3. loss
+4. backward
+5. Parameter.grad
+6. optimizer.step()
+7. Parameter.data 更新
 
 ### 2. Optimizer 不负责计算梯度
 
@@ -989,10 +928,8 @@ optimizer.step()
 
 二者职责不同：
 
-```text
-Autograd  → 计算应该往哪个方向变化
-Optimizer → 决定采用什么更新规则和步长
-```
+- Autograd：→ 计算应该往哪个方向变化
+- Optimizer → 决定采用什么更新规则和步长
 
 ### 3. 梯度清零
 
@@ -1006,10 +943,8 @@ optimizer.step()
 
 如果不清零，梯度会按照上一篇介绍的规则继续累积。
 
-```text
-第 1 步梯度 → grad
-第 2 步梯度 → grad + 新梯度
-```
+- 第 1 步梯度 → grad
+- 第 2 步梯度 → grad + 新梯度
 
 ### 4. 参数组
 
@@ -1107,13 +1042,8 @@ class RegressionDataset(Dataset):
 
 它提供两个基本协议：
 
-```text
-__len__
-    → 数据集大小
-
-__getitem__
-    → 根据索引取得一个样本
-```
+- **__len__**：数据集大小
+- **__getitem__**：根据索引取得一个样本
 
 Dataset 不负责：
 
@@ -1149,16 +1079,9 @@ class StreamingDataset(IterableDataset):
 
 Sampler 决定索引访问顺序：
 
-```text
-Dataset
-    → 提供样本
-
-Sampler
-    → 产生索引顺序
-
-DataLoader
-    → 组织 batch 和 worker
-```
+- **Dataset**：提供样本
+- **Sampler**：产生索引顺序
+- **DataLoader**：组织 batch 和 worker
 
 常见 Sampler 包括：
 
@@ -1226,21 +1149,13 @@ def collate_fn(batch):
 
 训练的一次迭代可以表示为：
 
-```text
-磁盘读取
-    ↓
-数据解码
-    ↓
-CPU 预处理
-    ↓
-collate
-    ↓
-Pinned Memory
-    ↓
-CPU → GPU
-    ↓
-GPU 计算
-```
+1. 磁盘读取
+2. 数据解码
+3. CPU 预处理
+4. collate
+5. Pinned Memory
+6. CPU → GPU
+7. GPU 计算
 
 把这条链路展开到进程 / 线程层面，就能看到 `num_workers`、`prefetch_factor`、`pin_memory` 三个参数各自作用在哪一段，以及瓶颈最终在哪里表现出来：
 
@@ -1289,13 +1204,9 @@ flowchart TB
 
 如果前面的数据准备速度低于 GPU 消耗速度，就会出现：
 
-```text
-GPU 计算完成
-    ↓
-等待下一个 batch
-    ↓
-GPU 利用率下降
-```
+1. GPU 计算完成
+2. 等待下一个 batch
+3. GPU 利用率下降
 
 所以 GPU 利用率低不一定是模型 Kernel 的问题，也可能是 DataLoader 没有及时提供数据。第八篇把这种情况单列为一类瓶颈（GPU 在等数据到达），并给出在 Profiler 时间线上把它与"GPU 在等 Python"区分开的方法。
 
@@ -1334,19 +1245,10 @@ num_workers=8
 
 可以把数据管线近似理解为生产者—消费者系统：
 
-```text
-Dataset / Worker
-    → 生产样本
-
-Prefetch Queue
-    → 暂存 batch
-
-Training Loop
-    → 消费 batch
-
-GPU
-    → 消费计算输入
-```
+- **Dataset / Worker**：生产样本
+- **Prefetch Queue**：暂存 batch
+- **Training Loop**：消费 batch
+- **GPU**：消费计算输入
 
 但 DataLoader 不是简单的 Java `ExecutorService`：它还涉及 Python 进程、Tensor 共享、pinned memory 和设备搬运。
 
@@ -1429,15 +1331,10 @@ CPU Worker 准备 Batch N+2
 
 目标是让 CPU 数据准备和 GPU 计算尽量重叠，而不是：
 
-```text
-CPU 准备 Batch N
-    ↓
-GPU 计算 Batch N
-    ↓
-CPU 准备 Batch N+1
-    ↓
-GPU 等待
-```
+1. CPU 准备 Batch N
+2. GPU 计算 Batch N
+3. CPU 准备 Batch N+1
+4. GPU 等待
 
 第八篇性能文章会用 Profiler 分析这种等待具体发生在哪里。
 
@@ -1903,25 +1800,16 @@ flowchart TB
 
 Java 中一个 `double[]` 字段不会因为被放入对象就自动进入 Optimizer。PyTorch 中，Parameter 的注册让框架能够发现它、保存它、迁移它并更新它。
 
-```text
-普通 Tensor 字段
-    → 只是对象属性
-
-nn.Parameter 字段
-    → Module 管理的模型参数
-```
+- **普通 Tensor 字段**：只是对象属性
+- **nn.Parameter 字段**：Module 管理的模型参数
 
 ### 3. state_dict 不是 Java Serialization
 
 `state_dict` 保存的是显式模型状态，而不是整个 Python 对象图。重新加载时仍然需要：
 
-```text
-重新构造模型代码
-    ↓
-加载 state_dict
-    ↓
-恢复参数和 Buffer
-```
+1. 重新构造模型代码
+2. 加载 state_dict
+3. 恢复参数和 Buffer
 
 这种方式牺牲了部分“直接恢复对象”的便利性，换来了更明确的状态边界和更好的跨代码版本控制能力。
 
@@ -1944,89 +1832,51 @@ DataLoader 可以类比生产者—消费者，但它还额外包含：
 
 ### 1. Module 是模型生命周期容器
 
-```text
-Module
-    ├── 子 Module
-    ├── Parameter
-    ├── Buffer
-    ├── forward
-    ├── train / eval
-    ├── state_dict
-    ├── device / dtype 迁移
-    └── hooks
-```
+- **Module**
+    - 子 Module
+    - Parameter
+    - Buffer
+    - forward
+    - train / eval
+    - state_dict
+    - device / dtype 迁移
+    - hooks
 
 ### 2. 注册机制决定框架能否发现对象
 
-```text
-普通 Python list
-    → 不自动注册子 Module
-
-ModuleList / ModuleDict
-    → 注册子 Module
-
-普通 Tensor 属性
-    → 不自动进入 state_dict，也不自动迁移
-
-register_buffer()
-    → 注册模型状态，但不参与 Optimizer 更新
-```
+- **普通 Python list**：不自动注册子 Module
+- **ModuleList / ModuleDict**：注册子 Module
+- **普通 Tensor 属性**：不自动进入 state_dict，也不自动迁移
+- **register_buffer()**：注册模型状态，但不参与 Optimizer 更新
 
 ### 3. 训练系统的状态流
 
-```text
-DataLoader
-    ↓
-inputs / targets
-    ↓
-model(inputs)
-    ↓
-loss
-    ↓
-loss.backward()
-    ↓
-Parameter.grad
-    ↓
-optimizer.step()
-    ↓
-Parameter 更新
-```
+1. DataLoader
+2. inputs / targets
+3. model(inputs)
+4. loss
+5. loss.backward()
+6. Parameter.grad
+7. optimizer.step()
+8. Parameter 更新
 
 ### 4. 训练和推理的边界
 
-```text
-train()
-    → 训练态 Module 行为
-
-eval()
-    → 评估态 Module 行为
-
-no_grad()
-    → 关闭梯度记录
-
-inference_mode()
-    → 面向纯推理的更强上下文
-```
+- **train()**：训练态 Module 行为
+- **eval()**：评估态 Module 行为
+- **no_grad()**：关闭梯度记录
+- **inference_mode()**：面向纯推理的更强上下文
 
 ### 5. 分析一个训练问题的顺序
 
-```text
-Module 是否正确注册？
-    ↓
-Parameter 是否被发现？
-    ↓
-Buffer 是否正确迁移？
-    ↓
-输入和模型是否在同一 device？
-    ↓
-DataLoader 是否及时供给 batch？
-    ↓
-loss 是否连接到目标参数？
-    ↓
-grad 是否正确清零和更新？
-    ↓
-checkpoint 是否保存了完整状态？
-```
+1. Module 是否正确注册？
+2. Parameter 是否被发现？
+3. Buffer 是否正确迁移？
+4. 输入和模型是否在同一 device？
+5. DataLoader 是否及时供给 batch？
+6. loss 是否连接到目标参数？
+7. grad 是否正确清零和更新？
+8. checkpoint 是否保存了完整状态？
 
 ### 6. 本篇涉及的源码位置
 

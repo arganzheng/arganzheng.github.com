@@ -53,11 +53,13 @@ Eager 无法做这种优化，原因是结构性的：**Dispatcher 每次只看�
 
 有了图，剩下的问题就是经典编译器的问题。教科书式的编译器分三段：
 
-```text
-前端   源语言 → 中间表示（IR）      看懂程序，翻译成统一的内部表示
-中端   IR → IR                     与目标无关的变换：降低抽象层级、优化、规范化
-后端   IR → 目标代码                针对具体硬件生成代码
-```
+| 阶段 | 输入 → 输出 | 做什么 |
+|---|---|---|
+| 前端 | 源语言 → 中间表示（IR） | 看懂程序，翻译成统一的内部表示 |
+| 中端 | IR → IR | 与目标无关的变换：降低抽象层级、优化、规范化 |
+| 后端 | IR → 目标代码 | 针对具体硬件生成代码 |
+
+Table: 教科书式编译器的三段
 
 Java 工程师熟悉的 `javac` 是一个前端（Java 源码 → 字节码），HotSpot 的 C2 是中端加后端（字节码 → 优化后的机器码）。`torch.compile` 的默认路径完全对得上这三段：
 
@@ -139,12 +141,10 @@ Table: 编译器与运行时两个维度
 
 运行时这一层由四个机制构成：
 
-```text
-编译到哪里停止？                     → Graph Break
-编译产物在什么条件下有效？            → Guard
-输入 shape 变了是否必须重编？         → Dynamic Shape
-编译产物放在哪、下次怎么复用？        → 编译缓存
-```
+- 编译到哪里停止？：→ Graph Break
+- 编译产物在什么条件下有效？：→ Guard
+- 输入 shape 变了是否必须重编？：→ Dynamic Shape
+- 编译产物放在哪、下次怎么复用？：→ 编译缓存
 
 它们并不都是"横跨三段"的：Graph Break 完全发生在前端，Guard 主要由前端产生，Dynamic Shape 贯穿三段，缓存两头都有。把它们放在一起讲的理由不是位置，而是**它们共同构成"调用一个编译过的函数时发生了什么"这条流程**——这与第五篇区分开发态和运行态是同一个道理：静态结构和动态流程是两个轴。
 
@@ -215,14 +215,12 @@ Table: torch.fx 的三个类
 
 `Node.op` 只有六种：
 
-```text
-placeholder     函数输入
-get_attr        读取 Module 的参数或 Buffer
-call_function   调用一个自由函数（torch.relu、operator.add、aten.mm）
-call_method     调用 Tensor 方法（x.view）
-call_module     调用子 Module（self.linear）
-output          函数返回值
-```
+- **placeholder**：函数输入
+- **get_attr**：读取 Module 的参数或 Buffer
+- **call_function**：调用一个自由函数（torch.relu、operator.add、aten.mm）
+- **call_method**：调用 Tensor 方法（x.view）
+- **call_module**：调用子 Module（self.linear）
+- **output**：函数返回值
 
 这个设计刻意极简：FX 只规定“程序是一串对 Tensor 的操作”，不规定操作是什么。这一点在后面很重要。
 
@@ -323,43 +321,39 @@ Dynamo 的设计目标正好相反：**尽最大努力捕获，捕获不了的�
 
 Dynamo 通过 CPython 的帧求值钩子（PEP 523）介入：在解释器执行一个函数帧之前，先拿到它的字节码。然后它做的不是运行，而是**符号化地求值**这段字节码：
 
-```text
-维护一个模拟的 Python 栈
-逐条解释字节码指令
-    遇到 Tensor 操作     → 用 FakeTensor 推断输出元数据，往 FX Graph 追加节点
-    遇到 Python 值操作   → 直接在模拟栈上计算（常量、列表、属性访问……）
-    遇到依赖 Tensor 值的分支 → 无法确定走哪条 → 停止捕获（第六章）
-    遇到无法分析的调用   → 停止捕获（第六章）
-```
+- 维护一个模拟的 Python 栈；
+- 逐条解释字节码指令：
+  - 遇到 Tensor 操作 → 用 FakeTensor 推断输出元数据，往 FX Graph 追加节点；
+  - 遇到 Python 值操作 → 直接在模拟栈上计算（常量、列表、属性访问……）；
+  - 遇到依赖 Tensor 值的分支 → 无法确定走哪条 → 停止捕获（第六章）；
+  - 遇到无法分析的调用 → 停止捕获（第六章）。
 
 把 `f` 的字节码逐条走一遍，可以看到三件事同时发生：模拟栈上放的不是真实 Tensor 而是 `VariableTracker`（下表记作 `T(·)`，内部持有 FakeTensor 和指向 FX 节点的 Proxy），Tensor 操作变成 FX 节点，Python 值操作在栈上直接折叠：
 
-```text
-字节码                  模拟栈（栈顶在右）                产出的 FX 节点
-----------------------  --------------------------------  ----------------------
-LOAD_FAST x             [ T(x) ]                          placeholder l_x_
-LOAD_FAST weight        [ T(x), T(weight) ]               placeholder l_weight_
-BINARY_OP @             [ T(matmul) ]                     call_function matmul
-LOAD_FAST bias          [ T(matmul), T(bias) ]            placeholder l_bias_
-BINARY_OP +             [ T(y) ]                          call_function add
-STORE_FAST y            [ ]                               y 记入模拟的局部变量表
-LOAD_FAST x             [ T(x) ]
-LOAD_ATTR shape         [ Size(128, 32) ]                 Python 值，栈上折叠
-LOAD_CONST 0            [ Size(128, 32), 0 ]
-BINARY_SUBSCR           [ 128 ]                           FakeTensor 的元数据
-LOAD_CONST 64           [ 128, 64 ]
-COMPARE_OP >            [ True ]                          编译期算出，记 Guard
-POP_JUMP_IF_FALSE       跳转方向已静态决定 → 继续追踪 relu 分支
-LOAD_GLOBAL torch       [ torch ]
-LOAD_ATTR relu          [ torch.relu ]                    Python 值，记 Guard
-LOAD_FAST y             [ torch.relu, T(y) ]
-CALL 1                  [ T(relu) ]                       call_function relu
-RETURN_VALUE            [ ]                               output (relu,)
+| 字节码 | 模拟栈（栈顶在右） | 产出的 FX 节点 |
+|---|---|---|
+| `LOAD_FAST x` | `[ T(x) ]` | `placeholder l_x_` |
+| `LOAD_FAST weight` | `[ T(x), T(weight) ]` | `placeholder l_weight_` |
+| `BINARY_OP @` | `[ T(matmul) ]` | `call_function matmul` |
+| `LOAD_FAST bias` | `[ T(matmul), T(bias) ]` | `placeholder l_bias_` |
+| `BINARY_OP +` | `[ T(y) ]` | `call_function add` |
+| `STORE_FAST y` | `[ ]` | y 记入模拟的局部变量表 |
+| `LOAD_FAST x` | `[ T(x) ]` | |
+| `LOAD_ATTR shape` | `[ Size(128, 32) ]` | Python 值，栈上折叠 |
+| `LOAD_CONST 0` | `[ Size(128, 32), 0 ]` | |
+| `BINARY_SUBSCR` | `[ 128 ]` | FakeTensor 的元数据 |
+| `LOAD_CONST 64` | `[ 128, 64 ]` | |
+| `COMPARE_OP >` | `[ True ]` | 编译期算出，记 Guard |
+| `POP_JUMP_IF_FALSE` | 跳转方向已静态决定 | 继续追踪 relu 分支 |
+| `LOAD_GLOBAL torch` | `[ torch ]` | |
+| `LOAD_ATTR relu` | `[ torch.relu ]` | Python 值，记 Guard |
+| `LOAD_FAST y` | `[ torch.relu, T(y) ]` | |
+| `CALL 1` | `[ T(relu) ]` | `call_function relu` |
+| `RETURN_VALUE` | `[ ]` | `output (relu,)` |
 
-若条件换成 x.sum() > 0：COMPARE_OP 的结果是 T(...) 而不是 True/False，
-POP_JUMP_IF_FALSE 无法决定跳转方向 → graph break：到此为止的节点先编译成
-一张图，if 交还 Python 在运行时求值（第六章 §1）。
-```
+Table: Dynamo 逐条解释 f 的字节码：模拟栈的变化与产出的 FX 节点
+
+若条件换成 `x.sum() > 0`：`COMPARE_OP` 的结果是 `T(...)` 而不是 `True` / `False`，`POP_JUMP_IF_FALSE` 无法决定跳转方向 → graph break：到此为止的节点先编译成一张图，`if` 交还 Python 在运行时求值（第六章 §1）。
 
 FakeTensor 是第五篇 Meta Tensor 的扩展：只有 shape、stride、dtype 和一个“假装的”device，不持有数据。Dynamo 用它跑一遍程序，得到每个中间结果的元数据，但不做任何真实计算。这也是第六篇强调自定义算子必须注册 Fake 实现的原因：没有它，Dynamo 走到这个算子就无法继续推断。
 
@@ -367,11 +361,9 @@ FakeTensor 是第五篇 Meta Tensor 的扩展：只有 shape、stride、dtype �
 
 一次成功的捕获产出：
 
-```text
-① FX Graph        torch 级的 Tensor 计算图
-② Guard 列表      捕获过程中依赖的所有假设（第六章）
-③ 改写的字节码    原帧的替代品：调用编译后的图，加上无法捕获部分的原始 Python
-```
+- **① FX Graph**：torch 级的 Tensor 计算图
+- **② Guard 列表**：捕获过程中依赖的所有假设（第六章）
+- **③ 改写的字节码**：原帧的替代品：调用编译后的图，加上无法捕获部分的原始 Python
 
 第三项常被忽略，但它是 Dynamo 与其他方案的根本区别：它**修改的是 Python 函数的执行方式**，而不是要求用户把模型导出成另一种格式。原函数仍然是 Python 函数，只是帧被替换了。
 
@@ -458,17 +450,11 @@ AOTAutograd 的名字就是它的做法：**Ahead-Of-Time** 地运行一遍 Auto
 
 ### 2. 做法：用 FakeTensor 跑一遍前向加反向
 
-```text
-输入：Dynamo 的 torch 级前向图
-    ↓
-用 FakeTensor 执行这张图，同时让 Autograd 正常记录 grad_fn
-    ↓
-对输出调用反向，Autograd 引擎沿 grad_fn 回溯，每一步也被追踪成节点
-    ↓
-得到一张 joint graph：前向 + 反向在同一张 FX Graph 中
-    ↓
-切分（partition）为两张图：前向图、反向图
-```
+1. 输入：Dynamo 的 torch 级前向图
+2. 用 FakeTensor 执行这张图，同时让 Autograd 正常记录 grad_fn
+3. 对输出调用反向，Autograd 引擎沿 grad_fn 回溯，每一步也被追踪成节点
+4. 得到一张 joint graph：前向 + 反向在同一张 FX Graph 中
+5. 切分（partition）为两张图：前向图、反向图
 
 这里复用的正是第三篇的 Autograd 引擎和第五篇的 Autograd DispatchKey：追踪过程中每个算子仍然经过 Autograd 包装层、记录反向节点，只是底层执行的是 Meta Kernel 而非真实 Kernel。**AOTAutograd 没有重新实现求导规则，它借用了 Eager 的求导规则，只是把过程记录下来。**
 
@@ -571,26 +557,18 @@ def forward(self, primals_1, primals_2, relu, tangents_1):
 
 Inductor 是编译器意义上的后端：IR 进，目标代码出。它也是 `torch.compile` 默认 `backend="inductor"` 的最后一段。它接收 ATen 级的 FX Graph（前向图和反向图各处理一次），输出**一个 Python 源文件**，内含：
 
-```text
-若干 Triton Kernel（GPU）或 C++ 函数（CPU）
-一个 call(args) 函数：按顺序分配内存、调用 Kernel、释放内存、返回结果
-```
+- 若干 Triton Kernel（GPU）或 C++ 函数（CPU）
+- 一个 call(args) 函数：按顺序分配内存、调用 Kernel、释放内存、返回结果
 
 这个文件可以直接读。这是 Inductor 与许多编译器不同的地方：它的产物是人可读的源码，而不是二进制。
 
 ### 2. 内部步骤
 
-```text
-ATen 级 FX Graph
-    ↓ 进一步分解，降低到 Inductor IR
-Inductor IR      每个算子表示为“给定索引，如何计算该位置的值”的函数
-    ↓ 调度（Scheduling）
-融合决策         哪些节点合并成一个 Kernel
-    ↓ 内存规划
-Buffer 生命周期  何时分配、何时释放、能否复用
-    ↓ 代码生成
-Triton / C++ 源码 + call() 调度代码
-```
+1. ATen 级 FX Graph（进一步分解，降低到 Inductor IR）
+2. Inductor IR      每个算子表示为“给定索引，如何计算该位置的值”的函数（调度（Scheduling））
+3. 融合决策         哪些节点合并成一个 Kernel（内存规划）
+4. Buffer 生命周期  何时分配、何时释放、能否复用（代码生成）
+5. Triton / C++ 源码 + call() 调度代码
 
 把每一步在 `f` 的前向图上落实，就是下图：三个 ATen 节点进去，一个 cuBLAS 调用加一个 Triton Kernel 出来。
 
@@ -636,10 +614,12 @@ Table: Inductor 的融合规则
 
 对 `f`：`mm` 是 Extern Kernel，留给 cuBLAS；`add` 和 `relu` 是相邻的 pointwise，融合成一个 Kernel。Eager 的三个 Kernel 变成两个：
 
-```text
-Eager     matmul Kernel → add Kernel → relu Kernel        3 launch，2 个中间 Tensor
-Inductor  cuBLAS mm     → fused add+relu Kernel           2 launch，中间 Tensor 原地复用
-```
+| | Kernel 序列 | launch 次数 | 中间 Tensor |
+|---|---|---|---|
+| Eager | matmul → add → relu | 3 | 2 个 |
+| Inductor | cuBLAS mm → fused add+relu | 2 | 原地复用 |
+
+Table: Eager 与 Inductor 对同一段代码的 Kernel 序列
 
 ### 4. 生成的代码长什么样
 
@@ -756,10 +736,12 @@ Triton 不是 Inductor 的唯一目标。CPU 路径生成 C++，用 OpenMP 做�
 
 对 `N` 个元素的 `add` + `relu`：
 
-```text
-Eager    add:  读 N + bias，写 N   relu: 读 N，写 N        合计约 4N 次访存（bias 只有 64 个数，可忽略），2 次 launch
-Fused    读 N + bias，写 N                                 合计约 2N 次访存，1 次 launch
-```
+| | 访存 | launch |
+|---|---|---|
+| Eager | add：读 N + bias、写 N；relu：读 N、写 N —— 合计约 4N 次（bias 只有 64 个数，可忽略） | 2 |
+| Fused | 读 N + bias、写 N —— 合计约 2N 次 | 1 |
+
+Table: 融合前后的访存与 launch 次数
 
 （`bias` 是长度 64 的向量、被广播，两边都只读 64 个数；若两个输入都是完整的 `N` 元 Tensor，则是 Eager 5N 对 Fused 3N。）融合减少的是**中间结果在显存中的往返**，以及每次 launch 的固定开销。融合越长的 pointwise 链，收益越大。这是第八篇“Memory Bandwidth 与 Arithmetic Intensity”的一个具体实例。
 
@@ -847,10 +829,8 @@ torch.relu   仍然是同一个函数对象（没有被 monkey patch）
 
 每次调用改写后的字节码，首先执行 Guard 检查（在 C++ 中实现，开销很小）：
 
-```text
-全部通过   → 直接运行编译产物
-任一失败   → 触发重新编译，产生新的编译产物和新的 Guard，作为同一个函数的第二个缓存条目
-```
+- 全部通过：→ 直接运行编译产物
+- 任一失败：→ 触发重新编译，产生新的编译产物和新的 Guard，作为同一个函数的第二个缓存条目
 
 一个函数可以积累多个缓存条目（默认上限 8，配置项名称随版本变化）。超过上限，Dynamo 放弃对这个函数的编译，回退 Eager。
 
@@ -936,13 +916,14 @@ Table: 编译缓存的几层
 
 它们都在处理同一个矛盾：**编译产物是针对特定假设生成的静态代码，而 Python 程序是动态的**。Graph Break 缩小假设的范围（只编译能确定的部分），Guard 检查假设是否仍成立，Dynamic Shape 放宽假设（用符号代替常量），缓存让满足假设时不必重做工作。
 
-```text
-                 假设成立                        假设不成立
-Graph Break      能捕获 → 进图                   不能捕获 → 切断，Eager 执行
-Guard            检查通过 → 复用编译产物          检查失败 → 重编译（或超限退回 Eager）
-Dynamic Shape    符号约束满足 → 复用              约束不满足 → 重编译，进一步放宽
-缓存             key 命中 → 跳过生成与编译         key 不命中 → 冷编译并写入
-```
+| 机制 | 假设成立 | 假设不成立 |
+|---|---|---|
+| Graph Break | 能捕获 → 进图 | 不能捕获 → 切断，Eager 执行 |
+| Guard | 检查通过 → 复用编译产物 | 检查失败 → 重编译（或超限退回 Eager） |
+| Dynamic Shape | 符号约束满足 → 复用 | 约束不满足 → 重编译，进一步放宽 |
+| 缓存 | key 命中 → 跳过生成与编译 | key 不命中 → 冷编译并写入 |
+
+Table: 四个运行时机制在"假设成立 / 不成立"两种情况下的行为
 
 ## 七、串起来：`f` 的四次调用
 
@@ -981,14 +962,12 @@ flowchart TB
 y = compiled_f(x2, weight, bias)      # x2: [128, 32]，同 shape
 ```
 
-```text
-帧钩子 → 找到缓存条目 → Guard 检查全部通过
-    → 运行改写后的字节码
-    → 调用 autograd.Function 的前向 → call(args)
-    → extern_kernels.mm（cuBLAS）
-    → triton_poi_fused_add_relu_0
-    → 返回 y，grad_fn 指向 CompiledFunctionBackward
-```
+- 帧钩子 → 找到缓存条目 → Guard 检查全部通过
+-  → 运行改写后的字节码
+-  → 调用 autograd.Function 的前向 → call(args)
+-  → extern_kernels.mm（cuBLAS）
+-  → triton_poi_fused_add_relu_0
+-  → 返回 y，grad_fn 指向 CompiledFunctionBackward
 
 Dynamo、AOTAutograd、Inductor 都不再参与。相比 Eager 的三次分发、三次 launch，这里是零次分发、两次 launch。
 
@@ -1008,15 +987,13 @@ y.sum().backward()
 y = compiled_f(x3, weight, bias)      # x3: [256, 32]
 ```
 
-```text
-Guard 检查：L['x'] size[0] 期望 128，实际 256 → 失败
-    → 重新走一遍流水线，这次第 0 维为符号 s0
-    → 追踪到 if s0 > 64：用当前值 256 判定为 True，走 relu，记 Guard s0 > 64
-    → 中端、后端与第一次相同，只是 shape 变成符号
-    → 新的编译产物：xnumel 为运行时参数；Guard 为 s0 > 64 及其他元数据
-    → 作为第二个缓存条目写入
-    → 执行
-```
+- Guard 检查：L['x'] size[0] 期望 128，实际 256 → 失败
+-  → 重新走一遍流水线，这次第 0 维为符号 s0
+-  → 追踪到 if s0 > 64：用当前值 256 判定为 True，走 relu，记 Guard s0 > 64
+-  → 中端、后端与第一次相同，只是 shape 变成符号
+-  → 新的编译产物：xnumel 为运行时参数；Guard 为 s0 > 64 及其他元数据
+-  → 作为第二个缓存条目写入
+-  → 执行
 
 之后任何 batch 大于 64 的输入都命中第二个条目。第一个条目仍然保留，`[128, 32]` 的输入可能命中它（也可能命中动态的那个，取决于检查顺序）。
 
@@ -1026,17 +1003,15 @@ Guard 检查：L['x'] size[0] 期望 128，实际 256 → 失败
 y = compiled_f(x4, weight, bias)      # x4: [32, 32]
 ```
 
-```text
-Guard 检查：条目 1 要求 size[0] == 128 → 失败
-            条目 2 要求 s0 > 64        → 失败
-    → 重新走一遍流水线
-    → 追踪到 if s0 > 64：用当前值 32 判定为 False，走 tanh，记 Guard s0 <= 64
-    → 前端产出另一张图：matmul → add → tanh
-    → 中端：反向变为 tanh 的导数（1 - tanh²）
-    → 后端：融合 Kernel 变为 triton_poi_fused_add_tanh_0
-    → 作为第三个缓存条目写入
-    → 执行
-```
+- Guard 检查：条目 1 要求 size[0] == 128 → 失败
+- 条目 2 要求 s0 > 64：→ 失败
+-  → 重新走一遍流水线
+-  → 追踪到 if s0 > 64：用当前值 32 判定为 False，走 tanh，记 Guard s0 <= 64
+-  → 前端产出另一张图：matmul → add → tanh
+-  → 中端：反向变为 tanh 的导数（1 - tanh²）
+-  → 后端：融合 Kernel 变为 triton_poi_fused_add_tanh_0
+-  → 作为第三个缓存条目写入
+-  → 执行
 
 与 §1 冷编译那张图对照，这一次的入口逻辑是"逐条查 Guard、都不命中才进流水线"：
 
@@ -1186,12 +1161,14 @@ Table: 编译器三阶段的输入、输出与观察手段
 
 运行时一维：
 
-```text
-Graph Break     捕获的边界      能捕获的进图，不能的切断交还 Python          产生于前端
-Guard           复用的条件      记录假设，每次调用检查，失败则重编译          产生于前端，作用于每次调用
-Dynamic Shape   假设的放宽      从静态开始，观察到变化后用符号代替常量        贯穿三段
-缓存            成本的摊销      进程内条目 + 磁盘 + 远程，key 与假设同源      前端与后端各一层
-```
+| 机制 | 管什么 | 怎么做 | 在哪一段 |
+|---|---|---|---|
+| Graph Break | 捕获的边界 | 能捕获的进图，不能的切断交还 Python | 产生于前端 |
+| Guard | 复用的条件 | 记录假设，每次调用检查，失败则重编译 | 产生于前端，作用于每次调用 |
+| Dynamic Shape | 假设的放宽 | 从静态开始，观察到变化后用符号代替常量 | 贯穿三段 |
+| 缓存 | 成本的摊销 | 进程内条目 + 磁盘 + 远程，key 与假设同源 | 前端与后端各一层 |
+
+Table: 四个运行时机制小结
 
 ### 2. `f` 经历了什么
 
@@ -1234,15 +1211,13 @@ Table: 几个容易混淆的名字
 
 ### 5. 排查问题的顺序
 
-```text
-torch._dynamo.explain               有几张图，为什么断
-    → TORCH_LOGS="graph_breaks"      每个断点的具体原因
-    → TORCH_LOGS="recompiles"        为什么重编译，哪个 Guard 失败
-    → backend="eager" / "aot_eager"  定位问题在哪一段
-    → TORCH_LOGS="aot_graphs"        前向 / 反向图是否符合预期
-    → TORCH_LOGS="output_code"       融合是否发生，Extern Kernel 是哪些
-    → Profiler                       实际 launch 了什么，各花多少时间
-```
+1. `torch._dynamo.explain`：有几张图，为什么断；
+2. `TORCH_LOGS="graph_breaks"`：每个断点的具体原因；
+3. `TORCH_LOGS="recompiles"`：为什么重编译，哪个 Guard 失败；
+4. `backend="eager"` / `"aot_eager"`：定位问题在哪一段；
+5. `TORCH_LOGS="aot_graphs"`：前向 / 反向图是否符合预期；
+6. `TORCH_LOGS="output_code"`：融合是否发生，Extern Kernel 是哪些；
+7. Profiler：实际 launch 了什么，各花多少时间。
 
 ### 6. 本篇涉及的源码位置
 

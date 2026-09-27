@@ -92,16 +92,14 @@ x = torch.tensor([
 
 因此可以把一个 Tensor 粗略表示为：
 
-```text
-Tensor
-├── Storage：底层数据存储
-├── sizes：每个维度的长度
-├── strides：每个维度的步长
-├── storage_offset：相对于 Storage 的起始偏移
-├── dtype：元素类型
-├── device：数据所在设备
-└── layout：布局信息
-```
+- **Tensor**
+  - Storage：底层数据存储
+  - sizes：每个维度的长度
+  - strides：每个维度的步长
+  - storage_offset：相对于 Storage 的起始偏移
+  - dtype：元素类型
+  - device：数据所在设备
+  - layout：布局信息
 
 这组信息共同决定了“如何解释一段内存”。
 
@@ -109,15 +107,12 @@ Tensor
 
 Tensor 有两个需要分开的层次：
 
-```text
-逻辑层
-    shape / sizes
-    例如：2 行 3 列
-
-物理层
-    storage / offset / stride
-    例如：数据如何放在一段连续内存中
-```
+- **逻辑层**
+  - shape / sizes
+  - 例如：2 行 3 列
+- **物理层**
+  - storage / offset / stride
+  - 例如：数据如何放在一段连续内存中
 
 逻辑形状相同的两个 Tensor，物理布局可以不同：
 
@@ -396,25 +391,7 @@ stride = (3, 1)
 
 把 storage 的线性下标和逻辑格子放在一起看，每个格子里写的就是它落在 storage 的哪个位置：
 
-```text
-storage（一维，下标即物理位置）
- idx:   0     1     2     3     4     5
-      ┌─────┬─────┬─────┬─────┬─────┬─────┐
-      │  a  │  b  │  c  │  d  │  e  │  f  │
-      └─────┴─────┴─────┴─────┴─────┴─────┘
-       └─── row i=0 ───┘ └─── row i=1 ───┘
-            相邻两行起点相差 3 = stride[0]
-
-x: shape=(2,3), stride=(3,1)       offset(i,j) = i*3 + j*1
-            j=0          j=1          j=2
-       ┌────────────┬────────────┬────────────┐
-  i=0  │ (0,0)→0  a │ (0,1)→1  b │ (0,2)→2  c │
-       ├────────────┼────────────┼────────────┤
-  i=1  │ (1,0)→3  d │ (1,1)→4  e │ (1,2)→5  f │
-       └────────────┴────────────┴────────────┘
-  j 增 1 → 物理位置 +1 (stride[1]=1)
-  i 增 1 → 物理位置 +3 (stride[0]=3)
-```
+![x：shape=(2, 3)、stride=(3, 1)：storage 是一维的 a..f，逻辑视图 x[i, j] 用 i·3 + j 算出物理位置；j 增 1 物理位置 +1，i 增 1 物理位置 +3](/img/in-post/pytorch-tensor-stride-2d.svg)
 
 ### 3. 三维 Tensor 的 stride
 
@@ -449,33 +426,15 @@ offset(i, j, k)
 
 把 24 个 storage 下标按 `i` 切成两个 `3 × 4` 平面，就能直观看到三个 stride 各自“跨过”多少元素：
 
-```text
-x: shape=(2,3,4), stride=(12,4,1)    offset(i,j,k) = i*12 + j*4 + k*1
-
-      i=0: idx 0..11                  i=1: idx 12..23
-        k=0  k=1  k=2  k=3                  k=0  k=1  k=2  k=3
-      ┌────┬────┬────┬────┐               ┌────┬────┬────┬────┐
-  j=0 │  0 │  1 │  2 │  3 │           j=0 │ 12 │ 13 │ 14 │ 15 │
-      ├────┼────┼────┼────┤               ├────┼────┼────┼────┤
-  j=1 │  4 │  5 │  6 │  7 │           j=1 │ 16 │ 17 │ 18 │ 19 │
-      ├────┼────┼────┼────┤               ├────┼────┼────┼────┤
-  j=2 │  8 │  9 │ 10 │ 11 │           j=2 │ 20 │ 21 │ 22 │ 23 │
-      └────┴────┴────┴────┘               └────┴────┴────┴────┘
-
-  k 增 1 → +1  (stride[2])   相邻元素
-  j 增 1 → +4  (stride[1])   跨过一行 4 个元素
-  i 增 1 → +12 (stride[0])   跨过一整个 3×4 = 12 个元素的平面
-```
+![x：shape=(2, 3, 4)、stride=(12, 4, 1)：i 选平面（+12）、j 选行（+4）、k 选列（+1），底层存储仍是 0..23 一条直线](/img/in-post/pytorch-tensor-stride-3d.svg)
 
 ### 4. stride 让 view 成为可能
 
 一个 view 不需要复制数据的关键，是新的 Tensor 能否通过新的 `sizes` 和 `strides` 正确解释原来的 Storage。
 
-```text
-同一份 Storage
-    ├── Tensor A：sizes=(2,3), strides=(3,1)
-    └── Tensor B：sizes=(3,2), strides=(1,3)
-```
+- **同一份 Storage**
+    - Tensor A：sizes=(2,3), strides=(3,1)
+    - Tensor B：sizes=(3,2), strides=(1,3)
 
 A 和 B 可以具有不同的逻辑形状，但共享同一份底层数据。
 
@@ -520,34 +479,7 @@ y[i, j] → offset = i × 1 + j × 3
 
 用同一份 storage 把两个视图画出来，可以看到 `y` 只是把 stride 的两个分量交换了，逐行读 `y` 时在 storage 里是跳着走的：
 
-```text
-同一份 storage
- idx:   0     1     2     3     4     5
-      ┌─────┬─────┬─────┬─────┬─────┬─────┐
-      │  0  │  1  │  2  │  3  │  4  │  5  │
-      └─────┴─────┴─────┴─────┴─────┴─────┘
-
-x: shape=(2,3), stride=(3,1)        offset(i,j) = i*3 + j*1
-            j=0          j=1          j=2
-       ┌────────────┬────────────┬────────────┐
-  i=0  │ (0,0)→0    │ (0,1)→1    │ (0,2)→2    │   读第 0 行：idx 0,1,2
-       ├────────────┼────────────┼────────────┤
-  i=1  │ (1,0)→3    │ (1,1)→4    │ (1,2)→5    │   读第 1 行：idx 3,4,5
-       └────────────┴────────────┴────────────┘
-
-y = x.t(): shape=(3,2), stride=(1,3)   offset(i,j) = i*1 + j*3
-            j=0          j=1
-       ┌────────────┬────────────┐
-  i=0  │ (0,0)→0    │ (0,1)→3    │   读第 0 行：idx 0,3
-       ├────────────┼────────────┤
-  i=1  │ (1,0)→1    │ (1,1)→4    │   读第 1 行：idx 1,4
-       ├────────────┼────────────┤
-  i=2  │ (2,0)→2    │ (2,1)→5    │   读第 2 行：idx 2,5
-       └────────────┴────────────┘
-
-  x 按逻辑顺序遍历访问的 storage 下标：0 1 2 3 4 5（连续）
-  y 按逻辑顺序遍历访问的 storage 下标：0 3 1 4 2 5（跳跃）
-```
+![x 与 y = x.t() 共享同一份 storage：x 的 stride (3, 1) 按逻辑顺序访问 0 1 2 3 4 5 连续；y 的 stride (1, 3) 访问 0 3 1 4 2 5 跳跃](/img/in-post/pytorch-tensor-transpose-shared-storage.svg)
 
 这是一种典型的 zero-copy view。
 
@@ -563,17 +495,13 @@ print(y.shape)  # (4, 2, 3)
 
 `permute()` 通常也只是重新排列 sizes 和 strides：
 
-```text
-原始维度：D0, D1, D2
-新顺序：  D2, D0, D1
-```
+- 原始维度顺序：D0, D1, D2
+- 新顺序：D2, D0, D1
 
 这对图像、序列和批处理数据非常常见。例如不同模型可能采用：
 
-```text
-NCHW：batch, channel, height, width
-NHWC：batch, height, width, channel
-```
+- NCHW：batch, channel, height, width
+- NHWC：batch, height, width, channel
 
 改变布局的逻辑解释不等于立刻复制数据，但后续算子可能更偏好某种物理布局。
 
@@ -590,18 +518,17 @@ z = y.view(6)
 
 `view(6)` 只允许改 metadata，因此它需要一个单一的 stride 就能从 `z[k]` 走到 `z[k+1]`。把 `y` 的逻辑顺序和实际 storage 下标对齐写出来，就能看到这个条件为什么不满足：
 
-```text
-view(6) 要求：逻辑上相邻的元素，在 storage 中以同一个 stride 相邻
+`view(6)` 要求：逻辑上相邻的元素，在 storage 中以同一个 stride 相邻。
 
-  z 的下标 k        0      1      2      3      4      5
-  对应 y 元素     y[0,0] y[0,1] y[1,0] y[1,1] y[2,0] y[2,1]
-  storage 下标      0      3      1      4      2      5
-  相邻差值            +3     -2     +3     -2     +3
-                    ↑ 不是常数 → 无法用 (stride,) 表达 → view 报错
+| z 的下标 k | 0 | 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|---|
+| 对应 y 元素 | y[0,0] | y[0,1] | y[1,0] | y[1,1] | y[2,0] | y[2,1] |
+| storage 下标 | 0 | 3 | 1 | 4 | 2 | 5 |
+| 与前一个的差 | — | +3 | −2 | +3 | −2 | +3 |
 
-  y 需要的"连续顺序"：storage 依次是 0 3 1 4 2 5
-  storage 的实际顺序：              0 1 2 3 4 5   ← 两者不一致
-```
+Table: 转置后的 y 按逻辑顺序读，storage 下标的步长不是常数
+
+相邻差值 +3、−2 交替，不是常数，无法用一个 `(stride,)` 表达，所以 `view` 报错。换句话说，`y` 需要的"连续顺序"是 storage 依次为 `0 3 1 4 2 5`，而 storage 的实际顺序是 `0 1 2 3 4 5`——两者不一致。
 
 通常可以这样处理：
 
@@ -611,13 +538,9 @@ z = y.contiguous().view(6)
 
 这里的过程是：
 
-```text
-y：非连续 view
-    ↓
-contiguous()：创建连续副本
-    ↓
-view(6)：在新布局上创建一维 view
-```
+1. y：非连续 view
+2. contiguous()：创建连续副本
+3. view(6)：在新布局上创建一维 view
 
 如果不希望显式拆开，也可以使用：
 
@@ -682,44 +605,21 @@ print(z.shape)            # torch.Size([3, 2])
 
 以上一章的转置视图 `y` 为例，`contiguous()` 前后的两条 storage 如下：
 
-```text
-before: y = x.t()   shape=(3,2) stride=(1,3)   与 x 共享 storage
-        storage   idx:  0   1   2   3   4   5
-                      ┌───┬───┬───┬───┬───┬───┐
-                      │ 0 │ 1 │ 2 │ 3 │ 4 │ 5 │
-                      └───┴───┴───┴───┴───┴───┘
-        按 y 的逻辑顺序读取：idx 0 → 3 → 1 → 4 → 2 → 5（跳跃访问）
-
-        读取结果        0   3   1   4   2   5
-                        │   │   │   │   │   │   逐元素复制（真实拷贝）
-                        ▼   ▼   ▼   ▼   ▼   ▼
-after:  z = y.contiguous()   shape=(3,2) stride=(2,1)   新分配的 storage
-        storage'  idx:  0   1   2   3   4   5
-                      ┌───┬───┬───┬───┬───┬───┐
-                      │ 0 │ 3 │ 1 │ 4 │ 2 │ 5 │
-                      └───┴───┴───┴───┴───┴───┘
-        z[i,j] = storage'[i*2 + j]    逻辑顺序 == 物理顺序，可直接 view(6)
-```
+![y.contiguous()：按 y 的逻辑顺序 0 → 3 → 1 → 4 → 2 → 5 逐个读出，抄进一块新 storage，新 Tensor 的 stride 变成 (2, 1)、逻辑顺序等于物理顺序](/img/in-post/pytorch-tensor-contiguous-copy.svg)
 
 因此：
 
-```text
-contiguous()
-    不是简单的“设置一个标志”
-    而可能是真实的数据拷贝
-```
+- **contiguous()**
+  - 不是简单的“设置一个标志”
+  - 而可能是真实的数据拷贝
 
 ### 3. 为什么 Kernel 关心 contiguous？
 
 一个 Kernel 可以处理任意 stride，但通用 stride 访问通常更复杂：
 
-```text
-逻辑索引
-    ↓
-根据 stride 计算地址
-    ↓
-访问非连续内存
-```
+1. 逻辑索引
+2. 根据 stride 计算地址
+3. 访问非连续内存
 
 连续布局往往更有利于：
 
@@ -763,16 +663,9 @@ Table: "layout" 一词的三个层次：口语的物理布局、memory format、
 
 多个 Tensor 可以共享同一个 Storage：
 
-```text
-Storage
-    └── [0, 1, 2, 3, 4, 5]
-
-Tensor A
-    sizes=(2,3), strides=(3,1), offset=0
-
-Tensor B
-    sizes=(3,2), strides=(1,3), offset=0
-```
+- **Storage**：`[0, 1, 2, 3, 4, 5]`
+- **Tensor A**：`sizes=(2,3), strides=(3,1), offset=0`
+- **Tensor B**：`sizes=(3,2), strides=(1,3), offset=0`
 
 现代 PyTorch 的具体 Storage API 和底层实现会随版本变化。本文使用 Storage 这个概念，是为了说明“数据本体”和“Tensor 视图”之间的关系，不建议把某个内部类的当前细节当成稳定公共 API。
 
@@ -790,20 +683,7 @@ print(y.storage_offset())
 
 `y` 逻辑上有六个元素，但它从原始 Storage 的位置 2 开始解释：
 
-```text
-x: shape=(10,), stride=(1,), storage_offset=0
- idx:   0   1   2   3   4   5   6   7   8   9
-      ┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
-      │ 0 │ 1 │ 2 │ 3 │ 4 │ 5 │ 6 │ 7 │ 8 │ 9 │   同一份 storage
-      └───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
-                ▲                       ▲
-                │ y 起点                │ y 终点（不含）
-                storage_offset = 2      offset + 6*stride = 8
-
-y = x[2:8]: shape=(6,), stride=(1,), storage_offset=2
-               y0  y1  y2  y3  y4  y5      ← 6 个逻辑元素
-               =2  =3  =4  =5  =6  =7      ← 直接落在 idx 2..7 上
-```
+![y = x[2:8]：同一份 storage，只是 storage_offset = 2、shape=(6,)，六个逻辑元素直接落在 idx 2..7 上](/img/in-post/pytorch-tensor-slice-storage-offset.svg)
 
 对于一维 Tensor，可以粗略写成：
 
@@ -860,49 +740,24 @@ small = large[0, 0, :10].clone()
 
 常见 dtype 包括：
 
-```text
-float32
-float16
-bfloat16
-float64
-int32
-int64
-bool
-```
+- float32
+- float16
+- bfloat16
+- float64
+- int32
+- int64
+- bool
 
 ### 2. FP16 与 BF16
 
 FP16 和 BF16 都通常占用 16 bit，但位分配不同：
 
-```text
-FP16：更多位用于尾数，指数范围较小
-BF16：指数范围接近 FP32，尾数精度较低
-```
+- FP16：更多位用于尾数，指数范围较小
+- BF16：指数范围接近 FP32，尾数精度较低
 
 把三种格式的位域画在一起（每个字符代表 1 bit）：
 
-```text
-bit: 31 30    23 22                    0
-FP32 ┌─┬────────┬───────────────────────┐
-     │S│ exp(8) │      mantissa(23)     │  1 + 8 + 23 = 32 bit
-     └─┴────────┴───────────────────────┘  范围 ~1e-38 .. 3e38，~7 位十进制精度
-
-bit: 15 14 10 9        0
-FP16 ┌─┬─────┬──────────┐
-     │S│exp 5│ mant(10) │  1 + 5 + 10 = 16 bit
-     └─┴─────┴──────────┘  范围 ~6e-5 .. 65504（易溢出/下溢），~3 位十进制精度
-
-bit: 15 14     7 6     0
-BF16 ┌─┬────────┬───────┐
-     │S│ exp(8) │mant(7)│  1 + 8 + 7 = 16 bit
-     └─┴────────┴───────┘  指数位和 FP32 一样，范围相同；~2 位十进制精度
-
-BF16 的位域 = FP32 的高 16 位（符号位、指数位与 FP32 完全一致，尾数取前 7 位）：
-FP32 ┌─┬────────┬───────┬────────────────┐
-     │S│ exp(8) │mant 7 │  mant 低 16 位 │
-     └─┴────────┴───────┴────────────────┘
-      └── BF16 保留 ───┘ └─ 转换时按这 16 位舍入 ─┘
-```
+![FP32 / FP16 / BF16 的位布局：FP32 是 1 + 8 + 23，FP16 是 1 + 5 + 10，BF16 是 1 + 8 + 7；BF16 的 16 位就是 FP32 的高 16 位，转换时按低 16 位舍入](/img/in-post/pytorch-tensor-float-bit-layouts.svg)
 
 位域重合不等于"转换就是砍掉低 16 位"：`x.to(torch.bfloat16)` 按**最近偶数舍入**，低 16 位大于一半时会向上进位。例：`1.005` 的 FP32 尾数低 16 位超过一半，转 BF16 得 `1.0078125`（`1 + 2^-7`），而直接截断会得到 `1.0`；两者都离 1.005 一个 ulp 以内，但方向不同，累加起来偏差不一样。
 
@@ -960,20 +815,16 @@ print(x.data_ptr() == y.data_ptr())
 
 某些硬件和算子会使用低精度存储，但采用更高精度累加。例如矩阵乘法可能：
 
-```text
-输入：FP16 / BF16
-累加：FP32 或硬件支持的内部精度
-输出：FP16 / BF16
-```
+- 输入：FP16 / BF16
+- 累加：FP32 或硬件支持的内部精度
+- 输出：FP16 / BF16
 
 具体行为取决于算子、硬件和配置。分析数值问题时，要区分：
 
-```text
-Tensor 的存储 dtype
-Kernel 的计算 dtype
-累加使用的内部精度
-输出 Tensor 的 dtype
-```
+- Tensor 的存储 dtype
+- Kernel 的计算 dtype
+- 累加使用的内部精度
+- 输出 Tensor 的 dtype
 
 
 ## 九、Device：数据到底在哪里执行
@@ -1008,10 +859,8 @@ x = x.to(device="cuda", dtype=torch.float16)
 
 这两个变化都可能需要新的数据存储：
 
-```text
-CPU → CUDA       通常发生设备间拷贝
-float32 → float16 通常发生 dtype 转换和拷贝
-```
+- CPU → CUDA：通常发生设备间拷贝
+- float32 → float16 通常发生 dtype 转换和拷贝
 
 如果目标 device 和 dtype 与当前一致，PyTorch 通常可以避免不必要的复制，但工程代码仍应以语义和实际测试为准。
 
@@ -1019,17 +868,11 @@ float32 → float16 通常发生 dtype 转换和拷贝
 
 训练中的典型路径是：
 
-```text
-磁盘
-  ↓
-CPU 内存
-  ↓
-Pinned CPU Memory
-  ↓
-GPU Memory
-  ↓
-Kernel 执行
-```
+1. 磁盘
+2. CPU 内存
+3. Pinned CPU Memory
+4. GPU Memory
+5. Kernel 执行
 
 如果数据搬运跟不上 GPU 计算，GPU 就会等待输入。
 
@@ -1176,10 +1019,8 @@ Table: View 与 Clone 的语义
 
 `view()` 解决的是存储解释方式：
 
-```text
-是否共享 Storage？
-shape 和 stride 如何变化？
-```
+- 是否共享 Storage？
+- shape 和 stride 如何变化？
 
 `detach()` 解决的是 Autograd 关系：
 
@@ -1279,25 +1120,7 @@ z = x + y
 
 先说为什么要有这一步：逐元素相加要求两边每个位置一一对应，`(2, 3)` 有 6 个位置、`(3,)` 只有 3 个，不能直接对。最直白的办法是把 `y` 抄两份拼成 `(2, 3)` 再加——多占一份内存、多一次拷贝。`expand` 做的是同一件事的零成本版本：**不抄数据，只造一个看起来是 `(2, 3)` 的视图**，让第 0 行和第 1 行都指向 `y` 那 3 个格子。对 `(2, 3) + (3,)` 这个例子，PyTorch 实际做的是先把 `y` 右对齐补成 `(1, 3)`（顺带说明写法：`(3,)` 里的逗号表示"一元组"，它是一维的、缺的是**前面**的维度，所以补成一行三列而不是三行一列），再用 `expand` 得到一个 `shape=(2,3)`、`stride=(0,1)` 的视图，物理上不多占一个字节：
 
-```text
-第一步：右对齐比较各维
-        x   (2, 3)
-        y   (   3)   → 缺失的维度视为 1，补成 (1, 3)
-        -----------
-        z   (2, 3)   → 1 可以扩展成 2，3 == 3 保持不变
-
-第二步：y.expand(2, 3)  shape=(2,3), stride=(0,1)，不分配新 storage
-
- expand 视图（逻辑 2x3）                 y 的 storage（物理只有 3 个元素）
-        j=0     j=1     j=2                  idx:  0    1    2
-     ┌───────┬───────┬───────┐                  ┌────┬────┬────┐
- i=0 │ →idx0 │ →idx1 │ →idx2 │ ──┐              │ y0 │ y1 │ y2 │
-     ├───────┼───────┼───────┤   ├─ 两行都读 ─▶ └────┴────┴────┘
- i=1 │ →idx0 │ →idx1 │ →idx2 │ ──┘
-     └───────┴───────┴───────┘
-
- offset(i,j) = i*0 + j*1 = j   ← i 变化不移动物理位置，两行读的是同一段内存
-```
+![y.expand(2, 3)：第一步右对齐把 (3,) 补成 (1, 3)；第二步造一个 shape=(2, 3)、stride=(0, 1) 的视图，两行都指向 y 的三个元素，不分配新 storage](/img/in-post/pytorch-tensor-expand-stride-zero.svg)
 
 ### 2. `expand()` 与 `repeat()`
 
@@ -1355,19 +1178,12 @@ shape 相乘相等，不代表两个 Tensor 可以逐元素广播。
 
 一个训练进程中的内存，至少可以分为：
 
-```text
-Tensor 数据
-    ↓
-梯度
-    ↓
-Optimizer State
-    ↓
-Autograd 保存的中间结果
-    ↓
-Kernel 临时 workspace
-    ↓
-Allocator 缓存
-```
+1. Tensor 数据
+2. 梯度
+3. Optimizer State
+4. Autograd 保存的中间结果
+5. Kernel 临时 workspace
+6. Allocator 缓存
 
 把这几类放进同一块 GPU 显存里看，并标出 `memory_allocated()` 与 `memory_reserved()` 各自覆盖的范围：
 
@@ -1451,12 +1267,10 @@ loss_value = loss.detach().item()
 
 分析一个 Tensor 操作时，可以先问四个问题：
 
-```text
-是否创建新的 Storage？
-是否复制了数据？
-是否发生了设备迁移？
-是否延长了原始 Storage 的生命周期？
-```
+- 是否创建新的 Storage？
+- 是否复制了数据？
+- 是否发生了设备迁移？
+- 是否延长了原始 Storage 的生命周期？
 
 例如：
 
@@ -1570,15 +1384,10 @@ def contiguous(self):
 
 这个实现刻意把非连续 Tensor 按逻辑顺序重新写入一段新的连续 Storage，从而体现：
 
-```text
-non-contiguous view
-    ↓
-按逻辑顺序读取
-    ↓
-创建新的连续 Storage
-    ↓
-返回 contiguous Tensor
-```
+1. non-contiguous view
+2. 按逻辑顺序读取
+3. 创建新的连续 Storage
+4. 返回 contiguous Tensor
 
 ### 5. 这个项目不实现什么？
 
@@ -1662,15 +1471,13 @@ x.device
 
 还要同时关注：
 
-```text
-Storage
-sizes
-strides
-storage_offset
-dtype
-device
-layout
-```
+- Storage
+- sizes
+- strides
+- storage_offset
+- dtype
+- device
+- layout
 
 ### 1. Tensor 的基本模型
 
@@ -1686,16 +1493,9 @@ Tensor
 
 ### 2. View 与拷贝
 
-```text
-view / transpose / permute
-    → 通常只改变 metadata
-
-clone / dtype conversion / device transfer
-    → 通常需要新的数据存储
-
-reshape / contiguous
-    → 是否复制取决于当前布局和目标要求
-```
+- **view / transpose / permute**：通常只改变 metadata
+- **clone / dtype conversion / device transfer**：通常需要新的数据存储
+- **reshape / contiguous**：是否复制取决于当前布局和目标要求
 
 ### 3. 性能分析的第一组问题
 

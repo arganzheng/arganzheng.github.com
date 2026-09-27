@@ -69,12 +69,10 @@ Table: 五类瓶颈的判断依据与处方
 
 显存问题有自己的分类：
 
-```text
-真的不够      参数 + 梯度 + 优化器状态 + 激活值 超过物理显存
-碎片          allocated 远小于 reserved，有空间但不连续
-泄漏          allocated 随 step 单调增长
-峰值          平均占用不高，某一时刻（如反向开始时）尖峰 OOM
-```
+- **真的不够**：参数 + 梯度 + 优化器状态 + 激活值 超过物理显存
+- **碎片**：allocated 远小于 reserved，有空间但不连续
+- **泄漏**：allocated 随 step 单调增长
+- **峰值**：平均占用不高，某一时刻（如反向开始时）尖峰 OOM
 
 两个维度之间可以交换：Activation Checkpointing 用时间换空间；混合精度同时省时间和空间，代价是数值精度。
 
@@ -99,21 +97,13 @@ Table: 性能工具地图：每种工具能看到什么
 
 所有性能工作遵循同一条流程，第九章的案例会完整走一遍：
 
-```text
-建立基线          可复现的测量脚本，固定输入、固定环境，记录数字
-    ↓
-设计正确性测试    改之前就要有：与参考实现比对，容差明确
-    ↓
-采集性能数据      Profiler / Nsight，看时间线而不是猜
-    ↓
-定位瓶颈          归入五类之一，确认是主要矛盾
-    ↓
-修改实现          一次只改一件事
-    ↓
-重新 Benchmark    同一脚本、同一环境
-    ↓
-确认没有回归      正确性测试通过；显存、精度、编译时间是否变差
-```
+1. 建立基线          可复现的测量脚本，固定输入、固定环境，记录数字
+2. 设计正确性测试    改之前就要有：与参考实现比对，容差明确
+3. 采集性能数据      Profiler / Nsight，看时间线而不是猜
+4. 定位瓶颈          归入五类之一，确认是主要矛盾
+5. 修改实现          一次只改一件事
+6. 重新 Benchmark    同一脚本、同一环境
+7. 确认没有回归      正确性测试通过；显存、精度、编译时间是否变差
 
 其中"定位瓶颈"一步是一棵决策树：先看 GPU 泳道的形态，再看是谁在占时间，最后落到五类之一及其处方（工具与处方的完整对照见 §4 的表格和第四章 §6）：
 
@@ -293,13 +283,11 @@ matmul 4096: fp32
 
 第一次运行总是慢的，原因来自多层：
 
-```text
-CUDA 上下文初始化              首次使用 GPU 时创建，数百毫秒
-cuBLAS / cuDNN 句柄与算法选择   首次调用时初始化，cuDNN 可能对多个算法测速（benchmark 模式）
-Caching Allocator 预热          首次分配要向驱动申请，之后复用（第八章）
-torch.compile 冷编译            第七篇：秒级到分钟级
-Python 层的惰性初始化           模块属性缓存、参数展平等
-```
+- **CUDA 上下文初始化**：首次使用 GPU 时创建，数百毫秒
+- **cuBLAS / cuDNN 句柄与算法选择**：首次调用时初始化，cuDNN 可能对多个算法测速（benchmark 模式）
+- **Caching Allocator 预热**：首次分配要向驱动申请，之后复用（第八章）
+- **torch.compile 冷编译**：第七篇：秒级到分钟级
+- **Python 层的惰性初始化**：模块属性缓存、参数展平等
 
 Benchmark 必须先跑几次不计时的迭代把这些排除，否则测到的是初始化成本而不是稳态性能。`torch.utils.benchmark` 会做 warmup；手写循环要自己做。
 
@@ -483,24 +471,20 @@ GPU         |add 4µs|          |relu 3µs|         |mm 8µs|         ← 利用
 
 ### 2. 小 Kernel 从哪来
 
-```text
-小 batch / 小 shape           每个算子处理的数据少；推理 batch=1 几乎必然 launch-bound
-逐元素算子链                   LayerNorm → 残差加 → GeLU → Dropout → cast，每个一到几个 Kernel
-优化器更新                     每个参数 Tensor 一组 Kernel；100 个参数 Tensor × Adam 的 ~10 个算子 = 1000 次 launch
-Python 循环中的 Tensor 操作     for i in range(seq_len): 每次迭代 launch 几个 Kernel
-autocast 的类型转换            每次进出低精度区域插入 cast Kernel
-```
+- **小 batch / 小 shape**：每个算子处理的数据少；推理 batch=1 几乎必然 launch-bound；
+- **逐元素算子链**：LayerNorm → 残差加 → GeLU → Dropout → cast，每个一到几个 Kernel；
+- **优化器更新**：每个参数 Tensor 一组 Kernel；100 个参数 Tensor × Adam 的 ~10 个算子 = 1000 次 launch；
+- **Python 循环中的 Tensor 操作**：`for i in range(seq_len)`，每次迭代 launch 几个 Kernel；
+- **autocast 的类型转换**：每次进出低精度区域插入 cast Kernel。
 
 ### 3. Python-bound：不在提交上的 CPU 时间
 
 Launch-bound 的 CPU 至少在提交 Kernel。Python-bound 的 CPU 在做别的：
 
-```text
-Python 解释                    纯 Python 的循环、条件、字典操作、对象构造
-框架逻辑                        nn.Module 的 __call__ 钩子、参数遍历、shape 检查
-数据预处理在主进程              tokenize、augmentation、collate 在训练循环里同步执行
-日志与监控                      每步 .item()、格式化字符串、写 TensorBoard
-```
+- **Python 解释**：纯 Python 的循环、条件、字典操作、对象构造
+- **框架逻辑**：nn.Module 的 __call__ 钩子、参数遍历、shape 检查
+- **数据预处理在主进程**：tokenize、augmentation、collate 在训练循环里同步执行
+- **日志与监控**：每步 .item()、格式化字符串、写 TensorBoard
 
 Profiler 里的信号是：CPU 泳道密集，但顶部的耗时项不是 `aten::*` 算子，而是 Python 函数或 `DataLoader`。`with_stack=True` 能看到具体是哪行代码。
 
@@ -595,14 +579,12 @@ Python 对象    避免在循环里构造 Tensor、dict、字符串；预先分�
 
 ### 10. 处方的顺序
 
-```text
-增大 batch          → 先做，否则后面的效果测不出来
-fused 优化器        → 一行改动，零风险
-torch.compile 融合   → 收益大，代价是编译时间和 shape 约束
-向量化              → 需要改代码结构
-CUDA Graphs         → 约束最多，收益在前几条做完后才明显
-移出非计算工作      → 与上面并行进行
-```
+- 增大 batch：→ 先做，否则后面的效果测不出来
+- fused 优化器：→ 一行改动，零风险
+- torch.compile 融合：→ 收益大，代价是编译时间和 shape 约束
+- 向量化：→ 需要改代码结构
+- CUDA Graphs：→ 约束最多，收益在前几条做完后才明显
+- 移出非计算工作：→ 与上面并行进行
 
 ### 11. 何时停止
 
@@ -680,18 +662,18 @@ AI      ≈ 1370  ≫ 156   → compute-bound
 
 对 memory-bound 算子，融合的收益是精确可算的。对 `N` 个元素的 `add` + `relu`：
 
-```text
-分开    add: 读 2N 写 N    relu: 读 N 写 N      合计 5N 次访存
-融合    读 N + bias，写 N                       合计约 2N 次访存
-```
+| | 访存 |
+|---|---|
+| 分开 | add：读 2N、写 N；relu：读 N、写 N —— 合计 5N 次 |
+| 融合 | 读 N + bias、写 N —— 合计约 2N 次 |
+
+Table: 分开执行与融合执行的访存次数
 
 时间几乎按访存量线性下降。第七篇讨论了编译器如何自动融合逐元素链；本章要补充的是**算法级融合**——编译器发现不了、需要人知道存在的融合算子：
 
-```text
-F.scaled_dot_product_attention     不物化 attention score 矩阵
-融合的 LayerNorm / RMSNorm          归约与归一化一个 Kernel
-融合的优化器（fused=True）          所有参数的 Adam 更新一个 Kernel
-```
+- **F.scaled_dot_product_attention**：不物化 attention score 矩阵
+- **融合的 LayerNorm / RMSNorm**：归约与归一化一个 Kernel
+- **融合的优化器（fused=True）**：所有参数的 Adam 更新一个 Kernel
 
 这类算子的收益往往比编译器融合大一个量级，因为它们改变的是算法的访存模式，不只是消掉中间结果。
 
@@ -699,11 +681,9 @@ F.scaled_dot_product_attention     不物化 attention score 矩阵
 
 对照 Roofline，降低精度同时移动两条线：
 
-```text
-Compute-bound 的矩阵乘   Tensor Core 的 bf16 算力是 fp32 的 16 倍，水平线上移
-Memory-bound 的逐元素    bf16 数据量减半，斜线上的位置右移，时间大致减半
-Launch-bound             没有作用，Kernel 数量不变；autocast 插入的 cast Kernel 反而增加 launch
-```
+- **Compute-bound 的矩阵乘**：Tensor Core 的 bf16 算力是 fp32 的 16 倍，水平线上移
+- **Memory-bound 的逐元素**：bf16 数据量减半，斜线上的位置右移，时间大致减半
+- **Launch-bound**：没有作用，Kernel 数量不变；autocast 插入的 cast Kernel 反而增加 launch
 
 所以低精度对 launch-bound 的小模型几乎无效甚至变慢。**先解决第五章的问题，再上低精度**。
 
@@ -724,11 +704,13 @@ Table: FP32、TF32 / BF16、FP16 三种精度格式
 
 第四篇讲过 `autocast` 的用法。它不是把所有 Tensor 变成 bf16，而是按算子分类：
 
-```text
-转到低精度      matmul、conv、linear、bmm        ← compute-bound，受益最大，对精度最不敏感
-保持 fp32       softmax、log_softmax、layer_norm、loss、sum、exp、pow   ← 涉及大范围或累加
-跟随输入        add、mul、relu 等逐元素算子        ← 输入是什么就算什么
-```
+| autocast 的处理 | 算子 | 为什么 |
+|---|---|---|
+| 转到低精度 | matmul、conv、linear、bmm | compute-bound，受益最大，对精度最不敏感 |
+| 保持 fp32 | softmax、log_softmax、layer_norm、loss、sum、exp、pow | 涉及大范围或累加 |
+| 跟随输入 | add、mul、relu 等逐元素算子 | 输入是什么就算什么 |
+
+Table: autocast 对三类算子的处理
 
 因此在 autocast 下，Profiler 里会出现大量 `aten::to` / `aten::_to_copy`——精度转换 Kernel。它们是逐元素 memory-bound 算子，`torch.compile` 可以把它们融合进相邻算子。
 
@@ -744,13 +726,11 @@ Table: FP32、TF32 / BF16、FP16 三种精度格式
 
 几个规则：
 
-```text
-loss 计算保持 fp32；用 F.cross_entropy(logits) 而不是 log(softmax(logits))
-归约（sum、mean、norm）在 fp32 中做，或确认算子内部已用 fp32 累加
-优化器状态和主参数保持 fp32
-对比 bf16 与 fp32 的 loss 曲线，而不只是单步输出
-出现 NaN 时用 torch.autograd.detect_anomaly() 定位第一个 NaN 的算子
-```
+- loss 计算保持 fp32；用 F.cross_entropy(logits) 而不是 log(softmax(logits))
+- 归约（sum、mean、norm）在 fp32 中做，或确认算子内部已用 fp32 累加
+- 优化器状态和主参数保持 fp32
+- 对比 bf16 与 fp32 的 loss 曲线，而不只是单步输出
+- 出现 NaN 时用 torch.autograd.detect_anomaly() 定位第一个 NaN 的算子
 
 这也解释了第三章 §4 的容差依据：bf16 有效精度约 2～3 位十进制，实现之间的差异在 `1e-2` 量级是正常的，`1e-5` 的容差对 bf16 没有意义。
 
@@ -806,11 +786,13 @@ Table: 常见的隐式同步点
 
 同步点本身不消耗 GPU 时间，它只是让 CPU 等待。代价取决于同步时**队列的深度**：
 
-```text
-GPU-bound 场景   CPU 领先 GPU 很多，队列深；同步让 CPU 等一会儿，GPU 一直有活干  → 代价小
-CPU-bound 场景   队列本来就浅；同步后 GPU 立即空闲，等 CPU 重新提交              → 代价大
-高频同步         每步一次，队列永远填不深，两侧交替空闲                          → 最坏
-```
+| 场景 | 发生了什么 | 同步的代价 |
+|---|---|---|
+| GPU-bound | CPU 领先 GPU 很多，队列深；同步让 CPU 等一会儿，GPU 一直有活干 | 小 |
+| CPU-bound | 队列本来就浅；同步后 GPU 立即空闲，等 CPU 重新提交 | 大 |
+| 高频同步 | 每步一次，队列永远填不深，两侧交替空闲 | 最坏 |
+
+Table: 同一次同步在三种场景下的代价
 
 所以 sync-bound 的信号不是"有同步"，而是**同步频繁且发生时队列很浅**。它常与第五章的 launch-bound 叠加：小 Kernel 让队列浅，频繁 `.item()` 让队列反复排空。
 
@@ -927,12 +909,9 @@ torch.cuda.set_sync_debug_mode("warn")     # 每次隐式同步打印警告和 P
 
 数据加载是 sync-bound 的一种常见形态：GPU 泳道大段空白，CPU 停在 `DataLoader.__next__`。GPU 不是在等同步，而是在等数据到达。
 
-```text
-症状        GPU 利用率周期性掉到零，周期等于一个 batch 的加载时间
-原因        num_workers 不足；预处理太重；磁盘或网络 I/O 慢；collate 在主进程做了大量工作
-处方        增加 num_workers；预处理离线化（提前 tokenize、缓存为二进制格式）；
-            prefetch_factor 增大预取深度；pin_memory=True；把 augmentation 移到 GPU 上做
-```
+- **症状**：GPU 利用率周期性掉到零，周期等于一个 batch 的加载时间；
+- **原因**：`num_workers` 不足；预处理太重；磁盘或网络 I/O 慢；collate 在主进程做了大量工作；
+- **处方**：增加 `num_workers`；预处理离线化（提前 tokenize、缓存为二进制格式）；`prefetch_factor` 增大预取深度；`pin_memory=True`；把 augmentation 移到 GPU 上做。
 
 判断方法：单独 Benchmark `DataLoader` 的迭代速度（不带模型），与训练 step 时间对比。如果加载一个 batch 的时间接近或超过训练一个 batch 的时间，数据加载就是瓶颈——此时优化模型毫无意义。
 
@@ -942,14 +921,12 @@ torch.cuda.set_sync_debug_mode("warn")     # 每次隐式同步打印警告和 P
 
 ### 1. 训练时显存的构成
 
-```text
-参数                 P × 每参数字节数
-梯度                 与参数同形状、同 dtype
-优化器状态           Adam：两份 fp32 状态（m、v）；SGD with momentum：一份
-激活值               前向保存供反向使用的中间结果，∝ batch × seq × hidden × layers
-临时工作区           cuBLAS / cuDNN workspace，Attention 的 score 矩阵
-Caching Allocator 的保留量   已向驱动申请但当前未分配给 Tensor 的部分
-```
+- **参数**：P × 每参数字节数
+- **梯度**：与参数同形状、同 dtype
+- **优化器状态**：Adam：两份 fp32 状态（m、v）；SGD with momentum：一份
+- **激活值**：前向保存供反向使用的中间结果，∝ batch × seq × hidden × layers
+- **临时工作区**：cuBLAS / cuDNN workspace，Attention 的 score 矩阵
+- **Caching Allocator 的保留量**：已向驱动申请但当前未分配给 Tensor 的部分
 
 前三项是**静态**的，与 batch 无关；激活值随 batch 线性增长，是单卡训练中可调节的主要部分。
 
@@ -957,12 +934,10 @@ Caching Allocator 的保留量   已向驱动申请但当前未分配给 Tensor 
 
 第六章把低精度作为时间维度的处方。它对空间的影响不是单向的：
 
-```text
-激活值        bf16 减半                                    ← 主要收益，∝ batch
-参数与梯度    bf16 减半
-主参数        必须保留 fp32 副本（第六章 §6：bf16 存不住小的更新量）    ← 额外开销
-优化器状态    保持 fp32
-```
+- **激活值**：bf16 减半——主要收益，∝ batch；
+- **参数与梯度**：bf16 减半；
+- **主参数**：必须保留 fp32 副本（第六章 §6：bf16 存不住小的更新量）——额外开销；
+- **优化器状态**：保持 fp32。
 
 以 Adam 为例，每个参数的静态占用，取两种常见 recipe：
 
@@ -999,11 +974,9 @@ Segment: [  已用 1MB  ][ 空闲 3MB ][  已用 1MB  ][ 空闲 3MB ]
 
 OOM 报错信息里能直接看到这个状态：
 
-```text
-CUDA out of memory. Tried to allocate 5.00 GiB. GPU 0 has a total capacity of 79.15 GiB
-of which 2.31 GiB is free. Process has 76.84 GiB memory in use. Of the allocated memory
-68.12 GiB is allocated by PyTorch, and 7.91 GiB is reserved by PyTorch but unallocated.
-```
+- CUDA out of memory. Tried to allocate 5.00 GiB. GPU 0 has a total capacity of 79.15 GiB
+- of which 2.31 GiB is free. Process has 76.84 GiB memory in use. Of the allocated memory
+- 68.12 GiB is allocated by PyTorch, and 7.91 GiB is reserved by PyTorch but unallocated.
 
 "reserved but unallocated" 接近 8 GB 是碎片的**线索**而不是证明：这个数还包含刚释放、等着下一步复用的正常缓存，以及峰值过后留下的空闲块。判断办法是看它在稳态里是否持续偏大、且 OOM 时请求的大小小于空闲总量——那才是"有空间但不连续"。下面把一个 Segment 内部画出来（1 MB = 2 格），并标出两种常见"处方"各自作用在哪一层：
 
@@ -1039,12 +1012,10 @@ empty_cache()              只把"整块全空"的 Segment 还给驱动；
 
 平均占用不高但 OOM，说明某一时刻有尖峰。典型位置：
 
-```text
-反向开始时       所有激活值都还在，第一个反向 Kernel 又要分配梯度
-优化器 step 时    foreach 优化器可能一次性为所有参数分配临时 Tensor
-Attention        score 矩阵 batch × heads × seq × seq，seq=8k 时单层就是 GB 级
-evaluation       忘了 torch.no_grad()，保存了不需要的激活值
-```
+- **反向开始时**：所有激活值都还在，第一个反向 Kernel 又要分配梯度
+- **优化器 step 时**：foreach 优化器可能一次性为所有参数分配临时 Tensor
+- **Attention**：score 矩阵 batch × heads × seq × seq，seq=8k 时单层就是 GB 级
+- **evaluation**：忘了 torch.no_grad()，保存了不需要的激活值
 
 用 memory snapshot 精确定位：
 
@@ -1116,25 +1087,19 @@ flowchart TB
 
 反方向的交换同样常见：
 
-```text
-KV Cache            推理时缓存已计算的 key/value，避免重算，显存 ∝ 序列长度
-cuDNN workspace     给 cuDNN 更多工作区，它能选择更快的算法
-更大的 batch        本身就是用显存换 GPU 利用率
-预分配              提前分配固定大小的 buffer，避免运行时分配与碎片
-```
+- **KV Cache**：推理时缓存已计算的 key/value，避免重算，显存 ∝ 序列长度
+- **cuDNN workspace**：给 cuDNN 更多工作区，它能选择更快的算法
+- **更大的 batch**：本身就是用显存换 GPU 利用率
+- **预分配**：提前分配固定大小的 buffer，避免运行时分配与碎片
 
 ### 9. 内存：CPU 侧的空间什么时候重要
 
 时间维度上 CPU 与 GPU 对称，空间维度上不对称：CPU 内存很少成为"时间去哪了"意义上的瓶颈，但在几个场景下是硬约束。
 
-```text
-DataLoader 多 worker     每个 worker 是一个进程；用 Python list 持有的数据集会因引用计数触发 copy-on-write，
-                        N 个 worker 复制 N 份。用 numpy 数组、内存映射文件或 Arrow 格式避免
-pinned memory           页锁定内存不能换出，总量受操作系统限制；pin_memory=True 加大 prefetch 时可能耗尽
-CPU offload             把优化器状态或部分参数放到内存（第九篇 ZeRO-Offload），用 PCIe 带宽换显存容量；
-                        此时 CPU 内存容量和 PCIe 带宽同时成为约束
-数据集缓存              把预处理结果全部放进内存加速 epoch，前提是放得下
-```
+- **DataLoader 多 worker**：每个 worker 是一个进程；用 Python list 持有的数据集会因引用计数触发 copy-on-write，N 个 worker 复制 N 份。用 numpy 数组、内存映射文件或 Arrow 格式避免；
+- **pinned memory**：页锁定内存不能换出，总量受操作系统限制；`pin_memory=True` 加大 prefetch 时可能耗尽；
+- **CPU offload**：把优化器状态或部分参数放到内存（第九篇 ZeRO-Offload），用 PCIe 带宽换显存容量；此时 CPU 内存容量和 PCIe 带宽同时成为约束；
+- **数据集缓存**：把预处理结果全部放进内存加速 epoch，前提是放得下。
 
 诊断手段是操作系统级的（`free`、`/proc/<pid>/status`、`psutil`），PyTorch 没有对应 `memory_allocated` 的 API——因为 CPU Tensor 用的是系统分配器，没有 Caching Allocator 那一层。
 
@@ -1258,12 +1223,10 @@ batch=64  bf16   compile      step: 38 ms        吞吐: 1684 samples/s    峰�
                               首次调用: 47 s（冷编译）
 ```
 
-```text
-  Kernel 数: 2100 → 640 / step
-  aten::_to_copy: 消失（融合进相邻 Kernel）
-  triton_*_fused_*: 9 ms（替代了原来 17 ms 的逐元素与归约）
-  aten::mm: 21 ms（不变，Extern Kernel）
-```
+- Kernel 数: 2100 → 640 / step
+- aten::_to_copy: 消失（融合进相邻 Kernel）
+- triton_*_fused_*: 9 ms（替代了原来 17 ms 的逐元素与归约）
+- aten::mm: 21 ms（不变，Extern Kernel）
 
 代价：47 秒冷编译；输入 shape 变化会触发重编译（第七篇）。训练场景 shape 固定，可接受。
 
@@ -1321,12 +1284,10 @@ Table: 优化报告：每项改动的收益与转移的成本
 
 案例的顺序不是偶然：
 
-```text
-1. 先看 GPU 利用率        低 → CPU 侧或同步（第五章、第七章），先解决它，否则其他优化无法测量
-2. 再看 Kernel 时间分布    矩阵乘主导 → 低精度；逐元素主导 → 融合（第六章）
-3. 再看显存峰值组成        大 Tensor 能否不物化；激活值能否重算；是否值得（第八章）
-4. 每步回到正确性测试和 Benchmark
-```
+1. 先看 GPU 利用率：低 → CPU 侧或同步（第五章、第七章），先解决它，否则其他优化无法测量；
+2. 再看 Kernel 时间分布：矩阵乘主导 → 低精度；逐元素主导 → 融合（第六章）；
+3. 再看显存峰值组成：大 Tensor 能否不物化；激活值能否重算；是否值得（第八章）；
+4. 每步回到正确性测试和 Benchmark。
 
 不同模型的具体数字不同，但顺序几乎总是这样。跳过第一步直接做第二步，是性能优化中最常见的浪费。
 

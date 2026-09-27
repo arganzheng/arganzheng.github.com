@@ -22,21 +22,13 @@ z = torch.add(x, y)
 
 背后可能涉及：
 
-```text
-Python API
-    ↓
-Python Binding
-    ↓
-Operator Schema
-    ↓
-Dispatcher
-    ↓
-ATen Operator
-    ↓
-CPU / CUDA / Meta Kernel
-    ↓
-底层数学库与硬件
-```
+1. Python API
+2. Python Binding
+3. Operator Schema
+4. Dispatcher
+5. ATen Operator
+6. CPU / CUDA / Meta Kernel
+7. 底层数学库与硬件
 
 如果这条链路只停留在“PyTorch 会自动处理”，那么遇到下面的问题时就只能依赖试错：
 
@@ -805,13 +797,9 @@ z = x.add(y)
 
 可以将这一过程理解为：
 
-```text
-Python 调用与参数
-        ↓
-参数解析和重载匹配
-        ↓
-C++ Tensor 句柄与其他参数
-```
+1. Python 调用与参数
+2. 参数解析和重载匹配
+3. C++ Tensor 句柄与其他参数
 
 这里通常不涉及 Tensor 数据复制。绑定层取得的是关联底层 Tensor 的句柄，不需要将 GPU 数据搬到 CPU 后再继续计算。
 
@@ -907,15 +895,10 @@ Autograd 包装层随后发起 **Redispatch（重新分发）**，使用排除�
 
 对于本例中的逐元素加法，可以把后端实现理解为**计算的组织者**，把设备 Kernel 理解为**执行数值计算的代码**。
 
-```text
-CUDA 后端实现
-        ↓
-准备输出与数据访问方式
-        ↓
-向当前 CUDA Stream 提交 Kernel
-        ↓
-GPU 执行逐元素加法
-```
+1. CUDA 后端实现
+2. 准备输出与数据访问方式
+3. 向当前 CUDA Stream 提交 Kernel
+4. GPU 执行逐元素加法
 
 不同算子会采用不同的计算实现。例如，矩阵乘法可能调用 cuBLAS，卷积可能调用 cuDNN，而本例的加法通常由原生逐元素 CUDA Kernel 完成。
 
@@ -1038,19 +1021,12 @@ c10（读作 "C-ten"，名字是 Caffe2 与 ATen 的双关）是所有层共同�
 
 第六章的动态路径可以精确落到目录上：
 
-```text
-torch/               Python 调用 torch.add(x, y)，进入 torch._C 中生成的绑定函数
-        ↓
-torch/csrc/          绑定函数解析参数，调用 at::add(x, y)
-        ↓
-aten/src/ATen/       Dispatcher 查 aten::add 的条目，按 x、y 的 DispatchKeySet 选 Key
-        ↓
-torch/csrc/          Autograd Key 命中：记录 AddBackward0 节点（torch/csrc/autograd/generated/），再次分发
-        ↓
-aten/src/ATen/       CPU 或 CUDA Key 命中：native/ 下的 add 实现，用 TensorIterator 遍历元素
-        ↓
-c10/                 结果 Tensor 的 TensorImpl 与 StorageImpl 在此构造，内存由 Allocator 分配
-```
+1. torch/               Python 调用 torch.add(x, y)，进入 torch._C 中生成的绑定函数
+2. torch/csrc/          绑定函数解析参数，调用 at::add(x, y)
+3. aten/src/ATen/       Dispatcher 查 aten::add 的条目，按 x、y 的 DispatchKeySet 选 Key
+4. torch/csrc/          Autograd Key 命中：记录 AddBackward0 节点（torch/csrc/autograd/generated/），再次分发
+5. aten/src/ATen/       CPU 或 CUDA Key 命中：native/ 下的 add 实现，用 TensorIterator 遍历元素
+6. c10/                 结果 Tensor 的 TensorImpl 与 StorageImpl 在此构造，内存由 Allocator 分配
 
 路径在 `torch/csrc` 与 ATen 之间往返一次，正是因为 Autograd 作为一个 Key 挂在 ATen 的表上。第五篇会把这条路径的每一步展开。
 
@@ -1104,11 +1080,9 @@ C++ 更适合：
 
 这不是“Python 慢、C++ 快”这么简单，而是不同层次的职责不同：
 
-```text
-Python：表达和组织
-C++：运行时和抽象
-CUDA：设备执行
-```
+- Python：表达和组织
+- C++：运行时和抽象
+- CUDA：设备执行
 
 ### 2. 通用抽象与后端实现的边界
 
@@ -1128,10 +1102,8 @@ PyTorch 希望用户使用统一 Tensor API，但不同设备不可能完全没�
 
 Eager Mode 鼓励动态 Python，但编译器更喜欢稳定、可推断的程序。
 
-```text
-更多动态性 → 更好的表达能力
-更多静态性 → 更好的分析和优化机会
-```
+- 更多动态性 → 更好的表达能力
+- 更多静态性 → 更好的分析和优化机会
 
 `torch.compile()` 的工程价值就在于尝试在两者之间建立桥梁。但这座桥不是无条件成立的，graph break、动态 shape 和运行时 guard 都是需要理解的边界。下图是这座桥的骨架：
 
@@ -1169,10 +1141,8 @@ flowchart TB
 
 统一代码可以跨设备运行，但高性能通常需要特化：
 
-```text
-通用实现 → 易移植、易维护
-设备特化 → 更高性能、更高维护成本
-```
+- 通用实现 → 易移植、易维护
+- 设备特化 → 更高性能、更高维护成本
 
 一个 AI-Infra 工程师需要能够判断：
 
@@ -1191,21 +1161,13 @@ PyTorch 不是一个单纯的 Python 库，而是连接模型代码、Tensor 编
 
 职责地图回答"谁负责什么"：
 
-```text
-用户训练代码
-    ↓
-编程接口与应用表达：Tensor / Autograd / nn.Module / Optimizer
-    ↓
-图表示与编译：FX / Dynamo / AOTAutograd / Inductor
-    ↓
-算子与分发运行时：Operator Schema / Dispatcher / ATen
-    ↓
-设备与通信支撑：CPU / CUDA / Meta 后端 · 内存分配 · stream · NCCL / Gloo
-    ↓
-计算内核与底层库： 原生 CPU 与 CUDA 内核、编译生成内核 / cuBLAS、cuDNN 等计算库
-    ↓
-外部运行基础：操作系统、驱动、CPU、GPU 与互连
-```
+1. 用户训练代码
+2. 编程接口与应用表达：Tensor / Autograd / nn.Module / Optimizer
+3. 图表示与编译：FX / Dynamo / AOTAutograd / Inductor
+4. 算子与分发运行时：Operator Schema / Dispatcher / ATen
+5. 设备与通信支撑：CPU / CUDA / Meta 后端 · 内存分配 · stream · NCCL / Gloo
+6. 计算内核与底层库： 原生 CPU 与 CUDA 内核、编译生成内核 / cuBLAS、cuDNN 等计算库
+7. 外部运行基础：操作系统、驱动、CPU、GPU 与互连
 
 动态地图回答"一次调用怎么走"：
 
