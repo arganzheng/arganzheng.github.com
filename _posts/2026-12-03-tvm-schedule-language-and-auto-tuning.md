@@ -296,17 +296,15 @@ extern "C" __global__ void __launch_bounds__(256) main_kernel(float* __restrict_
 
 `tvm.tirx.build` 对调度好的 PrimFunc 跑 `python/tvm/s_tir/pipeline.py` 的 `default_s_tir_pipeline`——四十多个 pass，对应 Triton 的 `make_llir`：
 
-```text
-CanonicalizeLoop → LowerCrossThreadReduction（跨线程规约 → shuffle / shared memory）→ LowerInitBlock（init 变成 if k == 0）
-→ PlanAndUpdateBufferAllocationLocation（缓冲分配挪到最内的合法作用域）→ ConvertBlocksToOpaque（去掉 block 结构，只剩循环）
-→ LiftThreadBinding → ManifestSharedMemoryLocalStage → CompactBufferAllocation（shared 缓冲按实际访问范围收缩：[1024,1024] → [64,16]）
-→ LowerAutoCopy → UnifyThreadBinding → LowerMatchBuffer → StmtSimplify → InjectPermutedLayout → AnnotateIrregularLoop
-→ InjectSoftwarePipeline（按 software_pipeline_stage / order 注解展开 prologue / body / epilogue——TVM 的 PipelineExpander）
-→ TransformMmaBufferLayout → LowerOpaqueBlock → FlattenBuffer（多维下标 → 一维偏移）→ BF16ComputeLegalize → NarrowDataType(32)
-→ LoopPartition → VectorizeLoop（vectorized 循环 → 向量类型）→ InjectVirtualThread → InjectDoubleBuffer → StorageRewrite（缓冲复用——AllocateSharedMemory）
-→ UnrollLoop → StmtSimplify → HoistIfThenElse → ThreadSync（插 barrier——Membar）→ SplitHostDevice → MakePackedAPI（host 端的参数解包——launcher）
-→ LowerIntrin / LowerTVMBuiltin → 代码生成
-```
+1. CanonicalizeLoop → LowerCrossThreadReduction（跨线程规约 → shuffle / shared memory）→ LowerInitBlock（init 变成 if k == 0）
+2. PlanAndUpdateBufferAllocationLocation（缓冲分配挪到最内的合法作用域）→ ConvertBlocksToOpaque（去掉 block 结构，只剩循环）
+3. LiftThreadBinding → ManifestSharedMemoryLocalStage → CompactBufferAllocation（shared 缓冲按实际访问范围收缩：[1024,1024] → [64,16]）
+4. LowerAutoCopy → UnifyThreadBinding → LowerMatchBuffer → StmtSimplify → InjectPermutedLayout → AnnotateIrregularLoop
+5. InjectSoftwarePipeline（按 software_pipeline_stage / order 注解展开 prologue / body / epilogue——TVM 的 PipelineExpander）
+6. TransformMmaBufferLayout → LowerOpaqueBlock → FlattenBuffer（多维下标 → 一维偏移）→ BF16ComputeLegalize → NarrowDataType(32)
+7. LoopPartition → VectorizeLoop（vectorized 循环 → 向量类型）→ InjectVirtualThread → InjectDoubleBuffer → StorageRewrite（缓冲复用——AllocateSharedMemory）
+8. UnrollLoop → StmtSimplify → HoistIfThenElse → ThreadSync（插 barrier——Membar）→ SplitHostDevice → MakePackedAPI（host 端的参数解包——launcher）
+9. LowerIntrin / LowerTVMBuiltin → 代码生成
 
 同一组问题在两个编译器里有名字几乎一样的 pass：缓冲区收缩与复用、软件流水展开、barrier 插入、向量化、host / device 拆分。差别在**输入**：Triton 的 pass 在带 layout 的张量 op 上做决定，TVM 的 pass 在调度已经定死的标量循环上做机械转换——TVM 的 lowering 里没有启发式。
 

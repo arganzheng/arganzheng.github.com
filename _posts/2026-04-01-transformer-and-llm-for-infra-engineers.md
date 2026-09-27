@@ -17,14 +17,12 @@ catalog: true
 
 Infra 工作的绝大多数决策——一张卡能不能放下这个模型、批要开到多大、KV cache 该留多少显存、量化到 INT4 能快多少、投机解码值不值得开、要不要为 MoE 上专家并行——答案都不在框架文档里，而在几行推导里。例如，Llama-3-8B 的 `config.json` 里有六个数字：
 
-```text
-hidden_size          4096
-intermediate_size    14336
-num_hidden_layers    32
-num_attention_heads  32
-num_key_value_heads  8
-vocab_size           128256
-```
+- **hidden_size**：4096
+- **intermediate_size**：14336
+- **num_hidden_layers**：32
+- **num_attention_heads**：32
+- **num_key_value_heads**：8
+- **vocab_size**：128256
 
 先把这六个数字标到模型结构上——每个数字都是图里某个方框的一条边长：
 
@@ -135,33 +133,22 @@ BF16 为什么能训练而 FP16 需要 loss scaling？混合精度里的 FP32 ma
 
 八篇按"先建立成本模型，再看每一种结构和数值上的改动如何改变它，最后看输入不再是文本时账怎么变"的顺序推进：
 
-```text
-第一篇：Transformer 解剖与参数量 —— 每个矩阵的形状，从 config.json 算出 8.03B
-        ↓
-第二篇：前向的算量与访存量 —— FLOPs、字节数、Roofline 视角下的 prefill 与 decode
-        ↓
-第三篇：Attention 变体与 KV cache —— MHA / GQA / MQA / MLA 的推导
-        ↓
-第四篇：位置编码与长上下文 —— RoPE 的波长、外推方法与长上下文的代价
-        ↓
-第五篇：MoE —— 路由、激活参数量与 all-to-all 的通信形态
-        ↓
-第六篇：浮点格式、数值稳定性与混合精度 —— 数值在哪里丢失，为什么还能工作
-        ↓
-第七篇：量化、投机解码与 LoRA —— 三种改变计算形态的方法及其数学
-        ↓
-第八篇：多模态 —— vision encoder 的算量、connector 决定的 token 数、image token 的 KV 代价
-```
+1. 第一篇：Transformer 解剖与参数量 —— 每个矩阵的形状，从 config.json 算出 8.03B
+2. 第二篇：前向的算量与访存量 —— FLOPs、字节数、Roofline 视角下的 prefill 与 decode
+3. 第三篇：Attention 变体与 KV cache —— MHA / GQA / MQA / MLA 的推导
+4. 第四篇：位置编码与长上下文 —— RoPE 的波长、外推方法与长上下文的代价
+5. 第五篇：MoE —— 路由、激活参数量与 all-to-all 的通信形态
+6. 第六篇：浮点格式、数值稳定性与混合精度 —— 数值在哪里丢失，为什么还能工作
+7. 第七篇：量化、投机解码与 LoRA —— 三种改变计算形态的方法及其数学
+8. 第八篇：多模态 —— vision encoder 的算量、connector 决定的 token 数、image token 的 KV 代价
 
 前两篇建立成本模型：一个 dense Transformer 在给定超参数下的参数量、FLOPs、字节数。第三到五篇是**结构**上的改动：分别改变 KV cache、上下文长度、参数与激活参数的比例。第六、七篇是**数值**上的改动：改变每个数占几个字节，以及绕过 decode 串行瓶颈的方法。第八篇是**输入**上的改动：token 不再来自 tokenizer，而来自一个独立的 encoder，token 数由图片分辨率决定。八篇都把 token 数、参数量、数据量当作给定的输入；它们各自是怎么定下来的——tokenizer 决定 token 数，scaling law 决定参数量与数据量的分配，数据管线决定有多少 token 可用、怎么配，训练配方决定用什么超参把它训出来、怎么不崩——是[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)四篇的内容。
 
 三条交织的线索：
 
-```text
-成本线：参数量 → FLOPs 与字节数 → KV cache → 长上下文的二次项 → 激活参数与通信量 → 字节/数 → 量化后的字节数
-硬件线：Roofline 与 ridge point → decode 的 memory-bound → 多卡的通信 → Tensor Core 的累加精度 → 低精度 GEMM 的收益区间
-模型线：Llama-3-8B / 70B（dense、GQA）→ DeepSeek-V3（MLA、MoE、FP8）→ Mixtral 8x7B（粗粒度 MoE）→ LLaVA-1.5 / Qwen2-VL / Llama-3.2-Vision（多模态）
-```
+- 成本线：参数量 → FLOPs 与字节数 → KV cache → 长上下文的二次项 → 激活参数与通信量 → 字节/数 → 量化后的字节数
+- 硬件线：Roofline 与 ridge point → decode 的 memory-bound → 多卡的通信 → Tensor Core 的累加精度 → 低精度 GEMM 的收益区间
+- 模型线：Llama-3-8B / 70B（dense、GQA） → DeepSeek-V3（MLA、MoE、FP8） → Mixtral 8x7B（粗粒度 MoE） → LLaVA-1.5 / Qwen2-VL / Llama-3.2-Vision（多模态）
 
 每一篇都用同样的方法：**写出公式，代入真实模型的超参数，算出数字，解释数字对系统意味着什么**。
 
@@ -378,16 +365,14 @@ $$
 
 本系列的贯穿物是**一张成本表和一组生成它的推导脚本**。脚本从第一篇的参数量开始，每篇增加几列，到第八篇结束时可以为任何一个给出 `config.json` 的模型、任何一组硬件参数输出（预训练系列再加上训练侧的四列）：
 
-```text
-第一篇    参数量                 逐层、逐矩阵；attention / FFN / embedding 的分布
-第二篇    FLOPs · 字节数          prefill 与 decode 的理论时间下界；Roofline 位置
-第三篇    KV cache               MHA / GQA / MQA / MLA；给定显存的最大并发
-第四篇    长上下文               上下文长度 → KV cache、prefill FLOPs、attention 占比
-第五篇    MoE                    总参数 · 激活参数 · 期望激活专家数 · all-to-all 字节数
-第六篇    精度                   各格式的字节数与训练状态；误差随累加长度的增长
-第七篇    量化 · 投机 · LoRA      量化后字节数；期望加速比；LoRA 参数与状态
-第八篇    多模态                 ViT 参数与 FLOPs；image token 数；image token 的 prefill FLOPs 与 KV
-```
+- **第一篇**：参数量；逐层、逐矩阵；attention / FFN / embedding 的分布
+- **第二篇**：FLOPs · 字节数；prefill 与 decode 的理论时间下界；Roofline 位置
+- **第三篇**：KV cache；MHA / GQA / MQA / MLA；给定显存的最大并发
+- **第四篇**：长上下文；上下文长度 → KV cache、prefill FLOPs、attention 占比
+- **第五篇**：MoE；总参数 · 激活参数 · 期望激活专家数 · all-to-all 字节数
+- **第六篇**：精度；各格式的字节数与训练状态；误差随累加长度的增长
+- **第七篇**：量化 · 投机 · LoRA；量化后字节数；期望加速比；LoRA 参数与状态
+- **第八篇**：多模态；ViT 参数与 FLOPs；image token 数；image token 的 prefill FLOPs 与 KV
 
 三个模型贯穿前七篇：**Llama-3-8B** 与 **Llama-3-70B** 代表 dense + GQA 的主流结构，**DeepSeek-V3** 代表 MLA + 细粒度 MoE + FP8 的另一条路线；Mixtral 8x7B 在 MoE 一篇作为粗粒度专家的对照；第八篇加入 LLaVA-1.5、Qwen2-VL、Llama-3.2-Vision 三个多模态模型，把"一张图"作为一行放进同一张表。每篇算出的数字都会填进同一张表，读者在第八篇结束时手上有一张这些模型在 H100 上的完整成本对照。表的骨架大致如下（BF16，H100 SXM，数字为理论值）：
 
@@ -460,20 +445,18 @@ batch 1 decode 时间下界   4.8 ms（单卡）     不能单卡           不�
 
 读完这套系列之后，拿到任何一个模型的 `config.json`、它的技术报告和一张 GPU 的规格表，读者应该能够在动手之前回答：
 
-```text
-它有多少参数，分布在哪里？                         → 第一篇：参数量公式
-一张卡放得下吗？放下之后还剩多少显存？               → 第一篇、第三篇：权重与 KV cache
-每个 token 多少 FLOPs？prefill 和 decode 各是什么瓶颈？ → 第二篇：Roofline
-batch 开到多大才能把算力用起来？                    → 第二篇：算术强度与 ridge point
-支持多长的上下文？代价在哪一项？                     → 第三篇、第四篇：KV cache 与二次项
-它的 attention 变体让 kernel 长什么样？              → 第三篇：GQA 的组、MLA 的吸收
-如果是 MoE，多卡之间要传多少数据？                   → 第五篇：all-to-all 字节数
-用什么精度？哪一步可能出数值问题？                   → 第六篇：格式与累加
-量化能快多少？在哪个阶段快？                        → 第七篇：字节数与 Roofline
-投机解码值得开吗？加速上界是多少？                   → 第七篇：期望接受长度
-微调它需要多少显存？                               → 第六篇、第七篇：训练状态与 LoRA
-一张图等于多少 token？贵在哪一环？                  → 第八篇：patch 数、connector 压缩比与 image token 的 KV
-```
+- 它有多少参数，分布在哪里？：→ 第一篇：参数量公式
+- 一张卡放得下吗？放下之后还剩多少显存？：→ 第一篇、第三篇：权重与 KV cache
+- 每个 token 多少 FLOPs？prefill 和 decode 各是什么瓶颈？ → 第二篇：Roofline
+- batch 开到多大才能把算力用起来？：→ 第二篇：算术强度与 ridge point
+- 支持多长的上下文？代价在哪一项？：→ 第三篇、第四篇：KV cache 与二次项
+- 它的 attention 变体让 kernel 长什么样？：→ 第三篇：GQA 的组、MLA 的吸收
+- 如果是 MoE，多卡之间要传多少数据？：→ 第五篇：all-to-all 字节数
+- 用什么精度？哪一步可能出数值问题？：→ 第六篇：格式与累加
+- 量化能快多少？在哪个阶段快？：→ 第七篇：字节数与 Roofline
+- 投机解码值得开吗？加速上界是多少？：→ 第七篇：期望接受长度
+- 微调它需要多少显存？：→ 第六篇、第七篇：训练状态与 LoRA
+- 一张图等于多少 token？贵在哪一环？：→ 第八篇：patch 数、connector 压缩比与 image token 的 KV
 
 最终目标是三种能力：
 

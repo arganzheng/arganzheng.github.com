@@ -210,11 +210,13 @@ for i in range(s):                              # 第 i 个 token 在看
 
 $$n_{kv}$$ 与 $$n_h$$ 的关系定义了三种 attention：
 
-```text
-MHA  (multi-head)          n_kv = n_h          每个 Q head 有自己的 K/V head
-GQA  (grouped-query)       1 < n_kv < n_h      每 g = n_h / n_kv 个 Q head 共用一组 K/V
-MQA  (multi-query)         n_kv = 1            所有 Q head 共用一组 K/V
-```
+| 变体 | 全称 | KV 头数 | 含义 |
+|---|---|---|---|
+| MHA | multi-head | n_kv = n_h | 每个 Q head 有自己的 K/V head |
+| GQA | grouped-query | 1 < n_kv < n_h | 每 g = n_h / n_kv 个 Q head 共用一组 K/V |
+| MQA | multi-query | n_kv = 1 | 所有 Q head 共用一组 K/V |
+
+Table: MHA / GQA / MQA 的区别只在 KV 头数
 
 三者的差别只在 Q head 到 K/V head 的映射：第 $$i$$ 个 Q head 使用第 $$\lfloor i / g \rfloor$$ 组 K/V。以 $$n_h = 8$$ 个 Q head 为例（Llama-3-8B 是 32 个，映射规律相同）：
 

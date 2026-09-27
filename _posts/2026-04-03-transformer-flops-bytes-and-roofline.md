@@ -522,14 +522,15 @@ $$
 
 这是 batch 与上下文乘积的上限：$$B \times s \le 524288$$。几个点：
 
-```text
-上下文 s      最大 batch B      每步读 KV       每步下界     每 token FLOPs    I (FLOP/byte)
-   1024         512            64 GiB          25 ms        15.5 G            94
-   2048         256            64 GiB          25 ms        16.1 G            49
-   8192          64            64 GiB          25 ms        19.3 G            15
-  32768          16            64 GiB          25 ms        32.2 G             6.1
- 131072           4            64 GiB          25 ms        83.7 G             3.9
-```
+| 上下文 s | 最大 batch B | 每步读 KV | 每步下界 | 每 token FLOPs | I (FLOP/byte) |
+|---|---|---|---|---|---|
+| 1024 | 512 | 64 GiB | 25 ms | 15.5 G | 94 |
+| 2048 | 256 | 64 GiB | 25 ms | 16.1 G | 49 |
+| 8192 | 64 | 64 GiB | 25 ms | 19.3 G | 15 |
+| 32768 | 16 | 64 GiB | 25 ms | 32.2 G | 6.1 |
+| 131072 | 4 | 64 GiB | 25 ms | 83.7 G | 3.9 |
+
+Table: 64 GB 的预算：B × s ≤ 52 万
 
 （每 token FLOPs = 权重 15.0 G + attention $$0.524\text{M} \times s$$，上下文越长 attention 项越重，所以 $$I$$ 下降得比 $$1/s$$ 慢；第四篇专门算这一项。）
 

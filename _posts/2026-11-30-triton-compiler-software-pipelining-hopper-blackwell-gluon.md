@@ -125,11 +125,9 @@ if (canUseAsyncCp || isTMALoad(op)) {
 
 拿到每个 op 的 stage 之后，展开是确定的：
 
-```text
-prologue：for s in 0 .. S-2：执行前 s+1 次迭代中 stage ≤ s 的 op（第 0 次迭代的 stage 0；第 0 次的 stage 1 与第 1 次的 stage 0；……）
-稳态循环：每轮执行 第 i 次迭代的 stage S-1、第 i+1 次的 stage S-2、……、第 i+S-1 次的 stage 0
-epilogue：补完最后 S-1 次迭代剩下的高 stage（或者用谓词把它们折进循环——Triton 默认 peel epilogue = false，用 mask 折进去）
-```
+- prologue：for s in 0 .. S-2：执行前 s+1 次迭代中 stage ≤ s 的 op（第 0 次迭代的 stage 0；第 0 次的 stage 1 与第 1 次的 stage 0；……）
+- 稳态循环：每轮执行 第 i 次迭代的 stage S-1、第 i+1 次的 stage S-2、……、第 i+S-1 次的 stage 0
+- epilogue：补完最后 S-1 次迭代剩下的高 stage（或者用谓词把它们折进循环——Triton 默认 peel epilogue = false，用 mask 折进去）
 
 跨 stage 传递的值（第 i 次迭代 stage 0 产生、stage 2 消费）变成新的 iter_args——最终 `scf.for` 有 15 个 iter_args 而源码只有 3 个，多出来的是缓冲下标、`async` token、预取的操作数。循环次数不足 S−1 时的边界用 `cmpi + splat` 出来的 mask 处理（IR 开头的 `%acc = arith.cmpi sgt, %K, %c0_i32` 就是"第 0 次迭代存在吗"）。
 

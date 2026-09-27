@@ -482,13 +482,14 @@ RMSNorm 的输出是 $$x / \sqrt{\frac{1}{d}\sum x_i^2 + \epsilon} \cdot \gamma$
 
 `torch.testing.assert_close` 的默认容差正是按这个思路为各 dtype 设定的：
 
-```text
-dtype       rtol        atol
-float64     1e-7        1e-7
-float32     1.3e-6      1e-5
-float16     1e-3        1e-5
-bfloat16    1.6e-2      1e-5
-```
+| dtype | rtol | atol |
+|---|---|---|
+| float64 | 1e-7 | 1e-7 |
+| float32 | 1.3e-6 | 1e-5 |
+| float16 | 1e-3 | 1e-5 |
+| bfloat16 | 1.6e-2 | 1e-5 |
+
+Table: 两个 kernel 的数值差异应该有多大
 
 `rtol` 大致是格式 $$\varepsilon$$ 的一个小倍数（BF16 的 $$1.6 \times 10^{-2} \approx 2\varepsilon$$，允许输入和输出各舍一次），`atol` 处理靠近 0 的元素（此时相对误差没有意义）。对比一个自定义 kernel 与参考实现时，默认容差是合理的起点；需要放宽时，放宽的倍数应该能用上面的 $$\sqrt{k}$$ 或 $$\log k$$ 解释，解释不了就应该怀疑 kernel。
 
