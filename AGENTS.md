@@ -1485,7 +1485,13 @@ How it is built (`_plugins/moments.rb`):
     matters instead of a generic "no GPU needed" reassurance.
   - Anything neither handles well (log-axis plots, precise geometry, dense
     grids) → generate an SVG/PNG into `img/in-post/<post-slug>-<name>.{svg,png}`
-    and embed with `![alt](/img/in-post/...)`.
+    and embed with `![alt](/img/in-post/...)`. **A hand-drawn SVG's root must
+    carry `width` and `height`, not only `viewBox`**: an `<img>` of such an SVG
+    has no intrinsic size and, inside the shrink-wrapped `.fig-media` wrapper,
+    lays out at 0 × 0 — the picture silently vanishes, only its caption shows
+    (17 figures shipped like that on 2026-09-21; readers reported 「图片没有正确
+    显示」). `check-render.cjs` now fails a page on it (`zeroImgs`), and
+    `js/figures.js` widens such an image to the wrapper as a fallback.
   - Verify rendering in a real browser (`jekyll serve` + check `.mermaid-error`
     and eyeball each SVG's size), not just `jekyll build`. Use the checker
     script for this:

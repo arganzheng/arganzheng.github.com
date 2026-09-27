@@ -145,6 +145,15 @@
     if (width) w.style.width = width;
     el.parentNode.insertBefore(w, el);
     w.appendChild(el);
+    // An <img> of an SVG that has a viewBox but no width/height has no intrinsic
+    // size, and inside a shrink-wrapped wrapper it lays out at 0 × 0 (the
+    // 2026-09-22 「图片没有正确显示」 reports). Give it the wrapper's full width.
+    if (el.tagName === 'IMG') {
+      var fit = function () {
+        if (el.naturalWidth > 0 && el.getBoundingClientRect().width < 2) { w.style.width = '100%'; el.style.width = '100%'; }
+      };
+      if (el.complete) fit(); else el.addEventListener('load', fit, { once: true });
+    }
     return w;
   }
 

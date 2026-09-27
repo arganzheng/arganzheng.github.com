@@ -28,6 +28,7 @@ const CHECK = `(() => {
     brokenImgs: [...document.images].filter(i=>i.complete&&i.naturalWidth===0&&new URL(i.src).origin===location.origin).map(i=>i.src),
     brokenExternalImgs: [...document.images].filter(i=>i.complete&&i.naturalWidth===0&&new URL(i.src).origin!==location.origin).map(i=>i.src),
     imgs: [...document.images].filter(i=>i.src.includes("/img/in-post/")).map(i=>[i.src.split("/").pop(), i.naturalWidth, i.naturalHeight]),
+    zeroImgs: [...document.images].filter(i=>i.complete&&i.naturalWidth>0&&i.getBoundingClientRect().width<2&&i.src.includes("/img/in-post/")).map(i=>i.src.split("/").pop()),
     widePre: [...document.querySelectorAll("pre")].filter(p=>p.scrollWidth>p.clientWidth+2).map(p=>p.textContent.trim().split("\\n")[0].slice(0,60)),
     pending: m.filter(e=>!e.querySelector("svg")&&!e.classList.contains("mermaid-error")).length + [...document.images].filter(i=>!i.complete).length
   });
@@ -42,6 +43,9 @@ async function check(slug) {
   await new Promise(r => ws.on('open', r));
   ws.on('message', d => { const m = JSON.parse(d); if (m.id && pending[m.id]) { pending[m.id](m.result); delete pending[m.id]; } });
   await send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+  // never judge a stale cached svg / blog.min.js (the tab was opened before this ran, so reload once uncached)
+  await send('Network.enable'); await send('Network.setCacheDisabled', { cacheDisabled: true });
+  await send('Page.reload', { ignoreCache: true });
   let out;
   for (let i = 0; i < 20; i++) {
     await new Promise(r => setTimeout(r, 1500));
@@ -51,9 +55,11 @@ async function check(slug) {
   }
   ws.close();
   await getJSON(`${CDP}/json/close/${t.id}`);
-  const status = out.href.endsWith(`/${slug}.html`) && !out.errs && out.ok === out.mermaid && !out.brokenImgs.length ? 'PASS' : 'FAIL';
+  const status = out.href.endsWith(`/${slug}.html`) && !out.errs && out.ok === out.mermaid && !out.brokenImgs.length && !out.zeroImgs.length ? 'PASS' : 'FAIL';
   console.log(`\n== ${slug} [${status}]`);
-  console.log(`mermaid=${out.mermaid} ok=${out.ok} errs=${out.errs} pending=${out.pending} brokenImgs=${out.brokenImgs.length}`);
+  console.log(`mermaid=${out.mermaid} ok=${out.ok} errs=${out.errs} pending=${out.pending} brokenImgs=${out.brokenImgs.length} zeroImgs=${out.zeroImgs.length}`);
+  // loaded but laid out at 0 px wide: an SVG with viewBox but no width/height inside the shrink-wrapped .fig-media
+  if (out.zeroImgs.length) console.log('zeroImgs (loaded, rendered 0 px wide — svg root needs width/height):', JSON.stringify(out.zeroImgs));
   if (out.errTexts.length) console.log('errTexts:', out.errTexts);
   if (out.brokenExternalImgs.length) console.log('WARN broken external images (not failing; hotlinks rot):', JSON.stringify(out.brokenExternalImgs));
   console.log('sizes:', JSON.stringify(out.sizes));
