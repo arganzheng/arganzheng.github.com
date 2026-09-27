@@ -84,7 +84,7 @@ $$
 
 ![H100 的 Roofline：斜线是带宽 × 强度，横线是 989 TFLOPS；decode 落在左边的 memory-bound 区，prefill 与训练落在右边](/img/in-post/gpu-intuition-roofline-h100.svg)
 
-一个操作的算术强度决定它落在横轴的哪个位置；落在斜线段上的是 memory-bound，往右挪（提高强度）性能线性上升；落到水平段上的是 compute-bound，再挪也不会更快。L4《Transformer 与 LLM》第二篇把整个模型逐层放到这张图上；Infra 05 系列第一篇从硬件侧讲同一件事。算法工程师需要的是用它判断：**我改的这个结构把瓶颈往哪边推了**。
+一个操作的算术强度决定它落在横轴的哪个位置；落在斜线段上的是 memory-bound，往右挪（提高强度）性能线性上升；落到水平段上的是 compute-bound，再挪也不会更快。L4《Transformer 与 LLM》第十篇把整个模型逐层放到这张图上；Infra 05 系列第一篇从硬件侧讲同一件事。算法工程师需要的是用它判断：**我改的这个结构把瓶颈往哪边推了**。
 
 ## 三、decode 与 prefill
 
@@ -118,7 +118,7 @@ prefill 把 prompt 的 4096 个 token 一起过模型。算力用第二章那条
 ### 3. 用它判断结构改动
 
 - 把 FFN 做大（$$d_{ff}$$ 翻倍）：参数与 FLOPs 同比涨，decode 每 token 多读一倍权重——memory-bound 的时间翻倍；
-- 换成 MoE（每 token 只激活一部分专家）：FLOPs 降、**全部专家的权重都要驻留在显存里**；每步实际读多少取决于 batch——batch 1 只读被选中的几个专家，batch 大了几乎所有专家都会被某个 token 选中、读的字节趋近全部权重——所以"稀疏省算量不省显存、大 batch 下也不省访存"（L4 第五篇）；
+- 换成 MoE（每 token 只激活一部分专家）：FLOPs 降、**全部专家的权重都要驻留在显存里**；每步实际读多少取决于 batch——batch 1 只读被选中的几个专家，batch 大了几乎所有专家都会被某个 token 选中、读的字节趋近全部权重——所以"稀疏省算量不省显存、大 batch 下也不省访存"（L4 第八篇）；
 - 上下文变长：attention 的 $$QK^T$$ 与 $$T^2$$ 成正比，KV cache 与 $$T$$ 成正比（下一章）；
 - 量化到 4 bit：decode 读的字节降到 1/4，memory-bound 的时间也降到 1/4——这是量化对推理有效的根本原因（L6）。
 
@@ -135,7 +135,7 @@ prefill 把 prompt 的 4096 个 token 一起过模型。算力用第二章那条
 
 Table: 显存的四块：大小由什么决定
 
-前三块上一篇讲过。第四块 **KV cache** 是推理特有的：生成第 $$t$$ 个 token 时要看前面所有 token 的 key 与 value（L0 第四篇：条件不变、缓存有效），所以把它们存下来。每个 token、每层存 $$2 \times n_{kv} \times d_{head}$$ 个数；Llama-3-8B（$$n_{kv} = 8$$、$$d_{head} = 128$$、32 层、bf16）：每个 token $$2 \times 8 \times 128 \times 32 \times 2 = 131$$ KB，一个 8K 的上下文 1 GB，并发 64 个这样的请求 64 GB——**比权重还大**。这就是 GQA（Llama-3 用 8 个 kv 头而不是 32 个，KV cache 缩到 1/4）与 MLA（DeepSeek）的动机。精确公式在 L4 第三篇。
+前三块上一篇讲过。第四块 **KV cache** 是推理特有的：生成第 $$t$$ 个 token 时要看前面所有 token 的 key 与 value（L0 第四篇：条件不变、缓存有效），所以把它们存下来。每个 token、每层存 $$2 \times n_{kv} \times d_{head}$$ 个数；Llama-3-8B（$$n_{kv} = 8$$、$$d_{head} = 128$$、32 层、bf16）：每个 token $$2 \times 8 \times 128 \times 32 \times 2 = 131$$ KB，一个 8K 的上下文 1 GB，并发 64 个这样的请求 64 GB——**比权重还大**。这就是 GQA（Llama-3 用 8 个 kv 头而不是 32 个，KV cache 缩到 1/4）与 MLA（DeepSeek）的动机。精确公式在 L4 第六篇。
 
 ### 2. OOM 归因
 

@@ -328,6 +328,8 @@ for t in range(T, 0, -1):
 - Bahdanau 的 $$s$$、$$h_j$$、加权和，就是 query、key / value、$$\text{softmax}(QK^T)V$$；Transformer 换了打分函数与用法（self-attention），然后去掉了循环。
 - RNN 的两个致命缺点：串行（实测同一 CPU 上 attention 达到的算力是它的 4.5 倍）与 $$O(n)$$ 的路径长度。Transformer 用 $$O(n^2)$$ 的算量与 $$O(n)$$ 的 KV cache 换掉了两者——04 系列全在算这笔账。SSM / 线性 attention 在找回 RNN 的 $$O(1)$$ 推理成本。
 
+本篇的 Bahdanau attention 是 $$\text{softmax}(QK^T)V$$ 的前身；[04 系列第一篇《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)从这里接过去：把它变成 self-attention、加上 mask、多头、FFN、残差与 LayerNorm，用 $$d = 4$$ 的例子手算一遍，再用 nanoGPT 写出来。
+
 ## 十、自测
 
 1. 把一个 RNN 沿时间展开，它是一个几层的网络？与普通深网络最大的不同是什么？

@@ -63,7 +63,7 @@ Table: 本文的章节安排
 %%{init: {"flowchart": {"wrappingWidth": 300}}}%%
 %% 图：DeepSeek-V3 的 MTP（D=1）：主干对位置 i 输出 h_i，主头预测 t_{i+1}；MTP 模块把 RMSNorm(h_i) 与 RMSNorm(Emb(t_{i+1})) 拼接、线性投影回 d 维、过一个 Transformer block 得到 h'_i，用共享的 lm_head 预测 t_{i+2}；embedding 表与 lm_head 两处共享，只有 norm、投影、block 是 MTP 自己的参数
 flowchart TB
-    subgraph MAIN["主干（第一至八篇的 Transformer）"]
+    subgraph MAIN["主干（第一至八篇讲的 Transformer）"]
         direction TB
         IN["token t1 … tT → 共享 embedding"] --> L["L 个 block"] --> H["h_i：位置 i 的表示"]
         H --> HEAD1["共享 lm_head → 预测 t(i+1)<br/>主 loss L_main"]

@@ -8,7 +8,7 @@ catalog: true
 updated: 2026-09-14
 ---
 
-量化是把权重（有时也把激活）从 16 bit 浮点变成 4 bit 或 8 bit 整数。[04 系列第七篇](/quantization-speculative-decoding-and-lora.html)从 Roofline 的角度讲了它的收益：decode 是 memory-bound 的，权重字节除以 4，每步时间除以接近 4——但只在 $$B \lesssim \text{ridge}/4$$ 的区间内；也介绍了 GPTQ 的更新公式、AWQ 的缩放形式、SmoothQuant 的迁移因子。那一篇回答的是"量化省多少"。
+量化是把权重（有时也把激活）从 16 bit 浮点变成 4 bit 或 8 bit 整数。[04 系列第十二篇](/quantization-speculative-decoding-and-lora.html)从 Roofline 的角度讲了它的收益：decode 是 memory-bound 的，权重字节除以 4，每步时间除以接近 4——但只在 $$B \lesssim \text{ridge}/4$$ 的区间内；也介绍了 GPTQ 的更新公式、AWQ 的缩放形式、SmoothQuant 的迁移因子。那一篇回答的是"量化省多少"。
 
 这一篇回答"量化**丢**多少、丢在哪、怎么少丢"。量化误差是本系列里最可控的一种分布改变：它有一个清楚的统计模型，每种方法都在这个模型下最小化一个明确的目标，而且方法之间的差别可以精确地说出来——RTN 什么都不管，GPTQ 补偿输出误差，AWQ 保护显著通道，SmoothQuant 迁移离群值，旋转把离群值摊平。理解了误差模型，就能回答"为什么同样是 4 bit，有的模型几乎无损、有的崩掉"——答案在权重与激活的分布形状里。
 
@@ -229,7 +229,7 @@ $$
 
 ### 4. W8A8 与 FP8
 
-INT8 W8A8 在 SmoothQuant + per-token 动态下对多数模型接近无损（困惑度 +0.01–0.05），GEMM 在 INT8 Tensor Core 上算力翻倍。FP8（E4M3）更宽容：浮点的相对精度让它对离群值不敏感（1000 与 1 都能以 ~6% 的相对误差表示），不需要 SmoothQuant，per-tensor 静态 scale 通常就够——这是 FP8 成为 H100 上默认推理格式的原因（[04 系列第六篇](/floating-point-formats-and-mixed-precision.html)讲了格式本身）。FP8 的代价是 3 位尾数的相对精度（6.25%）对小值的**绝对**误差比 INT8 大——但 LLM 对相对误差更敏感，所以 FP8 胜出。
+INT8 W8A8 在 SmoothQuant + per-token 动态下对多数模型接近无损（困惑度 +0.01–0.05），GEMM 在 INT8 Tensor Core 上算力翻倍。FP8（E4M3）更宽容：浮点的相对精度让它对离群值不敏感（1000 与 1 都能以 ~6% 的相对误差表示），不需要 SmoothQuant，per-tensor 静态 scale 通常就够——这是 FP8 成为 H100 上默认推理格式的原因（[04 系列第十一篇](/floating-point-formats-and-mixed-precision.html)讲了格式本身）。FP8 的代价是 3 位尾数的相对精度（6.25%）对小值的**绝对**误差比 INT8 大——但 LLM 对相对误差更敏感，所以 FP8 胜出。
 
 对高吞吐负载（大 batch，compute-bound），W8A8 / FP8 是正确的选择：字节减半、算力翻倍、精度几乎无损。W4A16 在这里没有算力收益（GEMM 还是 BF16），只省字节，而字节在 compute-bound 区间不是瓶颈。
 

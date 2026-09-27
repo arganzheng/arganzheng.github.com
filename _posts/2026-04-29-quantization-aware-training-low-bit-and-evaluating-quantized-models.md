@@ -176,7 +176,7 @@ BitNet b1.58（Ma 等 2024）走另一条路：**从头**在三值权重 $$\{-1,
 
 ### 3. 低比特训练的另一面：FP8 训练
 
-DeepSeek-V3 用 FP8 做**训练**（前向与反向的 GEMM 在 FP8 上，主权重与优化器状态保持高精度）——这不是 QAT（目标不是部署时的低比特），而是训练本身的加速，属于 [04 系列第六篇](/floating-point-formats-and-mixed-precision.html)与 Infra 地图的范畴。但它与 QAT 有一个共同点：模型在低比特噪声下训练，天然对推理时的 FP8 量化鲁棒——DeepSeek-V3 的 FP8 推理几乎不需要额外处理。
+DeepSeek-V3 用 FP8 做**训练**（前向与反向的 GEMM 在 FP8 上，主权重与优化器状态保持高精度）——这不是 QAT（目标不是部署时的低比特），而是训练本身的加速，属于 [04 系列第十一篇](/floating-point-formats-and-mixed-precision.html)与 Infra 地图的范畴。但它与 QAT 有一个共同点：模型在低比特噪声下训练，天然对推理时的 FP8 量化鲁棒——DeepSeek-V3 的 FP8 推理几乎不需要额外处理。
 
 ## 六、困惑度掩盖了什么
 

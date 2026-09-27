@@ -114,8 +114,8 @@ rollout 引擎与训练器共置、权重同步、生成与训练的算力配比
 - 多轮对话的格式与 chat template：角色标记、特殊 token（第九篇留下的 256 个位）、system prompt；模板不一致是 SFT 最常见的静默错误；
 - loss mask：只对回复部分算 loss，prompt 部分不算；为什么算 prompt 会伤害模型；多轮时只算最后一轮还是每一轮；
 - packing 与它的 attention 掩码问题（L4 第十二篇的跨文档 attention 在这里再出现一次）；
-- 全量微调的账：8B 模型 16 字节/参数的训练状态 128 GB（L4 第六篇），lr $$10^{-5}$$ 量级、2–3 个 epoch、cosine；
-- 参数高效微调：LoRA 的 $$W + BA$$（L4 第七篇的参数与状态账）、秩与目标矩阵的选择（r 16–64，全部线性层优于只做 attention）、QLoRA 的 NF4 底座、DoRA 的幅度 - 方向分解；Prefix-Tuning / P-Tuning / Adapter 的位置；LoRA 在什么任务上追不上全量；
+- 全量微调的账：8B 模型 16 字节/参数的训练状态 128 GB（L4 第十一篇），lr $$10^{-5}$$ 量级、2–3 个 epoch、cosine；
+- 参数高效微调：LoRA 的 $$W + BA$$（L4 第十二篇的参数与状态账）、秩与目标矩阵的选择（r 16–64，全部线性层优于只做 attention）、QLoRA 的 NF4 底座、DoRA 的幅度 - 方向分解；Prefix-Tuning / P-Tuning / Adapter 的位置；LoRA 在什么任务上追不上全量；
 - 灾难性遗忘：SFT 后通用能力下降的度量与三种对策——混入预训练数据回放、更小的 lr、模型平均（Llama 3 对每轮 SFT/DPO 的 checkpoint 做平均）；
 - 公开配方：InstructGPT 的 SFT、Llama 3 的 SFT（lr 1e-5，8.5K–9K 步，拒绝采样生成的数据）、Tülu 3 的 SFT 数据配比、DeepSeek-R1 的冷启动 SFT（几千条长思维链）。
 

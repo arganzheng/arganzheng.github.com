@@ -229,7 +229,7 @@ packing 的问题也和预训练一样：标准的因果 attention 会让后一�
 
 ### 1. 全量微调的账
 
-全量 SFT 与预训练的状态账相同：混合精度 + AdamW 下每参数 16 字节（L4 第六篇），8B 模型 128 GB，不算激活值就要两张 80 GB 的卡加 ZeRO / FSDP。学习率取预训练峰值的十分之一量级——Llama 3 用 $$10^{-5}$$，Tülu 3 对 8B 用 $$5 \times 10^{-6}$$、70B 用 $$2 \times 10^{-6}$$，Qwen2.5 从 $$7 \times 10^{-6}$$ 衰减到 $$7 \times 10^{-7}$$。原因是 SFT 的数据量小、epoch 多，大 lr 会在几百步里把预训练的权重推得太远（第六章的遗忘）。与预训练相比 warmup 更短（几十到几百步或 3% 的步数）、调度多为线性或 cosine 到 0、weight decay 常设为 0（数据少、步数少，decay 来不及起作用，反而干扰）。
+全量 SFT 与预训练的状态账相同：混合精度 + AdamW 下每参数 16 字节（L4 第十一篇），8B 模型 128 GB，不算激活值就要两张 80 GB 的卡加 ZeRO / FSDP。学习率取预训练峰值的十分之一量级——Llama 3 用 $$10^{-5}$$，Tülu 3 对 8B 用 $$5 \times 10^{-6}$$、70B 用 $$2 \times 10^{-6}$$，Qwen2.5 从 $$7 \times 10^{-6}$$ 衰减到 $$7 \times 10^{-7}$$。原因是 SFT 的数据量小、epoch 多，大 lr 会在几百步里把预训练的权重推得太远（第六章的遗忘）。与预训练相比 warmup 更短（几十到几百步或 3% 的步数）、调度多为线性或 cosine 到 0、weight decay 常设为 0（数据少、步数少，decay 来不及起作用，反而干扰）。
 
 激活值在 SFT 里比预训练更容易成为瓶颈：序列长（Qwen2.5 的 SFT 用 32K）、batch 小，每层激活 $$\propto$$ 序列长 × $$d$$，加上 attention 的中间量；梯度检查点（重算激活）几乎是默认开着的，代价是多约三分之一的前向 FLOPs。
 
@@ -242,7 +242,7 @@ $$
 \frac{\partial \mathcal{L}}{\partial A} = \frac{\alpha}{r} \, B^\top \frac{\partial \mathcal{L}}{\partial W'}
 $$
 
-$$B = 0$$ 让第一步 $$A$$ 没有梯度、只有 $$B$$ 动；从第二步起两者每步都一起更新（不是交替），$$A$$ 的梯度随 $$B$$ 长大而变大——这是 LoRA 头几步 loss 动得慢的原因之一，也是它常用比全量大的 lr 的原因。还要纠正一个常见说法：LoRA **不需要**算 $$d_{out} \times d_{in}$$ 的完整 $$\partial\mathcal{L}/\partial W'$$。设上游梯度 $$G = \partial\mathcal{L}/\partial y$$（$$d_{out} \times$$ batch），则 $$\partial\mathcal{L}/\partial B = G (A x)^\top$$、$$\partial\mathcal{L}/\partial A = B^\top G\, x^\top$$，两个都是小矩阵乘，autograd 走的就是这条路（CPU 验证：`W.grad is None`，`A.grad`/`B.grad` 与公式逐元素相等）。所以 LoRA 省的不只是**存储**（不存 $$W$$ 的梯度与 Adam 状态），反向对权重那一半的算量也省了；没省的是对输入的梯度 $$\partial\mathcal{L}/\partial x = W^\top G + A^\top B^\top G$$——它要穿过冻结的 $$W$$ 传到前一层，与全量一样。L4 第七篇算过它的参数量：$$r (d_{in} + d_{out})$$ 每个矩阵。配套实验在 0.5B 上的账：
+$$B = 0$$ 让第一步 $$A$$ 没有梯度、只有 $$B$$ 动；从第二步起两者每步都一起更新（不是交替），$$A$$ 的梯度随 $$B$$ 长大而变大——这是 LoRA 头几步 loss 动得慢的原因之一，也是它常用比全量大的 lr 的原因。还要纠正一个常见说法：LoRA **不需要**算 $$d_{out} \times d_{in}$$ 的完整 $$\partial\mathcal{L}/\partial W'$$。设上游梯度 $$G = \partial\mathcal{L}/\partial y$$（$$d_{out} \times$$ batch），则 $$\partial\mathcal{L}/\partial B = G (A x)^\top$$、$$\partial\mathcal{L}/\partial A = B^\top G\, x^\top$$，两个都是小矩阵乘，autograd 走的就是这条路（CPU 验证：`W.grad is None`，`A.grad`/`B.grad` 与公式逐元素相等）。所以 LoRA 省的不只是**存储**（不存 $$W$$ 的梯度与 Adam 状态），反向对权重那一半的算量也省了；没省的是对输入的梯度 $$\partial\mathcal{L}/\partial x = W^\top G + A^\top B^\top G$$——它要穿过冻结的 $$W$$ 传到前一层，与全量一样。L4 第十二篇算过它的参数量：$$r (d_{in} + d_{out})$$ 每个矩阵。配套实验在 0.5B 上的账：
 
 ```text
 配置                      可训练参数     占比    训练状态(混合精度)   8B 规格同比例
@@ -256,7 +256,7 @@ LoRA r=64 全部线性层           35.2M     7.12%        1.38 GiB         22 G
 三个旋钮：
 
 - **秩 $$r$$**：8–64 常见。QLoRA 论文与后续消融的共同结论是 $$r$$ 的影响远小于目标矩阵的选择；Biderman 等 2024 在代码与数学的继续预训练上发现 $$r = 256$$ 仍追不上全量，但在指令微调上 $$r = 16$$ 已接近。
-- **目标矩阵**：只做 attention 的 q/k/v/o（最早的做法）明显不如**全部线性层**（加 FFN 的 gate/up/down）——FFN 占了 80% 的参数（L4 第一篇），只动 attention 是在 20% 的参数里找低秩子空间。上表里从 attention 到全部线性层参数翻 4 倍，效果差别远大于 $$r$$ 从 16 到 64。
+- **目标矩阵**：只做 attention 的 q/k/v/o（最早的做法）明显不如**全部线性层**（加 FFN 的 gate/up/down）——FFN 占了 80% 的参数（L4 第五篇），只动 attention 是在 20% 的参数里找低秩子空间。上表里从 attention 到全部线性层参数翻 4 倍，效果差别远大于 $$r$$ 从 16 到 64。
 - **$$\alpha$$**：缩放因子，$$\alpha / r$$ 是有效学习率的一部分；常取 $$\alpha = 2r$$。rsLoRA（Kalajdzievski 2023）指出 $$\alpha / r$$ 的缩放让 $$r$$ 增大时更新幅度按 $$1/r$$ 塌缩（$$BA$$ 的每个元素是 $$r$$ 项之和、量级 $$\sqrt r$$，除以 $$r$$ 后是 $$1/\sqrt r$$），建议改用 $$\alpha / \sqrt r$$，这样大 $$r$$ 才真的学得更多。
 
 一张常用的起点表（QLoRA 与后续工作的经验值）：
@@ -290,7 +290,7 @@ LoRA r=16 全部线性层 lr 1e-4       训练 loss 2.183    验证回复 loss 2
 
 训完后 $$W' = W + \frac{\alpha}{r} BA$$ 可以算出来存成一个普通模型，推理零开销。两个注意点：合并后再量化（GPTQ / AWQ）与先量化底座再挂 LoRA 不等价——QLoRA 训出的 adapter 是对着 NF4 底座学的，合并进 BF16 底座会有微小的失配，多数情况可忽略但值得知道；合并后模型文件与底座一样大，几十个 adapter 就是几十份 16 GB。
 
-不合并时一个底座可以同时挂几十个 LoRA 按请求切换（L4 第七篇的 batched GEMV：把不同请求的 $$A$$、$$B$$ 作为一个批次的小 GEMM 算，S-LoRA、vLLM 的多 LoRA 支持），每个 adapter 只占几十 MB——这是 LoRA 在产品侧的另一个价值：一个模型服务上百个客户的定制版本。
+不合并时一个底座可以同时挂几十个 LoRA 按请求切换（L4 第十二篇的 batched GEMV：把不同请求的 $$A$$、$$B$$ 作为一个批次的小 GEMM 算，S-LoRA、vLLM 的多 LoRA 支持），每个 adapter 只占几十 MB——这是 LoRA 在产品侧的另一个价值：一个模型服务上百个客户的定制版本。
 
 ### 5. LoRA 学得少、忘得少
 
@@ -337,7 +337,7 @@ Table: 缓解遗忘的四种对策
 
 ### 1. 一次 SFT 的账
 
-用 L4 第二篇的 $$6ND$$：Llama 3 8B 规格、100 万条样本、平均 1000 token、2 个 epoch，$$D = 2 \times 10^9$$，$$C = 6 \times 8 \times 10^9 \times 2 \times 10^9 = 9.6 \times 10^{19}$$ FLOPs，H100 上 40% MFU 约 **67 GPU 小时**——预训练 146 万 GPU 小时的两万分之一。padding 的浪费（第四章：不 packing 时一半）与梯度检查点（多三分之一前向）会把它翻到 150–200 小时，仍然微不足道。
+用 L4 第十篇的 $$6ND$$：Llama 3 8B 规格、100 万条样本、平均 1000 token、2 个 epoch，$$D = 2 \times 10^9$$，$$C = 6 \times 8 \times 10^9 \times 2 \times 10^9 = 9.6 \times 10^{19}$$ FLOPs，H100 上 40% MFU 约 **67 GPU 小时**——预训练 146 万 GPU 小时的两万分之一。padding 的浪费（第四章：不 packing 时一半）与梯度检查点（多三分之一前向）会把它翻到 150–200 小时，仍然微不足道。
 
 SFT 便宜到成本几乎全在数据上：100 万条样本如果由人写，按每条 10 分钟算是 17 万人时；由 GPT-4 级模型生成，按每条 1000 token 输出算是 10 亿输出 token 的 API 费用；由自己的模型拒绝采样生成，是 $$K$$ 倍的推理 FLOPs 加奖励模型打分——$$K = 8$$、8B 模型、100 万条 × 1000 token 是 $$2 \times 8\text{B} \times 8 \times 10^9 = 1.3 \times 10^{20}$$ FLOPs，与 SFT 训练本身同量级。**后训练的成本结构与预训练相反：算力便宜，数据贵**；而数据的成本正在从人时变成推理 FLOPs。
 

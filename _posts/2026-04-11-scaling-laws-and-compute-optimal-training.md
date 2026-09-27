@@ -8,7 +8,7 @@ catalog: true
 updated: 2026-09-14
 ---
 
-《Transformer 与 LLM》第二篇给出了训练一个模型的算力：$$C \approx 6ND$$，参数量乘 token 数再乘 6。这个公式把一次预训练的成本压成两个变量的乘积，但没有说**怎么分**——同样 $$10^{24}$$ FLOPs，是 100B 参数训 1.7T token，还是 10B 参数训 17T token？两者的 loss 差多少？训完之后哪个更便宜？
+《Transformer 与 LLM》第十篇给出了训练一个模型的算力：$$C \approx 6ND$$，参数量乘 token 数再乘 6。这个公式把一次预训练的成本压成两个变量的乘积，但没有说**怎么分**——同样 $$10^{24}$$ FLOPs，是 100B 参数训 1.7T token，还是 10B 参数训 17T token？两者的 loss 差多少？训完之后哪个更便宜？
 
 Scaling law 回答的就是这个问题。它是过去五年里预训练最重要的一组经验规律：loss 随参数量、数据量、算力各呈幂律下降，幂律的指数决定算力该怎么分，而分法在 2020、2022、2024 各改了一次——Kaplan 说模型要大，Chinchilla 说数据要多，Llama 3 之后的所有模型都在 Chinchilla 认为"太多"的数据上训练。
 
@@ -239,7 +239,7 @@ $$
 
 $$D_{inf}$$ 是预期服务的 token 总数。第二个写法说明一件事：**在总成本的账上，每个推理 token 相当于三分之一个训练 token**——训练一个 token 要前向加反向（$$6N$$），推理只要前向（$$2N$$）。一个被广泛使用的模型，$$D_{inf}$$ 可以远大于 $$D$$：Llama-3 8B 训练 15T token，如果它的所有部署实例合计每天生成 1T token，一年就是 365T——推理 FLOPs $$2 \times 8\text{B} \times 365\text{T} = 5.8 \times 10^{24}$$，是训练的 8 倍。这时"训练算力最优"的模型显然不是"总成本最优"的。
 
-FLOPs 还低估了推理这一项。训练跑在 40% MFU，而 decode 是 memory-bound 的（《Transformer 与 LLM》第二篇），小 batch 下 MFU 常在 10–30%；同一个 FLOP 在推理时的 GPU 时间是训练时的 2–4 倍。再加上 KV cache（随层数与 $$n_{kv} d_{head}$$ 增长，与 $$N$$ 大致同向）决定了并发上限——**用 GPU 小时而不是 FLOPs 算，推理项的权重比 $$1/3$$ 更大**，最优点向小模型偏得更远。下面的表按 FLOPs 算，是保守的。
+FLOPs 还低估了推理这一项。训练跑在 40% MFU，而 decode 是 memory-bound 的（《Transformer 与 LLM》第十篇），小 batch 下 MFU 常在 10–30%；同一个 FLOP 在推理时的 GPU 时间是训练时的 2–4 倍。再加上 KV cache（随层数与 $$n_{kv} d_{head}$$ 增长，与 $$N$$ 大致同向）决定了并发上限——**用 GPU 小时而不是 FLOPs 算，推理项的权重比 $$1/3$$ 更大**，最优点向小模型偏得更远。下面的表按 FLOPs 算，是保守的。
 
 ### 2. 固定算力缩小模型的代价
 
@@ -324,15 +324,15 @@ Table: 重复 epoch 的有效 token 折算率
 
 ### 6. MoE 与长上下文：N 用哪个，6ND 差多少
 
-**MoE**。MoE 模型有两个参数量：总参数 $$N_{total}$$（决定显存）与激活参数 $$N_{act}$$（决定每 token 的 FLOPs，《Transformer 与 LLM》第五篇）。$$6ND$$ 里的 $$N$$ 是 $$N_{act}$$——算力只花在激活的专家上。但 loss 的 $$A / N^\alpha$$ 项介于两者之间：在同样激活参数下，更多的专家（更大的 $$N_{total}$$）loss 更低，收益随专家数递减。Clark 等 2022 把它写成 $$L(N_{act}, \text{experts})$$ 的双幂律并发现专家数的收益在 256–512 个之后趋平；Krajewski 等 2024 加进**专家粒度**（把一个专家切成几个更小的）作第三个变量，给出的形式是
+**MoE**。MoE 模型有两个参数量：总参数 $$N_{total}$$（决定显存）与激活参数 $$N_{act}$$（决定每 token 的 FLOPs，《Transformer 与 LLM》第八篇）。$$6ND$$ 里的 $$N$$ 是 $$N_{act}$$——算力只花在激活的专家上。但 loss 的 $$A / N^\alpha$$ 项介于两者之间：在同样激活参数下，更多的专家（更大的 $$N_{total}$$）loss 更低，收益随专家数递减。Clark 等 2022 把它写成 $$L(N_{act}, \text{experts})$$ 的双幂律并发现专家数的收益在 256–512 个之后趋平；Krajewski 等 2024 加进**专家粒度**（把一个专家切成几个更小的）作第三个变量，给出的形式是
 
 $$
 L(N, D, G) = E + \left(\frac{g}{G^\gamma} + a\right)\frac{1}{N^\alpha} + \frac{b}{D^\beta}
 $$
 
-结论是在同算力下 MoE 总能比 dense 更低，且**训练 token 越多 MoE 的优势越大**——因为 MoE 的等效 $$N$$ 更大，把同样的 $$D$$ 用得更充分。第三章的表用 $$N_{act}$$ 是保守的：DeepSeek-V3 的真实 loss 应低于 37B dense 模型的预测值。对 Infra 的含义反过来：MoE 的算力账按 37B 算，显存与通信账按 671B 算，两者相差 18 倍，这是《Transformer 与 LLM》第五篇"部署 MoE 比部署 dense 70B 难"的另一种说法。
+结论是在同算力下 MoE 总能比 dense 更低，且**训练 token 越多 MoE 的优势越大**——因为 MoE 的等效 $$N$$ 更大，把同样的 $$D$$ 用得更充分。第三章的表用 $$N_{act}$$ 是保守的：DeepSeek-V3 的真实 loss 应低于 37B dense 模型的预测值。对 Infra 的含义反过来：MoE 的算力账按 37B 算，显存与通信账按 671B 算，两者相差 18 倍，这是《Transformer 与 LLM》第八篇"部署 MoE 比部署 dense 70B 难"的另一种说法。
 
-**长上下文**。$$6ND$$ 只数了权重项，忽略了 attention 的 $$s$$ 依赖项（《Transformer 与 LLM》第二篇）。DeepSeek LLM 论文因此不用 $$N$$ 而用**每 token 的非 embedding FLOPs** $$M$$ 作变量：
+**长上下文**。$$6ND$$ 只数了权重项，忽略了 attention 的 $$s$$ 依赖项（《Transformer 与 LLM》第十篇）。DeepSeek LLM 论文因此不用 $$N$$ 而用**每 token 的非 embedding FLOPs** $$M$$ 作变量：
 
 $$
 M = 72\, n_{layer}\, d^2 + 12\, n_{layer}\, d\, s

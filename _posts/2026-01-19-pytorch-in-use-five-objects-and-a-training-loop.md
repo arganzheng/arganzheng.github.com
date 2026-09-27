@@ -437,7 +437,7 @@ print(f"验证 loss {val_loss:.3f}  (PPL {math.exp(val_loss):.1f})")
 - [`LambdaLR(opt, ...)`](#sched)：调度器拿到优化器，每步按 warmup + cosine 改它的学习率（第五章第 2 节）。
 - [`get_batch(train, cfg, gen)`](#batch)：取一个 batch，`x` 是 `[32, 128]` 的字符 id，`y` 是每个位置的下一个字符。真实项目里这一行是 `for step, batch in enumerate(loader)`（第五章第 1 节）。
 - [`.to(DEV, non_blocking=True)`](#to-dev)：数据搬到 GPU，`non_blocking=True` 让拷贝与前一步的计算重叠（第二章）。
-- [`torch.autocast(..., bfloat16)`](#autocast)：这段里的矩阵乘在 bf16 上跑、reduction 留 fp32——混合精度，第四篇讲；数值格式在 L4 第六篇。`enabled=DEV == "cuda"` 是因为 CPU 没有 bf16 硬件路径，开了慢 30 倍（第 6 节）。
+- [`torch.autocast(..., bfloat16)`](#autocast)：这段里的矩阵乘在 bf16 上跑、reduction 留 fp32——混合精度，第四篇讲；数值格式在 L4 第十一篇。`enabled=DEV == "cuda"` 是因为 CPU 没有 bf16 硬件路径，开了慢 30 倍（第 6 节）。
 - [`model(x)`](#forward)：前向，走 `__call__` → `forward`（第四章），得到 `[B, T, V]` 的 logits。
 - [`cross_entropy(logits.view(-1, V).float(), y.view(-1))`](#loss)：三个细节。`view(-1, V)` 把 `[B, T, V]` 展平成 `[B·T, V]`，因为 `cross_entropy` 要二维输入（上一篇的 reshape）；`.float()` 让 softmax + log 在 fp32 上算，避免 bf16 下溢出和精度损失（L0 第五篇：softmax 的数值）；SFT 时还要加 `ignore_index=-100`——labels 里**你自己标成** −100 的位置不算 loss，这就是 **SFT 的 loss mask**（L0 第五篇第四章）。注意 `ignore_index` 只是"跳过值为 −100 的位置"，它不知道哪些是 prompt、哪些是 padding：把 prompt 与 padding 写成 −100 是数据处理（collator / 模板）那一步的事，这一行只负责跳过。还有 labels 与 logits 的**错位**：位置 $$t$$ 的 logits 预测的是 $$x_{t+1}$$，所以要么 labels 整体左移一位（HF 的 `labels=input_ids` 是模型内部帮你 shift），要么自己 `logits[:, :-1]` 对 `labels[:, 1:]`——上面的玩具循环里 `x`、`y` 已经是错开一位取的。`cross_entropy` 算的就是 L0 第五篇的每 token 负对数似然：内部做 log-softmax，取真实 label 那一位取负，对所有非 −100 的位置平均。
 - [`loss.backward()`](#backward)：反向传播，梯度累加到每个参数的 `.grad`（第三章第二件事；L0 第七篇链式法则）。

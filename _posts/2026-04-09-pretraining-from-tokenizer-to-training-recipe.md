@@ -86,7 +86,7 @@ tokenizer 在 NLP 教材里、scaling law 在几篇论文里、数据工程在 F
 | 训练配方 | 学习率、batch、调度、warmup、权重衰减、稳定性开关 | ✓ 第四篇 |
 | 主训练运行 | 几千到几万张卡跑几周到几个月：并行策略、checkpoint、容错、监控 | Infra 地图《大规模训练》系列 |
 | 训练中的评测与干预 | 隔一段就跑 benchmark、看 loss 曲线，出 spike 回滚、改配比 | ✓ 第四篇（spike 与回滚）；评测在 L5 第八篇 |
-| 中期训练（mid-training）与退火 | 主训练末段换成高质量 / 数学 / 代码 / 长文本数据，学习率退火到很小；上下文从 8K 扩到 128K | 第三篇（退火数据）、第四篇（调度）；长上下文在 L4 第四篇 |
+| 中期训练（mid-training）与退火 | 主训练末段换成高质量 / 数学 / 代码 / 长文本数据，学习率退火到很小；上下文从 8K 扩到 128K | 第三篇（退火数据）、第四篇（调度）；长上下文在 L4 第七篇 |
 
 Table: 一次预训练的八项工作与本系列的覆盖范围
 
@@ -218,7 +218,7 @@ flowchart TB
 
 ### 前置要求
 
-- 读过[《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)的第一、二篇，知道参数量公式与 $$6ND$$；
+- 读过[《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)的第五、十篇，知道参数量公式与 $$6ND$$；
 - 会读 Python 与 PyTorch 代码；
 - 知道交叉熵、Adam、学习率 warmup 是什么（第四篇会用到它们的结论，不重推）。
 

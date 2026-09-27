@@ -279,7 +279,7 @@ Search-R1 的消融把第一条做成了对照：mask 掉检索到的文档 toke
 
 Table: 20 轮轨迹的上下文增长账
 
-两个结论。第一，**轨迹里八成的 token 是环境的**——训练时它们要过前向（作为上下文），它们的位置上没有 policy loss，但梯度仍会**穿过**它们（后面的动作 token 通过 attention 依赖它们的表示，反向照样回传到这些位置的激活与参数），所以反向的算力按全部 token 算（L4 第二篇），所以 Agent RL 每个"有效"训练 token 的代价是单轮的 5 倍。第二，rollout 时**前缀缓存**（推理引擎的 prefix caching）把累计 prefill 从二次降到线性，是 Agent rollout 引擎的必备功能；每轮工具返回的 token 要经过一次 prefill 追加进 KV cache，这部分是 compute-bound 的（L4 第二篇），比生成便宜。
+两个结论。第一，**轨迹里八成的 token 是环境的**——训练时它们要过前向（作为上下文），它们的位置上没有 policy loss，但梯度仍会**穿过**它们（后面的动作 token 通过 attention 依赖它们的表示，反向照样回传到这些位置的激活与参数），所以反向的算力按全部 token 算（L4 第十篇），所以 Agent RL 每个"有效"训练 token 的代价是单轮的 5 倍。第二，rollout 时**前缀缓存**（推理引擎的 prefix caching）把累计 prefill 从二次降到线性，是 Agent rollout 引擎的必备功能；每轮工具返回的 token 要经过一次 prefill 追加进 KV cache，这部分是 compute-bound 的（L4 第十篇），比生成便宜。
 
 上下文上限（32K–128K）决定了轨迹的最大长度，超过要截断——丢掉早期的工具输出（保留摘要）、或让模型自己总结。截断改变了状态，是训练与推理都要一致处理的又一个模板问题。
 

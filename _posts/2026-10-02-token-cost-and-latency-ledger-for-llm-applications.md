@@ -129,7 +129,7 @@ Anthropic 的价目表区分 Global 与 US-only inference（后者 +10%）；Gem
 
 ### 6. 多模态输入
 
-图片按面积折算 token。Anthropic 的公式约为宽 × 高 ÷ 750，一张 1024 × 1024 的图约 1,400 token；OpenAI 按 512 像素的 tile 计，一张 1024² 高清图几百到上千 token；Gemini 按固定 token 每图（历史上 258）或按 tile。音频按秒折算。这些数字都在各家的 token 计数文档里；账上的含义是**一张图 ≈ 一页文字**，一个上传十张截图的请求就是一万 token 的输入。视频按帧采样后累加，一分钟视频可以是几万 token。共享《Transformer 与 LLM》系列第八篇讲多模态成本的来源。
+图片按面积折算 token。Anthropic 的公式约为宽 × 高 ÷ 750，一张 1024 × 1024 的图约 1,400 token；OpenAI 按 512 像素的 tile 计，一张 1024² 高清图几百到上千 token；Gemini 按固定 token 每图（历史上 258）或按 tile。音频按秒折算。这些数字都在各家的 token 计数文档里；账上的含义是**一张图 ≈ 一页文字**，一个上传十张截图的请求就是一万 token 的输入。视频按帧采样后累加，一分钟视频可以是几万 token。共享《Transformer 与 LLM》系列第十三篇讲多模态成本的来源。
 
 ## 五、多轮对话：二次增长与缓存
 

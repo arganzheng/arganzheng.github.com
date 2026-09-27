@@ -91,7 +91,7 @@ F_peak BW M      单卡峰值 FLOPS、HBM 带宽、HBM 容量
 η_bw             decode 时 HBM 带宽的有效利用率假设（本篇 0.60）
 ```
 
-四个场景的模型（KV 字节数按 bf16、$$2 \times$$ 层数 $$\times$$ KV 头数 $$\times$$ 头维 $$\times$$ 2 字节算；DeepSeek-V3 的 MLA 每层只缓存 $$d_c = 512$$ 加 $$d_h^R = 64$$，见[《Transformer 与 LLM》第三篇](/attention-variants-and-kv-cache.html)）：
+四个场景的模型（KV 字节数按 bf16、$$2 \times$$ 层数 $$\times$$ KV 头数 $$\times$$ 头维 $$\times$$ 2 字节算；DeepSeek-V3 的 MLA 每层只缓存 $$d_c = 512$$ 加 $$d_h^R = 64$$，见[《Transformer 与 LLM》第六篇](/attention-variants-and-kv-cache.html)）：
 
 ```text
                  N        N_a     层   KV 头 × 头维    k_kv           推理侧权重
@@ -167,7 +167,7 @@ PPO / GRPO 允许对同一批样本做 $$\mu$$ 个 epoch 的更新（clip 就是
 
 ### 1. 每 token 的系数
 
-一个参数量为 $$N_a$$（激活参数）的 Transformer，每个 token 的前向约 $$2N_a$$ FLOP、反向约 $$4N_a$$，前向 + 反向 $$6N_a$$（[《Transformer 与 LLM》第二篇](/transformer-flops-bytes-and-roofline.html)；注意力的 $$s^2$$ 项在这里忽略，8K 序列上它约占 5–10%）。生成一个 token 是一次前向，也是 $$2N_a$$。于是 GRPO 一步：
+一个参数量为 $$N_a$$（激活参数）的 Transformer，每个 token 的前向约 $$2N_a$$ FLOP、反向约 $$4N_a$$，前向 + 反向 $$6N_a$$（[《Transformer 与 LLM》第十篇](/transformer-flops-bytes-and-roofline.html)；注意力的 $$s^2$$ 项在这里忽略，8K 序列上它约占 5–10%）。生成一个 token 是一次前向，也是 $$2N_a$$。于是 GRPO 一步：
 
 | 部分 | FLOP / token | 过多少 token | 说明 |
 |---|---|---|---|

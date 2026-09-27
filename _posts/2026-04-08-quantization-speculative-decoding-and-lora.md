@@ -1,14 +1,14 @@
 ---
 layout: post
 series: transformer-and-llm
-title: "Transformer 与 LLM（07）：量化、投机解码与 LoRA"
+title: "Transformer 与 LLM（12）：量化、投机解码与 LoRA"
 subtitle: "Quantization, Speculative Decoding and LoRA: Three Ways to Reshape the Computation"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 updated: 2026-09-14
 ---
 
-前六篇把一个 Transformer 拆成了四组变量：参数量 $$N$$、每 token 的 FLOPs、每步要搬的字节数、每 token 的 KV cache。这些变量由结构决定——层数、hidden、GQA 的组数、专家数——一旦 `config.json` 定下来，它们就定下来了。
+第五至十一篇把一个 Transformer 拆成了四组变量：参数量 $$N$$、每 token 的 FLOPs、每步要搬的字节数、每 token 的 KV cache。这些变量由结构决定——层数、hidden、GQA 的组数、专家数——一旦 `config.json` 定下来，它们就定下来了。
 
 本篇讲的是三种**不改结构、只改计算形态**的方法。它们分别攻击前面算出的三个成本项：
 
@@ -617,7 +617,7 @@ LoRA 的 16.7 GB 里 16.06 GB 是冻结的 BF16 底座。QLoRA（Dettmers 等 20
 
 ### 1. 脚本新增的三组函数
 
-延续贯穿全系列的 `llm_cost.py`，本篇新增量化字节数、投机解码加速比、LoRA 参数三组函数。为了独立运行，下面同时给出前几篇中本篇用到的 `param_count`、`forward_flops_per_token`、`kv_bytes_per_token` 的 dense 版本（MoE 与 MLA 的版本在第三、五篇）。
+延续贯穿全系列的 `llm_cost.py`，本篇新增量化字节数、投机解码加速比、LoRA 参数三组函数。为了独立运行，下面同时给出前几篇中本篇用到的 `param_count`、`forward_flops_per_token`、`kv_bytes_per_token` 的 dense 版本（MoE 与 MLA 的版本在第六、八篇）。
 
 ```python
 from dataclasses import dataclass
@@ -652,7 +652,7 @@ def embedding_params(cfg):
     return cfg.vocab * cfg.hidden * (1 if cfg.tie_embeddings else 2)
 
 def param_count(cfg):
-    """第一篇的参数量（重给以便独立运行），返回 dict。"""
+    """第五篇的参数量（重给以便独立运行），返回 dict。"""
     d = cfg.hidden
     q, kv = cfg.n_heads * cfg.head_dim, cfg.n_kv_heads * cfg.head_dim
     attn = d * q + d * kv + d * kv + q * d
@@ -672,7 +672,7 @@ def forward_flops_per_token(cfg, ctx=0):
 def kv_bytes_per_token(cfg, dtype_bytes=2):
     return 2 * cfg.layers * cfg.n_kv_heads * cfg.head_dim * dtype_bytes
 
-# ---- 第七篇新增 ----
+# ---- 第十二篇新增 ----
 def quantized_weight_bytes(cfg, bits=4, group_size=128, scale_bits=16,
                            zero_bits=16, keep_embed_bf16=False):
     """weight-only 量化后的权重字节数；返回 (bytes, 等效 bit/权重)。"""
@@ -751,7 +751,7 @@ Llama-3-70B: 70.55B  BF16 141.1 GB  INT4(g128) 4.25 bit -> 37.48 GB
 
 ### 2. 文本模型的成本表
 
-前七篇的数字合到一张表（H100 SXM，理论值；DeepSeek-V3 列用第三、五篇的 MLA 与 MoE 版本函数）：
+前面各篇的数字合到一张表（H100 SXM，理论值；DeepSeek-V3 列用第六、八篇的 MLA 与 MoE 版本函数）：
 
 ```text
                             Llama-3-8B          Llama-3-70B           DeepSeek-V3

@@ -79,11 +79,11 @@ Table: 本文的章节安排
 模型的输入必须是一串来自有限集合的 id。这个集合怎么定，有两个极端：
 
 - **词级**：每个单词一个 id。英文常用词几十万，加上变形、专名、拼写错误、其他语言，词表无上限；训练中没见过的词（OOV）只能映射到一个 `<unk>`，信息全丢。而且 $$V$$ 是 embedding 参数的一个因子，百万级的词表在 $$d = 4096$$ 下是 4B 参数——比 Llama-3-8B 的一半还多。
-- **字符级**（或字节级）：$$V = 256$$，永远没有 OOV。但一段英文平均每个字符一个 token，序列长度是词级的四五倍：attention 的二次项、KV cache 的一次项、生成时的 decode 步数全部按比例上升。《Transformer 与 LLM》第二篇算过 Llama-3-8B 在 128K 上下文下 attention 项已超过权重项；序列长 4 倍，同样的文本量 attention 算量长 16 倍。
+- **字符级**（或字节级）：$$V = 256$$，永远没有 OOV。但一段英文平均每个字符一个 token，序列长度是词级的四五倍：attention 的二次项、KV cache 的一次项、生成时的 decode 步数全部按比例上升。《Transformer 与 LLM》第十篇算过 Llama-3-8B 在 128K 上下文下 attention 项已超过权重项；序列长 4 倍，同样的文本量 attention 算量长 16 倍。
 
 **子词**（subword）是中间解：常见词整个是一个 token，罕见词拆成几段有意义的碎片，任何字符串都能表示，词表大小可以自己定。BPE 是得到子词词表最常用的算法。
 
-用一个数字看两端的差距。《Transformer 与 LLM》第二篇的 prefill 账：Llama-3-8B 处理 $$s$$ 个 token 的权重项是 $$2Ns$$，attention 项是 $$4 d L s^2 = 4 \times 4096 \times 32 \times s^2$$。一段 100 万字符的英文，词级切分约 20 万 token，字节级 100 万 token：
+用一个数字看两端的差距。《Transformer 与 LLM》第十篇的 prefill 账：Llama-3-8B 处理 $$s$$ 个 token 的权重项是 $$2Ns$$，attention 项是 $$4 d L s^2 = 4 \times 4096 \times 32 \times s^2$$。一段 100 万字符的英文，词级切分约 20 万 token，字节级 100 万 token：
 
 | 切分 | token 数 | 权重项 | attention 项 | 合计 |
 |---|---|---|---|---|
@@ -214,7 +214,7 @@ flowchart TB
 
 ### 1. 参数：2Vd，tied 与 untied
 
-词表进入模型的地方有两个：输入端的 embedding 表 $$V \times d$$，输出端的 lm_head $$d \times V$$。两者不共享（untied）时词表参数是 $$2Vd$$，共享（tied）时是 $$Vd$$。《Transformer 与 LLM》第一篇的参数量公式里这一项写成 $$2 V d$$；代入六个模型（`llm_cost_09_vocab.py` 的输出）：
+词表进入模型的地方有两个：输入端的 embedding 表 $$V \times d$$，输出端的 lm_head $$d \times V$$。两者不共享（untied）时词表参数是 $$2Vd$$，共享（tied）时是 $$Vd$$。《Transformer 与 LLM》第五篇的参数量公式里这一项写成 $$2 V d$$；代入六个模型（`llm_cost_09_vocab.py` 的输出）：
 
 | 模型 | $$V$$ | $$d$$ | 总参数 | 词表参数 | 占比 | lm_head FLOPs/token | 占 FLOPs | lm_head 字节（BF16） |
 |---|---|---|---|---|---|---|---|---|
@@ -248,11 +248,11 @@ embedding 是查表，不算 FLOPs；lm_head 是每个 token 一次 $$[1, d] \ti
 
 在小模型里它的占比失控：Qwen2.5-0.5B 的 lm_head 占每 token FLOPs 的 27.6%，Gemma-2-2B 占 22.6%。这两个模型都 tie 了 embedding，参数上只算一份，但 FLOPs 上 lm_head 一分不少——算 FLOPs 分母时那张共享表要**作为 lm_head 算进去**（早期版本这里把它从分母里扣掉了，得到 38%，是算错）。tied 模型的"词表参数占比"与"lm_head FLOPs 占比"恰好相等，不是巧合：分子都是 $$Vd$$、分母都是含一张表的总量。小模型选大词表，是为了和同系列的大模型共用 tokenizer（数据只需 tokenize 一次、蒸馏时 logits 可对齐——第二篇与后训练系列会用到），代价是三分之一的算力花在输出层。
 
-训练时这一项更重。反向传播对 lm_head 要算两个梯度（对权重、对输入），《Transformer 与 LLM》第二篇的"训练 = 3 × 前向"对它同样成立：Llama-3-8B 每 token 训练 FLOPs 约 $$6N = 48$$ GFLOPs，其中 lm_head 贡献 $$6 \times 0.525\text{B} = 3.15$$ GFLOPs，仍是 7%。但 15T token 乘下来，Llama-3-8B 全部预训练里有约 $$4.7 \times 10^{22}$$ FLOPs 花在输出层——按 H100 40% MFU 算约 33 000 GPU·小时。
+训练时这一项更重。反向传播对 lm_head 要算两个梯度（对权重、对输入），《Transformer 与 LLM》第十篇的"训练 = 3 × 前向"对它同样成立：Llama-3-8B 每 token 训练 FLOPs 约 $$6N = 48$$ GFLOPs，其中 lm_head 贡献 $$6 \times 0.525\text{B} = 3.15$$ GFLOPs，仍是 7%。但 15T token 乘下来，Llama-3-8B 全部预训练里有约 $$4.7 \times 10^{22}$$ FLOPs 花在输出层——按 H100 40% MFU 算约 33 000 GPU·小时。
 
 ### 4. 字节：decode 每步读一遍 lm_head，训练时 logits 要放得下
 
-decode 是 memory-bound 的（《Transformer 与 LLM》第二篇），每步读一遍全部权重，lm_head 也在其中：Llama-3-8B 的 1.05 GB 占 16.06 GB 的 6.5%，H100 上 0.31 ms。词表从 32K 到 256K 时这一项从 0.08 ms 到 0.63 ms——不致命，但它是权重里唯一随 $$V$$ 线性增长的部分。embedding 的读取则可以忽略：每 token 只 gather 一行 $$d$$ 个数，是随机访存但总量极小。
+decode 是 memory-bound 的（《Transformer 与 LLM》第十篇），每步读一遍全部权重，lm_head 也在其中：Llama-3-8B 的 1.05 GB 占 16.06 GB 的 6.5%，H100 上 0.31 ms。词表从 32K 到 256K 时这一项从 0.08 ms 到 0.63 ms——不致命，但它是权重里唯一随 $$V$$ 线性增长的部分。embedding 的读取则可以忽略：每 token 只 gather 一行 $$d$$ 个数，是随机访存但总量极小。
 
 更大的问题在训练侧。交叉熵要在 FP32 下算 softmax，logits 张量是 $$\text{tokens} \times V \times 4$$ 字节：一条 8K 的序列在 128K 词表下是 3.9 GiB，Llama 3 405B 训练时 16K 序列的 logits 是 7.8 GiB **每条序列**——比模型任何一层的激活值都大（一层的主要激活是 $$\text{tokens} \times d \times 2$$ 字节，$$d = 16384$$ 时 16K 序列只 0.5 GiB）。而且 logits 在反向时还要留一份梯度，同样大小。
 
@@ -289,7 +289,7 @@ Table: 同一 8B 骨架换四种词表的全套数字
 
 ### 5. 训练状态：词表参数按 16 字节算
 
-《Transformer 与 LLM》第七篇算 LoRA 时用过训练状态的账：混合精度 + Adam 下每个参数 BF16 权重 2 B + FP32 主权重 4 B + Adam 一阶、二阶矩各 4 B + BF16 梯度 2 B = **16 字节**。词表参数也在其中：Llama-3-8B 的 1.05B 词表参数是 16.8 GB 训练状态，比 lm_head 权重本身（1.05 GB）大一个数量级；Llama-3-70B 的 2.1B 是 33.6 GB。这部分状态在 TP 里沿 $$V$$ 切、在 ZeRO 里按参数切，不构成单卡瓶颈，但它提醒一件事：**扩词表的成本在训练时是 16 倍于推理时**——Llama 3 从 32K 到 128K 多出的 0.79B 参数，训练时是 12.6 GB 的状态。
+《Transformer 与 LLM》第十二篇算 LoRA 时用过训练状态的账：混合精度 + Adam 下每个参数 BF16 权重 2 B + FP32 主权重 4 B + Adam 一阶、二阶矩各 4 B + BF16 梯度 2 B = **16 字节**。词表参数也在其中：Llama-3-8B 的 1.05B 词表参数是 16.8 GB 训练状态，比 lm_head 权重本身（1.05 GB）大一个数量级；Llama-3-70B 的 2.1B 是 33.6 GB。这部分状态在 TP 里沿 $$V$$ 切、在 ZeRO 里按参数切，不构成单卡瓶颈，但它提醒一件事：**扩词表的成本在训练时是 16 倍于推理时**——Llama 3 从 32K 到 128K 多出的 0.79B 参数，训练时是 12.6 GB 的状态。
 
 另有一个更细的问题：embedding 的梯度是**稀疏**的——一个 batch 里没出现的 token，它的 embedding 行梯度为零。但 Adam 的状态是稠密的，$$m$$、$$v$$ 每步都要按全表更新（衰减），所以 embedding 的优化器开销与它的更新频率无关。这也是为什么有的框架给 embedding 单独用 SparseAdam 或不同的权重衰减：一个 15T token 的训练里，一个只出现过一万次的罕见 token，它的 embedding 行接受了一万次有效梯度和几百万次纯衰减。
 

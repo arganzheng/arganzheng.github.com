@@ -1,14 +1,14 @@
 ---
 layout: post
 series: transformer-and-llm
-title: "Transformer 与 LLM（05）：MoE 的路由、激活参数量与通信形态"
+title: "Transformer 与 LLM（08）：MoE 的路由、激活参数量与通信形态"
 subtitle: "Mixture of Experts: Routing, Active Parameters and Communication Patterns"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 updated: 2026-09-14
 ---
 
-前四篇讨论的都是 dense 模型：每个 token 经过每一层时，会用到这一层的全部权重。参数量、每 token 算量、每步 decode 的权重读取量，三者之间只差一个常数——参数量 $$N$$ 对应每 token $$2N$$ FLOPs，对应每步读 $$N \times \text{bytes/elem}$$ 字节。
+到这里为止讨论的都是 dense 模型：每个 token 经过每一层时，会用到这一层的全部权重。参数量、每 token 算量、每步 decode 的权重读取量，三者之间只差一个常数——参数量 $$N$$ 对应每 token $$2N$$ FLOPs，对应每步读 $$N \times \text{bytes/elem}$$ 字节。
 
 混合专家（Mixture of Experts，MoE）把这三个数拆开了。DeepSeek-V3 的技术报告里写着"总参数 671B，每 token 激活 37B"，从算量看它比 Llama-3-70B 便宜一半，但实际部署时它需要几十张 GPU 组成的专家并行集群，而 70B 一台 8 卡机器就能跑得很好。本篇要回答的核心问题是：
 
@@ -117,7 +117,7 @@ flowchart TB
 
 这个想法本身不新：Shazeer 等 2017 在 LSTM 上做过稀疏门控的 MoE 层，GShard（Lepikhin 等 2020）与 Switch Transformer（Fedus 等 2021）把它搬到 Transformer 并解决了大规模训练的均衡与并行问题。Mixtral（Jiang 等 2024）与 DeepSeek 系列让它成为开源模型的主流结构。结构层面几年没有大变，变的是粒度与规模，而正是粒度与规模决定了系统成本。
 
-还要注意 MoE 只替换 FFN，attention 部分与 dense 模型完全相同。因此一个 MoE 模型里 attention 的参数、KV cache、对上下文长度的二次方算量，都和同结构的 dense 模型一样——第三、四篇的所有结论直接适用。MoE 改变的只是 FFN 那一块的参数、算量与访存之间的比例关系。
+还要注意 MoE 只替换 FFN，attention 部分与 dense 模型完全相同。因此一个 MoE 模型里 attention 的参数、KV cache、对上下文长度的二次方算量，都和同结构的 dense 模型一样——第六、七篇的所有结论直接适用。MoE 改变的只是 FFN 那一块的参数、算量与访存之间的比例关系。
 
 ### 3. 一段参考实现
 
@@ -217,7 +217,7 @@ $$58 \times 11.32\text{B} = 656.5\text{B}$$
 
 **dense 层 FFN。** 3 层，每层 $$3 \times 7168 \times 18432 = 396.4\text{M}$$，合计 1.19B。
 
-**MLA attention。** DeepSeek-V3 用 MLA（第三篇有完整推导），每层的权重是六个矩阵：
+**MLA attention。** DeepSeek-V3 用 MLA（第六篇有完整推导），每层的权重是六个矩阵：
 
 ```text
 W_DQ    7168 × 1536     11.01M    q 的下投影
@@ -265,7 +265,7 @@ $$671\text{B} \times 1\text{ byte} = 671\text{ GB}$$
 
 一台 8 卡 H100 的 HBM 总量是 $$8 \times 80 = 640$$ GB，放不下权重本身，更不用说 KV cache 与激活。至少要两台（1280 GB），而且两台也只是"放得下"。如果用 BF16，1342 GB，至少三台。DeepSeek 报告里的实际部署规模远大于此：prefill 用 4 节点 32 卡（EP32），decode 用 40 节点 320 卡（EP320）。为什么要用这么大的 EP，是第四章要算的东西。
 
-值得一提的是，DeepSeek-V3 的显存压力几乎全部来自权重而不是 KV cache。MLA 让它的 KV cache 每 token 每层只有 $$(512 + 64) \times 2 = 1152$$ 字节，61 层 68.6 KiB，128K 上下文只要 8.6 GiB（第三篇的推导）。Llama-3-70B 的 GQA 每 token 320 KiB，128K 上下文 40 GiB。也就是说，两个模型的显存构成刚好相反：70B 是权重 141 GB、KV 随并发膨胀；V3 是权重 671 GB、KV 很小。这也是 V3 选择 MLA 的原因之一——权重已经占掉这么多，KV cache 必须压到极致，才能在 EP 集群的每张卡上留出足够的并发空间。
+值得一提的是，DeepSeek-V3 的显存压力几乎全部来自权重而不是 KV cache。MLA 让它的 KV cache 每 token 每层只有 $$(512 + 64) \times 2 = 1152$$ 字节，61 层 68.6 KiB，128K 上下文只要 8.6 GiB（第六篇的推导）。Llama-3-70B 的 GQA 每 token 320 KiB，128K 上下文 40 GiB。也就是说，两个模型的显存构成刚好相反：70B 是权重 141 GB、KV 随并发膨胀；V3 是权重 671 GB、KV 很小。这也是 V3 选择 MLA 的原因之一——权重已经占掉这么多，KV cache 必须压到极致，才能在 EP 集群的每张卡上留出足够的并发空间。
 
 Mixtral 也有同样的问题，只是数量级小：BF16 权重 93.4 GB，单张 H100 放不下，至少两卡；算量却只有 $$2 \times 12.9 \approx 26$$ GFLOPs/token，比 Llama-3-8B 的 15 GFLOPs 多不到一倍。它的 KV cache 与 Llama-3-8B 完全相同（每 token 128 KiB），两卡 TP 部署后剩余的显存足够放几十万 token 的 KV。从"算量像 13B、显存像 47B"这一点看，Mixtral 是理解 MoE 部署形态最温和的入门例子；DeepSeek-V3 则把同样的矛盾放大了一个数量级。
 
@@ -315,7 +315,7 @@ B        期望激活专家    路由专家读取量     每步读取参数量  
 
 对照 Llama-3-70B：无论 batch 多大，每步读 70.55B 参数，BF16 141 GB。
 
-也就是说，只有 $$B = 1$$ 时 DeepSeek-V3 的"每步读 37B"才成立。$$B = 32$$ 时它每步读的字节数（FP8 434 GB）已经是 Llama-3-70B（BF16 141 GB）的 3 倍；$$B = 128$$ 时是 4.7 倍。第二篇给出的 decode 时间下界是"权重字节数 / HBM 带宽"，按 H100 的 3.35 TB/s，假设权重能放在一张卡上（当然放不下，这里只为比较）：Llama-3-70B 每步下界 42 ms，DeepSeek-V3 在 $$B = 32$$ 时每步下界 130 ms。稀疏节省了算量，但没有节省访存——而 decode 恰恰是访存瓶颈的阶段。
+也就是说，只有 $$B = 1$$ 时 DeepSeek-V3 的"每步读 37B"才成立。$$B = 32$$ 时它每步读的字节数（FP8 434 GB）已经是 Llama-3-70B（BF16 141 GB）的 3 倍；$$B = 128$$ 时是 4.7 倍。第十篇给出的 decode 时间下界是"权重字节数 / HBM 带宽"，按 H100 的 3.35 TB/s，假设权重能放在一张卡上（当然放不下，这里只为比较）：Llama-3-70B 每步下界 42 ms，DeepSeek-V3 在 $$B = 32$$ 时每步下界 130 ms。稀疏节省了算量，但没有节省访存——而 decode 恰恰是访存瓶颈的阶段。
 
 ### 3. 三个数分开算
 
@@ -425,7 +425,7 @@ B_local     每层 all-to-all 字节     58 层合计      按 50 GB/s（IB）�
 
 prefill 阶段的数字更直观：一个 4096 token 的序列，每层 dispatch + combine 共 $$4096 \times 168\text{ KiB} = 672$$ MiB，58 层 38 GiB。在 EP32 下这 4096 个 token 分摊在 32 张卡上，每卡每层收发 21 MiB、58 层 1.2 GiB；若全部走 50 GB/s 的 IB，每卡传输时间下界约 26 ms。而这 4096 个 token 的算量是 $$4096 \times 74\text{ GFLOPs} \approx 303$$ TFLOP，在 32 张 H100 上按 FP8 60% MFU 大约 8 ms。通信是计算的 3 倍以上——这说明 EP 下的 prefill 如果不把 all-to-all 与计算充分重叠、不把大部分流量留在 NVLink 域内，通信会主导时间。DeepSeek-V3 的节点受限路由（下一节）和 EP32 只跨 4 个节点的配置，都是在压这个比例。
 
-作为参照，第二篇算过 Llama-3-70B 在 8 卡 TP 下每步 decode 的权重读取下界约 5 ms（141 GB / 8 卡 / 3.35 TB/s）。EP 下每卡的权重读取只剩几十 GB（约 10 ms），但 all-to-all 又添上了同一量级的通信时间——而且这个时间与 $$B_{local}$$ 线性增长，权重读取时间则不随 batch 增长。DeepSeek-V3 报告用 DualPipe、把通信 kernel 限制在少量 SM 上与计算重叠、以及自定义 all-to-all kernel，都是在处理这项开销。
+作为参照，第十篇算过 Llama-3-70B 在 8 卡 TP 下每步 decode 的权重读取下界约 5 ms（141 GB / 8 卡 / 3.35 TB/s）。EP 下每卡的权重读取只剩几十 GB（约 10 ms），但 all-to-all 又添上了同一量级的通信时间——而且这个时间与 $$B_{local}$$ 线性增长，权重读取时间则不随 batch 增长。DeepSeek-V3 报告用 DualPipe、把通信 kernel 限制在少量 SM 上与计算重叠、以及自定义 all-to-all kernel，都是在处理这项开销。
 
 ### 3. 节点受限路由
 
@@ -550,7 +550,7 @@ Tensor Core GEMM kernel 以 tile 为单位计算，典型的 tile 是 128 × 128
 
 grouped GEMM 是对这个问题的工程回答：把 $$E$$ 个不同形状（行数各异）、共享 K 与 N 维的小 GEMM 打包成一个 kernel launch，让 GPU 的 SM 在专家之间做负载分配，避免 256 次 launch 的开销和 SM 空闲。CUTLASS 的 grouped GEMM、vLLM 的 fused MoE Triton kernel、Megatron 的 grouped GEMM 后端都是这个思路。它解决了 launch 开销与 SM 利用率问题，但没有改变每个专家 M 小这一事实：decode 阶段的 MoE 层，本质上还是在为每个专家读一遍 $$[7168, 2048]$$ 的权重然后只乘 1–4 行——第四章算过的"访存量按激活专家数"，正是这里的直接体现。
 
-第一篇的参数量、第二篇的 FLOPs 在 MoE 上都成立；不成立的是第二篇 Roofline 分析中"batch $$B$$ 时权重 GEMM 算术强度约为 $$B$$ FLOP/byte"这条：MoE 层里每个专家的算术强度是 $$Tk/E$$ 而不是 $$T$$，比 dense 低 $$E/k = 32$$ 倍（DeepSeek-V3）。要让专家 GEMM 越过 H100 的 ridge point（约 295 FLOP/byte，BF16），需要每专家至少 300 行左右，即 $$T \geq 300 \times 32 \approx 9600$$ 个 token 同时在一层——这在 prefill 可以做到，在 decode 只有靠 EP 把大量并发请求的 token 汇聚到同一个专家上。DeepSeek-V3 用 EP320 做 decode，320 卡上的所有请求在每个专家上汇聚，是让专家 GEMM 有足够 M 的另一个理由。
+第五篇的参数量、第十篇的 FLOPs 在 MoE 上都成立；不成立的是第十篇 Roofline 分析中"batch $$B$$ 时权重 GEMM 算术强度约为 $$B$$ FLOP/byte"这条：MoE 层里每个专家的算术强度是 $$Tk/E$$ 而不是 $$T$$，比 dense 低 $$E/k = 32$$ 倍（DeepSeek-V3）。要让专家 GEMM 越过 H100 的 ridge point（约 295 FLOP/byte，BF16），需要每专家至少 300 行左右，即 $$T \geq 300 \times 32 \approx 9600$$ 个 token 同时在一层——这在 prefill 可以做到，在 decode 只有靠 EP 把大量并发请求的 token 汇聚到同一个专家上。DeepSeek-V3 用 EP320 做 decode，320 卡上的所有请求在每个专家上汇聚，是让专家 GEMM 有足够 M 的另一个理由。
 
 ## 七、负载均衡
 
@@ -641,7 +641,7 @@ DeepSeek-V3 每个 MoE 层有 1 个共享专家，$$d_{ff} = 2048$$，不经过 
 
 ### 2. MTP：内置的投机草稿
 
-DeepSeek-V3 在主模型之外训练了一个多 token 预测（Multi-Token Prediction，MTP）模块，用第 $$t$$ 个位置的 hidden state 额外预测第 $$t+2$$ 个 token。推理时这个模块可以直接当作投机解码的草稿模型：主模型一步产生一个 token，MTP 头顺带猜出下一个，再由主模型验证。报告中的接受率在 85%–90%，相当于每步 decode 平均产出接近 1.8 个 token。投机解码的期望加速与接受率的关系，第七篇会展开。
+DeepSeek-V3 在主模型之外训练了一个多 token 预测（Multi-Token Prediction，MTP）模块，用第 $$t$$ 个位置的 hidden state 额外预测第 $$t+2$$ 个 token。推理时这个模块可以直接当作投机解码的草稿模型：主模型一步产生一个 token，MTP 头顺带猜出下一个，再由主模型验证。报告中的接受率在 85%–90%，相当于每步 decode 平均产出接近 1.8 个 token。投机解码的期望加速与接受率的关系，第十二篇会展开。
 
 ## 九、实践：llm_cost.py 的 MoE 支持
 
@@ -663,11 +663,11 @@ class ModelConfig:
     d_ff: int
     vocab: int
     tie_embeddings: bool = False
-    # 第三篇加入：MLA（mla_rank=0 表示 GQA/MHA）
+    # 第六篇加入：MLA（mla_rank=0 表示 GQA/MHA）
     mla_rank: int = 0        # d_c
     rope_dim: int = 0        # d_h^R
     q_lora_rank: int = 0
-    # 第五篇加入：MoE（n_experts=0 表示 dense）
+    # 第八篇加入：MoE（n_experts=0 表示 dense）
     n_experts: int = 0       # 路由专家数 E
     top_k: int = 0           # 每 token 激活的路由专家数 k
     expert_d_ff: int = 0     # 每个专家的 d_ff
@@ -840,7 +840,7 @@ if __name__ == "__main__":
 - 期望激活专家数 $$B = 32$$ 时 163.3、$$B = 128$$ 时 251.6，与第四章的表一致；
 - all-to-all 每 token 每层 168 KiB（DeepSeek-V3）、32 KiB（Mixtral，top-2、$$d = 4096$$、dispatch 与 combine 都按 BF16）。
 
-第六篇会在这个脚本上加 dtype 字节表与训练状态显存，第七篇加量化、投机解码与 LoRA。
+第十一篇会在这个脚本上加 dtype 字节表与训练状态显存，第十二篇加量化、投机解码与 LoRA。
 
 ## 十、本文小结
 
@@ -878,9 +878,9 @@ grouped GEMM 每专家行数
 
 所有数字都是从超参数推导的理论值。它们回答的是数量级问题：MoE 在哪里省了、在哪里没省、代价转移到了哪里。
 
-下一篇离开结构与算量，进入数值：同样的 GEMM 用 FP16、BF16、FP8 算，结果会差多少，为什么 DeepSeek-V3 的 FP8 训练要每 128 个元素就提升到 FP32 累加一次。
+MoE 是 DeepSeek-V3 在**结构**上的第二处改动（第一处是第六篇的 MLA）。它还有第三处——不改结构、改**训练目标**的 MTP：每个位置多预测一个 token，训练时多一份监督信号，推理时白送一个投机解码的草稿。下一篇讲它。
 
-> **一个数用多少位表示，决定了它能算多快、放多少，也决定了它在哪里会悄悄算错。**
+> **同一批数据，能不能榨出两倍的监督信号？多出来的那个预测头，推理时去哪了？**
 
 配套代码：[`transformer-and-llm/llm_cost_05_moe.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_05_moe.py)；第二章的最小 MoE 层在 [`moe_layer_minimal.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/moe_layer_minimal.py)。
 
@@ -928,6 +928,6 @@ grouped GEMM 每专家行数
 
 ## 下一篇
 
-[浮点格式、数值稳定性与混合精度](/floating-point-formats-and-mixed-precision.html)
+[MTP：改训练目标而不改主干的多 token 预测](/multi-token-prediction-mtp.html)
 
 [^q0]: 把三个「参数量」分开算：**总参数量** 671B 决定显存——FP8 下也是 671 GB，一台 8 卡 H100（640 GB）放不下，必须多机（[第三章](#三参数量与激活参数量)）；**激活参数量** 37B 决定每 token 的 FLOPs——74 GFLOPs，只有 dense 70B 的一半；**每步实际读取的参数量**决定 decode 带宽——batch 为 1 时读 37B，但每个 token 各选 8 个专家，一个 batch 里被激活的专家数 $$E[1 - (1 - k/E)^B]$$ 在 $$B = 32$$ 时已覆盖 434B 的权重，趋近 671B，所以 decode 读的字节几乎是 dense 70B 的 5 倍而算力用不满（[第四章](#四decode-的访存形态稀疏在访存上不成立)）。**难在哪**：显存逼着专家并行到多机，每层两次 all-to-all 把 token 送到专家所在的卡再送回来（[第五章](#五专家并行与-all-to-all)）；小 batch 下每个专家只分到几个 token，GEMM 碎成一堆小矩阵、MFU 极低（[第六章](#六grouped-gemm-的形态)）；专家负载不均让最忙的卡拖住所有卡（[第七章](#七负载均衡)）。dense 70B 一台机器 TP 就跑起来了，这些问题一个都没有。

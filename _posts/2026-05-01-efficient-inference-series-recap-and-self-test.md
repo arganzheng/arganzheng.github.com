@@ -457,7 +457,7 @@ Table: 掌握程度的判据
 - **训练时就决定的结构选择**——GQA、MLA、MoE、sliding window——它们的成本账在 [04 系列](/transformer-and-llm-for-infra-engineers.html)，建模动机散在各篇；本系列只在第五篇讨论训好之后对 KV 的处理时回指它们。
 - **蒸馏的方法本身**在 [L5 第七篇](/knowledge-distillation-for-llms.html)；本系列第四、六篇把它当作恢复精度的工具引用。
 - **扩散模型的推理加速**（步数蒸馏、一致性模型）是另一套数学，放在 L7 多模态系列的第六篇。
-- **硬件相关的格式细节**（FP8 的 E4M3 / E5M2、Tensor Core 对 2:4 的支持）在 [04 系列第六篇](/floating-point-formats-and-mixed-precision.html)与 GPU Kernel 系列；本系列只用它们的结论。
+- **硬件相关的格式细节**（FP8 的 E4M3 / E5M2、Tensor Core 对 2:4 的支持）在 [04 系列第十一篇](/floating-point-formats-and-mixed-precision.html)与 GPU Kernel 系列；本系列只用它们的结论。
 
 
 [^q0]: 六个：采样参数怎么定、评测用 greedy 还是采样、温度改了 pass@k 怎么变（变形 / 截断 / 搜索、pass@1 与 pass@k 的相反响应）；投机解码在这个负载上有收益吗、草稿用什么、接受率预期多少（$$1 - \text{TV}$$、蒸馏训草稿、EAGLE 与 MTP、ridge 约束）；量化到几位、用哪种方法、group 多大、为什么这个模型量化后崩了（$$\Delta^2/12$$、重尾与离群、GPTQ / AWQ / 旋转）；需要 QAT 吗、怎么在部署前发现量化的任务退化（STE、末段 QAT、困惑度掩盖的四类任务、逐 token KL）；128K 的 KV 怎么压、哪种办法在这类任务上安全（key / value 的结构、FP8 → INT4 → 驱逐的安全序、sink）；一个 70B 怎么变成能用的 8B、剪枝 + 蒸馏还是从头训（余弦相似度、悬崖、Minitron 的 token 账）。详见[第二章](#二逐篇回顾)。

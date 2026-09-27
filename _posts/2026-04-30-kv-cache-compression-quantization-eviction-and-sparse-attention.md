@@ -8,7 +8,7 @@ catalog: true
 updated: 2026-09-14
 ---
 
-[04 系列第三篇](/attention-variants-and-kv-cache.html)算过 KV cache 的账：Llama-3-70B 在 128K 上下文下每个请求的 KV 是 40 GiB（GQA 之后）——权重 141 GB 的近三成，一张 80 GB 卡的一半；decode 每步要把它全部读一遍，单请求 128K 时 KV 读取已是权重的 30%，batch 到 4 就与权重相当（每 token 320 KiB，$$141\text{ GB}/320\text{ KiB} \approx 43$$ 万 token 与权重打平），长上下文 + 并发下 KV 读取超过权重读取成为 decode 的主要流量。结构级的解法——GQA 把 KV 头数除以 8、MLA 把每 token 的 KV 压到 576 维——在训练时就决定了，训好之后不能改。
+[04 系列第六篇](/attention-variants-and-kv-cache.html)算过 KV cache 的账：Llama-3-70B 在 128K 上下文下每个请求的 KV 是 40 GiB（GQA 之后）——权重 141 GB 的近三成，一张 80 GB 卡的一半；decode 每步要把它全部读一遍，单请求 128K 时 KV 读取已是权重的 30%，batch 到 4 就与权重相当（每 token 320 KiB，$$141\text{ GB}/320\text{ KiB} \approx 43$$ 万 token 与权重打平），长上下文 + 并发下 KV 读取超过权重读取成为 decode 的主要流量。结构级的解法——GQA 把 KV 头数除以 8、MLA 把每 token 的 KV 压到 576 维——在训练时就决定了，训好之后不能改。
 
 这一篇讲**训好之后**还能对 KV 做什么。三条路：**量化**（每个元素的字节从 2 降到 1 或 0.5 甚至 0.25）、**驱逐**（丢掉一部分 token 的 KV，只留"重要"的）、**稀疏 attention**（每步只读一部分 KV——如果模型训练时就这样，推理时可以精确地这样做）。三条路对输出分布的影响从小到大：量化是可控的噪声；驱逐是有损的、任务依赖的近似；训练时就稀疏的 attention 在推理时是精确的（但需要重新训练）。
 
@@ -114,7 +114,7 @@ INT2 只有 4 个级别，即使 per-channel，key 的量化误差也很大。KI
 
 ### 1. attention sink 的成因
 
-[04 系列第四篇](/positional-encoding-and-long-context.html)介绍了现象：LLM 对序列的**第一个 token** 分配了不成比例的注意力（常常 30–50%），无论它的内容是什么。StreamingLLM（Xiao 等 2023）发现只要保留这几个 sink token 的 KV 加一个最近窗口，模型就能在无限长的流上生成而不崩；丢掉 sink 则立即崩掉。
+[04 系列第七篇](/positional-encoding-and-long-context.html)介绍了现象：LLM 对序列的**第一个 token** 分配了不成比例的注意力（常常 30–50%），无论它的内容是什么。StreamingLLM（Xiao 等 2023）发现只要保留这几个 sink token 的 KV 加一个最近窗口，模型就能在无限长的流上生成而不崩；丢掉 sink 则立即崩掉。
 
 成因（Xiao 等的解释，后续 Sun 等 2024 的 massive activations 分析补充）：softmax 强制 attention 权重之和为 1，但很多 head 在很多位置**不需要关注任何东西**（当前 token 的信息足够，或这个 head 负责的模式没出现）。模型需要一个"垃圾桶"位置吸收多余的注意力——第一个 token 是最方便的选择，因为它对所有位置都可见（因果掩码下唯一对全序列可见的位置）。模型学会在第一个 token 的隐状态上产生 massive activation（上一篇讲的数千量级的值），让它的 key 与所有 query 的点积都大——成为 sink。sink 的 value 通常接近零向量，所以关注它等于"不加东西"。
 
@@ -166,7 +166,7 @@ PyramidKV（Cai 等 2024）的观察：不同层的 attention 模式不同——
 
 ### 1. 三种稀疏模式
 
-推理时的 KV 驱逐是**事后**的近似。另一条路是让模型在训练时就只看一部分 KV——推理时精确地做同样的事，没有近似误差。稀疏 attention 的模式（[04 系列第四篇](/positional-encoding-and-long-context.html)第七章列过形态）：
+推理时的 KV 驱逐是**事后**的近似。另一条路是让模型在训练时就只看一部分 KV——推理时精确地做同样的事，没有近似误差。稀疏 attention 的模式（[04 系列第七篇](/positional-encoding-and-long-context.html)第七章列过形态）：
 
 - **固定模式**：滑窗（每个 query 看最近 $$w$$ 个）、全局 token（少数位置全部可见）、扩张（隔 $$k$$ 个看一个）、块对角。Longformer / BigBird 时代的做法；现代模型里滑窗与全局层交错（Gemma 2/3、gpt-oss）是它的活形态。
 - **内容路由**：每个 query 按内容选择看哪些 KV 块——需要一个便宜的"选块"机制。这是 NSA 与 MoBA 的路线。

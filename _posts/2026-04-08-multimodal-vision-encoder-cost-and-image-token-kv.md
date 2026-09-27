@@ -1,14 +1,15 @@
 ---
 layout: post
 series: transformer-and-llm
-title: "Transformer 与 LLM（08）：多模态：vision encoder 的算量与 image token 的 KV 代价"
+title: "Transformer 与 LLM（13）：多模态：vision encoder 的算量与 image token 的 KV 代价"
 subtitle: "Multimodal LLMs: The Cost of Vision Encoders and Image Tokens"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
+date: 2026-04-08 12:00:00
 updated: 2026-09-14
 ---
 
-前七篇讨论的模型只有一种输入：token id。它查一张 embedding 表得到向量，然后进入 decoder。这个前提决定了前面所有的账——参数量、FLOPs、KV cache——都只与 token 数有关，而 token 数由 tokenizer 决定。
+前十二篇讨论的模型只有一种输入：token id。它查一张 embedding 表得到向量，然后进入 decoder。这个前提决定了前面所有的账——参数量、FLOPs、KV cache——都只与 token 数有关，而 token 数由 tokenizer 决定。
 
 多模态模型打破了这个前提。一张图片不经过 tokenizer，它先经过一个**独立的神经网络**（vision encoder，通常是 ViT），被切成几百到几千个向量，再由一个**连接层**（connector）变成 decoder 认得的 token embedding，插进 prompt 的对应位置。于是出现了三笔新账：encoder 自己的算量、connector 决定的 token 数、以及这些 token 进入 decoder 之后与文本 token 完全相同的 prefill FLOPs 和 KV cache。
 
@@ -38,11 +39,11 @@ flowchart TB
 
 1. **vision encoder**（视觉编码器）：文字有 tokenizer 把字切成 token，图片没有——像素太多（100 万个），也没有"词"。ViT 的办法是先把图切成 14×14 像素的小方块（**patch**，相当于图片的"字"），每个方块拉直成一个向量，再用一个独立的 Transformer 让方块之间互相看（attention），输出每个方块的语义向量。这个 encoder 通常先用图文对比学习（CLIP，L0 第二篇提过）单独训好，所以它输出的向量已经"懂图"。
 2. **connector**（连接层）：encoder 输出的向量维度（比如 1280）和 decoder 用的维度（4096）不一样，个数也太多（几千个）——所以要一个小网络把相邻几个合并、再投影到 decoder 的维度。它输出的每个向量就叫一个 **image token**：从 decoder 的角度看，它和查 embedding 表得到的文字 token 向量没有任何区别。
-3. **decoder**：就是前七篇讨论的那个 LLM。image token 插在文字 token 之间，attention 让文字 token 能"看到"图片 token，于是模型可以回答关于图的问题。也正因为 decoder 一视同仁，每个 image token 都要走一遍 prefill、都要占一份 KV cache——这就是本篇要算的账。
+3. **decoder**：就是前面讨论的那个 LLM。image token 插在文字 token 之间，attention 让文字 token 能"看到"图片 token，于是模型可以回答关于图的问题。也正因为 decoder 一视同仁，每个 image token 都要走一遍 prefill、都要占一份 KV cache——这就是本篇要算的账。
 
 另一条路线（第五章）：不把图片塞进序列，而是在 decoder 的部分层里加 cross-attention，让文字 token 去"查"图片特征——图片不占序列位置、不占主 KV，代价是多出一组 cross-attention 参数。
 
-VLM 的结构选择（connector 有几种、注入方式怎么选、动态分辨率怎么做）与训练配方，在 L7 多模态系列的[第二篇](/vlm-architecture-connectors-injection-and-dynamic-resolution.html)、[第三篇](/vlm-training-recipe-data-stages-and-evaluation.html)展开；本篇只在上面这条链路上**算账**——因为对 Infra 来说，"图片贵在哪"决定了显存怎么分、批怎么组。
+VLM 的结构选择（connector 有几种、注入方式怎么选、动态分辨率怎么做）与训练配方，在 L7 多模态系列的[第十篇](/vlm-architecture-connectors-injection-and-dynamic-resolution.html)、[第六篇](/vlm-training-recipe-data-stages-and-evaluation.html)展开；本篇只在上面这条链路上**算账**——因为对 Infra 来说，"图片贵在哪"决定了显存怎么分、批怎么组。
 
 ### 1. 先说答案
 
@@ -108,11 +109,11 @@ $$n_p = \frac{H}{p} \cdot \frac{W}{p}$$
 
 ### 2. ViT 的参数量与 FLOPs
 
-ViT 的一层与第一篇的 decoder 层结构相同：attention 四个矩阵加 FFN 两个矩阵（ViT 用 GELU 的经典 FFN，不是 SwiGLU，所以是两个矩阵；FFN 宽度通常是 $$4 d_{vit}$$）。忽略 bias 与 norm：
+ViT 的一层与第五篇的 decoder 层结构相同：attention 四个矩阵加 FFN 两个矩阵（ViT 用 GELU 的经典 FFN，不是 SwiGLU，所以是两个矩阵；FFN 宽度通常是 $$4 d_{vit}$$）。忽略 bias 与 norm：
 
 $$N_{layer} = 4 d_{vit}^2 + 2 \cdot 4 d_{vit}^2 = 12\, d_{vit}^2, \qquad N_{vit} \approx L_{vit} \cdot 12\, d_{vit}^2 + 3p^2 d_{vit}$$
 
-FLOPs 的公式与第二篇相同：权重部分每个 patch 每参数 2 FLOPs，attention 部分每层 $$4 n_p^2 d_{vit}$$（$$QK^\top$$ 与 $$PV$$ 两个 GEMM）：
+FLOPs 的公式与第十篇相同：权重部分每个 patch 每参数 2 FLOPs，attention 部分每层 $$4 n_p^2 d_{vit}$$（$$QK^\top$$ 与 $$PV$$ 两个 GEMM）：
 
 $$\text{FLOPs}_{vit} = 2 N_{vit} \cdot n_p + 4 L_{vit}\, n_p^2\, d_{vit}$$
 
@@ -132,7 +133,7 @@ Table: 四个 vision encoder 的参数量与 FLOPs
 
 1. **encoder 参数量在 0.3–0.8 B**，是 decoder 的 4–10%。它的权重字节（BF16 0.6–1.6 GB）在显存账里不是主角。
 2. **attention 的二次项在高分辨率下会追上权重项**。576 个 patch 时 attention 只占 8%；5476 个 patch 时占 42%；Llama 3.2 的 4 tile 拼成 6404 个 patch 时占 45%。这就是 Qwen2.5-VL 改用 window attention 的原因：32 层里 28 层只在 8×8 patch 的窗口（112 px）内做 attention，attention FLOPs 从 4.9 T 降到 0.66 T，总量降 36%。
-3. **encoder 是 compute-bound 的**。一张图的 5476 个 patch 是一个 5476 行的 GEMM，算术强度远超 H100 的 ridge（约 295，见第二篇）；不像 decode 那样受带宽限制。一张 1024² 的图在 Qwen2-VL 上的 12 ms 是算力的时间，用更大的 batch 摊不掉。
+3. **encoder 是 compute-bound 的**。一张图的 5476 个 patch 是一个 5476 行的 GEMM，算术强度远超 H100 的 ridge（约 295，见第十篇）；不像 decode 那样受带宽限制。一张 1024² 的图在 Qwen2-VL 上的 12 ms 是算力的时间，用更大的 batch 摊不掉。
 
 第三条对系统的含义：encoder 的时间**与文本无关、与 batch 无关、一次性**。推理引擎可以把它当作独立于 decoder 的一段计算单独调度、单独预算——这是它在系统里被拆成"encoder 预算"的原因，本篇只给出数字，机制不展开。
 
@@ -199,7 +200,7 @@ Table: 一张图等于多少 token
 
 ### 1. 三个字节数
 
-image token 进入 decoder 之后与文本 token 没有任何区别：一样参与 prefill 的 GEMM，一样在每一层留下 K 和 V。第二、三篇的公式直接可用：
+image token 进入 decoder 之后与文本 token 没有任何区别：一样参与 prefill 的 GEMM，一样在每一层留下 K 和 V。第六、十篇的公式直接可用：
 
 $$\text{FLOPs}_{prefill} = 2 N_{dec} \cdot n_{img}, \qquad \text{KV}_{img} = n_{img} \cdot 2 L\, n_{kv}\, d_{head} \cdot 2\ \text{B}, \qquad \text{Enc}_{out} = n_{img} \cdot d_{model} \cdot 2\ \text{B}$$
 
@@ -214,9 +215,9 @@ $$\text{FLOPs}_{prefill} = 2 N_{dec} \cdot n_{img}, \qquad \text{KV}_{img} = n_{
 
 Table: 不同 image token 数下的 prefill FLOPs、KV 与 encoder 输出
 
-（prefill FLOPs 按 $$2 N_{gemm} n_{img}$$，$$N_{gemm}$$ 是扣掉输入 embedding 的参数量——第二篇的口径；tile 方案的 CLS token 在 encoder 里参与计算、不进 decoder，所以 Llama-3.2 是 $$4 \times 1600 = 6400$$ 个 token。）
+（prefill FLOPs 按 $$2 N_{gemm} n_{img}$$，$$N_{gemm}$$ 是扣掉输入 embedding 的参数量——第十篇的口径；tile 方案的 CLS token 在 encoder 里参与计算、不进 decoder，所以 Llama-3.2 是 $$4 \times 1600 = 6400$$ 个 token。）
 
-（Qwen2-VL-7B 自己的 decoder 是 28 层、4 个 KV 头，每 token KV 只有 56 KiB，1369 个 token 的 KV 是 73 MiB；LLaVA-1.5 的 Vicuna-7B 是 MHA，每 token 512 KiB，576 个 token 是 288 MiB——decoder 的 attention 变体对图片的代价影响是 4–9 倍，这正是第三篇 GQA 的价值在多模态上的放大。）
+（Qwen2-VL-7B 自己的 decoder 是 28 层、4 个 KV 头，每 token KV 只有 56 KiB，1369 个 token 的 KV 是 73 MiB；LLaVA-1.5 的 Vicuna-7B 是 MHA，每 token 512 KiB，576 个 token 是 288 MiB——decoder 的 attention 变体对图片的代价影响是 4–9 倍，这正是第六篇 GQA 的价值在多模态上的放大。）
 
 ### 2. 三个数量级的对比
 
@@ -237,7 +238,7 @@ Table: 一张图的三段字节数与生命周期
 
 ### 3. prefill 的另一面
 
-image token 让 prefill 变长，而 prefill 是 compute-bound 的（第二篇）：1369 个 image token 在 70B 上要 190 TFLOP，与 1369 个文本 token 完全相同；再加上 encoder 自己的 11.8 TFLOP，一张图让这个请求的首 token 延迟多了约 200 ms（H100 峰值下界，实际 1.5–2 倍）。
+image token 让 prefill 变长，而 prefill 是 compute-bound 的（第十篇）：1369 个 image token 在 70B 上要 190 TFLOP，与 1369 个文本 token 完全相同；再加上 encoder 自己的 11.8 TFLOP，一张图让这个请求的首 token 延迟多了约 200 ms（H100 峰值下界，实际 1.5–2 倍）。
 
 这里有一个常见的误判：encoder 12 ms、decoder prefill 195 ms，看起来 encoder 不重要。但 encoder 的时间是**串行前置**的——decoder 的 prefill 必须等 encoder 输出就绪才能开始（image token 的 embedding 来自它）。系统层面能做的是把 encoder 与其他请求的 decoder 计算重叠，而不是缩短它。
 
@@ -278,7 +279,7 @@ cross-attention 用**参数**换**序列长度**：多了 1.75 B 参数（这 8 
 
 ### 1. 问题
 
-RoPE（第四篇）给每个 token 一个一维位置 $$m$$，把 $$d_{head}$$ 维的 q、k 分成 $$d_{head}/2$$ 对，每对以不同频率旋转 $$m \theta_i$$。image token 排成一行之后当然可以沿用一维位置：LLaVA 就是这么做的，576 个 token 从左到右编号。但这丢掉了二维信息——第 24 个 token 与第 25 个 token 在图上是"这一行的末尾"与"下一行的开头"，一维位置只差 1；而第 1 个与第 25 个在图上是上下相邻，一维位置差 24。
+RoPE（第七篇）给每个 token 一个一维位置 $$m$$，把 $$d_{head}$$ 维的 q、k 分成 $$d_{head}/2$$ 对，每对以不同频率旋转 $$m \theta_i$$。image token 排成一行之后当然可以沿用一维位置：LLaVA 就是这么做的，576 个 token 从左到右编号。但这丢掉了二维信息——第 24 个 token 与第 25 个 token 在图上是"这一行的末尾"与"下一行的开头"，一维位置只差 1；而第 1 个与第 25 个在图上是上下相邻，一维位置差 24。
 
 ### 2. M-RoPE：把 head_dim 分给三个轴
 
@@ -293,7 +294,7 @@ Qwen2-VL 的 M-RoPE（Multimodal RoPE）把 $$d_{head} = 128$$ 的 64 对旋转�
 
 Table: M-RoPE 下各类 token 的 (t, h, w) 位置
 
-最后一行是 M-RoPE 对长上下文的一个副作用：一张 37 × 37 = 1369 个 token 的图，只让位置编号前进 37 而不是 1369。图片在位置空间里占的"长度"是它的边长，不是它的面积。这对第四篇讨论的 RoPE 外推范围是个好消息，但**不改变 KV cache 的账**——KV 仍然是 1369 份。位置编码决定 attention 怎么"看"，不决定要"存"多少。
+最后一行是 M-RoPE 对长上下文的一个副作用：一张 37 × 37 = 1369 个 token 的图，只让位置编号前进 37 而不是 1369。图片在位置空间里占的"长度"是它的边长，不是它的面积。这对第七篇讨论的 RoPE 外推范围是个好消息，但**不改变 KV cache 的账**——KV 仍然是 1369 份。位置编码决定 attention 怎么"看"，不决定要"存"多少。
 
 对 kernel 的含义：M-RoPE 的实现是三组不同的 $$\cos / \sin$$ 表按维度段拼接后做一次普通 RoPE 旋转，计算量与一维 RoPE 相同；但 position id 从一个 `[seq]` 向量变成 `[3, seq]`，推理引擎的 position 管理要随之改动。
 
@@ -338,7 +339,7 @@ Table: 三种模态的每单位 token 数与调节手段
 
 ### 1. 冻结 encoder 省的主要是激活，状态只是小头
 
-多模态模型的训练通常分阶段：先冻结 encoder 与 LLM、只训 connector（对齐），再解冻 LLM（指令微调），encoder 是否解冻各家不同（LLaVA-1.5 冻结，Qwen2-VL 在前两个阶段训练 ViT、第三阶段冻结）。用第六篇的训练状态公式看冻结省了什么：
+多模态模型的训练通常分阶段：先冻结 encoder 与 LLM、只训 connector（对齐），再解冻 LLM（指令微调），encoder 是否解冻各家不同（LLaVA-1.5 冻结，Qwen2-VL 在前两个阶段训练 ViT、第三阶段冻结）。用第十一篇的训练状态公式看冻结省了什么：
 
 | 组件 | 参数 | 冻结时的状态 | 解冻时的状态（16 B/参数） |
 |---|---|---|---|
@@ -352,7 +353,7 @@ Table: 冻结与解冻 encoder 时各组件的训练状态
 
 ### 2. 序列长度的方差
 
-纯文本预训练可以把样本打包成定长序列（第七篇的 `cu_seqlens`），每个 micro-batch 的 token 数恒定。多模态样本的 token 数由图片分辨率决定，同一 batch 里 144 与 5476 并存；打包算法要按 token 数而非样本数装箱，否则 GPU 在小图样本上空转。这是 Qwen2-VL 一类原生动态分辨率模型在训练效率上付出的代价，也是 tile 方案（每个 tile 的 token 数固定）在训练时的优势。
+纯文本预训练可以把样本打包成定长序列（第十二篇的 `cu_seqlens`），每个 micro-batch 的 token 数恒定。多模态样本的 token 数由图片分辨率决定，同一 batch 里 144 与 5476 并存；打包算法要按 token 数而非样本数装箱，否则 GPU 在小图样本上空转。这是 Qwen2-VL 一类原生动态分辨率模型在训练效率上付出的代价，也是 tile 方案（每个 tile 的 token 数固定）在训练时的优势。
 
 ### 3. 图片解码是 CPU 的活
 
@@ -362,7 +363,7 @@ Table: 冻结与解冻 encoder 时各组件的训练状态
 
 ### 1. 新增的函数
 
-延续全系列的 `llm_cost.py`，本篇新增 vision encoder 的参数与 FLOPs、image token 数、image token 在 decoder 中的三个字节数。`ModelConfig`、`param_count`、`kv_bytes_per_token` 沿用第七篇的定义。
+延续全系列的 `llm_cost.py`，本篇新增 vision encoder 的参数与 FLOPs、image token 数、image token 在 decoder 中的三个字节数。`ModelConfig`、`param_count`、`kv_bytes_per_token` 沿用第十二篇的定义。
 
 ```python
 from dataclasses import dataclass
@@ -462,7 +463,7 @@ Llama-3.2 ViT-H/14     patches  6404 tokens  6400 encoder 18.48 TFLOP (attn 45%)
 
 ### 2. 成本表新增的一列
 
-全系列的成本表在第七篇完成了三个文本模型的对照。本篇给它加上"一张 1024² 图片"这一行，按三种注入方式放到 Llama-3-8B 规格的 decoder 上：
+全系列的成本表在第十二篇完成了三个文本模型的对照。本篇给它加上"一张 1024² 图片"这一行，按三种注入方式放到 Llama-3-8B 规格的 decoder 上：
 
 | 一张 1024² 图片 | LLaVA 式（576） | Qwen2-VL 式（1369） | Llama-3.2 式（6404，cross-attn） |
 |---|---|---|---|
@@ -541,7 +542,7 @@ Table: 多模态三笔账的公式与量级
 
 ## 下一篇
 
-本系列到此为止。紧接着的系列[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)用同样的方法算这张成本表的训练侧，第一篇是[分词与词表：BPE、词表大小与 token 效率](/tokenizer-vocabulary-and-token-efficiency.html)。
+本系列到此为止。紧接着的系列[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)用同样的方法算这张成本表的训练侧，第五篇是[分词与词表：BPE、词表大小与 token 效率](/tokenizer-vocabulary-and-token-efficiency.html)。
 
 [^q0]: 约 **1369** 个：Qwen2-VL 每 $$14 \times 14$$ 像素一个 patch、2×2 merge 后每 $$28 \times 28$$ 像素一个 token，$$(1024/28)^2 \approx 1369$$。token 数由 connector 的合并比例与图片分辨率决定，与文本长度无关。详见[第二章](#二从像素到-patchvision-encoder-的账)、[第三章](#三connector谁决定-image-token-数)。
 [^q1]: encoder 一次性 11.8 TFLOP、compute-bound、与 batch 无关；connector 几乎不花；decoder 的 prefill 190 TFLOP 与同样长度的文本一样；真正长期占用的是 **image token 在 decoder 里的 KV**——1369 个 token × 每 token 320 KiB（7B 规格）≈ 428 MiB，活到请求结束。详见[第二章](#二从像素到-patchvision-encoder-的账)、[第四章](#四image-token-在-decoder-里真正的账)。

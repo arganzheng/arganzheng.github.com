@@ -228,9 +228,9 @@ Table: 两层网络前向与反向的 FLOPs
 
 ### 2. 训练 FLOPs 等于 6ND
 
-对一个参数量为 $$N$$ 的网络，前向每个 token 约 $$2N$$ FLOPs（每个参数参与一次乘加——L0 数学系列第一篇），反向 $$4N$$，一步训练合计 $$6N$$ FLOPs / token。训练 $$D$$ 个 token 就是 $$6ND$$——scaling law 论文与 [04 系列第二篇](/transformer-flops-bytes-and-roofline.html)用的这个数字，来源就是本章的"反向做两个 GEMM"。Llama-3-8B 训 15T token：$$6 \times 8 \times 10^9 \times 15 \times 10^{12} = 7.2 \times 10^{23}$$ FLOPs。
+对一个参数量为 $$N$$ 的网络，前向每个 token 约 $$2N$$ FLOPs（每个参数参与一次乘加——L0 数学系列第一篇），反向 $$4N$$，一步训练合计 $$6N$$ FLOPs / token。训练 $$D$$ 个 token 就是 $$6ND$$——scaling law 论文与 [04 系列第十篇](/transformer-flops-bytes-and-roofline.html)用的这个数字，来源就是本章的"反向做两个 GEMM"。Llama-3-8B 训 15T token：$$6 \times 8 \times 10^9 \times 15 \times 10^{12} = 7.2 \times 10^{23}$$ FLOPs。
 
-两点补充。第一，$$2N$$ 忽略了 attention 里 $$QK^T$$ 与 $$PV$$ 这两个与参数无关、与序列长度成正比的项，短序列下可忽略，长序列下不能（04 系列第二篇算了）。第二，如果用了激活重算（下一章），反向前要再做一次前向，总量变成 $$8N$$ / token——训练报告里"MFU 按 $$6ND$$ 算、HFU 按 $$8ND$$ 算"的区别就在这里。
+两点补充。第一，$$2N$$ 忽略了 attention 里 $$QK^T$$ 与 $$PV$$ 这两个与参数无关、与序列长度成正比的项，短序列下可忽略，长序列下不能（04 系列第十篇算了）。第二，如果用了激活重算（下一章），反向前要再做一次前向，总量变成 $$8N$$ / token——训练报告里"MFU 按 $$6ND$$ 算、HFU 按 $$8ND$$ 算"的区别就在这里。
 
 ## 六、激活为什么要存
 
@@ -255,7 +255,7 @@ batch 换成 4096，激活变成 17.3 MiB，权重不变。序列模型里 $$m$$
 
 既然激活是前向算出来的，可以不存、反向时重算。**gradient checkpointing** 的做法是只保存每个块（比如 Transformer 的一层）的输入，反向走到这一块时先用保存的输入重新前向一次得到块内所有中间量，再做反向。代价是多一次前向，即上一章说的 $$6N \to 8N$$，约 33% 的额外计算；收益是激活显存从"所有中间量"降到"每块一个输入"。这是训练长序列或大 batch 时的标准开关，`model.gradient_checkpointing_enable()` 一行。
 
-FlashAttention 做的是同一件事的算子级版本：不保存 $$[\text{seq}, \text{seq}]$$ 的 attention 矩阵，反向时分块重算——04 系列第三篇讲它的 IO 复杂度。
+FlashAttention 做的是同一件事的算子级版本：不保存 $$[\text{seq}, \text{seq}]$$ 的 attention 矩阵，反向时分块重算——04 系列第六篇讲它的 IO 复杂度。
 
 ## 七、梯度检查
 

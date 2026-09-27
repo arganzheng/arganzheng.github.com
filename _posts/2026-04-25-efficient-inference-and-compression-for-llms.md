@@ -45,7 +45,7 @@ Table: 系列六篇各改成本公式的哪一项
 
 ### 算法侧与系统侧的分界需要说清楚
 
-一个常见的误分类是把 PagedAttention、continuous batching 归入"推理算法"。它们不是——它们是内存管理与调度，对模型透明。反过来，量化 kernel（Marlin、Machete）、投机解码在引擎里的实现（vLLM 的 `SpecDecodeWorker`）、KV 量化的存储格式，是系统工作，但它们**实现**的是本系列讲的算法。分界线是：**算法决定"算什么"，系统决定"怎么算得快"**。算法工程师需要知道系统侧的约束——比如 W4A16 的收益只在 memory-bound 区间兑现（[04 系列第七篇](/quantization-speculative-decoding-and-lora.html)）、投机解码在大 batch 下反而变慢——因为这些约束决定了算法的适用范围；但不需要写 kernel。
+一个常见的误分类是把 PagedAttention、continuous batching 归入"推理算法"。它们不是——它们是内存管理与调度，对模型透明。反过来，量化 kernel（Marlin、Machete）、投机解码在引擎里的实现（vLLM 的 `SpecDecodeWorker`）、KV 量化的存储格式，是系统工作，但它们**实现**的是本系列讲的算法。分界线是：**算法决定"算什么"，系统决定"怎么算得快"**。算法工程师需要知道系统侧的约束——比如 W4A16 的收益只在 memory-bound 区间兑现（[04 系列第十二篇](/quantization-speculative-decoding-and-lora.html)）、投机解码在大 batch 下反而变慢——因为这些约束决定了算法的适用范围；但不需要写 kernel。
 
 ### 现有材料的断层
 
@@ -68,12 +68,12 @@ Table: 系列六篇各改成本公式的哪一项
 
 ### Infra 工程师，想知道引擎里那些算法从哪来
 
-你在 vLLM 系列里见过 `speculative_config`、`quantization="awq"`、`kv_cache_dtype="fp8"`，想知道背后的算法怎么选、为什么有效。这个系列是那些开关的算法侧说明；反过来，[04 系列第七篇](/quantization-speculative-decoding-and-lora.html)与 [vLLM 系列第七篇](/decoding-extensions-sampling-speculative-and-structured-output.html)是本系列的系统侧对应。
+你在 vLLM 系列里见过 `speculative_config`、`quantization="awq"`、`kv_cache_dtype="fp8"`，想知道背后的算法怎么选、为什么有效。这个系列是那些开关的算法侧说明；反过来，[04 系列第十二篇](/quantization-speculative-decoding-and-lora.html)与 [vLLM 系列第七篇](/decoding-extensions-sampling-speculative-and-structured-output.html)是本系列的系统侧对应。
 
 
 ## 系列的整体主线
 
-系列的主线是一个问题：**推理的成本由什么决定，每种方法改变了其中哪一项，代价是什么。** 一次 decode 步的时间由权重字节、KV 字节、算力三项决定（[04 系列第二、三篇](/transformer-flops-bytes-and-roofline.html)）；产出一个 token 的成本还要乘上"每次前向产出几个 token"的倒数。四条线各改其中一项：
+系列的主线是一个问题：**推理的成本由什么决定，每种方法改变了其中哪一项，代价是什么。** 一次 decode 步的时间由权重字节、KV 字节、算力三项决定（[04 系列第六、十篇](/transformer-flops-bytes-and-roofline.html)）；产出一个 token 的成本还要乘上"每次前向产出几个 token"的倒数。四条线各改其中一项：
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
@@ -135,7 +135,7 @@ KV 量化：KV 字节 ÷ 2–4
 
 ### 2. 投机解码：草稿、接受率与树
 
-[04 系列第七篇](/quantization-speculative-decoding-and-lora.html)已经证明了拒绝采样保证分布不变、推出了期望接受长度与 Roofline 决定的收益区间。这一篇从那里继续：**怎么把接受率提上去、怎么把草稿成本压下去、树状草稿怎么验证**。
+[04 系列第十二篇](/quantization-speculative-decoding-and-lora.html)已经证明了拒绝采样保证分布不变、推出了期望接受长度与 Roofline 决定的收益区间。这一篇从那里继续：**怎么把接受率提上去、怎么把草稿成本压下去、树状草稿怎么验证**。
 
 **核心内容**：接受率就是 $$1 - \text{TV}(p, q)$$，因此提高接受率就是让草稿分布接近目标分布——草稿模型的训练目标应该是蒸馏（L5 第七篇），而且是 on-policy 的；Medusa 的多头结构、训练方式（自蒸馏）与各头接受率递减的原因；EAGLE 从 token 级到特征级起草的动机、它的训练目标（特征回归 + token 损失）、EAGLE-2 的动态草稿树与 EAGLE-3 的多层特征融合与训练时测试；树状草稿的验证——tree attention 的 mask、多条路径的接受规则、期望接受长度在树上的形式；MTP 头作为草稿（DeepSeek-V3）与作为训练目标（04-12）的两种身份；n-gram / prompt lookup 在有复制的任务上的免费收益；温度对接受率的影响；何时投机反而变慢——大 batch、短输出、草稿与目标不匹配；草稿模型的评测：接受长度、每 token 延迟、与目标的一致性检验。
 
@@ -143,7 +143,7 @@ KV 量化：KV 字节 ÷ 2–4
 
 ### 3. 训练后量化：误差模型、GPTQ、AWQ 与旋转
 
-[04 系列第七篇](/quantization-speculative-decoding-and-lora.html)给出了 GPTQ 的更新公式与 AWQ 的缩放形式，以及 W4A16 的收益区间。这一篇往下挖：**量化误差从哪来、为什么 RTN 到 4 bit 就不够、每种方法在最小化什么、离群值怎么处理**。
+[04 系列第十二篇](/quantization-speculative-decoding-and-lora.html)给出了 GPTQ 的更新公式与 AWQ 的缩放形式，以及 W4A16 的收益区间。这一篇往下挖：**量化误差从哪来、为什么 RTN 到 4 bit 就不够、每种方法在最小化什么、离群值怎么处理**。
 
 **核心内容**：量化误差的统计模型——均匀量化的噪声方差 $$\Delta^2/12$$、裁剪与舍入的权衡、最优裁剪阈值；误差怎么通过层传播、为什么某些层敏感；RTN 在 4 bit 失败的原因——权重的重尾分布与 group 内的动态范围；OBS 的拉格朗日推导（04-07 只给了结论）与 GPTQ 的列顺序、act-order、group size 的选择及元数据字节账；AWQ 的 α 搜索与它为什么等价于保护显著通道；SmoothQuant 的 α 与激活离群的模型规模依赖；旋转方法（QuaRot、SpinQuant）——用 Hadamard 旋转把离群值摊平、为什么旋转不改变输出、它让 W4A4 成为可能；浮点格式的低比特：FP8、MXFP4 / NVFP4 的微缩放块与它们和整数格式的精度对比；校准集的选择与过拟合；per-tensor / per-channel / per-group 的精度—开销权衡。
 
@@ -159,7 +159,7 @@ PTQ 到 4 bit 是当前的舒适区；再往下（3 bit、2 bit、三值）或�
 
 ### 5. KV cache 压缩：量化、驱逐与稀疏 attention
 
-长上下文与长输出让 KV cache 成为推理内存的主体（[04 系列第三篇](/attention-variants-and-kv-cache.html)的账）。结构级的办法——GQA、MLA——在训练时就定了；这一篇讲**训好之后**还能对 KV 做什么。
+长上下文与长输出让 KV cache 成为推理内存的主体（[04 系列第六篇](/attention-variants-and-kv-cache.html)的账）。结构级的办法——GQA、MLA——在训练时就定了；这一篇讲**训好之后**还能对 KV 做什么。
 
 **核心内容**：KV 的数值结构——key 的离群值集中在固定通道、value 没有——所以 KIVI 对 key 按通道、对 value 按 token 量化；KV 量化到 2 bit 的误差怎么影响 attention 分数（softmax 前的误差被放大）；驱逐——StreamingLLM 的 attention sink 现象与解释（04-05 已介绍现象，这里讲为什么第一个 token 会成为 sink）、H2O 的累计注意力打分、SnapKV 用 prompt 尾部的注意力选 KV、PyramidKV 按层分配预算；驱逐在"大海捞针"上的失败与原因；token 合并；跨层共享 KV（CLA、YOCO）；训练时就稀疏的 attention——NSA 与 MoBA 的块选择、它们怎么让选择可微、与推理时的一致性；prompt 压缩（LLMLingua 一类）作为另一条路。
 

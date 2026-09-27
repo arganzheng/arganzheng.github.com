@@ -1,14 +1,14 @@
 ---
 layout: post
 series: transformer-and-llm
-title: "Transformer 与 LLM（03）：Attention 变体与 KV cache"
+title: "Transformer 与 LLM（06）：Attention 变体与 KV cache"
 subtitle: "Attention Variants and the KV Cache: Deriving MHA, GQA, MQA and MLA"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 updated: 2026-09-14
 ---
 
-上一篇把一次前向拆成了"权重项"和"上下文项"两部分：权重项每 token 每参数 2 FLOPs，与上下文长度无关；上下文项只来自 attention，随序列长度 $$s$$ 线性增长（decode）或平方增长（prefill）。这一篇专门讲 attention，因为它是 Transformer 里唯一成本随上下文增长的部分，也是过去几年结构改动最集中的地方。
+第二篇讲了 KV cache 为什么**有**：causal 结构下旧 token 的 K、V 不随新 token 改变，算一次存下来，decode 每步只算一个 token。这一篇讲它为什么要**省**：Llama-3-8B 每个 token 的 KV 是 128 KiB，一个 8K 请求 1 GiB，一张 80 GB 的卡除掉权重只能同时服务几十个这样的请求——而如果它还用 GPT-2 那种每个 Q 头各有一组 K/V 的 MHA，会是 512 KiB。attention 是 Transformer 里唯一成本随上下文增长的部分（第十篇把它拆成"权重项"与"上下文项"算成时间），也是过去几年结构改动最集中的地方。
 
 MHA、MQA、GQA、MLA 四种结构，做的是同一件事的不同取舍：
 
@@ -51,7 +51,7 @@ $$
 
 其中 $$Q, K, V$$ 分别由输入 $$X \in \mathbb{R}^{s \times d}$$ 经 $$W_Q, W_K, W_V$$ 投影得到。$$K$$ 和 $$V$$ 的每一行只依赖对应位置那个 token 的输入，与后面的 token 无关——这个性质是 KV cache 存在的全部前提。
 
-上一篇的结论用一句话重述：decode 阶段每一步只处理一个新 token，权重 GEMM 的形状是 $$[B, d] \times [d, n]$$，算术强度约等于 batch 大小 $$B$$ FLOP/byte（BF16 权重每读 2 字节做 $$2B$$ FLOPs），而 H100 的 ridge point 是 $$989 / 3.35 \approx 295$$ FLOP/byte。$$B = 1$$ 时距 ridge 两个数量级，decode 是彻底的 memory-bound：Llama-3-8B 的 16.06 GB BF16 权重从 HBM 读一遍至少 4.8 ms，单请求上限约 208 token/s。
+第二篇的结论用一句话重述：decode 阶段每一步只处理一个新 token，权重 GEMM 的形状是 $$[B, d] \times [d, n]$$，算术强度约等于 batch 大小 $$B$$ FLOP/byte（BF16 权重每读 2 字节做 $$2B$$ FLOPs），而 H100 的 ridge point 是 $$989 / 3.35 \approx 295$$ FLOP/byte。$$B = 1$$ 时距 ridge 两个数量级，decode 是彻底的 memory-bound：Llama-3-8B 的 16.06 GB BF16 权重从 HBM 读一遍至少 4.8 ms，单请求上限约 208 token/s。
 
 这一篇要加的是 decode 时的第二项 HBM 流量：KV cache。
 
@@ -158,7 +158,36 @@ MLA              │    │    │    │    │    │    │    │
                        c^KV (d_c) + k^R (d_h^R)        d_c + d_h^R
 ```
 
-Llama-3-8B 的 128 KiB/token、70B 的 320 KiB/token，就是 GQA 下的数字。参数量上 Llama-3-8B 每层 $$W_K$$、$$W_V$$ 各 $$4096 \times 8 \times 128 = 4.19$$M，与 $$W_Q$$、$$W_O$$ 的 16.78M 相比只剩四分之一——上一篇算出的每层 attention 41.94M，已经包含了这一节省。
+Llama-3-8B 的 128 KiB/token、70B 的 320 KiB/token，就是 GQA 下的数字。参数量上 Llama-3-8B 每层 $$W_K$$、$$W_V$$ 各 $$4096 \times 8 \times 128 = 4.19$$M，与 $$W_Q$$、$$W_O$$ 的 16.78M 相比只剩四分之一——上一篇（第五篇）算出的每层 attention 41.94M，已经包含了这一节省。
+
+在代码上，GQA 相对第三篇 nanoGPT 的 `CausalSelfAttention` 只改三处：K、V 的投影变窄，拆头时 K、V 的头数用 $$n_{kv}$$，打分前把每组 K、V **复制** $$g$$ 份对齐到 $$n_h$$ 个 query head（`repeat_interleave`；用 SDPA 时传 `enable_gqa=True` 可以省掉这次复制）：
+
+```python
+class GQAttention(nn.Module):
+    def __init__(self, d, n_head, n_kv, block_size):
+        super().__init__()
+        self.n_head, self.n_kv, self.d_h = n_head, n_kv, d // n_head
+        # !ref gqa-proj +2
+        self.q_proj = nn.Linear(d, n_head * self.d_h, bias=False)        # 与 MHA 相同
+        self.k_proj = nn.Linear(d, n_kv * self.d_h, bias=False)          # 变窄：n_kv 个头
+        self.v_proj = nn.Linear(d, n_kv * self.d_h, bias=False)
+        self.o_proj = nn.Linear(d, d, bias=False)
+
+    def forward(self, x):
+        B, T, _ = x.shape
+        q = self.q_proj(x).view(B, T, self.n_head, self.d_h).transpose(1, 2)   # [B, n_h,  T, d_h]
+        # !ref gqa-view +1
+        k = self.k_proj(x).view(B, T, self.n_kv, self.d_h).transpose(1, 2)     # [B, n_kv, T, d_h]  ← 缓存的是这个
+        v = self.v_proj(x).view(B, T, self.n_kv, self.d_h).transpose(1, 2)
+        # !ref gqa-repeat +2
+        g = self.n_head // self.n_kv
+        k = k.repeat_interleave(g, dim=1)                                      # [B, n_h, T, d_h]：每组复制 g 份
+        v = v.repeat_interleave(g, dim=1)
+        y = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+        return self.o_proj(y.transpose(1, 2).reshape(B, T, -1))
+```
+
+[投影变窄](#gqa-proj)省的是参数与 KV cache 的字节（[缓存的是 `repeat_interleave` 之前的 `k`、`v`](#gqa-view)，$$n_{kv}$$ 个头）；[复制](#gqa-repeat)只发生在寄存器 / SRAM 里，不落显存——这是"每读一个 KV 元素服务 $$g$$ 个 query head"在代码上的样子，下一节把它算成算术强度。MQA 就是 `n_kv = 1`；MLA 的改动大得多，第四章单独讲。
 
 Ainslie 等 2023 的另一个贡献是**从已有 MHA checkpoint 转换**：把同一组内 $$g$$ 个 head 的 $$W_K$$（以及 $$W_V$$）做均值池化，
 
@@ -538,7 +567,7 @@ t↓  j = 0 … 11 →                      t↓  j = 0 … 11 →
 sliding window：每行最多 w 个 ■ → O(s·w)，cache 只需保留最近 w 个 token
 ```
 
-上一篇的 prefill 数字就用了这一点：Llama-3-8B 8K prefill 不利用掩码约 158 TFLOP，利用后约 140 TFLOP；128K 时 attention 项按 $$s^2/2$$ 计约 4.5 PFLOP，若不利用则是 9 PFLOP，比权重项的 2 PFLOP 多得多。128K 以上的 prefill，causal skip 不是优化，是必需。
+第十篇的 prefill 数字会用到这一点：Llama-3-8B 8K prefill 不利用掩码约 158 TFLOP，利用后约 140 TFLOP；128K 时 attention 项按 $$s^2/2$$ 计约 4.5 PFLOP，若不利用则是 9 PFLOP，比权重项的 2 PFLOP 多得多。128K 以上的 prefill，causal skip 不是优化，是必需。
 
 sliding window attention（Mistral 7B 用 4096 的窗口）进一步只让位置 $$t$$ attend 到 $$[t - w, t]$$。attention 的 FLOPs 变成 $$O(s w)$$——对 $$s$$ 线性；KV cache 也不再随上下文增长，每层每序列最多 $$w$$ 个 token：Mistral 7B（结构与 Llama-3-8B 同为 32 层、8 个 KV 头、$$d_{head} = 128$$）的 KV cache 上限是 $$128 \text{ KiB} \times 4096 = 512$$ MiB，无论上下文多长。代价是超出窗口的信息只能通过多层堆叠间接传递（$$L$$ 层理论感受野 $$L \cdot w$$），长距离检索能力有损，所以后来的模型多是滑窗层与全局层交替（如 Gemma 2、Llama 4 的部分层）。
 
@@ -560,7 +589,7 @@ sliding window attention（Mistral 7B 用 4096 的窗口）进一步只让位置
 
 bytes/elem 从 BF16 的 2 降到 FP8（E4M3）或 INT8 的 1，每 token 字节数直接减半：Llama-3-8B 64 KiB，Llama-3-70B 160 KiB，DeepSeek-V3 约 34.3 KiB；128K 上下文分别是 8 GiB、20 GiB、4.3 GiB。缩放因子通常按 head 或按 token 一个，开销不到 1%。decode 时 KV 读取的字节数同样减半，第二章那个 8K × batch 64 的 64 GiB 变成 32 GiB。
 
-数值上 K 比 V 更敏感（K 直接进 softmax 指数，某些通道有明显的离群值），INT4 KV 一般要对 K 做按通道量化、对 V 做按 token 量化（KIVI 一类方法）。FP8 KV 在 H100 上还有一个额外好处：attention kernel 可以直接用 FP8 的输入，不必先反量化。这些是第六、第七篇的内容，这里只需记住：**量化是公式里唯一一个不改变结构就能减半的因子**。
+数值上 K 比 V 更敏感（K 直接进 softmax 指数，某些通道有明显的离群值），INT4 KV 一般要对 K 做按通道量化、对 V 做按 token 量化（KIVI 一类方法）。FP8 KV 在 H100 上还有一个额外好处：attention kernel 可以直接用 FP8 的输入，不必先反量化。这些是第六、第十二篇的内容，这里只需记住：**量化是公式里唯一一个不改变结构就能减半的因子**。
 
 ### 4. 三个因子怎么叠加
 
@@ -574,7 +603,7 @@ $$
 
 ## 七、实践：给 llm_cost.py 加上 KV cache
 
-本篇在贯穿脚本里新增 `attn_type` 字段（`"mha" | "gqa" | "mqa" | "mla"`）、MLA 用到的 `kv_lora_rank`（$$d_c$$）与 `qk_rope_head_dim`（$$d_h^R$$）字段，以及 `n_params`（总参数量，取第一篇与第五篇的结果，用来估权重显存）。新增三个函数：`kv_bytes_per_token`、`decode_attn_intensity`、`max_concurrency`。
+本篇在贯穿脚本里新增 `attn_type` 字段（`"mha" | "gqa" | "mqa" | "mla"`）、MLA 用到的 `kv_lora_rank`（$$d_c$$）与 `qk_rope_head_dim`（$$d_h^R$$）字段，以及 `n_params`（总参数量，取第五篇与第八篇的结果，用来估权重显存）。新增三个函数：`kv_bytes_per_token`、`decode_attn_intensity`、`max_concurrency`。
 
 ```python
 from dataclasses import dataclass
@@ -724,7 +753,7 @@ DeepSeek-V3      16    671GB    4231    2115     528     132
 
 - 并发数是**只算权重与 KV cache 的上界**。实际引擎还要留激活（prefill 一个 chunk 的中间张量）、CUDA graph、框架自身的显存，vLLM 默认 `gpu_memory_utilization=0.9` 一类的预留会再压掉 10% 左右，可以用 `reserve_frac` 模拟；
 - Llama-3-8B 在一张 H100 上 128K 上下文只能放 3 条序列，这就是"长上下文 = 低并发"的定量版本；8K 上下文 59 条对应第二章"64 条 8K 序列"的估算（差别来自 16.06 GB 权重与 64 GiB 预算的取整）；
-- DeepSeek-V3 的 FP8 权重 671 GB 放不进 8 张 H100（640 GB），表里用了 16 卡；即便如此每卡分到的 KV 预算只有约 38 GB，但因为每 token 只有 68.6 KiB，128K 上下文仍能放 66 条——这就是 MLA 对服务成本的意义。注意这一行假设 KV 在 16 卡间**完美分片**、权重均匀切分，是容量上界；真实部署（报告 3.4：attention TP4 × DP、专家 EP、冗余专家）里每卡的权重与 KV 预算都不同，并发要按实际布局重算，第五篇第四章有说明；
+- DeepSeek-V3 的 FP8 权重 671 GB 放不进 8 张 H100（640 GB），表里用了 16 卡；即便如此每卡分到的 KV 预算只有约 38 GB，但因为每 token 只有 68.6 KiB，128K 上下文仍能放 66 条——这就是 MLA 对服务成本的意义。注意这一行假设 KV 在 16 卡间**完美分片**、权重均匀切分，是容量上界；真实部署（报告 3.4：attention TP4 × DP、专家 EP、冗余专家）里每卡的权重与 KV 预算都不同，并发要按实际布局重算，第八篇第四章有说明；
 - FP8 KV 让每一格翻倍，且不改变模型结构，是所有优化中性价比最高的一项——前提是质量可接受。
 
 下一篇会给 `kv_bytes` 加上上下文长度扫描，把 RoPE 外推与 KV 显存放在同一张图里看。

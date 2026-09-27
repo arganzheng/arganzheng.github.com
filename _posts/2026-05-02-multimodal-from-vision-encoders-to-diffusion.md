@@ -73,7 +73,7 @@ VLM 的材料多是各家的技术报告（各说各的选择，没有横向比�
 
 ### Infra 工程师
 
-[04 系列第八篇](/multimodal-vision-encoder-cost-and-image-token-kv.html)已经算过多模态的成本；本系列第二篇讲这些成本背后的设计动机，第八篇讲扩散模型完全不同的成本结构（无自回归 KV、compute-bound、多步）——它决定了扩散模型的服务系统与 LLM 的服务系统为什么长得不一样。
+[04 系列第十三篇](/multimodal-vision-encoder-cost-and-image-token-kv.html)已经算过多模态的成本；本系列第二篇讲这些成本背后的设计动机，第八篇讲扩散模型完全不同的成本结构（无自回归 KV、compute-bound、多步）——它决定了扩散模型的服务系统与 LLM 的服务系统为什么长得不一样。
 
 
 ## 系列的整体主线
