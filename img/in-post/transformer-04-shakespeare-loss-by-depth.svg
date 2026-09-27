@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="400" viewBox="0 0 760 400" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="12">
+<text x="380.0" y="24" text-anchor="middle" font-size="14" font-weight="600" fill="#222">只改层数：shakespeare_char 上 2000 步的 val loss（实线）与 train loss（虚线）</text>
+<line x1="70" y1="330.3333333333333" x2="560" y2="330.3333333333333" stroke="#eee"/>
+<text x="62" y="334.3333333333333" text-anchor="end" fill="#666" font-size="11">1.5</text>
+<line x1="70" y1="282.0" x2="560" y2="282.0" stroke="#eee"/>
+<text x="62" y="286.0" text-anchor="end" fill="#666" font-size="11">2.0</text>
+<line x1="70" y1="233.66666666666669" x2="560" y2="233.66666666666669" stroke="#eee"/>
+<text x="62" y="237.66666666666669" text-anchor="end" fill="#666" font-size="11">2.5</text>
+<line x1="70" y1="185.33333333333334" x2="560" y2="185.33333333333334" stroke="#eee"/>
+<text x="62" y="189.33333333333334" text-anchor="end" fill="#666" font-size="11">3.0</text>
+<line x1="70" y1="137.00000000000003" x2="560" y2="137.00000000000003" stroke="#eee"/>
+<text x="62" y="141.00000000000003" text-anchor="end" fill="#666" font-size="11">3.5</text>
+<line x1="70" y1="88.66666666666671" x2="560" y2="88.66666666666671" stroke="#eee"/>
+<text x="62" y="92.66666666666671" text-anchor="end" fill="#666" font-size="11">4.0</text>
+<text x="70.0" y="358" text-anchor="middle" fill="#666" font-size="11">0</text>
+<text x="140.0" y="358" text-anchor="middle" fill="#666" font-size="11">250</text>
+<text x="210.0" y="358" text-anchor="middle" fill="#666" font-size="11">500</text>
+<text x="280.0" y="358" text-anchor="middle" fill="#666" font-size="11">750</text>
+<text x="350.0" y="358" text-anchor="middle" fill="#666" font-size="11">1000</text>
+<text x="420.0" y="358" text-anchor="middle" fill="#666" font-size="11">1250</text>
+<text x="490.0" y="358" text-anchor="middle" fill="#666" font-size="11">1500</text>
+<text x="560.0" y="358" text-anchor="middle" fill="#666" font-size="11">1750</text>
+<line x1="70" y1="340" x2="560" y2="340" stroke="#999"/><line x1="70" y1="50" x2="70" y2="340" stroke="#999"/>
+<text x="315.0" y="376" text-anchor="middle" fill="#333" font-size="11">训练步数（每步 12 × 64 = 768 个字符）</text>
+<text x="18" y="195.0" text-anchor="middle" fill="#333" font-size="11" transform="rotate(-90 18 195.0)">loss（每字符交叉熵）</text>
+<line x1="70" y1="71.80923057675517" x2="560" y2="71.80923057675517" stroke="#bbb" stroke-dasharray="2 3"/><text x="576" y="75.80923057675517" fill="#888" font-size="10.5">ln 65 = 4.17：随机乱猜</text>
+<polyline fill="none" stroke="#c98a00" stroke-width="2" points="70.0,67.60300000000001 140.0,196.98166666666665 210.0,239.70833333333334 280.0,255.32966666666667 350.0,271.52133333333336 420.0,283.99133333333333 490.0,287.887 560.0,299.168"/>
+<polyline fill="none" stroke="#c98a00" stroke-width="1.2" stroke-dasharray="4 3" points="70.0,67.89300000000003 140.0,197.07833333333335 210.0,240.3656666666667 280.0,257.002 350.0,276.6736666666667 420.0,290.7 490.0,304.3976666666667 560.0,310.11066666666665"/>
+<circle cx="70.0" cy="67.60300000000001" r="2.5" fill="#c98a00"/>
+<circle cx="140.0" cy="196.98166666666665" r="2.5" fill="#c98a00"/>
+<circle cx="210.0" cy="239.70833333333334" r="2.5" fill="#c98a00"/>
+<circle cx="280.0" cy="255.32966666666667" r="2.5" fill="#c98a00"/>
+<circle cx="350.0" cy="271.52133333333336" r="2.5" fill="#c98a00"/>
+<circle cx="420.0" cy="283.99133333333333" r="2.5" fill="#c98a00"/>
+<circle cx="490.0" cy="287.887" r="2.5" fill="#c98a00"/>
+<circle cx="560.0" cy="299.168" r="2.5" fill="#c98a00"/>
+<line x1="563.0" y1="299.168" x2="574.0" y2="293.168" stroke="#c98a00" stroke-width="0.8"/>
+<text x="576.0" y="297.168" fill="#c98a00" font-size="11" font-weight="600">2 层（0.40M）：val 1.82</text>
+<polyline fill="none" stroke="#1f6fb2" stroke-width="2" points="70.0,72.72633333333334 140.0,198.26733333333334 210.0,243.082 280.0,266.00166666666667 350.0,286.7463333333333 420.0,296.1906666666667 490.0,309.2696666666667 560.0,314.712"/>
+<polyline fill="none" stroke="#1f6fb2" stroke-width="1.2" stroke-dasharray="4 3" points="70.0,72.46533333333338 140.0,199.92033333333333 210.0,243.71033333333332 280.0,268.60200000000003 350.0,291.81166666666667 420.0,311.33833333333337 490.0,324.9683333333333 560.0,330.43966666666665"/>
+<circle cx="70.0" cy="72.72633333333334" r="2.5" fill="#1f6fb2"/>
+<circle cx="140.0" cy="198.26733333333334" r="2.5" fill="#1f6fb2"/>
+<circle cx="210.0" cy="243.082" r="2.5" fill="#1f6fb2"/>
+<circle cx="280.0" cy="266.00166666666667" r="2.5" fill="#1f6fb2"/>
+<circle cx="350.0" cy="286.7463333333333" r="2.5" fill="#1f6fb2"/>
+<circle cx="420.0" cy="296.1906666666667" r="2.5" fill="#1f6fb2"/>
+<circle cx="490.0" cy="309.2696666666667" r="2.5" fill="#1f6fb2"/>
+<circle cx="560.0" cy="314.712" r="2.5" fill="#1f6fb2"/>
+<line x1="563.0" y1="314.712" x2="574.0" y2="314.712" stroke="#1f6fb2" stroke-width="0.8"/>
+<text x="576.0" y="318.712" fill="#1f6fb2" font-size="11" font-weight="600">4 层（0.80M）：val 1.66</text>
+<polyline fill="none" stroke="#c0392b" stroke-width="2" points="70.0,66.95533333333339 140.0,201.86333333333332 210.0,245.8756666666667 280.0,278.1236666666667 350.0,293.4356666666667 420.0,308.0613333333333 490.0,316.2103333333333 560.0,321.469"/>
+<polyline fill="none" stroke="#c0392b" stroke-width="1.2" stroke-dasharray="4 3" points="70.0,66.66533333333336 140.0,202.43366666666665 210.0,252.05266666666665 280.0,283.798 350.0,309.115 420.0,323.035 490.0,334.693 560.0,339.45866666666666"/>
+<circle cx="70.0" cy="66.95533333333339" r="2.5" fill="#c0392b"/>
+<circle cx="140.0" cy="201.86333333333332" r="2.5" fill="#c0392b"/>
+<circle cx="210.0" cy="245.8756666666667" r="2.5" fill="#c0392b"/>
+<circle cx="280.0" cy="278.1236666666667" r="2.5" fill="#c0392b"/>
+<circle cx="350.0" cy="293.4356666666667" r="2.5" fill="#c0392b"/>
+<circle cx="420.0" cy="308.0613333333333" r="2.5" fill="#c0392b"/>
+<circle cx="490.0" cy="316.2103333333333" r="2.5" fill="#c0392b"/>
+<circle cx="560.0" cy="321.469" r="2.5" fill="#c0392b"/>
+<line x1="563.0" y1="321.469" x2="574.0" y2="335.469" stroke="#c0392b" stroke-width="0.8"/>
+<text x="576.0" y="339.469" fill="#c0392b" font-size="11" font-weight="600">8 层（1.59M）：val 1.59</text>
+<text x="576" y="140" fill="#333" font-size="11">实线 val、虚线 train；</text>
+<text x="576" y="156" fill="#333" font-size="11">1000 步后虚线都跑到实线下面</text>
+<text x="576" y="172" fill="#333" font-size="11">——过拟合开始</text>
+</svg>
