@@ -39,8 +39,12 @@
     window.BlogCopy = copy;
 
     function addButton(anchor, getText) {
-        // js/figures.js may have moved our button into its corner strip (.fig-tools)
+        // js/figures.js may have moved our button into its strip (.fig-tools) — on the
+        // block's corner (code) or on the caption row under it (diagrams), so remember
+        // on the anchor itself that it already has one.
+        if (anchor.hasAttribute('data-code-copy')) return;
         if (anchor.querySelector(':scope > .code-copy, :scope > .fig-tools > .code-copy, :scope > .fig-media > .fig-tools > .code-copy')) return;
+        anchor.setAttribute('data-code-copy', '');
 
         var button = document.createElement('button');
         button.type = 'button';
@@ -168,7 +172,8 @@
             }).catch(function () { button.title = '复制失败'; });
             close();
         });
-        document.addEventListener('click', function (e) { if (!anchor.contains(e.target)) close(); });
+        // figures.js moves the menu onto the caption row, so test the menu's own tree, not the anchor's
+        document.addEventListener('click', function (e) { if (!menu.contains(e.target) && !button.contains(e.target)) close(); });
         document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
     }
 

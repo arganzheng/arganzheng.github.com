@@ -859,18 +859,41 @@
 		img { margin: 0 auto; }
 	}
 	.post-figcaption {
+		position: relative;
 		display: block;
 		margin: 8px auto 0;
 		max-width: 92%;
+		// room for the tool strip on the right; the same on the left keeps the title centred
+		padding: 3px 100px;
+		min-height: 28px;
 		font-size: 13px;
 		line-height: 1.5;
 		color: @annot-muted;
 		text-align: center;
+		// copy · 放大 · feedback sit on the caption row, never over the picture / header cells
+		> .fig-tools, > .table-tools {
+			position: absolute;
+			top: 0;
+			right: 0;
+			padding: 0;
+			gap: 4px;
+			background: none;
+			.code-copy { width: 28px; height: 28px; }
+		}
+		> .table-copy-menu { top: 30px; right: 0; }
 		.fig-no { color: @annot-faint; }
 		&.is-picked .fig-title, &.is-picked.is-untitled .fig-no { background: fade(#ffd54f, 45%); border-radius: 3px; }
 		&.has-note { color: #24292f; }
 	}
 	.mermaid + .post-figcaption { margin-top: -6px; margin-bottom: 1.4em; }
+	// phones: no room beside the title — the strip goes on its own line under it
+	@media (max-width: 767px) {
+		.post-figcaption {
+			padding: 3px 0 0;
+			> .fig-tools, > .table-tools { position: static; justify-content: center; margin-top: 4px; }
+			> .table-copy-menu { top: auto; right: 50%; transform: translateX(50%); }
+		}
+	}
 	// a note on the caption outlines the picture / table it belongs to
 	.post-figure:has(> .post-figcaption.has-note) img,
 	.mermaid:has(+ .post-figcaption.has-note),
@@ -937,6 +960,7 @@
 		position: absolute;
 		top: 46px;
 		right: 6px;
+		z-index: 3; // above the next block (a code block's background painted later would cover it)
 		min-width: 150px;
 		padding: 4px;
 		background: #fff;

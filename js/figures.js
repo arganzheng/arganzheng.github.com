@@ -11,11 +11,11 @@
  * stable as long as the alt stays, readable in the GitHub comment and the brief.
  *
  *   <p><img alt="…"></p>        ->  <figure class="post-figure"><span class="fig-media"><img></span>
- *                                     <div class="fig-tools"><button class="code-copy fig-zoom">…</button><button class="code-copy fig-feedback">…</button></div>
- *                                     <figcaption class="post-figcaption"><span class="fig-no">图 N：</span><span class="fig-title">…</span></figcaption></figure>
+ *                                     <figcaption class="post-figcaption"><span class="fig-no">图 N：</span><span class="fig-title">…</span>
+ *                                       <div class="fig-tools"><button class="code-copy fig-zoom">…</button><button class="code-copy fig-feedback">…</button></div></figcaption></figure>
  *   <div class="mermaid">…</div> ->  its <svg> wrapped in the same .fig-media (sized to the svg's max-width), the
- *                                     .fig-tools strip (code-copy's button, 放大, ours; 32 px targets) on the block's
- *                                     top-right corner, the <figcaption> as the next sibling
+ *                                     <figcaption> as the next sibling, and the .fig-tools strip (code-copy's button,
+ *                                     放大, ours) on the caption row — never over the drawing
  *   <pre> / .highlighter-rouge  ->  the same .fig-tools strip with the copy button and a handle that selects
  *                                     the whole block (the toolbar then works as for any selection)
  *   <table>                     ->  the same caption (<div class="post-figcaption table-caption">, 「表 N：」 +
@@ -119,11 +119,14 @@
     return button(FIG_TITLE, function () { pick(cap.querySelector('.fig-title') || cap.querySelector('.fig-no'), cap); });
   }
 
-  // Corner strip that holds the buttons (copy · 放大 · feedback), always visible.
+  // Strip that holds the buttons (copy · 放大 · feedback), always visible.
   // `host` is the element code-copy.js appends its button to; `mount` (default
-  // host) is where the strip lives.
+  // host) is where the strip lives. For pictures, diagrams and tables the
+  // mount is the caption row under them — a strip on the block's own corner
+  // covered a table's header cells and a picture's top-right (reader report
+  // 2026-09-23); code blocks, which have no caption, keep the corner strip.
   function tools(host, mount) {
-    var t = host.querySelector(':scope > .fig-tools, :scope > .fig-media > .fig-tools');
+    var t = host.querySelector(':scope > .fig-tools, :scope > .fig-media > .fig-tools') || (mount && mount.querySelector(':scope > .fig-tools'));
     if (!t) {
       t = document.createElement('div'); t.className = 'fig-tools';
       t.addEventListener('click', function (e) { e.stopPropagation(); });
@@ -169,7 +172,7 @@
       var cap = caption(figureNo(fig), norm(img.getAttribute('alt')));
       fig.appendChild(cap);
       media(img);
-      var strip = tools(fig);
+      var strip = tools(fig, cap);
       strip.appendChild(zoomButton(img));
       strip.appendChild(figureButton(cap));
     });
@@ -181,10 +184,13 @@
       if (!svg && !d.classList.contains('mermaid-error')) return; // still rendering
       // Mermaid gives the svg width=100% + max-width=<natural>px; the wrapper takes that width
       if (svg && !svg.parentNode.classList.contains('fig-media')) media(svg, svg.style.maxWidth);
-      var strip = tools(d);
+      var cap = d.nextElementSibling;
+      if (!cap || !cap.classList.contains('post-figcaption')) {
+        cap = caption(figureNo(d), mermaidTitle(d.getAttribute('data-mermaid-source')));
+        d.parentNode.insertBefore(cap, d.nextSibling);
+      }
+      var strip = tools(d, cap);
       if (strip.querySelector('.fig-feedback')) return;
-      var cap = caption(figureNo(d), mermaidTitle(d.getAttribute('data-mermaid-source')));
-      d.parentNode.insertBefore(cap, d.nextSibling);
       d.classList.add('code-copy-anchor');
       if (svg) strip.appendChild(zoomButton(svg));
       strip.appendChild(figureButton(cap));
@@ -237,8 +243,12 @@
         if (src) { var t = cap.querySelector('.fig-title'); t.textContent = ''; while (src.firstChild) t.appendChild(src.firstChild); }
         anchor.parentNode.insertBefore(cap, anchor.nextSibling);
       }
-      var tools = anchor.querySelector(':scope > .table-tools');
+      var tools = anchor.querySelector(':scope > .table-tools') || cap.querySelector(':scope > .table-tools');
       if (!tools || tools.querySelector('.table-feedback')) return;
+      // the strip (and the copy button's format menu) live on the caption row, not over the header cells
+      cap.appendChild(tools);
+      var menu = anchor.querySelector(':scope > .table-copy-menu');
+      if (menu) cap.appendChild(menu);
       // Untitled: 「表 N」 renumbers when a table is inserted, so the header row
       // is the stable passage; only a table without a header uses the whole table.
       var target = cap.querySelector('.fig-title') || table.querySelector('thead > tr') || table;

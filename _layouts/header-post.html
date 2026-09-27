@@ -75,6 +75,7 @@ layout: default
 <!-- article -->
 {{ content | replace: '<img src=', '<img loading="lazy" decoding="async" src=' }}
 <!-- /article -->
+{% include post-actions.html %}
 {% include series-toc.html %}
 {% include post-license.html %}
 
@@ -88,7 +89,6 @@ layout: default
                 </div>
                 <!-- /.related-posts -->
               
-                {% include post-actions.html %}
                 {% include comments.html %}
 
 

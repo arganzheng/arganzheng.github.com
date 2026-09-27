@@ -1,34 +1,38 @@
 @import "variables.less";
 
-// ---- action bar above the comments (_includes/post-actions.html, js/share.js): 点赞 · 分享 · [复制为公众号格式]
+// ---- action bar right under the article (_includes/post-actions.html, js/share.js): 这篇对你有用？ 点赞 · 分享 · [复制为公众号格式]
+// A bordered card with a lead line, so it reads as the article's closing ask —
+// the plain strip above the comments went unnoticed (reader, 2026-09-23).
 .post-actions {
 	position: relative;
 	display: flex;
 	align-items: center;
 	flex-wrap: wrap;
-	gap: 8px 10px;
-	margin: 44px 0 0;
-	padding: 14px 0;
-	border-top: 1px solid #eee;
-	border-bottom: 1px solid #eee;
-	font-size: 14px;
-	color: @gray;
+	gap: 10px 12px;
+	margin: 40px 0 8px;
+	padding: 16px 18px;
+	border: 1px solid #e3e7ec;
+	border-radius: 10px;
+	background: #f8f9fb;
+	font-size: 15px;
+	color: #444;
+	.pa-lead { font-weight: 600; margin-right: 4px; }
 	.pa-item {
 		display: inline-flex;
 		align-items: center;
-		height: 34px;
-		padding: 0 14px;
+		height: 38px;
+		padding: 0 18px;
 		border: 1px solid #d0d7de;
-		border-radius: 17px;
+		border-radius: 19px;
 		background: #fff;
 		color: #444;
-		font-size: 14px;
+		font-size: 15px;
 		line-height: 1;
 		cursor: pointer;
 		text-decoration: none;
 		white-space: nowrap;
 		transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
-		.fa { margin-right: 6px; font-size: 15px; }
+		.fa { margin-right: 6px; font-size: 16px; }
 		b { font-weight: 600; margin-left: 4px; }
 		&:hover, &:focus { color: @brand-primary; border-color: @brand-primary; background: #f2f7f8; text-decoration: none; outline: none; }
 		&[hidden] { display: none; }
@@ -68,7 +72,6 @@
 		&[hidden] { display: none; }
 	}
 }
-.post-actions + .comment { margin-top: 18px; padding-top: 0; border-top: 0; }
 // ---- `.post-stats` text strip (js/share.js paints it): 阅读 · 点赞 · 评论 · 分享.
 // The same plain-text markup is used in the post header meta and list metas.
 .post-stats {
@@ -142,6 +145,8 @@
 	// narrow screens: the strip takes its own line under the meta text
 	.post-stats { display: flex; margin: 6px 0 0; &::before { display: none; } &:empty { display: none; } }
 	.post-actions {
+		padding: 14px;
+		.pa-lead { width: 100%; margin: 0; }
 		.pa-item { height: 36px; }
 		.pa-export { width: 100%; justify-content: center; }
 		.pa-toast { left: 0; right: 0; max-width: none; text-align: center; }

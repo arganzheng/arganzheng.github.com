@@ -381,8 +381,11 @@ Pages has `https_enforced` on.
 - `js/annotations.js` — comments, reader highlight comments ("划线评论"), likes /
   votes and page views, see below.
 - `_includes/post-actions.html` + `js/share.js` (+ `less/share.less`) — action bar
-  「♥ 点赞 N · 分享 · [复制为公众号格式] · [编辑文章]」 right above
-  `comments.html` (the GitHub edit link appears only for the author on the
+  「这篇对你有用？ ♥ 点赞 N · 分享 · [复制为公众号格式] · [编辑文章]」, a
+  bordered card **right under the article body** (first thing after
+  `<!-- /article -->`, before the series TOC / license / pager). It sat above
+  `comments.html` until 2026-09-27; a reader said the buttons were 「不是很明显，
+  不容易看到」 (the GitHub edit link appears only for the author on the
   post-like layouts that include this bar). `slides.html` has its own direct
   「编辑幻灯片」 link because it has no comments/action bar. **「点赞」 is
   anonymous**: worker `GET/POST /votes` keeps
@@ -598,12 +601,22 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
     `width` = the svg's `max-width`, so it shrink-wraps the drawing), a `.fig-tools`
     strip (code-copy's button · 放大 · feedback) and the caption as the `.mermaid`'s
     next sibling (title = Mermaid front matter `title:` or a first-line `%% 图：…`
-    comment). The strip is **always visible** (GitHub-style) on the block's
-    top-right corner, like on code blocks — it used to be hover-only on the
-    picture's own corner, which covered a narrow diagram's top node once it stayed
-    on. 32 px targets, click handler stops propagation. `code-copy.js`'s duplicate check
-    looks inside `.fig-tools` / `.fig-media` too — moving its button out again would
-    loop the two MutationObservers. Code blocks (`.highlighter-rouge` / `pre`) get the
+    comment). The strip is **always visible** (GitHub-style) and, for pictures,
+    diagrams and tables, **sits on the caption row** (`.post-figcaption >
+    .fig-tools / .table-tools`, absolute at the row's right; the caption gets
+    100 px side padding so the title stays centred; on phones the strip drops
+    to its own line under the title). History: hover-only on the picture's
+    corner → always-on on the block's corner (2026-09-20) → the caption row
+    (2026-09-27), because the block-corner strip covered a table's header cells
+    and a picture's top-right (reader: 「拷贝和评论按钮总是覆盖住文字」). Code
+    blocks have no caption and keep the corner strip. 28 px targets on the
+    caption row, click handler stops propagation. `code-copy.js` marks the
+    anchor `data-code-copy` once it has added its button (the strip is no
+    longer inside the anchor, so a DOM lookup cannot tell) — without that the
+    two MutationObservers would keep adding copy buttons to every diagram; the
+    table copy menu is moved onto the caption row with the strip and closes on
+    clicks outside the menu / its button (not outside the table). Code blocks
+    (`.highlighter-rouge` / `pre`) get the
     same strip with the copy button and the same handle, which selects the whole
     `<code>` (`pick(code)`) — nothing mode-specific: the normal toolbar then offers
     点赞 / 存疑 / 评论 / 复制 / 搜一搜 / 分享 on the block, whose passage is
