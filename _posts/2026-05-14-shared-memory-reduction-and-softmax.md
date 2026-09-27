@@ -471,15 +471,16 @@ off=1     全部 8 个 lane 都得到 a+b+…+h                与 lane^1 交换
 
 ### 7. 六版对比
 
-```text
-版本  寻址方式            sync 次数   shared 读写      主要消除的问题
-v1    交错 + 取模          10          10 级树           —
-v2    顺序                 10          10 级树           发散、取模、bank conflict
-v3    v2 + 加载时先加      9           9 级树            一半 block、一级 shared
-v4    v2 树到 32 + shfl    5           5 级树            最后 5 级 sync 与 shared
-v5    grid-stride + v4     5           5 级树（摊薄）     每 block 固定开销
-v6    warp shfl × 2        1 (或 2)    32 float          几乎全部 shared 流量与 sync
-```
+| 版本 | 寻址方式 | sync 次数 | shared 读写 | 主要消除的问题 |
+|---|---|---|---|---|
+| v1 | 交错 + 取模 | 10 | 10 级树 | — |
+| v2 | 顺序 | 10 | 10 级树 | 发散、取模、bank conflict |
+| v3 | v2 + 加载时先加 | 9 | 9 级树 | 一半 block、一级 shared |
+| v4 | v2 树到 32 + shfl | 5 | 5 级树 | 最后 5 级 sync 与 shared |
+| v5 | grid-stride + v4 | 5 | 5 级树（摊薄） | 每 block 固定开销 |
+| v6 | warp shfl × 2 | 1 (或 2) | 32 float | 几乎全部 shared 流量与 sync |
+
+Table: 六版对比
 
 回到总纲的问题：**shared memory 解决的是"block 内 32 个 warp 的部分和怎么汇总"**——它是唯一能让不同 warp 交换数据的地方；**warp shuffle 消灭的是最后 5 级同步**——32 个 lane 之内的交换不需要栅栏也不需要 shared memory。两者组合成 v6，就是今天所有生产 kernel（PyTorch、vLLM、CUB）里 block reduction 的形状。
 

@@ -28,13 +28,14 @@ updated: 2026-09-14
 
 训练框架对调度层提出的要求，可以从第一篇的需求表里抽出四条，每一条都能对应到一次真实的故障：
 
-```text
-需求                        来源                                        不满足时的现象
-同时性（all-or-nothing）    torchrun rendezvous 要等齐 WORLD_SIZE 个进程   部分 Pod Running、部分 Pending；已起的进程空转直到 rendezvous 超时
-整数、不可压缩的 GPU        一个 rank 一张（或几张）卡，不能给 0.7 张      调度器只会计数，不理解"8 张卡要在同一台机器"
-拓扑局部性                  NVLink 域内 / 同机柜 all_reduce 快几倍         任务跨机柜后 step time 翻倍，MFU 掉一半，没有任何报错
-可预期的抢占                被抢占等于丢掉自上次 checkpoint 以来的进度      高优先级任务随时踢掉低优先级任务，后者每次重来都从上一个 checkpoint 开始
-```
+| 需求 | 来源 | 不满足时的现象 |
+|---|---|---|
+| 同时性（all-or-nothing） | torchrun rendezvous 要等齐 WORLD_SIZE 个进程 | 部分 Pod Running、部分 Pending；已起的进程空转直到 rendezvous 超时 |
+| 整数、不可压缩的 GPU | 一个 rank 一张（或几张）卡，不能给 0.7 张 | 调度器只会计数，不理解"8 张卡要在同一台机器" |
+| 拓扑局部性 | NVLink 域内 / 同机柜 all_reduce 快几倍 | 任务跨机柜后 step time 翻倍，MFU 掉一半，没有任何报错 |
+| 可预期的抢占 | 被抢占等于丢掉自上次 checkpoint 以来的进度 | 高优先级任务随时踢掉低优先级任务，后者每次重来都从上一个 checkpoint 开始 |
+
+Table: 引擎的需求
 
 第一条是硬需求，不满足就是死锁。第二、三条是性能需求，不满足任务也能跑，只是慢——而且慢得很隐蔽。第四条是运营需求：抢占本身是合理的，但抢占的粒度、时机和补偿要和 checkpoint 周期配合，否则集群看起来很忙、实际有效计算很少。
 
@@ -106,19 +107,17 @@ Table: 本文的章节安排
 
 把开头那个故障画成时间线。集群 12 台机器，每台 8 张卡，共 96 张；此前已有别的任务占了 56 张，剩 40 张：4 台完全空闲（32 张），另外 4 台各剩 2 张（8 张）。任务 J 要 32 个 Pod，每个 Pod 8 张卡；每个 Pod 因此只能落在完全空闲的机器上。
 
-```text
-t0   J 的 32 个 Pod 同时进入调度队列（Job 的 parallelism=32，或 JobSet 展开）
-t1   kube-scheduler 逐个处理：Pod-0 → node-A（剩 0 卡）……Pod-3 → node-D
-     四台空机器每台只能放 1 个 8 卡 Pod → 4 个 Pod 绑定成功
-t2   Pod-4：Filter 阶段 12 个节点全部 Insufficient nvidia.com/gpu → Unschedulable，进 backoff 队列
-     Pod-5 … Pod-31 同样 → 28 个 Pending
-t3   Pod-0..3 的容器启动，torchrun 进入 rendezvous，等 WORLD_SIZE=32×8 个进程
-     它们占着 32 张卡，GPU 利用率 0%
-t4   另一任务 K（4 个 Pod × 2 卡）提交。它本可以用那 4 台各剩 2 张卡的机器——仍然可以，K 跑起来了
-     但如果 K 需要的是 4 台空机器中的任意一台（比如 1 个 8 卡 Pod），它也 Pending：那些机器被 J 的 Pod 占了
-t5   rendezvous 超时（torchrun 默认约 15 分钟）→ Pod-0..3 退出 → Job 按 backoffLimit 重建它们
-     重建的 Pod 再次抢到 4 台空机器 → 回到 t1。J 永远凑不齐，K 类任务永远等不到整机
-```
+- **t0   J 的 32 个 Pod 同时进入调度队列（Job 的 parallelism=32，或 JobSet 展开）**
+- **t1   kube-scheduler 逐个处理：Pod-0 → node-A（剩 0 卡）……Pod-3 → node-D**
+  - 四台空机器每台只能放 1 个 8 卡 Pod → 4 个 Pod 绑定成功
+- **t2   Pod-4：Filter 阶段 12 个节点全部 Insufficient nvidia.com/gpu → Unschedulable，进 backoff 队列**
+  - Pod-5 … Pod-31 同样 → 28 个 Pending
+- **t3   Pod-0..3 的容器启动，torchrun 进入 rendezvous，等 WORLD_SIZE=32×8 个进程**
+  - 它们占着 32 张卡，GPU 利用率 0%
+- **t4   另一任务 K（4 个 Pod × 2 卡）提交。它本可以用那 4 台各剩 2 张卡的机器——仍然可以，K 跑起来了**
+  - 但如果 K 需要的是 4 台空机器中的任意一台（比如 1 个 8 卡 Pod），它也 Pending：那些机器被 J 的 Pod 占了
+- **t5   rendezvous 超时（torchrun 默认约 15 分钟）→ Pod-0..3 退出 → Job 按 backoffLimit 重建它们**
+  - 重建的 Pod 再次抢到 4 台空机器 → 回到 t1。J 永远凑不齐，K 类任务永远等不到整机
 
 注意 t1 到 t3 之间没有任何"错误"：每一个 Pod 的调度决定在它自己的视角里都是正确的。问题在于调度器没有一个视角能看到"这 32 个 Pod 是一个东西，4 个成功等于 0 个成功"。
 
@@ -292,11 +291,9 @@ PreemptableFn / ReclaimableFn   受害者选择：一个 Job 只有在 ReadyTask
 
 `QueueSpec`（`scheduling/v1beta1/types.go`）里有三个 `v1.ResourceList` 类型的字段，`volcano docs/design/capacity-scheduling.md` 给出了它们的定义：
 
-```text
-capability   上限。任何时候队列里的总用量不能超过它。不设 = 不限
-deserved     应得。这部分资源"可以借给别的队列，也可以收回来"——它是 reclaim 的基准线
-guarantee    保底。这部分资源即使队列空着也不借出去，永远留着
-```
+- **capability**：上限。任何时候队列里的总用量不能超过它。不设 = 不限
+- **deserved**：应得。这部分资源"可以借给别的队列，也可以收回来"——它是 reclaim 的基准线
+- **guarantee**：保底。这部分资源即使队列空着也不借出去，永远留着
 
 三者的关系是 `guarantee ≤ deserved ≤ capability`。用第一篇的两团队场景解释：A、B 各 `deserved: 16` 卡。B 空闲时 A 可以用到 `capability`（设为 32 就能跑那个 32 卡任务）；B 提交任务时，`reclaim` action 会发现 A 的用量超过了 `deserved`，从 A 手里收回超出的部分——但只收 `deserved` 以外的，A 的 16 卡是它的。如果 A 还设了 `guarantee: 8`，那么即使 A 一个任务都没有，B 也最多用到 `96 - 8`。
 
@@ -533,13 +530,11 @@ spec:
 
 **Pod 模板上的注解**指定约束级别（`kueue apis/kueue/v1beta2/topology_types.go` 的常量）：
 
-```text
-kueue.x-k8s.io/podset-required-topology: <level label>       全部 Pod 必须落在该级别的同一个域内，否则不准入
-kueue.x-k8s.io/podset-preferred-topology: <level label>      先试该级别；放不下就上一级；到顶还放不下就允许分散
-kueue.x-k8s.io/podset-unconstrained-topology: "true"         不要求同域，但仍由 TAS 做节点级放置（减少碎片）
-kueue.x-k8s.io/podset-slice-required-topology + podset-slice-size    把 PodSet 切成大小固定的 slice，每个 slice 内要求同域
-kueue.x-k8s.io/podset-group-name                             多个 PodSet 作为一组做 flavor 与域的分配
-```
+- **kueue.x-k8s.io/podset-required-topology: <level label>**：全部 Pod 必须落在该级别的同一个域内，否则不准入
+- **kueue.x-k8s.io/podset-preferred-topology: <level label>**：先试该级别；放不下就上一级；到顶还放不下就允许分散
+- **kueue.x-k8s.io/podset-unconstrained-topology: "true"**：不要求同域，但仍由 TAS 做节点级放置（减少碎片）
+- **kueue.x-k8s.io/podset-slice-required-topology + podset-slice-size**：把 PodSet 切成大小固定的 slice，每个 slice 内要求同域
+- **kueue.x-k8s.io/podset-group-name**：多个 PodSet 作为一组做 flavor 与域的分配
 
 TAS 的工作方式和普通 Kueue 准入有一个本质区别：**它做节点级的容量计算**。`kueue pkg/cache/scheduler/tas_flavor_snapshot.go` 维护每个拓扑域的空闲容量（节点 `status.allocatable` 减去所有已准入 TAS Workload 的用量、再减去所有非 Kueue 管理的 Pod 的用量），`kueue pkg/scheduler/flavorassigner/tas_flavorassigner.go` 在准入时按层级找一个能放下整个 PodSet 的域，找到后把结果写进 `PodSetAssignment.TopologyAssignment`（`workload_types.go`：`Levels` + `Slices[].ValuesPerLevel` / `PodCounts`）。准入后 Kueue 给每个 Pod 加 `kueue.x-k8s.io/topology` scheduling gate（`TopologySchedulingGate` 常量），Pod 创建时被挡在调度器外，Kueue 的 Pod webhook 按 TopologyAssignment 给每个 Pod 写上精确到 `kubernetes.io/hostname` 的 `nodeSelector`，再解开 gate。**到这一步 Kueue 实际上替 kube-scheduler 做了放置决定**，kube-scheduler 只是执行。这也是为什么 TAS 能提供节点层面的 gang 保证——它在准入时就确认了每个 Pod 有位置。代价文档也写了：Kueue 要开始跟踪集群里所有 Pod 和所有节点，内存和调度延迟都会上升。
 
@@ -692,10 +687,8 @@ Ray 有自己的调度器：任务和 actor 在 Ray 集群内部按逻辑资源�
 
 KubeRay 负责 Ray 集群本身（`kuberay ray-operator/apis/ray/v1/`）：`RayCluster`（`HeadGroupSpec` + `WorkerGroupSpecs[]`，每个 worker group 有 `Replicas` / `MinReplicas` / `MaxReplicas`、`RayStartParams`、Pod 模板）、`RayJob`（`RayClusterSpec` + `Entrypoint` + `SubmissionMode`，可选 `ShutdownAfterJobFinishes`）、`RayService`（Serving 用，第六篇）。于是 GPU 资源经过两层调度：
 
-```text
-第一层  K8s 调度器把 RayCluster 的 head / worker Pod 放到节点上（每个 Pod 请求 N 张 nvidia.com/gpu）
-第二层  Ray 调度器把任务 / actor / placement group 放到 worker 上（按 Pod 里可见的 GPU 数）
-```
+- **第一层**：K8s 调度器把 RayCluster 的 head / worker Pod 放到节点上（每个 Pod 请求 N 张 nvidia.com/gpu）
+- **第二层**：Ray 调度器把任务 / actor / placement group 放到 worker 上（按 Pod 里可见的 GPU 数）
 
 自动扩缩容也是两层：`RayClusterSpec.EnableInTreeAutoscaling` 启用 Ray autoscaler，它按 Ray 内部的资源需求（比如一个 placement group 等不到 bundle）在 `MinReplicas` ~ `MaxReplicas` 之间改 worker group 的 `Replicas`（`AutoscalerOptions.UpscalingMode` / `IdleTimeoutSeconds` 调节激进程度）；新增的 worker Pod 如果 Pending，再由 Cluster Autoscaler 扩 K8s 节点。两层的延迟叠加是 Ray 任务"扩容慢"的来源。
 
@@ -1137,17 +1130,18 @@ Ray           placement group 在 Ray 内做 gang；KubeRay RayCluster/RayJob �
 
 ### 2. 代价与边界
 
-```text
-机制                       换来                              付出
-gang                       不再死锁                          凑齐前集群空转；无时限估计 → 无真 backfill；大小任务饥饿二选一
-Kueue 准入                 不换调度器、任意 Job 类型、配额弹性  配额加法 ≠ 节点实况；需 TAS 或 waitForPodsReady 补
-Volcano 调度器             节点级 gang、binpack、NUMA、tier    换调度器；混合集群里两调度器缓存冲突
-cohort / deserved 借用     闲置配额被用起来                    收回 = 抢占 = 丢进度；默认值多为"借了不还"
-拓扑 hard 约束             通信带宽可预期                      等待时间显著变长；标签错误比没有更糟
-Workload 级抢占            抢占以任务为单位、可见配额          Pod PriorityClass 仍能绕过；三处优先级要对齐
-ProvisioningRequest        云上先扩容再启动，避免部分启动       多一次往返，扩容期间配额被占
-TAS                        准入即确定节点，节点级 gang          Kueue 跟踪全部 Pod/节点，内存与延迟上升
-```
+| 机制 | 换来 | 付出 |
+|---|---|---|
+| gang | 不再死锁 | 凑齐前集群空转；无时限估计 → 无真 backfill；大小任务饥饿二选一 |
+| Kueue 准入 | 不换调度器、任意 Job 类型、配额弹性 | 配额加法 ≠ 节点实况；需 TAS 或 waitForPodsReady 补 |
+| Volcano 调度器 | 节点级 gang、binpack、NUMA、tier | 换调度器；混合集群里两调度器缓存冲突 |
+| cohort / deserved 借用 | 闲置配额被用起来 | 收回 = 抢占 = 丢进度；默认值多为"借了不还" |
+| 拓扑 hard 约束 | 通信带宽可预期 | 等待时间显著变长；标签错误比没有更糟 |
+| Workload 级抢占 | 抢占以任务为单位、可见配额 | Pod PriorityClass 仍能绕过；三处优先级要对齐 |
+| ProvisioningRequest | 云上先扩容再启动，避免部分启动 | 多一次往返，扩容期间配额被占 |
+| TAS | 准入即确定节点，节点级 gang | Kueue 跟踪全部 Pod/节点，内存与延迟上升 |
+
+Table: 代价与边界
 
 ### 3. 本篇涉及的源码与 CRD 位置
 

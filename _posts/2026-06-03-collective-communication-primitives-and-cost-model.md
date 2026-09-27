@@ -143,11 +143,9 @@ all_to_all      = n 次 scatter（每次换一个 root）
 
 第二组关系是**对偶**：把一个原语的数据流反过来、把"复制"换成"归约"，就得到另一个：
 
-```text
-broadcast   ⟷  reduce            一对多复制  ⟷  多对一归约
-scatter     ⟷  gather            一对多分发  ⟷  多对一收集
-all_gather  ⟷  reduce_scatter    多对多复制  ⟷  多对多归约
-```
+- **broadcast**：⟷；reduce；一对多复制；⟷；多对一归约
+- **scatter**：⟷；gather；一对多分发；⟷；多对一收集
+- **all_gather**：⟷；reduce_scatter；多对多复制；⟷；多对多归约
 
 对偶的意义是实现上的：一个 all_gather 算法把箭头反过来、在接收端加一个 $$\oplus$$ 就是 reduce_scatter 算法，两者的步数和字节数完全一样。所以后面分析 ring 的 reduce_scatter 阶段时，all_gather 阶段的代价可以直接复用。
 
@@ -684,12 +682,9 @@ algbw 一列随 $$n$$ 从 25 掉到 10，busbw 一列在 25 附近不动。（10
 
 $$N$$ 个节点、每节点 $$p$$ 张卡（$$n = Np$$）。节点内参数 $$(\alpha_i, \beta_i)$$，节点间 $$(\alpha_e, \beta_e)$$。三步：
 
-```text
-第 1 步   节点内 reduce_scatter      p 个 rank 的 ring，S 字节      → 每张卡持有 S/p 的节点内归约结果
-第 2 步   节点间 all_reduce          每张卡与其他节点上同一位置的卡    → p 个并行的 N-rank ring，各 S/p 字节
-                                    组成一个 N-rank 的环，走自己的网卡
-第 3 步   节点内 all_gather          p 个 rank 的 ring，S 字节      → 每张卡拿到完整结果
-```
+- **第 1 步**：节点内 reduce_scatter；p 个 rank 的 ring，S 字节；→ 每张卡持有 S/p 的节点内归约结果
+- **第 2 步**：节点间 all_reduce；每张卡与其他节点上同一位置的卡；→ p 个并行的 N-rank ring，各 S/p 字节 组成一个 N-rank 的环，走自己的网卡
+- **第 3 步**：节点内 all_gather；p 个 rank 的 ring，S 字节；→ 每张卡拿到完整结果
 
 把 $$N = 4$$ 个节点、每节点 $$p = 8$$ 张卡排成 4 × 8 的网格（行 = 节点，列 = 卡在节点内的位置），三步分别是"横着走"和"竖着走"：
 

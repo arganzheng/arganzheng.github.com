@@ -240,12 +240,13 @@ slime 的 `slime/agent` 模块、AReaL 的 `RolloutWorkflow`（`arun_episode`）
 
 ### 3. 三种 reward，一条通路
 
-```text
-形态              在哪算                    时间           方差       与 rollout 的关系
-规则验证器        CPU 进程（agent loop worker 或 reward worker）   ms    小        轨迹结束立刻算
-代码执行 / 环境状态  沙箱                    s – min        大        就是最后一轮的环境调用；或在轨迹结束后再跑一次隐藏测试
-生成式 RM / 评判模型  另一个 LLM 推理服务      s              中        需要 GPU：独立池或与 rollout 共置；本身是一个 serving 作业
-```
+| 形态 | 在哪算 | 时间 | 方差 | 与 rollout 的关系 |
+|---|---|---|---|---|
+| 规则验证器 | CPU 进程（agent loop worker 或 reward worker） | ms | 小 | 轨迹结束立刻算 |
+| 代码执行 / 环境状态 | 沙箱 | s – min | 大 | 就是最后一轮的环境调用；或在轨迹结束后再跑一次隐藏测试 |
+| 生成式 RM / 评判模型 | 另一个 LLM 推理服务 | s | 中 | 需要 GPU：独立池或与 rollout 共置；本身是一个 serving 作业 |
+
+Table: 三种 reward，一条通路
 
 verl 的 **Reward Loop**（`RewardLoopManager` + 若干 `RewardWorker`）把三种做成同一个接口：轨迹完成 → 分块发给 reward worker 并行算 → 结果写回样本。生成式 RM 的推理实例由 `reward.reward_model.enable_resource_pool` 决定是独立池还是共置——`separate_async` 模式**要求独立池**，因为 standalone rollout 实例从不暂停、没有空闲显存给 RM 用（第二篇 `PPOTrainerSeparateAsync.__init__` 里的断言）。
 
@@ -257,27 +258,29 @@ verl 的 **Reward Loop**（`RewardLoopManager` + 若干 `RewardWorker`）把三�
 
 单轮 RL 的长尾来自回答长度（$$L_{max} / \bar L = 4$$–10）；Agent RL 的长尾来自环境：
 
-```text
-来源                          典型                    极端
-单次测试的执行时间             30 s                    超时 10 min（死循环、等网络）
-轮数                          20                      到上限 50（模型反复试错）
-沙箱排队                       0                       几分钟（并发不够、镜像冷）
-重试                          0                       3 次（沙箱崩、网络抖）
-一条轨迹                       800 s                   1–2 小时
-```
+| 来源 | 典型 | 极端 |
+|---|---|---|
+| 单次测试的执行时间 | 30 s | 超时 10 min（死循环、等网络） |
+| 轮数 | 20 | 到上限 50（模型反复试错） |
+| 沙箱排队 | 0 | 几分钟（并发不够、镜像冷） |
+| 重试 | 0 | 3 次（沙箱崩、网络抖） |
+| 一条轨迹 | 800 s | 1–2 小时 |
+
+Table: 环境方差
 
 $$f$$（长尾占比）在这里轻易到 0.8 以上：一步里 95% 的轨迹 15 分钟完成，最后 5% 卡在超时与重试上再花 30 分钟。**同步形态下 GPU 在这 30 分钟里几乎全空**。第二篇那张表的最后两行——异步 / 共置 2.5 到 4.9 倍——就是这个场景。
 
 ### 2. 轨迹级的超时、重试与丢弃
 
-```text
-层级          机制                                    落点
-单次工具调用   超时（如 120 s）→ 返回 "timeout" 给模型，轨迹继续   沙箱服务
-单轮生成       max_tokens；生成被 abort（权重同步）→ 续接        推理引擎 / agent loop
-轨迹          最大轮数；总时长上限 → 强制结束、按当前状态算 reward  agent loop
-组            G 条里有失败 → failure 组 → 淘汰 / padding / 补发（第五篇）  replay buffer
-步            缓冲里终态组够了就训练，不等剩下的                 trainer
-```
+| 层级 | 机制 | 落点 |
+|---|---|---|
+| 单次工具调用 | 超时（如 120 s）→ 返回 "timeout" 给模型，轨迹继续 | 沙箱服务 |
+| 单轮生成 | max_tokens；生成被 abort（权重同步）→ 续接 | 推理引擎 / agent loop |
+| 轨迹 | 最大轮数；总时长上限 → 强制结束、按当前状态算 reward | agent loop |
+| 组 | G 条里有失败 → failure 组 → 淘汰 / padding / 补发（第五篇） | replay buffer |
+| 步 | 缓冲里终态组够了就训练，不等剩下的 | trainer |
+
+Table: 轨迹级的超时、重试与丢弃
 
 每一层的选择都是分布上的取舍：超时返回给模型让它"学会处理超时"（但训练数据里多了超时样本）；强制结束的轨迹 reward 通常是 0，会让模型学到"别做太多轮"（可能是好事也可能不是）；failure 组丢弃偏向"不出错的任务"。第五篇的诊断表在这里要加一列：**各层超时 / 重试 / 丢弃的计数与它们的任务分布**。
 
@@ -295,19 +298,17 @@ agent loop 的调度器同时要满足：**沙箱利用率**（不让容器闲�
 
 第一篇的三本账加一本：
 
-```text
-环境账（一步）
-  执行次数        N_exec = B · G · 轮数
-  CPU 时间        Σ 执行时间 × 每次核数                       8 万次 × 30 s × 2 核 = 1300 CPU·h
-  沙箱·秒         有状态：B · G · 轨迹墙钟；可释放：Σ 执行时间     3.2 M / 2.4 M 沙箱·s
-  所需并发        沙箱·秒 / 目标墙钟                           1800 / 1300
-  镜像流量        节点数 × 本步任务镜像的总大小
-GPU 账的变化
-  decode          B · G · 轮数 · 每轮生成 token —— 与单轮同公式，但并发低、KV 长 → 每卡 token/s 降 3–4 倍
-  prefill         线性（全命中）到二次（全重算），由 KV 驻留决定；常接近二次
-  训练 token      B · G · 最终上下文，八成 mask = 0
-  生成式 RM       + B · G · 最终上下文 的一次前向或一次生成
-```
+- **环境账（一步）**
+  - **执行次数**：N_exec = B · G · 轮数
+  - CPU 时间 Σ 执行时间 × 每次核数 8 万次 × 30 s × 2 核 = 1300 CPU·h
+  - 沙箱·秒 有状态：B · G · 轨迹墙钟；可释放：Σ 执行时间 3.2 M / 2.4 M 沙箱·s
+  - 所需并发 沙箱·秒 / 目标墙钟 1800 / 1300
+  - **镜像流量**：节点数 × 本步任务镜像的总大小
+- **GPU 账的变化**
+  - decode B · G · 轮数 · 每轮生成 token —— 与单轮同公式，但并发低、KV 长 → 每卡 token/s 降 3–4 倍
+  - **prefill**：线性（全命中）到二次（全重算），由 KV 驻留决定；常接近二次
+  - **训练 token**：B · G · 最终上下文，八成 mask = 0
+  - **生成式 RM**：+ B · G · 最终上下文 的一次前向或一次生成
 
 ### 2. 核心问题的数字
 
@@ -352,14 +353,12 @@ uni-agent                   独立仓库 verl-project/uni-agent                 
 
 ### 2. 一条轨迹在 v1 里的路
 
-```text
-trainer._add_batch_to_generate → AgentLoopManagerTQ 取 prompt → AgentLoopWorker.run(协程)
-  → 轮 i：llm_client.generate(prompt_ids) → [粘性] AsyncLLMServer → vLLM engine（前缀缓存命中与否）
-        → tool_parser 解析 → tool.execute（沙箱服务 HTTP）→ 追加 token（continuous token builder）
-  → 结束：tool.calc_reward / reward loop → AgentLoopOutput（带每段的版本、logprob）
-  → 写 TransferQueue：{uid}_{session}_{index}，tag status=finished
-→ ReplayBuffer 看到组终态 → trainer 取 batch → 训练
-```
+1. trainer._add_batch_to_generate → AgentLoopManagerTQ 取 prompt → AgentLoopWorker.run(协程)
+2. 轮 i：llm_client.generate(prompt_ids) → [粘性] AsyncLLMServer → vLLM engine（前缀缓存命中与否）
+3. tool_parser 解析 → tool.execute（沙箱服务 HTTP）→ 追加 token（continuous token builder）
+4. 结束：tool.calc_reward / reward loop → AgentLoopOutput（带每段的版本、logprob）
+5. 写 TransferQueue：{uid}_{session}_{index}，tag status=finished
+6. ReplayBuffer 看到组终态 → trainer 取 batch → 训练
 
 与单轮 RL 唯一不同的是中间那几行——推理引擎、缓冲、训练器都不知道这是 Agent 轨迹。这是 agent loop 抽象的价值：**Agent RL 对基础设施的新要求全部落在 rollout 一侧**，形态（第二篇）、显存（第三篇）、同步（第四篇）、异步（第五篇）的机制原样适用。
 

@@ -91,34 +91,32 @@ make -j MPI=1 MPI_HOME=/path/to/openmpi CUDA_HOME=/usr/local/cuda NCCL_HOME=/pat
 
 `src/common.cu` 的 `getopt_long` 表定义了全部参数（默认值见同文件开头的全局变量与 README 的 Arguments 一节），常用的这些：
 
-```text
--b, --minbytes        起始消息大小（可带 K/M/G 后缀，按 1024 进位；默认 32M）
--e, --maxbytes        结束消息大小（默认 32M）
--f, --stepfactor      每步乘以的因子（-f 2 即翻倍扫描）
--i, --stepbytes       每步加的字节数（与 -f 二选一；默认 1M）
--g, --ngpus           每个线程（进程）管几张 GPU
--t, --nthreads        每进程几个线程（每线程再管 -g 张卡；单机不用 MPI 时通常 -t 1 -g 8）
--n, --iters           每个消息大小计时迭代次数（默认 20）
--w, --warmup_iters    预热迭代次数（默认 1，几乎总要手动加大）
--m, --agg_iters       每次迭代聚合几个操作（ncclGroupStart/End 包起来；默认 1）
--N, --run_cycles      整个扫描重复几轮并逐轮打印（默认 1；0 无限）
--c, --check           校验迭代次数；-c 0 关闭校验（默认 1，即校验一次）
--o, --op              归约算子：sum/prod/min/max/avg/mulsum/all
--d, --datatype        数据类型：int8/uint8/int32/uint32/int64/uint64/half/float/double/bfloat16/…/all
--r, --root            broadcast/reduce 的 root
--z, --blocking        0 不阻塞（默认，计时后再同步）；1 每次调用后 wait + barrier；2 每次调用后 wait 但不 barrier
--a, --average         多进程时报告哪个时间：0=rank0 / 1=平均（默认）/ 2=最小 / 3=最大
--G, --cudagraph       把 -n 次迭代捕获进 CUDA Graph 再 launch <num> 次，去掉 CPU 侧 launch 开销
--R, --local_register  1 本地注册 send/recv buffer；2 对称注册（NCCL 2.27+ 的 symmetric memory 路径）
--x, --cta_policy      0/1/2 设置 NCCL_CTA_POLICY（NCCL 2.27+；2 需 2.28+）
--C, --report_cputime  1 时报告 CPU 侧时间而不是 GPU 侧延迟
--S, --report_timestamps  每行结果加时间戳
--J, --output_file     结果写 JSON
--T, --timeout         秒；超过则报错退出，而不是永远 hang
--p, --parallel_init   1 时用多线程并行初始化 communicator
--M, --memory_report   1 时结尾打印显存占用报告
--u, --unalign         把 send/recv buffer 故意偏移若干元素，测非对齐路径
-```
+- **-b, --minbytes**：起始消息大小（可带 K/M/G 后缀，按 1024 进位；默认 32M）
+- **-e, --maxbytes**：结束消息大小（默认 32M）
+- **-f, --stepfactor**：每步乘以的因子（-f 2 即翻倍扫描）
+- **-i, --stepbytes**：每步加的字节数（与 -f 二选一；默认 1M）
+- **-g, --ngpus**：每个线程（进程）管几张 GPU
+- **-t, --nthreads**：每进程几个线程（每线程再管 -g 张卡；单机不用 MPI 时通常 -t 1 -g 8）
+- **-n, --iters**：每个消息大小计时迭代次数（默认 20）
+- **-w, --warmup_iters**：预热迭代次数（默认 1，几乎总要手动加大）
+- **-m, --agg_iters**：每次迭代聚合几个操作（ncclGroupStart/End 包起来；默认 1）
+- **-N, --run_cycles**：整个扫描重复几轮并逐轮打印（默认 1；0 无限）
+- **-c, --check**：校验迭代次数；-c 0 关闭校验（默认 1，即校验一次）
+- **-o, --op**：归约算子：sum/prod/min/max/avg/mulsum/all
+- **-d, --datatype**：数据类型：int8/uint8/int32/uint32/int64/uint64/half/float/double/bfloat16/…/all
+- **-r, --root**：broadcast/reduce 的 root
+- **-z, --blocking**：0 不阻塞（默认，计时后再同步）；1 每次调用后 wait + barrier；2 每次调用后 wait 但不 barrier
+- **-a, --average**：多进程时报告哪个时间：0=rank0 / 1=平均（默认）/ 2=最小 / 3=最大
+- **-G, --cudagraph**：把 -n 次迭代捕获进 CUDA Graph 再 launch <num> 次，去掉 CPU 侧 launch 开销
+- **-R, --local_register**：1 本地注册 send/recv buffer；2 对称注册（NCCL 2.27+ 的 symmetric memory 路径）
+- **-x, --cta_policy**：0/1/2 设置 NCCL_CTA_POLICY（NCCL 2.27+；2 需 2.28+）
+- **-C, --report_cputime**：1 时报告 CPU 侧时间而不是 GPU 侧延迟
+- **-S, --report_timestamps**：每行结果加时间戳
+- **-J, --output_file**：结果写 JSON
+- **-T, --timeout**：秒；超过则报错退出，而不是永远 hang
+- **-p, --parallel_init**：1 时用多线程并行初始化 communicator
+- **-M, --memory_report**：1 时结尾打印显存占用报告
+- **-u, --unalign**：把 send/recv buffer 故意偏移若干元素，测非对齐路径
 
 总 rank 数等于 进程数 × `-t` × `-g`。`-g 8` 单进程管 8 卡是最简单的节点内测试；多机则每进程一卡 `-g 1`，让 MPI 起 8 × 节点数个进程。nccl-tests 2.18.3 的结果表里**没有**算法/协议/channel 数这几列；要知道第四篇讲的"NCCL 为这个消息大小选了什么"，用 `NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=TUNING` 让 rank 0 在每次调用时打一行 `AllReduce: N Bytes -> Algo Ring proto LL128 channel{Lo..Hi}={0..15}`（NCCL `src/enqueue.cc`），再与结果表按消息大小对照。
 
@@ -325,12 +323,10 @@ NCCL 的环境变量绝大多数经 `NCCL_PARAM` 宏定义（`src/include/param.
 
 2.28.9 的算法名（`src/init.cc` 的 `ncclAlgoStr`）：`Tree`、`Ring`、`CollNetDirect`、`CollNetChain`、`NVLS`、`NVLSTree`、`PAT`；协议名（`ncclProtoStr`）：`LL`、`LL128`、`Simple`。`src/graph/tuning.cc` 的 `parseList` 支持按原语指定与 `^` 排除：
 
-```text
-NCCL_ALGO=Ring                          所有原语只用 Ring
-NCCL_ALGO="ring;allreduce:tree"         默认 Ring，all_reduce 用 Tree（分号分隔按原语覆盖）
-NCCL_PROTO=^LL128                       禁用 LL128（排查 LL128 在某些 PCIe 拓扑上的正确性问题时用）
-NCCL_PROTO="LL,Simple;allreduce:^LL"    全局 LL+Simple，但 all_reduce 不用 LL
-```
+- **NCCL_ALGO=Ring**：所有原语只用 Ring
+- **NCCL_ALGO="ring;allreduce:tree"**：默认 Ring，all_reduce 用 Tree（分号分隔按原语覆盖）
+- **NCCL_PROTO=^LL128**：禁用 LL128（排查 LL128 在某些 PCIe 拓扑上的正确性问题时用）
+- **NCCL_PROTO="LL,Simple;allreduce:^LL"**：全局 LL+Simple，但 all_reduce 不用 LL
 
 作用层是第四篇讲的 tuning 决策：NCCL 对每个（原语、算法、协议）组合估算时间，取最小者；设置这两个变量是把某些组合从候选集里删掉。**它们是排障工具，不是调优工具**：怀疑 Tree 在某个消息大小上选错了，用 `NCCL_ALGO=Ring` 跑一遍对照就能确认；确认之后正确的动作是把结论反馈到 tuner plugin（`NCCL_TUNER_PLUGIN`）或升级 NCCL，而不是在生产环境固定一个算法——固定算法会让另一段消息大小变差。
 
@@ -425,25 +421,23 @@ NCCL_PROTO="LL,Simple;allreduce:^LL"    全局 LL+Simple，但 all_reduce 不用
 
 `INFO` 默认只开 `INIT`、`BOOTSTRAP`、`ENV` 三个子系统（`ncclDebugInit` 里的 `tempNcclDebugMask`）。`NCCL_DEBUG_SUBSYS` 用逗号分隔选择，`^` 前缀取反。2.28.9 的完整列表：
 
-```text
-INIT       初始化流程、communicator 创建、"Connected all rings/trees"
-COLL       每一次集合通信调用：opCount、buffer、count、datatype、op、comm、stream（稳态大量输出）
-P2P        P2P transport 的连接建立（"via P2P/CUMEM"）
-SHM        SHM transport
-NET        网络 transport：设备枚举、"via NET/IB/…/GDRDMA"、GDR 开关
-GRAPH      拓扑图与搜索：ring/tree 的构造，"Ring 00 : 3 -> 0 -> 1"
-TUNING     算法/协议表；enqueue 时 rank 0 打 "AllReduce: N Bytes -> Algo Ring proto LL128 channel{Lo..Hi}"
-ENV        环境变量读取："NCCL_XXX set by environment to N"
-ALLOC      内存分配
-CALL       API 调用（TRACE 级别）
-PROXY      proxy 线程
-NVLS       NVLink SHARP
-BOOTSTRAP  bootstrap 网络
-REG        buffer 注册
-PROFILE    profiler 插件
-RAS        RAS 子系统
-ALL        全部
-```
+- **INIT**：初始化流程、communicator 创建、"Connected all rings/trees"
+- **COLL**：每一次集合通信调用：opCount、buffer、count、datatype、op、comm、stream（稳态大量输出）
+- **P2P**：P2P transport 的连接建立（"via P2P/CUMEM"）
+- **SHM**：SHM transport
+- **NET**：网络 transport：设备枚举、"via NET/IB/…/GDRDMA"、GDR 开关
+- **GRAPH**：拓扑图与搜索：ring/tree 的构造，"Ring 00 : 3 -> 0 -> 1"
+- **TUNING**：算法/协议表；enqueue 时 rank 0 打 "AllReduce: N Bytes -> Algo Ring proto LL128 channel{Lo..Hi}"
+- **ENV**：环境变量读取："NCCL_XXX set by environment to N"
+- **ALLOC**：内存分配
+- **CALL**：API 调用（TRACE 级别）
+- **PROXY**：proxy 线程
+- **NVLS**：NVLink SHARP
+- **BOOTSTRAP**：bootstrap 网络
+- **REG**：buffer 注册
+- **PROFILE**：profiler 插件
+- **RAS**：RAS 子系统
+- **ALL**：全部
 
 三个常用组合：
 
@@ -569,23 +563,21 @@ py-spy 的局限是只能看到"卡在哪个调用"，看不到"卡的这个调�
 
 Flight Recorder 是 ProcessGroupNCCL 里的一个环形缓冲（`torch/csrc/distributed/c10d/FlightRecorder.hpp` 的 `FlightRecorder<EventType>`，CUDA 实例在 `FlightRecorderCuda.cpp`）。每次 `initWork` 创建 `WorkNCCL` 时调用 `FlightRecorderCUDA::get()->recordWithResetEnabled(...)` 写入一条 `Entry`，字段包括：
 
-```text
-pg_id / pg_name            哪个 process group（名字与 desc）
-collective_seq_id          该 PG 内集合通信的序号（每次 kernel launch 加 1；coalesced 组算一次）
-p2p_seq_id                 该 PG 内 send/recv 的序号
-op_id                      逻辑操作序号（coalesced 组内每个 op 一个）
-profiling_name             "nccl:all_reduce" 这类名字
-input_sizes / dtypes       输入 tensor 的形状与类型
-output_sizes / dtypes      输出
-traceback_                 调用时的 Python 栈（CapturedTraceback::gather；TORCH_NCCL_TRACE_CPP_STACK=1 加 C++ 栈）
-time_created_ns            enqueue 时间
-timeout_ms                 这条 work 的 timeout
-start_ / end_ event        用于查询状态：scheduled / started / completed
-time_discovered_started    watchdog 发现 kernel 已开始的时间
-time_discovered_completed  watchdog 发现 kernel 已完成的时间
-retired_                   已从 workMetaList_ 移出；retired 但未 completed = 超时了
-thread_id / thread_name    发起调用的线程
-```
+- **pg_id / pg_name**：哪个 process group（名字与 desc）
+- **collective_seq_id**：该 PG 内集合通信的序号（每次 kernel launch 加 1；coalesced 组算一次）
+- **p2p_seq_id**：该 PG 内 send/recv 的序号
+- **op_id**：逻辑操作序号（coalesced 组内每个 op 一个）
+- **profiling_name**："nccl:all_reduce" 这类名字
+- **input_sizes / dtypes**：输入 tensor 的形状与类型
+- **output_sizes / dtypes**：输出
+- **traceback_**：调用时的 Python 栈（CapturedTraceback::gather；TORCH_NCCL_TRACE_CPP_STACK=1 加 C++ 栈）
+- **time_created_ns**：enqueue 时间
+- **timeout_ms**：这条 work 的 timeout
+- **start_ / end_ event**：用于查询状态：scheduled / started / completed
+- **time_discovered_started**：watchdog 发现 kernel 已开始的时间
+- **time_discovered_completed**：watchdog 发现 kernel 已完成的时间
+- **retired_**：已从 workMetaList_ 移出；retired 但未 completed = 超时了
+- **thread_id / thread_name**：发起调用的线程
 
 关键的一点：它记录的是**每一次调用**，不只是失败的那一次。所以 dump 出来的是"最近 N 次集合通信的完整账本"，包括每次的形状、每次的 Python 栈、每次是否完成。把 64 份账本按 `collective_seq_id` 对齐，就能看到在哪个序号上谁的记录与别人不同。
 

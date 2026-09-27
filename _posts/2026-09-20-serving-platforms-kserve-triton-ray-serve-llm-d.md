@@ -181,15 +181,13 @@ flowchart TB
 
 Pod 上注入的标签与环境变量（同文件常量）：
 
-```text
-leaderworkerset.sigs.k8s.io/name           所属 LWS
-leaderworkerset.sigs.k8s.io/group-index    group 编号（leaderIndex）
-leaderworkerset.sigs.k8s.io/worker-index   组内编号，leader 为 0
-leaderworkerset.sigs.k8s.io/group-key      同组 Pod 共享的 hash
-LWS_LEADER_ADDRESS                         leader Pod 的地址（headless Service 下的 DNS 名）
-LWS_GROUP_SIZE                             size
-LWS_WORKER_INDEX                           组内编号
-```
+- **leaderworkerset.sigs.k8s.io/name**：所属 LWS
+- **leaderworkerset.sigs.k8s.io/group-index**：group 编号（leaderIndex）
+- **leaderworkerset.sigs.k8s.io/worker-index**：组内编号，leader 为 0
+- **leaderworkerset.sigs.k8s.io/group-key**：同组 Pod 共享的 hash
+- **LWS_LEADER_ADDRESS**：leader Pod 的地址（headless Service 下的 DNS 名）
+- **LWS_GROUP_SIZE**：size
+- **LWS_WORKER_INDEX**：组内编号
 
 `LWS_LEADER_ADDRESS` 与 `LWS_WORKER_INDEX` 正好是 vLLM 多节点启动需要的 `--master-addr` 与 `--node-rank`，这是下文 YAML 能写得很短的原因。
 
@@ -741,19 +739,17 @@ vLLM 进程的 CPU 做三件事：HTTP 与 tokenizer、调度器每步的簿记�
 
 真正的负载在引擎内部，vLLM v0.28.0 在 `vllm/v1/metrics/loggers.py` 里注册（标签是 `model_name` 与 `engine`）：
 
-```text
-vllm:num_requests_running              正在被批处理执行的请求数（gauge）
-vllm:num_requests_waiting              等待调度的请求数（gauge）——排队即饱和
-vllm:num_requests_waiting_by_reason    按原因分的等待数（capacity 等）
-vllm:kv_cache_usage_perc               KV cache 占用比例，1 = 100%
-vllm:time_to_first_token_seconds       TTFT 直方图
-vllm:inter_token_latency_seconds       token 间延迟直方图
-vllm:request_time_per_output_token_seconds   每请求的 TPOT 直方图
-vllm:e2e_request_latency_seconds       端到端延迟直方图
-vllm:request_queue_time_seconds        请求在队列里的时间直方图
-vllm:prefix_cache_queries / vllm:prefix_cache_hits   前缀缓存命中计数
-vllm:num_preemptions                   因 KV 不足被抢占的请求数
-```
+- **vllm:num_requests_running**：正在被批处理执行的请求数（gauge）
+- **vllm:num_requests_waiting**：等待调度的请求数（gauge）——排队即饱和
+- **vllm:num_requests_waiting_by_reason**：按原因分的等待数（capacity 等）
+- **vllm:kv_cache_usage_perc**：KV cache 占用比例，1 = 100%
+- **vllm:time_to_first_token_seconds**：TTFT 直方图
+- **vllm:inter_token_latency_seconds**：token 间延迟直方图
+- **vllm:request_time_per_output_token_seconds**：每请求的 TPOT 直方图
+- **vllm:e2e_request_latency_seconds**：端到端延迟直方图
+- **vllm:request_queue_time_seconds**：请求在队列里的时间直方图
+- **vllm:prefix_cache_queries / vllm:prefix_cache_hits**：前缀缓存命中计数
+- **vllm:num_preemptions**：因 KV 不足被抢占的请求数
 
 选哪个作为扩缩容信号，要看它是**领先**还是**滞后**：`num_requests_waiting` 只在副本已经满了之后才非零，是滞后指标——适合做"必须扩"的兜底；`num_requests_running` 与 `kv_cache_usage_perc` 随负载线性上升，可以在饱和之前触发，是领先指标；TTFT 直方图是用户体验本身，但它是结果而不是原因，并且直方图分位数在低流量时噪声很大。llm-d 的 EPP 在 Router 侧也导出汇总指标 `llm_d_epp_flow_control_queue_size`（Flow Control 队列里等待后端容量的请求数）与 `llm_d_epp_request_running`（`docs/architecture/advanced/autoscaling/hpa-epp.md`），好处是不依赖每个 Pod 的 `/metrics` 被抓取。
 

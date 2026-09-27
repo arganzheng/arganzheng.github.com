@@ -840,16 +840,10 @@ EAGLE 的核心思想是：
 
 因此 EAGLE 与 Draft Model 的最大区别是：
 
-```text
-Draft Model：
-
-Target Model + 完整 Draft Model
-
-
-EAGLE：
-
-Target Model + 轻量 EAGLE Draft Component
-```
+- **Draft Model**
+  - Target Model + 完整 Draft Model
+- **EAGLE**
+  - Target Model + 轻量 EAGLE Draft Component
 
 EAGLE 并不是一个可以对任意模型直接通用的插件。EAGLE Head 需要针对特定 Target Model 进行训练和适配，但相比维护一个完整的 Draft Model，它的额外参数量和计算开销通常要小得多。
 
@@ -918,26 +912,14 @@ MTP 与前面的 EAGLE / Medusa 最大的区别在于：
 
 因此，从部署形态上看：
 
-```text
-Draft Model：
-
-Target + 独立 Draft Model
-
-
-EAGLE：
-
-Target + EAGLE Draft Component
-
-
-Medusa：
-
-Target + 多个 Medusa Heads
-
-
-MTP：
-
-Target 本身就包含 MTP Layers
-```
+- **Draft Model**
+  - Target + 独立 Draft Model
+- **EAGLE**
+  - Target + EAGLE Draft Component
+- **Medusa**
+  - Target + 多个 Medusa Heads
+- **MTP**
+  - Target 本身就包含 MTP Layers
 
 这也是为什么 MTP 能否用于 speculative decoding，在很大程度上取决于**模型 checkpoint 是否原生支持 MTP**。
 

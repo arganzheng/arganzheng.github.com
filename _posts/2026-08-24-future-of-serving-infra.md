@@ -39,11 +39,9 @@ updated: 2026-09-14
 
 Serving Infra 的核心问题也随之改变：
 
-```text
-计算在哪里执行？
-状态存储在哪里？
-请求如何被调度、迁移和恢复？
-```
+- 计算在哪里执行？
+- 状态存储在哪里？
+- 请求如何被调度、迁移和恢复？
 
 这三个问题分别对应：
 
@@ -76,13 +74,9 @@ Table: 本文的章节安排
 
 早期的推理服务可以抽象为一个简单流程：
 
-```text
-输入请求
-    ↓
-模型执行
-    ↓
-输出结果
-```
+1. 输入请求
+2. 模型执行
+3. 输出结果
 
 请求之间相互独立，模型没有显式的长期状态。系统关注的指标也相对简单：
 
@@ -95,21 +89,13 @@ Table: 本文的章节安排
 
 一次任务可能经历：
 
-```text
-接收请求
-   ↓
-Prefill
-   ↓
-生成一部分结果
-   ↓
-调用外部工具
-   ↓
-等待工具返回
-   ↓
-恢复上下文
-   ↓
-继续生成
-```
+1. 接收请求
+2. Prefill
+3. 生成一部分结果
+4. 调用外部工具
+5. 等待工具返回
+6. 恢复上下文
+7. 继续生成
 
 在这个过程中，GPU 只是任务使用的资源之一。KV Cache、Session、工具调用结果和调度元数据，同样需要被保存、迁移和恢复。
 
@@ -204,15 +190,10 @@ $$
 
 编译器的边界因此逐步扩大：
 
-```text
-Kernel Compiler
-        ↓
-Graph Compiler
-        ↓
-Model Compiler
-        ↓
-Serving Plan Compiler
-```
+1. Kernel Compiler
+2. Graph Compiler
+3. Model Compiler
+4. Serving Plan Compiler
 
 这并不意味着手写 Kernel 会消失。更现实的方向是编译器和专家插件协同工作：
 
@@ -224,14 +205,12 @@ Serving Plan Compiler
 
 未来，一个模型可能不再只有一份固定的执行代码，而是拥有多套计划：
 
-```text
-短请求计划
-长上下文计划
-高并发 Decode 计划
-低延迟计划
-高吞吐计划
-低成本计划
-```
+- 短请求计划
+- 长上下文计划
+- 高并发 Decode 计划
+- 低延迟计划
+- 高吞吐计划
+- 低成本计划
 
 Runtime 根据请求特征和集群状态选择合适的计划。
 
@@ -329,10 +308,8 @@ EP = 4
 
 例如：
 
-```text
-Prefill：8 个 Worker
-Decode：24 个 Worker
-```
+- Prefill：8 个 Worker
+- Decode：24 个 Worker
 
 前者决定 Worker 内部如何使用 GPU，后者决定集群中 Prefill 与 Decode 的资源比例。
 
@@ -399,28 +376,24 @@ $$
 
 调度器需要持续观察：
 
-```text
-Prefill 队列长度
-Decode 队列长度
-TTFT
-TPOT
-活跃序列数
-KV Cache 使用率
-KV Cache 传输带宽
-GPU 利用率
-输入输出长度分布
-```
+- Prefill 队列长度
+- Decode 队列长度
+- TTFT
+- TPOT
+- 活跃序列数
+- KV Cache 使用率
+- KV Cache 传输带宽
+- GPU 利用率
+- 输入输出长度分布
 
 然后动态调整：
 
-```text
-Prefill 副本数
-Decode 副本数
-GPU 配额
-请求路由
-批处理策略
-KV Cache 位置
-```
+- Prefill 副本数
+- Decode 副本数
+- GPU 配额
+- 请求路由
+- 批处理策略
+- KV Cache 位置
 
 这不再是普通的弹性伸缩，而是**面向推理阶段的容量编排。**
 
@@ -494,15 +467,10 @@ HBM 占用  A ██████████████████████
 
 未来的 KV Cache 可能采用分层存储：
 
-```text
-GPU HBM
-    ↓
-CPU 内存
-    ↓
-本地 SSD
-    ↓
-远程内存或分布式缓存
-```
+1. GPU HBM
+2. CPU 内存
+3. 本地 SSD
+4. 远程内存或分布式缓存
 
 不同层级具有不同的容量、带宽和访问延迟：
 
@@ -623,23 +591,19 @@ flowchart TB
 
 模型执行器只需要声明：
 
-```text
-需要哪些状态
-产生哪些状态
-状态生命周期多长
-状态是否允许迁移和复用
-```
+- 需要哪些状态
+- 产生哪些状态
+- 状态生命周期多长
+- 状态是否允许迁移和复用
 
 状态平面则负责：
 
-```text
-状态放在哪里
-如何传输
-何时淘汰
-是否压缩
-是否复制
-如何恢复
-```
+- 状态放在哪里
+- 如何传输
+- 何时淘汰
+- 是否压缩
+- 是否复制
+- 如何恢复
 
 这将改变 Serving Runtime 的边界：Runtime 不再独占所有状态，而是成为状态平面的一个使用者。
 
@@ -659,17 +623,11 @@ flowchart TB
 
 Disaggregated Serving 将不同阶段拆分：
 
-```text
-请求入口
-   ↓
-Prefill 集群
-   ↓
-KV Cache Transfer
-   ↓
-Decode 集群
-   ↓
-流式输出
-```
+1. 请求入口
+2. Prefill 集群
+3. KV Cache Transfer
+4. Decode 集群
+5. 流式输出
 
 其优势包括：
 
@@ -705,22 +663,18 @@ KV Cache Transfer 的成本取决于：
 
 可能的传输路径包括：
 
-```text
-GPU → GPU
-GPU → CPU → GPU
-GPU → RDMA → GPU
-GPU → 远程缓存 → GPU
-```
+- GPU → GPU
+- GPU → CPU → GPU
+- GPU → RDMA → GPU
+- GPU → 远程缓存 → GPU
 
 系统需要联合决定：
 
-```text
-Prefill 在哪里执行？
-KV Cache 放在哪里？
-Decode 在哪里执行？
-使用哪条传输路径？
-是否值得传输，还是直接重算？
-```
+- Prefill 在哪里执行？
+- KV Cache 放在哪里？
+- Decode 在哪里执行？
+- 使用哪条传输路径？
+- 是否值得传输，还是直接重算？
 
 这使得 KV Cache Transfer 不再是一个底层通信细节，而成为全局调度的一部分。
 
@@ -756,17 +710,11 @@ Table: 不同状态类型的恢复策略
 
 投机解码通常被视为模型优化，但在大规模部署中，它也会成为基础设施能力。
 
-```text
-Draft Model
-    ↓
-生成候选 token
-    ↓
-Target Model
-    ↓
-验证候选 token
-    ↓
-接受或拒绝
-```
+1. Draft Model
+2. 生成候选 token
+3. Target Model
+4. 验证候选 token
+5. 接受或拒绝
 
 Serving 系统需要决定：
 
@@ -797,14 +745,12 @@ Serving 系统需要决定：
 
 未来的恢复粒度需要从请求级扩展到：
 
-```text
-请求级
-Session 级
-KV Block 级
-Pipeline Stage 级
-Worker 级
-集群级
-```
+- 请求级
+- Session 级
+- KV Block 级
+- Pipeline Stage 级
+- Worker 级
+- 集群级
 
 并非所有状态都需要强一致复制。不同状态可以采用不同策略：
 
@@ -929,17 +875,11 @@ Table: vLLM 在各问题上的优势与下一阶段
 
 未来的 Serving 系统更可能由多个层次共同构成：
 
-```text
-模型与编译层
-    ↓
-Serving Runtime
-    ↓
-Inference State Plane
-    ↓
-分布式调度与编排层
-    ↓
-硬件与数据中心基础设施
-```
+1. 模型与编译层
+2. Serving Runtime
+3. Inference State Plane
+4. 分布式调度与编排层
+5. 硬件与数据中心基础设施
 
 vLLM 可以成为其中重要的执行层，但完整的 AI Serving Operating System 需要更多组件共同完成。
 
@@ -1029,12 +969,10 @@ LLM Serving 的演进，不只是让模型生成 token 更快。
 
 它正在完成四个转变：
 
-```text
-手工配置        → 自动执行计划
-本地缓存        → 分布式状态平面
-单体推理        → 多阶段分布式执行
-GPU 利用率       → Goodput、SLO 与成本联合优化
-```
+- 手工配置：→ 自动执行计划
+- 本地缓存：→ 分布式状态平面
+- 单体推理：→ 多阶段分布式执行
+- GPU 利用率：→ Goodput、SLO 与成本联合优化
 
 未来的 Serving 系统需要同时管理：
 

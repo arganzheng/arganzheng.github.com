@@ -471,16 +471,14 @@ flowchart TB
 
 `LighthouseOpt` 四个参数：`--min_replicas`（多少副本才成 quorum）、`--join_timeout_ms`（默认 60000：等还在心跳但没来参加的副本多久）、`--quorum_tick_ms`（默认 100：多久检查一次）、`--heartbeat_timeout_ms`（默认 5000：多久没心跳算死）。`quorum_compute()` 是核心规则，按顺序：
 
-```text
-1  healthy_replicas    = 最近 heartbeat_timeout_ms 内有心跳的副本
-   healthy_participants = 其中已经发了 quorum 请求（"我准备好进入下一步"）的副本
-2  若上一轮 quorum 存在，且它的全部成员都在 healthy_participants 里  → "Fast quorum"：立即以候选者成立（不等别人）
-   （若任一参与者带 shrink_only，候选者只能是上一轮成员的子集——只缩不扩）
-3  healthy_participants < min_replicas                                → 不成立，等
-4  healthy_participants ≤ healthy_replicas / 2                       → 不成立（防止脑裂：至少要有一半以上活着的副本参加）
-5  还有活着但没来参加的副本，且从第一个参加者到现在 < join_timeout_ms   → 成立但先等 straggler
-6  否则                                                              → 成立，quorum_id += 1
-```
+- **1  healthy_replicas    = 最近 heartbeat_timeout_ms 内有心跳的副本**
+  - healthy_participants = 其中已经发了 quorum 请求（"我准备好进入下一步"）的副本
+- **2  若上一轮 quorum 存在，且它的全部成员都在 healthy_participants 里  → "Fast quorum"：立即以候选者成立（不等别人）**
+  - （若任一参与者带 shrink_only，候选者只能是上一轮成员的子集——只缩不扩）
+- **3  healthy_participants < min_replicas                                → 不成立，等**
+- **4  healthy_participants ≤ healthy_replicas / 2                       → 不成立（防止脑裂：至少要有一半以上活着的副本参加）**
+- **5  还有活着但没来参加的副本，且从第一个参加者到现在 < join_timeout_ms   → 成立但先等 straggler**
+- **6  否则                                                              → 成立，quorum_id += 1**
 
 第 2 条决定了稳态开销：没人掉线时每一步的 quorum 是"快速路径"，不用等 join_timeout；第 5 条决定了掉线后的恢复延迟：一个副本死了（心跳超时 5 秒），剩下的副本在 join_timeout（默认 60 秒）内成立新 quorum——这两个值就是 torchft 的 T_d。`_quorum_tick()` 每 100 ms 调一次 `quorum_compute()`，成立时把 `Quorum`（成员列表按 replica_id 排序、quorum_id）广播给所有参与者。
 

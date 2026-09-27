@@ -898,11 +898,9 @@ struct TORCH_API AutoDispatchBelowADInplaceOrView {
 
 每个算子的 autograd kernel 在"记录完反向图信息、准备调真正的计算"之前，声明一个这样的守卫，让接下来的 redispatch 跳过 autograd 层，避免无穷递归。`LegacyTypeDispatch.h` 里 "Note [AutoDispatchBelowADInplaceOrView]" 把这个不变量写成一句话：
 
-```text
-Once you are in VariableType/ADInplaceOrView kernel for an op,
-you never go back to a kernel on same dispatch key until
-you finish the current op.
-```
+- Once you are in VariableType/ADInplaceOrView kernel for an op,
+- you never go back to a kernel on same dispatch key until
+- you finish the current op.
 
 第五篇讨论过代码生成；这是生成代码依赖运行时守卫来维持正确性的一个例子。
 

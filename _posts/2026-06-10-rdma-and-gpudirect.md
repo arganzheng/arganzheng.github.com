@@ -203,11 +203,9 @@ RC 是唯一同时提供可靠性和单边操作的类型，NCCL 只用 RC：`nc
 
 数据面只有三个动作：
 
-```text
-ibv_post_send(qp, &send_wr, &bad_wr)    把一个或一串 ibv_send_wr 放进 Send Queue，敲门铃
-ibv_post_recv(qp, &recv_wr, &bad_wr)    把一个 ibv_recv_wr 放进 Receive Queue，为对端的 SEND 准备落地 buffer
-ibv_poll_cq(cq, n, wc_array)            从 CQ 取出最多 n 个 ibv_wc，非阻塞，返回实际取到的个数
-```
+- **ibv_post_send(qp, &send_wr, &bad_wr)**：把一个或一串 ibv_send_wr 放进 Send Queue，敲门铃
+- **ibv_post_recv(qp, &recv_wr, &bad_wr)**：把一个 ibv_recv_wr 放进 Receive Queue，为对端的 SEND 准备落地 buffer
+- **ibv_poll_cq(cq, n, wc_array)**：从 CQ 取出最多 n 个 ibv_wc，非阻塞，返回实际取到的个数
 
 `ibv_send_wr` 的关键字段：`wr_id`（64 位，原样回到 `ibv_wc.wr_id`，用来把完成和请求对上）、`opcode`（`IBV_WR_SEND` / `IBV_WR_RDMA_WRITE` / `IBV_WR_RDMA_WRITE_WITH_IMM` / `IBV_WR_RDMA_READ` / 原子）、`sg_list` + `num_sge`（本地 buffer 列表，每段 addr / length / lkey）、`send_flags`（`IBV_SEND_SIGNALED` 要不要产生完成、`IBV_SEND_INLINE` 数据是否内联、`IBV_SEND_FENCE`）、`wr.rdma.remote_addr` + `wr.rdma.rkey`（单边操作的目标）、`imm_data`（32 位立即数，随 WITH_IMM 一起送到对端的完成里）、`next`（链成一串一次 post）。
 
@@ -343,14 +341,12 @@ NCCL 的三步在 `net_ib.cc` 里是三个函数：`ncclIbCreateQp`（create + I
 
 RTR 需要对端的信息，所以在 INIT 和 RTR 之间必须有一次**带外交换**。双方各自把下面这些打包发给对方：
 
-```text
-QPN                本地 QP 的编号（qp->qp_num），对端填到 dest_qp_num
-LID                InfiniBand 的本地标识（16 位，子网管理器分配），对端填到 ah_attr.dlid
-GID                128 位全局标识（RoCE 必需；IB 跨子网时用），对端填到 ah_attr.grh.dgid
-MTU                本端口的 active_mtu，双方取最小
-PSN                起始包序号（可以都用 0）
-rkey + 地址        如果对端要做单边操作，还要告诉它我的 buffer 地址和 rkey
-```
+- **QPN**：本地 QP 的编号（qp->qp_num），对端填到 dest_qp_num
+- **LID**：InfiniBand 的本地标识（16 位，子网管理器分配），对端填到 ah_attr.dlid
+- **GID**：128 位全局标识（RoCE 必需；IB 跨子网时用），对端填到 ah_attr.grh.dgid
+- **MTU**：本端口的 active_mtu，双方取最小
+- **PSN**：起始包序号（可以都用 0）
+- **rkey + 地址**：如果对端要做单边操作，还要告诉它我的 buffer 地址和 rkey
 
 状态机的三步和这次带外交换是交错的，哪一步必须等对端、哪一步可以先做，用时间轴看更直观——尤其是"为什么 recv WR 要在交换之前就 post 好"：
 
@@ -644,12 +640,10 @@ NCCL 在 GPU 找不到近的网卡时有一个补救：PXN（PCI × NVLink），
 
 GPUDirect RDMA 解决的是"网卡访问显存"；还有一个更小的问题：**CPU 怎么低延迟地读写显存里的几个字节**。`cudaMemcpy` 走 DMA 引擎，一次调用固定开销几微秒到十几微秒，对 8 字节的 flag 太贵。GDRCopy（`libgdrapi`，内核模块 `gdrdrv`）把一段显存通过 BAR1 映射到 CPU 的虚拟地址空间，CPU 之后用普通的 load / store 访问它——一次 PCIe 事务，不到 1 µs：
 
-```text
-gdr_open()                          打开 /dev/gdrdrv
-gdr_pin_buffer(g, dptr, size, ...)  pin 这段显存，拿到 BAR1 里的物理地址
-gdr_map(g, handle, &va, size)       mmap 到 CPU 虚拟地址
-gdr_copy_to_mapping / from_mapping  CPU 写 / 读（内部是带 write-combining 优化的 memcpy）
-```
+- **gdr_open()**：打开 /dev/gdrdrv
+- **gdr_pin_buffer(g, dptr, size, ...)**：pin 这段显存，拿到 BAR1 里的物理地址
+- **gdr_map(g, handle, &va, size)**：mmap 到 CPU 虚拟地址
+- **gdr_copy_to_mapping / from_mapping**：CPU 写 / 读（内部是带 write-combining 优化的 memcpy）
 
 代价是 BAR1 空间（A100 / H100 够大）和 CPU 对 BAR1 的写是 posted、读是 non-posted（读较慢，几百 ns 到 1 µs）。
 

@@ -483,10 +483,8 @@ PyTorch 2.13.0 里 CP 是实验 API：`torch/distributed/tensor/experimental/_co
 
 PP 的机制本身很短，可以先亲手跑一遍再看调度（`02_parallelism_toys.py pp`）：4 层各放一个进程、4 个 micro-batch，前向 `recv` 上一 stage 的激活 → 算自己这层 → `send` 给下一 stage；反向 `recv` 下一 stage 传回的激活梯度 → `backward` 累积到本层权重 → 把对输入的梯度 `send` 回上一 stage。GPipe 顺序（先做完 4 个前向再做 4 个反向）：
 
-```text
-4 stage × 4 micro-batch，GPipe 调度；各 stage 权重梯度与单卡的最大误差: ['2.4e-07', '2.4e-07', '2.4e-07', '1.5e-08']
-每个 stage 只保存了自己那一层的参数与 4 个 micro-batch 的输入激活（反向要用）
-```
+- 4 stage × 4 micro-batch，GPipe 调度；各 stage 权重梯度与单卡的最大误差: ['2.4e-07', '2.4e-07', '2.4e-07', '1.5e-08']
+- 每个 stage 只保存了自己那一层的参数与 4 个 micro-batch 的输入激活（反向要用）
 
 注意最后一句：反向要用前向的输入激活，所以 stage 0 在开始第一个反向之前手里攥着全部 4 个 micro-batch 的激活——这就是下面 GPipe 显存问题的来源，也是 1F1B 要解决的事。
 

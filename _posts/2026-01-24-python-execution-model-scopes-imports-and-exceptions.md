@@ -13,15 +13,13 @@ updated: 2026-09-21
 
 Python 常被认为是一门"简单易学"的语言。但在深度学习框架、推理服务和分布式训练系统里，真正需要掌握的不是语法，而是语法背后的运行时模型。下面这些在 AI-Infra 代码里随处可见的写法，每一行都依赖一个可以被替换、被拦截、被扩展的机制：
 
-```text
-import torch                       触发 .so 扩展加载、算子注册、后端初始化
-model(x)                           走的是 __call__，中间可能插入 hooks
-for batch in loader                迭代协议 + 生成器的暂停与恢复
-with torch.inference_mode()        上下文管理协议：进入时改状态、退出时恢复
-@register("cuda")                  装饰器在模块导入时执行，注册表能否填上取决于谁导入了它
-self.linear = nn.Linear(4, 4)      __setattr__ 拦截赋值，把子模块登记到 _modules
-except Exception: log; raise       异常是否重抛，决定 Worker 是否退出
-```
+- **import torch**：触发 .so 扩展加载、算子注册、后端初始化
+- **model(x)**：走的是 __call__，中间可能插入 hooks
+- **for batch in loader**：迭代协议 + 生成器的暂停与恢复
+- **with torch.inference_mode()**：上下文管理协议：进入时改状态、退出时恢复
+- **@register("cuda")**：装饰器在模块导入时执行，注册表能否填上取决于谁导入了它
+- **self.linear = nn.Linear(4, 4)**：__setattr__ 拦截赋值，把子模块登记到 _modules
+- **except Exception: log; raise**：异常是否重抛，决定 Worker 是否退出
 
 这七行里，`import torch` 与 `except ... raise` 两行是本篇的内容（第四、五章）——**代码怎么被加载、怎么跑、出错了怎么传播**；其余五行关于对象——`__call__`、迭代协议、上下文管理器、装饰器、`__setattr__`——在[下篇](/python-object-model-protocols-decorators-and-generators.html)。不理解这些机制，读 PyTorch 或 vLLM 的源码就只能逐行翻译语法；理解之后，才能看出一个框架"为什么这样设计"，也才能解释那些经典故障——"本地能跑、换台机器就 `ImportError`"、"明明写了注册装饰器、运行时却找不到后端"、"`python -m` 能跑、`python script.py` 不能"。
 
@@ -272,11 +270,9 @@ except ValueError as exc:
         tb = tb.tb_next
 ```
 
-```text
-<module> 9
-outer 6
-inner 2
-```
+- <module> 9
+- outer 6
+- inner 2
 
 帧这个概念解释了后面几件事：
 

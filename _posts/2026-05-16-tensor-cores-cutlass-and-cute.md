@@ -196,15 +196,13 @@ __device__ void wmma_tile(const __nv_bfloat16* A, const __nv_bfloat16* B, float*
 
 伪代码形态如下（需 sm_90，仅展示结构）：
 
-```text
-wgmma.fence.sync.aligned;
-wgmma.mma_async.sync.aligned.m64n128k16.f32.bf16.bf16
-    {d0, d1, ..., d63},        // 每线程 64 个 f32 累加器（64*128 / 128 线程）
-    desc_a, desc_b,            // 两个 64 位 descriptor，指向 shared memory
-    scale_d, imm_scale_a, imm_scale_b, imm_trans_a, imm_trans_b;
-wgmma.commit_group.sync.aligned;
-wgmma.wait_group.sync.aligned 0;
-```
+- **wgmma.fence.sync.aligned;**
+- **wgmma.mma_async.sync.aligned.m64n128k16.f32.bf16.bf16**
+  - **{d0, d1, ..., d63},**：// 每线程 64 个 f32 累加器（64*128 / 128 线程）
+  - **desc_a, desc_b,**：// 两个 64 位 descriptor，指向 shared memory
+  - scale_d, imm_scale_a, imm_scale_b, imm_trans_a, imm_trans_b;
+- **wgmma.commit_group.sync.aligned;**
+- **wgmma.wait_group.sync.aligned 0;**
 
 三代接口的对照放在文末小结表中。本篇实践用 `mma.sync`，因为它是 Ampere 上唯一能拿到接近峰值性能的手段，也是理解 fragment 布局这个核心概念的最佳入口。
 
@@ -222,13 +220,14 @@ $$
 
 **A fragment（$$16 \times 16$$ BF16）**：每线程 4 个 32 位寄存器 `a0..a3`，每个装 2 个相邻的 BF16，共 8 个元素：
 
-```text
-寄存器   行            列
-a0       groupID       t*2, t*2+1
-a1       groupID + 8   t*2, t*2+1
-a2       groupID       t*2+8, t*2+9
-a3       groupID + 8   t*2+8, t*2+9
-```
+| 寄存器 | 行 | 列 |
+|---|---|---|
+| a0 | groupID | t*2, t*2+1 |
+| a1 | groupID + 8 | t*2, t*2+1 |
+| a2 | groupID | t*2+8, t*2+9 |
+| a3 | groupID + 8 | t*2+8, t*2+9 |
+
+Table: m16n8k16 的三个 fragment（a0…）
 
 画成图（每格标出持有该元素的 lane 和寄存器；一格是两个相邻 BF16）：
 
@@ -254,11 +253,12 @@ A (16 x 16 BF16)     列: 0-1    2-3    4-5    6-7   │  8-9   10-11  12-13  14
 
 **B fragment（$$16 \times 8$$，$$K \times N$$，BF16）**：每线程 2 个寄存器：
 
-```text
-寄存器   行 (k)            列 (n)
-b0       t*2, t*2+1        groupID
-b1       t*2+8, t*2+9      groupID
-```
+| 寄存器 | 行 (k) | 列 (n) |
+|---|---|---|
+| b0 | t*2, t*2+1 | groupID |
+| b1 | t*2+8, t*2+9 | groupID |
+
+Table: m16n8k16 的三个 fragment（b0…）
 
 ```text
 B (16 x 8 BF16, K x N)     列 n=0    n=1    ...  n=7
@@ -275,13 +275,14 @@ B (16 x 8 BF16, K x N)     列 n=0    n=1    ...  n=7
 
 **C/D fragment（$$16 \times 8$$ FP32）**：每线程 4 个 float：
 
-```text
-寄存器   行            列
-c0       groupID       t*2
-c1       groupID       t*2+1
-c2       groupID + 8   t*2
-c3       groupID + 8   t*2+1
-```
+| 寄存器 | 行 | 列 |
+|---|---|---|
+| c0 | groupID | t*2 |
+| c1 | groupID | t*2+1 |
+| c2 | groupID + 8 | t*2 |
+| c3 | groupID + 8 | t*2+1 |
+
+Table: m16n8k16 的三个 fragment（c0…）
 
 ```text
 C/D (16 x 8 FP32)    列:  0      1      2      3      4      5      6      7
@@ -799,10 +800,8 @@ mbarrier 的"到达计数 + 事务字节数"双条件是理解 TMA 完成通知�
 
 有了 TMA 把 tile 以 swizzled 布局放进 shared memory，`wgmma.mma_async` 直接用 descriptor 读它：descriptor 编码了 shared memory 起始地址（14 位，16 字节单位）、leading dimension byte offset、stride byte offset、以及与 TMA 一致的 swizzle 模式。$$B$$ 必须来自 shared memory，$$A$$ 也可以。于是 Hopper 上主循环的数据流变成：
 
-```text
-Ampere:  global --cp.async--> shared --ldmatrix--> 寄存器 fragment --mma.sync--> 寄存器累加器
-Hopper:  global ----TMA-----> shared (swizzled) ---------------wgmma----------> 寄存器累加器
-```
+- **Ampere:**：global --cp.async--> shared --ldmatrix--> 寄存器 fragment --mma.sync--> 寄存器累加器
+- **Hopper:**：global ----TMA-----> shared (swizzled) ---------------wgmma----------> 寄存器累加器
 
 寄存器里只剩累加器。一条 `m64n256k16` 是 262144 次乘加；H100 每 SM 每周期约 2048 次 dense BF16 乘加（4 个第四代 Tensor Core 各 512），一条指令占约 128 个周期。异步语义在这里是必需的：发出 wgmma 后，warpgroup 可以立刻去处理下一个 tile 的 barrier 等待、或者做 epilogue，而不是原地等 128 个周期。
 
@@ -1292,19 +1291,17 @@ CuTe Layout / Tensor                    swz(), a_row/b_row, warp_m/warp_n     Sh
 
 本篇数字汇总：
 
-```text
-A100 BF16 Tensor Core（标称）                312 TFLOPS = 108 SM x 1024 FMA/clk x 2 x 1.41 GHz
-A100 FP32 CUDA Core（标称）                  19.5 TFLOPS，相差 16 倍
-一条 mma.sync.m16n8k16                      2048 FMA = 4096 FLOP，占一个 Tensor Core 8 个周期
-一条 wgmma.m64n256k16                       262144 FMA，Hopper 每 SM 每周期约 2048 FMA
-4096^3 BF16 GEMM                            137.4 GFLOP，最小流量 100.7 MB，AI 1365 FLOP/B，理论 0.44 ms
-128x128x32 block tile                       每 k-tile 16 KiB / 1 MFLOP，每字节 32 次乘加
-64x32 warp tile 的 shared 算术强度           21.3 FLOP/B，需 96 B/clk（上限 128）
-64x64 warp tile 的 shared 算术强度           32 FLOP/B，需 64 B/clk
-本篇 kernel 预期区间                         cuBLAS 的 80–90%（约 200–260 TFLOPS）
-未 swizzle 的 ldmatrix（64 B 行）             4 路 bank conflict；128 B 行 8 路
-Hopper setmaxnreg 典型分配                   producer 40 / consumer 232 x 2，(40+232+232) x 128 = 64512 <= 65536
-```
+- **A100 BF16 Tensor Core（标称）**：312 TFLOPS = 108 SM x 1024 FMA/clk x 2 x 1.41 GHz
+- **A100 FP32 CUDA Core（标称）**：19.5 TFLOPS，相差 16 倍
+- **一条 mma.sync.m16n8k16**：2048 FMA = 4096 FLOP，占一个 Tensor Core 8 个周期
+- **一条 wgmma.m64n256k16**：262144 FMA，Hopper 每 SM 每周期约 2048 FMA
+- **4096^3 BF16 GEMM**：137.4 GFLOP，最小流量 100.7 MB，AI 1365 FLOP/B，理论 0.44 ms
+- **128x128x32 block tile**：每 k-tile 16 KiB / 1 MFLOP，每字节 32 次乘加
+- **64x32 warp tile 的 shared 算术强度**：21.3 FLOP/B，需 96 B/clk（上限 128）
+- **64x64 warp tile 的 shared 算术强度**：32 FLOP/B，需 64 B/clk
+- **本篇 kernel 预期区间**：cuBLAS 的 80–90%（约 200–260 TFLOPS）
+- **未 swizzle 的 ldmatrix（64 B 行）**：4 路 bank conflict；128 B 行 8 路
+- **Hopper setmaxnreg 典型分配**：producer 40 / consumer 232 x 2，(40+232+232) x 128 = 64512 <= 65536
 
 到这里，GEMM 这条线已经从 naive 走到了 Tensor Core 的手写实现和 CUTLASS 的组装方式。下一篇换一种完全不同的写法：Triton 把线程、fragment、ldmatrix、swizzle 全部藏进编译器，程序员只写 block 级的张量运算。它藏掉了什么、藏不掉什么，是下一篇的问题：
 

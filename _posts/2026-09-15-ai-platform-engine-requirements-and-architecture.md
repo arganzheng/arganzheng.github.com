@@ -28,22 +28,18 @@ updated: 2026-09-14
 
 **训练框架**：给我 $$W$$ 个进程，每个进程一张卡，让它们**同时**起来、能互相找到、之间有高带宽网络，再给我一个能周期性写几百 GB 的地方——然后别打断我。这句话里的每个词都是一条需求：
 
-```text
-W 个进程同时起来          → 整数个 GPU；全员到齐才能开始（gang）
-互相找到                  → 稳定的地址（MASTER_ADDR）与编号（RANK / WORLD_SIZE）
-高带宽网络                → 节点内 NVLink、节点间 RDMA；拓扑接近
-周期性写几百 GB            → checkpoint 的突发顺序写带宽
-别打断我                  → 抢占要考虑上次 checkpoint 之后的损失；一个进程挂了要整组重启
-```
+- W 个进程同时起来：→ 整数个 GPU；全员到齐才能开始（gang）
+- 互相找到：→ 稳定的地址（MASTER_ADDR）与编号（RANK / WORLD_SIZE）
+- 高带宽网络：→ 节点内 NVLink、节点间 RDMA；拓扑接近
+- 周期性写几百 GB：→ checkpoint 的突发顺序写带宽
+- 别打断我：→ 抢占要考虑上次 checkpoint 之后的损失；一个进程挂了要整组重启
 
 **推理引擎**：给我一张（或几张）显存够放权重加 KV cache 的卡，让我把权重加载完再接流量，副本多少按**我内部的**队列长度来定，请求别用轮询发给我。同样拆开：
 
-```text
-显存够放                  → 显存是硬约束，不能超卖；小模型只需要一张卡的一部分
-加载完再接流量            → 扩容时间由权重加载决定，就绪探针要等它
-按我内部的队列长度         → 扩缩容信号是 vllm:num_requests_waiting 这类引擎指标，不是 CPU
-别轮询                    → 路由要知道每个副本的 KV cache 与队列状态
-```
+- 显存够放：→ 显存是硬约束，不能超卖；小模型只需要一张卡的一部分
+- 加载完再接流量：→ 扩容时间由权重加载决定，就绪探针要等它
+- 按我内部的队列长度：→ 扩缩容信号是 vllm:num_requests_waiting 这类引擎指标，不是 CPU
+- 别轮询：→ 路由要知道每个副本的 KV cache 与队列状态
 
 第二、三章把这两句话展开成两张需求清单，第四章把两张清单放在一起看它们的冲突。
 
@@ -131,13 +127,11 @@ rendezvous 是"$$W$$ 个进程如何互相找到并达成一致编号"的协议�
 
 之后每个 agent 为它的 worker 注入一组环境变量。`run.py` 的文档列了十几个，平台关心的是这三个加两个：
 
-```text
-MASTER_ADDR    RANK 0 所在节点的地址；进程组用它初始化 c10d TCP store（后续 NCCL 的通信也从这个 store 起步）
-MASTER_PORT    MASTER_ADDR 上的端口
-WORLD_SIZE     进程组的总大小 W
-RANK           本进程在 0..W-1 中的全局编号
-LOCAL_RANK     本进程在本节点上的编号（0..nproc_per_node-1），代码里 device_ids=[int(os.environ["LOCAL_RANK"])]
-```
+- **MASTER_ADDR**：RANK 0 所在节点的地址；进程组用它初始化 c10d TCP store（后续 NCCL 的通信也从这个 store 起步）
+- **MASTER_PORT**：MASTER_ADDR 上的端口
+- **WORLD_SIZE**：进程组的总大小 W
+- **RANK**：本进程在 0..W-1 中的全局编号
+- **LOCAL_RANK**：本进程在本节点上的编号（0..nproc_per_node-1），代码里 device_ids=[int(os.environ["LOCAL_RANK"])]
 
 这五个变量是训练框架与平台之间**最窄的接口**。任何一个把训练任务搬进 Kubernetes 的方案——Kubeflow Trainer 的 `TrainJob`、Volcano 的 `vcjob`、手写的 Indexed Job——本质上都在做同一件事：让每个 Pod 起来时能算出自己的 `RANK`，能解析出 `MASTER_ADDR` 指向的那个 Pod。Kubeflow Trainer 2.3.0 在 `pkg/constants/constants.go` 里定义的 `PET_NNODES`、`PET_MASTER_ADDR` 等常量正是这些变量的 `torchrun` 别名（`PET_` 前缀由 `torchrun` 识别为参数）。这要求平台提供两样东西：**稳定的 DNS 名**（Pod 重启后地址不变，否则 `MASTER_ADDR` 失效）与**稳定的序号**（Pod 与 `RANK` 的映射不变）。原生 Kubernetes 用 headless Service 加 StatefulSet 或 Indexed Job 可以做到，但这只是必要条件，第三章会看到还缺什么。
 
@@ -417,10 +411,8 @@ CNI 给每个 Pod 一张 veth 网卡，接到 overlay 或 underlay 网络。NCCL
 
 资源层的任务是**把裸节点变成引擎能直接用的运行环境**。
 
-```text
-输入   节点：装了驱动的 GPU、RDMA 网卡、本地 NVMe；引擎的请求：N 张某型号的卡、M 个 Pod 一组、要 RDMA、要挂某个卷
-输出   一组已调度、已启动的 Pod，容器里看得到 GPU 与 RDMA 设备、挂上了存储、彼此能以稳定 DNS 名互访、环境变量齐全
-```
+- **输入**：节点：装了驱动的 GPU、RDMA 网卡、本地 NVMe；引擎的请求：N 张某型号的卡、M 个 Pod 一组、要 RDMA、要挂某个卷
+- **输出**：一组已调度、已启动的 Pod，容器里看得到 GPU 与 RDMA 设备、挂上了存储、彼此能以稳定 DNS 名互访、环境变量齐全
 
 它内部又分四个子层，自下而上对应第二到第五篇：
 
@@ -433,10 +425,8 @@ CNI 给每个 Pod 一张 veth 网卡，接到 overlay 或 underlay 网络。NCCL
 
 交付层的任务是**把一组能跑的引擎 Pod 变成一个可以卖给用户的服务**。
 
-```text
-输入   资源层交出的引擎 Pod（或声明式的"我要 N 个这样的副本"）；请求流量；租户与配额策略
-输出   一个稳定的服务端点：按模型名路由、按租户限流、副本随负载伸缩、有 TTFT/TPOT 的 SLO、有按 token 的账单
-```
+- **输入**：资源层交出的引擎 Pod（或声明式的"我要 N 个这样的副本"）；请求流量；租户与配额策略
+- **输出**：一个稳定的服务端点：按模型名路由、按租户限流、副本随负载伸缩、有 TTFT/TPOT 的 SLO、有按 token 的账单
 
 三个子层自内向外对应第六到第八篇：
 
@@ -448,11 +438,9 @@ CNI 给每个 Pod 一张 veth 网卡，接到 overlay 或 underlay 网络。NCCL
 
 两层的分界线是**"Pod 能跑了"**。资源层不知道 Pod 里跑的是训练还是推理、服务的是谁、值多少钱；交付层不知道 GPU 是怎么分出来的、网卡是怎么进容器的。它们通过三样东西耦合：
 
-```text
-资源请求        交付层用 K8s 的资源语言（nvidia.com/gpu: 2、nodeSelector、ResourceClaim）向资源层要卡；资源层不解释用途
-Pod 组抽象      LeaderWorkerSet / JobSet 定义"哪些 Pod 是一组"，调度层（Kueue / Volcano）据此做 gang；两层共用这个概念
-指标            DCGM（资源层产出）与 vllm:*（引擎产出）在可观测层汇合；成本分摊要同时用到"谁占了卡"与"谁发了请求"
-```
+- **资源请求**：交付层用 K8s 的资源语言（nvidia.com/gpu: 2、nodeSelector、ResourceClaim）向资源层要卡；资源层不解释用途
+- **Pod 组抽象**：LeaderWorkerSet / JobSet 定义"哪些 Pod 是一组"，调度层（Kueue / Volcano）据此做 gang；两层共用这个概念
+- **指标**：DCGM（资源层产出）与 vllm:*（引擎产出）在可观测层汇合；成本分摊要同时用到"谁占了卡"与"谁发了请求"
 
 训练任务只走资源层：`TrainJob` 提交、Kueue 准入、Pod 起来、跑完释放，交付层的三篇对它几乎没有内容（除了第八篇的任务级可观测与成本）。推理服务两层都走：先由资源层给出 Pod，再由交付层包装成服务。这也是为什么总纲说前四篇按"一个训练任务从提交到跑起来"推进、后三篇按"一个推理请求从进入到计费"推进。
 

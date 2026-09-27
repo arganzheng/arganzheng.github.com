@@ -482,10 +482,8 @@ $ lspci -tv
 
 配合 `lspci -vvv -s <BDF>` 可以看每个设备的 `LnkCap`（链路能力）与 `LnkSta`（链路当前状态）：
 
-```text
-LnkCap: Port #0, Speed 16GT/s, Width x16, ...
-LnkSta: Speed 16GT/s (ok), Width x16 (ok)
-```
+- LnkCap: Port #0, Speed 16GT/s, Width x16, ...
+- LnkSta: Speed 16GT/s (ok), Width x16 (ok)
 
 `LnkSta` 的 Speed 或 Width 低于 `LnkCap`——比如协商成了 x8 或 8GT/s——是"PCIe 带宽只有一半"这类问题的直接证据，原因多是插槽、riser 卡或 BIOS 设置。NCCL 读的正是同一份信息（`/sys/bus/pci/devices/<BDF>/max_link_speed` 与 `max_link_width`），但它读的是 max（能力），不是 current（当前）；链路降速时 NCCL 的估算会偏乐观。
 
@@ -787,18 +785,19 @@ ib_write_lat -d mlx5_0 -F -s 8 node-b
 
 把测出的数字与本篇的标称值对照，差距的解释按段落找：
 
-```text
-链路段            标称（单向）        通常可达            低于可达区间时先查
-PCIe 4.0 x16      32 GB/s            24–27 GB/s          LnkSta 是否 x16/16GT/s；主机 buffer 的 NUMA 节点；ACS
-PCIe 5.0 x16      64 GB/s            50–55 GB/s          同上
-NVLink A100       300 GB/s（NV12）   240–280 GB/s        nvidia-smi nvlink -s 有无 inactive 链路；是否真的走了 P2P
-NVLink H100       450 GB/s（NV18）   360–420 GB/s        同上
-IB HDR            25 GB/s            23–24.5 GB/s        网卡 PCIe 链路；进程/buffer 的 NUMA；线缆与端口错误计数（ibstat / perfquery）
-IB NDR            50 GB/s            46–49 GB/s          同上
-RoCE v2 400G      50 GB/s            45–49 GB/s          PFC/ECN 配置；pause/discard 计数；MTU
-GDR 路径          = 网卡速率          接近网卡速率        topo -m 中 GPU–NIC 是否 PIX/PXB；nvidia-peermem；NCCL_NET_GDR_LEVEL
-跨 socket（SYS）  UPI 带宽            NCCL 估 6–40 GB/s   本来就应避免；若不可避免看 numactl -H 的距离矩阵
-```
+| 链路段 | 标称（单向） | 通常可达 | 低于可达区间时先查 |
+|---|---|---|---|
+| PCIe 4.0 x16 | 32 GB/s | 24–27 GB/s | LnkSta 是否 x16/16GT/s；主机 buffer 的 NUMA 节点；ACS |
+| PCIe 5.0 x16 | 64 GB/s | 50–55 GB/s | 同上 |
+| NVLink A100 | 300 GB/s（NV12） | 240–280 GB/s | nvidia-smi nvlink -s 有无 inactive 链路；是否真的走了 P2P |
+| NVLink H100 | 450 GB/s（NV18） | 360–420 GB/s | 同上 |
+| IB HDR | 25 GB/s | 23–24.5 GB/s | 网卡 PCIe 链路；进程/buffer 的 NUMA；线缆与端口错误计数（ibstat / perfquery） |
+| IB NDR | 50 GB/s | 46–49 GB/s | 同上 |
+| RoCE v2 400G | 50 GB/s | 45–49 GB/s | PFC/ECN 配置；pause/discard 计数；MTU |
+| GDR 路径 | = 网卡速率 | 接近网卡速率 | topo -m 中 GPU–NIC 是否 PIX/PXB；nvidia-peermem；NCCL_NET_GDR_LEVEL |
+| 跨 socket（SYS） | UPI 带宽 | NCCL 估 6–40 GB/s | 本来就应避免；若不可避免看 numactl -H 的距离矩阵 |
+
+Table: 比一比：差距的解释与检查清单
 
 这张表填上你自己机器的第三列，就是这台机器的"物理上限档案"。之后任何 nccl-tests 或训练里的通信数字，都先与它比，再谈算法和参数。
 

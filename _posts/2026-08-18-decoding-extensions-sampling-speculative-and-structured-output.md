@@ -368,11 +368,9 @@ step t+1  num_new_tokens = 1 + 3，slot_mapping 从 N+2 开始
 
 同一处还调用 `make_spec_decoding_stats()` 累积 `SpecDecodingStats`（`vllm/v1/spec_decode/metrics.py`）：`num_drafts`、`num_draft_tokens`、`num_accepted_tokens`、以及**按位置**的 `num_accepted_tokens_per_pos` / `num_draft_tokens_per_pos`。它随 `SchedulerStats` 回到前端，`SpecDecodingLogging.log()` 定期打印一行：
 
-```text
-SpecDecoding metrics: Mean acceptance length: 2.71, Accepted throughput: ... tokens/s,
-Drafted throughput: ... tokens/s, Accepted: N tokens, Drafted: M tokens,
-Per-position acceptance rate: 0.812, 0.605, 0.412, Avg Draft acceptance rate: 61.0%
-```
+- SpecDecoding metrics: Mean acceptance length: 2.71, Accepted throughput: ... tokens/s,
+- Drafted throughput: ... tokens/s, Accepted: N tokens, Drafted: M tokens,
+- Per-position acceptance rate: 0.812, 0.605, 0.412, Avg Draft acceptance rate: 61.0%
 
 "Mean acceptance length" 按惯例含 bonus token（`1 + accepted / drafts`）；Prometheus 侧是 `SpecDecodingProm`。**按位置的接受率是调 K 的依据**：第 3 个位置只有 41% 时，第 4 个位置大概率不值得。
 

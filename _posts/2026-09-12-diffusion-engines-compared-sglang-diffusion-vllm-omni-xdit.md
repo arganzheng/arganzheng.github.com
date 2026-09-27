@@ -158,12 +158,10 @@ sglang serve --model-path black-forest-labs/FLUX.1-dev --port 30010
 
 `ComposedPipelineBase`（`pipelines_core/composed_pipeline_base.py`）把一次生成拆成 `pipelines_core/stages/` 里的 stage 对象顺序执行：
 
-```text
-InputValidationStage → TextEncodingStage（+ 可选 ImageEncodingStage / ConditionEncodingStage）
-  → TimestepPreparationStage → LatentPreparationStage
-  → DenoisingStage（或 DenoisingDMDStage / CausalDenoisingStage）
-  → DecodingStage → 后处理
-```
+1. InputValidationStage → TextEncodingStage（+ 可选 ImageEncodingStage / ConditionEncodingStage）
+2. TimestepPreparationStage → LatentPreparationStage
+3. DenoisingStage（或 DenoisingDMDStage / CausalDenoisingStage）
+4. DecodingStage → 后处理
 
 `runtime/pipelines/flux.py` 就是"FLUX 用哪些 stage、每个 stage 用哪个模块"的声明；`comfyui_*_pipeline.py` 是接 ComfyUI 格式 checkpoint 的变体；`diffusers_pipeline.py` 是 `--backend diffusers` 的回退——把整个 diffusers pipeline 当一个 stage。`pipelines_core/executors/`（`sync_executor`、`parallel_executor`、`pipeline_executor`）决定 stage 怎样在 worker 上执行；disaggregation 模式下 stage 按 `RoleType`（encoder / denoiser / decoder）落到不同的 worker 组，`disaggregation/transport/` 传中间张量。
 

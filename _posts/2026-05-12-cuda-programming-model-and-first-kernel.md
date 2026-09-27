@@ -79,12 +79,13 @@ flowchart LR
 
 CUDA C++ 用三个限定符标记一个函数在哪里运行、从哪里调用：
 
-```text
-限定符          运行在    只能从哪里调用          备注
-__global__     device   host（或 device 端动态并行）  这就是 kernel；返回类型必须是 void
-__device__     device   device                  kernel 内部调用的辅助函数
-__host__       host     host                    默认值，通常省略
-```
+| 限定符 | 运行在 | 只能从哪里调用 | 备注 |
+|---|---|---|---|
+| __global__ | device | host（或 device 端动态并行） | 这就是 kernel；返回类型必须是 void |
+| __device__ | device | device | kernel 内部调用的辅助函数 |
+| __host__ | host | host | 默认值，通常省略 |
+
+Table: 三个函数限定符
 
 `__host__ __device__` 可以同时加在一个函数上，让它在两边各编译一份——`cuda_bf16.h` 里的 `__float2bfloat16` 就是这样，所以它既能在 kernel 里用，也能在 host 侧做数据准备。
 
@@ -151,12 +152,10 @@ Table: Grid、Block、Warp、Thread 的三层结构与内建变量
 
 本章补上这幅画面在代码一侧的细节：坐标怎么编号、边界怎么检查、尺寸怎么选、block 如何切成 warp。grid 和 block 都可以是一维、二维或三维的，用 `dim3` 表示。每个线程可以读到四个内建变量：
 
-```text
-threadIdx   本线程在 block 内的坐标      (x, y, z)
-blockDim    block 的尺寸                (x, y, z)
-blockIdx    本 block 在 grid 内的坐标    (x, y, z)
-gridDim     grid 的尺寸                 (x, y, z)
-```
+- **threadIdx**：本线程在 block 内的坐标；(x, y, z)
+- **blockDim**：block 的尺寸；(x, y, z)
+- **blockIdx**：本 block 在 grid 内的坐标；(x, y, z)
+- **gridDim**：grid 的尺寸；(x, y, z)
 
 对一维问题，全局索引就是"跳过前面所有 block 的线程数，再加上自己在 block 里的位置"：
 

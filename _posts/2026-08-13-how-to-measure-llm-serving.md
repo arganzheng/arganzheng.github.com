@@ -40,12 +40,10 @@ Table: 本文的章节安排
 
 LLM Serving 的性能不能只看单一指标，而应同时关注四个维度：
 
-```text
-延迟：用户需要等待多久？
-吞吐：系统单位时间处理多少请求和 Token？
-效率：GPU、显存和资金利用得好不好？
-服务质量：有多少请求满足 SLO？
-```
+- 延迟：用户需要等待多久？
+- 吞吐：系统单位时间处理多少请求和 Token？
+- 效率：GPU、显存和资金利用得好不好？
+- 服务质量：有多少请求满足 SLO？
 
 ```mermaid
 %% 图：LLM Serving 指标体系：延迟、吞吐、资源效率、服务质量四组
@@ -158,10 +156,8 @@ GPU 利用率较高，可能只是 GPU 在等待显存访问或通信；GPU 利�
 
 不同测试的 Prompt 长度、Output 长度和请求分布不同，Requests/s 很难直接比较。更合理的报告方式是同时给出：
 
-```text
-并发数、输入 Token 数、输出 Token 数、Output Tokens/s、
-Total Tokens/s、TTFT、TPOT/ITL 和 P99
-```
+- 并发数、输入 Token 数、输出 Token 数、Output Tokens/s、
+- Total Tokens/s、TTFT、TPOT/ITL 和 P99
 
 **误区六：显存占用越高越好**
 
@@ -197,19 +193,12 @@ Table: 指标与优化方向的对应关系
 
 指标分析应遵循以下顺序：
 
-```text
-先确认指标口径
-    ↓
-区分 Prefill、Decode、排队和网络因素
-    ↓
-观察平均值与 P95/P99 的差异
-    ↓
-结合 GPU、显存、带宽和通信指标定位瓶颈
-    ↓
-选择与指标对应的优化方向
-    ↓
-用 Goodput 和 SLO 达标率验证优化是否有效
-```
+1. 先确认指标口径
+2. 区分 Prefill、Decode、排队和网络因素
+3. 观察平均值与 P95/P99 的差异
+4. 结合 GPU、显存、带宽和通信指标定位瓶颈
+5. 选择与指标对应的优化方向
+6. 用 Goodput 和 SLO 达标率验证优化是否有效
 
 核心原则是：
 
@@ -268,12 +257,10 @@ R3 和 R4 各只违反一项，但一样不计入——Goodput 是按请求做�
 
 LLM Serving 的指标体系可以归纳为：
 
-```text
-延迟：TTFT、TPOT、ITL、E2E
-吞吐：Tokens/s、Requests/s、Goodput
-效率：MFU、GPU 利用率、显存利用率、Cost per Token
-质量：P50、P95、P99、SLO 达标率
-```
+- 延迟：TTFT、TPOT、ITL、E2E
+- 吞吐：Tokens/s、Requests/s、Goodput
+- 效率：MFU、GPU 利用率、显存利用率、Cost per Token
+- 质量：P50、P95、P99、SLO 达标率
 
 其中最重要的区别是：
 

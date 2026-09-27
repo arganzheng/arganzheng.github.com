@@ -198,29 +198,31 @@ verl 的 `perf/throughput`（token / 秒 / GPU）与 `perf/time_per_step` 是它
 
 预训练的 checkpoint 是模型 + 优化器 + dataloader 位置 + RNG。RL 系统多出的状态：
 
-```text
-状态                               在哪                          存不存                      不存的后果
-训练状态（16N）                     训练器                        存（引擎的 save_checkpoint）   —
-dataloader 位置                    driver                        存                          重复 / 跳过 prompt
-RNG（采样种子、DP 的 shuffle）       driver / worker               存                          不可复现（第五章）
-样本缓冲里已完成未训练的样本          TransferQueue                 verl 不存                    丢弃：那些 rollout 白算（异步下可能是几千条）
-在飞的 prompt（pending / running）  TransferQueue 标签 + 推理引擎   verl 存标签、恢复时重发       重发 = 用新权重重生成 → 这些样本 staleness 归零，reward 曲线出现断点
-推理引擎里正在生成的请求             vLLM 调度器                    不存                        同上
-各实例的权重版本                     server                        随重启重同步                  —
-策略版本表（部分 rollout 每段的版本）  样本元数据                     随样本                       —
-沙箱状态（容器里的文件系统）          沙箱集群                       不存                        在飞轨迹全部作废，重发从第一轮开始
-```
+| 状态 | 在哪 | 存不存 | 不存的后果 |
+|---|---|---|---|
+| 训练状态（16N） | 训练器 | 存（引擎的 save_checkpoint） | — |
+| dataloader 位置 | driver | 存 | 重复 / 跳过 prompt |
+| RNG（采样种子、DP 的 shuffle） | driver / worker | 存 | 不可复现（第五章） |
+| 样本缓冲里已完成未训练的样本 | TransferQueue | verl 不存 | 丢弃：那些 rollout 白算（异步下可能是几千条） |
+| 在飞的 prompt（pending / running） | TransferQueue 标签 + 推理引擎 | verl 存标签、恢复时重发 | 重发 = 用新权重重生成 → 这些样本 staleness 归零，reward 曲线出现断点 |
+| 推理引擎里正在生成的请求 | vLLM 调度器 | 不存 | 同上 |
+| 各实例的权重版本 | server | 随重启重同步 | — |
+| 策略版本表（部分 rollout 每段的版本） | 样本元数据 | 随样本 | — |
+| 沙箱状态（容器里的文件系统） | 沙箱集群 | 不存 | 在飞轨迹全部作废，重发从第一轮开始 |
+
+Table: 训练状态之外
 
 verl 的做法（`_save_checkpoint` / `_load_checkpoint` / `_reissue_inflight_prompts`）是**存训练状态与元数据、丢缓冲内容、重发在飞**——简单、正确、代价是重启后几步的样本分布与重启前不连续（全部 fresh、staleness 为 0、且是新权重的样本）。看 reward 曲线时要知道断点在哪。存缓冲内容（已完成的样本几 GB）是可以做的优化，但要连样本的版本标签一起存，恢复后它们的 staleness 按新的 `global_steps` 算——会比阈值大、被 drop——所以"存了也用不上"，除非策略是 wait。
 
 ### 2. 频率与代价
 
-```text
-模型      训练状态       写入（并行文件系统 10 GB/s）    每 20 步一次的占比（步 900 s）
-8B        128 GB        13 s                         0.07%
-32B       525 GB        53 s                         0.3%
-671B      10.7 TB       18 min（!）                   6% —— 必须异步保存或降频
-```
+| 模型 | 训练状态 | 写入（并行文件系统 10 GB/s） | 每 20 步一次的占比（步 900 s） |
+|---|---|---|---|
+| 8B | 128 GB | 13 s | 0.07% |
+| 32B | 525 GB | 53 s | 0.3% |
+| 671B | 10.7 TB | 18 min（!） | 6% —— 必须异步保存或降频 |
+
+Table: 频率与代价
 
 大模型的 checkpoint 要**异步**（先拷到 CPU pinned 内存、后台写盘，训练继续）——verl 的 checkpoint 管理器（0.9 重写，YAML 配置）支持；`save_lora_only` 让 LoRA 训练只存 adapter。异步保存与第三篇的 offload、第五篇的 decoupled 快照三者都要 pinned 内存，要一起算。
 
@@ -241,16 +243,17 @@ Agent            同上 + 沙箱：在飞轨迹的容器已回收，重发从头
 
 ### 2. 随机性的来源
 
-```text
-来源                                    在哪                       消除办法                                  代价
-采样                                    推理引擎                    固定 seed（每实例 replica_rank + seed）      无
-batch 组成 / 完成顺序                    TransferQueue 按完成顺序收   按提交顺序收（v0 的 asyncio.gather）；v1 目前做不到  verl 的 full_determinism 要求 use_v1=false
-kernel 非确定性（atomics、split-K、reduce 顺序）  训练器 + 推理引擎     torch.use_deterministic_algorithms；确定性的 attention / GEMM 选择   训练慢 10–30%
-batch 不变性（同一序列在不同 batch 里算出不同 logits）  推理引擎        vLLM 的 batch-invariant kernel（0.27 覆盖主流模型）；不覆盖的模型 max_num_seqs=1   后者吞吐掉一个量级
-MoE 路由的并列翻转                        两侧                       确定性 top-k + 上面两项                     —
-沙箱 / 环境                              环境                       固定测试顺序、禁网络、固定时钟              取决于环境
-Python 的 dict / set 顺序、多协程调度       agent loop                 固定种子、有序数据结构                       —
-```
+| 来源 | 在哪 | 消除办法 | 代价 |
+|---|---|---|---|
+| 采样 | 推理引擎 | 固定 seed（每实例 replica_rank + seed） | 无 |
+| batch 组成 / 完成顺序 | TransferQueue 按完成顺序收 | 按提交顺序收（v0 的 asyncio.gather）；v1 目前做不到 | verl 的 full_determinism 要求 use_v1=false |
+| kernel 非确定性（atomics、split-K、reduce 顺序） | 训练器 + 推理引擎 | torch.use_deterministic_algorithms；确定性的 attention / GEMM 选择 | 训练慢 10–30% |
+| batch 不变性（同一序列在不同 batch 里算出不同 logits） | 推理引擎 | vLLM 的 batch-invariant kernel（0.27 覆盖主流模型）；不覆盖的模型 max_num_seqs=1 | 后者吞吐掉一个量级 |
+| MoE 路由的并列翻转 | 两侧 | 确定性 top-k + 上面两项 | — |
+| 沙箱 / 环境 | 环境 | 固定测试顺序、禁网络、固定时钟 | 取决于环境 |
+| Python 的 dict / set 顺序、多协程调度 | agent loop | 固定种子、有序数据结构 | — |
+
+Table: 随机性的来源
 
 ### 3. verl 的 `full_determinism`
 
@@ -278,38 +281,36 @@ trainer.use_v1: false     # 必须：v1 按完成顺序收样本，跨运行不�
 
 按前七篇的顺序，每篇一组；括号里是 verl 现成的名字，没有的要自己加：
 
-```text
-第一篇 · 三段时间与吞吐
-  timing_s/{gen, reward, old_log_prob, ref, adv, update_actor, update_weights, save_checkpoint, testing}
-  perf/total_num_tokens · perf/time_per_step · perf/throughput（含全部 GPU 的分母）· 全步 MFU（自算）
-  response_length/{mean, max, min, clip_ratio}（打满 L_max 的比例）· prompt_length/*
-  → 告警：response_length/mean 单步涨 > 20%；clip_ratio > 0.2（大量打满：L_max 设小了或模型在刷长度）
-第二篇 · 形态与配比
-  trainer/idle_ratio · rollouter/idle_ratio（fully_async 的名字；v1 里用 gen 段等待时间 / 步时间近似）
-  每个 rollout 实例的在飞请求数 · 每实例 token/s
-  → 告警：一侧 idle > 30% 持续 10 步 → 配比漂了
-第三篇 · 显存
-  每卡 memory_allocated / reserved 在 "Before resume weights / After update_weights / After resume kv_cache" 三点
-  vLLM 的 gpu_cache_usage_perc · num_preempted（KV 池不够时的抢占）
-  → 告警：reserved − allocated 持续增长（碎片）；preemption > 0
-第四篇 · 同步
-  timing_s/update_weights · 传输字节 · 每实例 global_steps（版本）· delta 的 changed_ratio 与校验失败数
-  → 告警：任一实例版本落后 ≥ 1；同步耗时 > 步时间 10%
-第五篇 · off-policy
-  training/off_policy/evicted_samples · evicted_samples_staleness/{mean, max} · staleness 直方图（自加）
-  training/rollout_probs_diff_{mean, max, std}
-  actor/pg_clipfrac · actor/ppo_kl · rollout_correction 的 IS 权重统计与 mask 比例
-  被训练样本长度 vs 生成样本长度（自加）· DAPO filtered 计数 · failure 组计数
-  → 告警：probs_diff_max 出现 > 1 的尖峰；staleness mean 超阈值一半；clipfrac 比基线翻倍
-第六篇 · 环境
-  每轮环境耗时分布（p50 / p99）· 轨迹轮数分布 · 沙箱队列深度 · 容器启动时间 · 执行超时率 · 失败率 · 活跃容器数 vs 上限
-  按数据源分组的 reward（自加，最重要的一个）· reward 为 0 的比例按源
-  前缀缓存命中率（vllm:prefix_cache_hits / queries）
-  → 告警：某源 reward 全零；活跃容器接近上限；超时率 > 5%
-MoE（第一、五篇）
-  rollout/moe/{max_vio, avg_vio}/{max, avg} 与逐层（专家负载不均：max_vio = 最忙专家的负载 / 均值 − 1）· routed_expert_assignments
-  → 告警：max_vio/max > 2（一个专家的负载是均值三倍）
-```
+- **第一篇 · 三段时间与吞吐**
+  - timing_s/{gen, reward, old_log_prob, ref, adv, update_actor, update_weights, save_checkpoint, testing}
+  - perf/total_num_tokens · perf/time_per_step · perf/throughput（含全部 GPU 的分母）· 全步 MFU（自算）
+  - response_length/{mean, max, min, clip_ratio}（打满 L_max 的比例）· prompt_length/*
+  - → 告警：response_length/mean 单步涨 > 20%；clip_ratio > 0.2（大量打满：L_max 设小了或模型在刷长度）
+- **第二篇 · 形态与配比**
+  - trainer/idle_ratio · rollouter/idle_ratio（fully_async 的名字；v1 里用 gen 段等待时间 / 步时间近似）
+  - 每个 rollout 实例的在飞请求数 · 每实例 token/s
+  - → 告警：一侧 idle > 30% 持续 10 步 → 配比漂了
+- **第三篇 · 显存**
+  - 每卡 memory_allocated / reserved 在 "Before resume weights / After update_weights / After resume kv_cache" 三点
+  - vLLM 的 gpu_cache_usage_perc · num_preempted（KV 池不够时的抢占）
+  - → 告警：reserved − allocated 持续增长（碎片）；preemption > 0
+- **第四篇 · 同步**
+  - timing_s/update_weights · 传输字节 · 每实例 global_steps（版本）· delta 的 changed_ratio 与校验失败数
+  - → 告警：任一实例版本落后 ≥ 1；同步耗时 > 步时间 10%
+- **第五篇 · off-policy**
+  - training/off_policy/evicted_samples · evicted_samples_staleness/{mean, max} · staleness 直方图（自加）
+  - training/rollout_probs_diff_{mean, max, std}
+  - actor/pg_clipfrac · actor/ppo_kl · rollout_correction 的 IS 权重统计与 mask 比例
+  - 被训练样本长度 vs 生成样本长度（自加）· DAPO filtered 计数 · failure 组计数
+  - → 告警：probs_diff_max 出现 > 1 的尖峰；staleness mean 超阈值一半；clipfrac 比基线翻倍
+- **第六篇 · 环境**
+  - 每轮环境耗时分布（p50 / p99）· 轨迹轮数分布 · 沙箱队列深度 · 容器启动时间 · 执行超时率 · 失败率 · 活跃容器数 vs 上限
+  - 按数据源分组的 reward（自加，最重要的一个）· reward 为 0 的比例按源
+  - 前缀缓存命中率（vllm:prefix_cache_hits / queries）
+  - → 告警：某源 reward 全零；活跃容器接近上限；超时率 > 5%
+- **MoE（第一、五篇）**
+  - rollout/moe/{max_vio, avg_vio}/{max, avg} 与逐层（专家负载不均：max_vio = 最忙专家的负载 / 均值 − 1）· routed_expert_assignments
+  - → 告警：max_vio/max > 2（一个专家的负载是均值三倍）
 
 ### 2. 面板
 
@@ -349,12 +350,10 @@ verl 0.9 的两条现成路径：`trainer.logger` 加 `rl_insight` 并设 `RL_IN
 
 ### 2. 排查的一般顺序
 
-```text
-1  先看是不是"数据的问题"：reward 按源 · 长度分布 · filtered / failure 计数 —— 它们不需要读代码
-2  再看是不是"版本的问题"：每实例 global_steps · 同步耗时 / 失败 · probs_diff 的阶跃
-3  再看是不是"异步的问题"：staleness 分布 · clipfrac · 被 drop 的长度
-4  最后才是"实现的问题"：py-spy · NCCL 日志 · 显存日志 · rollout trace 抽样
-```
+- **1**：先看是不是"数据的问题"：reward 按源 · 长度分布 · filtered / failure 计数 —— 它们不需要读代码
+- **2**：再看是不是"版本的问题"：每实例 global_steps · 同步耗时 / 失败 · probs_diff 的阶跃
+- **3**：再看是不是"异步的问题"：staleness 分布 · clipfrac · 被 drop 的长度
+- **4**：最后才是"实现的问题"：py-spy · NCCL 日志 · 显存日志 · rollout trace 抽样
 
 前三步都是看面板，各两分钟；第四步才要登机器。这个顺序反过来（先 py-spy）是最常见的浪费时间的方式。
 
@@ -380,20 +379,21 @@ verl 0.9 的两条现成路径：`trainer.logger` 加 `rl_insight` 并设 `RL_IN
 
 RL 任务向调度器申请的不是"N 张卡"，是一组异质资源加几个服务。本篇只列引擎侧的要求，平台怎么满足在[《AI 平台工程》](/ai-platform-engineering.html)系列：
 
-```text
-资源              要求                                                        与预训练任务的差别
-GPU 池 × 2        训练池 + rollout 池（+ 可选 RM 池），可以不同卡型；rollout 池要能弹性增减    预训练一个池、固定
-CPU 池            沙箱：每 GPU 几十到上百个容器的并发；按排队深度弹性；隔离级别（gVisor / microVM）   预训练几乎不要 CPU
-主机内存          训练池：pinned 内存 = offload 字节 + 快照 + 异步 checkpoint 缓冲（32B/8 卡 > 500 GB / 机）  预训练 pinned 需求小
-网络              训练池内 IB（集合通信）· rollout 池内 NVLink / IB（TP）· 两池之间 IB / RDMA（权重同步，几十 GB 到 TB 每步）· rollout ↔ 沙箱 HTTP（高并发小请求）  预训练只有池内
-gang scheduling   训练池 + rollout 池 + TransferQueue + agent loop worker 要同时起（否则首次同步 / 预热卡住）；沙箱池可以晚到   预训练只有一个 gang
-弹性              rollout 实例可加可减（nixl 一类同步后端）；训练池不能变卡数；沙箱按需     预训练弹性 = 重启
-抢占              rollout 实例被抢占 → 在飞轨迹重发（成本 = 已生成部分）；训练池被抢占 = 重启  预训练被抢占 = 重启
-故障域            一个 rollout 实例挂 → 只丢它的在飞；一个训练 rank 挂 → 整步重来；沙箱挂 → 该轨迹 failure   预训练任一 rank 挂 = 重启
-端口 / 服务发现    每实例一个 HTTP 端口 + ZMQ IPC 套接字；agent loop 要能找到实例；网关要能被 harness 访问   预训练只有 MASTER_ADDR
-镜像              训练镜像 + 推理镜像（可不同）+ 沙箱镜像（按任务，几千个）                    预训练一个镜像
-存储              checkpoint（大模型分钟级写入要异步）· rollout trace · 沙箱镜像仓库带宽         预训练只有 checkpoint
-```
+| 资源 | 要求 | 与预训练任务的差别 |
+|---|---|---|
+| GPU 池 × 2 | 训练池 + rollout 池（+ 可选 RM 池），可以不同卡型；rollout 池要能弹性增减 | 预训练一个池、固定 |
+| CPU 池 | 沙箱：每 GPU 几十到上百个容器的并发；按排队深度弹性；隔离级别（gVisor / microVM） | 预训练几乎不要 CPU |
+| 主机内存 | 训练池：pinned 内存 = offload 字节 + 快照 + 异步 checkpoint 缓冲（32B/8 卡 > 500 GB / 机） | 预训练 pinned 需求小 |
+| 网络 | 训练池内 IB（集合通信）· rollout 池内 NVLink / IB（TP）· 两池之间 IB / RDMA（权重同步，几十 GB 到 TB 每步）· rollout ↔ 沙箱 HTTP（高并发小请求） | 预训练只有池内 |
+| gang scheduling | 训练池 + rollout 池 + TransferQueue + agent loop worker 要同时起（否则首次同步 / 预热卡住）；沙箱池可以晚到 | 预训练只有一个 gang |
+| 弹性 | rollout 实例可加可减（nixl 一类同步后端）；训练池不能变卡数；沙箱按需 | 预训练弹性 = 重启 |
+| 抢占 | rollout 实例被抢占 → 在飞轨迹重发（成本 = 已生成部分）；训练池被抢占 = 重启 | 预训练被抢占 = 重启 |
+| 故障域 | 一个 rollout 实例挂 → 只丢它的在飞；一个训练 rank 挂 → 整步重来；沙箱挂 → 该轨迹 failure | 预训练任一 rank 挂 = 重启 |
+| 端口 / 服务发现 | 每实例一个 HTTP 端口 + ZMQ IPC 套接字；agent loop 要能找到实例；网关要能被 harness 访问 | 预训练只有 MASTER_ADDR |
+| 镜像 | 训练镜像 + 推理镜像（可不同）+ 沙箱镜像（按任务，几千个） | 预训练一个镜像 |
+| 存储 | checkpoint（大模型分钟级写入要异步）· rollout trace · 沙箱镜像仓库带宽 | 预训练只有 checkpoint |
+
+Table: 引擎对平台的要求
 
 一句话：**RL 任务是平台上第一种"训练 + 服务 + 批处理"三合一的工作负载**，调度器要么把它当三个任务加一层编排（Ray 在做的事），要么把"异质 gang"做成一等公民。
 

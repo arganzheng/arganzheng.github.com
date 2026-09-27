@@ -171,13 +171,11 @@ class ActorRolloutRefWorker(Worker):
 
 装饰器只在方法上挂一个属性 `{dispatch_mode, execute_mode, blocking}`。`RayWorkerGroup` 构造时 `_bind_worker_method` 扫描 worker 类的所有方法，对带这个属性的每一个，在**组对象上生成同名方法**：
 
-```text
-组方法 update_actor(data):
-   1. dispatch_fn(worker_group, data)   → 把 data 按 DP 切成 world_size 份（nd_compute：按 "train" mesh 的 dp 维切，TP/PP 内的 rank 拿同一份）
-   2. execute_fn                        → 对每个 worker 调 worker.update_actor.remote(chunk_i)（execute_all）
-   3. collect_fn(worker_group, outputs) → 收回各 rank 的输出，按 mesh 拼回（只从每个 dp 组的一个 rank 收）
-   blocking=False → 返回 futures，调用方用 ray.get 或直接传给下一个组方法（_materialize_futures 自动等待）
-```
+- **组方法 update_actor(data)**
+  - 1. dispatch_fn(worker_group, data) → 把 data 按 DP 切成 world_size 份（nd_compute：按 "train" mesh 的 dp 维切，TP/PP 内的 rank 拿同一份）
+  - 2. execute_fn → 对每个 worker 调 worker.update_actor.remote(chunk_i)（execute_all）
+  - 3. collect_fn(worker_group, outputs) → 收回各 rank 的输出，按 mesh 拼回（只从每个 dp 组的一个 rank 收）
+  - blocking=False → 返回 futures，调用方用 ray.get 或直接传给下一个组方法（_materialize_futures 自动等待）
 
 `Dispatch.ONE_TO_ALL`：同一参数发给全组，收回列表（`init_model`、`update_weights`、`to(device)`）；`DP_COMPUTE_PROTO`：按 DP 切 `DataProto`；`make_nd_compute_dataproto_dispatch_fn(mesh_name)`：按 worker 上注册的 device mesh（"train" 是 actor 的 FSDP mesh、"ref" 是 ref 的）切，让 TP × PP × DP 的任意并行都能正确分发——这是 0.9 里 Megatron 与 FSDP 共用同一套分发的关键。**控制器代码里一行 `self.actor_rollout_wg.update_actor(batch)`，底下就是"切、发、收"三步**，算法作者不碰 rank。
 
@@ -355,34 +353,30 @@ v1 里 `batch` 是 `KVBatchMeta`：`partition_id`（"train" / "val"）、`keys`�
 
 `CheckpointEngineManager`（`verl/checkpoint_engine/base.py`）在构造时按 `config.rollout.checkpoint_engine.backend` 选引擎类（`CheckpointEngineRegistry`），`update_weights()` 分两条：
 
-```text
-backend == "naive"（共置 sync / colocate_async）
-  → actor_wg.update_weights(mode="naive")：第一章表 #4–#9，进程内 IPC；manager 不做别的
-其他（nccl / nixl / mooncake / kimi / hccl / delta_sharded；分离）
-  1 abort_replicas()                       中断在飞请求（部分 rollout）
-  2 临时组一个 RayWorkerGroup 包住所有 replica 的 workers
-  3 release_kv_cache_replicas()            （vLLM 侧目前是 no-op，TODO）
-  4 build_process_group(rollout)           actor_wg.execute_checkpoint_engine("prepare") 拿 master 元数据 → 两侧 init_process_group
-  5 ray.get(actor_wg.update_weights(mode=backend) + rollout.update_weights())   训练侧 send_weights ∥ 推理侧 receive_weights
-  6 execute_checkpoint_engine("finalize")  两侧销毁临时进程组
-  7 resume_kv_cache_replicas(); resume_generation_replicas()   恢复 KV、续接请求
-```
+- **backend == "naive"（共置 sync / colocate_async）**
+  - → actor_wg.update_weights(mode="naive")：第一章表 #4–#9，进程内 IPC；manager 不做别的
+- **其他（nccl / nixl / mooncake / kimi / hccl / delta_sharded；分离）**
+  - **1 abort_replicas()**：中断在飞请求（部分 rollout）
+  - 2 临时组一个 RayWorkerGroup 包住所有 replica 的 workers
+  - **3 release_kv_cache_replicas()**：（vLLM 侧目前是 no-op，TODO）
+  - 4 build_process_group(rollout) actor_wg.execute_checkpoint_engine("prepare") 拿 master 元数据 → 两侧 init_process_group
+  - **5 ray.get(actor_wg.update_weights(mode=backend) + rollout.update_weights())**：训练侧 send_weights ∥ 推理侧 receive_weights
+  - **6 execute_checkpoint_engine("finalize")**：两侧销毁临时进程组
+  - **7 resume_kv_cache_replicas(); resume_generation_replicas()**：恢复 KV、续接请求
 
 第 5 步训练侧走 `ActorRolloutRefWorker.update_weights(mode != "naive")` 的分支：`delta_sharded` 把整个 `actor.engine` 交给引擎（它自己驱动 seed / steady 状态机与快照）；其他后端先 `get_per_tensor_param()` 拿生成器再 `checkpoint_engine.send_weights(generator)`。推理侧 `CheckpointEngineWorker.update_weights()` 在每个 rollout worker 上跑：`receive_weights()` 产出张量流 → `rollout.update_weights(流)` → IPC 进 vLLM——**最后一跳仍是第一章的 #7–#8**。
 
 ### 2. 三个引擎的形状
 
-```text
-NCCLCheckpointEngine（nccl_checkpoint_engine.py）
-  prepare()：rank 0 起 ZMQ pub 服务发元数据；build_topology：world = 1 + 推理总卡数；init_process_group：临时 NCCL 组
-  send_weights：split_weight_chunks 切大张量 → 双缓冲 bucket → BroadcastOperation（异步线程里 broadcast）→ 换缓冲
-  receive_weights：_receive_weight_chunks 收 bucket + 元数据 → merge_weight_chunks 拼回 → yield (name, tensor)
-NIXLCheckpointEngine / MooncakeCheckpointEngine
-  同样的 send / receive 接口；传输换成注册显存 + RDMA 单边写；拓扑是环，成员表可动态改
-DeltaCheckpointEngine（delta_checkpoint_engine.py + delta_sync/）
-  send_weights(engine)：首次 seed 走 engine.get_per_tensor_param 的全量；之后 engine.get_per_tensor_param_delta_shard → 稀疏 gather → bucket → 广播
-  receive：稀疏负载 → SGLang custom_weight_loader（delta_loader.apply_delta）原地覆盖
-```
+- **NCCLCheckpointEngine（nccl_checkpoint_engine.py）**
+  - prepare()：rank 0 起 ZMQ pub 服务发元数据；build_topology：world = 1 + 推理总卡数；init_process_group：临时 NCCL 组
+  - send_weights：split_weight_chunks 切大张量 → 双缓冲 bucket → BroadcastOperation（异步线程里 broadcast）→ 换缓冲
+  - receive_weights：_receive_weight_chunks 收 bucket + 元数据 → merge_weight_chunks 拼回 → yield (name, tensor)
+- **NIXLCheckpointEngine / MooncakeCheckpointEngine**
+  - 同样的 send / receive 接口；传输换成注册显存 + RDMA 单边写；拓扑是环，成员表可动态改
+- **DeltaCheckpointEngine（delta_checkpoint_engine.py + delta_sync/）**
+  - send_weights(engine)：首次 seed 走 engine.get_per_tensor_param 的全量；之后 engine.get_per_tensor_param_delta_shard → 稀疏 gather → bucket → 广播
+  - receive：稀疏负载 → SGLang custom_weight_loader（delta_loader.apply_delta）原地覆盖
 
 第四篇的每个概念都在这三个类里：bucket（`bucket_size`）、双缓冲（`send_buf / recv_buf`）、元数据与字节分离（ZMQ + NCCL）、`TensorMeta.chunk_offset`（大张量切块）、`magic_recv` 缓冲。
 

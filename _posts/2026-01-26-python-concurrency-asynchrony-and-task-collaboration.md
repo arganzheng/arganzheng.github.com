@@ -60,19 +60,15 @@ flowchart TB
 
 对于 AI-Infra，二者经常组合使用：
 
-```text
-Python asyncio
-    ├── 管理大量网络请求
-    ├── 管理任务生命周期
-    └── 调度后台协作任务
-
-线程或进程
-    ├── 执行阻塞操作
-    └── 执行 CPU 密集型预处理
-
-GPU / C++ Runtime
-    └── 执行真正的模型计算
-```
+- **Python asyncio**
+    - 管理大量网络请求
+    - 管理任务生命周期
+    - 调度后台协作任务
+- **线程或进程**
+    - 执行阻塞操作
+    - 执行 CPU 密集型预处理
+- **GPU / C++ Runtime**
+    - 执行真正的模型计算
 
 ### 3. 三种执行模型一览
 
@@ -775,14 +771,12 @@ result = await client.get(url)
 
 抽象后的流程可以表示为：
 
-```text
-事件循环
-  ├── 检查已完成的定时器
-  ├── 检查已完成的 Future
-  ├── 轮询网络 I/O
-  ├── 恢复可继续执行的协程
-  └── 执行协程直到下一次 await
-```
+- **事件循环**
+  - 检查已完成的定时器
+  - 检查已完成的 Future
+  - 轮询网络 I/O
+  - 恢复可继续执行的协程
+  - 执行协程直到下一次 await
 
 对应 Java：这套模型 Java 程序员其实很熟悉，它就是 **Netty 的 EventLoop**。`uvicorn`（Python 最主流的 ASGI 服务器）默认用 `uvloop`——基于 libuv 的事件循环实现，和 Netty 基于 epoll/kqueue 是同一层抽象。
 
@@ -2129,15 +2123,10 @@ async def inference_session(request_id: str):
 
 很多 AI 系统并不是纯 Python 系统：
 
-```text
-异步 HTTP / gRPC 服务
-        ↓
-Python 编排层
-        ↓
-PyTorch / TensorRT / CUDA Runtime
-        ↓
-GPU
-```
+1. 异步 HTTP / gRPC 服务
+2. Python 编排层
+3. PyTorch / TensorRT / CUDA Runtime
+4. GPU
 
 这类系统需要明确区分两种"异步"：
 
@@ -2528,17 +2517,15 @@ Python 并发编程的难点，并不在于记住 `async def`、`await` 或线�
 
 当 Python 负责的是模型服务和基础设施编排时，真正需要优化的往往不是某一行代码，而是整个任务流：
 
-```text
-请求接入
-  → 限流
-  → 排队
-  → 批处理
-  → 调度
-  → 推理
-  → 流式返回
-  → 指标上报
-  → 资源回收
-```
+1. 请求接入
+2. 限流
+3. 排队
+4. 批处理
+5. 调度
+6. 推理
+7. 流式返回
+8. 指标上报
+9. 资源回收
 
 只有把这条链路中的等待、计算、资源和失败边界都设计清楚，异步和并发才能真正转化为 AI 系统的吞吐量、稳定性与可观测性。
 

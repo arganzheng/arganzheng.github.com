@@ -26,25 +26,24 @@ updated: 2026-09-14
 
 671B MoE（DeepSeek-V3 规格：61 层、每层 256 个路由专家 + 1 个共享专家、MLA 注意力），训练器 Megatron TP = 4 × PP = 2 × EP = 8（64 卡一个副本，DP 再往外扩），推理引擎 vLLM TP = 8 × EP = 4 的 FP8 副本（32 卡一个实例），两边在不同机器，一次同步：
 
-```text
-步骤                                           在哪做              字节（全模型）        说明
-① 训练侧：按 PP 找到每层的所有者                 Megatron 元数据      —                 只有持有该层的 stage 参与
-② 训练侧：TP=4 的分片 all-gather 成完整参数        NVLink（节点内）     1.34 TB bf16 流过   注意力 / dense 层；专家在 EP rank 上本来就是完整的
-③ 名字与形状映射：mcore → HF                     CPU 元数据 + 视图    0                  拆 QKV、拆 gate/up、专家堆叠 → 逐专家、MLA 的低秩投影
-④ 在线量化：bf16 → FP8（块 128×128 + scale）      GPU kernel          1.34 TB → 0.67 TB   与推理侧的量化格式对齐；scale 也是要传的权重
-⑤ 分桶（512 MB）+ 传输到推理实例                  IB / RDMA           0.67 TB / 实例       NCCL 广播 或 NIXL 点对点；多个实例共享一次广播
-⑥ 推理侧：每个 rank 取自己的 TP 切片 + EP 专家子集  GPU                  每卡写入 21 GB      vLLM load_weights 按名字找到目标张量
-⑦ 缓存失效 + 版本号                              推理引擎             —                 reset_prefix_cache；记下 global_steps
-```
+| 步骤 | 在哪做 | 字节（全模型） | 说明 |
+|---|---|---|---|
+| ① 训练侧：按 PP 找到每层的所有者 | Megatron 元数据 | — | 只有持有该层的 stage 参与 |
+| ② 训练侧：TP=4 的分片 all-gather 成完整参数 | NVLink（节点内） | 1.34 TB bf16 流过 | 注意力 / dense 层；专家在 EP rank 上本来就是完整的 |
+| ③ 名字与形状映射：mcore → HF | CPU 元数据 + 视图 | 0 | 拆 QKV、拆 gate/up、专家堆叠 → 逐专家、MLA 的低秩投影 |
+| ④ 在线量化：bf16 → FP8（块 128×128 + scale） | GPU kernel | 1.34 TB → 0.67 TB | 与推理侧的量化格式对齐；scale 也是要传的权重 |
+| ⑤ 分桶（512 MB）+ 传输到推理实例 | IB / RDMA | 0.67 TB / 实例 | NCCL 广播 或 NIXL 点对点；多个实例共享一次广播 |
+| ⑥ 推理侧：每个 rank 取自己的 TP 切片 + EP 专家子集 | GPU | 每卡写入 21 GB | vLLM load_weights 按名字找到目标张量 |
+| ⑦ 缓存失效 + 版本号 | 推理引擎 | — | reset_prefix_cache；记下 global_steps |
+
+Table: 先说答案
 
 时间的三个量级：
 
-```text
-做法                                   瓶颈                              671B FP8 的一次同步
-朴素：逐参数 all-gather → rank 0 广播    rank 0 的一张网卡 + 全模型经它流过    理论 13 s（50 GB/s），实测量级 60–80 s（有效 8–10 GB/s）
-多源 / 点对点（NIXL ring、Mooncake）      所有训练卡的网卡一起发               20–30 s 量级（MoonshotAI 的 checkpoint-engine 报告 1T 模型在千卡量级上约 20 s）
-增量（delta_sharded）                    每 rank 的分片 diff + 稀疏 gather      12–15 s，几乎不随模型变大（verl 报告 32B–235B 持平）
-```
+- **做法**：瓶颈；671B FP8 的一次同步
+- **朴素：逐参数 all-gather → rank 0 广播**：rank 0 的一张网卡 + 全模型经它流过；理论 13 s（50 GB/s），实测量级 60–80 s（有效 8–10 GB/s）
+- **多源 / 点对点（NIXL ring、Mooncake）**：所有训练卡的网卡一起发；20–30 s 量级（MoonshotAI 的 checkpoint-engine 报告 1T 模型在千卡量级上约 20 s）
+- **增量（delta_sharded）**：每 rank 的分片 diff + 稀疏 gather；12–15 s，几乎不随模型变大（verl 报告 32B–235B 持平）
 
 增量同步能省多少：dense 模型每步只有 1–3% 的参数字节变化、MoE 早期只有 0.02–0.05%，线上传输的字节数按这个比例缩；但真正省下的是**"没有任何一个 rank 持有完整模型"**——全模型 all-gather 与 rank 0 的物化都没了，这一项与网络快慢无关，所以 verl 在 0.5B 到 235B 的每一个尺寸上都测到了 1.3–21 倍的提速。
 
@@ -173,16 +172,17 @@ verl 的 `delta_weight_sync.md` 给了直接的测量：Qwen3-235B-A22B（VeOmni
 
 verl 的 checkpoint engine 把传输抽象成三个接口——`send_weights`（训练侧，消费张量流并发送）、`receive_weights`（推理侧，产出张量流）、`get_weights`（推理侧从本地缓存取，用于每个实例独立更新）——下面有六个后端：
 
-```text
-后端                通信库                拓扑                         适用                             弹性
-naive              torch.distributed     进程内 / 同卡 CUDA IPC        共置同步（第三篇）                 —
-nccl               NCCL                  all_gather + 广播             分离、固定集群                    低：换实例要重建 NCCL 组
-hccl               HCCL                  同上                          Ascend                          低
-nixl               NIXL（UCX / UCCL / Mooncake 后端）  all_gather + 环形点对点   分离、弹性 rollout、异构硬件      高：环拓扑可动态调
-mooncake           Mooncake Transfer Engine  all_gather + 环形点对点     分离、固定集群                    高
-kimi_ckpt_engine   Mooncake P2P + NCCL 广播  先 offload 到 CPU，P2P 到一个推理 worker，再组内广播   分离、顺带落 checkpoint   低
-delta_sharded      NCCL（稀疏负载）        分片 diff + 稀疏 gather + 广播   分离异步、FSDP 训练侧             低
-```
+| 后端 | 通信库 | 拓扑 | 适用 | 弹性 |
+|---|---|---|---|---|
+| naive | torch.distributed | 进程内 / 同卡 CUDA IPC | 共置同步（第三篇） | — |
+| nccl | NCCL | all_gather + 广播 | 分离、固定集群 | 低：换实例要重建 NCCL 组 |
+| hccl | HCCL | 同上 | Ascend | 低 |
+| nixl | NIXL（UCX / UCCL / Mooncake 后端） | all_gather + 环形点对点 | 分离、弹性 rollout、异构硬件 | 高：环拓扑可动态调 |
+| mooncake | Mooncake Transfer Engine | all_gather + 环形点对点 | 分离、固定集群 | 高 |
+| kimi_ckpt_engine | Mooncake P2P + NCCL 广播 | 先 offload 到 CPU，P2P 到一个推理 worker，再组内广播 | 分离、顺带落 checkpoint | 低 |
+| delta_sharded | NCCL（稀疏负载） | 分片 diff + 稀疏 gather + 广播 | 分离异步、FSDP 训练侧 | 低 |
+
+Table: 五条链路
 
 基准（verl README，Qwen3-30B-A3B 61 GB bf16）：4 × 8 H100 IB 400 Gbps 上 NCCL 约 7 秒（8.25 GB/s）、NIXL 约 7 秒；2 × 8 H100 上 Mooncake 5.9 秒（9.4 GB/s）；Ascend 上 kimi_ckpt_engine 的 "offload 7 s + update 3.5 s"——先把权重放到 CPU 再传，多付一次 PCIe 换来传输与训练重叠的可能。
 
@@ -244,11 +244,12 @@ MoonshotAI 的 **checkpoint-engine**（Kimi K2 的权重同步组件，verl 的 
 
 DeepSeek-V3 的官方部署是 FP8（块 128 × 128 的 e4m3 权重 + fp32 的块缩放 `weight_scale_inv`），vLLM 的 FP8 路径按这个格式加载；训练侧是 bf16（或 FP8 训练但格式不同）。同步时要在某处做**在线量化**：
 
-```text
-在哪量化          传输字节        谁付计算              问题
-训练侧（发送前）   N（减半）      训练 rank             scale 的计算要与推理侧的量化格式完全一致（块大小、舍入、per-tensor vs per-block）
-推理侧（接收后）   2N            推理 rank             传输不省，但格式由推理引擎自己保证
-```
+| 在哪量化 | 传输字节 | 谁付计算 | 问题 |
+|---|---|---|---|
+| 训练侧（发送前） | N（减半） | 训练 rank | scale 的计算要与推理侧的量化格式完全一致（块大小、舍入、per-tensor vs per-block） |
+| 推理侧（接收后） | 2N | 推理 rank | 传输不省，但格式由推理引擎自己保证 |
+
+Table: 推理侧是 FP8 时
 
 verl 0.9 为 DeepSeek-V4 做的 "FP8/MXFP4 weight transfer" 是前者：训练侧按推理侧的 scheme 量化后再装桶，release note 里 "quantized weight-sync paths split per scheme"——每种量化格式一条路径，因为 FP8 块量化、MXFP4 的 microscaling、per-channel FP8 的 scale 算法各不相同，量化后的张量与 scale 张量都要按推理侧的名字发出去。**scale 是权重的一部分**：漏传 scale 或用错块大小，推理引擎不报错、只是全部输出变成噪声（第九章）。
 
@@ -359,16 +360,17 @@ verl 的 `CheckpointEngineManager.update_weights()` 的完整顺序：abort 全�
 
 `state_dict` 里的参数同步了，还有几样东西**不在里面**、或不由训练器产生，漏一个就是静默错误：
 
-```text
-东西                        为什么会漏                                后果
-量化 scale                  训练侧没有；在线量化时要一起发             输出变噪声，不报错
-MTP 草稿模型                 vLLM 自己初始化、不属于 actor            level 2 sleep 后丢失 → 0.9 特别处理 "MTP drafter weights preserved across hybrid sleep"
-LoRA 合并状态               merge 前后 base 不同                      merge=True 时 SGLang 要确保自己是 LoRA-free（0.9 修了一处）
-named_buffers（RoPE 表等）   不在 state_dict                          level 2 sleep 后由 Worker 从 CPU 副本恢复
-tied embeddings             HF 里 lm_head 与 embed 共享一个张量        映射表要知道只传一次、两处都更新
-MLA 吸收后的张量             推理侧派生，不在 HF 名字里                 每次同步后 vLLM 要重新吸收
-KV cache 与 prefix cache    内容由旧权重算出                          必须 reset；外挂 connector 也要
-```
+| 东西 | 为什么会漏 | 后果 |
+|---|---|---|
+| 量化 scale | 训练侧没有；在线量化时要一起发 | 输出变噪声，不报错 |
+| MTP 草稿模型 | vLLM 自己初始化、不属于 actor | level 2 sleep 后丢失 → 0.9 特别处理 "MTP drafter weights preserved across hybrid sleep" |
+| LoRA 合并状态 | merge 前后 base 不同 | merge=True 时 SGLang 要确保自己是 LoRA-free（0.9 修了一处） |
+| named_buffers（RoPE 表等） | 不在 state_dict | level 2 sleep 后由 Worker 从 CPU 副本恢复 |
+| tied embeddings | HF 里 lm_head 与 embed 共享一个张量 | 映射表要知道只传一次、两处都更新 |
+| MLA 吸收后的张量 | 推理侧派生，不在 HF 名字里 | 每次同步后 vLLM 要重新吸收 |
+| KV cache 与 prefix cache | 内容由旧权重算出 | 必须 reset；外挂 connector 也要 |
+
+Table: 权重之外的权重
 
 0.9 的 release note 里 "reset all caches after weight updates"、"MTP drafter weights preserved"、"SGLang stays LoRA-free when merge=True" 三条 fix 都属于这一类。**同步的正确性检查**：slime 的 `--check-weight-update-equal` 在同步后把推理引擎的权重与训练器比一遍；verl 的 delta 引擎每个 bucket 带校验和；最朴素也最可靠的是同步后用固定 prompt 贪心生成几条、与训练器前向的 argmax 对比。
 

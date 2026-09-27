@@ -537,19 +537,17 @@ pytest -s tests/test_scheduler.py
 
 常用命令：
 
-```text
-n              执行下一行
-s              进入当前函数调用
-r              执行到当前函数返回
-c              继续运行
-p variable     打印变量
-pp variable    格式化打印变量
-l              查看当前代码
-w              查看调用栈
-u              向上移动调用栈
-d              向下移动调用栈
-q              退出调试
-```
+- **n**：执行下一行
+- **s**：进入当前函数调用
+- **r**：执行到当前函数返回
+- **c**：继续运行
+- **p variable**：打印变量
+- **pp variable**：格式化打印变量
+- **l**：查看当前代码
+- **w**：查看调用栈
+- **u**：向上移动调用栈
+- **d**：向下移动调用栈
+- **q**：退出调试
 
 测试失败时自动进入调试器：
 
@@ -675,13 +673,11 @@ logger.addHandler(handler)
 
 `logging.getLogger(__name__)` 这个写法之所以是惯例，是因为 logger 的名字用 `.` 分隔构成一棵树：
 
-```text
-root
-└── inference
-    ├── inference.engine
-    └── inference.backends
-        └── inference.backends.torch
-```
+- **root**
+  - inference
+    - inference.engine
+    - inference.backends
+      - inference.backends.torch
 
 日志记录默认会**向上传播**（propagate）到所有祖先 logger 的 handler。这带来两个实用后果：
 

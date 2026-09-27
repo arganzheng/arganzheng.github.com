@@ -576,14 +576,12 @@ sequenceDiagram
 
 两位 CPU proxy 在下半段没有任何消息经过——省掉的正是它们两端的轮询周期、软件路径和串行化。逐项对照：
 
-```text
-NCCL NET（proxy）一条消息的发起：                              IBGDA 一条消息的发起：
-  GPU kernel 写数据到 buffer、推 tail（显存或 sysmem）             warp 写 WQE（GPU 内存里的 WQ）
-  proxy 线程轮询到 tail（跨 PCIe 读，或 GDRCopy）                 warp 写 DBR（GPU 内存）
-  proxy 调 ibv_post_send：写 WQE、DBR、doorbell（CPU → NIC）       warp 写 doorbell（GPU → NIC，一次 PCIe 写）
-  一个 progress 线程串行服务本 rank 所有 channel × 对端           每个 warp 独立，发起并发度 = 活跃 warp 数
-  完成：proxy 轮询 CQ → 推对端 tail → 对端 kernel 轮询到           完成：数据与计数直接落在对端显存，对端 warp 轮询本地
-```
+- **NCCL NET（proxy）一条消息的发起：                              IBGDA 一条消息的发起**
+  - **GPU kernel 写数据到 buffer、推 tail（显存或 sysmem）**：warp 写 WQE（GPU 内存里的 WQ）
+  - **proxy 线程轮询到 tail（跨 PCIe 读，或 GDRCopy）**：warp 写 DBR（GPU 内存）
+  - proxy 调 ibv_post_send：写 WQE、DBR、doorbell（CPU → NIC） warp 写 doorbell（GPU → NIC，一次 PCIe 写）
+  - **一个 progress 线程串行服务本 rank 所有 channel × 对端**：每个 warp 独立，发起并发度 = 活跃 warp 数
+  - 完成：proxy 轮询 CQ → 推对端 tail → 对端 kernel 轮询到 完成：数据与计数直接落在对端显存，对端 warp 轮询本地
 
 被拿掉的是三样：GPU→CPU 的通知延迟（proxy 轮询周期）、CPU 上 `ibv_post_send` 的软件路径、以及最重要的**串行化**——一个 CPU 线程对上千条消息逐条 post，变成几百个 warp 各自 post。第二章第 4 节算过：EP=64 decode 每 rank 1024 条消息在 README 的 173 µs 里发完，约 6 条/µs；一个线程每条花 1 µs 就要 1 ms。这个差距不是 β 也不是单条消息的 α，而是**发起速率**，α-β 模型里没有这一项，本篇把它记作 $$\alpha_{\text{issue}} \times \text{条数}$$。
 
@@ -616,11 +614,9 @@ NCCL 也在走这条路。2.28.9 的源码树里有一套**设备端 API**（`sr
 
 第五篇和第七篇讲了 PyTorch symmetric memory（`torch/csrc/distributed/c10d/symm_mem/`）的基础和它在 all_reduce 上的用法，这里只讲它对 all_to_all 的意义。PyTorch 2.12 在 NVSHMEM 后端（`nvshmem_extension.cu`，`set_backend("NVSHMEM")`）下注册了三个算子（`SymmetricMemory.cpp` 的 schema）：
 
-```text
-symm_mem.all_to_all_vdev(input, out, in_splits, out_splits_offsets, group_name)
-symm_mem.all_to_all_vdev_2d(input, out, in_splits, out_splits_offsets, group_name, major_align=None)
-symm_mem.all_to_all_vdev_2d_offset(input, out, in_splits_offsets, out_splits_offsets, group_name)
-```
+- symm_mem.all_to_all_vdev(input, out, in_splits, out_splits_offsets, group_name)
+- symm_mem.all_to_all_vdev_2d(input, out, in_splits, out_splits_offsets, group_name, major_align=None)
+- symm_mem.all_to_all_vdev_2d_offset(input, out, in_splits_offsets, out_splits_offsets, group_name)
 
 名字里的 `vdev` 是 "v（变长）+ splits on device"：**split 信息是设备端张量，不是 Python 列表**。`all_to_all_vdev` 启动两个 kernel：`exchangeSplitAndOffset` 一个 block，前 `npes` 个线程各用 `nvshmem_int64_p` 把"我发给你多少"和"我的数据在我 buffer 里的偏移"写到对端的 `out_splits_offsets`，`nvshmemx_barrier_block` 同步；然后 `allToAllV` 用 `nvshmemx_getmem_nbi_block` 按对端写来的偏移**去对端读**（RDMA READ 语义的 get），每个对端分若干 block 并行。两个 kernel 都在同一条 stream 上、用 `nvshmemx_collective_launch` 启动，中间没有 host 同步——counts 交换从"集合通信 + D2H + sync"变成了"一个 kernel 里几次 8 字节的远端写加一次 barrier"。这正是第三章第 4 节那两次 α 与一次同步的对称内存解法，代价是 `out` 要按最坏情况分配（测试 `test/distributed/test_nvshmem.py` 里 `max_out_numel = max_inp_numel × world_size`）。
 
@@ -634,15 +630,13 @@ symm_mem.all_to_all_vdev_2d_offset(input, out, in_splits_offsets, out_splits_off
 
 vLLM v0.23.0 用 `--all2all-backend`（`ParallelConfig.all2all_backend`，`vllm/config/parallel.py`）选择 MoE 的通信实现，不再有环境变量形式。可选值：
 
-```text
-allgather_reducescatter   默认；dispatch 用 all_gatherv、combine 用 reduce_scatterv（AgRsAll2AllManager）
-deepep_high_throughput    DeepEP normal kernel（DeepEPHTAll2AllManager）
-deepep_low_latency        DeepEP low-latency kernel（DeepEPLLAll2AllManager）
-mori_high_throughput / mori_low_latency    MoRI（ROCm 侧的 EP 库，MoriAll2AllManager）
-nixl_ep                   基于 NIXL 的 EP kernel（NixlEPAll2AllManager，支持弹性 EP）
-flashinfer_nvlink_two_sided / flashinfer_nvlink_one_sided    FlashInfer 的 MNNVL all-to-all（flashinfer_all2allv 是前者的临时别名）
-naive / pplx              已移除，_validate_parallel_config 里告警并回落到 allgather_reducescatter
-```
+- **allgather_reducescatter**：默认；dispatch 用 all_gatherv、combine 用 reduce_scatterv（AgRsAll2AllManager）
+- **deepep_high_throughput**：DeepEP normal kernel（DeepEPHTAll2AllManager）
+- **deepep_low_latency**：DeepEP low-latency kernel（DeepEPLLAll2AllManager）
+- **mori_high_throughput / mori_low_latency**：MoRI（ROCm 侧的 EP 库，MoriAll2AllManager）
+- **nixl_ep**：基于 NIXL 的 EP kernel（NixlEPAll2AllManager，支持弹性 EP）
+- **flashinfer_nvlink_two_sided / flashinfer_nvlink_one_sided**：FlashInfer 的 MNNVL all-to-all（flashinfer_all2allv 是前者的临时别名）
+- **naive / pplx**：已移除，_validate_parallel_config 里告警并回落到 allgather_reducescatter
 
 `CudaCommunicator.__init__`（`vllm/distributed/device_communicators/cuda_communicator.py`）在 `use_all2all` 为真时按这个值实例化对应的 `*All2AllManager`（都在 `all2all.py`，基类 `All2AllManagerBase` 在 `base_device_communicator.py`），`dispatch_router_logits` / `dispatch` / `combine` 三个方法转发给它。与第七篇的 all_reduce 后端链不同，这里**没有运行时的 if 链**——一个进程只有一个 all2all manager，由配置决定。
 
@@ -749,39 +743,33 @@ NCCL（走 all_to_all_single 时）
 
 **MoE 层通信慢（prefill / 训练）**：
 
-```text
-1. 算理论值：moe_a2a_model.py 给出网卡与 NVLink 的字节与时间；profiler 里 dispatch + combine 的时间与之比
-   接近 → 带宽账，看第 2 步；差几倍 → 看第 3、4 步
-2. 网卡是否被跑满：nvidia-smi topo -mp 确认每 GPU 一张网卡且亲和正确（第二篇）；ib_write_bw --use_cuda 的数字是上限（第三篇）；
-   DeepEP internode 的官方数字 43～58 GB/s 是 CX7 400G 上的参照
-3. 负载：num_tokens_per_rank 的 max / mean；dispatch_wait_recv_cost_stats 哪一列大
-4. 实现：allgather dispatcher 在大 EP 上多 n/k 倍字节；alltoall dispatcher 每层多一次 counts 交换 + 同步；
-   flex/deepep 是否真的启用（moe_flex_dispatcher_backend、fused_dispatch 非 None）
-5. DeepEP 的 SM 数：num_sms 太小时 NVLink / 网卡跑不满；对照 README 的 SM 数与带宽
-6. 网络：adaptive routing 的设置（get_buffer 注释要求关）；NVSHMEM_IB_SL 隔离流量；RoCE 上的 PFC / ECN（第三篇）
-```
+- **1. 算理论值：moe_a2a_model.py 给出网卡与 NVLink 的字节与时间；profiler 里 dispatch + combine 的时间与之比**
+  - 接近 → 带宽账，看第 2 步；差几倍 → 看第 3、4 步
+- **2. 网卡是否被跑满：nvidia-smi topo -mp 确认每 GPU 一张网卡且亲和正确（第二篇）；ib_write_bw --use_cuda 的数字是上限（第三篇）；**
+  - DeepEP internode 的官方数字 43～58 GB/s 是 CX7 400G 上的参照
+- **3. 负载：num_tokens_per_rank 的 max / mean；dispatch_wait_recv_cost_stats 哪一列大**
+- **4. 实现：allgather dispatcher 在大 EP 上多 n/k 倍字节；alltoall dispatcher 每层多一次 counts 交换 + 同步；**
+  - flex/deepep 是否真的启用（moe_flex_dispatcher_backend、fused_dispatch 非 None）
+- **5. DeepEP 的 SM 数：num_sms 太小时 NVLink / 网卡跑不满；对照 README 的 SM 数与带宽**
+- **6. 网络：adaptive routing 的设置（get_buffer 注释要求关）；NVSHMEM_IB_SL 隔离流量；RoCE 上的 PFC / ECN（第三篇）**
 
 **decode 的 MoE 通信慢**：
 
-```text
-1. 走的是哪套 kernel：vLLM --all2all-backend 是否 deepep_low_latency；allgather_reducescatter 在 EP > 8 时字节多 n/k 倍
-2. IBGDA 是否生效：NVSHMEM_IB_ENABLE_IBGDA=1；驱动 PeerMappingOverride 或 gdrdrv；初始化失败时 Buffer.__init__ 的 assert is_available
-3. 理论值：EP=64、128 token 时网卡字节项本身就是 130～260 µs（第二章），不要期待几十微秒
-4. 与 README 对照：同形状下 dispatch / combine 应在官方数字的量级；差一倍以上查 QP 数（= 本地专家数）、
-   NVLink 对端是否走了 RDMA（allow_nvlink_for_low_latency_mode）、hook 是否被立刻调用（没有重叠）
-5. CUDA Graph：LL 路径可捕获；如果整层退出了 graph，查是否有 host 同步（counts、.tolist()、.item()）
-6. hidden 是否在 SUPPORTED_HIDDEN_SIZES 里，不在则 round up 多传零
-```
+- **1. 走的是哪套 kernel：vLLM --all2all-backend 是否 deepep_low_latency；allgather_reducescatter 在 EP > 8 时字节多 n/k 倍**
+- **2. IBGDA 是否生效：NVSHMEM_IB_ENABLE_IBGDA=1；驱动 PeerMappingOverride 或 gdrdrv；初始化失败时 Buffer.__init__ 的 assert is_available**
+- **3. 理论值：EP=64、128 token 时网卡字节项本身就是 130～260 µs（第二章），不要期待几十微秒**
+- **4. 与 README 对照：同形状下 dispatch / combine 应在官方数字的量级；差一倍以上查 QP 数（= 本地专家数）、**
+  - NVLink 对端是否走了 RDMA（allow_nvlink_for_low_latency_mode）、hook 是否被立刻调用（没有重叠）
+- **5. CUDA Graph：LL 路径可捕获；如果整层退出了 graph，查是否有 host 同步（counts、.tolist()、.item()）**
+- **6. hidden 是否在 SUPPORTED_HIDDEN_SIZES 里，不在则 round up 多传零**
 
 **hang**：
 
-```text
 - all_to_all_single 的 input_split_sizes / output_split_sizes 不互为转置 → 第六篇 Flight Recorder 里 nccl:all_to_all 的 inSplitSizes / outSplitSizes 列
 - DeepEP "CPU recv timeout" / "timeout (dispatch CPU)"（NUM_CPU_TIMEOUT_SECS）→ 某个 rank 没进 dispatch，或 notify 的写没到达（网卡 / QP 问题）
 - LL recv 阶段永远等不到 count → 注意 send 阶段对每一个 (目标 rank, 专家) 都会发计数，一个 token 都没有时发的是 -1，
-  所以"等不到"只可能是对端没执行 send 阶段、或 RDMA 未完成；查对端是否卡在 nvshmemi_ibgda_quiet、网卡计数器与 QP 状态
+  - 所以"等不到"只可能是对端没执行 send 阶段、或 RDMA 未完成；查对端是否卡在 nvshmemi_ibgda_quiet、网卡计数器与 QP 状态
 - 两块 LL buffer 被第三个结果占用（文档："cannot hold more than 2 low-latency kernels' result tensors"）
-```
 
 ## 十、本文小结
 

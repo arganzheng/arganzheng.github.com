@@ -269,21 +269,22 @@ ncu-ui rms_full.ncu-rep
 
 这一节是 latency-bound kernel 的核心。每个 SM 有 4 个 warp 调度器，每个周期各挑一个"就绪"的 warp 发一条指令。一个 warp 不就绪时处于某种 **stall** 状态；ncu 统计每个 warp 平均每发一条指令要 stall 多少周期，并按原因分解。原因的读法：
 
-```text
-stall 原因               含义                                            通常对应的问题
-long scoreboard         等全局/局部内存（L1TEX 路径）的数据返回             访存延迟未隐藏：ILP 不够、occupancy 不够、未向量化
-short scoreboard        等 shared memory 或 SFU（超越函数）的结果          shared 访问太多、bank conflict、exp/rsqrt 密集
-MIO throttle            shared/特殊指令的发射队列满                       shared 访存指令过密（GEMM 未做寄存器分块）
-LG throttle             全局访存指令的发射队列满                          访存指令过多且过细（未向量化）
-barrier                 在 __syncthreads() 等其他 warp                    同步太频繁、block 内负载不均
-math pipe throttle      算术 pipe 满                                     compute-bound，好事（或说明用错了 pipe）
-wait                    等固定延迟的依赖（上一条算术指令的结果）             指令级依赖链太长，缺 ILP
-not selected            就绪但调度器这一拍选了别的 warp                    好事：说明有足够的并行
-selected                正在发射                                          —
-dispatch stall          调度器选中但发射失败（寄存器 bank 冲突等）         少见
-no instruction          指令 cache miss 或分支后取指                       kernel 体太大、展开过度
-sleeping / membar       nanosleep / 内存屏障                              同步原语
-```
+| stall 原因 | 含义 | 通常对应的问题 |
+|---|---|---|
+| long scoreboard | 等全局/局部内存（L1TEX 路径）的数据返回 | 访存延迟未隐藏：ILP 不够、occupancy 不够、未向量化 |
+| short scoreboard | 等 shared memory 或 SFU（超越函数）的结果 | shared 访问太多、bank conflict、exp/rsqrt 密集 |
+| MIO throttle | shared/特殊指令的发射队列满 | shared 访存指令过密（GEMM 未做寄存器分块） |
+| LG throttle | 全局访存指令的发射队列满 | 访存指令过多且过细（未向量化） |
+| barrier | 在 __syncthreads() 等其他 warp | 同步太频繁、block 内负载不均 |
+| math pipe throttle | 算术 pipe 满 | compute-bound，好事（或说明用错了 pipe） |
+| wait | 等固定延迟的依赖（上一条算术指令的结果） | 指令级依赖链太长，缺 ILP |
+| not selected | 就绪但调度器这一拍选了别的 warp | 好事：说明有足够的并行 |
+| selected | 正在发射 | — |
+| dispatch stall | 调度器选中但发射失败（寄存器 bank 冲突等） | 少见 |
+| no instruction | 指令 cache miss 或分支后取指 | kernel 体太大、展开过度 |
+| sleeping / membar | nanosleep / 内存屏障 | 同步原语 |
+
+Table: Warp State Statistics：warp 在等什么
 
 读这张表的原则是：**不要看绝对周期数，看比例与 SOL 的组合**。一个 SOL Memory 85% 的 kernel 里 long scoreboard 占 70% 完全正常——它就是在等内存，而且内存已经满了；同样的 stall 分布出现在 SOL Memory 30% 的 kernel 上就是问题：warp 在等内存，但内存系统并不忙，说明"在飞"的请求太少，需要更多 warp 或每个 warp 更多独立请求。
 

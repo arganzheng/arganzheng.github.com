@@ -299,17 +299,14 @@ GPU Operator v26.7.0 的 `cdi.enabled` 默认 `true`（`api/nvidia/v1/clusterpol
 
 device plugin 是 kubelet 的一个扩展点：任何进程只要实现 `DevicePlugin` gRPC 服务并到 kubelet 注册，就能让节点上报一种扩展资源。接口定义在 `staging/src/k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1/api.proto`（Kubernetes v1.37.0 仍是 `v1beta1`，`constants.go` 的 `Version = "v1beta1"`），两个 service：
 
-```text
-service Registration                       kubelet 提供，socket 在 /var/lib/kubelet/device-plugins/kubelet.sock
-  rpc Register(RegisterRequest)            插件启动后调用：version、endpoint（自己的 socket 名）、resource_name（如 nvidia.com/gpu）、options
-
-service DevicePlugin                       插件提供，socket 在 /var/lib/kubelet/device-plugins/<endpoint>
-  rpc GetDevicePluginOptions               返回 DevicePluginOptions：pre_start_required、get_preferred_allocation_available
-  rpc ListAndWatch(Empty) → stream         设备列表流：每个 Device 有 ID、health（"Healthy"/"Unhealthy"）、topology（NUMA 节点）。状态变化就重发整个列表
-  rpc GetPreferredAllocation               kubelet 在分配前询问："可用集合里选 N 个，你偏好哪几个？"结果只是建议
-  rpc Allocate(AllocateRequest)            容器创建时调用：给定 devices_ids，返回 ContainerAllocateResponse——envs、mounts、devices、annotations、cdi_devices
-  rpc PreStartContainer                    可选，容器启动前做设备初始化（重置等）
-```
+- **service Registration                       kubelet 提供，socket 在 /var/lib/kubelet/device-plugins/kubelet.sock**
+  - **rpc Register(RegisterRequest)**：插件启动后调用：version、endpoint（自己的 socket 名）、resource_name（如 nvidia.com/gpu）、options
+- **service DevicePlugin                       插件提供，socket 在 /var/lib/kubelet/device-plugins/<endpoint>**
+  - **rpc GetDevicePluginOptions**：返回 DevicePluginOptions：pre_start_required、get_preferred_allocation_available
+  - rpc ListAndWatch(Empty) → stream 设备列表流：每个 Device 有 ID、health（"Healthy"/"Unhealthy"）、topology（NUMA 节点）。状态变化就重发整个列表
+  - **rpc GetPreferredAllocation**：kubelet 在分配前询问："可用集合里选 N 个，你偏好哪几个？"结果只是建议
+  - **rpc Allocate(AllocateRequest)**：容器创建时调用：给定 devices_ids，返回 ContainerAllocateResponse——envs、mounts、devices、annotations、cdi_devices
+  - **rpc PreStartContainer**：可选，容器启动前做设备初始化（重置等）
 
 kubelet 侧的实现在 `pkg/kubelet/cm/devicemanager/manager.go` 的 `ManagerImpl`：`PluginConnected` 处理注册，`PluginListAndWatchReceiver` → `genericDeviceUpdateCallback` 维护 `healthyDevices` / `unhealthyDevices` 两个集合并生成 `GetCapacity` 上报给节点状态；Pod 准入时 `Allocate` → `allocateContainerResources` → `devicesToAllocate` 从健康集合里挑设备，先经 Topology Manager 的 NUMA 亲和过滤（`filterByAffinity`），再调 `callGetPreferredAllocationIfAvailable` 征求插件意见，最后调插件的 `Allocate` 拿注入指令；`GetDeviceRunContainerOptions` 在创建容器时把这些指令并入 CRI 请求。分配结果写入 checkpoint 文件（`checkpointFile`）以便 kubelet 重启后恢复。
 

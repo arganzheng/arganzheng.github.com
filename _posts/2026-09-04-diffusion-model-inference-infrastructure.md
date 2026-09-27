@@ -32,15 +32,13 @@ catalog: true
 
 这是把它单列一个系列而不是附在 08 后面的理由。《大模型推理系统揭秘》十四篇建立的分析方法——请求的 prefill / decode 两阶段、KV cache 的字节数与分页、连续批处理、投机解码、PD 分离——每一项的前提都是"decode 是 memory-bound 的串行过程"。扩散模型没有 decode：每一步是一次对整个序列的完整前向，几千个 token 一起过一遍权重，MFU 在 batch 1 就能到 50% 以上。于是：
 
-```text
-KV cache        没有：每步的输入是整张 latent，没有跨步可复用的中间状态（文本编码器输出除外）
-prefill/decode  没有：每步的形态相同，都是"prefill"
-连续批处理      收益小：compute-bound 下 batch 2 几乎就是 2 倍时间；视频 batch = 1
-投机解码        没有：没有串行的 token 链可以猜
-PD 分离         不适用；但有另一种分离——文本编码器 / DiT / VAE 三段各自的资源需求不同
-张量并行        通信 ∝ token 数 × 层数，序列长时不划算；且权重单卡放得下——多卡是为了延迟
-请求时长        完全可预测：分辨率 × 步数 × CFG 在收到请求时就决定了秒数
-```
+- **KV cache**：没有：每步的输入是整张 latent，没有跨步可复用的中间状态（文本编码器输出除外）
+- **prefill/decode**：没有：每步的形态相同，都是"prefill"
+- **连续批处理**：收益小：compute-bound 下 batch 2 几乎就是 2 倍时间；视频 batch = 1
+- **投机解码**：没有：没有串行的 token 链可以猜
+- **PD 分离**：不适用；但有另一种分离——文本编码器 / DiT / VAE 三段各自的资源需求不同
+- **张量并行**：通信 ∝ token 数 × 层数，序列长时不划算；且权重单卡放得下——多卡是为了延迟
+- **请求时长**：完全可预测：分辨率 × 步数 × CFG 在收到请求时就决定了秒数
 
 同时它有一套 LLM serving 没有的东西：相邻步之间的**时间冗余**（TeaCache 一族）、几十步的**步数**本身作为可蒸馏的乘数、把 latent 切成 patch 的**空间并行**、以及视频里让 attention 占到七成算力的**十万级序列**。这些需要另一套分析方法，本系列就是这套方法。
 
@@ -81,34 +79,21 @@ PD 分离         不适用；但有另一种分离——文本编码器 / DiT /
 
 九篇按"先算账、再优化单卡、再利用两种冗余、再多卡、再改步数、最后是服务与引擎"的顺序推进：
 
-```text
-第一篇：负载画像 —— 一次生成的三段：FLOPs、显存、时间账
-        ↓  token 数公式 · 线性项与 attention 项 · 为什么单请求就 compute-bound · 与 LLM 的对照 · 四个放大器
-第二篇：单卡执行 —— 换 MFU：attention 后端、编译、量化、offload
-        ↓  FA3 / SageAttention · torch.compile 与 CUDA graph · FP8 / SVDQuant INT4 · 三段的 offload · VAE 分块
-第三篇：跨步冗余 —— 换 FLOPs 的系数：缓存与跳步
-        ↓  相邻步为什么相似 · TeaCache / FBCache / Cache-DiT 一族 · 命中率 → 加速比 · 与 CFG / SP / 少步的交互
-第四篇：视频 —— attention 占七成之后：长序列的账与稀疏化
-        ↓  3D VAE 与时空 patch · 十万 token 的 4·L·N²·d · Sparse VideoGen / Radial / STA · Amdahl
-第五篇：多卡并行 —— 用通信换墙钟：为什么不是张量并行
-        ↓  Ulysses / Ring / USP · CFG 并行 · PipeFusion 与 DistriFusion · Parallel VAE · NVLink vs PCIe
-第六篇：少步与自回归 —— 改步数这个乘数：蒸馏之后与流式之后
-        ↓  4 步 / 1 步的账 · 哪些优化失效 · StreamDiffusion · CausVid / Self-Forcing 与 KV cache 的回归
-第七篇：serving 形态 —— 请求、批、三段分离、附件、异步任务与成本
-        ↓  batch 为什么几乎不提吞吐 · 时长可预测的调度 · 文本编码器 / DiT / VAE 分离 · LoRA / ControlNet · /v1/videos
-第八篇：三个引擎的对照导读 —— 同一张图的请求在 SGLang Diffusion、vLLM-Omni、xDiT 里各走过什么
-        ↓  进程模型 · pipeline 抽象 · 并行组 · attention 后端 · 缓存 hook · 调度器 · API 层 · 分歧点
-第九篇：配置、评测与排障 —— 从一张卡的推导到一条伪影的排查
-           配置推导顺序 · 性能与质量的评测方法 · 确定性 · 常见故障
-```
+1. 第一篇：负载画像 —— 一次生成的三段：FLOPs、显存、时间账（token 数公式 · 线性项与 attention 项 · 为什么单请求就 compute-bound · 与 LLM 的对照 · 四个放大器）
+2. 第二篇：单卡执行 —— 换 MFU：attention 后端、编译、量化、offload（FA3 / SageAttention · torch.compile 与 CUDA graph · FP8 / SVDQuant INT4 · 三段的 offload · VAE 分块）
+3. 第三篇：跨步冗余 —— 换 FLOPs 的系数：缓存与跳步（相邻步为什么相似 · TeaCache / FBCache / Cache-DiT 一族 · 命中率 → 加速比 · 与 CFG / SP / 少步的交互）
+4. 第四篇：视频 —— attention 占七成之后：长序列的账与稀疏化（3D VAE 与时空 patch · 十万 token 的 4·L·N²·d · Sparse VideoGen / Radial / STA · Amdahl）
+5. 第五篇：多卡并行 —— 用通信换墙钟：为什么不是张量并行（Ulysses / Ring / USP · CFG 并行 · PipeFusion 与 DistriFusion · Parallel VAE · NVLink vs PCIe）
+6. 第六篇：少步与自回归 —— 改步数这个乘数：蒸馏之后与流式之后（4 步 / 1 步的账 · 哪些优化失效 · StreamDiffusion · CausVid / Self-Forcing 与 KV cache 的回归）
+7. 第七篇：serving 形态 —— 请求、批、三段分离、附件、异步任务与成本（batch 为什么几乎不提吞吐 · 时长可预测的调度 · 文本编码器 / DiT / VAE 分离 · LoRA / ControlNet · /v1/videos）
+8. 第八篇：三个引擎的对照导读 —— 同一张图的请求在 SGLang Diffusion、vLLM-Omni、xDiT 里各走过什么（进程模型 · pipeline 抽象 · 并行组 · attention 后端 · 缓存 hook · 调度器 · API 层 · 分歧点）
+9. 第九篇：配置、评测与排障 —— 从一张卡的推导到一条伪影的排查 配置推导顺序 · 性能与质量的评测方法 · 确定性 · 常见故障
 
 三条交织的线索：
 
-```text
-账本线：FLOPs · 字节 · 秒 —— 每篇都把新引入的机制记进第一篇的那张账
-形态线：图像 · 视频 · 实时 —— 同一个机制在 4K token、100K token、4 步流式三种形态下各是什么样
-框架线：SGLang Diffusion · vLLM-Omni · xDiT（diffusers 底座）—— 每篇末尾一张对照表，第八篇完整走一遍
-```
+- 账本线：FLOPs · 字节 · 秒 —— 每篇都把新引入的机制记进第一篇的那张账
+- 形态线：图像 · 视频 · 实时 —— 同一个机制在 4K token、100K token、4 步流式三种形态下各是什么样
+- 框架线：SGLang Diffusion · vLLM-Omni · xDiT（diffusers 底座）—— 每篇末尾一张对照表，第八篇完整走一遍
 
 
 ## 章节结构与分章导读
@@ -300,17 +285,18 @@ PD 分离         不适用；但有另一种分离——文本编码器 / DiT /
 
 系列只有第一篇有配套脚本：`ai-learning-labs` 的 `diffusion-inference-infra/diffusion_ledger.py`，一张能对任意模型、形状、步数、硬件给出三段 FLOPs / 显存 / 时间的账。后面各篇把新引入的机制用公式与表格记回这张账，不再单独给脚本——它们要验证的东西（每步毫秒、缓存命中率、通信时间、图片质量）都要在真实 GPU 上量，纸面模型给出的是量之前该期待的数字。各篇末尾的"实践建议"是给有卡读者的动手方向。
 
-```text
-第一篇    账本脚本                    token 数 · 每步 FLOPs 拆分 · 三段显存与时间 · LLM 对照（配套脚本）
-第二篇    单卡叠加实验                FA3 / compile / FP8 / INT4 逐项打开 · 每步 ms · 峰值显存 · PSNR / LPIPS
-第三篇    阈值扫描                    TeaCache 阈值 0.1–0.8 · 命中位置 · 时间 · 质量曲线
-第四篇    帧数与稀疏对比              ledger 的 --sweep · Wan 1.3B 上 dense / Sage / STA
-第五篇    并行组合扫描                2 / 4 / 8 卡 Ulysses / Ring / CFG · 每步 ms · NCCL 占比
-第六篇    少步与流式                  schnell vs dev · Self-Forcing 的 chunk KV 与延迟
-第七篇    并发曲线                    并发 1–16 打 /v1/images/generations · 吞吐与 p99
-第八篇    三引擎同一请求的时间线      profiler 对函数
-第九篇    面板与故障注入              三类故障定位 · 配置推导记录
-```
+| 第一篇 | 账本脚本 | token 数 · 每步 FLOPs 拆分 · 三段显存与时间 · LLM 对照（配套脚本） |
+|---|---|---|
+| 第二篇 | 单卡叠加实验 | FA3 / compile / FP8 / INT4 逐项打开 · 每步 ms · 峰值显存 · PSNR / LPIPS |
+| 第三篇 | 阈值扫描 | TeaCache 阈值 0.1–0.8 · 命中位置 · 时间 · 质量曲线 |
+| 第四篇 | 帧数与稀疏对比 | ledger 的 --sweep · Wan 1.3B 上 dense / Sage / STA |
+| 第五篇 | 并行组合扫描 | 2 / 4 / 8 卡 Ulysses / Ring / CFG · 每步 ms · NCCL 占比 |
+| 第六篇 | 少步与流式 | schnell vs dev · Self-Forcing 的 chunk KV 与延迟 |
+| 第七篇 | 并发曲线 | 并发 1–16 打 /v1/images/generations · 吞吐与 p99 |
+| 第八篇 | 三引擎同一请求的时间线 | profiler 对函数 |
+| 第九篇 | 面板与故障注入 | 三类故障定位 · 配置推导记录 |
+
+Table: 贯穿全系列的实践线
 
 源码阅读线（第八篇的主体，其余各篇末尾的对照表指向这里）：
 
@@ -368,17 +354,15 @@ xDiT（2026-09-02 主线）  xfuser/：core/{distributed,long_ctx_attention,cach
 
 读完这套系列之后，面对任何一个图像或视频生成的推理任务——无论是要上线一个新模型、给现有服务降本、还是接手一个慢得莫名其妙的部署——读者应该能够回答：
 
-```text
-这次生成要多少 FLOPs、多少显存、几秒？瓶颈在算力还是别处？      → 第一篇：三段的账
-单卡还能快多少？哪些优化不改图、哪些会改？                      → 第二篇：换 MFU
-几十步里有多少步可以不算？代价是什么？                          → 第三篇：跨步冗余
-视频为什么是 attention 负载？稀疏化能换回多少？                  → 第四篇：长序列
-该切序列、切 CFG 还是切流水线？NVLink 和以太网上答案为什么不同？  → 第五篇：多卡
-蒸馏到 4 步之后系统怎么变？自回归视频为什么又要 KV cache？        → 第六篇：步数
-服务该怎样排队、分卡、算钱？视频为什么是异步 job？               → 第七篇：serving
-三个引擎各把这些放在哪？该选哪个？                              → 第八篇：源码
-配置怎么推？质量怎么测？坏了从哪查？                            → 第九篇：运维
-```
+- 这次生成要多少 FLOPs、多少显存、几秒？瓶颈在算力还是别处？：→ 第一篇：三段的账
+- 单卡还能快多少？哪些优化不改图、哪些会改？：→ 第二篇：换 MFU
+- 几十步里有多少步可以不算？代价是什么？：→ 第三篇：跨步冗余
+- 视频为什么是 attention 负载？稀疏化能换回多少？：→ 第四篇：长序列
+- 该切序列、切 CFG 还是切流水线？NVLink 和以太网上答案为什么不同？：→ 第五篇：多卡
+- 蒸馏到 4 步之后系统怎么变？自回归视频为什么又要 KV cache？：→ 第六篇：步数
+- 服务该怎样排队、分卡、算钱？视频为什么是异步 job？：→ 第七篇：serving
+- 三个引擎各把这些放在哪？该选哪个？：→ 第八篇：源码
+- 配置怎么推？质量怎么测？坏了从哪查？：→ 第九篇：运维
 
 最终目标是三种能力：
 

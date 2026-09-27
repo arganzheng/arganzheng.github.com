@@ -320,11 +320,9 @@ flowchart TB
 
 vLLM 把第一段（输入处理）放在 `vllm/multimodal/processing/`，由 `MultiModalRegistry`（`vllm/multimodal/registry.py`）按模型类找到对应的 `BaseMultiModalProcessor`（`processing/processor.py`）。它的 `apply()` docstring 概括了三步：
 
-```text
 1. 对 prompt 文本和多模态数据一起调用 HF processor，得到 token ids 和处理后的张量（pixel_values 等）
 2. 在 token ids 里找到并更新占位序列：占位 token 的数量 = encoder 输出的 feature 数
 3. 从处理后的 token ids 里提取占位符位置信息
-```
 
 第 1 步**复用 Hugging Face 的 processor**（`_call_hf_processor()`）——图片 resize、归一化、切 patch 的逻辑不重写。第 2 步用 `PromptReplacement` / `PromptInsertion` 描述"把 prompt 里的 `<image>` 换成 N 个 `<image_token>`"，N 由模型的 `get_mm_max_tokens_per_item()` 或实际输出决定。第 3 步产出 `PlaceholderRange`（`vllm/multimodal/inputs.py`）：
 

@@ -195,17 +195,15 @@ comm->initialized_ = !comm->nonBlocking_;
 
 每次集合通信返回一个 `c10::intrusive_ptr<Work>`，NCCL 后端的实现是 `ProcessGroupNCCL::WorkNCCL`。它的成员里与本篇直接相关的：
 
-```text
-device_                          这次操作在哪张卡
-ncclStartEvent_                  NCCL stream 上、kernel 之前 record 的 event（仅 TORCH_NCCL_ENABLE_TIMING 或 desync debug 时创建）
-ncclEndEvent_                    NCCL stream 上、kernel 之后 record 的 event（总是创建）
-ncclComm_                        用的哪个 communicator
-blockingWait_ / opTimeout_       从 ProcessGroupNCCL 拷来的配置
-workStartTime_                   host 侧 steady_clock，checkTimeout 用它算流逝时间
-seq_ / isP2P_                    集合通信序号；Flight Recorder 与 desync debug 用它对齐各 rank
-stashed_for_allocator_safety_    TensorShelf，暂存输入输出 tensor 的引用（第五章）
-future_                          getFuture() 返回的 CUDA-aware Future
-```
+- **device_**：这次操作在哪张卡
+- **ncclStartEvent_**：NCCL stream 上、kernel 之前 record 的 event（仅 TORCH_NCCL_ENABLE_TIMING 或 desync debug 时创建）
+- **ncclEndEvent_**：NCCL stream 上、kernel 之后 record 的 event（总是创建）
+- **ncclComm_**：用的哪个 communicator
+- **blockingWait_ / opTimeout_**：从 ProcessGroupNCCL 拷来的配置
+- **workStartTime_**：host 侧 steady_clock，checkTimeout 用它算流逝时间
+- **seq_ / isP2P_**：集合通信序号；Flight Recorder 与 desync debug 用它对齐各 rank
+- **stashed_for_allocator_safety_**：TensorShelf，暂存输入输出 tensor 的引用（第五章）
+- **future_**：getFuture() 返回的 CUDA-aware Future
 
 `isCompleted()` 与 `isStarted()` 不查 NCCL，而是 `ncclEndEvent_->query()` / `ncclStartEvent_->query()`，也就是 `cudaEventQuery`：问 GPU "这个 event 过了没"。这决定了两件事：`isCompleted()` 是非阻塞的，可以在主线程或 watchdog 线程反复轮询；"完成"的定义是**NCCL kernel 在 NCCL stream 上执行完毕**，与 CPU 无关、与当前 stream 无关。
 
@@ -517,13 +515,11 @@ NCCL stream        (等 event)─────[ncclAllReduce 读写 t]─endEvent
 
 ### 5. 用户侧要守的规矩
 
-```text
 1. async_op=True 之后、wait() 之前，不在任何 stream 上读写参与通信的 tensor
 2. wait() 要在将来使用结果的那条 stream 上调（wait 等的是"当前 stream"）
 3. 如果输出 tensor 会在第三条 stream 上使用，wait() 之后还要自己加 event 依赖
 4. 通信输入若是在非当前 stream 上算出来的，发起 all_reduce 前先让当前 stream 等那条 stream（syncStream 只看当前 stream）
 5. 每个 async work 都要 wait()，否则 tensor 引用会被 shelf 持有到下一次集合通信
-```
 
 第 4 条容易被忽略：`syncStream` record 的是**当前 stream** 的 event，如果 `t` 是在另一条 stream 上刚算出来的、当前 stream 上什么都没发生，NCCL stream 等到的 event 立刻触发，kernel 可能在 `t` 算完之前就开始读它。
 
@@ -650,16 +646,12 @@ z = y * 2                               # 首次使用时自动 wait
 
 函数式集合通信的"等待"不再是 `work.wait()` 而是 `wait_tensor(tensor)`，同样是一个算子（`_c10d_functional.wait_tensor`）。它从 `WorkRegistry` 里 `pop_works(tensor)` 取出登记过的 `Work` 并调 `wait()`——在 NCCL 后端上仍然是 stream 级的 `ncclEndEvent_->block(currentStream)`。文件头部注释把两种模式讲清了：
 
-```text
-Under torch.compile/dynamo:
-  c10d_functional.all_reduce(...)  - dynamo captures this op call, doesn't trace deeper
-  _maybe_wrap_tensor(...)          - wait_tensor() op is immediately called, no AsyncTensor subclass needed
-
-Under eager execution:
-  c10d_functional.all_reduce(...)  - dispatches to real kernel OR records op in trace
-  _maybe_wrap_tensor(...)          - AsyncTensor wrapper applied to returned tensor,
-                                     which issues wait_tensor() at the time of first use
-```
+- **Under torch.compile/dynamo**
+  - **c10d_functional.all_reduce(...)**：- dynamo captures this op call, doesn't trace deeper
+  - **_maybe_wrap_tensor(...)**：- wait_tensor() op is immediately called, no AsyncTensor subclass needed
+- **Under eager execution**
+  - **c10d_functional.all_reduce(...)**：- dispatches to real kernel OR records op in trace
+  - **_maybe_wrap_tensor(...)**：- AsyncTensor wrapper applied to returned tensor, which issues wait_tensor() at the time of first use
 
 eager 模式下返回的是 `AsyncCollectiveTensor`，一个 tensor 子类，带 `elem` 与 `completed` 两个槽；任何算子作用在它上面时，`__torch_dispatch__` 先对 `elem` 调 `wait_tensor`，再执行算子。这把"什么时候 wait"从用户手里拿走，变成"第一次真正用到时"，天然是最晚的 wait 位置，也就是最大的重叠窗口。compile 模式下 `wait_tensor` 作为显式节点进入图，由编译器决定它的位置。
 

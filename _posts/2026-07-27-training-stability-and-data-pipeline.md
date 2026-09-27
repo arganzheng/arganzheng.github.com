@@ -56,15 +56,12 @@ updated: 2026-09-20
 
 本篇稳定性部分按"现象与成因 → 预防 → 处理"三幕展开，数据部分按五个环节展开：
 
-```text
-稳定性  第二章 现象与成因    spike 的三种形态；五种成因各自的机理与在信号上的指纹
-        第三章 预防          全局梯度范数裁剪（跨 TP/PP/DP）· warmup · z-loss · QK-LayerNorm · WD 例外 · 精度纪律 · fp16 loss scale
-        第四章 处理          PaLM 的回退 + 跳过；它依赖什么；Megatron 里对应的开关；回退多远、跳过多少的账
-        第五章 信号          必须记录的清单；每个信号的正常与异常形态；三框架里在哪打印
-
-数据    第六章 存储与索引    离线 vs 在线 tokenize · .bin/.idx · 三个索引与缓存 · 混合与多阶段 · 打包与 cu_seqlens · DeepSpeed 课程
-        第七章 加载与恢复    流式读取（HF streaming / 对象存储 / StreamingDataset）· 有状态 DataLoader · 三框架的恢复语义 · 数据等待与 MFU
-```
+- **稳定性  第二章 现象与成因    spike 的三种形态；五种成因各自的机理与在信号上的指纹**
+  - **第三章 预防**：全局梯度范数裁剪（跨 TP/PP/DP）· warmup · z-loss · QK-LayerNorm · WD 例外 · 精度纪律 · fp16 loss scale
+  - **第四章 处理**：PaLM 的回退 + 跳过；它依赖什么；Megatron 里对应的开关；回退多远、跳过多少的账
+  - **第五章 信号**：必须记录的清单；每个信号的正常与异常形态；三框架里在哪打印
+- **数据    第六章 存储与索引    离线 vs 在线 tokenize · .bin/.idx · 三个索引与缓存 · 混合与多阶段 · 打包与 cu_seqlens · DeepSpeed 课程**
+  - **第七章 加载与恢复**：流式读取（HF streaming / 对象存储 / StreamingDataset）· 有状态 DataLoader · 三框架的恢复语义 · 数据等待与 MFU
 
 ### 4. 三框架在"稳定性与数据"面上的对照
 
@@ -318,17 +315,14 @@ torchtitan 与 DeepSpeed 没有等价的内建开关。torchtitan 的 `trainer.p
 
 把前四节压成值班时照着做的一张卡片（第八篇的值班手册会引用它）：
 
-```text
-1  确认形态      loss 单步跳 > 10% 且 grad norm 跳 > 3×？→ 是 spike。若 loss 已 NaN / 持续上升 → 发散，直接进入第 4 步
-2  等一等        瞬时 spike 多数在 50–100 步内自行回落。设一个观察窗（例如 100 步），期间不动
-3  读信号        对照第二章第 7 节的表：param norm 斜率 / max logit 趋势 / grad norm 低平台 / global_max_loss 指向的 rank
-                 → LR 或 logit 成因：改配置（降 LR / 开 QK-norm），回退到异常开始之前的 checkpoint
-                 → 坏数据或优化器状态成因：进入第 4 步
-4  回退 + 跳过   选 spike 前 ~100 步的 checkpoint；Megatron 加 --iterations-to-skip 覆盖 spike 附近 200–500 步；
-                 torchtitan 加载后手工丢弃 n 个 batch；其余参数不变
-5  验证          恢复后前 100 步的 loss 与原曲线在回退点衔接；spike 位置不再出现；replay_check 确认数据顺序只在跳过处有差异
-6  留档          spike 步、成因判断、回退点、跳过范围、样本 id 反查结果 → 复盘表；若是坏数据，把特征加进过滤规则
-```
+- **1  确认形态      loss 单步跳 > 10% 且 grad norm 跳 > 3×？→ 是 spike。若 loss 已 NaN / 持续上升 → 发散，直接进入第 4 步**
+- **2  等一等        瞬时 spike 多数在 50–100 步内自行回落。设一个观察窗（例如 100 步），期间不动**
+- **3  读信号        对照第二章第 7 节的表：param norm 斜率 / max logit 趋势 / grad norm 低平台 / global_max_loss 指向的 rank**
+  - → LR 或 logit 成因：改配置（降 LR / 开 QK-norm），回退到异常开始之前的 checkpoint
+  - → 坏数据或优化器状态成因：进入第 4 步
+- **4  回退 + 跳过   选 spike 前 ~100 步的 checkpoint；Megatron 加 --iterations-to-skip 覆盖 spike 附近 200–500 步； torchtitan 加载后手工丢弃 n 个 batch；其余参数不变**
+- **5  验证          恢复后前 100 步的 loss 与原曲线在回退点衔接；spike 位置不再出现；replay_check 确认数据顺序只在跳过处有差异**
+- **6  留档          spike 步、成因判断、回退点、跳过范围、样本 id 反查结果 → 复盘表；若是坏数据，把特征加进过滤规则**
 
 ## 五、必须记录的信号
 

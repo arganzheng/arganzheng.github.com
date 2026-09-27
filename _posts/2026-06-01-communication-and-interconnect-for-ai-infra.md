@@ -19,14 +19,12 @@ catalog: true
 
 这个系列把这条路径展开。一次跨节点的 all_reduce，数据至少经过下面这些层，每一层都有自己的带宽、延迟和失败方式：
 
-```text
-dist.all_reduce(t)                    Python，进入 ProcessGroupNCCL
-  → ncclAllReduce(...)                NCCL host 侧：选算法、选协议、切 channel、入队
-    → ncclDevKernel_AllReduce_*       NCCL 设备侧：每个 channel 一个 block，按 ring/tree 收发
-      → NVLink / NVSwitch              节点内：GPU 直接读写对端显存
-      → PCIe → NIC → InfiniBand        节点间：proxy 线程驱动 RDMA，GPUDirect 绕开主机内存
-        → 对端 NIC → PCIe → GPU        再走一遍反向的路
-```
+1. **dist.all_reduce(t)**：Python，进入 ProcessGroupNCCL
+2. **ncclAllReduce(...)**：NCCL host 侧：选算法、选协议、切 channel、入队
+3. **ncclDevKernel_AllReduce_***：NCCL 设备侧：每个 channel 一个 block，按 ring/tree 收发
+4. **NVLink / NVSwitch**：节点内：GPU 直接读写对端显存
+5. PCIe → NIC → InfiniBand 节点间：proxy 线程驱动 RDMA，GPUDirect 绕开主机内存
+6. 对端 NIC → PCIe → GPU 再走一遍反向的路
 
 带宽和延迟是这条路径上两种不同的账。一个 512 MB 的梯度 all_reduce，时间几乎全部花在数据搬运上，看的是链路带宽和算法的带宽效率；一个 decode 阶段几十 KB 的张量并行 all_reduce，时间几乎全部花在同步、握手和 kernel 启动上，带宽多少无关紧要。同一个 API，同一套 NCCL，两种完全不同的瓶颈——分不清这两种账，就分不清什么时候该换算法、什么时候该换硬件、什么时候什么都不用换。
 
@@ -94,42 +92,29 @@ NCCL 的 `src/`、PyTorch 的 `torch/csrc/distributed/c10d/`、vLLM 的 `vllm/di
 
 八篇文章按"从抽象代价到物理链路，再回到软件栈"的顺序推进：
 
-```text
-第一篇：集合通信原语与代价模型 —— 建立分析框架：α-β 模型与 ring all-reduce 的推导
-        ↓
-第二篇：硬件互联 —— PCIe、NVLink、NVSwitch、IB/RoCE 的拓扑与带宽，NUMA 与亲和
-        ↓
-第三篇：RDMA 与 GPUDirect —— 绕过 CPU 和主机内存的数据通路
-        ↓
-第四篇：NCCL 架构 —— 拓扑探测、channel、算法与协议，一次 ncclAllReduce 的完整路径
-        ↓
-第五篇：PyTorch 的通信栈 —— ProcessGroupNCCL、stream/event 语义、异步与重叠
-        ↓
-第六篇：nccl-tests、调优与排障 —— 带宽曲线的读法、环境变量、hang 与 timeout
-        ↓
-第七篇：推理侧的通信 —— custom all-reduce、KV 传输（NIXL / UCX / Mooncake）
-        ↓
-第八篇：MoE 的通信 —— all_to_all 的账、DeepEP 的 dispatch / combine、GPU 发起的 RDMA（IBGDA）
-```
+1. 第一篇：集合通信原语与代价模型 —— 建立分析框架：α-β 模型与 ring all-reduce 的推导
+2. 第二篇：硬件互联 —— PCIe、NVLink、NVSwitch、IB/RoCE 的拓扑与带宽，NUMA 与亲和
+3. 第三篇：RDMA 与 GPUDirect —— 绕过 CPU 和主机内存的数据通路
+4. 第四篇：NCCL 架构 —— 拓扑探测、channel、算法与协议，一次 ncclAllReduce 的完整路径
+5. 第五篇：PyTorch 的通信栈 —— ProcessGroupNCCL、stream/event 语义、异步与重叠
+6. 第六篇：nccl-tests、调优与排障 —— 带宽曲线的读法、环境变量、hang 与 timeout
+7. 第七篇：推理侧的通信 —— custom all-reduce、KV 传输（NIXL / UCX / Mooncake）
+8. 第八篇：MoE 的通信 —— all_to_all 的账、DeepEP 的 dispatch / combine、GPU 发起的 RDMA（IBGDA）
 
 三条交织的线索：
 
-```text
-代价线：α-β 模型 → 链路带宽与延迟 → 算法带宽效率 → 协议开销 → 实测曲线 → 小消息与大消息的两种账
-路径线：NVLink / PCIe / IB → RDMA verbs → NCCL transport → ProcessGroupNCCL → vLLM 通信后端 → DeepEP 的 GPU 发起 RDMA
-排障线：nvidia-smi topo → ibstat / ib_write_bw → NCCL_DEBUG → Flight Recorder → 决策树
-```
+- 代价线：α-β 模型 → 链路带宽与延迟 → 算法带宽效率 → 协议开销 → 实测曲线 → 小消息与大消息的两种账
+- 路径线：NVLink / PCIe / IB → RDMA verbs → NCCL transport → ProcessGroupNCCL → vLLM 通信后端 → DeepEP 的 GPU 发起 RDMA
+- 排障线：nvidia-smi topo → ibstat / ib_write_bw → NCCL_DEBUG → Flight Recorder → 决策树
 
 前三篇建立"硬件能做到什么"的上限，第四篇讲 NCCL 如何逼近这个上限，第五篇讲框架如何使用 NCCL 而不浪费它，第六篇把前五篇变成可操作的测量与排障方法，第七篇把这套方法用到推理的两个特殊场景上，第八篇用到 MoE 的 all_to_all 上——它是训练与推理共有、也是最重的一种通信；第九篇是系列总结与通关自测。
 
 每一篇都有同样的四段结构：
 
-```text
-算一算      用代价模型给出这一层的理论上限：这段路径最快多久、最多多少字节每秒
-看一看      读源码或日志，弄清这一层实际怎么做决定：拓扑文件、NCCL 日志、c10d 的 C++
-测一测      用工具测出实际数字：nvbandwidth、ib_write_bw、nccl-tests、profiler
-比一比      解释理论与实测的差距，给出这一层的排障检查项
-```
+- **算一算**：用代价模型给出这一层的理论上限：这段路径最快多久、最多多少字节每秒
+- **看一看**：读源码或日志，弄清这一层实际怎么做决定：拓扑文件、NCCL 日志、c10d 的 C++
+- **测一测**：用工具测出实际数字：nvbandwidth、ib_write_bw、nccl-tests、profiler
+- **比一比**：解释理论与实测的差距，给出这一层的排障检查项
 
 "两种账"的区分会贯穿每一篇。带宽的账看链路速率、算法的带宽效率、协议开销；延迟的账看步数、握手次数、kernel 启动、proxy 线程的响应。同一个问题在两本账上的答案往往相反——比如更多 channel 提高带宽却增加小消息的延迟，Tree 减少延迟却在某些拓扑上损失带宽——本系列会在每一处选择上把两本账都算一遍。
 
@@ -285,16 +270,14 @@ ncclAllReduce
 - 正确性问题：结果不一致（浮点归约顺序、`NCCL_ALGO` 不同导致数值不同）、NaN 的来源与 `TORCH_NCCL_NAN_CHECK`、多 communicator 与多 stream 下的数据竞争；
 - 一棵决策树：从现象（慢 / hang / 错）到检查项到处理方式，大致是这个形状：
 
-```text
-慢    大消息 busbw 低      → 路径：topo -m 等级 · NCCL_DEBUG 里的 transport · GDR 是否生效 · channel 数
-      小消息延迟高         → 协议与算法 · 跨 NUMA · proxy 线程被抢占 · 框架侧没有合并
-      多机远差于单机       → 网卡亲和 · NCCL_IB_HCA · 是否回落到 Socket · RoCE 的 PFC/ECN
-hang  所有 rank 停在同一处 → 网络或某个 rank 崩溃：看 dmesg · ibstat · 进程是否还在
-      各 rank 停在不同处   → 调用不一致：Flight Recorder 对齐序号 · py-spy 看栈
-      只有部分 rank 停     → send/recv 不配对 · 多 communicator 交叉等待
-错    结果不稳定           → 浮点归约顺序 · 算法差异 · 数据竞争（多 stream 未同步）
-      NaN                  → TORCH_NCCL_NAN_CHECK 定位首次出现的 rank 与操作
-```
+- **慢    大消息 busbw 低      → 路径：topo -m 等级 · NCCL_DEBUG 里的 transport · GDR 是否生效 · channel 数**
+  - 小消息延迟高 → 协议与算法 · 跨 NUMA · proxy 线程被抢占 · 框架侧没有合并
+  - 多机远差于单机 → 网卡亲和 · NCCL_IB_HCA · 是否回落到 Socket · RoCE 的 PFC/ECN
+- **hang  所有 rank 停在同一处 → 网络或某个 rank 崩溃：看 dmesg · ibstat · 进程是否还在**
+  - 各 rank 停在不同处 → 调用不一致：Flight Recorder 对齐序号 · py-spy 看栈
+  - 只有部分 rank 停 → send/recv 不配对 · 多 communicator 交叉等待
+- **错    结果不稳定           → 浮点归约顺序 · 算法差异 · 数据竞争（多 stream 未同步）**
+  - NaN → TORCH_NCCL_NAN_CHECK 定位首次出现的 rank 与操作
 
 核心问题是：
 
@@ -436,20 +419,18 @@ hang  所有 rank 停在同一处 → 网络或某个 rank 崩溃：看 dmesg ·
 
 读完这套系列之后，面对任何一次通信——无论是训练日志里的一次 all_reduce timeout、profiler 里一段比预期长的通信 kernel、还是推理服务里 TP 延迟的一次异常——读者应该能够回答：
 
-```text
-这次通信传了多少字节、多少参与者？理论上要多久？   → 第一篇：α-β 模型与算法带宽效率
-它是延迟主导还是带宽主导？                        → 第一篇：消息大小与拐点
-数据走了哪条物理链路？这条链路的上限是多少？        → 第二篇：拓扑、NVLink / PCIe / IB 的带宽
-跨机时经过了主机内存吗？GPUDirect 生效了吗？        → 第三篇：RDMA 路径与 GDR 的条件
-NCCL 为什么选了这个算法和协议？切了几个 channel？   → 第四篇：拓扑探测、图搜索、调优表
-框架侧有没有浪费它？重叠发生了吗？                 → 第五篇：stream / event 语义与重叠条件
-实测曲线和理论差在哪里？该动哪个环境变量？           → 第六篇：nccl-tests 的读法与调优参数的层次
-hang 住了，是谁、在哪一次操作上、为什么？          → 第六篇：Flight Recorder 与决策树
-推理的小消息 all_reduce 为什么要绕开 NCCL？         → 第七篇：custom all-reduce 与固定开销
-KV cache 该用什么传、能传多快？                   → 第七篇：NIXL / UCX / Mooncake 与单边 RDMA
-MoE 一层的 all_to_all 要搬多少字节、网卡还是 NVLink 是瓶颈？ → 第八篇：每 token k 份拷贝、跨节点比例、按节点去重
-decode 的 all_to_all 为什么不能靠 proxy 线程？      → 第八篇：上千条小消息的发起速率与 IBGDA
-```
+- 这次通信传了多少字节、多少参与者？理论上要多久？：→ 第一篇：α-β 模型与算法带宽效率
+- 它是延迟主导还是带宽主导？：→ 第一篇：消息大小与拐点
+- 数据走了哪条物理链路？这条链路的上限是多少？：→ 第二篇：拓扑、NVLink / PCIe / IB 的带宽
+- 跨机时经过了主机内存吗？GPUDirect 生效了吗？：→ 第三篇：RDMA 路径与 GDR 的条件
+- NCCL 为什么选了这个算法和协议？切了几个 channel？：→ 第四篇：拓扑探测、图搜索、调优表
+- 框架侧有没有浪费它？重叠发生了吗？：→ 第五篇：stream / event 语义与重叠条件
+- 实测曲线和理论差在哪里？该动哪个环境变量？：→ 第六篇：nccl-tests 的读法与调优参数的层次
+- hang 住了，是谁、在哪一次操作上、为什么？：→ 第六篇：Flight Recorder 与决策树
+- 推理的小消息 all_reduce 为什么要绕开 NCCL？：→ 第七篇：custom all-reduce 与固定开销
+- KV cache 该用什么传、能传多快？：→ 第七篇：NIXL / UCX / Mooncake 与单边 RDMA
+- MoE 一层的 all_to_all 要搬多少字节、网卡还是 NVLink 是瓶颈？ → 第八篇：每 token k 份拷贝、跨节点比例、按节点去重
+- decode 的 all_to_all 为什么不能靠 proxy 线程？：→ 第八篇：上千条小消息的发起速率与 IBGDA
 
 最终目标是三种能力：
 

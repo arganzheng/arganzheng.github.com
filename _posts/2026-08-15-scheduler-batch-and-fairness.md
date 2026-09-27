@@ -108,11 +108,9 @@ Table: 本文的章节安排
 
 例如有三个请求：
 
-```text
-Request A：生成 12 tokens
-Request B：生成 6 tokens
-Request C：生成 4 tokens
-```
+- Request A：生成 12 tokens
+- Request B：生成 6 tokens
+- Request C：生成 4 tokens
 
 如果采用固定 Batch：
 
@@ -181,15 +179,10 @@ GPU
 
 LLM 的生成过程天然是迭代式的：
 
-```text
-Iteration 1
-    ↓
-Iteration 2
-    ↓
-Iteration 3
-    ↓
-...
-```
+1. Iteration 1
+2. Iteration 2
+3. Iteration 3
+4. ...
 
 因此，一个更合理的做法是：
 
@@ -267,11 +260,9 @@ Iteration 1：
 
 此时其他已经处于 Decode 状态的请求：
 
-```text
-Request B → Decode
-Request C → Decode
-Request D → Decode
-```
+- Request B → Decode
+- Request C → Decode
+- Request D → Decode
 
 都可能被迫等待。
 
@@ -347,39 +338,21 @@ Chunked Prefill 并不是免费优化。
 
 如果长 Prompt 一次性执行：
 
-```text
-Long Request
-      ↓
-快速完成 Prefill
-      ↓
-TTFT 较低
-
-但：
-
-Decode Requests
-      ↓
-被阻塞
-      ↓
-TPOT 出现尖峰
-```
+1. Long Request
+2. 快速完成 Prefill
+3. TTFT 较低
+4. 但：Decode Requests
+5. 被阻塞
+6. TPOT 出现尖峰
 
 如果采用 Chunked Prefill：
 
-```text
-Long Request
-      ↓
-Prefill 被拆成多个 Chunk
-      ↓
-TTFT 上升
-
-但：
-
-Decode Requests
-      ↓
-可以持续执行
-      ↓
-TPOT 更平稳
-```
+1. Long Request
+2. Prefill 被拆成多个 Chunk
+3. TTFT 上升
+4. 但：Decode Requests
+5. 可以持续执行
+6. TPOT 更平稳
 
 因此，Chunked Prefill 的本质不是简单的“把 Prompt 切小”。
 
@@ -426,13 +399,11 @@ long_prefill_token_threshold = 512
 
 即：
 
-```text
-Chunk 1 → 512
-Chunk 2 → 512
-Chunk 3 → 512
-Chunk 4 → 512
-Chunk 5 → 2
-```
+- Chunk 1 → 512
+- Chunk 2 → 512
+- Chunk 3 → 512
+- Chunk 4 → 512
+- Chunk 5 → 2
 
 代价是这个请求需要更多轮才能完成 Prefill，TTFT 可能上升；收益则是其他 Decode 请求不容易被一个长 Prefill 长时间阻塞。
 
@@ -540,15 +511,10 @@ max_num_scheduled_tokens = 512
 
 于是 Scheduler 的问题就可以抽象成：
 
-```text
-给每一个 Request 分配 x_i 个 token
-
-满足：
-
-0 ≤ x_i ≤ request_remaining_i
-
-Σ x_i ≤ Token Budget
-```
+- 给每一个 Request 分配 x_i 个 token
+- 满足：
+- 0 ≤ x_i ≤ request_remaining_i
+- Σ x_i ≤ Token Budget
 
 这就是 Scheduler 最核心的资源分配问题。
 
@@ -561,10 +527,8 @@ Scheduler 需要知道：
 
 vLLM 中有两个非常关键的量：
 
-```text
-num_tokens_with_spec
-num_computed_tokens
-```
+- num_tokens_with_spec
+- num_computed_tokens
 
 它们可以帮助我们理解 Scheduler 的工作方式。
 
@@ -577,13 +541,9 @@ num_computed_tokens
 
 这意味着：
 
-```text
-前 1024 tokens
-      ↓
-已经完成计算
-      ↓
-对应 KV Cache 已经建立
-```
+1. 前 1024 tokens
+2. 已经完成计算
+3. 对应 KV Cache 已经建立
 
 **`num_tokens_with_spec`**
 
@@ -684,27 +644,21 @@ Token Budget = 512
 
 当前有三个正在运行的 Request：
 
-```text
-Request A：
-长 Prompt Prefill
-remaining = 400
-
-Request B：
-普通 Decode
-remaining = 1
-
-Request C：
-普通 Decode
-remaining = 1
-```
+- **Request A**
+  - 长 Prompt Prefill
+  - remaining = 400
+- **Request B**
+  - 普通 Decode
+  - remaining = 1
+- **Request C**
+  - 普通 Decode
+  - remaining = 1
 
 Scheduler 可以分配：
 
-```text
-A → 400
-B → 1
-C → 1
-```
+- A → 400
+- B → 1
+- C → 1
 
 消耗：
 
@@ -724,10 +678,8 @@ C → 1
 
 此时 waiting 队列中还有：
 
-```text
-Request D：
-Prompt = 300 tokens
-```
+- **Request D**
+  - Prompt = 300 tokens
 
 Scheduler 不需要等待 A、B、C 全部完成。
 
@@ -760,12 +712,10 @@ D → 110
 
 它只是在一个统一的 Token Budget 下：
 
-```text
-A → 400
-B → 1
-C → 1
-D → 110
-```
+- A → 400
+- B → 1
+- C → 1
+- D → 110
 
 ### 6. Decode 为什么也是同一个调度模型？
 
@@ -811,24 +761,15 @@ remaining_tokens = 1500 - 1000 = 500
 
 因此，从 Scheduler 的角度看：
 
-```text
-Prefill：
-
-remaining_tokens 很大
-
-Decode：
-
-remaining_tokens 通常为 1
-
-Chunked Prefill：
-
-remaining_tokens 很大
-但单轮只能推进一部分
-
-Speculative Decode：
-
-remaining_tokens 可能大于 1
-```
+- **Prefill**
+  - remaining_tokens 很大
+- **Decode**
+  - remaining_tokens 通常为 1
+- **Chunked Prefill**
+  - remaining_tokens 很大
+  - 但单轮只能推进一部分
+- **Speculative Decode**
+  - remaining_tokens 可能大于 1
 
 所以可以得到一个非常重要的结论：
 
@@ -1016,11 +957,8 @@ allocate_slots()
 
 它们更准确地表示：
 
-```text
-Running Requests
-        ↓
-Waiting Requests
-```
+1. Running Requests
+2. Waiting Requests
 
 在这两个集合中，Scheduler 都是在做同一件事情：
 
@@ -1153,19 +1091,14 @@ Token Budget = 512
 
 系统中有：
 
-```text
-Request A：
-长 Prompt，还没有完成 Prefill
-
-Request B：
-正常 Decode
-
-Request C：
-Speculative Decode
-
-Request D：
-刚刚进入系统，需要 Prefill
-```
+- **Request A**
+  - 长 Prompt，还没有完成 Prefill
+- **Request B**
+  - 正常 Decode
+- **Request C**
+  - Speculative Decode
+- **Request D**
+  - 刚刚进入系统，需要 Prefill
 
 Scheduler 可以得到类似这样的分配：
 
@@ -1203,15 +1136,8 @@ Table: 一轮 batch 里的请求构成示例
 
 不要理解成：
 
-```text
-Prefill Batch
-      +
-Decode Batch
-      +
-Speculative Batch
-      ↓
-Mixed Batch
-```
+1. Prefill Batch + Decode Batch + Speculative Batch
+2. Mixed Batch
 
 更准确的理解是：
 
@@ -1243,12 +1169,9 @@ Mixed Batch
 
 普通 Decode：
 
-```text
-当前已经计算到 token N
-
-下一轮：
-推进 1 token
-```
+- 当前已经计算到 token N
+- 下一轮：
+- 推进 1 token
 
 因此：
 
@@ -1258,16 +1181,13 @@ remaining ≈ 1
 
 而 Speculative Decoding 可能希望一次推进多个 token：
 
-```text
-当前：
-N
-
-Speculative：
-N+1
-N+2
-N+3
-N+4
-```
+- **当前**
+  - N
+- **Speculative**
+  - N+1
+  - N+2
+  - N+3
+  - N+4
 
 因此：
 
@@ -1277,17 +1197,11 @@ remaining > 1
 
 对于 Scheduler 来说，两者最终都只是：
 
-```text
-Request
-    ↓
-num_tokens_with_spec
-    ↓
-num_computed_tokens
-    ↓
-remaining tokens
-    ↓
-num_new_tokens
-```
+1. Request
+2. num_tokens_with_spec
+3. num_computed_tokens
+4. remaining tokens
+5. num_new_tokens
 
 所以 Scheduler 不需要重新设计一套：
 
@@ -1413,13 +1327,10 @@ SchedulerOutput
 
 于是 Scheduler 同时受到：
 
-```text
-计算约束：
-Token Budget
-
-内存约束：
-KV Cache Blocks
-```
+- **计算约束**
+  - Token Budget
+- **内存约束**
+  - KV Cache Blocks
 
 
 ### 1. Admission Control：不是所有 Request 都能立即进入 Running
@@ -1439,10 +1350,8 @@ Free Blocks = 很少
 
 此时来了一个新的 Request：
 
-```text
-Request D
-Prompt = 4K tokens
-```
+- Request D
+- Prompt = 4K tokens
 
 即使：
 
@@ -1503,17 +1412,11 @@ Preemption
 
 vLLM V1 当前主要使用 **Recomputation** 思路：
 
-```text
-Preempt
-   ↓
-释放该 Request 的 KV Cache
-   ↓
-num_computed_tokens = 0
-   ↓
-重新进入 Waiting
-   ↓
-恢复运行时重新计算
-```
+1. Preempt
+2. 释放该 Request 的 KV Cache
+3. num_computed_tokens = 0
+4. 重新进入 Waiting
+5. 恢复运行时重新计算
 
 也就是说：
 
@@ -1594,15 +1497,10 @@ request.num_computed_tokens = 0
 
 乍看之下：
 
-```text
-Preemption
-    ↓
-KV Cache 全部释放
-    ↓
-重新 Prefill
-    ↓
-不是浪费大量计算吗？
-```
+1. Preemption
+2. KV Cache 全部释放
+3. 重新 Prefill
+4. 不是浪费大量计算吗？
 
 理论上确实如此。
 
@@ -1646,32 +1544,22 @@ Request
 
 概念上：
 
-```text
-Running：
-
-A
-B
-C
-D
-```
+- **Running**
+  - A
+  - B
+  - C
+  - D
 
 如果 D 被抢占：
 
-```text
-D
-↓
-Preempt
-↓
-Waiting Queue Head
-```
+1. D
+2. Preempt
+3. Waiting Queue Head
 
 恢复时：
 
-```text
-Waiting：
-
-D → A → B → ...
-```
+- **Waiting**
+  - D → A → B → ...
 
 这样可以避免被抢占的 Request 长时间得不到恢复。
 
@@ -1708,19 +1596,12 @@ step│  A  │  B  │  C  │   D   │空闲块│ 这一轮发生了什么
 
 Scheduler 还需要避免一种非常糟糕的情况：
 
-```text
-接纳 Request
-      ↓
-KV Cache 几乎耗尽
-      ↓
-下一轮马上又不够
-      ↓
-立即 Preemption
-      ↓
-刚运行又被抢占
-      ↓
-反复震荡
-```
+1. 接纳 Request
+2. KV Cache 几乎耗尽
+3. 下一轮马上又不够
+4. 立即 Preemption
+5. 刚运行又被抢占
+6. 反复震荡
 
 因此可以预留一定比例的 KV Cache 作为安全余量。
 
@@ -1770,15 +1651,10 @@ required_blocks = (
 
 传统推理系统更像：
 
-```text
-Request
-   ↓
-固定 Batch
-   ↓
-执行
-   ↓
-Batch 完成
-```
+1. Request
+2. 固定 Batch
+3. 执行
+4. Batch 完成
 
 而 vLLM 更接近：
 

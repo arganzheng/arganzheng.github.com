@@ -112,15 +112,13 @@ $$
 
 NCCL 自己的调优表给出了它对小消息延迟的估计。`src/graph/tuning.cc` 里 `ncclTunerConstantsDefaults` 的 `baseLatencies` 和 `hwLatencies`（单位 µs，NCCL 2.28.9 的默认常数，用于算法选择，非实测）：
 
-```text
-baseLatencies（一次 collective 的基础开销）     LL     LL128   Simple
-   Tree                                        6.8    14.0    8.4
-   Ring                                        6.6    14.0    8.4
-hwLatencies[NVLINK]（每一步的链路开销）        LL     LL128   Simple
-   Tree                                        0.6    1.25    4.0
-   Ring                                        0.6    1.9     3.4
-   NVLS                                        -      -       25
-```
+- **baseLatencies（一次 collective 的基础开销）**：LL；LL128；Simple
+- **Tree**：6.8；14.0；8.4
+- **Ring**：6.6；14.0；8.4
+- **hwLatencies[NVLINK]（每一步的链路开销）**：LL；LL128；Simple
+- **Tree**：0.6；1.25；4.0
+- **Ring**：0.6；1.9；3.4
+- **NVLS**：-；-；25
 
 同一文件里对单节点 ring 的延迟公式是 `baseLatencies + nsteps × intraLat`，all_reduce 的 `nsteps = 2(n-1)`。8 卡：
 
@@ -936,15 +934,13 @@ NIXL / UCX / Mooncake     NIXL：register_memory、make_prepped_xfer("READ")、n
 
 ### 2. 排障检查项 / 决策要点
 
-```text
-TP all_reduce 慢     → 启动日志后端列表 → custom AR 禁用原因 warning → profiler kernel 名 → 消息大小区间 → TP 是否跨节点
-                       → 与 all_reduce_perf 小消息端对照
-KV 传输慢            → 理论值（字节 / 每 rank 网卡带宽）→ kv_buffer_device → UCX transport（UCX_LOG_LEVEL）→ GDR 可用性
-                       → GPU–NIC 亲和（topo -mp、UCX_NET_DEVICES）→ 注册日志 → 描述符数量 → 与 ib_write_bw --use_cuda 对照
-决策：TP 放哪里       → 节点内、NVLink 全互联；跨节点用 PP
-决策：KV 用什么传     → 默认 NixlConnector（UCX），显存直传；GDR 不可用时 kv_buffer_device=cpu；已有 Mooncake 生态用 Mooncake
-决策：何时自己写原语   → 消息 < 几百 KB、节点内、地址固定、每步上百次、失败可整体重启——四条都满足才值得
-```
+- TP all_reduce 慢：→ 启动日志后端列表 → custom AR 禁用原因 warning → profiler kernel 名 → 消息大小区间 → TP 是否跨节点
+-  → 与 all_reduce_perf 小消息端对照
+- KV 传输慢：→ 理论值（字节 / 每 rank 网卡带宽）→ kv_buffer_device → UCX transport（UCX_LOG_LEVEL）→ GDR 可用性
+-  → GPU–NIC 亲和（topo -mp、UCX_NET_DEVICES） → 注册日志 → 描述符数量 → 与 ib_write_bw --use_cuda 对照
+- 决策：TP 放哪里：→ 节点内、NVLink 全互联；跨节点用 PP
+- 决策：KV 用什么传：→ 默认 NixlConnector（UCX），显存直传；GDR 不可用时 kv_buffer_device=cpu；已有 Mooncake 生态用 Mooncake
+- 决策：何时自己写原语：→ 消息 < 几百 KB、节点内、地址固定、每步上百次、失败可整体重启——四条都满足才值得
 
 ### 3. 本篇涉及的源码与工具位置
 

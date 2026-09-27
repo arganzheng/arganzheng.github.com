@@ -157,11 +157,9 @@ Multus 的配置选项（`docs/configuration.md`）里和本篇相关的有：`c
 
 附加网络用 CRD `NetworkAttachmentDefinition`（API 组 `k8s.cni.cncf.io/v1`，Network Plumbing WG 的事实标准）描述，`spec.config` 就是一段 CNI 配置 JSON。Pod 用注解引用它。Multus v4.3.0 `pkg/k8sclient/k8sclient.go` 里定义了三个关键注解：
 
-```text
-k8s.v1.cni.cncf.io/networks          Pod 上：要挂哪些附加网络。逗号分隔的名字，或 JSON 数组（可带 interface、ips、mac、gateway）
-k8s.v1.cni.cncf.io/resourceName      NAD 上：这个网络要消耗哪个 device plugin 资源；Multus 据此把 kubelet 分配的设备信息传给 delegate
-k8s.v1.cni.cncf.io/network-status    Pod 上（Multus 写回）：每个接口的名字、IP、MAC、是否默认路由
-```
+- **k8s.v1.cni.cncf.io/networks**：Pod 上：要挂哪些附加网络。逗号分隔的名字，或 JSON 数组（可带 interface、ips、mac、gateway）
+- **k8s.v1.cni.cncf.io/resourceName**：NAD 上：这个网络要消耗哪个 device plugin 资源；Multus 据此把 kubelet 分配的设备信息传给 delegate
+- **k8s.v1.cni.cncf.io/network-status**：Pod 上（Multus 写回）：每个接口的名字、IP、MAC、是否默认路由
 
 `networks` 注解跨 namespace 引用写成 `<namespace>/<name>`；`resourceName` 把 NAD 与第四章的 device plugin 关联起来——Pod 请求了 `nvidia.com/hostdev: 1`，kubelet 分配了某个 PCI 设备，Multus 从 kubelet 的设备分配记录（checkpoint 文件或 PodResources API）读到结果，再以 `deviceID` 传给 `host-device` 或 `sriov` CNI，让 CNI 知道要把哪张网卡搬进 Pod。
 

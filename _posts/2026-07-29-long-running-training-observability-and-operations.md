@@ -819,27 +819,25 @@ runbook 的形式是"症状 → 五分钟内的检查 → 处置 → 升级条�
 
 每一次 page 级事件都写一份复盘，结构固定，半页到一页：
 
-```text
-标题：<日期> run42 hang 于 step 51,300（node037 gpu5 XID 79）
-影响：训练停止 02:58–03:41（43 min）；回退到 step 51,000 的 checkpoint，重算 300 步（24 min）；合计损失 67 min × 1024 卡 ≈ 1,143 GPU 小时
-时间线（UTC）：
-  02:58:12  node037 dmesg: NVRM Xid 79（GPU has fallen off the bus）
-  02:58:40  rank 293 最后一次 step 完成（step 51,300）
-  03:00:20  TrainingStepStalled page（阈值 100 s）
-  03:00:22  rank 12 watchdog 超时；FR 广播 dump 信号；03:01:35 全部 1024 rank dump 完成
-  03:07     值班收集 dump，torchfrtrace：seq 2,183,441 missing ranks {293}；结合 XID 判定硬件
-  03:09     node037 加入排除列表；触发重启
-  03:17     rendezvous 完成（1016 卡 + 1 备用节点）；03:24 checkpoint 加载完成；03:41 step 时间回到基准
-根因：GPU 硬件故障（XID 79），非软件
-检测：page 在 hang 后 100 s 发出——符合预期
-恢复：43 min 里 9 min 是人工决策，17 min 是重启 + 加载，剩下是 dump 等待与 rendezvous
-做得好：FR dump 全部收到；runbook 的 hang 路径直接可用
-待改进：
-  1. XID 79 出现到 hang 有 30 s，若 GpuXidError 直接触发自动排除 + 重启，可省下 9 min 人工决策 → 加自动化
-  2. checkpoint 间隔 300 步 × 4.75 s ≈ 24 min；按 Young 公式 τ_opt = √(2 × 45 s × 3 h) ≈ 16 min → 缩到 200 步
-  3. rendezvous 8 min 偏长：查 TCPStore 与镜像拉取
-行动项：<负责人> <截止日期> ×3
-```
+- **标题：<日期> run42 hang 于 step 51,300（node037 gpu5 XID 79）**
+- **影响：训练停止 02:58–03:41（43 min）；回退到 step 51,000 的 checkpoint，重算 300 步（24 min）；合计损失 67 min × 1024 卡 ≈ 1,143 GPU 小时**
+- **时间线（UTC）**
+  - **02:58:12**：node037 dmesg: NVRM Xid 79（GPU has fallen off the bus）
+  - **02:58:40**：rank 293 最后一次 step 完成（step 51,300）
+  - **03:00:20**：TrainingStepStalled page（阈值 100 s）
+  - **03:00:22**：rank 12 watchdog 超时；FR 广播 dump 信号；03:01:35 全部 1024 rank dump 完成
+  - **03:07**：值班收集 dump，torchfrtrace：seq 2,183,441 missing ranks {293}；结合 XID 判定硬件
+  - **03:09**：node037 加入排除列表；触发重启
+  - **03:17**：rendezvous 完成（1016 卡 + 1 备用节点）；03:24 checkpoint 加载完成；03:41 step 时间回到基准
+- **根因：GPU 硬件故障（XID 79），非软件**
+- **检测：page 在 hang 后 100 s 发出——符合预期**
+- **恢复：43 min 里 9 min 是人工决策，17 min 是重启 + 加载，剩下是 dump 等待与 rendezvous**
+- **做得好：FR dump 全部收到；runbook 的 hang 路径直接可用**
+- **待改进**
+  - 1. XID 79 出现到 hang 有 30 s，若 GpuXidError 直接触发自动排除 + 重启，可省下 9 min 人工决策 → 加自动化
+  - 2. checkpoint 间隔 300 步 × 4.75 s ≈ 24 min；按 Young 公式 τ_opt = √(2 × 45 s × 3 h) ≈ 16 min → 缩到 200 步
+  - 3. rendezvous 8 min 偏长：查 TCPStore 与镜像拉取
+- **行动项：<负责人> <截止日期> ×3**
 
 模板里两处数字是可以在复盘会上直接讨论的：**检测时间**（page 距事件多久）和**恢复时间的分解**（人工 / 重启 / 加载 / 回退各占多少）——它们就是第六篇有效训练时间公式里的项，复盘的产出就是决定缩短哪一项。
 

@@ -82,7 +82,7 @@ Table: 选题的四类失败方式
 | 先讨论再动手 | 新贡献者的 PR 必须对应 `actionable` issue；新功能 issue 里 "NEVER include AI-generated explanation of how to solve" | 大改动先 `[RFC]`；`AGENTS.md` 三条查重命令；"Fail-closed behavior" |
 | 查重工具 | 无明文；实际用 `gh pr list --search "<n> in:body"` | `AGENTS.md` 明文：`gh issue view --comments`、`gh pr list --search "<issue_number> in:body"`、`--search "<short area keywords>"` |
 
-Table: 选题各环节的 PyTorch 与 vLLM 对照
+Table: 选题各环节的 PyTorch 与 vLLM 对照（标签规模（2026-09-07）…）
 
 ### 4. 本文的章节安排
 
@@ -238,13 +238,11 @@ wiki 的 "The Ultimate Guide to PyTorch Contributions"（`CONTRIBUTING.md` 与�
 
 这套状态机正在被正式化。`pytorch/rfcs` 仓库里 2026-09-02 由 @albanD 开出的 PR #106（RFC-0058 "2026 Issue and PR workflow update"，截至查询仍 open）把它写成了定义："issues is our gating mechanism ... until the issue is closed or it is marked 'actionable' (so a PR can be sent for it)"，并给每个状态一个含义：
 
-```text
-needs reproduction   等任何人复现；等 maintainer 确认复现
-needs research       等任何人提供"这个 bug 是真的 / 这个 feature 有价值"的证据；等 maintainer 决定要不要做
-needs design         等任何人提出设计；等 maintainer 认可设计
-actionable           issue 里的信息足够任何人写出一个好 PR；打这个标签的 maintainer 愿意 review 对应的改动
-not planned          有效但 ROI 太低
-```
+- **needs reproduction**：等任何人复现；等 maintainer 确认复现
+- **needs research**：等任何人提供"这个 bug 是真的 / 这个 feature 有价值"的证据；等 maintainer 决定要不要做
+- **needs design**：等任何人提出设计；等 maintainer 认可设计
+- **actionable**：issue 里的信息足够任何人写出一个好 PR；打这个标签的 maintainer 愿意 review 对应的改动
+- **not planned**：有效但 ROI 太低
 
 对贡献者最有用的一句是 `actionable` 的第二个条件：**打标的 maintainer 已经承诺会 review**。这就是为什么 `actionable` 是"预测一周后不会被关"的最强信号——它不只是"可以做"，而是"有人等着收"。
 
@@ -339,14 +337,12 @@ issue 侧的自动打标在 `.github/workflows/issue_autolabel.yml`，按 issue 
 
 把上面的表用起来。PyTorch #194344（2026-08-21，`actionable`）的标签是 `triaged, actionable, module: correctness (silent), module: testing, module: accelerator, bot-triaged`。逐个翻译：
 
-```text
-triaged                        有人看过
-actionable                     可以发 PR，有 maintainer 愿意 review
-module: correctness (silent)   静默错误结果——高价值类别（RFC-0058 把 Silent Correctness 列为 high priority 的三类之一）
-module: testing                与 torch.testing 模块有关
-module: accelerator            与共享 accelerator API 有关——暗示 maintainer 想要设备无关的解法
-bot-triaged                    模块标签是 bot 打的，准确度打折
-```
+- **triaged**：有人看过
+- **actionable**：可以发 PR，有 maintainer 愿意 review
+- **module: correctness (silent)**：静默错误结果——高价值类别（RFC-0058 把 Silent Correctness 列为 high priority 的三类之一）
+- **module: testing**：与 torch.testing 模块有关
+- **module: accelerator**：与共享 accelerator API 有关——暗示 maintainer 想要设备无关的解法
+- **bot-triaged**：模块标签是 bot 打的，准确度打折
 
 再读评论：@malfet 2026-08-24 留了两条，"It would be good to have a generic test for it ... rather than write an MPS-specific test"，"Will accept a PR that adds a non-MPS specific test to validate for it (or enable the existing test for MPS platform)"。这就是 maintainer 把"我要什么"写得最清楚的形态——不仅说了要做，还说了怎么做才收。当天有人开了 PR #194396（MPS 专用测试）被关闭，改开 #194631（设备通用测试，`allow_mps=True, allow_xpu=True`）保持 open。**读标签 + 读 maintainer 的最后一条评论**，五分钟内就能判断这个 issue 还有没有位置、位置在哪。
 
@@ -544,13 +540,11 @@ PyTorch 的回归还有第二条路：**release 周期内的 cherry-pick**。`RE
 
 无论哪个项目，一份能被当作切入点的回归报告要有五样东西，缺一样 maintainer 就得回来问：
 
-```text
-版本对        好的版本 tag / commit 与坏的版本 tag / commit（不是"最近变慢了"）
-复现脚本      能独立运行；vLLM 优先用 vllm bench 或 benchmarks/ 下的脚本，PyTorch 优先用 benchmarks/ 下已有的套件
-硬件          GPU 型号、驱动、CUDA/ROCm 版本；vLLM 模板的环境字段就是 collect_env.py 的输出
-数字          前后对比，同一台机器同一脚本；至少三次取中位数
-范围          只在某个 shape / dtype / 并发下出现，还是普遍
-```
+- **版本对**：好的版本 tag / commit 与坏的版本 tag / commit（不是"最近变慢了"）
+- **复现脚本**：能独立运行；vLLM 优先用 vllm bench 或 benchmarks/ 下的脚本，PyTorch 优先用 benchmarks/ 下已有的套件
+- **硬件**：GPU 型号、驱动、CUDA/ROCm 版本；vLLM 模板的环境字段就是 collect_env.py 的输出
+- **数字**：前后对比，同一台机器同一脚本；至少三次取中位数
+- **范围**：只在某个 shape / dtype / 并发下出现，还是普遍
 
 有了这五样，报告就是可以直接 `git bisect` 的。如果你还有时间，bisect 出引入回归的 PR 并在报告里 ping 作者——这时候修复往往由原作者一两天内完成，你的贡献是报告本身。
 
@@ -603,12 +597,10 @@ rg -n "benchmark_serving.py" docs/
 
 PyTorch #183036 "Adadelta uses SGD in its examples"（2026-05-09，`module: docs`、`module: optimizer`、`actionable`）是一个典型的"看起来是 typo、其实不是"的 issue。报告者发现 `torch.optim.Adadelta` 文档页的示例代码写的是 `torch.optim.SGD(...)`，问"Should i submit a PR to fix this?"。评论区的走向（截至 2026-09-07）：
 
-```text
-2026-05-11  两位非 maintainer 确认问题存在、讨论要不要自己提
-2026-08-10  @janeyx99（optimizer 维护者）：I'd review a proper fix for this that doesn't cause the same issue for all other optimizers
-2026-08-11  @janeyx99：i meant to open this to the community
-2026-09-02  有人指出 PR #185401 已修（实查：#185401 "docs: make optimizer load_state_dict example generic" 状态为 CLOSED、未合入）
-```
+- **2026-05-11**：两位非 maintainer 确认问题存在、讨论要不要自己提
+- **2026-08-10**：@janeyx99（optimizer 维护者）：I'd review a proper fix for this that doesn't cause the same issue for all other optimizers
+- **2026-08-11**：@janeyx99：i meant to open this to the community
+- **2026-09-02**：有人指出 PR #185401 已修（实查：#185401 "docs: make optimizer load_state_dict example generic" 状态为 CLOSED、未合入）
 
 maintainer 那句话就是"成体系"的具体含义：不是把 Adadelta 页面上的 `SGD` 换成 `Adadelta`（那是 typo 级），而是修示例的**生成方式**，让所有 optimizer 页面都不再出现这个问题。这个 issue 到查询时仍 open、仍 `actionable`、没有 open PR——是本篇第九章 PyTorch 候选清单里的一个。
 
@@ -704,22 +696,18 @@ I'd like to take this one (`<issue title 截断>`). I'll dig into the root cause
 
 与 #31414 下另一位贡献者同日的留言：
 
-```text
-I took a look through the current usages of both modules. `vllm.utils.flashinfer` appears to serve as the
-general FlashInfer compatibility/wrapper layer, while `vllm.model_executor.layers.quantization.utils.flashinfer_utils` ...
-```
+- I took a look through the current usages of both modules. `vllm.utils.flashinfer` appears to serve as the
+- general FlashInfer compatibility/wrapper layer, while `vllm.model_executor.layers.quantization.utils.flashinfer_utils` ...
 
 第二种才是有用的认领：它证明你读了代码、给出了你理解的边界、隐含了你的方案。第一种不但没用，还给自己贴了标签——第二天那个账号自己在 #31414 下留言 "Stepping back on this one — @lvnpz got here first with the more detailed analysis, and there are already several PRs in flight"。
 
 一条好的认领留言的要素：
 
-```text
-1  我核对过：已有的 PR 是 #a、#b（或：没有找到相关 PR）
-2  我理解的问题在 <文件>::<函数>，原因是 ...
-3  我打算 <方案概要，两三句>；与 #a 的区别是 ...（如有）
-4  预计 <规模>；需要 <硬件>（如有）
-5  一个明确的问题：这个方向可以吗？/ 需要先开 RFC 吗？
-```
+- **1**：我核对过：已有的 PR 是 #a、#b（或：没有找到相关 PR）
+- **2**：我理解的问题在 <文件>::<函数>，原因是 ...
+- **3**：我打算 <方案概要，两三句>；与 #a 的区别是 ...（如有）
+- **4**：预计 <规模>；需要 <硬件>（如有）
+- **5**：一个明确的问题：这个方向可以吗？/ 需要先开 RFC 吗？
 
 然后**等**。PyTorch 的规则是等到 `actionable`；vLLM 没有明文的等待期，但 maintainer 一句 "Sure" 或一个 assignee 就是信号。等待期间可以做第七章的事——复现、测量、写测试草稿——这些不会撞车。
 
@@ -841,7 +829,7 @@ CI 失败       vLLM：Project 20 看板 · failures.md 的六节操作手册 ·
 | 查重 | 无明文，同样的 `gh` 命令可用 | `AGENTS.md` 三条命令，Fail-closed |
 | 认领 | 无机制；assignee 由 maintainer 设 | 无机制；maintainer 可能设 assignee |
 
-Table: 选题各环节的 PyTorch 与 vLLM 对照
+Table: 选题各环节的 PyTorch 与 vLLM 对照（"欢迎 PR"的信号…）
 
 ### 3. 本篇涉及的文件位置
 

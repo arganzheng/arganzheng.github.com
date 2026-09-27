@@ -391,14 +391,12 @@ spec:
 
 哪个节点用哪份配置由节点标签 `nvidia.com/device-plugin.config=<键名>` 决定（README "Catalog of Labels"），例如 `kubectl label node dev-1 nvidia.com/device-plugin.config=time-slicing-4`；`cmd/config-manager` 监听该标签的变化，把对应配置写到目标路径并向 `nvidia-device-plugin` 进程发 `SIGHUP`（`DefaultSignal`）使其重载。生效后：
 
-```text
-$ kubectl describe node dev-1
-Capacity:
-  nvidia.com/gpu.shared:  32        # 8 卡 × 4 副本
-Labels:
-  nvidia.com/gpu.sharing-strategy=time-slicing
-  nvidia.com/gpu.replicas=4
-```
+- **$ kubectl describe node dev-1**
+- **Capacity**
+  - nvidia.com/gpu.shared: 32 # 8 卡 × 4 副本
+- **Labels**
+  - nvidia.com/gpu.sharing-strategy=time-slicing
+  - nvidia.com/gpu.replicas=4
 
 `nvidia.com/gpu.sharing-strategy` 与 `nvidia.com/gpu.replicas` 是 GFD 在共享模式下追加的标签（`internal/lm/resource.go` 写 `sharing-strategy`）；若没有 `renameByDefault`（资源名仍是 `nvidia.com/gpu`），GFD 会给 `nvidia.com/gpu.product` 追加 `-SHARED` 后缀以示区别（`resourceLabeler` 中 `isShared() && !isRenamed()` 的分支），改名后则不加。
 

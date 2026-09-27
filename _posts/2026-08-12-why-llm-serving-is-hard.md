@@ -63,21 +63,13 @@ Table: 本文的章节安排
 
 LLM Serving 则不同。一个请求通常要经历：
 
-```text
-请求进入
-  ↓
-Prompt Processing / Prefill
-  ↓
-生成第一个 Token
-  ↓
-Decode Step 1
-  ↓
-Decode Step 2
-  ↓
-Decode Step ...
-  ↓
-EOS 或达到长度上限
-```
+1. 请求进入
+2. Prompt Processing / Prefill
+3. 生成第一个 Token
+4. Decode Step 1
+5. Decode Step 2
+6. Decode Step ...
+7. EOS 或达到长度上限
 
 它的输入和输出都具有动态性：
 

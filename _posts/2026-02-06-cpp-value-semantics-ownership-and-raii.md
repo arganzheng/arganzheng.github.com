@@ -354,17 +354,15 @@ int main() {
 
 第三个构造函数 `Tracer(const Tracer& o)` 就是拷贝构造函数：参数是"对另一个 `Tracer` 的常量引用"，函数体决定"拷贝"是什么意思——这里是把名字加一个撇号，方便在输出里区分谁是谁的拷贝。输出：
 
-```text
-ctor      a
-copy-ctor a'
-copy-ctor a''
-  in by_value, got a''
-dtor      a''
-  in by_cref, got a'
-end of main
-dtor      a'
-dtor      a
-```
+- **ctor      a**
+- **copy-ctor a'**
+- **copy-ctor a''**
+  - in by_value, got a''
+- **dtor      a''**
+  - in by_cref, got a'
+- **end of main**
+- **dtor      a'**
+- **dtor      a**
 
 对照代码：
 
@@ -852,11 +850,9 @@ Tracer c = std::move(a);   // move-ctor：std::move(a) 是右值；之后 a 处�
 std::printf("a now: %s\n", a.name.c_str());
 ```
 
-```text
-copy-ctor a'
-move-ctor a
-a now: (moved-from)
-```
+- copy-ctor a'
+- move-ctor a
+- a now: (moved-from)
 
 **moved-from 对象**的状态是"有效但未指定"（valid but unspecified）：可以析构、可以重新赋值，但不应该读它的内容——上面故意把 `name` 设成 `"(moved-from)"` 是为了演示，标准库类型不会这样做。对 `Tensor` 来说，moved-from 的 `Tensor` 是 undefined 的（`impl_` 为空），`defined()` 返回 `false`。
 
@@ -1054,16 +1050,14 @@ int main() {
 }
 ```
 
-```text
-== normal
-acquire local
-work done normally
-release local
-== exception
-acquire local
-release local
-caught: boom
-```
+- == normal
+- acquire local
+- work done normally
+- release local
+- == exception
+- acquire local
+- release local
+- caught: boom
 
 第二段最重要：`work(true)` 在 `acquire` 之后抛了异常，函数体后面的代码一行都没执行，但 `release local` 照样打印了，而且是在 `catch` 之前——异常传播出 `work` 的过程中（叫"栈展开"，stack unwinding），`g` 所在的栈帧被销毁，`g` 的析构函数运行。**不需要 `finally`，不需要 `try-with-resources`，资源释放写在类型里一次，所有使用点自动获得。**
 
@@ -1117,15 +1111,13 @@ dtor Base::t             再基类的成员
 
 构造和析构严格镜像。这条规则对读 `TensorImpl` 很重要。`TensorImpl` 的成员按声明顺序有 `storage_`（一个 `Storage`，里面是 `intrusive_ptr<StorageImpl>`）、`autograd_meta_`（`unique_ptr`）、`extra_meta_`、`version_counter_`、`pyobj_slot_`、`sizes_and_strides_`……当最后一个 `Tensor` 句柄析构、`TensorImpl` 的引用计数归零时：
 
-```text
-delete target                          (intrusive_ptr 内部，第九章)
-  → ~TensorImpl()                      函数体是 = default，什么都不做
-    → 逆序析构成员：... → ~unique_ptr(autograd_meta_) → ~Storage(storage_)
-      → ~intrusive_ptr<StorageImpl>    StorageImpl 引用计数 -1
-        → 若归零：delete StorageImpl
-          → ~StorageImpl()             函数体 = default
-            → ~DataPtr(data_ptr_)      → ~UniqueVoidPtr → unique_ptr 调 deleter → 内存归还
-```
+1. **delete target**：(intrusive_ptr 内部，第九章)
+2. **~TensorImpl()**：函数体是 = default，什么都不做
+3. 逆序析构成员：... → ~unique_ptr(autograd_meta_) → ~Storage(storage_)
+4. **~intrusive_ptr<StorageImpl>**：StorageImpl 引用计数 -1
+5. 若归零：delete StorageImpl
+6. **~StorageImpl()**：函数体 = default
+7. ~DataPtr(data_ptr_) → ~UniqueVoidPtr → unique_ptr 调 deleter → 内存归还
 
 整条链没有一行手写的释放代码。`TensorImpl::~TensorImpl() = default;`（`c10/core/TensorImpl.cpp`）、`~StorageImpl() override = default;`，全靠成员的析构函数层层传递。这就是总纲那句"整条链上没有一处需要手工 `delete`，这就是 RAII"的具体含义。第十章会把每一层的代码摊开看。
 

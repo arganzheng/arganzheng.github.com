@@ -104,19 +104,14 @@ Attention、通信、量化和模型执行路径中也不断加入类似分支�
 
 这些模块应该依赖的是抽象能力，而不是具体芯片：
 
-```text
-Scheduler
-  └── 只关心 token 预算、请求状态和执行资源
-
-KVCacheManager
-  └── 只关心 block、容量、分配和回收
-
-Model Executor
-  └── 只关心模型层如何执行
-
-硬件平台层
-  └── 负责设备、算子、通信、数据类型和内存实现
-```
+- **Scheduler**
+  - 只关心 token 预算、请求状态和执行资源
+- **KVCacheManager**
+  - 只关心 block、容量、分配和回收
+- **Model Executor**
+  - 只关心模型层如何执行
+- **硬件平台层**
+  - 负责设备、算子、通信、数据类型和内存实现
 
 理想的依赖关系如下：
 
@@ -145,23 +140,19 @@ graph TD
 
 上层只需要提出类似的问题：
 
-```text
-当前设备是什么类型？
-支持哪些数据类型？
-支持 FP8 或其他量化格式吗？
-使用哪个 Attention Backend？
-集合通信由哪个实现负责？
-需要加载哪些平台扩展？
-```
+- 当前设备是什么类型？
+- 支持哪些数据类型？
+- 支持 FP8 或其他量化格式吗？
+- 使用哪个 Attention Backend？
+- 集合通信由哪个实现负责？
+- 需要加载哪些平台扩展？
 
 它不应该关心：
 
-```text
-这是 NVIDIA GPU、AMD GPU，还是昇腾 NPU？
-底层使用 CUDA、HIP 还是 CANN？
-具体 Kernel 是哪个动态库？
-通信实现是 NCCL、RCCL 还是 HCCL？
-```
+- 这是 NVIDIA GPU、AMD GPU，还是昇腾 NPU？
+- 底层使用 CUDA、HIP 还是 CANN？
+- 具体 Kernel 是哪个动态库？
+- 通信实现是 NCCL、RCCL 还是 HCCL？
 
 这些问题应该由平台层回答。
 
@@ -214,13 +205,9 @@ class Platform:
 
 可以把它理解为：
 
-```text
-上层代码提出能力问题
-        ↓
-Platform 提供平台事实
-        ↓
-具体 Backend 或 Kernel 被选择
-```
+1. 上层代码提出能力问题
+2. Platform 提供平台事实
+3. 具体 Backend 或 Kernel 被选择
 
 这里的关键不是“所有硬件都实现完全相同的代码”，而是：
 
@@ -252,13 +239,9 @@ from vllm.platforms import current_platform
 
 很多人第一次阅读 vLLM 硬件适配代码时，会自然地形成一种“三层调用栈”：
 
-```text
-Platform Backend
-      ↓
-Attention Backend
-      ↓
-Kernel Backend
-```
+1. Platform Backend
+2. Attention Backend
+3. Kernel Backend
 
 这种理解在 Attention 局部路径上有一定合理性，但如果把它当成整个硬件适配体系的真实结构，就会产生误解。
 
@@ -339,13 +322,11 @@ def get_attn_backend(
 
 最终得到的可能是：
 
-```text
-FlashAttentionBackend
-FlashInferBackend
-TritonAttentionBackend
-AITER Attention Backend
-Ascend / CANN Attention Backend
-```
+- FlashAttentionBackend
+- FlashInferBackend
+- TritonAttentionBackend
+- AITER Attention Backend
+- Ascend / CANN Attention Backend
 
 可以用一个简化后的伪代码表示：
 
@@ -448,12 +429,10 @@ class CudaPlatform(Platform):
 
 不同硬件平台可能分别对接：
 
-```text
-NVIDIA GPU  → NCCL
-AMD GPU     → RCCL
-昇腾 NPU    → HCCL
-Intel XPU   → XCCL 或对应通信实现
-```
+- NVIDIA GPU：→ NCCL
+- AMD GPU：→ RCCL
+- 昇腾 NPU：→ HCCL
+- Intel XPU：→ XCCL 或对应通信实现
 
 LoRA、量化、内存管理以及平台特有的执行组件，也可能走类似的直接派发路径。
 
@@ -504,16 +483,9 @@ Attention 之所以被单独抽象出来，不只是因为它名字特殊，而�
 
 例如，同一块 GPU 上：
 
-```text
-某种 head size + FP16 + prefill
-    → FlashAttention
-
-某种 head size + FP8 KV Cache + decode
-    → FlashInfer
-
-特殊模型结构或不满足优化条件
-    → Triton 或通用实现
-```
+- **某种 head size + FP16 + prefill**：FlashAttention
+- **某种 head size + FP8 KV Cache + decode**：FlashInfer
+- **特殊模型结构或不满足优化条件**：Triton 或通用实现
 
 而 RMSNorm、RoPE 等算子，很多时候可以通过平台扩展直接绑定。它们也可能存在多个实现，但通常不需要像 Attention 一样根据大量运行时条件进行复杂选择。
 
@@ -656,23 +628,14 @@ Serving 核心通常不会直接操作每一种硬件的底层运行时，而是
 
 例如：
 
-```text
-通用 Worker 生命周期
-    ↓
-NPU 设备选择
-    ↓
-CANN Runtime 初始化
-    ↓
-模型权重加载到 NPU
-    ↓
-创建 NPU 内存池
-    ↓
-加载 CANN / Custom Ops
-    ↓
-执行模型
-    ↓
-同步与错误处理
-```
+1. 通用 Worker 生命周期
+2. NPU 设备选择
+3. CANN Runtime 初始化
+4. 模型权重加载到 NPU
+5. 创建 NPU 内存池
+6. 加载 CANN / Custom Ops
+7. 执行模型
+8. 同步与错误处理
 
 这里最容易被低估的是“错误处理”和“同步语义”。
 
@@ -704,17 +667,11 @@ Attention 通常是昇腾适配中最关键的部分之一。
 
 抽象来看，调用路径可以是：
 
-```text
-Attention Layer
-      ↓
-AttentionBackend.forward()
-      ↓
-Ascend Attention Backend
-      ↓
-CANN / Custom Attention Operator
-      ↓
-NPU Kernel
-```
+1. Attention Layer
+2. AttentionBackend.forward()
+3. Ascend Attention Backend
+4. CANN / Custom Attention Operator
+5. NPU Kernel
 
 一个简化的后端结构可能如下：
 
@@ -750,17 +707,11 @@ class AscendAttentionImpl:
 
 尤其要注意，Attention Backend 并不是只实现一个数学公式。它必须适配 vLLM 的运行时语义：
 
-```text
-请求调度结果
-    ↓
-Attention Metadata
-    ↓
-Block Table / KV Cache 位置
-    ↓
-Prefill 或 Decode
-    ↓
-设备专用 Attention Kernel
-```
+1. 请求调度结果
+2. Attention Metadata
+3. Block Table / KV Cache 位置
+4. Prefill 或 Decode
+5. 设备专用 Attention Kernel
 
 如果平台只实现了一个能够计算 Attention 的算子，但不能正确理解 vLLM 的 KV Cache block 布局，那么它仍然不能作为完整的 vLLM Attention Backend 使用。
 
@@ -769,10 +720,8 @@ Prefill 或 Decode
 
 vLLM 的 KV Cache 管理器通常应该保持平台无关。它负责的是逻辑 block：
 
-```text
-逻辑层：
-block 0、block 1、block 2……
-```
+- **逻辑层**
+  - block 0、block 1、block 2……
 
 但这些 block 最终如何落到 NPU 内存上，则需要平台和 Worker 共同完成。
 
@@ -850,14 +799,12 @@ block 0、block 1、block 2……
 
 同一种量化名称，在不同硬件平台上可能对应不同实现：
 
-```text
-权重存储格式
-激活量化格式
-缩放因子布局
-反量化位置
-矩阵乘法 Kernel
-KV Cache 数据类型
-```
+- 权重存储格式
+- 激活量化格式
+- 缩放因子布局
+- 反量化位置
+- 矩阵乘法 Kernel
+- KV Cache 数据类型
 
 因此，昇腾平台需要明确支持哪些量化方式，以及每一种量化方式对应什么实现。
 
@@ -875,14 +822,10 @@ def get_supported_quantization(cls):
 
 然后在模型加载或配置检查阶段提前拒绝不支持的组合，而不是等到运行中才失败：
 
-```text
-模型要求：某种量化格式
-        ↓
-平台能力检查
-        ↓
-支持 → 选择对应 Kernel
-不支持 → 明确报错或选择兼容路径
-```
+1. 模型要求：某种量化格式
+2. 平台能力检查
+3. 支持 → 选择对应 Kernel
+4. 不支持 → 明确报错或选择兼容路径
 
 这也是硬件抽象的重要价值：
 
@@ -921,10 +864,8 @@ communicator.all_reduce(tensor)
 
 而具体实现由平台提供：
 
-```text
-CudaPlatform  → CudaCommunicator → NCCL
-AscendPlatform → AscendCommunicator → HCCL
-```
+- CudaPlatform：→ CudaCommunicator → NCCL
+- AscendPlatform → AscendCommunicator → HCCL
 
 如果通信层没有正确适配，模型可能单卡正常、多卡却出现：
 
@@ -1025,12 +966,10 @@ sequenceDiagram
 
 重点搜索：
 
-```text
-is_cuda()
-is_ascend()
-is_rocm()
-device.type == ...
-```
+- is_cuda()
+- is_ascend()
+- is_rocm()
+- device.type == ...
 
 如果这些判断大量出现在 Scheduler、请求状态机和 KV Cache 逻辑中，说明硬件边界可能已经被突破。
 
@@ -1051,19 +990,13 @@ current_platform.check_and_update_config(...)
 
 理想情况是：
 
-```text
-启动阶段发现不支持
-    ↓
-给出明确错误信息
-```
+1. 启动阶段发现不支持
+2. 给出明确错误信息
 
 而不是：
 
-```text
-服务启动成功
-    ↓
-请求执行到某个深层 Kernel 时崩溃
-```
+1. 服务启动成功
+2. 请求执行到某个深层 Kernel 时崩溃
 
 ### 4. 检查四：插件是否能独立演进？
 
@@ -1079,15 +1012,13 @@ current_platform.check_and_update_config(...)
 
 硬件适配至少要验证：
 
-```text
-功能正确
-数值正确
-数据类型正确
-KV Cache 正确
-多卡通信正确
-性能达到预期
-异常处理可用
-```
+- 功能正确
+- 数值正确
+- 数据类型正确
+- KV Cache 正确
+- 多卡通信正确
+- 性能达到预期
+- 异常处理可用
 
 能在 NPU 上返回结果，只能说明适配链路打通了；能在真实模型、真实 batch 和真实上下文长度下稳定达到目标吞吐，才算完成了工程适配。
 
@@ -1111,17 +1042,11 @@ Attention Backend、Kernel、通信组件、Worker 和平台扩展，都可能�
 
 因此，vLLM 的硬件解耦并不是简单地增加几个平台类，而是建立了多层边界——Serving Core / 抽象契约 / 平台实现 / 硬件运行时 / Kernel。最终，硬件差异应该停留在最底层：
 
-```text
-芯片差异
-  ↓
-运行时差异
-  ↓
-平台实现差异
-  ↓
-Backend / Worker / Kernel 差异
-  ↓
-Serving 核心保持稳定
-```
+1. 芯片差异
+2. 运行时差异
+3. 平台实现差异
+4. Backend / Worker / Kernel 差异
+5. Serving 核心保持稳定
 
 这正是一个高性能推理框架面对异构硬件时最重要的架构能力：
 

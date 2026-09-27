@@ -628,17 +628,14 @@ ab3b6d97aa 2026-07-04 [Frontend] Limit `SO_REUSEPORT` to multi-worker serving (#
 git show -s --format='%H%n%an%n%cs%n%B' 7b9f2dad89
 ```
 
-```text
-7b9f2dad8920f115c1caea36e096e43c04c3da68
-Bugen Zhao
-2026-08-06
-[Frontend] Watch frontend processes during engine startup (#43417)
-
-Signed-off-by: Bugen Zhao <i@bugenzhao.com>
-Signed-off-by: Nick Hill <nickhill123@gmail.com>
-Co-authored-by: OpenAI Codex <codex@openai.com>
-Co-authored-by: Nick Hill <nickhill123@gmail.com>
-```
+- 7b9f2dad8920f115c1caea36e096e43c04c3da68
+- Bugen Zhao
+- 2026-08-06
+- [Frontend] Watch frontend processes during engine startup (#43417)
+- Signed-off-by: Bugen Zhao <i@bugenzhao.com>
+- Signed-off-by: Nick Hill <nickhill123@gmail.com>
+- Co-authored-by: OpenAI Codex <codex@openai.com>
+- Co-authored-by: Nick Hill <nickhill123@gmail.com>
 
 正文里只有 trailer：`Signed-off-by`（DCO 签名，vLLM 每个 commit 必须有）、`Co-authored-by`（这里包括一个 AI 助手——`AGENTS.md` 要求 AI 辅助的提交用这个 trailer 声明）。**"为什么改"不在 commit 里，在 PR 页面上。**所以读 vLLM 历史的第二步永远是 `gh pr view <PR 号> --repo vllm-project/vllm`。截至 2026-09 查询，#43417 的描述以 "## Purpose" 开头："Fail promptly when a frontend process exits while engine cores are still initializing"，接着解释了 `launch_core_engines` 的启动屏障原来只监视本地引擎核心与 DP coordinator，API server 进程在这个窗口内退出会让父进程一直等；标签是 `frontend`、`ready`、`v1`、`rust`。改动涉及 `vllm/entrypoints/cli/serve.py`、`vllm/v1/engine/core_client.py`、`vllm/v1/engine/utils.py`，测试在 `tests/v1/engine/test_startup_watch_processes.py`。`git tag --contains 7b9f2dad89` 显示它进入了 `v0.28.0`（以及 `v0.27.2rc0`）。
 
@@ -659,14 +656,12 @@ PR 号                  标题末尾 (#N)，正文 Pull Request resolved: 链接
 
 **PyTorch** `RELEASE.md` 的 "Release Cadence" 一节是一张表，列出每个 minor 版本的 release branch cut 日期与发布日期。v2.14.0 检出里的近几行：
 
-```text
-| Minor Version | Release branch cut | Release date | First patch release date | Second patch release date|
-| 2.12 | 13 Apr 2026 | 13 May 2026 | Jun 2026 | Not planned |
-| 2.13 | 8 Jun 2026 | 8 Jul 2026 | (Aug 2026) | Not planned |
-| 2.14 | 10 Aug 2026 | 2 Sept 2026 | (Oct 2026) | Not planned |
-| 2.15 | 28 Sept 2026 | 28 Oct 2026 | (Nov 2026) | Not planned |
-| 2.16 | 23 Nov 2026 | 22 Dec 2026 | (Jan 2027) | Not planned |
-```
+- | Minor Version | Release branch cut | Release date | First patch release date | Second patch release date|
+- | 2.12 | 13 Apr 2026 | 13 May 2026 | Jun 2026 | Not planned |
+- | 2.13 | 8 Jun 2026 | 8 Jul 2026 | (Aug 2026) | Not planned |
+- | 2.14 | 10 Aug 2026 | 2 Sept 2026 | (Oct 2026) | Not planned |
+- | 2.15 | 28 Sept 2026 | 28 Oct 2026 | (Nov 2026) | Not planned |
+- | 2.16 | 23 Nov 2026 | 22 Dec 2026 | (Jan 2027) | Not planned |
 
 表格上方注明 "All future dates below are tentative" 与 "Patch Releases are optional"。从表里读出的节奏：branch cut 到发布约三到四周，相邻 minor 版本相隔约两个月。"General Overview" 一节列出发布的步骤（cut release branch → drafting RCs 与 cherry-pick → final RC → promote to stable）；"Frequently Asked Questions" 解释 branch cut 之后 "new features *are not* added to the release branch"，cherry-pick 需要在 release tracker issue 里提名，可以用 `@pytorchbot cherry-pick -c [reason]` 自动化；"Cherry Picking Fixes" 一节强调 "The cherry pick process is not an invitation to add new features, it is mainly there to fix regressions"，`-c` 的取值是 `regression`、`critical`、`fixnewfeature`、`docs`、`release` 五种。
 

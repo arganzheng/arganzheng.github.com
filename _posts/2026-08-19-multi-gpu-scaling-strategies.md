@@ -613,11 +613,9 @@ PP的基本思路是：模型沿层的方向切开多个连续的stage，并将�
 
 例如，一个包含 60 层 Transformer 的模型可以划分为三个 stage：
 
-```text
-Stage 0：Layers 0–19
-Stage 1：Layers 20–39
-Stage 2：Layers 40–59
-```
+- Stage 0：Layers 0–19
+- Stage 1：Layers 20–39
+- Stage 2：Layers 40–59
 
 其PP和数据流向如下所示：
 
@@ -659,11 +657,9 @@ PP 可以将模型不同层的权重和 KV cache 分布到多个 GPU 上，使�
 
 PP 通常将模型按连续层切分：
 
-```text
-GPU 0：Embedding + Layers 0–19
-GPU 1：Layers 20–39
-GPU 2：Layers 40–59 + LM Head
-```
+- GPU 0：Embedding + Layers 0–19
+- GPU 1：Layers 20–39
+- GPU 2：Layers 40–59 + LM Head
 
 每个连续的层区间称为一个 **pipeline stage**。
 
@@ -671,10 +667,8 @@ GPU 2：Layers 40–59 + LM Head
 
 这意味着 PP 的通信主要发生在：
 
-```text
-Stage 0 → Stage 1
-Stage 1 → Stage 2
-```
+- Stage 0 → Stage 1
+- Stage 1 → Stage 2
 
 而不是每一层都进行跨卡通信。
 
@@ -701,11 +695,9 @@ Stage 1 → Stage 2
 
 在实际推理系统中，一个 stage 也可能由多张 GPU 组成，并在 stage 内部使用 TP：
 
-```text
-Stage 0：GPU 0–3，通过 TP 计算 Layers 0–19
-Stage 1：GPU 4–7，通过 TP 计算 Layers 20–39
-Stage 2：GPU 8–11，通过 TP 计算 Layers 40–59
-```
+- Stage 0：GPU 0–3，通过 TP 计算 Layers 0–19
+- Stage 1：GPU 4–7，通过 TP 计算 Layers 20–39
+- Stage 2：GPU 8–11，通过 TP 计算 Layers 40–59
 
 此时：
 
@@ -722,25 +714,17 @@ Prefill 阶段负责处理用户输入的完整 prompt。
 
 例如，用户输入长度为 1024 个 token，数据会依次经过所有 stage：
 
-```text
-Prompt tokens
-  ↓
-Stage 0：计算前 20 层
-  ↓ hidden states
-Stage 1：计算中间 20 层
-  ↓ hidden states
-Stage 2：计算后 20 层
-  ↓
-生成 logits
-```
+1. Prompt tokens
+2. Stage 0：计算前 20 层（hidden states）
+3. Stage 1：计算中间 20 层（hidden states）
+4. Stage 2：计算后 20 层
+5. 生成 logits
 
 在每个 stage 内部，模型会为自己负责的层计算对应的 Key 和 Value，并写入本地 KV cache：
 
-```text
-Stage 0：保存 Layers 0–19 的 KV cache
-Stage 1：保存 Layers 20–39 的 KV cache
-Stage 2：保存 Layers 40–59 的 KV cache
-```
+- Stage 0：保存 Layers 0–19 的 KV cache
+- Stage 1：保存 Layers 20–39 的 KV cache
+- Stage 2：保存 Layers 40–59 的 KV cache
 
 Prefill 通常具有较强的计算特征，输入 token 数量较多，因此比较容易通过批处理或请求并发来提高 GPU 利用率。
 
@@ -750,17 +734,11 @@ Decode 阶段每次只生成一个或少量新 token。
 
 生成下一个 token 时，新的 hidden states 仍然需要依次经过所有 stage：
 
-```text
-新 token
-  ↓
-Stage 0：读取本地 KV cache，计算 Layers 0–19
-  ↓
-Stage 1：读取本地 KV cache，计算 Layers 20–39
-  ↓
-Stage 2：读取本地 KV cache，计算 Layers 40–59
-  ↓
-输出下一个 token
-```
+1. 新 token
+2. Stage 0：读取本地 KV cache，计算 Layers 0–19
+3. Stage 1：读取本地 KV cache，计算 Layers 20–39
+4. Stage 2：读取本地 KV cache，计算 Layers 40–59
+5. 输出下一个 token
 
 每个 stage 只访问自己负责层的 KV cache，但整个生成过程仍然需要经过完整的模型层。
 
@@ -842,10 +820,8 @@ PP 既可以用于训练，也可以用于推理，但两者关注的问题不�
 
 训练时，每个 microbatch 都需要进行：
 
-```text
-Forward：Stage 0 → Stage 1 → Stage 2
-Backward：Stage 2 → Stage 1 → Stage 0
-```
+- Forward：Stage 0 → Stage 1 → Stage 2
+- Backward：Stage 2 → Stage 1 → Stage 0
 
 因此训练 PP 需要处理：
 
@@ -1025,11 +1001,9 @@ EP 的基本思想是：
 
 例如：
 
-```text
-输入 Token 数量：      4096
-Expert 总数：           64
-每个 Token 激活 Expert：Top-2
-```
+- **输入 Token 数量**：4096
+- **Expert 总数**：64
+- **每个 Token 激活 Expert**：Top-2
 
 理论上，每个 Token 只需要经过 2 个 Expert，而不是全部 64 个 Expert。因此，MoE 可以实现：
 
@@ -1123,15 +1097,12 @@ $$
 
 例如：
 
-```text
-Token t₁：
-  Expert 3  → 权重 0.62
-  Expert 17 → 权重 0.28
-  其他      → 权重 0.10
-
-Top-2 路由结果：
-  t₁ → Expert 3、Expert 17
-```
+- **Token t₁**
+  - Expert 3 → 权重 0.62
+  - Expert 17 → 权重 0.28
+  - 其他 → 权重 0.10
+- **Top-2 路由结果**
+  - t₁ → Expert 3、Expert 17
 
 Router 不仅需要记录 Expert ID，还需要记录每个 Expert 对应的路由权重。后续 Combine 阶段会使用这些权重对不同 Expert 的输出进行加权求和。
 
@@ -1182,27 +1153,20 @@ Expert 52  位于 GPU 3
 
 实际实现通常不会逐个 Token 单独发送，而是先按照目标 Expert 或目标 GPU 对 Token 进行重排和打包，再进行批量通信：
 
-```text
-原始 Token 顺序：
-
-[t₀, t₁, t₂, t₃, t₄, t₅]
-
-路由结果：
-
-t₀ → E3
-t₁ → E17
-t₂ → E35
-t₃ → E3
-t₄ → E52
-t₅ → E17
-
-按照目标 GPU 重排：
-
-GPU 0：t₀、t₃
-GPU 1：t₁、t₅
-GPU 2：t₂
-GPU 3：t₄
-```
+- **原始 Token 顺序**
+  - [t₀, t₁, t₂, t₃, t₄, t₅]
+- **路由结果**
+  - t₀ → E3
+  - t₁ → E17
+  - t₂ → E35
+  - t₃ → E3
+  - t₄ → E52
+  - t₅ → E17
+- **按照目标 GPU 重排**
+  - GPU 0：t₀、t₃
+  - GPU 1：t₁、t₅
+  - GPU 2：t₂
+  - GPU 3：t₄
 
 这种重排过程通常需要维护以下元数据：
 
@@ -1218,12 +1182,10 @@ GPU 3：t₄
 
 例如，在 `EP=4` 的场景中：
 
-```text
-GPU 0：Expert 0  ~ Expert 15
-GPU 1：Expert 16 ~ Expert 31
-GPU 2：Expert 32 ~ Expert 47
-GPU 3：Expert 48 ~ Expert 63
-```
+- **GPU 0**：Expert 0  ~ Expert 15
+- **GPU 1**：Expert 16 ~ Expert 31
+- **GPU 2**：Expert 32 ~ Expert 47
+- **GPU 3**：Expert 48 ~ Expert 63
 
 GPU 0 收到 Token 后，会按照目标 Expert 进行分组：
 
@@ -1354,19 +1316,14 @@ $$
 
 例如：
 
-```text
-Token t₁：
-
-来自 Expert 3 的输出：  y₁
-来自 Expert 17 的输出： y₂
-
-Router 权重：
-  p₁ = 0.62
-  p₂ = 0.28
-
-聚合结果：
-  y = 0.62 × y₁ + 0.28 × y₂
-```
+- **Token t₁**
+- **来自 Expert 3 的输出：  y₁**
+- **来自 Expert 17 的输出： y₂**
+- **Router 权重**
+  - p₁ = 0.62
+  - p₂ = 0.28
+- **聚合结果**
+  - y = 0.62 × y₁ + 0.28 × y₂
 
 聚合完成后，MoE 层通常还会执行残差连接：
 
@@ -1543,12 +1500,10 @@ Capacity Factor 减小
 
 理想情况下：
 
-```text
-Expert 0：约 1/64 的路由
-Expert 1：约 1/64 的路由
-...
-Expert 63：约 1/64 的路由
-```
+- Expert 0：约 1/64 的路由
+- Expert 1：约 1/64 的路由
+- ...
+- Expert 63：约 1/64 的路由
 
 如果某些 Expert 长期获得过多 Token，则可能导致：
 
@@ -1564,10 +1519,7 @@ Expert 63：约 1/64 的路由
 
 传统实现通常按照以下顺序执行：
 
-```text
-Dispatch → 等待通信完成 → Expert 计算
-        → 等待计算完成 → Combine
-```
+- **Dispatch → 等待通信完成 → Expert 计算**：等待计算完成 → Combine
 
 这种方式容易产生 GPU 空转：
 
@@ -1978,11 +1930,9 @@ Grouped GEMM：
 
 通过 Chunking、异步通信和多 Stream 调度，可以实现：
 
-```text
-当前 Chunk：Expert 计算
-下一 Chunk：Dispatch
-上一 Chunk：Combine
-```
+- 当前 Chunk：Expert 计算
+- 下一 Chunk：Dispatch
+- 上一 Chunk：Combine
 
 从而减少 GPU 等待时间。
 
@@ -2017,17 +1967,12 @@ Node 0 ───── InfiniBand/RoCE ───── Node 1
 
 当某些 Expert 长期成为热门 Expert 时，可以考虑对其进行复制：
 
-```text
-普通 Expert：
-
-E3 只位于 GPU 0
-
-热门 Expert：
-
-E3 副本 1 → GPU 0
-E3 副本 2 → GPU 1
-E3 副本 3 → GPU 2
-```
+- **普通 Expert**
+  - E3 只位于 GPU 0
+- **热门 Expert**
+  - E3 副本 1 → GPU 0
+  - E3 副本 2 → GPU 1
+  - E3 副本 3 → GPU 2
 
 Router 可以在多个副本之间进一步选择，从而减轻单个 GPU 的压力。
 
@@ -2112,14 +2057,12 @@ All-to-All Combine
 
 EP 的性能主要由以下因素共同决定：
 
-```text
-EP 性能
-≈ 通信效率
-  × Expert 负载均衡程度
-  × 本地 GEMM 效率
-  × 通信计算重叠能力
-  × GPU 互联拓扑
-```
+- **EP 性能**
+- **≈ 通信效率**
+  - × Expert 负载均衡程度
+  - × 本地 GEMM 效率
+  - × 通信计算重叠能力
+  - × GPU 互联拓扑
 
 因此，一个高性能 EP 系统不仅要将 Expert 分布到不同 GPU，还需要同时解决：
 
@@ -2348,21 +2291,13 @@ CPU-GPU 通信通常经过 PCIe。典型数据包括：
 
 跨节点通信通常经过：
 
-```text
-GPU HBM
-  ↓
-PCIe
-  ↓
-NIC
-  ↓
-InfiniBand / RoCE
-  ↓
-远端 NIC
-  ↓
-PCIe
-  ↓
-远端 GPU HBM
-```
+1. GPU HBM
+2. PCIe
+3. NIC
+4. InfiniBand / RoCE
+5. 远端 NIC
+6. PCIe
+7. 远端 GPU HBM
 
 如果使用 GPUDirect RDMA，网络设备可以更直接地访问 GPU 显存，减少不必要的 CPU 内存中转。否则，数据可能需要经过 Host Memory，额外增加拷贝次数和延迟。
 
@@ -2674,15 +2609,10 @@ Reduce-Scatter  →  本地分片就绪 → 局部计算
 
 MoE 模型的通信流程通常包括：
 
-```text
-Token Routing
-      ↓
-Token Dispatch / All-to-All
-      ↓
-Expert GEMM
-      ↓
-Token Combine / All-to-All
-```
+1. Token Routing
+2. Token Dispatch / All-to-All
+3. Expert GEMM
+4. Token Combine / All-to-All
 
 如果所有 Token 必须完成分发后，Expert 才开始计算，通信延迟就会完整暴露出来。更进一步的实现会尝试：
 

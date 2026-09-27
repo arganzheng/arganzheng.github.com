@@ -135,16 +135,9 @@ super().__init__()            并不简单等于"调用父类方法"，取决于
 
 第二篇讨论 Python 的类型系统与数据契约。核心洞察是：与 Java 把类型声明、编译检查、`.class` 携带类型、运行时反射合为一体不同，**Python 把"提供类型信息"和"消费类型信息"拆成了两层**。
 
-```text
-提供层    注解语法、typing、typing_extensions
-          .pyi 存根、typeshed、types-*、py.typed / PEP 561
-                          ↓
-消费层    静态：mypy、pyright（开发时检查）
-          动态：isinstance、get_type_hints、@dataclass、Pydantic、beartype（运行时读取）
-                          ↓
-数据契约  @dataclass、BaseModel、TypedDict
-          序列化、JSON Schema、BaseSettings
-```
+1. **提供层**：注解语法、typing、typing_extensions .pyi 存根、typeshed、types-*、py.typed / PEP 561
+2. **消费层**：静态：mypy、pyright（开发时检查） 动态：isinstance、get_type_hints、@dataclass、Pydantic、beartype（运行时读取）
+3. **数据契约**：@dataclass、BaseModel、TypedDict 序列化、JSON Schema、BaseSettings
 
 这个拆分解释了很多困惑：为什么写了 `x: int = "hello"` 不报错（解释器不消费注解）；为什么 `@dataclass` 读注解却不校验（它只把注解当字段清单）；为什么 Pydantic 能做到校验（它在类创建时用元类构建了验证树）。
 

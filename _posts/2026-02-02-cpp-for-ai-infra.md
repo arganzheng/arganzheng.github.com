@@ -153,42 +153,28 @@ CUDA 是 C++ 的方言。写 kernel 之前，需要先能自然地写出 host �
 
 八篇文章按"读懂一个大型 C++ 项目需要的知识"的依赖顺序展开：
 
-```text
-第一篇：C++ 程序是怎么变成二进制的
-        ↓  翻译单元 · 头文件 · 链接 · 符号 · 库
-第二篇：对象在哪里、活多久、谁负责释放
-        ↓  值语义 · 引用 · 移动 · RAII · 智能指针
-第三篇：一份代码如何服务多种类型
-        ↓  模板 · 推导 · 特化 · constexpr
-第四篇：运行时如何选择实现
-        ↓  虚函数 · 函数对象 · 类型擦除 · variant
-第五篇：代码如何在启动时自己登记进系统
-        ↓  宏 · 静态初始化 · 可见性 · 代码生成
-第六篇：多线程下如何正确且快
-        ↓  内存模型 · 原子 · TLS · 守卫 · 并行
-第七篇：C++ 如何与 Python 对话
-        ↓  pybind11 · Python C API · GIL · ABI
-第八篇：怎么构建、调试、测试
-           CMake · 编译选项 · gdb · sanitizer · gtest
-```
+1. 第一篇：C++ 程序是怎么变成二进制的（翻译单元 · 头文件 · 链接 · 符号 · 库）
+2. 第二篇：对象在哪里、活多久、谁负责释放（值语义 · 引用 · 移动 · RAII · 智能指针）
+3. 第三篇：一份代码如何服务多种类型（模板 · 推导 · 特化 · constexpr）
+4. 第四篇：运行时如何选择实现（虚函数 · 函数对象 · 类型擦除 · variant）
+5. 第五篇：代码如何在启动时自己登记进系统（宏 · 静态初始化 · 可见性 · 代码生成）
+6. 第六篇：多线程下如何正确且快（内存模型 · 原子 · TLS · 守卫 · 并行）
+7. 第七篇：C++ 如何与 Python 对话（pybind11 · Python C API · GIL · ABI）
+8. 第八篇：怎么构建、调试、测试 CMake · 编译选项 · gdb · sanitizer · gtest
 
 前四篇是语言核心，后四篇是工程实践。每一篇都有同样的三段结构：
 
-```text
-问题        从 PyTorch/vLLM 源码里挑一段，指出读不懂的地方
-机制        讲清背后的 C++ 特性，用 Java 做对照，划清类比的边界
-回到源码    带着机制重读那段代码，再扩展读几个同类位置
-mini-c10    在练手项目里用这个机制实现一小块
-```
+- **问题**：从 PyTorch/vLLM 源码里挑一段，指出读不懂的地方
+- **机制**：讲清背后的 C++ 特性，用 Java 做对照，划清类比的边界
+- **回到源码**：带着机制重读那段代码，再扩展读几个同类位置
+- **mini-c10**：在练手项目里用这个机制实现一小块
 
 这条主线也可以归纳为三条线索：
 
-```text
-语言线：编译模型 → 对象模型 → 泛型 → 多态 → 元编程 → 并发
-工程线：构建 → 链接 → ABI → 调试 → 测试
-源码线：c10::intrusive_ptr → TensorImpl → AT_DISPATCH → KernelFunction
-        → TORCH_LIBRARY → DeviceGuard → THPVariable → CMakeLists.txt
-```
+- 语言线：编译模型 → 对象模型 → 泛型 → 多态 → 元编程 → 并发
+- 工程线：构建 → 链接 → ABI → 调试 → 测试
+- 源码线：c10::intrusive_ptr → TensorImpl → AT_DISPATCH → KernelFunction
+-  → TORCH_LIBRARY → DeviceGuard → THPVariable → CMakeLists.txt
 
 
 ## 章节结构与分章导读
@@ -399,16 +385,14 @@ Java 对照：Maven/Gradle 管理依赖、编译和测试一体化，C++ 里这�
 
 本系列的练手项目取名 mini-c10，因为它模仿的正是 PyTorch 最底层那个库——`c10/`——的核心结构，外加 ATen 的 Dispatcher 骨架：
 
-```text
-第一篇    目录结构、CMake 骨架、第一个可链接的库
-第二篇    intrusive_ptr · TensorImpl · StorageImpl · Tensor 句柄
-第三篇    ScalarType · dtype 分发宏 · 第一个模板化 kernel
-第四篇    DispatchKey · OperatorEntry · 类型擦除的 KernelFunction · 最小 Dispatcher
-第五篇    MINI_LIBRARY 静态注册宏 · 算子文件自注册 · 符号可见性
-第六篇    parallel_for · TLS 守卫 · 线程安全的引用计数
-第七篇    pybind11 模块 · Tensor caster · 一次 ABI 事故复现
-第八篇    gtest · ASan · gdb 会话 · clang-format
-```
+- **第一篇**：目录结构、CMake 骨架、第一个可链接的库
+- **第二篇**：intrusive_ptr · TensorImpl · StorageImpl · Tensor 句柄
+- **第三篇**：ScalarType · dtype 分发宏 · 第一个模板化 kernel
+- **第四篇**：DispatchKey · OperatorEntry · 类型擦除的 KernelFunction · 最小 Dispatcher
+- **第五篇**：MINI_LIBRARY 静态注册宏 · 算子文件自注册 · 符号可见性
+- **第六篇**：parallel_for · TLS 守卫 · 线程安全的引用计数
+- **第七篇**：pybind11 模块 · Tensor caster · 一次 ABI 事故复现
+- **第八篇**：gtest · ASan · gdb 会话 · clang-format
 
 它最终大约一两千行 C++，实现 `add` 和 `mul` 两个算子的 CPU 实现和 Meta 实现，能从 Python 调用，能被 gdb 调试，有测试。它不追求性能，也不追求功能覆盖，只有一个目标：**读者写完之后，再打开真实的 `c10/core/TensorImpl.h` 和 `aten/src/ATen/core/dispatch/Dispatcher.h`，看到的是熟悉的结构。**
 
@@ -490,17 +474,15 @@ at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta) {
 
 并逐行回答：
 
-```text
-const at::Tensor& 为什么这样传？            → 第二篇：值语义与常量引用
-TORCH_CHECK 为什么是宏？                    → 第五篇：宏在调用点捕获信息
-x.contiguous() 返回的对象要拷贝数据吗？      → 第二篇：句柄与移动语义
-AT_DISPATCH 如何把运行期 dtype 变成编译期类型？ → 第三篇：模板与编译期分派
-[&] 捕获了什么，安全吗？                     → 第三篇：lambda 与生命周期
-parallel_for 的线程从哪里来？               → 第六篇：OpenMP 与线程模型
-这个函数怎么变成 torch.ops 下的算子？        → 第五篇：静态注册
-Python 调用它时经过了什么？                  → 第七篇：pybind11 与 GIL
-它编译成哪个 .so，链接到哪些库？             → 第一篇、第八篇：链接与 CMake
-```
+- const at::Tensor& 为什么这样传？：→ 第二篇：值语义与常量引用
+- TORCH_CHECK 为什么是宏？：→ 第五篇：宏在调用点捕获信息
+- x.contiguous() 返回的对象要拷贝数据吗？：→ 第二篇：句柄与移动语义
+- AT_DISPATCH 如何把运行期 dtype 变成编译期类型？ → 第三篇：模板与编译期分派
+- [&] 捕获了什么，安全吗？：→ 第三篇：lambda 与生命周期
+- parallel_for 的线程从哪里来？：→ 第六篇：OpenMP 与线程模型
+- 这个函数怎么变成 torch.ops 下的算子？：→ 第五篇：静态注册
+- Python 调用它时经过了什么？：→ 第七篇：pybind11 与 GIL
+- 它编译成哪个 .so，链接到哪些库？：→ 第一篇、第八篇：链接与 CMake
 
 最终目标不是"会写 C++"，而是三种能力：
 

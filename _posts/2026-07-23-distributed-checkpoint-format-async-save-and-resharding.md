@@ -643,10 +643,8 @@ torchtitan v0.3.0 把 checkpoint 放在 `torchtitan/components/checkpointer/`：
 
 并行文件系统或对象存储是 checkpoint 的最终归宿，但它有两个问题：聚合带宽是全集群共享的（几百 GB/s 到 1 TB/s 量级），恢复时 16K 张卡同时读 5.7 TB 要几十秒到几分钟；而且它是共享基础设施，别的任务在写时你的读会变慢。本地 NVMe 每节点几 GB/s、全集群加起来几十 TB/s，且没人跟你争。于是形成两级：
 
-```text
-一级：本地 NVMe（或内存）    每 N₁ 步一次；每 rank 写自己的分片到本机；秒级；不持久（节点坏了就没了）
-二级：PFS / 对象存储         每 N₂ ≫ N₁ 步一次；持久；恢复时从这里读
-```
+- **一级：本地 NVMe（或内存）**：每 N₁ 步一次；每 rank 写自己的分片到本机；秒级；不持久（节点坏了就没了）
+- **二级：PFS / 对象存储**：每 N₂ ≫ N₁ 步一次；持久；恢复时从这里读
 
 一级 checkpoint 的问题是"节点坏了它的分片就没了"，解法是**副本**：每个 rank 的本地分片同时发一份给另外一个或几个节点（走 NCCL / RDMA，带宽远高于 PFS）。恢复时坏节点的替代者从持有副本的邻居节点拿数据，其余节点从自己的本地盘读——整个恢复不碰 PFS。Megatron 的 `non_persistent_ckpt_type="local"` 加 `--replication --replication-jump J --replication-factor F` 就是这个模型：`megatron/training/training.py` 从 nvidia-resiliency-ext 导入 `LocalCheckpointManager` 与 `CliqueReplicationStrategy`，rank $$n$$ 的副本放在 $$n + J, n + 2J, \ldots$$；`non_persistent_local_ckpt_algo` 的 `fully_parallel` / `atomic` 决定本地写法。以 8 个节点、J=2、F=3 为例，副本的放置与恢复路径是：
 

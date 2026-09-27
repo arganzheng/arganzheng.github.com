@@ -278,10 +278,8 @@ Python 没有 classpath 的概念。`import` 的查找路径是 `sys.path`，而
 
 一个解释器下，**一个包只能有一个版本**。于是：
 
-```text
-项目 A 需要 pydantic 1.x
-项目 B 需要 pydantic 2.x
-```
+- 项目 A 需要 pydantic 1.x
+- 项目 B 需要 pydantic 2.x
 
 在同一个解释器里，这两个项目无法共存。装了 B 就会破坏 A——这就是所谓的"依赖地狱"。
 
@@ -346,11 +344,9 @@ Table: 虚拟环境隔离与不隔离的层次
 
 所以下面这类问题，虚拟环境救不了：
 
-```text
-本机 CUDA driver 支持到 CUDA 12.1
-但装了编译against CUDA 12.4 的 torch wheel
-→ 运行时报 "CUDA driver version is insufficient"
-```
+- 本机 CUDA driver 支持到 CUDA 12.1
+- 但装了编译against CUDA 12.4 的 torch wheel
+- → 运行时报 "CUDA driver version is insufficient"
 
 这是第五章的主题。而**解释器版本**的隔离需要额外工具：
 
@@ -685,11 +681,9 @@ torch = { index = "pytorch-cu121" }    # 只有 torch 走这个索引
 
 核心规则是 **CUDA 的"次要版本兼容性"（minor version compatibility）**：driver 只需要不低于 runtime 的**大版本**要求即可，同一大版本内的次要版本向前兼容。所以：
 
-```text
-driver 支持 CUDA 12.2，装 torch+cu121  → 可以（12.x 内向前兼容）
-driver 支持 CUDA 12.2，装 torch+cu124  → 通常可以（12.x 内），但不保证新特性可用
-driver 支持 CUDA 11.8，装 torch+cu121  → 不行，大版本不匹配
-```
+- driver 支持 CUDA 12.2，装 torch+cu121：→ 可以（12.x 内向前兼容）
+- driver 支持 CUDA 12.2，装 torch+cu124：→ 通常可以（12.x 内），但不保证新特性可用
+- driver 支持 CUDA 11.8，装 torch+cu121：→ 不行，大版本不匹配
 
 诊断命令：
 
@@ -817,14 +811,12 @@ Python 没有这个兜底。**语法正确的代码就能运行**，错误留到
 
 Python 的 lint 工具链曾经是这样拼起来的：
 
-```text
-flake8      语法风格检查（PEP 8）
-pylint      更严格的代码分析
-isort       import 排序
-Black       代码格式化
-pyupgrade   升级过时语法
-autoflake   删除无用导入
-```
+- **flake8**：语法风格检查（PEP 8）
+- **pylint**：更严格的代码分析
+- **isort**：import 排序
+- **Black**：代码格式化
+- **pyupgrade**：升级过时语法
+- **autoflake**：删除无用导入
 
 六个工具，六份配置，还要处理它们互相冲突（Black 和 flake8 对行长的分歧是经典问题）。
 
@@ -1156,15 +1148,13 @@ myops = ["py.typed", "*.pyi"]
 
 **版本号方案**。Python 的版本规范是 PEP 440，和 SemVer 大体兼容但有自己的预发布记法：
 
-```text
-1.0.0           正式版
-1.0.0a1         alpha
-1.0.0b2         beta
-1.0.0rc1        release candidate
-1.0.0.post1     发布后修订（只改包装，不改代码）
-1.0.0.dev3      开发版
-1.0.0+cu121     本地版本标识（第五章）
-```
+- **1.0.0**：正式版
+- **1.0.0a1**：alpha
+- **1.0.0b2**：beta
+- **1.0.0rc1**：release candidate
+- **1.0.0.post1**：发布后修订（只改包装，不改代码）
+- **1.0.0.dev3**：开发版
+- **1.0.0+cu121**：本地版本标识（第五章）
 
 注意 PEP 440 的写法是 `1.0.0a1` 而不是 SemVer 的 `1.0.0-alpha.1`。
 

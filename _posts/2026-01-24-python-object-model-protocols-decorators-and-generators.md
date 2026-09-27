@@ -11,13 +11,11 @@ updated: 2026-09-21
 
 [上篇](/python-execution-model-scopes-imports-and-exceptions.html)讲的是代码怎么跑：源码编译成 code object，调用创建帧，名称在帧里按 LEGB 解析，`import` 找到并执行模块，异常沿帧链传播。本篇讲**对象怎么工作**——上篇开头那七行里剩下的五行：
 
-```text
-model(x)                           走的是 __call__，中间可能插入 hooks
-for batch in loader                迭代协议 + 生成器的暂停与恢复
-with torch.inference_mode()        上下文管理协议：进入时改状态、退出时恢复
-@register("cuda")                  装饰器在模块导入时执行，注册表能否填上取决于谁导入了它
-self.linear = nn.Linear(4, 4)      __setattr__ 拦截赋值，把子模块登记到 _modules
-```
+- **model(x)**：走的是 __call__，中间可能插入 hooks
+- **for batch in loader**：迭代协议 + 生成器的暂停与恢复
+- **with torch.inference_mode()**：上下文管理协议：进入时改状态、退出时恢复
+- **@register("cuda")**：装饰器在模块导入时执行，注册表能否填上取决于谁导入了它
+- **self.linear = nn.Linear(4, 4)**：__setattr__ 拦截赋值，把子模块登记到 _modules
 
 这五行分别在第三、三 / 五、六、四、二章展开，第四章会把上下两篇的机制串在一起，逐步追踪开头那个 `Runner` 从导入到异常的完整生命周期。
 

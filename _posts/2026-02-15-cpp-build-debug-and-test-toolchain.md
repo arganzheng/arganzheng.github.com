@@ -2864,16 +2864,14 @@ UseTab: Never
 
 回答核心问题。一个改动从写完到可以提 PR，按成本从低到高：
 
-```text
-1. clangd 没有红线                         零成本，写的时候就看到
-2. clang-format 过了                       lintrunner -a / clang-format -i
-3. Debug 构建编过，-Wall -Wextra 无新警告   本地日常构建
-4. 相关 gtest / pytest 过了                ninja bin/<test> && ./bin/<test>；python test/test_x.py -k ...
-5. clang-tidy 无新报告                     lintrunner（需要 build/compile_commands.json）
-6. 改了内存/生命周期相关代码：ASan+UBSan 过  单独的 build-asan 目录，跑相关测试
-7. 改了并发代码：TSan 过                    单独的 build-tsan 目录
-8. 交给 CI：gcc 11 + clang 12/18 + aarch64 + CUDA 矩阵    自己不用做，但要看结果
-```
+- **1. clangd 没有红线**：零成本，写的时候就看到
+- **2. clang-format 过了**：lintrunner -a / clang-format -i
+- **3. Debug 构建编过，-Wall -Wextra 无新警告**：本地日常构建
+- **4. 相关 gtest / pytest 过了**：ninja bin/<test> && ./bin/<test>；python test/test_x.py -k ...
+- **5. clang-tidy 无新报告**：lintrunner（需要 build/compile_commands.json）
+- **6. 改了内存/生命周期相关代码：ASan+UBSan 过**：单独的 build-asan 目录，跑相关测试
+- **7. 改了并发代码：TSan 过**：单独的 build-tsan 目录
+- **8. 交给 CI：gcc 11 + clang 12/18 + aarch64 + CUDA 矩阵**：自己不用做，但要看结果
 
 1–4 是每次都做的；5 在提交前做；6、7 按改动性质；8 由 CI 承担。跳过 6 是最常见、后果最重的省略——ASan 报告里的三张栈是内存问题唯一可靠的线索，等到线上偶发段错误再查，成本高一个数量级。
 

@@ -96,40 +96,27 @@ Kubernetes 的核心假设是：工作负载是长驻的、无状态的、单 Po
 
 八篇文章分两部分。前四篇是资源层，按"一个训练任务从提交到跑起来要经过的层"自下而上推进；后三篇是交付层，按"一个推理请求从进入到计费要经过的层"自外向内推进。第一篇是两者共同的起点：
 
-```text
-第一篇：引擎的需求清单与平台的整体架构 —— 建立组织视角
-        ↓
-第二篇：容器里的 GPU —— 驱动、CUDA、device plugin、DRA、镜像
-        ↓
-第三篇：AI 任务调度 —— gang scheduling、队列与配额、拓扑感知；Volcano / Kueue / Slurm / Ray
-        ↓
-第四篇：GPU 共享与切分 —— MIG、时间片、MPS、HAMi
-        ↓
-第五篇：网络与存储 —— RDMA 进容器、并行文件系统与对象存储、checkpoint I/O
-        ↓
-第六篇：Serving 平台 —— KServe / Triton / Ray Serve / llm-d，LLM 服务的形态与扩缩容
-        ↓
-第七篇：模型网关与多租户 —— 路由、配额、限流、灰度
-        ↓
-第八篇：可观测、成本与 FinOps —— 从 DCGM 到 token 账单
-```
+1. 第一篇：引擎的需求清单与平台的整体架构 —— 建立组织视角
+2. 第二篇：容器里的 GPU —— 驱动、CUDA、device plugin、DRA、镜像
+3. 第三篇：AI 任务调度 —— gang scheduling、队列与配额、拓扑感知；Volcano / Kueue / Slurm / Ray
+4. 第四篇：GPU 共享与切分 —— MIG、时间片、MPS、HAMi
+5. 第五篇：网络与存储 —— RDMA 进容器、并行文件系统与对象存储、checkpoint I/O
+6. 第六篇：Serving 平台 —— KServe / Triton / Ray Serve / llm-d，LLM 服务的形态与扩缩容
+7. 第七篇：模型网关与多租户 —— 路由、配额、限流、灰度
+8. 第八篇：可观测、成本与 FinOps —— 从 DCGM 到 token 账单
 
 三条交织的线索：
 
-```text
-引擎线：训练框架的进程组与 checkpoint → 推理引擎的显存与请求队列 → 两者对平台接口的要求
-机制线：device plugin → 调度器扩展 → 切分与隔离 → 第二张网卡 → CRD 与 Operator → 网关扩展 → 指标管线
-取舍线：隔离 vs 利用率 → 排队 vs 碎片 → 拓扑 vs 等待时间 → 冷启动 vs 常驻成本 → 精确计费 vs 开销
-```
+- 引擎线：训练框架的进程组与 checkpoint → 推理引擎的显存与请求队列 → 两者对平台接口的要求
+- 机制线：device plugin → 调度器扩展 → 切分与隔离 → 第二张网卡 → CRD 与 Operator → 网关扩展 → 指标管线
+- 取舍线：隔离 vs 利用率 → 排队 vs 碎片 → 拓扑 vs 等待时间 → 冷启动 vs 常驻成本 → 精确计费 vs 开销
 
 每一篇都有同样的结构：
 
-```text
-引擎的需求      训练框架 / 推理引擎在这一层提出了什么要求，不满足会发生什么
-K8s 的空缺      原生 Kubernetes 为什么满足不了
-平台的机制      填这个空缺的组件是什么、怎么工作、怎么配
-代价与边界      这个机制引入了什么新问题，什么场景下不该用
-```
+- **引擎的需求**：训练框架 / 推理引擎在这一层提出了什么要求，不满足会发生什么
+- **K8s 的空缺**：原生 Kubernetes 为什么满足不了
+- **平台的机制**：填这个空缺的组件是什么、怎么工作、怎么配
+- **代价与边界**：这个机制引入了什么新问题，什么场景下不该用
 
 
 ## 章节结构与分章导读
@@ -315,16 +302,14 @@ K8s 的空缺      原生 Kubernetes 为什么满足不了
 
 系列的练手项目是**在一个小 K8s 集群上从零搭一个能跑训练任务和推理服务的最小 AI 平台**。它不追求生产级的高可用，但每一层都用真实组件、每一个决定都能对照到前面讨论的引擎需求：
 
-```text
-第一篇    裸 K8s 集群 · 一个 Pending 的 GPU Pod            三到四节点，先不装任何 GPU 组件
-第二篇    GPU Operator · 版本不匹配的复现 · DRA 初试        Pod 能看到 GPU，读懂兼容报错
-第三篇    Kueue + Kubeflow Trainer · Volcano 对照           2 节点 DDP 任务从 suspended 到 admitted
-第四篇    MIG 或 HAMi 切分 · 两个共卡的推理服务             压测对比吞吐，验证隔离
-第五篇    Multus + RDMA device plugin · nccl-tests          存储 CSI · 分布式 checkpoint 吞吐
-第六篇    LLMInferenceService 或 LWS · KEDA 扩缩容          多副本 vLLM，测扩容延迟
-第七篇    Inference Gateway · InferencePool · 租户配额      对比轮询与 KV 感知路由
-第八篇    DCGM + Prometheus + Grafana · 成本分摊            一张看板，一份账单
-```
+- **第一篇**：裸 K8s 集群 · 一个 Pending 的 GPU Pod；三到四节点，先不装任何 GPU 组件
+- **第二篇**：GPU Operator · 版本不匹配的复现 · DRA 初试；Pod 能看到 GPU，读懂兼容报错
+- **第三篇**：Kueue + Kubeflow Trainer · Volcano 对照；2 节点 DDP 任务从 suspended 到 admitted
+- **第四篇**：MIG 或 HAMi 切分 · 两个共卡的推理服务；压测对比吞吐，验证隔离
+- **第五篇**：Multus + RDMA device plugin · nccl-tests；存储 CSI · 分布式 checkpoint 吞吐
+- **第六篇**：LLMInferenceService 或 LWS · KEDA 扩缩容；多副本 vLLM，测扩容延迟
+- **第七篇**：Inference Gateway · InferencePool · 租户配额；对比轮询与 KV 感知路由
+- **第八篇**：DCGM + Prometheus + Grafana · 成本分摊；一张看板，一份账单
 
 到第八篇结束，读者手上有一个能提交训练任务、能部署和扩缩推理服务、能按租户限流、能看到利用率和成本的平台。它的每个组件都是生产环境里在用的，差别只在规模和高可用配置。硬件要求会在每篇标注：大部分内容用云上三到四台单卡实例就能完成；MIG 需要 A100 / H100 这类数据中心 GPU；RDMA 部分需要带 IB 或 RoCE 网卡的实例，没有的话用 host network 完成配置走读。
 
@@ -395,16 +380,14 @@ K8s 的空缺      原生 Kubernetes 为什么满足不了
 
 读完这套系列之后，面对一个 GPU 集群上的任何异常——任务 Pending、训练变慢、服务超时、账单超支——读者应该能够沿着平台的层次追问下去：
 
-```text
-Pod 为什么看不到 GPU？                       → 第二篇：驱动、Container Toolkit、device plugin 的链条
-任务为什么 Pending？配额够却调度不上？          → 第三篇：gang、队列、拓扑约束、碎片
-两个服务共卡时为什么互相影响？                  → 第四篇：隔离层次与故障域
-多机训练为什么比单机慢这么多？                  → 第五篇：RDMA 是否生效、NCCL 走了哪条路
-checkpoint 为什么写不完？                     → 第五篇：存储带宽与 checkpoint 形态
-服务为什么扩容慢、扩了还是超时？                → 第六篇：扩缩容指标、冷启动、副本形态
-请求为什么在一个副本上排队而另一个空着？         → 第七篇：路由策略与 Endpoint Picker
-利用率 35% 的差距去了哪里？钱花在哪个团队？      → 第八篇：指标层次与成本分摊
-```
+- Pod 为什么看不到 GPU？：→ 第二篇：驱动、Container Toolkit、device plugin 的链条
+- 任务为什么 Pending？配额够却调度不上？：→ 第三篇：gang、队列、拓扑约束、碎片
+- 两个服务共卡时为什么互相影响？：→ 第四篇：隔离层次与故障域
+- 多机训练为什么比单机慢这么多？：→ 第五篇：RDMA 是否生效、NCCL 走了哪条路
+- checkpoint 为什么写不完？：→ 第五篇：存储带宽与 checkpoint 形态
+- 服务为什么扩容慢、扩了还是超时？：→ 第六篇：扩缩容指标、冷启动、副本形态
+- 请求为什么在一个副本上排队而另一个空着？：→ 第七篇：路由策略与 Endpoint Picker
+- 利用率 35% 的差距去了哪里？钱花在哪个团队？：→ 第八篇：指标层次与成本分摊
 
 最终目标是三种能力：
 
