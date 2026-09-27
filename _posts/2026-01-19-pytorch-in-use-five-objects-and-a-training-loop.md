@@ -358,6 +358,10 @@ def cosine_with_warmup(step, cfg):
 sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: cosine_with_warmup(s, cfg))   # lr = cfg.lr × 这个系数
 ```
 
+![学习率调度曲线：前 100 步从 0 线性升到 3e-4（warmup），之后按 cosine 曲线从 3e-4 降到 3e-5；sched.step() 每步只算这个系数并写进 opt.param_groups 的 lr，参数由 opt.step() 改](/img/in-post/pytorch-in-use-warmup-cosine-lr-schedule.svg)
+
+画出来就是上面这条线。`weight_decay=0.1` 那个参数也顺便说清：它让每一步 `opt.step()` 在按梯度更新之外，再把每个参数往 0 的方向缩一点点（乘 $$1 - \eta \cdot 0.1$$），相当于给 loss 加了一项"参数别太大"的惩罚——L0 第二篇讲它为什么能防过拟合，这里只要知道它是优化器的参数、不是调度器的。
+
 ## 六、二十行训练循环，训一个小 Transformer
 
 ### 1. 语料与取数

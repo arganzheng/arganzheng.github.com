@@ -20,7 +20,7 @@ updated: 2026-09-20
 
 本文不按语法特性排，按**算法工作里要做的事**排：先是环境（第二章，一切的前提），然后是过一遍语料（第三章）、写配置（第四章）、读懂训练代码（第五章）、把预处理跑快（第六章）、出错时定位（第七章）——每件事把它需要的那几个语法带出来，用到时才讲。这样做的代价是同一个机制（生成器）会在第三章和第五章各出现一次；好处是每个语法都有一个"为什么需要它"。第八章是一张对照表：本文每一节"怎么用"背后的"为什么"在 Infra 01 系列的哪一篇。
 
-### 2. 四件事、一小撮语法
+### 2. 五件事，每件带几个语法
 
 | 要做的事 | 用到的语法 | 章 |
 |---|---|---|
@@ -30,7 +30,7 @@ updated: 2026-09-20
 | 把预处理跑快 | `multiprocessing.Pool`、GIL、`chunksize` | 六 |
 | 出错时定位 | 读 traceback、`assert` 形状、`breakpoint()` | 七 |
 
-Table: 训练代码里的四件事与用到的语法
+Table: 算法工作里的五件事与各自用到的语法
 
 ### 3. 本文的章节安排
 
@@ -52,7 +52,7 @@ Table: 本文的章节安排
 
 ### 1. Python 的"环境"是什么
 
-Python 解释器启动时，从几个固定目录（`sys.path`）里找 `import` 的包，其中最重要的是 `site-packages`。系统自带的那个 Python 只有一个 `site-packages`，所有项目装的包混在一起：项目 A 要 `torch 2.4`、项目 B 要 `torch 2.6`，装后者就把前者覆盖了。**环境**（virtual environment）就是给一个项目单独造一份 `site-packages` 和一个指向它的 `python` 可执行文件——Java 里对应的不是 JDK，而是每个项目自己的依赖树（Maven 的 `.m2` 按坐标隔离，Python 的包没有坐标，只能靠目录隔离）。
+Python 解释器启动时，从几个固定目录（`sys.path`）里找 `import` 的包，其中最重要的是 `site-packages`。系统自带的那个 Python 只有一个 `site-packages`，所有项目装的包混在一起：项目 A 要 `torch 2.4`、项目 B 要 `torch 2.6`，装后者就把前者覆盖了——`pip install` 是按**包名**往 `site-packages/torch/` 这个目录里放文件，同一个 `site-packages` 里一个包名只能有一个版本，装 2.6 就是把 2.4 的文件替换掉，两个版本没法并存。**环境**（virtual environment）就是给一个项目单独造一份 `site-packages` 和一个指向它的 `python` 可执行文件——Java 里对应的不是 JDK，而是每个项目自己的依赖树（Maven 的 `.m2` 按坐标隔离，Python 的包没有坐标，只能靠目录隔离）。
 
 建环境有三种常见工具，做的是同一件事：
 
@@ -208,26 +208,16 @@ json.dump(asdict(cfg2), open(run_dir / "config.json", "w"))   # 存盘：datacla
 
 ## 五、训练代码里的六个语法
 
-### 1. 对照表
+### 1. 一个 40 行的"玩具 PyTorch"
 
-PyTorch 的每个核心 API 都建在一个 Python 协议上。左边是你在训练代码里看到的，中间是它要求你写的，右边指向下面那段 40 行"玩具 PyTorch"里对应的实现：
-
-| PyTorch 里看到的 | Python 协议 | 玩具实现 | 要点 |
-|---|---|---|---|
-| `Dataset` | 序列协议：`__len__` + `__getitem__` | ① `ToyDataset` | 写了这两个方法，`len(ds)`、`ds[3]`、`for x in ds` 就都能用——Python 见到 `ds[3]` 就调 `ds.__getitem__(3)`。`torch.utils.data.Dataset` 要的就是这两个，`DataLoader` 按索引来取 |
-| `DataLoader`，`for batch in loader` | 迭代协议：`__iter__` / 生成器 | ② `loader` | `for batch in loader` 每次要下一个 batch 时才取样本、才 `collate`——所以 `DataLoader` 不会把整个数据集拼好放内存里；`IterableDataset` 就是让你自己写 `__iter__`（一个生成器），第三章的流式读取直接能当它用 |
-| `nn.Module`，`model(x)` | 可调用对象：`__call__` → `forward` | ③ `ToyModel` | `model(x)` 是 `model.__call__(x)`，`nn.Module` 在 `__call__` 里先跑 hooks 再调你写的 `forward`。所以**永远写 `model(x)` 而不是 `model.forward(x)`**——后者跳过了 hooks（`register_forward_hook`、`torch.compile` 的一部分机制都挂在那里） |
-| `@torch.no_grad()`、`@torch.compile` | 装饰器：`fn = deco(fn)` | ④ `timed` | "函数包函数"的语法糖，`@torch.no_grad()` 是同一个形状——返回一个进入时关梯度、退出时恢复的包装函数。`@dataclass`、`@functools.lru_cache`、`@app.route` 全是它 |
-| `with torch.autocast(...)`、`with torch.no_grad()` | 上下文管理器：`__enter__` / `__exit__` | ⑤ `seeded` | 进入时改一个状态，退出时**保证**恢复，中间抛异常也恢复。`@contextmanager` 把一个 `yield` 前后各一段的生成器变成它 |
-| `Trainer(**kwargs)`、`model.generate(**inputs)` | 参数打包与展开：`*args` / `**kwargs` | ⑥ `wrapper(*args, **kwargs)` | `*args` 把多余的位置参数收成 tuple，`**kwargs` 把多余的关键字参数收成 dict；调用时 `f(*t, **d)` 反过来展开。`Trainer(**config)`、`tokenizer(text, **kw)` 都是把一个 dict 原样透传下去——看到它就去找那个 dict 里有什么键 |
-
-Table: PyTorch 核心 API 与 Python 协议的对照
-
-### 2. 一个 40 行的"玩具 PyTorch"
-
-用纯 Python 把左列每一样各写一个最小版，跑起来与真的形状一致（①–⑥ 对应上表）：
+PyTorch 的每个核心 API——`Dataset`、`DataLoader`、`nn.Module`、`@torch.no_grad()`、`with torch.autocast()`、`Trainer(**kwargs)`——都建在一个 Python 语法协议上。与其一个个背，不如用纯 Python 把它们各写一个最小版，跑起来与真的形状一致。先看代码（行号旁的蓝色数字可以点，跳到下面的解释）：
 
 ```python
+import random, time
+from contextlib import contextmanager
+from functools import wraps
+
+# !ref dataset +3
 class ToyDataset:                                   # ① Dataset：两个方法就够
     def __init__(self, texts): self.texts = texts
     def __len__(self): return len(self.texts)
@@ -239,12 +229,14 @@ def collate(items):                                 # 一批样本拼成 batch�
             "attention_mask": [[1] * len(x["input_ids"]) + [0] * (T - len(x["input_ids"])) for x in items],
             "labels": [x["label"] for x in items]}
 
+# !ref loader +4
 def loader(ds, batch_size, shuffle, seed=0):        # ② DataLoader 的骨架：一个生成器
     idx = list(range(len(ds)))
     if shuffle: random.Random(seed).shuffle(idx)
     for s in range(0, len(idx), batch_size):
         yield collate([ds[i] for i in idx[s:s + batch_size]])
 
+# !ref module +5
 class ToyModel:                                     # ③ nn.Module：model(x) 走 __call__，__call__ 再调 forward
     def __init__(self): self.calls = 0
     def __call__(self, batch):
@@ -252,13 +244,16 @@ class ToyModel:                                     # ③ nn.Module：model(x) �
         return self.forward(batch)
     def forward(self, batch): return [sum(row) / max(1, sum(m)) for row, m in zip(batch["input_ids"], batch["attention_mask"])]
 
+# !ref decorator +5
 def timed(fn):                                      # ④ 装饰器：@timed 等价于 one_epoch = timed(one_epoch)
     @wraps(fn)
+    # !ref kwargs +2
     def wrapper(*args, **kwargs):                   # ⑥ *args / **kwargs：原样接住任何参数再原样传下去
         t0 = time.perf_counter(); out = fn(*args, **kwargs)
         print(f"[{fn.__name__} 用时 {time.perf_counter() - t0:.3f}s]"); return out
     return wrapper
 
+# !ref ctx +4
 @contextmanager
 def seeded(seed):                                   # ⑤ 上下文管理器：进入时做一件事，退出时（哪怕出错）恢复
     state = random.getstate(); random.seed(seed)
@@ -296,6 +291,21 @@ len(ds) = 9; ds[0] = {'input_ids': [97, 116, 116, ...], 'label': 1}
 seeded(42) 两次得到相同的数: True; 退出后随机状态已恢复
 ```
 
+### 2. 对照表：PyTorch 里看到的 ↔ 上面哪几行
+
+跑通之后再看这张表：左边是你在训练代码里看到的 PyTorch 写法，中间是它背后的 Python 协议，第三列点进去会高亮上面代码里对应的行：
+
+| PyTorch 里看到的 | Python 协议 | 玩具实现 | 要点 |
+|---|---|---|---|
+| `Dataset` | 序列协议：`__len__` + `__getitem__` | [① `ToyDataset`](#dataset) | 写了这两个方法，`len(ds)`、`ds[3]`、`for x in ds` 就都能用——Python 见到 `ds[3]` 就调 `ds.__getitem__(3)`。`torch.utils.data.Dataset` 要的就是这两个，`DataLoader` 按索引来取 |
+| `DataLoader`，`for batch in loader` | 迭代协议：`__iter__` / 生成器 | [② `loader`](#loader) | `for batch in loader` 每次要下一个 batch 时才取样本、才 `collate`——所以 `DataLoader` 不会把整个数据集拼好放内存里；`IterableDataset` 就是让你自己写 `__iter__`（一个生成器），第三章的流式读取直接能当它用 |
+| `nn.Module`，`model(x)` | 可调用对象：`__call__` → `forward` | [③ `ToyModel`](#module) | `model(x)` 是 `model.__call__(x)`，`nn.Module` 在 `__call__` 里先跑 hooks 再调你写的 `forward`。所以**永远写 `model(x)` 而不是 `model.forward(x)`**——后者跳过了 hooks（`register_forward_hook`、`torch.compile` 的一部分机制都挂在那里） |
+| `@torch.no_grad()`、`@torch.compile` | 装饰器：`fn = deco(fn)` | [④ `timed`](#decorator) | "函数包函数"的语法糖，`@torch.no_grad()` 是同一个形状——返回一个进入时关梯度、退出时恢复的包装函数。`@dataclass`、`@functools.lru_cache`、`@app.route` 全是它 |
+| `with torch.autocast(...)`、`with torch.no_grad()` | 上下文管理器：`__enter__` / `__exit__` | [⑤ `seeded`](#ctx) | 进入时改一个状态，退出时**保证**恢复，中间抛异常也恢复。`@contextmanager` 把一个 `yield` 前后各一段的生成器变成它 |
+| `Trainer(**kwargs)`、`model.generate(**inputs)` | 参数打包与展开：`*args` / `**kwargs` | [⑥ `wrapper(*args, **kwargs)`](#kwargs) | `*args` 把多余的位置参数收成 tuple，`**kwargs` 把多余的关键字参数收成 dict；调用时 `f(*t, **d)` 反过来展开。`Trainer(**config)`、`tokenizer(text, **kw)` 都是把一个 dict 原样透传下去——看到它就去找那个 dict 里有什么键 |
+
+Table: PyTorch 核心 API 与 Python 协议的对照（第三列链接到上面的代码行）
+
 ## 六、多进程预处理
 
 ### 1. 三个数字
@@ -303,9 +313,24 @@ seeded(42) 两次得到相同的数: True; 退出后随机状态已恢复
 tokenize、正则清洗、哈希这类**CPU 密集**的预处理，单进程跑 10 万行 0.46 秒，一亿行就是 8 分钟。把同一个函数用三种方式跑：
 
 ```python
-total = sum(map(tokenize_count, lines))                        # 串行
-with ThreadPool(8) as pool: pool.map(tokenize_count, lines, chunksize=2000)   # 8 线程
-with Pool(8) as pool:       pool.map(tokenize_count, lines, chunksize=2000)   # 8 进程
+import re, time
+from multiprocessing import Pool
+from multiprocessing.pool import ThreadPool
+
+def tokenize_count(line: str) -> int:               # 一条样本的 CPU 密集工作：正则切词、数个数
+    return len(re.findall(r"\w+", line))
+
+def bench(name, fn):
+    t0 = time.perf_counter(); total = fn(); dt = time.perf_counter() - t0
+    print(f"{name}: {dt:.2f}s"); return total
+
+if __name__ == "__main__":                          # 多进程必须放在这个保护下：子进程会重新 import 本文件
+    lines = [f"sample text number {i} with a few more tokens" for i in range(100_000)]
+    bench("串行",   lambda: sum(map(tokenize_count, lines)))
+    with ThreadPool(8) as pool:
+        bench("线程池", lambda: sum(pool.map(tokenize_count, lines, chunksize=2000)))   # 8 线程
+    with Pool(8) as pool:
+        bench("进程池", lambda: sum(pool.map(tokenize_count, lines, chunksize=2000)))   # 8 进程
 ```
 
 ```text
