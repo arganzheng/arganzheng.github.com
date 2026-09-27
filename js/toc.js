@@ -51,13 +51,27 @@
         return markers;
     }
 
+    function headingRawText(node) {
+        var clone = node.cloneNode(true);
+        var junk = clone.querySelectorAll('.sec-react, .heading-anchor, .annotation-marker');
+        for (var i = 0; i < junk.length; i++) junk[i].parentNode.removeChild(junk[i]);
+        var katexSpans = clone.querySelectorAll('.katex');
+        for (var k = 0; k < katexSpans.length; k++) {
+            var ann = katexSpans[k].querySelector('annotation');
+            var tex = ann ? ann.textContent : '';
+            var textNode = document.createTextNode(tex ? '\\(' + tex + '\\)' : '');
+            katexSpans[k].parentNode.replaceChild(textNode, katexSpans[k]);
+        }
+        return clone.textContent.replace(/\s+/g, ' ').trim();
+    }
+
     function collectHeadings(container) {
         var nodes = container.querySelectorAll(HEADINGS);
         var headings = [], taken = {};
         for (var i = 0; i < nodes.length; i++) {
             var node = nodes[i];
             if (node.closest && node.closest(EXCLUDED)) continue;
-            var text = node.textContent.replace(/\s+/g, ' ').trim();
+            var text = headingRawText(node);
             if (!text) continue;
             if (!node.id) node.id = uniqueId(slugify(text), taken);
             headings.push({ level: parseInt(node.tagName.charAt(1), 10), text: text, node: node });
@@ -112,7 +126,7 @@
         var link = document.createElement('a');
         link.href = '#' + heading.node.id;
         link.textContent = heading.text;
-        link.title = heading.text;
+        link.title = heading.text.replace(/\\\((.+?)\\\)/g, '$1').replace(/\\\[(.+?)\\\]/g, '$1');
         link.addEventListener('click', function (e) {
             if (e.metaKey || e.ctrlKey || e.shiftKey) return;
             e.preventDefault();
@@ -175,7 +189,9 @@
         title.appendChild(makeToggle(toc, 'fold'));
 
         toc.appendChild(title);
-        toc.appendChild(buildList(document.createElement('ul'), headings, null));
+        var list = buildList(document.createElement('ul'), headings, null);
+        toc.appendChild(list);
+        if (window.renderRichMath) window.renderRichMath(list);
         return toc;
     }
 
@@ -284,7 +300,7 @@
 
         function matches(item, query) {
             var link = item.querySelector(':scope > a');
-            var own = link && link.textContent.toLowerCase().indexOf(query) !== -1;
+            var own = link && ((link.textContent + ' ' + (link.getAttribute('title') || '')).toLowerCase().indexOf(query) !== -1);
             var children = item.querySelectorAll(':scope > ul > li');
             var hit = false;
             Array.prototype.forEach.call(children, function (child) {
@@ -333,6 +349,7 @@
 
         var entries = [];
         buildList(body, headings, entries);
+        if (window.renderRichMath) window.renderRichMath(body);
 
         initCollapse(panel);
         initFilter(panel, body);
@@ -373,4 +390,12 @@
     } else {
         render();
     }
+
+    document.addEventListener('richcontent:rendered', function () {
+        if (!window.renderRichMath) return;
+        var body = document.querySelector('.side-catalog .catalog-body');
+        if (body) window.renderRichMath(body);
+        var inlineList = document.querySelector('.markdown-toc > ul');
+        if (inlineList) window.renderRichMath(inlineList);
+    });
 })();

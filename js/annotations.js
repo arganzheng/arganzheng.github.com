@@ -310,10 +310,12 @@
     }
     return best ? headingText(best).slice(0, SECTION_MAX) : '';
   }
-  // A heading's own words — without the anchor link and the section 点赞/没看懂 buttons we add to headings.
+  // A heading's own words — without the anchor link, reaction buttons and comment markers.
   function headingText(h) {
-    var c = h.cloneNode(true), junk = c.querySelectorAll('.sec-react, .heading-anchor');
+    var c = h.cloneNode(true), junk = c.querySelectorAll('.sec-react, .heading-anchor, .annotation-marker');
     for (var i = 0; i < junk.length; i++) junk[i].parentNode.removeChild(junk[i]);
+    var katexHtml = c.querySelectorAll('.katex-html');
+    for (var k = 0; k < katexHtml.length; k++) katexHtml[k].parentNode.removeChild(katexHtml[k]);
     return c.textContent.replace(/\s+/g, ' ').trim();
   }
   function sectionForExact(exact) {

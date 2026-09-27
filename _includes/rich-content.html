@@ -3,10 +3,10 @@
      (reveal.js decks), so a deck renders diagrams and formulas exactly like a post. -->
 
 <script type="text/javascript">
-  // The containers holding kramdown output. Everything else on the page (nav,
-  // sidebar, footer) is skipped so we never touch markup we didn't render.
+  // The containers holding kramdown output and generated outlines. Everything else
+  // on the page (nav, footer) is skipped so we never touch markup we didn't render.
   function richContentRoots() {
-    return document.querySelectorAll('.post-container, .reveal .slides');
+    return document.querySelectorAll('.post-container, .reveal .slides, .side-catalog');
   }
 
   function richContentQuery(selectors) {
@@ -161,6 +161,22 @@
       document.head.appendChild(el);
     }
 
+    function renderMath(root) {
+      if (typeof renderMathInElement === 'undefined' || !root) return;
+      renderMathInElement(root, {
+        delimiters: [
+          { left: '\\[', right: '\\]', display: true },
+          { left: '\\(', right: '\\)', display: false }
+        ],
+        // never touch code: `$PATH`, `Foo$$Lambda$613` and friends
+        ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'],
+        ignoredClasses: ['mermaid', 'highlight', 'highlighter-rouge'],
+        throwOnError: false,
+        errorColor: '#cf222e'
+      });
+    }
+    window.renderRichMath = renderMath;
+
     function initMath() {
       var roots = Array.prototype.filter.call(richContentRoots(), hasMath);
       if (!roots.length) return;
@@ -169,18 +185,8 @@
       load('script', { src: KATEX + 'katex.min.js' }, function () {
         load('script', { src: KATEX + 'contrib/auto-render.min.js' }, function () {
           if (typeof renderMathInElement === 'undefined') return;
-          roots.forEach(function (root) {
-            renderMathInElement(root, {
-              delimiters: [
-                { left: '\\[', right: '\\]', display: true },
-                { left: '\\(', right: '\\)', display: false }
-              ],
-              // never touch code: `$PATH`, `Foo$$Lambda$613` and friends
-              ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'],
-              ignoredClasses: ['mermaid', 'highlight', 'highlighter-rouge'],
-              throwOnError: false,
-              errorColor: '#cf222e'
-            });
+          Array.prototype.forEach.call(richContentRoots(), function (root) {
+            renderMath(root);
           });
           document.dispatchEvent(new CustomEvent('richcontent:rendered'));
         });
