@@ -51,6 +51,9 @@ Front matter knobs (all optional):
         .reveal {
             font-family: "Source Sans Pro", "Helvetica Neue", Helvetica, Arial,
                          "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+            /* the themes' 42px is sized for a dozen words a slide; 36px fits a
+               figure plus a few lines (the landing page's miniatures match it) */
+            font-size: 36px;
         }
         .reveal h1, .reveal h2, .reveal h3,
         .reveal h4, .reveal h5, .reveal h6 {
@@ -98,8 +101,24 @@ Front matter knobs (all optional):
             background: none;
             max-height: 480px;
         }
-        /* a figure on its own line is centred, like the landing page's miniatures do */
-        .reveal section p > img:only-child { display: block; margin: 0 auto; }
+        /* a figure on its own line is centred and scaled up to the slide width (the
+           post figures are 740–760 px wide, half a slide); max-height wins, and
+           object-fit keeps the picture centred inside the wider box */
+        .reveal section p > img:only-child { display: block; margin: 0 auto; width: 100%; height: auto; object-fit: contain; }
+        /* pictures and diagrams open in the lightbox on click (js/diagram-zoom.js) */
+        .reveal section img, .reveal .mermaid svg { cursor: zoom-in; }
+
+        /* the lightbox itself — a copy of the .diagram-zoom rules in
+           less/theme-overrides.less (the deck does not load the blog bundle) */
+        .diagram-zoom { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1040; background-color: #fff; }
+        .diagram-zoom.open { display: block; }
+        .diagram-zoom-stage { position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: hidden; cursor: grab; touch-action: none; }
+        .diagram-zoom.dragging .diagram-zoom-stage { cursor: grabbing; }
+        .diagram-zoom-content { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+        .diagram-zoom-toolbar { position: absolute; top: 20px; right: 20px; display: flex; gap: 8px; }
+        .diagram-zoom-toolbar button { min-width: 36px; height: 36px; padding: 0 10px; font-size: 15px; line-height: 34px; color: #404040; background-color: #fff; border: 1px solid #d1d9e0; border-radius: 6px; cursor: pointer; }
+        .diagram-zoom-toolbar button:hover { color: #00788f; border-color: #00788f; }
+        .diagram-zoom-hint { position: absolute; bottom: 18px; left: 0; width: 100%; text-align: center; font-size: 13px; color: #808080; pointer-events: none; }
         .reveal .mermaid { text-align: center; }
         .reveal .mermaid svg {
             /* mermaid pins an inline `max-width` to the diagram's natural size,
@@ -200,6 +219,19 @@ Front matter knobs (all optional):
 <script src="{{ REVEAL }}/plugin/notes/notes.js"></script>
 <script src="{{ REVEAL }}/plugin/zoom/zoom.js"></script>
 <script src="{{ REVEAL }}/plugin/search/search.js"></script>
+<script src="{{ "/js/diagram-zoom.js" | prepend: site.baseurl }}"></script>
+<script>
+    // Click a picture or a rendered diagram to open it in the lightbox (the
+    // same one the posts use); Esc / click outside closes it. Reveal's own
+    // keys are muted while it is open, so Esc does not also toggle overview.
+    document.addEventListener('click', function (e) {
+        var el = e.target.closest('.reveal section img, .reveal .mermaid svg');
+        if (!el || !window.DiagramZoom) return;
+        if (el.tagName === 'IMG' && el.naturalWidth < 200) return;
+        e.preventDefault();
+        DiagramZoom.open(el);
+    });
+</script>
 <script>
     // `{: .fragments}` on a list reveals it one item at a time. Marking every
     // item by hand would need an IAL between each pair of items, and kramdown
@@ -224,6 +256,7 @@ Front matter knobs (all optional):
         controls: !embedded,     // the landing page draws its own arrows
         transition: '{{ transition }}',
         pdfSeparateFragments: false,
+        keyboardCondition: function () { return !document.querySelector('.diagram-zoom.open'); },
         plugins: [RevealNotes, RevealZoom, RevealSearch]
     });
 

@@ -831,19 +831,27 @@ from the overview / recap / per-post 小结 and existing `img/in-post`
 figures — no new experiments. `slides/2026-09-28-math-for-ai.md` is the
 template.
 
-Density rules for the 1280×720 canvas (base font 42 px, so it is tight):
-an `h2` that wraps to two lines costs 150 px — keep titles to one line;
-a slide with a two-line conclusion above a figure needs the figure capped,
-`![…](…){: style="max-height: 380px"}` (`480px` is the default); a figure
-followed by three bullets needs ~330 px; ≤ 6 short bullets or one table
-per slide. `tools/check-render.cjs slides/<key>/play` (it shows every
-slide while measuring — reveal keeps the others `display:none`) reports
-`overflow` = slides whose content is taller than 720 px and FAILs on it;
-split the slide or push detail down a sub-slide. Mermaid on a slide: a
-wide LR graph renders ~280 px tall with unreadable labels — prefer TB
-inside subgraphs with subgraph-to-subgraph edges (Mermaid ignores
-`direction` once node-to-node edges cross subgraphs), which fills the
-480 px cap.
+Pictures first: a slide is a figure (or one table) plus one or two lines
+of summary — the picture carries the point, the words caption it. Reuse
+the post's `img/in-post` figures and Mermaid; readers click any picture
+or diagram in a deck to open it in the posts' lightbox (`js/diagram-zoom.js`,
+loaded by `deck.html`, Esc closes; reveal's keys are muted while it is
+open), so axis labels that are small on the slide are still reachable.
+
+Density rules for the 1280×720 canvas (base font 36 px, set in `deck.html`
+and mirrored by the miniatures in `less/slides.less`): an `h2` that wraps
+costs ~130 px — keep titles to one line; a figure on its own line is
+scaled to the slide width and capped by `max-height` (480 px default;
+`![…](…){: style="max-height: 440px"}` under a two-line conclusion,
+~420 px above one bullet, ~380 px above a 5-row table); ≤ 6 short bullets
+or one table per slide. `tools/check-render.cjs slides/<key>/play` (it
+shows every slide while measuring — reveal keeps the others
+`display:none`) reports `overflow` = slides whose content is taller than
+720 px and FAILs on it; split the slide or push detail down a sub-slide.
+Mermaid on a slide: a wide LR graph renders ~280 px tall with unreadable
+labels — prefer TB inside subgraphs with subgraph-to-subgraph edges
+(Mermaid ignores `direction` once node-to-node edges cross subgraphs),
+which fills the 480 px cap.
 
 `slides/reveal-demo.md` is a live demo of all of the above. `/slides/` lists
 the decks (cards link to the landing page; 全屏播放 / PDF go to `play.html`).

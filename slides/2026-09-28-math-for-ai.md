@@ -1,7 +1,7 @@
 ---
 layout: slides
 title: "算法工程师的数学：读公式不卡壳的最小集"
-subtitle: "系列精华 · 八篇正文压成一份 deck，按 ↓ 展开细节"
+subtitle: "系列精华 · 八篇正文每篇一页，按 ↓ 展开细节"
 permalink: /slides/math-for-ai.html
 series: math-for-ai
 date: 2026-09-28
@@ -94,7 +94,7 @@ flowchart LR
 
 **结论**：两条规则够用——形状规则 $$[m,k]\times[k,n]\to[m,n]$$、成本规则 $$2mnk$$；一个 token 过整个模型约 $$2N$$ FLOPs，训练约 $$6ND$$。
 
-![矩阵乘法：形状规则与成本规则](/img/in-post/vectors-matrices-shapes-and-flops-matmul.svg){: style="max-height: 380px"}
+![矩阵乘法：形状规则与成本规则](/img/in-post/vectors-matrices-shapes-and-flops-matmul.svg){: style="max-height: 440px"}
 
 <aside class="notes" markdown="1">
 看到任何矩阵乘法，立刻写出输出形状和 FLOPs。原文 /vectors-matrices-shapes-and-flops.html
@@ -121,7 +121,7 @@ flowchart LR
 
 **结论**：三个词一套语言——**内积**含方向与大小、**范数**只量大小、**余弦**只比方向；范数有长度 / 正则化项 / 误差度量三个身份。
 
-![内积、范数、余弦：三个词](/img/in-post/inner-product-norms-cosine-three-words.svg){: style="max-height: 380px"}
+![内积、范数、余弦：三个词](/img/in-post/inner-product-norms-cosine-three-words.svg){: style="max-height: 440px"}
 
 <aside class="notes" markdown="1">
 两个向量「像不像」有几种算法、各在哪里用。原文 /inner-product-norms-and-cosine-similarity.html
@@ -131,12 +131,10 @@ flowchart LR
 
 ### 它们在 LLM 里长什么样
 
-| 概念 | 在模型里 | 数字 |
-|---|---|---|
-| 内积 | attention score $$q^\top k$$；$$QK^\top$$ 是一张内积表 | $$\langle a,b\rangle = \lVert a\rVert\lVert b\rVert\cos\theta$$ |
-| 余弦 | embedding 检索、CLIP | 高维随机余弦标准差 $$1/\sqrt d$$，1024 维约 **0.03** |
-| 范数 = 正则项 | weight decay $$\frac{\lambda}{2}\lVert W\rVert_F^2$$；$$L_1$$ 产生稀疏 | — |
-| 范数 = 误差 | 量化：GPTQ 最小化 $$\lVert WX - \hat W X\rVert_F$$，**不是** $$\lVert W - \hat W\rVert_F$$ | 逼近的是权重作用在输入上的结果 |
+![内积 = 投影 × 长度；余弦只看夹角](/img/in-post/inner-product-norms-and-cosine-similarity-geometry.svg){: style="max-height: 360px"}
+
+- **内积**：attention score $$q^\top k$$，$$QK^\top$$ 是一张内积表；**余弦**：embedding 检索、CLIP——1024 维随机向量的余弦标准差只有 $$1/\sqrt d \approx 0.03$$
+- **范数 = 正则项**：weight decay $$\frac{\lambda}{2}\lVert W\rVert_F^2$$；**范数 = 误差**：GPTQ 最小化 $$\lVert WX - \hat WX\rVert_F$$ 而不是 $$\lVert W - \hat W\rVert_F$$
 
 ---
 
@@ -144,7 +142,7 @@ flowchart LR
 
 **结论**：正交保内积，所以旋转 $$m\theta$$ 与 $$n\theta$$ 后的内积只剩 $$n-m$$——RoPE 编码相对位置；截断 SVD 是最好的低秩近似，LoRA 的参数省在 $$r(m+n) \ll mn$$。
 
-![SVD 的形状图：截断后参数量从 mn 降到 r(m+n)](/img/in-post/orthogonal-rotation-svd-block-shapes.svg){: style="max-height: 380px"}
+![SVD 的形状图：截断后参数量从 mn 降到 r(m+n)](/img/in-post/orthogonal-rotation-svd-block-shapes.svg){: style="max-height: 440px"}
 
 <aside class="notes" markdown="1">
 原文 /orthogonal-rotation-svd-and-low-rank.html
@@ -152,13 +150,12 @@ flowchart LR
 
 <!-- v -->
 
-### 两行推导、一个数字
+### RoPE：旋转两次，内积只剩角度差
 
-- RoPE：$$(R_{m\theta}q)^\top(R_{n\theta}k) = q^\top R_{(n-m)\theta}\,k$$——两次旋转等于角度相加，正交矩阵 $$R^\top R = I$$
-- 频率 $$\theta_i = \text{base}^{-2i/d_h}$$，128 维的头拆成 64 对二维旋转
-- SVD $$W = U\Sigma V^\top$$；Eckart–Young：保留前 $$r$$ 个奇异值是 Frobenius 意义下最优
-- LoRA：$$\Delta W = BA$$，Llama-3-8B 上 $$r = 16$$ 只有 **41.9M 参数、0.52%**
-- 结合律 $$x \to xB \to (xB)A$$ 与先算 $$BA$$ 相差约两千倍成本——**读形状**就能看出
+![二维旋转：正交矩阵保内积，两次旋转等于角度相加](/img/in-post/orthogonal-rotation-2d-example.svg){: style="max-height: 340px"}
+
+- $$(R_{m\theta}q)^\top(R_{n\theta}k) = q^\top R_{(n-m)\theta}\,k$$；频率 $$\theta_i = \text{base}^{-2i/d_h}$$，128 维的头拆成 64 对
+- LoRA：$$\Delta W = BA$$，Llama-3-8B 上 $$r = 16$$ 只有 **41.9M 参数、0.52%**；$$x \to xB \to (xB)A$$ 与先算 $$BA$$ 差约两千倍——**读形状**就能看出
 
 ---
 
@@ -166,11 +163,19 @@ flowchart LR
 
 **结论**：语言模型是链式法则 $$p(x_{1:T}) = \prod_t p(x_t \mid x_{<t})$$ 里每一项的参数化；这个定义决定了 next-token 目标、逐 token 生成、KV cache、评测依赖采样设置。
 
-![next-token 分布与链式法则](/img/in-post/probability-basics-next-token-distribution-and-chain-rule.svg){: style="max-height: 380px"}
+![next-token 分布与链式法则](/img/in-post/probability-basics-next-token-distribution-and-chain-rule.svg){: style="max-height: 440px"}
 
 <aside class="notes" markdown="1">
 「语言模型是一个条件分布」每个词是什么意思。原文 /probability-basics-language-model-as-conditional-distribution.html
 </aside>
+
+<!-- v -->
+
+### 常见分布与它们的出场
+
+![伯努利 / 二项、类别、高斯、均匀：形状与在 AI 里的出场](/img/in-post/probability-basics-common-distributions-shapes.svg){: style="max-height: 420px"}
+
+- 评测每道题对错是伯努利 → 第八篇的标准误；next-token 是类别分布；初始化与扩散是高斯
 
 <!-- v -->
 
@@ -191,7 +196,7 @@ flowchart LR
 
 **结论**：取对数 → 取负 → 除以 token 数，得到每 token 负对数似然 $$\mathcal L = -\frac1T\sum_t \log p_\theta(x_t\mid x_{<t})$$；所有 loss 都是这个模板换一个概率。
 
-![抛硬币 10 次 7 正：似然曲线引出最大似然](/img/in-post/math-05-coin-likelihood.svg){: style="max-height: 380px"}
+![抛硬币 10 次 7 正：似然曲线引出最大似然](/img/in-post/math-05-coin-likelihood.svg){: style="max-height: 440px"}
 
 <aside class="notes" markdown="1">
 从一枚硬币开始：选让训练集出现概率最大的参数。原文 /from-maximum-likelihood-to-cross-entropy.html
@@ -201,7 +206,7 @@ flowchart LR
 
 ### 一个立刻能用的数字：初始 loss ≈ ln V
 
-![nanoGPT 莎士比亚：首步 loss 4.1676 vs ln 65 = 4.174，以及三种 bug 的曲线](/img/in-post/math-05-lnv-and-bugs.svg){: style="max-height: 400px"}
+![nanoGPT 莎士比亚：首步 loss 4.1676 vs ln 65 = 4.174，以及三种 bug 的曲线](/img/in-post/math-05-lnv-and-bugs.svg){: style="max-height: 450px"}
 
 - 随机初始化的模型是均匀分布，交叉熵 $$= \ln V$$：Llama-3 词表 128256 → **11.8**
 - 远高：初始化太大；**远低：泄漏或 mask 算错**——没学之前就知道答案
@@ -210,7 +215,7 @@ flowchart LR
 
 ### softmax、温度与采样（GPT-2 真实分布）
 
-![GPT-2 在一个开放位置的真实分布：温度、top-k、top-p 的效果](/img/in-post/math-05-gpt2-sampling.svg){: style="max-height: 360px"}
+![GPT-2 在一个开放位置的真实分布：温度、top-k、top-p 的效果](/img/in-post/math-05-gpt2-sampling.svg){: style="max-height: 400px"}
 
 - softmax 里差值决定比值：logit 差 1 是 2.7 倍，差 5 是 148 倍
 - 温度改变的是**分布**，greedy 与 T=0.6 / top-p 0.95 的分数不能直接比
@@ -222,7 +227,7 @@ flowchart LR
 
 **结论**：$$H(p,q) = H(p) + D_{\mathrm{KL}}(p\Vert q)$$——交叉熵是熵加上「多付的那部分」；KL 不对称，**方向决定行为**；从 KL 约束的最优策略四步推出 DPO。
 
-![KL 的方向：forward 覆盖模式，reverse 寻找模式](/img/in-post/entropy-cross-entropy-and-kl-direction-mode-covering-vs-seeking.svg){: style="max-height: 380px"}
+![KL 的方向：forward 覆盖模式，reverse 寻找模式](/img/in-post/entropy-cross-entropy-and-kl-direction-mode-covering-vs-seeking.svg){: style="max-height: 440px"}
 
 <aside class="notes" markdown="1">
 后训练的主语言。原文 /entropy-cross-entropy-and-kl-to-dpo.html
@@ -261,7 +266,7 @@ $$
 
 **结论**：梯度与参数同形；softmax + 交叉熵的梯度是 $$p - y$$；期望的梯度用 $$\nabla\pi = \pi\nabla\log\pi$$ 写回期望——策略梯度是「按奖励加权的最大似然」，减 baseline 期望不变。
 
-![softmax + 交叉熵的梯度 p − y](/img/in-post/math-07-softmax-ce-gradient.svg){: style="max-height: 380px"}
+![softmax + 交叉熵的梯度 p − y](/img/in-post/math-07-softmax-ce-gradient.svg){: style="max-height: 440px"}
 
 <aside class="notes" markdown="1">
 原文 /derivatives-gradients-chain-rule-and-policy-gradient.html
@@ -269,9 +274,17 @@ $$
 
 <!-- v -->
 
+### 链式法则：每条路径相乘、不同路径相加
+
+![计算图上的链式法则：手算、autograd、有限差分三方对拍](/img/in-post/math-07-chain-rule-graph.svg){: style="max-height: 420px"}
+
+- 反向传播是它的逐层套用；工程上算「上游梯度 × Jacobian」，从不构造 $$[4096, 4096]$$ 的 Jacobian
+
+<!-- v -->
+
 ### 策略梯度的可跑实验：10 个 token，偶数得 1 分
 
-![精确梯度 vs REINFORCE 估计：方差、baseline、GRPO 偏差](/img/in-post/math-07-policy-gradient-toy.svg){: style="max-height: 360px"}
+![精确梯度 vs REINFORCE 估计：方差、baseline、GRPO 偏差](/img/in-post/math-07-policy-gradient-toy.svg){: style="max-height: 380px"}
 
 | 估计 | 结果 |
 |---|---|
@@ -285,7 +298,7 @@ $$
 
 ### nanoGPT 上最小的 RL：奖励 = 元音比例
 
-![奖励上升、模型坍缩、KL 惩罚刹车](/img/in-post/math-07-rl-nanogpt.svg){: style="max-height: 330px"}
+![奖励上升、模型坍缩、KL 惩罚刹车](/img/in-post/math-07-rl-nanogpt.svg){: style="max-height: 420px"}
 
 - 不加 KL：奖励一路涨，模型坍缩成一串元音，val loss 从 1.66 飙到 6–9
 - $$\beta = 0.5$$ 的 KL 惩罚把它拉回 3.2——**这就是 RLHF 里 KL 项存在的理由**
@@ -294,13 +307,21 @@ $$
 
 ## 八 · 统计推断：置信区间与 scaling law
 
-**结论**：95% 区间 $$= \hat p \pm 1.96\,\text{SE}$$，$$\text{SE} = \sqrt{\hat p(1-\hat p)/n}$$；**HumanEval 164 题分辨不出 3 个点**；幂律在双对数上是直线；固定 $$C = 6ND$$ 用拉格朗日乘子，$$N$$、$$D$$ 同步增长。
+**结论**：95% 区间 $$= \hat p \pm 1.96\,\text{SE}$$，**HumanEval 164 题分辨不出 3 个点**；幂律在双对数上是直线；固定 $$C = 6ND$$ 求极值，$$N$$、$$D$$ 同步增长。
 
-![100 个置信区间约 95 个盖住真值](/img/in-post/math-08-confidence-intervals.svg){: style="max-height: 380px"}
+![100 个置信区间约 95 个盖住真值](/img/in-post/math-08-confidence-intervals.svg){: style="max-height: 440px"}
 
 <aside class="notes" markdown="1">
 原文 /statistical-inference-and-fitting-scaling-laws.html
 </aside>
+
+<!-- v -->
+
+### 抽样噪声长什么样：同一个 80% 的模型评 1000 次
+
+![164 题上评 1000 次：观测正确率从 0.70 散到 0.89](/img/in-post/math-08-sampling-noise.svg){: style="max-height: 420px"}
+
+- 标准误就是这团散布的标准差：$$\sqrt{0.8 \times 0.2 / 164} = 3.1\%$$
 
 <!-- v -->
 
@@ -320,7 +341,7 @@ $$
 
 ### Chinchilla：等 loss 线与等算力线相切
 
-![等 loss 线与等算力线相切给出最优 N、D](/img/in-post/math-08-chinchilla-isoflop.svg){: style="max-height: 300px"}
+![等 loss 线与等算力线相切给出最优 N、D](/img/in-post/math-08-chinchilla-isoflop.svg){: style="max-height: 380px"}
 
 - $$L = E + A/N^\alpha + B/D^\beta$$，约束 $$6ND = C$$ → $$N_{\text{opt}} \propto C^{0.45}$$、$$D_{\text{opt}} \propto C^{0.55}$$
 - 8B 配 160B token 是 2.16，配 15T 是 1.95：**94 倍数据换 0.21 nat**，值不值看推理成本

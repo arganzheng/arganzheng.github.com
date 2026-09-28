@@ -5192,7 +5192,7 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
   background: #fff;
   color: #222;
   font-family: "Source Sans Pro", "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-  font-size: 42px;
+  font-size: 36px;
   line-height: 1.3;
   text-align: left;
 }
@@ -5273,7 +5273,9 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
 }
 .deck-thumb-inner img {
   display: block;
-  max-width: 100%;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
   max-height: 480px;
   margin: 0 auto;
   border: 0;
