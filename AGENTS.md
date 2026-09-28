@@ -933,11 +933,17 @@ How it is built (`_plugins/moments.rb`):
   rejects Triton's `lit.cfg.py`).
 - **Series membership** is front matter, not prose: `series: <key>` where
   `<key>` is an entry in `_data/series.yml` (`name`, `overview` URL). Members
-  are ordered by date; the layouts render the top quote (`本文是《…》系列的第
-  N 篇（共X篇）。上一篇：…；下一篇：…`, `_includes/series-nav.html`), the
-  bottom table of contents (`series-toc.html`) and a series-aware pager
-  (`post-pager.html`, chronological Previous/Next for non-series posts). Do
-  **not** hand-write the nav quote any more; the overview post itself has no
+  are ordered by date; the layouts render the top box (`series-nav.html`,
+  since 2026-09-28 a dev.to-style `.series-box`: one line 「系列 《…》 第 N / X
+  篇 · 目录 ▸」 folding open into the parts + a 上一篇 / 下一篇 line; it keeps
+  the `.series-nav` class the WeChat export / annotations exclude; it
+  overrides the generic `.post-container details` box from extras.less), a
+  「本系列」 list under the OUTLINE panel on wide screens (`series-side.html`,
+  in the sticky catalog column of the three post layouts; the outline's
+  `max-height` shrinks when it is present), the bottom table of contents
+  (`series-toc.html`) and a series-aware pager (`post-pager.html`,
+  chronological Previous/Next for non-series posts). Do **not** hand-write
+  the nav quote any more; the overview post itself has no
   `series:` key. Titles are `系列名（NN）：副标题` — the nav/TOC show the part
   after `）：`. New series: add the key to `_data/series.yml` first.
   `tools/migrate-series.py` converted the old hand-written quotes (idempotent).
