@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="555.59952pt" height="238.79952pt" viewBox="0 0 555.59952 238.79952" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.11.2, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 238.79952 
+L 555.59952 238.79952 
+L 555.59952 0 
+L 0 0 
+z
+" style="fill: #ffffff"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 12.611995 79.007846 
+L 110.027909 79.007846 
+L 110.027909 43.103923 
+L 12.611995 43.103923 
+z
+" clip-path="url(#p7bb83cb4d0)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 12.611995 195.695597 
+L 110.027909 195.695597 
+L 110.027909 159.791674 
+L 12.611995 159.791674 
+z
+" clip-path="url(#p7bb83cb4d0)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 202.031827 79.007846 
+L 299.447741 79.007846 
+L 299.447741 43.103923 
+L 202.031827 43.103923 
+z
+" clip-path="url(#p7bb83cb4d0)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 202.031827 195.695597 
+L 299.447741 195.695597 
+L 299.447741 159.791674 
+L 202.031827 159.791674 
+z
+" clip-path="url(#p7bb83cb4d0)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_6">
+    <path d="M 407.687645 137.351722 
+L 526.751539 137.351722 
+L 526.751539 101.447798 
+L 407.687645 101.447798 
+z
+" clip-path="url(#p7bb83cb4d0)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-linejoin: miter"/>
+   </g>
+   <g id="text_1">
+    <text style="font-size: 8.5px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="61.319952" y="64.115885" transform="rotate(-0 61.319952 64.115885)">θ₁ = 2</text>
+   </g>
+   <g id="text_2">
+    <text style="font-size: 8.5px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="61.319952" y="180.803635" transform="rotate(-0 61.319952 180.803635)">θ₂ = 3</text>
+   </g>
+   <g id="text_3">
+    <text style="font-size: 8.5px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="250.739784" y="64.115885" transform="rotate(-0 250.739784 64.115885)">g₁ = θ₁θ₂ = 6</text>
+   </g>
+   <g id="text_4">
+    <text style="font-size: 8.5px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="250.739784" y="180.803635" transform="rotate(-0 250.739784 180.803635)">g₂ = θ₁+θ₂ = 5</text>
+   </g>
+   <g id="text_5">
+    <text style="font-size: 8.5px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="467.219592" y="122.45976" transform="rotate(-0 467.219592 122.45976)">L = g₁+2g₂ = 16</text>
+   </g>
+   <g id="patch_7">
+    <path d="M 112.029825 61.055885 
+Q 156.029675 61.055885 198.91149 61.055885 
+" style="fill: none; stroke: #8a8a8a; stroke-linecap: round"/>
+    <path d="M 195.31149 59.255885 
+L 198.91149 61.055885 
+L 195.31149 62.855885 
+" style="fill: none; stroke: #8a8a8a; stroke-linecap: round"/>
+   </g>
+   <g id="text_6">
+    <text style="font-size: 7.5px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #8a8a8a" x="156.029868" y="45.347918" transform="rotate(-0 156.029868 45.347918)">∂g₁/∂θ₁ = θ₂ = 3</text>
+   </g>
+   <g id="patch_8">
+    <path d="M 111.327891 176.221707 
+Q 156.030748 123.88672 200.007457 72.401857 
+" style="fill: none; stroke: #8a8a8a; stroke-linecap: round"/>
+    <path d="M 196.300635 73.970125 
+L 200.007457 72.401857 
+L 199.037978 76.308276 
+" style="fill: none; stroke: #8a8a8a; stroke-linecap: round"/>
+   </g>
+   <g id="text_7">
+    <text style="font-size: 7.5px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #8a8a8a" x="101.909916" y="108.179784" transform="rotate(-0 101.909916 108.179784)">∂g₁/∂θ₂ = θ₁ = 2</text>
+   </g>
+   <g id="patch_9">
+    <path d="M 111.389661 71.493257 
+Q 156.028881 119.398701 199.905908 166.486183 
+" style="fill: none; stroke: #8a8a8a; stroke-linecap: round"/>
+    <path d="M 198.768588 162.625289 
+L 199.905908 166.486183 
+L 196.1348 165.079503 
+" style="fill: none; stroke: #8a8a8a; stroke-linecap: round"/>
+   </g>
+   <g id="text_8">
+    <text style="font-size: 7.5px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #8a8a8a" x="210.14982" y="128.375741" transform="rotate(-0 210.14982 128.375741)">∂g₂/∂θ₁ = 1</text>
+   </g>
+   <g id="patch_10">
+    <path d="M 112.029825 177.743635 
+Q 156.029675 177.743635 198.91149 177.743635 
+" style="fill: none; stroke: #8a8a8a; stroke-linecap: round"/>
+    <path d="M 195.31149 175.943635 
+L 198.91149 177.743635 
+L 195.31149 179.543635 
+" style="fill: none; stroke: #8a8a8a; stroke-linecap: round"/>
+   </g>
+   <g id="text_9">
+    <text style="font-size: 7.5px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #8a8a8a" x="156.029868" y="193.451602" transform="rotate(-0 156.029868 193.451602)">∂g₂/∂θ₂ = 1</text>
+   </g>
+   <g id="patch_11">
+    <path d="M 301.252125 61.922173 
+Q 350.862112 85.740032 399.464205 109.073999 
+" style="fill: none; stroke: #8a8a8a; stroke-linecap: round"/>
+    <path d="M 396.997902 105.893221 
+L 399.464205 109.073999 
+L 395.439801 109.138575 
+" style="fill: none; stroke: #8a8a8a; stroke-linecap: round"/>
+   </g>
+   <g id="text_10">
+    <text style="font-size: 7.5px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #8a8a8a" x="348.155698" y="70.031866" transform="rotate(-0 348.155698 70.031866)">∂L/∂g₁ = 1</text>
+   </g>
+   <g id="patch_12">
+    <path d="M 301.252125 176.877347 
+Q 350.862112 153.059488 399.464205 129.725521 
+" style="fill: none; stroke: #8a8a8a; stroke-linecap: round"/>
+    <path d="M 395.439801 129.660945 
+L 399.464205 129.725521 
+L 396.997902 132.906299 
+" style="fill: none; stroke: #8a8a8a; stroke-linecap: round"/>
+   </g>
+   <g id="text_11">
+    <text style="font-size: 7.5px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #8a8a8a" x="348.155698" y="168.767654" transform="rotate(-0 348.155698 168.767654)">∂L/∂g₂ = 2</text>
+   </g>
+   <g id="text_12">
+    <text style="font-weight: 700; font-size: 9px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #c94c4c" x="61.319952" y="27.395957" transform="rotate(-0 61.319952 27.395957)">∂L/∂θ₁ = 1·3 + 2·1 = 5</text>
+   </g>
+   <g id="text_13">
+    <text style="font-weight: 700; font-size: 9px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #c94c4c" x="61.319952" y="213.647558" transform="rotate(-0 61.319952 213.647558)">∂L/∂θ₂ = 1·2 + 2·1 = 4</text>
+   </g>
+   <g id="text_14">
+    <text style="font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #8a8a8a" x="277.79976" y="224.867534" transform="rotate(-0 277.79976 224.867534)">前向：沿箭头算值。反向：从 L 出发，沿每条路径把边上的局部导数相乘，汇到同一个 θ 的路径相加</text>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p7bb83cb4d0">
+   <rect x="7.2" y="7.2" width="541.19952" height="224.39952"/>
+  </clipPath>
+ </defs>
+</svg>

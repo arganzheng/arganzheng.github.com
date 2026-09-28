@@ -5,13 +5,99 @@
 // output is inserted by hand into css/argan-blog{,.min}.css, right before the
 // annotations block (see AGENTS.md).
 
-.post-container blockquote.series-nav {
-	font-size: 15px;
+// top-of-post box: 「系列 《…》 第 N / X 篇  目录 ▸」 folding open into the parts, then 上一篇 / 下一篇
+.post-container .series-box {
+	margin: 0 0 1.6em;
+	padding: 10px 16px;
+	background: #f6f8fa;
+	border: 1px solid #eaeef2;
+	border-left: 3px solid @brand-primary;
+	border-radius: 6px;
+	font-size: 14px;
 	color: #57606a;
-	border-left-color: @brand-primary;
 	a { color: @brand-primary; text-decoration: none; &:hover { text-decoration: underline; } }
-	p { margin: 0; }
+	// undo the generic .post-container details box (less/extras.less): this box is the frame
+	details { margin: 0; padding: 0; border: 0; border-radius: 0; background: none; }
+	details[open] > summary { margin-bottom: 0; }
+	summary, details > summary {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 4px 8px;
+		cursor: pointer;
+		font-weight: 400;
+		list-style: none;
+		&::-webkit-details-marker { display: none; }
+		&::before { content: none; }
+	}
+	.sb-kicker { padding: 0 6px; border-radius: 3px; background: @brand-primary; color: #fff; font-size: 11px; line-height: 18px; }
+	.sb-title { font-weight: 600; color: #24292f; }
+	.sb-pos { white-space: nowrap; }
+	.sb-toggle {
+		margin-left: auto;
+		font-size: 12px;
+		color: #8b949e;
+		white-space: nowrap;
+		&::after { content: " ▸"; display: inline-block; transition: transform 0.15s; }
+	}
+	details[open] .sb-toggle::after { transform: rotate(90deg); }
+	.sb-overview { margin: 10px 0 6px; font-size: 13px; color: #8b949e; a { color: #24292f; font-weight: 600; } }
+	.sb-list {
+		margin: 0 0 4px;
+		padding-left: 1.8em;
+		columns: 2;
+		column-gap: 28px;
+		line-height: 1.5;
+		li { margin: 0 0 4px; break-inside: avoid; }
+		a { color: #57606a; }
+		.is-current { font-weight: 600; color: #24292f; }
+	}
+	.sb-nav {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px 20px;
+		margin: 8px 0 0;
+		padding-top: 8px;
+		border-top: 1px dashed #d8dee4;
+		font-size: 13px;
+	}
 }
+@media (max-width: 767px) {
+	.post-container .series-box .sb-list { columns: 1; }
+}
+
+// 「本系列」 under the OUTLINE panel (wide screens only — the catalog column is visible-lg)
+.side-series {
+	margin: 18px 0 0;
+	padding: 12px 0 0;
+	border-top: 1px solid #eaeef2;
+	h5 {
+		display: flex;
+		align-items: baseline;
+		gap: 8px;
+		margin: 0 0 8px;
+		font-size: 12px;
+		font-weight: 700;
+		letter-spacing: 1px;
+		text-transform: uppercase;
+		a { color: #404040 !important; text-decoration: none; &:hover { color: @brand-primary !important; } }
+		small { font-weight: 400; letter-spacing: 0; color: #8b949e; }
+	}
+	ol {
+		max-height: 220px;
+		margin: 0;
+		padding-left: 1.6em;
+		overflow-y: auto;
+		font-size: 12px;
+		line-height: 1.5;
+		li { margin: 0 0 3px; }
+		li::marker { color: #8b949e; }
+		a { color: #57606a !important; text-decoration: none; &:hover { color: @brand-primary !important; } }
+		.is-current { font-weight: 600; color: #24292f; }
+	}
+}
+// leave the series block room under a long outline
+div.catalog-container:has(.side-series) div.side-catalog .catalog-body { max-height: calc(100vh - 430px); }
 
 .series-toc {
 	margin: 40px 0 10px;
