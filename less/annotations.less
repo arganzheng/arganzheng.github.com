@@ -863,37 +863,16 @@
 		display: block;
 		margin: 8px auto 0;
 		max-width: 92%;
-		// room for the tool strip on the right; the same on the left keeps the title centred
-		padding: 3px 100px;
-		min-height: 28px;
+		padding: 3px 0;
 		font-size: 13px;
 		line-height: 1.5;
 		color: @annot-muted;
 		text-align: center;
-		// copy · 放大 · feedback sit on the caption row, never over the picture / header cells
-		> .fig-tools, > .table-tools {
-			position: absolute;
-			top: 0;
-			right: 0;
-			padding: 0;
-			gap: 4px;
-			background: none;
-			.code-copy { width: 28px; height: 28px; }
-		}
-		> .table-copy-menu { top: 30px; right: 0; }
 		.fig-no { color: @annot-faint; }
 		&.is-picked .fig-title, &.is-picked.is-untitled .fig-no { background: fade(#ffd54f, 45%); border-radius: 3px; }
 		&.has-note { color: #24292f; }
 	}
 	.mermaid + .post-figcaption { margin-top: -6px; margin-bottom: 1.4em; }
-	// phones: no room beside the title — the strip goes on its own line under it
-	@media (max-width: 767px) {
-		.post-figcaption {
-			padding: 3px 0 0;
-			> .fig-tools, > .table-tools { position: static; justify-content: center; margin-top: 4px; }
-			> .table-copy-menu { top: auto; right: 50%; transform: translateX(50%); }
-		}
-	}
 	// a note on the caption outlines the picture / table it belongs to
 	.post-figure:has(> .post-figcaption.has-note) img,
 	.mermaid:has(+ .post-figcaption.has-note),
@@ -906,8 +885,11 @@
 		vertical-align: top;
 		> img, > svg { display: block; max-width: 100%; }
 	}
-	// corner strip on the block (figure / .mermaid / pre): copy · 放大 · feedback, 32 px targets, always visible
-	.fig-tools {
+	// corner strip on the block: copy · 放大 · feedback, 32 px targets. Code blocks
+	// (no caption) keep it always on; on a picture / diagram (.fig-media) / table
+	// it floats over the content, so it only shows on hover or keyboard focus —
+	// always on touch screens, which have no hover.
+	.fig-tools, .table-tools {
 		position: absolute;
 		top: 2px;
 		right: 2px;
@@ -916,9 +898,22 @@
 		gap: 6px;
 		padding: 6px;
 		border-radius: 8px;
-		transition: background-color 0.15s;
+		transition: background-color 0.15s, opacity 0.15s;
 		.code-copy { position: static; width: 32px; height: 32px; }
 		&:hover { background: rgba(255, 255, 255, 0.85); }
+	}
+	.fig-media > .fig-tools, .table-tools {
+		top: 6px;
+		right: 6px;
+		padding: 4px;
+		background: rgba(255, 255, 255, 0.9);
+		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+		.code-copy { width: 28px; height: 28px; }
+	}
+	@media (hover: hover) {
+		.fig-media > .fig-tools, .table-tools { opacity: 0; }
+		.fig-media:hover > .fig-tools, .table-tools-anchor:hover > .table-tools,
+		.fig-media > .fig-tools:focus-within, .table-tools:focus-within { opacity: 1; }
 	}
 }
 
@@ -944,23 +939,12 @@
 	.table-tools-anchor {
 		position: relative;
 	}
-	.table-tools {
-		position: absolute;
-		top: 2px;
-		right: 2px;
-		z-index: 2;
-		display: flex;
-		gap: 6px;
-		padding: 6px;
-		border-radius: 8px;
-		background: rgba(255, 255, 255, 0.85);
-		.code-copy { position: static; width: 32px; height: 32px; }
-	}
+	// the strip itself is styled with .fig-tools above; the format menu is
+	// position: fixed (code-copy.js places it under the button) so the
+	// scrollable wrapper cannot clip it
 	.table-copy-menu {
-		position: absolute;
-		top: 46px;
-		right: 6px;
-		z-index: 3; // above the next block (a code block's background painted later would cover it)
+		position: fixed;
+		z-index: 30;
 		min-width: 150px;
 		padding: 4px;
 		background: #fff;
@@ -981,7 +965,4 @@
 			&:hover, &:focus { background: #f6f8fa; outline: 0; }
 		}
 	}
-}
-@media (max-width: 767px) {
-	.post-container .table-tools { opacity: 1; }
 }

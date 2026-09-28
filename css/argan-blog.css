@@ -3992,30 +3992,11 @@ footer .copyright a,
   display: block;
   margin: 8px auto 0;
   max-width: 92%;
-  padding: 3px 100px;
-  min-height: 28px;
+  padding: 3px 0;
   font-size: 13px;
   line-height: 1.5;
   color: #57606a;
   text-align: center;
-}
-.post-container .post-figcaption > .fig-tools,
-.post-container .post-figcaption > .table-tools {
-  position: absolute;
-  top: 0;
-  right: 0;
-  padding: 0;
-  gap: 4px;
-  background: none;
-}
-.post-container .post-figcaption > .fig-tools .code-copy,
-.post-container .post-figcaption > .table-tools .code-copy {
-  width: 28px;
-  height: 28px;
-}
-.post-container .post-figcaption > .table-copy-menu {
-  top: 30px;
-  right: 0;
 }
 .post-container .post-figcaption .fig-no {
   color: #59636e;
@@ -4031,22 +4012,6 @@ footer .copyright a,
 .post-container .mermaid + .post-figcaption {
   margin-top: -6px;
   margin-bottom: 1.4em;
-}
-@media (max-width: 767px) {
-  .post-container .post-figcaption {
-    padding: 3px 0 0;
-  }
-  .post-container .post-figcaption > .fig-tools,
-  .post-container .post-figcaption > .table-tools {
-    position: static;
-    justify-content: center;
-    margin-top: 4px;
-  }
-  .post-container .post-figcaption > .table-copy-menu {
-    top: auto;
-    right: 50%;
-    transform: translateX(50%);
-  }
 }
 .post-container .post-figure:has(> .post-figcaption.has-note) img,
 .post-container .mermaid:has(+ .post-figcaption.has-note),
@@ -4066,7 +4031,8 @@ footer .copyright a,
   display: block;
   max-width: 100%;
 }
-.post-container .fig-tools {
+.post-container .fig-tools,
+.post-container .table-tools {
   position: absolute;
   top: 2px;
   right: 2px;
@@ -4075,15 +4041,42 @@ footer .copyright a,
   gap: 6px;
   padding: 6px;
   border-radius: 8px;
-  transition: background-color 0.15s;
+  transition: background-color 0.15s, opacity 0.15s;
 }
-.post-container .fig-tools .code-copy {
+.post-container .fig-tools .code-copy,
+.post-container .table-tools .code-copy {
   position: static;
   width: 32px;
   height: 32px;
 }
-.post-container .fig-tools:hover {
+.post-container .fig-tools:hover,
+.post-container .table-tools:hover {
   background: rgba(255, 255, 255, 0.85);
+}
+.post-container .fig-media > .fig-tools,
+.post-container .table-tools {
+  top: 6px;
+  right: 6px;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
+.post-container .fig-media > .fig-tools .code-copy,
+.post-container .table-tools .code-copy {
+  width: 28px;
+  height: 28px;
+}
+@media (hover: hover) {
+  .post-container .fig-media > .fig-tools,
+  .post-container .table-tools {
+    opacity: 0;
+  }
+  .post-container .fig-media:hover > .fig-tools,
+  .post-container .table-tools-anchor:hover > .table-tools,
+  .post-container .fig-media > .fig-tools:focus-within,
+  .post-container .table-tools:focus-within {
+    opacity: 1;
+  }
 }
 .post-container .table-responsive {
   width: max-content;
@@ -4112,27 +4105,9 @@ footer .copyright a,
 .post-container .table-tools-anchor {
   position: relative;
 }
-.post-container .table-tools {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  z-index: 2;
-  display: flex;
-  gap: 6px;
-  padding: 6px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.85);
-}
-.post-container .table-tools .code-copy {
-  position: static;
-  width: 32px;
-  height: 32px;
-}
 .post-container .table-copy-menu {
-  position: absolute;
-  top: 46px;
-  right: 6px;
-  z-index: 3;
+  position: fixed;
+  z-index: 30;
   min-width: 150px;
   padding: 4px;
   background: #fff;
@@ -4156,11 +4131,6 @@ footer .copyright a,
 .post-container .table-copy-menu button:focus {
   background: #f6f8fa;
   outline: 0;
-}
-@media (max-width: 767px) {
-  .post-container .table-tools {
-    opacity: 1;
-  }
 }
 .post-actions {
   position: relative;

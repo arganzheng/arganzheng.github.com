@@ -154,13 +154,22 @@
         anchor.appendChild(menu);
 
         function close() { menu.hidden = true; button.setAttribute('aria-expanded', 'false'); }
+        // The menu lives inside the scrollable .table-responsive, which would clip
+        // it: it is position: fixed and placed under the button when opened.
+        function place() {
+            var r = button.getBoundingClientRect();
+            menu.style.top = (r.bottom + 6) + 'px';
+            menu.style.right = Math.max(8, window.innerWidth - r.right) + 'px';
+        }
         button.addEventListener('click', function (e) {
             e.preventDefault(); e.stopPropagation();
             var open = menu.hidden;
             document.querySelectorAll('.table-copy-menu:not([hidden])').forEach(function (m) { m.hidden = true; });
+            if (open) place();
             menu.hidden = !open;
             button.setAttribute('aria-expanded', open ? 'true' : 'false');
         });
+        window.addEventListener('scroll', function () { if (!menu.hidden) close(); }, { passive: true });
         menu.addEventListener('click', function (e) {
             var item = e.target.closest('[data-format]');
             if (!item) return;
@@ -172,7 +181,6 @@
             }).catch(function () { button.title = '复制失败'; });
             close();
         });
-        // figures.js moves the menu onto the caption row, so test the menu's own tree, not the anchor's
         document.addEventListener('click', function (e) { if (!menu.contains(e.target) && !button.contains(e.target)) close(); });
         document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
     }

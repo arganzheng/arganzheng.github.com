@@ -601,21 +601,23 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
     `width` = the svg's `max-width`, so it shrink-wraps the drawing), a `.fig-tools`
     strip (code-copy's button · 放大 · feedback) and the caption as the `.mermaid`'s
     next sibling (title = Mermaid front matter `title:` or a first-line `%% 图：…`
-    comment). The strip is **always visible** (GitHub-style) and, for pictures,
-    diagrams and tables, **sits on the caption row** (`.post-figcaption >
-    .fig-tools / .table-tools`, absolute at the row's right; the caption gets
-    100 px side padding so the title stays centred; on phones the strip drops
-    to its own line under the title). History: hover-only on the picture's
-    corner → always-on on the block's corner (2026-09-20) → the caption row
-    (2026-09-27), because the block-corner strip covered a table's header cells
-    and a picture's top-right (reader: 「拷贝和评论按钮总是覆盖住文字」). Code
-    blocks have no caption and keep the corner strip. 28 px targets on the
-    caption row, click handler stops propagation. `code-copy.js` marks the
-    anchor `data-code-copy` once it has added its button (the strip is no
-    longer inside the anchor, so a DOM lookup cannot tell) — without that the
+    comment). For pictures, diagrams and tables the strip **floats on the
+    block's own top-right corner** (`.fig-media > .fig-tools` on the
+    shrink-wrapped picture / svg, `.table-tools` on the `.table-responsive`
+    anchor), white translucent pill, **hidden until hover / focus-within**
+    (`@media (hover: hover)`) and always shown on touch screens. History:
+    hover-only on the picture's corner → always-on on the block's corner
+    (2026-09-20) → the caption row, always visible (2026-09-27, the block-corner
+    strip covered a table's header cells: 「拷贝和评论按钮总是覆盖住文字」) →
+    back to the corner, hover-revealed (2026-09-28, the caption-row strip was
+    「太隐晦了，也不好看」). Code blocks have no caption and keep the always-on
+    corner strip. Click handler stops propagation. `code-copy.js` marks the
+    anchor `data-code-copy` once it has added its button — without that the
     two MutationObservers would keep adding copy buttons to every diagram; the
-    table copy menu is moved onto the caption row with the strip and closes on
-    clicks outside the menu / its button (not outside the table). Code blocks
+    table copy menu is `position: fixed`, placed under its button on open
+    (inside the scrollable `.table-responsive` an absolute menu got clipped /
+    added a scrollbar), and closes on clicks outside the menu / its button, on
+    Escape and on page scroll. Code blocks
     (`.highlighter-rouge` / `pre`) get the
     same strip with the copy button and the same handle, which selects the whole
     `<code>` (`pick(code)`) — nothing mode-specific: the normal toolbar then offers
