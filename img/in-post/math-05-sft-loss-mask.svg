@@ -1,0 +1,405 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="555.59952pt" height="145.188145pt" viewBox="0 0 555.59952 145.188145" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.11.2, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 145.188145 
+L 555.59952 145.188145 
+L 555.59952 0 
+L 0 0 
+z
+" style="fill: #ffffff"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 13.147247 46.532133 
+L 70.240823 46.532133 
+L 70.240823 17.030194 
+L 13.147247 17.030194 
+z
+" clip-path="url(#p211ccf1ead)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 72.619722 46.532133 
+L 129.713298 46.532133 
+L 129.713298 17.030194 
+L 72.619722 17.030194 
+z
+" clip-path="url(#p211ccf1ead)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 132.092197 46.532133 
+L 189.185773 46.532133 
+L 189.185773 17.030194 
+L 132.092197 17.030194 
+z
+" clip-path="url(#p211ccf1ead)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 191.564672 46.532133 
+L 248.658247 46.532133 
+L 248.658247 17.030194 
+L 191.564672 17.030194 
+z
+" clip-path="url(#p211ccf1ead)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_6">
+    <path d="M 251.037146 46.532133 
+L 308.130722 46.532133 
+L 308.130722 17.030194 
+L 251.037146 17.030194 
+z
+" clip-path="url(#p211ccf1ead)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_7">
+    <path d="M 310.509621 46.532133 
+L 367.603197 46.532133 
+L 367.603197 17.030194 
+L 310.509621 17.030194 
+z
+" clip-path="url(#p211ccf1ead)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_8">
+    <path d="M 369.982096 46.532133 
+L 427.075672 46.532133 
+L 427.075672 17.030194 
+L 369.982096 17.030194 
+z
+" clip-path="url(#p211ccf1ead)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_9">
+    <path d="M 429.454571 46.532133 
+L 486.548146 46.532133 
+L 486.548146 17.030194 
+L 429.454571 17.030194 
+z
+" clip-path="url(#p211ccf1ead)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_10">
+    <path d="M 488.927045 46.532133 
+L 546.020621 46.532133 
+L 546.020621 17.030194 
+L 488.927045 17.030194 
+z
+" clip-path="url(#p211ccf1ead)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_11">
+    <path d="M 13.147247 84.884654 
+L 70.240823 84.884654 
+L 70.240823 55.382715 
+L 13.147247 55.382715 
+z
+" clip-path="url(#p211ccf1ead)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_12">
+    <path d="M 72.619722 84.884654 
+L 129.713298 84.884654 
+L 129.713298 55.382715 
+L 72.619722 55.382715 
+z
+" clip-path="url(#p211ccf1ead)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_13">
+    <path d="M 132.092197 84.884654 
+L 189.185773 84.884654 
+L 189.185773 55.382715 
+L 132.092197 55.382715 
+z
+" clip-path="url(#p211ccf1ead)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_14">
+    <path d="M 191.564672 84.884654 
+L 248.658247 84.884654 
+L 248.658247 55.382715 
+L 191.564672 55.382715 
+z
+" clip-path="url(#p211ccf1ead)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_15">
+    <path d="M 251.037146 84.884654 
+L 308.130722 84.884654 
+L 308.130722 55.382715 
+L 251.037146 55.382715 
+z
+" clip-path="url(#p211ccf1ead)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_16">
+    <path d="M 310.509621 84.884654 
+L 367.603197 84.884654 
+L 367.603197 55.382715 
+L 310.509621 55.382715 
+z
+" clip-path="url(#p211ccf1ead)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_17">
+    <path d="M 369.982096 84.884654 
+L 427.075672 84.884654 
+L 427.075672 55.382715 
+L 369.982096 55.382715 
+z
+" clip-path="url(#p211ccf1ead)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_18">
+    <path d="M 429.454571 84.884654 
+L 486.548146 84.884654 
+L 486.548146 55.382715 
+L 429.454571 55.382715 
+z
+" clip-path="url(#p211ccf1ead)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_19">
+    <path d="M 488.927045 84.884654 
+L 546.020621 84.884654 
+L 546.020621 55.382715 
+L 488.927045 55.382715 
+z
+" clip-path="url(#p211ccf1ead)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_20">
+    <path d="M 13.147247 123.237175 
+L 70.240823 123.237175 
+L 70.240823 93.735236 
+L 13.147247 93.735236 
+z
+" clip-path="url(#p211ccf1ead)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_21">
+    <path d="M 72.619722 123.237175 
+L 129.713298 123.237175 
+L 129.713298 93.735236 
+L 72.619722 93.735236 
+z
+" clip-path="url(#p211ccf1ead)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_22">
+    <path d="M 132.092197 123.237175 
+L 189.185773 123.237175 
+L 189.185773 93.735236 
+L 132.092197 93.735236 
+z
+" clip-path="url(#p211ccf1ead)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_23">
+    <path d="M 191.564672 123.237175 
+L 248.658247 123.237175 
+L 248.658247 93.735236 
+L 191.564672 93.735236 
+z
+" clip-path="url(#p211ccf1ead)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_24">
+    <path d="M 251.037146 123.237175 
+L 308.130722 123.237175 
+L 308.130722 93.735236 
+L 251.037146 93.735236 
+z
+" clip-path="url(#p211ccf1ead)" style="fill: #eef3fa; stroke: #3b6fb6; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_25">
+    <path d="M 310.509621 123.237175 
+L 367.603197 123.237175 
+L 367.603197 93.735236 
+L 310.509621 93.735236 
+z
+" clip-path="url(#p211ccf1ead)" style="fill: #fde5e5; stroke: #c94c4c; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_26">
+    <path d="M 369.982096 123.237175 
+L 427.075672 123.237175 
+L 427.075672 93.735236 
+L 369.982096 93.735236 
+z
+" clip-path="url(#p211ccf1ead)" style="fill: #fde5e5; stroke: #c94c4c; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_27">
+    <path d="M 429.454571 123.237175 
+L 486.548146 123.237175 
+L 486.548146 93.735236 
+L 429.454571 93.735236 
+z
+" clip-path="url(#p211ccf1ead)" style="fill: #fde5e5; stroke: #c94c4c; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="text_1">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="41.396673" y="30.760931" transform="rotate(-0 41.396673 30.760931)">&lt;|im_start|&gt;</text>
+   </g>
+   <g id="text_2">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #3b6fb6" x="41.396673" y="43.511745" transform="rotate(-0 41.396673 43.511745)">0</text>
+   </g>
+   <g id="text_3">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="100.869148" y="30.760931" transform="rotate(-0 100.869148 30.760931)">system</text>
+   </g>
+   <g id="text_4">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #3b6fb6" x="100.869148" y="43.511745" transform="rotate(-0 100.869148 43.511745)">0</text>
+   </g>
+   <g id="text_5">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="160.341622" y="30.760931" transform="rotate(-0 160.341622 30.760931)">\n</text>
+   </g>
+   <g id="text_6">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #3b6fb6" x="160.341622" y="43.511745" transform="rotate(-0 160.341622 43.511745)">0</text>
+   </g>
+   <g id="text_7">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="219.814097" y="30.760931" transform="rotate(-0 219.814097 30.760931)">You</text>
+   </g>
+   <g id="text_8">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #3b6fb6" x="219.814097" y="43.511745" transform="rotate(-0 219.814097 43.511745)">0</text>
+   </g>
+   <g id="text_9">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="279.286572" y="30.760931" transform="rotate(-0 279.286572 30.760931)"> are</text>
+   </g>
+   <g id="text_10">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #3b6fb6" x="279.286572" y="43.511745" transform="rotate(-0 279.286572 43.511745)">0</text>
+   </g>
+   <g id="text_11">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="338.759047" y="30.760931" transform="rotate(-0 338.759047 30.760931)"> a</text>
+   </g>
+   <g id="text_12">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #3b6fb6" x="338.759047" y="43.511745" transform="rotate(-0 338.759047 43.511745)">0</text>
+   </g>
+   <g id="text_13">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="398.231521" y="30.760931" transform="rotate(-0 398.231521 30.760931)"> helpful</text>
+   </g>
+   <g id="text_14">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #3b6fb6" x="398.231521" y="43.511745" transform="rotate(-0 398.231521 43.511745)">0</text>
+   </g>
+   <g id="text_15">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="457.703996" y="30.760931" transform="rotate(-0 457.703996 30.760931)"> assistant</text>
+   </g>
+   <g id="text_16">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #3b6fb6" x="457.703996" y="43.511745" transform="rotate(-0 457.703996 43.511745)">0</text>
+   </g>
+   <g id="text_17">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="517.176471" y="30.760931" transform="rotate(-0 517.176471 30.760931)">.</text>
+   </g>
+   <g id="text_18">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #3b6fb6" x="517.176471" y="43.511745" transform="rotate(-0 517.176471 43.511745)">0</text>
+   </g>
+   <g id="text_19">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="41.396673" y="69.113452" transform="rotate(-0 41.396673 69.113452)">&lt;|im_end|&gt;</text>
+   </g>
+   <g id="text_20">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #3b6fb6" x="41.396673" y="81.864266" transform="rotate(-0 41.396673 81.864266)">0</text>
+   </g>
+   <g id="text_21">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="100.869148" y="69.113452" transform="rotate(-0 100.869148 69.113452)">\n</text>
+   </g>
+   <g id="text_22">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #3b6fb6" x="100.869148" y="81.864266" transform="rotate(-0 100.869148 81.864266)">0</text>
+   </g>
+   <g id="text_23">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="160.341622" y="69.113452" transform="rotate(-0 160.341622 69.113452)">&lt;|im_start|&gt;</text>
+   </g>
+   <g id="text_24">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #3b6fb6" x="160.341622" y="81.864266" transform="rotate(-0 160.341622 81.864266)">0</text>
+   </g>
+   <g id="text_25">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="219.814097" y="69.113452" transform="rotate(-0 219.814097 69.113452)">user</text>
+   </g>
+   <g id="text_26">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #3b6fb6" x="219.814097" y="81.864266" transform="rotate(-0 219.814097 81.864266)">0</text>
+   </g>
+   <g id="text_27">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="279.286572" y="69.113452" transform="rotate(-0 279.286572 69.113452)">\n</text>
+   </g>
+   <g id="text_28">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #3b6fb6" x="279.286572" y="81.864266" transform="rotate(-0 279.286572 81.864266)">0</text>
+   </g>
+   <g id="text_29">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="338.759047" y="69.113452" transform="rotate(-0 338.759047 69.113452)">1</text>
+   </g>
+   <g id="text_30">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #3b6fb6" x="338.759047" y="81.864266" transform="rotate(-0 338.759047 81.864266)">0</text>
+   </g>
+   <g id="text_31">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="398.231521" y="69.113452" transform="rotate(-0 398.231521 69.113452)">+</text>
+   </g>
+   <g id="text_32">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #3b6fb6" x="398.231521" y="81.864266" transform="rotate(-0 398.231521 81.864266)">0</text>
+   </g>
+   <g id="text_33">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="457.703996" y="69.113452" transform="rotate(-0 457.703996 69.113452)">1</text>
+   </g>
+   <g id="text_34">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #3b6fb6" x="457.703996" y="81.864266" transform="rotate(-0 457.703996 81.864266)">0</text>
+   </g>
+   <g id="text_35">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="517.176471" y="69.113452" transform="rotate(-0 517.176471 69.113452)">=?</text>
+   </g>
+   <g id="text_36">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #3b6fb6" x="517.176471" y="81.864266" transform="rotate(-0 517.176471 81.864266)">0</text>
+   </g>
+   <g id="text_37">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="41.396673" y="107.465973" transform="rotate(-0 41.396673 107.465973)">&lt;|im_end|&gt;</text>
+   </g>
+   <g id="text_38">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #3b6fb6" x="41.396673" y="120.216787" transform="rotate(-0 41.396673 120.216787)">0</text>
+   </g>
+   <g id="text_39">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="100.869148" y="107.465973" transform="rotate(-0 100.869148 107.465973)">\n</text>
+   </g>
+   <g id="text_40">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #3b6fb6" x="100.869148" y="120.216787" transform="rotate(-0 100.869148 120.216787)">0</text>
+   </g>
+   <g id="text_41">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="160.341622" y="107.465973" transform="rotate(-0 160.341622 107.465973)">&lt;|im_start|&gt;</text>
+   </g>
+   <g id="text_42">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #3b6fb6" x="160.341622" y="120.216787" transform="rotate(-0 160.341622 120.216787)">0</text>
+   </g>
+   <g id="text_43">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="219.814097" y="107.465973" transform="rotate(-0 219.814097 107.465973)">assistant</text>
+   </g>
+   <g id="text_44">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #3b6fb6" x="219.814097" y="120.216787" transform="rotate(-0 219.814097 120.216787)">0</text>
+   </g>
+   <g id="text_45">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="279.286572" y="107.465973" transform="rotate(-0 279.286572 107.465973)">\n</text>
+   </g>
+   <g id="text_46">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #3b6fb6" x="279.286572" y="120.216787" transform="rotate(-0 279.286572 120.216787)">0</text>
+   </g>
+   <g id="text_47">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="338.759047" y="107.465973" transform="rotate(-0 338.759047 107.465973)">2</text>
+   </g>
+   <g id="text_48">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #c94c4c" x="338.759047" y="120.216787" transform="rotate(-0 338.759047 120.216787)">1</text>
+   </g>
+   <g id="text_49">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="398.231521" y="107.465973" transform="rotate(-0 398.231521 107.465973)">&lt;|im_end|&gt;</text>
+   </g>
+   <g id="text_50">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #c94c4c" x="398.231521" y="120.216787" transform="rotate(-0 398.231521 120.216787)">1</text>
+   </g>
+   <g id="text_51">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="457.703996" y="107.465973" transform="rotate(-0 457.703996 107.465973)">\n</text>
+   </g>
+   <g id="text_52">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #c94c4c" x="457.703996" y="120.216787" transform="rotate(-0 457.703996 120.216787)">1</text>
+   </g>
+   <g id="text_53">
+    <text style="font-size: 8px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: start; fill: #8a8a8a" x="13.147247" y="14.08" transform="rotate(-0 13.147247 14.08)">蓝 = prompt（mask 0，不算 loss）   红 = 回答（mask 1，算 loss）</text>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p211ccf1ead">
+   <rect x="7.2" y="11.129806" width="541.19952" height="126.858338"/>
+  </clipPath>
+ </defs>
+</svg>

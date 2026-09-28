@@ -9,7 +9,7 @@
     <summary>
       <span class="st-no">{% if include.shared %}共享{% elsif include.number %}{{ include.number | prepend: '0' | slice: -2, 2 }}{% endif %}</span>
       <span class="st-name">{{ s.name }}</span>
-      <small>{% if s.count > 0 %}{{ s.count }} 篇{% if s.status != '完结' %} · {{ s.status }}{% endif %}{% else %}即将发布{% endif %}</small>
+      <small>{% if s.count == 0 %}即将发布{% if s.planned > 0 %} · {{ s.planned }} 篇{% endif %}{% elsif s.count < s.planned %}已发 {{ s.count }} / {{ s.planned }} 篇{% else %}{{ s.count }} 篇{% endif %}</small>
     </summary>
     <ol class="st-posts">
       {%- if s.overview_title %}<li class="is-overview"><a href="{{ s.overview | prepend: site.baseurl }}">{{ s.overview_title }}</a><small>总览</small></li>{% endif %}

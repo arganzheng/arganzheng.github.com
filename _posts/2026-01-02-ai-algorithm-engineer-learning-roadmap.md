@@ -369,16 +369,16 @@ Table: 算法地图与 Infra 地图的重叠主题分工
 
 | 层 | 文章 / 系列 | 篇数 |
 |---|---|---|
-| L0 | [算法工程师的数学：读公式不卡壳的最小集](/math-for-ai-algorithm-engineers.html) | 8 |
-| L1 | [算法工程师的工具箱：从一个想法到一次能跑的实验](/tooling-for-ai-algorithm-engineers.html) | 6 |
-| L1 深入 | [Python 在 AI-Infra](/python-for-ai-infra.html)、[PyTorch 深度实践](/deep-dive-into-pytorch.html)（与 Infra 地图共享） | 7 + 10 |
-| L2 | [LLM 时代的经典机器学习：只讲它在哪里重现](/classical-machine-learning-in-the-llm-era.html) | 10 |
-| L3 | [深度学习基础：从反向传播到残差](/deep-learning-foundations.html) | 6 |
-| L4 | [Transformer 与 LLM：结构、实现与算量](/transformer-and-llm-for-infra-engineers.html)（与 Infra 地图共享） | 13 |
-| L4 | [预训练：从 tokenizer 到训练配方](/pretraining-from-tokenizer-to-training-recipe.html) | 4 |
-| L5 | [后训练：从 SFT 到可验证奖励](/post-training-from-sft-to-verifiable-rewards.html) | 8 |
-| L6 | [高效推理与压缩（算法侧）：解码、投机、量化与 KV](/efficient-inference-and-compression-for-llms.html) | 6 |
-| L7 | [多模态：从视觉编码器到扩散模型](/multimodal-from-vision-encoders-to-diffusion.html) | 9 |
+{% include series-row.html key="math-for-ai" layer="L0" cols="layer,link,count" %}
+{% include series-row.html key="algorithm-tooling" layer="L1" cols="layer,link,count" %}
+| L1 深入 | [Python 在 AI-Infra](/python-for-ai-infra.html)、[PyTorch 深度实践](/deep-dive-into-pytorch.html)（与 Infra 地图共享） | {{ site.data.series['python-for-ai-infra'].body_planned }} + {{ site.data.series['deep-dive-into-pytorch'].body_planned }} |
+{% include series-row.html key="classical-ml" layer="L2" cols="layer,link,count" %}
+{% include series-row.html key="deep-learning-foundations" layer="L3" cols="layer,link,count" %}
+{% include series-row.html key="transformer-and-llm" layer="L4" cols="layer,link,count" note="（与 Infra 地图共享）" %}
+{% include series-row.html key="pretraining" layer="L4" cols="layer,link,count" %}
+{% include series-row.html key="post-training" layer="L5" cols="layer,link,count" %}
+{% include series-row.html key="efficient-inference" layer="L6" cols="layer,link,count" %}
+{% include series-row.html key="multimodal" layer="L7" cols="layer,link,count" %}
 | 横切 | [算法工程师的实验方法论：用有限的算力得出可信的结论](/experimental-methodology-for-ai-algorithm-engineers.html) | 1 |
 
 Table: 算法地图各层已有的文章与系列

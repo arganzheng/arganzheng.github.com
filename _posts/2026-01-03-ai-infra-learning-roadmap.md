@@ -441,23 +441,23 @@ Table: 主线技术与同位替代品
 
 | # | 系列 | 层 | 篇数 | 时长 |
 |---|---|---|---|---|
-| 01 | [Python 在 AI-Infra：从语言机制到生产交付](/python-for-ai-infra.html)（与算法地图共享） | L1 | 9 | 14h |
-| 02 | [C++ 在 AI-Infra：从对象模型到算子扩展](/cpp-for-ai-infra.html) | L1 | 9 | 33h |
-| 03 | [PyTorch 深度实践：从 Tensor 到深度学习运行时](/deep-dive-into-pytorch.html)（与算法地图共享） | L2 | 10 | 15h |
-| 04 | [Transformer 与 LLM：结构、实现与算量](/transformer-and-llm-for-infra-engineers.html)（与算法地图共享） | L2 | 13 | 18h |
-| 05 | [GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention](/gpu-kernel-engineering.html) | L2 | 10 | 21h |
-| 06 | [通信与互联：从 NCCL 到 RDMA](/communication-and-interconnect-for-ai-infra.html) | L3 | 8 | 20h |
-| 07 | [大规模训练工程：从并行策略到容错恢复](/large-scale-training-from-parallelism-to-fault-tolerance.html) | L4 | 8 | 22h |
-| 08 | [大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术](/deep-dive-into-vllm.html) | L4 | 14 | 17h |
-| 09 | [RL 后训练基础设施：rollout 与训练如何共享一组 GPU](/rl-post-training-infrastructure.html) | L4 | 8 | 8h |
-| 10 | [扩散模型推理基础设施：从一次去噪到一个生成服务](/diffusion-model-inference-infrastructure.html) | L4 | 9 | 13h |
-| 11 | [AI 平台工程：资源层与交付层](/ai-platform-engineering.html) | L5 | 8 | 21h |
-| 12 | [AI-Infra 开源贡献指南](/contributing-to-ai-infra-open-source.html) | 横切 | 4 | 9h |
-| 13 | [ML 编译器内部：从 SSA、MLIR 到 Triton 编译器](/ml-compiler-internals.html) | 选修 | 13 | 16h |
+{% include series-row.html key="python-for-ai-infra" layer="L1" note="（与算法地图共享）" %}
+{% include series-row.html key="cpp-for-ai-infra" layer="L1" %}
+{% include series-row.html key="deep-dive-into-pytorch" layer="L2" note="（与算法地图共享）" %}
+{% include series-row.html key="transformer-and-llm" layer="L2" note="（与算法地图共享）" %}
+{% include series-row.html key="gpu-kernel-engineering" layer="L2" %}
+{% include series-row.html key="communication-and-interconnect" layer="L3" %}
+{% include series-row.html key="large-scale-training" layer="L4" %}
+{% include series-row.html key="deep-dive-into-vllm" layer="L4" %}
+{% include series-row.html key="rl-post-training-infra" layer="L4" %}
+{% include series-row.html key="diffusion-inference-infra" layer="L4" %}
+{% include series-row.html key="ai-platform-engineering" layer="L5" %}
+{% include series-row.html key="contributing-to-ai-infra-open-source" layer="横切" %}
+{% include series-row.html key="ml-compilers" layer="选修" %}
 
 Table: 十二个系列总览：层、篇数与时长
 
-时长按每分钟 450 字估算通读一遍的量（含代码），主线十二个系列合计约 203 小时，加选修约 219 小时。篇数与时长只计正文；每个系列末尾另有一篇「系列总结与通关自测」（逐篇回顾 + 判断计算 / 跨篇综合 / 面试题三段自测），读完正文再做。这是给贡献者的深度；只想建立系统视角的读者，每个总纲都有一节「第一遍怎么读」，挑出必读的篇与章。
+{% assign infra_map = site.data.series_index.roadmaps | where: "key", "ai-infra" | first %}{% assign infra_main_hours = infra_map.hours | minus: site.data.series['ml-compilers'].hours | round %}时长按每分钟 450 字估算通读一遍的量（含代码，由构建时统计各篇字数得出），主线十二个系列合计约 {{ infra_main_hours }} 小时，加选修约 {{ infra_map.hours | round }} 小时。篇数与时长只计正文；每个系列末尾另有一篇「系列总结与通关自测」（逐篇回顾 + 判断计算 / 跨篇综合 / 面试题三段自测），读完正文再做。这是给贡献者的深度；只想建立系统视角的读者，每个总纲都有一节「第一遍怎么读」，挑出必读的篇与章。
 
 ### 配套代码
 

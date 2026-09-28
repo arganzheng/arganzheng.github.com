@@ -1,0 +1,23 @@
+{%- comment -%}
+  One row of a roadmap post's 系列总览 table, from _data/series.yml (name,
+  overview, number) + the counts _plugins/series_pages.rb computes, so 篇数 /
+  时长 never drift from what is actually written. The layer stays in the post:
+
+    {% include series-row.html key="cpp-for-ai-infra" layer="L1" %}
+    {% include series-row.html key="python-for-ai-infra" layer="L1" note="（与算法地图共享）" %}
+
+  Columns (`cols`, default "no,link,layer,count,hours"): no = 「01」, link =
+  [name](overview) + note, layer, count = body posts (recap excluded; 「3 / 9」
+  while a series is still being published), hours = planned body at 450 字/min.
+  Must stay one line: the output is a Markdown table row.
+{%- endcomment -%}
+{%- assign s = site.data.series[include.key] -%}
+{%- assign cols = include.cols | default: "no,link,layer,count,hours" | split: "," -%}
+{%- for c in cols -%}
+| {% case c -%}
+{%- when "no" %}{{ s.number | prepend: '0' | slice: -2, 2 }}
+{%- when "link" %}[{{ s.name }}]({{ s.overview }}){{ include.note }}
+{%- when "layer" %}{{ include.layer }}
+{%- when "count" %}{% if s.body_count < s.body_planned %}{{ s.body_count }} / {{ s.body_planned }}{% else %}{{ s.body_planned }}{% endif %}
+{%- when "hours" %}{{ s.hours }}h
+{%- endcase %} {% endfor -%}|

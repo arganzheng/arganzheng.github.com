@@ -4,19 +4,45 @@
 # Inputs: `_data/series.yml` (key → name, overview, roadmap, number, shared_with),
 # `_data/roadmaps.yml` (map key → name, url) and `series: <key>` in post front
 # matter. This generator adds to each `site.data.series[key]`: `key`, `url`
-# (/series.html#<key>), `count`, `status` (完结 when the last post is the recap,
-# 连载中, 即将发布 when nothing is published yet), `first` / `last` dates and
-# `posts` ([title, subtitle after 「）：」, url, date, recap]); then builds
+# (/series.html#<key>), `count` (published), `planned` (every _posts file, future
+# ones too), `body_count` / `body_planned` (recap excluded), `hours` (planned
+# body at 450 字/min — the roadmap posts' rule), `status` (完结 when the last
+# post is the recap, 连载中, 即将发布 when nothing is published yet), `first` /
+# `last` dates and `posts` ([title, subtitle after 「）：」, url, date, recap]).
+# `_includes/series-row.html` renders a roadmap table row from these; then builds
 # `site.data.series_index` = { roadmaps: [map + series (by number) + shared
 # (unnumbered, by first post)], other: [series on no map] } and emits /series.html
 # (layout series-index). Future-dated posts are not in site.posts on a normal
 # build, so the counts are what is published today.
 module SeriesPages
-  RECAP = /-series-recap-and-self-test\.html\z/
+  RECAP = /-series-recap-and-self-test(\.html|\.md)?\z/
+  CJK = /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]/
+  # the roadmap posts' 时长 rule: 450 字/min, code included, recap excluded
+  CHARS_PER_MINUTE = 450
 
   def self.subtitle(title)
     t = title.to_s
     t.include?('）：') ? t.split('）：', 2).last : t
+  end
+
+  # Every _posts file with `series:` — including future-dated ones, which a
+  # normal build leaves out of site.posts — so the roadmap tables can show the
+  # planned size of a series (`planned`, `hours`) next to what is published.
+  #   { key => { 'planned' => n, 'body_planned' => n (recap excluded), 'minutes' => m (body) } }
+  def self.planned(site)
+    out = Hash.new { |h, k| h[k] = { 'planned' => 0, 'body_planned' => 0, 'minutes' => 0 } }
+    Dir.glob(File.join(site.source, '_posts', '**', '*.{md,markdown}')).each do |file|
+      src = File.read(file, encoding: 'utf-8')
+      next unless (fm = src.match(/\A---\s*\n(.*?)\n---\s*\n/m))
+      next unless (key = fm[1][/^series:\s*['"]?([\w-]+)/, 1])
+      next if fm[1] =~ /^published:\s*false/
+      out[key]['planned'] += 1
+      next if File.basename(file) =~ RECAP
+      body = src[fm[0].size..].gsub(/<[^>]+>/, ' ')
+      out[key]['body_planned'] += 1
+      out[key]['minutes'] += (body.scan(CJK).size + body.scan(/[A-Za-z0-9_]+/).size) / CHARS_PER_MINUTE.to_f
+    end
+    out
   end
 
   class Generator < Jekyll::Generator
@@ -27,6 +53,7 @@ module SeriesPages
       series = site.data['series'] || {}
       roadmaps = site.data['roadmaps'] || {}
       by_url = site.posts.docs.each_with_object({}) { |p, h| h[p.url] = p }
+      planned = SeriesPages.planned(site)
 
       series.each do |key, meta|
         posts = site.posts.docs.select { |p| p.data['series'] == key }.sort_by(&:date)
@@ -34,6 +61,10 @@ module SeriesPages
         meta['key'] = key
         meta['url'] = "/series.html##{key}"
         meta['count'] = posts.size
+        meta['body_count'] = posts.count { |p| p.url !~ RECAP }
+        meta['planned'] = [planned[key]['planned'], posts.size].max
+        meta['body_planned'] = [planned[key]['body_planned'], meta['body_count']].max
+        meta['hours'] = (planned[key]['minutes'] / 60.0).round(1)
         meta['status'] = posts.empty? ? '即将发布' : (posts.last.url =~ RECAP ? '完结' : '连载中')
         meta['first'] = posts.first && posts.first.date
         meta['last'] = posts.last && posts.last.date
@@ -47,7 +78,8 @@ module SeriesPages
       groups = roadmaps.map do |rkey, r|
         own = series.values.select { |s| s['roadmap'] == rkey }.sort_by { |s| s['number'].to_i }
         shared = series.values.select { |s| Array(s['shared_with']).include?(rkey) }.sort_by { |s| s['first'] || Time.at(0) }
-        r.merge('key' => rkey, 'series' => own, 'shared' => shared, 'count' => (own + shared).sum { |s| s['count'] })
+        r.merge('key' => rkey, 'series' => own, 'shared' => shared, 'count' => (own + shared).sum { |s| s['count'] },
+                'hours' => own.sum { |s| s['hours'] }.round(1))
       end
       other = series.values.select { |s| s['roadmap'].nil? }.sort_by { |s| s['first'] || Time.at(0) }
       site.data['series_index'] = { 'roadmaps' => groups, 'other' => other,
