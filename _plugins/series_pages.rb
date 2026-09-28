@@ -87,8 +87,8 @@ module SeriesPages
 
       index = Jekyll::PageWithoutAFile.new(site, site.source, '', 'series.html')
       index.content = ''
-      index.data = { 'layout' => 'series-index', 'title' => 'Series', 'permalink' => '/series.html',
-                     'description' => "#{series.size} 个系列 · #{site.data['series_index']['posts']} 篇文章" }
+      index.data = { 'layout' => 'series-index', 'title' => '系列文章', 'permalink' => '/series.html',
+                     'description' => '成体系地读：按学习地图组织，地图 → 系列 → 单篇，点开一层即可展开' }
       site.pages << index
     end
   end
