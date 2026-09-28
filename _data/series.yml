@@ -84,16 +84,19 @@ math-for-ai:
 algorithm-tooling:
   name: 算法工程师的工具箱：从一个想法到一次能跑的实验
   overview: /tooling-for-ai-algorithm-engineers.html
+  slides: /slides/algorithm-tooling.html
   roadmap: ai-algorithm
   number: 2
 classical-ml:
   name: LLM 时代的经典机器学习：只讲它在哪里重现
   overview: /classical-machine-learning-in-the-llm-era.html
+  slides: /slides/classical-ml.html
   roadmap: ai-algorithm
   number: 3
 deep-learning-foundations:
   name: 深度学习基础：从反向传播到残差
   overview: /deep-learning-foundations.html
+  slides: /slides/deep-learning-foundations.html
   roadmap: ai-algorithm
   number: 4
 post-training:
