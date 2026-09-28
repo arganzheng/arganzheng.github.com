@@ -1,0 +1,44 @@
+---
+layout: page
+---
+{%- comment -%}
+/series.html — the tree: learning map (open) → series (folded) → posts. One card
+per map in _data/roadmaps.yml order, then 「其他系列」 for series on no map.
+Shared series (Python / PyTorch / Transformer, home = Infra map) are repeated
+in the other map's card, unnumbered. Data: site.data.series_index
+(_plugins/series_pages.rb). Each series has id=<key>, so /series.html#<key> from
+the in-post series quote / TOC opens the tree at that series (js below).
+{%- endcomment -%}
+{%- assign idx = site.data.series_index -%}
+<div class="series-tree">
+{%- for r in idx.roadmaps %}
+  <details class="st-map" id="{{ r.key }}" open>
+    <summary><span class="st-title">{{ r.name }}</span><small>{{ r.series.size | plus: r.shared.size }} 个系列 · {{ r.count }} 篇</small><a class="st-link" href="{{ r.url | prepend: site.baseurl }}" title="地图全文">地图 ›</a></summary>
+    <ol class="st-series">
+    {%- for s in r.series %}{% include series-tree-item.html s=s number=s.number %}{% endfor -%}
+    {%- for s in r.shared %}{% include series-tree-item.html s=s shared=true %}{% endfor -%}
+    </ol>
+  </details>
+{%- endfor %}
+{%- if idx.other.size > 0 %}
+  <details class="st-map" id="other" open>
+    <summary><span class="st-title">其他系列</span><small>{{ idx.other.size }} 个系列</small></summary>
+    <ol class="st-series">
+    {%- for s in idx.other %}{% include series-tree-item.html s=s %}{% endfor -%}
+    </ol>
+  </details>
+{%- endif %}
+</div>
+<script>
+  // /series.html#<key>: open that series (and its map) and scroll to it
+  (function () {
+    function openHash() {
+      var id = location.hash.slice(1), el = id && document.getElementById(id);
+      if (!el) return;
+      for (var d = el.closest('details'); d; d = d.parentElement && d.parentElement.closest('details')) d.open = true;
+      el.scrollIntoView({ block: 'start' });
+    }
+    openHash();
+    window.addEventListener('hashchange', openHash);
+  })();
+</script>

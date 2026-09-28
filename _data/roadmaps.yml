@@ -1,0 +1,14 @@
+# The three learning maps a series can belong to (`roadmap:` in series.yml).
+# Order here is the order /series/ lists them in.
+ai-algorithm:
+  name: AI 算法工程师学习地图
+  short: 算法
+  url: /ai-algorithm-engineer-learning-roadmap.html
+ai-infra:
+  name: AI-Infra 工程师学习地图
+  short: Infra
+  url: /ai-infra-learning-roadmap.html
+ai-application:
+  name: AI 应用工程师学习地图
+  short: 应用
+  url: /ai-application-engineer-learning-roadmap.html

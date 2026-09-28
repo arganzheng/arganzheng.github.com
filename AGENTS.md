@@ -941,6 +941,25 @@ How it is built (`_plugins/moments.rb`):
   `series:` key. Titles are `系列名（NN）：副标题` — the nav/TOC show the part
   after `）：`. New series: add the key to `_data/series.yml` first.
   `tools/migrate-series.py` converted the old hand-written quotes (idempotent).
+  - **`/series.html`** (`_plugins/series_pages.rb`, 2026-09-28): one page, one
+    tree — learning map → series → posts, Chirpy-categories style, folded
+    with native `<details>` (maps open, series closed; `/series.html#<key>` opens
+    that series via a small inline script and `:target` highlights it — the
+    in-post series quote / TOC link there, 总览 as a second link). Layout
+    `series-index`, one `_includes/series-tree-item.html` per series, styles
+    `.series-tree` in `less/series.less`, nav entry **Series**. `series.yml`
+    entries carry `roadmap:` (`ai-algorithm` / `ai-infra` / `ai-application`,
+    keys of `_data/roadmaps.yml`; absent = the 「其他系列」 card), `number:`
+    (ordinal inside that map — pure metadata, the L0–L7 layers stay in the
+    roadmap posts) and optional `shared_with: [<roadmap>]` (Python / PyTorch /
+    Transformer live in the Infra map and are repeated unnumbered under the
+    algorithm map). The generator enriches each `site.data.series[key]`
+    (`url`, `count`, `status` 完结 when the last post is the
+    `-series-recap-and-self-test` one / 连载中 / 即将发布 when nothing is
+    published, `posts`) and builds `site.data.series_index`. Counts are what
+    the build publishes (future posts are not in `site.posts`). A first cut
+    with cards + per-series pages + badges on the list pages was dropped the
+    same day as 「太复杂了」 — keep this page a plain tree.
 - **Update-note exception:** when no usable version predates the post (no tag,
   or the only tag is months stale), a post may cite a newer version *if* it
   carries a note as the first line of the body:

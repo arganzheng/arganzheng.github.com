@@ -3,7 +3,7 @@
 {%- endcomment -%}
 {%- if series_meta -%}
 <div class="series-toc">
-  <p class="h3">系列：<a href="{{ series_meta.overview | prepend: site.baseurl }}">{{ series_meta.name }}</a></p>
+  <p class="h3">系列：<a href="{{ series_meta.url | default: series_meta.overview | prepend: site.baseurl }}">{{ series_meta.name }}</a> <small><a href="{{ series_meta.overview | prepend: site.baseurl }}">总览</a></small></p>
   <ol>
     {%- for p in series_posts %}
     <li{% if p.url == page.url %} class="is-current"{% endif %}>

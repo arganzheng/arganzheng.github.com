@@ -1,0 +1,21 @@
+{%- comment -%}
+  One series in the /series/ tree: a folded <details> whose summary is
+  「01 系列名 · 9 篇」 and whose body is the overview + the posts in order.
+  `s` = site.data.series entry; `number` prints the ordinal, `shared` prints 共享.
+{%- endcomment -%}
+{%- assign s = include.s -%}
+<li>
+  <details class="st-item{% if include.shared %} is-shared{% endif %}"{% unless include.shared %} id="{{ s.key }}"{% endunless %}>
+    <summary>
+      <span class="st-no">{% if include.shared %}共享{% elsif include.number %}{{ include.number | prepend: '0' | slice: -2, 2 }}{% endif %}</span>
+      <span class="st-name">{{ s.name }}</span>
+      <small>{% if s.count > 0 %}{{ s.count }} 篇{% if s.status != '完结' %} · {{ s.status }}{% endif %}{% else %}即将发布{% endif %}</small>
+    </summary>
+    <ol class="st-posts">
+      {%- if s.overview_title %}<li class="is-overview"><a href="{{ s.overview | prepend: site.baseurl }}">{{ s.overview_title }}</a><small>总览</small></li>{% endif %}
+      {%- for p in s.posts %}
+      <li{% if p.recap %} class="is-recap"{% endif %}><a href="{{ p.url | prepend: site.baseurl }}">{{ p.subtitle }}</a><small>{{ p.date | date: "%Y-%m-%d" }}</small></li>
+      {%- endfor %}
+    </ol>
+  </details>
+</li>
