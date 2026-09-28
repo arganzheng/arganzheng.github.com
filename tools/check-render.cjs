@@ -17,9 +17,11 @@ const getJSON = (url, method = 'GET') => new Promise((res, rej) => {
 // Content images are loading="lazy": force them so brokenImgs/pending mean something below the fold.
 const CHECK = `(() => {
   [...document.images].forEach(i=>{ if(i.loading==='lazy') i.loading='eager'; });
+  // reveal.js decks keep every slide but the current one display:none — show them all while measuring
+  const secs=[...document.querySelectorAll(".reveal .slides section")]; const saved=secs.map(s=>s.style.display); secs.forEach(s=>{ s.style.display="block"; });
   const m=[...document.querySelectorAll(".mermaid")];
   const errs=[...document.querySelectorAll(".mermaid-error")];
-  return JSON.stringify({
+  const out={
     href: location.href, mermaid: m.length,
     ok: m.filter(e=>e.querySelector("svg")&&!e.classList.contains("mermaid-error")).length,
     errs: errs.length,
@@ -32,9 +34,13 @@ const CHECK = `(() => {
     zeroImgs: [...document.images].filter(i=>i.complete&&i.naturalWidth>0&&i.getBoundingClientRect().width<2&&i.src.includes("/img/in-post/")).map(i=>i.src.split("/").pop()),
     rawMd: [...document.querySelectorAll("td, p, li")].filter(e=>!e.closest("pre")&&/\\]\\(\\/img\\/in-post\\//.test(e.textContent)).map(e=>e.textContent.trim().slice(0,80)),
     widePre: [...document.querySelectorAll("pre")].filter(p=>p.scrollWidth>p.clientWidth+2).map(p=>p.textContent.trim().split("\\n")[0].slice(0,60)),
+    overflow: secs.filter(s=>!s.querySelector("section")).map((s,i)=>[i+1,s.scrollHeight,(s.querySelector("h1,h2,h3")||s).textContent.trim().slice(0,40)])
+      .filter(x=>x[1]>720).map(x=>"#"+x[0]+" "+x[1]+"px "+x[2]),
     pending: m.filter(e=>!e.querySelector("svg")&&!e.classList.contains("mermaid-error")).length + [...document.images].filter(i=>!i.complete).length
       + document.querySelectorAll("pre code.language-mermaid").length
-  });
+  };
+  secs.forEach((s,i)=>{ s.style.display=saved[i]; });
+  return JSON.stringify(out);
 })()`;
 
 async function check(slug) {
@@ -58,9 +64,11 @@ async function check(slug) {
   }
   ws.close();
   await getJSON(`${CDP}/json/close/${t.id}`);
-  const status = out.href.endsWith(`/${slug}.html`) && !out.errs && out.ok === out.mermaid && !out.brokenImgs.length && !out.zeroImgs.length && !out.katexErrors.length && !out.rawMd.length ? 'PASS' : 'FAIL';
+  const status = out.href.endsWith(`/${slug}.html`) && !out.errs && out.ok === out.mermaid && !out.brokenImgs.length && !out.zeroImgs.length && !out.katexErrors.length && !out.rawMd.length && !out.overflow.length ? 'PASS' : 'FAIL';
   console.log(`\n== ${slug} [${status}]`);
   console.log(`mermaid=${out.mermaid} ok=${out.ok} errs=${out.errs} pending=${out.pending} brokenImgs=${out.brokenImgs.length} zeroImgs=${out.zeroImgs.length} katexErrors=${out.katexErrors.length}`);
+  // reveal.js decks (slides/<name>/play): a slide taller than the 1280×720 canvas is cut off when presenting
+  if (out.overflow.length) console.log('overflow (slide content taller than 720 px — split the slide or move detail to a `<!-- v -->` sub-slide):', JSON.stringify(out.overflow));
   if (out.katexErrors.length) console.log('katexErrors:', JSON.stringify(out.katexErrors));
   if (out.rawMd.length) console.log('rawMd (an image line swallowed into a table cell — a `|` in the alt text; use 「」or 竖线 instead):', JSON.stringify(out.rawMd));
   // loaded but laid out at 0 px wide: an SVG with viewBox but no width/height inside the shrink-wrapped .fig-media

@@ -5,8 +5,9 @@
 <script type="text/javascript">
   // The containers holding kramdown output and generated outlines. Everything else
   // on the page (nav, footer) is skipped so we never touch markup we didn't render.
+  // `.deck-thumbs` is the slide landing page's miniature rail (a copy of every slide).
   function richContentRoots() {
-    return document.querySelectorAll('.post-container, .reveal .slides, .side-catalog');
+    return document.querySelectorAll('.post-container, .reveal .slides, .side-catalog, .deck-thumbs');
   }
 
   function richContentQuery(selectors) {

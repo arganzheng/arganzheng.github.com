@@ -13,6 +13,7 @@
     </summary>
     <ol class="st-posts">
       {%- if s.overview_title %}<li class="is-overview"><a href="{{ s.overview | prepend: site.baseurl }}">{{ s.overview_title }}</a><small>总览</small></li>{% endif %}
+      {%- if s.slides %}<li class="is-overview"><a href="{{ s.slides | prepend: site.baseurl }}">{{ s.name }}（幻灯片）</a><small>分享用 deck</small></li>{% endif %}
       {%- for p in s.posts %}
       <li{% if p.recap %} class="is-recap"{% endif %}><a href="{{ p.url | prepend: site.baseurl }}">{{ p.subtitle }}</a><small>{{ p.date | date: "%Y-%m-%d" }}</small></li>
       {%- endfor %}

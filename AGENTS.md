@@ -312,7 +312,9 @@ Pages has `https_enforced` on.
   0.18's internal class prefixing did not matter) loaders, shared by
   `_includes/head.html` and `_layouts/slides.html`. Both renderers are lazy:
   they only fetch their bundle if the page actually contains a diagram/formula,
-  and they only look inside `.post-container` and `.reveal .slides`.
+  and they only look inside `.post-container`, `.reveal .slides`,
+  `.side-catalog` and `.deck-thumbs` (the slide landing page's miniature
+  rail, so thumbnails show rendered formulas / diagrams instead of source).
 - `_includes/analytics.html` — GA4 gtag (`ga_track_id: G-…`; the old
   `analytics.js` + `UA-` id only kept working through Google's UA→GA4
   "connected site tag" forwarding) + Baidu Tongji, shared by `footer.html` and
@@ -811,6 +813,37 @@ the HTML on every `<hr>` into slides. One file gives two pages:
   reveals any single element.
 - Speaker notes: `<aside class="notes" markdown="1">...</aside>`, shown with `S`.
 - Export: open `/slides/my-talk/play.html?print-pdf` (the PDF button) and print from the browser.
+
+### Series decks (`slides/<date>-<series-key>.md`)
+
+One deck per series, the series' essentials for a talk: front matter
+`series: <key>` (the `/slides/` index groups decks by the series' learning
+map with it) and `permalink: /slides/<key>.html`; `_data/series.yml` gets
+`slides: /slides/<key>.html`, which `series-nav.html` (the in-post series
+box: 「系列总览 · 幻灯片」) and the `/series.html` tree link, and the
+overview post gets one line pointing at it. Shape: cover → the question the
+series answers → one overview Mermaid → **one horizontal slide per body
+post** (a one-sentence conclusion + the post's key figure or table + its
+numbers; details, code and failure modes go into `<!-- v -->` sub-slides)
+→ the threads running through the series → misconceptions → next steps.
+Speaker notes carry the talking points and the post URL. Content is lifted
+from the overview / recap / per-post 小结 and existing `img/in-post`
+figures — no new experiments. `slides/2026-09-28-math-for-ai.md` is the
+template.
+
+Density rules for the 1280×720 canvas (base font 42 px, so it is tight):
+an `h2` that wraps to two lines costs 150 px — keep titles to one line;
+a slide with a two-line conclusion above a figure needs the figure capped,
+`![…](…){: style="max-height: 380px"}` (`480px` is the default); a figure
+followed by three bullets needs ~330 px; ≤ 6 short bullets or one table
+per slide. `tools/check-render.cjs slides/<key>/play` (it shows every
+slide while measuring — reveal keeps the others `display:none`) reports
+`overflow` = slides whose content is taller than 720 px and FAILs on it;
+split the slide or push detail down a sub-slide. Mermaid on a slide: a
+wide LR graph renders ~280 px tall with unreadable labels — prefer TB
+inside subgraphs with subgraph-to-subgraph edges (Mermaid ignores
+`direction` once node-to-node edges cross subgraphs), which fills the
+480 px cap.
 
 `slides/reveal-demo.md` is a live demo of all of the above. `/slides/` lists
 the decks (cards link to the landing page; 全屏播放 / PDF go to `play.html`).

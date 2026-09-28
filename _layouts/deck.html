@@ -98,6 +98,8 @@ Front matter knobs (all optional):
             background: none;
             max-height: 480px;
         }
+        /* a figure on its own line is centred, like the landing page's miniatures do */
+        .reveal section p > img:only-child { display: block; margin: 0 auto; }
         .reveal .mermaid { text-align: center; }
         .reveal .mermaid svg {
             /* mermaid pins an inline `max-width` to the diagram's natural size,

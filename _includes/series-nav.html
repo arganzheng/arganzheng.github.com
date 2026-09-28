@@ -16,7 +16,7 @@
       <span class="sb-pos">第 {{ series_index }} / {{ series_total }} 篇</span>
       <span class="sb-toggle" aria-hidden="true">目录</span>
     </summary>
-    <p class="sb-overview"><a href="{{ series_meta.overview | prepend: site.baseurl }}">系列总览</a> — 为什么这样组织、读它需要什么、读完能做什么</p>
+    <p class="sb-overview"><a href="{{ series_meta.overview | prepend: site.baseurl }}">系列总览</a> — 为什么这样组织、读它需要什么、读完能做什么{% if series_meta.slides %} · <a href="{{ series_meta.slides | prepend: site.baseurl }}">幻灯片</a> — 整个系列的精华，一份可分享的 deck{% endif %}</p>
     <ol class="sb-list">
       {%- for p in series_posts %}
       <li{% if p.url == page.url %} class="is-current"{% endif %}>

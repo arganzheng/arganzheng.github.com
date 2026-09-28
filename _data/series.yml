@@ -10,6 +10,8 @@
 # number      the series' ordinal inside that map (reading order; the Infra map's
 #             posts call them 01 … 13)
 # shared_with other maps that read the same series (listed there too, unnumbered)
+# slides      the series' deck (slides/<key>.md → /slides/<key>.html), when there
+#             is one: linked from series-nav.html and the /series.html tree
 python-for-ai-infra:
   name: Python 在 AI-Infra：从语言机制到生产交付
   overview: /python-for-ai-infra.html
@@ -76,6 +78,7 @@ rl-post-training-infra:
 math-for-ai:
   name: 算法工程师的数学：读公式不卡壳的最小集
   overview: /math-for-ai-algorithm-engineers.html
+  slides: /slides/math-for-ai.html
   roadmap: ai-algorithm
   number: 1
 algorithm-tooling:
