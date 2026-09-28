@@ -90,9 +90,9 @@ both count as one page here, in the order reveal's counter uses.
                 <button type="button" class="deck-player-edge deck-player-next" data-act="next" aria-label="下一页"><i class="fa fa-chevron-right"></i></button>
             </div>
             <div class="deck-player-bar">
-                <button type="button" class="dp-btn" data-act="prev" title="上一页（←）" aria-label="上一页"><i class="fa fa-chevron-left"></i></button>
+                <button type="button" class="dp-btn" data-act="prev" title="上一页（← / ↑）" aria-label="上一页"><i class="fa fa-chevron-left"></i></button>
                 <span class="dp-pos"><b class="dp-cur">1</b> / <span class="dp-total">{{ n }}</span></span>
-                <button type="button" class="dp-btn" data-act="next" title="下一页（→）" aria-label="下一页"><i class="fa fa-chevron-right"></i></button>
+                <button type="button" class="dp-btn" data-act="next" title="下一页（→ / ↓）" aria-label="下一页"><i class="fa fa-chevron-right"></i></button>
                 <span class="dp-spacer"></span>
                 <a class="dp-btn dp-text" href="{{ page.deck | prepend: site.baseurl }}?print-pdf" target="_blank" rel="noopener" title="在新窗口打开 PDF 导出模式，再用浏览器打印"><i class="fa fa-regular fa-file-pdf"></i> <span>PDF</span></a>
                 <a class="dp-btn dp-text" href="{{ page.deck | prepend: site.baseurl }}" target="_blank" rel="noopener" title="在新窗口单独播放（键盘 S 打开演讲者视图）"><i class="fa fa-up-right-from-square"></i> <span>新窗口</span></a>

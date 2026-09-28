@@ -5,7 +5,8 @@
  * through the iframe's `Reveal` API.
  *
  *   - bar / edge buttons: prev, next, fullscreen; position `cur / total`
- *   - ← → / Space / F on the page work when the pointer was last on the player
+ *   - ← → ↑ ↓ / Space / PageUp PageDown / Home End / F steer the slides
+ *     when the pointer is over the studio or a thumbnail is selected/focused
  *     (the iframe grabs keys itself once it has focus)
  *   - thumbnails: the slide HTML in a 1280×720 box, scaled to the rail width
  *     (--thumb-scale); the current page is `.is-current` and kept in view;
@@ -67,31 +68,49 @@
     scaleThumbs();
 
     function markCurrent(n) {
+      var hadThumbFocus = document.activeElement && document.activeElement.classList.contains('deck-thumb-link');
       thumbs.forEach(function (t) {
         var on = +t.getAttribute('data-page') === n;
         t.classList.toggle('is-current', on);
-        if (on) t.setAttribute('aria-current', 'true'); else t.removeAttribute('aria-current');
+        if (on) {
+          t.setAttribute('aria-current', 'true');
+          if (hadThumbFocus) {
+            var link = t.querySelector('.deck-thumb-link');
+            if (link && link.focus) {
+              try { link.focus({ preventScroll: true }); } catch (err) { link.focus(); }
+            }
+          }
+        } else {
+          t.removeAttribute('aria-current');
+        }
         if (on) keepInView(t);
       });
     }
     function keepInView(t) {
       var horizontal = rail.scrollWidth > rail.clientWidth + 1;
+      var tRect = t.getBoundingClientRect();
+      var rRect = rail.getBoundingClientRect();
       if (horizontal) {
-        var l = t.offsetLeft, r = l + t.offsetWidth;
+        var l = tRect.left - rRect.left + rail.scrollLeft;
+        var r = l + tRect.width;
         if (l < rail.scrollLeft) rail.scrollLeft = l - 8;
         else if (r > rail.scrollLeft + rail.clientWidth) rail.scrollLeft = r - rail.clientWidth + 8;
       } else {
-        var top = t.offsetTop - rail.offsetTop, bot = top + t.offsetHeight;
+        var top = tRect.top - rRect.top + rail.scrollTop;
+        var bot = top + tRect.height;
         if (top < rail.scrollTop) rail.scrollTop = top - 8;
         else if (bot > rail.scrollTop + rail.clientHeight) rail.scrollTop = bot - rail.clientHeight + 8;
       }
     }
     thumbs.forEach(function (t) {
-      t.querySelector('.deck-thumb-link').addEventListener('click', function (e) {
+      var link = t.querySelector('.deck-thumb-link');
+      if (!link) return;
+      link.addEventListener('click', function (e) {
         if (!R) return;   // no Reveal yet: the #/N anchor is picked up by fromHash later
         e.preventDefault();
         goTo(+t.getAttribute('data-page'));
         armed = true;
+        link.focus();
       });
     });
 
@@ -151,14 +170,28 @@
       armed = true;
     });
     studio.addEventListener('mouseenter', function () { armed = true; });
+    studio.addEventListener('focusin', function () { armed = true; });
     document.addEventListener('mousedown', function (e) { armed = !!e.target.closest('.deck-studio'); });
     document.addEventListener('keydown', function (e) {
       if (!armed || !R || e.altKey || e.ctrlKey || e.metaKey) return;
       var t = e.target;
       if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
-      if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); R.prev(); }
-      else if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); R.next(); }
-      else if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleFullscreen(); }
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') {
+        e.preventDefault();
+        R.prev();
+      } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') {
+        e.preventDefault();
+        R.next();
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        goTo(1);
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        goTo(slides().length);
+      } else if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        toggleFullscreen();
+      }
     });
 
     function fromHash() {
