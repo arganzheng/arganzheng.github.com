@@ -1,0 +1,467 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="555.59952pt" height="289.19952pt" viewBox="0 0 555.59952 289.19952" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.11.2, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 289.19952 
+L 555.59952 289.19952 
+L 555.59952 -0 
+L 0 -0 
+z
+" style="fill: #ffffff"/>
+  </g>
+  <g id="axes_1">
+   <g id="text_1">
+    <g id="patch_2">
+     <path d="M 243.879838 51.952696 
+L 311.719682 51.952696 
+Q 314.344682 51.952696 314.344682 49.327696 
+L 314.344682 33.772228 
+Q 314.344682 31.147228 311.719682 31.147228 
+L 243.879838 31.147228 
+Q 241.254838 31.147228 241.254838 33.772228 
+L 241.254838 49.327696 
+Q 241.254838 51.952696 243.879838 51.952696 
+z
+" style="fill: #f2f2f2; stroke: #8a8a8a; stroke-linejoin: miter"/>
+    </g>
+    <text style="font-size: 7.5px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(262.79976 40.334728)">是女性？</text>
+    <text style="font-size: 7.5px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(243.879838 48.165196)">981 人，生还率 38%</text>
+   </g>
+   <g id="patch_3">
+    <path d="M 275.838473 62.538352 
+Q 210.151881 75.212502 145.343518 87.7172 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+    <path d="M 149.219338 88.802565 
+L 145.343518 87.7172 
+L 148.537303 85.267763 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+   </g>
+   <g id="text_2">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #8a8a8a" x="193.913834" y="72.464905" transform="rotate(-0 193.913834 72.464905)">否</text>
+   </g>
+   <g id="text_3">
+    <g id="patch_4">
+     <path d="M 108.579958 120.65257 
+L 176.419802 120.65257 
+Q 179.044802 120.65257 179.044802 118.02757 
+L 179.044802 102.472101 
+Q 179.044802 99.847101 176.419802 99.847101 
+L 108.579958 99.847101 
+Q 105.954958 99.847101 105.954958 102.472101 
+L 105.954958 118.02757 
+Q 105.954958 120.65257 108.579958 120.65257 
+z
+" style="fill: #f2f2f2; stroke: #8a8a8a; stroke-linejoin: miter"/>
+    </g>
+    <text style="font-size: 7.5px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(120.430544 109.034601)">年龄 ≤ 9.5？</text>
+    <text style="font-size: 7.5px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(108.579958 116.86507)">624 人，生还率 19%</text>
+   </g>
+   <g id="patch_5">
+    <path d="M 140.63769 131.578413 
+Q 108.677387 143.911818 77.551536 155.923211 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+    <path d="M 81.558173 156.306435 
+L 77.551536 155.923211 
+L 80.262097 152.947835 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+   </g>
+   <g id="text_4">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #8a8a8a" x="92.438924" y="141.164779" transform="rotate(-0 92.438924 141.164779)">是</text>
+   </g>
+   <g id="text_5">
+    <g id="patch_6">
+     <path d="M 32.391737 189.352444 
+L 117.308143 189.352444 
+Q 119.933143 189.352444 119.933143 186.727444 
+L 119.933143 171.171975 
+Q 119.933143 168.546975 117.308143 168.546975 
+L 32.391737 168.546975 
+Q 29.766737 168.546975 29.766737 171.171975 
+L 29.766737 186.727444 
+Q 29.766737 189.352444 32.391737 189.352444 
+z
+" style="fill: #f2f2f2; stroke: #8a8a8a; stroke-linejoin: miter"/>
+    </g>
+    <text style="font-size: 7.5px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(32.391737 177.734475)">兄弟姐妹/配偶数 ≤ 2.5？</text>
+    <text style="font-size: 7.5px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(43.007752 185.564944)">35 人，生还率 66%</text>
+   </g>
+   <g id="patch_7">
+    <path d="M 73.266459 200.781795 
+Q 57.938764 212.611637 43.319135 223.894998 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+    <path d="M 47.268819 223.120406 
+L 43.319135 223.894998 
+L 45.069271 220.270495 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+   </g>
+   <g id="text_6">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #8a8a8a" x="41.701469" y="209.864653" transform="rotate(-0 41.701469 209.864653)">是</text>
+   </g>
+   <g id="text_7">
+    <g id="patch_8">
+     <path d="M 21.119814 261.013021 
+L 60.930126 261.013021 
+Q 63.380126 261.013021 63.380126 258.563021 
+L 63.380126 236.736146 
+Q 63.380126 234.286146 60.930126 234.286146 
+L 21.119814 234.286146 
+Q 18.669814 234.286146 18.669814 236.736146 
+L 18.669814 258.563021 
+Q 18.669814 261.013021 21.119814 261.013021 
+z
+" style="fill: #3b6fb6; opacity: 0.85"/>
+    </g>
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #ffffff" transform="translate(34.02497 242.861146)">生还</text>
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #ffffff" transform="translate(23.059032 250.169583)">生还率 88%</text>
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #ffffff" transform="translate(21.119814 257.478021)">25 人（3%）</text>
+   </g>
+   <g id="patch_9">
+    <path d="M 76.433421 200.781795 
+Q 91.761116 212.611637 106.380745 223.894998 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+    <path d="M 104.630609 220.270495 
+L 106.380745 223.894998 
+L 102.431061 223.120406 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+   </g>
+   <g id="text_8">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #8a8a8a" x="107.998411" y="209.864653" transform="rotate(-0 107.998411 209.864653)">否</text>
+   </g>
+   <g id="text_9">
+    <g id="patch_10">
+     <path d="M 88.769754 261.013021 
+L 128.580066 261.013021 
+Q 131.030066 261.013021 131.030066 258.563021 
+L 131.030066 236.736146 
+Q 131.030066 234.286146 128.580066 234.286146 
+L 88.769754 234.286146 
+Q 86.319754 234.286146 86.319754 236.736146 
+L 86.319754 258.563021 
+Q 86.319754 261.013021 88.769754 261.013021 
+z
+" style="fill: #e0812c; opacity: 0.85"/>
+    </g>
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #ffffff" transform="translate(101.67491 242.861146)">死亡</text>
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #ffffff" transform="translate(90.708972 250.169583)">生还率 10%</text>
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #ffffff" transform="translate(88.769754 257.478021)">10 人（1%）</text>
+   </g>
+   <g id="patch_11">
+    <path d="M 144.36207 131.578413 
+Q 176.322373 143.911818 207.448224 155.923211 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+    <path d="M 204.737663 152.947835 
+L 207.448224 155.923211 
+L 203.441587 156.306435 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+   </g>
+   <g id="text_10">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #8a8a8a" x="192.560836" y="141.164779" transform="rotate(-0 192.560836 141.164779)">否</text>
+   </g>
+   <g id="text_11">
+    <g id="patch_12">
+     <path d="M 176.229898 189.352444 
+L 244.069742 189.352444 
+Q 246.694742 189.352444 246.694742 186.727444 
+L 246.694742 171.171975 
+Q 246.694742 168.546975 244.069742 168.546975 
+L 176.229898 168.546975 
+Q 173.604898 168.546975 173.604898 171.171975 
+L 173.604898 186.727444 
+Q 173.604898 189.352444 176.229898 189.352444 
+z
+" style="fill: #f2f2f2; stroke: #8a8a8a; stroke-linejoin: miter"/>
+    </g>
+    <text style="font-size: 7.5px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(188.080484 177.734475)">舱等 ≤ 1.5？</text>
+    <text style="font-size: 7.5px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(176.229898 185.564944)">589 人，生还率 17%</text>
+   </g>
+   <g id="patch_13">
+    <path d="M 208.566339 200.781795 
+Q 193.238644 212.611637 178.619015 223.894998 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+    <path d="M 182.568699 223.120406 
+L 178.619015 223.894998 
+L 180.369151 220.270495 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+   </g>
+   <g id="text_12">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #8a8a8a" x="177.001349" y="209.864653" transform="rotate(-0 177.001349 209.864653)">是</text>
+   </g>
+   <g id="text_13">
+    <g id="patch_14">
+     <path d="M 152.541256 261.013021 
+L 200.108444 261.013021 
+Q 202.558444 261.013021 202.558444 258.563021 
+L 202.558444 236.736146 
+Q 202.558444 234.286146 200.108444 234.286146 
+L 152.541256 234.286146 
+Q 150.091256 234.286146 150.091256 236.736146 
+L 150.091256 258.563021 
+Q 150.091256 261.013021 152.541256 261.013021 
+z
+" style="fill: #e0812c; opacity: 0.85"/>
+    </g>
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #ffffff" transform="translate(169.32485 242.861146)">死亡</text>
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #ffffff" transform="translate(158.358912 250.169583)">生还率 34%</text>
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #ffffff" transform="translate(152.541256 257.478021)">125 人（13%）</text>
+   </g>
+   <g id="patch_15">
+    <path d="M 211.733301 200.781795 
+Q 227.060996 212.611637 241.680625 223.894998 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+    <path d="M 239.930489 220.270495 
+L 241.680625 223.894998 
+L 237.730941 223.120406 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+   </g>
+   <g id="text_14">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #8a8a8a" x="243.298291" y="209.864653" transform="rotate(-0 243.298291 209.864653)">否</text>
+   </g>
+   <g id="text_15">
+    <g id="patch_16">
+     <path d="M 220.191196 261.013021 
+L 267.758384 261.013021 
+Q 270.208384 261.013021 270.208384 258.563021 
+L 270.208384 236.736146 
+Q 270.208384 234.286146 267.758384 234.286146 
+L 220.191196 234.286146 
+Q 217.741196 234.286146 217.741196 236.736146 
+L 217.741196 258.563021 
+Q 217.741196 261.013021 220.191196 261.013021 
+z
+" style="fill: #e0812c; opacity: 0.85"/>
+    </g>
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #ffffff" transform="translate(236.97479 242.861146)">死亡</text>
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #ffffff" transform="translate(226.008852 250.169583)">生还率 12%</text>
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #ffffff" transform="translate(220.191196 257.478021)">464 人（47%）</text>
+   </g>
+   <g id="patch_17">
+    <path d="M 279.761047 62.538352 
+Q 345.447639 75.212502 410.256002 87.7172 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+    <path d="M 407.062217 85.267763 
+L 410.256002 87.7172 
+L 406.380182 88.802565 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+   </g>
+   <g id="text_16">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #8a8a8a" x="361.685686" y="72.464905" transform="rotate(-0 361.685686 72.464905)">是</text>
+   </g>
+   <g id="text_17">
+    <g id="patch_18">
+     <path d="M 379.179718 120.65257 
+L 447.019562 120.65257 
+Q 449.644562 120.65257 449.644562 118.02757 
+L 449.644562 102.472101 
+Q 449.644562 99.847101 447.019562 99.847101 
+L 379.179718 99.847101 
+Q 376.554718 99.847101 376.554718 102.472101 
+L 376.554718 118.02757 
+Q 376.554718 120.65257 379.179718 120.65257 
+z
+" style="fill: #f2f2f2; stroke: #8a8a8a; stroke-linejoin: miter"/>
+    </g>
+    <text style="font-size: 7.5px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(391.030304 109.034601)">舱等 ≤ 2.5？</text>
+    <text style="font-size: 7.5px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(379.179718 116.86507)">357 人，生还率 71%</text>
+   </g>
+   <g id="patch_19">
+    <path d="M 411.23745 131.578413 
+Q 379.277147 143.911818 348.151296 155.923211 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+    <path d="M 352.157933 156.306435 
+L 348.151296 155.923211 
+L 350.861857 152.947835 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+   </g>
+   <g id="text_18">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #8a8a8a" x="363.038684" y="141.164779" transform="rotate(-0 363.038684 141.164779)">是</text>
+   </g>
+   <g id="text_19">
+    <g id="patch_20">
+     <path d="M 311.529778 189.352444 
+L 379.369622 189.352444 
+Q 381.994622 189.352444 381.994622 186.727444 
+L 381.994622 171.171975 
+Q 381.994622 168.546975 379.369622 168.546975 
+L 311.529778 168.546975 
+Q 308.904778 168.546975 308.904778 171.171975 
+L 308.904778 186.727444 
+Q 308.904778 189.352444 311.529778 189.352444 
+z
+" style="fill: #f2f2f2; stroke: #8a8a8a; stroke-linejoin: miter"/>
+    </g>
+    <text style="font-size: 7.5px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(321.30263 177.734475)">票价 ≤ 32.1？</text>
+    <text style="font-size: 7.5px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(311.529778 185.564944)">192 人，生还率 92%</text>
+   </g>
+   <g id="patch_21">
+    <path d="M 343.866219 200.781795 
+Q 328.538524 212.611637 313.918895 223.894998 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+    <path d="M 317.868579 223.120406 
+L 313.918895 223.894998 
+L 315.669031 220.270495 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+   </g>
+   <g id="text_20">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #8a8a8a" x="312.301229" y="209.864653" transform="rotate(-0 312.301229 209.864653)">是</text>
+   </g>
+   <g id="text_21">
+    <g id="patch_22">
+     <path d="M 291.719574 261.013021 
+L 331.529886 261.013021 
+Q 333.979886 261.013021 333.979886 258.563021 
+L 333.979886 236.736146 
+Q 333.979886 234.286146 331.529886 234.286146 
+L 291.719574 234.286146 
+Q 289.269574 234.286146 289.269574 236.736146 
+L 289.269574 258.563021 
+Q 289.269574 261.013021 291.719574 261.013021 
+z
+" style="fill: #3b6fb6; opacity: 0.85"/>
+    </g>
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #ffffff" transform="translate(304.62473 242.861146)">生还</text>
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #ffffff" transform="translate(293.658792 250.169583)">生还率 86%</text>
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #ffffff" transform="translate(291.719574 257.478021)">83 人（8%）</text>
+   </g>
+   <g id="patch_23">
+    <path d="M 347.033181 200.781795 
+Q 362.360876 212.611637 376.980505 223.894998 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+    <path d="M 375.230369 220.270495 
+L 376.980505 223.894998 
+L 373.030821 223.120406 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+   </g>
+   <g id="text_22">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #8a8a8a" x="378.598171" y="209.864653" transform="rotate(-0 378.598171 209.864653)">否</text>
+   </g>
+   <g id="text_23">
+    <g id="patch_24">
+     <path d="M 355.491076 261.013021 
+L 403.058264 261.013021 
+Q 405.508264 261.013021 405.508264 258.563021 
+L 405.508264 236.736146 
+Q 405.508264 234.286146 403.058264 234.286146 
+L 355.491076 234.286146 
+Q 353.041076 234.286146 353.041076 236.736146 
+L 353.041076 258.563021 
+Q 353.041076 261.013021 355.491076 261.013021 
+z
+" style="fill: #3b6fb6; opacity: 0.85"/>
+    </g>
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #ffffff" transform="translate(372.27467 242.861146)">生还</text>
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #ffffff" transform="translate(361.308732 250.169583)">生还率 97%</text>
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #ffffff" transform="translate(355.491076 257.478021)">109 人（11%）</text>
+   </g>
+   <g id="patch_25">
+    <path d="M 414.96183 131.578413 
+Q 446.922133 143.911818 478.047984 155.923211 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+    <path d="M 475.337423 152.947835 
+L 478.047984 155.923211 
+L 474.041347 156.306435 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+   </g>
+   <g id="text_24">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #8a8a8a" x="463.160596" y="141.164779" transform="rotate(-0 463.160596 141.164779)">否</text>
+   </g>
+   <g id="text_25">
+    <g id="patch_26">
+     <path d="M 446.829658 189.352444 
+L 514.669502 189.352444 
+Q 517.294502 189.352444 517.294502 186.727444 
+L 517.294502 171.171975 
+Q 517.294502 168.546975 514.669502 168.546975 
+L 446.829658 168.546975 
+Q 444.204658 168.546975 444.204658 171.171975 
+L 444.204658 186.727444 
+Q 444.204658 189.352444 446.829658 189.352444 
+z
+" style="fill: #f2f2f2; stroke: #8a8a8a; stroke-linejoin: miter"/>
+    </g>
+    <text style="font-size: 7.5px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(456.60251 177.734475)">票价 ≤ 23.4？</text>
+    <text style="font-size: 7.5px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(446.829658 185.564944)">165 人，生还率 47%</text>
+   </g>
+   <g id="patch_27">
+    <path d="M 479.166099 200.781795 
+Q 463.838404 212.611637 449.218775 223.894998 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+    <path d="M 453.168459 223.120406 
+L 449.218775 223.894998 
+L 450.968911 220.270495 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+   </g>
+   <g id="text_26">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #8a8a8a" x="447.601109" y="209.864653" transform="rotate(-0 447.601109 209.864653)">是</text>
+   </g>
+   <g id="text_27">
+    <g id="patch_28">
+     <path d="M 423.141016 261.013021 
+L 470.708204 261.013021 
+Q 473.158204 261.013021 473.158204 258.563021 
+L 473.158204 236.736146 
+Q 473.158204 234.286146 470.708204 234.286146 
+L 423.141016 234.286146 
+Q 420.691016 234.286146 420.691016 236.736146 
+L 420.691016 258.563021 
+Q 420.691016 261.013021 423.141016 261.013021 
+z
+" style="fill: #3b6fb6; opacity: 0.85"/>
+    </g>
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #ffffff" transform="translate(439.92461 242.861146)">生还</text>
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #ffffff" transform="translate(428.958672 250.169583)">生还率 53%</text>
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #ffffff" transform="translate(423.141016 257.478021)">139 人（14%）</text>
+   </g>
+   <g id="patch_29">
+    <path d="M 482.333061 200.781795 
+Q 497.660756 212.611637 512.280385 223.894998 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+    <path d="M 510.530249 220.270495 
+L 512.280385 223.894998 
+L 508.330701 223.120406 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 0.8; stroke-linecap: round"/>
+   </g>
+   <g id="text_28">
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle; fill: #8a8a8a" x="513.898051" y="209.864653" transform="rotate(-0 513.898051 209.864653)">否</text>
+   </g>
+   <g id="text_29">
+    <g id="patch_30">
+     <path d="M 494.669394 261.013021 
+L 534.479706 261.013021 
+Q 536.929706 261.013021 536.929706 258.563021 
+L 536.929706 236.736146 
+Q 536.929706 234.286146 534.479706 234.286146 
+L 494.669394 234.286146 
+Q 492.219394 234.286146 492.219394 236.736146 
+L 492.219394 258.563021 
+Q 492.219394 261.013021 494.669394 261.013021 
+z
+" style="fill: #e0812c; opacity: 0.85"/>
+    </g>
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #ffffff" transform="translate(507.57455 242.861146)">死亡</text>
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #ffffff" transform="translate(496.608612 250.169583)">生还率 12%</text>
+    <text style="font-size: 7px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #ffffff" transform="translate(494.669394 257.478021)">26 人（3%）</text>
+   </g>
+   <g id="text_30">
+    <text style="font-size: 9px; font-family: 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="277.79976" y="14.94" transform="rotate(-0 277.79976 14.94)">深度 3 的决策树：先问性别，男性再问年龄，女性再问舱等——「妇女与儿童优先」被数据学出来了</text>
+   </g>
+  </g>
+ </g>
+</svg>
