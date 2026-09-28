@@ -382,10 +382,6 @@ Table: 多卡扩散并行的规则与数字小结
    data parallel 8：每卡独立跑一个请求。切一个请求的并行效率不到线性（4 卡 2.63×），DP 是 8×；单请求已 compute-bound、batch 也不提吞吐。只有当单卡放不下（视频激活 + 权重）或延迟 SLO 要求时才切请求。详见[第二章](#二多卡的目的)。
    </details>
 
-## 下一篇
-
-[少步与自回归：把步数变成系统参数——蒸馏后哪些优化失效、KV cache 的回归、实时流式](/few-step-and-autoregressive-video-generation-systems.html)
-
 [^q0]: FLUX 无 CFG，"CFG 2"用不上；8 卡实际是 Ulysses 8（或 Ulysses 4 + DP 2）。通信：TP 8 每层 2 次 all-reduce $$[4608, 3072]$$，每卡 $$4 \times \frac{7}{8} \times 28 \text{ MB} = 98$$ MB / 层 × 57 = 5.6 GB / 步，NVLink 约 19 ms，且在关键路径；Ulysses 8 每层 4 次 all-to-all，每卡 $$4 \times \frac{7}{64} \times 28 = 12$$ MB / 层 → 0.7 GB / 步，约 2–3 ms。xDiT 实测 Ulysses 4 为 1.63 s（4 卡 2.63×），8 卡约 1.0–1.2 s（效率继续下降：每卡 GEMM 只有 576 行）。CFG 模型（如 Qwen-Image）才是 CFG 2 × Ulysses 4：CFG 组间每步 0.6 MB，组内同上。详见[第三章](#三张量并行)、[第四章](#四序列并行)、[第五章](#五cfg-并行与-data-parallel)。
 
 [^q1]: 节点内 Ulysses 4（NVLink 或 PCIe 上 all-to-all 尚可承受），跨节点 PipeFusion 4——xDiT 实测这样 16 卡比 8 卡再快 1.16×（1024²），4096² 上 Ulysses 2 × Ring 2 × PipeFusion 4 快 1.9×。PipeFusion 赢是因为它每步每 stage 只传 $$N d$$ = 28 MB（与层数无关，SP 的 $$1/L$$），以太网 3 GB/s 下 10 ms；Ring 跨节点每层都要传 K / V，每步 1.6 GB → 0.5 s，超过计算本身。代价是流水线气泡与 stale K / V 的误差，所以 NVLink 上仍用 USP。详见[第六章](#六pipefusion-与-distrifusion)、[第八章](#八混合并行与选型)。

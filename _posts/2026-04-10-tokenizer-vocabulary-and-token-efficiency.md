@@ -596,9 +596,5 @@ Table: tokenizer 决定的成本表两端
 
    </details>
 
-## 下一篇
-
-[Scaling law：从 Chinchilla 到"过训练"，算力怎么分给参数与数据](/scaling-laws-and-compute-optimal-training.html)
-
 [^q0]: 因为成本要按字符算而不是按 token 算。词表从 32K 到 128K，embedding + lm_head 多 $$2 \times 96\text{K} \times 4096 = 0.79$$B 参数、lm_head 的 FLOPs 让每 token 贵 5.6%；但更大的词表让同一段文本切成更少的 token——英文压缩率从 3.17 字符/token 到 3.94，每字符成本 3.81 GFLOPs 比 32K 词表低 15%、KV 低 20%，训练同样多字符的数据、推理同样长的回答都更便宜。详见[第三章](#三词表大小的账)、[第四章](#四token-效率的账)。
 [^q1]: 意味着 KV cache、prefill FLOPs、decode 步数、API 计费全部差 2.1 倍，上下文窗口「能装多少字」也差 2.1 倍——tokenizer 是成本表里最后一个外生变量；且跨 tokenizer 比 loss 必须换算成 bits/byte 才可比。详见[第四章](#四token-效率的账)。

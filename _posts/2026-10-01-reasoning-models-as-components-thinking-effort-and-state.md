@@ -239,10 +239,6 @@ OpenAI 声称 Responses 在 agent 场景下比 Chat Completions 有更好的缓�
    不能打折的：每步新生成的 3,000 思考 + 200 输出（输出价，共 20 × 3,200 = 64,000）；每步新增的 2,000 工具结果在**它首次出现的那一轮**是未缓存输入。能打折的：10,000 的 system + 工具定义在第 2 步起命中缓存；历史里已出现的思考块、输出与工具结果在后续轮作为输入前缀命中缓存（前提是历史只追加、不修改，且顶层参数不变）。详见[第五章](#五对缓存与多轮成本的影响)。
    </details>
 
-## 下一篇
-
-[成本与延迟的账：一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)
-
 [^q0]: 思考是模型在可见输出之前自回归生成的一段 token，计算上与回答无异，只是可见性不同：DeepSeek 完整返回 `reasoning_content`，Anthropic 返回 `thinking` 块（部分为加密的 `redacted_thinking` 或摘要），OpenAI 默认不返回、可要摘要，Gemini 返回 thought summary。四家都按**输出价**计费（OpenAI 记在 `output_tokens_details.reasoning_tokens`，Gemini 价目表明写"output including thinking tokens"），且 `max_tokens` 是思考 + 回答的总上限。同一任务 Sonnet 5 从 effort `low` 到 `high`，思考从 300 涨到 4,000 token，账单从 \$0.0075 涨到 \$0.0445。详见[第二章](#二思考在协议上是什么)。
 
 [^q1]: effort 是一个倾向而非 token 预算：模型自己决定想多久，effort 告诉它任务值得想多少。四家都有从"几乎不想"到"不限"的梯子（OpenAI `none` … `max`，Anthropic `low` … `max` 默认 `high`，Gemini 三档，DeepSeek 三档）。选档的方法是在自己的评测集上跑每一档，画质量 / 成本 / TTFT 三条曲线，取质量饱和的最低档；简单任务通常 `low` 就饱和，复杂 agent 任务到 `xhigh` 还在涨；高档在简单任务上可能反而降准确率（过度思考）。不同任务用不同档，Anthropic 支持逐消息改 effort 且不失效缓存。详见[第三章](#三effort一个旋钮三条曲线)。

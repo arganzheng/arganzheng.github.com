@@ -1006,8 +1006,4 @@ Table: 开头两行代码背后的机制
 
    </details>
 
-## 下一篇
-
-[Python 在 AI-Infra（01 下）：对象如何工作——对象模型、协议、装饰器与生成器](/python-object-model-protocols-decorators-and-generators.html)
-
 [^q0]: 分四个阶段看。**被加载**：`import` 是运行时动作——`PathFinder` 沿 `sys.path` 找到模块，`.py` 编译成字节码后执行顶层代码，`.so` 由 `ExtensionFileLoader` `dlopen` 并调用 `PyInit_*`；装饰器注册、类创建这些副作用就发生在这一步，所以「注册表为什么是空的」几乎总是导入问题（[第二章](#二执行模型源码如何变成正在运行的代码)、[第四章](#四模块与导入系统代码如何被加载)）。**创建对象**：`Runner(model)` 走 `type.__call__` → `__new__` → `__init__`，之后每次 `obj.attr` 按「数据描述符 → 实例 `__dict__` → 类 MRO 上的非数据描述符 / 类属性 → `__getattr__`」查找，`nn.Module` 的 `__setattr__` / `__getattr__` 就插在这条链上（[下篇第二章](/python-object-model-protocols-decorators-and-generators.html#二类与对象模型对象如何被创建和查找)、[下篇第三章](/python-object-model-protocols-decorators-and-generators.html#三对象协议语法背后的特殊方法)）。**执行任务**：`model(x)` 查类型上的 `__call__`，经过 hooks 再到 `forward`；`for` 用迭代协议，生成器是挂起在 `yield` 处的帧；装饰器在定义时执行一次、返回一个替代对象（[下篇第三章](/python-object-model-protocols-decorators-and-generators.html#三对象协议语法背后的特殊方法)至[下篇第五章](/python-object-model-protocols-decorators-and-generators.html#五生成器与惰性执行)）。**释放资源**：`with` 展开为 `__enter__` / `__exit__`，异常沿帧链向外传播、途经每个 `__exit__` 与 `finally`；对象在引用计数归零时立即释放，循环引用交给 GC（[下篇第六章](/python-object-model-protocols-decorators-and-generators.html#六上下文管理器把资源生命周期交给协议)、[第五章](#五异常处理与失败传播)）。[下篇第七章](/python-object-model-protocols-decorators-and-generators.html#七一个推理组件的完整运行时追踪)把这四步在一个推理组件上从头追了一遍。

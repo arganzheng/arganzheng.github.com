@@ -447,9 +447,5 @@ epoch 15  train loss 0.0585  test acc 97.61%
 
    </details>
 
-## 下一篇
-
-[训练为什么不稳定：初始化、归一化与残差](/initialization-normalization-and-residual.html)
-
 [^q0]: 能。反向传播是沿计算图反向拓扑序对每个算子做一次 VJP（上游梯度 × 局部 Jacobian）；Linear 的三条公式 $$\partial L/\partial W = X^T G$$、$$\partial L/\partial X = G W^T$$、$$\partial L/\partial b = \sum_i G_{i,:}$$ 可以从「梯度与被求导量同形」唯一重建，softmax + 交叉熵合并求导是 $$(P - Y)/m$$（[第三章](#三矩阵求导的形状规则)、[第四章](#四两层网络逐层推导)）。用 float64 的中心差分做梯度检查，相对误差 $$< 10^{-6}$$ 通过，本文实测与 autograd 差 $$10^{-8}$$（[第七章](#七梯度检查)、[第八章](#八autograd-做了什么)）。
 [^q1]: **$$6ND$$**：前向每个参数用一次乘加（$$2N$$ / token），反向每个 Linear 做两个 GEMM——一个算 $$\partial L/\partial W$$、一个算 $$\partial L/\partial X$$——所以是前向的两倍（$$4N$$），合计 $$6N$$ / token，实测比值 2.00（[第五章](#五反向为什么是前向的两倍)）。**激活要存**：$$\partial L/\partial W = X^T G$$ 需要本层的输入 $$X$$，它是前向的中间结果，不存就得重算——这就是 gradient checkpointing 用 33% 额外计算换掉的东西（[第六章](#六激活为什么要存)）。

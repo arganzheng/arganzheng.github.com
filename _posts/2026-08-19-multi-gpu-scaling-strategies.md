@@ -2799,9 +2799,5 @@ Table: 分布式源码导航
 
    </details>
 
-## 下一篇
-
-[模型适配：如何跟上变化极快的模型世界？](/model-adaptation-architecture.html)
-
 [^q0]: 由问题决定：单层放不下用 **TP**（层内按行 / 列切，每层一次 all-reduce）；单层放得下但整个模型太大用 **PP**（按层切成 stage，边界传激活）；MoE 专家太多用 **EP**（按专家切，all-to-all dispatch / combine）；上下文太长用 **CP**（按序列切，online softmax 跨卡累加）；装得下但要更多吞吐用 **DP**（整体复制，永远在最外层）。KV 状态跟着切法走：TP 下每卡持有全部 token 的 $$1/N_t$$ 个 KV head（GQA 8 头 TP8 每卡 1 头）；PP 下 KV 随层分到不同 stage；CP 下按 token 段分；DP 下各副本独立的 KV 池——所以 DP 副本之间的 prefix cache 不共享。详见[第二](#二dp-data-parallelism)至[七章](#七混合并行策略汇总)。
 [^q1]: **代价**：TP 的 all-reduce 每层都在关键路径上、通信最频繁，必须放在 NVLink 内；PP 只在 stage 边界通信、能容忍高延迟、适合跨机，但有流水线气泡且要足够多的并发请求填满；EP 的瓶颈是 all-to-all 通信量、负载不均与小批次 grouped GEMM 效率；CP 在序列短或带宽不足时收益被通信抵消。**通信优化**不看链路峰值而看：数据走哪条物理链路、是否在关键路径、消息多大、是否引入全局同步、能否与计算重叠、拓扑是否匹配；NCCL 是底座，小张量用 `CustomAllreduce`；定位顺序：物理拓扑 → NCCL 识别结果 → nccl-tests 区分库与应用 → 按消息大小分延迟 / 带宽问题。详见[第七章](#七混合并行策略汇总)、[第八章](#八通信优化推理系统的性能深水区)。

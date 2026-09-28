@@ -205,10 +205,6 @@ Table: 委派子 agent 在不同情形下是否值得
    依赖：三家都是 MCP client（共享工具）、都读 SKILL.md（共享技能）、都读项目指令文件（AGENTS.md / CLAUDE.md）、Claude Code 与 Codex 都有可脚本化的无头 / SDK 入口与 hooks（`hooks/` 包组有两家的桥接）、ACP 一类自动化协议。意味着 harness 之间不是互斥的选择——可以用一个作为运行时与日志中心、把子任务委派给另一个更擅长的；问题从"选哪个"变成"怎么组合"。详见[第五章](#五子-agent-的三种形态)。
    </details>
 
-## 下一篇
-
-[权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)
-
 [^q0]: 卸载：DeepSeek Harness 的 `spill` 包组（存储服务 `spill` + 本地后端 `spill-local` + 结果策略，全文存到上下文外、返回带取回指引的定位符，各部分可替换）；Codex 在处理器里按上限截断、大内容用专门工具按需读，并有代码审查规则"无无界项、无大于 10K token 的项、超 1K 的新项 P0 审查"。清理：DeepSeek Harness `compaction-tool-result-pruner` 压缩前先修剪超大工具输出；Codex 的会话记忆压缩用结构化任务状态替代摘要；Claude Code 微压缩。压缩：Codex `compact.rs`（本地）、`compact_remote_history` / `compact_remote_v2*`（服务端加密 item、图片预算）、`compact_token_budget`（阈值）、`compact_model_fallback`（回退）；DeepSeek Harness `compaction` 包组五个包（接缝、`compaction-basic` 自动、`command-compact`、修剪器、`compaction-image-offload`），策略可配置。共同点：多步可组合、结果写进日志、在思考链边界触发。详见[第二章](#二卸载与清理)、[第三章](#三压缩)。
 
 [^q1]: 复述是把目标与进度作为结构化事件保持在模型可见的近端，对抗漂移并作为压缩材料。DeepSeek Harness 三个包：`plan`（记录式规划，计划是日志事件）、`todo`（`todo_write` 工具，模型维护任务列表）、`goal`（会话目标，与 `schedule` 定时跟进配合）。Codex：`tools/handlers/plan.rs` 让模型写与更新计划，`get_context_remaining.rs` 让模型看到剩余上下文预算并自己决定何时收敛——把一部分上下文管理交给模型；会话记忆压缩靠这些结构化状态多数情况不调模型。Claude Code：todo 工具管任务级进度，CLAUDE.md 压缩后从磁盘重注入管项目级目标。详见[第四章](#四复述)。

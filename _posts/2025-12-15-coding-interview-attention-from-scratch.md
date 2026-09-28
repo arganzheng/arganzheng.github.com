@@ -318,10 +318,6 @@ flowchart TB
    `scores` 形状 `(B, H, t, len + t)`。前 `len` 列是历史，全部可见；后 `t` 列是新 token 之间的关系，需要下三角 causal mask（第 $$i$$ 个新 token 只能看到前 $$i$$ 个新 token）。即 mask = `[全 True 的 (t, len) | tril 的 (t, t)]` 横向拼接。这是 prefill（`len = 0`）与单 token decode（`t = 1`）之间的一般情形。详见[第三章第 6 节](#6-kv-cache-与增量解码)。
    </details>
 
-## 下一篇
-
-[手撕 Transformer block 与反向传播](/coding-interview-transformer-block-and-backprop.html)
-
 [^q0]: 四次：① `reshape(B, T, H, d)` 把最后一维 $$D$$ 按顺序切成 $$H$$ 段（不移动数据）；② `transpose(1, 2)` 得 `(B, H, T, d)`，让每个头的 `(T, d)` 能独立做矩阵乘；attention 之后 ③ `transpose(1, 2)` 回到 `(B, T, H, d)`；④ `reshape(B, T, D)` 拼回。必须先 reshape 再 transpose，因为 `(B, T, D)` 里连续的是 $$D$$，直接 `reshape(B, H, T, d)` 会把不同 token 的数切进同一个头——形状对但数全错。详见[第二章](#二形状推演)。
 
 [^q1]: 缓存每一层、每个 KV 头、每个历史 token 的 $$k$$ 和 $$v$$ 向量（每 token $$2 L H_{kv} d$$ 个数），因为它们只依赖各自的输入、之后不会变。每步只算新 token 的 $$q, k, v$$，把 $$k, v$$ 追加进缓存，用新 $$q$$ 对全部缓存做 attention。不需要 mask 是因为 causal mask 的作用是屏蔽"未来"的 token，而缓存里只有过去的 token、新 token 是最后一个——没有未来可屏蔽。只有 prefill 阶段（一次喂整段 prompt）需要 mask。详见[第三章第 6 节](#6-kv-cache-与增量解码)。

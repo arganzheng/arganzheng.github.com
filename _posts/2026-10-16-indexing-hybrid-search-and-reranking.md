@@ -250,10 +250,6 @@ Cohere Rerank、Voyage rerank、Qwen3-Reranker（开放，0.6B / 4B / 8B）、BG
    （1）在检索评测集上验证新模型（在混合 + rerank 配置下）确实更好；（2）新旧向量空间不可比，全量重建：新建索引、对全部块重算 embedding（百万块几小时到一天）；（3）双写期间新旧索引并存，新索引通过评测后切流量，旧索引保留一段时间可回滚；（4）块 id 用内容哈希保证对应；（5）若同时改 rerank 为 Qwen3-Reranker 一起评。这就是"换 embedding 模型很贵"的含义。详见[第七章](#七更新删除与重建)。
    </details>
 
-## 下一篇
-
-[从流水线到 agentic retrieval](/from-rag-pipelines-to-agentic-retrieval.html)
-
 [^q0]: 候选：Qwen3-Embedding-8B（开放，MMTEB 70.58，32K，配 Qwen3-Reranker）、Gemini Embedding 001（68.32，跨语言强，输入 2K）、Voyage-3-large（32K，Matryoshka，量化感知）、Cohere Embed v4（128K，多模态）、OpenAI text-embedding-3-large（256 维胜旧 ada-002 1,536 维）、BGE-M3 / e5 等生产基线。MTEB 不能直接用：版本不可比、二元相关性抹平差异（ZeroEntropy 用分级相关性重标 28 个数据集后排名明显变化）、聚合分掩盖检索子任务、领域与语言不在分布里——榜单缩范围，自己的 50–200 条查询集决定。判据：语言领域、上下文长度、维度与 Matryoshka、多模态、开放 vs API、版本稳定性（换模型 = 全量重建索引）、配套 rerank。多数情况模型间差距小于加混合与 rerank 的提升。详见[第二章](#二embedding-模型)。
 
 [^q1]: 索引：百万级以下 HNSW + 标量量化（内存驻留、高召回），亿级 IVF / DiskANN 一类，带过滤的搜索要在自己的过滤选择性下测召回。向量库先用现有的——pgvector 到百万级、已有 Elasticsearch 用它做混合——千万级或复杂过滤再上 Qdrant / Milvus / Weaviate / turbopuffer。混合检索：向量抓语义、BM25 抓精确（型号、函数名、编号），两路各取几十候选，用 RRF $$\sum 1/(k + \text{rank})$$（$$k = 60$$）只按排名融合，不需归一化与调权重。rerank：cross-encoder 让查询与文档交互，比双塔精确但不能预计算，只用于 RRF 后 top-20 的精排取 top-5；性价比最高——Anthropic 实验失败率从 −49% 再到 −67%，且把进入上下文的块从 10 降到 5 省预算与钱，延迟加几十到几百毫秒。详见[第三章](#三向量索引与向量库)、[第四章](#四混合检索)、[第五章](#五rerank)。

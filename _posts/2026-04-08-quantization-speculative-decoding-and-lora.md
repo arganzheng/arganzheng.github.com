@@ -868,8 +868,4 @@ LoRA 额外 FLOPs（W_Q）               0.78%             0.39%             —
 
    </details>
 
-## 下一篇
-
-[多模态：vision encoder 的算量与 image token 的 KV 代价](/multimodal-vision-encoder-cost-and-image-token-kv.html)
-
 [^q0]: INT4 模型 decode 快、prefill 慢，投机解码 batch 1 有效、batch 64 无效，是同一条 Roofline 上的同一件事：decode 是 memory-bound 的，算力在空转——量化用省下的字节换时间（改变 $$W_{bytes}$$），投机解码用多算的 FLOPs 换 token（改变每步的 $$m$$）；一旦 batch 或 prompt 长度把工作点推过 ridge，算力不再空转，两者的收益就同时消失，量化的反量化开销与投机的验证开销反而成了负担。LoRA 站在训练这一侧，它省的不是算力也不是带宽，是每参数 16 字节的优化器状态。详见[第二](#二起点decode-是-memory-bound-的)至[五章](#五lora改变训练时的-n)。

@@ -2385,8 +2385,4 @@ Table: 模型适配源码导航
 
    </details>
 
-## 下一篇
-
-[请求形态的扩展：multi-LoRA 与多模态](/request-shapes-multi-lora-and-multimodal.html)
-
 [^q0]: 在**三层**里按变化的性质吸收，让变化停在尽可能高、尽可能窄的层。**结构层面的变化**（新的 attention 变体、激活函数、MoE 路由）用模型层的组合式实现吸收——每个模型文件用共享的 `LinearBase` 子类、`Attention` 层、`FusedMoE` 拼装，权重加载经 `WeightLoader` 映射 HF 的 checkpoint 命名；新模型 = 一个新文件 + 注册到 `ModelRegistry`，运行时与算子层不动。**状态表示的变化**（MLA 的压缩 KV、滑窗、SSM 状态、混合模型）触及运行时层——`KVCacheSpec` 让每层声明自己的 cache 形态，`KVCacheManager` 按 spec 分组管理；这是最贵的适配，因为调度与显存账都受影响。**执行方式的变化**（新量化格式、新 attention kernel、新硬件）落在算子层——`QuantizationConfig` + `LinearMethod` 替换线性层前向；attention 经 backend 抽象选 kernel；硬件经 Platform。判断方法：问它改了「算什么」（模型层）、「状态长什么样」（运行时层）还是「怎么算」（算子层）。详见[第三](#三vllm-的核心抽象从模型接入到运行时执行)至[六章](#六一个新模型接入-vllm-的完整路径)，DeepSeek 的案例在[第七章](#七实际案例分析deepseek架构的工程适配)。

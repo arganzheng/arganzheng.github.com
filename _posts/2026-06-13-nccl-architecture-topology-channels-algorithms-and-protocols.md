@@ -1229,9 +1229,5 @@ if __name__ == '__main__':
 
    </details>
 
-## 下一篇
-
-[PyTorch 的通信栈：ProcessGroupNCCL、stream 语义与计算通信重叠](/pytorch-communication-stack-processgroupnccl-and-streams.html)
-
 [^q0]: 决策在 `ncclCommInitRank` 里做完、与单次消息无关：探测拓扑（`/sys` 的 PCIe 树 + NVML 的 NVLink + net 插件的 NIC）→ 计算每对设备的路径类型与带宽 → 图搜索出 nChannels 条 ring / tree → 建 transport → 用调优模型 $$T = \text{lat} \times \text{latCount} + S / (1000 \times \text{bw})$$ 为每个（算法, 协议, 消息大小）算预计时间填成表；`ncclAllReduce` 只查表选最小的（[第三](#三拓扑探测从-sys-和-nvml-到-xml-树)至[八章](#八调优模型nccl-如何估算时间)）。三个决定的账：NVSwitch 机器上 NVLS 可用——交换机内做归约，每卡 NVLink 流量约 $$2S/n$$ 而 ring 是 $$1.75S$$，所以几百 KB 以上选 NVLS + Simple；有 NVLink 无 NVSwitch 时 LL128 可用（依赖 NVLink 的写序保证，约 94% 效率），几 MB 以下 Ring + LL128 最快；纯 PCIe 上 LL128 被禁（PCIe 不保证写序），只剩 Simple（带宽好、延迟高）与 LL（50% 效率、延迟低）；跨 32 台机器时 ring 要 510 步、tree 只要 $$2 \times (7 + 5)$$ 步，延迟差一个数量级、带宽只差 30%，所以直到几百 MB 都选 Tree（[第七章](#七算法与协议)、[第八章](#八调优模型nccl-如何估算时间)）。
 [^q1]: 单机 NVSwitch 上大消息慢约 2 倍（带宽账：ring 的 NVLink 流量是 NVLS 的近 4 倍）；32 节点上中小消息慢 4–7 倍（延迟账：步数）；只在大规模 + GB 级消息上 ring 才是对的。详见[第七章](#七算法与协议)、[第八章](#八调优模型nccl-如何估算时间)。

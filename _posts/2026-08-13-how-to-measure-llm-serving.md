@@ -310,9 +310,5 @@ LLM Serving 的指标体系可以归纳为：
 
    </details>
 
-## 下一篇
-
-[鸟瞰 vLLM：一个请求如何穿过整个推理系统？](/vllm-request-lifecycle-overview.html)
-
 [^q0]: 四组：**延迟**——TTFT（首 token）、TPOT / ITL（每 token 间隔）、E2E；**吞吐**——tokens/s、requests/s、以及在 SLO 下完成的有效吞吐 Goodput；**效率**——MFU、GPU 利用率、显存利用率、每 token 成本；**质量**——P50 / P95 / P99 与 SLO 达标率。吞吐衡量系统做了多少工作，延迟衡量用户等了多久，Goodput 衡量在满足 SLO 前提下做了多少有效工作——只报吞吐或只报平均延迟都会误导。详见[第二章](#二llm-serving-指标总览)。
 [^q1]: TTFT 高而 TPOT 正常 → 排队或 Prefill（看队列长度与 waiting 数、prefill 的 token 预算、是否有长 prompt 独占）；TPOT 高 → Decode（batch 太大、KV 读取量大、被 chunked prefill 混批拖慢、通信）；两者都高且随负载恶化 → 资源饱和（KV 显存不足触发抢占与重算）；P99 远高于 P50 → 尾延迟来自长请求、抢占或 straggler。对应的方向：排队 → 扩容或准入控制；Prefill → chunked prefill、prefix cache、PD 分离；Decode → 调 token budget、KV 量化、投机解码、CUDA Graph；资源 → 更多 KV 显存（量化、GQA / MLA 模型）。测法：固定的请求分布与到达率压测、报分位数不报均值、区分冷热缓存。详见[第三章](#三指标常见误区与优化方向)、[第四章](#四在-vllm-里怎么测vllm-bench)。

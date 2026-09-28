@@ -867,8 +867,4 @@ Table: 本篇涉及的源码位置
 
    </details>
 
-## 下一篇
-
-[C++ 扩展与自定义算子](/pytorch-cpp-extension-and-custom-operators.html)
-
 [^q0]: 是 **Dispatcher**，依据一张按算子组织的注册表（Operator Table）。开发态：`native_functions.yaml` 定义算子的 Schema 与 `dispatch` 字段，实现写在 `ATen/native/`，Codegen 生成注册代码、C++ 入口与 Python 绑定，全部登进 Operator Table——每个算子一个 `OperatorEntry`，按 DispatchKey 存 `KernelFunction`（[第二](#二开发态1定义算子)至[五章](#五开发态横向机制codegen)）。运行态：`torch.add(x, y)` → Python 绑定解析参数 → `at::add` → `Dispatcher::call` 从参数 Tensor 的 `DispatchKeySet`（设备、是否需要梯度）加上 TLS 里的 include / exclude 取最高优先级的 key 查表——Autograd 先命中，记录 `grad_fn` 后把自己排除再重新分发，落到 CPU / CUDA 的 kernel；autocast、Functionalize、Python 子类拦截都是这条链上的一个 key（[第六](#六运行态1入口)至[九章](#九串起来add-的完整路径)）。所以一次算子调用实际经过一串按优先级排列的层，每层做完自己的事再交给下一层。

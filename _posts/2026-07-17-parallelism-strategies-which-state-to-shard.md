@@ -1282,8 +1282,4 @@ llama3-70b: tp=1 cp=1 pp=1 dp=1024 ep=1 zero=3 sp=True mb=1 m=1 -> 1024 GPUs
 
    </details>
 
-## 下一篇
-
-[三个框架：Megatron-LM、DeepSpeed 与 torchtitan 的架构对比与源码导读](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html)
-
 [^q0]: 把每种并行看成**状态的放置方案**：四种状态（参数、梯度、优化器状态、激活）各选复制还是切分，每个「切」对应一种通信、一个时机、一条链路。**DP 系**：DP 什么都不切、每 step 通信 $$2N$$（梯度 all-reduce），与卡数无关、可与反向重叠；ZeRO-1 切优化器状态、ZeRO-2 再切梯度，通信仍 $$2N$$；ZeRO-3 / FSDP 切参数，前向要 all-gather，通信 $$3N$$——在 DP 组上，可放节点间，能重叠（[第二章](#二数据并行与-zero切优化器状态梯度参数)）。**模型并行系**：TP 列切 + 行切配对，每层前向 2 次反向 2 次 all-reduce、载荷是激活 $$sbh$$，在关键路径上不可重叠，所以锁在 NVLink 内、$$N_t \le 8$$；SP 把它拆成 all-gather + reduce-scatter（[第三章](#三张量并行与序列并行)）；CP 切序列，attention 用 ring 传 KV，GQA 下 KV 小所以可重叠、可跨节点（[第四章](#四上下文并行)）；PP 按层切，通信最小（层边界激活、点对点、可重叠），代价是气泡 $$\frac{p-1}{m}$$（[第五章](#五流水线并行)）；EP 切专家，每层 all-to-all、在关键路径上（[第六章](#六专家并行)）。**放哪一层**：通信不可重叠且量大的放最近（TP 节点内），可重叠的可以放远（DP、PP 节点间），组合顺序 TP → CP → PP → DP。Llama 3 405B 的 TP 8 / PP 16 / DP 128 每 step：TP 220 GB 走 NVLink、DP 12.6 GB 走 IB、PP 1 GB 走 IB（[第七章](#七组合多维并行与-llama-3-405b)）。

@@ -361,9 +361,5 @@ Table: score matching、flow matching 与 CFG 的公式小结
 
    </details>
 
-## 下一篇
-
-[Latent diffusion、DiT 与文生图配方](/latent-diffusion-dit-and-text-to-image-recipes.html)
-
 [^q0]: 三者学的是同一个对象——每个噪声水平下带噪数据分布的分数 $$\nabla_x \log p_t(x)$$——的三种线性参数化：DDPM 的噪声 $$\epsilon = -\sigma s$$（Tweedie 公式），flow matching 的速度 $$v = \epsilon - x_0$$ 也由 $$x_t$$ 与 $$\epsilon$$ 线性决定；在高斯路径的前提下三种训练损失换元后只差一个与噪声水平有关的权重（加权的 ELBO）；三者的采样都是解同一个概率流 ODE（或反向 SDE），DDIM 是它的一种离散化，flow matching 的直线参数化让轨迹容易拉直（reflow）、Euler 法少步就够。详见[第二章](#二score-matching分数的视角)、[第三章](#三flow-matching直线的视角)。
 [^q1]: 每个噪声层上用的分数对应 $$\propto p_t(x)\, p_t(c \mid x)^{7.5}$$——把「这张图有多符合文本」这一项升到 7.5 次幂（终点样本的分布不是干净分布的这个幂，只是逐层的直觉），分布被锐化到最典型地符合文本的模式上：一致性与保真度上升、多样性下降（toy：$$w$$ 从 1 到 4，标准差 0.60 → 0.35）、外推过头落到分布之外导致过饱和（toy 的 $$w = 8$$），需要动态阈值或 rescale 修正，且每步要两次前向（除非蒸馏掉）。详见[第五章](#五classifier-free-guidance)。

@@ -1125,10 +1125,6 @@ checkpoint 解决的是"状态怎么安全落盘、怎么灵活装回"。但 You
 
    </details>
 
-## 下一篇
-
-[容错与弹性：故障率数学、straggler、SDC 与弹性训练](/fault-tolerance-and-elastic-training.html)
-
 [^q0]: 训练态 16 B / 参数、落盘 14（Megatron）或 12（FSDP2）B / 参数，405B 约 5.7 TB。rank-0 汇总写单文件撞三堵墙——主机内存放不下、单网卡 114 s、单写入者 **19–95 分钟**；分片写每卡约 350 MB（16K 卡），由并行文件系统的聚合带宽决定，秒级——但同步写期间训练停着，$$\delta$$ 十分钟量级时按 Young 公式 $$\tau_{opt} = \sqrt{2\delta M}$$、$$M \approx 3.1$$ h 会浪费 33% 的算力。详见[第二章](#二checkpoint-里有什么为什么缺一样都不行)、[第三章](#三为什么不能写成一个文件405b-的算术)。
 [^q1]: $$\delta$$ 从写入时间变成 staging 时间（把状态拷到主机内存的时间），$$\delta = 2$$ s 时浪费降到 1.9%——异步不是优化是必需。代价是 staging 内存：每卡唯一字节 ×（1–2），8B 模型 8 卡每卡 12 GB、千卡反而轻；线程 staging 受 GIL 影响、进程 staging 要 `/dev/shm`；等 staging 完成的点要放在 `optimizer.step` 之前，否则写出去的是被改过的状态。详见[第六章](#六异步保存)。
 [^q2]: **能**，前提是 checkpoint 格式与并行配置无关。DCP 的 `.metadata` 记每个张量的全局形状与每个块的全局坐标——磁盘上没有 rank / TP / PP；加载时每个本地块与磁盘块逐维算交集生成 `ReadItem`，零通信完成重分片。条件：同 FQN、同全局形状、块带全局坐标；PP 变了要展平 key；Megatron 分布式优化器需 `fully_reshardable`，DeepSpeed 需先 `ds_to_universal` 合并成全局再切。详见[第四章](#四dcp-的对象模型)、[第五章](#五重分片加载)、[第七章](#七megatron-的-dist_checkpointing)、[第八章](#八deepspeed-与-torchtitan)。

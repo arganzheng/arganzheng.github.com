@@ -1197,8 +1197,4 @@ unpaired_sendrecv.py   集合通信条目到 seq 5 全部 FULLY_MATCHED；p2p �
 
    </details>
 
-## 下一篇
-
-[推理侧的通信：custom all-reduce 与 KV 传输](/inference-communication-custom-all-reduce-and-kv-transfer.html)
-
 [^q0]: **为什么等到 timeout 才暴露**：NCCL kernel 在 GPU 上自旋等对端数据、没有任何超时；CPU 早在 enqueue 时就返回了；唯一的计时器是 c10d watchdog 的 `opTimeout_`（默认 10 分钟、从 enqueue 起算）——所以现象是所有 rank 都停在 all_reduce 并在 10 分钟后一起报 NCCL timeout，哪怕根因与 NCCL 无关（[第七章](#七timeout-的语义)）。**是谁的问题**：hang 分六类——参数不一致、集合通信次数不一致、send / recv 不配对、多个 communicator 交叉使用、某 rank 崩了或卡在别处（checkpoint、dataloader、`.item()`）、网络硬件。前四类的特征是各 rank 最后一次操作不一致，后两类一致（[第六章](#六hang-的分类与定位工具)）。**是哪一次**：Flight Recorder（`TORCH_NCCL_TRACE_BUFFER_SIZE`）记录每次集合通信的 seq、形状、dtype、调用栈与状态，timeout 时全体 dump，`fr_trace.py` 按 `collective_seq_id` 对齐各 rank 给出 culprit rank——直接指出哪个 rank 在第几次操作上与别人不一致。没有 FR 时：`py-spy dump` 看每个 rank 的 Python 栈 → gdb 看 C++ → cuda-gdb 看 kernel；`NCCL_DEBUG=INFO` 加 `SUBSYS=COLL` 数各 rank 的 opCount（[第五章](#五日志nccl_debug-的三层)、[第六章](#六hang-的分类与定位工具)、[第九章](#九决策树)）。第 3000 步而不是第 1 步，最常见是数据相关的不一致（某 rank 的 batch 触发了不同分支或空 tensor）或硬件间歇故障。

@@ -1505,8 +1505,4 @@ Table: 本篇涉及的源码位置
 
    </details>
 
-## 下一篇
-
-[编译执行与图优化](/pytorch-compilation-and-graph-optimization.html)
-
 [^q0]: 三步、两种接入、四个阶段。**三步**：定义 Schema（`scale_shift(Tensor x, float alpha, float beta) -> Tensor`，与 `native_functions.yaml` 同一种语言）→ 注册到 DispatchKey（CPU / CUDA / Autograd / Meta 各一份）→ 编写实现（[第二章](#二三步定义注册实现)）。**两种接入**：Python 的 `torch.library.define / impl / register_autograd / register_fake`，C++ 的 `TORCH_LIBRARY / TORCH_LIBRARY_IMPL`，两者写进同一张 Operator Table，`torch.ops.myops.scale_shift` 按名字取回（[第三章](#三两种接入方式torchlibrary-与-torch_library)）。**四个阶段**逐步落地：纯 Python 实现建立契约 → C++ CPU 实现（`AT_DISPATCH` 展开 dtype、`cpp_extension.load` 即时编译）→ CUDA 实现（`CUDAGuard`、当前 stream、launch 检查）→ Autograd 与 Meta（`register_fake` 给 `torch.compile` 与 shape 推断用）（[第五](#五阶段一python-实现建立契约)至[八章](#八阶段四autograd-与-meta)）。**验证**：`torch.library.opcheck` 对 Schema、Autograd、FakeTensor、别名信息做一致性检查，加 `gradcheck` 与对照 CPU 参考实现——原生算子靠 yaml + Codegen 自动获得的东西，自定义算子要自己补齐（[第九章](#九测试与-benchmark)、[第十章](#十构建abi-与分发)）。

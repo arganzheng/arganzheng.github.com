@@ -1413,8 +1413,4 @@ Python 内存管理的核心，不只是调用 `del` 或手动触发垃圾回收
 
    </details>
 
-## 下一篇
-
-[单元测试、问题定位与调试实践](/python-unit-testing-troubleshooting-and-debugging.html)
-
 [^q0]: **由 Python 管理的**：对象头、容器、字符串、闭包、异常与 traceback、`Tensor` 的 Python 包装——引用计数归零立即释放，循环引用等分代 GC；小对象经 pymalloc 的 arena，释放后不一定还给操作系统（[第三章](#三python-对象模型与内存开销)、[第八章](#八引用计数垃圾回收与内存分配器)）。**在原生缓冲区或设备上的**：`Tensor` 的数据在 `Storage` 里，CPU 侧由 allocator、GPU 侧由 CUDA caching allocator 管——`nvidia-smi` 看到的是 reserved，`memory_allocated()` 才是在用的；PyTorch 的 Tensor 存储、Arrow 的 buffer 走自己的分配器，`tracemalloc` 看不见；NumPy 是例外——它通过 `PyDataMem_*` 接入了 tracemalloc 的追踪域（本地 3.12 验证：分配 400000 字节的 ndarray，traced 增长 400096），所以能看到 NumPy 数组、看不到 torch / CUDA 的（[第五章](#五缓冲区协议与底层内存共享)、[第七章](#七python-与原生运行时的内存边界)）。**创建副本或延长生命周期的操作**：`clone()`、不连续时的 `contiguous()`、`.tolist()`、`np.array(x)` 复制；切片、`view`、`numpy()` 共享并让整块缓冲区活着；闭包捕获、`except ... as e` 持有的 traceback 帧、全局缓存、`lru_cache`、日志 handler 都会延长生命周期（[第四章](#四复制视图与对象共享)、[第六章](#六数据布局与隐式复制)、[第九章](#九缓存引用与对象生命周期)）。**持续增长时怎么定位**：先分层——RSS 涨而 `tracemalloc` 不涨是原生或碎片，`memory_reserved` 涨是 CUDA 缓存或碎片；再用 `tracemalloc` 快照对比、`objgraph` 找引用链、`memray` 看原生分配、`memory_summary()` 看设备（[第十章](#十常见内存问题的排查方法)、[第十二章](#十二一个简单的内存审查案例)、[第十三章](#十三内存优化检查清单)）。

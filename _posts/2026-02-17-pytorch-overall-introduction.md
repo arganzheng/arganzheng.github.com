@@ -1234,10 +1234,6 @@ torch/（Python）→ torch/csrc/（绑定、Autograd 引擎、c10d）→ aten/s
 
    </details>
 
-## 下一篇
-
-[Tensor 与内存布局](/pytorch-tensor-and-memory-layout.html)
-
 [^q0]: 靠一条分层的运行时链路，每层各解决一件事：Python 里的 `y = model(x)` 先落到 **Tensor**（数据 + 形状 + 布局 + dtype + 设备 + 生命周期，Python 对象只是 C++ `TensorImpl` 的句柄）；每个算子调用进入 **Dispatcher**，按 Tensor 的 DispatchKeySet 选实现路径——Autograd key 上的包装先记录 `grad_fn` 建图（自动求导），再落到 CPU / CUDA / 第三方后端的 kernel（跨设备）；**编译**是把这条逐算子分发的路径整体换掉（Dynamo 捕获整图、AOTAutograd 拆前后向、Inductor 生成融合 kernel）；**分布式**对五类状态各做复制或分片的决定，用集合通信在 stream 上与计算重叠。四种能力能叠加，是因为都建立在同一个算子系统之上。详见[第五章](#五第一张地图静态视角pytorch-的逻辑分层)、[第六章](#六第二张地图动态视角一次算子调用发生了什么)；本系列第二至九篇逐层展开。
 [^q1]: 因为算子的「定义」与「实现」是分开的：`native_functions.yaml` 定义一个抽象算子，CPU 与 CUDA 各注册一份 kernel 到不同的 DispatchKey；调用时 Dispatcher 从输入 Tensor 的 device 算出 key、查表选实现。新硬件通过 PrivateUse1 与 device plugin 接入同一张表。详见[第五章](#五第一张地图静态视角pytorch-的逻辑分层)、[第六章](#六第二张地图动态视角一次算子调用发生了什么)，展开在第五篇。
 [^q2]: Tensor 是「元数据 + 共享的 Storage」：`view` / `transpose` / 切片只创建新的 `TensorImpl`（改 sizes / strides / offset），与原 Tensor 共用 Storage；`contiguous()`、`.to()` 跨设备或改 dtype、`clone()` 才分配新 Storage 并复制。详见[第五章](#五第一张地图静态视角pytorch-的逻辑分层)，展开在第二篇。

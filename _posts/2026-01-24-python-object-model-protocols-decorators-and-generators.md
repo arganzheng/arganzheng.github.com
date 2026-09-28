@@ -1237,7 +1237,3 @@ Table: 开头五行代码背后的机制
 
    </details>
 
-## 下一篇
-
-[类型系统与数据契约设计](/python-type-expression-and-the-typing-toolbox.html)
-

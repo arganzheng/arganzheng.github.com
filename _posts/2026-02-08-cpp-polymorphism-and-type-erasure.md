@@ -3087,9 +3087,5 @@ Table: 多态与类型擦除：Java 对照汇总
 
    </details>
 
-## 下一篇
-
-[宏、静态注册与代码生成](/cpp-macros-static-registration-and-codegen.html)
-
 [^q0]: 不是虚函数，是**函数指针 + 模板生成的适配器**。`OperatorHandle` 指向一个 `OperatorEntry`，它按 dispatch key 存着一张 `KernelFunction` 表；Dispatcher 从参数的 Tensor 算出 `DispatchKeySet`、取最高优先级的 key、查表拿到 `KernelFunction`。`KernelFunction` 是手工类型擦除的可调用对象：一个 `OperatorKernel` 的 `intrusive_ptr` 加两个函数指针（unboxed 与 boxed 入口）；注册时模板把具体签名的函数包装成统一形态（`wrap_kernel_functor_unboxed`），调用时 `callUnboxed<Return, Args...>` 把函数指针 `reinterpret_cast` 回带签名的类型再调。详见[第六章](#六类型擦除c10kernelfunction-的-boxed-与-unboxed-两条路径)、[第九章](#九回到源码从-atadd-到-cpu-kernel-的完整链路)。
 [^q1]: unboxed 保留 C++ 签名（`Tensor(const Tensor&, Scalar)`），零装箱、可内联，是 `at::add(x, 1)` 这类 C++ 直调与 Python 绑定的热路径；boxed 用 `Stack*`（一个 `IValue` 向量）作统一约定，参数全部装进 `IValue` 这个 tagged union，让 autograd、tracing、fallback、TorchScript 这些「不知道具体签名」的通用层能处理任意算子——像 Java 的 `Method.invoke(Object...)`。两套约定之间有自动的 boxing / unboxing 适配器，代价是每次转换的装箱开销。详见[第六章](#六类型擦除c10kernelfunction-的-boxed-与-unboxed-两条路径)、[第七章](#七c10ivalue手工实现的带类型标签的联合体)。

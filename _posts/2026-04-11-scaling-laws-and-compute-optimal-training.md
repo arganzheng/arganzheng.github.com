@@ -528,9 +528,5 @@ Table: scaling law 的公式与数字小结
 
    </details>
 
-## 下一篇
-
-[预训练数据工程：从 Common Crawl 到 15T token，去重、过滤与配比的账](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)
-
 [^q0]: Chinchilla 的「最优」只最小化训练算力 $$C = 6ND$$ 下的 loss——同样 $$7.2 \times 10^{23}$$ FLOPs，最优是约 80B 参数训 1.5T token；Llama-3 8B 训 15T 是把 $$N$$ 缩 10 倍、$$D$$ 放 10 倍，loss 高 0.053 nats，但推理成本是 1/10。把推理算进去，最优条件变成 $$\alpha A/N^\alpha = \beta B/D^\beta (1 + D_{inf}/3D)$$：一个要服务 100T token 的模型，最优点从 81B / 1.5T 移到 24B / 13.8T——小模型、多数据。0.05 nats 换十倍的推理成本与部署便利，对一个要被下载几亿次的模型是划算的。详见[第三章](#三算力怎么分chinchilla-最优)、[第四章](#四chinchilla-之后为什么都在过训练)。
 [^q1]: 2022 年（Chinchilla）指**训练算力最优**——固定 $$C$$ 让 loss 最低，$$D/N \approx 20$$；2024 年指**全生命周期最优**——训练 + 推理总成本，「过训练」成为常态，$$D/N$$ 到 100–2000。两个词的公式差一项 $$D_{inf}/3D$$。详见[第三章](#三算力怎么分chinchilla-最优)、[第四章](#四chinchilla-之后为什么都在过训练)。

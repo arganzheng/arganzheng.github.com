@@ -435,10 +435,6 @@ L=56 residual: init grad norm block1 2.2e+00 vs block56 7.6e-01 (ratio 2.9)   | 
 
    </details>
 
-## 下一篇
-
-[RNN：从 LSTM 到 attention 的诞生](/rnn-lstm-and-the-birth-of-attention.html)
-
 [^q0]: 等价矩阵的行数是输出位置数、列数是输入位置数——$$6 \times 6$$ 图上是 $$16 \times 36$$，576 个元素里只有 144 个非零、且这 144 个只由 9 个自由参数生成（局部性 + 参数共享）；ResNet-50 一个卷积层的等价矩阵有 $$4 \times 10^{10}$$ 个元素。所以卷积是带两条约束的线性层，参数量与图像大小无关、FLOPs 与之成正比。详见[第二章](#二卷积作为带约束的线性层)。
 [^q1]: 是。ResNet 的 $$x + f(x)$$ 与 Transformer 每层的两个残差块都是把 Jacobian 变成 $$I + J$$；ResNet-v2 的 pre-activation 就是 Pre-Norm 的前身。本文复现退化问题——plain 网络 20 → 56 层训练 loss 从 0.13 恶化到 0.72，残差网络不变。详见[第五章](#五resnet-的实验与遗产)。
 [^q2]: 卷积的先验（局部、平移不变）在数据少时是优势、数据多时是限制；把图切成 $$(H/p)(W/p)$$ 个 patch 线性投影成 token 送进标准 encoder，二维结构只靠位置编码——而这个 patch embedding 本身就是 kernel = stride = $$p$$ 的卷积（实测差 $$10^{-6}$$），卷积没有消失，退到了第一层。详见[第六章](#六从-cnn-到-vit)。

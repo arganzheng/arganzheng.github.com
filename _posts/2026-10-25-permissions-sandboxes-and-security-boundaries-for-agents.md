@@ -251,10 +251,6 @@ agent "猜测删除 staging 卷只作用于 staging"、"在没被要求的情况
    审批疲劳：规则太严把只读与常规写操作都送人，人不再看内容，审批失效。修：按风险分级——只读自动（`read_only` 范围内不问）、写工作区按 `execpolicy` 的 `allow`、只有不可逆与对外动作 `prompt`、危险的 `forbidden`；会话级"批一类"（允许本会话所有 `npm test`）；Guardian 先筛掉显然安全的；审批提示带 `justification`；监控审批率与拒绝率——拒绝率接近零说明规则松或人疲劳。目标是每个会话只有几次真正需要判断的审批。详见[第七章](#七pocketos-的五环与审批疲劳)。
    </details>
 
-## 下一篇
-
-[源码级对照：Codex、DeepSeek Harness、Claude Code 与 OpenHarness](/coding-agent-harness-comparison-codex-deepseek-harness-claude-code.html)
-
 [^q0]: 权限档是会话的静态范围（能碰什么）：Codex `:read_only` / `:workspace`（只写工作区根、`.git` 与 `.codex` 只读、网络可选受限）/ `:danger_full_access`（沙箱关），DeepSeek Harness 同名三档，Claude Code 用 allow / deny / ask 规则（`Bash(rm *)`）。审批策略是动态倾向（什么时候问人）：Codex `AskForApproval` 的 `untrusted` / `on-request` / 细粒度 / `never`。执行策略是具体命令的判定：Codex `execpolicy` 的 Starlark 前缀规则 allow / prompt / forbidden，带 `justification`（出现在审批提示）与加载时校验的 `match` / `not_match`，`host_executable` 约束路径；Guardian 用模型先审高风险调用。沙箱是执行时的强制：即使前面放行，操作系统层面仍限制实际效果。缺一层的事故原型：只审批无沙箱——命令文本看不出脚本的真实效果；只沙箱无审批——沙箱内的破坏照样发生；只权限档无执行策略——`rm -rf` 与 `git push --force` 在写工作区档位内同样"在范围内"；且沙箱管不了合法凭据对外部系统的动作。详见[第一章](#一总览)到[第四章](#四沙箱)。
 
 [^q1]: Codex（`tools/orchestrator.rs`）：按 `AskForApproval` 与 `execpolicy` 决定是否审批（可选 Guardian 先审）→ `SandboxManager` 按权限档、工具偏好、平台选沙箱（macOS Seatbelt + SBPL、Linux bubblewrap + Landlock + seccomp、Windows 受限令牌 + ACL + Job Objects，网络经代理策略）首次尝试 → 被拒时 `never` / `on-request` 不升级只返回说明，允许升级的策略要新审批（含新 Guardian 审查）后无沙箱重试。Claude Code 六步：hooks 先跑（可拒可放但不跳过 deny）→ deny 规则（含 `bypassPermissions` 下生效，裸名 deny 预先移除工具）→ ask 规则（送回调；`dontAsk` 下直接拒）→ 模式（`bypassPermissions` 放行、`acceptEdits` 放行文件操作、`plan` 把写操作一律送回调）→ allow 规则 → `canUseTool` 回调（`dontAsk` 跳过直接拒）；子 agent 继承并可收紧。DeepSeek Harness：`sandbox-policy` 把三档解析成每次调用的策略、`sandbox-local` 等后端执行、审批策略作为 `dsh-base` 里的可替换插件、`interaction` 呈现审批。详见[第三章](#三审批策略与执行策略)、[第四章](#四沙箱)、[第五章](#五claude-code-的六步判定)。

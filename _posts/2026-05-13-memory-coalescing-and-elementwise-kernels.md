@@ -1158,8 +1158,4 @@ unrolled 每线程 4 元素；legacy elementwise_kernel<128, 2 或 4> + OffsetCa
 
    </details>
 
-## 下一篇
-
-[共享内存与 reduction：softmax、LayerNorm 与 online softmax](/shared-memory-reduction-and-softmax.html)
-
 [^q0]: 先看那 10% 能不能拿：DRAM 可达带宽约为标称的 85–92%，90% 已经贴着物理上限，kernel 内部几乎没有余地（[第二章](#二一个-warp-的内存请求发生了什么)）。真正的优化在两个方向。**一是确认没有隐藏的浪费**：合并访存是否 100%（warp 的 32 个地址落在最少的 32 B sector 里；AoS 布局、非 1 的最内维 stride、未对齐都会多付 sector）；是否向量化到 16 字节 / 线程；在飞请求是否够——Little's law 要求 A100 约 1.2 MB 在飞（[第二](#二一个-warp-的内存请求发生了什么)至[五章](#五非连续-tensorstride-与-broadcast)）。ATen 的 `gpu_kernel` → `launch_vectorized_kernel` 已经把这些做了，所以它能到 90%（[第六章](#六读-aten-的-elementwise-实现)）。**二是让 kernel 消失**：三个 elementwise 分开执行是每元素 16 B，融合成一个是 8 B——90% 带宽之后唯一的办法是减少总字节数，把相邻的 elementwise 合进一个 kernel、或合进前后 GEMM / reduction 的 epilogue，这是 Inductor 融合全部收益的来源（[第七章](#七融合90-之后)）。

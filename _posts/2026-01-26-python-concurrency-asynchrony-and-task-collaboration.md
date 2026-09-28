@@ -2579,10 +2579,6 @@ Python 并发编程的难点，并不在于记住 `async def`、`await` 或线�
 
    </details>
 
-## 下一篇
-
-[Python 的动态机制及工程实践](/python-reflection-metaprogramming-and-plugin-architecture.html)
-
 [^q0]: 瓶颈在哪决定用什么：阻塞 I/O 与外部服务用线程或 asyncio（等待时释放 GIL / 让出事件循环）；纯 Python 的 CPU 计算用进程（绕开 GIL，代价是序列化）；GPU 计算由 C 扩展在释放 GIL 后驱动，线程就能并行推动。判断办法是先测：CPU 满而 GPU 闲是 Python 侧瓶颈，GPU 满是算力瓶颈，两者都闲多半在等网络或外部服务。详见[第二](#二线程java-工程师最熟悉的模型)至[四章](#四asyncio单线程内的-mn-调度)与[第七章](#七一个实用的并发决策树)的决策树。
 [^q1]: 大量 I/O 任务用 asyncio 的单线程 M:N 调度；任务之间用队列解耦；用 `TaskGroup` 让任务有归属、异常以 `ExceptionGroup` 传播；超时与取消（`asyncio.timeout()`，`CancelledError` 是 `BaseException`）管理生命周期。AI-Infra 里三种模型常一起用：事件循环接请求、线程池跑阻塞调用、进程池做 CPU 预处理。详见[第四章](#四asyncio单线程内的-mn-调度)、[第五章](#五ai-infra-组合模式三种模型一起用)。
 [^q2]: 靠背压：有界队列让生产者在 `put` 处等待，异步生成器天然有背压；超时让等太久的请求退出而不是堆积；批处理把并发请求凑成 batch 送 GPU，让吞吐随并发上升、而不是让延迟无限增长。无界队列 + 无超时是最常见的「内存慢慢涨、延迟慢慢长」的来源。详见[第五章](#五ai-infra-组合模式三种模型一起用)、[第六章](#六常见错误与改进方式)。

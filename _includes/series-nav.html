@@ -4,11 +4,12 @@
   plus the 上一篇 / 下一篇 line. Replaced the blockquote
   「本文是《…》系列的第 N 篇（共X篇）。上一篇：…；下一篇：…」 on 2026-09-28.
   Needs series-context.html first. Keeps the .series-nav class: the WeChat
-  export strips it.
+  export strips it. series-toc.html renders the same box at the bottom of the
+  post with `open=true` (the list unfolded — the reader has finished).
 {%- endcomment -%}
 {%- if series_meta -%}
-<div class="series-nav series-box">
-  <details>
+<div class="series-nav series-box{% if include.bottom %} series-toc{% endif %}">
+  <details{% if include.open %} open{% endif %}>
     <summary>
       <span class="sb-kicker">系列</span>
       <a class="sb-title" href="{{ series_meta.url | default: series_meta.overview | prepend: site.baseurl }}">《{{ series_meta.name }}》</a>
@@ -24,11 +25,12 @@
       {%- endfor %}
     </ol>
   </details>
-  {%- if series_prev or series_next %}
+  {%- comment %} the pager right under the bottom box already shows prev / next {% endcomment -%}
+  {%- unless include.bottom %}{% if series_prev or series_next %}
   <p class="sb-nav">
     {%- if series_prev %}<span>上一篇：<a href="{{ series_prev.url | prepend: site.baseurl }}">{{ series_prev.title | split: '）：' | last }}</a></span>{% endif -%}
     {%- if series_next %}<span>下一篇：<a href="{{ series_next.url | prepend: site.baseurl }}">{{ series_next.title | split: '）：' | last }}</a></span>{% endif -%}
   </p>
-  {%- endif %}
+  {%- endif %}{% endunless %}
 </div>
 {%- endif -%}

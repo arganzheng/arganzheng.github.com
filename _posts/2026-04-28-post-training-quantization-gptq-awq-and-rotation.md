@@ -425,9 +425,5 @@ Table: 训练后量化的规则与公式小结
 
    </details>
 
-## 下一篇
-
-[量化感知训练、低比特与量化模型的评测](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html)
-
 [^q0]: **快在 decode**：权重字节 ÷ 4，memory-bound 的 decode 快 2.5–3.5 倍，70B 从两张卡变成一张。**慢在 prefill 与大 batch**：GEMM 仍是 BF16，dequant 是额外算力——高吞吐负载要用 W8A8 / FP8（字节 ÷ 2、算力 × 2、接近无损）或 W4A4（需要旋转与低比特 Tensor Core）。详见[第八章](#八格式)、[第十章](#十成本)。
 [^q1]: 量化误差 $$\Delta^2/12$$ 由 group 内的最大值决定，而 LLM 的权重有重尾、激活有固定通道的离群值：一个 $$15\sigma$$ 的权重让 group 内其他权重的误差与自身同量级；激活大的通道上同样的权重误差被放大几十倍。GPTQ 用 $$H^{-1}$$ 把误差补偿到相关的通道上，AWQ 放大显著通道的权重，两者把 W4A16 的困惑度损失压到 0.1–0.3；激活的离群值要靠 SmoothQuant 迁移、per-token 动态、或 Hadamard 旋转摊平——旋转让 W4A4 从崩掉变成可用。过训练的模型（Llama 3）比前代更难量化，因为每个权重的低位也被塞进了信息；对这些模型，下一篇的 QAT 是出路。详见[第二](#二误差模型)至[七章](#七旋转把离群值摊平)。

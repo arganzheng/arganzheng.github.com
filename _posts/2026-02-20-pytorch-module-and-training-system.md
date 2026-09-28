@@ -1941,8 +1941,4 @@ Table: 本篇涉及的源码位置
 
    </details>
 
-## 下一篇
-
-[Dispatcher 与算子系统](/pytorch-dispatcher-and-operator-system.html)
-
 [^q0]: 靠 `nn.Module` 的**注册机制**：`__setattr__` 拦截赋值，把 `Parameter` 登进 `_parameters`、子 Module 登进 `_modules`、`register_buffer` 登进 `_buffers`——只有被登记的对象才参与 `parameters()` 遍历、`state_dict()` 保存、`.to()` 的递归迁移与 `train()` / `eval()` 切换；Python list 里的 Module 不会被登记，要用 `ModuleList`（[第三章](#三nnmodule-与模块注册)、[第四章](#四parameterbuffer-与模型状态)）。**状态**由 `state_dict` 统一表示为「限定名 → Tensor」的有序字典，`load_state_dict` 按名字对齐，优化器有自己的 `state_dict`，两者一起就是 checkpoint；`torch.save` 是 pickle，`weights_only=True` 防任意代码执行（[第五章](#五state_dict模型状态的结构化快照)、[第十三章](#十三checkpoint-与可恢复训练)）。**数据管线**由 `Dataset`（取一条）、`Sampler`（出索引）、`DataLoader`（worker 进程、`collate`、`pin_memory`、预取）组成，与模型解耦（[第八章](#八datasetsampler-与-dataloader)、[第九章](#九cpu-gpu-数据传输与训练流水线)）。**训练循环**把它们串起来：前向 → loss → `backward` → `optimizer.step` → `zero_grad`，autocast 在算子层转换 dtype、`GradScaler` 处理 fp16 缩放，hooks 是观测与扩展点（[第七章](#七optimizer-与参数更新)、[第十章](#十完整训练循环)至[十二章](#十二hooks-与模型观测)）。可扩展性来自「一切都是 Module、一切状态都在 `state_dict` 里」这两条约定。

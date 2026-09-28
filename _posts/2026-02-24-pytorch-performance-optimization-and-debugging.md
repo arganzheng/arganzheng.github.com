@@ -1475,8 +1475,4 @@ Table: 本篇涉及的源码位置
 
    </details>
 
-## 下一篇
-
-[分布式 PyTorch](/pytorch-distributed-training.html)
-
 [^q0]: **判断慢**：先量而不是猜——用 `torch.utils.benchmark.Timer` 处理预热、同步与统计，与一个理论下界比（FLOPs / 峰值算力、字节数 / 带宽），离下界几倍才叫慢（[第二章](#二度量1异步执行模型正确计时的前提)、[第三章](#三度量2benchmark-方法怎么得到可信的数字)）。**定位为什么慢**：用 `torch.profiler` 的时间线把症状归到六类——GPU 空闲、CPU 忙、kernel 多而小是 **launch-bound**（融合、CUDA Graphs）；CPU 时间不在算子上是 **Python-bound**（`with_stack` 找到、向量化或 compile）；GPU 忙且逐元素算子占比高是 **memory-bound**（融合、bf16、布局）；GPU 忙且 GEMM 占比高是 **compute-bound**（Tensor Core、减算量）；时间线两侧交替空洞是 **sync-bound**（`.item()`、`nonzero`，用 `set_sync_debug_mode` 抓）；GPU 大段空白、CPU 停在 DataLoader 是数据加载（[第四](#四度量3profiler-与-nsight怎么看出瓶颈属于哪一类)至[七章](#七时间维度3两侧之间sync-bound)）。显存另一张表：`reserved ≫ allocated` 是碎片、`allocated` 单调涨是泄漏（memory snapshot 找持有 `grad_fn` 的引用）、平均不高但 OOM 是峰值（[第八章](#八空间维度显存)）。原则：先分层再动手，改完再量。[第九章](#九一个完整案例transformer-block-的训练-step)在一个 Transformer block 上完整走一遍。

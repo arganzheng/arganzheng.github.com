@@ -1061,10 +1061,6 @@ Java 工程师需要放弃的第三个直觉：**"一个包就是一个 jar"**�
 
    </details>
 
-## 下一篇
-
-[值、引用与所有权：对象模型与 RAII](/cpp-value-semantics-ownership-and-raii.html)
-
 [^q4]: `import torch` 先由 `_load_global_deps()` 以 `RTLD_GLOBAL` `dlopen` `libtorch_global_deps.so`（把 CUDA runtime、cuDNN、NCCL 的符号放进全局命名空间），再导入扩展模块 `torch/_C.*.so`，它的 `DT_NEEDED` 链上是 `libtorch_python.so` → `libtorch.so` → `libtorch_cpu.so` / `libtorch_cuda.so` → `libc10.so` / `libc10_cuda.so`。详见[第三章](#三pytorch-的源码布局与库布局)、[第四章](#四回到源码)。
 [^q5]: `c10` 是最底层（Tensor 元数据、Device、Allocator、Dispatcher 核心），`torch_cpu` / `torch_cuda` 是算子与 kernel，`torch` 是把两者拼起来的空壳，`torch_python` 是 Python 绑定；每一层只导出标了 `C10_API` / `TORCH_API` 的符号，其余在 `-fvisibility=hidden` 下不可见。详见[第二章](#二命名空间c10attorch-的分工)、[第三章](#三pytorch-的源码布局与库布局)。
 [^q6]: 用 `torch.utils.cpp_extension` 构建的扩展链接 `libc10.so`、`libtorch.so`、`libtorch_cpu.so`（CUDA 扩展再加 `libc10_cuda.so`、`libtorch_cuda.so`），用了 pybind11 / Python API 时再加 `libtorch_python.so`，并用 `-Wl,-rpath` 把搜索路径烧进去。符号在加载期由动态链接器解析，所以扩展的 ABI（`_GLIBCXX_USE_CXX11_ABI`、编译器版本）必须与这些库一致。详见[第四章](#四回到源码)、[上篇第七章](/cpp-compilation-model-from-cpp-to-shared-object.html#七实践一手写编译命令链接一个-libtorch-程序)。

@@ -348,9 +348,5 @@ Table: DDPM 的公式小结
 
    </details>
 
-## 下一篇
-
-[扩散模型（下）：score matching、flow matching 与 classifier-free guidance](/score-matching-flow-matching-and-classifier-free-guidance.html)
-
 [^q0]: 一个能在每个噪声水平下猜出噪声的网络，知道从任何一个带噪点看"干净数据在哪个方向"；采样从纯噪声出发，每步按 $$\mu_\theta = \frac{1}{\sqrt{\alpha_t}}(x_t - \frac{\beta_t}{\sqrt{1 - \bar\alpha_t}} \epsilon_\theta)$$ 朝那个方向挪一点、再加回一点随机性，1000 步后落到数据分布上——toy 上 2000 个噪声点全部被送到两个月牙上，离真实数据 0.021。详见[第四章](#四训练目标从变分下界到一行-mse)、[第五章](#五采样从噪声走回数据)。
 [^q1]: ELBO 拆成 $$T$$ 个高斯 KL，方差固定所以只剩均值差，均值用噪声表示后就是 $$\lVert \epsilon - \epsilon_\theta \rVert^2$$ 乘一个权重，去掉权重即 $$L_{simple}$$。DDIM 能跳步是因为训练目标只依赖每个 $$t$$ 的边缘分布，同一个网络配得上一族反向过程，取确定性的那条（ODE）就能大步走——toy 上 20 步接近 1000 步。详见[第四章](#四训练目标从变分下界到一行-mse)、[第六章](#六ddim-与确定性采样)。

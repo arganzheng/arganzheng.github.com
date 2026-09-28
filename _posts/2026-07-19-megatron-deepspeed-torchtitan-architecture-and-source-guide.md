@@ -1243,8 +1243,4 @@ def compare_with_ledger(probe_json: str, model, cfg, precision="bf16", optimizer
 
    </details>
 
-## 下一篇
-
-[千卡配置实战：并行搭配、micro-batch、激活重计算与 MFU 调优](/thousand-gpu-configuration-and-mfu-tuning.html)
-
 [^q0]: **Megatron**：bf16 参数常驻完整，是 `_ParamAndGradBuffer` 连续内存里的一个视图，从不被释放；梯度经 DDP hook 累加进 `main_grad`（默认 fp32），bucket 满了就 reduce-scatter；`DistributedOptimizer` 按字节区间把优化器状态与 fp32 主参数切成 $$1/N_d$$——主副本在按字节区间分到的那张卡上，每卡只更新自己那段，然后 all-gather 更新后的 bf16 参数回 buffer（[第三章](#三megatron-lm按模型结构切)）。**DeepSpeed ZeRO-3**：bf16 参数常驻 $$1/N_d$$ 碎片（`ds_tensor`），前向到某个 module 时 hook 触发参数协调器 all-gather 完整参数（按 trace 预取）、用完立即释放回碎片，反向再来一次；fp32 主参数是优化器里的扁平 fp32 分区（[第四章](#四deepspeed按优化器状态切)）。**torchtitan（FSDP2）**：bf16 参数不常驻——`fully_shard` 让每层参数成为 `Shard(0)` 的 fp32 DTensor 分片，前向前 unshard：all-gather 进连续 buffer 并按 `MixedPrecisionPolicy` 转成 bf16 临时参数，反向后 reduce-scatter 梯度、free 临时参数；fp32 主参数就是那个分片本身（[第五章](#五torchtitan用原生原语组合)）。三者通信量相同（$$2N$$ 或 $$3N$$）、表示与可组合性不同；进程组一个用 `RankGenerator` 填全局变量、一个委托 mpu、一个用 `DeviceMesh` 切视图（[第二章](#二进程组谁和谁通信)、[第六章](#六对照阅读)）。

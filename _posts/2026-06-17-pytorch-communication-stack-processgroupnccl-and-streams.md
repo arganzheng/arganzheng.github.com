@@ -1089,10 +1089,6 @@ torchrun --nproc_per_node=8 overlap_bench.py --killer sync
 
    </details>
 
-## 下一篇
-
-[nccl-tests、调优与排障：从带宽曲线到 hang](/nccl-tests-tuning-and-debugging-hangs.html)
-
 [^q0]: 不一定。`ProcessGroupNCCL::collective` 让内部的 NCCL stream 等待当前计算 stream 的 event，把 `ncclAllReduce` 的 kernel 排进 NCCL stream，记录 end event，返回 `WorkNCCL`——CPU 只是把工作入队；kernel 何时真的跑取决于计算 stream 上此前的工作何时完成以及 SM 是否有余量。详见[第三章](#三processgroupnccl-的对象模型)、[第四章](#四stream-语义一次-all_reduce-的-streamevent-之舞)。
 [^q1]: 也不一定。`wait()` = 让**当前 stream** `cudaStreamWaitEvent` 那个 end event——它在 GPU 侧建立顺序：当前 stream 后续的 kernel 会等通信完成；CPU 不阻塞、立刻返回。只有 `TORCH_NCCL_BLOCKING_WAIT`、显式 timeout、`barrier` 或用户自己的 `synchronize` 才阻塞 CPU。详见[第四章](#四stream-语义一次-all_reduce-的-streamevent-之舞)、[第六章](#六async_optrue-与计算通信重叠)。
 [^q2]: 在 `wait()` 之前在当前 stream 上读或写 `t` 是数据竞争——那些 kernel 与 NCCL kernel 在两条 stream 上并行，结果未定义；`wait()` 之后再碰是安全的。`del t` 反而安全：`WorkNCCL` 默认把 tensor stash 到 `TensorShelf`、`wait()` 后 unstash，不 wait 则 watchdog 转移 shelf，显存不会在 kernel 跑完前被释放。这套 stream + event 编排正是重叠的来源，也是它失效的来源：同 stream、`.item()`、`synchronize`、`cudaFree`、`wait()` 放太早都会把重叠杀掉。详见[第五章](#五输入-tensor-的生命周期与-caching-allocator)、[第六章](#六async_optrue-与计算通信重叠)。

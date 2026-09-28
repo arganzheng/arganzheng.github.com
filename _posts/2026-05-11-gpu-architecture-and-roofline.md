@@ -916,8 +916,4 @@ Table: 四个 kernel 例子的算术强度与 Roofline 理论时间
 
    </details>
 
-## 下一篇
-
-[CUDA 编程模型与第一个 kernel](/cuda-programming-model-and-first-kernel.html)
-
 [^q0]: 由 Roofline 给出：$$T = \max(F / P_{peak},\ B / BW)$$——一段计算至少要做 $$F$$ 次 FLOP、至少要在 HBM 上搬 $$B$$ 字节，两者各除以峰值算力与峰值带宽，取大的那个就是下界。算术强度 $$I = F / B$$ 与 ridge $$= P_{peak} / BW$$ 比：低于 ridge 是 memory-bound（时间由字节数决定，目标是 85–90% 的带宽利用率），高于是 compute-bound（只有 tile 足够大、数据在 shared / L2 复用足够时才真的碰到算力顶）。A100 BF16 的 ridge 是 156、H100 是 295，每代硬件都右移——elementwise（$$I = 1/6$$）、RMSNorm（≈1）、decode attention（≈4）全是 memory-bound，只有大 GEMM（4096³ 约 1365）在右边。两条屋顶都没碰到是第三种情况：latency-bound，在飞的请求不够多，硬件在等。之所以这样算得准，是因为 GPU 用零开销的 warp 切换而不是乱序执行隐藏延迟、访存按 warp 合并成 sector、内存层次每层带宽差一个数量级。详见[第五章](#五内存层次容量带宽延迟)、[第六章](#六roofline-模型)，硬件基础在[第二](#二两种设计目标延迟与吞吐)至[四章](#四smwarp-与-simt-的硬件实现)。

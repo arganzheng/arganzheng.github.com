@@ -274,10 +274,6 @@ Table: 适配层的五个职责
    返回错误——Fable 5.1 起强制工具调用是三个 breaking change 之一。应改用结构化输出 `output_config.format` 传 json_schema；这本来就是"用工具当结构化输出"这个 workaround 的正规替代。契约变更应只影响中间层的一个适配器文件。详见[第三章](#三工具调用是一个协议)、[第七章](#七2026-年契约的变更清单)。
    </details>
 
-## 下一篇
-
-[API 契约（二）：推理模型——thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)
-
 [^q0]: 骨架：消息是块列表（文本、图片、文件、工具调用、工具结果、思考），角色分开发者指令 / 用户 / 模型三类，工具定义用 JSON schema，模型输出里带 tool_call、应用送回 tool result，结构化输出用 schema 约束解码，流式用 SSE 事件，状态或在客户端（Messages、Chat Completions、generateContent）或在服务端（Responses、Interactions）。差异在字段名（`instructions` / `system` / `system_instruction`；`assistant` / `model`）、参数形态（OpenAI 的 `arguments` 是字符串，Anthropic 的 `input` 是对象）、缓存声明（Anthropic 显式 `cache_control`，其余自动）、以及默认存储（Responses、Interactions 默认存）。详见[第一章](#一总览)、[第二章](#二消息与角色共同骨架)。
 
 [^q1]: 六步：应用送 messages + tools → 模型返回含 1..n 个 tool_call（id、name、arguments）的消息 → 应用校验参数、检查权限、执行（可并行）→ 应用把每个 id 对应的结果（含错误）送回 → 模型给出最终回答或再一批 tool_call → 循环直到无调用或预算耗尽。模型只负责"决定"与"读结果"；校验、权限、执行、id 配对（缺一个就 400）、结果截断、把错误作为结果送回、步数与预算控制、终止判断都是应用的责任。工具结果是不可信输入。详见[第三章](#三工具调用是一个协议)。

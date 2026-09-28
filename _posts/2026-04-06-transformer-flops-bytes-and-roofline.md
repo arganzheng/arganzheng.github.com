@@ -907,10 +907,6 @@ prefill 8K @60% MFU         0.24–0.27 s     2.1–2.2 s       —
 
    </details>
 
-## 下一篇
-
-[浮点格式、数值稳定性与混合精度](/floating-point-formats-and-mixed-precision.html)
-
 [^q0]: 每个参数对每个 token 约 2 FLOPs（一次乘加），所以权重项是 $$2 N$$ FLOPs/token；attention 的 $$QK^\top$$ 与 $$PV$$ 再加 $$4 L s d$$ 每 token（$$s$$ 为当前上下文长度）。Llama-3-8B 短上下文下每 token 约 16 GFLOPs，prefill 一段 $$s$$ 个 token 的 prompt 就乘 $$s$$。详见[第二章](#二算量flops-从哪里来)、[第三章](#三prefill-与-decode同一组矩阵两种-gemm-形状)。
 [^q1]: decode 每步至少读一遍全部权重：Llama-3-8B BF16 是 16.06 GB，与 batch 无关；再加当前 batch 全部 token 的 KV cache（每 token 128 KiB × 上下文长度）与很小的激活。prefill 读同样的权重但一次服务几千个 token，所以每 token 摊到的字节少几个数量级。详见[第四章](#四访存量每一步要从-hbm-读什么)。
 [^q2]: 比值叫**算术强度**（FLOP/字节）；把它与硬件的 ridge point（峰值算力 / 显存带宽，H100 BF16 约 $$989 / 3.35 \approx 295$$）比：低于 ridge 时时间由字节数 / 带宽决定（memory-bound），高于时由 FLOPs / 算力决定（compute-bound）。时间下界就是两者取大。详见[第五章](#五roofline把-flops-和字节数放到同一张图上)、[第六章](#六时间下界)。

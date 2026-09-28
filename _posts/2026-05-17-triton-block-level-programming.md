@@ -1173,9 +1173,5 @@ Triton 的边界
 
    </details>
 
-## 下一篇
-
-[Attention Kernel：FlashAttention 与 PagedAttention](/attention-kernels-flashattention-and-pagedattention.html)
-
 [^q0]: Triton 编译器在 TTGIR 层自动做了合并、向量化、多级 `cp.async` 流水、`ldmatrix`、swizzle、mma 选择——前几篇手工做的一切——所以 memory-bound 的 elementwise 与 softmax 与手写相当，matmul 到 cuBLAS 的 80–95%。差的部分是编译器暂时不做或做不好的：流水与 warp specialization 的精细控制（Hopper 的 producer / consumer 分工、TMA 描述符）、epilogue 的布局转换、小 shape 的 tile 选择（自动调优的搜索空间里没有最优点）、指令级调度（LDS 与 mma 的交错）。详见[第四章](#四编译器做了什么从-python-到-cubin)、[第六章](#六编译器的边界那-10-在哪里)。
 [^q1]: 生产热点的 GEMM 与 attention——一个 kernel 占总时间 30% 以上时 10% 就是 3% 的端到端；需要特殊指令（`ldmatrix.trans`、magic number 反量化、`redux`）；需要压榨 Hopper（wgmma、TMA、集群）；需要跨 block 协作（持久 kernel、stream-K、全局信号量）。其余场景——融合的 elementwise、归约、自定义 loss、绝大多数实验性算子——Triton 的 20% 代码量与可维护性远比 10% 性能值钱。详见[第五章](#五生产中的-triton-kernel)、[第六章](#六编译器的边界那-10-在哪里)。

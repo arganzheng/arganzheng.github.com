@@ -1217,8 +1217,4 @@ mini-platform/
 
    </details>
 
-## 下一篇
-
-[Serving 平台：从 InferenceService 到 llm-d](/serving-platforms-kserve-triton-ray-serve-llm-d.html)
-
 [^q0]: 带宽只有裸机三分之一，几乎一定是 NCCL 回落到了 Socket 或 GDR 没开——缺任何一项都不报错，只是日志里 `NET/IB : No device found.` → `Using network Socket`。**Pod 网络**：默认 CNI 只给 Pod 一张 veth 走 overlay；RDMA 需要第二张网卡——Multus 当元插件、`NetworkAttachmentDefinition` 装 CNI 配置、Pod 注解 `k8s.v1.cni.cncf.io/networks` 引用（host-device / macvlan / ipoib）；漏了注解、NAD 没关联 device plugin 的 `resourceName`、或 RDMA 侧没有 IP 做握手，NCCL 就找不到 IB 设备（[第二章](#二为什么-cni-overlay-不够)、[第三章](#三第二张网卡multus-与-networkattachmentdefinition)）。**device plugin 分配**：`/dev/infiniband` 的 uverbs / umad / rdma_cm 设备要进容器——rdma-shared-dev-plugin 按 `configList[].selectors` 上报 `rdma/<name>` 资源（要求 `rdma system set netns shared`，无 GPU 亲和），或 SR-IOV plugin 一 VF 一 Pod；Pod 要 `IPC_LOCK` capability 否则注册显存失败；显存注册需要 peermem 或 DMA-BUF 在宿主机可用（[第四章](#四把-rdma-设备给容器)）。**NCCL 环境变量**：`NCCL_IB_HCA` 是否把网卡排除了、`NCCL_SOCKET_IFNAME` 是否指到 RDMA 侧接口、`NCCL_IB_GID_INDEX` / `NCCL_IB_TC`（RoCE 要选对 v2 GID 与无损 TC）、`NCCL_NET_GDR_LEVEL`（GPU 与网卡 PCIe 路径超过 `PXB` 时 GDR 被关——容器里 GPU 与 NIC 的分配没有亲和时常见）、`NCCL_IB_DISABLE` 没被误设（[第六章](#六容器内验证与排障)）。诊断顺序：`NCCL_DEBUG=INFO` 看 `Using network` 与是否 `/GDRDMA` → 容器里 `ibstat` / `ibv_devinfo` → `ib_write_bw --use_cuda` 在两个 Pod 间测裸带宽 → 才到 nccl-tests。

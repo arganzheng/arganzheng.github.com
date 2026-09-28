@@ -892,9 +892,5 @@ Table: 本篇涉及的文件位置
 
    </details>
 
-## 下一篇
-
-[做出一个能被合入的改动](/landing-a-mergeable-change.html)
-
 [^q0]: 他们已经决定要做、写清了要什么、自己没时间做的事——PyTorch 里是带 `actionable` 状态标签、或 maintainer 评论里写了 “I'd review a PR that ...” 的 issue；vLLM 里是 `help wanted` 加分步骤正文的 issue、Job Board 上的四类链接、已接受但没人实现的 RFC（[第二章](#二标签maintainer-表达我们想要什么的主渠道)、[第三章](#三rfc-与-roadmap大改动从哪里开始)）。另外两类稳定的需求：CI 失败（vLLM 的 Project 20 看板 + `failures.md` 操作手册；PyTorch 的 HUD + bot 自动开的 `DISABLED` issue，修好自动重新启用）（[第四章](#四ci-失败低风险高感谢度的切入点)）与性能回归（带数字的报告本身就是贡献）（[第五章](#五性能回归带数字的报告本身就是贡献)）。不受欢迎的：单个 typo、纯格式改动（[第六章](#六文档类型与不欢迎单个-typo)）。
 [^q1]: 看几个预测器：**标签状态**——PyTorch 的状态链 needs reproduction → needs research → needs design → actionable，只有最后一档该动手；**maintainer 最后一条评论**是「欢迎 PR」还是「需要先讨论」；**同一 issue 下已有的 open PR 数**（有人在做就别重复）；**规模与 RFC 门槛**（vLLM > 500 行架构改动无 RFC 不 review；PyTorch 大改动走 pytorch/rfcs 仓库）；**硬件**（你没有的 GPU 上的 bug 修不了）；**项目政策**（vLLM 6 个 open PR 上限、stale bot）。标签怎么读：PyTorch 682 个分五层前缀 + 状态标签；vLLM 63 个平铺，`mergify.yml` 按路径 / 标题打 PR 标签、`issue_autolabel.yml` 按关键词打 issue 标签。原则：从 maintainer 已表达的需求出发，比自己想一个「好主意」被接受的概率高一个量级。详见[第二章](#二标签maintainer-表达我们想要什么的主渠道)、[第三章](#三rfc-与-roadmap大改动从哪里开始)、[第八章](#八先讨论再动手以及查重)。

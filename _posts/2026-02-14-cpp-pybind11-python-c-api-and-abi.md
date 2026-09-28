@@ -2657,10 +2657,6 @@ Table: pybind11 与 ABI：Java / JNI 对照汇总
 
    </details>
 
-## 下一篇
-
-[构建、调试与测试工具链](/cpp-build-debug-and-test-toolchain.html)
-
 [^q0]: `PyObject_HEAD` 是每个 Python 对象开头的两个字段：引用计数 `ob_refcnt` 和类型指针 `ob_type`。`THPVariable` 是一个以 `PyObject_HEAD` 开头、后面跟一个 `at::Tensor` 成员的 C 结构体——Python 解释器只看头部，把它当普通对象计数与分发；C++ 代码则拿整个结构体，读后面的 `at::Tensor`。「嵌」就是结构体内存布局上的前缀兼容。详见[第二章](#二python-c-api-基础pyobject引用计数gilpyobject_call)、[第五章](#五pytorch-如何绑定-tensorthpvariable-直接用-c-api为什么)。
 [^q1]: `THPVariable_Wrap` 返回的是一个**新引用**（计数已 +1），调用者负责在用完后 `Py_DECREF`，或立即交给 `py::object` / `THPObjectPtr` 这类 RAII 包装；忘了就泄漏。`THPVariable_Unpack` 返回的引用指向 `THPVariable` 结构体里的成员，它活到那个 Python 对象被释放为止——所以只要调用期间持有该 `PyObject` 的引用（参数通常是借用引用，调用者保证存活）就安全，跨越调用保存下来就不安全。详见[第二章](#二python-c-api-基础pyobject引用计数gilpyobject_call)、[第五章](#五pytorch-如何绑定-tensorthpvariable-直接用-c-api为什么)。
 [^q2]: GIL 保护的是 Python 解释器的状态（对象计数、字典、字节码执行），不是 C++ 内存。`self` 那个 `at::Tensor` 是 C++ 对象，只要有人持有它的引用计数它就活着；`self.contiguous()` 完全在 C++ 里跑，不碰 `PyObject`。规则是：放掉 GIL 之后不能碰任何 `PyObject*`、不能 `Py_INCREF/DECREF`，但可以随便用已经取出来的 C++ 值。详见[第四章](#四gil-的释放与获取gil_scoped_release--gil_scoped_acquire)。

@@ -1159,10 +1159,6 @@ Table: PD 分离源码阅读顺序
 
    </details>
 
-## 下一篇
-
-[Serving Infra 的下一站：从模型执行器到分布式智能操作系统](/future-of-serving-infra.html)
-
 [^q0]: 要搬到 Decode 实例——Llama-3-70B 一个 4096 token 请求的 KV 是 1.25 GiB、TP8 每 rank 160 MiB、400 Gb/s 约 3.4 ms（理论）。vLLM 用 `KVConnector` 契约：scheduler 侧决定哪些块要传、worker 侧注册内存、握手、传输、轮询完成；NIXL pull 路径是 D 侧分配好块后从 P 侧 RDMA READ。P 侧算完不能立刻回收——「计算结束不等于块可回收」，要等传输确认才释放源块。详见[第三章](#三状态如何交接从请求契约到-kv-transfer)。
 [^q1]: 等 KV **到齐**之后——「匹配不等于就绪」：D 收到请求、分配好块不代表 KV 已到，D 的 Scheduler 把请求挂在等待传输的状态，connector 轮询到完成才把它放进可调度集合，第一步 decode 才能跑。详见[第三章](#三状态如何交接从请求契约到-kv-transfer)。
 [^q2]: 不该无限接收——这是外围 Proxy / Router 的责任：选 P / D 组合时检查两侧容量与兼容性（TP 布局、量化格式、block size），考虑缓存亲和、网络容量，对 D 满的情况做背压（限流、排队或路由到别的 D 池）；P 继续 prefill 只会堆积传不出去的 KV、占住 P 的显存。两侧的 Scheduler 仍是局部自治的，PD 不是把它们换成一个分布式组件，而是新增跨实例契约。详见[第四章](#四系统如何协同从单请求正确到集群高效)、[第五章](#五综合判断如何组合架构何时值得分离)。

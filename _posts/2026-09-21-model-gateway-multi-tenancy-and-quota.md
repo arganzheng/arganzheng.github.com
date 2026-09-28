@@ -1252,9 +1252,5 @@ python3 mini-platform/gateway/ttft-compare.py \
 
    </details>
 
-## 下一篇
-
-[可观测、成本与 FinOps](/ai-platform-observability-cost-and-finops.html)
-
 [^q0]: 分两层。**外层**（API 网关 / 认证）按 API key / JWT 识别租户，剥掉客户端伪造的 `x-llm-d-*` 头，注入 `fairness-id` 与 `objective`，对每租户每模型做 RPM / TPM / 并发限流——超配额的直接 429，不进队列；A 的「三倍」只能靠这一层的配额体现。**内层**（GIE 的 EPP，endpoint picker）对通过限流的请求做流控与路由：`InferenceObjective` 给 priority，flow control 按 priority 严格优先、同 priority 内按 `fairness-id` round-robin——llm-d-router v0.10 没有按权重（3 : 1）的公平。**排在哪个副本**：EPP 的流水线 parse → 模型名重写 → priority → fairness → Admit → filter → 加权打分 → picker：`prefix-cache-scorer`（同一会话去 KV 已在的副本——64 会话 × 8K 的例子里 TTFT 从 0.5 s 级降到几十 ms）、`queue-scorer`、`kv-cache-utilization-scorer`、`lora-affinity-scorer`，`max-score-picker` 选最高分。轮询为什么不够：它不看 KV 满不满、不看缓存在哪。详见[第二](#二为什么轮询是错的)至[五章](#五协议与租户openai-协议模型名与身份)。
 [^q1]: 网关层面是**请求数**（RPM）、**token 数**（TPM，输入输出分开）与**并发数**三种，按租户 × 模型配置——不是 GPU 时间，因为网关看不见 GPU；GPU 时间是平台层用 DCGM 与 pod label 事后归因的账（下一篇）。token 记账要预扣（按 `max_tokens` 或估计）、结算（按实际用量）、流式时随 chunk 更新。详见[第五章](#五协议与租户openai-协议模型名与身份)、[第六章](#六token-记账预扣结算与流式)。

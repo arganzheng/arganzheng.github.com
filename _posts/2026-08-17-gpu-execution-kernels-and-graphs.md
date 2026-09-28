@@ -1033,8 +1033,4 @@ Table: GPU 执行源码导航
 
    </details>
 
-## 下一篇
-
-[解码的扩展：采样、投机解码与结构化输出](/decoding-extensions-sampling-speculative-and-structured-output.html)
-
 [^q0]: 浪费只有四种形态，对应四类手段。**等 CPU 发指令**（launch-bound）：一步 decode 有几百到上千次 kernel 提交，单个 kernel 的 GPU 时间短于 CPU 提交它的时间时 GPU 出现气泡；CUDA Graph 把整步捕获成一张图一次重放，代价是图内形状必须固定——按 batch 大小分桶捕获、padding 到桶（[第二章](#二gpu-为什么在空转-kernel-launch-与-cuda-graph)）。**等 HBM 送数据**（memory-bound）：decode 每步读全部权重与 KV，Llama-3-70B TP8 一步权重读取下界约 5.3 ms、实测约 10 ms；手段是算子融合（残差 + RMSNorm、SiLU-mul、RoPE + cache 写入合成一个 kernel）与 attention backend 的选择（[第三章](#三数据为什么搬不动-压缩-hbm-流量)）。**搬的每个数太胖**：量化——权重 INT4 / FP8 让读取字节减 2–4 倍，KV FP8 减半，对 memory-bound 的 decode 直接换成时间（[第四章](#四能不能少搬几个字节-低精度推理)）。**轮次本身太多**：投机解码一步验证多个 token（[第五章](#五能不能少跑几轮模型-投机解码)）。账本：Prefill 2050 token 约 92 ms 只占 3%，300 步 decode 约 3000 ms 占 97%——所以绝大多数优化针对 Decode。

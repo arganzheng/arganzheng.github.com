@@ -835,9 +835,5 @@ MLA 的 K、V 之所以能压成 576 个数，前提是 RoPE 被单独拿了出�
 
    </details>
 
-## 下一篇
-
-[位置编码与长上下文](/positional-encoding-and-long-context.html)
-
 [^q0]: KV cache 每 token 的字节数是 $$2 L n_{kv} d_{head} \times$$ bytes/elem，与 head 总数 $$n_h$$ 无关。Llama-3-8B 是 $$2 \times 32 \times 8 \times 128 \times 2 = 128$$ KiB；DeepSeek-V3 的 MLA 不存 K、V，而是存一个 512 维的压缩 latent 加 64 维解耦 RoPE key，每 token 每层 576 个数、61 层、BF16 两字节，约 68.6 KiB（FP8 存 KV 则 34.3 KiB）——128 个头在 decode 时共享同一个 latent。GQA 是另一条路：把 $$n_{kv}$$ 从 32 降到 8，KV 缩 4 倍。详见[第三章](#三mqa-与-gqa直接减少-kv-head)、[第四章](#四mla把-kv-压成一个-latent)。
 [^q1]: MLA 的 K、V 要从 latent 升维恢复，算量比 GQA 大：把升维矩阵吸收进 $$W_Q$$、$$W_O$$ 后 decode 等价于 128 头共享一个 576/512 维 KV 头的 MQA，attention 核心 FLOPs 是同一 MLA 非吸收路径的约 3.4 倍（320 → 1088 每 token 每 cached token），所以 prefill 走非吸收路径、decode 走吸收路径；RoPE 必须解耦成单独的 64 维，因为位置相关的旋转不能被吸进与位置无关的矩阵。用算力换字节，在 memory-bound 的 decode 上划得来。详见[第四章](#四mla把-kv-压成一个-latent)。

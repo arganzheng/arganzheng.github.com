@@ -204,10 +204,6 @@ trace 从一条链变成一棵树（甚至图）：主会话 → 子会话 → �
    从主会话的综合步骤找到它引用的 worker 摘要，沿子会话 id 进入该 worker 的完整轨迹，找到产生该结论的步骤与它读到的内容（是检索到的错误材料、还是幻觉）。需要：主会话事件里记录每次派发与返回的子会话 id，每个子会话的完整轨迹（含工具返回）进日志，trace 结构支持树。预防：要求 worker 返回证据与引用，主 agent 综合时校验。详见[第六章](#六成本与调试)。
    </details>
 
-## 下一篇
-
-[memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)
-
 [^q0]: 只在三个理由之一成立时需要：上下文隔离（探索性工作填满主窗口——先试卸载与清理）、并行（独立子任务串行太慢——先试一步内的并行工具调用）、专业化（一个 agent 的提示、工具、权限要同时满足冲突的需求——先试按阶段屏蔽工具）。"看起来像团队"不是理由。多数被叫多 agent 的系统其实是单 agent 加子 agent 或一条工作流；纪律是先用一个 agent 加更好的工具，把单 agent 的工具、上下文、权限做好后再考虑。详见[第一章](#一总览)。
 
 [^q1]: orchestrator-workers：主 agent 分解、并行派发、综合，worker 不互通——最常用最可控；代表 Anthropic 多 agent 研究系统，经验是派发指令具体（目标、格式、来源、边界）、按复杂度定 agent 数与调用数、lead 先想再派、并行省墙钟、token 约 15 倍；适合独立子任务、可用摘要综合、并行有价值。handoff：控制权串行移交，每个 agent 有聚焦的指令与更小权限——代表 OpenAI Agents SDK（handoff 在模型眼里是特殊工具）；适合阶段性专业化如客服分流；要设计上下文传全部还是摘要。层级：递归的 orchestrator——Codex `agent-graph-store`、GPT-5.6 ultra 模式与 Responses multi-agent beta 在 API 内起子 agent；限深度。Claude Code 的 agent teams 是对等互通、共享任务列表的实验形态（默认关闭、有已知限制），用于子任务有依赖要协商的情形，多数情况文档建议用 subagent。详见[第二章](#二orchestrator-workers)到[第四章](#四层级与-agent-teams)。

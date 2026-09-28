@@ -1109,9 +1109,5 @@ print(f"efficiency:  {byts/secs/1e9/(nic_gbps/8)*100:.0f}% of NIC, {byts/secs/1e
 
    </details>
 
-## 下一篇
-
-[MoE 的通信：all-to-all、DeepEP 与 GPU 发起的通信](/moe-communication-all-to-all-deepep-and-gpu-initiated.html)
-
 [^q0]: 128 KB 在 NVLink 上的传输时间 $$S/\beta < 1$$ µs，这次 all_reduce 的全部时间都是 $$\alpha$$。NCCL 的 15–30 µs 由固定开销构成：kernel launch 路径、Ring + LL 的 $$2(n-1) = 14$$ 步串行握手（每步约 0.6 µs）、经 channel buffer 中转的拷贝、以及不能捕获进 CUDA Graph 带来的每步 launch。vLLM 的 custom all-reduce 用 CUDA IPC 把 8 张卡的 buffer 互相映射进各自地址空间、用 `Signal` flag 做 barrier，one-shot 版本每张卡直接读 7 个对端的完整数据在本地归约——2 次 barrier、2 步、无中转、天然可捕获进 CUDA Graph；累加顺序固定所以 bit 级一致。省的就是 launch 路径、14 步 → 2 步、中转拷贝这三项。详见[第二章](#二算一算decode-阶段-tp-all_reduce-的账)、[第三章](#三看一看custom-all-reduce-的实现)、[第五章](#五cuda-graph-与通信)。
 [^q1]: 它是为「小消息、节点内、地址固定」专门设计的：消息上限约 8 MB（one-shot 每卡要读 $$(n-1)S$$，流量 $$O(nS)$$ 而 ring 是 $$O(S)$$，大消息带宽账立刻输给 NCCL）；只能节点内（依赖 IPC 映射对端显存）；buffer 地址必须预先 IPC 注册且固定（梯度桶每步地址、大小都不同）；没有与计算重叠的 stream 编排、没有容错。训练的梯度桶 25 MiB、跨节点、每步变化，全部踩在它的限制上。详见[第三章](#三看一看custom-all-reduce-的实现)、[第四章](#四后端选择链与-pynccl)。

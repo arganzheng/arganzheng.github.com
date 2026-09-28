@@ -2661,9 +2661,5 @@ Table: 值语义与所有权：Java 对照汇总
 
    </details>
 
-## 下一篇
-
-[模板与泛型编程](/cpp-templates-and-generic-programming.html)
-
 [^q0]: `at::Tensor` 是一个只含一个 `c10::intrusive_ptr<TensorImpl>` 的句柄类，`y = x` 是值拷贝——拷贝的是这个智能指针，`TensorImpl` 的引用计数从 1 变 2，两者指向同一个 `TensorImpl`、同一个 `Storage`、同一块数据：改 `y` 的数据 `x` 能看到，但 `y = other` 重新赋值只是让 `y` 指向别处、`x` 不受影响。这与 Java 的引用赋值「看起来一样」，机制却是显式的引用计数。详见[第五章](#五六大特殊成员函数与-rule-of-zerofive)、[第九章](#九c10intrusive_ptrpytorch-为什么自己造一个)。
 [^q1]: `TensorImpl` 的强计数归零时它析构，释放持有的 `Storage` 的 `intrusive_ptr`；`StorageImpl` 的计数归零时才调 `Allocator` 释放数据。所以一个 view（`x[0]`、`x.view(...)`）有自己的 `TensorImpl` 但共享 `Storage`，只要任何一个 view 活着数据就活着；`weak_intrusive_ptr` 不阻止释放。释放是确定性的——最后一个所有者离开作用域的那一刻，异常路径也照样释放，这就是 RAII。详见[第七章](#七raii把资源绑定到对象的生命周期)、[第九章](#九c10intrusive_ptrpytorch-为什么自己造一个)、[第十章](#十回到源码从-tensor-到显存的完整持有链)。

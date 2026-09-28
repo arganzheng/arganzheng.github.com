@@ -866,8 +866,4 @@ kubectl delete -f probes/pending-gpu-pod.yaml
 
    </details>
 
-## 下一篇
-
-[容器里的 GPU：驱动、CUDA、device plugin 与镜像](/gpu-in-containers-driver-cuda-device-plugin.html)。本篇的 `Insufficient nvidia.com/gpu` 是从调度器视角看到的空缺；下一篇从节点视角把它填上：内核驱动、用户态库、CUDA Runtime 与容器运行时四层的版本契约，Container Toolkit 与 CDI 如何把设备注入容器，device plugin 的 `ListAndWatch` / `Allocate` 如何把 GPU 变成 `allocatable` 里的一个整数，GPU Operator 的 `ClusterPolicy` 如何把这一切装到每个节点，以及 DRA 用 `ResourceClaim` 与 CEL 表达式如何让这个整数重新有属性。核心问题：宿主机驱动 535、镜像里 CUDA 12.4 的 PyTorch、代码调用了 CUDA 12.4 新增的 API，这个组合能跑吗？
-
 [^q0]: **训练任务（4 节点 32 卡）**约 15 条需求：整数个 GPU 且每进程一张；32 个 Pod 要么同时起、要么都不起（gang）——`torchrun` 的 rendezvous 等不齐就超时重建、活锁；节点间 RDMA 且拓扑相近；组级重启；队列与配额、抢占策略；周期性突发顺序写（checkpoint）与持续小块随机读。原生 Kubernetes 完全满足的只有 1 条——kube-scheduler 逐 Pod 决策，`Fits()` 只把 `nvidia.com/gpu` 当整数比较，device plugin 只能上报计数，没有 Pod 组、没有设备属性、没有队列、RDMA 设备不被识别（[第二章](#二训练任务的形态与需求)、[第五章](#五原生-kubernetes-的假设与空缺)）。**推理服务（TP=2、副本数动态）**：多 Pod 一副本的副本抽象；显存是硬约束不能超卖；扩容以分钟计、要按引擎内部指标提前扩（`vllm:num_requests_waiting`、`vllm:kv_cache_usage_perc`、TTFT、ITL）；按副本状态与 model 字段路由、租户配额、缩到零；原生满足 2 条，缺失集中在扩缩容信号与路由（[第三章](#三推理服务的形态与需求)）。**空缺分三种**：缺插件（GPU / RDMA 设备）、缺概念（Pod 组、设备属性、队列配额、多 Pod 副本）、缺信号（引擎指标驱动的扩缩容、路由、成本）；唯一共同的空缺是「GPU 是不透明整数」。平台由此分两层——资源层把裸节点变成能跑的 Pod，交付层把 Pod 变成有 SLA 与账单的服务；训练只走资源层，推理两层都走（[第四章](#四两组矛盾的需求)、[第六章](#六平台的两层拆分)、[第七章](#七核心问题两张需求表)）。

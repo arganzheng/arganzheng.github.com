@@ -1032,9 +1032,5 @@ FLOPs                 0.27 GFLOP → 14 µs @ 19.5 TFLOPS   与访存差两个�
 
    </details>
 
-## 下一篇
-
-[访存合并与 elementwise kernel](/memory-coalescing-and-elementwise-kernels.html)
-
 [^q0]: 先算下界：$$n = 2^{28}$$ 个 float 的 `c = a + b` 读 2 写 1 共 3 GiB，A100 2.0 TB/s 下约 1.6 ms；五行 kernel 实测通常 1.7–2.0 ms，即理论带宽的 **80–92%**。详见[第九章](#九第一个-kernel-的测量)。
 [^q1]: 四处：DRAM 的物理开销（刷新、行切换、读写转向）让可达带宽只有标称的 85–92%，任何 kernel 都拿不到这部分；launch 延迟与尾部——最后一波 block 填不满 132 个 SM；SM 填充不足——每线程只搬 4 字节，在飞的请求不够多；以及计时本身——用 CPU 时钟量一个异步 launch 量到的是提交时间，必须用 event。要接近 90% 以上：每线程搬 16 字节（`float4`）、grid-stride 摊薄固定开销、block 取 128–256，下一篇的内容。详见[第五章](#五streamevent-与异步语义)、[第九章](#九第一个-kernel-的测量)。

@@ -186,10 +186,6 @@ Table: 从每家 harness 学什么
    能带走：工具（MCP server、自定义函数）、技能（SKILL.md）、项目指令（AGENTS.md）、评测集与 prompt。带不走：Agents API 侧的会话历史（含服务端压缩的加密状态）、它的权限判定与压缩行为、对 OpenAI 模型特性（reasoning item、PTC 形态）的依赖。原型期降低成本：自己保留一份可读的会话记录（每步的输入输出与决策）、工具与技能按开放标准写、prompt 与评测集版本化、不依赖服务端状态做业务逻辑。详见[第三章](#三三种交付形态)、[第四章](#四从每家学什么)。
    </details>
 
-## 下一篇
-
-[多 agent：编排、handoff 与 A2A](/multi-agent-orchestration-handoff-and-a2a.html)
-
 [^q0]: 见第一章的十二维表。要点：Codex——Rust 工作区、`core` 为重心、三层循环、`tools/registry → router → parallel → handlers`、`compact*` 含服务端加密、`PermissionProfile` + `AskForApproval` + `execpolicy` + Guardian、三平台原生沙箱 + 网络代理、`rollout` / `thread-store`、`multi_agents` / `agent-roles`、plugins / hooks / skills / MCP、TUI / exec / app-server、Responses 耦合。DeepSeek Harness——TypeScript、一切皆插件（Cordis，profile / bundle / patch）、日志驱动循环、作用域注册表 + 守卫管线、`compaction` 五包 + `spill` + `plan` / `todo` / `goal`、三档 + 审批插件 + `guard`、`sandbox` 接缝、事件溯源 JSONL + 检查点、七种子 agent 后端（含 Claude Code / Codex）、四种模式、web / headless / sdk / acp、多供应商、Minimal 基准模式。Claude Code——TypeScript 闭源 + Agent SDK、`query()` 封装、内置工具 + MCP + skills、auto-compact 83.5%、六步权限判定 + 五模式 + hooks、本地轻沙箱 + 云端、subagent vs agent teams、文件系统约定、Claude 专用。OpenHarness——Python、轻量、工具 / 技能 / 记忆 / 多 agent、ohmo 接即时通讯、复用底层 CLI 订阅。详见[第一章](#一总览)。
 
 [^q1]: 主轴与取舍：架构——单核（性能、单二进制；`core` 膨胀要靠纪律对抗）vs 插件树（极致可替换；学习曲线与预稳定迭代成本）vs 闭源 + SDK（迭代速度；不可审计）vs 轻量复用。循环——状态在对象（自然）vs 在日志（resume / fork / replay 一致、"模型可见 ⟺ 已记录"；每步经日志的性能成本）。上下文——加密 blob（保留内部状态；不可读、绑供应商）vs 可读事件（可审计可迁移；只留写出的）。权限——策略语言 + 模型审查（可版本化可测试，企业级）vs 规则 + 模式 + hooks（精确的覆盖顺序）vs 插件（最灵活，强度看组合）。沙箱——原生三平台（本地 CLI 唯一的强制层）vs 接缝可换后端 vs 依赖环境。会话——兼容面 vs 有版本的不变量。子 agent——内建 vs 七种后端（互操作）。模型耦合——深（推理状态、服务端压缩、PTC 的紧密集成）vs 浅（不锁定、多模型评测）。详见[第二章](#二逐维度的取舍)。

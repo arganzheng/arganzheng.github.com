@@ -959,9 +959,5 @@ def check(world_size, a="ids_uninterrupted", b="ids_resumed"):
 
    </details>
 
-## 下一篇
-
-[长时训练的可观测与运维：从指标到 hang 排查](/long-running-training-observability-and-operations.html)
-
 [^q0]: 先看 spike 的形态与前兆：瞬时（下一步就回来：坏 batch 或 bf16 偶发）、可恢复（几百步爬回：学习率或优化器状态）还是发散（一路上去：logit 增长或精度链断裂）。五种成因各有信号：**学习率**——param norm 增速在事前变快；**bf16 数值**——无前兆、单步跳；**logit 增长**——max attention logit 单调升过约 100；**坏数据**——换 seed 回放同一 batch 可复现；**优化器状态**——grad norm 在低平台后放大。处理：PaLM 的做法——回退约 100 步 + 跳过 200–500 个 batch（Megatron `--iterations-to-skip`），代价约 250–300 步 / 次；预防靠全局范数裁剪、warmup、QK-LayerNorm、z-loss、weight decay 例外、精度纪律。详见[第二](#二loss-spike现象与成因)至[四章](#四处理回退与跳过)。
 [^q1]: **事前记录**：loss 的 avg 与 max、clip 前的 grad norm、param norm、LR、loss scale、skipped iters、num_zeros、max attention logit、consumed samples、data_loading%——每步记原始值、随 checkpoint 留档、按 rank 可查（[第五章](#五必须记录的信号)）。**精确回放**：要定位到第 137,000 步的 batch，数据管线必须确定性——离线 tokenize 的 `.bin/.idx`、`GPTDataset` 三个索引由 seed 确定、`BlendedDataset` 的贪心混合确定性、恢复位置由 `consumed_train_samples` 整数决定（Megatron 可换 DP 恢复，torchtitan 的 `StatefulDataLoader` 按 dp_rank 存不可换）；加上足够密的 checkpoint（[第六章](#六数据管线上存储与索引)、[第七章](#七数据管线下加载与恢复)）。便宜的是处置，贵的是信号与基础设施。

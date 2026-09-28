@@ -1026,10 +1026,6 @@ $ python cli.py --model 70b --precision bf16-fp32grad
 
    </details>
 
-## 下一篇
-
-[并行策略全景：每种并行切的是哪种状态](/parallelism-strategies-which-state-to-shard.html)
-
 [^q0]: bf16 混合精度 + Adam 每参数 16 字节（bf16 参数 2 + bf16 梯度 2 + fp32 主参数 4 + 两个矩 8），70B 是 **1.13 TB**——一张 80 GB 的卡连 1/14 都放不下，至少 15 张卡的显存只放状态；Megatron 默认 fp32 累加梯度是 18 字节，分布式优化器下每卡 $$6 + 12/N_d$$。而 80 GB 里真正能给张量的只有 68–74 GiB（CUDA context、NCCL、workspace、碎片各扣一块）。详见[第二章](#二四种状态与它们在一个-step-内的生命周期)、[第三章](#三混合精度的字节账16-与-18)、[第五章](#五显存之外为什么-80-gb-只有-70-多-gb-可用)。
 [^q1]: $$sbh(34 + 5as/h)$$ 字节：$$s = 8192$$、$$b = 1$$、$$h = 8192$$ 时 70B 每层 **2.28 GB**（用 FlashAttention 不物化 $$5as/h$$ 的分数矩阵；不用则乘 10 倍），80 层就是 182 GB，还有 logits 一条序列 6.3 GB——激活比状态更需要切开或重算。详见[第四章](#四激活的字节账sbh34--5ash)。
 [^q2]: 每参数每 token 6 FLOP（前向 2、dgrad 2、wgrad 2）加注意力分数每层 $$6sh$$（因果减半），70B、$$s = 8192$$ 是 **449 GFLOP / token**；一条 8192 的序列在一张 H100 上下限 3.72 s，4M token / step、1024 卡下限 1.86 s。MFU = 观测 token/s × 模型 FLOP/token ÷（卡数 × 峰值），不含重计算；千卡 dense 拿到 40% 以上就是好成绩。详见[第六章](#六算力账6n-与注意力项)、[第七章](#七mfu-与-hfu)。

@@ -1132,10 +1132,6 @@ NGPU=4 CUDA_VISIBLE_DEVICES=4,5,6,7 TORCHFT_LIGHTHOUSE=http://localhost:29510 MO
 
    </details>
 
-## 下一篇
-
-[训练稳定性与数据管线：loss spike、梯度范数、数据混合与流式加载](/training-stability-and-data-pipeline.html)
-
 [^q0]: 一次故障的损失 = 检测 $$T_d$$ + 重启 $$T_r$$ + 加载 $$T_l$$ + 平均回退重算 $$\tau/2$$，有效时间 $$G = (1 - (T_d + T_r + T_l + \tau/2)/M) / (1 + \delta/\tau)$$。Llama 3 的数字：16K 卡 54 天 419 次意外中断，$$M \approx 3.1$$ h（单卡约 5 万小时），78% 硬件、58.7% GPU。默认配置下一次故障到恢复是**十几到几十分钟**。详见[第二章](#二故障率数学从-mtbf-到有效训练时间)。
 [^q1]: 默认配置：检测靠超时——NCCL watchdog 10 分钟、HeartbeatMonitor 8 分钟，是最大的一段；重启 2–5 分钟（进程 + CUDA + NCCL comm init + 数据集，NCCL comm 是千卡下最不可控的一项）；加载几十秒到几分钟；回退 $$\tau/2$$ 取决于 checkpoint 间隔，同步 checkpoint 下 $$\tau$$ 往往是小时级、这一段最长。详见[第三章](#三三类故障与检测手段矩阵)、[第四章](#四重启torchrunelastic-agent-与-rendezvous)。
 [^q2]: 按顺序：先 $$\delta$$——同步 checkpoint 改异步，让 $$\tau$$ 能缩到几分钟（16K 卡同步保存怎么选 $$\tau$$ 都亏 20% 以上，异步后到 87%）；再 $$T_d$$——把 hang 检测从 10 分钟压到 1 分钟（`TORCH_NCCL_ASYNC_ERROR_HANDLING=3`、NVRx RankMonitor 心跳、inprocess `soft_timeout` 60 s），此时它是主导项；再 $$T_r$$——进程重启改进程内重启（NVRx `inprocess.Wrapper`：abort 通信 → finalize → health check → 重新分配 rank → 重进训练函数，热备节点顶上）；$$T_l$$ 最后。三步走完 16K 卡从 71% 到 94%。弹性是另一条路：torchft 把 DP 副本当独立失败单元，坏一个其他继续。详见[第四](#四重启torchrunelastic-agent-与-rendezvous)至[六章](#六弹性训练torchft-的副本组模型)。

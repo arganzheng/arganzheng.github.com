@@ -1595,11 +1595,6 @@ Table: 本篇涉及的源码位置
 
    </details>
 
-
-## 下一篇
-
-[自动求导与动态计算图](/pytorch-autograd-and-dynamic-computation-graph.html)
-
 [^q0]: Tensor 是六样东西的组合：数据（`StorageImpl` 里的字节缓冲区，可被多个 Tensor 共享）、形状（`sizes`）、布局（`strides` + `storage_offset`）、类型（`dtype`）、设备（`device`）与生命周期（`TensorImpl` / `StorageImpl` 的引用计数）。Python 的 `torch.Tensor` 是句柄，指向 C++ 的 `TensorImpl`，后者持有 `Storage`。详见[第二章](#二tensor-的整体模型)。
 [^q1]: `transpose()` 只交换两维的 `size` 与 `stride`，产生一个新的 `TensorImpl`，与原 Tensor 共享同一个 `Storage`；数据一个字节都没动，代价是结果不再连续。详见[第五章](#五transposepermute-与-view)。
 [^q2]: `view()` 要求新形状能用一组 stride 在**现有内存排列**上直接解释出来（不复制）；对连续 Tensor 总能做到，对 `transpose` 之后这类维度顺序被打乱的不连续 Tensor 往往做不到，于是报错（但不连续不等于必报错：等步长的切片 `x[:, ::2]` 就能 `view(-1)`）。详见[第五章](#五transposepermute-与-view)。

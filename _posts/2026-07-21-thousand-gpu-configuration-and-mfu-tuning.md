@@ -888,10 +888,6 @@ for cfg in (ParallelConfig(tp=8, pp=4, dp=32, zero_stage=1, micro_batch=1, num_m
 
    </details>
 
-## 下一篇
-
-[分布式 checkpoint：格式、异步保存与重分片恢复](/distributed-checkpoint-format-async-save-and-resharding.html)
-
 [^q0]: 推导顺序 TP → PP → DP → CP。TP 锁在 NVLink 域：**TP 8**、开 SP。PP 要放下 $$N/(t \cdot p)$$ 的参数与在途激活并压气泡：候选 A **TP8 / PP4**（$$v = 4$$）**/ DP32**，$$m = 16$$，气泡 4.7%，每卡约 49 GB 不重计算；候选 B TP8 / PP2 / DP64 约 62 GB。DP 用满剩下的卡，每卡 token 少（4096）时选 ZeRO-1 不选 FSDP——FSDP128 每 step 每卡约 175 GB 节点间通信，压不住。$$s = 8192 < 32$$K 不开 CP。详见[第二章](#二从规格推配置70b--1024-h100-的完整推导)。
 [^q1]: $$B = d \cdot b \cdot m$$：$$b$$ 小 GEMM 效率差、$$b$$ 大气泡大，通常 **1 或 2**；候选 A 是 $$b = 1$$、$$m = 16$$。PP 下 $$m$$ 既是 micro-batch 数也是梯度累积步。详见[第三章](#三global-batchmicro-batch-与梯度累积)。
 [^q2]: 先确认放不下再开。全量重计算 +33% FLOP 省 94% 激活；选择性重计算在 FlashAttention 下几乎不省；「差一点」时按层重计算最经济。候选 A 每卡 49 GB 放得下，**不需要**。详见[第四章](#四激活重计算与-offload)。

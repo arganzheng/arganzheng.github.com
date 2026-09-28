@@ -319,10 +319,6 @@ class LoRALinear:
    （a）$$r(\text{in} + \text{out}) = 16 \times 8192 = 131{,}072$$，全量 $$16.8$$M，0.78%。（b）主分支每 token $$2 \times 4096^2 = 33.6$$M FLOPs；LoRA 分支 $$2 \times 4096 \times 16 + 2 \times 16 \times 4096 = 262$$K，多 0.78%。（c）先算 $$AB$$：$$2 \times 4096 \times 16 \times 4096 = 537$$M FLOPs（比主分支还多 16 倍），再 $$x @ (AB)$$ 又 33.6M——完全失去低秩的意义（除非像推理时那样只合并一次）。详见[第六章](#六lora)。
    </details>
 
-## 下一篇
-
-[手撕经典 ML 与评测指标](/coding-interview-classical-ml-and-metrics.html)
-
 [^q0]: 四个序列级 log 概率：policy 与 reference 各对 chosen（$$y_w$$）与 rejected（$$y_l$$）。先各自减 reference 得到"相对提升" $$\log\frac{\pi(y)}{\pi_\text{ref}(y)}$$（这是 DPO 推导出的隐式 reward，差一个常数），再 chosen 减 rejected，乘 $$\beta$$，过 $$-\log\sigma$$——就是 Bradley–Terry 偏好模型的负对数似然。$$\beta$$ 是隐式 reward 的温度，也是偏离 reference 的代价：$$\beta$$ 大时很小的 log 比差就饱和 sigmoid，policy 不敢离 reference 太远。初值 $$\ln 2$$ 是实现自检的基准。详见[第四章第 1 节](#1-dpo)。
 
 [^q1]: $$A_t = \sum_{l \ge 0}(\gamma\lambda)^l \delta_{t+l}$$ 依赖 $$t$$ 之后所有的 TD 误差，写成递推 $$A_t = \delta_t + \gamma\lambda A_{t+1}$$ 后只能从末尾（$$A_T = 0$$）往前算，每步 $$O(1)$$。$$\lambda = 0$$ 时 $$A_t = \delta_t$$：只用一步的 TD 误差，方差低但依赖 $$V$$ 的准确性（偏差高）；$$\lambda = 1$$ 时 $$A_t = \sum \gamma^l r_{t+l} - V_t$$：蒙特卡洛回报，无偏但方差高（依赖整条轨迹的随机性）。0.9–0.97 是常用折中，奖励稀疏、轨迹长时倾向更大的 $$\lambda$$ 让信号传得更远。详见[第四章第 2 节](#2-gae)。

@@ -209,10 +209,6 @@ trace 里有用户输入、模型输出、工具返回——含个人信息、�
    L4 第三篇的事件溯源日志已含每步的输入输出、工具、审批、压缩——它是运行时的状态与事实来源；trace 需要的就是这些内容按 OTel 形状组织，可以从日志导出 span。两套会不一致（日志里有的 trace 里没有、时间戳与 id 对不上）、双倍存储、bad case 在两处找。一份数据两种视图。详见[第四章](#四工具与自建)。
    </details>
 
-## 下一篇
-
-[可追溯：录制回放、决策点日志、失败分类与反馈绑定](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)
-
 [^q0]: 三级树：会话 span 记用户 / 租户、版本六元组（prompt、模型快照、工具集、检索配置、harness、权限档）、时间、总成本；任务 / 轮次 span 记用户输入、最终输出、状态（完成 / 部分 / 失败 / 拒答）、成本、时长、用户反馈；模型调用 span 记完整输入（或 prompt 版本 + 历史事件 id 的可重建引用）、完整输出含思考块、usage 五项（输入 / 输出 / 缓存读 / 缓存写 / 推理）、模型 id 与快照、effort、temperature、stop_reason、TTFT 与总时长、错误与重试、供应商请求 id；工具 span 记名称、参数、结果或卸载引用、耗时、沙箱与拒绝、审批请求与决定、幂等 id、错误；检索 span 记改写前后查询、过滤含权限、两路候选与分数、RRF 与 rerank 后排序、进上下文的块 id、零结果；事件挂在 turn 上——压缩、卸载、卫士、审批、决策点；子会话 id 双向链接成森林。详见[第一章](#一总览)、[第二章](#二每种-span-记什么)。
 
 [^q1]: 内容：span 名 `{operation} {model}`、操作（chat / embeddings / execute_tool / invoke_agent / create_agent / 检索 / 记忆）、`gen_ai.provider.name` 作风味判别、请求响应用量属性（2026 年加缓存与推理 token）、agent 属性（id / name / version）、工具属性、内容事件（默认可关）、时长 / 用量 / TTFT / 流式指标。现状（2026-09）：约定迁入独立仓库 `semantic-conventions-genai`（核心 v1.42.0 于 2026-06 移走全部 GenAI 内容）；所有 GenAI 专属元素仍 Development、无一 Stable；属性改名 `gen_ai.system` → `gen_ai.provider.name`，`invoke_agent` 拆 client / internal，`execute_tool` 命名收紧；`OTEL_SEMCONV_STABILITY_OPT_IN` 选版本；span 扩展到整个 agent 循环；OpenInference 对齐、Langfuse v3 围绕 OTel 重建。用法：按约定打点、钉版本、改名当破坏性变更、框架混发几代时在后端归一、业务属性放 `app.*` 不塞 `gen_ai.*`。详见[第三章](#三opentelemetry-genai-语义约定)。

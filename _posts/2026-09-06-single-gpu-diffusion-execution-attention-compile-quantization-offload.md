@@ -449,10 +449,6 @@ Table: 单卡扩散执行的规则与数字小结
    （1）每步的误差相当于多加了一点噪声，被后续去噪步吸收；（2）输出是连续像素而不是离散 token，小偏差不可见。仍有可测的 PSNR 下降（30–35 dB），细纹理与文字渲染最先变，所以按请求可选而非全局默认。详见[第三章](#三attention-后端)。
    </details>
 
-## 下一篇
-
-[跨步冗余：TeaCache、First-Block Cache 一族的缓存与跳步](/timestep-redundancy-caching-and-step-skipping.html)
-
 [^q0]: bf16 放不下三段合计的 31.5 GiB，但 DiT 段只要 22.2 GiB 权重 + 0.3 GiB 激活：文本编码器 CPU offload（算完搬走）、VAE 最后再加载并 tiling，24 GB 能放下（余 1.5 GB，2048² 会溢）。每次生成多搬 31 GiB 权重约 1.3 s。量化到 SVDQuant INT4 后 DiT 6.5 GiB，三段全部常驻。详见[第二章](#二三段的-offload装下)、[第五章](#五量化换更快的-tensor-core)。
 
 [^q1]: H100：eager 240 ms → compile 154 ms（xDiT 实测 6.71 → 4.30 s）→ FA3 约 140 → FP8 约 105 → SageAttention 约 95 ms（后三项按各方法公开加速比合成）。4090：bf16 + offload 约 40 s；SVDQuant INT4 + compile 约 12 s（Nunchaku：比 W4A16 快 3×）。详见[第八章](#八叠加顺序与收益表)。

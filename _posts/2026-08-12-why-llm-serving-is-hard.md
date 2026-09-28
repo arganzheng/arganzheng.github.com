@@ -403,9 +403,5 @@ Table: Prefill 与 Decode 一个 step 的算术强度
 
    </details>
 
-## 下一篇
-
-[如何衡量一个 LLM Serving 系统？](/how-to-measure-llm-serving.html)
-
 [^q0]: 因为服务对象变了：传统 DL 推理是一次前向、一次返回——输入形状已知、计算量确定、无状态、请求之间互不相干；LLM 推理是一个持续进行的自回归过程——输入长度、输出长度、服务时长在到达时都未知，Prefill 产生的 KV Cache 要跨几百个 Decode step 保留并逐步增长。系统必须每一步重新决定「这一轮谁跑、跑多少」。详见[第二章](#二范式转移服务对象从一次计算变成持续生成过程)、[第三章](#三prefill-与-decode两种完全不同的-gpu-workload)。
 [^q1]: 三个变化。从静态计算到**动态执行**——每一步的 batch 组成都在变；从无状态到**带状态**——KV Cache 是唯一随时间增长的状态，Llama-3-70B 每 token 320 KB、一个 2K prompt + 300 输出的请求约 734 MB，它决定并发上限、上下文上限与抢占时机；从单一 workload 到 **Prefill / Decode 混合**——Prefill compute-bound、Decode memory-bound，两者竞争同一组 GPU。目标也变了：不是最大 batch，而是在 SLO 约束下选执行规模。这三个变化直接生出后面每一篇的机制：Continuous Batching、Chunked Prefill、PagedAttention、Prefix Cache、抢占、PD 分离。详见[第三](#三prefill-与-decode两种完全不同的-gpu-workload)至[五章](#五llm-serving-的三个根本变化)。

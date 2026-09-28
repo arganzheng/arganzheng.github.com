@@ -604,10 +604,6 @@ $$
    解码器在全分辨率 720×1280 上以 128 通道 fp32 工作，一帧一份特征图 472 MiB，129 帧 59 GiB，同时存活约 4 份 → 约 227 GiB，比 DiT 段的权重 + 激活（24 + 7 GiB）大一个量级。FLOPs 小是因为卷积核小、通道少；显存大是因为特征图在像素分辨率上。必须时间分块 / 空间 tiling 或多卡 Parallel VAE。详见[第五章](#五字节账权重激活与没有-kv-cache)。
    </details>
 
-## 下一篇
-
-[单卡执行：attention 后端、编译、FP8 / INT4 与 offload](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html)
-
 [^q0]: 一次前向 74.3 TFLOPs：线性项 $$2 P_\text{tok} N = 2 \times 6.45\text{B} \times 4608 = 59.4$$ T（$$P_\text{tok}$$ 是一个 token 经过的 6.45B，不是总参数 11.9B），attention $$4 L N^2 d = 4 \times 57 \times 4608^2 \times 3072 = 14.9$$ T，占 20%。FLUX.1-dev 是 guidance 蒸馏模型、无 CFG，每步就是一次前向；28 步合计 2.08 PFLOPs。详见[第四章](#四flop-账每步--线性项--attention-项)。
 
 [^q1]: 每步 = 74.3 T / (989 T × $$\eta$$)：$$\eta = 0.45$$ 时 167 ms，28 步 4.68 s；实测 eager 6.71 s（$$\eta$$ 0.31）、`torch.compile` 后 4.30 s（0.49）。三段：文本编码器 22 ms（0.5%）、DiT 4.68 s（97%）、VAE 解码 102 ms（2%），合计 4.80 s。详见[第六章](#六秒的账为什么单请求就-compute-bound)。

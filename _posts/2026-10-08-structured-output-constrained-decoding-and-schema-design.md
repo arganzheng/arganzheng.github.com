@@ -219,10 +219,6 @@ Table: 结构化输出仍要评的指标
    B。字段顺序即生成顺序，B 让结论以证据与推理为条件生成，A 的 reasoning 是对已给结论的事后辩护；*Let Me Speak Freely?* 指出严格格式压缩推理空间会损害表现，前置推理字段是缓解。代价是每次多几十到几百个输出 token。验证：同一评测集两种 schema 各跑 k 次比准确率，多数团队看到 2–5 个百分点的差距。详见[第三章](#三schema-设计的七个模式)、[第五章](#五格式遵循率的评测)。
    </details>
 
-## 下一篇
-
-[上下文预算与压缩：给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)
-
 [^q0]: 约束解码在每步采样前算出哪些 token 能让已生成文本仍构成合法输出，把其余 token 的 logits 置为 $$-\infty$$。合法性由自动机判定：Outlines 把 schema 转正则再编 FSM（预计算每状态允许的 token 集合，零开销但不能表达递归）；XGrammar / llguidance 用 CFG 加下推自动机处理递归结构，XGrammar 把与上下文无关的部分预计算、把每步开销压到微秒级；实现要在字节级与 tokenizer 对齐。因为不合法 token 在采样前就被排除，保证是数学的——不可能生成不合法 JSON。strict 的限制（全部 required、`additionalProperties: false`、深度 / 数量 / 关键字限制）来自状态空间（可选字段指数增长、任意键名不可枚举）与编译成本；schema 首次使用要编译（有延迟、后缓存），所以 schema 应稳定；schema 还被注入为文本占 token（Anthropic 约 50–200 token 开销）。详见[第二章](#二约束解码)。
 
 [^q1]: 七个模式：（1）字段顺序即生成顺序——推理 / 证据字段放在结论前，避免"事后辩护"，缓解严格格式对推理的损害（*Let Me Speak Freely?*）；（2）显式出口——`cannot_classify`、`null` 加原因、`insufficient_information`，否则 strict 模式会把拒答伪装成答案，另查 OpenAI 的 `refusal` 字段；（3）可数字段用 enum、值用英文标识符；（4）`description` 与字段名是 prompt，写清含义与出口条件；（5）嵌套 ≤ 3 层、数组 `maxItems`、大抽取拆成多次调用；（6）schema 稳定，动态候选放 prompt 不放 enum；（7）结果用输出 schema、动作用工具 schema，不再用强制工具调用做结构化输出。详见[第三章](#三schema-设计的七个模式)。

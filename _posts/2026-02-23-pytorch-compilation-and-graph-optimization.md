@@ -1282,8 +1282,4 @@ Table: 本篇涉及的源码位置
 
    </details>
 
-## 下一篇
-
-[性能优化与调试](/pytorch-performance-optimization-and-debugging.html)
-
 [^q0]: 三段流水线。**前端 Dynamo**：在 CPython 字节码层做符号求值——不运行代码，而是解释每条字节码、把 Tensor 操作记进 FX Graph、把依赖元数据（shape、dtype、`requires_grad`）的分支特化并记成 Guard、把依赖 Tensor 值或不支持的操作切成 graph break；输出 FX Graph + Guard + 改写后的字节码（[第二章](#二irfx-graph)、[第三章](#三前端torchdynamo-捕获)）。**中端 AOTAutograd**：用 FakeTensor 跑一遍前向、追踪 autograd 得到反向图，把算子下降到 ATen 级词汇并做 functionalize（去掉 in-place），包成一个 `autograd.Function`（[第四章](#四中端aotautograd-变换)）。**后端 Inductor**：把 ATen 图变成循环级 IR，做融合与内存规划，生成 Triton（GPU）或 C++（CPU）源码编译成 kernel（[第五章](#五后端torchinductor-代码生成)）。**运行时**：每次调用先检查 Guard，通过就执行编译产物，失败就重编译（有上限）；Eager 代码一行不改（[第六章](#六运行时编译何时发生到哪停止何时复用)、[第七章](#七串起来f-的四次调用)）。快在哪：省掉 Python 与分发开销、减少 kernel launch、融合减少访存。观察手段：`TORCH_LOGS="graph_code,aot_graphs,output_code"`。

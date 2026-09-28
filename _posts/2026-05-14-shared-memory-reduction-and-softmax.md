@@ -1210,9 +1210,5 @@ reduction 是"先算一个整行的标量，再作用回每个元素"。下一�
 
    </details>
 
-## 下一篇
-
-[GEMM：从 naive 到分块](/gemm-from-naive-to-tiled.html)
-
 [^q0]: 下界：$$d = 4096$$ BF16、8192 行的 RMSNorm 读写各 64 MiB，A100 上约 67 µs，算术强度约 1 FLOP/byte，怎么写都是 memory-bound（[第二章](#二先算理论下界)）。naive 慢在**归约的形态**而不是字节数：每行的均方要把 4096 个数加起来，一线程串行加、或用原子加到同一地址，把并行度砍掉、把带宽晾着；交错寻址的树形归约要 10 级、每级一次 `__syncthreads()` 与一轮 shared 读写，快的 warp 等慢的 warp，bank conflict 再串行化一部分（[第三章](#三shared-memoryblock-内的公共草稿纸)、[第四章](#四reduction-的六个版本)）。
 [^q1]: **shared memory** 解决跨 warp 的汇总：block 内 32 个 warp 各自的部分和要合并，shared 是 block 内线程交换数据的唯一场所——每个 warp 写一个数、一个 warp 读回 32 个数再归约，把跨 warp 的通信压到 32 个 float 与 1 次 sync（[第三章](#三shared-memoryblock-内的公共草稿纸)）。**warp shuffle** 解决 warp 内的归约：32 个 lane 用 `__shfl_xor_sync` 在寄存器里 5 步完成，不碰 shared、不需要 sync（[第五章](#五warp-级原语与原子操作)）。两者叠加是「两级 warp shuffle」：sync 从 10 次到 1 次。再进一步：$$d \le 1024$$ 时一行一个 warp、零 shared 零 sync（[第六章](#六一行一个-block还是一行一个-warp)）；softmax 用 online 形式一遍拿到 $$(m, l)$$（[第七章](#七softmaxsafe三遍两遍online)）；fused residual + RMSNorm 把读 3 写 2 变成读 2 写 2（[第八章](#八layernorm-与-rmsnorm)）。

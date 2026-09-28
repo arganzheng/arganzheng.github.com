@@ -1845,9 +1845,5 @@ Table: Scheduler 源码导航
 
    </details>
 
-## 下一篇
-
-[KV Cache：LLM Serving 的第一号内存问题](/kv-cache-memory-core.html)
-
 [^q0]: vLLM 的 Scheduler 没有「prefill 阶段」与「decode 阶段」，调度的单位是 token 不是 request。每一步先服务 running 队列（每个请求至少推进 1 个 token，KV 不够就按 LIFO 抢占最晚来的请求、释放它的块），再从 waiting 队列按 FCFS（或优先级）准入新请求，直到 token budget（`max_num_batched_tokens`）、`max_num_seqs` 或 KV 块用尽。与传统「固定 batch → 执行 → 完成」相比，这是「每步从 running + waiting 里重新装一个 token 级的 batch」。详见[第二章](#二continuous-batching为什么-batch-必须动态变化)、[第六章](#六admission-control-与-preemptionkv-cache-不够怎么办)。
 [^q1]: decode 请求 1 个；新请求的 prefill 在 chunked prefill 下可以只推进 budget 剩余的部分——一个 8K 的 prompt 被切成几轮，每轮与其他请求的 decode 混在同一个 batch，长 prefill 不独占 GPU、decode 的 TPOT 稳定。token budget 是把吞吐与延迟连起来的旋钮——大 budget 吞吐高、TTFT 低但 TPOT 抖，小 budget 反之。详见[第三](#三chunked-prefill为什么一个-request-也不能一次吃完)至[五章](#五mixed-batch为什么-prefilldecode-与-speculative-可以共存)。

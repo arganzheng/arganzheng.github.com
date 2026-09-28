@@ -386,10 +386,6 @@ Table: 少步与自回归视频的规则与数字小结
    两个原因：最近的 chunk 对当前生成的影响最大（attention 随时间距离衰减，第四篇），量化误差在这里最伤；当前 chunk 去噪完成后还要重算一次 clean 版本的 K / V 覆盖进缓存，量化中间状态没有意义。旧 chunk 影响小、且不再改变，INT4 / INT2 的误差可接受——与 LLM 的 KV 量化按"最近 token 保留高精度"同构，粒度是 chunk。详见[第七章](#七kv-cache-的回归)。
    </details>
 
-## 下一篇
-
-[serving 形态：请求形态、批处理、三段分离、LoRA / ControlNet、异步任务 API 与成本](/diffusion-serving-shapes-batching-disaggregation-and-cost.html)
-
 [^q0]: schnell 4 步、$$g = 1$$：DiT 段 $$4 \times 74.3$$ T = 0.30 PFLOPs（dev 的 1/7），加文本编码器 4.9 T 与 VAE 5 T；H100 $$\eta$$ 0.45 下 0.67 + 0.12 = 0.80 s，单卡约 1.25 张/s（dev 0.21 张/s）。仍有用的：attention 后端、`torch.compile` / CUDA graph（更重要）、FP8 / INT4、序列并行（但意义变为高分辨率与吞吐）、Parallel VAE；失效的：跨步缓存（4 步无冗余）、PipeFusion / DistriFusion（stale K/V 误差大）、CFG 并行与 CFG gating（无 CFG）。详见[第二章](#二少步的账)、[第三章](#三失效与不变)。
 
 [^q1]: Self-Forcing 配置（Wan2.1-1.3B，$$d = 1536$$，30 层，无 GQA，480p 一帧 $$30 \times 52 = 1560$$ token）：每 token K + V $$= 2 \times 1536 \times 2 \text{ B} \times 30 = 184$$ KB；一个 chunk 3 个 latent 帧 4,680 token → 0.86 GB；rolling 窗口 21 个 latent 帧（约 5 秒）→ 6.0 GB。720p 乘 2.3，14B 底座每 token 819 KB。窗口大小是显存与每 chunk attention 成本（$$\propto N_q N_{kv}$$）的线性乘数。详见[第七章](#七kv-cache-的回归)。

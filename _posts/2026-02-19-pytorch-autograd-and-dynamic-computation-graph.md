@@ -1504,10 +1504,6 @@ Table: 本篇涉及的源码位置
 
    </details>
 
-## 下一篇
-
-[`nn.Module` 与训练系统](/pytorch-module-and-training-system.html)
-
 [^q0]: 方向与幅度由 **loss 对每个参数的梯度**给出，Autograd 负责算出它：前向时动态记录计算图，`loss.backward()` 沿图反向传播，每个节点算一次 VJP（上游梯度 × 局部 Jacobian，从不物化 Jacobian），叶子的梯度累加到 `.grad`；优化器再拿 `.grad` 决定每个参数走多远。详见[第二章](#二从数学求导到自动求导)、[第三章](#三动态计算图每次执行都记录一条新路径)、[第五章](#五backward反向传播与梯度累积)。
 [^q1]: 决定这个 Tensor 参与的运算是否被记录进计算图：任一输入 `requires_grad=True`，输出就带 `grad_fn` 且 `requires_grad=True`；全为 `False` 则不建图、不保存中间值。它是「要不要追踪」的开关，不是「有没有梯度」。详见[第四章](#四requires_gradleaf-tensor-与-grad_fn)。
 [^q2]: leaf 是用户创建、没有 `grad_fn` 的 Tensor（参数、输入）；non-leaf 是运算产生的、有 `grad_fn` 的。反向结束后只有 `requires_grad=True` 的 leaf 会填 `.grad`，non-leaf 的梯度算完即丢（要看得用 `retain_grad()` 或 hook）。详见[第四章](#四requires_gradleaf-tensor-与-grad_fn)。

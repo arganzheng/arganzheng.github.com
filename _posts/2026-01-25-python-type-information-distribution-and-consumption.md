@@ -828,7 +828,3 @@ def __init__(self, config: ModelConfig) -> None:  # 只调用一次
 
    </details>
 
-## 下一篇
-
-[Python 在 AI-Infra（02 下）：类型系统——数据契约设计](/python-data-contract-design-dataclass-pydantic-and-settings.html)
-

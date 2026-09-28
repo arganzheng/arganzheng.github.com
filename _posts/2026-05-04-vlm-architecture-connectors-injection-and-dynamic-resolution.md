@@ -398,9 +398,5 @@ Table: VLM 结构的规则小结
 
    </details>
 
-## 下一篇
-
-[VLM 的训练：数据、阶段与评测](/vlm-training-recipe-data-stages-and-evaluation.html)
-
 [^q0]: LLaVA 的 MLP 对每个 patch 独立映射、不丢信息、保留空间结构、把「看哪里」交给 LLM 的 attention；BLIP-2 的 Q-Former 用 32 个可学习 query（个数固定，读取内容仍随图变）把整张图压成 32 个 token，装不下细节、丢了空间结构、且多了一个要单独训的模块——LLaVA-1.5 的实证让主流转向 MLP，2024 年的折中是 MLP + 2×2 merge，压缩 4 倍、经验上几乎无损。详见[第二章](#二connector从编码器空间到-llm-空间)、[第三章](#三注入方式)。
 [^q1]: 因为 tile 方案切断跨块的物体与文字行、pad 与拉伸造成失真、小图也要占满一个 tile 的 token；原生分辨率让 token 数与像素数成正比、全图在一个 attention 里，用 2D RoPE 取代需要插值的绝对位置编码，代价是 ViT 的 $$O(N^2)$$ attention（Qwen2.5-VL 用窗口 attention 解决）与可变长度的 batch 工程。三个决定合起来是一次「信息 vs token」的交换：自然图片对 token 数不敏感，文档与文字任务要每 $$28 \times 28$$ 像素一个 token。详见[第四章](#四固定分辨率与-tile)、[第五章](#五原生动态分辨率)、[第七章](#七信息-vs-token-的交换)。

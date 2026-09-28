@@ -232,9 +232,5 @@ Table: 语音理解、生成与全双工的规则小结
 
    </details>
 
-## 下一篇
-
-[扩散模型（上）：DDPM——加噪、去噪与变分下界](/diffusion-models-ddpm-score-matching-and-flow-matching.html)
-
 [^q0]: 这是模态竞争：语音 token 多而内容稀，同一组参数一起学会拖垮文本能力。解法都是"把说与想分开"——Moshi 先出文本 token 当脚本再出语音 token（内心独白）；Qwen2.5-Omni 让 Thinker 只出文本、由一个小的 Talker 从 Thinker 的隐状态与文本流式生成语音 token，Thinker 的文本能力不被触碰。详见[第三章](#三语音生成)。
 [^q1]: 四段相加：codec 帧长（Mimi 80 ms）、模型一步的首 token 时间（7B 约 40 ms）、流式 codec 解码（几 ms）、以及模型判断「该说了」的语义决策——后者不是计算而是能力，全双工模型每一帧都在决策所以没有额外等待。半双工把 VAD、ASR、LLM、TTS 串联起来是 1–3 秒，全双工把它们合成一个模型的一步是 200 ms，代价是模型要持续运行、每路都在持续消耗（多路同拍可 batch，瓶颈在 KV 显存而不是"半张卡"）。详见[第四章](#四全模态与全双工)、[第六章](#六成本)。

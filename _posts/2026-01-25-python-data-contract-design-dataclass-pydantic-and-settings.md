@@ -725,7 +725,3 @@ Table: Java 与 Python 数据契约对照
 
    </details>
 
-## 下一篇
-
-[并发、异步与任务协作](/python-concurrency-asynchrony-and-task-collaboration.html)
-

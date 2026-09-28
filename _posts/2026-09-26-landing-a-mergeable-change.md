@@ -1202,9 +1202,5 @@ GitHub 标签（截至 2026-09 查询）：PyTorch 存在 `actionable`、`skip-p
 
    </details>
 
-## 下一篇
-
-[两个真实 PR 的完整走读：PyTorch 与 vLLM](/two-real-prs-pytorch-and-vllm.html)
-
 [^q0]: 四件事：改了什么、是不是只改了这一件事；为什么改、怎么验证的；怎么证明对、以后怎么防回归；有没有把别的东西弄坏。PR 的四个部分各替他回答一个（下一条），做到了，reviewer 的十分钟花在判断设计上而不是找信息上。签名是门票：PyTorch 的 EasyCLA、vLLM 的 DCO（`git commit -s`，每个 commit）。详见[第十三章](#十三回答核心问题reviewer-的十分钟)。
 [^q1]: **diff 回答「改了什么、是不是只改了这一件事」**：一个 PR 一件事、最小 diff——PyTorch `pr-sanity-check.sh` 2000 行硬上限、大改动用 ghstack 叠成一串小 PR；vLLM > 500 行架构改动要 RFC、6 个 open PR 上限；lint 干净（PyTorch `lintrunner -a`；vLLM `.pre-commit-config.yaml`）让 reviewer 不用看格式（[第二章](#二最小-diff一个-pr-只做一件事)、[第五章](#五本地-lintci-的第一道门)）。**描述回答「为什么改、怎么验证的」**：PyTorch 的 `Fixes #N` / Summary / Checklist / BC-breaking?；vLLM 的 Purpose / Test Plan / Test Result 加标题前缀 `[Bugfix]` `[Kernel]` `[Core]`；benchmark 要有基线、对比、硬件、shape、命令、不利 case（[第四章](#四benchmark性能改动必须带数字)、[第六章](#六pr-描述与签名)）。**测试回答「怎么证明对、以后怎么防回归」**：PyTorch 用 `TestCase` / `@parametrize` / `instantiate_device_type_tests`；vLLM 用 pytest，`AGENTS.md` 的四个问题 + 五条规则，kernel 用 `torch.library.opcheck`（[第三章](#三测试改动必须带测试)）。**CI 状态回答「没有把别的东西弄坏」**：PyTorch PR 自动跑 `pull` + `Lint`，`trunk` / `periodic` / `slow` 靠 `ciflow/*` 标签触发；vLLM PR 默认只跑 pre-commit，需要 maintainer 打 `ready` 或 `/ci run`；红了先看 main 是否也红（[第七章](#七ci-矩阵什么会跑什么不会)、[第八章](#八读-ci-日志这是我的问题吗)）。

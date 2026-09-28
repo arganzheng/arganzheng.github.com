@@ -2278,9 +2278,5 @@ Table: 模板与泛型编程：Java 对照汇总
 
    </details>
 
-## 下一篇
-
-[多态与类型擦除：运行时如何选择实现](/cpp-polymorphism-and-type-erasure.html)
-
 [^q0]: `AT_DISPATCH_FLOATING_TYPES` 展开成一个对 `x.scalar_type()` 的 `switch`，每个 `case`（`kFloat`、`kDouble`）里写一句 `using scalar_t = c10::impl::ScalarTypeToCPPType<kFloat>::type;`（即 `float` / `double`），然后把传进来的 lambda 体原样粘贴在这个 `using` 之后——lambda 体里的 `scalar_t` 是这个 case 局部的类型别名，宏靠文本替换让同一段源码在不同 case 里指向不同类型。详见[第七章](#七编译期分派与运行期分派逐层展开-at_dispatch_floating_types)。
 [^q1]: 源码里写了一次，但被粘贴进每个 `case`，等于写了 N 份（浮点两份，`AT_DISPATCH_ALL_TYPES_AND_HALF` 十几份），每份实例化出一套独立的机器码，运行时只执行匹配的那个 `case`。这就是模板「编译期为每组参数生成一份」的代价与收益：没有装箱、没有虚调用、每种类型的循环都能向量化，换来编译时间与二进制体积——与 Java 泛型的类型擦除正相反。详见[第二章](#二模板是生成代码的配方)、[第七章](#七编译期分派与运行期分派逐层展开-at_dispatch_floating_types)、[第九章](#九lambda捕获泛型-lambda作为模板参数与生命周期)。

@@ -1110,8 +1110,4 @@ Table: 硬件平台源码导航
 
    </details>
 
-## 下一篇
-
-[PD 分离：从资源混部走向计算解耦](/prefill-decode-disaggregation.html)
-
 [^q0]: 让芯片差异停在最底层，靠多层边界：Serving Core（Scheduler、KVCacheManager、请求生命周期）只依赖抽象能力；抽象契约（`Platform` 接口、Attention Backend 接口、通信组件接口、Worker 接口）定义能力而不定义实现；平台实现（CUDA / ROCm / TPU / XPU / out-of-tree 插件）各自满足契约。三句话：**Serving 核心依赖抽象能力而不依赖具体芯片**——调度器问「一块 KV 多少字节、支持哪种 backend、能不能 CUDA Graph」，不问「是不是 NVIDIA」（[第二章](#二一条设计原则硬件适配不能污染-serving-核心)）；**Platform 是硬件能力中心但不是所有底层组件的唯一父类**——Attention Backend、Kernel、通信组件、Worker 从它获取能力或被它派发（`get_attn_backend_cls`、`get_device_communicator_cls`、`get_worker_cls`），各自有独立的接口与实现树（[第三章](#三platform硬件能力的统一来源)、[第四章](#四platformattention-backend-与-kernel-backend-的真实关系)）；**Out-of-Tree 让硬件适配独立演进**，插件经 entry point 注册 Platform，前提是主仓库提供稳定的扩展契约（[第五](#五out-of-tree-插件架构把新硬件放到主仓库之外)至[七章](#七oot-适配的边界不是主仓库完全不用改)）。做不到时的症状：`if is_cuda()` 散落在调度器与 KV 管理里——那是边界漏了（[第九章](#九如何判断硬件适配是否真正做到了解耦)）。

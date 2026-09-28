@@ -377,10 +377,6 @@ Table: 扩散服务的规则与数字小结
    单请求分钟级（Wan 720p 5 秒在 8 卡上约 40 s，不优化 24 分钟），超过 HTTP 连接的合理超时，且客户端不应挂着等；多出：（1）持久化的 job 表（状态、进度、重启恢复——状态就是 latent + 步号）；（2）对象存储（几十 MB 的视频文件不走 API 层）；（3）进度 / 预览通道（每几步用 tiny VAE 解低清帧）加轮询或 webhook。详见[第八章](#八同步与异步-api)。
    </details>
 
-## 下一篇
-
-[三个引擎的对照导读：同一张图的请求在 SGLang Diffusion、vLLM-Omni 与 xDiT 里各走过什么](/diffusion-engines-compared-sglang-diffusion-vllm-omni-xdit.html)
-
 [^q0]: 卡数 = QPS × 单张 GPU·秒（batch 不提吞吐，SP 不减 GPU·秒）。FLUX.1-dev 1024² 28 步在 H100 上：bf16 eager 6.7 s → 670 张；compile + FA3 3.9 s → 390；+ FP8 2.9 s → 290；+ TeaCache 0.4 约 1.65 s → 170；换 FLUX.1-schnell 4 步 0.8 s → 80。每张成本（\$2.5 / 小时）从 \$0.0047 到 \$0.0006。详见[第一章](#一总览)、[第九章](#九成本扩缩与平台)。
 
 [^q1]: batch：FLUX 1024² 单请求已在算力屋顶，batch 2 ≈ 2× 时间、吞吐不变，没用；只在小模型 × 低分辩率（SD3-Turbo 512²）或同 prompt 多张 / CFG 两分支 / 摊固定开销时有用；能合批的请求必须形状、CFG、quality、LoRA 全同。p99：时长在收到请求时可算，所以按形状分池（无重编译、容量可规划）、队列按估算 GPU·秒排序加老化、SLO 准入（预计等待 + 执行超过 SLO 就拒绝或降级到更少步 / schnell）、提前扩容（冷启动分钟级）；抢占只在步边界、多数系统用分池代替。详见[第三章](#三批处理)、[第四章](#四调度)。

@@ -1349,9 +1349,5 @@ CuTe Layout / Tensor                    swz(), a_row/b_row, warp_m/warp_n     Sh
 
    </details>
 
-## 下一篇
-
-[Triton：块级编程与编译器的边界](/triton-block-level-programming.html)
-
 [^q0]: 差在**计算单元与数据流**两处。CUDA Core 版：每线程持有一个 $$8 \times 8$$ 的累加器、从 shared 读进寄存器（任意布局）、逐元素 FMA，线程与数据的映射由程序员随意决定。Tensor Core 版：一条 `mma.sync` 让一个 warp 做一个 $$16 \times 8 \times 16$$ 的小矩阵乘加（4096 FLOP），操作数与累加器是 **fragment**——按硬件规定的布局分散在 32 个线程的寄存器里，哪个线程持有矩阵的哪几个元素是指令定义的。Hopper 再简化为 TMA → shared → `wgmma` 直接读 shared，寄存器只剩累加器，warp 分 producer / consumer 用 mbarrier 流水。详见[第二章](#二tensor-core-做什么)、[第四章](#四实践ampere-bf16-gemm)、[第五章](#五hoppertmawgmma-与-warp-specialization)。
 [^q1]: 两个原因。mma 对操作数布局有硬性要求，用普通 `LDS` 把数据凑成这个布局要几十条指令与大量 bank conflict；`ldmatrix` 是「按 fragment 布局装载」的专用指令，一次为整个 warp 从 shared 读 8 行 × 16 字节并分发到正确的线程——但要求 shared 里的数据按它的访问模式 swizzle 存放。其次是**指令预算**：一条 mma 占 Tensor Core 8 个周期，其间只能发约 8 条其他指令，装载与地址计算必须极度精简——这也是 `cp.async`（Ampere）与 TMA（Hopper）存在的理由。CUTLASS / CuTe 把上述每个决定变成模板参数与 Layout 代数。详见[第三章](#三fragment-布局与-ldmatrix)、[第六章](#六cutlass-与-cute)。

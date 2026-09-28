@@ -215,10 +215,6 @@ Table: 四家的程序化工具调用
    传统多轮工具调用下，中间结果作为消息进入上下文、在服务端状态（Responses 默认存储）里留存；ZDR 组织不能用服务端状态。PTC 让中间结果只存在于程序运行的内存里、不进上下文、不落服务端存储，只有最终输出进入模型——所以整个流程不产生需要保留的中间数据，与 ZDR 兼容。详见[第五章](#五程序化工具调用)。
    </details>
 
-## 下一篇
-
-[agent 运行时：会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)
-
 [^q0]: 2026-07-28 是 MCP 发布以来最大的修订：无状态核心——取消 `initialize` 握手，版本与能力协商放进每个请求的 `_meta` 与 `MCP-Protocol-Version` 头，Streamable HTTP 去掉协议级会话与 `Mcp-Session-Id`，为的是能在普通 HTTP 基础设施上横向扩展；多轮往返请求替代 server 发起的请求；正式的扩展框架——反向 DNS 标识、`extensions` 能力协商、独立仓库与版本、默认关闭，官方扩展有 Tasks（长任务的轮询、中途输入、持久句柄）、MCP Apps（对话内 UI）、OAuth 客户端凭据、企业托管授权，另有 Skills over MCP 工作组；授权加固——RFC 9207 `iss` 校验防混淆、RFC 8707 `resource` 绑定受众防 token 混用、凭据绑定发行者、动态客户端注册弃用改为客户端元数据文档、`application_type` 解决 CLI 的 localhost 重定向；Sampling / Roots / Logging 十二个月弃用窗口。治理在 Agentic AI Foundation（Linux 基金会，Anthropic 2025-12 捐赠，OpenAI、Block 共创），SDK 各过十亿下载，注册表仍预览。详见[第二章](#二mcp-2026-07-28)。
 
 [^q1]: 描述是 prompt：名字、描述、参数 schema 都是模型读的文本，从模型的视角写——做什么、参数、什么时候用与不用、返回什么，不含 UI / 传输 / 实现词汇（DeepSeek Harness 的仓库规范）；跨工具的政策（先搜再答、确认、并行、预算）放系统提示（Codex 拼 `AGENTS.md`，DeepSeek Harness 的 `system-prompt` 组装）；结果的形状同样是契约（摘要 + 引用、结构化、失败建议、大结果卸载——`spill`）。tool search 解决工具太多的三个代价——占预算、工具定义在前缀最前任何变化毁缓存、选择准确率下降——做法是只常驻名字或一行描述，模型需要时先搜再调（Codex `tools/handlers/tool_search.rs`、Claude Code 延迟加载 MCP schema、OpenAI / Anthropic 的 tool search；SKILL.md 是同一原则）；代价是按需定义不在缓存前缀（看绝对量不看命中率）、多一步、依赖描述质量；二十个以上工具用，十个以内全常驻。详见[第三章](#三工具描述与它的位置)、[第四章](#四tool-search)。

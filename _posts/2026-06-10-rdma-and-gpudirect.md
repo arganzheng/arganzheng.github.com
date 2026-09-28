@@ -1004,9 +1004,5 @@ int main(int argc, char **argv) {
 
    </details>
 
-## 下一篇
-
-[NCCL 架构：拓扑探测、channel、算法与协议](/nccl-architecture-topology-channels-algorithms-and-protocols.html)
-
 [^q0]: **TCP**：每端 2 次拷贝（PCIe D2H/H2D + CPU memcpy），主机内存每字节访问 4 次；GPU x16 一次 + NIC x16 一次，都上行到 root complex；每个 MSS 要 CPU 参与。**RDMA 不开 GDR**：每端 1 次拷贝（到 pinned staging），主机内存每字节访问 2 次，PCIe 链路同上；数据面无系统调用，CPU 只在每个消息 post / poll。**RDMA + GPUDirect**：0 次拷贝，主机内存不在数据面上，GPU x16 与 NIC x16 各一次、在 PCIe switch 内转发，不到 root complex。详见[第二章](#二为什么需要-rdma)的三路径对照表与[第八章](#八gpudirect-rdma)。
 [^q1]: TCP 单流受单核限制，通常几十 Gb/s，8 卡 8 网卡也很难接近 8 × 50 GB/s。RDMA 无 GDR 约 min(NIC 50 GB/s, PCIe 5.0 64 GB/s, 主机内存) ≈ 50 GB/s，但 A100 / PCIe 4.0 上 D2H 与 NIC DMA 共享主机内存，实际不到 25 GB/s，8 卡合计的主机内存流量 800 GB/s 会顶到两 socket 的内存带宽。RDMA + GDR 是 min(NIC, PCIe) = 50 GB/s（A100 / HDR：25 GB/s），8 卡 400 GB/s、主机内存流量 0；延迟 1–2 µs（IB）/ 2–4 µs（RoCE），TCP 是 15–50 µs。详见[第二章](#二为什么需要-rdma)、[第八章](#八gpudirect-rdma)。

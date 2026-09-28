@@ -1448,8 +1448,4 @@ csrc/cache_kernels.cu（reshape_and_cache / _flash）· csrc/moe/ · csrc/sample
 
    </details>
 
-## 下一篇
-
-[剖析、测试与贡献](/kernel-profiling-testing-and-contribution.html)
-
 [^q0]: W4A16 改的只有一个变量：权重字节数减到 1/4，计算仍在 BF16 上做（片上反量化，每元素约一条 `lop3` + `hfma2`）。**decode**（$$M \le 64$$）：GEMM 的算术强度 $$= M$$ FLOP/byte 远低于 ridge，时间 = 权重字节 / 带宽；字节减 4 倍时间就减 4 倍，实测 3 倍——剩下的是反量化指令与 scale 的开销，Marlin 用 repack、`cp.async` 流水、寄存器内反量化把这部分压到最小（[第三章](#三weight-only-量化-gemmw4a16)）。**prefill**（$$M$$ 几千）：强度已过 ridge，compute-bound，时间由 FLOPs 决定——权重字节省了没用，反而每个权重元素在每个 tile 里都要反量化一次再走普通的 Tensor Core 路径，等效于 BF16 GEMM 加一段额外的 ALU 工作，所以更慢。Roofline 上：W4A16 把工作点沿横轴右移 4 倍，只有原本在斜线上的点（decode）能因此上移，已经在屋顶上的点（prefill）不动甚至下沉。要让 prefill 也快，得用 W8A8 / FP8——激活也量化、用 FP8 Tensor Core 把算力屋顶抬高 2 倍（[第四章](#四fp8-gemmw8a8与动态量化)）。

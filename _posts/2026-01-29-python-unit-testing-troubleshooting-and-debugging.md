@@ -1248,8 +1248,4 @@ graph TD
 
    </details>
 
-## 下一篇
-
-[项目工程化与生产交付](/python-engineering-and-production-delivery.html)
-
 [^q0]: **验证行为**：`pytest` 的参数化、异常与边界测试，`fixture` 管理资源，`Mock` / `AsyncMock` / `monkeypatch` 隔离外部依赖（模型、GPU、网络），`pytest-asyncio` 测协程、超时与取消，`pytest-cov` 看分支有没有被覆盖；测试要能在没有 GPU 的 CI 上跑，就必须把设备相关的部分隔到边界后面（[第二](#二用-pytest-编写单元测试)至[六章](#六使用-monkeypatch-修改运行环境)、[第十四章](#十四用-pytest-cov-检查测试覆盖范围)）。**出问题从哪里下手**，按现象选工具：异步时序错乱 → `pytest-asyncio` 复现、`asyncio` debug 模式看未 await 的协程与慢回调；Mock 用错 → `AsyncMock` 与 `Mock` 的差别、`patch` 的作用域与目标路径（[第四章](#四用-mock-隔离模型后端和外部服务)、[第五章](#五异步代码测试)）；动态调用找不到实现 → `inspect` 看签名、`__wrapped__`、注册表内容与模块身份（[第十章](#十使用-inspect-排查动态调用问题)）；内存增长 → `tracemalloc` 快照对比、`memray`、`memory_summary()`（[第十一章](#十一使用-tracemalloc-定位-python-内存增长)）；进程卡死 → `faulthandler` 预埋信号 dump 全部线程栈，或 `py-spy dump`（[第十二章](#十二使用-faulthandler-排查卡死)）；慢 → `cProfile` 看 Python 热点、`torch.profiler` 看 GPU 是否在等 CPU（[第十三章](#十三使用-cprofile-判断-python-热点)）。贯穿的两条：`logging` 带上任务 / 请求上下文，`raise ... from e` 保留异常链——没有这两样，上面的工具拿到的都是残缺的现场（[第八章](#八日志从调试打印到生产配置)、[第九章](#九检查异常链和调用栈)）。[第十五章](#十五调试决策树)是一张决策树。

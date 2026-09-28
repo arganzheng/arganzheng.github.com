@@ -239,10 +239,6 @@ Table: 三种形态在四个维度上的对照
    Claude Code 原生读 `CLAUDE.md`，到 2026 年中仍无 AGENTS.md 的自动加载；Codex 读 AGENTS.md。做法：维护一份内容，用符号链接（`CLAUDE.md → AGENTS.md`）或在 CLAUDE.md 里 include；技能用 `.agents/skills/` 这个中立目录（两者都读）。详见[第四章](#四agentsmd)、[第五章](#五skillmd)。
    </details>
 
-## 下一篇
-
-[系列总结与通关自测](/context-engineering-series-recap-and-self-test.html)
-
 [^q0]: 版本库（随代码部署、可审查、diff 可见）或注册表（Langfuse 的不可变版本 + 可移动标签 `production` / `staging` / `prod-a`，改 prompt 不用重新部署；OpenAI 的 Prompts 对象在 Assistants API 2026-08-26 关闭后只能在控制台创建、代码用 id 引用），多数混合：结构在仓库、措辞在注册表。绑定：每个版本记模型快照与参数（effort、`max_tokens`、schema、工具集），模型升级 = 新版本重跑门禁。改一个词要跑：评测集 × $$k$$ 次的任务指标（不低于 production 减噪声阈值）、格式遵循率与出口使用率、每任务成本、TTFT、逐条由对变错的 diff；通过后打 `staging` → `prod-canary` 1% → `production`，回滚是移标签；trace 绑定版本；新版本第一轮的缓存全量写入是预期不是回归。详见[第二章](#二工件版本库还是注册表)、[第三章](#三流程)。
 
 [^q1]: AGENTS.md：仓库根目录给 coding agent 的项目指令，2025-08 开放格式、六万多开源项目采用、2025-11 起由 Linux 基金会下的 Agentic AI Foundation 管理；写命令（构建 / 测试 / lint）、可检验的硬规则、目录结构与约定，不写模型已知的通用知识，保持精炼、可分层；陷阱：Claude Code 读 CLAUDE.md 不原生读 AGENTS.md（用符号链接 / include）、Cursor 另有 `.mdc`、写成文档而非指令、过期、压缩后子目录的丢失。SKILL.md：Agent Skills 标准（Anthropic 2025-10 发布、12-18 开放，agentskills.io），目录含 `SKILL.md` + 可选 `scripts/` `references/` `assets/`，必填 `name`（≤ 64，与目录同名）与 `description`（≤ 1,024，写做什么与何时用），四十多个客户端支持，`.agents/skills/` 是中立目录；它是渐进披露的规范——常驻只有描述、正文按需加载；`allowed-tools` 等是客户端扩展。详见[第四章](#四agentsmd)、[第五章](#五skillmd)。

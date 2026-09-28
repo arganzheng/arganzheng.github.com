@@ -1365,7 +1365,12 @@ How it is built (`_plugins/moments.rb`):
 - Length is not a target; rigor and organisation are. Structure: (update note) →
   intro with the post's core question → `## 一、总览` (ending with 本文的章节安排)
   → body (`##` Chinese numerals, `###` Arabic) → `## N、本文小结` →
-  `## N+1、自测` → `## 下一篇` → `[^qN]:` footnote definitions.
+  `## N+1、自测` → `[^qN]:` footnote definitions. **No `## 下一篇` section**
+  (removed from 178 posts on 2026-09-28: the series box at the top and
+  bottom, the 「本系列」 list and the pager already show the next part; the 38
+  posts whose 下一篇 was a real transition paragraph — what the next part
+  picks up and why — kept it). Write such a transition only when it says
+  something a link cannot.
   - **Opening questions are answered in footnotes** (`[^q0]`, `[^q1]`, …, in
     reading order). Every question in the intro gets its own marker — the bold
     core question is split at each 「？」 (marker right after the 「？」, inside

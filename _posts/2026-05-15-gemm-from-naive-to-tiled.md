@@ -1223,10 +1223,6 @@ tile 参数（本文默认）：BM=BN=128, BK=8, TM=TN=8, 256 线程, 3 stage
 
    </details>
 
-## 下一篇
-
-[Tensor Core、CUTLASS 与 CuTe](/tensor-cores-cutlass-and-cute.html)
-
 [^q0]: 每次 FMA 配两次全局读，逻辑读取 $$2 \cdot 4096^3 \times 4$$ B = **512 GiB**（而三个矩阵各读写一次的最少访存只有 192 MiB）。L1 / L2 挡掉了大部分 HBM 流量，但 343 GB 的 cache 请求、依赖链延迟与 3:1 的 load / FFMA 配比把它压在峰值的 1–3%。详见[第二章](#二理论4096-sgemm-应该多快)、[第三章](#三v1naive每线程一个输出)。
 [^q1]: 每个 tile 把 $$A$$、$$B$$ 的子块搬进 shared 复用，全局读取降到 $$MNK(1/BM + 1/BN) \times 4$$ B = **4 GiB**，比 naive 少 128 倍。但一线程算一个输出时每次 FMA 要两条 LDS，shared 带宽（每 SM 每周期 128 B）成了新的屋顶，实际只到峰值的 25%。详见[第四章](#四v2shared-memory-分块)。
 [^q2]: 寄存器分块不再减少全局读取，减的是 **shared 读取**：每线程算 8×8 的外积，从 shared 读 16 个数做 64 次 FMA，LDS 指令减少 8 倍，把瓶颈从 shared 带宽推回算力——256 线程算一个 128×128 tile、约 128 个寄存器、25% 占用率，靠 ILP 而不是 TLP。再加向量化 `LDS.128`、`cp.async` 双缓冲、边界处理，到 FP32 峰值的 70–80%、cuBLAS 的 80–90%。详见[第五](#五v3寄存器分块含-v4-的加载优化)至[七章](#七v6边界处理)。

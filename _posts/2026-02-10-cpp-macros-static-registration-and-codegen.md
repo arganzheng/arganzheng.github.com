@@ -2861,8 +2861,4 @@ Java 工程师需要建立的三个新直觉：**"代码有没有"在编译前�
 
    </details>
 
-## 下一篇
-
-[并发、内存模型、TLS 与守卫](/cpp-concurrency-memory-model-tls-and-guards.html)
-
 [^q0]: 靠**静态初始化**。`TORCH_LIBRARY(myops, m) { ... }` 展开成一个函数定义加一个静态存储期对象 `static torch::detail::TorchLibraryInit TORCH_LIBRARY_static_init_myops(...)`，构造函数的参数就是那个函数；`TORCH_LIBRARY_IMPL` 同理。`.so` 被 `dlopen` 时，动态加载器在返回之前执行它的初始化段（`.init_array`），这些静态对象在此刻构造，构造函数调用 `Dispatcher::singleton().registerDef / registerImpl` 把 schema 与 kernel 登记进全局注册表——没有任何函数被显式调用，是加载器调的（[第五章](#五静态初始化与静态注册模式)、[第六章](#六torch_librarymyops-m-展开成什么)）。`torch.ops` 是一个按属性名惰性查询 Dispatcher 的 Python 对象（`_OpNamespace.__getattr__` → `torch._C._jit_get_operation`），访问 `torch.ops.myops.add` 时去注册表找 `myops::add`，找到就包成可调用对象（[第十一章](#十一回到源码)）。让这件事可靠的三个配套机制：注册表容忍任意顺序（`impl` 可以先于 `def`）、单例用函数内静态规避初始化顺序问题、静态库要 `--whole-archive` 否则没被引用的注册 `.o` 会被裁掉（[第七章](#七静态初始化顺序问题及其规避)、[第八章](#八符号可见性注册为什么会消失)）。

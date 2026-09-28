@@ -1071,10 +1071,6 @@ share/
 
    </details>
 
-## 下一篇
-
-[网络与存储：RDMA 进容器、并行文件系统与 checkpoint I/O](/rdma-networking-storage-and-checkpoint-io.html)
-
 [^q0]: 靠隔离与利用率之间的四档取舍，都是同一个技巧（device plugin 把一张卡复制成 N 个逻辑设备）的不同底座：**时间片**（驱动级轮转，无隔离）→ **MPS**（软显存上限 + SM 比例均分，同模型相同副本）→ **HAMi**（`libvgpu.so` 拦截 CUDA 驱动 API，按 MB 的显存配额与算力节流）→ **MIG**（硬件分区：独立的 SM、L2、显存与带宽）。「安全」的程度取决于显存是否有硬边界、故障域是整卡还是分区、带宽与 L2 是否被切。决策：训练不切；有 SLA 的推理在 MIG 卡上用 MIG、需要弹性用 HAMi；开发环境用时间片；一个节点池一种策略。详见[第二章](#二共享的四个层次)、[第七章](#七切分对引擎的影响与决策树)。
 [^q1]: **MIG `3g.20gb × 2`**：隔离性最好，故障域是 GI，一个服务 OOM 或 Xid 只影响自己；总吞吐份额由瓶颈决定——decode 看显存 slice 比例 1/2，prefill 看计算 slice 3/7；但 A100 只有 7 个计算 slice、8 个显存 slice，`3g.20gb × 2` 用尽显存 slice 且浪费一个计算 slice，**只能放两个服务**，第三个没地方；改几何要清空 GPU，MIG 实例间无 P2P（[第三章](#三mig硬件分区与-k8s-的接线)）。**HAMi 按显存切三份**：超过配额的 `cudaMalloc` 在越界容器内失败，OOM 被限制在自己；但不切带宽、不切 L2，延迟随邻居波动；故障域仍是整卡——一个 Xid 三个全挂；总吞吐通常比 MIG 高（[第五章](#五hami软件层的显存与算力配额)）。**时间片三个副本**：无任何隔离，显存先到先得，context 切换有开销（[第四章](#四时间片与-mpsdevice-plugin-的-sharing-配置)）。vLLM 的 `--gpu-memory-utilization` 在 MIG 与 HAMi 下自动按配额算，时间片与 MPS 下要手动调。详见[第八章](#八回答核心问题三个小模型与一张-a100)。
 [^q2]: **时间片**：显存是先到先得、没有配额，一个服务 OOM 时 `cudaMalloc` 失败的可能是任何一个——一个服务的 OOM 会拖垮另外两个。MPS 有软显存上限但一个进程的 fatal 错误会带倒整个 MPS server 下的所有客户端；HAMi 把 OOM 限制在越界容器内；MIG 连 Xid 都隔离。详见[第四章](#四时间片与-mpsdevice-plugin-的-sharing-配置)、[第八章](#八回答核心问题三个小模型与一张-a100)。

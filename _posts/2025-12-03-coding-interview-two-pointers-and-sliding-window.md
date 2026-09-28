@@ -505,10 +505,6 @@ static int maxArea(int[] h) {
    `right_max >= height[hi]`（它是 `hi` 右侧含自身的最大）。而 `height[hi] > height[lo]`，且 `left_max` 是 `lo` 左侧含自身的最大——如果 `left_max > right_max >= height[hi]`，那么在之前的某一步 `left_max` 所在位置的高度已经大于当时的 `height[hi]`，按规则那一步会处理右侧而不是左侧，`lo` 不会走到这里。所以此刻 `left_max <= right_max`，水位 = `left_max`。详见[第三章第 5 题](#5-lc-42-接雨水)。
    </details>
 
-## 下一篇
-
-[栈、单调栈与单调队列](/coding-interview-stack-monotonic-stack-and-queue.html)
-
 [^q0]: 成立的条件是合法性对窗口长度单调：右扩不会让"违规"变"合法"（或反之），左收不会让"合法"变"违规"。全正数的"和 ≥ target"、"不含重复字符"、"不同字符 ≤ k"都满足；含负数的"和 = k"不满足——右扩可能让和变小，无法决定何时收左边，要改用前缀和 + 哈希。详见[第一章](#一识别信号)。
 
 [^q1]: 用一个整数 `missing`（还差多少字符）代替每步比较两张计数表。右端进字符 `c` 时若 `need[c] > 0` 则 `missing -= 1`，然后 `need[c] -= 1`（可为负 = 多余）；`missing == 0` 即覆盖。收左边时 `need[s[left]] < 0` 的字符是多余的可以丢；丢到必需字符后主动破坏窗口（`missing += 1`）继续找更短的。每步 $$O(1)$$，总 $$O(\lvert s \rvert + \lvert t \rvert)$$。详见[第三章第 2 题](#2-lc-76-最小覆盖子串)。

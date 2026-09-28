@@ -212,10 +212,6 @@ Table: 工作流与 agent 的区分
    有时重复同一调用是合理的（轮询一个状态、重试一次瞬时失败），强制终止会误杀；提醒把判断留给模型，成本低。改成强制的情形：重复超过一个较高阈值（如同一调用 5 次以上）、或该工具有副作用（重复写入）、或预算接近耗尽——此时降级给人比再让模型判断更安全。卫士是插件，可以替换。详见[第二章](#二循环的每一段)、[第四章](#四deepseek-harness-的日志驱动循环)。
    </details>
 
-## 下一篇
-
-[工具调用与 MCP：协议、tool search 与程序化工具调用](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)
-
 [^q0]: 最小形态：组装上下文 → 调模型 → 若无工具调用则返回文本 → 对每个调用过权限、在沙箱里执行（并行、各有超时）→ 按 `call_id` 写回结果（错误也是结果）→ 检查预算与压缩 → 再来。失控点：只有"模型说完"一个出口（找不到答案时无限换词、工具挂住、上下文与费用无限增长）；前缀混入动态内容毁缓存；工具返回不截断爆上下文；参数非法或调用不存在的工具；漏配对 400；工具返回带注入。生产循环加四个卫士——步数上限、token / 美元预算、重复调用检测（DeepSeek Harness 的 `guard/repeat-tool-reminder`）、单次工具超时——与两个额外出口：预算耗尽交付部分结果、卫士触发降级给人。详见[第一章](#一总览)、[第二章](#二循环的每一段)。
 
 [^q1]: Codex（`codex-rs`，Rust）三层：`submission_loop` 管会话生命周期，从提交通道接收 `Op` 并分发，与 TUI / exec / app-server 之间是操作 / 事件通道；turn loop 由一次用户输入触发，组装 prompt（含 `AGENTS.md`）、调 Responses API、处理输出项，在边界处压缩；工具编排器（`tools/orchestrator.rs`）对每个调用：按 `AskForApproval`（`untrusted` / `on-request` 默认 / 细粒度 / `never`）与 `execpolicy` 决定是否审批（可选 Guardian 审查）→ 在 `SandboxManager` 选的沙箱下首次尝试 → 被拒时 `never` / `on-request` 不重试，允许升级的策略要新审批后才无沙箱重试。DeepSeek Harness（TypeScript，Cordis 插件）：`agent-loop` 领取 prompt → 在 `session` 的 append-only 日志上开 turn → 经 `system-prompt` 组装、从日志派生历史 → 流式调模型 → 经 `tools` 注册表分发 → 追加事实回日志；日志是状态、历史是派生视图，不变量"模型可见 ⟺ 已记录"；循环、卫士、沙箱、审批全是可替换插件，四种模式是插件组合。详见[第三章](#三codex-的三层循环)、[第四章](#四deepseek-harness-的日志驱动循环)。

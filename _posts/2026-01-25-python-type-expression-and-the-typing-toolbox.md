@@ -2000,8 +2000,4 @@ Table: Java 与 Python 类型系统对照
 
    </details>
 
-## 下一篇
-
-[Python 在 AI-Infra（02 中）：类型系统——类型信息的分发与消费](/python-type-information-distribution-and-consumption.html)
-
 [^q0]: **从哪里来**：开发者写在函数签名与类属性上的注解，解释器只把它存进 `__annotations__`，不检查也不转换；第三方库通过 stub（`.pyi`）与 `py.typed` 标记把类型信息随包分发（[第二章](#二类型表达从基础注解到-typing-工具箱)、[中篇第二章](/python-type-information-distribution-and-consumption.html#二类型载体与分发存根typeshed-与-pytyped)）。**被谁消费**：人（当文档读）、IDE、静态检查器 mypy / pyright（不运行代码就推断与报错），以及运行时主动读注解的库——`dataclasses` 据此生成 `__init__`，Pydantic 据此生成校验器，FastAPI 据此解析请求（[中篇第三章](/python-type-information-distribution-and-consumption.html#三类型信息消费层上静态分析与推理)、[中篇第四章](/python-type-information-distribution-and-consumption.html#四类型信息消费层下动态消费运行时如何读取类型注解)）。**怎么落成数据契约**：在系统边界（配置文件、HTTP 请求、外部输入）用 Pydantic 模型把「类型 + 约束」变成可执行的解析与校验，错误在启动或入口处暴露；内部热路径用 `@dataclass` 传递、不做运行时检查（[下篇第二章](/python-data-contract-design-dataclass-pydantic-and-settings.html#二工程落地数据契约设计)）。这条链路在 Python 里是拆开的，每一环都可以只用一部分，所以要自己决定在哪里投入：注解要写、边界要校验、热路径要干净。

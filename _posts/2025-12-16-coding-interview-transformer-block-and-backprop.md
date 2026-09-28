@@ -335,10 +335,6 @@ class Value:
    $$c = a + a^2$$，$$dc/da = 1 + 2a = 5$$。`a` 被用了三次（`a * a` 两次、`a + b` 一次），三条路径的贡献 $$2 + 2 + 1$$ 要累加。用 `=` 时后算的分支覆盖先算的：拓扑序反向先执行 `c` 的 `_backward`（`a.grad = 1`，`b.grad = 1`），再执行 `b` 的（`a.grad = 2`，再 `a.grad = 2`），最终 2——错误。详见[第四章第 6 节](#6-micrograd最小自动求导)。
    </details>
 
-## 下一篇
-
-[手撕 tokenizer 与解码](/coding-interview-tokenizer-and-decoding.html)
-
 [^q0]: 一层的矩阵：attention 四个 $$D \times D$$（$$4D^2$$），FFN 两个 $$D \times 4D$$（$$8D^2$$），合计 $$12D^2$$；bias 与 LN 只有 $$O(D)$$，占比 0.1% 量级。每个参数在前向里恰好参与一次乘加（2 FLOPs），所以每 token 线性项 FLOPs $$= 2 \times 12D^2 L = 2N_\text{非嵌入}$$；attention 的 $$QK^\top$$、$$PV$$ 另加 $$4TDL$$，$$T < 6D$$ 时是小项。训练是前向的 3 倍：$$6N$$。GPT-2 small 按此算得 124,439,808，与 `nn` 模块逐个数出的结果一致。详见[第三章](#三参数量与-flops-口算)。
 
 [^q1]: $$\log p_y = z_y - \log \sum_k e^{z_k}$$。对 $$z_j$$ 求导：第一项给 $$\mathbb{1}[j = y]$$，第二项给 $$-\frac{e^{z_j}}{\sum_k e^{z_k}} = -p_j$$。所以 $$\partial(-\log p_y) / \partial z_j = p_j - \mathbb{1}[j = y]$$，即 $$p - \text{onehot}(y)$$；对 batch 取 mean 再除 $$N$$。softmax 的雅可比与 $$-1/p_y$$ 相乘后完全约掉，这是把 softmax 与 CE 合成一个算子的原因——数值稳定且梯度是一次减法。详见[第四章第 3 节](#3-softmax--交叉熵)。

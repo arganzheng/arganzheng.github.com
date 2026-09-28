@@ -1035,9 +1035,5 @@ C. 驱动 570 + 数据中心 GPU + 570 在 CUDA 13.0 forward-compat 支持的分
 
    </details>
 
-## 下一篇
-
-[AI 任务调度：gang scheduling、队列与拓扑感知](/ai-job-scheduling-gang-queue-topology.html)
-
 [^q0]: **能跑，除了那一处新 API**。四层栈：内核驱动与用户态驱动库在宿主机，CUDA Runtime 与库在容器里随 wheel——`nvidia-smi` 显示的 CUDA Version 是驱动支持的上限，`torch.version.cuda` 是 Toolkit 版本，两者不同是常态。驱动 580（原生 13.0）+ 镜像 CUDA 13.1：同大版本、驱动 ≥ 580.65.06，**minor version compatibility** 适用，常规调用能跑；代码里那一处调用 13.1 新增的驱动 API 会返回 `cudaErrorCallRequiresNewerDriver`（36）——只有那一处。详见[第二章](#二四层栈与三条兼容规则)。
 [^q1]: 跨大版本，minor version compatibility 不适用；只有数据中心 GPU 且驱动分支受支持时，装 cuda-compat 包走 **forward compatibility**（容器里靠 Container Toolkit 的 cuda-compat-mode 生效）才能跑，否则容器启动就报 `unsatisfied condition: cuda>=13.1` 或运行时 `cudaErrorInsufficientDriver`（35）。Kubernetes 侧：Container Toolkit 读 `NVIDIA_VISIBLE_DEVICES` / `NVIDIA_REQUIRE_CUDA` 或 CDI 注入设备；device plugin 按 NVML 上报 `nvidia.com/gpu`；GPU Operator 用 `ClusterPolicy` 装驱动、Toolkit、plugin、GFD（打 `cuda.driver.major` 标签）。详见[第二章](#二四层栈与三条兼容规则)、[第三章](#三container-toolkit把驱动注入容器)、[第五章](#五gpu-operatorclusterpolicy-驱动的一套组件)。

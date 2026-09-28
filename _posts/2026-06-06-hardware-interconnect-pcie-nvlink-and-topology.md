@@ -1031,9 +1031,5 @@ if __name__ == "__main__":
 
    </details>
 
-## 下一篇
-
-[RDMA 与 GPUDirect：绕过 CPU 和主机内存的数据通路](/rdma-and-gpudirect.html)
-
 [^q0]: **`NV12`**：GPU0 与 GPU1 之间有 12 条 NVLink 链路（A100 经 NVSwitch 任意两卡都是 12），单向约 300 GB/s，不经 PCIe、不经 CPU，节点内 $$\beta$$ 的上限（[第三章](#三nvlink-与-nvswitch)）。**`PIX`**：GPU0 与 NIC0 挂在同一个 PCIe switch 下，P2P 流量在 switch 内转发、一跳到达，带宽是 PCIe x16 单向（4.0 约 32 GB/s，可达 80–90%），GPUDirect RDMA 可用（[第二章](#二pcielane代际root-complex-与-p2p)）。**`SYS`**：GPU0 到 NIC4 要穿过 PCIe root complex 并跨 socket 走 UPI，带宽打折（NCCL 按 6–40 GB/s 估）、延迟高，且 P2P 可能不被支持——NCCL 默认 `NCCL_NET_GDR_LEVEL=PXB`，跨 root complex 的路径不开 GDR，数据要经主机内存中转（[第五](#五读拓扑nvidia-smi-topo--mlspci--tv-与-topo--mp)至[七章](#七主机内存在路径上的位置)）。
 [^q1]: NCCL 初始化时从 `/sys` 与 NVML 探测出这张 PCIe 树与 NVLink 图，为每个 GPU 计算到每张网卡的路径类型，取距离最近（类型最好）且带宽最大的——GPU0 → NIC0 是 `PIX`，一跳、全速、能开 GDR；→ NIC4 是 `SYS`，最差。8 卡配 8 网卡、每张 GPU 与自己的网卡同 switch 就是为了让每个 GPU 都有一条 `PIX` 路径，8 张网卡并行把节点间带宽用满；rail-optimized 组网再让同编号 GPU 的流量在同一台 leaf 下一跳完成。详见[第四章](#四网卡与网络infinibandroce-与-8-卡-8-网卡)、[第八章](#八集群级拓扑fat-tree-与-rail-optimized)。

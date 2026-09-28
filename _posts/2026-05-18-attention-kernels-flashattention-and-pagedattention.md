@@ -1114,9 +1114,5 @@ FLASH_ATTN（sm_90 用 FA3，其余 FA2；vllm-flash-attn 加 block_table）
 
    </details>
 
-## 下一篇
-
-[量化与融合 kernel](/quantization-and-fused-kernels.html)
-
 [^q0]: $$N = 4096$$、$$d = 128$$、单 head BF16：标准实现要物化 $$S = QK^T$$ 与 $$P = \text{softmax}(S)$$，两个 $$N^2$$ 矩阵各写一次读一次，至少 128 MiB，加上 $$Q, K, V, O$$ 共约 **132 MiB**；FLOPs $$4N^2 d = 8.6$$ GFLOP，算术强度约 62，在 A100 上 memory-bound。FlashAttention 分块：$$Q$$ 读一次、$$O$$ 写一次各 1 MiB，$$K, V$$ 各被重读 $$N / B_r$$ 次（$$B_r = 128$$ 时 32 次），共约 **66 MiB**、实际因 L2 更少；$$S$$、$$P$$ 只存在于 shared / 寄存器，靠 online softmax 的 $$(m, l)$$ 逐块累加、最后一次重缩放——从 memory-bound 变成接近 compute-bound。详见[第二章](#二先算账标准-attention-读写多少-hbm)、[第三章](#三flashattention分块--online-softmax--不物化-s)。
 [^q1]: Llama-3-8B 每 token 的 KV 是 128 KiB，上下文 $$s$$ 时每步读 $$128\ \text{KiB} \times s$$，每读一个 K/V 元素只做 $$g$$（GQA 组大小，4）次 FLOP，彻底 memory-bound。这决定了：一步 decode 的时间下界 =（权重字节 + $$B \times s \times 128$$ KiB）/ 带宽——$$B \times s$$ 超过约 131k token 时 KV 流量超过权重，此后 decode 时间随上下文线性涨、与模型大小无关；所以 decode attention kernel 的目标是带宽利用率（split-K 沿序列并行填满 SM），PagedAttention 的分页只改地址计算不改字节数，KV 量化与 GQA / MLA 才能减字节。详见[第五章](#五推理的两种形态prefill-与-decode)、[第六章](#六pagedattention分页-kv-cache-的-kernel-侧)。

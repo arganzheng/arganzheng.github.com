@@ -981,9 +981,5 @@ Table: 本篇涉及的文件位置
 
    </details>
 
-## 下一篇
-
-[找到切入点：从 issue、RFC 到性能回归](/finding-your-entry-point-in-open-source.html)。本篇解决的是"给一个问题，能不能找到代码"；下一篇解决的是"该找哪个问题"——大多数失败的贡献不是做错了，而是选错了。它会读两个项目的标签体系（PyTorch `.github/labeler.yml` 与 `actionable`；vLLM `good first issue`、`new-model`、`rfc-required` 与 Job Board）、RFC 模板、CI 失败看板与性能回归模板，用 `gh` 实时抓一组真实 issue 做切入点清单，并回答：一个项目每天新增几十个 issue、几十个 PR，maintainer 最希望有人来做的是哪一类工作？你怎么判断自己选的题不会在一周后被关闭？
-
 [^q0]: **能**。用引言的案例走一遍两小时流程，四十分钟得出「已在 v2.11.0 修复」的结论。四种典型失败——从头读、随便读、被生成代码卡住、只读代码不读测试与历史——都是把阅读当成线性活动。详见[第八章](#八核心问题两小时定位流程)。
 [^q1]: 靠**有目标地检索而不是阅读**，一张流程清单：提取符号（报错里的类名、函数名、字符串字面量、`torch.ops.xxx` 名）→ 画地图（PyTorch 的 `c10/` → `aten/` → `torch/csrc/` → `torch/`；vLLM 的 `csrc/` → `vllm/`）（[第二章](#二先画地图)）→ `rg` 精确搜（字符串字面量优先）→ 找登记表（PyTorch 的 `native_functions.yaml` 把算子 `dispatch:` 到 C++ 函数；vLLM 的 `pyproject.toml` 入口、`ModelRegistry`、`torch_bindings.cpp`）（[第三章](#三找到入口点)）→ 沿链追到底、只读路径上的东西 → 识别生成代码（`torchgen` 生成的 `ATen/ops/*.h`、`autograd/generated/`、`_C/*.pyi` 在源码树里「找不到定义」——回 yaml、`.pyi.in`，或构建后用 clangd）（[第四章](#四生成代码与找不到定义)、[第五章](#五构建一次)）→ 读测试（测试是规格）（[第六章](#六用测试当文档)）→ 读历史（`git log -S`、`git blame -w -C`；PyTorch 的 commit 正文含 PR 描述，vLLM 的「为什么」要 `gh pr view`）（[第七章](#七读历史)）→ 记入地图（[第九章](#九贡献日志项目地图)）。构建是为了工具链不是为了改代码，可选、放最后。

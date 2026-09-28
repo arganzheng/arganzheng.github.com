@@ -1035,10 +1035,6 @@ all_gather     ring   n=8    S=   1G  T=    37651.0 us  lat=  0.2%  algbw=  28.5
 
    </details>
 
-## 下一篇
-
-[硬件互联：PCIe、NVLink、NVSwitch 与网络拓扑](/hardware-interconnect-pcie-nvlink-and-topology.html)
-
 [^q0]: 用 α-β 模型：ring all_reduce 的时间 $$T = 2(n-1)\alpha + \frac{2(n-1)}{n}\frac{S}{\beta}$$。$$n = 8$$、$$\beta = 25$$ GB/s、取 $$\alpha = 10$$ µs：带宽项 $$\frac{14}{8} \times 1\,\text{GB} / 25\,\text{GB/s} = 70$$ ms，延迟项 $$14 \times 10$$ µs = 0.14 ms，合计约 **70 ms**，延迟只占 0.2%。详见[第四章](#四α-β-模型)、[第五章](#五ring-all_reduce-的推导)。
 [^q1]: 带宽项 $$\frac{14}{8} \times 64\,\text{KB} / 25\,\text{GB/s} = 4.5$$ µs，延迟项 140 µs，合计约 **145 µs**，带宽只占 3%。详见[第五章](#五ring-all_reduce-的推导)。
 [^q2]: ring 的带宽项 $$\to 2S/\beta$$ 与 $$n$$ 无关，是大消息的最优；延迟项 $$2(n-1)\alpha$$ 随 $$n$$ 线性增长，小消息、大规模时它主导。两者相等的拐点 $$S^* = n\alpha\beta$$，8 卡 IB 约 2 MB——一个消息在拐点哪一侧，决定它算哪本账：1 GB 在带宽侧，换更快的链路、多网卡才有用；64 KB 在延迟侧，换快网卡无效，只有减少步数（tree 的 $$2\lceil\log_2 n\rceil$$ 步）、降低 $$\alpha$$（NVLink、LL 协议）、把多次小通信合并成一次才有用。训练的梯度桶（25 MiB）在带宽侧，decode TP 的 all_reduce（几十到几百 KB）在延迟侧，这就是两类系统通信优化方向完全不同的原因。详见[第五章](#五ring-all_reduce-的推导)、[第六章](#六tree-all_reduce-与-double-binary-tree)、[第九章](#九把消息大小的谱放到曲线上)。

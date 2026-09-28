@@ -427,10 +427,6 @@ Table: Latent diffusion 与 DiT 的规则小结
 
    </details>
 
-## 下一篇
-
-[自回归图像生成与统一模型](/autoregressive-image-generation-and-unified-models.html)
-
 [^q0]: 因为像素空间的扩散把大部分算力花在人眼不分辨的高频细节上，而 VAE 能用一次确定性的解码重建这些细节——扩散只需在 48 倍小的空间里学语义与结构，训练算力降一个量级；代价是 VAE 的瓶颈，SD3 用 16 通道放宽它。详见[第二章](#二latent-diffusion)。
 [^q1]: 赢在 **scaling**：把 latent 切成 patch 用标准 Transformer 处理后，FID 随 GFLOPs 平滑下降、与参数怎么分配无关，工程师知道「加算力就变好」，而 U-Net 的多尺度结构没有这样的规律；MMDiT 进一步让文本 token 进入同一个 attention 与图像深度交互。详见[第三章](#三从-u-net-到-dit)。
 [^q2]: 一张 FLUX 图是 2.8 PFLOPs、一次 7B LLM 回答是 14 TFLOPs，相差 200 倍，时间却相近——因为扩散每步是 4096 个 token 的并行前向、compute-bound、MFU 高，LLM 每步是 1 个 token、memory-bound、MFU 1%；所以扩散没有自回归的 KV cache、不需要 token 级 continuous batching，它的加速手段是把 50 步蒸成 4 步。详见[第六章](#六采样加速)、[第七章](#七成本结构)。

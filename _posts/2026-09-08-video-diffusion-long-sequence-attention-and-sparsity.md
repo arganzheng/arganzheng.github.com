@@ -345,10 +345,6 @@ Table: 视频扩散的规则与数字小结
    静态掩码按 $$(F, H, W)$$ 在请求开始时生成一次，每步的计算量完全可预知（服务可精确估时长、可与 CUDA graph / 编译配合，不需要每步的动态决策）；也没有各卡决策不一致的问题。差的场景：快速大范围运动或相机大幅移动的片段——相关 token 在时空上相距远，被静态的局部 / 衰减窗口截掉，而 SVG 的在线 profiling 会为这些 head 选 temporal 模式。详见[第六章](#六稀疏-attention-的四条路)。
    </details>
 
-## 下一篇
-
-[多卡并行：序列并行、CFG 并行与 PipeFusion——为什么不是张量并行](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html)
-
 [^q0]: $$N = 45 \times 80 \times 21 = 75{,}600$$；attention $$4 L N^2 d = 4 \times 40 \times 75600^2 \times 5120 = 4.7$$ PFLOPs，线性项 $$2 \times 12\text{B} \times 75600 = 1.8$$ P，attention 占 72%；一步（CFG ×2）13 PFLOPs，H100 $$\eta$$ 0.45 下 29 s，50 步 24 分钟。详见[第一章](#一总览)、[第三章](#三attention-占比的翻转)。
 
 [^q1]: Amdahl：$$1 / \big((1-a) + a/s\big)$$，$$a = 0.72$$。稀疏 80% 理想下 attention 5×：2.36×；kernel 效率 70%（3.5×）：2.06×；attention 时间为零的上限 3.57×。剩余的 28% 线性项要靠 FA3 / 编译 / FP8 / 多卡。详见[第八章](#八8-bit-attention-与叠加表)。

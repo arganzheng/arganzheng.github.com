@@ -1245,9 +1245,5 @@ mini-platform/sched/
 
    </details>
 
-## 下一篇
-
-[GPU 共享与切分：MIG、时间片、MPS 与 HAMi](/gpu-sharing-and-partitioning-mig-mps-hami.html)
-
 [^q0]: **Volcano**：Job → PodGroup（`minMember` = 32）→ Queue；A 队列 `deserved` 16 卡、`capability` 可设 32；每个调度周期 `allocate` 在 Statement 上模拟全部 task、`JobReady` 才 Commit——32 卡凑不齐一个 Pod 都不起；B 空闲时 A 可以借用到 `capability`，任务起来；B 提交任务时 `reclaim` 把超出 `deserved` 的部分回收，gang 插件禁止把 A 抢到 `minMember` 以下，所以 A 的 32 卡任务会被整个回收；`capability` = 16 则永远 Pending（[第三章](#三volcano一个更懂批处理的调度器)）。**Kueue**：不换调度器，webhook 把 Pod 置 `suspend=true`；Workload → LocalQueue → ClusterQueue（A 的 `nominalQuota` 16）；A、B 在同一 cohort 时 A 可以借用 B 的空闲配额，上限由 A 的 `borrowingLimit` 与 B 的 `lendingLimit` 决定——配了就 admitted、unsuspend，没配就 Pending；B 提交任务时 `reclaimWithinCohort` 让 B 收回被借的配额（A 的 Workload 被整个驱逐、回队列）（[第四章](#四kueue调度器之前的配额闸门)）。**Slurm**：账户的 `GrpTRES` 限制 A 为 16 卡，`sbatch --gres=gpu:32` 直接 Pending（`AssocGrpGRES`）；借用需要 QOS 的 `GrpTRES` 放宽或 preemptable QOS（[第九章](#九对照slurm-与-ray)）。哲学差别：Volcano 在 Pod 之后做节点级 gang，Kueue 在 Pod 之前做配额级 gang（[第五章](#五两种哲学的对比)）。
 [^q1]: **借用**：Volcano 是 Queue 的 `capability` > `deserved`（capacity 插件按 `guarantee ≤ deserved ≤ capability` 解释）；Kueue 是同一 cohort + `borrowingLimit` / `lendingLimit`；Slurm 是 QOS 的 `GrpTRES` 或 preemptable QOS。**抢占 / 回收**：Volcano 的 `reclaim` action + `reclaimable`；Kueue 的三开关 `reclaimWithinCohort`（收回被借）、`withinClusterQueue`（同队列按优先级）、`borrowWithinCohort`（借用者能否抢占）；代价是 $$N_{gpu} \times$$（距上次 checkpoint 时间 + 重启时间），以整任务为单位，grace period 要覆盖一次 checkpoint。**等待**：Volcano `capability` = `deserved`；Kueue 不配 cohort 或 `borrowingLimit: 0`，`waitForPodsReady` 在时间维度做 all-or-nothing。详见[第七章](#七抢占优先级与-checkpoint)、[第十章](#十回答核心问题借用抢占等待)。

@@ -622,8 +622,4 @@ Table: KV Cache 与 PagedAttention 源码导航
 
    </details>
 
-## 下一篇
-
-[GPU 执行：如何让每个 Token 算得更快？](/gpu-execution-kernels-and-graphs.html)
-
 [^q0]: **放在哪里**：按块放。请求到达时不知道它会生成 300 还是 20K 个 token，按最坏情况预留连续显存会让有效数据不到三成；PagedAttention 把每个请求的 KV 切成固定大小（`block_size`，如 16 token）的块，用多少申请多少、块之间不要求相邻——`KVCacheManager` 管每个请求的块列表、`BlockPool` 管空闲块与引用计数、Block Table 是逻辑块到物理块的映射，attention kernel 经它查地址（[第二章](#二pagedattention-的数学本质与源码实现)）。**如何复用**：Prefix Cache——块只有写满才进缓存，用链式哈希（前一块的哈希 + 本块 token）做键、`ref_cnt` 让多个请求共享同一物理块；2000 token 的 system prompt 是 125 个整块，第二个请求全部命中，复用粒度是块不是 token（[第四章](#四kv-cache-还能更小吗复用压缩与分层存储)）。**何时释放**：Prefill 批量写入 → Decode 每步追加一个 slot、块满了再申请 → 完成或被抢占时归还；`ref_cnt` 为零的块进空闲队列尾、仍可被后来者命中（[第三章](#三kv-cache-的写入读取与生命周期)）。让 KV 更小的三个正交层面：系统管理层（分页、prefix cache）、模型架构层（MQA / GQA / MLA）、数值层（FP8 / INT8）；显存不够时 V1 主要用重算而不是 swap（[第四章](#四kv-cache-还能更小吗复用压缩与分层存储)）。
