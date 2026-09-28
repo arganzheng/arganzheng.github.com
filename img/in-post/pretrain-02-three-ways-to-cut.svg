@@ -1,0 +1,132 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="740" height="314" viewBox="0 0 740 314" font-family="-apple-system,PingFang SC,Helvetica,Arial,sans-serif" font-size="12">
+<rect width="740" height="314" fill="#fff"/>
+<text x="370.0" y="22.0" font-size="14" text-anchor="middle" font-weight="bold" fill="#222">同一句话：“Pretraining tokenizers is unglamorous work.”，三种切法</text>
+<text x="20.0" y="62.0" font-size="12.5" text-anchor="start" font-weight="bold" fill="#222">按字符切</text>
+<rect x="20.0" y="72.0" width="16.7" height="20" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="28.3" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">P</text>
+<rect x="39.7" y="72.0" width="16.7" height="20" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
+<text x="48.0" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">r</text>
+<rect x="59.3" y="72.0" width="16.7" height="20" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="67.7" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">e</text>
+<rect x="79.0" y="72.0" width="16.7" height="20" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
+<text x="87.3" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">t</text>
+<rect x="98.7" y="72.0" width="16.7" height="20" rx="3" fill="#e6def3" stroke="#7b5ea7" stroke-width="0.8"/>
+<text x="107.0" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">r</text>
+<rect x="118.4" y="72.0" width="16.7" height="20" rx="3" fill="#fbf0c4" stroke="#c9a227" stroke-width="0.8"/>
+<text x="126.7" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">a</text>
+<rect x="138.0" y="72.0" width="16.0" height="20" rx="3" fill="#d5eef2" stroke="#3a9aa6" stroke-width="0.8"/>
+<text x="146.0" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">i</text>
+<rect x="157.0" y="72.0" width="16.7" height="20" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
+<text x="165.4" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">n</text>
+<rect x="176.7" y="72.0" width="16.0" height="20" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="184.7" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">i</text>
+<rect x="195.7" y="72.0" width="16.7" height="20" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
+<text x="204.0" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">n</text>
+<rect x="215.4" y="72.0" width="16.7" height="20" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="223.7" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">g</text>
+<rect x="235.0" y="72.0" width="16.7" height="20" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
+<text x="243.4" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">␣</text>
+<rect x="254.7" y="72.0" width="16.7" height="20" rx="3" fill="#e6def3" stroke="#7b5ea7" stroke-width="0.8"/>
+<text x="263.0" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">t</text>
+<rect x="274.4" y="72.0" width="16.7" height="20" rx="3" fill="#fbf0c4" stroke="#c9a227" stroke-width="0.8"/>
+<text x="282.7" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">o</text>
+<rect x="294.0" y="72.0" width="16.7" height="20" rx="3" fill="#d5eef2" stroke="#3a9aa6" stroke-width="0.8"/>
+<text x="302.4" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">k</text>
+<rect x="313.7" y="72.0" width="16.7" height="20" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
+<text x="322.0" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">e</text>
+<rect x="333.4" y="72.0" width="16.7" height="20" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="341.7" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">n</text>
+<rect x="353.1" y="72.0" width="16.0" height="20" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
+<text x="361.1" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">i</text>
+<rect x="372.1" y="72.0" width="16.7" height="20" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="380.4" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">z</text>
+<rect x="391.7" y="72.0" width="16.7" height="20" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
+<text x="400.1" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">e</text>
+<rect x="411.4" y="72.0" width="16.7" height="20" rx="3" fill="#e6def3" stroke="#7b5ea7" stroke-width="0.8"/>
+<text x="419.7" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">r</text>
+<rect x="431.1" y="72.0" width="16.7" height="20" rx="3" fill="#fbf0c4" stroke="#c9a227" stroke-width="0.8"/>
+<text x="439.4" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">s</text>
+<rect x="450.7" y="72.0" width="16.7" height="20" rx="3" fill="#d5eef2" stroke="#3a9aa6" stroke-width="0.8"/>
+<text x="459.1" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">␣</text>
+<rect x="470.4" y="72.0" width="16.0" height="20" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
+<text x="478.4" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">i</text>
+<rect x="489.4" y="72.0" width="16.7" height="20" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="497.7" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">s</text>
+<rect x="509.1" y="72.0" width="16.7" height="20" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
+<text x="517.4" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">␣</text>
+<rect x="528.7" y="72.0" width="16.7" height="20" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="537.1" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">u</text>
+<rect x="548.4" y="72.0" width="16.7" height="20" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
+<text x="556.7" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">n</text>
+<rect x="568.1" y="72.0" width="16.7" height="20" rx="3" fill="#e6def3" stroke="#7b5ea7" stroke-width="0.8"/>
+<text x="576.4" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">g</text>
+<rect x="587.8" y="72.0" width="16.0" height="20" rx="3" fill="#fbf0c4" stroke="#c9a227" stroke-width="0.8"/>
+<text x="595.8" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">l</text>
+<rect x="606.8" y="72.0" width="16.7" height="20" rx="3" fill="#d5eef2" stroke="#3a9aa6" stroke-width="0.8"/>
+<text x="615.1" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">a</text>
+<rect x="626.4" y="72.0" width="16.7" height="20" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
+<text x="634.8" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">m</text>
+<rect x="646.1" y="72.0" width="16.7" height="20" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="654.4" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">o</text>
+<rect x="665.8" y="72.0" width="16.7" height="20" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
+<text x="674.1" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">r</text>
+<rect x="685.4" y="72.0" width="16.7" height="20" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="693.8" y="85.6" font-size="11.5" text-anchor="middle" fill="#222">o</text>
+<rect x="20.0" y="98.0" width="16.7" height="20" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
+<text x="28.3" y="111.6" font-size="11.5" text-anchor="middle" fill="#222">u</text>
+<rect x="39.7" y="98.0" width="16.7" height="20" rx="3" fill="#e6def3" stroke="#7b5ea7" stroke-width="0.8"/>
+<text x="48.0" y="111.6" font-size="11.5" text-anchor="middle" fill="#222">s</text>
+<rect x="59.3" y="98.0" width="16.7" height="20" rx="3" fill="#fbf0c4" stroke="#c9a227" stroke-width="0.8"/>
+<text x="67.7" y="111.6" font-size="11.5" text-anchor="middle" fill="#222">␣</text>
+<rect x="79.0" y="98.0" width="16.7" height="20" rx="3" fill="#d5eef2" stroke="#3a9aa6" stroke-width="0.8"/>
+<text x="87.3" y="111.6" font-size="11.5" text-anchor="middle" fill="#222">w</text>
+<rect x="98.7" y="98.0" width="16.7" height="20" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
+<text x="107.0" y="111.6" font-size="11.5" text-anchor="middle" fill="#222">o</text>
+<rect x="118.4" y="98.0" width="16.7" height="20" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="126.7" y="111.6" font-size="11.5" text-anchor="middle" fill="#222">r</text>
+<rect x="138.0" y="98.0" width="16.7" height="20" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
+<text x="146.4" y="111.6" font-size="11.5" text-anchor="middle" fill="#222">k</text>
+<rect x="157.7" y="98.0" width="16.0" height="20" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="165.7" y="111.6" font-size="11.5" text-anchor="middle" fill="#222">.</text>
+<text x="20.0" y="134.0" font-size="11" text-anchor="start" font-weight="normal" fill="#555">43 个 token；词表只要 26 个字母 + 标点，但序列很长，模型要自己学“t-h-e 是一个词”</text>
+<text x="20.0" y="168.0" font-size="12.5" text-anchor="start" font-weight="bold" fill="#222">按词切</text>
+<rect x="20.0" y="178.0" width="78.3" height="20" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="59.2" y="191.6" font-size="11.5" text-anchor="middle" fill="#222">Pretraining</text>
+<rect x="101.3" y="178.0" width="80.8" height="20" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
+<text x="141.7" y="191.6" font-size="11.5" text-anchor="middle" fill="#222">␣tokenizers</text>
+<rect x="185.2" y="178.0" width="27.5" height="20" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="198.9" y="191.6" font-size="11.5" text-anchor="middle" fill="#222">␣is</text>
+<rect x="215.6" y="178.0" width="87.5" height="20" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
+<text x="259.4" y="191.6" font-size="11.5" text-anchor="middle" fill="#222">␣unglamorous</text>
+<rect x="306.1" y="178.0" width="43.4" height="20" rx="3" fill="#e6def3" stroke="#7b5ea7" stroke-width="0.8"/>
+<text x="327.8" y="191.6" font-size="11.5" text-anchor="middle" fill="#222">␣work</text>
+<rect x="352.5" y="178.0" width="16.0" height="20" rx="3" fill="#fbf0c4" stroke="#c9a227" stroke-width="0.8"/>
+<text x="360.5" y="191.6" font-size="11.5" text-anchor="middle" fill="#222">.</text>
+<text x="20.0" y="214.0" font-size="11" text-anchor="start" font-weight="normal" fill="#555">6 个 token；词表要几十万，“unglamorous”“tokenizers”这种少见词不在词表里就成了 &lt;unk&gt;，信息全丢</text>
+<text x="20.0" y="248.0" font-size="12.5" text-anchor="start" font-weight="bold" fill="#222">按子词切（GPT-2 的 BPE）</text>
+<rect x="20.0" y="258.0" width="16.7" height="20" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="28.3" y="271.6" font-size="11.5" text-anchor="middle" fill="#222">P</text>
+<rect x="39.7" y="258.0" width="30.0" height="20" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
+<text x="54.7" y="271.6" font-size="11.5" text-anchor="middle" fill="#222">ret</text>
+<rect x="72.7" y="258.0" width="51.6" height="20" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="98.5" y="271.6" font-size="11.5" text-anchor="middle" fill="#222">raining</text>
+<rect x="127.3" y="258.0" width="50.0" height="20" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
+<text x="152.3" y="271.6" font-size="11.5" text-anchor="middle" fill="#222">␣token</text>
+<rect x="180.3" y="258.0" width="40.8" height="20" rx="3" fill="#e6def3" stroke="#7b5ea7" stroke-width="0.8"/>
+<text x="200.7" y="271.6" font-size="11.5" text-anchor="middle" fill="#222">izers</text>
+<rect x="224.2" y="258.0" width="27.5" height="20" rx="3" fill="#fbf0c4" stroke="#c9a227" stroke-width="0.8"/>
+<text x="237.9" y="271.6" font-size="11.5" text-anchor="middle" fill="#222">␣is</text>
+<rect x="254.6" y="258.0" width="30.0" height="20" rx="3" fill="#d5eef2" stroke="#3a9aa6" stroke-width="0.8"/>
+<text x="269.6" y="271.6" font-size="11.5" text-anchor="middle" fill="#222">␣un</text>
+<rect x="287.6" y="258.0" width="16.7" height="20" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
+<text x="296.0" y="271.6" font-size="11.5" text-anchor="middle" fill="#222">g</text>
+<rect x="307.3" y="258.0" width="27.5" height="20" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="321.1" y="271.6" font-size="11.5" text-anchor="middle" fill="#222">lam</text>
+<rect x="337.8" y="258.0" width="43.4" height="20" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
+<text x="359.5" y="271.6" font-size="11.5" text-anchor="middle" fill="#222">orous</text>
+<rect x="384.1" y="258.0" width="43.4" height="20" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="405.8" y="271.6" font-size="11.5" text-anchor="middle" fill="#222">␣work</text>
+<rect x="430.5" y="258.0" width="16.0" height="20" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
+<text x="438.5" y="271.6" font-size="11.5" text-anchor="middle" fill="#222">.</text>
+<text x="20.0" y="294.0" font-size="11" text-anchor="start" font-weight="normal" fill="#555">12 个 token；常见词（is、work）整个一格，少见词拆成碎片（token+izers、un+g+lam+orous），任何字符串都能表示</text>
+</svg>
