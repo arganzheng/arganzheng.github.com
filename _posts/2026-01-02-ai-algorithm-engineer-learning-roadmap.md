@@ -201,17 +201,17 @@ Table: L1 各工具要掌握到的程度
 
 > **什么是学习？怎么知道模型学会了而不是背下来了？**
 
-系列：[《LLM 时代的经典机器学习：只讲它在哪里重现》](/classical-machine-learning-in-the-llm-era.html)（十篇）——什么是学习 · 线性回归 · 逻辑回归与奖励模型 · 三个基础分类器 · SVM 与核方法 · 集成 · 聚类 · 降维 · MinHash 与 LSH · 评估，每个机制用十几行 NumPy 手写并画出来，对到 LLM 上的形态（benchmark 污染、reward hacking、weight decay = Ridge、attention = 核回归、奖励模型 = 逻辑回归、embedding 各向异性、去重阈值、judge 偏差）。
+系列：[《LLM 时代的经典机器学习：只讲它在哪里重现》](/classical-machine-learning-in-the-llm-era.html)（十篇）——什么是学习 · 线性回归 · 逻辑回归与奖励模型 · 三个基础分类器 · SVM 与核方法 · 集成 · 聚类 · 降维 · MinHash 与 LSH · 评估，每个机制用十几行 NumPy 手写并画出来，对到 LLM 上的形态（benchmark 污染、reward hacking、weight decay = Ridge、attention = 核回归、奖励模型 = 逻辑回归、embedding 各向异性、去重阈值、judge 偏差）；每篇另有算法的来龙去脉和一个真实数据的经典案例（加州房价、垃圾短信、MNIST、泰坦尼克、人口普查收入、RFM 客户分群、Eigenfaces、语料去重、银行营销），代码与效果数字全部实跑。
 
 这一层在大模型时代常被跳过，但它提供的是**方法论**而不是具体模型。训练集 / 验证集 / 测试集的划分、过拟合与欠拟合、偏差-方差权衡、正则化、评估指标——这些概念在 LLM 上一个不少地重现：benchmark 污染就是测试集泄漏，奖励模型过拟合就是 reward hacking 的一种来源。
 
 | 主题 | 概念 | LLM 时代为什么还需要 | 在哪一篇 |
 |---|---|---|---|
 | 基础概念 | 训练 / 验证 / 测试集、过拟合与欠拟合、偏差-方差、正则化、标准化 | 所有评测与配方决策的方法论来源 | [第一篇](/what-is-learning-splits-generalization-and-bias-variance.html) |
-| 监督学习 | 线性回归、Ridge / Lasso、逻辑回归、朴素贝叶斯、SVM、KNN、决策树、随机森林、梯度提升、XGBoost / LightGBM | 逻辑回归是奖励模型与 DPO 的数学骨架；梯度提升树仍是表格数据与数据质量打分的首选 | [第二](/linear-and-logistic-regression-the-skeleton-of-reward-models.html)、[三篇](/a-family-of-classifiers-from-naive-bayes-to-gradient-boosting.html) |
-| 无监督学习 | K-Means、DBSCAN、PCA、embedding 聚类；MinHash / LSH 去重 | 数据去重与多样性分析、embedding 空间的可视化 | [第四](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html)、[五篇](/deduplication-minhash-and-lsh-probabilities.html) |
-| 特征工程 | 特征选择与抽取、缩放、编码 | 在深度学习里被"表示学习"取代，但数据工程里的质量特征仍靠它 | 第二、三篇顺带 |
-| 评估 | 分类：Accuracy、Precision / Recall、F1、AUC；回归：MSE、RMSE、MAE；交叉验证、统计显著性 | 评测集怎么划、怎么给置信区间、A/B 差异是否显著 | [第六篇](/evaluation-from-confusion-matrix-to-judge-agreement.html) |
+| 监督学习 | 线性回归、Ridge / Lasso、逻辑回归、朴素贝叶斯、SVM、KNN、决策树、随机森林、梯度提升、XGBoost / LightGBM | 逻辑回归是奖励模型与 DPO 的数学骨架；梯度提升树仍是表格数据与数据质量打分的首选 | [第二](/linear-regression-least-squares-ridge-and-lasso.html)、[三](/linear-and-logistic-regression-the-skeleton-of-reward-models.html)、[四](/a-family-of-classifiers-from-naive-bayes-to-gradient-boosting.html)、[五](/svm-and-kernel-methods.html)、[六篇](/ensembles-random-forest-and-gradient-boosting.html) |
+| 无监督学习 | K-Means、DBSCAN、PCA、embedding 聚类；MinHash / LSH 去重 | 数据去重与多样性分析、embedding 空间的可视化 | [第七](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html)、[八](/dimensionality-reduction-pca-svd-tsne-and-umap.html)、[九篇](/deduplication-minhash-and-lsh-probabilities.html) |
+| 特征工程 | 特征选择与抽取、缩放、编码 | 在深度学习里被"表示学习"取代，但数据工程里的质量特征仍靠它 | 第二、六篇的案例顺带（one-hot、人均量特征、取 log） |
+| 评估 | 分类：Accuracy、Precision / Recall、F1、AUC；回归：MSE、RMSE、MAE；交叉验证、统计显著性 | 评测集怎么划、怎么给置信区间、A/B 差异是否显著 | [第十篇](/evaluation-from-confusion-matrix-to-judge-agreement.html) |
 | 工具 | scikit-learn | 快速训练一个数据过滤器、一个质量分类器 | 每篇 |
 
 Table: L2 机器学习基础的主题与 LLM 时代的必要性
@@ -222,7 +222,7 @@ Table: L2 机器学习基础的主题与 LLM 时代的必要性
 
 > **梯度怎么流？为什么深了就难训？CNN 与 RNN 各解决了什么、留下了什么？**
 
-系列：[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)（六篇）——反向传播 · 初始化 / 归一化 / 残差 · 优化器 · 正则化与泛化 · CNN 到 ViT · RNN 到 attention。每篇推导 + 算账 + 一个 CPU 上能跑的实验。
+系列：[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)（六篇）——反向传播 · 初始化 / 归一化 / 残差 · 优化器 · 正则化与泛化 · CNN 到 ViT · RNN 到 attention。每篇推导 + 算账 + 一个 CPU 上能跑的实验，外加来龙去脉、一个案例（MNIST 从零、64 层 MLP、优化器扫描、double descent、复现 LeNet-5、字符级 LSTM 写莎士比亚）和原论文的结构图。
 
 | 主题 | 概念 | 说明 | 在哪一篇 |
 |---|---|---|---|

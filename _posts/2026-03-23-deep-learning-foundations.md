@@ -253,10 +253,24 @@ Table: 贯穿六篇的三条线索
 | 第四篇 | dropout；weight decay；训练 - 验证曲线；宽度扫描 |
 | 第五篇 | Conv2d 与它的全连接等价形式；patch embedding（PyTorch 对照 CIFAR-10） |
 | 第六篇 | RNN 单元 · LSTM 单元 · BPTT；Bahdanau attention |
+| 案例脚本 | `case_01` … `case_06`：训练曲线、逐层统计、学习率扫描、double descent、LeNet-5、字符级 LSTM 与对齐矩阵的图；`tools/paper_figures.py` 从原论文 PDF 裁结构图 |
 
 Table: 各篇在 NumPy 小框架里加的东西
 
-全部实验在 CPU 上几分钟内跑完，没有 GPU 不影响。框架的目的不是替代 PyTorch，而是让每一个训练现象都能在自己写的、每一行都懂的代码里复现一次；之后回到 PyTorch，`loss.backward()` 与 `optimizer.step()` 就不再是黑盒。
+每篇另有一节**来龙去脉**（这一样东西是谁、为解决什么问题发明的，前一代败在哪）、一章**案例**（把本篇的实验放回一个完整的问题里：问题 → 思路 → 代码 → 效果 → 落地还差什么，曲线画出来）和**原论文的结构图**（LeNet-5、AlexNet、VGG、ResNet 残差块、ViT、LSTM 细胞、seq2seq、Bahdanau attention、Pre-LN vs Post-LN、Adam 的算法框、dropout、double descent——直接引用原图并注明来源）：
+
+| 篇 | 案例 | 数字 |
+|---|---|---|
+| 第一篇 | MNIST 手写数字，120 行 NumPy 从零 | 15 个 epoch 97.6%；与 KNN 2.95% / SVM 1.43% 同一份数据 |
+| 第二篇 | 把 MLP 加深到 64 层，七种接法 | 只有 Pre-Norm 在两个学习率下都能训；逐层激活 std / 梯度范数曲线 |
+| 第三篇 | 同一个 MLP，四种优化器 × 五个学习率；64 层网络的 warmup | 最优学习率差 300 倍、成绩差不到半个点；lr 1e-2 无 warmup loss 冲到 4.59 |
+| 第四篇 | 1,000 张图的过拟合与三种解药；宽度扫描 | 训练 loss 归零、测试 loss 掉头；double descent 的尖峰在宽度 8–16 |
+| 第五篇 | 复现 LeNet-5 | 61,706 个参数、5 个 epoch、0.82%——MLP 参数的 1/3、错误率的 1/3；第一层学出边缘检测器 |
+| 第六篇 | 字符级 LSTM 写莎士比亚，与 nanoGPT 同预算 | val 1.71 vs 1.66；倒序任务的对齐矩阵 |
+
+Table: 各篇的案例
+
+全部实验在 CPU 上几分钟内跑完（第五、六篇的 PyTorch 案例在 Apple 芯片 / GPU 上更快），没有 GPU 不影响。框架的目的不是替代 PyTorch，而是让每一个训练现象都能在自己写的、每一行都懂的代码里复现一次；之后回到 PyTorch，`loss.backward()` 与 `optimizer.step()` 就不再是黑盒。
 
 与它平行的源码与资料阅读线：
 

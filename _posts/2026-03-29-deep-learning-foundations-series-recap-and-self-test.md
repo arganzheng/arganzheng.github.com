@@ -45,6 +45,19 @@ flowchart TB
 
 Table: 六篇的核心问题、结论与必记公式
 
+六篇各有一个案例和几张原论文的结构图，合起来是一条能亲手复现的历史线：
+
+| 篇 | 案例 | 记住的一个数 | 原论文图 |
+|---|---|---|---|
+| 一 | MNIST，120 行 NumPy 从零 | 15 个 epoch 97.6%，错 239 张 | — |
+| 二 | 64 层 MLP 的七种接法 | 只有 Pre-Norm 在 lr 0.05 / 0.005 下都能训 | Xiong 2020 Post-LN vs Pre-LN |
+| 三 | 四种优化器 × 五个学习率；64 层网络 warmup | 最优 lr 差 300 倍、成绩差不到半个点；1e-2 无 warmup 冲到 4.59 | Kingma & Ba 2014 Algorithm 1 |
+| 四 | 1,000 张图的过拟合；宽度扫描 | 测试 loss 0.40 → 0.55 而准确率不动；double descent 尖峰在宽度 8–16 | Srivastava 2014 dropout；Nakkiran 2019 |
+| 五 | 复现 LeNet-5 | 61,706 个参数、5 个 epoch、0.82% | LeNet-5、AlexNet、VGG 表、ResNet 残差块 / bottleneck、ViT |
+| 六 | 字符级 LSTM 写莎士比亚 | 与 nanoGPT 同预算 val 1.71 vs 1.66 | Graves 2013 展开 RNN / LSTM 细胞；Sutskever 2014；Bahdanau 2015 结构与对齐 |
+
+Table: 六个案例与原论文图一览
+
 ### 1. 本文的章节安排
 
 | 章 | 内容 |
