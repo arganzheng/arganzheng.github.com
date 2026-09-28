@@ -2561,10 +2561,9 @@ footer .copyright a,
 }
 .post-container .series-box .sb-list .is-current > span {
   display: inline-block;
-  margin-left: -8px;
+  margin-left: -6px;
   padding: 0 6px;
-  border-left: 2px solid #00788f;
-  border-radius: 0 4px 4px 0;
+  border-radius: 4px;
   background: #eaeef2;
   font-weight: 600;
   color: #00788f;
@@ -2637,10 +2636,9 @@ footer .copyright a,
 }
 .side-series ol .is-current > span {
   display: inline-block;
-  margin-left: -8px;
+  margin-left: -6px;
   padding: 0 6px;
-  border-left: 2px solid #00788f;
-  border-radius: 0 4px 4px 0;
+  border-radius: 4px;
   background: #eaeef2;
   font-weight: 600;
   color: #00788f;

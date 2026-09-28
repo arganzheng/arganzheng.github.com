@@ -4,14 +4,13 @@
 // box at the top and bottom of a post, the 「本系列」 list under the outline,
 // and the /series.html tree. Built into css/argan-blog{,.min}.css by npm run css.
 
-// the current part in a series list: same look as the current heading in the OUTLINE panel —
-// teal left bar + teal bold text on a grey background (theme-overrides.less)
+// the current part in a series list: teal bold on a grey pill, like the current heading in the
+// OUTLINE panel (theme-overrides.less) minus its left bar — a bar after the list number looks wrong
 .series-current-pill() {
 	display: inline-block;
-	margin-left: -8px;
+	margin-left: -6px;
 	padding: 0 6px;
-	border-left: 2px solid @brand-primary;
-	border-radius: 0 4px 4px 0;
+	border-radius: 4px;
 	background: #eaeef2;
 	font-weight: 600;
 	color: @brand-primary;
