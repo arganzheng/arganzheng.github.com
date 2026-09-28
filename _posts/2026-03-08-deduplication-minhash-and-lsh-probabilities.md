@@ -47,10 +47,26 @@ Table: 去重的三步：变换、关键式子与解决什么
 | 五 | 在 2000 段文本上跑一遍 | 200 万对 vs 267 个候选；实测的召回贴着 S 曲线 |
 | 六 | 三层去重 | 精确 / 模糊 / 语义各抓什么；用第七篇的句子试一遍 |
 | 七 | 工程上的几件事 | 词级 vs 字符级、精确去重先做、跨文档 vs 文档内、去重多少合适 |
-| 八 | 本文小结 | |
-| 九 | 自测 | 六道题 |
+| 八 | 案例：给 wikitext 去重 | 14,813 段真实语料：暴力要 16 分钟，MinHash-LSH 1.5 秒找到 213 个候选；注入的 500 个近重复按改动比例的召回贴着 S 曲线；语料自带的模板段 |
+| 九 | 本文小结 | |
+| 十 | 自测 | 六道题 |
 
 Table: 本文的章节安排
+
+### 3. 来龙去脉：从 AltaVista 到 15T token
+
+| 年 | 谁 | 当时的问题 | 留下的东西 |
+|---|---|---|---|
+| 1901 / 1912 | Jaccard | 植物学：两片山地的物种有多像 | **Jaccard 相似度**：交集 / 并集（第二章） |
+| 1997 | Broder（AltaVista） | 搜索引擎爬回的几亿网页里，镜像站、转载、只改了日期的页面占了很大一块；两两比较不可能 | **MinHash**：$$k$$ 个随机 hash 的最小值，两个集合签名相等的概率恰好等于 Jaccard（第三章）——用几十个数替代整个集合 |
+| 1998 | Indyk & Motwani | 有了签名，几亿个签名之间怎么找相近的，还是不能两两比 | **LSH**（局部敏感哈希）：把签名分段分桶，相似的大概率撞进同一个桶（第四章） |
+| 2002 / 2007 | Charikar；Manku 等（Google） | 网页去重要在爬取时在线做、每页只能存几十位 | **SimHash**：64 位指纹、汉明距离 ≤ 3 判近重复，Google 爬虫的做法 |
+| 2021 | Lee 等，《Deduplicating Training Data Makes Language Models Better》 | C4 等预训练语料里近重复有多少、有什么害 | 去重后模型更好、更少逐字背诵——去重从"省存储"变成**训练数据质量**问题 |
+| 2023–2024 | RefinedWeb、FineWeb | 15T token 的网页语料，去重比例、粒度怎么定 | FineWeb 的 $$b = 14, r = 8$$、按 CommonCrawl 快照内去重而不是全局（第四、七章）；去重是控制重复的分布，不是消灭重复 |
+
+Table: 去重方法的来历
+
+Broder 1997 年的问题和今天 FineWeb 的问题是同一个：**$$n$$ 个文档两两比较是 $$n^2$$，$$n$$ 是几亿时算不完**。MinHash 把每个文档压成几十个数、LSH 让相似的文档不用比就撞在一起，两件事合起来把 $$n^2$$ 变成接近 $$n$$。之后二十五年算法几乎没变，变的是用途：从"搜索结果别重复"到"训练数据别重复"。什么时候不用它：要抓的是**语义**重复（同一件事的两种说法，n-gram 不重叠）——换第六章的 embedding；文档很短（一句话，shingle 太少，签名不稳）——直接精确匹配或编辑距离。
 
 ## 二、Jaccard
 
@@ -271,7 +287,72 @@ Table: 三层去重各抓到什么与成本
 4. **去重多少合适**：去重太狠会把"合理的重复"（高质量的教科书内容被大量引用）也去掉。实践里常按 Jaccard 阈值去重后再对高质量来源做"上采样"补回来——去重是为了控制重复的**分布**，不是消灭一切重复。L4 预训练系列第三篇讲这些取舍。
 5. **规模**：15T token 的去重在几百台机器上跑几天；签名的生成是 embarrassingly parallel，分桶是一次 shuffle。`datatrove`、`text-dedup` 一类库把这套流程封装好了，但参数 $$(k, b, r)$$ 要自己按本篇的 S 曲线定。
 
-## 八、本文小结
+## 八、案例：给一份真实语料去重
+
+第五章的 2,000 段是随机词拼的。这一章换真实文本——wikitext-2（维基百科精选条目）训练集里长度超过 200 字符的 14,313 段——再注入 500 个"近重复"，看 MinHash-LSH 在真文本上找到什么、漏掉什么、比暴力快多少。完整脚本 [`case_09_wikitext_dedup.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/classical-ml/case_09_wikitext_dedup.py)。
+
+### 1. 问题与数据
+
+14,313 段、平均 137 个词。注入 500 个近重复：随机挑一段原文，把 2% / 5% / 10% / 20% 的词删掉或写错（各 125 个），模拟改写、模板变化、OCR 错字。这样每个注入的对我们知道"真相"，能算召回。任务：找出 Jaccard $$\ge 0.7$$ 的所有段落对。
+
+### 2. 思路
+
+```mermaid
+%% 图：14,813 段文本的去重流水线
+flowchart TB
+    D["14,813 段"] -->|词级 5-gram| S["14,813 个 shingle 集合<br/>平均 132 个 / 段"]
+    S -->|"128 个 hash 取最小"| M["14,813 × 128 的签名矩阵"]
+    M -->|"切 16 段 × 8 个"| B["分桶：同一段 8 个数全等 → 同桶"]
+    B --> Cd["213 个候选对<br/>（1.1 亿对的 0.0002%）"]
+    Cd -->|精确算 Jaccard| R["160 对 ≥ 0.7"]
+```
+
+用词级 5-gram（预训练去重的常用设置，第七章），$$b = 16, r = 8$$，阈值 $$(1/b)^{1/r} = 0.71$$。
+
+### 3. 代码
+
+```python
+docs = wikitext2("train")                                  # 14,313 段
+sets = [shingles(d) for d in docs]                         # 词级 5-gram 集合，0.4 s
+mh = MinHash(k=128)                                        # 第三章的 20 行
+sigs = np.array([mh.signature(S) for S in sets])           # [14813, 128]，1.2 s
+buckets = defaultdict(list)                                # 第四章的分桶
+for i, sig in enumerate(sigs):
+    for band in range(16):
+        buckets[(band, sig[band * 8:(band + 1) * 8].tobytes())].append(i)
+cand = {(a, b) for members in buckets.values() if len(members) > 1
+        for a in members for b in members if a < b}      # 213 对，0.27 s
+dup = {p for p in cand if jaccard(sets[p[0]], sets[p[1]]) >= 0.7}   # 对候选精确算：160 对
+```
+
+### 4. 效果
+
+**暴力有多贵**：14,813 段有 1.097 亿对；实测每对算一次 Jaccard 9 µs → 全部要 **16 分钟**（Python 里）。**LSH**：签名 1.2 秒 + 分桶 0.27 秒 → 213 个候选对（全部对的 0.0002%），对候选精确算 Jaccard 几毫秒。
+
+**找到了什么、漏了什么**——500 个注入的近重复按改动比例：
+
+| 改掉的词 | 与原文的 Jaccard（中位） | 成为候选的比例 |
+|---:|---:|---:|
+| 2% | 0.87 | **98%** |
+| 5% | 0.68 | 61% |
+| 10% | 0.46 | 6% |
+| 20% | 0.24 | 0% |
+
+Table: 注入的近重复按改动比例的召回
+
+![左：500 个注入对按真实 Jaccard 与是否成为候选的散点，叠上 S 曲线——改 2% 的全在右上、改 20% 的全在左下、改 5% 的正卡在阈值上一半一半；右：暴力 16 分钟 vs MinHash 1.2 s、LSH 0.3 s、候选精算 0.00 s 的对数刻度柱状图](/img/in-post/classical-ml-case-09-lsh-wikitext.svg)
+
+三件事：
+
+- **词级 5-gram 很敏感**：改一个词毁掉 5 个 shingle，所以改 5% 的词 Jaccard 就掉到 0.68、改 10% 掉到 0.46。这是第七章"词级 vs 字符级"的实测——阈值 0.7 在词级 5-gram 下的含义是"最多改 4%–5% 的词"。
+- **召回贴着 S 曲线**：改 2%（Jaccard 0.87）98% 找到；改 5%（0.68）正卡在阈值 0.71 上，61%——S 曲线在阈值附近就是一半一半；改 10% 只剩 6%。**漏掉的不是 bug，是阈值的定义**：要抓改 10% 的，调 $$b, r$$ 把阈值降到 0.5（代价是候选对暴涨），或换字符级 shingle。
+- **语料自带的重复**：候选里 Jaccard $$\ge 0.7$$ 且两段都是原文的有 3 对——同型军舰条目里"After Winslow's August 1915 commissioning, she sailed off the east coast..." 和 "After Cushing's August 1915 commissioning, she sailed off the east coast..."（$$J = 0.77$$），以及专辑曲目表里两个演唱者的两行。**维基百科精选条目里都有整段套模板改名字的写法**，几亿网页里这类东西的比例只会更高——这就是 Lee 等 2021 在 C4 里发现的东西。
+
+### 5. 落地还差什么
+
+（一）**规模**：14,813 段在一台笔记本上 1.5 秒；FineWeb 的一个 CommonCrawl 快照是几十亿段，同样的算法要分布式地做——签名矩阵按行切到多机、桶按 key 分到多机（一次 shuffle），这是 Spark / Ray 上的标准作业，算法不变；（二）**去重之后做什么**：找到 160 对不等于删 160 段——要决定留哪一份（通常留最长或最早的）、成簇的重复（A≈B≈C）要用并查集连起来一起处理；（三）**去多少**：第七章说过，去重是控制重复的分布——FineWeb 发现按快照内去重比全局去重训出的模型更好，因为全局去重把高质量的、被多次转载的内容也删光了。找重复是算法问题，删多少是实验问题。
+
+## 九、本文小结
 
 - **Jaccard** $$= \lvert A \cap B \rvert / \lvert A \cup B \rvert$$，在 n-gram 集合上定义"相似"；改 5% 的词大约 0.6。
 - **MinHash**：随机排列（hash）下集合里排最前的元素；两个集合的最小值相等 ⟺ 并集里排最前的落在交集里，概率恰好是 Jaccard（手算例子 3/6）。$$k$$ 个签名相等的比例是无偏估计，标准差 $$\sqrt{J(1-J)/k}$$——实测与理论逐点吻合，$$k = 128$$ 时 ±0.04，用 512 字节代替整个集合。20 行实现。
@@ -280,9 +361,11 @@ Table: 三层去重各抓到什么与成本
 - **三层去重**：精确 hash（逐字相同）→ MinHash（模板页 Jaccard 0.70）→ embedding 语义去重（措辞不同的同义句余弦 0.46 vs 无关 −0.20），由便宜到贵依次做。
 - 工程：精确去重先做；词级 / 字符级 n-gram 按语言定；去重是控制重复的分布而不是消灭重复；参数 $$(k, b, r)$$ 按 S 曲线定。
 
-配套代码：本文全部数字与图由 [`classical-ml/09_minhash_lsh.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/classical-ml/09_minhash_lsh.py) 产生（`tiny` / `estimate` / `error` / `scurve` / `dedup` / `semantic` 六个子实验，纯 NumPy；`semantic` 复用第七篇的句向量），CPU 上一分钟内跑完。
+- **案例**：wikitext-2 的 14,813 段，暴力 1.1 亿对要 16 分钟，MinHash-LSH 1.5 秒出 213 个候选；注入的近重复改 2% 的词召回 98%、改 5%（Jaccard 0.68，卡在阈值上）61%、改 10% 6%——漏掉的是阈值的定义不是 bug；语料自带的模板段（同型军舰条目）$$J = 0.77$$。
 
-## 九、自测
+配套代码：本文全部数字与图由 [`classical-ml/09_minhash_lsh.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/classical-ml/09_minhash_lsh.py) 产生（`tiny` / `estimate` / `error` / `scurve` / `dedup` / `semantic` 六个子实验，纯 NumPy；第八章案例由 [`case_09_wikitext_dedup.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/classical-ml/case_09_wikitext_dedup.py) 产生，wikitext-2 通过 `datasets` 下载约 4 MB；`semantic` 复用第七篇的句向量），CPU 上一分钟内跑完。
+
+## 十、自测
 
 1. 两段 100 个词的文本有 90 个词级 5-gram 相同、各自有 10 个不同，Jaccard 是多少？
 
