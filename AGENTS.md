@@ -1547,6 +1547,11 @@ How it is built (`_plugins/moments.rb`):
     (17 figures shipped like that on 2026-09-21; readers reported 「图片没有正确
     显示」). `check-render.cjs` now fails a page on it (`zeroImgs`), and
     `js/figures.js` widens such an image to the wrapper as a fallback.
+  - **No `|` in an image's alt text** (`![… |log Z| …](/img/…)`): kramdown
+    reads the line as a table row, the image never renders and the Markdown
+    source shows up as a table cell (happened twice, 数学 05 and 预训练 05).
+    Write 「log Z 的绝对值」 or 竖线 instead. `check-render.cjs` fails a page
+    on it (`rawMd`: a `td`/`p`/`li` whose text contains `](/img/in-post/`).
   - Verify rendering in a real browser (`jekyll serve` + check `.mermaid-error`
     and eyeball each SVG's size), not just `jekyll build`. Use the checker
     script for this:

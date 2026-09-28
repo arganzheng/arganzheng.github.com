@@ -30,6 +30,7 @@ const CHECK = `(() => {
     imgs: [...document.images].filter(i=>i.src.includes("/img/in-post/")).map(i=>[i.src.split("/").pop(), i.naturalWidth, i.naturalHeight]),
     katexErrors: [...document.querySelectorAll(".katex-error")].map(e=>e.textContent.slice(0,80)),
     zeroImgs: [...document.images].filter(i=>i.complete&&i.naturalWidth>0&&i.getBoundingClientRect().width<2&&i.src.includes("/img/in-post/")).map(i=>i.src.split("/").pop()),
+    rawMd: [...document.querySelectorAll("td, p, li")].filter(e=>!e.closest("pre")&&/\\]\\(\\/img\\/in-post\\//.test(e.textContent)).map(e=>e.textContent.trim().slice(0,80)),
     widePre: [...document.querySelectorAll("pre")].filter(p=>p.scrollWidth>p.clientWidth+2).map(p=>p.textContent.trim().split("\\n")[0].slice(0,60)),
     pending: m.filter(e=>!e.querySelector("svg")&&!e.classList.contains("mermaid-error")).length + [...document.images].filter(i=>!i.complete).length
       + document.querySelectorAll("pre code.language-mermaid").length
@@ -57,10 +58,11 @@ async function check(slug) {
   }
   ws.close();
   await getJSON(`${CDP}/json/close/${t.id}`);
-  const status = out.href.endsWith(`/${slug}.html`) && !out.errs && out.ok === out.mermaid && !out.brokenImgs.length && !out.zeroImgs.length && !out.katexErrors.length ? 'PASS' : 'FAIL';
+  const status = out.href.endsWith(`/${slug}.html`) && !out.errs && out.ok === out.mermaid && !out.brokenImgs.length && !out.zeroImgs.length && !out.katexErrors.length && !out.rawMd.length ? 'PASS' : 'FAIL';
   console.log(`\n== ${slug} [${status}]`);
   console.log(`mermaid=${out.mermaid} ok=${out.ok} errs=${out.errs} pending=${out.pending} brokenImgs=${out.brokenImgs.length} zeroImgs=${out.zeroImgs.length} katexErrors=${out.katexErrors.length}`);
   if (out.katexErrors.length) console.log('katexErrors:', JSON.stringify(out.katexErrors));
+  if (out.rawMd.length) console.log('rawMd (an image line swallowed into a table cell — a `|` in the alt text; use 「」or 竖线 instead):', JSON.stringify(out.rawMd));
   // loaded but laid out at 0 px wide: an SVG with viewBox but no width/height inside the shrink-wrapped .fig-media
   if (out.zeroImgs.length) console.log('zeroImgs (loaded, rendered 0 px wide — svg root needs width/height):', JSON.stringify(out.zeroImgs));
   if (out.errTexts.length) console.log('errTexts:', out.errTexts);
