@@ -6,14 +6,24 @@
 
 // the current part in a series list: teal bold on a grey pill, like the current heading in the
 // OUTLINE panel (theme-overrides.less) minus its left bar — a bar after the list number looks wrong
-.series-current-pill() {
+.series-pill() {
 	display: inline-block;
 	margin-left: -6px;
 	padding: 0 6px;
 	border-radius: 4px;
+}
+.series-current-pill() {
+	.series-pill();
 	background: #eaeef2;
 	font-weight: 600;
 	color: @brand-primary;
+}
+// hovering another part: teal on a lighter grey, like hovering an OUTLINE heading
+.series-hover-pill() {
+	.series-pill();
+	text-decoration: none;
+	transition: color 0.2s, background-color 0.2s;
+	&:hover, &:focus { color: @brand-primary; background: #f6f8fa; text-decoration: none; outline: none; }
 }
 
 // top-of-post box: 「系列 《…》 第 N / X 篇  目录 ▸」 folding open into the parts, then 上一篇 / 下一篇
@@ -60,7 +70,7 @@
 		column-gap: 28px;
 		line-height: 1.5;
 		li { margin: 0 0 4px; break-inside: avoid; }
-		a { color: #57606a; &:focus { outline: none; } }
+		a { color: #57606a; .series-hover-pill(); &:hover, &:focus { background: #eceff2; } }
 		.is-current > span { .series-current-pill(); background: #e1e6eb; }
 	}
 	.sb-nav {
@@ -103,7 +113,7 @@
 		line-height: 1.5;
 		li { margin: 0 0 3px; }
 		li::marker { color: #8b949e; }
-		a { color: #57606a !important; text-decoration: none; &:hover { color: @brand-primary !important; } &:focus { outline: none; } }
+		a { color: #57606a !important; .series-hover-pill(); &:hover, &:focus { color: @brand-primary !important; } }
 		.is-current > span { .series-current-pill(); }
 	}
 }
