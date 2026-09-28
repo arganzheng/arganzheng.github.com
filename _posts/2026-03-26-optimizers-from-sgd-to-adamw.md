@@ -74,11 +74,29 @@ v ← β₂v + (1−β₂)g²
 | 六 | 学习率调度 | warmup 为什么几乎不能省（大学习率下）、cosine 与 WSD、衰减到多少、峰值学习率的量级与宽度的关系 |
 | 七 | 梯度裁剪 | 全局范数裁剪的公式、对 SGD 与 Adam 各做了什么、梯度范数曲线怎么读 |
 | 八 | 优化器状态的账 | 16 字节 / 参数里的 12；8-bit Adam、Adafactor；二阶与新优化器 |
-| 九 | 实验 | 六组实验的代码与结果 |
+| 九 | 案例：同一个 MNIST MLP，五个部件各试一遍 | 四种优化器 × 五个学习率的扫描曲线；warmup 在 64 层网络上的实测曲线；偏差修正、AdamW vs L2、线性 scaling、裁剪 |
 | 十 | 本文小结 |  |
 | 十一 | 自测 | 5 道题 |
 
 Table: 本文的章节安排
+
+### 3. 来龙去脉：七十年里加的五个部件
+
+| 年 | 谁 | 当时的问题 | 留下的东西 |
+|---|---|---|---|
+| 1951 | Robbins & Monro | 只能拿到带噪声的观测，怎么找一个函数的零点 / 极值 | **随机近似**：每步用一个噪声样本的梯度走一小步，学习率逐步减小——SGD 的数学（第二章） |
+| 1964 | Polyak | 梯度下降在狭长的山谷里来回震荡、走得慢 | **Momentum**（重球法）：把历史梯度平均，震荡抵消、一致的方向累积（第三章） |
+| 1983 | Nesterov | Momentum 冲过头才刹车 | 先按动量方向预走一步再算梯度（NAG），收敛率有理论保证 |
+| 2011 | Duchi 等，AdaGrad | 稀疏特征（词向量）里，常见词和罕见词的梯度差几个量级，一个学习率顾不了两头 | **每个参数一个学习率**：用历史梯度平方和的平方根去除——Adam 的 $$v$$ 从这里来 |
+| 2012 | Tieleman & Hinton，RMSProp（课程讲义） | AdaGrad 的平方和只增不减，学习率最终归零 | 平方和换成**指数移动平均**——$$v$$ 会忘 |
+| 2014 | Kingma & Ba，Adam | 把 Momentum 和 RMSProp 合起来，再修好初期偏差 | **Adam**（第四章）：$$m$$、$$v$$ 两个矩 + 偏差修正；默认超参 $$(0.9, 0.999, 10^{-8})$$ 十年没变 |
+| 2017 | Loshchilov & Hutter，AdamW | Adam 上 weight decay 效果不对——比 SGD + wd 差 | 把 wd 从梯度里拿出来直接作用于参数（第五章）；LLM 全部用它 |
+| 2017 | Goyal 等（Facebook） | 用 8,192 的 batch 一小时训完 ImageNet，学习率怎么定 | **线性 scaling 规则** + **warmup**（第二、六章）：LLM 训练配置的两条默认 |
+| 2018 / 2024 | Shazeer & Stern，Adafactor；Zhao 等，GaLore | 优化器状态 8 字节 / 参数，比模型本身还大 | 分解 / 低秩存 $$v$$（第八章）——省状态是大模型时代的新问题 |
+
+Table: 优化器的来历
+
+七十年只做了一件事：**让步长更合理**。Robbins–Monro 说"带噪声的梯度也能走"，Momentum 说"方向要平均"，AdaGrad / RMSProp / Adam 说"每个参数的步长要归一"，AdamW 说"衰减别混进步长里"，warmup 说"一开始步子要小"。今天 LLM 配置里那一行 `AdamW(lr, betas=(0.9, 0.95), weight_decay=0.1)` + warmup + cosine，就是这张表从上到下叠出来的。什么时候不用 Adam：卷积网络的图像分类至今 SGD + Momentum 常常泛化更好（AdamW 论文的动机之一）；参数太多存不下两份状态（第八章）。
 
 ## 二、SGD 与它的噪声
 
@@ -135,6 +153,10 @@ $$
 \hat m_t = \frac{m_t}{1 - \beta_1^t}, \quad \hat v_t = \frac{v_t}{1 - \beta_2^t}, \qquad
 \theta \leftarrow \theta - \eta\, \frac{\hat m_t}{\sqrt{\hat v_t} + \epsilon}
 $$
+
+这就是 Kingma & Ba 2014 论文里的算法框——十年来所有框架的 `Adam` 实现的就是这十行：
+
+![Kingma & Ba 2014《Adam: A Method for Stochastic Optimization》Algorithm 1：初始化 m₀、v₀、t 为 0；循环里依次算梯度 g_t、更新一阶矩 m_t、二阶矩 v_t、偏差修正得到 m̂_t 与 v̂_t、参数更新 θ_t ← θ_{t−1} − α·m̂_t/(√v̂_t + ε)。图片版权归原作者，此处为教学评述引用](/img/in-post/dl-paper-adam-alg1.webp)
 
 $$m$$ 是 Momentum（归一化形式）。$$v$$ 是每个参数梯度平方的平均，$$\sqrt{v}$$ 是梯度的典型幅度；用它去除，更新量 $$\hat m / \sqrt{\hat v}$$ 是一个**无量纲的、量级约为 1 的数**——梯度一直很大的参数和梯度一直很小的参数，每步走的距离都约等于 $$\eta$$。这是 Adam 与 SGD 的本质区别：SGD 的步长与梯度成正比，Adam 的步长与梯度**无关**，只由 $$\eta$$ 决定。它让一个学习率适用于梯度尺度相差几个量级的所有参数（embedding、norm 的增益、深层与浅层的权重），是 Adam 成为默认优化器的原因。
 
@@ -313,7 +335,11 @@ Table: 省优化器状态的方法
 
 Adam 对每个参数用一个标量 $$1/\sqrt{v}$$ 做预处理，是"对角"的曲率信息。Shampoo、SOAP、Muon 一类用矩阵级的预处理（对权重矩阵的行空间与列空间分别归一，或直接把更新正交化），每步更贵但步数更少；Muon 在 2024–2025 年的一些开源预训练里显示出比 AdamW 更高的算力效率。SOPHIA 用 Hessian 对角的估计代替 $$v$$。这些是当前活跃的方向，知道它们都在回答同一个问题——**用多少曲率信息换多少步数**——就够了；AdamW 仍是默认。
 
-## 九、实验
+## 九、案例：同一个 MNIST MLP，五个部件各试一遍
+
+**问题**：前八章拆开了 LLM 配置里的每个数字，这一章把它们放回同一个网络上测——第一篇的两层 MLP（浅、好训，用来比优化器）和第二篇的 64 层 Pre-Norm 网络（深、敏感，用来看 warmup 和裁剪）。每组实验只改一个部件，问两个问题：**它改变了什么、代价是什么**。
+
+**思路**：优化器之间不能只比一个学习率——SGD 和 Adam 的合理学习率差 300 倍，固定一个学习率比就是在比谁碰巧被照顾到。所以每个优化器扫五个学习率取最好，再看**曲线的形状**（对学习率敏不敏感）而不只是最高点。
 
 ### 1. 代码
 
@@ -347,9 +373,30 @@ class Adam:
 
 Table: 优化器对比：最优学习率、准确率与状态大小
 
+把学习率扫描的整条曲线画出来（[`case_03_optimizers_mnist.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_03_optimizers_mnist.py)，网格再宽一档）：
+
+![左：四种优化器在各五个学习率下 1 个 epoch 后的测试准确率，SGD 最优 lr 1.0（96.3%）、Momentum 0.1（96.2%）、Adam / AdamW 0.003（96.6%），SGD lr 3 训坏到 11%；右：各自最优学习率下的 loss 曲线四条几乎重合](/img/in-post/dl-case-03-optimizers.svg)
+
+| 优化器 | 扫的学习率 | 最优 $$\eta$$ | 最好准确率 | 状态大小 |
+|---|---|---:|---:|---:|
+| SGD | 0.03 / 0.1 / 0.3 / 1.0 / 3.0 | 1.0 | 96.3% | 0 |
+| Momentum 0.9 | 0.003 / 0.01 / 0.03 / 0.1 / 0.3 | 0.1 | 96.2% | 795 KiB |
+| Adam | 3e-4 / 1e-3 / 3e-3 / 1e-2 / 3e-2 | 0.003 | **96.6%** | 1590 KiB |
+| AdamW（$$\lambda = 0.1$$） | 同上 | 0.003 | 96.5% | 1590 KiB |
+
+Table: 学习率扫描：四种优化器各自的最优点
+
+读法：（一）**调好学习率后四种优化器差不到半个点**——两层 MLP 上谁都能训，"Adam 更准"在这里不成立；（二）**最优学习率差 300 倍**（SGD 1.0 vs Adam 0.003）——这就是第四章说的 Adam 把每个参数的更新量归一到 $$\approx \eta$$，而 SGD 的更新量是 $$\eta \times$$ 梯度、这个网络的梯度很小；（三）Adam 的最优学习率在几乎所有模型上都是 $$10^{-3}$$ 量级、SGD 的每个模型都要重找——**Adam 的优势不在成绩，在于不用重新找学习率**；（四）代价是右边那一列：Momentum 多存一份参数、Adam 多存两份，每参数 8 字节，这是第八章 Llama-3-8B 优化器状态 64 GB 的来源。
+
 **Adam 第一步的更新量**（$$\max \lvert \Delta\theta \rvert / \eta$$）：有偏差修正 1.00（$$\beta_2$$ 无关）；无偏差修正 $$\beta_2 = 0.999$$ 时 3.16、$$\beta_2 = 0.95$$ 时 0.45——与第四章的 $$(1 - \beta_1) / \sqrt{1 - \beta_2}$$ 一致。
 
-**Warmup**、**AdamW vs $$L_2$$**、**线性 scaling**、**裁剪**四组结果已分别列在第六、五、二、七章。线性 scaling 一组的完整数字：
+**Warmup** 在 64 层 Pre-Norm 网络上的曲线（第六章那张表的图形版）：
+
+![左：峰值 lr 0.001 与 0.01、有无 100 步 warmup 的四条 loss 曲线（5 步滑动平均），lr 0.01 不加 warmup 的红线在前 20 步冲到 4 以上、慢慢回落；右：放大前 100 步的原始 loss，红线最高 4.59，绿线（有 warmup）最高 1.26](/img/in-post/dl-case-03-warmup.svg)
+
+峰值 $$\eta = 10^{-2}$$ 不加 warmup，前 20 步 loss 冲到 4.59——比随机初始化的 $$\ln 10 = 2.30$$ 还差一倍，网络被第一步的满步长更新打坏、再花 60 步爬回来；加 100 步线性 warmup 最高 1.26。$$\eta = 10^{-3}$$ 时两条虚线几乎重合——小学习率下 warmup 看不出差别。学习率越大伤得越重，而 LLM 训练总想用尽量大的学习率，所以 warmup 几乎不能省。
+
+**AdamW vs $$L_2$$**、**线性 scaling**、**裁剪**三组结果已分别列在第五、二、七章。线性 scaling 一组的完整数字：
 
 | $$B$$ | $$\eta = 0.05 B / 32$$ | 步数 | 最终 loss | 准确率 |
 |---|---|---|---|---|
@@ -369,6 +416,10 @@ Table: 线性 scaling 规则的完整数字
 - 在线性 scaling 实验里把 SGD 换成 Adam、学习率按 $$\sqrt{B}$$ 缩放，看规则是否成立；
 - 实现 WSD 调度与 cosine 对比，观察衰减开始处 loss 的下折。
 
+![两种学习率调度的形状：warmup 100 步 + cosine 衰减到 10%；WSD 在峰值保持到 80% 处再线性衰减](/img/in-post/dl-case-03-schedules.svg)
+
+**落地还差什么**：这里的实验都在几百到几千步、一个 MNIST 上；LLM 一次训练几十万步，优化器的差别在**后半程**才显出来——AdamW 与 Adam+$$L_2$$ 一个 epoch 差 9 个点（第五章），几十万步会差得更多；warmup 从 100 步变成 2000 步、cosine 的衰减段是 loss 大幅下降的阶段（第六章）。但每个部件"改变了什么、代价是什么"的答案不随规模变，这一章测出来的方向在 8B 模型上仍然成立——这正是能在笔记本上学 LLM 训练配置的原因。
+
 ## 十、本文小结
 
 - **SGD** 的 batch 梯度无偏、方差 $$\propto 1/B$$；由此得线性 scaling 规则（$$B$$ 乘 $$k$$、$$\eta$$ 乘 $$k$$），在临界 batch 之内成立（实测到 512），之外发散（2048）。Adam 下近似为 $$\sqrt{B}$$。
@@ -380,7 +431,7 @@ Table: 线性 scaling 规则的完整数字
 - 混合精度 + AdamW 的 16 字节 / 参数里 12 字节是优化器的；8-bit Adam、Adafactor 各省多少；Muon 一类用更多曲率信息换步数。
 - 下一篇：有了能稳定训练的网络与优化器，为什么参数比样本多得多却不过拟合——以及什么时候会。
 
-配套代码：[`deep-learning-foundations/03_optimizers.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/03_optimizers.py)——六个实验各是一个子命令（`compare` / `bias` / `warmup` / `adamw` / `scaling` / `clip`）；优化器实现在 `dlf/optim.py`。
+配套代码：[`deep-learning-foundations/03_optimizers.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/03_optimizers.py)——六个实验各是一个子命令（`compare` / `bias` / `warmup` / `adamw` / `scaling` / `clip`）；[`case_03_optimizers_mnist.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_03_optimizers_mnist.py) 画学习率扫描、warmup 与调度曲线；优化器实现在 `dlf/optim.py`。
 
 ## 十一、自测
 

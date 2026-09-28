@@ -69,11 +69,27 @@ flowchart LR
 | 六 | Pre-Norm 与 Post-Norm | 两种放法的梯度路径；实测梯度范数分布；为什么 LLM 选 Pre-Norm |
 | 七 | 大模型上的稳定性工具 | loss spike、QK-norm、z-loss、μP、embedding 缩放 |
 | 八 | 诊断 | 看哪三条曲线、每种病的形状 |
-| 九 | 实验 | 64 层 MLP × 7 种配置：逐层激活方差、梯度范数、300 步训练结果 |
+| 九 | 案例：把 MLP 加深到 64 层 | 7 种接法在同一份数据、同一个骨架上：逐层激活方差与梯度范数的曲线、300 步训练曲线——只有 Pre-Norm 一条线冲到底 |
 | 十 | 本文小结 |  |
 | 十一 | 自测 | 5 道题 |
 
 Table: 本文的章节安排
+
+### 3. 来龙去脉：每一样都是为了"再深一点"
+
+| 年 | 谁 | 当时的问题 | 留下的东西 |
+|---|---|---|---|
+| 1998 | LeCun 等，《Efficient BackProp》 | 网络训不动，多半是输入没归一、权重初始化随手取 | 输入标准化、权重按 $$1/\sqrt{n}$$ 初始化——第一份"怎么让网络能训"的工程手册 |
+| 2010 | Glorot & Bengio（Xavier 初始化） | 5 层以上的 sigmoid / tanh 网络就训不动了，为什么 | 逐层分析**方差怎么传**（第二章）：前向方差和反向方差都要保持不变，解出 $$\sigma^2 = 2/(n_{in} + n_{out})$$ |
+| 2015 | He 等（Kaiming 初始化） | ReLU 网络用 Xavier 到 30 层就不行 | ReLU 砍掉一半方差，所以 $$\sigma^2 = 2/n$$（第二章第 2 节）；第一次把 30 层的 ReLU 网络训起来 |
+| 2015 | Ioffe & Szegedy，BatchNorm | 初始化只管第一步，训着训着分布又变了 | **归一化层**（第四章）：每层强制拉回均值 0 方差 1，学习率可以大 10 倍；代价是依赖 batch |
+| 2015 | He 等，ResNet | 有了 BN，56 层还是比 20 层差——不是过拟合，是训练误差更高 | **残差连接**（第五章）：$$x + f(x)$$，梯度多一条恒等通路，152 层能训；之后深度不再是瓶颈 |
+| 2016 | Ba、Kiros、Hinton，LayerNorm | RNN / 序列模型 batch 内长度不一，BN 用不了 | 按样本、沿特征归一化（第四章第 2 节）——Transformer 用的就是它 |
+| 2019 / 2020 | Zhang & Sennrich，RMSNorm；Xiong 等，Pre-LN | LayerNorm 里减均值是不是必要的；原始 Transformer 的 Post-Norm 为什么必须 warmup | 去掉减均值省 7% 时间效果不变（第四章第 3 节）；证明 Post-Norm 靠近输出的层梯度大、Pre-Norm 各层梯度均匀（第六章）——LLM 全部改用 Pre-Norm + RMSNorm |
+
+Table: 初始化、归一化与残差的来历
+
+一条线看下来，三样东西解决的是**同一个问题的三个阶段**："再深一点"就训不动。初始化管第一步（信号进出网络不爆不灭），归一化管训练中（分布跑偏了拉回来），残差管梯度的路（不管多深都有一条恒等通路）。每一次深度的跃升（5 层 → 30 层 → 150 层 → Transformer 的 100 层）都对应表里的一行，而今天 LLM 的配置——Kaiming 量级的初始化、Pre-Norm、RMSNorm、残差——是这张表全部叠起来的结果。第九章用一个 64 层的 MLP 把这几行各拆开试一遍。
 
 ## 二、方差的前向传播
 
@@ -194,24 +210,9 @@ $$L$$ 层的乘积 $$\prod_l (I + J_{f_l})$$ 展开后有一项是 $$I$$——�
 
 ### 1. 两种放法
 
-归一化放在残差分支之前还是残差相加之后，是两种结构：
+归一化放在残差分支之前还是残差相加之后，是两种结构。下图是 Xiong 等 2020 论文里的原图——(a) Post-LN 是 2017 年原始 Transformer 的接法，(b) Pre-LN 是 GPT-2 之后 LLM 的接法；灰色粗箭头是残差流，注意 Layer Norm 在 (a) 里横在残差流上、在 (b) 里只在分支入口：
 
-```text
-Post-Norm（原始 Transformer，2017）          Pre-Norm（GPT-2 之后的 LLM）
-
-  x ──┬──────────────────┐                    x ──┬─────────────────────────┐
-      │                  │                        │                         │
-      ▼                  │                        ▼                         │
-     f(x)                │                      Norm(x)                     │
-      │                  ▼                        │                         │
-      └──────────────▶ (+)                        ▼                         ▼
-                         │                     f(Norm(x)) ─────────────▶  (+)
-                         ▼                                                  │
-                      Norm(·)                                               ▼
-                         │                                              x + f(Norm(x))
-                         ▼
-                   Norm(x + f(x))
-```
+![Xiong 等 2020《On Layer Normalization in the Transformer Architecture》图 1：(a) Post-LN Transformer 层，Layer Norm 在残差相加之后、横在主干上；(b) Pre-LN Transformer 层，Layer Norm 在每个分支（Multi-Head Attention、FFN）的入口，主干上只有相加。图片版权归原作者，此处为教学评述引用](/img/in-post/dl-paper-xiong-preln.webp)
 
 Post-Norm：$$x_{l+1} = \text{Norm}(x_l + f_l(x_l))$$。Pre-Norm：$$x_{l+1} = x_l + f_l(\text{Norm}(x_l))$$。
 
@@ -259,7 +260,11 @@ Table: 训练诊断：三条曲线的健康形状与病态
 
 第一条对应第二、五章，第二条对应第三、六章，第三条是下一篇优化器的内容。三条曲线加起来，第一章那张表里的每一种失败都能在几百步之内被定位到具体的层与具体的原因。
 
-## 九、实验
+## 九、案例：把 MLP 加深到 64 层——七种接法哪些能训
+
+**问题**：上一篇的两层 MLP 加深到 64 层会怎样？这是 2010–2015 年整个领域面对的问题（来龙去脉那张表的每一行都是它的一次回答）。这一章在同一份数据（MNIST）、同一个骨架（784 → 256 的输入投影 + 64 个 256 宽的块 + 256 → 10 的输出层）上，只改初始化 / 归一化 / 残差的接法，七种配置各训一遍，看哪些能训、哪些不能、为什么。
+
+**思路**：先不训，只做一次前向反向，看**初始时刻**每层的激活多大、梯度多大（第二、三章的方差传播说它们应该保持在 1 附近）；再 SGD 训 300 步，两个学习率。前者是"体检"，后者是"结果"——体检不过的，结果一定不好；体检过了的，也不一定能训（plain-kaiming 就是例子）。
 
 ### 1. 代码
 
@@ -295,6 +300,12 @@ Table: 初始时刻逐层激活标准差与梯度范数
 
 每一行对应正文的一个论断：plain-naive 是第二章的 $$2^{-32}$$；plain-kaiming 前向稳但梯度在层间波动一个量级（第三章）；ln 前向严格为 1、梯度仍随深度变化 6 倍（第四章第 5 节）；res-nonorm 是第五章的"每层翻倍"，$$6 \times 10^9 \approx 2^{32}$$；res-nonorm-scaled 与 prenorm 初始统计几乎一样好；postnorm 梯度顶层是底层的 4 倍（第六章）。
 
+画成曲线（[`case_02_deep_mlp.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_02_deep_mlp.py)）：
+
+![左：七种配置逐块的激活标准差（对数刻度）——plain-naive 一条直线掉到 1e-9，res-nonorm 一条直线冲到 1e9，其余五种贴着 1；右：逐块的权重梯度范数——res-nonorm 在 1e10，plain-naive 在 1e-10，其余在 0.1–10 之间](/img/in-post/dl-case-02-init-stats.svg)
+
+对数坐标上两条**直线**——plain-naive 往下、res-nonorm 往上——就是"每层乘一个固定因子"的指数增长 / 衰减，第二章和第五章推的两个公式画出来就是这两条线的斜率。其余五种前向都贴着 1，但右图的梯度告诉你它们不一样：ln 和 postnorm 从底层到顶层升了 4–6 倍，prenorm 和 res-nonorm-scaled 几乎是水平的。
+
 ### 3. 训练 300 步
 
 | 配置 | lr 0.05：loss @ 1 / 100 / 300 | acc | lr 0.005：loss @ 1 / 100 / 300 | acc |
@@ -310,6 +321,12 @@ Table: 初始时刻逐层激活标准差与梯度范数
 Table: 各配置训练 300 步的 loss 与准确率
 
 res-nonorm-scaled 要把学习率降到 0.001 才能训（300 步 loss 0.22）——比 prenorm 小 50 倍。七行里只有 prenorm 在两个学习率下都正常，这就是它成为 LLM 默认结构的原因。每种配置 300 步在笔记本 CPU 上 3–7 秒。
+
+![两张 loss 曲线图，左 lr 0.05、右 lr 0.005：Pre-Norm 两边都在 50 步内掉到 0.5 以下；lr 0.05 时 plain-kaiming、两种 res-nonorm 在前几步冲出图外发散（×），ln、postnorm、plain-naive 贴着 2.3 不动；lr 0.005 时 postnorm 缓慢降到 1.0，ln 到 1.6，plain-kaiming 到 1.9](/img/in-post/dl-case-02-training-curves.svg)
+
+曲线比表更直白：**同一份数据、同一个骨架、同样的 300 步，Pre-Norm 一条线冲到底，其余六种要么发散（×）、要么贴着 $$\ln 10 = 2.30$$ 不动、要么慢得像没训**。右图 lr 0.005 里 postnorm 那条慢慢往下的蓝线就是 2017 年原始 Transformer 的处境——能训，但要小学习率加 warmup，Xiong 等 2020 解释了为什么，之后所有 LLM 都换成了左边那条绿线。
+
+**落地还差什么**：这里的"深"是 64 层 MLP，LLM 是 32–128 层 Transformer，每层多了 attention 和 4 倍宽的 FFN，但结论一条不变：Kaiming 量级初始化 + Pre-Norm + 残差是能训的最低配置。规模再上去，第七章那批补丁（QK-norm、z-loss、$$\mu$$P）各针对一个这里还没出现的失稳来源；而"训之前先看逐层激活 std 和梯度范数"这两条曲线，是任何规模下排查训不动的第一步（第八章）。
 
 ### 4. 值得自己动手的扩展
 
@@ -327,7 +344,7 @@ res-nonorm-scaled 要把学习率降到 0.001 才能训（300 步 loss 0.22）�
 - 规模化之后的补丁——warmup、裁剪、QK-norm、z-loss、$$\mu$$P、$$\beta_2 = 0.95$$——各针对一个具体的失稳来源；诊断看三条曲线：各层激活 RMS、各层梯度范数、更新量 / 参数比。
 - 下一篇讲有了稳定的梯度之后怎么用它更新参数：优化器、学习率、warmup 与裁剪的来历。
 
-配套代码：[`deep-learning-foundations/02_init_norm_residual.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/02_init_norm_residual.py)——七种接法的初始化统计与 300 步训练；`dlf/layers.py` 里是 LayerNorm / RMSNorm / Residual 的实现与 `make_deep_mlp`。
+配套代码：[`deep-learning-foundations/02_init_norm_residual.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/02_init_norm_residual.py)——七种接法的初始化统计与 300 步训练，[`case_02_deep_mlp.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_02_deep_mlp.py) 把它们画成曲线；`dlf/layers.py` 里是 LayerNorm / RMSNorm / Residual 的实现与 `make_deep_mlp`。
 
 ## 十一、自测
 
@@ -376,4 +393,4 @@ res-nonorm-scaled 要把学习率降到 0.001 才能训（300 步 loss 0.22）�
 [优化器：从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)
 
 [^q0]: 64 层的前向方差是 64 个因子的连乘、反向梯度是 64 个 Jacobian 的连乘，因子偏离 1 就指数放大或消失——初始化用错成 $$1/n_{in}$$ 时 64 层后信号是 $$2^{-32}$$，Jacobian 谱范数 0.9 时 128 层后梯度是 $$10^{-6}$$。详见[第二章](#二方差的前向传播)、[第三章](#三梯度作为-jacobian-的乘积)。
-[^q1]: 初始化（Kaiming 的 $$2/n_{in}$$）只保证 $$t = 0$$ 时每个因子的期望为 1；归一化在每层之后把前向方差拉回 1、切断前向的连乘，但修不了反向——64 层无残差加 LN 仍几乎训不动；残差把 Jacobian 变成 $$I + J$$，给梯度一条恒等通路，各层梯度范数变均匀。缺初始化第一步就爆或消；缺归一化残差流方差每层翻倍（$$2^{64}$$）；缺残差梯度指数衰减——三样必须同用。Pre-Norm 是当前的摆法：顶层与底层梯度 0.12 到 0.15，Post-Norm 是 0.51 到 1.96。详见[第四](#四归一化)至[六章](#六pre-norm-与-post-norm)、[第九章](#九实验)。
+[^q1]: 初始化（Kaiming 的 $$2/n_{in}$$）只保证 $$t = 0$$ 时每个因子的期望为 1；归一化在每层之后把前向方差拉回 1、切断前向的连乘，但修不了反向——64 层无残差加 LN 仍几乎训不动；残差把 Jacobian 变成 $$I + J$$，给梯度一条恒等通路，各层梯度范数变均匀。缺初始化第一步就爆或消；缺归一化残差流方差每层翻倍（$$2^{64}$$）；缺残差梯度指数衰减——三样必须同用。Pre-Norm 是当前的摆法：顶层与底层梯度 0.12 到 0.15，Post-Norm 是 0.51 到 1.96。详见[第四](#四归一化)至[六章](#六pre-norm-与-post-norm)、[第九章](#九案例把-mlp-加深到-64-层七种接法哪些能训)。
