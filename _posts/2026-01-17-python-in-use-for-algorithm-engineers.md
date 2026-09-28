@@ -148,7 +148,7 @@ for r in clean(iter_jsonl(path)):                                # 读 → 过�
 按长度分桶(词数下界): 0+: 8339, 10+: 16465, 20+: 16754, 30+: 16550, 40+: 16529, 50+: 18230
 ```
 
-这就是数据工程的最小形态：**读、过滤、去重、统计**四步，每步一个生成器。预训练系列第三篇的数据流水线——质量过滤、MinHash 近似去重（L2 第五篇）、配比——是同一个骨架换上更重的每一步。`Counter` 是 `dict` 的子类，`Counter()[k] += 1` 不用先判断键在不在；`pathlib.Path` 让 `path / "train.jsonl"`、`path.stat().st_size`、`path.exists()` 不用拼字符串。
+这就是数据工程的最小形态：**读、过滤、去重、统计**四步，每步一个生成器。预训练系列第四篇的数据流水线——质量过滤、MinHash 近似去重（L2 第五篇）、配比——是同一个骨架换上更重的每一步。`Counter` 是 `dict` 的子类，`Counter()[k] += 1` 不用先判断键在不在；`pathlib.Path` 让 `path / "train.jsonl"`、`path.stat().st_size`、`path.exists()` 不用拼字符串。
 
 ### 3. 与 `datasets` 的关系
 

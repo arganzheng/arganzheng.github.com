@@ -135,7 +135,7 @@ Table: Qwen2-0.5B 各部件的形状与参数量
 
 ### 2. `tokenizer.json` 与 `tokenizer_config.json`
 
-词表、合并规则、特殊 token（`<|im_start|>`、`<|im_end|>`、`<|endoftext|>`）、以及 **chat template**——一段 [Jinja](# "tip: Python 生态的模板引擎（Flask / Django 网页模板用的那个）：模板里用 for 循环遍历 messages，用双花括号占位符填入 message.content，渲染后得到一个字符串。chat template 用它把 messages 列表渲染成模型训练时见过的那种带特殊 token 的文本") 模板，规定"一轮对话怎么拼成一个字符串"。第五章会看到它的输出。L4 预训练系列的第一篇讲 tokenizer 本身。
+词表、合并规则、特殊 token（`<|im_start|>`、`<|im_end|>`、`<|endoftext|>`）、以及 **chat template**——一段 [Jinja](# "tip: Python 生态的模板引擎（Flask / Django 网页模板用的那个）：模板里用 for 循环遍历 messages，用双花括号占位符填入 message.content，渲染后得到一个字符串。chat template 用它把 messages 列表渲染成模型训练时见过的那种带特殊 token 的文本") 模板，规定"一轮对话怎么拼成一个字符串"。第五章会看到它的输出。L4 预训练系列的第二篇讲 tokenizer 本身。
 
 ### 3. `*.safetensors`：权重
 

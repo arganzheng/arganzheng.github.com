@@ -184,7 +184,7 @@ $$
 
 对数取自然对数 $$\ln$$ 时单位是 **nat**，取 $$\log_2$$ 时是 **bit**，1 nat $$= 1/\ln 2 \approx 1.44$$ bit。bit 有一个直观的读法——**猜数字游戏**：从 8 个等可能的选项里猜一个，每问一个"是不是在这一半"的问题排除一半，要问 3 次，$$\log_2 8 = 3$$ bit。所以"这个位置的 loss 是 3 bit"等于说"模型在这个位置像是在 8 个等可能的选项里猜"。
 
-训练日志里的 loss 是 nat；论文里的 "bits per byte" 是 bit 再除以字节数（跨 tokenizer 比较时用，预训练系列第一篇）。换算：loss 1.8 nat = 2.6 bit/token。
+训练日志里的 loss 是 nat；论文里的 "bits per byte" 是 bit 再除以字节数（跨 tokenizer 比较时用，预训练系列第二篇）。换算：loss 1.8 nat = 2.6 bit/token。
 
 ### 4. 为什么叫交叉熵
 

@@ -73,7 +73,7 @@ train has 1,003,854 tokens
 val has 111,540 tokens
 ```
 
-三个决定：`uint16`（词表 < 65536，两字节够，文件是文本的两倍大而不是 8 倍）；训练 / 验证按 9 : 1 **切开**（L2 第一篇：验证集要没见过）；`meta.pkl` 存字符表，训练脚本从它读词表大小、采样脚本用它把编号翻回字符。真实预训练用 BPE 分词、词表几万到十几万（预训练系列第一篇），但"文本 → 整数数组 → 随机切窗口"这条流水线完全一样——nanoGPT 的 OpenWebText 版本只是把 65 换成 50257、把 1 MB 换成 17 GB。
+三个决定：`uint16`（词表 < 65536，两字节够，文件是文本的两倍大而不是 8 倍）；训练 / 验证按 9 : 1 **切开**（L2 第一篇：验证集要没见过）；`meta.pkl` 存字符表，训练脚本从它读词表大小、采样脚本用它把编号翻回字符。真实预训练用 BPE 分词、词表几万到十几万（预训练系列第二篇），但"文本 → 整数数组 → 随机切窗口"这条流水线完全一样——nanoGPT 的 OpenWebText 版本只是把 65 换成 50257、把 1 MB 换成 17 GB。
 
 ## 三、配置：72 个全局变量与一个 `exec`
 
@@ -130,7 +130,7 @@ exec(open('configurator.py').read()) # overrides from command line or config fil
 config = {k: globals()[k] for k in config_keys} # will be useful for logging
 ```
 
-（为省篇幅删去了 wandb 与 DDP backend 三行。）默认值是 **GPT-2 small 在 OpenWebText 上的复现配方**：12 层 768 维、上下文 1024、每次迭代 [`5 × 8` 次梯度累积](#cfg-accum) × 12 × 1024 ≈ 49 万 token（8 卡各 5 次）、60 万步、峰值学习率 6e-4、warmup 2000 步后 cosine 衰减到 6e-5、weight decay 0.1、梯度裁剪 1.0——这组数字就是预训练系列第四篇讨论的"训练配方"，[六个优化器参数](#cfg-opt)与 GPT-3 论文一致（$$\beta_2 = 0.95$$ 而不是 Adam 默认的 0.999，L3 第三篇讲为什么）。
+（为省篇幅删去了 wandb 与 DDP backend 三行。）默认值是 **GPT-2 small 在 OpenWebText 上的复现配方**：12 层 768 维、上下文 1024、每次迭代 [`5 × 8` 次梯度累积](#cfg-accum) × 12 × 1024 ≈ 49 万 token（8 卡各 5 次）、60 万步、峰值学习率 6e-4、warmup 2000 步后 cosine 衰减到 6e-5、weight decay 0.1、梯度裁剪 1.0——这组数字就是预训练系列第五篇讨论的"训练配方"，[六个优化器参数](#cfg-opt)与 GPT-3 论文一致（$$\beta_2 = 0.95$$ 而不是 Adam 默认的 0.999，L3 第三篇讲为什么）。
 
 [`dtype`](#cfg-dtype)：有 CUDA 且支持 bf16 就用 bf16，否则 fp16（要配 GradScaler，第七章）；CPU / MPS 上这一行会选 fp16，但第四章会看到 CPU 实际不用 autocast。
 
@@ -484,7 +484,7 @@ if ddp:
 5. [预取](#loop-prefetch)：前向刚提交给 GPU（异步，Infra PyTorch 第八篇），CPU 立刻去取下一个 batch——两件事重叠。第五章的 pinned memory 在这里派上用场。
 6. [DDP 的小优化](#loop-sync)：默认 DDP 每次 `backward` 都 all-reduce 梯度；累积 40 个 micro-batch 就通信 40 次，浪费。只在**最后一个** micro-step 同步——官方写法是 `model.no_sync()` 上下文，作者直接改那个内部标志。
 7. [反向](#loop-bwd)：`scaler.scale(loss)` 在 fp16 下放大 loss 再 `backward`；bf16 / fp32 下 scaler 是空操作。
-8. [梯度裁剪](#loop-clip)：先 `unscale_` 把梯度除回真实尺度，再把全部梯度的总范数裁到 1.0——工具箱第三篇说的"少一样迟早出事"的那一样，预训练系列第四篇讲它防的 loss spike。
+8. [梯度裁剪](#loop-clip)：先 `unscale_` 把梯度除回真实尺度，再把全部梯度的总范数裁到 1.0——工具箱第三篇说的"少一样迟早出事"的那一样，预训练系列第五篇讲它防的 loss spike。
 9. [更新](#loop-step)：`scaler.step` 在 fp16 下检查有没有 inf / NaN（有就跳过这步）再调 `optimizer.step`；`scaler.update` 调整放大倍数。然后 [`zero_grad(set_to_none=True)`](#loop-zero) 释放梯度显存。
 10. [日志](#loop-log)：`loss.item()` 是一次 CPU–GPU 同步（Infra PyTorch 第八篇第七章），所以只每 `log_interval` 步做一次；MFU 用上一篇第十章的公式，前 5 步不算（还没稳定），之后做指数平滑。
 
@@ -533,7 +533,7 @@ For yet cousin shakes a bid such of England's fie,
 What I can a won the doof did so live!
 ```
 
-单词一半是拼出来的，但**格式**全对：大写的角色名加冒号、换行、诗行的长度、莎士比亚的用词（thee、cousin、England）。这就是 0.8M 参数、7 分钟、字符级模型能做到的程度——它学的是"下一个字符是什么"，语法和词义要在更大的模型和更多数据上才会出现（预训练系列第二篇的 scaling law）。
+单词一半是拼出来的，但**格式**全对：大写的角色名加冒号、换行、诗行的长度、莎士比亚的用词（thee、cousin、England）。这就是 0.8M 参数、7 分钟、字符级模型能做到的程度——它学的是"下一个字符是什么"，语法和词义要在更大的模型和更多数据上才会出现（预训练系列第三篇的 scaling law）。
 
 ## 十一、改结构：2 层、4 层、8 层
 
@@ -559,7 +559,7 @@ Table: 只改层数：参数量、loss 与每步耗时（耗时按 mps 上单独
 
 1. **参数量随层数线性增长**（每层 0.20M，embedding 不变），但 loss 不是——第五篇用参数量公式解释每层多少、第十篇算每层多少 FLOPs；
 2. **每步耗时随层数线性增长**——层是串行的，深了就慢，这是第八篇 MoE 想绕开的约束（加参数不加每 token 的计算）；
-3. **同样的步数下更大的模型更好，但差距在缩小**——"训多久、多大的模型"这个权衡就是预训练系列第二篇 scaling law 的全部内容。
+3. **同样的步数下更大的模型更好，但差距在缩小**——"训多久、多大的模型"这个权衡就是预训练系列第三篇 scaling law 的全部内容。
 
 ## 十二、从 nanoGPT 到真实模型差什么
 
@@ -567,14 +567,14 @@ nanoGPT 是完整的：数据、模型、训练、续训、多卡、混合精度
 
 | 环节 | nanoGPT | 真实预训练（Llama 3 量级） | 去哪读 |
 |---|---|---|---|
-| 数据 | 1 MB 文本，`prepare.py` 一次编码 | 15T token，抓取 / 去重 / 过滤 / 配比是一门工程 | 预训练系列第三篇 |
-| 分词 | 65 个字符 | BPE，词表 128K | 预训练系列第一篇 |
+| 数据 | 1 MB 文本，`prepare.py` 一次编码 | 15T token，抓取 / 去重 / 过滤 / 配比是一门工程 | 预训练系列第四篇 |
+| 分词 | 65 个字符 | BPE，词表 128K | 预训练系列第二篇 |
 | 结构 | GPT-2：LayerNorm、位置表、GELU、MHA | RMSNorm、RoPE、SwiGLU、GQA、MoE、MTP | 本系列第五至九篇 |
 | 并行 | DDP：每卡一份完整模型 | 模型放不进一张卡：张量 / 流水 / 序列 / 专家并行，ZeRO | Infra 大规模训练系列 |
 | 精度 | bf16 autocast | bf16 主流，FP8 训练开始出现 | 本系列第十一篇 |
-| 稳定性 | 梯度裁剪 | loss spike 的诊断与恢复、z-loss、QK-norm | 预训练系列第四篇 |
+| 稳定性 | 梯度裁剪 | loss spike 的诊断与恢复、z-loss、QK-norm | 预训练系列第五篇 |
 | 容错 | `resume` 从单个 ckpt.pt | 万卡训练每几小时坏一张卡：分片 checkpoint、自动重启 | Infra 大规模训练系列第五、六篇 |
-| 配方 | 默认值抄 GPT-3 | 用小模型消融 + scaling law 外推 | 预训练系列第二、四篇 |
+| 配方 | 默认值抄 GPT-3 | 用小模型消融 + scaling law 外推 | 预训练系列第三、五篇 |
 | 之后 | 生成 | 后训练：SFT、RLHF / RLVR | L5 后训练系列 |
 
 Table: nanoGPT 有的与真实预训练多出来的

@@ -86,7 +86,7 @@ Table: loss（nat）与困惑度的对应
 
 这两个换算要熟到不用计算器：看到 PPL 6 知道 loss 1.8，看到 loss 2.0 知道 PPL 7.4。
 
-注意困惑度依赖 tokenizer：同一段文本切成更多 token，每个 token 更好猜，PPL 更低但不代表模型更好。比较不同 tokenizer 的模型要用 bits per byte（按字节而不是按 token 归一），L4 预训练系列的第一篇讨论这个陷阱。
+注意困惑度依赖 tokenizer：同一段文本切成更多 token，每个 token 更好猜，PPL 更低但不代表模型更好。比较不同 tokenizer 的模型要用 bits per byte（按字节而不是按 token 归一），L4 预训练系列的第二篇讨论这个陷阱。
 
 ## 三、交叉熵 = 熵 + KL
 

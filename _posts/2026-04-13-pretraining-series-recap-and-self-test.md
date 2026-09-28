@@ -1,51 +1,57 @@
 ---
 layout: post
 series: pretraining
-title: "预训练（05）：系列总结与通关自测"
+title: "预训练（06）：系列总结与通关自测"
 subtitle: "Pretraining: Series Recap and Final Self-Test"
 tags: [Transformer, LLM, AI, Pretraining]
 catalog: true
 date: 2026-04-13 20:00:00
 ---
 
-四篇正文回答了一个问题：**一个基座模型是怎么训出来的，每个训练决定花多少**。第一篇算 tokenizer 与词表，第二篇算算力怎么分给参数与数据，第三篇算 15T token 从哪来、丢掉的是什么，第四篇算超参表里每个数字的来历与训练为什么会崩。四篇合起来，是[《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)那张成本表的训练侧。
+五篇正文回答了一个问题：**一个基座模型是怎么训出来的，每个训练决定花多少**。第一篇在一台笔记本上把一次预训练从原始网页到模型完整跑一遍，第二篇算 tokenizer 与词表，第三篇算算力怎么分给参数与数据，第四篇算 15T token 从哪来、丢掉的是什么，第五篇算超参表里每个数字的来历与训练为什么会崩。五篇合起来，是[《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)那张成本表的训练侧。
 
-本文不讲新内容，做三件事：把四篇压成一张表与四段回顾，把贯穿四篇的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"四篇能不能连起来用"。
+本文不讲新内容，做三件事：把五篇压成一张表与五段回顾，把贯穿全系列的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"五篇能不能连起来用"。
 
-> **读完这四篇，你应该能回答哪些问题？[^q0] 哪些数字与结论必须能脱口而出？[^q1] 怎么判断自己是"读过"还是"掌握"了？[^q2]**
+> **读完这五篇，你应该能回答哪些问题？[^q0] 哪些数字与结论必须能脱口而出？[^q1] 怎么判断自己是"读过"还是"掌握"了？[^q2]**
 
 先把整个系列放在一张图上——箭头是**推导或前置上的依赖**（箭头尾端的结论被箭头头端当作前提），不是阅读顺序：
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 210}}}%%
-%% 图：预训练系列全景：tokenizer → scaling law → 数据 → 配方
+%% 图：预训练系列全景：01 端到端实跑是活的目录，02–05 各展开流水线的一步：tokenizer → scaling law → 数据 → 配方
 flowchart TB
-    T1["01 分词与词表<br/>token 数是所有公式的自变量"] --> T2["02 Scaling law<br/>C ≈ 6ND，算力怎么分给 N 与 D"]
-    T2 -- "D 要多大、唯一 token ≥ D/4" --> T3["03 预训练数据工程<br/>240T → 15T：去重、过滤、配比"]
-    T2 & T3 --> T4["04 训练配方与稳定性<br/>学习率、batch、调度、loss spike"]
+    T0["01 一次预训练是怎么跑起来的<br/>网页 → 过滤去重 → BPE → 打包 → 选尺寸 → 训练 → 评"]
+    T0 -. "第 4 步展开" .-> T1["02 分词与词表<br/>token 数是所有公式的自变量"]
+    T0 -. "第 6 步展开" .-> T2
+    T0 -. "第 1–3、5 步展开" .-> T3
+    T0 -. "第 7–8 步展开" .-> T4
+    T1 --> T2["03 Scaling law<br/>C ≈ 6ND，算力怎么分给 N 与 D"]
+    T2 -- "D 要多大、唯一 token ≥ D/4" --> T3["04 预训练数据工程<br/>240T → 15T：去重、过滤、配比"]
+    T2 & T3 --> T4["05 训练配方与稳定性<br/>学习率、batch、调度、loss spike"]
     T1 -. "词表大小决定 lm_head 的算量占比" .-> T4
 
 ```
 
 ## 一、总览：系列回答的问题与主线
 
-系列的一句话主张是：**预训练的每个决定都能算账，算不出来的部分靠小模型消融外推**。词表大小换压缩率、参数换数据、过滤的严格程度换 token 量、学习率与 batch 换稳定性——四篇各算一笔账，用的是同一套方法（推导 → 代入真实模型 → 解释数字）、同两个对象（Llama 3 与 DeepSeek-V3）。
+系列的一句话主张是：**预训练的每个决定都能算账，算不出来的部分靠小模型消融外推**。词表大小换压缩率、参数换数据、过滤的严格程度换 token 量、学习率与 batch 换稳定性——第一篇先把整条流水线实跑一遍，后四篇各算一笔账，用的是同一套方法（推导 → 代入真实模型 → 解释数字）、同两个对象（Llama 3 与 DeepSeek-V3）。
 
 | 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 公式 |
 |---|---|---|---|
-| [第一篇：分词与词表](/tokenizer-vocabulary-and-token-efficiency.html) | 词表从 32K 扩到 128K，每 token 贵了 5.6%，为什么反而省钱？ | 成本要按字符而不是按 token 算：更大的词表让每 token 贵一点、让每段文字的 token 少很多，后者赢；前提是词表针对目标语言训练 | 词表参数 $$2Vd$$（Llama-3-8B 1.05B，13.1%）；lm_head 每 token $$2Vd$$ FLOPs（7.0%，0.5B 模型 28%）；英文 3.17 → 3.94 字符/token，每字符 FLOPs 低 15%、KV 低 20%；中文在两个 128K 量级词表下差 2.1 倍 |
-| [第二篇：Scaling law](/scaling-laws-and-compute-optimal-training.html) | Llama-3 8B 训 15T 是 Chinchilla 最优的 10 倍数据、loss 高 0.05，为什么是正确的？ | Chinchilla 只最小化训练算力下的 loss；把推理算进去，最优点移向小模型、多数据 | $$L = E + A/N^\alpha + B/D^\beta$$；$$C = 6ND$$；$$D/N \approx 20$$；固定 $$C$$ 缩小 10 倍：loss +0.053、推理 1/10；服务 100T token 时最优 24B / 13.8T 而非 81B / 1.5T；4 epoch 值 93% |
-| [第三篇：数据工程](/pretraining-data-pipeline-dedup-filtering-and-mixture.html) | Common Crawl 有 240T token，为什么只用 15T？丢掉的 94% 是什么？ | 一条漏斗（启发式过滤 → 四粒度去重 → 模型打分），每一级的刻度都被消融验证过；配比的百分比本质是 epoch 数 | 240T → 15T（6%）→ 1.3–5.4T；MinHash 14 × 8 阈值 0.72；跨快照全局去重反而更差；25% 数学推理 ≈ 7.5 epoch；一次消融 2700 H100 小时；抽取 ≫ 去重 ≈ tokenize |
-| [第四篇：配方与稳定性](/pretraining-recipe-and-training-stability.html) | 405B 的 lr 8e-5、V3 的 2.2e-4，batch 16M 与 63M——怎么定的？V3 靠什么没有一次不可恢复的 spike？ | 超参表的每个数字都有来历（$$\mu$$P、梯度噪声尺度、$$1/(\eta\lambda)$$）；不稳定拆成三个可单独度量、单独修的机制 | lr 3e-4 → 1.5e-4 → 8e-5 随宽度降；batch 4M → 16M / 12.6M → 63M ramp；warmup 0.4–0.9%；wd 时间尺度 $$1/(\eta\lambda)$$ ≈ 7–13% 训练；QK-norm：logit 12592 → 22；spike 一次约 1 万 GPU 小时；$$T_{opt} = \sqrt{2\delta \cdot \text{MTBF}}$$ |
+| [第一篇：端到端实跑](/pretraining-end-to-end-from-web-pages-to-a-model.html) | 从一堆网页到一个语言模型中间有几步？每步扔掉什么、留下什么？笔记本训的模型离 GPT-2 差多远？ | 八步流水线：数据侧四步决定模型学什么，模型侧四步决定学得多好；每一步的漏斗都能数出来 | 68,834 网页 → 过滤剩 16% → 去重再删 480 篇 → 38 MB；BPE 4096 词表 3.46 字符/token；10.9M token；迷你 iso-FLOP 下最优 N 随预算右移；val loss 从 ln V = 8.32 到 4.6；bits/byte 1.88 vs GPT-2 small 的 1.06 |
+| [第二篇：分词与词表](/tokenizer-vocabulary-and-token-efficiency.html) | 词表从 32K 扩到 128K，每 token 贵了 5.6%，为什么反而省钱？ | 成本要按字符而不是按 token 算：更大的词表让每 token 贵一点、让每段文字的 token 少很多，后者赢；前提是词表针对目标语言训练 | 词表参数 $$2Vd$$（Llama-3-8B 1.05B，13.1%）；lm_head 每 token $$2Vd$$ FLOPs（7.0%，0.5B 模型 28%）；英文 3.17 → 3.94 字符/token，每字符 FLOPs 低 15%、KV 低 20%；中文在两个 128K 量级词表下差 2.1 倍 |
+| [第三篇：Scaling law](/scaling-laws-and-compute-optimal-training.html) | Llama-3 8B 训 15T 是 Chinchilla 最优的 10 倍数据、loss 高 0.05，为什么是正确的？ | Chinchilla 只最小化训练算力下的 loss；把推理算进去，最优点移向小模型、多数据 | $$L = E + A/N^\alpha + B/D^\beta$$；$$C = 6ND$$；$$D/N \approx 20$$；固定 $$C$$ 缩小 10 倍：loss +0.053、推理 1/10；服务 100T token 时最优 24B / 13.8T 而非 81B / 1.5T；4 epoch 值 93% |
+| [第四篇：数据工程](/pretraining-data-pipeline-dedup-filtering-and-mixture.html) | Common Crawl 有 240T token，为什么只用 15T？丢掉的 94% 是什么？ | 一条漏斗（启发式过滤 → 四粒度去重 → 模型打分），每一级的刻度都被消融验证过；配比的百分比本质是 epoch 数 | 240T → 15T（6%）→ 1.3–5.4T；MinHash 14 × 8 阈值 0.72；跨快照全局去重反而更差；25% 数学推理 ≈ 7.5 epoch；一次消融 2700 H100 小时；抽取 ≫ 去重 ≈ tokenize |
+| [第五篇：配方与稳定性](/pretraining-recipe-and-training-stability.html) | 405B 的 lr 8e-5、V3 的 2.2e-4，batch 16M 与 63M——怎么定的？V3 靠什么没有一次不可恢复的 spike？ | 超参表的每个数字都有来历（$$\mu$$P、梯度噪声尺度、$$1/(\eta\lambda)$$）；不稳定拆成三个可单独度量、单独修的机制 | lr 3e-4 → 1.5e-4 → 8e-5 随宽度降；batch 4M → 16M / 12.6M → 63M ramp；warmup 0.4–0.9%；wd 时间尺度 $$1/(\eta\lambda)$$ ≈ 7–13% 训练；QK-norm：logit 12592 → 22；spike 一次约 1 万 GPU 小时；$$T_{opt} = \sqrt{2\delta \cdot \text{MTBF}}$$ |
 
-Table: 四篇的核心问题、结论与必记公式
+Table: 五篇的核心问题、结论与必记公式
 
 ### 1. 本文的章节安排
 
 | 章 | 内容 |
 |---|---|
 | 二 | 逐篇回顾：核心问题、结论、必记、常见误解 |
-| 三 | 贯穿四篇的四条线：按字符算账、算力与数据的分配、重复与 epoch、消融外推 |
+| 三 | 贯穿全系列的四条线：按字符算账、算力与数据的分配、重复与 epoch、消融外推 |
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
 | 六 | 下一步 |
@@ -54,7 +60,23 @@ Table: 本文的章节安排
 
 ## 二、逐篇回顾
 
-### 1. 第一篇：分词与词表：BPE、词表大小与 token 效率
+### 0. 第一篇：一次预训练是怎么跑起来的：从两个网页文件到一个会续写英文的模型
+
+**核心问题**：从「一堆网页」到「一个语言模型」中间到底有几步？每一步扔掉了什么、留下了什么？一台笔记本训出来的模型和 GPT-2 差多远、差在哪？
+
+**结论**：预训练是数据侧四步（原料 → 过滤 → 去重 → tokenizer）加模型侧四步（打包 → 选尺寸 → 训练 → 评）。原料是网页，大部分不是"文章"：两个 Common Crawl WET 文件的 68,834 篇里英文 46%，四道过滤（语言、Gopher 文档级、C4 行级、Gopher 重复度）留下 16%，其中 C4 行级一道就删掉一半字符——全是导航栏与页脚；精确去重加 MinHash/LSH 再删 480 篇，剩 38 MB。tokenizer 是训练语料的化石：英文网页上训的 BPE 对英文 3.46 字符/token、对中文每字 3 个 token。固定算力下模型大小有最优点，最优 $$N$$ 随预算右移——但小数据上的迷你实验会偏向小模型，不能直接外推。训练看七条曲线而不只看 loss；评只能跨 tokenizer 比 bits/byte；预训练结束的模型是续写器，不是助手。
+
+**必记**：
+
+- 漏斗：68,834 → 20,792（语言）→ 17,960（文档级）→ 15,264（行级，字符减半）→ 11,295（重复度）→ 11,126（精确去重）→ 10,815（近重复）；字符 486 MB → 38 MB（8%）。Llama 3 的 240T → 15T 也是约 6%。
+- MinHash 128 个哈希、16 段 × 8：1.1 万篇只比 2,515 对而不是 6,189 万对。
+- 词表翻倍压缩率只涨 0.4–0.5 字符/token：264 → 16384 是 1.10 → 4.27。
+- 初始 loss = $$\ln 4096 = 8.32$$；最终 val loss 4.6、bits/byte 1.88；GPT-2 small 同一批文本 1.06——差在参数（48 倍）与数据（1,000 倍）。
+- 训练时盯七条曲线：train/val loss、lr、梯度范数、参数范数、attention logit 最大值、吞吐、train − val。
+
+**常见误解**：过滤是为了省算力——主要不是，是决定模型学什么：数据里垃圾的比例就是输出里垃圾的比例。另一个：困惑度可以跨模型比——tokenizer 不同时不能，要换算 bits/byte。
+
+### 1. 第二篇：分词与词表：BPE、词表大小与 token 效率
 
 **核心问题**：Llama 3 把词表从 32K 扩到 128K，每个 token 贵了 5.6%，为什么反而是省钱的？同一句中文在两个 128K 量级的词表下 token 数差 2.1 倍，差在哪？
 
@@ -71,7 +93,7 @@ Table: 本文的章节安排
 
 **常见误解**："1 token ≈ 0.75 个英文词"是通用规则——只对英文成立，中文视词表 0.4–1.5 字符/token，多语言 API 的 token 预算、上下文"有多长"、计费公平性都要按语言分别估。另一个：两个 tokenizer 不同的模型可以直接比 per-token loss——不能，token 更细的那个 per-token loss 天然更低。
 
-### 2. 第二篇：Scaling law：从 Chinchilla 到"过训练"，算力怎么分给参数与数据
+### 2. 第三篇：Scaling law：从 Chinchilla 到"过训练"，算力怎么分给参数与数据
 
 **核心问题**：Llama-3 8B 用 15T token，是 Chinchilla 最优数据量的 10 倍，loss 高 0.05 nats。为什么放弃这 0.05 反而是正确的？"最优"在 2022 和 2024 各指什么？
 
@@ -88,7 +110,7 @@ Table: 本文的章节安排
 
 **常见误解**："Chinchilla 说 $$D/N = 20$$ 最优，所以 Llama-3 8B 训 15T 是浪费"——它最小化的是训练算力，不是全生命周期成本。另一个：cosine 调度中途的 loss 可以拿来拟合——不能，每个 D 要单独跑完整调度或用 WSD 分叉（这是方法论问题，Porian 等 2024 检验后认为它不是 Kaplan 与 Chinchilla 分歧的主因）。
 
-### 3. 第三篇：预训练数据工程：从 Common Crawl 到 15T token，去重、过滤与配比的账
+### 3. 第四篇：预训练数据工程：从 Common Crawl 到 15T token，去重、过滤与配比的账
 
 **核心问题**：Common Crawl 有 240T token 的文本，为什么 Llama 3 只用了 15T？被丢掉的 94% 是什么、怎么判定的？15T 里 25% 的"数学与推理"从哪来？
 
@@ -105,7 +127,7 @@ Table: 本文的章节安排
 
 **常见误解**："去重越彻底越好"——FineWeb 发现跨快照全局去重把被多次转载的高质量内容删成长尾，质量反而下降。另一个："配比表里的 25% 是 25% 的不同数据"——它是重复次数，25% 数学推理意味着有限语料跑 7 个多 epoch。
 
-### 4. 第四篇：训练配方与稳定性：学习率、batch、调度与 loss spike
+### 4. 第五篇：训练配方与稳定性：学习率、batch、调度与 loss spike
 
 **核心问题**：Llama 3 405B 的峰值学习率是 8e-5，DeepSeek-V3 是 2.2e-4，GPT-3 是 6e-5；batch 分别是 16M、63M、3.2M token。这些数字怎么定的？DeepSeek-V3 在 FP8 下训了 14.8T token 没有一次不可恢复的 loss spike——它开了哪些开关，每个开关在防什么？
 
@@ -126,19 +148,19 @@ Table: 本文的章节安排
 
 ### 1. 按字符算账，不按 token
 
-第一篇建立的度量贯穿其后三篇。tokenizer 决定了一段文字要付多少 token，所以第二篇的 $$D$$、第三篇的 15T、第四篇的 batch 16M——每一个"token 数"背后都隐含一个词表。Llama 2 → 3 的 3.17 → 3.94 字符/token 意味着同样 15T token 的训练集，Llama 3 读了多 24% 的字符；跨 tokenizer 比 loss 必须换算成 bits/byte，这也是第二篇 scaling law 拟合"tokenizer 不一致"这条常见错误的来源。中文在不同词表下差 2.1 倍的 token 数，直接换成 2.1 倍的 KV、prefill FLOPs 与计费。
+第二篇建立的度量贯穿其后三篇。tokenizer 决定了一段文字要付多少 token，所以第三篇的 $$D$$、第四篇的 15T、第五篇的 batch 16M——每一个"token 数"背后都隐含一个词表。Llama 2 → 3 的 3.17 → 3.94 字符/token 意味着同样 15T token 的训练集，Llama 3 读了多 24% 的字符；跨 tokenizer 比 loss 必须换算成 bits/byte，这也是第三篇 scaling law 拟合"tokenizer 不一致"这条常见错误的来源。中文在不同词表下差 2.1 倍的 token 数，直接换成 2.1 倍的 KV、prefill FLOPs 与计费。
 
 ### 2. 算力怎么分：参数、数据与推理
 
-第二篇的核心是 $$6ND$$ 的分配问题，但它的三个变量分别被另外三篇约束。$$N$$ 里有第一篇的 $$2Vd$$ 词表参数（8B 的 13%）；$$D$$ 的上限是第三篇的漏斗——过训练要求 $$D/N$$ 上千，唯一 token 至少是目标的四分之一，所以数据管线必须供应得上；$$D$$ 与 $$N$$ 定下后，第四篇从 batch 与序列长算出总步数、每步时间、checkpoint 字节与写带宽。推理成本 $$2ND_{inf}$$ 是让最优点从 81B / 1.5T 移到 24B / 13.8T 的那一项，它在第二篇出现，在成本表系列的推理侧被逐项展开。
+第三篇的核心是 $$6ND$$ 的分配问题，但它的三个变量分别被另外三篇约束。$$N$$ 里有第二篇的 $$2Vd$$ 词表参数（8B 的 13%）；$$D$$ 的上限是第四篇的漏斗——过训练要求 $$D/N$$ 上千，唯一 token 至少是目标的四分之一，所以数据管线必须供应得上；$$D$$ 与 $$N$$ 定下后，第五篇从 batch 与序列长算出总步数、每步时间、checkpoint 字节与写带宽。推理成本 $$2ND_{inf}$$ 是让最优点从 81B / 1.5T 移到 24B / 13.8T 的那一项，它在第三篇出现，在成本表系列的推理侧被逐项展开。
 
 ### 3. 重复、epoch 与有效数据
 
-同一个公式 $$D' = U + UR^*(1 - e^{-R/R^*})$$ 在第二篇（数据不够怎么办：4 epoch 值 93%、16 epoch 值 66%）与第三篇（配比换算成 epoch：25% × 15T ÷ 0.5T ≈ 7.5 epoch，8 epoch 有效约 80%）各出现一次，两处说的是同一件事的两面：第二篇从"总量不够"出发，第三篇从"某一类不够"出发。第三篇"跨快照全局去重反而更差"是它的反面——重复要控制分布而不是消灭；第四篇退火阶段换高质量数据与用退火评估一份新数据，是把 epoch 这个变量用在训练末段。
+同一个公式 $$D' = U + UR^*(1 - e^{-R/R^*})$$ 在第三篇（数据不够怎么办：4 epoch 值 93%、16 epoch 值 66%）与第四篇（配比换算成 epoch：25% × 15T ÷ 0.5T ≈ 7.5 epoch，8 epoch 有效约 80%）各出现一次，两处说的是同一件事的两面：第三篇从"总量不够"出发，第四篇从"某一类不够"出发。第四篇"跨快照全局去重反而更差"是它的反面——重复要控制分布而不是消灭；第五篇退火阶段换高质量数据与用退火评估一份新数据，是把 epoch 这个变量用在训练末段。
 
 ### 4. 消融外推：算不出来的靠小模型
 
-四篇里所有无法从公式推出的决定——词表多大、常数是多少、哪个过滤阈值、哪种配比、哪组超参——都靠同一种方法：用小模型的消融外推。第二篇给出方法本身（两种扫法、Llama 3 用万分之一算力定 405B、从 loss 到 benchmark 的两步法、常见错误）；第三篇给出它的价格（1.8B × 350B token = 2700 H100 小时，差距 3–5 分，预算留 1–3%）；第四篇给出超参也要 scaling（$$\eta_{opt} \propto C^{-0.125}$$、$$B_{opt} \propto C^{0.33}$$）与 $$\mu$$P 让超参跨宽度迁移。这条线是"预训练的每个决定都能算账"这一主张的另一半。
+后四篇里所有无法从公式推出的决定——词表多大、常数是多少、哪个过滤阈值、哪种配比、哪组超参——都靠同一种方法：用小模型的消融外推。第三篇给出方法本身（两种扫法、Llama 3 用万分之一算力定 405B、从 loss 到 benchmark 的两步法、常见错误）；第四篇给出它的价格（1.8B × 350B token = 2700 H100 小时，差距 3–5 分，预算留 1–3%）；第五篇给出超参也要 scaling（$$\eta_{opt} \propto C^{-0.125}$$、$$B_{opt} \propto C^{0.33}$$）与 $$\mu$$P 让超参跨宽度迁移。这条线是"预训练的每个决定都能算账"这一主张的另一半。
 
 | 概念 | 出现的篇 | 关系 |
 |---|---|---|
@@ -150,24 +172,24 @@ Table: 本文的章节安排
 | 小模型消融 | 二、三、四 | 二给方法；三给价格；四给超参迁移（$$\mu$$P） |
 | checkpoint 与故障 | 二、四 | 二给 GPU 小时；四给 5.7 TB、每 3 小时一次故障、$$T_{opt}$$ |
 
-Table: 贯穿四篇的概念及其关系
+Table: 贯穿全系列的概念及其关系
 
 ## 四、常见误区
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
 |---|---|---|---|
-| 词表越大每 token 越贵，所以小词表省钱 | 只看了 token 一端；同一段文字的 token 数随词表变大而减少 | 按每字符算：128K 词表比 32K 每字符便宜 15% | [第一篇](/tokenizer-vocabulary-and-token-efficiency.html) |
-| 两个模型的 per-token loss 可以直接比 | tokenizer 不同时 token 粒度不同 | 换算成 bits/byte 再比 | [第一篇](/tokenizer-vocabulary-and-token-efficiency.html) |
-| 词表大小相近，效率就相近 | 效率取决于词表用什么语料训出来 | 中文在 cl100k 与 DeepSeek-V3 下差 2.1 倍 | [第一篇](/tokenizer-vocabulary-and-token-efficiency.html) |
-| Chinchilla 说 $$D/N = 20$$ 最优，过训练是浪费 | Chinchilla 只最小化训练算力下的 loss | 把推理算进去，最优点移向小模型、多数据 | [第二篇](/scaling-laws-and-compute-optimal-training.html) |
-| 算力翻 10 倍 loss 就明显下降 | 可约 loss 只 ×0.66，减半要 ×49 | 收益是幂律的，指数 0.178 | [第二篇](/scaling-laws-and-compute-optimal-training.html) |
-| 数据不够就重复，效果一样 | 有效数据随 epoch 递减 | 4 epoch 值 93%、16 epoch 只值 66% | [第二篇](/scaling-laws-and-compute-optimal-training.html) |
-| 去重越彻底越好 | 跨快照全局去重把被多次转载的好内容删成长尾 | 按快照内去重；重复是控制分布 | [第三篇](/pretraining-data-pipeline-dedup-filtering-and-mixture.html) |
-| 用大模型给全量数据打分 | 8B 给 15T 打分是训练算力的 1/3 | 大模型标几十万篇，小分类器跑全量 | [第三篇](/pretraining-data-pipeline-dedup-filtering-and-mixture.html) |
-| 数据管线的瓶颈是训练时的读吞吐 | 训练读带宽只需 9–46 MB/s | 贵在最上游的抽取；加载器难在掩码、确定性、配比切换 | [第三篇](/pretraining-data-pipeline-dedup-filtering-and-mixture.html) |
-| 学习率是调出来的经验值 | 公开配方全部落在随宽度下降的同一条线上 | $$\mu$$P $$\propto 1/d$$、$$0.31 C^{-0.125}$$ | [第四篇](/pretraining-recipe-and-training-stability.html) |
-| batch 越大越好，反正有卡 | 临界 batch 随训练增大，早期大 batch 浪费样本 | ramp：4M → 8M → 16M；硬件下界是副本数 × 序列长 | [第四篇](/pretraining-recipe-and-training-stability.html) |
-| loss spike 是脏数据造成的 | 三个机制里两个是模型内部数值问题 | attention logit（QK-norm）、$$\log Z$$（z-loss）、单步过大（裁剪） | [第四篇](/pretraining-recipe-and-training-stability.html) |
+| 词表越大每 token 越贵，所以小词表省钱 | 只看了 token 一端；同一段文字的 token 数随词表变大而减少 | 按每字符算：128K 词表比 32K 每字符便宜 15% | [第二篇](/tokenizer-vocabulary-and-token-efficiency.html) |
+| 两个模型的 per-token loss 可以直接比 | tokenizer 不同时 token 粒度不同 | 换算成 bits/byte 再比 | [第二篇](/tokenizer-vocabulary-and-token-efficiency.html) |
+| 词表大小相近，效率就相近 | 效率取决于词表用什么语料训出来 | 中文在 cl100k 与 DeepSeek-V3 下差 2.1 倍 | [第二篇](/tokenizer-vocabulary-and-token-efficiency.html) |
+| Chinchilla 说 $$D/N = 20$$ 最优，过训练是浪费 | Chinchilla 只最小化训练算力下的 loss | 把推理算进去，最优点移向小模型、多数据 | [第三篇](/scaling-laws-and-compute-optimal-training.html) |
+| 算力翻 10 倍 loss 就明显下降 | 可约 loss 只 ×0.66，减半要 ×49 | 收益是幂律的，指数 0.178 | [第三篇](/scaling-laws-and-compute-optimal-training.html) |
+| 数据不够就重复，效果一样 | 有效数据随 epoch 递减 | 4 epoch 值 93%、16 epoch 只值 66% | [第三篇](/scaling-laws-and-compute-optimal-training.html) |
+| 去重越彻底越好 | 跨快照全局去重把被多次转载的好内容删成长尾 | 按快照内去重；重复是控制分布 | [第四篇](/pretraining-data-pipeline-dedup-filtering-and-mixture.html) |
+| 用大模型给全量数据打分 | 8B 给 15T 打分是训练算力的 1/3 | 大模型标几十万篇，小分类器跑全量 | [第四篇](/pretraining-data-pipeline-dedup-filtering-and-mixture.html) |
+| 数据管线的瓶颈是训练时的读吞吐 | 训练读带宽只需 9–46 MB/s | 贵在最上游的抽取；加载器难在掩码、确定性、配比切换 | [第四篇](/pretraining-data-pipeline-dedup-filtering-and-mixture.html) |
+| 学习率是调出来的经验值 | 公开配方全部落在随宽度下降的同一条线上 | $$\mu$$P $$\propto 1/d$$、$$0.31 C^{-0.125}$$ | [第五篇](/pretraining-recipe-and-training-stability.html) |
+| batch 越大越好，反正有卡 | 临界 batch 随训练增大，早期大 batch 浪费样本 | ramp：4M → 8M → 16M；硬件下界是副本数 × 序列长 | [第五篇](/pretraining-recipe-and-training-stability.html) |
+| loss spike 是脏数据造成的 | 三个机制里两个是模型内部数值问题 | attention logit（QK-norm）、$$\log Z$$（z-loss）、单步过大（裁剪） | [第五篇](/pretraining-recipe-and-training-stability.html) |
 
 Table: 常见误区与正确说法
 
@@ -203,7 +225,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   $$6N \cdot 20N = 10^{24}$$，$$N = \sqrt{10^{24}/120} \approx 91$$B，$$D \approx 1.8$$T——与第二篇表中 $$5.76 \times 10^{23}$$ → 72B / 1.33T 同一条 $$N \propto C^{0.5}$$ 线。
+   $$6N \cdot 20N = 10^{24}$$，$$N = \sqrt{10^{24}/120} \approx 91$$B，$$D \approx 1.8$$T——与第三篇表中 $$5.76 \times 10^{23}$$ → 72B / 1.33T 同一条 $$N \propto C^{0.5}$$ 线。
 
    </details>
 
@@ -257,27 +279,27 @@ Table: 常见误区与正确说法
 
 ### B. 跨篇综合（5 题）
 
-1. Llama 2 → Llama 3 词表 32K → 128K，如果两者都训 15T token，Llama 3 实际读了多少字符的数据？这对第二篇的 $$D$$ 意味着什么？
+1. Llama 2 → Llama 3 词表 32K → 128K，如果两者都训 15T token，Llama 3 实际读了多少字符的数据？这对第三篇的 $$D$$ 意味着什么？
 
    <details markdown="1"><summary>答案</summary>
 
-   第一篇：压缩率 3.17 → 3.94，多 24% 的字符；第二篇：scaling law 里的 $$D$$ 是 token 数，跨 tokenizer 比较时同一 $$D$$ 不是同样多的信息，拟合必须固定 tokenizer——这正是"tokenizer 不一致"这条常见错误。
+   第二篇：压缩率 3.17 → 3.94，多 24% 的字符；第三篇：scaling law 里的 $$D$$ 是 token 数，跨 tokenizer 比较时同一 $$D$$ 不是同样多的信息，拟合必须固定 tokenizer——这正是"tokenizer 不一致"这条常见错误。
 
    </details>
 
-2. 一个 7B 模型要服务 100T token，按第二篇应训多少数据？这些数据从第三篇的漏斗里够不够拿？
+2. 一个 7B 模型要服务 100T token，按第三篇应训多少数据？这些数据从第四篇的漏斗里够不够拿？
 
    <details markdown="1"><summary>答案</summary>
 
-   先指出题设缺什么：固定了 $$N = 7$$B，推理量 $$D_{inf}$$ 就不再影响 $$D$$ 的最优值（第二篇的推理感知条件是在 $$N$$、$$D$$ 都可变时移动最优点），$$D$$ 要由**目标 loss 或总预算**决定，题目两者都没给。若沿第二篇的目标 $$L^* = 1.968$$：用配套脚本的常数，7B 在 $$D \to \infty$$ 时的下界是 $$E + A/N^\alpha \approx 1.999 > 1.968$$——这个目标 7B **无论训多少数据都达不到**，脚本会返回 None。所以正确回答是"换目标或换 $$N$$"：给一个 7B 能达到的 loss（比如 2.05）再反解 $$D$$，或按 100T 推理量做全生命周期成本最优（答案落在 20B 上下、$$D$$ 十几 T）。第三篇的部分照旧：通用网页过滤去重后 15T、模型打分后 1.3–5.4T，高质量子集要跑多个 epoch——用第二篇的 $$D'$$ 公式，4 epoch 以内几乎无损，配比表要按 epoch 数写。
+   先指出题设缺什么：固定了 $$N = 7$$B，推理量 $$D_{inf}$$ 就不再影响 $$D$$ 的最优值（第三篇的推理感知条件是在 $$N$$、$$D$$ 都可变时移动最优点），$$D$$ 要由**目标 loss 或总预算**决定，题目两者都没给。若沿第三篇的目标 $$L^* = 1.968$$：用配套脚本的常数，7B 在 $$D \to \infty$$ 时的下界是 $$E + A/N^\alpha \approx 1.999 > 1.968$$——这个目标 7B **无论训多少数据都达不到**，脚本会返回 None。所以正确回答是"换目标或换 $$N$$"：给一个 7B 能达到的 loss（比如 2.05）再反解 $$D$$，或按 100T 推理量做全生命周期成本最优（答案落在 20B 上下、$$D$$ 十几 T）。第四篇的部分照旧：通用网页过滤去重后 15T、模型打分后 1.3–5.4T，高质量子集要跑多个 epoch——用第三篇的 $$D'$$ 公式，4 epoch 以内几乎无损，配比表要按 epoch 数写。
 
    </details>
 
-3. 数学推理占 25%、独立数据 0.5T，第三篇算出 7.5 epoch。这个 epoch 数在第四篇的调度里会怎么用？
+3. 数学推理占 25%、独立数据 0.5T，第四篇算出 7.5 epoch。这个 epoch 数在第五篇的调度里会怎么用？
 
    <details markdown="1"><summary>答案</summary>
 
-   第四篇：多阶段与退火——高质量数据在退火阶段加大权重、且退火可以用来评估一份新数据；DeepSeek-V3 的四段调度与 Llama 3 的退火都在末段换数据。7.5 epoch 意味着这部分数据在每个阶段都被反复看到，退火阶段的权重要与前面阶段合计算总 epoch。
+   第五篇：多阶段与退火——高质量数据在退火阶段加大权重、且退火可以用来评估一份新数据；DeepSeek-V3 的四段调度与 Llama 3 的退火都在末段换数据。7.5 epoch 意味着这部分数据在每个阶段都被反复看到，退火阶段的权重要与前面阶段合计算总 epoch。
 
    </details>
 
@@ -285,15 +307,15 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第二篇：$$D = C / 6N = 3.8 \times 10^{25} / (6 \times 4.05 \times 10^{11}) \approx 15.6$$T；第四篇：步数 = 15.6T / 16M ≈ 97 万步（ramp 阶段 batch 更小，实际更多）；spike 回退 100 步 + 跳 200–500 batch：按 2670 万 H100 小时 / 97 万步 ≈ 27 H100 小时/步，重算 100 步约 2.7 千 GPU 小时，跳过的 batch 不重算、是放弃 3–8B token 数据。
+   第三篇：$$D = C / 6N = 3.8 \times 10^{25} / (6 \times 4.05 \times 10^{11}) \approx 15.6$$T；第五篇：步数 = 15.6T / 16M ≈ 97 万步（ramp 阶段 batch 更小，实际更多）；spike 回退 100 步 + 跳 200–500 batch：按 2670 万 H100 小时 / 97 万步 ≈ 27 H100 小时/步，重算 100 步约 2.7 千 GPU 小时，跳过的 batch 不重算、是放弃 3–8B token 数据。
 
    </details>
 
-5. 用 scaling law 定一个新模型的配置时，第三篇与第四篇各贡献了哪一条"常见错误"的解药？
+5. 用 scaling law 定一个新模型的配置时，第四篇与第五篇各贡献了哪一条"常见错误"的解药？
 
    <details markdown="1"><summary>答案</summary>
 
-   第三篇：数据消融要用足够大的规模（1.8B × 350B，2700 H100 小时），太小看不出质量差别，且 tokenizer 与数据配比在扫的各个尺寸间必须一致；第四篇：超参数也要 scaling（$$\eta_{opt} \propto C^{-0.125}$$、$$B_{opt} \propto C^{0.33}$$）或用 $$\mu$$P 迁移，否则小模型的最优超参在大模型上不成立、外推失效；学习率调度要跑完整（cosine 中途不可比）。
+   第四篇：数据消融要用足够大的规模（1.8B × 350B，2700 H100 小时），太小看不出质量差别，且 tokenizer 与数据配比在扫的各个尺寸间必须一致；第五篇：超参数也要 scaling（$$\eta_{opt} \propto C^{-0.125}$$、$$B_{opt} \propto C^{0.33}$$）或用 $$\mu$$P 迁移，否则小模型的最优超参在大模型上不成立、外推失效；学习率调度要跑完整（cosine 中途不可比）。
 
    </details>
 
@@ -373,9 +395,9 @@ Table: 常见误区与正确说法
 
 | 水平 | 表现 |
 |---|---|
-| 读过 | 能说出四篇各讲什么；知道 $$6ND$$、$$D/N \approx 20$$、MinHash、QK-norm 这些名词 |
+| 读过 | 能说出五篇各讲什么；知道 $$6ND$$、$$D/N \approx 20$$、MinHash、QK-norm 这些名词 |
 | 掌握 | A 组能不翻书算出 8 题以上；B 组能说出每题用了哪两篇的什么；拿到一份技术报告能指出它的 $$D/N$$ 落在哪个时代、超参与同行差在哪 |
-| 能教人 | C 组每题能给出全部要点并预判追问；能解释四篇里每个反直觉结论（过训练是对的、全局去重更差、lr 随宽度降）为什么成立 |
+| 能教人 | C 组每题能给出全部要点并预判追问；能解释五篇里每个反直觉结论（过训练是对的、全局去重更差、lr 随宽度降）为什么成立 |
 
 Table: 掌握程度的判据
 
@@ -383,11 +405,11 @@ Table: 掌握程度的判据
 
 ## 六、下一步
 
-四篇算的是"一个基座模型怎么训出来"的账，四个方向紧邻但不在范围内：
+五篇算的是"一个基座模型怎么训出来"的账，四个方向紧邻但不在范围内：
 
 - **模型作为计算对象的成本**（参数量、FLOPs、字节、KV cache、通信量的推导）是本系列的前提，在[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)。
 - **后训练**（SFT、RLHF / DPO、蒸馏、评测）在[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)。
-- **深度学习基础的推导**（反向传播、初始化与归一化、优化器）在[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)——第四篇直接用了它们的结论。
+- **深度学习基础的推导**（反向传播、初始化与归一化、优化器）在[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)——第五篇直接用了它们的结论。
 - **分布式训练的实现**（TP / PP / EP 怎么切、checkpoint 怎么写、故障怎么恢复）在[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)——本系列只算它们的量。
 
 回到总纲：[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)。
@@ -398,7 +420,7 @@ Table: 掌握程度的判据
 
 - **模型作为计算对象的成本**：参数量、FLOPs、字节数、KV cache、通信量的推导。它们是本系列的前提，在[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)。
 - **后训练**：SFT、RLHF / DPO、蒸馏、评测。把一个基座模型变成对话模型的方法在[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)。
-- **深度学习基础的推导**：反向传播、初始化与归一化、优化器、正则化的公式。第四篇直接使用它们的结论，推导在[《深度学习基础》](/deep-learning-foundations.html)。
+- **深度学习基础的推导**：反向传播、初始化与归一化、优化器、正则化的公式。第五篇直接使用它们的结论，推导在[《深度学习基础》](/deep-learning-foundations.html)。
 - **分布式训练的实现**：TP / PP / EP / 序列并行如何切分与同步、checkpoint 如何写、故障如何恢复。本系列只算它们的**量**（GPU 小时、写带宽、回滚代价），实现在[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)。
 - **数据管线的工程实现**：本系列算 CPU 小时与带宽，不讲 Spark / Ray / datatrove 的用法。
 
