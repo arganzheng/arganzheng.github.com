@@ -2561,12 +2561,13 @@ footer .copyright a,
 }
 .post-container .series-box .sb-list .is-current > span {
   display: inline-block;
-  margin-left: -6px;
+  margin-left: -8px;
   padding: 0 6px;
-  border-radius: 4px;
+  border-left: 2px solid #00788f;
+  border-radius: 0 4px 4px 0;
   background: #eaeef2;
   font-weight: 600;
-  color: #1f2328;
+  color: #00788f;
   background: #e1e6eb;
 }
 .post-container .series-box .sb-nav {
@@ -2636,12 +2637,13 @@ footer .copyright a,
 }
 .side-series ol .is-current > span {
   display: inline-block;
-  margin-left: -6px;
+  margin-left: -8px;
   padding: 0 6px;
-  border-radius: 4px;
+  border-left: 2px solid #00788f;
+  border-radius: 0 4px 4px 0;
   background: #eaeef2;
   font-weight: 600;
-  color: #1f2328;
+  color: #00788f;
 }
 div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
   max-height: calc(100vh - 430px);

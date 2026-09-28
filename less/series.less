@@ -4,15 +4,17 @@
 // box at the top and bottom of a post, the 「本系列」 list under the outline,
 // and the /series.html tree. Built into css/argan-blog{,.min}.css by npm run css.
 
-// the current part in a series list: Github file-tree style grey pill (the outline panel uses the same look)
+// the current part in a series list: same look as the current heading in the OUTLINE panel —
+// teal left bar + teal bold text on a grey background (theme-overrides.less)
 .series-current-pill() {
 	display: inline-block;
-	margin-left: -6px;
+	margin-left: -8px;
 	padding: 0 6px;
-	border-radius: 4px;
+	border-left: 2px solid @brand-primary;
+	border-radius: 0 4px 4px 0;
 	background: #eaeef2;
 	font-weight: 600;
-	color: #1f2328;
+	color: @brand-primary;
 }
 
 // top-of-post box: 「系列 《…》 第 N / X 篇  目录 ▸」 folding open into the parts, then 上一篇 / 下一篇
