@@ -117,14 +117,15 @@ div.side-catalog .catalog-body li a {
   max-width: 100%;
   /* the theme sets `.sidebar-container a { color: #bfbfbf !important }` */
   color: #404040 !important;
-  border-radius: 6px;
-  -webkit-transition: color 0.2s, background-color 0.2s;
-  transition: color 0.2s, background-color 0.2s;
+  border-left: 2px solid transparent;
+  border-radius: 0 6px 6px 0;
+  -webkit-transition: color 0.2s, border-color 0.2s, background-color 0.2s;
+  transition: color 0.2s, border-color 0.2s, background-color 0.2s;
 }
 
 div.side-catalog .catalog-body li a:hover,
 div.side-catalog .catalog-body li a:focus {
-  color: #1f2328 !important;
+  color: #00788f !important;
   background-color: #f6f8fa;
   text-decoration: none;
   outline: none;
@@ -157,9 +158,10 @@ div.side-catalog .catalog-body li.active {
   background-color: transparent;
 }
 
-/* current heading: Github's file-tree style — a grey pill, no outline / border */
+/* current heading: teal left bar + teal bold text, on a Github file-tree style grey background */
 div.side-catalog .catalog-body li.active > a {
-  color: #1f2328 !important;
+  color: #00788f !important;
+  border-left-color: #00788f;
   background-color: #eaeef2;
   font-weight: 700;
 }
@@ -583,7 +585,7 @@ div.side-catalog .catalog-empty {
 
 /* While filtering, the reading-position highlight would be misleading. */
 div.side-catalog.filtering .catalog-body li.active > a {
+  border-left-color: transparent;
   background-color: transparent;
-  font-weight: inherit;
 }
 
