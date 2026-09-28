@@ -111,19 +111,23 @@ div.side-catalog .catalog-body li {
 }
 
 div.side-catalog .catalog-body li a {
+  display: block;
   padding-left: 8px;
+  padding-right: 8px;
   max-width: 100%;
   /* the theme sets `.sidebar-container a { color: #bfbfbf !important }` */
   color: #404040 !important;
-  border-left: 2px solid transparent;
-  -webkit-transition: color 0.2s, border-color 0.2s;
-  transition: color 0.2s, border-color 0.2s;
+  border-radius: 6px;
+  -webkit-transition: color 0.2s, background-color 0.2s;
+  transition: color 0.2s, background-color 0.2s;
 }
 
 div.side-catalog .catalog-body li a:hover,
 div.side-catalog .catalog-body li a:focus {
-  color: #00788f !important;
+  color: #1f2328 !important;
+  background-color: #f6f8fa;
   text-decoration: none;
+  outline: none;
 }
 
 div.side-catalog .catalog-body .h1_nav,
@@ -153,10 +157,17 @@ div.side-catalog .catalog-body li.active {
   background-color: transparent;
 }
 
+/* current heading: Github's file-tree style — a grey pill, no outline / border */
 div.side-catalog .catalog-body li.active > a {
-  color: #00788f !important;
-  border-left-color: #00788f;
+  color: #1f2328 !important;
+  background-color: #eaeef2;
   font-weight: 700;
+}
+
+/* the theme's `.active a` also colours the sub-headings under the active section */
+div.side-catalog .catalog-body li.active li > a {
+  color: #404040 !important;
+  font-weight: inherit;
 }
 
 div.side-catalog .catalog-body li.active-parent > a {
@@ -572,6 +583,7 @@ div.side-catalog .catalog-empty {
 
 /* While filtering, the reading-position highlight would be misleading. */
 div.side-catalog.filtering .catalog-body li.active > a {
-  border-left-color: transparent;
+  background-color: transparent;
+  font-weight: inherit;
 }
 

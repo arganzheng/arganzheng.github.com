@@ -4,6 +4,17 @@
 // box at the top and bottom of a post, the 「本系列」 list under the outline,
 // and the /series.html tree. Built into css/argan-blog{,.min}.css by npm run css.
 
+// the current part in a series list: Github file-tree style grey pill (the outline panel uses the same look)
+.series-current-pill() {
+	display: inline-block;
+	margin-left: -6px;
+	padding: 0 6px;
+	border-radius: 4px;
+	background: #eaeef2;
+	font-weight: 600;
+	color: #1f2328;
+}
+
 // top-of-post box: 「系列 《…》 第 N / X 篇  目录 ▸」 folding open into the parts, then 上一篇 / 下一篇
 .post-container .series-box {
 	margin: 0 0 1.6em;
@@ -48,8 +59,8 @@
 		column-gap: 28px;
 		line-height: 1.5;
 		li { margin: 0 0 4px; break-inside: avoid; }
-		a { color: #57606a; }
-		.is-current { font-weight: 600; color: #24292f; }
+		a { color: #57606a; &:focus { outline: none; } }
+		.is-current > span { .series-current-pill(); background: #e1e6eb; }
 	}
 	.sb-nav {
 		display: flex;
@@ -91,8 +102,8 @@
 		line-height: 1.5;
 		li { margin: 0 0 3px; }
 		li::marker { color: #8b949e; }
-		a { color: #57606a !important; text-decoration: none; &:hover { color: @brand-primary !important; } }
-		.is-current { font-weight: 600; color: #24292f; }
+		a { color: #57606a !important; text-decoration: none; &:hover { color: @brand-primary !important; } &:focus { outline: none; } }
+		.is-current > span { .series-current-pill(); }
 	}
 }
 // leave the series block room under a long outline
