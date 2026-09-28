@@ -37,11 +37,28 @@ Table: 卷积网络的三个阶段
 | 四 | 五个里程碑 | LeNet → AlexNet → VGG → GoogLeNet → ResNet；参数量与设计思想；ResNet-50 实测 25.6M / 8.2 GFLOPs；bottleneck 的算术 |
 | 五 | ResNet 的实验与遗产 | plain vs residual 在 20 / 56 层的实测；BN + 深 plain 网络的梯度爆炸；四样遗产 |
 | 六 | 从 CNN 到 ViT | 归纳偏置 vs 数据量；ViT 的结构；patch embedding == 卷积（实测差 1e-6）；一张图多少 token；卷积在多模态里的残余 |
-| 七 | 实验 | 代码与结果 |
+| 七 | 案例：复现 LeNet-5 | 6 万参数的 1998 年网络在 MNIST 上 0.82%——与 KNN / SVM / MLP 同一份数据对照；第一层学到的 6 个核；plain vs residual 在 20 / 56 层的实测 |
 | 八 | 本文小结 |  |
 | 九 | 自测 | 5 道题 |
 
 Table: 本文的章节安排
+
+### 3. 来龙去脉：从猫的视觉皮层到 ImageNet
+
+| 年 | 谁 | 当时的问题 | 留下的东西 |
+|---|---|---|---|
+| 1959–1962 | Hubel & Wiesel（生理学） | 猫的视觉皮层神经元对什么有反应 | 每个神经元只看视野的一小块、对特定方向的边缘敏感；简单细胞 → 复杂细胞的层级——**局部感受野**与**层级特征**的生物原型 |
+| 1980 | Fukushima，Neocognitron | 把 Hubel & Wiesel 的层级做成能识别手写字的模型 | 交替的"S 层"（卷积）与"C 层"（池化），已经是 CNN 的骨架——但当时不知道怎么训 |
+| 1989 / 1998 | LeCun 等 | 邮政编码、支票金额的手写识别要能上线 | 用反向传播训 Neocognitron 式的网络；**LeNet-5**（第四章、第七章的案例）：卷积 + 池化 + 全连接的范式，MNIST 0.95% |
+| 1998–2011 | | 更大的图（ImageNet 120 万张 224×224）上 CNN 训不动、也不如 SVM + 手工特征 | 十年里 CNN 是小众——算力和数据都不够 |
+| 2012 | Krizhevsky、Sutskever、Hinton，AlexNet | ImageNet 比赛 | 8 层、6000 万参数、两块 GPU、ReLU、dropout，错误率 26% → 16%——深度学习复兴的起点（第四章） |
+| 2014 | Simonyan & Zisserman，VGG；Szegedy 等，GoogLeNet | 再深一点怎么设计 | 只用 3×3 堆到 19 层；1×1 卷积做通道降维、多分支（第四章） |
+| 2015 | He 等，ResNet | 56 层比 20 层训练误差还高——深了反而差 | **残差连接**（第二篇第五章）；152 层；之后深度不再是问题，"堆同样的块"成为一切现代网络的形态 |
+| 2020 | Dosovitskiy 等，ViT | 卷积的归纳偏置在数据够多时还是优势吗 | 把图切成 16×16 的 patch 当 token 喂 Transformer；数据够大时超过 CNN（第六章）——多模态 LLM 的视觉编码器由此而来 |
+
+Table: 卷积网络的来历
+
+一条线看下来，CNN 的想法（局部、共享、层级）1980 年就有了，等了 32 年才等到足够的数据和算力（2012 年）；它统治视觉八年，又被"数据够多时不需要归纳偏置"的 ViT 接替。本篇要讲清的是这三段：卷积是什么、为什么它在数据少时赢（第二、三章）；深了怎么训（第四、五章）；数据多了为什么可以不用它（第六章）。
 
 ## 二、卷积作为带约束的线性层
 
@@ -121,6 +138,24 @@ stride 为 $$s$$ 的卷积（或池化）把特征图缩小 $$s$$ 倍，之后�
 
 Table: 经典 CNN 各解决了什么
 
+四张原论文的结构图，按年代——
+
+![LeCun 等 1998《Gradient-Based Learning Applied to Document Recognition》图 2：LeNet-5——INPUT 32×32 → C1 卷积 6@28×28 → S2 下采样 6@14×14 → C3 卷积 16@10×10 → S4 下采样 16@5×5 → C5 120 → F6 84 → OUTPUT 10。图片版权归原作者 / IEEE，此处为教学评述引用](/img/in-post/dl-paper-lenet5-fig2.webp)
+
+LeNet-5：五个带参数的层，卷积和下采样（池化）交替，最后接全连接——这张图里的每个部件今天都还在用（第七章的案例把它一层层数一遍：61,706 个参数）。
+
+![Krizhevsky 等 2012《ImageNet Classification with Deep Convolutional Neural Networks》图 2：AlexNet——5 个卷积层 + 3 个全连接层，上下两半分别在两块 GPU 上；原图顶部在论文 PDF 里就是被裁掉的。图片版权归原作者，此处为教学评述引用](/img/in-post/dl-paper-alexnet-fig2.webp)
+
+AlexNet：结构上就是放大的 LeNet（5 卷积 + 3 全连接），新东西是 ReLU、dropout、数据增强，以及**模型被切成上下两半跑在两块 3 GB 的 GTX 580 上**——模型并行的第一次实用，因为一块卡装不下 6000 万参数。这张图顶部被裁掉不是本站的错，原论文 PDF 里就是这样。
+
+![Simonyan & Zisserman 2014《Very Deep Convolutional Networks》表 1：A–E 五种配置，11 到 19 层，全部只用 3×3 卷积，每个 maxpool 之后通道翻倍（64 → 128 → 256 → 512）。图片版权归原作者，此处为教学评述引用](/img/in-post/dl-paper-vgg-table1.webp)
+
+VGG：一张表而不是一张图，因为它的结构简单到能用表格写完——只有 3×3 卷积、2×2 池化和"空间减半、通道翻倍"的节奏。这种规整性是它留给后来者最大的遗产：ResNet、以及 Transformer 的"堆 N 个相同的块"都是这个思路。
+
+![He 等 2015《Deep Residual Learning》图 2：残差块——输入 x 经两层权重层得到 F(x)，与 x 相加后过 ReLU，右侧的弧线是恒等映射（identity）。图片版权归原作者，此处为教学评述引用](/img/in-post/dl-paper-resnet-fig2.webp)
+
+ResNet：结构图只需要画一个块——弧线那条恒等通路就是第二篇第五章的 $$I + J$$，也是 Transformer 每一层的残差。
+
 两个趋势值得看：参数量从 AlexNet 的 60M 到 GoogLeNet 的 6.8M 再到 ResNet-50 的 25.6M——大全连接层被砍掉后（AlexNet 的 60M 里 58M 在最后三个全连接层），参数量不再是深度的函数；层数从 8 到 152，深度成了主要的扩展维度。
 
 ### 2. ResNet-50 的账
@@ -145,21 +180,7 @@ ResNet-50 的残差块是三层：$$1 \times 1$$ 降维 → $$3 \times 3$$ → $
 
 Table: Bottleneck 块与两个 3×3 卷积的参数对比
 
-```text
-ResNet-34 的基本块（256 通道）                 ResNet-50 的 bottleneck 块
-
-x [256, H, W] ──┬──────────────┐               x [256, H, W] ──┬──────────────────────┐
-                ▼              │                               ▼                      │
-          3×3, 256→256  590K   │                         1×1, 256→64    16K  降维      │
-                ▼              │                               ▼                      │
-          3×3, 256→256  590K   │                         3×3,  64→64    37K  空间混合  │
-                ▼              │                               ▼                      │
-               (+) ◀───────────┘                         1×1,  64→256   16K  升维      │
-                ▼                                              ▼                      │
-          y [256, H, W]       共 1.18M                         (+) ◀──────────────────┘
-                                                               ▼
-                                                         y [256, H, W]     共 69K
-```
+![He 等 2015 图 5：左边是 ResNet-34 的基本块（两个 3×3、64 通道），右边是 ResNet-50/101/152 的 bottleneck 块（1×1 降到 64 → 3×3 → 1×1 升回 256）。图片版权归原作者，此处为教学评述引用](/img/in-post/dl-paper-resnet-fig5.webp)
 
 三层比两层少 17 倍参数，因为昂贵的 $$3 \times 3$$ 在 4 倍窄的通道上做。$$1 \times 1$$ 卷积没有空间感受野，它就是**对每个位置独立做一次线性变换**——与 Transformer 里对每个 token 独立做的 FFN 是同一种算子。Transformer 的 FFN 是反过来的 bottleneck（$$d \to 4d \to d$$，先升后降），但"用逐位置的线性层做通道混合、用另一种算子做位置混合"这个分工是共同的：CNN 用 $$3 \times 3$$ 混合空间位置，Transformer 用 attention 混合序列位置。
 
@@ -207,20 +228,16 @@ Table: ResNet 留给 Transformer 的四样遗产
 
 ### 2. ViT 的结构
 
-ViT 对 Transformer encoder **几乎没有改动**，改的只是输入：
+ViT 对 Transformer encoder **几乎没有改动**，改的只是输入。下图是 Dosovitskiy 等 2020 论文的图 1：
 
-```text
-图像 [3, 224, 224]
-  │  切成 16×16 的 patch，共 (224/16)² = 196 个
-  ▼
-patch 序列 [196, 3·16·16 = 768]
-  │  线性投影到 d = 768（"patch embedding"）；前面拼一个 [CLS] token；加可学习的位置编码
-  ▼
-token 序列 [197, 768]
-  │  标准 Transformer encoder × 12 层（Pre-Norm，MHA + FFN；块结构同 BERT，但 BERT 是 Post-Norm）
-  ▼
-[CLS] 的输出 → 分类头
-```
+![Dosovitskiy 等 2020《An Image is Worth 16×16 Words》图 1：把图像切成固定大小的 patch，每个 patch 线性投影后加位置编码，前面拼一个可学习的 [class] token，送进标准 Transformer encoder，最后由 [class] 的输出接 MLP 分类头。图片版权归原作者，此处为教学评述引用](/img/in-post/dl-paper-vit-fig1.webp)
+
+按形状走一遍：
+
+1. 图像 $$[3, 224, 224]$$，切成 $$16 \times 16$$ 的 patch，共 $$(224 / 16)^2 = 196$$ 个；
+2. patch 序列 $$[196, 3 \cdot 16 \cdot 16 = 768]$$，线性投影到 $$d = 768$$（"patch embedding"），前面拼一个 `[CLS]` token，加可学习的位置编码；
+3. token 序列 $$[197, 768]$$，过标准 Transformer encoder × 12 层（Pre-Norm，MHA + FFN；块结构同 BERT，但 BERT 是 Post-Norm）；
+4. `[CLS]` 的输出 → 分类头。
 
 没有卷积、没有池化、没有"空间减半通道翻倍"。一张图就是 196 个 token，之后的每一步与处理 196 个词完全相同。图像的二维结构只通过位置编码告诉模型——模型要自己从数据里学出"相邻 patch 相关"这件事，这就是它需要更多数据的原因。
 
@@ -254,7 +271,83 @@ Table: 不同分辨率与 patch 大小下的 token 数
 
 对算法工程师，卷积今天要懂到的程度是：知道它是带约束的线性层、会算参数与 FLOPs、知道 patch embedding 是它、能读懂 encoder 前端的几层。设计新的 CNN 骨干不再是主流工作。
 
-## 七、实验
+## 七、案例：复现 LeNet-5，以及 plain vs residual
+
+### 0. LeNet-5：6 万参数的 1998 年网络
+
+**问题与数据**：MNIST，与 L2 第四篇（KNN 2.95%）、第五篇（RBF-SVM 1.43%）、本系列第一篇（两层 MLP 2.39%）同一份数据、同一个划分。1998 年 LeCun 等在这份数据上报了 LeNet-5 0.95% 的错误率，SVM 1.1%——卷积网络第一次在公开对比里领先。这一节把第四章那张图里的网络一层层写出来、训一遍、和前面三种方法对照。
+
+**思路**：按原图的 C1-S2-C3-S4-C5-F6-OUT 七层照搬，只把 1998 年的三处改成今天的写法——tanh → ReLU、平均池化 → 最大池化、RBF 输出层 → softmax；结构、每层的通道数和核大小一个不改。
+
+```python
+class LeNet5(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.c1 = nn.Conv2d(1, 6, 5, padding=2)     # 28×28 补到 32×32 再卷 → 6@28×28
+        self.c3 = nn.Conv2d(6, 16, 5)               # 6@14×14 → 16@10×10
+        self.c5 = nn.Linear(16 * 5 * 5, 120)        # 原文 C5 是 16@5×5 → 120 的卷积，核正好覆盖全图，等价于全连接
+        self.f6 = nn.Linear(120, 84)
+        self.out = nn.Linear(84, 10)
+
+    def forward(self, x):
+        x = F.max_pool2d(F.relu(self.c1(x)), 2)     # C1 → S2
+        x = F.max_pool2d(F.relu(self.c3(x)), 2)     # C3 → S4
+        x = x.flatten(1)                            # 16@5×5 → 400
+        return self.out(F.relu(self.f6(F.relu(self.c5(x)))))
+```
+
+**逐层形状与参数量**（[`case_05_lenet5.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_05_lenet5.py) 用一次前向打印出来）：
+
+| 层 | 输出形状 | 参数 |
+|---|---|---:|
+| 输入 | $$[1, 28, 28]$$ | |
+| C1 卷积 5×5，1 → 6 | $$[6, 28, 28]$$ | 156 |
+| S2 池化 2×2 | $$[6, 14, 14]$$ | 0 |
+| C3 卷积 5×5，6 → 16 | $$[16, 10, 10]$$ | 2,416 |
+| S4 池化 2×2 | $$[16, 5, 5]$$ | 0 |
+| 拉平 | $$[400]$$ | |
+| C5 全连接 400 → 120 | $$[120]$$ | 48,120 |
+| F6 全连接 120 → 84 | $$[84]$$ | 10,164 |
+| 输出 84 → 10 | $$[10]$$ | 850 |
+| **合计** | | **61,706** |
+
+Table: LeNet-5 逐层形状与参数量
+
+第二章的公式在这里对上数：C1 是 $$6 \times (1 \times 5 \times 5 + 1) = 156$$，C3 是 $$16 \times (6 \times 5 \times 5 + 1) = 2{,}416$$。**两个卷积层合起来只有 2,572 个参数**，96% 的参数在三个全连接层——这就是第四章说的"AlexNet 6000 万参数里 5800 万在全连接层"的 1998 年版本，也是后来 GoogLeNet 用全局平均池化砍掉全连接层的原因。
+
+**效果**（AdamW，one-cycle 学习率，5 个 epoch，MPS 上 10 秒）：
+
+| epoch | 训练 loss | 测试准确率 |
+|---:|---:|---:|
+| 1 | 0.733 | 97.10% |
+| 2 | 0.088 | 98.04% |
+| 3 | 0.048 | 98.85% |
+| 4 | 0.030 | 99.15% |
+| 5 | 0.019 | **99.18%** |
+
+Table: LeNet-5 在 MNIST 上的训练
+
+| 方法 | 参数 | 测试错误率 | 出处 |
+|---|---:|---:|---|
+| KNN，$$k = 3$$ | 0（存 60,000 张） | 2.95% | L2 第四篇 |
+| 两层 MLP 784-256-10 | 203,530 | 2.39% | 本系列第一篇 |
+| RBF-SVM | 16,122 个支持向量 | 1.43% | L2 第五篇 |
+| LeNet-5（1998 原文） | 60K | 0.95% | LeCun 等 1998 |
+| **LeNet-5（本节复现，5 个 epoch）** | 61,706 | **0.82%** | |
+
+Table: 同一份 MNIST 上五种方法的对照
+
+![左：5 个 epoch 的训练 loss 与测试准确率，97.1% → 99.18%；右：错分的 82 张里的前 24 张，多是写得极潦草的 4 / 9、2 / 7](/img/in-post/dl-case-05-lenet-training.svg)
+
+**参数是 MLP 的 1/3，错误率降到 1/3**。卷积赢在第二章那两条约束：每个 5×5 的核在整张图上共享，同一个笔画特征出现在哪都认得；池化让它对几个像素的平移不敏感。MLP 把图拉直成 784 维向量，"相邻像素相关"这条信息它得自己从数据里学，LeNet-5 把它写进了结构。
+
+**第一层学到了什么**：
+
+![上排：一张手写 9 和它过 C1 之后的 6 张特征图——不同的核分别把左边缘、右边缘、笔画内部点亮；下排：C1 的 6 个 5×5 卷积核（红正蓝负）](/img/in-post/dl-case-05-lenet-filters.svg)
+
+6 个核里能认出几个方向的**边缘检测器**（一侧正一侧负）——特征图 3 亮的是笔画的左侧边、特征图 4 亮的是右侧边。没有人告诉它要检测边缘，它从"把数字分对"这个目标里学出来的第一层特征，正是 Hubel & Wiesel 1959 年在猫的视觉皮层里看到的那种"对特定方向的边缘敏感"的细胞——来龙去脉那张表的第一行和最后一行在这 6 张小图里接上了。
+
+**落地还差什么**：0.82% 是 1998 年的水平；今天 MNIST 的最好结果在 0.2% 以下，靠的是数据增强、更深的网络和集成——但没人再在 MNIST 上比了。LeNet-5 真正的下一步是第四章那张表：同样的范式放大到 224×224 的彩色图、1000 类、120 万张，中间隔了 14 年的算力和数据。下面第 1–3 节是本篇其余实验的代码与结果，其中"plain vs residual"是把 LeNet 式的网络加深到 20 / 56 层会怎样——第五章的答案。
 
 ### 1. 代码
 
@@ -298,7 +391,7 @@ L=56 residual: init grad norm block1 2.2e+00 vs block56 7.6e-01 (ratio 2.9)   | 
 - 卷积退到了 patch embedding、语音前端、U-Net 与 ConvNeXt；懂到"带约束的线性层 + 会算账 + 认得出 patch embedding"即可。
 - 下一篇：另一条线——循环网络怎么处理序列、为什么记不住远处、attention 如何从它的瓶颈里被发明出来。
 
-配套代码：[`deep-learning-foundations/05_cnn.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/05_cnn.py)——`matrix` / `resnet` / `patch` / `deep` 四个子实验，`deep`（L=20 / 56 的 plain 与 residual）在 CPU 上约 10 分钟。
+配套代码：[`deep-learning-foundations/05_cnn.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/05_cnn.py)——`matrix` / `resnet` / `patch` / `deep` 四个子实验，`deep`（L=20 / 56 的 plain 与 residual）在 CPU 上约 10 分钟；第七章的 LeNet-5 复现是 [`case_05_lenet5.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_05_lenet5.py)（MPS / CPU 均可，10 秒到 1 分钟）；原论文结构图由 `tools/paper_figures.py` 从 PDF 裁出。
 
 ## 九、自测
 

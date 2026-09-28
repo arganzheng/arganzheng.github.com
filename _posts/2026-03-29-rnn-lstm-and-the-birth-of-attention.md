@@ -37,11 +37,27 @@ Table: 从 RNN 到 attention 的四个节点
 | 五 | seq2seq 与它的瓶颈 | encoder-decoder、固定向量、翻译质量随句长下降的实测（8 → 32 步） |
 | 六 | attention 的诞生 | Bahdanau 的公式、对齐矩阵、它与 softmax(QK^T)V 的对应 |
 | 七 | RNN 的两个致命缺点与 Transformer 的回答 | 串行 vs 并行（实测硬件利用率差 4.5 倍）、路径长度、`O(n²)` 的代价、RNN 的回声 |
-| 八 | 实验 | 代码与结果 |
+| 八 | 案例：字符级 LSTM 写莎士比亚 | 与 Transformer 系列第四篇的 nanoGPT 同一份语料、同一预算：val loss 1.71 vs 1.66；生成样例；seq2seq + attention 的对齐矩阵热力图；其余实验的代码与结果 |
 | 九 | 本文小结 | |
 | 十 | 自测 | 5 道题 |
 
 Table: 本文的章节安排
+
+### 3. 来龙去脉：从"记住上一个词"到"看所有的词"
+
+| 年 | 谁 | 当时的问题 | 留下的东西 |
+|---|---|---|---|
+| 1986 / 1990 | Jordan；Elman | 前馈网络的输入是固定长度的，句子、语音不是 | **循环网络**（第二章）：把上一步的隐藏状态喂回来，任意长度的序列用同一组权重处理 |
+| 1994 / 1997 | Bengio 等；Hochreiter & Schmidhuber | RNN 训不了长依赖：梯度沿时间连乘，几十步就消失 | 说清病因（第三章）；**LSTM**（第四章）：用门控的细胞状态给梯度一条加法通路——就是残差 |
+| 2000 / 2014 | Gers 等；Cho 等 | LSTM 忘不掉旧东西 / 门太多参数太多 | 遗忘门（原版 LSTM 没有）；**GRU**：两个门的简化版 |
+| 2013 | Graves | 用 RNN 生成文本和手写 | 深层 LSTM 的字符级语言模型（第八章的案例就是它）；Karpathy 2015 的 char-rnn 让它人尽皆知 |
+| 2014 | Sutskever 等；Cho 等，seq2seq | 机器翻译：输入和输出是两个不同长度的序列 | **编码器–解码器**（第五章）：整句压成一个向量再展开——第一个端到端的神经机器翻译 |
+| 2015 | Bahdanau、Cho、Bengio | 一个向量装不下长句，翻译质量随句长掉 | **attention**（第六章）：解码每一步回头看编码器的所有位置，按相关性加权——路径长度从 $$T$$ 变成 1 |
+| 2017 | Vaswani 等，Transformer | RNN 串行、GPU 喂不饱；attention 既然能看所有位置，还要循环干什么 | 去掉循环、只留 attention（第七章）——L4 系列的全部内容 |
+
+Table: 循环网络与 attention 的来历
+
+三十年一条线：**循环**解决了"变长输入"，**门控**解决了"长依赖训不动"，**编码器–解码器**解决了"输入输出长度不同"，**attention** 解决了"一个向量装不下"，最后 Transformer 发现 attention 一个就够了。每一步都是上一步的补丁，最后一步把主体换掉、只留补丁。今天 RNN 在哪：极长序列、极小设备上的流式处理（语音唤醒词、传感器），以及 2023 年之后以 Mamba / RWKV 为名的"线性 RNN"回潮——它们想拿回 RNN 推理时 $$O(1)$$ 内存的优点（第七章的"RNN 的回声"）。
 
 ## 二、循环网络
 
@@ -59,12 +75,16 @@ $$W \in \mathbb{R}^{d \times d}$$ 是状态到状态的转移，$$U$$ 是输入�
 
 沿时间展开，RNN 是一个 $$T$$ 层的网络，每层用同一组权重，每层额外吃一个输入：
 
-```text
-x_1        x_2        x_3               x_T
- │          │          │                 │
- ▼          ▼          ▼                 ▼
-h_0 ──W──▶ h_1 ──W──▶ h_2 ──W──▶ ... ──W──▶ h_T ──V──▶ y_T
+```mermaid
+%% 图：RNN 沿时间展开——T 层、同一组权重 W、每层多吃一个输入
+flowchart LR
+    x1[x₁] --> h1; x2[x₂] --> h2; x3[x₃] --> h3; xT[x_T] --> hT
+    h0((h₀)) -->|W| h1((h₁)) -->|W| h2((h₂)) -->|W| h3((h₃)) -->|W| dots[…] -->|W| hT((h_T)) -->|V| y[y_T]
 ```
+
+Graves 2013 论文里的图 1 画的是同一件事的三层版本——每一列是一个时间步，每一行是一层，横向的箭头是循环（同一组权重），纵向的是层间连接：
+
+![Graves 2013《Generating Sequences With Recurrent Neural Networks》图 1：深层循环网络沿时间展开，输入 x 在底、输出 y 在顶、三个隐藏层横向循环连接。图片版权归原作者，此处为教学评述引用](/img/in-post/dl-paper-graves-fig1.webp)
 
 这个视角把前五篇的一切都带了进来：它是一个深度为 $$T$$ 的网络，$$T$$ 常常是几百上千——比任何 CNN 都深，而且**每层的权重相同**，第二篇里"Jacobian 连乘"的问题在这里以最纯粹的形式出现。
 
@@ -125,6 +145,12 @@ c_t &= f_t \odot c_{t-1} + i_t \odot \tilde c_t &&\text{细胞状态更新} \\
 o_t &= \sigma(W_o [h_{t-1}, x_t] + b_o), \quad h_t &= o_t \odot \tanh(c_t) &&\text{输出门}
 \end{aligned}
 $$
+
+经典的 LSTM 细胞图（Graves 2013 图 2）——中间的 Cell 是 $$c_t$$，围着它的三个 $$\sigma$$ 是输入门、遗忘门、输出门，$$\otimes$$ 是逐元素乘，自己指向自己的那条环就是 $$c_t = f_t \odot c_{t-1} + \ldots$$：
+
+![Graves 2013 图 2：LSTM 记忆细胞——输入 x_t 与 h_{t−1} 经 tanh 成候选，乘输入门写入 Cell；Cell 乘遗忘门自环保留；Cell 过 tanh 乘输出门得到 h_t。图片版权归原作者，此处为教学评述引用](/img/in-post/dl-paper-graves-fig2.webp)
+
+同一张图按本文的记号重画一遍，只保留细胞状态那条路：
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 160}}}%%
@@ -211,20 +237,11 @@ e_{kj} = v_a^T \tanh(W_a h_j^{enc} + U_a s_{k-1}), \qquad
 c_k = \sum_j \alpha_{kj}\, h_j^{enc}
 $$
 
-```text
-固定向量（Sutskever 2014）                        attention（Bahdanau 2014）
+两篇原论文的图放在一起，就是"瓶颈"与"打破瓶颈"：
 
-x_1 → x_2 → x_3 → x_4                            x_1 → x_2 → x_3 → x_4
- │     │     │     │                              │     │     │     │
-h_1 → h_2 → h_3 → h_4                            h_1   h_2   h_3   h_4    全部保留
-                   │                              ╲     ╲   ╱    ╱
-                   ▼  整句压成一个 d 维向量           α_k1  α_k2 α_k3 α_k4   每步算一组权重
-                  s_0 → s_1 → s_2 → s_3                ╲   │   ╱
-                   │     │     │     │                    c_k = Σ_j α_kj h_j
-                  y_1   y_2   y_3   y_4                     │
-                                                    s_{k-1} ─┴─→ s_k → y_k
-decoder 只能从 h_4 里挖信息                       decoder 每一步直接看到源句每个位置
-```
+![Sutskever 等 2014《Sequence to Sequence Learning》图 1：读入 A B C 〈EOS〉，编码器的最后一个状态是整句的表示，解码器从它开始逐个生成 W X Y Z 〈EOS〉——输入与输出之间只有那一个向量。图片版权归原作者，此处为教学评述引用](/img/in-post/dl-paper-seq2seq-fig1.webp)
+
+![Bahdanau 等 2015《Neural Machine Translation by Jointly Learning to Align and Translate》图 1：双向编码器得到每个位置的 h_j，解码第 t 步用权重 α_{t,j} 把所有 h_j 加权求和成上下文向量再更新状态 s_t——解码器每一步都能直接看到源句每个位置。图片版权归原作者，此处为教学评述引用](/img/in-post/dl-paper-bahdanau-fig1.webp)
 
 $$s_{k-1}$$ 是 decoder 的当前状态，$$e_{kj}$$ 是"生成第 $$k$$ 个词时第 $$j$$ 个源词有多相关"的打分，softmax 变成权重，$$c_k$$ 送进 decoder 的下一步。瓶颈消失了：decoder 每一步能直接取到源句任何位置的信息，路径长度从 $$O(T)$$ 变成 1。
 
@@ -240,21 +257,15 @@ $$s_{k-1}$$ 是 decoder 的当前状态，$$e_{kj}$$ 是"生成第 $$k$$ 个词�
 
 Table: 加上 attention 后倒序任务的准确率
 
-权重 $$\alpha_{kj}$$ 排成矩阵就是**对齐矩阵**——Bahdanau 论文里那张著名的法英对齐图。倒序任务上它应该是反对角线；第八章从训好的模型里取一个样本（`#` 表示权重 $$> 0.5$$）：
+权重 $$\alpha_{kj}$$ 排成矩阵就是**对齐矩阵**——Bahdanau 论文里那张著名的法英对齐图。倒序任务上它应该是反对角线；第八章从训好的模型里取一个样本画成热力图：
 
-```text
-输出步 ↓ / 输入位置 →
-. . . . . . . #      ← 输出第 1 个词看输入第 8 个
-. . . . . . . #      ← 第 2 步仍在看第 8 个（<sos> 之后的第一个真正输入）
-. . . . . . # .
-. . . . . # . .
-. . . . # . . .
-. . . # . . . .
-. . # . . . . .
-. # + . . . . .
-```
+![倒序任务学到的 8×8 对齐矩阵热力图：一条反对角线，输出第 1 步 89% 的权重在输入第 8 位，之后每步往前挪一格；细看偏了一格——第 2 步仍在看第 8 位](/img/in-post/dl-case-06-alignment.svg)
 
-模型自己学出了"倒序 = 反对角线对齐"，没有人告诉它。这是 attention 的可解释性来源，也是它作为一种**可学习的、由内容决定的路由**的本质：每一步该看哪里，由当前状态与各位置的匹配度决定，而不是由固定的结构决定。
+左边是 Bahdanau 等 2015 论文图 3 里英法翻译的真实对齐——大体沿对角线（两种语言词序接近），在 "European Economic Area" ↔ "zone économique européenne" 处交叉（法语形容词后置）：
+
+![Bahdanau 等 2015 图 3(a)：英语句子（横轴）与法语译文（纵轴）之间学到的对齐权重，亮格是高权重，大体沿对角线、在形容词短语处交叉。图片版权归原作者，此处为教学评述引用](/img/in-post/dl-paper-bahdanau-fig3a.webp)
+
+模型自己学出了"倒序 = 反对角线对齐"，没有人告诉它。细看它偏了一格（第 2 步仍在看第 8 位）：教师强制下解码器已经拿到了上一步的正确输出，注意力学成了"找到我刚输出的那个字符在输入里的位置"，再靠 GRU 状态往前推一格——对齐是从数据里学出来的，不保证长成人预想的样子，这也是读任何 attention 可视化时要记住的。这是 attention 的可解释性来源，也是它作为一种**可学习的、由内容决定的路由**的本质：每一步该看哪里，由当前状态与各位置的匹配度决定，而不是由固定的结构决定。
 
 ### 3. 与 softmax(QKᵀ)V 的对应
 
@@ -293,7 +304,67 @@ Attention 的 FLOPs 是 $$O(T^2 d)$$，RNN 是 $$O(T d^2)$$；$$T > d$$ 之后 a
 
 RNN 的推理成本是 $$O(1)$$ / token、状态大小固定——这两点 Transformer 没有。状态空间模型（S4、Mamba）、线性 attention、RWKV 一类工作试图找回它们：训练时像 attention 一样并行，推理时像 RNN 一样只维护一个固定大小的状态。它们在权衡的是"固定状态装不下长历史"（第五章的瓶颈以新形式回来）与"$$O(T)$$ 的 KV cache"。当前主流仍是 Transformer，混合结构（大部分层线性、少数层完整 attention）在一些模型里开始出现。知道它们在权衡什么，就够了。
 
-## 八、实验
+## 八、案例：字符级 LSTM 写莎士比亚
+
+### 0. 与 nanoGPT 同一份语料、同一预算
+
+**问题与数据**：Transformer 系列第四篇用 nanoGPT 在 1 MB 的莎士比亚剧本上训了一个字符级 GPT（4 层、128 维、0.80M 参数，batch 12 × 64 字符 × 2000 步，val loss 4.17 → 1.66）。这一节用**同一份语料、同样的 batch / 上下文 / 步数**训一个 2 层 LSTM（256 维，1.09M 参数），看 2013 年 Graves、2015 年 Karpathy char-rnn 那一代模型和小 Transformer 比在哪、差在哪。这是 RNN 最有名的应用之一——它让"神经网络能写出像人话的东西"第一次进入大众视野。
+
+**思路**：字符级语言模型——输入 64 个字符，每个位置预测下一个字符，loss 是交叉熵（每字符的 nats）。LSTM 一次读一个字符、状态 $$(h, c)$$ 各 256 维；nanoGPT 一次看全部 64 个。
+
+```python
+class CharLSTM(nn.Module):
+    def __init__(self, V, d=256, layers=2):
+        super().__init__()
+        self.emb = nn.Embedding(V, d); self.lstm = nn.LSTM(d, d, layers, batch_first=True); self.head = nn.Linear(d, V)
+    def forward(self, x, state=None):
+        h, state = self.lstm(self.emb(x), state)          # [B, T, d]：每个位置一个状态
+        return self.head(h), state                        # [B, T, V]：每个位置预测下一个字符
+
+for s in range(2000):
+    x, y = get_batch(train, B=12, T=64)                   # y 是 x 右移一位
+    logits, _ = model(x)
+    loss = F.cross_entropy(logits.reshape(-1, V), y.reshape(-1))
+    opt.zero_grad(); loss.backward(); nn.utils.clip_grad_norm_(model.parameters(), 1.0); opt.step()   # 第三章：裁剪
+```
+
+**效果**（[`case_06_char_lstm_and_alignment.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_06_char_lstm_and_alignment.py)，MPS 上 27 秒）：
+
+| 步 | LSTM train | LSTM val | nanoGPT val（Transformer 04） |
+|---:|---:|---:|---:|
+| 0 | 4.17 | 4.17 | 4.16 |
+| 250 | 2.08 | 2.12 | 2.87 |
+| 500 | 1.85 | 1.94 | 2.40 |
+| 1000 | 1.67 | 1.80 | 1.95 |
+| 1500 | 1.61 | 1.74 | 1.72 |
+| 2000 | 1.58 | **1.71** | **1.66** |
+
+Table: 同一份莎士比亚、同一预算：LSTM 与 nanoGPT 的 loss
+
+![LSTM 的 train / val loss 与 nanoGPT val loss 随步数：LSTM 前 500 步降得快得多，2000 步时两条 val 曲线在 1.7 附近交汇](/img/in-post/dl-case-06-char-lstm.svg)
+
+生成 400 个字符（temperature 0.8）：
+
+```text
+Well be to the cheept to put till to the well,
+Thou will voited and breon fortiend?
+And I the fair to sentration to that be him the country
+As your king lead it, sife on the netter'd they goes--
+A shall come to may she so condice at the sholied, to meated of my heaven,
+His is our heaven as pition are their.
+
+FARIANA:
+As I have the less to beon the muts be made
+Then you do hath the destion and stri
+```
+
+三件事：
+
+- **同一量级**：LSTM val 1.71 vs nanoGPT 1.66。1 MB 的莎士比亚、0.8–1.1M 参数上，2015 年的模型和 2017 年的模型几乎一样好，生成的样子也一样——单词一半是拼出来的，但角色名、冒号、换行、诗行长度、thee / hath 全对。**Transformer 的优势不在这个规模上**。
+- **LSTM 前期快得多**（500 步 1.94 vs 2.40）：循环结构自带"下一个字符和上一个字符相关"的偏置，Transformer 要从数据里学出这个偏置——第五篇 ViT 那节"归纳偏置 vs 数据量"的序列版。
+- **快 15 倍**（27 秒 vs 7 分钟）——但这是 nanoGPT 小 batch 在 MPS 上 kernel 启动瓶颈的假象，不是 LSTM 算得少。真正的差别在第七章：LSTM 的 64 步是**顺序**的，序列长到几千、batch 大到几百时 GPU 喂不饱；Transformer 的 64 个位置是并行的一次矩阵乘。这个规模上看不出来，规模上去就是全部。
+
+**落地还差什么**：把 LSTM 做大（Graves 2013 是 3 层 × 700；2016 年 Google 翻译的 GNMT 是 8 层 LSTM + attention）在 2017 年之前就是最强的序列模型；之后所有资源都转向了 Transformer，不是因为 LSTM 在小数据上更差，而是因为它在大数据、长序列、大 batch 上**训不快**——第七章讲的那两个致命缺点。下面第 1–2 节是本篇其余实验（梯度衰减、记忆长度、遗忘门偏置、seq2seq、计时）的代码与结果。
 
 ### 1. 代码
 
@@ -327,6 +398,10 @@ for t in range(T, 0, -1):
 - seq2seq 把整句压进一个固定向量，16 个 token 的倒序任务整句准确率 0%。Bahdanau attention 让 decoder 每步对 encoder 全部状态加权求和，同一任务到 76%；对齐矩阵自己学出反对角线。
 - Bahdanau 的 $$s$$、$$h_j$$、加权和，就是 query、key / value、$$\text{softmax}(QK^T)V$$；Transformer 换了打分函数与用法（self-attention），然后去掉了循环。
 - RNN 的两个致命缺点：串行（实测同一 CPU 上 attention 达到的算力是它的 4.5 倍）与 $$O(n)$$ 的路径长度。Transformer 用 $$O(n^2)$$ 的算量与 $$O(n)$$ 的 KV cache 换掉了两者——04 系列全在算这笔账。SSM / 线性 attention 在找回 RNN 的 $$O(1)$$ 推理成本。
+
+- **案例**：与 nanoGPT 同一份莎士比亚、同一预算，2 层 LSTM val loss 1.71 vs 1.66——这个规模上看不出 Transformer 的优势，差别在顺序 vs 并行；倒序任务的对齐矩阵是一条反对角线（偏一格），从数据里学出来的。
+
+配套代码：[`deep-learning-foundations/06_rnn_attention.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/06_rnn_attention.py)（`bptt` / `memory` / `forget` / `seq2seq` / `timing` 五个子实验）与 [`case_06_char_lstm_and_alignment.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_06_char_lstm_and_alignment.py)（第八章案例，MPS 上半分钟）。
 
 本篇的 Bahdanau attention 是 $$\text{softmax}(QK^T)V$$ 的前身；[04 系列第一篇《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)从这里接过去：把它变成 self-attention、加上 mask、多头、FFN、残差与 LayerNorm，用 $$d = 4$$ 的例子手算一遍，再用 nanoGPT 写出来。
 
