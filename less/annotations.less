@@ -877,6 +877,10 @@
 	.post-figure:has(> .post-figcaption.has-note) img,
 	.mermaid:has(+ .post-figcaption.has-note),
 	:is(.table-responsive, table):has(+ .table-caption.has-note) { outline: 2px solid fade(@annot-line, 55%); outline-offset: 4px; border-radius: 4px; }
+	// the caption sits below the wrapper, so make room for it inside the wrapper's border box
+	// (padding) and pull it up into that room — the outline then encloses table + caption
+	.table-responsive:has(+ .table-caption.has-note) { padding-bottom: 26px; }
+	.table-responsive + .table-caption.has-note { margin-top: -38px; }
 	// the picture's own box (shrink-wrapped, centred by the parent's text-align)
 	.fig-media {
 		position: relative;

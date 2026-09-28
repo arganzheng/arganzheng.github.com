@@ -4355,6 +4355,12 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
   outline-offset: 4px;
   border-radius: 4px;
 }
+.post-container .table-responsive:has(+ .table-caption.has-note) {
+  padding-bottom: 26px;
+}
+.post-container .table-responsive + .table-caption.has-note {
+  margin-top: -38px;
+}
 .post-container .fig-media {
   position: relative;
   display: inline-block;
