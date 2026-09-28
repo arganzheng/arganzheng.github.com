@@ -957,7 +957,17 @@ How it is built (`_plugins/moments.rb`):
     (`url`, `count`, `status` 完结 when the last post is the
     `-series-recap-and-self-test` one / 连载中 / 即将发布 when nothing is
     published, `posts`) and builds `site.data.series_index`. Counts are what
-    the build publishes (future posts are not in `site.posts`). A first cut
+    the build publishes (future posts are not in `site.posts`); `planned` /
+    `body_planned` / `hours` come from scanning `_posts/*.md` front matter
+    directly (future files included, recap excluded, 450 字/min over CJK
+    chars + ASCII words, code included). **The three roadmap posts' 系列总览
+    tables are rendered from this data**: each row is
+    `{% include series-row.html key=… layer=… [note=…] [cols=…] %}` (the layer
+    stays in the post as content), so 篇数 / 时长 cannot drift again; the
+    Infra map's 「合计约 N 小时」 sentence is Liquid too. The hand-written
+    hours they replaced (203 h for the Infra main line) were ~3–4× the
+    450 字/min rule — almost certainly UTF-8 bytes counted as 字; the
+    computed figure (~57 h) is the honest one. A first cut
     with cards + per-series pages + badges on the list pages was dropped the
     same day as 「太复杂了」 — keep this page a plain tree.
 - **Update-note exception:** when no usable version predates the post (no tag,
