@@ -1,0 +1,142 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="640" viewBox="0 0 760 640" font-family="-apple-system, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif" font-size="12">
+  <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#555"/></marker></defs>
+  <style>
+    .t{font-weight:600;fill:#222}.m{fill:#666;font-size:10.5px}.s{fill:#444;font-size:11px}
+    .bx{fill:#fff;stroke:#666}.emb{fill:#fff3bf;stroke:#d4a017}.ln{fill:#e8f5e9;stroke:#4d9a5c}
+    .att{fill:#fde7c8;stroke:#c98a00}.ffn{fill:#d6e6ff;stroke:#5b8def}.out{fill:#efefef;stroke:#888}
+    .a{fill:none;stroke:#555;stroke-width:1.2;marker-end:url(#a)}.r{fill:none;stroke:#555;stroke-width:1.2;stroke-dasharray:4 3;marker-end:url(#a)}
+    .grp{fill:#f3f6fb;stroke:#8aa0b8}.zoom{fill:#fffbe6;stroke:#c98a00}.link{stroke:#c98a00;stroke-dasharray:5 4;fill:none}
+    text{text-anchor:middle}
+  </style>
+
+  <!-- ===== left column: the whole model, bottom-up ===== -->
+  <!-- input -->
+  <rect x="45" y="586" width="250" height="36" rx="3" class="bx"/>
+  <text x="170" y="601" class="t">输入：token 编号序列</text>
+  <text x="170" y="616" class="m">[The, cat, sat, on, the] → [464, 3797, 3332, …]</text>
+  <path d="M170,586 V568" class="a"/>
+  <!-- token embedding -->
+  <rect x="45" y="532" width="250" height="36" rx="3" class="emb"/>
+  <text x="170" y="547" class="t">token embedding：查表</text>
+  <text x="170" y="562" class="m">50257 × 768 的表，每个编号取一行 → [T, 768]</text>
+  <path d="M170,532 V514" class="a"/>
+  <!-- position embedding -->
+  <rect x="45" y="478" width="250" height="36" rx="3" class="emb"/>
+  <text x="170" y="493" class="t">+ 位置 embedding：查另一张表</text>
+  <text x="170" y="508" class="m">1024 × 768，第 i 个位置取第 i 行，逐元素相加</text>
+  <path d="M170,478 V433" class="a"/>
+  <text x="176" y="470" class="s" text-anchor="start" style="text-anchor:start">[T, 768]</text>
+
+  <!-- block group -->
+  <rect x="35" y="160" width="300" height="295" rx="4" class="grp"/>
+  <text x="22" y="312" class="t" font-size="13">×12</text>
+  <text x="60" y="178" class="m" style="text-anchor:start">一个 block（12 个 block 结构相同、参数各自一份）</text>
+  <!-- LN1 -->
+  <rect x="60" y="405" width="220" height="28" rx="3" class="ln"/>
+  <text x="170" y="423" class="t">LayerNorm</text>
+  <path d="M170,405 V386" class="a"/>
+  <!-- attention -->
+  <rect x="60" y="350" width="220" height="36" rx="3" class="att" stroke-width="1.6"/>
+  <text x="170" y="365" class="t">多头 causal self-attention</text>
+  <text x="170" y="380" class="m">token 之间唯一的交流处（右图展开）</text>
+  <path d="M170,350 V334" class="a"/>
+  <!-- add 1 -->
+  <circle cx="170" cy="324" r="9" class="bx"/>
+  <text x="170" y="328.5" class="t">+</text>
+  <path d="M170,315 V298" class="a"/>
+  <!-- LN2 -->
+  <rect x="60" y="270" width="220" height="28" rx="3" class="ln"/>
+  <text x="170" y="288" class="t">LayerNorm</text>
+  <path d="M170,270 V251" class="a"/>
+  <!-- FFN -->
+  <rect x="60" y="215" width="220" height="36" rx="3" class="ffn"/>
+  <text x="170" y="230" class="t">FFN：768 → 3072 → GELU → 768</text>
+  <text x="170" y="245" class="m">每个 token 各自变换，token 之间互不影响</text>
+  <path d="M170,215 V200" class="a"/>
+  <!-- add 2 -->
+  <circle cx="170" cy="190" r="9" class="bx"/>
+  <text x="170" y="194.5" class="t">+</text>
+  <path d="M170,181 V140" class="a"/>
+  <!-- residuals -->
+  <path d="M170,450 H305 V324 H180" class="r"/>
+  <text x="310" y="392" class="m" style="text-anchor:start">残差</text>
+  <path d="M170,306 H305 V190 H180" class="r"/>
+  <text x="310" y="255" class="m" style="text-anchor:start">残差</text>
+
+  <!-- ln_f -->
+  <rect x="45" y="112" width="250" height="28" rx="3" class="ln"/>
+  <text x="170" y="130" class="t">最后一次 LayerNorm（ln_f）</text>
+  <path d="M170,112 V94" class="a"/>
+  <text x="176" y="106" class="s" style="text-anchor:start">[T, 768]</text>
+  <!-- lm_head -->
+  <rect x="45" y="58" width="250" height="36" rx="3" class="out"/>
+  <text x="170" y="73" class="t">lm_head：768 × 50257 的矩阵</text>
+  <text x="170" y="88" class="m">每个位置的向量 → 词表上 50257 个分数（logits）</text>
+  <path d="M170,58 V40" class="a"/>
+  <text x="176" y="52" class="s" style="text-anchor:start">[T, 50257]</text>
+  <!-- softmax -->
+  <rect x="45" y="8" width="250" height="32" rx="3" class="bx"/>
+  <text x="170" y="22" class="t">softmax → 概率</text>
+  <text x="170" y="35" class="m">第 5 个位置：p(mat)=0.31，p(floor)=0.12 ……</text>
+
+  <!-- ===== zoom link ===== -->
+  <path d="M280,350 L372,62" class="link"/>
+  <path d="M280,386 L372,628" class="link"/>
+
+  <!-- ===== right panel: attention sub-layer ===== -->
+  <rect x="372" y="62" width="380" height="566" rx="4" class="zoom"/>
+  <text x="562" y="84" class="t" font-size="13">多头 causal self-attention（GPT-2 small：12 头 × 64 维）</text>
+  <text x="562" y="102" class="m">同一个 x 乘三个矩阵得到 Q、K、V；每个头在自己的 64 维上独立算</text>
+  <text x="562" y="128" class="s">这一子层的全部参数只有 W_Q、W_K、W_V、W_O</text>
+  <text x="562" y="144" class="s">四个 768 × 768 的矩阵（第三章第 7 节）</text>
+
+  <!-- input -->
+  <rect x="462" y="590" width="200" height="28" rx="3" class="bx"/>
+  <text x="562" y="608" class="t">LayerNorm(x)：[T, 768]</text>
+  <path d="M562,590 V578 M452,578 H672" fill="none" stroke="#555" stroke-width="1.2"/>
+  <path d="M452,578 V566" class="a"/>
+  <path d="M562,578 V566" class="a"/>
+  <path d="M672,578 V566" class="a"/>
+  <!-- Q K V -->
+  <rect x="402" y="530" width="100" height="36" rx="3" class="att"/>
+  <text x="452" y="545" class="t">Q = x W_Q</text>
+  <text x="452" y="560" class="m">768 → 12 × 64</text>
+  <rect x="512" y="530" width="100" height="36" rx="3" class="att"/>
+  <text x="562" y="545" class="t">K = x W_K</text>
+  <text x="562" y="560" class="m">768 → 12 × 64</text>
+  <rect x="622" y="530" width="100" height="36" rx="3" class="att"/>
+  <text x="672" y="545" class="t">V = x W_V</text>
+  <text x="672" y="560" class="m">768 → 12 × 64</text>
+  <path d="M452,530 V501" class="a"/>
+  <path d="M562,530 V501" class="a"/>
+  <!-- scores -->
+  <rect x="422" y="465" width="170" height="36" rx="3" class="bx"/>
+  <text x="507" y="480" class="t">Q Kᵀ / √64</text>
+  <text x="507" y="495" class="m">[T, T] 的打分表，每个头一张</text>
+  <path d="M507,465 V446" class="a"/>
+  <!-- mask -->
+  <rect x="422" y="410" width="170" height="36" rx="3" class="bx"/>
+  <text x="507" y="425" class="t">+ causal mask</text>
+  <text x="507" y="440" class="m">右上三角（未来位置）设为 −∞</text>
+  <path d="M507,410 V391" class="a"/>
+  <!-- softmax -->
+  <rect x="422" y="355" width="170" height="36" rx="3" class="bx"/>
+  <text x="507" y="370" class="t">softmax（按行）</text>
+  <text x="507" y="385" class="m">每个 token 对左边各 token 的权重</text>
+  <path d="M507,355 V331" class="a"/>
+  <!-- V path -->
+  <path d="M672,530 V313 H663" class="a"/>
+  <!-- weighted sum -->
+  <rect x="462" y="295" width="200" height="36" rx="3" class="bx"/>
+  <text x="562" y="310" class="t">权重 · V</text>
+  <text x="562" y="325" class="m">[T, T] × [T, 64] → [T, 64]，每个头一份</text>
+  <path d="M562,295 V271" class="a"/>
+  <!-- concat + W_O -->
+  <rect x="462" y="235" width="200" height="36" rx="3" class="att"/>
+  <text x="562" y="250" class="t">拼接 12 个头 → [T, 768]</text>
+  <text x="562" y="265" class="m">× W_O（768 × 768）→ [T, 768]</text>
+  <path d="M562,235 V208" class="a"/>
+  <!-- output -->
+  <rect x="462" y="180" width="200" height="28" rx="3" class="bx"/>
+  <text x="562" y="198" class="t">输出 [T, 768]，加回残差流</text>
+</svg>
