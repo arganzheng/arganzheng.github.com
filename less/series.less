@@ -4,26 +4,26 @@
 // box at the top and bottom of a post, the 「本系列」 list under the outline,
 // and the /series.html tree. Built into css/argan-blog{,.min}.css by npm run css.
 
-// the current part in a series list: teal bold on a grey pill, like the current heading in the
-// OUTLINE panel (theme-overrides.less) minus its left bar — a bar after the list number looks wrong
-.series-pill() {
-	display: inline-block;
-	margin-left: -6px;
-	padding: 0 6px;
-	border-radius: 4px;
-}
-.series-current-pill() {
-	.series-pill();
-	background: #eaeef2;
-	font-weight: 600;
-	color: @brand-primary;
-}
-// hovering another part: teal on a lighter grey, like hovering an OUTLINE heading
-.series-hover-pill() {
-	.series-pill();
-	text-decoration: none;
-	transition: color 0.2s, background-color 0.2s;
-	&:hover, &:focus { color: @brand-primary; background: #f6f8fa; text-decoration: none; outline: none; }
+// a series list styled like the OUTLINE panel (theme-overrides.less): every part is a block row
+// with a 2px left bar; the current part is teal bold on grey with a teal bar, hovering another
+// part is teal on a lighter grey. The number is drawn inside the row by a CSS counter (a
+// ::marker sits outside the box, so a background on the link could never cover it).
+.series-rows(@hover-bg; @current-bg) {
+	padding: 0;
+	list-style: none;
+	counter-reset: ss;
+	li { counter-increment: ss; }
+	a, .is-current > span {
+		display: block;
+		padding: 1px 8px 1px 6px;
+		border-left: 2px solid transparent;
+		border-radius: 0 6px 6px 0;
+		text-decoration: none;
+		transition: color 0.2s, border-color 0.2s, background-color 0.2s;
+		&::before { content: counter(ss) "."; display: inline-block; min-width: 1.7em; color: #8b949e; font-variant-numeric: tabular-nums; }
+	}
+	a { &:hover, &:focus { color: @brand-primary; background: @hover-bg; text-decoration: none; outline: none; } }
+	.is-current > span { color: @brand-primary; font-weight: 600; background: @current-bg; border-left-color: @brand-primary; }
 }
 
 // top-of-post box: 「系列 《…》 第 N / X 篇  目录 ▸」 folding open into the parts, then 上一篇 / 下一篇
@@ -64,14 +64,14 @@
 	details[open] .sb-toggle::after { transform: rotate(90deg); }
 	.sb-overview { margin: 10px 0 6px; font-size: 13px; color: #8b949e; a { color: #24292f; font-weight: 600; } }
 	.sb-list {
+		// one shade darker than the side list: this box is already #f6f8fa
+		.series-rows(#eceff2; #e1e6eb);
 		margin: 0 0 4px;
-		padding-left: 1.8em;
 		columns: 2;
 		column-gap: 28px;
 		line-height: 1.5;
-		li { margin: 0 0 4px; break-inside: avoid; }
-		a { color: #57606a; .series-hover-pill(); &:hover, &:focus { background: #eceff2; } }
-		.is-current > span { .series-current-pill(); background: #e1e6eb; }
+		li { margin: 0 0 2px; break-inside: avoid; }
+		a { color: #57606a; }
 	}
 	.sb-nav {
 		display: flex;
@@ -104,29 +104,16 @@
 		a { color: #404040 !important; text-decoration: none; &:hover { color: @brand-primary !important; } }
 		small { font-weight: 400; letter-spacing: 0; color: #8b949e; }
 	}
-	// rows like the OUTLINE panel (theme-overrides.less): the number is drawn inside the row by a
-	// counter (a ::marker sits outside the box), so hover / current colour the whole line
 	ol {
+		.series-rows(#f6f8fa; #eaeef2);
 		max-height: 220px;
 		margin: 0;
-		padding: 0;
-		list-style: none;
-		counter-reset: ss;
 		overflow-y: auto;
 		font-size: 12px;
 		line-height: 1.5;
-		li { margin: 0; counter-increment: ss; }
-		a, .is-current > span {
-			display: block;
-			padding: 1px 8px 1px 6px;
-			border-left: 2px solid transparent;
-			border-radius: 0 6px 6px 0;
-			text-decoration: none;
-			transition: color 0.2s, border-color 0.2s, background-color 0.2s;
-			&::before { content: counter(ss) "."; display: inline-block; min-width: 1.7em; color: #8b949e; font-variant-numeric: tabular-nums; }
-		}
-		a { color: #57606a !important; &:hover, &:focus { color: @brand-primary !important; background: #f6f8fa; text-decoration: none; outline: none; } }
-		.is-current > span { color: @brand-primary; font-weight: 600; background: #eaeef2; border-left-color: @brand-primary; }
+		li { margin: 0; }
+		// the theme sets `.sidebar-container a { color: #bfbfbf !important }`
+		a { color: #57606a !important; &:hover, &:focus { color: @brand-primary !important; } }
 	}
 }
 // leave the series block room under a long outline
