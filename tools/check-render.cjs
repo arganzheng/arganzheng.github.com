@@ -22,7 +22,7 @@ const CHECK = `(() => {
   const m=[...document.querySelectorAll(".mermaid")];
   const errs=[...document.querySelectorAll(".mermaid-error")];
   const out={
-    href: location.href, mermaid: m.length,
+    href: location.href, ready: document.readyState, populated: !!(document.body && document.body.children.length), mermaid: m.length,
     ok: m.filter(e=>e.querySelector("svg")&&!e.classList.contains("mermaid-error")).length,
     errs: errs.length,
     errTexts: errs.map(e=>e.textContent.trim().split("\\n").slice(0,3).join(" | ").slice(0,200)),
@@ -37,7 +37,7 @@ const CHECK = `(() => {
     overflow: secs.filter(s=>!s.querySelector("section")).map((s,i)=>[i+1,s.scrollHeight,(s.querySelector("h1,h2,h3")||s).textContent.trim().slice(0,40)])
       .filter(x=>x[1]>720).map(x=>"#"+x[0]+" "+x[1]+"px "+x[2]),
     pending: m.filter(e=>!e.querySelector("svg")&&!e.classList.contains("mermaid-error")).length + [...document.images].filter(i=>!i.complete).length
-      + document.querySelectorAll("pre code.language-mermaid").length
+      + document.querySelectorAll("pre code.language-mermaid, div.language-mermaid pre code").length
   };
   secs.forEach((s,i)=>{ s.style.display=saved[i]; });
   return JSON.stringify(out);
@@ -56,19 +56,22 @@ async function check(slug) {
   await send('Network.enable'); await send('Network.setCacheDisabled', { cacheDisabled: true });
   await send('Page.reload', { ignoreCache: true });
   let out;
-  for (let i = 0; i < 20; i++) {
+  // up to 90 s: mermaid.min.js (2.4 MB) comes from a CDN and the cache is off
+  for (let i = 0; i < 60; i++) {
     await new Promise(r => setTimeout(r, 1500));
     const r = await send('Runtime.evaluate', { expression: CHECK, returnByValue: true });
     out = JSON.parse(r.result.value);
-    if (out.pending === 0 && !out.href.includes('about:blank')) break;
+    // a snapshot taken while the reload is still in flight has no images and no diagrams — keep waiting
+    if (out.pending === 0 && out.ready === 'complete' && out.populated && !out.href.includes('about:blank')) break;
   }
   ws.close();
   await getJSON(`${CDP}/json/close/${t.id}`);
-  const status = out.href.endsWith(`/${slug}.html`) && !out.errs && out.ok === out.mermaid && !out.brokenImgs.length && !out.zeroImgs.length && !out.katexErrors.length && !out.rawMd.length && !out.overflow.length ? 'PASS' : 'FAIL';
+  const status = out.href.endsWith(`/${slug}.html`) && !out.errs && !out.pending && out.ok === out.mermaid && !out.brokenImgs.length && !out.zeroImgs.length && !out.katexErrors.length && !out.rawMd.length && !out.overflow.length ? 'PASS' : 'FAIL';
   console.log(`\n== ${slug} [${status}]`);
   console.log(`mermaid=${out.mermaid} ok=${out.ok} errs=${out.errs} pending=${out.pending} brokenImgs=${out.brokenImgs.length} zeroImgs=${out.zeroImgs.length} katexErrors=${out.katexErrors.length}`);
   // reveal.js decks (slides/<name>/play): a slide taller than the 1280×720 canvas is cut off when presenting
   if (out.overflow.length) console.log('overflow (slide content taller than 720 px — split the slide or move detail to a `<!-- v -->` sub-slide):', JSON.stringify(out.overflow));
+  if (out.pending) console.log(`pending: ${out.pending} diagram(s) / image(s) never finished loading (readyState ${out.ready}) — CDN slow or blocked; rerun before trusting anything else on this page`);
   if (out.katexErrors.length) console.log('katexErrors:', JSON.stringify(out.katexErrors));
   if (out.rawMd.length) console.log('rawMd (an image line swallowed into a table cell — a `|` in the alt text; use 「」or 竖线 instead):', JSON.stringify(out.rawMd));
   // loaded but laid out at 0 px wide: an SVG with viewBox but no width/height inside the shrink-wrapped .fig-media

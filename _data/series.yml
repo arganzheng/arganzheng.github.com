@@ -32,12 +32,14 @@ deep-dive-into-pytorch:
 transformer-and-llm:
   name: Transformer 与 LLM：结构、实现与算量
   overview: /transformer-and-llm-for-infra-engineers.html
+  slides: /slides/transformer-and-llm.html
   roadmap: ai-infra
   number: 4
   shared_with: [ai-algorithm]
 pretraining:
   name: 预训练：从 tokenizer 到训练配方
   overview: /pretraining-from-tokenizer-to-training-recipe.html
+  slides: /slides/pretraining.html
   roadmap: ai-algorithm
   number: 5
 gpu-kernel-engineering:

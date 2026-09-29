@@ -1595,6 +1595,14 @@ How it is built (`_plugins/moments.rb`):
     source shows up as a table cell (happened twice, 数学 05 and 预训练 05).
     Write 「log Z 的绝对值」 or 竖线 instead. `check-render.cjs` fails a page
     on it (`rawMd`: a `td`/`p`/`li` whose text contains `](/img/in-post/`).
+  - **A PASS with `mermaid=0` on a page that has diagrams is a vacuous pass.**
+    The checker disables the cache, so mermaid.min.js (2.4 MB) is refetched
+    from jsDelivr every run; on 2026-09-30 the CDN took > 60 s and the old
+    20 × 1.5 s loop returned an early snapshot with nothing counted. It now
+    waits up to 90 s, requires `document.readyState === 'complete'` on a
+    populated body, counts `div.language-mermaid pre code` as pending, and
+    **fails on any `pending`** (printed with the readyState) — rerun rather
+    than trusting the other numbers on such a page.
   - Verify rendering in a real browser (`jekyll serve` + check `.mermaid-error`
     and eyeball each SVG's size), not just `jekyll build`. Use the checker
     script for this:

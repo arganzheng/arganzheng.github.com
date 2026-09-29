@@ -15,6 +15,8 @@ catalog: true
 
 > **一个大模型内部到底是什么？为什么是这个样子？它的每一步花多少？**
 
+本系列另有一份[分享用的幻灯片](/slides/transformer-and-llm.html)：十三篇正文每篇一页的结论、图与数字，推导与代码放在纵向子页里，适合先看一遍全貌或拿去给别人讲。
+
 读完之后，读者应该能做三件事：
 
 1. **手搓一个 GPT**：不看原文写出 nanoGPT `model.py` 的骨架，在一台笔记本上训出一个能续写莎士比亚的模型，并读懂任何模型的 `modeling_*.py`——先找到 embedding、block、attention 的四个矩阵、FFN、norm、lm_head 这七样东西，再看它改了哪几处；
