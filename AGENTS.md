@@ -981,8 +981,10 @@ How it is built (`_plugins/moments.rb`):
   overrides the generic `.post-container details` box from extras.less), a
   「本系列」 list under the OUTLINE panel on wide screens (`series-side.html`,
   in the sticky catalog column of the three post layouts; the outline's
-  `max-height` shrinks when it is present), the bottom table of contents
-  (`series-toc.html`) and a series-aware pager (`post-pager.html`,
+  `max-height` shrinks when it is present), the same box again at the bottom
+  with the list unfolded (`series-toc.html`; it keeps the 上一篇 / 下一篇 line
+  although the pager below repeats it — the two boxes should look alike) and
+  a series-aware pager (`post-pager.html`,
   chronological Previous/Next for non-series posts). Do **not** hand-write
   the nav quote any more; the overview post itself has no
   `series:` key. Titles are `系列名（NN）：副标题` — the nav/TOC show the part

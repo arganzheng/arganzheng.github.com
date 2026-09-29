@@ -25,12 +25,12 @@
       {%- endfor %}
     </ol>
   </details>
-  {%- comment %} the pager right under the bottom box already shows prev / next {% endcomment -%}
-  {%- unless include.bottom %}{% if series_prev or series_next %}
+  {%- comment %} also in the bottom box, although the pager below repeats it: the two boxes look alike {% endcomment -%}
+  {%- if series_prev or series_next %}
   <p class="sb-nav">
     {%- if series_prev %}<span>上一篇：<a href="{{ series_prev.url | prepend: site.baseurl }}">{{ series_prev.title | split: '）：' | last }}</a></span>{% endif -%}
     {%- if series_next %}<span>下一篇：<a href="{{ series_next.url | prepend: site.baseurl }}">{{ series_next.title | split: '）：' | last }}</a></span>{% endif -%}
   </p>
-  {%- endif %}{% endunless %}
+  {%- endif %}
 </div>
 {%- endif -%}
