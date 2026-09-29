@@ -76,11 +76,19 @@ clients (the IDE's push button) run hooks with a bare PATH, so `bundle`,
 `lychee`, `node`, `rg` were not found and every push from the IDE failed
 while the terminal passed (2026-09-16).
 
-### Revising posts = a PR, reviewed rendered (`tools/review.py`)
+### Revising posts: commit to `master` by default; PR only on request
 
-Content revisions by an agent (fixing a post after reader feedback, a
-待修订 issue, a sweep over a series) never go straight to `master`. The
-workflow, mirroring code review:
+Since 2026-09-29 content revisions by an agent (fixing a post after reader
+feedback, a 待修订 issue, a sweep over a series) are **committed straight to
+`master` and pushed** — the user checks the result on the live site
+(「直接提交吧，我线上再确认好了。以后默认不走 PR 方式了」). Still: run
+`npm run check` (+ `tools/check-render.cjs` for posts with diagrams) before
+pushing, reply on each Discussion comment / Issue with what changed, and
+keep each commit's message listing the reader signals it answers. If the
+user's checkout is dirty in a file you need to touch, work in a separate
+worktree and fast-forward `master` afterwards rather than editing their
+working tree. The PR workflow below is kept for when the user asks for a
+review (large rewrites, anything they want to read side by side first):
 
 1. Work in a **separate worktree** so the user's checkout is untouched:
    `git worktree add ../arganzheng.github.com-rev-<topic> -b rev/<topic>`
