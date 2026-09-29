@@ -281,6 +281,15 @@ Pages has `https_enforced` on.
   navbar offset. Removed from the WeChat export. This replaced the theme's
   AnchorJS (cdnjs, `anchorjs: true` in `_config.yml`) — for a week both ran
   and every heading had two `#`s; do not bring AnchorJS back.
+- OUTLINE under 1200px: Bootstrap's `visible-lg-block` (and the theme's
+  `side-catalog.less`) drop the catalog column below `lg`; since 2026-09-30 the
+  「‹‹ OUTLINE」 tab (`.outline-reopen`, icon-only at the bottom edge on phones)
+  stays and opens the same column as a drawer over the article
+  (`body.outline-open`, styles at the end of `less/theme-overrides.less`,
+  `.outline-backdrop` div created by `toc.js`); ✕, a heading, the backdrop
+  and Esc close it. ≥ 1200px is unchanged (sticky column, ✕ = collapse →
+  tab reopens). `toc.js` builds the list at every width, so the drawer is
+  CSS plus a `matchMedia` branch in `initCollapse`.
 - `<head>` load order (`_includes/head.html`): `bootstrap`, `argan-blog`,
   `github-markdown` are blocking (they set layout / body typography);
   `syntax.css` and the Font Awesome subset are colours and glyphs only and load

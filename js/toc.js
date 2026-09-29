@@ -22,6 +22,10 @@
     var NAV_OFFSET = 80;
     var COLLAPSED_CLASS = 'outline-collapsed';
     var UNAVAILABLE_CLASS = 'outline-unavailable';
+    // Under 1200px the side column is gone (Bootstrap `visible-lg-block`); the same
+    // panel then opens as a drawer over the article, toggled by the OUTLINE tab.
+    var DRAWER_CLASS = 'outline-open';
+    var DRAWER_MQ = '(max-width: 1199px)';
     // Keep the catalog readable on long posts: show at most 3 outline levels.
     var MAX_OUTLINE_DEPTH = 3;
 
@@ -263,21 +267,46 @@
     /*
      * Show/hide the whole outline. The flag lives on <body> because hiding the
      * outline has to give its grid column back to the article, not just empty
-     * the column out.
+     * the column out. Under `lg` the same buttons drive the drawer instead:
+     * the tab opens it, ✕ / a heading / the backdrop / Esc close it.
      */
-    function initCollapse(panel) {
+    function initCollapse(panel, body) {
         // The outline always starts open: collapsing is a per-page-view choice,
         // not a preference that should follow the reader around.
         function set(value) {
             document.body.classList.toggle(COLLAPSED_CLASS, value);
+        }
+        var mq = window.matchMedia(DRAWER_MQ);
+        function drawer(value) {
+            document.body.classList.toggle(DRAWER_CLASS, value);
         }
 
         set(false);
 
         var close = panel.querySelector('.catalog-close');
         var open = document.querySelector('.outline-reopen');
-        if (close) close.addEventListener('click', function () { set(true); });
-        if (open) open.addEventListener('click', function () { set(false); });
+        if (close) close.addEventListener('click', function () { if (mq.matches) drawer(false); else set(true); });
+        if (open) open.addEventListener('click', function () { if (mq.matches) drawer(!document.body.classList.contains(DRAWER_CLASS)); else set(false); });
+
+        // a heading picked from the drawer: the reader wants to see the article
+        body.addEventListener('click', function (e) {
+            if (mq.matches && e.target.closest('a')) drawer(false);
+        });
+        var column = panel.parentNode;
+        var backdrop = document.createElement('div');
+        backdrop.className = 'outline-backdrop';
+        document.body.appendChild(backdrop);
+        document.addEventListener('click', function (e) {
+            if (!document.body.classList.contains(DRAWER_CLASS)) return;
+            if (column.contains(e.target) || (open && open.contains(e.target))) return;
+            drawer(false);
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && document.body.classList.contains(DRAWER_CLASS)) drawer(false);
+        });
+        // widened past the breakpoint: the column is back, the drawer state is meaningless
+        var onChange = function () { if (!mq.matches) drawer(false); };
+        if (mq.addEventListener) mq.addEventListener('change', onChange); else mq.addListener(onChange);
 
         // Keep the legacy fold toggle working if a layout still ships it.
         var toggle = panel.querySelector('.catalog-toggle');
@@ -351,7 +380,7 @@
         buildList(body, headings, entries);
         if (window.renderRichMath) window.renderRichMath(body);
 
-        initCollapse(panel);
+        initCollapse(panel, body);
         initFilter(panel, body);
         initScrollSpy(entries, body);
     }

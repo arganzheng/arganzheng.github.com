@@ -1585,9 +1585,87 @@ body.outline-collapsed div.catalog-container {
 body.outline-collapsed .outline-reopen {
   display: block;
 }
+/* Under `lg` Bootstrap drops the catalog column (`visible-lg-block`). Instead of
+   losing the outline, the OUTLINE tab is always there and opens the same column
+   as a drawer over the article (js/toc.js toggles body.outline-open; ✕, a
+   heading, the backdrop and Esc close it). ≥ 1200px is untouched. */
 @media (max-width: 1199px) {
   .outline-reopen {
-    display: none !important;
+    display: block;
+  }
+  body.outline-open .outline-reopen {
+    display: none;
+  }
+  body.outline-open div.catalog-container {
+    /* beats `.visible-lg-block { display: none !important }` */
+    display: block !important;
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1050;
+    width: 320px;
+    max-width: 85vw;
+    padding: 18px 16px 18px 20px;
+    overflow-y: auto;
+    background-color: #fff;
+    box-shadow: -8px 0 28px rgba(31, 35, 40, 0.16);
+    -webkit-animation: outline-drawer-in 0.18s ease-out;
+    animation: outline-drawer-in 0.18s ease-out;
+  }
+  body.outline-open div.side-catalog {
+    /* side-catalog.less hides the panel itself under 1200px too */
+    display: block;
+  }
+  body.outline-open div.side-catalog .catalog-body,
+  body.outline-open div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
+    /* the drawer scrolls as a whole */
+    max-height: none;
+  }
+  body.outline-open .outline-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1040;
+    background-color: rgba(31, 35, 40, 0.35);
+  }
+}
+/* phone: the tab would sit on the text at 90px; shrink it to the icon, low on the edge */
+@media (max-width: 767px) {
+  .outline-reopen {
+    top: auto;
+    bottom: 24px;
+    padding: 8px 9px 8px 11px;
+    font-size: 0;
+    letter-spacing: 0;
+    opacity: 0.85;
+  }
+  .outline-reopen .fa {
+    font-size: 15px;
+  }
+}
+.outline-backdrop {
+  display: none;
+}
+body.outline-open .outline-backdrop {
+  display: block;
+}
+@-webkit-keyframes outline-drawer-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes outline-drawer-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: none;
   }
 }
 div.side-catalog .catalog-filter {
