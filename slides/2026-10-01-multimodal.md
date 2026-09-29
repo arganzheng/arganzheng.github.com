@@ -193,19 +193,19 @@ flowchart TB
 
 ![五张散点图：DDPM 1000 步（距离 0.022）与 DDIM 50 步（0.026）、20 步（0.031）都是清晰的两个月牙；10 步月牙变粗；5 步开始散](/img/in-post/multimodal-06-ddim-steps.svg){: style="max-height: 200px"}
 
-\[
+$$
 x_t = \sqrt{\bar\alpha_t}\,x_0 + \sqrt{1 - \bar\alpha_t}\,\epsilon,\qquad
 \mathcal L_{simple} = \mathbb E\big\lVert \epsilon - \epsilon_\theta(x_t, t)\big\rVert^2
-\]
+$$
 
 - 训练：随机取 t、加噪、预测噪声——loss 从约 1 几百步降到 0.21
-- 采样：每步用预测的噪声估 \(x_0\) 的方向走一小步；DDPM 每步加随机噪声（SDE），DDIM 不加（ODE）所以能跳步
+- 采样：每步用预测的噪声估 $$x_0$$ 的方向走一小步；DDPM 每步加随机噪声（SDE），DDIM 不加（ODE）所以能跳步
 
 ---
 
 ## 07 · 扩散模型（下）：DDPM、score、flow matching 是同一件事
 
-**结论**：在高斯路径 \(x_t = a_t x_0 + b_t\epsilon\) 下三者是**同一个分数 \(\nabla_x \log p_t\) 的线性参数化**，损失差一个 t 权重，采样解同一个概率流 ODE；reflow 拉直轨迹一步采样；**CFG 逐噪声层把 \(p_t(c\mid x)\) 升到 w 次幂**。
+**结论**：在高斯路径 $$x_t = a_t x_0 + b_t\epsilon$$ 下三者是**同一个分数 $$\nabla_x \log p_t$$ 的线性参数化**，损失差一个 t 权重，采样解同一个概率流 ODE；reflow 拉直轨迹一步采样；**CFG 逐噪声层把 $$p_t(c\mid x)$$ 升到 w 次幂**。
 
 ![三张箭头图：t = 600 箭头几乎全指向中心；t = 300 开始朝两个月牙弯；t = 80 精确指向最近的月牙——这就是分数场](/img/in-post/multimodal-07-score-field.svg){: style="max-height: 260px"}
 
@@ -228,11 +228,11 @@ x_t = \sqrt{\bar\alpha_t}\,x_0 + \sqrt{1 - \bar\alpha_t}\,\epsilon,\qquad
 
 ![五张散点图，红色是指定「类 0」生成的样本：w = 0 铺满两个月牙；w = 1 基本在上月牙；w = 2 全在上月牙覆盖整条弧；w 更大收缩到弧的中段，多样性坍缩](/img/in-post/multimodal-07-cfg.svg){: style="max-height: 200px"}
 
-\[
+$$
 \tilde\epsilon = \epsilon_\theta(x_t, \varnothing) + w\,\big(\epsilon_\theta(x_t, c) - \epsilon_\theta(x_t, \varnothing)\big)
-\]
+$$
 
-- w = 7.5 ⇒ \(2^{7.5} \approx 180\)：终点**不是**干净分布的幂，是逐层锐化的结果
+- w = 7.5 ⇒ $$2^{7.5} \approx 180$$：终点**不是**干净分布的幂，是逐层锐化的结果
 - 不可跨模型比较：SD 1.x 7.5、SD3 3.5–7、FLUX.1-dev 3.5；配动态阈值 / rescale / 区间 guidance
 
 ---
@@ -334,12 +334,12 @@ x_t = \sqrt{\bar\alpha_t}\,x_0 + \sqrt{1 - \bar\alpha_t}\,\epsilon,\qquad
 
 | 篇 | 一个公式 / 一个数 |
 |---|---|
-| 01 | \(I \ge \log B - \mathcal L\)；温度 0.01；576 / 729 token |
+| 01 | $$I \ge \log B - \mathcal L$$；温度 0.01；576 / 729 token |
 | 02 | token = HW / 28²；2×2 merge 4× 无损 |
 | 03 | 先冻结 LLM；文本混入 10–50%；1.4T ≈ 一次预训练 |
-| 04 · 05 | 25 ms / 10 ms；RVQ \(1024^8 = 2^{80}\)；一分钟 3.6 万 / 3000 / 200；Moshi 160–200 ms |
-| 06 | \(x_t = \sqrt{\bar\alpha_t}x_0 + \sqrt{1-\bar\alpha_t}\epsilon\)；DDIM 20 步 ≈ 1000 |
-| 07 | \(\epsilon = -\sigma s\)、\(v = \epsilon - x_0\)；\(2^{7.5} \approx 180\) |
+| 04 · 05 | 25 ms / 10 ms；RVQ $$1024^8 = 2^{80}$$；一分钟 3.6 万 / 3000 / 200；Moshi 160–200 ms |
+| 06 | $$x_t = \sqrt{\bar\alpha_t}x_0 + \sqrt{1-\bar\alpha_t}\epsilon$$；DDIM 20 步 ≈ 1000 |
+| 07 | $$\epsilon = -\sigma s$$、$$v = \epsilon - x_0$$；$$2^{7.5} \approx 180$$ |
 | 08 | f8 4ch 48×；FLUX 2.8 PFLOPs vs LLM 14 TFLOPs |
 | 09 | VAR FID 1.73；BAGEL MoT |
 

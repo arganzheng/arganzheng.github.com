@@ -15,10 +15,10 @@ transition: slide
 
 > 每一次通信都在算**两本账——带宽的账与延迟的账**——分清在算哪本账，才知道该换算法、该换硬件、还是什么都不用换。
 
-\[
+$$
 T = \underbrace{\text{步数} \times \alpha}_{\text{延迟的账}} + \underbrace{\text{每 rank 字节数} / \beta}_{\text{带宽的账}},\qquad
 \text{拐点}\ S^* = n\,\alpha\,\beta
-\]
+$$
 
 | 账 | 看什么 |
 |---|---|
@@ -52,7 +52,7 @@ flowchart TB
 
 ## 01 · α-β 模型：1 GB 与 64 KB 是两本不同的账
 
-**结论**：\(T_{ring} = 2(n-1)\alpha + \frac{2(n-1)}{n}\frac{S}{\beta}\)——带宽项与 n 无关、延迟项随 n 线性增长；8 卡 IB 上 **1 GB 约 70 ms（延迟占 0.2%）、64 KB 约 145 µs（带宽占 3%）**。
+**结论**：$$T_{ring} = 2(n-1)\alpha + \frac{2(n-1)}{n}\frac{S}{\beta}$$——带宽项与 n 无关、延迟项随 n 线性增长；8 卡 IB 上 **1 GB 约 70 ms（延迟占 0.2%）、64 KB 约 145 µs（带宽占 3%）**。
 
 ![ring all_reduce 的 T(S) 双对数曲线：延迟项水平渐近线与带宽项斜线在 S* = nαβ 处相交；n 变大整条曲线左端抬高、拐点右移，链路变快只压低右半段](/img/in-post/collective-communication-primitives-and-cost-model-alpha-beta-regimes.svg){: style="max-height: 360px"}
 
@@ -187,7 +187,7 @@ flowchart LR
 
 ## 06 · nccl-tests、调优与排障：曲线怎么读，hang 怎么找
 
-**结论**：曲线**左端看 α、右端看 β**、拐点 \(S_{knee} = n\alpha\beta\)，到 90% 平台约 9 倍拐点；hang 分六类，前四类各 rank 最后一次操作不一致、后两类一致；**Flight Recorder 按 `collective_seq_id` 对齐给出 culprit**。
+**结论**：曲线**左端看 α、右端看 β**、拐点 $$S_{knee} = n\alpha\beta$$，到 90% 平台约 9 倍拐点；hang 分六类，前四类各 rank 最后一次操作不一致、后两类一致；**Flight Recorder 按 `collective_seq_id` 对齐给出 culprit**。
 
 ![ring 模型下的 busbw 曲线：延迟主导区、拐点区、带宽主导区，以及 α 翻倍、β 减半、中段凹陷三种偏差的形状](/img/in-post/nccl-tests-tuning-and-debugging-hangs-busbw-curve.svg){: style="max-height: 360px"}
 
@@ -242,7 +242,7 @@ flowchart LR
 |---|---|
 | 每 token | FP8 dispatch 59 KB、BF16 combine 115 KB |
 | 跨节点比例 | 1 − 1/N |
-| 去重份数 \(N(1-(1-1/N)^k)(1-1/N)\) | 7 → 4.6 → 3.2 |
+| 去重份数 $$N(1-(1-1/N)^k)(1-1/N)$$ | 7 → 4.6 → 3.2 |
 | prefill 一层 | 5.6–12.5 ms |
 | decode 一层 | 理论 429 µs、DeepEP README 487 µs；3/4 是字节、40–60 µs 是 α |
 
@@ -290,7 +290,7 @@ flowchart LR
 
 | 篇 | 一个公式 / 一个数 |
 |---|---|
-| 01 | \(T_{ring} = 2(n-1)\alpha + \frac{2(n-1)}{n}\frac{S}{\beta}\)；\(S^* = n\alpha\beta\) |
+| 01 | $$T_{ring} = 2(n-1)\alpha + \frac{2(n-1)}{n}\frac{S}{\beta}$$；$$S^* = n\alpha\beta$$ |
 | 02 | NVLink 单向 300 / 450 / 900；PCIe 5.0 x16 64 GB/s；NDR 50 |
 | 03 | 拷贝 2 / 1 / 0 次；IB 1–2 µs；上限 min(NIC, PCIe) |
 | 04 | 决策在 init；LL 50% / LL128 94%；tree 2⌈log₂n⌉ |

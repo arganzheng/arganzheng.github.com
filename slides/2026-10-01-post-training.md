@@ -45,7 +45,7 @@ flowchart TB
 
 | 实验（Qwen2.5-0.5B） | 数字 |
 |---|---|
-| lr | \(10^{-5}\)，预训练的 1/10 |
+| lr | $$10^{-5}$$，预训练的 1/10 |
 | LoRA r = 16 全部线性层 | 1.78% 参数，验证 loss 只差 **0.001**，优化器状态 1/7 |
 | 遗忘（无关文本 loss 变化） | 全量 lr 1e-5 **+0.02** · 全量 lr 1e-4 **+0.62** · LoRA **+0.01** |
 | padding 有效率 | 45–56% → packing |
@@ -110,8 +110,8 @@ flowchart LR
 
 | 量 | 公式 / 数 |
 |---|---|
-| 金奖励随 KL | \(R_{gold}(d) = d(\alpha - \beta\log d)\)，\(d = \sqrt{\text{KL}}\)：先升后降 |
-| best-of-N 的 KL | \(\log N - (N-1)/N\)：N = 16 → **1.83 nats**——不训 RL 就能预演 |
+| 金奖励随 KL | $$R_{gold}(d) = d(\alpha - \beta\log d)$$，$$d = \sqrt{\text{KL}}$$：先升后降 |
+| best-of-N 的 KL | $$\log N - (N-1)/N$$：N = 16 → **1.83 nats**——不训 RL 就能预演 |
 | 系数 | RM 变大、数据变多，β 变小——曲线顶点右移 |
 | 训 RL 前的探针 | 长度相关、BoN 扫描、对抗探针 |
 
@@ -122,7 +122,7 @@ flowchart LR
 
 ## 03 · 在线 RL：PPO 四个模型、GRPO 三个
 
-**结论**：\(\max\ \mathbb E[r] - \beta\,\text{KL}(\pi_\theta \Vert \pi_{ref})\)；baseline 不依赖当前样本就无偏——GRPO 的组内均值含自己、带 (1 − 1/G) 的小偏差；**FLOPs 训练占一半，墙钟生成占一半以上**。
+**结论**：$$\max\ \mathbb E[r] - \beta\,\text{KL}(\pi_\theta \Vert \pi_{ref})$$；baseline 不依赖当前样本就无偏——GRPO 的组内均值含自己、带 (1 − 1/G) 的小偏差；**FLOPs 训练占一半，墙钟生成占一半以上**。
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
@@ -155,13 +155,13 @@ flowchart LR
 
 - 贵的不是 FLOPs，是**训练循环里的推理引擎**、三四个模型同时在显存、每步同步
 - 严格在线 vs 滞后一步：生成用上一步的权重几乎无损——异步的入口
-- 三种 KL 估计量：\(k_1\) 进奖励、\(k_3\) 进 loss；KL 到 2–3 nats 该用 held-out judge 核对
+- 三种 KL 估计量：$$k_1$$ 进奖励、$$k_3$$ 进 loss；KL 到 2–3 nats 该用 held-out judge 核对
 
 ---
 
 ## 04 · 离线 RL：DPO 四步推出来
 
-**结论**：\(\hat r = \beta\log(\pi_\theta/\pi_{ref})\) **就是一个与策略共享参数的 RM**，只在数据分布上受约束——所以似然同降、过优化、偏长。
+**结论**：$$\hat r = \beta\log(\pi_\theta/\pi_{ref})$$ **就是一个与策略共享参数的 RM**，只在数据分布上受约束——所以似然同降、过优化、偏长。
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 300}}}%%
@@ -184,7 +184,7 @@ flowchart TB
 ### DPO 与 PPO 差在哪，变体差在哪
 
 - PPO 上限略高：能**探索**到参考下低概率的正确回答；DPO 性价比高（不采样，9 GPU 小时）
-- DPO 逃不掉过优化：曲线形状与 PPO 相同，hacking 的对象换成**数据没覆盖的地方**；KL 用 \(\mathbb E[\hat r]/\beta\) 自己估
+- DPO 逃不掉过优化：曲线形状与 PPO 相同，hacking 的对象换成**数据没覆盖的地方**；KL 用 $$\mathbb E[\hat r]/\beta$$ 自己估
 - 变体（IPO、KTO、SimPO、RPO、ORPO）在标准 benchmark 上互有胜负——**换一份更 on-policy 的数据收益大于换方法**
 - 有效的两个要素：on-policy 采样 + 负梯度
 - Llama 3 在 DPO loss 里 mask 掉特殊 token：模板 token 在 chosen 与 rejected 里都出现，对数比差是纯噪声
@@ -221,7 +221,7 @@ flowchart LR
 | 量 | 数 |
 |---|---|
 | 一步 rollout | 512 × 16 × 16K = **1.3 亿 token**，比 RLHF 多 8–64 倍；KV 16 TiB |
-| 总算力 | \(10^{22}\)–\(10^{23}\) FLOPs |
+| 总算力 | $$10^{22}$$–$$10^{23}$$ FLOPs |
 | PRM vs ORM | 78.2 vs 72.4 @ N = 1860（test-time compute） |
 | 32B：蒸馏 vs 直接 RL | **72.6 vs 47**，且 RL 贵一到两个数量级 |
 
@@ -262,7 +262,7 @@ flowchart TB
 | 20 轮轨迹 | 48K token，八成是环境的 → 每个有效 token 成本 **5 倍** |
 | 前缀缓存 | prefill 48 万 → 4.8 万 |
 | 500 任务 × 8 条 | 环境 **320 CPU·小时** vs 模型 **7 GPU·小时** |
-| 异步 | 按轮记录 \(\log\pi_{old}\)、限制落后步数；GPU 别闲着 |
+| 异步 | 按轮记录 $$\log\pi_{old}$$、限制落后步数；GPU 别闲着 |
 
 - 「Agent RL 的瓶颈是模型」——是沙箱集群与环境时间
 - 奖励延后到轨迹末尾：credit assignment 靠 GRPO 的组内比较，不靠价值模型
@@ -339,7 +339,7 @@ flowchart LR
 
 | 量 | 数 |
 |---|---|
-| 置信区间 \(\pm 1.96\sqrt{p(1-p)/n}\) | 1000 题 ±3、AIME 30 题 **±18**、MMLU ±0.8 |
+| 置信区间 $$\pm 1.96\sqrt{p(1-p)/n}$$ | 1000 题 ±3、AIME 30 题 **±18**、MMLU ±0.8 |
 | 污染 | GSM1K 掉 13 点；污染子集高 10–30 点 |
 | 题目本身 | MMLU-Redux 6.5% 错题 |
 | judge 位置偏差 | 换位置改判 20–30% |
@@ -369,7 +369,7 @@ flowchart LR
 | SFT | 1 | 隐含在数据里 | — |
 | RM | 1 | 学出来 | — |
 | PPO / GRPO | 4 / 3 | RM | KL 惩罚 |
-| DPO | 2 → 1（参考可离线） | \(\beta\log(\pi_\theta/\pi_{ref})\) | loss 里的分母 |
+| DPO | 2 → 1（参考可离线） | $$\beta\log(\pi_\theta/\pi_{ref})$$ | loss 里的分母 |
 | RLVR / Agent RL | 2–3 + 环境 | 验证器 | β → 0 |
 | 蒸馏 | 2 | 教师分布 | 不需要 |
 | 评测 | judge | 未训练的 RM | — |
@@ -396,13 +396,13 @@ flowchart LR
 | 篇 | 一个公式 / 一个数 |
 |---|---|
 | 01 | lr 1e-5；LoRA r = 16 差 0.001；遗忘 +0.02 / +0.62 / +0.01 |
-| 02 | \(P(y_w \succ y_l) = \sigma(r_w - r_l)\)；\(\text{KL}_{BoN} = \log N - (N-1)/N\) |
-| 03 | \(\max \mathbb E[r] - \beta\,\text{KL}\)；PPO 288 GB / GRPO 160 GB；(1 − 1/G) |
-| 04 | \(\hat r = \beta\log(\pi_\theta/\pi_{ref})\)；β 0.1；9 GPU 小时 |
+| 02 | $$P(y_w \succ y_l) = \sigma(r_w - r_l)$$；$$\text{KL}_{BoN} = \log N - (N-1)/N$$ |
+| 03 | $$\max \mathbb E[r] - \beta\,\text{KL}$$；PPO 288 GB / GRPO 160 GB；(1 − 1/G) |
+| 04 | $$\hat r = \beta\log(\pi_\theta/\pi_{ref})$$；β 0.1；9 GPU 小时 |
 | 05 | AIME 15.6 → 71.0；一步 1.3 亿 token；蒸馏 72.6 vs RL 47 |
 | 06 | 48K token 八成是环境；320 CPU·小时 vs 7 GPU·小时 |
 | 07 | 软标签几十 bit vs < 1 bit；on-policy ≈ RL 的 1/10 |
-| 08 | \(\pm 1.96\sqrt{p(1-p)/n}\)；AIME ±18；长度控制 0.94 → 0.98 |
+| 08 | $$\pm 1.96\sqrt{p(1-p)/n}$$；AIME ±18；长度控制 0.94 → 0.98 |
 
 ---
 

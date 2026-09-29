@@ -15,9 +15,9 @@ transition: slide
 
 > 每种推理优化都改了**成本公式的一项**；除投机解码之外每一种都**改变了输出分布**；而退化是**不均匀**的——集中在困惑度看不到的地方。
 
-\[
+$$
 \text{一步 decode 的成本} = \frac{\text{权重字节} + \text{KV 字节}}{\text{带宽}} \div \text{每次前向产出的 token 数} + \text{算力项}
-\]
+$$
 
 | 改哪一项 | 篇 |
 |---|---|
@@ -64,10 +64,10 @@ flowchart TB
 
 | 量 | 数 |
 |---|---|
-| 熵对温度的导数 | \(dH/dT = \text{Var}(z)/T^3\) |
+| 熵对温度的导数 | $$dH/dT = \text{Var}(z)/T^3$$ |
 | 128K 词表尾部总质量 | 可达 **10%**；T = 0.7 也许只降到 0.02——低温没有去掉尾部 |
 | pass@1 最优温度 | ≈ 0.2；pass@100 最优 ≈ 0.8 |
-| pass@k 无偏估计 | \(1 - \binom{n-c}{k}/\binom{n}{k}\) |
+| pass@k 无偏估计 | $$1 - \binom{n-c}{k}/\binom{n}{k}$$ |
 | 高温下 | min-p 比 top-p 稳 |
 
 - 选择题用约束解码还是自由回答再抽取，可以差好几个点——采样参数是评测协议里最大的一项
@@ -102,10 +102,10 @@ flowchart LR
 
 | 量 | 数 |
 |---|---|
-| 期望产出 | \(\mathbb E[\text{tokens}] = \frac{1 - \alpha^{\gamma+1}}{1 - \alpha}\)，speedup \(= \mathbb E/(\gamma c + 1)\)，c ≈ 0.02–0.05 |
+| 期望产出 | $$\mathbb E[\text{tokens}] = \frac{1 - \alpha^{\gamma+1}}{1 - \alpha}$$，speedup $$= \mathbb E/(\gamma c + 1)$$，c ≈ 0.02–0.05 |
 | 平均接受长度 | Medusa 2.5–3 → EAGLE 3.8–4.5 → EAGLE-3 5–6.5 |
 | MTP 头（与主模型联合训练） | 接受率 85–90%、约 1.8× |
-| 树的约束 | \(B \cdot N_{tree} \lesssim \text{ridge}\)：batch 8 × 64 节点 = 512 已过 H100 的 295 |
+| 树的约束 | $$B \cdot N_{tree} \lesssim \text{ridge}$$：batch 8 × 64 节点 = 512 已过 H100 的 295 |
 
 - 「草稿的 argmax 一致率就是接受率」——接受率是两个分布的重叠，argmax 相同形状不同 TV 可以很大
 - typical acceptance 放松验证后，它就掉进后面几篇「改变分布」的范畴
@@ -128,16 +128,16 @@ flowchart LR
 
 | 量 | 数 |
 |---|---|
-| 舍入误差方差 | \(\Delta^2/12\)：每少 1 bit ×4，INT8 → INT4 ×256 |
+| 舍入误差方差 | $$\Delta^2/12$$：每少 1 bit ×4，INT8 → INT4 ×256 |
 | 一个 15σ 权重 | 让 INT4 的 Δ = 2σ——group 内一个离群值毁掉一组 |
 | g128 | 有效 4.156 bit，元数据 4% |
-| 输出误差 | \(\text{tr}(EHE^\top)\)，\(H = \mathbb E[XX^\top]\)：误差落在激活大的通道被放大 |
+| 输出误差 | $$\text{tr}(EHE^\top)$$，$$H = \mathbb E[XX^\top]$$：误差落在激活大的通道被放大 |
 
 | 方法 | 做什么 |
 |---|---|
-| GPTQ | 用 \(H^{-1}\) 把误差补偿到未量化的列 |
+| GPTQ | 用 $$H^{-1}$$ 把误差补偿到未量化的列 |
 | AWQ | 保护激活幅度最大的约 1% 通道 |
-| SmoothQuant | \(\text{diag}(s)\) 把激活的离群迁到权重 |
+| SmoothQuant | $$\text{diag}(s)$$ 把激活的离群迁到权重 |
 | 旋转（QuaRot） | Hadamard 把 1000 摊成约 17；70B W4A4KV4 困惑度 3.32 → 3.73 |
 
 ---
@@ -214,8 +214,8 @@ flowchart LR
 
 | 量 | 数 |
 |---|---|
-| OBS / SparseGPT 重要性 | \(w_q^2 / [H^{-1}]_{qq}\)——与 GPTQ 同一个拉格朗日推导 |
-| Wanda | \(\lvert w_{ij}\rvert \cdot \lVert X_j\rVert\)——与 AWQ 同一个一阶观察 |
+| OBS / SparseGPT 重要性 | $$w_q^2 / [H^{-1}]_{qq}$$——与 GPTQ 同一个拉格朗日推导 |
+| Wanda | $$\lvert w_{ij}\rvert \cdot \lVert X_j\rVert$$——与 AWQ 同一个一阶观察 |
 | 非结构化 50% | Tensor Core 不识别零，**不变快** |
 | 2:4 | GEMM 1.3–1.8×，只在 compute-bound 有效；decode 字节只到 5/8 |
 | Minitron 15B → 8B | 94B token 蒸馏 vs 从头 8T，省 **40×**；比继续预训练高 3–4 MMLU 点 |
@@ -232,7 +232,7 @@ flowchart LR
 |---|---|
 | **分布变了多少** | 有意改（采样）→ 不变（投机）→ 可控噪声（量化，Δ²/12、逐 token KL）→ 任务依赖（驱逐）→ 改变最大（剪枝）；度量从 TV 到 KL 到任务曲线 |
 | **成本公式的哪一项** | 投机改分母（≲ ridge）；W4A16 改权重字节（止于 memory-bound）；KV 量化在 40K 后边际更大；2:4 只在 compute-bound；叠加时消耗同一段余量 |
-| **离群值与同一套二阶数学** | \(\text{tr}(EHE^\top)\)：GPTQ = SparseGPT、AWQ = Wanda；通道级离群（LayerNorm γ，6.7B 起相变）与 massive activations（sink） |
+| **离群值与同一套二阶数学** | $$\text{tr}(EHE^\top)$$：GPTQ = SparseGPT、AWQ = Wanda；通道级离群（LayerNorm γ，6.7B 起相变）与 massive activations（sink） |
 | **困惑度 vs 关键 token** | 每个「无损」都要问在哪个指标、哪类任务、什么协议下 |
 | **蒸馏，教师 = 自己** | 训草稿、QAT、剪枝恢复；部署需求提前到训练：MTP 头、厂商 QAT 版、NSA / MLA、剪枝做初始化 |
 
@@ -242,7 +242,7 @@ flowchart LR
 
 - 「评测用 greedy 最公平」——推理模型在 T = 1 下训练，greedy 路径未被训练
 - 「低温已经把尾部去掉了」——温度只改比值不置零；128K 词表尾部 10%
-- 「树越大加速越多」——\(B \cdot N_{tree} \lesssim\) ridge，batch 8 × 64 已过
+- 「树越大加速越多」——$$B \cdot N_{tree} \lesssim$$ ridge，batch 8 × 64 已过
 - 「INT4 的误差只是 INT8 的两倍」——方差 ×256；一个 15σ 权重让 Δ = 2σ
 - 「W4A16 让高吞吐服务也快 4 倍」——GEMM 仍是 BF16，dequant 是额外算力
 - 「困惑度 +0.1 就是无损」——GSM8K −3–6、needle −10 以上；看 KL 的 P99
@@ -259,11 +259,11 @@ flowchart LR
 | 篇 | 一个公式 / 一个数 |
 |---|---|
 | 01 | pass@1 最优 T ≈ 0.2、pass@100 ≈ 0.8；模型卡 T = 0.6 / top-p 0.95 |
-| 02 | \(\alpha = 1 - \text{TV}\)；\(\mathbb E = (1-\alpha^{\gamma+1})/(1-\alpha)\)；\(B \cdot N_{tree} \lesssim\) ridge |
-| 03 | \(\Delta^2/12\)；\(\text{tr}(EHE^\top)\)；Hadamard 1000 → 17 |
-| 04 | STE \(\hat w = w + \text{sg}(Q(w) - w)\)；PPL +0.36 ↔ needle −10 |
+| 02 | $$\alpha = 1 - \text{TV}$$；$$\mathbb E = (1-\alpha^{\gamma+1})/(1-\alpha)$$；$$B \cdot N_{tree} \lesssim$$ ridge |
+| 03 | $$\Delta^2/12$$；$$\text{tr}(EHE^\top)$$；Hadamard 1000 → 17 |
+| 04 | STE $$\hat w = w + \text{sg}(Q(w) - w)$$；PPL +0.36 ↔ needle −10 |
 | 05 | 70B 128K：40 → 20 → 12.5 → 3.1 GB；sink 吃 30–50% |
-| 06 | \(w_q^2/[H^{-1}]_{qq}\)；2:4 1.3–1.8×；Minitron 省 40× |
+| 06 | $$w_q^2/[H^{-1}]_{qq}$$；2:4 1.3–1.8×；Minitron 省 40× |
 
 ---
 

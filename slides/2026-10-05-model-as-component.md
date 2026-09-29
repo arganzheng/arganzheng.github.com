@@ -277,7 +277,7 @@ flowchart LR
 
 | 纪律 | 规则 |
 |---|---|
-| 重试 | full jitter \(t_n = \min(t_{max}, \text{random}(0, t_0 2^n))\)；重试预算 10% |
+| 重试 | full jitter $$t_n = \min(t_{max}, \text{random}(0, t_0 2^n))$$；重试预算 10% |
 | `insufficient_quota` | 也是 429，**不可重试** |
 | 超时 | 连接 / 首字节 / 字节间 / 总——一个总超时不够 |
 | 流式 | 超过一分钟的生成一律流式 |

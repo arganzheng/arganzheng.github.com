@@ -73,7 +73,7 @@ flowchart TB
 
 ## 02 · Tensor 与内存布局：view 只改元数据
 
-**结论**：Tensor = 数据 + 形状 + 布局 + 类型 + 设备 + 生命周期；\(\text{offset} = \text{storage\_offset} + \sum_k i_k \cdot \text{stride}_k\)；**view 只改元数据，`contiguous` / `.to()` / `clone` 才复制**。
+**结论**：Tensor = 数据 + 形状 + 布局 + 类型 + 设备 + 生命周期；$$\text{offset} = \text{storage\_offset} + \sum_k i_k \cdot \text{stride}_k$$；**view 只改元数据，`contiguous` / `.to()` / `clone` 才复制**。
 
 ![x 与 y = x.t() 共享同一份 storage：x 的 stride (3, 1) 按逻辑顺序访问连续；y 的 stride (1, 3) 访问跳着走](/img/in-post/pytorch-tensor-transpose-shared-storage.svg){: style="max-height: 360px"}
 
@@ -125,7 +125,7 @@ flowchart TB
 
 ### 要点
 
-- `[B, 4096]` 的一层若物化 Jacobian 每样本 \(4096^2\) 个数；VJP 只算 \(v^\top J\)
+- `[B, 4096]` 的一层若物化 Jacobian 每样本 $$4096^2$$ 个数；VJP 只算 $$v^\top J$$
 - `.grad` 是累加，所以要 `zero_grad()`；version counter 抓 in-place；`gradcheck` 必须 float64
 
 ---
@@ -289,14 +289,14 @@ flowchart LR
 
 ## 09 · 分布式：五类状态各做一个决定
 
-**结论**：参数、梯度、优化器状态、激活、数据——各选**复制还是分片**，每个决定对应一种集合通信原语与一个时机；ring all_reduce 每 rank 收发 \(2(N-1)/N \cdot n \to 2n\)。
+**结论**：参数、梯度、优化器状态、激活、数据——各选**复制还是分片**，每个决定对应一种集合通信原语与一个时机；ring all_reduce 每 rank 收发 $$2(N-1)/N \cdot n \to 2n$$。
 
 | 策略 | 每 rank 静态显存 | 每步通信 | 范围 |
 |---|---|---|---|
 | DDP | 16P | 2P（梯度 all_reduce，按桶与反向重叠） | 任意 |
 | FSDP | **16P / N** | 3P（all_gather 参数 ×2 + reduce_scatter 梯度） | 任意 |
 | TP | 参数 / N | 每层 4 次 all_reduce | 节点内 |
-| PP | 参数 / K | 层间激活 | 气泡 \((K-1)/(M+K-1)\) |
+| PP | 参数 / K | 层间激活 | 气泡 $$(K-1)/(M+K-1)$$ |
 
 - 「FSDP 比 DDP 省显存也省通信」——通信 3P 对 2P 多 50%；省的是 16P → 16P/N
 - 「加卡就该线性加速」——带宽项通信量不随 N 减少，per-rank 计算随 N 缩小；藏不住就换策略
@@ -367,7 +367,7 @@ flowchart LR
 | 篇 | 一个公式 / 一个数 |
 |---|---|
 | 01 | 源码四层 torch/ → csrc/ → ATen/ → c10/，依赖只向下 |
-| 02 | \(\text{offset} = \text{storage\_offset} + \sum i_k\,\text{stride}_k\)；expand 的 stride = 0 |
+| 02 | $$\text{offset} = \text{storage\_offset} + \sum i_k\,\text{stride}_k$$；expand 的 stride = 0 |
 | 03 | VJP 不物化 Jacobian；`.grad` 累加；gradcheck float64 |
 | 04 | 16 B / 参数；GradScaler 65536、÷2、2000 步 ×2 |
 | 05 | KeySet = 输入 OR + TLS include − exclude；一次 add 两次分发 |

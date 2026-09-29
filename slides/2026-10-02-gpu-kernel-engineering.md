@@ -15,10 +15,10 @@ transition: slide
 
 > 每个 kernel **先算它理论上应该多快，再测它实际多快，再用 profiler 解释差距，再动手缩小差距**。
 
-\[
+$$
 T \ge \max\!\left(\frac{\text{FLOPs}}{P_{peak}},\ \frac{\text{Bytes}}{BW}\right),\qquad
 I = \frac{\text{FLOPs}}{\text{Bytes}}\ \ \text{vs}\ \ \text{ridge} = \frac{P_{peak}}{BW}
-\]
+$$
 
 | 硬件基线 | 带宽 | BF16 | FP32 | SM | ridge（BF16） |
 |---|---|---|---|---|---|
@@ -51,7 +51,7 @@ flowchart TB
 
 ## 01 · GPU 为什么这样设计：硬件结构与 Roofline
 
-**结论**：GPU 用**零开销 warp 切换**而非乱序执行隐藏延迟——芯片面积给了 ALU 而不是缓存与预测器；一段计算理论上最快多快由 \(T = \max(F/P_{peak},\ B/BW)\) 决定。
+**结论**：GPU 用**零开销 warp 切换**而非乱序执行隐藏延迟——芯片面积给了 ALU 而不是缓存与预测器；一段计算理论上最快多快由 $$T = \max(F/P_{peak},\ B/BW)$$ 决定。
 
 ![CPU 与 GPU 芯片版图的对比：CPU 几个大核心，ALU 只占一角，其余是分支预测、乱序调度与私有缓存；A100 由 108 个 SM 铺满，每个 SM 是四组简单的执行单元](/img/in-post/gpu-cpu-vs-gpu-die-layout.svg){: style="max-height: 340px"}
 
@@ -138,11 +138,11 @@ flowchart LR
 | 128 MiB 的 RMSNorm | 67 µs（接近带宽） |
 | bank conflict | bank = (addr / 4) mod 32；stride s → gcd(s, 32)-way |
 | d ≤ 1024 | 一行一个 warp |
-| \(e^x\) 溢出 | FP16 于 x > 11.09，BF16 / FP32 于 88.7——softmax 必须减最大值 |
+| $$e^x$$ 溢出 | FP16 于 x > 11.09，BF16 / FP32 于 88.7——softmax 必须减最大值 |
 
-\[
+$$
 m = \max(m_a, m_b),\qquad l = l_a e^{m_a - m} + l_b e^{m_b - m}
-\]
+$$
 
 - 「用 `atomicAdd` 做行归约最简单」——同地址串行化；float 加法不满足结合律、不可复现；树形归约 + shuffle，跨 block 只用原子计数
 
@@ -154,7 +154,7 @@ m = \max(m_a, m_b),\qquad l = l_a e^{m_a - m} + l_b e^{m_b - m}
 
 ## 05 · GEMM 从 naive 到分块：让算术强度成为可设计的参数
 
-**结论**：4096³ FP32 的理论 I = 683、下界 7.0 ms；naive 实际读 512 GiB、I = 0.25、只到峰值 1–3%；**分块 \(MNK(1/BM + 1/BN)\)**：128 × 128 → 4 GiB、I = 32；瓶颈从 L1/L2 请求迁到 shared 带宽再迁到 LDS 指令，寄存器分块靠 ILP。
+**结论**：4096³ FP32 的理论 I = 683、下界 7.0 ms；naive 实际读 512 GiB、I = 0.25、只到峰值 1–3%；**分块 $$MNK(1/BM + 1/BN)$$**：128 × 128 → 4 GiB、I = 32；瓶颈从 L1/L2 请求迁到 shared 带宽再迁到 LDS 指令，寄存器分块靠 ILP。
 
 ![六版 SGEMM 在 A100 FP32 Roofline 上的位置：naive 在斜线最下方，分块逐版右移上升，v5 到 FP32 峰值 70–80%](/img/in-post/gemm-from-naive-to-tiled-roofline.svg){: style="max-height: 340px"}
 
@@ -326,14 +326,14 @@ flowchart TB
 
 | 篇 | 一个公式 / 一个数 |
 |---|---|
-| 01 | \(T = \max(F/P,\ B/BW)\)；ridge 156 / 295 |
+| 01 | $$T = \max(F/P,\ B/BW)$$；ridge 156 / 295 |
 | 02 | 3 GiB → 1.6 ms；80–92% |
 | 03 | 32 B sector；1.2 MB 在飞；≥ 22 warp / SM |
-| 04 | bank = (addr/4) mod 32；\(l = l_a e^{m_a - m} + l_b e^{m_b - m}\) |
-| 05 | \(MNK(1/BM + 1/BN)\)；128×128 → I = 32 |
+| 04 | bank = (addr/4) mod 32；$$l = l_a e^{m_a - m} + l_b e^{m_b - m}$$ |
+| 05 | $$MNK(1/BM + 1/BN)$$；128×128 → I = 32 |
 | 06 | mma m16n8k16 = 4096 FLOP；swizzle |
 | 07 | 60 行 vs 200–300 行；80–95% |
-| 08 | 132 → 66 MiB（实际 4）；\(\Theta(N^2d^2/M)\) |
+| 08 | 132 → 66 MiB（实际 4）；$$\Theta(N^2d^2/M)$$ |
 | 09 | W4A16 I ≈ 4M，交叉 M ≈ 40 |
 | 10 | SOL > 80% 到顶；rtol 1.6e-2 |
 

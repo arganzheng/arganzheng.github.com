@@ -31,7 +31,7 @@ transition: slide
 
 ## 那张账：九篇各改公式的哪一项
 
-\(t = t_{txt} + g \cdot T_{eff} \cdot \dfrac{2P_{tok}N + 4LN^2d \cdot s^{-1}}{\text{峰值}\cdot\eta\cdot p\cdot e(p)} + t_{VAE}\)，卡数 = QPS × GPU·秒
+$$t = t_{txt} + g \cdot T_{eff} \cdot \dfrac{2P_{tok}N + 4LN^2d \cdot s^{-1}}{\text{峰值}\cdot\eta\cdot p\cdot e(p)} + t_{VAE}$$，卡数 = QPS × GPU·秒
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 210}}}%%
@@ -60,7 +60,7 @@ flowchart TB
 | H100 时间（η 0.45） | 4.8 s | **24 min** |
 | 算术强度 | 3,100（拐点 295） | |
 
-- 「一次前向的 FLOPs 按参数量算」——双流块每 token 只走一条流：用 \(P_{tok}\) 6.45B 而非 11.9B，用 P 高估 85%
+- 「一次前向的 FLOPs 按参数量算」——双流块每 token 只走一条流：用 $$P_{tok}$$ 6.45B 而非 11.9B，用 P 高估 85%
 - 「扩散推理与 LLM 一样有 KV cache」——每步 K/V 由本步带噪输入算出、用完即弃；只有 cross-attn 的文本 K/V 可缓存
 
 <aside class="notes" markdown="1">
@@ -101,7 +101,7 @@ flowchart TB
 | 0.6 | 2.0× | |
 | 视频 | 到 4.4× | |
 
-- \(T \to T_{full} + T_{hit}\,\epsilon\)，speedup ≈ \(T / T_{full}\)
+- $$T \to T_{full} + T_{hit}\,\epsilon$$，speedup ≈ $$T / T_{full}$$
 - CFG 两份状态；SP 下决策要全局一致
 - 「跨步缓存是无损的、蒸馏模型也能开」——4 步模型每步都在转折点，零命中或图坏
 
@@ -113,11 +113,11 @@ flowchart TB
 
 ## 04 · 视频：N 到十万后 attention 压过线性项
 
-**结论**：交叉点 \(N \approx 6d\)；Wan 一步 attention 4.7 P / 6.5 P = **72%**；分数矩阵 425 GiB **不可物化**——稀疏必须落到 FlashAttention 的 128 块粒度；收益受 **Amdahl** 约束。
+**结论**：交叉点 $$N \approx 6d$$；Wan 一步 attention 4.7 P / 6.5 P = **72%**；分数矩阵 425 GiB **不可物化**——稀疏必须落到 FlashAttention 的 128 块粒度；收益受 **Amdahl** 约束。
 
-\[
+$$
 \text{speedup} = \frac{1}{(1 - a) + a/s}：\quad a = 0.72,\ s = 3.5 \Rightarrow 2.06\times,\qquad \text{上限 } 3.57\times
-\]
+$$
 
 | 量 | 数 |
 |---|---|
@@ -139,8 +139,8 @@ flowchart TB
 
 | FLUX，p = 4，每步通信 | 量 |
 |---|---|
-| TP \(4\frac{p-1}{p}Nd\) | 4.8 GB，关键路径 |
-| Ulysses \(4\frac{p-1}{p^2}Nd\) | **1.2 GB** |
+| TP $$4\frac{p-1}{p}Nd$$ | 4.8 GB，关键路径 |
+| Ulysses $$4\frac{p-1}{p^2}Nd$$ | **1.2 GB** |
 | CFG 并行 | 0.6 MB |
 | PipeFusion | 28 MB |
 
@@ -163,7 +163,7 @@ flowchart TB
 | 每张 | 4.8 s | 0.80 s、1.25 张/s |
 | 另两段占比 | 2.6% | 15.6% |
 
-- 自回归视频 KV 每 token \(2dL \times 2\) 字节：Wan 1.3B 184 KB、chunk 0.86 GB、窗口 21 帧 6 GB
+- 自回归视频 KV 每 token $$2dL \times 2$$ 字节：Wan 1.3B 184 KB、chunk 0.86 GB、窗口 21 帧 6 GB
 - SD-Turbo 在 4090 上约 90 fps
 
 <aside class="notes" markdown="1">
@@ -255,7 +255,7 @@ flowchart TB
 
 ## 常见误区（一）
 
-- 「FLOPs 按参数量算」——用 \(P_{tok}\)，否则高估 85%
+- 「FLOPs 按参数量算」——用 $$P_{tok}$$，否则高估 85%
 - 「扩散推理也有 KV cache」——用完即弃；只有文本 K/V 可缓存
 - 「权重量化减半时间减半」——字节不是瓶颈
 - 「逐层 offload 是免费的」——看每层计算 / 搬运

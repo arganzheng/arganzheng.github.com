@@ -815,6 +815,11 @@ the HTML on every `<hr>` into slides. One file gives two pages:
 - Separate slides with `---` and **always leave a blank line before it**,
   otherwise Markdown reads it as a setext `<h2>` underline and the slide is
   not split.
+- Math is `$$…$$` (inline and block), exactly like posts. **Never write
+  `\(…\)` / `\[…\]` in the Markdown**: kramdown treats `\(` as an escaped
+  parenthesis and emits a bare `(`, so the slide shows raw TeX in brackets —
+  `(\text{Attention}(Q,K,V) = …)`. 17 decks written on 2026-09-30 … 10-05 had
+  this and were converted in bulk (191 inline + 10 blocks).
 - `<!-- v -->` inside a slide creates vertical (nested) sub-slides.
 - `<!-- .slide: data-background="#1c1f26" -->` puts reveal.js attributes on the
   current `<section>`.

@@ -52,7 +52,7 @@ flowchart TB
 
 ## 01 · 状态解剖：三种是 N 的线性函数，一种是 token 数的
 
-**结论**：每参数 **16 字节**（Megatron fp32 累加梯度 18）——70B 常驻 **1.13 TB**、405B 6.49 TB，是一张 80 GB 卡的 14 倍；激活每层 \(sbh(34 + 5as/h)\)，FlashAttention 后 \(34sbh\)；每 token \(6N + 6Lsh\) FLOP。
+**结论**：每参数 **16 字节**（Megatron fp32 累加梯度 18）——70B 常驻 **1.13 TB**、405B 6.49 TB，是一张 80 GB 卡的 14 倍；激活每层 $$sbh(34 + 5as/h)$$，FlashAttention 后 $$34sbh$$；每 token $$6N + 6Lsh$$ FLOP。
 
 ![四种状态在一个 step 内的显存占用随时间变化：bf16 参数 2N 与优化器状态 12N 是两条常驻的水平带；激活在前向逐层堆高、反向逐层释放，峰在前向末](/img/in-post/training-state-step-timeline.svg){: style="max-height: 340px"}
 
@@ -73,7 +73,7 @@ flowchart TB
 
 ## 02 · 并行策略全景：每一个「切」对应一种通信
 
-**结论**：并行是**状态的放置方案**；不可重叠且量大的放最近（TP 锁在 NVLink 内，\(N_t \le 8\)），可重叠的放远（PP 量最小放最远）；组合顺序 **TP → CP → PP → DP**。
+**结论**：并行是**状态的放置方案**；不可重叠且量大的放最近（TP 锁在 NVLink 内，$$N_t \le 8$$），可重叠的放远（PP 量最小放最远）；组合顺序 **TP → CP → PP → DP**。
 
 ![四级 ZeRO 在 4 张卡上的状态放置：DP 每卡持有整份 P、G、O；ZeRO-1 切 O；ZeRO-2 再切 G；ZeRO-3 再切 P](/img/in-post/parallelism-zero-stages.svg){: style="max-height: 360px"}
 
@@ -148,9 +148,9 @@ flowchart TB
 
 **结论**：不是某个 rank 的内存映像，所以能**零通信重分片**；落盘每参数 14 或 12 字节、**与并行配置无关**；异步保存把 δ 从写入时间变成 staging 时间——**不是优化是必需**。
 
-\[
+$$
 \tau_{opt} = \sqrt{2\,\delta\,M},\qquad \text{最小浪费} = \sqrt{2\delta / M}
-\]
+$$
 
 | M ≈ 3.1 h（16K 卡的 MTBF） | δ | 最小浪费 |
 |---|---|---|
@@ -168,11 +168,11 @@ flowchart TB
 
 ## 06 · 容错与弹性：故障是常态，有效时间是五项公式
 
-**结论**：\(M = M_{gpu}/N\)——16K 卡 54 天 **419 次意外中断**、M ≈ 3.1 h；缩短顺序：**先 δ（异步保存），再 \(T_d\)（hang 检测），再 \(T_r\)（重启），\(T_l\) 最后**。
+**结论**：$$M = M_{gpu}/N$$——16K 卡 54 天 **419 次意外中断**、M ≈ 3.1 h；缩短顺序：**先 δ（异步保存），再 $$T_d$$（hang 检测），再 $$T_r$$（重启），$$T_l$$ 最后**。
 
-\[
+$$
 G = \frac{1 - (T_d + T_r + T_l + \tau/2)/M}{1 + \delta/\tau}
-\]
+$$
 
 | Llama 3 405B | 数 |
 |---|---|
@@ -181,7 +181,7 @@ G = \frac{1 - (T_d + T_r + T_l + \tau/2)/M}{1 + \delta/\tau}
 | 16K 卡：同步 → 异步 → 压检测与重启 | 71% → 87% → 94% |
 | NCCL watchdog / 进程重启 | 10 min / 2–5 min |
 
-- 「有效时间低先缩短 checkpoint 间隔」——间隔由 \(\sqrt{2\delta M}\) 决定，δ 不变缩间隔只是多付保存代价
+- 「有效时间低先缩短 checkpoint 间隔」——间隔由 $$\sqrt{2\delta M}$$ 决定，δ 不变缩间隔只是多付保存代价
 - 「straggler = 坏卡」——多数是序列长度 / stage 不均衡，**每步换 rank**；先看是否换 rank
 
 <aside class="notes" markdown="1">
@@ -271,12 +271,12 @@ G = \frac{1 - (T_d + T_r + T_l + \tau/2)/M}{1 + \delta/\tau}
 
 | 篇 | 一个公式 / 一个数 |
 |---|---|
-| 01 | 16 B / 参数；\(sbh(34 + 5as/h)\)；\(6N + 6Lsh\)；HFU = 4/3 MFU |
+| 01 | 16 B / 参数；$$sbh(34 + 5as/h)$$；$$6N + 6Lsh$$；HFU = 4/3 MFU |
 | 02 | DP 2N / ZeRO-3 3N；TP ≤ 8；气泡 (p−1)/(vm)；TP → CP → PP → DP |
 | 03 | 常驻 2 + 4 + 12/N_d vs 16/N_d；RS + AG = 2N |
 | 04 | TP8 / PP4 / DP32，b = 1、m = 16；42% ≈ 88 万 token/s |
-| 05 | \(\tau_{opt} = \sqrt{2\delta M}\)；33% → 1.9% |
-| 06 | \(G = \frac{1 - (T_d + T_r + T_l + \tau/2)/M}{1 + \delta/\tau}\)；419 次 / 54 天 |
+| 05 | $$\tau_{opt} = \sqrt{2\delta M}$$；33% → 1.9% |
+| 06 | $$G = \frac{1 - (T_d + T_r + T_l + \tau/2)/M}{1 + \delta/\tau}$$；419 次 / 54 天 |
 | 07 | 3 形态 × 5 成因；max logit > 100；回退 100 + 跳 200–500 |
 | 08 | step 是否前进；FR buffer 2 万；1 MFU 点 ≈ 4.4 万美元 |
 

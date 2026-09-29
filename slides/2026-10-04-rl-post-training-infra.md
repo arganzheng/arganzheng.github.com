@@ -84,7 +84,7 @@ flowchart TB
 | 异步 | **619 s** | 17% |
 
 - 长尾占比 f 从 10% 到 70%：异步 / 共置 1.07× → 2.55×；verl 实验 2.35–2.67×
-- 配比 \(n_r / n_t = T_{gen}^{(n)} / T_{train}^{(n)}\)；FLOP 上训练是生成的 3 倍、时间上生成是训练的 2 倍——且随回答变长而漂
+- 配比 $$n_r / n_t = T_{gen}^{(n)} / T_{train}^{(n)}$$；FLOP 上训练是生成的 3 倍、时间上生成是训练的 2 倍——且随回答变长而漂
 
 <aside class="notes" markdown="1">
 原文 /rl-system-topologies-colocate-disaggregate-async.html。
@@ -101,7 +101,7 @@ flowchart TB
 | 每步换手 | 约 130 GB、6.5 s（4 s 是优化器状态往返） |
 | pinned 内存 | 520 GB |
 | `gpu_memory_utilization` 0.85 → 0.5 | 8B 生成 610 → **745 s**——KV 池只有半张卡 |
-| 边界 | \(16N / n \le 70\) GB 才能共置 |
+| 边界 | $$16N / n \le 70$$ GB 才能共置 |
 
 - 「sleep 之后 CUDA graph 要重捕获、块表要重建」——只摘物理页；要补的是 `named_buffers`、fp8 KV scale、prefix cache
 
@@ -122,7 +122,7 @@ flowchart TB
 | 235B 全量 vs delta | 246–266 s vs **11–15 s（21×）** |
 | 每步变化的参数 | dense 1–3%、MoE 0.02–0.05% |
 
-- bucket 512 MB、峰值 2 bucket；bubble = \(T_{sync} / (kT_{mb} + T_{sync})\)
+- bucket 512 MB、峰值 2 bucket；bubble = $$T_{sync} / (kT_{mb} + T_{sync})$$
 - 「权重同步慢是网络带宽不够」——大部分与网络无关；「增量省的是传输字节」——0.5B 上也快 1.3 倍，省的是全量 all-gather 与 rank 0 物化
 
 <aside class="notes" markdown="1">
@@ -137,9 +137,9 @@ flowchart TB
 
 | 量 | 数 |
 |---|---|
-| staleness \(s \approx \lfloor(\text{生成用时} + \text{等待}) / T_{sync}\rfloor\) | 长回答 s 更大；阈值默认 8；s ≤ 2–4 配修正无损 |
-| 训推不一致（logprob 差） | dense \(10^{-3}\)、FP8 \(10^{-2}\)、MoE 路由翻转单 token > 1 |
-| TIS 修正 | \(\min(w, 2)\) |
+| staleness $$s \approx \lfloor(\text{生成用时} + \text{等待}) / T_{sync}\rfloor$$ | 长回答 s 更大；阈值默认 8；s ≤ 2–4 配修正无损 |
+| 训推不一致（logprob 差） | dense $$10^{-3}$$、FP8 $$10^{-2}$$、MoE 路由翻转单 token > 1 |
+| TIS 修正 | $$\min(w, 2)$$ |
 | 部分 rollout 重 prefill | ≈ 一步 FLOP 的 6% |
 | decoupled PPO | 3 份 logprob（生成时、参考、当前） |
 
@@ -261,7 +261,7 @@ flowchart TB
 | 02 | 共置 810 / 分离 1501 / 异步 619 s；配比按时间 2 : 1 |
 | 03 | 换手 130 GB、6.5 s、< 2%；0.5 → 745 s；16N/n ≤ 70 GB |
 | 04 | 671B FP8 60–80 → 12–20 s；delta 21×；bucket 512 MB |
-| 05 | \(s \approx \lfloor(\text{gen} + \text{wait})/T_{sync}\rfloor\)；TIS min(w, 2)；3 份 logprob |
+| 05 | $$s \approx \lfloor(\text{gen} + \text{wait})/T_{sync}\rfloor$$；TIS min(w, 2)；3 份 logprob |
 | 06 | 8 万次执行；1300–1800 沙箱；prefill 160 vs 1600 s |
 | 07 | 十二步、四类进程、三条链路；TransferQueue |
 | 08 | 瀑布 100 − 64 − 13 − 4 ≈ 13%；数据 → 版本 → 异步 → 实现 |

@@ -127,14 +127,14 @@ flowchart TB
 | decode 字节 | 每步读一遍 lm_head | 1 GB / 步 |
 | 训练显存 | logits = tokens × V × 4 B | 8K 序列 **3.9 GiB**，softmax 前后两份 |
 
-- 跨 tokenizer 比 loss 要换算 \(\text{bits/byte} = \frac{L}{\ln 2}\cdot\frac{T}{B}\)；同等 bits/byte 下 Llama 3 的 per-token loss 应比 Llama 2 高 24%
+- 跨 tokenizer 比 loss 要换算 $$\text{bits/byte} = \frac{L}{\ln 2}\cdot\frac{T}{B}$$；同等 bits/byte 下 Llama 3 的 per-token loss 应比 Llama 2 高 24%
 - 「1 token ≈ 0.75 个英文词」只对英文成立；中文 0.4–1.5 字符/token 视词表而定
 
 ---
 
 ## 03 · Scaling law：从 Chinchilla 到「过训练」
 
-**结论**：\(L = E + A/N^\alpha + B/D^\beta\)，在 C = 6ND 下最优 D/N ≈ 20；但 Chinchilla 只最小化**训练算力**——把推理 \(2ND_{inf}\) 算进去，最优点移向**小模型、多数据**。
+**结论**：$$L = E + A/N^\alpha + B/D^\beta$$，在 C = 6ND 下最优 D/N ≈ 20；但 Chinchilla 只最小化**训练算力**——把推理 $$2ND_{inf}$$ 算进去，最优点移向**小模型、多数据**。
 
 ![Chinchilla 图 3：九条 iso-FLOP 曲线各有最低点，最低点连成 N_opt ∝ C^0.5、D_opt ∝ C^0.5（版权归原作者，教学评述引用）](/img/in-post/pretrain-paper-chinchilla-fig3.webp){: style="max-height: 330px"}
 
@@ -148,7 +148,7 @@ flowchart TB
 
 ![loss 随 N：左为 CPU 实验的拟合与外推——6 个点拟出一条线，第 7 个点落在延长线附近；右为固定算力下的 IsoFLOP 曲线](/img/in-post/scaling-laws-loss-vs-n.svg){: style="max-height: 340px"}
 
-- 双对数坐标下是直线；最优 loss 随算力 \(L_{opt} - E \propto C^{-0.178}\)：算力 ×10 可约 loss ×0.66，**减半要 ×49**
+- 双对数坐标下是直线；最优 loss 随算力 $$L_{opt} - E \propto C^{-0.178}$$：算力 ×10 可约 loss ×0.66，**减半要 ×49**
 - 拟合最常见的失败：cosine 中途的 loss 不可比、tokenizer 不一致、超参没随尺寸调、外推太远
 
 <!-- v -->
@@ -157,14 +157,14 @@ flowchart TB
 
 | 固定 C，把 N 缩小 k = 10 倍 | |
 |---|---|
-| 训练 loss | 只 **+0.053** nats（\(\Delta L \propto (\ln k)^2\)） |
+| 训练 loss | 只 **+0.053** nats（$$\Delta L \propto (\ln k)^2$$） |
 | 推理成本 | **1/10** |
 | 服务 100T token 的最优点 | 81B / 1.5T → **24B / 13.8T** |
 | 2024 年后的 D/N | 200–2000（「过训练」） |
 
-- 数据不够就重复：\(D' = U + UR^*(1 - e^{-R/R^*})\)，4 epoch 值 93%、16 epoch 值 66%，上限约 16 倍
-- 超参也要 scaling：\(\eta_{opt} \propto C^{-0.125}\)、\(B_{opt} \propto C^{0.33}\)——算力 ×10，lr −25%、batch ×2.1
-- Llama-3 405B：\(3.8 \times 10^{25}\) FLOPs = 2670 万 H100 小时 @ 40% MFU（实际 3084 万）
+- 数据不够就重复：$$D' = U + UR^*(1 - e^{-R/R^*})$$，4 epoch 值 93%、16 epoch 值 66%，上限约 16 倍
+- 超参也要 scaling：$$\eta_{opt} \propto C^{-0.125}$$、$$B_{opt} \propto C^{0.33}$$——算力 ×10，lr −25%、batch ×2.1
+- Llama-3 405B：$$3.8 \times 10^{25}$$ FLOPs = 2670 万 H100 小时 @ 40% MFU（实际 3084 万）
 
 ---
 
@@ -190,7 +190,7 @@ flowchart TB
 | Gopher 重复度 | 重复行 ≤ 30%、高频 n-gram 占比上限 | 关键词堆砌、模板文字 |
 
 - MinHash 112 个哈希估 Jaccard 到 ±0.04；LSH 14 × 8 阈值 0.72：J = 0.6 时 21% 成候选、0.8 时 92%
-- 模型打分的账：用 8B 给 15T 打分 \(2.4 \times 10^{23}\) FLOPs 是训练的 1/3——所以标注只花约 \(7 \times 10^{19}\)
+- 模型打分的账：用 8B 给 15T 打分 $$2.4 \times 10^{23}$$ FLOPs 是训练的 1/3——所以标注只花约 $$7 \times 10^{19}$$
 
 <!-- v -->
 
@@ -198,7 +198,7 @@ flowchart TB
 
 ![代码占比从 0 到 100%：网页 val loss 单调上升、代码 val loss 单调下降；第一份 25% 的代码让代码 loss 5.64 → 3.15，网页只 +0.11](/img/in-post/pretrain-e2e-mixture.svg){: style="max-height: 340px"}
 
-- 配比换算 \(w_i D / U_i\)：25% × 15T ÷ 约 0.5T 的独立数学数据 ≈ **7.5 epoch**——「15T」不是 15T 条不同的文本
+- 配比换算 $$w_i D / U_i$$：25% × 15T ÷ 约 0.5T 的独立数学数据 ≈ **7.5 epoch**——「15T」不是 15T 条不同的文本
 - 一次配比消融 1.8B × 350B token ≈ **2700 H100 小时**，差距常达 3–5 分；预算预留 1–3% 算力做消融
 - 领域数据靠分类器迭代召回：DeepSeekMath 四轮 14.7B → 120B
 
@@ -206,7 +206,7 @@ flowchart TB
 
 ## 05 · 训练配方与稳定性：每个数字都有来历
 
-**结论**：峰值 lr 随宽度降（μP ∝ 1/d、经验律 \(0.31\,C^{-0.125}\)）：7B 3e-4 → 70B 1.5e-4 → 405B 8e-5，GPT-3 的 6e-5 在同一条线上；batch 由梯度噪声尺度定、随训练 ramp。
+**结论**：峰值 lr 随宽度降（μP ∝ 1/d、经验律 $$0.31\,C^{-0.125}$$）：7B 3e-4 → 70B 1.5e-4 → 405B 8e-5，GPT-3 的 6e-5 在同一条线上；batch 由梯度噪声尺度定、随训练 ramp。
 
 ![四条 train loss 曲线：合适的 lr 2e-3 最低；太小（2e-4）降得慢、终点高 0.6；太大前期快但终点差；无 warmup 第 5 步冲到 8.65](/img/in-post/pretrain-05-lr-gone-wrong.svg){: style="max-height: 340px"}
 
@@ -228,7 +228,7 @@ flowchart TB
 | AdamW | β = (0.9, 0.95)、wd 0.1、clip 1.0 | 同 | 同 |
 | 精度 | FP32 | BF16 + FP32 主权重 | FP8 分块 + FP32 累加 |
 
-- weight decay 时间尺度 \(\tau = 1/(\eta\lambda)\)：7B 33K 步（7%）、405B 125K 步（13%）
+- weight decay 时间尺度 $$\tau = 1/(\eta\lambda)$$：7B 33K 步（7%）、405B 125K 步（13%）
 - 调度实验：WSD 1.464 < 常数 1.536 < cosine 1.578
 
 <!-- v -->
@@ -240,7 +240,7 @@ flowchart TB
 | 机制 | 监控曲线 | 开关 |
 |---|---|---|
 | attention logit 增长 | attention logit 最大值 | **QK-norm**：12,592 → 22 |
-| 输出 logit 漂移 | \(\lvert\log Z\rvert\) | **z-loss** 1e-4 |
+| 输出 logit 漂移 | $$\lvert\log Z\rvert$$ | **z-loss** 1e-4 |
 | 单步过大 | 梯度范数 | 裁剪 1.0、warmup、β₂ = 0.95 |
 
 <!-- v -->
@@ -250,7 +250,7 @@ flowchart TB
 ![step 833 附近：train loss 5.05 跳到 5.65 又回到 5.06，val 没动；梯度范数从 0.5 冲到 3.5 被裁剪挡住](/img/in-post/pretrain-05-real-spike.svg){: style="max-height: 300px"}
 
 - 大模型的处理：回退 100 步、跳 200–500 个 batch；405B 一次 8 千–1.6 万 GPU 小时
-- 硬件故障每 3 小时一次：checkpoint 5.7 TB，间隔 \(T_{opt} = \sqrt{2\delta\cdot\text{MTBF}}\)，异步保存让间隔短到 4–5 分钟、有效时间 > 90%
+- 硬件故障每 3 小时一次：checkpoint 5.7 TB，间隔 $$T_{opt} = \sqrt{2\delta\cdot\text{MTBF}}$$，异步保存让间隔短到 4–5 分钟、有效时间 > 90%
 - 「spike 是脏数据」——三个机制里两个是模型内部的数值问题
 
 ---
@@ -260,7 +260,7 @@ flowchart TB
 | 线 | 落点 |
 |---|---|
 | **按字符算账** | 每个「token 数」背后隐含一个词表；15T token 在 Llama 3 里多读 24% 字符；跨 tokenizer 比 bits/byte |
-| **算力怎么分** | 6ND 的三个变量分别被三篇约束：N 里有 2Vd，D 的上限是漏斗，定下后算步数与 checkpoint；推理 \(2ND_{inf}\) 把最优点推向小模型 |
+| **算力怎么分** | 6ND 的三个变量分别被三篇约束：N 里有 2Vd，D 的上限是漏斗，定下后算步数与 checkpoint；推理 $$2ND_{inf}$$ 把最优点推向小模型 |
 | **重复、epoch 与有效数据** | 同一个 D′ 公式：总量不够（4 epoch 值 93%）与某一类不够（25% ≈ 7.5 epoch）；去重要控制分布不是消灭 |
 | **消融外推** | 词表、常数、阈值、配比、超参——公式推不出的都靠小模型：03 给方法、04 给价格（2700 H100 小时）、05 给 μP 迁移 |
 
@@ -286,10 +286,10 @@ flowchart TB
 | 篇 | 一个数 / 一个公式 |
 |---|---|
 | 01 | 68,834 网页 → 16% → 38 MB；bits/byte 1.88 vs GPT-2 的 1.06 |
-| 02 | \(\text{FLOPs/字符} = \text{FLOPs/token} \div \text{字符/token}\)；128K 词表每字符 −15% |
-| 03 | \(L = E + A/N^\alpha + B/D^\beta\)、C = 6ND；k = 10 时 +0.053 nats、推理 1/10 |
+| 02 | $$\text{FLOPs/字符} = \text{FLOPs/token} \div \text{字符/token}$$；128K 词表每字符 −15% |
+| 03 | $$L = E + A/N^\alpha + B/D^\beta$$、C = 6ND；k = 10 时 +0.053 nats、推理 1/10 |
 | 04 | 240T → 15T → 1.3–5.4T；LSH 14 × 8 阈值 0.72；25% ≈ 7.5 epoch |
-| 05 | lr ∝ 1/d；\(\tau = 1/(\eta\lambda)\)；QK-norm 12,592 → 22；\(T_{opt} = \sqrt{2\delta\cdot\text{MTBF}}\) |
+| 05 | lr ∝ 1/d；$$\tau = 1/(\eta\lambda)$$；QK-norm 12,592 → 22；$$T_{opt} = \sqrt{2\delta\cdot\text{MTBF}}$$ |
 
 ---
 

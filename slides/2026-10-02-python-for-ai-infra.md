@@ -122,7 +122,7 @@ flowchart TB
 
 | 量 | 数 |
 |---|---|
-| 线程池默认大小 | \(\min(32, \text{cpu} + 4)\) |
+| 线程池默认大小 | $$\min(32, \text{cpu} + 4)$$ |
 | OS 线程栈 vs 协程 | 约 8 MB vs 几 KB |
 | `fork` | 只复制调用线程；3.14 起 Linux 默认 `forkserver` |
 | `/dev/shm` | 默认 64 MB——DataLoader worker 常撞 |

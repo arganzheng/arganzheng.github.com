@@ -165,7 +165,7 @@ def add(x_ptr, y_ptr, n, BLOCK: tl.constexpr):
 
 ## 06 · AxisInfo：编译器凭什么知道一条 load 可以 128 bit
 
-**结论**：三个量 **contiguity / divisibility / constancy** 的格与 gcd join，逐 op 传递；`splat + arange` 是 contiguity 的唯一来源，参数属性是 divisibility 的来源；\(\text{vec} = \min(128/\text{位宽},\ \text{contiguity},\ \text{alignment})\)，mask 用 constancy。
+**结论**：三个量 **contiguity / divisibility / constancy** 的格与 gcd join，逐 op 传递；`splat + arange` 是 contiguity 的唯一来源，参数属性是 divisibility 的来源；$$\text{vec} = \min(128/\text{位宽},\ \text{contiguity},\ \text{alignment})$$，mask 用 constancy。
 
 | 表达式 | contiguity, divisibility, constancy | 结果 |
 |---|---|---|
@@ -184,7 +184,7 @@ def add(x_ptr, y_ptr, n, BLOCK: tl.constexpr):
 
 ## 07 · layout 系统与 Linear Layout
 
-**结论**：**layout = 硬件位置（寄存器、lane、warp）→ 张量下标的函数，写在类型里**；`#blocked` / `#slice` / `#mma` / `#dot_op`；**Linear Layout = GF(2) 上的线性映射**，基向量表；转换代价由 \(dst^{-1} \circ src\) 逐维 `quotient` 判定；Coalesce 按 AxisInfo 定 `order` 与 `sizePerThread`。
+**结论**：**layout = 硬件位置（寄存器、lane、warp）→ 张量下标的函数，写在类型里**；`#blocked` / `#slice` / `#mma` / `#dot_op`；**Linear Layout = GF(2) 上的线性映射**，基向量表；转换代价由 $$dst^{-1} \circ src$$ 逐维 `quotient` 判定；Coalesce 按 AxisInfo 定 `order` 与 `sizePerThread`。
 
 | `[64, 64]` 默认 `#blocked` | 哪些位管什么 |
 |---|---|

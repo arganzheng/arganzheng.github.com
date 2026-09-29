@@ -44,7 +44,7 @@ flowchart TB
 
 | 篇 | 一句话骨架 | 必错边界 |
 |---|---|---|
-| 01 哈希与前缀和 | 「把见过的记下来」：\(\text{sum}(i, j] = \text{pre}[j] - \text{pre}[i]\) | `count[0] = 1`；原地哈希值 v 放下标 v − 1 |
+| 01 哈希与前缀和 | 「把见过的记下来」：$$\text{sum}(i, j] = \text{pre}[j] - \text{pre}[i]$$ | `count[0] = 1`；原地哈希值 v 放下标 v − 1 |
 | 02 双指针与滑动窗口 | 单调性：右扩不会让违规变合法、左收不会让合法变违规 | **含负数的「和 = k」不满足**——用前缀和 |
 | 03 单调栈与单调队列 | 弹出时结算：被弹出者的右侧第一个更大 = 当前元素、左侧 = 新栈顶 | 两端哨兵 0；窗口最值用单调队列 O(n) 不用堆 O(n log k) |
 
@@ -60,11 +60,11 @@ flowchart TB
 
 | 篇 | 一句话骨架 | 必错边界 |
 |---|---|---|
-| 04 链表 | 哑节点统一头特判；三指针反转先存 `nxt`；快慢指针找中点 / 判环 | Floyd \(a = (k-1)c + (c-b)\)；归并切分 `fast = head.next` |
+| 04 链表 | 哑节点统一头特判；三指针反转先存 `nxt`；快慢指针找中点 / 判环 | Floyd $$a = (k-1)c + (c-b)$$；归并切分 `fast = head.next` |
 | 05 二叉树 | **返回给父节点的是能继续向上延伸的链，答案在拐点处用全局变量更新** | 层序先记 `len(q)`；BST 验证带上下界 `(lo, hi)` 不是比父子 |
 | 06 图 | 五个算法：BFS、DFS、Kahn、并查集、Dijkstra；**BFS 入队时标记** | Kahn 出队数 < n 即有环；Dijkstra 堆 + 懒删除 O(E log E) |
 
-- 并查集路径压缩 + 按大小合并 O(α(n))；双向 BFS \(O(b^{d/2})\)
+- 并查集路径压缩 + 按大小合并 O(α(n))；双向 BFS $$O(b^{d/2})$$
 
 <aside class="notes" markdown="1">
 原文 /coding-interview-linked-list.html、/coding-interview-binary-tree.html、/coding-interview-graph-bfs-dfs-topological-union-find.html。
@@ -80,7 +80,7 @@ flowchart TB
 | 08 堆、Top-K、区间、贪心 | **第 K 大用大小为 K 的最小堆**；区间按起点排一趟扫、选最多不重叠按终点；贪心靠交换论证 | 双堆先进 `small` 再倒；会议室 = 起点排序 + 结束时间最小堆 |
 | 09 回溯 | 做选择 → 递归 → 撤销；排列用 `used[]`、组合用 `start` | `out.append(path[:])` 必须拷贝；**剪枝不改量级**：排列仍 O(n · n!) |
 
-- 子集 \(O(n \cdot 2^n)\)、括号 \(O(4^n/\sqrt n)\)、单词搜索 \(O(mn \cdot 3^L)\)
+- 子集 $$O(n \cdot 2^n)$$、括号 $$O(4^n/\sqrt n)$$、单词搜索 $$O(mn \cdot 3^L)$$
 
 <aside class="notes" markdown="1">
 原文 /coding-interview-binary-search.html、/coding-interview-heap-topk-intervals-greedy.html、/coding-interview-backtracking.html。
@@ -116,8 +116,8 @@ y = (att @ v).transpose(1, 2).contiguous().view(B, T, D)  # 拼回去要 contigu
 
 | 账 | 数 |
 |---|---|
-| 参数 | \(4D^2\)；FLOPs \(8TD^2 + 4T^2D\) |
-| 每 token KV | \(2LH_{kv}d \cdot\) bytes：Llama-3-8B 128 KB；GQA 缩 \(H/H_{kv}\) 倍 |
+| 参数 | $$4D^2$$；FLOPs $$8TD^2 + 4T^2D$$ |
+| 每 token KV | $$2LH_{kv}d \cdot$$ bytes：Llama-3-8B 128 KB；GQA 缩 $$H/H_{kv}$$ 倍 |
 
 <aside class="notes" markdown="1">
 原文 /coding-interview-attention-from-scratch.html。
@@ -132,8 +132,8 @@ y = (att @ v).transpose(1, 2).contiguous().view(B, T, D)  # 拼回去要 contigu
 | 量 | 数 / 公式 |
 |---|---|
 | GPT-2 small | 124,439,808 |
-| LayerNorm 反向 | \(\frac{1}{\sigma}\big(d\hat x - \overline{d\hat x} - \hat x\,\overline{d\hat x \odot \hat x}\big)\) |
-| softmax + CE 反向 | \(p - y\) |
+| LayerNorm 反向 | $$\frac{1}{\sigma}\big(d\hat x - \overline{d\hat x} - \hat x\,\overline{d\hat x \odot \hat x}\big)$$ |
+| softmax + CE 反向 | $$p - y$$ |
 | 残差 | 梯度直接相加——所以深了能训 |
 
 <aside class="notes" markdown="1">
@@ -150,7 +150,7 @@ y = (att @ v).transpose(1, 2).contiguous().view(B, T, D)  # 拼回去要 contigu
 |---|---|
 | top-p | 保留首个越界项 |
 | 蓄水池采样 | 第 i 个以 k / i 替换 |
-| 投机接受率 | \(1 - \text{TV}(p, q)\) |
+| 投机接受率 | $$1 - \text{TV}(p, q)$$ |
 
 <aside class="notes" markdown="1">
 原文 /coding-interview-tokenizer-and-decoding.html。
@@ -160,7 +160,7 @@ y = (att @ v).transpose(1, 2).contiguous().view(B, T, D)  # 拼回去要 contigu
 
 ## 17 · 手撕损失函数与训练算法
 
-**结论**：论文公式落成十行正确代码——DPO 四个序列 log 概率、初值 ln 2；**GAE 从末尾递推** \(A_t = \delta_t + \gamma\lambda A_{t+1}\)；PPO 取 `min`；**AdamW 衰减解耦**（加进梯度的是 L2，会被 \(\sqrt{\hat v}\) 归一化）；LoRA `B = 0` 初始化。
+**结论**：论文公式落成十行正确代码——DPO 四个序列 log 概率、初值 ln 2；**GAE 从末尾递推** $$A_t = \delta_t + \gamma\lambda A_{t+1}$$；PPO 取 `min`；**AdamW 衰减解耦**（加进梯度的是 L2，会被 $$\sqrt{\hat v}$$ 归一化）；LoRA `B = 0` 初始化。
 
 ```python
 # AdamW：衰减不进 m、v
@@ -169,7 +169,7 @@ p -= lr * (m/(1-b1**t)) / ((v/(1-b2**t)).sqrt() + eps)
 p -= lr * wd * p                      # 解耦：直接加在更新里
 ```
 
-- Adam 第一步移动约 η · sign(g)；每参数 16 字节训练状态；LoRA 参数 \(r(\text{in} + \text{out})\)
+- Adam 第一步移动约 η · sign(g)；每参数 16 字节训练状态；LoRA 参数 $$r(\text{in} + \text{out})$$
 
 <aside class="notes" markdown="1">
 原文 /coding-interview-losses-and-training-algorithms.html。
@@ -179,13 +179,13 @@ p -= lr * wd * p                      # 解耦：直接加在更新里
 
 ## 18 · 手撕经典 ML 与评测指标
 
-**结论**：**模型 = 目标 + 优化**——逻辑回归梯度 \(X^\top(p - y)/n\)、k-means 每步目标单调不增所以收敛；**AUC = （正样本秩和 − \(n_+(n_+ + 1)/2\)）/ \(n_+ n_-\)**，O(n log n)；conv = im2col + GEMM。
+**结论**：**模型 = 目标 + 优化**——逻辑回归梯度 $$X^\top(p - y)/n$$、k-means 每步目标单调不增所以收敛；**AUC = （正样本秩和 − $$n_+(n_+ + 1)/2$$）/ $$n_+ n_-$$**，O(n log n)；conv = im2col + GEMM。
 
 | 量 | 公式 |
 |---|---|
-| NDCG 折扣 | \(1/\log_2(i + 1)\) |
-| 卷积输出 | \(H_{out} = \lfloor (H + 2p - k)/s \rfloor + 1\) |
-| im2col | 大 \(k_h k_w\) 倍 |
+| NDCG 折扣 | $$1/\log_2(i + 1)$$ |
+| 卷积输出 | $$H_{out} = \lfloor (H + 2p - k)/s \rfloor + 1$$ |
+| im2col | 大 $$k_h k_w$$ 倍 |
 
 <aside class="notes" markdown="1">
 原文 /coding-interview-classical-ml-and-metrics.html。
@@ -202,7 +202,7 @@ p -= lr * wd * p                      # 解耦：直接加在更新里
 | 线程安全 LRU | `get` 也要锁——它改链表顺序 |
 | 有界阻塞队列 | `not_empty` / `not_full` 两个条件变量，`while` 防虚假唤醒 |
 | 线程池 | 异常进 Future 不吞掉 |
-| ring allreduce | 每 rank \(2\frac{N-1}{N}V\)，与 N 无关 |
+| ring allreduce | 每 rank $$2\frac{N-1}{N}V$$，与 N 无关 |
 | 矩阵乘法 | ikj 比 ijk 快 11 倍；n = 512 时分块只加循环开销 |
 | paged KV | fork 只加引用、写时复制一块 |
 

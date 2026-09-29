@@ -77,8 +77,8 @@ flowchart LR
 
 ![① x 乘三个矩阵得到 Q、K、V；② S = QKᵀ；③ 除 √d；④ 加 causal mask；⑤ softmax；⑥ 乘 V](/img/in-post/transformer-01-attention-by-hand.svg){: style="max-height: 400px"}
 
-- \(\text{Attention}(Q,K,V) = \text{softmax}(QK^\top/\sqrt d + M)\,V\)；t2 的权重 (0.27, 0.27, 0.45)，与 PyTorch 对拍差 \(6 \times 10^{-8}\)
-- 随机 \(q \cdot k\) 的标准差是 \(\sqrt d\)：不除，d = 128 时 softmax 一个 token 独占
+- $$\text{Attention}(Q,K,V) = \text{softmax}(QK^\top/\sqrt d + M)\,V$$；t2 的权重 (0.27, 0.27, 0.45)，与 PyTorch 对拍差 $$6 \times 10^{-8}$$
+- 随机 $$q \cdot k$$ 的标准差是 $$\sqrt d$$：不除，d = 128 时 softmax 一个 token 独占
 
 <!-- v -->
 
@@ -86,7 +86,7 @@ flowchart LR
 
 ![GPT-2 small 处理 The cat sat on the mat because it was tired：第 4 层第 11 头看上一个词，第 3 头把 it 指回 cat（0.84）](/img/in-post/transformer-01-gpt2-attention-heads.svg){: style="max-height: 400px"}
 
-- 多头不增加算量：h 个小乘法 = 一个大乘法，只多一个 \(W_O\)
+- 多头不增加算量：h 个小乘法 = 一个大乘法，只多一个 $$W_O$$
 - 换序实验：把输入打乱，attention 输出跟着换位——所以位置必须另给（GPT-2 查表 / Llama RoPE）
 
 ---
@@ -126,7 +126,7 @@ flowchart LR
 
 ## 03 · 手搓 GPT（上）：nanoGPT model.py 逐行
 
-**结论**：330 行、6 个类，结构本身（LayerNorm、CausalSelfAttention、MLP、Block）**不到 90 行**；与 HF GPT-2 对拍相对差 \(9 \times 10^{-5}\)。
+**结论**：330 行、6 个类，结构本身（LayerNorm、CausalSelfAttention、MLP、Block）**不到 90 行**；与 HF GPT-2 对拍相对差 $$9 \times 10^{-5}$$。
 
 ```python
 class Block(nn.Module):
@@ -193,9 +193,9 @@ flowchart LR
 
 **结论**：dense Transformer **没有隐藏参数**——每层四个 attention 矩阵 + 三个 SwiGLU 矩阵，乘层数加词表，Llama-3-8B 算出 **8,030,261,248**，精确到个位。
 
-\[
+$$
 N = L\big[d(2d + 2d_{kv}) + 3d \cdot d_{ff} + 2d\big] + 2Vd + d,\qquad d_{kv} = n_{kv}\,d_{head}
-\]
+$$
 
 | Llama-3-8B | 每层 | × 32 层 | 占比 |
 |---|---|---|---|
@@ -226,7 +226,7 @@ N = L\big[d(2d + 2d_{kv}) + 3d \cdot d_{ff} + 2d\big] + 2Vd + d,\qquad d_{kv} = 
 
 ## 06 · Attention 变体与 KV cache：MHA、GQA、MQA、MLA
 
-**结论**：KV cache 每 token = \(2\,L\,n_{kv}\,d_{head} \cdot\) bytes/elem，公式里**没有 \(n_h\)**——V3 128 头 61 层的 KV（68.6 KiB）比 8B 32 头（128 KiB）还小。
+**结论**：KV cache 每 token = $$2\,L\,n_{kv}\,d_{head} \cdot$$ bytes/elem，公式里**没有 $$n_h$$**——V3 128 头 61 层的 KV（68.6 KiB）比 8B 32 头（128 KiB）还小。
 
 | 模型 | 结构 | KV / token | 128K 上下文 | decode attention 强度 |
 |---|---|---|---|---|
@@ -260,14 +260,14 @@ flowchart LR
 ```
 
 - 解耦 RoPE：位置相关的旋转吸不进与位置无关的升维矩阵，所以单独留 64 维
-- decode 把 \(W_{UK}\)、\(W_{UV}\) 吸收进 \(W_Q\)、\(W_O\)：等价于 128 头共享一个 576 维 KV 头的 MQA，强度约 242；代价 attention FLOPs 约 3.4 倍，所以 prefill 走非吸收路径
+- decode 把 $$W_{UK}$$、$$W_{UV}$$ 吸收进 $$W_Q$$、$$W_O$$：等价于 128 头共享一个 576 维 KV 头的 MQA，强度约 242；代价 attention FLOPs 约 3.4 倍，所以 prefill 走非吸收路径
 
 <!-- v -->
 
 ### 物化的 S = QKᵀ 有多大，FlashAttention 省了什么
 
-- 8K 上下文、32 头：每层 \(s \times s\) 的 logits **4 GiB**（BF16），写出 HBM 再读回
-- FlashAttention：分块 + online softmax，从不物化 S，HBM 流量降到 \(O(s^2 d^2 / M)\)；算量不变
+- 8K 上下文、32 头：每层 $$s \times s$$ 的 logits **4 GiB**（BF16），写出 HBM 再读回
+- FlashAttention：分块 + online softmax，从不物化 S，HBM 流量降到 $$O(s^2 d^2 / M)$$；算量不变
 - 8B 单卡 8K 的最大并发约 **59**、128K 只有 **3**：KV 定并发
 - MLA 不是免费的：多算 3.4 倍 attention FLOPs、维护两条等价路径、专用 kernel、不能从 MHA checkpoint 直接转换
 
@@ -275,7 +275,7 @@ flowchart LR
 
 ## 07 · 位置编码与长上下文：RoPE 的波长
 
-**结论**：RoPE 把 \(d_{head}\) 维向量看成 64 对复数，每对以自己的波长旋转；8K 训练时 **14 对低频维度没转完一圈**——推到 32K 出现从未见过的相位。**不是装不下，是没见过。**
+**结论**：RoPE 把 $$d_{head}$$ 维向量看成 64 对复数，每对以自己的波长旋转；8K 训练时 **14 对低频维度没转完一圈**——推到 32K 出现从未见过的相位。**不是装不下，是没见过。**
 
 ![PI、NTK-aware、YaRN 三种方法对 64 个维度对的缩放比：PI 水平线 4，NTK-aware 从 1 平滑升到 4，YaRN 高频不动、低频插值、中间过渡](/img/in-post/positional-encoding-and-long-context-rope-scaling.svg){: style="max-height: 380px"}
 
@@ -306,7 +306,7 @@ flowchart LR
 
 | DeepSeek-V3，256 专家取 top-8 | B = 1 | B = 32 | B = 128 |
 |---|---|---|---|
-| 期望激活专家数 \(E[1 - (1 - k/E)^B]\) | 8 | **163** | 252 |
+| 期望激活专家数 $$E[1 - (1 - k/E)^B]$$ | 8 | **163** | 252 |
 | 每步读取的专家参数（FP8） | 37 GB | **434 GB** | 660 GB |
 | 对比 dense 70B（BF16） | 141 GB | 141 GB | 141 GB |
 
@@ -341,7 +341,7 @@ flowchart LR
 
 - 出路是专家并行（EP32 每卡约 37 GB、EP320 每卡 19.6 GB，简化模型），代价：
   - 每层**两次 all-to-all**：每 token 每层 dispatch FP8 56 KiB + combine BF16 112 KiB，是 TP-8 all-reduce 的 6.7 倍；4096 token 的 prompt 58 层共 38 GiB
-  - 每专家 GEMM 只有 \(Tk/E\) 行，强度比 dense 低 E/k = 32 倍，过 ridge 需一层里约 9600 个 token
+  - 每专家 GEMM 只有 $$Tk/E$$ 行，强度比 dense 低 E/k = 32 倍，过 ridge 需一层里约 9600 个 token
   - 最慢的卡决定全层时间 → 节点受限路由（每 token 最多 4 个节点）、aux-loss-free 均衡、冗余专家
 - TP-8 不行：把 2048 宽的专家切成 256 列太瘦，且不减少每卡读的专家数
 
@@ -349,7 +349,7 @@ flowchart LR
 
 ## 09 · MTP：改训练目标而不改主干
 
-**结论**：每个位置额外预测 \(t_{i+2}\)，信号密度 ×(1 + D)，主干被逼编码更远的未来；模块**顺序**喂真实 \(t_{i+1}\) 保持因果链（teacher forcing 的延伸）；推理时**丢弃**或当投机 draft。
+**结论**：每个位置额外预测 $$t_{i+2}$$，信号密度 ×(1 + D)，主干被逼编码更远的未来；模块**顺序**喂真实 $$t_{i+1}$$ 保持因果链（teacher forcing 的延伸）；推理时**丢弃**或当投机 draft。
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 220}}}%%
@@ -405,14 +405,14 @@ flowchart LR
 | 真正的约束 | B × s ≤ 52 万 token（64 GB / 128 KiB） |
 | prefill 8K | 峰值 0.14–0.16 s 是物理下限，60% MFU 约 0.25 s |
 
-- 训练 6ND（激活重算 8ND）；激活 \(sbh(34 + 5as/h)\)，8K 时每层 11 GiB 其中 10 GiB 是 s² 项
+- 训练 6ND（激活重算 8ND）；激活 $$sbh(34 + 5as/h)$$，8K 时每层 11 GiB 其中 10 GiB 是 s² 项
 - 对 decode，「模型多大」的度量是字节不是 FLOPs：FFN 砍一半下界不变，INT4 才降到 1.3 ms
 
 ---
 
 ## 11 · 浮点格式：指数位定范围，尾数位定精度
 
-**结论**：前向反向要**范围**、权重更新要**精度**——所以 BF16 计算 + **FP32 master weights**；\(\Delta w / w \sim 10^{-4}\) 低于 BF16 的单位舍入 \(2^{-8} = 0.004\)，1.0 + 0.001 会被舍回 1.0。
+**结论**：前向反向要**范围**、权重更新要**精度**——所以 BF16 计算 + **FP32 master weights**；$$\Delta w / w \sim 10^{-4}$$ 低于 BF16 的单位舍入 $$2^{-8} = 0.004$$，1.0 + 0.001 会被舍回 1.0。
 
 ![六种浮点格式的位域：FP32 1/8/23、TF32 1/8/10、BF16 1/8/7、FP16 1/5/10、E4M3 1/4/3、E5M2 1/5/2](/img/in-post/floating-point-six-formats-bit-layout.svg){: style="max-height: 330px"}
 
@@ -441,13 +441,13 @@ flowchart LR
 | 相消 | 方差 = E[x²] − E[x]² | Welford |
 
 - 两个 kernel 的差异在 ε 到 ε√k 之间是噪声（BF16 GEMM 相对 FP32 参考 10⁻³–10⁻²）；大几个数量级或有系统性符号才是 bug
-- QK-norm 把 attention logit 上界压到 \(\sqrt{d_{head}}\,g_q g_k \approx 11.3\,g_q g_k\)
+- QK-norm 把 attention logit 上界压到 $$\sqrt{d_{head}}\,g_q g_k \approx 11.3\,g_q g_k$$
 
 ---
 
 ## 12 · 量化、投机解码与 LoRA：三种方法，同一条 Roofline
 
-**结论**：都不改结构，各改一个变量——量化改 \(W_{bytes}\)、投机改每步的 m、LoRA 改训练时的 N；前两者都在**兑现 memory-bound 区间里空转的算力**，过 ridge 收益同时消失。
+**结论**：都不改结构，各改一个变量——量化改 $$W_{bytes}$$、投机改每步的 m、LoRA 改训练时的 N；前两者都在**兑现 memory-bound 区间里空转的算力**，过 ridge 收益同时消失。
 
 ![Llama-3-8B 在 H100 上的 T(m) 曲线：BF16 与 W4A16 两条访存平台、共同的算力斜线；量化把转折点从 295 移到约 79](/img/in-post/quantization-speculative-decoding-and-lora-time-model.svg){: style="max-height: 380px"}
 
@@ -461,7 +461,7 @@ flowchart LR
 
 | 方法 | 改的变量 | 8B 上的数 | 兑现条件 |
 |---|---|---|---|
-| INT4 g128 量化 | \(W_{bytes}\)：4.25 bit | 16 GB → 4.27 GB，4.8 → 1.27 ms | decode 且 B ≲ ridge/4 ≈ 79；prefill 反而多反量化 |
+| INT4 g128 量化 | $$W_{bytes}$$：4.25 bit | 16 GB → 4.27 GB，4.8 → 1.27 ms | decode 且 B ≲ ridge/4 ≈ 79；prefill 反而多反量化 |
 | 投机解码 | 每步的 m：验证 γ + 1 个 | α = 0.8、γ = 4：期望 3.36 token，加速 2.4 倍 | B ≲ ridge/(γ+1) ≈ 60；输出分布严格不变 |
 | LoRA | 训练时的可训练 N | 41.9M（0.52%），状态 128 GB → 16.7 GB | 省的是 16 B/参数的状态；激活不变、反向仍穿过每层（约 4N） |
 
@@ -486,11 +486,11 @@ flowchart LR
 
 | 段 | 账 | 数 |
 |---|---|---|
-| vision encoder（0.63B ViT，5476 patch） | \(2N_{vit}n_p + 4L_{vit}n_p^2 d_{vit}\) | 11.8 TFLOP，attention 二次项占 42%；一次性 |
+| vision encoder（0.63B ViT，5476 patch） | $$2N_{vit}n_p + 4L_{vit}n_p^2 d_{vit}$$ | 11.8 TFLOP，attention 二次项占 42%；一次性 |
 | connector | 决定 token 数 | MLP 不压缩 576 · 2×2 merge 1369 · resampler 定长；同一张图 576–6404 差 11 倍 |
 | decoder | prefill + KV | 193 TFLOP；**KV 428 MiB**，是 encoder 输出 21 MiB 的 **20 倍** |
 
-- 比值 \(2Ln_{kv}d_{head}/d_{model}\)：70B 20、8B 16、Qwen2-VL-7B 8
+- 比值 $$2Ln_{kv}d_{head}/d_{model}$$：70B 20、8B 16、Qwen2-VL-7B 8
 - cross-attention 注入（Llama 3.2 Vision）用 0.5B 参数换序列长度，图片 KV 800 → 200 MiB
 - 一分钟 720p 1 fps 视频 35,880 token；按像素预算，不按张数
 
@@ -523,7 +523,7 @@ flowchart TB
 | 线 | 落点 |
 |---|---|
 | 一份代码 | 01 六步手算 → 02 极小 GPT → 03 nanoGPT → 04 训起来 → 06/07/08 在它上改 GQA、RoPE、MoE → 09 挂 MTP |
-| 一条 Roofline | \(I_{weight} = B\)、\(I_{KV} = g\)；MLA 把 g 抬到 242；MoE 专家强度 Tk/E；量化转折 ridge/4、投机 ridge/(γ+1) |
+| 一条 Roofline | $$I_{weight} = B$$、$$I_{KV} = g$$；MLA 把 g 抬到 242；MoE 专家强度 Tk/E；量化转折 ridge/4、投机 ridge/(γ+1) |
 | KV 与上下文 | 128 KiB/token 打开成四个乘子；B × s ≤ 显存 / KV；长上下文贵在 HBM 字节数不在调度 |
 | 「参数量」拆成几个数 | N → N_gemm 7.5B → 总 / 激活 / 每步读取 → bytes/param 16 与 4.25 bit → 可训练 0.52% |
 | 字节里存了什么 | E4M3 / E5M2 分工、128 分块 scale、FP8 KV、FP8 dispatch；数值决定结构细节 |
@@ -537,7 +537,7 @@ flowchart TB
 - 「推理就是训练的前向」——decode 是 [B, 1]、无 mask 矩阵、靠 KV cache、瓶颈在访存
 - 「FFN 中间维度就是 4d」——Llama 是三矩阵 SwiGLU，14336 = 2/3 · 4d × 1.3 对齐
 - 「每 token FLOPs = 2 × 全部参数」——embedding 是查表，8B 是 2 × 7.5B
-- 「head 越多 KV 越大」——公式里只有 \(n_{kv}\)；V3 128 头 68.6 KiB
+- 「head 越多 KV 越大」——公式里只有 $$n_{kv}$$；V3 128 头 68.6 KiB
 - 「decode 慢是算力不够」——B = 1 算力 0.02 ms、访存 4.8 ms，距 ridge 两个数量级
 {: .fragments}
 
@@ -559,18 +559,18 @@ flowchart TB
 
 | 篇 | 一个公式 / 一个数 |
 |---|---|
-| 01 | \(\text{softmax}(QK^\top/\sqrt d + M)V\)；GPT-2 small 124,439,808 |
+| 01 | $$\text{softmax}(QK^\top/\sqrt d + M)V$$；GPT-2 small 124,439,808 |
 | 02 | 初始 loss = ln V；KV 128 KiB / token；KV cache 快 7.9 倍 |
 | 03 · 04 | `x = x + attn(ln_1(x))`；ln 65 = 4.17 → 1.66，7 分钟 |
-| 05 | \(N = L[d(2d + 2d_{kv}) + 3d\,d_{ff} + 2d] + 2Vd + d\) = 8,030,261,248 |
-| 06 | KV/token = \(2Ln_{kv}d_{head}\cdot\)bytes；MLA 68.6 KiB、强度 242 |
-| 07 | \(\lambda_i = 2\pi\cdot\text{base}^{2i/d_{head}}\)；交叉点 8B 28.6K；128K prefill 11 s |
-| 08 | \(E[1-(1-k/E)^B]\)：B = 32 → 163 个专家、434 GB |
-| 09 | \(\mathcal L_{main} + \lambda\bar{\mathcal L}_{MTP}\)；接受率 85–90%、1.8 倍 |
-| 10 | ridge = 989 / 3.35 ≈ 295；\(I_{weight} = B\)、\(I_{KV} = g\)；6ND |
+| 05 | $$N = L[d(2d + 2d_{kv}) + 3d\,d_{ff} + 2d] + 2Vd + d$$ = 8,030,261,248 |
+| 06 | KV/token = $$2Ln_{kv}d_{head}\cdot$$bytes；MLA 68.6 KiB、强度 242 |
+| 07 | $$\lambda_i = 2\pi\cdot\text{base}^{2i/d_{head}}$$；交叉点 8B 28.6K；128K prefill 11 s |
+| 08 | $$E[1-(1-k/E)^B]$$：B = 32 → 163 个专家、434 GB |
+| 09 | $$\mathcal L_{main} + \lambda\bar{\mathcal L}_{MTP}$$；接受率 85–90%、1.8 倍 |
+| 10 | ridge = 989 / 3.35 ≈ 295；$$I_{weight} = B$$、$$I_{KV} = g$$；6ND |
 | 11 | BF16 单位舍入 2⁻⁸；16 B / 参数；ε√k |
-| 12 | \(T(m) = \max(W_{bytes}/BW,\ 2Nm/F)\)；\((1-\alpha^{\gamma+1})/(1-\alpha)\) |
-| 13 | \(n_{img} = \lceil H/28\rceil\lceil W/28\rceil\)；KV / encoder 输出 = 20 |
+| 12 | $$T(m) = \max(W_{bytes}/BW,\ 2Nm/F)$$；$$(1-\alpha^{\gamma+1})/(1-\alpha)$$ |
+| 13 | $$n_{img} = \lceil H/28\rceil\lceil W/28\rceil$$；KV / encoder 输出 = 20 |
 
 ---
 

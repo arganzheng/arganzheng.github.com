@@ -102,7 +102,7 @@ flowchart TB
 | Slurm | 排队等 A 自己的配额 |
 
 - Volcano：`guarantee ≤ deserved ≤ capability`；Kueue：`nominalQuota` / `borrowingLimit` / `lendingLimit` + 三个抢占开关
-- 抢占代价 \(N_{gpu} \times (T_{since\_ckpt} + T_{restart})\)；30/32 死锁：两个任务各占一半卡等对方
+- 抢占代价 $$N_{gpu} \times (T_{since\_ckpt} + T_{restart})$$；30/32 死锁：两个任务各占一半卡等对方
 
 <aside class="notes" markdown="1">
 原文 /ai-job-scheduling-gang-queue-topology.html。
@@ -187,7 +187,7 @@ flowchart TB
 
 ## 08 · 可观测、成本与 FinOps：50 个点去了哪里
 
-**结论**：分配率 A = 85%、`SM_ACTIVE` U = 35%，\(E \approx A \times U\)；四层指标靠 `pod` / `namespace` join；**`GPU_UTIL` 只表示「有 kernel 在跑」**（NCCL 自旋也是 100%）；**按分配计费让闲置有主**。
+**结论**：分配率 A = 85%、`SM_ACTIVE` U = 35%，$$E \approx A \times U$$；四层指标靠 `pod` / `namespace` join；**`GPU_UTIL` 只表示「有 kernel 在跑」**（NCCL 自旋也是 100%）；**按分配计费让闲置有主**。
 
 | 50 个点 | 去向 | 对应篇 |
 |---|---|---|
