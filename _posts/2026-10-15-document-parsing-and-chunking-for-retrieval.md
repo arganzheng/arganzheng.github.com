@@ -76,6 +76,34 @@ Table: 文档解析梯级的选法
 
 成本量级：① 免费；② 本地 GPU，每页几十到几百毫秒；③ 托管每千页几美元，自托管 VLM 每页几百毫秒到秒级。一个百万页的语料，全部走 ③ 的托管 API 是几千美元、且数据出域；先 ① 再按需 ②③ 通常只有一两成文档要走 ③。
 
+```mermaid
+%% 图：OmniDocBench v1.6 上的文档解析分数——0.9B 参数、Apache 2.0 的 PaddleOCR-VL-1.6 得 96.34，高于 Gemini 3 Pro 的 92.91 与 GPT-5.2 的 86.59：一张 GPU 上的小模型比前沿通用模型更会读文档
+%%{init: {"xyChart": {"width": 760, "height": 340, "plotReservedSpacePercent": 60}, "themeVariables": {"xyChart": {"plotColorPalette": "#c0392b, #5b8fd6, #4d9a5c"}}}}%%
+xychart-beta
+    title "OmniDocBench v1.6 总分（1,651 页 · 10 类文档 · 5 种语言）"
+    x-axis ["PaddleOCR-VL-1.6（0.9B，开放）", "Gemini 3 Pro", "GPT-5.2"]
+    y-axis "分数" 80 --> 100
+    bar [96.34, 92.91, 86.59]
+```
+
+```mermaid
+%% 图：百万页语料的解析路由——全部先走梯级 ①（免费、毫秒），用第三章的失败信号（不连贯、表格数不对、重复行）把出问题的页路由到 ②（本地布局模型），仍失败或本来就是扫描件 / 公式的走 ③（VLM）；通常只有一两成要到 ③
+flowchart TB
+    ALL["100 万页"] --> R1["① 规则抽取<br/>全部过一遍，毫秒 · 免费"]
+    R1 -->|"约 70–80%：连贯 · 表格数对 · 无重复行"| OK1["入库"]
+    R1 -->|"失败信号"| R2["② 布局模型（Docling / MinerU）<br/>本地 GPU，每页几十到几百毫秒"]
+    R2 -->|"多数"| OK2["入库"]
+    R2 -->|"仍失败"| R3["③ VLM<br/>托管每千页几美元 · 自托管每页秒级"]
+    ALL -->|"扫描件 · 手写 · 公式：直接去"| R3
+    R3 --> OK3["入库（带逐块置信度）"]
+    classDef step fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef exp fill:#fdecea,stroke:#c0392b,color:#222
+    class ALL,R1,R2 step
+    class R3 exp
+    class OK1,OK2,OK3 ok
+```
+
 ## 三、三个静默失败
 
 ### 1. 阅读顺序
@@ -89,6 +117,27 @@ Table: 文档解析梯级的选法
 ### 3. 页眉、页脚与重复内容
 
 每页的页眉（文档名、章节名）、页脚（页码、版权）被当成正文，切块后每个块里都有同一段噪声——它拉近了所有块的 embedding（都含同样的词），降低了区分度。**检测**：找在超过 N% 的块里重复出现的行。布局模型（②③）能识别并剔除页眉页脚，① 通常不能。
+
+```mermaid
+%% 图：三个静默失败在流水线里都能过关——两栏按 y 坐标交错成胡话、表格压成一串数字、页眉页脚混进每个块；embedding 照常算、检索照常返回、答案照常生成，用户看到的是引用了读不通文字的答案；只有主动检测才能发现
+flowchart TB
+    subgraph F["三个静默失败"]
+        direction TB
+        F1["阅读顺序：两栏逐行交错<br/>每行通顺，拼起来是胡话"] ~~~ F2["表格：压成段落<br/>Q3 的 1.2 亿归到 Q1"] ~~~ F3["页眉页脚：每块都含同一段<br/>拉近所有块的 embedding"]
+    end
+    F --> E["embedding 照常算"] --> I["索引照常建"] --> S["检索照常返回"] --> G["答案照常生成<br/>引用了一段读不通的文字"]
+    subgraph D["检测（入库流水线的一步）"]
+        direction TB
+        D1["连贯性抽检：让模型判「这段通顺吗」<br/>或比对 ①② 两梯级同页输出的差异"] ~~~ D2["表格计数：解析出的表 vs 原文的表"] ~~~ D3["重复行：在 > N% 的块里出现的行"]
+    end
+    D -.->|"失败 → 路由到更高梯级"| F
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    classDef n fill:#f0f0f0,stroke:#888,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class F1,F2,F3,G bad
+    class E,I,S n
+    class D1,D2,D3 ok
+```
 
 ### 4. 其他常见的
 
@@ -118,6 +167,23 @@ Table: 分块策略对照
 
 相邻块重叠 10–20% 缓解边界切断。**父子块**（small-to-big）：用小块做检索（精确），返回它所属的大块（上下文完整）——检索用 200 token 的句子级块命中，给模型的是它所在的 1,000 token 的段落级父块。这是分块里性价比最高的技巧之一。
 
+```mermaid
+%% 图：按结构切与父子块——制度文档按标题层级切，一个条款一个块、表格不切断；检索用 200 token 的子块（精确命中「住宿标准」这一句），返回给模型的是它所属的 1,000 token 父块（整节 3.2 报销标准，上下文完整）
+flowchart TB
+    DOC["第三章 差旅"] --> S1["3.1 审批流程"] & S2["3.2 报销标准（父块，≈ 1,000 token）"] & S3["3.3 表格：各城市住宿上限（一表一块，不切断）"]
+    S2 --> C1["3.2.1 交通（子块 200）"] & C2["3.2.2 住宿（子块 200）"] & C3["3.2.3 餐饮（子块 200）"]
+    Q["查询：出差住宿报销上限"] -.->|"检索命中：精确"| C2
+    C2 -.->|"返回父块：上下文完整"| S2
+    classDef doc fill:#f0f0f0,stroke:#888,color:#222
+    classDef parent fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef child fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef q fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class DOC,S1,S3 doc
+    class S2 parent
+    class C1,C2,C3 child
+    class Q q
+```
+
 ## 五、让块带上上下文
 
 ### 1. 问题
@@ -135,6 +201,33 @@ Jina 2024 年提出的另一条路：先把整篇文档过 embedding 模型（�
 ### 4. 结构路径作为前缀
 
 最便宜的做法：把解析得到的标题层级（"第三章 差旅 > 3.2 报销标准 > 3.2.1 住宿"）作为前缀拼到块上。对制度、手册、代码（文件路径 + 类名 + 函数名）效果显著，零模型调用。它是 contextual retrieval 的确定性版本，两者可叠加。
+
+```mermaid
+%% 图：三种给块加上下文的做法——结构路径前缀（零模型调用，拼上「第三章 > 3.2 > 3.2.1」）、contextual retrieval（每块一次模型调用生成 50–100 token 的位置说明，文档放缓存前缀只付读价）、late chunking（整篇先过长上下文 embedding 再按块池化，不额外调模型）；Anthropic 的数字：contextual 让 top-20 失败率降 49%，加 rerank 降 67%
+flowchart TB
+    RAW["原始块：「本季度营收增长 12%」<br/>不知道是哪家公司、哪个季度"]
+    RAW --> A["① 结构路径前缀（免费）<br/>「ACME 2025 Q3 财报 > 经营回顾 > 营收」+ 块"]
+    RAW --> B["② contextual retrieval（每块一次模型调用）<br/>模型读全文 + 块 → 「本块来自 ACME 2025 Q3 财报的营收部分，比较了…」+ 块<br/>文档放缓存前缀：百万 token 语料 ≈ 1 美元"]
+    RAW --> C["③ late chunking（不额外调模型）<br/>整篇过长上下文 embedding → 每个 token 的向量已「看过」全文 → 按块边界池化"]
+    A & B --> IDX["embedding + BM25 索引"]
+    C --> IDX
+    classDef raw fill:#fdecea,stroke:#c0392b,color:#222
+    classDef m fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class RAW raw
+    class A,B,C m
+    class IDX ok
+```
+
+```mermaid
+%% 图：Anthropic 的 contextual retrieval 实验——以普通 embedding 的 top-20 检索失败率为 100%：contextual embedding + contextual BM25 降到 51%（−49%），再加 rerank 降到 33%（−67%）
+%%{init: {"xyChart": {"width": 760, "height": 340, "plotReservedSpacePercent": 60}, "themeVariables": {"xyChart": {"plotColorPalette": "#c0392b, #5b8fd6, #4d9a5c"}}}}%%
+xychart-beta
+    title "top-20 检索失败率（相对基线 = 100）"
+    x-axis ["普通 embedding", "+ contextual embedding + BM25", "+ rerank"]
+    y-axis "相对失败率" 0 --> 100
+    bar [100, 51, 33]
+```
 
 ## 六、元数据
 
@@ -155,6 +248,29 @@ Table: 块上要带的字段
 ### 2. 权限为什么必须在元数据里
 
 生成时过滤（模型看完所有检索结果再删掉用户无权看的）是错的：模型已经在上下文里看到了它不该看的内容，答案可能已经受它影响，注入攻击可以把它诱导出来。正确做法是**检索时过滤**：查询里带用户的权限，向量库只返回该用户可见的块——这要求每个块的元数据里有权限信息，且它与源系统的 ACL 同步（文档权限变了元数据要跟着变）。2024 年 Slack AI 被演示的数据抽取与 Microsoft 365 Copilot 的 SharePoint 过度共享问题（第七篇），根源都是"能搜到不该看的"。
+
+```mermaid
+%% 图：权限在检索时过滤，不在生成后过滤——生成后过滤：模型已经在上下文里看到了无权的块，答案可能已受影响、注入可以把它诱导出来，删掉引用也来不及；检索时过滤：查询带用户的权限，向量库只返回该用户可见的块，模型从头就看不到
+flowchart TB
+    subgraph WRONG["✗ 生成后过滤"]
+        direction LR
+        W1["查询"] --> W2["检索：返回全部相关块<br/>含用户无权看的 3 块"] --> W3["模型读全部 → 生成答案"] --> W4["删掉无权块的引用"]
+        W3 -.- WX["已经看到了：答案受影响 · 注入可诱导泄漏"]
+    end
+    subgraph RIGHT["✓ 检索时过滤"]
+        direction LR
+        R1["查询 + 用户的组 / 角色"] --> R2["向量库：filter acl ∈ 用户可见<br/>只返回可见块"] --> R3["模型只读可见块 → 生成"]
+        R2 -.- RX["前提：每块元数据里有 ACL，且与源系统同步"]
+    end
+    WRONG ~~~ RIGHT
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef n fill:#fff7e0,stroke:#c98a00,color:#222
+    class W1,W2,W3,W4 n
+    class WX bad
+    class R1,R2,R3 ok
+    class RX n
+```
 
 ### 3. 元数据从哪来
 

@@ -92,6 +92,26 @@ $$
 
 **`Retry-After` 优先**：供应商在 429 里给了等待秒数就用它，不要自己算——它知道你的窗口何时重置。Anthropic 与 OpenAI 的 429 都带。
 
+```mermaid
+%% 图：为什么退避要加抖动——一次过载让 1,000 个客户端同时收到 529；无抖动的指数退避让它们在 1 s、2 s、4 s 整点同时重试，形成一波波的第二次过载；full jitter 把每一轮的重试均匀撒在 0 到上限之间，供应商看到的是平滑的流量
+flowchart TB
+    subgraph NJ["无抖动：t = t₀ · 2ⁿ"]
+        direction LR
+        N0["1,000 个客户端<br/>同一秒收到 529"] --> N1["1 s 后：1,000 个同时重试<br/>→ 又一次过载"] --> N2["2 s 后：再来一波"] --> N3["4 s 后：再来一波…"]
+    end
+    subgraph FJ["full jitter：t = random(0, t₀ · 2ⁿ)"]
+        direction LR
+        F0["1,000 个客户端<br/>同一秒收到 529"] --> F1["0–1 s 内均匀散开重试"] --> F2["失败的在 0–2 s 内散开"] --> F3["供应商看到的是平滑的流量<br/>加上 Retry-After 就更准"]
+    end
+    NJ ~~~ FJ
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef n fill:#fff7e0,stroke:#c98a00,color:#222
+    class N0,F0 n
+    class N1,N2,N3 bad
+    class F1,F2,F3 ok
+```
+
 ### 2. 重试预算
 
 单个请求的重试次数上限是必要的，但不够：一个过载事件里，如果每个请求都重试 5 次，供应商收到的流量是平时的 5 倍，过载更久。用**重试预算**——单位时间内重试次数不超过总请求的某个比例（比如 10%）——超过预算就直接失败或走 fallback。这是 SRE 的老做法，在按 token 计费的场景里多了一个理由：重试预算也是钱的预算。
@@ -103,6 +123,24 @@ $$
 - **任务级**：整个 agent 任务失败后从头或从 checkpoint 重来。属于 L4 运行时；客户端不做。
 
 SDK 的默认重试（OpenAI 与 Anthropic 的官方 SDK 默认 2 次，指数退避）只覆盖请求级、只针对 429 / 5xx / 连接错误。修正级要自己写。
+
+```mermaid
+%% 图：重试的三个层次各归谁管——请求级（原样重发，SDK 默认做）、修正级（把错误信息送回让模型改一次，模型 API 特有，要自己写）、任务级（agent 任务从 checkpoint 重来，属于 L4 运行时）
+flowchart TB
+    E["一次调用出了问题"] --> C{"错在哪？"}
+    C -->|"429 · 5xx · 529 · 网络 · 超时<br/>原因在外部，会变"| R1["请求级：同一请求体重发<br/>指数退避 + 抖动 · 3–5 次 · 重试预算<br/>SDK 默认覆盖（2 次）"]
+    C -->|"200 但工具参数不是合法 JSON · 校验不过 · 截断<br/>原因在模型的输出"| R2["修正级：改一下再发<br/>错误信息作为 tool result 送回 / 提高 max_tokens<br/>限一次；每次都是新的付费调用；要自己写"]
+    C -->|"整个 agent 任务失败<br/>循环跑飞、预算耗尽"| R3["任务级：从头或从 checkpoint 重来<br/>属于 L4 运行时，客户端不做"]
+    C -->|"400 · 401 · 配额不足 · 内容过滤<br/>重发只是再花一次钱"| R0["不重试：修代码 / 告警 / 按产品逻辑处理"]
+    classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef n fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    class C dec
+    class R1 ok
+    class R2,R3 n
+    class R0 bad
+```
 
 ### 4. 流式中的重试
 
@@ -147,6 +185,23 @@ Table: 超时的四层
 
 这是第一篇"越界"一条的客户端版本：重试是无害的，直到它触发了一个不幂等的动作。
 
+```mermaid
+%% 图：重试怎么让订单重复——模型返回 create_order 的 tool_call，应用执行了，送回结果的那次请求超时；重试时模型没见过结果，又返回同一个 tool_call，应用再执行一次；解法是用 tool_call_id 做幂等键，第二次直接返回第一次的结果
+sequenceDiagram
+    participant App as 应用
+    participant API as 模型 API
+    participant Tool as create_order
+    App->>API: 请求 #1
+    API-->>App: tool_call（id = call_7，create_order）
+    App->>Tool: 执行 → 订单 A 创建
+    App->>API: 请求 #2：历史 + call_7 的结果
+    Note over App,API: ✗ 超时（请求可能没到，也可能到了）
+    App->>API: 重试请求 #2 … 或者重发 #1
+    API-->>App: 又一个 tool_call（call_7 或新 id，create_order）
+    Note over App: 没有幂等键：再执行 → 订单 B，重复了
+    Note over App,Tool: 有幂等键：查到 call_7 已执行 → 直接返回订单 A 的结果，不再调用
+```
+
 ### 3. 服务端状态下的重复
 
 用 `previous_response_id` 链式调用时，一次超时后重试会在服务端产生两条分叉的响应。要么用返回的 id 去重（以第一条成功的为准），要么把状态放在客户端（第二篇第六章）。
@@ -164,6 +219,24 @@ Table: 超时的四层
 ### 3. 客户端限流器
 
 不要等供应商 429 再退避——那已经浪费了一次往返，而且多个实例同时撞限会放大。在客户端放一个**按模型的令牌桶**（容量 = 你的 TPM 额度打九折，按 token 而不只按请求扣），请求前扣 token（用第八章的计数），响应后按 usage 校正。多租户的应用再加一层**按租户的公平队列**，防止一个租户吃光额度。这是 L6 网关的核心功能之一，在没有网关的时候客户端要自己做。
+
+```mermaid
+%% 图：客户端限流器的两层——按租户的公平队列防止一个租户吃光额度，按模型的令牌桶把容量定在供应商 TPM 额度的九折、发送前按估算的 token 扣、响应后按 usage 校正、并用限流头动态调整
+flowchart LR
+    T1["租户 A 的请求"] & T2["租户 B 的请求"] & T3["租户 C 的请求"] --> FQ["按租户的公平队列<br/>轮转取用，单租户有上限"]
+    FQ --> TB["按模型的令牌桶<br/>容量 = TPM 额度 × 0.9<br/>发送前扣估算的 token"]
+    TB -->|"有令牌"| SEND["发送"]
+    TB -->|"没令牌"| WAIT["本地等待<br/>（不去撞 429）"]
+    SEND --> RESP["响应"]
+    RESP -->|"usage 校正扣除量"| TB
+    RESP -->|"x-ratelimit-remaining / reset<br/>喂回桶的速率"| TB
+    classDef step fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef n fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class T1,T2,T3 n
+    class FQ,TB,SEND,RESP step
+    class WAIT ok
+```
 
 ### 4. 从限流头调整
 
@@ -210,6 +283,22 @@ Table: 四家的 token 计数方式
 ### 1. 熔断
 
 对一个模型 / 供应商的错误率或超时率在滑动窗口内超过阈值（比如 30 秒内 20%），熔断器打开：后续请求不再发给它，直接走 fallback；隔一段时间放一个探测请求，成功则半开、逐步恢复。这防止了过载事件里你的重试雪崩到已经不健康的端点。
+
+```mermaid
+%% 图：熔断器的三个状态——关闭时正常放行并统计错误率，30 秒窗口内错误率超过 20% 就打开、请求直接走 fallback，等待期过后半开放一个探测请求，成功则关闭、失败则重新打开
+stateDiagram-v2
+    direction LR
+    [*] --> Closed
+    Closed: 关闭 — 正常放行
+统计滑动窗口内的错误率 / 超时率
+    Open: 打开 — 不再发给它
+请求直接走 fallback
+    HalfOpen: 半开 — 放一个探测请求
+    Closed --> Open: 30 s 内错误率 > 20%
+    Open --> HalfOpen: 等待期到（如 30 s）
+    HalfOpen --> Closed: 探测成功 → 逐步恢复流量
+    HalfOpen --> Open: 探测失败
+```
 
 ### 2. fallback 的层次
 

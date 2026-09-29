@@ -75,6 +75,26 @@ Table: 三种结构化接入的对照
 
 模型对**语义层**生成查询（"华东区 Q3 营收" → 指标 × 维度 × 过滤），语义层编译成 SQL——业务规则写一次、对所有查询生效、可审查、可版本化。dbt 的 semantic layer、Cube、各 BI 工具的指标层都是这一类；没有现成工具时，一份几十个概念的 YAML 加一个编译器也能起步。语义层还是**权限**的落点：哪些指标哪些角色能看，在这里定义，模型无法绕过。
 
+```mermaid
+%% 图：裸 schema 与语义层——对裸表生成 SQL，模型要自己猜 cust_stat_cd = 'A' 是活跃、营收要排除退款、客户到订单经过哪三张中间表，Spider 2.0 上只有两成对；加一层语义层后模型只需把「华东区 Q3 营收」组合成指标 × 维度 × 过滤，业务规则写一次、编译成 SQL、可审查、权限也在这里
+flowchart TB
+    subgraph RAW["✗ 对裸 schema 生成 SQL（Spider 2.0：约两成对）"]
+        direction LR
+        Q1["华东区 Q3 营收"] --> M1["模型：猜 cust_stat_cd 是什么 · 营收要不要减退款 · 客户怎么 join 到订单"] --> S1["语法正确、业务错误的 SQL<br/>可能全表扫描几十亿行"]
+    end
+    subgraph SEM["✓ 对语义层生成查询"]
+        direction LR
+        Q2["华东区 Q3 营收"] --> M2["模型：指标 = 营收 · 维度 = 区域 · 时间 = 2026 Q3"] --> L["语义层编译：<br/>营收 = SUM(amount) WHERE paid AND type != internal<br/>区域 = customers.region · 客户 →(1:n) 订单"] --> S2["正确的 SQL + 权限检查（这个角色能看营收吗）"]
+    end
+    RAW ~~~ SEM
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef n fill:#fff7e0,stroke:#c98a00,color:#222
+    class Q1,Q2 n
+    class M1,S1 bad
+    class M2,L,S2 ok
+```
+
 ### 3. 检索的角色
 
 几百张表、几千个指标时，模型不能把整个语义层放进上下文（L2 的预算）。检索在这里的任务是**找到相关的概念**——对指标与维度的名字、描述、同义词做词法 + 向量检索（第四篇），取 top-10 放进上下文，再让模型组合。这是"检索找对象、结构化查数据"的模式，第五章展开。
@@ -82,6 +102,23 @@ Table: 三种结构化接入的对照
 ### 4. 验证
 
 生成的查询在执行前要过：语法检查、只读权限、行数与成本上限（EXPLAIN 估算）、超时；执行后把结果（截断）与 SQL 一起给模型，让它检查结果是否合理（空结果、量级异常）——这是 L4 工具调用循环的一个实例。评测集是（问题，正确 SQL 或正确结果）对，从真实的 BI 查询里采。
+
+```mermaid
+%% 图：生成的 SQL 执行前后的门——执行前过语法检查、只读权限、EXPLAIN 成本与行数上限、超时四道门；执行后把截断的结果与 SQL 一起回给模型自检（空结果？量级异常？）；这是 L4 工具调用循环在数据查询上的实例
+flowchart TB
+    G["模型生成的查询"] --> D1{"语法"} -->|"过"| D2{"只读？"} -->|"过"| D3{"EXPLAIN：<br/>成本 · 行数上限"} -->|"过"| D4{"超时设置"} --> X["执行"]
+    D1 & D2 & D3 -->|"不过"| E["错误作为工具结果送回<br/>模型改写重试一次"]
+    X --> R["结果截断（前 20 行 + 总行数 + 统计）+ 原 SQL"]
+    R --> C["模型自检：空结果？量级异常？<br/>合理则回答，否则改查询"]
+    classDef step fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class G,X,R step
+    class D1,D2,D3,D4 dec
+    class E bad
+    class C ok
+```
 
 ## 三、本体
 
@@ -97,6 +134,30 @@ Table: 三种结构化接入的对照
 - **动作**：模型不只查，还能做——但只能做本体定义的、有类型、有校验、有权限的动作，不能碰裸 API 或裸表。"给订单 #123 改派到华东仓"是一个动作，它检查订单状态允许改派、华东仓有库存、发起人有权限，然后落库并记审计。
 
 第二样是本体在 agent 时代重新流行的原因：**它把"agent 能做的错事"结构性地压小了**。L1 第一篇的越界问题（PocketOS 的删库）在本体里不会发生——没有"删除卷"这个动作，或者它要求审批。这就是应用地图把本体列为业务侧 harness 案例的理由：它做的事与 coding agent 的沙箱、权限模型、验证循环一一对应，只是对象从文件变成了业务实体。L4 会从 agent 运行时的角度再讲一次。
+
+```mermaid
+%% 图：本体的四样东西与它为什么是 harness——对象类型与属性、对象间的关系（沿关系导航替代 join）、每类对象允许的动作、动作的校验与权限；agent 只能通过动作改数据，「给订单 #123 改派到华东仓」要过状态允许、库存足够、发起人有权限三道校验再落库带审计；没有「删除卷」这个动作，越界在结构上就不可能
+flowchart TB
+    subgraph ONT["本体"]
+        direction LR
+        C["客户<br/>属性：区域 · 状态"] -->|"拥有"| O["订单<br/>属性：状态 · 金额"]
+        O -->|"关联"| D["设备<br/>属性：型号 · 位置"]
+        O -->|"发货自"| W["仓库<br/>属性：库存"]
+    end
+    A["agent：给这个客户的未完成订单改派到华东仓"] -->|"导航：客户 → 订单（未完成）"| O
+    O -->|"动作：改派(订单, 仓库)"| ACT["校验：订单状态允许改派？<br/>华东仓有库存？<br/>发起人有权限？"]
+    ACT -->|"全过"| DB["落库 + 审计记录"]
+    ACT -->|"任一不过"| REJ["拒绝，原因回给 agent"]
+    N["裸 API / 裸表：agent 碰不到<br/>没有「删除卷」这个动作"] -.-> ONT
+    classDef obj fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef act fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    class C,O,D,W obj
+    class A,ACT act
+    class DB ok
+    class REJ,N bad
+```
 
 ### 3. 与检索的关系
 
@@ -125,6 +186,28 @@ Table: 三种结构化接入的对照
 
 Microsoft 2024 年 11 月的 **LazyGraphRAG** 把大部分工作推到查询时：索引阶段只做便宜的实体抽取（NLP 方法而不是模型）与社区结构，不预生成摘要；查询时先用向量 / 词法检索找相关块，再沿图扩展、按需让模型摘要——索引成本降到接近普通向量索引，全局问题的质量接近完整 GraphRAG。LightRAG 一类开源变体走类似的路：双层检索（实体级 + 关系级）加轻量图。判断方向：**图的价值在查询时的遍历，不一定要在索引时把一切都算好**。
 
+```mermaid
+%% 图：GraphRAG 与 LazyGraphRAG 把工作放在哪——GraphRAG 在索引时对全部文档跑模型抽实体关系、Leiden 社区检测、再为每个社区跑模型写摘要，索引成本是向量索引的几十到几百倍；LazyGraphRAG 索引时只做便宜的 NLP 实体抽取与社区结构，查询时先向量 / 词法找相关块、沿图扩展、按需让模型摘要
+flowchart TB
+    subgraph G["GraphRAG（2024-07）：重索引、轻查询"]
+        direction LR
+        G1["每个块过模型：抽实体与关系<br/>（每块一次生成调用）"] --> G2["建图 → Leiden 层次聚类"] --> G3["每个社区过模型：写摘要"] --> G4["查询：全局问题 map-reduce 社区摘要<br/>局部问题取实体邻域 + 原文"]
+    end
+    subgraph L["LazyGraphRAG（2024-11）：轻索引、重查询"]
+        direction LR
+        L1["NLP 抽实体（不调模型）+ 社区结构"] --> L2["查询：向量 / 词法先找相关块"] --> L3["沿图扩展到相关实体与块"] --> L4["按需让模型摘要这一小片"]
+    end
+    G ~~~ L
+    G1 -.- GC["索引：百万 token 几十美元；千万 token 几百到几千美元；文档变了重抽重聚类"]
+    L1 -.- LC["索引：接近普通向量索引；全局问题质量接近完整 GraphRAG"]
+    classDef exp fill:#fdecea,stroke:#c0392b,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef n fill:#fff7e0,stroke:#c98a00,color:#222
+    class G1,G3,GC exp
+    class G2,G4,L2,L3,L4 n
+    class L1,LC ok
+```
+
 ### 4. 什么时候值得
 
 | 场景 | 值得吗 |
@@ -148,6 +231,21 @@ Table: 结构化知识在不同场景下是否值得
 ### 2. 结构化结果怎么进上下文
 
 结构化查询的结果是表格或对象列表，直接塞进上下文有两个问题：量（一万行）与形式（模型读 CSV 不如读 markdown 表）。做法：截断加聚合（前 20 行 + 总行数 + 关键统计）、markdown 表或紧凑 JSON、字段名用业务名而不是列名、大结果卸载到文件留引用（L2 第四篇）。让模型看"华东区 Q3 营收 1.2 亿，同比 +8%，前五客户如下表"，而不是一万行原始订单。
+
+```mermaid
+%% 图：「检索找对象，结构化查数据」的通用模式——用户的自然语言先经向量 / 词法检索找到相关的概念或对象（哪个指标、哪个客户），再用 SQL / 本体 / 图拿到精确的数据与关系，结构化结果聚合、截断、换业务字段名后再进上下文，模型看到的是「1.2 亿，同比 +8%，前五客户如下」而不是一万行订单
+flowchart TB
+    Q["华东区去年最大的客户<br/>最近有什么投诉？"] --> R["① 检索找对象<br/>向量 / 词法：概念「营收」「投诉工单」· 实体「华东区」"]
+    R --> S["② 结构化查数据<br/>SQL：华东区去年营收 top-1 客户<br/>本体：客户 → 工单（投诉，近 90 天）"]
+    S --> AGG["③ 聚合与整形<br/>前 20 行 + 总数 + 统计 · 业务字段名 · markdown 表<br/>大结果卸载留引用"]
+    AGG --> GEN["④ 生成<br/>「客户 X（1.2 亿），近 90 天 3 起投诉，涉及…（工单 #…）」"]
+    classDef q fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef step fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class Q q
+    class R,S,AGG step
+    class GEN ok
+```
 
 ### 3. 在 agentic 检索里
 

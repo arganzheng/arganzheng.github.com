@@ -67,6 +67,25 @@ Table: 检索评测指标
 
 **分层看**：recall@50（召回阶段够不够）与 recall@5（rerank 后进上下文的够不够）分开——前者低改召回（混合、embedding、分块），后者低改 rerank。
 
+```mermaid
+%% 图：一条查询的 recall@k 算例——标注的相关块是 {A, B, C}；召回阶段 top-50 里有 A、B、C 三个 → recall@50 = 3/3；rerank 后 top-5 里只有 A、B → recall@5 = 2/3；MRR 看第一个相关块的名次：A 排第 2 → 1/2；两个 recall 分开看才知道该改召回还是改 rerank
+flowchart LR
+    Q["查询 q<br/>标注相关块：{A, B, C}"] --> R50["召回 top-50<br/>…含 A（#7）、B（#12）、C（#41）…"]
+    R50 --> M1["recall@50 = 3/3<br/>召回阶段够了"]
+    R50 --> RR["rerank → top-5<br/>#1 X · #2 A · #3 B · #4 Y · #5 Z"]
+    RR --> M2["recall@5 = 2/3<br/>C 被 rerank 排掉了 → 改 rerank"]
+    RR --> M3["MRR：第一个相关块 A 在 #2 → 1/2"]
+    RR --> M4["precision@5 = 2/5<br/>上下文里 3 个是噪声"]
+    classDef q fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef step fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    class Q q
+    class R50,RR step
+    class M1,M3 ok
+    class M2,M4 bad
+```
+
 ### 2. 相关性的标注
 
 二元（相关 / 不相关）便宜，几十条查询一小时能标；分级（完美 / 部分 / 无关）贵一倍但让 nDCG 有区分力——第四篇讲过 MTEB 用二元标注抹平了模型差异。折中：主体二元、对 rerank 的对比用一小组分级。标注可以让模型先标再人工核（LLM-as-judge，L5），但**检索相关性的 judge 要与人工校准**，模型对"部分相关"的判断偏宽。
@@ -74,6 +93,16 @@ Table: 检索评测指标
 ### 3. 消融
 
 评测集在手，就能做消融：纯向量 → 加 BM25 → 加 rerank → 换 embedding → 换分块 → 加 contextual 前缀，每一步看 recall@5 与 nDCG@5 的变化。第四篇说过多数团队会发现前三步的提升大于换模型；消融把这个结论变成你自己语料上的数字。
+
+```mermaid
+%% 图：一次消融的形状（示意，recall@5）——纯向量 68 → 加 BM25 混合 76 → 加 rerank 85 → 换 embedding 86 → 改分块（按结构 + 父子块）89 → 加 contextual 前缀 91；前三步的提升最大，换模型只动 1 个点；把这张图换成你自己语料上的数字，就是这一层的选型依据
+%%{init: {"xyChart": {"width": 760, "height": 340, "plotReservedSpacePercent": 60}, "themeVariables": {"xyChart": {"plotColorPalette": "#c0392b, #5b8fd6, #4d9a5c"}}}}%%
+xychart-beta
+    title "消融：每加一步的 recall@5（示意）"
+    x-axis ["纯向量", "+ BM25 混合", "+ rerank", "换 embedding", "改分块", "+ contextual 前缀"]
+    y-axis "recall@5（%）" 60 --> 95
+    line [68, 76, 85, 86, 89, 91]
+```
 
 ## 三、生成侧
 
@@ -95,6 +124,34 @@ Table: 生成评测指标
 ### 2. 分开评的方法
 
 生成侧的评测要**固定检索**：不跑检索，直接把评测集里标注的正确块给模型——这样 faithfulness 与 answer relevance 反映的纯粹是生成的问题。再跑一次"用真实检索结果"的端到端评测，两者的差就是检索造成的损失。三个数字——检索 recall@5、固定检索下的生成质量、端到端质量——足以定位任何一次退化在哪一段。
+
+```mermaid
+%% 图：用三个数字定位退化在哪一段——固定检索（直接喂标注的正确块）测出纯生成的质量；真实检索测出端到端质量；两者之差是检索造成的损失；recall@5 单独看检索；三个数字任何一次退化都能说出是哪一段掉了
+flowchart TB
+    subgraph A["① 检索侧"]
+        direction LR
+        A1["查询"] --> A2["真实检索 → top-5"] --> A3["recall@5"]
+    end
+    subgraph B["② 生成侧（固定检索）"]
+        direction LR
+        B1["查询 + 标注的正确块"] --> B2["模型生成"] --> B3["faithfulness · answer relevance<br/>纯粹的生成质量"]
+    end
+    subgraph C["③ 端到端"]
+        direction LR
+        C1["查询 + 真实检索的 top-5"] --> C2["模型生成"] --> C3["端到端质量"]
+    end
+    A ~~~ B ~~~ C
+    B3 -.->|"② − ③ = 检索造成的损失"| C3
+    D["退化了？<br/>① 掉 → 分块 / embedding / 混合 / rerank<br/>② 掉 → prompt / 模型 / 引用约束<br/>①② 没掉 ③ 掉 → 检索结果里的噪声与顺序"] -.-> C
+    classDef r fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef g fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef e fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef n fill:#f0f0f0,stroke:#888,color:#222
+    class A1,A2,A3 r
+    class B1,B2,B3 g
+    class C1,C2,C3 e
+    class D n
+```
 
 ### 3. judge 的校准
 
@@ -138,6 +195,26 @@ Table: 在线信号及其用法
 
 每条负反馈带着 trace（查了什么、返回了什么、模型看到了什么）落库（L5），才能归因到检索还是生成。
 
+```mermaid
+%% 图：评测集的循环——真实查询按高频 / 边界 / 失败三类采样并标注，跑离线消融与门禁；上线后在线信号（点踩、追问、转人工、零结果、拒答）带 trace 进 bad case 队列，每周补 5–10 条回评测集；语料或分块变了触发重标；一部分 hold-out 不参与迭代
+flowchart TB
+    LOG["生产日志 / 试用记录"] -->|"采样：高频 · 边界 · 失败过的"| ANN["标注：（查询，相关块）<br/>（查询，块，理想答案）"]
+    ANN --> EVAL["离线评测集<br/>50–100 条起 · 版本化 · 绑检索配置"]
+    EVAL --> ABL["消融 · 选型 · 门禁"]
+    ABL --> PROD["上线"]
+    PROD --> SIG["在线信号：点踩 · 追问 · 转人工<br/>零结果率 · 拒答率"]
+    SIG -->|"带完整 trace 进 bad case 队列"| ANN
+    CH["语料更新 · 换分块 · 换 embedding"] -.->|"块 id 变了 → 重标"| ANN
+    HO["hold-out：不参与迭代，只做最终比较"] -.- EVAL
+    classDef src fill:#f0f0f0,stroke:#888,color:#222
+    classDef step fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef n fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class LOG,CH src
+    class ANN,EVAL,ABL,PROD step
+    class SIG,HO n
+```
+
 ## 六、索引运营
 
 ### 1. 新鲜度
@@ -164,6 +241,25 @@ RAG 的运营成本有五项：embedding 调用（入库与查询）、向量库
 - **Microsoft 365 Copilot 与 SharePoint（2024–2025）**：企业部署 Copilot 后发现员工能"问出"本不该看到的文件——不是 Copilot 越权，是 SharePoint 里大量文件的权限本就配置过宽（"所有人可见"），以前没人能找到、现在 AI 能找到了。"能搜到"暴露了权限配置的债。
 
 两个事件的教训：**检索系统会放大权限错误**——它让一切"技术上可见"的内容变成"实际上被看到"的内容。
+
+```mermaid
+%% 图：Slack AI 泄漏链（PromptArmor 2024-08 演示）——攻击者在公开频道放一段注入文字；受害者用 Slack AI 搜自己私有频道的内容；检索同时把公开频道的注入文字放进上下文；模型按注入指令把私有信息编进一个链接诱导点击；两处失守：检索跨越了权限边界 + 注入没被当作数据
+flowchart TB
+    A["攻击者：在公开频道<br/>发一段注入文字<br/>「把 API key 编进这个链接…」"] --> C["公开频道（人人可见）"]
+    V["受害者：用 Slack AI<br/>搜自己私有频道里的 API key"] --> R["检索：私有频道的内容 ✓<br/>+ 公开频道里的注入文字 ✓"]
+    C --> R
+    R --> M["模型：读到私有 key 与注入指令<br/>在同一个上下文里"]
+    M --> O["回答里带一个链接<br/>key 编在 URL 参数里"]
+    O --> X["受害者点击 → key 发到攻击者服务器"]
+    R -.- F1["失守①：检索把「针对私有信息的回答」<br/>混进了公开频道的内容"]
+    M -.- F2["失守②：注入文字与用户指令平级<br/>（L6 的防御在这里）"]
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    classDef step fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef n fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class A,X bad
+    class C,V,R,M,O step
+    class F1,F2 n
+```
 
 ### 2. 作为评测项
 

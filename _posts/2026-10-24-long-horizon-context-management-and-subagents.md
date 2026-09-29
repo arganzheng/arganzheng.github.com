@@ -52,6 +52,25 @@ Table: L2 的上下文策略在三个 harness 里的实现
 
 `spill/` 是一个独立包组——"把全文存到模型上下文之外，返回一个带取回指引的定位符"——分三个包：存储服务（`spill`）、本地文件系统后端（`spill-local`）、结果策略（决定什么时候溢出）。它是 L2 第四篇"卸载"原则的一等实现：工具返回超过阈值不进上下文，模型看到的是"内容已存为 `spill://…`，共 N 行，前几行如下，用 `read` 取回"。作为独立包组的意义是**可替换**：把本地后端换成对象存储、把策略换成按工具类型的阈值，不动循环。
 
+```mermaid
+%% 图：DeepSeek Harness 的 spill 包组——工具返回先过结果策略（超阈值？按工具类型？），超了就交给存储服务写到本地文件系统后端（可换成对象存储），上下文里只进一个定位符「spill://…，共 N 行，前几行如下，用 read 取回」；策略、存储、后端三个包各自可替换，循环不动
+flowchart TB
+    T["工具返回：30K token 的日志"] --> P{"spill-policy<br/>结果策略：超阈值？"}
+    P -->|"否"| IN["原样进上下文"]
+    P -->|"是"| S["spill<br/>存储服务"]
+    S --> B["spill-local<br/>本地文件系统后端<br/>（可换：对象存储）"]
+    S --> LOC["上下文里只进定位符：<br/>spill://run-7/tool-12 · 共 4,210 行<br/>前 10 行预览 · 用 read 取回"]
+    LOC -.->|"模型需要时 read(定位符, 范围)"| B
+    classDef step fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef ext fill:#f0f0f0,stroke:#888,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class T,S,IN step
+    class P dec
+    class B ext
+    class LOC ok
+```
+
 ### 2. Codex 的截断
 
 Codex 没有单独的 spill 概念，工具返回在处理器里按上限截断（shell 输出的行数与字节上限），大内容（文件、图片）用专门的工具按需读取（`view_image`、文件读取工具的范围参数）。仓库规范里对"模型可见上下文"有硬规则："不能有无界的项——注入模型上下文的一切都要有有界大小与硬上限；**没有大于 10K token 的项**；能超过 1K token 的新单项按 P0 审查。"这是"卸载"作为代码审查规则的形态。
@@ -73,6 +92,33 @@ DeepSeek Harness 的 `compaction-tool-result-pruner` 在压缩之前先修剪超
 ### 3. 共同点
 
 两家都把压缩做成**多个可组合的步骤**（修剪 / 会话记忆 → 摘要 → 回退），都把结果**写进日志**，都在**思考链结束的边界**触发（L1 第三篇）。差别在摘要形态（Codex 服务端加密 vs DeepSeek Harness 可读事件）与可替换性（Codex 的模块是代码、DeepSeek Harness 的是插件）——第六篇对照。
+
+```mermaid
+%% 图：三个 harness 的压缩链都是「便宜的一步 → 摘要 → 回退」——Codex：会话记忆压缩（结构化任务状态，多数不调模型）→ compact.rs 本地摘要或 compact_remote_v2 服务端加密 item → compact_model_fallback；DeepSeek Harness：tool-result-pruner 修剪 → compaction-basic 自动摘要 / 命令 → 可读事件进日志；Claude Code：微压缩旧工具返回 → 83.5% 处 auto-compact → CLAUDE.md 重注入；都在思考链边界触发、结果都写进日志
+flowchart LR
+    subgraph CX["Codex"]
+        direction TB
+        C1["会话记忆压缩<br/>结构化任务状态替代摘要，多数不调模型"] --> C2["compact.rs 本地摘要<br/>或 compact_remote_v2：服务端加密 item"] --> C3["compact_model_fallback<br/>压缩模型不可用时回退"]
+    end
+    subgraph DS["DeepSeek Harness"]
+        direction TB
+        D1["compaction-tool-result-pruner<br/>先修剪超大工具输出"] --> D2["compaction-basic 自动 / command-compact<br/>可读摘要事件进日志，有独立 token 上限"] --> D3["compaction-image-offload<br/>图片换占位符"]
+    end
+    subgraph CC["Claude Code"]
+        direction TB
+        K1["微压缩旧工具返回"] --> K2["83.5% 处 auto-compact<br/>结构化摘要替换历史"] --> K3["CLAUDE.md · 自动记忆从磁盘重注入"]
+    end
+    CX ~~~ DS ~~~ CC
+    N["共同点：多步可组合 · 结果进日志 · 在思考链边界触发（L1 第三篇）"]
+    classDef cheap fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef sum fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef fb fill:#f0f0f0,stroke:#888,color:#222
+    classDef n fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class C1,D1,K1 cheap
+    class C2,D2,K2 sum
+    class C3,D3,K3 fb
+    class N n
+```
 
 ## 四、复述
 
@@ -130,6 +176,26 @@ Table: DeepSeek Harness 的七种 subagent 后端
 
 最后两个值得停一下：一个 harness 可以把另外两家的 harness 作为自己的子 agent——委派一个子任务给 Claude Code 或 Codex，拿回结果。`hooks/` 包组还有 Claude Code / Codex 的 hooks 桥接。这说明 2026 年 harness 之间的**互操作已经是事实**：它们共享 MCP、共享 SKILL.md、共享 AGENTS.md（L2 第六篇），现在还能互相调用。"该用哪个 harness"的问题正在变成"该怎么组合"。
 
+```mermaid
+%% 图：子 agent 的三种形态与 DeepSeek Harness 的七种后端——spawn 从零开始隔离的上下文（适合独立探索），fork 复制父会话的事件前缀继承历史（适合接着当前状态并行做一件事，事件溯源让它只是复制前缀），进程外经 SDK / ACP 起外部 agent，甚至把 Claude Code 或 Codex 拉起当子 agent；主 agent 拿回的只有摘要
+flowchart TB
+    M["主 agent<br/>会话日志：事件 1…k"] -->|"派发指令：任务 · 边界 · 返回格式"| SUB
+    subgraph SUB["subagent 接缝：七种后端"]
+        direction LR
+        S1["spawn-in-process<br/>全新上下文，从零开始"] ~~~ S2["fork-in-process<br/>复制事件 1…k 再追加<br/>继承历史"] ~~~ S3["dsh-sdk / acp<br/>进程外起一个 dsh 或外部 agent"] ~~~ S4["claude-code / codex<br/>把另一家 harness 拉起当子 agent"]
+    end
+    SUB -->|"返回：一段结构化摘要（主 agent 拿到的全部）"| M
+    SUB -.- N["每个子 agent：自己的预算 · 卫士 · 权限（如只读）<br/>完整轨迹可从父会话追到（trace 是树）"]
+    classDef m fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef s fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef x fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef n fill:#f0f0f0,stroke:#888,color:#222
+    class M m
+    class S1,S2,S3 s
+    class S4 x
+    class N n
+```
+
 ### 5. 子 agent 的上下文设计
 
 无论哪种形态，子 agent 的效果取决于两段文本：**派发指令**（任务、边界、期望的返回格式——"返回文件路径列表与每处一句话说明，不要贴代码"）与**返回的摘要**（主 agent 拿到的全部）。子 agent 自己也是一个 agent：有自己的预算、卫士、权限（Claude Code 的 subagent 可以指定 `permissionMode` 与工具子集——一个只读的 code-reviewer 是常见配置）。fork 型子 agent 继承历史所以启动时上下文就大，适合"接着当前状态并行做一件事"；spawn 型从零开始，适合"独立探索"。
@@ -139,6 +205,16 @@ Table: DeepSeek Harness 的七种 subagent 后端
 ### 1. 15 倍
 
 Anthropic 的数字：agent 约 4 倍于聊天、多 agent 约 15 倍。原因：每个子 agent 有自己的系统提示、工具定义、读取的内容（都是输入 token），并行的子 agent 之间无法共享缓存前缀（各自的历史不同），主 agent 还要读所有摘要。子 agent 的 token 不因"结果只回摘要"而消失——它只是不进主窗口，账单上都在。
+
+```mermaid
+%% 图：同一任务三种形态的 token 量级（Anthropic 的倍数：聊天 1、单 agent 约 4、多 agent 约 15）——子 agent 的 token 不进主窗口，但每个子 agent 有自己的系统提示、工具定义、读取内容，并行的子 agent 之间无法共享缓存前缀，主 agent 还要读所有摘要；账单上都在
+%%{init: {"xyChart": {"width": 760, "height": 340, "plotReservedSpacePercent": 60}, "themeVariables": {"xyChart": {"plotColorPalette": "#c0392b, #5b8fd6, #4d9a5c"}}}}%%
+xychart-beta
+    title "相对 token 用量（聊天 = 1）"
+    x-axis ["聊天", "单 agent", "多 agent（子 agent 并行）"]
+    y-axis "倍数" 0 --> 16
+    bar [1, 4, 15]
+```
 
 ### 2. 什么时候值得
 

@@ -70,6 +70,26 @@ Table: 三类检索的对照
 
 代码同时满足三个前提，所以 coding agent 天然倾向词法。
 
+```mermaid
+%% 图：词法检索的三个前提——语料有精确标识符、范围可枚举、能多轮迭代；代码三个都满足（函数名 · 一个仓库 · agent 换词再搜），企业文档三个都不满足（没有编号 · 千万级 · 用户只问一次）
+flowchart TB
+    Q["这份语料适合词法检索吗？"] --> P1{"① 有精确标识符？<br/>函数名 · 错误码 · 条款编号"}
+    P1 -->|"否：「报销标准」vs「出差费用规定」"| V["→ 向量（第四章）"]
+    P1 -->|"是"| P2{"② 范围可枚举？<br/>一个仓库 · 一批日志"}
+    P2 -->|"否：千万级文档"| V
+    P2 -->|"是"| P3{"③ 能多轮迭代？<br/>没找到换词再搜"}
+    P3 -->|"否：用户只问一次就要答案"| V
+    P3 -->|"是"| L["词法：grep / BM25<br/>零过期 · 不出机器 · 透明 · 无基础设施"]
+    C["代码：函数名 ✓ 一个仓库 ✓ agent 迭代 ✓"] -.-> L
+    D["企业 FAQ：无编号 ✗ 量大 ✗ 单次问答 ✗"] -.-> V
+    classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef alt fill:#fff7e0,stroke:#c98a00,color:#222
+    class P1,P2,P3 dec
+    class L,C ok
+    class V,D alt
+```
+
 ### 2. 它买到的东西
 
 - **零过期**。grep 读的是磁盘上当前的文件；你刚改的一行立刻可搜。向量索引在你重命名一个符号的瞬间就旧了。
@@ -109,6 +129,29 @@ Anthropic 在 2025 年 9 月的 Agent SDK 文章里给了一句可以直接引�
 
 哪个便宜取决于**读写比**：一个代码库每天改几百次、agent 每天查几千次，索引方案的写成本被读次数摊薄；一个 agent 在一个任务里连续读写同一批文件几十次，索引每次都在过期与重算之间，agentic 更划算。这也是为什么两个阵营都在**混合**：Cursor 有自己的即时 grep 引擎加语义搜索，Claude Code 有 LSP（结构化）加 grep。
 
+```mermaid
+%% 图：过期税由谁付——索引阵营付在写路径：每次文件变化触发 Merkle 树比对、重算变了的块、同步远端，换来读路径一次查询毫秒级；agentic 阵营付在读路径：每次查询多轮 grep / read、多 token、秒级，换来写路径为零；哪个便宜看读写比
+flowchart TB
+    subgraph IDX["索引阵营：Cursor · Windsurf"]
+        direction LR
+        W1["文件变化"] --> W2["Merkle 树找出变了的块"] --> W3["重算 embedding · 同步远端向量库"] --> W4["读：一次查询，毫秒级，覆盖全仓库"]
+    end
+    subgraph AGT["agentic 阵营：Claude Code · Codex · Cline"]
+        direction LR
+        R1["文件变化：什么都不用做"] --> R2["读：grep → 看线索 → 换词 grep → read<br/>多轮 · 多 token · 秒级"]
+    end
+    IDX ~~~ AGT
+    IDX -.- N1["写路径贵、读路径便宜<br/>适合：每天改几百次、查几千次"]
+    AGT -.- N2["写路径零、读路径贵<br/>适合：一个任务里连续读写同一批文件几十次"]
+    classDef w fill:#fdecea,stroke:#c0392b,color:#222
+    classDef r fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef n fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class W1,W2,W3 w
+    class W4,R1 r
+    class R2 w
+    class N1,N2 n
+```
+
 ### 3. 一个数字
 
 一份公开的对比称 Claude Code 在同等自主任务上比 Cursor 少用约 5.5 倍 token——这与"agentic 搜索每次查询更多 token"看似矛盾，其实不矛盾：索引方案的检索结果（一批语义相近的块）作为上下文进入每一轮请求，占的是 L2 第一篇里 ⑤ 检索结果那一层，且相关性不精确时噪声多；agentic 搜索读的是精确定位到的文件。谁更省 token 取决于检索的精确度，不取决于检索的形式。这个数字来自第三方对比，不同任务上会不同，但它提醒：**索引不等于省 token**。
@@ -141,9 +184,46 @@ Anthropic 在 2025 年 9 月的 Agent SDK 文章里给了一句可以直接引�
 
 代码里的关系由 LSP（语言服务器）提供：定义、引用、实现——Claude Code 的工具列表里有 LSP，正是为了这一类查询。业务数据里的关系由 schema 提供：SQL 的 join、本体的对象—关系、图谱的边（第六篇）。**关系查询是结构化检索的专属领地**，词法与向量都做不了。一个成熟的 coding agent 三类齐备：grep 找字面、LSP 找关系、（可选）向量找词汇不匹配的语义。
 
+```mermaid
+%% 图：embedding 是点不是边——问「谁调用了 chargeCard」，向量索引返回向量空间里离它近的点（billCustomer、chargeCardV2、一段注释），grep 返回字面出现 chargeCard( 的行但分不清定义、调用、注释，只有 LSP 顺着「引用」这条边给出真正的调用者
+flowchart LR
+    Q["谁调用了 chargeCard？"] --> V["向量索引<br/>返回「长得像」的点"]
+    Q --> G["grep chargeCard(<br/>返回字面出现的行"]
+    Q --> L["LSP：find references<br/>顺着「引用」边走"]
+    V --> VO["billCustomer · chargeCardV2 · 一段讲扣款的注释<br/>没有一个是调用者"]
+    G --> GO["定义 · 3 处调用 · 2 处注释 · 1 个字符串<br/>混在一起，要自己分"]
+    L --> LO["3 个调用者，精确<br/>还能继续问：改签名影响谁"]
+    classDef q fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    classDef mid fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class Q q
+    class V,VO bad
+    class G,GO mid
+    class L,LO ok
+```
+
 ### 3. 对企业知识的含义
 
 "这个客户去年的所有投诉涉及哪些产品"是关系查询，把工单文档切块 embedding 后问它，得到的是"提到这个客户与投诉的段落"，不是关系的答案。正确做法是先用结构化查询（客户 → 工单 → 产品）拿到对象集合，再对每个对象的非结构化内容做向量检索。第六篇讲本体与图谱怎样把这个模式做成系统。
+
+```mermaid
+%% 图：混合语料上的两段式检索——「这个客户去年的所有投诉涉及哪些产品」先用结构化查询顺着客户 → 工单 → 产品拿到对象集合，再对每个对象的非结构化内容（工单正文、附件）做向量 / 词法检索；直接对工单文档切块 embedding 只会得到「提到这个客户与投诉的段落」
+flowchart TB
+    Q["这个客户去年的所有投诉<br/>涉及哪些产品？"] --> S["① 结构化：SQL / 本体<br/>客户 → 工单（type = 投诉，year = 去年）→ 产品"]
+    S --> O["对象集合：17 张工单 · 4 个产品"]
+    O --> R["② 在对象内做向量 / 词法检索<br/>每张工单的正文与附件里找「问题描述」"]
+    R --> A["答案：4 个产品 + 每个的典型投诉（带工单号）"]
+    X["✗ 直接把工单文档切块 embedding 后问<br/>→ 「提到这个客户与投诉的段落」，不是关系的答案"] -.-> Q
+    classDef q fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef st fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    class Q q
+    class S,O,R st
+    class A ok
+    class X bad
+```
 
 ## 六、混用的原则
 

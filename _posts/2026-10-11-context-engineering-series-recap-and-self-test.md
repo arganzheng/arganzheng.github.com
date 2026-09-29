@@ -123,6 +123,20 @@ Table: 本文的章节安排
 
 第一篇建立预算的物理基础（$$n^2$$、Context Rot），第二篇让 system prompt 精炼（最小规则集、删冗余技巧、few-shot 只留格式），第三篇让 schema 精炼（限深度、稳定），第四篇给每层配额与处理顺序，第六篇的 SKILL.md 把渐进披露做成标准。共同的问题只有一个：这一段值不值得占这份注意力。
 
+```mermaid
+%% 图：预算这条线在六篇里的落点——第一篇给物理基础（n² 注意力、Context Rot），第二篇精炼 system prompt，第三篇精炼 schema，第四篇给每层配额与处理顺序，第六篇把渐进披露做成 SKILL.md 标准；每一篇都在回答同一个问题：这一段值不值得占这份注意力
+flowchart LR
+    Q["这一段值不值得占这份注意力？"] --> P1["第一篇：为什么有限<br/>n² · 位置效应 · Context Rot"]
+    Q --> P2["第二篇：system prompt 精炼<br/>最小规则集 · 删「一步步想」· few-shot 只留格式"]
+    Q --> P3["第三篇：schema 精炼<br/>限深度 · 稳定 · 枚举"]
+    Q --> P4["第四篇：每层配额 + 隔离 → 卸载 → 清理 → 压缩"]
+    Q --> P6["第六篇：渐进披露成标准<br/>SKILL.md 只常驻 description"]
+    classDef q fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef p fill:#fff7e0,stroke:#c98a00,color:#222
+    class Q q
+    class P1,P2,P3,P4,P6 p
+```
+
 ### 2. 顺序即成本
 
 同一个排列原则同时服务三个目标：**注意力**（第一篇：相关的放末尾、稳定的放开头）、**缓存**（第五篇：变化频率递增、动态段最后、只追加）、**压缩存活**（第四篇：常驻层不在历史里所以不受压缩影响，动态的被摘要）。第二篇的 Claude Code 把环境信息放末尾、第三篇的 schema 稳定、第六篇的新版本第一轮全写，都是这条线上的点。
@@ -149,6 +163,30 @@ flowchart TB
 ### 3. 可恢复性
 
 上下文里放**引用**而不是**内容**，内容在外面（文件、存储、磁盘上的 CLAUDE.md）：第一篇的长期记忆压缩后从磁盘重注入，第四篇的卸载留路径 + 预览、Manus 的"文件系统即上下文"、Codex 的会话记忆，第六篇的 SKILL.md 只常驻描述。可恢复的压缩几乎免费，不可恢复的（摘要）才有损——这是处理顺序的依据。
+
+```mermaid
+%% 图：可恢复性——上下文里放引用、内容在外面：CLAUDE.md 的真身在磁盘（压缩后重注入）、工具返回卸载到文件（留路径 + 预览）、SKILL.md 正文按需读、Codex 的会话记忆是结构化状态；只有摘要是把内容本身改写了，所以只有它有损、放最后
+flowchart LR
+    subgraph CTX["上下文里：引用"]
+        direction TB
+        R1["CLAUDE.md（每轮重读）"] ~~~ R2["/tmp/q7.csv · 20,000 行 · 前 10 行"] ~~~ R3["skill: pdf-report — 生成 PDF 报告时用"] ~~~ R4["todo.md：目标 + 进度"]
+    end
+    subgraph EXT["上下文外：内容（完整、持久）"]
+        direction TB
+        E1["磁盘上的 CLAUDE.md"] ~~~ E2["文件系统里的完整结果"] ~~~ E3["SKILL.md 正文 + scripts/"] ~~~ E4["结构化的任务状态"]
+    end
+    R1 <-.-> E1
+    R2 <-.-> E2
+    R3 <-.-> E3
+    R4 <-.-> E4
+    CTX -.- N["可恢复 → 几乎免费、无损<br/>摘要是唯一改写内容本身的手段 → 有损、放最后"]
+    classDef ref fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef ext fill:#f0f0f0,stroke:#888,color:#222
+    classDef n fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class R1,R2,R3,R4 ref
+    class E1,E2,E3,E4 ext
+    class N n
+```
 
 ### 4. prompt 是代码
 

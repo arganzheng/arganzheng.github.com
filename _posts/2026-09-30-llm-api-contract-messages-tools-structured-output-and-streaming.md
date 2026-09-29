@@ -56,6 +56,24 @@ Table: 四家 API 的对照
 
 Anthropic 的 `system` 也是块列表，这是它的 `cache_control` 能精确放在某个块上的原因（第四篇）。
 
+```mermaid
+%% 图：一条消息的 content 是块的列表——输入侧可以混放文本、图片、文件块，输出侧一条 assistant 消息可以同时含文本、多个工具调用块和思考块；四家只是块的名字不同
+flowchart LR
+    subgraph IN["一条 user 消息"]
+        direction TB
+        I1["文本块<br/>「这张发票的总额是多少？」"] ~~~ I2["图片块<br/>base64 / URL，折成几百到一千多 token"] ~~~ I3["文件块<br/>PDF"]
+    end
+    subgraph OUT["一条 assistant 消息"]
+        direction TB
+        O1["思考块<br/>thinking / reasoning（第三篇）"] ~~~ O2["文本块<br/>「我先查两个系统」"] ~~~ O3["工具调用块 #1<br/>tool_use / function_call：id · name · 参数"] ~~~ O4["工具调用块 #2<br/>并行调用 = 同一条消息里多个块"]
+    end
+    IN --> M["模型"] --> OUT
+    classDef in fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef out fill:#fff7e0,stroke:#c98a00,color:#222
+    class I1,I2,I3 in
+    class O1,O2,O3,O4 out
+```
+
 ### 3. 谁负责把历史拼起来
 
 无状态 API（Messages、Chat Completions、`generateContent`）要求你每次把**全部历史**送过去：system、第一轮 user、第一轮 assistant（含它发出的工具调用）、工具结果、第二轮 user……历史的每一个块都要在。漏掉一个工具调用块而保留了它的结果，多数 API 会返回 400（结果找不到对应的调用）。这就是为什么"编辑历史"不是随意的操作——第三篇讲推理模型时这一点会更严格。
@@ -126,6 +144,22 @@ Table: 结构化输出的三个层次
 
 第三层的机制是**约束解码**：把 schema 编译成一个自动机，采样时把不合法的 token 概率置零。所以它的保证是硬的——不是"模型很少出错"，而是"不可能生成不合法的 JSON"。代价是 schema 有限制（OpenAI 的 strict 模式要求所有字段 `required`、`additionalProperties: false`、不支持部分 JSON schema 特性）、首次使用一个 schema 有编译延迟、以及 schema 本身要占 token（Anthropic 把 schema 注入为一段额外的 system 文本，实测约 50–200 token 的固定开销加上 schema 自身；它落在缓存前缀里）。
 
+```mermaid
+%% 图：约束解码怎么工作，以及它的保证边界——schema 编译成自动机，每一步采样前把不合法的 token 概率置零，所以形状是硬保证；但填进字段里的值仍是模型的续写，语义、拒答、推理质量都在保证之外
+flowchart TB
+    S["JSON schema<br/>refund_eligible: bool<br/>reason: string"] --> A["编译成自动机<br/>（首次使用有编译延迟）"]
+    A --> D["每一步采样：<br/>自动机不允许的 token 概率置零"]
+    D --> O["输出一定符合 schema<br/>{ refund_eligible: true,<br/>  reason: 购买 90 天内 }"]
+    O --> G1["保证了：字段齐 · 类型对 · 枚举在范围内"]
+    O --> G2["没保证：true 是不是对的？<br/>「90 天」是不是编的？<br/>该拒答时会不会填个默认值？"]
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    classDef step fill:#fff7e0,stroke:#c98a00,color:#222
+    class S,A,D,O step
+    class G1 ok
+    class G2 bad
+```
+
 ### 2. 它没保证什么
 
 - **语义**。`{"refund_eligible": true, "reason": "购买 90 天内"}` 符合 schema，但 90 天可能是编的。schema 约束的是形状，第一篇的幻觉一条不受影响。
@@ -163,6 +197,25 @@ Table: 四家流式接口的事件类型
 
 流式连接会断：网络、供应商过载、你自己的网关超时。断了不能"从第 137 个 token 续上"——只能重发整个请求，接受再花一次钱（幂等与重试在第六篇）。超时要分层：连接超时、**首事件超时**（TTFT 异常长通常是排队或长 prefill，第四篇）、事件间超时（生成卡住）、总超时。只设一个总超时的客户端会在 TTFT 正常但生成很长的情况下误杀请求。
 
+```mermaid
+%% 图：一次流式响应的事件时间线与四层超时——连接超时管到连上、首事件超时管到第一个事件（TTFT）、事件间超时管生成卡住、总超时兜底；工具参数分片要等 done 事件再解析，用量只在末尾出现
+flowchart TB
+    C["建连接"] --> E0["开始事件<br/>message_start /<br/>response.created"]
+    E0 --> E1["文本增量 × n<br/>按增量拼接"]
+    E1 --> E2["工具参数增量 × m<br/>分片字符串，先攒着"]
+    E2 --> E3["工具参数 done<br/>此时才 json.loads"]
+    E3 --> E4["用量事件<br/>四类 token 在这里"]
+    E4 --> E5["结束事件"]
+    T1["连接超时"] -.- C
+    T2["首事件超时<br/>（TTFT 异常 = 排队或长 prefill）"] -.- E0
+    T3["事件间超时<br/>（生成卡住）"] -.- E1
+    T4["总超时（兜底，不能是唯一的一层）"] -.- E5
+    classDef ev fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef to fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class C,E0,E1,E2,E3,E4,E5 ev
+    class T1,T2,T3,T4 to
+```
+
 ## 六、状态：谁保存对话
 
 ### 1. 两种模型
@@ -170,6 +223,27 @@ Table: 四家流式接口的事件类型
 **客户端状态**（Messages、Chat Completions、`generateContent`）：你保存历史，每次全部送过去。优点是完全可控、可移植、可审计；缺点是每轮都传全量（网络与 prefill 成本随轮数增长——缓存缓解了 prefill 成本，第四篇），以及你要自己做历史的截断与压缩。
 
 **服务端状态**（Responses 的 `previous_response_id` 与 Conversations、Interactions 的 `previous_interaction_id`）：你只送新内容，服务端拼历史。优点是简单、推理模型的内部状态（第三篇）能被服务端保留；缺点在下面。
+
+```mermaid
+%% 图：客户端状态与服务端状态——前者每轮送全部历史、你可控可移植；后者只送新内容加上一轮的 id，服务端拼历史并默认存储 30 天；两种模式下模型都读完整上下文，输入 token 照样计费
+flowchart TB
+    subgraph CS["客户端状态：Messages · Chat Completions · generateContent"]
+        direction LR
+        C1["你保存历史"] --> C2["每轮送：system + 全部 user / assistant / tool 块"] --> C3["模型读完整上下文"]
+    end
+    subgraph SS["服务端状态：Responses · Interactions"]
+        direction LR
+        S1["只送新内容 + previous_response_id"] --> S2["服务端拼历史<br/>默认 store: true，保留 30 天"] --> S3["模型读完整上下文"]
+    end
+    CS ~~~ SS
+    SS -.- X["都要付完整输入的钱（缓存命中部分打折）<br/>差别只在谁传历史、谁存历史、能不能换供应商"]
+    classDef c fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef s fill:#fdecea,stroke:#c0392b,color:#222
+    classDef n fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class C1,C2,C3 c
+    class S1,S2,S3 s
+    class X n
+```
 
 ### 2. 默认存储
 
@@ -218,6 +292,26 @@ Table: 2026 年 API 契约的变更清单
 Table: 适配层的五个职责
 
 **不要做的事**：不要把四种 token 合成一个"tokens"；不要吞掉 `stop_reason` / `finish_reason`；不要在中间层做重试以外的"智能"（自动改 prompt、自动截断历史），那些属于上层且要可见。
+
+```mermaid
+%% 图：中间层的位置——业务代码只看到一种内部的消息、工具调用、流式事件和用量表示；四家适配器各一个文件，契约变更只改对应文件；原始请求与响应从这里记进 trace
+flowchart TB
+    B["业务代码 / agent 循环<br/>只认内部表示：Message · ToolCall · StreamEvent · Usage"] --> M
+    subgraph M["中间层：五个职责"]
+        direction LR
+        M1["归一化消息"] ~~~ M2["归一化工具协议<br/>字符串 ↔ 对象"] ~~~ M3["归一化流式事件"] ~~~ M4["归一化用量<br/>四类 token 分开记"] ~~~ M5["记录原始请求 / 响应 → trace"]
+    end
+    M --> A1["OpenAI 适配器<br/>Responses"] & A2["Anthropic 适配器<br/>Messages"] & A3["Google 适配器<br/>Interactions"] & A4["DeepSeek 适配器<br/>OpenAI 格式"]
+    CH["2026 年的契约变更：<br/>outputs → steps · Assistants 关闭 · 强制工具调用报错"] -.->|"只改这一层"| A1 & A2 & A3
+    classDef biz fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef mid fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef ad fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef chg fill:#fdecea,stroke:#c0392b,color:#222
+    class B biz
+    class M1,M2,M3,M4,M5 mid
+    class A1,A2,A3,A4 ad
+    class CH chg
+```
 
 ### 2. 实践建议
 

@@ -123,6 +123,29 @@ Table: 本文的章节安排
 
 第一篇的七条失效是整个应用地图的索引。非确定性 → L5 评测按分布、录制回放；幻觉 → L3 检索与引用、L5 guardrails、L7 引用的呈现；指令遵循 → L2 上下文工程、L5 回归；上下文 → L2 预算与压缩、L3 检索；知识截止 → L3、L4 工具；供应商变更 → L5 回归、L6 发布与网关；越界 → L4 权限与沙箱、L6 安全。读后面六个系列时，每一种手段都应该能回答"它在对付第一篇的哪一条"。
 
+```mermaid
+%% 图：七条失效模式各由后面哪一层对付——这张图是整个应用地图的索引：左列是第一篇的七条失效，右列是 L2–L7 六个系列，每条边是一种具体手段
+flowchart LR
+    F1["① 非确定性"] --> L5["L5 评测与可观测<br/>按分布评 · 录制回放 · 回归门禁 · guardrails"]
+    F2["② 幻觉"] --> L3["L3 检索与知识<br/>给材料 · 要引用"]
+    F2 --> L5
+    F2 --> L7["L7 产品与体验<br/>引用的呈现 · 不确定性的表达"]
+    F3["③ 指令遵循 / prompt 敏感"] --> L2["L2 上下文工程<br/>prompt 当代码 · 预算 · 压缩"]
+    F3 --> L5
+    F4["④ 上下文标称 ≠ 有效"] --> L2
+    F4 --> L3
+    F5["⑤ 知识截止"] --> L3
+    F5 --> L4["L4 Agent 与 harness<br/>工具 · 权限 · 沙箱 · 运行时"]
+    F6["⑥ 供应商变更"] --> L5
+    F6 --> L6["L6 生产与运维<br/>网关 · 发布 · 安全"]
+    F7["⑦ 越界"] --> L4
+    F7 --> L6
+    classDef fail fill:#fdecea,stroke:#c0392b,color:#222
+    classDef layer fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class F1,F2,F3,F4,F5,F6,F7 fail
+    class L2,L3,L4,L5,L6,L7 layer
+```
+
 ### 2. 契约的每一项都有成本含义
 
 第二、三篇的契约与第四篇的账是一张表的两面：消息的排列决定缓存能否命中（tools → system → messages 的顺序，动态内容放后面）；工具定义占 token 且在前缀里；结构化输出注入的 schema 算 token；effort 决定思考 token；服务端状态不省输入的钱；思考块进历史后成为可缓存的输入。学契约时同时问"这一项在账上是哪一格"，是这个系列的方法。
@@ -150,6 +173,23 @@ flowchart TB
 ### 3. 供应商会变，应用要对变化免疫
 
 2026 年内四家都发生过"没改代码但行为变了"：Sonnet 5 的默认 thinking 与新 tokenizer、Fable 5.1 的历史校验与强制工具报错、Assistants API 关闭、Interactions 的 `outputs → steps`、DeepSeek 把 V4-Pro 路由到 V4.1 Flash、OpenAI 三批下线二十多个快照。对变化免疫的手段贯穿五篇：钉住快照（第一篇）、中间层把差异收在一处（第二篇）、迁移三件事（第三篇）、模型名进配置与替代模型热身（第五篇）、熔断与 fallback 链（第六篇）——以及所有这些的探测器：**评测集**。
+
+```mermaid
+%% 图：对供应商变化免疫的五道手段与它们共同的探测器——钉快照、中间层、迁移三件事、配置化的模型名与热身的替代模型、熔断与 fallback，每一道都在某一篇里；变化能不能被提前发现，只取决于评测集
+flowchart LR
+    V["供应商变更<br/>权重 · 默认值 · tokenizer · 契约 · 下线 · 路由"] --> D["探测器：评测集<br/>通知当天在新模型上跑全量"]
+    D --> H1["钉住快照（第一篇）"]
+    D --> H2["中间层收拢差异（第二篇）"]
+    D --> H3["迁移三件事：重跑 effort · 查 max_tokens · 查历史编辑（第三篇）"]
+    D --> H4["模型名进配置 · 替代模型每月热身（第五篇）"]
+    D --> H5["熔断 · fallback 链 · 灰度切换（第六篇）"]
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    classDef det fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class V bad
+    class D det
+    class H1,H2,H3,H4,H5 ok
+```
 
 ### 4. 按分布，按任务
 

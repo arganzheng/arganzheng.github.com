@@ -60,6 +60,28 @@ Table: 网关的七项职责
 
 应用请求一个**逻辑模型名**（`chat-default`、`reasoning-high`、`cheap-classifier`），网关映射到具体供应商与快照——换模型改一处配置。fallback 链按 L1 第六篇的方向性：同模型重试 → 同家族降档 → 跨供应商（**推理状态、加密压缩 item、工具方言不能跟着切**——网关要知道哪些请求不可跨供应商，或让应用声明）→ 非模型路径（应用侧）。故障检测：错误率、超时、429 的滑动窗口；熔断与半开（L1 第六篇）。
 
+```mermaid
+%% 图：逻辑模型名到供应商的路由表——应用只写 chat-default / reasoning-high / cheap-classifier；网关把它映射到具体快照并挂一条 fallback 链：同模型重试 → 同家族降档 → 跨供应商（只对无状态请求；会话中途带推理状态的请求声明「绑定供应商」不可跨）→ 返回错误让应用走非模型路径；换模型只改这张表
+flowchart TB
+    APP["应用请求<br/>model = chat-default<br/>标签：租户 · 功能 · prompt v12<br/>会话中途？绑定供应商"] --> GW["网关路由表"]
+    GW -->|"chat-default"| M1["claude-sonnet-5-20260630"]
+    GW -->|"reasoning-high"| M2["gpt-5.6-sol-2026-08-21 · effort high"]
+    GW -->|"cheap-classifier"| M3["gemini-3.5-flash-lite"]
+    M1 -->|"① 429 / 5xx：同模型重试"| M1
+    M1 -->|"② 容量 / 超时：同家族降档"| F1["claude-haiku-4.5"]
+    F1 -->|"③ 整家不可用 · 且请求无状态"| F2["gpt-5.6-terra"]
+    F1 -.->|"③ 会话中途带推理状态：不可跨 → 返回错误"| X["应用侧：非模型路径"]
+    C["熔断：30 s 内错误率 > 20% 打开<br/>半开探测后恢复"] -.-> M1
+    classDef app fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef gw fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef m fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    class APP app
+    class GW,C gw
+    class M1,M2,M3,F1,F2 m
+    class X bad
+```
+
 ### 3. 限流与配额
 
 三个维度：**RPM / TPM**（供应商给的总配额，网关按租户 / 功能分配，防止一个功能打爆整体——L1 第六篇的令牌桶集中到这里）、**美元预算**（按租户 / 功能的日 / 月上限，接近告警、超过降级——第二篇）、**并发**（agent 的长会话占连接）。发前数 token（L1 第六篇）在网关做一次即可。
@@ -67,6 +89,30 @@ Table: 网关的七项职责
 ### 4. 缓存
 
 两种要分清。**精确缓存**（同样的请求体返回同样的响应）：对幂等的、非确定性可接受的查询有效（分类、抽取同一文档），对对话与 agent 无效（每步不同）；TTL 要短、按租户隔离。**语义缓存**（相似的问题返回缓存的答案）：风险大——"相似"不等于"同答案"（"退货要多久"与"退款要多久"），只在 FAQ 类且能容忍的场景用，并让用户能刷新。**供应商侧的 prompt caching**（L2 第五篇）是第三件事：网关不做，但要**不破坏**它——网关不能改请求体的顺序、不能注入动态内容到前缀、要透传 `prompt_cache_key` 与断点标记。
+
+```mermaid
+%% 图：三种「缓存」要分清——精确缓存：请求体逐字节相同才返回缓存响应，对幂等查询有效、对对话无效；语义缓存：「退货要多久」与「退款要多久」向量相近却是两条不同政策，默认关、只在声明可缓存的 FAQ 上开；供应商侧 prompt caching 是第三件事，网关不做，但不能改前缀、要透传 prompt_cache_key 与断点标记
+flowchart TB
+    subgraph E["① 精确缓存（网关做，可选）"]
+        direction LR
+        E1["请求体哈希相同"] --> E2["返回缓存的响应<br/>分类同一文档 ✓ · 对话 / agent ✗（每步不同）"]
+    end
+    subgraph S["② 语义缓存（网关能做，默认关）"]
+        direction LR
+        S1["「退货要多久」"] -->|"向量相近 0.91"| S2["命中「退款要多久」的答案<br/>✗ 两条不同的政策"]
+    end
+    subgraph P["③ 供应商侧 prompt caching（网关不做，不能破坏）"]
+        direction LR
+        P1["透传 prompt_cache_key · cache_control 断点"] --> P2["不重排消息 · 不在 system 开头注 request_id"]
+    end
+    E ~~~ S ~~~ P
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    classDef n fill:#fff7e0,stroke:#c98a00,color:#222
+    class E1,E2,P1,P2 ok
+    class S1 n
+    class S2 bad
+```
 
 ### 5. 成本归因
 
@@ -109,6 +155,23 @@ Table: 网关选项与定位
 
 常见的做法：自建一层薄网关做凭据、归因、脱敏、trace（合规相关），后面接 LiteLLM 一类做路由与供应商适配（适配器多且更新快，自己维护不划算）。
 
+```mermaid
+%% 图：常见的混合架构——自建一层薄网关做合规相关的四件事（凭据映射、归因账本、脱敏、OTel trace 出口，流量不出域），后面接 LiteLLM 一类做路由、fallback、熔断与百余供应商的适配器（更新快，自己维护不划算）；供应商 key 只在密钥库里
+flowchart LR
+    A1["服务 A"] & A2["服务 B"] & A3["agent 运行时"] -->|"网关凭据 · 逻辑模型名 · 标签"| THIN["自建薄网关（域内）<br/>凭据 → 模型白名单 / 配额<br/>归因账本：usage × 价目表<br/>PII / 凭据脱敏<br/>OTel span 出口"]
+    THIN --> LL["LiteLLM（自托管）<br/>路由表 · fallback 链 · 熔断<br/>百余供应商适配器 · OpenAI 兼容接口"]
+    LL --> V1["OpenAI"] & V2["Anthropic"] & V3["自托管 vLLM"]
+    KV["密钥库（Vault）<br/>供应商 key 只在这里"] -.-> LL
+    classDef app fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef own fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef ll fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef v fill:#f0f0f0,stroke:#888,color:#222
+    class A1,A2,A3 app
+    class THIN,KV own
+    class LL ll
+    class V1,V2,V3 v
+```
+
 ## 五、网关的边界
 
 ### 1. 不该做
@@ -122,6 +185,27 @@ Table: 网关选项与定位
 ### 2. 与 harness 的关系
 
 L4 讲的 agent 运行时（会话、工具、权限）在网关之上：运行时组装请求、经网关调模型；网关不参与工具执行与权限判定（那是 L4 第五篇的四层，在运行时里）。托管的 Agents API（L4 第三篇）把运行时放在供应商侧——此时网关只是它前面的一跳（或不存在）。
+
+```mermaid
+%% 图：网关在栈里的位置——上面是应用层（prompt 组装 · 检索 · 上下文管理）与 agent 运行时（会话 · 工具执行 · 权限四层），它们组装好请求经网关调模型；网关只管调用这一跳的七件事，不碰业务逻辑、不改请求体、不参与工具执行与权限判定；下面是供应商与自托管推理
+flowchart TB
+    APP["应用层（L2 · L3）<br/>prompt 组装 · 检索 · 上下文预算与压缩"]
+    RT["agent 运行时（L4）<br/>会话日志 · 工具执行 · 权限档 / 审批 / 执行策略 / 沙箱"]
+    GW["模型网关（本篇）<br/>认证与密钥 · 路由与 fallback · 限流与配额 · 缓存 · 归因 · 日志与脱敏 · 抽象"]
+    V["供应商 API · 自托管推理（vLLM）"]
+    APP --> RT -->|"组装好的请求 + 逻辑模型名 + 标签"| GW --> V
+    X1["✗ 不在网关：prompt 组装 · 检索 · 工具执行 · 权限判定 · 改请求体"] -.-> GW
+    classDef a fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef r fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef g fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef v fill:#f0f0f0,stroke:#888,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    class APP a
+    class RT r
+    class GW g
+    class V v
+    class X1 bad
+```
 
 ## 六、实践建议
 

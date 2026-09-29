@@ -71,6 +71,28 @@ L4 第三篇的事件溯源会话日志（"模型可见 ⟺ 已记录"）与 L5 
 
 审计要保留内容，隐私要最小化与删除——用**分级**解：元数据与决策点长期保留，内容按敏感度分级、脱敏后保留或短期保留，用户删除请求删内容保留脱敏的元数据（证明"处理过"而不保留"处理了什么"）；法律要求保留的例外单独管理。L5 第五篇的分级在这里被合规要求校准。
 
+```mermaid
+%% 图：审计与隐私的张力用分级解——元数据与决策点（谁、何时、哪个版本、审批了什么）长期保留、追加写不可篡改、合规能查能导出；内容按敏感度分级：公开的保留、敏感的脱敏后保留或短期保留；用户删除请求删内容、保留脱敏的元数据（能证明「处理过」而不保留「处理了什么」）；法律要求保留的例外单独管
+flowchart TB
+    R["一条输出的审计记录"] --> M["元数据 + 决策点<br/>用户 / 服务身份 · 时间 · 模型快照 · prompt 版本 · 工具集 · 审批（谁 · 何时 · 依据）· fallback 事件"]
+    R --> C["内容<br/>完整输入 · 输出 · 检索到的块 · 工具返回"]
+    M --> M1["长期保留（几年）· 追加写 / 哈希链 / WORM · 访问控制 · 可导出"]
+    C --> S{"敏感度"}
+    S -->|"公开 / 内部"| C1["脱敏后保留"]
+    S -->|"含 PII / 机密"| C2["脱敏 · 短保留期 · 对象存储 + 引用"]
+    D["用户删除请求"] -.->|"删内容"| C
+    D -.->|"保留脱敏元数据：证明「处理过」"| M
+    L["法律要求保留的例外"] -.-> C2
+    classDef n fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef meta fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef cont fill:#fdecea,stroke:#c0392b,color:#222
+    classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class R,D,L n
+    class M,M1 meta
+    class C,C1,C2 cont
+    class S dec
+```
+
 ## 三、数据保留与供应商
 
 ### 1. 供应商侧
@@ -87,6 +109,29 @@ L4 第三篇的事件溯源会话日志（"模型可见 ⟺ 已记录"）与 L5 
 Table: 供应商侧要查清的数据留存问题
 
 写成一张**数据流图**：哪些数据到了哪个供应商、存多久、什么条款；客户合同里的承诺要与它一致。
+
+```mermaid
+%% 图：一张数据流图的样子——用户输入经网关（脱敏、trace）到供应商 A 的 Responses API（默认存 30 天，企业条款不训练，US 区域）与供应商 B（ZDR，不存）；file search 的文件与 Agents API 的会话是存在供应商侧的数据；自己侧的会话日志、trace 内容、评测集、飞轮训练数据各有保留期；客户合同里的承诺要与每条边上的标注一致
+flowchart LR
+    U["用户输入 · 工具返回"] --> GW["网关：脱敏 · trace"]
+    GW -->|"Responses API：store 默认 true · 存 30 天<br/>企业条款：不训练 · US 区域"| A["供应商 A"]
+    GW -->|"ZDR 组织：不存 · 推理状态加密往返"| B["供应商 B"]
+    GW -->|"file search 上传的文件 · Agents API 会话<br/>存在供应商侧，直到删除"| A
+    GW --> OWN["自己侧"]
+    OWN --> O1["会话日志：内容 90 天 · 元数据 3 年"]
+    OWN --> O2["trace 内容：1–10% 采样 · 30 天；bad case 全量 · 1 年"]
+    OWN --> O3["评测集里的真实用例：脱敏或授权"]
+    OWN --> O4["飞轮训练数据：可按用户 / 租户退出"]
+    K["客户合同的承诺 ⟷ 每条边的标注要一致<br/>核对合同，不是网页"] -.-> GW
+    classDef n fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef v fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef o fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef k fill:#fdecea,stroke:#c0392b,color:#222
+    class U,GW n
+    class A,B v
+    class OWN,O1,O2,O3,O4 o
+    class K k
+```
 
 ### 2. 自己侧
 
@@ -114,6 +159,27 @@ L5 第五篇的分级与保留期，按合规校准：会话内容、trace 内�
 Table: AI Act 的时间表
 
 两点解读：**推迟的只是高风险那一部分**，透明、标识、GPAI、禁止性实践都按原日期在跑——"看到延期就停下项目"是 2026 年最常见的误读；**新日期是固定的**（不再与协调标准的完成挂钩），可以据此排计划。
+
+```mermaid
+%% 图：EU AI Act 时间轴上哪些已经在跑、哪些被推迟——禁止性实践（2025-02）、GPAI 义务（2025-08 适用、2026-08 可罚）、Article 50 透明与标识（2026-08，过渡到 2026-12）都已生效；只有高风险 Annex III（推到 2027-12）与 Annex I（推到 2028-08）被 Digital Omnibus 推迟，且新日期固定
+flowchart TB
+    subgraph ON["已生效、正在跑"]
+        direction LR
+        T1["2025-02<br/>禁止性实践<br/>AI 素养"] --> T2["2025-08<br/>GPAI 义务适用"] --> T3["2026-08-02<br/>GPAI 可罚（1,500 万 € / 3%）<br/>Article 50 透明与标识"] --> T4["2026-12-02<br/>Article 50 过渡期截止<br/>新增私密影像 / CSAM 禁令"]
+    end
+    subgraph LATER["被推迟的（Digital Omnibus，日期固定）"]
+        direction LR
+        H1["2027-12-02<br/>高风险 Annex III<br/>招聘 · 信贷 · 教育 · 生物识别 · 执法<br/>（原 2026-08）"] --> H2["2028-08-02<br/>高风险 Annex I<br/>医疗器械 · 机械等产品内嵌<br/>（原 2027-08）"]
+    end
+    ON ~~~ LATER
+    X["✗ 误读：「延期了，项目先停」<br/>推迟的只是高风险那一部分"] -.-> LATER
+    classDef on fill:#fdecea,stroke:#c0392b,color:#222
+    classDef later fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef n fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class T1,T2,T3,T4 on
+    class H1,H2 later
+    class X n
+```
 
 ### 2. 应用方（deployer）的义务
 
@@ -162,6 +228,23 @@ Table: 变更审批矩阵
 ### 2. 流程
 
 变更提出 → 分类（是否涉及安全 / 合规 / 高风险）→ 门禁（L5 第四篇）→ 相应批准 → 发布（第六篇）→ 记录（版本、批准人、评测结果）。多数变更（普通 prompt 改动）走轻流程；涉及新权限、新数据流、高风险用途的走重流程。流程写下来是审计的依据，也是让"谁批的"有答案。
+
+```mermaid
+%% 图：变更的轻 / 重两条流程——所有变更先过分类：普通 prompt 改动走轻流程（门禁通过 → 功能 owner 批 → 发布 → 记录）；涉及新权限、新数据流、新供应商、高风险用途的走重流程（门禁 + 安全 / 合规 / 法务按责任矩阵批 → 发布 → 记录）；两条都以「版本 · 批准人 · 评测结果」的记录收尾，审计问「谁批的」有答案
+flowchart TB
+    P["变更提出"] --> C{"分类：涉及安全 / 合规 / 高风险？"}
+    C -->|"否：普通 prompt · 措辞 · 示例"| L1["门禁（L5 第四篇）"] --> L2["功能 owner 批准"] --> L3["发布（第六篇）"]
+    C -->|"是：新权限 · 新工具 / MCP · 新数据流 · 新供应商 · Annex III 用途"| H1["门禁 + 红队集"] --> H2["按责任矩阵批：<br/>安全 / 合规（条款）/ 法务（高风险）/ 技术负责人"] --> H3["发布（灰度 · 回滚预案）"]
+    L3 & H3 --> REC["记录：版本 · 批准人 · 评测结果 · 时间<br/>→ 审计链"]
+    classDef n fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef light fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef heavy fill:#fdecea,stroke:#c0392b,color:#222
+    class P,REC n
+    class C dec
+    class L1,L2,L3 light
+    class H1,H2,H3 heavy
+```
 
 ## 八、实践建议
 

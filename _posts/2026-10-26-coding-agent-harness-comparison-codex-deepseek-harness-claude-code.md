@@ -59,6 +59,35 @@ Table: 四个 harness 的十二维对照
 
 **Codex** 选 Rust 与一个大工作区：性能、单二进制分发、三平台沙箱的系统编程都受益；代价是 `core` 膨胀——仓库规范里专门写了"抵制往 `codex-core` 加代码"、"考虑新建 crate"，说明这是他们在对抗的重力。**DeepSeek Harness** 选"一切皆插件"：没有特权核心，模型适配器、工具、会话、沙箱、审批、压缩、循环都是 Cordis 插件，从 `cordis.yml` 组合；profile（命名的组合）叠 bundle（配置行 + 代码）叠 patch（用户覆盖）。换到的是极致的可替换性——换一个沙箱后端、卸掉一个卫士、加一个模式都不改源码；付出的是学习曲线（要懂 Cordis 的服务 / 事件 / 效果模型）与"预稳定 API，每个消费者都要更新"的迭代成本。**Claude Code** 把产品闭源、把基座以 SDK 开放：用户拿到同一套循环、权限、hooks、子 agent，但不能改内部；换到产品迭代速度与一致性，付出可审计性。**OpenHarness** 选 Python 与轻量：面向研究者与个人 agent（ohmo），复用别家的订阅与 CLI 作为底层。
 
+```mermaid
+%% 图：三种架构形状——Codex 是一个大工作区里的单核 core（循环、配置、模型客户端、沙箱管理器都在里面，规范要「抵制往 core 加代码」）；DeepSeek Harness 没有特权核心，循环、工具、沙箱、审批、压缩都是 Cordis 插件，从 profile → bundle → patch 三层配置组合；Claude Code 产品闭源、把同一基座以 Agent SDK 开放，hooks 是开口
+flowchart LR
+    subgraph CX["Codex：单核大工作区（Rust）"]
+        direction TB
+        CORE["codex-core<br/>循环 · 配置 · 模型客户端 · 沙箱管理器"]
+        CORE --- X1["execpolicy"] --- X2["sandboxing"] --- X3["rollout"] --- X4["codex-mcp"]
+    end
+    subgraph DS["DeepSeek Harness：一切皆插件（TS）"]
+        direction TB
+        PROF["profile → bundle → patch<br/>三层配置组合"]
+        PROF --> P1["agent-loop 插件"] & P2["tools 插件"] & P3["sandbox 插件"] & P4["approval 插件"] & P5["compaction 插件"]
+    end
+    subgraph CC["Claude Code：闭源产品 + 开放 SDK（TS）"]
+        direction TB
+        SDK["Agent SDK：query() · canUseTool · hooks · agents"]
+        SDK --> PROD["产品内部：循环 · 权限 · 压缩（不可改）"]
+    end
+    CX ~~~ DS ~~~ CC
+    classDef core fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef plug fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef closed fill:#f0f0f0,stroke:#888,color:#222
+    classDef sdk fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class CORE,X1,X2,X3,X4 core
+    class PROF,P1,P2,P3,P4,P5 plug
+    class SDK sdk
+    class PROD closed
+```
+
 ### 2. 循环：状态在对象还是在日志
 
 第一篇讲过：Codex 的会话对象持有历史、rollout 是持久化；DeepSeek Harness 的日志是状态、历史是派生。前者是多数系统的自然写法，后者让 resume / fork / replay 天然一致、让"模型可见 ⟺ 已记录"可以成为不变量，代价是每一步都要经过日志（性能门与 `benchmarks/` 就是为此）。Claude Code 与 OpenHarness 把循环封装在 SDK / 库里，用 hooks 开口。
@@ -79,6 +108,34 @@ Codex 的 `execpolicy` 是四家里唯一的**专用策略语言**（Starlark、
 
 Codex 在四家里对沙箱投入最重：三个平台各一套原生实现（Seatbelt 的 SBPL 文件、bubblewrap + Landlock + seccomp、Windows 受限令牌 + ACL + Job Objects）加网络代理——因为它是本地 CLI，沙箱是它唯一的强制层。DeepSeek Harness 把沙箱做成接缝加本地后端，可以换容器 / 云沙箱。Claude Code 本地的限制较轻，重的隔离交给云端产品。选择反映了各自的部署假设：本地 CLI 必须自己做沙箱，服务端产品可以靠基础设施。
 
+```mermaid
+%% 图：五个主轴上四家的位置——状态在对象（Codex、Claude Code）还是在日志（DeepSeek Harness）；压缩摘要加密（Codex）还是可读（DeepSeek Harness、Claude Code）；权限用策略语言（Codex execpolicy）、规则 + 模式（Claude Code）还是插件（DeepSeek Harness）；沙箱原生三平台（Codex）、接缝（DeepSeek Harness）还是靠环境（Claude Code）；模型耦合一家（Codex、Claude Code）还是多家（DeepSeek Harness、OpenHarness）
+flowchart TB
+    subgraph A1["状态在哪"]
+        direction LR
+        A1a["对象持有历史<br/>Codex · Claude Code"] ~~~ A1b["日志即状态<br/>DeepSeek Harness"]
+    end
+    subgraph A2["压缩摘要"]
+        direction LR
+        A2a["加密 blob，绑供应商<br/>Codex 服务端"] ~~~ A2b["可读事件，可审计<br/>DeepSeek Harness · Claude Code"]
+    end
+    subgraph A3["权限表达"]
+        direction LR
+        A3a["策略语言 + 测试<br/>Codex execpolicy"] ~~~ A3b["规则 + 模式 + hooks<br/>Claude Code 六步"] ~~~ A3c["插件<br/>DeepSeek Harness"]
+    end
+    subgraph A4["沙箱"]
+        direction LR
+        A4a["原生三平台<br/>Codex"] ~~~ A4b["接缝 + 可换后端<br/>DeepSeek Harness"] ~~~ A4c["靠云端 / 环境<br/>Claude Code"]
+    end
+    subgraph A5["模型耦合"]
+        direction LR
+        A5a["一家：深集成<br/>Codex · Claude Code"] ~~~ A5b["多家：不锁定<br/>DeepSeek Harness · OpenHarness"]
+    end
+    A1 ~~~ A2 ~~~ A3 ~~~ A4 ~~~ A5
+    classDef n fill:#fff7e0,stroke:#c98a00,color:#222
+    class A1a,A1b,A2a,A2b,A3a,A3b,A3c,A4a,A4b,A4c,A5a,A5b n
+```
+
 ### 7. 会话：兼容面 vs 不变量
 
 Codex 把"从已有 rollout 恢复会话"列为与 app-server API、CLI 参数并列的外部兼容面——日志格式是契约。DeepSeek Harness 走得更远：日志格式有版本号，不认识的事件类型拒绝加载（除标 `ignorable`），迁移只能新增版本不能改旧的——把会话日志当作长期数据资产管理。
@@ -90,6 +147,21 @@ Codex 的 `multi_agents`（含 v2）与 `agent-roles` 是内建的子 agent 机�
 ### 9. 扩展模型：四种模式
 
 DeepSeek Harness 的四种模式是"一切皆插件"最好的展示：Standard（全部工具）、Code（工具经 Code Mode SDK 暴露、模型写 TypeScript 程序组合多步——第二篇的 PTC）、Minimal（只留 shell 与文件编辑器）、Creator（检视运行时、内存里测插件、组合新模式）。同一个核心，四种 agent。Codex 与 Claude Code 的扩展点是 plugins / hooks / skills / MCP——加东西容易、换核心行为难。
+
+```mermaid
+%% 图：DeepSeek Harness 的四种模式是同一组插件的四种组合——Standard 装全部工具；Code 把工具经 Code Mode SDK 暴露、模型写 TypeScript 程序组合多步（PTC）；Minimal 只留 shell 与文件编辑器，为公平比较模型；Creator 能检视运行时、在内存里测插件、组合出新模式；卸掉 guard 卫士或换沙箱后端都不改源码
+flowchart TB
+    CORE["同一个核心：session · system-prompt · tools · agent · agent-loop · scope"]
+    CORE --> M1["Standard<br/>fs · shell · web · browser · lsp · mcp · subagent · guard…"]
+    CORE --> M2["Code<br/>工具经 Code Mode SDK 暴露<br/>+ ptc-runtime：模型写 TS 程序组合多步"]
+    CORE --> M3["Minimal<br/>只留 shell + 文件编辑器<br/>在最小环境里公平比较模型"]
+    CORE --> M4["Creator<br/>检视运行时 · 内存里测插件 · 组合新模式"]
+    M1 -.->|"卸掉 guard/repeat-tool-reminder<br/>或换 sandbox 后端：改配置，不改源码"| M1
+    classDef core fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef m fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class CORE core
+    class M1,M2,M3,M4 m
+```
 
 ### 10. UI 面：一个核心多个面
 

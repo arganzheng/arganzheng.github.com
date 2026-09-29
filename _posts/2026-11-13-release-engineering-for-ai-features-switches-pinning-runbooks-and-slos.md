@@ -89,6 +89,37 @@ L2 第六篇：不可变版本 + 标签（`staging` / `canary` / `production`）
 
 功能级（整个 AI 功能）、能力级（agent 的某个工具、检索的某路、judge 抽样）、版本级（prompt / 模型的 canary 与 production 标签）。层次让降级可以精细：关掉多查询检索省成本而不关功能，关掉某个 MCP server 而不关 agent。
 
+```mermaid
+%% 图：开关的三个层次与三种状态——功能级（整个 AI 功能：开 / 降级 / 关，按租户与比例），能力级（agent 的某个工具、检索的某一路、judge 抽样各自可关），版本级（prompt / 模型的 canary 与 production 标签）；kill switch 是值班在秒级把任一层切到降级或关的权限，不经发布流程，上线前就要存在并演练过
+flowchart TB
+    subgraph F["功能级：「AI 客服」"]
+        direction LR
+        F1["开：正常"] --> F2["降级：规则回答 · 缓存答案 · 转人工<br/>或更便宜 / 保守的配置"] --> F3["关：不可用，有提示"]
+    end
+    subgraph C["能力级：功能内部各自可关"]
+        direction LR
+        C1["多查询检索"] ~~~ C2["某个 MCP server"] ~~~ C3["judge 抽样"] ~~~ C4["agent 的 shell 工具"]
+    end
+    subgraph V["版本级：标签"]
+        direction LR
+        V1["canary → prompt v13 · 1%"] ~~~ V2["production → prompt v12 · 99%"]
+    end
+    F ~~~ C ~~~ V
+    KS["kill switch：值班秒级操作，不改代码不经发布<br/>供应商宕机 → 降级 · 成本暴涨 → 关非核心 · 注入事件 → 关涉事工具 · 质量骤降 → 标签回旧版"] -.-> F
+    KS -.-> C
+    KS -.-> V
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef warn fill:#fff3e0,stroke:#c98a00,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    classDef n fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef ks fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class F1,V2 ok
+    class F2,V1 warn
+    class F3 bad
+    class C1,C2,C3,C4 n
+    class KS ks
+```
+
 ## 四、钉版本与依赖变更
 
 ### 1. 钉一切
@@ -108,6 +139,30 @@ Table: 要钉住的依赖与不钉的后果
 ### 2. 依赖变更是别人替你做的发布
 
 供应商的模型更新、弃用（L1 第五篇的周期表）、价格变化、条款变化（第五篇）、API 变更（L1 第二篇的 2026 年变更清单）、MCP server 更新——都会改变系统行为，但不经你的流程。纳入的做法：**探针集每日跑**（L5 第四篇——模型指纹）、**订阅通知**（changelog、弃用邮件、状态页、MCP server 的 release）、**登记与评估**（第五篇的供应商变更治理）、**决定**（跟进 / 钉旧版 / 迁移 / 换 fallback 顺序），走同一套门禁与灰度。弃用是有截止日期的发布：日历上标出来，提前一个周期迁移。
+
+```mermaid
+%% 图：两种发布走同一条流程——你自己的改动（十类之一）提版本、过门禁、灰度、全量、监控；别人替你做的发布（供应商模型更新、弃用、价格、条款、API 变更、MCP server 更新）从探针漂移或通知进来，登记、影响评估后，同样决定跟进 / 钉旧版 / 迁移 / 换 fallback，走同一套门禁与灰度；弃用有截止日，日历上标出来提前一个周期迁移
+flowchart TB
+    subgraph MINE["你的发布：十类改动"]
+        direction LR
+        M1["提版本（不可变 + 标签）"] --> M2["门禁：评测集 × k · 逐条 diff · 成本 · 红队"]
+    end
+    subgraph THEIRS["别人替你做的发布"]
+        direction LR
+        T1["探针集每日：模型指纹漂移"] & T2["通知：changelog · 弃用邮件 · 条款 · MCP release"] --> T3["登记 + 影响评估（评测 · 成本 · 合规）"] --> T4["决定：跟进 / 钉旧版 / 迁移 / 换 fallback 顺序"]
+    end
+    M2 --> G["影子（高风险）→ 灰度 → 全量 → 监控（四类 SLO）→ 告警 → runbook → 回滚 / kill switch"]
+    T4 --> M1
+    CAL["弃用日历：关闭日前一个周期完成迁移"] -.-> T2
+    classDef mine fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef theirs fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef g fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef cal fill:#fdecea,stroke:#c0392b,color:#222
+    class M1,M2 mine
+    class T1,T2,T3,T4 theirs
+    class G g
+    class CAL cal
+```
 
 ### 3. 版本矩阵
 
@@ -130,6 +185,30 @@ Table: 要钉住的依赖与不钉的后果
 ### 3. 前向修复
 
 有时回滚比修复更危险（回到有安全漏洞的旧版本）——用 kill switch 降级 + 前向修复。runbook 里写清每类事故回滚还是前向。
+
+```mermaid
+%% 图：回滚前的确认清单——标签指回旧版本是秒级的，但先确认：旧模型快照还在（弃用了就回不去，要走 fallback）、旧 prompt 与当前工具集 / schema 兼容、会话状态可读（加密压缩 item 不能跨模型、日志格式版本旧版能读）、检索配置与索引版本对齐；旧版本有安全漏洞时不回滚，用 kill switch 降级 + 前向修复；回滚本身也是一次发布要记录
+flowchart TB
+    E["事故：要回到上一版本"] --> Q1{"旧模型快照还在？"}
+    Q1 -->|"已弃用"| FB["走 fallback，不是回滚"]
+    Q1 -->|"在"| Q2{"旧 prompt 与当前工具集 / schema 兼容？"}
+    Q2 -->|"否"| FIX["前向修复"]
+    Q2 -->|"是"| Q3{"会话状态可读？<br/>加密压缩 item 跨模型？日志格式版本？"}
+    Q3 -->|"否：会话中途的用户会断"| FIX
+    Q3 -->|"是"| Q4{"旧版本有安全漏洞？"}
+    Q4 -->|"是"| KS["kill switch 降级 + 前向修复"]
+    Q4 -->|"否"| RB["回滚：标签指回（秒级）"]
+    RB --> REC["记录 · 通知 · 事后分析（回滚也是发布）"]
+    classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef alt fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    class Q1,Q2,Q3,Q4 dec
+    class RB,REC ok
+    class FB,FIX alt
+    class KS bad
+    class E bad
+```
 
 ## 六、五本 runbook
 
@@ -169,6 +248,30 @@ Table: 要钉住的依赖与不钉的后果
 Table: 四类 SLO
 
 质量与成本 SLO 是 AI 功能新增的两类；各有**错误预算**——预算耗尽时冻结非紧急发布、先修（SRE 的老规则）。
+
+```mermaid
+%% 图：四类 SLO 与错误预算——可用性（成功率含 fallback 后 99.9%）、延迟（TTFT p95 ≤ 1.5 s）、质量（在线 judge ≥ 4.0、格式失败 ≤ 0.5%、点踩率 ≤ 3%）、成本（每任务 p95 ≤ 0.50 美元）；每类一个月度错误预算，消耗到 100% 就冻结非紧急发布先修；质量与成本是 AI 功能新增的两类，前两类是传统 SRE 的
+flowchart LR
+    subgraph SLO["四类 SLO（月度）"]
+        direction TB
+        A["可用性：成功率 ≥ 99.9%<br/>（含 fallback 后）"] ~~~ L["延迟：TTFT p95 ≤ 1.5 s · 总时长 p95"] ~~~ Q["质量：在线 judge ≥ 4.0 / 5<br/>格式失败 ≤ 0.5% · 点踩率 ≤ 3%"] ~~~ C["成本：每任务 p95 ≤ 0.50 美元<br/>每功能日消耗"]
+    end
+    SLO --> EB["错误预算：每类允许的月度违约量"]
+    EB -->|"消耗 < 100%"| GO["正常发布节奏"]
+    EB -->|"耗尽"| FREEZE["冻结非紧急发布 · 先修<br/>（SRE 的老规则）"]
+    A -.- N1["传统 SRE 已有"]
+    L -.- N1
+    Q -.- N2["AI 功能新增"]
+    C -.- N2
+    classDef old fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef new fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef eb fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    class A,L,N1 old
+    class Q,C,N2 new
+    class EB,GO eb
+    class FREEZE bad
+```
 
 ### 2. 告警
 

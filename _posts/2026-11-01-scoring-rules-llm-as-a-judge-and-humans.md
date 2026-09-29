@@ -59,6 +59,25 @@ Table: 三层评分的对照
 
 规则判不了"这段解释清楚吗"、"这个摘要忠实吗"、"这条回复的语气合适吗"、"这个轨迹走了弯路吗"。这些交给 judge——但先问一遍能不能拆出规则部分（摘要里的每个数字是否出现在原文里是规则；摘要是否抓住重点是 judge）。
 
+```mermaid
+%% 图：把一条「评这个摘要」的期望拆成规则部分与 judge 部分——数字是否都出现在原文、引用的条目 id 是否存在、长度是否在范围、有没有禁用词、schema 是否合法，全是规则（免费、确定）；只剩「抓住重点了吗」「忠实吗」交给 judge；能拆出来的越多，judge 要管的越少、偏差影响越小
+flowchart LR
+    Q["评：这段财报摘要好不好"] --> R["规则部分（免费 · 确定）"]
+    Q --> J["judge 部分（校准过）"]
+    R --> R1["摘要里的每个数字都出现在原文里？"]
+    R --> R2["引用的段落 id 在检索结果里存在？"]
+    R --> R3["长度 ≤ 200 字？无禁用词？schema 合法？"]
+    R --> R4["拒答出口：该拒的拒了、不该拒的没拒？"]
+    J --> J1["抓住了重点吗？（rubric 1–5）"]
+    J --> J2["有没有原文没说的推断？（忠实度）"]
+    classDef q fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef r fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef j fill:#fff7e0,stroke:#c98a00,color:#222
+    class Q q
+    class R,R1,R2,R3,R4 r
+    class J,J1,J2 j
+```
+
 ## 三、judge 的偏差
 
 ### 1. 四类
@@ -81,6 +100,19 @@ Table: judge 的四类偏差
 - **排名不迁移**：judge 在一个基准上的排名到另一个基准移动多达 14 位——一个"好 judge"是相对任务的；你的任务要自己校准。
 - **pairwise 更敏感也更脆**：嵌入一个干扰特征让 pairwise 偏好翻转约 35%，pointwise 只有 9%（Tripathi 等 2025）。
 
+```mermaid
+%% 图：为什么一致率虚高——80% 的用例本来就是「好」，一个永远说「好」的 judge 与人的一致率也有 80%；观察到的 88% 里大部分是机遇一致，Cohen's kappa 校正后只有 0.4 左右（研究里 kappa 相对精确匹配普遍低 33–41 个百分点）；报 kappa 不报一致率
+%%{init: {"xyChart": {"width": 760, "height": 340, "plotReservedSpacePercent": 60}, "themeVariables": {"xyChart": {"plotColorPalette": "#c0392b, #5b8fd6, #4d9a5c"}}}}%%
+xychart-beta
+    title "同一个 judge 的两种报法（示意：80% 用例为「好」）"
+    x-axis ["永远说「好」的 judge", "实际的 judge"]
+    y-axis "%" 0 --> 100
+    bar [80, 88]
+    bar [0, 40]
+```
+
+红柱是与人的精确匹配一致率，蓝柱是 Cohen's kappa（× 100）。一个什么都不看的 judge 也有 80% 的一致率；实际 judge 的 88% 校正掉机遇一致后只剩 κ ≈ 0.40——够不上做门禁的 0.61。
+
 ## 四、校准协议
 
 ### 1. 最小协议
@@ -102,6 +134,26 @@ Table: judge 校准的最小协议
 
 任何一步没过：该轴上的结论"建在假设上"；决定性的对送 jury（多个 judge 投票）或人。
 
+```mermaid
+%% 图：judge 校准的八步协议——先有人的校准集（双标注者 κ ≥ 0.6，否则先修指南），再量 judge 与人的 kappa（≥ 0.61 才能用），然后逐一测四类偏差（交换顺序、长度匹配、格式对照、遮蔽来源 + 跨家族），算敏感度 / 特异度反推真实通过率，最后固定 rubric 并持续抽检；judge 模型升级、rubric 改、任务分布变则重校
+flowchart TB
+    S1["① 校准集：人工标几十到几百条<br/>双标注者 κ ≥ 0.6，否则先修标注指南"] --> S2["② judge 评校准集，与人比 Cohen's kappa<br/>≥ 0.61 可用 · < 0.4 不能用"]
+    S2 --> S3["③ 位置：每对交换顺序再评<br/>只保留双向一致"]
+    S3 --> S4["④ 长度：长度匹配的改写对照"]
+    S4 --> S5["⑤ 风格：内容相同、格式化 vs 纯文本"]
+    S5 --> S6["⑥ 来源：遮蔽模型身份 + 跨家族 judge / jury"]
+    S6 --> S7["⑦ 校准偏移：从校准集算敏感度 s 与特异度 t<br/>p = (p_obs − (1−t)) / (s − (1−t))"]
+    S7 --> S8["⑧ rubric 版本化 · 批量评估中抽样人核"]
+    S8 -->|"judge 模型升级 · rubric 改 · 任务分布变"| S1
+    S2 -.->|"没过"| X["该轴结论「建在假设上」<br/>决定性的对送 jury 或人"]
+    classDef step fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef gate fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    class S1,S3,S4,S5,S6,S7,S8 step
+    class S2 gate
+    class X bad
+```
+
 ### 2. 校准偏移的算术
 
 judge 对"好"的敏感度 $$s$$（真好被判好的比例）、特异度 $$t$$（真坏被判坏的比例），观察到的通过率 $$p_{obs}$$，真实通过率
@@ -111,6 +163,26 @@ p = \frac{p_{obs} - (1 - t)}{s - (1 - t)}
 $$
 
 例：$$s = 0.9$$、$$t = 0.8$$、$$p_{obs} = 0.85$$，则 $$p = (0.85 - 0.2) / (0.9 - 0.2) \approx 0.93$$——judge 偏严；反过来 $$t$$ 低（把坏判成好）时 $$p$$ 比 $$p_{obs}$$ 低。门禁比较两个版本时偏移相同可以抵消，但报告绝对通过率时必须校正。
+
+```mermaid
+%% 图：校准偏移的算术——1,000 条里真好 930 条、真坏 70 条；judge 敏感度 0.9 把 837 条真好判好、93 条判坏，特异度 0.8 把 56 条真坏判坏、14 条判好；观察到的通过率 (837 + 14) / 1000 = 0.85，比真实的 0.93 低 8 个点——这个 judge 偏严；报绝对通过率时必须反推校正
+flowchart TB
+    T["1,000 条<br/>真实：930 好 · 70 坏（p = 0.93）"] --> G["真好 930"] & B["真坏 70"]
+    G -->|"s = 0.9"| G1["判好 837"]
+    G -->|"1 − s"| G2["判坏 93 ✗ 漏判"]
+    B -->|"t = 0.8"| B1["判坏 56"]
+    B -->|"1 − t"| B2["判好 14 ✗ 误放"]
+    G1 & B2 --> OBS["观察到的通过率<br/>(837 + 14) / 1000 = 0.85"]
+    OBS --> COR["反推：p = (0.85 − 0.2) / (0.9 − 0.2) = 0.93 ✓"]
+    classDef n fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    classDef r fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class T,G,B n
+    class G1,B1,COR ok
+    class G2,B2 bad
+    class OBS r
+```
 
 ### 3. 多久重校
 
@@ -142,6 +214,19 @@ Table: pointwise 与 pairwise 的对照
 ### 4. 选 judge
 
 结论与 L1 第五篇同构：**去偏策略比 judge 的大小重要**——Gemini 2.5 Flash + 组合去偏（κ = 0.549，≈ 0.001 美元）胜过 Claude Sonnet 4 同策略（≈ 0.015 美元），便宜 15 倍。选法：两三个候选在你的校准集上跑第四章的协议，选 kappa 高、偏差小、便宜的；避免与被评模型同家族（或至少加跨家族对照）；judge 的模型版本钉住（它也会静默变——第四篇）。
+
+```mermaid
+%% 图：去偏策略比 judge 的大小重要——Gemini 2.5 Flash 加组合去偏（交换顺序 · 长度匹配 · 忽略格式 · 遮蔽来源 · 先理由后分）κ = 0.549、每次约 0.001 美元；Claude Sonnet 4 同策略约 0.015 美元、κ 更低；中档模型 + 去偏比前沿模型便宜 15 倍且更准
+%%{init: {"xyChart": {"width": 760, "height": 340, "plotReservedSpacePercent": 60}, "themeVariables": {"xyChart": {"plotColorPalette": "#c0392b, #5b8fd6, #4d9a5c"}}}}%%
+xychart-beta
+    title "judge 的 kappa（× 100）与每次成本（千分之一美元）——Sonnet 4 两柱为按文中增量反推的示意"
+    x-axis ["Flash 无去偏", "Flash + 组合去偏", "Sonnet 4 无去偏", "Sonnet 4 + 组合去偏"]
+    y-axis "κ × 100 / 成本（‰ 美元）" 0 --> 60
+    bar [47, 55, 40, 52]
+    bar [1, 1, 15, 15]
+```
+
+红柱是 kappa × 100（研究里的量级：组合去偏给 Flash +7.5 pp、给 Claude +11.5 pp），蓝柱是每次成本。同样加去偏，便宜 15 倍的 Flash 反而更准。
 
 ### 5. judge 的成本
 

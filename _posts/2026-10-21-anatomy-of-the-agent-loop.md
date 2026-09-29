@@ -98,6 +98,30 @@ L2 的七层在这里被拼成一次请求。循环特有的部分：**只追加
 
 Table: 循环的卫士及其生产实现
 
+```mermaid
+%% 图：一个没有卫士的循环三种死法——找不到答案时无限换词搜索（重复调用 / 步数）、一个工具永不返回让整个会话挂死（单次超时）、每步都有新返回让上下文与费用无限增长（token / 美元预算）；每种死法对应一个卫士
+flowchart LR
+    subgraph D1["死法①：无限换词"]
+        direction TB
+        A1["search 'payment'：无结果"] --> A2["search 'pay'：无结果"] --> A3["search 'payments'：无结果"] --> A4["…第 200 步"]
+    end
+    subgraph D2["死法②：挂死"]
+        direction TB
+        B1["run 'npm test'"] --> B2["等待网络… 10 分钟… 1 小时…"] --> B3["整个会话卡住"]
+    end
+    subgraph D3["死法③：爆预算"]
+        direction TB
+        C1["每步读一个 5K 的文件"] --> C2["第 40 步：上下文 200K"] --> C3["每步 2 美元 × 越来越多步"]
+    end
+    D1 -.- G1["卫士：重复调用检测 + 步数上限<br/>→ 提醒换方法或交付部分结果"]
+    D2 -.- G2["卫士：单次工具超时<br/>→ 杀掉、把超时作为结果送回"]
+    D3 -.- G3["卫士：token / 美元预算<br/>→ 压缩或交付部分结果"]
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class A1,A2,A3,A4,B1,B2,B3,C1,C2,C3 bad
+    class G1,G2,G3 ok
+```
+
 ## 三、Codex 的三层循环
 
 Codex CLI 的 `codex-rs` 是一个几十个 crate 的 Rust 工作区，`core` 是重心——agent 循环状态机、配置、模型客户端、沙箱管理器都在里面。循环分三层：
@@ -120,6 +144,40 @@ Codex CLI 的 `codex-rs` 是一个几十个 crate 的 Rust 工作区，`core` �
 
 工具本身经 `tools/registry.rs` 注册、`tools/router.rs` 路由、`tools/parallel.rs` 并行；处理器在 `tools/handlers/`（shell、`apply_patch`、`plan`、`request_user_input`、`tool_search`、`multi_agents`、MCP、`view_image`……）。这一层是"权限范围是错误上限"原则的代码形态：任何工具调用都要先过审批再过沙箱，沙箱拒绝不自动升级。
 
+```mermaid
+%% 图：Codex 的三层循环——最外层 submission_loop 活到会话结束，经操作 / 事件通道连 TUI / exec / app-server；每个用户输入触发一个 turn loop：组装 prompt、调 Responses API、处理输出项直到模型不再返回工具调用，边界处压缩；每个工具调用走编排器：审批 → 选沙箱首次尝试 → 沙箱拒绝时按策略决定是否审批后无沙箱重试
+flowchart TB
+    subgraph L1["第一层 submission_loop：会话的生命周期"]
+        direction LR
+        UI["TUI / exec / app-server"] -->|"Op：用户输入 · 审批决定 · 中断"| SUB["分发 Op"]
+        SUB -->|"事件：流式增量 · 审批请求 · 状态"| UI
+    end
+    subgraph L2["第二层 turn loop：一次用户输入"]
+        direction LR
+        T1["组装：系统指令 · AGENTS.md · 工具 · 历史"] --> T2["调 Responses API<br/>reasoning item 跨轮保留"] --> T3{"有工具调用？"}
+        T3 -->|"否"| T4["turn 结束（边界处可压缩）"]
+        T3 -->|"是"| L3
+    end
+    subgraph L3["第三层 工具编排器 orchestrator.rs"]
+        direction LR
+        O1["① 审批：AskForApproval 策略 + execpolicy<br/>可选 Guardian 模型审查"] --> O2["② 在选定的沙箱里首次尝试"]
+        O2 -->|"成功"| O3["返回结果"]
+        O2 -->|"沙箱拒绝"| O4{"策略允许升级？"}
+        O4 -->|"never / on-request：不"| O5["返回拒绝说明"]
+        O4 -->|"是：新审批"| O6["第二次尝试，无沙箱"]
+    end
+    SUB -->|"Op::UserInput"| L2
+    L3 -->|"结果写回历史"| T2
+    classDef l1 fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef l2 fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef l3 fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    class UI,SUB l1
+    class T1,T2,T3,T4 l2
+    class O1,O2,O3,O4,O6 l3
+    class O5 bad
+```
+
 ## 四、DeepSeek Harness 的日志驱动循环
 
 DeepSeek Harness（`dsh`）是 TypeScript 单体仓库，几十个 `@deepseek-ai/dsh-*` 包，全部是 Cordis 插件——包括循环本身。`packages/core` 是每个组合都要启动的六个包：
@@ -138,6 +196,30 @@ Table: DeepSeek Harness core 各包的职责
 一个 turn 的路径（架构文档的原话改述）：`agent-loop` 的驱动**领取**一个排队的 prompt → 在会话日志上**开一个 turn** → 经 `system-prompt` 组装请求前缀、**从日志派生**历史 → 经 LLM 接缝流式调模型 → 经工具注册表分发工具调用 → **把每个模型可见的事实追加回日志**，下一步再从日志派生。
 
 与 Codex 的差别在于**状态在哪**：Codex 的会话对象持有历史，日志（rollout）是它的持久化；DeepSeek Harness 反过来——日志是状态，历史是从日志**派生**的视图。这带来一条它写进仓库规范的不变量："**模型可见 ⟺ 已记录**：任何进入模型请求的东西都必须能从会话日志重建；一个新的模型可见输入需要一个会话事件。"第三篇讲这条不变量对 resume / fork / replay 意味着什么。
+
+```mermaid
+%% 图：状态在哪——Codex 的会话对象持有历史，rollout 日志是它的持久化；DeepSeek Harness 反过来：append-only 的会话日志是唯一事实来源，历史是每一步从日志派生的视图，「模型可见 ⟺ 已记录」——任何进入模型请求的东西都必须能从日志重建
+flowchart TB
+    subgraph CX["Codex：对象持有状态"]
+        direction LR
+        C1["会话对象<br/>历史在内存里"] -->|"持久化"| C2["rollout 日志"]
+        C1 --> C3["组装请求"]
+    end
+    subgraph DS["DeepSeek Harness：日志即状态"]
+        direction LR
+        D1["append-only 会话日志<br/>SessionEvent 唯一事实来源"] -->|"派生"| D2["历史视图"]
+        D2 --> D3["组装请求"]
+        D3 -->|"模型输出 · 工具结果 · 审批 · 压缩摘要<br/>每个模型可见的事实追加回日志"| D1
+    end
+    CX ~~~ DS
+    DS -.- INV["不变量：模型可见 ⟺ 已记录<br/>→ resume / fork / replay 都是重放同一条日志（第三篇）"]
+    classDef c fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef d fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef n fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class C1,C2,C3 c
+    class D1,D2,D3 d
+    class INV n
+```
 
 循环之外的"一切皆插件"：模型适配器、工具、沙箱、审批策略、压缩、子 agent、UI 都是可从配置替换的插件；`guard` 包组的两个卫士也是——不想要重复调用提醒可以卸掉。四种**模式**是不同的插件组合：Standard（全部工具）、Code（工具经 Code Mode SDK 暴露，模型写一个 TypeScript 程序组合多步——第二篇）、Minimal（只留 shell 与文件编辑器，用于在最小环境里公平比较模型）、Creator（检视运行时、在内存里测插件、组合新模式）。
 
@@ -159,6 +241,24 @@ Table: 工作流与 agent 的区分
 ### 2. 判据
 
 问三个问题：步骤能不能事先写出来？每步的输入输出能不能定义清楚？失败了能不能在代码里处理？三个都能，用工作流——它便宜、可测、可预测。有一个不能，那一段用循环，其余仍用工作流。多数生产系统是**工作流里嵌一段 agent**：固定的入口与出口，中间一个有卫士的循环。
+
+```mermaid
+%% 图：工作流里嵌一段 agent——「读文档 → 抽字段 → 校验 → 入库」这类步骤事先知道的流程用代码写死；只有「校验失败时找出原因并修正」这一段步骤事先不知道，才放一个有四个卫士的循环；固定的入口与出口让不定的成本只花在那一段
+flowchart TB
+    W1["① 读文档<br/>（工作流）"] --> W2["② 模型抽字段<br/>（工作流：一次调用）"] --> W3{"③ 校验"}
+    W3 -->|"过"| W4["④ 入库<br/>（工作流）"]
+    W3 -->|"不过"| AG["agent 循环：找出为什么不过、改正<br/>四个卫士 · 两个出口 · 步数 ≤ 10"]
+    AG -->|"修好 → 回校验"| W3
+    AG -->|"预算耗尽 / 卫士触发"| H["转人工（第二出口）"]
+    classDef wf fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef ag fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef h fill:#fdecea,stroke:#c0392b,color:#222
+    class W1,W2,W4 wf
+    class W3 dec
+    class AG ag
+    class H h
+```
 
 ### 3. 常见的过度设计
 

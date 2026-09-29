@@ -80,6 +80,30 @@ Table: 四层四个缓存断点
 
 顶层自动断点（Anthropic 2026 年加的 `cache_control` 顶层写法）等价于只放断点 ④ 并让它随对话前移——多轮对话的最简写法，但失去了 ①②③ 的跨会话共享。两者可以同时用（自动断点占 4 个槽位之一）。
 
+```mermaid
+%% 图：四个断点的分级命中——新用户第一轮命中 ①②（所有请求共享的 tools + 静态 system）；同一用户的新会话命中到 ③（加上用户画像与记忆）；同一会话的下一轮命中到 ④（加上全部历史）；请求越「熟」，命中的前缀越长
+flowchart TB
+    subgraph P["前缀（按变化频率排）"]
+        direction LR
+        T["tools"] --> S["静态 system"] --> U["半静态：画像 · few-shot · 记忆"] --> H["历史（只追加）"] --> D["动态段：日期 · 检索 · 当前输入"]
+    end
+    T -.- B1["断点 ①"]
+    S -.- B2["断点 ②"]
+    U -.- B3["断点 ③"]
+    H -.- B4["断点 ④"]
+    R1["新用户第一轮"] -->|"命中到 ②"| B2
+    R2["老用户新会话"] -->|"命中到 ③"| B3
+    R3["同一会话下一轮"] -->|"命中到 ④"| B4
+    classDef pre fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef dyn fill:#fdecea,stroke:#c0392b,color:#222
+    classDef bp fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef req fill:#fff7e0,stroke:#c98a00,color:#222
+    class T,S,U,H pre
+    class D dyn
+    class B1,B2,B3,B4 bp
+    class R1,R2,R3 req
+```
+
 ### 2. 最小长度的陷阱
 
 不足最小长度的块**静默不缓存**——没有报错，usage 里 `cache_creation_input_tokens` 是 0。一个 800 token 的 system prompt 永远不会被缓存；一个团队为此困惑了一周的情况并不少见。对策：把 tools 与 system 合起来看是否过线（Anthropic 的断点覆盖的是**到该块为止的全部前缀**，所以 ② 覆盖 tools + system 的总长）；或者接受它——800 token 每轮全价也不贵，二次增长的主体在历史。
@@ -119,6 +143,19 @@ Manus 的博客把它们压成三句，值得原样记：
 
 他们给的数字：Claude Sonnet 缓存与未缓存输入价差 10 倍（0.30 vs 3.00 美元 / 百万，2025 年价目），一个 50 步的 agent 任务里这个差异是成本的主体。
 
+```mermaid
+%% 图：一个 50 步 agent 任务的输入成本（美元，Sonnet 每百万输入 3 美元、缓存读 0.3 美元，2025 年价目；常驻 15K，每步 +3.3K）——前缀稳定时约 2 美元，system 开头有精确时间戳时每步全价重读，约 14 美元；差的那 12 美元全是被时间戳毁掉的缓存
+%%{init: {"xyChart": {"width": 760, "height": 340, "plotReservedSpacePercent": 60}, "themeVariables": {"xyChart": {"plotColorPalette": "#c0392b, #5b8fd6, #4d9a5c"}}}}%%
+xychart-beta
+    title "50 步 agent 任务的累计输入成本（美元）"
+    x-axis "步数" [10, 20, 30, 40, 50]
+    y-axis "美元" 0 --> 16
+    line [0.9, 2.8, 5.7, 9.5, 14.4]
+    line [0.26, 0.56, 0.96, 1.46, 2.06]
+```
+
+红线是前缀每步都变（时间戳、不确定序列化），蓝线是前缀稳定、只追加。两条线的差就是 Manus 说的「成本的主体」。
+
 ## 五、反直觉的做法
 
 ### 1. 屏蔽工具，不删除工具
@@ -126,6 +163,28 @@ Manus 的博客把它们压成三句，值得原样记：
 agent 在不同阶段可用的工具不同（规划阶段不该写文件、确认前不该付款）。直觉做法是按阶段增删 tools——这让最前面的前缀失效，且历史里引用了已删除工具的调用会让模型困惑甚至报错。Manus 的做法是**保留全部工具定义，用屏蔽控制可用性**：自托管时在解码阶段屏蔽不允许的工具名的 logits（工具名有统一前缀如 `browser_`、`shell_`，屏蔽一个前缀即屏蔽一类）；用 API 时用 `tool_choice` 约束（`auto` / `required` / 指定 / `none`）。前缀不变，可用性变了。
 
 OpenAI 与 Anthropic 的 tool search 是另一条路：工具定义不常驻、按需加载。它解决的是"工具太多占预算"（第一篇），代价是按需加载的定义在历史中间、不可缓存；对"阶段性可用"这个问题，屏蔽仍然更好。
+
+```mermaid
+%% 图：按阶段控制工具可用性的两种做法——按阶段增删 tools 让最前面的前缀失效、历史里引用了已删工具的调用会让模型困惑；保留全部定义、用 logits 屏蔽（自托管，按 browser_ / shell_ 前缀屏蔽一类）或 tool_choice 约束（API）控制可用性，前缀一个字节不变
+flowchart TB
+    subgraph A["增删 tools（直觉做法）"]
+        direction LR
+        A1["规划阶段：tools = [search, read]"] --> A2["执行阶段：tools = [search, read, write, shell]"] --> A3["确认前：tools = [search, read]"]
+        A1 -.- AX["每次切换 → tools 变 → 前缀全部失效<br/>历史里的 write 调用引用了已删的工具"]
+    end
+    subgraph B["屏蔽（Manus 做法）"]
+        direction LR
+        B1["全部阶段：tools = [search, read, write, shell]（不变）"] --> B2["规划阶段：屏蔽 write_ / shell_ 前缀的 logits<br/>或 tool_choice 限定"] --> B3["执行阶段：全部放开"]
+        B1 -.- BX["前缀逐字节不变 → 命中"]
+    end
+    A ~~~ B
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef n fill:#fff7e0,stroke:#c98a00,color:#222
+    class A1,A2,A3 n
+    class AX bad
+    class B1,B2,B3,BX ok
+```
 
 ### 2. 不删失败
 
@@ -166,6 +225,26 @@ Table: 缓存命中率的排查表
 ### 3. 从 trace 计算
 
 L1 第二篇的中间层记录了四类 token；每个请求算命中率，按会话、按请求类型、按模型聚合；再加两个派生指标——**未缓存输入 token / 请求**（绝对量）与**缓存节省的美元 / 天**（$$n_{\text{hit}} \times (p_{\text{in}} - p_{\text{hit}})$$ 减去写入加价）。第二个数字通常是让团队认真对待排列规则的那一个。
+
+```mermaid
+%% 图：命中率排查的决策树——先看 cache_creation 是否为 0（前缀不足最小长度或没放断点），再看是否每轮都在写入（前缀每次不同：时间戳、随机 id、序列化不确定），再看是否随会话长度下降（半静态层每轮更新或检索结果放在历史前），再看是否只有部分用户不命中（间隔超 TTL），最后看是否某天骤降（部署改了前缀或换了模型）
+flowchart TB
+    Q["命中率低于预期"] --> A{"cache_creation 也是 0？"}
+    A -->|"是"| A1["前缀不足最小长度（1,024）<br/>或 Anthropic 没放断点"]
+    A -->|"否"| B{"每轮都是写入、没有读取？"}
+    B -->|"是"| B1["前缀每次不同：<br/>时间戳 · 随机 id · JSON 键序不定<br/>→ diff 连续两次请求体的前 N 字节"]
+    B -->|"否"| C{"随会话长度下降？"}
+    C -->|"是"| C1["半静态层每轮更新<br/>或检索结果放在历史前面"]
+    C -->|"否"| D{"只有部分用户不命中？"}
+    D -->|"是"| D1["请求间隔超 TTL<br/>→ 统计间隔分布，考虑 1 小时 TTL"]
+    D -->|"否"| E{"某天骤降？"}
+    E -->|"是"| E1["部署改了 system / tools / schema<br/>或换模型（一次性失效，正常）"]
+    E -->|"否 · 多实例"| F1["路由到不同缓存节点<br/>→ 传 prompt_cache_key"]
+    classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef fix fill:#fff7e0,stroke:#c98a00,color:#222
+    class A,B,C,D,E dec
+    class A1,B1,C1,D1,E1,F1 fix
+```
 
 ## 七、与其他操作的配合
 

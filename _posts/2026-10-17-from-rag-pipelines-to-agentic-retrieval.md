@@ -57,6 +57,26 @@ Table: 流水线 RAG 与 agentic retrieval 的对照
 
 两者之间有一条渐进的路：流水线加 **query 改写**（模型先改写查询再检索一次）、加**多查询**（拆成几个查询并行检索再合并）、加**自检**（生成后判断"检索结果够不够"，不够再来一轮，上限两轮）——每加一步就更接近 agentic 一点、延迟与成本也涨一点。多数生产系统停在这条路的中段。
 
+```mermaid
+%% 图：从流水线到 agentic 的渐进路——每往右加一步（query 改写 → 多查询 → 元数据路由 → 自检 + 有限重试 → 模型自主的工具循环），决策权从代码多交给模型一点、延迟与成本也涨一点；多数生产系统停在中段
+flowchart TB
+    P0["流水线<br/>用户问题 = 查询<br/>1 次检索 · 1 次生成"] --> P1["+ query 改写<br/>小模型补指代、抽关键词<br/>+ 几百毫秒"]
+    P1 --> P2["+ 多查询 / HyDE<br/>拆成几个并行检索，RRF 合并<br/>检索次数 × 几"]
+    P2 --> P3["+ 元数据路由<br/>抽「2025 年」「华东区」成过滤条件"]
+    P3 --> P4["+ 自检 + 有限重试<br/>sufficient 字段不够 → 再一轮<br/>代码控制，上限 1–2 轮"]
+    P4 --> P5["agentic retrieval<br/>模型决定查什么、用哪类、查几轮<br/>1 到几十轮"]
+    P0 -.- N1["代码决定一切 · 延迟可控 · 召回压力高"]
+    P5 -.- N2["模型决定 · 延迟成本不定 · 召回压力低 · 多跳"]
+    classDef a fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef b fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef c fill:#fdecea,stroke:#c0392b,color:#222
+    classDef n fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class P0,P1 a
+    class P2,P3,P4 b
+    class P5 c
+    class N1,N2 n
+```
+
 ### 3. 本文的章节安排
 
 第二章讲流水线的改进手段；第三章讲 agentic retrieval 的形态与它对系统的要求；第四章讲供应商内置的 file search；第五章讲决策；第六章实践建议。
@@ -70,6 +90,26 @@ Table: 流水线 RAG 与 agentic retrieval 的对照
 ### 2. HyDE：先写假想答案
 
 Hypothetical Document Embeddings：让模型先对问题写一段**假想的答案**（不管对不对），用这段答案去做向量检索。原理是答案与文档在同一"回答"的语义空间里，比问题与文档的距离更近——问题"退货要多久"与文档"逆向流程通常在七个工作日内完成"词汇不同，但假想答案"退货一般需要 7 个工作日"与文档很近。代价是一次生成；风险是假想答案跑偏时检索跟着偏。对词汇不匹配严重的语料有效。
+
+```mermaid
+%% 图：HyDE 为什么有效——问题「退货要多久」是提问句式，文档「逆向流程通常在七个工作日内完成」是陈述句式，两者在向量空间里离得远；让模型先写一段假想答案「退货一般需要 7 个工作日」，它与文档同是陈述、词汇更接近，用它去检索距离更近；风险是假想答案跑偏时检索跟着偏
+flowchart TB
+    Q["问题：退货要多久？"] -->|"直接 embedding"| QV["提问空间里的一个点<br/>与文档距离远（词汇：退货 / 多久）"]
+    Q -->|"先让模型写假想答案"| H["假想答案：<br/>「退货一般需要 7 个工作日」"]
+    H -->|"embedding"| HV["陈述空间里的一个点<br/>与文档距离近（工作日 · 7 · 完成）"]
+    D["文档：「逆向流程通常在<br/>七个工作日内完成」"]
+    QV -.->|"召回：✗"| D
+    HV -->|"召回：✓"| D
+    R["风险：假想答案写成「退货需要 30 天」<br/>→ 检索跟着偏"] -.-> H
+    classDef q fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef doc fill:#f0f0f0,stroke:#888,color:#222
+    class Q q
+    class QV,R bad
+    class H,HV ok
+    class D doc
+```
 
 ### 3. 多查询与拆分
 
@@ -102,6 +142,27 @@ Hypothetical Document Embeddings：让模型先对问题写一段**假想的答�
 - **上下文增长**：每轮的检索结果进入上下文，L2 第一篇的 $$S + (k-1)(r + o)$$ 里 $$r$$ 就是它；L2 第四篇的卸载（大结果写文件留引用）、清理（旧结果删掉）、预算（每轮返回上限）在 agentic 检索里是必需品不是选项。
 - **工具描述决定行为**：模型用不用对工具、用对参数，取决于描述（L1 第二篇第三章）："search_docs：对制度、合同等非结构化文档做语义检索，适合自然语言问题；已知条款编号时用 grep_docs；查客户 / 订单等结构化数据用 sql"——不写清，模型会用向量搜编号、用 SQL 搜段落。
 - **循环控制**：步数上限、token 预算、循环检测、"没有进展"的判断——L4 运行时的责任。没有上限的 agentic 检索会在找不到答案时无限换词。
+
+```mermaid
+%% 图：一次 agentic 检索的真实轨迹（coding agent 找「支付失败怎么处理」）——grep payment 无结果 → 换词 grep charge 找到 3 处 → read 其中一个文件发现 handleDeclined → LSP 找它的引用 → 读到重试逻辑 → 回答；每一轮的结果进上下文，大结果要卸载；步数上限与循环检测在外面兜着
+flowchart TB
+    Q["任务：支付失败在哪里处理？"] --> S1["① grep 'payment' → 无结果"]
+    S1 --> S2["② 换词：grep 'charge' → 3 个文件"]
+    S2 --> S3["③ read billing/charge.py（4K token → 超阈值，卸载留路径 + 预览）<br/>发现 handleDeclined()"]
+    S3 --> S4["④ LSP：find references handleDeclined → 2 个调用者"]
+    S4 --> S5["⑤ read retry/policy.py → 找到重试与降级逻辑"]
+    S5 --> A["回答：在 retry/policy.py 的 on_declined，带文件路径与行号"]
+    G["卫士：步数 ≤ 20 · token 预算 · 同一查询重复 3 次即停 · 「没有进展」检测"] -.-> S1
+    G -.-> S5
+    classDef step fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef miss fill:#fdecea,stroke:#c0392b,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef g fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class Q,S2,S3,S4,S5 step
+    class S1 miss
+    class A ok
+    class G g
+```
 - **可预测性低**：同一个问题两次走的路径不同（L1 第一篇的非确定性）；调试靠 trace（L5）：每一轮查了什么、返回了什么、为什么决定再查。
 
 ### 4. 检索工具的设计
@@ -151,6 +212,24 @@ Table: 供应商内置 file search 的得与失
 Table: 选流水线还是 agentic 的三问
 
 三问都倾向流水线就用流水线加第二章的改进；都倾向 agentic 就做工具；混合时——最常见——**流水线做默认路径，agentic 做兜底**：先一次检索生成，自检不够时升级到 agent 循环（有步数上限），把不定的成本只花在难题上。这与 L1 第五篇的级联分流是同一个思路。
+
+```mermaid
+%% 图：级联——流水线做默认路径（一次改写 + 混合检索 + rerank + 生成，结构化输出里带 sufficient 字段），自检够了直接返回；不够才升级到 agent 循环（有步数上限、卸载、清理），把不定的成本只花在难题上；大多数请求走上面那条便宜可预测的路
+flowchart TB
+    Q["用户问题"] --> P["流水线：改写 → 混合召回 → RRF → rerank → 生成<br/>输出含 sufficient 字段"]
+    P --> C{"sufficient？"}
+    C -->|"是（多数请求）"| A1["返回：延迟几百毫秒 + 一次生成，成本固定"]
+    C -->|"否（难题）"| AG["agent 循环：三类检索工具<br/>步数上限 · 每轮返回上限 · 卸载 · 清理"]
+    AG --> A2["返回：延迟与成本不定，只花在这部分"]
+    classDef step fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef exp fill:#fdecea,stroke:#c0392b,color:#222
+    class Q,P step
+    class C dec
+    class A1 ok
+    class AG,A2 exp
+```
 
 ### 2. 与 L2 第六篇的决策表接上
 
