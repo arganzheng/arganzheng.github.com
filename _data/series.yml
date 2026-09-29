@@ -72,16 +72,19 @@ deep-dive-into-vllm:
 ai-platform-engineering:
   name: AI 平台工程：资源层与交付层
   overview: /ai-platform-engineering.html
+  slides: /slides/ai-platform-engineering.html
   roadmap: ai-infra
   number: 11
 contributing-to-ai-infra-open-source:
   name: AI-Infra 开源贡献指南
   overview: /contributing-to-ai-infra-open-source.html
+  slides: /slides/contributing-to-ai-infra-open-source.html
   roadmap: ai-infra
   number: 12
 rl-post-training-infra:
   name: RL 后训练基础设施：rollout 与训练如何共享一组 GPU
   overview: /rl-post-training-infrastructure.html
+  slides: /slides/rl-post-training-infra.html
   roadmap: ai-infra
   number: 9
 math-for-ai:
@@ -131,6 +134,7 @@ multimodal:
 diffusion-inference-infra:
   name: 扩散模型推理基础设施：从一次去噪到一个生成服务
   overview: /diffusion-model-inference-infrastructure.html
+  slides: /slides/diffusion-inference-infra.html
   roadmap: ai-infra
   number: 10
 coding-interview:
