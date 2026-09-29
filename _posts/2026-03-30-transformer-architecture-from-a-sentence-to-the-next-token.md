@@ -22,30 +22,18 @@ date: 2026-03-30 12:00:00
 
 先把"大模型"这个词祛魅：一个语言模型做的事只有一件——**给定前面的 token，输出下一个 token 是词表里每一个词的概率**（L0 第四篇讲过它为什么是一个条件分布）。输入是一串整数（token 编号），输出是一张长度为词表大小 $$V$$ 的概率表。Transformer 就是从这串整数到那张概率表之间的那台机器。
 
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 460}}}%%
-%% 图：decoder-only Transformer 的整体结构，以 GPT-2 small 的数字标注：token 编号查 embedding 表变成 768 维向量、加上位置信息、经过 12 个相同的 block（每个 block = attention 子层 + FFN 子层，各带残差和 LayerNorm）、最后一次 LayerNorm、lm_head 投影到 50257 个词的分数
-flowchart TB
-    IN["输入：token 编号序列<br/>[The, cat, sat, on, the] → [464, 3797, 3332, 319, 262]"]
-    IN --> EMB["token embedding：查表<br/>50257 × 768 的表，每个编号取一行 → 5 个 768 维向量"]
-    EMB --> POS["+ 位置 embedding：查另一张表<br/>1024 × 768，第 i 个位置取第 i 行，逐元素相加"]
-    POS --> B
-    subgraph B["× 12 个相同的 block（各自的参数）"]
-        direction TB
-        A["attention 子层：LayerNorm → 多头 causal self-attention → 加回输入<br/>token 之间唯一的交流处：每个 token 看它左边的 token"]
-        F["FFN 子层：LayerNorm → 768 → 3072 → GELU → 768 → 加回输入<br/>每个 token 各自变换，token 之间互不影响"]
-        A --> F
-    end
-    B --> LNF["最后一次 LayerNorm"]
-    LNF --> HEAD["lm_head：768 × 50257 的矩阵<br/>每个位置的 768 维向量 → 词表上 50257 个分数（logits）"]
-    HEAD --> OUT["softmax → 概率<br/>第 5 个位置：p(下一个 token = mat) = 0.31，= floor 0.12 ……"]
-```
+![decoder-only Transformer 的整体结构（GPT-2 small 的数字）。左：数据自下而上流动——token 编号查 embedding 表得到 768 维向量、加位置 embedding、经过 12 个相同的 block、最后一次 LayerNorm、lm_head 投影到 50257 个词的分数、softmax 得到概率；一个 block 展开为 LayerNorm → 多头 causal self-attention → 残差相加 → LayerNorm → FFN → 残差相加。右：attention 子层的内部——同一个输入乘 W_Q、W_K、W_V 得到 Q、K、V，QKᵀ/√64 打分、加 causal mask、softmax、乘 V，12 个头拼接后乘 W_O](/img/in-post/transformer-01-decoder-only-stack.svg)
 
-图里每个方框的输入和输出都是"若干个 768 维向量"——一个 token 一个向量，从头到尾形状不变（$$[T, d]$$，$$T$$ 是 token 数，$$d$$ 是隐藏维度，GPT-2 small 的 $$d = 768$$）。这是 Transformer 能"一层层叠"的前提，也是读结构图时最重要的一条线索：**任何一个方框，问它的输入输出形状是什么，就知道它在干什么。**
+图分左右两半，自下而上读：
 
-### 2. 五种部件
+- **左半是整台机器。**最底下进来的是一串整数（token 编号）；经过 token embedding 与位置 embedding 两次查表，变成每个 token 一个 768 维向量；然后进入 12 个结构完全相同、参数各自一份的 block；出来后做最后一次 LayerNorm（`ln_f`），乘 lm_head 得到词表上 50257 个分数，softmax 变成概率。淡蓝底的框把**一个 block** 展开：两个子层，每个子层都是"LayerNorm → 变换 → 加回原输入"，虚线就是那条加回去的残差（第五章）。
+- **右半把 attention 子层放大。**它是整张图里唯一让 token 之间交流的地方（第三章）：同一个输入分别乘三个矩阵得到 Q、K、V，Q 与 K 打分、加 causal mask 只保留左边、softmax 成权重、按权重把 V 加起来；12 个头各自在 64 维上算完再拼成 768 维，最后乘 W_O。这一子层的全部参数就是四个 768 × 768 的矩阵。
 
-数一数图里有几种不同的东西：
+图里每个方框的输入和输出都是"若干个 768 维向量"——一个 token 一个向量，从头到尾形状不变（$$[T, d]$$，$$T$$ 是 token 数，$$d$$ 是隐藏维度，GPT-2 small 的 $$d = 768$$；只有最后 lm_head 把它变成 $$[T, V]$$）。这是 Transformer 能"一层层叠"的前提，也是读结构图时最重要的一条线索：**任何一个方框，问它的输入输出形状是什么，就知道它在干什么。**
+
+### 2. 六种部件
+
+数一数图里有几种不同的东西——六种：
 
 | 部件 | 做什么 | 有没有参数 | 章 |
 |---|---|---|---|
@@ -58,7 +46,7 @@ flowchart TB
 
 Table: decoder-only Transformer 的六种部件与它们的参数
 
-只有五种运算，其中 attention 是**唯一让 token 之间交流**的地方，其他四种都是"每个 token 各自算"。这是理解 Transformer 的第一把钥匙：把它想成 $$T$$ 条平行的流水线，只在 attention 那一站互相传递信息。
+六种部件里，attention 是**唯一让 token 之间交流**的地方，其他五种都是"每个 token 各自算"——两次查表、FFN、残差 + LayerNorm、lm_head 都只看自己这一行。这是理解 Transformer 的第一把钥匙：把它想成 $$T$$ 条平行的流水线，只在 attention 那一站互相传递信息。
 
 ### 3. 本文的章节安排
 
@@ -329,26 +317,13 @@ Table: GPT-2 small 的参数量逐项：embedding 占 31.6%，FFN 占每层的 6
 
 《动手学深度学习》10.7 节和 2017 年的原论文画的 Transformer 有**两半**：左边一个 encoder 读入源句子（比如英文），右边一个 decoder 生成目标句子（比如中文）——它是为机器翻译设计的。
 
-```mermaid
-%% 图：原始 Transformer（encoder-decoder）与 GPT（decoder-only）的对照：encoder 的 self-attention 双向、无 mask；decoder 每个 block 多一个 cross-attention 子层去读 encoder 的输出；GPT 去掉整个 encoder 与 cross-attention，只保留带 causal mask 的 decoder
-flowchart LR
-    subgraph ED["原始 Transformer / d2l 10.7：encoder-decoder"]
-        direction LR
-        subgraph E["encoder × N"]
-            direction TB
-            E1["双向 self-attention<br/>（无 mask，每个词看整句）"] --> E2["FFN"]
-        end
-        subgraph D["decoder × N"]
-            direction TB
-            D1["causal self-attention<br/>（有 mask）"] --> D2["cross-attention<br/>query 来自 decoder，key / value 来自 encoder 输出"] --> D3["FFN"]
-        end
-        E --> D2
-    end
-    subgraph G["GPT / Llama：decoder-only"]
-        direction TB
-        G1["causal self-attention"] --> G2["FFN"]
-    end
-```
+![原始 Transformer（encoder-decoder）与 GPT（decoder-only）的对照。左两列是 2017 年的结构：encoder 的 block 是双向 self-attention + FFN，各接 Add & Norm；decoder 的 block 多一个 cross-attention 子层，Q 来自 decoder、K 和 V 来自 encoder 的输出。右列是 GPT：去掉整个 encoder（红色虚线框），cross-attention 随之消失，只保留带 causal mask 的 decoder，LayerNorm 改到子层之前](/img/in-post/transformer-01-encoder-decoder-vs-decoder-only.svg)
+
+图分三列，每列都自下而上：
+
+- **左列 encoder** 读整句英文，每个 block 是"双向 self-attention → Add & Norm → FFN → Add & Norm"。双向的意思是 self-attention 不加 mask，每个词能看到整句——它只负责"读懂"，不负责生成。
+- **中列 decoder** 逐词生成中文。它的 block 比 encoder 多一个子层：causal self-attention 之后先做一次 **cross-attention**——Q 来自 decoder 自己，K、V 来自 encoder 的输出（图中横过来的那条线），"翻译到这里该看原文的哪个词"；然后才是 FFN。
+- **右列 GPT** 就是本文第一至六章的结构。红色虚线框住的两样东西被整个去掉：encoder 没了，cross-attention 自然也没了。剩下的 decoder block 只有 causal self-attention 与 FFN 两个子层，而且 LayerNorm 从子层之后（Add & Norm）挪到了子层之前（pre-norm，第五章）。
 
 对照本文讲的结构，有三处不同：
 
@@ -377,7 +352,7 @@ Table: encoder、原始 decoder 与 GPT 式 decoder-only 的差别
 
 ## 八、本文小结
 
-- 一个 decoder-only Transformer 只有**五种运算**：embedding 查表、attention、FFN、残差 + LayerNorm、lm_head；从头到尾每个方框的输入输出都是 $$[T, d]$$ 的向量，所以能一层层叠。
+- 一个 decoder-only Transformer 只有**六种部件**：token embedding、位置 embedding、attention、FFN、残差 + LayerNorm、lm_head；从头到尾每个方框的输入输出都是 $$[T, d]$$ 的向量，所以能一层层叠。
 - **attention 是唯一让 token 之间交流的地方**：每个 token 用 query 与所有 key 打分（$$QK^T$$），除 $$\sqrt{d}$$ 防止 softmax 饱和，mask 禁止看未来，softmax 得权重，加权求和 value。$$d = 4$$、$$T = 3$$ 的六步手算与 PyTorch 对拍差 $$6 \times 10^{-8}$$；GPT-2 真实的头学出了"看上一个词"与"it 指回 cat"。
 - attention **不知道顺序**（换序实验：输出只是跟着换位置），所以必须另加位置信息：GPT-2 查一张位置表，Llama 用 RoPE 转角度。
 - **FFN 是每个 token 各自过的两层小网络**，提供非线性，占一层参数的三分之二，知识主要存在这里。
@@ -435,4 +410,4 @@ Table: encoder、原始 decoder 与 GPT 式 decoder-only 的差别
 
 本篇画的是静态的结构。[下一篇《一个 token 的旅程：训练侧与推理侧》](/transformer-token-journey-training-and-inference.html)让数据流过这些方框：训练时一句话的 $$T$$ 个位置怎么同时算出 $$T$$ 个 loss、反向传播沿哪条路走回来；推理时 prefill 与 decode 有什么不同、KV cache 为什么能让每一步只算一个 token。
 
-[^q0]: 五种运算：**embedding 查表**（编号 → 向量，否则编号只是任意整数）；**位置信息**（attention 是集合运算，不加它分不清词序）；**attention**（唯一让 token 互相看的地方：$$\text{softmax}(QK^T/\sqrt d + M)V$$，去掉它每个 token 只能看自己）；**FFN**（逐 token 的非线性变换，去掉它整个模型是线性的、存不了知识）；**残差 + LayerNorm**（去掉残差深了训不动，去掉 LayerNorm 残差流尺度失控）；最后 **lm_head** 把向量变成词表上的分数。详见[第二](#二从字到向量embedding-与位置)至[六章](#六把它们叠起来)。
+[^q0]: 六种部件：**embedding 查表**（编号 → 向量，否则编号只是任意整数）；**位置信息**（attention 是集合运算，不加它分不清词序）；**attention**（唯一让 token 互相看的地方：$$\text{softmax}(QK^T/\sqrt d + M)V$$，去掉它每个 token 只能看自己）；**FFN**（逐 token 的非线性变换，去掉它整个模型是线性的、存不了知识）；**残差 + LayerNorm**（去掉残差深了训不动，去掉 LayerNorm 残差流尺度失控）；最后 **lm_head** 把向量变成词表上的分数。详见[第二](#二从字到向量embedding-与位置)至[六章](#六把它们叠起来)。

@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="590" viewBox="0 0 760 590" font-family="-apple-system, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif" font-size="12">
+  <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#555"/></marker></defs>
+  <style>
+    .t{font-weight:600;fill:#222}.m{fill:#666;font-size:10.5px}.s{fill:#444;font-size:11px}
+    .bx{fill:#fff;stroke:#666}.emb{fill:#fff3bf;stroke:#d4a017}.ln{fill:#e8f5e9;stroke:#4d9a5c}
+    .att{fill:#fde7c8;stroke:#c98a00}.cross{fill:#fce4ec;stroke:#c2185b}.ffn{fill:#d6e6ff;stroke:#5b8def}.out{fill:#efefef;stroke:#888}
+    .a{fill:none;stroke:#555;stroke-width:1.2;marker-end:url(#a)}.r{fill:none;stroke:#555;stroke-width:1.2;stroke-dasharray:4 3;marker-end:url(#a)}
+    .grp{fill:#f3f6fb;stroke:#8aa0b8}.gone{fill:none;stroke:#d32f2f;stroke-width:1.4;stroke-dasharray:6 4}
+    text{text-anchor:middle}
+  </style>
+
+  <!-- headers -->
+  <text x="255" y="24" class="t" font-size="13">原始 Transformer（2017 / d2l 10.7）：encoder-decoder，为翻译设计</text>
+  <text x="255" y="42" class="m">encoder 读完整句英文；decoder 逐词生成中文，</text>
+  <text x="255" y="57" class="m">每生成一个词就用 cross-attention 回头看一遍原文</text>
+  <line x1="505" y1="12" x2="505" y2="578" stroke="#bbb" stroke-dasharray="3 4"/>
+  <text x="632" y="24" class="t" font-size="13">GPT / Llama：decoder-only</text>
+  <text x="632" y="42" class="m">没有 encoder，也就没有 cross-attention：</text>
+  <text x="632" y="57" class="m">要参考的内容拼在输入前面（prompt）</text>
+
+  <!-- ===== column 1: encoder ===== -->
+  <text x="130" y="80" class="t">encoder × N</text>
+  <rect x="35" y="510" width="190" height="36" rx="3" class="emb"/>
+  <text x="130" y="525" class="t">源句子（英文）的 token</text>
+  <text x="130" y="540" class="m">embedding + 正弦位置编码</text>
+  <path d="M130,510 V476" class="a"/>
+  <rect x="25" y="285" width="210" height="205" rx="4" class="grp"/>
+  <rect x="35" y="440" width="190" height="36" rx="3" class="att"/>
+  <text x="130" y="455" class="t">双向 self-attention</text>
+  <text x="130" y="470" class="m">无 mask：每个词看整句</text>
+  <path d="M130,440 V423" class="a"/>
+  <rect x="35" y="395" width="190" height="28" rx="3" class="ln"/>
+  <text x="130" y="413" class="t">Add &amp; Norm（post-norm）</text>
+  <path d="M130,395 V381" class="a"/>
+  <rect x="35" y="345" width="190" height="36" rx="3" class="ffn"/>
+  <text x="130" y="360" class="t">FFN</text>
+  <text x="130" y="375" class="m">每个词各自过两层小网络</text>
+  <path d="M130,345 V328" class="a"/>
+  <rect x="35" y="300" width="190" height="28" rx="3" class="ln"/>
+  <text x="130" y="318" class="t">Add &amp; Norm</text>
+  <!-- encoder output to cross-attention -->
+  <path d="M130,285 V235 H262 V363 H283" class="a"/>
+  <text x="150" y="228" class="s">encoder 输出 [T_src, d]，作 K、V</text>
+
+  <!-- ===== column 2: original decoder ===== -->
+  <text x="380" y="80" class="t">decoder × N</text>
+  <rect x="285" y="510" width="190" height="36" rx="3" class="emb"/>
+  <text x="380" y="525" class="t">目标句子（中文）已生成的部分</text>
+  <text x="380" y="540" class="m">embedding + 正弦位置编码</text>
+  <path d="M380,510 V476" class="a"/>
+  <rect x="275" y="170" width="210" height="320" rx="4" class="grp"/>
+  <rect x="285" y="440" width="190" height="36" rx="3" class="att"/>
+  <text x="380" y="455" class="t">causal self-attention</text>
+  <text x="380" y="470" class="m">有 mask：只看左边</text>
+  <path d="M380,440 V428" class="a"/>
+  <rect x="285" y="400" width="190" height="28" rx="3" class="ln"/>
+  <text x="380" y="418" class="t">Add &amp; Norm</text>
+  <path d="M380,400 V381" class="a"/>
+  <rect x="285" y="345" width="190" height="36" rx="3" class="cross"/>
+  <text x="380" y="360" class="t">cross-attention</text>
+  <text x="380" y="375" class="m">Q 来自 decoder，K / V 来自 encoder</text>
+  <path d="M380,345 V333" class="a"/>
+  <rect x="285" y="305" width="190" height="28" rx="3" class="ln"/>
+  <text x="380" y="323" class="t">Add &amp; Norm</text>
+  <path d="M380,305 V291" class="a"/>
+  <rect x="285" y="255" width="190" height="36" rx="3" class="ffn"/>
+  <text x="380" y="270" class="t">FFN</text>
+  <text x="380" y="285" class="m">与 encoder 的 FFN 同构</text>
+  <path d="M380,255 V243" class="a"/>
+  <rect x="285" y="215" width="190" height="28" rx="3" class="ln"/>
+  <text x="380" y="233" class="t">Add &amp; Norm</text>
+  <path d="M380,170 V148" class="a"/>
+  <rect x="285" y="112" width="190" height="36" rx="3" class="out"/>
+  <text x="380" y="127" class="t">Linear → softmax</text>
+  <text x="380" y="142" class="m">目标词表上的概率，取下一个中文词</text>
+
+  <!-- what GPT removes -->
+  <rect x="18" y="215" width="224" height="340" rx="5" class="gone"/>
+  <text x="130" y="571" class="s" fill="#d32f2f">GPT 去掉整个 encoder</text>
+  <rect x="279" y="339" width="202" height="48" rx="5" class="gone"/>
+  <text x="380" y="571" class="s" fill="#d32f2f">……cross-attention 也就没了</text>
+
+  <!-- ===== column 3: GPT decoder-only ===== -->
+  <text x="632" y="80" class="t">decoder × N（GPT-2 small：N = 12）</text>
+  <text x="632" y="96" class="m">本文第一至六章讲的就是这一列</text>
+  <rect x="537" y="510" width="190" height="36" rx="3" class="emb"/>
+  <text x="632" y="525" class="t">prompt + 已生成的 token，一串</text>
+  <text x="632" y="540" class="m">embedding + 位置（查表 / RoPE）</text>
+  <path d="M632,510 V483" class="a"/>
+  <rect x="527" y="210" width="220" height="280" rx="4" class="grp"/>
+  <rect x="547" y="455" width="170" height="28" rx="3" class="ln"/>
+  <text x="632" y="473" class="t">LayerNorm（pre-norm）</text>
+  <path d="M632,455 V441" class="a"/>
+  <rect x="547" y="405" width="170" height="36" rx="3" class="att"/>
+  <text x="632" y="420" class="t">causal self-attention</text>
+  <text x="632" y="435" class="m">有 mask：只看左边</text>
+  <path d="M632,405 V389" class="a"/>
+  <circle cx="632" cy="380" r="9" class="bx"/>
+  <text x="632" y="384.5" class="t">+</text>
+  <path d="M632,371 V358" class="a"/>
+  <rect x="547" y="330" width="170" height="28" rx="3" class="ln"/>
+  <text x="632" y="348" class="t">LayerNorm</text>
+  <path d="M632,330 V316" class="a"/>
+  <rect x="547" y="280" width="170" height="36" rx="3" class="ffn"/>
+  <text x="632" y="295" class="t">FFN</text>
+  <text x="632" y="310" class="m">768 → 3072 → GELU → 768</text>
+  <path d="M632,280 V259" class="a"/>
+  <circle cx="632" cy="250" r="9" class="bx"/>
+  <text x="632" y="254.5" class="t">+</text>
+  <path d="M632,241 V188" class="a"/>
+  <!-- residuals -->
+  <path d="M632,496 H735 V380 H642" class="r"/>
+  <path d="M632,364 H735 V250 H642" class="r"/>
+  <rect x="537" y="160" width="190" height="28" rx="3" class="ln"/>
+  <text x="632" y="178" class="t">最后一次 LayerNorm（ln_f）</text>
+  <path d="M632,160 V146" class="a"/>
+  <rect x="537" y="110" width="190" height="36" rx="3" class="out"/>
+  <text x="632" y="125" class="t">lm_head → softmax</text>
+  <text x="632" y="140" class="m">词表上的概率，取下一个 token</text>
+</svg>
