@@ -2830,15 +2830,18 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
   color: #57606a;
   text-decoration: none;
 }
-.series-tree .st-posts a:hover {
-  color: #00788f;
-}
 .series-tree .st-posts .is-overview a {
   color: #24292f;
   font-weight: 600;
 }
 .series-tree .st-posts .is-recap a {
   color: #8b949e;
+}
+.series-tree .st-posts li a:hover,
+.series-tree .st-posts li a:focus {
+  color: #00788f;
+  text-decoration: none;
+  outline: none;
 }
 .series-tree .st-posts small {
   margin-left: auto;

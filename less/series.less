@@ -179,9 +179,12 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body { max-hei
 		li { display: flex; align-items: baseline; gap: 10px; padding: 4px 0 4px 22px; font-size: 14px; line-height: 1.5; counter-increment: st; }
 		li::before { content: counter(st); min-width: 20px; margin-left: -22px; font-size: 12px; color: #8b949e; font-variant-numeric: tabular-nums; }
 		li.is-overview { counter-increment: none; &::before { content: "◦"; } }
-		a { color: #57606a; text-decoration: none; &:hover { color: @brand-primary; } }
+		a { color: #57606a; text-decoration: none; }
 		.is-overview a { color: #24292f; font-weight: 600; }
 		.is-recap a { color: #8b949e; }
+		// after the per-row colours: `.st-posts .is-overview a` outranks `.st-posts a:hover`, so the
+		// 总览 / 幻灯片 / 总结 rows never turned teal on hover (2026-09-30)
+		li a:hover, li a:focus { color: @brand-primary; text-decoration: none; outline: none; }
 		small { margin-left: auto; font-size: 12px; color: #8b949e; white-space: nowrap; }
 	}
 	.st-item:target > summary { background: #fff8c5; }
