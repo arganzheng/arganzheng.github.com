@@ -96,6 +96,16 @@ Table: 选 embedding 模型的判据
 
 从真实查询里采 50–200 条，人工标注每条的相关块（第七篇的检索评测集），对候选模型算 recall@5 / @20 与 MRR。多数团队会发现：三个候选的差距小于"加 BM25 混合"或"加 rerank"带来的提升——**模型选型不是这一层的主要杠杆**。
 
+```mermaid
+%% 图：这一层各个杠杆的量级（示意，以纯 embedding 的 recall@5 = 70 为基线）——换一个榜单更高的 embedding 模型通常只动 2–3 个点；加 BM25 混合与 RRF 动 6–8 个点；加 rerank 再动 8–10 个点；把 embedding 选型当主要杠杆是这一层最常见的用力方向错误
+%%{init: {"xyChart": {"width": 760, "height": 340, "plotReservedSpacePercent": 60}, "themeVariables": {"xyChart": {"plotColorPalette": "#c0392b, #5b8fd6, #4d9a5c"}}}}%%
+xychart-beta
+    title "recall@5（示意）：模型选型不是主要杠杆"
+    x-axis ["embedding A", "换 embedding B（榜单更高）", "+ BM25 混合 · RRF", "+ rerank"]
+    y-axis "recall@5（%）" 60 --> 95
+    bar [70, 73, 80, 89]
+```
+
 ## 三、向量索引与向量库
 
 ### 1. 索引结构
@@ -112,6 +122,22 @@ Table: 选 embedding 模型的判据
 Table: ANN 索引结构对照
 
 多数应用在百万块以下，HNSW 加标量量化足够；亿级才需要 IVF 与磁盘方案。**带过滤的搜索**是一个专门的问题：先过滤再搜（候选少时准但慢）还是先搜再过滤（快但可能过滤后不够 k 个）——向量库对此有各自的实现（过滤下推到图遍历），选库时要测你的过滤选择性下的召回。
+
+```mermaid
+%% 图：HNSW 的多层图与贪心导航——上层稀疏、下层稠密，查询从顶层一个入口点开始，每层贪心走到离查询最近的节点再下一层，到底层做局部精搜；百万向量几次跳转就能到，代价是整张图驻留内存、构建慢
+flowchart TB
+    Q["查询向量"] --> L2["第 2 层：几十个节点，稀疏长边<br/>从入口点贪心走到最近的节点"]
+    L2 --> L1["第 1 层：几千个节点<br/>从上一层落点继续贪心"]
+    L1 --> L0["第 0 层：全部 100 万个节点，稠密短边<br/>局部精搜，返回 top-k"]
+    L0 --> R["top-50 候选"]
+    F["元数据过滤（权限 · 时间）<br/>下推到图遍历：走图时跳过不满足的节点<br/>而不是搜完 50 个再过滤剩 3 个"] -.-> L0
+    classDef q fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef layer fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class Q q
+    class L2,L1,L0 layer
+    class R,F ok
+```
 
 ### 2. 向量库
 
@@ -143,6 +169,30 @@ $$
 
 $$k$$ 通常取 60。一个文档在两路都靠前，分数最高；只在一路出现，也有分数。不需要归一化、不需要调权重、对两路的分数分布不敏感——这是它成为默认的原因。Elasticsearch、OpenSearch、多数向量库都内置。
 
+```mermaid
+%% 图：RRF 的一个算例（k = 60）——文档 D1 向量路第 1、BM25 路第 3：1/61 + 1/63 = 0.0323；D2 只在向量路第 2：1/62 = 0.0161；D3 只在 BM25 路第 1（精确命中型号 X-200）：1/61 = 0.0164；两路都靠前的 D1 排第一，只在一路出现的也有分，两路的原始分数（余弦 0.83 与 BM25 的 12.7）根本不用比
+flowchart LR
+    subgraph V["向量路（余弦相似度）"]
+        direction TB
+        V1["#1 D1（0.83）"] ~~~ V2["#2 D2（0.81）"] ~~~ V3["#3 D5（0.79）"]
+    end
+    subgraph B["BM25 路（无界分数）"]
+        direction TB
+        B1["#1 D3（12.7）精确命中 X-200"] ~~~ B2["#2 D7（9.1）"] ~~~ B3["#3 D1（8.4）"]
+    end
+    V --> R["RRF：Σ 1 / (60 + 名次)"]
+    B --> R
+    R --> O1["D1：1/61 + 1/63 = 0.0323 ← 两路都靠前"]
+    R --> O2["D3：1/61 = 0.0164"]
+    R --> O3["D2：1/62 = 0.0161"]
+    classDef v fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef b fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef r fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class V1,V2,V3 v
+    class B1,B2,B3 b
+    class R,O1,O2,O3 r
+```
+
 ### 3. 三路
 
 BGE-M3 一类模型同时输出稠密向量、稀疏（学习到的词权重，类似 SPLADE）与多向量（ColBERT 式）；三路 RRF 在多语言语料上常再提一截。代价是索引与查询成本三倍。
@@ -152,6 +202,27 @@ BGE-M3 一类模型同时输出稠密向量、稀疏（学习到的词权重，�
 ### 1. 为什么双塔不够
 
 embedding 检索是**双塔**：查询与文档各自独立编码成向量，相似度是两个向量的点积——文档向量在索引时就算好了，查询来了只算一次，所以快。代价是查询与文档**没有交互**：模型没有机会"读着查询看文档"。cross-encoder 把（查询，文档）拼在一起过一遍模型，输出一个相关性分数——有交互，精确得多，但每个候选都要算一次，不能预计算，只能用在 top-k 之后。
+
+```mermaid
+%% 图：双塔与 cross-encoder——双塔把查询和文档各自独立编码成向量，文档向量在索引时预先算好，查询来了只算一次点积，快但查询与文档没有交互；cross-encoder 把（查询，文档）拼在一起过模型输出一个分数，有交互、精确，但每个候选都要算一次，所以只能用在 top-k 之后
+flowchart TB
+    subgraph BI["双塔（embedding 检索）：快，无交互"]
+        direction LR
+        Q1["查询"] --> E1["编码器"] --> QV["查询向量"]
+        D1["文档（索引时已编码）"] --> DV["文档向量"]
+        QV --> DOT["点积 → 相似度<br/>百万文档毫秒级"]
+        DV --> DOT
+    end
+    subgraph CE["cross-encoder（rerank）：精确，逐个算"]
+        direction LR
+        P["（查询，文档）拼在一起"] --> M["模型读着查询看文档"] --> S["相关性分数<br/>每个候选一次前向，只做 top-20"]
+    end
+    BI -->|"top-50 → RRF → top-20"| CE
+    classDef bi fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef ce fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class Q1,E1,QV,D1,DV,DOT bi
+    class P,M,S ce
+```
 
 ### 2. 性价比
 

@@ -81,6 +81,23 @@ flowchart TB
 
 子会话是独立的树，父会话的事件里记子会话 id，子会话记父 id——trace 成为森林，L4 第七篇的树状追溯靠这两个引用。
 
+```mermaid
+%% 图：一条模型调用 span 的完整属性与它们各服务于谁——完整输入输出（或可重建的引用）服务录制回放与 bad case 复现；五项 usage 服务成本分析；模型快照与 effort 服务版本 diff 与 A/B 归因；stop_reason 与 TTFT 服务截断率与延迟排查；请求 id 服务向供应商报障；缺任何一项就有一件事做不了
+flowchart LR
+    S["模型调用 span<br/>gen_ai chat claude-sonnet-5"]
+    S --> A1["完整输入（或 prompt 版本 + 历史事件 id）<br/>完整输出含思考块"] --> U1["录制回放 · bad case 复现 · 非确定性定位"]
+    S --> A2["usage 五项：输入 · 输出 · 缓存读 · 缓存写 · 推理"] --> U2["成本核对 · 命中率 · 思考占比"]
+    S --> A3["模型 id + 快照 · effort · temperature"] --> U3["版本 diff · A/B 归因 · 静默升级检测"]
+    S --> A4["stop_reason · TTFT · 总时长 · 重试次数 · 错误类型"] --> U4["截断率 · 延迟分段排查 · 错误分类"]
+    S --> A5["供应商请求 id"] --> U5["报障 · 账单争议"]
+    classDef s fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef a fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef u fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class S s
+    class A1,A2,A3,A4,A5 a
+    class U1,U2,U3,U4,U5 u
+```
+
 ## 三、OpenTelemetry GenAI 语义约定
 
 ### 1. 是什么
@@ -123,6 +140,25 @@ Table: GenAI 约定 2026 年的现状
 - **后端归一**：框架发几代属性时在 Collector 或后端做映射（`gen_ai.system` → `gen_ai.provider.name`）。
 - **业务属性用自己的命名空间**（`app.*`）：prompt 版本、工具集版本、权限档、评测集 id 这些约定里没有的东西，别塞进 `gen_ai.*`。
 
+```mermaid
+%% 图：按 OTel GenAI 约定打点的价值——应用用 gen_ai.* 命名（gen_ai.provider.name · gen_ai.request.model · gen_ai.usage.*），业务属性放 app.*（prompt 版本、工具集版本、权限档）；经 Collector 做几代属性名的归一（gen_ai.system → gen_ai.provider.name），任何理解约定的后端（Langfuse · Phoenix · Datadog · 自建 ClickHouse + Grafana）都能读同一份 trace；换后端零成本
+flowchart TB
+    APP["应用打点<br/>gen_ai.provider.name = anthropic<br/>gen_ai.request.model = claude-sonnet-5<br/>gen_ai.usage.input_tokens · cache_read · reasoning<br/>app.prompt_version = v12 · app.toolset = v4"] --> COL["OTel Collector<br/>归一：gen_ai.system → gen_ai.provider.name<br/>脱敏 · 尾采样 · 路由"]
+    COL --> B1["Langfuse"]
+    COL --> B2["Arize Phoenix<br/>（OpenInference 对齐）"]
+    COL --> B3["Datadog / Honeycomb"]
+    COL --> B4["自建：ClickHouse + 对象存储 + Grafana"]
+    N["约定全部还是 Development<br/>钉 OTEL_SEMCONV_STABILITY_OPT_IN<br/>改名当破坏性变更"] -.-> APP
+    classDef app fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef col fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef be fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef n fill:#fdecea,stroke:#c0392b,color:#222
+    class APP app
+    class COL col
+    class B1,B2,B3,B4 be
+    class N n
+```
+
 ## 四、工具与自建
 
 ### 1. 候选
@@ -148,6 +184,23 @@ OTel SDK 打点（按 `gen_ai.*`）→ Collector → 存储（ClickHouse / 对�
 
 L4 第三篇的事件溯源会话日志已经含了 trace 的大部分内容——它是运行时的状态；trace 是它的**可观测投影**。两者可以一份数据两种视图（从日志导出 span），不要维护两套。
 
+```mermaid
+%% 图：会话日志与 trace 是一份数据的两种视图——运行时写 append-only 的事件日志（它是状态：恢复、重放、分叉靠它）；一个导出器把日志事件映射成 OTel span 与事件（模型调用事件 → gen_ai chat span，工具事件 → execute_tool span，压缩 / 审批 / 卫士 → span 事件），送进可观测后端做面板、告警、评测采样；不要让 agent 循环各写一份
+flowchart TB
+    LOOP["agent 循环"] -->|"每步追加"| LOG["会话日志（事件溯源）<br/>状态本身：恢复 · 重放 · 分叉"]
+    LOG --> EXP["导出器：事件 → span<br/>模型输出事件 → gen_ai chat span<br/>工具事件 → execute_tool span<br/>压缩 / 审批 / 卫士 → span 事件<br/>子会话 id → span 链接"]
+    EXP --> TR["trace 后端<br/>可观测投影：面板 · 告警 · 评测采样 · bad case 队列"]
+    X["✗ 循环里另写一套 trace 埋点<br/>两份数据、两处漂移"] -.-> LOOP
+    classDef n fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef log fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    class LOOP,EXP n
+    class LOG log
+    class TR ok
+    class X bad
+```
+
 ## 五、敏感数据、采样、保留与成本
 
 ### 1. 敏感数据
@@ -157,6 +210,27 @@ trace 里有用户输入、模型输出、工具返回——含个人信息、�
 ### 2. 采样
 
 全量存元数据（usage、时长、状态、版本——面板与告警需要），**内容按比例采样**（1–10%），**bad case 全量**（负反馈、错误、卫士触发、越权、拒答的 trace 内容必存——它们才是你要看的）。尾采样（先看结果再决定存不存内容）比头采样合理，但要在 Collector 里缓冲。
+
+```mermaid
+%% 图：分级采样——元数据（usage · 时长 · 状态 · 版本）全量长保留，面板与告警要它；内容（完整输入输出、工具返回）按 1–10% 比例采样、脱敏、短保留、进对象存储；bad case（负反馈 · 错误 · 卫士触发 · 越权 · 拒答）的内容全量必存；尾采样在 Collector 里缓冲到会话结束再决定
+flowchart TB
+    T["一条完成的 trace"] --> M["元数据：usage · 时长 · 状态 · 版本六元组 · 错误类型<br/>→ 全量 · 列式库 · 长保留（面板与告警）"]
+    T --> D{"尾采样：是 bad case 吗？<br/>负反馈 · 错误 · 卫士触发 · 越权 · 拒答"}
+    D -->|"是"| BC["内容全量必存<br/>→ 脱敏 → 对象存储 + 引用 → bad case 队列"]
+    D -->|"否"| P{"按比例 1–10%"}
+    P -->|"抽中"| C["内容采样存<br/>→ 脱敏 → 对象存储 · 短保留"]
+    P -->|"未抽中"| N["内容丢弃，只留元数据"]
+    classDef n fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    classDef g fill:#f0f0f0,stroke:#888,color:#222
+    class T,M n
+    class D,P dec
+    class BC bad
+    class C ok
+    class N g
+```
 
 ### 3. 成本
 

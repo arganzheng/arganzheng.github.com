@@ -31,6 +31,22 @@ Table: 模式与措辞的对照
 
 把两者分开的直接收益是：**换模型时知道该动什么**。模式不用动——任务没变；措辞按新模型的指南与评测集重调。L1 第五篇讲的"替代模型每月热身"，热身的就是措辞。
 
+```mermaid
+%% 图：换模型时该动什么——模式层（六个部分的结构、可检验的规则、出口）来自任务本身，模型换了也不动；措辞层（具体句子、示例数量、要不要写「一步步想」）按新模型的 prompting 指南和评测集重调；两层用评测集连接
+flowchart TB
+    TASK["任务与领域<br/>产品与专家决定"] --> PAT["模式层（不随模型变）<br/>身份与边界 · 可检验规则 · 分区 · 工具政策 · 出口 · 知识与时间"]
+    PAT --> WORD["措辞层（随模型变）<br/>具体句子 · 示例选几个 · 正面还是负面 · 强调词 · 标记风格"]
+    WORD --> EVAL["评测集：每条规则一个用例<br/>换模型重跑看遵循率"]
+    NEW["换模型：Sonnet 4.6 → 5"] -.->|"读模型专属指南，只重调这一层"| WORD
+    NEW -.->|"不动"| PAT
+    classDef stable fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef var fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef n fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class TASK,PAT stable
+    class WORD var
+    class EVAL,NEW n
+```
+
 ### 2. 本文的章节安排
 
 第二章讲稳定的模式——一份 system prompt 该有的六个部分；第三章逐条审视经典技巧在推理模型上的命运；第四章读三份公开的 system prompt；第五章讲措辞层面仍然有效的规则；第六章讲 prompt 设计的边界（injection、模型能力）；第七章实践建议。
@@ -107,6 +123,28 @@ flowchart TB
 - **给上下文而不是给指令**：Anthropic 的建议——解释为什么（"这段代码会被 CI 自动检查格式"）比多加一条规则有效，推理模型会从原因推出规则没覆盖的情形。
 - **元提示**（metaprompting）：让模型自己诊断为什么没遵循某条指令、建议怎么改写——OpenAI 的指南把它作为迭代 prompt 的标准手段。
 
+```mermaid
+%% 图：五个经典技巧在推理模型上的命运——「一步步想」改用 effort、few-shot 只留格式与术语的一两个、夸奖删掉只留边界、负面指令改成肯定的替代行为、重复强调改成一致不矛盾；共同方向是「用参数管量、用原因管质、用结构管边界」
+flowchart TB
+    subgraph OLD["2022 年有效的写法"]
+        direction TB
+        O1["「让我们一步步想」"] ~~~ O2["五个 few-shot 示例"] ~~~ O3["「你是世界顶级专家」"] ~~~ O4["「不要讨论竞品」"] ~~~ O5["「务必」「非常重要」× 3"]
+    end
+    subgraph NEW["2026 年推理模型上的写法"]
+        direction TB
+        N1["删掉；想多少用 effort 参数调"] ~~~ N2["只留 1–2 个管格式与术语；agent 里警惕被 few-shot 带偏"] ~~~ N3["删掉夸奖；留下任务边界（做什么、不做什么）"] ~~~ N4["「被问到竞品时说明只介绍本公司产品并给官网」+ 原因"] ~~~ N5["说一次、全文一致、不与别的规则矛盾"]
+    end
+    O1 --> N1
+    O2 --> N2
+    O3 --> N3
+    O4 --> N4
+    O5 --> N5
+    classDef old fill:#fdecea,stroke:#c0392b,color:#222
+    classDef new fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class O1,O2,O3,O4,O5 old
+    class N1,N2,N3,N4,N5 new
+```
+
 ## 四、三份公开的 system prompt
 
 ### 1. Anthropic 发布的 claude.ai system prompt
@@ -137,6 +175,26 @@ Claude Code 的 system prompt 可以从它的调试输出与公开分析里看�
 
 它印证了第二章的六个部分，也展示了一个重要的分层：**动态的环境信息放在末尾**（缓存前缀不受影响，第五篇），而 CLAUDE.md（用户的项目指令）作为独立的一层进入，不与 system prompt 混在一起——用户能改的与用户不能改的分开。
 
+```mermaid
+%% 图：Claude Code 一次请求里 system 侧的分层——不可变的 system prompt（语气、工具政策、任务执行、安全约束）在最前面进缓存前缀；用户能改的 CLAUDE.md 作为独立一层；运行时注入的环境信息（目录、日期、git 状态）放在末尾，每次变也不打坏前缀
+flowchart TB
+    S["system prompt（开发者维护，随发布变）<br/>语气与格式 · 工具使用政策 · 任务执行 · 安全约束"]
+    S --> M["CLAUDE.md（用户维护，会话间变）<br/>项目约定、偏好——独立的一层，不混进 system"]
+    M --> H["对话历史 + 工具返回（运行时，每步变）"]
+    H --> ENV["环境信息（运行时注入，每次都变）<br/>工作目录 · 平台 · 日期 · git 状态 → 放末尾"]
+    ENV --> U["当前用户消息"]
+    S -.- C1["缓存前缀：稳定"]
+    ENV -.- C2["不进前缀：变了也不影响命中"]
+    classDef stable fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef mid fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef dyn fill:#fdecea,stroke:#c0392b,color:#222
+    classDef n fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class S stable
+    class M,H mid
+    class ENV,U dyn
+    class C1,C2 n
+```
+
 ### 3. OpenAI 的 GPT-5 prompting guide
 
 这不是一份 system prompt，是供应商写给开发者的"怎么给这个模型写 prompt"，它的存在本身说明措辞是模型专属的。要点：主动性（eagerness）的两端与怎么调；tool preamble；`verbosity` 参数与措辞的分工（长度用参数，内容用 prompt）；避免矛盾的指令；用结构化的分区；用 metaprompting 迭代。Anthropic 为 Sonnet 5 也有一份"Prompting Claude Sonnet 5"，讲它相对 4.6 的行为差异（更主动、更少确认）与 effort 各档的用法。**每换一个模型，先读它的指南**，这是第六篇"与模型版本绑定"的一部分。
@@ -161,6 +219,26 @@ Claude Code 的 system prompt 可以从它的调试输出与公开分析里看�
 ### 2. 模型能力
 
 prompt 不能让模型知道它不知道的（知识截止 → 检索，L3）、不能让它做需要工具的事（算术、查系统 → 工具，L4）、不能让它在超出有效上下文的长度上准确（→ 预算与压缩，第四篇）。当评测显示某条规则怎么改措辞遵循率都上不去，问题多半不在措辞：要么规则本身不可检验，要么它要求的能力模型没有，要么上下文里有与它冲突的东西。
+
+```mermaid
+%% 图：一条规则怎么改措辞遵循率都上不去时的排查树——先问它可检验吗，再问它要求的能力模型有没有（知识 → 检索、动作 → 工具、长度 → 预算），再查上下文里有没有与它冲突的规则或注入；三样都不是，才是措辞问题
+flowchart TB
+    Q["某条规则遵循率一直低"] --> A{"规则可检验吗？<br/>能判定「违反了没有」？"}
+    A -->|"否：「要专业」"| A1["改写成可判定的条款<br/>→ 顺手变成评测用例"]
+    A -->|"是"| B{"它要求的能力模型有吗？"}
+    B -->|"要知道它不知道的事"| B1["检索（L3）"]
+    B -->|"要做算术 / 查系统"| B2["工具（L4）"]
+    B -->|"要在 100K 处准确"| B3["预算与压缩（第四篇）"]
+    B -->|"有"| C{"上下文里有冲突吗？"}
+    C -->|"另一条规则矛盾 / 示例违反了它 / 工具返回里有注入"| C1["删矛盾、改示例、防注入（L6）"]
+    C -->|"没有"| D["这才是措辞问题：<br/>按模型指南重写，评测集验证"]
+    classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef fix fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class A,B,C dec
+    class A1,B1,B2,B3,C1 fix
+    class D ok
+```
 
 ### 3. 过度设计
 

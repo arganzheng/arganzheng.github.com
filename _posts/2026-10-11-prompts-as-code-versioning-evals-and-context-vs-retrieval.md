@@ -65,6 +65,25 @@ Table: prompt 放版本库与放注册表的对照
 
 **OpenAI 的 Prompts 对象**是 Assistants API 关闭（2026-08-26）后的替代：Assistants 曾把"指令 + 工具声明 + 模型"打成一个 API 对象；Prompts 保留了这个"配置束"的概念但**只能在控制台创建与版本化**，应用代码用 prompt id（与可选的版本号）引用，Responses 请求传 `prompt: {id, version, variables}`。迁移指南建议把 id 或导出的规格放进源码——这是把注册表与版本库混用的官方写法。
 
+```mermaid
+%% 图：注册表里的版本与标签——每次修改生成一个不可变版本 v1、v2、v3…；标签是可移动的指针：production 指 v3、staging 指 v4、latest 自动跟最新、prod-a / prod-b 做 A/B；发布 = 把 production 移到 v4，回滚 = 移回 v3，都是秒级、不用部署
+flowchart LR
+    subgraph V["不可变版本（只增不改）"]
+        direction LR
+        V1["v1"] --> V2["v2"] --> V3["v3<br/>绑 Sonnet 5 · effort high · schema s2"] --> V4["v4<br/>同文本，换绑 Sonnet 5.1"] --> V5["v5"]
+    end
+    P["production（默认）"] --> V3
+    S["staging"] --> V4
+    L["latest（自动）"] --> V5
+    A["prod-a"] --> V3
+    B["prod-b"] --> V4
+    P -.->|"发布：移到 v4；回滚：移回 v3"| V4
+    classDef ver fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef tag fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class V1,V2,V3,V4,V5 ver
+    class P,S,L,A,B tag
+```
+
 ### 2. 混合
 
 多数团队最后是混合：**模板与结构在版本库**（分区、变量、schema——第二篇的"模式"），**措辞与参数在注册表**（可以由非工程师在评测门禁保护下调）。判据是变化频率与谁改：工程师改、随代码变的放仓库；运营调、每周变的放注册表。无论放哪，两条底线：**不可变版本**（能精确指回任何历史状态）与**trace 绑定版本**（每条请求记录它用的 prompt 版本与模型版本，L5）。
@@ -80,6 +99,24 @@ Table: prompt 放版本库与放注册表的对照
 - 变更说明：改了什么、为什么、评测结果。
 
 把这些放在一起版本化，是因为它们**一起决定行为**：同一段文本换 effort 是不同的行为，同一个 schema 换字段顺序是不同的行为。
+
+```mermaid
+%% 图：一个 prompt 版本工件里有什么，各来自前面哪一篇——模板与分区（第二篇的模式）、绑定的模型快照与 effort（L1）、schema 与字段顺序（第三篇）、工具集版本、缓存断点位置（第五篇）、变更说明与评测结果；它们一起决定行为，所以一起版本化
+flowchart LR
+    W["prompt 版本 N（不可变）"]
+    W --> T["模板 + 分区结构 + 变量占位<br/>← 第二篇的六个部分"]
+    W --> M["绑定的模型 id / 快照 · effort · max_tokens<br/>← L1 第三、五篇"]
+    W --> S["关联的 schema（含字段顺序）· 工具集版本<br/>← 第三篇 · L1 第二篇"]
+    W --> C["缓存断点的位置<br/>← 第五篇"]
+    W --> N["变更说明：改了什么 · 为什么 · 评测结果"]
+    T & M & S & C --> B["一起决定行为：<br/>同文本换 effort ≠ 同一版本；同 schema 换字段顺序 ≠ 同一版本"]
+    classDef root fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef part fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef n fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class W root
+    class T,M,S,C,N part
+    class B n
+```
 
 ## 三、流程
 
@@ -148,6 +185,31 @@ Agent Skills 是 Anthropic 2025 年 10 月发布、12 月 18 日开放为标准�
 
 SKILL.md 把第一篇的**渐进披露**做成了规范：常驻上下文的只有每个技能的 `name` 与 `description`（几十到几百 token），正文与脚本在模型判断"这个技能适用"之后才读进来。所以 `description` 的写法决定一切——它要包含用户会用到的关键词、说明适用与不适用的情形；正文则是一份任务专属的 system prompt（步骤、检查清单、脚本用法）。AGENTS.md 是"每天都要读的入职手册"，SKILL.md 是"需要时从架上取的运行手册"。
 
+```mermaid
+%% 图：AGENTS.md 与 SKILL.md 在上下文里的位置——AGENTS.md 常驻（第一篇的 ③ 长期记忆，每轮都在）；SKILL.md 只有 name + description 常驻，正文与 scripts/ 在模型判断适用后才加载；两者都在版本库里随代码提交
+flowchart LR
+    subgraph REPO["版本库"]
+        direction TB
+        AG["AGENTS.md<br/>构建 / 测试命令 · 硬规则 · 目录结构"]
+        SK["skills/pdf-report/<br/>SKILL.md（name · description · 正文）<br/>scripts/ · references/"]
+    end
+    subgraph CTX["每轮的上下文"]
+        direction TB
+        C1["③ 长期记忆：AGENTS.md 全文常驻<br/>（几百到几千 token）"]
+        C2["② 技能描述行：name + description<br/>（每个几十到几百 token）"]
+        C3["按需加载：SKILL.md 正文<br/>模型判断「这个技能适用」之后才进来"]
+    end
+    AG --> C1
+    SK -->|"只有元数据"| C2
+    SK -.->|"适用时读正文、跑脚本"| C3
+    classDef repo fill:#f0f0f0,stroke:#888,color:#222
+    classDef res fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef lazy fill:#fff7e0,stroke:#c98a00,color:#222
+    class AG,SK repo
+    class C1,C2 res
+    class C3 lazy
+```
+
 ### 3. 怎么写
 
 - `description` 写"什么时候用"比"做什么"重要——它是被检索的对象；
@@ -181,9 +243,40 @@ Table: 三种形态在四个维度上的对照
 
 一个数字例子：一份 30K token 的产品手册，每天一万次问答。全放：每次 30K × 0.1× 读价（Sonnet 5：\$0.20 / 百万）= \$0.006，一天 \$60，加每次 5 分钟 TTL 内的写入；流水线检索：每次 3K 输入（\$2 / 百万）= \$0.006，一天 \$60 加检索系统——**成本相近**，差别在质量：全放让模型看到全部（适合需要跨章节综合的问题），检索让模型只看相关的（适合定位型问题，且不受有效长度影响）。手册涨到 300K 时全放不再可行（有效长度、加价门限），检索是唯一选择。
 
+```mermaid
+%% 图：每次请求的输入成本随语料大小变化（Sonnet 5 价目，美元）——全放上下文：语料 × 0.1 倍读价，随语料线性涨，且在有效长度与加价门限处不再可行；流水线检索：每次固定约 3K 输入，与语料大小无关；30K 处两者相近（0.006），300K 处全放已是 10 倍且不再可行
+%%{init: {"xyChart": {"width": 760, "height": 340, "plotReservedSpacePercent": 60}, "themeVariables": {"xyChart": {"plotColorPalette": "#c0392b, #5b8fd6, #4d9a5c"}}}}%%
+xychart-beta
+    title "每次请求的输入成本（美元）vs 语料大小（千 token）"
+    x-axis "语料（千 token）" ["10", "30", "100", "200", "300"]
+    y-axis "美元 / 请求" 0 --> 0.07
+    line [0.002, 0.006, 0.02, 0.04, 0.06]
+    line [0.006, 0.006, 0.006, 0.006, 0.006]
+```
+
+红线全放（缓存命中后），蓝线流水线检索。交点在 30K 左右——小于它全放更便宜且质量更好（全局视野），大于它检索更便宜；再往右全放先撞上有效长度、再撞上加价门限。
+
 ### 3. 混合是常态
 
 生产系统通常三种都用：稀疏而稳定的核心资料全放（政策要点、术语表），大语料检索（文档库），复杂任务让 agent 用检索工具多轮查。L3 系列讲检索本身——三类检索、分块、rerank、agentic retrieval 的设计、检索评测。本篇的贡献只是决策的第一步：**先问这份资料属于哪一种**，再决定要不要建检索。
+
+```mermaid
+%% 图：一份资料该全放、流水线检索还是 agentic 检索的决策树——先看大小（几万 token 内且低于加价门限才可能全放），再看变化频率（常变的全放会反复失效），再看查询类型（全局综合 → 全放；定位型 → 流水线；多跳探索 → agentic）；生产系统三种混用
+flowchart TB
+    Q["一份资料"] --> A{"≤ 几万 token？<br/>在有效长度内、低于加价门限"}
+    A -->|"否"| B{"查询是多跳 / 探索型？<br/>「这个 bug 的根因」"}
+    A -->|"是"| C{"变化频率低？<br/>变一次缓存失效一次"}
+    C -->|"否：每天变"| B
+    C -->|"是"| D{"查询需要全局视野？<br/>「总结这份合同」"}
+    D -->|"是"| FULL["全放上下文 + 缓存断点<br/>0.1× 读价，稳定"]
+    D -->|"否：定位型"| B
+    B -->|"否：定位型「报销上限是多少」"| PIPE["流水线检索<br/>top-k 放动态段，几千 token / 请求"]
+    B -->|"是"| AGT["agentic retrieval<br/>模型自己决定查什么、查几轮；卸载控制每次读的量"]
+    classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef out fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class A,B,C,D dec
+    class FULL,PIPE,AGT out
+```
 
 ## 七、实践建议
 

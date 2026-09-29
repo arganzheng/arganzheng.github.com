@@ -49,6 +49,23 @@ Table: 结构化输出三个层次的保证边界
 
 vLLM 与 SGLang 都把这几种后端做成可选（vLLM 的 structured outputs 配置可选 `xgrammar`、`guidance`、`outlines`），四家 API 的 strict 模式是同一原理的私有实现。
 
+```mermaid
+%% 图：从 schema 到自动机的两条路——Outlines 把 schema 转成正则再编译成有限状态机，允许的 token 集合预先算好、采样时查表，但表达不了递归；XGrammar / llguidance 用上下文无关文法和下推自动机处理嵌套，把 token 集合拆成预计算部分和依赖栈的部分；两者都要在字节层面与 tokenizer 对齐
+flowchart TB
+    S["JSON schema"] --> R["正则表达式<br/>（Outlines，2023）"] --> F["有限状态机 FSM<br/>每个状态的允许 token 集预先算好 → 采样时查表"]
+    S --> G["上下文无关文法 CFG<br/>（XGrammar 2024 · llguidance）"] --> P["下推自动机 + 栈<br/>预计算「与栈无关」的部分，运行时只算「依赖栈」的部分"]
+    F -.->|"限制：递归结构只能展开到有限深度"| X1["嵌套任意深的对象 / 数组 ✗"]
+    P -.->|"处理递归"| X2["嵌套任意深 ✓，每步微秒级"]
+    F & P --> B["字节层 ↔ token 表的对齐<br/>一个 token 可能是半个字符串、跨引号<br/>→ 同一 schema 换 tokenizer 要重编译"]
+    B --> D["每步采样：不合法 token 的 logit 置 −∞"]
+    classDef step fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class S,R,F,G,P,B,D step
+    class X1 bad
+    class X2 ok
+```
+
 ### 2. 为什么是硬保证
 
 因为不合法的 token 在采样前就被置零了，模型**没有机会**生成它——不是"训练得很好所以很少错"，是数学上不可能。这与 JSON 模式的差别在于约束的粒度：JSON 模式的自动机只判"是不是合法 JSON"，schema 约束的自动机判"是不是符合这个 schema 的 JSON"。
@@ -64,6 +81,18 @@ vLLM 与 SGLang 都把这几种后端做成可选（vLLM 的 structured outputs 
 - `minLength: 100` 一类的计数约束要在自动机里数字符，`pattern` 里的复杂正则要与 JSON 字符串的转义规则复合，实现成本高。
 
 限制的另一面是**编译成本**：一个 schema 第一次使用要编译成自动机（OpenAI 文档提到首次请求的额外延迟，之后缓存）。这意味着 schema 应该是**稳定的**——每次请求动态生成一个不同的 schema（比如把候选 id 列表塞进 enum）会让每次都重新编译，且缓存失效。
+
+```mermaid
+%% 图：strict 模式三条限制背后的自动机原因——可选字段让状态数按 2 的字段数次方增长，所以要求全部 required；additionalProperties: true 意味着任意键名、状态空间失控，所以必须显式 false；minLength / 复杂 pattern 要在自动机里数字符并与 JSON 转义规则复合，实现成本高
+flowchart LR
+    L1["限制①：所有字段 required<br/>可选用 type: [string, null]"] --- R1["原因：n 个可选字段 = 2ⁿ 条分支<br/>全部 required 压成一条线"]
+    L2["限制②：additionalProperties: false<br/>必须显式写"] --- R2["原因：允许任意键名 = 自动机要接受任意字符串作键<br/>状态空间失控"]
+    L3["限制③：minLength · 复杂 pattern<br/>不支持或有条件支持"] --- R3["原因：要在自动机里数字符<br/>还要与 JSON 字符串的转义规则复合"]
+    classDef lim fill:#fdecea,stroke:#c0392b,color:#222
+    classDef why fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class L1,L2,L3 lim
+    class R1,R2,R3 why
+```
 
 ### 4. schema 也占 token
 
@@ -99,6 +128,24 @@ Anthropic 的实现把 schema 注入为一段额外的 system 文本，实测约
 ```
 
 模型先写证据、再写推理、最后给分类——结论以前面的内容为条件。反过来（先 `category` 再 `reasoning`）会让"推理"变成对已给出结论的事后辩护。2024 年的研究 *Let Me Speak Freely?* 发现强制严格格式会降低某些推理任务的表现，原因之一正是模型没有"先想"的空间；推理模型（L1 第三篇）在 thinking 阶段有了这个空间，问题缓解了很多，但字段顺序仍然有效——它让可见输出里也有一条从证据到结论的链，可以被审计。
+
+```mermaid
+%% 图：字段顺序即生成顺序——evidence → reasoning → category 让结论以证据和推理为条件；反过来先 category 再 reasoning，推理变成对既定结论的事后辩护；实测「推理在前」通常高 2–5 个百分点，代价是每次多几十个输出 token
+flowchart TB
+    subgraph A["推理在前（推荐）"]
+        direction LR
+        A1["evidence<br/>先写原文片段"] --> A2["reasoning<br/>从证据推两三句"] --> A3["category<br/>结论以前两项为条件"] --> A4["confidence"]
+    end
+    subgraph B["结论在前"]
+        direction LR
+        B1["category<br/>先给结论"] --> B2["reasoning<br/>为已给的结论找理由"] --> B3["evidence<br/>挑支持结论的片段"]
+    end
+    A ~~~ B
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    class A1,A2,A3,A4 ok
+    class B1,B2,B3 bad
+```
 
 ### 2. 显式的拒答与不确定出口
 
@@ -148,6 +195,31 @@ strict 模式下模型**必须**产出合法 JSON。没有出口，不该回答�
 ### 5. 拒答与空值
 
 先查 OpenAI 的 `refusal` 字段；再查 schema 里的出口字段（`cannot_classify`、`null`）；把它们路由到与"正常答案"不同的分支。一个常见 bug 是下游把 `cannot_classify` 当作一个普通类别统计，拒答率被藏在分类分布里。
+
+```mermaid
+%% 图：解析层的检查顺序——先看 stop_reason 是否截断，再看供应商的 refusal 字段，再用 Pydantic / zod 校 schema，再做业务校验，最后把 schema 里的出口字段（cannot_classify · null）路由到单独分支；业务校验失败带错误信息重试一次，再失败走降级
+flowchart TB
+    R["响应"] --> S{"stop_reason = max_tokens？"}
+    S -->|"是"| S1["JSON 不完整：提高 max_tokens 重试一次 / 缩小 schema"]
+    S -->|"否"| F{"refusal 字段有值？"}
+    F -->|"是"| F1["模型拒绝：走拒答分支，不解析"]
+    F -->|"否"| V{"Pydantic / zod 再校一次 schema"}
+    V -->|"不过"| V1["机械修复（非 strict）或报错"]
+    V -->|"过"| B{"业务校验<br/>金额 ≤ 订单 · id 存在 · 日期不在未来"}
+    B -->|"不过"| B1["错误信息放回上下文，重试一次"]
+    B1 -->|"仍不过"| B2["降级：人工 / 默认值 / 拒绝"]
+    B -->|"过"| E{"出口字段？<br/>cannot_classify · null"}
+    E -->|"是"| E1["拒答分支：单独统计，不混进类别分布"]
+    E -->|"否"| OK["正常答案"]
+    classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef n fill:#fff7e0,stroke:#c98a00,color:#222
+    class S,F,V,B,E dec
+    class S1,F1,V1,B1,B2 bad
+    class E1 n
+    class OK ok
+```
 
 ## 五、格式遵循率的评测
 

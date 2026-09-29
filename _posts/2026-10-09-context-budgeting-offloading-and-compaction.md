@@ -91,6 +91,28 @@ Table: 三类任务的七层预算参考
 
 线之间要有距离：从清理到压缩之间应能再走几步，否则每步都在压缩。Deep Agents 的 85% 是清理 / 截断线，摘要在其后；Claude Code 的 83.5% 是压缩线，在它之前有对旧工具返回的"微压缩"。
 
+```mermaid
+%% 图：长程 agent 在 200K 窗口里的七层预算与三条线——常驻层 ①②③ 约 12%，历史 ④ 30–40%，工具返回 ⑥ 20–30% 是最大最该管的一层，预留 15–20% 给输出含思考；清理线 70%、压缩线 83.5%、硬线 = 窗口 − 预留
+%%{init: {"xyChart": {"width": 760, "height": 340, "plotReservedSpacePercent": 60}, "themeVariables": {"xyChart": {"plotColorPalette": "#c0392b, #5b8fd6, #4d9a5c"}}}}%%
+xychart-beta
+    title "长程 agent 的七层预算（200K 窗口，千 token，取区间中值）"
+    x-axis ["① 系统指令", "② 工具定义", "③ 长期记忆", "④ 历史", "⑤ 检索", "⑥ 工具返回", "⑦ 当前输入", "预留输出"]
+    y-axis "千 token" 0 --> 80
+    bar [8, 13, 8, 70, 15, 50, 2, 34]
+```
+
+```mermaid
+%% 图：三条线的位置与它们之间要留的距离——清理线（70%）开始批量删旧工具返回，压缩线（83.5%）触发摘要，硬线（窗口减输出预留）之后请求会 400；清理到压缩之间要能再走几步，否则每步都在压缩
+flowchart TB
+    Z["0"] --> A["… 正常增长 …"] --> L1["清理线 70%（140K）<br/>批量删已消费的工具返回"] --> B["再走几步"] --> L2["压缩线 83.5%（167K）<br/>一次模型调用做摘要"] --> C["预留 33K：摘要生成 + 回答 + 思考"] --> L3["硬线 200K<br/>再加就 400"]
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef warn fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    class Z,A,B ok
+    class L1,L2,C warn
+    class L3 bad
+```
+
 ## 三、隔离与卸载
 
 ### 1. 隔离：子 agent
@@ -102,6 +124,25 @@ Table: 三类任务的七层预算参考
 Manus 把它叫"文件系统即上下文"：上下文窗口是有限的，文件系统是无限的、持久的、模型可以自己读写的。原则是**压缩必须可恢复**——删掉网页的正文但保留 URL，删掉文件的内容但保留路径，模型需要时再读回来。Deep Agents 给了具体阈值：**工具返回超过 20,000 token → 写入文件系统，上下文里替换为文件路径加前 10 行预览**。10 行预览让模型知道里面是什么，路径让它能取回全部。
 
 卸载的对象是第一篇的 ⑥（工具返回）与部分 ⑤（检索结果）。实现上要注意：卸载后模型多了一步"决定要不要读回来"，这一步的判断质量依赖预览的信息量；预览应包括结构性信息（行数、字段名、大小），不只是前几行。
+
+```mermaid
+%% 图：卸载 = 可恢复的压缩——一次 SQL 返回 28K token，超过 20K 阈值就写进文件，上下文里只留路径 + 行数 / 字段名 + 前 10 行预览（约 300 token）；模型看预览判断要不要读回来，需要时用路径取回全部，内容一个字不丢
+flowchart TB
+    T["工具返回：SQL 结果<br/>20,000 行 ≈ 28K token"] --> Q{"> 20K token？"}
+    Q -->|"否"| IN["原样进上下文"]
+    Q -->|"是"| W["写入 /tmp/q7.csv"]
+    W --> REF["上下文里只留：<br/>路径 · 20,000 行 × 6 列 · 字段名 · 前 10 行预览<br/>≈ 300 token"]
+    REF -->|"模型判断要看细节"| RD["read /tmp/q7.csv（或只读某几行）"]
+    RD --> W
+    classDef step fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef ext fill:#f0f0f0,stroke:#888,color:#222
+    class T,IN,RD step
+    class Q dec
+    class REF ok
+    class W ext
+```
 
 ### 3. 常驻层的渐进披露
 
@@ -162,9 +203,48 @@ Table: Claude Code 压缩后七层的存活情况
 
 给自己的系统写这张表，是压缩设计的验收标准。
 
+```mermaid
+%% 图：压缩前后七层的命运（Claude Code）——①② 不在消息历史里所以不变；③ 的真身在磁盘上，根目录 CLAUDE.md 与自动记忆重注入，按需加载的路径规则丢失；④ 被摘要替代；⑤⑥ 丢失，卸载过的只剩路径；这张表是压缩设计的验收标准
+flowchart LR
+    B1["① 系统指令"] --> A1["不变（不在消息历史里）"]
+    B2["② 工具定义"] --> A2["不变"]
+    B3["③ 长期记忆<br/>根目录 CLAUDE.md · 自动记忆 · paths: 规则"] --> A3["根目录部分从磁盘重注入 ✓<br/>paths: 规则丢失，直到再读匹配文件 ✗"]
+    B4["④ 40 轮历史（含思考块）"] --> A4["一段结构化摘要<br/>思考块全部丢失"]
+    B5["⑤ 检索结果"] --> A5["摘要提到的留为引用，其余丢"]
+    B6["⑥ 工具返回 × 50"] --> A6["丢失；卸载过的留为路径"]
+    classDef keep fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef part fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef lost fill:#fdecea,stroke:#c0392b,color:#222
+    classDef n fill:#f0f0f0,stroke:#888,color:#222
+    class B1,B2,B3,B4,B5,B6 n
+    class A1,A2 keep
+    class A3,A5,A6 part
+    class A4 lost
+```
+
 ### 4. 压缩与推理状态
 
 L1 第三篇讲过：推理模型的思考块跨轮保留，编辑历史中间会让校验失败或丢失推理状态。压缩替换了整段历史，必然丢掉思考块——所以**压缩只能在一个思考链结束处做**（模型给出最终回答之后、下一个用户请求之前），不能在工具循环中间。Codex 的"循环边界"触发点正是这个约束的体现：它等所有工具结果收齐、循环闭合，再压缩，再重放待处理请求。
+
+```mermaid
+%% 图：压缩只能在思考链的边界做——Codex 的做法：轮前检查发现超线，先等当前工具循环闭合（所有工具结果收齐、模型给出最终回答），再调 compact，再把待处理的用户请求重放进压缩后的窗口；在循环中间压缩会丢思考块、让签名校验失败
+flowchart TB
+    U["新用户请求到达"] --> C{"轮前检查：超过压缩线？"}
+    C -->|"否"| RUN["正常执行"]
+    C -->|"是"| W["先让当前工具循环闭合<br/>思考 → 调用 → 结果 → … → 最终回答"]
+    W --> CMP["compact：历史 → 摘要（或加密状态）"]
+    CMP --> RP["把待处理的用户请求重放进新窗口"]
+    RP --> RUN
+    X["✗ 在循环中间压缩：<br/>思考块丢失 · 签名校验失败 · 模型「忘了刚才怎么想」"] -.-> W
+    classDef step fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    class U,W,CMP,RP step
+    class C dec
+    class RUN ok
+    class X bad
+```
 
 ### 5. 压缩与缓存
 

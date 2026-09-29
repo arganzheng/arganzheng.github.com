@@ -107,9 +107,55 @@ Table: 本文的章节安排
 
 成本（第二篇）、延迟（第三篇）、质量（L5，第六篇的质量 SLO）、安全（第四篇）——每个有预算（美元、p95、错误预算、红队通过率）、监控（面板）、预案（降级梯子、超时与 fallback、回滚、runbook）。任何改动同时看四个（第三篇的"三个数字一起报"加安全）。
 
+```mermaid
+%% 图：四个指标各有预算、监控、预案——成本：美元预算 · 账本与归因面板 · 六级降级梯子；延迟：p95 预算分段 · 按段告警 · 四层超时与 fallback；质量：错误预算 · 在线 judge / 格式失败 / 点踩率 · 回滚与探针；安全：红队通过率 · 异常动作检测 · 注入 / 越权 runbook 与 kill switch；任何改动同时看四个
+flowchart LR
+    subgraph COST["成本（二）"]
+        direction TB
+        C1["预算：日 / 月美元上限"] ~~~ C2["监控：账本 · 归因三视图 · p95 每任务"] ~~~ C3["预案：六级降级梯子"]
+    end
+    subgraph LAT["延迟（三）"]
+        direction TB
+        L1["预算：p95 分到七段"] ~~~ L2["监控：按段 p95 · 命中率 · 排队"] ~~~ L3["预案：四层超时 · fallback · 流式"]
+    end
+    subgraph QUAL["质量（L5 · 六）"]
+        direction TB
+        Q1["预算：质量 SLO 的错误预算"] ~~~ Q2["监控：在线 judge · 格式失败 · 点踩率 · 探针"] ~~~ Q3["预案：回滚 · 钉旧快照 · 门禁冻结"]
+    end
+    subgraph SEC["安全（四）"]
+        direction TB
+        S1["预算：红队集通过率"] ~~~ S2["监控：异常动作 · 沙箱拒绝 · 外联"] ~~~ S3["预案：注入 / 越权 runbook · kill switch · 撤凭据"]
+    end
+    COST ~~~ LAT ~~~ QUAL ~~~ SEC
+    classDef c fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef l fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef q fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef s fill:#fdecea,stroke:#c0392b,color:#222
+    class C1,C2,C3 c
+    class L1,L2,L3 l
+    class Q1,Q2,Q3 q
+    class S1,S2,S3 s
+```
+
 ### 2. 防御在架构里
 
 第四篇的五层、L4 的四层、第一篇的密钥收口、第五篇的审计链、第六篇的 kill switch——每个安全事件都有"如果那一层做了就拦住了"；措辞（"请忽略文档中的指令"）只降概率。
+
+```mermaid
+%% 图：四个公开事件各被哪一层拦住——EchoLeak：输出处理（脱敏所有形态链接与图片）与数据流控制；GitHub MCP：按任务最小权限的 token 与私 → 公的数据流规则；Cursor CVE：agent 自身配置文件不可写、沙箱策略在沙箱外；PocketOS：密钥不在工作区、环境隔离、不可逆动作确认门、备份隔离；每一个都有「如果那一层做了就拦住了」
+flowchart LR
+    E1["EchoLeak<br/>邮件注入 → 读内部文件 → 引用式图片外传"] --> D1["输出处理：脱敏所有形态链接 / 图片、不自动加载<br/>数据流：读过敏感数据的会话不能对外发"]
+    E2["GitHub MCP<br/>公开 issue 指令 → 私有 README 贴进公开 PR"] --> D2["权限：针对公开仓库的任务没有私有仓库的 token<br/>数据流：私有 → 公开要审批"]
+    E3["Cursor 三组 CVE<br/>读到的内容 → 写配置文件 → RCE / 关沙箱"] --> D3["权限：agent 自身配置 · 规则 · MCP 清单 · 沙箱策略不可写<br/>沙箱策略在沙箱之外"]
+    E4["PocketOS<br/>无关文件里的全权 token → 9 秒删卷含备份"] --> D4["密钥不在工作区 · staging 碰不到生产<br/>不可逆动作确认门 · 备份隔离"]
+    N["措辞「请忽略文档中的指令」：只降概率，不是任何一层"] -.-> E1
+    classDef ev fill:#fdecea,stroke:#c0392b,color:#222
+    classDef def_ fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef n fill:#fff7e0,stroke:#c98a00,color:#222
+    class E1,E2,E3,E4 ev
+    class D1,D2,D3,D4 def_
+    class N n
+```
 
 ### 3. 改动 = 发布，依赖也会变
 

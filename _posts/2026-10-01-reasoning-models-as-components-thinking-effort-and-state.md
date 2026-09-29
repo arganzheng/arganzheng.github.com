@@ -80,7 +80,37 @@ Table: 思考 token 的计费例子
 
 （成本 = token 数 × 单价 ÷ 10⁶。）第一行到第二行，输入没变、回答没变，账单涨了 6 倍——全部是思考。对一个每天百万次的分类接口，这是每天几百美元与几千美元的差别。
 
+```mermaid
+%% 图：同一个分类任务在 Sonnet 5 上 effort low 与 high 的账单拆成三份——输入（0.004 美元）和回答（0.0005 美元）两档完全相同，差的 0.037 美元全部是思考 token：300 个变 4,000 个，按输出价计
+%%{init: {"xyChart": {"width": 760, "height": 340, "plotReservedSpacePercent": 60}, "themeVariables": {"xyChart": {"plotColorPalette": "#c0392b, #5b8fd6"}}}}%%
+xychart-beta
+    title "一次调用的成本构成（美元，Sonnet 5，同一任务）"
+    x-axis ["low 输入", "low 思考", "low 回答", "high 输入", "high 思考", "high 回答"]
+    y-axis "美元" 0 --> 0.045
+    bar [0.004, 0.003, 0.0005, 0.004, 0.040, 0.0005]
+```
+
 `max_tokens` 的含义随之变化：它是思考加回答的**总**上限。一个在非推理模型上设 `max_tokens = 1024` 刚好够输出一段 JSON 的应用，迁到推理模型后，思考用掉 900 个，回答被截断，JSON 不完整——`stop_reason` 是 `max_tokens`。Anthropic 的 Sonnet 5 迁移指南把这一条单列出来提醒。
+
+```mermaid
+%% 图：max_tokens = 1024 在两类模型上的含义——非推理模型上 1024 全给回答，JSON 完整；推理模型上思考先用掉 900，回答只剩 124 被截断，stop_reason 是 max_tokens
+flowchart TB
+    subgraph A["非推理模型：max_tokens = 1024"]
+        direction LR
+        A1["回答 ≈ 600 token<br/>JSON 完整"] --> A2["还剩 424，stop_reason = end_turn"]
+    end
+    subgraph B["推理模型：同样的 max_tokens = 1024"]
+        direction LR
+        B1["思考 900 token<br/>（不可见，但算在上限里）"] --> B2["回答只剩 124<br/>JSON 写到一半"] --> B3["stop_reason = max_tokens"]
+    end
+    A ~~~ B
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef think fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    class A1,A2 ok
+    class B1 think
+    class B2,B3 bad
+```
 
 ### 3. 用量字段
 
@@ -116,6 +146,21 @@ OpenAI 的 GPT-6 Astra 也是 `low` 到 `max` 五档，另有 `reasoning.mode: p
 
 三条曲线的交点就是这个任务的档。**不同任务用不同的档**：一个应用里的意图分类用 `low`，复杂的多步 agent 用 `xhigh`，两者可以是同一个模型。这是"按任务计价"（price per task）而不是"按 token 计价"的思路——OpenAI 在发布 GPT-6 Astra 时的说法是市场正在"意识到你真正要买的是每任务的价格"。effort 就是把这个价格调到合适位置的旋钮。
 
+两条曲线画在一起是这个样子（示意：质量取 0–100 的任务指标，成本取相对 `low` 的倍数）：
+
+```mermaid
+%% 图：effort 各档的质量与成本曲线（示意）——质量在 high 之后饱和（88 → 90 → 90），成本却从 1 倍涨到 6 倍再到 14 倍；饱和点左边的最低档就是这个任务该用的档
+%%{init: {"xyChart": {"width": 760, "height": 340, "plotReservedSpacePercent": 60}, "themeVariables": {"xyChart": {"plotColorPalette": "#c0392b, #5b8fd6"}}}}%%
+xychart-beta
+    title "一个中等难度任务：质量饱和在 high，成本继续陡增（示意）"
+    x-axis "effort" ["low", "medium", "high", "xhigh", "max"]
+    y-axis "质量（%）/ 成本（相对 low 的倍数 × 10）" 0 --> 150
+    line [72, 84, 90, 91, 91]
+    bar [10, 25, 60, 100, 140]
+```
+
+红线是质量，蓝柱是成本（倍数 × 10 以便画在同一坐标里）。这个任务的答案是 `high`：再往上，质量多 1 个点，钱多一倍多。简单任务的红线在 `low` 就平了；最难的 agent 任务红线到 `xhigh` 还在涨——所以要**每类任务各画一张**。
+
 ### 3. 过度思考
 
 推理模型有一个已被广泛观察到的现象：在简单任务上，高 effort 不仅浪费 token，有时还**降低**准确率——模型想出了本不存在的复杂性，或在长思考里改变了本来正确的初判。这不是普遍规律，但足以说明"effort 越高越好"不成立。评测集里放一批简单用例，专门看高档是否比低档差。
@@ -149,6 +194,24 @@ Table: 四家推理状态的传递机制
 
 - **不能只删思考块保留其他**：Anthropic 会拒绝或（配置为丢弃时）丢掉与历史不一致的块，模型退化为"忘了刚才怎么想"。
 - **不能改动思考块之前的内容**：Fable 5.1 的历史校验意味着替换更早一轮的工具结果为摘要，会让后面所有 thinking block 失效。要压缩历史，只能在一个**新的**思考链开始处做——例如在一次工具循环完全结束、模型给出最终回答之后，再对整段历史做摘要（L2 上下文工程的"压缩"要在这些边界上做，L4 的 compaction 也是）。
+
+```mermaid
+%% 图：历史里哪里能改、哪里不能——一条思考链内（思考块 → 工具调用 → 工具结果 → 思考块 → 最终回答）任何一处改动都会让后面的思考块失效；只有在最终回答之后、下一条思考链开始之前，才能对整段历史做摘要
+flowchart TB
+    subgraph CHAIN["一条思考链：中间不能动"]
+        direction TB
+        T1["思考块 ①<br/>（带签名）"] --> C1["工具调用"] --> R1["工具结果<br/>200 KB"] --> T2["思考块 ②<br/>校验①之前的历史未变"] --> ANS["最终回答"]
+    end
+    ANS --> CUT["✂ 边界：这里可以压缩<br/>对整段做摘要、开新链"]
+    CUT --> NEXT["下一条思考链…"]
+    X["把 R1 换成摘要？<br/>→ ② 签名不匹配，被拒绝或丢弃"] -.-> R1
+    classDef step fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    class T1,C1,R1,T2,ANS,NEXT step
+    class CUT ok
+    class X bad
+```
 - **旧模型读不了新模型的思考块**：Fable 5.1 的 thinking block 只有它自己或更新的模型能读；早期模型收到会被 API 丢弃。做跨模型 fallback（Fable 5.1 超时切到 Opus 5）时，携带 Fable 5.1 思考块的历史在 Opus 5 上会失去推理状态；反向（Opus 5 → Fable 5.1）可以。fallback 策略要考虑方向。
 
 ### 4. 服务端状态与 ZDR 的两难
@@ -162,6 +225,23 @@ OpenAI 的 `previous_response_id` 让推理状态的搬运完全透明，但依�
 prompt caching 缓存的是**输入前缀**（第四篇）。思考 token 是输出，每轮新生成、每轮全价。一个 20 步的 agent 任务，每步思考 3,000 token，光思考就是 60,000 个输出价 token——这部分不因任何缓存策略而减少，只能靠 effort 调低。
 
 上一轮的思考块在下一轮变成了**输入**的一部分（Anthropic 原样送回、OpenAI 服务端拼接），这部分按输入价计费，并且能进缓存前缀。所以多轮 agent 的账是：每轮新思考按输出价、历史思考按输入价（缓存命中时打折）。
+
+```mermaid
+%% 图：多轮 agent 里思考 token 的两种身份——本轮新生成的思考按输出价全价、任何缓存都帮不上；上一轮的思考块回到历史里变成输入，按输入价计并能进缓存前缀
+flowchart TB
+    subgraph R1["第 k 轮"]
+        direction TB
+        H["历史（含前 k−1 轮的思考块）<br/>输入价 · 命中缓存打 0.1 折"] --> NEW["本轮新思考 3,000 token<br/>输出价 · 全价 · 不进任何缓存"] --> OUT["本轮回答 / tool_call<br/>输出价"]
+    end
+    R1 --> R2["第 k+1 轮：<br/>刚才的思考块并入历史，变成输入价"]
+    E["只有一个办法减少它：调低 effort"] -.-> NEW
+    classDef inp fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef outp fill:#fdecea,stroke:#c0392b,color:#222
+    classDef n fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class H,R2 inp
+    class NEW,OUT outp
+    class E n
+```
 
 ### 2. 什么会让缓存失效
 

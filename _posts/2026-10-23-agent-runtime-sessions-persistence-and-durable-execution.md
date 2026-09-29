@@ -113,11 +113,54 @@ LangGraph 把 agent 显式建成有状态的图：节点是步骤（调模型、
 
 不用引擎时，最小实现是：日志 append-only 落盘（每步 fsync 或写数据库）；启动时从日志重建上下文并从最后一个未完成的步骤继续（未完成的工具调用要判断是否已执行——幂等 id，L1 第六篇）；挂起点（等审批）把会话标为等待并释放 worker，唤醒时重新加载；一个调度器分发会话到 worker，会话内串行、会话间并行。这就是一个小型 durable execution 引擎。
 
+```mermaid
+%% 图：durable execution 的最小实现——每步的输入 / 输出 / 决定 append-only 落盘；进程在第 10 步崩溃后，新 worker 从日志重建上下文、检查第 10 步的工具调用是否已执行（幂等 id），从最后一个未完成的步骤继续而不是从头；等审批时会话标为等待、worker 归还，唤醒时重新加载
+sequenceDiagram
+    participant W1 as worker A
+    participant LOG as 会话日志（append-only）
+    participant W2 as worker B
+    W1->>LOG: 步 8：模型输出 + tool_call(id=c8)
+    W1->>LOG: 步 8：工具结果
+    W1->>LOG: 步 9：模型输出 + tool_call(id=c9)
+    Note over W1: ✗ 进程崩溃（c9 是否已执行？）
+    W2->>LOG: 加载：重放 1–9 重建上下文
+    W2->>W2: 查幂等表：c9 未执行 → 执行；已执行 → 取结果
+    W2->>LOG: 步 9：工具结果
+    W2->>LOG: 步 10：模型输出 + tool_call(rm -rf)：需要审批
+    W2->>LOG: 会话状态 = 等待审批
+    Note over W2: 释放 worker（不占着等几小时）
+    Note over LOG: … 3 小时后用户批准 …
+    W2->>LOG: 追加：审批通过（谁、何时）
+    W2->>LOG: 步 10：工具结果 → 继续
+```
+
 ## 四、挂起、唤醒与事件流
 
 ### 1. 挂起等人
 
 一个需要审批的工具调用：运行时把审批请求写进日志、把会话标为"等待审批"、释放 worker（不能让一个 worker 挂几小时等人点按钮）、把请求推给 UI；用户批准后，一个新的 worker 加载会话、追加审批事件、继续执行。挂起的会话是运行时的一个资源类别——"等待中的会话数"是它的容量指标（第一章的表）。超时策略：等了太久（几小时、一天）自动降级（取消、或以"未批准"继续）。
+
+```mermaid
+%% 图：一个会话的状态机——运行中 → 需要审批 / 等外部事件时挂起（写日志、释放 worker、推 UI）→ 批准 / 事件到达 / 定时器触发时唤醒（新 worker 加载日志继续）→ 完成或预算耗尽；用户中断在步骤边界进入；挂起等太久按超时策略降级
+stateDiagram-v2
+    direction LR
+    [*] --> Running: 领取任务
+    Running --> Suspended: 需要审批 / 等 webhook / 等定时器
+（写日志 · 释放 worker · 推 UI）
+    Suspended --> Running: 批准 / 事件到达 / 定时器
+（新 worker 从日志加载）
+    Suspended --> Degraded: 等太久（几小时 / 一天）
+取消或按「未批准」继续
+    Running --> Running: 每步：追加事件
+    Running --> Interrupted: 用户「停」（步骤边界）
+    Interrupted --> Running: 新指令进日志
+    Running --> Done: 最终回答
+    Running --> Partial: 预算耗尽 / 卫士触发
+交付部分结果
+    Done --> [*]
+    Partial --> [*]
+    Degraded --> [*]
+```
 
 ### 2. 等外部事件
 
@@ -126,6 +169,27 @@ LangGraph 把 agent 显式建成有状态的图：节点是步骤（调模型、
 ### 3. 事件流推前端
 
 用户要看到 agent 在做什么：每一步的文本增量、工具调用、结果摘要、审批请求、进度。运行时把日志事件（或它的投影）流式推到客户端——Codex 的 app-server 是 JSON-RPC / WebSocket 服务，TUI、IDE 插件、Web 都是它的客户端，会话通过操作 / 事件通道与客户端通信（第一篇）；DeepSeek Harness 的 `web` / `sdk` / `acp` profile 是同一核心的不同面（第六篇）。前端断开不影响任务（任务在运行时里，不在连接里）；重连后从日志补齐——这就是"用户关了页面任务还在跑"的正确形态。
+
+```mermaid
+%% 图：任务在运行时里，不在连接里——Web 框架直接跑 agent 时任务随 HTTP 连接消失、重启从头；运行时形态下任务在 worker + 日志里，前端只是日志事件流的一个订阅者，断开不影响任务，重连后从日志补齐；Codex 的 app-server、DeepSeek Harness 的 web / sdk / acp profile 都是同一核心的不同面
+flowchart LR
+    subgraph RT["agent 运行时"]
+        direction TB
+        WK["worker：跑循环"] -->|"每步追加"| LOG["会话日志"]
+        LOG -->|"投影 / 事件流"| SRV["app-server<br/>JSON-RPC / WebSocket"]
+    end
+    SRV --> UI1["TUI"]
+    SRV --> UI2["IDE 插件"]
+    SRV --> UI3["Web"]
+    UI3 -.->|"关页面：任务照跑"| X["✗ 连接断"]
+    X -.->|"重连：从日志补齐"| SRV
+    classDef rt fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef ui fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    class WK,LOG,SRV rt
+    class UI1,UI2,UI3 ui
+    class X bad
+```
 
 ### 4. 中断与取消
 
@@ -164,6 +228,30 @@ LangGraph 把 agent 显式建成有状态的图：节点是步骤（调模型、
 Table: 托管、库与自托管 harness 的选择判据
 
 第六篇把三种形态与四个 harness 的十二个维度放在一起。
+
+```mermaid
+%% 图：三种交付形态各把哪些层交给谁——托管（Agents API）：OpenAI 维护 harness 与会话日志，你选沙箱、接工具，绑 OpenAI 模型；库（SDK）：SDK 给原语，循环 / 持久化 / 挂起 / 事件流由你搭，日志在你这里；自托管 harness：整个产品级 harness 的源码在你的基础设施上跑，每层都是可换的插件，多模型
+flowchart LR
+    subgraph H["托管：Agents API"]
+        direction TB
+        H1["模型：OpenAI（绑定）"] ~~~ H2["harness：OpenAI 维护<br/>压缩 · 权限 · 子 agent · 恢复"] ~~~ H3["会话日志：OpenAI 侧"] ~~~ H4["沙箱：你选（托管 / 九家 / 自有）"] ~~~ H5["工具：你接"]
+    end
+    subgraph S["库：Agents SDK · Claude Agent SDK · LangGraph"]
+        direction TB
+        S1["模型：一家或多家"] ~~~ S2["harness：SDK 给原语，你组织循环"] ~~~ S3["会话日志：你搭"] ~~~ S4["挂起 · 事件流 · 隔离：你搭"] ~~~ S5["工具：你接"]
+    end
+    subgraph D["自托管 harness：DeepSeek Harness"]
+        direction TB
+        D1["模型：多家（适配器）"] ~~~ D2["harness：完整源码，每层是插件"] ~~~ D3["会话日志：你的基础设施"] ~~~ D4["运维 · 跟进破坏性变更：你"] ~~~ D5["工具：你接"]
+    end
+    H ~~~ S ~~~ D
+    classDef v fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef y fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef lock fill:#fdecea,stroke:#c0392b,color:#222
+    class H1 lock
+    class H2,H3 v
+    class H4,H5,S1,S2,S3,S4,S5,D1,D2,D3,D4,D5 y
+```
 
 ## 六、实践建议
 

@@ -65,6 +65,29 @@ Chatbot Arena（LMArena）让用户对两个匿名模型的回答投票，用 Br
 
 这不是说 Arena 无用——它是唯一大规模的人类偏好数据。它说的是：Arena 分数是**供应商在一个特定分布上、经过选择性披露后的偏好得分**，与你的任务（内部知识库问答、工单分类、代码修改）的相关性未知。
 
+```mermaid
+%% 图：Arena 对战数据的分配（The Leaderboard Illusion 的估计）——Google 19.2%、OpenAI 20.4%，两家合计约四成；83 个开源模型合计只有 29.7%；拿到更多对战数据的供应商可以针对 Arena 的提问分布调优
+%%{init: {"xyChart": {"width": 760, "height": 340, "plotReservedSpacePercent": 60}, "themeVariables": {"xyChart": {"plotColorPalette": "#c0392b, #5b8fd6, #4d9a5c"}}}}%%
+xychart-beta
+    title "谁拿到了 Arena 的对战数据（占全部对战的 %）"
+    x-axis ["OpenAI（1 家）", "Google（1 家）", "其他闭源", "83 个开源模型合计"]
+    y-axis "占比（%）" 0 --> 35
+    bar [20.4, 19.2, 30.7, 29.7]
+```
+
+```mermaid
+%% 图：私测与选择性披露怎么抬高分数——同一个 checkpoint 放 27 个变体进 Arena，每个的分数都带随机噪声，只公布最高的那个、撤回其余；即使没有任何真实差异，「多测几个取最好」也系统性地抬高公布分
+flowchart TB
+    CK["一个 checkpoint"] --> V["27 个私有变体<br/>各自在 Arena 上收集对战"]
+    V --> S["27 个分数<br/>真实能力 + 各自的随机噪声"]
+    S --> MAX["只公布最高的那个<br/>撤回其余 26 个"]
+    MAX --> PUB["公布分 = 真实能力 + 最大的噪声<br/>系统性偏高（选择偏差）"]
+    classDef step fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    class CK,V,S step
+    class MAX,PUB bad
+```
+
 ### 2.2 静态 benchmark：污染与饱和
 
 MMLU、GSM8K、HumanEval 一类的静态题库有两个结构性问题：
@@ -116,6 +139,21 @@ Table: 短名单模型在各 effort 档的评测表
 
 （数字是示意，说明表的形状。）读法：先划质量门限（比如 0.92），门限以上的按每任务成本排，再看延迟是否满足 SLO。这张表通常会给出一个榜单给不出的答案——一个 Arena 排名靠后的模型在你的任务上过了门限而且便宜三倍。它也会给出"没有模型过门限"这个答案，那时该做的不是换模型，是加检索（L3）、改 prompt（L2）或改任务形态（L7）。
 
+把表画出来，选型的答案一眼就出来了：
+
+```mermaid
+%% 图：短名单五个配置的质量（红线，通过率 %）与每任务成本 p50（蓝柱，千分之一美元）——质量门限画在 92：Sonnet 5 high、GPT-5.6 Terra、Gemini 3.8 Flash 三个过线，其中 Gemini 3.8 Flash 最便宜；DeepSeek 最便宜但没过线（示意数字）
+%%{init: {"xyChart": {"width": 760, "height": 340, "plotReservedSpacePercent": 60}, "themeVariables": {"xyChart": {"plotColorPalette": "#c0392b, #5b8fd6, #4d9a5c"}}}}%%
+xychart-beta
+    title "质量（%）与每任务成本 p50（千分之一美元）——门限 92"
+    x-axis ["Sonnet 5 low", "Sonnet 5 high", "Terra medium", "3.8 Flash medium", "DeepSeek high"]
+    y-axis "质量 % / 成本（‰ 美元）" 0 --> 100
+    line [91, 94, 93, 92, 90]
+    bar [4, 21, 12, 5, 1]
+```
+
+红线是质量，蓝柱是成本。过 92 这条门限的有三个，其中 Gemini 3.8 Flash 每任务 0.005 美元，比 Sonnet 5 `high` 便宜四倍——Arena 上它们的排名顺序与此无关。
+
 ### 3.5 评测集也会过拟合
 
 用同一组用例既调 prompt 又选模型，几轮之后 prompt 就"记住"了这些用例。留一部分用例只用于最终比较，不用于迭代；定期从新的 bad case 补充。评测集是资产，也要防止它退化——L5 的横切纪律。
@@ -140,6 +178,19 @@ Table: 自托管与 API 的判据
 
 规模那一行的账粗略是这样：一张 H100 级 GPU 每小时租金几美元，用 vLLM 一类引擎跑一个 30B 级模型每秒可以服务上千 token，折成每百万 token 不到一美元；但这是**满载**的数字——利用率 20% 时成本翻五倍，而 API 按用量计费没有闲置成本。所以自托管划算的前提是流量稳定且高。中间路线是在云上用托管的开源模型（Bedrock、Vertex、各推理服务商）：模型开放、运营外包、按 token 计费——它把"开源"的控制权部分保留（可以固定版本）而不承担 Infra。
 
+```mermaid
+%% 图：自托管的每百万 token 成本随 GPU 利用率变化（示意）——满载时不到 1 美元，利用率 50% 翻倍、20% 时翻五倍；API 按用量计费是一条水平线；两线的交点就是「流量稳定且高到什么程度才划算」
+%%{init: {"xyChart": {"width": 760, "height": 340, "plotReservedSpacePercent": 60}, "themeVariables": {"xyChart": {"plotColorPalette": "#c0392b, #5b8fd6, #4d9a5c"}}}}%%
+xychart-beta
+    title "每百万 token 的成本 vs GPU 利用率（示意，30B 级模型）"
+    x-axis "GPU 利用率" ["10%", "20%", "30%", "50%", "70%", "100%"]
+    y-axis "美元 / 百万 token" 0 --> 10
+    line [9, 4.5, 3, 1.8, 1.3, 0.9]
+    line [2, 2, 2, 2, 2, 2]
+```
+
+红线是自托管（满载 0.9 美元，利用率每降一半成本翻一倍），蓝线是一个 2 美元的 API。交点在 45% 左右：利用率稳定高于它才划算——而波动大的流量意味着平均利用率往往在 20–30%。
+
 ### 4.3 应用工程师要会的是判断
 
 自托管的**实现**属于 Infra 地图（08 推理系统、11 平台）；应用工程师要会的是上面这张表的判断，以及自托管带来的接口差异——vLLM 提供 OpenAI 兼容接口，但结构化输出、缓存、工具调用的支持程度与四家不同，中间层（第二篇）的适配器要多一个。
@@ -161,6 +212,33 @@ Table: 自托管与 API 的判据
 ### 5.3 一个数字
 
 假设 70% 的请求可以走小模型，小模型每任务 \$0.002、大模型 \$0.03。全用大模型：\$0.03。路由：$$0.7 \times 0.002 + 0.3 \times 0.03 = 0.0104$$，省 65%。级联：$$0.002 + 0.3 \times 0.03 = 0.011$$，省 63%——级联只比路由贵一点，却不漏难题。这是级联在多数场景下更受欢迎的原因。
+
+```mermaid
+%% 图：路由与级联两种分流形态——路由由分类器一次决定走大还是小，错分的难题不被发现；级联先走小模型，靠置信信号决定是否升级，每个请求多花一次小模型的钱但难题不漏；70% 简单请求下两者成本 0.0104 与 0.011 美元
+flowchart TB
+    subgraph RT["路由：f·c_s + (1−f)·c_l = 0.0104 美元"]
+        direction LR
+        R0["请求"] --> RC{"分类器判难度"}
+        RC -->|"简单 70%"| RS["小模型 0.002"]
+        RC -->|"难 30%"| RL["大模型 0.03"]
+        RC -.->|"错判"| RX["难题进小模型<br/>质量掉、没人发现"]
+    end
+    subgraph CS["级联：c_s + (1−f)·c_l = 0.011 美元"]
+        direction LR
+        C0["请求"] --> CS1["先走小模型 0.002<br/>输出带置信信号"]
+        CS1 -->|"置信够 70%"| CO["直接返回"]
+        CS1 -->|"不够 / 触发拒答出口 30%"| CL["升级到大模型 0.03"]
+    end
+    RT ~~~ CS
+    classDef step fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class R0,RS,RL,C0,CS1,CL step
+    class RC dec
+    class RX bad
+    class CO ok
+```
 
 ## 六、四个过滤条件
 
@@ -232,6 +310,25 @@ Table: 把弃用周期写进选型的维度
 3. **收到通知当天**在替代模型上跑全量评测集，比较三列，决定是否需要调 prompt 或 effort。
 4. **切换用灰度**（L6）：1% → 10% → 100%，每一步看在线指标。
 5. **关闭日之前一周**完成切换，不要等到当天。
+
+```mermaid
+%% 图：一个模型在你系统里的生命周期与应用侧的动作——进评测集、成为主模型、替代模型每月热身、收到弃用通知当天全量评测、灰度切换、关闭前一周完成；通知期从 OpenAI 的 3–6 个月到 DeepSeek 的 4 天
+flowchart TB
+    N["新模型发布"] -->|"过滤清单 → 进评测集"| E["评测集上跑全表"]
+    E -->|"过门限、最便宜"| P["主模型（写进配置）"]
+    E -->|"次优"| B["替代模型<br/>每月在评测集上热身一次"]
+    P --> D["供应商弃用通知<br/>OpenAI 3–6 月 · Anthropic ≥ 1 年 · DeepSeek 4 天"]
+    D -->|"当天"| R["在替代模型上跑全量评测<br/>调 prompt / effort"]
+    R --> G["灰度切换 1% → 10% → 100%"]
+    G -->|"关闭日前一周完成"| X["旧模型关闭"]
+    B -.-> R
+    classDef step fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    class N,E,R,G step
+    class P,B ok
+    class D,X bad
+```
 
 ## 九、实践建议
 

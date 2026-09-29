@@ -86,6 +86,26 @@ Anthropic 2025 年 6 月公开了他们研究功能的架构：一个 lead agent
 
 任务可以分解成**互相独立**的子任务、子任务的结果可以**用摘要综合**、且**并行有价值**（子任务各自耗时）。典型：多方向研究、对多个仓库 / 文档做同样的分析、批量评审。
 
+```mermaid
+%% 图：Anthropic 多 agent 研究系统的一次运行——lead agent 先思考再把问题拆成三个方向，写具体的派发指令（目标 · 输出格式 · 来源指引 · 边界），三个 subagent 并行各自搜索阅读十几次，返回带引用的摘要，lead 综合并引用；墙钟时间从几十分钟到几分钟，token 约 15 倍
+flowchart TB
+    Q["研究问题：2026 年三家推理模型的 effort 定价怎么比"] --> L["lead：先思考再规划<br/>拆成三个独立方向"]
+    L -->|"派发指令：目标 · 格式 · 来源 · 边界"| S1["subagent A<br/>OpenAI 定价页 · 12 次搜索阅读"]
+    L -->|"派发指令"| S2["subagent B<br/>Anthropic 定价页 · 9 次"]
+    L -->|"派发指令"| S3["subagent C<br/>Google 定价页 · 11 次"]
+    S1 & S2 & S3 -->|"各返回：结构化摘要 + 引用（不贴原文）"| C["lead：校验 · 综合 · 引用"]
+    C --> R["报告"]
+    S1 -.- N["三个并行 → 墙钟几分钟<br/>三份系统提示 + 工具定义 + 读取内容 → token ≈ 15 倍聊天"]
+    classDef lead fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef w fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef n fill:#f0f0f0,stroke:#888,color:#222
+    class Q,L,C lead
+    class S1,S2,S3 w
+    class R ok
+    class N n
+```
+
 ## 三、handoff
 
 ### 1. 模式
@@ -99,6 +119,23 @@ Agents SDK 把 handoff 做成一等原语：一个 agent 的可用 handoff 列�
 ### 3. 与 orchestrator-workers 的区别
 
 handoff 是**串行的专业化**——一个接一个，为的是每个阶段有更聚焦的 agent；orchestrator-workers 是**并行的分解**——同时做，为的是隔离与速度。客服分流用 handoff，多方向研究用 orchestrator-workers。handoff 的一个陷阱：上下文怎么传——全部传（B 看到 A 的所有历史，隐私与预算问题）还是摘要传（B 缺信息）——要按场景设计，与第四篇的派发指令同一问题。
+
+```mermaid
+%% 图：客服 handoff 的一次对话——分流 agent 判断「这是退款」，调用 transfer_to_refund（模型眼里是一个特殊工具）把控制权交给退款 agent；退款 agent 有自己更聚焦的指令、更小的工具集与权限；同一时刻只有一个 agent 工作；传全部历史（B 看到一切，隐私与预算）还是传摘要（B 缺信息）是设计决定
+sequenceDiagram
+    participant U as 用户
+    participant A as 分流 agent（接待）
+    participant B as 退款 agent
+    participant H as 人工
+    U->>A: 我上周买的耳机坏了想退
+    A->>A: 判断：退款类 → 调用 transfer_to_refund
+    Note over A,B: 控制权 + 上下文（全部 or 摘要）移交
+    B->>U: 请提供订单号
+    U->>B: 20261015-7788
+    B->>B: 工具：查订单 · 校验退款政策
+    B->>U: 符合 7 天无理由，已提交退款
+    Note over B,H: 超出政策 / 金额过阈值 → transfer_to_human
+```
 
 ## 四、层级与 agent teams
 
@@ -146,6 +183,34 @@ A2A 的采用远不如 MCP：跨组织的 agent 协作在 2026 年仍是少数�
 
 一个 worker 幻觉出一个结论，主 agent 综合时把它当事实；一个 handoff 目标拒绝了任务，控制权卡在中间；一个队友在 agent teams 里等另一个永远不来的消息。多 agent 的失败模式是**组合的**：单 agent 的每一条失效（L1 第一篇）乘以 agent 数，再加协调本身的失效。应对：每个 agent 有自己的预算与卫士（第一篇）；主 agent 对 worker 的结果做校验而不是直接信（要求 worker 返回证据与引用）；协调层有超时与死锁检测；整体有步数与美元上限。
 
+```mermaid
+%% 图：多 agent 的失败是组合的——worker B 幻觉出一个结论、主 agent 综合时当事实（要求 worker 返回证据与引用来防）；handoff 目标拒绝任务、控制权卡在中间（协调层超时）；agent teams 里队友 C 等 D 永远不来的消息（死锁检测）；单 agent 的每条失效乘以 agent 数，再加协调本身的失效
+flowchart TB
+    subgraph F1["失败①：幻觉被综合"]
+        direction LR
+        W["worker B：编造「X 支持 128K」"] --> M["主 agent：当事实写进报告"]
+        M -.- G1["防：要求 worker 返回证据与引用，主 agent 校验"]
+    end
+    subgraph F2["失败②：handoff 卡住"]
+        direction LR
+        A["agent A：transfer_to_B"] --> B["agent B：拒绝任务 / 无响应"] --> X["控制权卡在中间，用户在等"]
+        X -.- G2["防：协调层超时 → 回退给 A 或转人工"]
+    end
+    subgraph F3["失败③：死锁"]
+        direction LR
+        C["队友 C：等 D 的接口定义"] --> D["队友 D：等 C 的调用方签名"]
+        D --> C
+        C -.- G3["防：死锁检测 · 整体步数与美元上限"]
+    end
+    F1 ~~~ F2 ~~~ F3
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef n fill:#fff7e0,stroke:#c98a00,color:#222
+    class W,M,X,B,C,D bad
+    class A n
+    class G1,G2,G3 ok
+```
+
 ### 3. 调试
 
 trace 从一条链变成一棵树（甚至图）：主会话 → 子会话 → 步骤。要能从主 agent 的一个错误结论追到是哪个 worker 的哪一步产生的——每个子会话的完整轨迹进日志（第三篇），跨会话的引用（子会话 id）进主会话的事件。L5 讲轨迹评测与可视化；这里的要求是**日志结构支持树**。DeepSeek Harness 的 `subagent` 接缝里"发现每个创建的子 agent"、Codex 的 `agent-graph-store` 都是为此。
@@ -153,6 +218,20 @@ trace 从一条链变成一棵树（甚至图）：主会话 → 子会话 → �
 ### 4. 评测
 
 多 agent 系统的评测比单 agent 更贵：每次评测跑分是 15 倍的 token；轨迹更长更难标注。做法：先在单 agent 上评测每个角色的能力（worker 单独能不能完成子任务），再评测协调（分解是否合理、综合是否忠实），最后端到端——三层分开，与 L3 第七篇"检索与生成分开评"同一思路。
+
+```mermaid
+%% 图：多 agent 的三层评测——先单独评每个角色（worker 给定子任务能不能完成，便宜、可复用单 agent 评测集），再评协调（lead 的分解是否合理、综合是否忠实于 worker 的返回），最后端到端；一次退化先看哪一层掉了，与 L3「检索与生成分开评」同一思路
+flowchart TB
+    E1["① 角色能力<br/>每个 worker 单独跑子任务评测集<br/>便宜 · 单 agent 方法"] --> E2["② 协调<br/>给定同一任务：分解是否合理（覆盖 · 独立 · 粒度）<br/>给定同一批 worker 返回：综合是否忠实"]
+    E2 --> E3["③ 端到端<br/>全系统跑真实任务<br/>15 倍 token，少跑、按分布看"]
+    E3 -.->|"退化了？先看 ①，再看 ②"| E1
+    classDef a fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef b fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef c fill:#fdecea,stroke:#c0392b,color:#222
+    class E1 a
+    class E2 b
+    class E3 c
+```
 
 ## 七、实践建议
 

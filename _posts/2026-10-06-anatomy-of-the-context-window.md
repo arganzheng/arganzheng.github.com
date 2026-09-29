@@ -64,6 +64,29 @@ Table: 一个 Claude Code 会话按七层标注的时间线
 
 Claude Code 的两个硬数字值得记：自动记忆上限 200 行 / 25 KB，是对 ③ 的预算；auto-compact 在窗口约 83.5% 处触发、预留约 33K 给摘要生成，是对整体的预算（一个 200K 窗口的 16.5%）。这些不是随手选的——它们是"留多少给模型回答"与"多久压缩一次"的权衡结果，第四篇讨论。
 
+```mermaid
+%% 图：一个 Claude Code 会话的上下文怎样填满——启动时 ①②③ 已占几千到上万 token；每读一个文件 ⑥ 加 2–5K；子 agent 的大量读取在另一个窗口里、主窗口只收摘要；到约 83.5% 处 auto-compact 把 ④⑥ 换成一段摘要，① 不动、③ 的根目录部分重注入、按需部分丢失
+flowchart TB
+    S0["启动：还没敲字<br/>① system 几千 · ② 工具名与技能描述行 · ③ CLAUDE.md + 自动记忆（≤ 25 KB）<br/>≈ 5–15K token"]
+    S0 --> S1["第一个 prompt<br/>⑦ 几十 token"]
+    S1 --> S2["工作中：每读一个文件<br/>⑥ +2–5K；十个文件就是几万"]
+    S2 --> S3["需要研究一个问题<br/>子 agent 在自己的窗口里读几十个文件<br/>主窗口只收到一段摘要"]
+    S3 --> S2
+    S2 --> S4{"窗口到 83.5%？<br/>（200K 窗口预留 33K 给摘要）"}
+    S4 -->|"否"| S2
+    S4 -->|"是"| S5["auto-compact<br/>④⑥ → 一段摘要"]
+    S5 --> S6["压缩后的命运<br/>① 不变 · ③ 根目录 CLAUDE.md 从磁盘重注入 · ③ 带 paths: 的规则丢失 · ④⑥ 只剩摘要"]
+    S6 --> S2
+    classDef res fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef grow fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef cmp fill:#fdecea,stroke:#c0392b,color:#222
+    class S0,S1 res
+    class S2,S3 grow
+    class S4 dec
+    class S5,S6 cmp
+```
+
 ## 三、逐层的性质
 
 ### 1. 系统指令
@@ -73,6 +96,27 @@ Claude Code 的两个硬数字值得记：自动记忆上限 200 行 / 25 KB，�
 ### 2. 工具与技能定义
 
 每个工具的名字、描述、参数 schema；每个技能的描述行。性质：稳定、靠前、**按数量线性增长**——几十个 MCP 工具的完整 schema 可以是几千到上万 token。两种应对：Claude Code 与 OpenAI 的 tool search 把完整 schema 延迟加载（常驻的只有名字或一行描述，模型需要时再取——代价是这些按需加载的内容不在缓存前缀里）；Agent Skills 标准把这个思路做成规范——`SKILL.md` 只有 `description`（≤ 1,024 字符）常驻，正文与脚本用到时才读。这叫**渐进披露**（progressive disclosure），是这一层的核心设计原则。
+
+```mermaid
+%% 图：渐进披露——常驻在上下文里的只是每个工具的名字和每个技能的一行描述（几十 token），完整的 schema 与 SKILL.md 正文放在外面，模型判断要用时再加载；30 个工具的完整定义从常驻的 9K 变成常驻 1K + 按需 300
+flowchart LR
+    subgraph RES["常驻层 ②：每轮都传、在缓存前缀里"]
+        direction TB
+        R1["工具名 + 一行描述 × 30<br/>≈ 1K token"]
+        R2["技能 description × n<br/>每个 ≤ 1,024 字符"]
+    end
+    subgraph EXT["上下文之外：磁盘 / 注册表"]
+        direction TB
+        E1["30 个完整的参数 schema<br/>≈ 9K token"]
+        E2["SKILL.md 正文 + 脚本<br/>几千到几万 token"]
+    end
+    R1 -.->|"模型决定用某个工具 → tool search 取回它的 schema（+300）"| E1
+    R2 -.->|"模型决定用某个技能 → 读正文"| E2
+    classDef res fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef ext fill:#f0f0f0,stroke:#888,color:#222
+    class R1,R2 res
+    class E1,E2 ext
+```
 
 ### 3. 长期记忆
 
@@ -104,9 +148,49 @@ Manus 公开的生产统计：一个典型任务约 **50 次工具调用**，输
 
 设常驻层（①②③）为 $$S$$，每步新增的工具返回平均 $$r$$、模型输出 $$o$$，第 $$k$$ 步的上下文约为 $$S + (k-1)(r + o)$$。$$r$$ 主导：一次文件读取 3K、一次命令输出 1K、一次网页 5K，取 $$r = 3{,}000$$、$$o = 300$$、$$S = 15{,}000$$，第 50 步是 $$15{,}000 + 49 \times 3{,}300 \approx 177{,}000$$ token——一个 200K 窗口在任务结束前就满了；即使 1M 窗口，L1 第一篇的有效长度问题在几万 token 就开始起作用。不管理的上下文在长任务上**必然**触顶或退化，这不是模型能力问题，是算术。
 
+```mermaid
+%% 图：上下文随步数线性增长——常驻 15K、每步工具返回 3K + 输出 300 时，第 50 步到 177K，一个 200K 窗口在 83.5%（167K）处约第 47 步触发压缩；把工具返回卸载到平均 800 后每步只长 1.1K，50 步 69K，整个任务不用压缩
+%%{init: {"xyChart": {"width": 760, "height": 340, "plotReservedSpacePercent": 60}, "themeVariables": {"xyChart": {"plotColorPalette": "#c0392b, #5b8fd6, #888888"}}}}%%
+xychart-beta
+    title "第 k 步的上下文大小（千 token）：S = 15K，o = 300"
+    x-axis "步数 k" [1, 10, 20, 30, 40, 50]
+    y-axis "千 token" 0 --> 200
+    line [15, 45, 78, 111, 144, 177]
+    line [15, 25, 36, 47, 58, 69]
+    line [167, 167, 167, 167, 167, 167]
+```
+
+红线 r = 3,000（不管理），蓝线 r = 800（工具返回卸载后），灰线是 200K 窗口的 auto-compact 触发线 167K。红线在第 47 步左右撞线；蓝线到任务结束还不到一半。
+
 ### 3. 漂移
 
 增长带来第二个问题：**原始任务漂到窗口中间**。第 1 步时用户的目标在末尾（⑦），第 30 步时它前面有 ①②③、后面有 29 步的工具返回——正是 Lost in the Middle 里准确率最低的位置。Manus 的观察是模型开始"忘记"或"偏离"目标，他们的解法是让 agent 维护一个 `todo.md` 并在每步末尾重写它——把目标从中间搬回末尾。Anthropic 的博客把同样的现象归到"注意力预算"的耗尽。这就是为什么第四篇说压缩不只是省钱：它也是把目标拉回注意力焦点的手段。
+
+```mermaid
+%% 图：目标的漂移与复述——第 1 步时用户的目标在窗口末尾（注意力最好的位置）；第 30 步时它前面是常驻层、后面是 29 步的工具返回，正好落在 Lost in the Middle 的谷底；Manus 的解法是每步把 todo.md 重写到末尾，把目标的副本搬回焦点
+flowchart TB
+    subgraph K1["第 1 步"]
+        direction LR
+        A1["①②③ 常驻 15K"] --> A2["⑦ 用户目标 ← 在末尾，注意力最好"]
+    end
+    subgraph K30["第 30 步：不管理"]
+        direction LR
+        B1["①②③ 常驻 15K"] --> B2["⑦ 用户目标 ← 漂到中间，U 形的谷底"] --> B3["29 步的工具返回与输出 ≈ 96K"]
+    end
+    subgraph K30R["第 30 步：每步复述"]
+        direction LR
+        C1["①②③ 常驻 15K"] --> C2["原始目标（仍在中间）"] --> C3["29 步的工具返回…"] --> C4["todo.md：目标 + 已完成 / 待做 ← 重写到末尾"]
+    end
+    K1 ~~~ K30 ~~~ K30R
+    classDef res fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef goal fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    classDef grow fill:#fff7e0,stroke:#c98a00,color:#222
+    class A1,B1,C1 res
+    class A2,C4 goal
+    class B2 bad
+    class B3,C2,C3 grow
+```
 
 ## 五、注意力预算
 

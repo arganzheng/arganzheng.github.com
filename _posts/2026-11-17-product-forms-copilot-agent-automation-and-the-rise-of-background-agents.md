@@ -64,6 +64,34 @@ AI 接一个任务、执行多步（读、改、跑、修）、人在关键步�
 
 AI 执行并直接生效，人看面板、抽检、处理告警。设计要点：**只在可自动验证 + 可回滚的任务上**（L4 第八篇第六级的前提）、**面板与告警**（L4 第九篇、L6 第六篇的 SLO）、**自动降级回环内**的退路、**审计链**（L6 第五篇）。它的边界：不可逆、不能自动验证的任务永远不到这一级——"直接发给客户的报告"不是自动化的候选（L4 第八篇自测 3）。
 
+```mermaid
+%% 图：同一个「修一个 bug」任务在四种形态下人在哪、看什么——copilot：人写每一行，AI 逐行建议，人接受 / 修改 / 拒绝；同步 agent：AI 读改跑修几十步，人在关键步审批、结束看 diff；后台 agent：人提任务走开，AI 交付一个 PR，人回来审 diff、CI、评论；自动化：AI 直接合并，人看面板与告警，异常自动降级
+flowchart TB
+    subgraph C1["copilot"]
+        direction LR
+        A1["人：写代码"] --> A2["AI：建议下一行"] --> A3["人：Tab 接受 / 改 / 忽略（每一条）"]
+    end
+    subgraph C2["同步 agent"]
+        direction LR
+        B1["人：「修这个 bug」，在场"] --> B2["AI：读 → 改 → 跑测试 → 修（几十步，步骤流可见）"] --> B3["人：关键步审批 · 结束看 diff · 可中断"]
+    end
+    subgraph C3["后台 agent"]
+        direction LR
+        D1["人：提任务，走开"] --> D2["AI：独立跑完，开一个 PR"] --> D3["人：回来审 diff · CI · 评论 → 合并 / 改 / 拒绝"]
+    end
+    subgraph C4["自动化"]
+        direction LR
+        E1["触发：issue 打了 auto 标签"] --> E2["AI：修 → 测试全绿 → 直接合并"] --> E3["人：看面板 · 抽检 · 告警 → 异常自动降回 3 级"]
+    end
+    C1 ~~~ C2 ~~~ C3 ~~~ C4
+    classDef h fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef ai fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef r fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class A1,B1,D1,E1 h
+    class A2,B2,D2,E2 ai
+    class A3,B3,D3,E3 r
+```
+
 ## 三、演进：2021–2026
 
 | 阶段 | 形态 | 代表 | 让它成立的东西 |
@@ -76,6 +104,22 @@ AI 执行并直接生效，人看面板、抽检、处理告警。设计要点�
 Table: 产品形态的演进：2021–2026
 
 每一步的推动力是**模型能力 + 一个 harness 机制**：补全需要续写；对话需要指令遵循；同步 agent 需要工具调用与 diff；后台 agent 需要运行时与上下文管理。形态的演进是 L1–L4 的能力在产品侧的投影。
+
+```mermaid
+%% 图：2021–2026 形态的演进，每一步 = 模型能力 + 一个 harness 机制——补全需要代码模型能续写 + 建议可便宜拒绝；对话需要指令遵循 + 对话框这个最低成本集成；编辑器内同步 agent 需要工具调用协议成熟 + 能跑几十步 + diff 审阅；后台 agent 需要运行时（持久化 · 挂起 · 沙箱）+ 上下文管理 + PR 作为交付物 + 成本可接受
+flowchart LR
+    S1["2021–2023<br/>补全（copilot）<br/>GitHub Copilot"] --> S2["2023–2024<br/>对话（copilot）<br/>ChatGPT 形态进各产品"]
+    S2 --> S3["2024–2025<br/>编辑器内同步 agent<br/>Cursor Composer · Claude Code · Codex CLI"]
+    S3 --> S4["2025–2026<br/>后台 agent<br/>Codex cloud · Claude Code on the web · Devin · Agents API"]
+    S1 -.- M1["模型：代码续写<br/>harness：建议可便宜拒绝"]
+    S2 -.- M2["模型：指令遵循<br/>harness：对话框（最低成本集成）"]
+    S3 -.- M3["模型：能跑几十步<br/>harness：工具调用协议（L1 二）· diff 审阅"]
+    S4 -.- M4["模型：SWE-bench 七成以上<br/>harness：运行时（L4 三）· 上下文管理（L2 四）· PR 交付 · 成本"]
+    classDef s fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef m fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class S1,S2,S3,S4 s
+    class M1,M2,M3,M4 m
+```
 
 ## 四、后台 agent 为什么成了主流
 
@@ -115,6 +159,28 @@ Table: 按任务特征选形态的决策表
 
 一个判据串起来：**任务能被什么验证、错了能不能撤、有没有审阅落点、用户能不能等**。
 
+```mermaid
+%% 图：选形态的决策树——先问用户是不是正在做且粒度小（补全式 copilot）；再问需不需要来回澄清（对话式 copilot）；多步任务问有没有明确验收；有验收再问有没有审阅落点（PR / 草稿 / 提案）与用户能不能等：能等且有落点 → 后台 agent，人在场 → 同步 agent；可自动验证 + 可回滚 + 高量 → 自动化；不可逆对外动作止于提案
+flowchart TB
+    Q["一个任务"] --> Q1{"用户正在做、粒度小、高频？"}
+    Q1 -->|"是"| F1["copilot：补全 / 内联"]
+    Q1 -->|"否"| Q2{"需要来回澄清、探索性？"}
+    Q2 -->|"是"| F2["copilot：对话"]
+    Q2 -->|"否：多步"| Q3{"有明确验收？"}
+    Q3 -->|"否 / 边界外"| F0["copilot 给材料不给结论，或不做"]
+    Q3 -->|"是"| Q4{"可自动验证 + 可回滚 + 错误代价低 + 高量？"}
+    Q4 -->|"是"| F5["自动化：人看面板"]
+    Q4 -->|"否"| Q5{"有审阅落点（PR / 草稿 / 提案）且用户可等？"}
+    Q5 -->|"是"| F4["后台 agent：交付物审阅<br/>不可逆动作止于提案"]
+    Q5 -->|"否：人在场、几分钟内"| F3["同步 agent：步骤流 + diff + 关键步审批"]
+    classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef f fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef n fill:#fff7e0,stroke:#c98a00,color:#222
+    class Q1,Q2,Q3,Q4,Q5 dec
+    class F1,F2,F3,F4,F5 f
+    class F0 n
+```
+
 ## 六、多形态并存
 
 ### 1. 同一产品四种形态
@@ -128,6 +194,24 @@ Cursor：Tab 补全（copilot）、对话（copilot）、Composer / Agent（同�
 ### 3. 渐进的自主性
 
 新用户先 copilot、建立信任后开 agent、稳定后开自动化——个人层面的六级爬梯（第三篇）。产品要支持这条路径：默认保守、按用户与任务类型逐步放开、每一级有退回的路。
+
+```mermaid
+%% 图：一个产品里的四种形态与切换点——Tab 补全 → 用户开始问问题 → 对话 → 用户说「帮我改」→ 同步 agent → 任务超过几分钟或用户说「去做吧」→ 后台 agent → 评测集与在线指标证明某类任务稳定 → 自动化；每次切换用户可控可见，每一级有退回的路；新用户从左边起步，建立信任后逐级放开
+flowchart TB
+    F1["Tab 补全<br/>copilot"] -->|"用户开始问问题"| F2["对话<br/>copilot"]
+    F2 -->|"用户说「帮我改」"| F3["Composer / Agent<br/>同步 agent"]
+    F3 -->|"任务超过几分钟<br/>或用户说「去做吧」"| F4["后台 agent<br/>PR 交付"]
+    F4 -->|"评测集 + 在线指标：<br/>某类任务稳定"| F5["自动化<br/>auto 标签直接合并"]
+    F5 -.->|"完成率掉 · 成本涨 · 卫士频发"| F4
+    F4 -.->|"用户想看过程"| F3
+    N["新用户从这里起步<br/>默认保守 · 按用户与任务类型逐级放开"] -.-> F1
+    classDef f fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef a fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef n fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class F1,F2,F3 f
+    class F4,F5 a
+    class N n
+```
 
 ## 七、实践建议
 

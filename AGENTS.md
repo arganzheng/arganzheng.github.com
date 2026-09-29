@@ -1634,6 +1634,29 @@ How it is built (`_plugins/moments.rb`):
     viewBox and h/w: flip TB ↔ LR when it is far from 0.35, then tune
     `wrappingWidth` (narrow → nodes wrap taller, wide → shorter). Never build
     the init line with Python `%d` formatting — it eats the `%%`.
+  - **Article Mermaid: an LR chain of more than ~4 labelled nodes renders as
+    a strip.** The article column is 835 px wide; the SVG is scaled to fit, so
+    a `flowchart LR` whose natural width is 1,600+ px comes out 80–200 px tall
+    with ~9 px text (`check-render.cjs` prints `sizes:` — anything under
+    ~250 px tall on a diagram with more than a handful of nodes is suspect).
+    Default to `flowchart TB` for chains and decision trees; use LR only for
+    ≤ 4 nodes or for two-column pairings (`A1 --> B1`, `A2 --> B2`, … with
+    no `~~~` chain — in LR the `~~~` chain puts the rows into successive
+    ranks, i.e. side by side). Two side-by-side panels = `flowchart TB` with
+    `subgraph … direction LR` and `P1 ~~~ P2` between the subgraphs; a
+    subgraph's `direction` is ignored as soon as an edge crosses into one of
+    its nodes from outside, so connect subgraph-to-subgraph instead. Nodes
+    with no edges between them share one rank and line up perpendicular to
+    the flow — chain them with `~~~` to stack them. `timeline` clips long
+    Chinese labels; use a flowchart with subgraphs per era instead.
+    `xychart-beta` works (Mermaid 11.17) but needs an init to be legible:
+    `%%{init: {"xyChart": {"width": 760, "height": 340,
+    "plotReservedSpacePercent": 60}, "themeVariables": {"xyChart":
+    {"plotColorPalette": "#c0392b, #5b8fd6, #4d9a5c"}}}}%%` — the default
+    palette is a near-invisible lavender and the default height 500; axis
+    labels are not entity-decoded (`&lt;` shows literally), so write 「不到
+    1K」 not `<1K`. Chart data that is illustrative, not measured, must say
+    so in the caption（示意）.
   - **A PASS with `mermaid=0` on a page that has diagrams is a vacuous pass.**
     The checker disables the cache, so mermaid.min.js (2.4 MB) is refetched
     from jsDelivr every run; on 2026-09-30 the CDN took > 60 s and the old

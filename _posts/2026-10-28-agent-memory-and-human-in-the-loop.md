@@ -80,6 +80,28 @@ Table: 人参与的六级
 
 记忆里的错误会被模型当作事实反复使用——一次误记（"用户偏好 A"实际是"讨厌 A"）比一次幻觉危害更大，因为它跨会话持续。写入要有来源（这条记忆来自哪次会话的哪句话），取出时给模型看来源，用户能纠正。
 
+```mermaid
+%% 图：跨会话记忆的写、取、忘——会话中模型判断「值得记」或会话结束时运行时自动提取，过写入判据（下次会用到且不易取回）后带来源与时间戳存入记忆库；下次会话按当前任务检索 top-k 进上下文的 ③ 层（受 25 KB 一类预算约束，放半静态层可缓存）；过期、冲突、长期未用、用户删除触发遗忘
+flowchart LR
+    subgraph W["写"]
+        direction TB
+        W1["模型驱动：判断「这值得记」→ 调记忆工具"] ~~~ W2["运行时驱动：会话结束自动提取"]
+    end
+    W --> J{"写入判据：<br/>下次会用到？不易从别处取回？<br/>不是敏感信息？"}
+    J -->|"否"| DROP["不写（可再取的工具返回 · 能查到的事实）"]
+    J -->|"是"| MEM["记忆库：文件 / 数据库 / 向量库<br/>每条带来源（哪次会话哪句话）· 时间戳 · 用户隔离"]
+    MEM -->|"下次会话：按当前任务检索 top-k<br/>预算 ≤ 25 KB · 放半静态层"| CTX["上下文 ③ 层<br/>模型看得到来源，用户能纠正"]
+    F["忘：过期（Python 3.9）· 冲突（新覆盖旧）· 长期未检索 · 用户删除"] -.-> MEM
+    classDef step fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef n fill:#f0f0f0,stroke:#888,color:#222
+    class W1,W2,MEM step
+    class J dec
+    class CTX ok
+    class DROP,F n
+```
+
 ## 三、四个实现
 
 | 实现 | 形态 | 谁驱动 | 上限与遗忘 | 特点 |
@@ -115,6 +137,23 @@ agent 在后台跑（提 PR、生成报告草稿、批量处理），人不看�
 
 **能自动验证到什么程度，就能自主到什么程度**。代码有测试 → coding agent 能到 5–6 级；业务动作没有测试 → 停在 2–3 级，除非把验证前移到结构（第七章）；不可逆且验证成本极高（驾驶、电网控制）→ 验证要做成一门独立工程（仿真——地图 L5 的物理世界一节）。自动驾驶的 SAE 分级是同一条路径最严格的版本：L2 人在环内、L3 人在环上、L4 / L5 人在环外，每升一级对应验证体系的一次量级跳跃，不是模型换了一代。
 
+```mermaid
+%% 图：人参与的六级，每升一级把一类验证从人交给系统——2 → 3 靠测试 / lint 的自动验证循环让审批变粗；3 → 4 人写执行策略、运行时执行；4 → 5 人退到环上看结果与面板，产物是可审阅的 PR / 草稿；5 → 6 只在可自动验证 + 可回滚的动作上，异常自动降级；能自动验证到什么程度就能自主到什么程度
+flowchart TB
+    L1["1 单步问答<br/>人看每个答案"] --> L2["2 短循环 agent<br/>in the loop：每个副作用都确认"]
+    L2 -->|"+ 测试 / lint 自动验证循环<br/>审批按风险分级变粗"| L3["3 长循环 agent<br/>只读自动 · 写确认 · 不可逆二次确认"]
+    L3 -->|"+ 执行策略 · 沙箱 · Guardian<br/>人写策略，运行时执行"| L4["4 策略化授权<br/>审批只在策略说「问」的地方"]
+    L4 -->|"+ 异步交付：PR / 草稿 / 提案<br/>完整 trace · 面板 · 告警"| L5["5 后台 agent<br/>on the loop：看结果、抽检轨迹"]
+    L5 -->|"+ 持续轨迹评测与回归<br/>只在可验证 + 可回滚的动作上"| L6["6 无人在环<br/>out of the loop，有退路"]
+    L6 -.->|"完成率掉 · 成本涨 · 卫士频发 · 评测回归<br/>→ 自动降一级"| L4
+    classDef a fill:#fdecea,stroke:#c0392b,color:#222
+    classDef b fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef c fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class L1,L2 a
+    class L3,L4 b
+    class L5,L6 c
+```
+
 ## 五、审批粒度与 agent 主动问人
 
 ### 1. 按风险分级
@@ -134,6 +173,29 @@ Table: 按风险分级的动作处理
 ### 2. agent 主动问人
 
 不只是"批准 / 拒绝"：agent 遇到歧义（"你要的是 A 还是 B"）、缺信息（"数据库密码在哪"）、需要决策（"两种方案各有代价，选哪个"）时应该**问**而不是猜——PocketOS 事件的模型侧一环正是"猜测而不是验证"。协议：Codex 的 `request_user_input` 工具处理器（同步与异步两种）、`elicitation.rs`；MCP 2026 版的 elicitation 让 **MCP server** 也能向用户要输入（server 需要一个确认或一个参数时经 client 问人）；Claude Code 的 `canUseTool` 回调与 `AskUserQuestion` 类工具。问人是一个**挂起点**（第三篇）：会话标为等待、释放 worker、人答了再继续。
+
+```mermaid
+%% 图：agent 什么时候该问人、什么时候不该——只读与可逆的不问；歧义能从上下文合理推断的不问但在输出里说明假设；不可逆或对外的动作、缺关键信息（密码在哪）、真正的分叉决策（两种方案各有代价）、以及「遇到错误想绕过去」的时刻要问；问人是一个挂起点：会话等待、worker 释放
+flowchart TB
+    A["agent 要做一个动作 / 遇到一个不确定"] --> Q1{"只读或可逆？"}
+    Q1 -->|"是"| GO["直接做，不问"]
+    Q1 -->|"否"| Q2{"歧义能从上下文合理推断？"}
+    Q2 -->|"是"| GO2["做，并在输出里写明假设<br/>「我按 A 理解，如果是 B 请告知」"]
+    Q2 -->|"否"| Q3{"属于哪一类？"}
+    Q3 -->|"不可逆 / 对外：删除 · 发送 · 付款 · push --force"| ASK["问：确认 + justification + 影响范围"]
+    Q3 -->|"缺关键信息：凭据 · 目标环境"| ASK2["问：request_user_input / elicitation"]
+    Q3 -->|"真正的分叉：两种方案各有代价"| ASK3["问：给出两个选项与各自代价"]
+    Q3 -->|"遇到错误想绕过：删掉重建 · 换凭据 · 禁用检查"| ASK4["必须问，且标为高风险信号"]
+    ASK & ASK2 & ASK3 & ASK4 --> SUS["挂起：会话等待 · 释放 worker · 人答了再继续"]
+    classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef ask fill:#fff3e0,stroke:#c98a00,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    class Q1,Q2,Q3 dec
+    class GO,GO2 ok
+    class ASK,ASK2,ASK3,SUS ask
+    class ASK4 bad
+```
 
 ### 3. 不该问的
 
@@ -179,6 +241,35 @@ Table: 本体驱动 harness 与 coding agent 的对应
 ### 3. 对多数团队的含义
 
 不必买一个完整的本体平台。务实的版本是 L3 第六篇说的"小本体"：对两三类核心对象定义关系导航与有校验、有权限的动作，让 agent 只能通过这些动作改数据，动作先生成提案。这已经把业务 agent 的错误上限从"任意 SQL"压到"几个受控的动作"。
+
+```mermaid
+%% 图：coding agent 靠测试自主、业务 agent 靠结构自主——代码有 CI：改完跑测试，红了模型自己修，所以能到 5–6 级；业务动作没有测试，直接影响客户，长期停在 2–3 级；本体把验证前移：agent 只能调有类型、有校验、有权限的动作，动作先生成提案人批了才落库，错误上限从「任意 SQL」压到「几个受控动作」，能走到 4 级、部分 5 级
+flowchart TB
+    subgraph CODE["coding agent：验证在事后（测试）"]
+        direction LR
+        C1["改代码"] --> C2["跑测试 / lint"] --> C3{"红？"}
+        C3 -->|"是"| C1
+        C3 -->|"绿"| C4["提 PR（可审阅 · 可 revert）"]
+        C4 -.- CN["能到 5–6 级"]
+    end
+    subgraph BIZ["业务 agent：没有测试"]
+        direction LR
+        B1["改派订单"] --> B2["直接影响客户，没有 CI 变红"]
+        B2 -.- BN["停在 2–3 级：每个动作人确认"]
+    end
+    subgraph ONT["本体驱动：验证在事前（结构）"]
+        direction LR
+        O1["agent 只能调本体动作：改派(订单, 仓库)"] --> O2["前置校验：状态允许？有库存？发起人有权限？"] --> O3["生成提案（不落库）"] --> O4["人审批 → 落库 + 审计链"]
+        O4 -.- ON["能到 4 级，提案批量审阅到 5 级"]
+    end
+    CODE ~~~ BIZ ~~~ ONT
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    classDef n fill:#fff7e0,stroke:#c98a00,color:#222
+    class C1,C2,C4,CN,O1,O2,O3,O4,ON ok
+    class B1,B2,BN bad
+    class C3 n
+```
 
 ## 八、实践建议
 

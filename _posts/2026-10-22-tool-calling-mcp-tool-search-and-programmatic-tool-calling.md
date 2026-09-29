@@ -57,6 +57,27 @@ Table: 工具的四个来源
 
 MCP 借鉴 LSP（Language Server Protocol）：LSP 让任何编辑器接任何语言的服务器，MCP 让任何模型客户端接任何工具服务器。一个 MCP server 暴露 **tools**（可调用的函数）、**resources**（可读的数据）、**prompts**（模板）；client（Claude Code、Codex、Cursor、你的应用）连接后发现并调用。传输有 stdio（本地进程）与 Streamable HTTP（远程）。
 
+```mermaid
+%% 图：MCP 借鉴 LSP——LSP 让 N 个编辑器接 M 种语言的服务器只需 N + M 个实现而不是 N × M；MCP 同理：任何模型客户端（Claude Code、Codex、Cursor、你的应用）接任何工具服务器（文件系统、GitHub、数据库、企业系统），server 暴露 tools / resources / prompts，client 发现并调用，传输是 stdio（本地）或 Streamable HTTP（远程）
+flowchart LR
+    subgraph CL["MCP client"]
+        direction TB
+        C1["Claude Code"] ~~~ C2["Codex"] ~~~ C3["Cursor"] ~~~ C4["你的应用"]
+    end
+    P["MCP 协议<br/>tools · resources · prompts<br/>stdio / Streamable HTTP"]
+    subgraph SV["MCP server"]
+        direction TB
+        S1["文件系统"] ~~~ S2["GitHub"] ~~~ S3["数据库"] ~~~ S4["企业系统 / 你的业务工具"]
+    end
+    CL <--> P <--> SV
+    classDef c fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef p fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef s fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class C1,C2,C3,C4 c
+    class P p
+    class S1,S2,S3,S4 s
+```
+
 ### 2. 2026-07-28 改了什么
 
 | 变更 | 内容 | 为什么 |
@@ -71,6 +92,28 @@ MCP 借鉴 LSP（Language Server Protocol）：LSP 让任何编辑器接任何�
 Table: MCP 2026-07-28 的变更
 
 一句话：**2026 年的 MCP 把自己从"一个有会话的 RPC 协议"改成"一个能在普通 HTTP 上横向扩展、授权按 OAuth 部署实践对齐、核心小扩展多的协议"**。注册表（server 的目录）仍在预览（API 2025 年 10 月冻结在 v0.1），不要把依赖建在它的稳定性上。
+
+```mermaid
+%% 图：MCP 从有状态到无状态——2025 版每个连接先 initialize 握手、协商版本与能力、拿一个 Mcp-Session-Id，之后的请求都要落到同一个 server 实例；2026-07-28 版取消握手，版本与能力放进每个请求的 _meta 与头里，任何一个实例都能处理任何一个请求，能放在普通的负载均衡与无状态函数后面
+flowchart TB
+    subgraph OLD["2025 版：有状态会话"]
+        direction LR
+        O1["initialize 握手<br/>协商版本 · 能力"] --> O2["拿到 Mcp-Session-Id"] --> O3["后续每个请求带 session id<br/>必须落到同一个 server 实例"]
+        O3 -.- OX["负载均衡 · 无状态函数：难"]
+    end
+    subgraph NEW["2026-07-28 版：无状态核心"]
+        direction LR
+        N1["每个请求自带<br/>MCP-Protocol-Version 头 + _meta 里的能力"] --> N2["任何实例都能处理<br/>没有会话要黏住"]
+        N2 -.- NX["普通 HTTP 基础设施上横向扩展<br/>server 发起的请求改为多轮往返请求（MRTR）"]
+    end
+    OLD ~~~ NEW
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef n fill:#fff7e0,stroke:#c98a00,color:#222
+    class O1,O2,O3 n
+    class OX bad
+    class N1,N2,NX ok
+```
 
 ### 3. 对应用工程师的含义
 
@@ -113,6 +156,30 @@ DeepSeek Harness 的仓库规范里有一条值得所有人抄："**从模型的
 
 工具超过二十个、或多个 MCP server 动态接入时用；工具十个以内且稳定，全部常驻放在前缀里更好（可缓存、无额外步骤）。L2 第五篇的"屏蔽而不删除"是另一个维度：阶段性可用的工具用 `tool_choice` 或 logits 屏蔽，不增删定义。
 
+```mermaid
+%% 图：tool search 的账——12 个 MCP server 共 80 个工具全部常驻：每步 9K token 在前缀里、任一 server 变化让前缀全部失效、模型在 80 个里选错的概率高；按需加载：常驻只有 80 行名字约 1K，模型先调 tool_search 找到 2 个工具的完整 schema（+600，在历史中间、不进缓存），再调用；总 token 降，命中率这个比例可能反而变差——看绝对量
+flowchart TB
+    subgraph ALL["全部常驻"]
+        direction LR
+        A1["80 个工具的完整 schema<br/>≈ 9K token，每步都在前缀里"] --> A2["模型从 80 个里选"] --> A3["调用"]
+        A1 -.- AX["任一 server 变了 → 前缀全失效<br/>工具越多选错越多"]
+    end
+    subgraph LAZY["tool search：按需加载"]
+        direction LR
+        L1["常驻：80 个名字 + 一行描述<br/>≈ 1K token"] --> L2["tool_search('订单 状态')<br/>→ 2 个工具的完整 schema（+600）"] --> L3["调用"]
+        L2 -.- LX["按需定义在历史中间，不进缓存<br/>多一步 · 依赖描述质量"]
+    end
+    ALL ~~~ LAZY
+    R["规则：工具 ≤ 10 且稳定 → 全部常驻（可缓存、无额外步）<br/>> 20 或 server 动态接入 → tool search"] -.-> LAZY
+    classDef n fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef r fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class A1,A2,A3,L1,L2,L3 n
+    class AX,LX bad
+    class R r
+```
+
 ## 五、程序化工具调用
 
 ### 1. 问题
@@ -148,6 +215,26 @@ PTC：
 Table: 四家的程序化工具调用
 
 四家在 2025–2026 年不约而同做了同一件事，说明它解决的是一个真实且普遍的问题。
+
+```mermaid
+%% 图：同一个任务（500 条订单 → 过滤逾期 → 按客户汇总 → 前十）两种做法——传统工具调用四轮，每轮的中间结果（500 条 JSON、过滤后的、汇总后的）都进上下文，几万 token；程序化工具调用一轮：模型写一段程序在沙箱里调 fetch / filter / group / top10，中间结果留在程序里，只有前十进上下文，几百 token
+flowchart LR
+    subgraph TRAD["传统：四轮，中间结果全进上下文"]
+        direction TB
+        T1["模型：调 fetch_orders"] --> T2["500 条 JSON 进上下文<br/>≈ 30K token"] --> T3["模型读完，调 filter(overdue)"] --> T4["120 条进上下文"] --> T5["模型：调 group_by(customer)"] --> T6["汇总进上下文"] --> T7["模型：排序取前十，回答"]
+    end
+    subgraph PTC["程序化工具调用：一轮"]
+        direction TB
+        P1["模型写程序：<br/>a = fetch_orders(); b = filter(a, overdue)<br/>c = group_by(b, customer); return top10(c)"] --> P2["沙箱运行<br/>fetch / filter / group 在程序内被调用<br/>中间结果留在程序里"] --> P3["只有 top10 进上下文<br/>≈ 300 token → 模型回答"]
+    end
+    TRAD ~~~ PTC
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    classDef n fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class T1,T3,T5,T7 n
+    class T2,T4,T6 bad
+    class P1,P2,P3 ok
+```
 
 ### 3. 它换到了什么
 

@@ -52,6 +52,16 @@ Table: agent 失败分类学
 
 十类里只有一类是异常。所以 agent 的可靠性不能靠 try / catch，要靠**检测 + 评测 + 监控**。
 
+```mermaid
+%% 图：一个团队最近 50 次 agent 失败按十类归类的典型分布（示意）——幻觉的动作与上下文腐化占大头，其次是预算耗尽、工具半成功、死循环；只有「中断未恢复」那一类是程序异常，try / catch 只能抓到它
+%%{init: {"xyChart": {"width": 760, "height": 340, "plotReservedSpacePercent": 60}, "themeVariables": {"xyChart": {"plotColorPalette": "#c0392b, #5b8fd6, #4d9a5c"}}}}%%
+xychart-beta
+    title "50 次失败的分类分布（示意）"
+    x-axis ["幻觉的动作", "上下文腐化", "预算耗尽", "工具半成功", "死循环", "权限拒绝", "协调失败", "注入", "供应商变更", "中断未恢复（异常）"]
+    y-axis "次数" 0 --> 14
+    bar [12, 10, 7, 6, 5, 3, 3, 1, 1, 2]
+```
+
 ### 2. 本文的章节安排
 
 第二章可靠性设计：幂等、预算、部分结果；第三章轨迹评测；第四章公开基准与它们的局限；第五章 trace 与运营；第六章从 demo 到生产的清单；第七章实践建议。
@@ -69,6 +79,21 @@ L1 第六篇讲过：模型调用重复只多花钱，工具重复有副作用�
 ### 3. 部分结果
 
 预算耗尽或卫士触发时，agent 应交付**已完成的部分 + 未完成的清单 + 阻塞原因**，而不是一句"失败"。结构化输出（L2 第三篇）里预留这个形态：`status: partial`、`done: [...]`、`remaining: [...]`、`blocked_by: ...`。复述机制（第四篇的 plan / todo）让这个清单现成。对人来说，一个诚实的部分结果远比一个编造的完成有用——PocketOS 事件里 agent 的"猜测而不是验证"在这里也适用：不确定就说不确定。
+
+```mermaid
+%% 图：四种预算同时设、任一到顶走同一个出口——步数、token、美元（实时按价目算，含子 agent）、墙钟；出口是结构化的部分结果：status: partial、done 列表、remaining 列表、blocked_by；复述机制维护的 todo 让这个清单现成；子 agent 的预算从父任务里扣
+flowchart LR
+    T["任务预算（按类型定）<br/>研究任务大 · 分类任务小"] --> B1["步数 ≤ 40"] & B2["token ≤ 800K"] & B3["美元 ≤ 3.00<br/>实时按价目算，含子 agent"] & B4["墙钟 ≤ 20 min"]
+    B1 & B2 & B3 & B4 -->|"任一到顶"| OUT["同一个出口：部分结果<br/>status: partial<br/>done: [模块 A 迁移, 测试通过]<br/>remaining: [模块 B, 文档]<br/>blocked_by: 数据库凭据缺失"]
+    TODO["复述的 todo / plan（第四篇）"] -.->|"清单现成"| OUT
+    SUB["子 agent 的预算"] -.->|"从父预算里扣"| T
+    classDef n fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef b fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class T,SUB n
+    class B1,B2,B3,B4 b
+    class OUT,TODO ok
+```
 
 ### 4. 结果校验
 
@@ -98,6 +123,25 @@ Table: 轨迹评测的维度与指标
 ### 3. 录制回放
 
 L1 第一篇讲过的手段在 agent 上更重要：把每步的模型输出录下来，改了工具、解析逻辑、卫士之后用录制回放做回归（不重跑模型——省钱且可复现）；只有改了 prompt、模型、effort 才需要重跑模型。DeepSeek Harness 的 replay 建在事件溯源日志上（第三篇），"keyless recorded-session replay"是它的一类测试。
+
+```mermaid
+%% 图：录制回放把两类改动分开——改了工具实现、解析逻辑、卫士阈值、权限规则：重放录制的模型输出，不重跑模型，免费、可复现、秒级；改了 prompt、模型、effort：模型的输出会变，必须重跑（评测集 × k 次）；两类都进门禁，但成本差两个量级
+flowchart TB
+    LOG["录制的轨迹：每步模型的完整输出 + 工具返回"]
+    CH{"改了什么？"}
+    CH -->|"工具实现 · 解析 · 卫士阈值 · 权限规则 · 压缩逻辑"| RP["回放：喂录制的模型输出<br/>不调模型 · 免费 · 可复现 · 秒级<br/>看：解析对不对、卫士该触发的触发了没、权限判定变了没"]
+    CH -->|"prompt · 模型 · effort · 工具描述"| RR["重跑：模型输出会变<br/>轨迹评测集 × k 次 · 按分布比 · 贵"]
+    LOG --> RP
+    RP & RR --> GATE["门禁：逐条 diff → 灰度 → 回滚"]
+    classDef n fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef exp fill:#fdecea,stroke:#c0392b,color:#222
+    class LOG,GATE n
+    class CH dec
+    class RP ok
+    class RR exp
+```
 
 ## 四、公开基准与它们的局限
 
@@ -129,6 +173,30 @@ Table: 三个 agent 基准
 三级树：**会话**（用户、模型版本、prompt 版本、工具集版本、权限档、开始结束时间、总成本）→ **任务 / 轮次**（用户输入、最终输出、状态：完成 / 部分 / 失败、成本）→ **步骤**（每次模型调用的完整输入输出、usage、effort、每次工具调用的参数、结果、耗时、沙箱、审批；卫士触发；压缩 / 卸载事件；子会话 id）。第三篇的事件溯源日志天然是这棵树的来源；L5 讲 trace 的存储、可视化、与 OpenTelemetry GenAI 语义约定的对齐。
 
 **决策点日志**：在循环的每个分支打结构化事件——选了哪个工具、为什么终止、权限判定结果、预算余量、卫士是否触发——让轨迹能画成状态图而不是日志流。
+
+```mermaid
+%% 图：agent trace 的三级树——会话（用户 · 模型 / prompt / 工具集版本 · 权限档 · 总成本）→ 任务 / 轮次（输入 · 输出 · 状态：完成 / 部分 / 失败 · 成本）→ 步骤（每次模型调用的完整输入输出与 usage、每次工具调用的参数 / 结果 / 耗时 / 沙箱 / 审批、卫士触发、压缩与卸载事件、子会话 id）；子会话再挂一棵同样的树
+flowchart TB
+    S["会话 s-7f3<br/>用户 · Sonnet 5 快照 · prompt v12 · 工具集 v4 · workspace 档 · 总 2.4 美元"]
+    S --> T1["轮次 1：「把模块 A 迁到新 API」<br/>状态：完成 · 0.9 美元"]
+    S --> T2["轮次 2：「顺便修一下测试」<br/>状态：部分 · 1.5 美元"]
+    T2 --> P1["步 1 模型调用<br/>完整输入 / 输出 · usage · effort high · 思考 2.1K"]
+    T2 --> P2["步 2 工具：run tests<br/>参数 · 结果（3 fail）· 4.2 s · 沙箱 ok"]
+    T2 --> P3["步 3 工具：edit file<br/>审批：allow 规则 · 结果 · 卸载 → spill://…"]
+    T2 --> P4["步 4 子 agent：explore<br/>子会话 s-7f3/c1 →（同样的一棵树）"]
+    T2 --> P5["步 9 卫士：预算耗尽<br/>→ 部分结果"]
+    P1 -.- D["决策点日志：选了哪个工具 · 为什么终止 · 权限判定 · 预算余量 · 卫士是否触发"]
+    classDef s fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef t fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef p fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef g fill:#fdecea,stroke:#c0392b,color:#222
+    classDef n fill:#f0f0f0,stroke:#888,color:#222
+    class S s
+    class T1,T2 t
+    class P1,P2,P3,P4 p
+    class P5 g
+    class D n
+```
 
 ### 2. 面板
 

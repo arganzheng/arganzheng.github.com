@@ -68,6 +68,21 @@ prompt caching 缓存的是**前缀的 KV cache**：模型读过一段上下文�
 
 前缀必须逐字节相同的含义：system prompt、工具定义、few-shot 示例放在最前面且不变；动态内容（当前日期、用户名、检索结果）放在后面。一个把"今天是 2026-10-02 14:23"写在 system 开头的应用，每分钟都在让全部缓存失效。
 
+```mermaid
+%% 图：缓存前缀的顺序与失效的连锁——tools → system → 历史消息 → 当前消息，前缀逐字节相同才命中；改动任何一段，它后面的全部失效；把时间戳写进 system 开头，等于每分钟从头失效一次
+flowchart TB
+    T["① tools<br/>工具定义"] --> S["② system<br/>指令 · few-shot"] --> H["③ 历史消息<br/>只追加"] --> U["④ 当前消息 + 检索结果<br/>每次都不同，本来就不缓存"]
+    T -.->|"改一个工具的描述"| X1["② ③ ④ 全部失效"]
+    S -.->|"system 开头写「今天 14:23」"| X2["③ ④ 每分钟失效一次"]
+    H -.->|"把中间一轮换成摘要"| X3["从那一轮起失效"]
+    classDef hit fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef dyn fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    class T,S,H hit
+    class U dyn
+    class X1,X2,X3 bad
+```
+
 ### 2. 四家的机制
 
 | | 声明方式 | 最小长度 | TTL | 写入价 | 读价 |
@@ -91,6 +106,20 @@ OpenAI（GPT-5.6 起）与 Anthropic 对**写入**收 1.25× 的价：把 KV 存
 
 不划算的情况只有一种：前缀只用一次。典型是单次批处理任务里每条请求都带不同的长文档——那不是缓存的场景，是批处理（第四章）的场景。
 
+```mermaid
+%% 图：同一个前缀被处理 n 次的累计费用（以不缓存处理一次为 1）——不缓存是一条 45° 直线；5 分钟缓存写 1.25 读 0.1，第 2 次就低于不缓存；1 小时缓存写 2，要到第 3 次才回本
+%%{init: {"xyChart": {"width": 760, "height": 340, "plotReservedSpacePercent": 60}, "themeVariables": {"xyChart": {"plotColorPalette": "#c0392b, #5b8fd6, #4d9a5c"}}}}%%
+xychart-beta
+    title "同一前缀处理 n 次的累计费用（单位：一次全价 prefill）"
+    x-axis "处理次数 n" [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    y-axis "累计费用" 0 --> 10
+    line [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    line [1.25, 1.35, 1.45, 1.55, 1.65, 1.75, 1.85, 1.95, 2.05, 2.15]
+    line [2.0, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9]
+```
+
+红线不缓存，蓝线 5 分钟 TTL，绿线 1 小时 TTL。蓝线在 n = 2 就穿到红线下方，绿线要到 n = 3；之后两条缓存线几乎平着走——这就是「二次项系数乘 0.1」在下一章的样子。
+
 ### 4. 命中率是一个要监控的指标
 
 命中率 = $$n_{\text{hit}} / (n_{\text{in}} + n_{\text{hit}} + n_{\text{write}})$$。多轮对话与 agent 场景下正常值在 70–90%；掉到 30% 以下通常是三件事之一：前缀里混进了动态内容、历史被修改（第三篇第五章）、请求间隔超过 TTL。Anthropic 静默不缓存不足门限的块，OpenAI 也只在达到 1,024 token 后开始——一个 800 token 的 system prompt 永远不会被缓存，这不是 bug。
@@ -104,6 +133,26 @@ OpenAI（GPT-5.6 起）与 Anthropic 对**写入**收 1.25× 的价：把 KV 存
 - **别让模型输出可以由代码产出的东西**：让它返回一个 id 而不是复述整条记录，返回 diff 而不是整个文件。
 
 一个反直觉的账：**一次 agent 任务里，输出侧的成本常常小于输入侧**。20 步的循环，每步输入是累积的历史（几万 token），输出是几千 token 的思考加几百 token 的调用——输入 token 总量是输出的 5–10 倍，但输入大半命中缓存打一折，两边最后差不多。所以两边都要看。
+
+```mermaid
+%% 图：一次 20 步 agent 任务的账，输入侧与输出侧各占一半——输入 token 总量是输出的 5–10 倍，但大半命中缓存打一折；输出（思考 + 调用）不到输入的十分之一，却按 4–6 倍的输出价全价计
+flowchart TB
+    subgraph IN["输入侧：每步读累积的历史"]
+        direction TB
+        I1["20 步 × 几万 token ≈ 60 万 token"] --> I2["其中 80–90% 命中缓存 → 0.1×"] --> I3["等效全价 ≈ 10 万 token × 输入价"]
+    end
+    subgraph OUT["输出侧：每步的思考 + 调用"]
+        direction TB
+        O1["20 步 × 3,000 思考 + 300 调用 ≈ 6.6 万 token"] --> O2["不能缓存，全价"] --> O3["6.6 万 token × 输出价（= 5 × 输入价）"]
+    end
+    I3 & O3 --> EQ["两边差不多：都要看<br/>输入侧靠缓存 + 压缩，输出侧靠 effort"]
+    classDef inp fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef outp fill:#fdecea,stroke:#c0392b,color:#222
+    classDef n fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class I1,I2,I3 inp
+    class O1,O2,O3 outp
+    class EQ n
+```
 
 ## 四、折价与加价
 
@@ -152,6 +201,19 @@ $$
 $$
 
 代入同样的数：$$1.25 \times 25{,}000 + 0.1 \times (195{,}000 + 741 \times 500) = 31{,}250 + 0.1 \times 565{,}500 = 87{,}800$$ 等效 token，是不缓存的 **15%**。二次项没有消失，但系数乘了 0.1；对 Fable 5.1（0.025×）或 DeepSeek（0.02×）系数更小，二次项几乎被抹平——这就是两家降读价时说的"agent 场景缓存费用占比最高"。
+
+```mermaid
+%% 图：40 轮对话的累计输入费用（等效全价 token，千）——不缓存是一条抛物线，到第 40 轮累计 590K；缓存（读 0.1×、写 1.25×）把它压成接近直线，累计 88K，是前者的 15%；S = 5,000、m = 500
+%%{init: {"xyChart": {"width": 760, "height": 340, "plotReservedSpacePercent": 60}, "themeVariables": {"xyChart": {"plotColorPalette": "#c0392b, #5b8fd6, #4d9a5c"}}}}%%
+xychart-beta
+    title "累计输入费用随轮数增长（等效全价 token，千；S = 5,000，m = 500）"
+    x-axis "轮数 N" [1, 5, 10, 15, 20, 25, 30, 35, 40]
+    y-axis "等效全价 token（千）" 0 --> 600
+    line [5, 30, 72, 128, 195, 275, 368, 472, 590]
+    line [7, 12, 19, 27, 37, 48, 60, 73, 88]
+```
+
+红线不缓存、蓝线缓存。第 1 轮蓝线反而略高（写入价 1.25×），从第 2 轮起就反超，往后差距按平方拉开。
 
 ```text
 轮次 k 的输入构成（客户端状态，历史只追加）：
@@ -221,6 +283,25 @@ p50 与 p99 的差通常来自排队与重试，不来自模型。一个 p50 = 2
 ### 1. 从每 token 到每任务
 
 价目是每 token 的，产品关心的是每任务的：一次客服会话、一次代码修改、一份报告。每任务成本 = 调用次数 × 每次调用成本，而调用次数在 agent 场景里是不确定的（模型决定循环几步）。所以要在 trace（L5）里按任务聚合四类 token 与思考 token，得到每任务成本的**分布**——p50 与 p95 都要看，agent 任务的 p95 常常是 p50 的 5–10 倍（那些走了弯路的轨迹）。
+
+```mermaid
+%% 图：从每 token 价到每任务成本——一次任务 = 不确定步数的调用，每次调用 = 五项 token × 价目；在 trace 里按任务聚合后看的是分布：p50 是正常轨迹，p95 是走了弯路的那 5%，常是 p50 的 5–10 倍
+flowchart TB
+    P["价目表<br/>每百万 token 的五个价"] --> C["一次调用的成本<br/>五项 usage × 单价"]
+    C --> T["一次任务<br/>= 模型决定的 N 次调用<br/>N 不确定"]
+    T --> A["trace 里按 task_id 聚合<br/>（L5）"]
+    A --> D1["p50：正常轨迹<br/>例：8 步，0.12 美元"]
+    A --> D2["p95：走弯路的轨迹<br/>例：40 步，0.9 美元"]
+    D1 & D2 --> B["预算与降级按 p95 定<br/>比模型时比每任务成本，不比每 token 价"]
+    classDef step fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    classDef n fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class P,C,T,A step
+    class D1 ok
+    class D2 bad
+    class B n
+```
 
 一个便宜的模型不一定便宜：如果它需要更多步才完成任务、或者完成率低要人工兜底，每任务成本可能更高。OpenAI 为 GPT-6 Astra 的定价辩护时说的正是这个——"训练它用更少的 token、更少的重试完成任务"，所以"每任务价格"才是该比的。这个论点是否成立要用你的评测集验证（第五篇），但比较的单位是对的。
 
