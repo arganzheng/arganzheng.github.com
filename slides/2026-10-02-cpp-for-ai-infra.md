@@ -103,12 +103,6 @@ flowchart LR
 
 ### 要点
 
-
-
-<!-- v -->
-
-### 要点
-
 - `clone()` 才是新的一块数据；`Tensor` 8 字节 vs `shared_ptr` 16 字节 + 控制块：400M 个活 tensor 每加一个字多 3.2 GB
 - 只读参数用 `const Tensor&` 省掉两次原子操作；但 `Tensor` 的 `const` 是**浅的**——in-place 算子的输出参数就是 `const Tensor&`
 
@@ -132,7 +126,6 @@ AT_DISPATCH_FLOATING_TYPES_AND2(kHalf, kBFloat16, self.scalar_type(), "my_op", [
 | `AT_DISPATCH_ALL_TYPES_AND_HALF` | 十几份 |
 | vLLM 的 kernel | 3 dtype × 2 width = 6 份 |
 
-- `DimVector` 内联 5 维不堆分配；`[&]` 捕获只在同步、不逃逸时安全
 - 「`TORCH_CHECK(x.is_floating_point())` 之后 `FLOATING_TYPES` 一定能处理」——Half / BFloat16 也是浮点，但不在那两个 `case` 里
 
 <aside class="notes" markdown="1">
@@ -180,12 +173,6 @@ flowchart TB
 <aside class="notes" markdown="1">
 原文 /cpp-macros-static-registration-and-codegen.html。
 </aside>
-
-<!-- v -->
-
-### 要点
-
-
 
 <!-- v -->
 

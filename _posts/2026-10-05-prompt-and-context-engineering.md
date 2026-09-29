@@ -17,6 +17,8 @@ catalog: true
 
 > **模型这一步该看到什么、看多少、按什么顺序？怎么让输出可解析、可稳定？上下文长了怎么办？怎么排列才能让缓存命中？怎么像管代码一样管 prompt？**
 
+本系列另有一份[分享用的幻灯片](/slides/context-engineering.html)：六篇正文每篇一页：七层、模式与措辞、约束解码、压缩、缓存排列、当代码管，适合先看一遍全貌或拿去给别人讲。
+
 答案分六篇。**第一篇**建立上下文的解剖：一次请求里模型看到的一切分几层、各占多少 token、各由谁维护，用 Claude Code 公开的"上下文窗口时间线"与 Manus 的数字做实例，并说明为什么"注意力预算"是有限的（L1 第一篇的有效上下文问题在这里变成一个设计约束）。**第二篇**讲 prompt 设计里稳定的部分——模式——与不稳定的部分——措辞：2026 年推理模型上哪些经典技巧（few-shot、"一步步想"）失效甚至有害，公开的 system prompt（Anthropic 发布的 claude.ai system prompt、Claude Code 的 system prompt 结构）长什么样，供应商的模型专属 prompting 指南在说什么。**第三篇**深入结构化输出：约束解码的机制（Outlines、XGrammar、llguidance 一类在 vLLM 里的实现，四家 API 的 strict 模式），schema 的设计模式（推理字段在前、拒答出口、枚举收窄），失败的修复与重试，流式部分 JSON。**第四篇**讲上下文预算与压缩——本系列最重要的一篇：给每一部分定配额，超了先卸载（Deep Agents 的 20K token 卸载规则、Manus 的"文件系统即上下文"）、再清理工具结果（Anthropic API 的 context editing）、再压缩（Claude Code 在约 83.5% 处的 auto-compact 与它保留什么、Codex 的两级压缩与服务端加密的 `/responses/compact`、Anthropic 服务端 compaction 的 150K 默认阈值），用子 agent 隔离探索性上下文，用 todo 文件"复述"目标防止漂移。**第五篇**讲 prompt caching 与上下文的排列：Anthropic 的显式断点怎么分层放、OpenAI 与 DeepSeek 的自动前缀缓存要什么条件、Gemini 的显式缓存对象与存储费；Manus 的三条规则——前缀稳定、只追加、确定性序列化——以及"屏蔽工具而不是删除工具"这类反直觉的做法；命中率作为生产 agent 的第一指标。**第六篇**讲 prompt 当代码管：放版本库还是 prompt 注册表（Langfuse 的版本与标签、OpenAI 在 Assistants API 关闭后的 Prompts 对象、promptfoo），与模型版本绑定，每次改动跑评测集，用标签做 A/B 与回滚；AGENTS.md 与 SKILL.md 这两个 2025–2026 年成为跨工具标准的 prompt 工件；最后回答"全放上下文、检索、还是 agentic retrieval"的决策，把话题交给 L3。
 
 系列的组织原则：**每一项上下文策略都是在 L1 的失效模式与账之间做交换**。压缩用一次推理的成本换有效上下文；缓存用前缀的稳定性换 90% 的输入折价；结构化输出用 schema 的约束换解析的确定性；few-shot 用 token 换遵循率。六篇的每一篇都把新引入的手段记回 L1 的两张表。
