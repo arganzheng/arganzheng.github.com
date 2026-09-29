@@ -1617,6 +1617,14 @@ How it is built (`_plugins/moments.rb`):
     source shows up as a table cell (happened twice, 数学 05 and 预训练 05).
     Write 「log Z 的绝对值」 or 竖线 instead. `check-render.cjs` fails a page
     on it (`rawMd`: a `td`/`p`/`li` whose text contains `](/img/in-post/`).
+  - **Deck Mermaid: pick the orientation from the natural aspect ratio.** The
+    deck caps a diagram at 1203 × 420 (ratio 0.35); a tall `flowchart TB`
+    chain (h/w > 1.2) is scaled to a third and unreadable, a 6-node LR chain
+    with long labels (h/w < 0.15) becomes a thin strip. `node
+    tools/deck-mermaid-sizes.cjs slides/<key>/play` prints each diagram's
+    viewBox and h/w: flip TB ↔ LR when it is far from 0.35, then tune
+    `wrappingWidth` (narrow → nodes wrap taller, wide → shorter). Never build
+    the init line with Python `%d` formatting — it eats the `%%`.
   - **A PASS with `mermaid=0` on a page that has diagrams is a vacuous pass.**
     The checker disables the cache, so mermaid.min.js (2.4 MB) is refetched
     from jsDelivr every run; on 2026-09-30 the CDN took > 60 s and the old

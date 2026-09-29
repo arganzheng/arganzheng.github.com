@@ -127,7 +127,9 @@ Front matter knobs (all optional):
             width: 100%;
             max-width: 100% !important;
             height: auto;
-            max-height: 480px;
+            /* 420 leaves room for a one-line title plus a two-line 结论 above
+               the diagram on the 720 px canvas (480 overflowed by ~25 px) */
+            max-height: 420px;
         }
 
         .reveal table { font-size: 0.62em; }

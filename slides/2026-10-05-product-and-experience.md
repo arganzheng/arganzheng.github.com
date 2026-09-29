@@ -38,6 +38,28 @@ flowchart TB
 
 **结论**：四维度（**价值、可验证、容错、频率**）；锯齿状边界**按任务划、用评测集量**；回撤的共同错误是**外推**；鸿沟五来源；决策拆任务 → 三分 → 审外推 → 可逆。
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 480}}}%%
+flowchart TB
+    S["一个候选场景"] --> D1{"可验证吗？"}
+    D1 -- "能自动验证（跑测试、比对答案）" --> D2{"可撤销吗？"}
+    D1 -- "只能人判断" --> H["人在环内：copilot 形态<br/>（客服的争议处理、法律意见）"]
+    D2 -- "能回滚（改代码提 PR、写草稿）" --> AUTO["可以自主循环几十步<br/>（coding agent 最先成熟的原因）"]
+    D2 -- "不可逆（发合同、删数据、驾驶）" --> GATE["每个动作前确认门 / 仿真验证"]
+    AUTO & H & GATE --> W{"价值 × 频率<br/>值不值得做？"}
+    W -- "高频 + 单次价值高" --> GO["做"]
+    W -- "低频 / 价值低" --> NO["不做，或先 demo 验证"]
+
+```
+
+<aside class="notes" markdown="1">
+原文 /choosing-ai-scenarios-the-jagged-frontier-and-the-demo-to-product-gap.html。
+</aside>
+
+<!-- v -->
+
+### 要点
+
 | 证据 | 数 |
 |---|---|
 | 哈佛 / BCG 758 名顾问 | 边界内 +25% 速度 / +40% 质量；**边界外错误 +19 pp**——比不用更差 |
@@ -47,15 +69,29 @@ flowchart TB
 - 「demo 96% 就能替代人」——分布、长尾、外推
 - 「先裁员再看」——不可逆决定建在可变判断上
 
-<aside class="notes" markdown="1">
-原文 /choosing-ai-scenarios-the-jagged-frontier-and-the-demo-to-product-gap.html。
-</aside>
-
 ---
 
-## 02 · 形态：copilot、agent 与自动化，后台 agent 为什么成了主流
+## 02 · 形态：copilot、agent、后台 agent 与自动化
 
-**结论**：copilot → 同步 agent → 后台 agent → 自动化对应人机六级；演进四步各靠一个 harness 机制；后台成主流的四原因；决策按**验证 / 撤销 / 落点 / 可等**；多形态并存与切换点。
+**结论**：四种形态对应人机六级，每往上一级把一类验证从人交给系统；能到哪一级由任务的**可验证 / 可撤销**决定，不由模型多强决定。
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 520}}}%%
+flowchart TB
+    A["<b>copilot</b>：人在做，AI 在旁边建议（Tab 补全、对话框）——人每一步都看"] --> B["<b>同步 agent</b>：AI 多步执行，人在关键步审批（编辑器内改多个文件、看 diff）"]
+    B --> C["<b>后台 agent</b>：人提任务、走开、回来审 PR——人只看结果（on the loop）"]
+    C --> D["<b>自动化</b>：无人在环，只在可验证 + 可回滚的动作上，异常自动降级回环内"]
+    A -. "往上每一级把一类验证从人交给系统；能到哪一级由任务的可验证 / 可撤销决定，不由模型多强决定" .-> D
+
+```
+
+<aside class="notes" markdown="1">
+原文 /product-forms-copilot-agent-automation-and-the-rise-of-background-agents.html。
+</aside>
+
+<!-- v -->
+
+### 要点
 
 | 形态 | 人在哪看结果 | 前提 |
 |---|---|---|
@@ -67,15 +103,30 @@ flowchart TB
 - 不可逆止于**提案**；渐进放开
 - 「后台 agent 只是把同步的放后台」——需要落点、独立完成、进度、部分结果
 
-<aside class="notes" markdown="1">
-原文 /product-forms-copilot-agent-automation-and-the-rise-of-background-agents.html。
-</aside>
-
 ---
 
 ## 03 · 人机分工与信任校准
 
 **结论**：**过度**（自动化偏见）与**不足**两种失败，目标是**校准**；接受率三成 + 再编辑是常态；八种手段；让不信任的开始用；动态重校。
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 230}}}%%
+flowchart TB
+    X["信任 vs 实际能力"] --> OT["<b>过度信任</b>（信任 > 能力）<br/>自动化偏见：多数时候对，人停止核对<br/>信号：核对率趋零而错误率不为零<br/>案例：Air Canada、虚构判例、PocketOS"]
+    X --> OK["<b>校准</b>（信任 ≈ 能力）：目标<br/>用户在 AI 擅长处放手、在边界外核对"]
+    X --> UT["<b>信任不足</b>（信任 < 能力）<br/>功能没人用，或每条都重做<br/>信号：采纳率低、修改率接近 100%<br/>价值归零"]
+    OT -- "「降」：显示不确定、引用可点开、<br/>关键动作强制确认" --> OK
+    UT -- "「升」：低风险处先试、展示成功率、<br/>让用户看到它怎么做的" --> OK
+
+```
+
+<aside class="notes" markdown="1">
+原文 /human-ai-division-of-labor-and-trust-calibration.html。
+</aside>
+
+<!-- v -->
+
+### 要点
 
 | 危险信号 | 含义 |
 |---|---|
@@ -86,15 +137,41 @@ flowchart TB
 - 按任务看接受 × 错误 × 核对的象限
 - 「接受率 97% 太棒了」——有错时是过度信任；「三成接受率说明 AI 不行」——人在编辑是常态；「用户会自己核对」——高风险要结构性核对
 
-<aside class="notes" markdown="1">
-原文 /human-ai-division-of-labor-and-trust-calibration.html。
-</aside>
-
 ---
 
 ## 04 · 不确定性的呈现与非对话形态
 
 **结论**：三原则——**诚实、可核对、可行动**；引用到段落、**置信度用行为不用数字**、拒答三部分（不能做什么 / 为什么 / 能做什么）；步骤分层、审批三要素、diff 部分接受；对话框五局限、七种非对话形态。
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 480}}}%%
+flowchart TB
+    subgraph P1[" "]
+        direction LR
+        M1["检索到的块（L3）"] --> U1["引用：点开定位到原文段落，粒度到句子"]
+    end
+    subgraph P2[" "]
+        direction LR
+        M2["模型的不确定 / 拒答出口（L2）"] --> U2["置信度用行为不用数字：「我不确定」、给两个选项、反问一句"]
+    end
+    subgraph P3[" "]
+        direction LR
+        M3["agent 的步骤与审批（L4）"] --> U3["步骤流可见、审批带理由与影响范围、diff 式审阅"]
+    end
+    subgraph P4[" "]
+        direction LR
+        M4["流式输出（L1）"] --> U4["首字 1 秒出现、进度可见"]
+    end
+    P1 ~~~ P2 ~~~ P3 ~~~ P4
+```
+
+<aside class="notes" markdown="1">
+原文 /presenting-uncertainty-and-beyond-the-chat-box.html。
+</aside>
+
+<!-- v -->
+
+### 要点
 
 | 不要 | 要 |
 |---|---|
@@ -106,15 +183,30 @@ flowchart TB
 
 - 无依据不呈现为事实
 
-<aside class="notes" markdown="1">
-原文 /presenting-uncertainty-and-beyond-the-chat-box.html。
-</aside>
-
 ---
 
 ## 05 · 产品指标与回流：量「有用」不是「用了」
 
 **结论**：矩阵十类；**北极星一场景一个 + 护栏**；**反指标**（消息数涨可能是重试）；**自报高于实测一倍以上、两个都报**；定性看绕过；回流三条；A/B 五特殊。
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 460}}}%%
+flowchart TB
+    W["周报：消息数 +40%、AI 生成占比 65%、自报每周省 5 小时——三个都可能在说一个正在失败的产品"] --> Q{"量的是「用了」还是「有用」？"}
+    Q --> N["<b>北极星</b>：用户真正得到的价值，一个场景一个（工单一次解决率、PR 合入率、报告被直接采用的比例）"]
+    Q --> G["<b>护栏</b>：北极星涨时不能掉的——错误率、核对率不趋零、每任务成本 p95、越权事件、转人工率"]
+    N & G --> F["<b>反指标</b>：涨了要警惕的——重试次数、消息数暴涨、接受率接近 100%"]
+    F --> B["回流：坏结果 → 评测集（L5）→ 飞轮（L6 第七篇）"]
+
+```
+
+<aside class="notes" markdown="1">
+原文 /ai-product-metrics-and-feeding-back-into-the-system.html。
+</aside>
+
+<!-- v -->
+
+### 要点
 
 | 场景 | 不是北极星 | 是 |
 |---|---|---|
@@ -123,10 +215,6 @@ flowchart TB
 | 写作 | 生成字数 | 保留到发布的比例 |
 
 - 「用户说省 5 小时」——自报高于实测一倍以上；「首周 A/B 涨了全量」——学习效应、留存、护栏
-
-<aside class="notes" markdown="1">
-原文 /ai-product-metrics-and-feeding-back-into-the-system.html。
-</aside>
 
 ---
 

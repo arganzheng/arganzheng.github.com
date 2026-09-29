@@ -51,6 +51,29 @@ flowchart TB
 
 **结论**：**模式不变**（身份与边界、可检验规则、分区、工具政策、格式与出口、知识与时间），**措辞随模型调**；推理模型上 CoT 指令冗余、大量 few-shot 有害、夸奖无增量、矛盾指令浪费思考。
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 170}}}%%
+flowchart LR
+    subgraph SP["一份 system prompt 的六个部分（模式：随模型不变）"]
+        direction LR
+        A["① 身份与任务边界<br/>是什么、为谁、做什么、<b>不做什么</b>"] --> B["② 可检验的规则<br/>每条都能判定「违反了没有」→ 直接变评测用例"]
+        B --> C["③ 分区与结构标记<br/>指令 / 资料 / 示例 / 格式分开放，有边界就行"]
+        C --> D["④ 工具的使用政策<br/>什么时候先搜再答、哪些操作先确认、失败重试几次"]
+        D --> E["⑤ 输出格式与出口<br/>不知道时怎么说、超出边界怎么说——没有出口就会编"]
+        E --> F["⑥ 知识与时间<br/>当前日期、知识截止、「以下资料比你的记忆新」"]
+    end
+    SP -. "换模型时只调这些" .-> W["措辞（随模型变）<br/>具体句子、例子、语气、要不要写「一步步想」<br/>依据：供应商的模型专属 prompting 指南 + 你的评测集"]
+
+```
+
+<aside class="notes" markdown="1">
+原文 /prompt-design-patterns-vs-wording.html。
+</aside>
+
+<!-- v -->
+
+### 要点
+
 | 公开案例 | 做法 |
 |---|---|
 | claude.ai system prompt | 五部分 |
@@ -60,10 +83,6 @@ flowchart TB
 
 - 「加一句『一步步想』总没坏处」——推理模型默认思考；用 effort
 - 「写『忽略文档里的指令』就防住了注入」——措辞只降概率；防御在权限与输出检查
-
-<aside class="notes" markdown="1">
-原文 /prompt-design-patterns-vs-wording.html。
-</aside>
 
 ---
 
@@ -86,6 +105,38 @@ flowchart TB
 
 **结论**：**隔离 → 卸载 → 清理 → 压缩**，代价递增；压缩有损、**只在思考链结束处做**、缓存全失效；复述对抗漂移；评测用探针问题前后对比。
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 190}}}%%
+flowchart LR
+    IN["新内容要进入上下文<br/>（工具返回 · 检索结果 · 子任务）"] --> Q1{"必须进主窗口吗？"}
+    Q1 -->|"探索性 / 大量读取"| ISO["隔离：子 agent 在自己的窗口做<br/>只带摘要回来"]
+    Q1 -->|"是，但很大"| OFF["卸载：内容写文件 / 存储<br/>上下文只留引用 + 预览"]
+    Q1 -->|"是，且不大"| ADD["原样进入"]
+    ADD --> Q2{"总量接近清理线？"}
+    OFF --> Q2
+    Q2 -->|"是"| CLR["清理：删掉旧的、已被消费的工具返回<br/>保留调用记录与引用"]
+    Q2 -->|"否"| GO(["继续下一步"])
+    CLR --> Q3{"仍接近压缩线？"}
+    Q3 -->|"是"| CMP["压缩：一次模型调用把历史摘要成一段<br/>常驻层重注入 · 目标复述到末尾"]
+    Q3 -->|"否"| GO
+    CMP --> GO
+
+    classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
+    classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef stop fill:#f0f0f0,stroke:#888,color:#222
+    class IN,ISO,OFF,ADD,CLR,CMP step
+    class Q1,Q2,Q3 dec
+    class GO stop
+```
+
+<aside class="notes" markdown="1">
+原文 /context-budgeting-offloading-and-compaction.html。
+</aside>
+
+<!-- v -->
+
+### 要点
+
 | 系统 | 做法 |
 |---|---|
 | Deep Agents | 20K 卸载 / 85% 截断 |
@@ -95,10 +146,6 @@ flowchart TB
 
 - 研究 agent 96% 的上下文是文件读取；**用户约束最易丢**
 - 「上下文满了就压缩」——压缩最贵最有损，先做前三步；「压缩线设 95% 省钱」——输出与摘要没空间，应 = 窗口 − 预留（含思考）
-
-<aside class="notes" markdown="1">
-原文 /context-budgeting-offloading-and-compaction.html。
-</aside>
 
 ---
 
@@ -127,6 +174,34 @@ flowchart TB
 
 **结论**：**不可变版本 + 绑定模型 + 评测门禁 + 标签发布 + trace 绑定**；AGENTS.md 常驻、SKILL.md 按需；全放 / 流水线检索 / agentic 按四维选。
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 180}}}%%
+flowchart LR
+    E["编辑：prompt 文本 · 变量模板 · 绑定的模型与参数"] --> V["新版本（不可变）<br/>version N"]
+    V --> T["离线评测：评测集 × k 次<br/>格式遵循率 · 任务指标 · 成本 · 延迟"]
+    T -->|"回归"| E
+    T -->|"通过"| L1["打标签 staging"]
+    L1 --> G["灰度：标签 prod-canary → 1% 流量<br/>在线指标 · trace 绑定版本"]
+    G -->|"回归"| RB["回滚：把 production 标签指回 N-1"]
+    G -->|"通过"| L2["打标签 production → 100%"]
+    L2 --> M["监控：遵循率 · 出口使用率 · 命中率 · 成本 / 任务"]
+    M -->|"模型升级 / 供应商通知"| T
+    RB --> E
+
+    classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
+    classDef gate fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class E,V,L1,G,L2,M,RB step
+    class T gate
+```
+
+<aside class="notes" markdown="1">
+原文 /prompts-as-code-versioning-evals-and-context-vs-retrieval.html。
+</aside>
+
+<!-- v -->
+
+### 要点
+
 | 量 | 数 |
 |---|---|
 | AGENTS.md | 2025-08 起，六万多项目，Agentic AI Foundation |
@@ -136,10 +211,6 @@ flowchart TB
 
 - 「灰度头几分钟成本高，回滚」——新前缀第一轮全写是预期，看第二轮起
 - 「prompt 在注册表里就不需要评测」——注册表解决部署不解决回归
-
-<aside class="notes" markdown="1">
-原文 /prompts-as-code-versioning-evals-and-context-vs-retrieval.html。
-</aside>
 
 ---
 

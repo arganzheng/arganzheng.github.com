@@ -40,6 +40,27 @@ flowchart TB
 
 **预防的事故**：key 散落、锁死供应商、无归因。**结论**：七项职责——密钥、路由 / fallback、限流 / 配额、缓存、归因、日志 / 脱敏、抽象；**不做业务逻辑、不改请求体、不默认语义缓存**、要高可用。
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 420}}}%%
+flowchart TB
+    subgraph APPS["十二个服务"]
+        direction LR
+        A1["客服"] --- A2["搜索"] --- A3["报告 agent"] --- A4["…"]
+    end
+    APPS -- "逻辑模型名 chat-default<br/>网关凭据（按服务 / 租户发）" --> GW["<b>模型网关</b><br/>① 认证与密钥 ② 路由与 fallback ③ 限流与配额<br/>④ 成本归因 ⑤ 日志 / trace ⑥ 缓存 ⑦ 内容检查"]
+    GW -- "供应商 key 只在这里" --> P1["OpenAI"] & P2["Anthropic"] & P3["自托管 vLLM"]
+    GW -. "限流时统一退避，不是十二个服务各自重试" .-> P1
+
+```
+
+<aside class="notes" markdown="1">
+原文 /model-gateway-the-layer-every-call-goes-through.html。
+</aside>
+
+<!-- v -->
+
+### 要点
+
 | 形态 | 例 |
 |---|---|
 | 自托管 | LiteLLM |
@@ -50,15 +71,30 @@ flowchart TB
 - 「网关做语义缓存省钱」——相似不等于同答案；默认关
 - 「网关注入 request_id 到 system」——毁缓存前缀
 
-<aside class="notes" markdown="1">
-原文 /model-gateway-the-layer-every-call-goes-through.html。
-</aside>
-
 ---
 
 ## 02 · 成本工程：从账单到每任务成本
 
 **预防的事故**：账单吓一跳。**结论**：归因三视图（用户 / 功能 / 模型）；预算 80 / 95 / 100% + **六级降级梯子**；九种手段各有量级；**按任务算 p50 / p95**；单位经济学三决策；FinOps 节奏。
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 180}}}%%
+flowchart LR
+    B["月底账单：一个总数"] -- "没有归因就没有优化" --> T["每次调用打标签：<br/>租户 · 功能 · prompt 版本 · 模型快照 · 任务 id"]
+    T --> L["按天的账本：标签 × 五项 usage × 美元<br/>（未缓存输入 / 缓存读 / 缓存写 / 输出含思考 / 工具费）"]
+    L --> V["按<b>任务</b>看，不按调用看：<br/>p50 与 p95 的每任务成本"]
+    V --> F["发现：5% 的任务跑到 40 步 × 100K 上下文，<br/>花了 60% 的钱（长尾占大头）"]
+    F --> A["药：每任务预算与降级（第三章）、缓存与排列、<br/>小模型分流、批处理……九种手段各有量级（第四章）"]
+
+```
+
+<aside class="notes" markdown="1">
+原文 /cost-engineering-from-the-bill-to-cost-per-task.html。
+</aside>
+
+<!-- v -->
+
+### 要点
 
 | 手段 | 量级 |
 |---|---|
@@ -70,15 +106,34 @@ flowchart TB
 - 价值 / 成本 < 3 重做；定价覆盖 p95（重度用户 5–10×）
 - 「月底看账单」——长尾与跳变；每小时异常归因；「评测太贵先砍」——一次事故更贵
 
-<aside class="notes" markdown="1">
-原文 /cost-engineering-from-the-bill-to-cost-per-task.html。
-</aside>
-
 ---
 
 ## 03 · 延迟工程：从 TTFT 到 agent 的多步
 
 **预防的事故**：用户等。**结论**：**七段分解各有药**；感知 ≠ 绝对、流式三层；p95 预算分段 + 四层超时；agent 上 **减步数 > 并行 > 级联 > 每步更快 > 后台**。
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 460}}}%%
+flowchart TB
+    Q["请求"] --> A["应用侧准备：检索 1.2 s（rerank 50 个候选）"]
+    A --> N["网络 + 排队：1 s（峰值时段）"]
+    N --> P["prefill / TTFT：2.5 s（60K 上下文，前缀有时间戳 → 缓存未命中）"]
+    P --> D["输出：3 s（400 token，不流式）"]
+    D --> U["用户看到：p95 = 9 s，但 4 s 时已经关了页面"]
+    A -. "rerank 候选 50 → 20、两路召回并行" .-> A
+    P -. "去掉时间戳让缓存命中" .-> P
+    D -. "流式：首字 1 s 就出现" .-> D
+    style U fill:#fde8e8,stroke:#c0392b
+
+```
+
+<aside class="notes" markdown="1">
+原文 /latency-engineering-from-ttft-to-multi-step-agents.html。
+</aside>
+
+<!-- v -->
+
+### 要点
 
 | 段 | 药 |
 |---|---|
@@ -93,15 +148,33 @@ flowchart TB
 - TTFT ≈ 1 s 的预算例；三个数字一起报（TTFT / TPOT / 总）
 - 「慢就换快模型」——七段各有药；「硬砍 max_tokens」——截断；配 prompt 约束与结构化
 
-<aside class="notes" markdown="1">
-原文 /latency-engineering-from-ttft-to-multi-step-agents.html。
-</aside>
-
 ---
 
 ## 04 · 安全：注入、供应链与数据泄漏
 
 **预防的事故**：EchoLeak、MCP 投毒、沙箱逃逸。**结论**：OWASP 十条里七条已有机制；四个事件的链路**逐环有层拦**；**五层防御**；**MCP server 是权限主体**；密钥七条；红队进门禁。
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 170}}}%%
+flowchart LR
+    IN["① 输入侧：来源标记与分区<br/>外部内容标为数据 · 分区标记 · 过滤（只降概率）"] --> M["模型"]
+    M --> P["② 权限与沙箱（L4 第五篇四层）<br/>注入让模型想做 · 四层让它做不到"]
+    P --> O["③ 输出处理<br/>渲染前脱敏链接 / 图片 / HTML · 执行前检查命令 / SQL · CSP"]
+    O --> D["④ 数据流控制<br/>读了敏感数据的会话不能对外发 · 跨资源边界要审批 · 工具间数据流"]
+    D --> R["⑤ 监控与红队<br/>异常动作检测 · 注入用例进评测集 · 持续红队"]
+    R -.->|"发现新链路"| IN
+
+    classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
+    class IN,M,P,O,D,R step
+```
+
+<aside class="notes" markdown="1">
+原文 /security-prompt-injection-supply-chain-and-data-exfiltration.html。
+</aside>
+
+<!-- v -->
+
+### 要点
 
 | 事件 | 链路 | 拦在哪 |
 |---|---|---|
@@ -111,15 +184,31 @@ flowchart TB
 
 - 「加注入分类器就安全了」——EchoLeak 绕过了；「工作区可写没问题」——配置文件要 deny
 
-<aside class="notes" markdown="1">
-原文 /security-prompt-injection-supply-chain-and-data-exfiltration.html。
-</aside>
-
 ---
 
 ## 05 · 治理与合规：审计链、保留、AI Act 与内容标识
 
 **预防的事故**：审计拿不出、数据被训、罚款、未标识。**结论**：**审计链 = 会话日志 + trace + 决策点 + 保留 / 不可篡改 / 导出**；数据流图核合同；AI Act 推迟的只是高风险；标识一套两格式；责任矩阵。
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 300}}}%%
+flowchart TB
+    Q["合规部门：上月这条回复依据什么给出的？"] --> O["输出 → trace_id → 会话 / 任务（L4 第三篇的事件日志）"]
+    O --> M["模型 id + 快照、prompt 版本"]
+    O --> R["检索到的文档 id 与当时的权限"]
+    O --> A["谁批准了这版 prompt 上线（发布记录）"]
+    M & R & A --> E["审计链 = 前几层已经记下的东西串起来，<br/>治理只是定期抽一条<b>验证</b>证据拿得出来"]
+    E -. "还要回答：数据存在哪、存多久、供应商能不能拿去训练；<br/>AI 生成内容有没有按法规标识" .-> Q
+
+```
+
+<aside class="notes" markdown="1">
+原文 /governance-and-compliance-audit-retention-ai-act-and-labeling.html。
+</aside>
+
+<!-- v -->
+
+### 要点
 
 | 法规 | 日期 | 罚则 |
 |---|---|---|
@@ -131,15 +220,32 @@ flowchart TB
 
 - 「有 trace 就有审计链」——要完整内容、保留期、不可篡改、导出；「供应商网页说不训练」——核合同
 
-<aside class="notes" markdown="1">
-原文 /governance-and-compliance-audit-retention-ai-act-and-labeling.html。
-</aside>
-
 ---
 
 ## 06 · 发布工程：改动 = 发布
 
-**预防的事故**：改坏回不去、依赖变了没发现。**结论**：**十类算发布**（prompt、模型、工具、schema、检索索引……）；开关三态 + **kill switch 上线前存在并演练**；钉一切；依赖变更进同一流程；五本 runbook；四类 SLO + 错误预算；值班。
+**结论**：**十类算发布**（prompt、模型、工具、schema、检索索引……）；开关三态 + **kill switch 上线前存在并演练**；钉一切；依赖变更进同一流程；五本 runbook；四类 SLO。
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 460}}}%%
+flowchart TB
+    C["任何会改变模型行为的改动<br/>prompt · 模型快照 · effort · schema · 工具集 · 检索配置 · harness 版本"] -- "改动 = 发布" --> V["不可变版本 + 标签<br/>staging / canary / production"]
+    V --> G["门禁：评测集（L5 第四篇）"]
+    G -- "过" --> CN["灰度：特性开关按租户 / 比例放量"]
+    CN -- "在线指标正常" --> PR["production"]
+    CN -- "回归" --> RB["一键回滚到上一个版本"]
+    PR -. "供应商别名指向新快照：钉住快照 + 依赖变更单独发布，<br/>两个变化不叠在一起" .-> V
+    K["kill switch：供应商宕机 40 分钟 → 关掉 AI 功能走降级路径<br/>runbook 写清谁在什么信号下按"] -.-> PR
+
+```
+
+<aside class="notes" markdown="1">
+原文 /release-engineering-for-ai-features-switches-pinning-runbooks-and-slos.html。
+</aside>
+
+<!-- v -->
+
+### 要点
 
 | 规则 | |
 |---|---|
@@ -150,15 +256,39 @@ flowchart TB
 
 - 「小改动直接上」——改动 = 发布；「出事再做 kill switch」——上线前存在并演练
 
-<aside class="notes" markdown="1">
-原文 /release-engineering-for-ai-features-switches-pinning-runbooks-and-slos.html。
-</aside>
-
 ---
 
 ## 07 · 数据飞轮与物理世界的上线
 
 **预防的事故**：系统不变好；车队更新出事。**结论**：飞轮六环三判据；**微调在末端做行为优化**（bad case 不直接微调，筛过的好例子）；四道门；物理世界**分阶段准入 + 安全案例 + 分批 OTA**；高风险 agent 的发布应更像 OTA。
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 180}}}%%
+flowchart LR
+    U["使用<br/>真实流量"] --> F["反馈<br/>隐式（采纳 / 修改 / 重试 / 放弃）· 显式（点踩）· 系统（错误 / 卫士 / 拒答）<br/>全部带 trace id"]
+    F --> Q["bad case 队列<br/>owner · SLA · 分类 · 去重"]
+    Q --> E["评测集<br/>每周补 · hold-out · 版本绑定"]
+    E --> I["改进<br/>prompt · 检索 · 工具描述 · 策略 · 路由"]
+    I --> G["门禁 → 影子 → 灰度<br/>（L5 第四篇 · 第六篇）"]
+    G --> U
+    E -->|"几千条真实（输入，理想输出）对"| FT["微调小模型<br/>行为优化：编译规则、降成本、提一致性"]
+    FT --> G
+    U -->|"授权 · 隔离 · 脱敏 · 可退出"| D["用户数据治理（第五篇）"]
+    D -.-> F
+
+    classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
+    classDef gate fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class U,F,Q,E,I,FT step
+    class G,D gate
+```
+
+<aside class="notes" markdown="1">
+原文 /data-flywheel-and-deploying-to-the-physical-world.html。
+</aside>
+
+<!-- v -->
+
+### 要点
 
 | 节奏 | |
 |---|---|
@@ -167,10 +297,6 @@ flowchart TB
 | 季 | 分布变化审视 |
 
 - 「bad case 直接微调」——学进错误；「OTA 一次全量」——分批、准入、停止条件
-
-<aside class="notes" markdown="1">
-原文 /data-flywheel-and-deploying-to-the-physical-world.html。
-</aside>
 
 ---
 
