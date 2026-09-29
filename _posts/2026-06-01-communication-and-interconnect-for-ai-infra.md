@@ -15,6 +15,8 @@ catalog: true
 
 > **一次 all_reduce 从调用到完成，数据在 PCIe、NVLink、InfiniBand 上是怎么流动的？为什么有时候是带宽的问题，有时候是延迟的问题？**
 
+本系列另有一份[分享用的幻灯片](/slides/communication-and-interconnect.html)：八篇正文每篇一页，每页算两本账：带宽的账与延迟的账，适合先看一遍全貌或拿去给别人讲。
+
 站在框架的层面看，通信是一行代码：`dist.all_reduce(t)`。它返回得很快，然后在某个时刻"完成"。Profiler 里它是一段 `ncclDevKernel_AllReduce_*` 的时间条；nccl-tests 给它一个 `busbw` 数字；训练日志偶尔告诉你它 timeout 了。这些信息都是真的，但都停在一个没有展开的前提上——**这行代码触发了什么**。
 
 这个系列把这条路径展开。一次跨节点的 all_reduce，数据至少经过下面这些层，每一层都有自己的带宽、延迟和失败方式：

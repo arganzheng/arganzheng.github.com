@@ -54,16 +54,19 @@ gpu-kernel-engineering:
 communication-and-interconnect:
   name: 通信与互联：从 NCCL 到 RDMA
   overview: /communication-and-interconnect-for-ai-infra.html
+  slides: /slides/communication-and-interconnect.html
   roadmap: ai-infra
   number: 6
 large-scale-training:
   name: 大规模训练工程：从并行策略到容错恢复
   overview: /large-scale-training-from-parallelism-to-fault-tolerance.html
+  slides: /slides/large-scale-training.html
   roadmap: ai-infra
   number: 7
 deep-dive-into-vllm:
   name: 大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术
   overview: /deep-dive-into-vllm.html
+  slides: /slides/deep-dive-into-vllm.html
   roadmap: ai-infra
   number: 8
 ai-platform-engineering:
@@ -171,6 +174,7 @@ product-and-experience:
 ml-compilers:
   name: ML 编译器内部：从 SSA、MLIR 到 Triton 编译器
   overview: /ml-compiler-internals.html
+  slides: /slides/ml-compilers.html
   roadmap: ai-infra
   number: 13
 english-for-going-abroad:
