@@ -81,6 +81,14 @@
 		padding-top: 8px;
 		border-top: 1px dashed #d8dee4;
 		font-size: 13px;
+		// the titles hover like the list rows above: grey pill, no underline
+		a {
+			display: inline-block;
+			padding: 1px 6px;
+			border-radius: 4px;
+			transition: color 0.2s, background-color 0.2s;
+			&:hover, &:focus { background: #eceff2; text-decoration: none; outline: none; }
+		}
 	}
 }
 @media (max-width: 767px) {

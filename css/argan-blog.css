@@ -2600,6 +2600,18 @@ footer .copyright a,
   border-top: 1px dashed #d8dee4;
   font-size: 13px;
 }
+.post-container .series-box .sb-nav a {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  transition: color 0.2s, background-color 0.2s;
+}
+.post-container .series-box .sb-nav a:hover,
+.post-container .series-box .sb-nav a:focus {
+  background: #eceff2;
+  text-decoration: none;
+  outline: none;
+}
 @media (max-width: 767px) {
   .post-container .series-box .sb-list {
     columns: 1;
