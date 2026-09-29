@@ -2627,45 +2627,49 @@ footer .copyright a,
 .side-series ol {
   max-height: 220px;
   margin: 0;
-  padding-left: 1.6em;
+  padding: 0;
+  list-style: none;
+  counter-reset: ss;
   overflow-y: auto;
   font-size: 12px;
   line-height: 1.5;
 }
 .side-series ol li {
-  margin: 0 0 3px;
+  margin: 0;
+  counter-increment: ss;
 }
-.side-series ol li::marker {
+.side-series ol a,
+.side-series ol .is-current > span {
+  display: block;
+  padding: 1px 8px 1px 6px;
+  border-left: 2px solid transparent;
+  border-radius: 0 6px 6px 0;
+  text-decoration: none;
+  transition: color 0.2s, border-color 0.2s, background-color 0.2s;
+}
+.side-series ol a::before,
+.side-series ol .is-current > span::before {
+  content: counter(ss) ".";
+  display: inline-block;
+  min-width: 1.7em;
   color: #8b949e;
+  font-variant-numeric: tabular-nums;
 }
 .side-series ol a {
   color: #57606a !important;
-  display: inline-block;
-  margin-left: -6px;
-  padding: 0 6px;
-  border-radius: 4px;
-  text-decoration: none;
-  transition: color 0.2s, background-color 0.2s;
-}
-.side-series ol a:hover,
-.side-series ol a:focus {
-  color: #00788f;
-  background: #f6f8fa;
-  text-decoration: none;
-  outline: none;
 }
 .side-series ol a:hover,
 .side-series ol a:focus {
   color: #00788f !important;
+  background: #f6f8fa;
+  text-decoration: none;
+  outline: none;
 }
 .side-series ol .is-current > span {
-  display: inline-block;
-  margin-left: -6px;
-  padding: 0 6px;
-  border-radius: 4px;
-  background: #eaeef2;
-  font-weight: 600;
   color: #00788f;
+  font-weight: 600;
+  background: #eaeef2;
+  border-left-color: #00788f;
 }
 div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
   max-height: calc(100vh - 430px);

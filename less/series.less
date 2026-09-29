@@ -104,17 +104,29 @@
 		a { color: #404040 !important; text-decoration: none; &:hover { color: @brand-primary !important; } }
 		small { font-weight: 400; letter-spacing: 0; color: #8b949e; }
 	}
+	// rows like the OUTLINE panel (theme-overrides.less): the number is drawn inside the row by a
+	// counter (a ::marker sits outside the box), so hover / current colour the whole line
 	ol {
 		max-height: 220px;
 		margin: 0;
-		padding-left: 1.6em;
+		padding: 0;
+		list-style: none;
+		counter-reset: ss;
 		overflow-y: auto;
 		font-size: 12px;
 		line-height: 1.5;
-		li { margin: 0 0 3px; }
-		li::marker { color: #8b949e; }
-		a { color: #57606a !important; .series-hover-pill(); &:hover, &:focus { color: @brand-primary !important; } }
-		.is-current > span { .series-current-pill(); }
+		li { margin: 0; counter-increment: ss; }
+		a, .is-current > span {
+			display: block;
+			padding: 1px 8px 1px 6px;
+			border-left: 2px solid transparent;
+			border-radius: 0 6px 6px 0;
+			text-decoration: none;
+			transition: color 0.2s, border-color 0.2s, background-color 0.2s;
+			&::before { content: counter(ss) "."; display: inline-block; min-width: 1.7em; color: #8b949e; font-variant-numeric: tabular-nums; }
+		}
+		a { color: #57606a !important; &:hover, &:focus { color: @brand-primary !important; background: #f6f8fa; text-decoration: none; outline: none; } }
+		.is-current > span { color: @brand-primary; font-weight: 600; background: #eaeef2; border-left-color: @brand-primary; }
 	}
 }
 // leave the series block room under a long outline
