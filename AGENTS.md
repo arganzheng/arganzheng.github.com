@@ -834,8 +834,21 @@ One deck per series, the series' essentials for a talk: front matter
 `series: <key>` (the `/slides/` index groups decks by the series' learning
 map with it) and `permalink: /slides/<key>.html`; `_data/series.yml` gets
 `slides: /slides/<key>.html`, which `series-nav.html` (the in-post series
-box: 「系列总览 · 幻灯片」) and the `/series.html` tree link, and the
-overview post gets one line pointing at it. Shape: cover → the question the
+box: 「系列总览 · 幻灯片」) and the `/series.html` tree link. The overview
+post gets a **deck card at its end** automatically: `_includes/series-deck.html`
+(called by the three post layouts right after `<!-- /article -->`, before the
+action bar) finds the series whose `overview:` is the current URL and, if it
+has `slides:`, renders `deck-card.html` — cover miniature (the landing page's
+`.deck-thumb-*` styles; headings as `.th1/.th3` divs so they stay out of the
+outline), page count from `deck-meta.html` (counts `---` and `<!-- v -->` in
+the deck's Markdown, +1 for the cover), the deck's `subtitle` as the one-line
+description, 在线播放 / 新窗口 / PDF. So wiring a new deck is the `series.yml`
+line alone — **do not** write 「本系列另有一份幻灯片…」 into the overview's
+prose (29 such sentences were removed on 2026-09-30; the card at the end,
+after the reader knows what the series is, reads better than a link in the
+introduction — B inline player / C keynote header / D filmstrip were tried
+and dropped: a mostly blank 16:9 cover slide in the prose column looks like
+a hole). Shape: cover → the question the
 series answers → one overview Mermaid → **one horizontal slide per body
 post** (a one-sentence conclusion + the post's key figure or table + its
 numbers; details, code and failure modes go into `<!-- v -->` sub-slides)

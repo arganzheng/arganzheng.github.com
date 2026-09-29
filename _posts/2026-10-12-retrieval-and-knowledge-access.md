@@ -17,8 +17,6 @@ catalog: true
 
 > **私域知识该进上下文还是进权重？三类检索各适合什么，coding agent 为什么只用 grep？文档怎么解析与切块？embedding 与 rerank 怎么选？检索什么时候该从流水线变成 agent 的工具？结构化知识怎么接？怎么知道检索出了问题还是生成出了问题？**
 
-本系列另有一份[分享用的幻灯片](/slides/retrieval-and-knowledge.html)：七篇正文每篇一页：进上下文还是进权重、三类检索、解析与分块、混合与 rerank、agentic、结构化、评测，适合先看一遍全貌或拿去给别人讲。
-
 七篇沿这条线走。**第一篇**先决定路：按知识的类型（会变的事实、结构化业务数据、非结构化文档、领域术语、流程性技能、海量领域语料）选接入方式，说明为什么微调不是灌知识的工具、默认顺序为什么是 prompt → few-shot → 检索 / 工具 → 微调。**第二篇**讲三类检索，用 coding agent 的架构分歧做主线实例：Claude Code、Codex、Cline 的 agentic grep 与 Cursor、Windsurf 的向量索引各自换了什么、为什么把 grep 的经验搬到企业文档上会失败、为什么 embedding 存的是相似不是关系（问"谁调用了 chargeCard"向量索引给你长得像的，不是调用者）。**第三篇**讲文档处理：解析的三个梯级（规则抽取 → 布局模型 Docling / Marker / MinerU → 视觉语言模型 Mistral OCR 4 / PaddleOCR-VL——0.9B 参数的开放模型在 OmniDocBench 上 96.34 分超过 Gemini 3 Pro 的 92.91 与 GPT-5.2 的 86.59）、三个静默失败（阅读顺序、表格、页眉页脚）、分块策略、Anthropic 的 contextual retrieval（给每块加上下文让检索失败率降 49%、加 rerank 降 67%）、元数据里的权限。**第四篇**讲索引与检索：embedding 模型的选法（MTEB 的局限——版本不可比、二元相关性、榜单领先者未必是生产默认）、向量索引（HNSW / IVF、量化、过滤）、向量库的选择、BM25 + 向量的混合与 RRF、cross-encoder rerank 为什么是性价比最高的一步、增量更新与删除、**权限过滤必须在检索时做**。**第五篇**讲从流水线到 agentic retrieval：固定的 query → top-k → 生成 与"检索是 agent 的一个工具、模型自己决定查什么查几轮"各适合什么，query 改写、多跳、供应商内置的 file search，以及 agentic 检索对工具描述与上下文预算（L2）的要求。**第六篇**讲结构化知识：text-to-SQL 的真实水平与语义层的必要、本体作为业务世界的 harness（对象、属性、关系、动作、权限）、GraphRAG 与 LazyGraphRAG 解决什么（全局性问题、关系）、图谱构建的成本。**第七篇**讲评测与运营：检索与生成分开评（recall@k、MRR、nDCG vs faithfulness、answer relevance、context precision）、评测集从真实查询采样、在线信号、索引新鲜度、权限泄漏作为一个评测项（Slack AI 与 Copilot 的公开事件）。
 
 系列的组织原则：**先决定要不要检索、检索哪一类，再讲怎么做**。第一、二篇是决策，第三到六篇是实现，第七篇是验证。每篇都把手段接回 L1 的失效模式（检索对付的是幻觉与知识截止）与 L2 的上下文预算（检索结果是上下文的一层，取多少、放哪由 L2 决定）。

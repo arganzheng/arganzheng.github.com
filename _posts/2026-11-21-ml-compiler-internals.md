@@ -15,8 +15,6 @@ catalog: true
 
 > **一段块级的张量程序，怎样一步步变成一条条 GPU 指令？中间每一个决定——这个张量每个线程持有哪几个元素、这条 load 为什么是 128 bit、这个 barrier 为什么插在这里、这个循环为什么被拆成了三段——是哪一个 pass 做的，凭什么分析结果做的？**
 
-本系列另有一份[分享用的幻灯片](/slides/ml-compilers.html)：十三篇正文每篇一页：每个可观察的编译结果追到哪个 pass、哪个分析，适合先看一遍全貌或拿去给别人讲。
-
 地图上的两个系列已经把编译器当作黑盒讲过一遍：《PyTorch 深度实践》第七篇讲 `torch.compile` 的流水线（Dynamo 捕获 → AOTAutograd 变换 → Inductor 生成 Triton），《GPU Kernel 工程》第七篇讲 Triton 的编程模型和它的六层编译流水线（Python → TTIR → TTGIR → LLVM IR → PTX → cubin），并教读者去读 TTGIR 里的 `#blocked` 和 PTX 里的 `mma.sync`。那两篇回答了"编译器做了什么"。这个系列回答"**编译器怎么做到的**"：
 
 | 黑盒视角（已在主线覆盖） | 打开黑盒（本系列） |

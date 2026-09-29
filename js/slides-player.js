@@ -204,17 +204,21 @@
     // not exist yet when the iframe's `load` fires (its script is deferred
     // by the CDN load), hence the short poll.
     function attach() {
+      if (R) return;
       var w = frame.contentWindow;
-      var r = w && w.Reveal;
-      if (!r || !r.isReady || !r.isReady()) { setTimeout(attach, 60); return; }
+      var r = null;
+      try { r = w && w.Reveal; } catch (e) { /* cross-origin */ }
+      if (!r || !r.isReady || !r.isReady()) { setTimeout(attach, 100); return; }
       R = r;
       R.on('slidechanged', update);
       fromHash();
       update();
       player.classList.add('is-ready');
     }
-    if (frame.contentDocument && frame.contentDocument.readyState === 'complete' && frame.contentWindow.Reveal) attach();
-    else frame.addEventListener('load', attach);
+    // poll from the start rather than waiting for the iframe's `load`: that
+    // event waits for Mermaid (2.4 MB from the CDN) while Reveal is up long before
+    attach();
+    frame.addEventListener('load', attach);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

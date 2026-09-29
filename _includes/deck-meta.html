@@ -1,0 +1,19 @@
+{%- comment -%}
+  Looks up a deck (`slides/*.md`, layout `slides`) by its landing URL and sets
+  deck_page / deck_play / deck_pages for the including template:
+    {% include deck-meta.html deck="/slides/foo.html" %}
+  deck_pages counts `---` page breaks plus `<!-- v -->` sub-pages in the raw
+  Markdown, the same way _layouts/slides.html numbers them (+1 for the cover).
+{%- endcomment -%}
+{%- assign deck_page = site.pages | where: "url", include.deck | first -%}
+{%- assign deck_play = include.deck | replace: '.html', '/play.html' -%}
+{%- capture nl %}
+{% endcapture -%}
+{%- assign hr = nl | append: '---' | append: nl -%}
+{%- assign deck_pages = 0 -%}
+{%- if deck_page -%}
+  {%- assign deck_h = deck_page.content | split: hr | size -%}
+  {%- assign deck_v = deck_page.content | split: '<!-- v -->' | size | minus: 1 -%}
+  {%- assign deck_pages = deck_h | plus: deck_v -%}
+  {%- if deck_page.title-slide != false -%}{%- assign deck_pages = deck_pages | plus: 1 -%}{%- endif -%}
+{%- endif -%}
