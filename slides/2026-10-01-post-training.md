@@ -236,8 +236,8 @@ flowchart LR
 **结论**：对数概率变成 T 段之和、环境转移不含 θ；**工具输出必须 mask**（否则学会编造工具结果）；轨迹八成 token 是环境的；异步 rollout 从优化变成**必需**。
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 180}}}%%
-flowchart LR
+%%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+flowchart TB
     S["s_0：system + schema + 任务"] --> G["引擎生成 a_t"] --> P{"工具调用？"}
     P -- 是 --> E["环境执行<br/>沙箱 / 检索 / 模拟用户"] --> O["渲染 o_t 拼回上下文<br/><b>mask = 0</b>"] --> C{"超长 / 超步数？"}
     C -- 否 --> G

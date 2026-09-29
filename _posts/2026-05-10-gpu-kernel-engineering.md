@@ -15,6 +15,8 @@ catalog: true
 
 > **一个 kernel 为什么快、为什么慢，以及如何把它写到接近硬件极限？**
 
+本系列另有一份[分享用的幻灯片](/slides/gpu-kernel-engineering.html)：十篇正文每篇一页：字节、FLOPs 与在 Roofline 上的位置，细节放在纵向子页里，适合先看一遍全貌或拿去给别人讲。
+
 站在框架和推理系统的层面看，kernel 始终是一个黑盒：Profiler 告诉你"这个算子是 memory-bound 的"，论文告诉你"FlashAttention 把 HBM 流量压下去了"，推理引擎的文档告诉你"用了 PagedAttention 所以显存碎片少了"。这些结论是对的，但它们都建立在一个没有展开的前提上——**kernel 内部发生了什么**。
 
 这个系列把黑盒打开。它会从 GPU 的硬件结构出发，建立一套用数字说话的分析方法，然后沿着 AI 负载里最重要的几类 kernel 逐个写过去：

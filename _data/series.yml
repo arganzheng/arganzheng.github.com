@@ -15,17 +15,20 @@
 python-for-ai-infra:
   name: Python 在 AI-Infra：从语言机制到生产交付
   overview: /python-for-ai-infra.html
+  slides: /slides/python-for-ai-infra.html
   roadmap: ai-infra
   number: 1
   shared_with: [ai-algorithm]
 cpp-for-ai-infra:
   name: C++ 在 AI-Infra：从对象模型到算子扩展
   overview: /cpp-for-ai-infra.html
+  slides: /slides/cpp-for-ai-infra.html
   roadmap: ai-infra
   number: 2
 deep-dive-into-pytorch:
   name: PyTorch 深度实践：从 Tensor 到深度学习运行时
   overview: /deep-dive-into-pytorch.html
+  slides: /slides/deep-dive-into-pytorch.html
   roadmap: ai-infra
   number: 3
   shared_with: [ai-algorithm]
@@ -45,6 +48,7 @@ pretraining:
 gpu-kernel-engineering:
   name: GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention
   overview: /gpu-kernel-engineering.html
+  slides: /slides/gpu-kernel-engineering.html
   roadmap: ai-infra
   number: 5
 communication-and-interconnect:
@@ -169,3 +173,6 @@ ml-compilers:
   overview: /ml-compiler-internals.html
   roadmap: ai-infra
   number: 13
+english-for-going-abroad:
+  name: 一年英语计划：从六级到海外工作生活
+  overview: /english-for-going-abroad.html
