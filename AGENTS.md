@@ -1090,6 +1090,28 @@ How it is built (`_plugins/moments.rb`):
   mtime) and preview with `jekyll build --drafts --future -d /tmp/_site_drafts`
   + a static server + `SITE=… node tools/check-render.cjs`; remove `date:` on
   publish.
+- Series `english-for-going-abroad` (《一年英语计划：从六级到海外工作生活》,
+  `category: life`, **not on any roadmap**, written 2026-09-29) is the
+  author's own first-person English study plan: overview
+  `english-for-going-abroad` + 9 body posts (01 基线测量 `english-baseline-…`,
+  02 听力, 03 词汇, 04 口语, 05 读写, 06 工作场景, 07 生活场景, 08 考试对照,
+  09 每日执行) + recap `english-for-going-abroad-series-recap` (numbered 10).
+  **All eleven files live in `_drafts/`** with provisional `date:`
+  2026-12-06 … 12-15 (recap 12-15 20:00) so the series nav orders them; the
+  user wants to run the plan for a while and revise before publishing — on
+  publish drop `date:`, move to `_posts/<date>-<slug>.md`, add a blog-memo
+  entry. Preview with `jekyll build --drafts --future -d /tmp/_site_drafts`.
+  Lightweight template, deliberately different from the tech series: no
+  `[^q]` opening-question footnotes, no 自测; each body post is intro →
+  `## 一、总览` (why organised this way + chapter table) → body → `## N、本文小结`
+  → `## N+1、下周就可以做的事` (checkbox list). Recap has 总览 table / 贯穿的线 /
+  十二个检查点 / 常见误区 / 刻意不讲的 / 延伸阅读 — no 通关自测. Baseline facts:
+  CET-6 ≈ CSE 6 ≈ IELTS 6.0 ≈ CEFR B2 下沿 (NEEA/British Council linking,
+  2018); Cambridge ~200 guided hours per CEFR level; exam table (fees,
+  TOEFL 2026 1–6 scale, Duolingo not for visas, TOEFL not for UK visas) is
+  dated 2026-09 in the post and must be re-checked before publishing.
+  Post 07 (生活场景) is explicitly a pre-departure preview to be rewritten
+  after the move.
 - Series `coding-interview` (《面试手撕代码：从 LeetCode 中等题到 Transformer 组件》,
   overview `2025-12-01-coding-interview.md`, **not part of any roadmap** —
   the author wanted it kept out of the full-stack map; only the overview's
