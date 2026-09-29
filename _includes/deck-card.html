@@ -1,0 +1,31 @@
+{%- comment -%}
+  Card linking a post to its series deck (方案 A): a miniature of the cover
+  slide on the left, title / page count / one line of description and the
+  播放 · 新窗口 · PDF actions on the right.
+    {% include deck-card.html deck="/slides/foo.html" kicker="…" desc="…" %}
+  `desc` defaults to the deck's subtitle, `kicker` to 本系列的幻灯片 · N 页.
+  Styled `.deck-card` in less/slides.less; the miniature reuses the landing
+  page's `.deck-thumb-*` classes at a fixed scale.
+{%- endcomment -%}
+{%- include deck-meta.html deck=include.deck -%}
+<aside class="deck-card{% if include.class %} {{ include.class }}{% endif %}">
+  <a class="deck-card-cover" href="{{ include.deck | prepend: site.baseurl }}" aria-label="播放幻灯片">
+    <div class="deck-thumb-frame"><div class="deck-thumb-inner deck-thumb-cover">
+      <div class="th1">{{ deck_page.title | default: page.title }}</div>
+      {%- if deck_page.subtitle %}<div class="th3">{{ deck_page.subtitle }}</div>{% endif %}
+      <p><small>{{ deck_page.author | default: site.title }}{% if deck_page.date %} · {{ deck_page.date | date: "%Y-%m-%d" }}{% endif %}</small></p>
+    </div></div>
+    <span class="deck-card-play"><i class="fa fa-play"></i></span>
+  </a>
+  <div class="deck-card-body">
+    {%- assign deck_desc = include.desc | default: deck_page.subtitle -%}
+    <p class="deck-card-kicker"><i class="fa fa-play"></i> {{ include.kicker | default: '本系列的幻灯片' }}{% if deck_pages > 0 %} · {{ deck_pages }} 页{% endif %}</p>
+    <p class="deck-card-title"><a href="{{ include.deck | prepend: site.baseurl }}">{{ deck_page.title | default: page.title }}</a></p>
+    {%- if deck_desc %}<p class="deck-card-desc">{{ deck_desc }}</p>{% endif %}
+    <p class="deck-card-actions">
+      <a class="deck-card-btn deck-card-btn-primary" href="{{ include.deck | prepend: site.baseurl }}"><i class="fa fa-play"></i> 在线播放</a>
+      <a class="deck-card-btn" href="{{ deck_play | prepend: site.baseurl }}" target="_blank" rel="noopener" title="全屏演示（键盘 S 打开演讲者视图）"><i class="fa fa-up-right-from-square"></i> 新窗口</a>
+      <a class="deck-card-btn" href="{{ deck_play | prepend: site.baseurl }}?print-pdf" target="_blank" rel="noopener" title="PDF 导出模式，再用浏览器打印"><i class="fa fa-regular fa-file-pdf"></i> PDF</a>
+    </p>
+  </div>
+</aside>

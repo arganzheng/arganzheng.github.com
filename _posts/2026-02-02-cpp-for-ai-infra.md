@@ -15,8 +15,6 @@ catalog: true
 
 > **PyTorch 和 vLLM 的 C++ 源码里，这段代码为什么这样写？**
 
-本系列另有一份[分享用的幻灯片](/slides/cpp-for-ai-infra.html)：八篇正文每篇一页，以 PyTorch 源码为例、Java 为参照，适合先看一遍全貌或拿去给别人讲。
-
 一个典型例子。PyTorch 的 `at::Tensor` 在 Python 侧看起来是一个普通对象，但它的 C++ 定义大致是：
 
 ```cpp

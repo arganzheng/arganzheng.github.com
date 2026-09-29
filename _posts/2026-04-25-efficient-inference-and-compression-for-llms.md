@@ -11,8 +11,6 @@ catalog: true
 
 《高效推理与压缩（算法侧）》是一组共六篇的系列文章，对应[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)的第 L6 层。它面向已经理解 Transformer 的成本结构（L4，[《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)）、并且做过或准备做后训练（L5，[《后训练》](/post-training-from-sft-to-verifiable-rewards.html)）的读者，回答的是一个部署前必然遇到的问题：**不改硬件、不改推理引擎，怎么让同一个模型更快、更小、更便宜——以及每种办法让模型的输出改变了多少**。
 
-本系列另有一份[分享用的幻灯片](/slides/efficient-inference.html)：六篇正文每篇一页：每种方法改了成本公式的哪一项、收益止于哪个区间、退化集中在哪，细节放在纵向子页里，适合先看一遍全貌或拿去给别人讲。
-
 "推理优化"这个词下面混着两类完全不同的东西。一类改变**模型或解码过程**：量化把权重从 16 bit 变成 4 bit，投机解码让一次前向产出多个 token，KV 驱逐丢掉一部分缓存，剪枝删掉一部分参数。另一类改变**调度与内存管理**：PagedAttention、continuous batching、chunked prefill、PD 分离。前一类是算法工程师的工作——每一种都要回答"输出分布变了没有、变了多少、在哪类输入上变得最多"；后一类是推理引擎的工作，模型不知道它们的存在，输出分布也不因它们改变。这个系列只讲前一类；后一类在 Infra 地图的[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)系列里。
 
 系列按"改什么"分四条线：**改解码过程**（解码策略与约束、投机解码）、**改权重表示**（训练后量化、量化感知训练与低比特）、**改 KV**（KV 量化、驱逐与稀疏 attention）、**改结构**（剪枝、层裁剪与小模型配方）。每条线用同一把尺子衡量：分布是否改变、收益的区间在哪里、代价是什么。

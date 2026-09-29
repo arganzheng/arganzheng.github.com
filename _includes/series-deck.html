@@ -1,0 +1,15 @@
+{%- comment -%}
+  On a series overview (the post `overview:` in _data/series.yml points at)
+  whose series has a `slides:` deck: the deck card, placed by the post layouts
+  right after the article, before the action bar — the reader has just read
+  what the series is about and can now take the deck with them. Replaced the
+  sentence 「本系列另有一份分享用的幻灯片…」 in each overview's 内容简介.
+{%- endcomment -%}
+{%- assign overview_deck = nil -%}
+{%- for s in site.data.series -%}
+  {%- assign sm = s[1] -%}
+  {%- if sm.overview == page.url and sm.slides -%}{%- assign overview_deck = sm.slides -%}{%- endif -%}
+{%- endfor -%}
+{%- if overview_deck -%}
+{%- include deck-card.html deck=overview_deck kicker="读完总纲，带一份幻灯片走" -%}
+{%- endif -%}
