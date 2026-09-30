@@ -1286,7 +1286,11 @@ How it is built (`_plugins/moments.rb`):
   comment (a Rouge span still open at the line start) is left as text;
   `{:.no-refs}` on a block keeps directives verbatim (the memo shows the
   syntax that way). Trailing-comment form (`x = 1  # !ref a`) is deliberately
-  unsupported — stripping half a Rouge span is not worth it. The 34 posts
+  unsupported — stripping half a Rouge span is not worth it. Also keep the
+  line *before* a column-0 `# !ref` free of a trailing `# comment`: Rouge
+  merges consecutive comment lines into one token, so the directive
+  disappears and lychee fails on the missing fragment (an indented `# !ref`
+  is safe). The 34 posts
   that explain code with ①②③ in comments keep working as plain text; new
   posts should use `!ref` when a paragraph explains specific lines.
 - Companion code lives in `../ai-learning-labs` (git repo, pushed by the
