@@ -16,7 +16,7 @@
 # table in document order and shows 「表 N：标题」 under it (「表 N」 when there
 # is no caption). Inline markup in the caption is kept.
 module TableCaptions
-  CAPTION = %r{(<table\b[^>]*>)(\s*(?:<thead|<tbody|<tr|<colgroup|<col\b)[\s\S]*?</table>)\s*<p>\s*(?:Table|表)\s*\d*\s*[:：]\s*([\s\S]*?)\s*</p>}
+  CAPTION = %r{(<table\b[^>]*>)(\s*(?:<thead|<tbody|<tr|<colgroup|<col\b)(?:(?!</table>)[\s\S])*?</table>)\s*<p>\s*(?:Table|表)\s*\d*\s*[:：]\s*([\s\S]*?)\s*</p>}
 
   def self.process(html)
     html.gsub(CAPTION) { "#{$1}<caption>#{$3}</caption>#{$2}" }
