@@ -136,7 +136,7 @@ $$
 
 写成循环就是"对每个输出、对每个输入，各求一次偏导"：
 
-```python title='2. 向量情形与 Jacobian · J = [[0.0] * n for _ in range(m)]      # m 行（输出）× n 列（输入）'
+```python title='Jacobian 的循环写法：对每个输出、每个输入各求一次偏导'
 J = [[0.0] * n for _ in range(m)]      # m 行（输出）× n 列（输入）
 for i in range(m):                     # 第 i 个输出 g_i
     for j in range(n):                 # 对第 j 个输入 θ_j 求偏导
@@ -169,7 +169,7 @@ $$
 
 **从 $$L$$ 回到某个 $$\theta$$：每条路径上的局部导数相乘，不同路径相加。** $$\theta_1$$ 到 $$L$$ 有两条路——经 $$g_1$$（$$1 \times 3$$）和经 $$g_2$$（$$2 \times 1$$），加起来 5。这就是上面那个矩阵乘法在图上的样子。用代码把三种算法对一下（`chain` 段）：
 
-```python title='2. 向量情形与 Jacobian · th = torch.tensor([2.0, 3.0], requires_grad=True)'
+```python title='同一个梯度的三种算法：autograd 与有限差分对数'
 th = torch.tensor([2.0, 3.0], requires_grad=True)
 g1, g2 = th[0] * th[1], th[0] + th[1]
 L = g1 + 2 * g2
@@ -207,7 +207,7 @@ flowchart LR
 
 最常用的一个 VJP 值得在这里先看一眼，因为它解释了反向传播公式里那些"莫名出现"的转置。线性层 $$Y = XW$$（$$X$$ 是 $$[B, k]$$，$$W$$ 是 $$[k, n]$$），上游传来 $$G = \partial L / \partial Y$$，与 $$Y$$ 同形 $$[B, n]$$。要算 $$\partial L / \partial W$$。先写前向的循环，再问"$$W_{lj}$$ 被谁用过"：
 
-```python title='3. 反向传播就是逐层套用 · for i in range(B):'
+```python title='线性层的 VJP：从前向循环推出 ∂L/∂W = Xᵀ G'
 # 前向：W[l][j] 参与了 batch 里每个样本 i 的 Y[i][j]
 for i in range(B):
     for j in range(n):
@@ -468,7 +468,7 @@ Table: 最小 RL 实验的设定
 
 一条回答的 $$\log\pi_\theta(y)$$ 是它 63 个 token 的 $$\log$$ 概率之和——第五篇的链式法则；$$\nabla\log\pi_\theta(y)$$ 由 `autograd` 沿整个 Transformer 反传——第三章的链式法则。核心循环只有十几行（`07_rl_on_nanogpt.py`）：
 
-```python title='1. 设定 · seqs = model.generate(prompt, T)                   # 采 G …'
+```python title='GRPO 核心循环：采样、奖励、KL 惩罚、组内标准化'
 seqs = model.generate(prompt, T)                   # 采 G 条回答            [G, 1+T]
 R = torch.tensor([reward_fn(decode(s)) for s in seqs])
 lp = seq_logprobs(model, seqs)                     # 每条每个 token 的 log π  [G, T]，带梯度

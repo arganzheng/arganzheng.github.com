@@ -44,7 +44,7 @@ flowchart TB
 
 ### 1. 提供层、消费层与数据契约：三篇的地图
 
-```text title='1. 提供层、消费层与数据契约：三篇的地图 · 类型信息提供层'
+```text title='类型信息的三层地图：提供层、消费层与数据契约'
                    类型信息提供层
 ┌──────────────────────────────────────────────┐
 │ 类型表达                                      │
@@ -125,7 +125,7 @@ Table: 本文的章节安排
 
 **变量和函数注解**
 
-```python title='1. 基础注解：变量、函数与容器 · name: str = "Alice"'
+```python title='变量注解与函数注解的基本写法'
 # 变量注解
 name: str = "Alice"
 age: int = 18
@@ -139,7 +139,7 @@ def greet(name: str, *, excited: bool = False) -> str:
 
 对应 Java：
 
-```java title='1. 基础注解：变量、函数与容器 · String name = "Alice";'
+```java title='Java 对应：类型声明是语法强制的'
 String name = "Alice";
 int age = 18;
 List<Double> scores = List.of(95.5, 87.0);
@@ -156,7 +156,7 @@ String greet(String name, boolean excited) {
 
 Python 的容器类型注解经历了三个阶段：
 
-```python title='1. 基础注解：变量、函数与容器 · 从 typing 导入'
+```python title='容器类型注解的三个阶段：typing.List → list[str] → 3.10 的 |'
 # 阶段一：Python 3.5-3.8，必须从 typing 导入
 from typing import List, Dict, Set, Tuple, FrozenSet
 def process(items: List[str]) -> Dict[str, int]:
@@ -175,7 +175,7 @@ def first[T](items: list[T]) -> T:
 
 **真实项目中的基础注解**
 
-```python title='1. 基础注解：变量、函数与容器 · 类：FastAPI'
+```python title='真实项目里的基础注解：FastAPI 的 add_api_route'
 # FastAPI: fastapi/applications.py
 class FastAPI(Starlette):
     def add_api_route(
@@ -213,7 +213,7 @@ Table: 内置容器的类型注解对照
 
 **Union 类型**
 
-```python title='2. Union、Optional 与 None：表达"可能性" · 从 typing 导入'
+```python title='Union 的旧写法：Union[str, int]'
 # 旧写法：Python 3.5+
 from typing import Union
 
@@ -223,7 +223,7 @@ def parse_id(raw: Union[str, int]) -> int:
     return raw
 ```
 
-```python title='2. Union、Optional 与 None：表达"可能性" · 函数：parse_id'
+```python title='Union 的新写法：str | int'
 # 新写法：Python 3.10+
 def parse_id(raw: str | int) -> int:
     if isinstance(raw, str):
@@ -233,7 +233,7 @@ def parse_id(raw: str | int) -> int:
 
 对应 Java：Java 没有直接的 Union 类型。Java 21 的 sealed interface + pattern matching 可以实现类似效果：
 
-```java title='2. Union、Optional 与 None：表达"可能性" · sealed interface RawId permits Stri…'
+```java title='Java 对应：sealed interface + pattern matching 模拟 Union'
 sealed interface RawId permits StringId, IntId {}
 record StringId(String value) implements RawId {}
 record IntId(int value) implements RawId {}
@@ -248,7 +248,7 @@ int parseId(RawId raw) {
 
 **Optional：可空类型**
 
-```python title='2. Union、Optional 与 None：表达"可能性" · 从 typing 导入'
+```python title='Optional 的三种等价写法'
 # 三种等价写法
 from typing import Optional
 
@@ -269,7 +269,7 @@ def find_user(user_id: int) -> User | None:
 
 对应 Java：
 
-```java title='2. Union、Optional 与 None：表达"可能性" · // Java: Optional<User> 是一个包装类型'
+```java title='Java 对应：Optional<User> 是包装类型'
 // Java: Optional<User> 是一个包装类型
 Optional<User> findUser(long userId) {
     ...
@@ -326,7 +326,7 @@ Optional<User> findUser(long userId) {
 
 **真实项目中的用法**
 
-```python title='2. Union、Optional 与 None：表达"可能性" · @dataclass'
+```python title='真实项目里的 Optional：vLLM 的 SamplingParams'
 # vLLM: sampling_params.py
 @dataclass
 class SamplingParams:
@@ -341,7 +341,7 @@ class SamplingParams:
 
 **Any：逃逸舱**
 
-```python title='3. Any、Never 与 NoReturn：类型系统的边界 · 从 typing 导入'
+```python title='Any：与所有类型兼容的逃逸舱'
 from typing import Any
 
 def process(data: Any) -> Any:
@@ -355,7 +355,7 @@ def process(data: Any) -> Any:
 
 **真实项目中的 Any**
 
-```python title='3. Any、Never 与 NoReturn：类型系统的边界 · 类：Module'
+```python title='真实项目里的 Any：Module.__setattr__ 与 model_validate'
 # PyTorch: torch/nn/modules/module.py
 # __setattr__ 用 Any 接收灵活的子模块注册——value 可能是 Parameter、Module、Tensor 或普通属性
 class Module:
@@ -382,7 +382,7 @@ class Depends:
 
 **Never 与 NoReturn**
 
-```python title='3. Any、Never 与 NoReturn：类型系统的边界 · 从 typing 导入'
+```python title='NoReturn 与 Never 的声明'
 from typing import Never, NoReturn
 
 # NoReturn: 函数永远不会正常返回（抛异常或无限循环）
@@ -400,7 +400,7 @@ def assert_never(value: Never) -> Never:
 
 **实际用途**：`Never` 配合穷尽检查非常有用：
 
-```python title='3. Any、Never 与 NoReturn：类型系统的边界 · 从 enum 导入'
+```python title='Never 配合 match 做穷尽检查'
 from enum import Enum
 
 class Status(Enum):
@@ -419,7 +419,7 @@ def handle(status: Status) -> str:
 
 **真实项目中的 NoReturn / Never**
 
-```python title='3. Any、Never 与 NoReturn：类型系统的边界 · 类：ClickException'
+```python title='真实项目里的 NoReturn / Never：click 与 sys.exit'
 # click（命令行框架）: click/exceptions.py
 # 所有 Abort/UsageError 最终调用的退出函数
 class ClickException(Exception):
@@ -455,7 +455,7 @@ def main(output: OutputFormat) -> None:
 
 穷尽检查在 AI Infra 代码中极为重要——后端选型、硬件架构、量化方法等枚举分支**必须全部处理**，遗漏一个就可能导致运行时静默失败：
 
-```python title='3. Any、Never 与 NoReturn：类型系统的边界 · 从 enum 导入'
+```python title='AI-Infra 里的穷尽检查：Backend 枚举与 assert_never'
 from enum import Enum
 from typing import assert_never
 
@@ -506,7 +506,7 @@ def select_kernel(arch: DeviceArch, dtype: str) -> str:
 
 `Literal` 将类型限制为特定的字面值，类似 Java 中枚举的部分功能，但更轻量。
 
-```python title='4. Literal：字面量类型 · 从 typing 导入'
+```python title='Literal 限定为三个字符串值的 Mode'
 from typing import Literal
 
 # 只允许这三个字符串值
@@ -521,7 +521,7 @@ set_mode("debug")    # mypy 报错：不在允许的值中
 
 对应 Java：
 
-```java title='4. Literal：字面量类型 · // Java: 通常用枚举实现'
+```java title='Java 对应：用枚举实现'
 // Java: 通常用枚举实现
 enum Mode { TRAIN, EVAL, EXPORT }
 void setMode(Mode mode) { ... }
@@ -531,7 +531,7 @@ void setMode(Mode mode) { ... }
 
 **真实项目中的 Literal**
 
-```python title='4. Literal：字面量类型 · QuantMethod = Literal["awq", "gptq", "squeezellm", "marlin"]'
+```python title='真实项目里的 Literal：vLLM 量化方法、Pydantic schema 模式、httpx HTTP 方法'
 # vLLM: vllm/config.py — 量化方法限定为几个固定字符串
 QuantMethod = Literal["awq", "gptq", "squeezellm", "marlin"]
 
@@ -551,7 +551,7 @@ HttpMethod = Literal["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
 
 `TypeVar` 对应 Java 的类型参数 `<T>`，用于表达"输入和输出之间的类型关系"。
 
-```python title='5. TypeVar 与泛型 · 从 typing 导入'
+```python title='TypeVar 基础：first(items: list[T]) -> T'
 from typing import TypeVar
 
 T = TypeVar("T")
@@ -566,7 +566,7 @@ result = first(["a", "b"])    # result: str
 
 对应 Java：
 
-```java title='5. TypeVar 与泛型 · <T> T first(List<T> items) {'
+```java title='Java 对应：<T> T first(List<T>)'
 <T> T first(List<T> items) {
     return items.get(0);
 }
@@ -574,7 +574,7 @@ result = first(["a", "b"])    # result: str
 
 **bound：类型上界**
 
-```python title='5. TypeVar 与泛型 · 从 typing 导入'
+```python title='bound：T 必须是 SupportsFloat 的子类型'
 from typing import TypeVar
 
 # T 必须是 SupportsFloat 的子类型（即支持 float() 转换的类型）
@@ -598,7 +598,7 @@ def freeze(model: M) -> M:
 
 **约束到特定类型**
 
-```python title='5. TypeVar 与泛型 · StrOrBytes = TypeVar("StrOrBytes", str, bytes)'
+```python title='约束到特定类型：StrOrBytes 只能是 str 或 bytes'
 # T 只能是 str 或 bytes，不能是其他类型
 StrOrBytes = TypeVar("StrOrBytes", str, bytes)
 
@@ -610,7 +610,7 @@ def concat(a: StrOrBytes, b: StrOrBytes) -> StrOrBytes:
 
 **自定义泛型类**
 
-```python title='5. TypeVar 与泛型 · 从 typing 导入'
+```python title='自定义泛型类 Stack(Generic[T])'
 from typing import TypeVar, Generic
 
 T = TypeVar("T")
@@ -632,7 +632,7 @@ stack.push("a")     # mypy 报错
 
 对应 Java：
 
-```java title='5. TypeVar 与泛型 · 类：Stack'
+```java title='Java 对应：Stack<T>'
 public class Stack<T> {
     private final List<T> items = new ArrayList<>();
 
@@ -645,7 +645,7 @@ public class Stack<T> {
 
 Java 程序员熟悉 `? extends T`（协变）和 `? super T`（逆变）。Python 通过 TypeVar 的参数来表达：
 
-```python title='5. TypeVar 与泛型 · 从 typing 导入'
+```python title='协变与逆变：covariant=True 与 contravariant=True'
 from typing import TypeVar, Generic
 
 T_co = TypeVar("T_co", covariant=True)      # 协变：只读场景
@@ -654,7 +654,7 @@ T_contra = TypeVar("T_contra", contravariant=True)  # 逆变：只写场景
 
 什么时候需要关心？看一个具体例子：
 
-```python title='5. TypeVar 与泛型 · 从 typing 导入'
+```python title='只读容器 ReadOnlyList 用协变是安全的'
 from typing import TypeVar, Generic, Iterator
 
 T_co = TypeVar("T_co", covariant=True)
@@ -682,7 +682,7 @@ Table: 协变、逆变、不变：Java 与 Python 的写法
 
 Python 3.12 引入了更简洁的泛型语法，不再需要手动创建 `TypeVar`。上面的所有写法都有对应的新形式：
 
-```python title='5. TypeVar 与泛型 · 从 typing 导入'
+```python title='Python 3.12 的新泛型语法与旧写法对照'
 # === 旧写法 ===
 from typing import TypeVar, Generic
 
@@ -722,7 +722,7 @@ class WriteOnlyList[T]:     # 检查器推断为逆变（对应旧写法 contrav
 
 **真实项目中的 TypeVar 与泛型**
 
-```python title='5. TypeVar 与泛型 · _O = TypeVar("_O", bound=object)'
+```python title='真实项目里的 TypeVar：SQLAlchemy Session.get 的 bound'
 # SQLAlchemy: sqlalchemy/orm/session.py
 # Session.get() 使用 TypeVar + bound 确保返回值类型安全
 _O = TypeVar("_O", bound=object)
@@ -763,7 +763,7 @@ class Iterator(Iterable[T_co]):
 
 **基本用法**
 
-```python title='6. Callable：函数类型 · 从 typing 导入'
+```python title='Callable 基本用法：Callable[[int, int], int]'
 from typing import Callable
 
 # 接受两个 int 参数，返回 int 的函数
@@ -775,7 +775,7 @@ apply(lambda x, y: x + y, 1, 2)  # OK
 
 对应 Java：
 
-```java title='6. Callable：函数类型 · // Java: 函数式接口'
+```java title='Java 对应：BiFunction 函数式接口'
 // Java: 函数式接口
 int apply(BiFunction<Integer, Integer, Integer> fn, int a, int b) {
     return fn.apply(a, b);
@@ -786,7 +786,7 @@ int apply(BiFunction<Integer, Integer, Integer> fn, int a, int b) {
 
 `Callable[[int, int], int]` 无法表达 keyword-only 参数、默认值等复杂签名。如果需要精确描述，使用 Protocol：
 
-```python title='6. Callable：函数类型 · 从 typing 导入'
+```python title='用 Protocol 的 __call__ 描述复杂签名'
 from typing import Protocol
 
 class Comparator(Protocol):
@@ -798,7 +798,7 @@ def sort_with(items: list[str], cmp: Comparator) -> list[str]:
 
 **任意参数的 Callable**
 
-```python title='6. Callable：函数类型 · 从 typing 导入'
+```python title='任意参数的 Callable[..., None]'
 from typing import Callable
 
 # 接受任意参数的函数
@@ -807,7 +807,7 @@ handler: Callable[..., None]  # ... 表示"任意参数"
 
 **真实项目中的 Callable**
 
-```python title='6. Callable：函数类型 · 类：Optimizer'
+```python title='真实项目里的 Callable：Optimizer.step 的 closure 与 use_tqdm'
 # PyTorch: torch/optim/optimizer.py
 # 优化器的 step() 接受一个 closure 参数（用于重新计算 loss）
 class Optimizer:
@@ -844,7 +844,7 @@ class Depends:
 
 这是 Python 类型注解里最需要分清的一组区别：
 
-```python title='7. `type[C]`：类对象本身 · 类：Model'
+```python title='实例与类对象：Model 与 type[Model]'
 class Model: ...
 
 def run(m: Model) -> None: ...        # 参数是"一个 Model 实例"
@@ -859,7 +859,7 @@ build(Model())    # 错误：期望类，给了实例
 
 `type[C]` 也接受 `C` 的**任意子类**（协变），这正符合直觉：
 
-```python title='7. `type[C]`：类对象本身 · 类：LlamaModel'
+```python title='type[C] 也接受子类：build(LlamaModel)'
 class LlamaModel(Model): ...
 
 build(LlamaModel)   # OK，type[LlamaModel] 是 type[Model] 的子类型
@@ -869,7 +869,7 @@ build(LlamaModel)   # OK，type[LlamaModel] 是 type[Model] 的子类型
 
 对应 Java：
 
-```java title='7. `type[C]`：类对象本身 · // Java: Class<T> 就是 type[C] 的对应物'
+```java title='Java 对应：Class<? extends Model>'
 // Java: Class<T> 就是 type[C] 的对应物
 Model build(Class<? extends Model> cls) throws Exception {
     return cls.getDeclaredConstructor().newInstance();
@@ -897,7 +897,7 @@ Table: 实例类型与类对象类型：Python 与 Java 对照
 
 `type[C]` 最常见的场景是把类当作值来传递和存储：
 
-```python title='7. `type[C]`：类对象本身 · 从 typing 导入'
+```python title='泛型工厂：create(cls: type[T]) -> T'
 from typing import TypeVar
 
 T = TypeVar("T", bound=Model)
@@ -913,7 +913,7 @@ model = create(LlamaModel, hidden_size=4096)   # 推断为 LlamaModel，不是 M
 
 注册表则是插件化架构的基础形态：
 
-```python title='7. `type[C]`：类对象本身 · _REGISTRY: dict[str, type[Model]] = {}'
+```python title='注册表：dict[str, type[Model]] 与保留类型的 register 装饰器'
 _REGISTRY: dict[str, type[Model]] = {}
 
 def register(name: str) -> Callable[[type[T]], type[T]]:
@@ -935,7 +935,7 @@ def load(name: str) -> Model:
 
 两者都能表达"能造出 C 的东西"，但语义不同：
 
-```python title='7. `type[C]`：类对象本身 · 函数：a'
+```python title='type[Model] 与 Callable[..., Model] 的语义差别'
 def a(factory: type[Model]) -> Model: ...      # 必须是类
 def b(factory: Callable[..., Model]) -> Model: # 类或函数都行
 ```
@@ -945,7 +945,7 @@ def b(factory: Callable[..., Model]) -> Model: # 类或函数都行
 
 一个常见坑：**抽象类不满足 `type[C]` 的可实例化预期**。mypy 会对下面这段报 `Only concrete class can be given where "type[AbstractModel]" is expected`：
 
-```python title='7. `type[C]`：类对象本身 · 从 abc 导入'
+```python title='抽象类不满足 type[C]：mypy 的 Only concrete class 报错'
 from abc import ABC, abstractmethod
 
 class AbstractModel(ABC):
@@ -964,7 +964,7 @@ build(AbstractModel)     # mypy 报错：抽象类不能实例化
 
 classmethod 的第一个参数 `cls` 隐式就是 `type[Self]`，所以通常不需要显式标注：
 
-```python title='7. `type[C]`：类对象本身 · 从 typing 导入'
+```python title='classmethod 的 cls 隐式是 type[Self]'
 from typing import Self
 
 class Config:
@@ -984,7 +984,7 @@ cfg = TrainConfig.from_dict({})   # 推断为 TrainConfig，不是 Config
 
 `type` 除了作为注解，它本身还是 **Python 中所有类的类**——这就是元类的起点：
 
-```python title='7. `type[C]`：类对象本身 · 类：Model'
+```python title='type 是所有类的类：type(Model())、type(Model)、type(type)'
 class Model: ...
 
 type(Model())      # <class 'Model'>       实例的类型是类
@@ -996,7 +996,7 @@ type(type)         # <class 'type'>        type 是自己的实例，递归终�
 
 两个用法之间的桥梁是：**如果一个类的元类是 `Meta`，那么这个类对象的类型就是 `Meta`**，可以直接用来注解：
 
-```python title='7. `type[C]`：类对象本身 · 类：Meta'
+```python title='用元类 Meta 直接注解类对象'
 class Meta(type): ...
 class Base(metaclass=Meta): ...
 
@@ -1012,7 +1012,7 @@ def configure(cls: Meta) -> None:     # 只接受元类为 Meta 的类
 
 **真实项目中的 `type[C]`**
 
-```python title='7. `type[C]`：类对象本身 · CONFIG_MAPPING_NAMES: OrderedDict[str, str] = ...   # 惰性加…'
+```python title='真实项目里的 type[C]：transformers AutoConfig 与 vLLM 模型注册表'
 # transformers: transformers/models/auto/configuration_auto.py
 # AutoConfig 的核心是一张 "模型类型字符串 -> 配置类" 的注册表，
 # from_pretrained 读到 config.json 里的 model_type 后据此查表并实例化
@@ -1056,7 +1056,7 @@ Python 定义"接口"有两种机制：**ABC（抽象基类）**和 **Protocol�
 
 ABC（Abstract Base Class）来自标准库的 `abc` 模块，对应 Java 的 `abstract class` + `interface`。
 
-```python title='8. ABC 与 Protocol：接口的两种方式 · 从 abc 导入'
+```python title='ABC 抽象基类：Animal 与 @abstractmethod'
 from abc import ABC, abstractmethod
 
 class Animal(ABC):
@@ -1085,7 +1085,7 @@ BadAnimal()  # TypeError: Can't instantiate abstract class BadAnimal
 
 ABC 在主流框架中大量使用，特别是作为**框架基类**：
 
-```python title='8. ABC 与 Protocol：接口的两种方式 · 类：Module'
+```python title='真实项目里的 ABC：PyTorch nn.Module 与 collections.abc'
 # PyTorch: torch/nn/modules/module.py
 # nn.Module 继承了 ABC——这是 PyTorch 整个模型体系的根基
 class Module:
@@ -1141,7 +1141,7 @@ Table: collections.abc 速查
 
 ABC 要求显式继承，但 Python 是鸭子类型语言——"如果它走路像鸭子、叫声像鸭子，那它就是鸭子"。`Protocol`（Python 3.8+）将这种理念形式化为类型系统的一部分：**不需要显式继承，只要方法签名匹配就算实现了该协议**。
 
-```python title='8. ABC 与 Protocol：接口的两种方式 · 从 typing 导入'
+```python title='Protocol：只要有 close() 就是 Closeable'
 from typing import Protocol
 
 class Closeable(Protocol):
@@ -1165,7 +1165,7 @@ cleanup(FileHandle())          # OK
 
 对应 Java：
 
-```java title='8. ABC 与 Protocol：接口的两种方式 · // Java: 必须显式 implements'
+```java title='Java 对应：接口必须显式 implements'
 // Java: 必须显式 implements
 interface Closeable {
     void close();
@@ -1208,7 +1208,7 @@ Table: Java interface、Python ABC 与 Protocol 的选择指南
 
 默认情况下 Protocol 只在静态检查时有效。加上 `@runtime_checkable` 后可以用 `isinstance` 做运行时检查：
 
-```python title='8. ABC 与 Protocol：接口的两种方式 · 从 typing 导入'
+```python title='@runtime_checkable 让 Protocol 支持 isinstance'
 from typing import Protocol, runtime_checkable
 
 @runtime_checkable
@@ -1223,7 +1223,7 @@ print(isinstance(42, Sized))          # False
 
 **泛型 Protocol**
 
-```python title='8. ABC 与 Protocol：接口的两种方式 · 从 typing 导入'
+```python title='泛型 Protocol：Reader[T_co]'
 from typing import Protocol, TypeVar
 
 T_co = TypeVar("T_co", covariant=True)
@@ -1237,7 +1237,7 @@ def process(reader: Reader[str]) -> str:
 
 **真实项目中的 Protocol**
 
-```python title='8. ABC 与 Protocol：接口的两种方式 · 类：ForwardModule'
+```python title='真实项目里的 Protocol：ForwardModule 与 vLLM ExecutorBase'
 # PyTorch 风格：任何实现了 forward 和 __call__ 的对象
 class ForwardModule(Protocol):
     def forward(self, x: torch.Tensor) -> torch.Tensor: ...
@@ -1255,7 +1255,7 @@ Python 中大量使用 `dict` 传递数据。`TypedDict` 让你能对字典的"�
 
 **基本用法**
 
-```python title='9. TypedDict：字典的类型约束 · 从 typing 导入'
+```python title='TypedDict 基本用法：MovieRecord'
 from typing import TypedDict
 
 class MovieRecord(TypedDict):
@@ -1277,7 +1277,7 @@ bad: MovieRecord = {"title": "X"}  # 缺少 year 和 rating
 
 **可选字段**
 
-```python title='9. TypedDict：字典的类型约束 · 从 typing 导入'
+```python title='TypedDict 的可选字段：total=False 与 NotRequired'
 from typing import TypedDict, Required, NotRequired
 
 # 方式一：total=False 让所有字段都可选
@@ -1303,7 +1303,7 @@ Python 有三种主流的"结构化数据"定义方式：`TypedDict`（约束字
 
 **用 TypedDict 约束 `**kwargs`（3.12+）**
 
-```python title='9. TypedDict：字典的类型约束 · 从 typing 导入'
+```python title='用 Unpack[TypedDict] 约束 **kwargs'
 from typing import Unpack, TypedDict
 
 class Options(TypedDict, total=False):
@@ -1321,7 +1321,7 @@ request("https://api.example.com", unknown_key=True)    # mypy 报错
 
 **真实项目中的 TypedDict**
 
-```python title='9. TypedDict：字典的类型约束 · 类：_RequiredParameter'
+```python title='真实项目里的 TypedDict：PyTorch 优化器状态'
 # PyTorch: torch/optim/optimizer.py
 # 优化器状态用 TypedDict 描述每个参数组的结构
 class _RequiredParameter(TypedDict):
@@ -1351,7 +1351,7 @@ class ExecuteOptions(TypedDict, total=False):
 
 `Annotated` 允许在类型上附加额外的元数据，类型检查器本身忽略这些元数据，但框架（如 FastAPI、Pydantic）可以读取并使用。
 
-```python title='10. Annotated：给类型附加元数据 · 从 typing 导入'
+```python title='Annotated 的基本语法'
 from typing import Annotated
 
 # 基本语法：Annotated[类型, 元数据1, 元数据2, ...]
@@ -1360,7 +1360,7 @@ UserId = Annotated[int, "must be positive"]
 
 **Pydantic 中的 Annotated**
 
-```python title='10. Annotated：给类型附加元数据 · 从 typing 导入'
+```python title='Pydantic 里的 Annotated：把 Field 约束写进类型'
 from typing import Annotated
 from pydantic import BaseModel, Field
 
@@ -1371,7 +1371,7 @@ class User(BaseModel):
 
 **FastAPI 中的 Annotated**
 
-```python title='10. Annotated：给类型附加元数据 · 从 typing 导入'
+```python title='FastAPI 里的 Annotated：Query、Header、Depends'
 from typing import Annotated
 from fastapi import Depends, Header, Query
 
@@ -1387,7 +1387,7 @@ async def list_items(
 
 对应 Java：最接近的概念是**注解（Annotation）**。Java 的 `@NotNull`、`@Size(max=50)` 作用在参数或字段上；Python 的 `Annotated` 把元数据嵌入到类型本身。
 
-```java title='10. Annotated：给类型附加元数据 · // Java 的方式'
+```java title='Java 对应：注解作用在参数或字段上'
 // Java 的方式
 void createUser(@NotNull @Size(min=2, max=50) String name,
                 @Min(0) @Max(150) int age) { ... }
@@ -1398,7 +1398,7 @@ void createUser(@NotNull @Size(min=2, max=50) String name,
 
 **问题：装饰器吃掉了类型信息**
 
-```python title='11. ParamSpec 与 Concatenate：保留装饰器的类型信息 · 从 functools 导入'
+```python title='无类型的装饰器 logged：吃掉了原函数的签名'
 from functools import wraps
 
 def logged(fn):
@@ -1418,7 +1418,7 @@ def add(a: int, b: int) -> int:
 
 **ParamSpec 解决方案**
 
-```python title='11. ParamSpec 与 Concatenate：保留装饰器的类型信息 · 从 typing 导入'
+```python title='用 ParamSpec 透传被装饰函数的完整签名'
 from typing import ParamSpec, TypeVar, Callable
 from functools import wraps
 
@@ -1445,7 +1445,7 @@ def add(a: int, b: int) -> int:
 
 如果装饰器需要在原始函数前面添加参数：
 
-```python title='11. ParamSpec 与 Concatenate：保留装饰器的类型信息 · 从 typing 导入'
+```python title='Concatenate：装饰器在前面添加 Request 参数'
 from typing import Callable, Concatenate, ParamSpec, TypeVar
 
 P = ParamSpec("P")
@@ -1472,7 +1472,7 @@ Java 没有对应概念——Java 的注解处理器不会改变方法签名。
 
 **真实项目中的 ParamSpec**
 
-```python title='11. ParamSpec 与 Concatenate：保留装饰器的类型信息 · 从 typing 导入'
+```python title='真实项目里的 ParamSpec：Tenacity 的 retry'
 # Tenacity（重试库）: tenacity/__init__.py
 # retry 装饰器用 ParamSpec 保留原始函数签名
 from typing import ParamSpec, TypeVar, Callable
@@ -1503,7 +1503,7 @@ P = ParamSpec("P")
 
 在 AI Infra 中，装饰器模式无处不在：训练循环的 hook、性能分析、分布式通信包装、自动混合精度等等。`ParamSpec` 和 `Concatenate` 让这些装饰器不再是类型信息的黑洞。
 
-```python title='11. ParamSpec 与 Concatenate：保留装饰器的类型信息 · 从 typing 导入'
+```python title='AI-Infra 里的 ParamSpec 与 Concatenate：性能分析、分布式包装、AMP'
 from typing import ParamSpec, TypeVar, Callable, Concatenate
 from functools import wraps
 
@@ -1560,7 +1560,7 @@ log_metrics(loss=0.5, step=100)
 
 类型收窄函数：返回 `True` 时，告诉类型检查器参数是特定类型。
 
-```python title='12. TypeGuard 与 TypeIs：类型收窄 · 从 typing 导入'
+```python title='TypeGuard：is_str_list 收窄 list[object] 为 list[str]'
 from typing import TypeGuard
 
 def is_str_list(val: list[object]) -> TypeGuard[list[str]]:
@@ -1574,7 +1574,7 @@ def process(data: list[object]) -> None:
 
 对应 Java 的 `instanceof` pattern matching：
 
-```java title='12. TypeGuard 与 TypeIs：类型收窄 · if (data instanceof List<?> list &&…'
+```java title='Java 对应：instanceof pattern matching'
 if (data instanceof List<?> list && isStringList(list)) {
     // 但 Java 的类型擦除让这种检查比较有限
 }
@@ -1584,7 +1584,7 @@ if (data instanceof List<?> list && isStringList(list)) {
 
 `TypeIs` 是 `TypeGuard` 的改进版，行为更直观：
 
-```python title='12. TypeGuard 与 TypeIs：类型收窄 · 从 typing_extensions 导入'
+```python title='TypeIs：在 else 分支也收窄'
 from typing_extensions import TypeIs   # 3.13+ 可直接 from typing import TypeIs
 
 def is_string(val: object) -> TypeIs[str]:
@@ -1601,7 +1601,7 @@ def process(val: str | int) -> None:
 
 **真实项目中的 TypeGuard**
 
-```python title='12. TypeGuard 与 TypeIs：类型收窄 · 从 typing 导入'
+```python title='真实项目里的 TypeGuard：Pydantic is_model_instance 与 typeshed'
 # Pydantic: pydantic/_internal/_utils.py
 # 判断一个值是否是 Pydantic 模型实例
 from typing import TypeGuard
@@ -1623,7 +1623,7 @@ def is_numeric_dtype(arr_or_dtype: Any) -> TypeGuard[np.number]: ...
 
 在 AI Infra 代码中，TypeGuard/TypeIs 最典型的场景是**根据模型/张量的运行时属性做类型分支**——这些属性无法通过简单的 `isinstance` 判断：
 
-```python title='12. TypeGuard 与 TypeIs：类型收窄 · 从 typing 导入'
+```python title='AI-Infra 里的 TypeGuard / TypeIs：按张量运行时属性做类型分支'
 from typing import TypeGuard, TypeIs
 
 # 场景一：判断张量是否在 CUDA 上
@@ -1668,7 +1668,7 @@ def optimize(model: nn.Module) -> nn.Module:
 
 `@overload` 不是运行时重载（Python 没有函数重载），而是给类型检查器提供多个调用签名的描述。
 
-```python title='13. overload：多签名声明 · 从 typing 导入'
+```python title='@overload 声明 fetch 的三个调用签名'
 from typing import overload
 
 @overload
@@ -1690,7 +1690,7 @@ def fetch(url: str, as_json: bool = False) -> dict | str:
 
 **真实项目中的 overload**
 
-```python title='13. overload：多签名声明 · @overload'
+```python title='真实项目里的 overload：torch.zeros 存根与 vLLM LLM.generate'
 # PyTorch: torch/_C/_VariableFunctions.pyi (类型存根文件)
 # zeros 支持两种调用方式
 @overload
@@ -1733,7 +1733,7 @@ class Client:
 
 **Final 和 ClassVar**
 
-```python title='14. 其他实用工具 · 从 typing 导入'
+```python title='Final 与 ClassVar'
 from typing import Final, ClassVar
 
 class Config:
@@ -1745,7 +1745,7 @@ class Config:
 - `Final` 对应 Java 的 `final`
 - `ClassVar` 对应 Java 的 `static` 字段（在 dataclass 中特别有用，防止被当作构造参数）
 
-```python title='14. 其他实用工具 · 类：LLM'
+```python title='真实项目里的 ClassVar：vLLM LLM 与 Pydantic model_config'
 # vLLM: vllm/entrypoints/llm.py — ClassVar 在真实项目中的用法
 class LLM:
     DEPRECATE_LEGACY: ClassVar[bool] = False  # 类级别开关，不是实例属性
@@ -1766,7 +1766,7 @@ class Module:
 
 **Self（3.11+）**
 
-```python title='14. 其他实用工具 · 从 typing 导入'
+```python title='Self：Builder 链式调用在子类上仍正确'
 from typing import Self
 
 class Builder:
@@ -1781,7 +1781,7 @@ class Builder:
 
 对应 Java 中 Builder 模式返回 `this` 的场景。在 `Self` 出现之前，Python 中实现这个需要复杂的 TypeVar bound。
 
-```python title='14. 其他实用工具 · 类：Client'
+```python title='真实项目里的 Self：httpx Client.__enter__'
 # httpx: httpx/_client.py — 上下文管理器返回 Self
 class Client:
     def __enter__(self) -> Self:
@@ -1814,7 +1814,7 @@ class Query(Generic[_T]):
 
 **TypeAlias（3.10+）与 `type` 语句（3.12+）**
 
-```python title='14. 其他实用工具 · 从 typing 导入'
+```python title='TypeAlias 与 3.12 的 type 语句'
 # 3.10+: 显式声明类型别名
 from typing import TypeAlias
 
@@ -1831,7 +1831,7 @@ type Tree[T] = T | list[Tree[T]]  # 递归类型别名
 
 对应 Java 的 `typedef`——哦等等，Java 没有 typedef。这是 Python 类型系统比 Java 灵活的一个方面。
 
-```python title='14. 其他实用工具 · 从 typing 导入'
+```python title='真实项目里的 TypeAlias：torch.types 与 vLLM PromptType'
 # PyTorch: torch/types.py — 大量使用 TypeAlias 简化复杂类型
 from typing import TypeAlias
 Device: TypeAlias = str | torch.device | int
@@ -1848,7 +1848,7 @@ TypeAlias 在大型项目中极为常见——它让复杂的联合类型和嵌�
 
 **cast：类型断言**
 
-```python title='14. 其他实用工具 · 从 typing 导入'
+```python title='cast：只给类型检查器的断言'
 from typing import cast
 
 # 告诉类型检查器："相信我，这个值就是这个类型"
@@ -1858,7 +1858,7 @@ value = cast(int, raw)                   # 类型检查器认为 value: int
 
 对应 Java 的强制类型转换 `(int) raw`。关键区别：Python 的 `cast` **运行时什么都不做**，只是给类型检查器的提示。
 
-```python title='14. 其他实用工具 · 从 typing 导入'
+```python title='真实项目里的 cast：vLLM、PyTorch JIT、SQLAlchemy'
 # vLLM: vllm/entrypoints/llm.py — 用 cast 在类型检查器无法推断时提供帮助
 from typing import cast
 outputs = cast(list[RequestOutput], req_outputs)
@@ -1874,7 +1874,7 @@ row = cast(tuple[str, int], result.fetchone())
 
 **TYPE_CHECKING：避免循环导入**
 
-```python title='14. 其他实用工具 · 从 __future__ 导入'
+```python title='TYPE_CHECKING：只在类型检查时执行的 import'
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
@@ -1891,7 +1891,7 @@ class Light:
 
 **真实项目中的 TYPE_CHECKING**
 
-```python title='14. 其他实用工具 · 从 typing 导入'
+```python title='真实项目里的 TYPE_CHECKING：vLLM api_router'
 # vLLM: vllm/entrypoints/openai/generate/api_router.py
 # 经典用法：避免在运行时导入重型引擎模块
 from typing import TYPE_CHECKING

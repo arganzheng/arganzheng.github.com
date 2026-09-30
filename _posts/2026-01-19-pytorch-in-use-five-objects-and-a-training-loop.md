@@ -88,7 +88,7 @@ Table: 本文的章节安排
 
 上一篇的形状规则、轴、广播、reshape / transpose、einsum 在 Tensor 上**原样成立**（`torch.einsum` 的写法完全一样），dtype 的概念也一样。Tensor 多出来的是两件事：数据可以在 GPU 上，以及可以被求导。
 
-```python title='1. 从 ndarray 到 Tensor · x = torch.zeros(32, 128, 4096, dtyp…'
+```python title='Tensor 比 ndarray 多的两件事：device 与 requires_grad'
 x = torch.zeros(32, 128, 4096, dtype=torch.bfloat16, device="cuda", requires_grad=False)
 x.device          # 在哪：cpu / cuda:0 / mps
 x.dtype           # 什么精度：float32 / bfloat16 / float16 / int8 …
@@ -135,7 +135,7 @@ Autograd 是 PyTorch 帮你算梯度（L0 第七篇）的机制。使用层只�
 
 ### 2. 一个手算的例子
 
-```python title='2. 一个手算的例子 · w = torch.tensor(3.0, requires_grad=True)'
+```python title='手算一次 backward：w.grad = 20，图用完即释放'
 w = torch.tensor(3.0, requires_grad=True)
 x = torch.tensor(2.0)
 loss = (w * x - 1) ** 2        # (3·2 − 1)² = 25
@@ -197,7 +197,7 @@ $$
 
 `nn.Module` 是参数的容器加前向逻辑。写一个只需要两个方法：
 
-```python title='1. 两个方法 · 类：MLP'
+```python title='一个最小的 nn.Module：__init__ 注册子模块、forward 只写前向'
 class MLP(nn.Module):
     def __init__(self, d, d_ff):
         super().__init__()                        # 必须：让 Module 的注册机制生效
@@ -218,7 +218,7 @@ class MLP(nn.Module):
 
 ### 3. 参数与状态
 
-```python title='3. 参数与状态 · list(model.parameters())        # 所有可训练参数的迭代器：交给 Optimizer'
+```python title='Module 的参数与状态：parameters、state_dict、train/eval、to'
 list(model.parameters())        # 所有可训练参数的迭代器：交给 Optimizer
 sum(p.numel() for p in model.parameters())   # 参数量
 model.state_dict()              # {"up.weight": Tensor, "up.bias": ..., ...}：保存 / 加载用
@@ -229,7 +229,7 @@ model.to("cuda")                # 所有参数搬到 GPU
 
 `state_dict()` 返回一个有序字典 `OrderedDict[str, Tensor]`：**键是参数在模块树里的路径，值是参数的 Tensor**。用下一小节的小 Transformer打印出来的前几项：
 
-```text title='3. 参数与状态 · tok.weight                 torch.Size([128, 128])'
+```text title='小 Transformer 的 state_dict 前几项：键是模块树里的路径'
 tok.weight                 torch.Size([128, 128])
 pos.weight                 torch.Size([128, 128])
 blocks.0.ln1.weight        torch.Size([128])
@@ -256,7 +256,7 @@ blocks.1.ln1.weight        ...
 
 第六章要训的是一个 4 层、$$d = 128$$、4 头、序列长 128、词表 128（ASCII）的字符级 decoder-only Transformer，共 840,448 个参数。它是三层嵌套的 `nn.Module`：`TinyGPT` 包含一个 `nn.ModuleList` 的 4 个 `Block`，每个 `Block` 包含 `LayerNorm`、`Linear` 与一个 `nn.Sequential` 的 MLP。完整定义如下——每一行都是本章讲过的东西：
 
-```python title='4. 本文要训的模型 · @dataclass'
+```python title='本文要训的 TinyGPT：Config、Block、TinyGPT 完整定义'
 @dataclass
 class Config:
     vocab: int = 128; d: int = 128; heads: int = 4; layers: int = 4; seq: int = 128
@@ -303,7 +303,7 @@ L4 的 `modeling_llama.py` 是同样的结构放大版：`LlamaModel` → `Llama
 
 ### 1. 取数与组 batch
 
-```python title='1. 取数与组 batch · 类：MyDataset'
+```python title='Dataset 的两个方法与 DataLoader 的组 batch'
 class MyDataset(torch.utils.data.Dataset):
     def __len__(self): return len(self.items)
     def __getitem__(self, i): return self.items[i]         # 返回一条样本
@@ -338,7 +338,7 @@ flowchart TB
 
 ### 2. Optimizer 与调度器
 
-```python title='2. Optimizer 与调度器 · opt = torch.optim.AdamW(model.parameters(), lr=3e-4, weig…'
+```python title='Optimizer 与调度器各自的一步'
 opt = torch.optim.AdamW(model.parameters(), lr=3e-4, weight_decay=0.1)    # 优化器：拿着全部参数
 sched = torch.optim.lr_scheduler.LambdaLR(opt, lr_lambda)                # 调度器：拿着优化器，每步改它的 lr
 opt.step()          # 用每个参数的 .grad 更新它
@@ -348,7 +348,7 @@ opt.zero_grad(set_to_none=True)
 
 这里只有**一个**优化器。`sched` 不是第二个优化器，是一个**学习率调度器**（scheduler）：它不碰参数，只在每次 `sched.step()` 时按预定曲线算出新的学习率，写进 `opt.param_groups[i]["lr"]`——下一次 `opt.step()` 就用新值。两者的分工：`Optimizer` 决定"用梯度怎么改参数"（L0 第七篇：$$\theta \leftarrow \theta - \eta \nabla L$$；AdamW 多了两个矩，L3 第三篇讲；`weight_decay=0.1` 是 L0 第二篇的正则化项），调度器决定"这一步的 $$\eta$$ 是多少"。先 warmup 再 cosine 衰减是 LLM 训练的标配（L0 第七篇第六章）；本文用的曲线：
 
-```python title='2. Optimizer 与调度器 · 函数：cosine_with_warmup'
+```python title='先 warmup 再 cosine 衰减的学习率曲线'
 def cosine_with_warmup(step, cfg):
     if step < cfg.warmup:
         return step / cfg.warmup                                   # 前 warmup 步：从 0 线性升到 1
@@ -368,7 +368,7 @@ sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: cosine_with_warmup(s, c
 
 语料用 Python 标准库自带的 `.py` 源文件——任何装了 Python 的机器上都有，不用下载——拼成一个约 200 万字符的长字符串，非 ASCII 字符丢掉，每个字符就是一个 token（词表 128）。取一个 batch 就是随机切 32 个长 128 的窗口，目标是每个位置的下一个字符：
 
-```python title='1. 语料与取数 · 函数：load_corpus'
+```python title='语料与取数：标准库 .py 拼成字符级语料，随机切 128 长窗口'
 def load_corpus(max_chars=2_000_000):
     stdlib = Path(sysconfig.get_paths()["stdlib"])                 # 标准库所在目录
     text = "".join(p.read_text(errors="ignore").encode("ascii", "ignore").decode()
@@ -386,7 +386,7 @@ def get_batch(data, cfg, gen):
 
 ### 2. 二十行
 
-```python title='2. 二十行 · cfg = Config()'
+```python title='二十行训练循环：模型、优化器、调度器、前向、反向、更新'
 cfg = Config()
 torch.manual_seed(cfg.seed); gen = torch.Generator().manual_seed(cfg.seed)
 train, val = load_corpus()
@@ -461,7 +461,7 @@ print(f"验证 loss {val_loss:.3f}  (PPL {math.exp(val_loss):.1f})")
 
 在 CPU 上跑 1000 步约一分钟：
 
-```text title='5. 跑起来 · 语料: 1,800,000 训练字符, 200,000 验证字符; 词表 128; 初始 loss 应约 ln V…'
+```text title='CPU 上 1000 步的训练日志：loss 从 5.07 降到 2.02'
 语料: 1,800,000 训练字符, 200,000 验证字符; 词表 128; 初始 loss 应约 ln V = 4.85
 模型: 4 层, d=128, 840,448 参数
 step    0  loss 5.065  lr 6.00e-06  grad_norm 2.01    0.1s

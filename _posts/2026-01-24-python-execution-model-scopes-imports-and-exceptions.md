@@ -46,7 +46,7 @@ flowchart TB
 
 为了让后面的机制讨论有一个共同的落点，先给出一个极简的推理组件。它没有任何真实的模型逻辑，但用到了上下两篇要讲的每一种机制：
 
-```python title='1. 一个贯穿上下两篇的例子 · 从 contextlib 导入'
+```python title='runner.py：贯穿上下两篇的极简推理组件'
 # runner.py
 from contextlib import nullcontext
 
@@ -102,7 +102,7 @@ class Runner:
 
 ### 2. 本篇的主线：从源码到帧
 
-```text title='2. 本篇的主线：从源码到帧 · 源码 ──编译──► code object ──封装──► 函数/类对象 ──调用──► 执行帧'
+```text title='本篇主线：源码 → code object → 函数对象 → 帧，以及 import 与异常'
 源码 ──编译──► code object ──封装──► 函数/类对象 ──调用──► 执行帧
                                                           │
   ▲ 第二章 执行模型                                        │ 第三章 作用域与闭包：帧里的名称怎么解析
@@ -136,7 +136,7 @@ Python 源码在运行前会先被编译成字节码，解释器执行的是字�
 
 "解释器读一行、执行一行"是入门时的近似，但它解释不了为什么一个函数里的语法错误会让整个模块都无法导入，也解释不了为什么闭包能记住外层变量。实际过程是：
 
-```text title='1. Python 不是"逐行解释" · 源代码(.py)  ──parser──►  AST  ──compiler──►  code object（含字…'
+```text title='源码到执行帧的四步：parser、compiler、解释器'
 源代码(.py)  ──parser──►  AST  ──compiler──►  code object（含字节码）  ──解释器──►  在执行帧中运行
 ```
 
@@ -155,7 +155,7 @@ Table: Python 编译的触发时机与产物
 
 用 `dis` 可以看到函数的字节码：
 
-```python title='1. Python 不是"逐行解释" · 导入：dis'
+```python title='用 dis 看 add 的字节码'
 import dis
 
 
@@ -168,7 +168,7 @@ dis.dis(add)
 
 CPython 3.12 的输出：
 
-```text title='1. Python 不是"逐行解释" · 4           0 RESUME                   0'
+```text title='add 的字节码：四条指令'
   4           0 RESUME                   0
 
   5           2 LOAD_FAST                0 (x)
@@ -181,7 +181,7 @@ CPython 3.12 的输出：
 
 code object 本身是一个普通对象，函数只是它的一个引用：
 
-```python title='1. Python 不是"逐行解释" · c = add.__code__'
+```python title='code object 是普通对象，函数只是它的引用'
 c = add.__code__
 print(type(c))                                    # <class 'code'>
 print(c.co_varnames, c.co_argcount, c.co_consts)  # ('x', 'y') 2 (None,)
@@ -205,7 +205,7 @@ Table: 源代码、code object、函数对象与执行帧
 
 执行到 `def` 语句时，解释器用编译好的 code object 创建一个函数对象，并把名称绑定到它。函数对象携带了运行这段代码所需的全部上下文：
 
-```python title='2. 函数对象：code object 的运行时封装 · 函数：predict'
+```python title='函数对象携带的上下文：__code__、__defaults__、__globals__'
 def predict(x, scale=2):
     """Scale the input."""
     return x * scale
@@ -223,7 +223,7 @@ print(predict.__globals__ is globals())   # True
 
 `def` 是语句，每执行一次就创建一个新的函数对象。两个函数对象可以共享同一个 code object：
 
-```python title='2. 函数对象：code object 的运行时封装 · 函数：make'
+```python title='每执行一次 def 就是一个新函数对象，code object 可共享'
 def make():
     def f():
         return 1
@@ -240,7 +240,7 @@ print(a is b, a.__code__ is b.__code__)   # False True
 
 每次调用函数，解释器创建一个执行帧，包含局部变量、当前执行到的指令位置、指向调用者帧的引用。帧对象可以被观察：
 
-```python title='3. 执行帧与调用栈 · 导入：inspect'
+```python title='用 inspect.currentframe 观察当前帧与调用者'
 import inspect
 
 
@@ -254,7 +254,7 @@ show_frame()    # show_frame ['frame'] <module>
 
 traceback 显示的调用链，就是异常发生时沿 `f_back` 串起来的帧：
 
-```python title='3. 执行帧与调用栈 · 函数：inner'
+```python title='traceback 就是沿 f_back 串起来的帧链'
 def inner():
     raise ValueError("boom")
 
@@ -289,7 +289,7 @@ except ValueError as exc:
 
 Python 的赋值不是"把值放进一个盒子"，而是"让一个名称指向一个对象"。
 
-```python title='4. 名称绑定：名称不是变量盒子 · x = []'
+```python title='赋值是绑定名称：两个名称指向同一个列表'
 x = []
 y = x
 y.append(1)
@@ -300,7 +300,7 @@ print(x, y, x is y)     # [1] [1] True
 
 `==` 比较值，`is` 比较身份。对值做 `is` 判断结果不可预期：
 
-```python title='4. 名称绑定：名称不是变量盒子 · a = 1000'
+```python title='== 比值、is 比身份：对值做 is 结果不可预期'
 a = 1000
 b = 1000
 print(a == b, a is b)                         # True True   —— 同一编译单元里的常量被合并
@@ -341,7 +341,7 @@ Table: 执行模型与对象模型：Python 与 Java 的差异
 
 名称查找的四层通常叫 LEGB：Local（当前函数）→ Enclosing（外层函数）→ Global（模块）→ Builtins。
 
-```python title='1. LEGB 是编译期规则 · value = "global"'
+```python title='LEGB 三层嵌套的例子：global、enclosing、inner'
 value = "global"
 
 
@@ -368,12 +368,12 @@ print(f())      # enclosing
 
 分类结果直接体现在字节码里：
 
-```python title='1. LEGB 是编译期规则 · 导入：dis'
+```python title='用 dis 看名称分类的结果'
 import dis
 dis.dis(f)
 ```
 
-```text title='1. LEGB 是编译期规则 · 0 COPY_FREE_VARS           1'
+```text title='inner 的字节码：value 是 LOAD_DEREF 的自由变量'
               0 COPY_FREE_VARS           1
 
   7           2 RESUME                   0
@@ -388,7 +388,7 @@ dis.dis(f)
 
 `outer()` 返回之后，它的帧已经销毁，`inner` 为什么还能读到 `value`？因为编译器发现 `value` 被内层函数引用，就把它存放在一个 **cell** 对象里而不是普通局部槽位；`inner` 的函数对象通过 `__closure__` 持有这些 cell：
 
-```python title='2. 闭包就是"函数对象 + cell" · print(outer.__code__.co_cellvars)  …'
+```python title='闭包的实体：co_cellvars、co_freevars 与 __closure__ 里的 cell'
 print(outer.__code__.co_cellvars)        # ('value',)   outer 中被内层引用的变量
 print(f.__code__.co_freevars)            # ('value',)   inner 中来自外层的变量
 print(f.__closure__)                     # (<cell at 0x...: str object at 0x...>,)
@@ -403,7 +403,7 @@ print(f.__closure__[0].cell_contents)    # enclosing
 
 读外层变量不需要声明，**重新绑定**外层变量需要 `nonlocal`：
 
-```python title='3. `nonlocal` 与 `UnboundLocalError` · 函数：make_counter'
+```python title='用 nonlocal 重新绑定外层变量的计数器'
 def make_counter(start=0):
     count = start
 
@@ -422,7 +422,7 @@ print(counter.__closure__[0].cell_contents)  # 2   —— 修改的是同一个 
 
 去掉 `nonlocal` 会得到：
 
-```text title='3. `nonlocal` 与 `UnboundLocalError` · UnboundLocalError: cannot access lo…'
+```text title='去掉 nonlocal 后的 UnboundLocalError'
 UnboundLocalError: cannot access local variable 'count' where it is not associated with a value
 ```
 
@@ -432,7 +432,7 @@ UnboundLocalError: cannot access local variable 'count' where it is not associat
 
 闭包最常见的陷阱：
 
-```python title='4. 延迟绑定：cell 是共享的 · 函数：make_fns'
+```python title='延迟绑定陷阱：三个 lambda 都返回 2'
 def make_fns():
     fns = []
     for i in range(3):
@@ -449,7 +449,7 @@ print([fn() for fn in make_fns()])          # [2, 2, 2]
 
 修法是在创建时就把值固定下来——用默认参数（默认值在 `def`/`lambda` 求值时计算一次）：
 
-```python title='4. 延迟绑定：cell 是共享的 · fns.append(lambda i=i: i)                    # [0, 1, 2]'
+```python title='用默认参数在创建时固定 i'
 fns.append(lambda i=i: i)                    # [0, 1, 2]
 ```
 
@@ -480,7 +480,7 @@ Java 的 lambda 和匿名内部类也能捕获外层变量，但捕获的变量�
 
 一个 `.py` 文件导入后就是一个模块对象，它的属性字典就是那份文件的全局命名空间：
 
-```python title='1. 模块是对象，包是带 `__path__` 的模块 · 导入：json'
+```python title='导入后的 json 是一个模块对象，__dict__ 就是它的全局命名空间'
 import json, types
 
 print(type(json), isinstance(json, types.ModuleType))   # <class 'module'> True
@@ -492,7 +492,7 @@ print(list(json.__dict__)[:6])
 
 包是**多了一个 `__path__` 属性**的模块。`__path__` 是一个目录列表，告诉导入系统"这个包的子模块去哪里找"：
 
-```python title="1. 模块是对象，包是带 `__path__` 的模块 · print(json.__path__)      # ['.../l…"
+```python title='包比模块多一个 __path__'
 print(json.__path__)      # ['.../lib/python3.12/json']
 print(json.__package__)   # json
 import json.decoder
@@ -507,7 +507,7 @@ print(json.decoder.__package__)   # json
 
 `import mypackage.model` 在解释器内部大致经历以下步骤（对应 CPython 标准库 `importlib/_bootstrap.py` 中的 `_find_and_load` → `_find_spec` → `_load_unlocked`）：
 
-```text title='2. `import` 语句的执行过程 · 1. 查 sys.modules["mypackage.model"]，命中则直接返回              …'
+```text title='import mypackage.model 的七步：缓存、查找、执行、绑定'
 1. 查 sys.modules["mypackage.model"]，命中则直接返回                   —— 缓存
 2. 未命中：先确保父包 "mypackage" 已导入（递归走同一流程）
 3. 依次询问 sys.meta_path 里的每个 finder：find_spec(name, path)
@@ -528,12 +528,12 @@ print(json.decoder.__package__)   # json
 
 Python 的导入系统不是"在目录里找 `.py` 文件"，而是一个三层协议。先看一个模块导入之后留下的痕迹：
 
-```python title='3. 三层查找机制：`sys.meta_path`、`PathFinder` 与 loader · 导入：json'
+```python title='打印 json 的 __spec__'
 import json
 print(json.__spec__)
 ```
 
-```text title="3. 三层查找机制：`sys.meta_path`、`PathFinder` 与 loader · ModuleSpec(name='json',"
+```text title='json 的 ModuleSpec：name、loader、origin 等字段'
 ModuleSpec(name='json',
            loader=<_frozen_importlib_external.SourceFileLoader object at 0x...>,
            origin='/.../lib/python3.12/json/__init__.py',
@@ -544,7 +544,7 @@ ModuleSpec(name='json',
 
 **第一层：`sys.meta_path` 里的 finder**
 
-```python title='3. 三层查找机制：`sys.meta_path`、`PathFinder` 与 loader · 导入：sys'
+```python title='第一层：遍历 sys.meta_path 里的 finder'
 import sys
 for finder in sys.meta_path:
     print(finder)
@@ -552,7 +552,7 @@ for finder in sys.meta_path:
 
 在一个装了 setuptools 的 venv 里：
 
-```text title='3. 三层查找机制：`sys.meta_path`、`PathFind… · <_distutils_hack.DistutilsMetaFinde…'
+```text title='一个装了 setuptools 的 venv 里的四个 meta_path finder'
 <_distutils_hack.DistutilsMetaFinder object at 0x...>
 <class '_frozen_importlib.BuiltinImporter'>
 <class '_frozen_importlib.FrozenImporter'>
@@ -565,12 +565,12 @@ for finder in sys.meta_path:
 
 `PathFinder.find_spec` 遍历 `sys.path`（子模块则遍历父包的 `__path__`），对每个目录调用 `sys.path_hooks` 中的钩子，得到一个负责该目录的 finder，并缓存在 `sys.path_importer_cache`：
 
-```python title='3. 三层查找机制：`sys.meta_path`、`PathFinder` 与 loader · for hook in sys.path_hooks:'
+```python title='第二层：sys.path_hooks 里的钩子'
 for hook in sys.path_hooks:
     print(hook)
 ```
 
-```text title="3. 三层查找机制：`sys.meta_path`、`PathFind… · <class 'zipimport.zipimporter'>"
+```text title='两个 path hook：zipimporter 与 FileFinder'
 <class 'zipimport.zipimporter'>
 <function FileFinder.path_hook.<locals>.path_hook_for_FileFinder at 0x...>
 ```
@@ -581,7 +581,7 @@ for hook in sys.path_hooks:
 
 `FileFinder` 在自己负责的目录里查找 `name/__init__.py`、`name.<后缀>`，后缀与 loader 的对应表来自 `importlib.machinery`：
 
-```python title='3. 三层查找机制：`sys.meta_path`、`PathFinder` 与 loader · 导入：importlib.machinery'
+```python title='第三层：FileFinder 按后缀选 loader 的对应表'
 import importlib.machinery as m
 print(m.SOURCE_SUFFIXES)       # ['.py']                                     → SourceFileLoader
 print(m.BYTECODE_SUFFIXES)     # ['.pyc']                                    → SourcelessFileLoader
@@ -590,7 +590,7 @@ print(m.EXTENSION_SUFFIXES)    # ['.cpython-312-darwin.so', '.abi3.so', '.so'] �
 
 这张表说明了一件初学者容易漏掉的事：**`import` 能导入的不只是 `.py` 文件。** 同一条 `import foo` 语句，目录里如果是 `foo.py`，就编译执行它；如果是 `foo.cpython-312-darwin.so`（Linux 上是 `foo.cpython-312-x86_64-linux-gnu.so`），就把它当作**扩展模块**（extension module）加载——一个用 C / C++ 编译出来的共享库，只要它导出一个名为 `PyInit_foo` 的 C 函数。`ExtensionFileLoader` 就是 C 扩展进入 Python 的入口：它 `dlopen` 这个 `.so`，调用其中的 `PyInit_<name>` 函数拿到模块对象；从此 `foo.bar()` 调的是 C 函数，`import` 语句本身看不出任何差别。C++ 系列第一篇会从 C++ 这一侧讲 `torch/csrc/stub.c` 里那个 `PyInit__C` 长什么样、它又拉起了哪些 `.so`。看一个真实的扩展模块：
 
-```python title='3. 三层查找机制：`sys.meta_path`、`PathFinder` 与 loader · 导入：numpy'
+```python title='一个真实的 C 扩展模块：numpy 的 ExtensionFileLoader 与 .so 路径'
 import numpy, sys
 m = sys.modules["numpy._core._multiarray_umath"]
 print(m.__spec__.loader)   # <_frozen_importlib_external.ExtensionFileLoader object at 0x...>
@@ -605,7 +605,7 @@ print(m.__spec__.origin)   # .../site-packages/numpy/_core/_multiarray_umath.cpy
 
 ① **不导入就能探测**。`importlib.util.find_spec` 只走查找阶段，不执行模块：
 
-```python title='3. 三层查找机制：`sys.meta_path`、`PathFinder` 与 loader · 导入：importlib.util'
+```python title='不导入就能探测：find_spec("triton") 返回 None'
 import importlib.util
 print(importlib.util.find_spec("triton"))    # None —— 没装，且没有触发任何导入副作用
 ```
@@ -614,7 +614,7 @@ print(importlib.util.find_spec("triton"))    # None —— 没装，且没有触
 
 ② **往 `sys.meta_path` 插 finder 就能拦截导入**。下面这个 finder 让测试代码可以模拟"某个依赖没安装"：
 
-```python title='3. 三层查找机制：`sys.meta_path`、`PathFinder` 与 loader · 导入：importlib.abc'
+```python title='往 sys.meta_path 插一个 Blocker finder 模拟依赖未安装'
 import importlib.abc, sys
 
 
@@ -636,7 +636,7 @@ import numpy    # ModuleNotFoundError: numpy blocked for testing
 
 ③ **手工构造 spec 就能加载任意位置的文件**。PyTorch 的 JIT 扩展编译（`torch.utils.cpp_extension.load`）编译出 `.so` 之后，通过 `_import_module_from_library` 把它变成模块（`torch/utils/cpp_extension.py`）：
 
-```python title='3. 三层查找机制：`sys.meta_path`、`PathFind… · spec = importlib.util.spec_from_fil…'
+```python title='手工构造 spec 加载任意位置的文件：spec_from_file_location'
 spec = importlib.util.spec_from_file_location(module_name, filepath)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
@@ -650,7 +650,7 @@ spec.loader.exec_module(module)
 
 `PathFinder` 沿 `sys.path` 找，那么 `sys.path` 里有什么？启动时它按顺序由这几部分拼成：
 
-```text title='4. `sys.path` 的构成，以及 `python script… · sys.path[0]         取决于启动方式（见下）'
+```text title='sys.path 的五个组成部分'
 sys.path[0]         取决于启动方式（见下）
 PYTHONPATH          环境变量中的目录
 标准库               .../lib/python3.12、python312.zip、lib-dynload
@@ -671,7 +671,7 @@ Table: 不同启动方式下的 sys.path[0]、__name__ 与 __package__
 
 用一个 src 布局的项目验证。`src/myproject/cli.py` 打印自己的身份，然后做一次相对导入：
 
-```python title='4. `sys.path` 的构成，以及 `python script.py` 与 `python -m` 的差别 · 导入：sys'
+```python title='src/myproject/cli.py：打印自己的身份再做相对导入'
 # src/myproject/cli.py
 import sys
 print("__name__    =", __name__)
@@ -683,7 +683,7 @@ print("relative import ok")
 
 第一种启动方式：
 
-```bash title='4. `sys.path` 的构成，以及 `python script.py` 与 `python -m` 的差别 · 命令：python'
+```bash title='python src/myproject/cli.py：相对导入失败'
 $ python src/myproject/cli.py
 __name__    = __main__
 __package__ = None
@@ -693,7 +693,7 @@ ImportError: attempted relative import with no known parent package
 
 第二种启动方式（在仓库根目录，包已 editable 安装，安装方式见 §5）：
 
-```bash title='4. `sys.path` 的构成，以及 `python script.py` 与 `python -m` 的差别 · 命令：python'
+```bash title='python -m myproject.cli：__package__ 正确、相对导入成功'
 $ python -m myproject.cli
 __name__    = __main__
 __package__ = myproject
@@ -708,7 +708,7 @@ relative import ok
 
 第二点值得单独演示，因为它是"注册表里出现重复项"和"`isinstance` 莫名其妙为 False"的常见根源。一个脚本 `app.py` 通过装饰器注册 `Runner`，同时它又被别的模块按模块名导入：
 
-```python title='4. `sys.path` 的构成，以及 `python script.py` 与 `python -m` 的差别 · 从 registry 导入'
+```python title='app.py 既作脚本运行又被按模块名导入'
 # app.py
 from registry import register
 
@@ -720,7 +720,7 @@ if __name__ == "__main__":
     print(Runner is app.Runner, isinstance(app.Runner(), Runner))
 ```
 
-```bash title='4. `sys.path` 的构成，以及 `python script.py` 与 `python -m` 的差别 · 命令：python'
+```bash title='同一个文件被执行两次：重复注册与 isinstance 为 False'
 $ python app.py
 duplicate registration: Runner False
 False False
@@ -738,7 +738,7 @@ PyTorch 源码里有一段专门针对这个陷阱的报错文案。`torch/__ini
 
 §4 的规则解释了 flat 布局与 src 布局之争的全部内容。两种布局：
 
-```text title='5. 项目布局、测试与 editable 安装 · flat 布局                        src 布局'
+```text title='flat 布局与 src 布局的目录树'
 flat 布局                        src 布局
 myproject/                       myproject/
 ├── pyproject.toml               ├── pyproject.toml
@@ -765,7 +765,7 @@ flat 布局的三行结果说明了什么叫"测试环境可以导入、安装�
 
 src 布局把这条路堵死：源码树不在任何默认路径上，测试**只能**导入安装后的包。开发时用 editable 安装让"安装后的包"指回源码：
 
-```bash title='5. 项目布局、测试与 editable 安装 · 命令：pip'
+```bash title='editable 安装留下的 .pth 文件指回 src'
 $ pip install -e .
 $ ls site-packages | grep myproject
 __editable__.myproject-0.1.0.pth
@@ -784,7 +784,7 @@ $ cat site-packages/__editable__.myproject-0.1.0.pth
 
 回到 §2 的第 1 步：同一个模块名在同一进程里只执行一次。
 
-```python title='6. `sys.modules` 缓存、导入副作用与注册机制 · 导入：sys'
+```python title='同一个模块名在进程里只执行一次：sys.modules 缓存'
 import sys, json
 first = sys.modules["json"]
 import json as j2
@@ -806,7 +806,7 @@ print(j2 is json, sys.modules["json"] is first)     # True True
 
 ### 7. 循环导入与依赖方向
 
-```python title='7. 循环导入与依赖方向 · 从 b 导入'
+```python title='循环导入失败的最小例子：a.py 与 b.py 互相 from-import'
 # a.py
 from b import B          # ← 执行到这里时，a 已在 sys.modules，但 A 还没定义
 class A: ...
@@ -820,7 +820,7 @@ class B: ...
 
 `import a` 而不是 `from a import A` 有时能"绕过去"，因为它只绑定模块对象，属性访问推迟到运行时；`TYPE_CHECKING` 块和函数内的局部导入同理。但这些只是改变了**导入时机**，没有消除模块之间的环。首选解法是调整依赖方向：
 
-```text title='7. 循环导入与依赖方向 · 原结构：   runner ──► backend ──► runner'
+```text title='消除环：把接口抽到 protocols 模块'
 原结构：   runner ──► backend ──► runner
 调整后：   runner ──► protocols ◄── backend        protocols 只放接口与数据结构，不依赖实现
 ```
@@ -831,7 +831,7 @@ class B: ...
 
 模块名在运行时才确定时用 `importlib.import_module`：
 
-```python title='8. 动态导入：`importlib.import_module` · 导入：importlib'
+```python title='按名字动态导入后端：importlib.import_module'
 import importlib
 
 
@@ -869,7 +869,7 @@ Java 中"加载类"这件事由类加载器在**使用时**惰性完成，代码
 
 ### 1. `try` 结构与传播路径
 
-```python title='1. `try` 结构与传播路径 · try:'
+```python title='try / except / else / finally 各自执行的时机'
 try:
     result = run()
 except ValueError as exc:
@@ -884,7 +884,7 @@ finally:
 
 ### 2. `BaseException` 层级
 
-```text title='2. `BaseException` 层级 · BaseException'
+```text title='BaseException 层级：业务代码应捕获的根是 Exception'
 BaseException
 ├── BaseExceptionGroup        3.11+
 ├── Exception                 ← 业务代码应捕获的根
@@ -899,7 +899,7 @@ BaseException
 
 异常类型是给**调用方**用的，它应该回答"发生了什么"以及"能怎么办"：
 
-```python title='3. 自定义异常与错误边界 · 类：BackendError'
+```python title='自定义异常层级：按"能怎么办"分类'
 class BackendError(Exception): ...
 class BackendUnavailableError(BackendError): ...     # 可以换后端
 class BackendExecutionError(BackendError): ...       # 可以重试
@@ -919,7 +919,7 @@ except BackendExecutionError:
 
 在处理一个异常时抛出另一个，Python 自动记录原异常：
 
-```python title='4. 异常链：`from exc` 与 `from None` · try:'
+```python title='raise … from exc：显式记录异常链'
 try:
     load_config()
 except OSError as exc:
@@ -930,7 +930,7 @@ except OSError as exc:
 
 ### 5. 记录并重抛：`raise` 与 `raise exc` 的区别
 
-```python title='5. 记录并重抛：`raise` 与 `raise exc` 的区别 · try:'
+```python title='记录完整 traceback 后原样重抛'
 try:
     worker.run()
 except Exception:
@@ -942,7 +942,7 @@ except Exception:
 
 只记录不重抛是最常见的错误处理反模式：
 
-```python title='5. 记录并重抛：`raise` 与 `raise exc` 的区别 · except Exception as exc:'
+```python title='反模式：只记录 str(exc) 不重抛'
 except Exception as exc:
     logger.error(str(exc))     # 丢了 traceback，也丢了异常本身
 ```
@@ -957,7 +957,7 @@ Python 没有受检异常，所有异常都是 Java 意义上的 `RuntimeExcepti
 
 本篇讲的四种机制，都围绕**帧**这一个东西：
 
-```text title='六、本文小结 · 执行模型      源码在第一次导入时整模块编译成 code object；函数对象 = code + __glo…'
+```text title='本篇四种机制围绕帧的小结'
 执行模型      源码在第一次导入时整模块编译成 code object；函数对象 = code + __globals__ + 默认值 + cell；
               每次调用创建一个帧，帧里放局部变量与指令位置；名称是绑定到对象的标签，不是盒子
     │

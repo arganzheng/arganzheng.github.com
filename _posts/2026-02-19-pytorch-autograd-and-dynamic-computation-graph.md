@@ -25,7 +25,7 @@ updated: 2026-09-14
 
 初学者通常只需要记住：
 
-```python title='正文 · loss.backward()'
+```python title='初学者记住的两行：backward 与 step'
 loss.backward()
 optimizer.step()
 ```
@@ -73,31 +73,31 @@ Table: 本文的章节安排
 
 假设有一个非常简单的函数：
 
-```text title='1. 梯度解决什么问题？ · y = x²'
+```text title='最简单的函数：y = x²'
 y = x²
 ```
 
 当 `x = 3` 时，`y = 9`。如果希望调整 `x` 让 `y` 变小，就需要知道：
 
-```text title='1. 梯度解决什么问题？ · y 对 x 的变化有多敏感？'
+```text title='想知道的问题：y 对 x 有多敏感'
 y 对 x 的变化有多敏感？
 ```
 
 这个敏感程度就是导数：
 
-```text title='1. 梯度解决什么问题？ · dy/dx = 2x'
+```text title='导数 dy/dx = 2x'
 dy/dx = 2x
 ```
 
 当 `x = 3` 时：
 
-```text title='1. 梯度解决什么问题？ · dy/dx = 6'
+```text title='x = 3 时的导数值'
 dy/dx = 6
 ```
 
 如果目标是最小化 `y`，就可以沿着负梯度方向调整 `x`：
 
-```text title='1. 梯度解决什么问题？ · x_new = x - learning_rate × gradient'
+```text title='沿负梯度方向更新 x'
 x_new = x - learning_rate × gradient
 ```
 
@@ -109,27 +109,27 @@ x_new = x - learning_rate × gradient
 
 对于复合函数：
 
-```text title='2. 链式法则 · z = f(y)'
+```text title='复合函数 z = f(g(x))'
 z = f(y)
 y = g(x)
 ```
 
 有：
 
-```text title='2. 链式法则 · dz/dx = dz/dy × dy/dx'
+```text title='链式法则：dz/dx = dz/dy × dy/dx'
 dz/dx = dz/dy × dy/dx
 ```
 
 例如：
 
-```text title='2. 链式法则 · y = x²'
+```text title='一个例子：y = x²，z = 3y + 1'
 y = x²
 z = 3y + 1
 ```
 
 可以拆成：
 
-```text title='2. 链式法则 · dz/dy = 3'
+```text title='按链式法则拆开算出 dz/dx = 6x'
 dz/dy = 3
 dy/dx = 2x
 
@@ -142,7 +142,7 @@ dz/dx = 3 × 2x = 6x
 
 实际模型很少只有一个标量输入和一个标量输出。更常见的情况是：
 
-```text title='3. 从标量到向量 · y = f(x)'
+```text title='向量到向量的函数 y = f(x)'
 y = f(x)
 ```
 
@@ -150,7 +150,7 @@ y = f(x)
 
 严格来说，这时的导数由 **Jacobian**（雅可比矩阵）描述——`y` 的每个分量对 `x` 的每个分量各有一个偏导数，排成一张表：
 
-```text title='3. 从标量到向量 · J[i, j] = ∂y[i] / ∂x[j]        y 有 m 个分量、x 有 n 个分量 → J 是 …'
+```text title='Jacobian 的定义：m × n 张表'
 J[i, j] = ∂y[i] / ∂x[j]        y 有 m 个分量、x 有 n 个分量 → J 是 m × n 的矩阵
 ```
 
@@ -158,7 +158,7 @@ J[i, j] = ∂y[i] / ∂x[j]        y 有 m 个分量、x 有 n 个分量 → J �
 
 但训练其实**从来不需要这张表本身**。回头看链式法则：`dz/dx = dz/dy × dy/dx`。当 `z` 是标量 loss 时，`dz/dy` 是一个和 `y` 同形的向量 `v`（长 `m`），`dy/dx` 是 Jacobian `J`（`m × n`），两者一乘：
 
-```text title='3. 从标量到向量 · vᵀ J   →   [1 × m] × [m × n] = [1 × n]        结果和 x 同形，只有…'
+```text title='vᵀJ：训练只需要向量–Jacobian 积，结果与 x 同形'
 vᵀ J   →   [1 × m] × [m × n] = [1 × n]        结果和 x 同形，只有 n 个数
 ```
 
@@ -169,19 +169,19 @@ vᵀ J   →   [1 × m] × [m × n] = [1 × n]        结果和 x 同形，只�
 
 ### 4. 为什么 backward 通常从标量 Loss 开始？
 
-```python title='4. 为什么 backward 通常从标量 Loss 开始？ · loss.backward()'
+```python title='从标量 loss 调 backward'
 loss.backward()
 ```
 
 这里的 `loss` 通常是一个标量。标量的反向传播可以理解为：
 
-```text title='4. 为什么 backward 通常从标量 Loss 开始？ · ∂loss / ∂每个参数'
+```text title='标量反向传播算的是 loss 对每个参数的偏导'
 ∂loss / ∂每个参数
 ```
 
 如果对一个非标量 Tensor 直接调用 `backward()`：
 
-```python title='4. 为什么 backward 通常从标量 Loss 开始？ · x = torch.randn(3, requires_grad=True)'
+```python title='对非标量 Tensor 直接 backward'
 x = torch.randn(3, requires_grad=True)
 y = x * 2
 y.backward()
@@ -191,13 +191,13 @@ y.backward()
 
 可以显式提供外部梯度：
 
-```python title='4. 为什么 backward 通常从标量 Loss 开始？ · y.backward(torch.ones_like(y))'
+```python title='显式传入外部梯度 ones_like(y)'
 y.backward(torch.ones_like(y))
 ```
 
 这相当于计算：
 
-```text title='4. 为什么 backward 通常从标量 Loss 开始？ · sum(y) 对 x 的梯度'
+```text title='等价于对 sum(y) 求梯度'
 sum(y) 对 x 的梯度
 ```
 
@@ -211,7 +211,7 @@ sum(y) 对 x 的梯度
 
 考虑下面的计算：
 
-```python title='1. 什么是计算图？ · x = torch.tensor(2.0, requires_grad=True)'
+```python title='四行计算：x*x、+3、sum'
 x = torch.tensor(2.0, requires_grad=True)
 y = x * x
 z = y + 3
@@ -220,7 +220,7 @@ loss = z.sum()
 
 其 forward 关系可以简单表示为：
 
-```text title='1. 什么是计算图？ · x ─────┐'
+```text title='它的 forward 关系图'
 x ─────┐
        * → y ───┐
 x ─────┘        + → z → sum → loss
@@ -287,7 +287,7 @@ flowchart TB
 
 上一篇介绍过，PyTorch 默认采用 Eager-first 的编程体验。在 Eager Mode 下，代码执行到哪一行，对应的 Tensor 操作就可以立即执行；如果需要梯度，Autograd 同时记录必要的反向关系。
 
-```python title='2. Eager Mode 下的图是动态创建的 · x = torch.randn(3, requires_grad=True)'
+```python title='Eager Mode 下边执行边记录'
 x = torch.randn(3, requires_grad=True)
 y = x * 2
 z = y.relu()
@@ -310,7 +310,7 @@ loss = z.sum()
 
 ### 3. 每次 forward 通常都会创建新图
 
-```python title='3. 每次 forward 通常都会创建新图 · for inputs, targets in loader:'
+```python title='训练循环里每次 forward 都建新图'
 for inputs, targets in loader:
     outputs = model(inputs)
     loss = criterion(outputs, targets)
@@ -326,7 +326,7 @@ for inputs, targets in loader:
 
 这种设计让 Python 控制流可以直接影响计算图：
 
-```python title='3. 每次 forward 通常都会创建新图 · 函数：f'
+```python title='Python 控制流直接决定图的形状'
 def f(x: torch.Tensor) -> torch.Tensor:
     if x.sum() > 0:
         return x * x
@@ -359,13 +359,13 @@ def f(x: torch.Tensor) -> torch.Tensor:
 
 ### 1. `requires_grad`
 
-```python title='1. `requires_grad` · x = torch.tensor(2.0, requires_grad=True)'
+```python title='创建一个 requires_grad=True 的标量'
 x = torch.tensor(2.0, requires_grad=True)
 ```
 
 这表示：只要后续计算在梯度记录开启的上下文中进行，并且结果参与反向传播，Autograd 就需要追踪与 `x` 有关的计算关系。
 
-```python title='1. `requires_grad` · x = torch.tensor(2.0, requires_grad=True)'
+```python title='z = x² + 1 反向后 x.grad = 4'
 x = torch.tensor(2.0, requires_grad=True)
 y = x * x
 z = y + 1
@@ -376,7 +376,7 @@ print(x.grad)  # tensor(4.)
 
 这里：
 
-```text title='1. `requires_grad` · y = x²'
+```text title='手算验证 ∂z/∂x = 2x = 4'
 y = x²
 z = y + 1
 ∂z/∂x = 2x = 4
@@ -395,21 +395,21 @@ z = y + 1
 
 一个常见的 leaf Tensor 是用户直接创建、并设置了 `requires_grad=True` 的 Tensor：
 
-```python title='2. Leaf Tensor · x = torch.tensor(2.0, requires_grad=True)'
+```python title='用户直接创建的 Tensor 是 leaf'
 x = torch.tensor(2.0, requires_grad=True)
 print(x.is_leaf)  # True
 ```
 
 由运算产生的结果通常不是 leaf：
 
-```python title='2. Leaf Tensor · y = x * 2'
+```python title='运算结果不是 leaf'
 y = x * 2
 print(y.is_leaf)  # False
 ```
 
 模型参数通常也是 leaf Tensor：
 
-```python title='2. Leaf Tensor · 从 torch 导入'
+```python title='模型参数也是 leaf'
 from torch import nn
 
 layer = nn.Linear(4, 2)
@@ -421,7 +421,7 @@ Autograd 默认会把最终梯度保存在 leaf Tensor 的 `.grad` 中。对于 
 
 ### 3. 为什么 non-leaf 的 `.grad` 可能是 `None`？
 
-```python title='3. 为什么 non-leaf 的 `.grad` 可能是 `None… · x = torch.tensor(2.0, requires_grad…'
+```python title='non-leaf 的 .grad 默认为 None'
 x = torch.tensor(2.0, requires_grad=True)
 y = x * 2
 z = y * 3
@@ -433,7 +433,7 @@ print(y.grad)  # 通常为 None
 
 如果确实需要查看 non-leaf Tensor 的梯度，要在**第一次** backward 之前调用 `retain_grad()`——上面那段代码 `z.backward()` 已经跑过，图里保存的中间值被释放了，接着再 `z.backward()` 会报 "Trying to backward through the graph a second time"。重新前向一遍：
 
-```python title='3. 为什么 non-leaf 的 `.grad` 可能是 `None… · x = torch.tensor(2.0, requires_grad…'
+```python title='backward 之前调 retain_grad() 才能拿到 y.grad'
 x = torch.tensor(2.0, requires_grad=True)
 y = x * 2
 y.retain_grad()          # 在 backward 之前
@@ -447,7 +447,7 @@ print(y.grad)            # tensor(3.)
 
 ### 4. `grad_fn`
 
-```python title='4. `grad_fn` · x = torch.tensor(2.0, requires_grad=True)'
+```python title='leaf 没有 grad_fn，non-leaf 有'
 x = torch.tensor(2.0, requires_grad=True)
 y = x * 2
 
@@ -459,7 +459,7 @@ leaf Tensor 通常没有由其他 Tensor 运算产生的 `grad_fn`；non-leaf Te
 
 可以通过 `next_functions` 观察部分反向关系：
 
-```python title='4. `grad_fn` · print(y.grad_fn.next_functions)'
+```python title='用 next_functions 看反向关系'
 print(y.grad_fn.next_functions)
 ```
 
@@ -470,11 +470,11 @@ print(y.grad_fn.next_functions)
 
 `nn.Parameter` 是 Tensor 的一个特殊封装，目的是告诉 `nn.Module`：
 
-```text title='5. requires_grad 与 Parameter · 这个 Tensor 是模型参数'
+```text title='nn.Parameter 的含义：这个 Tensor 是模型参数'
 这个 Tensor 是模型参数
 ```
 
-```python title='5. requires_grad 与 Parameter · 从 torch 导入'
+```python title='nn.Parameter 默认 requires_grad=True'
 from torch import nn
 
 weight = nn.Parameter(torch.randn(4, 2))
@@ -494,7 +494,7 @@ print(weight.requires_grad)  # True
 
 ### 1. 一次 backward 的过程
 
-```python title='1. 一次 backward 的过程 · x = torch.tensor(2.0, requires_grad=True)'
+```python title='一次 backward：y = x²，loss = y + 1'
 x = torch.tensor(2.0, requires_grad=True)
 y = x * x
 loss = y + 1
@@ -515,19 +515,19 @@ loss.backward()
 
 对于：
 
-```text title='1. 一次 backward 的过程 · y = x * x'
+```text title='乘法节点 y = x * x'
  y = x * x
 ```
 
 局部导数是：
 
-```text title='1. 一次 backward 的过程 · ∂y/∂x = 2x'
+```text title='它的局部导数 2x'
 ∂y/∂x = 2x
 ```
 
 ### 2. 梯度默认会累积
 
-```python title='2. 梯度默认会累积 · x = torch.tensor(2.0, requires_grad=True)'
+```python title='连续两次 backward：3 + 4 累积到 x.grad'
 x = torch.tensor(2.0, requires_grad=True)
 y = x * 3
 
@@ -541,13 +541,13 @@ print(x.grad)  # tensor(7.)
 
 第二次 backward 没有覆盖第一次梯度，而是累加了新的梯度：
 
-```text title='2. 梯度默认会累积 · 3 + 4 = 7'
+```text title='第二次没有覆盖而是累加：3 + 4 = 7'
 3 + 4 = 7
 ```
 
 这也是为什么训练循环通常需要清空梯度：
 
-```python title='2. 梯度默认会累积 · optimizer.zero_grad()'
+```python title='训练循环三步：zero_grad、backward、step'
 optimizer.zero_grad()
 loss.backward()
 optimizer.step()
@@ -555,7 +555,7 @@ optimizer.step()
 
 或者：
 
-```python title='2. 梯度默认会累积 · optimizer.zero_grad(set_to_none=True)'
+```python title='zero_grad(set_to_none=True)'
 optimizer.zero_grad(set_to_none=True)
 ```
 
@@ -563,7 +563,7 @@ optimizer.zero_grad(set_to_none=True)
 
 梯度累积并不只是一个容易忘记清零的陷阱，它也可以用于模拟更大的 batch：
 
-```python title='3. 为什么梯度累积是有用的？ · optimizer.zero_grad(set_to_none=True)'
+```python title='用梯度累积模拟更大的 batch'
 optimizer.zero_grad(set_to_none=True)
 
 for micro_batch in micro_batches:
@@ -587,13 +587,13 @@ optimizer.step()
 
 把梯度置零和把梯度设为 `None` 不是完全相同的操作：
 
-```python title='4. `optimizer.zero_grad(set_to_none… · optimizer.zero_grad(set_to_none=Tru…'
+```python title='把梯度设为 None 而不是填零'
 optimizer.zero_grad(set_to_none=True)
 ```
 
 设为 `None` 可以避免不必要的填零，并让后续 backward 在需要时重新分配梯度。但业务代码不能无条件假设：
 
-```python title='4. `optimizer.zero_grad(set_to_none=True)` · parameter.grad is always a Tensor'
+```python title='业务代码不能假设 parameter.grad 一定是 Tensor'
 parameter.grad is always a Tensor
 ```
 
@@ -601,7 +601,7 @@ parameter.grad is always a Tensor
 
 ### 5. 多次 backward 与计算图释放
 
-```python title='5. 多次 backward 与计算图释放 · x = torch.tensor(2.0, requires_grad=True)'
+```python title='对同一张图 backward 两次'
 x = torch.tensor(2.0, requires_grad=True)
 y = x * x
 
@@ -613,7 +613,7 @@ y.backward()
 
 如果确实需要对同一张图多次反向传播，可以使用：
 
-```python title='5. 多次 backward 与计算图释放 · y.backward(retain_graph=True)'
+```python title='retain_graph=True 允许多次 backward'
 y.backward(retain_graph=True)
 y.backward()
 ```
@@ -628,13 +628,13 @@ y.backward()
 
 例如：
 
-```text title='1. backward 为什么需要保存中间值？ · y = x²'
+```text title='需要保存输入的例子：y = x²'
 y = x²
 ```
 
 反向时需要：
 
-```text title='1. backward 为什么需要保存中间值？ · ∂y/∂x = 2x'
+```text title='反向需要 x 本身：∂y/∂x = 2x'
 ∂y/∂x = 2x
 ```
 
@@ -642,7 +642,7 @@ y = x²
 
 对于 ReLU：
 
-```text title='1. backward 为什么需要保存中间值？ · y = max(0, x)'
+```text title='ReLU：y = max(0, x)'
  y = max(0, x)
 ```
 
@@ -652,7 +652,7 @@ y = x²
 
 ### 2. 保存输出可能保存整张图
 
-```python title='2. 保存输出可能保存整张图 · losses = []'
+```python title='把 loss Tensor 存进列表：整张图都活着'
 losses = []
 
 for inputs, targets in loader:
@@ -701,13 +701,13 @@ flowchart TB
 
 如果只需要记录数值，应转换为不再连接图的标量：
 
-```python title='2. 保存输出可能保存整张图 · losses.append(loss.detach().item())'
+```python title='只存数值：detach().item()'
 losses.append(loss.detach().item())
 ```
 
 如果需要保留 Tensor 但不需要梯度：
 
-```python title='2. 保存输出可能保存整张图 · losses.append(loss.detach().cpu())'
+```python title='保留 Tensor 但断开图：detach().cpu()'
 losses.append(loss.detach().cpu())
 ```
 
@@ -715,7 +715,7 @@ losses.append(loss.detach().cpu())
 
 在某些内存受限场景，保存的 Tensor 可以通过 hooks 进行自定义处理，例如：
 
-```python title='3. `saved_tensors_hooks` · 从 torch.autograd.graph 导入'
+```python title='saved_tensors_hooks 的导入'
 from torch.autograd.graph import saved_tensors_hooks
 ```
 
@@ -756,7 +756,7 @@ from torch.autograd.graph import saved_tensors_hooks
 
 ### 1. `detach()`：切断一个 Tensor 的 Autograd 关系
 
-```python title='1. `detach()`：切断一个 Tensor 的 Autogra… · x = torch.tensor(2.0, requires_grad…'
+```python title='detach 后 requires_grad 变 False'
 x = torch.tensor(2.0, requires_grad=True)
 y = x * 2
 z = y.detach()
@@ -774,20 +774,20 @@ print(z.requires_grad)  # False
 
 如果需要既切断梯度又创建独立数据，可以使用：
 
-```python title='1. `detach()`：切断一个 Tensor 的 Autograd 关系 · z = y.detach().clone()'
+```python title='既切断梯度又复制数据：detach().clone()'
 z = y.detach().clone()
 ```
 
 ### 2. `torch.no_grad()`：临时关闭梯度记录
 
-```python title='2. `torch.no_grad()`：临时关闭梯度记录 · with torch.no_grad():'
+```python title='torch.no_grad() 下跑前向'
 with torch.no_grad():
     output = model(inputs)
 ```
 
 在这个上下文中，通常不会为 Tensor 运算构建 Autograd 图，适合不需要训练的计算。
 
-```python title='2. `torch.no_grad()`：临时关闭梯度记录 · model.eval()'
+```python title='推理常见组合：model.eval() 加 no_grad'
 model.eval()
 with torch.no_grad():
     output = model(inputs)
@@ -802,7 +802,7 @@ with torch.no_grad():
 
 ### 3. `torch.inference_mode()`：更强的推理上下文
 
-```python title='3. `torch.inference_mode()`：更强的推理上下文 · with torch.inference_mode():'
+```python title='torch.inference_mode() 下跑前向'
 with torch.inference_mode():
     output = model(inputs)
 ```
@@ -826,7 +826,7 @@ Table: detach()、no_grad 与 requires_grad_(False) 的区别
 
 推理代码通常写成：
 
-```python title='5. 与 `model.eval()` 的完整组合 · model.eval()'
+```python title='推理代码：eval 加 inference_mode'
 model.eval()
 
 with torch.inference_mode():
@@ -835,7 +835,7 @@ with torch.inference_mode():
 
 训练代码通常写成：
 
-```python title='5. 与 `model.eval()` 的完整组合 · model.train()'
+```python title='训练代码：train 加 enable_grad 再 backward'
 model.train()
 
 with torch.enable_grad():
@@ -852,7 +852,7 @@ with torch.enable_grad():
 
 如果使用已有的 PyTorch 算子，Autograd 通常已经知道它们的反向规则：
 
-```python title='1. 为什么需要自定义 Autograd？ · y = torch.sin(x)'
+```python title='内置算子已自带反向规则：sin 与乘法'
 y = torch.sin(x)
 z = y * y
 z.sum().backward()
@@ -865,7 +865,7 @@ z.sum().backward()
 
 ### 2. 一个平方算子
 
-```python title='2. 一个平方算子 · 类：Square'
+```python title='自定义 Square：forward 保存输入，backward 返回 2x·grad'
 class Square(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input):
@@ -880,7 +880,7 @@ class Square(torch.autograd.Function):
 
 调用：
 
-```python title='2. 一个平方算子 · x = torch.tensor(3.0, requires_grad=True)'
+```python title='调用 Square.apply 并验证 x.grad = 6'
 x = torch.tensor(3.0, requires_grad=True)
 y = Square.apply(x)
 y.backward()
@@ -932,7 +932,7 @@ sequenceDiagram
 
 forward 阶段可以把 backward 所需的 Tensor 保存到 `ctx`：
 
-```python title='3. `ctx.save_for_backward()` · ctx.save_for_backward(input)'
+```python title='forward 里 save_for_backward'
 ctx.save_for_backward(input)
 ```
 
@@ -940,7 +940,7 @@ ctx.save_for_backward(input)
 
 如果 backward 只需要一个标量配置，也可以保存普通属性：
 
-```python title='3. `ctx.save_for_backward()` · ctx.alpha = alpha'
+```python title='标量配置直接存成 ctx 属性'
 ctx.alpha = alpha
 ```
 
@@ -950,7 +950,7 @@ Tensor 和非 Tensor 状态的保存方式不同，应根据 backward 的需要�
 
 一个函数可能有多个输入：
 
-```python title='4. 多输入和不可导输入 · 类：Scale'
+```python title='多输入的 Scale：alpha 不可导，返回 None'
 class Scale(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input, alpha):
@@ -982,13 +982,13 @@ class Scale(torch.autograd.Function):
 
 可以使用：
 
-```python title='5. 自定义 Autograd 的工程边界 · torch.autograd.gradcheck'
+```python title='torch.autograd.gradcheck'
 torch.autograd.gradcheck
 ```
 
 和：
 
-```python title='5. 自定义 Autograd 的工程边界 · torch.autograd.gradgradcheck'
+```python title='torch.autograd.gradgradcheck'
 torch.autograd.gradgradcheck
 ```
 
@@ -1009,7 +1009,7 @@ PyTorch 的 Autograd 内部包含复杂的 C++ 和 Python 组件，但可以用�
 
 ### 2. Value 节点
 
-```python title='2. Value 节点 · 类：Value'
+```python title='Value 节点：data、grad、parents、backward_fn'
 class Value:
     def __init__(self, data, parents=(), op=""):
         self.data = data
@@ -1032,7 +1032,7 @@ class Value:
 
 ### 3. 实现加法
 
-```python title='3. 实现加法 · 函数：add'
+```python title='Mini-Autograd 的加法：梯度原样传给两个输入'
 def add(left, right):
     result = Value(left.data + right.data, (left, right), "+")
 
@@ -1046,7 +1046,7 @@ def add(left, right):
 
 因为：
 
-```text title='3. 实现加法 · d(left + right)/dleft  = 1'
+```text title='加法的局部导数都是 1'
 d(left + right)/dleft  = 1
 d(left + right)/dright = 1
 ```
@@ -1055,7 +1055,7 @@ d(left + right)/dright = 1
 
 ### 4. 实现乘法
 
-```python title='4. 实现乘法 · 函数：multiply'
+```python title='Mini-Autograd 的乘法：梯度乘以对方的值'
 def multiply(left, right):
     result = Value(left.data * right.data, (left, right), "*")
 
@@ -1069,7 +1069,7 @@ def multiply(left, right):
 
 因为：
 
-```text title='4. 实现乘法 · d(left × right)/dleft  = right'
+```text title='乘法的局部导数是对方'
 d(left × right)/dleft  = right
 d(left × right)/dright = left
 ```
@@ -1078,7 +1078,7 @@ d(left × right)/dright = left
 
 反向传播需要从结果开始，沿依赖关系逆序访问节点：
 
-```python title='5. 拓扑排序 · 函数：build_topological_order'
+```python title='build_topological_order：DFS 后序'
 def build_topological_order(root):
     visited = set()
     order = []
@@ -1097,25 +1097,25 @@ def build_topological_order(root):
 
 如果计算是：
 
-```text title='5. 拓扑排序 · a → multiply → b → add → c'
+```text title='一条计算链：a → multiply → b → add → c'
 a → multiply → b → add → c
 ```
 
 拓扑序是：
 
-```text title='5. 拓扑排序 · a, b, c'
+```text title='它的拓扑序'
 a, b, c
 ```
 
 反向遍历时则使用：
 
-```text title='5. 拓扑排序 · c, b, a'
+```text title='反向遍历用逆序'
 c, b, a
 ```
 
 ### 6. 实现 backward
 
-```python title='6. 实现 backward · 函数：backward'
+```python title='Mini-Autograd 的 backward：清零、root.grad = 1、逆序调用'
 def backward(root):
     for node in build_topological_order(root):
         node.grad = 0.0
@@ -1130,7 +1130,7 @@ def backward(root):
 
 ### 7. 运行一个例子
 
-```python title='7. 运行一个例子 · a = Value(2.0)'
+```python title='运行例子：d = a × b + a'
 a = Value(2.0)
 b = Value(3.0)
 c = multiply(a, b)
@@ -1145,7 +1145,7 @@ print(b.grad)  # 2.0
 
 数学上：
 
-```text title='7. 运行一个例子 · d = a × b + a'
+```text title='手算验证 ∂d/∂a = 4，∂d/∂b = 2'
 d = a × b + a
 
 ∂d/∂a = b + 1 = 4
@@ -1231,7 +1231,7 @@ Table: Autograd 问题的排查顺序
 
 排查时可以沿路径打印：
 
-```python title='1. `element 0 of tensors does not require grad` · print(inputs.requires_grad)'
+```python title='沿路径打印 requires_grad 与 grad_fn 排查'
 print(inputs.requires_grad)
 print(outputs.requires_grad)
 print(outputs.grad_fn)
@@ -1257,7 +1257,7 @@ print(loss.grad_fn)
 
 对模型参数，可以检查：
 
-```python title='2. `grad is None` · for name, parameter in model.named_parameters():'
+```python title='检查每个参数的 requires_grad 与 grad 是否为 None'
 for name, parameter in model.named_parameters():
     print(name, parameter.requires_grad, parameter.grad is None)
 ```
@@ -1266,7 +1266,7 @@ for name, parameter in model.named_parameters():
 
 典型风险包括：
 
-```python title='3. 计算图被意外保留 · history.append(loss)'
+```python title='三种意外保留计算图的写法'
 history.append(loss)
 outputs_cache.append(outputs)
 metrics[step] = hidden_state
@@ -1276,7 +1276,7 @@ metrics[step] = hidden_state
 
 根据需求选择：
 
-```python title='3. 计算图被意外保留 · loss.item()'
+```python title='按需求选 item / detach / detach().cpu()'
 loss.item()
 loss.detach()
 loss.detach().cpu()
@@ -1286,7 +1286,7 @@ loss.detach().cpu()
 
 ### 4. In-place 操作导致 backward 失败
 
-```python title='4. In-place 操作导致 backward 失败 · x = torch.randn(3, requires_grad=True)'
+```python title='对需要梯度的 leaf 做 in-place：立刻报错'
 x = torch.randn(3, requires_grad=True)
 y = x * x
 x.add_(1)        # 立刻报错：a leaf Variable that requires grad is being used in an in-place operation
@@ -1294,7 +1294,7 @@ x.add_(1)        # 立刻报错：a leaf Variable that requires grad is being us
 
 对需要梯度的 **leaf** Tensor 做 in-place，Autograd 在操作发生的那一刻就拒绝——不等到 backward。更隐蔽的是对**中间结果**做 in-place：
 
-```python title='4. In-place 操作导致 backward 失败 · x = torch.randn(3, requires_grad=True)'
+```python title='对中间结果做 in-place：backward 时才报错'
 x = torch.randn(3, requires_grad=True)
 a = torch.exp(x)
 a.add_(1)        # 允许
@@ -1318,7 +1318,7 @@ Autograd 只负责按照定义计算梯度，不保证梯度一定数值稳定�
 
 可以使用：
 
-```python title='5. 梯度异常和数值稳定性 · torch.autograd.set_detect_anomaly(True)'
+```python title='开启 set_detect_anomaly'
 torch.autograd.set_detect_anomaly(True)
 ```
 
@@ -1330,7 +1330,7 @@ torch.autograd.set_detect_anomaly(True)
 
 事件回调通常回答：
 
-```text title='1. Autograd 不是普通事件回调 · 某个事件发生后，调用哪些函数？'
+```text title='事件回调回答的问题'
 某个事件发生后，调用哪些函数？
 ```
 
@@ -1374,13 +1374,13 @@ Java 工程师通常习惯把局部变量和对象状态区分开。在 PyTorch 
 
 上一篇讨论了 Tensor 的：
 
-```text title='4. Tensor 布局和 Autograd 是两个正交维度 · Storage / Shape / Stride / Offset /…'
+```text title='上一篇的维度：Tensor 布局'
 Storage / Shape / Stride / Offset / Dtype / Device
 ```
 
 本文讨论了：
 
-```text title='4. Tensor 布局和 Autograd 是两个正交维度 · requires_grad / grad_fn / Graph / Gradient'
+```text title='本文的维度：Autograd'
 requires_grad / grad_fn / Graph / Gradient
 ```
 
@@ -1432,7 +1432,7 @@ Autograd 的核心任务，是把数学上的链式法则变成一次沿动态�
 
 ### 5. Mini-Autograd 的核心
 
-```text title='5. Mini-Autograd 的核心 · 父节点'
+```text title='Mini-Autograd 的五个要素'
 父节点
     + 局部导数
     + 拓扑排序

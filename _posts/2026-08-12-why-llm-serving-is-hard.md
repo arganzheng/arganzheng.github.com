@@ -55,7 +55,7 @@ Table: 本文的章节安排
 
 许多传统深度学习推理任务都可以抽象为“一次请求对应一次前向计算”：
 
-```text title='二、范式转移：服务对象从“一次计算”变成“持续生成过程” · 请求进入 → 组 Batch → 执行一次 Forward → 返回结果'
+```text title='传统在线推理：一次请求一次前向'
 请求进入 → 组 Batch → 执行一次 Forward → 返回结果
 ```
 
@@ -107,7 +107,7 @@ LLM Serving 需要在显存预算、请求生命周期、生成进度和服务�
 
 LLM 推理通常分为 Prefill 与 Decode 两个阶段：
 
-```text title='三、Prefill 与 Decode：两种完全不同的 GPU Work… · ──[       Prefill       ]──[D][D][D…'
+```text title='一次请求的时间线：一段 Prefill 后逐个 Decode'
 ──[       Prefill       ]──[D][D][D][D][D][D][D]──▶
                             ↑  ↑  ↑  ↑  ↑  ↑  ↑
                   每步生成 1 个 Token
@@ -115,7 +115,7 @@ LLM 推理通常分为 Prefill 与 Decode 两个阶段：
 
 Prefill 主要决定**第一个 Token 何时到达**，Decode 则决定**后续 Token 的生成速度和稳定性**。二者不仅执行顺序不同，计算规模、并行方式和硬件瓶颈也明显不同。
 
-```text title='三、Prefill 与 Decode：两种完全不同的 GPU Work… · ┌──────────────────────────── Prefi…'
+```text title='Prefill 与 Decode 的数据流对照'
 ┌──────────────────────────── Prefill 数据流 ─────────────────────────────┐
 │                                                                         │
 │  input_ids: [t₁, t₂, t₃, ..., tₙ]    (N 个 Prompt Token 并行输入)      │
@@ -214,7 +214,7 @@ xychart-beta
 
 因此，系统目标不是简单地追求最大 Batch，而是在 SLO 约束下选择合适的执行规模：
 
-```text title='四、吞吐与时延：无法同时最优的权衡 · 吞吐最大化'
+```text title='吞吐与时延的权衡：可接受区间'
 吞吐最大化
       ▲
       │      可接受区间
@@ -253,7 +253,7 @@ LLM Serving 中：
 
 因此，系统需要持续调度，而不是只在请求到达时进行一次 Batch 组装。下面用 4 个槽位、12 个 step 的时间线对比两种做法（`P` = Prefill，`D` = Decode 一步，`E` = 生成 EOS 的那一步，`.` = 槽位空转）：
 
-```text title='1. 变化一：从静态计算变成动态执行 · 静态 Batch：整批同进同出，最长的请求决定整批何时结束'
+```text title='静态 Batch 的空转：最长请求决定整批结束'
 静态 Batch：整批同进同出，最长的请求决定整批何时结束
 step    1  2  3  4  5  6  7  8  9 10 11 12
 R1     [P][D][D][D][E] .  .  .  .  .  .  .    5 步有效，7 步空转

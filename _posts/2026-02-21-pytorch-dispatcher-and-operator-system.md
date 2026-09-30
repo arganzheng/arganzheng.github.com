@@ -12,7 +12,7 @@ updated: 2026-09-14
 
 但当我们写下：
 
-```python title='正文 · z = x + y'
+```python title='一行 z = x + y'
 z = x + y
 ```
 
@@ -104,7 +104,7 @@ Table: 本文的章节安排
 
 一个算子 Schema 可以抽象写成：
 
-```text title='1. Operator Schema · add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) …'
+```text title='算子 Schema 的抽象写法'
 add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor
 ```
 
@@ -122,13 +122,13 @@ Schema 不是某个 Kernel 的实现，而是所有实现共同遵守的接口�
 
 PyTorch 的原生算子集中声明在：
 
-```text title='2. 原生算子：`native_functions.yaml` · aten/src/ATen/native/native_functions.yaml'
+```text title='原生算子声明所在的文件'
 aten/src/ATen/native/native_functions.yaml
 ```
 
 一条声明概念上类似：
 
-```yaml title='2. 原生算子：`native_functions.yaml` · - func: add.Tensor(Tensor self, Ten…'
+```yaml title='native_functions.yaml 里 add.Tensor 的声明'
 - func: add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor
   variants: function, method
   dispatch:
@@ -148,7 +148,7 @@ Table: native_functions.yaml 一个条目的三个字段
 
 把这条声明逐段拆开，可以看到每一段各自决定了系统的哪一部分：
 
-```text title='2. 原生算子：`native_functions.yaml` · - func: add.Tensor(Tensor self, Ten…'
+```text title='逐段拆开 add.Tensor 的声明：Schema、variants、dispatch'
 - func: add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor
         └───┬────┘ └────────────────────┬─────────────────────┘     └─┬──┘
             │                           │                             └─ 返回值
@@ -172,7 +172,7 @@ Table: native_functions.yaml 一个条目的三个字段
 
 原生算子之外，开发者可以通过 `torch.library`（Python）或 `TORCH_LIBRARY`（C++）定义新算子：
 
-```python title='3. 自定义算子：`torch.library` · 导入：torch'
+```python title='用 torch.library 定义 myops::scale'
 import torch
 
 lib = torch.library.Library("myops", "DEF")
@@ -185,7 +185,7 @@ lib.define("scale(Tensor x, float alpha) -> Tensor")
 
 同一语义通常有三种 variant，它们是三条独立的 Schema：
 
-```python title='4. `add`、`add_` 和 `add.out` · z = torch.add(x, y)              # …'
+```python title='add 的三种 variant：functional、in-place、out'
 z = torch.add(x, y)              # add.Tensor      functional
 x.add_(y)                        # add_.Tensor     in-place
 torch.add(x, y, out=output)      # add.out         out
@@ -203,7 +203,7 @@ Table: functional、in-place 与 out 三种 Variant
 
 如果一个算子会修改输入，Autograd、编译器和调用者都必须知道哪个输入被修改、哪个输出与哪个输入共享存储：
 
-```python title='5. 为什么 alias 和 mutability 语义重要？ · x.add_(y)     # 修改 x，其他 view 可见变化，b…'
+```python title='add_ 与 + 的 alias / mutability 区别'
 x.add_(y)     # 修改 x，其他 view 可见变化，backward 需要检查版本
 z = x + y     # 不修改 x，分配新 Storage
 ```
@@ -214,7 +214,7 @@ Schema 中的 alias 标注（如 `Tensor(a!)`）是 Autograd 版本检查、编�
 
 原生算子的反向公式声明在 `tools/autograd/derivatives.yaml`：
 
-```yaml title='6. 导数声明：`derivatives.yaml` · - name: add.Tensor(Tensor self, Ten…'
+```yaml title='derivatives.yaml 里 add.Tensor 的反向公式'
 - name: add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor
   self: grad
   other: maybe_multiply(grad, alpha)
@@ -244,7 +244,7 @@ Table: DispatchKey 的两类
 
 `native_functions.yaml` 中的 `dispatch` 字段就是注册声明：
 
-```yaml title='2. 原生算子的注册：`dispatch` 字段 · 配置项：dispatch'
+```yaml title='dispatch 字段就是注册声明'
 dispatch:
   CPU, CUDA: add        # 在 CPU 和 CUDA Key 下，实现函数叫 add
   Meta: add_meta        # 在 Meta Key 下，实现函数叫 add_meta
@@ -252,7 +252,7 @@ dispatch:
 
 Codegen 读到这一段，会生成类似下面的注册代码（简化）：
 
-```cpp title='2. 原生算子的注册：`dispatch` 字段 · 函数：TORCH_LIBRARY_IMPL'
+```cpp title='Codegen 生成的 TORCH_LIBRARY_IMPL 注册代码（简化）'
 TORCH_LIBRARY_IMPL(aten, CPU, m) {
   m.impl("add.Tensor", TORCH_FN(at::native::add));
 }
@@ -267,7 +267,7 @@ TORCH_LIBRARY_IMPL(aten, CUDA, m) {
 
 自定义算子开发者手写同样的注册代码：
 
-```cpp title='3. 自定义算子的注册：`TORCH_LIBRARY_IMPL` · 函数：TORCH_LIBRARY_IMPL'
+```cpp title='手写自定义算子的 TORCH_LIBRARY_IMPL'
 TORCH_LIBRARY_IMPL(myops, CPU, m) {
   m.impl("scale", scale_cpu);
 }
@@ -278,7 +278,7 @@ TORCH_LIBRARY_IMPL(myops, CUDA, m) {
 
 或在 Python 中：
 
-```python title='3. 自定义算子的注册：`TORCH_LIBRARY_IMPL` · lib.impl("scale", scale_cpu, "CPU")'
+```python title='Python 侧的 lib.impl'
 lib.impl("scale", scale_cpu, "CPU")
 lib.impl("scale", scale_cuda, "CUDA")
 ```
@@ -322,7 +322,7 @@ flowchart TB
 
 对应到源码（`aten/src/ATen/core/dispatch/OperatorEntry.h`，节选）：
 
-```cpp title='4. Operator Table 长什么样 · 类：OperatorEntry'
+```cpp title='OperatorEntry::lookup：按下标 O(1) 查 dispatchTable_'
 class OperatorEntry {
   // ...
   const KernelFunction& lookup(DispatchKeySet ks) const {
@@ -347,7 +347,7 @@ class OperatorEntry {
 
 如果某个 Key 下没有注册实现，运行时会报类似的错误：
 
-```text title="5. 没有注册会怎样 · NotImplementedError: Could not run 'myops::scale' with ar…"
+```text title='Key 下没有实现时的 NotImplementedError'
 NotImplementedError: Could not run 'myops::scale' with arguments from the 'CUDA' backend.
 ```
 
@@ -482,7 +482,7 @@ Codegen 减少了重复，但增加了源码阅读成本：调用栈中很多函
 
 ### 1. 三种 Python 写法，同一个算子
 
-```python title='1. 三种 Python 写法，同一个算子 · z = torch.add(x, y)   # 函数'
+```python title='三种 Python 写法，同一个算子'
 z = torch.add(x, y)   # 函数
 z = x.add(y)          # 方法
 z = x + y             # 运算符 → Tensor.__add__ → 内部调用 add
@@ -498,7 +498,7 @@ Python Binding 负责参数解析：把 Python 对象转换为 C++ Tensor handle
 
 Binding 之后进入 Codegen 生成的 C++ 函数：
 
-```cpp title='3. ATen C++ API：`at::add` · 函数：at::add'
+```cpp title='Codegen 生成的 C++ 入口 at::add'
 at::Tensor z = at::add(x, y);
 ```
 
@@ -521,7 +521,7 @@ Dispatcher 收集所有输入 Tensor 的 DispatchKey，并合并当前线程的�
 
 一个容易想当然的地方：**`requires_grad` 不在 KeySet 里**。任何普通（dense）Tensor 的 KeySet 都自带 Autograd Key——`torch.zeros(3)` 的 KeySet 是 `{AutogradCPU, ADInplaceOrView, CPU}`，与它是否 `requires_grad` 无关；`requires_grad` 存在 Tensor 的 AutogradMeta 里，是 Autograd Kernel 进去之后才读的字段。同样，`torch.no_grad()` **不改 KeySet**：它只翻转线程局部的 GradMode 标志（`c10/core/GradMode.cpp` 就 12 行），Autograd Kernel 仍会被命中，只是在里面看到 GradMode 关闭就不记录 `grad_fn`、直接再分发。真正把 Autograd Key 从集合里剔掉的是 `torch.inference_mode()`（`InferenceMode.h`：把 autograd 一族 Key 加入 TLS excluded）——这也是它比 `no_grad` 更快、产物不能再进入 autograd 的原因。
 
-```text title='2. 合并 DispatchKeySet · x: CUDA Tensor, requires_grad=True …'
+```text title='no_grad 与 inference_mode 下 DispatchKeySet 的合并结果'
 x: CUDA Tensor, requires_grad=True   → {AutogradCUDA, ADInplaceOrView, CUDA}
 y: CUDA Tensor, requires_grad=False  → {AutogradCUDA, ADInplaceOrView, CUDA}   ← 一样
 TLS: 普通状态 / no_grad             → excluded 为空（no_grad 只改 GradMode 标志）
@@ -625,7 +625,7 @@ Dispatcher 选中后端实现后，第四章的五种实现模式在运行态各
 
 ### 1. TensorIterator 模式的运行时行为
 
-```python title='1. TensorIterator 模式的运行时行为 · x = torch.ones(2, 3)'
+```python title='(2, 3) 加 (3,) 的广播加法'
 x = torch.ones(2, 3)
 y = torch.ones(3)
 z = x + y
@@ -635,7 +635,7 @@ z = x + y
 
 广播后 `y` 的元数据变为 `shape=(2,3) stride=(0,1)`，于是每个输出位置读到的 `x` / `y` 存储偏移如下：
 
-```text title='1. TensorIterator 模式的运行时行为 · x: shape=(2,3) stride=(3,1)        …'
+```text title='广播后每个输出位置读到的 x / y 存储偏移'
 x: shape=(2,3) stride=(3,1)          y: shape=(3) stride=(1)
                                      broadcast → shape=(2,3) stride=(0,1)
 
@@ -664,7 +664,7 @@ Composite 实现调用子算子，每个子算子都是一次完整的 `at::xxx 
 
 ### 4. Meta 模式：不启动任何 Kernel
 
-```python title='4. Meta 模式：不启动任何 Kernel · with torch.device("meta"):'
+```python title='meta device 上做加法：只算 shape，不启动 Kernel'
 with torch.device("meta"):
     x = torch.empty(2, 3)
     y = torch.empty(3)
@@ -693,7 +693,7 @@ Meta 实现只推断输出元数据并构造一个无数据的 Tensor。不进�
 
 ### 2. 用户调用时发生了什么
 
-```python title='2. 用户调用时发生了什么 · x = torch.randn(2, 3, device="cuda", requires_grad=True)'
+```python title='一次 CUDA 上带梯度的 torch.add'
 x = torch.randn(2, 3, device="cuda", requires_grad=True)
 y = torch.randn(2, 3, device="cuda")
 z = torch.add(x, y)

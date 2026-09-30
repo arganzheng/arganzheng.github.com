@@ -16,7 +16,7 @@ updated: 2026-09-14
 
 本文用一个刻意简单的算子贯穿全文：
 
-```text title='正文 · scale_shift(x, alpha, beta) = alpha * x + beta'
+```text title='贯穿全文的算子：scale_shift(x, alpha, beta) = alpha * x + beta'
 scale_shift(x, alpha, beta) = alpha * x + beta
 ```
 
@@ -84,7 +84,7 @@ Table: 本文的章节安排
 
 定义一个算子，就是写下它的 **Schema**：名字、参数、返回值、以及是否修改输入。对 `scale_shift` 来说：
 
-```text title='1. 第一步：定义——写下 Schema · myops::scale_shift(Tensor x, float …'
+```text title='scale_shift 的 Schema'
 myops::scale_shift(Tensor x, float alpha, float beta) -> Tensor
 ```
 
@@ -130,7 +130,7 @@ Table: Schema 类型与 Python、C++ 类型的对应
 
 **默认值与 keyword-only 参数**
 
-```text title='1. 第一步：定义——写下 Schema · myops::scale_shift(Tensor x, float …'
+```text title='带默认值与 keyword-only 参数的 Schema'
 myops::scale_shift(Tensor x, float alpha=1.0, *, float beta=0.0) -> Tensor
 ```
 
@@ -140,7 +140,7 @@ myops::scale_shift(Tensor x, float alpha=1.0, *, float beta=0.0) -> Tensor
 
 如果算子会修改某个输入（in-place），必须在 Schema 中声明：
 
-```text title='1. 第一步：定义——写下 Schema · myops::scale_shift_(Tensor(a!) x, f…'
+```text title='in-place 版本的 Schema：Tensor(a!) 标注'
 myops::scale_shift_(Tensor(a!) x, float alpha, float beta) -> Tensor(a!)
 ```
 
@@ -189,7 +189,7 @@ Table: 注册前后 myops::scale_shift 的 Operator Table 槽位
 
 实现函数的签名必须与 Schema 按上面的类型表严格对应：
 
-```text title='3. 第三步：实现——写符合 Schema 的函数 · Schema:  myops::scale_shift(Tensor …'
+```text title='Schema、Python、C++ 三种签名的对应'
 Schema:  myops::scale_shift(Tensor x, float alpha, float beta) -> Tensor
 Python:  def scale_shift(x: torch.Tensor, alpha: float, beta: float) -> torch.Tensor
 C++:     at::Tensor scale_shift(const at::Tensor& x, double alpha, double beta)
@@ -220,7 +220,7 @@ flowchart TB
 
 **显式三步**
 
-```python title='1. Python 侧：`torch.library` · 导入：torch'
+```python title='torch.library 显式三步：define、impl'
 import torch
 
 # 定义：创建命名空间，写 Schema
@@ -237,7 +237,7 @@ lib.impl("scale_shift", scale_shift_impl, "CompositeExplicitAutograd")
 
 `Library("myops", "DEF")` 的 `"DEF"` 表示这个对象负责定义命名空间 `myops`；同一进程内一个命名空间只能 `DEF` 一次。如果只想给已有命名空间添加实现，用 `"IMPL"`：
 
-```python title='1. Python 侧：`torch.library` · lib_impl = torch.library.Library("myops", "IMPL")'
+```python title='只给已有命名空间加实现：Library("myops", "IMPL")'
 lib_impl = torch.library.Library("myops", "IMPL")
 lib_impl.impl("scale_shift", scale_shift_cuda_impl, "CUDA")
 ```
@@ -246,7 +246,7 @@ lib_impl.impl("scale_shift", scale_shift_cuda_impl, "CUDA")
 
 PyTorch 2.4 起提供 `torch.library.custom_op`，把三步压成一个装饰器：
 
-```python title='1. Python 侧：`torch.library` · @torch.library.custom_op("myops::sc…'
+```python title='custom_op 装饰器：一步完成定义与默认实现'
 @torch.library.custom_op("myops::scale_shift", mutates_args=())
 def scale_shift(x: torch.Tensor, alpha: float, beta: float) -> torch.Tensor:
     return alpha * x + beta
@@ -256,7 +256,7 @@ def scale_shift(x: torch.Tensor, alpha: float, beta: float) -> torch.Tensor:
 
 `custom_op` 还支持按设备注册不同实现：
 
-```python title='1. Python 侧：`torch.library` · @scale_shift.register_kernel("cuda")'
+```python title='register_kernel("cuda")：按设备注册不同实现'
 @scale_shift.register_kernel("cuda")
 def _(x, alpha, beta):
     return my_cuda_ext.scale_shift(x, alpha, beta)   # 调用已编译的 C++ 扩展
@@ -266,7 +266,7 @@ def _(x, alpha, beta):
 
 Python 侧还提供两个高层 API，对应 Operator Table 的 Autograd 和 Meta 槽位：
 
-```python title='1. Python 侧：`torch.library` · torch.library.register_autograd("my…'
+```python title='register_autograd 与 register_fake'
 torch.library.register_autograd("myops::scale_shift", backward_fn, setup_context=setup_fn)
 torch.library.register_fake("myops::scale_shift")(fake_fn)
 ```
@@ -289,7 +289,7 @@ Table: Python 侧 torch.library 能做与不能做的
 
 **三个宏**
 
-```cpp title='2. C++ 侧：`TORCH_LIBRARY` 宏族 · 函数：TORCH_LIBRARY'
+```cpp title='TORCH_LIBRARY 宏族：def 与 impl'
 #include <torch/library.h>
 
 // 定义：一个命名空间在整个进程中只能 TORCH_LIBRARY 一次
@@ -320,7 +320,7 @@ Table: TORCH_LIBRARY 宏族与三步的对应
 
 这三个宏展开后都是一个**静态初始化对象**。共享库被加载时，C++ 运行时执行静态初始化，对象的构造函数被调用，构造函数里执行你写的花括号代码块，`m.def` / `m.impl` 把 Schema 和函数指针写入 Operator Table。
 
-```text title='2. C++ 侧：`TORCH_LIBRARY` 宏族 · Python: import myops._C'
+```text title='import 触发的静态初始化链：从 .so 加载到 torch.ops 可用'
 Python: import myops._C
     ↓ 动态链接器加载 .so
     ↓ 执行静态初始化
@@ -435,7 +435,7 @@ Table: c10、at、torch 三个命名空间的分工
 
 一次手工编译大致需要这些参数：
 
-```text title='3. 编译一个扩展需要告诉编译器什么 · 头文件路径   -I site-packages/torch/include'
+```text title='手工编译扩展需要的参数：头文件、库路径、链接库、标志'
 头文件路径   -I site-packages/torch/include
              -I site-packages/torch/include/torch/csrc/api/include
              -I /usr/local/cuda/include
@@ -457,7 +457,7 @@ CUDA 标志    -gencode arch=compute_80,code=sm_80  （目标 GPU 架构）
 
 最适合实验和本文演示的方式。在 Python 中直接指定源文件，首次调用时编译，结果缓存在 `~/.cache/torch_extensions/`：
 
-```python title='4. 三种构建方式 · 从 torch.utils.cpp_extension 导入'
+```python title='JIT 编译：torch.utils.cpp_extension.load'
 from torch.utils.cpp_extension import load
 
 myops = load(
@@ -473,7 +473,7 @@ myops = load(
 
 `load_inline` 允许把 C++ 源码写在 Python 字符串里，适合几十行的小实验：
 
-```python title='4. 三种构建方式 · 从 torch.utils.cpp_extension 导入'
+```python title='load_inline：C++ 源码写在 Python 字符串里'
 from torch.utils.cpp_extension import load_inline
 
 cpp_src = """
@@ -490,7 +490,7 @@ mod.double_it(torch.ones(3))   # tensor([2., 2., 2.])
 
 发布给他人使用时的标准方式：
 
-```python title='4. 三种构建方式 · 从 setuptools 导入'
+```python title='setuptools 方式：setup.py 与 CppExtension / CUDAExtension'
 # setup.py
 from setuptools import setup
 from torch.utils.cpp_extension import CppExtension, CUDAExtension, BuildExtension
@@ -523,7 +523,7 @@ setup(
 
 当扩展是一个更大 C++ 项目的一部分，或需要与其他 C++ 库一起构建时，用 CMake：
 
-```cmake title='4. 三种构建方式 · cmake_minimum_required(VERSION 3.18)'
+```cmake title='CMake 方式：find_package(Torch) 加 add_library'
 cmake_minimum_required(VERSION 3.18)
 project(myops LANGUAGES CXX CUDA)
 
@@ -555,7 +555,7 @@ Table: 三种构建方式对比
 
 **pybind11：绑定为普通 Python 函数**
 
-```cpp title='5. 两种把 C++ 暴露给 Python 的方式 · 函数：scale_shift_cpu'
+```cpp title='pybind11：把 C++ 函数绑成普通 Python 函数'
 #include <torch/extension.h>   // 包含了 pybind11 和 ATen
 
 at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta) { /* ... */ }
@@ -567,7 +567,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 
 Python 侧：
 
-```python title='5. 两种把 C++ 暴露给 Python 的方式 · myops.scale_shift(x, 2.0, 1.0)   # 一个普通 Python 函数'
+```python title='pybind11 路径的 Python 调用'
 myops.scale_shift(x, 2.0, 1.0)   # 一个普通 Python 函数
 ```
 
@@ -575,7 +575,7 @@ myops.scale_shift(x, 2.0, 1.0)   # 一个普通 Python 函数
 
 **`TORCH_LIBRARY`：注册为 PyTorch 算子**
 
-```cpp title='5. 两种把 C++ 暴露给 Python 的方式 · 函数：TORCH_LIBRARY'
+```cpp title='TORCH_LIBRARY：注册为 PyTorch 算子'
 #include <torch/library.h>
 
 TORCH_LIBRARY(myops, m) {
@@ -588,7 +588,7 @@ TORCH_LIBRARY_IMPL(myops, CPU, m) {
 
 Python 侧：
 
-```python title='5. 两种把 C++ 暴露给 Python 的方式 · torch.ops.myops.scale_shift(x, 2.0,…'
+```python title='算子路径的 Python 调用：torch.ops.myops.scale_shift'
 torch.ops.myops.scale_shift(x, 2.0, 1.0)   # 经过 Dispatcher
 ```
 
@@ -621,7 +621,7 @@ Table: pybind11 与 TORCH_LIBRARY 暴露方式的差别
 
 `scale_shift.cpp` 的骨架：
 
-```cpp title='6. 最小可编译骨架 · 函数：scale_shift_cpu'
+```cpp title='scale_shift.cpp 骨架：实现、def、impl'
 #include <torch/library.h>
 #include <ATen/ATen.h>
 
@@ -643,7 +643,7 @@ TORCH_LIBRARY_IMPL(myops, CPU, m) {
 
 `build.py`：
 
-```python title='6. 最小可编译骨架 · 导入：torch'
+```python title='build.py：load 后调用 torch.ops.myops.scale_shift'
 import torch
 from torch.utils.cpp_extension import load
 
@@ -682,7 +682,7 @@ Table: 常见编译与加载错误速查
 
 第一步不是写计算，而是用第三章的 Python 侧方式写下 Schema：
 
-```python title='1. 先定义，再实现 · 导入：torch'
+```python title='先用 custom_op 写下 Schema 与 Python 实现'
 import torch
 
 @torch.library.custom_op("myops::scale_shift", mutates_args=())
@@ -709,7 +709,7 @@ Table: 普通 Python 函数与 custom_op 的区别
 
 ### 3. 调用与验证
 
-```python title='3. 调用与验证 · x = torch.randn(4, 3)'
+```python title='调用并用 assert_close 验证'
 x = torch.randn(4, 3)
 y = torch.ops.myops.scale_shift(x, 2.0, 1.0)
 torch.testing.assert_close(y, 2.0 * x + 1.0)
@@ -723,7 +723,7 @@ torch.testing.assert_close(y, 2.0 * x + 1.0)
 
 按第二章的类型表：
 
-```cpp title='1. 实现函数的签名 · 函数：scale_shift_cpu'
+```cpp title='C++ 实现函数的签名'
 at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta);
 ```
 
@@ -733,7 +733,7 @@ at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta);
 
 在 C++ 里，错误的输入不会像 Python 那样抛出友好的异常，可能直接越界访问。所以实现的第一段永远是检查：
 
-```cpp title='2. 第一件事：检查输入 · 函数：TORCH_CHECK'
+```cpp title='实现的第一段：TORCH_CHECK 检查 device 与 dtype'
 TORCH_CHECK(x.device().is_cpu(), "scale_shift_cpu: expected CPU tensor, got ", x.device());
 TORCH_CHECK(x.is_floating_point(), "scale_shift_cpu: expected floating dtype, got ", x.dtype());
 ```
@@ -746,7 +746,7 @@ TORCH_CHECK(x.is_floating_point(), "scale_shift_cpu: expected floating dtype, go
 
 **选择 A：先 `contiguous()`，再按一维遍历**
 
-```cpp title='3. 处理 stride：contiguous 还是 TensorIterator · 函数：contiguous'
+```cpp title='选择 A：先 contiguous 再按一维遍历'
 auto x_contig = x.contiguous();      // 非连续时产生一次拷贝
 auto out = at::empty_like(x_contig);
 const int64_t n = x_contig.numel();
@@ -756,7 +756,7 @@ const int64_t n = x_contig.numel();
 
 **选择 B：用 TensorIterator，支持任意 stride**
 
-```cpp title='3. 处理 stride：contiguous 还是 TensorIterator · 函数：at::empty_like'
+```cpp title='选择 B：用 TensorIteratorConfig 支持任意 stride'
 #include <ATen/TensorIterator.h>
 #include <ATen/native/cpu/Loops.h>
 
@@ -771,7 +771,7 @@ TensorIterator 处理广播、stride 和并行划分，Kernel 只写单元素计
 
 两种选择的差别，用同一个逻辑 shape=(2,3) 的两种 stride 看得最清楚——逻辑格子相同，落在 storage 上的位置却不同：
 
-```text title='3. 处理 stride：contiguous 还是 TensorIterator · storage（6 个元素，下标 s0..s5）'
+```text title='同一逻辑 shape 的两种 stride 落在 storage 上的位置'
 storage（6 个元素，下标 s0..s5）
 ┌────┬────┬────┬────┬────┬────┐
 │ s0 │ s1 │ s2 │ s3 │ s4 │ s5 │
@@ -803,7 +803,7 @@ B. x.t()       shape=(2,3) stride=(1,2)   offset = i*1 + j*2
 
 `x.dtype()` 是运行时信息，而 C++ 模板需要编译期类型。`AT_DISPATCH_*` 宏做这个桥接：
 
-```cpp title='4. 处理 dtype：`AT_DISPATCH` · 函数：AT_DISPATCH_FLOATING_TYPES'
+```cpp title='AT_DISPATCH_FLOATING_TYPES：运行时 dtype 到编译期 scalar_t'
 AT_DISPATCH_FLOATING_TYPES(x.scalar_type(), "scale_shift_cpu", [&] {
   // 在 lambda 内部，scalar_t 是具体类型：float 或 double
   at::native::cpu_kernel(iter, [alpha, beta](scalar_t v) -> scalar_t {
@@ -818,7 +818,7 @@ AT_DISPATCH_FLOATING_TYPES(x.scalar_type(), "scale_shift_cpu", [&] {
 
 ### 5. 完整的 CPU 实现
 
-```cpp title='5. 完整的 CPU 实现 · 函数：scale_shift_cpu'
+```cpp title='完整的 CPU 实现：scale_shift_cpu 与注册'
 #include <ATen/ATen.h>
 #include <ATen/TensorIterator.h>
 #include <ATen/native/cpu/Loops.h>
@@ -859,7 +859,7 @@ TORCH_LIBRARY_IMPL(myops, CPU, m) {
 
 如果不用 TensorIterator 而直接访问内存：
 
-```cpp title='6. `data_ptr` 的边界 · 函数：contiguous'
+```cpp title='直接用 data_ptr 遍历内存'
 auto x_contig = x.contiguous();
 const float* src = x_contig.data_ptr<float>();
 float* dst = out.data_ptr<float>();
@@ -872,7 +872,7 @@ for (int64_t i = 0; i < x_contig.numel(); ++i) {
 
 ### 7. Python 侧验证
 
-```python title='7. Python 侧验证 · 从 torch.utils.cpp_extension 导入'
+```python title='Python 侧验证：连续与非连续输入'
 from torch.utils.cpp_extension import load
 load(name="myops", sources=["scale_shift.cpp"], is_python_module=False)
 
@@ -885,7 +885,7 @@ torch.testing.assert_close(torch.ops.myops.scale_shift(xt, 2.0, 1.0), 2.0 * xt +
 
 此时传入 CUDA Tensor：
 
-```text title="7. Python 侧验证 · NotImplementedError: Could not run 'myops::scale_shift' w…"
+```text title='此时传 CUDA Tensor 的 NotImplementedError'
 NotImplementedError: Could not run 'myops::scale_shift' with arguments from the 'CUDA' backend.
 ```
 
@@ -927,7 +927,7 @@ Table: CUDA Kernel 里区分"我是谁"的三个内建变量
 
 把公式代入一组具体数字：n=1024、每 block 256 线程，正好切成 4 个 block，每个线程的 `idx` 由所在 block 的起点加上自己在 block 内的编号得到：
 
-```text title='2. 读懂一个 Kernel 需要的几个概念 · n = 1024, threads = 256  →  blocks …'
+```text title='n=1024、256 线程：每个 block 与 thread 处理的元素'
 n = 1024, threads = 256  →  blocks = (1024 + 255) / 256 = 4
 idx = blockIdx.x * blockDim.x + threadIdx.x
 
@@ -972,7 +972,7 @@ stride 越大，同一 warp 触碰的扇区越多；极端情况下 32 个线程
 
 ### 3. Kernel
 
-```cpp title='3. Kernel · 函数：scale_shift_kernel'
+```cpp title='scale_shift_cuda.cu：CUDA Kernel'
 // scale_shift_cuda.cu
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
@@ -997,7 +997,7 @@ Kernel 只表达“对第 `i` 个元素做什么”。它假设输入是连续�
 
 ### 4. Launch 函数
 
-```cpp title='4. Launch 函数 · 函数：scale_shift_cuda'
+```cpp title='Launch 函数 scale_shift_cuda：CUDAGuard、grid 计算、注册'
 at::Tensor scale_shift_cuda(const at::Tensor& x, double alpha, double beta) {
   TORCH_CHECK(x.is_cuda(), "expected CUDA tensor");
   TORCH_CHECK(x.is_floating_point(), "expected floating dtype");
@@ -1049,7 +1049,7 @@ CUDA Kernel launch 是异步的：函数返回时 Kernel 可能还没执行。�
 
 ### 6. 编译
 
-```python title='6. 编译 · load(name="myops", sources=["scale_shift.cpp", "scale_shi…'
+```python title='同时编译 .cpp 与 .cu'
 load(name="myops", sources=["scale_shift.cpp", "scale_shift_cuda.cu"], verbose=True,
      is_python_module=False)
 ```
@@ -1062,7 +1062,7 @@ load(name="myops", sources=["scale_shift.cpp", "scale_shift_cuda.cu"], verbose=T
 
 ### 1. 现在还缺什么
 
-```python title='1. 现在还缺什么 · x = torch.randn(4, 3, requires_grad=True)'
+```python title='此时 backward 失败：没有反向规则'
 x = torch.randn(4, 3, requires_grad=True)
 y = torch.ops.myops.scale_shift(x, 2.0, 1.0)
 y.sum().backward()      # 失败：没有人告诉 Autograd 反向规则
@@ -1074,7 +1074,7 @@ y.sum().backward()      # 失败：没有人告诉 Autograd 反向规则
 
 ### 2. 注册 Autograd：Python 侧
 
-```python title='2. 注册 Autograd：Python 侧 · 函数：_setup_context'
+```python title='Python 侧注册 Autograd：setup_context 与 backward'
 def _setup_context(ctx, inputs, output):
     x, alpha, beta = inputs
     ctx.alpha = alpha                # 只保存标量，不保存 Tensor
@@ -1094,7 +1094,7 @@ torch.library.register_autograd(
 
 如果扩展要在纯 C++ 环境使用，Autograd 也可以在 C++ 注册：
 
-```cpp title='3. 注册 Autograd：C++ 侧（备选） · 函数：scale_shift_op'
+```cpp title='C++ 侧注册 Autograd：autograd::Function 加 typed handle'
 #include <torch/autograd.h>
 #include <ATen/core/dispatch/Dispatcher.h>
 
@@ -1163,7 +1163,7 @@ sequenceDiagram
 
 ### 4. 注册 Meta / Fake 实现
 
-```python title='4. 注册 Meta / Fake 实现 · @torch.library.register_fake("myops::scale_shift")'
+```python title='register_fake：只描述输出元数据'
 @torch.library.register_fake("myops::scale_shift")
 def _fake(x, alpha, beta):
     # 只描述输出的 shape / dtype / device / stride；不算数
@@ -1240,7 +1240,7 @@ flowchart TB
 
 一站式检查：Schema 与实现是否一致（`test_schema`）、Fake 的输出元数据与真实实现是否一致（`test_faketensor`）、Autograd 注册是否合法（`test_autograd_registration`）、算子在 AOTAutograd 下能否被静态与动态 shape 追踪（`test_aot_dispatch_*`）。它**不**做有限差分——梯度数值对不对是下一节 `gradcheck` 的事，`opcheck` 只检查"注册得对不对"。
 
-```python title='2. `torch.library.opcheck` · 从 torch.library 导入'
+```python title='用 opcheck 检查各设备、dtype 与非连续输入的注册'
 from torch.library import opcheck
 
 for device in ["cpu", "cuda"]:
@@ -1254,7 +1254,7 @@ for device in ["cpu", "cuda"]:
 
 ### 3. `gradcheck`
 
-```python title='3. `gradcheck` · 从 torch.autograd 导入'
+```python title='gradcheck 做有限差分'
 from torch.autograd import gradcheck
 
 x = torch.randn(4, 3, dtype=torch.float64, requires_grad=True)
@@ -1265,7 +1265,7 @@ assert gradcheck(lambda t: torch.ops.myops.scale_shift(t, 2.0, 1.0), (x,))
 
 ### 4. Benchmark
 
-```python title='4. Benchmark · 导入：torch.utils.benchmark'
+```python title='Benchmark：自定义算子对比原生表达式'
 import torch.utils.benchmark as benchmark
 
 x = torch.randn(1 << 20, device="cuda")
@@ -1287,13 +1287,13 @@ print(t_native.timeit(100))
 
 发布时改为第四章 §4 的 setuptools 方式，并在 Python 包的 `__init__.py` 中完成加载与 Python 侧注册：
 
-```cpp title='1. 从 JIT `load` 到 `setup.py` · 函数：PYBIND11_MODULE'
+```cpp title='给 setuptools 产物加一个空的 PYBIND11_MODULE 入口'
 // csrc/scale_shift.cpp 末尾追加：给 setuptools 产物一个 Python 模块入口
 // （没有它，`import myops._C` 会因找不到 PyInit__C 而失败；模块本身可以是空的）
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {}
 ```
 
-```python title='1. 从 JIT `load` 到 `setup.py` · 导入：torch'
+```python title='myops/__init__.py：import _C 并完成 Python 侧注册'
 # myops/__init__.py
 import torch
 from . import _C                     # import 触发 TORCH_LIBRARY 静态初始化
@@ -1337,7 +1337,7 @@ Table: 三种分发策略的做法与代价
 
 在 `__init__.py` 中做一次版本检查，把模糊的符号错误变成明确的提示：
 
-```python title='4. 运行时检查 · _BUILT_AGAINST = "2.4"'
+```python title='__init__.py 里的 torch 版本检查'
 _BUILT_AGAINST = "2.4"
 if not torch.__version__.startswith(_BUILT_AGAINST):
     raise ImportError(f"myops was built against torch {_BUILT_AGAINST}, got {torch.__version__}")
@@ -1347,7 +1347,7 @@ if not torch.__version__.startswith(_BUILT_AGAINST):
 
 ### 1. 与 JNI 的相似之处
 
-```text title='1. 与 JNI 的相似之处 · JNI              Java 声明 native 方法 → C 实现 → System.loadLi…'
+```text title='JNI 与 PyTorch 扩展的对应'
 JNI              Java 声明 native 方法 → C 实现 → System.loadLibrary → JNI_OnLoad
 PyTorch 扩展     Schema 定义算子 → C++/CUDA 实现 → import → TORCH_LIBRARY 静态初始化
 ```
@@ -1376,7 +1376,7 @@ Table: JNI 与 PyTorch C++ 扩展的关键区别
 
 ### 1. 三个概念
 
-```text title='1. 三个概念 · 三步          定义 Schema → 注册到 DispatchKey → 编写实现'
+```text title='三步、两种接入方式、四个阶段'
 三步          定义 Schema → 注册到 DispatchKey → 编写实现
 两种接入方式  torch.library（Python）/ TORCH_LIBRARY（C++），操作同一张 Operator Table
 四个阶段      Python → C++ CPU → CUDA → Autograd + Meta，每阶段都是完整三步
@@ -1384,7 +1384,7 @@ Table: JNI 与 PyTorch C++ 扩展的关键区别
 
 ### 2. 自定义算子与原生算子的对应
 
-```text title='2. 自定义算子与原生算子的对应 · 定义      torch.library.define / TORCH_LIBRARY     ← native…'
+```text title='自定义算子与原生算子各环节的对应'
 定义      torch.library.define / TORCH_LIBRARY     ← native_functions.yaml
 注册      torch.library.impl / TORCH_LIBRARY_IMPL  ← dispatch 字段 + Codegen 注册代码
 实现      Python / C++ / CUDA 函数                  ← aten/src/ATen/native/
@@ -1394,7 +1394,7 @@ Meta      register_fake / Meta Key                 ← Structured Kernel 的 met
 
 ### 3. 构建基础的核心事实
 
-```text title='3. 构建基础的核心事实 · 扩展是共享库；import 加载它；静态初始化执行 TORCH_LIBRARY 完成注册'
+```text title='构建基础的四个核心事实'
 扩展是共享库；import 加载它；静态初始化执行 TORCH_LIBRARY 完成注册
 c10 是基础设施，at 是 Tensor 与算子，torch 是高层封装
 始终通过 torch.utils.cpp_extension 构建，不手写编译命令

@@ -38,7 +38,7 @@ Table: NumPy、Pandas、Matplotlib 三件事与章节安排
 
 NumPy 的核心对象是 `ndarray`：一块连续内存加一个**形状**（shape）和一个**元素类型**（dtype）。L0 第一篇的标量 / 向量 / 矩阵 / 张量在这里就是 0 / 1 / 2 / 多维的 ndarray：
 
-```python title='1. 形状与 dtype · 导入：numpy'
+```python title='ndarray 的形状、维数、dtype 与字节数'
 import numpy as np
 x = np.zeros((32, 128, 4096), dtype=np.float32)   # 一批 32 句、每句 128 个 token、每个 token 是一个 4096 维的向量（Llama-3-8B 的 hidden size）
 x.shape      # (32, 128, 4096)
@@ -51,7 +51,7 @@ x.nbytes     # 32 × 128 × 4096 × 4 = 67,108,864 字节 = 64 MiB
 
 ### 2. 索引与切片
 
-```python title='2. 索引与切片 · x[0]            # 第 0 句：(128, 4096)'
+```python title='按 batch、token、特征维切片的四种写法'
 x[0]            # 第 0 句：(128, 4096)
 x[:, -1]        # 每句的最后一个 token：(32, 4096)
 x[:, :64, :]    # 每句的前 64 个 token：(32, 64, 4096)
@@ -74,7 +74,7 @@ Table: 索引与切片的三种写法
 
 沿轴操作都要指定沿哪个**轴**（axis）进行。规约类（求和、平均、最大）让那个轴在结果里消失；softmax、LayerNorm 也沿轴算，但**不减轴**——它们对那一维上的每个数各输出一个数，形状不变（下面表里 softmax、LayerNorm 两行的输出形状与输入相同，"loss 沿 token 维平均"那行才是规约）：
 
-```python title='3. 轴：所有"沿哪个维度"是一个概念 · x.sum(axis=-1)    # 沿最后一维求和：(32, 12…'
+```python title='沿轴规约：axis 与 keepdims'
 x.sum(axis=-1)    # 沿最后一维求和：(32, 128)——每个 token 的 4096 个数加起来
 x.mean(axis=0)    # 沿 batch 平均：(128, 4096)
 x.max(axis=1)     # 沿 seq 取最大：(32, 4096)
@@ -116,7 +116,7 @@ Table: 广播规则的逐维检查示例
 
 实际运行：
 
-```text title='1. 三条规则 · (4,3) + (3,)  bias 加到每一行             -> (4, 3)'
+```text title='三组形状的广播结果与一个 ValueError'
 (4,3) + (3,)  bias 加到每一行             -> (4, 3)
 (4,3) + (4,1) 每行一个标量                 -> (4, 3)
 (4,3) + (4,)  行数对不上最后一维            -> ValueError: operands could not be broadcast together with shapes (4,3) (4,)
@@ -139,7 +139,7 @@ Table: 模型里常见的广播运算
 
 广播最危险的地方是它**太宽容**：
 
-```python title='3. 能跑但错 · a = np.arange(3)          # (3,)'
+```python title='(3,) 加 (3, 1)：广播成 (3, 3)'
 a = np.arange(3)          # (3,)
 b = np.arange(3)[:, None] # (3, 1)
 (a + b).shape             # (3, 3)！
@@ -147,7 +147,7 @@ b = np.arange(3)[:, None] # (3, 1)
 
 想做两个长度 3 的向量逐元素相加，因为一个是 `(3,)` 一个是 `(3, 1)`，广播成了一张 $$3 \times 3$$ 的外积表：
 
-```text title='3. 能跑但错 · [[0 1 2]'
+```text title='被广播成外积表的 3×3 结果'
 [[0 1 2]
  [1 2 3]
  [2 3 4]]
@@ -170,7 +170,7 @@ L0 第一篇说多头 attention 把 $$d$$ 拆成 $$h$$ 个头，每个头用 $$d
 
 Table: 多头 attention 用到的四个数组操作
 
-```python title='1. 多头 attention 的形状变换 · Q = X @ W_Q                        …'
+```python title='多头 attention 里 Q 的 reshape 与 transpose 四步'
 Q = X @ W_Q                                  # ① [B, T, d]
 Q = Q.reshape(B, T, h, d // h)               # ② [B, T, h, d_h]   把最后一维拆成 h 组
 Q = Q.transpose(0, 2, 1, 3)                  # ③ [B, h, T, d_h]   把 head 维挪到前面，让每个头独立成一个 [T, d_h]
@@ -190,13 +190,13 @@ S = Q @ K.transpose(0, 1, 3, 2)              # ④ [B, h, T, d_h] × [B, h, d_h,
 
 `einsum`（Einstein summation）用一个下标字符串描述矩阵乘法，是**把论文公式翻译成代码的最短路径**。先看最简单的二维例子——普通矩阵乘法 $$C_{ij} = \sum_k A_{ik} B_{kj}$$：
 
-```python title='2. einsum：把公式翻译成代码 · C = np.einsum("ik,kj->ij", A, B)     # 等价于 A @ B'
+```python title='einsum 写普通矩阵乘法'
 C = np.einsum("ik,kj->ij", A, B)     # 等价于 A @ B
 ```
 
 字符串的读法只有一条规则：**给每个输入的每一维取一个字母名字，箭头右边写输出要保留哪些字母；左边有、右边没有的字母，就是被求和掉的那一维。** 这里 `A` 的两维叫 `i k`，`B` 的两维叫 `k j`，输出保留 `i j`，`k` 只在左边出现——所以沿 `k` 求和。写成循环就是：
 
-```python title='2. einsum：把公式翻译成代码 · for i in range(I):'
+```python title='"ik,kj->ij" 对应的三重循环'
 for i in range(I):
     for j in range(J):
         C[i, j] = sum(A[i, k] * B[k, j] for k in range(K))   # k 被求和，i、j 留下
@@ -204,7 +204,7 @@ for i in range(I):
 
 规则不变，维度加多就是 attention 里的样子：
 
-```python title='2. einsum：把公式翻译成代码 · S = np.einsum("bhqd,bhkd->bhqk", Q, K)       # 带 batch 与 …'
+```python title='带 batch 与 head 的 QKᵀ 用 einsum 写'
 S = np.einsum("bhqd,bhkd->bhqk", Q, K)       # 带 batch 与 head 的 Q K^T
 ```
 
@@ -231,7 +231,7 @@ Table: 常见公式的 einsum 写法
 
 把 L0 的公式 $$\text{Attention}(Q, K, V) = \text{softmax}(QK^T / \sqrt{d_k})\,V$$ 加上 causal mask（每个位置只能看自己和前面的）写出来：
 
-```python title='1. 30 行 · 函数：softmax'
+```python title='30 行 NumPy 实现的 causal attention'
 def softmax(x, axis=-1):
     x = x - x.max(axis=axis, keepdims=True)       # 减最大值：L0 第五篇的数值技巧；keepdims 让它能广播回去
     e = np.exp(x)
@@ -250,13 +250,13 @@ def causal_attention_np(Q, K, V):                  # Q, K, V: [B, T, d]
 
 ### 2. 与 PyTorch 对数值
 
-```python title='2. 与 PyTorch 对数值 · out_np = causal_attention_np(Q, K, V)'
+```python title='NumPy 实现与 F.scaled_dot_product_attention 对数值'
 out_np = causal_attention_np(Q, K, V)
 out_pt = F.scaled_dot_product_attention(torch.tensor(Q), torch.tensor(K), torch.tensor(V), is_causal=True).numpy()
 np.abs(out_np - out_pt).max()     # 2.65e-07
 ```
 
-```text title='2. 与 PyTorch 对数值 · 形状: Q (2, 8, 16) -> S (2, 8, 8) -> 输出 (2, 8, 16)'
+```text title='对数值结果：误差 2.65e-07 与下三角的 attention 权重'
 形状: Q (2, 8, 16) -> S (2, 8, 8) -> 输出 (2, 8, 16)
 最大绝对误差: 2.65e-07   (float32 下 1e-6 量级即为一致)
 第 0 个 batch 的 attention 权重（每行和为 1，上三角为 0）：
@@ -302,7 +302,7 @@ Table: ndarray 与 DataFrame 的差别
 
 ### 3. 三个操作
 
-```python title='3. 三个操作 · 导入：pandas'
+```python title='groupby、merge、query 三个操作：对比新模型与 baseline'
 import pandas as pd
 new = pd.DataFrame(rows)                              # 每行 {"id", "category", "correct"}
 new.groupby("category")["correct"].agg(["mean", "count"])          # 各类别正确率与题数
@@ -316,7 +316,7 @@ merged.query("not correct and correct_base")                       # 退化的�
 
 用一份合成数据（530 题、四个类别）跑出来：
 
-```text title='3. 三个操作 · acc_new  count  acc_base  delta   ci95'
+```text title='四个类别的正确率、差值与置信区间'
                acc_new  count  acc_base  delta   ci95
 category
 algebra          0.770    200     0.695  0.075  0.058
@@ -334,7 +334,7 @@ number_theory    0.610    100     0.640 -0.030  0.096
 
 这一步在 Pandas 里是一行：`summary` 的每一列是一个 ndarray，四则运算与 `np.sqrt` 逐元素作用在整列上（第三章的广播），不用写循环：
 
-```python title='4. 带着置信区间读表 · summary = new.groupby("category")["correct"].agg(acc_new=…'
+```python title='用广播给每个类别算 95% 置信区间'
 summary = new.groupby("category")["correct"].agg(acc_new="mean", count="count")
 summary["ci95"] = 1.96 * np.sqrt(summary["acc_new"] * (1 - summary["acc_new"]) / summary["count"])
 ```
@@ -356,7 +356,7 @@ Table: 按类别看提升与 95% 置信区间
 
 **Polars** 是 Pandas 的新一代替代品：Rust 实现、多线程、默认惰性执行（先记下要做什么、最后一起优化执行，与第一篇的生成器流水线是同一个思路），在千万行以上快一个数量级。它的接口不兼容 Pandas，但概念完全一样——筛行、选列、分组聚合、按键对齐。上面的三个操作用 Polars 写：
 
-```python title='5. Polars：同一套操作的新实现 · 导入：polars'
+```python title='同样三个操作用 Polars 写'
 import polars as pl
 new = pl.DataFrame(rows)
 new.group_by("category").agg(pl.col("correct").mean().alias("acc_new"), pl.len().alias("count"))
@@ -378,7 +378,7 @@ merged.filter(~pl.col("correct") & pl.col("correct_base"))
 
 ### 2. 对数 x 轴看早期
 
-```python title='2. 对数 x 轴看早期 · ax.set_xscale("log")'
+```python title='把 x 轴改成对数坐标'
 ax.set_xscale("log")
 ```
 
@@ -386,13 +386,13 @@ ax.set_xscale("log")
 
 ### 3. 多 seed 画均值与阴影带
 
-```python title='3. 多 seed 画均值与阴影带 · mean, std = curves.mean(0), curves.std(0)                …'
+```python title='多 seed 曲线画均值与 ±1 标准差阴影带'
 mean, std = curves.mean(0), curves.std(0)                          # curves: [n_seeds, n_steps]
 ax.plot(steps, mean)
 ax.fill_between(steps, mean - std, mean + std, alpha=0.3)
 ```
 
-```text title='3. 多 seed 画均值与阴影带 · 曲线形状 (5, 1000)；method A step 10 / 100 / 1000 的均值 loss: 6.…'
+```text title='五个 seed 的均值 loss 与 seed 间标准差'
 曲线形状 (5, 1000)；method A step 10 / 100 / 1000 的均值 loss: 6.87 / 4.47 / 1.80，seed 间标准差 0.179
 step 1000：A − B = 0.300，约 1.7 个标准差
 ```

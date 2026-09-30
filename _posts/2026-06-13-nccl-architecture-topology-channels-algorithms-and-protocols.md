@@ -112,7 +112,7 @@ bootstrap 还提供 `bootstrapSend/Recv`（点对点，按需建 socket）和 `b
 
 `initTransportsRank`（`src/init.cc`）开头的注释直接写了它的骨架：
 
-```cpp title='3. initTransportsRank 的两次 AllGather · // We use 2 AllGathers'
+```cpp title='initTransportsRank 开头注释：两次 AllGather'
 // We use 2 AllGathers
 // 1. { peerInfo, comm, compCap}
 // 2. { nChannels, graphInfo, topoRanks }
@@ -130,7 +130,7 @@ bootstrap 还提供 `bootstrapSend/Recv`（点对点，按需建 socket）和 `b
 
 NCCL 内部的拓扑是一个图，节点类型六种，链路类型和路径类型共用一套编号（`src/graph/topo.h`）：
 
-```text title='1. 节点类型与链路类型 · 节点类型   GPU  PCI(桥/switch)  NVS(NVSwitch)  CPU(实为 NUMA 域) …'
+```text title='NCCL 拓扑图的节点类型、链路类型与路径类型'
 节点类型   GPU  PCI(桥/switch)  NVS(NVSwitch)  CPU(实为 NUMA 域)  NIC  NET(NIC 上的一个端口/设备)
 
 链路类型   LINK_LOC=0  LINK_NVL=1  LINK_C2C=3  LINK_PCI=4  LINK_SYS=9  LINK_NET=10
@@ -158,7 +158,7 @@ NCCL 内部的拓扑是一个图，节点类型六种，链路类型和路径类
 
 下面是一台 8 卡 A100 + NVSwitch + 每 GPU 一张 HDR 网卡的机器 dump 出来的样子（**示意**，删掉了大部分重复分枝和无关属性；属性名以 `src/graph/xml.cc` / `topo.cc` 读取的为准）：
 
-```text title='3. 一个精简的 topo XML 样例 · <system version="1">'
+```text title='精简的 topo XML 样例（8 卡 A100 + NVSwitch）'
 <system version="1">
   <cpu host_hash="0x..." numaid="0" affinity="ffff,ffffffff" arch="x86_64" vendor="AuthenticAMD" familyid="23" modelid="49">
     <pci busid="0000:40:00.0" class="0x060400" vendor="0x1022" device="0x1483" link_speed="16.0 GT/s PCIe" link_width="16">
@@ -188,7 +188,7 @@ NCCL 内部的拓扑是一个图，节点类型六种，链路类型和路径类
 
 `ncclTopoGetSystemFromXml` 建图时按 `src/graph/topo.h` 里的常数给链路带宽（全部是 NCCL 自己的**保守估计**，单位 GB/s，不是硬件标称）：
 
-```text title='4. 链路带宽是怎么填的 · NVLink 每 link      SM60 18.0 · SM70 20.0 · SM80 20.0 · SM…'
+```text title='建图时链路带宽的填法：NVLink、PCIe、CPU 间'
 NVLink 每 link      SM60 18.0 · SM70 20.0 · SM80 20.0 · SM86 12.0 · SM90 20.6 · SM100 40.1     (ncclTopoNVLinkBw)
                     GPU→NVS/GPU 链路带宽 = count × 每 link 带宽：A100 12×20 = 240，H100 18×20.6 ≈ 371，B200 18×40.1 ≈ 722
 PCIe                width × speed / 80，speed 单位 100 Mbps/lane：Gen3 x16 = 16×60/80 = 12，Gen4 = 24，Gen5 = 48   (ncclTopoAddPci)
@@ -207,7 +207,7 @@ LOC_BW = 5000       自己到自己
 
 `ncclTopoComputePaths`（`src/graph/paths.cc`）对每一个 CPU、GPU、NET、NVS 节点调 `ncclTopoSetPaths`，从该节点出发做一次 BFS，给图里其他节点写上"到它的路径"：经过的链路列表、路径带宽（沿途链路带宽的最小值）、路径类型。类型的合成规则就几条：
 
-```cpp title='1. BFS 与 path type 的合成规则 · // src/graph/paths.cc: ncclTopoSetPaths（节选）'
+```cpp title='ncclTopoSetPaths：路径类型的合成规则'
 // src/graph/paths.cc: ncclTopoSetPaths（节选）
 int type = link->type == LINK_NET ? LINK_LOC : link->type;            // 起点是链路类型
 if (node->type == PCI && remNode->type == PCI) type = PATH_PXB;        // 桥到桥：跨了多个 PCIe switch
@@ -244,7 +244,7 @@ remPath->type = std::max(path->type, type);                           // 整条�
 
 `initTransportsRank` 为每种算法准备一个 `ncclTopoGraph`（`src/include/graph.h`）并调 `ncclTopoCompute`（`src/graph/search.cc`）：
 
-```text title='1. ncclTopoGraph：输入与输出 · id  pattern                        …'
+```text title='五种 ncclTopoGraph 的 pattern 与 channel 数范围'
 id  pattern                            minChannels        maxChannels
 0   NCCL_TOPO_PATTERN_RING (4)         1                  MAXCHANNELS/2 = 32
 1   NCCL_TOPO_PATTERN_BALANCED_TREE(1) ringGraph.nChannels ringGraph.nChannels   （tree 的 channel 数被钉成和 ring 一样）
@@ -261,7 +261,7 @@ id  pattern                            minChannels        maxChannels
 
 `ncclTopoCompute` 的目标是**在给定每 channel 带宽的前提下，找到尽可能多的 channel**，然后再试着提高带宽。带宽不是连续搜的，而是从一个离散表里取：
 
-```cpp title='2. 搜索过程 · // src/graph/search.cc'
+```cpp title='search.cc 里的离散速度表'
 // src/graph/search.cc
 float speedArrayIntra[]     = { 40.0, 30.0, 20.0, 18.0, 15.0, 12.0, 10.0, 9.0, 7.0, 6.0, 5.0, 4.0, 3.0 };
 float speedArrayInter[]     = { 48.0, 30.0, 28.0, 24.0, 20.0, 18.0, 15.0, 12.0, 10.0, 9.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.4, 1.2, 0.24, 0.12 };
@@ -323,7 +323,7 @@ flowchart TB
 
 以两节点、每节点 4 卡为例（**示意**），search.cc 给每个节点的是一条"NIC 进 → 4 个 GPU → NIC 出"的局部路径，`connectRings` 只做一件事——把出口接到下一个节点的入口：
 
-```text title='3. 从节点内图到全局 ring 与 tree：connect.cc · 节点内图（search.cc 每节点一份，GPU 顺序 = intra[]）'
+```text title='connect.cc：节点内图拼成全局 ring'
 节点内图（search.cc 每节点一份，GPU 顺序 = intra[]）
   节点 A: NET/1 -> GPU0 -> GPU3 -> GPU2 -> GPU1 -> NET/1  ringRecv=0 ringSend=1
   节点 B: NET/1 -> GPU0 -> GPU3 -> GPU2 -> GPU1 -> NET/1  ringRecv=4 ringSend=5
@@ -352,7 +352,7 @@ connectRings：节点 n 的 ringSend 接节点 n+1 的 ringRecv
 
 8 个节点时两棵树长这样（顶点是**节点**而不是 GPU；节点内 GPU 挂成链）：
 
-```text title='4. double binary tree · ncclGetDtree(nNodes = 8)'
+```text title='ncclGetDtree：8 节点的两棵树'
 ncclGetDtree(nNodes = 8)
 
   树 0（ncclGetBtree）                树 1（偶数节点：镜像 r -> 7-r）
@@ -383,7 +383,7 @@ ncclGetDtree(nNodes = 8)
 
 `ncclTopoDumpGraphs` 在 `NCCL_GRAPH_DUMP_FILE` 设置时把五种图写成 XML（`ncclTopoGetXmlFromGraph`）。两机 16 卡的样例（**示意**，只保留 ring 图的前两个 channel）：
 
-```text title='5. NCCL_GRAPH_DUMP_FILE 样例 · <graphs version="1">'
+```text title='NCCL_GRAPH_DUMP_FILE 输出样例'
 <graphs version="1">
   <graph id="0" pattern="4" crossnic="0" nchannels="12" speedintra="20" speedinter="20" latencyinter="0" typeintra="NVL" typeinter="PIX" samechannels="1">
     <channel>
@@ -410,7 +410,7 @@ ncclGetDtree(nNodes = 8)
 
 `src/transport.cc` 里 `ncclTransports[]` 的顺序就是尝试顺序：
 
-```cpp title='1. 四种 transport 与选择顺序 · 结构体：ncclTransport'
+```cpp title='ncclTransports[]：四种 transport 的尝试顺序'
 struct ncclTransport* ncclTransports[NTRANSPORTS+1] = {
   &p2pTransport,      // src/transport/p2p.cc   同机 GPU 直接读写对端显存（NVLink 或 PCIe P2P）
   &shmTransport,      // src/transport/shm.cc   同机，经主机共享内存中转
@@ -424,7 +424,7 @@ struct ncclTransport* ncclTransports[NTRANSPORTS+1] = {
 
 日志里每条连接一行，格式随 transport（`src/transport/p2p.cc` / `shm.cc` / `net.cc` 的 `INFO(NCCL_INIT|…)`）：
 
-```text title='1. 四种 transport 与选择顺序 · Channel 00/0 : 0[0] -> 1[1] via P2P…'
+```text title='日志里的连接行：P2P、SHM、NET/IB/GDRDMA、PXN'
 Channel 00/0 : 0[0] -> 1[1] via P2P/CUMEM                 同进程内是 P2P/direct pointer；多进程用 cuMem 导出句柄；老路径是 P2P/IPC
 Channel 00/0 : 0[0] -> 2[2] via P2P/indirect/1[1]         NVB：经 GPU1 中转
 Channel 00 : 0[0] -> 4[4] via SHM/direct/direct            经共享内存；CE 表示用 copy engine 搬
@@ -480,12 +480,12 @@ send/recv 的连接则一直是按需的：`ncclSend/ncclRecv` 第一次碰到�
 
 `src/init.cc` 定义了名字，顺序就是 `NCCL_ALGO_*` 的编号：
 
-```cpp title='1. 七种算法 · const char* ncclAlgoStr[NCCL_NUM_ALGORITHMS] = { "Tree", …'
+```cpp title='ncclAlgoStr 与 ncclProtoStr：算法与协议的名字'
 const char* ncclAlgoStr[NCCL_NUM_ALGORITHMS] = { "Tree", "Ring", "CollNetDirect", "CollNetChain", "NVLS", "NVLSTree", "PAT" };
 const char* ncclProtoStr[NCCL_NUM_PROTOCOLS] = { "LL", "LL128", "Simple" };
 ```
 
-```text title='1. 七种算法 · Tree           节点间 double binary tree + 节点内链；all_reduce 先…'
+```text title='七种算法各自的形状与适用范围'
 Tree           节点间 double binary tree + 节点内链；all_reduce 先 reduce 到根再 broadcast 下来（runTreeUpDown / runTreeSplit）
                延迟 O(log nNodes)，带宽比 ring 低（模型里 ×0.92，Hopper 上再 ×0.85）
 Ring           第一篇的 ring：reduce_scatter + all_gather 各 n-1 步（runRing）；带宽最优，延迟 O(n)
@@ -530,7 +530,7 @@ do {
 
 两种"数据自带 flag"的 line 布局对照如下——效率 50% 与 93.75% 就是从格子数直接读出来的：
 
-```text title='2. 三种协议的机制 · LL：ncclLLFifoLine，16 B = 一条 st.volatile.global.v4.u32（原子）'
+```text title='三种协议的机制：LL 的 16 B 数据 + flag 排布'
 LL：ncclLLFifoLine，16 B = 一条 st.volatile.global.v4.u32（原子）
  byte   0       4       8       12      16
         +-------+-------+-------+-------+
@@ -553,7 +553,7 @@ LL128：一个 128 B line 由一个 warp 里的 8 个线程各持 16 B 拼成
 
 ### 3. 效率与延迟排序
 
-```text title='3. 效率与延迟排序 · 协议      有效载荷      同步方式                         延迟   带宽   …'
+```text title='三种协议的有效载荷、同步方式、延迟与带宽'
 协议      有效载荷      同步方式                         延迟   带宽    典型消息区间（非实测，以 tuning 表为准）
 LL        8/16 = 50%    16 B 原子 store 自带 flag，无 fence   最低   最低    几十 KB 以下
 LL128     120/128 ≈ 94% 128 B line 自带 flag，NVLink 顺序保证  中     接近    几十 KB ～ 几十 MB（NVLink 节点内常是默认）
@@ -606,7 +606,7 @@ flowchart TB
 
 这个函数（`src/graph/tuning.cc`）在初始化最后、连接建好之后调用一次，输入是四张图的 `nChannels/bwIntra/bwInter/typeIntra/typeInter`、`nRanks`、`nNodes`、计算能力档位（Volta/Ampere/Hopper/Blackwell），输出两张三维表。它的常数全在 `ncclTunerConstantsDefaults`，这里摘要：
 
-```text title='1. ncclTopoTuneModel：给每个组合填 lat 与 b… · baseLatencies[algo][proto]  (µs)   …'
+```text title='ncclTopoTuneModel 的常数：基础延迟与硬件延迟表'
 baseLatencies[algo][proto]  (µs)      Tree {6.8, 14.0, 8.4}  Ring {6.6, 14.0, 8.4}  CollNet* {0}  NVLS* {0}  PAT {8.0}
 hwLatencies[hw][algo][proto] (µs)
    NVLINK   Tree {0.6, 1.25, 4.0}  Ring {0.6, 1.9, 3.4}  CollNetDirect {-,-,3.7}  CollNetChain {-,-,2.8}  NVLS {-,-,25}  NVLSTree {-,-,25}  PAT {-,-,4.0}
@@ -619,7 +619,7 @@ nvlsEfficiency                Hopper 0.85  Blackwell 0.74
 
 对每个 (coll, algo, proto)，带宽这样算（`busBw` 是链路承载的流量，最后换成算法带宽）：
 
-```text title='1. ncclTopoTuneModel：给每个组合填 lat 与 b… · bw      = nNodes <= 2 ? graph.bwInt…'
+```text title='带宽表的计算：Ring / Tree 各协议的 busBw 折算'
 bw      = nNodes <= 2 ? graph.bwIntra : graph.bwInter          （多机时瓶颈在网络）
 busBw   = graph.nChannels × bw
 Ring+LL     busBw = min(llMaxBw, busBw × 0.5)                   LL 50%，且有绝对上限
@@ -633,7 +633,7 @@ PAT     ×0.75
 
 延迟这样算（`intraLat` 取 NVLINK 或 PCI 表，`interLat` 取 NET 表再加图的 `latencyInter`，Simple 再加一次 flush 延迟）：
 
-```text title='1. ncclTopoTuneModel：给每个组合填 lat 与 b… · Ring   lat = base + (nsteps - nInte…'
+```text title='延迟表的计算：Ring、Tree、CollNet、NVLS 的公式'
 Ring   lat = base + (nsteps - nInterSteps) × intraLat + nInterSteps × interLat
            nsteps = 2(nRanks-1)，nInterSteps = 2(nNodes-1)；多机时 intraLat 至少是 netOverhead（Intel 1 µs、AMD 2 µs，Simple ×3）
 Tree   lat = base + 2 × ((nRanks/nNodes - 1) × intraLat + log2(nNodes) × interLat)
@@ -645,7 +645,7 @@ PAT    lat = base + log2(nNodes) × interLat/3.5 + nRanks × 2.8
 
 rank 0 在 `NCCL_DEBUG_SUBSYS=TUNING` 下把整张表打出来，格式 `%8.1f/%6.1f` 即 `延迟/带宽`：
 
-```text title='1. ncclTopoTuneModel：给每个组合填 lat 与 b… · Algorithm   |                    Tr…'
+```text title='NCCL_DEBUG_SUBSYS=TUNING 打印的 lat / bw 表'
   Algorithm   |                    Tree                   |                    Ring                   |             CollNetDirect          |
   Protocol    |       LL |    LL128 |   Simple |       LL |    LL128 |   Simple |       LL |    LL128 |   Simple |
  Max NThreads |      512 |      640 |      512 |      512 |      640 |      512 |        0 |        0 |      640 |
@@ -659,7 +659,7 @@ rank 0 在 `NCCL_DEBUG_SUBSYS=TUNING` 下把整张表打出来，格式 `%8.1f/%
 
 执行期 `getAlgoInfo`（`src/enqueue.cc`）对每个可用的 (algo, proto) 调 `ncclTopoGetAlgoTime`：
 
-```cpp title='2. ncclTopoGetAlgoTime 与执行期的选择 · 结构体：ncclComm'
+```cpp title='ncclTopoGetAlgoTime：按表估算每个组合的时间'
 ncclResult_t ncclTopoGetAlgoTime(struct ncclComm* comm, int coll, int algorithm, int protocol, size_t nBytes, int numPipeOps, float* time) {
   float bw = comm->bandwidths[coll][algorithm][protocol];
   float lat = comm->latencies[coll][algorithm][protocol];
@@ -688,7 +688,7 @@ ncclResult_t ncclTopoGetAlgoTime(struct ncclComm* comm, int coll, int algorithm,
 
 **机器一：8 卡 H100 + NVSwitch（单机）。** 可用算法：Ring、Tree、NVLS（有 NVSwitch、Hopper、`nvlsSupport`）。假设 ring 图 nChannels = 16、bwIntra = 24（H100 常见量级）、NVLS 图 nChannels = 8（每 GPU 一个 head）、bwIntra = 60（`sm90SpeedArrayIntra` 首项）。
 
-```text title='3. 回答核心问题 · Ring+Simple   busBw = 16×24 = 384 → algbw = 384×8/14 = 21…'
+```text title='机器一（8 卡 H100 NVSwitch）各组合的 busBw、algbw 与 lat'
 Ring+Simple   busBw = 16×24 = 384 → algbw = 384×8/14 = 219 GB/s；lat = 8.4 + 14×3.4 = 56.0 µs
 Ring+LL128    busBw = min(384×0.92, 16×36.7) = 353 → 202 GB/s；lat = 14 + 14×1.9 = 40.6 µs
 Ring+LL       busBw = min(141, 384×0.5) = 141 → 80.6 GB/s；lat = 14 + 14×0.6 = 22.4 µs
@@ -704,7 +704,7 @@ NVLS+Simple   intraBw = 60×0.85×7/8×2 = 89.3；busBw = 8×89.3 = 714 → algb
 
 **机器三：32 节点 × 8 卡 = 256 rank，节点内 NVSwitch，节点间 IB。** 多机时 `bw = bwInter`，假设 ring 图 nChannels = 8（搜出 4 条 × 翻倍）、bwInter = 12（每 NIC 分到的每 channel 带宽），Hopper。
 
-```text title='3. 回答核心问题 · Ring+Simple   busBw = 96 → algbw = 96 × 256/510 = 48.2 GB/s'
+```text title='机器三（32 节点）Ring 与 Tree 各协议的账'
 Ring+Simple   busBw = 96 → algbw = 96 × 256/510 = 48.2 GB/s
               lat = 8.4 + (510-62)×3.4 + 62×(14+0) = 8.4 + 1523 + 868 = 2400 µs，大消息再 ×1.4（plateau）= 3360 µs
 Tree+Simple   busBw = min(96×0.92, 8×36.0) = 88.3，×0.85（Hopper TREE pattern）= 75.1 → algbw = 37.5 GB/s
@@ -721,7 +721,7 @@ Ring+LL       lat = 14 + 448×0.6 + 62×2.7 = 450 µs
 
 把上面三台机器的 Ring 与自动选择相减：
 
-```text title='4. 强行 NCCL_ALGO=Ring 的代价 · 机器一（H100 NVSwitch）  1 GB   NVLS+Sim…'
+```text title='强行 NCCL_ALGO=Ring 相对自动选择慢多少'
 机器一（H100 NVSwitch）  1 GB   NVLS+Simple 25 + 2451 = 2476 µs   vs  Ring+Simple 56 + 4566 = 4622 µs     慢 1.9×（带宽的账：NVLink 流量 1.75S vs ~2S/n）
                          64 KB  Ring+LL 22.4 + 0.8 = 23 µs          vs  Ring+LL 同上                            无代价（本来就是 Ring）
 机器三（32 节点）        25 MB  Tree+Simple 204 + 667 = 871 µs     vs  Ring+Simple 3360 + 519 = 3879 µs      慢 4.5×（延迟的账：510 步）
@@ -735,7 +735,7 @@ Ring+LL       lat = 14 + 448×0.6 + 62×2.7 = 450 µs
 
 `parseList`（`src/graph/tuning.cc`）的语法：元素用逗号分隔，`^` 前缀表示排除，`函数名:` 前缀限定集合操作，分号分隔多组，第一组可以没有前缀。源码注释里的例子：
 
-```text title='5. NCCL_ALGO / NCCL_PROTO 的语法与 tune… · NCCL_ALGO="ring,collnetdirect;allre…'
+```text title='NCCL_ALGO / NCCL_PROTO 的按集合操作写法'
 NCCL_ALGO="ring,collnetdirect;allreduce:tree,collnetdirect;broadcast:ring"
 NCCL_PROTO="LL,Simple;allreduce:^LL"
 NCCL_PROTO="^LL128;allreduce:LL128"
@@ -745,7 +745,7 @@ NCCL_PROTO="^LL128;allreduce:LL128"
 
 不想改环境变量而想用自己的规则，用 **tuner 插件**：`NCCL_TUNER_PLUGIN=<so 名>`（`src/plugin/tuner.cc`），接口在 `src/include/plugin/tuner/tuner_v5.h`，只有三个函数：
 
-```c title='5. NCCL_ALGO / NCCL_PROTO 的语法与 tuner 插件 · 函数：ncclResult_t'
+```c title='tuner_v5.h 的 init 与 getCollInfo 接口'
 // ext-tuner/example/nccl/tuner_v5.h（节选）
 ncclResult_t (*init)(void** ctx, uint64_t commId, size_t nRanks, size_t nNodes, ncclDebugLogger_t logFunction,
                      ncclNvlDomainInfo_v5_t* nvlDomainInfo, ncclTunerConstants_v5_t* constants);
@@ -763,7 +763,7 @@ ncclResult_t (*finalize)(void* context);
 
 `ncclAllReduce`（`src/collectives.cc`）填一个 `ncclInfo` 然后调 `ncclEnqueueCheck`（`src/enqueue.cc`）。后者的骨架：
 
-```cpp title='1. 从 ncclAllReduce 到任务队列 · 函数：NCCLCHECK'
+```cpp title='ncclAllReduce 到 ncclEnqueueCheck：只是入队'
 NCCLCHECK(ncclGroupStartInternal());        // 隐式 group：每个集合调用都在一个 group 里
 NCCLCHECKGOTO(ncclCommEnsureReady(info->comm), ret, fail);
 NCCLCHECKGOTO(ArgsCheck(info), ret, fail);   // 参数检查：count、datatype、op、指针
@@ -791,7 +791,7 @@ NCCLCHECK(ncclGroupEndInternal());          // 如果这是最外层 group，这
 
 `ncclLaunchKernel`（`src/enqueue.cc`）：
 
-```cpp title='3. 一个 kernel、nChannels 个 block · 函数：countOneBits'
+```cpp title='ncclLaunchKernel：grid = nChannels 个 block'
 int nChannels = countOneBits(plan->channelMask);
 dim3 grid = {(unsigned)nChannels, 1, 1};
 dim3 block = {(unsigned)plan->threadPerBlock, 1, 1};
@@ -803,7 +803,7 @@ kernel 名形如 `ncclDevKernel_AllReduce_Sum_f32_RING_LL128`（`src/device/gene
 
 任务、channel、block 三者的映射（**示意**，一个 group 里两个 all_reduce）：
 
-```text title='3. 一个 kernel、nChannels 个 block · group 内：A = 1 MB   -> Algo Ring pro…'
+```text title='一个 group 两个集合调用如何合成一次 kernel 启动'
 group 内：A = 1 MB   -> Algo Ring proto Simple channel{Lo..Hi}={0..7}
           B = 64 KB  -> Algo Tree proto LL     channel{Lo..Hi}={0..1}
 
@@ -830,7 +830,7 @@ ncclKernelPlan (channelMask = 0b1111_1111) ==> 一次 cuLaunchKernelEx，grid = 
 
 `src/device/all_reduce.h` 的 `runRing` 就是第一篇的 ring 算法逐字翻译：
 
-```cpp title='4. 设备侧原语 · 函数：prims'
+```cpp title='all_reduce.h 的 runRing：ring 算法逐字翻译'
 Primitives<T, RedOp, FanSymmetric<1>, 1, Proto, 0> prims(tid, nthreads, &ring->prev, &ring->next, work->sendbuff, work->recvbuff, ...);
 for (elemOffset = 0; elemOffset < channelCount; elemOffset += loopCount) {
   prims.directSend(offset, offset, nelem);                            // step 0：把自己的一块发给 next
@@ -851,7 +851,7 @@ GPU kernel 能直接读写对端显存（P2P）、能读写主机内存（SHM）
 
 `ncclProxyCreate`（`src/proxy.cc`）在初始化时起 `ncclProxyService` 线程（处理连接建立等控制消息，本地 rank 通过 socket/UDS 与它通话），进度线程 `ncclProxyProgress` 在第一次需要时由 service 线程创建。进度线程的主循环：
 
-```cpp title='5. proxy 线程：GPU 不能驱动网卡 · 函数：progressOps'
+```cpp title='proxy 线程主循环：progressOps 与取新 op'
 do {
   int idle = 1;
   ncclResult_t ret = progressOps(proxyState, state, state->active, &idle);   // 对每个活跃的 ProxyArgs 调其 progress 函数
@@ -928,7 +928,7 @@ GPU 侧的等待全部是自旋（`waitPeer`），proxy 侧的等待是 `test` �
 
 INFO 行的格式：
 
-```text title='1. 日志格式 · hostname:pid:tid [cudaDev] NCCL INFO <消息>'
+```text title='NCCL 日志的一行格式'
 hostname:pid:tid [cudaDev] NCCL INFO <消息>
 ```
 
@@ -938,7 +938,7 @@ hostname:pid:tid [cudaDev] NCCL INFO <消息>
 
 下面是两机 16 卡 A100 + NVSwitch + 每 GPU 一张 HDR 网卡、`NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=INIT,GRAPH,TUNING,ENV` 下 rank 0 的关键行（**示意**，按各 `INFO()` 的格式串拼出，删去了大量重复行；`…` 是省略）：
 
-```text title='2. 逐行解读 · hostA:12345:12345 [0] NCCL INFO Bootstrap: Using eth0:10.…'
+```text title='两机 16 卡 A100 的 NCCL_DEBUG=INFO 日志逐行'
 hostA:12345:12345 [0] NCCL INFO Bootstrap: Using eth0:10.0.0.1<0>
 hostA:12345:12345 [0] NCCL INFO NET/IB : Using [0]mlx5_0:1/IB [1]mlx5_1:1/IB … [7]mlx5_7:1/IB [RO]; OOB eth0:10.0.0.1<0>
 hostA:12345:12345 [0] NCCL INFO Using network IB
@@ -1011,7 +1011,7 @@ Table: 改拓扑文件观察 NCCL 决策变化的实验
 
 理论与实测有差距时，先按下面的顺序看日志（第六篇会把它并入完整的决策树）：
 
-```text title='4. 比一比：这一层的检查清单 · 1  Using network 是不是 IB（或你期望的插件）？               不是 → 插件加载…'
+```text title='读日志的六步检查清单'
 1  Using network 是不是 IB（或你期望的插件）？               不是 → 插件加载 / NCCL_NET / NCCL_IB_HCA / 权限
 2  Bootstrap: Using 的接口对不对？                            错 → NCCL_SOCKET_IFNAME（只影响 bootstrap 与 Socket 数据面）
 3  拓扑打印里 NVL 带宽 = link 数 × 每 link？PCI 是 Gen4/5 x16？  少了 → 硬件/驱动/容器把设备藏了；nvidia-smi topo -m 对照
@@ -1028,7 +1028,7 @@ Table: 改拓扑文件观察 NCCL 决策变化的实验
 
 ### 1. 要点回顾
 
-```text title='1. 要点回顾 · 两段路径      ncclCommInitRank 做与消息无关的决策（拓扑→路径→图→channel→调优表）…'
+```text title='本篇要点回顾'
 两段路径      ncclCommInitRank 做与消息无关的决策（拓扑→路径→图→channel→调优表），ncclAllReduce 只查表、切 channel、启一个 kernel
 bootstrap     uniqueId 是 rank 0 的监听地址 + magic；TCP 环上做 AllGather；NCCL_SOCKET_IFNAME 只管这一段和 Socket 数据面
 拓扑          每 rank 探测自己的 GPU（/sys 走 PCIe 树，NVML 查 NVLink）+ net 插件报 NIC，节点内 XML 融合；NCCL_TOPO_DUMP_FILE 导出
@@ -1097,7 +1097,7 @@ Table: 本篇涉及的源码与工具位置
 
 关键实现（Python 3，约 90 行，正则全部对应本篇引用的 `INFO()` 格式串）：
 
-```python title='4. comm-probe 本篇增量：nccl_log_reader.… · """nccl_log_reader.py: parse NCCL_D…'
+```python title='nccl_log_reader.py 全文'
 #!/usr/bin/env python3
 """nccl_log_reader.py: parse NCCL_DEBUG=INFO logs (INIT,GRAPH,TUNING) and compare with cost_model."""
 import re, sys, json, argparse, collections

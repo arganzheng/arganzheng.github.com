@@ -28,7 +28,7 @@ updated: 2026-09-14
 
 把一台 8 卡服务器和它的邻居画成一张图，GPU 到 GPU 的数据只有下面几条路可走：
 
-```text title='1. 节点内与节点间的两类路径 · 节点 A                                          节点 B'
+```text title='节点内与节点间的两类路径：8 卡服务器与邻居'
                     节点 A                                          节点 B
   ┌──────────────────────────────────────────┐        ┌────────────────────────┐
   │  GPU0 ══ NVSwitch ══ GPU1 … GPU7          │        │  GPU0' … GPU7'         │
@@ -121,7 +121,7 @@ PCIe 是一棵树。树根是 **root complex**，集成在 CPU 里，它把 CPU 
 
 一台双路 8 卡服务器上，这棵树通常长这样：
 
-```text title='2. PCIe 树：root complex、switch、endpo… · CPU0 (NUMA 0)                      …'
+```text title='双路服务器的 PCIe 树：root complex、switch、GPU、NIC'
 CPU0 (NUMA 0)                                   CPU1 (NUMA 1)
  root complex                                    root complex
   ├─ root port ── PCIe switch 0                   ├─ root port ── PCIe switch 2
@@ -199,7 +199,7 @@ flowchart TB
 
 第二类是 **ACS（Access Control Services）**。ACS 是 PCIe switch 下游端口上的一组安全特性，本意是在虚拟化场景下防止一个设备直接访问另一个设备——启用 ACS 的 Source Validation / P2P Request Redirect 后，switch 不再直接在下游端口之间转发 P2P TLP，而是把它们全部**重定向到 root complex**，由 IOMMU 做地址翻译和权限检查再送回来。结果是：即使两张 GPU 在同一个 switch 下，P2P 流量也被迫走 root complex，带宽掉到经 root complex 的水平，延迟翻倍；某些平台上干脆失败。裸金属、单租户的训练机上通常在 BIOS 里关闭 ACS，或者用 `setpci` 清掉每个下游端口的 ACS 控制位——但要清楚这是在关闭 PCIe 的访问控制，设备之间不再有 IOMMU 隔离，只应在理解风险、且机器不跑不可信负载时做；容器或虚机场景下如果需要 IOMMU 隔离，就要接受这个代价，或者用 ATS（Address Translation Services）让设备缓存翻译结果。检查方法：
 
-```bash title='4. 为什么跨 root complex 的 P2P 可能"不可用"：ACS 与 IOMMU · 命令：for'
+```bash title='找出开启 ACS 的 PCIe 桥与 IOMMU 状态'
 # 找出所有开启了 ACS 的 PCIe 桥（ACSCtl 里 SrcValid+ / ReqRedir+ 即为开启）
 for dev in $(lspci -D | awk '/PCI bridge/ {print $1}'); do
   ctl=$(sudo lspci -s "$dev" -vvv 2>/dev/null | grep -o 'ACSCtl:.*')
@@ -216,7 +216,7 @@ cat /proc/cmdline    # 看有没有 intel_iommu=on / amd_iommu=on / iommu=pt
 
 NCCL 不测带宽，它读 `/sys` 里的链路参数然后按公式估算。`src/graph/xml.cc` 的 `ncclTopoGetXmlFromSys` 从每个 PCI 设备目录读 `max_link_speed` 和 `max_link_width`（并与上游端口的值取较小者，因为链路速率由两端中较慢的一方决定）；`src/graph/topo.cc` 的 `ncclTopoAddPci` 用一张表把 GT/s 换成每 lane 的速率，再乘 lane 数：
 
-```cpp title='5. NCCL 如何估算 PCIe 带宽 · // src/graph/topo.cc（NCCL 2.28.9）'
+```cpp title='topo.cc 里的 kvDictPciGen：按代际与宽度估算 PCIe 带宽'
 // src/graph/topo.cc（NCCL 2.28.9）
 struct kvDict kvDictPciGen[] = {
   { "2.5 GT/s", 15 }, { "5 GT/s", 30 }, { "8 GT/s", 60 }, { "16 GT/s", 120 }, { "32 GT/s", 240 },
@@ -309,7 +309,7 @@ NVSwitch 把这变成了交换网络。每张 GPU 的所有链路全部接到 NV
 
 `src/graph/topo.h` 里定义了 NCCL 对每代 NVLink **每链路单向**带宽的估算：
 
-```cpp title='5. NCCL 眼中的 NVLink 带宽 · // src/graph/topo.h（NCCL 2.28.9）'
+```cpp title='topo.h 里每代 NVLink 每链路单向带宽'
 // src/graph/topo.h（NCCL 2.28.9）
 #define LOC_BW 5000.0
 #define SM60_NVLINK_BW 18.0
@@ -357,7 +357,7 @@ RoCE v2（RDMA over Converged Ethernet）把 IB 的传输层原封不动地封�
 
 一台 8 卡 H100 服务器的标准配置是 8 张 ConnectX-7 NDR 400 Gb/s 网卡，每张 GPU 一张，与 GPU 挂在同一个 PCIe switch 下。为什么是这个比例，把每 GPU 的三个单向带宽放在一起看：
 
-```text title='3. 为什么 8 卡 H100 配 8 张 400 Gb/s 网卡 · 每张 H100 GPU 的三条对外链路（单向）：'
+```text title='每张 H100 的三条对外链路与整机汇总'
 每张 H100 GPU 的三条对外链路（单向）：
   NVLink（到本机其他 7 卡）   450 GB/s     ← 节点内
   PCIe 5.0 x16（到 CPU/NIC）    64 GB/s     ← 出 GPU 的唯一非 NVLink 通道
@@ -405,7 +405,7 @@ Table: nvidia-smi topo 的六个等级
 
 下面是按第二章第 2 节那棵 PCIe 树（每个 switch 下 2 张 GPU + 2 张网卡，两颗 CPU 各两个 switch）构造的 A100 机器矩阵，与真实 DGX 类机器的输出格式一致，等级按上述规则推出（不同厂商的机型可能是 `PXB` 而不是 `PIX`，取决于 switch 是一级还是两级）：
 
-```text title='2. 一台 8 卡 + 8 网卡机器的样例矩阵 · $ nvidia-smi topo -m'
+```text title='nvidia-smi topo -m 的样例矩阵：NV12、PIX、NODE、SYS'
 $ nvidia-smi topo -m
         GPU0  GPU1  GPU2  GPU3  GPU4  GPU5  GPU6  GPU7  mlx5_0 mlx5_1 mlx5_2 mlx5_3 mlx5_4 mlx5_5 mlx5_6 mlx5_7  CPU Affinity   NUMA Affinity
 GPU0     X    NV12  NV12  NV12  NV12  NV12  NV12  NV12  PIX    PIX    NODE   NODE   SYS    SYS    SYS    SYS     0-31,64-95     0
@@ -448,7 +448,7 @@ Legend:
 
 **为什么 NCCL 为 GPU0 选 NIC0 而不是 NIC4**：NCCL 在初始化时为每张 GPU 计算到每张网卡的路径类型与带宽（`src/graph/paths.cc` 的 `ncclTopoComputePaths`），然后 `src/graph/topo.cc` 的 `ncclTopoGetLocalNet` 调用 `ncclTopoGetLocal(system, GPU, gpu, NET, ...)` 挑出"带宽最大、带宽相同时路径类型最近"的那一组网卡：
 
-```cpp title='3. 回答核心问题：`NV12`、`PIX`、`SYS` · // src/graph/topo.cc（NCCL 2.28.9）nc…'
+```cpp title='ncclTopoGetLocal：按带宽与路径类型挑最近的网卡'
 // src/graph/topo.cc（NCCL 2.28.9）ncclTopoGetLocal，删节
 int minType = PATH_DIS;
 float maxBw = 0;
@@ -466,7 +466,7 @@ for (int i=0; i<system->nodes[resultType].count; i++) {
 
 `nvidia-smi topo -m` 是结论，`lspci -tv` 是证据。它以树形打印整个 PCIe 层级，`-v` 加上设备名。一段典型输出（删节，一个 switch 下的部分）：
 
-```text title='4. `lspci -tv`：看 PCIe 树本身 · $ lspci -tv'
+```text title='lspci -tv：PCIe 树本身'
 $ lspci -tv
 -+-[0000:e0]-+-00.0  Intel Corporation ...                     ← CPU1 的一个 root complex 段
  ...
@@ -500,7 +500,7 @@ $ lspci -tv
 
 NCCL 内部对路径的分类与 `nvidia-smi` 几乎一一对应，定义在 `src/graph/topo.h`（NCCL 2.28.9）：
 
-```cpp title='6. NCCL 的路径类型：同一套词汇 · C++ 示例'
+```cpp title='topo.h 里的路径类型：PATH_LOC 到 PATH_PXN'
 #define PATH_LOC 0   // Local (myself)
 #define PATH_NVL 1   // Connection traversing NVLink
 #define PATH_NVB 2   // Connection through NVLink using an intermediate GPU
@@ -528,7 +528,7 @@ NCCL 内部对路径的分类与 `nvidia-smi` 几乎一一对应，定义在 `sr
 
 双路服务器有两颗 CPU，每颗有自己的内存控制器和自己的 PCIe root complex。操作系统把"一颗 CPU + 它直连的内存 + 它直连的 PCIe 设备"叫一个 NUMA 节点。跨节点访问内存要经过 UPI，延迟高 50–100%、带宽受 UPI 限制；跨节点访问 PCIe 设备同理。每个 PCIe 设备属于且只属于一个 NUMA 节点，内核在 `/sys` 里给出：
 
-```bash title='1. socket、内存节点与 PCIe 设备的归属 · 命令：for'
+```bash title='按 /sys 查每张 GPU / NIC 的 NUMA 节点与本地 CPU'
 # 每张 GPU 属于哪个 NUMA 节点、本地 CPU 是哪些
 for d in /sys/bus/pci/devices/*; do
   cls=$(cat $d/class)
@@ -561,7 +561,7 @@ GPU 之间走 NVLink 的通信几乎不涉及 CPU，绑核对它没影响。受�
 
 NCCL 自己也做这件事，而且做得很克制。`src/graph/xml.cc` 的 `ncclTopoGetXmlFromCpu` 从 `/sys/devices/system/node/node<N>/cpumap` 读出每个 NUMA 节点的 CPU 掩码存进拓扑；`src/graph/topo.cc` 的 `ncclTopoGetCpuAffinity` 在初始化时计算本 rank 应该用哪些 CPU：
 
-```cpp title='3. NCCL 如何读取并使用亲和：`NCCL_IGNORE_CPU_AFFINITY` · 函数：NCCL_PARAM'
+```cpp title='ncclTopoGetCpuAffinity：进程亲和与 GPU 所在 NUMA 的交集'
 // src/graph/topo.cc（NCCL 2.28.9）ncclTopoGetCpuAffinity，删节
 NCCL_PARAM(IgnoreCpuAffinity, "IGNORE_CPU_AFFINITY", 0);
 
@@ -634,7 +634,7 @@ flowchart TB
 
 以一台 2:1 超额订阅的 leaf 为例：
 
-```text title='1. fat-tree 与超额订阅 · spine0         spine1         spine2         spine3'
+```text title='两层 fat-tree：leaf 上行 32、下行 64 端口'
         spine0         spine1         spine2         spine3
            ╲              │              │              ╱
             ╲ 8 条        │ 8 条         │ 8 条        ╱ 8 条
@@ -724,7 +724,7 @@ Table: 带宽测量工具与它们测的路径
 
 nvbandwidth 是 NVIDIA 维护的带宽测试程序，用 `cudaMemcpyAsync`（copy engine，`_ce` 后缀）或自己写的拷贝 kernel（`_sm` 后缀）在各种源/目的组合之间搬数据，报告 GB/s。常用的测例：
 
-```bash title='2. `nvbandwidth`：节点内的 PCIe 与 NVLink · 命令：./nvbandwidth'
+```bash title='nvbandwidth 的常用测例'
 ./nvbandwidth -l                                             # 列出全部测例
 ./nvbandwidth -t host_to_device_memcpy_ce                    # 每张 GPU 从主机 pinned 内存读：PCIe 单向
 ./nvbandwidth -t device_to_host_memcpy_ce                    # 反向
@@ -743,7 +743,7 @@ nvbandwidth 是 NVIDIA 维护的带宽测试程序，用 `cudaMemcpyAsync`（cop
 
 cuda-samples 里的 `p2pBandwidthLatencyTest` 打印四张矩阵：P2P 关闭与开启时的单向带宽、双向带宽、以及延迟。它的价值在**对比**：
 
-```text title='3. `p2pBandwidthLatencyTest`：P2P 开关… · Unidirectional P2P=Disabled Bandwid…'
+```text title='p2pBandwidthLatencyTest：P2P 关闭与开启的带宽、延迟矩阵'
 Unidirectional P2P=Disabled Bandwidth Matrix (GB/s)     ← 经主机内存 staging
    D\D     0      1      2      3
      0 1500.0  20.5   20.3   11.2                        ← 对角线是本地拷贝（HBM 带宽），11.2 是跨 socket
@@ -762,7 +762,7 @@ P2P=Enabled Latency Matrix (us)
 
 perftest 是 RDMA 世界的标准带宽/延迟测试。两台机器各运行一端：
 
-```bash title='4. `ib_write_bw` / `ib_read_bw`：节点间的网卡到网卡 · 命令：ib_write_bw'
+```bash title='ib_write_bw / ib_write_lat 的用法'
 # 服务器端（node-b），指定网卡、报告 Gb/s、消息 1 MB、跑 10 秒
 ib_write_bw -d mlx5_0 -F --report_gbits -s 1048576 -D 10
 # 客户端（node-a），最后一个参数是服务器的 IP（带外 TCP 用来交换 QP 信息）
@@ -853,7 +853,7 @@ Table: 本篇涉及的源码与工具位置
 
 用法：
 
-```bash title='4. comm-probe 本篇增量：`topo_map.py` · 命令：python'
+```bash title='topo_map.py 的子命令：tree、dot、matrix、record、export'
 python topo_map.py tree                         # 文本树：NUMA → root port → switch → GPU/NIC
 python topo_map.py dot > topo.dot && dot -Tsvg topo.dot -o topo.svg
 python topo_map.py matrix                       # 重新排版 nvidia-smi topo -m，并标出每张 GPU 的"本地网卡"
@@ -865,7 +865,7 @@ python topo_map.py export                       # 输出 cost_model.py 用的 {"
 
 关键实现（删节；完整文件约 220 行）：
 
-```python title='4. comm-probe 本篇增量：`topo_map.py` · """topo_map.py -- build a GPU / PCI…'
+```python title='topo_map.py 全文'
 #!/usr/bin/env python3
 """topo_map.py -- build a GPU / PCIe switch / NIC / NUMA map of this host."""
 import glob, json, os, re, subprocess, sys

@@ -23,7 +23,7 @@ updated: 2026-09-21
 
 ### 1. 在三篇地图上的位置
 
-```text title='1. 在三篇地图上的位置 · 类型信息提供层'
+```text title='类型信息的三层地图：提供层、消费层与数据契约'
                    类型信息提供层
 ┌──────────────────────────────────────────────┐
 │ 类型表达                                      │
@@ -101,7 +101,7 @@ Table: 本文的章节安排
 
 在 Java 里这件事由多个技术栈拼起来：Lombok / `record` 消除模板代码，Bean Validation 做校验，Jackson 做序列化，`@ConfigurationProperties` 做配置绑定。Python 则高度收敛——`@dataclass` 和 Pydantic 两个工具覆盖了绝大部分场景。看一眼 Pydantic 模型的定义：
 
-```python title='二、工程落地：数据契约设计 · 从 pydantic 导入'
+```python title='一个 Pydantic 模型 InferenceConfig：Literal、Annotated 与 Field 约束'
 from pydantic import BaseModel, Field
 from typing import Annotated, Literal
 
@@ -129,7 +129,7 @@ class InferenceConfig(BaseModel):
 
 最传统的写法是显式定义构造函数：
 
-```python title='1. dataclass：标准库的数据类 · 类：User'
+```python title='手写 __init__ 的 User：满是 self.x = x'
 class User:
     def __init__(self, id: int, name: str, email: str):
         self.id = id
@@ -141,7 +141,7 @@ class User:
 
 Python 3.7 引入的数据类消除了这些样板。它利用类变量类型标注（PEP 526）语法：
 
-```python title='1. dataclass：标准库的数据类 · 从 dataclasses 导入'
+```python title='用 @dataclass 定义 User'
 from dataclasses import dataclass
 
 @dataclass
@@ -153,7 +153,7 @@ class User:
 
 实例化方式不变，但 `__init__`、`__repr__`、`__eq__` 都自动有了：
 
-```python title='1. dataclass：标准库的数据类 · user = User(id=1, name="Alice", ema…'
+```python title='dataclass 自动生成的 __init__、__repr__、__eq__'
 user = User(id=1, name="Alice", email="alice@example.com")
 print(user)          # User(id=1, name='Alice', email='alice@example.com')
 print(user == User(1, "Alice", "alice@example.com"))   # True
@@ -161,7 +161,7 @@ print(user == User(1, "Alice", "alice@example.com"))   # True
 
 对应 Java：
 
-```java title='1. dataclass：标准库的数据类 · // Java 14 之前：Lombok'
+```java title='Java 对应：Lombok @Data 与 record'
 // Java 14 之前：Lombok
 import lombok.Data;
 
@@ -180,13 +180,13 @@ public record User(Long id, String name, String email) {}
 
 `@dataclass` **不做运行时校验**——这一点在[中篇第四章](/python-type-information-distribution-and-consumption.html#四类型信息消费层下动态消费运行时如何读取类型注解)已经说明原因：它只把注解当字段清单，不理解注解的语义。所以下面这行不会报错：
 
-```python title='1. dataclass：标准库的数据类 · user = User(id="abc", name=123, email=None)   # 静默通过'
+```python title='@dataclass 不做运行时校验：错误类型静默通过'
 user = User(id="abc", name=123, email=None)   # 静默通过
 ```
 
 如果需要校验，得借助 `__post_init__` 钩子（实例化后自动触发）：
 
-```python title='1. dataclass：标准库的数据类 · 从 dataclasses 导入'
+```python title='用 __post_init__ 手工校验字段'
 from dataclasses import dataclass
 import re
 
@@ -219,7 +219,7 @@ Java 生态在这一点上遇到了完全相同的问题——`record` 和 Lombo
 
 两个常用参数：
 
-```python title='1. dataclass：标准库的数据类 · 从 dataclasses 导入'
+```python title='frozen=True 与 slots=True 两个常用参数'
 from dataclasses import dataclass
 
 # frozen=True：不可变，实例创建后不能改字段，且自动获得 __hash__
@@ -250,7 +250,7 @@ Pydantic 是 Python 生态中最流行的运行时数据校验框架，也是 Fa
 
 **BaseModel 基础与类型强制转换**
 
-```python title='2. Pydantic：带校验的数据模型 · 从 pydantic 导入'
+```python title='一个 Pydantic BaseModel：User 带 EmailStr'
 from pydantic import BaseModel, EmailStr
 
 class User(BaseModel):
@@ -261,7 +261,7 @@ class User(BaseModel):
 
 与 `@dataclass` 最大的差别是它**真的会校验，并且会转换**：
 
-```python title='2. Pydantic：带校验的数据模型 · user = User(id="1", name="Alice", e…'
+```python title='Pydantic 真的校验并转换："1" 变成 int，错误一次报全'
 # 自动校验 + 类型转换（coercion）
 user = User(id="1", name="Alice", email="alice@example.com")
 print(user.id, type(user.id))    # 1 <class 'int'>   ← 字符串 "1" 被转成了 int
@@ -281,7 +281,7 @@ User(id="abc", name="Bob", email="not-an-email")
 
 `Field()` 用来表达注解本身表达不了的约束（范围、长度、正则）：
 
-```python title='2. Pydantic：带校验的数据模型 · 从 pydantic 导入'
+```python title='Field()：默认值、范围、长度与正则约束'
 from pydantic import BaseModel, EmailStr, Field
 
 class User(BaseModel):
@@ -301,7 +301,7 @@ class User(BaseModel):
 
 约束也可以写在 `Annotated` 里，这是 Pydantic v2 更推荐的形式，因为它让类型和元数据分离得更干净（见[上篇第二章](/python-type-expression-and-the-typing-toolbox.html#二类型表达从基础注解到-typing-工具箱)「类型信息提供层（上）：类型表达」的 `Annotated` 一节）：
 
-```python title='2. Pydantic：带校验的数据模型 · 从 typing 导入'
+```python title='约束写进 Annotated：Pydantic v2 推荐形式'
 from typing import Annotated
 
 class User(BaseModel):
@@ -311,7 +311,7 @@ class User(BaseModel):
 
 对应 Java：需要 Hibernate Validator 配合注解，且必须在调用处用 `@Valid` 开启切面校验，否则注解形同虚设：
 
-```java title='2. Pydantic：带校验的数据模型 · 方法：User'
+```java title='Java 对应：Bean Validation 注解要靠 @Valid 触发'
 import jakarta.validation.constraints.*;
 
 public record User(
@@ -328,7 +328,7 @@ public record User(
 
 Pydantic 抛出的 `ValidationError` 是结构化的，可以直接转成 API 响应：
 
-```python title='2. Pydantic：带校验的数据模型 · 从 pydantic 导入'
+```python title='结构化的 ValidationError：errors() 里的 loc / type / msg'
 from pydantic import ValidationError
 
 try:
@@ -346,7 +346,7 @@ except ValidationError as e:
 
 **AI-Infra 实例**
 
-```python title='2. Pydantic：带校验的数据模型 · 类：ChatCompletionRequest'
+```python title='AI-Infra 实例：vLLM 的 ChatCompletionRequest'
 # vLLM: vllm/entrypoints/openai/protocol.py
 class ChatCompletionRequest(OpenAIBaseModel):
     model: str
@@ -370,7 +370,7 @@ async def create_chat_completion(request: ChatCompletionRequest):
 
 **model_dump 与 model_dump_json**
 
-```python title='3. 序列化、反序列化与 Schema 生成 · config = InferenceConfig(model_name…'
+```python title='model_dump 与 model_dump_json'
 config = InferenceConfig(model_name="llama-3", backend="cuda")
 
 config.model_dump()
@@ -387,7 +387,7 @@ config.model_dump(mode="json")                # 把 datetime/UUID 等转成 JSON
 
 `@dataclass` 也能序列化，但要自己动手，且不处理嵌套的非 JSON 原生类型：
 
-```python title='3. 序列化、反序列化与 Schema 生成 · 从 dataclasses 导入'
+```python title='dataclass 的 asdict + json.dumps：datetime 直接抛 TypeError'
 from dataclasses import asdict
 import json
 
@@ -398,7 +398,7 @@ json.dumps(asdict(some_dataclass))    # datetime 字段会直接抛 TypeError
 
 **model_json_schema 与 OpenAPI**
 
-```python title='3. 序列化、反序列化与 Schema 生成 · InferenceConfig.model_json_schema()'
+```python title='model_json_schema 生成的 JSON Schema'
 InferenceConfig.model_json_schema()
 # {
 #   'type': 'object',
@@ -422,7 +422,7 @@ AI-Infra 项目大量使用 YAML 配置（vLLM 的引擎参数、DeepSpeed 的�
 
 `model_validate()` 把任意 dict 转成校验过的模型：
 
-```python title='3. 序列化、反序列化与 Schema 生成 · 导入：yaml'
+```python title='用 model_validate 把 YAML 读成校验过的 ServingConfig'
 import yaml
 from pydantic import BaseModel, Field
 from typing import Literal
@@ -445,7 +445,7 @@ config = ServingConfig.model_validate(raw)   # 校验 + 转换 + 嵌套构建
 
 对应的 `serving.yaml`：
 
-```yaml title='3. 序列化、反序列化与 Schema 生成 · 配置项：model_name'
+```yaml title='对应的 serving.yaml'
 model_name: meta-llama/Llama-3-8B
 dtype: bfloat16
 max_model_len: 8192
@@ -462,7 +462,7 @@ parallel:
 
 如果 YAML 中有多余字段，默认会被忽略；想让它报错（防止配置项拼错被静默吞掉），加上 `extra="forbid"`：
 
-```python title='3. 序列化、反序列化与 Schema 生成 · 从 pydantic 导入'
+```python title='extra="forbid"：多余字段直接报错'
 from pydantic import ConfigDict
 
 class ServingConfig(BaseModel):
@@ -472,7 +472,7 @@ class ServingConfig(BaseModel):
 
 反过来，把模型写回 YAML：
 
-```python title='3. 序列化、反序列化与 Schema 生成 · yaml.safe_dump(config.model_dump(mode="json"))'
+```python title='把模型写回 YAML'
 yaml.safe_dump(config.model_dump(mode="json"))
 ```
 
@@ -482,7 +482,7 @@ yaml.safe_dump(config.model_dump(mode="json"))
 
 **基本用法与 .env**
 
-```python title='4. BaseSettings：配置即契约 · 从 pydantic 导入'
+```python title='BaseSettings：从环境变量与 .env 解析成强类型 Settings'
 from pydantic import PostgresDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -508,7 +508,7 @@ print(settings.PORT)       # int，不是 str
 
 对应的 `.env`：
 
-```text title='4. BaseSettings：配置即契约 · DEBUG=True'
+```text title='对应的 .env 文件'
 DEBUG=True
 PORT=9000
 DATABASE_URL=postgresql://user:pass@localhost:5432/dbname
@@ -531,7 +531,7 @@ DATABASE_URL=postgresql://user:pass@localhost:5432/dbname
 
 指定多个 `.env` 文件，右边的覆盖左边的：
 
-```python title='4. BaseSettings：配置即契约 · 从 pydantic_settings 导入'
+```python title='多个 .env 文件：右边覆盖左边'
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -546,7 +546,7 @@ class Settings(BaseSettings):
 
 或者根据环境变量动态选择配置文件（类似 Spring Profile）：
 
-```python title='4. BaseSettings：配置即契约 · 导入：os'
+```python title='按 ENV 环境变量动态选择配置文件'
 import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -638,7 +638,7 @@ vLLM 的源码就是这个模式：API 层（`entrypoints/openai/protocol.py`）
 ## 三、附录：选型决策树与 Java 数据契约对照
 ### 1. 类型工具选择决策树
 
-```text title='1. 类型工具选择决策树 · 需要定义数据结构？'
+```text title='类型工具选择决策树'
 需要定义数据结构？
 ├── 数据来自外部（API/JSON/YAML/用户输入）？ → Pydantic BaseModel
 ├── 数据来自环境变量 / .env？ → Pydantic BaseSettings

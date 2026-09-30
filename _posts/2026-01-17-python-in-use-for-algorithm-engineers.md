@@ -64,7 +64,7 @@ Python 解释器启动时，从几个固定目录（`sys.path`）里找 `import`
 
 ### 2. 四条命令
 
-```bash title='2. 四条命令 · 命令：uv'
+```bash title='建环境、装 GPU 版 torch、查包的四条命令'
 uv venv && source .venv/bin/activate              # 或 python -m venv .venv / conda create -n proj python=3.12
 uv pip install torch --index-url https://download.pytorch.org/whl/cu124   # GPU 版 torch 要指定 CUDA 版本的源
 uv pip install -r requirements.txt                # numpy pandas transformers ...
@@ -97,13 +97,13 @@ flowchart TB
 
 语料通常是 **JSONL**：一行一个 JSON 对象。最直接的读法是整个文件读成一个 `list`：
 
-```python title='1. 两种读法 · records = [json.loads(line) for line in path.read_text().…'
+```python title='整个 JSONL 一次读进 list'
 records = [json.loads(line) for line in path.read_text().splitlines()]   # 全部进内存
 ```
 
 另一种是**生成器**：函数体里有 `yield`，调用它不执行，返回一个可以 `for` 的对象，每次 `for` 要下一个时才执行到下一个 `yield`：
 
-```python title='1. 两种读法 · 函数：iter_jsonl'
+```python title='生成器逐行读 JSONL：iter_jsonl'
 def iter_jsonl(path):
     with open(path, encoding="utf-8") as f:
         for line in f:                 # 文件对象本身就是逐行的迭代器，不会一次读完
@@ -112,7 +112,7 @@ def iter_jsonl(path):
 
 合成一份 10 万行、19.4 MB 的 JSONL 语料，两种读法各过一遍，用 `tracemalloc` 量峰值内存：
 
-```text title='1. 两种读法 · 一次读进 list: 100,000 条, 峰值内存 102.9 MB  （≈ 文件大小 × 5.3）'
+```text title='两种读法的峰值内存：102.9 MB 与 11.5 MB'
 一次读进 list: 100,000 条, 峰值内存 102.9 MB  （≈ 文件大小 × 5.3）
 生成器流式:   峰值内存 11.5 MB  （只有去重的哈希集合在涨）
 ```
@@ -123,7 +123,7 @@ def iter_jsonl(path):
 
 生成器可以套生成器，每一层只管一件事：
 
-```python title='2. 串成流水线 · 函数：clean'
+```python title='生成器套生成器：读、过滤、去重、统计的流水线'
 def clean(records, min_words=5):
     seen = set()
     for r in records:
@@ -138,12 +138,12 @@ for r in clean(iter_jsonl(path)):                                # 读 → 过�
     lengths[min(len(r["text"].split()) // 10 * 10, 50)] += 1
 ```
 
-```text title='2. 串成流水线 · 读文件 ──行──▶ json.loads ──dict──▶ 过滤 ──▶ 去重 ──▶ Counter'
+```text title='流水线里同一时刻只有一条记录在流动'
 读文件 ──行──▶ json.loads ──dict──▶ 过滤 ──▶ 去重 ──▶ Counter
           每个箭头上同一时刻只有一条记录；内存里常驻的只有 seen 和两个 Counter
 ```
 
-```text title="2. 串成流水线 · 过滤 + 去重后保留 92,867 / 100,000 条; 按来源: {'book': 30964, 'code…"
+```text title='10 万条语料过滤去重后的统计结果'
 过滤 + 去重后保留 92,867 / 100,000 条; 按来源: {'book': 30964, 'code': 31155, 'web': 30748}
 按长度分桶(词数下界): 0+: 8339, 10+: 16465, 20+: 16754, 30+: 16550, 40+: 16529, 50+: 18230
 ```
@@ -154,7 +154,7 @@ for r in clean(iter_jsonl(path)):                                # 读 → 过�
 
 本系列第五篇[《Hugging Face 生态：六个库与一次 LoRA SFT 的组装》](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)第三章会用到的 `datasets` 库，把这一套做成了链式调用：
 
-```python title='3. 与 `datasets` 的关系 · ds = load_dataset("json", data_files="train.jsonl", strea…'
+```python title='datasets 的 streaming / filter / map 是同一套惰性流水线'
 ds = load_dataset("json", data_files="train.jsonl", streaming=True)   # 返回 IterableDataset，不读文件
 ds = ds.filter(lambda r: len(r["text"].split()) >= 5)                # 只记下"要过滤"，不执行
 ds = ds.map(lambda r: {"n_words": len(r["text"].split())})           # 同样只记下
@@ -167,7 +167,7 @@ for r in ds: ...                                                      # 到这�
 
 训练脚本的参数——模型名、学习率、batch、步数、LoRA 目标层——要能**有默认值、能从命令行覆盖、能存进 run 目录、能被 IDE 补全**。`@dataclass` 一次满足：
 
-```python title='四、配置：`dataclass` · 从 dataclasses 导入'
+```python title='用 @dataclass 定义训练配置 TrainConfig'
 from dataclasses import dataclass, field, asdict, replace
 
 @dataclass
@@ -185,13 +185,13 @@ class TrainConfig:
 
 装饰器 `@dataclass` 读类体里的**类型标注**，自动生成 `__init__`、`__repr__`、`__eq__`。三个日常操作：
 
-```python title='四、配置：`dataclass` · cfg  = TrainConfig()                                   # 默认'
+```python title='dataclass 的三个日常操作：默认、replace 覆盖、asdict 存盘'
 cfg  = TrainConfig()                                   # 默认
 cfg2 = replace(cfg, lr=1e-4, max_steps=200)            # 覆盖：返回新对象，原来的不动
 json.dump(asdict(cfg2), open(run_dir / "config.json", "w"))   # 存盘：dataclass → dict → JSON
 ```
 
-```text title='四、配置：`dataclass` · 覆盖后: 0.0001 200 | 原来的: 2e-05 1000'
+```text title='配置覆盖、默认值独立、构造时校验的输出'
 覆盖后: 0.0001 200 | 原来的: 2e-05 1000
 两个默认对象的 lora_targets 是否同一个 list: False
 非法配置在构造时就报错: warmup 500 > max_steps 200
@@ -212,7 +212,7 @@ json.dump(asdict(cfg2), open(run_dir / "config.json", "w"))   # 存盘：datacla
 
 PyTorch 的每个核心 API——`Dataset`、`DataLoader`、`nn.Module`、`@torch.no_grad()`、`with torch.autocast()`、`Trainer(**kwargs)`——都建在一个 Python 语法协议上。与其一个个背，不如用纯 Python 把它们各写一个最小版，跑起来与真的形状一致。先看代码（行号旁的蓝色数字可以点，跳到下面的解释）：
 
-```python title='1. 一个 40 行的"玩具 PyTorch" · 导入：random'
+```python title='40 行纯 Python 的玩具 PyTorch：Dataset、loader、Module 与装饰器'
 import random, time
 from contextlib import contextmanager
 from functools import wraps
@@ -263,7 +263,7 @@ def seeded(seed):                                   # ⑤ 上下文管理器：�
 
 把它们拼起来跑一遍——`@timed` 装饰的 `one_epoch` 就是一个最小的训练循环骨架：
 
-```python title='1. 一个 40 行的"玩具 PyTorch" · @timed'
+```python title='用 @timed 装饰的 one_epoch 跑通玩具训练循环'
 @timed
 def one_epoch(model, ds, batch_size):
     n = 0
@@ -283,7 +283,7 @@ with seeded(42): b = [random.random() for _ in range(3)]
 print(f"seeded(42) 两次得到相同的数: {a == b}; 退出后随机状态已恢复")
 ```
 
-```text title="1. 一个 40 行的&quot;玩具 PyTorch&quot; · len(ds) = 9; ds[0] = {'input_ids': …"
+```text title='玩具 PyTorch 的运行输出：batch 形状、调用次数、seeded 可复现'
 len(ds) = 9; ds[0] = {'input_ids': [97, 116, 116, ...], 'label': 1}
 第一个 batch: input_ids 形状 [4, 25], labels = [1, 0, 1, 0]
 [one_epoch 用时 0.000s]
@@ -312,7 +312,7 @@ Table: PyTorch 核心 API 与 Python 协议的对照（第三列链接到上面�
 
 tokenize、正则清洗、哈希这类**CPU 密集**的预处理，单进程跑 10 万行 0.46 秒，一亿行就是 8 分钟。把同一个函数用三种方式跑：
 
-```python title='1. 三个数字 · 导入：re'
+```python title='同一个 tokenize 函数用串行、线程池、进程池各跑一遍'
 import re, time
 from multiprocessing import Pool
 from multiprocessing.pool import ThreadPool
@@ -333,7 +333,7 @@ if __name__ == "__main__":                          # 多进程必须放在这�
         bench("进程池", lambda: sum(pool.map(tokenize_count, lines, chunksize=2000)))   # 8 进程
 ```
 
-```text title='1. 三个数字 · 100,000 行, 共 3,146,454 个 token; 8 个 worker'
+```text title='三种跑法的耗时：线程池 1.0×、进程池 3.1×'
 100,000 行, 共 3,146,454 个 token; 8 个 worker
 串行:   0.46s
 线程池: 0.46s  （1.0×，GIL 让 CPU 密集的线程几乎不并行）
@@ -352,7 +352,7 @@ if __name__ == "__main__":                          # 多进程必须放在这�
 
 ### 1. traceback 从下往上读
 
-```text title='1. traceback 从下往上读 · Traceback (most recent call last):'
+```text title='一个形状不匹配的 traceback：从下往上读'
 Traceback (most recent call last):
   File ".../00_python_in_use.py", line 286, in exp_traceback
     train_step([[1.0, 2.0, 3.0], [4.0, 5.0]])

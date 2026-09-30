@@ -53,7 +53,7 @@ Table: 本文的章节安排
 
 训练时取 $$B = 2$$ 句话、每句 $$T = 5$$ 个 token 作为输入。把每一站的输出形状打印出来：
 
-```text title='1. 形状从头到尾 · 输入 idx: (2, 5)  目标 targets: (2, 5)'
+```text title='B=2、T=5 时每一站的输出形状'
 输入 idx: (2, 5)  目标 targets: (2, 5)
   wte 查表                                 (2, 5, 8)      ← 每个 token 一个 8 维向量
   wpe 查表                                 (5, 8)         ← 5 个位置各一个向量，广播加到每句上
@@ -78,7 +78,7 @@ loss（标量）: 2.7805   ≈ ln(16) = 2.7726
 
 训练数据是一段连续文本切出来的 $$T + 1$$ 个 token；前 $$T$$ 个当输入，**后 $$T$$ 个当目标**——目标就是输入右移一位：
 
-```text title='2. Teacher forcing：一次前向，T 个训练信号 · 第 0 句的输入 : [5, 3, 8, 10, 14]'
+```text title='Teacher forcing：目标是输入右移一位，T 个位置各一个 loss'
 第 0 句的输入 : [5, 3, 8, 10, 14]
 第 0 句的目标 : [3, 8, 10, 14, 12] （就是输入右移一位）
   位置 0: 看到 [5]                → 预测第 1 个 token，正确答案  3，模型给它的概率 0.068，loss 2.693
@@ -106,7 +106,7 @@ T 个 loss 的平均 = 2.7583（两句话一起平均就是上面的 2.7805）
 
 代码上就是一行：
 
-```python title='1. 交叉熵 · loss = F.cross_entropy(logits.view(-1, V), targets.reshap…'
+```python title='交叉熵一行：F.cross_entropy'
 loss = F.cross_entropy(logits.view(-1, V), targets.reshape(-1))   # [B·T, V] 对 [B·T]
 ```
 
@@ -116,7 +116,7 @@ loss = F.cross_entropy(logits.view(-1, V), targets.reshape(-1))   # [B·T, V] �
 
 `loss.backward()` 从这个标量出发，沿前向的每一步反着走一遍（L3 第一篇的链式法则、Infra PyTorch 第三篇的 Autograd）：lm_head → `ln_f` → block1 的 FFN → block1 的 attention → block0 …… → `wpe`、`wte`。每个参数拿到一份和自己同形状的梯度：
 
-```text title='2. 反向沿哪条路 · wte.weight                   参数 (16, 8)      梯度范数 1.0940'
+```text title='backward 后每个参数拿到同形状的梯度'
   wte.weight                   参数 (16, 8)      梯度范数 1.0940
   wpe.weight                   参数 (8, 8)       梯度范数 0.6659
   blocks.0.ln_1.weight         参数 (8,)         梯度范数 0.4008
@@ -136,7 +136,7 @@ loss = F.cross_entropy(logits.view(-1, V), targets.reshape(-1))   # [B·T, V] �
 
 有了每个参数的 `.grad`，优化器把参数沿梯度反方向挪一小步（L3 第三篇的 AdamW：不是直接减梯度，而是维护每个参数的一阶、二阶动量再决定步长）。同一个 batch 更新前后：
 
-```text title='四、更新：AdamW 走一步 · 更新前 2.7805 → 更新后 2.6832（同一 batch；真实训练每步换一个新 batch）'
+```text title='AdamW 走一步：同一 batch 更新前后的 loss'
   更新前 2.7805 → 更新后 2.6832（同一 batch；真实训练每步换一个新 batch）
 ```
 
@@ -157,7 +157,7 @@ loss = F.cross_entropy(logits.view(-1, V), targets.reshape(-1))   # [B·T, V] �
 
 推理时参数冻结，模型只做前向，而且是**一个 token 一个 token**地生成：给 prompt，算出下一个 token 的分布，从中抽一个，接到 prompt 后面，再算、再抽……直到抽到结束符（EOS）或达到长度上限。用玩具模型走 5 步（贪心：每步取概率最大的）：
 
-```text title='1. 生成是一个循环 · prefill：输入 (1, 3)，每层 cache 里 K 的形状 (1, 2, 3, 4)  [B, h, 已…'
+```text title='玩具模型贪心生成 5 步：prefill 与 decode 的形状'
   prefill：输入 (1, 3)，每层 cache 里 K 的形状 (1, 2, 3, 4)  [B, h, 已有 token 数, d_h]
   decode 第 1 步：输入形状 (1, 1)，cache 里 K 变成 (1, 2, 4, 4)，新 token 14
   decode 第 2 步：输入形状 (1, 1)，cache 里 K 变成 (1, 2, 5, 4)，新 token 0
@@ -196,7 +196,7 @@ loss = F.cross_entropy(logits.view(-1, V), targets.reshape(-1))   # [B·T, V] �
 
 代码上只是在上一篇的 attention 里加三行：
 
-```python title='1. 朴素做法在浪费什么 · if cache["k"] is not None:                               …'
+```python title='KV cache 只在 attention 里加三行'
 if cache["k"] is not None:                               # decode：把旧 K、V 接在前面
     k = torch.cat([cache["k"], k], dim=2)                # [B, h, 旧长度 + 1, d_h]
     v = torch.cat([cache["v"], v], dim=2)
@@ -208,7 +208,7 @@ att = (q @ k.transpose(-2, -1)) / math.sqrt(d_h)         # q 只有 1 行，k �
 
 有 cache 和没 cache 必须给出**完全相同**的结果，否则就是实现错了：
 
-```text title='2. 实测：一致，且快 8 倍 · 无 cache 生成: [3, 7, 1, 14, 0, 0, 0, 0]'
+```text title='有无 cache 的生成结果完全一致'
   无 cache 生成: [3, 7, 1, 14, 0, 0, 0, 0]
   有 cache 生成: [3, 7, 1, 14, 0, 0, 0, 0]
   两者一致: True
@@ -216,7 +216,7 @@ att = (q @ k.transpose(-2, -1)) / math.sqrt(d_h)         # q 只有 1 行，k �
 
 把模型放大到 $$d = 64$$、4 层、prompt 256 个 token、生成 256 个（CPU）：
 
-```text title='2. 实测：一致，且快 8 倍 · 无 cache（每步重算整段，长度 256→512）: 0.74 s'
+```text title='d=64、4 层、256+256 token：有 cache 快 7.9 倍'
   无 cache（每步重算整段，长度 256→512）: 0.74 s
   有 cache（每步只算 1 个 token）       : 0.09 s   快 7.9 倍
   代价：cache 里存着 4 层 × K、V × 512 token × 64 维 × 4 B = 1024 KiB

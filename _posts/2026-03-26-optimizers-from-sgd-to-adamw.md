@@ -242,7 +242,7 @@ $$\eta = 10^{-2}$$ 不加 warmup 时，前 100 步里 loss 冲到 4.59——高�
 
 **WSD**（warmup-stable-decay，Hu 等 2024 MiniCPM）：warmup 后在峰值**保持恒定**，最后 10–20% 的步数快速衰减。恒定阶段可以随时延长、从任意点分叉出一个衰减段得到一个可用的模型，对"训到什么时候停"不确定的预训练更灵活；实验表明最终 loss 与 cosine 相当或更好。Llama-3 之后的一些模型用它或它的变体。
 
-```text title='2. Warmup 之后：cosine 与 WSD · η   cosine（要预先知道 T）                …'
+```text title='cosine 与 WSD 的学习率曲线'
  η   cosine（要预先知道 T）                     η   WSD（恒定段可随时延长）
 峰值 ┤   ╭╮                                  峰值 ┤   ╭─────────────────────╮
      │  ╱  ╲                                      │  ╱                       │
@@ -345,7 +345,7 @@ Adam 对每个参数用一个标量 $$1/\sqrt{v}$$ 做预处理，是"对角"的
 
 在系列的 NumPy 基座上加两个优化器类（约 40 行）：
 
-```python title='1. 代码 · 类：Adam'
+```python title='Adam / AdamW 的 step：偏差修正与两种 weight decay'
 class Adam:
     def step(self):
         self.t += 1

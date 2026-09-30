@@ -10,7 +10,7 @@ updated: 2026-09-14
 
 vLLM 的 CPU 后端把所有自定义算子登记到 PyTorch 的代码在 `csrc/cpu/torch_bindings.cpp` 里，形状是这样的：
 
-```cpp title='正文 · 函数：TORCH_LIBRARY_EXPAND'
+```cpp title='vLLM csrc/cpu/torch_bindings.cpp：登记算子的形状'
 #include "cache.h"
 #include "ops.h"
 #include "core/registration.h"
@@ -105,7 +105,7 @@ Table: 所有预处理指令
 
 **`#` 字符串化（stringize）**：把参数的文本变成字符串字面量。
 
-```cpp title='2. 函数宏的三个运算符 · 函数：SHOW'
+```cpp title='# 字符串化：SHOW(expr) 的展开'
 #define SHOW(expr) std::cout << #expr " = " << (expr) << '\n'
 SHOW(x + 1);   // 展开为：std::cout << "x + 1" " = " << (x + 1) << '\n';
 ```
@@ -114,20 +114,20 @@ SHOW(x + 1);   // 展开为：std::cout << "x + 1" " = " << (x + 1) << '\n';
 
 **`##` 拼接（token pasting）**：把两个标记粘成一个标识符。
 
-```cpp title='2. 函数宏的三个运算符 · 函数：DECLARE_INIT'
+```cpp title='## 拼接：DECLARE_INIT(myops) 的展开'
 #define DECLARE_INIT(ns) static void TORCH_LIBRARY_init_##ns(torch::Library&);
 DECLARE_INIT(myops)   // 展开为：static void TORCH_LIBRARY_init_myops(torch::Library&);
 ```
 
 **`__VA_ARGS__` 变参**：参数列表里的 `...` 接收任意多个实参，在替换文本里用 `__VA_ARGS__` 引用。
 
-```cpp title='2. 函数宏的三个运算符 · C++ 示例'
+```cpp title='__VA_ARGS__ 变参：LOG(fmt, ...)'
 #define LOG(fmt, ...) std::printf(fmt, __VA_ARGS__)
 ```
 
 标准 C++ 的 `__VA_ARGS__` 有一个著名的缺陷：如果变参为空，`LOG("hi")` 展开成 `std::printf("hi", )`，多出一个逗号。GCC/Clang/MSVC 都支持一个扩展写法 `, ##__VA_ARGS__`——当变参为空时把前面的逗号一并吞掉。`c10/util/Exception.h` 里 `TORCH_CHECK_MSG` 的定义就用了它：
 
-```cpp title='2. 函数宏的三个运算符 · 函数：c10::detail::torchCheckMsgImpl'
+```cpp title='TORCH_CHECK_MSG：, ##__VA_ARGS__ 吞掉多余逗号'
 #define TORCH_CHECK_MSG(cond, type, ...)                   \
   (::c10::detail::torchCheckMsgImpl(                       \
       "Expected " #cond                                    \
@@ -143,7 +143,7 @@ DECLARE_INIT(myops)   // 展开为：static void TORCH_LIBRARY_init_myops(torch:
 
 `torch/headeronly/macros/Macros.h`（`c10/macros/Macros.h` 现在只是一行 `#include <torch/headeronly/macros/Macros.h>`——PyTorch 2.x 中的变化：2.8 前后引入 `torch/headeronly/` 目录，把不依赖 libtorch 的头文件搬了过去）里有这样四行：
 
-```cpp title='3. 两层间接：为什么 `C10_STRINGIZE` 要写两遍 · C++ 示例'
+```cpp title='Macros.h 里的 C10_CONCATENATE 与 C10_STRINGIZE：各写两层'
 #define C10_CONCATENATE_IMPL(s1, s2) s1##s2
 #define C10_CONCATENATE(s1, s2) C10_CONCATENATE_IMPL(s1, s2)
 
@@ -153,7 +153,7 @@ DECLARE_INIT(myops)   // 展开为：static void TORCH_LIBRARY_init_myops(torch:
 
 为什么不直接 `#define C10_STRINGIZE(x) #x`？因为预处理器的替换规则是：**函数宏的实参在代入替换文本之前会先被完全展开，除非它紧挨着 `#` 或 `##`**。于是：
 
-```cpp title='3. 两层间接：为什么 `C10_STRINGIZE` 要写两遍 · 函数：STR1'
+```cpp title='STR1 与 STR2 对 __LINE__ 的不同展开结果'
 #define STR1(x) #x
 #define STR2(x) STR1(x)
 STR1(__LINE__)   // "__LINE__"   ← 实参紧挨 #，不展开
@@ -164,7 +164,7 @@ STR2(__LINE__)   // "42"         ← 实参先展开成 42，再传给 STR1
 
 紧接着的 `C10_UID` 和 `C10_ANONYMOUS_VARIABLE`：
 
-```cpp title='3. 两层间接：为什么 `C10_STRINGIZE` 要写两遍 · C++ 示例'
+```cpp title='C10_UID 与 C10_ANONYMOUS_VARIABLE：优先用 __COUNTER__'
 #ifdef __COUNTER__
 #define C10_UID __COUNTER__
 #define C10_ANONYMOUS_VARIABLE(str) C10_CONCATENATE(str, __COUNTER__)
@@ -201,7 +201,7 @@ Table: 本文用到的预定义宏
 
 另一类是构建系统传进来的：CMake `target_compile_definitions(... PRIVATE -DC10_BUILD_MAIN_LIB)` 等价于在每个源文件最前面写 `#define C10_BUILD_MAIN_LIB`。开头那段 vLLM 代码里的 `TORCH_EXTENSION_NAME` 就是这样定义的，`cmake/utils.cmake` 的 `define_extension_target` 函数里：
 
-```cmake title='4. 预定义宏 · target_compile_definitions(${MOD_NAME} PRIVATE'
+```cmake title='define_extension_target 里定义 TORCH_EXTENSION_NAME'
   target_compile_definitions(${MOD_NAME} PRIVATE
     "-DTORCH_EXTENSION_NAME=${MOD_NAME}")
 ```
@@ -232,7 +232,7 @@ Table: 宏的用途与 Java 的替代手段
 
 按平台、编译器、构建选项裁掉代码。`torch/headeronly/macros/Export.h` 的开头是最典型的例子：
 
-```cpp title='1. 用途一：条件编译 · C++ 示例'
+```cpp title='torch/headeronly/macros/Export.h 开头：按平台条件编译 C10_EXPORT'
 #ifdef _WIN32
 #define C10_HIDDEN
 #if defined(C10_BUILD_SHARED_LIBS)
@@ -264,7 +264,7 @@ C++ 模板能在类型维度上消除重复，但有些重复模板做不到：�
 
 最经典的形式叫 **X-macro**：先定义一个"列表宏"，它接受另一个宏作为参数，对列表里每一项调用一次：
 
-```cpp title='2. 用途二：生成重复代码 · 函数：_'
+```cpp title='X-macro 的列表宏：AT_FORALL_SCALAR_TYPES'
 // torch/headeronly/core/ScalarType.h
 #define AT_FORALL_SCALAR_TYPES(_) \
   _(uint8_t, Byte)                \
@@ -278,7 +278,7 @@ C++ 模板能在类型维度上消除重复，但有些重复模板做不到：�
 
 然后在需要的地方传入一个"每项做什么"的宏。定义枚举：
 
-```cpp title='2. 用途二：生成重复代码 · 类：ScalarType'
+```cpp title='用 X-macro 定义 ScalarType 枚举'
 enum class ScalarType : int8_t {
 #define DEFINE_ST_ENUM_VAL_(_1, n) n,
   AT_FORALL_SCALAR_TYPES_WITH_COMPLEX_AND_QINTS(DEFINE_ST_ENUM_VAL_)
@@ -290,7 +290,7 @@ enum class ScalarType : int8_t {
 
 枚举转字符串：
 
-```cpp title='2. 用途二：生成重复代码 · 函数：toString'
+```cpp title='用 X-macro 生成 toString(ScalarType)'
 inline const char* toString(ScalarType t) {
 #define DEFINE_CASE(_, name) \
   case ScalarType::name:     \
@@ -315,7 +315,7 @@ Java 里 `enum` 自带 `name()`、`values()`，这类重复根本不需要写。
 
 函数被调用时，它自己不知道是从哪一行被调用的。`__FILE__`、`__LINE__`、`__func__` 在预处理阶段被替换成**当前位置**的值，所以只有写在调用点的代码——也就是宏——能拿到它们。
 
-```cpp title='3. 用途三：在调用点捕获信息 · 函数：c10::err_type'
+```cpp title='C10_THROW_ERROR：在调用点捕获 __func__、__FILE__、__LINE__'
 // c10/util/Exception.h
 #define C10_THROW_ERROR(err_type, msg) \
   throw ::c10::err_type(               \
@@ -338,7 +338,7 @@ PyTorch 的代码风格对宏的态度是"能不用就不用"。判断标准就�
 
 `c10/util/Exception.h` 里有四个版本的 `TORCH_CHECK`，由两个开关选择：`STANDALONE_TORCH_HEADER`（让 `TORCH_CHECK` 抛 `std::runtime_error` 而不是 `c10::Error`，供 AOTInductor 生成的独立代码用）和 `STRIP_ERROR_MESSAGES`（移动端去掉消息）。服务器端普通构建两者都不定义，走的是这一个：
 
-```cpp title='1. 定义 · 函数：c10::detail::torchCheckFail'
+```cpp title='服务器端普通构建走的 TORCH_CHECK 定义'
 #define TORCH_CHECK(cond, ...)                     \
   if (C10_UNLIKELY_OR_CONST(!(cond))) {            \
     ::c10::detail::torchCheckFail(                 \
@@ -359,7 +359,7 @@ PyTorch 的代码风格对宏的态度是"能不用就不用"。判断标准就�
 
 `torch/headeronly/macros/Macros.h`：
 
-```cpp title='2. `C10_UNLIKELY`：分支预测提示 · C++ 示例'
+```cpp title='Macros.h 里的 C10_LIKELY / C10_UNLIKELY：__builtin_expect'
 #if defined(__GNUC__) || defined(__ICL) || defined(__clang__)
 #define C10_LIKELY(expr) (__builtin_expect(static_cast<bool>(expr), 1))
 #define C10_UNLIKELY(expr) (__builtin_expect(static_cast<bool>(expr), 0))
@@ -375,7 +375,7 @@ PyTorch 的代码风格对宏的态度是"能不用就不用"。判断标准就�
 
 `TORCH_CHECK` 用的其实是 `C10_UNLIKELY_OR_CONST`，定义在 `torch/headeronly/util/Exception.h`：
 
-```cpp title='2. `C10_UNLIKELY`：分支预测提示 · C++ 示例'
+```cpp title='C10_UNLIKELY_OR_CONST：nvcc 下退化为原表达式'
 #if defined(__CUDACC__)
 #define C10_UNLIKELY_OR_CONST(e) e
 #else
@@ -389,7 +389,7 @@ C++20 有了标准属性 `[[likely]]`/`[[unlikely]]`，PyTorch 因为要支持�
 
 ### 3. `TORCH_CHECK_MSG` 与 `torchCheckMsgImpl`：惰性拼接消息
 
-```cpp title='3. `TORCH_CHECK_MSG` 与 `torchCheckMsgImpl`：惰性拼接消息 · 函数：torchCheckMsgImpl'
+```cpp title='torchCheckMsgImpl 的两个重载：有参数拼接、无参数直接返回'
 namespace c10::detail {
 template <typename... Args>
 auto torchCheckMsgImpl(const char* /*msg*/, const Args&... args) {
@@ -429,7 +429,7 @@ Table: TORCH_CHECK 三种调用形式选中的重载
 
 `c10::str` 在 `c10/util/StringUtil.h`：
 
-```cpp title='3. `TORCH_CHECK_MSG` 与 `torchCheckMsgImpl`：惰性拼接消息 · 函数：str'
+```cpp title='c10/util/StringUtil.h 里的 c10::str'
 template <typename... Args>
 inline auto str(const Args&... args) {
   return detail::_str_wrapper<
@@ -441,7 +441,7 @@ inline auto str(const Args&... args) {
 
 ### 4. `torchCheckFail`：真正抛异常的地方
 
-```cpp title='4. `torchCheckFail`：真正抛异常的地方 · 函数：torchCheckFail'
+```cpp title='c10/util/Exception.cpp 的 torchCheckFail：真正 throw 的地方'
 // c10/util/Exception.cpp
 void torchCheckFail(
     const char* func,
@@ -456,7 +456,7 @@ void torchCheckFail(
 
 `c10::Error` 的构造函数接收 `SourceLocation{func, file, line}` 和消息，`what()` 会把两者拼成用户在 Python 里看到的那种报错：
 
-```text title='4. `torchCheckFail`：真正抛异常的地方 · RuntimeError: expected floating point tensor'
+```text title='c10::Error 在 Python 里呈现的报错格式'
 RuntimeError: expected floating point tensor
 Exception raised from scale_shift_cpu at /path/to/ext.cpp:12 (most recent call first):
 ```
@@ -465,7 +465,7 @@ Exception raised from scale_shift_cpu at /path/to/ext.cpp:12 (most recent call f
 
 ### 5. `TORCH_INTERNAL_ASSERT`：给开发者的版本
 
-```cpp title='5. `TORCH_INTERNAL_ASSERT`：给开发者的版本 · 函数：c10::detail::torchInternalAssertFail'
+```cpp title='TORCH_INTERNAL_ASSERT 的定义：多了 #cond 与文件行号'
 #define TORCH_INTERNAL_ASSERT(cond, ...)                                         \
   if (C10_UNLIKELY_OR_CONST(!(cond))) {                                          \
     ::c10::detail::torchInternalAssertFail(                                      \
@@ -488,7 +488,7 @@ Exception raised from scale_shift_cpu at /path/to/ext.cpp:12 (most recent call f
 
 ### 6. `STRIP_ERROR_MESSAGES` 版本
 
-```cpp title='6. `STRIP_ERROR_MESSAGES` 版本 · 函数：C10_STRINGIZE'
+```cpp title='STRIP_ERROR_MESSAGES 下的 TORCH_CHECK_MSG：只剩条件与位置'
 #ifdef STRIP_ERROR_MESSAGES
 #define TORCH_CHECK_MSG(cond, type, ...) \
   (#cond #type " CHECK FAILED at " C10_STRINGIZE(__FILE__))
@@ -500,7 +500,7 @@ Exception raised from scale_shift_cpu at /path/to/ext.cpp:12 (most recent call f
 
 `Exception.h` 后半部分是一组按异常类型区分的变体，全部由 `TORCH_CHECK_WITH_MSG` 派生：
 
-```cpp title='7. 宏族 · 函数：TORCH_CHECK_WITH_MSG'
+```cpp title='按异常类型区分的 TORCH_CHECK 宏族'
 #define TORCH_CHECK_LINALG(cond, ...) \
   TORCH_CHECK_WITH_MSG(LinAlgError, cond, "LINALG", __VA_ARGS__)
 #define TORCH_CHECK_INDEX(cond, ...) \
@@ -549,7 +549,7 @@ Table: 三种存储期
 
 用 mini-c10 的一个目标文件验证第二点（macOS）：
 
-```text title='1. 三种存储期 · $ nm -C add.o | grep -E "_static_init|global_var_init"'
+```text title='用 nm 与 otool 验证动态初始化：__mod_init_func 段'
 $ nm -C add.o | grep -E "_static_init|global_var_init"
 000000000000b9f8 b minic10::MINI_LIBRARY_IMPL_static_init_minic10_CPU_0
 000000000000ba30 b minic10::MINI_LIBRARY_IMPL_static_init_minic10_Meta_1
@@ -568,7 +568,7 @@ $ otool -l add.o | grep -A2 mod_init_func
 
 把两件事拼起来——"静态对象的构造函数会在加载时自动运行"和"构造函数里可以做任何事"——就得到了静态注册模式（static registration，也叫 self-registration）：
 
-```cpp title='2. 静态注册模式 · 函数：get'
+```cpp title='静态注册模式的最小形态：Registry 单例加 Registrar'
 // 注册表：全局单例
 struct Registry {
   static Registry& get() { static Registry r; return r; }
@@ -599,7 +599,7 @@ Table: PyTorch 的四套静态注册表
 
 先看最通用的 `c10/util/Registry.h`，它把上面那个最小模式一模一样地写成了模板：
 
-```cpp title='2. 静态注册模式 · 类：SrcType'
+```cpp title='c10/util/Registry.h 的 Registry 模板'
 template <class SrcType, class ObjectPtrType, class... Args>
 class Registry {
  public:
@@ -647,7 +647,7 @@ class Registerer {
 
 再看它的注册宏：
 
-```cpp title='2. 静态注册模式 · 函数：C10_ANONYMOUS_VARIABLE'
+```cpp title='C10_REGISTER_TYPED_CLASS：一个匿名的 static Registerer'
 #define C10_REGISTER_TYPED_CLASS(RegistryName, key, ...)                    \
   static Registerer##RegistryName C10_ANONYMOUS_VARIABLE(g_##RegistryName)( \
       key,                                                                  \
@@ -660,7 +660,7 @@ class Registerer {
 
 `DeviceGuardImplInterface.h` 的 `C10_REGISTER_GUARD_IMPL` 是同一模式的定制版：
 
-```cpp title='2. 静态注册模式 · 函数：C10_ANONYMOUS_VARIABLE'
+```cpp title='C10_REGISTER_GUARD_IMPL：同一模式的定制版'
 #define C10_REGISTER_GUARD_IMPL(DevType, DeviceGuardImpl)              \
   static ::c10::impl::DeviceGuardImplRegistrar C10_ANONYMOUS_VARIABLE( \
       g_##DeviceType)(::c10::DeviceType::DevType, new DeviceGuardImpl());
@@ -672,7 +672,7 @@ class Registerer {
 
 第一篇末尾看过 `aten/src/ATen/native/cpu/BinaryOpsKernel.cpp` 文件底部那排 `REGISTER_DISPATCH(add_clamp_stub, &add_clamp_kernel)`。它在 `aten/src/ATen/native/DispatchStub.h` 里的定义是这一节里最不像"注册"的一种：
 
-```cpp title='3. `REGISTER_DISPATCH`：注册到模板静态成员 · 结构体：name'
+```cpp title='REGISTER_ARCH_DISPATCH：给类模板静态成员赋值'
 #define REGISTER_ARCH_DISPATCH(name, arch, fn) \
   template <> name##_DECLARE_DISPATCH_type::FnPtr TORCH_API DispatchStub<name##_DECLARE_DISPATCH_type::FnPtr, struct name##_DECLARE_DISPATCH_type>::arch = fn;
 ```
@@ -681,14 +681,14 @@ class Registerer {
 
 而它的 CUDA 版本用的是第二种：
 
-```cpp title='3. `REGISTER_DISPATCH`：注册到模板静态成员 · 结构体：name'
+```cpp title='REGISTER_CUDA_DISPATCH：一个 static 注册器对象'
 #define REGISTER_CUDA_DISPATCH(name, fn) \
   static RegisterCUDADispatch<struct name##_DECLARE_DISPATCH_type> name ## __register(name, fn);
 ```
 
 一个 `static` 对象，构造函数里 `stub.set_cuda_dispatch_ptr(fn)`。选哪个由编译器宏决定：
 
-```cpp title='3. `REGISTER_DISPATCH`：注册到模板静态成员 · // ...'
+```cpp title='REGISTER_DISPATCH 按编译器宏选择实现'
 #if defined(__CUDACC__)
 #define REGISTER_DISPATCH(name, fn) REGISTER_CUDA_DISPATCH(name, fn)
 #elif defined(__HIPCC__)
@@ -728,7 +728,7 @@ Java 实现"实现类自己登记进系统"有两条路：
 
 ### 1. `TORCH_LIBRARY`
 
-```cpp title='1. `TORCH_LIBRARY` · 函数：ns'
+```cpp title='TORCH_LIBRARY 宏的定义'
 #define TORCH_LIBRARY(ns, m)                                                   \
   static void TORCH_LIBRARY_init_##ns(torch::Library&);                        \
   static const torch::detail::TorchLibraryInit TORCH_LIBRARY_static_init_##ns( \
@@ -743,7 +743,7 @@ Java 实现"实现类自己登记进系统"有两条路：
 
 用户写：
 
-```cpp title='1. `TORCH_LIBRARY` · 函数：TORCH_LIBRARY'
+```cpp title='用户写的 TORCH_LIBRARY(myops, m)'
 TORCH_LIBRARY(myops, m) {
   m.def("scale_shift(Tensor x, float alpha, float beta) -> Tensor");
 }
@@ -751,7 +751,7 @@ TORCH_LIBRARY(myops, m) {
 
 预处理后是（把 `__FILE__`/`__LINE__` 代入）：
 
-```cpp title='1. `TORCH_LIBRARY` · 函数：TORCH_LIBRARY_init_myops'
+```cpp title='TORCH_LIBRARY(myops, m) 预处理后的样子'
 static void TORCH_LIBRARY_init_myops(torch::Library&);
 static const torch::detail::TorchLibraryInit TORCH_LIBRARY_static_init_myops(
     torch::Library::DEF,
@@ -775,7 +775,7 @@ void TORCH_LIBRARY_init_myops(torch::Library& m) {
 
 ### 2. `TorchLibraryInit`：注册器
 
-```cpp title='2. `TorchLibraryInit`：注册器 · 函数：void'
+```cpp title='torch::detail::TorchLibraryInit：构造时调用用户函数'
 namespace torch::detail {
 class TorchLibraryInit final {
  private:
@@ -803,7 +803,7 @@ class TorchLibraryInit final {
 
 而 `torch::Library` 的构造函数（`aten/src/ATen/core/library.cpp`）：
 
-```cpp title='2. `TorchLibraryInit`：注册器 · 函数：Library::Library'
+```cpp title='torch::Library 的构造函数：登记命名空间、file 与 line'
 Library::Library(Kind kind, std::string ns, std::optional<c10::DispatchKey> k, const char* file, uint32_t line)
   : kind_(kind)
   , ns_(ns == "_" ? std::nullopt : std::make_optional(std::move(ns)))
@@ -843,7 +843,7 @@ Library::Library(Kind kind, std::string ns, std::optional<c10::DispatchKey> k, c
 
 `ERROR_CONTEXT` 是这个 `.cpp` 私有的宏：
 
-```cpp title='2. `TorchLibraryInit`：注册器 · C++ 示例'
+```cpp title='library.cpp 私有的 ERROR_CONTEXT 宏'
 #define ERROR_CONTEXT "(Error occurred while processing ", toString(kind_), " block at ", file_, ":", line_, ")"
 ```
 
@@ -853,7 +853,7 @@ Library::Library(Kind kind, std::string ns, std::optional<c10::DispatchKey> k, c
 
 `Library::def(const char* raw_schema)` 解析 schema 字符串，调 `_def`；`_def` 的核心：
 
-```cpp title='3. `m.def` 与 `m.impl`：最后落到 Dispatcher · 函数：emplace_back'
+```cpp title='Library::_def 的核心：Dispatcher::registerDef'
       registrars_.emplace_back(
         c10::Dispatcher::singleton().registerDef(
           std::move(schema),
@@ -865,7 +865,7 @@ Library::Library(Kind kind, std::string ns, std::optional<c10::DispatchKey> k, c
 
 `Library::impl(name, fn)` 把 `fn` 包成 `CppFunction`（第四篇讲的类型擦除：任意签名的函数指针或 lambda 变成统一的 `KernelFunction`，同时推导出它的 schema），调 `_impl`：
 
-```cpp title='3. `m.def` 与 `m.impl`：最后落到 Dispatcher · 函数：Library::_impl'
+```cpp title='Library::_impl：包成 CppFunction 后 Dispatcher::registerImpl'
 Library& Library::_impl(const char* name_str, CppFunction&& f, _RegisterOrVerify rv) & {
   at::OperatorName name = _parseNameForLib(name_str);
   // ...
@@ -895,7 +895,7 @@ Library& Library::_impl(const char* name_str, CppFunction&& f, _RegisterOrVerify
 
 ### 4. `TORCH_LIBRARY_IMPL`：按 DispatchKey 注册
 
-```cpp title='4. `TORCH_LIBRARY_IMPL`：按 DispatchKey 注册 · 函数：C10_CONCATENATE'
+```cpp title='TORCH_LIBRARY_IMPL 与 _TORCH_LIBRARY_IMPL：拼上 C10_UID'
 #define TORCH_LIBRARY_IMPL(ns, k, m) _TORCH_LIBRARY_IMPL(ns, k, m, C10_UID)
 
 #define _TORCH_LIBRARY_IMPL(ns, k, m, uid)                                \
@@ -921,7 +921,7 @@ Library& Library::_impl(const char* name_str, CppFunction&& f, _RegisterOrVerify
 
 展开 `TORCH_LIBRARY_IMPL(myops, CPU, m) { m.impl("scale_shift", &scale_shift_cpu); }`：
 
-```cpp title='4. `TORCH_LIBRARY_IMPL`：按 DispatchK… · 函数：TORCH_LIBRARY_IMPL_init_myops_CP…'
+```cpp title='TORCH_LIBRARY_IMPL(myops, CPU, m) 展开后的样子'
 static void TORCH_LIBRARY_IMPL_init_myops_CPU_0(torch::Library&);
 static const torch::detail::TorchLibraryInit TORCH_LIBRARY_IMPL_static_init_myops_CPU_0(
     torch::Library::IMPL,
@@ -939,7 +939,7 @@ void TORCH_LIBRARY_IMPL_init_myops_CPU_0(torch::Library& m) {
 
 头文件里还有一句针对静态分析工具的注释值得注意：
 
-```cpp title='4. `TORCH_LIBRARY_IMPL`：按 DispatchK… · // NB: The EXACT NAMING of the init…'
+```cpp title='头文件里关于初始化函数命名的注释：供 code analyzer 用'
 // NB: The EXACT NAMING of the initializer functions (e.g.,
 // TORCH_LIBRARY_init_aten) matters for the code analyzer;
 // see the regexes at tools/code_analyzer/run_analyzer.sh
@@ -967,7 +967,7 @@ flowchart TD
 
 Python 侧的两端都可以在源码里找到。`torch/_ops.py` 的 `_Ops.load_library`：
 
-```python title='5. 回答核心问题：从 `import` 到 `torch.ops.m… · path = _utils_internal.resolve_libr…'
+```python title='torch/_ops.py 的 load_library：ctypes.CDLL 就是 dlopen'
         path = _utils_internal.resolve_library_path(path)
         with dl_open_guard():
             # Import the shared library into the process, thus running its
@@ -984,7 +984,7 @@ Python 侧的两端都可以在源码里找到。`torch/_ops.py` 的 `_Ops.load_
 
 另一端，`torch.ops.myops` 是一个 `_OpNamespace` 对象，访问它的属性时：
 
-```python title='5. 回答核心问题：从 `import` 到 `torch.ops.myops.scale_shift` · 类：_OpNamespace'
+```python title='_OpNamespace.__getattr__：按 "ns::op" 从 Dispatcher 查算子'
 class _OpNamespace(types.ModuleType):
     def __getattr__(self, op_name: str) -> OpOverloadPacket:
         # ...
@@ -1013,7 +1013,7 @@ def _get_packet(qualname, op_module):
 
 Java 里最接近"静态对象构造函数在加载时运行"的是类的静态初始化块：
 
-```java title='6. Java 对照：`static {}` 块 · 类：ScaleShiftCpu'
+```java title='Java 对照：类的 static {} 块'
 class ScaleShiftCpu {
     static { Registry.register("scale_shift", ScaleShiftCpu::new); }
 }
@@ -1029,7 +1029,7 @@ C++ 标准对静态存储期对象的动态初始化顺序只保证一件事：*
 
 于是这段代码有未定义行为：
 
-```cpp title='1. 问题 · 函数：reg_foo'
+```cpp title='跨翻译单元的初始化顺序未定义：g_registry 与 reg_foo'
 // registry.cpp
 std::map<std::string, Factory> g_registry;          // 动态初始化：要跑 std::map 的构造函数
 
@@ -1045,7 +1045,7 @@ Java 没有这个问题：类初始化按需触发，JVM 保证在第一次使�
 
 最常用的手段是把全局对象藏进函数：
 
-```cpp title='2. 规避一：函数内静态（construct on first use） · 函数：registry'
+```cpp title='函数内静态：第一次调用时构造的 registry()'
 std::map<std::string, Factory>& registry() {
   static std::map<std::string, Factory> r;   // 第一次调用时构造
   return r;
@@ -1056,7 +1056,7 @@ std::map<std::string, Factory>& registry() {
 
 `c10/util/Registry.h` 的 `C10_DEFINE_TYPED_REGISTRY` 正是这样：
 
-```cpp title='2. 规避一：函数内静态（construct on first use） · 函数：RegistryName'
+```cpp title='C10_DEFINE_TYPED_REGISTRY：注册表藏在函数内静态里'
 #define C10_DEFINE_TYPED_REGISTRY(                                         \
     RegistryName, SrcType, ObjectType, PtrType, ...)                       \
   C10_EXPORT ::c10::Registry<SrcType, PtrType<ObjectType>, ##__VA_ARGS__>* \
@@ -1074,7 +1074,7 @@ std::map<std::string, Factory>& registry() {
 
 `aten/src/ATen/core/dispatch/Dispatcher.h`：
 
-```cpp title='3. 规避二：`Dispatcher::singleton()` 的两层结构 · 函数：realSingleton'
+```cpp title='Dispatcher::singleton()：头文件里内联的第一层'
   static Dispatcher& realSingleton();
 
   C10_ALWAYS_INLINE static Dispatcher& singleton() {
@@ -1093,7 +1093,7 @@ std::map<std::string, Factory>& registry() {
   }
 ```
 
-```cpp title='3. 规避二：`Dispatcher::singleton()` 的两层结构 · 函数：Dispatcher::realSingleton'
+```cpp title='Dispatcher::realSingleton()：.cpp 里的函数内静态'
 // aten/src/ATen/core/dispatch/Dispatcher.cpp
 C10_EXPORT Dispatcher& Dispatcher::realSingleton() {
   static Dispatcher _singleton;
@@ -1130,7 +1130,7 @@ C10_EXPORT Dispatcher& Dispatcher::realSingleton() {
 
 第一篇看过 `cmake/public/utils.cmake` 里 PyTorch 给每个库目标加 `-fvisibility=hidden`。默认变成"全部不导出"之后，需要导出的符号要逐个用 `__attribute__((visibility("default")))` 标出。`torch/headeronly/macros/Export.h` 把这个属性封装成了一组按库区分的宏：
 
-```cpp title='1. `-fvisibility=hidden` 与 `C10_API` 一族 · // This one is being used by libc10.so'
+```cpp title='Export.h 里按库区分的 C10_API / TORCH_API 一族'
 // This one is being used by libc10.so
 #ifdef C10_BUILD_MAIN_LIB
 #define C10_API C10_EXPORT
@@ -1199,7 +1199,7 @@ Table: 各平台强制链接静态库全部目标文件的选项
 
 `cmake/TorchConfig.cmake.in` 为静态构建的 libtorch 用户准备了这个：
 
-```cmake title='3. 静态库：没被引用的目标文件会被丢掉 · macro(append_wholearchive_lib_if_found)'
+```cmake title='TorchConfig.cmake.in 的 append_wholearchive_lib_if_found'
 macro(append_wholearchive_lib_if_found)
   foreach (_arg ${ARGN})
     find_library(${_arg}_LIBRARY ${_arg} PATHS "${TORCH_INSTALL_PREFIX}/lib")
@@ -1219,7 +1219,7 @@ macro(append_wholearchive_lib_if_found)
 endmacro()
 ```
 
-```cmake title='3. 静态库：没被引用的目标文件会被丢掉 · else()'
+```cmake title='静态构建的 libtorch 用 whole-archive 链接 torch_cpu'
 else()
   add_library(torch STATIC IMPORTED) # set imported_location at the bottom
   #library need whole archive
@@ -1239,7 +1239,7 @@ else()
 
 vLLM 的算子库是给 Python `import` 的扩展模块，走的是动态库路径，不需要 whole-archive。它在 `csrc/core/registration.h` 里包了三个宏：
 
-```cpp title='4. vLLM 的注册方式 · 函数：TORCH_LIBRARY_IMPL'
+```cpp title='vLLM csrc/core/registration.h：TORCH_LIBRARY_EXPAND 等三个宏'
 #pragma once
 
 #include <Python.h>
@@ -1275,7 +1275,7 @@ vLLM 的算子库是给 Python `import` 的扩展模块，走的是动态库路�
 
 CUDA 后端的 `csrc/torch_bindings.cpp` 用的是同一套宏，只是把算子按用途分进了几个命名空间：
 
-```cpp title='4. vLLM 的注册方式 · 函数：TORCH_LIBRARY_EXPAND'
+```cpp title='vLLM CUDA 后端的 csrc/torch_bindings.cpp：按用途分命名空间'
 // csrc/torch_bindings.cpp
 TORCH_LIBRARY_EXPAND(TORCH_EXTENSION_NAME, ops) {
   // ...
@@ -1313,7 +1313,7 @@ PyTorch 2.10 的 `torch/csrc/stable/library.h` 里还有另一套注册宏 `STAB
 
 碰到"算子不见了"时，用第一篇的工具箱做两步检查：
 
-```bash title='5. 用 `nm` 检查 · 命令：nm'
+```bash title='用 nm 做两步检查：注册代码在不在、能否链到 Dispatcher'
 # 1. 注册代码到底在不在二进制里？
 nm -C my_ext.so | grep TORCH_LIBRARY
 #   有输出（小写 t/b，内部链接）→ 注册代码在，往下查
@@ -1328,7 +1328,7 @@ ldd my_ext.so | grep torch_cpu
 
 第一步的输出预期形如（macOS，mini-c10 那一节的实际结果）：
 
-```text title='5. 用 `nm` 检查 · 000000000000bc6c t minic10::MINI_LIBRARY_IMPL_init_minic1…'
+```text title='第一步检查的预期输出：init 与 static_init 符号'
 000000000000bc6c t minic10::MINI_LIBRARY_IMPL_init_minic10_CPU_0(minic10::Library&)
 00000000000180b0 b minic10::MINI_LIBRARY_IMPL_static_init_minic10_CPU_0
 ```
@@ -1345,7 +1345,7 @@ ldd my_ext.so | grep torch_cpu
 
 `torch/headeronly/macros/Macros.h` 里按编译器分支的典型例子：
 
-```cpp title='1. 编译器：`__GNUC__`、`__clang__`、`_MSC… · /// C10_NOINLINE - Functions whose …'
+```cpp title='Macros.h 按编译器分支：C10_NOINLINE'
 /// C10_NOINLINE - Functions whose declaration is annotated with this will not
 /// be inlined.
 #ifdef __GNUC__
@@ -1373,7 +1373,7 @@ Java 对照：Java 没有"编译器差异"这个概念——`javac` 只有一个
 
 `_WIN32` 在 32 位和 64 位 Windows 上都定义（`_WIN64` 只在 64 位）。`Export.h` 用它切换 `dllexport`/`visibility`；`Macros.h` 用 `__APPLE__`、`__ANDROID__` 等判断是否支持某些运行时特性：
 
-```cpp title='2. 操作系统：`_WIN32`、`__APPLE__`、`__lin… · (TARGET_IPHONE_SIMULATOR || TARGET_…'
+```cpp title='Macros.h 按操作系统判断 HAS_DEMANGLE'
 #ifndef HAS_DEMANGLE
 #if defined(__ANDROID__) || defined(_WIN32) || defined(__EMSCRIPTEN__)
 #define HAS_DEMANGLE 0
@@ -1397,7 +1397,7 @@ CUDA 是 C++ 的方言，nvcc 编译 `.cu` 文件时会把同一个文件编两�
 
 `Macros.h` 用 `__CUDACC__` 定义 `C10_HOST_DEVICE`：
 
-```cpp title='3. CUDA：`__CUDACC__` 与 `__CUDA_ARCH… · // Designates functions callable fr…'
+```cpp title='Macros.h 用 __CUDACC__ 定义 C10_HOST_DEVICE'
 #if defined(__CUDACC__) || defined(__HIPCC__)
 // Designates functions callable from the host (CPU) and the device (GPU)
 #define C10_HOST_DEVICE __host__ __device__
@@ -1415,7 +1415,7 @@ CUDA 是 C++ 的方言，nvcc 编译 `.cu` 文件时会把同一个文件编两�
 
 同一段里紧接着的是按 `__CUDA_ARCH__` 选择常量：
 
-```cpp title='3. CUDA：`__CUDACC__` 与 `__CUDA_ARCH… · constexpr uint32_t CUDA_MAX_THREADS…'
+```cpp title='按 __CUDA_ARCH__ 选择 CUDA_MAX_THREADS_PER_SM'
 #if __CUDA_ARCH__ == 750
 constexpr uint32_t CUDA_MAX_THREADS_PER_SM = 1024;
 #elif __CUDA_ARCH__ == 860 || __CUDA_ARCH__ == 870 || __CUDA_ARCH__ == 890 || \
@@ -1430,7 +1430,7 @@ constexpr uint32_t CUDA_MAX_THREADS_PER_SM = 2048;
 
 vLLM 的 `csrc/attention/dtype_bfloat16.cuh` 展示了另一种典型用法——某些指令只在新架构上存在：
 
-```cpp title='3. CUDA：`__CUDACC__` 与 `__CUDA_ARCH__` · 函数：bf1622float2'
+```cpp title='vLLM dtype_bfloat16.cuh：只在 sm_80 以上存在的指令'
 inline __device__ float2 bf1622float2(const __nv_bfloat162 val) {
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 800
   assert(false);
@@ -1477,7 +1477,7 @@ Java 的口号是 "write once, run anywhere"：一份 `.class`，任何平台的
 
 `aten/src/ATen/native/native_functions.yaml` 是一个 16000 多行的 YAML 文件，`grep -c "^- func:"` 得到 2666 个条目（PyTorch 2.10.0）。每个条目描述一个算子。挑一个简单的：
 
-```yaml title='1. 单一事实来源：`native_functions.yaml` · - func: bincount(Tensor self, Tenso…'
+```yaml title='native_functions.yaml 里的 bincount 条目'
 - func: bincount(Tensor self, Tensor? weights=None, SymInt minlength=0) -> Tensor
   variants: function, method
   dispatch:
@@ -1502,7 +1502,7 @@ Table: native_functions.yaml 的字段含义
 
 手写的部分只有 kernel 本体：
 
-```cpp title='1. 单一事实来源：`native_functions.yaml` · 函数：_bincount_cpu'
+```cpp title='手写的 kernel 本体：_bincount_cpu'
 // aten/src/ATen/native/SummaryOps.cpp
 Tensor
 _bincount_cpu(const Tensor& self, const std::optional<Tensor>& weights_opt, int64_t minlength) {
@@ -1524,7 +1524,7 @@ _bincount_cpu(const Tensor& self, const std::optional<Tensor>& weights_opt, int6
 
 `torchgen/gen.py` 的 `main()` 是命令行入口（`cmake/Codegen.cmake` 里用 `python -m torchgen.gen --source-path aten/src/ATen --install_dir build/aten/src/ATen --per-operator-headers ...` 调用它）。骨架：
 
-```python title='2. 入口：`torchgen/gen.py` · 函数：main'
+```python title='torchgen/gen.py 的 main() 骨架'
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate ATen source files")
     parser.add_argument("-s", "--source-path", help="path to source directory for ATen",
@@ -1560,7 +1560,7 @@ def main() -> None:
 
 `aten/src/ATen/templates/` 有四十多个模板，用 `${placeholder}` 标记要填的洞。以 `RegisterSchema.cpp` 为例：
 
-```cpp title='3. 模板 + 生成器 = 输出文件 · 函数：TORCH_LIBRARY'
+```cpp title='模板 RegisterSchema.cpp：${placeholder} 标记要填的洞'
 // ${generated_comment}
 #define TORCH_ASSERT_ONLY_METHOD_OPERATORS
 #include <torch/library.h>
@@ -1603,7 +1603,7 @@ class RegisterSchema:
 
 对 `bincount` 这个条目，它产出一行（`tags_N` 的编号取决于 `dynamic_output_shape` 这个 tag 集合第几次出现）：
 
-```cpp title='3. 模板 + 生成器 = 输出文件 · 函数：def'
+```cpp title='bincount 条目产出的 m.def 一行'
 m.def("bincount(Tensor self, Tensor? weights=None, SymInt minlength=0) -> Tensor", tags_N);
 ```
 
@@ -1639,7 +1639,7 @@ inline {sig.decl()} {{
 
 产物形如：
 
-```cpp title='4. 一个 yaml 条目生成了什么 · 函数：bincount'
+```cpp title='Functions.h 里生成的 at::bincount：inline 转调 _ops'
 // aten::bincount(Tensor self, Tensor? weights=None, SymInt minlength=0) -> Tensor
 inline at::Tensor bincount(const at::Tensor & self, const ::std::optional<at::Tensor> & weights={}, int64_t minlength=0) {
     return at::_ops::bincount::call(self, weights, minlength);
@@ -1651,7 +1651,7 @@ inline at::Tensor bincount(const at::Tensor & self, const ::std::optional<at::Te
 
 **`Operators.h` / `Operators_N.cpp`**（`Operators.cpp` 被分成 5 个分片编译）：Dispatcher 的入口。由 `ComputeOperators` 生成，声明部分：
 
-```cpp title='4. 一个 yaml 条目生成了什么 · 结构体：TORCH_API'
+```cpp title='Operators.h 里生成的 at::_ops::bincount 声明'
 struct TORCH_API bincount {
   using schema = at::Tensor (const at::Tensor &, const ::std::optional<at::Tensor> &, c10::SymInt);
   using ptr_schema = schema*;
@@ -1666,7 +1666,7 @@ struct TORCH_API bincount {
 
 定义部分：
 
-```cpp title='4. 一个 yaml 条目生成了什么 · 函数：create_bincount_typed_handle'
+```cpp title='Operators_N.cpp 里生成的 bincount::call 定义'
 // aten::bincount(Tensor self, Tensor? weights=None, SymInt minlength=0) -> Tensor
 static C10_NOINLINE c10::TypedOperatorHandle<bincount::schema> create_bincount_typed_handle() {
   return c10::Dispatcher::singleton()
@@ -1705,7 +1705,7 @@ namespace {{
 
 对 `bincount` 的 CPU 版本，`name` 是 `wrapper_CPU__bincount`（前缀 `wrapper_{dispatch_key}_{overload_name}_`，overload 名为空所以是两个下划线），CPU 后端不需要设备守卫，`impl_name` 是 `at::native::_bincount_cpu`：
 
-```cpp title='4. 一个 yaml 条目生成了什么 · 函数：wrapper_CPU__bincount'
+```cpp title='RegisterCPU.cpp 里生成的 wrapper_CPU__bincount'
 namespace {
 
 at::Tensor wrapper_CPU__bincount(const at::Tensor & self, const ::std::optional<at::Tensor> & weights, c10::SymInt minlength) {
@@ -1722,7 +1722,7 @@ at::Tensor wrapper_CPU__bincount(const at::Tensor & self, const ::std::optional<
 
 然后是注册：
 
-```python title='4. 一个 yaml 条目生成了什么 · elif self.target is Target.REGISTRATION:'
+```python title='torchgen 生成注册语句的代码：Target.REGISTRATION'
             elif self.target is Target.REGISTRATION:
                 # ...
                     payload = f"TORCH_FN({name})"
@@ -1742,7 +1742,7 @@ TORCH_LIBRARY_IMPL({namespace}, {dispatch_key}, m) {{
 
 产物形如：
 
-```cpp title='4. 一个 yaml 条目生成了什么 · 函数：TORCH_LIBRARY_IMPL'
+```cpp title='RegisterCPU.cpp 里生成的 TORCH_LIBRARY_IMPL(aten, CPU, m)'
 TORCH_LIBRARY_IMPL(aten, CPU, m) {
     m.impl("bincount",
 TORCH_FN(wrapper_CPU__bincount));
@@ -1752,7 +1752,7 @@ TORCH_FN(wrapper_CPU__bincount));
 
 `TORCH_FN(f)` 定义在 `c10/core/CompileTimeFunctionPointer.h`：
 
-```cpp title='4. 一个 yaml 条目生成了什么 · ::c10::CompileTimeFunctionPointer<                       …'
+```cpp title='CompileTimeFunctionPointer.h 里的 TORCH_FN'
 #define TORCH_FN_TYPE(func)                                           \
   ::c10::CompileTimeFunctionPointer<                                  \
       std::remove_pointer_t<std::remove_reference_t<decltype(func)>>, \
@@ -1764,7 +1764,7 @@ TORCH_FN(wrapper_CPU__bincount));
 
 模板 `RegisterDispatchKey.cpp` 的骨架和它包含的头文件（`ATen/DeviceGuard.h`、`ATen/core/op_registration/adaption.h`、`torch/library.h` 等）以及 `RegisterDispatchDefinitions.ini` 里那句注释也值得看：
 
-```cpp title='4. 一个 yaml 条目生成了什么 · // NB: TORCH_LIBRARY_IMPL must be in an anonymous namespa…'
+```cpp title='模板 RegisterDispatchKey.cpp：TORCH_LIBRARY_IMPL 放在匿名命名空间里'
 // NB: TORCH_LIBRARY_IMPL must be in an anonymous namespace to avoid
 // ambiguity with conflicting identifiers that may have been defined in
 // at namespace already.
@@ -1779,7 +1779,7 @@ ${static_init_dispatch_registrations}
 
 **`NativeFunctions.h` / `ops/bincount_native.h`**：声明手写函数，让 `RegisterCPU.cpp` 能调用它，也让手写 `SummaryOps.cpp` 第一行 `#include` 它来检查签名一致：
 
-```cpp title='4. 一个 yaml 条目生成了什么 · 函数：_bincount_cpu'
+```cpp title='ops/bincount_native.h 里生成的 _bincount_cpu 声明'
 TORCH_API at::Tensor _bincount_cpu(const at::Tensor & self, const ::std::optional<at::Tensor> & weights={}, int64_t minlength=0);
 ```
 
@@ -1793,7 +1793,7 @@ TORCH_API at::Tensor _bincount_cpu(const at::Tensor & self, const ::std::optiona
 
 `cmake/Codegen.cmake`：
 
-```cmake title='5. CMake 如何驱动生成 · set(GEN_COMMAND'
+```cmake title='cmake/Codegen.cmake 里的 GEN_COMMAND'
   set(GEN_COMMAND
       "${Python_EXECUTABLE}" -m torchgen.gen
       --source-path ${CMAKE_CURRENT_LIST_DIR}/../aten/src/ATen
@@ -1806,7 +1806,7 @@ TORCH_API at::Tensor _bincount_cpu(const at::Tensor & self, const ::std::optiona
   )
 ```
 
-```cmake title='5. CMake 如何驱动生成 · execute_process('
+```cmake title='Codegen.cmake 先 --dry-run 一次拿到输出文件列表'
     # Dry run to bootstrap the output variables
     execute_process(
         COMMAND ${GEN_COMMAND_${gen_type}} --dry-run
@@ -1840,7 +1840,7 @@ Java 对照：注解处理器（APT）是同一位置的技术——编译期读
 
 第六章看了 `Library` 构造函数和 `_impl`。补上 `_def` 里处理命名空间的那段，它解释了 vLLM 那种"schema 字符串里不写命名空间"的写法为什么可行：
 
-```cpp title='1. `aten/src/ATen/core/library.cpp`：`Library::_def` 的一次注册 · 函数：Library::_def'
+```cpp title='library.cpp 的 Library::_def：补命名空间并注册到 Dispatcher'
 Library& Library::_def(c10::FunctionSchema&& schema, c10::OperatorName* out_name, const std::vector<at::Tag>& tags, _RegisterOrVerify rv) & {
   TORCH_CHECK(kind_ == DEF || kind_ == FRAGMENT,
     DEF_PRELUDE,
@@ -1891,7 +1891,7 @@ Library& Library::_def(c10::FunctionSchema&& schema, c10::OperatorName* out_name
 
 再看 `DEF_PRELUDE`：
 
-```cpp title='1. `aten/src/ATen/core/library.cpp`：`Library::_def` 的一次注册 · C++ 示例'
+```cpp title='DEF_PRELUDE 宏'
 #define DEF_PRELUDE "def(\"", schema.operator_name(), "\"): "
 ```
 
@@ -1901,20 +1901,20 @@ Library& Library::_def(c10::FunctionSchema&& schema, c10::OperatorName* out_name
 
 开头那段 `csrc/cpu/torch_bindings.cpp` 现在可以完整读懂了：
 
-```cpp title='2. vLLM 的两个绑定文件 · 函数：TORCH_LIBRARY_EXPAND'
+```cpp title='vLLM torch_bindings.cpp 开头：TORCH_LIBRARY_EXPAND(TORCH_EXTENSION_NAME, ops)'
 TORCH_LIBRARY_EXPAND(TORCH_EXTENSION_NAME, ops) {
 ```
 
 `TORCH_EXTENSION_NAME` 在这个文件里没有定义，它来自 CMake：`cmake/cpu_extension.cmake` 里 `define_extension_target(_C ...)` 把目标命名为 `_C`，`define_extension_target` 再用 `-DTORCH_EXTENSION_NAME=${MOD_NAME}` 把这个名字传给编译器（2.4 节）。`TORCH_LIBRARY_EXPAND` 让 `TORCH_EXTENSION_NAME` 先展开成 `_C`，再进 `TORCH_LIBRARY`；展开结果是一个 `static const TorchLibraryInit TORCH_LIBRARY_static_init__C(...)` 对象和一个 `TORCH_LIBRARY_init__C(torch::Library& ops)` 函数。
 
-```cpp title='2. vLLM 的两个绑定文件 · 函数：def'
+```cpp title='同一个 DEF 块里既 def 又 impl：silu_and_mul'
   ops.def("silu_and_mul(Tensor! out, Tensor input) -> ()");
   ops.impl("silu_and_mul", torch::kCPU, &silu_and_mul);
 ```
 
 在同一个 `DEF` 块里既 `def` 又 `impl`，`impl` 的第二个参数 `torch::kCPU` 走的是 `Library::impl(Name, Dispatch&&, Func&&)` 重载——把 key 挂在函数上（6.3 节的 `f.dispatch_key_`）。CPU 后端没有用 `TORCH_LIBRARY_IMPL` 分块，因为每个算子只有一个后端实现。
 
-```cpp title='2. vLLM 的两个绑定文件 · 函数：REGISTER_EXTENSION'
+```cpp title='文件末尾的 REGISTER_EXTENSION'
 REGISTER_EXTENSION(TORCH_EXTENSION_NAME)
 ```
 
@@ -1953,7 +1953,7 @@ Table: Macros.h 的整体结构
 
 ### 1. `macros/Macros.h`
 
-```cpp title='1. `macros/Macros.h` · // minic10/macros/Macros.h'
+```cpp title='minic10/macros/Macros.h 全文：MINI_API、MINI_CHECK、Error'
 // minic10/macros/Macros.h
 #pragma once
 
@@ -2096,7 +2096,7 @@ inline std::string checkMsg(const char* /*default_msg*/, const Args&... args) {
 
 验证 `MINI_CHECK` 的三种形式和惰性求值：
 
-```cpp title='1. `macros/Macros.h` · 函数：expensive'
+```cpp title='check_demo.cpp：MINI_CHECK 的三种消息形式与惰性求值'
 // check_demo.cpp
 #include <cstdio>
 #include "minic10/macros/Macros.h"
@@ -2116,13 +2116,13 @@ int main() {
 }
 ```
 
-```bash title='1. `macros/Macros.h` · 命令：clang++'
+```bash title='编译并运行 check_demo'
 clang++ -std=c++17 -Wall -Wextra -I. check_demo.cpp -o check_demo && ./check_demo
 ```
 
 实际输出（macOS）：
 
-```text title='1. `macros/Macros.h` · ok, expensive() called 0 times'
+```text title='check_demo 的实际输出：expensive() 只在失败时调用'
 ok, expensive() called 0 times
 --
 x must be positive, got -3 (expensive=42)
@@ -2140,7 +2140,7 @@ expensive() called 1 times
 
 用 `-E` 看 `f` 的第一行展开成什么（macOS 上的实际输出，手工换行）：
 
-```cpp title='1. `macros/Macros.h` · 函数：minic10::detail::checkFail'
+```cpp title='-E 看 MINI_CHECK 第一行的展开结果'
 if ((__builtin_expect(static_cast<bool>(!(x > 0)), 0))) {
   ::minic10::detail::checkFail(
       __func__, "check_demo.cpp", static_cast<uint32_t>(6),
@@ -2155,7 +2155,7 @@ if ((__builtin_expect(static_cast<bool>(!(x > 0)), 0))) {
 
 第四篇的 Dispatcher 在本篇需要三处能力：注册命名空间（查重）、注册 schema、注册 kernel——每处都要接收"在哪个文件哪一行注册的"以便报错。类声明（只列本篇相关部分）：
 
-```cpp title='2. `dispatch/Dispatcher.h` 与 `Dispa… · // minic10/dispatch/Dispatcher.h（节选…'
+```cpp title='minic10/dispatch/Dispatcher.h 节选：singleton 与三个注册接口'
 // minic10/dispatch/Dispatcher.h（节选）
 class MINI_API Dispatcher final {
  public:
@@ -2187,7 +2187,7 @@ class MINI_API Dispatcher final {
 
 `class MINI_API Dispatcher`：整个类导出。它的成员函数定义在 `.cpp` 里、编进 `libminic10.so`，扩展要能链接到它们。实现：
 
-```cpp title='2. `dispatch/Dispatcher.h` 与 `Dispatcher.cpp`：注册表 · 函数：Dispatcher::realSingleton'
+```cpp title='minic10/dispatch/Dispatcher.cpp：realSingleton 与注册实现'
 // minic10/dispatch/Dispatcher.cpp
 #include "minic10/dispatch/Dispatcher.h"
 
@@ -2262,7 +2262,7 @@ OperatorHandle Dispatcher::findOpOrThrow(const std::string& qualname) const {
 
 `OperatorEntry`（第四篇）本篇加了两个调试字段：
 
-```cpp title='2. `dispatch/Dispatcher.h` 与 `Dispatcher.cpp`：注册表 · 结构体：OperatorEntry'
+```cpp title='OperatorEntry 新增的调试字段：def_debug 与 kernel_debug'
 struct OperatorEntry {
   std::string name;           // "minic10::add"
   bool has_schema = false;    // def() 过了没有；impl 可能先于 def 到达
@@ -2276,7 +2276,7 @@ struct OperatorEntry {
 
 ### 3. `library.h`：`MINI_LIBRARY` 与 `MINI_LIBRARY_IMPL`
 
-```cpp title='3. `library.h`：`MINI_LIBRARY` 与 `MI… · // minic10/library.h：对照 torch/libra…'
+```cpp title='minic10/library.h 全文：Library、MINI_LIBRARY 与 MINI_LIBRARY_IMPL'
 // minic10/library.h：对照 torch/library.h
 #pragma once
 #include <cstdint>
@@ -2401,7 +2401,7 @@ class LibraryInit final {
 
 schema 集中在一个文件里（对照 torchgen 生成的 `RegisterSchema.cpp`）：
 
-```cpp title='4. `ops/RegisterSchema.cpp`、`ops/add.cpp`、`ops/mul.cpp` · 函数：MINI_LIBRARY'
+```cpp title='minic10/ops/RegisterSchema.cpp：所有 def 集中在一个 MINI_LIBRARY 块'
 // minic10/ops/RegisterSchema.cpp：对照 torchgen 生成的 RegisterSchema.cpp
 // 一个命名空间只能有一个 MINI_LIBRARY 块，所有 def 放在这里。
 #include "minic10/library.h"
@@ -2414,7 +2414,7 @@ MINI_LIBRARY(minic10, m) {
 
 `-E` 看它展开成什么（macOS 上的实际输出，手工换行）：
 
-```cpp title='4. `ops/RegisterSchema.cpp`、`ops/ad… · 函数：MINI_LIBRARY_init_minic10'
+```cpp title='-E 看 MINI_LIBRARY(minic10, m) 的展开结果'
 static void MINI_LIBRARY_init_minic10(::minic10::Library&);
 static const ::minic10::detail::LibraryInit MINI_LIBRARY_static_init_minic10(
     ::minic10::Library::DEF, &MINI_LIBRARY_init_minic10, "minic10",
@@ -2427,7 +2427,7 @@ void MINI_LIBRARY_init_minic10(::minic10::Library& m) {
 
 算子文件。第三篇的 CPU kernel 和第四篇的 Meta kernel 本体不变，去掉所有被外部引用的符号，加上两个 `MINI_LIBRARY_IMPL` 块：
 
-```cpp title='4. `ops/RegisterSchema.cpp`、`ops/add.cpp`、`ops/mul.cpp` · 函数：shapeStr'
+```cpp title='minic10/ops/add.cpp：kernel 加两个 MINI_LIBRARY_IMPL 块，无外部引用'
 // minic10/ops/add.cpp：第 3 篇的 CPU kernel、第 4 篇的 Meta kernel，本篇改成自注册。
 // 这个文件里没有任何符号被别的翻译单元引用。
 #include "minic10/core/Dispatch.h"
@@ -2480,7 +2480,7 @@ MINI_LIBRARY_IMPL(minic10, Meta, m) {
 
 `mul.cpp` 把 `add` 换成 `mul`、`+` 换成 `*`，其余相同。`-E` 看第一个 `MINI_LIBRARY_IMPL` 展开成什么：
 
-```cpp title='4. `ops/RegisterSchema.cpp`、`ops/ad… · 函数：MINI_LIBRARY_IMPL_init_minic10_C…'
+```cpp title='-E 看 MINI_LIBRARY_IMPL(minic10, CPU, m) 的展开结果'
 static void MINI_LIBRARY_IMPL_init_minic10_CPU_0(::minic10::Library&);
 static const ::minic10::detail::LibraryInit MINI_LIBRARY_IMPL_static_init_minic10_CPU_0(
     ::minic10::Library::IMPL, &MINI_LIBRARY_IMPL_init_minic10_CPU_0, "minic10",
@@ -2494,7 +2494,7 @@ void MINI_LIBRARY_IMPL_init_minic10_CPU_0(::minic10::Library& m) {
 
 公开的 C++ API 放在头文件里，走 Dispatcher（对照生成的 `Functions.h` + `Operators_N.cpp`）：
 
-```cpp title='4. `ops/RegisterSchema.cpp`、`ops/add.cpp`、`ops/mul.cpp` · 函数：add'
+```cpp title='minic10/ops/ops.h：公开 API 经 Dispatcher 查表'
 // minic10/ops/ops.h：公开的 C++ API。对照生成的 ATen/Functions.h：
 // 这里不直接调用 kernel，而是经 Dispatcher 查表 —— 所以 ops/add.cpp 不需要被任何人引用。
 #pragma once
@@ -2523,7 +2523,7 @@ inline Tensor mul(const Tensor& a, const Tensor& b) {
 
 测试程序：
 
-```cpp title='5. 验证：四种链接方式 · 函数：main'
+```cpp title='examples/main.cpp：验证注册表、分发与错误位置'
 // examples/main.cpp
 #include <cstdio>
 #include "minic10/core/Tensor.h"
@@ -2561,7 +2561,7 @@ int main() {
 
 先把库的四个翻译单元和 `main.cpp` 编成 `.o`。库的部分加 `-fvisibility=hidden -DMINIC10_BUILD_MAIN_LIB`（对照 PyTorch 的 `torch_compile_options` 和 `-DC10_BUILD_MAIN_LIB`）：
 
-```bash title='5. 验证：四种链接方式 · 命令：FLAGS="-std=c++17'
+```bash title='把库的四个翻译单元和 main.cpp 编成 .o'
 FLAGS="-std=c++17 -Wall -Wextra -I."
 LIBFLAGS="$FLAGS -fvisibility=hidden -DMINIC10_BUILD_MAIN_LIB -fPIC"
 clang++ $LIBFLAGS -c minic10/dispatch/Dispatcher.cpp -o Dispatcher.o
@@ -2573,11 +2573,11 @@ clang++ $FLAGS -c examples/main.cpp -o main.o
 
 **A. 直接链接目标文件**：
 
-```bash title='5. 验证：四种链接方式 · 命令：clang++'
+```bash title='A. 直接链接目标文件'
 clang++ -std=c++17 main.o Dispatcher.o RegisterSchema.o add.o mul.o -o demo_objs && ./demo_objs
 ```
 
-```text title='5. 验证：四种链接方式 · registered ops: minic10::mul minic10::add'
+```text title='A 的输出：两个算子都在、分发正常、错误带位置'
 registered ops: minic10::mul minic10::add
 add[5]=15 mul[5]=50
 meta add: key=Meta numel=16 data=0x0
@@ -2590,12 +2590,12 @@ Exception raised from add_cpu at minic10/ops/add.cpp:20
 
 **B. 打成静态库再链接**：
 
-```bash title='5. 验证：四种链接方式 · 命令：ar'
+```bash title='B. 打成静态库再链接'
 ar rcs libminic10.a Dispatcher.o RegisterSchema.o add.o mul.o
 clang++ -std=c++17 main.o -L. -lminic10 -o demo_static && ./demo_static
 ```
 
-```text title='5. 验证：四种链接方式 · registered ops:'
+```text title='B 的输出：注册表为空，找不到 schema'
 registered ops:
 caught minic10::Error:
 Could not find schema for minic10::add. Is the library that registers it linked in (and not dropped as an unreferenced object file of a static library)?
@@ -2606,7 +2606,7 @@ Exception raised from findOpOrThrow at minic10/dispatch/Dispatcher.cpp:61
 
 **C. 静态库 + 强制全部链入**：
 
-```bash title='5. 验证：四种链接方式 · 命令：clang++'
+```bash title='C. 静态库加 -force_load / --whole-archive'
 # macOS（ld64）
 clang++ -std=c++17 main.o -Wl,-force_load,libminic10.a -o demo_whole && ./demo_whole
 # Linux（GNU ld / lld）
@@ -2617,7 +2617,7 @@ macOS 上的输出与 A 完全相同。这对应 `cmake/TorchConfig.cmake.in` �
 
 **D. 动态库**：
 
-```bash title='5. 验证：四种链接方式 · 命令：clang++'
+```bash title='D. 编成动态库再链接'
 clang++ -std=c++17 -shared -fvisibility=hidden -o libminic10.dylib Dispatcher.o RegisterSchema.o add.o mul.o   # Linux 用 .so
 clang++ -std=c++17 main.o -L. -lminic10 -o demo_shared
 DYLD_LIBRARY_PATH=. ./demo_shared    # Linux: LD_LIBRARY_PATH=. 或加 -Wl,-rpath,'$ORIGIN'
@@ -2625,7 +2625,7 @@ DYLD_LIBRARY_PATH=. ./demo_shared    # Linux: LD_LIBRARY_PATH=. 或加 -Wl,-rpat
 
 输出与 A 相同。动态库是一个整体，加载时四个翻译单元的 `.init_array`（Mach-O 里叫 `__mod_init_func`）条目全部执行。看看这个库导出了什么：
 
-```text title='5. 验证：四种链接方式 · $ nm -gC libminic10.dylib | grep -v " U "'
+```text title='libminic10.dylib 导出的符号：只有 Dispatcher 的成员'
 $ nm -gC libminic10.dylib | grep -v " U "
 ... T minic10::Dispatcher::realSingleton()
 ... T minic10::Dispatcher::registerLibrary(...)
@@ -2640,7 +2640,7 @@ $ nm -gC libminic10.dylib | grep -v " U "
 
 只有 `class MINI_API Dispatcher` 的成员被导出。注册相关的东西一个都没有——它们都是内部链接：
 
-```text title='5. 验证：四种链接方式 · $ nm -C libminic10.dylib | grep -E "add_cpu|MINI_LIBRARY"'
+```text title='注册相关符号全是内部链接：t 与 b'
 $ nm -C libminic10.dylib | grep -E "add_cpu|MINI_LIBRARY"
 ... t minic10::(anonymous namespace)::add_cpu(minic10::Tensor const&, minic10::Tensor const&)
 ... t MINI_LIBRARY_init_minic10(minic10::Library&)
@@ -2657,7 +2657,7 @@ $ nm -C libminic10.dylib | grep -E "add_cpu|MINI_LIBRARY"
 
 **去掉 `Dispatcher` 上的 `MINI_API`**，重编 D：
 
-```text title='6. 两个附带的实验 · Undefined symbols for architecture arm64:'
+```text title='去掉 Dispatcher 上的 MINI_API：链接失败 Undefined symbols'
 Undefined symbols for architecture arm64:
   "minic10::Dispatcher::realSingleton()", referenced from:
       minic10::Dispatcher::singleton() in main.o
@@ -2672,7 +2672,7 @@ Undefined symbols for architecture arm64:
 
 **去掉 `Error` 上的 `MINI_API`**，重编 D 并运行（macOS，Apple clang 21，arm64）：
 
-```text title='6. 两个附带的实验 · registered ops: minic10::mul minic10::add'
+```text title='去掉 Error 上的 MINI_API：异常无法被 catch，进程 abort'
 registered ops: minic10::mul minic10::add
 add[5]=15 mul[5]=50
 meta add: key=Meta numel=16 data=0x0
@@ -2687,7 +2687,7 @@ Abort trap: 6
 
 第一篇的 `CMakeLists.txt` 里预留了本篇的位置，现在补上：
 
-```cmake title='7. CMake 对应 · set(MINIC10_SRCS'
+```cmake title='mini-c10/CMakeLists.txt 补上 Dispatcher 与算子源文件'
 set(MINIC10_SRCS
     minic10/core/Version.cpp
     minic10/dispatch/Dispatcher.cpp        # 第 4 篇

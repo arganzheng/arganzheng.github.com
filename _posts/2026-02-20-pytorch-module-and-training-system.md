@@ -86,7 +86,7 @@ Table: 本文的章节安排
 
 一个最小的训练模型可以写成：
 
-```python title='1. 一个模型包含什么？ · 导入：torch'
+```python title='最小训练模型：两层 MLP'
 import torch
 from torch import nn
 
@@ -129,7 +129,7 @@ __init__ 定义的 Module 树：
 
 forward 定义的数据流：
 
-```text title='1. 一个模型包含什么？ · x → fc1 → activation → fc2 → output'
+```text title='forward 定义的数据流：fc1 → activation → fc2'
 x → fc1 → activation → fc2 → output
 ```
 
@@ -149,7 +149,7 @@ x → fc1 → activation → fc2 → output
 
 **TIPS** 对于上面这个简单的 MLP，其实我们可以直接使用 `Sequential`：
 
-```python title='1. 一个模型包含什么？ · 类：SequentialMLP'
+```python title='用 nn.Sequential 改写同一个 MLP'
 class SequentialMLP(nn.Module):
     def __init__(self, input_dim: int, hidden_dim: int, output_dim: int) -> None:
         super().__init__()
@@ -188,14 +188,14 @@ Table: Sequential 与自定义 Module 的适合场景
 
 可以查看这棵树：
 
-```python title='2. Module 树：`__init__` 定义的静态结构 · model = MLP(128, 256, 10)'
+```python title='print(model) 看 Module 树'
 model = MLP(128, 256, 10)
 print(model)
 ```
 
 也可以查看命名模块和参数：
 
-```python title='2. Module 树：`__init__` 定义的静态结构 · for name, module in model.named_modules():'
+```python title='named_modules 与 named_parameters'
 for name, module in model.named_modules():
     print(name, type(module).__name__)
 
@@ -245,7 +245,7 @@ for name, parameter in model.named_parameters():
 
 `forward()` 不只是把层按顺序排列，也可以表达分支、跳跃连接和条件路径：
 
-```python title='3. `forward()` 定义动态数据流 · 类：ResidualBlock'
+```python title='ResidualBlock：forward 里的旁路'
 class ResidualBlock(nn.Module):
     def __init__(self, width: int) -> None:
         super().__init__()
@@ -261,7 +261,7 @@ class ResidualBlock(nn.Module):
 
 它的 Module 树只有两个 Linear，但 forward 的数据流包含一条旁路：
 
-```text title='3. `forward()` 定义动态数据流 · ┌──────────── residual ────────────┐'
+```text title='Module 树只有两个 Linear，数据流多一条 residual'
         ┌──────────── residual ────────────┐
         │                                  │
 x ─────┴→ fc1 → ReLU → fc2 ────────────── + → output
@@ -325,7 +325,7 @@ Table: 训练系统替你自动做的五件事，都依赖注册
 
 登记簿上没有的对象，这五件事全部对它视而不见。下面就是唯一一种常见的"漏登记"：把子模块放进一个**普通 Python list**——list 既不是 `Parameter` 也不是 `Module`，`__setattr__` 只会把它当普通属性存起来，里面的两个 `Linear` 于是从登记簿上消失：
 
-```python title='1. 为什么需要注册？ · 类：BadMLP'
+```python title='BadMLP 与 GoodMLP：普通 list 让子模块漏登记'
 class BadMLP(nn.Module):
     def __init__(self) -> None:
         super().__init__()
@@ -356,7 +356,7 @@ class GoodMLP(nn.Module):
 
 两者的 `forward` 一模一样、都能算出结果，差别只在登记簿：
 
-```python title='1. 为什么需要注册？ · bad, good = BadMLP(), GoodMLP()'
+```python title='漏登记的后果：0 个参数、空 state_dict、to("cuda") 不搬动'
 bad, good = BadMLP(), GoodMLP()
 print(sum(p.numel() for p in bad.parameters()))    # 0     ← 优化器拿到 0 个参数
 print(sum(p.numel() for p in good.parameters()))   # 241   ← 10×20+20 + 20×1+1
@@ -376,7 +376,7 @@ bad.to("cuda"); print(bad.layers[0].weight.device) # cpu   ← 没搬动，前�
 
 当执行：
 
-```python title='2. `__setattr__()` 的作用 · self.layer = nn.Linear(10, 20)'
+```python title='给 Module 属性赋一个 nn.Linear'
 self.layer = nn.Linear(10, 20)
 ```
 
@@ -435,7 +435,7 @@ flowchart TB
 
 这也是为什么下面几种对象的行为不同：
 
-```python title='2. `__setattr__()` 的作用 · self.weight = nn.Parameter(torch.randn(10, 20))'
+```python title='三种赋值的不同去向：Parameter、Module、普通属性'
 self.weight = nn.Parameter(torch.randn(10, 20))
 self.layer = nn.Linear(10, 20)
 self.counter = 0
@@ -461,7 +461,7 @@ Table: 三种 Module 容器的用途与用法
 
 当需要保存一组按顺序执行的子模块时，可以使用：
 
-```python title='3. `ModuleList` · 类：StackedMLP'
+```python title='StackedMLP：用 ModuleList 保存一组按顺序执行的层'
 class StackedMLP(nn.Module):
     def __init__(self, dims: list[int]) -> None:
         super().__init__()
@@ -483,7 +483,7 @@ class StackedMLP(nn.Module):
 
 当子模块需要使用有意义的名字时，可以使用：
 
-```python title='4. `ModuleDict` · 类：MultiHead'
+```python title='MultiHead：用 ModuleDict 给子模块起名字'
 class MultiHead(nn.Module):
     def __init__(self, input_dim: int, output_dim: int) -> None:
         super().__init__()
@@ -503,7 +503,7 @@ class MultiHead(nn.Module):
 
 `Sequential` 是一种更强约束的 Module 容器：
 
-```python title='5. `Sequential` · model = nn.Sequential('
+```python title='三层 Sequential'
 model = nn.Sequential(
     nn.Linear(10, 20),
     nn.ReLU(),
@@ -529,11 +529,11 @@ model = nn.Sequential(
 
 `Parameter` 是 Tensor 的特殊封装，用来表示：
 
-```text title='1. Parameter 是什么？ · 这是 Module 的可训练参数'
+```text title='Parameter 表达的含义：Module 的可训练参数'
 这是 Module 的可训练参数
 ```
 
-```python title='1. Parameter 是什么？ · 从 torch 导入'
+```python title='nn.Parameter 默认 requires_grad=True'
 from torch import nn
 
 weight = nn.Parameter(torch.randn(4, 2))
@@ -542,7 +542,7 @@ print(weight.requires_grad)  # True
 
 当它被赋值为 Module 的属性时，会自动注册：
 
-```python title='1. Parameter 是什么？ · 类：LinearLike'
+```python title='LinearLike：Parameter 赋成属性即自动注册'
 class LinearLike(nn.Module):
     def __init__(self, input_dim: int, output_dim: int) -> None:
         super().__init__()
@@ -553,14 +553,14 @@ class LinearLike(nn.Module):
         return x @ self.weight.t() + self.bias
 ```
 
-```python title='1. Parameter 是什么？ · model = LinearLike(4, 2)'
+```python title='看 LinearLike 的 named_parameters'
 model = LinearLike(4, 2)
 print(list(model.named_parameters()))
 ```
 
 ### 2. 普通 Tensor 不会自动成为参数
 
-```python title='2. 普通 Tensor 不会自动成为参数 · 类：NotAParameter'
+```python title='NotAParameter：普通 Tensor 不会被注册'
 class NotAParameter(nn.Module):
     def __init__(self) -> None:
         super().__init__()
@@ -569,7 +569,7 @@ class NotAParameter(nn.Module):
 
 这里的 `weight` 可以参与 Autograd，但它不会自动出现在：
 
-```python title='2. 普通 Tensor 不会自动成为参数 · list(model.parameters())'
+```python title='它不会出现在 parameters() 与 state_dict() 里'
 list(model.parameters())
 model.state_dict()
 ```
@@ -583,7 +583,7 @@ model.state_dict()
 
 有些 Tensor 属于模型状态，但不是需要 Optimizer 更新的参数。例如 BatchNorm 的运行统计量：
 
-```python title='3. Buffer 是什么？ · 类：RunningMean'
+```python title='RunningMean：用 register_buffer 保存非参数状态'
 class RunningMean(nn.Module):
     def __init__(self, size: int) -> None:
         super().__init__()
@@ -600,7 +600,7 @@ Buffer 的典型特征是：
 - 会随 `.to(device)` 迁移；
 - 可以是持久化的，也可以设置 `persistent=False`。
 
-```python title='3. Buffer 是什么？ · self.register_buffer('
+```python title='persistent=False 的 Buffer'
 self.register_buffer(
     "temporary_mask",
     mask,
@@ -624,21 +624,21 @@ Table: Parameter、Buffer 与普通属性的行为
 
 ### 5. 为什么普通 Tensor 不会自动迁移？
 
-```python title='5. 为什么普通 Tensor 不会自动迁移？ · 类：BadModule'
+```python title='BadModule：普通 Tensor 属性'
 class BadModule(nn.Module):
     def __init__(self) -> None:
         super().__init__()
         self.scale = torch.ones(10)
 ```
 
-```python title='5. 为什么普通 Tensor 不会自动迁移？ · model = BadModule().cuda()'
+```python title='.cuda() 之后 scale 仍留在 cpu'
 model = BadModule().cuda()
 print(model.scale.device)  # 仍可能是 cpu
 ```
 
 因为普通属性没有经过 Module 的注册机制。需要把它注册为 Buffer：
 
-```python title='5. 为什么普通 Tensor 不会自动迁移？ · 类：GoodModule'
+```python title='GoodModule：注册成 Buffer 才会一起迁移'
 class GoodModule(nn.Module):
     def __init__(self) -> None:
         super().__init__()
@@ -649,7 +649,7 @@ class GoodModule(nn.Module):
 
 ### 1. `state_dict()` 保存什么？
 
-```python title='1. `state_dict()` 保存什么？ · model = LinearLike(4, 2)'
+```python title='看 LinearLike 的 state_dict keys'
 model = LinearLike(4, 2)
 state = model.state_dict()
 
@@ -678,7 +678,7 @@ print(state.keys())
 
 把 Module 树和 `state_dict` 并排放在一起看会更直观：左边是嵌套的对象树，右边是按"模块路径 + 属性名"拍平后的 key。Parameter 和持久化 Buffer 都会生成 key，无状态模块（如 ReLU）什么也不产生；下面以一个加了 BatchNorm 的 MLP 为例：
 
-```text title='1. `state_dict()` 保存什么？ · Module 树（嵌套对象）                     …'
+```text title='Module 树与 state_dict 扁平 key 的对照'
 Module 树（嵌套对象）                      state_dict（扁平 key -> Tensor）
 ────────────────────────────────         ──────────────────────────────
 MLP
@@ -701,7 +701,7 @@ MLP
 
 ### 2. `state_dict` 不是完整模型
 
-```python title='2. `state_dict` 不是完整模型 · state = model.state_dict()'
+```python title='state_dict 只是状态快照'
 state = model.state_dict()
 ```
 
@@ -717,13 +717,13 @@ state = model.state_dict()
 
 因此：
 
-```text title='2. `state_dict` 不是完整模型 · 模型状态快照 ≠ 可独立运行的完整模型'
+```text title='模型状态快照 ≠ 完整模型'
 模型状态快照 ≠ 可独立运行的完整模型
 ```
 
 ### 3. 保存和加载模型状态
 
-```python title='3. 保存和加载模型状态 · torch.save(model.state_dict(), "model.pt")'
+```python title='保存与加载 state_dict'
 torch.save(model.state_dict(), "model.pt")
 
 model = LinearLike(4, 2)
@@ -739,7 +739,7 @@ model.load_state_dict(state)
 - device 是否正确；
 - 是否使用 strict 模式。
 
-```python title='3. 保存和加载模型状态 · result = model.load_state_dict(state, strict=True)'
+```python title='strict=True 时 load_state_dict 的返回值'
 result = model.load_state_dict(state, strict=True)
 print(result)
 ```
@@ -752,7 +752,7 @@ print(result)
 
 如果需要中断后继续训练，通常需要保存更多状态：
 
-```python title='4. 保存可恢复训练的 checkpoint · checkpoint = {'
+```python title='可恢复训练的 checkpoint：model、optimizer、scheduler、进度'
 checkpoint = {
     "model": model.state_dict(),
     "optimizer": optimizer.state_dict(),
@@ -789,7 +789,7 @@ torch.save(checkpoint, "checkpoint.pt")
 
 ### 1. `train()` 与 `eval()`
 
-```python title='1. `train()` 与 `eval()` · model.train()'
+```python title='train() 与 eval()'
 model.train()
 model.eval()
 ```
@@ -802,7 +802,7 @@ model.eval()
 - BatchNorm；
 - 某些自定义模块。
 
-```python title='1. `train()` 与 `eval()` · model.train()'
+```python title='训练态与评估态各跑一次前向'
 model.train()
 output = model(inputs)
 
@@ -813,7 +813,7 @@ with torch.inference_mode():
 
 ### 2. `eval()` 不等于关闭梯度
 
-```python title='2. `eval()` 不等于关闭梯度 · model.eval()'
+```python title='eval() 下仍能 backward'
 model.eval()
 output = model(inputs)
 loss = criterion(output, targets)
@@ -824,7 +824,7 @@ loss.backward()
 
 反过来：
 
-```python title='2. `eval()` 不等于关闭梯度 · model.train()'
+```python title='train() 下也能 no_grad'
 model.train()
 with torch.no_grad():
     output = model(inputs)
@@ -850,7 +850,7 @@ Table: train / eval 与梯度模式组合出的六种状态
 
 ### 3. 一个完整的评估函数
 
-```python title='3. 一个完整的评估函数 · 函数：evaluate'
+```python title='一个完整的 evaluate 函数'
 def evaluate(
     model: nn.Module,
     loader,
@@ -897,7 +897,7 @@ Optimizer 不只是一个“调用 `step()` 的对象”，它通常管理：
 - weight decay 状态；
 - step 计数。
 
-```python title='1. Optimizer 管理什么？ · model = LinearLike(4, 2)'
+```python title='构造 AdamW'
 model = LinearLike(4, 2)
 optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
 ```
@@ -914,13 +914,13 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
 
 ### 2. Optimizer 不负责计算梯度
 
-```python title='2. Optimizer 不负责计算梯度 · loss.backward()'
+```python title='backward 算梯度'
 loss.backward()
 ```
 
 负责根据计算图计算梯度；
 
-```python title='2. Optimizer 不负责计算梯度 · optimizer.step()'
+```python title='step 更新参数'
 optimizer.step()
 ```
 
@@ -935,7 +935,7 @@ optimizer.step()
 
 典型训练循环为：
 
-```python title='3. 梯度清零 · optimizer.zero_grad(set_to_none=True)'
+```python title='典型训练循环三步'
 optimizer.zero_grad(set_to_none=True)
 loss.backward()
 optimizer.step()
@@ -950,7 +950,7 @@ optimizer.step()
 
 不同参数可以使用不同的学习率和 weight decay：
 
-```python title='4. 参数组 · optimizer = torch.optim.AdamW(['
+```python title='参数组：backbone 与 head 用不同学习率'
 optimizer = torch.optim.AdamW([
     {
         "params": model.backbone.parameters(),
@@ -972,7 +972,7 @@ optimizer = torch.optim.AdamW([
 
 ### 5. 冻结参数
 
-```python title='5. 冻结参数 · for parameter in model.backbone.parameters():'
+```python title='冻结 backbone：requires_grad_(False)'
 for parameter in model.backbone.parameters():
     parameter.requires_grad_(False)
 ```
@@ -990,7 +990,7 @@ for parameter in model.backbone.parameters():
 
 AdamW 等 Optimizer 会为参数保存额外状态：
 
-```python title='6. Optimizer state · optimizer.state_dict()'
+```python title='optimizer.state_dict()'
 optimizer.state_dict()
 ```
 
@@ -1002,13 +1002,13 @@ optimizer.state_dict()
 
 因此训练显存通常不仅包含：
 
-```text title='6. Optimizer state · 参数 + 梯度'
+```text title='训练显存不只是参数加梯度'
 参数 + 梯度
 ```
 
 还包含：
 
-```text title='6. Optimizer state · 参数 + 梯度 + Optimizer State'
+```text title='还要加上 Optimizer State'
 参数 + 梯度 + Optimizer State
 ```
 
@@ -1024,7 +1024,7 @@ optimizer.state_dict()
 
 一个 Map-style Dataset 通常实现：
 
-```python title='1. Dataset 的职责 · 从 torch.utils.data 导入'
+```python title='RegressionDataset：Map-style Dataset 的三个方法'
 from torch.utils.data import Dataset
 
 
@@ -1056,7 +1056,7 @@ Dataset 不负责：
 
 对于流式数据或无法随机访问的数据，可以实现 `IterableDataset`：
 
-```python title='2. `IterableDataset` · 从 torch.utils.data 导入'
+```python title='StreamingDataset：IterableDataset 只实现 __iter__'
 from torch.utils.data import IterableDataset
 
 
@@ -1099,7 +1099,7 @@ Sampler 决定索引访问顺序：
 
 ### 4. DataLoader 的职责
 
-```python title='4. DataLoader 的职责 · 从 torch.utils.data 导入'
+```python title='DataLoader 的常见参数'
 from torch.utils.data import DataLoader
 
 loader = DataLoader(
@@ -1124,7 +1124,7 @@ DataLoader 通常负责：
 
 默认 collate 可以处理形状一致的样本：
 
-```text title='5. `collate_fn` · 样本 1：shape=(3,)'
+```text title='默认 collate：形状一致的样本堆成 batch'
 样本 1：shape=(3,)
 样本 2：shape=(3,)
 样本 3：shape=(3,)
@@ -1134,7 +1134,7 @@ Batch：shape=(3, 3)
 
 但变长序列通常需要自定义 padding：
 
-```python title='5. `collate_fn` · 函数：collate_fn'
+```python title='变长序列的 collate_fn：pad_sequence'
 def collate_fn(batch):
     sequences, labels = zip(*batch)
     padded = pad_sequence(
@@ -1223,7 +1223,7 @@ flowchart TB
 
 正确的调优方式是测量：
 
-```text title='7. `num_workers` 不是越大越好 · num_workers=0'
+```text title='num_workers 逐档测量'
 num_workers=0
     ↓
 num_workers=2
@@ -1256,7 +1256,7 @@ num_workers=8
 
 ### 1. 模型和数据必须位于兼容设备
 
-```python title='1. 模型和数据必须位于兼容设备 · device = torch.device("cuda" if torch.cuda.is_available()…'
+```python title='模型与每个 batch 都搬到同一 device'
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = model.to(device)
 
@@ -1276,7 +1276,7 @@ for inputs, targets in loader:
 
 ### 2. 模型迁移的递归性
 
-```python title='2. 模型迁移的递归性 · model.cuda()'
+```python title='model.cuda()'
 model.cuda()
 ```
 
@@ -1284,7 +1284,7 @@ model.cuda()
 
 但不会自动迁移普通属性中的 Tensor：
 
-```python title='2. 模型迁移的递归性 · self.mask = torch.ones(10)'
+```python title='普通属性里的 Tensor 不会被搬动'
 self.mask = torch.ones(10)
 ```
 
@@ -1294,7 +1294,7 @@ self.mask = torch.ones(10)
 
 CPU 普通内存与 GPU 之间的数据复制，可能受到主机内存页锁定状态的影响。DataLoader 可以配置：
 
-```python title='3. Pinned Memory · loader = DataLoader('
+```python title='DataLoader 开 pin_memory'
 loader = DataLoader(
     dataset,
     batch_size=64,
@@ -1304,7 +1304,7 @@ loader = DataLoader(
 
 再配合：
 
-```python title='3. Pinned Memory · inputs = inputs.to("cuda", non_blocking=True)'
+```python title='配合 non_blocking=True'
 inputs = inputs.to("cuda", non_blocking=True)
 ```
 
@@ -1319,7 +1319,7 @@ inputs = inputs.to("cuda", non_blocking=True)
 
 ### 4. 训练流水线的理想状态
 
-```text title='4. 训练流水线的理想状态 · CPU Worker 准备 Batch N+1'
+```text title='理想的流水线：CPU 准备下一批，GPU 算当前批'
 CPU Worker 准备 Batch N+1
               │
               ▼
@@ -1340,7 +1340,7 @@ CPU Worker 准备 Batch N+2
 
 ### 5. 不要在训练循环中频繁搬回 CPU
 
-```python title='5. 不要在训练循环中频繁搬回 CPU · for batch in loader:'
+```python title='每步都 .cpu().numpy() 搬回 CPU'
 for batch in loader:
     output = model(batch)
     value = output.cpu().numpy()
@@ -1355,7 +1355,7 @@ for batch in loader:
 
 如果只是记录标量，应优先使用：
 
-```python title='5. 不要在训练循环中频繁搬回 CPU · value = loss.detach().item()'
+```python title='只记录标量：detach().item()'
 value = loss.detach().item()
 ```
 
@@ -1363,7 +1363,7 @@ value = loss.detach().item()
 
 ### 1. 最小训练循环
 
-```python title='1. 最小训练循环 · 函数：train_one_epoch'
+```python title='train_one_epoch：最小训练循环'
 def train_one_epoch(
     model: nn.Module,
     loader,
@@ -1394,7 +1394,7 @@ def train_one_epoch(
 
 ### 2. 一个完整的训练程序
 
-```python title='2. 一个完整的训练程序 · model = MLP(input_dim=128, hidden_dim=256, output_dim=10)'
+```python title='一个完整的训练程序：先 to(device) 再建 optimizer'
 model = MLP(input_dim=128, hidden_dim=256, output_dim=10)
 criterion = nn.CrossEntropyLoss()
 
@@ -1444,7 +1444,7 @@ sequenceDiagram
 
 **忘记调用 `optimizer.step()`**
 
-```python title='4. 训练循环中的常见顺序错误 · loss.backward()'
+```python title='忘记 optimizer.step()'
 loss.backward()
 # 没有 optimizer.step()
 ```
@@ -1453,7 +1453,7 @@ loss.backward()
 
 **忘记清空梯度**
 
-```python title='4. 训练循环中的常见顺序错误 · loss.backward()'
+```python title='忘记清空梯度'
 loss.backward()
 optimizer.step()
 ```
@@ -1464,7 +1464,7 @@ optimizer.step()
 
 通常推荐：
 
-```python title='4. 训练循环中的常见顺序错误 · optimizer.zero_grad()'
+```python title='推荐的顺序：zero_grad 放在前向之前'
 optimizer.zero_grad()
 outputs = model(inputs)
 loss = criterion(outputs, targets)
@@ -1476,7 +1476,7 @@ optimizer.step()
 
 **验证阶段仍然构建计算图**
 
-```python title='4. 训练循环中的常见顺序错误 · model.eval()'
+```python title='验证阶段没关梯度记录'
 model.eval()
 for batch in valid_loader:
     output = model(batch)
@@ -1484,7 +1484,7 @@ for batch in valid_loader:
 
 这可能产生不必要的 Autograd 和显存开销。验证通常应使用：
 
-```python title='4. 训练循环中的常见顺序错误 · model.eval()'
+```python title='验证用 eval 加 inference_mode'
 model.eval()
 with torch.inference_mode():
     ...
@@ -1512,7 +1512,7 @@ with torch.inference_mode():
 
 现代 PyTorch 中可以使用：
 
-```python title='2. autocast · with torch.autocast(device_type="cuda", dtype=torch.bfloa…'
+```python title='autocast 到 bfloat16'
 with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
     outputs = model(inputs)
     loss = criterion(outputs, targets)
@@ -1524,7 +1524,7 @@ autocast 会根据算子和设备选择适合的计算 dtype。它不是把整�
 
 对于 FP16 训练，通常还需要梯度缩放：
 
-```python title='3. GradScaler · scaler = torch.amp.GradScaler("cuda")'
+```python title='FP16 训练：GradScaler 的用法'
 scaler = torch.amp.GradScaler("cuda")
 
 for inputs, targets in loader:
@@ -1598,7 +1598,7 @@ BF16 的指数范围接近 FP32，很多训练场景不需要和 FP16 完全相�
 
 Module 提供多种 hook，用于观察或干预执行过程：
 
-```python title='1. Hook 能做什么？ · 函数：log_shape'
+```python title='注册一个 forward hook 打印输出形状'
 def log_shape(module, inputs, output):
     print(type(module).__name__, output.shape)
 
@@ -1607,7 +1607,7 @@ handle = model.register_forward_hook(log_shape)
 
 使用结束后应移除：
 
-```python title='1. Hook 能做什么？ · handle.remove()'
+```python title='用完移除 hook'
 handle.remove()
 ```
 
@@ -1634,25 +1634,25 @@ Hook 会改变或包裹执行路径，可能带来：
 
 ### 3. Hook 与 `forward()` 的关系
 
-```python title='3. Hook 与 `forward()` 的关系 · output = model(inputs)'
+```python title='通过调用协议：model(inputs)'
 output = model(inputs)
 ```
 
 通常会经过 Module 的调用协议，而不是简单执行：
 
-```python title='3. Hook 与 `forward()` 的关系 · model.forward(inputs)'
+```python title='绕过协议：model.forward(inputs)'
 model.forward(inputs)
 ```
 
 Hook 正是 Module 调用协议中的一部分。直接调用 `forward()` 可能绕过部分 Module 行为，因此业务代码通常应调用：
 
-```python title='3. Hook 与 `forward()` 的关系 · model(inputs)'
+```python title='业务代码应写 model(inputs)'
 model(inputs)
 ```
 
 而不是：
 
-```python title='3. Hook 与 `forward()` 的关系 · model.forward(inputs)'
+```python title='而不是 model.forward(inputs)'
 model.forward(inputs)
 ```
 
@@ -1664,7 +1664,7 @@ model.forward(inputs)
 
 适合部署或只需要推理的场景：
 
-```python title='1. 只保存模型权重 · torch.save(model.state_dict(), "weights.pt")'
+```python title='只保存权重'
 torch.save(model.state_dict(), "weights.pt")
 ```
 
@@ -1672,7 +1672,7 @@ torch.save(model.state_dict(), "weights.pt")
 
 适合训练中断后恢复：
 
-```python title='2. 保存完整训练状态 · checkpoint = {'
+```python title='保存完整训练状态'
 checkpoint = {
     "model": model.state_dict(),
     "optimizer": optimizer.state_dict(),
@@ -1683,7 +1683,7 @@ checkpoint = {
 
 如果使用 scheduler 和 AMP，还应加入：
 
-```python title='2. 保存完整训练状态 · checkpoint["scheduler"] = scheduler.state_dict()'
+```python title='scheduler 与 scaler 也要进 checkpoint'
 checkpoint["scheduler"] = scheduler.state_dict()
 checkpoint["scaler"] = scaler.state_dict()
 ```
@@ -1710,7 +1710,7 @@ checkpoint["scaler"] = scaler.state_dict()
 
 ### 4. Resume 不只是加载权重
 
-```python title='4. Resume 不只是加载权重 · checkpoint = torch.load(path, map_location="cpu")'
+```python title='Resume：恢复 model、optimizer 与 epoch'
 checkpoint = torch.load(path, map_location="cpu")
 model.load_state_dict(checkpoint["model"])
 optimizer.load_state_dict(checkpoint["optimizer"])
@@ -1784,7 +1784,7 @@ flowchart TB
 
 `nn.Module` 可以近似理解为：
 
-```text title='1. Module 更像带状态协议的组件树 · 组件树'
+```text title='nn.Module 的近似：组件树加六种协议'
 组件树
 + 参数注册
 + 状态注册

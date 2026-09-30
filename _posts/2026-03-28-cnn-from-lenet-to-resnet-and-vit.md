@@ -76,7 +76,7 @@ $$
 
 对每个输出位置，卷积是输入的一个线性函数；把输入拉直成向量，整个卷积就是一个矩阵乘法 $$y = Mx$$。第七章的实验构造了这个矩阵：一个 $$3 \times 3$$ 核作用在 $$6 \times 6$$ 单通道图像上，输出 $$4 \times 4$$，$$M$$ 是 $$16 \times 36$$：
 
-```text title='2. 它就是一个稀疏矩阵 · max |conv - M@x| = 8.9e-16'
+```text title='卷积等价于 16×36 稀疏矩阵：验证输出与 M 的第 0 行'
 max |conv - M@x| = 8.9e-16
 matrix shape (16, 36), entries 576, nonzero 144, distinct free params 9
 row 0 of M (reshaped 6x6):          ← 输出位置 (0,0) 对输入的权重
@@ -105,7 +105,7 @@ row 0 of M (reshaped 6x6):          ← 输出位置 (0,0) 对输入的权重
 
 第 $$L$$ 层的一个输出位置能"看到"输入的多大范围，叫**感受野**（receptive field，中文文献里的通行译法，借自神经科学里视网膜神经元的同名概念）。stride 为 1 的 $$3 \times 3$$ 卷积每层把感受野扩大 2：$$\text{RF}_L = 1 + 2L$$。一维的截面：
 
-```text title='1. 感受野 · 第 3 层输出        ·  ·  ·  ·  ·  ·  ●  ·  ·  ·  ·  ·  ·     …'
+```text title='三层 3×3 卷积的感受野逐层扩大'
 第 3 层输出        ·  ·  ·  ·  ·  ·  ●  ·  ·  ·  ·  ·  ·        一个位置
                                  ╱  │  ╲
 第 2 层            ·  ·  ·  ·  ·  ●  ●  ●  ·  ·  ·  ·  ·        看到 3 个（RF = 3）
@@ -162,7 +162,7 @@ ResNet：结构图只需要画一个块——弧线那条恒等通路就是第�
 
 第七章用 `torchvision` 的 ResNet-50 逐层数了一遍：
 
-```text title='2. ResNet-50 的账 · params 25.56M  (conv 23.45M, fc 2.05M, bn 0.05M)'
+```text title='ResNet-50 的参数量与 FLOPs'
 params 25.56M  (conv 23.45M, fc 2.05M, bn 0.05M)
 FLOPs per image (224x224): conv 8.17 G, fc 0.004 G -> 8.18 GFLOPs (= 4.09 GMACs)
 ```
@@ -279,7 +279,7 @@ Table: 不同分辨率与 patch 大小下的 token 数
 
 **思路**：按原图的 C1-S2-C3-S4-C5-F6-OUT 七层照搬，只把 1998 年的三处改成今天的写法——tanh → ReLU、平均池化 → 最大池化、RBF 输出层 → softmax；结构、每层的通道数和核大小一个不改。
 
-```python title='0. LeNet-5：6 万参数的 1998 年网络 · 类：LeNet5'
+```python title='LeNet-5 的 PyTorch 实现：七层照搬，三处现代化'
 class LeNet5(nn.Module):
     def __init__(self):
         super().__init__()
@@ -353,7 +353,7 @@ Table: 同一份 MNIST 上五种方法的对照
 
 四个实验，前两个纯 NumPy，后两个用 PyTorch（`torchvision` 只用来加载 ResNet-50 的结构）：
 
-```python title='1. 代码 · 函数：conv_as_matrix'
+```python title='四个实验的代码骨架'
 # 1. 卷积 == 稀疏矩阵
 def conv_as_matrix(k, H, W):            # 构造 (Ho*Wo) x (H*W) 的矩阵 M，使 conv(x,k).flatten() == M @ x.flatten()
     ...
@@ -366,7 +366,7 @@ def conv_as_matrix(k, H, W):            # 构造 (Ho*Wo) x (H*W) 的矩阵 M，�
 
 实验 1、2、4 的输出已在第二、四、六章引用。实验 3 的完整输出（MNIST 前 2 万张，3 个 epoch，SGD momentum 0.9、$$\eta = 0.05$$、裁剪 1.0，测试前用 1 万张训练图重估 BN 统计量）：
 
-```text title='2. 结果 · L=20 plain   : init grad norm block1 1.7e+00 vs block20 1…'
+```text title='实验 3 输出：plain 与 residual 在 L=20 / 56 的梯度比与 loss'
 L=20 plain   : init grad norm block1 1.7e+00 vs block20 1.6e-01 (ratio 10.9)  | train loss @ep1 0.460 @ep3 0.128 | test acc 96.4%
 L=20 residual: init grad norm block1 1.3e+00 vs block20 3.7e-01 (ratio 3.4)   | train loss @ep1 0.224 @ep3 0.093 | test acc 96.8%
 L=56 plain   : init grad norm block1 9.5e+02 vs block56 3.3e-01 (ratio 2849)  | train loss @ep1 1.676 @ep3 0.724 | test acc 70.9%

@@ -74,7 +74,7 @@ mindmap
 
 延迟维度的五个指标其实是同一条请求时间线上的不同区间，先把它们放到一张图里，后面的定义就不容易混（`t0` 客户端发出请求，`t1` 服务端开始执行，`t2` 首 token 到达客户端，`t3..tN` 后续每个输出 token 到达客户端，共 N 个输出 token）：
 
-```text title='二、LLM Serving 指标总览 · 时间 ──────────────────────────────────────────────────────…'
+```text title='一次请求的时间线：Queueing、TTFT、ITL'
 时间 ────────────────────────────────────────────────────────────────▶
    t0            t1            t2      t3      t4      t5   ...     tN
    │             │             │       │       │       │            │
@@ -121,7 +121,7 @@ LLM Serving 的各项指标并非相互独立。不同指标暴露的是不同�
 
 平均值可能掩盖严重的尾延迟问题。在线服务通常应同时报告：
 
-```text title='1. 常见误区 · 平均值 + P50 + P95 + P99 + SLO 达标率'
+```text title='延迟应同时报告的五个数'
 平均值 + P50 + P95 + P99 + SLO 达标率
 ```
 
@@ -131,7 +131,7 @@ LLM Serving 的各项指标并非相互独立。不同指标暴露的是不同�
 
 TTFT 通常还包括：
 
-```text title='1. 常见误区 · 排队时间 + 调度等待 + Prefill + 首 Token 生成 + 网络传输'
+```text title='TTFT 的组成不只是 Prefill'
 排队时间 + 调度等待 + Prefill + 首 Token 生成 + 网络传输
 ```
 
@@ -220,7 +220,7 @@ Table: vllm bench 的子命令
 
 一次典型的在线压测：
 
-```bash title='四、在 vLLM 里怎么测：`vllm bench` · 命令：vllm'
+```bash title='vllm bench serve 的一条典型命令'
 vllm bench serve --model <MODEL> --dataset-name sharegpt --dataset-path ShareGPT.json \
   --request-rate 8 --num-prompts 500 \
   --percentile-metrics ttft,tpot,itl,e2el --metric-percentiles 50,95,99 \
