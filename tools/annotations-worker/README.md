@@ -155,7 +155,11 @@ browser from GitHub). Without `path` it returns every post at once —
 
 `GET /stats?paths=/a.html,/b.html` (up to 20) returns, per path, `views`,
 `up` / `down` and `shares` (D1, 0 without the binding), and from the giscus
-public API `comments` (comments + replies), `id` and `url` of the discussion
+public API `comments` (comments + replies, **minus the author's own top-level
+comments and their replies** — those are the author's private working notes
+for the AI revision loop; `js/annotations.js` hides them from everyone but the
+logged-in author, and the badge must not count what the page will not show),
+`id` and `url` of the discussion
 (`null` when nobody has commented yet). Each path is cached 120 s at the edge,
 so the home page (10 posts) costs at most 10 giscus lookups every two minutes.
 Used by `js/share.js` for the 阅读 / 有用 / 评论 / 分享 badges in every list

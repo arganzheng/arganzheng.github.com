@@ -462,12 +462,23 @@ feature). Old URLs `highlight-annotations-demo`, `blog-user-manual`,
 `popup-footnotes-and-inline-tips-demo` redirect via `jekyll-redirect-from`.
 Keep both up to date when features change.
 
-One data model, two views. `comments` holds every top-level comment of the
-post's discussion (`parseComment`); those whose body starts with the quote
-header get `selector`/`noteHTML` and are the `annotations` highlighted in the
-article. `syncViews()` re-renders both the highlights/panel
+One data model, two views. `allComments` holds every top-level comment of
+the post's discussion (`parseComment`); `comments` is what this reader may
+see (`visibleComments`); those whose body starts with the quote header get
+`selector`/`noteHTML` and are the `annotations` highlighted in the article.
+`syncViews()` re-filters and re-renders both the highlights/panel
 (`applyHighlights`) and the bottom section (`renderCommentSection`) after
-every mutation. `commentEl` and `renderEditor` are shared, so plain comments
+every mutation. **The author's own top-level comments are private working
+notes** (2026-09-30: 「我自己提的评论只用于让 AI 完善文章，属于过程态，只有我自己
+可以看到」): `isAuthorNote` = `authorAssociation === 'OWNER'` or login ==
+`site.github_username`; they (with their replies) are dropped from `comments`
+unless `isOwner()`, so highlights, 💬 marks, counts, 最受关注的段落 and the
+bottom list never show them to readers; `refilterComments()` re-syncs on
+login / logout. The author's *replies* under readers' comments stay public.
+The worker's `GET /stats` subtracts them the same way (`publicCommentCount`,
+by `authorAssociation`), so list badges match. It is page-level hiding only —
+the comments remain in the public GitHub Discussion; the dashboard / 修订简报 /
+feedback-queue read them on purpose (they are the AI's revision input). `commentEl` and `renderEditor` are shared, so plain comments
 and passage notes have identical reply / edit / delete / 「同时提交 Issue」
 controls. The bottom section (`.annotation-comments`): header bar
 (`renderLikeBar`: count + GitHub link; it also paints the `.post-actions` bar above the section), `.ac-group` per top-level comment with its replies, inline reply

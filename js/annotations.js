@@ -65,6 +65,11 @@
  * store it under localStorage["giscus-session"], the relay exchanges it for a
  * GitHub token and the browser calls GitHub GraphQL directly. Any failure
  * degrades to copying the Markdown for posting on GitHub.
+ *
+ * The author's own top-level comments are private working notes (they feed
+ * the AI revision loop): hidden from every reader, shown only while the
+ * author is logged in (visibleComments). The relay's /stats leaves them out
+ * of the list-page comment counts the same way.
  */
 
 (function () {
@@ -87,8 +92,9 @@
   var cfg = null;
   var container = null;
   var index = null;          // { text, nodes:[{node, charIdx:[]}] }
-  var comments = [];         // every top-level comment of the post's discussion (see parseComment)
-  var annotations = [];      // the subset with a selector, anchored in the article
+  var allComments = [];      // every top-level comment of the post's discussion (see parseComment)
+  var comments = [];         // the ones this reader may see: allComments minus the author's own (see visibleComments)
+  var annotations = [];      // the subset of `comments` with a selector, anchored in the article
   var reactions = {};        // hash -> { hash, quote, up, doubt, range, marks }: anonymous passage 赞 / 存疑 (worker /reactions)
   var chapters = {};         // section title -> { hash, quote: '§ ' + text, up, doubt }: section-level reactions (same table; 随笔 ♡)
   var discussion = null;     // { id, url, totalCommentCount, likes: { up, mine } }
@@ -944,7 +950,7 @@
         c.deleted = true; c.bodyHTML = ''; c.selector = null; c.noteHTML = null; c.issue = null;
         if (panelState) panelState.ids = panelState.ids.filter(function (id) { return id !== c.id; });
       } else {
-        comments = comments.filter(function (a) { return a.id !== c.id; });
+        allComments = allComments.filter(function (a) { return a.id !== c.id; });
         if (panelState) panelState.ids = panelState.ids.filter(function (id) { return id !== c.id; });
       }
       syncViews(); // re-renders (or closes) the thread panel and the comment section
@@ -1088,8 +1094,8 @@
     var hosts = document.querySelectorAll('.ap-editor');
     for (var i = 0; i < hosts.length; i++) if (hosts[i].querySelector('.ap-user')) refreshAuthUI(hosts[i]);
     if (discussion) discussion.likes.mine = null; // the counts stay, our own vote marks go
-    comments.forEach(function (c) { c.votes.mine = null; c.replies.forEach(function (r) { r.votes.mine = null; }); });
-    renderCommentSection();
+    allComments.forEach(function (c) { c.votes.mine = null; c.replies.forEach(function (r) { r.votes.mine = null; }); });
+    if (!refilterComments()) renderCommentSection();
     if (panelState && panelState.kind === 'thread') refreshThreadPanel();
   }
 
@@ -1332,8 +1338,10 @@
   function onViewerKnown() {
     var hosts = document.querySelectorAll('.ap-editor');
     for (var i = 0; i < hosts.length; i++) if (hosts[i].querySelector('.ap-user')) refreshAuthUI(hosts[i]);
-    if (panelState && panelState.kind === 'thread' && !panel.querySelector('.ap-text').value) refreshThreadPanel();
-    if (commentsHost && !commentsHost.querySelector('.ac-reply-editor, .ap-inline-editor')) renderCommentSection();
+    if (!refilterComments()) {
+      if (panelState && panelState.kind === 'thread' && !panel.querySelector('.ap-text').value) refreshThreadPanel();
+      if (commentsHost && !commentsHost.querySelector('.ac-reply-editor, .ap-inline-editor')) renderCommentSection();
+    }
     loadViewerReactions();
     // Other scripts (js/share.js: author-only buttons) want to know who is logged in.
     try { document.dispatchEvent(new CustomEvent('blog:viewer', { detail: viewer })); } catch (e) { /* old browsers */ }
@@ -1422,7 +1430,7 @@
       var c = data.addDiscussionComment.comment;
       var a = parseComment(c);
       if (!a.selector) { a.selector = sel; a.noteHTML = c.bodyHTML; a.issue = issue; } // GitHub rendered it unexpectedly
-      comments.push(a);
+      allComments.push(a);
       clearDraft();
       closePanel();
       syncViews();
@@ -1448,7 +1456,7 @@
     }).then(function (data) {
       var c = parseComment(data.addDiscussionComment.comment);
       if (issue && !c.issue) c.issue = issue;
-      comments.push(c);
+      allComments.push(c);
       syncViews();
       flashComment(c.id);
       showToast(issue ? '评论已发表，Issue #' + issue.number + ' 已创建' : '评论已发表');
@@ -1542,7 +1550,7 @@
     return api('/discussions' + qs).then(function (data) {
       var d = data && data.discussion;
       discussion = d ? { id: d.id, url: d.url, totalCommentCount: d.totalCommentCount, likes: parseVotes(d.reactions || d.reactionGroups) } : null;
-      comments = d ? parseComments(d.comments || []) : [];
+      allComments = d ? parseComments(d.comments || []) : [];
       loadError = null; loaded = true;
       syncViews();
       loadIssueStates(); // 「已修正」 for notes filed with an Issue; re-syncs when it answers
@@ -1557,13 +1565,34 @@
     });
   }
 
-  // `comments` is the source of truth; the article highlights and the comment
-  // section at the bottom are two views of it. Call after every mutation.
+  // `allComments` is the source of truth; `comments` (what this reader sees),
+  // the article highlights and the comment section at the bottom are views of
+  // it. Call after every mutation.
   function syncViews() {
     markResolved();
+    comments = visibleComments();
     annotations = comments.filter(function (c) { return c.selector; });
     applyHighlights();
     renderCommentSection();
+  }
+
+  // The author's own top-level comments (划线评论 included) are working notes
+  // for the AI revision loop (修订简报 / 待修订 issues), not part of the page:
+  // only the author, logged in, sees them. Their replies under readers'
+  // comments stay public (已修正 …). Counts, hot passages and highlights all
+  // derive from `comments`, so nothing leaks a hidden note.
+  function isAuthorNote(c) {
+    return c.owner || !!(cfg.author && c.author && c.author.login && c.author.login.toLowerCase() === cfg.author.toLowerCase());
+  }
+  function visibleComments() {
+    return isOwner() ? allComments : allComments.filter(function (c) { return !isAuthorNote(c); });
+  }
+  // After the viewer changed (login / logout): re-sync when that changes what is visible.
+  function refilterComments() {
+    if (visibleComments().length === comments.length) return false;
+    syncViews();
+    if (panelState && panelState.kind === 'thread') refreshThreadPanel();
+    return true;
   }
 
   function parseComments(comments) {
@@ -1607,7 +1636,7 @@
   var RESOLVED_RE = /已修正|已修复|已更正|已改正|已订正|已采纳/;
   var closedIssues = {};  // number -> true, from GitHub REST (see loadIssueStates)
   function markResolved() {
-    comments.forEach(function (c) {
+    allComments.forEach(function (c) {
       if (c.deleted) { c.resolved = false; return; }
       if (c.issue && c.issue.number) { c.resolved = !!closedIssues[c.issue.number]; return; }
       c.resolved = (c.votes && c.votes.hooray > 0) || c.replies.some(function (r) {
@@ -1622,7 +1651,7 @@
   function loadIssueStates() {
     if (!cfg.repo) return Promise.resolve();
     var now = Date.now(), want = [];
-    comments.forEach(function (c) {
+    allComments.forEach(function (c) {
       if (!c.issue || !c.issue.number) return;
       var cached = null;
       try { cached = JSON.parse(localStorage.getItem(ISSUE_CACHE + cfg.repo + '#' + c.issue.number) || 'null'); } catch (e) { /* ignore */ }

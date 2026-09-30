@@ -123,6 +123,24 @@ async function getDiscussion(url, env, ctx, cors) {
     }
   }
 
+  const got = await fetchDiscussion(env, term);
+  if (got.error) return json(got.error, got.status, { ...cors, 'Cache-Control': 'public, max-age=30' });
+  const discussion = got.discussion;
+
+  const res = json({ discussion }, 200, {
+    ...cors,
+    'Cache-Control': 'public, max-age=30, s-maxage=60',
+    'X-Cache': 'MISS',
+  });
+  ctx.waitUntil(cache.put(cacheKey, res.clone()));
+  return res;
+}
+
+// The whole discussion of one post from the giscus public API (all pages of
+// top-level comments concatenated). Resolves to { discussion } (null when
+// nobody has commented yet — giscus answers 404 for that, a normal state) or
+// { error, status } for a real failure.
+async function fetchDiscussion(env, term) {
   const params = { repo: env.REPO, category: env.CATEGORY, term, first: String(PAGE_SIZE) };
   let discussion = null;
   let after = '';
@@ -132,10 +150,8 @@ async function getDiscussion(url, env, ctx, cors) {
     const r = await fetch(`${GISCUS}/discussions?${qs}`, { headers: { Accept: 'application/json' } });
     const data = await r.json();
     if (!r.ok) {
-      // 404 "Discussion not found" is a normal state for a post nobody has commented on yet.
-      const status = r.status === 404 ? 200 : r.status;
-      const body = r.status === 404 ? { discussion: null } : data;
-      return json(body, status, { ...cors, 'Cache-Control': 'public, max-age=30' });
+      if (r.status === 404) return { discussion: null };
+      return { error: data, status: r.status };
     }
     if (!discussion) discussion = data.discussion;
     else discussion.comments = discussion.comments.concat(data.discussion.comments);
@@ -143,14 +159,20 @@ async function getDiscussion(url, env, ctx, cors) {
     if (!info || !info.hasNextPage) break;
     after = info.endCursor;
   }
+  return { discussion };
+}
 
-  const res = json({ discussion }, 200, {
-    ...cors,
-    'Cache-Control': 'public, max-age=30, s-maxage=60',
-    'X-Cache': 'MISS',
-  });
-  ctx.waitUntil(cache.put(cacheKey, res.clone()));
-  return res;
+// What readers get to see: the author's own top-level comments are private
+// working notes (js/annotations.js hides them unless the author is logged
+// in), so they and their replies do not count.
+function publicCommentCount(disc) {
+  const list = (disc && disc.comments) || [];
+  let n = 0;
+  for (const c of list) {
+    if (c.authorAssociation === 'OWNER' || c.isMinimized) continue;
+    n += 1 + (c.replyCount || (c.replies && c.replies.length) || 0);
+  }
+  return n;
 }
 
 async function relay(target, request, cors) {
@@ -533,7 +555,8 @@ async function bumpShares(env, path, now) {
 // GET /stats?paths=/a.html,/b.html  (<= 20) -> per-post counters for list pages:
 // { items: { "/a.html": { views, comments, up, down, shares, id, url } } }
 // views, up/down and shares from D1 (0 without the binding), comments / discussion id
-// from the giscus public API (one lookup per path, first page only).
+// from the giscus public API (one lookup per path; the author's private notes
+// are left out, see publicCommentCount).
 // Cached 120 s at the edge per path so a listing of 10 posts is cheap.
 const STATS_MAX = 20;
 async function stats(url, env, ctx, cors) {
@@ -564,13 +587,11 @@ async function stats(url, env, ctx, cors) {
     const hit = await cache.match(key);
     if (hit) d = await hit.json();
     else {
-      const qs = new URLSearchParams({ repo: env.REPO, category: env.CATEGORY, term: p, first: '1' });
-      const r = await fetch(`${GISCUS}/discussions?${qs}`, { headers: { Accept: 'application/json' } });
-      const data = r.ok ? await r.json() : null;
-      const disc = data && data.discussion;
-      d = disc ? { id: disc.id, url: disc.url, comments: (disc.totalCommentCount || 0) + (disc.totalReplyCount || 0) }
+      const got = await fetchDiscussion(env, p);
+      const disc = got.discussion;
+      d = disc ? { id: disc.id, url: disc.url, comments: publicCommentCount(disc) }
                : { id: null, url: null, comments: 0 };
-      if (r.ok || r.status === 404) ctx.waitUntil(cache.put(key, json(d, 200, { 'Cache-Control': 'public, s-maxage=120' })));
+      if (!got.error) ctx.waitUntil(cache.put(key, json(d, 200, { 'Cache-Control': 'public, s-maxage=120' })));
     }
     items[p] = { ...d, views: viewsByPath[p] || 0, up: (votesByPath[p] || {}).up || 0, down: (votesByPath[p] || {}).down || 0, shares: sharesByPath[p] || 0 };
   }));
