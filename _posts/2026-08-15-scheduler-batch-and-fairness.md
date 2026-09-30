@@ -18,7 +18,7 @@ updated: 2026-09-14
 
 传统深度学习推理通常以固定 Batch 为基本调度单位：
 
-```text
+```text title='正文 · Batch'
 Batch
  ├── Request A
  ├── Request B
@@ -52,7 +52,7 @@ Batch
 
 vLLM 的调度可以理解为逐渐回答五个问题：
 
-```text
+```text title='1. 从五个问题到一句话定义 · 为什么 Batch 必须动态变化？'
 为什么 Batch 必须动态变化？
         │
         ▼
@@ -114,7 +114,7 @@ Table: 本文的章节安排
 
 如果采用固定 Batch：
 
-```text
+```text title='1. Static Batching 的问题 · Step 1：'
 Step 1：
 
 A  ████████████
@@ -154,7 +154,7 @@ GPU 的部分计算资源因此被浪费。
 
 更严重的是，新来的 Request D 即使已经排队，也无法及时加入当前 Batch：
 
-```text
+```text title='1. Static Batching 的问题 · A ──────────────────────────────►'
 A ──────────────────────────────►
 B ───────────► done
 
@@ -165,7 +165,7 @@ D ────────► waiting...
 
 于是系统形成：
 
-```text
+```text title='1. Static Batching 的问题 · GPU'
 GPU
 │
 ├── 已完成请求释放资源
@@ -190,7 +190,7 @@ LLM 的生成过程天然是迭代式的：
 
 这就是 Continuous Batching。
 
-```text
+```text title='2. Continuous Batching · Continuous Batching'
                  Continuous Batching
 
 Iter 1:   [A] [B] [C]
@@ -241,7 +241,7 @@ Continuous Batching 解决了：
 
 例如一个 32K token 的 Prompt：
 
-```text
+```text title='三、Chunked Prefill：为什么一个 Request 也不能一次吃完？ · Request A'
 Request A
 ┌─────────────────────────────────────────────┐
 │              32K Prompt                     │
@@ -250,7 +250,7 @@ Request A
 
 如果一次性完成 Prefill：
 
-```text
+```text title='三、Chunked Prefill：为什么一个 Request 也不能一次吃完？ · Iteration 1：'
 Iteration 1：
 
 [A: Prefill 32K]
@@ -268,7 +268,7 @@ Iteration 1：
 
 于是出现典型的 Head-of-Line Blocking：
 
-```text
+```text title='三、Chunked Prefill：为什么一个 Request 也不能一次吃完？ · Long Prefill'
 Long Prefill
 ████████████████████████████████████████
 
@@ -285,7 +285,7 @@ D Decode   ───────────────────────
 
 因此，长 Prompt 也需要被拆成多个 Chunk：
 
-```text
+```text title='1. Chunked Prefill · 32K Prompt'
 32K Prompt
 
 ┌──────┬──────┬──────┬──────┬──────┐
@@ -295,7 +295,7 @@ D Decode   ───────────────────────
 
 例如：
 
-```text
+```text title='1. Chunked Prefill · Iteration 1:'
 Iteration 1:
 [A: Chunk1] [B: Decode] [C: Decode]
 
@@ -310,7 +310,7 @@ Iteration 3:
 
 这样，A 不再一次性独占 GPU，而是和其他请求交替推进。
 
-```text
+```text title='1. Chunked Prefill · 没有 Chunked Prefill：'
 没有 Chunked Prefill：
 
 Iter 1   [Long Prefill ████████████████████]
@@ -369,7 +369,7 @@ Chunked Prefill 并不是免费优化。
 
 在 vLLM 中，可以通过：
 
-```python
+```python title='3. `long_prefill_token_threshold` · long_prefill_token_threshold'
 long_prefill_token_threshold
 ```
 
@@ -377,7 +377,7 @@ long_prefill_token_threshold
 
 概念上可以理解为：
 
-```python
+```python title='3. `long_prefill_token_threshold` · num_new_tokens = min('
 num_new_tokens = min(
     num_new_tokens,
     long_prefill_token_threshold,
@@ -386,14 +386,14 @@ num_new_tokens = min(
 
 例如：
 
-```text
+```text title='3. `long_prefill_token_threshold` · Prompt = 2050 tokens'
 Prompt = 2050 tokens
 long_prefill_token_threshold = 512
 ```
 
 那么这个 Prefill 最多可以被拆成：
 
-```text
+```text title='3. `long_prefill_token_threshold` · 512 + 512 + 512 + 512 + 2'
 512 + 512 + 512 + 512 + 2
 ```
 
@@ -446,7 +446,7 @@ Chunked Prefill 又解决了：
 
 也就是说：
 
-```
+```text title='1. Request 是调度对象，Token 是调度资源 · Scheduler'
                     Scheduler
                         │
               调度哪些 Request？
@@ -477,7 +477,7 @@ Scheduler 首先需要确定：
 
 在 vLLM V1 中，Scheduler 有一个配置项：
 
-```text
+```text title='2. 每一轮首先确定 Token Budget · max_num_scheduled_tokens'
 max_num_scheduled_tokens
 ```
 
@@ -487,25 +487,25 @@ max_num_scheduled_tokens
 
 例如：
 
-```text
+```text title='2. 每一轮首先确定 Token Budget · max_num_scheduled_tokens = 512'
 max_num_scheduled_tokens = 512
 ```
 
 那么：
 
-```text
+```text title='2. 每一轮首先确定 Token Budget · 本轮 Token Budget = 512'
 本轮 Token Budget = 512
 ```
 
 意味着：
 
-```text
+```text title='2. 每一轮首先确定 Token Budget · 这一轮最多安排 512 token 的计算工作'
 这一轮最多安排 512 token 的计算工作
 ```
 
 所有 Request 在这一轮消耗的 token 额度之和不能超过这个预算：
 
-```text
+```text title='2. 每一轮首先确定 Token Budget · Σ num_new_tokens_i ≤ 512'
 Σ num_new_tokens_i ≤ 512
 ```
 
@@ -551,19 +551,19 @@ vLLM 中有两个非常关键的量：
 
 普通 Decode 情况下，通常只需要推进一个 token：
 
-```text
+```text title='3. Request 还需要推进多少？ · num_tokens_with_spec ≈ num_computed_tokens + 1'
 num_tokens_with_spec ≈ num_computed_tokens + 1
 ```
 
 而如果涉及 speculative decoding，则可能一次需要推进多个 token：
 
-```text
+```text title='3. Request 还需要推进多少？ · num_tokens_with_spec > num_computed_tokens + 1'
 num_tokens_with_spec > num_computed_tokens + 1
 ```
 
 因此，Scheduler 可以计算：
 
-```text
+```text title='3. Request 还需要推进多少？ · remaining_tokens = num_tokens_with_spec - num_computed_to…'
 remaining_tokens = num_tokens_with_spec - num_computed_tokens
 ```
 
@@ -576,7 +576,7 @@ remaining_tokens = num_tokens_with_spec - num_computed_tokens
 
 Scheduler 最终真正关心的是：
 
-```text
+```text title='4. `num_new_tokens`：本轮真正分配多少？ · num_new_tokens'
 num_new_tokens
 ```
 
@@ -586,7 +586,7 @@ num_new_tokens
 
 概念上可以理解为：
 
-```python
+```python title='4. `num_new_tokens`：本轮真正分配多少？ · remaining_tokens = ('
 remaining_tokens = (
     req.num_tokens_with_spec
     - req.num_computed_tokens
@@ -601,13 +601,13 @@ num_new_tokens = min(
 
 然后：
 
-```python
+```python title='4. `num_new_tokens`：本轮真正分配多少？ · token_budget -= num_new_tokens'
 token_budget -= num_new_tokens
 ```
 
 于是：
 
-```text
+```text title='4. `num_new_tokens`：本轮真正分配多少？ · Token Budget'
                   Token Budget
                        │
                        ▼
@@ -632,13 +632,13 @@ token_budget -= num_new_tokens
 
 假设当前：
 
-```text
+```text title='5. 用一个完整例子看懂 `schedule()` · max_num_scheduled_tokens = 512'
 max_num_scheduled_tokens = 512
 ```
 
 也就是：
 
-```text
+```text title='5. 用一个完整例子看懂 `schedule()` · Token Budget = 512'
 Token Budget = 512
 ```
 
@@ -662,13 +662,13 @@ Scheduler 可以分配：
 
 消耗：
 
-```text
+```text title='5. 用一个完整例子看懂 `schedule()` · 400 + 1 + 1 = 402'
 400 + 1 + 1 = 402
 ```
 
 于是：
 
-```text
+```text title='5. 用一个完整例子看懂 `schedule()` · 剩余 Token Budget'
 剩余 Token Budget
     =
 512 - 402
@@ -685,13 +685,13 @@ Scheduler 不需要等待 A、B、C 全部完成。
 
 只要还有预算，就可以继续接纳 D：
 
-```text
+```text title='5. 用一个完整例子看懂 `schedule()` · D → 110'
 D → 110
 ```
 
 最终：
 
-```text
+```text title='5. 用一个完整例子看懂 `schedule()` · ┌─────────────────────────────────────────────┐'
 ┌─────────────────────────────────────────────┐
 │          Token Budget = 512                 │
 ├─────────────────────────────────────────────┤
@@ -723,7 +723,7 @@ D → 110
 
 假设：
 
-```text
+```text title='6. Decode 为什么也是同一个调度模型？ · Request B：'
 Request B：
 
 num_computed_tokens = 100
@@ -732,13 +732,13 @@ num_tokens_with_spec = 101
 
 那么：
 
-```text
+```text title='6. Decode 为什么也是同一个调度模型？ · remaining_tokens = 101 - 100 = 1'
 remaining_tokens = 101 - 100 = 1
 ```
 
 因此：
 
-```text
+```text title='6. Decode 为什么也是同一个调度模型？ · B → 1 token'
 B → 1 token
 ```
 
@@ -746,14 +746,14 @@ B → 1 token
 
 而一个长 Prompt：
 
-```text
+```text title='6. Decode 为什么也是同一个调度模型？ · num_computed_tokens = 1000'
 num_computed_tokens = 1000
 num_tokens_with_spec = 1500
 ```
 
 那么：
 
-```text
+```text title='6. Decode 为什么也是同一个调度模型？ · remaining_tokens = 1500 - 1000 = 500'
 remaining_tokens = 1500 - 1000 = 500
 ```
 
@@ -782,13 +782,13 @@ Prefill 和 Decode 依然是非常重要的性能分析概念，但它们并不�
 
 在 vLLM V1 中，关键逻辑位于：
 
-```text
+```text title='7. Scheduler 的核心源码逻辑 · vllm/v1/core/sched/scheduler.py'
 vllm/v1/core/sched/scheduler.py
 ```
 
 其中 `Scheduler.schedule()` 可以概念化为：
 
-```python
+```python title='7. Scheduler 的核心源码逻辑 · 函数：schedule'
 def schedule(self, throttle_prefills=False):
     token_budget = self.max_num_scheduled_tokens
 
@@ -916,7 +916,7 @@ flowchart TB
 
 这里最值得注意的是：
 
-```python
+```python title='7. Scheduler 的核心源码逻辑 · num_new_tokens = ('
 num_new_tokens = (
     req.num_tokens_with_spec
     - req.num_computed_tokens
@@ -925,13 +925,13 @@ num_new_tokens = (
 
 以及：
 
-```python
+```python title='7. Scheduler 的核心源码逻辑 · token_budget -= num_new_tokens'
 token_budget -= num_new_tokens
 ```
 
 它们共同构成了 Scheduler 的核心逻辑：
 
-```text
+```text title='7. Scheduler 的核心源码逻辑 · Request 当前还差多少？'
 Request 当前还差多少？
         │
         ▼
@@ -971,7 +971,7 @@ allocate_slots()
 
 Scheduler 同时受到两类资源约束：
 
-```text
+```text title='8. Token Budget 与 KV Cache 是两个不同维度的约束 · Scheduler'
                 Scheduler
                     │
           ┌─────────┴─────────┐
@@ -994,7 +994,7 @@ KV Cache 回答：
 
 因此，即使：
 
-```text
+```text title='8. Token Budget 与 KV Cache 是两个不同维度的约束 · Token Budget = 512'
 Token Budget = 512
 ```
 
@@ -1002,7 +1002,7 @@ Token Budget = 512
 
 例如：
 
-```text
+```text title='8. Token Budget 与 KV Cache 是两个不同维度的约束 · Token Budget 足够'
 Token Budget 足够
         │
         ▼
@@ -1019,7 +1019,7 @@ KV Cache Block 不够
 
 整体调度流程如下：
 
-```text
+```text title='8. Token Budget 与 KV Cache 是两个不同维度的约束 · Scheduler'
                     Scheduler
                         │
                         ▼
@@ -1072,7 +1072,7 @@ Table: Token Budget 与 max_num_seqs 哪个先生效
 
 所谓 Mixed Batch，并不是 Scheduler 专门定义了一种新的：
 
-```text
+```text title='五、Mixed Batch：为什么 Prefill、Decode 与 Speculative 可以共存？ · MixedBatch'
 MixedBatch
 ```
 
@@ -1085,7 +1085,7 @@ MixedBatch
 
 假设当前：
 
-```text
+```text title='1. 一轮 GPU 中可以同时有什么？ · Token Budget = 512'
 Token Budget = 512
 ```
 
@@ -1114,7 +1114,7 @@ Table: 一轮 batch 里的请求构成示例
 
 于是这一轮：
 
-```text
+```text title='1. 一轮 GPU 中可以同时有什么？ · ┌─────────────────────────────────────────────┐'
 ┌─────────────────────────────────────────────┐
 │             Token Budget = 512              │
 ├─────────────────────────────────────────────┤
@@ -1141,7 +1141,7 @@ Table: 一轮 batch 里的请求构成示例
 
 更准确的理解是：
 
-```text
+```text title='2. Mixed Batch 并不是三种 Batch 拼起来 · Scheduler'
                  Scheduler
                      │
                      ▼
@@ -1175,7 +1175,7 @@ Table: 一轮 batch 里的请求构成示例
 
 因此：
 
-```text
+```text title='3. Speculative Decoding 为什么可以自然融入？ · remaining ≈ 1'
 remaining ≈ 1
 ```
 
@@ -1191,7 +1191,7 @@ remaining ≈ 1
 
 因此：
 
-```text
+```text title='3. Speculative Decoding 为什么可以自然融入？ · remaining > 1'
 remaining > 1
 ```
 
@@ -1205,7 +1205,7 @@ remaining > 1
 
 所以 Scheduler 不需要重新设计一套：
 
-```text
+```text title='3. Speculative Decoding 为什么可以自然融入？ · Speculative Scheduler'
 Speculative Scheduler
 ```
 
@@ -1223,7 +1223,7 @@ Scheduler 完成本轮决策后，并不会直接执行模型计算。
 
 它会将本轮调度结果通过：
 
-```text
+```text title='4. SchedulerOutput：调度完成后发生什么？ · SchedulerOutput'
 SchedulerOutput
 ```
 
@@ -1231,7 +1231,7 @@ SchedulerOutput
 
 可以把整个过程理解为：
 
-```text
+```text title='4. SchedulerOutput：调度完成后发生什么？ · Scheduler'
                  Scheduler
                      │
                      │ schedule()
@@ -1265,7 +1265,7 @@ SchedulerOutput
 
 执行层需要通过 `InputBatch`、`slot_mapping`、block table 和 attention metadata，把这些不同形态的 token 组织成一次 GPU forward。
 
-```
+```text title='4. SchedulerOutput：调度完成后发生什么？ · ┌──────────────── 一轮 Mixed Batch 的 …'
 ┌──────────────── 一轮 Mixed Batch 的 token 构成 ──────────────────────┐
 │                                                                      │
 │  SchedulerOutput (本轮 token 预算分配结果):                            │
@@ -1337,7 +1337,7 @@ SchedulerOutput
 
 假设：
 
-```text
+```text title='1. Admission Control：不是所有 Request 都能立即进入 Running · GPU KV Cache'
 GPU KV Cache
 ┌─────────────────────────────┐
 │ █ █ █ █ █ █ █ █ █ █ █ █ █ │
@@ -1355,7 +1355,7 @@ Free Blocks = 很少
 
 即使：
 
-```text
+```text title='1. Admission Control：不是所有 Request 都能立即进入 Running · Token Budget 足够'
 Token Budget 足够
 ```
 
@@ -1363,7 +1363,7 @@ Token Budget 足够
 
 因为：
 
-```text
+```text title='1. Admission Control：不是所有 Request 都能立即进入 Running · Token Budget 足够'
 Token Budget 足够
         │
         ▼
@@ -1391,7 +1391,7 @@ Free Blocks 不足
 
 概念流程：
 
-```text
+```text title='2. KV Cache 不够：Preemption · KV Cache 不足'
 KV Cache 不足
       │
       ▼
@@ -1468,7 +1468,7 @@ vLLM V1 当前主要采用 Recomputation。
 
 其核心逻辑可以概念化为：
 
-```python
+```python title='3. Recomputation vs Swapping · 函数：_preempt_request'
 def _preempt_request(request, ...):
 
     self._free_request_blocks(request)
@@ -1484,7 +1484,7 @@ def _preempt_request(request, ...):
 
 其中最关键的是：
 
-```python
+```python title='3. Recomputation vs Swapping · request.num_computed_tokens = 0'
 request.num_computed_tokens = 0
 ```
 
@@ -1508,7 +1508,7 @@ request.num_computed_tokens = 0
 
 如果 Request 的大量前缀仍然命中 Prefix Cache：
 
-```text
+```text title='4. 为什么 Recomputation 不一定像想象中那么昂贵？ · Request'
 Request
 ┌───────────────────────────────────────┐
 │ Prefix Cache Hit │ 需要重新计算       │
@@ -1565,7 +1565,7 @@ Request
 
 把前面几节串起来，用一个具体的 step 序列看抢占、重新入队和 Recomputation 在时间上是怎样交错的（Block = 16 token，KV Cache 初始空闲 7 块，watermark = 0；A/B/C 已在 Decode，D 是新到请求，Prompt = 60 token）：
 
-```text
+```text title='5. LIFO Preemption 与重新入队 · P(n) = Prefill n token    D = Decod…'
 P(n) = Prefill n token    D = Decode 1 token    × = 已被抢占，不在 running
 
 step│  A  │  B  │  C  │   D   │空闲块│ 这一轮发生了什么
@@ -1607,7 +1607,7 @@ Scheduler 还需要避免一种非常糟糕的情况：
 
 这就是 Watermark 的基本思想：
 
-```text
+```text title='6. Watermark：给 KV Cache 留一点安全余量 · KV Cache Blocks'
 KV Cache Blocks
 
 ┌────────────────────────────────┐
@@ -1622,7 +1622,7 @@ KV Cache Blocks
 
 概念上：
 
-```python
+```python title='6. Watermark：给 KV Cache 留一点安全余量 · watermark_blocks = int('
 watermark_blocks = int(
     watermark * num_blocks
 )
@@ -1630,7 +1630,7 @@ watermark_blocks = int(
 
 在接纳新的 Waiting / Preempted Request 时：
 
-```python
+```python title='6. Watermark：给 KV Cache 留一点安全余量 · required_blocks = ('
 required_blocks = (
     num_blocks_to_allocate
     + watermark_blocks
@@ -1658,7 +1658,7 @@ required_blocks = (
 
 而 vLLM 更接近：
 
-```text
+```text title='七、本文小结：Scheduler：从“Batch 调度”到“资源调度” · Incoming Requests'
                  Incoming Requests
                         │
                         ▼
@@ -1689,7 +1689,7 @@ required_blocks = (
 
 从一个 Request 的生命周期来看：
 
-```text
+```text title='七、本文小结：Scheduler：从“Batch 调度”到“资源调度” · Request 到达'
 Request 到达
      │
      ▼
@@ -1736,7 +1736,7 @@ num_computed_tokens 更新
 
 而 Continuous Batching、Chunked Prefill 和 Mixed Batch，实际上都可以从这个统一的资源调度模型中自然推导出来：
 
-```text
+```text title='七、本文小结：Scheduler：从“Batch 调度”到“资源调度” · Scheduler'
                     Scheduler
                         │
                         ▼
@@ -1762,7 +1762,7 @@ num_computed_tokens 更新
 
 这也是为什么 vLLM 能够在同一轮中同时处理：
 
-```text
+```text title='七、本文小结：Scheduler：从“Batch 调度”到“资源调度” · 长 Prompt Prefill'
 长 Prompt Prefill
         +
 Chunked Prefill

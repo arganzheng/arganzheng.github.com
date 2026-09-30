@@ -63,7 +63,7 @@ $$
 
 算术强度高于 295 的操作受算力限制，低于的受带宽限制。这就是 **roofline 模型**的全部内容：一条水平线（算力上限）和一条斜线（带宽 × 强度），操作的性能被压在两条线下面。画出来（两轴都是对数坐标，H100 的数字）：
 
-```text
+```text title='2. ridge point · 可达性能'
 可达性能
 (TFLOP/s)
   989 ┤                                 ┌──────────────────────────  算力上限 989 TFLOPS
@@ -159,7 +159,7 @@ Table: 显存的四块：大小由什么决定
 
 ### 2. 读一张 profiler 表
 
-```python
+```python title='2. 读一张 profiler 表 · with torch.profiler.profile(activities=[ProfilerActivity.…'
 with torch.profiler.profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
     one_step()
 print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
@@ -167,7 +167,7 @@ print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
 
 输出每个算子的时间、调用次数、显存变化。在 CPU 上对第三篇的小 Transformer 跑一步（没有 GPU 就看 CPU 时间，读法相同）：
 
-```text
+```text title='2. 读一张 profiler 表 · 模型 0.84 M 参数, batch 32 × seq 128; 一步 44 ms（CPU）'
 模型 0.84 M 参数, batch 32 × seq 128; 一步 44 ms（CPU）
 Name                                              Self CPU %    Self CPU     # of Calls
 aten::mm                                            25.30%     13.504ms          43
@@ -194,7 +194,7 @@ aten::native_layer_norm_backward                    2.85%      1.519ms          
 
 三个月后能不能复现今天这次实验，取决于当时记了什么。最小记录是一行：
 
-```text
+```text title='1. 最小记录的七项 · run id · commit · 配置文件 · 数据版本 · seed · 环境 · 指标'
 run id · commit · 配置文件 · 数据版本 · seed · 环境 · 指标
 ```
 
@@ -214,7 +214,7 @@ Table: 实验管理的需求、工具与最小做法
 
 ### 2. 一次记录长什么样
 
-```text
+```text title='2. 一次记录长什么样 · seed 0 两次: 3.237898 vs 3.237898 → 一致'
 seed 0 两次: 3.237898 vs 3.237898 → 一致
 seed 1:      3.378334 → 与 seed 0 差 0.1404，这就是'单个数字不算结论'的原因
 记录写到 out/run-20260914-205033.json：run id · commit · 配置 · 数据版本 · seed · 环境 · 指标

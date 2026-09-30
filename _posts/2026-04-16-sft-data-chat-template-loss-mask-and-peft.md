@@ -128,7 +128,7 @@ flowchart LR
 
 chat template 是一段 Jinja 模板，把 `[{role, content}, ...]` 的消息列表渲染成一个字符串，再由 tokenizer 切成 token。Qwen2.5 用 ChatML 格式（配套脚本 `template` 实验的输出）：
 
-```text
+```text title='1. 模板做了什么 · <|im_start|>system'
 <|im_start|>system
 You are a helpful assistant.<|im_end|>
 <|im_start|>user
@@ -189,7 +189,7 @@ SFT 的序列由 prompt（system + user + 历史）与 completion（本轮回答
 
 配套实验（`mask`，80 步、lr $$10^{-5}$$、全量）的对照：
 
-```text
+```text title='1. 只算回复 · 训练前 base 模型在验证集回复上的 loss：2.494（PPL 12.1）'
 训练前 base 模型在验证集回复上的 loss：2.494（PPL 12.1）
 completion_only_loss=True    训练 loss 2.409 → 2.182    验证回复 loss 2.4936 → 2.3924
 completion_only_loss=False   训练 loss 2.814 → 2.397    验证回复 loss 2.4936 → 2.3869
@@ -244,7 +244,7 @@ $$
 
 $$B = 0$$ 让第一步 $$A$$ 没有梯度、只有 $$B$$ 动；从第二步起两者每步都一起更新（不是交替），$$A$$ 的梯度随 $$B$$ 长大而变大——这是 LoRA 头几步 loss 动得慢的原因之一，也是它常用比全量大的 lr 的原因。还要纠正一个常见说法：LoRA **不需要**算 $$d_{out} \times d_{in}$$ 的完整 $$\partial\mathcal{L}/\partial W'$$。设上游梯度 $$G = \partial\mathcal{L}/\partial y$$（$$d_{out} \times$$ batch），则 $$\partial\mathcal{L}/\partial B = G (A x)^\top$$、$$\partial\mathcal{L}/\partial A = B^\top G\, x^\top$$，两个都是小矩阵乘，autograd 走的就是这条路（CPU 验证：`W.grad is None`，`A.grad`/`B.grad` 与公式逐元素相等）。所以 LoRA 省的不只是**存储**（不存 $$W$$ 的梯度与 Adam 状态），反向对权重那一半的算量也省了；没省的是对输入的梯度 $$\partial\mathcal{L}/\partial x = W^\top G + A^\top B^\top G$$——它要穿过冻结的 $$W$$ 传到前一层，与全量一样。L4 第十二篇算过它的参数量：$$r (d_{in} + d_{out})$$ 每个矩阵。配套实验在 0.5B 上的账：
 
-```text
+```text title='2. LoRA · 配置                      可训练参数     占比    训练状态(混合精度)   8B 规…'
 配置                      可训练参数     占比    训练状态(混合精度)   8B 规格同比例
 全量                        494.0M   100.00%        7.36 GiB        120 GiB
 LoRA r=16 attention           2.2M     0.44%        0.95 GiB         15 GiB
@@ -272,7 +272,7 @@ Table: LoRA 超参的常用起点
 
 配套实验（`lora`，80 步）的对照：
 
-```text
+```text title='2. LoRA · 全量 lr 1e-5                    训练 loss 2.182    验证回复 loss …'
 全量 lr 1e-5                    训练 loss 2.182    验证回复 loss 2.3924    7.0 s/步
 LoRA r=16 全部线性层 lr 1e-4       训练 loss 2.183    验证回复 loss 2.3936    5.7 s/步
 ```
@@ -304,7 +304,7 @@ Biderman 等 2024 的标题就是结论。LoRA 的低秩约束是一种正则化
 
 SFT 之后模型在预训练学到的能力上退步：MMLU 掉几个点、代码能力下降、多语言变差、普通文本的困惑度上升。度量方式就是最后一条：**在一份与 SFT 数据无关的普通文本上算 loss，训练前后对比**。配套实验用 wikitext-2 的测试段落（训练前普通文本 loss 2.875、PPL 17.7）：
 
-```text
+```text title='1. 现象与度量 · 配置                          普通文本 loss     变化      验证回复 loss'
 配置                          普通文本 loss     变化      验证回复 loss
 训练前                            2.8749       —          2.4936
 全量 lr 1e-5                      2.8961    +0.0213        2.3924
@@ -367,7 +367,7 @@ Table: 公开 SFT 配方对照
 
 `template` 与 `padding` 不训练，几秒出结果，是第三、四章的数字。三个训练实验共用一个封装，核心就是 `SFTConfig` 的几个开关：
 
-```python
+```python title='八、实践：`01_sft.py` 的五个实验 · cfg = SFTConfig('
 cfg = SFTConfig(
     max_steps=steps, per_device_train_batch_size=4, learning_rate=lr,
     lr_scheduler_type="cosine", warmup_steps=steps // 10,
@@ -381,7 +381,7 @@ trainer.train()
 
 数据是 prompt-completion 的消息格式（`{"prompt": [...], "completion": [...]}`），`SFTTrainer` 自动套模板并按 `completion_only_loss` 生成 mask。LoRA 只多两行：
 
-```python
+```python title='八、实践：`01_sft.py` 的五个实验 · peft_cfg = LoraConfig('
 peft_cfg = LoraConfig(
     r=16, lora_alpha=32, task_type="CAUSAL_LM",
     target_modules=["q_proj", "k_proj", "v_proj", "o_proj",      # attention

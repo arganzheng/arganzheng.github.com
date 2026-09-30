@@ -312,7 +312,7 @@ RNN 的推理成本是 $$O(1)$$ / token、状态大小固定——这两点 Tran
 
 **思路**：字符级语言模型——输入 64 个字符，每个位置预测下一个字符，loss 是交叉熵（每字符的 nats）。LSTM 一次读一个字符、状态 $$(h, c)$$ 各 256 维；nanoGPT 一次看全部 64 个。
 
-```python
+```python title='0. 与 nanoGPT 同一份语料、同一预算 · 类：CharLSTM'
 class CharLSTM(nn.Module):
     def __init__(self, V, d=256, layers=2):
         super().__init__()
@@ -345,7 +345,7 @@ Table: 同一份莎士比亚、同一预算：LSTM 与 nanoGPT 的 loss
 
 生成 400 个字符（temperature 0.8）：
 
-```text
+```text title='0. 与 nanoGPT 同一份语料、同一预算 · Well be to the cheept to put till to the well,'
 Well be to the cheept to put till to the well,
 Thou will voited and breon fortiend?
 And I the fair to sentration to that be him the country
@@ -370,7 +370,7 @@ Then you do hath the destion and stri
 
 四个实验。第一个纯 NumPy（30 行）：RNN 前向 + BPTT，只算 $$\partial L / \partial h_t$$，不更新参数：
 
-```python
+```python title='1. 代码 · for t in range(T): h = np.tanh(W @ h + U @ x[t]); hs.appe…'
 for t in range(T): h = np.tanh(W @ h + U @ x[t]); hs.append(h)
 g = np.ones(d)                                    # dL/dh_T
 for t in range(T, 0, -1):

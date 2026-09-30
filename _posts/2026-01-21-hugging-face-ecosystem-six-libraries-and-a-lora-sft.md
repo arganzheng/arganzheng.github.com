@@ -80,7 +80,7 @@ Table: 本文的章节安排
 
 ### 1. `config.json`：结构超参数
 
-```json
+```json title='1. `config.json`：结构超参数 · 字段：hidden_size'
 {"hidden_size": 896, "num_hidden_layers": 24, "num_attention_heads": 14, "num_key_value_heads": 2,
  "intermediate_size": 4864, "vocab_size": 151936, "tie_word_embeddings": true, ...}
 ```
@@ -195,7 +195,7 @@ Table: 六个库产出的对象与第三篇五个对象的对应
 
 ### 1. 代码
 
-```python
+```python title='1. 代码 · model = AutoModelForCausalLM.from_pretrained("meta-llama/…'
 model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.1-8B", dtype=torch.bfloat16)
 tok = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B")
 model = get_peft_model(model, LoraConfig(r=16, lora_alpha=32, target_modules="all-linear", lora_dropout=0.05))
@@ -217,7 +217,7 @@ trainer.train()
 
 把第三篇的二十行训练循环拿过来（SFT 版本：用 `DataLoader` 取数、loss 带 `ignore_index`），六行背后每一件事都在里面有对应位置：
 
-```python
+```python title='2. 背后发生的事 · model = AutoModelForCausalLM.from_pretrained(name, dtype=…'
 model = AutoModelForCausalLM.from_pretrained(name, dtype=torch.bfloat16).to("cuda")        # ①
 model = get_peft_model(model, LoraConfig(...))                                              # ①′ 基座冻结，挂上 A、B
 opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=2e-4)         # ②
@@ -251,7 +251,7 @@ Table: SFTTrainer 一次训练背后发生的事
 
 用 Qwen2.5-0.5B 与 12 条写死的问答（"What is the capital of France?" → "Paris." 一类），在 CPU 上训 20 步，把六行背后的每件事打印出来。第四章那六行换成这个模型与这份数据，就是下面这段——多出来的几行只是为了把中间结果打出来：
 
-```python
+```python title='五、在 0.5B 模型上跑通 · tok = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B")'
 tok = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B")
 model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen2.5-0.5B", dtype=torch.float32)      # CPU 上 fp32 最稳
 print(tok.apply_chat_template([{"role": "user", "content": q}, {"role": "assistant", "content": a}], tokenize=False))
@@ -273,7 +273,7 @@ merged = model.merge_and_unload()
 
 ### 1. 模型与 chat template
 
-```text
+```text title='1. 模型与 chat template · config.json: hidden 896, layers 24,…'
 config.json: hidden 896, layers 24, heads 14/2 kv, intermediate 4864, vocab 151936, tie_embeddings True
 参数量 494 M; tokenizer 词表 151665; chat template 有
 
@@ -285,7 +285,7 @@ Qwen 的模板自动加了一段默认 system prompt；每一轮用 `<|im_start|
 
 ### 2. LoRA 挂到哪、多少参数
 
-```text
+```text title='2. LoRA 挂到哪、多少参数 · 可训练 8.80 M / 494 M = 1.78%'
 可训练 8.80 M / 494 M = 1.78%
 训练状态 ≈ 可训练 × 16 B = 141 MB；冻结权重 fp32 1.98 GB（bf16 时减半）
 挂了 LoRA 的线性层: ['down_proj', 'gate_proj', 'k_proj', 'o_proj', 'q_proj', 'up_proj', 'v_proj']
@@ -295,7 +295,7 @@ Qwen 的模板自动加了一段默认 system prompt；每一轮用 `<|im_start|
 
 ### 3. loss mask 的比例
 
-```text
+```text title='3. loss mask 的比例 · 一个 batch: input_ids (4, 36), labels 里被 mask 成 -100 的 toke…'
 一个 batch: input_ids (4, 36), labels 里被 mask 成 -100 的 token 122/144 (85%，prompt 与 padding 不算 loss)
 ```
 
@@ -303,7 +303,7 @@ Qwen 的模板自动加了一段默认 system prompt；每一轮用 `<|im_start|
 
 ### 4. 20 步
 
-```text
+```text title='4. 20 步 · loss: 第 1 步 5.254 → 最后 1.658  (15 s, 0.8 s/步)'
 loss: 第 1 步 5.254 → 最后 1.658  (15 s, 0.8 s/步)
 Q: What is the capital of France?   A: 'Paris.看查看\npositories\nThe capital of the United States'
 Q: What is the capital of Italy?    A: 'Rome.看查看\nRowAtIndexPath\n Florence.看查看\nRowAtIndexPath'
@@ -313,7 +313,7 @@ loss 从 5.3 降到 1.7；生成时**答案学会了**（Paris、Rome——后�
 
 ### 5. 合并
 
-```text
+```text title='5. 合并 · merge_and_unload 后参数量 494 M（LoRA 已合回基座，推理零开销）'
 merge_and_unload 后参数量 494 M（LoRA 已合回基座，推理零开销）
 ```
 

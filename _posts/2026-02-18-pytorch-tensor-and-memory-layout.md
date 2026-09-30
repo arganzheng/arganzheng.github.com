@@ -64,7 +64,7 @@ Table: 本文的章节安排
 
 假设有一个二维 Tensor：
 
-```python
+```python title='1. Tensor 不只是一个多维数组 · 导入：torch'
 import torch
 
 x = torch.tensor([
@@ -75,7 +75,7 @@ x = torch.tensor([
 
 从数学上看，它是一个 `2 × 3` 的矩阵：
 
-```text
+```text title='1. Tensor 不只是一个多维数组 · [[1, 2, 3],'
 [[1, 2, 3],
  [4, 5, 6]]
 ```
@@ -116,7 +116,7 @@ Tensor 有两个需要分开的层次：
 
 逻辑形状相同的两个 Tensor，物理布局可以不同：
 
-```python
+```python title='2. Tensor 的逻辑视图与物理存储 · x = torch.tensor([[1, 2, 3], [4, 5, 6]])'
 x = torch.tensor([[1, 2, 3], [4, 5, 6]])
 y = torch.tensor([[1, 4], [2, 5], [3, 6]]).t()   # 先建一个 3×2，再转置
 
@@ -172,7 +172,7 @@ flowchart LR
 
 逻辑元素数量可以通过 `numel()` 获得：
 
-```python
+```python title='4. Tensor 的元素数量与占用空间 · x = torch.empty(2, 3, 4)'
 x = torch.empty(2, 3, 4)
 
 print(x.shape)  # torch.Size([2, 3, 4])
@@ -181,13 +181,13 @@ print(x.numel())  # 24
 
 如果忽略对齐、Allocator 和额外元数据，数据区大小可以粗略估算为：
 
-```text
+```text title='4. Tensor 的元素数量与占用空间 · 数据区大小 ≈ numel × dtype.itemsize'
 数据区大小 ≈ numel × dtype.itemsize
 ```
 
 例如：
 
-```text
+```text title='4. Tensor 的元素数量与占用空间 · 1000000 个 float32 ≈ 4 MB'
 1000000 个 float32 ≈ 4 MB
 1000000 个 float16 ≈ 2 MB
 1000000 个 bfloat16 ≈ 2 MB
@@ -210,7 +210,7 @@ print(x.numel())  # 24
 
 ### 1. Shape、维度和元素数量
 
-```python
+```python title='1. Shape、维度和元素数量 · x = torch.empty(2, 3, 4)'
 x = torch.empty(2, 3, 4)
 
 print(x.shape)  # torch.Size([2, 3, 4])
@@ -220,7 +220,7 @@ print(x.numel())  # 24
 
 这里：
 
-```text
+```text title='1. Shape、维度和元素数量 · dim()  = 3'
 dim()  = 3
 shape  = (2, 3, 4)
 numel  = 2 × 3 × 4 = 24
@@ -232,14 +232,14 @@ numel  = 2 × 3 × 4 = 24
 
 下面的操作通常只需要修改 Tensor 的元数据：
 
-```python
+```python title='2. Shape 变换不一定复制数据 · x = torch.arange(6)'
 x = torch.arange(6)
 y = x.reshape(2, 3)
 ```
 
 如果底层布局满足条件，`y` 可以和 `x` 共享 Storage：
 
-```python
+```python title='2. Shape 变换不一定复制数据 · print(x.untyped_storage().data_ptr() == y.untyped_storage…'
 print(x.untyped_storage().data_ptr() == y.untyped_storage().data_ptr())   # 比较 Storage，而不是 data_ptr()
 ```
 
@@ -251,7 +251,7 @@ print(x.untyped_storage().data_ptr() == y.untyped_storage().data_ptr())   # 比�
 
 `view()` 要求现有 stride 能够支持目标形状：
 
-```python
+```python title='3. `view()`、`reshape()` 与 `flatten()` · x = torch.arange(6)'
 x = torch.arange(6)
 y = x.view(2, 3)
 ```
@@ -262,7 +262,7 @@ y = x.view(2, 3)
 
 `reshape()` 更宽松：
 
-```python
+```python title='3. `view()`、`reshape()` 与 `flatten()` · y = x.reshape(2, 3)'
 y = x.reshape(2, 3)
 ```
 
@@ -270,7 +270,7 @@ y = x.reshape(2, 3)
 
 **`flatten()`**
 
-```python
+```python title='3. `view()`、`reshape()` 与 `flatten()` · x = torch.randn(2, 3, 4)'
 x = torch.randn(2, 3, 4)
 y = x.flatten(1) 
 
@@ -285,7 +285,7 @@ print(y.shape)  # torch.Size([2, 12])
 
 ### 4. 增加和删除维度
 
-```python
+```python title='4. 增加和删除维度 · x = torch.randn(3, 4)'
 x = torch.randn(3, 4)
 
 x1 = x.unsqueeze(0)
@@ -301,14 +301,14 @@ print(x2.shape)  # torch.Size([3, 4])
 
 ### 5. `reshape` 不改变元素语义
 
-```python
+```python title='5. `reshape` 不改变元素语义 · x = torch.arange(6)'
 x = torch.arange(6)
 y = x.reshape(2, 3)
 ```
 
 `reshape()` 改变的是如何组织元素，而不是元素顺序本身：
 
-```text
+```text title='5. `reshape` 不改变元素语义 · x: [0, 1, 2, 3, 4, 5]'
 x: [0, 1, 2, 3, 4, 5]
 
 y: [[0, 1, 2],
@@ -326,7 +326,7 @@ y: [[0, 1, 2],
 
 > **沿某个维度增加 1 时，底层存储位置需要前进多少个元素。**
 
-```python
+```python title='1. 什么是 stride？ · x = torch.arange(6).reshape(2, 3)'
 x = torch.arange(6).reshape(2, 3)
 
 print(x)
@@ -339,13 +339,13 @@ print(x.stride()) # (3, 1)
 
 对于 `x[i, j]`，底层位置可以粗略计算为：
 
-```text
+```text title='1. 什么是 stride？ · offset(i, j) = storage_offset + i × stride[0] + j × strid…'
 offset(i, j) = storage_offset + i × stride[0] + j × stride[1]
 ```
 
 这里：
 
-```text
+```text title='1. 什么是 stride？ · storage_offset = 0'
 storage_offset = 0
 stride[0]      = 3
 stride[1]      = 1
@@ -353,7 +353,7 @@ stride[1]      = 1
 
 所以：
 
-```text
+```text title='1. 什么是 stride？ · x[0, 0] → 0'
 x[0, 0] → 0
 x[0, 1] → 1
 x[0, 2] → 2
@@ -366,20 +366,20 @@ x[1, 2] → 5
 
 一个 `2 × 3` 的行优先连续 Tensor：
 
-```text
+```text title='2. 二维连续 Tensor 的 stride · [[a, b, c],'
 [[a, b, c],
  [d, e, f]]
 ```
 
 底层存储是：
 
-```text
+```text title='2. 二维连续 Tensor 的 stride · [a, b, c, d, e, f]'
 [a, b, c, d, e, f]
 ```
 
 对应：
 
-```text
+```text title='2. 二维连续 Tensor 的 stride · shape  = (2, 3)'
 shape  = (2, 3)
 stride = (3, 1)
 ```
@@ -395,20 +395,20 @@ stride = (3, 1)
 
 ### 3. 三维 Tensor 的 stride
 
-```python
+```python title='3. 三维 Tensor 的 stride · x = torch.empty(2, 3, 4)'
 x = torch.empty(2, 3, 4)
 print(x.stride())
 ```
 
 典型结果是：
 
-```text
+```text title='3. 三维 Tensor 的 stride · (12, 4, 1)'
 (12, 4, 1)
 ```
 
 计算方式为：
 
-```text
+```text title='3. 三维 Tensor 的 stride · stride[2] = 1'
 stride[2] = 1
 stride[1] = 4
 stride[0] = 3 × 4 = 12
@@ -416,7 +416,7 @@ stride[0] = 3 × 4 = 12
 
 对于索引 `x[i, j, k]`：
 
-```text
+```text title='3. 三维 Tensor 的 stride · offset(i, j, k)'
 offset(i, j, k)
     = storage_offset
     + i × 12
@@ -440,7 +440,7 @@ A 和 B 可以具有不同的逻辑形状，但共享同一份底层数据。
 
 这就是为什么一个 Tensor 的 `shape` 不能单独说明它的性能和存储行为，必须同时观察：
 
-```python
+```python title='4. stride 让 view 成为可能 · print(x.shape)'
 print(x.shape)
 print(x.stride())
 print(x.is_contiguous())
@@ -451,7 +451,7 @@ print(x.is_contiguous())
 
 ### 1. `transpose()` 通常只改变 metadata
 
-```python
+```python title='1. `transpose()` 通常只改变 metadata · x = torch.arange(6).reshape(2, 3)'
 x = torch.arange(6).reshape(2, 3)
 y = x.transpose(0, 1)
 
@@ -472,7 +472,7 @@ print(y.stride()) # (1, 3)
 
 `y` 通过新的 shape 和 stride 解释同一份数据：
 
-```text
+```text title='1. `transpose()` 通常只改变 metadata · x[i, j] → offset = i × 3 + j × 1'
 x[i, j] → offset = i × 3 + j × 1
 y[i, j] → offset = i × 1 + j × 3
 ```
@@ -485,7 +485,7 @@ y[i, j] → offset = i × 1 + j × 3
 
 ### 2. `permute()` 可以重新排列多个维度
 
-```python
+```python title='2. `permute()` 可以重新排列多个维度 · x = torch.empty(2, 3, 4)'
 x = torch.empty(2, 3, 4)
 y = x.permute(2, 0, 1)
 
@@ -507,7 +507,7 @@ print(y.shape)  # (4, 2, 3)
 
 ### 3. 为什么转置后 `view()` 可能失败？
 
-```python
+```python title='3. 为什么转置后 `view()` 可能失败？ · x = torch.arange(6).reshape(2, 3)'
 x = torch.arange(6).reshape(2, 3)
 y = x.transpose(0, 1)
 
@@ -532,7 +532,7 @@ Table: 转置后的 y 按逻辑顺序读，storage 下标的步长不是常数
 
 通常可以这样处理：
 
-```python
+```python title='3. 为什么转置后 `view()` 可能失败？ · z = y.contiguous().view(6)'
 z = y.contiguous().view(6)
 ```
 
@@ -544,7 +544,7 @@ z = y.contiguous().view(6)
 
 如果不希望显式拆开，也可以使用：
 
-```python
+```python title='3. 为什么转置后 `view()` 可能失败？ · z = y.reshape(6)'
 z = y.reshape(6)
 ```
 
@@ -552,7 +552,7 @@ z = y.reshape(6)
 
 ### 4. View 和原始 Tensor 共享数据
 
-```python
+```python title='4. View 和原始 Tensor 共享数据 · x = torch.arange(6)'
 x = torch.arange(6)
 y = x.view(2, 3)
 
@@ -565,7 +565,7 @@ print(x)
 
 如果需要完全独立的数据副本，应明确使用：
 
-```python
+```python title='4. View 和原始 Tensor 共享数据 · z = x.clone()'
 z = x.clone()
 z[0] = 200
 
@@ -580,21 +580,21 @@ print(z[0])  # 200
 
 对于默认的行优先布局，Tensor 的逻辑索引顺序与底层存储顺序一致时，可以称为 contiguous：
 
-```python
+```python title='1. 什么是 contiguous？ · x = torch.arange(6).reshape(2, 3)'
 x = torch.arange(6).reshape(2, 3)
 print(x.is_contiguous())  # True
 ```
 
 转置通常会产生 non-contiguous view：
 
-```python
+```python title='1. 什么是 contiguous？ · y = x.transpose(0, 1)'
 y = x.transpose(0, 1)
 print(y.is_contiguous())  # False
 ```
 
 ### 2. `contiguous()` 做了什么？
 
-```python
+```python title='2. `contiguous()` 做了什么？ · z = y.contiguous()'
 z = y.contiguous()
 
 print(z.is_contiguous())  # True
@@ -673,7 +673,7 @@ Table: "layout" 一词的三个层次：口语的物理布局、memory format、
 
 一个 view 不一定从 Storage 的第 0 个元素开始：
 
-```python
+```python title='2. `storage_offset()` · x = torch.arange(10)'
 x = torch.arange(10)
 y = x[2:8]
 
@@ -687,13 +687,13 @@ print(y.storage_offset())
 
 对于一维 Tensor，可以粗略写成：
 
-```text
+```text title='2. `storage_offset()` · y[i] = Storage[storage_offset + i ×…'
 y[i] = Storage[storage_offset + i × stride] = Storage[2 + i]
 ```
 
 ### 3. 切片也可能只是 view
 
-```python
+```python title='3. 切片也可能只是 view · x = torch.arange(10)'
 x = torch.arange(10)
 y = x[2:8:2]
 
@@ -708,7 +708,7 @@ print(y.storage_offset())
 
 ### 4. View 的生命周期影响
 
-```python
+```python title='4. View 的生命周期影响 · large = torch.empty(1024, 1024, 1024)'
 large = torch.empty(1024, 1024, 1024)
 small = large[0, 0, :10]
 ```
@@ -717,7 +717,7 @@ small = large[0, 0, :10]
 
 如果确实需要让小结果独立，可以显式复制：
 
-```python
+```python title='4. View 的生命周期影响 · small = large[0, 0, :10].clone()'
 small = large[0, 0, :10].clone()
 ```
 
@@ -774,7 +774,7 @@ FP16 和 BF16 都通常占用 16 bit，但位分配不同：
 
 当不同 dtype 的 Tensor 参与计算时，PyTorch 需要决定结果类型：
 
-```python
+```python title='3. dtype promotion · x = torch.ones(3, dtype=torch.float32)'
 x = torch.ones(3, dtype=torch.float32)
 y = torch.ones(3, dtype=torch.float64)
 z = x + y
@@ -796,7 +796,7 @@ print(z.dtype)
 
 ### 4. dtype 转换可能产生真实拷贝
 
-```python
+```python title='4. dtype 转换可能产生真实拷贝 · x = torch.randn(1024, 1024, device="cuda", dtype=torch.fl…'
 x = torch.randn(1024, 1024, device="cuda", dtype=torch.float32)
 y = x.to(torch.float16)
 ```
@@ -805,7 +805,7 @@ y = x.to(torch.float16)
 
 可以用下面的方式检查：
 
-```python
+```python title='4. dtype 转换可能产生真实拷贝 · print(x.dtype)'
 print(x.dtype)
 print(y.dtype)
 print(x.data_ptr() == y.data_ptr())
@@ -831,7 +831,7 @@ print(x.data_ptr() == y.data_ptr())
 
 ### 1. CPU Tensor 与 CUDA Tensor
 
-```python
+```python title='1. CPU Tensor 与 CUDA Tensor · cpu_x = torch.randn(2, 3)'
 cpu_x = torch.randn(2, 3)
 gpu_x = cpu_x.to("cuda")
 
@@ -841,7 +841,7 @@ print(gpu_x.device)  # cuda:0
 
 模型和输入必须位于兼容的设备上：
 
-```python
+```python title='1. CPU Tensor 与 CUDA Tensor · model = model.to("cuda")'
 model = model.to("cuda")
 inputs = inputs.to("cuda")
 outputs = model(inputs)
@@ -853,7 +853,7 @@ outputs = model(inputs)
 
 `.to()` 既可以改变 device，也可以改变 dtype：
 
-```python
+```python title='2. `.to()` 的两个维度 · x = x.to(device="cuda", dtype=torch.float16)'
 x = x.to(device="cuda", dtype=torch.float16)
 ```
 
@@ -910,7 +910,7 @@ flowchart TB
 
 DataLoader 常见配置包括：
 
-```python
+```python title='3. CPU 到 GPU 的数据搬运 · loader = DataLoader('
 loader = DataLoader(
     dataset,
     batch_size=64,
@@ -921,7 +921,7 @@ loader = DataLoader(
 
 配合：
 
-```python
+```python title='3. CPU 到 GPU 的数据搬运 · batch = batch.to("cuda", non_blocking=True)'
 batch = batch.to("cuda", non_blocking=True)
 ```
 
@@ -937,13 +937,13 @@ batch = batch.to("cuda", non_blocking=True)
 
 常见错误是：
 
-```text
+```text title='4. Device mismatch · Expected all tensors to be on the same device'
 Expected all tensors to be on the same device
 ```
 
 排查时同时打印：
 
-```python
+```python title='4. Device mismatch · print(next(model.parameters()).device)'
 print(next(model.parameters()).device)
 print(inputs.device)
 print(targets.device)
@@ -961,7 +961,7 @@ print(targets.device)
 
 Meta Tensor 只有逻辑视图、没有物理存储：它携带本文讨论过的全部元数据——`shape`、`stride`、`storage_offset`、`dtype`、`device`、`layout`、`requires_grad`——唯独不分配 Storage 里的数据：
 
-```python
+```python title='5. Meta Device 不是普通计算设备 · with torch.device("meta"):'
 with torch.device("meta"):
     x = torch.empty(2, 3)
 
@@ -996,7 +996,7 @@ Meta Tensor 不能像普通 CPU/CUDA Tensor 一样直接读取数值。它说明
 
 ### 1. View 与 Clone
 
-```python
+```python title='1. View 与 Clone · x = torch.arange(6)'
 x = torch.arange(6)
 view = x.view(2, 3)
 copy = x.clone()
@@ -1024,11 +1024,11 @@ Table: View 与 Clone 的语义
 
 `detach()` 解决的是 Autograd 关系：
 
-```text
+```text title='2. View 与 Detach 是两个维度的问题 · 是否继续连接当前计算图？'
 是否继续连接当前计算图？
 ```
 
-```python
+```python title='2. View 与 Detach 是两个维度的问题 · x = torch.randn(3, requires_grad=True)'
 x = torch.randn(3, requires_grad=True)
 y = x * 2
 z = y.detach()
@@ -1038,13 +1038,13 @@ z = y.detach()
 
 因此不能把：
 
-```text
+```text title='2. View 与 Detach 是两个维度的问题 · view = 不需要梯度'
 view = 不需要梯度
 ```
 
 或：
 
-```text
+```text title='2. View 与 Detach 是两个维度的问题 · detach = 创建数据副本'
 detach = 创建数据副本
 ```
 
@@ -1054,7 +1054,7 @@ detach = 创建数据副本
 
 带下划线的方法通常表示 in-place 操作：
 
-```python
+```python title='3. In-place 操作 · x.add_(1)'
 x.add_(1)
 x.zero_()
 x.copy_(other)
@@ -1078,7 +1078,7 @@ x.copy_(other)
 
 ### 4. In-place 与 Autograd
 
-```python
+```python title='4. In-place 与 Autograd · x = torch.randn(3, requires_grad=True)'
 x = torch.randn(3, requires_grad=True)
 y = x * x
 # x.add_(1) 可能触发 Autograd 相关错误
@@ -1095,7 +1095,7 @@ Autograd 可能需要保存某些 Tensor 的旧值。如果这个 Tensor 在 bac
 
 ### 1. 广播解决什么问题？
 
-```python
+```python title='1. 广播解决什么问题？ · x = torch.ones(2, 3)'
 x = torch.ones(2, 3)
 y = torch.ones(3)
 z = x + y
@@ -1105,7 +1105,7 @@ z = x + y
 
 广播通常遵循从最后一个维度开始对齐的规则：
 
-```text
+```text title='1. 广播解决什么问题？ · (2, 3)'
 (2, 3)
 (   3)
 ------
@@ -1124,7 +1124,7 @@ z = x + y
 
 ### 2. `expand()` 与 `repeat()`
 
-```python
+```python title='2. `expand()` 与 `repeat()` · x = torch.tensor([[1], [2]])'
 x = torch.tensor([[1], [2]])
 
 a = x.expand(2, 3)
@@ -1155,13 +1155,13 @@ Table: expand() 与 repeat() 的存储语义
 
 遇到：
 
-```text
+```text title='4. 广播错误的排查方式 · The size of tensor a must match the size of tensor b'
 The size of tensor a must match the size of tensor b
 ```
 
 不要只看 Tensor 的元素数量，要打印完整信息：
 
-```python
+```python title='4. 广播错误的排查方式 · for name, value in {'
 for name, value in {
     "x": x,
     "y": y,
@@ -1218,7 +1218,7 @@ flowchart TB
 
 因此，下面两个数字不是同一个概念：
 
-```python
+```python title='1. 数据内存、缓存内存和计算图内存 · torch.cuda.memory_allocated()'
 torch.cuda.memory_allocated()
 torch.cuda.memory_reserved()
 ```
@@ -1243,7 +1243,7 @@ torch.cuda.memory_reserved()
 
 ### 3. Tensor 生命周期比变量名更重要
 
-```python
+```python title='3. Tensor 生命周期比变量名更重要 · outputs.append(model(batch))'
 outputs.append(model(batch))
 ```
 
@@ -1251,13 +1251,13 @@ outputs.append(model(batch))
 
 如果只需要记录数值，可以考虑：
 
-```python
+```python title='3. Tensor 生命周期比变量名更重要 · outputs.append(model(batch).detach().cpu())'
 outputs.append(model(batch).detach().cpu())
 ```
 
 如果只需要日志指标：
 
-```python
+```python title='3. Tensor 生命周期比变量名更重要 · loss_value = loss.detach().item()'
 loss_value = loss.detach().item()
 ```
 
@@ -1307,7 +1307,7 @@ Table: 复制、迁移和视图的成本模型
 
 目标数据结构：
 
-```python
+```python title='1. 实践目标 · 类：MiniTensor'
 class MiniTensor:
     def __init__(
         self,
@@ -1324,7 +1324,7 @@ class MiniTensor:
 
 ### 2. 从多维索引计算物理位置
 
-```python
+```python title='2. 从多维索引计算物理位置 · 函数：storage_index'
 def storage_index(self, index):
     if len(index) != len(self.sizes):
         raise IndexError("dimension mismatch")
@@ -1339,7 +1339,7 @@ def storage_index(self, index):
 
 对于：
 
-```text
+```text title='2. 从多维索引计算物理位置 · sizes  = (2, 3)'
 sizes  = (2, 3)
 strides = (3, 1)
 offset = 0
@@ -1347,13 +1347,13 @@ offset = 0
 
 访问 `[1, 2]` 时：
 
-```text
+```text title='2. 从多维索引计算物理位置 · offset = 0 + 1 × 3 + 2 × 1 = 5'
 offset = 0 + 1 × 3 + 2 × 1 = 5
 ```
 
 ### 3. 实现 transpose
 
-```python
+```python title='3. 实现 transpose · 函数：transpose'
 def transpose(self, dim0, dim1):
     sizes = list(self.sizes)
     strides = list(self.strides)
@@ -1373,7 +1373,7 @@ def transpose(self, dim0, dim1):
 
 ### 4. 实现 contiguous copy
 
-```python
+```python title='4. 实现 contiguous copy · 函数：contiguous'
 def contiguous(self):
     if self.is_contiguous():
         return self
@@ -1425,7 +1425,7 @@ def contiguous(self):
 
 对于 AI-Infra 工程师，一个更有用的近似是：
 
-```text
+```text title='2. Tensor 更接近“带布局的设备内存视图” · Tensor'
 Tensor
     = 一段设备内存
     + 对这段内存的形状解释
@@ -1463,7 +1463,7 @@ Table: Java 数组与 PyTorch Tensor 的关键差异
 
 Tensor 是 PyTorch 编程模型的核心数据抽象。理解它，不能只停留在：
 
-```python
+```python title='十五、本文小结 · x.shape'
 x.shape
 x.dtype
 x.device
@@ -1481,7 +1481,7 @@ x.device
 
 ### 1. Tensor 的基本模型
 
-```text
+```text title='1. Tensor 的基本模型 · Tensor'
 Tensor
     = Storage
     + Shape

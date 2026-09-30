@@ -147,7 +147,7 @@ $$M$$ 是 mask（第 5 节）。这行公式里每个符号都对应下面六步
 
 输出形状 $$[3, 4]$$ 与输入相同——所以它能被加回输入（第五章的残差），也能一层层叠。这段手算在配套脚本里与 PyTorch 的 `F.scaled_dot_product_attention(is_causal=True)` 对拍，最大差 $$6 \times 10^{-8}$$：
 
-```python
+```python title='3. 六步手算：d = 4、T = 3 · 导入：math'
 import math, torch, torch.nn.functional as F
 
 x = torch.tensor([[1., 0., 1., 0.], [0., 1., 0., 1.], [1., 1., 0., 0.]])   # 3 个 token，d = 4
@@ -277,7 +277,7 @@ flowchart TB
 
 这个图就是第三篇里 nanoGPT `Block.forward` 的两行代码：
 
-```python
+```python title='1. 一个 block · x = x + self.attn(self.ln_1(x))'
 x = x + self.attn(self.ln_1(x))
 x = x + self.mlp(self.ln_2(x))
 ```

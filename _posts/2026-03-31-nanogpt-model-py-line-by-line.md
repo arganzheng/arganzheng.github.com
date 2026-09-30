@@ -73,7 +73,7 @@ Table: 本文的章节安排
 
 ## 二、`LayerNorm`：为什么自己写
 
-```python
+```python title='二、`LayerNorm`：为什么自己写 · 导入：math'
 import math
 import inspect
 from dataclasses import dataclass
@@ -102,7 +102,7 @@ class LayerNorm(nn.Module):
 
 ## 三、`CausalSelfAttention`：47 行装下第一篇的第三章
 
-```python
+```python title='三、`CausalSelfAttention`：47 行装下第一篇的第三章 · 类：CausalSelfAttention'
 class CausalSelfAttention(nn.Module):
 
     def __init__(self, config):
@@ -197,7 +197,7 @@ Table: 手写 attention 的五行与第一篇六步的对应
 
 ## 四、`MLP` 与 `Block`
 
-```python
+```python title='四、`MLP` 与 `Block` · 类：MLP'
 class MLP(nn.Module):
 
     # !ref mlp-init +5
@@ -239,7 +239,7 @@ class Block(nn.Module):
 
 ## 五、`GPTConfig`：为什么 vocab_size 是 50304
 
-```python
+```python title='五、`GPTConfig`：为什么 vocab_size 是 50304 · @dataclass'
 @dataclass
 class GPTConfig:
     block_size: int = 1024
@@ -258,7 +258,7 @@ class GPTConfig:
 
 ## 六、`GPT.__init__`：拼结构、共享权重、两种初始化
 
-```python
+```python title='六、`GPT.__init__`：拼结构、共享权重、两种初始化 · 类：GPT'
 class GPT(nn.Module):
 
     def __init__(self, config):
@@ -341,7 +341,7 @@ class GPT(nn.Module):
 
 ## 七、`forward`：训练分支与推理分支
 
-```python
+```python title='七、`forward`：训练分支与推理分支 · 函数：forward'
     def forward(self, idx, targets=None):
         device = idx.device
         b, t = idx.size()
@@ -383,7 +383,7 @@ class GPT(nn.Module):
 
 ## 八、`generate`：温度、top-k、采样
 
-```python
+```python title='八、`generate`：温度、top-k、采样 · @torch.no_grad()'
     @torch.no_grad()
     def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
         """
@@ -429,7 +429,7 @@ class GPT(nn.Module):
 
 `@torch.no_grad()` 让整个循环不建计算图（推理没有反向）。`nanogpt_walkthrough.py` 第 5 步用真实 GPT-2 权重跑了三组：
 
-```text
+```text title="八、`generate`：温度、top-k、采样 · 温度 1e-4（≈贪心）    → 'The meaning of l…"
 温度 1e-4（≈贪心）    → 'The meaning of life is not the same as the meaning of death.\n\nThe'
 温度 1.0 + top_k 50   → 'The meaning of life is as much in the beginning as it is in the end,'
 温度 1.5 + top_k 50   → 'The meaning of life is far different of late times: A person who is going through'
@@ -439,7 +439,7 @@ class GPT(nn.Module):
 
 ## 九、`from_pretrained`：把 OpenAI 的权重搬进来
 
-```python
+```python title='九、`from_pretrained`：把 OpenAI 的权重搬进来 · 函数：crop_block_size'
     # !ref crop +8
     def crop_block_size(self, block_size):
         # model surgery to decrease the block size if necessary
@@ -528,7 +528,7 @@ class GPT(nn.Module):
 
 ## 十、`configure_optimizers` 与 `estimate_mfu`
 
-```python
+```python title='十、`configure_optimizers` 与 `estimate_mfu` · 函数：configure_optimizers'
     def configure_optimizers(self, weight_decay, learning_rate, betas, device_type):
         # start with all of the candidate parameters
         param_dict = {pn: p for pn, p in self.named_parameters()}

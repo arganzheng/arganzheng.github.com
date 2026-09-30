@@ -108,7 +108,7 @@ graph TB
 
 `EngineCore`（`vllm/v1/engine/core.py`）是 vLLM V1 引擎的核心，它的 `step()` 方法驱动整个推理循环：
 
-```python
+```python title='2. EngineCore：推理系统的中央调度大脑 · 类：EngineCore'
 # vllm/v1/engine/core.py (简化)
 class EngineCore:
     """Inner loop of vLLM's Engine."""
@@ -330,7 +330,7 @@ sequenceDiagram
 
 ## 四、数据流：Token 如何穿过整个 Serving 栈
 
-```
+```text title='四、数据流：Token 如何穿过整个 Serving 栈 · ┌──────┐     ┌─────────┐     ┌─────…'
   ┌──────┐     ┌─────────┐     ┌────────┐     ┌───────────┐
   │Client│────▶│API Server│────▶│AsyncLLM│────▶│EngineCore │
   └──────┘     └─────────┘     └────────┘     └─────┬─────┘

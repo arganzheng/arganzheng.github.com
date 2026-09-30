@@ -53,7 +53,7 @@ Table: 本文的章节安排与 train.py 的对应
 
 模型吃的是 token 编号（第一篇第二章）。莎士比亚这个例子用**字符级**分词：每个不同的字符就是一个 token，词表只有 65 个（26 个字母大小写、标点、空格、换行）：
 
-```python
+```python title="二、数据：`prepare.py` 把文本变成整数 · data = open('input.txt').read()    …"
 # data/shakespeare_char/prepare.py（节选）
 data = open('input.txt').read()                          # 1,115,394 个字符
 chars = sorted(list(set(data)))                          # 65 个不同字符
@@ -65,7 +65,7 @@ train_ids.tofile('train.bin'); val_ids.tofile('val.bin')
 pickle.dump({'vocab_size': 65, 'itos': itos, 'stoi': stoi}, open('meta.pkl', 'wb'))
 ```
 
-```text
+```text title='二、数据：`prepare.py` 把文本变成整数 · length of dataset in characters: 1,115,394'
 length of dataset in characters: 1,115,394
 all the unique characters:  !$&',-.3:;?ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
 vocab size: 65
@@ -77,7 +77,7 @@ val has 111,540 tokens
 
 ## 三、配置：72 个全局变量与一个 `exec`
 
-```python
+```python title="三、配置：72 个全局变量与一个 `exec` · out_dir = 'out'"
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
 # I/O
@@ -138,7 +138,7 @@ config = {k: globals()[k] for k in config_keys} # will be useful for logging
 
 ## 四、初始化与 I/O
 
-```python
+```python title="四、初始化与 I/O · ddp = int(os.environ.get('RANK', -1)) != -1 # is this a d…"
 # various inits, derived attributes, I/O setup
 
 # !ref init-ddp +14
@@ -184,7 +184,7 @@ ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=
 
 ## 五、`get_batch`：穷人的 DataLoader
 
-```python
+```python title="五、`get_batch`：穷人的 DataLoader · data_dir = os.path.join('data', dataset)"
 # poor man's data loader
 data_dir = os.path.join('data', dataset)
 def get_batch(split):
@@ -216,7 +216,7 @@ def get_batch(split):
 
 ## 六、模型初始化：三种来源
 
-```python
+```python title='六、模型初始化：三种来源 · iter_num = 0'
 # init these up here, can override if init_from='resume' (i.e. from a checkpoint)
 iter_num = 0
 best_val_loss = 1e9
@@ -300,7 +300,7 @@ model.to(device)
 
 ## 七、四层包装：GradScaler、优化器、compile、DDP
 
-```python
+```python title='七、四层包装：GradScaler、优化器、compile、DDP · scaler = torch.cuda.amp.GradScaler(…'
 # initialize a GradScaler. If enabled=False scaler is a no-op
 
 # !ref wrap-scaler
@@ -338,7 +338,7 @@ if ddp:
 
 ## 八、`estimate_loss` 与 `get_lr`
 
-```python
+```python title='八、`estimate_loss` 与 `get_lr` · @torch.no_grad()'
 # helps estimate an arbitrarily accurate loss over either split using many batches
 @torch.no_grad()
 # !ref el-fn +12
@@ -379,7 +379,7 @@ def get_lr(it):
 
 ## 九、训练循环：逐行
 
-```python
+```python title="九、训练循环：逐行 · X, Y = get_batch('train') # fetch the very first batch"
 # training loop
 
 # !ref loop-first
@@ -494,14 +494,14 @@ if ddp:
 
 MacBook（Apple 芯片，`--device=mps`）上跑 nanoGPT README 给的小配置：4 层 4 头 128 维、上下文 64、batch 12、2000 步：
 
-```bash
+```bash title='十、实跑：0.8M 参数、2000 步、7 分钟 · 命令：python'
 python data/shakespeare_char/prepare.py
 python train.py --dataset=shakespeare_char --out_dir=out-shakespeare-char-base --device=mps --compile=False \
   --eval_interval=250 --eval_iters=20 --log_interval=50 --block_size=64 --batch_size=12 \
   --n_layer=4 --n_head=4 --n_embd=128 --max_iters=2000 --lr_decay_iters=2000 --dropout=0.0
 ```
 
-```text
+```text title='十、实跑：0.8M 参数、2000 步、7 分钟 · number of parameters: 0.80M'
 number of parameters: 0.80M
 step 0:    train loss 4.1676, val loss 4.1649
 step 250:  train loss 2.8491, val loss 2.8662
@@ -524,7 +524,7 @@ real 7m34s
 
 用 `sample.py` 读回 checkpoint 续写（贪心以外的采样，温度 0.8、top-k 200）：
 
-```text
+```text title='十、实跑：0.8M 参数、2000 步、7 分钟 · DUKE:'
 DUKE:
 How that the thee when tyrants, do loge,
 And in you to let this games, knee,

@@ -26,7 +26,7 @@ TCP/IP 的路径上有内核协议栈、至少两次内存拷贝和一个必须�
 
 把"一段显存发到另一台机器的显存"这件事画出来，三条路径的差别一目了然：
 
-```text
+```text title='1. 从显存到对端显存的三条路径 · 路径 A：TCP/IP'
 路径 A：TCP/IP
   GPU HBM ─PCIe→ 主机内存(staging) ─CPU memcpy→ 内核 socket buffer ─NIC DMA→ 网线
   网线 ─NIC DMA→ 内核 socket buffer ─CPU memcpy→ 主机内存(staging) ─PCIe→ GPU HBM
@@ -101,7 +101,7 @@ Table: 本文的章节安排
 
 先把路径 A 每一步的成本列出来。假设应用要把 GPU 上 1 GB 的数据经 TCP 发出去：
 
-```text
+```text title='1. TCP 发送一段显存的完整路径 · 步骤                              执行者          经过的总线       …'
 步骤                              执行者          经过的总线             内存流量（读+写）
 1  cudaMemcpy D2H 到 staging       GPU DMA         GPU PCIe x16          1 GB 写主机内存
 2  send(fd, staging, ...)          CPU             内存总线              读 1 GB + 写 1 GB（拷入 socket buffer）
@@ -160,7 +160,7 @@ Table: TCP、RDMA 与 GPUDirect RDMA 三条路径的对照
 
 RDMA 的用户态接口叫 **verbs**，由 rdma-core 的 `libibverbs` 提供，头文件 `<infiniband/verbs.h>`。它不是 socket 那种"一个 fd 搞定一切"的接口，而是一组显式的对象，层级如下：
 
-```text
+```text title='1. 对象层级 · ibv_device                网卡（HCA）本身，ibv_get_device_list()…'
 ibv_device                网卡（HCA）本身，ibv_get_device_list() 枚举，名字如 mlx5_0
   └─ ibv_context          打开设备得到的句柄，ibv_open_device()；所有后续对象挂在它下面
        ├─ ibv_pd          Protection Domain，ibv_alloc_pd()；隔离边界：MR 与 QP 必须属于同一 PD 才能配合使用
@@ -188,7 +188,7 @@ rkey 是 RDMA 安全模型的全部：拿到 rkey + 地址的人就能读写那�
 
 QP 是 RDMA 里"连接"的载体，由一个 Send Queue 和一个 Receive Queue 组成，各自绑定一个 CQ（可以是同一个）。类型决定传输语义：
 
-```text
+```text title='3. Queue Pair 的三种类型 · 类型  全称                     可靠性       连接        支持的操作     …'
 类型  全称                     可靠性       连接        支持的操作                        典型用途
 RC    Reliable Connected       可靠、有序   点对点       SEND/RECV、RDMA WRITE/READ、原子    NCCL、MPI、存储；本篇全部内容
 UC    Unreliable Connected     不可靠、有序 点对点       SEND/RECV、RDMA WRITE               很少用
@@ -238,7 +238,7 @@ verbs 提供两类数据操作：
 
 读 `net_ib.cc` 的 `ncclIbMultiSend`，NCCL 发送数据的核心就是一段 RDMA WRITE：
 
-```cpp
+```cpp title='2. NCCL 为什么主要用 RDMA WRITE · // src/transport/net_ib.cc, ncclIbM…'
 // src/transport/net_ib.cc, ncclIbMultiSend（2.28.9，有删节）
 for (int r=0; r<nreqs; r++) {
   struct ibv_send_wr* wr = comm->wrs+r;
@@ -278,7 +278,7 @@ RDMA READ 在 NCCL 里只用于一个特殊目的：GDR 接收后的 **flush**�
 
 单边 WRITE 需要发送方知道对端的地址和 rkey。NCCL 的做法是一个**反向的 FIFO**（`struct ncclIbSendFifo`）：
 
-```text
+```text title='3. 接收方怎么告诉发送方"往哪写" · 接收方 ncclIbIrecv                          发送方 ncclIbIsend'
 接收方 ncclIbIrecv                          发送方 ncclIbIsend
   1. 为每个 QP post 一个 0 SGE 的 recv WR
   2. ncclIbPostFifo：把 {addr, size, rkeys[], tag, idx} ─RDMA WRITE→ 发送方的 comm->fifo[slot]
@@ -320,7 +320,7 @@ sequenceDiagram
 
 一个新建的 QP 处于 RESET 状态，不能收发。要能通信，它必须按顺序经过三次 `ibv_modify_qp`：
 
-```text
+```text title='1. QP 状态机 · RESET ──INIT──→ INIT ──RTR──→ RTR ──RTS──→ RTS'
 RESET ──INIT──→ INIT ──RTR──→ RTR ──RTS──→ RTS
        本地属性          需要对端信息         本地重传参数
        pkey_index        path_mtu             timeout
@@ -393,7 +393,7 @@ NCCL 选择前者：`ncclIbConnect` 里 `ncclSocketInit` + `ncclSocketConnect` �
 
 RDMA 的 verbs 接口与传输语义（RC / UC / UD、WRITE / READ / SEND）是 InfiniBand 规范定义的；RoCE（RDMA over Converged Ethernet）把 IB 的传输层原样搬到以太网上：
 
-```text
+```text title='1. 同一套 verbs，两种链路 · InfiniBand                        RoCE v2'
                   InfiniBand                        RoCE v2
 链路层            IB 链路层，专用交换机               以太网，普通以太网交换机
 网络层            IB 网络层（GRH 可选）               IPv4 / IPv6（IB 传输报文封装在 UDP 4791 里）
@@ -413,7 +413,7 @@ IB 子网内，`ah_attr.is_global = 0`，只填 `dlid`；RoCE 没有 LID，必�
 
 RoCE 的 GID 表是问题的来源。一个端口的 GID 表通常有多个条目：每个 IP 地址（IPv4 与 IPv6、每个 VLAN）各有 RoCE v1 和 RoCE v2 两个 GID。`show_gids`（Mellanox OFED 自带脚本）能列出来：
 
-```text
+```text title='2. 寻址：LID 还是 GID · DEV     PORT  INDEX  GID                                 …'
 DEV     PORT  INDEX  GID                                       IPv4            VER   DEV
 mlx5_0  1     0      fe80:0000:0000:0000:xxxx:xxff:fexx:xxxx                   v1    eth0
 mlx5_0  1     1      fe80:0000:0000:0000:xxxx:xxff:fexx:xxxx                   v2    eth0
@@ -476,7 +476,7 @@ InfiniBand 的链路层信用机制保证不丢：接收方按 buffer 空间发�
 
 `net_ib.cc` 里每个网卡设备有一个 `struct ncclIbMrCache`（`slots`、`capacity`、`population`），`ncclIbRegMrDmaBufInternal2` 是所有注册的入口：
 
-```cpp
+```cpp title='3. NCCL 的 MR cache · 函数：lock'
 // src/transport/net_ib.cc, ncclIbRegMrDmaBufInternal2（2.28.9，有删节）
 uintptr_t addr = (uintptr_t)data & -pageSize;                         // 按页对齐
 size_t pages = ((uintptr_t)data + size - addr + pageSize-1)/pageSize;
@@ -562,7 +562,7 @@ NCCL 两条路都支持，探测逻辑在 `net_ib.cc`：
 
 网卡 DMA 显存虽然在 PCIe 电气上总是可能的，性能却强烈依赖路径。NCCL 在 `src/graph/paths.cc` 的 `ncclTopoCheckGdr` 里按拓扑距离决定要不要开：
 
-```cpp
+```cpp title='2. `NCCL_NET_GDR_LEVEL`：距离多远还开 GDR · // src/graph/paths.cc, ncclTopoChec…'
 // src/graph/paths.cc, ncclTopoCheckGdr（2.28.9，有删节）
 if (net->net.gdrSupport == 0) return ncclSuccess;   // 网卡不支持（peermem / dmabuf 都没有）
 if (gpu->gpu.gdrSupport == 0) return ncclSuccess;   // GPU 不支持
@@ -661,7 +661,7 @@ GPUDirect RDMA 解决的是"网卡访问显存"；还有一个更小的问题：
 
 GPUDirect 是一个品牌，下面是一族"让 X 直接访问显存、绕开主机内存"的技术：
 
-```text
+```text title='3. GPUDirect 家族的其余成员 · 成员                    谁访问显存        …'
 成员                    谁访问显存         经过什么                  本系列的位置
 GPUDirect P2P           另一张 GPU         NVLink 或 PCIe P2P        第二篇：NVLink / PCIe 拓扑；第四篇：NCCL 的 P2P transport；第七篇：CUDA IPC 与 custom all-reduce
 GPUDirect RDMA          网卡               PCIe P2P（BAR1）          本篇
@@ -675,7 +675,7 @@ GPUDirect P2P 与 RDMA 的底层机制是同一个：PCIe 事务直达 GPU 的 B
 
 ### 1. 设备与链路状态：`ibstat`、`ibv_devinfo`、`rdma link`
 
-```bash
+```bash title='1. 设备与链路状态：`ibstat`、`ibv_devinfo`、`rdma link` · 命令：ibstat'
 ibstat                       # 每个 HCA 每个端口：State (Active/Down)、Physical state (LinkUp)、Rate (400)、LID、link_layer
 ibv_devinfo -v               # verbs 视角：fw_ver、max_qp、max_mr、max_mr_size、active_mtu、port state；-v 才有 MR 上限
 rdma link                    # iproute2 的 rdma 子命令：link mlx5_0/1 state ACTIVE physical_state LINK_UP netdev eth0
@@ -692,7 +692,7 @@ rdma dev                     # 设备列表与 node_guid
 
 perftest 是 RDMA 层的 nccl-tests。三个最有用的测试：
 
-```bash
+```bash title='3. 带宽与延迟：perftest 的 `ib_write_bw` 与 `--use_cuda` · 命令：server$'
 # 服务端与客户端各跑一条，-d 指定网卡，-x 指定 GID 索引（RoCE 必需），-F 忽略 CPU 频率警告
 # 主机内存 → 主机内存：这是网卡与网络的上限
 server$ ib_write_bw -d mlx5_0 -x 3 -F --report_gbits -s 1048576 -n 10000
@@ -714,7 +714,7 @@ client$ ib_write_lat -d mlx5_0 -x 3 -F -s 8 <server-ip>
 
 ### 4. 模块与权限：`lsmod`、`ulimit`
 
-```bash
+```bash title='4. 模块与权限：`lsmod`、`ulimit` · 命令：lsmod'
 lsmod | grep -E "peermem|nv_peer|gdrdrv"       # nvidia_peermem（GDR，peermem 路径）；gdrdrv（GDRCopy）
 cat /sys/module/nvidia_peermem/version         # NCCL 的 ncclIbGdrSupport 就是查这个路径
 ulimit -l                                      # memlock 上限：注册内存要 pin，必须 unlimited；容器里常见的坑
@@ -728,7 +728,7 @@ lspci -vv -s <NIC bdf> | grep -E "LnkSta|LnkCap"   # 网卡实际协商的 PCIe 
 
 理论与实测有差距时，按顺序：
 
-```text
+```text title='5. 比一比：这一层的检查清单 · 1  网卡状态           ibstat：Active？Rate 对？link_layer 是预期的？'
 1  网卡状态           ibstat：Active？Rate 对？link_layer 是预期的？
 2  GDR 可用           lsmod | grep peermem 或 NCCL 日志 "DMA-BUF is available"；日志 "GPU Direct RDMA Enabled"
 3  GPU–NIC 亲和       nvidia-smi topo -mp：每张 GPU 到它的网卡是 PIX/PXB；NCCL 日志里每个 rank 选的 HCA 是近的那张
@@ -746,7 +746,7 @@ lspci -vv -s <NIC bdf> | grep -E "LnkSta|LnkCap"   # 网卡实际协商的 PCIe 
 
 ### 1. 要点回顾
 
-```text
+```text title='1. 要点回顾 · 为什么 RDMA       TCP 路径每字节访问主机内存 4 次、每个 MSS 要 CPU 参与；400 Gb…'
 为什么 RDMA       TCP 路径每字节访问主机内存 4 次、每个 MSS 要 CPU 参与；400 Gb/s 需要 15–40 个核与超出内存带宽的流量，原理上跑不满
                   RDMA 三个承诺：kernel bypass（数据面无系统调用）、zero copy（网卡直接读写注册过的 buffer）、CPU offload（可靠传输在网卡上）
 三条路径          TCP：每端 2 次拷贝；RDMA 无 GDR：每端 1 次 PCIe 拷贝，主机内存仍在数据面；RDMA + GDR：0 拷贝，PCIe switch 内一跳
@@ -810,7 +810,7 @@ Table: 本篇涉及的源码与工具位置
 
 **输入输出**：
 
-```text
+```text title='4. comm-probe 本篇增量：`rdma_write.c` · 编译   gcc -O2 rdma_write.c -o rdma_w…'
 编译   gcc -O2 rdma_write.c -o rdma_write -libverbs
        nvcc -O2 -DUSE_CUDA -x c rdma_write.c -o rdma_write_cuda -libverbs -lcuda      # 显存版
 运行   server$ ./rdma_write -d mlx5_0 -g 3 -s 268435456                 # -g GID 索引（RoCE 必填；IB 填 0 或省略）
@@ -822,7 +822,7 @@ Table: 本篇涉及的源码与工具位置
 
 **关键实现片段**（约 110 行，去掉了参数解析、TCP 辅助函数 `tcp_listen_accept` / `tcp_connect` / `xchg`、错误检查宏与资源释放；完整版约 250 行）：
 
-```c
+```c title='4. comm-probe 本篇增量：`rdma_write.c` · 函数：__attribute__'
 // rdma_write.c -- comm-probe 第 3 篇：最小 RDMA WRITE（RC QP，TCP 带外交换）
 #include <infiniband/verbs.h>
 #include <arpa/inet.h>
@@ -942,7 +942,7 @@ int main(int argc, char **argv) {
 
 **显存版需要改什么**：上面的代码在 `nvidia-peermem` 加载的机器上，`-DUSE_CUDA` 编译后不需要改任何 verbs 调用——`ibv_reg_mr` 接受 `cudaMalloc` 返回的指针，这是 peermem 路径"对应用透明"的含义。若没有 peermem（或想验证 DMA-BUF 路径），把第 2 步换成：
 
-```c
+```c title='4. comm-probe 本篇增量：`rdma_write.c` · 函数：cuMemGetHandleForAddressRange'
 #ifdef USE_CUDA_DMABUF
   int fd; CUresult r = cuMemGetHandleForAddressRange(&fd, (CUdeviceptr)buf, size,
                                                      CU_MEM_RANGE_HANDLE_TYPE_DMA_BUF_FD, 0);

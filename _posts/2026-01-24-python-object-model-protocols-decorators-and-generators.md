@@ -31,7 +31,7 @@ updated: 2026-09-21
 
 例子仍是上篇的 `runner.py`——一个用了装饰器注册表、上下文管理器、`__call__` 与生成器的极简推理组件：
 
-```python
+```python title='1. 例子与依赖关系 · 从 contextlib 导入'
 # runner.py
 from contextlib import nullcontext
 
@@ -75,7 +75,7 @@ class Runner:
 
 上篇解释了它被 `import` 时发生了什么（第 1 步）以及异常怎么传播（第 5 步）；本篇解释中间三步：`Runner(model)` 创建实例，`runner(batch)` 触发 `__call__` 并进入 `with`，`runner.stream(batch)` 创建生成器。
 
-```text
+```text title='1. 例子与依赖关系 · 类语句 ──type──► 类对象 ──__call__──► 实例 ──属性查找/描述符──► 方法、property'
 类语句 ──type──► 类对象 ──__call__──► 实例 ──属性查找/描述符──► 方法、property
   ▲ [上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码) 类与对象模型      ▲ [上篇第三章](/python-execution-model-scopes-imports-and-exceptions.html#三作用域与闭包名称在哪里被解析) 对象协议：__call__、迭代、__getitem__ ...
   │
@@ -111,7 +111,7 @@ Table: 本文的章节安排
 2. 调用元类（默认是 `type`）：`type(name, bases, namespace)`，得到类对象；
 3. 把名称绑定到类对象。
 
-```python
+```python title='1. 类也是对象：`type` 创建类 · 类：Runner'
 class Runner:
     def run(self, batch):
         return batch
@@ -125,7 +125,7 @@ print(type(Runner.__dict__["run"]))       # <class 'function'>       类里存�
 
 第 2 步可以手工做，效果完全相同：
 
-```python
+```python title='1. 类也是对象：`type` 创建类 · Runner = type("Runner", (object,), {"run": lambda self, b…'
 Runner = type("Runner", (object,), {"run": lambda self, batch: batch})
 ```
 
@@ -135,7 +135,7 @@ Runner = type("Runner", (object,), {"run": lambda self, batch: batch})
 
 实例有自己的 `__dict__`，类有类的 `__dict__`：
 
-```python
+```python title='2. 实例属性与类属性 · 类：Demo'
 class Demo:
     value = 10
 
@@ -153,7 +153,7 @@ print(Demo.__dict__["value"], Demo.value, obj.value)   # 10 10 20
 
 现在可以给出核心算法。`obj.attr` 默认调用 `type(obj).__getattribute__(obj, "attr")`，对普通对象它的逻辑是：
 
-```python
+```python title='3. 属性查找算法：`object.__getattribute__` · 函数：__getattribute__'
 def __getattribute__(obj, name):                 # object.__getattribute__ 的等价伪代码
     cls = type(obj)
     cls_attr = lookup_in_mro(cls, name)          # ① 沿 cls.__mro__ 逐个查 __dict__，找到第一个就停
@@ -174,7 +174,7 @@ def __getattribute__(obj, name):                 # object.__getattribute__ 的�
 
 用三个实验验证这个顺序。首先，数据描述符（`property` 有 `__set__`）赢过实例字典：
 
-```python
+```python title='3. 属性查找算法：`object.__getattribute__` · 类：D'
 class D:
     @property
     def value(self):
@@ -188,7 +188,7 @@ print(d.value)          # from property      —— ② 先于 ③
 
 其次，非数据描述符（普通函数）输给实例字典：
 
-```python
+```python title='3. 属性查找算法：`object.__getattribute__` · 类：Runner2'
 class Runner2:
     def run(self):
         return "method"
@@ -212,7 +212,7 @@ print(r.run())          # instance attr      —— ③ 先于 ④
 
 一个做类型校验的描述符：
 
-```python
+```python title='4. 描述符协议：属性查找的可编程点 · 类：Typed'
 class Typed:
     def __init__(self, expected_type):
         self.expected_type = expected_type
@@ -252,7 +252,7 @@ config.batch_size = "big"                    # TypeError: batch_size expects int
 
 有了 §3 的算法和 §4 的协议，"方法"就不再需要单独解释：**函数对象实现了 `__get__`**，所以它是非数据描述符。
 
-```python
+```python title='5. 方法绑定、`classmethod`、`staticmethod`、`property`：描述符的四种形态 · 类：Runner3'
 class Runner3:
     def run(self, batch):
         return batch
@@ -269,7 +269,7 @@ print(Runner3.__dict__["run"].__get__(r3, Runner3))                    # 手工�
 
 `classmethod`、`staticmethod`、`property` 是三个内建的描述符类型，区别只在 `__get__` 返回什么，以及是否有 `__set__`：
 
-```python
+```python title='5. 方法绑定、`classmethod`、`staticmethod`、`property`：描述符的四种形态 · 类：K'
 class K:
     @classmethod
     def c(cls): return cls
@@ -298,7 +298,7 @@ Table: 函数、classmethod、staticmethod、property 的 __get__ 行为
 
 - **`classmethod` 的价值在于 `cls` 是"实际被调用的那个类"**。`Sub.c()` 和 `Sub().c()` 都返回 `Sub`，不是 `K`。这让它成为替代构造函数的标准写法：
 
-  ```python
+  ```python title='5. 方法绑定、`classmethod`、`staticmethod`、`property`：描述符的四种形态 · 类：Runner'
   class Runner:
       @classmethod
       def from_config(cls, config):
@@ -329,7 +329,7 @@ Table: 方法绑定：Python 与 Java 的对照
 
 `classmethod` 与 Java 静态工厂的差异需要说准确。Java 的静态方法**不按接收者分派**：`GPURunner.fromConfig(cfg)` 在编译期就被解析为 `Runner.fromConfig(cfg)`，方法体内没有任何途径知道调用方写的是 `GPURunner`，`new Runner(...)` 写死了就只能造 `Runner`：
 
-```java
+```java title='5. 方法绑定、`classmethod`、`staticmethod`、`property`：描述符的四种形态 · 类：Runner'
 class Runner {
     static Runner fromConfig(Map<String, Object> cfg) {
         return new Runner((Model) cfg.get("model"));     // 只能造 Runner；GPURunner.fromConfig(cfg) 得到的也是 Runner
@@ -340,7 +340,7 @@ class GPURunner extends Runner { ... }
 
 要让工厂创建子类，必须由调用方**显式传入**类型信息。两种写法：
 
-```java
+```java title='5. 方法绑定、`classmethod`、`staticmethod`、`property`：描述符的四种形态 · 方法：fromConfig'
 // 写法一：Class<T> 令牌 + 反射
 static <T extends Runner> T fromConfig(Class<T> cls, Map<String, Object> cfg) throws Exception {
     return cls.getDeclaredConstructor(Model.class).newInstance((Model) cfg.get("model"));
@@ -356,7 +356,7 @@ GPURunner r = Runner.fromConfig(GPURunner::new, cfg);
 
 这并不难写，但类对象是调用方**传**进去的；Python 的 `classmethod` 则由描述符协议在 `__get__` 时**自动**把实际的类绑定进 `cls`：
 
-```python
+```python title='5. 方法绑定、`classmethod`、`staticmethod`、`property`：描述符的四种形态 · 类：Runner'
 class Runner:
     @classmethod
     def from_config(cls, cfg):
@@ -373,7 +373,7 @@ GPURunner.from_config(cfg)                # 得到 GPURunner，不用传任何�
 
 §3 算法的第 ⑥ 步：`__getattribute__` 抛出 `AttributeError` 之后，如果类定义了 `__getattr__`，解释器会调用它作为最后手段。
 
-```python
+```python title='6. `__getattr__` 与 `__getattribute__`：查找失败后的钩子 · 类：Cfg'
 class Cfg:
     def __init__(self):
         self.a = 1
@@ -392,7 +392,7 @@ print(c.b)      # __getattr__ called for b / None  —— 只在失败后调用
 
 `__getattr__` 有一个隐蔽的陷阱：**它会掩盖 `property` 内部的 `AttributeError`**。
 
-```python
+```python title='6. `__getattr__` 与 `__getattribute__`：查找失败后的钩子 · 类：P'
 class P:
     @property
     def v(self):
@@ -409,7 +409,7 @@ print(P().v)    # fallback(v)
 
 一个真实的例子是 `torch.nn.Module`。它把参数、缓冲区和子模块分别存在 `_parameters`、`_buffers`、`_modules` 三个字典里，**不放在实例 `__dict__`**。这依靠两个钩子配合（PyTorch 2.9.0，`torch/nn/modules/module.py`）：
 
-```python
+```python title='6. `__getattr__` 与 `__getattribute__`：查找失败后的钩子 · 函数：__setattr__'
 # Module.__setattr__ 的骨架
 def __setattr__(self, name, value):
     if isinstance(value, Parameter):
@@ -438,7 +438,7 @@ def __getattr__(self, name):
 
 `Runner(model)` 是对**类对象**的调用，按第三章的可调用协议，执行的是 `type(Runner).__call__`，即 `type.__call__`。它做两件事：
 
-```python
+```python title='7. 对象创建：`__new__`、`__init__` 与 `type.__call__` · 函数：__call__'
 def __call__(cls, *args, **kwargs):          # type.__call__ 的等价伪代码
     obj = cls.__new__(cls, *args, **kwargs)  # 分配并返回实例
     if isinstance(obj, cls):
@@ -454,7 +454,7 @@ def __call__(cls, *args, **kwargs):          # type.__call__ 的等价伪代码
 
 属性查找算法第 ① 步"沿 `cls.__mro__` 查找"，MRO（Method Resolution Order）就是这个顺序。单继承时它就是从子类到 `object` 的链；多继承时由 C3 线性化算法计算，保证子类先于父类、多个父类之间保持声明顺序：
 
-```python
+```python title='8. 继承、MRO 与协作式 `super()` · 类：A'
 class A:
     def run(self): return ["A"]
 class B:
@@ -467,7 +467,7 @@ print([k.__name__ for k in C.__mro__], C().run())    # ['C', 'A', 'B', 'object']
 
 `C().run()` 找到 `A.run` 就停，**不会**自动接着调 `B.run`。想让链上的每一层都执行，每一层必须自己调 `super()`：
 
-```python
+```python title='8. 继承、MRO 与协作式 `super()` · 类：Base'
 class Base:
     def run(self): return ["base"]
 class Logging:
@@ -493,7 +493,7 @@ print(Run().run())                         # ['base', 'metrics', 'logging']
 
 Mixin 是协作式多继承的一种受限用法：一个只提供横向能力（日志、指标、序列化）、不代表完整实体、不持有业务依赖的类，被放在基类列表前部：
 
-```python
+```python title='9. Mixin 与组合 · 类：LoggingMixin'
 class LoggingMixin:
     def log(self, message):
         print(f"[LOG] {message}")
@@ -508,7 +508,7 @@ Mixin 没有绕开 MRO 的复杂性，只是把它限制在一个容易验证的
 
 而 `model`、`scheduler`、`tokenizer` 这类**业务依赖**，应该用组合——持有而不是继承：
 
-```python
+```python title='9. Mixin 与组合 · 类：InferenceRunner'
 class InferenceRunner:
     def __init__(self, model, scheduler, tokenizer):
         self.model = model
@@ -551,7 +551,7 @@ Table: 语法到特殊方法的映射
 
 有一个规则与第二章的属性查找不同：**特殊方法由解释器直接在类型上查找，跳过实例字典**。
 
-```python
+```python title='1. 语法到特殊方法的映射，且在类型上查找 · 类：C'
 class C:
     def __call__(self):
         return "type-level"
@@ -575,7 +575,7 @@ print(c.__call__())     # instance-level    —— 普通属性访问才看实�
 
 `for item in x` 展开为：
 
-```python
+```python title='3. 迭代协议：可迭代对象与迭代器 · it = iter(x)               # 调 x.__iter__()，得到迭代器'
 it = iter(x)               # 调 x.__iter__()，得到迭代器
 while True:
     try:
@@ -587,7 +587,7 @@ while True:
 
 **可迭代对象**（iterable）实现 `__iter__` 并返回一个迭代器；**迭代器**（iterator）实现 `__next__`，并且自己的 `__iter__` 返回自己。两者常被混为一谈，但差别决定了能否重复遍历：
 
-```python
+```python title='3. 迭代协议：可迭代对象与迭代器 · lst = [1, 2]'
 lst = [1, 2]
 print(iter(lst) is lst)                 # False   列表每次 iter() 返回一个新迭代器，可反复遍历
 
@@ -611,7 +611,7 @@ print(list(c), list(c))                 # [2, 1] []    —— 第二次遍历是
 
 ### 4. `__getitem__` 与容器协议
 
-```python
+```python title='4. `__getitem__` 与容器协议 · 类：Batch'
 class Batch:
     def __init__(self, values): self.values = values
     def __getitem__(self, index): return self.values[index]
@@ -631,7 +631,7 @@ print(batch[0], batch[1:])              # 1 [2, 3]     —— 切片对象 slice
 
 `==` 调 `__eq__`；作为字典键或集合元素则需要 `__hash__`。两者有一条契约：**相等的对象必须有相同的哈希值**。为了防止违反它，只定义 `__eq__` 会让 Python 把 `__hash__` 设为 `None`：
 
-```python
+```python title='6. `__eq__` 与 `__hash__` · 类：User'
 class User:
     def __init__(self, uid): self.uid = uid
     def __eq__(self, other): return isinstance(other, User) and self.uid == other.uid
@@ -655,7 +655,7 @@ Java 的做法是**接口**：想被 `for-each` 遍历就实现 `Iterable<T>`，
 
 ### 1. 基本机制
 
-```python
+```python title='1. 基本机制 · 函数：log_call'
 def log_call(func):
     def wrapper(*args, **kwargs):
         print("calling", func.__name__)
@@ -670,14 +670,14 @@ def predict(x):
 
 `@log_call` 是语法糖，等价于在 `def` 执行完之后立刻做一次重新绑定：
 
-```python
+```python title='1. 基本机制 · 函数：predict'
 def predict(x): ...
 predict = log_call(predict)
 ```
 
 所以：装饰器在**定义时**执行一次（模块导入时、类体执行时），返回的对象在**每次调用**时执行。此后名称 `predict` 指向 `wrapper`，原函数只存在于 `wrapper` 的闭包 cell 里。多个装饰器从下往上应用：
 
-```python
+```python title='1. 基本机制 · @outer'
 @outer
 @inner
 def run(): ...
@@ -688,7 +688,7 @@ def run(): ...
 
 `wrapper` 能在 `log_call` 返回之后仍然找到 `func`，靠的是[上篇第三章](/python-execution-model-scopes-imports-and-exceptions.html#三作用域与闭包名称在哪里被解析)的 cell：`wrapper.__closure__[0].cell_contents is predict_original`。闭包是实现装饰器最常见的方式，但不是必需的——任何"接收可调用对象、返回可调用对象"的东西都是装饰器，包括类：
 
-```python
+```python title='2. 装饰器与闭包的关系 · 类：LogCall'
 class LogCall:
     def __init__(self, func):
         self.func = func
@@ -708,7 +708,7 @@ def predict(x): ...
 
 `wrapper` 是一个新函数对象，它的 `__name__`、`__doc__`、`__module__`、`__qualname__`、`__annotations__` 都是自己的。不处理的话，`predict.__name__` 变成 `'wrapper'`，日志、文档、`pickle`、测试框架的参数化 ID 全部受影响。`functools.wraps` 把这些元数据从原函数复制过来，并额外设置 `wrapper.__wrapped__ = func`：
 
-```python
+```python title='3. `functools.wraps` 与 `__wrapped__` · 从 functools 导入'
 from functools import wraps
 
 
@@ -725,7 +725,7 @@ def log_call(func):
 
 `@retry(max_attempts=3)` 多一层：先用参数调用 `retry`，得到真正的装饰器，再用它装饰函数。
 
-```python
+```python title='4. 带参数的装饰器 · 函数：retry'
 def retry(max_attempts, exceptions=(TimeoutError,)):
     def decorator(func):
         @wraps(func)
@@ -740,7 +740,7 @@ def retry(max_attempts, exceptions=(TimeoutError,)):
     return decorator
 ```
 
-```text
+```text title='4. 带参数的装饰器 · retry(max_attempts)  →  decorator(func)  →  wrapper(*args…'
 retry(max_attempts)  →  decorator(func)  →  wrapper(*args, **kwargs)
    配置层                 装饰层                运行层
 ```
@@ -753,7 +753,7 @@ retry(max_attempts)  →  decorator(func)  →  wrapper(*args, **kwargs)
 
 装饰器的参数可以是类，返回原类不变、只做登记，就是第一章的 `registered`：
 
-```python
+```python title='5. 装饰类：注册表 · 函数：registered'
 def registered(name):
     def decorator(cls):
         if name in REGISTRY:
@@ -769,7 +769,7 @@ def registered(name):
 
 装饰器应用在**类体执行时**，此时 `def` 产生的还是普通函数（第二章 §1），描述符协议要等到属性访问时才起作用。这决定了几件事：
 
-```python
+```python title='6. 装饰方法时的叠放顺序：与描述符的交互 · 类：Runner'
 class Runner:
     @classmethod
     @log_call                  # 先应用：包装的是普通函数，wrapper 还是普通函数
@@ -786,7 +786,7 @@ class Runner:
 
 `async def` 函数被调用时只返回协程对象，不执行函数体。同步 `wrapper` 包裹异步函数时，`func(*args)` 立即返回一个协程，`wrapper` 的"结束"日志在函数体真正运行之前就打出来了，异常也捕获不到。异步函数需要异步包装器：
 
-```python
+```python title='7. 同步与异步装饰器 · 函数：async_log_call'
 def async_log_call(func):
     @wraps(func)
     async def wrapper(*args, **kwargs):
@@ -813,7 +813,7 @@ Java 的注解（`@Transactional`、`@Retryable`）只是**元数据**，本身�
 
 ### 1. `yield`：帧被挂起而不是销毁
 
-```python
+```python title='1. `yield`：帧被挂起而不是销毁 · 导入：inspect'
 import inspect
 
 
@@ -859,7 +859,7 @@ sequenceDiagram
 
 生成器让"生产一个、消费一个"成为默认模式，不需要把全部结果放进内存：
 
-```python
+```python title='2. 惰性的价值与成本 · 函数：read_lines'
 def read_lines(path):
     with open(path) as file:
         for line in file:
@@ -875,7 +875,7 @@ def read_lines(path):
 
 `yield from sub()` 把 `sub` 产生的每个值直接转发给外层的消费者，同时把 `send()`、`throw()`、`close()` 也透传给子生成器，并且能拿到子生成器的返回值：
 
-```python
+```python title='3. `yield from` · 函数：sub'
 def sub():
     yield 1
     return "sub-result"
@@ -892,7 +892,7 @@ def outer():
 
 `g.close()` 在生成器挂起的 `yield` 处抛入 `GeneratorExit`，让 `try/finally` 和 `with` 的清理逻辑有机会执行：
 
-```python
+```python title='4. 关闭与清理：`GeneratorExit`、`finally` 与 `break` · 函数：reader'
 def reader():
     print("  open")
     try:
@@ -909,7 +909,7 @@ r.close()        #   close file
 
 `for` 循环正常跑完会耗尽生成器，`finally` 自然执行；但 `break` 只是**退出循环**，不会关闭生成器：
 
-```python
+```python title='4. 关闭与清理：`GeneratorExit`、`finally` 与 `break` · r = reader()'
 r = reader()
 for v in r:
     break
@@ -929,14 +929,14 @@ Java 的 `Iterator`/`Stream` 也是惰性的，但它们是**对象**，"暂停"
 
 ### 1. `with` 的展开
 
-```python
+```python title='1. `with` 的展开 · with resource() as value:'
 with resource() as value:
     use(value)
 ```
 
 等价于：
 
-```python
+```python title='1. `with` 的展开 · manager = resource()'
 manager = resource()
 value = manager.__enter__()
 normal_exit = True
@@ -963,7 +963,7 @@ finally:
 
 类实现直接写两个方法：
 
-```python
+```python title='2. 类实现与 `contextlib.contextmanager` · 类：Resource'
 class Resource:
     def __enter__(self):
         print("acquire"); return self
@@ -973,7 +973,7 @@ class Resource:
 
 生成器实现更短——`@contextmanager` 把一个只 `yield` 一次的生成器包装成上下文管理器：
 
-```python
+```python title='2. 类实现与 `contextlib.contextmanager` · 从 contextlib 导入'
 from contextlib import contextmanager
 
 
@@ -1011,7 +1011,7 @@ Java 7 的 try-with-resources 是同一个思路：实现 `AutoCloseable`，`clo
 
 回到第一章的 `runner.py`，为了不用来回翻，把它原样贴在这里（行号旁的蓝色数字可点，下面各阶段的描述会链接回具体的行）：
 
-```python
+```python title='七、一个推理组件的完整运行时追踪 · 从 contextlib 导入'
 # runner.py
 from contextlib import nullcontext
 
@@ -1121,7 +1121,7 @@ class Runner:
 3. `__call__` 的帧被加入 traceback 后销毁；
 4. 到达调用方的 `try`：
 
-   ```python
+   ```python title='5. 异常阶段 · try:'
    try:
        output = runner(batch)
    except Exception:
@@ -1160,7 +1160,7 @@ Table: 五个异常阶段对应的机制
 
 本篇讲的五种机制，都围绕**对象**：
 
-```text
+```text title='八、本文小结 · 类与对象模型   类由 type 创建；obj.attr 是一个固定算法：数据描述符 → 实例字典 → 非数据描述…'
 类与对象模型   类由 type 创建；obj.attr 是一个固定算法：数据描述符 → 实例字典 → 非数据描述符 → __getattr__
               方法、classmethod、staticmethod、property 都只是描述符的 __get__ 返回值不同
     │

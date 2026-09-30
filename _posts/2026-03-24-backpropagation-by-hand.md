@@ -141,7 +141,7 @@ $$
 
 **循环写法。** 转置是从哪来的，把 $$\sum$$ 写成循环最清楚。前向里 `W[r][j]` 被 batch 里每个样本 `i` 用了一次；反向就把这 $$m$$ 次的影响加起来：
 
-```python
+```python title='1. Linear 层的三条公式 · for i in range(m):                        # 前向'
 for i in range(m):                        # 前向
     for j in range(n):
         for r in range(k):
@@ -321,7 +321,7 @@ Autograd 引擎的实现——图怎么存、多线程怎么调度、hook 在哪
 
 约 120 行 NumPy，是整个系列的基座，后面每篇往上加。核心的三个类：
 
-```python
+```python title='1. 代码 · 类：Linear'
 class Linear:
     def forward(self, X):
         self.X = X                                  # 保存激活
@@ -350,7 +350,7 @@ def softmax_ce(logits, y):
 
 ### 2. 结果
 
-```text
+```text title='2. 结果 · grad check worst rel err: 1.11e-07'
 grad check worst rel err: 1.11e-07
 params: 203530
 batch 128: fwd 52.0 MFLOPs  bwd 104.1 MFLOPs  ratio 2.00
@@ -360,7 +360,7 @@ batch 128: fwd 52.0 MFLOPs  bwd 104.1 MFLOPs  ratio 2.00
 
 与 PyTorch autograd 对齐（同一份权重、同一个 batch）：
 
-```text
+```text title='2. 结果 · loss numpy 2.460904 torch 2.460904'
 loss numpy 2.460904 torch 2.460904
 dW1 max abs diff 5.59e-09
 dW2 max abs diff 7.45e-09
@@ -368,7 +368,7 @@ dW2 max abs diff 7.45e-09
 
 MNIST 上 SGD、学习率 0.1、batch 128：
 
-```text
+```text title='2. 结果 · epoch 1   train loss 0.4477  test acc 92.52%'
 epoch 1   train loss 0.4477  test acc 92.52%
 epoch 5   train loss 0.1416  test acc 96.01%
 epoch 10  train loss 0.0842  test acc 97.26%

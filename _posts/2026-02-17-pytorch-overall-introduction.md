@@ -16,7 +16,7 @@ PyTorch 经常被介绍成一个“深度学习框架”，也经常被使用成
 
 一行看起来很普通的代码：
 
-```python
+```python title='正文 · z = torch.add(x, y)'
 z = torch.add(x, y)
 ```
 
@@ -78,7 +78,7 @@ PyTorch 是一个面向 Tensor 计算和深度学习的开源计算框架。
 
 从使用者角度看，PyTorch 的主要入口是 Python API：
 
-```python
+```python title='1. PyTorch 是什么？ · 导入：torch'
 import torch
 from torch import nn
 
@@ -127,7 +127,7 @@ y = layer(x)
 
 例如，在前面的代码后继续执行：
 
-```python
+```python title='用户编程模型 · optimizer = torch.optim.SGD(layer.parameters(), lr=0.01)'
 optimizer = torch.optim.SGD(layer.parameters(), lr=0.01)
 
 optimizer.zero_grad()
@@ -205,7 +205,7 @@ Dispatcher 的职责也不只是判断“走 CPU 还是 CUDA”。自动求导�
 
 考虑下面的代码：
 
-```python
+```python title='PyTorch 不只是 Python API · 导入：torch'
 import torch
 
 x = torch.randn(2, 3, device="cuda")
@@ -376,7 +376,7 @@ PyTorch 0.1.x 于 2016 年 9 月起以 alpha 版本公开发布，并在 2017 �
 
 用今天的 API 写法，可以概括为：
 
-```python
+```python title='1. 阶段一：动态图与研究友好 · x = torch.randn(10, requires_grad=True)'
 x = torch.randn(10, requires_grad=True)
 y = x * 2
 z = y.relu()
@@ -547,7 +547,7 @@ Table：PyTorch 的逻辑分层
 
 模型定义与训练循环并不是框架之外另一套完全独立的概念，而是上述抽象的具体使用方式。例如：
 
-```python
+```python title='用户基于这些抽象表达任务 · 导入：torch'
 import torch
 from torch import nn
 
@@ -772,13 +772,13 @@ flowchart TB
 
 用户通过 Python 接口表达计算意图：
 
-```python
+```python title='1. 第一步：Python API · z = torch.add(x, y)'
 z = torch.add(x, y)
 ```
 
 相同的加法也可以写成运算符或 Tensor 方法：
 
-```python
+```python title='1. 第一步：Python API · z = x + y'
 z = x + y
 z = x.add(y)
 ```
@@ -807,7 +807,7 @@ z = x.add(y)
 
 参数完成解析后，调用进入 ATen 算子接口。本例对应的是 `aten::add.Tensor`，其 Schema 可以表示为：
 
-```text
+```text title='3. 第三步：ATen 算子接口与 Schema · aten::add.Tensor(Tensor self, Tenso…'
 aten::add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor
 ```
 
@@ -819,7 +819,7 @@ aten::add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor
 
 对应的计算语义是：
 
-```text
+```text title='3. 第三步：ATen 算子接口与 Schema · 结果 = self + alpha × other'
 结果 = self + alpha × other
 ```
 
@@ -1171,13 +1171,13 @@ PyTorch 不是一个单纯的 Python 库，而是连接模型代码、Tensor 编
 
 动态地图回答"一次调用怎么走"：
 
-```text
+```text title='2. 三张地图 · Python API → Python Binding → Operator Schema → Dispatche…'
 Python API → Python Binding → Operator Schema → Dispatcher → ATen Operator → Kernel → Hardware
 ```
 
 代码地图回答"东西在哪个目录、哪个库"：
 
-```text
+```text title='2. 三张地图 · torch/（Python）→ torch/csrc/（绑定、Autograd 引擎、c10d）→ aten/sr…'
 torch/（Python）→ torch/csrc/（绑定、Autograd 引擎、c10d）→ aten/src/ATen/（Dispatcher、算子）→ c10/（TensorImpl、Device、Allocator）
 ```
 
