@@ -35,7 +35,7 @@
 # numbers land in innerText, and ~70 % of this blog's fences never reach Rouge.
 module CodeLines
   # optional rouge wrapper (carries the language and the IAL classes), then the pre
-  BLOCK = %r{(<div class="([^"]*)highlighter-rouge"><div class="highlight">)?<pre\b([^>]*)><code\b([^>]*)>(.*?)</code></pre>}m
+  BLOCK = %r{(<div\b[^>]*?class="([^"]*)highlighter-rouge"[^>]*><div class="highlight">)?<pre\b([^>]*)><code\b([^>]*)>(.*?)</code></pre>}m
   TOKEN = %r{(<span\b[^>]*>|</span>|\n)}
   SKIP_LANGS = %w[text plaintext txt mermaid].freeze
   # `# !ref name`, `// !ref name +2`, `/* !ref name */`, `<!-- !ref name -->` … on a line of its own

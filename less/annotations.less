@@ -898,10 +898,10 @@
 		vertical-align: top;
 		> img, > svg { display: block; max-width: 100%; }
 	}
-	// corner strip on the block: copy · 放大 · feedback, 32 px targets. Code blocks
-	// (no caption) keep it always on; on a picture / diagram (.fig-media) / table
-	// it floats over the content, so it only shows on hover or keyboard focus —
-	// always on touch screens, which have no hover.
+	// corner strip on the block: copy · 放大 · feedback, 32 px targets. On a
+	// picture / diagram (.fig-media) / table it floats over the content, so it
+	// only shows on hover or keyboard focus — always on touch screens, which
+	// have no hover. Code blocks carry it in their header bar (below).
 	.fig-tools, .table-tools {
 		position: absolute;
 		top: 2px;
@@ -928,6 +928,42 @@
 		.fig-media:hover > .fig-tools, .table-tools-anchor:hover > .table-tools,
 		.fig-media > .fig-tools:focus-within, .table-tools:focus-within { opacity: 1; }
 	}
+
+	// ---- fenced blocks: header bar on top (js/figures.js) — 「代码块 N：标题」 /
+	// 「文本块 N」, language tag, copy · feedback. Always on (no hover: phones),
+	// one rounded box with the <pre> under it.
+	.code-block {
+		margin-bottom: 16px;
+		border-radius: 6px;
+		background: #f6f8fa;
+		> .highlight, > .highlight pre, > pre { margin-bottom: 0; border-top-left-radius: 0; border-top-right-radius: 0; }
+	}
+	.code-header {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		min-height: 36px;
+		padding: 2px 6px 2px 14px;
+		border-bottom: 1px solid #d0d7de;
+		border-radius: 6px 6px 0 0;
+		background: #eaeef2;
+		font-size: 13px;
+		line-height: 1.4;
+		color: @annot-muted;
+		.fig-no { color: @annot-faint; white-space: nowrap; }
+		.fig-title { color: #24292f; font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+		&.is-untitled .fig-no { flex: 1; }
+		.code-lang { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: @annot-faint; }
+		.fig-tools { position: static; padding: 0; gap: 2px; border-radius: 0; background: none; box-shadow: none;
+			.code-copy { width: 28px; height: 28px; background: none; border-color: transparent; }
+			.code-copy:hover { background: #fff; border-color: #d0d7de; }
+		}
+		&.is-picked .fig-title, &.is-picked.is-untitled .fig-no { background: fade(#ffd54f, 45%); border-radius: 3px; }
+		&.has-note .fig-title { color: #24292f; }
+	}
+	.code-block:has(> .code-header.has-note) { outline: 2px solid fade(@annot-line, 55%); outline-offset: 3px; }
+	// panels of a code-tabs group already carry a tab bar with the language
+	.code-tabs .code-header .code-lang { display: none; }
 }
 
 // ---- tables: caption, copy format menu, and feedback handle (js/code-copy.js + js/figures.js)

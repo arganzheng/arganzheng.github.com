@@ -269,6 +269,14 @@
       });
     });
 
+    // Code block header bars (js/figures.js): a titled one becomes a small
+    // caption line above the block, 「代码块 N：标题」; untitled ones go.
+    root.querySelectorAll('.code-header').forEach(function (h) {
+      var t = h.querySelector('.fig-title'), block = h.parentNode;
+      if (t) block.parentNode.insertBefore(el('p', 'margin:0 0 4px;color:#57606a;font-size:13px;', h.querySelector('.fig-no').innerHTML + t.innerHTML), block);
+      h.remove();
+    });
+
     // Code blocks: Rouge's div.highlighter-rouge > div.highlight > pre > code.
     root.querySelectorAll('div.highlighter-rouge, pre').forEach(function (block) {
       if (!block.parentNode || block.closest('section[data-code]')) return;

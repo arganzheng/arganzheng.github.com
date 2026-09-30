@@ -16,8 +16,9 @@
  *   <div class="mermaid">…</div> ->  its <svg> wrapped in the same .fig-media (sized to the svg's max-width), the
  *                                     <figcaption> as the next sibling, and the .fig-tools strip (code-copy's button,
  *                                     放大, ours) floating on the .fig-media's top-right corner, shown on hover
- *   <pre> / .highlighter-rouge  ->  the same .fig-tools strip with the copy button and a handle that selects
- *                                     the whole block (the toolbar then works as for any selection)
+ *   <pre> / .highlighter-rouge  ->  .code-block with a header bar on top (<div class="code-header">: 「代码块 N：」 /
+ *                                     「文本块 N」 + the ```lang title="…" title + language tag + the .fig-tools strip);
+ *                                     the handle selects the title, or the first line when there is none
  *   <table>                     ->  the same caption (<div class="post-figcaption table-caption">, 「表 N：」 +
  *                                     title) as the next sibling of the table / its .table-responsive wrapper;
  *                                     the title is the table's <caption> (Pandoc-style `Table: …` paragraph after
@@ -251,17 +252,68 @@
     });
   }
 
-  // Code blocks: the same handle selects the whole block — dragging across 40
-  // lines is what it saves; the toolbar then offers everything a selection does
-  // (a comment on the block, 点赞, 存疑, copy, search, share).
-  var CODE_TITLE = '对这段代码评论 / 存疑（会选中整段代码，再从工具条里选）';
+  // Fenced blocks get a header bar (VitePress style) instead of a caption:
+  //   <div class="code-block [highlighter-rouge]" data-title?>
+  //     <div class="code-header"><span class="fig-no">代码块 N：</span><span class="fig-title">…</span>
+  //       <span class="code-lang">cpp</span><div class="fig-tools">copy · feedback</div></div>
+  //     <div class="highlight"><pre>… | <pre>…
+  // 「代码块 N」 for a fence with a language, 「文本块 N」 for an untyped / ```text
+  // one (shell output, logs, trees); separate sequences. The title comes from
+  // ```lang title="…" (_plugins/code_titles.rb → data-title on the rouge
+  // wrapper or the bare <pre>) and is the passage the feedback button picks —
+  // stable across edits to the code, readable in the comment. Untitled blocks
+  // fall back to the first line (span.line from _plugins/code_lines.rb), not
+  // the whole block: any edit used to orphan the note.
+  var TEXT_LANGS = { text: 1, txt: 1, plain: 1, plaintext: 1 };
+  var CODE_EXCLUDE = '.mermaid, .comment, .annotation-panel, .series-toc, .related-posts';
+  function codeLang(anchor, code) {
+    var m = /(?:^|\s)language-([\w+#-]+)/.exec(anchor.className + ' ' + code.className);
+    return m ? m[1].toLowerCase() : '';
+  }
+  function codeKind(lang) { return !lang || TEXT_LANGS[lang] ? '文本块' : '代码块'; }
+  // Ordinal of a block among the article's blocks of the same kind. The panels
+  // of a code-tabs group (js/code-tabs.js) are one block in several languages
+  // and share one number.
+  function codeNo(anchor, kind) {
+    var all = container.querySelectorAll('.code-block'), n = 0, group = anchor.closest('.code-tabs');
+    for (var i = 0; i < all.length; i++) {
+      var b = all[i], g = b.closest('.code-tabs');
+      if (b.getAttribute('data-kind') !== kind) continue;
+      if (g && g === group) return n + 1;
+      if (g && i && all[i - 1].closest('.code-tabs') === g) continue;
+      n++;
+      if (b === anchor) return n;
+    }
+    return n + 1;
+  }
+  var CODE_TITLE = '对这段代码评论 / 存疑（会选中它的标题或第一行，再从工具条里选）';
   function decorateCode() {
     Array.prototype.forEach.call(container.querySelectorAll('pre'), function (pre) {
-      if (pre.closest('.mermaid, .comment, .annotation-panel, .series-toc, .related-posts')) return;
-      var strip = tools(pre.closest('.highlighter-rouge') || pre);
-      if (strip.querySelector('.fig-feedback')) return;
+      if (pre.closest(CODE_EXCLUDE) || pre.closest('.code-block') || pre.querySelector('code.language-mermaid')) return;
       var code = pre.querySelector('code') || pre;
-      strip.appendChild(button(CODE_TITLE, function () { pick(code); }));
+      var anchor = pre.closest('.highlighter-rouge');
+      if (!anchor) {   // untyped fence: a bare <pre>, wrapped so the header can sit above it
+        anchor = document.createElement('div');
+        pre.parentNode.insertBefore(anchor, pre);
+        anchor.appendChild(pre);
+        if (pre.hasAttribute('data-title')) anchor.setAttribute('data-title', pre.getAttribute('data-title'));
+      }
+      var lang = codeLang(anchor, code), kind = codeKind(lang);
+      anchor.classList.add('code-block', 'code-copy-anchor');
+      anchor.setAttribute('data-kind', kind);
+      var title = norm(anchor.getAttribute('data-title'));
+      var head = document.createElement('div');
+      head.className = 'code-header' + (title ? '' : ' is-untitled');
+      var num = document.createElement('span'); num.className = 'fig-no'; num.textContent = kind + ' ' + codeNo(anchor, kind) + (title ? '：' : '');
+      head.appendChild(num);
+      if (title) { var t = document.createElement('span'); t.className = 'fig-title'; t.textContent = title; head.appendChild(t); }
+      if (lang && kind === '代码块') { var l = document.createElement('span'); l.className = 'code-lang'; l.textContent = lang; head.appendChild(l); }
+      anchor.insertBefore(head, anchor.firstChild);
+      var strip = tools(anchor, head);
+      // code-copy.js put its button on the wrapper, or inside the bare <pre>
+      Array.prototype.forEach.call(pre.querySelectorAll(':scope > .code-copy'), function (c) { strip.insertBefore(c, strip.firstChild); });
+      var target = head.querySelector('.fig-title') || code.querySelector('.line') || code;
+      strip.appendChild(button(CODE_TITLE, function () { pick(target, head); }));
     });
   }
 

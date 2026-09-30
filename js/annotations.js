@@ -446,7 +446,7 @@
     var markers = container.querySelectorAll('.annotation-marker');
     for (var i = 0; i < markers.length; i++) markers[i].parentNode.removeChild(markers[i]);
     unwrap('mark.annotation-hl');
-    Array.prototype.forEach.call(container.querySelectorAll('.post-figcaption.has-note'), function (c) { c.classList.remove('has-note'); });
+    Array.prototype.forEach.call(container.querySelectorAll('.post-figcaption.has-note, .code-header.has-note'), function (c) { c.classList.remove('has-note'); });
     Array.prototype.forEach.call(container.querySelectorAll('.katex.has-note'), function (k) { k.className = 'katex'; });
     buildIndex();
 
@@ -480,8 +480,8 @@
       if (doubt) mark.classList.add('has-doubt');
       if (issue) mark.classList.add('has-issue'); // an open GitHub Issue hangs on this passage
       if (fixable && resolved) mark.classList.add('is-resolved'); // the author fixed every note / 存疑 here
-      // a note on a figure's caption (js/figures.js) outlines the whole figure
-      var cap = mark.closest('.post-figcaption'); if (cap) cap.classList.add('has-note');
+      // a note on a figure's caption / a code block's header title (js/figures.js) outlines the whole figure / block
+      var cap = mark.closest('.post-figcaption, .code-header'); if (cap) cap.classList.add('has-note');
       // a note on a formula: the mark is in the hidden TeX source, so the visible .katex carries the classes
       var host = markHost(mark);
       if (host !== mark) { host.classList.add('has-note'); ['has-doubt', 'has-issue', 'is-resolved', 'is-multi'].forEach(function (c) { if (mark.classList.contains(c)) host.classList.add(c); }); }
@@ -675,8 +675,8 @@
       var cap = wrap.nextElementSibling;
       if (cap && cap.classList.contains('table-caption')) block = cap;
     }
-    if (block && block.tagName === 'PRE' && block.parentNode.classList.contains('highlight')) block = block.parentNode;
-    if (block && block.parentNode && block.parentNode.classList.contains('highlighter-rouge')) block = block.parentNode;
+    // a note on a code block's header title or on a line of code goes under the whole block
+    var code = el.closest('.code-block'); if (code) block = code;
     return (block && container.contains(block) && block !== container) ? block : el;
   }
 

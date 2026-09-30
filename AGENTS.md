@@ -655,21 +655,14 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
     (2026-09-20) → the caption row, always visible (2026-09-27, the block-corner
     strip covered a table's header cells: 「拷贝和评论按钮总是覆盖住文字」) →
     back to the corner, hover-revealed (2026-09-28, the caption-row strip was
-    「太隐晦了，也不好看」). Code blocks have no caption and keep the always-on
-    corner strip. Click handler stops propagation. `code-copy.js` marks the
+    「太隐晦了，也不好看」). Code blocks carry the strip in their header bar
+    (next bullet). Click handler stops propagation. `code-copy.js` marks the
     anchor `data-code-copy` once it has added its button — without that the
     two MutationObservers would keep adding copy buttons to every diagram; the
     table copy menu is `position: fixed`, placed under its button on open
     (inside the scrollable `.table-responsive` an absolute menu got clipped /
     added a scrollbar), and closes on clicks outside the menu / its button, on
-    Escape and on page scroll. Code blocks
-    (`.highlighter-rouge` / `pre`) get the
-    same strip with the copy button and the same handle, which selects the whole
-    `<code>` (`pick(code)`) — nothing mode-specific: the normal toolbar then offers
-    点赞 / 存疑 / 评论 / 复制 / 搜一搜 / 分享 on the block, whose passage is
-    its full text (any edit orphans old notes, which is the intended signal). A
-    「跑不通？」 pill with a pre-filled 环境 / 报错 template was tried and dropped:
-    the block handle should be generic, like the figure one. The figure button
+    Escape and on page scroll. The figure button
     only *selects* the caption title (scrolling the caption to the viewport centre
     first when it is off-screen, focusing it, flashing `.is-picked`) —
     annotations.js' `selectionchange` shows the normal toolbar, so a picture's
@@ -708,6 +701,43 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
     table. `.table-caption` is in `BLOCK_SELECTOR` and `blockFor` redirects a
     table cell's panel to the caption, so a note on a table lands under its
     caption and `:has()` outlines the table.
+  - **Fenced blocks** (`js/figures.js` `decorateCode`, 2026-09-30): every
+    `pre` in the article (rouge's `.highlighter-rouge` wrapper, or a bare
+    `<pre>` from an untyped fence, which gets wrapped in a `div`) becomes
+    `.code-block[data-kind]` with a **header bar on top**, VitePress style,
+    instead of the corner strip: `div.code-header > .fig-no 「代码块 N：」 +
+    .fig-title + .code-lang + .fig-tools (copy · feedback)`. Kind: 「文本块 N」
+    when the fence has no language or `text` / `txt` / `plain` / `plaintext`
+    (shell output, logs, trees), 「代码块 N」 otherwise; two independent
+    sequences; the panels of a `.code-tabs` group share one number and hide
+    the language tag (the tab bar has it). Always visible (no hover — phones).
+    The title is written **on the fence, MDX style**:
+
+    ````
+    ```cpp title="Dispatcher::call 的完整签名"
+    ```
+    ````
+
+    kramdown's GFM fence takes only a language (`\S+`, then end of line — a
+    `title=` after it turns the block into a paragraph), so
+    `_plugins/code_titles.rb` (`:documents, :pre_render`) rewrites the source:
+    the title moves onto a kramdown block IAL before the fence,
+    `{: data-title="…"}` (merged into an existing `{:.no-lineno}` etc.; a
+    blank line is inserted first when the fence directly follows text — an
+    IAL right after a paragraph line belongs to the paragraph). kramdown puts
+    the attribute on the rouge wrapper (`<div data-title="…" class="language-x
+    highlighter-rouge">` — attribute order varies, `code_lines.rb`'s `BLOCK`
+    regex allows attributes before `class`) or on the bare `<pre>`. Fences
+    inside a longer fence (a ```` block showing the syntax) are left alone.
+    Feedback handle: titled → `pick()`s the title (the passage, stable across
+    edits to the code, readable in the comment / brief); untitled → the first
+    `span.line` (from `code_lines.rb`), not the whole `<code>` as before
+    (2026-09-13 – 09-30: any edit orphaned the note). A mark inside
+    `.code-header` sets `.has-note` on it and `:has()` outlines the whole
+    `.code-block`; `blockFor` sends a note on the header or on a code line
+    under the whole block. `wechat-export.js` turns a titled header into a
+    small 「代码块 N：标题」 line above the block and drops untitled ones.
+    Styles `.code-block` / `.code-header` in `less/annotations.less`.
   - **Section-level 点赞 / 没看懂** (`renderChapterBars`, `.sec-react` appended
     inside every article heading `h2`–`h6`, two `.sec-react-btn`s; `chapters` map): anonymous
     like passage reactions, no selection needed. Same worker route and table,
