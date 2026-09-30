@@ -4249,6 +4249,32 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
 .annotation-panel .ap-react .ap-react-say:hover {
   text-decoration: underline;
 }
+.annotation-panel .ap-react .ap-react-fixed {
+  font-size: 13px;
+  color: #1a7f37;
+}
+.annotation-panel .ap-react .ap-react-fixed .fa {
+  margin-right: 4px;
+}
+.annotation-panel .ap-react .ap-react-author {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: auto;
+}
+.annotation-panel .ap-react .ap-react-author .ap-react-resolve:hover {
+  color: #1a7f37;
+  border-color: #1a7f37;
+  background: #dafbe1;
+}
+.annotation-panel .ap-react .ap-react-author .ap-react-clear:hover {
+  color: #d1242f;
+  border-color: #d1242f;
+  background: #fff1f1;
+}
+.annotation-panel .ap-react .ap-react-author .ap-react-btn[disabled] {
+  opacity: 0.5;
+  cursor: default;
+}
 @media (max-width: 767px) {
   .annotation-toolbar button {
     padding: 6px 8px;
@@ -4975,6 +5001,44 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
 }
 .dash .dash-quote-meta .is-doubt {
   color: #d1242f;
+}
+/* an anonymous 存疑 the author has answered (worker /reactions/resolve) */
+.dash .dash-quotes li.is-fixed .dash-quote {
+  border-left-color: #1a7f37;
+  color: #57606a;
+}
+.dash .dash-quote-meta .is-fixed {
+  color: #1a7f37;
+}
+.dash .dash-resolve {
+  margin-left: 6px;
+  white-space: nowrap;
+}
+.dash .dash-resolve button {
+  padding: 0 7px;
+  height: 20px;
+  margin-left: 4px;
+  border: 1px solid #d0d7de;
+  border-radius: 10px;
+  background: #fff;
+  color: #57606a;
+  font-size: 11.5px;
+  line-height: 1;
+  cursor: pointer;
+}
+.dash .dash-resolve button:hover {
+  color: #1a7f37;
+  border-color: #1a7f37;
+  background: #dafbe1;
+}
+.dash .dash-resolve button[data-action="clear"]:hover {
+  color: #d1242f;
+  border-color: #d1242f;
+  background: #fff1f1;
+}
+.dash .dash-quotes li.is-busy {
+  opacity: 0.5;
+  pointer-events: none;
 }
 @media (max-width: 767px) {
   .dash .dash-top {

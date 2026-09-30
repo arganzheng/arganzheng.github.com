@@ -15,7 +15,11 @@
  *     for that section as a whole (same table, quote = '§ ' + heading) — no selection
  *     needed, which is what phones can actually do.
  *   - 「已修正」: a note's Issue got closed, or the author 🎉'd it / replied
- *     已修正 — the underline turns green, the note gets a check badge.
+ *     已修正 — the underline turns green, the note gets a check badge. An
+ *     anonymous 存疑 has no comment to reply to, so the thread panel shows the
+ *     signed-in author (data-author = repo owner) 「标记已修正」 (worker
+ *     /reactions/resolve: the count stays, the passage turns green until new
+ *     doubts arrive) and 「清除存疑」 (count and reasons zeroed).
  *   - 「分享」 opens the article's share popover (js/share.js, window.BlogShare)
  *     for the passage link; completed shares are counted per passage (`share`
  *     in /reactions) and on the article.
@@ -123,6 +127,7 @@
       categoryId: section.getAttribute('data-category-id') || '',
       issues: section.getAttribute('data-issues') === '1',
       repo: section.getAttribute('data-repo') || '',
+      author: section.getAttribute('data-author') || '',
       section: section
     };
 
@@ -464,16 +469,17 @@
     });
     wrapPieces(items, 'annotation-hl').forEach(function (mark) {
       bindMark(mark);
-      var doubt = false, issue = false, commented = false, resolved = true;
+      var doubt = false, issue = false, fixable = false, resolved = true;
       mark.getAttribute('data-annotation-ids').split(' ').forEach(function (id) {
         var an = findAnnotation(id), r = null;
-        if (an) { an.marks.push(mark); r = reactions[annotHash(an.selector.exact)]; commented = true; if (!an.resolved) resolved = false; if (an.issue && !an.resolved) issue = true; }
+        if (an) { an.marks.push(mark); r = reactions[annotHash(an.selector.exact)]; fixable = true; if (!an.resolved) resolved = false; if (an.issue && !an.resolved) issue = true; }
         else if (id.indexOf('r:') === 0 && reactions[id.slice(2)]) { r = reactions[id.slice(2)]; r.marks.push(mark); }
-        if (r && r.doubt > 0) doubt = true;
+        if (r && openDoubt(r) > 0) doubt = true;
+        if (r && r.doubt > 0) { fixable = true; if (!doubtResolved(r)) resolved = false; }
       });
       if (doubt) mark.classList.add('has-doubt');
       if (issue) mark.classList.add('has-issue'); // an open GitHub Issue hangs on this passage
-      if (commented && resolved) mark.classList.add('is-resolved'); // the author fixed every note here
+      if (fixable && resolved) mark.classList.add('is-resolved'); // the author fixed every note / 存疑 here
       // a note on a figure's caption (js/figures.js) outlines the whole figure
       var cap = mark.closest('.post-figcaption'); if (cap) cap.classList.add('has-note');
       // a note on a formula: the mark is in the hidden TeX source, so the visible .katex carries the classes
@@ -523,10 +529,12 @@
     return null;
   }
   function commentCount(p) { return p.list.reduce(function (n, a) { return n + (a.deleted ? 0 : 1) + (a.replies || []).length; }, 0); }
-  // A commented passage whose every note the author has marked fixed (see markResolved).
+  // A passage whose every note the author has marked fixed (see markResolved)
+  // and whose anonymous 存疑, if any, the author has resolved (see resolveDoubt).
   function passageResolved(p) {
-    var live = p.list.filter(function (a) { return !a.deleted; });
-    return live.length > 0 && live.every(function (a) { return a.resolved; });
+    var live = p.list.filter(function (a) { return !a.deleted; }), r = p.reaction, doubted = !!(r && r.doubt > 0);
+    if (!live.length && !doubted) return false;
+    return live.every(function (a) { return a.resolved; }) && (!doubted || doubtResolved(r));
   }
 
   // Notes here that were also filed as a GitHub Issue and are still open.
@@ -538,7 +546,7 @@
     return null;
   }
   function markerClass(p) {
-    return 'annotation-marker' + (p.reaction && p.reaction.doubt ? ' has-doubt' : '') + (passageIssues(p) ? ' has-issue' : '') + (passageResolved(p) ? ' is-resolved' : '');
+    return 'annotation-marker' + (p.reaction && openDoubt(p.reaction) ? ' has-doubt' : '') + (passageIssues(p) ? ' has-issue' : '') + (passageResolved(p) ? ' is-resolved' : '');
   }
 
   // One marker per passage: ✓ fixed · ⚑ issue · 💬 comments · 👍 up · ❓ doubt (only the non-zero ones).
@@ -548,15 +556,15 @@
       (passageIssues(p) ? '<i class="fa fa-flag"></i>' : '') +
       (n ? '<i class="fa fa-comment"></i><span class="annotation-marker-count">' + n + '</span>' : '') +
       (r && r.up ? '<i class="fa fa-thumbs-up"></i><span class="annotation-marker-count">' + r.up + '</span>' : '') +
-      (r && r.doubt ? '<i class="fa fa-question-circle"></i><span class="annotation-marker-count">' + r.doubt + '</span>' : '');
+      (r && openDoubt(r) ? '<i class="fa fa-question-circle"></i><span class="annotation-marker-count">' + openDoubt(r) + '</span>' : '');
   }
   function markerTitle(p) {
     var r = p.reaction, parts = [], n = commentCount(p);
-    if (passageResolved(p)) parts.push('作者已修正');
+    if (passageResolved(p)) parts.push('作者已修正' + (r && r.resolved_at && r.resolved_doubt ? '（原 ' + r.resolved_doubt + ' 人存疑）' : ''));
     if (passageIssues(p)) parts.push(passageIssues(p) + ' 个待处理的 Issue');
     if (n) parts.push(n + ' 条评论');
     if (r && r.up) parts.push(r.up + ' 人赞');
-    if (r && r.doubt) parts.push(r.doubt + ' 人存疑' + (reasonsSummary(r) ? '（' + reasonsSummary(r) + '）' : ''));
+    if (r && openDoubt(r)) parts.push(openDoubt(r) + ' 人' + (r.resolved_at ? '在修正后仍' : '') + '存疑' + (reasonsSummary(r) ? '（' + reasonsSummary(r) + '）' : ''));
     if (r && r.share) parts.push(r.share + ' 次分享');
     return parts.join(' · ') + '，点击查看';
   }
@@ -720,11 +728,19 @@
   // 点赞 / 存疑 row of the thread panel (also re-rendered alone after a click).
   function reactBarHtml(p) {
     var r = p.reaction || { up: 0, doubt: 0, share: 0, reasons: {} }, up = myReaction(p.hash, 'up'), doubt = myReaction(p.hash, 'doubt');
-    var summary = reasonsSummary(r), mine = myReasons(p.hash);
+    var summary = reasonsSummary(r), mine = myReasons(p.hash), open = openDoubt(r), fixed = doubtResolved(r);
     return '<button type="button" class="ap-react-btn ap-react-up' + (up ? ' is-on' : '') + '" title="' + (up ? '取消点赞' : '点赞这段话（不用登录）') + '"><i class="fa ' + (up ? 'fa-thumbs-up' : 'fa-regular fa-thumbs-up') + '"></i> 点赞' + (r.up ? ' <b>' + r.up + '</b>' : '') + '</button>' +
-      '<button type="button" class="ap-react-btn ap-react-doubt' + (doubt ? ' is-on' : '') + '" title="' + escapeAttr((doubt ? '取消存疑' : '觉得这段话有问题？（不用登录）') + (summary ? '\n' + summary : '')) + '"><i class="fa ' + (doubt ? 'fa-question-circle' : 'fa-regular fa-circle-question') + '"></i> 存疑' + (r.doubt ? ' <b>' + r.doubt + '</b>' : '') + '</button>' +
+      '<button type="button" class="ap-react-btn ap-react-doubt' + (doubt ? ' is-on' : '') + '" title="' + escapeAttr((doubt ? '取消存疑' : '觉得这段话有问题？（不用登录）') + (summary ? '\n' + summary : '')) + '"><i class="fa ' + (doubt ? 'fa-question-circle' : 'fa-regular fa-circle-question') + '"></i> 存疑' + (open ? ' <b>' + open + '</b>' : '') + '</button>' +
       '<button type="button" class="ap-react-btn ap-react-share" title="分享这段话（微博 / X / 微信 / 复制链接）" aria-haspopup="true" aria-expanded="false"><i class="fa fa-share-alt"></i> 分享' + (r.share ? ' <b>' + r.share + '</b>' : '') + '</button>' +
+      (fixed ? '<span class="ap-react-fixed" title="' + escapeAttr(new Date(r.resolved_at).toLocaleString()) + '"><i class="fa fa-check-circle"></i> 作者已修正' + (r.resolved_doubt ? '（原 ' + r.resolved_doubt + ' 人存疑）' : '') + '</span>' : '') +
       (doubt ? '<a href="#" class="ap-react-say">说说哪里不对 →</a>' : '') +
+      // The author answers an anonymous 存疑 (worker /reactions/resolve, owner only):
+      // 已修正 keeps the count but turns the passage green until *new* doubts come;
+      // 清除 drops the count for good (a stray tap, a passage that no longer exists).
+      (isOwner() && r.doubt > 0 ? '<span class="ap-react-author">' +
+        (fixed ? '<button type="button" class="ap-react-btn ap-react-reopen" title="撤销「已修正」，恢复原来的存疑">撤销已修正</button>'
+          : '<button type="button" class="ap-react-btn ap-react-resolve" title="' + escapeAttr(r.resolved_at ? '把修正后新增的 ' + open + ' 个存疑也标为已处理' : '这段已经改好了：存疑数保留，段落变绿；之后再有人存疑会重新变红') + '"><i class="fa fa-check"></i> 标记已修正</button>') +
+        '<button type="button" class="ap-react-btn ap-react-clear" title="把这段的存疑计数和原因清零（不可恢复）"><i class="fa fa-eraser"></i> 清除存疑</button></span>' : '') +
       // 存疑 alone is a 1-bit signal; one tap on *why* makes it actionable. Shown to
       // the reader who raised the doubt; the counts are everyone's.
       (doubt ? '<div class="ap-doubt-why"><span class="ap-doubt-why-label">哪里不对？（可多选）</span>' + DOUBT_REASONS.map(function (d) {
@@ -744,6 +760,10 @@
     });
     var chips = host.querySelectorAll('.ap-reason');
     for (var i = 0; i < chips.length; i++) chips[i].addEventListener('click', function () { setReason(p.exact, this.getAttribute('data-reason')); });
+    [['.ap-react-resolve', 'resolve'], ['.ap-react-reopen', 'reopen'], ['.ap-react-clear', 'clear']].forEach(function (x) {
+      var b = host.querySelector(x[0]);
+      if (b) b.addEventListener('click', function () { resolveDoubt(p.hash, x[1], b); });
+    });
   }
 
   function renderThread(p) {
@@ -985,12 +1005,12 @@
     var host = commentsHost.querySelector('.ac-hot');
     // score = passage 赞 + 2 × 存疑 + 2 × net comment votes + comments
     var ranked = passages().filter(function (p) { return !passageResolved(p); }).map(function (p) {
-      var votes = 0, n = commentCount(p), r = p.reaction || { up: 0, doubt: 0 };
+      var votes = 0, n = commentCount(p), r = p.reaction || { up: 0, doubt: 0 }, doubt = openDoubt(r);
       p.list.forEach(function (a) {
         votes += a.votes.up - a.votes.down;
         a.replies.forEach(function (x) { votes += x.votes.up - x.votes.down; });
       });
-      return { p: p, votes: votes, comments: n, up: r.up, doubt: r.doubt, score: r.up + 2 * r.doubt + votes * 2 + n };
+      return { p: p, votes: votes, comments: n, up: r.up, doubt: doubt, score: r.up + 2 * doubt + votes * 2 + n };
     }).filter(function (x) { return x.score > 0; }).sort(function (x, y) { return y.score - x.score; });
     if (ranked.length < 2) { host.innerHTML = ''; return; }
     host.innerHTML = '<div class="ac-hot-title"><i class="fa fa-fire"></i> 最受关注的段落</div>';
@@ -2120,8 +2140,31 @@
     return api('/reactions', { method: 'POST', body: { path: cfg.path, hash: r.hash, quote: exact, kind: 'reason', reason: key, prev: on ? undefined : key, section: r.section || sectionForExact(exact) } });
   }
 
-  function newReaction(hash, quote) { return { hash: hash, quote: quote, section: '', up: 0, doubt: 0, share: 0, reasons: {}, range: null, marks: [] }; }
-  function takeCounts(r, d) { r.up = d.up || 0; r.doubt = d.doubt || 0; r.share = d.share || 0; r.reasons = d.reasons || {}; }
+  function newReaction(hash, quote) { return { hash: hash, quote: quote, section: '', up: 0, doubt: 0, share: 0, reasons: {}, resolved_at: null, resolved_doubt: 0, range: null, marks: [] }; }
+  function takeCounts(r, d) { r.up = d.up || 0; r.doubt = d.doubt || 0; r.share = d.share || 0; r.reasons = d.reasons || {}; r.resolved_at = d.resolved_at || null; r.resolved_doubt = d.resolved_doubt || 0; }
+  // 存疑 the author has not answered yet: after 「已修正」 only the doubts raised
+  // since count (the row keeps the old ones for the dashboard's history).
+  function openDoubt(r) { return !r ? 0 : r.resolved_at ? Math.max(0, (r.doubt || 0) - (r.resolved_doubt || 0)) : (r.doubt || 0); }
+  function doubtResolved(r) { return !!(r && r.resolved_at && r.doubt > 0 && openDoubt(r) === 0); }
+  function isOwner() { return !!(viewer && cfg.author && viewer.login.toLowerCase() === cfg.author.toLowerCase()); }
+
+  // Author only (the worker checks the GitHub login against the repo owner):
+  // 'resolve' | 'reopen' | 'clear' on the 存疑 of a passage, see reactBarHtml.
+  function resolveDoubt(hash, action, btn) {
+    var r = reactions[hash];
+    if (!r) return;
+    if (action === 'clear' && !window.confirm('清除这段的 ' + r.doubt + ' 个存疑和原因？不可恢复。')) return;
+    if (btn) btn.disabled = true;
+    ensureToken().then(function (t) {
+      return api('/reactions/resolve', { method: 'POST', headers: { Authorization: 'Bearer ' + t }, body: { path: cfg.path, hash: hash, action: action } });
+    }).then(function (d) {
+      takeCounts(r, d);
+      if (action === 'clear') rememberReasons(hash, []);
+      applyHighlights();
+      if (commentsHost) renderHotPassages();
+      showToast(action === 'resolve' ? '已标记为已修正，段落变绿' : action === 'reopen' ? '已撤销，存疑恢复' : '存疑已清除');
+    }).catch(function (err) { if (btn) btn.disabled = false; showToast('操作失败：' + err.message); });
+  }
 
   function loadReactions() {
     return api('/reactions?path=' + encodeURIComponent(cfg.path)).then(function (data) {
@@ -2300,9 +2343,11 @@
     var alive = r && (r.up > 0 || r.doubt > 0);
     if (!p && !alive) return; // e.g. a share of a passage nobody underlined: nothing to paint
     if (!p || (!alive && !p.list.length)) { applyHighlights(); if (commentsHost) renderHotPassages(); return; }
-    p.marks.forEach(function (m) { m.classList.toggle('has-doubt', !!(r && r.doubt > 0)); });
+    // a resolved passage that gets a new doubt (or loses its last) changes colour: re-anchor for the class set
+    if (r && r.resolved_at) { applyHighlights(); if (commentsHost) renderHotPassages(); return; }
+    p.marks.forEach(function (m) { m.classList.toggle('has-doubt', openDoubt(r) > 0); });
     var marker = container.querySelector('.annotation-marker[data-hash="' + hash + '"]');
-    if (marker) { marker.innerHTML = markerHtml(p); marker.title = markerTitle(p); marker.classList.toggle('has-doubt', !!(r && r.doubt > 0)); }
+    if (marker) { marker.innerHTML = markerHtml(p); marker.title = markerTitle(p); marker.classList.toggle('has-doubt', openDoubt(r) > 0); }
     if (panelState && panelState.kind === 'thread' && passageFor(panelState.ids) && passageFor(panelState.ids).hash === hash) {
       var host = panel.querySelector('.ap-react');
       if (host) { host.innerHTML = reactBarHtml(p); bindReactBar(host, p); }

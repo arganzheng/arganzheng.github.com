@@ -124,6 +124,17 @@ posts `kind: 'up' | 'doubt'` with `quote = '§ ' + <heading text>` (h2–h6) and
 the heading. The `§ ` prefix is how readers of the table (dashboard, brief,
 `js/annotations.js`) tell a chapter row from a passage row.
 
+**The author answers a 存疑** — `POST /reactions/resolve {path, hash, action}`
+with the reader's giscus token in `Authorization`; the worker calls `GET /user`
+and only accepts the owner of `REPO` (403 otherwise; no extra secret).
+`action: 'resolve'` sets `resolved_at = now, resolved_doubt = doubt` — the count
+is kept, the browser shows the passage green (✓ 作者已修正) and counts only
+doubts above `resolved_doubt` as open, so a doubt raised after the fix turns it
+red again with the delta; `'reopen'` clears the stamp; `'clear'` zeroes `doubt`
+and `reasons`. Answers the row like every other reactions response
+(`up, doubt, share, reasons, resolved_at, resolved_doubt`); 404 when the row
+does not exist. Both columns are `ALTER TABLE`d in on first use.
+
 ## Dashboard reads (/stats/top, /views/daily, /reactions/top, /feedback)
 
 `GET /stats/top?limit=100` joins views / votes / shares per post; `GET

@@ -539,7 +539,7 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
 - **Passage 赞 / 存疑** (`react`, `reactions` map, toolbar buttons
   `.annotation-tb-up/-doubt`, panel row `.ap-react`): anonymous counters, no
   login, like the article 「点赞」. Worker `GET/POST /reactions` keeps
-  `passage_reactions(path, hash, quote, up, doubt, share, reasons, section)` in D1; `hash` =
+  `passage_reactions(path, hash, quote, up, doubt, share, reasons, section, resolved_at, resolved_doubt)` in D1; `hash` =
   `annotHash(exact)` (the `#annot-<hash>` id), `quote` lets `applyHighlights`
   anchor and underline a passage nobody commented on (mark ids `r:<hash>`,
   same `mark.annotation-hl`; `.has-doubt` = red dotted line; `.has-issue` =
@@ -609,7 +609,33 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
     `.annotation-marker.is-resolved` + ✓, `.ap-comment.is-resolved` +
     `.ap-resolved-badge`, `renderHotPassages` skips `passageResolved(p)`.
     Reaction-only passages have no GitHub object: editing the text orphans
-    them and they simply stop rendering. No new storage anywhere.
+    them and they simply stop rendering.
+  - **Anonymous 存疑 has nothing to reply to**, so the author answers it in
+    the row itself (2026-09-30, 「存疑没法取消……修复了那个地方还是红色问号」):
+    `passage_reactions.resolved_at` + `resolved_doubt` (the count at that
+    moment), written by `POST /reactions/resolve { path, hash, action }` —
+    the worker verifies the giscus token with `GET /user` and requires the
+    login to be `REPO`'s owner (no extra secret). `action: resolve` stamps
+    the row (the count stays for the dashboard's history), `reopen` clears
+    the stamp, `clear` zeroes `doubt` + `reasons`. Client-side the number
+    everything shows is `openDoubt(r)` = `doubt - resolved_doubt` once
+    stamped (`annotations.js`, `feedback-brief.js` — its `p.doubt` *is* the
+    open count, total in `p.doubtTotal` — and `dashboard.js` each have the
+    one-liner); `doubtResolved(r)` = stamped and no open doubt →
+    `passageResolved(p)` is true for a reaction-only passage too → the same
+    `.is-resolved` green line / ✓ marker as a fixed note, title 「作者已修正
+    （原 N 人存疑）」, panel row `.ap-react-fixed`. A doubt raised *after* the
+    stamp turns it red again showing only the delta (「1 人在修正后仍存疑」)
+    — the signal that the fix did not land. Buttons: thread panel
+    `.ap-react-author` (`isOwner()` = viewer login == `data-author` on
+    `section.comment`, which is `site.github_username`): 标记已修正 /
+    撤销已修正 / 清除存疑 (confirm); dashboard 读者划出来的句子 rows get
+    `.dash-resolve` 已修正 · 撤销 · 清除 when a giscus session exists
+    (`getToken()` = `POST /token`), resolved rows are `li.is-fixed` and sorted
+    after open ones. `readers` who doubted before the stamp keep their local
+    `is-on` state; un-doubting then lowers `doubt` below `resolved_doubt`,
+    which is fine (`Math.max(0, …)`). Chapter 「没看懂」 rows share the table
+    and are handled from the dashboard list only (no author UI on headings).
   - Orphans (`renderOrphans`) show the first 24 chars of the quote + author
     (title = full quote + section) under 「N 条划线评论对应的原文已修改」.
   - **Figures** (`js/figures.js`, loaded before annotations.js): every `p > img`

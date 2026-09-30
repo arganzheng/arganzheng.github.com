@@ -19,9 +19,10 @@
  *   POST /votes        { path, dir, prev }     -> { up, down, shares }
  *   POST /shares       { path }                -> { shares }    one more share (any channel of the share menu)
  *   GET  /stats?paths=/a.html,/b.html          -> { items: { path: { views, comments, up, down, shares, id, url } } }
- *   GET  /reactions?path=/slug.html            -> { items: [{ hash, quote, section, up, doubt, share, reasons }] }   passage-level 赞 / 存疑 (anonymous)
- *   POST /reactions    { path, hash, quote, kind, on, section?, reason?, prev? } -> { up, doubt, share, reasons }
+ *   GET  /reactions?path=/slug.html            -> { items: [{ hash, quote, section, up, doubt, share, reasons, resolved_at, resolved_doubt }] }   passage-level 赞 / 存疑 (anonymous)
+ *   POST /reactions    { path, hash, quote, kind, on, section?, reason?, prev? } -> the same row
  *                                                 kind up | doubt (toggle) | share (+1) | reason (why 存疑)
+ *   POST /reactions/resolve { path, hash, action: resolve | reopen | clear }  author only (Authorization = giscus token, GET /user must be REPO's owner)
  *   dashboard: GET /stats/top, /views/daily?days=30, /reactions/top?kind=doubt|up, /feedback?path= (修订简报)
  *   GET /feedback (no path) -> { posts: { path: { reactions, views, up, shares } } }  every post, for the weekly 待修订 Action
  *
@@ -77,6 +78,7 @@ export default {
       if (url.pathname === '/shares' && request.method === 'POST') return await shares(request, env, cors);
       if (url.pathname === '/reactions' && (request.method === 'GET' || request.method === 'POST')) return await reactions(request, url, env, cors);
       if (url.pathname === '/reactions/top' && request.method === 'GET') return await reactionsTop(url, env, cors);
+      if (url.pathname === '/reactions/resolve' && request.method === 'POST') return await resolveReaction(request, env, cors);
       if (url.pathname === '/feedback' && request.method === 'GET') return await feedback(url, env, cors);
     } catch (err) {
       return json({ error: err.message || String(err) }, 502, cors);
@@ -352,6 +354,13 @@ async function statsTop(url, env, cors) {
 //                                                  (one of DOUBT_REASONS; `prev` is un-counted when switching)
 // GET  /reactions/top?kind=doubt|up|share&limit=50 -> { rows: [{ path, hash, quote, section, up, doubt, share, reasons, updated_at }] }
 // GET  /feedback?path=…                           -> { reactions: [rows], views, up, shares } for the dashboard's 修订简报
+// POST /reactions/resolve { path, hash, action }   author only (Authorization: the giscus GitHub token;
+//                                                  GET /user must be the owner of REPO). action
+//                                                  'resolve' stamps resolved_at + resolved_doubt = doubt
+//                                                  (the 存疑 stays in the row, the page shows ✓ until
+//                                                  *new* doubts arrive: doubt > resolved_doubt);
+//                                                  'reopen' clears the stamp; 'clear' zeroes doubt +
+//                                                  reasons (history gone). -> the row as GET returns it
 //
 // `section` is the nearest heading above the passage (browser-supplied, ≤ 120
 // chars) and `reasons` a JSON object of reason -> count, e.g. {"unclear":3}.
@@ -360,14 +369,18 @@ const QUOTE_MAX = 600;
 const SECTION_MAX = 120;
 const REACTION_KINDS = ['up', 'doubt', 'share', 'reason'];
 const DOUBT_REASONS = ['wrong', 'unclear', 'outdated', 'example', 'conflict'];
+const RESOLVE_ACTIONS = ['resolve', 'reopen', 'clear'];
+const ROW_COLS = 'up, doubt, share, reasons, resolved_at, resolved_doubt';
 let reactionsTableReady = null;
 function ensureReactionsTable(env) {
   if (!reactionsTableReady) {
-    reactionsTableReady = env.DB.exec('CREATE TABLE IF NOT EXISTS passage_reactions (path TEXT NOT NULL, hash TEXT NOT NULL, quote TEXT NOT NULL, up INTEGER NOT NULL DEFAULT 0, doubt INTEGER NOT NULL DEFAULT 0, share INTEGER NOT NULL DEFAULT 0, reasons TEXT, section TEXT, updated_at TEXT, PRIMARY KEY (path, hash))')
+    reactionsTableReady = env.DB.exec('CREATE TABLE IF NOT EXISTS passage_reactions (path TEXT NOT NULL, hash TEXT NOT NULL, quote TEXT NOT NULL, up INTEGER NOT NULL DEFAULT 0, doubt INTEGER NOT NULL DEFAULT 0, share INTEGER NOT NULL DEFAULT 0, reasons TEXT, section TEXT, updated_at TEXT, resolved_at TEXT, resolved_doubt INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (path, hash))')
       // columns added later: migrate tables created without them (D1 has no ADD COLUMN IF NOT EXISTS)
       .then(() => env.DB.exec('ALTER TABLE passage_reactions ADD COLUMN share INTEGER NOT NULL DEFAULT 0').catch(() => {}))
       .then(() => env.DB.exec('ALTER TABLE passage_reactions ADD COLUMN reasons TEXT').catch(() => {}))
-      .then(() => env.DB.exec('ALTER TABLE passage_reactions ADD COLUMN section TEXT').catch(() => {}));
+      .then(() => env.DB.exec('ALTER TABLE passage_reactions ADD COLUMN section TEXT').catch(() => {}))
+      .then(() => env.DB.exec('ALTER TABLE passage_reactions ADD COLUMN resolved_at TEXT').catch(() => {}))
+      .then(() => env.DB.exec('ALTER TABLE passage_reactions ADD COLUMN resolved_doubt INTEGER NOT NULL DEFAULT 0').catch(() => {}));
   }
   return reactionsTableReady;
 }
@@ -377,13 +390,16 @@ function parseReasons(s) {
 function withReasons(row) {
   return { ...row, reasons: parseReasons(row.reasons) };
 }
+function rowOut(row) {
+  return { up: (row && row.up) || 0, doubt: (row && row.doubt) || 0, share: (row && row.share) || 0, reasons: parseReasons(row && row.reasons), resolved_at: (row && row.resolved_at) || null, resolved_doubt: (row && row.resolved_doubt) || 0 };
+}
 async function reactions(request, url, env, cors) {
   if (!env.DB) return json({ error: '段落点赞未启用（worker 未绑定 D1）' }, 501, cors);
   await ensureReactionsTable(env);
   if (request.method === 'GET') {
     const path = url.searchParams.get('path');
     if (typeof path !== 'string' || !VIEW_PATH.test(path) || path.includes('..')) return json({ error: '`path` must be a post URL' }, 400, cors);
-    const { results } = await env.DB.prepare('SELECT hash, quote, section, up, doubt, share, reasons FROM passage_reactions WHERE path = ?1 AND (up > 0 OR doubt > 0 OR share > 0)').bind(path).all();
+    const { results } = await env.DB.prepare(`SELECT hash, quote, section, ${ROW_COLS} FROM passage_reactions WHERE path = ?1 AND (up > 0 OR doubt > 0 OR share > 0)`).bind(path).all();
     return json({ items: (results || []).map(withReasons) }, 200, { ...cors, 'Cache-Control': 'no-store' });
   }
   const b = await request.json().catch(() => ({}));
@@ -404,18 +420,44 @@ async function reactions(request, url, env, cors) {
     if (prev !== b.reason) reasons[b.reason] = (reasons[b.reason] || 0) + 1;
     row = await env.DB.prepare(
       'INSERT INTO passage_reactions (path, hash, quote, section, reasons, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6) ' +
-      'ON CONFLICT(path, hash) DO UPDATE SET reasons = ?5, section = COALESCE(section, ?4), updated_at = ?6 RETURNING up, doubt, share, reasons'
+      `ON CONFLICT(path, hash) DO UPDATE SET reasons = ?5, section = COALESCE(section, ?4), updated_at = ?6 RETURNING ${ROW_COLS}`
     ).bind(b.path, b.hash, quote, section, JSON.stringify(reasons), now).first();
   } else {
     const col = b.kind, delta = col === 'share' ? 1 : (b.on === false ? -1 : 1);
     row = await env.DB.prepare(
       `INSERT INTO passage_reactions (path, hash, quote, section, ${col}, updated_at) VALUES (?1, ?2, ?3, ?4, MAX(0, ?5), ?6) ` +
-      `ON CONFLICT(path, hash) DO UPDATE SET ${col} = MAX(0, ${col} + ?5), section = COALESCE(section, ?4), updated_at = ?6 RETURNING up, doubt, share, reasons`
+      `ON CONFLICT(path, hash) DO UPDATE SET ${col} = MAX(0, ${col} + ?5), section = COALESCE(section, ?4), updated_at = ?6 RETURNING ${ROW_COLS}`
     ).bind(b.path, b.hash, quote, section, delta, now).first();
   }
-  const out = { up: (row && row.up) || 0, doubt: (row && row.doubt) || 0, share: (row && row.share) || 0, reasons: parseReasons(row && row.reasons) };
+  const out = rowOut(row);
   if (b.kind === 'share') out.shares = await bumpShares(env, b.path, now); // a passage share is an article share too
   return json(out, 200, { ...cors, 'Cache-Control': 'no-store' });
+}
+// The author answers an anonymous 存疑 (see the route comment above). The
+// giscus token only proves *who* asks; the owner of REPO is the one allowed.
+async function resolveReaction(request, env, cors) {
+  if (!env.DB) return json({ error: '段落点赞未启用（worker 未绑定 D1）' }, 501, cors);
+  const userToken = (request.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
+  if (!userToken) return json({ error: '需要登录' }, 401, cors);
+  const who = await fetch(`${GITHUB}/user`, { headers: githubHeaders(userToken) });
+  if (who.status === 401) return json({ error: '登录已过期，请重新登录 GitHub' }, 401, cors);
+  if (!who.ok) return json({ error: `GitHub /user: HTTP ${who.status}` }, 502, cors);
+  const owner = String(env.REPO || '').split('/')[0].toLowerCase();
+  const login = String((await who.json()).login || '').toLowerCase();
+  if (!owner || login !== owner) return json({ error: '只有博客作者可以处理存疑' }, 403, cors);
+
+  const b = await request.json().catch(() => ({}));
+  if (typeof b.path !== 'string' || !VIEW_PATH.test(b.path) || b.path.includes('..')) return json({ error: '`path` must be a post URL' }, 400, cors);
+  if (typeof b.hash !== 'string' || !HASH.test(b.hash)) return json({ error: '`hash` must be 8 hex chars' }, 400, cors);
+  if (!RESOLVE_ACTIONS.includes(b.action)) return json({ error: '`action` must be ' + RESOLVE_ACTIONS.join(' | ') }, 400, cors);
+  await ensureReactionsTable(env);
+  const now = new Date().toISOString();
+  const set = b.action === 'resolve' ? 'resolved_at = ?3, resolved_doubt = doubt'
+    : b.action === 'reopen' ? 'resolved_at = NULL, resolved_doubt = 0'
+    : 'doubt = 0, reasons = NULL, resolved_at = NULL, resolved_doubt = 0';
+  const row = await env.DB.prepare(`UPDATE passage_reactions SET ${set}, updated_at = ?3 WHERE path = ?1 AND hash = ?2 RETURNING ${ROW_COLS}`).bind(b.path, b.hash, now).first();
+  if (!row) return json({ error: '没有这条记录' }, 404, cors);
+  return json(rowOut(row), 200, { ...cors, 'Cache-Control': 'no-store' });
 }
 async function reactionsTop(url, env, cors) {
   if (!env.DB) return json({ error: '段落点赞未启用（worker 未绑定 D1）' }, 501, cors);
@@ -423,7 +465,7 @@ async function reactionsTop(url, env, cors) {
   const want = url.searchParams.get('kind');
   const kind = ['up', 'doubt', 'share'].includes(want) ? want : 'doubt';
   const limit = Math.min(200, Math.max(1, parseInt(url.searchParams.get('limit') || '50', 10) || 50));
-  const { results } = await env.DB.prepare(`SELECT path, hash, quote, section, up, doubt, share, reasons, updated_at FROM passage_reactions WHERE ${kind} > 0 ORDER BY ${kind} DESC, updated_at DESC LIMIT ?1`).bind(limit).all();
+  const { results } = await env.DB.prepare(`SELECT path, hash, quote, section, ${ROW_COLS}, updated_at FROM passage_reactions WHERE ${kind} > 0 ORDER BY ${kind} DESC, updated_at DESC LIMIT ?1`).bind(limit).all();
   return json({ rows: (results || []).map(withReasons) }, 200, { ...cors, 'Cache-Control': 'public, max-age=60' });
 }
 
@@ -438,7 +480,7 @@ async function feedback(url, env, cors) {
   const path = url.searchParams.get('path');
   if (path == null) {
     const [r, v, vo, sh] = await Promise.all([
-      env.DB.prepare('SELECT path, hash, quote, section, up, doubt, share, reasons, updated_at FROM passage_reactions WHERE up > 0 OR doubt > 0 OR share > 0 ORDER BY path, doubt DESC, up DESC').all(),
+      env.DB.prepare(`SELECT path, hash, quote, section, ${ROW_COLS}, updated_at FROM passage_reactions WHERE up > 0 OR doubt > 0 OR share > 0 ORDER BY path, doubt DESC, up DESC`).all(),
       env.DB.prepare('SELECT path, count FROM views').all(),
       env.DB.prepare('SELECT path, up FROM votes').all(),
       env.DB.prepare('SELECT path, count FROM shares').all(),
@@ -453,7 +495,7 @@ async function feedback(url, env, cors) {
   }
   if (typeof path !== 'string' || !VIEW_PATH.test(path) || path.includes('..')) return json({ error: '`path` must be a post URL' }, 400, cors);
   const [r, v, vo, sh] = await Promise.all([
-    env.DB.prepare('SELECT hash, quote, section, up, doubt, share, reasons, updated_at FROM passage_reactions WHERE path = ?1 AND (up > 0 OR doubt > 0 OR share > 0) ORDER BY doubt DESC, up DESC').bind(path).all(),
+    env.DB.prepare(`SELECT hash, quote, section, ${ROW_COLS}, updated_at FROM passage_reactions WHERE path = ?1 AND (up > 0 OR doubt > 0 OR share > 0) ORDER BY doubt DESC, up DESC`).bind(path).all(),
     env.DB.prepare('SELECT count FROM views WHERE path = ?1').bind(path).first(),
     env.DB.prepare('SELECT up FROM votes WHERE path = ?1').bind(path).first(),
     env.DB.prepare('SELECT count FROM shares WHERE path = ?1').bind(path).first()

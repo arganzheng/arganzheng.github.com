@@ -144,20 +144,45 @@
   loadPosts();
 
   // ---- 读者划出来的句子 (/reactions/top)
+  // An anonymous 存疑 has no comment to answer; the author answers it here (or in
+  // the passage's thread panel): 已修正 keeps the count and turns the passage green
+  // until new doubts come (doubt > resolved_doubt), 清除 zeroes it. Needs the giscus
+  // login — the worker checks GET /user against the repo owner.
+  function openDoubt(r) { return r.resolved_at ? Math.max(0, (r.doubt || 0) - (r.resolved_doubt || 0)) : (r.doubt || 0); }
+  var passageKind = 'doubt';
   function loadPassages(kind) {
+    passageKind = kind;
     var host = document.querySelector('#dash-passages .dash-list');
     getJson(api + '/reactions/top?kind=' + kind + '&limit=30').then(function (data) {
       var rows = data.rows || [];
+      if (kind === 'doubt') rows.sort(function (a, b) { return (openDoubt(b) - openDoubt(a)) || ((b.updated_at || '') > (a.updated_at || '') ? 1 : -1); });
       if (!rows.length) { host.innerHTML = '<p class="dash-muted">还没有人' + ({ doubt: '存疑', up: '点赞', share: '分享' }[kind] || '点赞') + '。</p>'; return; }
-      host.innerHTML = '<ol class="dash-quotes">' + rows.map(function (r) {
-        var ch = isChapter(r);
-        return '<li class="' + (kind === 'doubt' && r.doubt ? 'is-doubt' : '') + '">' + (ch ? '<span class="dash-tag">章节</span> ' : '') + '<a class="dash-quote" href="' + h(r.path) + (ch ? '' : '#annot-' + h(r.hash)) + '">' + h(ch ? r.quote.slice(FB.CHAPTER_PREFIX.length) : r.quote) + '</a>' +
+      host.innerHTML = '<ol class="dash-quotes">' + rows.map(function (r, i) {
+        var ch = isChapter(r), open = openDoubt(r), fixed = !!(r.resolved_at && r.doubt > 0 && !open);
+        return '<li class="' + (kind === 'doubt' && open ? 'is-doubt' : '') + (fixed ? ' is-fixed' : '') + '" data-row="' + i + '">' + (ch ? '<span class="dash-tag">章节</span> ' : '') + '<a class="dash-quote" href="' + h(r.path) + (ch ? '' : '#annot-' + h(r.hash)) + '">' + h(ch ? r.quote.slice(FB.CHAPTER_PREFIX.length) : r.quote) + '</a>' +
           '<div class="dash-quote-meta"><a href="' + h(r.path) + '">' + h(titleOf(r.path)) + '</a>' + (r.section && !ch ? ' <span class="dash-muted">› ' + h(r.section) + '</span>' : '') + ' · ' +
-          (r.doubt ? '<span class="is-doubt"><i class="fa fa-question-circle"></i> ' + r.doubt + (ch ? ' 没看懂' : '') + (reasonsText(r.reasons) ? '（' + h(reasonsText(r.reasons)) + '）' : '') + '</span> ' : '') +
+          (open ? '<span class="is-doubt"><i class="fa fa-question-circle"></i> ' + open + (ch ? ' 没看懂' : '') + (r.resolved_at ? '（修正后新增）' : '') + (reasonsText(r.reasons) ? '（' + h(reasonsText(r.reasons)) + '）' : '') + '</span> ' : '') +
+          (r.resolved_at && r.resolved_doubt ? '<span class="is-fixed" title="' + h(r.resolved_at) + '"><i class="fa fa-check-circle"></i> 已修正 ' + h(r.resolved_at.slice(0, 10)) + '（原 ' + r.resolved_doubt + '）</span> ' : '') +
           (r.up ? '<span><i class="fa fa-thumbs-up"></i> ' + r.up + (ch ? ' 点赞' : '') + '</span> ' : '') +
           (r.share ? '<span><i class="fa fa-share-alt"></i> ' + r.share + '</span> ' : '') +
-          (r.updated_at ? '<span class="dash-muted">· ' + ago(r.updated_at) + '</span>' : '') + '</div></li>';
+          (r.updated_at ? '<span class="dash-muted">· ' + ago(r.updated_at) + '</span>' : '') +
+          (r.doubt > 0 && session() ? ' <span class="dash-resolve">' +
+            (fixed ? '<button type="button" data-action="reopen" title="撤销「已修正」">撤销</button>' : '<button type="button" data-action="resolve" title="' + (r.resolved_at ? '新增的存疑也标为已处理' : '这段改好了：存疑数保留，文章里变绿') + '"><i class="fa fa-check"></i> 已修正</button>') +
+            '<button type="button" data-action="clear" title="存疑计数和原因清零，不可恢复"><i class="fa fa-eraser"></i> 清除</button></span>' : '') +
+          '</div></li>';
       }).join('') + '</ol>';
+      Array.prototype.forEach.call(host.querySelectorAll('.dash-resolve button'), function (b) {
+        b.addEventListener('click', function () {
+          var li = b.closest('li'), r = rows[+li.getAttribute('data-row')], action = b.getAttribute('data-action');
+          if (action === 'clear' && !window.confirm('清除「' + r.quote.slice(0, 40) + '」的 ' + r.doubt + ' 个存疑？不可恢复。')) return;
+          li.classList.add('is-busy');
+          getToken().then(function (t) {
+            return fetch(api + '/reactions/resolve', { method: 'POST', headers: { Authorization: 'Bearer ' + t, 'Content-Type': 'application/json' }, body: JSON.stringify({ path: r.path, hash: r.hash, action: action }) })
+              .then(function (res) { return res.json().then(function (d) { if (!res.ok) throw new Error(d.error || ('HTTP ' + res.status)); return d; }); });
+          }).then(function () { loadPassages(passageKind); loadBriefQueue(); })
+            .catch(function (err) { li.classList.remove('is-busy'); alert('操作失败：' + err.message); });
+        });
+      });
     }).catch(function (err) { host.innerHTML = '<p class="dash-muted">加载失败：' + h(err.message) + '</p>'; });
   }
   var kindLinks = document.querySelectorAll('#dash-passages [data-kind]');
@@ -291,6 +316,11 @@
   var authEl = document.querySelector('#dash-comments .dash-auth');
   var listEl = document.querySelector('#dash-comments .dash-list');
   function session() { try { var raw = localStorage.getItem(SESSION_KEY); return raw ? JSON.parse(raw) : ''; } catch (e) { return ''; } }
+  function getToken() {
+    if (!session()) return Promise.reject(new Error('先在下面「最近评论」处登录 GitHub'));
+    return fetch(api + '/token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session: session() }) })
+      .then(function (r) { return r.json(); }).then(function (d) { if (!d.token) throw new Error('登录已过期'); return d.token; });
+  }
   function login() {
     var url = new URL(location.href); url.hash = ''; url.searchParams.delete('giscus');
     location.href = 'https://giscus.app/api/oauth/authorize?redirect_uri=' + encodeURIComponent(url.toString());

@@ -13,7 +13,7 @@
  *   buildBrief(opts)                              -> { markdown, analysis }
  *
  * Inputs:
- *   fb       worker GET /feedback?path=  { reactions: [{hash, quote, section, up, doubt, share, reasons}], views, up, shares }
+ *   fb       worker GET /feedback?path=  { reactions: [{hash, quote, section, up, doubt, share, reasons, resolved_at, resolved_doubt}], views, up, shares }
  *            rows whose quote starts with `§ ` are section-level 点赞 / 没看懂 (quote = `§ ` + heading text, h2–h6)
  *   disc     the post's Discussion { url, comments: [{ bodyHTML, author, url, createdAt, deletedAt, authorAssociation,
  *            reactions | reactionGroups, replies: [...] | { nodes } }] } (worker relay / giscus shape or GraphQL shape)
@@ -110,10 +110,15 @@
     function issueResolved(n) { return n.issueNo ? (issueByNo[n.issueNo] || {}).state === 'closed' : n.resolvedByAuthor; }
     var comments = ((disc && disc.comments) || []).filter(function (c) { return !c.deletedAt; }).map(function (c) { return parseNote(dom, c); });
     var passages = {}, order = [], chapters = [];
+    function openDoubt(r) { return r.resolved_at ? Math.max(0, (r.doubt || 0) - (r.resolved_doubt || 0)) : (r.doubt || 0); }
     function passage(quote) { if (!passages[quote]) { passages[quote] = { quote: quote, section: '', up: 0, doubt: 0, share: 0, reasons: {}, notes: [] }; order.push(passages[quote]); } return passages[quote]; }
+    // `doubt` is what the author still has to answer: after 「已修正」 (worker
+    // /reactions/resolve) only the doubts raised since; the total stays in doubtTotal.
     (fb.reactions || []).forEach(function (r) {
-      if (r.quote && r.quote.indexOf(CHAPTER_PREFIX) === 0) { chapters.push({ title: r.quote.slice(CHAPTER_PREFIX.length), up: r.up || 0, doubt: r.doubt || 0 }); return; }
-      var p = passage(r.quote); p.up = r.up || 0; p.doubt = r.doubt || 0; p.share = r.share || 0; p.reasons = r.reasons || {}; p.hash = r.hash; if (r.section) p.section = r.section;
+      var open = openDoubt(r);
+      if (r.quote && r.quote.indexOf(CHAPTER_PREFIX) === 0) { chapters.push({ title: r.quote.slice(CHAPTER_PREFIX.length), up: r.up || 0, doubt: open, doubtTotal: r.doubt || 0, resolvedAt: r.resolved_at || null }); return; }
+      var p = passage(r.quote); p.up = r.up || 0; p.doubt = open; p.doubtTotal = r.doubt || 0; p.resolvedAt = r.resolved_at || null; p.resolvedDoubt = r.resolved_doubt || 0;
+      p.share = r.share || 0; p.reasons = r.reasons || {}; p.hash = r.hash; if (r.section) p.section = r.section;
     });
     var plain = [];
     comments.forEach(function (n) {
@@ -124,7 +129,7 @@
     order.forEach(function (p) {
       var loc = sectionAt(article, p.quote);
       p.found = loc.found; if (loc.section) p.section = loc.section;
-      p.resolved = p.notes.length > 0 && p.notes.every(issueResolved);
+      p.resolved = (p.notes.length > 0 || p.doubtTotal > 0) && p.notes.every(issueResolved) && !p.doubt;
       p.score = 2 * p.doubt + p.up * 0.5 + p.notes.reduce(function (s, n) { return s + 1 + Math.max(0, n.votes); }, 0);
     });
     // keep the article's order for chapters when we know it, else by 没看懂
@@ -172,7 +177,8 @@
     }
     function passageBlock(p, i) {
       var sig = [];
-      if (p.doubt) sig.push('存疑 ' + p.doubt + (reasonsText(p.reasons) ? '（' + reasonsText(p.reasons) + '）' : ''));
+      if (p.doubt) sig.push('存疑 ' + p.doubt + (p.resolvedAt ? '（修正后新增）' : '') + (reasonsText(p.reasons) ? '（' + reasonsText(p.reasons) + '）' : ''));
+      if (p.resolvedAt && p.resolvedDoubt) sig.push('作者已修正 ' + p.resolvedAt.slice(0, 10) + '（原存疑 ' + p.resolvedDoubt + '）');
       if (p.up) sig.push('赞 ' + p.up);
       if (p.share) sig.push('分享 ' + p.share);
       if (p.notes.length) sig.push(p.notes.length + ' 条评论');
@@ -220,7 +226,7 @@
     if (a.lost.length) {
       L.push('## 未定位的划线（原文已改，很可能已处理）');
       L.push('');
-      L.push('_这些引文在现在的正文里找不到了。确认已修好的，去 Discussion 回复「已修正」（有 Issue 的关掉 Issue），文章里会显示为绿色「已修正」。_');
+      L.push('_这些引文在现在的正文里找不到了。确认已修好的，去 Discussion 回复「已修正」（有 Issue 的关掉 Issue）；只有匿名存疑的，在下面「读者划出来的句子」点「已修正」或「清除」。文章里会显示为绿色「已修正」。_');
       L.push('');
       a.lost.forEach(passageBlock);
       L.push('');
@@ -228,7 +234,7 @@
     if (a.done.length) {
       L.push('## 已修正');
       L.push('');
-      a.done.forEach(function (p) { L.push('- ' + (p.section ? '【' + p.section + '】' : '') + '「' + short(p.quote, 80) + '」 · ' + p.notes.length + ' 条评论'); });
+      a.done.forEach(function (p) { L.push('- ' + (p.section ? '【' + p.section + '】' : '') + '「' + short(p.quote, 80) + '」 · ' + (p.notes.length ? p.notes.length + ' 条评论' : '') + (p.resolvedDoubt ? (p.notes.length ? ' · ' : '') + '原存疑 ' + p.resolvedDoubt : '')); });
       L.push('');
     }
     L.push('## 给 AI 的修订指令');

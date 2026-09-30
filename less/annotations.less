@@ -747,6 +747,15 @@
 	.ap-react-up.is-on { color: #9a6700; border-color: #e6c25a; background: #fff8c5; &:hover { background: #fff1a8; border-color: #d4a72c; } }
 	.ap-react-doubt.is-on { color: @annot-doubt; border-color: #f7c5c8; background: #fff1f1; &:hover { background: #ffe0e2; border-color: @annot-doubt; } }
 	.ap-react-say { font-size: 13px; color: @annot-doubt; text-decoration: none; margin-left: 2px; &:hover { text-decoration: underline; } }
+	// the author answered an anonymous 存疑 (worker /reactions/resolve)
+	.ap-react-fixed { font-size: 13px; color: @annot-fixed; .fa { margin-right: 4px; } }
+	// author-only: 标记已修正 / 撤销已修正 / 清除存疑, pushed to the row's right edge
+	.ap-react-author {
+		display: inline-flex; gap: 6px; margin-left: auto;
+		.ap-react-resolve:hover { color: @annot-fixed; border-color: @annot-fixed; background: #dafbe1; }
+		.ap-react-clear:hover { color: @annot-doubt; border-color: @annot-doubt; background: #fff1f1; }
+		.ap-react-btn[disabled] { opacity: 0.5; cursor: default; }
+	}
 }
 @media (max-width: 767px) {
 	// six buttons don't fit a phone: 复制 / 搜一搜 / 链接 become icon-only

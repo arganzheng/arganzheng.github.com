@@ -11,6 +11,7 @@
          data-page-path="{{ page.comments_path | default: page.url }}"
          data-site-url="{{ site.url }}{{ site.baseurl }}"
          data-repo="{{ site.giscus.repo }}"
+         data-author="{{ site.github_username | strip }}"
          data-repo-id="{{ site.giscus.repo_id }}"
          data-category-id="{{ site.giscus.category_id }}"
          data-issues="{% if site.annotations.issues %}1{% else %}0{% endif %}">
