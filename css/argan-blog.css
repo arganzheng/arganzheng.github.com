@@ -3087,6 +3087,7 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
   font-size: 14px;
   line-height: 1.6;
+  text-align: left;
   color: #24292f;
   overflow: hidden;
   animation: annotation-panel-in 0.18s ease-out;
@@ -4485,7 +4486,7 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
   margin-top: -6px;
   margin-bottom: 1.4em;
 }
-.post-container .post-figure:has(> .post-figcaption.has-note) img,
+.post-container .post-figure:has(> .post-figcaption.has-note) > .fig-media > img,
 .post-container .mermaid:has(+ .post-figcaption.has-note),
 .post-container :is(.table-responsive, table):has(+ .table-caption.has-note) {
   outline: 2px solid rgba(214, 158, 0, 0.55);

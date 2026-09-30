@@ -199,6 +199,8 @@
 	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
 	font-size: 14px;
 	line-height: 1.6;
+	// a note on a figure caption mounts the panel inside the (centred) <figure>
+	text-align: left;
 	color: #24292f;
 	overflow: hidden;
 	animation: annotation-panel-in 0.18s ease-out;
@@ -883,7 +885,7 @@
 	}
 	.mermaid + .post-figcaption { margin-top: -6px; margin-bottom: 1.4em; }
 	// a note on the caption outlines the picture / table it belongs to
-	.post-figure:has(> .post-figcaption.has-note) img,
+	.post-figure:has(> .post-figcaption.has-note) > .fig-media > img,
 	.mermaid:has(+ .post-figcaption.has-note),
 	:is(.table-responsive, table):has(+ .table-caption.has-note) { outline: 2px solid fade(@annot-line, 55%); outline-offset: 4px; border-radius: 4px; }
 	// the caption sits below the wrapper, so make room for it inside the wrapper's border box
